@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hyperledger.iroha.sdk.release
 
+import android.os.Build
+import android.os.Bundle
+import android.os.Process
+import androidx.test.platform.app.InstrumentationRegistry
 import java.nio.charset.StandardCharsets
+import org.hyperledger.iroha.sdk.client.JsonEncoder
 import org.junit.runner.Description
 import org.junit.runner.Result
 import org.junit.runner.notification.Failure
@@ -25,6 +30,18 @@ class TairaOriginalJUnitListener : RunListener() {
     @Synchronized override fun testRunStarted(description: Description) {
         startedAt = TairaQualificationEvidence.timestamp()
         evidence = TairaQualificationEvidence.start(TairaQualificationArguments.read())
+        // Direct process facts distinguish actual ARMv7 execution from an install request.
+        // Keep the exact retained run.json schema and original-file inventory unchanged.
+        val processObservation = JsonEncoder.encode(mapOf(
+            "schema" to "bpng.taira-android-sdk-process-observation.v1",
+            "runId" to evidence.arguments.runId,
+            "sdkInt" to Build.VERSION.SDK_INT,
+            "supportedAbis" to Build.SUPPORTED_ABIS.toList(),
+            "is64Bit" to Process.is64Bit(),
+        ))
+        InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {
+            putString("bpngSdkProcessObservationV1", processObservation)
+        })
     }
 
     @Synchronized override fun testStarted(description: Description) {

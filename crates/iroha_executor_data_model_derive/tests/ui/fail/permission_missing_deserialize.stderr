@@ -1,23 +1,23 @@
 error[E0277]: the trait bound `MissingDeserialize: JsonDeserialize` is not satisfied
- --> tests/ui/fail/permission_missing_deserialize.rs:7:12
+ --> tests/ui/fail/permission_missing_deserialize.rs:5:12
   |
-7 | pub struct MissingDeserialize {
+5 | pub struct MissingDeserialize {
   |            ^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `JsonDeserialize` is not implemented for `MissingDeserialize`
- --> tests/ui/fail/permission_missing_deserialize.rs:7:1
+ --> tests/ui/fail/permission_missing_deserialize.rs:5:1
   |
-7 | pub struct MissingDeserialize {
+5 | pub struct MissingDeserialize {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `JsonDeserialize`:
             ()
-            AbiVersion
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptMusubiPackageMaintainerV1
             AccessSetHints
             AccountAddress
-            AccountController
-            AccountDetails
-            AccountEvent
+            AccountAdmissionDefaultRoleError
+            AccountAdmissionError
           and $N others
   = note: required for `MissingDeserialize` to implement `DeserializeOwned`
 note: required by a bound in `iroha_executor_data_model::permission::Permission`
@@ -27,25 +27,25 @@ note: required by a bound in `iroha_executor_data_model::permission::Permission`
   |                                       ^^^^^^^^^^^^^^^^^^^^ required by this bound in `Permission`
 
 error[E0277]: the trait bound `MissingDeserialize: DeserializeOwned` is not satisfied
- --> tests/ui/fail/permission_missing_deserialize.rs:6:67
+ --> tests/ui/fail/permission_missing_deserialize.rs:4:67
   |
-6 | #[derive(norito::derive::JsonSerialize, iroha_schema::IntoSchema, Permission)]
+4 | #[derive(norito::derive::JsonSerialize, iroha_schema::IntoSchema, Permission)]
   |                                                                   ^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `JsonDeserialize` is not implemented for `MissingDeserialize`
- --> tests/ui/fail/permission_missing_deserialize.rs:7:1
+ --> tests/ui/fail/permission_missing_deserialize.rs:5:1
   |
-7 | pub struct MissingDeserialize {
+5 | pub struct MissingDeserialize {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `JsonDeserialize`:
             ()
-            AbiVersion
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptMusubiPackageMaintainerV1
             AccessSetHints
             AccountAddress
-            AccountController
-            AccountDetails
-            AccountEvent
+            AccountAdmissionDefaultRoleError
+            AccountAdmissionError
           and $N others
   = note: required for `MissingDeserialize` to implement `DeserializeOwned`
 note: required by a bound in `name`
@@ -59,25 +59,25 @@ note: required by a bound in `name`
   = note: this error originates in the derive macro `Permission` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: the trait bound `MissingDeserialize: DeserializeOwned` is not satisfied
- --> tests/ui/fail/permission_missing_deserialize.rs:7:12
+ --> tests/ui/fail/permission_missing_deserialize.rs:5:12
   |
-7 | pub struct MissingDeserialize {
+5 | pub struct MissingDeserialize {
   |            ^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `JsonDeserialize` is not implemented for `MissingDeserialize`
- --> tests/ui/fail/permission_missing_deserialize.rs:7:1
+ --> tests/ui/fail/permission_missing_deserialize.rs:5:1
   |
-7 | pub struct MissingDeserialize {
+5 | pub struct MissingDeserialize {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `JsonDeserialize`:
             ()
-            AbiVersion
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptMusubiPackageMaintainerV1
             AccessSetHints
             AccountAddress
-            AccountController
-            AccountDetails
-            AccountEvent
+            AccountAdmissionDefaultRoleError
+            AccountAdmissionError
           and $N others
   = note: required for `MissingDeserialize` to implement `DeserializeOwned`
 note: required by a bound in `name`

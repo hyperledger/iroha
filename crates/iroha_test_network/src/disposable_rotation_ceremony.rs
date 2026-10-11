@@ -200,6 +200,20 @@ fn provider_handle(peer: &PeerId) -> String {
     handle
 }
 
+// The verified generation contains canonical PeerIds. Keep every seat and its order bound
+// to that authenticated generation before starting the target DKG processes.
+fn verify_incumbent_seats(seats: &[&NetworkPeer], incumbent: &[PeerId]) -> Result<()> {
+    ensure!(
+        seats.len() == incumbent.len()
+            && seats
+                .iter()
+                .zip(incumbent)
+                .all(|(seat, peer)| seat.id() == *peer),
+        "rotation signers must match the complete exact incumbent roster in order"
+    );
+    Ok(())
+}
+
 fn verify_input(
     seats: &[&NetworkPeer],
     authorizing_seats: &[&NetworkPeer],
@@ -221,25 +235,14 @@ fn verify_input(
         input.target_epoch,
         input.transition_id.into(),
         input.finality_limits,
-        verifier.attestations(),
         verifier.allocation_budget(),
     )
     .wrap_err("rotation selection evidence verification failed")?;
     let preparation = selected.preparation();
-    let incumbent = selected
-        .incumbent_authority()
-        .validators
-        .iter()
-        .map(|keys| keys.validator.clone())
-        .collect::<Vec<_>>();
-    ensure!(
-        authorizing_seats.len() == incumbent.len()
-            && authorizing_seats
-                .iter()
-                .zip(&incumbent)
-                .all(|(seat, peer)| seat.id() == *peer),
-        "rotation signers must match the complete exact incumbent roster in order"
-    );
+    verify_incumbent_seats(
+        authorizing_seats,
+        &selected.incumbent_authority().validators,
+    )?;
     let roster = preparation
         .committee
         .iter()
@@ -424,6 +427,28 @@ fn encode_phase_journal(
         "native phase archive length changed during encoding"
     );
     Ok(bytes)
+}
+
+// Persist the complete unchanged journal contract before passing its original
+// owner into the next phase. A deadline/IO error is terminal; no file is retried
+// or supplied to the later public signing commands after refusal.
+fn write_rotation_phase_journal(
+    directory: &Path,
+    journal: &NativeFinalityJournal,
+    limits: NativeFinalityLimits,
+    deadline: Instant,
+) -> Result<PathBuf> {
+    ensure!(
+        Instant::now() < deadline,
+        "rotation phase archive deadline elapsed"
+    );
+    let path = directory.join(format!("phase-{}.norito", journal.blocks.len()));
+    fs::write(&path, encode_phase_journal(journal, limits)?)?;
+    ensure!(
+        Instant::now() < deadline,
+        "rotation phase archive deadline elapsed"
+    );
+    Ok(path)
 }
 
 fn broadcast_finality(
@@ -1619,14 +1644,6 @@ pub async fn prepare_disposable_pending_custody(
         .map_err(|error| eyre!("invalid chain identifier: {error}"))?;
     let credential_budget =
         iroha_allocation::AllocationBudget::new(input.credential_max_memory_bytes.get());
-    let cursor = NativeJournalCursor::new(
-        chain_id.clone(),
-        input.network_id,
-        iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        input.finality_limits,
-        &credential_budget,
-    )
-    .map_err(|error| eyre!(error))?;
     let verified = verify_validator_committee_provisioning_evidence_v1(
         evidence,
         &chain_id,
@@ -1634,7 +1651,6 @@ pub async fn prepare_disposable_pending_custody(
         input.target_epoch,
         input.transition_id.into(),
         input.finality_limits,
-        cursor.attestations(),
         &credential_budget,
     )
     .wrap_err("pending custody evidence is invalid")?;
@@ -2170,7 +2186,9 @@ where
 /// combines signed public frames and independently verified finality proofs;
 /// it never reads, derives, or collects any seat's private DKG share. The
 /// returned credential and pending-share paths remain separate per seat so
-/// production custody preparation can retain current and pending keys.
+/// production custody preparation can retain current and pending keys. The owned
+/// selection journal moves through each callback and complete phase archive;
+/// callback errors terminate this ceremony rather than retrying acquired frames.
 ///
 /// # Errors
 ///
@@ -2179,18 +2197,18 @@ where
 pub async fn run_disposable_rotation_dkg<F, Fut>(
     seats: &[&NetworkPeer],
     authorizing_seats: &[&NetworkPeer],
-    evidence: &ValidatorCommitteeSelectionEvidenceV1,
+    evidence: ValidatorCommitteeSelectionEvidenceV1,
     input: DisposableRotationProofInput,
     provider_revision: u64,
     certificate_height: u64,
     mut next_finality: F,
 ) -> Result<DisposableRotationDkgOutput>
 where
-    F: FnMut(u64, Instant) -> Fut,
+    F: FnMut(u64, Instant, NativeFinalityJournal) -> Fut,
     Fut: Future<Output = Result<NativeFinalityJournal>>,
 {
     ensure!(provider_revision != 0, "provider revision must be positive");
-    let (session, mut verifier) = verify_input(seats, authorizing_seats, evidence, &input)?;
+    let (session, mut verifier) = verify_input(seats, authorizing_seats, &evidence, &input)?;
     ensure!(
         certificate_height > session.acceptances_end_height
             && certificate_height
@@ -2209,7 +2227,7 @@ where
     let controller =
         super::disposable_runtime_provider_broker::new_disposable_owner_private_root()?;
     let evidence_path = controller.path().join("selection-evidence.norito");
-    fs::write(&evidence_path, norito::encode_canonical(evidence)?)?;
+    fs::write(&evidence_path, norito::encode_canonical(&evidence)?)?;
     let mut processes = seats
         .iter()
         .enumerate()
@@ -2227,7 +2245,11 @@ where
         .collect::<Result<Vec<_>>>()?;
     let deadline = Instant::now() + PROCESS_TIMEOUT;
     let crypto = AdaptiveGlobalThresholdBeaconDkgCryptoV1;
-    let mut phase_proofs = Vec::with_capacity(3);
+    // All evidence borrows ended after verification, canonical persistence and spawn.
+    // Move the same original journal through each terminal callback; its earlier
+    // canonical frame buffers are never cloned or reacquired.
+    let journal = evidence.finality_journal;
+    let mut phase_paths = Vec::with_capacity(3);
 
     let publications = wait_for_snapshots(&mut processes, "publication.norito", deadline).await?;
     let mut public = merge_publications(
@@ -2238,23 +2260,33 @@ where
     )?;
     broadcast_public(&mut processes, public.public_snapshot()?.record(), deadline)?;
     let proof = await_ceremony_finality(session.commitments_end_height, deadline, || {
-        next_finality(session.commitments_end_height, deadline)
+        next_finality(session.commitments_end_height, deadline, journal)
     })
     .await?;
     advance_native_phase(&mut verifier, &proof, session.commitments_end_height)?;
     broadcast_finality(&mut processes, &proof, verifier.limits(), deadline)?;
-    phase_proofs.push(proof);
+    phase_paths.push(write_rotation_phase_journal(
+        controller.path(),
+        &proof,
+        verifier.limits(),
+        deadline,
+    )?);
 
     let deliveries = wait_for_snapshots(&mut processes, "deliveries.norito", deadline).await?;
     merge_deliveries(&mut public, &deliveries, &crypto)?;
     broadcast_public(&mut processes, public.public_snapshot()?.record(), deadline)?;
     let proof = await_ceremony_finality(session.deliveries_end_height, deadline, || {
-        next_finality(session.deliveries_end_height, deadline)
+        next_finality(session.deliveries_end_height, deadline, proof)
     })
     .await?;
     advance_native_phase(&mut verifier, &proof, session.deliveries_end_height)?;
     broadcast_finality(&mut processes, &proof, verifier.limits(), deadline)?;
-    phase_proofs.push(proof);
+    phase_paths.push(write_rotation_phase_journal(
+        controller.path(),
+        &proof,
+        verifier.limits(),
+        deadline,
+    )?);
 
     let acceptances = wait_for_snapshots(&mut processes, "acceptances.norito", deadline).await?;
     merge_acceptances(&mut public, &acceptances, &crypto)?;
@@ -2262,12 +2294,17 @@ where
     let assembled = public.into_finalized()?;
     broadcast_public(&mut processes, assembled.record(), deadline)?;
     let proof = await_ceremony_finality(session.acceptances_end_height, deadline, || {
-        next_finality(session.acceptances_end_height, deadline)
+        next_finality(session.acceptances_end_height, deadline, proof)
     })
     .await?;
     advance_native_phase(&mut verifier, &proof, session.acceptances_end_height)?;
     broadcast_finality(&mut processes, &proof, verifier.limits(), deadline)?;
-    phase_proofs.push(proof);
+    phase_paths.push(write_rotation_phase_journal(
+        controller.path(),
+        &proof,
+        verifier.limits(),
+        deadline,
+    )?);
 
     let mut outputs = Vec::with_capacity(processes.len());
     for mut process in processes {
@@ -2304,16 +2341,6 @@ where
         &public_session_path,
         norito::encode_canonical(assembled.record())?,
     )?;
-    let phase_paths = phase_proofs
-        .iter()
-        .map(|proof| {
-            let path = controller
-                .path()
-                .join(format!("phase-{}.norito", proof.blocks.len()));
-            fs::write(&path, encode_phase_journal(proof, verifier.limits())?)?;
-            Ok(path)
-        })
-        .collect::<Result<Vec<_>>>()?;
     let public_bundle_path = controller.path().join("rotation-public-bundle.json");
     let mut proof_args = vec![
         "--selection-evidence".to_owned(),
@@ -2419,6 +2446,117 @@ where
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn rotation_incumbent_seats_require_the_complete_exact_verified_peer_order() {
+        let network = NetworkBuilder::new()
+            .with_peers(4)
+            .with_base_seed("verified-incumbent-peer-order")
+            .build();
+        let peers = network.validators().iter().collect::<Vec<_>>();
+        let incumbent = peers.iter().map(|peer| peer.id()).collect::<Vec<_>>();
+        assert_eq!(incumbent.len(), 4);
+        verify_incumbent_seats(&peers, &incumbent).unwrap();
+        let refused = |seats: &[&NetworkPeer]| {
+            assert_eq!(
+                verify_incumbent_seats(seats, &incumbent)
+                    .expect_err("only the exact incumbent roster may authorize a rotation")
+                    .to_string(),
+                "rotation signers must match the complete exact incumbent roster in order"
+            );
+        };
+        refused(&peers[..3]);
+        refused(&[]);
+        let mut changed = peers.clone();
+        changed.swap(0, 1);
+        refused(&changed);
+        changed.swap(0, 1);
+        verify_incumbent_seats(&changed, &incumbent).unwrap();
+        changed[1] = changed[0];
+        refused(&changed);
+        let mut extra = peers.clone();
+        extra.push(peers[0]);
+        refused(&extra);
+        verify_incumbent_seats(&peers, &incumbent).unwrap();
+    }
+
+    #[test]
+    fn rotation_phase_archive_preserves_complete_canonical_journal_and_native_verification() {
+        use iroha_core::{
+            state::{StateReadOnly as _, World},
+            sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
+        };
+        use iroha_data_model::sumeragi::finality::NativeFinalityArtifact;
+        let mut chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 50_000))
+            .expect("executed native fixture");
+        chain.commit_at(50_001, Vec::new());
+        let chain_id = chain.state().view().chain_id().clone();
+        let limits = NativeFinalityLimits {
+            block_bytes: 32 * 1024 * 1024,
+            journal_bytes: 64 * 1024 * 1024,
+            block_count: 2,
+            allocated_bytes: 512 * 1024 * 1024,
+        };
+        let journal = NativeFinalityJournal {
+            blocks: (1..=2)
+                .map(|height| {
+                    NativeFinalityArtifact::from_block(chain.committed(height).block(), limits)
+                        .unwrap()
+                })
+                .collect(),
+        };
+        let budget = iroha_allocation::AllocationBudget::new(limits.allocated_bytes);
+        let mut cursor = NativeJournalCursor::new(
+            chain_id.clone(),
+            chain.network_id(),
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            limits,
+            &budget,
+        )
+        .unwrap();
+        advance_native_phase(&mut cursor, &journal, 2).unwrap();
+        let expected = encode_phase_journal(&journal, limits).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let path = write_rotation_phase_journal(
+            root.path(),
+            &journal,
+            limits,
+            Instant::now() + PROCESS_TIMEOUT,
+        )
+        .unwrap();
+        assert_eq!(path, root.path().join("phase-2.norito"));
+        let original = fs::read(&path).unwrap();
+        assert_eq!(original, expected);
+        assert_eq!(original, norito::encode_canonical(&journal).unwrap());
+        let decoded = NativeFinalityJournal::decode(&original, limits).unwrap();
+        assert_eq!(decoded, journal);
+        let mut independent = NativeJournalCursor::new(
+            chain_id,
+            chain.network_id(),
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            limits,
+            &budget,
+        )
+        .unwrap();
+        advance_native_phase(&mut independent, &decoded, 2).unwrap();
+        assert_eq!(independent.tip().unwrap().id(), cursor.tip().unwrap().id());
+    }
+
+    #[test]
+    fn rotation_phase_archive_refuses_original_deadline_before_any_file() {
+        let root = tempfile::tempdir().unwrap();
+        let journal = NativeFinalityJournal { blocks: Vec::new() };
+        let limits = NativeFinalityLimits {
+            block_bytes: 1024,
+            journal_bytes: 4096,
+            block_count: 8,
+            allocated_bytes: 8192,
+        };
+        let error = write_rotation_phase_journal(root.path(), &journal, limits, Instant::now())
+            .expect_err("expired ceremony must not publish a phase archive");
+        assert_eq!(error.to_string(), "rotation phase archive deadline elapsed");
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+    }
 
     #[tokio::test]
     async fn ceremony_finality_callback_preserves_original_deadline_before_late_refusal() {

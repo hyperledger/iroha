@@ -33,22 +33,14 @@ pub mod content_mime;
 pub mod da;
 /// Public Torii DTOs for certificate-only governance proposal drafts.
 pub mod governance_proposal_api;
-/// Public Torii DTOs for the KAGEMUSHA lifecycle.
-pub mod kagemusha_api;
-/// Native complete World snapshots and original KAGEMUSHA authority values.
-pub mod kagemusha_state;
+/// Canonical requests and responses for the authenticated KAGEMUSHA enrollment service.
+pub mod kagemusha_enrollment;
 /// The list-query language (filter, sort, projection, pagination) shared by Torii, SDKs and CLI.
 pub mod list_query;
 /// Shared MCP wire constants for Torii and repository clients.
 pub mod mcp;
 /// Original multisig execution records at a certified native World cut.
 pub mod multisig_execution_evidence;
-/// Exact payer-authenticated original ordinary debit finality read.
-pub mod ordinary_mint_finalized;
-/// Exact signed issuer-scoped original World grant for ordinary Mint.
-pub mod ordinary_mint_issuer_purpose;
-/// Actual signed account-scoped ordinary current-wallet original wire.
-pub mod ordinary_wallet_current;
 /// Public Torii DTOs for authenticated SORA Parliament draft and read routes.
 pub mod parliament_api;
 /// Stable cross-SDK signing transcript for exact prepared transactions.
@@ -405,6 +397,50 @@ impl FeeSponsorProgramByIdRequest {
         }
     }
 }
+
+/// Canonical selector for one sponsor-program enrollment, without enumeration.
+#[derive(
+    JsonDeserialize, JsonSerialize, NoritoDeserialize, NoritoSerialize, Debug, Clone, PartialEq, Eq,
+)]
+#[norito(deny_unknown_fields)]
+#[derive(norito::NoritoSchema)]
+#[norito_schema(name = "iroha_torii_shared::FeeSponsorEnrollmentByIdRequest")]
+pub struct FeeSponsorEnrollmentByIdRequest {
+    /// Exact canonical `sponsor/program` literal.
+    pub program_id: String,
+    /// Exact canonical beneficiary account literal.
+    pub beneficiary: String,
+}
+impl FeeSponsorEnrollmentByIdRequest {
+    /// Construct an exact enrollment selector from native identities.
+    #[must_use]
+    pub fn new(program_id: &FeeSponsorProgramId, beneficiary: &AccountId) -> Self {
+        Self {
+            program_id: program_id.to_string(),
+            beneficiary: beneficiary.to_string(),
+        }
+    }
+}
+
+/// Current exact enrollment at the same native World view as read authorization.
+///
+/// `None` means absence only for this key in an existing program. A missing
+/// program or unauthorized request returns an error, never this absence response.
+#[derive(
+    JsonDeserialize, JsonSerialize, NoritoDeserialize, NoritoSerialize, Debug, Clone, PartialEq, Eq,
+)]
+#[norito(deny_unknown_fields)]
+#[derive(norito::NoritoSchema)]
+#[norito_schema(name = "iroha_torii_shared::FeeSponsorEnrollmentByIdResponse")]
+pub struct FeeSponsorEnrollmentByIdResponse {
+    /// Exact requested program and beneficiary, including on an absent result.
+    pub key: iroha_data_model::nexus::FeeSponsorEnrollmentKey,
+    /// Original native row, whose key equals `key`, or explicit current absence.
+    /// The field is mandatory; only an explicit JSON null establishes absence.
+    #[norito(required)]
+    pub enrollment: Option<iroha_data_model::nexus::FeeSponsorEnrollment>,
+}
+
 /// Queue pressure snapshot returned with transaction queue rejections.
 #[derive(JsonDeserialize, JsonSerialize, NoritoDeserialize, NoritoSerialize, Debug, Clone)]
 #[norito(deny_unknown_fields)]
@@ -510,6 +546,10 @@ pub struct FeeErrorDetails {
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_torii_shared::ErrorDetails")]
 pub struct ErrorDetails {
+    /// Canonical deterministic IVM fault, excluding application errors and local refusals.
+    #[norito(default)]
+    #[norito(skip_serializing_if = "Option::is_none")]
+    pub ivm_fault: Option<iroha_data_model::executor::fault::IvmFaultV1>,
     /// Public surface layer that produced the error (for example `cli`, `torii`, or `mcp`).
     #[norito(default)]
     #[norito(skip_serializing_if = "Option::is_none")]
@@ -610,7 +650,8 @@ impl ErrorDetails {
     /// Return whether this details payload carries any structured fields.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.layer.is_none()
+        self.ivm_fault.is_none()
+            && self.layer.is_none()
             && self.reject_code.is_none()
             && self.queue.is_none()
             && self.retry_after_seconds.is_none()
@@ -1593,6 +1634,87 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn fee_enrollment_point_read_roundtrips_present_and_absent() {
+        use super::{FeeSponsorEnrollmentByIdRequest, FeeSponsorEnrollmentByIdResponse};
+        use iroha_data_model::nexus::{FeeSponsorEnrollment, FeeSponsorEnrollmentKey};
+
+        let sponsor = AccountId::new(checked_test_keypair(0x25).public_key().clone());
+        let beneficiary = AccountId::new(checked_test_keypair(0x26).public_key().clone());
+        let program_id = FeeSponsorProgramId::new(sponsor, "dpn".parse().unwrap());
+        let request = FeeSponsorEnrollmentByIdRequest::new(&program_id, &beneficiary);
+        let request_json = norito::json::to_vec(&request).unwrap();
+        assert_eq!(
+            norito::json::from_slice::<FeeSponsorEnrollmentByIdRequest>(&request_json).unwrap(),
+            request
+        );
+        let request_bytes = norito::to_bytes(&request).unwrap();
+        assert_eq!(
+            norito::decode_from_bytes::<FeeSponsorEnrollmentByIdRequest>(&request_bytes).unwrap(),
+            request
+        );
+        let key = FeeSponsorEnrollmentKey {
+            program_id,
+            beneficiary,
+        };
+        for enrollment in [
+            None,
+            Some(FeeSponsorEnrollment {
+                key: key.clone(),
+                enrolled_at_height: 19,
+            }),
+        ] {
+            let response = FeeSponsorEnrollmentByIdResponse {
+                key: key.clone(),
+                enrollment,
+            };
+            let bytes = norito::to_bytes(&response).unwrap();
+            assert_eq!(
+                norito::decode_from_bytes::<FeeSponsorEnrollmentByIdResponse>(&bytes).unwrap(),
+                response
+            );
+            let json = norito::json::to_vec(&response).unwrap();
+            assert_eq!(
+                norito::json::from_slice::<FeeSponsorEnrollmentByIdResponse>(&json).unwrap(),
+                response
+            );
+        }
+        let key_json = norito::json::to_string(&key).unwrap();
+        let absent_json = norito::json::to_value(&FeeSponsorEnrollmentByIdResponse {
+            key: key.clone(),
+            enrollment: None,
+        })
+        .unwrap();
+        assert_eq!(
+            absent_json.get("enrollment"),
+            Some(&norito::json::Value::Null),
+            "absence is an explicit value, never an omitted observation"
+        );
+        for incomplete in [
+            format!(r#"{{"key":{key_json}}}"#),
+            format!(r#"{{"enrollment":null}}"#),
+            format!(r#"{{"key":{key_json},"enrollment":null,"extra":true}}"#),
+            format!(r#"{{"key":{key_json},"enrollment":null,"enrollment":null}}"#),
+        ] {
+            assert!(
+                norito::json::from_str::<FeeSponsorEnrollmentByIdResponse>(&incomplete).is_err()
+            );
+        }
+        for json in [
+            format!(
+                r#"{{"program_id":"{}","beneficiary":"{}","extra":true}}"#,
+                request.program_id, request.beneficiary
+            ),
+            format!(
+                r#"{{"program_id":"{}","beneficiary":"{}","beneficiary":"{}"}}"#,
+                request.program_id, request.beneficiary, request.beneficiary
+            ),
+        ] {
+            assert!(norito::json::from_str::<FeeSponsorEnrollmentByIdRequest>(&json).is_err());
+        }
+    }
+
     #[test]
     fn fee_quote_draft_validation_rejects_payer_revision_and_gas_substitution() {
         let (payload, quote, program_id, _) = sponsored_fee_quote_fixture();
@@ -2063,6 +2185,36 @@ mod tests {
         assert_eq!(fee.available.as_deref(), Some("4"));
         assert_eq!(fee.observation_height, Some(42));
     }
+    #[test]
+    fn error_envelope_preserves_the_bounded_runtime_fault() {
+        use iroha_data_model::executor::fault::{
+            IvmFaultKindV1, IvmFaultPositionV1, IvmFaultSiteV1, IvmFaultV1, IvmInvocationSelectorV1,
+        };
+        let fault = IvmFaultV1 {
+            kind: IvmFaultKindV1::ReentrantCall,
+            site: IvmFaultSiteV1 {
+                code_hash: iroha_crypto::Hash::new(b"contract"),
+                selector: IvmInvocationSelectorV1::Entrypoint(2),
+                position: IvmFaultPositionV1::Execute { pc_offset: 12 },
+            },
+        };
+        let envelope =
+            ErrorEnvelope::new("ivm_fault", fault.to_string()).with_details(ErrorDetails {
+                ivm_fault: Some(fault),
+                ..Default::default()
+            });
+        let native = norito::to_bytes(&envelope).unwrap();
+        let json = norito::json::to_vec(&envelope).unwrap();
+        for decoded in [
+            norito::decode_from_bytes::<ErrorEnvelope>(&native).unwrap(),
+            norito::json::from_slice::<ErrorEnvelope>(&json).unwrap(),
+        ] {
+            let details = decoded.details.unwrap();
+            assert!(!details.is_empty());
+            assert_eq!(details.ivm_fault, Some(fault));
+        }
+    }
+
     #[test]
     fn error_envelope_roundtrip_preserves_exact_asset_absence() {
         let account = AccountId::new(checked_test_keypair(0x38).public_key().clone());

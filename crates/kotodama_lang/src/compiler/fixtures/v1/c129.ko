@@ -1,5 +1,5 @@
 
-seiyaku Test {
+seiyaku Test { permission Entry;
   meta { zk: true; }
-  kotoage fn main()  authorize("Entry") { let x = 1; }
+  kotoage fn main() authorize(Entry) { let x = 1; }
 }

@@ -192,7 +192,7 @@ fn native_json_rejects_keys_that_collide_only_after_escape_decoding() {
 fn json_parse_rejects_duplicate_object_keys_before_artifact_emission() {
     let source = r#"
         seiyaku DuplicateParsedJsonKey {
-            view fn build() -> Json {
+            view fn build() authorize(anyone) -> Json {
                 Json::parse("{\"owner\":1,\"owner\":2}")
             }
         }
@@ -225,7 +225,7 @@ fn json_parse_rejects_duplicate_object_keys_before_artifact_emission() {
 fn json_parse_rejects_malformed_literals_before_artifact_emission() {
     let source = r#"
         seiyaku MalformedParsedJson {
-            view fn build() -> Json {
+            view fn build() authorize(anyone) -> Json {
                 Json::parse("{\"owner\":")
             }
         }

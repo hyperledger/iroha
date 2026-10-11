@@ -269,7 +269,8 @@ fn acknowledgement_signing_digest_preserves_exact_domain_and_valid_payloads() {
 #[test]
 fn acknowledgement_signing_and_verification_reject_resealed_noncanonical_payloads() {
     type Payload = GatewayComplianceAcknowledgementPayloadV1;
-    let mutations: [(&str, fn(&mut Payload)); 10] = [
+    type Mutation = (&'static str, fn(&mut Payload));
+    let mutations: [Mutation; 10] = [
         ("version", |p| p.version = 2),
         ("empty gateway", |p| p.gateway_id.clear()),
         ("uppercase gateway", |p| p.gateway_id = "GATEWAY-EU".into()),

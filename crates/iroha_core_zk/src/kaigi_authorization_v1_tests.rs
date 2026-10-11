@@ -1,18 +1,19 @@
 //! Real final V1 Kaigi proofs through the canonical Core verifier boundary.
 
 use super::*;
-use halo2_proofs::halo2curves::ff::{Field, PrimeField};
+use ff::{Field, PrimeField};
 use iroha_data_model::zk::{BackendTag, OpenVerifyEnvelope};
 use kaigi_zk::authorization_v1::{
     KaigiAuthorizationActionV1, KaigiAuthorizationContextV1, KaigiAuthorizationPublicInputsV1,
     KaigiAuthorizationWitnessV1, compute_authorization_v1,
 };
+use kaigi_zk::native::NativeRelationV1;
 use std::sync::OnceLock;
 
 struct Fixture {
     vk_bytes: Vec<u8>,
     proof: Vec<u8>,
-    instance: [halo2_backend::Scalar; KAIGI_AUTHORIZATION_INSTANCE_ROWS_V1],
+    instance: [kaigi_zk::Scalar; KAIGI_AUTHORIZATION_INSTANCE_ROWS_V1],
 }
 
 fn fixture() -> &'static Fixture {
@@ -27,24 +28,20 @@ fn fixture() -> &'static Fixture {
             action: KaigiAuthorizationActionV1::Join,
             pre_roster_root: [0x43; 32],
         };
-        let mut secret = (halo2_backend::Scalar::from(2).pow_vartime([190])
-            + halo2_backend::Scalar::from(31))
-        .to_repr();
+        let mut secret =
+            (kaigi_zk::Scalar::from(2).pow_vartime([190]) + kaigi_zk::Scalar::from(31)).to_repr();
         let witness = KaigiAuthorizationWitnessV1::take_blinding(&mut secret).unwrap();
         assert_eq!(secret, [0; 32]);
         let outputs = compute_authorization_v1(&context, &witness).unwrap();
         let instance = KaigiAuthorizationPublicInputsV1 { context, outputs }.instance();
-        let params = pasta_params_new(KAIGI_AUTHORIZATION_CIRCUIT_K_V1);
-        let empty = KaigiAuthorizationCircuitV1::default();
-        let vk = halo2_backend::keygen_vk(&params, &empty).unwrap();
-        let pk = halo2_backend::keygen_pk(&params, vk.clone(), &empty).unwrap();
-        let circuit = KaigiAuthorizationCircuitV1::new(context, witness).unwrap();
-        let proof =
-            halo2_backend::create_ipa_proof(&params, &pk, &[circuit], &[&[&instance]]).unwrap();
-        let mut vk_bytes = zk1::wrap_start();
-        zk1::wrap_append_ipa_k(&mut vk_bytes, KAIGI_AUTHORIZATION_CIRCUIT_K_V1);
-        zk1::wrap_append_circuit_id(&mut vk_bytes, KAIGI_AUTHORIZATION_CIRCUIT_ID_V1);
-        zk1::wrap_append_vk_pasta(&mut vk_bytes, &vk);
+        let kind = NativeRelationV1::Authorization;
+        let (_, proof) = kind
+            .prover()
+            .unwrap()
+            .prove_authorization(context, witness)
+            .unwrap()
+            .into_parts();
+        let vk_bytes = native_pipa_r::kaigi_verifying_key(kind).unwrap().bytes;
         Fixture {
             vk_bytes,
             proof,
@@ -56,14 +53,26 @@ fn fixture() -> &'static Fixture {
 fn envelope(
     backend: &str,
     vk_bytes: Vec<u8>,
-    columns: &[&[halo2_backend::Scalar]],
+    columns: &[&[kaigi_zk::Scalar]],
 ) -> (ProofBox, VerifyingKeyBox) {
     let vk = VerifyingKeyBox::new(backend.to_owned(), vk_bytes);
-    let mut inner = zk1::wrap_start();
-    zk1::wrap_append_proof(&mut inner, &fixture().proof);
-    zk1::wrap_append_instances_pasta_fp_cols(columns, &mut inner);
+    let inner = if let [column] = columns {
+        norito::encode_canonical(&iroha_data_model::zk::NativePipaRProofV1 {
+            public_inputs: column.iter().map(PrimeField::to_repr).collect(),
+            proof: fixture().proof.clone(),
+        })
+        .unwrap()
+    } else {
+        // The canonical native format has exactly one column. Multi-column
+        // and transposed carriers are deliberately foreign Norito payloads.
+        let nested: Vec<Vec<[u8; 32]>> = columns
+            .iter()
+            .map(|column| column.iter().map(PrimeField::to_repr).collect())
+            .collect();
+        norito::encode_canonical(&(nested, fixture().proof.clone())).unwrap()
+    };
     let outer = OpenVerifyEnvelope {
-        backend: BackendTag::Halo2IpaPasta,
+        backend: BackendTag::NativePipaRPasta,
         circuit_id: KAIGI_AUTHORIZATION_CIRCUIT_ID_V1.to_owned(),
         vk_hash: hash_vk(&vk),
         public_inputs: KAIGI_AUTHORIZATION_PUBLIC_INPUTS_SCHEMA_V1.to_vec(),
@@ -97,20 +106,15 @@ pub(super) fn valid_envelope(backend: &str) -> (ProofBox, VerifyingKeyBox) {
 #[test]
 fn final_kaigi_real_proof_verifies_and_binds_all_31_rows() {
     let fixture = fixture();
-    for backend in [ZK_BACKEND_HALO2_IPA, KAIGI_AUTHORIZATION_BACKEND_V1] {
+    for backend in [ZK_BACKEND_NATIVE_PIPA_R, KAIGI_AUTHORIZATION_BACKEND_V1] {
         let (proof, vk) = valid_envelope(backend);
         assert!(
-            validate_builtin_halo2_ipa_verifying_key_v1(
-                backend,
-                KAIGI_AUTHORIZATION_CIRCUIT_ID_V1,
-                &vk
-            )
-            .is_ok()
+            native_pipa_r::validate_key(backend, KAIGI_AUTHORIZATION_CIRCUIT_ID_V1, &vk).is_ok()
         );
         assert!(verify_backend(backend, &proof, Some(&vk)), "{backend}");
         for row in 0..KAIGI_AUTHORIZATION_INSTANCE_ROWS_V1 {
             let mut instance = fixture.instance;
-            instance[row] += halo2_backend::Scalar::ONE;
+            instance[row] += kaigi_zk::Scalar::ONE;
             let (changed, _) = envelope(backend, fixture.vk_bytes.clone(), &[&instance]);
             assert!(
                 !verify_backend(backend, &changed, Some(&vk)),
@@ -124,10 +128,10 @@ fn final_kaigi_real_proof_verifies_and_binds_all_31_rows() {
 fn final_kaigi_rejects_nonexact_instance_dimensions() {
     let fixture = fixture();
     let mut extra_zero = fixture.instance.to_vec();
-    extra_zero.push(halo2_backend::Scalar::ZERO);
+    extra_zero.push(kaigi_zk::Scalar::ZERO);
     // A trailing zero may be algebraically invisible to an IPA instance
     // commitment. The final wire schema still permits exactly 31 rows.
-    let transposed: Vec<&[halo2_backend::Scalar]> = fixture.instance.chunks_exact(1).collect();
+    let transposed: Vec<&[kaigi_zk::Scalar]> = fixture.instance.chunks_exact(1).collect();
     let shapes = [
         vec![],
         vec![&fixture.instance[..30]],
@@ -135,7 +139,7 @@ fn final_kaigi_rejects_nonexact_instance_dimensions() {
         vec![&fixture.instance[..], &fixture.instance[..]],
         transposed,
     ];
-    for backend in [ZK_BACKEND_HALO2_IPA, KAIGI_AUTHORIZATION_BACKEND_V1] {
+    for backend in [ZK_BACKEND_NATIVE_PIPA_R, KAIGI_AUTHORIZATION_BACKEND_V1] {
         for columns in &shapes {
             let (proof, vk) = envelope(backend, fixture.vk_bytes.clone(), columns);
             assert!(
@@ -151,7 +155,7 @@ fn final_kaigi_rejects_nonexact_instance_dimensions() {
 fn final_kaigi_rejects_retired_labels_schema_metadata_and_relabelled_keys() {
     let fixture = fixture();
     let (proof, vk) = envelope(
-        ZK_BACKEND_HALO2_IPA,
+        ZK_BACKEND_NATIVE_PIPA_R,
         fixture.vk_bytes.clone(),
         &[&fixture.instance],
     );
@@ -160,11 +164,9 @@ fn final_kaigi_rejects_retired_labels_schema_metadata_and_relabelled_keys() {
         "halo2/pasta/kaigi-roster-v1",
         "halo2/pasta/ipa/kaigi-roster-v1",
     ] {
-        assert!(!halo2_open_verify_circuit_id_is_production_v1(retired));
-        assert!(halo2_ipa_public_inputs_schema_v1(retired).is_none());
-        assert!(halo2_ipa_canonical_k_v1(retired).is_none());
+        assert!(native_pipa_r::relation(ZK_BACKEND_NATIVE_PIPA_R, retired).is_none());
         assert!(!verify_backend(
-            ZK_BACKEND_HALO2_IPA,
+            ZK_BACKEND_NATIVE_PIPA_R,
             &mutate_outer(&proof, |outer| outer.circuit_id = retired.to_owned()),
             Some(&vk)
         ));
@@ -178,65 +180,85 @@ fn final_kaigi_rejects_retired_labels_schema_metadata_and_relabelled_keys() {
         b"kaigi-authorization-v1\0",
     ] {
         assert!(!verify_backend(
-            ZK_BACKEND_HALO2_IPA,
+            ZK_BACKEND_NATIVE_PIPA_R,
             &mutate_outer(&proof, |outer| outer.public_inputs = schema.to_vec()),
             Some(&vk)
         ));
     }
     for alias in [
         "kaigi-authorization-v1",
-        KAIGI_AUTHORIZATION_BACKEND_V1,
+        "halo2/pasta/kaigi-authorization-v1",
         "halo2/ipa:kaigi-authorization-v1",
+        "halo2/pasta/ipa/kaigi-authorization-v1",
     ] {
         assert!(!verify_backend(
-            ZK_BACKEND_HALO2_IPA,
+            ZK_BACKEND_NATIVE_PIPA_R,
             &mutate_outer(&proof, |outer| outer.circuit_id = alias.to_owned()),
             Some(&vk)
         ));
-        assert!(
-            validate_builtin_halo2_ipa_verifying_key_v1(ZK_BACKEND_HALO2_IPA, alias, &vk).is_err()
-        );
+        assert!(native_pipa_r::validate_key(ZK_BACKEND_NATIVE_PIPA_R, alias, &vk).is_err());
     }
-    let mut wrong_k = fixture.vk_bytes.clone();
-    // First fixed TLV is IPAK: magic4 + tag4 + len4 + u32 value.
-    wrong_k[12..16].copy_from_slice(&8_u32.to_le_bytes());
+    let mut wrong_k: native_pipa_r::CompiledVerifyingKeyV1 =
+        norito::decode_canonical(&fixture.vk_bytes).unwrap();
+    // The native processed-key header stores k immediately after its version.
+    wrong_k.key[1..5].copy_from_slice(&8_u32.to_le_bytes());
+    let wrong_k = norito::encode_canonical(&wrong_k).unwrap();
     let mut duplicate_k = fixture.vk_bytes.clone();
-    zk1::wrap_append_ipa_k(&mut duplicate_k, KAIGI_AUTHORIZATION_CIRCUIT_K_V1);
+    duplicate_k.extend_from_slice(&KAIGI_AUTHORIZATION_CIRCUIT_K_V1.to_le_bytes());
     for material in [wrong_k, duplicate_k] {
-        let (changed, changed_vk) = envelope(ZK_BACKEND_HALO2_IPA, material, &[&fixture.instance]);
+        let (changed, changed_vk) =
+            envelope(ZK_BACKEND_NATIVE_PIPA_R, material, &[&fixture.instance]);
         assert!(
-            validate_builtin_halo2_ipa_verifying_key_v1(
-                ZK_BACKEND_HALO2_IPA,
+            native_pipa_r::validate_key(
+                ZK_BACKEND_NATIVE_PIPA_R,
                 KAIGI_AUTHORIZATION_CIRCUIT_ID_V1,
                 &changed_vk
             )
             .is_err()
         );
         assert!(!verify_backend(
-            ZK_BACKEND_HALO2_IPA,
+            ZK_BACKEND_NATIVE_PIPA_R,
             &changed,
             Some(&changed_vk)
         ));
     }
-    // Keep CID, k, public schema and outer VK hash mutually consistent while
-    // substituting an unrelated constraint system: canonical key equality wins.
-    let params = pasta_params_new(KAIGI_AUTHORIZATION_CIRCUIT_K_V1);
-    let other = halo2_backend::keygen_vk(&params, &pasta_tiny::Add).unwrap();
-    let mut material = zk1::wrap_start();
-    zk1::wrap_append_ipa_k(&mut material, KAIGI_AUTHORIZATION_CIRCUIT_K_V1);
-    zk1::wrap_append_circuit_id(&mut material, KAIGI_AUTHORIZATION_CIRCUIT_ID_V1);
-    zk1::wrap_append_vk_pasta(&mut material, &other);
-    let (changed, changed_vk) = envelope(ZK_BACKEND_HALO2_IPA, material, &[&fixture.instance]);
+    // Keep CID, k, outer public schema and VK hash mutually consistent;
+    // exact compiled key equality must still reject a foreign descriptor.
+    // Same k and curve with a foreign typed-instance descriptor: accepting
+    // a parseable key or merely its domain size would miss this substitution.
+    let params = iroha_plonk::pcs::ipa::PinnedParams::<iroha_pasta::Eq>::derive(
+        NativeRelationV1::Authorization.k(),
+    )
+    .unwrap();
+    let (other_binding, other) = iroha_plonk::keys::keygen_vk_with_binding_v2(
+        &params,
+        &kaigi_zk::authorization_v1::KaigiAuthorizationCircuitV1::default(),
+        &iroha_plonk::keys::KeygenConfigV2::pipa_r(vec![iroha_plonk::cs::InstanceType::Bounded]),
+    )
+    .unwrap();
+    assert_eq!(
+        other.to_bytes(),
+        NativeRelationV1::Authorization
+            .verifier()
+            .unwrap()
+            .key_bytes()
+    );
+    let material = norito::encode_canonical(&native_pipa_r::CompiledVerifyingKeyV1 {
+        descriptor: other_binding.encoded().to_vec(),
+        key: other.to_bytes().to_vec(),
+    })
+    .unwrap();
+    let (changed, changed_vk) = envelope(ZK_BACKEND_NATIVE_PIPA_R, material, &[&fixture.instance]);
     assert!(
-        validate_builtin_halo2_ipa_verifying_key_v1(
-            ZK_BACKEND_HALO2_IPA,
+        native_pipa_r::validate_key(
+            ZK_BACKEND_NATIVE_PIPA_R,
             KAIGI_AUTHORIZATION_CIRCUIT_ID_V1,
             &changed_vk
         )
         .is_err()
     );
     assert!(!verify_backend(
-        ZK_BACKEND_HALO2_IPA,
+        ZK_BACKEND_NATIVE_PIPA_R,
         &changed,
         Some(&changed_vk)
     ));

@@ -19,27 +19,27 @@ from pathlib import Path
 CATALOG = Path("crates/iroha_telemetry/src/metrics/catalog_v2.tsv")
 SOURCE = Path("crates/iroha_telemetry/src/metrics.rs")
 HEADER = "# iroha-telemetry-metric-catalog-v2"
-CATALOG_BYTES = 101_823
-CATALOG_SHA256 = "9371e9a502bd721a7812348bac269e65c30289e3b22751404da2a17e99fbacf3"
-CATALOG_BLAKE3 = "739d0e42371862efbf3e79586884b7ce06213204a121cbd1d55fa810bfbec7e2"
-ROWS = 748
-REGISTERED = 705
-LEDGER_BYTES = 221_362
-LEDGER_SHA256 = "a680875c50c2dd8f9c0eef92f5ad105656005411c340916939381df7831b025a"
-DSL_MACROS_TOKENS_SHA256 = "879271505b3c3259b930122d4e79f6b8e9eb4b725a1cc267d6397a116ab84fb9"
+CATALOG_BYTES = 89_244
+CATALOG_SHA256 = "9ee1cf67b0a4cd2bb2047382235dcb928dd8fdbabb6b78b572070991264c0b30"
+CATALOG_BLAKE3 = "cb8a2c06089ea22def6b728133db214199cf4adf07640b0bbbb2ff63d9d2e264"
+ROWS = 656
+REGISTERED = 623
+LEDGER_BYTES = 194_810
+LEDGER_SHA256 = "a5bb9851e1bd6d13e38269049d91c6bec1ab930b6308dfd9e694daaa1875c535"
+DSL_MACROS_TOKENS_SHA256 = "b3ad59602eaeb1d685353d0403594fed447953e7d308b9f04a73142cbe628873"
 FACTORY_TOKENS_SHA256 = "41a07ee3fc3e40d3c0d18b7dd9200f5a11d75f1e3fe1bf074fe36b380be8c19f"
 SUFFIX_TOKENS_SHA256 = "f4f80f55c7d9abcfec0cfe322525122e1d21e580bb6277b78f8b105a562998a0"
 METHOD_COUNTS = {
     "float_counter_vec": 6,
-    "float_gauge": 11,
-    "float_gauge_vec": 32,
-    "gauge": 249,
-    "gauge_vec": 82,
+    "float_gauge": 10,
+    "float_gauge_vec": 31,
+    "gauge": 208,
+    "gauge_vec": 89,
     "histogram_vec": 2,
-    "histogram_vec_with_buckets": 48,
-    "histogram_with_buckets": 26,
-    "int_counter": 65,
-    "int_counter_vec": 193,
+    "histogram_vec_with_buckets": 47,
+    "histogram_with_buckets": 19,
+    "int_counter": 34,
+    "int_counter_vec": 176,
     "int_gauge": 12,
     "int_gauge_vec": 22,
 }
@@ -72,10 +72,27 @@ RETIRED_IVM_BINDING_PROVER_METRICS = (
     "torii_zk_ivm_prove_queued",
 )
 
+RETIRED_HALO2_CONFIGURATION_METRICS = (
+    "zk_halo2_enabled",
+    "zk_halo2_curve_id",
+    "zk_halo2_backend_id",
+    "zk_halo2_max_k",
+    "zk_halo2_verifier_budget_ms",
+    "zk_halo2_verifier_max_batch",
+    "zk_halo2_verifier_worker_threads",
+    "zk_halo2_verifier_queue_cap",
+)
+
 RETIRED_METRICS = (
     RETIRED_CONSENSUS_VRF_METRICS
     + RETIRED_LEGACY_DA_GATE_METRICS
     + RETIRED_IVM_BINDING_PROVER_METRICS
+    + RETIRED_HALO2_CONFIGURATION_METRICS
+    + (
+        "zk_verifier_cache_events_total",
+        "iroha_zk_verifier_cache_events_total",
+        "nexus_public_lane_reward_total",
+    )
 )
 
 DSL_MACROS_START = "macro_rules! metric_field_type {"
@@ -431,8 +448,8 @@ def _construction_order(construct: str) -> list[str]:
         residue = re.sub(r"\b[A-Za-z_]\w*\b", "", group)
         if residue.strip():
             raise GuardError("construct field group contains non-identifier tokens")
-        if not group_fields:
-            raise GuardError("construct field group is empty")
+        # The real macro uses $($construct_field:ident)*: an empty group
+        # constructs no metrics, while its optional statements still execute.
         fields.extend(group_fields)
         index = _skip_trivia(construct, closing + 1)
         if index < len(construct) and construct[index] == "{":
@@ -459,7 +476,6 @@ def _dsl_calls(
             raise GuardError(f"metric fields missing from construction: {missing}")
         aliases = {
             "view_changes_gauge": "gauge",
-            "dropped_messages_counter": "int_counter",
         }
         scalar_methods = {"float_gauge", "gauge", "int_counter", "int_gauge"}
         vector_methods = {
@@ -593,9 +609,9 @@ def check_contents(catalog_raw: bytes, source: str) -> list[str]:
     if "catalog_v1.tsv" in source:
         findings.append("obsolete catalog_v1 consumer remains")
     expected_literals = (
-        "const METRIC_CATALOG_V2_ROWS: usize = 748;",
-        "const METRIC_CATALOG_V2_REGISTERED: usize = 705;",
-        "const METRIC_CATALOG_V2_BYTES: usize = 101_823;",
+        "const METRIC_CATALOG_V2_ROWS: usize = 656;",
+        "const METRIC_CATALOG_V2_REGISTERED: usize = 623;",
+        "const METRIC_CATALOG_V2_BYTES: usize = 89_244;",
         CATALOG_BLAKE3,
     )
     for literal in expected_literals:
@@ -694,6 +710,112 @@ def self_test(root: Path) -> list[str]:
     baseline = check_contents(catalog, source)
     if baseline:
         return ["self-test baseline failed: " + "; ".join(baseline)]
+
+    # Match the real zero-or-more identifier grammar without accepting malformed
+    # groups or using an empty group to hide a missing metric construction.
+    valid_groups = (
+        ("empty section", "", []),
+        ("empty group", "[]", []),
+        ("empty group with comments", "[/* no metrics */] [alpha]", ["alpha"]),
+        (
+            "empty group with retained statements",
+            "[] { let cache = Vec::new(); } [alpha] [] { let ready = true; } [beta]",
+            ["alpha", "beta"],
+        ),
+    )
+    for label, construct, expected in valid_groups:
+        try:
+            actual = _construction_order(construct)
+        except GuardError as error:
+            failures.append(f"self-test valid `{label}` was rejected: {error}")
+        else:
+            if actual != expected:
+                failures.append(f"self-test valid `{label}` changed construction order")
+    for construct in ("[alpha, beta]", "[42]", "[] +", "[alpha", "[alpha] [alpha]"):
+        try:
+            _construction_order(construct)
+        except GuardError:
+            pass
+        else:
+            failures.append(f"self-test malformed construct was accepted: {construct}")
+
+    construction_mutations = (
+        ("unknown field", "[unknown_metric txs isi", "has no field definition"),
+        ("duplicate field", "[txs txs isi", "duplicate constructed metric fields"),
+        ("missing field behind empty group", "[] [isi", "metric fields missing from construction"),
+        ("raw field", "[registry txs isi", "raw field `registry` entered catalog construction"),
+    )
+    for label, replacement, expected_finding in construction_mutations:
+        mutated_source = source.replace("[txs isi", replacement, 1)
+        if mutated_source == source:
+            failures.append(f"self-test construction mutation `{label}` did not alter its input")
+            continue
+        _, _, source_findings = _dsl_calls(mutated_source)
+        if not any(expected_finding in finding for finding in source_findings):
+            failures.append(f"self-test construction mutation `{label}` missed its intended gate")
+
+    unknown_kind_source = source.replace(
+        'pub txs: int_counter_vec(&["type"]);', 'pub txs: unknown_metric_kind();', 1
+    )
+    _, _, unknown_kind_findings = _dsl_calls(unknown_kind_source)
+    if not any(
+        "uses unknown kind `unknown_metric_kind`" in finding
+        for finding in unknown_kind_findings
+    ):
+        failures.append("self-test unknown metric kind missed its intended gate")
+
+    lines = catalog.splitlines(keepends=True)
+    duplicate_catalog = b"".join(lines[:2] + [lines[1]] + lines[3:])
+    _, duplicate_findings = _catalog_rows(duplicate_catalog)
+    if (
+        "duplicate metric key `txs`" not in duplicate_findings
+        or "duplicate metric name `txs`" not in duplicate_findings
+    ):
+        failures.append("self-test duplicate catalog identity missed its intended gates")
+    malformed_catalog = b"".join(
+        [lines[0], lines[1].rstrip(b"\n") + b"\textra\n"] + lines[2:]
+    )
+    _, malformed_findings = _catalog_rows(malformed_catalog)
+    if "catalog row 1 has 5 fields, expected 4" not in malformed_findings:
+        failures.append("self-test malformed catalog row missed its intended gate")
+    calls, _, source_findings = _dsl_calls(source)
+    rows, catalog_findings = _catalog_rows(catalog)
+    if source_findings or catalog_findings:
+        failures.append("self-test independent ledger inputs failed their baseline")
+    else:
+        reordered = [calls[1], calls[0]] + calls[2:]
+        try:
+            _semantic_ledger(rows, reordered)
+        except GuardError as error:
+            if "catalog/source order differs at row 1" not in str(error):
+                failures.append("self-test catalog order failed at an unrelated gate")
+        else:
+            failures.append("self-test catalog order was not rejected")
+
+    retired_kind_source = source.replace(
+        "pub block_height: int_counter();",
+        "pub block_height: dropped_messages_counter();",
+        1,
+    )
+    if retired_kind_source == source:
+        failures.append("self-test retired-kind mutation did not alter its input")
+    else:
+        expected_retired_kind = (
+            "metric field `block_height` uses unknown kind `dropped_messages_counter`"
+        )
+        _, _, retired_kind_findings = _dsl_calls(retired_kind_source)
+        if expected_retired_kind not in retired_kind_findings:
+            failures.append("self-test retired-kind mutation missed its unknown-kind gate")
+        guard_findings = check_contents(catalog, retired_kind_source)
+        if not guard_findings or expected_retired_kind not in guard_findings:
+            failures.append("self-test retired-kind mutation was not refused by the whole guard")
+
+    retired_halo2 = RETIRED_HALO2_CONFIGURATION_METRICS[0]
+    retired_halo2_findings = check_contents(
+        catalog, source + f'\nconst RETIRED_HALO2_PROBE: &str = "{retired_halo2}";\n'
+    )
+    if f"retired metric source returned: {retired_halo2}" not in retired_halo2_findings:
+        failures.append("self-test failed to reject a retired Halo2 configuration metric source token")
 
     retired_probe = RETIRED_LEGACY_DA_GATE_METRICS[0]
     retired_findings = check_contents(

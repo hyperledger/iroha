@@ -140,7 +140,9 @@ mod tests {
         truncated.extend_from_slice(&1_u32.to_le_bytes());
         same_static_verdict(&truncated, false);
         let mut contract = kotodama_lang::compiler::Compiler::new()
-            .compile_source("seiyaku Admission { view fn main() -> bool { true } }")
+            .compile_source(
+                "seiyaku Admission { view fn main() authorize(anyone) -> bool { true } }",
+            )
             .unwrap();
         same_static_verdict(&contract, true);
         let code = ProgramMetadata::parse(&contract).unwrap().code_offset;
@@ -151,7 +153,9 @@ mod tests {
     #[test]
     fn static_admission_preserves_local_preparation_refusal_and_retry() {
         let contract = kotodama_lang::compiler::Compiler::new()
-            .compile_source("seiyaku Admission { view fn main() -> bool { true } }")
+            .compile_source(
+                "seiyaku Admission { view fn main() authorize(anyone) -> bool { true } }",
+            )
             .unwrap();
         let _limits = crate::ivm_cache::CacheLimitsGuard::new(crate::ivm_cache::CacheLimits {
             capacity: 0,

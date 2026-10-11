@@ -722,6 +722,59 @@ def _render_validator_proxy_locations(
     return lines
 
 
+def _render_verification_request_map() -> list[str]:
+    """Admit only unchanged-URI reads needed by Native peer verification.
+
+    Operator and account signatures bind the original request path, query and
+    body. Peer prefixes must never be stripped before forwarding to Torii.
+    POST is allowed only for the three explicit authenticated read operations.
+    """
+    get_paths = (
+        "/health", "/readyz", "/livez", "/status", "/v1/node/capabilities",
+        "/v1/sumeragi/status", "/v1/sumeragi/lanes",
+        "/v1/sumeragi/consensus-keys", "/v1/parameters",
+        "/v1/nexus/lifecycle", "/v1/pipeline/transactions/status",
+    )
+    post_paths = (
+        "/v1/pipeline/transactions/details",
+        "/v1/aliases/resolve", "/v1/aliases/by-account",
+    )
+    lines = [
+        'map "$request_method:$request_uri" $taira_peer_verification_read {',
+        "  default 0;",
+    ]
+    for method, paths in (("GET", get_paths), ("POST", post_paths)):
+        lines.extend(f"  ~^{method}:{path}(?:[?].*)?$ 1;" for path in paths)
+    lines.extend([
+        "  ~^GET:/v1/bridge/finality/(?:attestation/)?[1-9][0-9]*(?:[?].*)?$ 1;",
+        "  ~^GET:/v1/sns/names/(?:dataspace|account-alias)/[a-z0-9][a-z0-9_.@-]*(?:[?].*)?$ 1;",
+        "}", "",
+    ])
+    return lines
+
+
+def _render_validator_verification_locations(validator: EdgeValidator) -> list[str]:
+    """Forward allowed reads to one peer without modifying signed inputs."""
+    return [
+        "  # Match the raw URI before nginx normalization; Torii owns authentication.",
+        "  if ($taira_peer_verification_read = 0) { return 404; }",
+        "  location / {",
+        f"    proxy_pass http://{validator.upstream_name}_upstream;",
+        "    proxy_http_version 1.1;",
+        *_render_proxy_headers("$host"),
+        '    proxy_set_header Connection "";',
+        "    proxy_pass_request_headers on;",
+        "    proxy_request_buffering off;",
+        "    proxy_buffering off;",
+        "    proxy_cache off;",
+        "    proxy_intercept_errors off;",
+        "    proxy_next_upstream off;",
+        "    proxy_read_timeout 180s;",
+        "    proxy_send_timeout 180s;",
+        "  }",
+    ]
+
+
 def _render_validator_server(
     validator: EdgeValidator,
     *,
@@ -730,6 +783,7 @@ def _render_validator_server(
     certificate_key: str,
     client_max_body_size: str,
     tls_options: list[str],
+    verification_only: bool = False,
 ) -> list[str]:
     lines = [
         "server {",
@@ -743,7 +797,10 @@ def _render_validator_server(
         *tls_options,
         "",
     ]
-    lines.extend(_render_validator_proxy_locations(validator))
+    lines.extend(
+        _render_validator_verification_locations(validator) if verification_only
+        else _render_validator_proxy_locations(validator)
+    )
     lines.extend(["}", ""])
     return lines
 
@@ -755,12 +812,15 @@ def render_validator_listeners_conf(
     tls_certificate: str,
     tls_certificate_key: str,
     client_max_body_size: str = DEFAULT_CLIENT_MAX_BODY_SIZE,
+    verification_only: bool = False,
 ) -> str:
     """Render only peer upstreams and interface-specific TLS servers.
 
     Certificate paths are references, never read by this renderer. The caller
     verifies assigned interfaces, current tunnel bindings and native nginx
     admission before activating the result beside existing public routes.
+    Verification-only listeners expose an explicit read allowlist on separate
+    origins; signed requests retain their original path, query and body.
     """
     if len(validators) != TAIRA_VALIDATOR_COUNT:
         raise ValueError(f"exactly {TAIRA_VALIDATOR_COUNT} edge validators are required for Taira")
@@ -777,6 +837,8 @@ def render_validator_listeners_conf(
         "# Validator TLS listeners only; existing public routes remain separately owned.",
         "",
     ]
+    if verification_only:
+        lines.extend(_render_verification_request_map())
     for validator in validators:
         lines.extend(_render_upstream(
             f"{validator.upstream_name}_upstream",
@@ -793,6 +855,7 @@ def render_validator_listeners_conf(
             validator, listens=listens, certificate=certificate,
             certificate_key=certificate_key, client_max_body_size=client_max_body_size,
             tls_options=[],
+            verification_only=verification_only,
         ))
     return "\n".join(lines)
 
@@ -1068,6 +1131,8 @@ def render_edge_nginx_conf(
             "  http2 on;",
             f"  server_name {public_host};",
             f"  client_max_body_size {client_max_body_size};",
+            "  # Stream signed transaction bodies without nginx temporary files.",
+            "  proxy_request_buffering off;",
             "",
             f"  ssl_certificate /etc/letsencrypt/live/{tls_lineage}/fullchain.pem;",
             f"  ssl_certificate_key /etc/letsencrypt/live/{tls_lineage}/privkey.pem;",
@@ -1253,6 +1318,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Render only peer TLS listeners beside separately managed public routes",
     )
     scopes.add_argument(
+        "--validator-verification-listeners-only", action="store_true",
+        help="Render path-preserving peer TLS listeners limited to Native verification reads",
+    )
+    scopes.add_argument(
         "--private-backend-listeners-only", action="store_true",
         help="Render only private unchanged-URI HTTP backends restricted to one TLS edge",
     )
@@ -1311,7 +1380,7 @@ def main(argv: list[str] | None = None) -> int:
         backend_arguments = (
             args.backend_listen_address, args.backend_port_base, args.backend_trusted_edge_address,
         )
-        if args.validator_listeners_only:
+        if args.validator_listeners_only or args.validator_verification_listeners_only:
             if any(value is not None for value in backend_arguments):
                 raise ValueError("private backend arguments require private backend scope")
             if not args.tls_certificate or not args.tls_certificate_key:
@@ -1323,6 +1392,7 @@ def main(argv: list[str] | None = None) -> int:
                 tls_certificate=args.tls_certificate,
                 tls_certificate_key=args.tls_certificate_key,
                 client_max_body_size=args.client_max_body_size,
+                verification_only=args.validator_verification_listeners_only,
             )
         elif args.private_backend_listeners_only:
             if any(value is None for value in backend_arguments):

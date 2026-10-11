@@ -1,7 +1,5 @@
 //! Exact pointer-boundary validation for opaque durable-map cursors.
-use iroha_data_model::smart_contract::{
-    entrypoint::EntrypointValueKindV1, state_cursor::StateCursorV1,
-};
+use iroha_data_model::smart_contract::state_cursor::StateCursorV1;
 
 use crate::{
     VMError,
@@ -11,9 +9,9 @@ use crate::{
 /// Validate an exact NoritoBytes envelope and its canonical, key-bound cursor frame.
 ///
 /// # Errors
-/// Returns an error for a malformed envelope, cursor, or mismatched scalar key kind.
+/// Returns an error for a malformed envelope, cursor, or mismatched complete key schema.
 pub fn validate_cursor_envelope(
-    key: EntrypointValueKindV1,
+    key_schema_hash: [u8; 32],
     envelope: &[u8],
 ) -> Result<StateCursorV1, VMError> {
     let tlv = pointer_abi::validate_tlv_bytes(envelope)?;
@@ -21,7 +19,7 @@ pub fn validate_cursor_envelope(
         return Err(VMError::NoritoInvalid);
     }
     let cursor = StateCursorV1::decode_frame(tlv.payload).map_err(|_| VMError::NoritoInvalid)?;
-    if cursor.key_type != key {
+    if cursor.key_schema_hash != key_schema_hash {
         return Err(VMError::NoritoInvalid);
     }
     Ok(cursor)
@@ -44,17 +42,14 @@ mod tests {
             instance: "local::test".into(),
             map: "balances".parse().unwrap(),
             schema_hash: [0; 32],
-            key_type: EntrypointValueKindV1::Int,
+            key_schema_hash: [1; 32],
             last_key: "balances/00".parse().unwrap(),
         };
         let payload = cursor.encode_frame().unwrap();
         let frame = envelope(PointerType::NoritoBytes, &payload);
-        assert_eq!(
-            validate_cursor_envelope(EntrypointValueKindV1::Int, &frame).unwrap(),
-            cursor
-        );
-        assert!(validate_cursor_envelope(EntrypointValueKindV1::Bool, &frame).is_err());
+        assert_eq!(validate_cursor_envelope([1; 32], &frame).unwrap(), cursor);
+        assert!(validate_cursor_envelope([2; 32], &frame).is_err());
         let wrong = envelope(PointerType::Blob, &payload);
-        assert!(validate_cursor_envelope(EntrypointValueKindV1::Int, &wrong).is_err());
+        assert!(validate_cursor_envelope([1; 32], &wrong).is_err());
     }
 }

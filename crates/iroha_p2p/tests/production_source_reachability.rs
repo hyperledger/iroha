@@ -50,6 +50,7 @@ const TEST_ONLY_SOURCES: &[&str] = &[
     "src/peer_handshake_config_tests.rs",
     "src/peer_state_tests.rs",
     "src/peer_tests.rs",
+    "src/puzzle_work_admission/tests.rs",
 ];
 
 #[derive(Clone, Copy)]

@@ -1,9 +1,9 @@
 seiyaku ContractViewTrapTest {
     error enum ViewError {
-        Boom = 1
+        Boom = 1,
     }
 
-    view fn explode() -> int {
+    view fn explode() authorize(anyone) -> int {
         require(false, ViewError::Boom);
         return 1;
     }

@@ -1462,11 +1462,16 @@ impl norito::core::SerializePayload for Sm3Digest {
 
 impl<'de> norito::core::DeserializePayload<'de> for Sm3Digest {
     fn deserialize(archived: &'de norito::core::Archived<Self>) -> Self {
-        let archived_bytes: &norito::core::Archived<[u8; Sm3Digest::LENGTH]> = archived.cast();
-        let bytes = <[u8; Sm3Digest::LENGTH] as norito::core::DeserializePayload>::deserialize(
-            archived_bytes,
-        );
-        Sm3Digest(bytes)
+        Self::try_deserialize(archived).expect("canonical raw SM3 digest decode")
+    }
+    fn try_deserialize(
+        archived: &'de norito::core::Archived<Self>,
+    ) -> Result<Self, norito::core::Error> {
+        let ptr = core::ptr::from_ref(archived).cast::<u8>();
+        let mut offset = 0;
+        let bytes = norito::core::decode_context_byte_array::<{ Self::LENGTH }>(ptr, &mut offset)?;
+        norito::core::finish_context_fields(ptr, offset)?;
+        Ok(Sm3Digest(bytes))
     }
 }
 impl<'a> norito::core::DecodeFromSlice<'a> for Sm3Digest {
@@ -3471,3 +3476,52 @@ mod sm2_verification_tests;
 #[cfg(test)]
 #[path = "sm2_payload_tests.rs"]
 mod sm2_payload_tests;
+
+#[cfg(test)]
+mod sm3_digest_raw_wire_tests {
+    use super::*;
+
+    #[test]
+    fn sm3_digest_keeps_sole_raw_wire_and_zero_storage_charge() {
+        #[repr(align(16))]
+        struct Aligned([u8; 512]);
+        let value = Sm3Digest::hash(b"explicit raw Norito layout");
+        let raw = *value.as_bytes();
+        for flags in [0, norito::core::header_flags::COMPACT_LEN] {
+            let _flags = norito::core::DecodeFlagsGuard::enter(flags);
+            let mut encoded = Vec::new();
+            norito::core::serialize_to_buffer(&value, &mut encoded).unwrap();
+            assert_eq!(encoded, raw);
+            let mut aligned = Aligned([0; 512]);
+            aligned.0[..encoded.len()].copy_from_slice(&encoded);
+            let bytes = &aligned.0[..encoded.len()];
+            let zero = norito::DecodeLimits::new(0, usize::MAX, 0, 0, 8);
+            let (decoded, usage) = norito::core::with_decode_limits_measured(zero, || {
+                let _context = norito::core::PayloadCtxGuard::enter(bytes);
+                let decoded = norito::core::decode_field_canonical::<Sm3Digest>(bytes)?;
+                assert_eq!(
+                    norito::core::payload_ctx(),
+                    Some((bytes.as_ptr() as usize, bytes.len()))
+                );
+                Ok::<_, norito::Error>(decoded)
+            });
+            assert_eq!(decoded.unwrap(), (value, bytes.len()));
+            assert_eq!(usage.total_allocated_bytes(), 0);
+            assert_eq!(usage.total_elements(), 0);
+            let mut alternate = Vec::new();
+            norito::core::serialize_to_buffer(&raw, &mut alternate).unwrap();
+            let mut extra = raw.to_vec();
+            extra.push(0);
+            for invalid in [&raw[..raw.len() - 1], &extra[..], &alternate[..]] {
+                aligned.0[..invalid.len()].copy_from_slice(invalid);
+                let bytes = &aligned.0[..invalid.len()];
+                let (decoded, usage) = norito::core::with_decode_limits_measured(zero, || {
+                    norito::core::decode_field_canonical::<Sm3Digest>(bytes)
+                });
+                assert!(matches!(decoded, Err(norito::Error::LengthMismatch)));
+                assert_eq!(usage.total_allocated_bytes(), 0);
+                assert_eq!(usage.total_elements(), 0);
+            }
+        }
+    }
+}

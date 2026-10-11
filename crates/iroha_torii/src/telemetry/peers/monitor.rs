@@ -44,9 +44,49 @@ const CONFIG_RESPONSE_MAX_BYTES: usize = 4 * 1024 * 1024;
 const PEERS_RESPONSE_MAX_BYTES: usize = 1024 * 1024;
 /// Fixed-schema `/status` response accepted from one monitored node.
 const STATUS_RESPONSE_MAX_BYTES: usize = 64 * 1024;
-fn peer_monitor_http_client() -> Result<Client, reqwest::Error> {
+pub(super) fn peer_monitor_http_client() -> Result<Client, reqwest::Error> {
     Client::builder().redirect(Policy::none()).build()
 }
+/// Construct one start-owned pool off the async workers, retaining build retry backoff.
+/// The in-flight blocking task is always awaited before ordinary shutdown can return.
+pub(super) async fn initialize_http_client<F>(
+    shutdown_signal: &ShutdownSignal,
+    mut factory: F,
+) -> Result<Option<(Client, Duration)>, tokio::task::JoinError>
+where
+    F: FnMut() -> Result<Client, reqwest::Error> + Send + 'static,
+{
+    let mut interval = GET_CONFIG_INIT_INTERVAL;
+    loop {
+        if shutdown_signal.is_sent() {
+            return Ok(None);
+        }
+        // Selecting shutdown against this await would detach an already-running TLS builder.
+        // Join it first, then refuse to launch any HTTP work after shutdown was observed.
+        let (returned_factory, result) = tokio::task::spawn_blocking(move || {
+            let result = factory();
+            (factory, result)
+        })
+        .await?;
+        factory = returned_factory;
+        if shutdown_signal.is_sent() {
+            return Ok(None);
+        }
+        match result {
+            Ok(client) => return Ok(Some((client, interval))),
+            Err(err) => {
+                iroha_logger::warn!(?err, "failed to build peer configuration HTTP client");
+                if !wait_or_shutdown(interval, shutdown_signal).await {
+                    return Ok(None);
+                }
+                let next = (interval.as_secs_f64() * GET_CONFIG_INTERVAL_MULTIPLIER)
+                    .min(GET_CONFIG_MAX_INTERVAL.as_secs_f64());
+                interval = Duration::from_secs_f64(next);
+            }
+        }
+    }
+}
+
 /// Read one remote response without allowing a peer, proxy, or decompressor to
 /// grow a monitor task's resident body buffer without bound.
 async fn read_response_body_bounded(
@@ -255,6 +295,8 @@ async fn supervise_monitor_workers(
 
 pub fn run(
     torii_url: ToriiUrl,
+    client: Client,
+    initial_config_interval: Duration,
     geo_config: GeoLookupConfig,
     network_id: NetworkId,
     operator_signer: Option<KeyPair>,
@@ -339,8 +381,11 @@ pub fn run(
                 {
                     let url = Arc::clone(&monitor_span_url);
                     async move {
+                        let mut config_interval = initial_config_interval;
                         loop {
                             let Some(cfg) = get_config_with_retry(
+                                &client,
+                                config_interval,
                                 &url,
                                 &network_id,
                                 operator_signer.as_ref(),
@@ -355,6 +400,9 @@ pub fn run(
                                 };
                                 return MonitorWorkerExit::Polling(exit);
                             };
+                            // Reconnect starts the original configuration interval; the first
+                            // pass alone inherits any preceding pool-construction backoff.
+                            config_interval = GET_CONFIG_INIT_INTERVAL;
                             iroha_logger::debug!(?cfg, "peer connected");
                             if !send_update(
                                 &tx,
@@ -376,9 +424,11 @@ pub fn run(
                                 let url = Arc::clone(&url);
                                 let network_id = network_id;
                                 let operator_signer = operator_signer.clone();
+                                let client = client.clone();
                                 let shutdown = monitor_shutdown.clone();
                                 async move {
                                     get_peers_periodic(
+                                        &client,
                                         &url,
                                         &network_id,
                                         operator_signer.as_ref(),
@@ -392,9 +442,10 @@ pub fn run(
                             workers.spawn({
                                 let tx = tx.clone();
                                 let url = Arc::clone(&url);
+                                let client = client.clone();
                                 let shutdown = monitor_shutdown.clone();
                                 async move {
-                                    get_metrics_periodic_timeout(&url, tx, &shutdown).await;
+                                    get_metrics_periodic_timeout(&client, &url, tx, &shutdown).await;
                                     PeerPollingWorkerExit::Status
                                 }
                             });
@@ -783,29 +834,16 @@ fn decode_peer_config_response(
     decode_peer_config_payload(bytes)
 }
 async fn get_config_with_retry(
+    client: &Client,
+    mut interval: Duration,
     torii_url: &ToriiUrl,
     network_id: &NetworkId,
     operator_signer: Option<&KeyPair>,
     shutdown_signal: &ShutdownSignal,
 ) -> Option<PeerConfigSnapshot> {
-    let mut interval = GET_CONFIG_INIT_INTERVAL;
-    let client = loop {
-        match peer_monitor_http_client() {
-            Ok(client) => break client,
-            Err(err) => {
-                iroha_logger::warn!(?err, "failed to build peer configuration HTTP client");
-                if !wait_or_shutdown(interval, shutdown_signal).await {
-                    return None;
-                }
-                let next = (interval.as_secs_f64() * GET_CONFIG_INTERVAL_MULTIPLIER)
-                    .min(GET_CONFIG_MAX_INTERVAL.as_secs_f64());
-                interval = Duration::from_secs_f64(next);
-            }
-        }
-    };
     let url = torii_url.configuration_endpoint().clone();
     let do_request = || async {
-        let request = configuration_request(&client, url.clone(), network_id, operator_signer)?;
+        let request = configuration_request(client, url.clone(), network_id, operator_signer)?;
         let response = client.execute(request).await?;
         let status = response.status();
         let bytes =
@@ -862,26 +900,16 @@ fn signed_peers_request(
         .map_err(Into::into)
 }
 async fn get_peers_periodic(
+    client: &Client,
     torii_url: &ToriiUrl,
     network_id: &NetworkId,
     operator_signer: Option<&KeyPair>,
     tx: mpsc::Sender<Update>,
     shutdown_signal: &ShutdownSignal,
 ) {
-    let client = loop {
-        match peer_monitor_http_client() {
-            Ok(client) => break client,
-            Err(err) => {
-                iroha_logger::warn!(?err, "failed to build peer-list HTTP client");
-                if !wait_or_shutdown(GET_PEERS_INTERVAL, shutdown_signal).await {
-                    return;
-                }
-            }
-        }
-    };
     let url = torii_url.peers_endpoint().clone();
     let get = || async {
-        let request = signed_peers_request(&client, url.clone(), network_id, operator_signer)?;
+        let request = signed_peers_request(client, url.clone(), network_id, operator_signer)?;
         let response = client.execute(request).await?;
         let status = response.status();
         let bytes =
@@ -940,6 +968,7 @@ fn peer_public_key(peer_repr: &str) -> eyre::Result<PublicKey> {
     PublicKey::from_str(public_key).map_err(|err| eyre!(err))
 }
 async fn get_metrics_periodic_timeout(
+    client: &Client,
     torii_url: &ToriiUrl,
     tx: mpsc::Sender<Update>,
     shutdown_signal: &ShutdownSignal,
@@ -959,13 +988,6 @@ async fn get_metrics_periodic_timeout(
     }
     let mut avg_commit_time = AverageCommitTime::<AVG_COMMIT_BLOCK_TIME_WINDOW>::new();
     let mut status_rtt_window = LatencyWindow::<STATUS_RTT_WINDOW>::new();
-    let client = match peer_monitor_http_client() {
-        Ok(client) => client,
-        Err(err) => {
-            iroha_logger::error!(?err, "failed to build peer-status HTTP client");
-            return;
-        }
-    };
     let url = torii_url.status_endpoint().clone();
     let get_status = || async {
         let started_at = Instant::now();
@@ -1493,7 +1515,7 @@ mod tests {
         let shutdown = ShutdownSignal::new();
         let result = tokio::time::timeout(
             GET_STATUS_INTERVAL + Duration::from_secs(2),
-            get_metrics_periodic_timeout(&url, tx, &shutdown),
+            get_metrics_periodic_timeout(&peer_monitor_http_client().unwrap(), &url, tx, &shutdown),
         )
         .await;
         accept_task.abort();
@@ -1519,7 +1541,13 @@ mod tests {
         let shutdown = ShutdownSignal::new();
         let worker_shutdown = shutdown.clone();
         let metrics_task = tokio::spawn(async move {
-            get_metrics_periodic_timeout(&url, tx, &worker_shutdown).await;
+            get_metrics_periodic_timeout(
+                &peer_monitor_http_client().unwrap(),
+                &url,
+                tx,
+                &worker_shutdown,
+            )
+            .await;
         });
         let timeout =
             TELEMETRY_UNSUPPORTED_CHECK_INTERVAL + GET_STATUS_INTERVAL + GET_STATUS_INTERVAL;

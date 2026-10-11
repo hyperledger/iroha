@@ -1,7 +1,7 @@
 error[E0277]: the trait bound `MissingDefault: std::default::Default` is not satisfied
- --> tests/ui/fail/parameter_missing_default.rs:7:8
+ --> tests/ui/fail/parameter_missing_default.rs:6:8
   |
-7 | struct MissingDefault {
+6 | struct MissingDefault {
   |        ^^^^^^^^^^^^^^ the trait `std::default::Default` is not implemented for `MissingDefault`
   |
 note: required by a bound in `iroha_executor_data_model::parameter::Parameter`
@@ -11,14 +11,14 @@ note: required by a bound in `iroha_executor_data_model::parameter::Parameter`
   |                      ^^^^^^^ required by this bound in `Parameter`
 help: consider annotating `MissingDefault` with `#[derive(Default)]`
   |
-7 + #[derive(Default)]
-8 | struct MissingDefault {
+6 + #[derive(Default)]
+7 | struct MissingDefault {
   |
 
 error[E0277]: the trait bound `MissingDefault: std::default::Default` is not satisfied
- --> tests/ui/fail/parameter_missing_default.rs:6:54
+ --> tests/ui/fail/parameter_missing_default.rs:5:54
   |
-6 | #[derive(JsonSerialize, JsonDeserialize, IntoSchema, Parameter)]
+5 | #[derive(JsonSerialize, JsonDeserialize, IntoSchema, Parameter)]
   |                                                      ^^^^^^^^^ the trait `std::default::Default` is not implemented for `MissingDefault`
   |
 note: required by a bound in `iroha_executor_data_model::parameter::Parameter::id`
@@ -32,14 +32,14 @@ note: required by a bound in `iroha_executor_data_model::parameter::Parameter::i
   = note: this error originates in the derive macro `Parameter` (in Nightly builds, run with -Z macro-backtrace for more info)
 help: consider annotating `MissingDefault` with `#[derive(Default)]`
   |
-7 + #[derive(Default)]
-8 | struct MissingDefault {
+6 + #[derive(Default)]
+7 | struct MissingDefault {
   |
 
 error[E0277]: the trait bound `MissingDefault: std::default::Default` is not satisfied
- --> tests/ui/fail/parameter_missing_default.rs:7:8
+ --> tests/ui/fail/parameter_missing_default.rs:6:8
   |
-7 | struct MissingDefault {
+6 | struct MissingDefault {
   |        ^^^^^^^^^^^^^^ the trait `std::default::Default` is not implemented for `MissingDefault`
   |
 note: required by a bound in `iroha_executor_data_model::parameter::Parameter::id`
@@ -52,6 +52,6 @@ note: required by a bound in `iroha_executor_data_model::parameter::Parameter::i
   |        -- required by a bound in this associated function
 help: consider annotating `MissingDefault` with `#[derive(Default)]`
   |
-7 + #[derive(Default)]
-8 | struct MissingDefault {
+6 + #[derive(Default)]
+7 | struct MissingDefault {
   |

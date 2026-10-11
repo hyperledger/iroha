@@ -342,7 +342,9 @@ impl HirLowerer<'_> {
                 work.push(Work::Expression(value, lexical));
                 work.push(Work::Expression(target, lexical));
             }
-            Statement::Expr(expression) | Statement::Return(Some(expression)) => {
+            Statement::Expr(expression)
+            | Statement::Emit(expression)
+            | Statement::Return(Some(expression)) => {
                 work.push(Work::Expression(expression, lexical));
             }
             Statement::If {
@@ -631,7 +633,7 @@ fn schedule_expression_children<'tree>(
                     .map(|arg| Work::Expression(arg, lexical)),
             );
         }
-        Expr::StructLiteral { fields, .. } => {
+        Expr::StructLiteral { fields, .. } | Expr::ArgumentRecord { fields } => {
             work.extend(
                 fields
                     .iter_mut()

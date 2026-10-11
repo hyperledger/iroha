@@ -1037,7 +1037,10 @@ mod std_fs {
     fn wallet_advance_v1_std_fs_listing_and_reads_fail_closed() {
         let (temp, store) = std_store();
         let path = temp.path().join("root").join("d");
+        use std::os::unix::fs::PermissionsExt as _;
         std::fs::write(path.join("big"), vec![0_u8; 64]).expect("big");
+        std::fs::set_permissions(path.join("big"), std::fs::Permissions::from_mode(0o600))
+            .expect("private fixture");
         assert_eq!(
             store.read(&dir(), &name("big"), 63),
             KagemushaWalletReadV1::Oversized
@@ -1053,6 +1056,11 @@ mod std_fs {
             KagemushaWalletReadV1::Unavailable(_)
         ));
         std::fs::write(path.join(".tmp-0123456789abcdef0123456789abcdef"), b"t").expect("tmp");
+        std::fs::set_permissions(
+            path.join(".tmp-0123456789abcdef0123456789abcdef"),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .expect("private fixture");
         let KagemushaWalletProbeV1::Present(entries) = store.list(&dir()) else {
             panic!("listing");
         };
@@ -1089,6 +1097,55 @@ mod std_fs {
     }
 
     #[test]
+    fn wallet_advance_v1_std_fs_optional_reads_preserve_prefix_oversized_and_absence() {
+        let (temp, store) = std_store();
+        assert_eq!(
+            store.read(&dir(), &name("missing"), 0),
+            KagemushaWalletReadV1::Absent
+        );
+        assert_eq!(
+            store.read(&dir().child(&name("missing-dir")), &name("f"), 8),
+            KagemushaWalletReadV1::Absent
+        );
+        assert_eq!(
+            store.write_new(&dir(), &name("bounded"), b"12345678"),
+            KagemushaWalletPublishOutcomeV1::Published
+        );
+        assert_eq!(store.fs().read(&dir(), "bounded", 3).unwrap(), b"123");
+        assert_eq!(
+            store.read(&dir(), &name("bounded"), 0),
+            KagemushaWalletReadV1::Oversized
+        );
+        assert_eq!(
+            store.read(&dir(), &name("bounded"), 7),
+            KagemushaWalletReadV1::Oversized
+        );
+        assert_eq!(
+            store.read(&dir(), &name("bounded"), 8),
+            KagemushaWalletReadV1::Present(b"12345678".to_vec())
+        );
+        assert_eq!(
+            store.write_new(&dir(), &name("empty"), b""),
+            KagemushaWalletPublishOutcomeV1::Published
+        );
+        assert_eq!(
+            store.read(&dir(), &name("empty"), 0),
+            KagemushaWalletReadV1::Present(Vec::new())
+        );
+        let root = temp.path().join("root/d");
+        std::fs::rename(&root, temp.path().join("retained-d")).unwrap();
+        std::fs::create_dir(&root).unwrap();
+        assert!(matches!(
+            store.read(&dir(), &name("missing"), 8),
+            KagemushaWalletReadV1::Unavailable(_)
+        ));
+        assert!(matches!(
+            store.list(&dir()),
+            KagemushaWalletProbeV1::Unavailable(_)
+        ));
+    }
+
+    #[test]
     fn wallet_advance_v1_std_fs_lock_space_and_noreplace_probe() {
         let (temp, store) = std_store();
         let other = KagemushaWalletDurableStoreV1::new(
@@ -1103,8 +1160,318 @@ mod std_fs {
         let _lock = other.lock_exclusive().expect("released");
         assert!(store.available_bytes().expect("statvfs") > 0);
         assert_eq!(kagemusha_wallet_probe_noreplace_v1(&store), Ok(()));
-        let staging = store.fs().staging_name();
+        let staging = store.fs().staging_name().expect("staging name");
         assert!(crate::kagemusha_wallet_advance_v1::kagemusha_wallet_is_staging_name_v1(&staging));
-        assert_ne!(staging, store.fs().staging_name());
+        assert_ne!(
+            staging,
+            store.fs().staging_name().expect("another staging name")
+        );
     }
+    #[test]
+    fn wallet_advance_v1_std_fs_retains_root_and_child_authority_across_replacement() {
+        use std::os::unix::fs::PermissionsExt as _;
+        for replace_root in [false, true] {
+            let (temp, store) = std_store();
+            assert_eq!(
+                store.write_new(&dir(), &name("f"), BYTES),
+                KagemushaWalletPublishOutcomeV1::Published
+            );
+            let original = if replace_root {
+                temp.path().join("root")
+            } else {
+                temp.path().join("root/d")
+            };
+            let displaced = temp.path().join("displaced");
+            std::fs::rename(&original, &displaced).expect("move original");
+            assert!(
+                matches!(
+                    store.read(&dir(), &name("f"), 1024),
+                    KagemushaWalletReadV1::Unavailable(_)
+                ),
+                "missing retained parent is unavailable, never file absence"
+            );
+            std::fs::create_dir(&original).expect("replacement");
+            std::fs::set_permissions(&original, std::fs::Permissions::from_mode(0o700))
+                .expect("private replacement");
+            assert!(matches!(
+                store.list(&dir()),
+                KagemushaWalletProbeV1::Unavailable(_)
+            ));
+            assert!(matches!(
+                store.write_new(&dir(), &name("intruder"), OTHER),
+                KagemushaWalletPublishOutcomeV1::NotPublished(_)
+            ));
+            assert!(!original.join("intruder").exists());
+            std::fs::remove_dir(&original).expect("remove replacement");
+            std::os::unix::fs::symlink(&displaced, &original).expect("redirect");
+            assert!(matches!(
+                store.read(&dir(), &name("f"), 1024),
+                KagemushaWalletReadV1::Unavailable(_)
+            ));
+        }
+    }
+    #[test]
+    fn wallet_advance_v1_std_fs_refuses_substituted_staging_and_distinguishes_absence() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let (temp, store) = std_store();
+        let fs = store.fs();
+        let staged = fs.staging_name().expect("staging name");
+        let mut file = fs.create_new(&dir(), &staged).expect("create");
+        fs.write_all(&mut file, BYTES).expect("write");
+        fs.sync_staged(&file).expect("sync");
+        let path = temp.path().join("root/d").join(&staged);
+        std::fs::remove_file(&path).expect("remove original");
+        std::fs::write(&path, OTHER).expect("substitute");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .expect("private substitute");
+        assert!(fs.rename_noreplace(&dir(), &staged, "published").is_err());
+        assert_eq!(
+            store.read(&dir(), &name("published"), 1024),
+            KagemushaWalletReadV1::Absent
+        );
+        assert!(!temp.path().join("root/d/published").exists());
+        assert!(fs.write_all(&mut file, OTHER).is_err());
+        assert!(fs.sync_staged(&file).is_err());
+        let shared = temp.path().join("root/d/shared");
+        std::fs::write(&shared, OTHER).expect("shared mode");
+        // The unsafe-mode fixture must remain shared under a private process umask.
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o644))
+            .expect("explicit shared mode");
+        assert!(matches!(
+            store.read(&dir(), &name("shared"), 1024),
+            KagemushaWalletReadV1::Unavailable(_)
+        ));
+    }
+}
+
+#[cfg(windows)]
+mod windows_std_fs {
+    use super::*;
+    use crate::kagemusha_wallet_advance_v1::{
+        KagemushaWalletStdFsV1, kagemusha_wallet_probe_noreplace_v1,
+    };
+    fn native_store() -> (
+        tempfile::TempDir,
+        KagemushaWalletDurableStoreV1<KagemushaWalletStdFsV1>,
+    ) {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        assert_eq!(
+            KagemushaWalletStdFsV1::create_root(&root),
+            KagemushaWalletPublishOutcomeV1::Published
+        );
+        let fs = KagemushaWalletStdFsV1::open(&root).unwrap();
+        let store = KagemushaWalletDurableStoreV1::new(fs);
+        assert_eq!(
+            store.create_dir(&KagemushaWalletCustodyDirV1::root(), &name("d")),
+            KagemushaWalletPublishOutcomeV1::Published
+        );
+        (temp, store)
+    }
+    #[test]
+    fn wallet_windows_original_publication_collision_rewrite_sync_and_removal() {
+        let (_temp, store) = native_store();
+        assert_eq!(
+            store.write_new(&dir(), &name("record"), BYTES),
+            KagemushaWalletPublishOutcomeV1::Published
+        );
+        assert_eq!(
+            store.write_new(&dir(), &name("record"), OTHER),
+            KagemushaWalletPublishOutcomeV1::NotPublished(
+                KagemushaWalletNotPublishedV1::DestinationExists
+            )
+        );
+        assert_eq!(
+            store.read(&dir(), &name("record"), 1024),
+            KagemushaWalletReadV1::Present(BYTES.to_vec())
+        );
+        assert_eq!(
+            store.rewrite_same(&dir(), &name("record"), BYTES),
+            KagemushaWalletPublishOutcomeV1::Published
+        );
+        assert_eq!(store.sync_file(&dir(), &name("record")), Ok(()));
+        assert_eq!(store.remove_staging(&dir()), Ok(0));
+        assert_eq!(
+            store.remove_file(&dir(), &name("record")),
+            KagemushaWalletRemoveOutcomeV1::Removed
+        );
+        assert_eq!(kagemusha_wallet_probe_noreplace_v1(&store), Ok(()));
+    }
+    #[test]
+    fn wallet_windows_missing_sync_and_cached_empty_directory_removal() {
+        let (_temp, store) = native_store();
+        assert!(store.sync_file(&dir(), &name("missing")).is_err());
+        assert_eq!(
+            store.read(&dir(), &name("missing"), 1024),
+            KagemushaWalletReadV1::Absent
+        );
+        assert!(matches!(
+            store.list(&dir()),
+            KagemushaWalletProbeV1::Present(_)
+        ));
+        assert_eq!(
+            store.remove_dir(&KagemushaWalletCustodyDirV1::root(), &name("d")),
+            KagemushaWalletRemoveOutcomeV1::Removed
+        );
+        assert_eq!(
+            store.remove_dir(&KagemushaWalletCustodyDirV1::root(), &name("d")),
+            KagemushaWalletRemoveOutcomeV1::Removed
+        );
+    }
+    #[test]
+    fn wallet_windows_failed_consuming_removal_never_adopts_a_reopened_child() {
+        let (temp, store) = native_store();
+        assert!(matches!(
+            store.list(&dir()),
+            KagemushaWalletProbeV1::Present(_)
+        ));
+        // An independently retained exact child prevents the required DELETE transfer.
+        let held = iroha_fs::PrivateDirectory::open(temp.path().join("root/d")).unwrap();
+        assert!(!matches!(
+            store.remove_dir(&KagemushaWalletCustodyDirV1::root(), &name("d")),
+            KagemushaWalletRemoveOutcomeV1::Removed
+        ));
+        drop(held);
+        assert!(matches!(
+            store.list(&dir()),
+            KagemushaWalletProbeV1::Unavailable(_)
+        ));
+        assert!(matches!(
+            store.write_new(&dir(), &name("intruder"), BYTES),
+            KagemushaWalletPublishOutcomeV1::NotPublished(_)
+        ));
+        assert!(!temp.path().join("root/d/intruder").exists());
+        assert!(matches!(
+            store.create_dir(&KagemushaWalletCustodyDirV1::root(), &name("d")),
+            KagemushaWalletPublishOutcomeV1::Uncertain(_)
+        ));
+    }
+    #[test]
+    fn wallet_windows_ownership_fence_and_available_space_use_native_custody() {
+        let (temp, store) = native_store();
+        let other = KagemushaWalletDurableStoreV1::new(
+            KagemushaWalletStdFsV1::open(temp.path().join("root")).unwrap(),
+        );
+        let lock = store.lock_exclusive().unwrap();
+        assert_eq!(
+            other.lock_exclusive().err(),
+            Some(KagemushaWalletUnavailableV1::Busy)
+        );
+        assert!(std::fs::rename(temp.path().join("root"), temp.path().join("moved")).is_err());
+        assert!(store.available_bytes().unwrap() > 0);
+        drop(lock);
+        let _lock = other.lock_exclusive().unwrap();
+    }
+}
+
+#[test]
+fn staging_name_entropy_failure_never_returns_a_fallback_name() {
+    let name = staging_name_with_entropy(|bytes| {
+        *bytes = [0xab; 16];
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(name, format!(".tmp-{}", "ab".repeat(16)));
+    assert!(crate::kagemusha_wallet_advance_v1::kagemusha_wallet_is_staging_name_v1(&name));
+    let error = staging_name_with_entropy(|bytes| {
+        *bytes = [0xff; 16];
+        Err(io::Error::from(io::ErrorKind::PermissionDenied))
+    })
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+}
+
+#[test]
+fn staging_entropy_failure_does_not_mutate_and_retry_publishes_exact_bytes() {
+    let fs = base();
+    fs.inject_staging_name_error(0, io::ErrorKind::Other);
+    let before = fs.steps();
+    assert_eq!(
+        store(&fs).write_new(&dir(), &name("f"), BYTES),
+        KagemushaWalletPublishOutcomeV1::NotPublished(KagemushaWalletNotPublishedV1::Failed(
+            KagemushaWalletUnavailableV1::Io(0)
+        ))
+    );
+    assert_eq!(
+        fs.steps(),
+        before,
+        "no filesystem operation followed failed entropy"
+    );
+    assert!(fs.visible_names(&dir()).is_empty());
+    assert_eq!(
+        store(&fs).write_new(&dir(), &name("f"), BYTES),
+        KagemushaWalletPublishOutcomeV1::Published
+    );
+    fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+    assert_eq!(fs.visible_file(&dir(), "f").as_deref(), Some(BYTES));
+}
+
+#[test]
+fn staging_entropy_failure_keeps_existing_destination_during_rewrite() {
+    let fs = base_with_file(BYTES);
+    fs.inject_staging_name_error(0, io::ErrorKind::Other);
+    let before = fs.steps();
+    assert!(matches!(
+        store(&fs).rewrite_same(&dir(), &name("f"), BYTES),
+        KagemushaWalletPublishOutcomeV1::NotPublished(KagemushaWalletNotPublishedV1::Failed(_))
+    ));
+    assert_eq!(fs.trace_since(before), [KagemushaWalletSimStepV1::Read]);
+    assert_eq!(fs.visible_names(&dir()), ["f"]);
+    assert_eq!(fs.visible_file(&dir(), "f").as_deref(), Some(BYTES));
+    assert_eq!(
+        store(&fs).rewrite_same(&dir(), &name("f"), BYTES),
+        KagemushaWalletPublishOutcomeV1::Published
+    );
+    fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+    assert_eq!(fs.visible_file(&dir(), "f").as_deref(), Some(BYTES));
+}
+
+#[test]
+fn staging_entropy_failure_on_either_pair_member_never_publishes_a_destination() {
+    for before_error in [0, 1] {
+        let fs = base();
+        fs.inject_staging_name_error(before_error, io::ErrorKind::Other);
+        let outcome = store(&fs).write_new_pair(&dir(), (&name("a"), BYTES), (&name("b"), OTHER));
+        assert!(outcome.iter().all(|result| matches!(
+            result,
+            KagemushaWalletPublishOutcomeV1::NotPublished(KagemushaWalletNotPublishedV1::Failed(_))
+        )));
+        assert!(
+            fs.visible_names(&dir()).is_empty(),
+            "first staged member is discarded"
+        );
+        fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+        assert!(fs.visible_names(&dir()).is_empty());
+        assert_eq!(
+            store(&fs).write_new_pair(&dir(), (&name("a"), BYTES), (&name("b"), OTHER)),
+            [KagemushaWalletPublishOutcomeV1::Published; 2]
+        );
+        fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+        assert_eq!(fs.visible_file(&dir(), "a").as_deref(), Some(BYTES));
+        assert_eq!(fs.visible_file(&dir(), "b").as_deref(), Some(OTHER));
+    }
+}
+
+#[test]
+fn simulated_staging_entropy_faults_are_separate_and_resettable() {
+    let fs = base();
+    let before = fs.steps();
+    fs.inject_staging_name_error(1, io::ErrorKind::PermissionDenied);
+    assert!(fs.staging_name().is_ok());
+    assert_eq!(
+        fs.staging_name().unwrap_err().kind(),
+        io::ErrorKind::PermissionDenied
+    );
+    assert!(fs.staging_name().is_ok());
+    assert_eq!(
+        fs.steps(),
+        before,
+        "name requests do not renumber filesystem faults"
+    );
+    fs.inject_staging_name_error(0, io::ErrorKind::Other);
+    fs.clear_faults();
+    assert!(fs.staging_name().is_ok());
+    fs.inject_staging_name_error(0, io::ErrorKind::Other);
+    fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+    assert!(fs.staging_name().is_ok());
 }

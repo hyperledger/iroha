@@ -1,6 +1,6 @@
 
         seiyaku ListMutations {
-            view fn main() -> int {
+            view fn main() authorize(anyone) -> int {
                 var List<int, 3> values = [1, 2];
                 if values.try_set(index: 8, value: 99).is_ok() { return -1; }
                 if !values.try_push(3).is_ok() { return -2; }

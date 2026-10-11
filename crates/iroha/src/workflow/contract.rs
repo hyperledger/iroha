@@ -1025,7 +1025,10 @@ pub fn state_machine_json() -> Value {
                     limit(RETAINED_TRANSACTION_RECORD_BYTES_V1),
                 ),
                 ("participant_bytes", limit(PARTICIPANT_RECORD_BYTES_V1)),
-                ("custody_handle_bytes", limit(CUSTODY_HANDLE_RECORD_BYTES_V1)),
+                (
+                    "custody_handle_bytes",
+                    limit(CUSTODY_HANDLE_RECORD_BYTES_V1),
+                ),
                 (
                     "transcript_framing_bytes",
                     limit(TRANSCRIPT_FRAMING_RECORD_BYTES_V1),
@@ -1373,8 +1376,10 @@ mod tests {
             assert_eq!(round_transition(from, event, true), None);
         }
         for row in ROUND_TRANSITIONS_V1 {
-            let starts_an_effect =
-                matches!(row.event, RoundEventV1::Intent | RoundEventV1::RestartIntent);
+            let starts_an_effect = matches!(
+                row.event,
+                RoundEventV1::Intent | RoundEventV1::RestartIntent
+            );
             assert_eq!(row.guard == RoundGuardV1::NotCancelling, starts_an_effect);
         }
         // A round that is waiting has started: it is never restarted.

@@ -21,7 +21,7 @@
                 };
             }
 
-            view fn main() -> bool {
+            view fn main() authorize(anyone) -> bool {
                 let policy = Policies.get(Name::parse("spend")).unwrap_or(
                     empty_policy_state(),
                 );

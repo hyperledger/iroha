@@ -1,7 +1,7 @@
 
 seiyaku CompilerFixture {
 
-view fn summary() -> bytes {
+view fn summary() authorize(anyone) -> bytes {
   return crypto::execution_summary();
 }
 

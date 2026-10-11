@@ -101,7 +101,6 @@ pub const DEFAULT_ZK_GAS_PER_PROOF_BYTE: u64 = 5;
 pub const DEFAULT_ZK_GAS_PER_NULLIFIER: u64 = 300;
 /// Default gas multiplier per commitment created by the transaction.
 pub const DEFAULT_ZK_GAS_PER_COMMITMENT: u64 = 500;
-const FIELD_ELEMENT_BYTES: usize = 32;
 /// Dynamic factors (per-byte) applied to encoded payloads where sensible.
 /// Base cost of an SCCP instruction: bounded SCCP World reads and writes (`specs/sccp.md` §4).
 const BASE_SCCP: u64 = BASE_REGISTER;
@@ -175,20 +174,20 @@ pub fn meter_sealed_transaction_commitment(encoded_len: usize) -> u64 {
     let encoded_len = u64::try_from(encoded_len).unwrap_or(u64::MAX);
     BASE_SEALED_COMMITMENT.saturating_add(PER_BYTE_SEALED_COMMITMENT.saturating_mul(encoded_len))
 }
-fn halo2_public_input_count(attachment: &ProofAttachment) -> Option<u64> {
+fn ipa_public_input_count(attachment: &ProofAttachment) -> Option<u64> {
     let backend = attachment.backend.as_str();
     if crate::zk::verifier_backend_registry_tag_v1(backend)
-        != Some(iroha_data_model::zk::BackendTag::Halo2IpaPasta)
+        != Some(iroha_data_model::zk::BackendTag::NativePipaRPasta)
+        || attachment.proof.bytes.len()
+            > iroha_config::parameters::defaults::zk::pipa_r::MAX_ENVELOPE_BYTES
     {
         return None;
     }
     let env: OpenVerifyEnvelope = decode_canonical(&attachment.proof.bytes).ok()?;
-    let len = env.public_inputs.len();
-    let stride = FIELD_ELEMENT_BYTES as u64;
-    if len == 0 {
-        return Some(0);
-    }
-    Some(((len as u64) + stride.saturating_sub(1)) / stride)
+    let columns = crate::zk::native_pipa_r::public_instances(backend, &env).ok()?;
+    columns
+        .first()
+        .and_then(|column| u64::try_from(column.len()).ok())
 }
 fn gas_for_proof_attachment(
     attachment: &ProofAttachment,
@@ -199,7 +198,7 @@ fn gas_for_proof_attachment(
     let mut gas = zk_gas.proof_base;
     let proof_bytes = u64::try_from(attachment.proof.bytes.len()).unwrap_or(u64::MAX);
     gas = gas.saturating_add(zk_gas.per_proof_byte.saturating_mul(proof_bytes));
-    if let Some(public_inputs) = halo2_public_input_count(attachment) {
+    if let Some(public_inputs) = ipa_public_input_count(attachment) {
         gas = gas.saturating_add(zk_gas.per_public_input.saturating_mul(public_inputs));
     }
     let nullifiers_u64 = u64::try_from(nullifiers).unwrap_or(u64::MAX);
@@ -810,7 +809,7 @@ mod tests {
     }
     use crate::{
         kura::Kura, query::store::LiveQueryStore, state::State,
-        zk::test_utils::halo2_fixture_envelope,
+        zk::test_utils::native_framing_fixture_envelope,
     };
     use iroha_config::parameters::actual as cfg;
     use iroha_data_model::governance::types::{
@@ -994,12 +993,15 @@ mod tests {
             per_nullifier: 0,
             per_commitment: 0,
         };
-        let fixture = halo2_fixture_envelope("halo2/ipa:batch-overflow", [0_u8; 32]);
-        let proof_box = fixture.proof_box("halo2/ipa");
+        let fixture = native_framing_fixture_envelope(
+            crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
+            [0_u8; 32],
+        );
+        let proof_box = fixture.proof_box("pipa-r/pasta");
         let attachment = ProofAttachment::new_ref(
             proof_box.backend.clone(),
             proof_box,
-            VerifyingKeyId::new("halo2/ipa", "vk-batch-overflow"),
+            VerifyingKeyId::new("pipa-r/pasta", "vk-batch-overflow"),
         );
         let instruction: InstructionBox = VerifyProof::new(attachment).into();
         let gas = meter_instructions(&[instruction.clone(), instruction], &saturating);
@@ -1251,18 +1253,22 @@ mod tests {
     fn verify_proof_gas_matches_schedule() {
         use iroha_data_model::{isi::zk::VerifyProof, proof::VerifyingKeyId};
         let schedule = DEFAULT_ZK_GAS;
-        let fixture = halo2_fixture_envelope("halo2/ipa:gas-meter", [0u8; 32]);
-        let proof_box = fixture.proof_box("halo2/ipa");
+        let fixture = native_framing_fixture_envelope(
+            crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
+            [0u8; 32],
+        );
+        let proof_box = fixture.proof_box("pipa-r/pasta");
         let attachment = ProofAttachment::new_ref(
             proof_box.backend.clone(),
             proof_box,
-            VerifyingKeyId::new("halo2/ipa", "vk-gas"),
+            VerifyingKeyId::new("pipa-r/pasta", "vk-gas"),
         );
         let proof_bytes = attachment.proof.bytes.len() as u64;
-        let public_inputs = (fixture.public_inputs.len() / super::FIELD_ELEMENT_BYTES) as u64;
+        let public_inputs =
+            super::ipa_public_input_count(&attachment).expect("native public column");
         let instruction: InstructionBox = VerifyProof::new(attachment).into();
         let gas = meter_instruction(&instruction, &DEFAULT_ZK_GAS);
-        assert_eq!(public_inputs, 5);
+        assert_eq!(public_inputs, 9);
         let expected = schedule.proof_base
             + schedule.per_public_input.saturating_mul(public_inputs)
             + schedule.per_proof_byte.saturating_mul(proof_bytes);
@@ -1901,20 +1907,20 @@ mod tests {
     #[test]
     fn proof_public_input_gas_rejects_alternate_norito_layout() {
         use iroha_data_model::proof::VerifyingKeyId;
-        let fixture = halo2_fixture_envelope("halo2/ipa:canonical-gas-meter", [0u8; 32]);
+        let fixture = native_framing_fixture_envelope(
+            crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
+            [0u8; 32],
+        );
         let envelope = norito::decode_canonical::<OpenVerifyEnvelope>(&fixture.proof_bytes)
             .expect("fixture proof envelope is canonical");
         let canonical_attachment = ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            fixture.proof_box("halo2/ipa"),
-            VerifyingKeyId::new("halo2/ipa", "vk-canonical-gas"),
+            "pipa-r/pasta".into(),
+            fixture.proof_box("pipa-r/pasta"),
+            VerifyingKeyId::new("pipa-r/pasta", "vk-canonical-gas"),
         );
         assert_eq!(
-            super::halo2_public_input_count(&canonical_attachment),
-            Some(
-                u64::try_from(fixture.public_inputs.len() / super::FIELD_ELEMENT_BYTES)
-                    .expect("fixture public-input count fits u64")
-            )
+            super::ipa_public_input_count(&canonical_attachment),
+            Some(9)
         );
         let alternate_flags =
             norito::core::default_encode_flags() ^ norito::core::header_flags::COMPACT_LEN;
@@ -1928,12 +1934,12 @@ mod tests {
             "ordinary Norito must accept its advertised alternate layout"
         );
         let alternate_attachment = ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            iroha_data_model::proof::ProofBox::new("halo2/ipa".into(), alternate_bytes),
-            VerifyingKeyId::new("halo2/ipa", "vk-alternate-gas"),
+            "pipa-r/pasta".into(),
+            iroha_data_model::proof::ProofBox::new("pipa-r/pasta".into(), alternate_bytes),
+            VerifyingKeyId::new("pipa-r/pasta", "vk-alternate-gas"),
         );
         assert_eq!(
-            super::halo2_public_input_count(&alternate_attachment),
+            super::ipa_public_input_count(&alternate_attachment),
             None,
             "non-canonical envelopes must not supply consensus-visible gas metadata"
         );
@@ -1956,16 +1962,19 @@ mod tests {
         state
             .set_zk(zk_cfg.clone())
             .expect("empty state accepts gas test configuration");
-        let fixture = halo2_fixture_envelope("halo2/ipa:transfer-gas", [0u8; 32]);
-        let proof_box = fixture.proof_box("halo2/ipa");
+        let fixture = native_framing_fixture_envelope(
+            crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
+            [0u8; 32],
+        );
+        let proof_box = fixture.proof_box("pipa-r/pasta");
         let attachment = iroha_data_model::proof::ProofAttachment::new_ref(
             proof_box.backend.clone(),
             proof_box,
-            VerifyingKeyId::new("halo2/ipa", "vk-config-gas"),
+            VerifyingKeyId::new("pipa-r/pasta", "vk-config-gas"),
         );
         let proof_bytes = attachment.proof.bytes.len() as u64;
         let public_inputs =
-            halo2_public_input_count(&attachment).expect("fixture exposes halo2 public inputs");
+            ipa_public_input_count(&attachment).expect("fixture exposes native public inputs");
         for backend in [
             "halo2/ipa/orchard",
             "halo2/ipa:production-ready",
@@ -1983,7 +1992,7 @@ mod tests {
                 VerifyingKeyId::new(backend, "vk-config-gas-rejected"),
             );
             assert_eq!(
-                halo2_public_input_count(&rejected_attachment),
+                ipa_public_input_count(&rejected_attachment),
                 None,
                 "non-registry backend {backend} must not be decoded for gas metadata"
             );
@@ -2092,5 +2101,67 @@ mod tests {
         assert!(equivocation(4_096) > equivocation(64));
         assert!(equivocation(64) >= 2 * SCCP_LIGHT_CLIENT_VERIFY);
         assert!(equivocation(SCCP_LC_EVIDENCE_MAX_BYTES_V1) < SHIPPED_BLOCK_GAS_LIMIT);
+    }
+}
+
+#[cfg(test)]
+mod native_pipa_r_gas_tests {
+    use super::*;
+
+    #[test]
+    fn native_gas_counts_exact_public_column_and_rejects_metadata_substitution() {
+        use iroha_data_model::{
+            proof::{ProofBox, VerifyingKeyId},
+            zk::{BackendTag, NativePipaRProofV1},
+        };
+        let backend = "pipa-r/pasta";
+        for (circuit, rows) in [
+            (
+                "pipa-r/pasta/kaigi-usage-v1",
+                crate::zk::native_pipa_r::relation("pipa-r/pasta", "pipa-r/pasta/kaigi-usage-v1")
+                    .unwrap()
+                    .instance_rows(),
+            ),
+            ("pipa-r/pasta/confidential-transfer-v1", 9),
+            ("pipa-r/pasta/confidential-unshield-full-v1", 8),
+            ("pipa-r/pasta/confidential-unshield-change-v1", 9),
+        ] {
+            let kind = crate::zk::native_pipa_r::relation(backend, circuit).unwrap();
+            assert_eq!(kind.instance_rows(), rows);
+            // Gas inspection validates framing and arity. These zero transcript bytes
+            // are intentionally not a cryptographic proof and are never verified.
+            let payload = NativePipaRProofV1 {
+                public_inputs: vec![[0; 32]; kind.instance_rows()],
+                proof: vec![0; kind.proof_length().unwrap()],
+            };
+            let mut envelope = OpenVerifyEnvelope {
+                backend: BackendTag::NativePipaRPasta,
+                circuit_id: circuit.into(),
+                vk_hash: [1; 32],
+                public_inputs: crate::zk::native_pipa_r::public_schema(kind).to_vec(),
+                proof_bytes: norito::encode_canonical(&payload).unwrap(),
+                aux: Vec::new(),
+            };
+            let inspect = |envelope: &OpenVerifyEnvelope, backend: &str| {
+                let proof =
+                    ProofBox::new(backend.into(), norito::encode_canonical(envelope).unwrap());
+                let attachment = ProofAttachment::new_ref(
+                    backend.into(),
+                    proof,
+                    VerifyingKeyId::new(backend, "gas-count"),
+                );
+                ipa_public_input_count(&attachment)
+            };
+            assert_eq!(
+                inspect(&envelope, backend),
+                Some(u64::try_from(kind.instance_rows()).unwrap())
+            );
+            assert_eq!(inspect(&envelope, "halo2/pasta/kaigi-usage-v1"), None);
+            envelope.public_inputs.push(0);
+            assert_eq!(inspect(&envelope, backend), None);
+            envelope.public_inputs.pop();
+            envelope.backend = BackendTag::Stark;
+            assert_eq!(inspect(&envelope, backend), None);
+        }
     }
 }

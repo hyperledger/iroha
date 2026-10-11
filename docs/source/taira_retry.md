@@ -4,7 +4,7 @@
 four-validator deployment using its existing immutable build and transfer
 receipts. It creates a fresh deployment identity and authorization nonce, retires
 the completed attempt's custody, and runs native assemble, authorize, preflight,
-and apply. It then verifies seed continuity and boot persistence. It does not
+and apply. It then verifies signer continuity and boot persistence. It does not
 build or transfer unchanged binaries or source.
 
 For a changed release, freeze the source once and run `scripts/taira_release.py
@@ -136,7 +136,7 @@ The preceding assembly's `native-local-args.json` is a closed, ordered path
 list: `--public-inputs`, `--runtime-client-config`, four
 `--validator-client-config` paths, `--validator-operator-key`,
 `--onboarding-token`, optional `--inrou-stage-dir` for full scope, four
-`--validator-unit` paths, `--edge-unit`, and `--known-hosts`. The public bundle
+`--validator-unit` paths, `--native-edge-capability`, and `--known-hosts`. The public bundle
 remains `<prep>/public-inputs`. Retired epoch worker plans, administrator flags,
 and separate seed batches are rejected. Validator signer custody stays protected
 through retry and public-import cleanup.
@@ -171,11 +171,11 @@ failed preparation stops before authorization or apply. The shared deployment
 lock and durable reset owner prevent updates between reset calls. Existing
 retired worker state or service files require reconciliation before retirement.
 
-After apply, seed continuity and boot checks first require the exact native
+After apply, signer continuity and boot checks first require the exact native
 completed and deployment-proven receipts. They bind each owner-only beacon
 activation record to that authorization, nonce/session, common bundle and signed
 final unit. Only the native-derived config hash and `beacon.toml` process binding
-replace the initial config binding; seed metadata and native identity fingerprints
+replace the initial config binding; signer metadata and native identity fingerprints
 remain checked. An activation marker alone cannot authorize success. Preapply
 resumption preserves the attempt nonce, archives its incomplete preparation, and
 regenerates those public outputs. Completed apply resumes only postconditions. `core_testnet` forbids `--inrou-stage-dir` and requires explicit `null` for
@@ -255,7 +255,7 @@ failure file or an absent current journal never proves rollback. The command
 never automatically resubmits a possibly mutating apply.
 
 If native apply completed but a later check failed, repeating the same command
-resumes only seed verification, boot persistence and public validation. This path
+resumes only signer verification, boot persistence and public validation. This path
 requires the exact native `completed` and `deployment-proven` records, the same
 inventory and authorization, and the original native preflight report bound to
 the durable apply marker. Wrapper status or an apply exit code cannot grant it.
@@ -263,7 +263,12 @@ It holds the native coordinator lock, keeps the original nonce and prestart
 record, and archives incomplete observations before repeating postconditions.
 It performs no retirement, assembly, authorization or apply.
 
-Seed verification uses `taira_seed_observation.py` to read the public committed
+The `signer-pre` phase binds the four genesis topology peers to distinct retained
+FD198 runtime signer files using owner, mode, size and inode metadata, without
+reading key bytes. The `signer-post` phase rechecks that custody against the
+completed beacon deployment and records `signer-continuity/signer-authority-receipt.json`.
+
+Signer verification uses `taira_signer_observation.py` to read the public committed
 height and request a fresh challenge-bound finality attestation. The attestation
 supplies the applied status; the check needs no operator credentials. The observer
 requires the producer's canonical 64-character uppercase hexadecimal JSON challenge
@@ -299,7 +304,7 @@ to native authorization. Python never reads the signing key or peer config
 contents. The operation keeps the same source and artifacts; a changed build uses
 the release preparation and transfer workflow instead.
 
-A successful retry result proves native apply, seed continuity, boot persistence
+A successful retry result proves native apply, signer continuity, boot persistence
 and public doctor/source/network/MCP health. Its
 `public_application_validation_completed` remains `false`: the application's
 own end-to-end acceptance check is separate and must use the released revision
@@ -309,5 +314,5 @@ Run the focused offline tests without Cargo or SSH:
 
 ```sh
 python3 -B -m unittest discover -s scripts/tests -p 'taira_retry_test.py'
-python3 -B -m unittest discover -s scripts/tests -p 'taira_seed_observation_test.py'
+python3 -B -m unittest discover -s scripts/tests -p 'taira_signer_observation_test.py'
 ```

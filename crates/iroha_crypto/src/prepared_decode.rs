@@ -6,7 +6,7 @@
 //! an exact destination. A geometry refusal here is a local planning error, not
 //! evidence that the offered bytes are protocol-invalid.
 
-use iroha_allocation::{AllocationBudget, AllocationCharge, ChargedBuffer};
+use iroha_allocation::{AllocationBudget, AllocationCharge, ChargedBuffer, ChargedBufferError};
 use norito::core::{Encoder, Error, SerializePayload};
 
 use crate::{
@@ -55,6 +55,88 @@ impl std::error::Error for PreparedCryptoDecodeError {
             Self::Signature(error) => Some(error),
             Self::Geometry { .. } => None,
         }
+    }
+}
+
+/// A canonical key failure or original-pool refusal at its retained-backing boundary.
+///
+/// Logical decode work is consumed before physical admission and is never rolled
+/// back. This preserves the exact codec cause or original pool release observation;
+/// diagnostic formatting is not performed while constructing either error.
+#[derive(Debug)]
+pub enum PublicKeyDecodeAdmissionError {
+    /// Original canonical framing, key validation or cumulative decode-work failure.
+    Codec(Error),
+    /// Exact compact backing could not be admitted or physically allocated.
+    Allocation(ChargedBufferError),
+}
+impl From<Error> for PublicKeyDecodeAdmissionError {
+    fn from(error: Error) -> Self {
+        Self::Codec(error)
+    }
+}
+impl std::fmt::Display for PublicKeyDecodeAdmissionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Codec(error) => error.fmt(formatter),
+            Self::Allocation(error) => error.fmt(formatter),
+        }
+    }
+}
+impl std::error::Error for PublicKeyDecodeAdmissionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Codec(error) => Some(error),
+            Self::Allocation(error) => Some(error),
+        }
+    }
+}
+
+/// Original JSON syntax/resource failure or a distinct original-pool key refusal.
+#[derive(Debug)]
+pub enum PublicKeyJsonAdmissionError {
+    /// The ordinary JSON/key parser's unchanged canonical failure.
+    Json(norito::json::Error),
+    /// Original compact-key validity or logical resource cause, without diagnostics.
+    Codec(Error),
+    /// The exact temporary string or retained compact key could not be funded.
+    Allocation(ChargedBufferError),
+}
+impl From<norito::json::Error> for PublicKeyJsonAdmissionError {
+    fn from(error: norito::json::Error) -> Self {
+        Self::Json(error)
+    }
+}
+impl From<ChargedBufferError> for PublicKeyJsonAdmissionError {
+    fn from(error: ChargedBufferError) -> Self {
+        Self::Allocation(error)
+    }
+}
+impl std::fmt::Display for PublicKeyJsonAdmissionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json(error) => error.fmt(formatter),
+            Self::Codec(error) => error.fmt(formatter),
+            Self::Allocation(error) => error.fmt(formatter),
+        }
+    }
+}
+impl std::error::Error for PublicKeyJsonAdmissionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Json(error) => Some(error),
+            Self::Codec(error) => Some(error),
+            Self::Allocation(error) => Some(error),
+        }
+    }
+}
+
+// The shared JSON kernel receives one fully initialized exact byte destination.
+// It cannot grow or separate the buffer from its original pool charge.
+struct JsonTextBuffer(ChargedBuffer<u8>);
+impl AsMut<[u8]> for JsonTextBuffer {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut_slice()
     }
 }
 
@@ -190,6 +272,166 @@ impl SerializePayload for PreparedSignatureDecode {
 pub struct PreparedPublicKeyDecode(InitializedBytes);
 
 impl PreparedPublicKeyDecode {
+    /// Restore a canonical JSON public-key leaf using its actual original finite pool.
+    ///
+    /// The shared JSON string kernel charges the ordinary decoded-string work
+    /// before exact temporary backing. Canonical multihash geometry then precedes
+    /// the ordinary compact logical charge, exact pool allocation and point check.
+    /// The temporary string retires before return; only the immutable compact box
+    /// and its original charge escape. This establishes syntax, not signer authority.
+    /// Enclosing records, source bytes, controls and crypto scratch remain separate.
+    ///
+    /// # Errors
+    /// Preserves ordinary JSON/key errors and exact original-pool or allocator
+    /// refusal. Active cumulative decode counters are neither reset nor refunded.
+    pub fn try_from_json(
+        parser: &mut norito::json::Parser<'_>,
+        budget: &AllocationBudget,
+    ) -> Result<ChargedPublicKey, PublicKeyJsonAdmissionError> {
+        let text = parser.parse_string_with_buffer(|length| {
+            let mut buffer = ChargedBuffer::new(length, budget)?;
+            for _ in 0..length {
+                buffer.push_reserved(0);
+            }
+            Ok::<_, PublicKeyJsonAdmissionError>(JsonTextBuffer(buffer))
+        })?;
+        // The shared JSON kernel already checked UTF-8, including escaped scalars.
+        let value = std::str::from_utf8(text.0.as_slice()).map_err(|_| {
+            PublicKeyJsonAdmissionError::Json(norito::json::Error::Message(
+                "invalid public key".into(),
+            ))
+        })?;
+        Self::try_from_canonical_text(value, budget).map_err(|error| match error {
+            PublicKeyDecodeAdmissionError::Codec(error) => {
+                PublicKeyJsonAdmissionError::Codec(error)
+            }
+            PublicKeyDecodeAdmissionError::Allocation(error) => {
+                PublicKeyJsonAdmissionError::Allocation(error)
+            }
+        })
+    }
+
+    /// Restore bare canonical multihash text without an intermediate owned key.
+    ///
+    /// Unlike raw-material admission, the ordinary JSON/key parser creates compact
+    /// backing before point validation. This preserves that exact order and active
+    /// logical charge while choosing original-pool storage at the physical boundary.
+    ///
+    /// # Errors
+    /// Returns the unchanged canonical/resource failure or exact local refusal.
+    pub fn try_from_canonical_text(
+        value: &str,
+        budget: &AllocationBudget,
+    ) -> Result<ChargedPublicKey, PublicKeyDecodeAdmissionError> {
+        let decoded =
+            crate::multihash::decode_public_key_str_borrowed(value).ok_or(Error::InvalidValue {
+                context: "public key",
+            })?;
+        let payload_bytes = decoded.payload_hex.len() / 2;
+        let exact_bytes = public_key_decode::reserve_compact_decode_backing(payload_bytes)?;
+        let mut backing = ChargedBuffer::new(exact_bytes, budget)
+            .map_err(PublicKeyDecodeAdmissionError::Allocation)?;
+        backing.push_reserved(PublicKeyCompact::algorithm_tag(decoded.algorithm));
+        for pair in decoded.payload_hex.as_bytes().chunks_exact(2) {
+            let byte = crate::multihash::decode_public_key_payload_byte(pair).ok_or(
+                Error::InvalidValue {
+                    context: "public key",
+                },
+            )?;
+            backing.push_reserved(byte);
+        }
+        public_key_decode::validate(decoded.algorithm, &backing.as_slice()[1..])?;
+        Ok(PublicKey::bind_compact_allocation(backing))
+    }
+
+    /// Validate already-owned raw key material and fund its exact compact backing.
+    ///
+    /// The original material is borrowed. The shared allocation-free canonical
+    /// validator runs before pool admission, then the compact tag and payload are
+    /// copied into the exact original-pool allocation. This is not a wire decoder:
+    /// no framing or cumulative Norito decode counter is consumed or reset.
+    /// Validation scratch and enclosing source ownership remain caller obligations.
+    ///
+    /// # Errors
+    /// Returns the original canonical key-validation failure, exact pool refusal,
+    /// or physical allocator refusal before a destination can escape.
+    pub fn try_from_material(
+        algorithm: super::Algorithm,
+        payload: &[u8],
+        budget: &AllocationBudget,
+    ) -> Result<ChargedPublicKey, PublicKeyDecodeAdmissionError> {
+        public_key_decode::validate(algorithm, payload)?;
+        let exact_bytes = payload.len().checked_add(1).ok_or_else(|| {
+            PublicKeyDecodeAdmissionError::Allocation(
+                iroha_allocation::ChargedBufferError::Admission(
+                    iroha_allocation::AllocationRefusal::DemandOverflow,
+                ),
+            )
+        })?;
+        let mut backing = ChargedBuffer::new(exact_bytes, budget)
+            .map_err(PublicKeyDecodeAdmissionError::Allocation)?;
+        backing.push_reserved(PublicKeyCompact::algorithm_tag(algorithm));
+        for &byte in payload {
+            backing.push_reserved(byte);
+        }
+        Ok(PublicKey::bind_compact_allocation(backing))
+    }
+
+    /// Decode once and admit the exact compact backing from the original pool.
+    ///
+    /// Sequence work, tag/point validity and nominal retained-byte admission run
+    /// at the same points as the ordinary key decoder. Only then is the exact
+    /// physical layout prepaid and allocated. No geometry preview, second parse,
+    /// alignment copy, counter reset or quota refund occurs. The completed owner
+    /// destroys its canonical key before returning its original physical credit.
+    ///
+    /// The caller supplies the original advertised flags and canonical field
+    /// context and retains the source bytes, enclosing frame and decode controls.
+    /// This method funds only the compact key, not those enclosing owners. A
+    /// refusal retains no prepared backing; retrying the same borrowed source
+    /// consumes additional work in the same cumulative decode context.
+    ///
+    /// # Errors
+    /// Returns the original codec/refusal cause or exact physical allocation
+    /// failure. Successful prefix work remains consumed on every failure.
+    pub fn try_decode_payload(
+        bytes: &[u8],
+        budget: &AllocationBudget,
+    ) -> Result<ChargedPublicKey, PublicKeyDecodeAdmissionError> {
+        public_key_decode::with_decoded_compact(bytes, true, |algorithm, payload| {
+            let exact_bytes = public_key_decode::reserve_compact_decode_backing(payload.len())?;
+            let mut backing = ChargedBuffer::new(exact_bytes, budget)
+                .map_err(PublicKeyDecodeAdmissionError::Allocation)?;
+            backing.push_reserved(PublicKeyCompact::algorithm_tag(algorithm));
+            for &byte in payload {
+                backing.push_reserved(byte);
+            }
+            Ok::<_, PublicKeyDecodeAdmissionError>(PublicKey::bind_compact_allocation(backing))
+        })
+        .map(|(owner, _)| owner)
+    }
+
+    /// Recheck canonical payload boundaries against an already-retained public key.
+    ///
+    /// The sole compact parser, validator and ordinary logical backing admission
+    /// run again in the active context. No physical storage is allocated, replaced
+    /// or refunded; the caller keeps the original key and its funding together.
+    ///
+    /// # Errors
+    /// Returns the original canonical/resource error or a changed canonical key.
+    pub fn recheck_payload(bytes: &[u8], original: &PublicKey) -> Result<(), Error> {
+        public_key_decode::with_decoded_compact(bytes, true, |algorithm, payload| {
+            public_key_decode::reserve_compact_decode_backing(payload.len())?;
+            if original.to_bytes() != (algorithm, payload) {
+                return Err(Error::InvalidValue {
+                    context: "public key",
+                });
+            }
+            Ok(())
+        })
+        .map(|((), _)| ())
+    }
+
     /// Allocate and initialize the exact compact allocation, including its tag.
     ///
     /// # Errors

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for deterministic, fail-closed C# ABI-25 native NuGet packaging."""
+"""Tests for deterministic, fail-closed C# ABI-29 native NuGet packaging."""
 
 from __future__ import annotations
 

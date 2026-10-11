@@ -2,7 +2,7 @@
 seiyaku CompilerFixture {
 
 fn main(AccountId account) {
-  ledger::account::set_detail(
+  ledger::account::set_metadata(
     account: account,
     key: Name::parse("status"),
     value: Name::parse("not_json"),

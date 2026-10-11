@@ -22,9 +22,17 @@ mod availability;
 mod committee_custody;
 #[cfg(test)]
 mod genesis_policy;
+#[cfg(test)]
+pub(crate) mod kagemusha_setup;
 mod local_certificate;
+#[path = "test_chain/retail_multisig.rs"]
+mod retail_multisig;
 #[cfg(test)]
 pub(crate) use genesis_policy::{signed_genesis_fixture_for_state, staged_genesis_policies};
+/// Genuine monthly-fee multisig transfer evidence for downstream integration tests.
+pub use retail_multisig::{
+    NativeRetailMultisigTransferFixture, native_retail_multisig_transfer_fixture,
+};
 
 use std::{num::NonZeroU64, sync::Arc, time::Duration};
 
@@ -34,7 +42,6 @@ use iroha_data_model::parameter::system::ConsensusMode;
 use iroha_data_model::{
     IntoKeyValue, NetworkId, Registrable,
     account::{Account, AccountId},
-    block::consensus::ValidatorPower,
     block::{SignedBlock, consensus::SumeragiGenesisContextParameters},
     domain::Domain,
     isi::{InstructionBox, Log},
@@ -51,8 +58,8 @@ use iroha_primitives::time::TimeSource;
 use iroha_sumeragi::{
     api::ExecOutcome,
     availability::AvailableBody,
-    crypto::{AttestOutcome, Attestor as _, Signer as _, form_qc},
-    message::{BlockHeader, CommitAttestation, Qc, ResultWitness, Vote, VoteKind},
+    crypto::{Signer as _, form_qc},
+    message::{BlockHeader, Qc, Vote, VoteKind},
     preimage::payload_hash,
     types::{Committee, Hash32},
 };
@@ -206,8 +213,6 @@ pub struct PreparedTestChainConfig {
     pub kura: Arc<Kura>,
     /// Exact BLS private keys, in signed genesis committee order.
     pub validator_keys: Vec<KeyPair>,
-    /// Exact independently provisioned Pasta seeds in that same order.
-    pub pasta_seeds: Vec<zeroize::Zeroizing<[u8; 32]>>,
     /// Signing key of an account present after original genesis executes.
     pub clock: KeyPair,
     /// The original source of committed lane blocks.
@@ -250,7 +255,6 @@ fn fixture_keys() -> Vec<KeyPair> {
 /// A chain of certified blocks over one State (see the module documentation).
 pub struct CertifiedTestChain {
     state: Arc<State>,
-    attestor: super::attestation::NativePastaAttestor,
     kura: Arc<Kura>,
     genesis: SignedBlock,
     validated_genesis: iroha_genesis::ValidatedGenesisBundle,
@@ -266,8 +270,6 @@ pub struct CertifiedTestChain {
     /// Height, core block hash and `R` of the tip.
     tip: (u64, Hash32, Hash32),
     clock: KeyPair,
-    pasta_seeds: Vec<zeroize::Zeroizing<[u8; 32]>>,
-    candidate_pasta_seeds: Vec<(PeerId, zeroize::Zeroizing<[u8; 32]>)>,
     lane_blocks: Arc<dyn crate::sumeragi::lanes::merge::LaneBlockSource>,
 }
 
@@ -438,9 +440,6 @@ impl CertifiedTestChain {
             state,
             kura,
             validator_keys: keys,
-            pasta_seeds: (0..4)
-                .map(|index| zeroize::Zeroizing::new([0xA0 + index; 32]))
-                .collect(),
             clock,
             lane_blocks,
         })
@@ -464,7 +463,6 @@ impl CertifiedTestChain {
             state,
             kura,
             validator_keys: keys,
-            pasta_seeds,
             clock,
             lane_blocks,
         } = config;
@@ -481,17 +479,21 @@ impl CertifiedTestChain {
         .map_err(|error| invalid(format!("original prepared manifest: {error:#}")))?;
         let genesis = validated_genesis.block().clone();
         let chain_id = manifest.chain_id().clone();
-        let epoch = super::epoch::genesis_epoch(&genesis).map_err(|error| {
-            match crate::execution_attempt::genesis_read_attempt_error(error, |error| {
-                invalid(error.to_string())
-            }) {
-                crate::execution_attempt::ExecutionAttemptError::Rejected(error) => error,
-                crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => StartFailure {
-                    error: TestChainError::Deferred(reason),
-                    state: Arc::clone(&state),
-                },
-            }
-        })?;
+        let epoch = super::epoch::authenticated_genesis(&genesis)
+            .map(|genesis| genesis.into_parts().0)
+            .map_err(|error| {
+                match crate::execution_attempt::genesis_read_attempt_error(error, |error| {
+                    invalid(error.to_string())
+                }) {
+                    crate::execution_attempt::ExecutionAttemptError::Rejected(error) => error,
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                        StartFailure {
+                            error: TestChainError::Deferred(reason),
+                            state: Arc::clone(&state),
+                        }
+                    }
+                }
+            })?;
         if state.chain_id_ref() != &chain_id
             || state.view().network_id() != &epoch.network_id
             || !std::ptr::eq(state.kura(), kura.as_ref())
@@ -505,7 +507,6 @@ impl CertifiedTestChain {
         }
         if epoch.committee.len() != 4
             || keys.len() != epoch.committee.len()
-            || pasta_seeds.len() != epoch.committee.len()
             || keys
                 .iter()
                 .zip(&epoch.committee)
@@ -514,15 +515,6 @@ impl CertifiedTestChain {
             return Err(invalid(
                 "fixture custody must cover all four exact ordered signed genesis seats".into(),
             ));
-        }
-        let generation = Arc::new(epoch.authority);
-        for (index, seed) in pasta_seeds.iter().enumerate() {
-            crate::zk::kagemusha_v1_recursion::KagemushaMintFinalityLocalAuthorityV1::new(
-                Arc::clone(&generation),
-                zeroize::Zeroizing::new(**seed),
-                u32::try_from(index).expect("four seats"),
-            )
-            .map_err(|error| invalid(format!("original Pasta custody seat {index}: {error}")))?;
         }
         let validators = epoch
             .committee
@@ -586,10 +578,6 @@ impl CertifiedTestChain {
             staging.clone(),
             state.ivm_execution_budget(),
             Arc::clone(&availability),
-            Arc::new(super::attestation::NativePastaVerifier::new(
-                instance,
-                *state.network_id_ref(),
-            )),
         );
         let (events, event_receiver) = tokio::sync::broadcast::channel(4096);
         let executor = StateExecutor::spawn(ExecutorContext {
@@ -620,34 +608,8 @@ impl CertifiedTestChain {
             .iter()
             .map(|key| KeyPairSigner::new(key).expect("BLS-normal fixture key"))
             .collect::<Vec<_>>();
-        let authority = Arc::new(
-            crate::zk::kagemusha_v1_recursion::KagemushaMintFinalityLocalAuthorityV1::new(
-                generation,
-                zeroize::Zeroizing::new(*pasta_seeds[0]),
-                0,
-            )
-            .expect("actual genesis Pasta fixture custody"),
-        );
-        let (attestor, publisher) = super::attestation::channel(
-            instance,
-            signers[0].public_key(),
-            true,
-            &state.ivm_execution_budget(),
-        )
-        .expect("original pool fixture mailbox");
-        executor
-            .attach_attestation(
-                super::attestation::NativePastaVerifier::new(
-                    instance,
-                    NetworkId::from_genesis_hash(genesis.hash()),
-                ),
-                Some(authority),
-                publisher,
-            )
-            .expect("attach original fixture custody");
         Ok(Self {
             state,
-            attestor,
             kura,
             genesis,
             validated_genesis,
@@ -662,8 +624,6 @@ impl CertifiedTestChain {
             instance,
             tip: (GENESIS_HEIGHT, tip.block_hash, tip.result),
             clock,
-            pasta_seeds,
-            candidate_pasta_seeds: Vec::new(),
             lane_blocks,
         })
     }
@@ -734,7 +694,7 @@ impl CertifiedTestChain {
     ///
     /// The DKG session is genuinely proved but seeded as component prestate at height 8;
     /// this fixture does not claim transaction-driven ceremony or live-network qualification.
-    /// The returned chain is ready to execute its mandatory attested boundary work at 10.
+    /// The returned chain is ready to execute its ordinary exact-quorum boundary work at 10.
     pub fn npos_boundary_fixture() -> Self {
         Self::npos_boundary_fixture_with_currency(true)
     }
@@ -817,14 +777,14 @@ impl CertifiedTestChain {
                 .collect::<Vec<_>>()
         );
         let id: [u8; 32] =
-            iroha_crypto::Hash::new(b"native original Pasta boundary fixture DKG").into();
+            iroha_crypto::Hash::new(b"native original BLS boundary fixture DKG").into();
         let (session, signers) = prepared_session_and_signers_fixture_for_keys_v1(
             GlobalThresholdBeaconDkgSessionV1 {
                 version: GLOBAL_THRESHOLD_BEACON_VERSION_V1,
                 network_id: chain.network_id(),
                 session_id: id,
                 attempt_id: id,
-                authority_generation: current.authority.generation,
+                authority_generation: current.authorization.authority_generation,
                 roster_hash: crate::beacon::global_threshold_beacon_roster_hash_v1(&roster),
                 committee_size: 4,
                 threshold: 2,
@@ -1240,7 +1200,7 @@ impl CertifiedTestChain {
             payload_len: u32::try_from(payload_bytes.len()).expect("payload fits"),
             proposer: 0,
             skipped_leaders: Vec::new(),
-            attest: height == scheduled.epoch.authorization.last_height,
+            // Match the production application rule at every height, including boundaries.
         };
         let block = self.author_payload(header, payload_bytes);
         let block_hash = block.hash(&*self.crypto);
@@ -1278,70 +1238,16 @@ impl CertifiedTestChain {
     }
 
     /// A `CommitQC` of `(height, block_hash, result)` signed by `signers` (view 0).
+    /// Wrong-cardinality controls produce genuinely signed invalid certificates
+    /// for negative reads; ordinary production publication never admits them.
     #[must_use]
     pub fn commit_qc(
         &self,
         height: u64,
         block_hash: Hash32,
         result: Hash32,
-        attest: bool,
         signers: Signers,
     ) -> Qc {
-        let context = self.certificate_context(height);
-        let epoch = super::schedule::core_epoch(&context).unwrap().id;
-        let witness = if attest {
-            if height <= self.tip.0 {
-                self.committed_body(height)
-                    .expect("restore original certified witness into this State pool")
-                    .expect("original committed body exists")
-                    .1
-                    .attestation_witness
-            } else {
-                let statement = iroha_sumeragi::preimage::att_preimage(
-                    &self.instance,
-                    &epoch,
-                    height,
-                    &block_hash,
-                    &result,
-                );
-                let AttestOutcome::Attested(share) =
-                    self.attestor
-                        .attest(height, self.signers[0].public_key(), &statement)
-                else {
-                    panic!(
-                        "the executed original must publish its actual Pasta receipt before Valid"
-                    );
-                };
-                Some(share.witness)
-            }
-        } else {
-            None
-        };
-        self.commit_qc_with_witness(height, block_hash, result, attest, signers, witness)
-    }
-
-    /// Sign a source-complete certificate over the exact original worker witness supplied by
-    /// an execution fixture. It must hash to R; every Pasta signer verifies the same full source.
-    pub fn commit_qc_with_witness(
-        &self,
-        height: u64,
-        block_hash: Hash32,
-        result: Hash32,
-        attest: bool,
-        signers: Signers,
-        witness: Option<ResultWitness>,
-    ) -> Qc {
-        assert_eq!(
-            attest,
-            witness.is_some(),
-            "exact mandatory witness presence"
-        );
-        if let Some(witness) = &witness {
-            assert_eq!(
-                super::commitment::result_of_preimage(witness.as_slice()),
-                result
-            );
-        }
         let context = self.certificate_context(height);
         assert_eq!(context.committee.len(), 4, "four-seat component fixture");
         let epoch = super::schedule::core_epoch(&context).unwrap().id;
@@ -1353,14 +1259,6 @@ impl CertifiedTestChain {
                 .collect(),
         )
         .expect("the exact authenticated committee");
-        if let Some(witness) = &witness {
-            let original = super::commitment::ExecutionResultCommitment::decode(witness.as_slice())
-                .expect("original native execution witness");
-            assert_eq!(
-                original.schedule.current, context,
-                "certificate seats belong to the exact executed scheduling context"
-            );
-        }
         let votes = signers
             .indices()
             .iter()
@@ -1373,37 +1271,11 @@ impl CertifiedTestChain {
                     view: 0,
                     block_hash,
                     result,
-                    attest,
                     signer,
                     sig: iroha_sumeragi::types::Signature(
                         [0; iroha_sumeragi::types::SIGNATURE_LEN],
                     ),
-                    attestation: None,
                 };
-                if let Some(witness) = &witness {
-                    let message = super::attestation::native_seal_message(
-                        self.instance,
-                        self.network_id(),
-                        &vote.statement(),
-                        witness.as_slice(),
-                    )
-                    .expect("actual original native statement");
-                    let result =
-                        super::commitment::ExecutionResultCommitment::decode(witness.as_slice())
-                            .unwrap();
-                    let custody = self
-                        .pasta_custody_for_peer(&context.committee[signer as usize].validator)
-                        .expect("provisioned exact scheduled Pasta custody");
-                    let signer = custody
-                        .signer_for_authority(&result.schedule.current.authority)
-                        .unwrap();
-                    vote.attestation = Some(CommitAttestation {
-                        witness: witness.clone(),
-                        signature: super::attestation::encode_native_seal(
-                            signer.sign(&message).unwrap(),
-                        ),
-                    });
-                }
                 vote.sig = self
                     .signer_for_member(&context.committee[signer as usize].validator)
                     .expect("provisioned exact scheduled BLS custody")
@@ -1414,9 +1286,14 @@ impl CertifiedTestChain {
         let refs = votes.iter().collect::<Vec<_>>();
         match form_qc(&*self.crypto, committee.n(), &refs) {
             Ok(qc) => qc,
-            // Under- or oversized sets are refused by `form_qc`: aggregate by hand only
-            // to supply a genuinely signed malformed certificate to negative tests.
-            Err(_) => {
+            // Only explicitly malformed controls may bypass QC construction: wrong quorum
+            // cardinality.
+            // These retain genuine BLS signatures and are never admitted by publication.
+            Err(error) => {
+                assert!(
+                    matches!(signers, Signers::BelowQuorum | Signers::All),
+                    "an ordinary exact-quorum native certificate must form: {error:?}"
+                );
                 let mut signers_bitmap = iroha_sumeragi::types::Bitmap::new(committee.n());
                 for vote in &votes {
                     signers_bitmap.set(vote.signer);
@@ -1430,34 +1307,11 @@ impl CertifiedTestChain {
                     view: 0,
                     block_hash,
                     result,
-                    attest,
                     signers: signers_bitmap,
                     agg_sig: iroha_sumeragi::crypto::Crypto::aggregate(&*self.crypto, &sigs),
-                    attestations: votes
-                        .iter()
-                        .filter_map(|vote| vote.attestation.as_ref().map(|share| share.signature))
-                        .collect(),
-                    attestation_witness: witness,
                 }
             }
         }
-    }
-
-    /// Original seed custody matching this chain's signed genesis authority and canonical seat.
-    pub fn pasta_custody(
-        &self,
-        index: u32,
-    ) -> crate::zk::kagemusha_v1_recursion::KagemushaMintFinalityLocalAuthorityV1 {
-        crate::zk::kagemusha_v1_recursion::KagemushaMintFinalityLocalAuthorityV1::new(
-            Arc::new(
-                super::epoch::genesis_epoch(&self.genesis)
-                    .unwrap()
-                    .authority,
-            ),
-            zeroize::Zeroizing::new(*self.pasta_seeds[index as usize]),
-            index,
-        )
-        .expect("fixture custody matches its actual signed genesis")
     }
 
     /// Test setup outside consensus: run `edit` on a transaction of an overlay for the next
@@ -1648,15 +1502,12 @@ impl PendingTestExecution<'_> {
                 return Err("original pending certificate cannot be replaced".into());
             }
         } else {
-            let mut qc = self.chain.commit_qc(
+            let qc = self.chain.commit_qc(
                 self.block.header().height,
                 self.block_hash,
                 self.result,
-                self.block.header().attest,
                 signers,
             );
-            qc.admit_attestation_witness(&self.chain.state.ivm_execution_budget())
-                .map_err(|error| error.to_string())?;
             self.certificate = Some((signers, qc));
         }
         let (_, qc) = self
@@ -2002,22 +1853,12 @@ fn build_genesis(
         .iter()
         .map(|(peer, pop)| GenesisTopologyEntry::new(peer.clone(), pop.clone()))
         .collect::<Vec<_>>();
-    let roster = validators
-        .iter()
-        .map(|(peer, _)| ValidatorPower {
-            validator: peer.clone(),
-            power: 1,
-        })
-        .collect::<Vec<_>>();
     let mut context = SumeragiGenesisContextParameters::recommended();
     context.root_scope = root_scope;
     let builder = GenesisBuilder::new_without_executor(chain_id.clone(), ".")
         .with_block_cadence_ms(genesis_block_cadence_ms)
         .set_topology(entries)
-        .with_sumeragi_context_parameters(context)
-        .with_kagemusha_mint_finality_genesis_parameters(
-            crate::kagemusha_v1_test_fixtures::mint_finality_genesis_parameters(&roster),
-        );
+        .with_sumeragi_context_parameters(context);
     let builder = parameters
         .into_iter()
         .fold(builder, GenesisBuilder::append_parameter);
@@ -2286,8 +2127,10 @@ mod tests {
         };
         chain.commit(Vec::new());
         let boundary = chain.committed(10);
-        assert!(boundary.header().unwrap().attest);
-        assert_eq!(boundary.commitment().execution.kagemusha_top_up_count, 0);
+
+        let (_, certificate) = chain.committed_body(10).unwrap().unwrap();
+        assert_eq!(certificate.signers.count_ones(), 3);
+
         let next = &boundary
             .commitment()
             .schedule
@@ -2299,7 +2142,7 @@ mod tests {
             next.authorization.decision,
             ValidatorEpochDecisionV1::Retain
         );
-        assert_eq!(next.authority, current.authority);
+        assert_eq!(next.generation(), current.generation());
         assert_eq!(next.committee, current.committee);
         chain.commit(Vec::new());
         assert_eq!(chain.height(), 11);
@@ -2706,9 +2549,6 @@ mod tests {
             state,
             kura,
             validator_keys: keys,
-            pasta_seeds: (0..4)
-                .map(|index| zeroize::Zeroizing::new([0xA0 + index; 32]))
-                .collect(),
             clock,
             lane_blocks: Arc::new(crate::sumeragi::lanes::merge::NoLanes),
         }
@@ -2789,9 +2629,13 @@ mod tests {
                 1 => {
                     config.validator_keys.pop();
                 }
-                2 => config.pasta_seeds[2] = zeroize::Zeroizing::new([0xFF; 32]),
+                2 => {
+                    config.validator_keys[2] =
+                        KeyPair::from_seed(vec![0xFF; 32], Algorithm::BlsNormal);
+                }
                 3 => {
-                    config.pasta_seeds.pop();
+                    config.validator_keys[2] =
+                        KeyPair::from_seed(vec![0xFF; 32], Algorithm::Ed25519);
                 }
                 4 => config.kura = Kura::blank_kura_for_testing(),
                 _ => unreachable!(),
@@ -2803,6 +2647,37 @@ mod tests {
             assert_eq!(state.view().height(), 0);
             assert_eq!(state.kura().blocks_count(), 0);
         }
+    }
+
+    #[test]
+    fn native_exact_quorums_reject_genuine_signer_supersets() {
+        let mut chain = CertifiedTestChain::from_prepared(prepared_config()).unwrap();
+        chain.commit_at(20_000, Vec::new());
+        let (_, qc) = chain.committed_body(2).unwrap().unwrap();
+        assert_eq!(qc.signers.count_ones(), 3);
+
+        let context = chain.certificate_context(2);
+        let epoch = super::super::schedule::core_epoch(&context).unwrap().id;
+        let committee = Committee::new(
+            context
+                .committee
+                .iter()
+                .map(|member| {
+                    super::super::crypto::core_key(member.validator.public_key()).unwrap()
+                })
+                .collect(),
+        )
+        .unwrap();
+        let verifier = iroha_sumeragi::crypto::Verifier::new(
+            &*chain.crypto,
+            &chain.instance,
+            &epoch,
+            &committee,
+        );
+        verifier.verify_qc(&qc).unwrap();
+        let oversized = chain.commit_qc(2, qc.block_hash, qc.result, Signers::All);
+        assert!(verifier.verify_qc(&oversized).is_err());
+        assert_eq!(chain.height(), 2);
     }
 
     #[test]

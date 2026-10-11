@@ -16,8 +16,16 @@
 //! block registers for the minter's shard; at most 32 predecessor links (both predecessors
 //! after a merge, the parent shard after a split) down to the event block; and in it the
 //! minter's successful transaction and its `sccp_transfer_to_taira` or `sccp_voided`
-//! external-out message (§5.3.3). TON keeps no stride checkpoints: old masterchain blocks stay
-//! reachable through `OldMcBlocksInfo`.
+//! external-out message (§5.3.3). A transfer's payload must carry the event's amount, nonce and
+//! sender. Shard-link and transaction proofs may prune the block's `state_update`. TON keeps no
+//! checkpoints (stride or Parliament-installed): old masterchain blocks stay reachable through
+//! `OldMcBlocksInfo`.
+//!
+//! **Simplex transcripts:** the signed `consensus.dataToSign` carries the session id as given.
+//! The candidate data binds the signed block id, and the subset is fixed by the header's catchain
+//! session and validator-list hash, so another session's votes can only finalize the same block.
+//! TODO(WP13): binding `session_id` itself needs the consensus options hash (config 29) and the
+//! vertical seqno of the epoch's state, which the stored epoch does not carry.
 //!
 //! **Equivocation:** two signed masterchain blocks, each by a fresh stored epoch, with one seqno
 //! and different root hashes.
@@ -58,7 +66,7 @@ use crate::{
         constants::{CODEC_TON_ACCOUNT36, MAX_VOID_FROZEN_RANGE_TON},
         hashes::{keccak256, payload_hash},
         network::tag,
-        payload::PayloadAccountV1,
+        payload::{PayloadAccountV1, SccpTransferPayloadV1},
     },
 };
 
@@ -333,7 +341,8 @@ pub enum TonLcError {
     },
     /// A back-link target is not older than its fresh block.
     InvalidBackLink,
-    /// The event amount or payload is malformed.
+    /// The event's payload is malformed or disagrees with the event's amount, nonce or sender,
+    /// or a void range is empty or too long.
     MalformedEvent,
 }
 
@@ -486,7 +495,10 @@ fn point(header: &TonMcHeaderV1) -> SccpLcPointV1 {
 }
 
 fn open_epoch(header: &TonMcHeaderV1, config_proof: &[u8]) -> Result<TonEpochV1, SccpLcError> {
-    let config = ton_open_state_config(&header.new_state_hash, config_proof)?;
+    let state_hash = header
+        .new_state_hash
+        .ok_or(TonNativeSourceError::InvalidValidatorTransition)?;
+    let config = ton_open_state_config(&state_hash, config_proof)?;
     Ok(TonEpochV1 {
         key_block_seqno: header.block_id.seqno,
         key_block_root_hash: header.block_id.root_hash,
@@ -662,8 +674,11 @@ fn open_anchor<V: SccpLcStateView + ?Sized>(
             if link.block_id.seqno >= fresh.block_id.seqno {
                 return Err(TonLcError::InvalidBackLink.into());
             }
+            let state_hash = fresh
+                .new_state_hash
+                .ok_or(TonNativeSourceError::BrokenMasterchainLink)?;
             let named = ton_open_previous_masterchain_block(
-                &fresh.new_state_hash,
+                &state_hash,
                 &link.state_proof,
                 link.block_id.seqno,
             )?;
@@ -677,6 +692,23 @@ fn open_anchor<V: SccpLcStateView + ?Sized>(
         header,
         shard.ok_or(TonNativeSourceError::ShardNotFinalized)?,
     ))
+}
+
+/// Check that a `sccp_transfer_to_taira` event's fields are the ones its payload carries: the
+/// minter burns `amount` from `sender` under `nonce` and builds the payload from them (§5.3.4),
+/// so a payload that disagrees with the event's own fields is refused.
+fn check_event_payload(
+    payload: &[u8],
+    nonce: u64,
+    sender: &PayloadAccountV1,
+    amount: u128,
+) -> Result<(), TonLcError> {
+    let decoded = SccpTransferPayloadV1::decode(payload).map_err(|_| TonLcError::MalformedEvent)?;
+    if decoded.amount == amount && decoded.nonce == nonce && decoded.sender == *sender {
+        Ok(())
+    } else {
+        Err(TonLcError::MalformedEvent)
+    }
 }
 
 /// Verify a TON inbound or void proof.
@@ -739,15 +771,17 @@ pub(super) fn verify_proof<V: SccpLcStateView + ?Sized>(
             message_id,
             nonce,
             sender,
-            amount: _,
+            amount,
             payload,
         } => {
             let mut sender_bytes = vec![0_u8; 4];
             sender_bytes.extend_from_slice(&sender);
+            let sender = PayloadAccountV1::new(CODEC_TON_ACCOUNT36, sender_bytes);
+            check_event_payload(&payload, nonce, &sender, amount)?;
             SccpNormalizedEventV1::TransferToTaira {
                 emitter,
                 message_id,
-                sender: PayloadAccountV1::new(CODEC_TON_ACCOUNT36, sender_bytes),
+                sender,
                 nonce,
                 payload_hash: payload_hash(&payload),
                 locator,

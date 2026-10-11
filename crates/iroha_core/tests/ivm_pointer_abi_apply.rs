@@ -375,8 +375,8 @@ fn apply_queued_isis_from_compiled_json_driven_double_transfer() {
     let compiler = Compiler::new();
     let src = format!(
         r#"
-        seiyaku DebugTransfer {{
-          kotoage fn main() authorize("TransferAsset") {{
+        seiyaku DebugTransfer {{ permission TransferAsset;
+          kotoage fn main() authorize(TransferAsset) {{
             let ev = Json::parse("{{\"account_domain\":\"{domain}\",\"account_id\":\"{dst}\",\"amount\":\"1\",\"asset_definition_id\":\"{aed}\",\"kind\":\"asset_change\",\"op\":\"added\"}}");
             let recipient = ev.get_account_id(Name::parse("account_id")).unwrap_or(AccountId::parse("{dst}"));
             let quantity amount = ev.get_quantity(Name::parse("amount")).unwrap_or(0);

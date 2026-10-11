@@ -175,6 +175,18 @@ impl FieldDestination for Snapshot {
     type Error = DestinationError;
 }
 macro_rules! scalar {
+    ($index:literal, $name:ident, [u8; $length:expr]) => {
+        impl DecodeField<$index, [u8; $length]> for Snapshot {
+            type Value = ();
+            fn decode_field(
+                &mut self,
+                field: CanonicalField<'_, [u8; $length]>,
+            ) -> DecodeResult<()> {
+                self.$name = field.decode_owned()?;
+                Ok(())
+            }
+        }
+    };
     ($index:literal, $name:ident, $ty:ty) => {
         impl DecodeField<$index, $ty> for Snapshot {
             type Value = ();

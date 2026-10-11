@@ -1,6 +1,6 @@
 
-        seiyaku VerifyBatch {
-            kotoage fn verify(bytes p) authorize("ZkVerifier") {
+        seiyaku VerifyBatch { permission ZkVerifier;
+            kotoage fn verify(bytes p) authorize(ZkVerifier) {
                 crypto::zk::verify_batch(request: p);
             }
         }

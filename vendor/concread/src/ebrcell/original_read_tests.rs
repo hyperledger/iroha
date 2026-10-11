@@ -24,13 +24,14 @@ fn original_read_identity_rejects_foreign_and_equal_value_republication() {
 }
 
 #[test]
-fn zero_sized_backing_never_authenticates_a_dangling_pointer() {
+fn empty_payload_uses_unique_original_allocated_header() {
     let source = EbrCell::new(());
     let foreign = EbrCell::new(());
+    assert!(EbrCell::<()>::allocation_layout().size() > 0);
     let original = source.read();
-    assert!(!source.matches_read(&original));
+    assert!(source.matches_read(&original));
     assert!(!foreign.matches_read(&original));
     source.write().commit();
     assert!(!source.matches_read(&original));
-    assert!(!source.matches_read(&source.read()));
+    assert!(source.matches_read(&source.read()));
 }

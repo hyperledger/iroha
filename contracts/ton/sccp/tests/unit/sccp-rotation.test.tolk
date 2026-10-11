@@ -6,6 +6,7 @@ import "@stdlib/exotic-cells"
 import "@acton/emulation/network"
 import "@acton/emulation/testing"
 import "@acton/testing/expect"
+import "@acton/types/message"
 import "@acton/types/transaction"
 import "@contracts/sccp-cells"
 import "@contracts/sccp-constants"
@@ -22,6 +23,13 @@ get fun `test rotation installs the next roster and keeps the previous one in gr
     val next = nextRoster(env.roster, 7, 4, T0 * 1000 - 5000);
     val res = rotateTo(env, next, 300);
     expect(res).toHaveSuccessfulTx<ReturnExcessesBack>({ to: env.deployer });
+    // §5.1.5 step 4: the new generation, digest and expiry
+    val event = res
+        .findExternalOutMessage<SccpRosterRotatedEvent>({ from: env.minter.address })!
+        .loadBody();
+    expect(event.generation).toEqual(8);
+    expect(event.digest).toEqual(next.digest(env.networkId));
+    expect(event.validUntilMs).toEqual(next.validUntilMs);
     val state = env.minter.getSccpState();
     expect(state.digest).toEqual(next.digest(env.networkId));
     expect(state.generation).toEqual(8);

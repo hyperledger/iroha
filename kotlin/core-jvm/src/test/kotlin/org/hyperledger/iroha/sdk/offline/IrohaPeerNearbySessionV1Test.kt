@@ -265,7 +265,7 @@ class IrohaPeerNearbySessionV1Test {
                 .first { (it["tag"] as Number).toInt() == kind.code }
             val hex = vector["canonical_hex"] as String
             val bytes = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-            return IrohaPeerWireMessageV1(IrohaPeerCanonicalPayload(PROFILE, kind, 1, bytes))
+            return IrohaPeerWireMessageV1(IrohaPeerCanonicalPayload(PROFILE, kind, 1, IrohaPeerRequestFixtureV1.payload(kind, bytes)))
         }
     }
 }

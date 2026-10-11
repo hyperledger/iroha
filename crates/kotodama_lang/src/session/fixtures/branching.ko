@@ -1,6 +1,6 @@
 
             seiyaku Branches {
-                view fn classify(int value) -> int {
+                view fn classify(int value) authorize(anyone) -> int {
                     if value < 0 {
                         return -1;
                     } else if value == 0 {
@@ -10,11 +10,11 @@
                     }
                 }
 
-                view fn grouped(int value) -> int {
+                view fn grouped(int value) authorize(anyone) -> int {
                     return (value);
                 }
 
-                view fn pair() -> (int, bool) {
+                view fn pair() authorize(anyone) -> (int, bool) {
                     return (1, true);
                 }
             }

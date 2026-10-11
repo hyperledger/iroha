@@ -299,6 +299,9 @@ ledger accepts.
 - `python3 scripts/check_durable_workflow_contract.py` checks the fixture set
   without Rust: structure, vocabulary, cross-references, rule and state
   coverage, and the record digests of `vectors.json`.
+  `make guards` and the pull-request workflow run this checker; the workflow
+  also runs its mutation tests. Effect-triggered concurrency fixtures exercise
+  cancellation during a recovery call, before its result reaches the engine.
 
 ## 11. Open
 

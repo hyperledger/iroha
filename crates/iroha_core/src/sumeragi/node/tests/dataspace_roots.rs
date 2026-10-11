@@ -94,13 +94,6 @@ impl DataspaceChain {
                 )
             })
             .collect::<Vec<_>>();
-        let roster = entries
-            .iter()
-            .map(|entry| ValidatorPower {
-                validator: entry.peer.clone(),
-                power: 1,
-            })
-            .collect::<Vec<_>>();
         let owning_domain = DomainId::try_new("fees", "private-root").unwrap();
         // Permissioned roots use the canonical currency identity. NPoS currency
         // parameters are forbidden here; independent scoped balances carry ownership.
@@ -186,10 +179,7 @@ impl DataspaceChain {
             ))
             .with_block_cadence_ms(100_u64.try_into().unwrap())
             .set_topology(entries)
-            .with_sumeragi_context_parameters(context)
-            .with_kagemusha_mint_finality_genesis_parameters(
-                crate::kagemusha_v1_test_fixtures::mint_finality_genesis_parameters(&roster),
-            );
+            .with_sumeragi_context_parameters(context);
         let manifest = instructions
             .into_iter()
             .fold(builder, GenesisBuilder::append_instruction)
@@ -319,18 +309,6 @@ impl DataspaceChain {
                 }),
                 key_pair: key.clone(),
                 beacon_signer: None,
-                mint_finality_authority: Some(Arc::new(
-                    crate::zk::kagemusha_v1_recursion::KagemushaMintFinalityLocalAuthorityV1::new(
-                        Arc::new(
-                            super::super::super::epoch::genesis_epoch(&self.chain.genesis)
-                                .unwrap()
-                                .authority,
-                        ),
-                        zeroize::Zeroizing::new([0xA0 + u8::try_from(index).unwrap(); 32]),
-                        u32::try_from(index).unwrap(),
-                    )
-                    .unwrap(),
-                )),
                 genesis: Some(self.chain.genesis.clone()),
                 genesis_account: SAMPLE_GENESIS_ACCOUNT_ID.clone(),
                 consensus_mode: ConsensusMode::Permissioned,
@@ -592,9 +570,6 @@ fn preaccepted_foreign_input_reaches_private_executor_but_cannot_publish_or_spen
         state: Arc::clone(&state),
         kura: Arc::clone(&kura),
         validator_keys: local_root.chain.keys.clone(),
-        pasta_seeds: (0..4)
-            .map(|index| zeroize::Zeroizing::new([0xA0 + index; 32]))
-            .collect(),
         clock: ALICE_KEYPAIR.clone(),
         lane_blocks: Arc::new(super::super::super::lanes::merge::NoLanes),
     })

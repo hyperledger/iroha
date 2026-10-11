@@ -135,7 +135,7 @@ pub(crate) const CASES: &[Case] = &[
     },
     Case {
         id: "zero_chain",
-        source: "seiyaku ZeroChain { fn chain(quantity left, quantity right) -> quantity { let first=left+right; let second=first+right; return second+left; } view fn main()->quantity { let quantity left=5; let quantity right=7; return chain(left:left,right:right); } }",
+        source: "seiyaku ZeroChain { fn chain(quantity left, quantity right) -> quantity { let first=left+right; let second=first+right; return second+left; } view fn main() authorize(anyone) ->quantity { let quantity left=5; let quantity right=7; return chain(left:left,right:right); } }",
         outcome: Outcome::Success(&[Word::Quantity("24")]),
         trace: None,
     },

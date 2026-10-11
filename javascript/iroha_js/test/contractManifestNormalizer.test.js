@@ -57,7 +57,7 @@ test("entrypoint getters retain their validation order", () => {
   const entrypoint = manifest.entrypoints[0];
   const events = [];
   const fields = [
-    "name", "permission", "kind", "params", "argument_schema", "return_type",
+    "name", "authorization", "kind", "params", "argument_schema", "return_type",
     "return_schema", "read_keys", "write_keys", "access_hints_complete",
     "access_hints_skipped", "triggers",
   ];
@@ -71,18 +71,18 @@ test("an entrypoint getter failure stops before later entrypoint fields", () => 
   const manifest = manifestFixture();
   const entrypoint = manifest.entrypoints[0];
   const events = [];
-  const failure = new Error("permission getter failed");
+  const failure = new Error("authorization getter failed");
   observe(entrypoint, "name", events);
-  Object.defineProperty(entrypoint, "permission", {
+  Object.defineProperty(entrypoint, "authorization", {
     get() {
-      events.push("permission");
+      events.push("authorization");
       throw failure;
     },
   });
   observe(entrypoint, "kind", events);
   observe(entrypoint, "params", events);
   assert.throws(() => buildRegisterSmartContractCodeInstruction(universalArtifactInput({ manifest })), error => error === failure);
-  assert.deepEqual(events, ["name", "permission"]);
+  assert.deepEqual(events, ["name", "authorization"]);
 });
 
 test("invalid trigger metadata fails after callback admission and before trigger fields", () => {
@@ -197,7 +197,7 @@ test("manifest identity hashes reject a missing marker instead of changing conte
     value[31] |= 1;
     for (const admitted of [value, markedLiteral]) {
       const instruction = buildRegisterSmartContractCodeInstruction(universalArtifactInput({
-        manifest: { [field]: admitted },
+        manifest: { permissions: [], events: [], enum_types: [], [field]: admitted },
       }));
       assert.equal(instruction.RegisterSmartContractCode.manifest[field === "codeHash" ? "code_hash" : "abi_hash"], canonicalHashLiteral(value));
     }
@@ -208,7 +208,7 @@ test("manifest identity hashes reject a missing marker instead of changing conte
 test("manifest entrypoint selectors reject padding and reserved names", () => {
   for (const name of [" run", "run ", "match", "__kotodama_link_forged"]) {
     assert.throws(() => buildRegisterSmartContractCodeInstruction(universalArtifactInput({
-      manifest: { entrypoints: [{ name, kind: "View" }] },
+      manifest: { permissions: [], events: [], enum_types: [], entrypoints: [{ name, kind: "View", authorization: { kind: "Anyone", value: null } }] },
     })), /name must be a canonical Kotodama V1 identifier or branded lifecycle selector/u);
   }
 });

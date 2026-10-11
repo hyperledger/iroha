@@ -268,14 +268,39 @@ impl PermutationAssembly {
     /// streams in constant memory.
     #[must_use]
     pub fn mapping_digest(&self) -> [u8; 32] {
+        match self.mapping_digest_with(&|| Ok::<(), core::convert::Infallible>(())) {
+            Ok(value) => value,
+            Err(error) => match error {},
+        }
+    }
+
+    /// Hash the exact copy mapping with bounded cancellation checkpoints.
+    ///
+    /// # Errors
+    /// [`iroha_pasta::Cancelled`] when the supplied token is cancelled.
+    pub fn mapping_digest_cancellable(
+        &self,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<[u8; 32], iroha_pasta::Cancelled> {
+        self.mapping_digest_with(&|| iroha_pasta::CancellationToken::checkpoint(cancellation))
+    }
+
+    fn mapping_digest_with<E>(
+        &self,
+        checkpoint: &impl Fn() -> Result<(), E>,
+    ) -> Result<[u8; 32], E> {
         /// Cells hashed per update.
         const CELLS_PER_UPDATE: usize = 512;
+        checkpoint()?;
         let mut hasher = Blake2bPersonal::<32>::new(COPY_MAPPING_PERSONA);
         let count = |value: usize| u64::try_from(value).unwrap_or(u64::MAX).to_le_bytes();
         hasher.update(&count(self.columns.len()));
         hasher.update(&count(self.n));
         let mut chunk = Vec::with_capacity(8 * CELLS_PER_UPDATE);
         for cell in 0..self.cells {
+            if cell % CELLS_PER_UPDATE == 0 {
+                checkpoint()?;
+            }
             let target = self
                 .union_find
                 .as_ref()
@@ -292,7 +317,8 @@ impl PermutationAssembly {
             }
         }
         hasher.update(&chunk);
-        hasher.finalize()
+        checkpoint()?;
+        Ok(hasher.finalize())
     }
 
     /// Whether the cell is in a cycle of length at least two (it is copied).
@@ -305,6 +331,38 @@ impl PermutationAssembly {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn copy_digest_cancellation_streams_then_retries_identically() {
+        use iroha_pasta::CancellationToken;
+        use std::cell::Cell;
+        let a = Column::new(0, Advice).into();
+        let b = Column::new(0, Fixed).into();
+        let mut assembly = PermutationAssembly::new(4096, &argument(&[a, b])).unwrap();
+        assembly.copy(a, 2, b, 3072).unwrap();
+        let token = CancellationToken::new();
+        let calls = Cell::new(0);
+        let result = assembly.mapping_digest_with(&|| {
+            let current = calls.get() + 1;
+            calls.set(current);
+            if current == 4 {
+                token.cancel();
+            }
+            token.check()
+        });
+        assert_eq!(calls.get(), 4);
+        assert_eq!(result, Err(iroha_pasta::Cancelled));
+        assert_eq!(
+            assembly.mapping_digest_cancellable(Some(&token)),
+            Err(iroha_pasta::Cancelled)
+        );
+        let fresh = CancellationToken::new();
+        assert_eq!(
+            assembly.mapping_digest_cancellable(Some(&fresh)).unwrap(),
+            assembly.mapping_digest()
+        );
+    }
+
     use super::*;
     use crate::cs::expression::{Advice, Fixed, Instance};
 

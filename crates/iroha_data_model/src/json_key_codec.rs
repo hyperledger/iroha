@@ -45,7 +45,8 @@ impl_id_key_codec!(
     crate::proof::ProofId,
     crate::isi::settlement::SettlementId,
 );
-#[cfg(feature = "governance")]
+// Parliament certificate identities are available without governance instructions;
+// their canonical storage keys must have the same availability.
 impl_id_key_codec!(
     crate::governance::types::GovernanceAttemptId,
     crate::governance::types::BallotAttemptId,
@@ -173,8 +174,17 @@ impl JsonKeyCodec for crate::account::AccountId {
         json::write_json_string(&self.to_string(), out);
     }
     fn decode_json_key(encoded: &str) -> Result<Self, json::Error> {
-        crate::account::AccountId::parse_encoded(encoded)
-            .map_err(|err| json::Error::Message(err.to_string()))
+        <Self as json::JsonObjectKeyOwned>::from_json_key_text(encoded).map_err(|error| {
+            if cfg!(all(test, sumeragi_model_mutation = "DM25"))
+                && matches!(
+                    error,
+                    json::Error::ScopedDecodeResource(_) | json::Error::DecodeResource(_)
+                )
+            {
+                return json::Error::Message(error.to_string());
+            }
+            error
+        })
     }
 }
 impl JsonKeyCodec for crate::proof::VerifyingKeyId {
@@ -448,13 +458,138 @@ mod tests {
             let mut parser = Parser::new(&encoded);
             let raw = parser.parse_string().expect("parse governance storage key");
             assert_eq!(&T::decode_json_key(&raw).expect("decode storage key"), key);
-            assert!(T::decode_json_key(&raw.to_uppercase()).is_err());
+            assert_eq!(raw.len(), 64, "canonical keys contain exactly 32 hex bytes");
+            for invalid in [
+                raw.to_uppercase(),
+                format!("0x{raw}"),
+                raw[..62].to_owned(),
+                format!("{raw}00"),
+                "zz".repeat(32),
+            ] {
+                assert!(T::decode_json_key(&invalid).is_err());
+            }
         }
 
         check(&GovernanceAttemptId::new([0xab; 32]));
         check(&BallotAttemptId::new([0xbc; 32]));
         check(&TleKeySessionId::new([0xcd; 32]));
     }
+    #[test]
+    fn account_storage_keys_preserve_original_refusal_fields_scope_and_retry() {
+        use norito::core::{
+            DecodeAttemptErrorKind, DecodeBudgetContext, DecodeResourceError,
+            classify_decode_attempt,
+        };
+        use norito::json;
+        let expected = AccountId::new(
+            KeyPair::from_seed(vec![42; 32], iroha_crypto::Algorithm::Ed25519)
+                .public_key()
+                .clone(),
+        );
+        let literal = expected.canonical_i105().unwrap();
+        let storage = mv::storage::Storage::<AccountId, u64>::new();
+        {
+            let mut block = storage.block();
+            block.insert(expected.clone(), 7);
+            block.commit();
+        }
+        let wire = json::to_json(&storage).unwrap();
+        let source_pointer = wire.as_ptr();
+        let decode = |mode| -> Result<(), json::Error> {
+            if mode == 0 {
+                assert_eq!(AccountId::decode_json_key(&literal)?, expected);
+            } else {
+                let restored: mv::storage::Storage<AccountId, u64> = json::from_json(&wire)?;
+                assert_eq!(restored.view().get(&expected), Some(&7));
+            }
+            Ok(())
+        };
+        let limits = |bytes| {
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX)
+        };
+        let demands = [0, 1].map(|mode| {
+            let (decoded, usage) =
+                norito::core::with_decode_limits_measured(limits(usize::MAX), || decode(mode));
+            decoded.expect("actual reader accepts the original canonical input");
+            let demand = usage.total_allocated_bytes();
+            assert!(demand > 0);
+            demand
+        });
+        let context_limit = demands
+            .iter()
+            .try_fold(0_usize, |sum, demand| sum.checked_add(*demand))
+            .unwrap()
+            .checked_mul(2)
+            .unwrap();
+        let pool = iroha_allocation::AllocationBudget::new(
+            DecodeBudgetContext::allocation_layout().size(),
+        );
+        let original = DecodeBudgetContext::try_new_owned(limits(context_limit), &pool).unwrap();
+        let baseline = pool.reserved_bytes();
+        // This original pool owns decoder counters. Ordinary Storage/DTO graphs are
+        // not claimed to have physical original-pool admission by this control.
+        for (mode, demand) in demands.into_iter().enumerate() {
+            let before = original.consumed_allocated_bytes();
+            let mut observed = None;
+            let refusal = original.with(|| norito::with_decode_limits_scope(
+                limits(demand - 1), || classify_decode_attempt(|| {
+                    let error = decode(mode).expect_err("one-byte-short original reader must refuse");
+                    let norito::json::Error::ScopedDecodeResource(origin) = &error else {
+                        panic!("AccountId storage key must retain its original scoped refusal: {error:?}");
+                    };
+                    observed = Some(origin.clone());
+                    Err::<(), _>(error.into_core_error())
+                }))).unwrap_err();
+            assert_eq!(refusal.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+            let refusal = refusal.into_error();
+            assert_eq!(
+                refusal.decode_resource_error(),
+                Some(DecodeResourceError::TotalAllocationExceeded {
+                    attempted: u64::try_from(demand).unwrap(),
+                    limit: u64::try_from(demand - 1).unwrap(),
+                })
+            );
+            let norito::Error::ScopedDecodeResource(returned) = refusal else {
+                panic!("reader must return its exact original observer");
+            };
+            assert_eq!(returned, observed.unwrap());
+            drop(returned);
+            assert_eq!(pool.reserved_bytes(), baseline);
+            let after_refusal = original.consumed_allocated_bytes();
+            // Outer counters debit the attempted final charge before the narrower
+            // inner ceiling refuses. Retry reuses that same cumulative owner.
+            assert_eq!(after_refusal - before, u64::try_from(demand).unwrap());
+            original
+                .with(|| decode(mode))
+                .expect("same input and original context retry");
+            assert_eq!(
+                original.consumed_allocated_bytes() - after_refusal,
+                u64::try_from(demand).unwrap()
+            );
+            assert_eq!(pool.reserved_bytes(), baseline);
+            let (refusal, usage) =
+                norito::core::with_decode_limits_measured(limits(demand - 1), || decode(mode));
+            let error = refusal
+                .expect_err("same input unscoped refusal")
+                .into_core_error();
+            assert_eq!(
+                error.decode_resource_error(),
+                Some(DecodeResourceError::TotalAllocationExceeded {
+                    attempted: u64::try_from(demand).unwrap(),
+                    limit: u64::try_from(demand - 1).unwrap(),
+                })
+            );
+            assert!(!matches!(error, norito::Error::ScopedDecodeResource(_)));
+            assert!(usage.total_allocated_bytes() < demand);
+        }
+        drop(original);
+        assert_eq!(pool.reserved_bytes(), 0);
+        let error = AccountId::decode_json_key("alice@banka.dataspace").unwrap_err();
+        assert!(error.into_core_error().decode_resource_error().is_none());
+        assert_eq!(wire.as_ptr(), source_pointer);
+        assert_eq!(storage.view().get(&expected), Some(&7));
+    }
+
     #[test]
     fn account_id_json_key_codec_roundtrip() {
         let keypair = checked_random_keypair();
@@ -515,8 +650,9 @@ mod tests {
         let err = crate::account::AccountId::decode_json_key("alice@banka.dataspace")
             .expect_err("domain suffix literal must be rejected");
         assert!(
-            err.to_string().contains("canonical I105"),
+            matches!(&err, norito::json::Error::Message(message) if message == "invalid I105 account identifier"),
             "unexpected error: {err}"
         );
+        assert!(!err.is_decode_resource_limit());
     }
 }

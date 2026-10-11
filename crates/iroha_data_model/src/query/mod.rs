@@ -1437,6 +1437,8 @@ mod model {
         FindExecutionProofVerificationById(game::FindExecutionProofVerificationById),
         /// Read a native one-shot exact-price NFT offer.
         FindNftSaleOfferById(nft_market::FindNftSaleOfferById),
+        /// Fetch the immutable direct dataspace home row of an asset definition.
+        FindAssetDefinitionDirectHome(asset::prelude::FindAssetDefinitionDirectHome),
     }
     /// An enum of all possible singular query outputs
     #[derive(
@@ -1662,6 +1664,8 @@ mod model {
         ExecutionProofVerification(crate::execution_proofs::ExecutionProofVerificationV1),
         /// Complete immutable NFT sale terms and terminal decision.
         NftSaleRecord(crate::nft_market::NftSaleRecordV1),
+        /// Immutable direct dataspace home row of one live asset-definition incarnation.
+        AssetDefinitionDirectHome(crate::asset::AssetDefinitionDirectHomeV1),
     }
     /// The results of a single iterable query request.
     #[derive(
@@ -4310,6 +4314,7 @@ impl_singular_queries! {
     runtime::prelude::FindAbiVersion => crate::query::runtime::AbiVersion,
     asset::prelude::FindAssetById => crate::asset::value::Asset,
     asset::prelude::FindAssetDefinitionById => crate::asset::definition::AssetDefinition,
+    asset::prelude::FindAssetDefinitionDirectHome => crate::asset::AssetDefinitionDirectHomeV1,
     escrow::prelude::FindAssetEscrowById => crate::escrow::AssetEscrowRecord,
     trigger::prelude::FindTriggerById => crate::trigger::Trigger,
     oracle::FindTwitterBindingByHash => crate::oracle::TwitterBindingRecord,

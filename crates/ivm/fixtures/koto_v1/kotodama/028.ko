@@ -1,6 +1,6 @@
 
         seiyaku HashFunctions {
-        view fn f(bytes payload) -> Json {
+        view fn f(bytes payload) authorize(anyone) -> Json {
             let b = crypto::blake2b256(payload);
             let k = crypto::keccak256(payload);
             let i = crypto::iroha_hash(payload);

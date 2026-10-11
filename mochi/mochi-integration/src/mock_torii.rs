@@ -29,9 +29,10 @@ use iroha_data_model::{
 };
 use iroha_model_base::{topology::DataSpaceId, topology::LaneId};
 use iroha_torii_shared::status::{
-    CryptoStatus, GovernanceManifestAdmissionCounters, GovernanceManifestQuorumCounters,
-    GovernanceProposalCounters, GovernanceProtectedNamespaceCounters, GovernanceStatus,
-    Halo2Status, Status as TelemetryStatus, TxGossipSnapshot, Uptime,
+    CryptoStatus, DiagnosticTraceStatus, GovernanceManifestAdmissionCounters,
+    GovernanceManifestQuorumCounters, GovernanceProposalCounters,
+    GovernanceProtectedNamespaceCounters, GovernanceStatus, Status as TelemetryStatus,
+    TxGossipSnapshot, Uptime,
 };
 use iroha_torii_shared::{NORITO_V1_WEBSOCKET_SUBPROTOCOL, route_catalog as torii_routes};
 use norito::json::{self, Value};
@@ -175,7 +176,7 @@ impl Default for MockToriiData {
             crypto: CryptoStatus {
                 sm_helpers_available: true,
                 sm_openssl_preview_enabled: false,
-                halo2: Halo2Status::default(),
+                trace: DiagnosticTraceStatus::default(),
             },
             nexus: None,
             stack: Default::default(),

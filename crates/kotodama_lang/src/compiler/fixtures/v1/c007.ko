@@ -1,10 +1,10 @@
 
-seiyaku HelperAccess {
+seiyaku HelperAccess { permission Entry;
   state int counter;
 
   hajimari() { counter = 0; }
 
   fn leaf() { counter = 1; }
   fn middle() { leaf(); }
-  kotoage fn run()  authorize("Entry") { middle(); }
+  kotoage fn run() authorize(Entry) { middle(); }
 }

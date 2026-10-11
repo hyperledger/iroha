@@ -490,3 +490,73 @@ pub(super) fn retain_explicit_request(
     );
     selected
 }
+
+#[test]
+fn original_selection_finishes_before_cold_checkpoint_admission_and_refuses_changed_root() {
+    let _guard = crate::managed::native_test_guard();
+    let (_temporary, _prepared, owner) = fixture();
+    let intent = intent(&owner);
+    let mut original = Original {
+        selection: owner.selection(&intent).unwrap(),
+        policy: intent.policy,
+        partition: intent.partition,
+        movement_id: intent.movement_id,
+        amount: intent.amount,
+        checkpoint: vec![0x5a; 16 * 1024],
+    };
+    original.validate().unwrap();
+    owner.validate_original_selection(&original).unwrap();
+    let before = owner.authority.test_checkpoint_import_attempts();
+    let expected_network = original.selection.network_id;
+    original.selection.network_id =
+        NetworkId::from_genesis_hash(iroha_crypto::HashOf::from_untyped_unchecked(
+            iroha_crypto::Hash::new(b"foreign selected original top-up root"),
+        ));
+    original.validate().unwrap();
+    let selection_error = owner
+        .validate_original_selection(&original)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        selection_error.contains("original reserve top-up differs from authenticated generation")
+    );
+    assert_eq!(
+        owner.validate_original(&original).unwrap_err().to_string(),
+        selection_error
+    );
+    assert_eq!(owner.authority.test_checkpoint_import_attempts(), before);
+    original.selection.network_id = expected_network;
+    owner.validate_original_selection(&original).unwrap();
+    let bytes = original.checkpoint.clone();
+    assert!(
+        owner
+            .validate_original(&original)
+            .unwrap_err()
+            .to_string()
+            .contains("invalid retained native operation checkpoint")
+    );
+    assert_eq!(
+        owner.authority.test_checkpoint_import_attempts(),
+        before + 1
+    );
+    assert_eq!(original.checkpoint, bytes);
+    original.checkpoint.clear();
+    assert!(
+        owner
+            .validate_original(&original)
+            .unwrap_err()
+            .to_string()
+            .contains("original top-up checkpoint exceeds its bound")
+    );
+    assert_eq!(
+        owner.authority.test_checkpoint_import_attempts(),
+        before + 1
+    );
+    original.checkpoint = bytes;
+    owner.validate_original_selection(&original).unwrap();
+    assert!(owner.validate_original(&original).is_err());
+    assert_eq!(
+        owner.authority.test_checkpoint_import_attempts(),
+        before + 2
+    );
+}

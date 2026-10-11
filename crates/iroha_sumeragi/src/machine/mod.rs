@@ -39,7 +39,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use self::{sync::SyncState, votes::Pools};
 use crate::{
     api::{Action, CoreStatus, Event, Footprint, HaltReason, LocalFault, LocalParams},
-    crypto::{Attestation, Crypto, Signer, Verifier},
+    crypto::{Crypto, Signer, Verifier},
     message::{
         BlockHeader, Evidence, Proposal, Qc, TimeoutCert, TimeoutVote, Vote, VoteKind, WireMessage,
     },
@@ -56,8 +56,6 @@ use crate::{
 pub struct Core {
     body_budget: iroha_allocation::AllocationBudget,
     crypto: Box<dyn Crypto>,
-    /// The node's attestor and the attestation verifier (§3.7).
-    attestation: Attestation,
     local: LocalParams,
     instance: Hash32,
     genesis: u64,
@@ -234,8 +232,6 @@ struct Mine {
     prepare: Option<Vote>,
     commit: Option<Vote>,
     timeout: Option<TimeoutVote>,
-    /// `LocalFault(AttestationUnavailable)` was reported in this view (§3.7 A2).
-    unattested: bool,
 }
 
 /// Retransmission schedule of an own vote (§6.11).
@@ -250,7 +246,7 @@ struct Retx {
 /// Original exact source and its payload awaiting the source-bound control response.
 struct FreshBuild {
     context: crate::api::ControlWitnessContext,
-    payload: Option<(crate::availability::PayloadBytes, bool)>,
+    payload: Option<crate::availability::PayloadBytes>,
     authoring: Option<(BlockHeader, Option<TimeoutCert>)>,
 }
 
@@ -438,19 +434,14 @@ impl Core {
         match event {
             Event::Tick => self.on_tick(),
             Event::Message { from, msg } => self.on_message(&from, msg),
-            Event::PayloadBuilt {
-                req,
-                payload,
-                attest,
-            } => self.on_payload_built(req, payload, attest),
+            Event::PayloadBuilt { req, payload } => self.on_payload_built(req, payload),
             Event::PayloadReady { req } => self.on_payload_ready(req),
             Event::ControlWitnessBuilt {
                 req,
                 context,
                 witness,
-                attest,
             } => {
-                self.on_control_witness_built(req, context, &witness, attest);
+                self.on_control_witness_built(req, context, &witness);
             }
             Event::ApplicationControlBuilt { message } => {
                 self.on_application_control_built(message)
@@ -812,10 +803,7 @@ impl Core {
         let Some(config) = self.config(config_height) else {
             return false;
         };
-        let ok = self
-            .verifier(config)
-            .verify_qc(&*self.attestation.verifier, qc)
-            .is_ok();
+        let ok = self.verifier(config).verify_qc(qc).is_ok();
         if ok {
             self.cert_cache.insert(digest);
         }

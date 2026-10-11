@@ -32,11 +32,13 @@ fn assert_selector<T: HasProjection<SelectorMarker>>() {}
 fn checked_random_keypair() -> KeyPair {
     KeyPair::try_random().expect("test fixture random key generation should succeed")
 }
+#[cfg(feature = "transparent_api")]
 fn checked_random_keypair_with_algorithm(algorithm: Algorithm) -> KeyPair {
     KeyPair::try_random_with_algorithm(algorithm).unwrap_or_else(|err| {
         panic!("{algorithm:?} block fixture key generation should succeed: {err}")
     })
 }
+#[cfg(feature = "transparent_api")]
 fn checked_bls_keypair() -> KeyPair {
     checked_random_keypair_with_algorithm(Algorithm::BlsNormal)
 }

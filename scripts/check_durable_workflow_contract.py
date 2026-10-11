@@ -471,8 +471,26 @@ class Checker:
 
     def check_trace(self, where: str, call: dict, previous, steps: list[dict], vocabulary: dict) -> None:
         """Safety properties of one call's effect trace given the journal before it."""
+        trace = call.get("expect", {}).get("effects", [])
+        concurrent = call.get("concurrent")
+        if not isinstance(concurrent, dict):
+            concurrent = {}
+        trigger = concurrent.get("when", "")
+        if isinstance(trigger, str) and trigger.startswith("effect:"):
+            effect = trigger[len("effect:"):]
+            if effect not in trace:
+                self.problem(where, "effect-triggered concurrency never reaches its trigger")
+            else:
+                position = trace.index(effect) + 1
+                marker = f"concurrent:{concurrent.get('action')}:"
+                if position >= len(trace) or not trace[position].startswith(marker):
+                    self.problem(where, "effect-triggered actor must act immediately inside its call")
+                elif concurrent.get("action") == "cancel":
+                    for later in trace[position + 1:]:
+                        if not later.startswith(SAFE_EFFECTS):
+                            self.problem(where, f"an effect after concurrent cancellation caused `{later}`")
         effects = [
-            effect for effect in call.get("expect", {}).get("effects", []) if not effect.startswith("concurrent:")
+            effect for effect in trace if not effect.startswith("concurrent:")
         ]
         options = call.get("options", {})
         if call.get("op") in ("cancel", "progress", "corrupt") and call.get("expect", {}).get("effects"):
@@ -553,12 +571,21 @@ class Checker:
                 self.problem(here, f"unknown driver mode `{call.get('driver')}`")
             self.check_script(here, call.get("script", {}), vocabulary)
             concurrent = call.get("concurrent")
-            if concurrent is not None:
+            if "concurrent" in call and not isinstance(concurrent, dict):
+                self.problem(here, "malformed `concurrent`")
+            elif concurrent is not None:
                 known = vocabulary["transaction_states"] + vocabulary["round_states"]
-                if concurrent.get("when") not in known or concurrent.get("action") not in ("cancel", "run"):
+                trigger = concurrent.get("when")
+                effect_trigger = (
+                    isinstance(trigger, str)
+                    and trigger.startswith("effect:")
+                    and not trigger.startswith("effect:concurrent:")
+                    and EFFECT.fullmatch(trigger[len("effect:"):]) is not None
+                )
+                if (trigger not in known and not effect_trigger) or concurrent.get("action") not in ("cancel", "run"):
                     self.problem(here, "malformed `concurrent`")
-                elif concurrent.get("action") == "cancel":
-                    self.seen_cancel_states.add(concurrent["when"])
+                elif concurrent.get("action") == "cancel" and not effect_trigger:
+                    self.seen_cancel_states.add(trigger)
             if call.get("op") == "cancel" and previous is not None:
                 # The state cancellation found: the current step, or the last one when all are done.
                 _, states = previous

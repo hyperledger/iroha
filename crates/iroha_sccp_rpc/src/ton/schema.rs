@@ -41,6 +41,18 @@ const BLOCK_ID_EXT_BYTES: usize = 80;
 pub const RUN_SMC_METHOD_MODE_MASK: u32 = 0x1F;
 /// Most config parameters one `liteServer.getConfigParams` requests.
 pub const MAX_CONFIG_PARAMS_PER_QUERY: usize = 256;
+/// Answer cap of small queries (masterchain info, time, lookups, headers,
+/// `sendMessage` status): recorded answers are under 1 KiB.
+pub const SMALL_ANSWER_BYTES: usize = 256 * 1024;
+/// Answer cap of queries that carry proofs, states or transactions: recorded
+/// answers are tens of KiB.
+pub const PROOF_ANSWER_BYTES: usize = 4 * 1024 * 1024;
+/// Answer cap of `getBlockProof`: a chain of key-block hops of about 40 KiB
+/// each.
+pub const BLOCK_PROOF_ANSWER_BYTES: usize = 8 * 1024 * 1024;
+/// Answer cap of `getBlock`: a whole block bag of cells (TON's hard block
+/// limit is a few MiB).
+pub const BLOCK_ANSWER_BYTES: usize = 16 * 1024 * 1024;
 
 /// Constructor ids of `lite_api.tl`.
 pub mod id {
@@ -492,6 +504,27 @@ impl LiteQuery {
             Self::GetConfigParams { .. } => "liteServer.getConfigParams",
             Self::GetAccountState { .. } => "liteServer.getAccountState",
             Self::GetTime => "liteServer.getTime",
+        }
+    }
+
+    /// The largest answer this query accepts, sized to the real answers with
+    /// headroom; the liteclient clips it to its packet bound and refuses a
+    /// larger answer unread (a failover error).
+    pub const fn max_answer_bytes(&self) -> usize {
+        match self {
+            Self::GetMasterchainInfo
+            | Self::LookupBlock { .. }
+            | Self::GetBlockHeader { .. }
+            | Self::SendMessage { .. }
+            | Self::GetTime => SMALL_ANSWER_BYTES,
+            Self::GetOneTransaction { .. }
+            | Self::GetTransactions { .. }
+            | Self::RunSmcMethod { .. }
+            | Self::GetShardBlockProof { .. }
+            | Self::GetConfigParams { .. }
+            | Self::GetAccountState { .. } => PROOF_ANSWER_BYTES,
+            Self::GetBlockProof { .. } => BLOCK_PROOF_ANSWER_BYTES,
+            Self::GetBlock { .. } => BLOCK_ANSWER_BYTES,
         }
     }
 
@@ -1414,6 +1447,40 @@ mod tests {
         for (value, line) in SCHEMA_LINES {
             assert_eq!(constructor_id(line), *value, "{line}");
         }
+    }
+
+    #[test]
+    fn answer_caps_follow_the_query() {
+        let id = BlockIdExt {
+            workchain: MASTERCHAIN,
+            shard: SHARD_FULL,
+            seqno: 1,
+            root_hash: [0; 32],
+            file_hash: [0; 32],
+        };
+        assert_eq!(
+            LiteQuery::GetMasterchainInfo.max_answer_bytes(),
+            SMALL_ANSWER_BYTES
+        );
+        assert_eq!(LiteQuery::GetTime.max_answer_bytes(), SMALL_ANSWER_BYTES);
+        assert_eq!(
+            LiteQuery::GetBlock { id }.max_answer_bytes(),
+            BLOCK_ANSWER_BYTES
+        );
+        assert_eq!(
+            LiteQuery::GetBlockProof {
+                known: id,
+                target: None
+            }
+            .max_answer_bytes(),
+            BLOCK_PROOF_ANSWER_BYTES
+        );
+        assert_eq!(
+            LiteQuery::GetShardBlockProof { id }.max_answer_bytes(),
+            PROOF_ANSWER_BYTES
+        );
+        // Every cap fits the default packet bound.
+        const { assert!(BLOCK_ANSWER_BYTES <= crate::ton::adnl::DEFAULT_MAX_PACKET_BYTES) };
     }
 
     #[test]

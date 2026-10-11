@@ -117,6 +117,23 @@ use crate::{
     },
 };
 
+/// Borrow only a retryable refusal while the original shared proof error stays in its phase.
+/// Invalid source, encoder failures and scratch demand above the hard pool ceiling remain recovery.
+fn original_lane_proof_deferral(
+    error: &NativeLaneStateProofError,
+) -> Option<crate::execution_attempt::ExecutionDeferred> {
+    if !error.is_local_refusal() {
+        return None;
+    }
+    match error {
+        NativeLaneStateProofError::Scratch(original) => Some(preparation::buffer_refusal(original)),
+        NativeLaneStateProofError::Decode(original) => {
+            crate::execution_attempt::canonical_decode_deferral(original)
+        }
+        _ => None,
+    }
+}
+
 /// Payload bytes kept free for the block's non-transaction fields when selecting. The data
 /// model owns the reserve so queue admission and SDK preflight use the same value.
 const PAYLOAD_OVERHEAD: usize =
@@ -334,11 +351,11 @@ enum Request {
         u64,
         u32,
         u32,
-        mpsc::SyncSender<Result<(Option<PayloadBytes>, bool), PublicationError>>,
+        mpsc::SyncSender<Result<Option<PayloadBytes>, PublicationError>>,
     ),
     BuildControl(
         ControlWitnessContext,
-        mpsc::SyncSender<Result<(ControlWitness, bool), PublicationError>>,
+        mpsc::SyncSender<Result<ControlWitness, PublicationError>>,
     ),
     DriveControl(
         ApplicationControlContext,
@@ -357,34 +374,9 @@ enum Request {
             Result<super::epoch_beacon::producer::NativeBeaconReadiness, PublicationError>,
         >,
     },
-    AttachAttestation {
-        verifier: super::attestation::NativePastaVerifier,
-        custody:
-            Option<Arc<crate::zk::kagemusha_v1_recursion::KagemushaMintFinalityLocalAuthorityV1>>,
-        publisher: super::attestation::NativeAttestationPublisher,
-        reply: mpsc::SyncSender<Result<(), PublicationError>>,
-    },
     Reject(u64, u64, Hash32),
     AttachQueue(Arc<Queue>),
     AttachFinalizedArchives(FinalizedArchives, mpsc::SyncSender<Result<(), String>>),
-}
-
-/// Pure owner check before a certificate enters a queued request or retained publication.
-/// Cryptographic validity cannot authorize allocation from another or uncharged pool.
-fn require_qc_witness_admission(
-    qc: &Qc,
-    budget: &iroha_allocation::AllocationBudget,
-) -> Result<(), PublicationError> {
-    if qc
-        .attestation_witness
-        .as_ref()
-        .is_some_and(|witness| !witness.admitted_to(budget))
-    {
-        return Err(PublicationError::Retryable(
-            "commit witness requires admission to the original State pool".into(),
-        ));
-    }
-    Ok(())
 }
 
 /// Only the exact verified frame and payload from this State pool may enter execution.
@@ -400,12 +392,37 @@ fn require_body_admission(
     Ok(())
 }
 
-/// The driver-facing handle of the executor thread.
+/// The driver-facing owner of the executor thread.
+///
+/// Dropping a caller-owned handle closes request admission and waits for the original worker
+/// to finish accepted work and release its State, storage and archive owners. Constructors
+/// never give the worker a request sender or this handle, and synchronous calls retain the
+/// handle through their reply. Defensive self-destruction closes admission without joining
+/// the current thread; canonical callers cannot transfer their borrowed owner that way.
 pub struct StateExecutor {
     /// The same pool as the worker, checked before retaining a queued certificate.
     execution_budget: iroha_allocation::AllocationBudget,
-    requests: mpsc::SyncSender<Request>,
-    _thread: JoinHandle<()>,
+    requests: Option<mpsc::SyncSender<Request>>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl Drop for StateExecutor {
+    fn drop(&mut self) {
+        // Disconnect before joining: both receive paths stop after the original queued
+        // requests drain. No request cancellation, publication shortcut or new signal is used.
+        drop(self.requests.take());
+        if let Some(thread) = self.thread.take() {
+            if thread.thread().id() == std::thread::current().id() {
+                // Canonical callers never move the owner into its worker. If a private
+                // callback does so, its current stack must return before the worker can exit.
+                // Closing admission is still necessary; joining ourselves would deadlock.
+                return;
+            }
+            if thread.join().is_err() {
+                iroha_logger::error!("sumeragi state executor panicked during shutdown");
+            }
+        }
+    }
 }
 
 impl StateExecutor {
@@ -443,12 +460,21 @@ impl StateExecutor {
         // already owns bounded control ingress and the original publication retry.
         let (requests, rx) = mpsc::sync_channel(1);
         let execution_budget = context.state.ivm_execution_budget();
-        let thread = super::threads::sumeragi_thread_builder("sumeragi-state-exec")
-            .spawn(move || run(&context, &rx))?;
+        #[cfg(test)]
+        let exit_hook = shutdown_tests::take_exit_hook();
+        let thread =
+            super::threads::sumeragi_thread_builder("sumeragi-state-exec").spawn(move || {
+                run(&context, &rx);
+                #[cfg(test)]
+                if let Some(exit_hook) = exit_hook {
+                    exit_hook();
+                }
+                drop(context);
+            })?;
         Ok(Self {
             execution_budget,
-            requests,
-            _thread: thread,
+            requests: Some(requests),
+            thread: Some(thread),
         })
     }
 
@@ -500,7 +526,7 @@ impl StateExecutor {
 
     fn call<T>(&self, request: impl FnOnce(mpsc::SyncSender<T>) -> Request) -> Option<T> {
         let (tx, rx) = mpsc::sync_channel(1);
-        self.requests.send(request(tx)).ok()?;
+        self.requests.as_ref()?.send(request(tx)).ok()?;
         rx.recv().ok()
     }
 }
@@ -508,7 +534,9 @@ impl StateExecutor {
 impl StateExecutor {
     /// Attach the transaction queue: the builder reads it and applied blocks clean it.
     pub fn attach_queue(&self, queue: Arc<Queue>) {
-        let _ = self.requests.send(Request::AttachQueue(queue));
+        if let Some(requests) = &self.requests {
+            let _ = requests.send(Request::AttachQueue(queue));
+        }
     }
 
     /// Attach the configured archives once, after replay and before starting the driver.
@@ -543,27 +571,6 @@ impl StateExecutor {
         .unwrap_or_else(|| Err(control::stopped()))
     }
 
-    /// Attach provisioned generation custody and its original-pool mailbox before startup.
-    ///
-    /// # Errors
-    /// Rejects replacement of an existing signer or a stopped serialized worker.
-    pub(crate) fn attach_attestation(
-        &self,
-        verifier: super::attestation::NativePastaVerifier,
-        custody: Option<
-            Arc<crate::zk::kagemusha_v1_recursion::KagemushaMintFinalityLocalAuthorityV1>,
-        >,
-        publisher: super::attestation::NativeAttestationPublisher,
-    ) -> Result<(), PublicationError> {
-        self.call(|reply| Request::AttachAttestation {
-            verifier,
-            custody,
-            publisher,
-            reply,
-        })
-        .unwrap_or_else(|| Err(control::stopped()))
-    }
-
     /// Re-apply a block Kura already holds (startup replay): execute it on the applied tip
     /// and require the certified result. The caller must admit any decoded witness to the
     /// original State pool before this retained handoff; KuraBlockStore does that explicitly.
@@ -579,7 +586,7 @@ impl StateExecutor {
         commit_qc: &Qc,
     ) -> Result<(), PublicationError> {
         require_body_admission(block, &self.execution_budget)?;
-        require_qc_witness_admission(commit_qc, &self.execution_budget)?;
+
         self.call(|reply| Request::Replay(block.clone(), commit_qc.clone(), reply))
             .unwrap_or_else(|| Err(control::stopped()))
     }
@@ -591,7 +598,7 @@ impl StateExecutor {
         origin: CommitTelemetryOrigin,
     ) -> Result<Option<Hash32>, PublicationError> {
         require_body_admission(block, &self.execution_budget)?;
-        require_qc_witness_admission(commit_qc, &self.execution_budget)?;
+
         self.call(|reply| Request::Prepare(block.clone(), commit_qc.clone(), origin, reply))
             .unwrap_or_else(|| {
                 Err(PublicationError::RecoveryRequired(
@@ -632,7 +639,9 @@ impl Executor for StateExecutor {
     }
 
     fn discard(&mut self, height: u64, keep: &[Hash32]) {
-        let _ = self.requests.send(Request::Discard(height, keep.to_vec()));
+        if let Some(requests) = &self.requests {
+            let _ = requests.send(Request::Discard(height, keep.to_vec()));
+        }
     }
 
     fn prepare(
@@ -649,7 +658,7 @@ impl Executor for StateExecutor {
         commit_qc: &Qc,
     ) -> Result<AppliedConfig, PublicationError> {
         require_body_admission(block, &self.execution_budget)?;
-        require_qc_witness_admission(commit_qc, &self.execution_budget)?;
+
         self.call(|reply| Request::Commit(block.clone(), commit_qc.clone(), reply))
             .unwrap_or_else(|| {
                 Err(PublicationError::RecoveryRequired(
@@ -664,7 +673,7 @@ impl Executor for StateExecutor {
         view: u64,
         max_bytes: u32,
         exec_budget_ms: u32,
-    ) -> Result<(Option<PayloadBytes>, bool), PublicationError> {
+    ) -> Result<Option<PayloadBytes>, PublicationError> {
         self.call(|reply| Request::Build(height, view, max_bytes, exec_budget_ms, reply))
             .unwrap_or_else(|| {
                 Err(PublicationError::RecoveryRequired(
@@ -676,7 +685,7 @@ impl Executor for StateExecutor {
     fn build_control_witness(
         &mut self,
         context: &ControlWitnessContext,
-    ) -> Result<(ControlWitness, bool), PublicationError> {
+    ) -> Result<ControlWitness, PublicationError> {
         self.call(|reply| Request::BuildControl(*context, reply))
             .unwrap_or_else(|| Err(control::stopped()))
     }
@@ -699,9 +708,9 @@ impl Executor for StateExecutor {
     }
 
     fn reject(&mut self, height: u64, view: u64, block_hash: &Hash32) {
-        let _ = self
-            .requests
-            .send(Request::Reject(height, view, *block_hash));
+        if let Some(requests) = &self.requests {
+            let _ = requests.send(Request::Reject(height, view, *block_hash));
+        }
     }
 }
 
@@ -775,12 +784,24 @@ struct Live<'s> {
     witness: Option<crate::state::CapturedExecWitness>,
     result: Hash32,
     /// Complete original canonical epoch result and its exact source-bound allocation ledger.
-    commitment: iroha_allocation::RetainedPayload<ExecutionResultCommitment>,
-    /// Exact original witness/signature progress, retained independently of durable encoding.
-    attestation: local_attestation::Progress,
+    /// Retained for custody through the same Live lifetime and field drop order, even when
+    /// shipping execution no longer reads its value after encoding the original preimage.
+    _commitment: iroha_allocation::RetainedPayload<ExecutionResultCommitment>,
     applied_config: AppliedConfig,
     committee: Vec<PeerId>,
     events: Vec<EventBox>,
+}
+
+#[cfg(test)]
+impl Live<'_> {
+    /// Borrow the retained canonical result for original-custody assertions.
+    fn commitment(&self) -> &iroha_allocation::RetainedPayload<ExecutionResultCommitment> {
+        let Self {
+            _commitment: commitment,
+            ..
+        } = self;
+        commitment
+    }
 }
 
 /// The one original execution's progress; no phase reconstructs a predecessor owner.
@@ -822,8 +843,6 @@ enum PublicationPhase {
 
 #[path = "executor_control.rs"]
 mod control;
-#[path = "executor_attestation.rs"]
-mod local_attestation;
 mod preparation;
 mod publication;
 mod replay;
@@ -834,7 +853,7 @@ struct QuarantineContext {
     height: u64,
     view: u64,
     block_hash: Hash32,
-    pulse_context: iroha_data_model::consensus::GlobalThresholdBeaconPulseContextV1,
+    _pulse_context: iroha_data_model::consensus::GlobalThresholdBeaconPulseContextV1,
 }
 
 mod payload_owner;
@@ -842,7 +861,6 @@ use payload_owner::{CompletedPayload, OriginalPayloadScope};
 
 struct GlobalPayloadSource {
     block: SignedBlock,
-    attest: bool,
     pending_inputs: Option<crate::queue::PendingPayloadLease>,
 }
 
@@ -883,6 +901,8 @@ struct SignatureDecodeAttempt {
     decoded: Option<SignedBlock>,
     /// An original returned graph cannot be reused after an unfinished or mismatched projection.
     returned_refusal: Option<ReturnedDecodedRefusal>,
+    /// Completed leg graphs and decoder controls from this exact original proposal.
+    amx_legs: Option<super::amx::NativeAmxLegPreparations>,
 }
 
 /// Original failure retained beside the same graph after the validator returned ownership.
@@ -1035,8 +1055,6 @@ struct Worker<'s> {
     queue: Option<Arc<Queue>>,
     /// The process-lifetime partial owner; view changes never replace it.
     beacon: Option<super::epoch_beacon::producer::NativeBeaconProducer>,
-    /// Sole local Pasta custodian and one original-pool receipt publisher.
-    attestation: Option<local_attestation::Custody>,
     /// Only an exact control-free transaction rejection permits queue isolation.
     quarantine_context: Option<QuarantineContext>,
     /// A consuming publication cannot be retried on this worker, even after an unwind.
@@ -1067,7 +1085,6 @@ fn run(context: &ExecutorContext, requests: &mpsc::Receiver<Request>) {
         archives: None,
         pending_commit: None,
         completed_replay: None,
-        attestation: None,
         quarantine_context: None,
     };
     loop {
@@ -1221,14 +1238,6 @@ impl<'s> Worker<'s> {
             } => {
                 let _ = reply.send(self.attach_beacon(instance, local_bls, signer));
             }
-            Request::AttachAttestation {
-                verifier,
-                custody,
-                publisher,
-                reply,
-            } => {
-                let _ = reply.send(self.attach_attestation(verifier, custody, publisher));
-            }
             Request::Reject(height, view, block_hash) => self.reject(height, view, block_hash),
             Request::AttachQueue(queue) => {
                 self.completed_payload = None;
@@ -1343,7 +1352,7 @@ impl<'s> Worker<'s> {
                         &"execution retry changes its original header",
                     ));
                 }
-                return Some(execution_report(self.finish_local_attestation().map(Some)));
+                return Some(ExecOutcome::Valid(live.result));
             }
         }
         if let Some((source, outcome)) = self.results.get(&block_hash) {
@@ -1464,10 +1473,6 @@ impl<'s> Worker<'s> {
                 return finish(self);
             }
         }
-        // Invalidate the public receipt before releasing its exact original overlay.
-        if let Err(error) = self.clear_local_attestation() {
-            return Err(PublicationError::Retryable(error));
-        }
         // An explicitly superseded candidate releases its original private execution.
         self.finishing = None;
         // The state admits one overlay: drop the previous one first.
@@ -1519,6 +1524,7 @@ impl<'s> Worker<'s> {
                 decoder,
                 decoded: None,
                 returned_refusal: None,
+                amx_legs: None,
             });
         }
         let attempt = self
@@ -1594,14 +1600,6 @@ impl<'s> Worker<'s> {
                 &"the payload's height or view differs from the header",
             );
         }
-        if block.header().attest
-            != proposal_requires_attestation(iroha_block, configured.epoch.last_height)
-        {
-            return invalid_attempt(
-                height,
-                &"the attestation flag differs from the payload's rule",
-            );
-        }
         // Merged lane blocks execute after the block's own transactions (§4.3 of
         // `specs/sumeragi_lanes.md`); the node waits for its lane stores within `E_max`.
         let expansion = match lanes::merge::expand(
@@ -1657,17 +1655,54 @@ impl<'s> Worker<'s> {
             .as_mut()
             .and_then(|attempt| attempt.decoded.take())
             .expect("original completed proposal transfers to validation");
+        let genesis_account = &self.context.genesis_account;
+        let consensus_mode = self.context.consensus_mode;
+        let state = self.state;
+        let attempt = self
+            .signature_decode
+            .as_mut()
+            .expect("original validation attempt");
+        // Expansion legitimately appends/moves lane inputs. This first owner
+        // retains only unexpanded originals; other calls use the same funded kernel.
+        // TODO: compose retained leg identity with actual lane input ownership.
+        let amx_legs = if iroha_block.lane_merge().is_none() {
+            let original_source = &attempt.source;
+            let bank = attempt.amx_legs.get_or_insert_with(|| {
+                super::amx::NativeAmxLegPreparations::new(&iroha_block, original_source, &budget)
+            });
+            let original_matches =
+                bank.matches_original(&iroha_block, original_source, block, &budget);
+            #[cfg(all(test, sumeragi_core_mutation = "HC167"))]
+            let original_matches = original_matches
+                && bank.matches_original_publication(state.state_view_generation());
+            if !original_matches {
+                attempt.decoded = Some(iroha_block);
+                return Err(PublicationError::RecoveryRequired(
+                    "completed AMX preparation changed its original block, source or pool".into(),
+                ));
+            }
+            Some(bank)
+        } else {
+            if attempt.amx_legs.is_some() {
+                attempt.decoded = Some(iroha_block);
+                return Err(PublicationError::RecoveryRequired(
+                    "completed AMX attempt acquired a substituted lane expansion".into(),
+                ));
+            }
+            None
+        };
         let validated = catch_unwind(AssertUnwindSafe(|| {
-            ValidBlock::validate_sumeragi_block(
+            ValidBlock::validate_sumeragi_block_with_amx(
                 iroha_block,
                 &topology,
-                &self.context.genesis_account,
+                genesis_account,
                 cadence,
-                self.context.consensus_mode,
+                consensus_mode,
                 expansion,
                 block.header(),
                 block.payload().as_slice(),
-                self.state,
+                state,
+                amx_legs,
             )
         }));
         let validated = match validation_result(validated) {
@@ -1675,7 +1710,7 @@ impl<'s> Worker<'s> {
             Err(recovery) => return Err(recovery),
         };
         let mut events = Vec::new();
-        let (valid, mut overlay) = match validated.unpack(|event| events.push(event.into())) {
+        let (valid, overlay) = match validated.unpack(|event| events.push(event.into())) {
             Ok(executed) => executed,
             Err((returned, error)) => {
                 if !cfg!(all(test, sumeragi_core_mutation = "HC44"))
@@ -1696,7 +1731,7 @@ impl<'s> Worker<'s> {
                         height,
                         view: block.header().origin_view,
                         block_hash,
-                        pulse_context,
+                        _pulse_context: pulse_context,
                     });
                 }
                 let outcome = classify(height, &error);
@@ -1711,11 +1746,33 @@ impl<'s> Worker<'s> {
                 return outcome;
             }
         };
+        if self
+            .retain_validated_execution(block, block_hash, valid, overlay, committee, events)?
+            .is_none()
+        {
+            return Ok(None);
+        }
+        finish(self)
+    }
+
+    /// Transfer one actual validator result into its completed owner. Witness extraction
+    /// checks the retained source; absence cannot promise a retry after these owners drop.
+    /// Some denotes the retained completed owner; None preserves intrinsic rejection.
+    fn retain_validated_execution(
+        &mut self,
+        block: &AvailableBody,
+        block_hash: Hash32,
+        valid: ValidBlock,
+        mut overlay: Box<StateBlock<'s>>,
+        committee: Vec<PeerId>,
+        events: Vec<EventBox>,
+    ) -> Result<Option<()>, PublicationError> {
+        let height = block.header().height;
         if let Err(error) = overlay.take_sumeragi_lanes() {
             if let lanes::step::LaneStepError::Deferred(reason) = &error {
                 self.routing_refusal = Some(reason.clone());
             }
-            return classify_lane_step(height, &error);
+            return classify_lane_step(height, &error).map(|_| None);
         }
         let inputs = match overlay.take_sumeragi_execution_inputs() {
             Ok(inputs) => inputs,
@@ -1726,17 +1783,28 @@ impl<'s> Worker<'s> {
                 {
                     self.routing_refusal = Some(reason.clone());
                 }
-                return classify(height, &error);
+                return classify(height, &error).map(|_| None);
             }
         };
         let applied_config = match inputs.get().schedule.applied_config() {
             Ok(config) => config,
-            Err(error) => return invalid_attempt(height, &error),
+            Err(error) => return invalid_attempt(height, &error).map(|_| None),
         };
         let Some(witness) = overlay.take_exec_witness() else {
-            return Err(PublicationError::Retryable(
-                "the execution witness was not captured".into(),
-            ));
+            if cfg!(all(test, sumeragi_core_mutation = "HC134")) {
+                return Err(PublicationError::Retryable(
+                    "the execution witness was not captured".into(),
+                ));
+            }
+            // Guard failure or prior extraction has no resumable captured owner. Latch
+            // recovery before this handoff consumes the sole valid block and overlay.
+            let reason = self
+                .recovery
+                .get_or_insert_with(|| {
+                    "the original execution witness is absent or no longer source-valid".into()
+                })
+                .clone();
+            return Err(PublicationError::RecoveryRequired(reason));
         };
         // The original valid block now retains the same immutable signature owner.
         // Retire only its preparation controls/source; later phases move this exact block.
@@ -1762,7 +1830,7 @@ impl<'s> Worker<'s> {
             archive_refusal: None,
             world_cut_refusal: None,
         });
-        finish(self)
+        Ok(Some(()))
     }
 
     /// Construct the mandatory context proof from the same original witness and input owner.
@@ -1784,11 +1852,9 @@ impl<'s> Worker<'s> {
         let proof = match NativeLaneStateProof::from_witness(&original.witness, &budget) {
             Ok(proof) => proof,
             Err(error) => {
-                let failure = match &error {
-                    NativeLaneStateProofError::Scratch(error) => {
-                        PublicationError::Deferred(preparation::buffer_refusal(error).into())
-                    }
-                    _ => PublicationError::RecoveryRequired(format!(
+                let failure = match original_lane_proof_deferral(&error) {
+                    Some(original) => PublicationError::Deferred(original.into()),
+                    None => PublicationError::RecoveryRequired(format!(
                         "original context proof requires recovery: {error}"
                     )),
                 };
@@ -1860,11 +1926,6 @@ impl<'s> Worker<'s> {
             self.recovery = Some(reason.clone());
             PublicationError::RecoveryRequired(reason)
         })?;
-        if top_ups_without_flag(commitment.get(), original.header.attest) {
-            let reason = "executed top-ups without the attestation flag".to_owned();
-            self.recovery = Some(reason.clone());
-            return Err(PublicationError::RecoveryRequired(reason));
-        }
         original.phase = FinishingPhase::Ready(commitment);
         Ok(())
     }
@@ -1876,17 +1937,28 @@ impl<'s> Worker<'s> {
             .finishing
             .as_mut()
             .expect("original completed execution");
-        if original.native_contexts.is_some() {
-            return Ok(());
-        }
-        match self.context.native_context_archive.prepare(
-            &original.overlay,
-            original.valid.as_ref(),
-            original.phase.ready().expect("original prepared result"),
-            &original.witness,
-        ) {
-            Ok(projection) => {
-                original.native_contexts = Some(projection);
+        let capture = (|| {
+            if original.native_contexts.is_none() {
+                original.native_contexts = Some(self.context.native_context_archive.prepare(
+                    &original.overlay,
+                    original.valid.as_ref(),
+                    original.phase.ready().expect("original prepared result"),
+                    &original.witness,
+                )?);
+            }
+            self.context.native_context_archive.prepare_amx_intents(
+                original
+                    .native_contexts
+                    .as_mut()
+                    .expect("original context capture"),
+                &original.overlay,
+                original.valid.as_ref(),
+                original.phase.ready().expect("original prepared result"),
+                &original.witness,
+            )
+        })();
+        match capture {
+            Ok(()) => {
                 original.archive_refusal = None;
                 Ok(())
             }
@@ -1894,6 +1966,14 @@ impl<'s> Worker<'s> {
                 let failure = match &error {
                     NativeContextArchiveError::Allocation(error) => {
                         PublicationError::Deferred(preparation::buffer_refusal(error).into())
+                    }
+                    NativeContextArchiveError::Proof(error) => {
+                        match original_lane_proof_deferral(error) {
+                            Some(original) => PublicationError::Deferred(original.into()),
+                            None => PublicationError::RecoveryRequired(format!(
+                                "original native context archive requires recovery: {error}"
+                            )),
+                        }
                     }
                     _ => PublicationError::RecoveryRequired(format!(
                         "original native context archive requires recovery: {error}"
@@ -1971,13 +2051,12 @@ impl<'s> Worker<'s> {
             overlay: Some(original.overlay),
             witness: Some(original.witness),
             result,
-            commitment,
-            attestation: local_attestation::Progress::WaitingBacking(None),
+            _commitment: commitment,
             applied_config: original.applied_config,
             committee: original.committee,
             events: original.events,
         });
-        self.finish_local_attestation().map(Some)
+        Ok(Some(result))
     }
 
     /// Admit the keys of the committee scheduled for `height` into the driver's cryptography.
@@ -1995,6 +2074,72 @@ impl<'s> Worker<'s> {
                 iroha_logger::warn!(peer = %member.validator, ?error, "sumeragi: committee key not admitted");
             }
         }
+    }
+
+    /// Reconstruct authority from the independently authenticated committed source even
+    /// during startup replay, using the exact authenticated BLS quorum.
+    fn verify_prepared_certificate(
+        &self,
+        block: &AvailableBody,
+        qc: &Qc,
+    ) -> Result<(), PublicationError> {
+        let view = self.state.try_view_once().map_err(|error| {
+            if cfg!(all(test, sumeragi_core_mutation = "HC72"))
+                && matches!(&error, crate::state::StateViewError::Busy(_))
+            {
+                PublicationError::Retryable(error.to_string())
+            } else {
+                PublicationError::from(error)
+            }
+        })?;
+        // Only signed genesis selects the root instance. Its result-only R is not
+        // needed here; reading an executed receipt would walk the entire history
+        // on every new certificate. The sole durable reader still authenticates
+        // this State cut's exact genesis hash, network, payload and signatures.
+        #[cfg(all(test, sumeragi_core_mutation = "HC139"))]
+        let instance = {
+            let genesis = crate::sumeragi::certified_chain::committed_block(&view, 1)
+                .map_err(|error| error.map_rejection(|error| error.to_string()))?;
+            crate::sumeragi::node::root_instance(genesis.block(), &view.chain_id().to_string())?
+        };
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC139")))]
+        let instance = crate::sumeragi::certified_chain::CertifiedChain::new(&view)
+            .map_err(|error| error.map_rejection(|error| error.to_string()))?
+            .instance();
+        let scheduled = view
+            .world()
+            .consensus_schedule()
+            .ready(block.header().height)
+            .map_err(|error| error.to_string())?;
+        let config = scheduled
+            .height_config()
+            .map_err(|error| error.to_string())?;
+        if block.source().instance() != instance || block.source().config() != &config {
+            return Err(
+                "available body does not bind the independently authenticated authority".into(),
+            );
+        }
+        let crypto = self
+            .context
+            .crypto
+            .as_ref()
+            .ok_or("native committee crypto is not attached")?;
+        // New scheduled keys must be admitted from their exact authenticated PoPs.
+        for member in &scheduled.epoch.committee {
+            crypto
+                .admit(member.validator.public_key(), &member.proof_of_possession)
+                .map_err(|error| error.to_string())?;
+        }
+        iroha_sumeragi::crypto::Verifier::new(
+            &**crypto,
+            &instance,
+            &config.epoch.id,
+            &config.committee,
+        )
+        .verify_qc(qc)
+        .map_err(|error| {
+            PublicationError::Retryable(format!("native quorum verification failed: {error:?}"))
+        })
     }
 
     fn scheduled(&self, height: u64) -> Option<ScheduledAuthority> {
@@ -2017,9 +2162,6 @@ impl<'s> Worker<'s> {
             .as_ref()
             .is_some_and(|live| live.height == height && !keep.contains(&live.block_hash))
         {
-            if self.clear_local_attestation().is_err() {
-                return;
-            }
             self.live = None;
         }
         if self.finishing.as_ref().is_some_and(|original| {
@@ -2109,7 +2251,7 @@ impl<'s> Worker<'s> {
         if let Some(reason) = &self.recovery {
             return Err(PublicationError::RecoveryRequired(reason.clone()));
         }
-        require_qc_witness_admission(qc, &self.state.ivm_execution_budget())?;
+
         match catch_unwind(AssertUnwindSafe(|| {
             self.prepare_inner(block, qc, origin, &mut encode, execute)
         })) {
@@ -2157,7 +2299,6 @@ impl<'s> Worker<'s> {
             || qc.height != block.header().height
             || qc.instance != block.header().instance
             || qc.epoch != block.header().epoch
-            || qc.attest != block.header().attest
             || super::commitment::chain_hash(&iroha_sumeragi::preimage::block_hash_preimage(
                 block.header(),
             )) != block_hash
@@ -2212,8 +2353,6 @@ impl<'s> Worker<'s> {
                 return Ok(None);
             }
         }
-        // Reusing an executed overlay must complete the same receipt publication too.
-        self.finish_local_attestation()?;
         let live = self
             .live
             .as_mut()
@@ -2442,7 +2581,7 @@ impl<'s> Worker<'s> {
         if let Some(reason) = &self.recovery {
             return Err(PublicationError::RecoveryRequired(reason.clone()));
         }
-        require_qc_witness_admission(qc, &self.state.ivm_execution_budget())?;
+
         match catch_unwind(AssertUnwindSafe(|| self.commit_inner(block, qc, publish))) {
             Ok(Err(error)) if self.recovery.is_some() => {
                 let reason = format!("publication requires recovery: {error}");
@@ -2583,13 +2722,6 @@ impl<'s> Worker<'s> {
         let state_events = state_events
             .take()
             .expect("original finalized State events");
-        // Invalidate the local signing receipt before its original overlay is released.
-        // A poisoned mailbox after visibility is a recovery condition, never a fresh execution.
-        if let Some(custody) = &self.attestation {
-            if !custody.publisher.discard(0, &[]) {
-                return Err("native attestation mailbox requires recovery".into());
-            }
-        }
         // Retire only after the complete original State and its retained post-effects
         // have published. State's Drop releases siblings before refunds and notices.
         drop(live.overlay.take().expect("original published overlay"));
@@ -2701,7 +2833,7 @@ impl<'s> Worker<'s> {
         view: u64,
         max_bytes: u32,
         exec_budget_ms: u32,
-    ) -> Result<(Option<PayloadBytes>, bool), PublicationError> {
+    ) -> Result<Option<PayloadBytes>, PublicationError> {
         // The inner body acquires and retires its original State view and Queue
         // guards before same-pool refund callbacks can reenter either owner.
         let budget = self.state.ivm_execution_budget();
@@ -2717,7 +2849,7 @@ impl<'s> Worker<'s> {
         view: u64,
         max_bytes: u32,
         exec_budget_ms: u32,
-    ) -> Result<(Option<PayloadBytes>, bool), PublicationError> {
+    ) -> Result<Option<PayloadBytes>, PublicationError> {
         if let Some(reason) = &self.recovery {
             self.completed_payload = None;
             return Err(PublicationError::RecoveryRequired(reason.clone()));
@@ -2735,7 +2867,7 @@ impl<'s> Worker<'s> {
                 publication_pending = self.publication_pending(),
                 "sumeragi: payload selection awaits its original applied parent"
             );
-            return Ok((None, false));
+            return Ok(None);
         }
         if self.payload_build.as_ref().is_some_and(|build| {
             !build
@@ -2813,7 +2945,7 @@ impl<'s> Worker<'s> {
                 view,
                 "sumeragi: payload selection has no published parent"
             );
-            return Ok((None, false));
+            return Ok(None);
         };
         let schedule = current_view.world().consensus_schedule();
         if schedule.ready(height).is_err() {
@@ -2823,16 +2955,15 @@ impl<'s> Worker<'s> {
                 view,
                 "sumeragi: payload selection has no authenticated scheduled authority"
             );
-            return Ok((None, false));
+            return Ok(None);
         }
         let scheduled = ScheduledAuthority {
             schedule: schedule.clone(),
             height,
         };
-        let boundary_attestation = height == scheduled.epoch.authorization.last_height;
         if self.queue.is_none() {
             self.completed_payload = None;
-            return Ok((None, boundary_attestation));
+            return Ok(None);
         }
         let scope = OriginalPayloadScope::capture(
             &current_view,
@@ -2880,12 +3011,13 @@ impl<'s> Worker<'s> {
             view,
             transactions = selected.len(),
             lane_merges = merges.merges.len(),
-            boundary_attestation,
             "sumeragi: payload selection completed"
         );
         // Only real work may activate the pulse signer. A pulse cannot create a block.
         if selected.is_empty() && merges.merges.is_empty() {
-            return Ok((None, false));
+            #[cfg(test)]
+            queue.record_empty_native_payload();
+            return Ok(None);
         }
         let assembly = Assembly {
             parent: &parent,
@@ -2894,7 +3026,8 @@ impl<'s> Worker<'s> {
         };
         while !selected.is_empty() || !merges.merges.is_empty() {
             // Every selected Queue input retains its original admission receipt,
-            // including mixed sources. Completed reuse still requires Queue-only work.
+            // including mixed sources. Lane-bearing completion retains this same
+            // source and rechecks its actual ranges and original lease on every lend.
             let pending_inputs = match selection {
                 Some(selection) => queue
                     .capture_pending_payload_lease(
@@ -2941,10 +3074,6 @@ impl<'s> Worker<'s> {
             match block.resultless_proposal_wire_len() {
                 Ok(length) if length <= max_bytes => {
                     let source = GlobalPayloadSource {
-                        attest: proposal_requires_attestation(
-                            &block,
-                            scheduled.epoch.authorization.last_height,
-                        ),
                         pending_inputs,
                         block,
                     };
@@ -2974,10 +3103,10 @@ impl<'s> Worker<'s> {
                 }
             }
         }
-        Ok((None, boundary_attestation))
+        Ok(None)
     }
 
-    fn finish_payload_build(&mut self) -> Result<(Option<PayloadBytes>, bool), PublicationError> {
+    fn finish_payload_build(&mut self) -> Result<Option<PayloadBytes>, PublicationError> {
         let GlobalPayloadBuild {
             scope,
             mut job,
@@ -3024,6 +3153,54 @@ impl<'s> Worker<'s> {
         }
         // Only a new actual preparation probe may retire its previous refusal owner.
         drop(preparation_refusal);
+        if job.source().block.lane_merge().is_some() {
+            let result = job.finish_retained(
+                |source| source.block.resultless_proposal_wire_len(),
+                |source, writer| source.block.write_resultless_proposal_wire(writer),
+            );
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC199")))]
+            {
+                // The actual source, mixed Queue lease, signature custody and
+                // immutable output retire together. Fresh source checks precede
+                // each retry; a Core build deadline does not recreate this work.
+                self.payload_build = Some(GlobalPayloadBuild {
+                    scope,
+                    job,
+                    preparation_refusal: None,
+                });
+            }
+            #[cfg(all(test, sumeragi_core_mutation = "HC199"))]
+            {
+                // Restore only the completed-stage loss; refused original work
+                // remains retained exactly as in the unmutated implementation.
+                if result.is_err() {
+                    self.payload_build = Some(GlobalPayloadBuild {
+                        scope,
+                        job,
+                        preparation_refusal: None,
+                    });
+                }
+            }
+            return match result {
+                Ok(payload) => {
+                    iroha_logger::debug!(
+                        height = scope.height,
+                        view = scope.view,
+                        bytes = payload.as_slice().len(),
+                        "sumeragi: original funded lane payload build completed"
+                    );
+                    Ok(Some(payload))
+                }
+                Err(error) => {
+                    let reason = format!("canonical payload admission: {error:?}");
+                    Err(if error.is_local_refusal() {
+                        PublicationError::Retryable(reason)
+                    } else {
+                        PublicationError::RecoveryRequired(reason)
+                    })
+                }
+            };
+        }
         match job.finish(
             |source| source.block.resultless_proposal_wire_len(),
             |source, writer| source.block.write_resultless_proposal_wire(writer),
@@ -3035,15 +3212,8 @@ impl<'s> Worker<'s> {
                     bytes = payload.as_slice().len(),
                     "sumeragi: original funded payload build completed"
                 );
-                let attest = source.attest;
-                let pending_inputs = if source.block.lane_merge().is_none() {
-                    source.pending_inputs
-                } else {
-                    // A selected-input receipt cannot authorize completed lane reuse.
-                    None
-                };
-                self.retain_completed_payload(scope, pending_inputs, &payload, attest);
-                Ok((Some(payload), attest))
+                self.retain_completed_payload(scope, source.pending_inputs, &payload);
+                Ok(Some(payload))
             }
             Err((job, error)) => {
                 let retry = error.is_local_refusal();
@@ -3072,6 +3242,13 @@ impl<'s> Worker<'s> {
         {
             self.completed_payload = None;
         }
+        if self.payload_build.as_ref().is_some_and(|original| {
+            original.scope.height == height
+                && original.scope.view == view
+                && original.job.is_completed()
+        }) {
+            self.payload_build = None;
+        }
         if self.recovery.is_some() || self.publication_pending() {
             return;
         }
@@ -3099,40 +3276,6 @@ impl<'s> Worker<'s> {
 fn proposal_matches_header(header: IrohaHeader, block: &AvailableBody) -> bool {
     header.height().get() == block.header().height
         && header.view_change_index() == block.header().origin_view
-}
-
-/// The node application's exact attestation rule for an original native proposal.
-///
-/// Every native top-up needs its source-complete mint seal, including a rejected
-/// top-up whose executed tree is empty. The caller supplies the epoch's last
-/// height from its authenticated committed schedule. This inspection grants no
-/// fee, execution, mint or finality authority; execution still checks its actual
-/// top-up count independently. The generic consensus core adds no boundary rule.
-#[must_use]
-pub fn proposal_requires_attestation(block: &SignedBlock, epoch_last_height: u64) -> bool {
-    if cfg!(all(test, sumeragi_core_mutation = "HC132")) {
-        return block.header().height().get() == epoch_last_height;
-    }
-    block.header().height().get() == epoch_last_height
-        || block.external_entrypoints_slice().iter().any(|entrypoint| {
-            let TransactionEntrypoint::External(tx) = entrypoint else {
-                return false;
-            };
-            tx.instructions()
-                .explicit_instructions()
-                .any(|instruction| {
-                    instruction
-                        .as_any()
-                        .downcast_ref::<iroha_data_model::isi::kagemusha_v1::TopUpKagemushaV1>()
-                        .is_some()
-                })
-        })
-}
-
-/// Executed top-ups in a block that does not require attestations: the static rule missed a
-/// top-up path, so the block cannot be finalized with mint finality.
-fn top_ups_without_flag(commitment: &ExecutionResultCommitment, attest: bool) -> bool {
-    commitment.execution.kagemusha_top_up_count > 0 && !attest
 }
 
 /// A deterministically invalid block at `height`, logged with its reason.
@@ -3184,9 +3327,6 @@ fn classify_lane_step(
         }
         lanes::step::LaneStepError::Deferred(original) => {
             Err(PublicationError::Deferred(original.clone().into()))
-        }
-        lanes::step::LaneStepError::CustodyAllocation => {
-            Err(PublicationError::Retryable(error.to_string()))
         }
         _ => invalid_attempt(height, error),
     }
@@ -3258,7 +3398,12 @@ mod tests {
     fn lane_custody_allocation_refusal_is_local_and_semantic_errors_remain_invalid() {
         use lanes::step::LaneStepError;
         assert!(matches!(
-            execution_report(classify_lane_step(2, &LaneStepError::CustodyAllocation)),
+            execution_report(classify_lane_step(
+                2,
+                &LaneStepError::Deferred(
+                    ivm::error::ExecutionDeferral::AllocationUnavailable.into()
+                ),
+            )),
             ExecOutcome::Failed(_)
         ));
         for error in [
@@ -3426,5 +3571,12 @@ mod payload_refusal_tests;
 mod local_signature_preparation_tests;
 
 #[cfg(test)]
-#[path = "executor_attestation_policy_tests.rs"]
-mod attestation_policy_tests;
+#[path = "executor_amx_retry_tests.rs"]
+mod amx_retry_tests;
+
+#[cfg(test)]
+mod shutdown_tests;
+
+#[cfg(test)]
+#[path = "executor_amx_intent_tests.rs"]
+mod amx_intent_tests;

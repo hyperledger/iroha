@@ -322,6 +322,7 @@ fn execute_torii_internal_account_asset_local_source_read_admitted(
 /// the routed-read body cap is enforced.
 struct ToriiAssetDefinitionJsonSource<'a> {
     definition: &'a iroha_data_model::asset::definition::AssetDefinition,
+    owning_dataspace: Option<DataSpaceId>,
     alias_binding: Option<&'a iroha_core::state::AssetDefinitionAliasBindingRecord>,
     observation_time_ms: u64,
 }
@@ -367,6 +368,8 @@ impl norito::json::FastJsonWrite for ToriiAssetDefinitionJsonSource<'_> {
             self.definition.name.json_serialize_to(output)?;
             output.push_str(",\"owned_by\":")?;
             self.definition.owned_by.json_serialize_to(output)?;
+            output.push_str(",\"owning_dataspace\":")?;
+            write_torii_definition_dataspace_json(self.owning_dataspace, output)?;
             output.push_str(",\"owning_domain\":")?;
             self.definition.owning_domain.json_serialize_to(output)?;
             output.push_str(",\"spec\":")?;
@@ -379,6 +382,20 @@ impl norito::json::FastJsonWrite for ToriiAssetDefinitionJsonSource<'_> {
         output.end_container();
         result?;
         Ok(())
+    }
+}
+/// Write a direct definition's exact home without converting it through a JSON number.
+fn write_torii_definition_dataspace_json(
+    dataspace: Option<DataSpaceId>,
+    output: &mut dyn norito::json::JsonWriteSink,
+) -> Result<(), norito::json::BoundedJsonError> {
+    use norito::json::JsonSerialize as _;
+    if let Some(dataspace) = dataspace {
+        output.push('"')?;
+        dataspace.as_u64().json_serialize_to(output)?;
+        output.push('"')
+    } else {
+        output.push_str("null")
     }
 }
 /// Preserve the sorted nested projection without allocating an intermediate JSON graph.
@@ -541,6 +558,11 @@ fn execute_torii_asset_definition_local_source_read_admitted(
     }
     let source = ToriiAssetDefinitionJsonSource {
         definition,
+        owning_dataspace: match routing::asset_definition_dataspace_for_read(world, &definition_id)
+        {
+            Ok(home) => home,
+            Err(error) => return error_response_with_format(error, ResponseFormat::Json),
+        },
         alias_binding: world.asset_definition_alias_bindings().get(&definition_id),
         observation_time_ms,
     };
@@ -875,6 +897,7 @@ fn execute_torii_contract_alias_local_source_read_admitted(
 }
 struct ToriiExplorerAssetDefinitionJsonSource<'a> {
     definition: &'a iroha_data_model::asset::definition::AssetDefinition,
+    owning_dataspace: Option<DataSpaceId>,
     assets: u32,
     locked_quantity: Option<&'a iroha_primitives::numeric::Quantity>,
     circulating_quantity: Option<&'a iroha_primitives::numeric::Quantity>,
@@ -894,6 +917,8 @@ impl norito::json::FastJsonWrite for ToriiExplorerAssetDefinitionJsonSource<'_> 
             self.definition.id.json_serialize_to(output)?;
             output.push_str(",\"owning_domain\":")?;
             self.definition.owning_domain.json_serialize_to(output)?;
+            output.push_str(",\"owning_dataspace\":")?;
+            write_torii_definition_dataspace_json(self.owning_dataspace, output)?;
             output.push_str(",\"mintable\":")?;
             self.definition.mintable.json_serialize_to(output)?;
             output.push_str(",\"logo\":")?;
@@ -990,6 +1015,11 @@ fn execute_torii_explorer_asset_definition_local_source_read_admitted(
     }
     let source = ToriiExplorerAssetDefinitionJsonSource {
         definition,
+        owning_dataspace: match routing::asset_definition_dataspace_for_read(&world, definition_id)
+        {
+            Ok(home) => home,
+            Err(error) => return error_response_with_format(error, ResponseFormat::Json),
+        },
         assets,
         locked_quantity,
         circulating_quantity: circulating_quantity.as_ref(),
@@ -1109,10 +1139,14 @@ mod service_source_depth_tests {
         for alias_binding in [None, Some(&binding)] {
             let source = ToriiAssetDefinitionJsonSource {
                 definition: &definition,
+                owning_dataspace: None,
                 alias_binding,
                 observation_time_ms: 60,
             };
             let mut expected = norito::json::to_value(&definition).unwrap();
+            if let Value::Object(object) = &mut expected {
+                object.insert("owning_dataspace".into(), Value::Null);
+            }
             if let Some(binding) = alias_binding {
                 let Value::Object(object) = &mut expected else {
                     panic!("original definition object");
@@ -1254,10 +1288,28 @@ mod service_source_depth_tests {
         }
     }
     #[test]
-    fn original_explorer_definition_projection_keeps_actual_owner_and_refusal_depth() {
+    fn direct_definition_projection_preserves_exact_home_and_bounded_refusals() {
         let definition = definition();
-        let source = ToriiExplorerAssetDefinitionJsonSource {
+        let home = DataSpaceId::new(8_648_377_547_929_788_715);
+        let source = ToriiAssetDefinitionJsonSource {
             definition: &definition,
+            owning_dataspace: Some(home),
+            alias_binding: None,
+            observation_time_ms: 60,
+        };
+        let mut expected = norito::json::to_value(&definition).unwrap();
+        let Value::Object(object) = &mut expected else {
+            panic!("definition object");
+        };
+        object.insert(
+            "owning_dataspace".into(),
+            Value::from("8648377547929788715"),
+        );
+        let expected = norito::json::to_json(&expected).unwrap();
+        audit(&expected, |sink| source.write_json_to(sink));
+        let explorer_source = ToriiExplorerAssetDefinitionJsonSource {
+            definition: &definition,
+            owning_dataspace: Some(home),
             assets: 7,
             locked_quantity: None,
             circulating_quantity: None,
@@ -1266,6 +1318,26 @@ mod service_source_depth_tests {
             crate::explorer::ExplorerAssetDefinitionDto::from_definition_with_asset_count(
                 &definition,
                 7,
+                Some(home),
+            );
+        let expected = norito::json::to_json(&expected).unwrap();
+        audit(&expected, |sink| explorer_source.write_json_to(sink));
+    }
+    #[test]
+    fn original_explorer_definition_projection_keeps_actual_owner_and_refusal_depth() {
+        let definition = definition();
+        let source = ToriiExplorerAssetDefinitionJsonSource {
+            definition: &definition,
+            owning_dataspace: None,
+            assets: 7,
+            locked_quantity: None,
+            circulating_quantity: None,
+        };
+        let expected =
+            crate::explorer::ExplorerAssetDefinitionDto::from_definition_with_asset_count(
+                &definition,
+                7,
+                None,
             );
         let expected = norito::json::to_json(&expected).unwrap();
         audit(&expected, |sink| source.write_json_to(sink));

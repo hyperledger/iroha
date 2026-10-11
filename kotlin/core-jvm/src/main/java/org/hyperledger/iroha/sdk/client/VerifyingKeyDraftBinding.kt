@@ -116,8 +116,8 @@ internal object VerifyingKeyDraftBinding {
                 val backendTag = when (
                     VerifyingKeyBackendTag.verifierBackendRegistryTagV1(backend)
                 ) {
-                    VerifyingKeyBackendTag.HALO2_IPA_PASTA -> 0L
                     VerifyingKeyBackendTag.STARK -> 1L
+                    VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA -> 0L
                     null -> throw IllegalArgumentException(
                         "verifying-key draft request uses an unsupported backend",
                     )
@@ -211,7 +211,7 @@ internal object VerifyingKeyDraftBinding {
                         ),
                     )
                 }
-                encodeSized(record) { it.writeUInt(value.status, 8) }
+                encodeSized(record) { it.writeUInt(value.status, 32) }
             }
         }
 

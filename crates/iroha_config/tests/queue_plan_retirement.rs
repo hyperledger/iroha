@@ -1,4 +1,5 @@
 //! First-release queue and storage configuration reject retired protocol controls.
+
 use iroha_config::parameters::user::Root;
 use iroha_config_base::{read::ConfigReader, toml::TomlSource};
 use std::path::PathBuf;

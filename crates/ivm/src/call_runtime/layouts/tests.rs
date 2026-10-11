@@ -5,7 +5,7 @@ use ivm_abi::call::{CallSchemaV1, CallTypeNodeV1};
 
 fn interface() -> EmbeddedContractInterfaceV1 {
     let bytes = kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku Schema { view fn main() -> bool { true } }")
+        .compile_source("seiyaku Schema { view fn main() authorize(anyone) -> bool { true } }")
         .unwrap();
     crate::ProgramMetadata::parse(&bytes)
         .unwrap()
@@ -80,7 +80,7 @@ fn local_layouts_derive_aggregate_widths_and_reject_malformed_types() {
 #[test]
 fn warm_reset_preserves_immutable_schema_layout_owner() {
     let bytes = kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku Schema { view fn main() -> bool { true } }")
+        .compile_source("seiyaku Schema { view fn main() authorize(anyone) -> bool { true } }")
         .unwrap();
     let mut vm = crate::IVM::new(100_000);
     vm.load_program(&bytes).unwrap();

@@ -2,21 +2,21 @@
 //! The HTTP peer supplies transport responses; this is not a remote execution/finality claim.
 use super::*;
 use std::{
-    io::{Read as _, Write as _},
+    io::Write as _,
     net::{TcpListener, TcpStream},
     thread,
     time::{Duration, Instant},
 };
 
 const SOURCE: &str = r#"
-seiyaku Counter {
+seiyaku Counter { permission Update;
     state int count;
     hajimari() { count = 0; }
-    kotoage fn increment(int delta) authorize("CanInvokeContractEntrypoint") {
+    kotoage fn increment(int delta) authorize(Update) {
         count = count + delta;
     }
-    view fn current() -> int { return count; }
-    view fn plus(int delta) -> int { return count + delta; }
+    view fn current() authorize(anyone) -> int { return count; }
+    view fn plus(int delta) authorize(anyone) -> int { return count + delta; }
 }
 "#;
 

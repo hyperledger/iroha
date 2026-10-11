@@ -177,6 +177,9 @@ impl KagemushaWalletTombstoneV1 {
 
 /// Answer of a lookup by operation identity (design `lookup`). `Unknown` means only that no
 /// selected head is recorded here; the state owner's current head stays authoritative.
+// Keep the selected digest inline: its fixed 32 bytes outweigh a Box on 32-bit
+// targets, but adding an allocation would not improve this bounded lookup result.
+#[cfg_attr(target_pointer_width = "32", allow(variant_size_differences))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KagemushaWalletLookupV1<R> {
     /// The released result, byte-identical on every call.
@@ -429,6 +432,7 @@ where
             &kagemusha_wallet_completion_dir_v1(slot),
             &kagemusha_wallet_completion_names_v1(operation_id),
         );
+        let removed = self.require_storage().and(removed);
         self.guard(slot, removed)?;
         Ok(tombstone)
     }
@@ -459,6 +463,38 @@ where
         }
     }
 
+    /// Remove exactly one older capsule pair selected by the state owner's durable collection
+    /// intent. Current-head custody is never collected, and no directory enumeration occurs.
+    ///
+    /// # Errors
+    /// Current/future generations, missing heads or uncertain protected-storage removal.
+    pub fn collect_capsule(
+        &mut self,
+        slot: &KagemushaWalletSlotIdV1,
+        selected_generation: u128,
+        capsule_digest: &[u8; 32],
+    ) -> Result<(), KagemushaWalletProviderErrorV1> {
+        let status = self.reconcile_slot(slot, None)?;
+        let bound = status
+            .marker()
+            .and_then(super::marker::KagemushaWalletMarkerRecordV1::selected_generation)
+            .ok_or(KagemushaWalletProviderErrorV1::Invalid {
+                field: "collect.slot",
+            })?;
+        if selected_generation >= bound || *capsule_digest == [0; 32] {
+            return Err(KagemushaWalletProviderErrorV1::Invalid {
+                field: "collect.current_capsule",
+            });
+        }
+        let dir = kagemusha_wallet_capsules_dir_v1(slot);
+        for copy in super::layout::KagemushaWalletCopyV1::BOTH {
+            let name = kagemusha_wallet_capsule_name_v1(selected_generation, capsule_digest, copy);
+            let result = kagemusha_wallet_require_removed_v1(self.store.remove_file(&dir, &name));
+            let result = self.require_storage().and(result);
+            self.guard(slot, result)?;
+        }
+        Ok(())
+    }
     /// Remove capsules the state owner has durably archived: every copy whose Selected
     /// generation is at most `through` and below the current head's (design R8). The capsule
     /// bound by the current marker is never removed. Returns the number of files removed.

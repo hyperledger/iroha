@@ -14,27 +14,22 @@ use crate::{
         RetainedFinalizedGlobalThresholdBeaconSessionV1, ValidatedGlobalThresholdBeaconSessionV1,
     },
     state::{
-        World,
-        validator_committee::{verify_candidate, verify_progress},
-        verify_threshold_key_lifecycle_certificate_v1,
+        World, validator_committee::verify_progress, verify_threshold_key_lifecycle_certificate_v1,
     },
 };
 use iroha_allocation::AllocationBudget;
-use iroha_data_model::sumeragi::epoch::{BeaconEpochBindingV1, InstalledBeaconEpochBindingV1};
+use iroha_data_model::sumeragi::epoch::{
+    BeaconEpochBindingV1, InstalledBeaconEpochBindingV1, ValidatorGenerationV1,
+};
 use iroha_data_model::{
     NetworkId,
-    isi::{
-        consensus_keys::{ThresholdKeyLifecycleActionV1, ThresholdKeyLifecycleCertificateV1},
-        kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1,
-    },
+    isi::consensus_keys::{ThresholdKeyLifecycleActionV1, ThresholdKeyLifecycleCertificateV1},
     nexus::{
-        ValidatorCandidateKeysV1, ValidatorCommitteePreparationV1, ValidatorCommitteeStatusV1,
-        ValidatorCommitteeTransitionV1,
+        ValidatorCommitteePreparationV1, ValidatorCommitteeStatusV1, ValidatorCommitteeTransitionV1,
     },
     sumeragi::finality::{NativeFinalityJournal, NativeFinalityLimits},
 };
 use iroha_model_base::chain::ChainId;
-use iroha_sumeragi::crypto::AttestationVerifier;
 use norito::{NoritoDeserialize, NoritoSerialize};
 
 /// Join an observed transition to the exact independently certified native selecting boundary.
@@ -106,7 +101,7 @@ pub struct ValidatorCommitteeSelectionEvidenceV1 {
 /// Authority to run the exact selected DKG, without credential or activation authority.
 pub struct VerifiedValidatorCommitteeSelectionV1 {
     preparation: ValidatorCommitteePreparationV1,
-    incumbent_authority: KagemushaMintFinalityAuthorityGenerationV1,
+    incumbent_authority: ValidatorGenerationV1,
     incumbent_beacon: InstalledBeaconEpochBindingV1,
     observed_height: u64,
 }
@@ -115,8 +110,8 @@ impl VerifiedValidatorCommitteeSelectionV1 {
     pub fn preparation(&self) -> &ValidatorCommitteePreparationV1 {
         &self.preparation
     }
-    /// Current authority whose exact quorum owns the preparation epoch.
-    pub fn incumbent_authority(&self) -> &KagemushaMintFinalityAuthorityGenerationV1 {
+    /// Current validator generation whose exact quorum owns the preparation epoch.
+    pub fn incumbent_authority(&self) -> &ValidatorGenerationV1 {
         &self.incumbent_authority
     }
     /// Current installed beacon session, never replaced by this selection proof.
@@ -136,7 +131,7 @@ impl VerifiedValidatorCommitteeSelectionV1 {
 ///
 /// # Errors
 /// Rejects foreign networks or attempts, non-contiguous finality, changed
-/// election inputs, invalid candidate BLS possession, and expired preparation.
+/// election inputs, invalid committee BLS possession, and expired preparation.
 pub fn verify_validator_committee_selection_evidence_v1(
     evidence: &ValidatorCommitteeSelectionEvidenceV1,
     chain_id: &ChainId,
@@ -144,7 +139,6 @@ pub fn verify_validator_committee_selection_evidence_v1(
     target_epoch: u64,
     transition_id: [u8; 32],
     limits: NativeFinalityLimits,
-    attestations: &dyn AttestationVerifier,
     budget: &AllocationBudget,
 ) -> Result<VerifiedValidatorCommitteeSelectionV1, NativeJournalError> {
     check_evidence_size(evidence, limits)?;
@@ -153,7 +147,6 @@ pub fn verify_validator_committee_selection_evidence_v1(
         chain_id,
         &network,
         limits,
-        attestations,
         budget,
         |reader| {
             verify_selection_observation(
@@ -259,7 +252,7 @@ fn verify_selection_observation(
     };
     Ok(VerifiedValidatorCommitteeSelectionV1 {
         preparation: preparation.clone(),
-        incumbent_authority: current.authority.clone(),
+        incumbent_authority: current.generation(),
         incumbent_beacon,
         observed_height: latest_height,
     })
@@ -294,7 +287,7 @@ pub struct ValidatorCommitteeProvisioningEvidenceV1 {
 pub struct VerifiedValidatorCommitteeProvisioningV1 {
     transition: ValidatorCommitteeTransitionV1,
     session: ValidatedGlobalThresholdBeaconSessionV1,
-    incumbent_authority: KagemushaMintFinalityAuthorityGenerationV1,
+    incumbent_authority: ValidatorGenerationV1,
     incumbent_beacon: InstalledBeaconEpochBindingV1,
     observed_height: u64,
 }
@@ -307,8 +300,8 @@ impl VerifiedValidatorCommitteeProvisioningV1 {
     pub fn session(&self) -> &ValidatedGlobalThresholdBeaconSessionV1 {
         &self.session
     }
-    /// Current authenticated authority; incumbent members must retain their current share.
-    pub fn incumbent_authority(&self) -> &KagemushaMintFinalityAuthorityGenerationV1 {
+    /// Current authenticated generation; incumbent members must retain their current share.
+    pub fn incumbent_authority(&self) -> &ValidatorGenerationV1 {
         &self.incumbent_authority
     }
     /// Exact active session which pending provisioning may never replace.
@@ -348,7 +341,7 @@ impl From<&str> for ValidatorCommitteeProvisioningEvidenceError {
 /// Verify a bounded public custody envelope from independently configured chain and signed-genesis network.
 ///
 /// # Errors
-/// Rejects changed network/attempt/chain, expired preparation, substituted keys/transcript,
+/// Rejects changed network/attempt/chain, expired preparation, substituted transcript,
 /// invalid actual-possession proofs, or missing exact incumbent quorum authorization.
 /// Session admission retains the original caller resource refusal; success retains that pool.
 pub fn verify_validator_committee_provisioning_evidence_v1(
@@ -358,7 +351,6 @@ pub fn verify_validator_committee_provisioning_evidence_v1(
     target_epoch: u64,
     transition_id: [u8; 32],
     limits: NativeFinalityLimits,
-    attestations: &dyn AttestationVerifier,
     session_budget: &AllocationBudget,
 ) -> Result<VerifiedValidatorCommitteeProvisioningV1, ValidatorCommitteeProvisioningEvidenceError> {
     check_evidence_size(evidence, limits)?;
@@ -369,7 +361,6 @@ pub fn verify_validator_committee_provisioning_evidence_v1(
         chain_id,
         &network,
         limits,
-        attestations,
         session_budget,
         |reader| {
             Ok(
@@ -390,10 +381,7 @@ pub fn verify_validator_committee_provisioning_evidence_v1(
                         .transition;
                     transition.validate()?;
                     let preparation = &transition.preparation;
-                    if transition.outcome.is_some()
-                        || transition.credentials.is_none()
-                        || status.candidate_keys.len() != preparation.committee.len()
-                    {
+                    if transition.outcome.is_some() || transition.credentials.is_none() {
                         return Err("custody evidence is not a complete pending attempt".into());
                     }
                     let certificate = &evidence.beacon_finalization;
@@ -461,27 +449,6 @@ pub fn verify_validator_committee_provisioning_evidence_v1(
                         );
                     }
                     let mut world = World::new();
-                    for (candidate, seat) in
-                        status.candidate_keys.iter().zip(&preparation.committee)
-                    {
-                        if candidate.network_id != network
-                            || candidate.generation != preparation.authority_generation
-                            || candidate.keys.validator != seat.validator
-                        {
-                            return Err(
-                                "candidate evidence differs from the frozen seat order".into()
-                            );
-                        }
-                        verify_candidate(candidate)?;
-                        world.validator_candidate_keys.insert(
-                            ValidatorCandidateKeysV1::key_id(
-                                network,
-                                candidate.generation,
-                                &candidate.keys.validator,
-                            ),
-                            candidate.clone(),
-                        );
-                    }
                     let session = retained.session.clone();
                     world
                         .global_beacon_key_sessions

@@ -15,7 +15,8 @@ impl ManifestStateTypeV1 for EmbeddedStateType {
         match self {
             Self::Unit => Node::Unit,
             Self::Error(error) => Node::Error(&error.identity),
-            Self::StateCursor(kind) => Node::StateCursor(*kind),
+            Self::Enum(enumeration) => Node::Enum(&enumeration.identity),
+            Self::StateCursor(key) => Node::StateCursor(key),
             Self::Int => Node::Scalar(Kind::Int),
             Self::Decimal => Node::Scalar(Kind::Decimal),
             Self::Quantity => Node::Scalar(Kind::Quantity),
@@ -80,7 +81,13 @@ mod tests {
     fn embedded_manifest_projection_preserves_native_cursor_and_child_identity() {
         let native = EmbeddedStateType::StateMap {
             key: Box::new(EmbeddedStateType::AccountId),
-            value: Box::new(EmbeddedStateType::StateCursor(Kind::Quantity)),
+            value: Box::new(EmbeddedStateType::StateCursor(
+                crate::entrypoint::EntrypointValueTypeV1 {
+                    nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                        Kind::Quantity,
+                    )],
+                },
+            )),
         };
         let EmbeddedStateType::StateMap { key, value } = &native else {
             unreachable!("genuine map fixture")

@@ -1,6 +1,6 @@
 
         seiyaku MissingStateIterationLimit {
             state StateMap<int, int> values;
-            view fn sum() { for (key, value) in (values) { let seen = key; } }
+            view fn sum() authorize(anyone) { for (key, value) in (values) { let seen = key; } }
         }
     

@@ -40,13 +40,13 @@ pub const RUN_PHASES: &[RunPhase] = &[
         id: "invocation_entry",
         path: INTERPRETER,
         function: RUN,
-        summary: "from function entry to the loop: checks the shared cycle allowance, admits the register logger and trace storage, rejects a non-ZK run that still holds private state, clears the previous invocation's protected call state and enters root-call initialization. A refused shared allowance is an initialization trap; a closed allowance, stale logger custody and stale private state are host invariants; refused logger or trace storage is a local deferral",
+        summary: "from function entry to the loop: checks the shared cycle allowance, admits the register logger and trace storage, refuses a non-ZK run that still holds private state, clears the previous invocation's protected call state and enters root-call initialization. A refused shared allowance is an initialization trap; a closed allowance, stale logger custody, stale private state and refused logger or trace storage produce local deferrals, never deterministic contract faults",
         obligations: &[
             Obligation::Initialization,
             Obligation::PrivateMasking,
             Obligation::StatementBinding,
         ],
-        direct_traps: &["PrivacyViolation"],
+        direct_traps: &["ExecutionDeferred"],
         fallible_helpers: &[
             "begin_root_call",
             "begin_trace_invocation",

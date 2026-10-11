@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Freeze the authenticated, no-skip ABI-25 Swift privacy lane."""
+"""Freeze the authenticated, no-skip ABI-29 Swift privacy lane."""
 
 from __future__ import annotations
 
@@ -138,10 +138,24 @@ class PrivacySwiftNativeContractTests(unittest.TestCase):
             "IrohaSwift/Tests/IrohaSwiftTests/SorafsOrchestratorParityTests.swift"
         )
         self.assertIn(
-            'throw ParityHarnessError.unzipFailed(\n'
-            '            "unzip-based bridge materialization is unavailable outside macOS"',
+            'guard NoritoNativeBridge.shared.isAvailable else {',
             parity,
         )
+        self.assertIn(
+            'XCTFail("ABI-29 NoritoBridge is required on this platform")',
+            parity,
+        )
+        for retired in (
+            "SorafsBridgeBootstrap",
+            "dlopen(",
+            "dlsym(",
+            '"cargo", "build"',
+            "unzipArchive",
+            "NoritoBridge.xcframework.zip",
+            "libconnect_norito_bridge.dylib",
+            "swift-sorafs-bridge",
+        ):
+            self.assertNotIn(retired, parity)
 
     def test_swift_runner_reauthenticates_external_apple_artifact(self) -> None:
         source = read("ci/check_privacy_swift_sdk.sh")
@@ -500,7 +514,7 @@ class PrivacySwiftNativeContractTests(unittest.TestCase):
             '"MOBILE_SDK_REQUIRE_EXTERNAL_APPLE_ARTIFACT"',
             "configuredArtifactDirectory == nil",
             "must be outside the reviewed Iroha source tree",
-            "requiredBridgeAbiVersion = 25",
+            "requiredBridgeAbiVersion = 29",
             '"NoritoBridge.artifacts.json"',
             'manifest["native_bridge_abi_version"]',
             "validateBridgeArtifact(at: bridgeAbsolutePath)",

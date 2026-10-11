@@ -14,7 +14,7 @@ function exactKeys(value, keys, context) {
 }
 
 /** Normalize one finite nominal error schema; variant codes are enum-local. */
-export function normalizeContractErrorTypeV1(value, context = "error type") {
+function normalizeNominalTypeV1(value, context) {
   exactKeys(value, ["identity", "variants"], context);
   if (typeof value.identity !== "string" || new TextEncoder().encode(value.identity).byteLength > 1024 ||
       !/^[\p{L}\p{N}_:/@.-]+$/u.test(value.identity) || value.identity.includes("__kotodama_link_")) {
@@ -44,6 +44,33 @@ export function normalizeContractErrorTypeV1(value, context = "error type") {
   return { identity: value.identity, variants };
 }
 
+/** Ordinary enums and rejection errors have distinct wire kinds and schema domains. */
+export function normalizeContractErrorTypeV1(value, context = "error type") {
+  return normalizeNominalTypeV1(value, context);
+}
+export function normalizeContractEnumTypeV1(value, context = "enum type") {
+  return normalizeNominalTypeV1(value, context);
+}
+
+/** Required ordinary-enum declaration inventory, sorted by exact UTF-8 identity. */
+export function normalizeContractEnumTypesV1(value, context = "enum_types") {
+  if (!Array.isArray(value) || value.length > 256) rejectType(`${context} must be a required array of at most 256 enum types`);
+  let previous = null;
+  return Array.from(value, (entry, index) => {
+    const descriptor = normalizeContractEnumTypeV1(entry, `${context}[${index}]`);
+    const bytes = new TextEncoder().encode(descriptor.identity);
+    if (previous !== null && compareUtf8(previous, bytes) >= 0) rejectType(`${context} must be sorted and unique by identity`);
+    previous = bytes;
+    return descriptor;
+  });
+}
+function compareUtf8(left, right) {
+  for (let index = 0; index < Math.min(left.length, right.length); index += 1) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return left.length - right.length;
+}
+
 /** Normalize the unique nominal catalog authenticated by the contract manifest. */
 export function normalizeContractErrorTypesV1(value, context = "error_types") {
   if (value === undefined || value === null) return null;
@@ -64,17 +91,23 @@ export function validateManifestErrorTypeBindingsV1(manifest, context = "manifes
   normalizeContractErrorMessagesV1(manifest.error_messages, manifest.error_types, `${context}.error_messages`);
   const catalog = new Map((normalizeContractErrorTypesV1(manifest.error_types, `${context}.error_types`) ?? [])
     .map((error) => [error.identity, JSON.stringify(error)]));
+  const enums = new Map(normalizeContractEnumTypesV1(manifest.enum_types, `${context}.enum_types`).map((descriptor) => [descriptor.identity, JSON.stringify(descriptor)]));
+  if ([...enums.keys()].some((identity) => catalog.has(identity))) rejectType(`${context} enum_types and error_types identities must not overlap`);
   for (const state of manifest.states ?? []) {
-    if (!isCanonicalKotodamaStateTypeName(state.type_name, catalog)) {
-      rejectType(`${context} state nominal error identity is not declared in its error_types catalog`);
+    if (!isCanonicalKotodamaStateTypeName(state.type_name, new Map([...catalog, ...enums]))) {
+      rejectType(`${context} state nominal identity is not declared in an enum or error catalog`);
     }
   }
+  const schemas = (manifest.events ?? []).map((event) => event.payload_type);
   for (const entrypoint of manifest.entrypoints ?? []) {
-    const schemas = [...(entrypoint.argument_schema?.fields ?? []).map((field) => field.ty), entrypoint.return_schema];
-    for (const schema of schemas) for (const node of schema?.nodes ?? []) {
-      if (node.kind === "Error" && catalog.get(node.value.identity) !== JSON.stringify(normalizeContractErrorTypeV1(node.value))) {
-        rejectType(`${context} boundary error schema does not match its error_types catalog`);
-      }
+    schemas.push(...(entrypoint.argument_schema?.fields ?? []).map((field) => field.ty), entrypoint.return_schema);
+  }
+  for (const schema of schemas) for (const node of schema?.nodes ?? []) {
+    if (node.kind === "Error" && catalog.get(node.value.identity) !== JSON.stringify(normalizeContractErrorTypeV1(node.value))) {
+      rejectType(`${context} boundary error schema does not match its error_types catalog`);
+    }
+    if (node.kind === "Enum" && enums.get(node.value.identity) !== JSON.stringify(normalizeContractEnumTypeV1(node.value))) {
+      rejectType(`${context} boundary enum schema does not match its enum_types catalog`);
     }
   }
 }

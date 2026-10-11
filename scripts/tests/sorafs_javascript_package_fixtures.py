@@ -16,10 +16,10 @@ import sorafs_javascript_dependencies as dependencies
 CHECKSUM = b'{"component_control":"opaque original manifest; not native qualification"}'
 # Reviewed census of the captured candidate, shared by every SoraFS JavaScript
 # test so that adding or removing an SDK module changes it in one place.
-SOURCE_FILES = 236
-PROJECTED_MEMBERS = 233
-PROJECTED_DIST_MEMBERS = 195
-INSTALLED_MEMBERS = 252
+SOURCE_FILES = 234
+PROJECTED_MEMBERS = 231
+PROJECTED_DIST_MEMBERS = 193
+INSTALLED_MEMBERS = 250
 REQUIRED_OUTPUTS = (
     "address.js", "atomicPrivateSettlement.js", "browser.js", "curveRegistry.js",
     "ivmArtifact.js", "native.js", "nativeArtifactHash.js", "numericV1.js",

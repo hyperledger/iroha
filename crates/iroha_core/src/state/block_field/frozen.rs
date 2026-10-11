@@ -142,7 +142,7 @@ where
     pub(crate) fn recover_installed_frozen_publication(&mut self) {
         assert!(!self.released, "field was terminally released");
         match self.phase.as_ref() {
-            Some(Phase::Frozen(_)) => {}
+            Some(Phase::Frozen(_) | Phase::Reading(_)) => {}
             Some(Phase::Publishing(_)) => self.recover_frozen_publication(),
             _ => panic!("original frozen or reacquiring field required"),
         }
@@ -153,7 +153,7 @@ where
     pub(crate) fn retire_frozen_cleanup(&mut self) {
         assert!(!self.released, "field was terminally released");
         assert!(
-            matches!(self.phase, Some(Phase::Frozen(_))),
+            matches!(self.phase, Some(Phase::Frozen(_) | Phase::Reading(_))),
             "complete original frozen field required"
         );
         drop(self.retry_cleanup.take());
@@ -171,7 +171,6 @@ impl<'a, V: Value, C: Send + Sync + 'static> CellField<'a, V, C> {
     pub(crate) fn install_frozen_publication(
         &mut self,
         target: &'a mv::cell::Cell<V, C>,
-        _scope: &iroha_allocation::OwnedAllocationScope,
     ) -> Result<(), mv::storage::AdmittedStorageError> {
         self.begin_frozen_publication(|original| {
             Ok(mv::cell::BlockPublicationSlot::from_frozen(
@@ -184,28 +183,11 @@ impl<'a, K: Key, V: Value> StorageField<'a, K, V> {
     pub(crate) fn install_frozen_publication(
         &mut self,
         target: &'a mv::storage::Storage<K, V>,
-        _scope: &iroha_allocation::OwnedAllocationScope,
     ) -> Result<(), mv::storage::AdmittedStorageError> {
         self.begin_frozen_publication(|original| {
             Ok(mv::storage::BlockPublicationSlot::from_frozen(
                 original, target,
             ))
-        })
-    }
-}
-impl<'a, K: Key, V: Value, P> StorageField<'a, K, V, concread::bptree::Prepaid<P>>
-where
-    P: mv::storage::AdmittedStoragePolicy
-        + concread::bptree::ClonePlanning<K, V>
-        + concread::bptree::ClonePlanning<K, Option<V>>,
-{
-    pub(crate) fn install_frozen_publication(
-        &mut self,
-        target: &'a mv::storage::Storage<K, V, concread::bptree::Prepaid<P>>,
-        scope: &iroha_allocation::OwnedAllocationScope,
-    ) -> Result<(), mv::storage::AdmittedStorageError> {
-        self.begin_frozen_publication(|original| {
-            mv::storage::BlockPublicationSlot::try_from_frozen_owned(original, target, scope)
         })
     }
 }

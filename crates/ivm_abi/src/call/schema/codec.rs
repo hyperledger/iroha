@@ -76,6 +76,7 @@ impl SerializePayload for CallSchemaV1 {
                 Node::StateRoot => 9,
                 Node::Pointer(_) => 10,
                 Node::SecretNumeric(_) => 11,
+                Node::Enum(_) => 12,
             };
             tag.serialize(writer)?;
             match node {
@@ -85,8 +86,10 @@ impl SerializePayload for CallSchemaV1 {
                 }
                 Node::Tuple(arity) => arity.serialize(writer)?,
                 Node::List { capacity } => capacity.serialize(writer)?,
-                Node::Leaf(kind) | Node::StateCursor(kind) => kind_tag(*kind).serialize(writer)?,
+                Node::Leaf(kind) => kind_tag(*kind).serialize(writer)?,
+                Node::StateCursor(key) => norito::core::write_len_prefixed(writer, key)?,
                 Node::Error(error) => norito::core::write_len_prefixed(writer, error)?,
+                Node::Enum(enumeration) => norito::core::write_len_prefixed(writer, enumeration)?,
                 Node::Pointer(id) | Node::SecretNumeric(id) => id.serialize(writer)?,
                 Node::Option | Node::Result | Node::Unit | Node::StateRoot => {}
             }
@@ -155,7 +158,30 @@ fn decode(bytes: &[u8]) -> Result<(CallSchemaV1, usize), Error> {
                 offset = offset.checked_add(used).ok_or(Error::LengthMismatch)?;
                 Node::Error(error)
             }
-            8 => Node::StateCursor(decode_kind(field(bytes, &mut offset)?)?),
+            12 => {
+                let suffix = bytes.get(offset..).ok_or(Error::LengthMismatch)?;
+                let (len, prefix) = norito::core::read_len_from_slice(suffix)?;
+                let used = prefix.checked_add(len).ok_or(Error::LengthMismatch)?;
+                let payload = suffix.get(prefix..used).ok_or(Error::LengthMismatch)?;
+                let (error, consumed) = norito::core::decode_field_canonical(payload)?;
+                if consumed != len {
+                    return Err(Error::LengthMismatch);
+                }
+                offset = offset.checked_add(used).ok_or(Error::LengthMismatch)?;
+                Node::Enum(error)
+            }
+            8 => {
+                let suffix = bytes.get(offset..).ok_or(Error::LengthMismatch)?;
+                let (len, prefix) = norito::core::read_len_from_slice(suffix)?;
+                let used = prefix.checked_add(len).ok_or(Error::LengthMismatch)?;
+                let payload = suffix.get(prefix..used).ok_or(Error::LengthMismatch)?;
+                let (key, consumed) = norito::core::decode_field_canonical(payload)?;
+                if consumed != len {
+                    return Err(Error::LengthMismatch);
+                }
+                offset = offset.checked_add(used).ok_or(Error::LengthMismatch)?;
+                Node::StateCursor(key)
+            }
             9 => Node::StateRoot,
             10 => Node::Pointer(field(bytes, &mut offset)?),
             11 => Node::SecretNumeric(field(bytes, &mut offset)?),

@@ -115,11 +115,8 @@ impl ManagedGatewayCompliance {
                     return report(last);
                 }
                 self.require_no_candidate(&status)?;
-                self.authority.prepared.sign_gateway_compliance_catalog(
-                    self.authority.provider_id()?,
-                    Some(last),
-                    now,
-                )?
+                self.authority
+                    .sign_gateway_compliance_catalog(Some(last), now)?
             }
             Some(last) => {
                 self.require_predecessor(&status, chain.iter().rev().nth(1))?;
@@ -129,11 +126,7 @@ impl ManagedGatewayCompliance {
             None => {
                 self.require_predecessor(&status, None)?;
                 self.require_no_candidate(&status)?;
-                self.authority.prepared.sign_gateway_compliance_catalog(
-                    self.authority.provider_id()?,
-                    None,
-                    now,
-                )?
+                self.authority.sign_gateway_compliance_catalog(None, now)?
             }
         };
         if chain.last() != Some(&selected) {
@@ -216,11 +209,9 @@ impl ManagedGatewayCompliance {
             }
             previous => {
                 self.validate(live, deadline)?;
-                let signed = self.authority.prepared.sign_observed_gateway_catalog(
-                    self.authority.provider_id()?,
-                    &observation,
-                    &selected,
-                )?;
+                let signed = self
+                    .authority
+                    .sign_observed_gateway_catalog(&observation, &selected)?;
                 self.validate_retained(&child, &selected, previous.as_ref())?;
                 child.write_atomic(
                     "acknowledgement.nrt",
@@ -474,8 +465,7 @@ impl ManagedGatewayCompliance {
                 return Err(invalid("retained generated catalog sequence differs"));
             }
             self.authority
-                .prepared
-                .validate_generated_gateway_catalog(self.authority.provider_id()?, &catalog)?;
+                .validate_generated_gateway_catalog(&catalog)?;
             validate_catalog_transition(chain.last(), &catalog)
                 .map_err(|_| invalid("retained generated catalog predecessor differs"))?;
             self.read_ack(&child, &catalog)?;
@@ -627,6 +617,6 @@ fn report(catalog: &GatewayComplianceCatalogV1) -> Result<PromotedGeneratedCatal
 }
 
 #[cfg(test)]
-mod material_tests;
+pub(crate) mod material_tests;
 #[cfg(test)]
 mod tests;

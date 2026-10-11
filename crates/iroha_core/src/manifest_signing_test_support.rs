@@ -76,6 +76,9 @@ mod tests {
 
     fn manifest(name: String) -> ContractManifest {
         ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: Some(name),
             code_hash: Some(Hash::new(b"bounded Core fixture code")),
             abi_hash: Some(Hash::new(b"bounded Core fixture ABI")),

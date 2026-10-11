@@ -69,7 +69,7 @@ fn id_cases() -> Vec<IdBox> {
 fn funded_context(
     allocated: usize,
 ) -> (AllocationBudget, AllocationReservation, DecodeBudgetContext) {
-    let cap = usize::try_from(TransactionParameters::default().max_tx_bytes.get())
+    let cap = usize::try_from(TransactionParameters::default().max_tx_bytes().get())
         .expect("native transaction ceiling");
     let pool = AllocationBudget::new(
         allocated
@@ -96,10 +96,7 @@ fn funded_context(
 fn rejected_manifest(id: IdBox) -> ContractManifest {
     let mut manifest = populated_manifest();
     let reason = TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
-        InstructionExecutionError::Repetition(RepetitionError {
-            instruction: InstructionType::Register,
-            id,
-        }),
+        InstructionExecutionError::Repetition(RepetitionError::new(InstructionType::Register, id)),
     ));
     let filter =
         TransactionEventFilter::new().for_status(TransactionStatus::Rejected(Box::new(reason)));
@@ -148,7 +145,7 @@ fn public_id_box_counts_and_streams_every_variant_without_heap_scratch() {
             allocations, 0,
             "public identity write cloned retained backing"
         );
-        assert_eq!(writer.position() as usize, expected.len());
+        assert_eq!(usize::try_from(writer.position()).unwrap(), expected.len());
         assert_eq!(actual, expected);
         assert_eq!(context.consumed_allocated_bytes(), 0);
         drop(context);
@@ -306,13 +303,13 @@ fn rejected_event_manifest_signer_and_verification_share_one_finite_original_own
         .and_then(|n| n.checked_add(key_bytes))
         .expect("two finite frames and one exact compact signer");
     let (pool, mut grant, context) = funded_context(cumulative);
-    let signer = grant
+    let signer_credit = grant
         .try_partition_bytes(key_bytes)
         .expect("retained original signer grant");
     let frame = grant
         .try_partition_bytes(exact)
         .expect("original signing frame");
-    let signed = manifest
+    let authenticated = manifest
         .try_signed(&context, exact, &key)
         .expect("bounded provenance");
     assert_eq!(
@@ -323,10 +320,11 @@ fn rejected_event_manifest_signer_and_verification_share_one_finite_original_own
     let verify_frame = grant
         .try_partition_bytes(exact)
         .expect("same original verification frame");
-    let (payload, allocations) = measured(|| signed.signature_payload_bytes(&context, exact));
+    let (payload, allocations) =
+        measured(|| authenticated.signature_payload_bytes(&context, exact));
     let payload = payload.expect("same cumulative owner verification output");
     assert_eq!(allocations, 1);
-    let provenance = signed.provenance.as_ref().expect("signed manifest");
+    let provenance = authenticated.provenance.as_ref().expect("signed manifest");
     assert_eq!(provenance.signer, *key.public_key());
     provenance
         .signature
@@ -335,8 +333,8 @@ fn rejected_event_manifest_signer_and_verification_share_one_finite_original_own
     assert_eq!(context.consumed_allocated_bytes(), cumulative as u64);
     drop(payload);
     drop(verify_frame);
-    drop(signed);
-    drop(signer);
+    drop(authenticated);
+    drop(signer_credit);
     drop(context);
     drop(grant);
     assert_eq!(pool.reserved_bytes(), 0);

@@ -3,8 +3,8 @@
   "vector_set": "identifier-receipt-attestation-v1",
   "signing_seed_hex": "1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F",
   "resolver_public_key": "ed25519:ed012043046BFE4092B3E94994EADA15DCC20D8AAA07B658FD3954EB8E0EFB8BDCA5DE",
-  "canonical_payload_sha256": "01DD7526EB9D68665CC986C0530CB8417ADF3963EBB401D41D5DF05E9B009E4F",
-  "iroha_prehash_hex": "339614EA8E459344ED4F33AFB87D99310CC16A47F642AD2460E63C707EB03CA5",
+  "canonical_payload_sha256": "9169F2BDA51C149AF6CA7E6D7F2A5A0689AAB669F29682A207DA87526F6E154D",
+  "iroha_prehash_hex": "924893A50E6F3AB3602BFC28E0194A994D17CB7298306B0DBBBD168FBF6B18F9",
   "policy": {
     "policy_id": "phone#retail",
     "owner": "sorauﾛ1PｸCｶrﾑhyﾜｴﾄhｳﾔSqP2GFGﾗヱﾐｹﾇﾏzﾍｵﾐMﾇﾖﾄksJヱRRJXVB",
@@ -16,6 +16,7 @@
   },
   "receipt": {
     "payload": {
+      "network_id": "5e60c5da42509f0077c6adf39b7dd708611eb4d6a9f1cbb71769092c26d20bf1",
       "policy_id": "phone#retail",
       "execution": {
         "program_id": "identifier_lookup_retail",
@@ -51,7 +52,7 @@
     },
     "attestation": {
       "kind": "signed",
-      "signature": "DCB8AB01F278BE9956CD33BD9C87BA85F2B06235B84DE35CA0818813BFA707BB1CCBD84E0386853785311290AE590A21BF936391BACAC859304B7E5D19E8EE07"
+      "signature": "2209DCA70BEACCB4D160185F9C345E027D4D7EA482F4720216817222C718052BC9137605DAC5BC559462E1B218F4D2BF2B02D9C4DB9B9294168A93483E86EB0A"
     }
   },
   "attestation_vectors": [
@@ -59,10 +60,10 @@
       "name": "signed-resolver-attestation",
       "attestation": {
         "kind": "signed",
-        "signature": "DCB8AB01F278BE9956CD33BD9C87BA85F2B06235B84DE35CA0818813BFA707BB1CCBD84E0386853785311290AE590A21BF936391BACAC859304B7E5D19E8EE07"
+        "signature": "2209DCA70BEACCB4D160185F9C345E027D4D7EA482F4720216817222C718052BC9137605DAC5BC559462E1B218F4D2BF2B02D9C4DB9B9294168A93483E86EB0A"
       },
       "expected_attestation_bytes": 142,
-      "expected_attestation_sha256": "C464D3A71E8EDB961B8E853FCE949192342B313225F7AB0A429C6F2707BA415B"
+      "expected_attestation_sha256": "0B39869C60E4A8F3DB0FA4DCCA743BA85C503542A77B37822DC38C9A102B3AA8"
     },
     {
       "name": "proof-box-attestation",
@@ -145,6 +146,12 @@
         "proof_b64": "AQID"
       },
       "expected_error_contains": "proof"
+    },
+    {
+      "name": "tampered-network-id",
+      "mutation": "receipt.payload.network_id",
+      "value": "1b474b9cd9667488b0bf05c1b0368c98b85910addbb8695c241504fac96a74c1",
+      "expected_result": false
     }
   ]
 }

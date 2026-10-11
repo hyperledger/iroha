@@ -477,7 +477,7 @@ PY
 run_javascript_parity() {
   local sdk_root="${REPO_ROOT}/javascript/iroha_js"
   local native_artifact="${sdk_root}/native/iroha_js_host.node"
-  local native_manifest="${RUN_DIR}/node-native-abi25.json"
+  local native_manifest="${RUN_DIR}/node-native-abi29.json"
   local node_binary native_target
 
   node_binary="$(command -v node)"

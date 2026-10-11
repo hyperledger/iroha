@@ -46,6 +46,10 @@ pub trait AnchorSource: AnchorView + Send + Sync {
 
 /// Transactions the lane's payload builder may propose.
 pub trait LaneTransactions: Send + Sync {
+    /// Observe only the completed actual EMPTY selection in native unit controls.
+    #[cfg(test)]
+    fn empty_payload_answer(&self) {}
+
     /// Queued transactions routed to the lane at global height `height`, oldest first, at most
     /// `max_bytes` of encoded transactions, skipping `skip`.
     fn candidates(
@@ -210,7 +214,7 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
         }
     }
 
-    fn finish_payload(&mut self) -> Result<(Option<PayloadBytes>, bool), PublicationError> {
+    fn finish_payload(&mut self) -> Result<Option<PayloadBytes>, PublicationError> {
         let build = self
             .payload_build
             .take()
@@ -225,7 +229,7 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
             |batch| norito::codec::encode_adaptive_into(batch, &mut io::sink()),
             |batch, mut writer| norito::codec::encode_adaptive_into(batch, &mut writer).map(|_| ()),
         ) {
-            Ok((_, payload)) => Ok((Some(payload), false)),
+            Ok((_, payload)) => Ok(Some(payload)),
             Err((job, error)) => {
                 let local = error.is_local_refusal();
                 self.payload_build = Some(LanePayloadBuild {
@@ -271,9 +275,9 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
         {
             return Ok(ExecOutcome::Invalid);
         }
-        // Lane instances admit batches; only G executes beacon/Parliament control.
+        // Lane instances admit batches; only G executes the consensus-native beacon control.
         // Match the independent lane evidence verifier before caching any admission.
-        if block.header().attest || !block.header().control_witness.is_empty() {
+        if !block.header().control_witness.is_empty() {
             return Ok(ExecOutcome::Invalid);
         }
         let admission = |executor: &Self| {
@@ -450,9 +454,9 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
     fn build_control_witness(
         &mut self,
         _: &iroha_sumeragi::api::ControlWitnessContext,
-    ) -> Result<(iroha_sumeragi::types::ControlWitness, bool), PublicationError> {
+    ) -> Result<iroha_sumeragi::types::ControlWitness, PublicationError> {
         // Lane validity requires EMPTY; no global control producer exists in this instance.
-        Ok((iroha_sumeragi::types::ControlWitness::empty(), false))
+        Ok(iroha_sumeragi::types::ControlWitness::empty())
     }
 
     fn drive_control(
@@ -568,7 +572,7 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
         view: u64,
         max_bytes: u32,
         _exec_budget_ms: u32,
-    ) -> Result<(Option<PayloadBytes>, bool), PublicationError> {
+    ) -> Result<Option<PayloadBytes>, PublicationError> {
         if self
             .payload_build
             .as_ref()
@@ -578,11 +582,11 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
         }
         self.payload_build = None;
         let Some(transactions) = self.transactions.as_ref() else {
-            return Ok((None, false));
+            return Ok(None);
         };
         let (anchor_height, anchor_hash) = self.anchors.tip();
         if !self.record.admits_anchor(anchor_height) || anchor_height < self.applied.state.anchor {
-            return Ok((None, false));
+            return Ok(None);
         }
         // Skip what the lane still carries: recent blocks the global chain may merge fresh, and
         // executed, uncommitted blocks.
@@ -619,7 +623,9 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
             }
         };
         if selected.is_empty() {
-            return Ok((None, false));
+            #[cfg(test)]
+            transactions.empty_payload_answer();
+            return Ok(None);
         }
         // Canonical framing is part of the payload limit. Trim the selected source before
         // creating its retained encoding job; allocator refusal never changes selection.
@@ -638,7 +644,7 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
             }
             batch.transactions.pop();
             if batch.transactions.is_empty() {
-                return Ok((None, false));
+                return Ok(None);
             }
         }
         self.payload_build = Some(LanePayloadBuild {
@@ -864,7 +870,6 @@ mod tests {
             proposer: 0,
             skipped_leaders: Vec::new(),
             control_witness: Default::default(),
-            attest: false,
         };
         authored(lane, header, payload)
     }
@@ -878,11 +883,8 @@ mod tests {
             view: 0,
             block_hash: block.header().hash(&BlsCrypto::new()),
             result,
-            attest: false,
             signers: Bitmap::from_indices(1, [0]).unwrap(),
             agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
-            attestations: Vec::new(),
-            attestation_witness: None,
         }
     }
 
@@ -943,7 +945,7 @@ mod tests {
         };
         assert_eq!(
             lane.build_control_witness(&witness),
-            Ok((ControlWitness::empty(), false))
+            Ok(ControlWitness::empty())
         );
         assert_eq!(lane.drive_control(&context), Ok(None));
         let control = ControlWitness::try_from_slice(b"unsolicited global control").unwrap();
@@ -968,7 +970,7 @@ mod tests {
         );
         assert!(lane.cache.is_empty());
         assert_eq!(lane.applied.height, 0);
-        let payload = lane.build(1, 0, 1 << 20, 100).unwrap().0.unwrap();
+        let payload = lane.build(1, 0, 1 << 20, 100).unwrap().unwrap();
         let valid = block(&lane, 1, lane.applied.block_hash, payload);
         let mut header = valid.header().clone();
         header.control_witness = control;
@@ -981,14 +983,6 @@ mod tests {
         assert_eq!(
             lane.prepare(&foreign, &qc(&foreign, Hash32([0; 32]))),
             Ok(None)
-        );
-        assert!(lane.cache.is_empty());
-        let mut header = valid.header().clone();
-        header.attest = true;
-        let foreign = authored(&lane, header, valid.payload().clone());
-        assert_eq!(
-            lane.execute(&foreign, &foreign.hash(&BlsCrypto::new())),
-            Some(ExecOutcome::Invalid)
         );
         assert!(lane.cache.is_empty());
         assert!(matches!(
@@ -1005,9 +999,9 @@ mod tests {
         let first = tx(1);
         let queue = Arc::new(Queue(Mutex::new(vec![first.clone()])));
         let mut lane = executor(&global, Some(Arc::clone(&queue)));
-        let (payload, attest) = lane.build(1, 0, 1 << 20, 100).unwrap();
+        let payload = lane.build(1, 0, 1 << 20, 100).unwrap();
         let payload = payload.expect("selected transaction work");
-        assert!(!attest);
+
         let batch = LaneBatch::from_payload(payload.as_slice()).expect("batch");
         assert_eq!(batch.anchor_height, 5);
         assert_eq!(batch.transactions, vec![first.clone()]);
@@ -1019,7 +1013,7 @@ mod tests {
         assert_eq!(lane.prepare(&b1, &qc(&b1, r1)), Ok(Some(r1)));
         lane.commit(&b1, &qc(&b1, r1)).expect("commit");
         // The committed transaction is not proposed again, and a block repeating it is invalid.
-        assert!(lane.build(2, 0, 1 << 20, 100).unwrap().0.is_none());
+        assert!(lane.build(2, 0, 1 << 20, 100).unwrap().is_none());
         let repeat = LaneBatch {
             anchor_height: 5,
             anchor_hash: anchor_hash(5),
@@ -1090,12 +1084,12 @@ mod tests {
         let mut lane = executor_with(&global, Some(Arc::clone(&source)));
         let exact = u32::try_from(length + reserve).unwrap();
         // One byte over the lane budget: the builder's budget is one byte short.
-        let (payload, attest) = lane.build(1, 0, exact - 1, 100).unwrap();
-        assert!(payload.is_none() && !attest, "nothing fits: no empty batch");
+        let payload = lane.build(1, 0, exact - 1, 100).unwrap();
+        assert!(payload.is_none(), "nothing fits: no empty batch");
         // Exactly the lane budget.
-        let (payload, attest) = lane.build(1, 0, exact, 100).unwrap();
+        let payload = lane.build(1, 0, exact, 100).unwrap();
         let payload = payload.expect("the lane budget carries the transaction");
-        assert!(!attest);
+
         assert!(
             payload.as_slice().len() <= exact as usize,
             "the batch framing fits the reserve: {} of {exact} bytes",
@@ -1168,25 +1162,25 @@ mod tests {
                 .transactions
         };
         // Exactly the limit: both transactions, and the payload is the limit to the byte.
-        let (payload, attest) = lane.build(1, 0, u32::try_from(both).unwrap(), 100).unwrap();
+        let payload = lane.build(1, 0, u32::try_from(both).unwrap(), 100).unwrap();
         let payload = payload.expect("a batch of exactly the limit is proposed");
-        assert!(!attest);
+
         assert_eq!(payload.as_slice().len(), both);
         assert_eq!(carried(&payload), vec![first.clone(), second]);
         // One byte less: the last transaction is dropped, never an oversized payload.
-        let (payload, _) = lane
+        let payload = lane
             .build(1, 0, u32::try_from(both - 1).unwrap(), 100)
             .unwrap();
         let payload = payload.expect("the first transaction still fits");
         assert_eq!(payload.as_slice().len(), one);
         assert_eq!(carried(&payload), vec![first]);
         // The batch of one transaction is itself exact at its own length and refused below it.
-        let (payload, _) = lane.build(1, 0, u32::try_from(one).unwrap(), 100).unwrap();
+        let payload = lane.build(1, 0, u32::try_from(one).unwrap(), 100).unwrap();
         assert_eq!(payload.expect("exactly one batch").as_slice().len(), one);
-        let (payload, attest) = lane
+        let payload = lane
             .build(1, 0, u32::try_from(one - 1).unwrap(), 100)
             .unwrap();
-        assert!(payload.is_none() && !attest, "nothing fits: no empty batch");
+        assert!(payload.is_none(), "nothing fits: no empty batch");
     }
 
     #[test]
@@ -1206,9 +1200,9 @@ mod tests {
         *queue.0.lock() = vec![tx(2)];
         global.applied.store(6, Ordering::SeqCst);
         lane.budget.set_limit_bytes(1 << 20);
-        let (payload, attest) = lane.build(1, 0, 1 << 20, 100).unwrap();
+        let payload = lane.build(1, 0, 1 << 20, 100).unwrap();
         let payload = payload.expect("refusal must not manufacture an empty proposal");
-        assert!(!attest);
+
         assert!(payload.admitted_to(&lane.budget));
         let batch = LaneBatch::from_payload(payload.as_slice()).expect("retained batch");
         assert_eq!(batch.anchor_height, 5);
@@ -1245,7 +1239,7 @@ mod tests {
             Some(ExecOutcome::Valid(_))
         ));
         // A lane without a transaction source builds nothing.
-        assert!(lane.build(1, 0, 1 << 20, 100).unwrap().0.is_none());
+        assert!(lane.build(1, 0, 1 << 20, 100).unwrap().is_none());
     }
 }
 

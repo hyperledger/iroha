@@ -2,6 +2,6 @@
         seiyaku StateAllocation {
             state StateMap<int, int> values;
             fn id(int x) -> int { return x; }
-            view fn main() -> int { return id(x: 42); }
+            view fn main() authorize(anyone) -> int { return id(x: 42); }
         }
     

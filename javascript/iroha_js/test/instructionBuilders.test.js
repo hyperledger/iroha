@@ -11,6 +11,7 @@ import {
   buildMintAssetInstruction,
   buildMintTriggerRepetitionsInstruction,
   buildBurnTriggerRepetitionsInstruction,
+  buildRegisterDataspaceAssetDefinitionInstruction,
   buildRegisterDomainInstruction,
   buildRegisterAccountInstruction,
   buildGrantAccountPermissionInstruction,
@@ -79,6 +80,7 @@ import {
 import {
   _createNoritoInstructionApi,
   exactPublicPlainBallotJson,
+  exactRegisterDataspaceAssetDefinitionJson,
   noritoDecodeInstruction,
   noritoDecodeInstructionBoxArchive,
   noritoEncodeInstruction,
@@ -86,6 +88,8 @@ import {
   validateNoritoFrame,
 } from "../src/norito.js";
 import { createNativeRuntime } from "../src/nativeRuntime.js";
+import { _createTransactionApi } from "../src/transaction.js";
+import { NetworkId } from "../src/networkId.js";
 import {
   hasNoritoBinding,
   makeNativeTest,
@@ -2322,6 +2326,7 @@ baseTest("buildRegisterSmartContractCodeInstruction normalizes manifest fields",
   const signatureCanonical = signature.split(":")[1].toUpperCase();
   const instruction = buildRegisterSmartContractCodeInstruction(universalArtifactInput({
     manifest: {
+      permissions: [{ name: "can_upgrade", scope: { kind: "Instance", value: null } }], events: [], enum_types: [],
       seiyakuName: "Ledger",
       codeHash: codeHashBytes,
       abiHash: abiHashBytes,
@@ -2352,13 +2357,13 @@ baseTest("buildRegisterSmartContractCodeInstruction normalizes manifest fields",
           name: "upgrade_ledger",
           kind: "Kotoage",
           ...UNIT_RETURN_DESCRIPTOR,
-          permission: "can_upgrade",
+          authorization: { kind: "Permission", value: "can_upgrade" },
         },
       ],
       states: [
         { name: "Balances", typeName: "StateMap<AccountId, quantity>" },
         { name: "Votes", typeName: "StateMap<Name, bool>" },
-        { name: "amount", typeName: "Transfer{amount: quantity}" },
+        { name: "amount", typeName: "Fixture::Transfer{amount: quantity}" },
       ],
       errorTypes: [
         { identity: "LedgerError", variants: [{ name: "amount", code: 7 }] },
@@ -2381,6 +2386,7 @@ baseTest("buildRegisterSmartContractCodeInstruction normalizes manifest fields",
   const expected = universalArtifactInstruction({
     RegisterSmartContractCode: {
       manifest: {
+        permissions: [{ name: "can_upgrade", scope: { kind: "Instance", value: null } }], events: [], enum_types: [],
         seiyaku_name: "Ledger",
         code_hash: normalizedHashHex(codeHashBytes),
         abi_hash: normalizedHashHex(abiHashBytes),
@@ -2414,7 +2420,7 @@ baseTest("buildRegisterSmartContractCodeInstruction normalizes manifest fields",
             argument_schema: null,
             return_type: "()",
             return_schema: { nodes: [{ kind: "Unit", value: null }] },
-            permission: "can_upgrade",
+            authorization: { kind: "Permission", value: "can_upgrade" },
             read_keys: [],
             write_keys: [],
             access_hints_complete: null,
@@ -2425,7 +2431,7 @@ baseTest("buildRegisterSmartContractCodeInstruction normalizes manifest fields",
         states: [
           { name: "Balances", type_name: "StateMap<AccountId, quantity>" },
           { name: "Votes", type_name: "StateMap<Name, bool>" },
-          { name: "amount", type_name: "Transfer{amount: quantity}" },
+          { name: "amount", type_name: "Fixture::Transfer{amount: quantity}" },
         ],
         error_types: [
           { identity: "LedgerError", variants: [{ name: "amount", code: 7 }] },
@@ -2449,6 +2455,7 @@ baseTest("buildRegisterSmartContractCodeInstruction normalizes manifest fields",
   const expectedDecoded = universalArtifactInstruction({
     RegisterSmartContractCode: {
       manifest: {
+        permissions: [], events: [], enum_types: [],
         ...expected.RegisterSmartContractCode.manifest,
       },
     },
@@ -2462,14 +2469,14 @@ baseTest("smart-contract manifests reject unknown V1 feature bits", () => {
   assert.throws(
     () =>
       buildRegisterSmartContractCodeInstruction(universalArtifactInput({
-        manifest: { featuresBitmap: 4 },
+        manifest: { permissions: [], events: [], enum_types: [], featuresBitmap: 4 },
       })),
     /featuresBitmap contains unsupported Kotodama V1 feature bits/u,
   );
   assert.throws(
     () =>
       buildRegisterSmartContractCodeInstruction(universalArtifactInput({
-        manifest: { features_bitmap: "4" },
+        manifest: { permissions: [], events: [], enum_types: [], features_bitmap: "4" },
       })),
     /featuresBitmap contains unsupported Kotodama V1 feature bits/u,
   );
@@ -2479,6 +2486,7 @@ baseTest("smart-contract dynamic access hints enforce the exact V1 contract", ()
   const buildWithHint = (hint) =>
     buildRegisterSmartContractCodeInstruction(universalArtifactInput({
       manifest: {
+        permissions: [], events: [], enum_types: [],
         states: [
           { name: "Balances", typeName: "StateMap<AccountId, quantity>" },
           { name: "amount", typeName: "StateMap<AccountId, quantity>" },
@@ -2586,6 +2594,7 @@ baseTest("smart-contract dynamic access hints resolve declared StateMaps per lis
   }) =>
     buildRegisterSmartContractCodeInstruction(universalArtifactInput({
       manifest: {
+        permissions: [], events: [], enum_types: [],
         states,
         accessSetHints: { dynamicReads, dynamicWrites },
       },
@@ -2662,9 +2671,11 @@ baseTest("smart-contract parameter and state type aliases must agree", () => {
   const build = (param, state) =>
     buildRegisterSmartContractCodeInstruction(universalArtifactInput({
       manifest: {
+        permissions: [], events: [], enum_types: [],
         entrypoints: [{
           name: "read",
           kind: "View",
+          authorization: { kind: "Anyone", value: null },
           ...UNIT_RETURN_DESCRIPTOR,
           params: [{ name: "amount", ...param }],
           argumentSchema: {
@@ -2709,7 +2720,7 @@ baseTest("smart-contract manifest type declarations reject retired numeric names
     assert.throws(
       () =>
         buildRegisterSmartContractCodeInstruction(universalArtifactInput({
-          manifest: { seiyakuName },
+          manifest: { permissions: [], events: [], enum_types: [], seiyakuName },
         })),
       /seiyakuName must be a canonical Kotodama V1 type declaration identifier/u,
     );
@@ -2724,6 +2735,7 @@ baseTest("smart-contract manifest type declarations reject retired numeric names
       () =>
         buildRegisterSmartContractCodeInstruction(universalArtifactInput({
           manifest: {
+            permissions: [], events: [], enum_types: [],
             states: [{ name: "Balances", typeName }],
           },
         })),
@@ -2735,6 +2747,7 @@ baseTest("smart-contract manifest type declarations reject retired numeric names
       () =>
         buildRegisterSmartContractCodeInstruction(universalArtifactInput({
           manifest: {
+            permissions: [], events: [], enum_types: [],
             errorTypes: [{ identity: namespace, variants: [{ name: "Denied", code: 7 }] }],
           },
         })),
@@ -2757,6 +2770,7 @@ baseTest("smart-contract manifest type declarations reject retired numeric names
       () =>
         buildRegisterSmartContractCodeInstruction(universalArtifactInput({
           manifest: {
+            permissions: [], events: [], enum_types: [],
             accessSetHints: {
               readKeys: [],
               writeKeys: [],
@@ -2781,9 +2795,11 @@ baseTest("smart-contract entrypoint schemas exactly bind declared V1 types", () 
   };
   const valid = buildRegisterSmartContractCodeInstruction(universalArtifactInput({
     manifest: {
+      permissions: [], events: [], enum_types: [],
       entrypoints: [{
         name: "read",
         kind: "View",
+        authorization: { kind: "Anyone", value: null },
         params: [{ name: "amount", typeName: "quantity" }],
         argumentSchema: {
           fields: [{ name: "amount", ty: quantity }],
@@ -2803,9 +2819,11 @@ baseTest("smart-contract entrypoint schemas exactly bind declared V1 types", () 
       () =>
         buildRegisterSmartContractCodeInstruction(universalArtifactInput({
           manifest: {
+            permissions: [], events: [], enum_types: [],
             entrypoints: [{
               name: "read",
               kind: "View",
+              authorization: { kind: "Anyone", value: null },
               params: [{ name: "value", typeName: retired }],
               argumentSchema: {
                 fields: [{ name: "value", ty: quantity }],
@@ -2819,9 +2837,11 @@ baseTest("smart-contract entrypoint schemas exactly bind declared V1 types", () 
       () =>
         buildRegisterSmartContractCodeInstruction(universalArtifactInput({
           manifest: {
+            permissions: [], events: [], enum_types: [],
             entrypoints: [{
               name: "read",
               kind: "View",
+              authorization: { kind: "Anyone", value: null },
               returnType: retired,
               returnSchema: quantity,
             }],
@@ -2835,9 +2855,11 @@ baseTest("smart-contract entrypoint schemas exactly bind declared V1 types", () 
     () =>
       buildRegisterSmartContractCodeInstruction(universalArtifactInput({
         manifest: {
+          permissions: [], events: [], enum_types: [],
           entrypoints: [{
             name: "read",
             kind: "View",
+            authorization: { kind: "Anyone", value: null },
             params: [{ name: "value", typeName: "quantity" }],
           }],
         },
@@ -2848,9 +2870,11 @@ baseTest("smart-contract entrypoint schemas exactly bind declared V1 types", () 
     () =>
       buildRegisterSmartContractCodeInstruction(universalArtifactInput({
         manifest: {
+          permissions: [], events: [], enum_types: [],
           entrypoints: [{
             name: "read",
             kind: "View",
+            authorization: { kind: "Anyone", value: null },
             returnType: "quantity",
           }],
         },
@@ -2863,10 +2887,14 @@ baseTest("smart-contract entrypoint kinds use only the V1 interface names", () =
   for (const canonical of ["Kotoage", "View", "Hajimari", "Kaizen"]) {
     const instruction = buildRegisterSmartContractCodeInstruction(universalArtifactInput({
       manifest: {
+        permissions: [{ name: "can_run", scope: { kind: "Instance", value: null } }], events: [], enum_types: [],
         entrypoints: [{
           name: canonical === "Hajimari" ? "hajimari" : canonical === "Kaizen" ? "kaizen" : "run",
           kind: canonical,
-          permission: canonical === "Kotoage" ? "can_run" : null,
+          authorization: {
+            kind: canonical === "Kotoage" ? "Permission" : canonical === "View" ? "Anyone" : "RuntimeLifecycle",
+            value: canonical === "Kotoage" ? "can_run" : null,
+          },
           ...UNIT_RETURN_DESCRIPTOR,
         }],
       },
@@ -2882,7 +2910,8 @@ baseTest("smart-contract entrypoint kinds use only the V1 interface names", () =
       () =>
         buildRegisterSmartContractCodeInstruction(universalArtifactInput({
           manifest: {
-            entrypoints: [{ name: "legacy", kind: retired }],
+            permissions: [], events: [], enum_types: [],
+            entrypoints: [{ name: "legacy", kind: retired, authorization: { kind: "Anyone", value: null } }],
           },
         })),
       /must be one of 'Kotoage', 'View', 'Hajimari', or 'Kaizen'/,
@@ -2894,10 +2923,14 @@ baseTest("smart-contract branded entrypoint kinds preserve their Norito tag orde
   for (const canonical of ["Kotoage", "View", "Hajimari", "Kaizen"]) {
     const instruction = buildRegisterSmartContractCodeInstruction(universalArtifactInput({
       manifest: {
+        permissions: [{ name: "can_run", scope: { kind: "Instance", value: null } }], events: [], enum_types: [],
         entrypoints: [{
           name: canonical === "Hajimari" ? "hajimari" : canonical === "Kaizen" ? "kaizen" : "run",
           kind: canonical,
-          permission: canonical === "Kotoage" ? "can_run" : null,
+          authorization: {
+            kind: canonical === "Kotoage" ? "Permission" : canonical === "View" ? "Anyone" : "RuntimeLifecycle",
+            value: canonical === "Kotoage" ? "can_run" : null,
+          },
           ...UNIT_RETURN_DESCRIPTOR,
         }],
       },
@@ -2914,10 +2947,12 @@ baseTest("smart-contract schema builder enforces canonical flat-preorder V1 tape
   const build = (nodes) =>
     buildRegisterSmartContractCodeInstruction(universalArtifactInput({
       manifest: {
+        permissions: [], events: [], enum_types: [],
         entrypoints: [
           {
             name: "read",
             kind: "View",
+            authorization: { kind: "Anyone", value: null },
             returnType: analyzeEntrypointValueTypeV1({ nodes }).canonicalName,
             returnSchema: { nodes },
           },
@@ -2926,7 +2961,7 @@ baseTest("smart-contract schema builder enforces canonical flat-preorder V1 tape
     }));
 
   const pair = [
-    { kind: "Struct", value: { name: "Pair", fields: ["left", "right"] } },
+    { kind: "Struct", value: { name: "Fixture::Pair", fields: ["left", "right"] } },
     leaf("Int"),
     leaf("Bool"),
   ];
@@ -2999,7 +3034,7 @@ baseTest("smart-contract schema builder enforces canonical flat-preorder V1 tape
       [leaf("NftId"), leaf("AccountId"), leaf("Json")],
     ],
   ]) {
-    const canonical = [{ kind: "Struct", value: { name, fields } }, ...children];
+    const canonical = [{ kind: "Struct", value: { name: `kotodama::${name}`, fields } }, ...children];
     assert.doesNotThrow(() => build(canonical));
     const forged = structuredClone(canonical);
     forged[1].value.kind = "Bool";
@@ -4304,10 +4339,10 @@ test("buildCancelTwitterEscrowInstruction wraps keyed hash", () => {
 test("buildRegisterZkAssetInstruction normalizes verifying key ids", () => {
   const instruction = buildRegisterZkAssetInstruction({
     assetDefinitionId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM",
-    unshieldVerifyingKey: { backend: "halo2/ipa", name: "vk_unshield" },
+    unshieldVerifyingKey: { backend: "pipa-r/pasta", name: "vk_unshield" },
   });
   const payload = encodeAndDecode(instruction).zk.RegisterZkAsset;
-  assert.deepEqual(payload.vk_unshield, { backend: "halo2/ipa", name: "vk_unshield" });
+  assert.deepEqual(payload.vk_unshield, { backend: "pipa-r/pasta", name: "vk_unshield" });
   assert.equal(Object.hasOwn(payload, "vk_shield"), false);
 });
 
@@ -4317,8 +4352,8 @@ test("buildRegisterZkAssetInstruction rejects unknown retired fields", () => {
     assert.throws(
       () => buildRegisterZkAssetInstruction({
         ...base,
-        unshieldVerifyingKey: "halo2/ipa:vk_unshield",
-        [field]: "halo2/ipa:vk_shield",
+        unshieldVerifyingKey: "pipa-r/pasta:vk_unshield",
+        [field]: "pipa-r/pasta:vk_shield",
       }),
       /is not supported/,
       `${field} must be rejected even when an unshield key is provided`,
@@ -4400,8 +4435,8 @@ test("buildCreateElectionInstruction normalizes verifying keys", () => {
     eligibleRoot: Buffer.alloc(32, 0x09),
     startTs: 100,
     endTs: 200,
-    ballotVerifyingKey: "halo2/ipa:vk_ballot",
-    tallyVerifyingKey: { backend: "halo2/ipa", name: "vk_tally" },
+    ballotVerifyingKey: "pipa-r/pasta:vk_ballot",
+    tallyVerifyingKey: { backend: "pipa-r/pasta", name: "vk_tally" },
     domainTag: "zk",
   });
   const payload = encodeAndDecode(instruction).zk.CreateElection;
@@ -4417,8 +4452,8 @@ test("buildCreateElectionInstruction enforces the 2–64 option boundary", () =>
     eligibleRoot: Buffer.alloc(32, 0x09),
     startTs: 100,
     endTs: 200,
-    ballotVerifyingKey: "halo2/ipa:vk_ballot",
-    tallyVerifyingKey: "halo2/ipa:vk_tally",
+    ballotVerifyingKey: "pipa-r/pasta:vk_ballot",
+    tallyVerifyingKey: "pipa-r/pasta:vk_tally",
     domainTag: "zk",
   });
   for (const options of [2, 64]) {
@@ -4441,8 +4476,8 @@ test("buildCreateElectionInstruction accepts byte-array eligibleRoot", () => {
     eligibleRoot: Array.from(Buffer.alloc(32, 0x44)),
     startTs: 100,
     endTs: 200,
-    ballotVerifyingKey: "halo2/ipa:vk_ballot",
-    tallyVerifyingKey: "halo2/ipa:vk_tally",
+    ballotVerifyingKey: "pipa-r/pasta:vk_ballot",
+    tallyVerifyingKey: "pipa-r/pasta:vk_tally",
     domainTag: "zk",
   });
   const payload = encodeAndDecode(instruction).zk.CreateElection;
@@ -4461,8 +4496,8 @@ test("buildCreateElectionInstruction rejects coercible non-byte eligibleRoot ent
           eligibleRoot,
           startTs: 100,
           endTs: 200,
-          ballotVerifyingKey: "halo2/ipa:vk_ballot",
-          tallyVerifyingKey: "halo2/ipa:vk_tally",
+          ballotVerifyingKey: "pipa-r/pasta:vk_ballot",
+          tallyVerifyingKey: "pipa-r/pasta:vk_tally",
           domainTag: "zk",
         }),
       (error) => {
@@ -4484,8 +4519,8 @@ test("buildCreateElectionInstruction rejects unsafe timestamps", () => {
         eligibleRoot: Buffer.alloc(32, 0x09),
         startTs: tooLarge,
         endTs: 100,
-        ballotVerifyingKey: "halo2/ipa:vk_ballot",
-        tallyVerifyingKey: "halo2/ipa:vk_tally",
+        ballotVerifyingKey: "pipa-r/pasta:vk_ballot",
+        tallyVerifyingKey: "pipa-r/pasta:vk_tally",
         domainTag: "zk",
       }),
     (error) => {
@@ -4501,9 +4536,9 @@ test("buildSubmitBallotInstruction encodes ciphertext and proof", () => {
     electionId: "ref-1",
     ciphertext: Buffer.from("encrypted"),
     ballotProof: {
-      backend: "halo2/ipa",
+      backend: "pipa-r/pasta",
       proof: Buffer.from("proof"),
-      verifyingKeyRef: { backend: "halo2/ipa", name: "vk_ballot" },
+      verifyingKeyRef: { backend: "pipa-r/pasta", name: "vk_ballot" },
       verifyingKeyCommitment: Buffer.alloc(32, 0x44),
     },
     nullifier: Buffer.alloc(32, 0x33),
@@ -4511,7 +4546,7 @@ test("buildSubmitBallotInstruction encodes ciphertext and proof", () => {
   const payload = encodeAndDecode(instruction).zk.SubmitBallot;
   const ciphertext = Buffer.from(payload.ciphertext);
   assert.equal(ciphertext.toString("base64"), Buffer.from("encrypted").toString("base64"));
-  assert.equal(payload.ballot_proof.backend, "halo2/ipa");
+  assert.equal(payload.ballot_proof.backend, "pipa-r/pasta");
 });
 
 test("buildSubmitBallotInstruction rejects non-byte nullifier arrays", () => {
@@ -4522,9 +4557,9 @@ test("buildSubmitBallotInstruction rejects non-byte nullifier arrays", () => {
         electionId: "ref-1",
         ciphertext: Buffer.from("encrypted"),
         ballotProof: {
-          backend: "halo2/ipa",
+          backend: "pipa-r/pasta",
           proof: Buffer.from("proof"),
-          verifyingKeyRef: { backend: "halo2/ipa", name: "vk_ballot" },
+          verifyingKeyRef: { backend: "pipa-r/pasta", name: "vk_ballot" },
         },
         nullifier: invalidNullifier,
       }),
@@ -4544,9 +4579,9 @@ test("buildSubmitBallotInstruction rejects coercible non-byte ciphertext entries
           electionId: "ref-1",
           ciphertext: [entry],
           ballotProof: {
-            backend: "halo2/ipa",
+            backend: "pipa-r/pasta",
             proof: Buffer.from("proof"),
-            verifyingKeyRef: { backend: "halo2/ipa", name: "vk_ballot" },
+            verifyingKeyRef: { backend: "pipa-r/pasta", name: "vk_ballot" },
           },
           nullifier: Buffer.alloc(32, 0x33),
         }),
@@ -4566,9 +4601,9 @@ test("buildSubmitBallotInstruction rejects empty ciphertext", () => {
         electionId: "ref-1",
         ciphertext: Buffer.alloc(0),
         ballotProof: {
-          backend: "halo2/ipa",
+          backend: "pipa-r/pasta",
           proof: Buffer.from("proof"),
-          verifyingKeyRef: { backend: "halo2/ipa", name: "vk_ballot" },
+          verifyingKeyRef: { backend: "pipa-r/pasta", name: "vk_ballot" },
         },
         nullifier: Buffer.alloc(32, 0x33),
       }),
@@ -4585,9 +4620,9 @@ test("buildFinalizeElectionInstruction enforces the 2–64 tally boundary", () =
     electionId: "election-boundary",
     tally,
     tallyProof: {
-      backend: "halo2/ipa",
+      backend: "pipa-r/pasta",
       proof: Buffer.from("proof"),
-      verifyingKeyRef: { backend: "halo2/ipa", name: "vk_tally" },
+      verifyingKeyRef: { backend: "pipa-r/pasta", name: "vk_tally" },
     },
   });
   for (const tally of [[1, 2], new Array(64).fill(0)]) {
@@ -4607,9 +4642,9 @@ test("buildFinalizeElectionInstruction serializes tally entries", () => {
     electionId: "ref-1",
     tally: [1, "2"],
     tallyProof: {
-      backend: "halo2/ipa",
+      backend: "pipa-r/pasta",
       proof: Buffer.from("proof"),
-      verifyingKeyRef: { backend: "halo2/ipa", name: "vk_tally" },
+      verifyingKeyRef: { backend: "pipa-r/pasta", name: "vk_tally" },
       verifyingKeyCommitment: Buffer.alloc(32, 0x55),
     },
   });
@@ -4947,5 +4982,285 @@ baseTest("native ProofAttachment adapter rejects invalid ids and extra tails", (
       () => decodeWithNative(Buffer.of(1), 753, options),
       /must contain 1\.\.=255 siblings/,
     );
+  }
+});
+
+baseTest("direct dataspace registration retains exact namespace independently of balance policy", () => {
+  for (const balanceScopePolicy of ["Global", "DataspaceRestricted"]) {
+    const result = buildRegisterDataspaceAssetDefinitionInstruction({
+      assetDefinitionId: "fixture-definition", name: "Unit", balanceScopePolicy,
+      dataspaceId: "18446744073709551615",
+    });
+    assert.equal(result.RegisterDataspaceAssetDefinition.dataspace_id, 18446744073709551615n);
+    assert.equal(result.RegisterDataspaceAssetDefinition.object.owning_domain, null);
+    assert.equal(result.RegisterDataspaceAssetDefinition.object.balance_scope_policy, balanceScopePolicy);
+  }
+});
+
+baseTest("direct dataspace registration rejects inferred, contradictory or lossy homes", () => {
+  const base = { assetDefinitionId: "fixture-definition", name: "Unit", balanceScopePolicy: "DataspaceRestricted" };
+  for (const dataspaceId of [undefined, null, 0, "0", "01", "1\n", "1\r\n", "1.0", "1e0", "+1", -1, Number.MAX_SAFE_INTEGER + 1, "18446744073709551616"]) {
+    assert.throws(() => buildRegisterDataspaceAssetDefinitionInstruction({ ...base, dataspaceId }));
+  }
+  assert.throws(() => buildRegisterDataspaceAssetDefinitionInstruction({ ...base, dataspaceId: 7, owningDomain: "issuer.paynet" }));
+  assert.throws(() => buildRegisterDataspaceAssetDefinitionInstruction({ ...base, dataspaceId: 7, dataspace_id: 8 }));
+  assert.throws(() => buildRegisterDataspaceAssetDefinitionInstruction({ ...base, dataspaceId: 1, dataspace_id: "1\n" }));
+});
+
+
+function directDataspaceRegistrationFixture(options = {}) {
+  return buildRegisterDataspaceAssetDefinitionInstruction({
+    assetDefinitionId: ASSET_DEFINITION_ID,
+    name: "Direct unit",
+    dataspaceId: 0xffff_ffff_ffff_ffffn,
+    balanceScopePolicy: "DataspaceRestricted",
+    metadata: { fraction: 1.25, zero: -0 },
+    ...options,
+  });
+}
+
+baseTest("direct dataspace codec preserves full u64 tokens and ordinary metadata", () => {
+  assert.equal(exactRegisterDataspaceAssetDefinitionJson({ Log: {} }), null);
+  for (const dataspaceId of [1n, 9007199254740993n, 0xffff_ffff_ffff_ffffn]) {
+    const instruction = directDataspaceRegistrationFixture({ dataspaceId });
+    const exact = exactRegisterDataspaceAssetDefinitionJson(instruction);
+    assert.ok(exact.includes(`"dataspace_id":${dataspaceId},`));
+    assert.ok(exact.includes('"fraction":1.25'));
+    assert.ok(exact.includes('"zero":0'));
+    const calls = [];
+    const codec = _createNoritoInstructionApi(createNativeRuntime({
+      noritoEncodeInstruction(json) { calls.push(json); return Buffer.of(1); },
+      noritoDecodeInstruction() { return exact; },
+      noritoEncodeInstructionBoxArchive(json) { calls.push(json); return Buffer.of(2); },
+      noritoDecodeInstructionBoxArchive() { return exact; },
+    }));
+    assert.deepEqual(codec.noritoEncodeInstruction(instruction, 753), Buffer.of(1));
+    assert.deepEqual(codec.noritoEncodeInstructionBoxArchive(instruction, 753), Buffer.of(2));
+    assert.deepEqual(calls, [exact, exact, exact]);
+    for (const decoded of [
+      codec.noritoDecodeInstruction(Buffer.of(1), 753),
+      codec.noritoDecodeInstructionBoxArchive(Buffer.of(2), 753),
+    ]) {
+      assert.equal(BigInt(decoded.RegisterDataspaceAssetDefinition.dataspace_id), dataspaceId);
+      assert.equal(decoded.RegisterDataspaceAssetDefinition.object.metadata.fraction, 1.25);
+    }
+    assert.equal(codec.noritoDecodeInstruction(Buffer.of(1), 753, { parseJson: false }), exact);
+    assert.ok(codec._instructionWireSchemaBindings().some(({ outerWireId, innerTypeName }) =>
+      outerWireId === "iroha.asset_definition.dataspace.register.v1" &&
+      innerTypeName === "iroha_data_model::isi::register_dataspace_asset_definition::RegisterDataspaceAssetDefinition"));
+  }
+});
+
+baseTest("direct dataspace codec rejects lossy object numbers and malformed decoded homes", () => {
+  const instruction = directDataspaceRegistrationFixture();
+  const payload = instruction.RegisterDataspaceAssetDefinition;
+  for (const dataspace_id of [0, -1, 2n ** 64n, Number.MAX_SAFE_INTEGER + 1, "1", null]) {
+    assert.throws(() => exactRegisterDataspaceAssetDefinitionJson({
+      RegisterDataspaceAssetDefinition: { ...payload, dataspace_id },
+    }));
+  }
+  for (const metadata of [{ value: Number.MAX_SAFE_INTEGER + 1 }, { value: 1n }, { value: Infinity }]) {
+    assert.throws(() => exactRegisterDataspaceAssetDefinitionJson({
+      RegisterDataspaceAssetDefinition: { ...payload, object: { ...payload.object, metadata } },
+    }));
+  }
+  assert.throws(() => exactRegisterDataspaceAssetDefinitionJson({
+    RegisterDataspaceAssetDefinition: { ...payload, unexpected: true },
+  }));
+  assert.throws(() => exactRegisterDataspaceAssetDefinitionJson({
+    ...instruction, Register: {},
+  }));
+  const exact = exactRegisterDataspaceAssetDefinitionJson(instruction);
+  let nativeJson;
+  const codec = _createNoritoInstructionApi(createNativeRuntime({
+    noritoDecodeInstruction() { return nativeJson; },
+    noritoDecodeInstructionBoxArchive() { return nativeJson; },
+  }));
+  const invalid = [
+    ...["0", "-1", "18446744073709551616", '"1"', "null", "1e0", "01", "1.0"].map(
+      (value) => exact.replace('"dataspace_id":18446744073709551615', `"dataspace_id":${value}`)),
+    exact.replace('"dataspace_id":18446744073709551615', '"dataspace_id":1,"dataspace_id":2'),
+    exact.replace('"scale":null', '"scale":1.5'),
+    exact.replace('"fraction":1.25', '"fraction":9007199254740993'),
+  ];
+  for (const malformed of invalid) {
+    nativeJson = malformed;
+    assert.throws(() => codec.noritoDecodeInstruction(Buffer.of(1), 753));
+    assert.throws(() => codec.noritoDecodeInstructionBoxArchive(Buffer.of(2), 753));
+  }
+});
+
+test("direct dataspace frame and archive use the distinct Native schema", () => {
+  for (const dataspaceId of [9007199254740993n, 0xffff_ffff_ffff_ffffn]) {
+    for (const balanceScopePolicy of ["Global", "DataspaceRestricted"]) {
+      const instruction = directDataspaceRegistrationFixture({ dataspaceId, balanceScopePolicy });
+      const exact = exactRegisterDataspaceAssetDefinitionJson(instruction);
+      const frame = noritoEncodeInstruction(instruction, 753);
+      assert.deepEqual(frame, Buffer.from(nativeBinding.noritoEncodeInstruction(exact, 753)));
+      assert.equal(readInstructionEnvelopeWireId(frame, "direct dataspace"),
+        "iroha.asset_definition.dataspace.register.v1");
+      const archive = noritoEncodeInstructionBoxArchive(instruction, 753);
+      for (const decoded of [noritoDecodeInstruction(frame, 753), noritoDecodeInstructionBoxArchive(archive, 753)]) {
+        const payload = decoded.RegisterDataspaceAssetDefinition;
+        assert.equal(payload.dataspace_id, dataspaceId);
+        assert.equal(payload.object.owning_domain, null);
+        assert.equal(payload.object.balance_scope_policy, balanceScopePolicy);
+        assert.equal(payload.object.metadata.fraction, 1.25);
+        assert.deepEqual(noritoEncodeInstruction(decoded, 753), frame);
+      }
+      for (const invalid of [
+        exact.replace(`"dataspace_id":${dataspaceId}`, '"dataspace_id":0'),
+        exact.replace(`"dataspace_id":${dataspaceId}`, '"dataspace_id":18446744073709551616'),
+        exact.replace(`"dataspace_id":${dataspaceId}`, '"dataspace_id":"1"'),
+        exact.replace(`"dataspace_id":${dataspaceId}`, '"dataspace_id":1,"dataspace_id":2'),
+        exact.replace('"owning_domain":null', '"owning_domain":"issuer.paynet"'),
+      ]) {
+        assert.throws(() => noritoEncodeInstruction(invalid, 753));
+      }
+    }
+  }
+});
+
+baseTest("direct dataspace aggregate transactions scope account-only mints and preserve bilateral buckets", () => {
+  const captures = [];
+  const transaction = _createTransactionApi(createNativeRuntime({
+    buildTransaction(_network, _authority, instructions) {
+      captures.push(instructions);
+      return { signed_transaction: Buffer.of(1), hash: Buffer.alloc(32, 1) };
+    },
+  }));
+  const common = {
+    networkId: NetworkId.fromBytes(Buffer.alloc(32, 1)),
+    authority: ACCOUNT_ID,
+    feePayment: { payer: "authority", chargeLimits: [] },
+    privateKey: Buffer.alloc(32, 1),
+  };
+  for (const build of [transaction.buildRegisterAssetDefinitionAndMintTransaction,
+    transaction.buildRegisterAssetDefinitionMintAndTransferTransaction]) {
+    build({ ...common, assetDefinition: {
+      assetDefinitionId: ASSET_DEFINITION_ID, name: "Global unit",
+      owningDomain: null, balanceScopePolicy: "Global",
+    }, mint: { accountId: ACCOUNT_ID, quantity: "1" } });
+    const global = captures.at(-1);
+    assert.equal(JSON.parse(global[0]).Register.AssetDefinition.owning_domain, null);
+    assert.equal(JSON.parse(global[1]).Mint.Asset.destination, ASSET_ID_CANONICAL);
+    for (const policy of ["Global", "DataspaceRestricted"]) {
+      const home = "18446744073709551615";
+      const assetDefinition = {
+        assetDefinitionId: ASSET_DEFINITION_ID, name: "Direct unit",
+        owningDataspace: home, balanceScopePolicy: policy,
+      };
+      const transfer = { destinationAccountId: ACCOUNT_ID, quantity: "1" };
+      const expected = `${ASSET_DEFINITION_ID}#${ACCOUNT_ID_CANONICAL}` +
+        (policy === "DataspaceRestricted" ? `#dataspace:${home}` : "");
+      build({ ...common, assetDefinition, mint: { accountId: ACCOUNT_ID, quantity: "2" }, transfer });
+      const single = captures.at(-1);
+      assert.ok(single[0].includes(`"dataspace_id":${home},`));
+      assert.equal(JSON.parse(single[1]).Mint.Asset.destination, expected);
+      if (single.length === 3) assert.equal(JSON.parse(single[2]).Transfer.Asset.source, expected);
+      if (policy === "DataspaceRestricted") {
+        const explicit = `${ASSET_DEFINITION_ID}#${ACCOUNT_ID_CANONICAL}#dataspace:9007199254740993`;
+        build({ ...common, assetDefinition, mints: [
+          { accountId: ACCOUNT_ID, assetHoldingId: explicit, quantity: "2" },
+          { accountId: ACCOUNT_ID, quantity: "3" },
+        ], transfer });
+        const batch = captures.at(-1);
+        assert.equal(JSON.parse(batch[1]).Mint.Asset.destination, explicit);
+        assert.equal(JSON.parse(batch[2]).Mint.Asset.destination, expected);
+        if (batch.length === 4) assert.equal(JSON.parse(batch[3]).Transfer.Asset.source, explicit);
+      }
+    }
+  }
+});
+
+baseTest("mixed executable batches carry the exact direct dataspace numeral", () => {
+  const captures = [];
+  const transaction = _createTransactionApi(createNativeRuntime({
+    buildExecutableBatchTransaction(_network, _authority, entries) {
+      captures.push(entries);
+      return { signed_transaction: Buffer.of(1), hash: Buffer.alloc(32, 1) };
+    },
+  }));
+  const instruction = directDataspaceRegistrationFixture();
+  const exact = exactRegisterDataspaceAssetDefinitionJson(instruction);
+  transaction.buildExecutableBatchTransaction({
+    networkId: NetworkId.fromBytes(Buffer.alloc(32, 1)),
+    authority: ACCOUNT_ID,
+    feePayment: { payer: "authority", chargeLimits: [], gasLimit: 100 },
+    privateKey: Buffer.alloc(32, 1),
+    entries: [
+      { kind: "instruction", instruction },
+      { kind: "instruction", instruction: exact },
+      { kind: "contractCall", contractAddress: "irohac1qyqqqqqqqqqqqqputuv64zhf0a0a4hhlqdj2lhnwuzq4xjq3qexfh",
+        expectedCodeHash: Buffer.alloc(32, 1), entrypoint: "apply", arguments: null },
+    ],
+  });
+  assert.equal(captures.length, 1);
+  assert.equal(captures[0][0], `{"kind":"instruction","instruction":${exact}}`);
+  assert.equal(JSON.parse(captures[0][1]).instruction, exact);
+  assert.equal(JSON.parse(captures[0][2]).kind, "contractCall");
+});
+
+
+baseTest("direct homes stay exact through Native draft views, signed inspection, and quote signing", () => {
+  const instruction = directDataspaceRegistrationFixture();
+  const exact = exactRegisterDataspaceAssetDefinitionJson(instruction);
+  const common = {
+    networkId: NetworkId.fromBytes(Buffer.alloc(32, 1)), authority: ACCOUNT_ID,
+    feePayment: { payer: "authority", chargeLimits: [] },
+  };
+  for (const batch of [false, true]) {
+    const executable = batch ? `{"Batch":[{"Instruction":${exact}}]}` : `{"Instructions":[${exact}]}`;
+    const payloadJson = `{"instructions":${executable},"metadata":{"fraction":2.5,` +
+      '"RegisterDataspaceAssetDefinition":{"dataspace_id":"ordinary metadata"}}}';
+    const signedJson = `{"payload":${payloadJson},"signature":"fixture"}`;
+    const captured = [];
+    const nativeDraft = { payload_json: payloadJson, payload_bytes: Buffer.of(3),
+      payload_hash: Buffer.alloc(32, 1) };
+    const transaction = _createTransactionApi(createNativeRuntime({
+      buildTransactionPayload(_network, _authority, instructions) {
+        assert.equal(instructions[0], exact);
+        return nativeDraft;
+      },
+      buildExecutableBatchTransactionPayload(_network, _authority, entries) {
+        assert.equal(entries[0], `{"kind":"instruction","instruction":${exact}}`);
+        return nativeDraft;
+      },
+      decodeSignedTransactionJson() { return signedJson; },
+      signQuotedTransactionPayload(_network, json) {
+        captured.push(json);
+        return { signed_transaction: Buffer.of(1), hash: Buffer.alloc(32, 1) };
+      },
+    }));
+    const draft = batch
+      ? transaction.buildExecutableBatchTransactionPayload({ ...common,
+          entries: [{ kind: "instruction", instruction }] })
+      : transaction.buildTransactionPayload({ ...common, instructions: [instruction] });
+    const selectInstruction = (payload) => batch
+      ? payload.instructions.Batch[0].Instruction : payload.instructions.Instructions[0];
+    assert.equal(draft.payloadJson, payloadJson);
+    assert.equal(selectInstruction(draft.payload).RegisterDataspaceAssetDefinition.dataspace_id,
+      0xffff_ffff_ffff_ffffn);
+    assert.equal(draft.payload.metadata.fraction, 2.5);
+    assert.equal(draft.payload.metadata.RegisterDataspaceAssetDefinition.dataspace_id,
+      "ordinary metadata");
+    const signed = transaction.decodeSignedTransaction(Buffer.of(1), 753);
+    assert.equal(selectInstruction(signed.payload).RegisterDataspaceAssetDefinition.dataspace_id,
+      0xffff_ffff_ffff_ffffn);
+    for (const payload of [draft.payload, draft]) {
+      transaction.signQuotedTransactionPayload({ networkId: common.networkId, payload,
+        quotedFeePayment: common.feePayment, privateKey: Buffer.alloc(32, 1) });
+    }
+    assert.deepEqual(captured, [payloadJson, payloadJson]);
+    const lossy = structuredClone(draft.payload);
+    selectInstruction(lossy).RegisterDataspaceAssetDefinition.dataspace_id = Number.MAX_SAFE_INTEGER + 1;
+    assert.throws(() => transaction.signQuotedTransactionPayload({ networkId: common.networkId,
+      payload: lossy, quotedFeePayment: common.feePayment, privateKey: Buffer.alloc(32, 1) }));
+    const collision = structuredClone(draft.payload);
+    collision.metadata.marker = "__iroha-direct-dataspace-instruction-0__";
+    assert.throws(() => transaction.signQuotedTransactionPayload({ networkId: common.networkId,
+      payload: collision, quotedFeePayment: common.feePayment, privateKey: Buffer.alloc(32, 1) }),
+    /marker collision/u);
+    assert.equal(captured.length, 2);
   }
 });

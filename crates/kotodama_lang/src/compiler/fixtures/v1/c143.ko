@@ -1,6 +1,6 @@
 
-seiyaku Test {
-  kotoage fn read(bytes path)  authorize("Entry") {
+seiyaku Test { permission Entry;
+  kotoage fn read(bytes path) authorize(Entry) {
     let _x = state::get(path);
   }
 }

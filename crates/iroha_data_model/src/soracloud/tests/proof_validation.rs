@@ -628,7 +628,7 @@ fn run_open_verify_envelope_drift(family: FheProofFamily, id: &str) {
 
     let mut wrong_backend = sample.clone();
     let mut wrong_backend_envelope = envelope.clone();
-    wrong_backend_envelope.backend = BackendTag::Halo2IpaPasta;
+    wrong_backend_envelope.backend = BackendTag::NativePipaRPasta;
     wrong_backend.replace_envelope(&wrong_backend_envelope);
     assert_fhe_rejected(
         &wrong_backend,

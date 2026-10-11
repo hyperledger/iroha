@@ -1,5 +1,5 @@
 
-seiyaku AggregateStateAcceptance {
+seiyaku AggregateStateAcceptance { permission WriteState;
   error enum AggregateError {
     MissingValue = 1,
     WrongCount = 2,
@@ -11,7 +11,7 @@ seiyaku AggregateStateAcceptance {
   struct Pair { int count, bool ready }
   state StateMap<int, Pair> Values;
 
-  kotoage fn run() -> int authorize("WriteState") {
+  kotoage fn run() authorize(WriteState) -> int {
     Values[7] = Pair { count: 9, ready: true };
     let found = Values.get(7);
     require(found.is_some(), AggregateError::MissingValue);

@@ -1,0 +1,37 @@
+// File header comment.
+seiyaku Comments {
+    permission Pay;
+    state int value;   // trailing comment on state
+    state int other; /* trailing block */
+
+
+    hajimari() { // lifecycle note
+        value = 0; // init to zero
+        let int next = value + 1; // why
+        // own-line comment stays above its statement
+        value = next;
+
+        // section two after a blank line
+        let int total = value + // 合計
+        next;
+        other = value // separator binds to the value
+        ;
+        // closing comment inside the block
+    }
+
+    kotoage fn pay(AccountId payer, AccountId payee) authorize(Pay) {
+        ledger::asset::transfer(
+            source: payer, // 支払人
+            destination: payee, // 受取人 (same for demo)
+            asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"),
+            amount: 10, /* fixed */
+            dataspace: DataSpaceId::parse("0") // last argument
+        );
+    }
+    view fn pick( /* 任意 */ Option<int> item /* 既定値なし */ ) authorize(anyone) -> int {
+        match item {
+            Option::some(found) => found, // present
+            Option::none => 0 // absent
+        }
+    }
+}

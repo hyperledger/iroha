@@ -665,6 +665,7 @@ test("ToriiBrowserClient uses explicit asset-definition ownership fields", async
   const item = {
     id: "11111111-1111-4111-8111-111111111111",
     owning_domain: null,
+    owning_dataspace: null,
     mintable: "Infinitely",
     logo: null,
     metadata: {},
@@ -691,6 +692,7 @@ test("ToriiBrowserClient uses explicit asset-definition ownership fields", async
     filter: 'owning_domain = "treasury.universal"',
   });
   assert.equal(page.items[0].owning_domain, null);
+  assert.equal(page.items[0].owning_dataspace, null);
 
   const missingOwnership = { ...item };
   delete missingOwnership.owning_domain;
@@ -707,6 +709,52 @@ test("ToriiBrowserClient uses explicit asset-definition ownership fields", async
   );
 });
 
+
+test("ToriiBrowserClient preserves exact direct asset homes and rejects malformed ownership", async () => {
+  const item = {
+    id: "11111111-1111-4111-8111-111111111111",
+    owning_domain: null,
+    owning_dataspace: null,
+    mintable: "Infinitely",
+    logo: null,
+    metadata: {},
+    owned_by: FIXTURE_ALICE_ID,
+    assets: 0,
+    total_quantity: "0",
+    locked_quantity: null,
+    circulating_quantity: null,
+  };
+  const read = (row) => new ToriiBrowserClient("https://torii.example", {
+    fetchImpl: async () => jsonResponse({ next_cursor: null, items: [row] }),
+  }).explorerAssetDefinitions.list({ limit: 1 });
+
+  for (const home of ["1", "9007199254740993", "8648377547929788715", "18446744073709551615"]) {
+    const page = await read({ ...item, owning_dataspace: home });
+    assert.equal(page.items[0].owning_dataspace, home);
+    assert.equal(typeof page.items[0].owning_dataspace, "string");
+    assert.equal(page.items[0].owning_domain, null);
+  }
+  for (const owningDomain of [null, "treasury.bpng"]) {
+    const page = await read({ ...item, owning_domain: owningDomain });
+    assert.equal(page.items[0].owning_domain, owningDomain);
+    assert.equal(page.items[0].owning_dataspace, null);
+  }
+  for (const home of [
+    "0", "00", "01", "18446744073709551616", "184467440737095516150",
+    "", "+1", "-1", "1.0", "1e0", " 1", "1 ", "1\n", "1\r\n", "１", 0, 7, 9007199254740992, true, {}, [],
+  ]) {
+    await assert.rejects(read({ ...item, owning_dataspace: home }), /owning_dataspace/u);
+  }
+  await assert.rejects(
+    read({ ...item, owning_domain: "treasury.bpng", owning_dataspace: "7" }),
+    /cannot carry both domain and dataspace homes/u,
+  );
+  for (const field of ["owning_domain", "owning_dataspace"]) {
+    const missing = { ...item };
+    delete missing[field];
+    await assert.rejects(read(missing), /missing or unsupported fields/u);
+  }
+});
 
 test("ToriiBrowserClient exposes exact JSON ledger windows, roots, and state proofs", async () => {
   const calls = [];
@@ -972,7 +1020,7 @@ test("ToriiBrowserClient streams fragmented multiline CRLF contract events with 
       capturedInit = init;
       assert.equal(
         String(url),
-        "https://torii.example/v1/contracts/events/sse?module=swaps&event_kind=fill",
+        "https://torii.example/v1/contracts/events/sse?contract_address=irohac1router&event_kind=fill",
       );
       return sseResponse(
         [
@@ -989,7 +1037,7 @@ test("ToriiBrowserClient streams fragmented multiline CRLF contract events with 
   });
 
   const iterator = client.streamContractEvents({
-    module: "swaps",
+    contractAddress: "irohac1router",
     eventKind: "fill",
     signal: abortController.signal,
   });
@@ -1086,20 +1134,39 @@ test("ToriiBrowserClient treats contract stream EOF as a terminal non-replayable
   assert.equal(fetchCalls, 1);
 });
 
+test("ToriiBrowserClient contract event stream accepts only committed emitted provenance", () => {
+  let fetchCalls = 0;
+  const client = new ToriiBrowserClient("https://torii.example", {
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return sseResponse([]);
+    },
+  });
+
+  assert.throws(
+    () => client.streamContractEvents({ provenance: "derived" }),
+    /streamContractEvents options\.provenance must be emitted/u,
+  );
+  assert.equal(fetchCalls, 0);
+});
+
 test("ToriiBrowserClient rejects adversarial query options before fetch", async () => {
+  let fetchCalls = 0;
   const fetchImpl = async () => {
+    fetchCalls += 1;
     throw new Error("fetch should not be called for invalid local options");
   };
   const client = new ToriiBrowserClient("https://torii.example", { fetchImpl });
 
-  assert.throws(
+  await assert.rejects(
     () => client.explorerBlocks.list({ page: 0 }),
-    /contains unsupported option page/,
+    { name: "ListQueryError", message: /invalid `query`: unknown member `page`/u },
   );
   assert.throws(
     () => client.resolveAlias("  "),
     /alias must not be empty/,
   );
+  assert.equal(fetchCalls, 0);
 });
 
 test("ToriiBrowserClient preserves error responses for callers", async () => {

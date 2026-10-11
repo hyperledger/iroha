@@ -289,7 +289,6 @@ impl Core {
                 && previous.is_none_or(|p| Some(qc.height) == p.checked_add(1))
                 && (entry.manifest.hash(&*self.crypto) == qc.block_hash
                     || cfg!(sumeragi_mutation = "MS22"))
-                && qc.attest == entry.manifest.header.attest
                 && entry.manifest.availability.has_valid_structure();
             if !well_formed {
                 break;
@@ -350,7 +349,7 @@ impl Core {
                     &self.cfg.epoch.id,
                     committee,
                 )
-                .verify_qc(&*self.attestation.verifier, &entry.commit_qc)
+                .verify_qc(&entry.commit_qc)
                 .is_ok();
             if !linked || !verified {
                 self.sync.buffer.clear();

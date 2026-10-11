@@ -292,7 +292,7 @@ mod sora_profile_tests {
     use super::*;
     #[test]
     fn sora_profile_detection_defaults_parse_with_bls_keys() {
-        let defaults = sora_profile_detection_defaults();
+        let (_peer_directory, _peer, defaults) = sora_profile_runtime_config_fixture(&[]);
         let config =
             iroha_config::parameters::actual::Root::from_toml_source(TomlSource::inline(defaults))
                 .expect("sora profile detection defaults should parse");
@@ -327,7 +327,7 @@ mod sora_profile_tests {
         );
         let mut layer = Table::new();
         layer.insert("streaming".into(), Value::Table(streaming));
-        let merged = merged_sora_profile_detection_config(&[layer]);
+        let (_peer_directory, _peer, merged) = sora_profile_runtime_config_fixture(&[layer]);
         let config =
             iroha_config::parameters::actual::Root::from_toml_source(TomlSource::inline(merged))
                 .expect("merged sora profile detection config should parse");
@@ -337,7 +337,7 @@ mod sora_profile_tests {
         );
     }
     #[test]
-    fn sora_profile_detection_pop_survives_trusted_peers_pop_override() {
+    fn sora_profile_detection_preserves_exact_supplied_pop_roster() {
         let other =
             checked_key_pair_from_seed(b"sora-profile-pop-merge".to_vec(), Algorithm::BlsNormal);
         let other_pop =
@@ -349,33 +349,20 @@ mod sora_profile_tests {
             "pop_hex".into(),
             Value::String(format!("0x{}", hex_lower(&other_pop))),
         );
+        let supplied = vec![Value::Table(pop_entry)];
         let mut layer = Table::new();
-        layer.insert(
-            "trusted_peers_pop".into(),
-            Value::Array(vec![Value::Table(pop_entry)]),
-        );
+        layer.insert("trusted_peers_pop".into(), Value::Array(supplied.clone()));
         let merged = merged_sora_profile_detection_config(&[layer]);
         let entries = merged
             .get("trusted_peers_pop")
             .and_then(Value::as_array)
             .expect("trusted_peers_pop array");
-        let mut has_default = false;
-        let mut has_other = false;
-        for entry in entries {
-            let Some(table) = entry.as_table() else {
-                continue;
-            };
-            if let Some(pk) = table.get("public_key").and_then(Value::as_str) {
-                if pk == SORA_PROFILE_BLS_PUBLIC_KEY {
-                    has_default = true;
-                }
-                if pk == other_pk {
-                    has_other = true;
-                }
-            }
-        }
-        assert!(has_default, "sora profile PoP should be retained");
-        assert!(has_other, "caller-supplied PoP should be retained");
+        assert_eq!(
+            entries, &supplied,
+            "profile detection must preserve the exact caller-owned roster without adding a voter"
+        );
+        iroha_crypto::bls_normal_pop_verify(other.public_key(), &other_pop)
+            .expect("the preserved caller PoP remains valid");
     }
     #[test]
     fn sora_profile_detection_is_false_for_defaults() {
@@ -456,7 +443,7 @@ mod sora_profile_tests {
         nexus.insert("routing_policy".into(), toml::Value::Table(policy));
         let mut table = Table::new();
         table.insert("nexus".into(), toml::Value::Table(nexus));
-        assert!(!raw_nexus_overrides(&table));
+        assert!(!typed_sora_profile_requirements(&table).expect("canonical default routing policy"));
     }
 }
 #[cfg(test)]

@@ -1388,22 +1388,11 @@ fn canonical_remote_account(value: &str, field: &str) -> Result<AccountId> {
             details: format!("remote-spend {field} account must use canonical I105 text"),
         });
     }
-    let parsed = AccountId::parse_encoded(value).map_err(|error| Error::InvalidAxtBinding {
+    // The canonical parser validates the configured chain discriminant and literal
+    // under the caller's inherited inbound budget before returning the account.
+    AccountId::parse_encoded(value).map_err(|error| Error::InvalidAxtBinding {
         details: format!("remote-spend {field} account is not canonical I105: {error}"),
-    })?;
-    // Rendering an account can exhaust an inherited codec budget. Do not use
-    // `to_string`, which panics when this formatter legitimately returns an error.
-    let canonical = parsed
-        .canonical_i105()
-        .map_err(|_| Error::InvalidAxtBinding {
-            details: format!("remote-spend {field} account canonicalization failed"),
-        })?;
-    if canonical != value {
-        return Err(Error::InvalidAxtBinding {
-            details: format!("remote-spend {field} account must use canonical I105 text"),
-        });
-    }
-    Ok(parsed)
+    })
 }
 
 /// Exact public metadata byte fields accepted by the offline compact relation.

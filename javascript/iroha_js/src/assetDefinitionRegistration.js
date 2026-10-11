@@ -1,3 +1,4 @@
+import { buildRegisterDataspaceAssetDefinitionInstruction } from "./instructionBuilders.js";
 import { normalizeAssetDefinitionName } from "./instructionBuilderPrimitives.js";
 
 export function createRegisterAssetDefinitionInstructionBuilder({
@@ -9,6 +10,24 @@ export function createRegisterAssetDefinitionInstructionBuilder({
     mints = [],
   }) {
     const instructions = [];
+    const directDataspace = assetDefinition.owningDataspace ?? assetDefinition.owning_dataspace;
+    if (directDataspace !== undefined && directDataspace !== null) {
+      if (assetDefinition.owningDataspace !== undefined && assetDefinition.owning_dataspace !== undefined &&
+          String(assetDefinition.owningDataspace) !== String(assetDefinition.owning_dataspace)) {
+        throw new TypeError("assetDefinition dataspace home aliases disagree");
+      }
+      instructions.push(buildRegisterDataspaceAssetDefinitionInstruction({
+        ...assetDefinition,
+        assetDefinitionId: normalizeTransactionAssetDefinitionId(assetDefinition.assetDefinitionId, "assetDefinition.assetDefinitionId"),
+        dataspaceId: directDataspace,
+        scale: assetDefinition.spec?.scale ?? null,
+      }));
+      mints.forEach((mint) => instructions.push(buildMintAssetInstruction({
+        assetHoldingId: mint.assetHoldingId ?? mint.assetId,
+        quantity: mint.quantity,
+      })));
+      return instructions;
+    }
     const hasOwningDomain = Object.prototype.hasOwnProperty.call(
       assetDefinition,
       "owningDomain",

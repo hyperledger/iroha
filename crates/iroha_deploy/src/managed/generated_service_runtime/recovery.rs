@@ -18,9 +18,11 @@ impl GeneratedServiceRuntime {
         &self,
         deadline: Instant,
     ) -> Result<GeneratedServiceRuntimeRevision> {
+        require_deadline(deadline)?;
+        let parallel = self.fresh_catalog_round()?;
         let (selection, components, required) =
-            self.retain_native_components(deadline, HeadCheck::CurrentUse)?;
-        self.verify_current_components(&selection, &components, &required, deadline)?;
+            self.retain_native_components(deadline, HeadCheck::CurrentUse, parallel)?;
+        self.verify_current_components(&selection, &components, &required, deadline, parallel)?;
         self.publish(&selection, Some(components), Some(required), deadline)
     }
 
@@ -30,7 +32,9 @@ impl GeneratedServiceRuntime {
         &self,
         deadline: Instant,
     ) -> Result<()> {
-        self.retain_native_components(deadline, HeadCheck::MaterialOnly)?;
+        require_deadline(deadline)?;
+        let parallel = self.fresh_catalog_round()?;
+        self.retain_native_components(deadline, HeadCheck::MaterialOnly, parallel)?;
         Ok(())
     }
 
@@ -38,6 +42,7 @@ impl GeneratedServiceRuntime {
         &self,
         deadline: Instant,
         check: HeadCheck,
+        parallel: bool,
     ) -> Result<(
         RuntimeSelection,
         [Arc<ProviderComponent>; 3],
@@ -46,7 +51,9 @@ impl GeneratedServiceRuntime {
         require_deadline(deadline)?;
         let selection = require_retained_material(RuntimeSelection::read(&self.authority))?;
         selection.validate_interval(None)?;
-        let mut parent = ManagedServiceBootstrap::open(&self.authority.prepared)?;
+        #[cfg(all(test, unix))]
+        tests::before_bootstrap_reopen();
+        let mut parent = self.open_original_bootstrap(&self.authority.prepared)?;
         let ServiceBootstrapProgress::Complete(history) = parent.recover(deadline)? else {
             return Err(invalid(
                 "generated bootstrap has incomplete original execution",
@@ -55,32 +62,26 @@ impl GeneratedServiceRuntime {
         let terminal = history.reputation();
         // Custody and component validation may reopen parent selection. Release its sole lock.
         drop(parent);
-        let mut selected_heads = Vec::with_capacity(3);
-        for (index, plan) in selection.plans.iter().enumerate() {
-            require_deadline(deadline)?;
-            let provider = plan.provider_id();
-            let mut custody = ManagedStreamTokenCustody::open(&self.authority.prepared, provider)?;
-            let policy = &selection.policies.provider(provider)?.custody;
-            let selected = match check {
-                HeadCheck::CurrentUse => custody.retained_current_enrollment(
-                    policy,
-                    selection.initial(index)?,
-                    terminal.height,
-                    *terminal.block_hash.as_ref(),
-                    deadline,
-                )?,
-                HeadCheck::MaterialOnly => custody.retained_native_head_material(
-                    policy,
-                    selection.initial(index)?,
-                    terminal,
-                    deadline,
-                )?,
-            };
-            selected_heads.push(selected);
-        }
-        let selected_heads = selected_heads
-            .try_into()
-            .map_err(|_| invalid("current generated provider count differs"))?;
+        let selected_heads =
+            self.current_provider_round(&selection, deadline, parallel, |index, custody| {
+                let provider = selection.plans[index].provider_id();
+                let policy = &selection.policies.provider(provider)?.custody;
+                match check {
+                    HeadCheck::CurrentUse => custody.retained_current_enrollment(
+                        policy,
+                        selection.initial(index)?,
+                        terminal.height,
+                        *terminal.block_hash.as_ref(),
+                        deadline,
+                    ),
+                    HeadCheck::MaterialOnly => custody.retained_native_head_material(
+                        policy,
+                        selection.initial(index)?,
+                        terminal,
+                        deadline,
+                    ),
+                }
+            })?;
         self.retain_selected_components(selection, &history, selected_heads, deadline)
     }
 

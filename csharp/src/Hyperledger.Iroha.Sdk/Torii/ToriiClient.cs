@@ -5511,15 +5511,7 @@ public sealed partial class ToriiClient : IDisposable
         ToriiContractViewEntrypoint response,
         string context)
     {
-        ValidateExactTokenText(response.Name, $"{context}.name");
-        ValidateExactTokenText(response.Kind, $"{context}.kind");
-        ValidateContractCodeViewEntrypointParams(response.Parameters, $"{context}.params");
-        ValidateOptionalExactNonEmptyText(response.ReturnType, $"{context}.return_type");
-        ValidateOptionalExactTokenText(response.Permission, $"{context}.permission");
-        ValidateContractCodeViewTokenList(response.ReadKeys, $"{context}.read_keys");
-        ValidateContractCodeViewTokenList(response.WriteKeys, $"{context}.write_keys");
-        ValidateContractCodeViewTokenList(response.AccessHintsSkipped, $"{context}.access_hints_skipped");
-        ValidateContractCodeViewTokenList(response.Triggers, $"{context}.triggers");
+        ToriiContractMetadataJson.ValidateEntrypoint(response, context);
     }
 
     private static void ValidateContractCodeViewEntrypointParams(

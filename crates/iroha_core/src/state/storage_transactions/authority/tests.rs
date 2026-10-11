@@ -321,3 +321,172 @@ fn nonblocking_capture_returns_original_busy_release_and_never_stages() {
         "release before registration remains visible"
     );
 }
+
+fn capture_publication(owner: &PreparedTransactionsBlock<'_>, allowance: usize) -> CapturedFixture {
+    let cut = owner
+        .membership_publication_authority_cut(allowance)
+        .unwrap();
+    let mut result = CapturedFixture {
+        frontier: cut.frontier_height(),
+        visits: cut.row_visits(),
+        current: BTreeMap::new(),
+        rollback: BTreeMap::new(),
+    };
+    cut.visit(|side, key, height| {
+        let map = match side {
+            TransactionMembershipSide::Current => &mut result.current,
+            TransactionMembershipSide::Rollback => &mut result.rollback,
+        };
+        assert!(map.insert(*key, height).is_none());
+        Ok::<(), Infallible>(())
+    })
+    .unwrap();
+    result
+}
+
+#[test]
+fn original_publication_pair_matches_real_advance_replace_and_repeat() {
+    use crate::state::storage_transactions::TransactionsBlockField;
+    let a = key(b"original-first");
+    let b = key(b"original-second");
+    let reused = key(b"original-shadowed");
+    let c = key(b"original-third");
+    for mode in 0..3 {
+        let storage = TransactionsStorage::new();
+        commit(&storage, &[a, reused], 1);
+        commit(&storage, &[b, reused], 2);
+        let committed = capture(&storage.block(), usize::MAX);
+        let original = if mode == 1 {
+            storage.block_and_revert()
+        } else {
+            storage.block()
+        };
+        let mut field = TransactionsBlockField::new(original);
+        let (keys, frontier) = if mode == 2 {
+            (vec![b, reused], 2)
+        } else {
+            (vec![c], if mode == 1 { 2 } else { 3 })
+        };
+        field.insert_block(keys.iter().copied().collect(), height(frontier));
+        assert!(field.prepared_membership_writer().is_none());
+        field.try_prepare_publication().unwrap();
+        let owner = field.prepared_membership_writer().unwrap();
+        let identity = owner.publication_surface();
+        let captured = capture_publication(owner, usize::MAX);
+        assert_eq!(captured.frontier, u64::try_from(frontier).unwrap());
+        assert_eq!(identity, owner.publication_surface());
+        assert!(owner.belongs_to(&storage));
+        let foreign = TransactionsStorage::new();
+        assert!(!owner.belongs_to(&foreign));
+        assert_eq!(
+            owner.mode(),
+            if mode == 1 {
+                mv::BlockMode::Replace
+            } else {
+                mv::BlockMode::Ordinary
+            }
+        );
+        let expected_current = match mode {
+            0 => BTreeMap::from([(a, 1), (b, 2), (reused, 2), (c, 3)]),
+            1 => BTreeMap::from([(a, 1), (reused, 1), (c, 2)]),
+            _ => committed.current.clone(),
+        };
+        let expected_rollback = if mode == 0 {
+            committed.current
+        } else {
+            BTreeMap::from([(a, 1), (reused, 1)])
+        };
+        assert_eq!(captured.current, expected_current);
+        assert_eq!(captured.rollback, expected_rollback);
+        assert_eq!(captured.visits, [9, 5, 8][mode]);
+        field.try_prepare_physical().unwrap();
+        field.publish_prepared();
+        field.release_writers();
+        assert!(field.prepared_membership_writer().is_none());
+        // A repeated publication keeps its original predecessor loan until the
+        // released field retires. Finish that owner before admitting another block.
+        drop(field);
+        let actual = capture(&storage.block(), usize::MAX);
+        assert_eq!(captured.current, actual.current);
+        assert_eq!(captured.rollback, actual.rollback);
+        assert_eq!(captured.frontier, actual.frontier);
+    }
+}
+
+#[test]
+fn successor_complete_traversal_is_admitted_before_any_callback() {
+    use crate::state::storage_transactions::TransactionsBlockField;
+    let storage = TransactionsStorage::new();
+    commit(&storage, &[key(b"visit-a"), key(b"visit-reused")], 1);
+    commit(&storage, &[key(b"visit-b"), key(b"visit-reused")], 2);
+    let mut field = TransactionsBlockField::new(storage.block());
+    field.insert_block(HashSet::from([key(b"visit-c")]), height(3));
+    field.try_prepare_publication().unwrap();
+    let original = field.prepared_membership_writer().unwrap();
+    for limit in [0, 1, 8] {
+        let result = original.membership_publication_authority_cut(limit);
+        assert!(matches!(result,
+            Err(TransactionMembershipAuthorityError::TraversalRefused { required: 9, limit: actual })
+                if actual == limit));
+    }
+    let before = original.publication_surface();
+    let error = original
+        .membership_publication_authority_cut(9)
+        .unwrap()
+        .visit(|_, _, _| Err::<(), _>("original consumer refusal"))
+        .unwrap_err();
+    assert_eq!(
+        error,
+        TransactionMembershipVisitError::Consumer("original consumer refusal")
+    );
+    assert_eq!(before, original.publication_surface());
+    assert_eq!(capture_publication(original, 9).frontier, 3);
+    field.release_writers();
+    assert!(field.prepared_membership_writer().is_none());
+}
+
+#[test]
+fn detached_successor_uses_only_the_same_fully_prepared_original_slot() {
+    use crate::state::storage_transactions::TransactionsBlockField;
+    let storage = TransactionsStorage::new();
+    commit(&storage, &[key(b"detached-a")], 1);
+    let mut field = TransactionsBlockField::new(storage.block());
+    field.insert_block(HashSet::from([key(b"detached-b")]), height(2));
+    field.try_prepare_publication().unwrap();
+    let before = capture_publication(field.prepared_membership_writer().unwrap(), usize::MAX);
+    let identity = field
+        .prepared_membership_writer()
+        .unwrap()
+        .publication_surface();
+    field.finish_freeze().unwrap();
+    assert!(field.prepared_membership_writer().is_none());
+    field.install_frozen_publication(&storage);
+    assert!(field.prepared_membership_writer().is_none());
+    field.try_prepare_frozen_publication().unwrap();
+    let original = field.prepared_membership_writer().unwrap();
+    assert_eq!(identity, original.publication_surface());
+    assert_eq!(before, capture_publication(original, usize::MAX));
+    field.publish_prepared();
+    assert!(field.prepared_membership_writer().is_none());
+    field.release_writers();
+    assert!(field.prepared_membership_writer().is_none());
+}
+
+#[test]
+fn detached_changed_predecessor_cannot_gain_a_successor_capture() {
+    use crate::state::storage_transactions::TransactionsBlockField;
+    let storage = TransactionsStorage::new();
+    commit(&storage, &[key(b"changed-a")], 1);
+    let mut field = TransactionsBlockField::new(storage.block());
+    field.insert_block(HashSet::from([key(b"changed-b")]), height(2));
+    field.finish_freeze().unwrap();
+    commit(&storage, &[key(b"changed-replacement")], 2);
+    field.install_frozen_publication(&storage);
+    assert!(matches!(
+        field.try_prepare_frozen_publication(),
+        Err(mv::PublicationPreparationError::Changed)
+    ));
+    assert!(field.prepared_membership_writer().is_none());
+    field.release_writers();
+    assert!(field.prepared_membership_writer().is_none());
+}

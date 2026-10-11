@@ -5,25 +5,29 @@ Iroha 3 codebase. Envelopes are versioned, deterministic, and designed to be
 portable between components (clients, IVM, node).
 
 Scope (current)
-- IPA (transparent; no trusted setup): non-privacy polynomial opening proofs
-  admitted under the exact `halo2/ipa` verifier label. Privacy protocols use
-  their protocol-specific typed verifiers and cannot be selected through this
-  generic envelope. Envelope type: `OpenVerifyEnvelope`.
-- STARK (FRI-style): binary-FRI consistency proofs over a 2^k Goldilocks domain
-  using the canonical six-lane Poseidon-x7 digest and an Fp4 transcript.
+- Generic ledger proof verification uses the data-model `OpenVerifyEnvelope`,
+  with native PIPA-R over Pasta or the exact native STARK profile below.
+- The separate `iroha_zkp_halo2::OpenVerifyEnvelope` is a standalone public
+  polynomial-opening type used by diagnostic APIs. Its curve selector does not
+  select a generic ledger verifier.
+- Protocol-specific privacy proofs retain their typed owners and are not
+  inferred from a generic engine label.
 
-Backends (tags)
-- Generic non-privacy IPA verifier entrypoint: `halo2/ipa`
-  - The envelope selects the concrete curve/backend with `curve_id`
-    (`1 = Pallas`, `20 = BN254`).
-- STARK (native): `stark/fri/poseidon-x7-goldilocks-6x64-v1`
+Backends (exact registry labels)
+- `pipa-r/pasta`, or one of the five concrete native circuit labels listed in
+  `iroha_data_model::zk::ZK_VERIFIER_BACKEND_REGISTRY_LABELS_V1`.
+- `stark/fri/poseidon-x7-goldilocks-6x64-v1`.
+- Data-model `BackendTag` has only `NativePipaRPasta` (Norito discriminant 0,
+  JSON `native-pipa-r-pasta`) and `Stark` (discriminant 1, JSON `stark`).
+  The derived Norito enum discriminant occupies a little-endian `u32`.
 
 General notes
 - Norito encoding is used for the envelopes and their nested payloads. Unless
   otherwise specified, scalars are little-endian and sized as per struct types.
 - Determinism: challenges are derived from fixed transcript labels and byte
   sequences; native STARK hashing uses the single six-lane construction below
-  and IPA uses SHA3 where specified by its statement.
+  the standalone polynomial-opening helper uses SHA3, and native PIPA-R uses
+  its descriptor-pinned transcript.
 - Size limits and validation: implementers must bound vector sizes and reject
   malformed payloads early (see code for current limits). The native verifier
   applies `StarkVerifierLimits` (envelope byte budget, domain/tag length, fold
@@ -31,7 +35,7 @@ General notes
   `verify_stark_fri_envelope_with_limits`, with defaults used by the standard
   `verify_stark_fri_envelope` entrypoint.
 
-## IPA: Polynomial Opening Envelope
+## Standalone IPA: Polynomial Opening Envelope
 
 Wire types (as implemented in `crates/iroha_zkp_halo2`)
 
@@ -331,60 +335,35 @@ Verifier behavior (native STARK)
   `StarkFriOpenProofV1` before verifier dispatch, and reject malformed outer or
   wrapper bytes, unsupported wrapper versions, and empty native STARK envelope
   bytes with zero-duration failures.
-- Runtime OpenVerify guardrails also reject `ProofBox.backend`,
-  `VerifyingKeyBox.backend`, or decoded envelope backend tags that do not match
-  the selected production verifier family before dispatch. Halo2-family
-  guardrails additionally bind decoded `OpenVerifyEnvelope.circuit_id` values to
-  the requested backend label: concrete native Halo2 labels must normalize to the
-  same circuit. The generic `halo2/ipa` entry point uses a closed V1 circuit
-  registry containing Kaigi roster/usage, the protocol-private confidential
-  transfer/unshield circuits used by native escrow, and the authenticated
-  KAGEMUSHA V1 artifact set. Tiny arithmetic,
-  anonymous-transfer demos, vote-bool demos, the historical IVM overlay-binding
-  stand-in, retired recursive-spend labels, cross-family ids, and trusted-setup
-  ids all fail before verifier dispatch. Prefixing or otherwise normalizing a
-  retired id never makes it admissible. Packaged Halo2 verifier keys are also
-  compared with the deterministic verifier key generated from the selected
-  compiled circuit, so a parseable demo or attacker-controlled constraint
-  system cannot be relabeled with an admitted production circuit id.
-- Production Halo2 `ProofBox.bytes` is a canonical data-model
-  `OpenVerifyEnvelope`. Its `public_inputs` field contains a schema descriptor,
-  not the concrete instance columns. Every admitted circuit id normalizes to one
-  closed, authoritative descriptor (Kaigi roster/usage, confidential
-  transfer/full-unshield/change-unshield, or an authenticated
-  KAGEMUSHA V1 artifact role).
-  Preverification, guardrails, final dispatch, and verifying-key record
-  preparation require exact descriptor bytes or the Iroha hash of those bytes;
-  arbitrary nonempty replacements and unmapped circuits fail closed.
-- Kaigi commitment, nullifier, and usage `Hash` artifacts encode a canonical
-  Pasta Fp scalar injectively. Starting from its 32-byte little-endian field
-  representation, byte 31's seven used bits are shifted left once and bit 0 is
-  set as Iroha's mandatory `Hash` marker. Verification shifts that byte right
-  once and requires canonical `Fp::from_repr` decoding. Directly wrapping raw
-  scalar bytes with `Hash::prehashed` is noncanonical because it overwrites
-  scalar bit 248.
-- Kaigi roster proof construction remains a candidate-only low-level facility.
-  Production `ZkRosterV1` join admission rejects because the current instance
-  columns do not bind the signed participant authority; a NIZK and its
-  commitment/nullifier artifacts are transferable. Transparent Kaigi, usage
-  proofs, and host-signed lifecycle operations are distinct paths and remain
-  available. The exported JS and native roster builders reject rather than
-  returning an envelope that ledger admission cannot use. A future roster
-  profile must version the authority-bound instance schema and deterministic
-  key together before enabling joins.
-- `OpenVerifyEnvelope.proof_bytes` for production Halo2 contains exactly one
-  strict ZK1 carrier ordered as `PROF` and then optional `I10P`. The historical
-  binary `Halo2ProofEnvelope` is not accepted by production dispatch because its
-  caller-controlled `n_in`, `n_out`, and lookup flags were not absorbed into the
-  Halo2 transcript. The retired carrier and its parser are not part of the
-  first-release API.
-- Production Halo2 verifier-key bytes use a strict ZK1 carrier ordered as
-  exactly one `IPAK`, one `CID1`, and one non-empty `H2VK`. `CID1` is the exact
-  portable circuit identifier (for example, `halo2/pasta/ipa/kaigi-roster-v1`);
-  whitespace and alternate spellings are rejected rather than normalized.
-  Kaigi client fixtures hash this complete key carrier under its configured
-  registry backend and place the resulting nonzero commitment in the canonical
-  outer envelope.
+- Generic guardrails reject mismatched `ProofBox.backend`, `VerifyingKeyBox.backend`
+  and decoded engine tags before proof work. The native registry resolves an
+  exact generic/backend-and-circuit pair. It admits only Kaigi authorization,
+  Kaigi usage, confidential transfer, full unshield and change unshield.
+  Demo arithmetic, governance stand-ins and incomplete IVM execution relations
+  have no generic verifier admission.
+- Native `ProofBox.bytes` is the canonical data-model `OpenVerifyEnvelope`.
+  `public_inputs` holds the exact compiled relation's schema descriptor;
+  `proof_bytes` is canonical Norito `NativePipaRProofV1` with ordered
+  `public_inputs: Vec<[u8; 32]>` and `proof: Vec<u8>`. These are one public
+  column, canonical little-endian Pasta scalars, and the exact PIPA-R
+  transcript. The compiled relation pins the column arity and proof length.
+  Auxiliary bytes must be empty. No retired TLV or old-key decoder is present.
+- Native `VerifyingKeyBox.bytes` is canonical Norito
+  `iroha_core_zk::native_pipa_r::CompiledVerifyingKeyV1`, containing
+  `descriptor: Vec<u8>` and `key: Vec<u8>`. Both must match the locally compiled
+  relation exactly, with a 64 KiB whole-container ceiling before material
+  construction. The descriptor binds the typed schema, transcript, parameters
+  and compiled layout; a processed key alone cannot substitute for it.
+- `verify_for_relation` checks the caller-required relation before cryptographic
+  verification. Active registry status, application public inputs, permissions,
+  finalized state and replay checks remain mandatory at the consuming owner.
+  Verification success alone authorizes no monetary or execution effect.
+- Kaigi commitment, nullifier and usage `Hash` artifacts encode a canonical
+  Pasta Fp scalar injectively: byte 31's seven used bits are shifted left once
+  and bit 0 is set as Iroha's `Hash` marker. Decoding reverses that shift and
+  requires canonical `Fp::from_repr`. Native authorization binds the current
+  call, subject, role and sequence; usage binds call, host, segment and billing.
+  See [Kaigi privacy](kaigi_privacy_design.md) for the relation and lifecycle boundary.
 - STARK `OpenVerifyEnvelope` construction, preverification, and guardrails bind
   circuit ids to the selected STARK family as well: the generic `stark/fri`
   entry point rejects circuit ids that advertise another proof family, including
@@ -500,11 +479,11 @@ Verifier behavior (native STARK)
 
 ### Governance vote circuits
 
-The first-release Halo2 registry does not admit the historical
+The first-release native PIPA-R registry does not admit the historical
 `VoteBoolCommitMerkle` family. Those circuits were test fixtures with a toy
 compressor, and one verifier key was previously reinterpreted as both the
 `vote-ballot` and `vote-tally` role. Governance now requires exact, distinct
 role identifiers; the retired Halo2 labels fail key registration, proof
-attachment, preverification, and native dispatch. A future Halo2 governance
+attachment, preverification, and native dispatch. A future native governance
 design must introduce independently reviewed semantic ballot and tally
 circuits and add their exact identifiers to the closed registry.

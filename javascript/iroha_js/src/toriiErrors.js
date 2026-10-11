@@ -8,6 +8,7 @@
  * problems are `ListQueryError`s whose codes match the server
  * (`invalid_filter`, `invalid_sort`, ...).
  */
+import { normalizeIvmFault } from "./ivmFault.js";
 import { sortJsonForErrorMessage } from "./toriiClientEncoding.js";
 
 const ERROR_TEXT_MAX_LENGTH = 512;
@@ -32,7 +33,9 @@ export class ToriiError extends Error {
     super(message, cause === undefined ? undefined : { cause });
     this.name = "ToriiError";
     this.code = code;
-    this.details = details;
+    this.details = details && Object.hasOwn(details, "ivm_fault")
+      ? {...details, ivm_fault: details.ivm_fault === null ? null : normalizeIvmFault(details.ivm_fault, "Torii error details.ivm_fault")}
+      : details;
   }
 }
 

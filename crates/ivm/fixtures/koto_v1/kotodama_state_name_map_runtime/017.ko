@@ -19,15 +19,9 @@
                 };
             }
 
-            view fn main() -> bool {
-                let current = Tranches.get_or(
-                    key: Name::parse("t1"),
-                    default: empty_tranche(),
-                );
-                let missing = Tranches.get_or_default(
-                    key: Name::parse("missing"),
-                    default: empty_tranche(),
-                );
+            view fn main() authorize(anyone) -> bool {
+                let current = Tranches.get(Name::parse("t1")).unwrap_or(empty_tranche());
+                let missing = Tranches.get(Name::parse("missing")).unwrap_or(empty_tranche());
                 return current.status == 7
                     && current.remaining == 42
                     && current.merchant_aliases.len() == 1

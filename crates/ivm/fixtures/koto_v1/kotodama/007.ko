@@ -1,11 +1,11 @@
 
-        seiyaku ConstructorDemo {
-            kotoage fn run() authorize("Admin") {
+        seiyaku ConstructorDemo { permission Admin;
+            kotoage fn run() authorize(Admin) {
                 let alice = AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV");
                 let bob = AccountId::parse("sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76");
                 let asset = AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM");
-                ledger::account::set_detail(account: context::authority(), key: Name::parse("cursor"), value: Json::parse("{\"cursor\":1,\"query\":\"sc_dummy\"}"));
-                ledger::asset::transfer(source: alice, destination: bob, asset_definition: asset, amount: 1, dataspace: DataSpaceId::parse("0"));
+                ledger::account::set_metadata(account: context::authority(), key: Name::parse("cursor"), value: Json::parse("{\"cursor\":1,\"query\":\"sc_dummy\"}"));
+                ledger::asset::transfer(source: alice, destination: bob, asset_definition: asset, amount: 1);
             }
         }
     

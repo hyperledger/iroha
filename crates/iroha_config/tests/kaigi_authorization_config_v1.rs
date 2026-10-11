@@ -19,7 +19,7 @@ fn kaigi_key_references_are_chain_policy_not_node_configuration() {
     // (`proofs.kaigi_authorization_vk`, `proofs.kaigi_usage_vk`). A node
     // configuration that names one fails to load.
     for name in ["kaigi_authorization_vk", "kaigi_usage_vk"] {
-        let table = format!("[zk.{name}]\nbackend = \"halo2/ipa\"\nname = \"kaigi-final\"\n")
+        let table = format!("[zk.{name}]\nbackend = \"pipa-r/pasta/kaigi-authorization-v1\"\nname = \"kaigi-final\"\n")
             .parse()
             .unwrap();
         let error = reader()
@@ -56,9 +56,11 @@ fn kaigi_key_references_are_chain_policy_not_node_configuration() {
 #[test]
 fn retired_per_action_key_configuration_is_unknown() {
     for name in ["kaigi_roster_join_vk", "kaigi_roster_leave_vk"] {
-        let table = format!("[zk.{name}]\nbackend = \"halo2/ipa\"\nname = \"retired\"\n")
-            .parse()
-            .unwrap();
+        let table = format!(
+            "[zk.{name}]\nbackend = \"pipa-r/pasta/kaigi-authorization-v1\"\nname = \"retired\"\n"
+        )
+        .parse()
+        .unwrap();
         let error = reader()
             .with_toml_source(TomlSource::inline(table))
             .read_and_complete::<Root>()

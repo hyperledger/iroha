@@ -1,3 +1,4 @@
+import { encodeContractMetadataValueV1 } from "../src/noritoContractMetadata.js";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
@@ -11,6 +12,7 @@ import {
   compileKotodamaProgram as compileKotodamaInBrowser,
 } from "../src/kotodamaCompiler/browser.js";
 import { compileKotodamaWithNativeBinding } from "../src/kotodamaCompiler/nativeBridge.js";
+import { buildCompilerRequest } from "../src/kotodamaCompiler/client.js";
 import { validateEmbeddedCallables } from "../src/kotodamaCompiler/embeddedCallSchema.js";
 import { normalizeCompilerResult } from "../src/kotodamaCompiler/normalize.js";
 import { blake2b256 } from "../src/blake2b.js";
@@ -136,8 +138,8 @@ test("Kotodama state type names reject retired types without poisoning fields", 
     "quantity",
     "(int, decimal)",
     "Option<Result<quantity, string>>",
-    "List<Transfer{amount: quantity}, 64>",
-    "StateMap<AccountId, Transfer{amount: quantity, memo: Option<string>}>",
+    "List<Fixture::Transfer{amount: quantity}, 64>",
+    "StateMap<AccountId, Fixture::Transfer{amount: quantity, memo: Option<string>}>",
   ]) {
     assert.equal(
       isCanonicalKotodamaStateTypeName(canonical),
@@ -153,11 +155,11 @@ test("Kotodama state type names reject retired types without poisoning fields", 
     "List<amount, 1>",
     "StateMap<AccountId, Amount>",
     "StateMap<AccountId, Amount: quantity>",
-    "Transfer{Amount: quantity}",
-    "Transfer{amount: amount}",
-    "Transfer{amount:: quantity}",
+    "Fixture::Transfer{Amount: quantity}",
+    "Fixture::Transfer{amount: amount}",
+    "Fixture::Transfer{amount:: quantity}",
     "Amount{amount: quantity}",
-    "Transfer{amount: quantity, amount: int}",
+    "Fixture::Transfer{amount: quantity, amount: int}",
     "Option<StateMap<AccountId, quantity>>",
     "StateMap<Json, quantity>",
     "List<quantity, 01>",
@@ -292,6 +294,14 @@ function callableFixture({
   );
 }
 
+// A callable cursor carries a length-prefixed complete public key schema.
+function callableCursorFixture(kind) {
+  const kinds = ["Int", "Decimal", "Quantity", "Bool", "String", "Json", "Name", "AccountId", "AssetDefinitionId", "AssetId", "DomainId", "NftId", "DataSpaceId", "Blob"];
+  return concatBytes(Uint8Array.of(8), field(encodeContractMetadataValueV1("value_type", {
+    nodes: [{ kind: "Leaf", value: { kind: kinds[kind], value: null } }],
+  })));
+}
+
 function compilerArtifactFixture({
   name = "Demo",
   fingerprint = "kotodama_lang/test",
@@ -300,7 +310,11 @@ function compilerArtifactFixture({
   kotoba = 0,
   entrypoints = 1,
   states = 0,
-  errorTypes = 0,
+  errorTypes = [],
+  permissions = [],
+  events = [],
+  enumTypes = [],
+  manifest = null,
   errorMessages = [],
   omitErrorMessages = false,
   callables = Array.from({ length: entrypoints }, (_, index) => callableFixture({ entryPc: index * 4 })),
@@ -318,11 +332,33 @@ function compilerArtifactFixture({
     field(Uint8Array.from({ length: IVM_ABI_HASH_BYTES }, () => interfaceAbiByte)),
     field(u64Le(features)),
     field(accessHints ? Uint8Array.from([1, 1, 0]) : Uint8Array.from([0])),
+    field(encodeContractMetadataValueV1("permissions", manifest?.permissions ?? permissions)),
+    field(encodeContractMetadataValueV1("events", manifest?.events ?? events)),
     field(vector(kotoba)),
-    field(vector(entrypoints)),
+    field(concatBytes(u64Le(entrypoints), ...Array.from({ length: entrypoints }, (_, index) => {
+      const entry = manifest?.entrypoints[index] ?? compilerEntrypoint("ping", "View");
+      let declaration;
+      // Negative tests intentionally use invalid manifests. Their rejection is
+      // checked before artifact projection; keep that artifact well formed.
+      try { declaration = encodeContractMetadataValueV1("entrypoint", entry); }
+      catch { declaration = encodeContractMetadataValueV1("entrypoint", compilerEntrypoint("ping", "View")); }
+      return field(concatBytes(declaration, field(u64Le(index * 4))));
+    }))),
     ...(omitCallables ? [] : [field(concatBytes(u64Le(callables.length), ...callables.map(field)))]),
-    field(vector(states)),
-    field(vector(errorTypes)),
+    field(concatBytes(u64Le(states), ...Array.from({ length: states }, (_, index) => {
+      const descriptor = manifest?.states[index] ?? { name: "state", type_name: "int" };
+      const scalars = ["int", "decimal", "quantity", "bool", "string", "bytes", "DataSpaceId", "AccountId", "AssetDefinitionId", "AssetId", "NftId", "DomainId", "Name", "Json"];
+      let ty = Uint8Array.of(Math.max(0, scalars.indexOf(descriptor.type_name)));
+      const enumType = manifest?.enum_types.find((value) => value.identity === descriptor.type_name);
+      if (enumType) ty = concatBytes(Uint8Array.of(23), encodeContractMetadataValueV1("enum_type", enumType));
+      if (descriptor.type_name === "Fixture::Transfer{amount: quantity}") {
+        const member = concatBytes(stringField("amount"), u64Le(1), Uint8Array.of(2));
+        ty = concatBytes(Uint8Array.of(15), stringField("Fixture::Transfer"), u64Le(1), field(concatBytes(u64Le(member.length), member)));
+      }
+      return field(concatBytes(field(stringField(descriptor.name)), field(concatBytes(u64Le(ty.length), ty))));
+    }))),
+    field(encodeContractMetadataValueV1("error_types", manifest?.error_types ?? errorTypes)),
+    field(encodeContractMetadataValueV1("enum_types", manifest?.enum_types ?? enumTypes)),
     ...(omitErrorMessages ? [] : [field(concatBytes(u64Le(errorMessages.length), ...errorMessages.map((entry) => field(concatBytes(field(stringField(entry.error_type)), field(u32Le(entry.code)), field(stringField(entry.message)))))))]),
   );
   const frame = concatBytes(
@@ -426,7 +462,7 @@ function compilerEntrypoint(name, kind, permission = null) {
     argument_schema: null,
     return_type: "()",
     return_schema: { nodes: [{ kind: "Unit", value: null }] },
-    permission,
+    authorization: permission === null ? { kind: ["Hajimari", "Kaizen"].includes(kind) ? "RuntimeLifecycle" : "Anyone", value: null } : { kind: "Permission", value: permission },
     read_keys: [],
     write_keys: [],
     access_hints_complete: true,
@@ -462,6 +498,9 @@ const SERVICE_OUTPUT = {
     compiler_fingerprint: "kotodama_lang/test",
     features_bitmap: 0,
     access_set_hints: null,
+    permissions: [],
+    events: [],
+    enum_types: [],
     entrypoints: [
       compilerEntrypoint("ping", "View"),
     ],
@@ -478,6 +517,7 @@ const SERVICE_OUTPUT = {
     kind: "source-map",
     artifact_hash: SERVICE_CODE_HASH,
     entries: [{
+      source_kind: "function",
       function_name: "ping",
       pc_start: 0,
       pc_end: 4,
@@ -565,6 +605,15 @@ test("JavaScript identifier validation consumes the normative V1 keyword table",
 const SERVICE_DIAGNOSTICS = [
   {
     code: "K1001",
+    alternative_fixes: [{
+      span: {
+        package_identity: null, source: "契約/送金.ko",
+        start: { line: 2, column: 9 }, end: { line: 2, column: 9 },
+        byte_range: { start: 20, end: 20 },
+      },
+      replacement: "quantity amount",
+    }],
+    localized: { language: "ja", message: "引数名が必要です", help: "型と名前を記述してください" },
     severity: "error",
     phase: "parse",
     message: "expected parameter name",
@@ -602,6 +651,8 @@ const SERVICE_DIAGNOSTICS = [
   },
   {
     code: "K2002",
+    alternative_fixes: [],
+    localized: null,
     severity: "error",
     phase: "resolve",
     message: "unknown name `missing`",
@@ -648,12 +699,20 @@ async function captureRejection(promise) {
   assert.fail("expected promise to reject");
 }
 
-function compileMutatedServiceResponse(mutate) {
+function compileMutatedServiceResponse(mutate, matchArtifact = false) {
   const response = structuredClone(SERVICE_SUCCESS);
   const manifest = JSON.parse(response.output.manifestJson);
   const sourceMap = JSON.parse(response.output.sourceMapJson);
   const budget = JSON.parse(response.output.budgetReportJson);
   mutate({ response, manifest, sourceMap, budget });
+  if (matchArtifact) {
+    const matched = serviceSuccessWithArtifact(compilerArtifactFixture({ manifest, entrypoints: manifest.entrypoints.length }), (target) => Object.assign(target, manifest));
+    Object.assign(response.output, matched.output);
+    const hash = response.output.codeHash;
+    manifest.code_hash = canonicalHashLiteral(hash);
+    sourceMap.artifact_hash = hash;
+    budget.artifact_hash = hash;
+  }
   response.output.manifestJson = JSON.stringify(manifest);
   response.output.sourceMapJson = JSON.stringify(sourceMap);
   response.output.budgetReportJson = JSON.stringify(budget);
@@ -692,6 +751,7 @@ test("JavaScript ships only adapters to the canonical Rust compiler", () => {
     "client.js",
     "embeddedCallSchema.js",
     "embeddedNorito.js",
+    "embeddedStateSchema.js",
     "index.js",
     "nativeBridge.js",
     "normalize.js",
@@ -770,7 +830,7 @@ test("TypeScript separates bounded request policy from remote transport controls
 });
 
 test("Node delegates asynchronously to iroha_js_host exactly once", async () => {
-  const source = "seiyaku Demo { view fn ping() -> int { return 1; } }";
+  const source = "seiyaku Demo { view fn ping() authorize(anyone) -> int { return 1; } }";
   const options = { sourceName: "contracts/demo.ko", zk: true };
   let finishCompilation;
   const nativeCompletion = new Promise((resolve) => {
@@ -790,7 +850,7 @@ test("Node delegates asynchronously to iroha_js_host exactly once", async () => 
     settled = true;
   });
   assert.ok(resultPromise instanceof Promise);
-  assert.deepEqual(calls, [{ source, sourceName: "contracts/demo.ko", zk: true }]);
+  assert.deepEqual(calls, [{ source, artifacts: [], sourceName: "contracts/demo.ko", zk: true }]);
   await Promise.resolve();
   assert.equal(settled, false, "the adapter must await the asynchronous native task");
 
@@ -801,7 +861,7 @@ test("Node delegates asynchronously to iroha_js_host exactly once", async () => 
   assert.equal(result.output.manifest.entrypoints[0].kind.kind, "View");
   assert.deepEqual(
     calls,
-    [{ source, sourceName: "contracts/demo.ko", zk: true }],
+    [{ source, artifacts: [], sourceName: "contracts/demo.ko", zk: true }],
     "one SDK request must perform one native compilation",
   );
 
@@ -842,7 +902,8 @@ test("compiler adapters preserve branded selectors and reject forged manifest de
       kotoba: manifest.kotoba?.length ?? 0,
       entrypoints: manifest.entrypoints?.length ?? 0,
       states: manifest.states?.length ?? 0,
-      errorTypes: manifest.error_types?.length ?? 0,
+      errorTypes: manifest.error_types ?? [],
+      manifest,
     });
     const matched = serviceSuccessWithArtifact(artifact, (target) => {
       for (const key of Object.keys(target)) delete target[key];
@@ -860,6 +921,7 @@ test("compiler adapters preserve branded selectors and reject forged manifest de
       compilerEntrypoint("kaizen", "Kaizen"),
       compilerEntrypoint("mutate", "Kotoage", "Mutate"),
     ];
+    manifest.permissions = [{ name: "Mutate", scope: { kind: "Instance", value: null } }];
   });
   assert.deepEqual(
     branded.output.manifest.entrypoints.map((entrypoint) => entrypoint.name),
@@ -868,14 +930,14 @@ test("compiler adapters preserve branded selectors and reject forged manifest de
 
   const contextualAmount = await compileResponse((manifest) => {
     manifest.states = [
-      { name: "amount", type_name: "Transfer{amount: quantity}" },
+      { name: "amount", type_name: "Fixture::Transfer{amount: quantity}" },
     ];
     manifest.error_types = [
       { identity: "LedgerError", variants: [{ name: "amount", code: 7 }] },
     ];
   });
   assert.deepEqual(contextualAmount.output.manifest.states, [
-    { name: "amount", type_name: "Transfer{amount: quantity}" },
+    { name: "amount", type_name: "Fixture::Transfer{amount: quantity}" },
   ]);
   assert.equal(contextualAmount.output.manifest.error_types[0].variants[0].name, "amount");
 
@@ -898,7 +960,7 @@ test("compiler adapters preserve branded selectors and reject forged manifest de
       manifest.states = [{ name: "Amount", type_name: "quantity" }];
     }, /state 0\.name is not canonical/u],
     ["struct field", (manifest) => {
-      manifest.states = [{ name: "Balances", type_name: "Transfer{Amount: quantity}" }];
+      manifest.states = [{ name: "Balances", type_name: "Fixture::Transfer{Amount: quantity}" }];
     }, /state 0\.type_name is not a canonical V1 state type/u],
     ["error variant", (manifest) => {
       manifest.error_types = [{ identity: "LedgerError", variants: [{ name: "Amount", code: 7 }] }];
@@ -947,7 +1009,7 @@ test("compiler adapters preserve branded selectors and reject forged manifest de
     "Amount",
     "amount",
     "StateMap<AccountId, Amount>",
-    "Transfer{amount: amount}",
+    "Fixture::Transfer{amount: amount}",
   ]) {
     await assert.rejects(
       compileResponse((manifest) => {
@@ -983,10 +1045,10 @@ test("compiler adapters preserve branded selectors and reject forged manifest de
   await assert.rejects(
     compileResponse((manifest) => {
       manifest.entrypoints = [
-        compilerEntrypoint("run", "Kotoage"),
+        { ...compilerEntrypoint("run", "Kotoage"), authorization: { kind: "Permission", value: "Missing" } },
       ];
     }),
-    /kotoage\/言挙げ.*missing caller authorization/u,
+    /undeclared permission/u,
   );
   await assert.rejects(
     compileResponse((manifest) => {
@@ -1031,7 +1093,7 @@ test("compiler manifest numeric entrypoint schemas match the canonical V1 leaf s
       nodes: [{ kind: "Leaf", value: { kind: "Decimal", value: null } }],
     };
     manifest.entrypoints = [entrypoint];
-  });
+  }, true);
   assert.equal(result.ok, true);
   assert.deepEqual(
     result.output.manifest.entrypoints[0].argument_schema.fields.map(
@@ -1073,7 +1135,7 @@ test("compiler manifests admit arguments and results beyond the retired register
     entrypoint.return_schema = {
       nodes: [{ kind: "Tuple", value: 32 }, ...Array.from({ length: 32 }, () => integer)],
     };
-  });
+  }, true);
   assert.equal(result.ok, true);
   assert.equal(result.output.manifest.entrypoints[0].params.length, 32);
   assert.equal(result.output.manifest.entrypoints[0].return_schema.nodes.length, 33);
@@ -1344,7 +1406,7 @@ test("compiler artifact boundary requires bounded canonical V1 callable descript
     callables: [callableFixture(), callableFixture({
       entryPc: 4,
       frameBytes: 16,
-      argumentNodes: [Uint8Array.of(6), leaf(0), leaf(3), pointer(10, 0x0d), Uint8Array.of(9), Uint8Array.of(8, 3), pointer(11, 0x12)],
+      argumentNodes: [Uint8Array.of(6), leaf(0), leaf(3), pointer(10, 0x0d), Uint8Array.of(9), callableCursorFixture(3), pointer(11, 0x12)],
       resultNodes: [tuple(8192), ...Array.from({ length: 8192 }, () => leaf(3))],
     })],
   });
@@ -1559,7 +1621,7 @@ test("compiler trigger metadata is exact, bounded, and non-recursive beyond poli
       value.id = "amount";
       value.callback.namespace = "RemoteLedger";
       manifest.entrypoints[0].triggers = [value];
-    }),
+    }, true),
   );
   await assert.rejects(
     compileMutatedServiceResponse(({ manifest }) => {
@@ -1863,7 +1925,7 @@ test("browser compiler client uses the explicit Rust service and normalizes outp
     fetchImpl: successfulFetch(calls),
   });
   const result = await client.compile(
-    "seiyaku Demo { view fn ping() -> int { return 1; } }",
+    "seiyaku Demo { view fn ping() authorize(anyone) -> int { return 1; } }",
     { sourceName: "contracts/demo.ko", zk: true },
   );
 
@@ -1884,7 +1946,8 @@ test("browser compiler client uses the explicit Rust service and normalizes outp
   assert.equal(calls[0].init.referrerPolicy, "no-referrer");
   assert.ok(calls[0].init.signal instanceof AbortSignal);
   assert.deepEqual(JSON.parse(calls[0].init.body), {
-    source: "seiyaku Demo { view fn ping() -> int { return 1; } }",
+    artifacts: [],
+    source: "seiyaku Demo { view fn ping() authorize(anyone) -> int { return 1; } }",
     sourceName: "contracts/demo.ko",
     zk: true,
   });
@@ -1954,6 +2017,7 @@ test("compiler requests bound sourceName and expose only the canonical ZK select
 
   await client.compile("seiyaku Demo {}", { sourceName: "契約/送金.ko", zk: true });
   assert.deepEqual(JSON.parse(calls[0].init.body), {
+    artifacts: [],
     source: "seiyaku Demo {}",
     sourceName: "契約/送金.ko",
     zk: true,
@@ -2313,13 +2377,15 @@ test("compiler failures preserve every canonical diagnostic field", async () => 
   assert.deepEqual(result.diagnostics[0].notes, SERVICE_DIAGNOSTICS[0].notes);
   assert.equal(result.diagnostics[0].help, "write Type name");
   assert.deepEqual(result.diagnostics[0].fix, SERVICE_DIAGNOSTICS[0].fix);
+  assert.deepEqual(result.diagnostics[0].alternative_fixes, SERVICE_DIAGNOSTICS[0].alternative_fixes);
+  assert.deepEqual(result.diagnostics[0].localized, SERVICE_DIAGNOSTICS[0].localized);
 });
 
 test("compiler resolver envelopes accept resolve and reject noncanonical phase names", async () => {
   const validClient = new KotodamaCompilerClient("https://compiler.example", {
     fetchImpl: async () => jsonResponse(SERVICE_FAILURE),
   });
-  const valid = await validClient.compile("seiyaku Demo { view fn run() { missing(); } }");
+  const valid = await validClient.compile("seiyaku Demo { view fn run() authorize(anyone) { missing(); } }");
   const resolverDiagnostic = valid.diagnostics.find(({ code }) => code === "K2002");
   assert.equal(resolverDiagnostic?.phase, "resolve");
 
@@ -2331,7 +2397,7 @@ test("compiler resolver envelopes accept resolve and reject noncanonical phase n
     fetchImpl: async () => jsonResponse(malformedFailure),
   });
   await assert.rejects(
-    malformedClient.compile("seiyaku Demo { view fn run() { missing(); } }"),
+    malformedClient.compile("seiyaku Demo { view fn run() authorize(anyone) { missing(); } }"),
     /Kotodama diagnostic 1\.phase is invalid/,
   );
 });
@@ -2388,6 +2454,7 @@ test("compile helper accepts an explicit browser compiler service", async () => 
   assert.equal(calls.length, 1);
   assert.notEqual(calls[0].init.signal, controller.signal);
   assert.deepEqual(JSON.parse(calls[0].init.body), {
+    artifacts: [],
     source: "seiyaku Demo {}",
     sourceName: "contracts/node-service.ko",
     zk: true,
@@ -2404,6 +2471,7 @@ test("browser entrypoint forwards the bounded request to its compiler service", 
   });
   assert.equal(result.ok, true);
   assert.deepEqual(JSON.parse(calls[0].init.body), {
+    artifacts: [],
     source: "seiyaku Demo {}",
     sourceName: "contracts/browser-service.ko",
     zk: true,
@@ -2759,14 +2827,14 @@ test("compiler artifact requires the error-message catalog field even when empty
       { async compileKotodama() { return incomplete; } },
       "seiyaku Demo {}",
     ),
-    /embedded contract interface\.field10\.length contains a truncated or oversized compact length/u,
+    /embedded contract interface\.field13\.length contains a truncated or oversized compact length/u,
   );
 });
 
 test("compiler output authenticates static error messages against embedded bytes", async () => {
   const error = { identity: "Demo::Failure", variants: [{ name: "Rejected", code: 7 }] };
   const message = { error_type: error.identity, code: 7, message: "残高が不足しています" };
-  const artifact = compilerArtifactFixture({ errorTypes: 1, errorMessages: [message] });
+  const artifact = compilerArtifactFixture({ errorTypes: [error], errorMessages: [message] });
   const response = serviceSuccessWithArtifact(artifact, (manifest) => {
     manifest.error_types = [error];
     manifest.error_messages = [message];
@@ -2833,21 +2901,21 @@ test("compact callable tape preserves complete nominal roles and every scalar ki
   const descriptor = { identity: "Demo::Failure", variants: [{ name: "Low", code: 3 }, { name: "High", code: 9 }] };
   const encodedError = concatBytes(field(stringField(descriptor.identity)), field(concatBytes(u64Le(2), ...descriptor.variants.map((variant) => field(concatBytes(field(stringField(variant.name)), field(u32Le(variant.code))))))));
   const argumentNodes = [
-    nominal("Point", ["text", "bytes"]), leaf(4), leaf(13),
+    nominal("Fixture::Point", ["text", "bytes"]), leaf(4), leaf(13),
     Uint8Array.of(2, 3, 4, 64), leaf(2), concatBytes(Uint8Array.of(7), field(encodedError)),
-    nominal("Empty", []), Uint8Array.of(6), Uint8Array.of(9),
+    nominal("Fixture::Empty", []), Uint8Array.of(6), Uint8Array.of(9),
     ...Array.from({ length: 14 }, (_, kind) => leaf(kind)),
-    ...Array.from({ length: 14 }, (_, kind) => kind).filter((kind) => kind !== 5).map((kind) => Uint8Array.of(8, kind)),
+    ...Array.from({ length: 14 }, (_, kind) => kind).filter((kind) => kind !== 5).map(callableCursorFixture),
     ...[0x0b, 0x0d, 0x0e, 0x0f, 0x13].map((id) => Uint8Array.of(10, id, 0)),
     ...[0x10, 0x11, 0x12].map((id) => Uint8Array.of(11, id, 0)),
   ];
   // The node count counts semantic nodes, not concatenated fixture chunks.
   const flat = argumentNodes.flatMap((bytes, index) => index === 3 ? [bytes.subarray(0, 1), bytes.subarray(1, 2), bytes.subarray(2)] : [bytes]);
   const vector = concatBytes(u64Le(1), field(callableFixture({ argumentNodes: flat })));
-  assert.equal(validateEmbeddedCallables(vector, 1, 1, "callables", [descriptor]), 0n);
+  assert.equal(validateEmbeddedCallables(vector, 1, 1, "callables", [descriptor], []), 0n);
   const mismatched = [{ ...descriptor, variants: [{ name: "Low", code: 3 }, { name: "High", code: 10 }] }];
-  assert.throws(() => validateEmbeddedCallables(vector, 1, 1, "callables", mismatched), /nominal error catalog/u);
-  assert.throws(() => validateEmbeddedCallables(vector, 0, 1, "callables", [descriptor]), /private numeric/u);
+  assert.throws(() => validateEmbeddedCallables(vector, 1, 1, "callables", mismatched, []), /nominal catalog/u);
+  assert.throws(() => validateEmbeddedCallables(vector, 0, 1, "callables", [descriptor], []), /private numeric/u);
 });
 
 test("compact callable tape rejects retired bodies, truncation, forged shapes and impossible counts", () => {
@@ -2859,12 +2927,12 @@ test("compact callable tape rejects retired bodies, truncation, forged shapes an
     ["missing magic", concatBytes(Uint8Array.of(0, 0, 0, 0), unit.subarray(4))],
     ["unknown node", compact(1, Uint8Array.of(12))],
     ["unknown scalar", compact(1, Uint8Array.of(5, 14))],
-    ["unknown cursor", compact(1, Uint8Array.of(8, 5))],
+    ["invalid Json cursor key", compact(1, callableCursorFixture(5))],
     ["missing child", compact(1, Uint8Array.of(2))],
     ["List capacity", compact(2, Uint8Array.of(4, 65, 6))],
     ["affine List", compact(2, Uint8Array.of(4, 1, 9))],
-    ["duplicate fields", compact(3, concatBytes(nominal("Point", ["x", "x"]), Uint8Array.of(6, 6)))],
-    ["reserved substitution", compact(3, concatBytes(nominal("AccountView", ["id", "metadata"]), Uint8Array.of(5, 13, 5, 5)))],
+    ["duplicate fields", compact(3, concatBytes(nominal("Fixture::Point", ["x", "x"]), Uint8Array.of(6, 6)))],
+    ["reserved substitution", compact(3, concatBytes(nominal("kotodama::AccountView", ["id", "metadata"]), Uint8Array.of(5, 13, 5, 5)))],
     ["count underflow", compact(0, Uint8Array.of(6))],
     ["count overflow", compact(2, Uint8Array.of(6))],
     ["node limit", compact(250_001, Uint8Array.of(6))],
@@ -2874,6 +2942,118 @@ test("compact callable tape rejects retired bodies, truncation, forged shapes an
   ];
   for (const [name, resultSchemaBytes] of invalid) {
     const vector = concatBytes(u64Le(1), field(callableFixture({ resultSchemaBytes })));
-    assert.throws(() => validateEmbeddedCallables(vector, 1, 1, "callables", []), /callable|nominal|List|query|cursor|scalar/u, name);
+    assert.throws(() => validateEmbeddedCallables(vector, 1, 1, "callables", [], []), /callable|nominal|List|query|cursor|scalar/u, name);
   }
+});
+
+
+test("compiler responses bind ordinary enum schemas and event tables to the complete artifact", async () => {
+  const manifest = JSON.parse(SERVICE_OUTPUT.manifestJson);
+  const descriptor = { identity: "Demo::Status", variants: [{ name: "Open", code: 1 }, { name: "Done", code: 7 }] };
+  manifest.enum_types = [descriptor];
+  manifest.events = [{ name: "Changed", payload_type: { nodes: [{ kind: "Struct", value: { name: "Demo::Changed", fields: ["status"] } }, { kind: "Enum", value: descriptor }] } }];
+  manifest.states = [{ name: "status", type_name: descriptor.identity }];
+  manifest.entrypoints[0].return_type = descriptor.identity;
+  manifest.entrypoints[0].return_schema = { nodes: [{ kind: "Enum", value: descriptor }] };
+  const artifact = compilerArtifactFixture({ manifest, states: 1, callables: [callableFixture({ resultNodes: [concatBytes(Uint8Array.of(12), field(encodeContractMetadataValueV1("enum_type", descriptor)))] })] });
+  const response = serviceSuccessWithArtifact(artifact, (target) => Object.assign(target, manifest));
+  const accepted = normalizeCompilerResult(response);
+  assert.deepEqual(accepted.output.manifest.events, manifest.events);
+  for (const key of ["permissions", "events", "enum_types"]) {
+    const incomplete = structuredClone(response);
+    const body = JSON.parse(incomplete.output.manifestJson);
+    delete body[key];
+    incomplete.output.manifestJson = JSON.stringify(body);
+    assert.throws(() => normalizeCompilerResult(incomplete), /invalid field set/u, key);
+  }
+  const forged = structuredClone(response);
+  const body = JSON.parse(forged.output.manifestJson);
+  body.enum_types[0].variants[1].code = 8;
+  body.events[0].payload_type.nodes[1].value.variants[1].code = 8;
+  body.entrypoints[0].return_schema.nodes[0].value.variants[1].code = 8;
+  forged.output.manifestJson = JSON.stringify(body);
+  assert.throws(() => normalizeCompilerResult(forged), /does not exactly match/u);
+});
+
+
+test("compiled imports retain exact owner bytes and reject malformed artifact inventories", () => {
+  const bytes = [73, 86, 77, 1];
+  const request = buildCompilerRequest("seiyaku Caller {}", {
+    sourceName: "caller.ko",
+    artifacts: [{ sourceName: "./interfaces/pool.to", artifact: bytes }],
+    packages: [{ identity: "local/library@1", modules: [{ sourceName: "lib.ko", source: "module Library {}" }], exports: [], artifacts: [{ sourceName: "interfaces/pool.to", artifact: [9] }] }],
+  });
+  assert.deepEqual(request.artifacts, [{ sourceName: "interfaces/pool.to", artifact: bytes }]);
+  bytes[0] = 0;
+  assert.equal(request.artifacts[0].artifact[0], 73, "native requests own a byte snapshot");
+  assert.deepEqual(request.packages[0].artifacts[0].artifact, [9], "same logical paths in distinct owners remain distinct");
+  for (const artifacts of [
+    [{ sourceName: "../escape.to", artifact: [1] }],
+    [{ sourceName: "pool.json", artifact: [1] }],
+    [{ sourceName: "pool.to", artifact: [] }],
+    [{ sourceName: "pool.to", artifact: [256] }],
+    [{ sourceName: "pool.to", artifact: [1] }, { sourceName: "./pool.to", artifact: [2] }],
+  ]) assert.throws(() => buildCompilerRequest("seiyaku Caller {}", { sourceName: "caller.ko", artifacts }));
+  let reads = 0;
+  const hostile = [];
+  Object.defineProperty(hostile, "0", { get() { reads += 1; return 1; } });
+  assert.throws(() => buildCompilerRequest("seiyaku Caller {}", { sourceName: "caller.ko", artifacts: [{ sourceName: "pool.to", artifact: hostile }] }), /inert byte/);
+  assert.equal(reads, 0);
+});
+
+
+test("compiler statement maps partition physical budgets while retaining inlined source names", () => {
+  const response = structuredClone(SERVICE_SUCCESS);
+  const map = JSON.parse(response.output.sourceMapJson);
+  const original = map.entries[0];
+  map.entries = [
+    { ...original, pc_end: 1 },
+    { ...original, source_kind: "statement", function_name: "inlined_helper", pc_start: 1, pc_end: 3 },
+    { ...original, pc_start: 3 },
+  ];
+  response.output.sourceMapJson = JSON.stringify(map);
+  assert.deepEqual(normalizeCompilerResult(response).output.sourceMap, map.entries);
+  for (const mutate of [
+    (entries) => { delete entries[0].source_kind; },
+    (entries) => { entries[0].source_kind = "expression"; },
+    (entries) => { entries[1].pc_start = 2; },
+    (entries) => { entries[1].pc_start = 0; },
+    (entries) => { entries[1].pc_end = 5; },
+    (entries) => { entries[1].pc_end = entries[1].pc_start; },
+    (entries) => { entries[0].function_name = "wrong_function"; },
+    (entries) => { entries.push({ ...entries[2], pc_start: 4, pc_end: 5 }); },
+    (entries) => { entries.pop(); },
+  ]) {
+    const invalidMap = structuredClone(map);
+    mutate(invalidMap.entries);
+    const invalid = structuredClone(response);
+    invalid.output.sourceMapJson = JSON.stringify(invalidMap);
+    assert.throws(() => normalizeCompilerResult(invalid), TypeError);
+  }
+});
+
+test("compiler diagnostic companion fields are required and recursively exact", () => {
+  for (const mutate of [
+    (diagnostic) => { delete diagnostic.alternative_fixes; },
+    (diagnostic) => { delete diagnostic.localized; },
+    (diagnostic) => { diagnostic.alternative_fixes = null; },
+    (diagnostic) => { diagnostic.alternative_fixes[0].unexpected = true; },
+    (diagnostic) => { diagnostic.alternative_fixes[0].span.start.column = 0; },
+    (diagnostic) => { diagnostic.alternative_fixes[0].replacement = null; },
+    (diagnostic) => { diagnostic.localized.unexpected = true; },
+    (diagnostic) => { diagnostic.localized.language = ""; },
+    (diagnostic) => { delete diagnostic.localized.help; },
+  ]) {
+    const diagnostics = structuredClone(SERVICE_DIAGNOSTICS);
+    mutate(diagnostics[0]);
+    assert.throws(() => normalizeCompilerResult({
+      ...SERVICE_FAILURE, diagnosticsJson: JSON.stringify(diagnostics),
+    }), TypeError);
+  }
+  const diagnostics = structuredClone(SERVICE_DIAGNOSTICS);
+  diagnostics[1].severity = "warning";
+  diagnostics[1].code = "W_PROVER_PRIVATE_INPUT";
+  assert.deepEqual(normalizeCompilerResult({
+    ...SERVICE_FAILURE, diagnosticsJson: JSON.stringify(diagnostics),
+  }).diagnostics, diagnostics);
 });

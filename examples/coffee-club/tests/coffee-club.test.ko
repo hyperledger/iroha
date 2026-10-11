@@ -1,41 +1,27 @@
 module CoffeeRewardsTests {
-    koto_test {
-        target: "../contracts/coffee-club.ko"
-    }
+    koto_test { target: "../contracts/coffee-club.ko" }
 
     #[test]
     fn zero_coffees_quote_zero_points() {
-        let quoted_points = test::invoke_kotoage(
-            kotoage: "quote",
-            arguments: Json::parse("{\"coffees\":\"0\"}"),
-        );
+        let quoted_points = test::invoke_kotoage(kotoage: "quote", arguments: { coffees: 0 });
         test::assert_eq(actual: quoted_points, expected: 0);
     }
 
     #[test]
     fn one_coffee_quotes_ten_points() {
-        let quoted_points = test::invoke_kotoage(
-            kotoage: "quote",
-            arguments: Json::parse("{\"coffees\":\"1\"}"),
-        );
+        let quoted_points = test::invoke_kotoage(kotoage: "quote", arguments: { coffees: 1 });
         test::assert_eq(actual: quoted_points, expected: 10);
     }
 
     #[test]
     fn three_coffees_quote_thirty_points() {
-        let quoted_points = test::invoke_kotoage(
-            kotoage: "quote",
-            arguments: Json::parse("{\"coffees\":\"3\"}"),
-        );
+        let quoted_points = test::invoke_kotoage(kotoage: "quote", arguments: { coffees: 3 });
         test::assert_eq(actual: quoted_points, expected: 30);
     }
 
     #[test]
     fn negative_coffees_quote_zero_points() {
-        let quoted_points = test::invoke_kotoage(
-            kotoage: "quote",
-            arguments: Json::parse("{\"coffees\":\"-1\"}"),
-        );
+        let quoted_points = test::invoke_kotoage(kotoage: "quote", arguments: { coffees: -1 });
         test::assert_eq(actual: quoted_points, expected: 0);
     }
 }

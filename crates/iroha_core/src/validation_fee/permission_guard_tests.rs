@@ -51,9 +51,9 @@ fn transfer_permission(owner: &AccountId) -> Permission {
 fn runtime_permissions() -> [Permission; 2] {
     [
         transfer_permission(&account(201)),
-        iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+        iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
             contract: test_contract_address(),
-            entrypoint: "autonomous_validation_fee_tick".to_owned(),
+            permission: "Payout".parse().unwrap(),
         }
         .into(),
     ]

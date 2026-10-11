@@ -1,0 +1,15 @@
+seiyaku Pager {
+    state StateMap < Name , int > Balances;
+    state StateMap<Name,Option<int>> Optional;
+    view fn list(Option < StateCursor < Name > > after) authorize(anyone) -> StatePage < Name , int , 2 > {
+        return Balances.page(after);
+    }
+    view fn cursor(StateCursor<Name> start) authorize(anyone) -> QueryPage<AccountView> {
+        return ledger::query::accounts(0, 10);
+    }
+    fn compare(int a, int b) -> bool {
+        let List<int,4> values = [a, b, a, b];
+        let Result<int, NumericError> checked = Result::ok(a);
+        return a<b && b>a;
+    }
+}

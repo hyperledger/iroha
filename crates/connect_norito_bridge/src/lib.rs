@@ -2,9 +2,22 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![allow(clippy::missing_safety_doc)]
 
-// Native PQClean archives are bundled by their owning pqcrypto-internals
-// dependency. Repeating +bundle links here duplicates the same object members
-// and breaks the mandatory complete-archive Apple C consumer link.
+// The locked pqcrypto-internals build emits both static and unqualified links.
+// With the current Rust toolchain its rlib does not retain the common/Keccak
+// objects. Own their Apple static bundling explicitly so this bridge archive is
+// self-contained. The Apple packager still authenticates every reference member
+// and removes only byte-identical second copies before its all-load consumer.
+#[cfg(target_vendor = "apple")]
+#[link(name = "pqclean_common", kind = "static", modifiers = "+bundle")]
+unsafe extern "C" {}
+
+#[cfg(all(target_vendor = "apple", target_arch = "aarch64"))]
+#[link(name = "keccak2x", kind = "static", modifiers = "+bundle")]
+unsafe extern "C" {}
+
+#[cfg(all(target_vendor = "apple", target_arch = "x86_64"))]
+#[link(name = "keccak4x", kind = "static", modifiers = "+bundle")]
+unsafe extern "C" {}
 
 use base64::{Engine as _, engine::general_purpose as b64gp};
 use blake3::hash as blake3_hash;
@@ -155,6 +168,15 @@ use connect_approval_ffi::{
 };
 mod confidential_note_ffi;
 mod confidential_prover_ffi;
+#[cfg(not(unix))]
+compile_error!(
+    "Native KAGEMUSHA wallet storage is not implemented for non-Unix targets; \
+     a genuine platform custody backend is required."
+);
+/// Native KAGEMUSHA custody callbacks and exclusive shared-wallet ownership.
+pub mod kagemusha_wallet_ffi;
+mod kagemusha_wallet_load_original;
+pub use kagemusha_wallet_load_original::connect_norito_kagemusha_wallet_load_original_validate_v1;
 mod private_settlement_ffi;
 pub use private_settlement_ffi::{
     CONNECT_NORITO_PRIVATE_SETTLEMENT_REQUEST_MAX_BYTES_V1,
@@ -1350,11 +1372,18 @@ fn parse_identifier_receipt_attestation(
         parse_identifier_exact_str(object.get("kind").ok_or(BridgeError::IdentifierReceipt)?)?;
     match kind.as_str() {
         "signed" => {
-            let algorithm = parse_identifier_receipt_signature_algorithm(object.get("algorithm"))?;
-            parse_identifier_receipt_signature_for_algorithm(object.get("signature"), algorithm)
+            if object.len() != 2 {
+                return Err(BridgeError::IdentifierReceipt);
+            }
+            // The current public DTO carries no caller-selected algorithm. The
+            // pinned key selects canonical algorithm admission during verification.
+            parse_identifier_receipt_signature(object.get("signature"), true)
                 .map(RamLfeReceiptAttestation::Signed)
         }
         "proof" => {
+            if object.len() != 3 {
+                return Err(BridgeError::IdentifierReceipt);
+            }
             let proof_backend = parse_identifier_exact_str(
                 object
                     .get("proof_backend")
@@ -1376,49 +1405,50 @@ fn parse_identifier_receipt_attestation(
         _ => Err(BridgeError::IdentifierReceipt),
     }
 }
-fn parse_identifier_receipt_signature_algorithm(
+fn parse_identifier_receipt_signature(
     value: Option<&JsonValue>,
-) -> BridgeResult<Algorithm> {
-    let algorithm = value
-        .and_then(JsonValue::as_str)
-        .ok_or(BridgeError::IdentifierReceipt)?;
-    if algorithm.is_empty() || algorithm.trim() != algorithm {
-        return Err(BridgeError::IdentifierReceipt);
-    }
-    algorithm
-        .parse::<Algorithm>()
-        .map_err(|_| BridgeError::IdentifierReceipt)
-}
-fn parse_identifier_receipt_signature(value: Option<&JsonValue>) -> BridgeResult<Signature> {
-    let signature_hex = value
-        .and_then(JsonValue::as_str)
-        .ok_or(BridgeError::IdentifierReceipt)?;
-    let signature_bytes = decode_identifier_receipt_hex(signature_hex)?;
-    iroha_crypto::ed25519_parse_signature(&signature_bytes)
-        .map_err(|_| BridgeError::IdentifierReceipt)
-}
-fn parse_identifier_receipt_signature_for_algorithm(
-    value: Option<&JsonValue>,
-    algorithm: Algorithm,
+    uppercase: bool,
 ) -> BridgeResult<Signature> {
     let signature_hex = value
         .and_then(JsonValue::as_str)
         .ok_or(BridgeError::IdentifierReceipt)?;
-    let signature_bytes = decode_identifier_receipt_hex(signature_hex)?;
-    match algorithm {
-        Algorithm::Ed25519 => iroha_crypto::ed25519_parse_signature(&signature_bytes)
-            .map_err(|_| BridgeError::IdentifierReceipt),
-        Algorithm::MlDsa => iroha_crypto::mldsa65_parse_signature(&signature_bytes)
-            .map_err(|_| BridgeError::IdentifierReceipt),
-        _ => {
-            Signature::try_from_bytes(&signature_bytes).map_err(|_| BridgeError::IdentifierReceipt)
-        }
+    if !signature_hex.bytes().all(|byte| {
+        byte.is_ascii_digit()
+            || if uppercase {
+                (b'A'..=b'F').contains(&byte)
+            } else {
+                (b'a'..=b'f').contains(&byte)
+            }
+    }) {
+        return Err(BridgeError::IdentifierReceipt);
     }
+    let signature_bytes = decode_identifier_receipt_hex(signature_hex)?;
+    Signature::try_from_bytes(&signature_bytes).map_err(|_| BridgeError::IdentifierReceipt)
 }
 fn parse_identifier_receipt_payload_value(
     value: &JsonValue,
 ) -> BridgeResult<IdentifierResolutionReceiptPayload> {
     let object = value.as_object().ok_or(BridgeError::IdentifierReceipt)?;
+    if object.len() != 8 {
+        return Err(BridgeError::IdentifierReceipt);
+    }
+    let network_literal = object
+        .get("network_id")
+        .and_then(JsonValue::as_str)
+        .ok_or(BridgeError::IdentifierReceipt)?;
+    if network_literal.len() != 64
+        || !network_literal
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(BridgeError::IdentifierReceipt);
+    }
+    let network_hash = network_literal
+        .parse::<Hash>()
+        .map_err(|_| BridgeError::IdentifierReceipt)?;
+    let network_id = iroha_data_model::NetworkId::from_genesis_hash(
+        iroha_crypto::HashOf::from_untyped_unchecked(network_hash),
+    );
     let policy_id = parse_identifier_policy_id_value(
         object
             .get("policy_id")
@@ -1453,6 +1483,7 @@ fn parse_identifier_receipt_payload_value(
     )
     .and_then(|value| parse_account_id(value).map_err(|_| BridgeError::IdentifierReceipt))?;
     Ok(IdentifierResolutionReceiptPayload {
+        network_id,
         policy_id,
         execution,
         opening,
@@ -1509,7 +1540,7 @@ fn parse_identifier_output_opening_value(
     let expires_at_ms = payload_object
         .get("expires_at_ms")
         .and_then(JsonValue::as_u64);
-    let signature = parse_identifier_receipt_signature(object.get("signature"))?;
+    let signature = parse_identifier_receipt_signature(object.get("signature"), false)?;
     Ok(iroha_data_model::ram_lfe::RamLfeOutputOpening {
         payload: iroha_data_model::ram_lfe::RamLfeOutputOpeningPayload {
             program_id,
@@ -1527,31 +1558,12 @@ fn parse_identifier_output_opening_value(
 fn parse_identifier_policy_id_value(
     value: &JsonValue,
 ) -> BridgeResult<iroha_data_model::identifier::IdentifierPolicyId> {
-    if value.as_str().is_some() {
-        return parse_identifier_exact_str(value)?
-            .parse()
-            .map_err(|_| BridgeError::IdentifierReceipt);
-    }
-    let object = value.as_object().ok_or(BridgeError::IdentifierReceipt)?;
-    let kind =
-        parse_identifier_exact_str(object.get("kind").ok_or(BridgeError::IdentifierReceipt)?)?;
-    let business_rule = parse_identifier_exact_str(
-        object
-            .get("business_rule")
-            .ok_or(BridgeError::IdentifierReceipt)?,
-    )?;
-    format!("{}#{}", kind, business_rule)
+    parse_identifier_exact_str(value)?
         .parse()
         .map_err(|_| BridgeError::IdentifierReceipt)
 }
 fn parse_identifier_program_id_value(value: &JsonValue) -> BridgeResult<RamLfeProgramId> {
-    if value.as_str().is_some() {
-        return parse_identifier_exact_str(value)?
-            .parse()
-            .map_err(|_| BridgeError::IdentifierReceipt);
-    }
-    let object = value.as_object().ok_or(BridgeError::IdentifierReceipt)?;
-    parse_identifier_exact_str(object.get("name").ok_or(BridgeError::IdentifierReceipt)?)?
+    parse_identifier_exact_str(value)?
         .parse()
         .map_err(|_| BridgeError::IdentifierReceipt)
 }
@@ -1567,17 +1579,7 @@ fn parse_identifier_receipt_backend(value: &JsonValue) -> BridgeResult<RamLfeBac
 fn parse_identifier_receipt_verification_mode(
     value: &JsonValue,
 ) -> BridgeResult<RamLfeVerificationMode> {
-    let mode = if value.as_str().is_some() {
-        parse_identifier_exact_str(value)?
-    } else {
-        parse_identifier_exact_str(
-            value
-                .as_object()
-                .and_then(|object| object.get("mode"))
-                .ok_or(BridgeError::IdentifierReceipt)?,
-        )?
-    };
-    match mode.as_str() {
+    match parse_identifier_exact_str(value)?.as_str() {
         "signed" => Ok(RamLfeVerificationMode::Signed),
         "proof" => Ok(RamLfeVerificationMode::Proof),
         _ => Err(BridgeError::IdentifierReceipt),
@@ -1591,18 +1593,14 @@ fn parse_identifier_exact_str(value: &JsonValue) -> BridgeResult<String> {
     Ok(raw.to_owned())
 }
 fn parse_identifier_hash_str(value: &str) -> BridgeResult<Hash> {
-    if value.is_empty() || value.trim() != value {
+    if value.len() != 64
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
         return Err(BridgeError::IdentifierReceipt);
     }
-    let body = if value
-        .get(..5)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("hash:"))
-    {
-        norito::literal::parse("hash", value).map_err(|_| BridgeError::IdentifierReceipt)?
-    } else {
-        value
-    };
-    Hash::from_str(body).map_err(|_| BridgeError::IdentifierReceipt)
+    Hash::from_str(value).map_err(|_| BridgeError::IdentifierReceipt)
 }
 fn parse_identifier_hash_value(value: &JsonValue) -> BridgeResult<Hash> {
     value
@@ -5146,9 +5144,9 @@ mod detached_transaction_scaffold_tests {
         )
         .with_executable(contract)
         .with_proof_attachments(vec![ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-            VerifyingKeyId::new("halo2/ipa", "detached-scaffold-vk"),
+            "pipa-r/pasta".into(),
+            ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]),
+            VerifyingKeyId::new("pipa-r/pasta", "detached-scaffold-vk"),
         )])
         .expect("valid proof carriers")
         .try_sign(keypair.private_key())
@@ -5993,6 +5991,10 @@ fn account_read_permission_multisig_builder(
     builder.set_ttl(Duration::from_millis(120_000));
     Ok(builder)
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Projects the exact C ABI pointer/length pairs into native owners."
+)]
 unsafe fn account_read_permission_multisig_builder_from_c(
     network_id_ptr: *const c_char,
     network_id_len: c_ulong,
@@ -12452,6 +12454,11 @@ mod tests {
         };
         let opening_signer = checked_identifier_receipt_ed25519_key_fixture();
         IdentifierResolutionReceiptPayload {
+            network_id: iroha_data_model::NetworkId::from_genesis_hash(
+                iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(
+                    b"identifier-component-network",
+                )),
+            ),
             policy_id: "email#retail".parse().expect("valid policy id"),
             execution: iroha_data_model::ram_lfe::RamLfeExecutionReceiptPayload {
                 program_id: "identifier_lookup_retail"
@@ -12502,6 +12509,10 @@ mod tests {
             (
                 "payload",
                 json_object([
+                    (
+                        "network_id",
+                        JsonValue::from(hex::encode(payload.network_id.as_bytes())),
+                    ),
                     ("policy_id", JsonValue::from("email#retail")),
                     (
                         "execution",
@@ -12636,12 +12647,8 @@ mod tests {
             json_object([
                 ("kind", JsonValue::from("signed")),
                 (
-                    "algorithm",
-                    JsonValue::from(Algorithm::Ed25519.as_static_str()),
-                ),
-                (
                     "signature",
-                    JsonValue::from(sample_identifier_signature_hex(payload)),
+                    JsonValue::from(sample_identifier_signature_hex(payload).to_uppercase()),
                 ),
             ]),
         )
@@ -12684,6 +12691,61 @@ mod tests {
         );
     }
     #[test]
+    fn parse_identifier_receipt_requires_exact_raw_marked_network() {
+        let payload = sample_identifier_receipt_payload();
+        let raw = hex::encode(payload.network_id.as_bytes());
+        let mut unmarked = payload.network_id.as_bytes().to_vec();
+        *unmarked.last_mut().expect("network bytes") &= 0xFE;
+        for literal in [
+            raw.to_uppercase(),
+            format!(" {raw}"),
+            format!("hash:{raw}"),
+            hex::encode(unmarked),
+            "00".repeat(31),
+        ] {
+            let mut value = sample_identifier_signed_receipt_json(&payload);
+            set_json_string_at_path(&mut value, &["payload", "network_id"], literal);
+            assert!(matches!(
+                parse_identifier_receipt_value(value),
+                Err(BridgeError::IdentifierReceipt)
+            ));
+        }
+        let mut value = sample_identifier_signed_receipt_json(&payload);
+        value
+            .as_object_mut()
+            .expect("receipt")
+            .get_mut("payload")
+            .expect("payload")
+            .as_object_mut()
+            .expect("payload object")
+            .remove("network_id");
+        assert!(matches!(
+            parse_identifier_receipt_value(value),
+            Err(BridgeError::IdentifierReceipt)
+        ));
+    }
+    #[test]
+    fn parse_identifier_receipt_rejects_signature_case_aliases() {
+        let payload = sample_identifier_receipt_payload();
+        for (path, replacement) in [
+            (
+                vec!["attestation", "signature"],
+                sample_identifier_signature_hex(&payload),
+            ),
+            (
+                vec!["payload", "opening", "signature"],
+                hex::encode_upper(payload.opening.signature.payload()),
+            ),
+        ] {
+            let mut value = sample_identifier_signed_receipt_json(&payload);
+            set_json_string_at_path(&mut value, &path, replacement);
+            assert!(matches!(
+                parse_identifier_receipt_value(value),
+                Err(BridgeError::IdentifierReceipt)
+            ));
+        }
+    }
+    #[test]
     fn parse_identifier_receipt_accepts_mldsa_signed_attestation() {
         let payload = sample_identifier_receipt_payload();
         let signer = KeyPair::try_from_seed(b"identifier-receipt-mldsa".to_vec(), Algorithm::MlDsa)
@@ -12695,11 +12757,7 @@ mod tests {
             &payload,
             json_object([
                 ("kind", JsonValue::from("signed")),
-                (
-                    "algorithm",
-                    JsonValue::from(Algorithm::MlDsa.as_static_str()),
-                ),
-                ("signature", JsonValue::from(signature_hex.clone())),
+                ("signature", JsonValue::from(signature_hex.to_uppercase())),
             ]),
         ))
         .expect("parse ML-DSA signed structured torii receipt");
@@ -12738,17 +12796,16 @@ mod tests {
                 json_object([
                     ("kind", JsonValue::from("signed")),
                     (
-                        "algorithm",
-                        JsonValue::from(Algorithm::MlDsa.as_static_str()),
+                        "signature",
+                        JsonValue::from(hex::encode_upper(signature_bytes)),
                     ),
-                    ("signature", JsonValue::from(hex::encode(signature_bytes))),
                 ]),
             );
-            let err = parse_identifier_receipt_value(receipt)
-                .expect_err("malformed ML-DSA identifier receipt signature length must reject");
+            let receipt = parse_identifier_receipt_value(receipt)
+                .expect("retain nonzero envelope before pinned algorithm admission");
             assert!(
-                matches!(err, BridgeError::IdentifierReceipt),
-                "{label} ML-DSA signature length produced unexpected parse error: {err:?}"
+                receipt.verify(signer.public_key()).is_err(),
+                "{label} ML-DSA signature length must reject under the pinned key"
             );
         }
     }
@@ -12762,7 +12819,7 @@ mod tests {
         assert!(matches!(err, BridgeError::IdentifierReceipt));
     }
     #[test]
-    fn parse_identifier_receipt_rejects_missing_signed_attestation_algorithm() {
+    fn parse_identifier_receipt_rejects_retired_signed_attestation_algorithm() {
         let payload = sample_identifier_receipt_payload();
         let mut value = sample_identifier_signed_receipt_json(&payload);
         value
@@ -12772,9 +12829,9 @@ mod tests {
             .expect("attestation")
             .as_object_mut()
             .expect("attestation object")
-            .remove("algorithm");
+            .insert("algorithm".into(), JsonValue::from("ed25519"));
         let err = parse_identifier_receipt_value(value)
-            .expect_err("signed identifier receipt attestation must declare its algorithm");
+            .expect_err("current public Signed DTO has exactly kind and signature");
         assert!(matches!(err, BridgeError::IdentifierReceipt));
     }
     #[test]
@@ -12791,13 +12848,15 @@ mod tests {
             set_json_string_at_path(
                 &mut value,
                 &["attestation", "signature"],
-                hex::encode(signature_bytes),
+                hex::encode_upper(signature_bytes),
             );
-            let err = parse_identifier_receipt_value(value)
-                .expect_err("malformed Ed25519 identifier receipt signature R must reject");
+            let receipt = parse_identifier_receipt_value(value)
+                .expect("retain nonzero envelope before pinned algorithm admission");
             assert!(
-                matches!(err, BridgeError::IdentifierReceipt),
-                "{label} signature R produced unexpected parse error: {err:?}"
+                receipt
+                    .verify(sample_identifier_receipt_attestation_signer().public_key())
+                    .is_err(),
+                "{label} signature R must reject under the pinned resolver key"
             );
         }
     }
@@ -12811,12 +12870,16 @@ mod tests {
             let mut signature = payload.opening.signature.payload().to_vec();
             signature[..replacement_r.len()].copy_from_slice(&replacement_r);
             payload.opening.signature = Signature::from_bytes(&signature);
-            let err =
+            let receipt =
                 parse_identifier_receipt_value(sample_identifier_signed_receipt_json(&payload))
-                    .expect_err("malformed output-opening signature R must reject while parsing");
+                    .expect("retain nonzero opening envelope before pinned algorithm admission");
             assert!(
-                matches!(err, BridgeError::IdentifierReceipt),
-                "{label} output-opening signature R produced unexpected parse error: {err:?}"
+                receipt
+                    .payload
+                    .opening
+                    .verify_signature(checked_identifier_receipt_ed25519_key_fixture().public_key())
+                    .is_err(),
+                "{label} output-opening signature R must reject under the pinned opener key"
             );
         }
     }
@@ -12902,10 +12965,6 @@ mod tests {
                 vec!["attestation", "signature"],
                 format!("{} ", sample_identifier_signature_hex(&payload)),
             ),
-            (
-                vec!["attestation", "algorithm"],
-                format!("{} ", Algorithm::Ed25519.as_static_str()),
-            ),
             (vec!["attestation", "kind"], " signed".to_owned()),
         ];
         cases.push((
@@ -12950,7 +13009,7 @@ mod tests {
             &payload,
             json_object([
                 ("kind", JsonValue::from("proof")),
-                ("proof_backend", JsonValue::from("halo2/ipa")),
+                ("proof_backend", JsonValue::from("pipa-r/pasta")),
                 ("proof_b64", JsonValue::from("AQID")),
             ]),
         );
@@ -12959,7 +13018,7 @@ mod tests {
         for (path, replacement) in [
             (
                 vec!["attestation", "proof_backend"],
-                " halo2/ipa".to_owned(),
+                " pipa-r/pasta".to_owned(),
             ),
             (vec!["attestation", "proof_b64"], "AQID ".to_owned()),
             (vec!["attestation", "kind"], " proof".to_owned()),
@@ -12968,7 +13027,7 @@ mod tests {
                 &payload,
                 json_object([
                     ("kind", JsonValue::from("proof")),
-                    ("proof_backend", JsonValue::from("halo2/ipa")),
+                    ("proof_backend", JsonValue::from("pipa-r/pasta")),
                     ("proof_b64", JsonValue::from("AQID")),
                 ]),
             );

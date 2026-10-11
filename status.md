@@ -1,6 +1,6 @@
 # Status
 
-Reviewed 2026-10-05. Iroha 3 remains under implementation and qualification.
+Reviewed 2026-10-07. Iroha 3 remains under implementation and qualification.
 Component checks cover substantial portions of the system, but the combined
 source has not passed the complete workspace, SDK, hardware and release gates.
 The [roadmap](roadmap.md) lists outstanding outcomes; the linked specifications
@@ -11,38 +11,44 @@ hold detailed acceptance criteria. Routine repair receipts belong in PRs and CI.
 | Area | Current state | Remaining qualification |
 | --- | --- | --- |
 | Sumeragi | The sans-IO core, simulator and node driver are integrated; the previous consensus runtime is removed. Certified results bind World roots and ordered events. | Current-candidate simulator/mutation gates, consumers, network faults and authenticated accelerated restoration. |
-| Lanes and dataspaces | Fixed/elastic lanes run as Sumeragi instances; the global chain merges certified lane blocks. Lifecycle/restart have component and node coverage. | Dataspace instances with their own State, cross-dataspace AMX, isolation and current-source network scale/restart. |
+| Lanes and dataspaces | Fixed/elastic lanes run as Sumeragi instances; the global chain merges certified lane blocks. The daemon can host an independent signed dataspace root with its own State, Kura, allocation pool and native context archive. Explicit and managed Kagami AMX bootstrap retain the parent's original G1/H2 and stage the participant in private genesis. Explicit administrative parent registration retains its original signed request and authenticated native outcome; the resumable proof source can detach from its State view. Lifecycle/restart have component and node coverage. | Current-source qualification of managed registration and detached proof custody, complete outbound funding, durable validator relaying, network isolation, scale and restart. |
 | Storage and execution | `lanes::LaneRunner` and `SumeragiLaneMerge` are the production path. Kura owns a shared fail-stop gate and authenticated native tips/journals. | Original funded execution custody through acquisition, certification, publication, replay and retained-generation reclamation. |
 | Configuration and DPN | Private dataspace definitions are separate from validator settings. `iroha dataspace plan/apply/status` derives artifacts and retains once-only transactions under one budget. Kagami has an isolated BPNG catalog/paid-namespace genesis preset. | Profile-based generator closure, four-daemon paid deployment/readback and physical isolation. BPNG local contracts, fee authority and application provisioning remain incomplete. Owner-node provisioning is outside this path. |
-| Kagami/Mochi developer experience | Shared native localnet generation, process ownership and workspace contexts are implemented in `iroha_deploy`; Musubi exposes source/artifact/package deployment with exact retained recovery. Installed-runtime fixtures cover config-free startup, all three deployment inputs, restart recovery and four-parent/four-private attachment. | The current shared branch needs combined runtime requalification, including paid provisioning, anchoring and payload isolation. Three-provider generation with shared network policy, distinct-key ingest, aggregate activation, bounded maintenance, independent enrollment restart and automatic custody renewal are implemented but await combined native qualification. Portable publication clock/journal/seed custody, daemon storage integration and authenticated provider-inventory reads are implemented and await native service qualification. Explicit finite startup authorization, bounded unsigned-request recovery and wallet cancellation are implemented but await native interruption qualification. Native paid pin coordination, publisher acquisition of complete signed provider inventories and generated publication TLS selection are implemented and await combined native qualification. Stock publication-service selection, generated runtime configuration, the explicit generated publication API, Kagami publication command and Mochi Packages view are implemented; their current native serving path and frontend handoff await qualification. Three-provider cold registry publication, the approved committed Taira installation profile and recurring signed checkpoint publication, native desktop interaction, signed native OS matrices and reference-host latency remain open. Release bundling refuses without that approved public profile. See the [developer goals](specs/kagami_mochi_devex_goals.md). |
+| Kagami/Mochi developer experience | Shared config-free native localnet, owned processes and workspace contexts are implemented in `iroha_deploy`; Musubi provides source, artifact and package deployment with retained recovery. Matching macOS regressions pass for filesystem custody, continuous startup deadlines, worker handoff and failure cleanup, bootstrap selection and retained gateway projections. Installed release binaries pass private-root startup, restart and listener isolation. A native regression reproduces and fixes startup rejection when a certified descendant preserves the exact signed custody; revocation, renewal and changed-certificate controls still refuse. | Global deployment still exceeds the original 30-second startup deadline during native service provisioning. Matching release binaries also exceed the explicit 300-second diagnostic startup limit while authenticating current provider and signer discovery; complete runtime validation of the startup fix remains open. Provider-ingest State/archive publication retries and reader-contention regressions pass. The genuine deep-history test still expires a short-lived authorization during preparation; bounded retained-history completion remains unresolved. Failed attempts close all four owned peers. Combined paid provisioning, anchoring, payload isolation, renewal and publication need full validation. The public Taira installation profile is committed and both release packagers select its exact image. The previously retrieved checkpoint passed native signature and finality verification but has expired; a current authenticated checkpoint remains required for remote attachment. Current bootstrap publication requests to taira.sora.org return HTTP 404 from the validation host; fresh public readiness remains unverified. Recurring signed checkpoints, cold registry publication, native desktop interaction, signed OS matrices and reference-host latency remain open. Concurrent source changes are recorded separately from compiled-candidate results. See the [developer goals](specs/kagami_mochi_devex_goals.md). |
 | Rust client | Immutable account contexts, owned async transport, explicit blocking capabilities and typed fee quoting are implemented. | Remaining capability/consumer migration, unified errors and network cancellation/finality/authorization coverage. |
 | Kotlin/JVM | Kotlin owns the SDK, HTTP/SSE/WebSocket, attestation tools and JNI API; Java consumers exercise that API. Host coverage includes native/confidential operations. Android Keystore alias existence is decided only by keystore2 `getKey` (API 31+); a Keystore error is never read as absence. | Remaining Java/publication retirement, signed packages, CUDA hardware and Android/device qualification. |
 | Other SDKs | Shared prepared-operation, signing, account and native checkpoint contracts are being migrated across Swift, JavaScript, Python and C#. | Same-source native artifacts, complete fixtures/consumers and release OS/architecture matrices. |
-| Torii collection queries | Seventeen collections and eleven explorer feeds share the [query contract](specs/torii/collection_queries.md) across Rust, Kotlin/Java, Swift, JavaScript, Python, C#, CLI and MCP. Identity-ordered reads seek and stream; authenticated history checkpoints bound deep reads. Global-state collections execute once per read for exact totals and aggregates. History and explorer feeds explicitly reject unsupported controls. Signed query selectors have one feature-independent layout; client network context is explicit. | Current-candidate live multi-dataspace paging and full SDK/native delivery qualification remain open. The genuine ABI-25 Swift framework, full native Swift package suites, ordinary SwiftPM Release consumers and checked-in iOS demo simulator suite pass; physical-device and signed public-release qualification remain separate. JS and Python native suites require matching authenticated artifacts. See the [completion goals](specs/torii/query_completion_goals.md). |
+| Torii collection queries | Seventeen collections and eleven explorer feeds share the [query contract](specs/torii/collection_queries.md) across Rust, Kotlin/Java, Swift, JavaScript, Python, C#, CLI and MCP. Identity-ordered reads seek and stream; authenticated history checkpoints bound deep reads. Global-state collections execute once per read for exact totals and aggregates. History and explorer feeds explicitly reject unsupported controls. Signed query selectors have one feature-independent layout; client network context is explicit. [Contract activity and native events](specs/torii/collection_queries.md#contract-activity-and-native-events) have separate sources: activity projects committed top-level `ContractCall`s and consensus-bound metadata; event rows expose successful execution outputs’ authenticated emissions with immutable definitions and `provenance: emitted`. | Current-candidate live multi-dataspace paging and full SDK/native delivery qualification remain open. The genuine ABI-25 Swift framework, full native Swift package suites, ordinary SwiftPM Release consumers and checked-in iOS demo simulator suite pass; physical-device and signed public-release qualification remain separate. JS and Python native suites require matching authenticated artifacts. See the [completion goals](specs/torii/query_completion_goals.md). |
 | Norito | Declared identities own canonical frames; payload serialization/reconstruction and explicit JSON key contracts are integrated. | Consumer/feature closure, fallible allocation ownership, physical model extraction and workspace lint/runtime coverage. |
-| IVM/Kotodama | IVM is the sole VM with ABI V1 and program header 1.1; header 1.0 is rejected. Compiler separation and state-free proof owners reduce normal dependency graphs. Source bundles support declaration includes and explicit module exports; authenticated error-message catalogs preserve nominal schemas. FASTPQ Metal uses one embedded-bundle admission owner; runtime source/path loading is removed. Ordinary Linux/Windows daemon dependencies include driver-loaded IVM CUDA; genuine bundle absence permits CPU build/startup, and supplied unapproved material is rejected. Original-pool idle-runtime rows and scoped committed/frozen account-rekey, trigger-contract and all four trigger-action captures are integrated; fresh compilation and runtime validation remain pending. | Lifecycle/custody closure, complete State/Kura publication, native execution proofs, anchored private invocation/AXT, coherent SDK regeneration and hardware validation. FASTPQ has no approved Metal bundle. IVM CUDA approval is `None`; genuine signed ten-family artifacts, driverless runtime checks and physical qualification remain open. |
-| ZK delivery plan | The [plan](specs/zk_delivery_plan.md) and its [task graph](specs/zk_delivery_graph.json) own the ZK, privacy, authenticated-State and FHE work. Landed as source-checked contracts and inventories: plan and graph checks; the zk-X509 presentation interval with shared vectors; the FASTPQ `air` interface with the shared-backend inventory; the IVM proof-coverage inventory; the first-release history and cutover contract with a pinned history and a declared `abi` cutover (ABI V1 hash golden and carriers regenerated); the FHE ownership inventory; the RAM-LFE V1 contract with a cleartext reference; the State table and root inventory with the keyed-commitment contract (`specs/sumeragi.md` §16); the unified resource contract; the operation and admission-route inventory; the primitive and workload audit; and the runtime-validity census. The ZK validity limits and windows (49 bounds) and the pipeline execution limits (15) are committed chain policy (`zk_validity_policy_v1`, `pipeline_validity_policy_v1`), and verification gas uses the schedule frozen in each block. Shared crates: `iroha_fhe` (exact RNS, NTT, basis-conversion and rounding arithmetic, and the RNS-BGV starting candidate `iroha_fhe::bgv` with independent vectors and a tape-level cost model) and `iroha_measurement` (phase and resource records, with `scripts/zk_resource_harness.py`). Four development-only State-commitment candidates are measured natively and in-circuit (`specs/state_commitment_candidates.json`). | No new proof relation, native ISI or SDK operation exists yet, and nothing consumes the RAM-LFE V1 types or the BGV candidate. No BGV profile is qualified: the Lattice Estimator had not been run when the candidate landed, and no candidate holds the maximum V1 class shape under instruction-by-instruction lowering, so the plan requires a proved normalizing lowering with one fixed public schedule per class profile. No State-commitment candidate is selected, and the certified State root is still the World-only accumulator (inventory defects G1-D1 to G1-D11). The primitive audit leaves BN254 Poseidon and post-quantum findings open (F.5). Runtime validity is moved only in part (F.4): the `[nexus]` bounds (10) and the governance, crypto-algorithm, oracle-fraud, content, settlement-router, pipeline gas-identity and execution-policy digest families still read node configuration; the Halo2, STARK and confidential switches remain; Cargo features (`zk-stark`, the Halo2 family, fault injection, test-network hooks) and activation, qualification, lifecycle and manifest gates still decide validity. The resource contract still records relations violated today, so a maximum zk-X509 proof transaction cannot be committed under current defaults. AVX2 on a physical x86-64 CPU, Metal/CUDA parity, Linux `RLIMIT_AS` enforcement, a complete X509 proof under the harness and four-validator evidence are unexecuted. |
+| IVM/Kotodama | IVM is the sole VM with ABI V1 and program header 1.1; header 1.0 is rejected. Compiler separation and state-free proof owners reduce normal dependency graphs. Source bundles support declaration includes and explicit module exports; authenticated error-message catalogs preserve nominal schemas. FASTPQ Metal uses one embedded-bundle admission owner; runtime source/path loading is removed. Ordinary Linux/Windows daemon dependencies include driver-loaded IVM CUDA; genuine bundle absence permits CPU build/startup, and supplied unapproved material is rejected. Original-pool idle-runtime rows and scoped committed/frozen account-rekey, trigger-contract and all four trigger-action captures are integrated; fresh compilation and runtime validation remain pending. | [Syntax and developer-experience completion](specs/kotodama_devex_goals.md): compiler/tooling integration, scoped authority, atomic call semantics, interfaces, emitted events and lifecycle behavior pass matching component/API regressions; examples and owned artifacts are regenerated and checked. Installed native SDK and whole-node qualification remain open. Lifecycle/custody closure, complete State/Kura publication, native execution proofs, anchored private invocation/AXT, coherent SDK regeneration and hardware validation. FASTPQ has no approved Metal bundle. IVM CUDA approval is `None`; genuine signed ten-family artifacts, driverless runtime checks and physical qualification remain open. |
+| ZK delivery plan | The [plan](specs/zk_delivery_plan.md) and its [task graph](specs/zk_delivery_graph.json) own the ZK, privacy, authenticated-State and FHE work. Landed as source-checked contracts and inventories: plan and graph checks; the zk-X509 presentation interval with shared vectors; the FASTPQ `air` interface with the shared-backend inventory; the IVM proof-coverage inventory; the first-release history and cutover contract with a pinned history and a declared `abi` cutover (ABI V1 hash golden and carriers regenerated); the FHE ownership inventory; the RAM-LFE V1 contract with a cleartext reference; the State table and root inventory with the keyed-commitment contract (`specs/sumeragi.md` §16); the unified resource contract; the operation and admission-route inventory; the primitive and workload audit; and the runtime-validity census. The ZK validity limits and windows (45 bounds) and the pipeline execution limits (15) are committed chain policy (`zk_validity_policy_v1`, `pipeline_validity_policy_v1`), and verification gas uses the schedule frozen in each block. Shared crates: `iroha_fhe` (exact RNS, NTT, basis-conversion and rounding arithmetic, and the RNS-BGV starting candidate `iroha_fhe::bgv` with independent vectors and a tape-level cost model) and `iroha_measurement` (phase and resource records, with `scripts/zk_resource_harness.py`). Four development-only State-commitment candidates are measured natively and in-circuit (`specs/state_commitment_candidates.json`). | No new proof relation, native ISI or SDK operation exists yet, and nothing consumes the RAM-LFE V1 types or the BGV candidate. No BGV profile is qualified: the Lattice Estimator had not been run when the candidate landed, and no candidate holds the maximum V1 class shape under instruction-by-instruction lowering, so the plan requires a proved normalizing lowering with one fixed public schedule per class profile. No State-commitment candidate is selected, and the certified State root is still the World-only accumulator (inventory defects G1-D1 to G1-D11). The primitive audit leaves BN254 Poseidon and post-quantum findings open (F.5). Runtime validity is moved only in part (F.4): the `[nexus]` bounds (10) and the governance, crypto-algorithm, oracle-fraud, content, settlement-router, pipeline gas-identity and execution-policy digest families still read node configuration; the native PIPA-R, STARK and confidential switches remain; Cargo features (`zk-stark`, fault injection, test-network hooks) and activation, qualification, lifecycle and manifest gates still decide validity. The resource contract still records relations violated today, so a maximum zk-X509 proof transaction cannot be committed under current defaults. AVX2 on a physical x86-64 CPU, Metal/CUDA parity, Linux `RLIMIT_AS` enforcement, a complete X509 proof under the harness and four-validator evidence are unexecuted. |
 | SoraFS | Software signing, canonical manifests and storage/billing/publication ownership are implemented; the ordinary Node library tests pass. | Matched daemon/harness, provider resilience and L1/L2 promotion. |
-| KAGEMUSHA | Single-design G1 canonical objects (`kagemusha_wallet_v1`) and shared Rust/Kotlin/Swift vectors are implemented and tested; no relation, provider or ledger consumes them yet. The empty `iroha_kagemusha_attested`/`iroha_kagemusha_issuer` crates are deleted; results are in the [checklist](specs/kagemusha_evidence_gate.md#8-recorded-results). | Owner decisions on proof size versus R9 and 2 s p95 (measured: one in-circuit P-256 check alone gives a 10,112-byte k=16 proof); stock-OS journal/marker Advance, the single recursive relation, ledger load/unload and device recovery measurements. |
+| KAGEMUSHA | G1 revision4, fixed64 quotas, Request-recorded controls, native PIPA-R/PIPA-AS, operation relations and durable wallet/C/JNI paths are implemented. Load checks ordinary Sumeragi BLS finality before Advance and has 3 Q/4 A/3 W/Ω; Pasta proofs and local folding remain. Funding assurance relies on the released wallet and an uncompromised OS. Any Universal Dataspace token is eligible without Parliament approval; regulated eligibility comes from bank middleware. Controls default off and fees default to zero. Retired monetary engines, recursive/mint finality and generic consensus attestation are removed. See [NF1–NF6](specs/kagemusha_native_finality_goals.md) and [candidate evidence](specs/kagemusha_evidence_gate.md#8-recorded-results). | The current wallet capture passes 739 ordinary tests, and native A preparation passes 95 tests, including the new own-original bindings. The repaired genuine Send regression and Load Q public-inverse checks pass; the latter verify seven actual proofs. The remaining genuine component campaign is running. Selected Pasta/Plonk/Gadgets strict lint and both proof-byte golden families pass. Proof lib/tests strict lint fails at 93 distinct locations across 21 test files; a reviewed repair is prepared but held during captured-source runs. The unrelated primitives lint failure remains open. Current M3 has completed the first of three blocks for all eight configurations: all valid runs meet hard limits, but real-Q one-worker CPU median is 27.491 s against the required 27 s margin. One calibration-invalid attempt is retained. Full qualification and the prepared optimizations remain open. Kotlin covers all 1,907 current JVM cases, including 222 Java-consumer tests and 17 new enrollment cases, against the fresh bridge. Seven missing-generator-setting failures from the full run are retained and covered by a passing 13-test rerun. The authenticated bridge rebuild and complete Swift suite pass all 2,236 tests, including all 21 new enrollment cases, with pre/post custody verification. These are host SDK results. Stock4 node/client compile successfully, but eight consumed deployment inputs changed during compilation; source closure rejects the capture. Prior stock3 acceptance remains withdrawn and harness3 is source-inconclusive. Current complete52 artifact reconstruction and actual ≤10,000 B envelopes, real-proof A→B→C→Unload on four validators, recursive privacy C12, rebuilt SDK delivery and Android release artifacts remain open. The 2 s p95 durable-completion and separate physical-phone gates remain unqualified. |
 | Petal Stream | `iroha_petal` implements the [Petal Stream](specs/petal_stream.md) animated optical transport (`天` orientation field, katakana, tile polarity and ring dots as three Reed–Solomon lanes under a rateless fountain) with decoder, renderer, camera simulator and `iroha offline petal`. A gain-free tile read keeps lanes `P` and `K` alive under over-exposure, veiling light and shadows. Swift, Kotlin/JVM, JavaScript, Python and C# ports reproduce the shared fixtures and decode the golden captures to the recorded lanes. Three corner blossoms suffice (a thumb, glare or frame edge may hide the fourth) and sessions track the pose between frames (about 4× cheaper per frame). Simulated reads complete a 10,000-byte KAGEMUSHA message in 11.5 s (45 s from lanes `P` and `D` alone). | All evidence is simulated: physical-camera reads on the governed Android/iOS device matrix, lane `K` at 480p or soft focus, and the public guides in `iroha-docs`. |
 
 ## Immediate blockers
 
-The Nexus proposal/status repairs and original invocation binding have recorded native
-functional coverage: the rebuilt daemon and harness passed ten fresh sixteen-validator
-paid settlements and the original serial all-seat restart/readback diagnostic. The
-independent disjoint-lane control also passed stopped-committee progress, recovery
-without resubmission and all-process restart. Subsequent crypto, evidence and snapshot
-repairs require a fresh combined-candidate run. Full fault/leakage campaigns and the
+The Nexus proposal/status repairs and original invocation binding are preserved.
+The paid Nexus workload exposed an AMX retry defect: a completed State visibility
+publication incorrectly invalidated retained decoded bytes and halted the node.
+The repair separates immutable decode custody from State authority; every retry
+still authenticates the current committed parent. Native retry and parent
+authentication controls pass. An earlier rebuilt candidate passed ten fresh paid Nexus
+workloads, serial restart/readback of all sixteen validators and disjoint-lane
+stop/restart, with all expected peer processes closing cleanly. Subsequent source
+changes require fresh qualification of the combined candidate.
+The retired publisher-custody fixture
+cannot supply current admission evidence.
+Full fault/leakage campaigns, optimized-build resource qualification and the
 complete original funded execution graph remain open.
 
 Native ceremony handoff preserves overlapping descriptors and read-only phase pipes.
-The rebuilt paid committee attempt authenticated seven-seat activation at height 129
-and its E+3 four-seat election, completed the corrected reward and exit-scheduling
-checks, then failed during four-seat return preparation when the original ceremony
-transport deadline expired. The original overall runtime limit was also exceeded.
+The committee fixture explicitly pays for the first E+1 successor before authenticating
+preparation: stopping exactly at the E selection boundary cannot supply E+1 evidence.
 Full paid 4→7→4, withdrawal, return-boundary liveness, restart and slashing qualification
-remain open. Lane retirement component controls now cover original reads, publications,
+remain open. Both rotation ceremonies must finish within their original transport and
+overall runtime deadlines on the rebuilt candidate. Lane retirement component controls
+now cover original reads, publications,
 historical opening joins, final-reader release and authentication/refusal propagation.
 Physical retirement and complete retained-history dependency closure remain open;
 certified disk frames remain retained for global replay.
@@ -56,8 +62,10 @@ accelerated complete-State restoration remains open.
 
 The runtime and trigger permission guards reject malformed recognized payloads before
 delegation; decoder refusals preserve local deferral. Core strict lint still fails on
-unused production/resource graphs. The repaired Rust SDK client source passes its unit
-suite and strict lint; qualification of the final combined source, signed RS16
+unused production/resource graphs, and blanket Clippy allowances leave entire lint
+groups unqualified. Dependency and test-network lint failures also remain open until
+their repairs pass the actual affected commands. The repaired Rust SDK client source
+passes its unit suite and strict lint; qualification of the final combined source, signed RS16
 loss/withholding and release remains open. Exact finalized-carrier retries retain
 original execution without requeueing or charging again; changed source requires fresh
 evidence.
@@ -133,19 +141,23 @@ schema (to be measured again by G.2 or G.3).
 
 ## Deployment state
 
-Taira's four validators serve the e3766fdb daemon build and the fresh signed
-genesis `277902D32673C29F56D4AA104063347F290881909ECB838B5038E39ABE11C15F`.
-October 4 direct checks found height 9, three peers and an empty queue on every
-validator. Public status, text readiness and faucet policy return HTTP 200;
-twenty-two transactions are approved and none rejected. Idle chains create no
-empty blocks. Shared HTTP defaults are 1,000,000 requests per second,
-60,000,000 per minute and a 10,000,000-token burst. Native amendments applied
-26 explicit request-budget fields to each serving validator; installed-daemon
-config checks and service-unit checks passed before a serial restart. All four
-new process config bindings match the native amendment receipts. The live
-amendment excludes optional recipient lookup because the installed daemon's
-schema cannot accept its new source budget. The deployed native client's basic
-doctor passes all fifteen checks, including MCP server discovery and tools list.
+Taira is live at <https://taira.sora.org> on daemon source
+`c30e0b18cd7f5b9e1d680abe6478aea7f37ea5b9`, network
+`hash:47F0D781D98B119DB3DD130755BD806E08A5F81B1B5F4053601E9AD34D824297#9066`.
+The fresh deployment's authenticated cutover and cleanup completed. October 8
+02:52 UTC checks found all four validators at height 16, each with three peers
+and an empty queue. Public and direct readiness returned HTTP 200; the matching
+native client's basic doctor passed all fifteen checks, and authenticated
+consensus reported committed/applied height 16 with a ready beacon provider.
+The public MCP health call passed and exposed 164 tools. Idle chains create no
+empty blocks. The network-time enforcement mode remains `warn`.
+
+The preserved BPNG owner and direct `bpng` dataspace allocation are restored;
+the corrected Kina registration committed at height 16. Genuine signed
+checkpoint and network-profile artifacts are published under `/bootstrap/`
+and were verified against their producer hashes. Obsolete staged public binary
+copies were removed while preserving the current deployment and private state;
+guest filesystem space available after cleanup was 4.31 GB.
 
 Current source initializes fresh safety records before first startup and retires
 completed execution after successful replay before strict native archive
@@ -154,20 +166,10 @@ authenticated build-only candidate without a full regression gate. On-chain
 governance owns deployment policy; no fixed 24-hour fault test is a prerequisite
 for testnet or production. Release qualification remains open.
 
-The previous 7c77fd3c network's public accounts regression completed 240
-requests with HTTP 200 and no HTTP 429, but sustained only 3.01 requests per
-second against the required 20.
-The deployed fanout admission reserves its entire 48 MB execution pool for each
-read; the current single-World collection redesign still requires bounded row
-allocation and encoding before it can use a smaller concurrent reservation.
-Current-candidate release qualification and authenticated deployment completion
-remain open.
+Current-source release qualification remains open; the live testnet observation
+above applies to the deployed c30 candidate. BPNG application account/alias
+restoration and newer wallet ordinary-Load finality commissioning remain open.
 Private DPN, paid `dpn`/`admin@dpn` and clean-client completion remain open.
-The serving bundle lacks the standard `iroha3d` sibling and an installed native
-network profile. Source now prepares independently signed checkpoint/profile
-artifacts and provisions the dataspace and owner alias under one retained quote;
-component validation and a matching complete bundle remain required before
-those paths can qualify live deployment.
 Validators run in a Linux guest on MacStadium in Dublin; use the approved
 deployment tooling. Retained incident records describe the
 [previous readiness failure](docs/incidents/2026-09-30-taira-readiness.md).
@@ -180,12 +182,13 @@ require the explicitly approved OVH target.
 
 ## Build and release qualification
 
-The current `optimizations` checkout has merged HEAD
-`f6903d2de355a71aba2dc75cab5450d5a85eb645` and uncommitted handoff repairs.
+The current `optimizations` checkout includes uncommitted handoff repairs.
 Fresh combined Core, node, workspace and SDK qualification remains open.
-The repaired MV and crypto dependency graph compiles, but observed Core release
-compiler memory exceeds the 13 GiB ceiling. Normal-stack Core unit tests and
-fresh native network consumers still require the same repaired candidate.
+The repaired daemon and Nexus harness build with the original optimized compiler
+settings. Their observed Core compiler invocations stay below the unchanged 13 GiB
+kernel-measured ceiling, but both builds exceed the 20-minute target. Other feature
+combinations and the complete release remain unqualified. Complete Core unit tests
+and fresh native network consumers still require the same repaired candidate.
 The earlier eighteen-target Core/Kagami build and all 262 selected native
 executions passed with their recorded source and artifacts; they do not qualify
 the changed combined candidate. They account for all original
@@ -274,9 +277,9 @@ integrated candidate. Physical-device, cryptographic/side-channel and signed
 release qualification remain open. The [ZK goals](specs/zk_first_release_goals.md)
 retain the current acceptance boundaries.
 
-KAGEMUSHA component coverage includes journal recovery, issuer-key and
-enrollment-floor controls, expired-preparation custody, Guard-generation and
-reciprocal claim-carrier binding. Primary-owner Privacy library strict lint passes
+The old KAGEMUSHA component controls (journal recovery, issuer keys, enrollment
+floors, expired preparations, Guard generations and claim carriers) were deleted
+with their code. Primary-owner Privacy library strict lint passes
 with defaults, `privacy-release-evidence` and
 `privacy-release-evidence,test-utils` in an unchanged source/Git interval.
 The recorded debug-profile Privacy libtest build and all 22 selected controls
@@ -300,46 +303,53 @@ with concurrent source changes. All 52 failed cases retain ordinary coverage
 and require current-source validation. Full current ordinary and merged-source
 qualification remain open. The derive library, strict JSON
 and UI regressions pass, preserving diagnostics.
-SDK Native custody and genuine production proving are mandatory even with SDK
-defaults disabled; assembly tools remain explicit `dev-tools` targets. FASTPQ
-uses the existing STARK feature. The current manifest inventory has 127 source
-manifests and 121 workspace members, protecting the inactive Wayland patch.
-On the current recorded manifest cut, all 72 source-cost measurements match
-exactly; all 21 locked offline boundaries, feature hygiene, the legacy-codec guard
-and 309 checker controls pass. Shipping Oracle denials and the sole aggregate-model
-test exception remain intact. The reviewed cost changes include the model’s live
-Pasta field/hash dependency, direct allocation-owner dependencies and the proof
-crate’s development-only timing dependency. The unused direct daemon Sumeragi
-edge is removed; Core retains consensus ownership. Later Model/Torii repairs leave
-the graph unchanged. The vendor Tokio test feature refreshes the manifest
-fingerprint with every cost limit unchanged. Resolved metadata requires canonical
-`deps` and rejects malformed entries. Native qualification and requalification of changed selected
-inputs remain required.
+SDK custody and genuine proving qualification follow the canonical G1, Advance
+and PIPA owners; their bridge, SDK and ledger integration remains open. FASTPQ
+uses the existing STARK feature. The recorded signed optimization validation baseline is
+`4486aa78661b8f289d21238e034fc2ece10600d8`. Recorded static source-graph
+discovery lists 124 workspace members; current resolved Cargo metadata remains
+unqualified. Source-cost and feature-hygiene checks passed on that recorded cut
+with every cost limit exact.
+Recorded dependency boundaries, legacy-codec and checker controls retain their
+input cuts. Shipping Oracle denials and the aggregate-model test exception
+remain intact. Core retains consensus ownership after the unused direct daemon
+Sumeragi edge was removed.
 
 ABI argument-record and static numeric encoding belong to `ivm_abi`; consumers
-import the owner directly. IVM retains decoding, gas and memory custody.
-Surface/toolchain inherit workspace lints and Surface APIs are documented.
-Earlier Model/ABI/Surface and Core ZK results retain their recorded source and
-feature scope. Current strict Core ZK, toolchain, direct IVM/SDK, Wallet and
-workspace validation remain open. The 52 failed ordinary Privacy cases remain
-ordinary tests and require current regressions followed by the full suite.
+import the owner directly. Default-root record acquisition uses
+`entrypoint_argument_record`; `trigger_event_json` retains the separate actual
+firing JSON. IVM retains decoding, gas and memory custody.
+Compiler/toolchain, all 14 ABI/IVM phases, direct SDK consumers and workspace
+qualification remain open. Core ZK requires current strict default/no-default
+libraries, test-feature library/group coverage and canonical proof-owner and
+consumer checks. Its retired real-proof-harness feature is not a target.
+FASTPQ's ordinary runtime and raw-field regression remain pending. Privacy's
+previous failures remain ordinary tests and require current regressions followed
+by the full ordinary suite with stock ignores retained.
 
-Norito passes 581 ordinary tests, the original ignored snapshot utility and eight
-public heap controls on its recorded cut, before later Model/Torii changes.
-Journal strict lint and all 11 unfiltered ordinary tests pass on their current
-selected inputs, with zero ignores. Strict lint preserves 1,476 protected inputs;
-the test interval preserves all 1,490 inputs, invocation, tools and executable
-custody.
-Wallet rejects unknown native material in its shared retained reader before
-decoding, signing or HTTP. Its prospective macOS inventory retains all 191 earlier
-names and 15 custody controls across 216 cases; native qualification remains open.
-Foundation CI selection passes all 88 controls. The compiler fixture seal is
-current: 308 includes and 616 test names, with all 43 source-reader controls
-passing on their finite recorded cut. These reader tests do not qualify compiled
-bytecode. Executable metadata freshness passes on its recorded cut; current
-workspace, merged-candidate and timing qualification remain open. The
-[optimization goals](specs/compile_bloat_optimization_goals.md) retain completion
-criteria and separate pinned-runner resource requirements.
+The generic Norito array correction is applied and formatted, preserving explicit
+raw-field layouts and charging actual owned allocations once. Complete
+Primitives/P2P/Manifest and Norito/derive/Crypto suites passed on the recorded
+cut with stable source.
+The latter Cargo run succeeds; its original outer failure from a changed Git
+baseline is preserved. Independent comparison now joins both native Source/Git
+captures and the reviewed application to the genuine formatter baseline at that
+recorded cut. Subsequent commits and selected-input changes require fresh
+qualification. Broader native tool, artifact and consumer qualification remains
+open. Earlier
+Model and Python passes retain their
+original inputs; full current requalification remains pending. Drifted script
+runs remain diagnostic and interrupted unknown exits remain unresolved.
+Journal's recorded selected checks require requalification after selected input
+changes. Wallet rejects unknown native material before decoding, signing or
+HTTP; its expanded registry preserves prior cases and custody/frame controls,
+with Wallet and SDK native qualification pending. Compiler fixture/source-reader
+and CI controls retain their recorded scopes; compiled bytecode and actual CI
+execution remain unqualified. Executable metadata freshness passes on its
+recorded cut. Current workspace, merged-candidate, release and O7 timing
+qualification remain open. The
+[optimization goals](specs/compile_bloat_optimization_goals.md) retain all seven
+completion criteria and separate pinned-runner resource requirements.
 
 Ordinary recursive credential generation is blocked by the Eq circuit requiring
 8,584 advice columns against the 1,024-column limit. The complete-circuit
@@ -381,14 +391,36 @@ passes.
   execution/finalized-State binding and signed release evidence remain open under
   the [ZK goals](specs/zk_first_release_goals.md).
 
-- **Parliament:** the [final requirements and launch decision](specs/parliament_private_ballot_design.md)
-  requires PQ private ballots without decryption custodians and with potentially
-  small electorates. No construction satisfying accepted-voter dropout is
-  selected; this is a construction blocker, with no pending owner decision.
-  Binding-governance mainnet launch is no-go until qualification. The fast pause
-  panel is seated per epoch independently of attempts. Current timed-OVN ballots and consensus-mandatory Parliament pulse/
-  custody checks do not satisfy that target; construction and availability
-  isolation remain blockers.
+- **Parliament:** binding juries move to [anonymous on-chain ballots](specs/parliament_private_ballot_design.md):
+  public votes and tally, voter-to-ballot linkage hidden by a PQ membership and
+  nullifier proof, and no ballot custodian. The construction is selected but its
+  proof profile is unqualified and the ballot is not implemented. Binding-governance
+  mainnet launch is no-go until qualification. The
+  [profile evaluation](specs/parliament_ballot_proof_profile.md) selects no
+  profile: no candidate family has an applicable published argument for
+  authorization, unforgeability, joint zero knowledge or registration in the
+  quantum random-oracle model, nothing is implemented or measured for the
+  ballot relation, and selection waits on the owner decisions it lists, so
+  schemas and integration have not started. The epoch-seated fast pause
+  panel is specified, not implemented. Availability isolation (ballot design
+  section 9) is implemented in `iroha_core` and `irohad`: no Parliament state
+  creates pulse demand, vetoes a pulse or block, or gates startup; a sortition
+  request waits governance-locally for the first consensus-native pulse height
+  at or above its minimum lead; the missing-pulse failure, its redraw and the
+  unavailable-slot index are deleted; attempt creation needs an NPoS cadence.
+  Core mutation `HC220` guards the split, and the four-validator isolation
+  corridor passes. Real-peer qualification is incomplete: the
+  `test-network-parliament-signers` beacon fixture fails to derive, so the
+  mandatory-NPoS corridors and every corridor that installs a key session
+  cannot run, and the committee-rotation corridor has not run. Open: the proof
+  profile, schemas and ballot; retirement of timed-OVN, whose ballot now opens
+  only when a native pulse sits at exactly its release height, so its four
+  hidden-ballot corridors are ignored; the owner decision on binding the
+  attempt id into the draw seed; and the SCCP hold rule, which must account for
+  a sortition wait that is unbounded in wall time on an idle chain. The
+  state-table inventory generator fails at `45f112b1cc` on unrelated domains,
+  so the Parliament rows of `specs/state_table_inventory.json` were aligned by
+  hand.
 - **Services:** Musubi publication/paid contracts, standalone elections,
   SoraNet/Linux helpers, SCCP live corridors and Inrou Linux/AArch64/KVM isolation
   remain unqualified.
@@ -396,12 +428,35 @@ passes.
   uses a released wallet on a stock uncompromised OS, hardware-backed keys,
   a durable software provider and recursive proofs. Its Send is irreversible;
   recovery replays exact Payment bytes to the receiver, with no refund path.
-  Existing ordinary code still has per-operation online-control dependencies.
-  The G1 canonical objects exist as a data-model module with cross-language
-  vectors. Measured Pasta IPA proof sizes (≈ 358 bytes per advice column at
-  k=16) mean a 10,000-byte Payment needs a narrow large-k outer proof layer;
-  that architecture and the 2 s target await owner decisions. Complete proofs,
-  provider integration, mint/redemption and device recovery measurements remain open.
+  The old per-operation online-control implementation was deleted on
+  2026-10-05. The accepted Q → A → Ω construction now has native proof,
+  operation and shared-wallet components; original account admission and typed
+  C/JNI/Swift/Kotlin integration are implemented. The structural Payment envelope
+  is 9,979 bytes, pending acceptance under the complete authenticated producer
+  catalog. Signed pre-key permits, native enrollment custody and the private verifier codec
+  are implemented. The node journal now retains worker configuration and exact
+  requests/results and freezes credential bodies before signing. Captured issuer,
+  journal, private-worker protocol and universal-template Torii tests pass. A disposable
+  Linux guest passes206 Python cases (eight macOS-only skips) and six actual
+  process/clock cases; compiled Linux Torii launch and deployment remain unqualified. Enrollment admits
+  configured bank or asset/scheme-authorized
+  operator providers. Every universal-dataspace token is eligible: no Parliament
+  approval, named-token allowlist or legal asset-class gate. Exact asset authorization,
+  reserve backing and applicable controls remain required.
+  Asset-independent enrollment templates and finality-backed universal asset
+  selection are implemented. Actual Core registration execution, native registration
+  intake, CLI package publication and shared ledger recovery pass their component
+  tests. CBSI/BPNG remain deployment authentication adapters. Bank-required policies
+  retain bank KYC/freeze checks and never fall back after a bank failure. The rebuilt
+  ABI27 host passes Swift, Kotlin/JNI and C# consumer suites. Captured source-drift
+  records remain explicit; these results do not qualify the whole checkout or phones.
+  Scoped proof-crate strict lint and workspace formatting pass; dependency-inclusive
+  strict lint retains unrelated configuration failures.
+  A canonical executed ledger setup is now
+  exported for the native monetary integration, with the full matching proof
+  catalog and funded A receipt still pending.
+  Real-proof A → B → C → unload, the two-second durable-completion target,
+  the complete native release matrix and physical-device recovery remain unqualified.
   The [checklist](specs/kagemusha_evidence_gate.md) records verification without
   an approval gate; software markers claim no protection against OS takeover.
 

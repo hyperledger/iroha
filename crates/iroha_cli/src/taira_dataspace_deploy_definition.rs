@@ -6,7 +6,7 @@ use iroha_deploy::definition::{DataspaceDefinition, Visibility};
 /// Semantic owner intent. Paths and formatting are deliberately not operation identity.
 #[derive(Debug, Clone, PartialEq, Eq, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-struct DefinitionBinding {
+pub(super) struct DefinitionBinding {
     network_id: NetworkId,
     owner: AccountId,
     network_url: String,
@@ -60,7 +60,7 @@ impl DefinitionBinding {
         ))
     }
 
-    fn verify_manifest(&self, manifest: &ManifestV1) -> Result<()> {
+    pub(super) fn verify_manifest(&self, manifest: &ManifestV1) -> Result<()> {
         use iroha_data_model::nexus::LaneVisibility;
         manifest.validate()?;
         let aliases: Vec<_> = manifest
@@ -475,7 +475,28 @@ pub(super) fn run<C: RunContext>(
         Command::Plan(args) => (args, false, false),
         Command::Apply(args) => (args, true, false),
         Command::Status(args) => (args, false, true),
-        Command::ExportProfile(_) => eyre::bail!("profile export has no deployment definition"),
+        Command::ExportProfile(_) | Command::VerifyAuthority(_) => {
+            eyre::bail!("local authority tooling has no deployment definition")
+        }
+    };
+    let verification_origins = command.verification_origins(&trust)?;
+    let runtime_update = if args.verification_runtime_update.is_empty() {
+        None
+    } else {
+        let selected = match (
+            args.verification_source_commit.as_deref(),
+            args.verification_source_version.as_deref(),
+        ) {
+            (Some(commit), Some(version)) => Some((commit, version)),
+            (None, None) => None,
+            _ => eyre::bail!("incomplete explicit target source selection"),
+        };
+        Some(runtime_update::Verified::admit_chain(
+            &args.verification_runtime_update,
+            &trust,
+            context.config().network_id,
+            selected,
+        )?)
     };
     let deadline = operation_deadline(args.timeout_ms)?;
     let binding = DefinitionBinding::new(
@@ -561,9 +582,7 @@ pub(super) fn run<C: RunContext>(
         let grant = manifest.validate()?;
         let catalog_transition = transition(&manifest, &baseline)?;
         check_funding(configured.client(), &manifest, &manifest.spending.max_fee)?;
-        let initial_alias_plan = configured
-            .client()
-            .plan_alias_setup(&manifest.alias_request)?;
+        let initial_alias_plan = configured.plan_alias_setup(&manifest.alias_request)?;
         validate_alias_plan(&manifest, &initial_alias_plan, configured.client())?;
         let plan = PlanV1 {
             schema_version: 1,
@@ -604,7 +623,19 @@ pub(super) fn run<C: RunContext>(
         preflight_proofs.as_mut(),
         apply,
         deadline,
+        &verification_origins,
+        runtime_update.as_ref(),
     )?;
+    if let Some(destination) = &args.export_authority {
+        authority::export(
+            &journal,
+            &plan,
+            &report,
+            &args.trust,
+            runtime_update.as_ref(),
+            destination,
+        )?;
+    }
     print_saved_report(&report, apply, |report| context.print_data(report))
 }
 

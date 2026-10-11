@@ -28,15 +28,14 @@ class IdentifierPolicySummary @JvmOverloads constructor(
         }
     }
 
-    fun encryptedRequest(encryptedInputHex: String, outputOpening: RamLfeOutputOpening): IdentifierResolveRequest =
-        IdentifierResolveRequest.encrypted(this, encryptedInputHex, outputOpening)
-
-    /** Encrypted input is unavailable until a secure replacement profile is qualified. */
-    fun encryptInput(input: String): String = throw RamLfeEncryptionUnavailableException()
-
-    /** Encrypted input is unavailable until a secure replacement profile is qualified. */
-    fun encryptedRequestFromInput(
-        input: String,
-        outputOpening: RamLfeOutputOpening,
-    ): IdentifierResolveRequest = throw RamLfeEncryptionUnavailableException()
+    fun prepareRequest(normalizedInput: String, inputNonceHex: String): IdentifierResolveRequest {
+        IdentifierOwnerInputV1.policy(this, normalizedInput)
+        return IdentifierResolveRequest.prepare(policyId, normalizedInput, inputNonceHex)
+    }
+    @JvmOverloads
+    fun claimRequest(normalizedInput: String, inputNonceHex: String, opening: RamLfeOutputOpening, phone: PhoneRetailCanonicalityAttestationV1? = null): IdentifierResolveRequest {
+        IdentifierOwnerInputV1.policy(this, normalizedInput)
+        require(opening.payload.programId == programId) { "opening program differs from selected policy" }
+        return IdentifierResolveRequest.claim(policyId, normalizedInput, inputNonceHex, opening, phone)
+    }
 }

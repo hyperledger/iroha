@@ -1774,7 +1774,7 @@ fn sample_status() -> Status {
             version: "2.0.0-rc.test".to_owned(),
             git_commit_sha: "deadbeef".to_owned(),
             dpn_validator_release_commit: "feedface".to_owned(),
-            cargo_features: "telemetry,zk-halo2".to_owned(),
+            cargo_features: "telemetry,zk-ipa-native".to_owned(),
             target_triple: "aarch64-apple-darwin".to_owned(),
             wire_schema_hash: "ab".repeat(32),
         },
@@ -1799,13 +1799,11 @@ fn sample_status() -> Status {
         crypto: CryptoStatus {
             sm_helpers_available: true,
             sm_openssl_preview_enabled: false,
-            halo2: Halo2Status {
+            trace: DiagnosticTraceStatus {
                 enabled: true,
-                curve: "pasta".to_string(),
-                backend: "ipa".to_string(),
-                max_k: 21,
-                verifier_budget_ms: 350,
-                verifier_max_batch: 8,
+                max_batch: 8,
+                worker_threads: 2,
+                queue_cap: 64,
             },
         },
         stack: StackStatus {
@@ -1981,7 +1979,7 @@ fn serialize_status_json() {
             "version": "2.0.0-rc.test",
             "git_commit_sha": "deadbeef",
             "dpn_validator_release_commit": "feedface",
-            "cargo_features": "telemetry,zk-halo2",
+            "cargo_features": "telemetry,zk-ipa-native",
             "target_triple": "aarch64-apple-darwin",
             "wire_schema_hash": "abababababababababababababababababababababababababababababababab"
         },
@@ -2009,13 +2007,11 @@ fn serialize_status_json() {
         "crypto": {
             "sm_helpers_available": true,
             "sm_openssl_preview_enabled": false,
-            "halo2": {
+            "trace": {
                 "enabled": true,
-                "curve": "pasta",
-                "backend": "ipa",
-                "max_k": 21,
-                "verifier_budget_ms": 350,
-                "verifier_max_batch": 8
+                "max_batch": 8,
+                "worker_threads": 2,
+                "queue_cap": 64
             }
         },
         "stack": {

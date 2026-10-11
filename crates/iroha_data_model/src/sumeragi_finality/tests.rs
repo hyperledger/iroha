@@ -17,10 +17,7 @@ fn finality_root_scope_preserves_original_global_and_private_genesis_authority()
     use crate::block::consensus::SumeragiRootScope;
     use crate::sumeragi_finality::test_fixtures::NativeFinalityFixture;
     let global = NativeFinalityFixture::new();
-    assert_eq!(
-        global.verifier().root_scope().unwrap(),
-        SumeragiRootScope::Global
-    );
+    assert_eq!(global.verifier().root_scope(), SumeragiRootScope::Global);
     let scope = SumeragiRootScope::Dataspace {
         parent_network_id: global.network_id(),
         dataspace_id: iroha_model_base::topology::DataSpaceId::new(u64::MAX - 12),
@@ -28,7 +25,7 @@ fn finality_root_scope_preserves_original_global_and_private_genesis_authority()
     let mut private = NativeFinalityFixture::start_with_scope("private-scope", scope);
     let block = private.block_with_submitted_work(private.next_header());
     private.certify(block);
-    assert_eq!(private.verifier().root_scope().unwrap(), scope);
+    assert_eq!(private.verifier().root_scope(), scope);
     let checkpoint = private.checkpoint();
     let restored = SumeragiFinalityVerifier::from_trusted_checkpoint(
         &checkpoint,
@@ -36,7 +33,11 @@ fn finality_root_scope_preserves_original_global_and_private_genesis_authority()
         private.chain_id(),
     )
     .unwrap();
-    assert_eq!(restored.root_scope().unwrap(), scope);
+    let no_decode = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+    assert_eq!(
+        norito::with_decode_limits_scope(no_decode, || restored.root_scope()),
+        scope
+    );
     assert_ne!(restored.instance(), global.verifier().instance());
 }
 
@@ -45,28 +46,246 @@ fn signed_genesis_policy_reads_preserve_original_json_refusal_and_retry() {
     let fixture = Fixture::new();
     let verifier = fixture.verifier();
     let original_wire = fixture.genesis.encode_wire().unwrap();
-    let expected_scope = verifier.root_scope().unwrap();
-    let expected_epoch = genesis_epoch(&fixture.genesis).unwrap();
+    let expected_scope = verifier.root_scope();
+    let expected_epoch = authenticated_genesis(&fixture.genesis)
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
     let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
     for error in [
         norito::with_decode_limits_scope(limits, || {
             signed_genesis_consensus_metadata(&fixture.genesis)
         })
         .unwrap_err(),
-        norito::with_decode_limits_scope(limits, || genesis_epoch(&fixture.genesis)).unwrap_err(),
-        norito::with_decode_limits_scope(limits, || verifier.root_scope()).unwrap_err(),
+        norito::with_decode_limits_scope(limits, || {
+            authenticated_genesis(&fixture.genesis).map(|genesis| genesis.into_parts().0)
+        })
+        .unwrap_err(),
     ] {
         assert!(
             matches!(
                 error,
-                GenesisReadError::Json(norito::json::Error::DecodeResourceLimit)
+                GenesisReadError::Json(norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                ))
             ),
             "{error:?}"
         );
     }
     assert_eq!(fixture.genesis.encode_wire().unwrap(), original_wire);
-    assert_eq!(genesis_epoch(&fixture.genesis).unwrap(), expected_epoch);
-    assert_eq!(verifier.root_scope().unwrap(), expected_scope);
+    assert_eq!(
+        authenticated_genesis(&fixture.genesis)
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap(),
+        expected_epoch
+    );
+    assert_eq!(verifier.root_scope(), expected_scope);
+}
+
+#[test]
+fn portable_genesis_constructor_uses_one_original_decode_and_retains_scope() {
+    let fixture = Fixture::new();
+    let original_wire = fixture.genesis.encode_wire().unwrap();
+    let limits = norito::canonical_decode_limits(original_wire.len());
+    // This pool funds the original cumulative counter control. These accounting limits
+    // do not claim ownership of the existing portable verifier's nested DTO graphs.
+    let pool = iroha_allocation::AllocationBudget::new(
+        norito::core::DecodeBudgetContext::allocation_layout().size(),
+    );
+    let reference = norito::core::DecodeBudgetContext::try_new_owned(limits, &pool).unwrap();
+    let (expected_epoch, expected_scope) = reference.with(|| {
+        let _selected = ProofCrypto::new(&fixture.validators).unwrap();
+        authenticated_genesis(&fixture.genesis)
+            .unwrap()
+            .into_parts()
+    });
+    let single_pass = usize::try_from(reference.consumed_allocated_bytes()).unwrap();
+    assert!(
+        single_pass > 0,
+        "original signed metadata must actually decode"
+    );
+    drop(reference);
+    assert_eq!(pool.reserved_bytes(), 0);
+    let context = norito::core::DecodeBudgetContext::try_new_owned(
+        norito::DecodeLimits::new(
+            limits.max_sequence_elements(),
+            limits.max_field_bytes(),
+            limits.max_total_elements(),
+            single_pass,
+            limits.max_nesting_depth(),
+        ),
+        &pool,
+    )
+    .unwrap();
+    let read = context.with(|| {
+        SumeragiFinalityVerifier::new(
+            &fixture.genesis,
+            "portable-finality-test",
+            fixture.validators.clone(),
+        )
+    });
+    assert!(
+        read.is_ok(),
+        "portable genesis initialization must use the original completed scope decode once: {:?}",
+        read.as_ref().err()
+    );
+    let verifier = read.unwrap();
+    assert_eq!(verifier.initial_epoch(), &expected_epoch);
+    assert_eq!(verifier.instance(), fixture.verifier().instance());
+    assert_eq!(
+        context.consumed_allocated_bytes(),
+        u64::try_from(single_pass).unwrap()
+    );
+    let no_decode = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+    assert_eq!(
+        context.with(|| norito::with_decode_limits_scope(no_decode, || verifier.root_scope())),
+        expected_scope,
+        "retained authenticated scope must not reopen the original metadata decoder"
+    );
+    assert_eq!(
+        context.consumed_allocated_bytes(),
+        u64::try_from(single_pass).unwrap()
+    );
+    assert_eq!(fixture.genesis.encode_wire().unwrap(), original_wire);
+    drop(verifier);
+    drop(context);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+fn original_genesis_metadata_pass(
+    fixture: &test_fixtures::NativeFinalityFixture,
+    pool: &iroha_allocation::AllocationBudget,
+) -> (norito::DecodeLimits, usize) {
+    let limits = norito::canonical_decode_limits(fixture.genesis().encode_wire().unwrap().len());
+    let reference = norito::core::DecodeBudgetContext::try_new_owned(limits, pool).unwrap();
+    reference.with(|| authenticated_genesis(fixture.genesis()).unwrap());
+    let debit = usize::try_from(reference.consumed_allocated_bytes()).unwrap();
+    assert!(
+        debit > 0,
+        "the original signed metadata decoder must actually run"
+    );
+    drop(reference);
+    assert_eq!(pool.reserved_bytes(), 0);
+    (
+        norito::DecodeLimits::new(
+            limits.max_sequence_elements(),
+            limits.max_field_bytes(),
+            limits.max_total_elements(),
+            debit,
+            limits.max_nesting_depth(),
+        ),
+        debit,
+    )
+}
+
+#[test]
+fn consensus_fingerprint_reuses_original_authenticated_metadata_under_one_pass_budget() {
+    let fixture = test_fixtures::NativeFinalityFixture::new_with_explicit_parameters();
+    let original_wire = fixture.genesis().encode_wire().unwrap();
+    let expected = consensus_configuration_fingerprint(fixture.genesis()).unwrap();
+    // The original caller pool owns the cumulative decode counter. This does not claim
+    // complete physical funding of the existing portable epoch or verifier DTO graphs.
+    let pool = iroha_allocation::AllocationBudget::new(
+        norito::core::DecodeBudgetContext::allocation_layout().size(),
+    );
+    let (limits, debit) = original_genesis_metadata_pass(&fixture, &pool);
+    let no_decode = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+    let refused = norito::with_decode_limits_scope(no_decode, || {
+        consensus_configuration_fingerprint(fixture.genesis())
+    })
+    .unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            GenesisReadError::Json(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
+        ),
+        "original signed-policy refusal must remain typed: {refused:?}"
+    );
+    let context = norito::core::DecodeBudgetContext::try_new_owned(limits, &pool).unwrap();
+    let read = context.with(|| consensus_configuration_fingerprint(fixture.genesis()));
+    if let Err(error) = &read {
+        assert!(
+            matches!(
+                error,
+                GenesisReadError::Json(norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                ))
+            ),
+            "unrelated fingerprint failure: {error:?}"
+        );
+    }
+    assert!(
+        read.is_ok(),
+        "consensus fingerprint must reuse its original authenticated metadata once: {:?}",
+        read.as_ref().err()
+    );
+    assert_eq!(read.unwrap(), expected);
+    assert_eq!(
+        context.consumed_allocated_bytes(),
+        u64::try_from(debit).unwrap()
+    );
+    assert_eq!(fixture.genesis().encode_wire().unwrap(), original_wire);
+    drop(context);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn initial_chain_parameters_reuses_constructor_authenticated_metadata_under_one_pass_budget() {
+    let fixture = test_fixtures::NativeFinalityFixture::new_with_explicit_parameters();
+    let original_wire = fixture.genesis().encode_wire().unwrap();
+    let expected = fixture.verifier().initial_chain_parameters().unwrap();
+    let original_scope = fixture.verifier().root_scope();
+    let pool = iroha_allocation::AllocationBudget::new(
+        norito::core::DecodeBudgetContext::allocation_layout().size(),
+    );
+    let (limits, debit) = original_genesis_metadata_pass(&fixture, &pool);
+    let context = norito::core::DecodeBudgetContext::try_new_owned(limits, &pool).unwrap();
+    let verifier = context.with(|| {
+        SumeragiFinalityVerifier::new(
+            fixture.genesis(),
+            fixture.chain_id(),
+            fixture.genesis_proof().committee.clone(),
+        )
+        .unwrap()
+    });
+    assert_eq!(
+        context.consumed_allocated_bytes(),
+        u64::try_from(debit).unwrap()
+    );
+    let read = context.with(|| verifier.initial_chain_parameters());
+    if let Err(error) = &read {
+        assert!(
+            matches!(
+                error,
+                GenesisReadError::Json(norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                ))
+            ),
+            "unrelated retained parameter failure: {error:?}"
+        );
+    }
+    assert!(
+        read.is_ok(),
+        "initial chain parameters must reuse constructor-authenticated metadata: {:?}",
+        read.as_ref().err()
+    );
+    assert_eq!(read.unwrap(), expected);
+    assert_eq!(
+        context
+            .with(|| verifier.initial_chain_parameters())
+            .unwrap(),
+        expected
+    );
+    assert_eq!(verifier.root_scope(), original_scope);
+    assert_eq!(
+        context.consumed_allocated_bytes(),
+        u64::try_from(debit).unwrap()
+    );
+    assert_eq!(fixture.genesis().encode_wire().unwrap(), original_wire);
+    drop(verifier);
+    drop(context);
+    assert_eq!(pool.reserved_bytes(), 0);
 }
 
 pub struct Fixture {
@@ -99,8 +318,6 @@ pub(super) fn result(
             parent_state_root: Hash::new(b"parent"),
             post_state_root: ordinary_root,
             ordinary_writes_root: ordinary_root,
-            kagemusha_top_up_root: None,
-            kagemusha_top_up_count: 0,
             parent_world_state_root: Hash::new(b"fixture parent world"),
             world_state_root: Hash::new(b"fixture world"),
             event_commitment: None,
@@ -209,7 +426,6 @@ pub(super) fn certify_successor(
         proposer: 0,
         skipped_leaders: vec![],
         control_witness: ControlWitness::empty(),
-        attest: false,
     };
     let budget = iroha_allocation::AllocationBudget::new(128 * 1024 * 1024);
     let authored = super::test_fixtures::author_payload(
@@ -224,11 +440,8 @@ pub(super) fn certify_successor(
         view: 0,
         block_hash: header.hash(&crypto),
         result: result.result().unwrap(),
-        attest: false,
         signers: Bitmap::new(keys.len()),
         agg_sig: AggregateSignature([0; 96]),
-        attestations: vec![],
-        attestation_witness: None,
     };
     sign_qc(&mut qc, keys, &[0, 1, 2]);
     block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
@@ -248,13 +461,7 @@ impl Fixture {
     pub(crate) fn new() -> Self {
         use crate::{
             block::consensus::SumeragiGenesisContextParameters,
-            isi::{
-                InstructionBox, RegisterPeerWithPop, SetParameter,
-                kagemusha_v1::{
-                    KagemushaMintFinalityAuthorityGenerationTemplateV1,
-                    KagemushaMintFinalityGenesisParametersV1,
-                },
-            },
+            isi::{InstructionBox, RegisterPeerWithPop, SetParameter},
             parameter::{
                 CustomParameter, Parameter,
                 system::{
@@ -277,19 +484,11 @@ impl Fixture {
         let (crypto, _) = ProofCrypto::new(&validators).unwrap();
         let authority = KeyPair::from_seed(vec![41; 32], Algorithm::Ed25519);
         let account = AccountId::new(authority.public_key().clone());
-        let epoch_fixture = crate::sumeragi::epoch::tests::fixture(4);
         let metadata = ConsensusHandshakeMetadata {
             mode: SumeragiConsensusMode::Permissioned,
             block_cadence_ms: NonZeroU64::new(1000).unwrap(),
             wire_protocol_version: u32::from(crate::sumeragi::PROTOCOL_VERSION),
             consensus_fingerprint: ConsensusFingerprint::new([0x71; 32]),
-            kagemusha_mint_finality: KagemushaMintFinalityGenesisParametersV1 {
-                authority_generation: KagemushaMintFinalityAuthorityGenerationTemplateV1 {
-                    version: 1,
-                    generation: 0,
-                    validators: epoch_fixture.authority.validators,
-                },
-            },
             sumeragi_context: SumeragiGenesisContextParameters::recommended(),
         };
         let mut instructions = validators
@@ -317,7 +516,9 @@ impl Fixture {
         let genesis =
             SignedBlock::try_genesis(vec![tx], authority.private_key(), None, None).unwrap();
         let network = NetworkId::from_genesis_hash(genesis.hash());
-        let epoch = genesis_epoch(&genesis).unwrap();
+        let epoch = authenticated_genesis(&genesis)
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap();
         let instance = instance_id(
             &crypto,
             &Hash32(Hash::from(genesis.hash()).into()),
@@ -457,9 +658,67 @@ fn alternate_current_quorum_witnesses_have_one_authenticated_execution() {
 }
 
 #[test]
+fn current_certificate_rejects_retired_attestation_fields() {
+    // Negative wire fixture only: no old decoder or verifier is retained.
+    #[derive(norito::Encode, norito::NoritoSchema)]
+    #[norito_schema(name = "iroha_sumeragi::Qc")]
+    struct RetiredFields {
+        kind: VoteKind,
+        instance: Hash32,
+        epoch: iroha_sumeragi::types::EpochId,
+        height: u64,
+        view: u64,
+        block_hash: Hash32,
+        result: Hash32,
+        attest: bool,
+        signers: Bitmap,
+        agg_sig: AggregateSignature,
+        attestations: Vec<()>,
+        attestation_witness: Option<()>,
+    }
+
+    let fixture = Fixture::new();
+    let mut block = decode_framed_signed_block(&fixture.second.block_wire).unwrap();
+    let certificate = block.commit_certificate().unwrap();
+    let qc: Qc = norito::decode_canonical(certificate.commit_qc()).unwrap();
+    let retired = RetiredFields {
+        kind: qc.kind,
+        instance: qc.instance,
+        epoch: qc.epoch,
+        height: qc.height,
+        view: qc.view,
+        block_hash: qc.block_hash,
+        result: qc.result,
+        attest: false,
+        signers: qc.signers,
+        agg_sig: qc.agg_sig,
+        attestations: vec![],
+        attestation_witness: None,
+    };
+    let bytes = norito::encode_canonical(&retired).unwrap();
+    assert_eq!(
+        norito::schema::identity::frame_hash::<RetiredFields>(),
+        norito::schema::identity::frame_hash::<Qc>(),
+        "exercise payload rejection after the current nominal frame identity"
+    );
+    assert!(norito::decode_canonical::<Qc>(&bytes).is_err());
+    block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
+        certificate.consensus_header().to_vec(),
+        bytes,
+        certificate.result_preimage().to_vec(),
+        certificate.availability().to_vec(),
+    )));
+    let mut proof = fixture.second.clone();
+    proof.block_wire = block.encode_wire().unwrap();
+    let mut verifier = fixture.verifier();
+    verifier.verify(&fixture.first).unwrap();
+    assert!(verifier.verify(&proof).is_err());
+}
+
+#[test]
 fn current_proof_rejects_tampered_qc_result_committee_parent_wire_and_availability() {
     let fixture = Fixture::new();
-    for mutation in 0..8 {
+    for mutation in 0..9 {
         let mut bad = fixture.second.clone();
         let mut block = decode_framed_signed_block(&bad.block_wire).unwrap();
         let certificate = block.commit_certificate().unwrap();
@@ -474,7 +733,9 @@ fn current_proof_rejects_tampered_qc_result_committee_parent_wire_and_availabili
             3 => {
                 let mut header: CoreHeader = norito::decode_canonical(&consensus_header).unwrap();
                 header.parent_result = Hash32([9; 32]);
-                let epoch = genesis_epoch(&fixture.genesis).unwrap();
+                let epoch = authenticated_genesis(&fixture.genesis)
+                    .map(|genesis| genesis.into_parts().0)
+                    .unwrap();
                 let payload = block
                     .canonical_resultless_proposal()
                     .expect("valid original proposal")
@@ -491,7 +752,8 @@ fn current_proof_rejects_tampered_qc_result_committee_parent_wire_and_availabili
             4 => sign_qc(&mut qc, &fixture.keys, &[0, 1]),
             5 => result_preimage.push(0),
             6 => availability.clear(),
-            _ => *availability.last_mut().unwrap() ^= 1,
+            7 => *availability.last_mut().unwrap() ^= 1,
+            _ => sign_qc(&mut qc, &fixture.keys, &[0, 1, 2, 3]),
         }
         block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
             consensus_header,
@@ -934,7 +1196,9 @@ fn quorum_certificate_and_control_bytes_cannot_authorize_no_work() {
             norito::decode_canonical(certificate.consensus_header()).unwrap();
         let availability = certificate.availability().to_vec();
         let mut qc: Qc = norito::decode_canonical(certificate.commit_qc()).unwrap();
-        let epoch = genesis_epoch(&fixture.genesis).unwrap();
+        let epoch = authenticated_genesis(&fixture.genesis)
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap();
         block.set_external_entrypoints(Vec::new());
         block.set_commit_certificate(None);
         output_test_support::install_network(&mut block, Vec::new()).unwrap();
@@ -1001,6 +1265,7 @@ fn native_proof_rejects_retired_bridge_context_and_artifact_fields() {
     }
 }
 
+#[cfg(feature = "transparent_api")]
 impl Fixture {
     pub(crate) fn next_header(&self) -> BlockHeader {
         BlockHeader::new(
@@ -1037,7 +1302,9 @@ impl Fixture {
 fn signed_genesis_layout_reaches_the_native_epoch_exactly() {
     let fixture = Fixture::new();
     let signed = signed_genesis_consensus_metadata(&fixture.genesis).unwrap();
-    let epoch = genesis_epoch(&fixture.genesis).unwrap();
+    let epoch = authenticated_genesis(&fixture.genesis)
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
     assert_eq!(epoch.da_layout, signed.sumeragi_context.da_layout);
     assert_eq!(core_epoch(&epoch).unwrap().da_layout, epoch.da_layout);
 }
@@ -1049,7 +1316,9 @@ fn availability_scratch_refusal_preserves_signed_source_for_retry() {
     let certificate = block.commit_certificate().unwrap();
     let header: CoreHeader = norito::decode_canonical(certificate.consensus_header()).unwrap();
     let table: AvailabilityFrame = norito::decode_canonical(certificate.availability()).unwrap();
-    let epoch = genesis_epoch(&fixture.genesis).unwrap();
+    let epoch = authenticated_genesis(&fixture.genesis)
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
     let config = ScheduledConfig {
         height: header.height,
         epoch,
@@ -1182,4 +1451,102 @@ fn authenticated_successor_requires_exact_global_network_and_bounded_chain() {
             .verify_global_scope(private.network_id(), private.chain_id())
             .is_err()
     );
+}
+
+#[test]
+fn verifier_chain_label_is_exactly_the_selected_genesis_scope() {
+    let fixture = super::test_fixtures::NativeFinalityFixture::start_with_explicit_parameters(
+        "native-chain-label-regression",
+    );
+    assert_eq!(
+        fixture.verifier().chain_id(),
+        "native-chain-label-regression"
+    );
+    assert_eq!(fixture.verifier().clone().chain_id(), fixture.chain_id());
+}
+
+#[test]
+fn proof_reader_uses_the_strict_framed_decoder_for_genesis_and_tip() {
+    let fixture = Fixture::new();
+    let mut verifier = fixture.verifier();
+    for proof in [&fixture.first, &fixture.second] {
+        let original_wire = proof.block_wire.clone();
+        let original = decode_framed_signed_block(&original_wire).unwrap();
+        let decoded = proof.decode_checked().unwrap();
+        assert_eq!(decoded.block, original);
+        assert_eq!(decoded.block.header(), proof.block_header);
+        assert_eq!(decoded.block.encode_wire().unwrap(), original_wire);
+        verifier.verify(proof).unwrap();
+        assert_eq!(proof.block_wire, original_wire);
+    }
+}
+
+#[test]
+fn proof_reader_preserves_original_framing_refusals_without_a_second_frame() {
+    let fixture = Fixture::new();
+    let original = decode_framed_signed_block(&fixture.second.block_wire).unwrap();
+    // This is a complete checksummed Norito frame in its supported fixed-length
+    // layout. SignedBlockWire requires the compact canonical layout and refuses it.
+    let mut fixed_payload = Vec::new();
+    {
+        let _flags = norito::core::DecodeFlagsGuard::enter(0);
+        norito::core::serialize_to_buffer(&original, &mut fixed_payload).unwrap();
+    }
+    let fixed_frame =
+        norito::core::frame_bare_with_header_flags::<SignedBlock>(&fixed_payload, 0).unwrap();
+    norito::core::from_bytes_view(&fixed_frame).unwrap();
+    let mut fixed_wire = vec![fixture.second.block_wire[0]];
+    fixed_wire.extend_from_slice(&fixed_frame);
+
+    let mut wrong_version = fixture.second.block_wire.clone();
+    wrong_version[0] ^= 1;
+    let mut wrong_checksum = fixture.second.block_wire.clone();
+    wrong_checksum[1 + 31] ^= 1;
+    let mut trailing = fixture.second.block_wire.clone();
+    trailing.push(0);
+    for bytes in [fixed_wire, wrong_version, wrong_checksum, trailing] {
+        let original_error = decode_framed_signed_block(&bytes).unwrap_err();
+        assert_eq!(
+            original_error.kind(),
+            norito::core::DecodeAttemptErrorKind::Invalid
+        );
+        let mut offered = fixture.second.clone();
+        offered.block_wire = bytes;
+        assert_eq!(
+            offered.decode_checked().unwrap_err().0,
+            original_error.to_string()
+        );
+    }
+    let retried = fixture.second.decode_checked().unwrap();
+    assert_eq!(retried.block, original);
+    fixture.verifier().verify(&fixture.first).unwrap();
+}
+
+#[test]
+fn proof_reader_keeps_enclosing_decode_refusal_and_same_source_retry() {
+    let fixture = Fixture::new();
+    let original_wire = fixture.second.block_wire.clone();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    let original_error = norito::core::with_decode_limits_scope(limits, || {
+        decode_framed_signed_block(&original_wire)
+    })
+    .unwrap_err();
+    assert_eq!(
+        original_error.kind(),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit
+    );
+    let original_text = original_error.to_string();
+    assert!(matches!(
+        original_error.into_error().decode_resource_error(),
+        Some(norito::core::DecodeResourceError::TotalAllocationExceeded { limit: 0, .. })
+    ));
+    let error = norito::core::with_decode_limits_scope(limits, || fixture.second.decode_checked())
+        .unwrap_err();
+    assert_eq!(error.0, original_text);
+    assert_eq!(fixture.second.block_wire, original_wire);
+    let retried = fixture.second.decode_checked().unwrap();
+    assert_eq!(retried.block.encode_wire().unwrap(), original_wire);
+    let mut verifier = fixture.verifier();
+    verifier.verify(&fixture.first).unwrap();
+    verifier.verify(&fixture.second).unwrap();
 }

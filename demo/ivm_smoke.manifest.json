@@ -1,7 +1,7 @@
 {
   "seiyaku_name": "SmokeTransfer",
-  "code_hash": "hash:3B32951310FBEF0B376B92C2330B0AA2BE9BD770510424E2859783AE3257F867#7305",
-  "abi_hash": "hash:C7281066EC6F2FB47A2B0051C1D2AC95562F6CA7A576011CF173E07E845FDEC1#D973",
+  "code_hash": "hash:EBD8F65D7D828C8DE656B783BD6770C056701F14BF34EF0D4403BFF722B7487D#64B4",
+  "abi_hash": "hash:D87449F2EC45628B835C736C9915EAA85BFCB87E544DA269FDB7C4889D3DB82F#F1D1",
   "compiler_fingerprint": "kotodama_lang/2.0.0-rc.2.0",
   "features_bitmap": 0,
   "access_set_hints": {
@@ -9,19 +9,29 @@
       "account:sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76",
       "account:sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
       "asset:*",
-      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76#dataspace:0",
-      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV#dataspace:0",
+      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76",
+      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
       "asset_def:*",
       "asset_def:61CtjvNd9T3THAR65GsMVHr82Bjc"
     ],
     "write_keys": [
       "asset:*",
-      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76#dataspace:0",
-      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV#dataspace:0"
+      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76",
+      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"
     ],
     "dynamic_reads": [],
     "dynamic_writes": []
   },
+  "permissions": [
+    {
+      "name": "Admin",
+      "scope": {
+        "kind": "Instance",
+        "value": null
+      }
+    }
+  ],
+  "events": [],
   "entrypoints": [
     {
       "name": "main",
@@ -40,20 +50,23 @@
           }
         ]
       },
-      "permission": "Admin",
+      "authorization": {
+        "kind": "Permission",
+        "value": "Admin"
+      },
       "read_keys": [
         "asset:*",
-        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV#dataspace:0",
+        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
         "account:sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
         "asset_def:*",
         "asset_def:61CtjvNd9T3THAR65GsMVHr82Bjc",
-        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76#dataspace:0",
+        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76",
         "account:sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76"
       ],
       "write_keys": [
         "asset:*",
-        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV#dataspace:0",
-        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76#dataspace:0"
+        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76"
       ],
       "access_hints_complete": true,
       "access_hints_skipped": [],
@@ -121,6 +134,7 @@
       ]
     }
   ],
+  "enum_types": [],
   "error_messages": null,
   "kotoba": null,
   "provenance": null

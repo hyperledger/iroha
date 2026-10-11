@@ -48,6 +48,8 @@ BUILD_ENVIRONMENT_KEYS = {
     "schema",
     "hermetic_runner_schema",
     "hermetic_runner_sha256",
+    "wallet_runtime_authority",
+    "wallet_runtime_trust_ed25519_hex",
     "cargo_build_jobs",
     "cargo_incremental",
     "cargo_net_offline",
@@ -237,6 +239,11 @@ def validate_common(common: dict[str, object]) -> None:
     environment = common["build_environment"]
     if not isinstance(environment, dict) or set(environment) != BUILD_ENVIRONMENT_KEYS:
         fail("Apple slice build environment has a non-canonical field inventory")
+    if not isinstance(environment["wallet_runtime_authority"], str) or environment["wallet_runtime_authority"] not in {"bpng-taira-v7", "cbsi-release-v1"}:
+        fail("Apple slice Native runtime authority is not exact")
+    public_root = environment["wallet_runtime_trust_ed25519_hex"]
+    if not isinstance(public_root, str) or HEX_SHA256.fullmatch(public_root) is None or public_root == "0" * 64:
+        fail("Apple slice Native runtime public root is not exact")
     if environment["schema"] != "iroha.mobile-native-build-environment.v1":
         fail("Apple slice build environment has the wrong schema")
     if environment["hermetic_runner_schema"] != "iroha.mobile-hermetic-command.v1":

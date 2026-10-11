@@ -498,3 +498,64 @@ impl<Beacon> From<&InventoryRecordV1<Beacon>> for ResetTopologyIntentV1 {
         }
     }
 }
+
+#[cfg(any(target_os = "linux", test))]
+impl history::TerminalInventory {
+    /// Copy historical topology only after independently validating current physical custody.
+    pub(in super::super) fn topology_intent(
+        &self,
+        hosts: &host_pair::ResetHostPairV1,
+    ) -> Result<ResetTopologyIntentV1> {
+        self.validate_physical_binding(hosts)?;
+        let value = self;
+        let artifact = |a: &ArtifactV1| ResetArtifactIntentV1 {
+            role: a.role.clone(),
+            local_path: a.local_path.clone(),
+            remote_path: a.remote_path.clone(),
+        };
+        Ok(ResetTopologyIntentV1 {
+            schema: "iroha.taira.public-reset.topology-intent.v1".into(),
+            qualification_scope: value.qualification_scope,
+            deployment_id: value.deployment_id.clone(),
+            previous_genesis_hash: value.previous_genesis_hash.clone(),
+            authorization_nonce: value.authorization_nonce.clone(),
+            revision: ResetRevisionIntentV1 {
+                source_root: value.revision.source_root.clone(),
+                source_manifest_path: value.revision.source_manifest_path.clone(),
+            },
+            hosts: hosts.clone(),
+            validators: value
+                .validators
+                .iter()
+                .map(|v| ResetValidatorIntentV1 {
+                    slug: v.slug.clone(),
+                    endpoint: v.endpoint.clone(),
+                    platform: v.platform.clone(),
+                    service_root: v.service_root.clone(),
+                    state_root: v.state_root.clone(),
+                    reset_guard: v.reset_guard.clone(),
+                    systemd_unit: v.systemd_unit.clone(),
+                    artifacts: v.artifacts.iter().map(&artifact).collect(),
+                    initial_state: v.initial_state.clone(),
+                })
+                .collect(),
+            validator_clients: value.validator_clients.clone(),
+            edge: ResetEdgeIntentV1 {
+                slug: value.edge.slug.clone(),
+                endpoint: value.edge.endpoint.clone(),
+                platform: value.edge.platform.clone(),
+                service_root: value.edge.service_root.clone(),
+                state_root: value.edge.state_root.clone(),
+                reset_guard: value.edge.reset_guard.clone(),
+                nginx_config: value.edge.nginx_config.clone(),
+                artifacts: value.edge.artifacts.iter().map(&artifact).collect(),
+                initial_state: value.edge.initial_state.clone(),
+            },
+            canary_onboarding_request: value.canary_onboarding_request.clone(),
+            faucet_policy: value.faucet_policy.clone(),
+            fee_intent: value.fee_intent.clone(),
+            cleanup: value.cleanup.clone(),
+            timeouts: value.timeouts.clone(),
+        })
+    }
+}

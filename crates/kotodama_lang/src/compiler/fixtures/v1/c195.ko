@@ -1,5 +1,5 @@
 
         seiyaku SidecarFixture {
-            view fn answer() -> int { return 42; }
+            view fn answer() authorize(anyone) -> int { return 42; }
         }
         

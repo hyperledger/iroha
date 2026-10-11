@@ -31,9 +31,11 @@ fn transaction_rejection_code(
     match reason {
         TransactionRejectionReason::AccountDoesNotExist(_) => "account_does_not_exist",
         TransactionRejectionReason::LimitCheck(_) => "limit_check",
+        TransactionRejectionReason::Validation(iroha_data_model::ValidationFail::IvmFault(_)) => {
+            "ivm_fault"
+        }
         TransactionRejectionReason::Validation(_) => "validation",
         TransactionRejectionReason::InstructionExecution(_) => "instruction_execution",
-        TransactionRejectionReason::IvmExecution(_) => "ivm_execution",
         TransactionRejectionReason::TriggerExecution(_) => "trigger_execution",
     }
 }
@@ -44,9 +46,11 @@ fn pipeline_rejection_summary(
     match reason {
         TransactionRejectionReason::AccountDoesNotExist(_) => "Account does not exist.",
         TransactionRejectionReason::LimitCheck(_) => "Transaction limits were exceeded.",
+        TransactionRejectionReason::Validation(iroha_data_model::ValidationFail::IvmFault(_)) => {
+            "IVM execution failed."
+        }
         TransactionRejectionReason::Validation(_) => "Transaction validation failed.",
         TransactionRejectionReason::InstructionExecution(_) => "Instruction execution failed.",
-        TransactionRejectionReason::IvmExecution(_) => "IVM execution failed.",
         TransactionRejectionReason::TriggerExecution(_) => "Trigger execution failed.",
     }
 }

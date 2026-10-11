@@ -169,6 +169,12 @@ fn check_common<F: PoseidonField>(
     request: &RequestBody,
     statement: &StatementV1<F>,
 ) -> Result<(), ConsumerError> {
+    require(request.canonical_digests::<F>(), ConsumerError::Effect)?;
+    require(
+        (request.terms.receiver_blacklist_version == 0)
+            == (request.terms.receiver_blacklist_root == [0; 32]),
+        ConsumerError::Controls,
+    )?;
     require(
         statement.step == step && statement.relation_id == *relation_id,
         ConsumerError::Relation,
@@ -252,7 +258,8 @@ pub fn check_send<F: PoseidonField>(
 /// The checks of a `sigma_recv` statement (for example Credited evidence)
 /// against the scheme's relation identity and the Request body the consumer
 /// holds. The receiver's credential digest is not compared with the
-/// Request's (owner answer Q8). Returns the `sigma_recv` relation and the
+/// Request's (owner answer Q8). Returns the `sigma_recv` relation the
+/// Request's recorded blacklist version selects (B6: `(4, version != 0)`) and the
 /// public input to verify the proof against.
 ///
 /// # Errors
@@ -265,12 +272,20 @@ pub fn check_receive<F: PoseidonField>(
 ) -> Result<Accepted<F>, ConsumerError> {
     check_common(StepRelation::Receive, relation_id, request, statement)?;
     require(
+        statement.enabled_controls & !crate::witness::CONTROLS_DEFINED == 0,
+        ConsumerError::Controls,
+    )?;
+    require(
         statement.lineage_burned_total == 0 && statement.lineage_pending_outgoing_root == F::ZERO,
         ConsumerError::BurnedTotal,
     )?;
     let statement_digest = statement.digest().ok_or(ConsumerError::Effect)?;
     Ok(Accepted {
-        relation: SigmaRelation::RECEIVE,
+        relation: crate::proof::selector_for(
+            StepRelation::Receive,
+            statement.enabled_controls,
+            request.terms.receiver_blacklist_version,
+        ),
         public: StepPublic {
             statement: statement_digest,
         },
@@ -309,6 +324,33 @@ mod tests {
         vectors::{Mutation, sample_witness},
         witness::{CONTROL_BLACKLIST, StepInputs},
     };
+
+    #[test]
+    fn receive_selects_the_recorded_blacklist_independently_of_current_controls() {
+        for relation in [
+            SigmaRelation::RECEIVE,
+            SigmaRelation::receive(CONTROL_BLACKLIST),
+        ] {
+            let receive = sample_witness::<Fp>(2, relation, Mutation::None);
+            let request = receive.request_body();
+            let mut statement = receive.statement(relation).expect("statement");
+            for mask in 0..=crate::witness::CONTROLS_DEFINED {
+                statement.enabled_controls = mask;
+                let accepted = check_receive(&receive.relation_id, &request, &statement);
+                assert_eq!(
+                    accepted.expect("recorded blacklist selector").relation,
+                    relation
+                );
+            }
+            for mask in [crate::witness::CONTROLS_DEFINED + 1, u32::MAX] {
+                statement.enabled_controls = mask;
+                assert_eq!(
+                    check_receive(&receive.relation_id, &request, &statement),
+                    Err(ConsumerError::Controls),
+                );
+            }
+        }
+    }
 
     #[test]
     fn honest_statements_pass_and_yield_the_proof_inputs() {

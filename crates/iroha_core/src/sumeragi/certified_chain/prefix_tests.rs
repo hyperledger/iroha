@@ -188,14 +188,14 @@ fn unsigned_changed_genesis_result_cannot_be_exported_by_streamed_reader() {
 }
 
 #[test]
-fn streamed_prefix_checks_genuine_pasta_at_retained_empty_epoch_boundary() {
+fn streamed_prefix_checks_exact_native_quorum_at_retained_empty_epoch_boundary() {
     with_native_boundary_chain(
-        assert_streamed_prefix_checks_genuine_pasta_at_retained_empty_epoch_boundary,
+        assert_streamed_prefix_checks_exact_native_quorum_at_retained_empty_epoch_boundary,
     );
 }
 
 #[inline(never)]
-fn assert_streamed_prefix_checks_genuine_pasta_at_retained_empty_epoch_boundary(
+fn assert_streamed_prefix_checks_exact_native_quorum_at_retained_empty_epoch_boundary(
     chain: &CertifiedTestChain,
 ) {
     let id = ChainId::from("sumeragi-certified-test-chain");
@@ -204,20 +204,71 @@ fn assert_streamed_prefix_checks_genuine_pasta_at_retained_empty_epoch_boundary(
         prefix.push(frame(chain, height)).unwrap();
     }
     let original = frame(chain, 10);
-    let tampered = with_parts(&original, |_, qc, _| {
-        qc.attestation_witness = None;
-    });
-    assert!(matches!(
-        prefix.push(tampered),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
-            ChainReadError::Certificate { .. }
-        ))
-    ));
-    let (boundary, genesis) = prefix.push(original).unwrap().into_parts();
+    for alter_result in [false, true] {
+        let tampered = with_parts(&original, |_, qc, _| {
+            if alter_result {
+                qc.result.0[0] ^= 1;
+            } else {
+                qc.agg_sig.0[0] ^= 1;
+            }
+        });
+        let (rejected, counts) = relation_counts::measure(|| prefix.push(tampered));
+        // Source/result binding precedes BLS verification; the two tamper cases
+        // must preserve their distinct typed errors and leave the cursor intact.
+        if alter_result {
+            assert!(
+                matches!(
+                    rejected,
+                    Err(ExecutionAttemptError::Rejected(
+                        ChainReadError::ResultMismatch { height: 10 }
+                    ))
+                ),
+                "changed result must fail source binding: {rejected:?}"
+            );
+            assert!(counts.qcs.is_empty());
+        } else {
+            assert!(
+                matches!(
+                    rejected,
+                    Err(ExecutionAttemptError::Rejected(
+                        ChainReadError::Certificate { height: 10, .. }
+                    ))
+                ),
+                "changed aggregate must fail certificate verification: {rejected:?}"
+            );
+            assert_eq!(counts.qcs, [10]);
+        }
+        assert_eq!(counts.frames, [10]);
+        assert_eq!(prefix.prefix.tip.height(), 9);
+    }
+    let (_, qc) = decode_certificate(original.commit_certificate().unwrap()).unwrap();
+    for (signers, expected) in [
+        (Signers::BelowQuorum, CertError::TooFewSigners),
+        (Signers::All, CertError::TooManySigners),
+    ] {
+        let invalid = chain.commit_qc(10, qc.block_hash, qc.result, signers);
+        let tampered = with_parts(&original, |_, qc, _| *qc = invalid);
+        assert_eq!(
+            prefix.push(tampered).unwrap_err(),
+            ExecutionAttemptError::Rejected(ChainReadError::Certificate {
+                height: 10,
+                error: expected,
+            }),
+        );
+        assert_eq!(prefix.prefix.tip.height(), 9);
+    }
+    let (boundary, genesis) = prefix.push(original.clone()).unwrap().into_parts();
     assert!(genesis.is_none());
-    assert!(boundary.header().unwrap().attest);
+
     assert!(boundary.commitment().schedule.boundary.is_some());
-    assert!(boundary.commit_qc().unwrap().attestation_witness.is_some());
+    let qc = boundary.commit_qc().unwrap();
+
+    assert_eq!(qc.signers.count_ones(), 3);
+
+    assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+        boundary.block(),
+        &original
+    ));
 }
 
 /// Shape reuse binds the complete context, while each subsequent QC remains independently
@@ -233,7 +284,7 @@ fn warmed_epoch_shape_rejects_substituted_context_and_still_checks_each_qc() {
         let changed = with_parts(&original, |_, _, preimage| {
             let mut commitment = ExecutionResultCommitment::decode(preimage).unwrap();
             if mutate_keys {
-                commitment.schedule.current.authority.validators[0].eq_proof_public_key = [0; 32];
+                commitment.schedule.current.committee[0].proof_of_possession[0] ^= 1;
             } else {
                 commitment.schedule.current.leader_seed = [0; 32];
             }
@@ -491,6 +542,39 @@ fn checked_prefix_finish_preserves_refusal_rejection_and_same_source_retry() {
     );
 }
 
+/// An admitted prefix initializes its source fence and preserves ordinary verification.
+#[test]
+fn admitted_prefix_initializes_every_field_like_the_owned_constructor() {
+    let (chain, _) = chain();
+    let id = ChainId::from("sumeragi-certified-test-chain");
+    let mut owned = CertifiedPrefix::new(&id, chain.network_id(), frame(&chain, 1)).unwrap();
+    let prefix_bytes = std::mem::size_of::<CertifiedPrefix>();
+    let budget = iroha_allocation::AllocationBudget::new(
+        prefix_bytes
+            + std::mem::size_of::<CommittedBlock>()
+            + std::mem::size_of::<ExecutionResultCommitment>(),
+    );
+    let mut slot =
+        CertifiedPrefix::new_admitted(&id, chain.network_id(), frame(&chain, 1), &budget).unwrap();
+    assert_eq!(budget.reserved_bytes(), prefix_bytes);
+    let admitted = &mut slot.as_mut_slice()[0];
+    assert_eq!(admitted.instance(), owned.instance());
+    assert_eq!(
+        admitted.current_epoch_context(),
+        owned.current_epoch_context()
+    );
+    assert_eq!(admitted.prefix.tip.id(), owned.prefix.tip.id());
+    assert_eq!(admitted.prefix.proof_source, None);
+    assert_eq!(admitted.prefix.proof_source, owned.prefix.proof_source);
+    let expected = owned.push(frame(&chain, 2)).unwrap();
+    let actual = admitted.push(frame(&chain, 2)).unwrap();
+    assert_eq!(actual.current.id(), expected.current.id());
+    assert!(actual.has_genesis_anchor() && expected.has_genesis_anchor());
+    assert_eq!(admitted.prefix.proof_source, None);
+    drop(slot);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
 /// Admitted completion preserves every original native receipt and refunds its exact slots.
 #[test]
 fn admitted_prefix_finish_matches_original_step_and_retains_original_slot_until_finish() {
@@ -628,4 +712,75 @@ fn admitted_prefix_finish_preserves_original_pool_refusal_and_certificate_error_
         admitted.current_epoch_context(),
         original.current_epoch_context()
     );
+}
+
+#[test]
+fn walk_parent_link_retains_original_body_and_exact_native_continuity_without_result_copy() {
+    with_native_chain(assert_walk_parent_link_retains_original_body);
+}
+
+fn assert_walk_parent_link_retains_original_body(
+    chain: &CertifiedTestChain,
+    _: HashOf<TransactionEntrypoint>,
+) {
+    let source = frame(chain, 2);
+    let budget = iroha_allocation::AllocationBudget::new(
+        iroha_data_model::block::SharedSignedBlock::allocation_layout().size(),
+    );
+    let original = iroha_data_model::block::SharedSignedBlock::reserve(&budget)
+        .unwrap()
+        .initialize(source.as_ref().clone());
+    drop(source);
+    let parent = read_frame(original.clone(), 2).unwrap();
+    let child = read_frame(frame(chain, 3), 3).unwrap();
+    let mut link = WalkParentLink::from_committed(&parent);
+    assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+        &link.block,
+        &original
+    ));
+    assert!(link.block.belongs_to(&budget));
+    assert_eq!(link.is_extended_by(&child), child.extends(&parent));
+    assert!(link.is_extended_by(&child));
+    let original_pointer: *const SignedBlock = &*original;
+    drop(parent);
+    drop(original);
+    assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+    assert!(std::ptr::eq::<SignedBlock>(&*link.block, original_pointer));
+    assert!(link.is_extended_by(&child));
+
+    link.height = u64::MAX;
+    assert!(
+        !link.is_extended_by(&child),
+        "height overflow cannot extend"
+    );
+    link.height = 1;
+    assert!(
+        !link.is_extended_by(&child),
+        "a skipped height cannot extend"
+    );
+    link.height = 2;
+    let core_hash = link.core_hash;
+    link.core_hash.0[0] ^= 1;
+    assert!(
+        !link.is_extended_by(&child),
+        "the exact native parent hash is required"
+    );
+    link.core_hash = core_hash;
+    let result = link.result;
+    link.result.0[0] ^= 1;
+    assert!(
+        !link.is_extended_by(&child),
+        "the exact parent result is required"
+    );
+    link.result = result;
+    let block = std::mem::replace(&mut link.block, frame(chain, 1));
+    assert!(
+        !link.is_extended_by(&child),
+        "the original iroha parent body is required"
+    );
+    link.block = block;
+    assert!(link.is_extended_by(&child));
+    assert!(!link.is_extended_by(&read_frame(frame(chain, 4), 4).unwrap()));
+    drop(link);
+    assert_eq!(budget.reserved_bytes(), 0);
 }

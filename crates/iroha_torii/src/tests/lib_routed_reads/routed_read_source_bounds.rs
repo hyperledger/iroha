@@ -157,10 +157,14 @@ fn asset_definition_borrowed_json_matches_owned_projection_at_exact_cap() {
         for alias_binding in [None, Some(&binding)] {
             let source = ToriiAssetDefinitionJsonSource {
                 definition: &definition,
+                owning_dataspace: None,
                 alias_binding,
                 observation_time_ms,
             };
             let mut expected_value = norito::json::to_value(&definition).expect("definition JSON");
+            if let norito::json::Value::Object(object) = &mut expected_value {
+                object.insert("owning_dataspace".into(), norito::json::Value::Null);
+            }
             if let Some(binding) = alias_binding {
                 let binding_dto = routing::asset_alias_binding_dto(binding, observation_time_ms);
                 let norito::json::Value::Object(expected_object) = &mut expected_value else {
@@ -334,6 +338,7 @@ fn explorer_asset_definition_borrowed_json_matches_owned_dto_at_exact_cap() {
     .build(&authority);
     let source = ToriiExplorerAssetDefinitionJsonSource {
         definition: &definition,
+        owning_dataspace: None,
         assets: 7,
         locked_quantity: None,
         circulating_quantity: None,
@@ -342,6 +347,7 @@ fn explorer_asset_definition_borrowed_json_matches_owned_dto_at_exact_cap() {
         crate::explorer::ExplorerAssetDefinitionDto::from_definition_with_asset_count(
             &definition,
             7,
+            None,
         );
     let expected = norito::json::to_json_bounded_boxed(&expected_dto, usize::MAX)
         .expect("owned explorer DTO has a compact encoding");

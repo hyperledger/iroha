@@ -15,7 +15,8 @@ pub use crate::output::{OutputFormat, RenderedOutput};
 /// One explicit generated publication action over the same ordinary durable publication engine.
 #[derive(Clone, Debug)]
 pub enum GeneratedPublishAction {
-    /// Resolve/package and begin one publication; `None` selects the sole workspace package.
+    /// Resolve/package and begin one publication; preflight binds a selected member to its package.
+    /// With a workspace-root input, `None` preserves the root's default-member selection.
     Begin {
         /// Exact workspace selector, never an implicit namespace rewrite.
         package: Option<MusubiPackageSelectorV1>,
@@ -32,6 +33,50 @@ pub enum GeneratedPublishAction {
         /// Original immutable publication operation.
         operation_id: PublicationOperationIdV1,
     },
+}
+/// Validate local selection before publication opens or starts its managed environment.
+///
+/// A non-root member manifest selects only its owning package. A workspace-root input retains
+/// ordinary default-member and explicit-package selection. Resume never opens source manifests;
+/// Recover retains workspace validation and leaves its exact package selection to the journal.
+/// This preflight grants no publication authority; the canonical engine reopens and validates
+/// the selected workspace and its complete package graph before publication.
+///
+/// # Errors
+/// Refuses invalid workspaces, a member input naming another package, or an ambiguous Begin.
+pub fn prepare_generated_publish_action(
+    manifest: &Path,
+    mut action: GeneratedPublishAction,
+) -> eyre::Result<GeneratedPublishAction> {
+    if matches!(&action, GeneratedPublishAction::Resume { .. }) {
+        return Ok(action);
+    }
+    let workspace = crate::workspace::load_workspace(manifest)?;
+    if let GeneratedPublishAction::Begin { package, .. } = &mut action {
+        let selected_manifest = crate::workspace::discover_manifest(manifest)?;
+        if selected_manifest != workspace.root_manifest_path() {
+            let member = workspace
+                .members()
+                .values()
+                .find(|member| member.manifest_path == selected_manifest)
+                .ok_or_else(|| eyre::eyre!("selected manifest has no owning workspace member"))?;
+            eyre::ensure!(
+                package
+                    .as_ref()
+                    .is_none_or(|package| package == &member.package.selector),
+                "selected member manifest cannot select another package"
+            );
+            if package.is_none() {
+                *package = Some(member.package.selector.clone());
+            }
+        }
+        let packages = package.iter().cloned().collect::<Vec<_>>();
+        eyre::ensure!(
+            workspace.select_members(false, &packages, &[])?.len() == 1,
+            "package publication requires exactly one selected member"
+        );
+    }
+    Ok(action)
 }
 /// Exact workspace and client-owned publication journal selection; no credentials are copied here.
 #[derive(Clone, Debug)]
@@ -226,4 +271,251 @@ pub(crate) fn ensure_namespace(
     }
     parent.inspect(deadline).map_err(|_| refused())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    fn fixture(root: &Path, hybrid: bool) -> eyre::Result<(PathBuf, PathBuf)> {
+        let root = root.join(if hybrid { "hybrid" } else { "virtual" });
+        std::fs::create_dir_all(root.join("app"))?;
+        std::fs::create_dir(root.join("other"))?;
+        let package = |name: &str| {
+            format!(
+                "[package]\nnamespace = \"dev.universal\"\nname = \"{name}\"\nversion = \"1.0.0\"\nedition = \"1\"\nabi-version = 1\n[lib]\nexports = []\n"
+            )
+        };
+        std::fs::write(
+            root.join("Musubi.toml"),
+            format!(
+                "manifest-version = 1\n{}[workspace]\nmembers = [\"app\", \"other\"]\ndefault-members = [\"other\"]\n",
+                if hybrid {
+                    package("root")
+                } else {
+                    String::new()
+                }
+            ),
+        )?;
+        for name in ["app", "other"] {
+            std::fs::write(
+                root.join(name).join("Musubi.toml"),
+                format!("manifest-version = 1\n{}", package(name)),
+            )?;
+        }
+        Ok((root.clone(), root.join("app/Musubi.toml")))
+    }
+
+    fn begin(package: Option<&str>, detach: bool) -> GeneratedPublishAction {
+        GeneratedPublishAction::Begin {
+            package: package.map(|package| package.parse().unwrap()),
+            detach,
+        }
+    }
+
+    fn selected_packages(
+        manifest: &Path,
+        action: &GeneratedPublishAction,
+        expected_detach: bool,
+    ) -> eyre::Result<Vec<String>> {
+        let GeneratedPublishAction::Begin { package, detach } = action else {
+            panic!("Begin action");
+        };
+        assert_eq!(*detach, expected_detach);
+        let workspace = crate::workspace::load_workspace(manifest)?;
+        Ok(workspace
+            .select_members(false, &package.iter().cloned().collect::<Vec<_>>(), &[])?
+            .iter()
+            .map(|member| member.package.selector.to_string())
+            .collect())
+    }
+
+    #[test]
+    fn generated_publish_member_preflight_binds_owner_and_preserves_workspace_root_selection()
+    -> eyre::Result<()> {
+        let temporary = tempfile::tempdir()?;
+        for hybrid in [false, true] {
+            let (root, member) = fixture(temporary.path(), hybrid)?;
+            for input in [member.as_path(), member.parent().unwrap()] {
+                for package in [None, Some("dev.universal/app")] {
+                    let action = prepare_generated_publish_action(input, begin(package, true))?;
+                    let GeneratedPublishAction::Begin { package, .. } = &action else {
+                        unreachable!();
+                    };
+                    assert_eq!(package.as_ref().unwrap().to_string(), "dev.universal/app");
+                    assert_eq!(
+                        selected_packages(input, &action, true)?,
+                        ["dev.universal/app"]
+                    );
+                }
+            }
+            let root_manifest = root.join("Musubi.toml");
+            for input in [root.as_path(), root_manifest.as_path()] {
+                let action = prepare_generated_publish_action(input, begin(None, false))?;
+                assert!(matches!(
+                    &action,
+                    GeneratedPublishAction::Begin { package: None, .. }
+                ));
+                assert_eq!(
+                    selected_packages(input, &action, false)?,
+                    ["dev.universal/other"]
+                );
+                let action = prepare_generated_publish_action(
+                    input,
+                    begin(Some("dev.universal/app"), true),
+                )?;
+                assert_eq!(
+                    selected_packages(input, &action, true)?,
+                    ["dev.universal/app"]
+                );
+                if hybrid {
+                    let action = prepare_generated_publish_action(
+                        input,
+                        begin(Some("dev.universal/root"), false),
+                    )?;
+                    assert_eq!(
+                        selected_packages(input, &action, false)?,
+                        ["dev.universal/root"]
+                    );
+                }
+            }
+            assert!(!root.join("Musubi.lock").exists());
+            assert!(!root.join("target").exists());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn generated_publish_member_preflight_refuses_another_package_and_retries_original()
+    -> eyre::Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let (root, member) = fixture(temporary.path(), false)?;
+        let original = std::fs::read(&member)?;
+        for input in [member.as_path(), member.parent().unwrap()] {
+            let error =
+                prepare_generated_publish_action(input, begin(Some("dev.universal/other"), false))
+                    .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "selected member manifest cannot select another package"
+            );
+            assert_eq!(std::fs::read(&member)?, original);
+            let action = prepare_generated_publish_action(input, begin(None, false))?;
+            assert_eq!(
+                selected_packages(input, &action, false)?,
+                ["dev.universal/app"]
+            );
+            let action =
+                prepare_generated_publish_action(input, begin(Some("dev.universal/app"), true))?;
+            assert_eq!(
+                selected_packages(input, &action, true)?,
+                ["dev.universal/app"]
+            );
+        }
+        assert!(!root.join("Musubi.lock").exists());
+        assert!(!root.join("target").exists());
+        assert!(!root.join("publication-state").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn generated_publish_member_preflight_keeps_ambiguous_root_refusal_and_source_retry()
+    -> eyre::Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let (root, member) = fixture(temporary.path(), false)?;
+        let root_manifest = root.join("Musubi.toml");
+        let original = std::fs::read_to_string(&root_manifest)?;
+        std::fs::write(
+            &root_manifest,
+            original.replace(
+                "default-members = [\"other\"]",
+                "default-members = [\"app\", \"other\"]",
+            ),
+        )?;
+        let error =
+            prepare_generated_publish_action(&root_manifest, begin(None, false)).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "package publication requires exactly one selected member"
+        );
+        let action = prepare_generated_publish_action(&member, begin(None, false))?;
+        assert_eq!(
+            selected_packages(&member, &action, false)?,
+            ["dev.universal/app"]
+        );
+        let action = prepare_generated_publish_action(
+            &root_manifest,
+            begin(Some("dev.universal/app"), false),
+        )?;
+        assert_eq!(
+            selected_packages(&root_manifest, &action, false)?,
+            ["dev.universal/app"]
+        );
+        assert!(
+            prepare_generated_publish_action(
+                &root_manifest,
+                begin(Some("dev.universal/missing"), false)
+            )
+            .is_err()
+        );
+        std::fs::write(&root_manifest, &original)?;
+        let action = prepare_generated_publish_action(&root_manifest, begin(None, false))?;
+        assert_eq!(
+            selected_packages(&root_manifest, &action, false)?,
+            ["dev.universal/other"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn generated_publish_member_preflight_keeps_resume_source_independent_and_recover_validated()
+    -> eyre::Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let (root, member) = fixture(temporary.path(), false)?;
+        let operation_id = "56".repeat(32).parse()?;
+        let missing = root.join("missing/Musubi.toml");
+        for input in [member.as_path(), missing.as_path()] {
+            let action = prepare_generated_publish_action(
+                input,
+                GeneratedPublishAction::Resume { operation_id },
+            )?;
+            assert!(
+                matches!(action, GeneratedPublishAction::Resume { operation_id: actual } if actual == operation_id)
+            );
+        }
+        let action = prepare_generated_publish_action(
+            &member,
+            GeneratedPublishAction::Recover { operation_id },
+        )?;
+        assert!(
+            matches!(action, GeneratedPublishAction::Recover { operation_id: actual } if actual == operation_id)
+        );
+        let original = std::fs::read(&member)?;
+        std::fs::write(&member, "invalid changed manifest")?;
+        assert!(
+            prepare_generated_publish_action(
+                &member,
+                GeneratedPublishAction::Recover { operation_id }
+            )
+            .is_err()
+        );
+        assert!(prepare_generated_publish_action(&member, begin(None, false)).is_err());
+        let action = prepare_generated_publish_action(
+            &member,
+            GeneratedPublishAction::Resume { operation_id },
+        )?;
+        assert!(
+            matches!(action, GeneratedPublishAction::Resume { operation_id: actual } if actual == operation_id)
+        );
+        std::fs::write(&member, original)?;
+        let action = prepare_generated_publish_action(
+            &member,
+            GeneratedPublishAction::Recover { operation_id },
+        )?;
+        assert!(
+            matches!(action, GeneratedPublishAction::Recover { operation_id: actual } if actual == operation_id)
+        );
+        assert!(!root.join("Musubi.lock").exists());
+        Ok(())
+    }
 }

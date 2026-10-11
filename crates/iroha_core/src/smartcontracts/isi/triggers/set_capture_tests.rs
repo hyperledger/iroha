@@ -232,8 +232,9 @@ fn nested_world_capture(replacement: bool) {
         tip.commit();
     }
     let world = Arc::new(world);
-    let mut registration =
-        crate::unit_test_support::release_registration(world.operation_index_budget());
+    let mut registration = crate::unit_test_support::release_registration(
+        &iroha_allocation::AllocationBudget::new(64 * 1024),
+    );
     let before = images(&world.triggers);
     let before_later = norito::json::to_json(&world.soradns_last_publish_ms).unwrap();
     let ids = world

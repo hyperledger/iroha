@@ -53,6 +53,8 @@ EXPECTED_BUILD_ENVIRONMENT_FIELDS = {
     "schema",
     "hermetic_runner_schema",
     "hermetic_runner_sha256",
+    "wallet_runtime_authority",
+    "wallet_runtime_trust_ed25519_hex",
     "environment_profiles",
     "cargo_build_jobs",
     "rust_toolchain_channel",
@@ -92,6 +94,8 @@ COMMON_BUILD_ENVIRONMENT = {
     "IROHA_GIT_COMMIT_HASH",
     "LANG",
     "LC_ALL",
+    "MOBILE_SDK_WALLET_RUNTIME_AUTHORITY",
+    "MOBILE_SDK_WALLET_RUNTIME_TRUST_ED25519_HEX",
     "NORITO_SKIP_BINDINGS_SYNC",
     "PATH",
     "RUSTC",
@@ -162,6 +166,33 @@ EXPECTED_REQUIRED_SYMBOLS = [
     "connect_norito_private_settlement_auditor_capsule_response_verify_with_request_v1",
     "connect_norito_private_settlement_audit_approval_response_verify_v1",
     "connect_norito_sorafs_reference_validate_appeal_finance_cancel_asset_lock_json",
+    "connect_norito_kagemusha_wallet_revision_v1",
+    "connect_norito_kagemusha_wallet_open_begin_v1",
+    "connect_norito_kagemusha_wallet_open_finish_v1",
+    "connect_norito_kagemusha_wallet_open_cancel_v1",
+    "connect_norito_kagemusha_wallet_close_v1",
+    "connect_norito_kagemusha_wallet_activity_v1",
+    "connect_norito_kagemusha_wallet_setup_v1",
+    "connect_norito_kagemusha_wallet_execute_v1",
+    "connect_norito_kagemusha_wallet_load_original_validate_v1",
+    "connect_norito_kagemusha_wallet_request_status_v1",
+    "connect_norito_kagemusha_wallet_retry_v1",
+    "connect_norito_kagemusha_wallet_resume_v1",
+    "connect_norito_kagemusha_wallet_fold_v1",
+    "connect_norito_kagemusha_wallet_credit_status_v1",
+    "connect_norito_kagemusha_wallet_snapshot_v1",
+    "connect_norito_kagemusha_wallet_review_v1",
+    "connect_norito_kagemusha_wallet_execute_reviewed_v1",
+    "connect_norito_kagemusha_wallet_discard_review_v1",
+    "connect_norito_kagemusha_wallet_installation_begin_v1",
+    "connect_norito_kagemusha_wallet_installation_register_v1",
+    "connect_norito_kagemusha_wallet_installation_close_v1",
+    "connect_norito_kagemusha_wallet_registration_source_relocate_v1",
+    "connect_norito_kagemusha_wallet_observe_v1",
+    "connect_norito_kagemusha_wallet_account_original_v1",
+    "connect_norito_kagemusha_wallet_account_display_v1",
+    "connect_norito_kagemusha_wallet_enrollment_v1",
+    "connect_norito_kagemusha_wallet_enrollment_refusal_v1",
 ]
 EXPECTED_FORBIDDEN_SYMBOLS = [
     "connect_norito_kagemusha_v1_payment_request_validate",
@@ -300,6 +331,11 @@ def _validate_build_environment(root: Path, environment: object) -> None:
             f"(missing={sorted(EXPECTED_BUILD_ENVIRONMENT_FIELDS - actual)}, "
             f"unexpected={sorted(actual - EXPECTED_BUILD_ENVIRONMENT_FIELDS)})"
         )
+    if not isinstance(environment["wallet_runtime_authority"], str) or environment["wallet_runtime_authority"] not in {"bpng-taira-v7", "cbsi-release-v1"}:
+        raise ValidationError("artifact Native runtime authority is not exact")
+    public_root = environment["wallet_runtime_trust_ed25519_hex"]
+    if not isinstance(public_root, str) or SHA256.fullmatch(public_root) is None or public_root == "0" * 64:
+        raise ValidationError("artifact Native runtime public root is not exact")
     if environment["environment_profiles"] != EXPECTED_ENVIRONMENT_PROFILES:
         raise ValidationError("artifact build environment allowlists are not exact")
     if (
@@ -394,8 +430,8 @@ def _validate_root_identity(
         header.read_text(encoding="utf-8"),
         re.MULTILINE,
     )
-    if header_abis != ["25"]:
-        raise ValidationError("authoritative NoritoBridge header ABI is not exact 25")
+    if header_abis != ["29"]:
+        raise ValidationError("authoritative NoritoBridge header ABI is not exact 29")
 
     bridge_source = root / "crates/connect_norito_bridge/src/lib.rs"
     _regular_file(bridge_source, "authoritative NoritoBridge source")
@@ -416,8 +452,8 @@ def _validate_root_identity(
         protocol.read_text(encoding="utf-8"),
         re.MULTILINE,
     )
-    if protocol_abis != ["25"]:
-        raise ValidationError("authoritative privacy bridge ABI is not exact 25")
+    if protocol_abis != ["29"]:
+        raise ValidationError("authoritative privacy bridge ABI is not exact 29")
 
 
 def _load_manifest(manifest_path: Path, root: Path, lockfile: Path, *, local_integration: bool = False) -> dict[str, object]:
@@ -444,8 +480,8 @@ def _load_manifest(manifest_path: Path, root: Path, lockfile: Path, *, local_int
         or SEMVER.fullmatch(payload["version"]) is None
     ):
         raise ValidationError("artifact version is not canonical")
-    if payload["native_bridge_abi_version"] != 25:
-        raise ValidationError("artifact does not bind exact native bridge ABI 25")
+    if payload["native_bridge_abi_version"] != 29:
+        raise ValidationError("artifact does not bind exact native bridge ABI 29")
     if payload["privacy_production_enabled"] is not True:
         raise ValidationError("artifact must include mandatory privacy support")
     expected_features = ["privacy-production-enabled"]

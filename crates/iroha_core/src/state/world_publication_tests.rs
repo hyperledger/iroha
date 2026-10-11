@@ -4,7 +4,6 @@ use super::super::publication::{
     FieldRefusal, PreparedWorld, PreparedWorldField, WorldPublicationError,
 };
 use super::*;
-use crate::state::kagemusha_operation_indexes::OperationIndexFixtureBlock as _;
 use mv::PublicationPreparationError;
 
 trait FieldImage {
@@ -70,29 +69,9 @@ fn prepare<'a, A>(journal: DetachedWorld<A>, target: &'a World) -> PreparedWorld
         .unwrap_or_else(|(_, error, _)| panic!("World preparation refused: {error:?}"))
 }
 
-#[test]
-fn publication_scope_refusal_keeps_the_original_world_journal_for_retry() {
-    let world = fixture();
-    let journal = capture(world.block());
-    let expected = journal.fields().collect::<Vec<_>>();
-    let budget = world.operation_index_budget().clone();
-    let occupied = budget
-        .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
-        .unwrap();
-    let (journal, error, cleanup) = journal
-        .try_prepare_publication(&world, |_, _| Ok::<_, ()>(()))
-        .err()
-        .expect("the original operation-index pool is full");
-    assert!(matches!(
-        error,
-        WorldPublicationError::Scope(mv::storage::AdmittedStorageError::Allocation(
-            iroha_allocation::AllocationRefusal::Capacity { .. }
-        ))
-    ));
-    drop(cleanup);
-    assert_eq!(journal.fields().collect::<Vec<_>>(), expected);
-    drop(occupied);
-    drop(prepare(journal, &world));
+// Release waiters fund their node from a test-local pool.
+fn waiter_pool() -> iroha_allocation::AllocationBudget {
+    iroha_allocation::AllocationBudget::new(64 * 1024)
 }
 
 fn physical_custody<A>(journal: &DetachedWorld<A>) -> (usize, usize, Vec<usize>) {
@@ -114,11 +93,7 @@ fn prepare_field<'target>(
     Box<dyn PreparedWorldField + 'target>,
     (Box<dyn PreparedWorldField + 'target>, FieldRefusal),
 > {
-    let scope = target
-        .operation_index_budget()
-        .try_owned_refund_scope()
-        .unwrap();
-    let mut slot = original.publication_slot(target, &scope);
+    let mut slot = original.publication_slot(target);
     match slot.try_prepare() {
         Ok(()) => Ok(slot),
         Err(error) => Err((slot, error)),
@@ -152,7 +127,16 @@ fn complete_world_preparation_holds_every_inventory_writer_and_matches_direct_co
     mutate(&mut original, 2, "world_publish");
     mutate(&mut reference, 2, "world_publish");
     let prepared = prepare(capture(original), &world);
-    assert_eq!(probes.len(), 314);
+    let expected_fields =
+        crate::state::authority_registry::inventory_test_support::world_overlay_names();
+    assert_eq!(probes.len(), expected_fields.len());
+    assert_eq!(
+        probes
+            .iter()
+            .map(|field| field.summary().name.to_owned())
+            .collect::<std::collections::BTreeSet<_>>(),
+        expected_fields,
+    );
     // Probe each original field separately, so an early busy field cannot hide
     // a missing writer later in the heterogeneous World inventory.
     for probe in probes {
@@ -204,8 +188,7 @@ fn world_publication_retains_original_busy_notification_until_aggregate_unlock()
         }
     }
     let world = fixture();
-    let mut registration =
-        crate::unit_test_support::release_registration(world.operation_index_budget());
+    let mut registration = crate::unit_test_support::release_registration(&waiter_pool());
     let competitor = capture(world.block());
     let mut original = world.block();
     mutate(&mut original, 19, "deferred_world_wake");
@@ -541,7 +524,6 @@ impl RetainedWorldField for UnwindField {
     fn publication_slot<'target>(
         self: Box<Self>,
         target: &'target World,
-        scope: &OwnedAllocationScope,
     ) -> Box<dyn PreparedWorldField + 'target> {
         let Self {
             original,
@@ -549,7 +531,7 @@ impl RetainedWorldField for UnwindField {
             dropped,
         } = *self;
         Box::new(UnwindPreparedField {
-            original: original.publication_slot(target, scope),
+            original: original.publication_slot(target),
             boundary,
             dropped,
         })
@@ -623,7 +605,16 @@ fn world_publication_unwind_retains_both_admissions_until_original_fields_drop()
                 },
             )
             .unwrap();
-        assert_eq!(journal.field_count(), 314);
+        let expected_fields =
+            crate::state::authority_registry::inventory_test_support::world_overlay_names();
+        assert_eq!(journal.field_count(), expected_fields.len());
+        assert_eq!(
+            journal
+                .fields()
+                .map(|field| field.name.to_owned())
+                .collect::<std::collections::BTreeSet<_>>(),
+            expected_fields,
+        );
         // A separate read-only capture holds exact original-cut probes for every
         // real field before any unwind can poison its physical writer.
         let probe = capture(world.block());
@@ -762,8 +753,7 @@ fn world_abort_retains_all_original_boxes_and_notifications_until_aggregate_unlo
         }
     }
     let world = fixture();
-    let mut registration =
-        crate::unit_test_support::release_registration(world.operation_index_budget());
+    let mut registration = crate::unit_test_support::release_registration(&waiter_pool());
     let competitor = capture(world.block());
     let mut original = world.block();
     mutate(&mut original, 19, "deferred_world_wake");
@@ -851,7 +841,6 @@ fn world_refusal_retains_prefix_callbacks_and_original_shells_through_enclosing_
         fn publication_slot<'target>(
             self: Box<Self>,
             target: &'target World,
-            scope: &OwnedAllocationScope,
         ) -> Box<dyn PreparedWorldField + 'target> {
             let Self {
                 original,
@@ -861,7 +850,7 @@ fn world_refusal_retains_prefix_callbacks_and_original_shells_through_enclosing_
                 callback,
             } = *self;
             Box::new(PreparedObservePrefix {
-                original: original.publication_slot(target, scope),
+                original: original.publication_slot(target),
                 journal: Some(journal),
                 future,
                 registration,
@@ -923,8 +912,7 @@ fn world_refusal_retains_prefix_callbacks_and_original_shells_through_enclosing_
         }
     }
     let world = fixture();
-    let registration =
-        crate::unit_test_support::release_registration(world.operation_index_budget());
+    let registration = crate::unit_test_support::release_registration(&waiter_pool());
     let before = all_images(&world);
     let probe_journal = capture(world.block());
     let mut block = world.block();

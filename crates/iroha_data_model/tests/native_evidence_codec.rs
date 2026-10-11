@@ -24,10 +24,8 @@ fn native() -> NativeEvidence {
         view: 3,
         block_hash: Hash32([3; 32]),
         result: Hash32([4; 32]),
-        attest: false,
         signer: 2,
         sig: Signature([5; SIGNATURE_LEN]),
-        attestation: None,
     };
     let mut second = first.clone();
     second.block_hash = Hash32([6; 32]);
@@ -105,7 +103,12 @@ fn nested_native_evidence_resource_refusal_is_preserved_and_retryable() {
         norito::with_decode_limits_scope(json_limits, || norito::json::from_str::<Evidence>(&json))
             .unwrap_err();
     assert!(
-        matches!(error, norito::json::Error::DecodeResourceLimit),
+        matches!(
+            error,
+            norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::NestingDepthExceeded { limit: 3, .. }
+            )
+        ),
         "{error:?}"
     );
     assert_eq!(

@@ -103,6 +103,15 @@ impl RuntimeHttp {
         operation: &Path,
         script: Vec<Step>,
     ) -> Self {
+        Self::start_selected(prepared, provider, operation, script, false)
+    }
+    fn start_selected(
+        prepared: &PreparedLocalnet,
+        provider: ProviderId,
+        operation: &Path,
+        script: Vec<Step>,
+        only_selected: bool,
+    ) -> Self {
         let plan = prepared.gateway_compliance_plan(provider).unwrap().unwrap();
         let operation = operation.to_path_buf();
         let peer_index = prepared
@@ -113,7 +122,9 @@ impl RuntimeHttp {
         let mut listeners: Vec<_> = prepared
             .peers
             .iter()
-            .map(|peer| {
+            .enumerate()
+            .filter(|(index, _)| !only_selected || *index == peer_index)
+            .map(|(_, peer)| {
                 let url: url::Url = peer.torii_url.parse().unwrap();
                 assert_eq!(url.scheme(), "http");
                 assert_eq!(url.host_str(), Some("127.0.0.1"));
@@ -123,7 +134,7 @@ impl RuntimeHttp {
                 listener
             })
             .collect();
-        let listener = listeners.remove(peer_index);
+        let listener = listeners.remove(if only_selected { 0 } else { peer_index });
         let quiet = listeners;
         let stop = Arc::new(AtomicBool::new(false));
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -514,9 +525,9 @@ fn publication_promotes_exact_original_then_reopens_with_one_status_only() {
                     .advance(&mut TestLive::default(), deadline())
                     .unwrap()
             });
-        // Catalog and acknowledgement signing keep their independent Prepared source checks
-        // before and after signing. The repeated live-plan validations add no semantic parse.
-        assert_eq!(parses, 4);
+        // Signing, historical verification and live-plan access retain full source/lock checks
+        // on the held owner without another semantic profile parse.
+        assert_eq!(parses, 0);
         let original = bytes(&path, "original.nrt");
         let acknowledgement = bytes(&path, "acknowledgement.nrt");
         let catalog: GatewayComplianceCatalogV1 = decode(&original).unwrap();
@@ -667,11 +678,15 @@ fn malformed_foreign_trailing_oversized_and_gapped_originals_refuse_before_http(
     let (_foreign_temporary, foreign) = fixture("compliance-foreign");
     let publisher = ManagedGatewayCompliance::open(&prepared, provider).unwrap();
     let path = operation(&publisher);
-    let selected = prepared
-        .sign_gateway_compliance_catalog(provider, None, now_ms().unwrap() / 1_000)
+    let selected = publisher
+        .authority
+        .sign_gateway_compliance_catalog(None, now_ms().unwrap() / 1_000)
         .unwrap();
-    let foreign_catalog = foreign
-        .sign_gateway_compliance_catalog(self::provider(&foreign), None, now_ms().unwrap() / 1_000)
+    let foreign_publisher =
+        ManagedGatewayCompliance::open(&foreign, self::provider(&foreign)).unwrap();
+    let foreign_catalog = foreign_publisher
+        .authority
+        .sign_gateway_compliance_catalog(None, now_ms().unwrap() / 1_000)
         .unwrap();
     let exact = encode(&selected, MAX_RECORD_BYTES).unwrap();
     let mut trailing = exact.clone();
@@ -906,8 +921,9 @@ fn exact_promoted_catalog_expiry_boundary_and_pending_candidate_are_not_ready() 
     let (_temporary, prepared) = fixture("compliance-expiry-boundary");
     let provider = provider(&prepared);
     let publisher = ManagedGatewayCompliance::open(&prepared, provider).unwrap();
-    let catalog = prepared
-        .sign_gateway_compliance_catalog(provider, None, now_ms().unwrap() / 1_000)
+    let catalog = publisher
+        .authority
+        .sign_gateway_compliance_catalog(None, now_ms().unwrap() / 1_000)
         .unwrap();
     retain_catalog(&publisher, 1, &catalog);
     let path = operation(&publisher);
@@ -957,8 +973,9 @@ fn original_changed_during_initial_status_never_reaches_stage_or_promoted_return
             let (_temporary, prepared) = fixture("compliance-original-race");
             let provider = provider(&prepared);
             let publisher = ManagedGatewayCompliance::open(&prepared, provider).unwrap();
-            let catalog = prepared
-                .sign_gateway_compliance_catalog(provider, None, now_ms().unwrap() / 1_000)
+            let catalog = publisher
+                .authority
+                .sign_gateway_compliance_catalog(None, now_ms().unwrap() / 1_000)
                 .unwrap();
             retain_catalog(&publisher, 1, &catalog);
             let mut http = RuntimeHttp::start(
@@ -1031,3 +1048,75 @@ fn acknowledgement_changed_during_its_reply_never_reaches_promotion() {
 
 #[path = "observation_tests.rs"]
 mod observation_tests;
+
+#[test]
+fn joined_catalog_partial_publication_recovers_each_exact_original() {
+    let _resources = crate::managed::native_test_guard();
+    let (_temporary, prepared) = fixture("compliance-joined-recovery");
+    let providers = prepared
+        .stream_token_authorities()
+        .unwrap()
+        .unwrap()
+        .providers
+        .each_ref()
+        .map(|plan| plan.provider_id);
+    let publishers =
+        providers.map(|provider| ManagedGatewayCompliance::open(&prepared, provider).unwrap());
+    let paths = publishers.each_ref().map(|publisher| operation(publisher));
+    let mut servers: [_; 3] = std::array::from_fn(|slot| {
+        let script = if slot == 1 {
+            vec![
+                Step::Status(Observation::Empty),
+                Step::Mutation(Mutation::Stage, true),
+            ]
+        } else {
+            complete_script()
+        };
+        RuntimeHttp::start_selected(&prepared, providers[slot], &paths[slot], script, true)
+    });
+    let original_deadline = deadline();
+    let result = crate::managed::provider_round::run(
+        publishers,
+        true,
+        |publisher| publisher.advance(&mut TestLive::default(), original_deadline),
+        || invalid("catalog worker did not complete"),
+    );
+    assert!(result.is_err(), "one lost response refuses the aggregate");
+    for server in &mut servers {
+        server.finish();
+    }
+    drop(servers);
+    // All three original native purpose owners have closed before recovery. Other providers
+    // completed despite the middle member's refusal; recovery never replaces any signed bytes.
+    let originals = paths.each_ref().map(|path| bytes(path, "original.nrt"));
+    let acknowledgements: [_; 3] =
+        std::array::from_fn(|slot| (slot != 1).then(|| bytes(&paths[slot], "acknowledgement.nrt")));
+    for slot in 0..3 {
+        let publisher = ManagedGatewayCompliance::open(&prepared, providers[slot]).unwrap();
+        let script = if slot == 1 {
+            vec![
+                Step::Status(Observation::Candidate { ack: false }),
+                Step::Mutation(Mutation::Stage, false),
+                Step::Status(Observation::Candidate { ack: false }),
+                Step::Mutation(Mutation::Ack, false),
+                Step::Mutation(Mutation::Promote, false),
+                Step::Status(Observation::Promoted),
+            ]
+        } else {
+            vec![Step::Status(Observation::Promoted)]
+        };
+        let mut server = RuntimeHttp::start(&prepared, providers[slot], &paths[slot], script);
+        let catalog: GatewayComplianceCatalogV1 = decode(&originals[slot]).unwrap();
+        assert_eq!(
+            publisher
+                .advance(&mut TestLive::default(), original_deadline)
+                .unwrap(),
+            report(&catalog).unwrap()
+        );
+        assert_eq!(bytes(&paths[slot], "original.nrt"), originals[slot]);
+        if let Some(original) = &acknowledgements[slot] {
+            assert_eq!(&bytes(&paths[slot], "acknowledgement.nrt"), original);
+        }
+        server.finish();
+    }
+}

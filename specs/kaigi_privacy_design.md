@@ -38,7 +38,7 @@ modulus are rejected. These fields never pass through `Hash` or its reserved
 marker bit. JSON uses exact 32-byte arrays. The removed alias and issuance-time
 fields are rejected, including empty or zero-valued instances.
 
-The authorization circuit ID is `halo2/pasta/ipa/kaigi-authorization-v1`, with
+The authorization circuit ID is `pipa-r/pasta/kaigi-authorization-v1`, with
 schema `kaigi-authorization-v1`, domain size `k = 13`, and exactly one instance
 column containing these 31 rows:
 
@@ -62,7 +62,7 @@ constrains domain, length, terminator, padding and persistent capacity state.
 All integer limbs are range checked; identity limbs are strictly below the
 Goldilocks modulus.
 
-The usage circuit ID is `halo2/pasta/ipa/kaigi-usage-v1`, with schema
+The usage circuit ID is `pipa-r/pasta/kaigi-usage-v1`, with schema
 `kaigi-usage-v1`, domain size `k = 12`, and one 25-row column: network 0–3, call
 4–9, original host 10–15, pre-root 16–19, ledger segment 20, positive duration
 21, billed gas 22, stored host C 23 and usage commitment U 24. Segment is u32;
@@ -70,6 +70,13 @@ other integer limbs are u64. It proves the same host C opening established by
 host create. U binds this complete context and private opening. Core compares
 every row against trusted state and the signed usage instruction.
 
+Both families use native PIPA-R over Vesta with generic backend `pipa-r/pasta`
+or their exact circuit-specific registry label. `NativePipaRProofV1` carries the
+canonical public scalar vector and native transcript. The registry key is Core’s
+canonical Norito `CompiledVerifyingKeyV1` containing the exact compiled descriptor
+and processed VK bytes. Processed bytes alone do not bind transcript and public
+schema, so raw key carriers are rejected. Retired Halo2 labels and transcripts
+are rejected.
 Both families require the full canonical outer circuit ID, exact public-input
 schema, canonical `OpenVerifyEnvelope`, empty auxiliary bytes, exact proof
 column dimensions, and the matching compiled circuit/key geometry. A trailing

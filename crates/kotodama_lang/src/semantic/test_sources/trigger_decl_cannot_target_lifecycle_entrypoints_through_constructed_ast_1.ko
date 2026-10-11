@@ -1,8 +1,8 @@
 
-                seiyaku C {
+                seiyaku C { permission Run;
                     hajimari() {}
                     kaizen() {}
-                    kotoage fn run() authorize("Run") {}
+                    kotoage fn run() authorize(Run) {}
                     trigger wake -> run {
                         on time pre_commit;
                     }

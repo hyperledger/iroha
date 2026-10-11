@@ -33,7 +33,7 @@ public sealed class ConfidentialProverTests
             if (FailDispatch) throw new EntryPointNotFoundException("Injected dispatch failure before native consumption.");
             Proved++;
             if (FailProof) throw new ConfidentialProverException(-24);
-            var json = "{\"relation\":\"confidential_full_unshield\",\"backend\":\"halo2/ipa\",\"proof_hex\":\"01\",\"root_hex\":\"" + new string('1', 64) + "\",\"nullifiers_hex\":[\"" + new string('2', 64) + "\"],\"output_commitments_hex\":[]}";
+            var json = "{\"relation\":\"confidential_full_unshield\",\"backend\":\"pipa-r/pasta\",\"proof_hex\":\"01\",\"root_hex\":\"" + new string('1', 64) + "\",\"nullifiers_hex\":[\"" + new string('2', 64) + "\"],\"output_commitments_hex\":[]}";
             if (Operation == 0) json = json.Replace("confidential_full_unshield", "confidential_transfer").Replace("\"output_commitments_hex\":[]", "\"output_commitments_hex\":[\"" + new string('3', 64) + "\"]");
             return Encoding.UTF8.GetBytes(json);
         }
@@ -153,8 +153,8 @@ public sealed class ConfidentialProverTests
     [Fact]
     public void PublicResultRejectsWrongRelationRootCardinalityBackendAndDuplicateFields()
     {
-        var correct = "{\"relation\":\"confidential_full_unshield\",\"backend\":\"halo2/ipa\",\"proof_hex\":\"01\",\"root_hex\":\"" + new string('1',64) + "\",\"nullifiers_hex\":[\"" + new string('2',64) + "\"],\"output_commitments_hex\":[]}";
-        foreach (var changed in new[] { correct.Replace("confidential_full_unshield", "confidential_transfer"), correct.Replace(new string('1',64), new string('3',64)), correct.Replace("\"01\"", "\"\""), correct.Replace("halo2/ipa", "halo2"), correct.Replace("halo2/ipa", "halo2/pasta/ipa/confidential-unshield-full-merkle16-axiom-poseidon-v3"), correct.Replace("\"proof_hex\":\"01\"", "\"proof_hex\":\"01\",\"proof_hex\":\"02\"") })
+        var correct = "{\"relation\":\"confidential_full_unshield\",\"backend\":\"pipa-r/pasta\",\"proof_hex\":\"01\",\"root_hex\":\"" + new string('1',64) + "\",\"nullifiers_hex\":[\"" + new string('2',64) + "\"],\"output_commitments_hex\":[]}";
+        foreach (var changed in new[] { correct.Replace("confidential_full_unshield", "confidential_transfer"), correct.Replace(new string('1',64), new string('3',64)), correct.Replace("\"01\"", "\"\""), correct.Replace("pipa-r/pasta", "halo2"), correct.Replace("pipa-r/pasta", "pipa-r/pasta/confidential-unshield-full-v1"), correct.Replace("\"proof_hex\":\"01\"", "\"proof_hex\":\"01\",\"proof_hex\":\"02\"") })
             Assert.Throws<ConfidentialProverException>(() => ConfidentialProof.Decode(Encoding.UTF8.GetBytes(changed), ConfidentialProofRelation.FullRedemption, Word(0x11), 1, 0));
         Assert.Throws<ConfidentialProverException>(() => ConfidentialProof.Decode(Encoding.UTF8.GetBytes(correct), ConfidentialProofRelation.FullRedemption, Word(0x11), 2, 0));
     }

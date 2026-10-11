@@ -1,6 +1,7 @@
 use crate::{ContractArtifactError, DecodedOp};
 use iroha_data_model::smart_contract::manifest::{
     AccessSetHints, DynamicAccessHint, EntryPointKind, KotobaTranslationEntry,
+    validate_contract_permission_table,
 };
 use ivm_abi::metadata::{
     CONTRACT_FEATURE_BIT_VECTOR, CONTRACT_FEATURE_BIT_ZK, CONTRACT_FEATURE_KNOWN_BITS,
@@ -28,7 +29,7 @@ pub fn validate_contract_interface(
     contract_interface: &EmbeddedContractInterfaceV1,
     decoded: &[DecodedOp],
     profile: ValidationProfile,
-) -> Result<(), ContractArtifactError> {
+) -> Result<Vec<String>, ContractArtifactError> {
     if !is_canonical_seiyaku_name(&contract_interface.seiyaku_name) {
         return Err(ContractArtifactError::invalid(
             "CNTR seiyaku_name must be a canonical Kotodama V1 identifier",
@@ -61,6 +62,23 @@ pub fn validate_contract_interface(
             "CNTR features_bitmap does not match metadata VECTOR mode",
         ));
     }
+    if !validate_contract_permission_table(&contract_interface.permissions)
+        || contract_interface
+            .permissions
+            .iter()
+            .any(|declaration| !is_canonical_seiyaku_name(declaration.name.as_ref()))
+    {
+        return Err(ContractArtifactError::invalid(
+            "CNTR permission declarations must have canonical names in sorted unique order",
+        ));
+    }
+    if !iroha_data_model::smart_contract::event::validate_contract_event_table(
+        &contract_interface.events,
+    ) {
+        return Err(ContractArtifactError::invalid(
+            "CNTR events must be sorted unique named public structs within the declaration bounds",
+        ));
+    }
     validate_access_set_hints(contract_interface.access_set_hints.as_ref())?;
     validate_kotoba_entries(&contract_interface.kotoba)?;
     validate_state_descriptors(contract_interface)?;
@@ -69,6 +87,7 @@ pub fn validate_contract_interface(
         &contract_interface.states,
     )?;
     validate_error_types(contract_interface)?;
+    validate_enum_types(contract_interface)?;
     if !iroha_data_model::smart_contract::manifest::validate_contract_error_messages(
         &contract_interface.error_types,
         &contract_interface.error_messages,
@@ -185,19 +204,12 @@ pub fn validate_contract_interface(
         if entrypoint.kind == EntryPointKind::View {
             validate_view_effects(&entrypoint.name, &reachability.syscalls)?;
         }
-        if entrypoint.kind == EntryPointKind::Kotoage && entrypoint.permission.is_none() {
-            return Err(ContractArtifactError::invalid(format!(
-                "`kotoage`/`言挙げ` entrypoint `{}` is missing caller authorization",
-                entrypoint.name
-            )));
-        }
-        if matches!(
-            entrypoint.kind,
-            EntryPointKind::Hajimari | EntryPointKind::Kaizen
-        ) && entrypoint.permission.is_some()
+        if !entrypoint
+            .authorization
+            .is_valid_for(entrypoint.kind, &contract_interface.permissions)
         {
             return Err(ContractArtifactError::invalid(format!(
-                "`hajimari`/`始まり` and `kaizen`/`改善` entrypoint `{}` must use runtime-defined authorization",
+                "entrypoint `{}` must use explicit declared authorization; lifecycle hooks require RuntimeLifecycle",
                 entrypoint.name
             )));
         }
@@ -228,14 +240,6 @@ pub fn validate_contract_interface(
                     entrypoint.name
                 )));
             }
-        }
-        if let Some(permission) = entrypoint.permission.as_deref()
-            && permission.trim().is_empty()
-        {
-            return Err(ContractArtifactError::invalid(format!(
-                "entrypoint `{}` has an empty permission hint",
-                entrypoint.name
-            )));
         }
         validate_access_keys(&entrypoint.name, "read_keys", &entrypoint.read_keys)?;
         validate_access_keys(&entrypoint.name, "write_keys", &entrypoint.write_keys)?;
@@ -348,7 +352,15 @@ pub fn validate_contract_interface(
             }
         }
     }
-    Ok(())
+    Ok(entrypoint_reachability
+        .into_iter()
+        .filter_map(|(name, reachability)| {
+            reachability
+                .syscalls
+                .contains(&ivm_abi::syscalls::SYSCALL_GET_PRIVATE_INPUT)
+                .then_some(name)
+        })
+        .collect())
 }
 fn is_canonical_source_identifier(name: &str) -> bool {
     iroha_data_model::smart_contract::entrypoint::is_canonical_kotodama_identifier(name)
@@ -605,19 +617,20 @@ fn shared_nominal_abort_tail_pcs(
                 .or_insert_with(|| ordinary_jump(op));
         }
     }
+    let (Ok(publish), Ok(abort)) = (
+        u8::try_from(ivm_abi::syscalls::SYSCALL_INPUT_PUBLISH_TLV),
+        u8::try_from(ivm_abi::syscalls::SYSCALL_CONTRACT_ABORT),
+    ) else {
+        // This exact suffix requires the short SCALL encoding.
+        return BTreeSet::new();
+    };
     let expected = [
-        encoding::encode_sys(
-            wide::system::SCALL,
-            ivm_abi::syscalls::SYSCALL_INPUT_PUBLISH_TLV as u8,
-        ),
+        encoding::encode_sys(wide::system::SCALL, publish),
         encoding::encode_rr(wide::arithmetic::ADDI, 12, 0, 0),
         encoding::encode_rr(wide::arithmetic::ADDI, 13, 0, 0),
         encoding::encode_rr(wide::arithmetic::ADDI, 14, 0, 0),
         encoding::encode_rr(wide::arithmetic::ADDI, 15, 0, 0),
-        encoding::encode_sys(
-            wide::system::SCALL,
-            ivm_abi::syscalls::SYSCALL_CONTRACT_ABORT as u8,
-        ),
+        encoding::encode_sys(wide::system::SCALL, abort),
     ];
     let mut proven = BTreeSet::new();
     for suffix in decoded.windows(expected.len()) {
@@ -937,6 +950,11 @@ fn validate_view_effects(
     syscalls: &BTreeSet<u32>,
 ) -> Result<(), ContractArtifactError> {
     for number in syscalls {
+        // A typed call authenticates its exact target at runtime. View hosts reject
+        // a non-view target before copying arguments or executing child effects.
+        if *number == ivm_abi::syscalls::SYSCALL_CALL_CONTRACT {
+            continue;
+        }
         if matches!(
             ivm_abi::syscalls::syscall_access(*number),
             ivm_abi::syscalls::SyscallAccess::StateWrite
@@ -959,7 +977,20 @@ fn validate_entrypoint_access_claims(
     }
     for number in syscalls {
         let access = ivm_abi::syscalls::syscall_access(*number);
-        if !entrypoint_claim_covers_access(entrypoint, access) {
+        let covers_access = if *number == ivm_abi::syscalls::SYSCALL_CALL_CONTRACT
+            && entrypoint.kind == EntryPointKind::View
+        {
+            // A dynamically addressed view can read any state or ledger key.
+            // A particular ledger read hint cannot cover this boundary.
+            entrypoint
+                .read_keys
+                .iter()
+                .chain(&entrypoint.write_keys)
+                .any(|key| key == "*")
+        } else {
+            entrypoint_claim_covers_access(entrypoint, access)
+        };
+        if !covers_access {
             return Err(ContractArtifactError::invalid(format!(
                 "entrypoint `{}` marks access hints complete but under-reports transitively reachable {access:?} syscall 0x{number:06x}",
                 entrypoint.name
@@ -1062,33 +1093,12 @@ fn validate_dynamic_access_hints(
     }
     Ok(())
 }
-fn embedded_state_map_key_type_name(ty: &EmbeddedStateType) -> Option<&'static str> {
-    match ty {
-        EmbeddedStateType::Int => Some("int"),
-        EmbeddedStateType::Decimal => Some("decimal"),
-        EmbeddedStateType::Quantity => Some("quantity"),
-        EmbeddedStateType::Bool => Some("bool"),
-        EmbeddedStateType::String => Some("string"),
-        EmbeddedStateType::Bytes => Some("bytes"),
-        EmbeddedStateType::DataSpaceId => Some("DataSpaceId"),
-        EmbeddedStateType::AccountId => Some("AccountId"),
-        EmbeddedStateType::AssetDefinitionId => Some("AssetDefinitionId"),
-        EmbeddedStateType::AssetId => Some("AssetId"),
-        EmbeddedStateType::NftId => Some("NftId"),
-        EmbeddedStateType::DomainId => Some("DomainId"),
-        EmbeddedStateType::Name => Some("Name"),
-        EmbeddedStateType::Unit
-        | EmbeddedStateType::Error(_)
-        | EmbeddedStateType::StateCursor(_)
-        | EmbeddedStateType::Json
-        | EmbeddedStateType::Tuple(_)
-        | EmbeddedStateType::Struct { .. }
-        | EmbeddedStateType::StateMap { .. }
-        | EmbeddedStateType::Option(_)
-        | EmbeddedStateType::Result { .. }
-        | EmbeddedStateType::List { .. } => None,
-    }
+fn embedded_state_map_key_type_name(ty: &EmbeddedStateType) -> Option<String> {
+    ivm_abi::state_value::state_map_key_schema_v1(ty)
+        .ok()?
+        .canonical_type_name()
 }
+
 fn validate_dynamic_access_hint_state_maps(
     access_set_hints: Option<&AccessSetHints>,
     states: &[EmbeddedStateDescriptor],
@@ -1272,6 +1282,13 @@ fn validate_error_types(
             }
         }
     }
+    for event in &contract_interface.events {
+        for node in &event.payload_type.nodes {
+            if let EntrypointValueTypeNodeV1::Error(error) = node {
+                require_declared(error)?;
+            }
+        }
+    }
     for callable in &contract_interface.callables {
         for node in callable
             .arguments
@@ -1313,24 +1330,102 @@ fn validate_error_types(
     Ok(())
 }
 
-fn is_supported_state_map_key(ty: &EmbeddedStateType) -> bool {
-    matches!(
-        ty,
-        EmbeddedStateType::Int
-            | EmbeddedStateType::Decimal
-            | EmbeddedStateType::Quantity
-            | EmbeddedStateType::Bool
-            | EmbeddedStateType::String
-            | EmbeddedStateType::Bytes
-            | EmbeddedStateType::DataSpaceId
-            | EmbeddedStateType::AccountId
-            | EmbeddedStateType::AssetDefinitionId
-            | EmbeddedStateType::AssetId
-            | EmbeddedStateType::NftId
-            | EmbeddedStateType::DomainId
-            | EmbeddedStateType::Name
-    )
+fn validate_enum_types(
+    contract_interface: &EmbeddedContractInterfaceV1,
+) -> Result<(), ContractArtifactError> {
+    use iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1;
+    let catalog = &contract_interface.enum_types;
+    if !iroha_data_model::smart_contract::manifest::validate_contract_enum_table(catalog) {
+        return Err(ContractArtifactError::invalid(
+            "CNTR enum_types must be sorted unique canonical descriptors within the 256-type and 64-KiB limits",
+        ));
+    }
+    if catalog.iter().any(|enumeration| {
+        contract_interface
+            .error_types
+            .iter()
+            .any(|error| error.identity == enumeration.identity)
+    }) {
+        return Err(ContractArtifactError::invalid(
+            "CNTR ordinary enum and error identities must not overlap",
+        ));
+    }
+    let require_declared =
+        |descriptor: &iroha_data_model::smart_contract::manifest::ContractEnumTypeDescriptorV1| {
+            if catalog.contains(descriptor) {
+                Ok(())
+            } else {
+                Err(ContractArtifactError::invalid(
+                    "ordinary enum schema does not exactly match a CNTR ordinary enum descriptor",
+                ))
+            }
+        };
+    for entrypoint in &contract_interface.entrypoints {
+        for schema in entrypoint
+            .argument_schema
+            .iter()
+            .flat_map(|schema| schema.fields.iter().map(|field| &field.ty))
+            .chain(entrypoint.return_schema.iter())
+        {
+            for node in &schema.nodes {
+                if let EntrypointValueTypeNodeV1::Enum(descriptor) = node {
+                    require_declared(descriptor)?;
+                }
+            }
+        }
+    }
+    for event in &contract_interface.events {
+        for node in &event.payload_type.nodes {
+            if let EntrypointValueTypeNodeV1::Enum(descriptor) = node {
+                require_declared(descriptor)?;
+            }
+        }
+    }
+    for callable in &contract_interface.callables {
+        for node in callable
+            .arguments
+            .nodes
+            .iter()
+            .chain(&callable.results.nodes)
+        {
+            if let ivm_abi::call::CallTypeNodeV1::Enum(descriptor) = node {
+                require_declared(descriptor)?;
+            }
+        }
+    }
+    let mut pending = contract_interface
+        .states
+        .iter()
+        .map(|state| &state.ty)
+        .collect::<Vec<_>>();
+    while let Some(ty) = pending.pop() {
+        match ty {
+            EmbeddedStateType::Enum(descriptor) => require_declared(descriptor)?,
+            EmbeddedStateType::Tuple(items) => pending.extend(items),
+            EmbeddedStateType::Struct { fields, .. } => {
+                pending.extend(fields.iter().map(|field| &field.ty))
+            }
+            EmbeddedStateType::StateMap { key, value } => {
+                pending.push(key);
+                pending.push(value);
+            }
+            EmbeddedStateType::Result { ok, err } => {
+                pending.push(ok);
+                pending.push(err);
+            }
+            EmbeddedStateType::Option(value) | EmbeddedStateType::List { element: value, .. } => {
+                pending.push(value)
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
+
+fn is_supported_state_map_key(ty: &EmbeddedStateType) -> bool {
+    ivm_abi::state_value::state_map_key_schema_v1(ty).is_ok()
+}
+
 enum PendingStateTypeValidation<'a> {
     Type {
         ty: &'a EmbeddedStateType,
@@ -1415,11 +1510,11 @@ fn schedule_nested_state_types<'a>(
     match ty {
         EmbeddedStateType::StateCursor(key) => {
             let schema = iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
-                nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::StateCursor(*key)],
+                nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::StateCursor(key.clone())],
             };
             if !schema.validate() {
                 return Err(ContractArtifactError::invalid(
-                    "CNTR StateCursor key must be a supported canonical scalar type",
+                    "CNTR StateCursor key must be a bounded canonical scalar or tuple schema",
                 ));
             }
         }
@@ -1440,13 +1535,10 @@ fn schedule_nested_state_types<'a>(
             );
         }
         EmbeddedStateType::Struct { name, fields } => {
-            let valid_name = if name.contains("::") || name == "StatePage" {
+            let valid_name =
                 iroha_data_model::smart_contract::entrypoint::is_canonical_kotodama_struct_name(
                     name,
-                )
-            } else {
-                is_canonical_source_type_declaration_name(name)
-            };
+                );
             if !valid_name {
                 return Err(ContractArtifactError::invalid(format!(
                     "CNTR struct `{name}` is not a canonical Kotodama V1 struct identity"
@@ -1467,7 +1559,7 @@ fn schedule_nested_state_types<'a>(
             }
             if !is_supported_state_map_key(key) {
                 return Err(ContractArtifactError::invalid(
-                    "CNTR StateMap key must be a supported canonical scalar type",
+                    "CNTR StateMap key must be a bounded canonical scalar or tuple key schema",
                 ));
             }
             pending.push(PendingStateTypeValidation::Type {
@@ -1508,9 +1600,141 @@ fn schedule_nested_state_types<'a>(
 mod tests {
     use super::*;
     #[test]
+    fn nested_view_calls_require_global_reads_and_keep_other_effects_forbidden() {
+        use ivm_abi::syscalls::{self, SyscallAccess};
+        let artifact = kotodama_lang::compiler::Compiler::new()
+            .compile_source(
+                "seiyaku ViewCalls { view fn inspect() authorize(anyone) -> int { 1 } }",
+            )
+            .expect("compile a canonical view descriptor");
+        let mut entrypoint = ProgramMetadata::parse(&artifact)
+            .unwrap()
+            .contract_interface
+            .unwrap()
+            .entrypoints
+            .remove(0);
+        entrypoint.access_hints_complete = Some(true);
+        entrypoint.read_keys = vec!["*".into()];
+        entrypoint.write_keys.clear();
+        let calls = BTreeSet::from([syscalls::SYSCALL_CALL_CONTRACT]);
+        validate_view_effects(&entrypoint.name, &calls)
+            .expect("the host authenticates the target's view class");
+        validate_entrypoint_access_claims(&entrypoint, &calls)
+            .expect("global reads cover a dynamically addressed view");
+        for reads in [
+            vec![],
+            vec!["state:counter".into()],
+            vec!["account:alice".into()],
+        ] {
+            entrypoint.read_keys = reads;
+            validate_entrypoint_access_claims(&entrypoint, &calls)
+                .expect_err("a dynamic view cannot claim a particular key or no reads");
+        }
+        entrypoint.read_keys = vec!["*".into()];
+        entrypoint.kind = EntryPointKind::Kotoage;
+        validate_entrypoint_access_claims(&entrypoint, &calls)
+            .expect_err("a mutating caller still needs global writes");
+        entrypoint.write_keys = vec!["*".into()];
+        validate_entrypoint_access_claims(&entrypoint, &calls).unwrap();
+        for number in syscalls::abi_syscall_list()
+            .iter()
+            .copied()
+            .filter(|number| {
+                *number != syscalls::SYSCALL_CALL_CONTRACT
+                    && matches!(
+                        syscalls::syscall_access(*number),
+                        SyscallAccess::StateWrite
+                            | SyscallAccess::LedgerWrite
+                            | SyscallAccess::Dynamic
+                    )
+            })
+        {
+            validate_view_effects("inspect", &BTreeSet::from([number]))
+                .expect_err("the typed-call exception cannot admit any other effect");
+        }
+    }
+    #[test]
+    fn ordinary_enum_inventory_binds_every_schema_and_never_aliases_error_types() {
+        use iroha_data_model::smart_contract::{
+            entrypoint::{
+                EntrypointStructTypeNodeV1, EntrypointValueTypeNodeV1, EntrypointValueTypeV1,
+            },
+            event::ContractEventDescriptorV1,
+            manifest::{ContractErrorTypeDescriptor, ContractErrorVariantDescriptor},
+        };
+        let artifact = kotodama_lang::compiler::Compiler::new().compile_source(
+            "seiyaku Enums { enum Status { Pending = 1, Done = 7 } state Status status; hajimari() { status = Status::Pending; } view fn echo(Status value) authorize(anyone) -> Status { value } }"
+        ).expect("compile ordinary enum fixture");
+        let mut interface = ProgramMetadata::parse(&artifact)
+            .unwrap()
+            .contract_interface
+            .unwrap();
+        validate_enum_types(&interface).expect("compiler binds ordinary enum inventory");
+        let descriptor = interface.enum_types[0].clone();
+        interface.events.push(ContractEventDescriptorV1 {
+            name: "StatusChanged".parse().unwrap(),
+            payload_type: EntrypointValueTypeV1 {
+                nodes: vec![
+                    EntrypointValueTypeNodeV1::Struct(EntrypointStructTypeNodeV1 {
+                        name: "Enums::StatusChanged".into(),
+                        fields: vec!["status".into()],
+                    }),
+                    EntrypointValueTypeNodeV1::Enum(descriptor.clone()),
+                ],
+            },
+        });
+        assert!(interface.events[0].validate());
+        validate_enum_types(&interface).expect("event payload uses authenticated enum identity");
+        let original = interface.clone();
+        interface.enum_types[0].variants[0].name = "Forged".into();
+        assert!(
+            validate_enum_types(&interface).is_err(),
+            "same code cannot substitute enum schema"
+        );
+        interface = original.clone();
+        interface.enum_types.clear();
+        assert!(
+            validate_enum_types(&interface).is_err(),
+            "referenced enums must be declared"
+        );
+        interface = original.clone();
+        interface.enum_types.push(descriptor.clone());
+        assert!(
+            validate_enum_types(&interface).is_err(),
+            "duplicate declarations reject"
+        );
+        interface = original.clone();
+        interface.error_types.push(ContractErrorTypeDescriptor {
+            identity: descriptor.identity.clone(),
+            variants: descriptor
+                .variants
+                .iter()
+                .map(|variant| ContractErrorVariantDescriptor {
+                    name: variant.name.clone(),
+                    code: variant.code,
+                })
+                .collect(),
+        });
+        assert!(
+            validate_enum_types(&interface).is_err(),
+            "error and ordinary enum identities cannot overlap"
+        );
+        interface = original;
+        let EntrypointValueTypeNodeV1::Enum(event_enum) =
+            &mut interface.events[0].payload_type.nodes[1]
+        else {
+            unreachable!()
+        };
+        event_enum.variants[0].name = "OnlyTheEventIsForged".into();
+        assert!(
+            validate_enum_types(&interface).is_err(),
+            "event payload descriptors require exact table agreement"
+        );
+    }
+    #[test]
     fn callable_table_rejects_missing_roots_schema_substitution_and_invalid_privacy() {
         let bytes = kotodama_lang::compiler::Compiler::new().compile_source(
-            "seiyaku Calls { fn echo(bool value) -> bool { value } view fn main(bool value) -> bool { echo(value: value) } }"
+            "seiyaku Calls { fn echo(bool value) -> bool { value } view fn main(bool value) authorize(anyone) -> bool { echo(value: value) } }"
         ).expect("compile table calls");
         let parsed = ProgramMetadata::parse(&bytes).expect("parse contract");
         let decoded =
@@ -1548,7 +1772,7 @@ mod tests {
     #[test]
     fn callable_artifacts_reject_the_retired_erased_schema_surface_hash() {
         let mut bytes = kotodama_lang::compiler::Compiler::new().compile_source(
-            "seiyaku Cursors { view fn main(StateCursor<int> value) -> StateCursor<int> { value } }"
+            "seiyaku Cursors { view fn main(StateCursor<int> value) authorize(anyone) -> StateCursor<int> { value } }"
         ).unwrap();
         crate::verify_contract_artifact(&bytes).expect("current cursor artifact");
         // Previous unfinished V1 surface erased every Sum payload and List element type.
@@ -1569,7 +1793,7 @@ mod tests {
     fn callable_tables_bind_cursor_keys_at_public_and_private_boundaries() {
         use ivm_abi::{call::CallTypeNodeV1, entrypoint::EntrypointValueKindV1 as Kind};
         let bytes = kotodama_lang::compiler::Compiler::new().compile_source(
-            "seiyaku Cursors { fn echo(StateCursor<int> value) -> StateCursor<int> { value } view fn main(StateCursor<int> value) -> StateCursor<int> { echo(value: value) } }"
+            "seiyaku Cursors { fn echo(StateCursor<int> value) -> StateCursor<int> { value } view fn main(StateCursor<int> value) authorize(anyone) -> StateCursor<int> { echo(value: value) } }"
         ).expect("compile cursor calls");
         let parsed = ProgramMetadata::parse(&bytes).unwrap();
         let decoded = crate::decode_instruction_stream(&bytes[parsed.code_offset..]).unwrap();
@@ -1589,11 +1813,11 @@ mod tests {
         for callable in &original {
             assert_eq!(
                 callable.arguments.nodes,
-                [CallTypeNodeV1::StateCursor(Kind::Int)]
+                [CallTypeNodeV1::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(Kind::Int)] })]
             );
             assert_eq!(
                 callable.results.nodes,
-                [CallTypeNodeV1::StateCursor(Kind::Int)]
+                [CallTypeNodeV1::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(Kind::Int)] })]
             );
         }
         for results in [false, true] {
@@ -1608,7 +1832,7 @@ mod tests {
             } else {
                 &mut callable.arguments.nodes
             };
-            words[0] = CallTypeNodeV1::StateCursor(Kind::Bool);
+            words[0] = CallTypeNodeV1::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(Kind::Bool)] });
             assert!(
                 validate_callable_tables(&interface, &decoded, &roots, false).is_err(),
                 "public cursor key substitution (results={results})"
@@ -1621,7 +1845,7 @@ mod tests {
                 } else {
                     &mut callable.arguments.nodes
                 };
-                words[0] = CallTypeNodeV1::StateCursor(Kind::Json);
+                words[0] = CallTypeNodeV1::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(Kind::Json)] });
                 assert!(
                     validate_callable_tables(&interface, &decoded, &roots, false).is_err(),
                     "Json cursor key in callable {index} (results={results})"
@@ -1633,7 +1857,7 @@ mod tests {
     fn callable_schemas_bind_nested_payloads_capacity_and_nominal_identity() {
         use ivm_abi::{call::CallTypeNodeV1 as Node, entrypoint::EntrypointValueKindV1 as Kind};
         let bytes = kotodama_lang::compiler::Compiler::new().compile_source(
-            "seiyaku Nested { struct Payload { Option<List<StateCursor<int>, 2>> values; } fn echo(Payload value) -> Payload { value } view fn main(Payload value) -> Payload { echo(value: value) } }"
+            "seiyaku Nested { struct Payload { Option<List<StateCursor<int>, 2>> values; } fn echo(Payload value) -> Payload { value } view fn main(Payload value) authorize(anyone) -> Payload { echo(value: value) } }"
         ).expect("compile complete recursive call schemas");
         let parsed = ProgramMetadata::parse(&bytes).unwrap();
         let decoded = crate::decode_instruction_stream(&bytes[parsed.code_offset..]).unwrap();
@@ -1649,12 +1873,12 @@ mod tests {
         for result in [false, true] {
             for replacement in [
                 Node::Struct {
-                    name: "OtherPayload".into(),
+                    name: "Fixture::OtherPayload".into(),
                     fields: vec!["values".into()],
                 },
                 Node::Result,
                 Node::List { capacity: 3 },
-                Node::StateCursor(Kind::Bool),
+                Node::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(Kind::Bool)] }),
             ] {
                 interface.callables = original.clone();
                 let callable = interface
@@ -1698,13 +1922,21 @@ mod tests {
     #[test]
     fn state_cursor_is_an_opaque_value_with_a_supported_scalar_key() {
         use iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1;
-        let cursor = EmbeddedStateType::StateCursor(EntrypointValueKindV1::Int);
+        let cursor = EmbeddedStateType::StateCursor(
+            iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
+                nodes: vec![
+                    iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                        EntrypointValueKindV1::Int,
+                    ),
+                ],
+            },
+        );
         assert!(validate_state_type(&cursor, false).is_ok());
         assert_eq!(embedded_state_map_key_type_name(&cursor), None);
         assert!(validate_state_type(&EmbeddedStateType::Option(Box::new(cursor)), false).is_ok());
         assert!(
             validate_state_type(
-                &EmbeddedStateType::StateCursor(EntrypointValueKindV1::Json),
+                &EmbeddedStateType::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Json)] }),
                 false
             )
             .is_err()
@@ -1717,6 +1949,8 @@ mod tests {
         let list = ivm_abi::error_types::list_error_type();
         let numeric = ivm_abi::error_types::numeric_error_type();
         let mut interface = EmbeddedContractInterfaceV1 {
+            permissions: Vec::new(),
+            events: Vec::new(),
             callables: Vec::new(),
             seiyaku_name: "Errors".into(),
             compiler_fingerprint: "test".into(),
@@ -1730,6 +1964,7 @@ mod tests {
                 ty: EmbeddedStateType::Option(Box::new(EmbeddedStateType::Error(list.clone()))),
             }],
             error_messages: Vec::new(),
+            enum_types: Vec::new(),
             error_types: vec![list.clone(), numeric],
         };
         validate_error_types(&interface).expect("different types may share enum-local codes");
@@ -1930,7 +2165,7 @@ mod tests {
     }
     fn wide_struct(field_count: usize) -> EmbeddedStateType {
         EmbeddedStateType::Struct {
-            name: "Wide".to_owned(),
+            name: "Fixture::Wide".to_owned(),
             fields: (0..field_count)
                 .map(|index| EmbeddedStateFieldDescriptor {
                     name: format!("field_{index}"),
@@ -1950,6 +2185,66 @@ mod tests {
     fn validate_declared_state_type(ty: &EmbeddedStateType) -> Result<(), ContractArtifactError> {
         validate_state_type(ty, true)?;
         validate_runtime_state_schema("value", ty)
+    }
+    #[test]
+    fn durable_reserved_products_require_the_authenticated_builtin_shape() {
+        use EmbeddedStateType as T;
+        let account = T::Struct {
+            name: "kotodama::AccountView".into(),
+            fields: vec![
+                EmbeddedStateFieldDescriptor {
+                    name: "id".into(),
+                    ty: T::AccountId,
+                },
+                EmbeddedStateFieldDescriptor {
+                    name: "metadata".into(),
+                    ty: T::Json,
+                },
+            ],
+        };
+        assert!(validate_declared_state_type(&account).is_ok());
+        let page = T::Struct {
+            name: "kotodama::QueryPage".into(),
+            fields: vec![
+                EmbeddedStateFieldDescriptor {
+                    name: "items".into(),
+                    ty: T::List {
+                        element: Box::new(account),
+                        capacity: 64,
+                    },
+                },
+                EmbeddedStateFieldDescriptor {
+                    name: "next_offset".into(),
+                    ty: T::Option(Box::new(T::Int)),
+                },
+            ],
+        };
+        assert!(validate_declared_state_type(&page).is_ok());
+        for name in [
+            "kotodama::AccountView",
+            "kotodama::AssetView",
+            "kotodama::AssetDefinitionView",
+            "kotodama::DomainView",
+            "kotodama::NftView",
+            "kotodama::QueryPage",
+            "kotodama::StatePage",
+        ] {
+            assert!(
+                validate_declared_state_type(&T::Struct {
+                    name: name.into(),
+                    fields: vec![]
+                })
+                .is_err(),
+                "{name}"
+            );
+        }
+        let mut forged = page;
+        if let T::Struct { fields, .. } = &mut forged {
+            if let T::List { capacity, .. } = &mut fields[0].ty {
+                *capacity = 63;
+            }
+        }
+        assert!(validate_declared_state_type(&forged).is_err());
     }
     #[test]
     fn empty_nominal_state_products_are_admitted_as_unit_slots() {
@@ -2002,7 +2297,7 @@ mod tests {
     #[test]
     fn canonical_runtime_schema_byte_limit_is_enforced_at_admission() {
         let ty = EmbeddedStateType::Struct {
-            name: "S".repeat(MAX_STATE_VALUE_SCHEMA_BYTES),
+            name: format!("Fixture::{}", "S".repeat(MAX_STATE_VALUE_SCHEMA_BYTES)),
             fields: vec![EmbeddedStateFieldDescriptor {
                 name: "value".to_owned(),
                 ty: EmbeddedStateType::Bool,

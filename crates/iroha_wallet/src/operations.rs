@@ -36,6 +36,9 @@ use std::{
 mod preparation;
 pub use preparation::{NativePreparationPhase, RetiredNativeRequest, VerifiedNativePreparation};
 
+#[path = "operations_amx_registration.rs"]
+mod amx_registration;
+pub use amx_registration::AmxDataspaceRegistrationRequest;
 #[path = "operations_bounded.rs"]
 mod bounded;
 #[path = "operations_alias.rs"]
@@ -187,6 +190,8 @@ pub enum NativeOperationKind {
     Transfer,
     /// Indivisible paid alias setup planned and verified by the SDK.
     AliasSetup,
+    /// Exact explicit administrative AMX tracker registration on the selected Global root.
+    AmxDataspaceRegistration,
     /// Exact owner-bound compact private-root registration.
     PrivateRootRegistration,
     /// Exact next compact private-root certificate against retained parent cursor state.
@@ -218,6 +223,7 @@ pub enum NativeOperationKind {
 }
 
 enum OperationExpectation<'a> {
+    AmxRegistration(amx_registration::AmxRegistrationExpectation<'a>),
     MusubiNamespace(musubi_namespace::MusubiNamespaceExpectation<'a>),
     Transfer(&'a TransferRequest),
     Alias(&'a AliasSetupPlanRequestV1, &'a FeePaymentIntent),
@@ -236,6 +242,7 @@ enum OperationExpectation<'a> {
 impl OperationExpectation<'_> {
     fn verify(&self, record: &preparation::Selection<'_>) -> Result<()> {
         match self {
+            Self::AmxRegistration(expected) => expected.verify(record),
             Self::MusubiNamespace(expected) => expected.verify(record),
             Self::Transfer(expected) => {
                 let NativeOperation::Transfer {
@@ -451,7 +458,7 @@ impl AccountService {
         let _profile = ChainDiscriminantGuard::enter(self.config.account_chain_discriminant);
         self.ensure_deadline()?;
         fee_payment.validate()?;
-        let plan = self.client.client().plan_alias_setup(request)?;
+        let plan = self.client.plan_alias_setup(request)?;
         self.client
             .client()
             .verify_alias_setup_plan_for_request(request, &plan)?;
@@ -725,6 +732,12 @@ fn validate_transfer_request(request: &TransferRequest, authority: &AccountId) -
     deny_unknown_fields
 )]
 enum NativeOperation {
+    AmxDataspaceRegistration {
+        parent_chain_id: String,
+        registration: Box<PrivateDataspaceRegistration>,
+        deadline_unix_ms: u64,
+        terms: BoundedTerms,
+    },
     MusubiNamespaceBinding {
         plan: Vec<u8>,
         terms: BoundedTerms,
@@ -797,9 +810,9 @@ enum NativeOperation {
 impl NativeOperation {
     fn bounded_terms(&self) -> Option<&BoundedTerms> {
         match self {
-            Self::PrivateRootRegistration { terms, .. } | Self::PrivateRootAnchor { terms, .. } => {
-                Some(terms)
-            }
+            Self::AmxDataspaceRegistration { terms, .. }
+            | Self::PrivateRootRegistration { terms, .. }
+            | Self::PrivateRootAnchor { terms, .. } => Some(terms),
             Self::MusubiNamespaceBinding { terms, .. }
             | Self::StreamTokenCustodyConfigure { terms, .. }
             | Self::StreamTokenCustodyEnroll { terms, .. }
@@ -821,7 +834,8 @@ impl NativeOperation {
     }
     fn principal(&self, authority: &AccountId) -> Result<BTreeMap<AssetId, Quantity>> {
         match self {
-            Self::MusubiNamespaceBinding { .. }
+            Self::AmxDataspaceRegistration { .. }
+            | Self::MusubiNamespaceBinding { .. }
             | Self::PrivateRootRegistration { .. }
             | Self::PrivateRootAnchor { .. }
             | Self::StreamTokenCustodyConfigure { .. }
@@ -861,6 +875,7 @@ impl NativeOperation {
     }
     fn kind(&self) -> NativeOperationKind {
         match self {
+            Self::AmxDataspaceRegistration { .. } => NativeOperationKind::AmxDataspaceRegistration,
             Self::MusubiNamespaceBinding { .. } => NativeOperationKind::MusubiNamespaceBinding,
             Self::InitialGatewaySetup { .. } => NativeOperationKind::InitialGatewaySetup,
             Self::InitialReputationPolicy { .. } => NativeOperationKind::InitialReputationPolicy,
@@ -889,6 +904,24 @@ impl NativeOperation {
     }
     fn instructions(&self, config: &Config) -> Result<Vec<InstructionBox>> {
         match self {
+            Self::AmxDataspaceRegistration {
+                parent_chain_id,
+                registration,
+                deadline_unix_ms,
+                terms,
+            } => {
+                terms.validate()?;
+                eyre::ensure!(
+                    terms.deadline_ms <= *deadline_unix_ms,
+                    "AMX registration changed its original UTC authorization"
+                );
+                Ok(vec![amx_registration::instruction(
+                    config,
+                    parent_chain_id,
+                    registration,
+                    *deadline_unix_ms,
+                )?])
+            }
             Self::MusubiNamespaceBinding { plan, terms } => {
                 terms.validate()?;
                 musubi_namespace::instructions(config, plan, terms.deadline_ms)
@@ -1002,6 +1035,14 @@ fn transfer_report(
     evidence: Option<&Value>,
 ) -> OperationReport {
     let (kind, operation) = match &record.operation {
+        NativeOperation::AmxDataspaceRegistration {
+            registration,
+            terms,
+            ..
+        } => (
+            "amx_dataspace_registration",
+            norito::json!({"dataspace": (registration.scope.dataspace_id()), "instance": (hex::encode(registration.instance)), "terms": terms}),
+        ),
         NativeOperation::MusubiNamespaceBinding { terms, .. } => {
             ("musubi_namespace_binding", norito::json!({"terms": terms}))
         }

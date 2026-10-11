@@ -10,7 +10,7 @@ public sealed class ConfidentialProverNativeTests
     [Fact]
     public void NativeContractUsesCanonicalFirstReleaseRevisions()
     {
-        Assert.Equal(25U, ConfidentialWalletNative.Abi());
+        Assert.Equal(27U, ConfidentialWalletNative.Abi());
         Assert.Equal(1U, ConfidentialWalletNative.Revision());
         Assert.Equal(1U, ConfidentialWalletNative.DerivationRevision());
         ConfidentialWalletNative.RequireAvailable();
@@ -22,7 +22,7 @@ public sealed class ConfidentialProverNativeTests
         var key = RandomNumberGenerator.GetBytes(32);
         try
         {
-            Assert.Equal(25u, ConfidentialWalletNative.Abi());
+            Assert.Equal(27u, ConfidentialWalletNative.Abi());
             Assert.Equal(1u, ConfidentialWalletNative.Revision());
             Assert.Equal(1u, ConfidentialWalletNative.DerivationRevision());
             var diversifier = ConfidentialNotes.DefaultDiversifier();
@@ -124,7 +124,7 @@ public sealed class ConfidentialProverNativeTests
             foreach (var proof in new[] { complete, compact })
             {
                 Assert.Equal(ConfidentialProofRelation.FullRedemption, proof.Relation);
-                Assert.Equal("halo2/ipa", proof.Backend);
+                Assert.Equal("pipa-r/pasta", proof.Backend);
                 Assert.Equal(root, proof.Root);
                 Assert.NotEmpty(proof.Proof);
                 Assert.Single(proof.Nullifiers);
@@ -177,7 +177,7 @@ public sealed class ConfidentialProverNativeTests
             using var recovered = new ConfidentialInputNote(7, rho, diversifier, 0);
             var proof = await prover.ProveRedemptionAsync(ConfidentialTreeEvidence.Commitments(root, leaves), [recovered], 7);
             Assert.Equal(ConfidentialProofRelation.FullRedemption, proof.Relation);
-            Assert.Equal("halo2/ipa", proof.Backend);
+            Assert.Equal("pipa-r/pasta", proof.Backend);
             Assert.Equal(root, proof.Root);
             Assert.NotEmpty(proof.Proof);
             Assert.Single(proof.Nullifiers);

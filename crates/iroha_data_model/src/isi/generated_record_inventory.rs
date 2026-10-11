@@ -64,6 +64,12 @@ macro_rules! record_inventory {
 
 record_inventory! {
 record!(
+    kagemusha_wallet_ledger_v1,
+    crate::isi::kagemusha_wallet::KagemushaWalletLedgerV1,
+    "iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLedgerV1"
+);
+
+record!(
     sorafs_assert_publication_v1,
     crate::isi::sorafs::AssertSorafsPublicationV1,
     "iroha_data_model::isi::sorafs::AssertSorafsPublicationV1"
@@ -360,16 +366,6 @@ record!(
     identifier_revoke_identifier,
     crate::isi::identifier::RevokeIdentifier,
     "iroha_data_model::isi::identifier::RevokeIdentifier"
-);
-record!(
-    kagemusha_v1_redeem_kagemusha_v1,
-    crate::isi::kagemusha_v1::RedeemKagemushaV1,
-    "iroha_data_model::isi::kagemusha_v1::RedeemKagemushaV1"
-);
-record!(
-    kagemusha_v1_top_up_kagemusha_v1,
-    crate::isi::kagemusha_v1::TopUpKagemushaV1,
-    "iroha_data_model::isi::kagemusha_v1::TopUpKagemushaV1"
 );
 kaigi_record!(
     kaigi_create_kaigi,
@@ -936,24 +932,9 @@ record!(
     "iroha_data_model::isi::sccp::ReportSccpLightClientEquivocationV1"
 );
 record!(
-    sccp_set_sccp_bridge_key_v1,
-    crate::isi::sccp::SetSccpBridgeKeyV1,
-    "iroha_data_model::isi::sccp::SetSccpBridgeKeyV1"
-);
-record!(
     sccp_settle_sccp_v1,
     crate::isi::sccp::SettleSccpV1,
     "iroha_data_model::isi::sccp::SettleSccpV1"
-);
-record!(
-    sccp_submit_sccp_attestation_fault_v1,
-    crate::isi::sccp::SubmitSccpAttestationFaultV1,
-    "iroha_data_model::isi::sccp::SubmitSccpAttestationFaultV1"
-);
-record!(
-    sccp_submit_sccp_attestations_v1,
-    crate::isi::sccp::SubmitSccpAttestationsV1,
-    "iroha_data_model::isi::sccp::SubmitSccpAttestationsV1"
 );
 record!(
     sccp_submit_sccp_inbound_message_v1,
@@ -1457,11 +1438,6 @@ record!(
     staking_rebind_public_lane_validator_peer,
     crate::isi::staking::RebindPublicLaneValidatorPeer,
     "iroha_data_model::isi::staking::RebindPublicLaneValidatorPeer"
-);
-record!(
-    staking_record_public_lane_rewards,
-    crate::isi::staking::RecordPublicLaneRewards,
-    "iroha_data_model::isi::staking::RecordPublicLaneRewards"
 );
 record!(
     staking_register_public_lane_validator,

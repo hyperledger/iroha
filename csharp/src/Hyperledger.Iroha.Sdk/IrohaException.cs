@@ -58,6 +58,8 @@ public sealed class IrohaErrorDetails
         Actual = OptionalString(json, "actual");
         Hint = OptionalString(json, "hint");
         RejectCode = OptionalString(json, "reject_code");
+        IvmFault = json.TryGetProperty("ivm_fault", out var fault) && fault.ValueKind != JsonValueKind.Null
+            ? Torii.ToriiIvmFaultJsonConverter.Read(fault) : null;
     }
 
     /// <summary>The request control or data field at fault (for example <c>filter</c>).</summary>
@@ -74,6 +76,9 @@ public sealed class IrohaErrorDetails
 
     /// <summary>A rejection code carried inside the details object.</summary>
     public string? RejectCode { get; }
+
+    /// <summary>Canonical deterministic runtime fault when present in the HTTP error.</summary>
+    public Torii.ToriiIvmFault? IvmFault { get; }
 
     /// <summary>The complete details object, including members this SDK does not model.</summary>
     public JsonObject ToJsonObject() => JsonObject.Create(json.Clone())

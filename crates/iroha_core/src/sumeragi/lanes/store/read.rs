@@ -4,7 +4,7 @@ use crate::execution_attempt::ExecutionAttemptError as Attempt;
 use iroha_allocation::AllocationBudget;
 use iroha_sumeragi::{
     availability::{AvailabilitySource, BodyRestoration},
-    crypto::{AttestationVerifier, Verifier},
+    crypto::Verifier,
     message::{BlockHeader, ByteAdmissionError, Qc},
 };
 use std::{io, path::Path, sync::Arc};
@@ -165,7 +165,6 @@ pub(super) struct RestoreFrame {
     state: RestoreState,
     schedule: Arc<dyn AvailabilitySchedule>,
     crypto: SharedCrypto,
-    verifier: Arc<dyn AttestationVerifier + Send + Sync>,
 }
 impl RestoreFrame {
     pub(super) fn open(
@@ -174,14 +173,12 @@ impl RestoreFrame {
         budget: AllocationBudget,
         schedule: Arc<dyn AvailabilitySchedule>,
         crypto: SharedCrypto,
-        verifier: Arc<dyn AttestationVerifier + Send + Sync>,
     ) -> io::Result<Self> {
         Ok(Self {
             height,
             state: RestoreState::Reading(ReadRecord::open(path, budget)?),
             schedule,
             crypto,
-            verifier,
         })
     }
     pub(super) fn poll(
@@ -210,7 +207,6 @@ impl RestoreFrame {
                     let result = certified_source(
                         &*self.schedule,
                         &*self.crypto,
-                        &*self.verifier,
                         self.height,
                         record.header(),
                         record.commit_qc(),
@@ -253,7 +249,7 @@ impl RestoreFrame {
 pub(super) fn certified_source(
     schedule: &dyn AvailabilitySchedule,
     crypto: &dyn iroha_sumeragi::crypto::Crypto,
-    attestations: &dyn AttestationVerifier,
+
     height: u64,
     header: &BlockHeader,
     qc: &Qc,
@@ -268,11 +264,9 @@ pub(super) fn certified_source(
             "authenticated historical lane authority is not available",
         )
     })?;
-    if !Verifier::new(crypto, &instance, &config.epoch.id, &config.committee).verify_commit_qc(
-        attestations,
-        qc,
-        Some(header),
-    ) {
+    if !Verifier::new(crypto, &instance, &config.epoch.id, &config.committee)
+        .verify_commit_qc(qc, Some(header))
+    {
         return Err(invalid("original lane commit certificate does not verify").into());
     }
     AvailabilitySource::new(instance, height, qc.block_hash, config)

@@ -7,7 +7,7 @@ use ivm::ProgramMetadata;
 use ivm_abi::arguments::encode_argument_record_from_json;
 use norito::json::{Map, Value};
 const SOURCE: &str = r#"seiyaku ArgumentRecordFixture {
-  view fn quote(int count, int exact_int, decimal exact_decimal, quantity exact_quantity, bool active, string memo, bytes digest) -> int {
+  view fn quote(int count, int exact_int, decimal exact_decimal, quantity exact_quantity, bool active, string memo, bytes digest) authorize(anyone) -> int {
     let Json exact = json {
       exact_int: exact_int,
       exact_decimal: exact_decimal,

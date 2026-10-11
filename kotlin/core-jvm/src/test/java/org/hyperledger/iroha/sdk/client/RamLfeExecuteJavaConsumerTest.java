@@ -7,16 +7,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 
-/** Java consumers share Kotlin's ciphertext-only execution response contract. */
+/** Java consumers share Kotlin's exact32 opaque-output execution response contract. */
 final class RamLfeExecuteJavaConsumerTest {
   @Test
-  void parsesCiphertextAndReceiptWithoutInventingAPlaintextOpening() {
+  void parsesOpaqueOutputAndReceiptWithoutInventingAPlaintextOpening() {
     String json = HttpClientTransportTestSupportKt.ramLfeExecuteResponseJson();
     RamLfeExecuteResponse response = RamLfeJsonParser.parseExecuteResponse(
         json.getBytes(StandardCharsets.UTF_8));
     assertEquals("identifier_lookup_retail", response.programId);
-    assertEquals("abcd", response.outputCiphertext);
-    assertEquals(42L, response.executedAtMs);
+    assertEquals(HttpClientTransportTestSupportKt.currentOwnerExecuteResponseField("opaque_output"), response.opaqueOutputHex);
+    assertEquals(1_735_000_000_000L, response.executedAtMs);
+    assertEquals(HttpClientTransportTestSupportKt.currentOwnerExecuteResponseField("program_id_canonical"), response.programIdCanonicalHex);
     assertTrue(response.receipt.containsKey("payload"));
   }
 
@@ -34,7 +35,7 @@ final class RamLfeExecuteJavaConsumerTest {
     String json = HttpClientTransportTestSupportKt.ramLfeExecuteResponseJson();
     for (String backend : new String[] {
         "bfv-affine-sha3-256-v1", "bfv-programmed-sha3-256-v1", "unknown"}) {
-      String changed = json.replace("\"backend\": \"bfv-programmed-v1\"",
+      String changed = json.replace("\"backend\": \"hkdf-sha3-512-prf-v1\"",
           "\"backend\": \"" + backend + "\"");
       assertTrue(!changed.equals(json));
       IllegalStateException error = assertThrows(IllegalStateException.class,
@@ -52,21 +53,12 @@ final class RamLfeExecuteJavaConsumerTest {
   }
 
   @Test
-  void kotlinOwnedEncryptorsExposeAStableRefusalToJava() {
-    String key = "ed25519:ed01203B6A27BCCEB6A42D62A3A8D02A6F0D73653215771DE243A63AC048A18B59DA29";
-    IdentifierPolicySummary policy = new IdentifierPolicySummary(
-        "email#retail", "lookup", "owner", true, IdentifierNormalization.EXACT,
-        key, "bfv-affine-v1", "bfv-v1", null, null, null, key);
-    String hash = String.join("", java.util.Collections.nCopies(32, "11"));
-    RamLfeOutputOpening opening = new RamLfeOutputOpening(
-        new RamLfeOutputOpeningPayload("lookup", hash, hash, hash, hash, hash, 1L, null), "00");
-    RamLfeEncryptionUnavailableException error = assertThrows(
-        RamLfeEncryptionUnavailableException.class, () -> policy.encryptInput("private@example.org"));
-    assertEquals("ram_lfe_encryption_unavailable", error.code);
-    assertTrue(!error.getMessage().contains("private@example.org"));
-    assertThrows(RamLfeEncryptionUnavailableException.class,
-        () -> policy.encryptedRequestFromInput("private@example.org", opening));
-    assertThrows(RamLfeEncryptionUnavailableException.class,
-        () -> IdentifierResolveRequest.encryptedFromInput(policy, "private@example.org", opening));
+  void kotlinOwnerFactoriesRejectRetiredInputAndRequireExactNonce() {
+    String nonce = String.join("", java.util.Collections.nCopies(32, "12"));
+    RamLfeExecuteRequest request = RamLfeExecuteRequest.ownerInput("private@example.org", nonce);
+    assertEquals("private@example.org", request.normalizedInput);
+    assertEquals(nonce, request.inputNonceHex);
+    assertThrows(IllegalArgumentException.class, () -> RamLfeExecuteRequest.ownerInput("private@example.org", "abcd"));
+    assertThrows(IllegalArgumentException.class, () -> RamLfeExecuteRequest.ownerInput("", nonce));
   }
 }

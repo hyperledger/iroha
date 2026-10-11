@@ -61,6 +61,7 @@ EXPECTED_TEST_INCLUDES = {
         "semantic/tests/trigger_semantics_tests.rs",
         "semantic_sum_tests.rs",
         "semantic/tests/call_labels_and_patterns.rs",
+        "semantic/tests/call_identity.rs",
     ),
     "crates/kotodama_lang/src/ir.rs": (
         "ir/tests/public_argument_record_abi.rs",
@@ -97,6 +98,13 @@ EXPECTED_FIXTURE_DIRECTORIES = {
 }
 EXPECTED_EXTERNAL_FIXTURES = {
     "crates/kotodama_lang/src/compiler.rs": (
+        "crates/ivm/docs/examples/02_view_public_fn.ko",
+        "crates/ivm/docs/examples/04_foreach_map.ko",
+        "crates/ivm/docs/examples/05_range_for.ko",
+        "crates/ivm/docs/examples/14_map_sum_take2.ko",
+        "crates/ivm/docs/examples/15_modulo.ko",
+        "crates/ivm/docs/examples/18_ternary.ko",
+        "crates/kotodama_lang/src/samples/tuple_return_demo.ko",
         "crates/kotodama_lang/src/samples/mint_rose_trigger.ko",
         "crates/kotodama_lang/src/samples/zk_vote_ballot.ko",
         "crates/kotodama_lang/fixtures/koto_v1/staged_mint_access_hints/001.ko",

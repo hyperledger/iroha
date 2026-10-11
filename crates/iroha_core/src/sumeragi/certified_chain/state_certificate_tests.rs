@@ -127,7 +127,6 @@ fn ascending_native_continuation_refuses_same_proposal_changed_result_before_fir
             4,
             qc.block_hash,
             result_of_preimage(preimage),
-            qc.attest,
             Signers::Quorum,
         );
     });
@@ -380,7 +379,7 @@ fn state_certificate_checks_quorum_and_signed_availability_after_execution_authe
     let (_, qc) = decode_certificate(original.commit_certificate().unwrap()).unwrap();
     for signers in [Signers::BelowQuorum, Signers::All] {
         let changed = with_parts(&original, |_, target, _| {
-            *target = chain.commit_qc(4, qc.block_hash, qc.result, qc.attest, signers);
+            *target = chain.commit_qc(4, qc.block_hash, qc.result, signers);
         });
         assert!(
             reader
@@ -426,7 +425,7 @@ fn state_certificate_checks_quorum_and_signed_availability_after_execution_authe
 }
 
 #[test]
-fn state_certificate_verifies_actual_attested_npos_boundary() {
+fn state_certificate_verifies_actual_native_npos_boundary() {
     let mut chain = CertifiedTestChain::npos_boundary_fixture();
     chain.commit(Vec::new());
     let view = chain.state().view();
@@ -434,21 +433,49 @@ fn state_certificate_verifies_actual_attested_npos_boundary() {
     let result = reader
         .certified_from_execution(NonZeroUsize::new(10).unwrap(), |_, _| Ok(()))
         .unwrap();
-    assert!(result.header().unwrap().attest);
+
     assert!(result.commitment().schedule.boundary.is_some());
     assert_eq!(result.id(), reader.certified(10).unwrap().id());
-    let original = frame(&chain, 10);
-    let forged = with_parts(&original, |_, qc, _| {
-        let mut seal = qc.attestations[0].as_slice().to_vec();
-        seal[8] ^= 1;
-        qc.attestations[0] =
-            iroha_sumeragi::message::AttestationSignature::try_from_slice(&seal).unwrap();
-    });
-    assert!(
-        reader
-            .verify_executed_successor(&chain.committed(9), read_frame(forged, 10).unwrap())
-            .is_err()
+    let quorum = result.commit_qc().unwrap();
+    assert_eq!(
+        quorum.signers,
+        iroha_sumeragi::types::Bitmap::from_indices(4, [0, 1, 2]).unwrap()
     );
+
+    let original = frame(&chain, 10);
+    let parent = chain.committed(9);
+    for (signers, expected) in [
+        (Signers::BelowQuorum, CertError::TooFewSigners),
+        (Signers::All, CertError::TooManySigners),
+    ] {
+        let changed = with_parts(&original, |_, qc, _| {
+            *qc = chain.commit_qc(10, qc.block_hash, qc.result, signers);
+        });
+        assert!(matches!(
+            reader.verify_executed_successor(&parent, read_frame(changed, 10).unwrap()),
+            Err(VerificationReadError::Source(ChainReadError::Certificate {
+                height: 10,
+                error,
+            })) if error == expected
+        ));
+    }
+    let forged = with_parts(&original, |_, qc, _| qc.agg_sig.0[8] ^= 1);
+    assert!(matches!(
+        reader.verify_executed_successor(&parent, read_frame(forged, 10).unwrap()),
+        Err(VerificationReadError::Source(ChainReadError::Certificate {
+            height: 10,
+            error: CertError::BadSignature,
+        }))
+    ));
+    let current = chain.committed(10);
+    let retried = reader
+        .verify_executed_successor(&parent, current.clone())
+        .unwrap();
+    assert_eq!(retried.id(), result.id());
+    assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+        retried.block(),
+        current.block()
+    ));
 }
 
 #[test]
@@ -837,21 +864,37 @@ fn state_certificate_pairing_constructor_refusal_preserves_original_source_for_r
     let current = chain.committed(3);
     let backing = iroha_crypto::BlsNormalAggregateScratch::<()>::backing_bytes();
     let check = |limit| {
-        norito::core::with_decode_limits_scope(
+        norito::core::with_decode_limits_measured(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, limit, 128),
             || reader.verify_executed_successor(&parent, current.clone()),
         )
     };
     for _ in 0..2 {
+        let ((result, usage), relations) = relation_counts::measure(|| check(backing - 1));
+        assert!(
+            relations.qcs.is_empty(),
+            "constructor admission precedes any QC relation"
+        );
+        // Pure epoch validation first attempts its native context roundtrip under this same
+        // cumulative allowance. Refused optional insertion retains those original charges;
+        // the next failed charge must still be the exact pairing constructor backing.
+        let prelude = usage.total_allocated_bytes();
+        assert!(prelude > 0 && prelude < backing);
         assert!(matches!(
-            check(backing - 1),
+            result,
             Err(VerificationReadError::Resource(
                 norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit }
-            )) if attempted == backing as u64 && limit == (backing - 1) as u64
+            )) if attempted == u64::try_from(prelude.checked_add(backing).unwrap()).unwrap()
+                && limit == u64::try_from(backing - 1).unwrap()
         ));
+        assert_eq!(parent.id(), chain.committed(2).id());
+        assert_eq!(current.id(), chain.committed(3).id());
     }
+    // Each original refused scope and its counter owner has ended before this unchanged retry.
+    let ((certified, _), relations) = relation_counts::measure(|| check(1 << 26));
+    assert_eq!(relations.qcs, [3]);
     let certified =
-        check(1 << 26).expect("same authenticated body and parent retry after local refusal");
+        certified.expect("same authenticated body and parent retry after local refusal");
     assert_eq!(certified.id(), current.id());
     assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
         certified.block(),
@@ -919,7 +962,6 @@ fn parent_service_common_proposal_is_independent_of_local_certificate_subset() {
         5,
         source_qc.block_hash,
         source_qc.result,
-        source_qc.attest,
         Signers::LastThree,
     );
     assert_ne!(source_qc.signers, other_qc.signers);
@@ -929,7 +971,7 @@ fn parent_service_common_proposal_is_independent_of_local_certificate_subset() {
         .verify_parent_service_at(
             &proposal,
             &predecessor,
-            read_frame(source, 5).unwrap(),
+            &read_frame(source, 5).unwrap(),
             offered,
         )
         .unwrap()
@@ -938,7 +980,7 @@ fn parent_service_common_proposal_is_independent_of_local_certificate_subset() {
         .verify_parent_service_at(
             &proposal,
             &predecessor,
-            read_frame(other_source, 5).unwrap(),
+            &read_frame(other_source, 5).unwrap(),
             offered,
         )
         .unwrap()
@@ -991,7 +1033,7 @@ fn parent_service_proof_requires_exact_native_quorum_and_complete_subject() {
             1 => changed.height -= 1,
             2 => changed.block_hash = Hash32([0x27; 32]),
             3 => changed.result = Hash32([0x37; 32]),
-            4 => changed.attest = !changed.attest,
+            4 => changed.result.0[0] ^= 1,
             5 => changed.epoch.epoch += 1,
             6 => changed.agg_sig.0[5] ^= 1,
             _ => unreachable!(),
@@ -1000,8 +1042,7 @@ fn parent_service_proof_requires_exact_native_quorum_and_complete_subject() {
     }
     for signers in [Signers::BelowQuorum, Signers::All] {
         cases.push(
-            norito::to_bytes(&chain.commit_qc(5, qc.block_hash, qc.result, qc.attest, signers))
-                .unwrap(),
+            norito::to_bytes(&chain.commit_qc(5, qc.block_hash, qc.result, signers)).unwrap(),
         );
     }
     cases.push(Vec::new());
@@ -1047,11 +1088,11 @@ fn parent_service_original_decode_refusal_retries_same_proposal_without_invalidi
     let predecessor = chain.committed(4);
     let refused = norito::core::with_decode_limits_scope(
         norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 128),
-        || reader.verify_parent_service_at(&proposal, &predecessor, current.clone(), offered),
+        || reader.verify_parent_service_at(&proposal, &predecessor, &current, offered),
     );
     assert!(matches!(refused, Err(ParentServiceError::Deferred(_))));
     let retry = reader
-        .verify_parent_service_at(&proposal, &predecessor, current, offered)
+        .verify_parent_service_at(&proposal, &predecessor, &current, offered)
         .unwrap()
         .unwrap();
     retry.require_proposal(&proposal).unwrap();
@@ -1264,4 +1305,95 @@ fn original_walk_keeps_semantic_gas_rejection_and_refunds_partial_coordinates() 
         baseline,
         "abandonment releases the exact funded backing"
     );
+}
+
+#[test]
+fn state_certificate_consuming_completion_waits_for_original_walk_and_refunds_receipts() {
+    let (chain, _) = chain();
+    let view = chain.state().view();
+    let latest_id = chain.committed(5).id();
+    let ancestor_id = chain.committed(2).id();
+    let reader = CertifiedChain::new(&view).unwrap();
+    let pool = view.execution_budget();
+    let baseline = pool.reserved_bytes();
+    for refused in [true, false] {
+        let mut work_left = 5_u64 - u64::from(refused);
+        let mut completed = false;
+        let (result, observed) = relation_counts::measure(|| {
+            reader.certified_with_ancestor_from_execution_into(
+                NonZeroUsize::new(5).unwrap(),
+                |work, _| {
+                    work_left = work_left.checked_sub(work).ok_or(
+                        crate::execution_attempt::ExecutionAttemptError::Deferred(
+                            ivm::error::ExecutionDeferral::CanonicalHistoryCapacity.into(),
+                        ),
+                    )?;
+                    Ok(())
+                },
+                |latest| {
+                    assert_eq!(latest.id(), latest_id);
+                    Ok(NonZeroUsize::new(2))
+                },
+                |latest, ancestor| {
+                    completed = true;
+                    assert_eq!(latest.id(), latest_id);
+                    assert_eq!(ancestor.as_ref().map(|block| block.id()), Some(ancestor_id));
+                    (latest.id(), ancestor.as_ref().map(|block| block.id()))
+                },
+            )
+        });
+        assert_eq!(work_left, 0);
+        assert_eq!(completed, !refused);
+        assert_eq!(
+            pool.reserved_bytes(),
+            baseline,
+            "completed or refused receipt ownership retires to its original pool"
+        );
+        if refused {
+            assert!(matches!(
+                result,
+                Err(crate::execution_attempt::ExecutionAttemptError::Deferred(_))
+            ));
+            assert_eq!(observed.frames, [5, 4, 3, 2]);
+            assert_eq!(observed.qcs, [5]);
+        } else {
+            assert_eq!(result.unwrap(), (latest_id, Some(ancestor_id)));
+            assert_eq!(observed.frames, [5, 4, 3, 2, 1]);
+            assert_eq!(observed.qcs, [5, 2]);
+        }
+    }
+}
+
+#[test]
+fn admitted_receipt_malformed_frame_preserves_rejection_and_refunds_original_slots() {
+    let (chain, _) = chain();
+    let original = frame(&chain, 5);
+    let malformed = with_parts(&original, |header, _, _| header.height = 6);
+    let budget = chain.state().ivm_execution_budget();
+    let baseline = budget.reserved_bytes();
+    let expected = read_frame(malformed.clone(), 5).unwrap_err();
+    let actual =
+        AdmittedCommittedBlock::read(malformed, 5, &mut EpochValidationScope::new(), &budget)
+            .err()
+            .expect("the same canonical malformed frame must remain rejected");
+    match (expected, actual) {
+        (ExecutionAttemptError::Rejected(expected), ExecutionAttemptError::Rejected(actual)) => {
+            assert_eq!(actual, expected);
+        }
+        errors => panic!("malformed frames must not become local refusals: {errors:?}"),
+    }
+    assert_eq!(budget.reserved_bytes(), baseline);
+    let receipt = AdmittedCommittedBlock::read(
+        original.clone(),
+        5,
+        &mut EpochValidationScope::new(),
+        &budget,
+    )
+    .expect("the original valid frame remains usable after malformed rejection");
+    assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+        receipt.block(),
+        &original
+    ));
+    drop(receipt);
+    assert_eq!(budget.reserved_bytes(), baseline);
 }

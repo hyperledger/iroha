@@ -40,7 +40,9 @@ fn executed_genesis_must_retain_every_exact_signed_registration() {
         10,
         false,
     );
-    let context = crate::sumeragi::epoch::genesis_epoch(&signed).unwrap();
+    let context = crate::sumeragi::epoch::authenticated_genesis(&signed)
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
     let mut world = registered_world(&context);
     validate_executed_genesis(&world.view(), &context).unwrap();
     let id = derive_validator_key_id(context.committee[0].validator.public_key());
@@ -66,7 +68,9 @@ fn executed_genesis_rejects_an_extra_voting_registration() {
         10,
         false,
     );
-    let context = crate::sumeragi::epoch::genesis_epoch(&signed).unwrap();
+    let context = crate::sumeragi::epoch::authenticated_genesis(&signed)
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
     let mut world = registered_world(&context);
     let pair = KeyPair::from_seed(vec![0xa7; 32], Algorithm::BlsNormal);
     world.register_validator_pop_for_testing(
@@ -90,7 +94,9 @@ fn executed_genesis_fee_scope_decode_refusal_defers_and_retries_same_authority()
         10,
         false,
     );
-    let context = crate::sumeragi::epoch::genesis_epoch(&signed).unwrap();
+    let context = crate::sumeragi::epoch::authenticated_genesis(&signed)
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
     let world = registered_world(&context);
     let refused = norito::with_decode_limits_scope(
         norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),

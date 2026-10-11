@@ -52,6 +52,10 @@ def test_native_selection_preserves_old_suites_and_adds_canonical_consumers(nati
         "org.hyperledger.iroha.sdk.privacy.ConfidentialNoteJavaConsumerTest",
         "org.hyperledger.iroha.sdk.privacy.ZkAssetMerklePathJavaConsumerTest",
         "org.hyperledger.iroha.sdk.privacy.PrivacyRetiredWitnessBoundaryJavaConsumerTest",
+        "org.hyperledger.iroha.sdk.core.model.instructions.TransferWirePayloadEncoderParityTest",
+        "org.hyperledger.iroha.sdk.core.model.instructions.RegisterAccountWirePayloadEncoderParityTest",
+        "org.hyperledger.iroha.sdk.core.model.instructions.ClaimIdentifierWirePayloadEncoderParityTest",
+        "org.hyperledger.iroha.sdk.core.model.instructions.ContractLifecycleWirePayloadEncoderParityTest",
     )
     assert native_selection_guard.JVM_NATIVE_TEST_SELECTIONS == expected
     errors = []
@@ -59,7 +63,7 @@ def test_native_selection_preserves_old_suites_and_adds_canonical_consumers(nati
     assert errors == []
 
 
-@pytest.mark.parametrize("index", range(18))
+@pytest.mark.parametrize("index", range(22))
 def test_native_selection_rejects_each_omitted_old_or_new_suite(native_selection_guard, index: int) -> None:
     name = native_selection_guard.JVM_NATIVE_TEST_SELECTIONS[index]
     gate = read("ci/check_privacy_jvm_sdk.sh")
@@ -131,23 +135,23 @@ def require_fail_closed_tests(kotlin: str, java: str) -> None:
         r"if\s*\(\s*!available\s*\)\s*\{\s*return;\s*\}", java
     ) is None
     assert kotlin.count(
-        "ABI-25 connect_norito_bridge with compiled-profile catalog JNI exports is required"
+        "ABI-29 connect_norito_bridge with compiled-profile catalog JNI exports is required"
     ) == 1
     assert kotlin.count(
-        "ABI-25 connect_norito_bridge with exact-12 fixture JNI exports is required"
+        "ABI-29 connect_norito_bridge with exact-12 fixture JNI exports is required"
     ) == 1
     assert java.count(
-        "ABI-25 connect_norito_bridge with compiled-profile catalog JNI exports is required"
+        "ABI-29 connect_norito_bridge with compiled-profile catalog JNI exports is required"
     ) == 1
     assert java.count(
-        "ABI-25 connect_norito_bridge with exact-12 fixture JNI exports is required"
+        "ABI-29 connect_norito_bridge with exact-12 fixture JNI exports is required"
     ) == 1
     assert kotlin.count("assertTrue(\n            available,") == 2
     assert java.count("if (!available) {") == 2
     assert java.count("throw new AssertionError(") >= 2
 
 
-def test_privacy_jvm_gate_builds_and_authenticates_native_abi25() -> None:
+def test_privacy_jvm_gate_builds_and_authenticates_native_abi29() -> None:
     gate = read("ci/check_privacy_jvm_sdk.sh")
     assert 'source "${ROOT_DIR}/ci/privacy_sdk_cargo_lockfile.sh"' in gate
     assert "${PRIVACY_SDK_CANONICAL_CARGO_LOCK_SHA256}" in gate
@@ -156,8 +160,8 @@ def test_privacy_jvm_gate_builds_and_authenticates_native_abi25() -> None:
     assert '[[ "${RUSTC_VERSION}" == rustc\\ 1.93.1\\ * ]]' in gate
     assert '"${CARGO_BIN}" build --locked -p connect_norito_bridge --lib' in gate
     assert 'export NORITO_SKIP_BINDINGS_SYNC=1' in gate
-    assert gate.count('"${ABI25_CHECKER}" verify') == 6
-    assert gate.count('"${ABI25_CHECKER}" record') == 2
+    assert gate.count('"${ABI29_CHECKER}" verify') == 6
+    assert gate.count('"${ABI29_CHECKER}" record') == 2
     assert '--sdk c-jni' in gate
     assert '--source-root "${ROOT_DIR}"' in gate
     assert 'export IROHA_NATIVE_LIBRARY_PATH="${NATIVE_LIBRARY_DIR}"' in gate
@@ -166,9 +170,9 @@ def test_privacy_jvm_gate_builds_and_authenticates_native_abi25() -> None:
     assert 'PRIVACY_JVM_NATIVE_EXPORT_DIR' in gate
 
     build = gate.index('"${CARGO_BIN}" build --locked')
-    record = gate.index('"${ABI25_CHECKER}" record')
+    record = gate.index('"${ABI29_CHECKER}" record')
     tests = gate.index('./gradlew --no-daemon -q :core-jvm:jar :core-jvm:test')
-    final_verify = gate.rindex('"${ABI25_CHECKER}" verify')
+    final_verify = gate.rindex('"${ABI29_CHECKER}" verify')
     assert build < record < tests < final_verify
     assert 'install -m 600 "${SELECTED_CARGO_LOCK}" "${ROOT_DIR}/Cargo.lock"' not in gate
     assert 'install -m 400 "${SELECTED_CARGO_LOCK}"' in gate
@@ -201,8 +205,8 @@ def test_csharp_lane_consumes_the_same_authenticated_native_bytes() -> None:
     assert "needs: privacy_jvm_sdk_tests" in job
     assert 'IROHA_REQUIRE_PRIVACY_EXACT12_NATIVE: "1"' in job
     assert "actions/download-artifact@" in job
-    assert "privacy-jvm-native-abi25-${{ github.sha }}" in job
-    assert "native-sdk-abi25-csharp.json" in job
+    assert "privacy-jvm-native-abi29-${{ github.sha }}" in job
+    assert "native-sdk-abi29-csharp.json" in job
     assert job.count("check_native_sdk_artifact.py verify") == 2
     assert job.count("${PRIVACY_SDK_CANONICAL_CARGO_LOCK_SHA256}") >= 2
     assert "source ci/privacy_sdk_cargo_lockfile.sh" in job
@@ -220,7 +224,7 @@ def test_csharp_lane_consumes_the_same_authenticated_native_bytes() -> None:
     assert "WhenAvailable" not in tests
 
 
-def test_javascript_lane_builds_and_executes_real_napi_abi25() -> None:
+def test_javascript_lane_builds_and_executes_real_napi_abi29() -> None:
     workflow = read(".github/workflows/pr_privacy_sdk_guard.yml")
     job = javascript_job(workflow)
     assert "needs: privacy_jvm_sdk_tests" in job
@@ -247,8 +251,8 @@ def test_javascript_lane_builds_and_executes_real_napi_abi25() -> None:
     assert 'source "${SCRIPT_DIR}/privacy_sdk_cargo_lockfile.sh"' in gate
     assert 'scripts/build-native.mjs' in gate
     assert 'scripts/copy-native.mjs' in gate
-    assert gate.count('"${ABI25_CHECKER}" verify') == 2
-    assert '"${ABI25_CHECKER}" record' in gate
+    assert gate.count('"${ABI29_CHECKER}" verify') == 2
+    assert '"${ABI29_CHECKER}" record' in gate
     assert '--sdk node' in gate
     assert 'test/privacyNative.integration.test.js' in gate
     assert 'export IROHA_JS_NATIVE_DIR=' in gate
@@ -279,12 +283,12 @@ def test_javascript_lane_builds_and_executes_real_napi_abi25() -> None:
     assert "privacyValidateCompiledProfileCatalogV1" in integration
 
 
-def test_python_lane_authenticates_and_executes_real_pyo3_abi25() -> None:
+def test_python_lane_authenticates_and_executes_real_pyo3_abi29() -> None:
     gate = read("ci/check_privacy_python_sdk.sh")
     assert "${PRIVACY_SDK_CANONICAL_CARGO_LOCK_SHA256}" in gate
     assert 'source "${SCRIPT_DIR}/privacy_sdk_cargo_lockfile.sh"' in gate
-    assert '"${ABI25_CHECKER}" record' in gate
-    assert gate.count('"${ABI25_CHECKER}" verify') == 2
+    assert '"${ABI29_CHECKER}" record' in gate
+    assert gate.count('"${ABI29_CHECKER}" verify') == 2
     assert '--sdk python' in gate
     assert '--python "${VENV_DIR}/bin/python"' in gate
     assert 'materialize_workspace_lock_for_native_evidence' not in gate
@@ -308,7 +312,7 @@ def test_python_lane_authenticates_and_executes_real_pyo3_abi25() -> None:
     )
 
 
-def test_swift_lane_rebuilds_external_xcframework_and_requires_native_abi25() -> None:
+def test_swift_lane_rebuilds_external_xcframework_and_requires_native_abi29() -> None:
     workflow = read(".github/workflows/pr_privacy_sdk_guard.yml")
     job = swift_job(workflow)
     assert "needs: privacy_jvm_sdk_tests" in job
@@ -333,7 +337,7 @@ def test_swift_lane_rebuilds_external_xcframework_and_requires_native_abi25() ->
     assert "chmod -R a-w" in job
     assert "scripts/build_norito_xcframework.sh" in job
     assert "run: ci/check_privacy_swift_sdk.sh" in job
-    assert "Revalidate frozen Swift inputs and ABI25 artifacts" in job
+    assert "Revalidate frozen Swift inputs and ABI29 artifacts" in job
     assert job.count("scripts/check_mobile_sdk_artifacts.sh --apple-only") == 1
 
     gate = read("ci/check_privacy_swift_sdk.sh")
@@ -617,3 +621,120 @@ def test_javascript_post_lock_boundary_refuses_synthetic_unsupported_runtime_bef
         assert observed == [["--version"]]
         assert f"require Node 20; got v{selected_version}" in result.stderr
         assert "native-build sentinel" not in result.stderr
+
+
+def test_jvm_native_prerequisites_are_checked_before_selected_runtime(native_selection_guard) -> None:
+    errors = []
+    native_selection_guard._check_jvm_native_prerequisites(read("ci/check_privacy_jvm_sdk.sh"), errors)
+    assert errors == []
+
+
+@pytest.mark.parametrize("before,after", (
+    ('--features privacy-production-enabled', '--features dev-tools'),
+    ('--features dev-tools --bin kotlin-fixture-gen', '--bin kotlin-fixture-gen'),
+    ('--features dev-tools --bin kotlin-fixture-gen', '--features dev-tools --bin wrong-generator'),
+    ('"${CARGO_BIN}" build --locked -p kotlin-fixture-gen', '# "${CARGO_BIN}" build --locked -p kotlin-fixture-gen'),
+    ('--target-dir "${BUILD_TARGET_DIR}"', '--target-dir "${ROOT_DIR}/target"'),
+    ('export IROHA_KOTLIN_FIXTURE_GEN_BIN="${FIXTURE_GENERATOR}"', 'export IROHA_KOTLIN_FIXTURE_GEN_BIN="${ROOT_DIR}/target/debug/kotlin-fixture-gen"'),
+    ('export IROHA_KOTLIN_FIXTURE_GEN_BIN="${FIXTURE_GENERATOR}"', '# export IROHA_KOTLIN_FIXTURE_GEN_BIN="${FIXTURE_GENERATOR}"'),
+    ('&& ! -L "${FIXTURE_GENERATOR}" && -x "${FIXTURE_GENERATOR}"', '&& -x "${FIXTURE_GENERATOR}"'),
+    ('&& ! -L "${FIXTURE_GENERATOR}" && -x "${FIXTURE_GENERATOR}"', '&& ! -L "${FIXTURE_GENERATOR}"'),
+    ('FIXTURE_GENERATOR_SHA256="$(sha256_file "${FIXTURE_GENERATOR}")"', 'FIXTURE_GENERATOR_SHA256="stale"'),
+    ('== "${FIXTURE_GENERATOR_SHA256}"', '== "${FIXTURE_GENERATOR_SHA256}" || true'),
+    ('== "${SOURCE_MANIFEST_BEFORE}"', '== "${SOURCE_MANIFEST_BEFORE}" || true'),
+    ('"${ABI29_CHECKER}" verify', '"${ABI29_CHECKER}" record'),
+    ('--source-root "${ROOT_DIR}"', '--source-root "${NATIVE_BUILD_ROOT}"'),
+    ('set -euo pipefail', 'set -uo pipefail'),
+    ('--no-build-cache --rerun-tasks', ''),
+))
+def test_jvm_native_prerequisites_reject_missing_stale_wrong_or_unexecuted_inputs(native_selection_guard, before, after) -> None:
+    gate = read("ci/check_privacy_jvm_sdk.sh")
+    assert before in gate
+    errors = []
+    native_selection_guard._check_jvm_native_prerequisites(gate.replace(before, after, 1), errors)
+    assert errors
+
+
+@pytest.mark.parametrize("mutation", ("late-export", "duplicate-build-block", "withdrawn-final-generator-check"))
+def test_jvm_native_prerequisites_reject_wrong_order_and_missing_final_fence(native_selection_guard, mutation) -> None:
+    gate = read("ci/check_privacy_jvm_sdk.sh")
+    export = 'export IROHA_NATIVE_LIBRARY_PATH="${NATIVE_LIBRARY_DIR}"\nexport IROHA_KOTLIN_FIXTURE_GEN_BIN="${FIXTURE_GENERATOR}"\n'
+    if mutation == "late-export":
+        gate = gate.replace(export, "", 1) + "\n" + export
+    elif mutation == "duplicate-build-block":
+        start = gate.index('SOURCE_MANIFEST_BEFORE=')
+        end = gate.index('\ncase "${HOST_TRIPLE}" in', start)
+        gate += "\n" + gate[start:end] + "\n"
+    else:
+        gate = gate.replace('  || fail "fixture generator was withdrawn during privacy JVM execution"', '  || true', 1)
+    errors = []
+    native_selection_guard._check_jvm_native_prerequisites(gate, errors)
+    assert errors
+
+
+@pytest.fixture
+def synthetic_jvm_native_manifest(tmp_path, monkeypatch):
+    """Counterfactual verifier model; no bridge is loaded or qualification recorded."""
+    import importlib.util
+
+    path = ROOT / "scripts/check_native_sdk_artifact.py"
+    spec = importlib.util.spec_from_file_location("jvm_native_preflight_unit_model", path)
+    assert spec is not None and spec.loader is not None
+    contract = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(contract)
+    monkeypatch.setattr(contract, "source_state", lambda root: ("1" * 40, True))
+    monkeypatch.setattr(contract, "workspace_source_manifest_sha256", lambda root: "1" * 64)
+    artifact = tmp_path / "explicit-counterfactual-artifact"
+    artifact.write_bytes(b"counterfactual-only-native-byte-identity")
+    symbols = contract.REQUIRED_SYMBOLS["c-jni"] + contract.APPROVED_PRIVACY_C_EXPORTS
+    manifest = contract.build_manifest(
+        sdk="c-jni", target="x86_64-unknown-linux-gnu", artifact_path=artifact,
+        source_root=ROOT, probe=lambda sdk, path: 29, symbol_inventory=lambda path: symbols,
+    )
+    return contract, artifact, manifest, symbols
+
+
+@pytest.mark.parametrize("mutation,expected", (
+    ("missing-artifact", "native artifact is unavailable"),
+    ("changed-artifact", "native artifact bytes do not match"),
+    ("dirty-source", "current clean source revision"),
+    ("stale-revision", "current clean source revision"),
+    ("stale-source-bytes", "current source manifest"),
+    ("wrong-abi", "29"),
+    ("missing-privacy-export", "missing approved privacy C symbols"),
+))
+def test_jvm_native_authenticator_refuses_missing_stale_wrong_prerequisites_without_native_loading(synthetic_jvm_native_manifest, monkeypatch, mutation, expected) -> None:
+    contract, artifact, manifest, symbols = synthetic_jvm_native_manifest
+    probes = []
+    abi = 29
+    if mutation == "missing-artifact":
+        artifact.unlink()
+    elif mutation == "changed-artifact":
+        artifact.write_bytes(b"different-counterfactual-native-byte-identity")
+    elif mutation == "dirty-source":
+        monkeypatch.setattr(contract, "source_state", lambda root: ("1" * 40, False))
+    elif mutation == "stale-revision":
+        monkeypatch.setattr(contract, "source_state", lambda root: ("2" * 40, True))
+    elif mutation == "stale-source-bytes":
+        monkeypatch.setattr(contract, "workspace_source_manifest_sha256", lambda root: "2" * 64)
+    elif mutation == "wrong-abi":
+        abi = 24
+    else:
+        symbols = tuple(symbol for symbol in symbols if symbol != contract.APPROVED_PRIVACY_C_EXPORTS[0])
+    def probe(sdk, path):
+        probes.append((sdk, path))
+        return abi
+    with pytest.raises(contract.ArtifactContractError, match=expected):
+        contract.verify_manifest(manifest, artifact_path=artifact, source_root=ROOT, probe=probe, symbol_inventory=lambda path: symbols)
+    assert len(probes) == (1 if mutation in ("wrong-abi", "missing-privacy-export") else 0)
+
+
+def test_jvm_native_entrypoint_keeps_jdk8_and_offline_filters_intact() -> None:
+    gradle = read("kotlin/core-jvm/build.gradle.kts")
+    assert 'freeCompilerArgs.add("-Xjdk-release=8")' in gradle
+    assert "options.release.set(8)" in gradle
+    assert "jvmTarget.set(JvmTarget.JVM_1_8)" in gradle
+    # The authenticated entrypoint owns prerequisites; filtered offline tests
+    # retain their original Gradle Test implementation and runtime assertions.
+    assert 'System.getenv("IROHA_NATIVE_LIBRARY_PATH")' in gradle
+    assert "_check_jvm_native_prerequisites" not in gradle

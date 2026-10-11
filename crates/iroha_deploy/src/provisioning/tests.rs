@@ -18,8 +18,8 @@ use iroha_data_model::{
     sumeragi::{SumeragiFootprint, SumeragiStatus},
     sumeragi_finality::{
         SumeragiFinalityAttestation, SumeragiFinalityAttestationBody, SumeragiFinalityProof,
-        WorldStateElementKindV1, WorldStateSnapshotEntryV1, WorldStateSnapshotV1, genesis_epoch,
-        test_fixtures::NativeFinalityFixture, world_state_value_hash_v1,
+        WorldStateElementKindV1, WorldStateSnapshotEntryV1, WorldStateSnapshotV1,
+        authenticated_genesis, test_fixtures::NativeFinalityFixture, world_state_value_hash_v1,
     },
 };
 use iroha_model_base::{peer::PeerId, topology::DataSpaceId};
@@ -91,7 +91,9 @@ impl Fixture {
             child_chain.chain_id().parse().unwrap(),
             child_chain.network_id(),
             result,
-            genesis_epoch(child_chain.genesis()).unwrap(),
+            authenticated_genesis(child_chain.genesis())
+                .map(|genesis| genesis.into_parts().0)
+                .unwrap(),
         )
         .unwrap();
         let mut child = Config::load_table(
@@ -202,7 +204,7 @@ impl FinalitySource for Source<'_> {
         &self,
         peer: &PeerId,
         challenge: &[u8; 32],
-    ) -> std::result::Result<SumeragiFinalityAttestation, Self::Error> {
+    ) -> std::result::Result<crate::verify::finality::FinalityAttestation, Self::Error> {
         self.reads.set(self.reads.get() + 1);
         if self.offline {
             return Err(std::io::Error::other("offline"));
@@ -251,7 +253,8 @@ impl FinalitySource for Source<'_> {
         Ok(SumeragiFinalityAttestation {
             signature: SignatureOf::try_from_hash(key.private_key(), body.signing_hash()).unwrap(),
             body,
-        })
+        }
+        .into())
     }
 }
 
@@ -263,6 +266,7 @@ struct Operations {
     lease_proof: SnsLeaseProofV1,
     forged_generation: Cell<bool>,
     reserve_before_journal_failure: Cell<bool>,
+    cancel_after: RefCell<Option<(&'static str, Arc<AtomicBool>)>>,
 }
 impl Operations {
     fn new(store: &RemoteProvisioning, fixture: &Fixture) -> Self {
@@ -274,6 +278,15 @@ impl Operations {
             lease_proof: fixture.lease_proof.clone(),
             forged_generation: Cell::new(false),
             reserve_before_journal_failure: Cell::new(false),
+            cancel_after: RefCell::new(None),
+        }
+    }
+    fn record_call(&self, operation: &'static str) {
+        self.calls.borrow_mut().push(operation);
+        if let Some((selected, signal)) = self.cancel_after.borrow().as_ref() {
+            if *selected == operation {
+                signal.store(true, Ordering::Release);
+            }
         }
     }
     fn request(&self) -> AliasSetupPlanRequestV1 {
@@ -333,7 +346,7 @@ impl ProvisioningOperations for Operations {
             request.fee_payment.charge_limits()[0].max_amount(),
             &self.binding.faucet.max_operation_fee
         );
-        self.calls.borrow_mut().push("fund");
+        self.record_call("fund");
         Ok(self.fund_status.get())
     }
     fn namespace_request(
@@ -345,7 +358,7 @@ impl ProvisioningOperations for Operations {
     ) -> Result<AliasSetupPlanRequestV1> {
         assert_eq!(alias, self.binding.alias);
         assert_eq!(account_alias, self.binding.account_alias);
-        self.calls.borrow_mut().push("quote");
+        self.record_call("quote");
         Ok(self.request())
     }
     fn reserve(
@@ -355,7 +368,7 @@ impl ProvisioningOperations for Operations {
         options: &BoundedTransactionOptions,
         journal: &Path,
     ) -> Result<OperationStatus> {
-        self.calls.borrow_mut().push("reserve");
+        self.record_call("reserve");
         if self.reserve_before_journal_failure.get() {
             return Err(ProvisioningError::NamespacePreparation);
         }
@@ -376,7 +389,7 @@ impl ProvisioningOperations for Operations {
         Ok(self.reserve_status.get())
     }
     fn lease(&self, config: &Config, read: &LeaseRead<'_>) -> Result<VerifiedSnsLeaseV1> {
-        self.calls.borrow_mut().push("lease");
+        self.record_call("lease");
         assert!(read.deadline > Instant::now());
         let mut proof = self.lease_proof.clone();
         if self.forged_generation.get() {
@@ -786,7 +799,7 @@ fn namespace_allowance_and_authenticated_lease_bind_exact_identity_and_rent() {
     config.api_token = fixture.child.api_token.clone();
     assert!(binding.validate_config(&config).is_err());
     assert!(
-        NativeOperations
+        NativeOperations::default()
             .fund(
                 &store.parent,
                 &binding.faucet_request(),
@@ -796,12 +809,12 @@ fn namespace_allowance_and_authenticated_lease_bind_exact_identity_and_rent() {
             .is_err()
     );
     assert!(
-        NativeOperations
+        NativeOperations::default()
             .namespace_request(&store.parent, "acme", "admin", Instant::now())
             .is_err()
     );
     assert!(
-        NativeOperations
+        NativeOperations::default()
             .reserve(
                 &store.parent,
                 &ops.request(),
@@ -811,7 +824,7 @@ fn namespace_allowance_and_authenticated_lease_bind_exact_identity_and_rent() {
             .is_err()
     );
     assert!(
-        NativeOperations
+        NativeOperations::default()
             .lease(
                 &store.parent,
                 &LeaseRead {
@@ -845,4 +858,231 @@ fn uncertain_publication_retains_previous_record_and_requires_exclusive_reopen()
     assert_eq!(store.progress().stage, ProvisioningStage::Funding);
     assert_eq!(ProvisioningStage::Namespace.as_str(), "namespace");
     assert_eq!(ProvisioningStage::Attached.as_str(), "attached");
+}
+
+#[test]
+fn cancellation_after_funding_or_quote_blocks_the_next_paid_stage_and_keeps_exact_recovery() {
+    for point in ["fund", "quote"] {
+        let fixture = Fixture::new();
+        let signal = Arc::new(AtomicBool::new(false));
+        let mut store = fixture
+            .open()
+            .unwrap()
+            .with_cancellation(Arc::clone(&signal))
+            .unwrap();
+        let ops = Operations::new(&store, &fixture);
+        ops.fund_status.set(OperationStatus::Applied);
+        *ops.cancel_after.borrow_mut() = Some((point, Arc::clone(&signal)));
+        let source = Source {
+            chain: &fixture.parent,
+            offline: false,
+            reads: Cell::new(0),
+        };
+        let deadline = Instant::now() + Duration::from_secs(30);
+        assert!(matches!(
+            store.provision_with(&fixture.bootstrap, deadline, &source, &ops),
+            Err(ProvisioningError::Cancelled)
+        ));
+        assert!(signal.load(Ordering::Acquire));
+        assert!(store.record.faucet_observed);
+        assert_eq!(
+            *ops.calls.borrow(),
+            if point == "fund" {
+                vec!["fund"]
+            } else {
+                vec!["fund", "quote"]
+            }
+        );
+        assert!(!store.directory.path().join("operations/namespace").exists());
+        let original_namespace = store.record.namespace.clone();
+        assert_eq!(original_namespace.is_some(), point == "quote");
+        let exact_record = store
+            .directory
+            .read("provisioning.nrt", MAX_RECORD_BYTES)
+            .unwrap();
+        drop(store);
+        let reopened = fixture.open().unwrap();
+        assert_eq!(
+            reopened
+                .directory
+                .read("provisioning.nrt", MAX_RECORD_BYTES)
+                .unwrap(),
+            exact_record
+        );
+        // The old signal stays cancelled. A new supervisor, never a reset signal, resumes.
+        let mut reopened = reopened
+            .with_cancellation(Arc::new(AtomicBool::new(false)))
+            .unwrap();
+        *ops.cancel_after.borrow_mut() = None;
+        ops.calls.borrow_mut().clear();
+        ops.reserve_status.set(OperationStatus::Applied);
+        reopened
+            .provision_with(&fixture.bootstrap, deadline, &source, &ops)
+            .unwrap();
+        assert_eq!(
+            *ops.calls.borrow(),
+            if point == "fund" {
+                vec!["quote", "reserve", "lease"]
+            } else {
+                vec!["reserve", "lease"]
+            }
+        );
+        if let Some(original) = original_namespace {
+            assert_eq!(reopened.record.namespace, Some(original));
+        }
+        assert_eq!(reopened.progress().stage, ProvisioningStage::Registering);
+        assert!(signal.load(Ordering::Acquire));
+        assert!(
+            reopened
+                .attachment
+                .as_mut()
+                .unwrap()
+                .bind_cancellation(Arc::new(AtomicBool::new(false)))
+                .is_err(),
+            "new attachment must already carry the original provisioning cancellation owner"
+        );
+        drop(reopened);
+        let mut rebound = fixture
+            .open()
+            .unwrap()
+            .with_cancellation(Arc::new(AtomicBool::new(false)))
+            .unwrap();
+        assert!(
+            rebound
+                .attachment
+                .as_mut()
+                .unwrap()
+                .bind_cancellation(Arc::new(AtomicBool::new(false)))
+                .is_err(),
+            "reopened attachment must inherit its new provisioning owner's signal"
+        );
+    }
+}
+
+#[test]
+fn cancelled_existing_namespace_can_reconcile_without_replacing_its_retained_request() {
+    let fixture = Fixture::new();
+    let signal = Arc::new(AtomicBool::new(false));
+    let mut store = fixture
+        .open()
+        .unwrap()
+        .with_cancellation(Arc::clone(&signal))
+        .unwrap();
+    let ops = Operations::new(&store, &fixture);
+    ops.fund_status.set(OperationStatus::Applied);
+    let source = Source {
+        chain: &fixture.parent,
+        offline: false,
+        reads: Cell::new(0),
+    };
+    let deadline = Instant::now() + Duration::from_secs(30);
+    store
+        .provision_with(&fixture.bootstrap, deadline, &source, &ops)
+        .unwrap();
+    let request = store.record.namespace.clone().unwrap();
+    let journal = store
+        .directory
+        .path()
+        .join("operations/namespace/operation.json");
+    let original = std::fs::read(&journal).unwrap();
+    signal.store(true, Ordering::Release);
+    ops.calls.borrow_mut().clear();
+    // This backend returns only the existing operation's observation; native wallet guards
+    // independently prohibit another preparation/signature/dispatch after cancellation.
+    store
+        .provision_with(&fixture.bootstrap, deadline, &source, &ops)
+        .unwrap();
+    assert_eq!(*ops.calls.borrow(), vec!["reserve"]);
+    assert_eq!(store.record.namespace, Some(request));
+    assert_eq!(std::fs::read(journal).unwrap(), original);
+    assert!(signal.load(Ordering::Acquire));
+}
+
+#[test]
+fn cancellation_owner_cannot_change_and_native_adapters_refuse_new_journals() {
+    let fixture = Fixture::new();
+    let signal = Arc::new(AtomicBool::new(true));
+    let store = fixture
+        .open()
+        .unwrap()
+        .with_cancellation(Arc::clone(&signal))
+        .unwrap()
+        .with_cancellation(Arc::clone(&signal))
+        .unwrap();
+    assert!(Arc::ptr_eq(store.cancellation.as_ref().unwrap(), &signal));
+    let ops = Operations::new(&store, &fixture);
+    let native = NativeOperations {
+        cancellation: Some(Arc::clone(&signal)),
+    };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let faucet = store.directory.path().join("cancelled-faucet");
+    assert!(matches!(
+        native.fund(
+            &store.parent,
+            &store.record.binding.faucet_request(),
+            &faucet,
+            deadline
+        ),
+        Err(ProvisioningError::FaucetPreparation)
+    ));
+    assert!(!faucet.exists());
+    assert!(matches!(
+        native.namespace_request(&store.parent, "acme", "admin", deadline),
+        Err(ProvisioningError::Cancelled)
+    ));
+    let namespace = store.directory.path().join("cancelled-namespace");
+    assert!(matches!(
+        native.reserve(
+            &store.parent,
+            &ops.request(),
+            &store.record.binding.options(deadline),
+            &namespace
+        ),
+        Err(ProvisioningError::NamespacePreparation)
+    ));
+    assert!(!namespace.exists());
+    assert!(matches!(
+        store.with_cancellation(Arc::new(AtomicBool::new(false))),
+        Err(ProvisioningError::Invalid(
+            "provisioning cancellation owner changed"
+        ))
+    ));
+}
+
+#[test]
+fn administrative_amx_provisioning_requires_original_attachment_without_signing() {
+    let fixture = Fixture::new();
+    let mut provisioning = fixture.open().unwrap();
+    assert!(provisioning.attachment.is_none());
+    let administrator = fixture.child.clone();
+    let options = BoundedTransactionOptions {
+        fee_payment: iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+        max_total_fees: std::collections::BTreeMap::from([(
+            iroha_wallet::operations::XOR_ASSET_DEFINITION
+                .parse()
+                .unwrap(),
+            iroha_primitives::numeric::Quantity::from(1_u32),
+        )]),
+        deadline: Instant::now() + Duration::from_secs(1),
+    };
+    assert!(matches!(
+        provisioning.register_amx_once(
+            &fixture.bootstrap,
+            &administrator,
+            unix_ms().unwrap() + 60_000,
+            &options
+        ),
+        Err(ProvisioningError::Invalid(
+            "namespace provisioning is incomplete; administrative AMX registration is separate"
+        ))
+    ));
+    assert!(provisioning.attachment.is_none());
+    assert!(
+        !provisioning
+            .directory
+            .path()
+            .join("attachment")
+            .join("amx-registration")
+            .exists()
+    );
 }

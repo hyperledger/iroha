@@ -171,7 +171,7 @@ fn syscalls(output: &CompileOutput) -> Vec<u32> {
 }
 #[test]
 fn complete_typed_numeric_chain_keeps_all_original_calls_schemas_and_syscalls() {
-    let source = "seiyaku ZeroChain { fn chain(quantity left, quantity right) -> quantity { let first=left+right; let second=first+right; return second+left; } view fn main()->quantity { let quantity left=5; let quantity right=7; return chain(left: left,right:right); } }";
+    let source = "seiyaku ZeroChain { fn chain(quantity left, quantity right) -> quantity { let first=left+right; let second=first+right; return second+left; } view fn main() authorize(anyone) ->quantity { let quantity left=5; let quantity right=7; return chain(left: left,right:right); } }";
     let before = compile(source, true);
     let after = compile(source, false);
     assert_metadata(&before, &after);

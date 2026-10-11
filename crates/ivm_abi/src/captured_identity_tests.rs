@@ -10,7 +10,7 @@ fn fixture() -> &'static Value {
         ))
         .unwrap();
         assert_eq!(fixture["schema"].as_u64(), Some(1));
-        assert_eq!(fixture["automatic"].as_array().unwrap().len(), 63);
+        assert_eq!(fixture["automatic"].as_array().unwrap().len(), 59);
         assert_eq!(fixture["manual"].as_array().unwrap().len(), 9);
         fixture
     })
@@ -96,7 +96,7 @@ fn captured_identity_fixture_is_complete() {
             row["direction"].as_str().unwrap()
         )));
     }
-    assert_eq!(keys.len(), 63);
+    assert_eq!(keys.len(), 59);
     let cases: std::collections::BTreeSet<_> = fixture()["manual"]
         .as_array()
         .unwrap()

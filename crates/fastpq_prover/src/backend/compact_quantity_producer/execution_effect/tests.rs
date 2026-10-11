@@ -91,7 +91,7 @@ fn original_credit_and_complete_expectations_refuse_before_private_expansion() {
             * crate::backend::deep_geometry::TRACE_ROWS,
         ..ProvingLimits::default()
     };
-    let facts = expected(&statement);
+    let facts = expected(&statement).unwrap();
     let expected = ExpectedExecutionEffects {
         source: &source,
         statement: facts,
@@ -186,7 +186,7 @@ fn complete_effect_native_producer_self_verifies_and_binds_every_source_field() 
     };
     let expected = ExpectedExecutionEffects {
         source: &source,
-        statement: expected(&statement),
+        statement: expected(&statement).unwrap(),
     };
     let proof_credit =
         quantity_ordinary_allocation_bytes(&statement.effects, proving, &policy).unwrap();

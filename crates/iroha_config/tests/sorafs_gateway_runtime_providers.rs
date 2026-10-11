@@ -1,4 +1,5 @@
 //! Validate exact non-secret runtime-provider bindings for `SoraFS` gateways.
+
 use iroha_config::parameters::{actual::Root as ActualConfig, user::Root as UserConfig};
 use iroha_config_base::{env::MockEnv, read::ConfigReader, toml::TomlSource};
 use std::path::PathBuf;

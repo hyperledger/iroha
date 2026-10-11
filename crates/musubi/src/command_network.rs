@@ -156,17 +156,40 @@ impl SelectedNetwork {
     }
 }
 
+/// Why a command selects a network, which decides the fallback when no binding is chosen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum NetworkPurpose {
+    /// `check`, `build` and `test`: compile for the data-model default address profile unless a
+    /// network binding or `--chain-discriminant` selects another one.
+    LocalCompilation,
+    /// Deployment, calls and views require an explicitly bound network; Taira is suggested.
+    Deployment,
+}
+
+/// Name reported for unbound local compilation.
+pub(super) const LOCAL_NETWORK_NAME: &str = "local";
+
+/// Address profile used when no network binding or explicit discriminant is selected.
+///
+/// This is the Iroha data-model default (SORA, `0x02F1` = 753), read from the same
+/// `iroha_data_model::account::address::chain_discriminant` source that `koto` uses, so both
+/// tools compile identical address literals by default.
+pub(super) fn default_chain_discriminant() -> u16 {
+    iroha_data_model::account::address::chain_discriminant()
+}
+
 pub(super) fn select_network(
     root: &Path,
     requested: Option<&str>,
     config_override: Option<&Path>,
     discriminant_override: Option<u16>,
+    purpose: NetworkPurpose,
 ) -> Result<SelectedNetwork, Diagnostic> {
     let document = read_bindings(root)?;
     let fallback = if config_override.is_some() {
         "configured"
-    } else if discriminant_override.is_some() {
-        "local"
+    } else if discriminant_override.is_some() || purpose == NetworkPurpose::LocalCompilation {
+        LOCAL_NETWORK_NAME
     } else {
         "taira"
     };
@@ -209,10 +232,13 @@ pub(super) fn select_network(
         }
         (id, profile)
     } else {
+        let local_default =
+            (binding.is_none() && name == LOCAL_NETWORK_NAME).then(default_chain_discriminant);
         (
             None,
             builtin_profile
                 .or(discriminant_override)
+                .or(local_default)
                 .ok_or_else(|| missing_binding(name))?,
         )
     };
@@ -279,16 +305,21 @@ pub(super) fn run_network(
         }
         NetworkCommand::List => {
             let document = read_bindings(workspace.root())?;
-            let default = document
-                .get("default")
-                .and_then(toml::Value::as_str)
-                .unwrap_or("taira");
+            let default = document.get("default").and_then(toml::Value::as_str);
             let names = document
                 .get("networks")
                 .and_then(toml::Value::as_table)
                 .map(|networks| networks.keys().cloned().collect::<Vec<_>>())
                 .unwrap_or_default();
-            let mut message = format!("Default: {default}\n");
+            let mut message = default.map_or_else(
+                || {
+                    format!(
+                        "Default: none; check, build and test use address profile {}\n",
+                        default_chain_discriminant()
+                    )
+                },
+                |default| format!("Default: {default}\n"),
+            );
             let mut networks = Vec::new();
             for name in names {
                 let binding = document
@@ -311,12 +342,16 @@ pub(super) fn run_network(
                 networks.push(selected.json());
             }
             if networks.is_empty() {
-                message.push_str("Taira is available for local compilation. Create and fund a wallet with `musubi wallet create` and `musubi wallet fund`, then bind it with `musubi network configure taira`.\n");
+                message.push_str("To deploy on Taira, create and fund a wallet with `musubi wallet create` and `musubi wallet fund`, then bind it with `musubi network configure taira`.\n");
             }
             Ok(Success {
                 message,
                 data: object([
-                    ("default", Value::from(default)),
+                    ("default", default.map_or(Value::Null, Value::from)),
+                    (
+                        "local_chain_discriminant",
+                        Value::from(u64::from(default_chain_discriminant())),
+                    ),
                     ("networks", Value::Array(networks)),
                 ]),
             })
@@ -821,8 +856,14 @@ mod tests {
         let root = tempfile::tempdir().expect("root");
         let workspace = contract_workspace(root.path());
         let path = public_config(root.path());
-        let selected = select_network(workspace.root(), Some("taira"), Some(&path), None)
-            .expect("select exact image");
+        let selected = select_network(
+            workspace.root(),
+            Some("taira"),
+            Some(&path),
+            None,
+            NetworkPurpose::Deployment,
+        )
+        .expect("select exact image");
         fs::write(&path, "invalid rotated configuration").expect("rotate path");
         let packages = workspace
             .members()
@@ -959,12 +1000,16 @@ mod tests {
     }
 
     #[test]
-    fn local_default_is_visible_taira_without_files_or_signer() {
+    fn unbound_local_compilation_uses_the_data_model_default_profile() {
+        use NetworkPurpose::{Deployment, LocalCompilation};
         let dir = tempfile::tempdir().expect("workspace");
-        let selected = select_network(dir.path(), None, None, None).expect("default network");
-        assert_eq!(selected.name, "taira");
-        assert_eq!(selected.chain_discriminant, 369);
+        let selected =
+            select_network(dir.path(), None, None, None, LocalCompilation).expect("local default");
+        assert_eq!(selected.name, LOCAL_NETWORK_NAME);
+        assert_eq!(selected.chain_discriminant, 0x02F1);
+        assert_eq!(selected.chain_discriminant, default_chain_discriminant());
         assert!(selected.config.is_none());
+        assert!(selected.network_id.is_none());
         assert!(selected.load_client().is_err());
         assert_eq!(
             fs::read_dir(dir.path())
@@ -972,13 +1017,23 @@ mod tests {
                 .count(),
             0
         );
-        let explicit =
-            select_network(dir.path(), None, None, Some(777)).expect("explicit local profile");
-        assert_eq!(explicit.name, "local");
+        let deployment =
+            select_network(dir.path(), None, None, None, Deployment).expect("taira suggestion");
+        assert_eq!(deployment.name, "taira");
+        assert_eq!(deployment.chain_discriminant, 369);
+        let selected_taira =
+            select_network(dir.path(), Some("taira"), None, None, LocalCompilation)
+                .expect("explicit Taira profile");
+        assert_eq!(selected_taira.chain_discriminant, 369);
+        let explicit = select_network(dir.path(), None, None, Some(777), LocalCompilation)
+            .expect("explicit local profile");
+        assert_eq!(explicit.name, LOCAL_NETWORK_NAME);
         assert_eq!(explicit.chain_discriminant, 777);
-        assert!(select_network(dir.path(), Some("taira"), None, Some(753)).is_err());
-        assert!(select_network(dir.path(), Some("../bad"), None, None).is_err());
-        assert!(select_network(dir.path(), Some("unknown"), None, None).is_err());
+        assert!(
+            select_network(dir.path(), Some("taira"), None, Some(753), LocalCompilation).is_err()
+        );
+        assert!(select_network(dir.path(), Some("../bad"), None, None, LocalCompilation).is_err());
+        assert!(select_network(dir.path(), Some("unknown"), None, None, LocalCompilation).is_err());
     }
 
     #[test]
@@ -1023,7 +1078,8 @@ mod tests {
         configure(dir.path(), &update, Some("demo/coffee-club::espresso")).expect(
             "adding an alias retains the selected wallet without reading the default wallet",
         );
-        let selected = select_network(dir.path(), None, None, None).expect("persisted default");
+        let selected = select_network(dir.path(), None, None, None, NetworkPurpose::Deployment)
+            .expect("persisted default");
         assert_eq!(selected.config.as_deref(), Some(config.as_path()));
         assert_eq!(
             selected.contracts["demo/coffee-club::espresso"].to_string(),
@@ -1046,7 +1102,7 @@ mod tests {
             format!("network_id = '{NETWORK_ID}'\n[account]\nprofile = 'minamoto'\n"),
         )
         .expect("change profile");
-        assert!(select_network(dir.path(), None, None, None).is_err());
+        assert!(select_network(dir.path(), None, None, None, NetworkPurpose::Deployment).is_err());
         assert!(selected.load_client().is_err());
     }
 
@@ -1115,7 +1171,8 @@ mod tests {
             assert!(parse_fee_selection(&binding, 369).is_err(), "{revision}");
         }
         let dir = tempfile::tempdir().expect("workspace");
-        let mut selected = select_network(dir.path(), None, None, None).expect("network");
+        let mut selected = select_network(dir.path(), None, None, None, NetworkPurpose::Deployment)
+            .expect("network");
         selected.fee_payment = Some(intent);
         let _outer_profile = ChainDiscriminantGuard::enter(753);
         assert_eq!(

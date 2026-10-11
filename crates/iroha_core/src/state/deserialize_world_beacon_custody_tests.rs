@@ -12,7 +12,6 @@ use iroha_data_model::{
     NetworkId, block::BlockHeader, consensus::GlobalThresholdBeaconDkgSessionV1,
 };
 use iroha_model_base::peer::PeerId;
-use mv::storage::StorageReadOnly as _;
 
 fn rows() -> (NativeBeaconSessionSnapshot, usize, usize, usize) {
     let mut keys = (1..=4)

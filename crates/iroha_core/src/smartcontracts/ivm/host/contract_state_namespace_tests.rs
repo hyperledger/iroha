@@ -147,13 +147,13 @@ fn reserve_namespace_retained_host_artifacts_refuse_before_any_effect() {
                 (path.clone(), replacement),
             ]);
             let artifacts = HostExecutionArtifacts {
-                queued: vec![QueuedInstruction {
-                    instruction: SetKeyValue::account(
+                queued: vec![QueuedEffect {
+            payload: crate::smartcontracts::ivm::host::QueuedEffectPayload::Instruction(SetKeyValue::account(
                         authority.clone(),
                         metadata.clone(),
                         Json::new(true),
                     )
-                    .into(),
+                    .into()),
                     authority: authority.clone(),
                     contract_runtime_context: None,
                     entrypoint_authorization: None,

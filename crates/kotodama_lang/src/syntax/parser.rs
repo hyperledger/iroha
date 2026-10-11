@@ -173,6 +173,54 @@ fn spanned_output(
         _ => Err(output.diagnostics),
     }
 }
+/// Attach authored prose through exact declaration and lossless-token boundaries.
+/// Ordinary comments, blank lines, and significant tokens end a documentation block.
+fn attach_documentation(
+    source: &SourceFile,
+    tokens: &[super::cst::GreenToken],
+    facts: &mut crate::spanned_ast::AstFacts,
+) {
+    for declaration in &mut facts.declarations {
+        if declaration.owner.is_some() {
+            continue;
+        }
+        let Some(node) = facts.source_map.node(declaration.node) else {
+            continue;
+        };
+        let mut index = tokens.partition_point(|token| token.range.end <= node.range.start);
+        // The item modifier belongs to the declaration even when the AST node
+        // begins at its type keyword rather than at `export`.
+        if index > 0 {
+            let prior = tokens[..index]
+                .iter()
+                .rposition(|token| !token.kind.is_trivia());
+            if let Some(prior) = prior.filter(|prior| tokens[*prior].kind == SyntaxKind::KwExport) {
+                index = prior;
+            }
+        }
+        let mut lines = Vec::new();
+        while index > 0 {
+            index -= 1;
+            let token = &tokens[index];
+            let text = source.slice(token.range).unwrap_or_default();
+            match token.kind {
+                SyntaxKind::Whitespace if !text.contains('\n') => {}
+                SyntaxKind::DocComment => {
+                    lines.push(
+                        text[3..]
+                            .trim_end_matches(['\n', '\r'])
+                            .strip_prefix(' ')
+                            .unwrap_or(text[3..].trim_end_matches(['\n', '\r'])),
+                    );
+                }
+                _ => break,
+            }
+        }
+        lines.reverse();
+        declaration.documentation = lines.join("\n");
+    }
+}
+
 fn parse_program_internal(
     source: &SourceFile,
     budget: FrontendBudget,
@@ -261,6 +309,9 @@ fn parse_program_internal(
             ),
         }
     };
+    if let Some(facts) = ast_facts.as_mut() {
+        attach_documentation(source, &lossless_tokens, facts);
+    }
     if lexical_failure {
         // Recovery trees are tooling output only. No AST containing or
         // surrounding a malformed token can cross into semantic analysis.
@@ -533,7 +584,8 @@ mod tests {
     }
     #[test]
     fn cst_preserves_decimal_literal_text() {
-        let text = "seiyaku Demo { view fn value() -> decimal { return 1.250_0; } }";
+        let text =
+            "seiyaku Demo { view fn value() authorize(anyone) -> decimal { return 1.250_0; } }";
         let source = SourceFile::new(SourceId(0), "decimal.ko", text);
         let output = parse(&source, FrontendBudget::v1());
         assert!(output.is_ok(), "{:?}", output.diagnostics);
@@ -549,13 +601,13 @@ mod tests {
     #[test]
     fn compiler_uses_one_direct_cst_lowering_without_a_token_only_reparse() {
         crate::parser::reset_direct_cst_lowering_count();
-        let text = r#"seiyaku Direct {
+        let text = r#"seiyaku Direct { permission Set;
             struct Pair { int left, int right }
             const int limit = 2;
             state int value;
             hajimari() { value = 0; }
-            kotoage fn set(int next) authorize("Set") { value = next; }
-            view fn read() -> int { value }
+            kotoage fn set(int next) authorize(Set) { value = next; }
+            view fn read() authorize(anyone) -> int { value }
         }"#;
         let source = SourceFile::new(SourceId(41), "direct.ko", text);
         let output = parse_program(&source, FrontendBudget::v1());
@@ -709,7 +761,7 @@ mod tests {
     #[test]
     fn direct_cst_lowering_preserves_every_branded_declaration_form() {
         use crate::ast::{FunctionKind, Item, SourceUnitKind};
-        let text = r#"誓約 Branded {
+        let text = r#"誓約 Branded { permission Apply;
             struct Pair { int left, int right }
             error enum Failure { Bad = 1 }
             const int limit = 2;
@@ -717,8 +769,8 @@ mod tests {
             trigger tick -> apply { on time pre_commit; }
             始まり() { value = 0; }
             改善() { value = value + 1; }
-            言挙げ fn apply(int next) authorize("Apply") { value = next; }
-            view fn read() -> int { value }
+            言挙げ fn apply(int next) authorize(Apply) { value = next; }
+            view fn read() authorize(anyone) -> int { value }
             fn helper(int value) -> int { value }
         }"#;
         let source = SourceFile::new(SourceId(42), "branded-direct.ko", text);
@@ -868,19 +920,19 @@ mod tests {
     }
     #[test]
     fn statement_boundaries_lower_only_source_tokens() {
-        let text = r#"seiyaku Statements {
+        let text = r#"seiyaku Statements { permission Update;
             state int value;
             hajimari() {
                 value = 0;
             }
-            kotoage fn update(int limit) authorize("Update") {
+            kotoage fn update(int limit) authorize(Update) {
                 var int total = 0;
                 for item in range(4) {
                     if item < limit { total += item; } else { continue; }
                 }
                 value = total;
             }
-            view fn read() -> int { return value; }
+            view fn read() authorize(anyone) -> int { return value; }
         }"#;
         let source = SourceFile::new(SourceId(0), "statements.ko", text);
         let output = parse_program(&source, FrontendBudget::v1());
@@ -893,7 +945,7 @@ mod tests {
         let text = r#"seiyaku Demo {
     state StateMap<int, int> values;
     const int limit = 2;
-    view fn read() -> int { values.get(limit).unwrap_or(0) }
+    view fn read() authorize(anyone) -> int { values.get(limit).unwrap_or(0) }
 }"#;
         let source = SourceFile::new(SourceId(0), "terminated-items.ko", text);
         let output = parse_program(&source, FrontendBudget::v1());
@@ -909,7 +961,7 @@ mod tests {
     struct Entry { int value }
     const Json payload = json { value: 1, };
     const Entry entry = Entry { value: 2, };
-    view fn read() -> int { entry.value }
+    view fn read() authorize(anyone) -> int { entry.value }
 }"#;
         let source = SourceFile::new(SourceId(0), "braced-consts.ko", text);
         let output = parse_program(&source, FrontendBudget::v1());
@@ -957,7 +1009,7 @@ mod tests {
         let text = r#"seiyaku Demo {
     const int fixture = 1;
     const int selected = fixture;
-    view fn read() -> int { selected }
+    view fn read() authorize(anyone) -> int { selected }
 }"#;
         let source = SourceFile::new(SourceId(0), "pseudo-item-identifiers.ko", text);
         let output = parse_program(&source, FrontendBudget::v1());

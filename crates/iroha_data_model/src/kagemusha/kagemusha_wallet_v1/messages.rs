@@ -22,7 +22,7 @@ use super::{
     KAGEMUSHA_WALLET_VERSION_V1, KagemushaWalletValidationErrorV1, WalletResult, WalletVersionsV1,
     decode_frame_v1,
     digest::{
-        KagemushaWalletDigestRoleV1 as Role, KagemushaWalletSignerOutputV1,
+        KagemushaWalletObjectDigestDomainV1 as ObjectDomain, KagemushaWalletSignerOutputV1,
         KagemushaWalletSigningDomainV1 as Domain, WalletFieldItemsV1, WalletTranscriptV1,
         kagemusha_wallet_freeze_signature_v1, kagemusha_wallet_signed_object_digest_v1,
         kagemusha_wallet_signing_message_v1, kagemusha_wallet_verify_signature_v1,
@@ -36,13 +36,18 @@ use super::{
     keys::{KagemushaDevicePublicKeyV1, KagemushaDeviceSignatureV1},
     overflow_v1,
     policy::{
-        KagemushaWalletFeeScheduleV1, KagemushaWalletSchemePolicyV1, KagemushaWalletTimeIntervalV1,
+        KagemushaWalletAnchoredTimeV1, KagemushaWalletBlacklistGapOpeningV1,
+        KagemushaWalletBlacklistV1, KagemushaWalletFeeScheduleV1,
+        KagemushaWalletMonotonicReadingV1, KagemushaWalletQuotaChargeV1,
+        KagemushaWalletQuotaShareV1, KagemushaWalletRecordedBlacklistProofV1,
+        KagemushaWalletSchemePolicyV1, KagemushaWalletTimeIntervalV1,
     },
     poseidon::{
         KAGEMUSHA_WALLET_CREDIT_DOMAIN_V1, KAGEMUSHA_WALLET_CREDIT_OPENING_DOMAIN_V1,
         KAGEMUSHA_WALLET_CREDIT_STATUS_DOMAIN_V1, KAGEMUSHA_WALLET_CREDITED_DOMAIN_V1,
-        KAGEMUSHA_WALLET_PAYMENT_DOMAIN_V1, KagemushaWalletIndexedLeafV1,
-        KagemushaWalletIndexedOpeningV1, kagemusha_wallet_poseidon_bytes_v1, poseidon_items_v1,
+        KAGEMUSHA_WALLET_INDEXED_SIBLINGS_BYTES_V1, KAGEMUSHA_WALLET_PAYMENT_DOMAIN_V1,
+        KagemushaWalletIndexedLeafV1, KagemushaWalletIndexedOpeningV1,
+        kagemusha_wallet_integer_cmp_v1, kagemusha_wallet_poseidon_bytes_v1, poseidon_items_v1,
     },
     require_canonical_field_v1, require_nonzero_field_v1, require_nonzero_v1, require_scheme_v1,
     require_version_v1,
@@ -51,8 +56,9 @@ use super::{
         KagemushaWalletEffectV1, KagemushaWalletFeeClaimLeafV1, KagemushaWalletLineagePublicV1,
         KagemushaWalletLineageV1, KagemushaWalletOperationKindV1, KagemushaWalletPackageDigestsV1,
         KagemushaWalletPackageV1, KagemushaWalletPendingOutgoingLeafV1,
-        KagemushaWalletReceiptSignerV1, KagemushaWalletReceiptV1, KagemushaWalletRecvChainEntryV1,
-        KagemushaWalletSendChainEntryV1, KagemushaWalletStateV1, KagemushaWalletStatementV1,
+        KagemushaWalletQuotaUsageArrayV1, KagemushaWalletReceiptSignerV1, KagemushaWalletReceiptV1,
+        KagemushaWalletRecvChainEntryV1, KagemushaWalletSendChainEntryV1, KagemushaWalletStateV1,
+        KagemushaWalletStatementV1,
     },
 };
 
@@ -62,17 +68,19 @@ pub(super) mod messages_tests;
 
 const DIGEST_BYTES: usize = 32;
 const U16_BYTES: usize = 2;
+const U32_BYTES: usize = 4;
 const U64_BYTES: usize = 8;
 const U128_BYTES: usize = 16;
 
-/// Exact `offer-body` transcript bytes.
+/// Exact Offer body transcript bytes (signed under `kgwoffr1`).
 pub const KAGEMUSHA_WALLET_OFFER_BODY_TRANSCRIPT_BYTES_V1: usize =
     U16_BYTES + 5 * DIGEST_BYTES + 2 * U128_BYTES;
-/// Exact `request-body` transcript bytes.
+/// Exact Request body transcript bytes (signed under `kgwrqst1`).
 pub const KAGEMUSHA_WALLET_REQUEST_BODY_TRANSCRIPT_BYTES_V1: usize =
-    U16_BYTES + 11 * DIGEST_BYTES + 3 * U128_BYTES + 2 * U64_BYTES;
-/// σ-field elements of the Request body hashed into `credit_id` (§5.1).
-pub const KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1: usize = 28;
+    U16_BYTES + 12 * DIGEST_BYTES + 3 * U128_BYTES + 3 * U64_BYTES;
+/// σ-field elements of the Request body hashed into `credit_id` (§5.1, owner answers A5, B1
+/// and B6).
+pub const KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1: usize = 26;
 /// Exact `payment` transcript bytes:
 /// `LE16 version || request_digest || payer_payment_key || payer_credential_digest ||
 /// package_digest`.
@@ -80,16 +88,18 @@ pub const KAGEMUSHA_WALLET_PAYMENT_TRANSCRIPT_BYTES_V1: usize = U16_BYTES
     + DIGEST_BYTES
     + super::keys::KAGEMUSHA_DEVICE_PUBLIC_KEY_SEC1_BYTES_V1
     + 2 * DIGEST_BYTES;
-/// Exact `credit-status` transcript bytes:
+/// Exact credit-status transcript bytes:
 /// `LE16 version || statement_digest || proof_digest || receipt_digest || lineage_digest ||
 /// opening_digest`.
 pub const KAGEMUSHA_WALLET_CREDIT_STATUS_TRANSCRIPT_BYTES_V1: usize = U16_BYTES + 5 * DIGEST_BYTES;
-/// Exact `credited` transcript bytes:
+/// Exact credited transcript bytes:
 /// `LE16 version || u8 tag || credit_id || payment_digest || evidence_digest`.
 pub const KAGEMUSHA_WALLET_CREDITED_TRANSCRIPT_BYTES_V1: usize = U16_BYTES + 1 + 3 * DIGEST_BYTES;
-/// Fixed depth of the indexed credit-digest membership opening carried by `CreditStatus`.
-pub const KAGEMUSHA_WALLET_CREDIT_OPENING_DEPTH_V1: usize =
-    super::poseidon::KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1;
+/// Exact credit-opening transcript bytes:
+/// `credit_id || payment_digest || u8 burned || next_key || LE32 slot || siblings`, with exactly
+/// 32 siblings (owner answer A2).
+pub const KAGEMUSHA_WALLET_CREDIT_OPENING_TRANSCRIPT_BYTES_V1: usize =
+    3 * DIGEST_BYTES + 1 + U32_BYTES + KAGEMUSHA_WALLET_INDEXED_SIBLINGS_BYTES_V1;
 
 const SETUP_DECLINED_FIELDS_BYTES: usize = U16_BYTES;
 const UNSUPPORTED_SCHEME_FIELDS_BYTES: usize = 0;
@@ -175,6 +185,7 @@ pub(super) fn verify_credential_with_set_v1(
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletOfferBodyV1"
 )]
+#[repr(align(16))]
 pub struct KagemushaWalletOfferBodyV1 {
     /// Wire version; exactly [`KAGEMUSHA_WALLET_VERSION_V1`].
     pub version: u16,
@@ -210,7 +221,8 @@ impl KagemushaWalletOfferBodyV1 {
             .finish()
     }
 
-    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
+    /// Signing message `m = P_bytes(kgwoffr1, transcript)`: the 32 bytes the payer payment key signs with
+    /// ECDSA-P256-SHA256 (owner answer A1).
     #[must_use]
     pub fn signing_message(&self) -> [u8; 32] {
         kagemusha_wallet_signing_message_v1(Domain::Offer, &self.transcript())
@@ -227,14 +239,14 @@ impl KagemushaWalletOfferBodyV1 {
             ("offer.scheme_id", &self.scheme_id),
             ("offer.asset_digest", &self.asset_digest),
             ("offer.payer_wallet_id", &self.payer_wallet_id),
-            (
-                "offer.payer_credential_digest",
-                &self.payer_credential_digest,
-            ),
             ("offer.session_nonce", &self.session_nonce),
         ] {
             require_nonzero_v1(field, digest)?;
         }
+        require_nonzero_field_v1(
+            "offer.payer_credential_digest",
+            &self.payer_credential_digest,
+        )?;
         if self.amount == 0 {
             return Err(invalid_v1("offer.amount"));
         }
@@ -254,7 +266,7 @@ pub struct KagemushaWalletOfferV1 {
     pub payer_credential: KagemushaWalletCredentialV1,
     /// Exactly the payer credential's issuer certificate.
     pub certificates: KagemushaWalletCertificateSetV1,
-    /// Payer payment-key signature over the `kgwoffr1` signing message.
+    /// Payer payment-key signature over the Offer signing message (`kgwoffr1`).
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -409,11 +421,18 @@ impl KagemushaWalletFeeScheduleSlotV1 {
 
 /// Body of a receiver Request, signed by the receiver payment key under `kgwrqst1`.
 ///
-/// Its 28 σ-field elements define `credit_id = P(kgwcrdt1, elements)` (§5.1).
+/// Its 26 σ-field elements define `credit_id = P(kgwcrdt1, elements)` (§5.1). It carries both
+/// parties' account digests, so that each side's blacklist check binds through `credit_id`
+/// (owner answer A5), and the receiver blacklist decision of this Request: the version and root
+/// of the list the receiver enforced when it issued the Request, `(0, 0)` for none (owner
+/// answer B6). Receive checks the payer only against that recorded list. The receiver
+/// credential, fee schedule, scheme policy and certificate-set digests are `P` values, one
+/// element each (owner answer B1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletRequestBodyV1"
 )]
+#[repr(align(16))]
 pub struct KagemushaWalletRequestBodyV1 {
     /// Wire version; exactly [`KAGEMUSHA_WALLET_VERSION_V1`].
     pub version: u16,
@@ -423,36 +442,42 @@ pub struct KagemushaWalletRequestBodyV1 {
     pub asset_digest: [u8; 32],
     /// Paying wallet.
     pub payer_wallet_id: [u8; 32],
-    /// Account digest of the payer credential.
+    /// Payer account digest: the `account_digest` of the payer credential of the session's
+    /// Offer.
     pub payer_account_digest: [u8; 32],
     /// Receiving wallet; the receiver credential's wallet.
     pub receiver_wallet_id: [u8; 32],
-    /// Account digest of the receiver credential.
+    /// Receiver account digest: the receiver credential's `account_digest`.
     pub receiver_account_digest: [u8; 32],
     /// Payer send ordinal `s` this quote is scoped to.
     pub send_ordinal: u128,
-    /// Digest of the receiver credential carried beside the body.
+    /// Object digest `P(kgwocrd1, ·)` of the receiver credential carried beside the body.
     pub receiver_credential_digest: [u8; 32],
     /// Exact positive amount credited to the receiver.
     pub amount: u128,
-    /// Fee schedule digest; zero for no fee.
+    /// Fee schedule object digest `P(kgwofee1, ·)`; zero for no fee.
     pub fee_schedule: [u8; 32],
     /// Exact fee under the schedule; zero without one.
     pub fee: u128,
     /// Receiver's scheme policy epoch; zero when none is held.
     pub policy_epoch: u64,
-    /// Receiver's scheme policy digest; zero when none is held.
+    /// Receiver's scheme policy object digest `P(kgwopol1, ·)`; zero when none is held.
     pub scheme_policy: [u8; 32],
     /// Receiver's authenticated accepted time in Unix milliseconds.
     pub receiver_accepted_time_ms: u64,
-    /// Digest of the Request's certificate set.
+    /// Version of the blacklist the receiver enforced when it issued this Request; zero when
+    /// it enforced none (control off or no list held). Zero exactly when the root is zero.
+    pub receiver_blacklist_version: u64,
+    /// Gap-tree root of that list, a canonical σ-field value; zero when none was enforced.
+    pub receiver_blacklist_root: [u8; 32],
+    /// Certificate-set digest `P(kgwcset1, ·)` of the Request's certificates.
     pub certificates: [u8; 32],
     /// Fresh 256-bit nonce.
     pub nonce: [u8; 32],
 }
 
 impl KagemushaWalletRequestBodyV1 {
-    /// Exact `request-body` transcript.
+    /// Exact Request body transcript.
     #[must_use]
     pub fn transcript(&self) -> Vec<u8> {
         WalletTranscriptV1::with_capacity(KAGEMUSHA_WALLET_REQUEST_BODY_TRANSCRIPT_BYTES_V1)
@@ -471,22 +496,26 @@ impl KagemushaWalletRequestBodyV1 {
             .u64(self.policy_epoch)
             .digest(&self.scheme_policy)
             .u64(self.receiver_accepted_time_ms)
+            .u64(self.receiver_blacklist_version)
+            .digest(&self.receiver_blacklist_root)
             .digest(&self.certificates)
             .digest(&self.nonce)
             .finish()
     }
 
-    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
+    /// Signing message `m = P_bytes(kgwrqst1, transcript)`: the 32 bytes the receiver payment key signs with
+    /// ECDSA-P256-SHA256 (owner answer A1).
     #[must_use]
     pub fn signing_message(&self) -> [u8; 32] {
         kagemusha_wallet_signing_message_v1(Domain::Request, &self.transcript())
     }
 
-    /// σ-field elements of the body in request-body order (§5.1): version; scheme id (2);
-    /// asset digest (2); payer wallet (2); payer account (2); receiver wallet (2); receiver
-    /// account (2); send ordinal; receiver
-    /// credential digest (2); amount; fee schedule (2); fee; policy epoch; scheme policy (2);
-    /// receiver accepted time; certificate-set digest (2); nonce (2) — 28 elements.
+    /// σ-field elements of the body in transcript order (§5.1): version; scheme id (2); asset
+    /// digest (2); payer wallet (2); payer account (2); receiver wallet (2); receiver account
+    /// (2); send ordinal; receiver credential digest; amount; fee schedule; fee; policy epoch;
+    /// scheme policy; receiver accepted time; receiver blacklist version; receiver blacklist
+    /// root; certificate-set digest; nonce (2) — 26 elements, so the recorded blacklist decision
+    /// is bound wherever `credit_id` is.
     #[must_use]
     pub fn field_items(&self) -> Vec<[u8; 32]> {
         let items = WalletFieldItemsV1::with_capacity(KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1)
@@ -498,14 +527,16 @@ impl KagemushaWalletRequestBodyV1 {
             .digest(&self.receiver_wallet_id)
             .digest(&self.receiver_account_digest)
             .integer(self.send_ordinal)
-            .digest(&self.receiver_credential_digest)
+            .field(&self.receiver_credential_digest)
             .integer(self.amount)
-            .digest(&self.fee_schedule)
+            .field(&self.fee_schedule)
             .integer(self.fee)
             .integer(u128::from(self.policy_epoch))
-            .digest(&self.scheme_policy)
+            .field(&self.scheme_policy)
             .integer(u128::from(self.receiver_accepted_time_ms))
-            .digest(&self.certificates)
+            .integer(u128::from(self.receiver_blacklist_version))
+            .field(&self.receiver_blacklist_root)
+            .field(&self.certificates)
             .digest(&self.nonce);
         debug_assert_eq!(items.len(), KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1);
         items.finish()
@@ -522,9 +553,12 @@ impl KagemushaWalletRequestBodyV1 {
     ///
     /// # Errors
     ///
-    /// Rejects another version, zero bindings, a zero amount, a payer equal to the receiver,
+    /// Rejects another version, zero bindings (both account digests included), a zero or
+    /// noncanonical receiver credential or certificate-set digest, a noncanonical fee schedule,
+    /// scheme policy or receiver blacklist root, a zero amount, a payer equal to the receiver,
     /// an overflowing gross debit, a policy epoch that disagrees with its scheme-policy digest,
-    /// and a nonzero fee without a fee schedule.
+    /// a nonzero fee without a fee schedule, and a receiver blacklist version that is zero
+    /// exactly when the recorded root is not.
     pub fn validate(&self) -> WalletResult<()> {
         require_version_v1("request.version", self.version)?;
         for (field, digest) in [
@@ -537,14 +571,27 @@ impl KagemushaWalletRequestBodyV1 {
                 "request.receiver_account_digest",
                 &self.receiver_account_digest,
             ),
-            (
-                "request.receiver_credential_digest",
-                &self.receiver_credential_digest,
-            ),
-            ("request.certificates", &self.certificates),
             ("request.nonce", &self.nonce),
         ] {
             require_nonzero_v1(field, digest)?;
+        }
+        require_nonzero_field_v1(
+            "request.receiver_credential_digest",
+            &self.receiver_credential_digest,
+        )?;
+        require_nonzero_field_v1("request.certificates", &self.certificates)?;
+        for (field, value) in [
+            ("request.fee_schedule", &self.fee_schedule),
+            ("request.scheme_policy", &self.scheme_policy),
+            (
+                "request.receiver_blacklist_root",
+                &self.receiver_blacklist_root,
+            ),
+        ] {
+            require_canonical_field_v1(field, value)?;
+        }
+        if (self.receiver_blacklist_version == 0) != is_zero_v1(&self.receiver_blacklist_root) {
+            return Err(invalid_v1("request.receiver_blacklist"));
         }
         if self.amount == 0 {
             return Err(invalid_v1("request.amount"));
@@ -562,6 +609,77 @@ impl KagemushaWalletRequestBodyV1 {
             return Err(invalid_v1("request.fee"));
         }
         Ok(())
+    }
+
+    /// Request rule of the receiver, run before it signs this body (§§3.4, 7; owner answers A5
+    /// and B6).
+    ///
+    /// `offer` is the session's Offer, authenticated under `scheme`; `receiver_credential` and
+    /// `receiver_state` are the receiver's own current credential and head state, and `list` its
+    /// committed blacklist when it holds one. The body must name the Offer's payer wallet and
+    /// payer account digest and the receiver's own wallet and account digest. The receiver's
+    /// list is judged here, once: with its blacklist enforced (its BLACKLIST control enabled and
+    /// a list held), the body records the committed `(blacklist_version, blacklist_root)` and the
+    /// payer account digest must have a gap opening in that list; otherwise the body records
+    /// `(0, 0)` ([`KagemushaWalletStateV1::request_blacklist_decision`]). Lists are best effort:
+    /// only the receiver's own committed list counts. Returns the gap opening, which the receiver
+    /// retains with the issued Request for its Receive and any `σ_recv` re-proof
+    /// ([`KagemushaWalletBlacklistGapOpeningV1::transcript`]), or `None` when no list is
+    /// enforced; on error the receiver issues no Request (it may send `SetupDeclined`).
+    ///
+    /// # Errors
+    ///
+    /// Rejects an invalid body, an Offer that does not verify under `scheme`, a receiver state
+    /// that does not belong to `receiver_credential`, a body for another scheme, asset, payer
+    /// wallet or account, receiver wallet or account, a recorded blacklist decision other than
+    /// the receiver's current one, a missing or uncommitted list, and a listed payer.
+    pub fn check_request_rule(
+        &self,
+        scheme: &KagemushaWalletSchemeV1,
+        offer: &KagemushaWalletOfferV1,
+        receiver_credential: &KagemushaWalletCredentialV1,
+        receiver_state: &KagemushaWalletStateV1,
+        list: Option<&KagemushaWalletBlacklistV1>,
+    ) -> WalletResult<Option<KagemushaWalletBlacklistGapOpeningV1>> {
+        self.validate()?;
+        offer.verify(scheme)?;
+        receiver_state.validate_for_credential(receiver_credential)?;
+        let payer = &offer.payer_credential.body;
+        let receiver = &receiver_credential.body;
+        require_scheme_v1("request.scheme_id", &self.scheme_id, &offer.body.scheme_id)?;
+        require_scheme_v1("request.scheme_id", &self.scheme_id, &receiver.scheme_id)?;
+        for (field, matches) in [
+            (
+                "request.asset_digest",
+                self.asset_digest == offer.body.asset_digest
+                    && self.asset_digest == receiver.asset_digest,
+            ),
+            (
+                "request.payer_wallet_id",
+                self.payer_wallet_id == payer.wallet_id,
+            ),
+            (
+                "request.payer_account_digest",
+                self.payer_account_digest == payer.account_digest,
+            ),
+            (
+                "request.receiver_wallet_id",
+                self.receiver_wallet_id == receiver.wallet_id,
+            ),
+            (
+                "request.receiver_account_digest",
+                self.receiver_account_digest == receiver.account_digest,
+            ),
+        ] {
+            if !matches {
+                return Err(invalid_v1(field));
+            }
+        }
+        let (version, root) = receiver_state.request_blacklist_decision();
+        if self.receiver_blacklist_version != version || self.receiver_blacklist_root != root {
+            return Err(invalid_v1("request.receiver_blacklist"));
+        }
+        receiver_state.check_request_blacklist(list, &self.payer_account_digest)
     }
 }
 
@@ -582,7 +700,7 @@ pub struct KagemushaWalletRequestV1 {
     pub fee_schedule: KagemushaWalletFeeScheduleSlotV1,
     /// Receiver issuer certificate and fee-schedule signer certificate.
     pub certificates: KagemushaWalletCertificateSetV1,
-    /// Receiver payment-key signature over the `kgwrqst1` signing message.
+    /// Receiver payment-key signature over the Request signing message (`kgwrqst1`).
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -726,17 +844,20 @@ impl KagemushaWalletRequestV1 {
         self.body.credit_id()
     }
 
-    /// Request digest `H("request", m || signature)`.
+    /// Request object digest `P(kgworeq1, [m, r_lo, r_hi, s_lo, s_hi])` (owner answer B1), one
+    /// canonical σ-field value.
     #[must_use]
     pub fn request_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
-            Role::Request,
+            ObjectDomain::Request,
             &self.body.signing_message(),
             &self.signature,
         )
     }
 
     /// Validate the Request and verify its receiver signature (§5.1, design §4.2 and C5).
+    ///
+    /// The body's receiver account digest must be the receiver credential's.
     ///
     /// # Errors
     ///
@@ -789,21 +910,73 @@ impl KagemushaWalletRequestV1 {
         }
     }
 
-    /// Native Send-rule pre-check of the payer from its folded head (§§3.2, 5.1, design §6.2).
+    /// The one complete native Send pre-check of the payer (§§3.2, 3.4, 5.1, 7; owner answers
+    /// B5, B7 and B8, technical decision Q8).
+    ///
+    /// It authenticates its inputs against the payer's head, derives one accepted interval
+    /// `[L, U]` (§3.3, Time), and applies every part of
+    /// the Send rule: the ordinal, spendable, epoch, fee-schedule, key and account checks against
+    /// the Ω recorded for the head; with the lease enabled, `U < lease_expires_at_ms`; with the
+    /// payer's blacklist enforced, the receiver's gap opening in the committed list and the
+    /// list-age rule; with the quota control enabled, `U < quota_share_expires_at_ms`, the Send
+    /// time span `U − L ≤ time_anchor_max_response_ms` and the in-place charges of every touched
+    /// window. It returns the Send effect and `σ_send`'s control witnesses (the gap opening, the
+    /// quota charges with their window and usage openings, and the successor quota-usage
+    /// array). The partial checks are not separate entry points.
+    ///
+    /// # Errors
+    ///
+    /// Rejects what the Send rule, the lease, blacklist and quota checks and the Send effect
+    /// reject; a Send that fails changes no state.
+    pub fn check_send(
+        &self,
+        inputs: &KagemushaWalletSendInputsV1<'_>,
+    ) -> WalletResult<KagemushaWalletSendCheckV1> {
+        let state = inputs.payer_state;
+        self.check_send_rule(inputs.payer_credential, state, inputs.omega)?;
+        let interval = state.effective_accepted_time(
+            inputs.anchored,
+            inputs.now,
+            self.body.receiver_accepted_time_ms,
+        )?;
+        state.check_lease(&interval)?;
+        let blacklist_gap = state.check_send_blacklist(
+            inputs.blacklist,
+            &self.body.receiver_account_digest,
+            &interval,
+        )?;
+        let gross = self
+            .body
+            .amount
+            .checked_add(self.body.fee)
+            .ok_or_else(|| overflow_v1("request.gross"))?;
+        let (quota_charges, quota_usage) =
+            state.check_send_quota(inputs.quota_share, inputs.quota_usage, &interval, gross)?;
+        let effect = self.send_effect(inputs.payer_credential, &interval)?;
+        Ok(KagemushaWalletSendCheckV1 {
+            interval,
+            effect,
+            blacklist_gap,
+            quota_charges,
+            quota_usage,
+        })
+    }
+
+    /// Send-rule part of [`Self::check_send`] against the folded head (§§3.2, 5.1, design §6.2).
     ///
     /// `omega` is the Ω recorded as self-verified when the payer's current head was folded
-    /// (§3.1 step 5); its `head` must be the commitment of `payer_state`. The Send relation
-    /// enforces the same rules; the controls of §7 are checked separately with the state's
-    /// lease, blacklist and quota checks.
+    /// (§3.1 step 5); its `head` must be the commitment of `payer_state`.
     ///
     /// # Errors
     ///
     /// Rejects an invalid Request or payer state, an Ω of another head, wallet, credential or
     /// payment key, another scheme or asset, a Request for another payer or ordinal, a payment
-    /// to the payer itself or to the same key, a payer policy epoch below the Request's, a
-    /// different scheme policy at the same epoch, a different fee schedule, and a gross debit
-    /// above `balance − burned_total` with Ω's lineage-adjusted `burned_total`.
-    pub fn check_send_rule(
+    /// to the payer itself or to the same key, a payer account digest other than the payer
+    /// credential's (the receiver account digest is the receiver credential's by
+    /// [`Self::validate`]), a payer policy epoch below the Request's, a different scheme policy
+    /// at the same epoch, a different fee schedule, and a gross debit above
+    /// `balance − burned_total` with Ω's lineage-adjusted `burned_total`.
+    pub(super) fn check_send_rule(
         &self,
         payer_credential: &KagemushaWalletCredentialV1,
         payer_state: &KagemushaWalletStateV1,
@@ -825,14 +998,14 @@ impl KagemushaWalletRequestV1 {
         if body.payer_wallet_id != core.wallet_id {
             return Err(invalid_v1("request.payer_wallet_id"));
         }
-        if body.payer_account_digest != payer_credential.body.account_digest {
-            return Err(invalid_v1("request.payer_account_digest"));
-        }
         if body.receiver_wallet_id == core.wallet_id {
             return Err(invalid_v1("request.receiver_wallet_id"));
         }
         if payer_credential.body.payment_key == self.receiver_credential.body.payment_key {
             return Err(invalid_v1("request.payment_key"));
+        }
+        if body.payer_account_digest != payer_credential.body.account_digest {
+            return Err(invalid_v1("request.payer_account_digest"));
         }
         if body.send_ordinal != core.next_send {
             return Err(invalid_v1("request.send_ordinal"));
@@ -865,7 +1038,8 @@ impl KagemushaWalletRequestV1 {
         )
     }
 
-    /// Send effect of this Request at the effective accepted time `interval` (§7).
+    /// Send effect of this Request at the effective accepted time `interval` (§7), the effect
+    /// part of [`Self::check_send`].
     ///
     /// The Send binds the exact signed Request by its digest, which binds the receiver
     /// credential, fee schedule and certificates by digest (§8). The payer credential must be
@@ -876,7 +1050,7 @@ impl KagemushaWalletRequestV1 {
     /// Rejects an invalid Request or payer credential, a credential for another scheme, asset
     /// or payer wallet, a payer key equal to the receiver's, an inverted interval, and a lower
     /// bound below the receiver's accepted time.
-    pub fn send_effect(
+    pub(super) fn send_effect(
         &self,
         payer_credential: &KagemushaWalletCredentialV1,
         interval: &KagemushaWalletTimeIntervalV1,
@@ -904,6 +1078,48 @@ impl KagemushaWalletRequestV1 {
     }
 }
 
+/// Inputs of the one native Send pre-check ([`KagemushaWalletRequestV1::check_send`]): the
+/// payer's credential, head state and the Ω recorded for that head, its committed same-boot time
+/// anchor and the current monotonic reading, and the native stores of its held blacklist, quota
+/// share and quota-usage array.
+#[derive(Debug, Clone, Copy)]
+pub struct KagemushaWalletSendInputsV1<'a> {
+    /// Payer's current credential.
+    pub payer_credential: &'a KagemushaWalletCredentialV1,
+    /// Payer's head state.
+    pub payer_state: &'a KagemushaWalletStateV1,
+    /// Public outputs of the Ω recorded for the payer's head.
+    pub omega: &'a KagemushaWalletLineagePublicV1,
+    /// Committed same-boot anchor, if the wallet holds one.
+    pub anchored: Option<&'a KagemushaWalletAnchoredTimeV1>,
+    /// Current native monotonic reading; required whenever a committed anchor is held.
+    /// Absence is permitted only for the floor-only path without an anchor.
+    pub now: Option<&'a KagemushaWalletMonotonicReadingV1>,
+    /// Held blacklist, if any.
+    pub blacklist: Option<&'a KagemushaWalletBlacklistV1>,
+    /// Held quota share, if any.
+    pub quota_share: Option<&'a KagemushaWalletQuotaShareV1>,
+    /// Native quota-usage array; its root must be the head's `quota_usage_root`.
+    pub quota_usage: &'a KagemushaWalletQuotaUsageArrayV1,
+}
+
+/// Result of the one native Send pre-check: the accepted interval, the Send effect and
+/// `σ_send`'s control witnesses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KagemushaWalletSendCheckV1 {
+    /// Accepted interval `[L, U]`; the successor floor is `L`.
+    pub interval: KagemushaWalletTimeIntervalV1,
+    /// Send effect of the Request at `interval`.
+    pub effect: KagemushaWalletEffectV1,
+    /// Gap opening of the receiver's account in the payer's committed list, when enforced.
+    pub blacklist_gap: Option<KagemushaWalletBlacklistGapOpeningV1>,
+    /// In-place quota charges in canonical order (Daily then Monthly, each by ascending slot),
+    /// empty without the quota control.
+    pub quota_charges: Vec<KagemushaWalletQuotaChargeV1>,
+    /// Successor quota-usage array; its root is the successor's `quota_usage_root`.
+    pub quota_usage: KagemushaWalletQuotaUsageArrayV1,
+}
+
 /// The receiver-signed Request body that a Payment carries (§5.1): the canonical signed
 /// Request fields with their dependencies bound by digest, and the receiver's signature.
 ///
@@ -915,7 +1131,7 @@ impl KagemushaWalletRequestV1 {
 pub struct KagemushaWalletSignedRequestV1 {
     /// Signed body.
     pub body: KagemushaWalletRequestBodyV1,
-    /// Receiver payment-key signature over the `kgwrqst1` signing message.
+    /// Receiver payment-key signature over the Request signing message (`kgwrqst1`).
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -939,11 +1155,12 @@ impl KagemushaWalletSignedRequestV1 {
         self.body.credit_id()
     }
 
-    /// Request digest `H("request", m || signature)`.
+    /// Request object digest `P(kgworeq1, [m, r_lo, r_hi, s_lo, s_hi])` (owner answer B1), one
+    /// canonical σ-field value.
     #[must_use]
     pub fn request_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
-            Role::Request,
+            ObjectDomain::Request,
             &self.body.signing_message(),
             &self.signature,
         )
@@ -954,12 +1171,16 @@ impl KagemushaWalletSignedRequestV1 {
     /// # Errors
     ///
     /// Rejects an invalid body or credential, a credential other than the body's receiver
-    /// credential, and a signature that does not verify.
+    /// credential, a receiver account digest other than the credential's, and a signature that
+    /// does not verify.
     pub fn verify(&self, receiver_credential: &KagemushaWalletCredentialV1) -> WalletResult<()> {
         self.validate()?;
         receiver_credential.validate()?;
         if receiver_credential.credential_digest() != self.body.receiver_credential_digest {
             return Err(invalid_v1("request.receiver_credential_digest"));
+        }
+        if receiver_credential.body.account_digest != self.body.receiver_account_digest {
+            return Err(invalid_v1("request.receiver_account_digest"));
         }
         kagemusha_wallet_verify_signature_v1(
             &receiver_credential.body.payment_key,
@@ -978,9 +1199,12 @@ impl KagemushaWalletSignedRequestV1 {
 /// `LE16 version || request_digest || payer_payment_key || payer_credential_digest ||
 /// package_digest`.
 ///
-/// The Payment digest is `P_bytes(kgwpay_1, transcript)` (§5.1, owner answer Q9): it binds the
-/// signed Request and the payer fields directly and Ω(pred), `σ_send` and `τ_send` through the
-/// package digest, whose `proof_digest` covers both proofs.
+/// The Payment digest is `P_bytes(kgwpay_1, transcript)` (§5.1, owner answer Q9; kept by the
+/// technical decision Q4): `request_digest` and `package_digest` are `P` values in their 32-byte
+/// slots. Given canonical decoding and recomputed subordinate digests, the transcript binds every
+/// field of the Payment frame transitively: the Request body and signature through
+/// `request_digest`, and the statement, Ω(pred), `σ_send` and `τ_send` through the package
+/// digest, whose `proof_digest` covers both proofs.
 #[must_use]
 pub fn kagemusha_wallet_payment_transcript_v1(
     request_digest: &[u8; 32],
@@ -1082,7 +1306,7 @@ impl KagemushaWalletPaymentV1 {
         require_version_v1("payment.version", self.version)?;
         self.request.validate()?;
         self.payer_payment_key.validate()?;
-        require_nonzero_v1(
+        require_nonzero_field_v1(
             "payment.payer_credential_digest",
             &self.payer_credential_digest,
         )?;
@@ -1233,28 +1457,71 @@ impl KagemushaWalletPaymentV1 {
         Ok(digests)
     }
 
-    /// Receive effect of this Payment for the receiver holding `receiver_credential`, its
-    /// current credential, and its own signed `request` (§5.1).
+    /// The one native Receive preparation path of the receiver (§§3.4, 5.1; owner answer B6,
+    /// technical decision Q8): the full Payment verification ([`Self::verify`]) against the
+    /// session's payer credential and certificates and the receiver's held `request`, then the
+    /// Receive effect for the receiver's current credential and head, including the Receive rule
+    /// against the blacklist decision the Request recorded.
+    ///
+    /// `recorded_blacklist` is required when the Request records a nonzero
+    /// `(receiver_blacklist_version, receiver_blacklist_root)`: the history lookup of that
+    /// version in the head's blacklist history and the gap opening retained with the Request.
+    /// A recorded `(0, 0)` needs no check. The receiver's current list and controls neither
+    /// excuse a recorded check nor add one, so a newer receiver list never strands a committed
+    /// Payment. A Payment that fails changes no state.
+    ///
+    /// # Errors
+    ///
+    /// Rejects what [`Self::verify`] and the Receive effect reject.
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare_receive(
+        &self,
+        scheme: &KagemushaWalletSchemeV1,
+        payer_credential: &KagemushaWalletCredentialV1,
+        payer_certificates: &KagemushaWalletCertificateSetV1,
+        request: &KagemushaWalletRequestV1,
+        receiver_credential: &KagemushaWalletCredentialV1,
+        receiver_state: &KagemushaWalletStateV1,
+        recorded_blacklist: Option<&KagemushaWalletRecordedBlacklistProofV1>,
+    ) -> WalletResult<KagemushaWalletReceivePreparationV1> {
+        let digests = self.verify(scheme, payer_credential, payer_certificates, request)?;
+        let effect = self.receive_effect(
+            request,
+            receiver_credential,
+            receiver_state,
+            recorded_blacklist,
+        )?;
+        Ok(KagemushaWalletReceivePreparationV1 { digests, effect })
+    }
+
+    /// Receive-effect part of [`Self::prepare_receive`] for the receiver holding
+    /// `receiver_credential`, its current credential, its head `receiver_state` and its own
+    /// signed `request` (§5.1).
     ///
     /// The receiver is matched by the Request's receiver `wallet_id` and the `payment_key` of
     /// the Request's receiver credential, never by credential-digest equality, so a Request
-    /// quoted before a renewal stays receivable after it (owner answer Q8). The effect carries
-    /// no Payment digest (§3). Consumed-credit nonmembership is checked inside the serialized
-    /// Advance section (§4.2).
+    /// quoted before a renewal stays receivable after it (owner answer Q8). The recorded
+    /// blacklist decision is checked before mutation
+    /// ([`KagemushaWalletStateV1::check_recorded_blacklist`]). The effect carries no Payment
+    /// digest (§3). Consumed-credit nonmembership is checked inside the serialized Advance
+    /// section (§4.2).
     ///
     /// # Errors
     ///
     /// Rejects what [`Self::digests`] rejects, an invalid receiver credential or Request, a
-    /// carried Request other than `request`, and a Payment for another scheme, asset, wallet
-    /// or payment key.
-    pub fn receive_effect(
+    /// receiver state of another credential, a carried Request other than `request`, a Payment
+    /// for another scheme, asset, wallet or payment key, and a recorded blacklist decision that
+    /// does not hold.
+    pub(super) fn receive_effect(
         &self,
         request: &KagemushaWalletRequestV1,
         receiver_credential: &KagemushaWalletCredentialV1,
+        receiver_state: &KagemushaWalletStateV1,
+        recorded_blacklist: Option<&KagemushaWalletRecordedBlacklistProofV1>,
     ) -> WalletResult<KagemushaWalletEffectV1> {
         let digests = self.digests()?;
         request.validate()?;
-        receiver_credential.validate()?;
+        receiver_state.validate_for_credential(receiver_credential)?;
         if request.signed() != self.request {
             return Err(invalid_v1("payment.request"));
         }
@@ -1267,12 +1534,15 @@ impl KagemushaWalletPaymentV1 {
         if body.receiver_wallet_id != receiver.wallet_id {
             return Err(invalid_v1("payment.receiver_wallet_id"));
         }
-        if body.receiver_account_digest != receiver.account_digest {
-            return Err(invalid_v1("payment.receiver_account_digest"));
-        }
         if receiver.payment_key != request.receiver_credential.body.payment_key {
             return Err(invalid_v1("payment.receiver_payment_key"));
         }
+        receiver_state.check_recorded_blacklist(
+            body.receiver_blacklist_version,
+            &body.receiver_blacklist_root,
+            &body.payer_account_digest,
+            recorded_blacklist,
+        )?;
         Ok(KagemushaWalletEffectV1::Receive {
             credit_id: digests.credit_id,
             payer_wallet_id: body.payer_wallet_id,
@@ -1399,6 +1669,16 @@ impl KagemushaWalletPaymentV1 {
     }
 }
 
+/// Result of the one native Receive preparation path
+/// ([`KagemushaWalletPaymentV1::prepare_receive`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KagemushaWalletReceivePreparationV1 {
+    /// Digests of the verified Payment.
+    pub digests: KagemushaWalletPaymentDigestsV1,
+    /// Receive effect.
+    pub effect: KagemushaWalletEffectV1,
+}
+
 // ---------------------------------------------------------------------------------------
 // Lineage message (§§5.1, 8, design §6.4)
 // ---------------------------------------------------------------------------------------
@@ -1440,7 +1720,7 @@ impl KagemushaWalletLineageMessageV1 {
         self.lineage.validate()
     }
 
-    /// Lineage digest `P_bytes(kgwlin_1, Ω bytes)`.
+    /// Lineage digest `H("lineage", Ω bytes)`.
     #[must_use]
     pub fn lineage_digest(&self) -> [u8; 32] {
         self.lineage.lineage_digest()
@@ -1482,55 +1762,61 @@ impl KagemushaWalletLineageMessageV1 {
 // CreditStatus and Credited (§§3.1, 5.1, design §6.5 and §6.6)
 // ---------------------------------------------------------------------------------------
 
-/// Indexed membership opening of `credit_id → (Payment digest, burned flag)` in Ω's
-/// credit-digest root (§§3.2, 3.4). The slot is nonzero and exactly 32 canonical siblings
-/// open the linked leaf `(credit_id, P(kgwcdig1, [credit_id, payment_digest, burned]), next_key)`.
+/// Membership opening of `credit_id → (Payment digest, burned flag)` in an Ω's credit-digest
+/// root (§§3, 5.1; owner answer A2).
+///
+/// The credit-digest tree is the depth-32 indexed tree of [`super::poseidon`]. The opened leaf is
+/// `(credit_id, P(kgwcdig1, [credit_id, payment_digest, burned]), next_key)` at `slot`, with
+/// exactly 32 siblings, height 0 first, as 1,024 concatenated 32-byte canonical σ-field values.
+/// The flat byte string costs 32 bytes per sibling in the canonical frame; a sequence of 32-byte
+/// arrays would cost 65 in Norito, which matters inside the 10,000-byte Credited bound (§8).
+/// Only a membership opening is evidence; a non-membership (low-leaf) opening is not.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletCreditOpeningV1"
 )]
 pub struct KagemushaWalletCreditOpeningV1 {
-    /// Credit identity (the indexed map key), a nonzero canonical σ-field value.
+    /// Credit identity (the tree key), a canonical σ-field value.
     pub credit_id: [u8; 32],
-    /// Full canonical Payment digest, a nonzero canonical σ-field value.
+    /// Digest of the full canonical Payment recorded for the credit, a canonical σ-field value.
     pub payment_digest: [u8; 32],
-    /// Whether the Receive relation took the burn branch.
+    /// Whether `Λ_recv` took the burn branch for the credit.
     pub burned: bool,
-    /// Next larger credit key, or zero for the last linked leaf.
+    /// Next larger key of the credit-digest tree, or zero for the largest.
     pub next_key: [u8; 32],
-    /// Allocated membership slot; slot zero is the sentinel and cannot prove a credit.
+    /// Slot of the leaf; at least 1 (slot 0 is the sentinel).
     pub slot: u32,
-    /// Exactly 1,024 canonical sibling bytes in increasing height.
+    /// Exactly 32 siblings, height 0 first: 1,024 concatenated canonical σ-field values.
     pub siblings: Vec<u8>,
 }
 
 impl KagemushaWalletCreditOpeningV1 {
-    /// Build a credit opening from the value record and its actual indexed membership leaf.
+    /// Opening of `leaf` from the credit-digest tree's membership opening of its key.
     ///
     /// # Errors
     ///
-    /// Rejects a leaf with another key or value and an invalid opening shape.
+    /// Rejects an indexed leaf of another key or value than `leaf`'s.
     pub fn new(
         leaf: &KagemushaWalletCreditDigestLeafV1,
-        indexed_leaf: &KagemushaWalletIndexedLeafV1,
+        indexed: &KagemushaWalletIndexedLeafV1,
         opening: &KagemushaWalletIndexedOpeningV1,
     ) -> WalletResult<Self> {
-        if *indexed_leaf != leaf.indexed_leaf(indexed_leaf.next_key)? {
+        if indexed.key != leaf.credit_id || indexed.value != leaf.leaf_value()? {
             return Err(invalid_v1("credit_opening.leaf"));
         }
-        let result = Self {
+        let credit_opening = Self {
             credit_id: leaf.credit_id,
             payment_digest: leaf.payment_digest,
             burned: leaf.burned,
-            next_key: indexed_leaf.next_key,
+            next_key: indexed.next_key,
             slot: opening.slot,
             siblings: opening.sibling_bytes(),
         };
-        result.validate()?;
-        Ok(result)
+        credit_opening.validate()?;
+        Ok(credit_opening)
     }
 
-    /// Credit-digest value record this opening proves.
+    /// Credit-digest entry this opening proves.
     #[must_use]
     pub const fn leaf(&self) -> KagemushaWalletCreditDigestLeafV1 {
         KagemushaWalletCreditDigestLeafV1 {
@@ -1540,48 +1826,53 @@ impl KagemushaWalletCreditOpeningV1 {
         }
     }
 
-    /// Sibling values, height zero first; validation rejects a trailing partial value.
-    pub fn sibling_values(&self) -> impl Iterator<Item = [u8; 32]> + '_ {
-        self.siblings.chunks_exact(DIGEST_BYTES).map(|chunk| {
-            let mut value = [0_u8; 32];
-            value.copy_from_slice(chunk);
-            value
-        })
-    }
-
-    fn indexed_opening(&self) -> WalletResult<KagemushaWalletIndexedOpeningV1> {
-        KagemushaWalletIndexedOpeningV1::from_sibling_bytes(self.slot, &self.siblings)
-    }
-
-    /// Validate the exact membership opening shape, key order and canonical field values.
+    /// The indexed-tree opening of the carried slot and siblings.
     ///
     /// # Errors
     ///
-    /// Rejects a zero or noncanonical credit or Payment digest, slot zero, a noncanonical
-    /// next key or one not above the credit, another sibling length and a noncanonical sibling.
+    /// Rejects siblings other than 32 canonical values.
+    pub fn indexed_opening(&self) -> WalletResult<KagemushaWalletIndexedOpeningV1> {
+        KagemushaWalletIndexedOpeningV1::from_sibling_bytes(self.slot, &self.siblings)
+            .map_err(|_| invalid_v1("credit_opening.siblings"))
+    }
+
+    /// Validate the opening's structure.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a zero or noncanonical credit identity or Payment digest, a `next_key` that is
+    /// noncanonical or nonzero and not above `credit_id`, slot 0, and siblings other than exactly
+    /// 32 canonical 32-byte values.
     pub fn validate(&self) -> WalletResult<()> {
         require_nonzero_field_v1("credit_opening.credit_id", &self.credit_id)?;
         require_nonzero_field_v1("credit_opening.payment_digest", &self.payment_digest)?;
+        require_canonical_field_v1("credit_opening.next_key", &self.next_key)?;
+        if !is_zero_v1(&self.next_key)
+            && kagemusha_wallet_integer_cmp_v1(&self.next_key, &self.credit_id)
+                != core::cmp::Ordering::Greater
+        {
+            return Err(invalid_v1("credit_opening.next_key"));
+        }
         if self.slot == 0 {
             return Err(invalid_v1("credit_opening.slot"));
         }
-        self.leaf().indexed_leaf(self.next_key)?;
         self.indexed_opening()?;
         Ok(())
     }
 
-    /// Recompute the indexed credit-digest root of this membership opening.
+    /// Credit-digest root this opening recomputes from its leaf
+    /// `P(kgwimlf1, [credit_id, P(kgwcdig1, [credit_id, payment_digest, burned]), next_key])`.
     ///
     /// # Errors
     ///
-    /// Rejects an invalid opening.
+    /// Rejects what [`Self::validate`] rejects.
     pub fn root(&self) -> WalletResult<[u8; 32]> {
         self.validate()?;
-        self.indexed_opening()?
-            .leaf_root(&self.leaf().indexed_leaf(self.next_key)?)
+        let leaf = self.leaf().indexed_leaf(self.next_key)?;
+        self.indexed_opening()?.leaf_root(&leaf)
     }
 
-    /// Exact 1,125-byte transcript:
+    /// Exact credit-opening transcript (1,125 bytes):
     /// `credit_id || payment_digest || u8 burned || next_key || LE32 slot || siblings`.
     ///
     /// # Errors
@@ -1589,17 +1880,20 @@ impl KagemushaWalletCreditOpeningV1 {
     /// Rejects an invalid opening.
     pub fn transcript(&self) -> WalletResult<Vec<u8>> {
         self.validate()?;
-        Ok(WalletTranscriptV1::with_capacity(1_125)
-            .digest(&self.credit_id)
-            .digest(&self.payment_digest)
-            .u8(u8::from(self.burned))
-            .digest(&self.next_key)
-            .u32(self.slot)
-            .bytes(&self.siblings)
-            .finish())
+        Ok(
+            WalletTranscriptV1::with_capacity(KAGEMUSHA_WALLET_CREDIT_OPENING_TRANSCRIPT_BYTES_V1)
+                .digest(&self.credit_id)
+                .digest(&self.payment_digest)
+                .u8(u8::from(self.burned))
+                .digest(&self.next_key)
+                .u32(self.slot)
+                .bytes(&self.siblings)
+                .finish(),
+        )
     }
 
-    /// Canonical σ-field opening digest `P_bytes(kgwcopn1, transcript)`.
+    /// Opening digest `P_bytes(kgwcopn1, transcript)`, one canonical σ-field value (owner answer
+    /// A3).
     ///
     /// # Errors
     ///
@@ -1643,13 +1937,13 @@ pub struct KagemushaWalletCreditStatusV1 {
     pub receipt: KagemushaWalletReceiptV1,
     /// Lineage proof Ω(h).
     pub lineage: KagemushaWalletLineageV1,
-    /// Compressed credit-digest opening in Ω(h)'s credit-digest root.
+    /// 32-sibling membership opening in Ω(h)'s credit-digest root.
     pub opening: KagemushaWalletCreditOpeningV1,
 }
 
 impl KagemushaWalletCreditStatusV1 {
     /// Validate the status, verify τ(h) under `Ω(h).payment_key` and return its digest
-    /// `P_bytes(kgwcsts1, transcript)`.
+    /// `P_bytes(kgwcsts1, transcript)`, one canonical σ-field value (owner answer A3).
     ///
     /// Checks: the statement's successor is `Ω(h).head`; scheme, relation, credential digest
     /// and lifecycle equal Ω's; τ(h) verifies over the carried statement and `proof_digest`
@@ -1705,7 +1999,7 @@ impl KagemushaWalletCreditStatusV1 {
             KAGEMUSHA_WALLET_CREDIT_STATUS_DOMAIN_V1,
             &WalletTranscriptV1::with_capacity(KAGEMUSHA_WALLET_CREDIT_STATUS_TRANSCRIPT_BYTES_V1)
                 .u16(self.version)
-                .digest(&self.statement.statement_digest())
+                .digest(&self.statement.statement_digest()?)
                 .digest(&self.proof_digest)
                 .digest(&receipt)
                 .digest(&self.lineage.lineage_digest())
@@ -1911,9 +2205,10 @@ impl KagemushaWalletCreditedV1 {
     /// which a renewal preserves. `σ_recv`, Ω(h) and its decide are verified by the proof
     /// owner.
     ///
-    /// The `credited` transcript is
+    /// The Credited digest is `P_bytes(kgwcrdd1, transcript)` (owner answer A3), one canonical
+    /// σ-field value, over the transcript
     /// `LE16 version || u8 tag || credit_id || payment_digest || evidence_digest`, with the
-    /// package digest (Receive) or the `credit-status` digest (Status) as evidence digest.
+    /// package digest (Receive) or the credit-status digest (Status) as evidence digest.
     ///
     /// # Errors
     ///
@@ -2188,7 +2483,8 @@ impl KagemushaWalletSessionControlV1 {
             .finish()
     }
 
-    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
+    /// Signing message `m = P_bytes(kgwsctl1, transcript)`: the 32 bytes the sender payment key signs with
+    /// ECDSA-P256-SHA256 (owner answer A1).
     #[must_use]
     pub fn signing_message(&self) -> [u8; 32] {
         kagemusha_wallet_signing_message_v1(Domain::SessionControl, &self.transcript())

@@ -3489,15 +3489,39 @@ fn derive_enum_json_deserialize(
     };
     Ok(result)
 }
+/// Select an implementation lifetime without shadowing user parameters or nested binders.
+fn json_implementation_lifetime(generics: &Generics, base: &str) -> syn::Lifetime {
+    let params = &generics.params;
+    let where_clause = &generics.where_clause;
+    let tokens = quote!(#params #where_clause);
+    let mut ident = format_ident!("{base}");
+    while token_stream_mentions_generic(tokens.clone(), ::core::slice::from_ref(&ident)) {
+        ident = format_ident!("_{ident}");
+    }
+    syn::Lifetime::new(&format!("'{ident}"), proc_macro2::Span::call_site())
+}
+
 fn derive_fast_from_json_fallback(input: &DeriveInput) -> TokenStream2 {
     let ident = &input.ident;
-    let generics = input.generics.clone();
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let input_lifetime = json_implementation_lifetime(&input.generics, "__norito_json");
+    let arena_lifetime = json_implementation_lifetime(&input.generics, "__norito_arena");
+    let mut implementation = input.generics.clone();
+    implementation.params.insert(
+        0,
+        syn::GenericParam::Lifetime(syn::LifetimeParam::new(input_lifetime.clone())),
+    );
+    // Reuse the actual derived obligation, including skipped/default and custom-helper fields.
+    implementation
+        .make_where_clause()
+        .predicates
+        .push(parse_quote!(Self: norito::json::JsonDeserialize));
+    let (impl_generics, _, where_clause) = implementation.split_for_impl();
+    let (_, ty_generics, _) = input.generics.split_for_impl();
     quote! {
-        impl<'a> #impl_generics norito::json::FastFromJson<'a> for #ident #ty_generics #where_clause {
-            fn parse<'arena>(
-                w: &mut norito::json::TapeWalker<'a>,
-                _arena: &'arena mut norito::json::Arena,
+        impl #impl_generics norito::json::FastFromJson<#input_lifetime> for #ident #ty_generics #where_clause {
+            fn parse<#arena_lifetime>(
+                w: &mut norito::json::TapeWalker<#input_lifetime>,
+                _arena: &#arena_lifetime mut norito::json::Arena,
             ) -> ::core::result::Result<Self, norito::Error> {
                 w.ensure_document_depth()?;
                 let input = w.input();

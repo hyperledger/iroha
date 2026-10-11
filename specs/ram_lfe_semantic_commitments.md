@@ -460,16 +460,10 @@ parallel accepted 57/56 layouts, legacy decoder, alias or fallback.
 
 | Current source | Affected behavior |
 | --- | --- |
-| `zk/kagemusha_v1_poseidon.rs` | Fp/Fq generated 8 + 57 commitments and native/circuit sponge helpers; current comments claiming reviewed 128-bit security also need correction |
-| `zk/pasta_native_poseidon.rs` | 65-round permutation jobs, endpoint bridges, KATs and native layout/proof geometry |
-| `zk/kagemusha_v1_recursion/mod.rs`, `deferred_parent.rs` | Recursive IPA Poseidon transcript parameters and dependent protocol/key identities |
-| `zk/pasta_cycle_loader.rs` | Explicit `new::<8, 57, 0>` verifier transcript construction |
 | `zk/confidential_v2.rs` | Fp/Fq confidential commitments, Merkle roots and admitted transfer/unshield circuit keys |
 
-Follow transitive consumers through Kagemusha sparse Merkle/state/replay roots,
-empty-tree constants, native jobs, deferred-parent/claim-fold transcripts,
-Apple/KeyMint leaf and recursive parents, protocol hashes, admission registries,
-PK/VK generation, cached keys, encoded fixtures, genesis/restoration and SDK
+Follow transitive consumers through the confidential commitments, protocol hashes,
+admission registries, PK/VK generation, cached keys, encoded fixtures, genesis/restoration and SDK
 metadata. Confidential circuit families currently include
 `confidential-transfer-2x2-merkle16-axiom-poseidon-v3`,
 `confidential-unshield-full-merkle16-axiom-poseidon-v3` and

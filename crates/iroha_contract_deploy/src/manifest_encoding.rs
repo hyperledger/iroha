@@ -117,6 +117,9 @@ mod tests {
             compiler_fingerprint: None,
             features_bitmap: Some(0),
             access_set_hints: None,
+            permissions: Vec::new(),
+            events: Vec::new(),
+            enum_types: Vec::new(),
             entrypoints: None,
             states: None,
             error_messages: None,
@@ -201,7 +204,8 @@ mod tests {
             return_schema: Some(EntrypointValueTypeV1 {
                 nodes: vec![EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)],
             }),
-            permission: None,
+            authorization:
+                iroha::data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
             read_keys: vec!["state:points".into()],
             write_keys: Vec::new(),
             access_hints_complete: Some(true),

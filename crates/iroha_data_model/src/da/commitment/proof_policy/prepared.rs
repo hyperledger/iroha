@@ -757,10 +757,11 @@ impl PreparedDaProofPolicyBundle {
                 proof_scheme: row.scheme.expect("checked scheme"),
             });
             #[cfg(test)]
-            if ASSEMBLY_PANIC_AFTER.with(|point| point.get() == Some(assembly.parts.policies.len()))
-            {
-                panic!("injected original policy assembly interruption");
-            }
+            assert!(
+                !ASSEMBLY_PANIC_AFTER
+                    .with(|point| point.get() == Some(assembly.parts.policies.len())),
+                "injected original policy assembly interruption"
+            );
         }
         let retained = assembly.retain(&self.budget);
         let owner = self

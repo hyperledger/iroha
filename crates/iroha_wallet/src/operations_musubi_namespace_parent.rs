@@ -180,11 +180,10 @@ impl MusubiNamespaceBindingParent<'_> {
         &self,
         name: &str,
     ) -> Result<Option<T>> {
-        match self.directory.read(name, MAX_PARENT_BYTES) {
-            Ok(bytes) => Ok(Some(decode_bounded(&bytes, MAX_PARENT_BYTES)?)),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error.into()),
-        }
+        self.directory
+            .read_optional(name, MAX_PARENT_BYTES)?
+            .map(|bytes| decode_bounded(&bytes, MAX_PARENT_BYTES))
+            .transpose()
     }
     fn request(
         &self,
@@ -598,3 +597,7 @@ impl MusubiNamespaceBindingParent<'_> {
 #[cfg(test)]
 #[path = "operations_musubi_namespace_parent_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "operations_musubi_namespace_parent_optional_tests.rs"]
+mod optional_tests;

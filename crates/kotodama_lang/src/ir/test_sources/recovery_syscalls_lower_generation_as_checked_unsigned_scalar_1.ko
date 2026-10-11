@@ -1,5 +1,5 @@
-seiyaku RecoveryGeneration {
-kotoage fn apply(string alias, AccountId replacement, int request_generation) authorize("ControlAdmin") {
+seiyaku RecoveryGeneration { permission ControlAdmin;
+kotoage fn apply(string alias, AccountId replacement, int request_generation) authorize(ControlAdmin) {
   ledger::account::recovery::propose(alias: alias, replacement: replacement, request_generation: request_generation);
   ledger::account::recovery::approve(alias: alias, request_generation: request_generation);
   ledger::account::recovery::cancel(alias: alias, request_generation: request_generation);

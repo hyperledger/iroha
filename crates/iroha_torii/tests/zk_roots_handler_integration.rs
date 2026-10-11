@@ -23,15 +23,10 @@ fn zk_config_with_tree_roots_history_len(
     tree_roots_history_len: NonZeroUsize,
 ) -> iroha_config::parameters::actual::Zk {
     iroha_config::parameters::actual::Zk {
-        halo2: iroha_config::parameters::actual::Halo2 {
-            enabled: false,
-            curve: iroha_config::parameters::actual::ZkCurve::Pallas,
-            backend: iroha_config::parameters::actual::Halo2Backend::Ipa,
-            max_k: iroha_config::parameters::defaults::zk::halo2::MAX_K,
-            verifier_budget_ms: iroha_config::parameters::defaults::zk::halo2::VERIFIER_BUDGET_MS,
-            verifier_max_batch: iroha_config::parameters::defaults::zk::halo2::VERIFIER_MAX_BATCH,
-            ..iroha_config::parameters::actual::Halo2::default()
-        },
+        pipa_r: iroha_config::parameters::actual::PipaR::default(),
+        trace: iroha_config::parameters::actual::DiagnosticTrace::default(),
+        ipa_commitment: iroha_config::parameters::actual::IpaCommitment::default(),
+        max_verify_batch: iroha_config::parameters::defaults::zk::MAX_VERIFY_BATCH,
         fastpq: iroha_config::parameters::actual::Fastpq {
             execution_mode: iroha_config::parameters::actual::FastpqExecutionMode::Cpu,
             poseidon_mode: iroha_config::parameters::actual::FastpqPoseidonMode::Cpu,

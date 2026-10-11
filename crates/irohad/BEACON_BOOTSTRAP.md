@@ -74,15 +74,8 @@ operator-isolated custody. Disposable-network 4→7→4 activation and live
 phase-time qualification remain open; a staged credential or completed public
 transcript alone is not evidence of activation.
 
-Ordinary `iroha3d` nodes with mint-finality duties set
-`[sumeragi] mint_finality_seed_fd = 199` and receive one owner-private exact
-32-byte seed file on inherited FD 199 for each startup. The daemon consumes
-that launch copy before starting consensus. A genesis voter must match its
-signed generation-zero Pasta keys and startup rejects a seated validator with
-no exact held seed. A future candidate retains its seed without
-genesis voting power and can sign only when an authenticated later authority
-seats that same peer with matching keys. The supervisor must retain its private
-source across restart and stage a fresh consumable launch copy each time. A
-`data_dir` node started by the stock launcher instead reads the same raw seed
-from the owner-only `<data_dir>/secrets/mint_finality.seed`, with the same
-seated and candidate rules, and rejects `mint_finality_seed_fd`.
+A validator generation is the network's exact ordered BLS roster under a
+monotonic generation number. Generation zero is the signed genesis topology,
+and an activated preparation's frozen committee is the next generation; no
+separate per-validator key provisioning exists beyond the consensus key and
+the threshold-beacon share.

@@ -382,6 +382,10 @@ class TairaDevnetParliamentSeatingTests(unittest.TestCase):
         self.assertEqual(
             sign[sign.index("--bound-manifest-out") + 1], str(self.target / "genesis.json")
         )
+        self.assertEqual(
+            sign[sign.index("--nexus-context-output") + 1],
+            str(self.target / "nexus-amx-context.v1.bin"),
+        )
         # Kagami refuses to replace a different identity, so it signs beside the old one.
         self.assertEqual(
             sign[sign.index("--expected-hash-out") + 1],

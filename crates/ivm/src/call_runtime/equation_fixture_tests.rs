@@ -22,7 +22,7 @@ fn runtime_capture() -> Value {
     // helper retains its authenticated callable and exercises a child frame;
     // runtime view roots cannot be invoked through the private call boundary.
     let code = Compiler::new().compile_source(
-        "seiyaku NativeFrameCapture { fn leaf(bool value) -> bool { value } view fn main() -> bool { leaf(value: leaf(value: true)) } }"
+        "seiyaku NativeFrameCapture { fn leaf(bool value) -> bool { value } view fn main() authorize(anyone) -> bool { leaf(value: leaf(value: true)) } }"
     ).unwrap();
     let metadata = ProgramMetadata::parse(&code).unwrap();
     let interface = metadata.contract_interface.as_ref().unwrap();

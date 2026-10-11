@@ -5,23 +5,11 @@ use committed_read::certified_source;
 
 impl KuraBlockStore {
     pub(super) fn write(&self, body: &AvailableBody, qc: &Qc) -> Result<(), Attempt<io::Error>> {
-        if !body.admitted_to(&self.execution_budget)
-            || qc
-                .attestation_witness
-                .as_ref()
-                .is_some_and(|w| !w.admitted_to(&self.execution_budget))
-        {
+        if !body.admitted_to(&self.execution_budget) {
             return Err(invalid("publication uses another allocation pool").into());
         }
         let height = body.header().height;
-        let source = certified_source(
-            &*self.schedule,
-            &*self.hasher,
-            &*self.verifier,
-            height,
-            body.header(),
-            qc,
-        )?;
+        let source = certified_source(&*self.schedule, &*self.hasher, height, body.header(), qc)?;
         if body.source() != &source {
             return Err(invalid("body custody uses another historical authority").into());
         }

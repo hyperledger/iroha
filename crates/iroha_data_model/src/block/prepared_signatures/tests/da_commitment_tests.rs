@@ -1,4 +1,4 @@
-//! Actual canonical SignedBlock commitment child walk and retained source/error owners.
+//! Actual canonical `SignedBlock` commitment child walk and retained source/error owners.
 use super::*;
 use crate::da::commitment::DaCommitmentRecord;
 use iroha_model_base::topology::LaneId;
@@ -10,7 +10,7 @@ fn commitment_fixture(count: usize) -> SignedBlock {
             .map(|i| {
                 // Complete codec-custody fixtures, not authenticated Torii service acknowledgements.
                 let mut record: DaCommitmentRecord = sample.commitments()[0].clone();
-                record.lane_id = LaneId::new(i as u32);
+                record.lane_id = LaneId::new(u32::try_from(i).unwrap());
                 record.epoch = i as u64;
                 record.sequence = i as u64 + 1;
                 record.retention_class.governance_tag.0 = if i == 0 {
@@ -19,7 +19,10 @@ fn commitment_fixture(count: usize) -> SignedBlock {
                     "é漢🙂".repeat(i)
                 };
                 record.acknowledgement_sig =
-                    Signature::from_bytes(&vec![i as u8 + 1; if i % 2 == 0 { 3 } else { 96 }]);
+                    Signature::from_bytes(&vec![
+                        u8::try_from(i).unwrap() + 1;
+                        if i % 2 == 0 { 3 } else { 96 }
+                    ]);
                 record
             })
             .collect(),

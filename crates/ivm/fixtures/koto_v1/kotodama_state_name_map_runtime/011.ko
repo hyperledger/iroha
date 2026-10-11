@@ -25,7 +25,7 @@
                 };
             }
 
-            view fn main() -> bool {
+            view fn main() authorize(anyone) -> bool {
                 let envelope = Policies.get(Name::parse("offline")).unwrap_or(
                     default_envelope(),
                 );

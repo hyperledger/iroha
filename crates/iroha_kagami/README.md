@@ -69,11 +69,19 @@ store. `down` retains the ledger; `localnet reset local` deliberately retires it
 default localnet when no context has been selected. Use `context list`,
 `context show`, or `context use NAME` to inspect or select retained environments.
 
+For contracts declaring `hajimari`/`始まり`, the deployment result includes the
+canonical hook name and parameter types. Deployment does not invoke that hook;
+run it before other calls or views if it has not already succeeded. Repeat and
+resume results do not infer its current state from the artifact.
+
 `kagami package publish .` explicitly publishes a Musubi package using the retained generated
 developer client and its `dev.universal` namespace intent. Begin may start the default localnet;
 `--resume OPERATION_ID` and `--recover OPERATION_ID` require its existing selected context.
-`--package dev.universal/NAME` selects a workspace member; `--detach` returns at the canonical
-durable seed-ingress boundary. Manifest namespaces are never rewritten. Original namespace
+An explicit member manifest or directory selects that member; `--package dev.universal/NAME`
+must match it. A workspace-root input keeps declared defaults and explicit package selection.
+Begin requires exactly one selected member and validates that selection before managed startup.
+`--detach` returns at the canonical durable seed-ingress boundary. Manifest namespaces are
+never rewritten. Original namespace
 custody, generation-bound publication/cache roots and the prepared native archive transport are
 shared with `mochi_core::developer::DeveloperWorkspace::publish_package`. Neither frontend accepts
 a replacement client TOML, copies a manager key into a daemon, or changes contract deployment.
@@ -99,8 +107,8 @@ its owner's `admin@privateapp` alias without adding a parent execution lane.
 `--account-alias LABEL` selects another canonical owner label before first
 provisioning; changing it on retry is refused. The original two-lease rent quote
 and fee allowance survive interrupted preparation. A timeout leaves that work
-available for status and retry. Official Taira profile publication and combined runtime
-qualification remain tracked acceptance gates; the CLI invents no release key.
+available for status and retry. Release installation, recurring Taira checkpoint publication
+and combined runtime qualification remain tracked acceptance gates; the CLI invents no release key.
 
 Views and calls use an existing selected context and the verified deployed alias.
 A call's positive `--max-fee` caps the combined self-grant and call in that private
@@ -180,6 +188,9 @@ into the output directory.
 
 `kagami dataspace up ALIAS --network NETWORK`
 - Uses the installed parent profile and retains the original attachment work for recovery.
+- Defaults to the exact alias as its local context name, including valid 63-character labels.
+  `--name` selects an explicit context; managed names allow 1..63 ASCII letters, digits, `-`
+  or `_`, starting with a letter or digit. Kagami and Mochi use the same shared name bound.
 - Failed attachment reports any retained child and parent status separately, plus exact
   `dataspace status` and `localnet logs` actions for the requested context and state store.
   Observation or output failures preserve the original startup error and nonzero result.
@@ -265,7 +276,7 @@ into the output directory.
 
 ## Iroha 3 Profiles
 
-- Run `cargo xtask kagami-profiles --kagemusha-mint-finality-parameters-dir <AUTHORITY_DIR>` to emit operator-owned bundles for
+- Run `cargo xtask kagami-profiles --xor-allocations-dir <ALLOCATIONS_DIR>` to emit operator-owned bundles for
   `iroha3-dev` and `iroha3-nexus` under
   `defaults/kagami/<profile>/`
 - Each generated bundle includes:
@@ -274,11 +285,10 @@ into the output directory.
   - `config.toml`
   - `docker-compose.yml`
   - `README.md`
-- Checked-in `genesis.template.json` files deliberately omit mint-finality
-  authority and cannot be validated, signed, or used by a node. Materialize one
-  explicitly with `kagami genesis materialize <SOURCE.template.json>
-  --kagemusha-mint-finality-parameters <PUBLIC_PARAMETERS.json>
-  --xor-asset-definition-id <CANONICAL_XOR_ID>` for NPoS, or generate a
+- Checked-in `genesis.template.json` files deliberately omit their consensus
+  fingerprint and NPoS XOR pin and cannot be validated, signed, or used by a
+  node. Materialize one explicitly with `kagami genesis materialize
+  <SOURCE.template.json> --xor-asset-definition-id <CANONICAL_XOR_ID>` for NPoS, or generate a
   complete profile bundle with the command above. The XOR identity is committed
   in NPoS parameters; Taira uses `6TEAJqbb8oEPmLncoNiMRbLEK6tw`, while Nexus requires
   its own operator-provisioned identity. Validator allocations must be explicitly
@@ -316,7 +326,6 @@ target/debug/kagami genesis generate \
   --profile iroha3-dev \
   --ivm-dir ./ivm_libs \
   --genesis-public-key ed25519:... \
-  --kagemusha-mint-finality-parameters ./kagemusha-mint-finality-public.json \
   --consensus-mode permissioned \
   default
 ```
@@ -351,6 +360,34 @@ target/debug/kagami genesis sign \
 addresses. First-release NPoS admission requires an exact `3f + 1` committee,
 so a two-validator signing example is intentionally unsupported.
 
+For a native AMX participant, the input manifest must already select its private
+dataspace and parent network. Supply `--amx-global-chain-id`,
+`--amx-global-genesis`, and `--amx-global-successor` together. The two files are
+the parent's canonical signed genesis and its genuine committed H2. Core's
+certified-prefix verifier authenticates them before one participant instruction
+is appended and the private genesis is staged and signed. Existing transactions
+remain intact; duplicate participant registration and outputs that alias either
+source are rejected. Managed private preparation acquires and retains the selected
+parent's original G1/H2 under its authenticated release; reopening uses the same
+complete capsule and signed generation. Durable validator relaying remains open. `--config` uses the node configuration
+loader, including compiled profiles and the generated `data_dir` layout; its
+claimed genesis identity must still pass runtime validation.
+
+AMX registration on the parent is a separate administrative action. After explicit
+`kagami localnet down NAME`, run `kagami dataspace register-amx NAME --admin-config
+PARENT_ADMIN_CONFIG --fee-asset ASSET_ID --max-fee AMOUNT --deadline-unix-ms
+ORIGINAL_UTC_DEADLINE`. The retained inactive generation supplies the child;
+`PARENT_ADMIN_CONFIG` supplies a separately selected parent signer whose native
+execution must hold `CanSetParameters`. No SNS permission implies this authority.
+`--timeout` bounds this turn's I/O to 1–60 seconds. Retry with the same signer,
+source, fees and original UTC deadline: the create-only journal preserves one
+signed transaction and authenticated successful or rejected carrier. A rejected
+original is terminal and never re-signed after a grant. Authorizing a distinct new
+attempt needs a separate owner/API that is not implemented here. Only the certified successful result is
+registration evidence; status alone is insufficient. Ordinary `kagami localnet up
+NAME` restarts the retained generation. Signing material stays runtime-only.
+This action does not implement Prepared/Decision relaying or qualify full H2.
+
 The one-line `genesis.expected_hash` output is the deployment trust root. It
 carries the exact signed header hash as one canonical checked NetworkId literal.
 Production templates select that same byte-exact file through validator
@@ -359,14 +396,17 @@ into independently rendered inline settings.
 
 After an intentional genesis change, such as `iroha taira seat-parliament`, use
 `genesis sign --replace-expected-hash '<PRIOR_NETWORK_ID>'` together with
-`--expected-hash-out`, `--out-file`, and `--bound-manifest-out`. Seating prints
+`--expected-hash-out`, `--out-file`, `--bound-manifest-out`, and
+`--nexus-context-output`. Seating prints
 this command with the observed prior identity. Kagami locks and checks the
 owner-held, single-link identity before output writes; a missing, stale, unsafe,
 or concurrently held identity leaves the requested outputs unchanged. Without
 this explicit option, publishing a different identity remains forbidden.
 
-Replacement stages all three outputs, publishes the signed block and bound
-manifest, then publishes the identity last as a commit marker. This is not a
+Replacement stages all four outputs, publishes the signed block, bound
+manifest and the exact Nexus/AMX context preimage committed by the signed
+genesis (`nexus-amx-context.v1.bin`), then publishes the identity last as a
+commit marker. This is not a
 multi-file atomic transaction. After interruption, consumers must reject any
 bundle disagreement; retry the same command with the same prior identity. If
 that prior is already stale, verify the exact signed block, manifest, and

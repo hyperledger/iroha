@@ -1,22 +1,27 @@
 //! Admission of fee-exempt SCCP transactions (`specs/sccp.md` §4.2.3, §4.8, §4.11, §4.12.4,
-//! §4.13.4, §4.19). Owner: ws31; ws20 implemented the queue-side pending-key index.
+//! §4.13.4, §4.19). Owners: ws31 (attestations, key bindings, fault evidence) and ws41 (keeper
+//! advances, self-claims); ws20 implemented the queue-side pending-key index.
 //!
-//! A transaction may be SCCP-exempt only when it has one of the [`SccpExemptClassV1`] shapes
-//! ([`exempt_shape`]), a pure function of its signed payload. [`classify`] pre-verifies such a
-//! transaction against committed state and returns its [`SccpAdmissionKeysV1`]: the class, the
-//! *exclusive* keys that encode the per-kind pending limits (at most one pending transaction may
-//! hold each), and the *content* keys used for deduplication (a transaction is rejected when
-//! every content key is already queued). The queue keeps these keys in a
-//! [`SccpPendingIndexV1`] and releases them on commit, expiry and eviction.
+//! A transaction is SCCP-exempt only when it is eligible ([`super::fees::exempt_class`]): it
+//! has one of the [`SccpExemptClassV1`] shapes ([`exempt_shape`], a pure function of its signed
+//! payload) and meets that kind's eligibility rule against the committed parent World. A
+//! transaction that is not eligible is never refused by SCCP admission: it pays the ordinary
+//! fee. [`classify`] pre-verifies an eligible transaction against committed state and returns
+//! its [`SccpAdmissionKeysV1`]: the class, the *exclusive* keys that encode the per-kind pending
+//! limits (at most one pending transaction may hold each), and the *content* keys used for
+//! deduplication (a transaction is rejected when every content key is already queued). Only an
+//! eligible transaction that fails pre-verification is rejected. The queue keeps these keys in
+//! a [`SccpPendingIndexV1`] and releases them on commit, expiry and eviction.
 //!
-//! **Per-block cap.** Proposers include at most `max_exempt_transactions_per_block` exempt-shaped
-//! transactions per block, and at most one exempt-shaped keeper advance per network, and block
+//! **Per-block cap.** Proposers include at most `max_exempt_transactions_per_block` eligible
+//! transactions per block, and at most one eligible keeper advance per network, and block
 //! validation enforces the same rule with [`block_exempt_cap_ok`]. Both sides count
-//! [`exempt_shape_of_entrypoint`] over the external and sealed-reveal entry points against the
-//! parameters of the committed parent state, so the count never depends on admission-time
-//! pre-verification, on queue history (restarts), or on state that changes between admission and
-//! proposal: a block a proposer builds is never rejected by the cap. Fee exemption at execution
-//! ([`super::fees::exempt_on_success`]) implies the shape, so every exempt transaction is counted.
+//! [`exempt_class_of_entrypoint`] over the external and sealed-reveal entry points against the
+//! committed parent World, so the count never depends on admission-time pre-verification, on
+//! queue history (restarts), or on writes of the block itself: a block a proposer builds is
+//! never rejected by the cap. Execution judges fee exemption with the same predicate against
+//! the same parent World ([`super::fees::exempt_class_in_block`]), so every exempt transaction
+//! is counted, and a paid transaction of an exempt shape is not.
 
 use super::params;
 use crate::state::WorldReadOnly;
@@ -46,7 +51,8 @@ pub enum SccpExemptClassV1 {
     KeyBinding,
     /// One `SubmitSccpAttestationFaultV1` that records a new fault (§4.11).
     Fault,
-    /// A keeper advance of one light client from a bridge key's account (§4.13.4).
+    /// An advance of one light client that is not a `Backfill`, from any authority, which may
+    /// be unregistered (§4.13.4).
     KeeperAdvance {
         /// Advanced source network; at most one exempt advance per network per block.
         network: SccpNetworkV1,
@@ -139,7 +145,8 @@ fn downcast<T: 'static>(instruction: &InstructionBox) -> Option<&T> {
 }
 
 /// Return the exempt class `payload` has the shape of, or `None` when no SCCP exemption can
-/// apply to it (§4.19). The rule is a pure function of the signed payload:
+/// apply to it (§4.19). The rule is a pure function of the signed payload, and the first gate
+/// of eligibility ([`super::fees::exempt_class`]):
 ///
 /// * [`SccpExemptClassV1::Attestation`]: exactly one `SubmitSccpAttestationsV1` (§4.8);
 /// * [`SccpExemptClassV1::KeyBinding`]: exactly one `SetSccpBridgeKeyV1` that registers a key
@@ -148,10 +155,10 @@ fn downcast<T: 'static>(instruction: &InstructionBox) -> Option<&T> {
 /// * [`SccpExemptClassV1::KeeperAdvance`]: exactly one `AdvanceSccpLightClientV1` (§4.13.4);
 /// * [`SccpExemptClassV1::SelfClaim`]: `[Register<Account>(authority)?,
 ///   AdvanceSccpLightClientV1*, SubmitSccpInboundMessageV1]` or `[SettleSccpV1::Inbound]`
-///   (§4.12.4); whether the authority is the payload's recipient is decided by
-///   pre-verification and execution.
+///   (§4.12.4).
 ///
-/// A shaped transaction counts toward the per-block cap whether or not it turns out exempt.
+/// A shaped transaction that is not eligible pays the ordinary fee and does not count toward
+/// the per-block cap.
 #[must_use]
 pub fn exempt_shape(payload: &TransactionPayload) -> Option<SccpExemptClassV1> {
     let Executable::Instructions(instructions) = &payload.instructions else {
@@ -195,48 +202,47 @@ pub fn exempt_shape(payload: &TransactionPayload) -> Option<SccpExemptClassV1> {
     .then_some(SccpExemptClassV1::SelfClaim)
 }
 
-/// Return the exempt shape of a block or queue entry point: the [`exempt_shape`] of the signed
-/// transaction of an external or sealed-reveal entry point, and `None` for a sealed
-/// commitment, which executes nothing.
+/// Return the exempt class of a block or queue entry point against the committed parent World
+/// `world`: the [`super::fees::exempt_class`] of the signed transaction of an external or
+/// sealed-reveal entry point, and `None` for a sealed commitment, which executes nothing.
 #[must_use]
-pub fn exempt_shape_of_entrypoint(entrypoint: &TransactionEntrypoint) -> Option<SccpExemptClassV1> {
+pub fn exempt_class_of_entrypoint(
+    world: &(impl WorldReadOnly + ?Sized),
+    entrypoint: &TransactionEntrypoint,
+) -> Option<SccpExemptClassV1> {
     match entrypoint {
-        TransactionEntrypoint::External(transaction) => exempt_shape(transaction.payload()),
+        TransactionEntrypoint::External(transaction) => {
+            super::fees::exempt_class(world, transaction.payload())
+        }
         TransactionEntrypoint::SealedReveal(reveal) => {
-            exempt_shape(reveal.signed_transaction().payload())
+            super::fees::exempt_class(world, reveal.signed_transaction().payload())
         }
         TransactionEntrypoint::SealedCommitment(_) => None,
     }
 }
 
 /// Classify `transaction` against committed state (`world` at the next block height
-/// `next_block_height`).
+/// `next_block_height`, the parent World of the next block).
 ///
-/// Returns `Ok(None)` for a transaction that claims no SCCP exemption (it pays ordinary fees
-/// and needs no SCCP admission step), `Ok(Some(keys))` for an admissible exempt transaction,
-/// and `Err` for an exempt-shaped transaction that fails pre-verification. Only a transaction
-/// with an [`exempt_shape`] is ever pre-verified, and its keys always carry that class.
+/// Returns `Ok(None)` for a transaction that is not eligible for an SCCP exemption
+/// ([`super::fees::exempt_class`]): it pays the ordinary fee and needs no SCCP admission step,
+/// whatever its shape. Returns `Ok(Some(keys))` for an eligible transaction that passes
+/// pre-verification, and `Err` only for an eligible transaction that fails it. The keys always
+/// carry the eligible class.
 ///
 /// # Errors
 ///
-/// Returns [`SccpAdmissionRejectV1`] when an exempt-shaped transaction fails pre-verification.
+/// Returns [`SccpAdmissionRejectV1`] when an eligible transaction fails pre-verification.
 pub fn classify(
     world: &(impl WorldReadOnly + ?Sized),
     digests: &(impl super::subjects::SccpStatementDigests + ?Sized),
     next_block_height: u64,
     transaction: &SignedTransaction,
 ) -> Result<Option<SccpAdmissionKeysV1>, SccpAdmissionRejectV1> {
-    if !params::exists(world) {
-        return Ok(None);
-    }
-    let Some(class) = exempt_shape(transaction.payload()) else {
+    let payload = transaction.payload();
+    let Some(class) = super::fees::exempt_class(world, payload) else {
         return Ok(None);
     };
-    #[cfg(test)]
-    if let Some(keys) = test_override::classify(transaction) {
-        return keys.map(|keys| keys.filter(|keys| keys.class == class));
-    }
-    let payload = transaction.payload();
     let single = match &payload.instructions {
         Executable::Instructions(instructions) => match instructions.as_ref() {
             [only] => Some(only),
@@ -271,10 +277,6 @@ pub fn classify(
                 &payload.authority,
             )
             .map_err(SccpAdmissionRejectV1::new)?;
-            if !super::bridge_keys::binding_exempt(world, instruction, &payload.authority) {
-                // Not exempt this epoch: an ordinary, fee-paying registration.
-                return Ok(None);
-            }
             Ok(Some(
                 SccpAdmissionKeysV1::new(SccpExemptClassV1::KeyBinding)
                     .with_exclusive(&instruction.peer),
@@ -293,59 +295,32 @@ pub fn classify(
             super::light_clients::preverify_keeper_advance(
                 world,
                 digests.committed_time_ms(),
+                next_block_height,
                 instruction,
                 &payload.authority,
             )
             .map(Some)
         }
-        SccpExemptClassV1::SelfClaim => {
-            super::self_claim::preverify(world, digests, &payload.authority, transaction).map(Some)
-        }
-    }
-}
-
-/// Test-only replacement of the pre-verification step of [`classify`], per thread, standing in
-/// for the real pre-verifiers in queue tests.
-#[cfg(test)]
-pub(crate) mod test_override {
-    use super::{SccpAdmissionKeysV1, SccpAdmissionRejectV1, SignedTransaction};
-    use std::cell::RefCell;
-
-    type Classifier = Box<
-        dyn Fn(&SignedTransaction) -> Result<Option<SccpAdmissionKeysV1>, SccpAdmissionRejectV1>,
-    >;
-
-    std::thread_local! {
-        static CLASSIFIER: RefCell<Option<Classifier>> = const { RefCell::new(None) };
-    }
-
-    /// Replace pre-verification of exempt-shaped transactions on this thread until the
-    /// returned guard drops.
-    pub(crate) fn install(
-        classifier: impl Fn(
-            &SignedTransaction,
-        ) -> Result<Option<SccpAdmissionKeysV1>, SccpAdmissionRejectV1>
-        + 'static,
-    ) -> impl Drop {
-        struct Reset;
-        impl Drop for Reset {
-            fn drop(&mut self) {
-                CLASSIFIER.with(|slot| slot.borrow_mut().take());
-            }
-        }
-        CLASSIFIER.with(|slot| *slot.borrow_mut() = Some(Box::new(classifier)));
-        Reset
-    }
-
-    pub(super) fn classify(
-        transaction: &SignedTransaction,
-    ) -> Option<Result<Option<SccpAdmissionKeysV1>, SccpAdmissionRejectV1>> {
-        CLASSIFIER.with(|slot| slot.borrow().as_ref().map(|classify| classify(transaction)))
+        SccpExemptClassV1::SelfClaim => super::self_claim::preverify(
+            world,
+            digests,
+            next_block_height,
+            &payload.authority,
+            transaction,
+        )
+        .map(Some),
     }
 }
 
 /// Return whether `authority` may be absent from state for `executable` because of an SCCP
-/// rule: a bridge-key registration from the new key's own account (§4.2.3).
+/// rule (§4.19):
+///
+/// * a keeper advance: exactly one `AdvanceSccpLightClientV1` that
+///   [`super::light_clients::keeper_advance_eligible`] accepts, from any authority. This is the
+///   eligibility predicate of [`super::fees::exempt_class`] without its "SCCP exists" gate,
+///   which needs state: where SCCP is absent the advance is not exempt, owes the ordinary fee
+///   and fails closed at execution;
+/// * a bridge-key registration from the new key's own account (§4.2.3).
 #[must_use]
 pub fn allows_unregistered_authority(executable: &Executable, authority: &AccountId) -> bool {
     let Executable::Instructions(instructions) = executable else {
@@ -354,6 +329,9 @@ pub fn allows_unregistered_authority(executable: &Executable, authority: &Accoun
     let [only] = instructions.as_ref() else {
         return false;
     };
+    if let Some(advance) = downcast::<AdvanceSccpLightClientV1>(only) {
+        return super::light_clients::keeper_advance_eligible(advance);
+    }
     downcast::<SetSccpBridgeKeyV1>(only)
         .and_then(|set| set.public_key)
         .and_then(|public_key| super::bridge_keys::account_of(&public_key).ok())
@@ -367,9 +345,10 @@ pub fn exempt_cap(world: &(impl WorldReadOnly + ?Sized)) -> Option<u32> {
     params::parameters(world).map(|parameters| parameters.max_exempt_transactions_per_block)
 }
 
-/// Return whether a block whose exempt-shaped SCCP transactions have `classes`, in block
-/// order, respects the per-block caps of the parent state `world` (§4.19): at most
-/// `max_exempt_transactions_per_block` of them and at most one keeper advance per network.
+/// Return whether a block whose eligible SCCP transactions have `classes`
+/// ([`exempt_class_of_entrypoint`]), in block order, respects the per-block caps of the parent
+/// state `world` (§4.19): at most `max_exempt_transactions_per_block` of them and at most one
+/// keeper advance per network.
 ///
 /// This is the rule [`SccpExemptBlockBudgetV1`] applies during proposal selection, so a block
 /// its proposer built always passes.
@@ -520,11 +499,12 @@ impl SccpPendingIndexV1 {
     }
 }
 
-/// Selects exempt-shaped SCCP transactions for one block within the per-block caps.
+/// Selects eligible SCCP transactions for one block within the per-block caps.
 ///
 /// The proposer feeds candidate transactions in queue order with their
-/// [`exempt_shape_of_entrypoint`]; [`Self::admit`] returns whether a candidate of `class` still
-/// fits. Unshaped transactions always fit. [`block_exempt_cap_ok`] applies the same budget to
+/// [`exempt_class_of_entrypoint`] against the committed parent World; [`Self::admit`] returns
+/// whether a candidate of `class` still fits. Transactions that are not eligible (`None`)
+/// always fit. [`block_exempt_cap_ok`] applies the same budget to
 /// a whole block, so validation accepts exactly what selection admits.
 #[derive(Debug, Clone)]
 pub struct SccpExemptBlockBudgetV1 {
@@ -786,25 +766,45 @@ mod tests {
     }
 
     #[test]
-    fn entrypoint_shapes_cover_external_and_sealed_reveal_transactions() {
+    fn entrypoint_classes_cover_external_and_sealed_reveal_transactions() {
         use crate::smartcontracts::isi::sccp::test_support::SampleInstructions as I;
         use iroha_data_model::transaction::signed::SealedTransactionReveal;
-        let attestation = signed(0x63, vec![I::attestations().into()]);
+        let state = blank_state();
+        let mut block = state.block(header(2));
+        let mut stx = block.transaction();
+        let fault = signed(0x63, vec![I::fault().into()]);
+        let external = TransactionEntrypoint::External(fault.clone());
         assert_eq!(
-            exempt_shape_of_entrypoint(&TransactionEntrypoint::External(attestation.clone())),
-            Some(SccpExemptClassV1::Attestation)
+            exempt_class_of_entrypoint(&*stx.world, &external),
+            None,
+            "nothing is eligible without SCCP"
         );
-        let reveal = SealedTransactionReveal::new(Hash::new(b"commitment"), attestation, [7; 32]);
+        store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
         assert_eq!(
-            exempt_shape_of_entrypoint(&TransactionEntrypoint::SealedReveal(reveal)),
-            Some(SccpExemptClassV1::Attestation),
+            exempt_class_of_entrypoint(&*stx.world, &external),
+            Some(SccpExemptClassV1::Fault)
+        );
+        let reveal = SealedTransactionReveal::new(Hash::new(b"commitment"), fault, [7; 32]);
+        assert_eq!(
+            exempt_class_of_entrypoint(&*stx.world, &TransactionEntrypoint::SealedReveal(reveal)),
+            Some(SccpExemptClassV1::Fault),
             "a sealed reveal counts like the transaction it reveals"
         );
         assert_eq!(
-            exempt_shape_of_entrypoint(&TransactionEntrypoint::External(
-                sample_signed_transaction()
-            )),
+            exempt_class_of_entrypoint(
+                &*stx.world,
+                &TransactionEntrypoint::External(sample_signed_transaction())
+            ),
             None
+        );
+        let paid_attestation = signed(0x63, vec![I::attestations().into()]);
+        assert_eq!(
+            exempt_class_of_entrypoint(
+                &*stx.world,
+                &TransactionEntrypoint::External(paid_attestation)
+            ),
+            None,
+            "an attestation shape from an ordinary account pays and is not counted"
         );
     }
 
@@ -838,39 +838,33 @@ mod tests {
     }
 
     #[test]
-    fn classification_is_gated_by_the_shape_and_keeps_its_class() {
+    fn classification_is_gated_by_eligibility_and_rejects_only_invalid_eligible_transactions() {
         use crate::smartcontracts::isi::sccp::test_support::SampleInstructions as I;
         let state = blank_state();
         let mut block = state.block(header(2));
         let mut stx = block.transaction();
         let attestation = signed(0x64, vec![I::attestations().into()]);
+        let fault = signed(0x64, vec![I::fault().into()]);
         let ordinary = sample_signed_transaction();
-        let _override = test_override::install(|transaction| {
-            Ok(Some(
-                SccpAdmissionKeysV1::new(SccpExemptClassV1::Attestation)
-                    .with_exclusive(transaction.authority()),
-            ))
-        });
         assert_eq!(
-            classify(&*stx.world, &stx, 3, &attestation),
+            classify(&*stx.world, &stx, 3, &fault),
             Ok(None),
             "nothing is exempt without SCCP"
         );
         store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
         assert_eq!(
-            classify(&*stx.world, &stx, 3, &attestation).map(|keys| keys.map(|keys| keys.class)),
-            Ok(Some(SccpExemptClassV1::Attestation))
+            classify(&*stx.world, &stx, 3, &attestation),
+            Ok(None),
+            "an attestation shape from an ordinary account pays the ordinary fee"
         );
         assert_eq!(
             classify(&*stx.world, &stx, 3, &ordinary),
             Ok(None),
             "an unshaped transaction is never pre-verified"
         );
-        let fault = signed(0x64, vec![I::fault().into()]);
-        assert_eq!(
-            classify(&*stx.world, &stx, 3, &fault),
-            Ok(None),
-            "keys of another class never apply"
+        assert!(
+            classify(&*stx.world, &stx, 3, &fault).is_err(),
+            "eligible fault evidence with an invalid signature is rejected"
         );
     }
 
@@ -886,5 +880,58 @@ mod tests {
         ));
         assert!(block_exempt_cap_ok(&view, &[SccpExemptClassV1::Fault]));
         assert_eq!(exempt_cap(&view), None);
+    }
+
+    #[test]
+    fn an_eligible_keeper_advance_admits_an_absent_authority() {
+        use crate::smartcontracts::isi::sccp::test_support::SampleInstructions as I;
+        use iroha_sccp::light_client::{
+            ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
+            proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
+        };
+        let frame = |advance: SccpLcAdvanceV1| AdvanceSccpLightClientV1 {
+            network: SccpNetworkV1::EthereumMainnet,
+            expected_state_hash: None,
+            advance: advance.to_bytes().expect("bounded advance"),
+        };
+        let advance = frame(SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
+            updates: Vec::new(),
+        }));
+        let backfill = frame(SccpLcAdvanceV1::Backfill {
+            segment: SccpLcSegmentV1::Ethereum(EthereumHeaderSegmentV1 {
+                headers: Vec::new(),
+            }),
+        });
+        let admits = |seed: u8, instructions: Vec<InstructionBox>| {
+            let transaction = signed(seed, instructions);
+            allows_unregistered_authority(transaction.instructions(), transaction.authority())
+        };
+        // The rule does not look at the authority: any key may advance.
+        for seed in [0x65, 0x66] {
+            assert!(admits(seed, vec![advance.clone().into()]));
+        }
+        assert!(
+            !admits(0x65, vec![backfill.into()]),
+            "a Backfill pays the ordinary fee"
+        );
+        assert!(
+            !admits(0x65, vec![I::advance().into()]),
+            "an undecodable frame pays the ordinary fee"
+        );
+        assert!(
+            !admits(0x65, vec![advance.clone().into(), advance.clone().into()]),
+            "only a single advance has the keeper-advance shape"
+        );
+        assert!(
+            !admits(0x65, vec![advance.into(), I::inbound().into()]),
+            "a self-claim with advances uses the generic self-registration rule"
+        );
+        for other in [
+            InstructionBox::from(I::settle()),
+            I::record().into(),
+            I::equivocation().into(),
+        ] {
+            assert!(!admits(0x65, vec![other]));
+        }
     }
 }

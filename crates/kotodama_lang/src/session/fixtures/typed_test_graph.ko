@@ -1,6 +1,6 @@
 seiyaku Demo {
             fn current() -> int { return 1; }
-            view fn value() -> int { return current(); }
+            view fn value() authorize(anyone) -> int { return current(); }
             #[test]
             fn smoke() { test::assert(current() == 1); }
         }

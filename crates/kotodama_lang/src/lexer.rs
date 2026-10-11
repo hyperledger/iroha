@@ -41,12 +41,18 @@ pub enum TokenKind {
     Continue,
     State,
     Struct,
+    /// Contract-owned native event declaration.
+    Event,
+    /// Typed native event emission statement.
+    Emit,
     /// Stable seiyaku error declaration (`error enum Name`).
     Error,
     /// Enumeration keyword used after `error`.
     Enum,
-    /// Caller-authorization modifier (`authorize("Permission")`).
+    /// Caller-authorization modifier (`authorize(Admin)`).
     Authorize,
+    /// A declared seiyaku permission or explicit chain permission import.
+    Permission,
     /// Seiyaku-level trigger declaration (`trigger name -> callback { ... }`).
     Trigger,
     If,
@@ -233,6 +239,7 @@ fn lower_green_tokens<'token>(
         omitted_diagnostics.saturating_add(diagnostics.len().saturating_sub(retained));
     diagnostics.truncate(retained);
     let mut tokens = Vec::new();
+    let mut positions = PositionCursor::new(source);
     for token in green_tokens {
         if token.kind.is_trivia() || token.kind == SyntaxKind::ErrorToken {
             continue;
@@ -240,26 +247,82 @@ fn lower_green_tokens<'token>(
         let text = source.slice(token.range).unwrap_or("");
         match lower_token_kind(token.kind, text) {
             Ok(Some(kind)) => {
-                let position = source.line_column(token.range.start);
+                let (line, column) = positions.at(token.range.start);
                 tokens.push(Token {
                     kind,
-                    line: position.line,
-                    column: position.column,
+                    line,
+                    column,
                     range: token.range,
                 });
             }
             Ok(None) => {}
+            Err(_) if diagnostics.len() >= retained => {
+                omitted = omitted.saturating_add(1);
+            }
             Err(message) => {
-                let diagnostic = lexical_diagnostic(source, message, token.range);
-                if diagnostics.len() < retained {
-                    diagnostics.push(diagnostic);
-                } else {
-                    omitted = omitted.saturating_add(1);
-                }
+                let help = match token.kind {
+                    SyntaxKind::String | SyntaxKind::Bytes => {
+                        "supported escapes are `\\n`, `\\r`, `\\t`, `\\0`, `\\\"`, `\\\\`, `\\xHH` and `\\u{...}` with one to six hex digits; raw literals `r\"...\"` take text verbatim"
+                    }
+                    SyntaxKind::Number | SyntaxKind::Decimal => {
+                        "write digits of the literal's base, with `_` only between digits, for example `1_000` or `0x1F`"
+                    }
+                    _ => "remove or replace the highlighted text",
+                };
+                let mut diagnostic = lexical_diagnostic(source, message, token.range);
+                diagnostic.help = Some(help.to_owned());
+                diagnostics.push(diagnostic);
             }
         }
     }
     (tokens, diagnostics, omitted)
+}
+/// Line and column of token starts visited in increasing offset order.
+///
+/// Agrees exactly with [`SourceFile::line_column`] (lines end at `\n`, columns
+/// count Unicode scalars from 1) but advances from the previous position, so
+/// lowering a long single-line source stays linear instead of rescanning the
+/// line for every token.
+struct PositionCursor<'source> {
+    source: &'source SourceFile,
+    offset: usize,
+    line: usize,
+    column: usize,
+}
+impl<'source> PositionCursor<'source> {
+    fn new(source: &'source SourceFile) -> Self {
+        Self {
+            source,
+            offset: 0,
+            line: 1,
+            column: 1,
+        }
+    }
+    fn at(&mut self, offset: u32) -> (usize, usize) {
+        let text = self.source.text();
+        let mut target = (offset as usize).min(text.len());
+        while target > 0 && !text.is_char_boundary(target) {
+            target -= 1;
+        }
+        if target < self.offset {
+            // Out-of-order lookups restart from the indexed position.
+            let position = self.source.line_column(offset);
+            self.line = position.line;
+            self.column = position.column;
+            self.offset = target;
+            return (position.line, position.column);
+        }
+        for character in text[self.offset..target].chars() {
+            if character == '\n' {
+                self.line += 1;
+                self.column = 1;
+            } else {
+                self.column += 1;
+            }
+        }
+        self.offset = target;
+        (self.line, self.column)
+    }
 }
 fn lexical_diagnostic(
     source: &SourceFile,
@@ -290,7 +353,10 @@ fn lexical_diagnostic(
 }
 fn lower_token_kind(kind: SyntaxKind, text: &str) -> Result<Option<TokenKind>, String> {
     let lowered = match kind {
-        SyntaxKind::Whitespace | SyntaxKind::LineComment | SyntaxKind::BlockComment => {
+        SyntaxKind::Whitespace
+        | SyntaxKind::LineComment
+        | SyntaxKind::DocComment
+        | SyntaxKind::BlockComment => {
             return Ok(None);
         }
         SyntaxKind::Ident => TokenKind::Ident(text.to_owned()),
@@ -314,9 +380,12 @@ fn lower_token_kind(kind: SyntaxKind, text: &str) -> Result<Option<TokenKind>, S
         SyntaxKind::KwContinue => TokenKind::Continue,
         SyntaxKind::KwState => TokenKind::State,
         SyntaxKind::KwStruct => TokenKind::Struct,
+        SyntaxKind::KwEvent => TokenKind::Event,
+        SyntaxKind::KwEmit => TokenKind::Emit,
         SyntaxKind::KwError => TokenKind::Error,
         SyntaxKind::KwEnum => TokenKind::Enum,
         SyntaxKind::KwAuthorize => TokenKind::Authorize,
+        SyntaxKind::KwPermission => TokenKind::Permission,
         SyntaxKind::KwTrigger => TokenKind::Trigger,
         SyntaxKind::KwIf => TokenKind::If,
         SyntaxKind::KwMatch => TokenKind::Match,
@@ -379,9 +448,11 @@ fn lower_token_kind(kind: SyntaxKind, text: &str) -> Result<Option<TokenKind>, S
         | SyntaxKind::ItemList
         | SyntaxKind::IncludeItem
         | SyntaxKind::ImportItem
+        | SyntaxKind::PermissionItem
         | SyntaxKind::FunctionItem
         | SyntaxKind::StructItem
-        | SyntaxKind::ErrorEnumItem
+        | SyntaxKind::EventItem
+        | SyntaxKind::EnumItem
         | SyntaxKind::ConstItem
         | SyntaxKind::StateItem
         | SyntaxKind::TriggerItem
@@ -391,6 +462,7 @@ fn lower_token_kind(kind: SyntaxKind, text: &str) -> Result<Option<TokenKind>, S
         | SyntaxKind::ParamList
         | SyntaxKind::ArgumentList
         | SyntaxKind::NamedArgument
+        | SyntaxKind::ArgumentRecord
         | SyntaxKind::StructLiteral
         | SyntaxKind::StructLiteralField
         | SyntaxKind::StructPattern
@@ -634,14 +706,7 @@ mod tests {
             assert_eq!(&tokens[0].kind, expected, "keyword `{spelling}`");
         }
         for rejected in [
-            "contract",
-            "entry",
-            "init",
-            "meta",
-            "permission",
-            "this",
-            "upgrade",
-            "while",
+            "contract", "entry", "init", "meta", "this", "upgrade", "while",
         ] {
             assert!(
                 !V1_KEYWORDS.contains(&rejected),
@@ -659,8 +724,8 @@ mod tests {
         for spelling in ["++", "&", "|"] {
             let error = lex(spelling).expect_err("retired operator must be rejected lexically");
             assert!(
-                error.contains("invalid Kotodama V1 operator")
-                    || error.contains("invalid source character"),
+                error.contains("E_UNSUPPORTED_OPERATOR")
+                    && error.contains(&format!("`{spelling}` is not a Kotodama operator")),
                 "unexpected diagnostic for `{spelling}`: {error}"
             );
         }
@@ -766,13 +831,52 @@ mod tests {
     }
     #[test]
     fn non_ascii_identifiers_are_rejected() {
-        for spelling in ["café", "誓約名", "利用者", "言挙げrun"] {
+        for spelling in ["café", "誓約名", "利用者"] {
             let error = lex(spelling).expect_err("V1 identifiers must be ASCII");
             assert!(
-                error.contains("non-ASCII"),
+                error.contains(&format!("non-ASCII identifier `{spelling}`")),
                 "unexpected diagnostic for `{spelling}`: {error}"
             );
         }
+        // Japanese keyword guidance appears only for Japanese text.
+        assert!(
+            lex("誓約名")
+                .unwrap_err()
+                .contains("誓約, 言挙げ, 始まり and 改善")
+        );
+        assert!(!lex("café").unwrap_err().contains("誓約"));
+        let glued = lex("言挙げrun").expect_err("a glued keyword is not an identifier");
+        assert!(glued.contains("E_KEYWORD_SPACING"), "{glued}");
+    }
+    #[test]
+    fn position_cursor_matches_indexed_line_columns() {
+        let source = SourceFile::new(
+            SourceId(0),
+            "positions.ko",
+            "誓約 S {\r\n  言挙げ fn a() {}\n\n  // é\u{3000}x\n}",
+        );
+        let text = source.text();
+        let mut cursor = super::PositionCursor::new(&source);
+        for offset in 0..=text.len() as u32 {
+            let expected = source.line_column(offset);
+            assert_eq!(
+                cursor.at(offset),
+                (expected.line, expected.column),
+                "offset {offset}"
+            );
+        }
+        // Out-of-order lookups fall back to the index and keep agreeing.
+        for offset in [9_u32, 2, 30, 0] {
+            let expected = source.line_column(offset);
+            assert_eq!(cursor.at(offset), (expected.line, expected.column));
+        }
+    }
+    #[test]
+    fn literal_decode_errors_carry_literal_specific_help() {
+        let error = lex("\"\\q\"").expect_err("unknown escape must fail");
+        assert!(error.contains("unknown escape `\\q`"), "{error}");
+        assert!(error.contains("supported escapes are"), "{error}");
+        assert!(!error.contains("誓約"), "{error}");
     }
     #[test]
     fn wide_hex_literal_is_preserved_for_the_parser_domain_check() {
@@ -858,8 +962,8 @@ mod tests {
     }
     #[test]
     fn semantic_tokens_reuse_lossless_token_boundaries() {
-        let text = r##"seiyaku Demo { // trivia
-            kotoage fn run(int value) authorize("Run") {
+        let text = r##"seiyaku Demo { permission Run;  // trivia
+            kotoage fn run(int value) authorize(Run) {
                 let string raw = r#"日本語"#;
                 let bytes data = br"a\n";
             }

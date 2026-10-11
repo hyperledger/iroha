@@ -119,7 +119,10 @@ fn payout_contract_artifact() -> (
                 ],
             },
         ),
-        permission: Some("CanInvokeContractEntrypoint".to_owned()),
+        authorization:
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "Payout".parse().unwrap(),
+            ),
         read_keys: Vec::new(),
         write_keys: Vec::new(),
         access_hints_complete: None,
@@ -139,6 +142,15 @@ fn payout_contract_artifact() -> (
         }],
     };
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        enum_types: Vec::new(),
+        events: Vec::new(),
+        permissions: vec![
+            iroha_data_model::smart_contract::manifest::ContractPermissionDescriptorV1 {
+                name: "Payout".parse().unwrap(),
+                scope:
+                    iroha_data_model::smart_contract::manifest::ContractPermissionScopeV1::Instance,
+            },
+        ],
         callables: vec![ivm::call::EmbeddedCallableV1 {
             entry_pc: 0,
             frame_bytes: 0,
@@ -158,7 +170,7 @@ fn payout_contract_artifact() -> (
             argument_schema: entrypoint.argument_schema.clone(),
             return_type: entrypoint.return_type.clone(),
             return_schema: entrypoint.return_schema.clone(),
-            permission: entrypoint.permission.clone(),
+            authorization: entrypoint.authorization.clone(),
             read_keys: entrypoint.read_keys.clone(),
             write_keys: entrypoint.write_keys.clone(),
             access_hints_complete: entrypoint.access_hints_complete,
@@ -209,7 +221,10 @@ fn pool_contract_artifact() -> (
                 ],
             },
         ),
-        permission: Some("CanInvokeContractEntrypoint".to_owned()),
+        authorization:
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "SwapQuotePublic".parse().unwrap(),
+            ),
         read_keys: Vec::new(),
         write_keys: Vec::new(),
         access_hints_complete: None,
@@ -217,6 +232,15 @@ fn pool_contract_artifact() -> (
         triggers: Vec::new(),
     };
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        enum_types: Vec::new(),
+        events: Vec::new(),
+        permissions: vec![
+            iroha_data_model::smart_contract::manifest::ContractPermissionDescriptorV1 {
+                name: "SwapQuotePublic".parse().unwrap(),
+                scope:
+                    iroha_data_model::smart_contract::manifest::ContractPermissionScopeV1::Instance,
+            },
+        ],
         callables: vec![ivm::call::EmbeddedCallableV1 {
             entry_pc: 0,
             frame_bytes: 0,
@@ -236,7 +260,7 @@ fn pool_contract_artifact() -> (
             argument_schema: entrypoint.argument_schema.clone(),
             return_type: entrypoint.return_type.clone(),
             return_schema: entrypoint.return_schema.clone(),
-            permission: entrypoint.permission.clone(),
+            authorization: entrypoint.authorization.clone(),
             read_keys: entrypoint.read_keys.clone(),
             write_keys: entrypoint.write_keys.clone(),
             access_hints_complete: entrypoint.access_hints_complete,
@@ -757,6 +781,8 @@ fn test_parliament_authorization(
         },
         TEST_PARLIAMENT_POLICY_VERSION,
         10,
+        // Height 20, the fixture's sortition slot, is the first native pulse height.
+        21,
         proposal_kind.effect_preimage_hash_v1(),
         expected_head,
         requirements.clone(),

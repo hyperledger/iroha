@@ -81,7 +81,7 @@ Categories: `happy_path`, `interruption_before_submission`,
 | `options` | `observation_timeout_ms` (default 0: one read), `poll_interval_ms` (default 1000), `retransmit_identical_bytes`, `retry_rejected_step` (default false). |
 | `driver` | `present` (default), `absent` (recover only), `wrong_identity`. |
 | `script` | Lists consumed in order: `builds`, `signs`, `dispatches`, `statuses`, `round_starts`, `round_recoveries`. |
-| `concurrent` | `{"when": <step state>, "action": "cancel" or "run"}`: another actor acts right after the journal first stores that state for the current step. |
+| `concurrent` | `{"when": <step state>, "action": "cancel" or "run"}` acts after the journal first stores that state. `when: "effect:<effect>"` instead acts inside that external call, immediately after its effect joins the trace; for example `effect:round_recover:0` cancels while round recovery is in flight. |
 | `storage_fault` | `{"store": n, "mode"}`: the n-th store of this call fails. `unavailable` and `lost` do not store; `published` stores and then reports failure. |
 | `mode` | For `corrupt`: `flip_bit` (lowest bit of the middle byte), `truncate` (drop the last 9 bytes), `append_byte` (one zero byte), `foreign_journal` (a valid first record of the same plan with `-other` appended to the instance), `status_completed` (status set to `completed`, sequence plus one, digest recomputed). |
 | `expect` | See below. |

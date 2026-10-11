@@ -2,7 +2,7 @@
 //!
 //! The ceremony deals an exact `n = 3f + 1` seat roster with reconstruction
 //! threshold `f + 1` through Core's signed all-edge DKG. Every seat is one
-//! [`LocalGlobalThresholdBeaconDkgSeatV1`]: it owns only its own dealer
+//! [`super::LocalGlobalThresholdBeaconDkgSeatV1`]: it owns only its own dealer
 //! polynomial and hybrid recipient key, and signs its public frames with its
 //! validator's BLS key. The ceremony relays public frames through the Core
 //! reducer and never sees another seat's private contribution.
@@ -38,8 +38,6 @@ use iroha_crypto::{Hash, Signature};
 #[cfg(any(test, feature = "iroha-core-tests"))]
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::NetworkId;
-#[cfg(any(test, feature = "iroha-core-tests"))]
-use iroha_data_model::consensus::GlobalThresholdBeaconKeySessionV1;
 use iroha_model_base::peer::PeerId;
 use norito::{
     NoritoDeserialize, NoritoSerialize,
@@ -68,7 +66,7 @@ use crate::state::{
 #[cfg(any(test, feature = "iroha-core-tests"))]
 use {
     super::AdaptiveGlobalThresholdBeaconDkgCryptoV1, super::GlobalThresholdBeaconDkgStateV1,
-    super::LocalGlobalThresholdBeaconDkgSeatV1, super::PreparedLocalGlobalThresholdBeaconDkgSeatV1,
+    super::PreparedLocalGlobalThresholdBeaconDkgSeatV1,
     super::RetainedFinalizedGlobalThresholdBeaconSessionV1,
     super::credential::global_beacon_partial_signer_public_inventory_digest_v1,
     super::global_threshold_beacon_roster_hash_v1,

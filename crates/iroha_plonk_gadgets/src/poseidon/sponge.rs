@@ -38,7 +38,10 @@ use iroha_plonk::{
     frontend::{Error, Region},
 };
 
-use super::pow5::{Absorb, AbsorbInput, Pow5Chip, Pow5Columns, Pow5Config, RoundConstantColumns};
+use super::pow5::{
+    Absorb, AbsorbInput, Pow5Chip, Pow5Columns, Pow5Config, RoundConstantColumns,
+    SharedRoundSelectors,
+};
 use crate::cells::Word;
 
 /// Permutations of the raw sponge over `elements` buffered words.
@@ -96,6 +99,45 @@ impl<F: PoseidonField> SpongeConfig<F> {
         round_constants: RoundConstantColumns,
         folded: &[(u64, usize)],
     ) -> Self {
+        Self::configure_rounds(meta, lane, round_constants, folded, None)
+    }
+
+    /// Configures a sponge with explicitly shared Pow5 round selectors.
+    ///
+    /// Every participating sponge must have the same permutation spans,
+    /// absorption modes and squeeze/continuation boundaries, as documented
+    /// on [`SharedRoundSelectors`]. Prefix start states remain lane-local,
+    /// so the domains and input values may differ. Missing work is not padded.
+    pub fn configure_with_shared_round_selectors(
+        meta: &mut ConstraintSystem<F>,
+        lane: Pow5Columns,
+        round_constants: RoundConstantColumns,
+        folded: &[(u64, usize)],
+        shared: SharedRoundSelectors,
+    ) -> Self {
+        Self::configure_rounds(meta, lane, round_constants, folded, Some(shared))
+    }
+
+    /// Configures an explicitly framed raw sponge on the compact shared
+    /// phase columns. Folded-prefix start states are not part of this layout.
+    pub fn configure_phased(
+        meta: &mut ConstraintSystem<F>,
+        lane: Pow5Columns,
+        phases: crate::phase::PhaseColumns,
+    ) -> Self {
+        Self {
+            pow5: Pow5Config::configure_phased(meta, lane, phases, raw_initial_state::<F>()),
+            folded: Vec::new(),
+        }
+    }
+
+    fn configure_rounds(
+        meta: &mut ConstraintSystem<F>,
+        lane: Pow5Columns,
+        round_constants: RoundConstantColumns,
+        folded: &[(u64, usize)],
+        shared: Option<SharedRoundSelectors>,
+    ) -> Self {
         let mut states = vec![raw_initial_state::<F>()];
         let mut prefixes = Vec::with_capacity(folded.len());
         for (domain, arity) in folded {
@@ -104,8 +146,18 @@ impl<F: PoseidonField> SpongeConfig<F> {
                 states.push(folded_state::<F>(*domain, *arity));
             }
         }
+        let pow5 = match shared {
+            Some(shared) => Pow5Config::configure_with_shared_round_selectors(
+                meta,
+                lane,
+                round_constants,
+                &states,
+                shared,
+            ),
+            None => Pow5Config::configure(meta, lane, round_constants, &states),
+        };
         Self {
-            pow5: Pow5Config::configure(meta, lane, round_constants, &states),
+            pow5,
             folded: prefixes,
         }
     }

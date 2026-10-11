@@ -1,5 +1,5 @@
 
-            seiyaku Demo {
-                kotoage fn run(Json ev) authorize("Entry") { let _payload = ev; }
+            seiyaku Demo { permission Entry;
+                kotoage fn run(Json ev) authorize(Entry) { let _payload = ev; }
             }
         

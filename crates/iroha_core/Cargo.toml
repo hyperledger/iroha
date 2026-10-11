@@ -36,7 +36,7 @@ workspace = true
 
 [features]
 # The node surface is selected explicitly by shipping leaves. `runtime` keeps
-# the mandatory first-release Halo2/IPA policy intact; STARK support remains a
+# the mandatory first-release native proof policy intact; STARK support remains a
 # named proof aggregate rather than workspace-wide inheritance.
 # Portable node semantics are usable independently by integration and recovery
 # corridors; ordinary Core builds additionally select the optional accelerator.
@@ -52,7 +52,7 @@ test-network-private-settlement-evidence = []
 # uses this to derive proof-valid beacon and TLE shares for its exact validator seat;
 # default/node/release feature sets never include it.
 test-network-parliament-signers = []
-runtime = ["json", "bls", "proofs-halo2"]
+runtime = ["json", "bls", "zk-ipa-native"]
 node = [
     "runtime",
     "proofs-stark",
@@ -62,9 +62,8 @@ node = [
     "telemetry",
     "zk-preverify",
 ]
-proofs-halo2 = ["zk-halo2", "zk-halo2-ipa", "zk-ipa-native", "circuit-params"]
 proofs-stark = ["zk-stark"]
-proofs-full = ["proofs-halo2", "proofs-stark"]
+proofs-full = ["proofs-stark", "zk-ipa-native"]
 # Enable QUIC transport helpers for Norito Streaming.
 quic = ["iroha_p2p/quic"]
 # Enable Norito-backed JSON helpers throughout the core crate.
@@ -109,7 +108,6 @@ state-commitment-prototypes = ["fastpq_prover/dev-tools"]
 # Enable benchmark-only helpers used by this crate's Criterion targets.
 bench = []
 # ZK verifier feature flags ship enabled by default.
-zk-halo2 = ["dep:kaigi_zk"]
 zk-stark = ["iroha_core_zk/zk-stark", "iroha_core_privacy/zk-stark"]
 # Non-shipping native privacy release evidence. This is deliberately not a
 # default feature and is forwarded only by explicit release runners and
@@ -124,19 +122,13 @@ privacy-release-evidence = [
     "json",
     "iroha_data_model/privacy-exact12-conformance",
 ]
-# Transparent Halo2 (IPA over Pasta). Default-on.
-zk-halo2-ipa = ["zk-ipa-native"]
 # Native IPA polynomial-opening verifier (no external halo2 libs). Default-on.
 zk-ipa-native = []
-# Temporary helper to match halo2's default circuit-params toggle.
-circuit-params = ["halo2_proofs/circuit-params"]
 # Enable stateless advisory pre-verification, deduplication, and trace diagnostics.
 # Ledger execution still runs the authoritative guarded cryptographic verifier.
 zk-preverify = ["iroha_core_zk/zk-preverify"]
 # Gate zk-heavy tests; enable with `--features zk-tests` when needed
 zk-tests = ["iroha-core-tests", "iroha_core_zk/zk-tests"]
-# Enable developer Halo2 test vectors (heavy tooling, opt-in only).
-halo2-dev-tests = ["iroha_core_zk/halo2-dev-tests"]
 cuda = ["ivm/cuda"]
 
 # Prototype: index ZK1 TLV tags per ProofId in WSV for future proof list/count filters.
@@ -178,6 +170,7 @@ iroha_crypto = { workspace = true, default-features = false, features = ["consen
 iroha_version = { workspace = true }
 iroha_config = { workspace = true }
 iroha_futures = { workspace = true }
+iroha_fs = { workspace = true }
 iroha_panic_hook = { workspace = true }
 iroha_core_zk = { workspace = true, default-features = false }
 iroha_telemetry = { workspace = true }
@@ -203,15 +196,9 @@ soranet_pq = { workspace = true }
 rayon = { workspace = true }
 base64 = { workspace = true }
 http = "1.3.1"
-halo2_proofs = { version = "0.5.1", package = "halo2-axiom", features = ["batch", "multicore"] }
 ff = "0.13.1"
-# Kagemusha V1's paired-Pasta recursive backend uses the Axiom Poseidon
-# transcript and IPA verifier in production. These revisions are pinned by the
-# workspace lockfile so consensus verification never depends on a test-only
-# feature surface.
-halo2-base = { git = "https://github.com/axiom-crypto/halo2-lib.git", tag = "v0.5.3", default-features = false, features = ["halo2-axiom"] }
 iroha_zkp_halo2 = { path = "../iroha_zkp_halo2" }
-kaigi_zk = { path = "../kaigi_zk", optional = true }
+kaigi_zk = { path = "../kaigi_zk" }
 orchard = { git = "https://github.com/zcash/orchard.git", rev = "9d07047d32c4787e1b7964b4cf4fa0286c93824c", default-features = false, features = ["circuit", "multicore", "std"], optional = true }
 incrementalmerkletree = { version = "=0.8.2", optional = true }
 
@@ -246,7 +233,6 @@ iroha_core_privacy = { workspace = true, default-features = false, features = ["
 iroha_core_timed_ovn = { workspace = true, features = ["test-utils"] }
 kotodama_lang = { workspace = true }
 iroha_core_zk = { workspace = true, default-features = false, features = ["test-utils"] }
-snark-verifier = { git = "https://github.com/axiom-crypto/snark-verifier.git", rev = "bbfcc721d714bea0d44a27c8fc6c4736e73ca853", default-features = false, features = ["loader_halo2", "halo2-axiom"] }
 iroha_crypto = { workspace = true, default-features = false, features = ["bfv-test-fixtures"] }
 iroha_data_model = { workspace = true, default-features = false, features = ["transparent_api", "test-fixtures", "privacy-exact12-conformance"] }
 crossbeam-epoch = "=0.9.20"
@@ -291,14 +277,9 @@ path = "benches/blocks/validate_blocks_benchmark.rs"
 required-features = ["iroha-core-tests"]
 
 [[bench]]
-name = "zk_poseidon"
-harness = false
-required-features = ["zk-halo2", "zk-halo2-ipa"]
-
-[[bench]]
 name = "crypto_hotpaths"
 harness = false
-required-features = ["zk-halo2", "zk-halo2-ipa"]
+required-features = ["zk-ipa-native"]
 
 [[bench]]
 name = "isi_gas_calibration"
@@ -346,11 +327,11 @@ denylist = [
 ]
 skip_optional_dependencies = true
 
-# Real Kaigi IPA proofs remain an explicit focused target under the ZK test features.
+# Real native Kaigi proofs remain an explicit focused target under the ZK test feature.
 [[test]]
 name = "kaigi_privacy"
 path = "tests/kaigi_privacy.rs"
-required-features = ["zk-tests", "zk-halo2", "halo2-dev-tests"]
+required-features = ["zk-tests"]
 
 # Grouped integration-test harnesses keep `cargo test` from linking one binary per tests/*.rs file.
 

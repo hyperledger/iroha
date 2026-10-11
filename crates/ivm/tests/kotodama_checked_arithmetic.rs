@@ -63,7 +63,9 @@ fn argument_host(program: &[u8], payload: &Json) -> Result<DefaultHost, VMError>
         .as_ref()
         .expect("parameterized run entrypoint schema");
     let record = ivm_abi::arguments::encode_argument_record_from_json(schema, payload)?;
-    let key: Name = "trigger_event_json".parse().expect("public input key");
+    let key: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+        .parse()
+        .expect("public input key");
     Ok(DefaultHost::new().with_public_inputs(BTreeMap::from([(
         key,
         tlv(PointerType::NoritoBytes, &record),
@@ -202,13 +204,7 @@ fn execute_numeric_program(
     match vm.run() {
         Ok(()) => NumericOutcome::Value(decode_numeric_return(&vm, kind)),
         Err(error) => {
-            let fault = numeric_fault_from_vm_error(&error).or_else(|| {
-                // Infallible source conversions turn the recoverable ABI status into an
-                // ABORT. Preserve the underlying numeric class in this differential gate.
-                (error == VMError::AssertionFailed)
-                    .then(|| NumericFaultV1::from_tag(vm.register(11)))
-                    .flatten()
-            });
+            let fault = numeric_fault_from_vm_error(&error);
             NumericOutcome::Fault(
                 fault.unwrap_or_else(|| panic!("unexpected numeric runtime failure: {error:?}")),
             )
@@ -297,8 +293,9 @@ fn classify_runtime(result: Result<BigInt, VMError>) -> ArithmeticOutcome {
     }
 }
 fn folded_outcome(expression: &str) -> ArithmeticOutcome {
-    let source =
-        format!("seiyaku FoldedArithmetic {{ view fn run() -> int {{ return {expression}; }} }}");
+    let source = format!(
+        "seiyaku FoldedArithmetic {{ view fn run() authorize(anyone) -> int {{ return {expression}; }} }}"
+    );
     let program = match Compiler::new().compile_source(&source) {
         Ok(program) => program,
         Err(error) if error.contains("E_INT_OVERFLOW") => {
@@ -340,7 +337,7 @@ fn constant_folding_and_runtime_match_signed_512_bit_boundaries_and_failures() {
         ("%", "1", "0"),
     ] {
         let program = compile(&format!(
-            "seiyaku RuntimeArithmetic {{ view fn run(int left, int right) -> int {{ return left {operator} right; }} }}"
+            "seiyaku RuntimeArithmetic {{ view fn run(int left, int right) authorize(anyone) -> int {{ return left {operator} right; }} }}"
         ));
         let runtime = classify_runtime(run_binary(&program, left, right));
         let folded = folded_outcome(&format!("({left}) {operator} ({right})"));
@@ -349,8 +346,9 @@ fn constant_folding_and_runtime_match_signed_512_bit_boundaries_and_failures() {
             "folded/runtime mismatch for ({left}) {operator} ({right})"
         );
     }
-    let negation =
-        compile("seiyaku RuntimeNegation { view fn run(int value) -> int { return -value; } }");
+    let negation = compile(
+        "seiyaku RuntimeNegation { view fn run(int value) authorize(anyone) -> int { return -value; } }",
+    );
     for value in [MAX_INT, MIN_INT] {
         let runtime = classify_runtime(run_unary(&negation, value));
         let folded = folded_outcome(&format!("-({value})"));
@@ -360,7 +358,7 @@ fn constant_folding_and_runtime_match_signed_512_bit_boundaries_and_failures() {
 #[test]
 fn explicit_int_to_decimal_conversion_matches_contextual_literal_folding() {
     let runtime = compile(
-        "seiyaku MixedRuntime { view fn run(int left, decimal right) -> decimal { return decimal::from_int(left) + right; } }",
+        "seiyaku MixedRuntime { view fn run(int left, decimal right) authorize(anyone) -> decimal { return decimal::from_int(left) + right; } }",
     );
     let metadata = ProgramMetadata::parse(&runtime).expect("parse explicit-conversion artifact");
     let conversion =
@@ -374,7 +372,7 @@ fn explicit_int_to_decimal_conversion_matches_contextual_literal_folding() {
     let runtime_value = run_mixed_int_decimal(&runtime, "9007199254740993", "0.125")
         .expect("execute mixed runtime arithmetic");
     let folded = compile(
-        "seiyaku MixedFolded { view fn run() -> decimal { return 9007199254740993 + 0.125; } }",
+        "seiyaku MixedFolded { view fn run() authorize(anyone) -> decimal { return 9007199254740993 + 0.125; } }",
     );
     let mut folded_vm = IVM::new(u64::MAX);
     folded_vm
@@ -462,18 +460,10 @@ fn decimal_constant_folding_matches_parameterized_vm_arithmetic_and_faults() {
         ),
     ] {
         let folded_source = format!(
-            "seiyaku FoldedDecimal {{\n\
-                 const decimal LEFT = {left};\n\
-                 const decimal RIGHT = {right};\n\
-                 view fn run() -> decimal {{ return LEFT {operator} RIGHT; }}\n\
-             }}"
+            "seiyaku FoldedDecimal {{\nconst decimal LEFT = {left};\nconst decimal RIGHT = {right};\nview fn run() authorize(anyone) -> decimal {{ return LEFT {operator} RIGHT; }}\n}}"
         );
         let runtime_source = format!(
-            "seiyaku RuntimeDecimal {{\n\
-                 view fn run(decimal left, decimal right) -> decimal {{\n\
-                     return left {operator} right;\n\
-                 }}\n\
-             }}"
+            "seiyaku RuntimeDecimal {{\nview fn run(decimal left, decimal right) authorize(anyone) -> decimal {{\nreturn left {operator} right;\n}}\n}}"
         );
         let payload = format!(r#"{{"left":"{left}","right":"{right}"}}"#);
         assert_numeric_fold_runtime_parity(
@@ -499,23 +489,10 @@ fn every_decimal_rounding_mode_matches_between_folding_and_vm_execution() {
         ("nearest_toward_zero", "1"),
     ] {
         let folded_source = format!(
-            "seiyaku FoldedRoundedDecimal {{\n\
-                 const decimal VALUE = {dividend};\n\
-                 const decimal DIVISOR = 8.0;\n\
-                 const int SCALE = 2;\n\
-                 view fn run() -> decimal {{\n\
-                     return VALUE.div_round(\n\
-                         divisor: DIVISOR, scale: SCALE, mode: Rounding::{mode});\n\
-                 }}\n\
-             }}"
+            "seiyaku FoldedRoundedDecimal {{\nconst decimal VALUE = {dividend};\nconst decimal DIVISOR = 8.0;\nconst int SCALE = 2;\nview fn run() authorize(anyone) -> decimal {{\nreturn VALUE.div_round(\ndivisor: DIVISOR, scale: SCALE, mode: Rounding::{mode});\n}}\n}}"
         );
         let runtime_source = format!(
-            "seiyaku RuntimeRoundedDecimal {{\n\
-                 view fn run(decimal value, decimal divisor, int scale) -> decimal {{\n\
-                     return value.div_round(\n\
-                         divisor: divisor, scale: scale, mode: Rounding::{mode});\n\
-                 }}\n\
-             }}"
+            "seiyaku RuntimeRoundedDecimal {{\nview fn run(decimal value, decimal divisor, int scale) authorize(anyone) -> decimal {{\nreturn value.div_round(\ndivisor: divisor, scale: scale, mode: Rounding::{mode});\n}}\n}}"
         );
         let payload = format!(r#"{{"divisor":"8","scale":"2","value":"{dividend}"}}"#);
         assert_numeric_fold_runtime_parity(
@@ -541,23 +518,10 @@ fn every_quantity_rounding_mode_matches_between_folding_and_vm_execution() {
         "nearest_toward_zero",
     ] {
         let folded_source = format!(
-            "seiyaku FoldedRoundedQuantity {{\n\
-                 const quantity VALUE = 1;\n\
-                 const decimal DIVISOR = 8;\n\
-                 const int SCALE = 2;\n\
-                 view fn run() -> quantity {{\n\
-                     return VALUE.div_round(\n\
-                         divisor: DIVISOR, scale: SCALE, mode: Rounding::{mode});\n\
-                 }}\n\
-             }}"
+            "seiyaku FoldedRoundedQuantity {{\nconst quantity VALUE = 1;\nconst decimal DIVISOR = 8;\nconst int SCALE = 2;\nview fn run() authorize(anyone) -> quantity {{\nreturn VALUE.div_round(\ndivisor: DIVISOR, scale: SCALE, mode: Rounding::{mode});\n}}\n}}"
         );
         let runtime_source = format!(
-            "seiyaku RuntimeRoundedQuantity {{\n\
-                 view fn run(quantity value, decimal divisor, int scale) -> quantity {{\n\
-                     return value.div_round(\n\
-                         divisor: divisor, scale: scale, mode: Rounding::{mode});\n\
-                 }}\n\
-             }}"
+            "seiyaku RuntimeRoundedQuantity {{\nview fn run(quantity value, decimal divisor, int scale) authorize(anyone) -> quantity {{\nreturn value.div_round(\ndivisor: divisor, scale: scale, mode: Rounding::{mode});\n}}\n}}"
         );
         assert_numeric_fold_runtime_parity(
             mode,
@@ -580,18 +544,9 @@ fn decimal_to_int_conversions_match_folding_for_success_and_failure() {
         // expression. It also guards against a future lowering that silently defers a
         // known-inexact constant to runtime.
         let folded_source = format!(
-            "seiyaku FoldedExactConversion {{\n\
-                 const decimal VALUE = {value};\n\
-                 view fn run() -> int {{\n\
-                     return decimal::to_int_exact(VALUE) + 0;\n\
-                 }}\n\
-             }}"
+            "seiyaku FoldedExactConversion {{\nconst decimal VALUE = {value};\nview fn run() authorize(anyone) -> int {{\nreturn decimal::to_int_exact(VALUE) + 0;\n}}\n}}"
         );
-        let runtime_source = "seiyaku RuntimeExactConversion {\n\
-             view fn run(decimal value) -> int {\n\
-                 return decimal::to_int_exact(value) + 0;\n\
-             }\n\
-         }";
+        let runtime_source = "seiyaku RuntimeExactConversion {\nview fn run(decimal value) authorize(anyone) -> int {\nreturn decimal::to_int_exact(value) + 0;\n}\n}";
         let payload = format!(r#"{{"value":"{value}"}}"#);
         assert_numeric_fold_runtime_parity(
             case,
@@ -599,22 +554,14 @@ fn decimal_to_int_conversions_match_folding_for_success_and_failure() {
             runtime_source,
             &payload,
             NumericReturnKind::Int,
-            syscalls::SYSCALL_DECIMAL_TRY_TO_INT_EXACT,
+            syscalls::SYSCALL_DECIMAL_TO_INT_EXACT,
             FoldedSyscallExpectation::Omitted,
         );
     }
     assert_numeric_fold_runtime_parity(
         "decimal-to-int-trunc",
-        "seiyaku FoldedTruncConversion {\n\
-             view fn run() -> int {\n\
-                 return decimal::to_int_trunc(-1.9);\n\
-             }\n\
-         }",
-        "seiyaku RuntimeTruncConversion {\n\
-             view fn run(decimal value) -> int {\n\
-                 return decimal::to_int_trunc(value);\n\
-             }\n\
-         }",
+        "seiyaku FoldedTruncConversion {\nview fn run() authorize(anyone) -> int {\nreturn decimal::to_int_trunc(-1.9);\n}\n}",
+        "seiyaku RuntimeTruncConversion {\nview fn run(decimal value) authorize(anyone) -> int {\nreturn decimal::to_int_trunc(value);\n}\n}",
         r#"{"value":"-1.9"}"#,
         NumericReturnKind::Int,
         syscalls::SYSCALL_DECIMAL_TO_INT_TRUNC,
@@ -630,20 +577,10 @@ fn decimal_to_int_conversions_match_folding_for_success_and_failure() {
         "nearest_toward_zero",
     ] {
         let folded_source = format!(
-            "seiyaku FoldedRoundedConversion {{\n\
-                 view fn run() -> int {{\n\
-                     return decimal::to_int_round(\n\
-                         2.5, mode: Rounding::{mode});\n\
-                 }}\n\
-             }}"
+            "seiyaku FoldedRoundedConversion {{\nview fn run() authorize(anyone) -> int {{\nreturn decimal::to_int_round(\n2.5, mode: Rounding::{mode});\n}}\n}}"
         );
         let runtime_source = format!(
-            "seiyaku RuntimeRoundedConversion {{\n\
-                 view fn run(decimal value) -> int {{\n\
-                     return decimal::to_int_round(\n\
-                         value, mode: Rounding::{mode});\n\
-                 }}\n\
-             }}"
+            "seiyaku RuntimeRoundedConversion {{\nview fn run(decimal value) authorize(anyone) -> int {{\nreturn decimal::to_int_round(\nvalue, mode: Rounding::{mode});\n}}\n}}"
         );
         assert_numeric_fold_runtime_parity(
             mode,
@@ -766,14 +703,11 @@ fn quantity_arithmetic_folding_matches_parameterized_vm_execution() {
         };
         let folded_expression = expression.replace("left", "LEFT").replace("right", "RIGHT");
         let folded_source = format!(
-            "seiyaku FoldedQuantity {{\n\
-                 {constants}\n\
-                 view fn run() -> {return_type} {{ return {folded_expression}; }}\n\
-             }}"
+            "seiyaku FoldedQuantity {{\n{constants}\nview fn run() authorize(anyone) -> {return_type} {{ return {folded_expression}; }}\n}}"
         );
         let runtime_source = format!(
             "seiyaku RuntimeQuantity {{\n\
-                 view fn run({params}) -> {return_type} {{ return {expression}; }}\n\
+                 view fn run({params}) authorize(anyone) -> {return_type} {{ return {expression}; }}\n\
              }}"
         );
         assert_numeric_fold_runtime_parity(
@@ -806,7 +740,7 @@ fn dex_samples_floor_input_and_payout_at_each_declared_precision() {
             .strip_suffix('}')
             .expect("one final seiyaku brace");
         let runtime_source = format!(
-            "{body}\n view fn run(quantity reserve_in, quantity reserve_out, quantity amount_in) -> quantity {{ quote_sell(reserve_in: reserve_in, reserve_out: reserve_out, amount_in: amount_in) }}\n}}"
+            "{body}\n view fn run(quantity reserve_in, quantity reserve_out, quantity amount_in) authorize(anyone) -> quantity {{ quote_sell(reserve_in: reserve_in, reserve_out: reserve_out, amount_in: amount_in) }}\n}}"
         );
         let runtime_program = compile(&runtime_source);
         assert!(contains_extended_syscall(
@@ -850,12 +784,7 @@ fn dex_samples_floor_input_and_payout_at_each_declared_precision() {
                 "RESERVE_OUT.mul_div_round(multiplier: decimal::from_quantity({folded_effective_expression}), divisor: decimal::from_quantity(RESERVE_IN + {folded_effective_expression}), scale: 18, mode: Rounding::floor)"
             );
             let folded_source = format!(
-                "seiyaku FoldedDex {{
-                    const quantity RESERVE_IN = {reserve_in};
-                    const quantity RESERVE_OUT = {reserve_out};
-                    const quantity AMOUNT_IN = {amount_in};
-                    view fn run() -> quantity {{ {folded_payout_expression} }}
-                }}"
+                "seiyaku FoldedDex {{\n                    const quantity RESERVE_IN = {reserve_in};\n                    const quantity RESERVE_OUT = {reserve_out};\n                    const quantity AMOUNT_IN = {amount_in};\n                    view fn run() authorize(anyone) -> quantity {{ {folded_payout_expression} }}\n                }}"
             );
             let folded_program = compile(&folded_source);
             assert!(
@@ -901,11 +830,7 @@ fn constant_quantity_exact_division_rejects_each_failure_class_at_compile_time()
         ),
     ] {
         let source = format!(
-            "seiyaku InvalidConstantQuantityDivision {{\n\
-                 const quantity VALUE = {value};\n\
-                 const decimal DIVISOR = {divisor};\n\
-                 view fn run() -> quantity {{ return VALUE / DIVISOR; }}\n\
-             }}"
+            "seiyaku InvalidConstantQuantityDivision {{\nconst quantity VALUE = {value};\nconst decimal DIVISOR = {divisor};\nview fn run() authorize(anyone) -> quantity {{ return VALUE / DIVISOR; }}\n}}"
         );
         let error = Compiler::new()
             .compile_source(&source)
@@ -923,13 +848,13 @@ fn explicit_quantity_conversions_match_for_values_and_negative_failures() {
             "quantity-from-int",
             "int",
             "7",
-            syscalls::SYSCALL_QUANTITY_TRY_FROM_INT,
+            syscalls::SYSCALL_QUANTITY_FROM_INT,
         ),
         (
             "quantity-from-decimal",
             "decimal",
             "7.25",
-            syscalls::SYSCALL_QUANTITY_TRY_FROM_DECIMAL,
+            syscalls::SYSCALL_QUANTITY_FROM_DECIMAL,
         ),
     ] {
         let conversion = if source_type == "int" {
@@ -938,19 +863,11 @@ fn explicit_quantity_conversions_match_for_values_and_negative_failures() {
             "quantity::try_from_decimal"
         };
         let folded_source = format!(
-            "seiyaku FoldedQuantityConversion {{\n\
-                 view fn run() -> quantity {{\n\
-                     let outcome = {conversion}({value});\n\
-                     return match outcome {{\n\
-                         Result::ok(converted) => converted,\n\
-                         Result::err(_) => 0\n\
-                     }};\n\
-                 }}\n\
-             }}"
+            "seiyaku FoldedQuantityConversion {{\nview fn run() authorize(anyone) -> quantity {{\nlet outcome = {conversion}({value});\nreturn match outcome {{\nResult::ok(converted) => converted,\nResult::err(_) => 0\n}};\n}}\n}}"
         );
         let runtime_source = format!(
             "seiyaku RuntimeQuantityConversion {{\n\
-                 view fn run({source_type} value) -> quantity {{\n\
+                 view fn run({source_type} value) authorize(anyone) -> quantity {{\n\
                      let outcome = {conversion}(value);\n\
                      return match outcome {{\n\
                          Result::ok(converted) => converted,\n\
@@ -977,13 +894,13 @@ fn explicit_quantity_conversions_match_for_values_and_negative_failures() {
             "negative-int-to-quantity",
             "int",
             "-1",
-            syscalls::SYSCALL_QUANTITY_TRY_FROM_INT,
+            syscalls::SYSCALL_QUANTITY_FROM_INT,
         ),
         (
             "negative-decimal-to-quantity",
             "decimal",
             "-1.25",
-            syscalls::SYSCALL_QUANTITY_TRY_FROM_DECIMAL,
+            syscalls::SYSCALL_QUANTITY_FROM_DECIMAL,
         ),
     ] {
         let conversion = if source_type == "int" {
@@ -992,21 +909,12 @@ fn explicit_quantity_conversions_match_for_values_and_negative_failures() {
             "quantity::try_from_decimal"
         };
         let folded_source = format!(
-            "seiyaku FoldedNegativeQuantityConversion {{\n\
-                 error enum ConversionCheck {{ WrongError = 1 }}\n\
-                 view fn run() -> int {{\n\
-                     let outcome = {conversion}({value});\n\
-                     return match outcome {{\n\
-                         Result::ok(_) => {{ require(false, ConversionCheck::WrongError); 0 }},\n\
-                         Result::err(failure) => {{ require(failure == NumericError::NegativeQuantity, ConversionCheck::WrongError); 1 }}\n\
-                     }};\n\
-                 }}\n\
-             }}"
+            "seiyaku FoldedNegativeQuantityConversion {{\nerror enum ConversionCheck {{ WrongError = 1 }}\nview fn run() authorize(anyone) -> int {{\nlet outcome = {conversion}({value});\nreturn match outcome {{\nResult::ok(_) => {{ require(false, ConversionCheck::WrongError); 0 }},\nResult::err(failure) => {{ require(failure == NumericError::NegativeQuantity, ConversionCheck::WrongError); 1 }}\n}};\n}}\n}}"
         );
         let runtime_source = format!(
             "seiyaku RuntimeNegativeQuantityConversion {{\n\
                  error enum ConversionCheck {{ WrongError = 1 }}\n\
-                 view fn run({source_type} value) -> int {{\n\
+                 view fn run({source_type} value) authorize(anyone) -> int {{\n\
                      let outcome = {conversion}(value);\n\
                      return match outcome {{\n\
                          Result::ok(_) => {{ require(false, ConversionCheck::WrongError); 0 }},\n\
@@ -1028,17 +936,8 @@ fn explicit_quantity_conversions_match_for_values_and_negative_failures() {
     }
     assert_numeric_fold_runtime_parity(
         "quantity-to-decimal",
-        "seiyaku FoldedQuantityToDecimal {\n\
-             const quantity VALUE = 1.25;\n\
-             view fn run() -> decimal {\n\
-                 return decimal::from_quantity(VALUE) + 0.0;\n\
-             }\n\
-         }",
-        "seiyaku RuntimeQuantityToDecimal {\n\
-             view fn run(quantity value) -> decimal {\n\
-                 return decimal::from_quantity(value) + 0.0;\n\
-             }\n\
-         }",
+        "seiyaku FoldedQuantityToDecimal {\nconst quantity VALUE = 1.25;\nview fn run() authorize(anyone) -> decimal {\nreturn decimal::from_quantity(VALUE) + 0.0;\n}\n}",
+        "seiyaku RuntimeQuantityToDecimal {\nview fn run(quantity value) authorize(anyone) -> decimal {\nreturn decimal::from_quantity(value) + 0.0;\n}\n}",
         r#"{"value":"1.25"}"#,
         NumericReturnKind::Decimal,
         syscalls::SYSCALL_QUANTITY_TO_DECIMAL,
@@ -1048,7 +947,7 @@ fn explicit_quantity_conversions_match_for_values_and_negative_failures() {
 #[test]
 fn ordinary_addition_and_subtraction_trap_at_signed_512_bit_boundaries() {
     let add = compile(
-        "seiyaku CheckedAdd { view fn run(int left, int right) -> int { return left + right; } }",
+        "seiyaku CheckedAdd { view fn run(int left, int right) authorize(anyone) -> int { return left + right; } }",
     );
     assert_eq!(run_binary(&add, MAX_INT, "0").unwrap(), bigint(MAX_INT));
     assert_eq!(run_binary(&add, MIN_INT, "0").unwrap(), bigint(MIN_INT));
@@ -1061,7 +960,7 @@ fn ordinary_addition_and_subtraction_trap_at_signed_512_bit_boundaries() {
         Err(VMError::NumericFault(NumericFaultV1::MantissaOverflow))
     ));
     let sub = compile(
-        "seiyaku CheckedSub { view fn run(int left, int right) -> int { return left - right; } }",
+        "seiyaku CheckedSub { view fn run(int left, int right) authorize(anyone) -> int { return left - right; } }",
     );
     assert_eq!(run_binary(&sub, MIN_INT, "0").unwrap(), bigint(MIN_INT));
     assert_eq!(run_binary(&sub, MAX_INT, "0").unwrap(), bigint(MAX_INT));
@@ -1077,7 +976,7 @@ fn ordinary_addition_and_subtraction_trap_at_signed_512_bit_boundaries() {
 #[test]
 fn ordinary_multiplication_and_negation_trap_at_signed_512_bit_boundaries() {
     let mul = compile(
-        "seiyaku CheckedMul { view fn run(int left, int right) -> int { return left * right; } }",
+        "seiyaku CheckedMul { view fn run(int left, int right) authorize(anyone) -> int { return left * right; } }",
     );
     assert_eq!(run_binary(&mul, MAX_INT, "1").unwrap(), bigint(MAX_INT));
     assert_eq!(run_binary(&mul, MIN_INT, "1").unwrap(), bigint(MIN_INT));
@@ -1089,7 +988,9 @@ fn ordinary_multiplication_and_negation_trap_at_signed_512_bit_boundaries() {
         run_binary(&mul, MIN_INT, "-1"),
         Err(VMError::NumericFault(NumericFaultV1::MantissaOverflow))
     ));
-    let neg = compile("seiyaku CheckedNeg { view fn run(int value) -> int { return -value; } }");
+    let neg = compile(
+        "seiyaku CheckedNeg { view fn run(int value) authorize(anyone) -> int { return -value; } }",
+    );
     assert_eq!(
         run_unary(&neg, MAX_INT).unwrap(),
         bigint(&format!("-{MAX_INT}"))
@@ -1103,7 +1004,7 @@ fn ordinary_multiplication_and_negation_trap_at_signed_512_bit_boundaries() {
 #[test]
 fn constant_folding_uses_checked_signed_512_bit_rules() {
     let safe = compile(
-        "seiyaku CheckedConstant { view fn run() -> int { return (6703903964971298549787012499102923063739682910296196688861780721860882015036773488400937149083451713845015929093243025426876941405973284973216824503042047 - 1) + 1; } }",
+        "seiyaku CheckedConstant { view fn run() authorize(anyone) -> int { return (6703903964971298549787012499102923063739682910296196688861780721860882015036773488400937149083451713845015929093243025426876941405973284973216824503042047 - 1) + 1; } }",
     );
     let mut vm = IVM::new(u64::MAX);
     vm.load_program(&safe).unwrap();
@@ -1114,8 +1015,8 @@ fn constant_folding_uses_checked_signed_512_bit_rules() {
         bigint(MAX_INT)
     );
     for source in [
-        "seiyaku OverflowAdd { view fn run() -> int { return 6703903964971298549787012499102923063739682910296196688861780721860882015036773488400937149083451713845015929093243025426876941405973284973216824503042047 + 1; } }",
-        "seiyaku OverflowNeg { view fn run() -> int { return -(-6703903964971298549787012499102923063739682910296196688861780721860882015036773488400937149083451713845015929093243025426876941405973284973216824503042048); } }",
+        "seiyaku OverflowAdd { view fn run() authorize(anyone) -> int { return 6703903964971298549787012499102923063739682910296196688861780721860882015036773488400937149083451713845015929093243025426876941405973284973216824503042047 + 1; } }",
+        "seiyaku OverflowNeg { view fn run() authorize(anyone) -> int { return -(-6703903964971298549787012499102923063739682910296196688861780721860882015036773488400937149083451713845015929093243025426876941405973284973216824503042048); } }",
     ] {
         let error = Compiler::new()
             .compile_source(source)
@@ -1131,7 +1032,7 @@ fn wrapping_builtins_are_the_explicit_modular_opt_in() {
     let program = compile(
         r#"
 seiyaku WrappingArithmetic {
-  view fn run() -> (int, int, int, int) {
+  view fn run() authorize(anyone) -> (int, int, int, int) {
     return (
         math::wrapping_add(left: 6703903964971298549787012499102923063739682910296196688861780721860882015036773488400937149083451713845015929093243025426876941405973284973216824503042047, right: 1),
         math::wrapping_sub(left: -6703903964971298549787012499102923063739682910296196688861780721860882015036773488400937149083451713845015929093243025426876941405973284973216824503042048, right: 1),
@@ -1174,11 +1075,11 @@ fn full_width_math_helpers_match_constant_folding_and_runtime() {
         ("abs", IntUnaryOperation::Abs),
     ] {
         let source = format!(
-            "seiyaku Math {{ view fn run(int value) -> int {{ return math::{name}(value); }} }}"
+            "seiyaku Math {{ view fn run(int value) authorize(anyone) -> int {{ return math::{name}(value); }} }}"
         );
         let runtime = compile(&source);
         let folded = compile(&format!(
-            "seiyaku Math {{ view fn run(int value) -> int {{ return math::{name}({MAX_INT}); }} }}"
+            "seiyaku Math {{ view fn run(int value) authorize(anyone) -> int {{ return math::{name}({MAX_INT}); }} }}"
         ));
         let expected = operation.evaluate(&maximum).unwrap();
         assert_eq!(run_unary(&runtime, MAX_INT).unwrap(), expected);
@@ -1191,12 +1092,13 @@ fn full_width_math_helpers_match_constant_folding_and_runtime() {
         ("gcd", IntBinaryOperation::Gcd, &minimum, &maximum),
         ("mean", IntBinaryOperation::Mean, &maximum, &maximum),
     ] {
+        let (first, second) = binary_math_labels(name);
         let source = format!(
-            "seiyaku Math {{ view fn run(int left, int right) -> int {{ return math::{name}(left: left, right: right); }} }}"
+            "seiyaku Math {{ view fn run(int left, int right) authorize(anyone) -> int {{ return math::{name}({first}: left, {second}: right); }} }}"
         );
         let runtime = compile(&source);
         let folded = compile(&format!(
-            "seiyaku Math {{ view fn run(int left, int right) -> int {{ return math::{name}(left: {left}, right: {right}); }} }}"
+            "seiyaku Math {{ view fn run(int left, int right) authorize(anyone) -> int {{ return math::{name}({first}: {left}, {second}: {right}); }} }}"
         ));
         let expected = operation.evaluate(left, right).unwrap();
         assert_eq!(
@@ -1206,7 +1108,7 @@ fn full_width_math_helpers_match_constant_folding_and_runtime() {
         assert_eq!(run_binary(&folded, "0", "0").unwrap(), expected);
     }
     let constant = compile(
-        "seiyaku Math { const int ROOT = math::isqrt(340282366920938463463374607431768211456); const int MID = math::mean(right: ROOT, left: ROOT); view fn run(int value) -> int { return MID; } }",
+        "seiyaku Math { const int ROOT = math::isqrt(340282366920938463463374607431768211456); const int MID = math::mean(right: ROOT, left: ROOT); view fn run(int value) authorize(anyone) -> int { return MID; } }",
     );
     assert_eq!(
         run_unary(&constant, "0").unwrap(),
@@ -1216,7 +1118,7 @@ fn full_width_math_helpers_match_constant_folding_and_runtime() {
         ("math::isqrt(-1)".to_owned(), "E_NEGATIVE_SQUARE_ROOT"),
         (format!("math::abs({MIN_INT})"), "E_INT_OVERFLOW"),
         (
-            "math::div_ceil(left: 1, right: 0)".to_owned(),
+            "math::div_ceil(dividend: 1, divisor: 0)".to_owned(),
             "E_DIVISION_BY_ZERO",
         ),
         (
@@ -1226,7 +1128,7 @@ fn full_width_math_helpers_match_constant_folding_and_runtime() {
     ] {
         let error = Compiler::new()
             .compile_source(&format!(
-                "seiyaku Math {{ view fn run() -> int {{ return {expression}; }} }}"
+                "seiyaku Math {{ view fn run() authorize(anyone) -> int {{ return {expression}; }} }}"
             ))
             .expect_err("constant math fault");
         assert!(error.contains(diagnostic), "{expression}: {error}");
@@ -1311,7 +1213,7 @@ fn rematerialized_literal_call_pressure_keeps_runtime_values_and_overflow() {
 fn rematerialized_numeric_operands_keep_rounding_branch_and_quantity_faults() {
     let decimal = compile(
         r#"seiyaku LiteralRounding {
-        view fn run(decimal value) -> decimal {
+        view fn run(decimal value) authorize(anyone) -> decimal {
             if (value < 0) { return value - 1.25; }
             return value.div_round(divisor: 3, scale: 2, mode: Rounding::floor);
         }
@@ -1326,7 +1228,7 @@ fn rematerialized_numeric_operands_keep_rounding_branch_and_quantity_faults() {
     }
     let quantity = compile(
         r#"seiyaku LiteralQuantity {
-        view fn run(quantity value) -> quantity { let quantity one = 1; return value - one; }
+        view fn run(quantity value) authorize(anyone) -> quantity { let quantity one = 1; return value - one; }
     }"#,
     );
     for (value, expected) in [
@@ -1355,7 +1257,10 @@ fn borrowed_numeric_operands_keep_values_faults_and_real_typed_call_tables() {
             if (left < right) { return (left + right) * (right - left); }
             return (left - right) + (left * right);
         }
-        view fn run(int left, int right) -> int { return arithmetic(left, right); }
+        view fn run(int left, int right) authorize(anyone) -> int {
+            // Two live calls preserve the private typed boundary under single-use inlining.
+            return arithmetic(left, right) + arithmetic(0, 0);
+        }
     }"#,
     );
     let parsed = ProgramMetadata::parse(&program).unwrap();
@@ -1440,7 +1345,7 @@ fn borrowed_numeric_operands_keep_values_faults_and_real_typed_call_tables() {
         Some(NumericFaultV1::MantissaOverflow)
     );
     let division = compile(
-        "seiyaku Division { view fn run(int left, int right) -> int { return left / right; } }",
+        "seiyaku Division { view fn run(int left, int right) authorize(anyone) -> int { return left / right; } }",
     );
     let failure = run_binary(&division, "7", "0").unwrap_err();
     assert_eq!(
@@ -1455,7 +1360,7 @@ fn borrowed_numeric_literal_and_host_results_keep_decimal_and_quantity_faults() 
     // freshly allocated numeric results, including both comparison outcomes.
     let decimal = compile(
         r#"seiyaku BorrowedDecimal {
-        view fn run(decimal value) -> decimal {
+        view fn run(decimal value) authorize(anyone) -> decimal {
             let decimal sum = value + 1.25;
             if (sum < 0) { return sum - 2.5; }
             return sum * 2;
@@ -1471,7 +1376,7 @@ fn borrowed_numeric_literal_and_host_results_keep_decimal_and_quantity_faults() 
     }
     let quantity = compile(
         r#"seiyaku BorrowedQuantity {
-        view fn run(quantity value) -> quantity { let quantity one = 1; return value - one; }
+        view fn run(quantity value) authorize(anyone) -> quantity { let quantity one = 1; return value - one; }
     }"#,
     );
     for (value, expected) in [
@@ -1490,6 +1395,21 @@ fn borrowed_numeric_literal_and_host_results_keep_decimal_and_quantity_faults() 
             expected
         );
     }
+}
+
+/// Parameter labels of a two-operand `math::` helper, in declaration order.
+fn binary_math_labels(name: &str) -> (&'static str, &'static str) {
+    if name == "div_ceil" {
+        ("dividend", "divisor")
+    } else {
+        ("left", "right")
+    }
+}
+
+#[test]
+fn binary_math_labels_follow_the_builtin_signatures() {
+    assert_eq!(binary_math_labels("div_ceil"), ("dividend", "divisor"));
+    assert_eq!(binary_math_labels("mean"), ("left", "right"));
 }
 
 #[test]
@@ -1528,13 +1448,14 @@ fn reversed_named_helpers_preserve_noncommutative_results_and_odd_signed_means()
             ][..],
         ),
     ] {
+        let (first, second) = binary_math_labels(name);
         let runtime = compile(&format!(
-            "seiyaku NamedMath {{ view fn run(int left, int right) -> int {{ return math::{name}(right: right, left: left); }} }}"
+            "seiyaku NamedMath {{ view fn run(int left, int right) authorize(anyone) -> int {{ return math::{name}({second}: right, {first}: left); }} }}"
         ));
         assert!(contains_extended_syscall(&runtime, syscall));
         for &(left, right, expected) in cases {
             let folded = compile(&format!(
-                "seiyaku NamedMath {{ view fn run(int left, int right) -> int {{ return math::{name}(right: {right}, left: {left}); }} }}"
+                "seiyaku NamedMath {{ view fn run(int left, int right) authorize(anyone) -> int {{ return math::{name}({second}: {right}, {first}: {left}); }} }}"
             ));
             assert!(!contains_extended_syscall(&folded, syscall));
             let expected = bigint(expected);
@@ -1543,14 +1464,14 @@ fn reversed_named_helpers_preserve_noncommutative_results_and_odd_signed_means()
         }
     }
     let reversed_division = compile(
-        "seiyaku NamedMath { view fn run(int left, int right) -> int { return math::div_ceil(right: right, left: left); } }",
+        "seiyaku NamedMath { view fn run(int left, int right) authorize(anyone) -> int { return math::div_ceil(divisor: right, dividend: left); } }",
     );
     assert_eq!(
         classify_runtime(run_binary(&reversed_division, MIN_INT, "-1")),
         ArithmeticOutcome::MantissaOverflow
     );
     assert_eq!(
-        folded_outcome(&format!("math::div_ceil(right: -1, left: {MIN_INT})")),
+        folded_outcome(&format!("math::div_ceil(divisor: -1, dividend: {MIN_INT})")),
         ArithmeticOutcome::MantissaOverflow
     );
 }

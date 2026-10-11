@@ -640,9 +640,9 @@ for an ordinary software-backed build, deployment, governance flow, or release.
   The job executes `scripts/android_strongbox_attestation_ci.sh`, generates a summary with
   `scripts/android_strongbox_attestation_report.py`, uploads the report to `artifacts/android_strongbox_attestation_report.txt`,
   and annotates the build as `android-strongbox/report`. Investigate any failures immediately and
-  link the build URL from the device matrix.
-- **Reporting:** Attach the JSON output to governance reviews and update the device matrix entry in
-  `specs/sdk/android/readiness/android_strongbox_device_matrix.md` with the attestation date.
+  link the build URL from the device-lab reservation ticket.
+- **Reporting:** Attach the JSON output to governance reviews and record the attestation date in
+  the device-lab reservation ticket (`specs/compliance/android/device_lab_reservation.md`).
 - **Mock rehearsal:** When hardware is unavailable, run
   `scripts/android_generate_mock_attestation_bundles.sh` to mint test bundles,
   a separate expectations tree, and use the mock root from the separate
@@ -751,9 +751,9 @@ the general SDK release path.
 
 1. Acknowledge PagerDuty (`android-crypto`) and capture the affected alias label
    (salted hash) plus device profile bucket.
-2. Check the attestation matrix entry for the device in
-   `specs/sdk/android/readiness/android_strongbox_device_matrix.md` and
-   record the last verified date.
+2. Check the device's last attestation result in its device-lab reservation
+   ticket (`specs/compliance/android/device_lab_reservation.md`) and record the
+   last verified date.
 
 **Diagnostics**
 

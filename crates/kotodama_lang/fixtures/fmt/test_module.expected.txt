@@ -1,0 +1,18 @@
+module WrappingTests {
+    koto_test { target: "wrapping.ko" }
+
+    fixture actors {
+        actor(
+            "issuer",
+            AccountId::parse("sorauﾛ1QEnRヰ7Dﾑzmg1ﾊｻ4ﾈAcckｻsafiｳヱufｴｻｻPﾆｴﾖﾁﾉDR1Y5PX"),
+            "0x0909090909090909090909090909090909090909090909090909090909090909",
+        );
+        grant_permission("issuer", "Entry");
+    }
+
+    #[test(fixture = actors)]
+    fn invokes_entrypoints() {
+        test::invoke_kotoage_as(actor: "issuer", kotoage: "hajimari", arguments: {});
+        test::invoke_kotoage_as(actor: "issuer", kotoage: "increment", arguments: { step: 2 });
+    }
+}

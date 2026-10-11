@@ -1,80 +1,15 @@
-//! Canonical KAGEMUSHA V1 wire and authenticated release data model.
+//! KAGEMUSHA wallet wire data model.
 //!
-//! KAGEMUSHA V1 defines aggregate-balance cash data and authenticated release selection.
-//! Hardware terminal data and ordinary app approval with separate Native financial custody
-//! have distinct wire families; neither data decoding nor an app signature grants money.
+//! The sole KAGEMUSHA family is the split-lineage wallet wire in [`kagemusha_wallet_v1`]
+//! (`specs/kagemusha_wallet_wire_v1.md`). Decoding a wallet object grants no money.
 
-pub mod kagemusha_app_enrollment_possession_v1;
-pub mod kagemusha_app_enrollment_v1;
-pub mod kagemusha_app_operation_approval_v1;
-pub mod kagemusha_device_response_v1;
-pub mod kagemusha_device_v1;
-pub mod kagemusha_enrolled_open_selector_v1;
-pub mod kagemusha_governed_platform_originals_v1;
-pub mod kagemusha_mobile_bootstrap_freshness_v1;
-pub mod kagemusha_mobile_bootstrap_v1;
-pub mod kagemusha_ordinary_app_enrollment_v1;
-pub mod kagemusha_ordinary_app_identity_policy_v1;
-pub mod kagemusha_ordinary_cash_v1;
-/// Purpose-bound current FI control originals; Native custody remains separate.
-pub mod kagemusha_ordinary_current_control_v1;
-pub mod kagemusha_ordinary_current_issuer_state_v1;
-pub mod kagemusha_ordinary_enrollment_http_v1;
-pub mod kagemusha_ordinary_enrollment_issuer_policy_v1;
-pub mod kagemusha_ordinary_incoming_v1;
-pub mod kagemusha_ordinary_issuer_circuit_admission_v1;
-pub mod kagemusha_ordinary_lineage_v1;
-pub mod kagemusha_ordinary_mint_v1;
-pub mod kagemusha_ordinary_retail_enrollment_v1;
-pub mod kagemusha_ordinary_retail_identity_policy_v1;
-pub mod kagemusha_platform_attestation_original_v1;
-pub mod kagemusha_play_integrity_provider_policy_v1;
-pub mod kagemusha_play_integrity_refresh_v1;
-pub mod kagemusha_raw_app_attestation_admission_v1;
-pub mod kagemusha_release_v1;
-pub mod kagemusha_retail_enrollment_challenge_v1;
-pub mod kagemusha_retail_enrollment_v1;
-pub mod kagemusha_v1;
 pub mod kagemusha_wallet_v1;
-pub mod verifier_registry_v1;
+pub use kagemusha_wallet_v1::*;
 
-pub mod kagemusha_ordinary_mint_debit_v1;
+/// Issuer-authenticated pre-key authorization, separate from monetary wallet objects.
+pub mod kagemusha_enrollment_permit_v1;
+pub use kagemusha_enrollment_permit_v1::*;
 
-pub mod kagemusha_ordinary_mint_finality_v1;
-
-pub use self::{
-    kagemusha_app_enrollment_possession_v1::*, kagemusha_app_enrollment_v1::*,
-    kagemusha_app_operation_approval_v1::*, kagemusha_device_response_v1::*,
-    kagemusha_device_v1::*, kagemusha_enrolled_open_selector_v1::*,
-    kagemusha_governed_platform_originals_v1::*, kagemusha_mobile_bootstrap_freshness_v1::*,
-    kagemusha_mobile_bootstrap_v1::*, kagemusha_ordinary_app_enrollment_v1::*,
-    kagemusha_ordinary_app_identity_policy_v1::*, kagemusha_ordinary_cash_v1::*,
-    kagemusha_ordinary_current_control_v1::*, kagemusha_ordinary_current_issuer_state_v1::*,
-    kagemusha_ordinary_enrollment_http_v1::*, kagemusha_ordinary_enrollment_issuer_policy_v1::*,
-    kagemusha_ordinary_incoming_v1::*, kagemusha_ordinary_issuer_circuit_admission_v1::*,
-    kagemusha_ordinary_lineage_v1::*, kagemusha_ordinary_mint_debit_v1::*,
-    kagemusha_ordinary_mint_finality_v1::*, kagemusha_ordinary_mint_v1::*,
-    kagemusha_ordinary_retail_enrollment_v1::*, kagemusha_ordinary_retail_identity_policy_v1::*,
-    kagemusha_platform_attestation_original_v1::*, kagemusha_play_integrity_provider_policy_v1::*,
-    kagemusha_play_integrity_refresh_v1::*, kagemusha_raw_app_attestation_admission_v1::*,
-    kagemusha_release_v1::*, kagemusha_retail_enrollment_challenge_v1::*,
-    kagemusha_retail_enrollment_v1::*, kagemusha_v1::*, kagemusha_wallet_v1::*,
-    verifier_registry_v1::*,
-};
-
-/// Prefix embedded into KAGEMUSHA V1 instruction rejection messages.
-///
-/// Torii extracts the label following this prefix as a stable machine-readable
-/// error code.
-pub const KAGEMUSHA_V1_REJECTION_REASON_PREFIX: &str = "kagemusha_v1_reason::";
-
-/// Distinct nonmonetary first-device hardware evidence family.
-pub mod kagemusha_hardware_evidence_bootstrap_v1;
-pub use kagemusha_hardware_evidence_bootstrap_v1::*;
-
-mod kagemusha_ordinary_node_mint_v1;
-pub use kagemusha_ordinary_node_mint_v1::*;
-
-/// Purpose-bound nonmonetary ordinary application installed-context originals.
-pub mod kagemusha_ordinary_installed_context_v1;
-pub use kagemusha_ordinary_installed_context_v1::*;
+/// Bank or scheme-operator enrollment eligibility observations.
+pub mod enrollment_eligibility_v1;
+pub use enrollment_eligibility_v1::*;

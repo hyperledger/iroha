@@ -19,7 +19,7 @@ use iroha_data_model::{
     block::BlockHeader,
     isi::verifying_keys,
     proof::{ProofAttachment, ProofBox, VerifyingKeyId, VerifyingKeyRecord},
-    zk::OpenVerifyEnvelope,
+    zk::{NativePipaRProofV1, OpenVerifyEnvelope},
 };
 use std::{
     collections::BTreeMap,
@@ -95,51 +95,37 @@ pub(super) fn confidential_attachment(
             assert_eq!(envelope.vk_hash, record.commitment);
             assert_eq!(envelope.circuit_id, record.circuit_id);
             assert!(zk::verify_backend(
-                zk::ZK_BACKEND_HALO2_IPA,
+                &result.proof.backend,
                 &result.proof,
                 record.key.as_ref()
             ));
             (result.proof, record)
         })
         .clone();
-    let id = VerifyingKeyId::new(zk::ZK_BACKEND_HALO2_IPA, vk_name);
+    let id = VerifyingKeyId::new(&proof.backend, vk_name);
     (
-        ProofAttachment::new_ref(zk::ZK_BACKEND_HALO2_IPA.into(), proof, id.clone()),
+        ProofAttachment::new_ref(proof.backend.clone(), proof, id.clone()),
         verifying_keys::RegisterVerifyingKey { id, record },
     )
 }
 
 pub(super) fn rejected_confidential_attachment(statement: &str, vk_name: &str) -> ProofAttachment {
     let (mut attachment, _) = confidential_attachment(statement, vk_name);
-    attachment.proof = corrupt_native_halo2_proof(&attachment.proof);
+    attachment.proof = corrupt_native_proof(&attachment.proof);
     attachment
 }
 
-pub(super) fn corrupt_native_halo2_proof(proof: &ProofBox) -> ProofBox {
+pub(super) fn corrupt_native_proof(proof: &ProofBox) -> ProofBox {
     let mut envelope: OpenVerifyEnvelope =
-        norito::decode_canonical(&proof.bytes).expect("canonical genuine Halo2 envelope");
-    // Keep the carrier, public instances, schema, key and all TLV lengths intact.
-    let carrier = &mut envelope.proof_bytes;
-    assert!(carrier.starts_with(b"ZK1\0"));
-    let mut position = 4_usize;
-    let mut target = None;
-    while position < carrier.len() {
-        let header_end = position.checked_add(8).expect("TLV header extent");
-        assert!(header_end <= carrier.len());
-        let length = u32::from_le_bytes(
-            carrier[position + 4..header_end]
-                .try_into()
-                .expect("TLV length"),
-        ) as usize;
-        let end = header_end.checked_add(length).expect("TLV payload extent");
-        assert!(end <= carrier.len());
-        if &carrier[position..position + 4] == b"PROF" {
-            assert!(target.is_none() && length != 0);
-            target = Some(header_end + length / 2);
-        }
-        position = end;
-    }
-    carrier[target.expect("native proof TLV")] ^= 1;
+        norito::decode_canonical(&proof.bytes).expect("canonical genuine native envelope");
+    // Preserve the canonical carrier, exact public column, schema and key while
+    // corrupting only one byte of the native transcript.
+    let mut carrier: NativePipaRProofV1 =
+        norito::decode_canonical(&envelope.proof_bytes).expect("canonical native proof carrier");
+    assert!(!carrier.proof.is_empty());
+    let middle = carrier.proof.len() / 2;
+    carrier.proof[middle] ^= 1;
+    envelope.proof_bytes = norito::encode_canonical(&carrier).expect("canonical damaged carrier");
     ProofBox::new(
         proof.backend.clone(),
         norito::encode_canonical(&envelope).expect("canonical damaged proof"),
@@ -172,6 +158,21 @@ fn confidential_fixtures_verify_and_reject_only_native_proof_corruption() {
         zk::confidential_v2::CONFIDENTIAL_UNSHIELD_V2_CIRCUIT_ID
     );
     assert_eq!(valid_env.public_inputs, invalid_env.public_inputs);
+    let valid_carrier: NativePipaRProofV1 =
+        norito::decode_canonical(&valid_env.proof_bytes).unwrap();
+    let invalid_carrier: NativePipaRProofV1 =
+        norito::decode_canonical(&invalid_env.proof_bytes).unwrap();
+    assert_eq!(valid_carrier.public_inputs, invalid_carrier.public_inputs);
+    assert_eq!(valid_carrier.proof.len(), invalid_carrier.proof.len());
+    assert_eq!(
+        valid_carrier
+            .proof
+            .iter()
+            .zip(&invalid_carrier.proof)
+            .filter(|(a, b)| a != b)
+            .count(),
+        1
+    );
     assert_eq!(valid_env.vk_hash, invalid_env.vk_hash);
     assert_eq!(valid_env.circuit_id, invalid_env.circuit_id);
     assert_eq!(valid_env.proof_bytes.len(), invalid_env.proof_bytes.len());

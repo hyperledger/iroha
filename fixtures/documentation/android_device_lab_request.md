@@ -33,7 +33,7 @@ Reservation details:
 
 Dependencies:
 - Capacity snapshot reference: link to `android_strongbox_capture_status.md`
-- Readiness matrix rows touched: link to `android_strongbox_device_matrix.md`
+- Device-lab lanes touched: lane names from `specs/compliance/android/device_lab_reservation.md`
 - Compliance linkage (if any): AND6 checklist row, evidence log ID
 
 Fallback plan:

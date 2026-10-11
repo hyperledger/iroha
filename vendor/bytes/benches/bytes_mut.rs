@@ -1,266 +1,342 @@
-#![feature(test)]
+//! Stable Criterion workloads for mutable buffer allocation, access and writes.
 #![warn(rust_2018_idioms)]
 
-extern crate test;
-
 use bytes::{BufMut, BytesMut};
-use test::Bencher;
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use std::hint::black_box;
 
-#[bench]
-fn alloc_small(b: &mut Bencher) {
-    b.iter(|| {
-        for _ in 0..1024 {
-            test::black_box(BytesMut::with_capacity(12));
-        }
-    })
+fn alloc_small(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bytes_mut");
+    group.bench_function("alloc_small", |b| {
+        b.iter(|| {
+            for _ in 0..1024 {
+                black_box(BytesMut::with_capacity(12));
+            }
+        })
+    });
+    group.finish();
 }
 
-#[bench]
-fn alloc_mid(b: &mut Bencher) {
-    b.iter(|| {
-        test::black_box(BytesMut::with_capacity(128));
-    })
+fn alloc_mid(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bytes_mut");
+    group.bench_function("alloc_mid", |b| {
+        b.iter(|| {
+            black_box(BytesMut::with_capacity(128));
+        })
+    });
+    group.finish();
 }
 
-#[bench]
-fn alloc_big(b: &mut Bencher) {
-    b.iter(|| {
-        test::black_box(BytesMut::with_capacity(4096));
-    })
+fn alloc_big(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bytes_mut");
+    group.bench_function("alloc_big", |b| {
+        b.iter(|| {
+            black_box(BytesMut::with_capacity(4096));
+        })
+    });
+    group.finish();
 }
 
-#[bench]
-fn deref_unique(b: &mut Bencher) {
+fn deref_unique(c: &mut Criterion) {
     let mut buf = BytesMut::with_capacity(4096);
     buf.put(&[0u8; 1024][..]);
 
-    b.iter(|| {
-        for _ in 0..1024 {
-            test::black_box(&buf[..]);
-        }
-    })
+    let mut group = c.benchmark_group("bytes_mut");
+    group.bench_function("deref_unique", |b| {
+        b.iter(|| {
+            for _ in 0..1024 {
+                black_box(&buf[..]);
+            }
+        })
+    });
+    group.finish();
 }
 
-#[bench]
-fn deref_unique_unroll(b: &mut Bencher) {
+fn deref_unique_unroll(c: &mut Criterion) {
     let mut buf = BytesMut::with_capacity(4096);
     buf.put(&[0u8; 1024][..]);
 
-    b.iter(|| {
-        for _ in 0..128 {
-            test::black_box(&buf[..]);
-            test::black_box(&buf[..]);
-            test::black_box(&buf[..]);
-            test::black_box(&buf[..]);
-            test::black_box(&buf[..]);
-            test::black_box(&buf[..]);
-            test::black_box(&buf[..]);
-            test::black_box(&buf[..]);
-        }
-    })
+    let mut group = c.benchmark_group("bytes_mut");
+    group.bench_function("deref_unique_unroll", |b| {
+        b.iter(|| {
+            for _ in 0..128 {
+                black_box(&buf[..]);
+                black_box(&buf[..]);
+                black_box(&buf[..]);
+                black_box(&buf[..]);
+                black_box(&buf[..]);
+                black_box(&buf[..]);
+                black_box(&buf[..]);
+                black_box(&buf[..]);
+            }
+        })
+    });
+    group.finish();
 }
 
-#[bench]
-fn deref_shared(b: &mut Bencher) {
+fn deref_shared(c: &mut Criterion) {
     let mut buf = BytesMut::with_capacity(4096);
     buf.put(&[0u8; 1024][..]);
     let _b2 = buf.split_off(1024);
 
-    b.iter(|| {
-        for _ in 0..1024 {
-            test::black_box(&buf[..]);
-        }
-    })
+    let mut group = c.benchmark_group("bytes_mut");
+    group.bench_function("deref_shared", |b| {
+        b.iter(|| {
+            for _ in 0..1024 {
+                black_box(&buf[..]);
+            }
+        })
+    });
+    group.finish();
 }
 
-#[bench]
-fn deref_two(b: &mut Bencher) {
+fn deref_two(c: &mut Criterion) {
     let mut buf1 = BytesMut::with_capacity(8);
     buf1.put(&[0u8; 8][..]);
 
     let mut buf2 = BytesMut::with_capacity(4096);
     buf2.put(&[0u8; 1024][..]);
 
-    b.iter(|| {
-        for _ in 0..512 {
-            test::black_box(&buf1[..]);
-            test::black_box(&buf2[..]);
-        }
-    })
+    let mut group = c.benchmark_group("bytes_mut");
+    group.bench_function("deref_two", |b| {
+        b.iter(|| {
+            for _ in 0..512 {
+                black_box(&buf1[..]);
+                black_box(&buf2[..]);
+            }
+        })
+    });
+    group.finish();
 }
 
-#[bench]
-fn clone_frozen(b: &mut Bencher) {
+fn clone_frozen(c: &mut Criterion) {
     let bytes = BytesMut::from(&b"hello world 1234567890 and have a good byte 0987654321"[..])
         .split()
         .freeze();
 
-    b.iter(|| {
-        for _ in 0..1024 {
-            test::black_box(&bytes.clone());
-        }
-    })
+    let mut group = c.benchmark_group("bytes_mut");
+    group.bench_function("clone_frozen", |b| {
+        b.iter(|| {
+            for _ in 0..1024 {
+                black_box(&bytes.clone());
+            }
+        })
+    });
+    group.finish();
 }
 
-#[bench]
-fn alloc_write_split_to_mid(b: &mut Bencher) {
-    b.iter(|| {
-        let mut buf = BytesMut::with_capacity(128);
-        buf.put_slice(&[0u8; 64]);
-        test::black_box(buf.split_to(64));
-    })
+fn alloc_write_split_to_mid(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bytes_mut");
+    group.bench_function("alloc_write_split_to_mid", |b| {
+        b.iter(|| {
+            let mut buf = BytesMut::with_capacity(128);
+            buf.put_slice(&[0u8; 64]);
+            black_box(buf.split_to(64));
+        })
+    });
+    group.finish();
 }
 
-#[bench]
-fn drain_write_drain(b: &mut Bencher) {
+fn drain_write_drain(c: &mut Criterion) {
     let data = [0u8; 128];
 
-    b.iter(|| {
-        let mut buf = BytesMut::with_capacity(1024);
-        let mut parts = Vec::with_capacity(8);
+    let mut group = c.benchmark_group("bytes_mut");
+    group.bench_function("drain_write_drain", |b| {
+        b.iter(|| {
+            let mut buf = BytesMut::with_capacity(1024);
+            let mut parts = Vec::with_capacity(8);
 
-        for _ in 0..8 {
-            buf.put(&data[..]);
-            parts.push(buf.split_to(128));
-        }
+            for _ in 0..8 {
+                buf.put(&data[..]);
+                parts.push(buf.split_to(128));
+            }
 
-        test::black_box(parts);
-    })
+            black_box(parts);
+        })
+    });
+    group.finish();
 }
 
-#[bench]
-fn fmt_write(b: &mut Bencher) {
+fn fmt_write(c: &mut Criterion) {
     use std::fmt::Write;
     let mut buf = BytesMut::with_capacity(128);
     let s = "foo bar baz quux lorem ipsum dolor et";
 
-    b.bytes = s.len() as u64;
-    b.iter(|| {
-        let _ = write!(buf, "{}", s);
-        test::black_box(&buf);
-        unsafe {
-            buf.set_len(0);
-        }
-    })
+    let mut group = c.benchmark_group("bytes_mut");
+    group.throughput(Throughput::Bytes(s.len() as u64));
+    group.bench_function("fmt_write", |b| {
+        b.iter(|| {
+            let _ = write!(buf, "{}", s);
+            black_box(&buf);
+            unsafe {
+                buf.set_len(0);
+            }
+        })
+    });
+    group.finish();
 }
 
-#[bench]
-fn bytes_mut_extend(b: &mut Bencher) {
+fn bytes_mut_extend(c: &mut Criterion) {
     let mut buf = BytesMut::with_capacity(256);
     let data = [33u8; 32];
 
-    b.bytes = data.len() as u64 * 4;
-    b.iter(|| {
-        for _ in 0..4 {
-            buf.extend(&data);
-        }
-        test::black_box(&buf);
-        unsafe {
-            buf.set_len(0);
-        }
+    let mut group = c.benchmark_group("bytes_mut");
+    group.throughput(Throughput::Bytes(data.len() as u64 * 4));
+    group.bench_function("bytes_mut_extend", |b| {
+        b.iter(|| {
+            for _ in 0..4 {
+                buf.extend(&data);
+            }
+            black_box(&buf);
+            unsafe {
+                buf.set_len(0);
+            }
+        });
     });
+    group.finish();
 }
 
 // BufMut for BytesMut vs Vec<u8>
 
-#[bench]
-fn put_slice_bytes_mut(b: &mut Bencher) {
+fn put_slice_bytes_mut(c: &mut Criterion) {
     let mut buf = BytesMut::with_capacity(256);
     let data = [33u8; 32];
 
-    b.bytes = data.len() as u64 * 4;
-    b.iter(|| {
-        for _ in 0..4 {
-            buf.put_slice(&data);
-        }
-        test::black_box(&buf);
-        unsafe {
-            buf.set_len(0);
-        }
+    let mut group = c.benchmark_group("bytes_mut");
+    group.throughput(Throughput::Bytes(data.len() as u64 * 4));
+    group.bench_function("put_slice_bytes_mut", |b| {
+        b.iter(|| {
+            for _ in 0..4 {
+                buf.put_slice(&data);
+            }
+            black_box(&buf);
+            unsafe {
+                buf.set_len(0);
+            }
+        });
     });
+    group.finish();
 }
 
-#[bench]
-fn put_u8_bytes_mut(b: &mut Bencher) {
+fn put_u8_bytes_mut(c: &mut Criterion) {
     let mut buf = BytesMut::with_capacity(256);
     let cnt = 128;
 
-    b.bytes = cnt as u64;
-    b.iter(|| {
-        for _ in 0..cnt {
-            buf.put_u8(b'x');
-        }
-        test::black_box(&buf);
-        unsafe {
-            buf.set_len(0);
-        }
+    let mut group = c.benchmark_group("bytes_mut");
+    group.throughput(Throughput::Bytes(cnt as u64));
+    group.bench_function("put_u8_bytes_mut", |b| {
+        b.iter(|| {
+            for _ in 0..cnt {
+                buf.put_u8(b'x');
+            }
+            black_box(&buf);
+            unsafe {
+                buf.set_len(0);
+            }
+        });
     });
+    group.finish();
 }
 
-#[bench]
-fn put_slice_vec(b: &mut Bencher) {
+fn put_slice_vec(c: &mut Criterion) {
     let mut buf = Vec::<u8>::with_capacity(256);
     let data = [33u8; 32];
 
-    b.bytes = data.len() as u64 * 4;
-    b.iter(|| {
-        for _ in 0..4 {
-            buf.put_slice(&data);
-        }
-        test::black_box(&buf);
-        unsafe {
-            buf.set_len(0);
-        }
+    let mut group = c.benchmark_group("bytes_mut");
+    group.throughput(Throughput::Bytes(data.len() as u64 * 4));
+    group.bench_function("put_slice_vec", |b| {
+        b.iter(|| {
+            for _ in 0..4 {
+                buf.put_slice(&data);
+            }
+            black_box(&buf);
+            unsafe {
+                buf.set_len(0);
+            }
+        });
     });
+    group.finish();
 }
 
-#[bench]
-fn put_u8_vec(b: &mut Bencher) {
+fn put_u8_vec(c: &mut Criterion) {
     let mut buf = Vec::<u8>::with_capacity(256);
     let cnt = 128;
 
-    b.bytes = cnt as u64;
-    b.iter(|| {
-        for _ in 0..cnt {
-            buf.put_u8(b'x');
-        }
-        test::black_box(&buf);
-        unsafe {
-            buf.set_len(0);
-        }
+    let mut group = c.benchmark_group("bytes_mut");
+    group.throughput(Throughput::Bytes(cnt as u64));
+    group.bench_function("put_u8_vec", |b| {
+        b.iter(|| {
+            for _ in 0..cnt {
+                buf.put_u8(b'x');
+            }
+            black_box(&buf);
+            unsafe {
+                buf.set_len(0);
+            }
+        });
     });
+    group.finish();
 }
 
-#[bench]
-fn put_slice_vec_extend(b: &mut Bencher) {
+fn put_slice_vec_extend(c: &mut Criterion) {
     let mut buf = Vec::<u8>::with_capacity(256);
     let data = [33u8; 32];
 
-    b.bytes = data.len() as u64 * 4;
-    b.iter(|| {
-        for _ in 0..4 {
-            buf.extend_from_slice(&data);
-        }
-        test::black_box(&buf);
-        unsafe {
-            buf.set_len(0);
-        }
+    let mut group = c.benchmark_group("bytes_mut");
+    group.throughput(Throughput::Bytes(data.len() as u64 * 4));
+    group.bench_function("put_slice_vec_extend", |b| {
+        b.iter(|| {
+            for _ in 0..4 {
+                buf.extend_from_slice(&data);
+            }
+            black_box(&buf);
+            unsafe {
+                buf.set_len(0);
+            }
+        });
     });
+    group.finish();
 }
 
-#[bench]
-fn put_u8_vec_push(b: &mut Bencher) {
+fn put_u8_vec_push(c: &mut Criterion) {
     let mut buf = Vec::<u8>::with_capacity(256);
     let cnt = 128;
 
-    b.bytes = cnt as u64;
-    b.iter(|| {
-        for _ in 0..cnt {
-            buf.push(b'x');
-        }
-        test::black_box(&buf);
-        unsafe {
-            buf.set_len(0);
-        }
+    let mut group = c.benchmark_group("bytes_mut");
+    group.throughput(Throughput::Bytes(cnt as u64));
+    group.bench_function("put_u8_vec_push", |b| {
+        b.iter(|| {
+            for _ in 0..cnt {
+                buf.push(b'x');
+            }
+            black_box(&buf);
+            unsafe {
+                buf.set_len(0);
+            }
+        });
     });
+    group.finish();
 }
+
+criterion_group!(
+    benches,
+    alloc_small,
+    alloc_mid,
+    alloc_big,
+    deref_unique,
+    deref_unique_unroll,
+    deref_shared,
+    deref_two,
+    clone_frozen,
+    alloc_write_split_to_mid,
+    drain_write_drain,
+    fmt_write,
+    bytes_mut_extend,
+    put_slice_bytes_mut,
+    put_u8_bytes_mut,
+    put_slice_vec,
+    put_u8_vec,
+    put_slice_vec_extend,
+    put_u8_vec_push
+);
+criterion_main!(benches);

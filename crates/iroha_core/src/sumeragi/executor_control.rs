@@ -118,7 +118,7 @@ impl Worker<'_> {
     pub(super) fn build_control_witness(
         &mut self,
         context: &ControlWitnessContext,
-    ) -> Result<(ControlWitness, bool), PublicationError> {
+    ) -> Result<ControlWitness, PublicationError> {
         self.control_available()?;
         self.beacon
             .as_ref()

@@ -1,8 +1,17 @@
 // Threshold escrow sample for a single payer and an exact funding target.
 // The payer is bound to context::authority() when the escrow is opened.
 seiyaku ThresholdEscrow {
+    permission Admin;
     error enum EscrowError {
-        AlreadyOpen = 1, AlreadyReleased = 2, AlreadyRefunded = 3, NotOpen = 4, UnauthorizedPayer = 5, NonPositiveTarget = 6, NonPositiveAmount = 7, TargetExceeded = 8, NotFullyFunded = 9,
+        AlreadyOpen = 1,
+        AlreadyReleased = 2,
+        AlreadyRefunded = 3,
+        NotOpen = 4,
+        UnauthorizedPayer = 5,
+        NonPositiveTarget = 6,
+        NonPositiveAmount = 7,
+        TargetExceeded = 8,
+        NotFullyFunded = 9,
     }
 
     const string recipient_account_literal = "sorauﾛ1PｽNgｿﾘ9ﾏﾕ2ﾕ9ﾄZﾀﾃﾌWwNｸｾヰﾄﾂT3WｺTxｶｵﾎKﾓﾛmｷ4Y6PLN";
@@ -47,11 +56,11 @@ seiyaku ThresholdEscrow {
     }
 
     // NOTE:
-    // This sample uses authorize("Admin") because it releases and refunds funds
+    // This sample uses authorize(Admin) because it releases and refunds funds
     // from the configured escrow account. The recipient, escrow account, and
     // asset definition are fixed literals so the compiler can emit a complete
     // first-release access set without manual annotations.
-    kotoage fn open_escrow(quantity target_amount) authorize("Admin") {
+    kotoage fn open_escrow(quantity target_amount) authorize(Admin) {
         assert_unopened();
         let quantity zero = 0;
         require(target_amount > zero, EscrowError::NonPositiveTarget);
@@ -66,7 +75,7 @@ seiyaku ThresholdEscrow {
         is_refunded = false;
     }
 
-    kotoage fn deposit(quantity amount) authorize("Admin") {
+    kotoage fn deposit(quantity amount) authorize(Admin) {
         assert_open();
         assert_payer();
         require(amount > 0, EscrowError::NonPositiveAmount);
@@ -77,12 +86,11 @@ seiyaku ThresholdEscrow {
             destination: AccountId::parse(escrow_account_literal),
             asset_definition: AssetDefinitionId::parse(escrow_asset_definition_literal),
             amount: amount,
-            dataspace: DataSpaceId::parse("0"),
         );
         funded_amount_value = next_funded;
     }
 
-    kotoage fn release_if_ready() authorize("Admin") {
+    kotoage fn release_if_ready() authorize(Admin) {
         assert_open();
         require(funded_amount_value == target_amount_value, EscrowError::NotFullyFunded);
         ledger::asset::transfer(
@@ -90,23 +98,21 @@ seiyaku ThresholdEscrow {
             destination: AccountId::parse(recipient_account_literal),
             asset_definition: AssetDefinitionId::parse(escrow_asset_definition_literal),
             amount: funded_amount_value,
-            dataspace: DataSpaceId::parse("0"),
         );
         is_open = false;
         is_released = true;
     }
 
-    kotoage fn refund() authorize("Admin") {
+    kotoage fn refund() authorize(Admin) {
         assert_open();
         assert_payer();
         let funded = funded_amount_value;
-        if (funded > 0) {
+        if funded > 0 {
             ledger::asset::transfer(
                 source: AccountId::parse(escrow_account_literal),
                 destination: context::authority(),
                 asset_definition: AssetDefinitionId::parse(escrow_asset_definition_literal),
                 amount: funded,
-                dataspace: DataSpaceId::parse("0"),
             );
         }
         is_open = false;

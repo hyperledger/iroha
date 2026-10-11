@@ -107,7 +107,9 @@ fn argument_host(
         .expect("valid comparison arguments");
     let payload = ivm_abi::arguments::encode_argument_record_from_json(schema, &payload)
         .expect("encode comparison argument record");
-    let key: Name = "trigger_event_json".parse().expect("public input key");
+    let key: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+        .parse()
+        .expect("public input key");
     DefaultHost::new().with_public_inputs(BTreeMap::from([(
         key,
         tlv(PointerType::NoritoBytes, &payload),
@@ -228,7 +230,7 @@ fn native_json_literal_and_dynamic_options_preserve_identical_tags() {
         seiyaku TaggedJson {
             fn pass(Option<()> _ value) -> Option<()> { value }
             fn increment(int _ value) -> int { value + 1 }
-            view fn run() -> Json {
+            view fn run() authorize(anyone) -> Json {
                 let Option<()> absent = Option::none;
                 let present = pass(Option::some(()));
                 let dynamic_absent = pass(absent);
@@ -291,7 +293,7 @@ fn scalar_and_aggregate_state_roots_roundtrip_as_schema_bound_records() {
 #[test]
 fn exact_numeric_state_survives_a_fresh_host_snapshot_roundtrip() {
     let source = r#"
-        seiyaku DurableNumericState {
+        seiyaku DurableNumericState { permission WriteState;
             state int Whole;
             state decimal Rate;
             state quantity Supply;
@@ -305,14 +307,14 @@ fn exact_numeric_state_survives_a_fresh_host_snapshot_roundtrip() {
                 Supply = zero_supply;
             }
 
-            kotoage fn store() -> int authorize("WriteState") {
+            kotoage fn store() authorize(WriteState) -> int {
                 Whole = 1606938044258990275541962092341162602522202993782792835301376;
                 Rate = -12345678901234567890.125;
                 Supply = 12345678901234567890.0000000000000000000000000001;
                 return 1;
             }
 
-            view fn inspect() -> bool {
+            view fn inspect() authorize(anyone) -> bool {
                 return Whole == 1606938044258990275541962092341162602522202993782792835301376
                     && Rate == -12345678901234567890.125
                     && Supply == 12345678901234567890.0000000000000000000000000001;
@@ -411,13 +413,10 @@ fn state_map_iteration_uses_canonical_norito_byte_order_for_sixty_four_items() {
     for (key, value) in Values.take(64) {
 "#,
     );
+    // The durable key is the complete schema-bound StateValueRecordV1, not
+    // its inner numeric pointer. The shared fixture owner emits that same record.
     let mut expected = inserted;
-    expected.sort_by_key(|key| {
-        ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(i128::from(
-            *key,
-        )))
-        .expect("encode canonical pointer-backed int key")
-    });
+    expected.sort_by_key(|key| common::encode_int_state_value(*key));
     for (index, key) in expected.into_iter().enumerate() {
         writeln!(
             source,

@@ -9,10 +9,15 @@ import pytest
 
 
 # Executable script modules use their scripts directory for sibling imports.
-# Establish both canonical roots before pytest imports any test module so every
-# selected module has the same ownership independently of collection order.
+# Establish the canonical roots and this suite's owned helper directory before
+# pytest imports test modules, independently of collection order. Importlib
+# collection gives test modules distinct names across the two script suites.
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(REPOSITORY_ROOT), str(REPOSITORY_ROOT / "scripts")]
+sys.path[:0] = [
+    str(REPOSITORY_ROOT),
+    str(REPOSITORY_ROOT / "scripts"),
+    str(Path(__file__).resolve().parent),
+]
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

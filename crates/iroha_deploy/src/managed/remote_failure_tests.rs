@@ -34,6 +34,14 @@ fn preparation_recovery_and_native_finality_have_distinct_safe_codes() {
             ManagedAttachmentFailure::AwaitingCompletion,
         ),
         (
+            ProvisioningError::Cancelled,
+            ManagedAttachmentFailure::SupervisorStopped,
+        ),
+        (
+            ProvisioningError::Attachment(AttachmentError::Cancelled),
+            ManagedAttachmentFailure::SupervisorStopped,
+        ),
+        (
             ProvisioningError::Bootstrap(BootstrapError::Finality(FinalityError::CatchingUp {
                 verified: 7,
                 claimed: 9,
@@ -145,5 +153,108 @@ fn public_failure_never_contains_underlying_paths_credentials_or_response_bodies
                 );
             }
         }
+    }
+}
+
+#[test]
+fn administrative_native_attachment_errors_preserve_closed_classification_without_terminal_claims()
+{
+    const PRIVATE: &str = "Authorization: Bearer fixture-secret; /private/owner/key; response-body";
+    for (error, expected) in [
+        (
+            Error::NoSelection,
+            ManagedAttachmentFailure::ContextRejected,
+        ),
+        (
+            Error::Io(std::io::Error::other(PRIVATE)),
+            ManagedAttachmentFailure::CustodyUnavailable,
+        ),
+        (
+            Error::Invalid(PRIVATE.into()),
+            ManagedAttachmentFailure::ContextRejected,
+        ),
+        (
+            Error::ContractCall {
+                journal: std::path::PathBuf::from("/private/owner/key"),
+                source: color_eyre::eyre::eyre!(PRIVATE),
+            },
+            ManagedAttachmentFailure::ContextRejected,
+        ),
+        (
+            Error::Busy(PRIVATE.into()),
+            ManagedAttachmentFailure::CustodyUnavailable,
+        ),
+        (
+            Error::Timeout(std::time::Duration::from_secs(1)),
+            ManagedAttachmentFailure::AwaitingCompletion,
+        ),
+        (
+            Error::NativeDeadline,
+            ManagedAttachmentFailure::AwaitingCompletion,
+        ),
+        (
+            Error::ParentDeadline,
+            ManagedAttachmentFailure::AwaitingCompletion,
+        ),
+        (
+            Error::WorkerFailure {
+                failure: PRIVATE.into(),
+                cleanup: Some(Box::new(Error::Invalid(PRIVATE.into()))),
+                publication: Some(Box::new(Error::Io(std::io::Error::other(PRIVATE)))),
+            },
+            ManagedAttachmentFailure::ContextRejected,
+        ),
+        (
+            Error::Bootstrap(ManagedBootstrapFailure::SignedUnresolved),
+            ManagedAttachmentFailure::Bootstrap(ManagedBootstrapFailure::SignedUnresolved),
+        ),
+    ] {
+        let failure = ManagedAttachmentFailure::from(AttachmentError::NativeOperation(error));
+        assert_eq!(failure, expected);
+        assert!(!failure.is_terminal_operation());
+        let encoded = String::from_utf8(norito::json::to_vec(&failure).unwrap()).unwrap();
+        assert_eq!(
+            norito::json::from_str::<ManagedAttachmentFailure>(&encoded).unwrap(),
+            expected,
+        );
+        for public in [format!("{failure:?}"), failure.to_string(), encoded] {
+            for fragment in [
+                "Authorization",
+                "fixture-secret",
+                "/private",
+                "response-body",
+            ] {
+                assert!(
+                    !public.contains(fragment),
+                    "source details escaped: {public}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn administrative_native_attachment_progress_preserves_only_existing_closed_terminal_outcomes() {
+    for expected in [
+        ManagedAttachmentFailure::AwaitingCompletion,
+        ManagedAttachmentFailure::RecoveryFailed,
+        ManagedAttachmentFailure::ContextRejected,
+        ManagedAttachmentFailure::OperationExpired,
+        ManagedAttachmentFailure::OperationRejected,
+    ] {
+        let original = Error::ParentProgressDeadline {
+            stage: super::super::ManagedAttachmentPhase::Registering,
+            failure: expected,
+        };
+        let failure = ManagedAttachmentFailure::from(AttachmentError::NativeOperation(original));
+        assert_eq!(failure, expected);
+        assert_eq!(
+            failure.is_terminal_operation(),
+            matches!(
+                expected,
+                ManagedAttachmentFailure::OperationExpired
+                    | ManagedAttachmentFailure::OperationRejected
+            ),
+        );
     }
 }

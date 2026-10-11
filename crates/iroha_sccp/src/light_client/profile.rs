@@ -2,13 +2,29 @@
 //!
 //! A profile holds everything about a source chain that is fixed by the chain itself rather than
 //! by Taira governance: genesis identity, slot timing, the hard-fork schedule with its fork
-//! versions, and `supported_until`, the last epoch this release's verifier supports. None of it
-//! is stored in light-client `params`: a source-chain hard fork needs a Taira release that extends
-//! the profile, and the same light client then continues with no Parliament action.
+//! versions, and `supported_until`, the last epoch or time the verifier supports. None of it is
+//! stored in light-client `params`.
 //!
-//! [`policy_hash_contribution`] commits to every compiled profile and to the verifier's fixed
-//! bounds, so peers running releases with different profiles cannot silently diverge once it is
-//! bound into the consensus policy hash.
+//! **Versions.** Each network's profiles are append-only and numbered from 1: version `v` is
+//! element `v − 1` of [`ETHEREUM_MAINNET_VERSIONS`], [`BSC_MAINNET_VERSIONS`] or
+//! [`TON_MAINNET_VERSIONS`], and a release only ever appends a version, never edits one.
+//! Version 1 ([`GENESIS_PROFILE_VERSION`]) is active from genesis. A later version (a
+//! source-chain hard fork or a `supported_until` extension) becomes active only when the
+//! Parliament enacts `ActivateLightClientProfile` with its
+//! [`profile hash`](EthereumChainProfileV1::profile_hash); world state then records the version,
+//! its hash and the Taira height it is active from.
+//!
+//! [`SccpLcActiveProfilesV1`] is the active version and hash of every network.
+//! [`SccpLcActiveProfilesV1::policy_hash`] commits to it and is bound into every block's
+//! confidential feature digest, so a release that only appends a version not yet activated keeps
+//! the same digest. [`SccpLcProfileCatalogV1::resolve`] returns the compiled profiles of an
+//! active selection, or [`SccpLcProfileUnavailableV1`] when the running release does not compile
+//! an active version (or compiles other content under it); Taira then fails closed instead of
+//! verifying under different rules.
+
+use core::fmt;
+
+use iroha_data_model::bridge::SccpNetworkV1;
 
 use crate::{
     ethereum_native::{
@@ -36,11 +52,11 @@ pub const ETHEREUM_MAINNET_FORKS: [ForkActivation; 6] = [
     ForkActivation::new(364_032, [0x05, 0, 0, 0]),
     ForkActivation::new(411_392, [0x06, 0, 0, 0]),
 ];
-/// Last Ethereum epoch this release supports (2027-06-30T00:00:00Z).
+/// Last Ethereum epoch profile version 1 supports (2027-06-30T00:00:00Z).
 ///
-/// No fork after Fulu is compiled. Each release moves this bound to the epoch before the next
-/// scheduled fork, or to its own support horizon while none is scheduled; wallets stop burning
-/// seven days before it (§7.2).
+/// No fork after Fulu is compiled. A later release appends a profile version whose bound is the
+/// epoch before the next scheduled fork (or its own support horizon while none is scheduled), and
+/// the Parliament activates it; wallets stop burning seven days before the active bound (§7.2).
 pub const ETHEREUM_MAINNET_SUPPORTED_UNTIL_EPOCH: u64 = 540_337;
 /// EIP-2935 history storage contract.
 pub const ETHEREUM_HISTORY_STORAGE_ADDRESS: [u8; 20] = [
@@ -84,7 +100,7 @@ pub struct EthereumChainProfileV1 {
     pub history_serve_window: u64,
 }
 
-/// Ethereum mainnet profile compiled into this release.
+/// Ethereum mainnet profile version 1 (active from genesis).
 pub const ETHEREUM_MAINNET: EthereumChainProfileV1 = EthereumChainProfileV1 {
     genesis_time_s: ETHEREUM_MAINNET_GENESIS_TIME_S,
     seconds_per_slot: ETHEREUM_SECONDS_PER_SLOT,
@@ -96,6 +112,10 @@ pub const ETHEREUM_MAINNET: EthereumChainProfileV1 = EthereumChainProfileV1 {
     history_serve_window: ETHEREUM_HISTORY_SERVE_WINDOW,
 };
 
+/// Ethereum mainnet profile versions compiled into this release, append-only: version `v` is
+/// element `v − 1`.
+pub const ETHEREUM_MAINNET_VERSIONS: &[EthereumChainProfileV1] = &[ETHEREUM_MAINNET];
+
 impl EthereumChainProfileV1 {
     /// The validated fork schedule.
     ///
@@ -106,7 +126,7 @@ impl EthereumChainProfileV1 {
         ForkSchedule::new(self.genesis_validators_root, self.forks)
     }
 
-    /// The same profile with another `supported_until` epoch (a release extending the profile).
+    /// The same profile with another `supported_until` epoch (a later profile version).
     #[must_use]
     pub const fn with_supported_until_epoch(mut self, epoch: u64) -> Self {
         self.supported_until_epoch = epoch;
@@ -166,8 +186,8 @@ impl EthereumChainProfileV1 {
     }
 
     /// Unix time (ms) of the first slot beyond `supported_until`: evidence signed from then on
-    /// fails closed until a release extends the profile. Wallets stop burning seven days before
-    /// it (§7.2).
+    /// fails closed until the Parliament activates a profile version that extends the bound.
+    /// Wallets stop burning seven days before it (§7.2).
     #[must_use]
     pub const fn supported_until_ms(&self) -> Option<u64> {
         match self.supported_until_epoch.checked_add(1) {
@@ -216,6 +236,13 @@ impl EthereumChainProfileV1 {
         out.extend_from_slice(&MAX_SOURCE_FUTURE_MS.to_be_bytes());
         out
     }
+
+    /// Keccak-256 of [`Self::policy_bytes`]: the hash an `ActivateLightClientProfile` names and
+    /// world state records for this version (§4.13.2).
+    #[must_use]
+    pub fn profile_hash(&self) -> [u8; 32] {
+        keccak256(&[&self.policy_bytes()])
+    }
 }
 
 /// BNB Smart Chain mainnet EIP-155 chain id.
@@ -225,11 +252,12 @@ pub const BSC_EPOCH_LENGTH: u64 = 1_000;
 /// Mainnet time (ms) at which Osaka and Mendel activate together: the first supported header
 /// layout (21 fields, millisecond timestamps in the mix digest).
 pub const BSC_MAINNET_SUPPORTED_FROM_MS: u64 = 1_777_343_400_000;
-/// Last BSC mainnet time (ms) this release supports (2027-06-30T00:00:00Z).
+/// Last BSC mainnet time (ms) profile version 1 supports (2027-06-30T00:00:00Z).
 ///
-/// No fork after Mendel is compiled. Each release moves this bound to the last block before the
-/// next scheduled fork, or to its own support horizon while none is scheduled; wallets stop
-/// burning seven days before it (§7.2).
+/// No fork after Mendel is compiled. A later release appends a profile version whose bound is the
+/// last block before the next scheduled fork (or its own support horizon while none is
+/// scheduled), and the Parliament activates it; wallets stop burning seven days before the active
+/// bound (§7.2).
 pub const BSC_MAINNET_SUPPORTED_UNTIL_MS: u64 = 1_814_313_600_000;
 /// Hard bound on steps in one BSC advance (§4.13.3).
 pub const BSC_MAX_STEPS_PER_ADVANCE: usize = 16;
@@ -251,7 +279,7 @@ pub struct BscChainProfileV1 {
     pub supported_until_ms: u64,
 }
 
-/// BSC mainnet profile compiled into this release.
+/// BSC mainnet profile version 1 (active from genesis).
 pub const BSC_MAINNET: BscChainProfileV1 = BscChainProfileV1 {
     chain_id: BSC_MAINNET_CHAIN_ID,
     epoch_length: BSC_EPOCH_LENGTH,
@@ -259,8 +287,12 @@ pub const BSC_MAINNET: BscChainProfileV1 = BscChainProfileV1 {
     supported_until_ms: BSC_MAINNET_SUPPORTED_UNTIL_MS,
 };
 
+/// BSC mainnet profile versions compiled into this release, append-only: version `v` is element
+/// `v − 1`.
+pub const BSC_MAINNET_VERSIONS: &[BscChainProfileV1] = &[BSC_MAINNET];
+
 impl BscChainProfileV1 {
-    /// The same profile with another `supported_until` time (a release extending the profile).
+    /// The same profile with another `supported_until` time (a later profile version).
     #[must_use]
     pub const fn with_supported_until_ms(mut self, until_ms: u64) -> Self {
         self.supported_until_ms = until_ms;
@@ -309,129 +341,18 @@ impl BscChainProfileV1 {
         out.extend_from_slice(&MAX_SOURCE_FUTURE_MS.to_be_bytes());
         out
     }
-}
 
-/// TRON maintenance interval (ms): the active witness set is re-elected every six hours.
-pub const TRON_MAINTENANCE_INTERVAL_MS: u64 = 21_600_000;
-/// Offset of the TRON maintenance grid from the Unix epoch (ms). java-tron advances
-/// `nextMaintenanceTime` from zero in whole intervals, so maintenances fall at 00:00, 06:00,
-/// 12:00 and 18:00 UTC and `T_p = p · 21 600 000`. The builders check it against
-/// `/wallet/getnextmaintenancetime` and fail closed on a mismatch.
-pub const TRON_MAINTENANCE_ORIGIN_MS: u64 = 0;
-/// TRON block interval (ms).
-pub const TRON_BLOCK_INTERVAL_MS: u64 = 3_000;
-/// Slots skipped after a maintenance block.
-pub const TRON_MAINTENANCE_SKIP_SLOTS: u64 = 2;
-/// Active witnesses (super representatives) per maintenance period.
-pub const TRON_ACTIVE_WITNESSES: usize = 27;
-/// Distinct active witnesses that must build on a block for it to be solid (70 % of 27).
-pub const TRON_SOLID_THRESHOLD: usize = 19;
-/// Last TRON mainnet time (ms) this release supports (2027-06-30T00:00:00Z).
-pub const TRON_MAINNET_SUPPORTED_UNTIL_MS: u64 = 1_814_313_600_000;
-/// Hard bound on segments in one TRON advance.
-pub const TRON_MAX_SEGMENTS_PER_ADVANCE: usize = 16;
-/// Hard bound on signed headers in one TRON segment (§4.13.3).
-pub const TRON_MAX_SEGMENT_HEADERS: usize = 128;
-/// Hard bound on unsigned `raw_data` headers from an event block to a stored checkpoint.
-pub const TRON_MAX_ANCESTRY_HEADERS: usize = 1_200;
-
-/// Compiled TRON chain profile.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TronChainProfileV1 {
-    /// Maintenance interval (ms).
-    pub maintenance_interval_ms: u64,
-    /// Maintenance grid origin (ms).
-    pub maintenance_origin_ms: u64,
-    /// Block interval (ms).
-    pub block_interval_ms: u64,
-    /// Slots skipped after a maintenance block.
-    pub maintenance_skip_slots: u64,
-    /// Last supported header time (ms); later headers fail closed.
-    pub supported_until_ms: u64,
-}
-
-/// TRON mainnet profile compiled into this release.
-pub const TRON_MAINNET: TronChainProfileV1 = TronChainProfileV1 {
-    maintenance_interval_ms: TRON_MAINTENANCE_INTERVAL_MS,
-    maintenance_origin_ms: TRON_MAINTENANCE_ORIGIN_MS,
-    block_interval_ms: TRON_BLOCK_INTERVAL_MS,
-    maintenance_skip_slots: TRON_MAINTENANCE_SKIP_SLOTS,
-    supported_until_ms: TRON_MAINNET_SUPPORTED_UNTIL_MS,
-};
-
-impl TronChainProfileV1 {
-    /// The same profile with another `supported_until` time.
+    /// Keccak-256 of [`Self::policy_bytes`]: the hash an `ActivateLightClientProfile` names and
+    /// world state records for this version (§4.13.2).
     #[must_use]
-    pub const fn with_supported_until_ms(mut self, until_ms: u64) -> Self {
-        self.supported_until_ms = until_ms;
-        self
-    }
-
-    /// The maintenance period a header timestamped `time_ms` belongs to (`0` before the origin).
-    #[must_use]
-    pub const fn period_at(&self, time_ms: u64) -> u64 {
-        if time_ms < self.maintenance_origin_ms || self.maintenance_interval_ms == 0 {
-            return 0;
-        }
-        (time_ms - self.maintenance_origin_ms) / self.maintenance_interval_ms
-    }
-
-    /// Start of maintenance period `period` (ms), or `None` on overflow.
-    #[must_use]
-    pub const fn period_start_ms(&self, period: u64) -> Option<u64> {
-        match period.checked_mul(self.maintenance_interval_ms) {
-            Some(offset) => self.maintenance_origin_ms.checked_add(offset),
-            None => None,
-        }
-    }
-
-    /// End of maintenance period `period` (the next period's start, ms).
-    #[must_use]
-    pub const fn period_end_ms(&self, period: u64) -> Option<u64> {
-        match period.checked_add(1) {
-            Some(next) => self.period_start_ms(next),
-            None => None,
-        }
-    }
-
-    /// Length of the witness-learning window after a maintenance block (ms): the first 27
-    /// production slots plus the skipped slots.
-    #[must_use]
-    pub const fn learning_window_ms(&self) -> u64 {
-        (TRON_ACTIVE_WITNESSES as u64 + self.maintenance_skip_slots) * self.block_interval_ms
-    }
-
-    /// Canonical fixed-layout bytes committed by the policy hash.
-    #[must_use]
-    pub fn policy_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(128);
-        out.extend_from_slice(b"SCCP/LC/PROFILE/TRON/V1");
-        for value in [
-            self.maintenance_interval_ms,
-            self.maintenance_origin_ms,
-            self.block_interval_ms,
-            self.maintenance_skip_slots,
-            self.supported_until_ms,
-        ] {
-            out.extend_from_slice(&value.to_be_bytes());
-        }
-        for bound in [
-            TRON_ACTIVE_WITNESSES,
-            TRON_SOLID_THRESHOLD,
-            TRON_MAX_SEGMENTS_PER_ADVANCE,
-            TRON_MAX_SEGMENT_HEADERS,
-            TRON_MAX_ANCESTRY_HEADERS,
-        ] {
-            out.extend_from_slice(&u64::try_from(bound).unwrap_or(u64::MAX).to_be_bytes());
-        }
-        out.extend_from_slice(&MAX_SOURCE_FUTURE_MS.to_be_bytes());
-        out
+    pub fn profile_hash(&self) -> [u8; 32] {
+        keccak256(&[&self.policy_bytes()])
     }
 }
 
 /// Margin subtracted from a TON epoch's `utime_until + stake_held_for` (ms): one hour.
 pub const TON_FRESHNESS_MARGIN_MS: u64 = 3_600_000;
-/// Last TON mainnet time (ms) this release supports (2027-06-30T00:00:00Z).
+/// Last TON mainnet time (ms) profile version 1 supports (2027-06-30T00:00:00Z).
 pub const TON_MAINNET_SUPPORTED_UNTIL_MS: u64 = 1_814_313_600_000;
 /// Hard bound on key-block hops in one TON advance.
 pub const TON_MAX_HOPS_PER_ADVANCE: usize = 16;
@@ -447,12 +368,16 @@ pub struct TonChainProfileV1 {
     pub supported_until_ms: u64,
 }
 
-/// TON mainnet profile compiled into this release (global id −239 and the TL-B layouts are fixed
-/// by `ton_native`).
+/// TON mainnet profile version 1, active from genesis (global id −239 and the TL-B layouts are
+/// fixed by `ton_native`).
 pub const TON_MAINNET: TonChainProfileV1 = TonChainProfileV1 {
     freshness_margin_ms: TON_FRESHNESS_MARGIN_MS,
     supported_until_ms: TON_MAINNET_SUPPORTED_UNTIL_MS,
 };
+
+/// TON mainnet profile versions compiled into this release, append-only: version `v` is element
+/// `v − 1`.
+pub const TON_MAINNET_VERSIONS: &[TonChainProfileV1] = &[TON_MAINNET];
 
 impl TonChainProfileV1 {
     /// The same profile with another `supported_until` time.
@@ -476,34 +401,65 @@ impl TonChainProfileV1 {
         out.extend_from_slice(&MAX_SOURCE_FUTURE_MS.to_be_bytes());
         out
     }
+
+    /// Keccak-256 of [`Self::policy_bytes`]: the hash an `ActivateLightClientProfile` names and
+    /// world state records for this version (§4.13.2).
+    #[must_use]
+    pub fn profile_hash(&self) -> [u8; 32] {
+        keccak256(&[&self.policy_bytes()])
+    }
 }
 
-/// Every compiled source-chain profile of the running release.
+/// One profile per source chain: the profiles a verifier call runs under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SccpChainProfilesV1 {
     /// Ethereum mainnet.
     pub ethereum: EthereumChainProfileV1,
     /// BSC mainnet.
     pub bsc: BscChainProfileV1,
-    /// TRON mainnet.
-    pub tron: TronChainProfileV1,
     /// TON mainnet.
     pub ton: TonChainProfileV1,
 }
 
-/// The profiles compiled into this release.
-pub const COMPILED_PROFILES: SccpChainProfilesV1 = SccpChainProfilesV1 {
-    ethereum: ETHEREUM_MAINNET,
-    bsc: BSC_MAINNET,
-    tron: TRON_MAINNET,
-    ton: TON_MAINNET,
+/// Version 1 of every network: the profiles active from genesis.
+pub const GENESIS_PROFILES: SccpChainProfilesV1 = SccpChainProfilesV1 {
+    ethereum: ETHEREUM_MAINNET_VERSIONS[0],
+    bsc: BSC_MAINNET_VERSIONS[0],
+    ton: TON_MAINNET_VERSIONS[0],
+};
+
+/// The newest compiled version of every network.
+pub const LATEST_PROFILES: SccpChainProfilesV1 = SccpChainProfilesV1 {
+    ethereum: ETHEREUM_MAINNET_VERSIONS[ETHEREUM_MAINNET_VERSIONS.len() - 1],
+    bsc: BSC_MAINNET_VERSIONS[BSC_MAINNET_VERSIONS.len() - 1],
+    ton: TON_MAINNET_VERSIONS[TON_MAINNET_VERSIONS.len() - 1],
 };
 
 impl SccpChainProfilesV1 {
-    /// The profiles compiled into this release.
+    /// Version 1 of every network ([`GENESIS_PROFILES`]).
     #[must_use]
-    pub const fn compiled() -> &'static Self {
-        &COMPILED_PROFILES
+    pub const fn genesis() -> &'static Self {
+        &GENESIS_PROFILES
+    }
+
+    /// The newest compiled version of every network ([`LATEST_PROFILES`]). Off-chain tools
+    /// (builders, wallets) use it; Taira execution resolves the versions active in world state
+    /// instead ([`SccpLcProfileCatalogV1::resolve`]).
+    #[must_use]
+    pub const fn latest() -> &'static Self {
+        &LATEST_PROFILES
+    }
+
+    /// Unix time (ms) from which source evidence of `network` lies beyond its profile's
+    /// `supported_until` (`None` for Taira or on overflow).
+    #[must_use]
+    pub const fn supported_until_ms(&self, network: SccpNetworkV1) -> Option<u64> {
+        match network {
+            SccpNetworkV1::EthereumMainnet => self.ethereum.supported_until_ms(),
+            SccpNetworkV1::BscMainnet => self.bsc.supported_until_ms.checked_add(1),
+            SccpNetworkV1::TonMainnet => self.ton.supported_until_ms.checked_add(1),
+            SccpNetworkV1::SoraTaira => None,
+        }
     }
 
     /// The same profiles with another Ethereum profile.
@@ -520,49 +476,279 @@ impl SccpChainProfilesV1 {
         self
     }
 
-    /// The same profiles with another TRON profile.
-    #[must_use]
-    pub const fn with_tron(mut self, tron: TronChainProfileV1) -> Self {
-        self.tron = tron;
-        self
-    }
-
     /// The same profiles with another TON profile.
     #[must_use]
     pub const fn with_ton(mut self, ton: TonChainProfileV1) -> Self {
         self.ton = ton;
         self
     }
+}
 
-    /// Keccak-256 commitment to every profile, in network order.
+/// Version of every network's profile before any activation.
+pub const GENESIS_PROFILE_VERSION: u32 =
+    iroha_data_model::sccp::light_client::SCCP_LC_GENESIS_PROFILE_VERSION_V1;
+
+/// The compiled profile versions of every network, append-only: version `v` of a network is
+/// element `v − 1` of its slice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SccpLcProfileCatalogV1<'a> {
+    /// Ethereum mainnet versions.
+    pub ethereum: &'a [EthereumChainProfileV1],
+    /// BSC mainnet versions.
+    pub bsc: &'a [BscChainProfileV1],
+    /// TON mainnet versions.
+    pub ton: &'a [TonChainProfileV1],
+}
+
+/// The profile versions compiled into this release.
+pub const COMPILED_CATALOG: SccpLcProfileCatalogV1<'static> = SccpLcProfileCatalogV1 {
+    ethereum: ETHEREUM_MAINNET_VERSIONS,
+    bsc: BSC_MAINNET_VERSIONS,
+    ton: TON_MAINNET_VERSIONS,
+};
+
+/// Element `version − 1` of `versions` (`None` for version 0 or an uncompiled version).
+fn at_version<T: Copy>(versions: &[T], version: u32) -> Option<T> {
+    let index = usize::try_from(version.checked_sub(1)?).ok()?;
+    versions.get(index).copied()
+}
+
+/// Number of compiled versions as a version number (saturating; catalogs are tiny).
+fn newest(len: usize) -> u32 {
+    u32::try_from(len).unwrap_or(u32::MAX)
+}
+
+impl SccpLcProfileCatalogV1<'_> {
+    /// The profile versions compiled into this release ([`COMPILED_CATALOG`]).
     #[must_use]
-    pub fn policy_hash(&self) -> [u8; 32] {
-        let profiles = [
-            self.ethereum.policy_bytes(),
-            self.bsc.policy_bytes(),
-            self.tron.policy_bytes(),
-            self.ton.policy_bytes(),
-        ];
-        let lengths: Vec<[u8; 4]> = profiles
-            .iter()
-            .map(|bytes| u32::try_from(bytes.len()).unwrap_or(u32::MAX).to_be_bytes())
-            .collect();
-        let mut parts: Vec<&[u8]> = vec![b"SCCP/LC/PROFILES/V1"];
-        for (length, bytes) in lengths.iter().zip(&profiles) {
-            parts.push(length);
-            parts.push(bytes);
+    pub const fn compiled() -> SccpLcProfileCatalogV1<'static> {
+        COMPILED_CATALOG
+    }
+
+    /// The newest compiled version of `network`, or 0 for a network with no profile (Taira).
+    #[must_use]
+    pub fn latest_version(&self, network: SccpNetworkV1) -> u32 {
+        match network {
+            SccpNetworkV1::EthereumMainnet => newest(self.ethereum.len()),
+            SccpNetworkV1::BscMainnet => newest(self.bsc.len()),
+            SccpNetworkV1::TonMainnet => newest(self.ton.len()),
+            SccpNetworkV1::SoraTaira => 0,
         }
-        keccak256(&parts)
+    }
+
+    /// Profile hash of compiled version `version` of `network`, or `None` when this catalog does
+    /// not compile it.
+    #[must_use]
+    pub fn profile_hash(&self, network: SccpNetworkV1, version: u32) -> Option<[u8; 32]> {
+        match network {
+            SccpNetworkV1::EthereumMainnet => {
+                at_version(self.ethereum, version).map(|profile| profile.profile_hash())
+            }
+            SccpNetworkV1::BscMainnet => {
+                at_version(self.bsc, version).map(|profile| profile.profile_hash())
+            }
+            SccpNetworkV1::TonMainnet => {
+                at_version(self.ton, version).map(|profile| profile.profile_hash())
+            }
+            SccpNetworkV1::SoraTaira => None,
+        }
+    }
+
+    /// Version 1 of every network with its hash: the active selection of a state that records
+    /// no activation. A catalog without version 1 of a network yields a zero hash, which
+    /// [`Self::resolve`] refuses.
+    #[must_use]
+    pub fn genesis(&self) -> SccpLcActiveProfilesV1 {
+        let genesis = |network| SccpLcProfileRefV1 {
+            version: GENESIS_PROFILE_VERSION,
+            profile_hash: self
+                .profile_hash(network, GENESIS_PROFILE_VERSION)
+                .unwrap_or([0; 32]),
+        };
+        SccpLcActiveProfilesV1 {
+            ethereum: genesis(SccpNetworkV1::EthereumMainnet),
+            bsc: genesis(SccpNetworkV1::BscMainnet),
+            ton: genesis(SccpNetworkV1::TonMainnet),
+        }
+    }
+
+    /// Check that this catalog compiles `profile` of `network` with exactly its hash.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SccpLcProfileUnavailableV1::NotCompiled`] or
+    /// [`SccpLcProfileUnavailableV1::HashMismatch`].
+    pub fn check(
+        &self,
+        network: SccpNetworkV1,
+        profile: SccpLcProfileRefV1,
+    ) -> Result<(), SccpLcProfileUnavailableV1> {
+        let version = profile.version;
+        match self.profile_hash(network, version) {
+            None => Err(SccpLcProfileUnavailableV1::NotCompiled { network, version }),
+            Some(hash) if hash != profile.profile_hash => {
+                Err(SccpLcProfileUnavailableV1::HashMismatch { network, version })
+            }
+            Some(_) => Ok(()),
+        }
+    }
+
+    /// The compiled profiles of an active selection.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first network, in network order, whose active version this catalog does not
+    /// compile or compiles with another hash. Taira fails closed on it (§4.13.2).
+    pub fn resolve(
+        &self,
+        active: &SccpLcActiveProfilesV1,
+    ) -> Result<SccpChainProfilesV1, SccpLcProfileUnavailableV1> {
+        fn pick<T: Copy>(
+            versions: &[T],
+            network: SccpNetworkV1,
+            profile: SccpLcProfileRefV1,
+            hash: fn(&T) -> [u8; 32],
+        ) -> Result<T, SccpLcProfileUnavailableV1> {
+            let version = profile.version;
+            let compiled = at_version(versions, version)
+                .ok_or(SccpLcProfileUnavailableV1::NotCompiled { network, version })?;
+            if hash(&compiled) == profile.profile_hash {
+                Ok(compiled)
+            } else {
+                Err(SccpLcProfileUnavailableV1::HashMismatch { network, version })
+            }
+        }
+        Ok(SccpChainProfilesV1 {
+            ethereum: pick(
+                self.ethereum,
+                SccpNetworkV1::EthereumMainnet,
+                active.ethereum,
+                EthereumChainProfileV1::profile_hash,
+            )?,
+            bsc: pick(
+                self.bsc,
+                SccpNetworkV1::BscMainnet,
+                active.bsc,
+                BscChainProfileV1::profile_hash,
+            )?,
+            ton: pick(
+                self.ton,
+                SccpNetworkV1::TonMainnet,
+                active.ton,
+                TonChainProfileV1::profile_hash,
+            )?,
+        })
     }
 }
 
-/// Keccak-256 commitment to the compiled chain profiles and verifier bounds.
-///
-/// Core binds it into the consensus policy hash next to the committed `sccp` limits of the ZK validity policy.
-#[must_use]
-pub fn policy_hash_contribution() -> [u8; 32] {
-    SccpChainProfilesV1::compiled().policy_hash()
+/// The external networks that carry a light-client profile, in the order the active-profile
+/// hash commits them.
+pub const SCCP_LC_PROFILE_NETWORKS_V1: [SccpNetworkV1; 3] = [
+    SccpNetworkV1::EthereumMainnet,
+    SccpNetworkV1::BscMainnet,
+    SccpNetworkV1::TonMainnet,
+];
+
+/// One network's active profile: its version and the hash world state recorded for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SccpLcProfileRefV1 {
+    /// Profile version.
+    pub version: u32,
+    /// Keccak-256 of the version's policy bytes.
+    pub profile_hash: [u8; 32],
 }
+
+/// The active profile of every network at one Taira height (§4.13.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SccpLcActiveProfilesV1 {
+    /// Ethereum mainnet.
+    pub ethereum: SccpLcProfileRefV1,
+    /// BSC mainnet.
+    pub bsc: SccpLcProfileRefV1,
+    /// TON mainnet.
+    pub ton: SccpLcProfileRefV1,
+}
+
+impl SccpLcActiveProfilesV1 {
+    /// The active profile of `network` (`None` for Taira, which has none).
+    #[must_use]
+    pub const fn get(&self, network: SccpNetworkV1) -> Option<SccpLcProfileRefV1> {
+        match network {
+            SccpNetworkV1::EthereumMainnet => Some(self.ethereum),
+            SccpNetworkV1::BscMainnet => Some(self.bsc),
+            SccpNetworkV1::TonMainnet => Some(self.ton),
+            SccpNetworkV1::SoraTaira => None,
+        }
+    }
+
+    /// The same selection with `profile` active for `network` (Taira is left unchanged).
+    #[must_use]
+    pub const fn with(mut self, network: SccpNetworkV1, profile: SccpLcProfileRefV1) -> Self {
+        match network {
+            SccpNetworkV1::EthereumMainnet => self.ethereum = profile,
+            SccpNetworkV1::BscMainnet => self.bsc = profile,
+            SccpNetworkV1::TonMainnet => self.ton = profile,
+            SccpNetworkV1::SoraTaira => {}
+        }
+        self
+    }
+
+    /// Keccak-256 commitment to the active version and profile hash of every network, in
+    /// network order: the SCCP light-client input of the confidential feature digest.
+    ///
+    /// It depends only on the selection, so compiling a version that is not active leaves it
+    /// unchanged.
+    #[must_use]
+    pub fn policy_hash(&self) -> [u8; 32] {
+        let mut bytes = Vec::with_capacity(SCCP_LC_PROFILE_NETWORKS_V1.len() * 36);
+        for network in SCCP_LC_PROFILE_NETWORKS_V1 {
+            if let Some(profile) = self.get(network) {
+                bytes.extend_from_slice(&profile.version.to_be_bytes());
+                bytes.extend_from_slice(&profile.profile_hash);
+            }
+        }
+        keccak256(&[b"SCCP/LC/ACTIVE_PROFILES/V1", &bytes])
+    }
+}
+
+/// The running release cannot verify under an active profile version (§4.13.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SccpLcProfileUnavailableV1 {
+    /// The release does not compile this version.
+    NotCompiled {
+        /// Network of the version.
+        network: SccpNetworkV1,
+        /// Active version.
+        version: u32,
+    },
+    /// The release compiles this version with other content than world state recorded.
+    HashMismatch {
+        /// Network of the version.
+        network: SccpNetworkV1,
+        /// Active version.
+        version: u32,
+    },
+}
+
+impl fmt::Display for SccpLcProfileUnavailableV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotCompiled { network, version } => write!(
+                formatter,
+                "this release does not compile {} light-client profile version {version}",
+                network.profile_key()
+            ),
+            Self::HashMismatch { network, version } => write!(
+                formatter,
+                "this release compiles {} light-client profile version {version} with another \
+                 profile hash",
+                network.profile_key()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SccpLcProfileUnavailableV1 {}
 
 #[cfg(test)]
 mod tests {
@@ -653,40 +839,185 @@ mod tests {
     }
 
     #[test]
-    fn tron_periods_follow_the_utc_maintenance_grid() {
-        let profile = TRON_MAINNET;
-        // Mainnet `getnextmaintenancetime` returned 2026-09-28T12:00:00Z.
-        let maintenance = 1_790_596_800_000;
-        let period = profile.period_at(maintenance);
-        assert_eq!(profile.period_start_ms(period), Some(maintenance));
-        assert_eq!(profile.period_at(maintenance - 1), period - 1);
+    fn profile_hash_binds_every_profile_field() {
+        let genesis = *SccpChainProfilesV1::genesis();
         assert_eq!(
-            profile.period_end_ms(period),
-            Some(maintenance + TRON_MAINTENANCE_INTERVAL_MS)
+            genesis.ethereum.profile_hash(),
+            keccak256(&[&genesis.ethereum.policy_bytes()])
         );
-        assert_eq!(profile.period_at(0), 0);
-        assert_eq!(profile.learning_window_ms(), 87_000);
-        assert!(
-            profile
-                .policy_bytes()
-                .starts_with(b"SCCP/LC/PROFILE/TRON/V1")
+        let extended = ETHEREUM_MAINNET.with_supported_until_epoch(600_000);
+        assert_ne!(extended.profile_hash(), ETHEREUM_MAINNET.profile_hash());
+        let mut other_root = ETHEREUM_MAINNET;
+        other_root.genesis_validators_root[0] ^= 1;
+        assert_ne!(other_root.profile_hash(), ETHEREUM_MAINNET.profile_hash());
+        assert_ne!(
+            BSC_MAINNET.with_supported_until_ms(1).profile_hash(),
+            BSC_MAINNET.profile_hash()
+        );
+        assert_ne!(
+            TON_MAINNET.with_supported_until_ms(1).profile_hash(),
+            TON_MAINNET.profile_hash()
+        );
+    }
+
+    /// Ethereum versions of a later release that appends version 2.
+    const EXTENDED_ETHEREUM: [EthereumChainProfileV1; 2] = [
+        ETHEREUM_MAINNET,
+        ETHEREUM_MAINNET.with_supported_until_epoch(ETHEREUM_MAINNET_SUPPORTED_UNTIL_EPOCH + 1),
+    ];
+    /// BSC versions of a later release that appends version 2.
+    const EXTENDED_BSC: [BscChainProfileV1; 2] = [
+        BSC_MAINNET,
+        BSC_MAINNET.with_supported_until_ms(BSC_MAINNET_SUPPORTED_UNTIL_MS + 1),
+    ];
+    /// TON versions of a later release that appends version 2.
+    const EXTENDED_TON: [TonChainProfileV1; 2] = [
+        TON_MAINNET,
+        TON_MAINNET.with_supported_until_ms(TON_MAINNET_SUPPORTED_UNTIL_MS + 1),
+    ];
+    /// A later release: version 2 of every network appended to the compiled versions.
+    const EXTENDED: SccpLcProfileCatalogV1<'static> = SccpLcProfileCatalogV1 {
+        ethereum: &EXTENDED_ETHEREUM,
+        bsc: &EXTENDED_BSC,
+        ton: &EXTENDED_TON,
+    };
+
+    #[test]
+    fn supported_until_is_the_first_unsupported_instant_per_network() {
+        let genesis = *SccpChainProfilesV1::genesis();
+        assert_eq!(
+            genesis.supported_until_ms(SccpNetworkV1::EthereumMainnet),
+            ETHEREUM_MAINNET.supported_until_ms()
+        );
+        for (network, inclusive) in [
+            (SccpNetworkV1::BscMainnet, BSC_MAINNET_SUPPORTED_UNTIL_MS),
+            (SccpNetworkV1::TonMainnet, TON_MAINNET_SUPPORTED_UNTIL_MS),
+        ] {
+            assert_eq!(genesis.supported_until_ms(network), Some(inclusive + 1));
+        }
+        assert_eq!(genesis.supported_until_ms(SccpNetworkV1::SoraTaira), None);
+        assert_eq!(
+            genesis
+                .with_ton(TON_MAINNET.with_supported_until_ms(u64::MAX))
+                .supported_until_ms(SccpNetworkV1::TonMainnet),
+            None
         );
     }
 
     #[test]
-    fn policy_hash_binds_every_profile_field() {
-        let compiled = *SccpChainProfilesV1::compiled();
-        assert_eq!(policy_hash_contribution(), compiled.policy_hash());
-        let extended = compiled.with_ethereum(ETHEREUM_MAINNET.with_supported_until_epoch(600_000));
-        assert_ne!(extended.policy_hash(), compiled.policy_hash());
-        let mut other_root = compiled;
-        other_root.ethereum.genesis_validators_root[0] ^= 1;
-        assert_ne!(other_root.policy_hash(), compiled.policy_hash());
-        let later = compiled.with_bsc(BSC_MAINNET.with_supported_until_ms(1));
-        assert_ne!(later.policy_hash(), compiled.policy_hash());
-        let later = compiled.with_ton(TON_MAINNET.with_supported_until_ms(1));
-        assert_ne!(later.policy_hash(), compiled.policy_hash());
-        let later = compiled.with_tron(TRON_MAINNET.with_supported_until_ms(1));
-        assert_ne!(later.policy_hash(), compiled.policy_hash());
+    fn versions_are_append_only_and_numbered_from_one() {
+        let compiled = SccpLcProfileCatalogV1::compiled();
+        assert_eq!(compiled, COMPILED_CATALOG);
+        for network in SCCP_LC_PROFILE_NETWORKS_V1 {
+            assert!(compiled.latest_version(network) >= GENESIS_PROFILE_VERSION);
+            assert_eq!(compiled.profile_hash(network, 0), None);
+            let beyond = compiled.latest_version(network) + 1;
+            assert_eq!(compiled.profile_hash(network, beyond), None);
+        }
+        assert_eq!(compiled.latest_version(SccpNetworkV1::SoraTaira), 0);
+        assert_eq!(compiled.profile_hash(SccpNetworkV1::SoraTaira, 1), None);
+        assert_eq!(
+            compiled.profile_hash(SccpNetworkV1::EthereumMainnet, 1),
+            Some(ETHEREUM_MAINNET.profile_hash())
+        );
+        assert_eq!(
+            GENESIS_PROFILES, LATEST_PROFILES,
+            "one version per network today"
+        );
+        assert_eq!(*SccpChainProfilesV1::latest(), LATEST_PROFILES);
+        assert_eq!(compiled.resolve(&compiled.genesis()), Ok(GENESIS_PROFILES));
+
+        let extended = EXTENDED;
+        for network in SCCP_LC_PROFILE_NETWORKS_V1 {
+            assert_eq!(extended.latest_version(network), 2);
+            assert_eq!(
+                extended.profile_hash(network, 1),
+                compiled.profile_hash(network, 1),
+                "appending a version never changes an earlier one"
+            );
+        }
+    }
+
+    #[test]
+    fn an_appended_version_leaves_the_active_hash_unchanged_until_activated() {
+        let compiled = SccpLcProfileCatalogV1::compiled();
+        let extended = EXTENDED;
+        assert_eq!(extended.genesis(), compiled.genesis());
+        assert_eq!(
+            extended.genesis().policy_hash(),
+            compiled.genesis().policy_hash()
+        );
+        let v2 = SccpLcProfileRefV1 {
+            version: 2,
+            profile_hash: EXTENDED_ETHEREUM[1].profile_hash(),
+        };
+        let activated = extended.genesis().with(SccpNetworkV1::EthereumMainnet, v2);
+        assert_ne!(activated.policy_hash(), extended.genesis().policy_hash());
+        assert_eq!(activated.get(SccpNetworkV1::EthereumMainnet), Some(v2));
+        assert_eq!(activated.get(SccpNetworkV1::SoraTaira), None);
+        assert_eq!(
+            activated.with(SccpNetworkV1::SoraTaira, v2),
+            activated,
+            "Taira has no profile"
+        );
+        let resolved = extended.resolve(&activated).expect("version 2 is compiled");
+        assert_eq!(resolved.ethereum, EXTENDED_ETHEREUM[1]);
+        assert_eq!(resolved.bsc, BSC_MAINNET);
+        // The hash binds the version number as well as the content.
+        let renumbered = activated.with(
+            SccpNetworkV1::EthereumMainnet,
+            SccpLcProfileRefV1 { version: 3, ..v2 },
+        );
+        assert_ne!(renumbered.policy_hash(), activated.policy_hash());
+    }
+
+    #[test]
+    fn resolution_fails_closed_on_an_uncompiled_or_different_version() {
+        let compiled = SccpLcProfileCatalogV1::compiled();
+        let v2 = SccpLcProfileRefV1 {
+            version: 2,
+            profile_hash: EXTENDED_ETHEREUM[1].profile_hash(),
+        };
+        let activated = compiled.genesis().with(SccpNetworkV1::EthereumMainnet, v2);
+        let missing = SccpLcProfileUnavailableV1::NotCompiled {
+            network: SccpNetworkV1::EthereumMainnet,
+            version: 2,
+        };
+        assert_eq!(compiled.resolve(&activated), Err(missing));
+        assert_eq!(
+            compiled.check(SccpNetworkV1::EthereumMainnet, v2),
+            Err(missing)
+        );
+        assert!(missing.to_string().contains("ethereum-mainnet"));
+        let forged = SccpLcProfileRefV1 {
+            version: 1,
+            profile_hash: [7; 32],
+        };
+        let mismatch = SccpLcProfileUnavailableV1::HashMismatch {
+            network: SccpNetworkV1::TonMainnet,
+            version: 1,
+        };
+        assert_eq!(
+            compiled.resolve(&compiled.genesis().with(SccpNetworkV1::TonMainnet, forged)),
+            Err(mismatch)
+        );
+        assert_eq!(
+            compiled.check(SccpNetworkV1::TonMainnet, forged),
+            Err(mismatch)
+        );
+        assert!(mismatch.to_string().contains("another profile hash"));
+        assert_eq!(
+            compiled.check(SccpNetworkV1::SoraTaira, compiled.genesis().ton),
+            Err(SccpLcProfileUnavailableV1::NotCompiled {
+                network: SccpNetworkV1::SoraTaira,
+                version: 1,
+            })
+        );
+        let empty = SccpLcProfileCatalogV1 {
+            ethereum: &[],
+            ..compiled
+        };
+        assert_eq!(empty.genesis().ethereum.profile_hash, [0; 32]);
+        assert!(empty.resolve(&empty.genesis()).is_err());
     }
 }

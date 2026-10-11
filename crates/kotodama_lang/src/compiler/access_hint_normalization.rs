@@ -194,13 +194,13 @@ mod tests {
 
     #[test]
     fn transitive_dynamic_paths_keep_exact_wildcard_and_original_completeness() {
-        let source = r#"seiyaku CoveredStateHints {
+        let source = r#"seiyaku CoveredStateHints { permission Entry;
             state int counter;
             state StateMap<int, int> values;
             hajimari() { counter = 0; }
             fn touch(int _ key) { counter = counter + 1; values[key] = counter; }
-            kotoage fn update(int key) authorize("Entry") { touch(key); }
-            view fn read(int key) -> int { return values.get(key).unwrap_or(counter); }
+            kotoage fn update(int key) authorize(Entry) { touch(key); }
+            view fn read(int key) authorize(anyone) -> int { return values.get(key).unwrap_or(counter); }
         }"#;
         let before = compile(source, true);
         let after = compile(source, false);

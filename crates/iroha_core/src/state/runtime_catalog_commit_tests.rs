@@ -715,7 +715,7 @@ fn runtime_catalog_merge_validation_owns_its_captured_policy() {
         );
         block.nexus.fees.base_fee = original_nexus.fees.base_fee.clone();
         block.validate_owned_runtime_catalog_overlay().unwrap();
-        block.zk.halo2.enabled = !block.zk.halo2.enabled;
+        block.zk.pipa_r.enabled = !block.zk.pipa_r.enabled;
         assert!(
             block.validate_owned_runtime_catalog_overlay().is_err(),
             "the captured ZK policy still binds the accepted overlay"
@@ -919,9 +919,9 @@ fn runtime_catalog_owned_validation_binds_policy_without_a_staged_transition() {
         assert!(block.validate_owned_runtime_catalog_overlay().is_err());
         block.nexus.fees.base_fee = original_fee;
         block.validate_owned_runtime_catalog_overlay().unwrap();
-        block.zk.halo2.enabled = !block.zk.halo2.enabled;
+        block.zk.pipa_r.enabled = !block.zk.pipa_r.enabled;
         assert!(block.validate_owned_runtime_catalog_overlay().is_err());
-        block.zk.halo2.enabled = !block.zk.halo2.enabled;
+        block.zk.pipa_r.enabled = !block.zk.pipa_r.enabled;
         block.validate_owned_runtime_catalog_overlay().unwrap();
         drop(block);
         assert_eq!(

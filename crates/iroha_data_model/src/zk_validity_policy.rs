@@ -33,12 +33,6 @@ pub const MAX_SIZE_FIELD: u64 = u32::MAX as u64;
 /// V1 message represents exactly.
 pub const MAX_EXACT_JSON_U64: u64 = crate::parliament_types::FIRST_RELEASE_MAX_EXACT_JSON_U64;
 
-/// Curve tags a Halo2 policy may name.
-pub const HALO2_CURVE_TAGS: [&str; 4] = ["pallas", "pasta", "goldilocks", "bn254"];
-
-/// Commitment backend tags a Halo2 policy may name.
-pub const HALO2_BACKEND_TAGS: [&str; 1] = ["ipa"];
-
 /// Why a ZK validity policy value is not a valid chain policy.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ZkValidityPolicyError {
@@ -52,7 +46,7 @@ pub enum ZkValidityPolicyError {
     /// [`MAX_EXACT_JSON_U64`].
     #[error("ZK validity policy field `{0}` exceeds the protocol maximum of the field")]
     OutOfRange(&'static str),
-    /// A curve, backend or verifying-key reference is not one this release defines.
+    /// A verifying-key reference is not one this release defines.
     #[error("ZK validity policy field `{0}` names an unsupported value `{1}`")]
     Unsupported(&'static str, String),
     /// Two fields contradict each other.
@@ -137,29 +131,18 @@ pub struct ZkVerifyingKeyRefV1 {
 }
 
 policy_section! {
-    /// Halo2 verification policy.
-    ZkHalo2ValidityV1 {
-        /// Whether Halo2 proofs are verified.
+    /// Native PIPA-R verification policy.
+    #[derive(Copy)]
+    ZkPipaRValidityV1 {
+        /// Whether Native PIPA-R proofs are verified.
         // TODO(F.4): the plan author decided this switch is deleted (verification
         // always runs). It stays a committed field until the consensus-policy hash
         // and the pinned first-release history are regenerated in one declared cutover.
         enabled: bool,
-        /// Curve tag, one of [`HALO2_CURVE_TAGS`].
-        curve: String,
-        /// Commitment backend tag, one of [`HALO2_BACKEND_TAGS`].
-        backend: String,
-        /// Largest accepted circuit size exponent.
-        max_k: u32,
-        /// Largest batch one verification call accepts.
-        verifier_max_batch: u32,
         /// Largest accepted Norito envelope, in bytes.
         max_envelope_bytes: u64,
         /// Largest accepted proof payload, in bytes.
         max_proof_bytes: u64,
-        /// Largest accepted transcript label, in bytes.
-        max_transcript_label_len: u64,
-        /// Whether transcript labels must be ASCII.
-        enforce_transcript_label_ascii: bool,
     }
 }
 
@@ -168,7 +151,7 @@ policy_section! {
     #[derive(Copy)]
     ZkStarkValidityV1 {
         /// Whether native STARK proofs are verified.
-        // TODO(F.4): deleted together with `halo2.enabled`; see there.
+        // TODO(F.4): deleted together with `pipa_r.enabled`; see there.
         enabled: bool,
         /// Largest accepted outer envelope, in bytes.
         max_envelope_bytes: u64,
@@ -203,10 +186,6 @@ policy_section! {
         max_native_header_bytes_per_transaction: u64,
         /// Native header bytes in one block.
         max_native_header_bytes_per_block: u64,
-        /// secp256k1 recoveries in one transaction.
-        max_secp256k1_recoveries_per_transaction: u32,
-        /// secp256k1 recoveries in one block.
-        max_secp256k1_recoveries_per_block: u32,
         /// Ed25519 signature checks in one transaction.
         max_ed25519_signature_checks_per_transaction: u32,
         /// Ed25519 signature checks in one block.
@@ -221,6 +200,8 @@ policy_section! {
 policy_section! {
     /// Proof record retention, bridge-proof windows and relation-selecting keys.
     ZkProofValidityV1 {
+        /// Largest batch one verification call accepts.
+        max_verify_batch: u32,
         /// Recent ballot ciphertexts kept per election.
         ballot_history_cap: u64,
         /// Largest proof accepted by stateless pre-verification, in bytes.
@@ -328,8 +309,8 @@ policy_section! {
 )]
 #[norito(deny_unknown_fields)]
 pub struct ZkValidityPolicyV1 {
-    /// Halo2 verification policy.
-    pub halo2: ZkHalo2ValidityV1,
+    /// Native PIPA-R verification policy.
+    pub pipa_r: ZkPipaRValidityV1,
     /// Native STARK/FRI verification policy.
     pub stark: ZkStarkValidityV1,
     /// SCCP proof-admission and verifier-work limits.
@@ -363,17 +344,6 @@ fn size_field(value: u64, field: &'static str) -> Result<(), ZkValidityPolicyErr
     Ok(())
 }
 
-fn supported_tag(
-    value: &str,
-    supported: &[&str],
-    field: &'static str,
-) -> Result<(), ZkValidityPolicyError> {
-    if supported.contains(&value) {
-        return Ok(());
-    }
-    Err(ZkValidityPolicyError::Unsupported(field, value.to_string()))
-}
-
 fn key_reference(
     value: Option<&ZkVerifyingKeyRefV1>,
     field: &'static str,
@@ -399,7 +369,7 @@ impl ZkValidityPolicyV1 {
 
     /// Names of the six sections, in declaration order.
     pub const SECTION_NAMES: [&'static str; 6] =
-        ["halo2", "stark", "sccp", "proofs", "confidential", "gas"];
+        ["pipa_r", "stark", "sccp", "proofs", "confidential", "gas"];
 
     /// The [`CustomParameterId`] of the committed policy.
     ///
@@ -419,16 +389,10 @@ impl ZkValidityPolicyV1 {
     pub fn protocol_default() -> Self {
         const MIB: u64 = 1024 * 1024;
         Self {
-            halo2: ZkHalo2ValidityV1 {
+            pipa_r: ZkPipaRValidityV1 {
                 enabled: true,
-                curve: "pallas".to_string(),
-                backend: "ipa".to_string(),
-                max_k: 16,
-                verifier_max_batch: 16,
                 max_envelope_bytes: MIB,
                 max_proof_bytes: 192 * 1024,
-                max_transcript_label_len: 64,
-                enforce_transcript_label_ascii: true,
             },
             stark: ZkStarkValidityV1 {
                 enabled: true,
@@ -447,14 +411,13 @@ impl ZkValidityPolicyV1 {
                 max_ethereum_light_client_updates_per_block: 512,
                 max_native_header_bytes_per_transaction: 8 * MIB,
                 max_native_header_bytes_per_block: 32 * MIB,
-                max_secp256k1_recoveries_per_transaction: 2_048,
-                max_secp256k1_recoveries_per_block: 8_192,
                 max_ed25519_signature_checks_per_transaction: 65_536,
                 max_ed25519_signature_checks_per_block: 262_144,
                 max_bls_vote_attestations_per_transaction: 64,
                 max_bls_vote_attestations_per_block: 256,
             },
             proofs: ZkProofValidityV1 {
+                max_verify_batch: 16,
                 ballot_history_cap: 1_024,
                 preverify_max_bytes: MIB,
                 preverify_budget_bytes: 0,
@@ -503,7 +466,7 @@ impl ZkValidityPolicyV1 {
     #[must_use]
     pub fn field_names() -> Vec<String> {
         let sections: [(&str, &[&str]); 6] = [
-            ("halo2", ZkHalo2ValidityV1::FIELD_NAMES),
+            ("pipa_r", ZkPipaRValidityV1::FIELD_NAMES),
             ("stark", ZkStarkValidityV1::FIELD_NAMES),
             ("sccp", ZkSccpValidityV1::FIELD_NAMES),
             ("proofs", ZkProofValidityV1::FIELD_NAMES),
@@ -525,8 +488,7 @@ impl ZkValidityPolicyV1 {
     ///
     /// Structural rules: the listed counts are positive, every field that
     /// sizes a buffer or collection is at most [`MAX_SIZE_FIELD`], every SCCP
-    /// byte limit is at most [`MAX_EXACT_JSON_U64`], the curve
-    /// and backend are ones this release defines, and a verifying-key
+    /// byte limit is at most [`MAX_EXACT_JSON_U64`], and a verifying-key
     /// reference names a backend and a key.
     ///
     /// Coherence rules: a proof limit does not exceed the envelope that carries
@@ -542,21 +504,15 @@ impl ZkValidityPolicyV1 {
     #[allow(clippy::too_many_lines)]
     pub fn validate(&self) -> Result<(), ZkValidityPolicyError> {
         let Self {
-            halo2,
+            pipa_r,
             stark,
             sccp,
             proofs,
             confidential,
             gas: _,
         } = self;
-        supported_tag(&halo2.curve, &HALO2_CURVE_TAGS, "halo2.curve")?;
-        supported_tag(&halo2.backend, &HALO2_BACKEND_TAGS, "halo2.backend")?;
-        size_field(halo2.max_envelope_bytes, "halo2.max_envelope_bytes")?;
-        size_field(halo2.max_proof_bytes, "halo2.max_proof_bytes")?;
-        size_field(
-            halo2.max_transcript_label_len,
-            "halo2.max_transcript_label_len",
-        )?;
+        size_field(pipa_r.max_envelope_bytes, "pipa_r.max_envelope_bytes")?;
+        size_field(pipa_r.max_proof_bytes, "pipa_r.max_proof_bytes")?;
         size_field(stark.max_envelope_bytes, "stark.max_envelope_bytes")?;
         size_field(stark.max_proof_bytes, "stark.max_proof_bytes")?;
         non_zero_u32(
@@ -599,14 +555,6 @@ impl ZkValidityPolicyV1 {
         non_zero_u64(
             sccp.max_native_header_bytes_per_block,
             "sccp.max_native_header_bytes_per_block",
-        )?;
-        non_zero_u32(
-            sccp.max_secp256k1_recoveries_per_transaction,
-            "sccp.max_secp256k1_recoveries_per_transaction",
-        )?;
-        non_zero_u32(
-            sccp.max_secp256k1_recoveries_per_block,
-            "sccp.max_secp256k1_recoveries_per_block",
         )?;
         non_zero_u32(
             sccp.max_ed25519_signature_checks_per_transaction,
@@ -673,8 +621,8 @@ impl ZkValidityPolicyV1 {
         )?;
 
         coherent(
-            halo2.max_proof_bytes <= halo2.max_envelope_bytes,
-            "halo2.max_proof_bytes exceeds halo2.max_envelope_bytes",
+            pipa_r.max_proof_bytes <= pipa_r.max_envelope_bytes,
+            "pipa_r.max_proof_bytes exceeds pipa_r.max_envelope_bytes",
         )?;
         coherent(
             stark.max_proof_bytes <= stark.max_envelope_bytes,
@@ -708,12 +656,6 @@ impl ZkValidityPolicyV1 {
              sccp.max_native_header_bytes_per_block",
         )?;
         coherent(
-            sccp.max_secp256k1_recoveries_per_transaction
-                <= sccp.max_secp256k1_recoveries_per_block,
-            "sccp.max_secp256k1_recoveries_per_transaction exceeds \
-             sccp.max_secp256k1_recoveries_per_block",
-        )?;
-        coherent(
             sccp.max_ed25519_signature_checks_per_transaction
                 <= sccp.max_ed25519_signature_checks_per_block,
             "sccp.max_ed25519_signature_checks_per_transaction exceeds \
@@ -745,7 +687,8 @@ impl ZkValidityPolicyV1 {
     #[must_use]
     pub fn differing_fields(&self, other: &Self) -> Vec<String> {
         let mut out = Vec::new();
-        self.halo2.differing_fields(&other.halo2, "halo2", &mut out);
+        self.pipa_r
+            .differing_fields(&other.pipa_r, "pipa_r", &mut out);
         self.stark.differing_fields(&other.stark, "stark", &mut out);
         self.sccp.differing_fields(&other.sccp, "sccp", &mut out);
         self.proofs
@@ -798,8 +741,7 @@ impl ZkValidityPolicyV1 {
     /// that keeps the policy valid, derived from `salt`.
     ///
     /// Returns `false`, leaving the policy untouched, when the name is not a
-    /// policy field or the field admits no other valid value (the only such
-    /// field is `halo2.backend`, which has one defined tag). Coverage tests use
+    /// policy field or the field admits no other valid value. Coverage tests use
     /// it to visit every field without naming them, so a new field cannot be
     /// skipped.
     #[cfg(any(test, feature = "test-fixtures"))]
@@ -808,12 +750,12 @@ impl ZkValidityPolicyV1 {
             return false;
         };
         let candidates: Vec<Self> = match section {
-            "halo2" => self
-                .halo2
+            "pipa_r" => self
+                .pipa_r
                 .perturbed(field, salt)
                 .into_iter()
-                .map(|halo2| Self {
-                    halo2,
+                .map(|pipa_r| Self {
+                    pipa_r,
                     ..self.clone()
                 })
                 .collect(),
@@ -877,7 +819,7 @@ impl ZkValidityPolicyV1 {
 /// Other values of a policy field, for coverage tests.
 #[cfg(any(test, feature = "test-fixtures"))]
 mod perturb {
-    use super::{HALO2_BACKEND_TAGS, HALO2_CURVE_TAGS, ZkVerifyingKeyRefV1};
+    use super::ZkVerifyingKeyRefV1;
 
     /// A policy field type that can produce values other than its current one.
     pub(super) trait PolicyField: Sized {
@@ -921,20 +863,6 @@ mod perturb {
         }
     }
 
-    impl PolicyField for String {
-        fn others(&self, field: &'static str, _salt: u32) -> Vec<Self> {
-            let tags: &[&str] = match field {
-                "curve" => &HALO2_CURVE_TAGS,
-                "backend" => &HALO2_BACKEND_TAGS,
-                _ => &[],
-            };
-            tags.iter()
-                .filter(|tag| **tag != self.as_str())
-                .map(|tag| (*tag).to_owned())
-                .collect()
-        }
-    }
-
     impl PolicyField for Option<u32> {
         fn others(&self, _field: &'static str, salt: u32) -> Vec<Self> {
             self.as_ref().map_or_else(
@@ -947,7 +875,7 @@ mod perturb {
     impl PolicyField for Option<ZkVerifyingKeyRefV1> {
         fn others(&self, field: &'static str, salt: u32) -> Vec<Self> {
             let other = Some(ZkVerifyingKeyRefV1 {
-                backend: "halo2/ipa".to_owned(),
+                backend: "pipa-r/pasta".to_owned(),
                 name: format!("{field}-{salt}"),
             });
             if *self == other {
@@ -967,6 +895,11 @@ mod tests {
     fn protocol_default_is_valid_and_round_trips_through_the_parameter() {
         let policy = ZkValidityPolicyV1::protocol_default();
         policy.validate().expect("the protocol default is valid");
+        let encoded = norito::encode_canonical(&policy).expect("encode native policy");
+        assert_eq!(
+            norito::decode_canonical::<ZkValidityPolicyV1>(&encoded).expect("decode native policy"),
+            policy,
+        );
         let custom = policy.clone().into_custom_parameter();
         assert_eq!(custom.id(), &ZkValidityPolicyV1::parameter_id());
         assert_eq!(
@@ -987,7 +920,7 @@ mod tests {
     #[test]
     fn field_names_list_every_field_once() {
         let names = ZkValidityPolicyV1::field_names();
-        assert_eq!(names.len(), 65);
+        assert_eq!(names.len(), 58);
         let unique: std::collections::BTreeSet<_> = names.iter().collect();
         assert_eq!(unique.len(), names.len());
         for name in &names {
@@ -1022,11 +955,6 @@ mod tests {
             let salt = u32::try_from(index).expect("field count fits") + 1;
             let mut single = default.clone();
             let changed = single.perturb_field(name, salt);
-            if name == "halo2.backend" {
-                assert!(!changed, "halo2.backend has one defined tag");
-                assert_eq!(single, default);
-                continue;
-            }
             assert!(changed, "{name} is perturbed");
             assert_eq!(
                 single.differing_fields(&default),
@@ -1036,8 +964,8 @@ mod tests {
             assert!(all_changed.perturb_field(name, salt), "{name} in sequence");
         }
         all_changed.validate().expect("valid");
-        assert_eq!(all_changed.differing_fields(&default).len(), 64);
-        assert!(!default.clone().perturb_field("halo2.unknown", 1));
+        assert_eq!(all_changed.differing_fields(&default).len(), 58);
+        assert!(!default.clone().perturb_field("pipa_r.unknown", 1));
         assert!(!default.clone().perturb_field("unknown", 1));
     }
 
@@ -1058,24 +986,6 @@ mod tests {
                 "confidential.tree_roots_history_len"
             ))
         );
-        let mut curve = default();
-        curve.halo2.curve = "secp256k1".to_owned();
-        assert_eq!(
-            curve.validate(),
-            Err(ZkValidityPolicyError::Unsupported(
-                "halo2.curve",
-                "secp256k1".to_owned()
-            ))
-        );
-        let mut backend = default();
-        backend.halo2.backend = "kzg".to_owned();
-        assert_eq!(
-            backend.validate(),
-            Err(ZkValidityPolicyError::Unsupported(
-                "halo2.backend",
-                "kzg".to_owned()
-            ))
-        );
         let mut key = default();
         key.proofs.kaigi_authorization_vk = Some(ZkVerifyingKeyRefV1 {
             backend: String::new(),
@@ -1091,7 +1001,7 @@ mod tests {
         // A size above the fixed protocol maximum is rejected by its value, not
         // by the pointer width of the validator: 2^32 fits a 64-bit `usize`.
         for field in [
-            "halo2.max_envelope_bytes",
+            "pipa_r.max_envelope_bytes",
             "stark.max_envelope_bytes",
             "proofs.ballot_history_cap",
             "proofs.preverify_max_bytes",
@@ -1102,7 +1012,7 @@ mod tests {
             let mut policy = default();
             let over = MAX_SIZE_FIELD + 1;
             match field {
-                "halo2.max_envelope_bytes" => policy.halo2.max_envelope_bytes = over,
+                "pipa_r.max_envelope_bytes" => policy.pipa_r.max_envelope_bytes = over,
                 "stark.max_envelope_bytes" => policy.stark.max_envelope_bytes = over,
                 "proofs.ballot_history_cap" => policy.proofs.ballot_history_cap = over,
                 "proofs.preverify_max_bytes" => policy.proofs.preverify_max_bytes = over,
@@ -1127,10 +1037,6 @@ mod tests {
         );
         sccp.sccp.max_proof_bytes_per_block = MAX_EXACT_JSON_U64;
         sccp.validate().expect("the JSON-exact maximum is accepted");
-        // The retired toy-curve label is not a curve of this release.
-        let mut toy = default();
-        toy.halo2.curve = "toy_p61_additive".to_owned();
-        assert!(toy.validate().is_err());
         let malformed = Json::new("not a policy");
         assert!(matches!(
             ZkValidityPolicyV1::from_payload(&malformed),
@@ -1165,8 +1071,8 @@ mod tests {
             Err(ZkValidityPolicyError::Incoherent(rule)) if rule.contains("max_anchor_age_blocks")
         ));
         assert!(matches!(
-            incoherent(|policy| policy.halo2.max_proof_bytes = policy.halo2.max_envelope_bytes + 1),
-            Err(ZkValidityPolicyError::Incoherent(rule)) if rule.contains("halo2.max_proof_bytes")
+            incoherent(|policy| policy.pipa_r.max_proof_bytes = policy.pipa_r.max_envelope_bytes + 1),
+            Err(ZkValidityPolicyError::Incoherent(rule)) if rule.contains("pipa_r.max_proof_bytes")
         ));
         assert!(matches!(
             incoherent(|policy| policy.stark.max_proof_bytes = policy.stark.max_envelope_bytes + 1),
@@ -1248,12 +1154,12 @@ mod tests {
         );
         // A transaction work limit above the block limit is rejected.
         let mut work = default();
-        work.sccp.max_secp256k1_recoveries_per_transaction = 2;
-        work.sccp.max_secp256k1_recoveries_per_block = 1;
+        work.sccp.max_ed25519_signature_checks_per_transaction = 2;
+        work.sccp.max_ed25519_signature_checks_per_block = 1;
         assert!(matches!(
             work.validate(),
             Err(ZkValidityPolicyError::Incoherent(rule))
-                if rule.starts_with("sccp.max_secp256k1_recoveries_per_transaction exceeds")
+                if rule.starts_with("sccp.max_ed25519_signature_checks_per_transaction exceeds")
         ));
         // The defaults are ordered.
         let sccp = default().sccp;
@@ -1300,6 +1206,32 @@ mod tests {
             ],
             "every other value of the Taira policy is the protocol default"
         );
+    }
+
+    #[test]
+    fn retired_backend_policy_sections_are_rejected() {
+        let policy = ZkValidityPolicyV1::protocol_default();
+        let mut value = norito::json::to_value(&policy).expect("serialize native policy");
+        let members = value.as_object_mut().expect("policy object");
+        let native = members.remove("pipa_r").expect("native section");
+        members.insert("halo2".to_owned(), native);
+        assert!(matches!(
+            ZkValidityPolicyV1::from_payload(&Json::from(&value)),
+            Err(ZkValidityPolicyError::Malformed(_))
+        ));
+        let mut value = norito::json::to_value(&policy).expect("serialize native policy");
+        value
+            .get_mut("sccp")
+            .and_then(norito::json::Value::as_object_mut)
+            .expect("SCCP section")
+            .insert(
+                "max_secp256k1_recoveries_per_block".to_owned(),
+                norito::json::Value::from(1_u64),
+            );
+        assert!(matches!(
+            ZkValidityPolicyV1::from_payload(&Json::from(&value)),
+            Err(ZkValidityPolicyError::Malformed(_))
+        ));
     }
 
     #[test]

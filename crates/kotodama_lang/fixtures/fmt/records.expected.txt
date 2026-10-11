@@ -1,0 +1,74 @@
+seiyaku Records {
+    struct Pair {
+        int first,
+        int second,
+        bool third,
+    }
+
+    struct Loose {
+        int first,
+        int second,
+    }
+
+    struct Wide {
+        AccountId owner,
+        StateMap<Name, int> balances,
+    }
+
+    error enum Fault {
+        Missing = 1,
+        AlreadyExists = 2,
+    }
+
+    error enum Long {
+        UnknownPool = 1,
+        IdenticalAssets = 2,
+        PoolAlreadyExists = 3,
+        InvalidAssetAAmount = 4,
+        InvalidAssetBAmount = 5,
+    }
+
+    trigger wake -> run {
+        on time pre_commit;
+        repeats 2;
+        metadata {
+            tag: "alpha";
+            owner: "records";
+        }
+    }
+
+    trigger audit -> run {
+        on data account created {
+            account_id alice;
+        }
+        authority alice;
+    }
+
+    trigger tick -> run {
+        on time pre_commit; // 毎ブロック
+        repeats indefinitely;
+    }
+
+    fn build(int value) -> Pair {
+        let Json single = json { tag: "alpha" };
+        let Json both = json {
+            tag: "alpha",
+            value: value,
+        };
+        let Pair pair = Pair {
+            first: value,
+            second: value,
+            third: true,
+        };
+        target(1, 2);
+        let List<int, 3> values = [1, 2, 3];
+        let Pair { first, .. } = pair;
+        return Pair {
+            first: first,
+            second: 2,
+            third: false,
+        };
+    }
+
+    fn target(int a, int b) {}
+}

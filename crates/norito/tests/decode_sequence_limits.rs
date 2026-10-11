@@ -14,8 +14,14 @@ use std::{
 #[norito_schema(name = "norito.test.decode_sequence_limits.WrappedSequence")]
 enum WrappedSequence {
     Direct(Vec<u16>),
+    #[expect(
+        clippy::box_collection,
+        reason = "regression must exercise Box decoding around a collection's terminal resource refusal"
+    )]
     Boxed(Box<Vec<u16>>),
-    Named { values: Vec<u16> },
+    Named {
+        values: Vec<u16>,
+    },
 }
 // Preserve the named-variant codec regression while describing its actual
 // payload fields; the schema derive intentionally accepts only tuple variants.

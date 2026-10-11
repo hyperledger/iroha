@@ -1,13 +1,13 @@
 # Development vote-membership fixture (not election qualification)
 
-The depth-8 `VoteBoolCommitMerkle<8>` relation in `crates/iroha_core_zk/src/lib.rs`
-remains a development fixture. It proves one fixed boolean commitment and eight
+The depth-8 native relation in `xtask/src/vote_tally/native.rs`
+is a development fixture. It proves a boolean commitment and eight
 fixed left-branch compression steps. It does not prove credential ownership,
 election/choice binding, ciphertext correctness, aggregate conservation, a
 sound tally, or successful completion despite dropout.
 
-The closed production Halo2 registry rejects
-`halo2/pasta/ipa/vote-bool-commit-merkle8`. Neither a raw valid IPA proof, a
+The closed production native registry rejects
+`pipa-r/pasta/dev-vote-membership-v1`. Neither a raw valid IPA proof, a
 registry-shaped record, nor a synthetic host verification latch admits that
 relation as a ballot or tally. No deployment key or election should be created
 from these artifacts. Ballot and tally construction/qualification remain open
@@ -17,8 +17,8 @@ in `specs/zk_audit_matrix.md` and `specs/privacy_first_release_closure.md`.
 
 Over Pasta Fp, `C(a,b) = 2(a+7)^5 + 3(b+13)^5`. The witness uses vote `1`,
 rho `12345`, commitment `C(1,12345)`, and siblings `20..27`. Each root step is
-`C(previous, sibling)`. The public instance consists of two columns with one row
-each: commitment, then root. The test helper verifies the actual raw IPA proof;
+`C(previous, sibling)`. The native public instance is one column with two rows:
+commitment, then root. The test helper verifies the actual raw PIPA-R proof;
 commitment, root, transcript mutation and transcript truncation are negative
 controls. These checks do not establish a production election relation.
 
@@ -44,6 +44,12 @@ input digest identifies concrete fixture values; it is not a production schema
 commitment. The key digest uses Core's canonical `hash_vk`. The deterministic
 `fixture_id` is an identifier, not a timestamp. The artifact manifest checks
 exact bytes/digests and contains no security-review signature or promotion claim.
+The two binary artifacts use canonical Norito (`.norito`): the key contains its
+compiled descriptor and processed key, and the proof contains an
+`OpenVerifyEnvelope` with one native public column. Deterministic recovery
+randomness is derived from the public fixed-witness context only in this
+development tool; it provides no witness secrecy. Production proof builders
+use hedged entropy.
 
 ## Controls and limits
 
@@ -58,6 +64,10 @@ exact bytes/digests and contains no security-review signature or promotion claim
   relation even when a test-only latch is forced. This is not a successful ballot.
 - `gov_zk_ballot_real_vk.rs`, `gov_zk_ballot_lock_verified.rs`, and
   `gov_finalize_real_vk.rs`: existing closed-registry/retained-state adversaries.
+
+The Core test-only Halo2 arithmetic helpers still require their separate native
+migration before the shared vendor dependency can be deleted. They have no
+production registry admission.
 
 Native tests and regenerated artifacts must be run against the reviewed candidate;
 source inspection and independent arithmetic alone are not proof qualification.

@@ -288,7 +288,6 @@ pub(super) fn provision_genesis_seat_command(
     if signer.public_key() != roster[usize::from(signer_index - 1)].public_key() {
         return Err(Error::InvalidCustody);
     }
-    let session = request.dkg_session;
     let handle = &request.provider_handles[usize::from(signer_index - 1)];
     // SAFETY: distinct inherited FIFO sources were validated above and are
     // moved once, never duplicated or reacquired on a retained attempt retry.

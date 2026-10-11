@@ -45,7 +45,8 @@ struct Funded {
 }
 impl Funded {
     fn belongs_to(&self, budget: &AllocationBudget) -> bool {
-        self.values.belongs_to(budget)
+        self.budget.same_pool(budget)
+            && self.values.belongs_to(budget)
             && self.charges.belongs_to(budget)
             && self
                 .charges
@@ -203,6 +204,7 @@ impl BlockSignatures {
         Ok(())
     }
 
+    #[cfg(any(test, feature = "transparent_api"))]
     pub(super) fn permits_replacement(&self, replacement: &Self) -> bool {
         match &self.storage {
             Storage::Untrusted(_) => true,

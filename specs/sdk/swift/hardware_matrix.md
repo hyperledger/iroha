@@ -36,8 +36,8 @@ tiers; their availability and evidence do not gate the general Swift SDK.
   `specs/sdk/swift/readiness/archive/2026-05/secure_enclave_attestation_sample.json`.
 - Software-backed wallets, simulators, and CI may rely on deterministic seed
   derivation as defined in `specs/sdk/swift/ios4_crypto_api_rfc.md`.
-- Device bookings and rotation cadence mirror
-  `specs/sdk/android/readiness/android_strongbox_device_matrix.md` so the
+- Device bookings and rotation cadence follow
+  `specs/compliance/android/device_lab_reservation.md` so the
   shared hardware lab can schedule AND2/IOS4 coverage without collisions.
 
 ## Optional Hardware Action Items Before Review

@@ -988,7 +988,8 @@ pub fn parse_ton_boc(bytes: &[u8]) -> Option<TonBoc> {
     let size_bytes = usize::from(flags_size & 0x07);
     let offset_bytes = usize::from(*bytes.get(cursor)?);
     cursor += 1;
-    if has_cache_bits
+    // Cache bits annotate index entries (liteserver `getBlock` sets them); they need an index.
+    if (has_cache_bits && !has_index)
         || flags != 0
         || !(1..=4).contains(&size_bytes)
         || !(1..=8).contains(&offset_bytes)
@@ -1012,7 +1013,9 @@ pub fn parse_ton_boc(bytes: &[u8]) -> Option<TonBoc> {
         let mut offsets = Vec::with_capacity(cells_count);
         let mut previous = 0_usize;
         for index in 0..cells_count {
-            let offset = ton_read_sized_uint(bytes, &mut cursor, offset_bytes)?;
+            let entry = ton_read_sized_uint(bytes, &mut cursor, offset_bytes)?;
+            // With cache bits, each entry is `offset · 2 + cache flag`.
+            let offset = if has_cache_bits { entry >> 1 } else { entry };
             if offset < previous || offset > total_cells_size {
                 return None;
             }
@@ -1050,8 +1053,15 @@ pub fn parse_ton_boc(bytes: &[u8]) -> Option<TonBoc> {
         let exotic = descriptor & 0x08 != 0;
         let has_hashes = descriptor & 0x10 != 0;
         let data_bytes = usize::from(data_descriptor).checked_add(1)? / 2;
-        if refs_count > TON_MAX_REFS || has_hashes || data_bytes > TON_MAX_CELL_DATA_BYTES {
+        if refs_count > TON_MAX_REFS || data_bytes > TON_MAX_CELL_DATA_BYTES {
             return None;
+        }
+        if has_hashes {
+            // Liteservers may serialize cached hashes and depths (one per significant level).
+            // They are skipped: every hash is recomputed from the cell contents, and the
+            // canonical form never carries them.
+            let levels = usize::try_from((descriptor >> 5).count_ones()).ok()? + 1;
+            cell_cursor = cell_cursor.checked_add(levels.checked_mul(32 + 2)?)?;
         }
         let data_end = cell_cursor.checked_add(data_bytes)?;
         let data = cell_data.get(cell_cursor..data_end)?.to_vec();
@@ -1945,7 +1955,9 @@ fn ton_parse_block_info(boc: &TonBoc, cell_index: usize) -> Option<TonParsedBloc
 struct TonParsedBlock {
     global_id: i32,
     info: TonParsedBlockInfo,
-    new_state_hash: H256,
+    /// `state_update` new hash, or `None` when the proof prunes the `state_update` cell (a
+    /// liteserver header, shard-link or transaction proof that does not need it).
+    new_state_hash: Option<H256>,
     extra_index: usize,
 }
 
@@ -1970,20 +1982,26 @@ fn ton_parse_block(
         return None;
     }
     let state_update = boc.cells.get(state_update_index)?;
-    if ton_cell_type(state_update)? != TonCellType::MerkleUpdate
-        || state_update.data.len() != 69
-        || state_update.refs.len() != 2
-        || state_update.data.first().copied()? != 4
-    {
-        return None;
-    }
-    // Cell-hash evaluation already checked both embedded hashes/depths against
-    // the referenced old/new state cells.
-    computed.get(state_update_index)?;
+    let new_state_hash = match ton_cell_type(state_update)? {
+        // Liteservers prune the update when the proof only opens the header or the account
+        // blocks; the pruned cell still commits to it through the root hash.
+        TonCellType::PrunedBranch => None,
+        TonCellType::MerkleUpdate
+            if state_update.data.len() == 69
+                && state_update.refs.len() == 2
+                && state_update.data.first().copied()? == 4 =>
+        {
+            // Cell-hash evaluation already checked both embedded hashes/depths against
+            // the referenced old/new state cells.
+            computed.get(state_update_index)?;
+            Some(state_update.data.get(33..65)?.try_into().ok()?)
+        }
+        _ => return None,
+    };
     Some(TonParsedBlock {
         global_id,
         info: ton_parse_block_info(boc, info_index)?,
-        new_state_hash: state_update.data.get(33..65)?.try_into().ok()?,
+        new_state_hash,
         extra_index,
     })
 }
@@ -2796,8 +2814,9 @@ pub struct TonMcHeaderV1 {
     pub(crate) catchain_seqno: u32,
     /// `validator_list_hash_short` of the signing subset.
     pub(crate) validator_list_hash_short: u32,
-    /// Post-state hash (`state_update` new hash).
-    pub(crate) new_state_hash: H256,
+    /// Post-state hash (`state_update` new hash), when the header proof opens `state_update`;
+    /// key-block hops, bootstraps and back-links need it.
+    pub(crate) new_state_hash: Option<H256>,
 }
 
 /// Validator epoch read from a key block's state.
@@ -3253,6 +3272,10 @@ pub fn ton_open_sccp_event(
     ton_parse_sccp_ext_out(&tx_boc, message, &minter)
         .ok_or(TonNativeSourceError::InvalidOutboundMessage)
 }
+
+#[cfg(test)]
+#[path = "test_fixtures/ton_mainnet_capture_tests.rs"]
+mod mainnet_capture_tests;
 
 #[cfg(test)]
 mod tests {
@@ -3802,6 +3825,106 @@ mod tests {
         duplicate = validators;
         duplicate[2].public_key = invalid_key;
         assert_eq!(ton_validator_list_hash_short_v1(17, &duplicate), None);
+    }
+
+    /// Config 28 sets the shuffle flag; with it, the masterchain subset of a catchain session is
+    /// a seeded permutation of the first `main` validators (the mainnet capture tests check the
+    /// order against real headers' `validator_list_hash_short`).
+    #[test]
+    fn config_28_shuffle_flag_permutes_the_masterchain_subset_per_session() {
+        let catchain = |data: Vec<u8>| TonBoc {
+            roots: vec![0],
+            cells: vec![ordinary_cell(data, Vec::new())],
+        };
+        let lifetimes = |values: [u32; 4]| {
+            values
+                .into_iter()
+                .flat_map(u32::to_be_bytes)
+                .collect::<Vec<_>>()
+        };
+        let live = lifetimes([250, 250, 1_000, 7]);
+        // `catchain_config#c1` has no flag; `catchain_config_new#c2` has 7 zero flag bits and
+        // then `shuffle_mc_validators`.
+        for (head, expected) in [
+            (vec![TON_CATCHAIN_CONFIG_CONSTRUCTOR], Some(false)),
+            (vec![TON_CATCHAIN_CONFIG_NEW_CONSTRUCTOR, 0x00], Some(false)),
+            (vec![TON_CATCHAIN_CONFIG_NEW_CONSTRUCTOR, 0x01], Some(true)),
+            (vec![TON_CATCHAIN_CONFIG_NEW_CONSTRUCTOR, 0x02], None),
+            (vec![0xc3, 0x01], None),
+        ] {
+            let data = [head.clone(), live.clone()].concat();
+            assert_eq!(
+                ton_parse_catchain_shuffle(&catchain(data), 0),
+                expected,
+                "{head:02x?}"
+            );
+        }
+        let zero_lifetime = [
+            vec![TON_CATCHAIN_CONFIG_NEW_CONSTRUCTOR, 0x01],
+            lifetimes([250, 0, 1_000, 7]),
+        ]
+        .concat();
+        assert_eq!(
+            ton_parse_catchain_shuffle(&catchain(zero_lifetime), 0),
+            None
+        );
+
+        let validators = (1..=7_u8)
+            .map(|seed| fixture_validator(seed, 10 + u64::from(seed)).1)
+            .collect::<Vec<_>>();
+        let shuffled = TonValidatorConfigV1 {
+            valid_since: 1,
+            valid_until: 2,
+            main_validator_count: 5,
+            shuffle_masterchain_validators: true,
+            validators: validators.clone(),
+        };
+        let plain = TonValidatorConfigV1 {
+            shuffle_masterchain_validators: false,
+            ..shuffled.clone()
+        };
+        assert_eq!(
+            ton_select_masterchain_validator_set(&plain, 9)
+                .expect("subset")
+                .validators,
+            validators[..5]
+        );
+        let sorted = |set: &[TonValidatorV1]| {
+            let mut keys = set.iter().map(|v| v.public_key).collect::<Vec<_>>();
+            keys.sort_unstable();
+            keys
+        };
+        let mut orders = BTreeSet::new();
+        for seqno in 0..16 {
+            let subset = ton_select_masterchain_validator_set(&shuffled, seqno).expect("subset");
+            assert_eq!(
+                Some(&subset),
+                ton_select_masterchain_validator_set(&shuffled, seqno).as_ref(),
+                "deterministic"
+            );
+            assert_eq!(subset.catchain_seqno, seqno);
+            assert_eq!(
+                sorted(&subset.validators),
+                sorted(&validators[..5]),
+                "a permutation of the main validators"
+            );
+            assert_eq!(
+                Some(subset.validator_list_hash_short),
+                ton_validator_list_hash_short_from_validated(seqno, &subset.validators),
+                "the hash covers the shuffled order"
+            );
+            orders.insert(
+                subset
+                    .validators
+                    .iter()
+                    .map(|v| v.public_key)
+                    .collect::<Vec<_>>(),
+            );
+        }
+        assert!(
+            orders.len() > 1,
+            "the order depends on the catchain session"
+        );
     }
 
     #[test]

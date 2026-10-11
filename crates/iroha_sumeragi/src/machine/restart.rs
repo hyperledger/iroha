@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use super::{Build, CertCache, Core, LocalKey, Mine, Tip, sync::SyncState, votes::Pools};
 use crate::{
     api::{Action, ConfigError, ConfigError::InvalidInit, HaltReason, Init, LocalParams},
-    crypto::{Attestation, Crypto, Signer},
+    crypto::{Crypto, Signer},
     message::VoteKind,
     pacemaker::{Pacemaker, effective_t_max, validate_height, validate_local},
     safety::{
@@ -20,9 +20,8 @@ impl Core {
     /// Start a core (§12.1): validates the configuration (§9.4), then `restore` applies the
     /// restart rules R1–R6 (§7.4) to every configured and retired key and enters one starting
     /// round. `signers` are the configured keys; every key (configured or retired) has one
-    /// entry in `init.records`. `attestation` is the node's commit-attestation extension (§3.7;
-    /// [`Attestation::none`] for an application that never flags a block). A corrupt or
-    /// inconsistent record halts the instance (the core is still returned; it only serves).
+    /// entry in `init.records`. A corrupt or inconsistent record halts the instance
+    /// (the core is still returned; it only serves).
     ///
     /// # Errors
     /// [`ConfigError`] for an invalid local configuration or unusable startup input.
@@ -31,7 +30,6 @@ impl Core {
         init: Init,
         signers: Vec<std::sync::Arc<dyn Signer>>,
         crypto: Box<dyn Crypto>,
-        attestation: Attestation,
         body_budget: iroha_allocation::AllocationBudget,
         now: Millis,
     ) -> Result<(Self, Vec<Action>), ConfigError> {
@@ -65,7 +63,7 @@ impl Core {
             local,
             init,
             keys,
-            (crypto, attestation, body_budget),
+            (crypto, body_budget),
             now,
             configs,
             first,
@@ -99,14 +97,7 @@ impl Core {
             let Some(config) = self.config(config_height) else {
                 return self.halt(HaltReason::SafetyRecordInconsistent);
             };
-            match check_recommit(
-                &*self.crypto,
-                &*self.attestation.verifier,
-                &config.committee,
-                &config.epoch,
-                t,
-                record,
-            ) {
+            match check_recommit(&*self.crypto, &config.committee, &config.epoch, t, record) {
                 Ok(qc) => {
                     let qc = qc.clone();
                     self.install_commit(qc);
@@ -146,11 +137,7 @@ impl Core {
         local: LocalParams,
         init: Init,
         keys: Vec<LocalKey>,
-        (crypto, attestation, body_budget): (
-            Box<dyn Crypto>,
-            Attestation,
-            iroha_allocation::AllocationBudget,
-        ),
+        (crypto, body_budget): (Box<dyn Crypto>, iroha_allocation::AllocationBudget),
         now: Millis,
         configs: BTreeMap<u64, ConfigSlot>,
         first: HeightConfig,
@@ -182,7 +169,6 @@ impl Core {
         Self {
             body_budget,
             crypto,
-            attestation,
             local,
             instance: init.instance,
             genesis: init.genesis_height,
@@ -311,16 +297,8 @@ impl Core {
         self.mine.timeout.clone_from(&timeout);
         // The recorded Prepare of the resumed view: identical preimage, identical bytes
         // (deterministic signatures), on the retransmit schedule from now.
-        // MA9: the recorded Prepare is rebuilt unflagged.
-        let prepare = prepare.and_then(|v| {
-            let attest = v.attest && !cfg!(sumeragi_mutation = "MA9");
-            self.record_vote(
-                me,
-                VoteKind::Prepare,
-                (v.block_hash, v.result, attest),
-                None,
-            )
-        });
+        let prepare =
+            prepare.and_then(|v| self.record_vote(me, VoteKind::Prepare, (v.block_hash, v.result)));
         if let Some(qc) = self.high_pqc.clone() {
             let sources = self.signer_keys(&qc);
             self.want(qc.block_hash, self.height, sources);

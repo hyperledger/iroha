@@ -1,6 +1,6 @@
 
         seiyaku UnboundedStateIteration {
             state StateMap<int, int> values;
-            view fn f() { for (key, value) in (values) { let seen = value; } }
+            view fn f() authorize(anyone) { for (key, value) in (values) { let seen = value; } }
         }
     

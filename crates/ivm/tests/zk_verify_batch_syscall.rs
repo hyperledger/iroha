@@ -2,7 +2,7 @@
 use iroha_data_model::zk::{BackendTag, OpenVerifyEnvelope};
 use ivm::{
     IVMHost, PointerType, VMError,
-    host::{self, DefaultHost, ZkHalo2Backend, ZkHalo2Config},
+    host::{self, DefaultHost, ZkVerifyLimits},
     syscalls,
 };
 fn make_tlv(type_id: PointerType, payload: &[u8]) -> Vec<u8> {
@@ -17,7 +17,7 @@ fn make_tlv(type_id: PointerType, payload: &[u8]) -> Vec<u8> {
 }
 fn canonical_batch_envelope(seed: u8) -> OpenVerifyEnvelope {
     OpenVerifyEnvelope::new(
-        BackendTag::Halo2IpaPasta,
+        BackendTag::NativePipaRPasta,
         ivm::host::LABEL_BATCH,
         [seed; 32],
         vec![seed, seed.wrapping_add(1)],
@@ -42,15 +42,12 @@ fn zk_verify_batch_syscall_returns_status_vector_in_default_host() {
         canonical_batch_envelope(5),
     ]);
     let tlv = make_tlv(PointerType::NoritoBytes, &payload);
-    let cfg = ZkHalo2Config {
-        enabled: true,
-        backend: ZkHalo2Backend::Ipa,
-        verifier_budget_ms: 50,
-        verifier_max_batch: 8,
-        ..ZkHalo2Config::default()
+    let cfg = ZkVerifyLimits {
+        max_verify_batch: 8,
+        ..ZkVerifyLimits::default()
     };
     let mut vm = ivm::IVM::new(u64::MAX);
-    let mut host = DefaultHost::new().with_zk_halo2_config(cfg);
+    let mut host = DefaultHost::new().with_zk_verify_limits(cfg);
     let ptr = vm.alloc_input_tlv(&tlv).expect("alloc tlv");
     vm.set_register(10, ptr);
     host.syscall(syscalls::SYSCALL_ZK_VERIFY_BATCH, &mut vm)
@@ -61,7 +58,7 @@ fn zk_verify_batch_syscall_returns_status_vector_in_default_host() {
     assert_eq!(decode_statuses(&vm), vec![0, 0]);
 }
 #[test]
-fn zk_verify_batch_syscall_rejects_non_norito_pointer_before_disabled_status() {
+fn zk_verify_batch_syscall_rejects_non_norito_pointer_before_backend_status() {
     let payload = batch_payload(vec![canonical_batch_envelope(1)]);
     let tlv = make_tlv(PointerType::Blob, &payload);
     let mut vm = ivm::IVM::new(u64::MAX);

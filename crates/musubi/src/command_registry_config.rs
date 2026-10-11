@@ -38,7 +38,13 @@ impl NetworkArgs {
         let explicit = self.config.is_some() || self.wallet.is_some() || self.wallet_dir.is_some();
         let path = explicit.then(|| self.config_path()).transpose()?;
         if let Some(root) = root {
-            let selected = network::select_network(root, None, path.as_deref(), None)?;
+            let selected = network::select_network(
+                root,
+                None,
+                path.as_deref(),
+                None,
+                network::NetworkPurpose::Deployment,
+            )?;
             if let Some(image) = selected.config_image {
                 return Ok(image);
             }

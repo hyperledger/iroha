@@ -1,4 +1,4 @@
-//! Offline command surfaces: Petal Stream optical handoff tooling.
+//! Offline commands: finalized registration packaging and Petal Stream optical handoff.
 //!
 //! Petal Stream is the animated `天` / katakana / dotted-ring transport
 //! specified in `specs/petal_stream.md` and implemented by `iroha_petal`.
@@ -39,8 +39,12 @@ const MAX_FPS: u16 = 30;
 const MAX_RENDERED_FRAMES: u16 = 4_096;
 const MAX_SIMULATION_TRIALS: u32 = 1_000;
 
+mod registration;
+
 #[derive(Subcommand, Debug)]
 pub(crate) enum Command {
+    /// Verify and package finalized universal-token registration originals for wallet import.
+    RegistrationPackage(registration::RegistrationPackageArgs),
     /// Petal Stream optical handoff tooling.
     #[command(subcommand)]
     Petal(PetalCommand),
@@ -49,7 +53,7 @@ pub(crate) enum Command {
 impl Command {
     pub(crate) fn allows_fallback_config(&self) -> bool {
         match self {
-            Self::Petal(_) => true,
+            Self::Petal(_) | Self::RegistrationPackage(_) => true,
         }
     }
 
@@ -57,6 +61,7 @@ impl Command {
     pub(crate) fn preflight_before_operator_key_load(&self) -> Result<()> {
         match self {
             Self::Petal(_) => Ok(()),
+            Self::RegistrationPackage(args) => args.preflight(),
         }
     }
 }
@@ -65,6 +70,7 @@ impl Run for Command {
     fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
         match self {
             Self::Petal(command) => Run::run(command, context),
+            Self::RegistrationPackage(args) => args.run(context),
         }
     }
 }
@@ -117,7 +123,8 @@ pub(crate) struct EncodeArgs {
     /// Output directory for the frames and `manifest.json`.
     #[arg(long, value_name = "DIR")]
     output: PathBuf,
-    /// Payload kind byte carried in the beacon (KAGEMUSHA: 1 request, 2 payment, 3 acknowledgement).
+    /// Payload kind byte carried in the beacon (KAGEMUSHA wallet V1 envelope tags: 1 Offer,
+    /// 2 Request, 3 Payment, 4 Credited, 5 SessionControl, 6 PolicyData, 7 Lineage).
     #[arg(long, default_value_t = 0)]
     kind: u8,
     /// Frames to render. Zero renders one systematic pass plus 25 % repair (at least four extra frames).

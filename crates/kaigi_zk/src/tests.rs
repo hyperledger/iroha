@@ -4,8 +4,50 @@ use authorization_v1::{
     KaigiAuthorizationActionV1, KaigiAuthorizationContextV1, KaigiAuthorizationOutputsV1,
     KaigiAuthorizationPublicInputsV1, KaigiAuthorizationWitnessV1, compute_authorization_v1,
 };
-use halo2_proofs::halo2curves::ff::PrimeField;
+use ff::PrimeField;
 use usage_v1::{KaigiUsageContextV1, KaigiUsageOutputsV1, compute_usage_v1};
+
+#[path = "../../../fixtures/poseidon/reader.rs"]
+pub(crate) mod reference;
+
+pub(crate) fn reference_parameters() -> ([[Scalar; 3]; 64], [[Scalar; 3]; 3]) {
+    let (rounds, mds) = reference::parameters::<3>(include_str!(
+        "../../../fixtures/poseidon/pasta-fp-w3-rp56.hex"
+    ));
+    let field = |bytes| Scalar::from_repr(bytes).unwrap();
+    (
+        rounds.map(|row| row.map(field)),
+        mds.map(|row| row.map(field)),
+    )
+}
+
+pub(crate) fn reference_permute(state: &mut [Scalar; 3]) {
+    let (rounds, mds) = reference_parameters();
+    for (round, constants) in rounds.into_iter().enumerate() {
+        for (word, constant) in state.iter_mut().zip(constants) {
+            *word += constant;
+        }
+        if (4..60).contains(&round) {
+            state[0] = state[0].pow_vartime([5]);
+        } else {
+            for word in state.iter_mut() {
+                *word = word.pow_vartime([5]);
+            }
+        }
+        let before = *state;
+        *state =
+            array::from_fn(|i| (0..3).fold(Scalar::ZERO, |sum, j| sum + mds[i][j] * before[j]));
+    }
+}
+
+#[test]
+fn native_rp56_parameters_match_every_upstream_constant() {
+    let actual = poseidon_constants();
+    let (rounds, mds) = reference_parameters();
+    assert_eq!(actual.round_constants.as_slice(), rounds.as_slice());
+    assert_eq!(actual.mds, mds);
+    assert_eq!(rounds.len(), 64);
+}
 
 fn context() -> KaigiAuthorizationContextV1 {
     KaigiAuthorizationContextV1 {

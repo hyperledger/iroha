@@ -62,11 +62,10 @@ macro_rules! trigger_acquisition {
             }
             pub(crate) fn install_frozen_publication(
                 &mut self, target: &'set Set,
-                scope: &iroha_allocation::OwnedAllocationScope,
             ) -> Result<(), mv::storage::AdmittedStorageError> {
                 self.publication.begin_reacquisition();
                 let fields = self.fields.as_mut().expect("original trigger block fields");
-                $(fields.$field.install_frozen_publication(&target.$field, scope)?;)+
+                $(fields.$field.install_frozen_publication(&target.$field)?;)+
                 Ok(())
             }
             pub(crate) fn try_prepare_frozen_publication(&mut self)

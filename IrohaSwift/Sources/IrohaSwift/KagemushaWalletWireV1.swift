@@ -6,17 +6,18 @@ import Foundation
 // The canonical objects, transcripts and vectors are owned by the Rust module
 // `iroha_data_model::kagemusha::kagemusha_wallet_v1`; this file consumes
 // `fixtures/kagemusha/wallet_v1_vectors.json` and mirrors only the parts an SDK needs before it
-// hands bytes to the typed decoder: SHA-256 domain digests, the raw low-S P-256 signature rule,
-// the canonical σ-field encoding check, the envelope frame header and per-kind bounds, and the
-// strict `kgm1:` text form.
+// hands bytes to the typed decoder: SHA-256 domain digests, the signing domains, the raw low-S
+// P-256 signature rule over 32-byte signing messages, the canonical σ-field encoding check, the
+// envelope frame header and per-kind bounds, and the strict `kgm1:` text form.
 //
-// Poseidon values (`credit_id`, `proof_digest`, the Payment digest, state commitments, chains,
-// map, blacklist, quota-window and credit-digest roots and openings) are computed only by the
-// native Rust core over the bridge. Swift carries them as opaque 32-byte σ-field values and
-// checks only that they are canonical (``KagemushaWalletWireV1/isCanonicalFieldValue(_:)``).
+// Poseidon values (`credit_id`, `proof_digest`, the Payment, lineage, credit-opening,
+// credit-status and credited digests, every signing message, state commitments, chains, map,
+// blacklist, quota-window and credit-digest roots and openings) are computed only by the native
+// Rust core over the bridge. Swift carries them as opaque 32-byte σ-field values and checks only
+// that they are canonical (``KagemushaWalletWireV1/isCanonicalFieldValue(_:)``).
 //
 // TODO(G4): typed Swift decoding and `validate()` of the wallet message bodies (or the shared
-// Rust core over the native bridge) when the Swift wallet wire migrates; structural envelope
+// Rust core over the native bridge); structural envelope
 // validation here carries no monetary or delivery authority on its own.
 
 /// Failure of a KAGEMUSHA wallet V1 wire helper.
@@ -36,11 +37,11 @@ public enum KagemushaWalletWireErrorV1: Error, Equatable, Sendable {
 
 /// Exact role label of one domain-separated KAGEMUSHA wallet V1 digest `H(role, body)`.
 ///
-/// The 55 cases and their order mirror the Rust `KagemushaWalletDigestRoleV1::ALL`. A `*-body`
-/// role names the signed transcript of an object; the matching role without the suffix names
-/// that signed object's digest `H(role, e || signature)`. `credit_id`, `proof_digest`, the
-/// Payment digest and the blacklist, quota-window and credit-digest trees are Poseidon σ-field
-/// values, not SHA roles (wire record §1).
+/// The 18 cases and their order mirror the Rust `KagemushaWalletDigestRoleV1::ALL`. `H` remains
+/// only for values no relation recomputes: fixed identities, ledger, platform-attestation and
+/// artifact boundaries, output descriptors and local custody records. Only the artifact manifest hashes
+/// `m || signature`. Signed-object, certificate-set, package, statement, operation and nullifier
+/// digests are opaque Poseidon field values computed by the native core (wire record §1).
 public enum KagemushaWalletDigestRoleV1: String, CaseIterable, Sendable {
   /// Scheme identity.
   case scheme = "scheme"
@@ -54,104 +55,101 @@ public enum KagemushaWalletDigestRoleV1: String, CaseIterable, Sendable {
   case account = "account"
   /// Issuer enrollment challenge.
   case enrollmentChallenge = "enrollment-challenge"
+  /// NEW first-release typed app identity; unsigned selection, no approval implied.
+  case appPolicy = "app-policy"
+  /// NEW first-release typed enrollment inputs; unsigned selection, no approval implied.
+  case enrollmentPolicy = "enrollment-policy"
   /// Enrollment incarnation identity.
   case enrollmentID = "enrollment-id"
   /// App Attest enrollment assertion client data.
   case enrollmentKeyBinding = "enrollment-key-binding"
   /// Wallet incarnation identity.
   case walletID = "wallet-id"
-  /// Scheme-root-signed signer certificate transcript.
-  case certificateBody = "certificate-body"
-  /// Signer certificate digest.
-  case certificate = "certificate"
-  /// Count-prefixed ordered certificate digests.
-  case certificateSet = "certificate-set"
-  /// Issuer-signed credential transcript.
-  case credentialBody = "credential-body"
-  /// Credential digest.
-  case credential = "credential"
-  /// Signed scheme policy transcript.
-  case schemePolicyBody = "scheme-policy-body"
-  /// Scheme policy digest.
-  case schemePolicy = "scheme-policy"
-  /// Signed fee schedule transcript.
-  case feeScheduleBody = "fee-schedule-body"
-  /// Fee schedule digest.
-  case feeSchedule = "fee-schedule"
-  /// Signed blacklist transcript.
-  case blacklistBody = "blacklist-body"
-  /// Blacklist digest.
-  case blacklist = "blacklist"
-  /// Signed quota share transcript.
-  case quotaShareBody = "quota-share-body"
-  /// Quota share digest.
-  case quotaShare = "quota-share"
-  /// Signed time anchor transcript.
-  case timeAnchorBody = "time-anchor-body"
-  /// Time anchor digest.
-  case timeAnchor = "time-anchor"
-  /// Payer-signed Offer transcript.
-  case offerBody = "offer-body"
-  /// Session control transcript.
-  case sessionControlBody = "session-control-body"
-  /// Receiver-signed Request transcript.
-  case requestBody = "request-body"
-  /// Request digest.
-  case request = "request"
-  /// Transition statement.
-  case statement = "statement"
-  /// Exact bytes of one lineage proof Ω with its public outputs.
-  case lineage = "lineage"
-  /// Provider commit receipt transcript.
-  case receiptBody = "receipt-body"
-  /// Provider commit receipt digest.
-  case receipt = "receipt"
-  /// Complete state package.
-  case `package` = "package"
-  /// Compressed credit-digest opening carried by a CreditStatus.
-  case creditOpening = "credit-opening"
-  /// Read-only CreditStatus of a folded head.
-  case creditStatus = "credit-status"
-  /// Delivery evidence.
-  case credited = "credited"
-  /// Provider operation identity.
-  case operationID = "operation-id"
+  /// Artifact manifest digest.
+  case artifactManifest = "artifact-manifest"
+  /// Original platform evidence bytes.
+  case evidence = "evidence"
+  /// App Attest renewal assertion client data.
+  case renewalAssertion = "renewal-assertion"
+  /// σ verifying-key allowlist; its digest is the manifest's `verifying_key_set_digest`.
+  case verifyingKeySet = "verifying-key-set"
   /// Receipt-free output descriptor.
   case output = "output"
-  /// Local recovery capsule frame.
-  case capsule = "capsule"
   /// Local provider marker frame.
   case marker = "marker"
+  /// Local recovery capsule frame.
+  case capsule = "capsule"
   /// Local completion record frame.
   case completion = "completion"
   /// Durable fold record of one self-verified Ω.
   case fold = "fold"
-  /// Signed load voucher transcript.
-  case voucherBody = "voucher-body"
-  /// Load voucher digest.
-  case voucher = "voucher"
-  /// Unload claim nullifier.
-  case unloadNullifier = "unload-nullifier"
-  /// Wallet-key ledger control transcript.
-  case ledgerControlBody = "ledger-control-body"
-  /// Payment-key possession transcript.
-  case renewalChallenge = "renewal-challenge"
-  /// Payment-key binding of a newly attested key.
-  case renewalKeyBinding = "renewal-key-binding"
-  /// App Attest renewal assertion client data.
-  case renewalAssertion = "renewal-assertion"
-  /// Signed artifact manifest transcript.
-  case artifactManifestBody = "artifact-manifest-body"
-  /// Artifact manifest digest.
-  case artifactManifest = "artifact-manifest"
-  /// σ verifying-key allowlist; its digest is the manifest's `verifying_key_set_digest`.
-  case verifyingKeySet = "verifying-key-set"
-  /// Signed load/unload charge quote transcript.
-  case chargeQuoteBody = "charge-quote-body"
-  /// Charge quote digest.
-  case chargeQuote = "charge-quote"
-  /// Original platform evidence bytes.
-  case evidence = "evidence"
+}
+
+/// Signing domain of one signed KAGEMUSHA wallet V1 body (wire record §1, owner answer A1).
+///
+/// The 17 cases and their order mirror the Rust `KagemushaWalletSigningDomainV1::ALL`; the raw
+/// value is the 8-byte ASCII Poseidon domain word. Every P-256 signature of the protocol signs, as
+/// its message, the 32-byte canonical encoding `m` of `P_bytes(d, transcript)` with standard
+/// ECDSA-P256-SHA256 (the ECDSA hash is `SHA-256(m)`): the Secure Enclave through
+/// `kSecKeyAlgorithmECDSASignatureMessageX962SHA256`, Android KeyMint through a `DIGEST_SHA256`
+/// key and `SHA256withECDSA`, and issuer, policy, ledger and artifact signers with the same
+/// algorithm. No-digest modes are never used. The native core computes `m`; Swift treats it as an
+/// opaque canonical σ-field value.
+public enum KagemushaWalletSigningDomainV1: String, CaseIterable, Sendable {
+  /// Signer certificate body, signed by the scheme root.
+  case certificate = "kgwcert1"
+  /// Credential body, signed by an Enrollment-role key.
+  case credential = "kgwcred1"
+  /// Renewal challenge, signed by the payment key (possession).
+  case renewalChallenge = "kgwrnch1"
+  /// Renewal key binding of a newly attested Android key, signed by the payment key.
+  case renewalKeyBinding = "kgwrnkb1"
+  /// Artifact manifest body, signed by an Artifact-role key.
+  case artifactManifest = "kgwartf1"
+  /// Provider receipt body, signed by the payment key.
+  case receipt = "kgwrcpt1"
+  /// Scheme policy body, signed by a RegulatoryPolicy-role key.
+  case schemePolicy = "kgwspol1"
+  /// Fee schedule body, signed by a RegulatoryPolicy-role key.
+  case feeSchedule = "kgwfsch1"
+  /// Blacklist body, signed by a RegulatoryPolicy-role key.
+  case blacklist = "kgwblst1"
+  /// Quota share body, signed by a RegulatoryPolicy-role key.
+  case quotaShare = "kgwqshr1"
+  /// Time anchor body, signed by a TimeAnchor-role key.
+  case timeAnchor = "kgwtanc1"
+  /// Charge quote body, signed by a RegulatoryPolicy-role key.
+  case chargeQuote = "kgwchgq1"
+  /// Offer body, signed by the payer payment key.
+  case offer = "kgwoffr1"
+  /// Session control body, signed by the session payment key.
+  case sessionControl = "kgwsctl1"
+  /// Request body, signed by the receiver payment key.
+  case request = "kgwrqst1"
+  /// Ledger control body, signed by the payment key.
+  case ledgerControl = "kgwlctl1"
+
+  /// Exact byte length of the signed transcript.
+  public var transcriptBytes: Int {
+    switch self {
+    case .certificate: 108
+    case .credential: 476
+    case .renewalChallenge: 130
+    case .renewalKeyBinding: 163
+    case .artifactManifest: 290
+    case .receipt: 338
+    case .schemePolicy: 142
+    case .feeSchedule: 191
+    case .blacklist: 118
+    case .quotaShare: 190
+    case .timeAnchor: 138
+    case .chargeQuote: 219
+    case .offer: 194
+    case .sessionControl: 197
+    case .request: 458
+    case .ledgerControl: 211
+    }
+  }
 }
 
 /// Peer message kind carried by the canonical envelope; the raw value is the Norito wire tag.
@@ -245,20 +243,41 @@ public enum KagemushaWalletWireV1 {
   /// Lineage.
   public static let messageMaximumBytes = 10_000
   /// `F_payment`: the bytes of a Payment envelope frame other than its Ω and σ_send proofs.
-  public static let paymentFixedBytes = 1_615
+  public static let paymentFixedBytes = 1_723
   /// Joint budget of the Ω transport proof and the largest σ_send (R9): `10,000 − F_payment`.
   ///
-  /// σ and Ω carry no other byte caps: their exact lengths come from the frozen verifying-key
-  /// allowlist (owner answer Q6). Until the artifacts freeze (TODO(G3)) only the carrying frame
-  /// bounds them, which is all the structural envelope check enforces.
+  /// Proof transport is bounded by this budget, ``creditedReceiveProofBudgetBytes`` and
+  /// ``lineageProofCapBytes``; exact lengths come from the frozen verifying-key allowlist
+  /// (owner answer Q6). Until the artifacts
+  /// freeze (TODO(G3)) only the carrying frame bounds them, which is all the structural envelope
+  /// check enforces.
   public static let paymentProofBudgetBytes = messageMaximumBytes - paymentFixedBytes
-  /// Maximum σ entries of the verifying-key allowlist: one per operation other than Send and one
-  /// per supported Send enabled-controls mask.
-  public static let verifyingKeyEntriesMaximum = 15
+  /// Bytes of a Credited::Receive envelope other than its σ proof.
+  public static let creditedReceiveFixedBytes = 679
+  /// Available σ bytes in a complete Credited::Receive envelope.
+  public static let creditedReceiveProofBudgetBytes = messageMaximumBytes - creditedReceiveFixedBytes
+  /// `F_status`: the bytes of a Credited::Status envelope frame other than its Ω(h) transport
+  /// proof, with the fixed 32-sibling credit opening.
+  public static let creditedStatusFixedBytes = 2_188
+  /// Cap of the Ω transport proof so that Credited::Status fits: `10,000 − F_status`.
+  public static let lineageProofCapBytes = messageMaximumBytes - creditedStatusFixedBytes
+  /// Maximum σ entries of the verifying-key allowlist: one per operation, Send also once per
+  /// supported enabled-controls mask, and Receive also once with the blacklist bit.
+  public static let verifyingKeyEntriesMaximum = 16
   /// Maximum standalone canonical frame of the verifying-key allowlist.
   public static let verifyingKeyAllowlistMaximumBytes = 2_048
-  /// Maximum non-default siblings of a credit-digest opening (the depth-256 sparse tree).
-  public static let creditOpeningSiblingsMaximum = 256
+  /// Depth of every Poseidon indexed map tree and of the credit-digest tree (owner answer A2):
+  /// every opening carries exactly this many siblings.
+  public static let indexedTreeDepth = 32
+  /// Depth of the quota-window and aligned quota-usage arrays.
+  public static let quotaTreeDepth = 6
+  /// Exact number of slots in each quota-usage array.
+  public static let quotaUsageSlots = 1 << quotaTreeDepth
+  /// Exact credit-opening transcript of a CreditStatus: `credit_id ‖ payment_digest ‖ u8 burned ‖
+  /// next_key ‖ LE32 slot ‖ 32 siblings`.
+  public static let creditOpeningBytes = 3 * 32 + 1 + 4 + indexedTreeDepth * 32
+  /// Bytes of one signing message `m`: one canonical σ-field value (wire record §1).
+  public static let signingMessageBytes = 32
   /// Maximum complete `kgm1:` text of a session-bounded envelope (2_736).
   public static let sessionTextMaximumBytes = constantTextMaximumBytes(sessionMaximumBytes)
   /// Maximum complete `kgm1:` text of a message-bounded envelope (13_339).
@@ -334,9 +353,10 @@ public enum KagemushaWalletWireV1 {
 
   // MARK: Digests
 
-  /// Exact SHA-256 preimage of `H(role, body)`; the ECDSA message of a signed body.
+  /// Exact SHA-256 preimage of `H(role, body)`.
   ///
-  /// The layout is `prefix || role || 0x00 || LE64(len(body)) || body`.
+  /// The layout is `prefix || role || 0x00 || LE64(len(body)) || body`. It is never a signed
+  /// message: signatures sign the Poseidon message `m` of their ``KagemushaWalletSigningDomainV1``.
   public static func preimage(role: KagemushaWalletDigestRoleV1, body: Data) -> Data {
     let label = Data(role.rawValue.utf8)
     var preimage = Data()
@@ -360,24 +380,24 @@ public enum KagemushaWalletWireV1 {
     return Data(hasher.finalize())
   }
 
-  /// Digest of one signed object: `H(role, e || signature)`, where `e` is its body digest.
+  /// Artifact manifest digest: `H(artifact-manifest, m || signature)`, where `m` is its
+  /// 32-byte Poseidon signing message (a canonical σ-field value).
   ///
-  /// - Throws: ``KagemushaWalletWireErrorV1/invalidField(_:)`` for a body digest that is not
-  ///   32 bytes or a signature that is not canonical low-S.
-  public static func signedObjectDigest(
-    role: KagemushaWalletDigestRoleV1,
-    bodyDigest: Data,
+  /// - Throws: ``KagemushaWalletWireErrorV1/invalidField(_:)`` for a message that is not one
+  ///   canonical 32-byte σ-field value or a signature that is not canonical low-S.
+  public static func artifactManifestDigest(
+    message: Data,
     signature: Data
   ) throws -> Data {
-    guard bodyDigest.count == digestBytes else {
-      throw KagemushaWalletWireErrorV1.invalidField("body_digest")
+    guard message.count == signingMessageBytes, isCanonicalFieldValue(message) else {
+      throw KagemushaWalletWireErrorV1.invalidField("signing_message")
     }
     guard isCanonicalLowSSignature(signature) else {
       throw KagemushaWalletWireErrorV1.invalidField("signature")
     }
-    var body = Data(bodyDigest)
+    var body = Data(message)
     body.append(signature)
-    return digest(role: role, body: body)
+    return digest(role: .artifactManifest, body: body)
   }
 
   // MARK: σ-field values
@@ -403,7 +423,7 @@ public enum KagemushaWalletWireV1 {
   /// Whether `signature` is `r || s` with `1 <= r < n` and `1 <= s <= floor(n / 2)`.
   ///
   /// CryptoKit accepts a high-S signature, so every received signature must pass this check
-  /// before ``verifySignature(publicKey:preimage:signature:)`` hands it to CryptoKit.
+  /// before ``verifySignature(publicKey:message:signature:)`` hands it to CryptoKit.
   public static func isCanonicalLowSSignature(_ signature: Data) -> Bool {
     guard signature.count == signatureBytes else { return false }
     let bytes = [UInt8](signature)
@@ -419,12 +439,18 @@ public enum KagemushaWalletWireV1 {
       && (try? P256.Signing.PublicKey(x963Representation: publicKey)) != nil
   }
 
-  /// Verify a received low-S ECDSA-P256-SHA256 signature over the exact `preimage`.
+  /// Verify a received low-S ECDSA-P256-SHA256 signature over the 32-byte signing `message`
+  /// (wire record §1).
   ///
-  /// The raw low-S check runs first; CryptoKit then checks the ECDSA equation with
-  /// `e = SHA-256(preimage)`. Received bytes are never normalized.
-  public static func verifySignature(publicKey: Data, preimage: Data, signature: Data) -> Bool {
+  /// The message must be one canonical σ-field value: the Poseidon `P_bytes(d, transcript)` the
+  /// native core computed for the body's ``KagemushaWalletSigningDomainV1``. The raw low-S check
+  /// runs next; CryptoKit then checks the ECDSA equation with `e = SHA-256(message)`. Received
+  /// bytes are never normalized. Returns `false` for another message length, a non-canonical
+  /// message, key or signature, and a signature that does not verify.
+  public static func verifySignature(publicKey: Data, message: Data, signature: Data) -> Bool {
     guard
+      message.count == signingMessageBytes,
+      isCanonicalFieldValue(message),
       isCanonicalLowSSignature(signature),
       isValidPublicKey(publicKey),
       let key = try? P256.Signing.PublicKey(x963Representation: publicKey),
@@ -432,20 +458,7 @@ public enum KagemushaWalletWireV1 {
     else {
       return false
     }
-    return key.isValidSignature(parsed, for: preimage)
-  }
-
-  /// Verify a received low-S signature over the preimage of `H(role, body)` under `publicKey`.
-  public static func verifySignature(
-    publicKey: Data,
-    role: KagemushaWalletDigestRoleV1,
-    body: Data,
-    signature: Data
-  ) -> Bool {
-    verifySignature(
-      publicKey: publicKey,
-      preimage: preimage(role: role, body: body),
-      signature: signature)
+    return key.isValidSignature(parsed, for: message)
   }
 
   // MARK: Text
@@ -633,6 +646,59 @@ public enum KagemushaWalletWireV1 {
     }
     return KagemushaWalletEnvelopeFrameV1(
       kind: kind, schemeID: Data(payload[schemeRange]), canonicalBytes: canonical)
+  }
+
+  /// Require exact structural correspondence for one Request/Payment/Credited exchange.
+  /// Request has five fields and a 19-field body; Payment has five fields, including the
+  /// two-field signed Request. Its body and signature must equal the quoted originals.
+  /// Credited, when supplied, has three fields and must name that Request's scheme.
+  /// These comparisons grant no signature, proof, recipient or monetary authority; Native
+  /// still authenticates the complete messages and the evidence's payment/credit binding.
+  public static func requireExchangeBinding(
+    request: Data, payment: Data, credited: Data? = nil
+  ) throws {
+    let requestFields = try exchangeMessageFields(request, kind: .request, count: 5)
+    _ = try exchangeRecordFields(requestFields[0], count: 19, label: "request.body")
+    let paymentFields = try exchangeMessageFields(payment, kind: .payment, count: 5)
+    let signedRequest = try exchangeRecordFields(
+      paymentFields[1], count: 2, label: "payment.request")
+    guard signedRequest[0] == requestFields[0], signedRequest[1] == requestFields[4] else {
+      throw KagemushaWalletWireErrorV1.invalidField("payment.request.binding")
+    }
+    if let credited { try requireCreditedScheme(request: request, credited: credited) }
+  }
+
+  // A restored receiver record retains the Payment hash rather than the whole Payment.
+  // The retained Request still owns its exact scheme comparison before ACK replay.
+  static func requireCreditedScheme(request: Data, credited: Data) throws {
+    let requestFields = try exchangeMessageFields(request, kind: .request, count: 5)
+    let body = try exchangeRecordFields(requestFields[0], count: 19, label: "request.body")
+    let creditedFields = try exchangeMessageFields(credited, kind: .credited, count: 3)
+    guard creditedFields[1] == body[1] else {
+      throw KagemushaWalletWireErrorV1.schemeMismatch(field: "credited.scheme_id")
+    }
+  }
+
+  private static func exchangeMessageFields(
+    _ frame: Data, kind: KagemushaWalletMessageKindV1, count: Int
+  ) throws -> [Data] {
+    guard try inspectEnvelope(frame).kind == kind,
+          let decoded = noritoDecodeFrame(frame) else {
+      throw KagemushaWalletWireErrorV1.invalidField("exchange.kind")
+    }
+    let payload = [UInt8](decoded.payload)
+    let fields = try structFields(payload, in: 0..<payload.count)
+    let tagged = fields[1]
+    let message = try fieldPath(
+      payload, in: (tagged.lowerBound + 4)..<tagged.upperBound, path: [0])
+    return try exchangeRecordFields(Data(payload[message]), count: count, label: "exchange.fields")
+  }
+
+  private static func exchangeRecordFields(_ data: Data, count: Int, label: String) throws -> [Data] {
+    let bytes = [UInt8](data)
+    let fields = try structFields(bytes, in: 0..<bytes.count)
+    guard fields.count == count else { throw KagemushaWalletWireErrorV1.invalidField(label) }
+    return fields.map { Data(bytes[$0]) }
   }
 
   /// Strictly decode `kgm1:` text and validate the envelope frame it carries.

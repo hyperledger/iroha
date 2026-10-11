@@ -33,6 +33,66 @@ use std::{
     sync::{Arc, OnceLock, RwLock},
     vec::Vec,
 };
+// Match direct byte-array syntax before a `ty` fragment makes it opaque.
+// Ordinary, optional, vector and nested array fields retain their canonical
+// value decoder; only the encoder's direct raw byte-array contract is special.
+macro_rules! impl_aos_decode_from_slice {
+    ($ty:ty { $first:ident: $($fields:tt)* }) => {
+        $crate::isi::impl_aos_decode_from_slice!(
+            @walk [$ty] [bytes flags offset] [] [];
+            $first: $($fields)* ,
+        );
+    };
+    (@walk [$ty:ty] [$bytes:ident $flags:ident $offset:ident]
+        [$($names:ident,)*] [$($reads:tt)*];) => {
+        impl<'a> norito::core::DecodeFromSlice<'a> for $ty {
+            fn decode_from_slice($bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
+                let $flags = norito::core::effective_decode_flags()
+                    .unwrap_or_else(norito::core::default_encode_flags);
+                let mut $offset = 0usize;
+                $($reads)*
+                if $offset != $bytes.len() {
+                    return Err(norito::core::Error::LengthMismatch);
+                }
+                norito::core::note_payload_access($bytes, $offset);
+                Ok((Self { $($names),* }, $offset))
+            }
+        }
+    };
+    (@walk [$ty:ty] [$bytes:ident $flags:ident $offset:ident]
+        [$($names:ident,)*] [$($reads:tt)*]; ,) => {
+        $crate::isi::impl_aos_decode_from_slice!(
+            @walk [$ty] [$bytes $flags $offset] [$($names,)*] [$($reads)*];
+        );
+    };
+    (@walk [$ty:ty] [$bytes:ident $flags:ident $offset:ident]
+        [$($names:ident,)*] [$($reads:tt)*];
+        $field:ident: [u8; $length:expr], $($rest:tt)*) => {
+        $crate::isi::impl_aos_decode_from_slice!(
+            @walk [$ty] [$bytes $flags $offset] [$($names,)* $field,]
+            [$($reads)*
+                let $field = $crate::isi::decode_aos_byte_array_field::<{ $length }>(
+                    $bytes, &mut $offset, $flags,
+                )?;
+            ]; $($rest)*
+        );
+    };
+    (@walk [$ty:ty] [$bytes:ident $flags:ident $offset:ident]
+        [$($names:ident,)*] [$($reads:tt)*];
+        $field:ident: $field_ty:ty, $($rest:tt)*) => {
+        $crate::isi::impl_aos_decode_from_slice!(
+            @walk [$ty] [$bytes $flags $offset] [$($names,)* $field,]
+            [$($reads)*
+                let $field = $crate::isi::decode_aos_canonical_field::<$field_ty>(
+                    $crate::isi::read_aos_field($bytes, &mut $offset, $flags)?,
+                    $flags,
+                )?;
+            ]; $($rest)*
+        );
+    };
+}
+pub(crate) use impl_aos_decode_from_slice;
+
 /// Consensus key lifecycle instructions.
 pub mod consensus_keys;
 /// Domain endorsement management instructions.
@@ -42,11 +102,11 @@ pub mod endorsement;
 pub mod governance;
 /// Ministry agenda intake instructions.
 pub mod ministry;
-/// Owned trait-object wrapper for any [`crate::isi::Instruction`].
+/// Canonical registered instruction storage.
 ///
-/// This newtype wraps `Box<dyn Instruction>` to allow implementing blanket traits
-/// (e.g., `Send`/`Sync`) and to provide a stable, crate-owned type across the
-/// codebase while preserving existing ergonomics via `Deref` to `dyn Instruction`.
+/// Ordinary instructions own their trait object. Native AMX proof instructions can instead
+/// retain an exact physically charged shared graph; both storage choices borrow the same
+/// registered instruction, encode the same Norito tuple and execute the same native host.
 ///
 /// # Examples
 /// ```rust
@@ -56,7 +116,20 @@ pub mod ministry;
 ///     InstructionBox::from(Log::new(Level::INFO, "trait objects".into()));
 /// ```
 #[repr(transparent)]
-pub struct InstructionBox(Box<dyn Instruction>);
+pub struct InstructionBox(InstructionStorage);
+
+mod amx_owner;
+pub use amx_owner::{AmxInstructionAdmissionErrorV1, PendingAmxInstructionV1};
+
+enum InstructionStorage {
+    Boxed(Box<dyn Instruction>),
+    Amx(amx_owner::SharedAmxInstruction),
+}
+impl InstructionBox {
+    fn from_boxed(instruction: Box<dyn Instruction>) -> Self {
+        Self(InstructionStorage::Boxed(instruction))
+    }
+}
 impl norito::NoritoSchema for InstructionBox {
     fn nominal_name() -> String {
         "iroha_data_model::isi::InstructionBox".to_owned()
@@ -70,7 +143,10 @@ impl norito::NoritoSchema for InstructionBox {
 impl core::ops::Deref for InstructionBox {
     type Target = dyn Instruction;
     fn deref(&self) -> &Self::Target {
-        &*self.0
+        match &self.0 {
+            InstructionStorage::Boxed(instruction) => &**instruction,
+            InstructionStorage::Amx(owner) => owner.registered(),
+        }
     }
 }
 impl core::fmt::Display for InstructionBox {
@@ -87,8 +163,19 @@ impl core::fmt::Debug for InstructionBox {
 }
 impl Clone for InstructionBox {
     fn clone(&self) -> Self {
-        // Use the object-safe clone-on-trait mechanism.
-        self.0.dyn_box_clone()
+        match &self.0 {
+            InstructionStorage::Boxed(instruction) => instruction.dyn_box_clone(),
+            InstructionStorage::Amx(owner) => {
+                #[cfg(all(test, sumeragi_model_mutation = "DM1"))]
+                {
+                    owner.registered().dyn_box_clone()
+                }
+                #[cfg(not(all(test, sumeragi_model_mutation = "DM1")))]
+                {
+                    Self(InstructionStorage::Amx(owner.clone()))
+                }
+            }
+        }
     }
 }
 impl PartialEq for InstructionBox {
@@ -118,7 +205,7 @@ macro_rules! impl_direct_instruction_box {
         $(
             impl From<$instruction> for InstructionBox {
                 fn from(instruction: $instruction) -> Self {
-                    InstructionBox(Box::new(instruction))
+                    InstructionBox::from_boxed(Box::new(instruction))
                 }
             }
         )+
@@ -126,6 +213,7 @@ macro_rules! impl_direct_instruction_box {
 }
 // Allow direct boxing of standalone instructions that are not part of a grouped enum.
 impl_direct_instruction_box!(crate::isi::zk::VerifyProof);
+impl_direct_instruction_box!(crate::isi::kagemusha_wallet::KagemushaWalletLedgerV1);
 impl_direct_instruction_box!(crate::isi::zk::PruneProofs);
 impl_direct_instruction_box!(crate::isi::privacy::RegisterPrivacyProtocolActivationV1);
 impl_direct_instruction_box!(crate::isi::privacy::RegisterPrivacyExact12QualificationV1);
@@ -212,7 +300,7 @@ macro_rules! impl_nexus_program_instruction_box {
         $(
             impl From<crate::isi::nexus::$ty> for InstructionBox {
                 fn from(i: crate::isi::nexus::$ty) -> Self {
-                    InstructionBox(Box::new(i))
+                    InstructionBox::from_boxed(Box::new(i))
                 }
             }
         )+
@@ -292,6 +380,9 @@ impl_direct_instruction_box!(crate::isi::verifying_keys::RegisterVerifyingKey);
 impl_direct_instruction_box!(crate::isi::verifying_keys::UpdateVerifyingKey);
 // Allow direct boxing of consensus key lifecycle instructions.
 impl_direct_instruction_box!(crate::isi::register::RegisterCommitteePeerWithPop);
+impl_direct_instruction_box!(
+    crate::isi::register_dataspace_asset_definition::RegisterDataspaceAssetDefinition
+);
 impl_direct_instruction_box!(crate::isi::consensus_keys::RegisterConsensusKey);
 impl_direct_instruction_box!(crate::isi::consensus_keys::RotateConsensusKey);
 impl_direct_instruction_box!(crate::isi::consensus_keys::DisableConsensusKey);
@@ -345,9 +436,6 @@ impl_direct_instruction_box!(crate::isi::vpn::RefundExpiredVpnLease);
 // Allow direct boxing of the SCCP v1 instructions (`specs/sccp.md` §4).
 impl_direct_instruction_box!(
     crate::isi::sccp::InitializeSccpV1,
-    crate::isi::sccp::SetSccpBridgeKeyV1,
-    crate::isi::sccp::SubmitSccpAttestationsV1,
-    crate::isi::sccp::SubmitSccpAttestationFaultV1,
     crate::isi::sccp::RecordSccpMessage,
     crate::isi::sccp::SubmitSccpInboundMessageV1,
     crate::isi::sccp::SettleSccpV1,
@@ -404,7 +492,7 @@ macro_rules! impl_sorafs_reserve_instruction_box {
         $(
             impl From<$instruction> for InstructionBox {
                 fn from(instruction: $instruction) -> Self {
-                    InstructionBox(Box::new(instruction))
+                    InstructionBox::from_boxed(Box::new(instruction))
                 }
             }
         )+
@@ -459,7 +547,7 @@ macro_rules! impl_musubi_instruction_box {
         $(
             impl From<crate::isi::musubi::$instruction> for InstructionBox {
                 fn from(i: crate::isi::musubi::$instruction) -> Self {
-                    InstructionBox(Box::new(i))
+                    InstructionBox::from_boxed(Box::new(i))
                 }
             }
         )+
@@ -488,9 +576,6 @@ impl_musubi_instruction_box!(
     SetMusubiRegistryPolicyV1,
     AssertMusubiReleaseDigestV1,
 );
-impl_direct_instruction_box!(crate::isi::kagemusha_v1::TopUpKagemushaV1);
-impl_direct_instruction_box!(crate::isi::kagemusha_v1::TopUpKagemushaOrdinaryV1);
-impl_direct_instruction_box!(crate::isi::kagemusha_v1::RedeemKagemushaV1);
 // Allow direct boxing of oracle feed instructions.
 impl_direct_instruction_box!(crate::isi::oracle::RegisterOracleFeed);
 impl_direct_instruction_box!(crate::isi::oracle::SubmitOracleObservation);
@@ -518,7 +603,6 @@ impl_direct_instruction_box!(crate::isi::staking::BondPublicLaneStake);
 impl_direct_instruction_box!(crate::isi::staking::SchedulePublicLaneUnbond);
 impl_direct_instruction_box!(crate::isi::staking::FinalizePublicLaneUnbond);
 impl_direct_instruction_box!(crate::isi::staking::SlashPublicLaneValidator);
-impl_direct_instruction_box!(crate::isi::staking::RecordPublicLaneRewards);
 impl_direct_instruction_box!(crate::isi::staking::ClaimPublicLaneRewards);
 // Allow direct boxing of confidential parameter registry instructions
 impl_direct_instruction_box!(crate::isi::confidential::PublishPedersenParams);
@@ -634,7 +718,7 @@ pub trait Instruction: InstructionDynClone + seal::Instruction + Send + Sync + '
         Self: Sized,
     {
         // Coerce `Box<Self>` to `Box<dyn Instruction>` and wrap
-        InstructionBox(self)
+        InstructionBox::from_boxed(self)
     }
 }
 /// Marker trait for built-in instructions.
@@ -703,7 +787,7 @@ where
     T: Instruction + Clone,
 {
     fn dyn_box_clone(&self) -> InstructionBox {
-        InstructionBox(Box::new(self.clone()))
+        InstructionBox::from_boxed(Box::new(self.clone()))
     }
 }
 fn instruction_tuple_flags() -> u8 {
@@ -895,89 +979,61 @@ impl norito::core::SerializePayload for InstructionBox {
 impl<'a> norito::core::DeserializePayload<'a> for InstructionBox {
     fn deserialize(archived: &'a norito::core::Archived<InstructionBox>) -> Self {
         const MAX_MESSAGE_LEN: usize = 256;
-        let truncate_message = |mut message: String| {
-            // Keep the placeholder bounded; it may end up in logs/errors.
-            if message.len() > MAX_MESSAGE_LEN {
-                message.truncate(MAX_MESSAGE_LEN);
-            }
-            message
+        let invalid = |name: &str, payload: Option<&[u8]>, error: norito::Error| {
+            let mut message = error.to_string();
+            message.truncate(message.floor_char_boundary(MAX_MESSAGE_LEN));
+            let hash = payload.map_or([0; 32], |bytes| iroha_crypto::Hash::new(bytes).into());
+            InstructionBox::from(transparent::InvalidInstruction::new(name, hash, message))
         };
         let ptr = core::ptr::from_ref(archived).cast::<u8>();
-        if let Ok(bytes) = norito::core::payload_slice_from_ptr(ptr) {
-            match decode_instruction_pair_fields_from_slice(bytes) {
-                Ok((name, payload, used)) if used == bytes.len() => {
-                    return match decode_instruction_from_pair(name, payload) {
-                        Ok(inst) => inst,
-                        Err(err) => {
-                            let hash: [u8; 32] = iroha_crypto::Hash::new(payload).into();
-                            let message = truncate_message(err.to_string());
-                            InstructionBox::from(crate::isi::transparent::InvalidInstruction::new(
-                                name.to_owned(),
-                                hash,
-                                message,
-                            ))
-                        }
-                    };
-                }
-                Ok((name, payload, _used)) => {
-                    let hash: [u8; 32] = iroha_crypto::Hash::new(payload).into();
-                    let message =
-                        truncate_message(instruction_canonical_framing_error().to_string());
-                    return InstructionBox::from(crate::isi::transparent::InvalidInstruction::new(
-                        name.to_owned(),
-                        hash,
-                        message,
-                    ));
-                }
-                Err(_) => {}
-            }
+        let bytes = match norito::core::payload_slice_from_ptr(ptr) {
+            Ok(bytes) => bytes,
+            Err(error) => return invalid("<norito>", None, error),
+        };
+        let (name, payload, used) = match decode_instruction_pair_fields_from_slice(bytes) {
+            Ok(fields) => fields,
+            Err(error) => return invalid("<norito>", None, error),
+        };
+        if used != bytes.len() {
+            return invalid(name, Some(payload), instruction_canonical_framing_error());
         }
-        let pair: Result<(String, Vec<u8>), norito::core::Error> =
-            norito::core::DeserializePayload::try_deserialize(archived.cast());
-        match pair {
-            Ok((name, bytes)) => match decode_instruction_from_pair(&name, &bytes) {
-                Ok(inst) => inst,
-                Err(err) => {
-                    // Avoid panics on malformed instruction payloads (DoS vector).
-                    // Represent the decode error as a sentinel instruction that the executor rejects.
-                    let hash: [u8; 32] = iroha_crypto::Hash::new(&bytes).into();
-                    let message = truncate_message(err.to_string());
-                    InstructionBox::from(crate::isi::transparent::InvalidInstruction::new(
-                        name, hash, message,
-                    ))
-                }
-            },
-            Err(err) => {
-                let message = truncate_message(err.to_string());
-                InstructionBox::from(crate::isi::transparent::InvalidInstruction::new(
-                    "<norito>", [0u8; 32], message,
-                ))
-            }
-        }
+        decode_instruction_from_pair(name, payload)
+            .unwrap_or_else(|error| invalid(name, Some(payload), error))
     }
     fn try_deserialize(
         archived: &'a norito::core::Archived<InstructionBox>,
     ) -> Result<Self, norito::core::Error> {
         let ptr = core::ptr::from_ref(archived).cast::<u8>();
-        if let Ok(bytes) = norito::core::payload_slice_from_ptr(ptr) {
-            match decode_instruction_from_borrowed_pair(bytes) {
-                Ok((instruction, used)) if used == bytes.len() => return Ok(instruction),
-                Ok((_instruction, _used)) => return Err(instruction_canonical_framing_error()),
-                Err(_) => {}
-            }
+        let bytes = norito::core::payload_slice_from_ptr(ptr)?;
+        // This is the sole canonical pair decoder. A refusal terminates this
+        // attempt; retrying would spend the caller's remaining admission twice.
+        let (instruction, used) =
+            decode_instruction_from_borrowed_pair(bytes).or_else(|error| {
+                if cfg!(all(test, sumeragi_model_mutation = "DM28"))
+                    && error.is_decode_resource_limit()
+                {
+                    return decode_instruction_from_borrowed_pair(bytes);
+                }
+                Err(error)
+            })?;
+        if used != bytes.len() {
+            return Err(instruction_canonical_framing_error());
         }
-        let (name, bytes): (String, Vec<u8>) =
-            norito::core::DeserializePayload::try_deserialize(archived.cast())?;
-        decode_instruction_from_pair(&name, &bytes)
+        Ok(instruction)
     }
 }
 impl<'a> norito::core::DecodeFromSlice<'a> for InstructionBox {
     fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
-        let (inst, used) =
-            decode_instruction_from_borrowed_pair(bytes).map_err(|err| match err {
-                norito::core::Error::Message(_) => err,
-                _ => instruction_canonical_framing_error(),
-            })?;
+        let (inst, used) = decode_instruction_from_borrowed_pair(bytes).map_err(|error| {
+            if matches!(error, norito::Error::Message(_))
+                || (error.is_decode_resource_limit()
+                    && !cfg!(all(test, sumeragi_model_mutation = "DM29")))
+            {
+                error
+            } else {
+                instruction_canonical_framing_error()
+            }
+        })?;
         if used != bytes.len() {
             return Err(instruction_canonical_framing_error());
         }
@@ -1002,11 +1058,30 @@ impl norito::json::FastJsonWrite for InstructionBox {
 fn instruction_box_from_base64_literal(
     encoded: &str,
 ) -> Result<InstructionBox, norito::json::Error> {
-    let bytes = STANDARD
-        .decode(encoded.as_bytes())
-        .map_err(|err| norito::json::Error::Message(err.to_string()))?;
-    norito::decode_canonical::<InstructionBox>(&bytes)
-        .map_err(|err| norito::json::Error::Message(err.to_string()))
+    let scratch = base64::decoded_len_estimate(encoded.len());
+    // Admit the complete scratch allocation before base64 writes any bytes.
+    // This charges cumulative decode work; it does not grant physical pool ownership.
+    if !cfg!(all(test, sumeragi_model_mutation = "DM31")) {
+        norito::core::reserve_decode_allocation(scratch)
+            .map_err(norito::json::Error::from_decode_resource)?;
+    }
+    let mut bytes = Vec::new();
+    bytes.try_reserve_exact(scratch).map_err(|_| {
+        norito::json::Error::from_decode_resource(norito::Error::AllocationFailed {
+            bytes: u64::try_from(scratch).unwrap_or(u64::MAX),
+        })
+    })?;
+    bytes.resize(scratch, 0);
+    let used = STANDARD
+        .decode_slice(encoded.as_bytes(), &mut bytes)
+        .map_err(|error| norito::json::Error::Message(error.to_string()))?;
+    bytes.truncate(used);
+    norito::decode_canonical::<InstructionBox>(&bytes).map_err(|error| {
+        if cfg!(all(test, sumeragi_model_mutation = "DM30")) && error.is_decode_resource_limit() {
+            return norito::json::Error::Message(error.to_string());
+        }
+        norito::json::Error::from_decode_resource(error)
+    })
 }
 
 fn json_required_string(map: &norito::json::Map, key: &str) -> Result<String, norito::json::Error> {
@@ -1098,10 +1173,22 @@ fn json_asset_transfer_target(
     params: &norito::json::Map,
 ) -> Result<(crate::account::AccountId, crate::asset::AssetDefinitionId), norito::json::Error> {
     use std::str::FromStr as _;
-    let account_id = crate::account::AccountId::parse_encoded(
-        json_required_string(params, "account_id")?.as_str(),
-    )
-    .map_err(|err| norito::json::Error::Message(err.to_string()))?;
+    let account_literal = params
+        .get("account_id")
+        .and_then(norito::json::Value::as_str)
+        .ok_or_else(|| {
+            norito::json::Error::Message("instruction `account_id` is required".into())
+        })?;
+    let account_id =
+        <AccountId as norito::json::JsonObjectKeyOwned>::from_json_key_text(account_literal)
+            .map_err(|error| {
+                if cfg!(all(test, sumeragi_model_mutation = "DM32"))
+                    && error.is_decode_resource_limit()
+                {
+                    return norito::json::Error::Message(error.to_string());
+                }
+                error
+            })?;
     let asset_definition_id = crate::asset::AssetDefinitionId::from_str(
         json_required_string(params, "asset_definition_id")?.as_str(),
     )
@@ -1574,7 +1661,7 @@ where
 {
     let _guard = norito::core::DecodeFlagsGuard::enter(header_flags);
     let instruction = norito::decode_from_bytes::<T>(input)?;
-    Ok(InstructionBox(Box::new(instruction)))
+    Ok(InstructionBox::from_boxed(Box::new(instruction)))
 }
 fn decode_instruction_payload_from_slice<T>(
     input: &[u8],
@@ -1586,7 +1673,7 @@ where
 {
     let _guard = norito::core::DecodeFlagsGuard::enter(header_flags);
     let instruction = norito::core::from_bytes_view(input)?.decode::<T>()?;
-    Ok(InstructionBox(Box::new(instruction)))
+    Ok(InstructionBox::from_boxed(Box::new(instruction)))
 }
 pub(crate) fn read_aos_field<'a>(
     bytes: &'a [u8],
@@ -1608,6 +1695,15 @@ pub(crate) fn read_aos_field<'a>(
         .ok_or(norito::core::Error::LengthMismatch)?;
     *offset = field_end;
     Ok(field)
+}
+/// Decode the encoder's direct raw byte-array member using the shared field prefix.
+pub(crate) fn decode_aos_byte_array_field<const N: usize>(
+    bytes: &[u8],
+    offset: &mut usize,
+    flags: u8,
+) -> Result<[u8; N], norito::core::Error> {
+    let _guard = norito::core::DecodeFlagsGuard::enter(flags);
+    norito::core::framed_byte_array_field::<N>(bytes, offset)?.decode_owned()
 }
 pub(crate) fn decode_aos_canonical_field<T>(
     field: &[u8],
@@ -1757,7 +1853,7 @@ macro_rules! impl_into_box {
     ( $($isi:ty)|* => $middle:ty ) => {
         impl From<$middle> for InstructionBox {
             fn from(instruction: $middle) -> Self {
-                InstructionBox(Box::new(instruction))
+                InstructionBox::from_boxed(Box::new(instruction))
             }
         }
         $(impl From<$isi> for InstructionBox {
@@ -1884,8 +1980,8 @@ pub mod defi;
 pub mod escrow;
 /// Hidden-function-backed identifier policy instructions.
 pub mod identifier;
-/// Clean-slate pooled-reserve KAGEMUSHA V1 instructions and operation records.
-pub mod kagemusha_v1;
+/// KAGEMUSHA wallet ledger boundary.
+pub mod kagemusha_wallet;
 /// Kaigi collaboration instructions.
 pub mod kaigi;
 /// Mint and burn instruction variants and helpers.
@@ -1905,6 +2001,8 @@ pub mod private_settlement;
 pub mod ram_lfe;
 /// Registration-related instructions (accounts, assets, domains, etc.).
 pub mod register;
+/// Asset definitions registered directly in an explicit dataspace namespace.
+pub mod register_dataspace_asset_definition;
 /// Instruction registries shared across instruction families.
 pub mod registry;
 mod registry_install;
@@ -1951,7 +2049,6 @@ pub use confidential::*;
 pub use contract_alias::*;
 pub use defi::*;
 pub use identifier::*;
-pub use kagemusha_v1::*;
 pub use kaigi::*;
 pub use ministry::*;
 pub use mint_burn::*;
@@ -1960,6 +2057,7 @@ pub use oracle::*;
 pub use privacy::*;
 pub use ram_lfe::*;
 pub use register::*;
+pub use register_dataspace_asset_definition::*;
 pub use repo::*;
 pub use settlement::*;
 pub use soradns::*;
@@ -2664,6 +2762,7 @@ pub mod error {
             crate :: DeriveJsonSerialize,
             crate :: DeriveJsonDeserialize,
             thiserror::Error,
+            derive_more::Constructor,
         )]
         pub struct RepetitionError {
             /// Instruction type
@@ -2769,6 +2868,7 @@ pub mod prelude {
             ActivateRamLfeProgramPolicy, DeactivateRamLfeProgramPolicy, RegisterRamLfeProgramPolicy,
         },
         register::{Register, RegisterBox, Unregister, UnregisterBox},
+        register_dataspace_asset_definition::RegisterDataspaceAssetDefinition,
         repo::{RepoInstructionBox, RepoIsi, ReverseRepoIsi},
         retail_daily_limit::{
             ActivateRetailDailyLimitV1, BindRetailIdentityV1, RetailMonetaryMovementV1,
@@ -2835,8 +2935,8 @@ pub mod prelude {
         staking::{
             ActivatePublicLaneValidator, BondPublicLaneStake, ClaimPublicLaneRewards,
             ExitPublicLaneValidator, FinalizePublicLaneUnbond, RebindPublicLaneValidatorPeer,
-            RecordPublicLaneRewards, RegisterPublicLaneCandidate, RegisterPublicLaneValidator,
-            SchedulePublicLaneUnbond, SlashPublicLaneValidator,
+            RegisterPublicLaneCandidate, RegisterPublicLaneValidator, SchedulePublicLaneUnbond,
+            SlashPublicLaneValidator,
         },
         transfer::{Transfer, TransferAssetBatch, TransferAssetBatchEntry, TransferBox},
         transparent::{
@@ -2847,6 +2947,8 @@ pub mod prelude {
     };
 }
 #[cfg(test)]
+mod instruction_decode_refusal_tests;
+#[cfg(test)]
 #[path = "shared_test_helpers.rs"]
 mod test_support;
 #[cfg(test)]
@@ -2855,6 +2957,9 @@ mod tests;
 
 #[cfg(test)]
 mod framing_tests;
+
+#[cfg(test)]
+mod aos_field_decode_tests;
 
 #[cfg(test)]
 mod generated_argument_identity_tests;

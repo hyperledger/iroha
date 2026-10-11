@@ -1,6 +1,6 @@
 //! Tests for `ZK_ROOTS_GET` respecting request max and configured cap.
 #![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
-#![cfg(all(feature = "zk-tests", feature = "halo2-dev-tests"))]
+#![cfg(feature = "zk-tests")]
 use iroha_config::parameters::{actual as cfg, defaults};
 use iroha_core::{
     kura::Kura,
@@ -47,15 +47,10 @@ fn zk_roots_get_respects_cap_and_max() {
     let mut state = State::new_for_testing(World::new(), kura, query);
     state
         .set_zk(cfg::Zk {
-            halo2: cfg::Halo2 {
-                enabled: defaults::zk::halo2::ENABLED,
-                curve: cfg::ZkCurve::Pallas,
-                backend: cfg::Halo2Backend::Ipa,
-                max_k: defaults::zk::halo2::MAX_K,
-                verifier_budget_ms: defaults::zk::halo2::VERIFIER_BUDGET_MS,
-                verifier_max_batch: defaults::zk::halo2::VERIFIER_MAX_BATCH,
-                ..cfg::Halo2::default()
-            },
+            pipa_r: iroha_config::parameters::actual::PipaR::default(),
+            trace: iroha_config::parameters::actual::DiagnosticTrace::default(),
+            ipa_commitment: iroha_config::parameters::actual::IpaCommitment::default(),
+            max_verify_batch: iroha_config::parameters::defaults::zk::MAX_VERIFY_BATCH,
             fastpq: cfg::Fastpq {
                 execution_mode: cfg::FastpqExecutionMode::Cpu,
                 poseidon_mode: cfg::FastpqPoseidonMode::Cpu,

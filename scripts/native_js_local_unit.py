@@ -1,7 +1,10 @@
 """Produce and verify genuine current host N-API artifacts for ordinary local units.
 
-This owner reuses an existing worktree Cargo lane. It grants no package,
-authenticated release, device or network qualification.
+This owner builds the original checkout in an existing Cargo lane and retains
+artifacts in a private child of its target/qualification directory, separate from
+the Cargo lane. It grants no package, authenticated release, device or network
+qualification. Current source, dep-info, tools, artifact bytes and ABI remain
+bound through the ordinary SDK loader.
 """
 from __future__ import annotations
 
@@ -111,17 +114,44 @@ def policy(root):
             and all(isinstance(name, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", name) for name in required),
             "current Node export policy is not a literal exact inventory")
     return {"required": sorted(set(required) | set(owner.REQUIRED_SYMBOLS["node"])),
-            "forbidden": sorted(owner.RETIRED_PROTOCOL_SYMBOLS["node"]), "abi_version": 25,
-            "required_results": {"connectNoritoBridgeAbiVersion": 25, "securePrivateFileAbiVersion": 1}}
+            "forbidden": sorted(owner.RETIRED_PROTOCOL_SYMBOLS["node"]), "abi_version": 29,
+            "required_results": {"connectNoritoBridgeAbiVersion": 29, "securePrivateFileAbiVersion": 1}}
 
 
 def local_policy(scope, profile):
     require(scope == "local-unit" and profile == "debug", "local N-API scope requires Debug local-unit")
 
 
+def qualification_child(root, path):
+    """Admit only lexical children of the original checkout's generated lane."""
+    parent = root / "target/qualification"
+    return (path.is_absolute() and str(path) == os.path.abspath(path)
+            and path != parent and path.is_relative_to(parent))
+
+
+def artifact_directory(root, output, *, create):
+    """Keep retained native bytes in private, canonical qualification directories."""
+    require(qualification_child(root, output), "local artifact must be below original target/qualification")
+    checked = output.parent if create else output
+    require(not create or not os.path.lexists(output), "local artifact output must be create-only")
+    metadata = checked.lstat()
+    require(checked.resolve(strict=True) == checked and stat.S_ISDIR(metadata.st_mode)
+            and metadata.st_uid == os.geteuid() and stat.S_IMODE(metadata.st_mode) == 0o700,
+            "local artifact directory is not owned canonical mode0700")
+
+
+def build_directory(root, target, output):
+    """Keep the original-checkout Cargo lane distinct from retained artifacts."""
+    require((target.is_relative_to(root / "target/cargo-fast") or qualification_child(root, target))
+            and target.is_dir() and target.resolve(strict=True) == target,
+            "existing worktree warm lane required")
+    require(not target.is_relative_to(output) and not output.is_relative_to(target),
+            "Cargo lane and retained artifact must be disjoint")
+
+
 def expected_build(root, target):
     return [str(root / "scripts/cargo_fast.sh"), "--target-dir", str(target),
-            "--stable-local-metadata", "--incremental", "--", "build", "--locked", "--offline",
+            "--stable-local-metadata", "--incremental", "--jobs", "2", "--", "build", "--locked", "--offline",
             "-p", PACKAGE, "--lib", "--message-format=json"]
 
 
@@ -163,11 +193,11 @@ def tool_inputs(root, config):
               str(root / "javascript/iroha_js/scripts/copy-native.mjs"),
               str(root / "javascript/iroha_js/src/nativeArtifactHash.js"),
               str(root / "javascript/iroha_js/src/native.js"), str(Path(config["sdk"]) / "SDKSettings.json")]
-    python_fast = shutil.which("python3", path=environment(config)["PATH"])
+    python_fast = shutil.which("python3", path=tool_path(config))
     require(python_fast, "Cargo wrapper Python tool is absent")
     paths.append(python_fast)
     for name in ("bash", "git", "cc", "c++", "clang", "clang++", "ar", "ranlib", "xcrun"):
-        path = shutil.which(name, path=environment(config)["PATH"])
+        path = shutil.which(name, path=tool_path(config))
         require(path, "actual native recipe tool is absent: " + name)
         paths.append(path)
     apple_tools = Path(config["clang"]).parent
@@ -187,9 +217,18 @@ def check_tools(expected):
     require(expected and all(tool_digest(path) == value for path, value in expected.items()), "current tools/policy/recipe differ")
 
 
-def environment(config):
-    return {"HOME": str(Path.home()), "PATH": str(Path(config["cargo"]).parent) + ":/opt/homebrew/bin:/usr/bin:/bin",
-            "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TMPDIR": "/tmp",
+def tool_path(config):
+    """Resolve tools through the same fixed path used by native children."""
+    return str(Path(config["cargo"]).parent) + ":/opt/homebrew/bin:/usr/bin:/bin"
+
+
+def environment(root, config, output):
+    """Keep compiler scratch inside the same private original-checkout capture."""
+    artifact_directory(root, output, create=False)
+    temporary = output / "temporary"
+    artifact_directory(root, temporary, create=False)
+    return {"HOME": str(Path.home()), "PATH": tool_path(config),
+            "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TMPDIR": str(temporary),
             "RUSTC": config["rustc"], "RUSTDOC": config["rustdoc"],
             "SDKROOT": config["sdk"], "MACOSX_DEPLOYMENT_TARGET": "13.0",
             "DEVELOPER_DIR": config["developer_dir"], "NODE_OPTIONS": "",
@@ -228,7 +267,7 @@ def validate_config(root, config):
     require(sys.version_info[:2] == (3, 12), "local N-API owner requires Python3.12")
     require(set(config) == {"python", "cargo", "rustc", "rustdoc", "node", "clang", "ld", "codesign", "sdk", "developer_dir"}, "tool configuration is not exact")
     require(Path(config["python"]).resolve() == Path(sys.executable).resolve(), "Python owner differs")
-    node = shutil.which("node", path=environment(config)["PATH"])
+    node = shutil.which("node", path=tool_path(config))
     require(node and Path(config["node"]) == Path(node).resolve(strict=True), "Node tool differs from the actual local recipe")
     toolchain = Path.home() / ".rustup/toolchains" / ("1.93.1-" + HOSTS[platform.machine()]) / "bin"
     require(all(Path(config[key]) == toolchain / key for key in ("cargo", "rustc", "rustdoc")), "Rust tools do not name the pinned stock toolchain")
@@ -280,7 +319,7 @@ def check_child(receipt, argv, root, env, log):
 def check_probe(proof, selected_policy):
     require(set(proof) == {"abi_version", "exports", "forbidden", "required_exports", "required_results",
                           "signing_independent_emitted", "signing_independent_artifact"}
-            and type(proof["abi_version"]) is int and proof["abi_version"] == 25 and proof["forbidden"] == []
+            and type(proof["abi_version"]) is int and proof["abi_version"] == 29 and proof["forbidden"] == []
             and proof["required_exports"] == selected_policy["required"]
             and proof["required_results"] == selected_policy["required_results"]
             and all(type(value) is int for value in proof["required_results"].values())
@@ -305,11 +344,10 @@ def check_record(record, root, output):
             and type(record.get("finished_unix")) in {int, float}
             and 0 < record["started_unix"] <= record["finished_unix"], "actual Cargo timing is absent")
     target = Path(record["target_dir"])
-    require(target.is_relative_to(root / "target/cargo-fast") and target.is_dir()
-            and target.resolve(strict=True) == target, "local producer warm target differs")
+    build_directory(root, target, output)
     validate_config(root, record["config"])
     require(record["tools"] == tool_inputs(root, record["config"]), "current exact tool/code/SDK policy differs")
-    require(record["environment"] == environment(record["config"]), "native child environment differs")
+    require(record["environment"] == environment(root, record["config"], output), "native child environment differs")
     metadata = load(output / "metadata.json", record["metadata_sha256"])
     messages_path = output / "artifacts.jsonl"
     require(digest(messages_path) == record["artifacts_sha256"]
@@ -351,9 +389,7 @@ def check_record(record, root, output):
 
 def verify(root, output, producer_sha):
     require(root.resolve(strict=True) == root, "source root differs")
-    require(output.is_absolute() and output.resolve(strict=True) == output
-            and root not in output.parents and output.stat().st_uid == os.geteuid()
-            and stat.S_IMODE(output.stat().st_mode) == 0o700, "local artifact directory is not owned canonical mode0700")
+    artifact_directory(root, output, create=False)
     manifest = load(output / MANIFEST)
     require(set(manifest) == {"schema", "artifact_scope", "build_provenance_version", "cargo_profile",
                               "platform", "source_root", "producer_record_sha256", "artifact_sha256"}
@@ -371,14 +407,13 @@ def verify(root, output, producer_sha):
 def produce(root, target, output, config, acknowledge):
     require(acknowledge, "local native recipe acknowledgement required")
     local_policy("local-unit", os.environ.get("IROHA_JS_NATIVE_BUILD_PROFILE", "debug"))
-    require(root.resolve(strict=True) == root and target.is_relative_to(root / "target/cargo-fast")
-            and target.is_dir() and target.resolve(strict=True) == target, "existing worktree warm lane required")
-    require(output.is_absolute() and output.parent.resolve(strict=True) == output.parent
-            and root not in output.parents and not os.path.lexists(output), "external output must be create-only/canonical")
-    parent = output.parent.stat()
-    require(parent.st_uid == os.geteuid() and stat.S_IMODE(parent.st_mode) == 0o700, "output parent must be owned mode0700")
-    validate_config(root, config); env = environment(config); tools = tool_inputs(root, config)
+    require(root.resolve(strict=True) == root, "source root differs")
+    build_directory(root, target, output)
+    artifact_directory(root, output, create=True)
+    validate_config(root, config); tools = tool_inputs(root, config)
     output.mkdir(mode=0o700); (output / "dep-info").mkdir(mode=0o700)
+    (output / "temporary").mkdir(mode=0o700)
+    env = environment(root, config, output)
     command = [config["cargo"], "metadata", "--locked", "--offline", "--format-version=1",
                "--filter-platform", HOSTS[platform.machine()]]
     metadata_receipt = run(command, root, env, output / "metadata.json", data_stdout=True)

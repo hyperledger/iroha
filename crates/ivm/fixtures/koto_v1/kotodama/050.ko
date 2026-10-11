@@ -1,6 +1,6 @@
 
-        seiyaku StaticAssetAccess {
-        kotoage fn main() authorize("MintAndBurn") {
+        seiyaku StaticAssetAccess { permission MintAndBurn;
+        kotoage fn main() authorize(MintAndBurn) {
             let acc = AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV");
             let asset = AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM");
             ledger::asset::mint(account: acc, asset_definition: asset, amount: 1);

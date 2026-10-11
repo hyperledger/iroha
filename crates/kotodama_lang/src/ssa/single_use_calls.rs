@@ -131,10 +131,10 @@ fn reaches(start: &str, target: &str, edges: &BTreeMap<String, BTreeSet<String>>
         if name == target {
             return true;
         }
-        if visited.insert(name) {
-            if let Some(callees) = edges.get(name) {
-                pending.extend(callees.iter().map(String::as_str));
-            }
+        if visited.insert(name)
+            && let Some(callees) = edges.get(name)
+        {
+            pending.extend(callees.iter().map(String::as_str));
         }
     }
     false
@@ -189,10 +189,10 @@ fn preflight(caller: &Function, callee: &Function, site: &Site, unit: bool) -> b
     let mut returns = 0;
     for block in &callee.blocks {
         for instruction in &block.instructions {
-            if let Instr::LoadVar { name, .. } = instruction.as_ir() {
-                if !parameters.contains(name.as_str()) {
-                    return false;
-                }
+            if let Instr::LoadVar { name, .. } = instruction.as_ir()
+                && !parameters.contains(name.as_str())
+            {
+                return false;
             }
         }
         match block.terminator.as_ir() {

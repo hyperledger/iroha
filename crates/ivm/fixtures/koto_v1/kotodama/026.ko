@@ -1,6 +1,6 @@
 
         seiyaku ReadHelpers {
-          view fn read() -> bytes {
+          view fn read() authorize(anyone) -> bytes {
             let roots = crypto::zk::roots(value: b"roots");
             let tally = ledger::governance::tally(value: b"tally");
             let seed = crypto::vrf::epoch_seed(value: b"seed");

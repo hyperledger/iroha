@@ -77,7 +77,7 @@ fn prepared_native_source_matches_canonical_owned_journal_and_borrows_original_f
         assert!(start + wire.len() <= bytes.as_slice().len());
         assert_eq!(wire.as_ptr(), bytes.as_slice()[start..].as_ptr());
         let charged = frame.charged_source().unwrap();
-        assert!(std::ptr::eq(charged.original_source(), &bytes));
+        assert!(std::ptr::eq(charged.original_source(), &raw const bytes));
         assert!(charged.belongs_to(&pool));
         assert_eq!(
             charged.span(),
@@ -396,7 +396,7 @@ fn prepared_native_source_foreign_pool_refuses_before_pin_and_keeps_same_origina
     prepared.decode(&bytes).unwrap();
     let frame = prepared.view(&bytes).unwrap().frames().next().unwrap();
     let charged = frame.charged_source().unwrap();
-    assert!(std::ptr::eq(charged.original_source(), &bytes));
+    assert!(std::ptr::eq(charged.original_source(), &raw const bytes));
     assert!(charged.belongs_to(&pool));
     assert!(!charged.belongs_to(&foreign));
     assert_eq!(prepared.spans.as_slice().as_ptr(), spans);
@@ -448,7 +448,7 @@ fn prepared_native_charged_frame_feeds_original_block_reader_without_source_reco
     prepared.decode(&bytes).unwrap();
     let frame = prepared.view(&bytes).unwrap().frames().next().unwrap();
     let charged = frame.charged_source().unwrap();
-    assert!(std::ptr::eq(charged.original_source(), &bytes));
+    assert!(std::ptr::eq(charged.original_source(), &raw const bytes));
     assert!(charged.belongs_to(&pool));
     let span = charged.span();
     assert_eq!(span.get(bytes.as_slice()).unwrap(), frame.wire());

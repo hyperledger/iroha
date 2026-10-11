@@ -75,12 +75,12 @@ final class ToriiApplicationPostAuthTests: XCTestCase {
 
         _ = try await client().executeRamLfeProgram(
             programId: "lookup",
-            encryptedInputHex: "ABCD",
+            requestBody: try .ownerInput(normalizedInput: "private@example.org", inputNonceHex: String(repeating: "12", count: 32)),
             canonicalAuth: auth
         )
         _ = try await client(networkId: TestNetworkIds.other).executeRamLfeProgram(
             programId: "lookup",
-            encryptedInputHex: "ABCD",
+            requestBody: try .ownerInput(normalizedInput: "private@example.org", inputNonceHex: String(repeating: "12", count: 32)),
             canonicalAuth: auth
         )
 
@@ -107,7 +107,7 @@ final class ToriiApplicationPostAuthTests: XCTestCase {
         do {
             _ = try await client().executeRamLfeProgram(
                 programId: "lookup",
-                encryptedInputHex: "ABCD",
+                requestBody: try .ownerInput(normalizedInput: "private@example.org", inputNonceHex: String(repeating: "12", count: 32)),
                 canonicalAuth: auth
             )
             XCTFail("redirect must fail closed")

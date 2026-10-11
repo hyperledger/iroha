@@ -407,7 +407,6 @@ fn soracloud_active_validator_authority_rejects_mismatched_public_lane_validator
             activation_height: 1,
             election_exit_height: None,
             deactivation_height: None,
-            last_reward_epoch: None,
         },
     );
     assert!(
@@ -428,7 +427,6 @@ fn soracloud_active_validator_authority_rejects_mismatched_public_lane_validator
             activation_height: 1,
             election_exit_height: None,
             deactivation_height: None,
-            last_reward_epoch: None,
         },
     );
     assert!(
@@ -457,7 +455,6 @@ fn insert_active_public_lane_validator(
             activation_height: 1,
             election_exit_height: None,
             deactivation_height: None,
-            last_reward_epoch: None,
         },
     );
     state_transaction.world.public_lane_stake_shares.insert(
@@ -526,7 +523,6 @@ fn insert_active_public_lane_validator_on_lane(
             activation_height: 1,
             election_exit_height: None,
             deactivation_height: None,
-            last_reward_epoch: None,
         },
     );
     state_transaction.world.public_lane_stake_shares.insert(

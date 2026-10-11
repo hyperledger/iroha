@@ -1,7 +1,9 @@
+import { isExactDurableBuiltinProduct } from "./kotodamaProducts.js";
 // BEGIN GENERATED: kotodama-v1-validator-policy
 /** Canonical Kotodama V1 lexical keywords generated from `grammar/v1.lex`. */
 export const KOTODAMA_V1_KEYWORDS = Object.freeze([
   "as",
+  "permission",
   "authorize",
   "break",
   "const",
@@ -31,6 +33,8 @@ export const KOTODAMA_V1_KEYWORDS = Object.freeze([
   "誓約",
   "state",
   "struct",
+  "event",
+  "emit",
   "trigger",
   "true",
   "var",
@@ -98,13 +102,8 @@ export const KOTODAMA_V1_DECLARATION_RESERVED = Object.freeze([
   "__kotodama_quantity_ratio_round",
   "__kotodama_decimal_to_int_trunc",
   "__kotodama_decimal_to_int_round",
-  "is_some",
-  "is_none",
-  "is_ok",
-  "is_err",
-  "unwrap_or",
-  "unwrap_err_or",
-  "expect",
+  "__kotodama_option_ok_or",
+  "__kotodama_result_or_err",
 ]);
 
 /** Retired numeric spellings reserved only for types and source units. */
@@ -195,12 +194,16 @@ export function isCanonicalKotodamaIdentifier(
   );
 }
 
-/** Validate a locked qualified struct identity without normalizing its package or revision. */
+/** Validate an exact unit-qualified, locked-package, or compiler-owned struct identity. */
 export function isCanonicalKotodamaStructName(value) {
   if (typeof value !== "string" || value.length > 1024) return false;
-  if (!value.includes("::")) return isCanonicalKotodamaIdentifier(value, { typeDeclaration: true });
+  if (!value.includes("::")) return false;
   if (value.includes("__kotodama_link_")) return false;
   const parts = value.split("::");
+  if (parts.length === 2) {
+    if (parts[0] === "kotodama") return ["AccountView", "AssetView", "AssetDefinitionView", "DomainView", "NftView", "QueryPage", "StatePage"].includes(parts[1]);
+    return parts.every((part) => isCanonicalKotodamaIdentifier(part, { typeDeclaration: true }));
+  }
   if (parts.length === 4 && parts[0] === "local") {
     return /^[0-9a-f]{64}$/u.test(parts[1]) &&
       isCanonicalKotodamaIdentifier(parts[2], { typeDeclaration: true }) &&
@@ -226,7 +229,30 @@ export function isCanonicalKotodamaStateDeclarationIdentifier(value) {
 
 /** Return whether a type name is one exact canonical V1 `StateMap` key scalar. */
 export function isKotodamaV1StateMapKeyTypeName(value) {
-  return typeof value === "string" && KOTODAMA_V1_STATE_MAP_KEY_TYPE_SET.has(value);
+  return typeof value === "string" && stateMapKeyTypePrefix(value)?.end === value.length;
+}
+
+/** Parse a bounded canonical scalar/tuple key prefix without accepting aliases. */
+export function stateMapKeyTypePrefix(value, start = 0, initialDepth = 1) {
+  let cursor = start;
+  let nodes = 0;
+  const parse = (depth) => {
+    if (++nodes > 256 || depth > 256) return false;
+    if (value[cursor] === "(") {
+      cursor += 1;
+      if (!parse(depth + 1) || !value.startsWith(", ", cursor)) return false;
+      cursor += 2;
+      if (!parse(depth + 1)) return false;
+      while (value.startsWith(", ", cursor)) { cursor += 2; if (!parse(depth + 1)) return false; }
+      if (value[cursor++] !== ")") return false;
+      return true;
+    }
+    const token = /^[A-Za-z][A-Za-z0-9]*/u.exec(value.slice(cursor))?.[0];
+    if (!KOTODAMA_V1_STATE_MAP_KEY_TYPE_SET.has(token)) return false;
+    cursor += token.length;
+    return true;
+  };
+  return parse(initialDepth) ? { end: cursor, nodes } : null;
 }
 
 /** Return whether a dynamic-access base is exactly `state:` plus one state name. */
@@ -301,6 +327,14 @@ export function isCanonicalKotodamaStateTypeName(value, errorIdentities = null) 
     return Number.isSafeInteger(capacity) && capacity >= 1 && capacity <= 64;
   };
 
+  const parseKey = (depth) => {
+    const key = stateMapKeyTypePrefix(value, cursor, depth);
+    if (!key || nodes + key.nodes > KOTODAMA_V1_MAX_TYPE_NODES) return null;
+    const name = value.slice(cursor, key.end);
+    cursor = key.end;
+    nodes += key.nodes;
+    return name;
+  };
   const parseType = (allowStateMap, depth) => {
     nodes += 1;
     if (depth > KOTODAMA_V1_MAX_TYPE_DEPTH || nodes > KOTODAMA_V1_MAX_TYPE_NODES) {
@@ -370,19 +404,19 @@ export function isCanonicalKotodamaStateTypeName(value, errorIdentities = null) 
     }
     if (name === "StateCursor") {
       if (!consume("<")) return null;
-      const key = identifier();
-      return isKotodamaV1StateMapKeyTypeName(key) && consume(">") ? name : null;
+      const key = parseKey(depth + 1);
+      return key !== null && consume(">") ? name : null;
     }
     if (name === "StateMap") {
       if (!allowStateMap || !consume("<")) {
         return null;
       }
-      // StateMap's scalar key and wrapper are not StateValueSchemaV1 nodes,
-      // but the wrapper still consumes one CNTR descriptor-depth level.
-      nodes -= 1;
-      const keyType = identifier();
+      const valueNodes = nodes - 1;
+      nodes = 0;
+      const keyType = parseKey(depth + 1);
+      nodes = valueNodes;
       if (
-        !KOTODAMA_V1_STATE_MAP_KEY_TYPE_SET.has(keyType) ||
+        keyType === null ||
         !consume(", ") ||
         parseType(false, depth + 1) === null ||
         !consume(">")
@@ -391,15 +425,15 @@ export function isCanonicalKotodamaStateTypeName(value, errorIdentities = null) 
       }
       return "aggregate";
     }
-    if (name === "StatePage") {
-      nodes += 5; // List, Tuple, scalar key, Option, StateCursor.
+    if (name === "kotodama::StatePage") {
+      nodes += 4; // List, Tuple, Option, StateCursor; both key occurrences count below.
       if (nodes > KOTODAMA_V1_MAX_TYPE_NODES || depth + 3 > KOTODAMA_V1_MAX_TYPE_DEPTH ||
           !consume("{items: List<(")) return null;
-      const key = identifier();
-      if (!KOTODAMA_V1_STATE_MAP_KEY_TYPE_SET.has(key) || !consume(", ") ||
+      const key = parseKey(depth + 3);
+      if (key === null || !consume(", ") ||
           parseType(false, depth + 3) === null || !consume("), ") || !listCapacity() ||
           !consume(">, next: Option<StateCursor<")) return null;
-      return consume(key) && consume(">>}") ? "aggregate" : null;
+      return parseKey(depth + 3) === key && consume(">>}") ? "aggregate" : null;
     }
     if (
       !isCanonicalKotodamaStructName(name) ||
@@ -408,8 +442,9 @@ export function isCanonicalKotodamaStateTypeName(value, errorIdentities = null) 
       return null;
     }
     // Empty products retain their validated nominal name and have no fields.
-    if (consume("}")) return "aggregate";
+    if (consume("}")) return isExactDurableBuiltinProduct(name, [], []) ? "aggregate" : null;
     const fields = new Set();
+    const types = [];
     while (true) {
       const field = identifier();
       if (
@@ -421,11 +456,13 @@ export function isCanonicalKotodamaStateTypeName(value, errorIdentities = null) 
         return null;
       }
       fields.add(field);
+      const childStart = cursor;
       if (parseType(false, depth + 1) === null) {
         return null;
       }
+      types.push(value.slice(childStart, cursor));
       if (consume("}")) {
-        return "aggregate";
+        return isExactDurableBuiltinProduct(name, [...fields], types) ? "aggregate" : null;
       }
       if (!consume(", ")) {
         return null;
@@ -444,10 +481,9 @@ export function kotodamaV1StateMapKeyTypeName(value) {
   if (!isCanonicalKotodamaStateTypeName(value)) {
     return null;
   }
-  const match = /^StateMap<([A-Za-z_][A-Za-z0-9_]*), /u.exec(value);
-  return match !== null && isKotodamaV1StateMapKeyTypeName(match[1])
-    ? match[1]
-    : null;
+  if (!value.startsWith("StateMap<")) return null;
+  const key = stateMapKeyTypePrefix(value, "StateMap<".length);
+  return key ? value.slice("StateMap<".length, key.end) : null;
 }
 
 /** Return whether a string is a normal V1 entrypoint name or branded lifecycle selector. */

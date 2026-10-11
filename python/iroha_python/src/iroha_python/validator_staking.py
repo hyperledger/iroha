@@ -2,7 +2,7 @@
 
 These typed values preserve signed monetary intent. They do not authenticate
 network XOR, ledger observations, possession, finality, or committee authority.
-Optional fields, including fee_claim, are required constructor arguments.
+Every field is an explicit constructor argument; fee_claim is mandatory.
 """
 from __future__ import annotations
 
@@ -110,28 +110,6 @@ class StakingMonetaryPlanV1(_Value):
 
 
 @dataclass(frozen=True)
-class StakingRewardClaimStateV1(_Value):
-    """Retained reward cursor; epoch zero is a completed epoch."""
-    through_epoch: int | None
-
-
-@dataclass(frozen=True)
-class StakingRewardRecordRefV1(_Value):
-    """Exact epoch and immutable reward record commitment."""
-    epoch: int
-    record_hash: bytes
-
-
-@dataclass(frozen=True)
-class StakingRewardClaimSourceV1(_Value):
-    """Prior accrual and exact payment from one scoped custody source."""
-    source_asset: StakingAssetIdV1
-    destination_asset: StakingAssetIdV1
-    expected_accrued: KotodamaQuantity | None
-    payout: KotodamaQuantity
-
-
-@dataclass(frozen=True)
 class StakingFeeRewardClaimV1(_Value):
     """Complete reserved fee credit and the exact beneficiary/lifecycle sequence."""
     lifecycle_seal: bytes
@@ -145,30 +123,18 @@ class StakingFeeRewardClaimV1(_Value):
 
 @dataclass(frozen=True)
 class StakingRewardClaimPlanV1(_Value):
-    """Bounded reward records/sources and an explicitly present optional fee claim."""
+    """Exact automatically accrued funded XOR claim and execution expiry."""
     network_scope: StakingScopeV1
     valid_until_height: int
-    expected_state: StakingRewardClaimStateV1 | None
-    records: tuple[StakingRewardRecordRefV1, ...]
-    sources: tuple[StakingRewardClaimSourceV1, ...]
-    fee_claim: StakingFeeRewardClaimV1 | None
+    fee_claim: StakingFeeRewardClaimV1
 
 
 @dataclass(frozen=True)
-class StakingValidatorKeysV1(_Value):
-    """One complete peer and paired generation-bound Pasta verification keys."""
-    validator: StakingPeerIdV1
-    eq_proof_public_key: bytes
-    ep_proof_public_key: bytes
-
-
-@dataclass(frozen=True)
-class StakingAuthorityGenerationV1(_Value):
-    """Signing generation independent of scheduling epoch; not an authority proof."""
-    version: int
+class StakingValidatorGenerationV1(_Value):
+    """Ordered BLS roster under one generation; not an authority proof."""
     network_id: NetworkId
     generation: int
-    validators: tuple[StakingValidatorKeysV1, ...]
+    validators: tuple[StakingPeerIdV1, ...]
 
 
 @dataclass(frozen=True)
@@ -221,11 +187,8 @@ class StakingPrepareUnbondV1(_Value):
 
 @dataclass(frozen=True)
 class StakingPrepareClaimV1(_Value):
-    """Bounded reward prefix and explicit retained accrual sources."""
+    """Current beneficiary requesting one automatic entitlement claim."""
     recipient: str
-    upto_epoch: int | None
-    max_records: int
-    accrued_sources: tuple[StakingAssetIdV1, ...]
 
 
 StakingPreparationOperationV1 = (StakingPrepareRegistrationV1 | StakingPrepareBondV1 |
@@ -280,10 +243,10 @@ _SCHEMAS = {
     StakingPrepareRegistrationV1: (("validator", "account"), ("peer_id", StakingPeerIdV1), ("amount", "quantity"), ("candidate", "bool")),
     StakingPrepareBondV1: (("validator", "account"), ("staker", "account"), ("amount", "quantity")),
     StakingPrepareUnbondV1: (("validator", "account"), ("staker", "account"), ("request_id", "hash")),
-    StakingPrepareClaimV1: (("recipient", "account"), ("upto_epoch", ("option", "u64")), ("max_records", "u16"), ("accrued_sources", ("vector", StakingAssetIdV1, 64))),
+    StakingPrepareClaimV1: (("recipient", "account"),),
     StakingPreparationRequestV1: (("lane_id", "lane"), ("valid_for_blocks", "u64"), ("operation", "preparation_operation")),
     StakingPreparationBalanceV1: (("asset", StakingAssetIdV1), ("balance", "quantity"), ("stake_reserved", "quantity"), ("rewards_reserved", "quantity")),
-    StakingPreparationV1: (("request", StakingPreparationRequestV1), ("network_id", "network"), ("observed_height", "u64"), ("observed_block_hash", "hash"), ("observed_ledger_time_ms", "u64"), ("assumed_execution_height", "u64"), ("xor_asset_definition_id", "definition"), ("plan", "prepared_plan"), ("balances", ("vector", StakingPreparationBalanceV1, 128))),
+    StakingPreparationV1: (("request", StakingPreparationRequestV1), ("network_id", "network"), ("observed_height", "u64"), ("observed_block_hash", "hash"), ("observed_ledger_time_ms", "u64"), ("assumed_execution_height", "u64"), ("xor_asset_definition_id", "definition"), ("plan", "prepared_plan"), ("balances", ("vector", StakingPreparationBalanceV1, 2))),
     StakingScopeV1: (("network_id", ("option", "network")),),
     StakingAssetScopeV1: (("dataspace", ("option", "u64")),),
     StakingAssetIdV1: (("account", "account"), ("definition", "definition"), ("scope", StakingAssetScopeV1)),
@@ -293,13 +256,9 @@ _SCHEMAS = {
     StakingMonetaryUnbondV1: (("activation_height", "u64"), ("request_hash", "hash")),
     StakingMonetarySlashV1: (("activation_height", "u64"), ("slashable_exposure", "quantity")),
     StakingMonetaryPlanV1: (("network_scope", StakingScopeV1), ("valid_until_height", "u64"), ("source_asset", StakingAssetIdV1), ("destination_asset", StakingAssetIdV1), ("amount", "quantity"), ("precondition", "precondition")),
-    StakingRewardClaimStateV1: (("through_epoch", ("option", "u64")),),
-    StakingRewardRecordRefV1: (("epoch", "u64"), ("record_hash", "hash")),
-    StakingRewardClaimSourceV1: (("source_asset", StakingAssetIdV1), ("destination_asset", StakingAssetIdV1), ("expected_accrued", ("option", "quantity")), ("payout", "quantity")),
     StakingFeeRewardClaimV1: (("lifecycle_seal", "bytes32"), ("beneficiary_id", "account"), ("beneficiary_revision", "u64"), ("source_asset", StakingAssetIdV1), ("destination_asset", StakingAssetIdV1), ("amount", "quantity"), ("expected_claim_sequence", "u64")),
-    StakingRewardClaimPlanV1: (("network_scope", StakingScopeV1), ("valid_until_height", "u64"), ("expected_state", ("option", StakingRewardClaimStateV1)), ("records", ("vector", StakingRewardRecordRefV1, 64)), ("sources", ("vector", StakingRewardClaimSourceV1, 64)), ("fee_claim", ("option", StakingFeeRewardClaimV1))),
-    StakingValidatorKeysV1: (("validator", StakingPeerIdV1), ("eq_proof_public_key", "bytes32"), ("ep_proof_public_key", "bytes32")),
-    StakingAuthorityGenerationV1: (("version", "u16"), ("network_id", "network"), ("generation", "u64"), ("validators", ("vector", StakingValidatorKeysV1, 31))),
+    StakingRewardClaimPlanV1: (("network_scope", StakingScopeV1), ("valid_until_height", "u64"), ("fee_claim", StakingFeeRewardClaimV1)),
+    StakingValidatorGenerationV1: (("network_id", "network"), ("generation", "u64"), ("validators", ("vector", StakingPeerIdV1, 31))),
     StakingInstalledBeaconV1: (("session_id", "bytes32"), ("transcript_hash", "bytes32")),
     StakingEpochAuthorizationV1: (("version", "u16"), ("network_id", "network"), ("epoch", "u64"), ("first_height", "u64"), ("last_height", "u64"), ("authority_generation", "u64"), ("authority_id", "bytes32"), ("beacon", "beacon"), ("previous_authorization_id", "bytes32"), ("transition_id", "bytes32"), ("decision", "decision")),
 }
@@ -375,31 +334,23 @@ def _validate(value):
         raise ValueError("preparation expiry offset must be positive")
     if type(value) in (StakingPrepareRegistrationV1, StakingPrepareBondV1) and value.amount.mantissa == 0:
         raise ValueError("preparation amount must be positive")
-    if type(value) is StakingPrepareClaimV1:
-        if value.max_records > 64 or any(_asset_order(a) >= _asset_order(b) for a, b in zip(value.accrued_sources, value.accrued_sources[1:])):
-            raise ValueError("reward preparation requires at most 64 records and strictly ordered sources")
     if type(value) is StakingMonetaryPlanV1:
         if value.valid_until_height == 0 or value.amount.mantissa == 0 or not _same_asset(value.source_asset, value.destination_asset): raise ValueError("invalid staking monetary plan")
-    elif type(value) is StakingRewardClaimSourceV1:
-        if not _same_asset(value.source_asset, value.destination_asset) or value.expected_accrued is not None and value.expected_accrued.mantissa == 0: raise ValueError("invalid reward source asset or accrual")
     elif type(value) is StakingFeeRewardClaimV1:
         if not any(value.lifecycle_seal) or value.amount.mantissa == 0 or value.source_asset.scope.dataspace is not None or value.destination_asset.scope.dataspace is not None or not _same_asset(value.source_asset, value.destination_asset): raise ValueError("invalid fee reward custody or amount")
     elif type(value) is StakingRewardClaimPlanV1:
         if value.valid_until_height == 0: raise ValueError("reward expiry must be positive")
-        previous = value.expected_state.through_epoch if value.expected_state else None
-        for record in value.records:
-            if previous is not None and previous >= record.epoch: raise ValueError("reward epochs must advance the cursor")
-            previous = record.epoch
-        previous_source = None
-        recipient = value.sources[0].destination_asset.account if value.sources else value.fee_claim.destination_asset.account if value.fee_claim else None
-        for source in value.sources:
-            order = _asset_order(source.source_asset)
-            if previous_source is not None and previous_source >= order: raise ValueError("reward sources must use strict AssetId order")
-            if source.destination_asset.account != recipient: raise ValueError("reward plan changes recipient")
-            previous_source = order
-        if value.fee_claim and value.fee_claim.destination_asset.account != recipient: raise ValueError("fee claim changes recipient")
-    elif type(value) is StakingAuthorityGenerationV1:
-        if value.version != 1 or len(value.validators) < 4 or (len(value.validators) - 1) % 3: raise ValueError("invalid authority-generation geometry")
+    elif type(value) is StakingValidatorGenerationV1:
+        if len(value.validators) < 4 or (len(value.validators) - 1) % 3:
+            raise ValueError("invalid validator-generation geometry")
+        previous_key = None
+        for peer in value.validators:
+            algorithm, key = parse_public_key_multihash(peer.public_key)
+            if algorithm != "bls_normal" or len(key) != 48:
+                raise ValueError("validator generation requires BLS-normal keys")
+            if previous_key is not None and previous_key >= key:
+                raise ValueError("validator generation requires strictly ordered keys")
+            previous_key = key
     elif type(value) is StakingEpochAuthorizationV1:
         if value.version != 1 or value.first_height == 0 or value.last_height < value.first_height: raise ValueError("invalid epoch authorization")
 
@@ -634,13 +585,9 @@ def validate_staking_preparation_v1(prepared: StakingPreparationV1, request: Sta
         if not matched or plan.precondition.activation_height == 0: fail("monetary_intent")
         assets.extend((plan.source_asset, plan.destination_asset))
     else:
-        if type(intent) is not StakingPrepareClaimV1 or len(plan.records) > intent.max_records: fail("reward_intent")
-        if intent.upto_epoch is not None and (any(row.epoch > intent.upto_epoch for row in plan.records) or plan.expected_state is not None and plan.expected_state.through_epoch is not None and plan.expected_state.through_epoch > intent.upto_epoch): fail("reward_epoch_cut")
-        if not all(any(source.source_asset == selected and source.expected_accrued is not None and source.expected_accrued.mantissa > 0 for source in plan.sources) for selected in intent.accrued_sources): fail("selected_accrual")
-        if not plan.records and tuple(source.source_asset for source in plan.sources) != intent.accrued_sources: fail("unselected_accrual")
-        for source in (*plan.sources, *((plan.fee_claim,) if plan.fee_claim else ())):
-            if source.destination_asset.account != intent.recipient: fail("reward_recipient")
-            assets.extend((source.source_asset, source.destination_asset))
+        if type(intent) is not StakingPrepareClaimV1: fail("reward_intent")
+        if plan.fee_claim.destination_asset.account != intent.recipient: fail("reward_recipient")
+        assets.extend((plan.fee_claim.source_asset, plan.fee_claim.destination_asset))
     unique = sorted(set(assets), key=_asset_order)
     if tuple(row.asset for row in prepared.balances) != tuple(unique): fail("balances")
     if any(asset.scope.dataspace is not None or asset.definition != xor_asset_definition_id for asset in unique): fail("global_xor")

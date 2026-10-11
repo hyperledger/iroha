@@ -7,7 +7,9 @@
 //! this does not claim an atomic snapshot of a concurrently edited whole workspace.
 use crate::{
     cache::{CachedCompilerPackageV1, MusubiCache},
-    compiler::validate_exact_registry_interfaces_v1,
+    compiler::{
+        locate_workspace_diagnostic, member_directory, validate_exact_registry_interfaces_v1,
+    },
     compiler_identity::{local_package, registry_release},
     graph::{collect_local_members, resolve_workspace_local},
     lockfile::{LockContextV1, LockedRootV1, LockfileV1},
@@ -26,12 +28,14 @@ use iroha_fs::{OwnerDirectory, RetainedFile};
 use ivm::{SyscallPolicy, syscalls::compute_abi_hash};
 use kotodama_lang::{
     compiler::{CompilerMode, CompilerOptions},
+    diagnostic::DiagnosticBundle,
     driver::discover_source_modules,
     linker::{ImportBinding, MAX_MODULE_GRAPH_SOURCE_BYTES, SourceModuleUnit, SourcePackageUnit},
 };
 use kotodama_toolchain::koto_test_driver::{
-    KotoTestModuleGraphV1, KotoTestRunReportV1, KotoTestRunRequestV1,
-    declared_test_target_source_v1, run_tests_structured_source_set_with_modules_v1,
+    KotoTestModuleGraphV1, KotoTestRunErrorV1, KotoTestRunPhaseV1, KotoTestRunReportV1,
+    KotoTestRunRequestV1, declared_test_target_source_v1,
+    run_tests_structured_source_set_with_modules_v1,
 };
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt as _;
@@ -49,6 +53,8 @@ pub struct WorkspaceTestOptionsV1 {
     pub filter: Option<String>,
     /// Require `filter` to match the complete test name.
     pub exact: bool,
+    /// Optional manifest-declared contract target; tests of other contracts are excluded.
+    pub contract: Option<String>,
     /// Maximum number of isolated VM test workers per target.
     pub jobs: usize,
     /// Deterministic per-target test ordering seed.
@@ -65,6 +71,7 @@ impl WorkspaceTestOptionsV1 {
         Self {
             filter: None,
             exact: false,
+            contract: None,
             jobs: 1,
             seed: 0,
             chain_discriminant,
@@ -128,8 +135,42 @@ pub enum WorkspaceTestErrorV1 {
     ExternalModules(String),
     /// A declared test target was not a safe regular Kotodama source file.
     Target(String),
-    /// Structured IVM discovery, compilation, or execution failed.
+    /// The structured runner rejected the request or found no matching tests.
     Runner(String),
+    /// Kotodama rejected the test sources with canonical structured diagnostics.
+    Compilation(DiagnosticBundle),
+    /// Test fixtures or VM preparation failed while executing compiled tests.
+    Execution(String),
+}
+impl WorkspaceTestErrorV1 {
+    /// Classify a structured runner failure by its stable phase.
+    fn from_runner(error: KotoTestRunErrorV1) -> Self {
+        if let Some(diagnostics) = error.diagnostics {
+            return Self::Compilation(diagnostics);
+        }
+        match error.phase {
+            KotoTestRunPhaseV1::Execution => Self::Execution(error.message),
+            KotoTestRunPhaseV1::Compilation
+            | KotoTestRunPhaseV1::Request
+            | KotoTestRunPhaseV1::Discovery => Self::Runner(error.message),
+        }
+    }
+    fn located(
+        mut self,
+        member: &WorkspaceMember,
+        local_directories: &BTreeMap<String, String>,
+    ) -> Self {
+        if let Self::Compilation(bundle) = &mut self {
+            for diagnostic in &mut bundle.diagnostics {
+                locate_workspace_diagnostic(
+                    diagnostic,
+                    member_directory(member),
+                    local_directories,
+                );
+            }
+        }
+        self
+    }
 }
 impl fmt::Display for WorkspaceTestErrorV1 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -145,6 +186,12 @@ impl fmt::Display for WorkspaceTestErrorV1 {
             }
             Self::Target(reason) => write!(formatter, "invalid test target: {reason}"),
             Self::Runner(reason) => write!(formatter, "Kotodama test runner failed: {reason}"),
+            Self::Compilation(diagnostics) => {
+                write!(formatter, "Kotodama rejected the selected test sources\n{}", diagnostics.render_human())
+            }
+            Self::Execution(reason) => {
+                write!(formatter, "Kotodama test execution failed: {reason}")
+            }
         }
     }
 }
@@ -251,6 +298,15 @@ fn execute_workspace_tests_with_source<S: AuthenticatedTestRegistryV1>(
             "two local test packages share one manifest path".to_owned(),
         ));
     }
+    let local_directories = local_members
+        .iter()
+        .map(|member| {
+            (
+                local_package(&member.package.selector, &member.package.version),
+                member_directory(member).to_owned(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
     let roots = members
         .iter()
         .map(|member| selected_lock_root(lock, member, true))
@@ -305,10 +361,33 @@ fn execute_workspace_tests_with_source<S: AuthenticatedTestRegistryV1>(
             "the exact test graph contains duplicate package identities".to_owned(),
         ));
     }
+    if let Some(name) = &options.contract {
+        let count = members
+            .iter()
+            .flat_map(|member| {
+                member
+                    .manifest
+                    .contracts
+                    .iter()
+                    .map(move |target| (member, target))
+            })
+            .filter(|(member, target)| {
+                target.name.as_ref() == name
+                    || format!("{}::{}", member.package.selector, target.name) == *name
+            })
+            .count();
+        if count != 1 {
+            return Err(WorkspaceTestErrorV1::Target(format!(
+                "contract selector `{name}` must identify exactly one selected manifest target; found {count}"
+            )));
+        }
+    }
     let mut targets = Vec::new();
     let mut matched_filter = options.filter.is_none();
     for (member, root) in members.into_iter().zip(roots) {
+        let locate = |error: WorkspaceTestErrorV1| error.located(member, &local_directories);
         let module_graph = KotoTestModuleGraphV1 {
+            artifacts: Vec::new(),
             sources: Vec::new(),
             imports: test_root_imports(member, root, &local_identities)?,
             packages: packages.clone(),
@@ -331,18 +410,42 @@ fn execute_workspace_tests_with_source<S: AuthenticatedTestRegistryV1>(
                     &source.unit,
                     &mut contract_sources,
                     &mut source_budget,
-                )?;
+                )
+                .map_err(locate)?;
+                if let Some(name) = &options.contract {
+                    let target = member.manifest.contracts.iter().find(|target| {
+                        target.name.as_ref() == name
+                            || format!("{}::{}", member.package.selector, target.name) == *name
+                    });
+                    let Some(target) = target else {
+                        continue;
+                    };
+                    let actual = contract
+                        .as_ref()
+                        .map_or(source.unit.source_name.as_str(), |contract| {
+                            contract.source_name.as_str()
+                        });
+                    if actual != target.path.as_str() {
+                        continue;
+                    }
+                }
                 let mut module_graph = module_graph.clone();
                 let mut entries = vec![source.unit.clone()];
                 if let Some(contract) = &contract {
                     entries.push(contract.clone());
                 }
-                module_graph.sources = kotodama_lang::driver::load_source_companions(
+                let inventory = kotodama_lang::driver::load_source_inventory(
                     &entries,
                     &member.package_root,
                     &BTreeMap::new(),
                 )
-                .map_err(|error| WorkspaceTestErrorV1::Runner(error.to_string()))?;
+                .map_err(|error| match error.into_diagnostics() {
+                    Ok(diagnostics) => WorkspaceTestErrorV1::Compilation(diagnostics),
+                    Err(other) => WorkspaceTestErrorV1::Runner(other.to_string()),
+                })
+                .map_err(locate)?;
+                module_graph.sources = inventory.sources;
+                module_graph.artifacts = inventory.artifacts;
                 if let Some(filter) = options.filter.as_deref() {
                     let names =
                         kotodama_toolchain::koto_test_driver::discover_declared_test_names_source_set_with_sources_v1(&source.unit, contract.as_ref(), &module_graph.sources)
@@ -372,7 +475,8 @@ fn execute_workspace_tests_with_source<S: AuthenticatedTestRegistryV1>(
                     contract.as_ref(),
                     &module_graph,
                 )
-                .map_err(|error| WorkspaceTestErrorV1::Runner(error.to_string()))?;
+                .map_err(WorkspaceTestErrorV1::from_runner)
+                .map_err(locate)?;
                 targets.push(WorkspaceTestTargetReportV1 {
                     package: member.package.selector.clone(),
                     target: target.name.to_string(),
@@ -616,13 +720,13 @@ fn local_source_package(
     }
     let (modules, mut sources) = crate::compiler::partition_library_sources(units)
         .map_err(|error| WorkspaceTestErrorV1::ExternalModules(error.to_string()))?;
-    for source in kotodama_lang::driver::load_source_companions(
+    let inventory = kotodama_lang::driver::load_source_inventory(
         &modules,
         &member.package_root,
         &BTreeMap::new(),
     )
-    .map_err(|error| WorkspaceTestErrorV1::ExternalModules(error.to_string()))?
-    {
+    .map_err(|error| WorkspaceTestErrorV1::ExternalModules(error.to_string()))?;
+    for source in inventory.sources {
         if !sources
             .iter()
             .any(|known| known.source_name == source.source_name)
@@ -653,6 +757,7 @@ fn local_source_package(
             .then_with(|| left.package.cmp(&right.package))
     });
     Ok(Some(SourcePackageUnit {
+        artifacts: inventory.artifacts,
         sources,
         identity: local_package(&member.package.selector, &member.package.version),
         modules,
@@ -767,6 +872,7 @@ fn cached_source_package(
         )));
     }
     Ok(SourcePackageUnit {
+        artifacts: cached.contract_artifacts,
         sources,
         identity: registry_release(&node.release),
         modules,
@@ -884,8 +990,12 @@ fn declared_contract_for_test_source(
     contracts: &mut BTreeMap<String, SourceModuleUnit>,
     budget: &mut DeclaredTestSourceBudgetV1,
 ) -> Result<Option<SourceModuleUnit>, WorkspaceTestErrorV1> {
-    let Some(target) =
-        declared_test_target_source_v1(source).map_err(WorkspaceTestErrorV1::Target)?
+    let Some(target) = declared_test_target_source_v1(source).map_err(|error| {
+        error.diagnostics.map_or_else(
+            || WorkspaceTestErrorV1::Target(error.message),
+            WorkspaceTestErrorV1::Compilation,
+        )
+    })?
     else {
         return Ok(None);
     };
@@ -1509,6 +1619,7 @@ path = "tests/unit.ko"
         imports: Vec<ImportBinding>,
     ) -> SourcePackageUnit {
         SourcePackageUnit {
+            artifacts: Vec::new(),
             sources: Vec::new(),
             identity: registry_release(release),
             modules: vec![SourceModuleUnit {
@@ -1551,7 +1662,7 @@ path = "tests/unit.ko"
         write(&temporary.path().join("Musubi.toml"), &manifest);
         write(
             &temporary.path().join("contracts/app.ko"),
-            "seiyaku App { fn reward() -> int { return 7; } view fn current() -> int { return reward(); } }",
+            "seiyaku App { fn reward() -> int { return 7; } view fn current() authorize(anyone) -> int { return reward(); } }",
         );
         let workspace =
             load_workspace(&temporary.path().join("Musubi.toml")).expect("standalone workspace");
@@ -1595,8 +1706,43 @@ path = "tests/unit.ko"
             r#"module Tests { koto_test { target: "../contracts/app.ko" } #[test] fn wrong_import() { test::assert(missing::value() == 7); } }"#,
         );
         assert!(
-            matches!(execute_workspace_tests_v1(None, &workspace, &selected, &lock, &WorkspaceTestOptionsV1::new(753)), Err(WorkspaceTestErrorV1::Runner(reason)) if reason.contains("missing"))
+            matches!(execute_workspace_tests_v1(None, &workspace, &selected, &lock, &WorkspaceTestOptionsV1::new(753)), Err(WorkspaceTestErrorV1::Compilation(diagnostics)) if diagnostics.diagnostics.iter().any(|diagnostic| diagnostic.message.contains("missing")))
         );
+    }
+    #[test]
+    fn contract_selection_excludes_same_named_tests_of_other_targets() {
+        let (temporary, _) = standalone_fixture(
+            r#"module Tests { koto_test { target: "../contracts/app.ko" } #[test] fn selected() { test::assert(reward() == 7); } }"#,
+        );
+        let manifest_path = temporary.path().join("Musubi.toml");
+        let mut manifest = std::fs::read_to_string(&manifest_path).unwrap();
+        manifest.push_str("\n[[contract]]\nname = \"other\"\npath = \"contracts/other.ko\"\n[[test]]\nname = \"other\"\npath = \"tests/other.ko\"\n");
+        write(&manifest_path, &manifest);
+        write(
+            &temporary.path().join("contracts/other.ko"),
+            "seiyaku Other { view fn value() authorize(anyone) -> int { 0 } }",
+        );
+        write(
+            &temporary.path().join("tests/other.ko"),
+            r#"module OtherTests { koto_test { target: "../contracts/other.ko" } #[test] fn selected() { test::assert(false); } }"#,
+        );
+        let workspace = load_workspace(&manifest_path).unwrap();
+        let selected = vec!["test/app".parse().unwrap()];
+        let lock = resolve_workspace_local(&workspace, &selected, None, ResolveModeV1::UpdateLock)
+            .unwrap()
+            .unwrap()
+            .lockfile;
+        let mut options = WorkspaceTestOptionsV1::new(753);
+        options.contract = Some("app".into());
+        options.filter = Some("selected".into());
+        options.exact = true;
+        let report =
+            execute_workspace_tests_v1(None, &workspace, &selected, &lock, &options).unwrap();
+        assert_eq!(report.targets.len(), 1);
+        assert_eq!(report.passed(), 1);
+        assert_eq!(report.failed(), 0);
+        options.contract = Some("absent".into());
+        assert!(execute_workspace_tests_v1(None, &workspace, &selected, &lock, &options).is_err());
     }
     #[test]
     fn standalone_contract_is_read_once_and_reused_as_immutable_source() {

@@ -8,7 +8,6 @@ use super::{
     WorldBlock,
     block_field::{BlockField, OriginalPublicationBlock},
 };
-use iroha_allocation::OwnedAllocationScope;
 use mv::storage::AdmittedStorageError;
 use mv::{BlockAcquisition, BlockMode, BlockRetirement};
 
@@ -74,35 +73,6 @@ impl<'a, V: mv::Value, C: Send + Sync + 'static> WorldFieldAcquisition
     }
 }
 
-pub(super) struct OperationAcquisition<'a>(
-    pub(super)  mv::storage::BlockAcquisitionSlot<
-        'a,
-        [u8; 32],
-        [u8; 32],
-        super::kagemusha_operation_indexes::OperationIndexMode,
-    >,
-);
-impl<'a> WorldFieldAcquisition for OperationAcquisition<'a> {
-    type Block = mv::storage::Block<
-        'a,
-        [u8; 32],
-        [u8; 32],
-        super::kagemusha_operation_indexes::OperationIndexMode,
-    >;
-    fn try_initialize(&mut self, mode: BlockMode) -> Result<(), AdmittedStorageError> {
-        self.0.try_initialize(mode)
-    }
-    fn release(&mut self) {
-        self.0.release();
-    }
-    fn take_block(&mut self) -> Self::Block {
-        self.0.take_block()
-    }
-    fn into_block(self) -> Self::Block {
-        self.0.into_block()
-    }
-}
-
 pub(super) trait IntoWorldField {
     type Field;
     fn into_world_field(self) -> Self::Field;
@@ -132,7 +102,6 @@ macro_rules! declare_world_acquisition {
             $(pub(super) $prefix: Option<$prefix>,)*
             $(pub(super) $privacy: Option<$privacy>,)*
             $(pub(super) $suffix: Option<$suffix>,)*
-            pub(super) scope: Option<OwnedAllocationScope>,
         }
 
         #[allow(non_camel_case_types)]
@@ -193,9 +162,9 @@ macro_rules! declare_world_acquisition {
             ) -> Result<(), AdmittedStorageError> {
                 self.publication.begin_reacquisition();
                 let fields: &mut super::WorldBlockFields<'world> = self.fields.as_mut().expect("original World block fields");
-                $(fields.$prefix.install_frozen_publication(&target.$prefix, &fields.operation_index_scope)?;)*
-                $(fields.$privacy.install_frozen_publication(&target.$privacy, &fields.operation_index_scope)?;)*
-                $(fields.$suffix.install_frozen_publication(&target.$suffix, &fields.operation_index_scope)?;)*
+                $(fields.$prefix.install_frozen_publication(&target.$prefix)?;)*
+                $(fields.$privacy.install_frozen_publication(&target.$privacy)?;)*
+                $(fields.$suffix.install_frozen_publication(&target.$suffix)?;)*
                 Ok(())
             }
             pub(super) fn try_prepare_frozen_publication(&mut self)
@@ -274,31 +243,29 @@ macro_rules! build_world_block_from_fields {
         [$($prefix:ident,)*] [$($privacy:ident,)*] [$($suffix:ident,)*]) => {{
         let budget = $budget;
         let mut demand = world_acquisition::OriginalWorldFields::layout().size();
-        // Keep each store's layout iterator and checked-arithmetic temporaries
-        // in its own frame. Expanding those locals into this aggregate frame
-        // reserves their combined stack space for the entire acquisition.
-        $(world_acquisition::add_original_control_demand(&$state.$prefix, &mut demand)?;)*
-        $(world_acquisition::add_original_control_demand(&$state.$privacy, &mut demand)?;)*
-        $(world_acquisition::add_original_control_demand(&$state.$suffix, &mut demand)?;)*
+        // End the complete read-only census frame, including each propagated
+        // error temporary, before allocating controls or acquiring any writer.
+        world_acquisition::fill_world_acquisition(|| -> Result<(), mv::storage::AdmittedStorageError> {
+            $(world_acquisition::add_original_control_demand(&$state.$prefix, &mut demand)?;)*
+            $(world_acquisition::add_original_control_demand(&$state.$privacy, &mut demand)?;)*
+            $(world_acquisition::add_original_control_demand(&$state.$suffix, &mut demand)?;)*
+            Ok(())
+        })?;
         // Admit the complete concrete control demand atomically before any
         // allocation or physical World writer, from the caller's original pool.
         let mut reservation = budget.try_reserve_bytes(demand).map_err(mv::storage::AdmittedStorageError::Allocation)?;
         let mut fields = world_acquisition::OriginalWorldFields::reserve(&mut reservation)?;
-        let scope = $state.kagemusha_mint_credit_operations.allocation_budget()
-            .try_owned_refund_scope().map_err(mv::storage::AdmittedStorageError::Allocation)?;
         let mut pending = world_acquisition::WorldAcquisition {
             $($prefix: None,)*
             $($privacy: None,)*
             $($suffix: None,)*
-            scope: Some(scope),
         };
         // Fill the same caller-owned slots one at a time before acquiring any
         // writer, without retaining a full composite initializer temporary.
         world_acquisition::fill_world_acquisition(|| -> Result<(), mv::storage::AdmittedStorageError> {
-            let scope = pending.scope.as_ref().expect("original World refund scope");
-            $(world_acquisition::initialize_original_field(&mut pending.$prefix, &$state.$prefix, scope, budget, &mut reservation)?;)*
-            $(world_acquisition::initialize_original_field(&mut pending.$privacy, &$state.$privacy, scope, budget, &mut reservation)?;)*
-            $(world_acquisition::initialize_original_field(&mut pending.$suffix, &$state.$suffix, scope, budget, &mut reservation)?;)*
+            $(world_acquisition::initialize_original_field(&mut pending.$prefix, &$state.$prefix, budget, &mut reservation)?;)*
+            $(world_acquisition::initialize_original_field(&mut pending.$privacy, &$state.$privacy, budget, &mut reservation)?;)*
+            $(world_acquisition::initialize_original_field(&mut pending.$suffix, &$state.$suffix, budget, &mut reservation)?;)*
             Ok(())
         })?;
         assert_eq!(reservation.remaining_bytes(), 0, "complete original World control inventory");
@@ -319,7 +286,6 @@ macro_rules! build_world_block_from_fields {
                 $(fields.take_next(std::ptr::addr_of_mut!((*target).$privacy), pending.$privacy.as_mut().expect("original field acquisition"));)*
                 $(fields.take_next(std::ptr::addr_of_mut!((*target).$suffix), pending.$suffix.as_mut().expect("original field acquisition"));)*
                 fields.write_next(std::ptr::addr_of_mut!((*target).external_event_buf), Vec::new());
-                fields.write_next(std::ptr::addr_of_mut!((*target).operation_index_scope), pending.scope.take().expect("original World refund scope"));
             }
             initialization.finish();
         });

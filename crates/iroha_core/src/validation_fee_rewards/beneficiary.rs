@@ -62,6 +62,20 @@ pub(super) fn owner_in_world(
     if value.beneficiary_id != *original || value.revision != revision {
         return Err(fail("reward beneficiary owner revision has mismatched identity").into());
     }
+    let alias =
+        read_from_world::<Alias>(world, &alias_key(binding, &value.account_id).map_err(fail)?)?
+            .ok_or_else(|| fail("reward beneficiary owner alias is absent"))?;
+    if alias.account_id != value.account_id || alias.beneficiary_id != *original {
+        return Err(fail("reward beneficiary owner alias has mismatched identity").into());
+    }
+    if value.account_id != *original {
+        let original_alias =
+            read_from_world::<Alias>(world, &alias_key(binding, original).map_err(fail)?)?
+                .ok_or_else(|| fail("original reward beneficiary alias is absent"))?;
+        if original_alias.account_id != *original || original_alias.beneficiary_id != *original {
+            return Err(fail("original reward beneficiary alias has mismatched identity").into());
+        }
+    }
     Ok(Some(value))
 }
 fn immutable<T: NoritoSerialize>(
@@ -79,7 +93,9 @@ pub(super) fn ensure(
     binding: &ValidationFeeTreasuryPayoutBindingV1,
     account: &AccountId,
 ) -> Result<AccountId, Error> {
+    ensure_reward_identity(account)?;
     let original = root(stx, binding, account)?;
+    ensure_reward_identity(&original)?;
     if owner(stx, binding, &original)?.is_none() {
         if original != *account {
             return Err(fail("reward alias has no authorized owner"));
@@ -115,7 +131,12 @@ pub(crate) fn rekey_beneficiary(
     if old == new {
         return Ok(());
     }
-    for binding in active_bindings(stx)? {
+    // Custody and beneficiary lineage outlive conversion activation. Recovery
+    // must also cover delayed exposure when a retained lifecycle is not active.
+    if let Some(binding) = crate::validation_fee::retained_payout_custody_binding(&stx.world)
+        .map_err(|error| string_attempt_instruction_error(stx, error))?
+    {
+        ensure_reward_identity(new)?;
         if read::<Alias>(stx, &alias_key(&binding, new).map_err(fail)?)?.is_some() {
             return Err(fail(
                 "new account is already a retained reward beneficiary identity",
@@ -168,7 +189,7 @@ pub(super) fn append_evidence_sources(
     let mut revisions = BTreeSet::new();
     for record in records.iter() {
         match &record.payload {
-            P::RewardAllocation(a) => aliases.extend(a.beneficiaries.keys().cloned()),
+            P::RewardEntitlement(a) => aliases.extend(a.beneficiaries.keys().cloned()),
             P::RewardClaim(c) => {
                 aliases.insert(c.account_id.clone());
                 revisions.insert((c.beneficiary_id.clone(), c.beneficiary_revision));
@@ -186,10 +207,7 @@ pub(super) fn append_evidence_sources(
         .iter()
         .map(|r| r.key.clone())
         .collect::<BTreeSet<_>>();
-    if let Some(binding) =
-        crate::validation_fee::active_payout_binding_at_height(stx, stx.block_height())
-            .map_err(|error| error.map_rejection(|error| error.to_string()))?
-    {
+    if let Some(binding) = crate::validation_fee::retained_payout_custody_binding(&stx.world)? {
         for account in &aliases {
             let key = alias_key(&binding, account)?;
             if keys.insert(key.clone()) {

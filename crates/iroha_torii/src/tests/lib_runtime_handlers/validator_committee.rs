@@ -64,7 +64,10 @@ async fn validator_committee_status_serves_exact_finality_and_closed_queries() {
             .await
             .unwrap()
             .to_bytes();
-        assert_eq!(app.query_fanout_inflight.available_permits(), available);
+        assert!(
+            app.query_fanout_inflight.available_permits() < available,
+            "collected bytes still retain the original response memory"
+        );
         let status: ValidatorCommitteeStatusV1 = if accept == "application/x-norito" {
             norito::decode_from_bytes(&body).unwrap()
         } else {
@@ -74,8 +77,15 @@ async fn validator_committee_status_serves_exact_finality_and_closed_queries() {
         assert_eq!(status.latest_finality, artifact);
         assert_eq!(status.network_id, network_id);
         assert_eq!(status.selected, None);
-        assert!(status.candidate_keys.is_empty());
         assert_eq!(status.pending_beacon_session, None);
+        let retained = body.clone();
+        drop(body);
+        assert!(
+            app.query_fanout_inflight.available_permits() < available,
+            "the last byte clone owns the original reservation"
+        );
+        drop(retained);
+        assert_eq!(app.query_fanout_inflight.available_permits(), available);
     }
     for query in [
         "unknown=2",
@@ -154,7 +164,7 @@ async fn validator_committee_status_reads_recent_finality_without_genesis_length
 }
 
 #[tokio::test]
-async fn validator_committee_status_verifies_attested_boundary_with_original_state_authority() {
+async fn validator_committee_status_verifies_boundary_with_original_state_authority() {
     use crate::validator_committee::{CommitteeStatusQuery, handler_validator_committee_status};
     use iroha_core::sumeragi::test_chain::CertifiedTestChain;
     use iroha_data_model::{
@@ -252,7 +262,6 @@ fn validator_committee_status_native_source_roundtrips_with_required_fields() {
         target_epoch: 1,
         latest_finality: artifact,
         selected: None,
-        candidate_keys: vec![],
         pending_beacon_session: None,
     };
     let binary = norito::to_bytes(&status).unwrap();
@@ -272,6 +281,6 @@ fn validator_committee_status_native_source_roundtrips_with_required_fields() {
         .remove("pending_beacon_session");
     assert!(norito::json::from_value::<ValidatorCommitteeStatusV1>(missing).is_err());
     // The exact selecting-boundary mutation suite now exercises the shared production
-    // validator in Core against a genuine signed 14-block native/Pasta prefix.
+    // validator in Core against a genuine signed 14-block native/beacon prefix.
     // TODO: qualify a positive NPoS selected-state response on the real 4→7→4 network.
 }

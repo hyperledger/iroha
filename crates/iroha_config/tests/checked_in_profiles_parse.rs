@@ -2,6 +2,7 @@
 //!
 //! Every sample under `defaults/kagami/` and the public Taira validator template must stay
 //! admissible: a retired table or key in a sample is an unknown parameter and fails here.
+//! Runtime node keys and genesis identity are bound to test fixtures before parsing.
 
 use std::path::{Path, PathBuf};
 
@@ -132,6 +133,7 @@ fn bind_inrou_trusted_guest(table: &mut Table) {
 
 fn parse(table: Table, sample: &str) -> ActualConfig {
     ConfigReader::new()
+        .without_env()
         .with_toml_source(TomlSource::inline(table))
         .read_and_complete::<UserConfig>()
         .unwrap_or_else(|error| panic!("{sample} must match the configuration schema: {error:?}"))

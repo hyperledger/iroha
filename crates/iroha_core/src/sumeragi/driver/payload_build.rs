@@ -51,6 +51,7 @@ pub struct PayloadBuild<T> {
     budget: AllocationBudget,
     max_bytes: usize,
     bytes: Option<ChargedBuffer<u8>>,
+    payload: Option<PayloadBytes>,
     encoded: bool,
     poisoned: bool,
 }
@@ -63,6 +64,7 @@ impl<T> PayloadBuild<T> {
             budget,
             max_bytes,
             bytes: None,
+            payload: None,
             encoded: false,
             poisoned: false,
         }
@@ -71,6 +73,11 @@ impl<T> PayloadBuild<T> {
     /// Borrow the unchanged source for request identity and quarantine bookkeeping.
     pub fn source(&self) -> &T {
         &self.source
+    }
+
+    /// Whether the original source and its completed immutable output remain owned here.
+    pub(in crate::sumeragi) fn is_completed(&self) -> bool {
+        self.payload.is_some()
     }
 
     /// Borrow the actual retained encoding for source/refund regressions.
@@ -94,29 +101,48 @@ impl<T> PayloadBuild<T> {
         length: impl FnOnce(&T) -> Result<usize, norito::Error>,
         encode: impl FnOnce(&T, &mut dyn Write) -> Result<(), norito::Error>,
     ) -> Result<(T, PayloadBytes), (Self, PayloadBuildError)> {
+        match self.finish_retained(length, encode) {
+            Ok(payload) => Ok((self.source, payload)),
+            Err(error) => Err((self, error)),
+        }
+    }
+
+    /// Lend the same admitted output while this job retains its unchanged original source.
+    /// Completed canonical work survives later same-source requests; this method grants no
+    /// authority to reuse it under a changed parent, request, journal or selected input.
+    ///
+    /// # Errors
+    /// Retains the exact source, partial backing and concrete cause on every refusal.
+    pub(in crate::sumeragi) fn finish_retained(
+        &mut self,
+        length: impl FnOnce(&T) -> Result<usize, norito::Error>,
+        encode: impl FnOnce(&T, &mut dyn Write) -> Result<(), norito::Error>,
+    ) -> Result<PayloadBytes, PayloadBuildError> {
         if self.poisoned {
-            return Err((self, PayloadBuildError::Poisoned));
+            return Err(PayloadBuildError::Poisoned);
+        }
+        if let Some(payload) = self.payload.as_ref() {
+            return Ok(payload.clone());
         }
         if !self.encoded {
             let length = match length(&self.source) {
                 Ok(length) if length <= self.max_bytes => length,
-                Ok(_) => return Err((self, PayloadBuildError::TooLarge)),
-                Err(error) => return Err((self, PayloadBuildError::Encoding(error))),
+                Ok(_) => return Err(PayloadBuildError::TooLarge),
+                Err(error) => return Err(PayloadBuildError::Encoding(error)),
             };
             let mut bytes = match ChargedBuffer::new(length, &self.budget) {
                 Ok(bytes) => bytes,
                 Err(error) => {
-                    return Err((
-                        self,
-                        PayloadBuildError::Admission(ByteAdmissionError::Buffer(error)),
-                    ));
+                    return Err(PayloadBuildError::Admission(ByteAdmissionError::Buffer(
+                        error,
+                    )));
                 }
             };
             let result = encode(&self.source, &mut FixedWriter(&mut bytes));
             self.bytes = Some(bytes);
             if let Err(error) = result {
                 self.poisoned = true;
-                return Err((self, PayloadBuildError::Encoding(error)));
+                return Err(PayloadBuildError::Encoding(error));
             }
             if self
                 .bytes
@@ -127,19 +153,23 @@ impl<T> PayloadBuild<T> {
                 != length
             {
                 self.poisoned = true;
-                return Err((
-                    self,
-                    PayloadBuildError::Encoding(norito::Error::LengthMismatch),
-                ));
+                return Err(PayloadBuildError::Encoding(norito::Error::LengthMismatch));
             }
             self.encoded = true;
         }
         let bytes = self.bytes.take().expect("completed original wire image");
         match PayloadBytes::from_charged(bytes, &self.budget) {
-            Ok(payload) => Ok((self.source, payload)),
+            Ok(payload) => {
+                self.payload = Some(payload);
+                Ok(self
+                    .payload
+                    .as_ref()
+                    .expect("original admitted output")
+                    .clone())
+            }
             Err((bytes, error)) => {
                 self.bytes = Some(bytes);
-                Err((self, PayloadBuildError::Admission(error)))
+                Err(PayloadBuildError::Admission(error))
             }
         }
     }
@@ -458,6 +488,150 @@ mod tests {
         assert!(payload.admitted_to(&budget));
         drop(payload);
         drop(source);
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn retained_completion_lends_same_source_and_output_without_reencoding_or_new_charge() {
+        let budget = AllocationBudget::new(4096);
+        let calls = Cell::new(0);
+        let original = preparing_source();
+        let pointer = original.original.as_ptr();
+        let mut job = PayloadBuild::new(original, budget.clone(), 127);
+        assert!(!job.is_completed());
+        job.prepare_source().unwrap();
+        let original = job
+            .finish_retained(
+                |s| Ok(s.original.len()),
+                |s, writer| {
+                    calls.set(calls.get() + 1);
+                    writer.write_all(&s.original)?;
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert!(job.is_completed());
+        assert!(job.bytes.is_none());
+        assert!(original.admitted_to(&budget));
+        let held = budget.reserved_bytes();
+        let blocker = budget
+            .try_reserve_bytes(budget.limit_bytes() - held)
+            .unwrap();
+        job.prepare_source().unwrap();
+        let retry = job
+            .finish_retained(
+                |_| panic!("completed source counted again"),
+                |_, _| panic!("completed source written again"),
+            )
+            .unwrap();
+        assert!(std::ptr::eq(
+            original.as_slice().as_ptr(),
+            retry.as_slice().as_ptr()
+        ));
+        assert_eq!(job.source().original.as_ptr(), pointer);
+        assert_eq!(job.source().preparations, 1);
+        assert_eq!(calls.get(), 1);
+        assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+        drop(blocker);
+        // The existing consuming API delegates to the same kernel and moves this
+        // source; it does not replace either original backing or shared control.
+        let (source, consumed) = job
+            .finish(
+                |_| panic!("completed consuming source counted again"),
+                |_, _| panic!("completed consuming source written again"),
+            )
+            .ok()
+            .expect("move the original completed source");
+        assert_eq!(source.original.as_ptr(), pointer);
+        assert!(std::ptr::eq(
+            original.as_slice().as_ptr(),
+            consumed.as_slice().as_ptr()
+        ));
+        assert_eq!(budget.reserved_bytes(), held);
+        drop((source, retry, consumed));
+        assert_eq!(budget.reserved_bytes(), held - 1);
+        drop(original);
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn retained_completion_preserves_exact_shared_refusal_and_successful_writer() {
+        let budget = AllocationBudget::new(4096);
+        let original = source();
+        let source_pointer = original.as_ptr();
+        let mut job = PayloadBuild::new(original, budget.clone(), 127);
+        let error = job
+            .finish_retained(
+                |s| Ok(s.len()),
+                |s, writer| {
+                    writer.write_all(s)?;
+                    budget.set_limit_bytes(budget.reserved_bytes());
+                    Ok(())
+                },
+            )
+            .unwrap_err();
+        assert!(error.is_local_refusal());
+        assert!(!job.is_completed());
+        let pointer = job.bytes.as_ref().unwrap().as_slice().as_ptr();
+        let held = budget.reserved_bytes();
+        let retry = job
+            .finish_retained(
+                |_| panic!("refused original count repeated"),
+                |_, _| panic!("refused original writer repeated"),
+            )
+            .unwrap_err();
+        match (error, retry) {
+            (
+                PayloadBuildError::Admission(ByteAdmissionError::ControlAdmission(original)),
+                PayloadBuildError::Admission(ByteAdmissionError::ControlAdmission(actual)),
+            ) => {
+                assert_eq!(original, actual);
+            }
+            _ => panic!("retry must retain the exact shared admission cause"),
+        }
+        assert_eq!(job.source().as_ptr(), source_pointer);
+        assert_eq!(job.bytes.as_ref().unwrap().as_slice().as_ptr(), pointer);
+        assert_eq!(budget.reserved_bytes(), held);
+        budget.set_limit_bytes(4096);
+        let output = job
+            .finish_retained(
+                |_| panic!("admitted original count repeated"),
+                |_, _| panic!("admitted original writer repeated"),
+            )
+            .unwrap();
+        assert!(job.is_completed());
+        assert_eq!(output.as_slice().as_ptr(), pointer);
+        drop(output);
+        assert!(budget.reserved_bytes() >= held);
+        drop(job);
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn retained_completed_source_cannot_acquire_preparation_after_its_canonical_writer() {
+        let budget = AllocationBudget::new(4096);
+        let original = preparing_source();
+        let pointer = original.original.as_ptr();
+        let mut job = PayloadBuild::new(original, budget.clone(), 127);
+        let output = job
+            .finish_retained(
+                |s| Ok(s.original.len()),
+                |s, writer| {
+                    writer.write_all(&s.original)?;
+                    Ok(())
+                },
+            )
+            .unwrap();
+        let held = budget.reserved_bytes();
+        assert!(job.is_completed());
+        assert!(matches!(
+            job.prepare_source(),
+            Err(SourcePreparationError::Frozen)
+        ));
+        assert_eq!(job.source().original.as_ptr(), pointer);
+        assert_eq!(job.source().preparations, 0);
+        assert_eq!(budget.reserved_bytes(), held);
+        drop((job, output));
         assert_eq!(budget.reserved_bytes(), 0);
     }
 }

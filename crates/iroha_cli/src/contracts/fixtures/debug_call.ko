@@ -1,10 +1,11 @@
 seiyaku Demo {
+    permission Admin;
     state int counter;
     hajimari() {
         counter = 0;
     }
 
-    kotoage fn bump() -> int authorize("Admin") {
+    kotoage fn bump() authorize(Admin) -> int {
         counter = counter + 1;
         ledger::domain::register(domain: DomainId::parse("debugcall.universal"));
         return counter;

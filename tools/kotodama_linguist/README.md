@@ -13,7 +13,8 @@ Included assets:
 - `linguist/PR_CHECKLIST.md`: the exact upstream steps and commands.
 - `linguist/PR_BODY.md`: a ready-to-fill pull request body.
 - `samples/`: representative `.ko` source files that exercise the current
-  syntax surface.
+  syntax surface, including `reward_ledger.ko`, written with the Japanese
+  keyword spellings (`誓約`, `言挙げ`, `始まり`, `改善`).
 
 What still must be verified outside this checkout:
 - GitHub Linguist currently requires public usage evidence before accepting a
@@ -24,11 +25,16 @@ What still must be verified outside this checkout:
   opening the upstream PR.
 
 Authenticated search queries to run:
-- `extension:ko contract NOT is:fork`
-- `extension:ko entry NOT is:fork`
-- `extension:ko "register_trigger" NOT is:fork`
+- `extension:ko seiyaku NOT is:fork`
+- `extension:ko 誓約 NOT is:fork`
+- `extension:ko kotoage NOT is:fork`
+- `extension:ko 言挙げ NOT is:fork`
 - If one user or repo dominates the result set, re-run with exclusions such as
   `-user:<name>` or `-repo:<owner>/<repo>` to show broader adoption.
+
+Every deployable Kotodama file declares its source unit with `seiyaku` or the
+equal Japanese spelling `誓約` (reusable files use `module`), and entrypoints use
+`kotoage` or `言挙げ`; count both spellings of each keyword.
 
 Suggested execution order:
 1. Publish `grammar-repo/` as its own repository, for example

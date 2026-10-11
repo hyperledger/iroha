@@ -640,8 +640,8 @@ fn valcom_declassifies_matching_private_operands() {
 #[test]
 fn compiled_secret_commitment_executes_end_to_end() {
     let source = r#"
-        seiyaku Privacy {
-            kotoage fn commitment() -> int authorize("CreateCommitment") {
+        seiyaku Privacy { permission CreateCommitment;
+            kotoage fn commitment() authorize(CreateCommitment) -> int {
                 let Secret<int> value = crypto::private_input(0);
                 let Secret<int> blinding = crypto::private_input(1);
                 return crypto::valcom(left: value, right: blinding);
@@ -685,8 +685,8 @@ fn typed_int_decimal_and_quantity_commitments_execute_and_bind_nominal_kind() {
     fn compile(kind: &str) -> Vec<u8> {
         let source = format!(
             r#"
-                seiyaku Privacy {{
-                    kotoage fn commitment() -> int authorize("CreateCommitment") {{
+                seiyaku Privacy {{ permission CreateCommitment;
+                    kotoage fn commitment() authorize(CreateCommitment) -> int {{
                         let Secret<{kind}> value = crypto::private_input(0);
                         let Secret<{kind}> blinding = crypto::private_input(1);
                         return crypto::valcom(left: value, right: blinding);

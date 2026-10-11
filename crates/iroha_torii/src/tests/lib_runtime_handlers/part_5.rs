@@ -604,7 +604,7 @@ async fn pipeline_status_handler_cache_hit_ignores_tx_rate_limiter_pressure() {
         app_mut.tx_rate_limiter = limits::RateLimiter::new(Some(1), Some(1));
         app_mut.pipeline_status_cache.record_entry(
             tx_hash,
-            PipelineStatusEntry::fresh(PipelineStatusKind::Applied, None, None),
+            PipelineStatusEntry::fresh(PipelineStatusKind::Expired, None, None),
         );
     }
     assert!(app.tx_rate_limiter.allow("pipeline-status-test").await);
@@ -918,7 +918,7 @@ async fn account_get_handler_supports_json_and_norito() {
     let keypair = checked_torii_test_ed25519_keypair(0x2a, "derive Torii account-get fixture key");
     let account_id = AccountId::new(keypair.public_key().clone());
     let world = world_with_account(&account_id);
-    let app = mk_app_state_for_tests_with_world(world);
+    let app = native_ingress_app_with_world_for_test(world);
     let json_resp = super::handler_account_get(
         State(app.clone()),
         axum::http::Method::GET,
@@ -975,7 +975,7 @@ async fn account_get_handler_supports_json_and_norito() {
 #[cfg(feature = "app_api")]
 #[tokio::test]
 async fn account_get_handler_returns_not_found_for_missing_account() {
-    let app = mk_app_state_for_tests();
+    let app = native_ingress_app_with_world_for_test(World::default());
     let missing =
         checked_torii_test_account_id(0x2b, "derive Torii missing account-get fixture key");
     let resp = super::handler_account_get(
@@ -993,30 +993,94 @@ async fn account_get_handler_returns_not_found_for_missing_account() {
     .expect("missing account response");
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
+/// Retain genuine global authority while attempting a stale coordinate outside the current catalog.
+#[cfg(feature = "app_api")]
+fn native_account_read_with_stale_route_for_test(
+    world: World,
+) -> (SharedAppState, RoutingDecision, RoutingDecision) {
+    let app = native_ingress_with_offline_foreign_app_for_test(world);
+    let local_route = RoutingDecision::new(LaneId::new(1), DataSpaceId::new(10));
+    let manifest_route = RoutingDecision::new(LaneId::new(2), DataSpaceId::new(12));
+    let stale_route = RoutingDecision::new(LaneId::new(3), DataSpaceId::new(12));
+    let local = app
+        .state
+        .resolve_route_authority(super::lane_authority_route(local_route))
+        .expect("the active local route retains genuine global authority");
+    let manifest = app
+        .state
+        .resolve_route_authority(super::lane_authority_route(manifest_route))
+        .expect("another active label retains the same global authority");
+    assert_eq!(local.authority_height(), 3);
+    assert_eq!(manifest.authority_height(), local.authority_height());
+    assert_eq!(local.validators(), manifest.validators());
+    assert!(
+        local.validators().contains(
+            app.local_peer_id
+                .as_ref()
+                .expect("the original local validator")
+        )
+    );
+    assert!(super::should_execute_route_locally(&app, local_route));
+    assert!(super::should_execute_route_locally(&app, manifest_route));
+    {
+        let view = app.state.view();
+        assert!(matches!(
+            iroha_core::queue::resolve_routing_decision(
+                stale_route,
+                &view.nexus().lane_catalog,
+                &view.nexus().dataspace_catalog,
+            ),
+            Err(iroha_core::queue::RoutingResolveError::UnknownLane { lane_id })
+                if lane_id == stale_route.lane_id
+        ));
+    }
+    assert!(matches!(
+        app.state
+            .resolve_route_authority(super::lane_authority_route(stale_route)),
+        Err(iroha_core::state::LaneAuthorityError::InactiveRoute {
+            lane_id,
+            dataspace_id,
+            authority_height: 3,
+        }) if lane_id == stale_route.lane_id && dataspace_id == stale_route.dataspace_id
+    ));
+    assert!(!super::should_execute_route_locally(&app, stale_route));
+    (app, local_route, stale_route)
+}
 #[cfg(feature = "app_api")]
 #[tokio::test]
 async fn account_read_for_routes_skips_route_unavailable_until_success() {
     let keypair =
         checked_torii_test_ed25519_keypair(0x2c, "derive Torii routed account-read fixture key");
     let account_id = AccountId::new(keypair.public_key().clone());
-    let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world_and_nexus(
-        world_with_account(&account_id),
-        crate::tests_runtime_handlers::private_ingress_with_offline_foreign_nexus_for_test(),
+    let (app, local_route, stale_route) =
+        native_account_read_with_stale_route_for_test(world_with_account(&account_id));
+    let memory = super::try_acquire_query_fanout_memory(&app)
+        .expect("the original query pool admits the complete fanout");
+    let response = super::COLLECTION_READ_MEMORY_RESERVATION
+        .scope(
+            memory,
+            super::execute_torii_account_read_for_resolved_routes(
+                &app,
+                vec![stale_route, local_route],
+                super::ToriiFanoutRouteScopeV1::TargetAccount {
+                    account_id: account_id.to_string(),
+                    caller_account_id: Some(account_id.to_string()),
+                },
+                account_id.to_string(),
+                ResponseFormat::Json,
+                None,
+            ),
+        )
+        .await;
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-fanout-routes-attempted"),
+        Some("2"),
     );
-    let (local_route, foreign_route) =
-        configure_private_ingress_with_offline_foreign_route_for_test(&mut app);
-    let response = super::execute_torii_account_read_for_resolved_routes(
-        &app,
-        vec![foreign_route, local_route],
-        super::ToriiFanoutRouteScopeV1::TargetAccount {
-            account_id: account_id.to_string(),
-            caller_account_id: Some(account_id.to_string()),
-        },
-        account_id.to_string(),
-        ResponseFormat::Json,
-        None,
-    )
-    .await;
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-fanout-routes-unavailable"),
+        Some("1"),
+        "the stale route is actually attempted and classified as unavailable",
+    );
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         torii_response_header(&response, "x-iroha-routed-by"),
@@ -1388,16 +1452,19 @@ async fn trusted_internal_asset_read_is_exactly_scoped_bound_and_conflict_safe()
         AssetBalanceScope::Dataspace(DataSpaceId::new(10)),
     );
     let expected = Asset::new(asset_id.clone(), Quantity::from(42_u32));
-    let app = mk_app_state_for_tests_with_world(World::with_assets(
-        [domain],
-        [
-            Account::new(authority.clone()).build(&authority),
-            Account::new(unrelated.clone()).build(&authority),
-        ],
-        [asset_definition],
-        [expected.clone()],
-        [],
-    ));
+    let app = native_ingress_app_with_world_and_nexus_for_test(
+        World::with_assets(
+            [domain],
+            [
+                Account::new(authority.clone()).build(&authority),
+                Account::new(unrelated.clone()).build(&authority),
+            ],
+            [asset_definition],
+            [expected.clone()],
+            [],
+        ),
+        private_ingress_nexus_for_test(),
+    );
     let json_response = super::handler_internal_account_asset_get(
         State(app.clone()),
         format!(
@@ -1538,24 +1605,35 @@ async fn trusted_internal_asset_read_is_exactly_scoped_bound_and_conflict_safe()
 async fn account_read_for_routes_prefers_not_found_over_route_unavailable_when_missing() {
     let missing =
         checked_torii_test_account_id(0x2d, "derive Torii missing routed account-read fixture key");
-    let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world_and_nexus(
-        iroha_core::state::World::default(),
-        crate::tests_runtime_handlers::private_ingress_with_offline_foreign_nexus_for_test(),
+    let (app, local_route, stale_route) =
+        native_account_read_with_stale_route_for_test(World::default());
+    let memory = super::try_acquire_query_fanout_memory(&app)
+        .expect("the original query pool admits the complete fanout");
+    let response = super::COLLECTION_READ_MEMORY_RESERVATION
+        .scope(
+            memory,
+            super::execute_torii_account_read_for_resolved_routes(
+                &app,
+                vec![stale_route, local_route],
+                super::ToriiFanoutRouteScopeV1::TargetAccount {
+                    account_id: missing.to_string(),
+                    caller_account_id: Some(missing.to_string()),
+                },
+                missing.to_string(),
+                ResponseFormat::Json,
+                None,
+            ),
+        )
+        .await;
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-fanout-routes-attempted"),
+        Some("2"),
     );
-    let (local_route, foreign_route) =
-            crate::tests_runtime_handlers::configure_private_ingress_with_offline_foreign_route_for_test(&mut app);
-    let response = super::execute_torii_account_read_for_resolved_routes(
-        &app,
-        vec![foreign_route, local_route],
-        super::ToriiFanoutRouteScopeV1::TargetAccount {
-            account_id: missing.to_string(),
-            caller_account_id: Some(missing.to_string()),
-        },
-        missing.to_string(),
-        ResponseFormat::Json,
-        None,
-    )
-    .await;
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-fanout-routes-unavailable"),
+        Some("1"),
+        "the stale route is actually attempted and classified as unavailable",
+    );
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     assert_ne!(
         torii_response_header(&response, "x-iroha-reject-code"),
@@ -1570,24 +1648,35 @@ async fn account_read_for_routes_returns_route_unavailable_when_only_unavailable
         0x2e,
         "derive Torii unavailable routed account-read fixture key",
     );
-    let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world_and_nexus(
-        iroha_core::state::World::default(),
-        crate::tests_runtime_handlers::private_ingress_with_offline_foreign_nexus_for_test(),
+    let (app, _local_route, stale_route) =
+        native_account_read_with_stale_route_for_test(World::default());
+    let memory = super::try_acquire_query_fanout_memory(&app)
+        .expect("the original query pool admits the complete fanout");
+    let response = super::COLLECTION_READ_MEMORY_RESERVATION
+        .scope(
+            memory,
+            super::execute_torii_account_read_for_resolved_routes(
+                &app,
+                vec![stale_route],
+                super::ToriiFanoutRouteScopeV1::TargetAccount {
+                    account_id: missing.to_string(),
+                    caller_account_id: Some(missing.to_string()),
+                },
+                missing.to_string(),
+                ResponseFormat::Json,
+                None,
+            ),
+        )
+        .await;
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-fanout-routes-attempted"),
+        Some("1"),
     );
-    let (_local_route, foreign_route) =
-            crate::tests_runtime_handlers::configure_private_ingress_with_offline_foreign_route_for_test(&mut app);
-    let response = super::execute_torii_account_read_for_resolved_routes(
-        &app,
-        vec![foreign_route],
-        super::ToriiFanoutRouteScopeV1::TargetAccount {
-            account_id: missing.to_string(),
-            caller_account_id: Some(missing.to_string()),
-        },
-        missing.to_string(),
-        ResponseFormat::Json,
-        None,
-    )
-    .await;
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-fanout-routes-unavailable"),
+        Some("1"),
+        "the stale route is actually attempted and classified as unavailable",
+    );
     assert_route_unavailable_response(&response);
 }
 // This fixture obtains callbacks from actual H2 execution, including normal signed-genesis
@@ -2602,13 +2691,9 @@ async fn canonical_outcome_authentication_error_cannot_fall_back_to_terminal_cac
     journal.commit_for_tests();
     let error = pipeline_status_terminal_or_state_entry(&app, &hash)
         .expect_err("a cached terminal result must not mask canonical authentication failure");
-    let unavailable = iroha_data_model::query::error::QueryExecutionFail::Conversion(
-        "canonical Network transaction history is inconsistent: Submitted block wire at existing canonical height `2` differs from durable canonical bytes"
-            .to_owned(),
-    );
     assert_eq!(
         query_conversion_message(&error).expect("projection error"),
-        format!("committed transaction status projection is inconsistent: {unavailable}"),
+        "native execution parent contradicts State hash at 2",
         "an unavailable exact canonical hash cannot inherit a cached terminal result",
     );
     assert_eq!(
@@ -4719,4 +4804,893 @@ fn lifecycle_pending_wire(app: &SharedAppState) -> Vec<Vec<u8>> {
         .all_transactions(&view)
         .map(|transaction| transaction.entrypoint().encode_versioned())
         .collect()
+}
+
+// Derive the genuine metadata-only prefix through the same original source and codec owner.
+// The occupied frame pool refuses the actual shared shell before source bytes/body decoding.
+// This is a non-authorizing test preflight: its work remains on the original cumulative owner.
+fn pipeline_status_original_marker_refusal_work(
+    app: &SharedAppState,
+    owner: &crate::history_producer::HistoryProducerOwner,
+    height: std::num::NonZeroUsize,
+) -> u64 {
+    let frames = owner.cold_frames();
+    assert_eq!(frames.reserved_bytes(), frames.limit_bytes());
+    let expected = frames
+        .try_reserve(iroha_data_model::block::SharedSignedBlock::allocation_layout())
+        .unwrap_err();
+    assert!(matches!(
+        expected,
+        iroha_allocation::AllocationRefusal::Capacity { .. }
+    ));
+    let before = owner.allocation_context().consumed_allocated_bytes();
+    let budget = owner.canonical_history_budget();
+    match owner.scope(|| app.state.read_canonical_history_block(height, &budget)) {
+        Err(iroha_core::execution_attempt::ExecutionAttemptError::Deferred(original)) => {
+            assert_eq!(original.allocation_refusal(), Some(&expected));
+        }
+        other => {
+            panic!("original metadata preflight must stop at the occupied shared shell: {other:?}")
+        }
+    }
+    assert_eq!(frames.reserved_bytes(), frames.limit_bytes());
+    let marker_work = owner
+        .allocation_context()
+        .consumed_allocated_bytes()
+        .checked_sub(before)
+        .unwrap();
+    assert!(
+        marker_work > 0,
+        "the original durable marker genuinely decodes before shell admission"
+    );
+    marker_work
+}
+
+#[tokio::test]
+async fn pipeline_status_authentication_keeps_original_admitted_query_pool_on_refusal() {
+    let (app, hash, _chain) = canonical_outcome_test_fixture(false);
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
+    let frames = owner.cold_frames();
+    assert_eq!(frames.reserved_bytes(), 0);
+    let blocker = frames.try_reserve_bytes(frames.limit_bytes()).unwrap();
+    let marker_work = pipeline_status_original_marker_refusal_work(
+        &app,
+        &owner,
+        std::num::NonZeroUsize::new(2).unwrap(),
+    );
+    let before_status = owner.allocation_context().consumed_allocated_bytes();
+    app.pipeline_status_cache.record_entry(
+        hash,
+        PipelineStatusEntry::fresh(
+            PipelineStatusKind::Applied,
+            Some(NonZeroU64::new(2).unwrap()),
+            None,
+        ),
+    );
+    let result = owner.scope(|| pipeline_status_terminal_or_state_entry(&app, &hash));
+    assert!(
+        matches!(
+            result,
+            Err(Error::Query(ValidationFail::QueryFailed(
+                iroha_data_model::query::error::QueryExecutionFail::CapacityLimit
+            )))
+        ),
+        "committed status must retain its original admitted query pool: {result:?}"
+    );
+    assert_eq!(frames.reserved_bytes(), frames.limit_bytes());
+    assert_eq!(
+        owner.allocation_context().consumed_allocated_bytes(),
+        before_status.checked_add(marker_work).unwrap(),
+        "only the original durable marker decodes before the refused status shell"
+    );
+    let refused_work = owner.allocation_context().consumed_allocated_bytes();
+    assert_eq!(
+        app.pipeline_status_cache.lookup(&hash).unwrap().kind,
+        PipelineStatusKind::Applied
+    );
+    drop(blocker);
+    let (entry, source) = owner
+        .scope(|| pipeline_status_terminal_or_state_entry(&app, &hash))
+        .expect("retry reuses the same original source pool and cumulative owner")
+        .unwrap();
+    assert_eq!(entry.kind, PipelineStatusKind::Applied);
+    assert_eq!(entry.block_height, Some(NonZeroU64::new(2).unwrap()));
+    assert_eq!(source, "state");
+    assert!(owner.allocation_context().consumed_allocated_bytes() > refused_work);
+    assert_eq!(
+        frames.reserved_bytes(),
+        0,
+        "the scalar status retires its actual carrier before returning"
+    );
+}
+
+#[tokio::test]
+async fn pipeline_status_checkpoint_reader_preserves_exact_rejection_and_publication_bracket() {
+    for rejected in [false, true] {
+        let (app, hash, mut chain) = canonical_outcome_test_fixture(rejected);
+        let original = canonical_transaction_outcome(&app.state, &hash)
+            .unwrap()
+            .unwrap();
+        let observed =
+            canonical_transaction_outcome_with_authenticator(&app.state, &hash, |anchor| {
+                let outcome = authenticate_pipeline_transaction_outcome(&app, &hash, anchor)?;
+                append_canonical_outcome_test_block(&mut chain, anchor, false);
+                Ok(outcome)
+            })
+            .expect("an unrelated committed append keeps the exact target source")
+            .unwrap();
+        match (original, observed) {
+            (
+                CanonicalTransactionOutcome::Applied {
+                    height: old_height,
+                    settled_at: old_time,
+                },
+                CanonicalTransactionOutcome::Applied { height, settled_at },
+            ) => {
+                assert_eq!(height, old_height);
+                assert_eq!(settled_at, old_time);
+            }
+            (
+                CanonicalTransactionOutcome::Rejected {
+                    height: old_height,
+                    reason: old_reason,
+                },
+                CanonicalTransactionOutcome::Rejected { height, reason },
+            ) => {
+                assert_eq!(height, old_height);
+                assert_eq!(reason, old_reason);
+            }
+            changed => panic!(
+                "checkpoint authentication cannot substitute the original outcome: {changed:?}"
+            ),
+        }
+        let anchor = canonical_transaction_anchor(&app.state, &hash)
+            .unwrap()
+            .unwrap();
+        let error =
+            canonical_transaction_outcome_with_authenticator(&app.state, &hash, |captured| {
+                let outcome = authenticate_pipeline_transaction_outcome(&app, &hash, captured)?;
+                let mut membership = app.state.transactions.block_and_revert();
+                membership.insert_block(
+                    [anchor.entrypoint_hash].into_iter().collect(),
+                    NonZeroUsize::new(usize::try_from(chain.height()).unwrap()).unwrap(),
+                );
+                membership.commit().unwrap();
+                Ok(outcome)
+            })
+            .expect_err(
+                "a replaced original membership must refuse despite successful authentication",
+            );
+        assert!(
+            query_conversion_message(&error)
+                .unwrap()
+                .contains("canonical binding changed during outcome authentication")
+        );
+    }
+}
+
+#[tokio::test]
+async fn pipeline_status_rejects_foreign_query_owner_but_absent_membership_needs_no_history_admission()
+ {
+    let (app, hash, _chain) = canonical_outcome_test_fixture(false);
+    let foreign = crate::history_producer::HistoryProducerOwner::for_test();
+    let error = foreign
+        .scope(|| pipeline_status_terminal_or_state_entry(&app, &hash))
+        .expect_err("equal local credits cannot substitute the original request generation");
+    assert!(matches!(
+        error,
+        Error::Query(ValidationFail::QueryFailed(
+            iroha_data_model::query::error::QueryExecutionFail::CapacityLimit
+        ))
+    ));
+    let absent = HashOf::from_untyped_unchecked(Hash::new(b"not in original committed membership"));
+    assert!(
+        foreign
+            .scope(|| pipeline_status_terminal_or_state_entry(&app, &absent))
+            .expect("absence must not manufacture or require a history query owner")
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn pipeline_status_checkpoint_outcome_rejects_duplicate_original_borrowed_rows() {
+    let (app, hash, _chain) = canonical_outcome_test_fixture(false);
+    let anchor = canonical_transaction_anchor(&app.state, &hash)
+        .unwrap()
+        .unwrap();
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
+    let error = owner
+        .scope(|| {
+            let carrier = app
+                .state
+                .read_executed_carrier_from_checkpoints(
+                    anchor.height,
+                    1_000,
+                    1 << 40,
+                    &owner.canonical_history_budget(),
+                )
+                .unwrap();
+            canonical_transaction_outcome_from_reader(&hash, anchor, |visitor| {
+                carrier
+                    .visit_network_transactions(anchor.block_hash, &mut *visitor)
+                    .map_err(|error| crate::canonical_history::query_attempt_error(error.into()))?;
+                carrier
+                    .visit_network_transactions(anchor.block_hash, visitor)
+                    .map_err(|error| crate::canonical_history::query_attempt_error(error.into()))
+            })
+        })
+        .expect_err("even the same original certified row cannot be counted twice");
+    assert_eq!(
+        query_conversion_message(&error).unwrap(),
+        format!(
+            "committed transaction status projection is inconsistent: transaction {hash} occurs more than once in its finalized carrier"
+        )
+    );
+}
+
+#[tokio::test]
+async fn pipeline_status_genesis_requires_actual_h2_and_refuses_substituted_successor() {
+    use iroha_core::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+    let mut chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+    let hash = chain
+        .genesis()
+        .external_transactions()
+        .next()
+        .expect("original signed genesis transaction")
+        .hash();
+    let mut app = mk_app_state_for_tests();
+    let unique = Arc::get_mut(&mut app).unwrap();
+    unique.state = chain.state().clone();
+    unique.kura = chain.kura().clone();
+    let anchor = canonical_transaction_anchor(&app.state, &hash)
+        .unwrap()
+        .expect("the original genesis transaction has committed membership");
+    assert_eq!(anchor.height, NonZeroUsize::MIN);
+    app.pipeline_status_cache.record_entry(
+        hash,
+        PipelineStatusEntry::fresh(PipelineStatusKind::Applied, Some(NonZeroU64::MIN), None),
+    );
+    let error = pipeline_status_terminal_or_state_entry(&app, &hash)
+        .expect_err("cached Applied and opaque G1 State cannot replace original H2 authentication");
+    assert!(
+        query_conversion_message(&error)
+            .unwrap()
+            .contains("height 2 is not committed in this view")
+    );
+    chain.commit(Vec::new());
+    let (entry, source) = pipeline_status_terminal_or_state_entry(&app, &hash)
+        .unwrap()
+        .unwrap();
+    assert_eq!(entry.kind, PipelineStatusKind::Applied);
+    assert_eq!(entry.block_height, Some(NonZeroU64::MIN));
+    assert_eq!(source, "state");
+    let replacement = HashOf::from_untyped_unchecked(Hash::new(b"substituted HTTP status H2"));
+    assert_ne!(replacement, chain.committed(2).block().hash());
+    let mut journal = app.state.block_hashes.block_and_revert();
+    journal.push_for_tests(replacement);
+    journal.commit_for_tests();
+    let ordinary = canonical_transaction_outcome(&app.state, &hash)
+        .expect_err("original full-prefix status refuses H2 substitution");
+    let error = pipeline_status_terminal_or_state_entry(&app, &hash)
+        .expect_err("the HTTP G1 branch must retain the same original H2 requirement");
+    assert_eq!(
+        query_conversion_message(&error),
+        query_conversion_message(&ordinary)
+    );
+    assert_eq!(
+        app.pipeline_status_cache.lookup(&hash).unwrap().kind,
+        PipelineStatusKind::Applied
+    );
+}
+
+#[tokio::test]
+async fn pipeline_status_cached_applied_refuses_removed_original_membership() {
+    let (app, hash, chain) = canonical_outcome_test_fixture(false);
+    let original = chain.committed(2);
+    let original_wire = original.block().encode_wire().unwrap();
+    let original_body: *const SignedBlock = original.block().as_ref();
+    let (entry, source) = pipeline_status_terminal_or_state_entry(&app, &hash)
+        .unwrap()
+        .unwrap();
+    assert_eq!(entry.kind, PipelineStatusKind::Applied);
+    assert_eq!(source, "state");
+    let cached = app.pipeline_status_cache.lookup(&hash).unwrap();
+    assert_eq!(cached.block_height, Some(NonZeroU64::new(2).unwrap()));
+    let mut membership = app.state.transactions.block_and_revert();
+    membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap());
+    membership
+        .commit()
+        .expect("remove only the actual latest membership generation");
+    assert!(
+        canonical_transaction_anchor(&app.state, &hash)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        app.state.block_hashes.view().get(1).copied(),
+        Some(original.block().hash())
+    );
+    let result = pipeline_status_terminal_or_state_entry(&app, &hash);
+    let Err(Error::Query(ValidationFail::QueryFailed(
+        iroha_data_model::query::error::QueryExecutionFail::Conversion(message),
+    ))) = result
+    else {
+        panic!("cached Applied must retain its original canonical membership: {result:?}");
+    };
+    assert_eq!(
+        message,
+        format!(
+            "committed transaction status projection is inconsistent: transaction {hash} has cached Applied without its exact canonical binding"
+        )
+    );
+    let retained = app.pipeline_status_cache.lookup(&hash).unwrap();
+    assert_eq!(
+        (
+            retained.kind,
+            retained.block_height,
+            retained.rejection,
+            retained.observed_at
+        ),
+        (
+            cached.kind,
+            cached.block_height,
+            cached.rejection,
+            cached.observed_at
+        )
+    );
+    assert!(std::ptr::eq(original.block().as_ref(), original_body));
+    assert_eq!(original.block().encode_wire().unwrap(), original_wire);
+}
+
+#[cfg(any(feature = "app_api", feature = "connect"))]
+#[tokio::test]
+async fn prepared_submit_outcome_cached_applied_refuses_removed_original_membership() {
+    let (app, hash, chain) = canonical_outcome_test_fixture(false);
+    let original = chain.committed(2);
+    let original_wire = original.block().encode_wire().unwrap();
+    let original_body: *const SignedBlock = original.block().as_ref();
+    let transaction = original.block().external_transactions().next().unwrap();
+    assert_eq!(transaction.hash(), hash);
+    assert_eq!(
+        routing::prepared_submit_outcome(&app, transaction).unwrap(),
+        Some("Applied")
+    );
+    pipeline_status_terminal_or_state_entry(&app, &hash)
+        .unwrap()
+        .unwrap();
+    let cached = app.pipeline_status_cache.lookup(&hash).unwrap();
+    let mut membership = app.state.transactions.block_and_revert();
+    membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap());
+    membership
+        .commit()
+        .expect("remove the original transaction membership without altering its carrier");
+    assert!(
+        canonical_transaction_anchor(&app.state, &hash)
+            .unwrap()
+            .is_none()
+    );
+    let result = routing::prepared_submit_outcome(&app, transaction);
+    let Err(Error::Query(ValidationFail::QueryFailed(
+        iroha_data_model::query::error::QueryExecutionFail::Conversion(message),
+    ))) = result
+    else {
+        panic!(
+            "prepared submission cache must retain its original canonical membership: {result:?}"
+        );
+    };
+    assert_eq!(
+        message,
+        format!(
+            "committed transaction status projection is inconsistent: transaction {hash} has cached Applied without its exact canonical binding"
+        )
+    );
+    let retained = app.pipeline_status_cache.lookup(&hash).unwrap();
+    assert_eq!(
+        (
+            retained.kind,
+            retained.block_height,
+            retained.rejection,
+            retained.observed_at
+        ),
+        (
+            cached.kind,
+            cached.block_height,
+            cached.rejection,
+            cached.observed_at
+        )
+    );
+    assert!(std::ptr::eq(original.block().as_ref(), original_body));
+    assert_eq!(original.block().encode_wire().unwrap(), original_wire);
+}
+
+#[tokio::test]
+async fn pipeline_status_cached_block_outcomes_require_binding_even_without_height_metadata() {
+    let app = mk_app_state_for_tests();
+    let cases = [
+        (PipelineStatusKind::Applied, None),
+        (PipelineStatusKind::Applied, Some(NonZeroU64::MIN)),
+        (PipelineStatusKind::Committed, None),
+        (PipelineStatusKind::Committed, Some(NonZeroU64::MIN)),
+        (PipelineStatusKind::Rejected, Some(NonZeroU64::MIN)),
+        (PipelineStatusKind::Expired, Some(NonZeroU64::MIN)),
+    ];
+    for (index, (kind, height)) in cases.into_iter().enumerate() {
+        let hash = HashOf::from_untyped_unchecked(Hash::new(
+            format!("absent canonical cache outcome {index}").as_bytes(),
+        ));
+        app.pipeline_status_cache
+            .record_entry(hash, PipelineStatusEntry::fresh(kind, height, None));
+        let original = app.pipeline_status_cache.lookup(&hash).unwrap();
+        assert!(
+            canonical_transaction_anchor(&app.state, &hash)
+                .unwrap()
+                .is_none()
+        );
+        let error = pipeline_status_local_entry_checked(&app, &hash).expect_err(
+            "neither a terminal nor second local cache lookup may promote a block hint",
+        );
+        assert_eq!(
+            query_conversion_message(&error).unwrap(),
+            format!(
+                "committed transaction status projection is inconsistent: transaction {hash} has cached {} without its exact canonical binding",
+                kind.as_str(),
+            )
+        );
+        let retained = app.pipeline_status_cache.lookup(&hash).unwrap();
+        assert_eq!(
+            (
+                retained.kind,
+                retained.block_height,
+                retained.rejection,
+                retained.observed_at
+            ),
+            (
+                original.kind,
+                original.block_height,
+                original.rejection,
+                original.observed_at
+            )
+        );
+    }
+}
+
+#[tokio::test]
+async fn pipeline_status_cache_only_local_rejection_expiry_and_candidate_hints_remain_available() {
+    let app = mk_app_state_for_tests();
+    let cases = [
+        (
+            PipelineStatusKind::Rejected,
+            None,
+            Some("Transaction validation failed."),
+        ),
+        (PipelineStatusKind::Expired, None, None),
+        (PipelineStatusKind::Approved, Some(NonZeroU64::MIN), None),
+    ];
+    let foreign = crate::history_producer::HistoryProducerOwner::for_test();
+    for (index, (kind, height, rejection)) in cases.into_iter().enumerate() {
+        let hash = HashOf::from_untyped_unchecked(Hash::new(
+            format!("local cache-only hint {index}").as_bytes(),
+        ));
+        app.pipeline_status_cache
+            .record_entry(hash, PipelineStatusEntry::fresh(kind, height, rejection));
+        assert!(
+            canonical_transaction_anchor(&app.state, &hash)
+                .unwrap()
+                .is_none()
+        );
+        let (observed, source) = foreign
+            .scope(|| pipeline_status_local_entry_checked(&app, &hash))
+            .expect("local hints need no fabricated history admission")
+            .unwrap();
+        assert_eq!(
+            (observed.kind, observed.block_height, observed.rejection),
+            (kind, height, rejection)
+        );
+        assert_eq!(source, "cache");
+        assert!(!matches!(
+            observed.kind,
+            PipelineStatusKind::Applied | PipelineStatusKind::Committed
+        ));
+    }
+}
+
+#[cfg(any(feature = "app_api", feature = "connect"))]
+#[tokio::test]
+async fn prepared_submit_outcome_preserves_local_rejection_expiry_and_candidate_hints() {
+    for (kind, height, expected) in [
+        (PipelineStatusKind::Rejected, None, "Rejected"),
+        (PipelineStatusKind::Expired, None, "Rejected"),
+        (
+            PipelineStatusKind::Approved,
+            Some(NonZeroU64::MIN),
+            "Pending",
+        ),
+    ] {
+        let (app, hash, chain) = canonical_outcome_test_fixture(false);
+        let original = chain.committed(2);
+        let transaction = original.block().external_transactions().next().unwrap();
+        assert_eq!(transaction.hash(), hash);
+        let mut membership = app.state.transactions.block_and_revert();
+        membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap());
+        membership.commit().unwrap();
+        assert!(
+            canonical_transaction_anchor(&app.state, &hash)
+                .unwrap()
+                .is_none()
+        );
+        app.pipeline_status_cache
+            .record_entry(hash, PipelineStatusEntry::fresh(kind, height, None));
+        assert_eq!(
+            routing::prepared_submit_outcome(&app, transaction).unwrap(),
+            Some(expected)
+        );
+        assert_ne!(expected, "Applied");
+        assert_eq!(app.pipeline_status_cache.lookup(&hash).unwrap().kind, kind);
+    }
+}
+
+#[tokio::test]
+async fn pipeline_status_pending_refresh_retains_original_query_refusal_and_pending_source() {
+    let (app, hash, chain) = canonical_outcome_test_fixture(false);
+    let original = chain.committed(2);
+    let original_wire = original.block().encode_wire().unwrap();
+    let original_body: *const SignedBlock = original.block().as_ref();
+    let height = NonZeroU64::new(2).unwrap();
+    let observed_at = Instant::now();
+    app.pipeline_status_cache.record_pending_block(
+        height,
+        PendingBlockStatus {
+            kind: PipelineStatusKind::Applied,
+            block_hash: original.block().hash(),
+            observed_at,
+            deferred: None,
+        },
+    );
+    assert!(app.pipeline_status_cache.lookup(&hash).is_none());
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
+    let frames = owner.cold_frames();
+    let blocker = frames.try_reserve_bytes(frames.limit_bytes()).unwrap();
+    let marker_work = pipeline_status_original_marker_refusal_work(
+        &app,
+        &owner,
+        std::num::NonZeroUsize::new(2).unwrap(),
+    );
+    let before_status = owner.allocation_context().consumed_allocated_bytes();
+    let result = owner.scope(|| pipeline_status_terminal_or_state_entry(&app, &hash));
+    assert!(matches!(
+        result,
+        Err(Error::Query(ValidationFail::QueryFailed(
+            iroha_data_model::query::error::QueryExecutionFail::CapacityLimit
+        )))
+    ));
+    assert!(
+        app.pipeline_status_cache.lookup(&hash).is_none(),
+        "pending cache refresh must not bypass the original query refusal with execution capacity"
+    );
+    let pending = app
+        .pipeline_status_cache
+        .pending_blocks
+        .get(&height)
+        .unwrap();
+    assert_eq!(pending.kind, PipelineStatusKind::Applied);
+    assert_eq!(pending.block_hash, original.block().hash());
+    assert_eq!(pending.observed_at, observed_at);
+    assert_eq!(frames.reserved_bytes(), frames.limit_bytes());
+    assert_eq!(
+        owner.allocation_context().consumed_allocated_bytes(),
+        before_status.checked_add(marker_work).unwrap(),
+        "only the original durable marker decodes before the refused status shell"
+    );
+    let refused_work = owner.allocation_context().consumed_allocated_bytes();
+    assert!(std::ptr::eq(original.block().as_ref(), original_body));
+    assert_eq!(original.block().encode_wire().unwrap(), original_wire);
+    drop(pending);
+    drop(blocker);
+    let (entry, source) = owner
+        .scope(|| pipeline_status_terminal_or_state_entry(&app, &hash))
+        .expect("the same original query owner can retry")
+        .unwrap();
+    assert_eq!(entry.kind, PipelineStatusKind::Applied);
+    assert_eq!(source, "state");
+    assert_eq!(frames.reserved_bytes(), 0);
+    assert!(owner.allocation_context().consumed_allocated_bytes() > refused_work);
+    assert!(
+        app.pipeline_status_cache
+            .pending_blocks
+            .get(&height)
+            .is_none()
+    );
+    assert_eq!(
+        app.pipeline_status_cache
+            .pending_count
+            .load(AtomicOrdering::Relaxed),
+        0
+    );
+}
+
+#[tokio::test]
+async fn pipeline_status_pending_completion_reuses_original_carrier_and_leaves_other_sources() {
+    let (app, hash, chain) = canonical_outcome_test_fixture(false);
+    let anchor = canonical_transaction_anchor(&app.state, &hash)
+        .unwrap()
+        .unwrap();
+    let height = chain.committed(2).block().header().height();
+    let unrelated_height = NonZeroU64::new(3).unwrap();
+    let unrelated_hash =
+        HashOf::from_untyped_unchecked(Hash::new(b"unrelated pending original source"));
+    let observed_at = Instant::now();
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
+    let frames = owner.cold_frames();
+    let blocker = frames.try_reserve_bytes(frames.limit_bytes()).unwrap();
+    let refusal = frames.try_reserve_bytes(1).unwrap_err();
+    let deferred: iroha_core::execution_attempt::ExecutionDeferred = refusal.into();
+    drop(blocker);
+    for (pending_height, block_hash) in [
+        (height, anchor.block_hash),
+        (unrelated_height, unrelated_hash),
+    ] {
+        app.pipeline_status_cache.record_pending_block(
+            pending_height,
+            PendingBlockStatus {
+                kind: PipelineStatusKind::Committed,
+                block_hash,
+                observed_at,
+                deferred: Some(deferred.clone().into()),
+            },
+        );
+    }
+    let original = owner
+        .scope(|| read_pipeline_transaction_carrier(&app, anchor))
+        .unwrap();
+    let body: *const SignedBlock = original.carrier.block().as_ref();
+    let wire = original.carrier.block().encode_wire().unwrap();
+    let consumed = owner.allocation_context().consumed_allocated_bytes();
+    assert!(consumed > 0);
+    assert!(frames.reserved_bytes() > 0);
+    // Same admitted pool, no more frame capacity: completion must use its retained source.
+    let remaining = frames.limit_bytes() - frames.reserved_bytes();
+    let blocker = frames.try_reserve_bytes(remaining).unwrap();
+    original
+        .owner
+        .scope(|| {
+            app.pipeline_status_cache
+                .complete_pending_from_carrier(&original.carrier, anchor.block_hash)
+        })
+        .unwrap();
+    assert!(std::ptr::eq(original.carrier.block().as_ref(), body));
+    assert_eq!(original.carrier.block().encode_wire().unwrap(), wire);
+    assert_eq!(
+        owner.allocation_context().consumed_allocated_bytes(),
+        consumed,
+        "pending completion must not decode a second original carrier"
+    );
+    assert_eq!(frames.reserved_bytes(), frames.limit_bytes());
+    assert!(
+        app.pipeline_status_cache
+            .pending_blocks
+            .get(&height)
+            .is_none()
+    );
+    let pending = app
+        .pipeline_status_cache
+        .pending_blocks
+        .get(&unrelated_height)
+        .unwrap();
+    assert_eq!(pending.kind, PipelineStatusKind::Committed);
+    assert_eq!(pending.block_hash, unrelated_hash);
+    assert_eq!(pending.observed_at, observed_at);
+    assert_eq!(pending.deferred, Some(deferred.into()));
+    assert_eq!(
+        app.pipeline_status_cache.lookup(&hash).unwrap().kind,
+        PipelineStatusKind::Committed
+    );
+    assert_eq!(
+        app.pipeline_status_cache
+            .pending_count
+            .load(AtomicOrdering::Relaxed),
+        1
+    );
+    drop(pending);
+    drop(blocker);
+    assert!(frames.reserved_bytes() > 0);
+    drop(original);
+    assert_eq!(
+        frames.reserved_bytes(),
+        0,
+        "carrier retirement precedes original query-owner release"
+    );
+}
+
+#[tokio::test]
+async fn pipeline_status_pending_foreign_or_absent_query_keeps_exact_deferred_source() {
+    let (app, hash, chain) = canonical_outcome_test_fixture(false);
+    let original = chain.committed(2);
+    let height = original.block().header().height();
+    let observed_at = Instant::now();
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
+    let frames = owner.cold_frames();
+    let blocker = frames.try_reserve_bytes(frames.limit_bytes()).unwrap();
+    let deferred: iroha_core::execution_attempt::ExecutionDeferred =
+        frames.try_reserve_bytes(1).unwrap_err().into();
+    app.pipeline_status_cache.record_pending_block(
+        height,
+        PendingBlockStatus {
+            kind: PipelineStatusKind::Applied,
+            block_hash: original.block().hash(),
+            observed_at,
+            deferred: Some(deferred.clone().into()),
+        },
+    );
+    let foreign = crate::history_producer::HistoryProducerOwner::for_test();
+    let result = foreign.scope(|| pipeline_status_terminal_or_state_entry(&app, &hash));
+    assert!(matches!(
+        result,
+        Err(Error::Query(ValidationFail::QueryFailed(
+            iroha_data_model::query::error::QueryExecutionFail::CapacityLimit
+        )))
+    ));
+    let absent = HashOf::from_untyped_unchecked(Hash::new(b"unknown pending-query transaction"));
+    let mut reads = 0;
+    assert!(
+        foreign
+            .scope(
+                || pipeline_status_terminal_or_state_entry_with_carrier_reader(
+                    &app,
+                    &absent,
+                    |anchor| {
+                        reads += 1;
+                        read_pipeline_transaction_carrier(&app, anchor)
+                    },
+                )
+            )
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        reads, 0,
+        "absent membership must not acquire a pending or query producer"
+    );
+    assert!(app.pipeline_status_cache.lookup(&hash).is_none());
+    let pending = app
+        .pipeline_status_cache
+        .pending_blocks
+        .get(&height)
+        .unwrap();
+    assert_eq!(pending.kind, PipelineStatusKind::Applied);
+    assert_eq!(pending.block_hash, original.block().hash());
+    assert_eq!(pending.observed_at, observed_at);
+    assert_eq!(pending.deferred, Some(deferred.into()));
+    assert_eq!(owner.allocation_context().consumed_allocated_bytes(), 0);
+    assert_eq!(foreign.allocation_context().consumed_allocated_bytes(), 0);
+    assert_eq!(frames.reserved_bytes(), frames.limit_bytes());
+    drop(pending);
+    drop(blocker);
+}
+
+#[tokio::test]
+async fn pipeline_status_pending_recheck_refuses_changed_membership_without_cache_effects() {
+    let (app, hash, chain) = canonical_outcome_test_fixture(false);
+    let original = chain.committed(2);
+    let height = original.block().header().height();
+    let observed_at = Instant::now();
+    app.pipeline_status_cache.record_pending_block(
+        height,
+        PendingBlockStatus {
+            kind: PipelineStatusKind::Applied,
+            block_hash: original.block().hash(),
+            observed_at,
+            deferred: None,
+        },
+    );
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
+    let mut reads = 0;
+    let error = owner
+        .scope(|| {
+            pipeline_status_terminal_or_state_entry_with_carrier_reader(&app, &hash, |anchor| {
+                reads += 1;
+                let retained = read_pipeline_transaction_carrier(&app, anchor)?;
+                let mut membership = app.state.transactions.block_and_revert();
+                membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap());
+                membership.commit().unwrap();
+                Ok(retained)
+            })
+        })
+        .expect_err("authenticated bytes cannot outlive a changed original canonical membership");
+    assert_eq!(reads, 1);
+    assert!(
+        query_conversion_message(&error)
+            .unwrap()
+            .contains("canonical binding changed during outcome authentication")
+    );
+    assert!(app.pipeline_status_cache.lookup(&hash).is_none());
+    let pending = app
+        .pipeline_status_cache
+        .pending_blocks
+        .get(&height)
+        .unwrap();
+    assert_eq!(pending.kind, PipelineStatusKind::Applied);
+    assert_eq!(pending.block_hash, original.block().hash());
+    assert_eq!(pending.observed_at, observed_at);
+    assert_eq!(pending.deferred, None);
+    assert_eq!(
+        app.pipeline_status_cache
+            .pending_count
+            .load(AtomicOrdering::Relaxed),
+        1
+    );
+    assert_eq!(owner.cold_frames().reserved_bytes(), 0);
+    assert!(owner.allocation_context().consumed_allocated_bytes() > 0);
+}
+
+#[tokio::test]
+async fn pipeline_status_pending_replacement_and_foreign_carrier_cannot_retire_original_entry() {
+    let (app, hash, chain) = canonical_outcome_test_fixture(false);
+    let anchor = canonical_transaction_anchor(&app.state, &hash)
+        .unwrap()
+        .unwrap();
+    let height = chain.committed(2).block().header().height();
+    let observed_at = Instant::now();
+    app.pipeline_status_cache.record_pending_block(
+        height,
+        PendingBlockStatus {
+            kind: PipelineStatusKind::Applied,
+            block_hash: anchor.block_hash,
+            observed_at,
+            deferred: None,
+        },
+    );
+    let changed =
+        HashOf::from_untyped_unchecked(Hash::new(b"replaced pending source at same height"));
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
+    let mut reads = 0;
+    let (entry, source) = owner
+        .scope(|| {
+            pipeline_status_terminal_or_state_entry_with_carrier_reader(&app, &hash, |captured| {
+                reads += 1;
+                let retained = read_pipeline_transaction_carrier(&app, captured)?;
+                let error = app
+                    .pipeline_status_cache
+                    .complete_pending_from_carrier(&retained.carrier, changed)
+                    .expect_err(
+                        "a foreign source cannot populate or retire the original pending cache",
+                    );
+                assert!(
+                    query_conversion_message(&error)
+                        .unwrap()
+                        .contains("pending completion carrier differs from its canonical binding")
+                );
+                assert!(app.pipeline_status_cache.lookup(&hash).is_none());
+                app.pipeline_status_cache.record_pending_block(
+                    height,
+                    PendingBlockStatus {
+                        kind: PipelineStatusKind::Committed,
+                        block_hash: changed,
+                        observed_at: Instant::now(),
+                        deferred: None,
+                    },
+                );
+                Ok(retained)
+            })
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(reads, 1);
+    assert_eq!(entry.kind, PipelineStatusKind::Applied);
+    assert_eq!(source, "state");
+    let pending = app
+        .pipeline_status_cache
+        .pending_blocks
+        .get(&height)
+        .unwrap();
+    assert_eq!(pending.kind, PipelineStatusKind::Committed);
+    assert_eq!(pending.block_hash, changed);
+    assert_eq!(pending.observed_at, observed_at);
+    assert_eq!(pending.deferred, None);
+    assert_eq!(
+        app.pipeline_status_cache
+            .pending_count
+            .load(AtomicOrdering::Relaxed),
+        1
+    );
+    assert_eq!(owner.cold_frames().reserved_bytes(), 0);
 }

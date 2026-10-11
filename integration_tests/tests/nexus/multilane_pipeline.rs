@@ -164,6 +164,7 @@ fn multilane_catalog_sets_up_storage_and_routing() -> Result<()> {
         store_dir: WithOrigin::inline(temp.path().to_path_buf()),
         max_disk_usage_bytes: defaults::kura::MAX_DISK_USAGE_BYTES,
         blocks_in_memory: defaults::kura::BLOCKS_IN_MEMORY,
+        history_checkpoint_cache_capacity: defaults::kura::HISTORY_CHECKPOINT_CACHE_CAPACITY,
         debug_output_new_blocks: false,
         fsync_mode: FsyncMode::Batched,
         fsync_interval: defaults::kura::FSYNC_INTERVAL,

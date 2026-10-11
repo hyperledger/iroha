@@ -90,8 +90,8 @@ fn parse_trigger_decl_with_structured_data_filters_for_core_families() {
             .collect::<String>();
         let src = format!(
             r#"
-                seiyaku C {{
-                    kotoage fn run() authorize("Run") {{}}
+                seiyaku C {{ permission Run;
+                    kotoage fn run() authorize(Run) {{}}
                     trigger wake -> run {{
                         on data {family_literal} {event} {{
 {matcher_block}                        }}
@@ -134,8 +134,8 @@ fn parse_trigger_decl_with_pipeline_filter() {
     ] {
         let src = format!(
             r#"
-            seiyaku C {{
-                kotoage fn run() authorize("Run") {{}}
+            seiyaku C {{ permission Run;
+                kotoage fn run() authorize(Run) {{}}
                 trigger wake -> run {{
                     on pipeline {source_filter};
                 }}

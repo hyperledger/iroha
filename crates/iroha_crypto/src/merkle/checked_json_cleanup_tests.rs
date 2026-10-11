@@ -90,7 +90,7 @@ fn audit(value: &impl JsonSerialize, label: &str, defects: &mut Vec<String>) {
         defects.push(format!("{label}: {changed:?}"));
     }
 }
-fn complete(defects: Vec<String>) {
+fn complete(defects: &[String]) {
     assert!(defects.is_empty(), "{ASSERTION}: {defects:?}");
 }
 fn tree() -> MerkleTree<u64> {
@@ -106,7 +106,7 @@ fn original_key_pair_refusal_preserves_inherited_depth() {
     let value = KeyPair::from_seed(vec![17; 32], Algorithm::Ed25519);
     let mut defects = Vec::new();
     audit(&value, "KeyPair Ed25519", &mut defects);
-    complete(defects);
+    complete(&defects);
 }
 #[test]
 fn original_merkle_commitment_refusal_preserves_inherited_depth() {
@@ -116,7 +116,7 @@ fn original_merkle_commitment_refusal_preserves_inherited_depth() {
         "MerkleTreeCommitment",
         &mut defects,
     );
-    complete(defects);
+    complete(&defects);
 }
 #[test]
 fn original_merkle_tree_refusal_preserves_inherited_depth() {
@@ -127,7 +127,7 @@ fn original_merkle_tree_refusal_preserves_inherited_depth() {
         "MerkleTree empty",
         &mut defects,
     );
-    complete(defects);
+    complete(&defects);
 }
 #[test]
 fn original_merkle_proof_refusal_preserves_inherited_depth() {
@@ -142,7 +142,7 @@ fn original_merkle_proof_refusal_preserves_inherited_depth() {
         "MerkleProof empty",
         &mut defects,
     );
-    complete(defects);
+    complete(&defects);
 }
 #[test]
 fn original_compact_merkle_proof_refusal_preserves_inherited_depth() {
@@ -157,7 +157,7 @@ fn original_compact_merkle_proof_refusal_preserves_inherited_depth() {
         "CompactMerkleProof empty",
         &mut defects,
     );
-    complete(defects);
+    complete(&defects);
 }
 #[test]
 fn original_merkle_nested_begin_refusal_preserves_inherited_depth() {
@@ -188,7 +188,7 @@ fn invalid_merkle_cache_retains_the_exact_rejected_shape_and_balanced_depth() {
     let bytes = value.allocated_bytes();
     let mut defects = Vec::new();
     audit(&value, "invalid cached Merkle tree", &mut defects);
-    complete(defects);
+    complete(&defects);
     let mut sink = TrackingSink::new(usize::MAX);
     sink.depth_limit = Some(INHERITED_DEPTH + 2);
     assert_eq!(
@@ -207,7 +207,7 @@ fn checked_merkle_refusals_do_not_replace_the_original_node_allocation() {
     let bytes = value.allocated_bytes();
     let mut defects = Vec::new();
     audit(&value, "original node allocation", &mut defects);
-    complete(defects);
+    complete(&defects);
     assert_eq!(value.nodes.as_ptr(), pointer);
     assert_eq!(value.allocated_bytes(), bytes);
 }

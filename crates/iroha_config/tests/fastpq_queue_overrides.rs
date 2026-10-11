@@ -1,4 +1,5 @@
 //! Validate FASTPQ Metal queue overrides parse correctly from env and reject invalid values.
+
 use iroha_config::parameters::{actual::Root as ActualConfig, user::Root as UserConfig};
 use iroha_config_base::{env::MockEnv, read::ConfigReader};
 use std::{

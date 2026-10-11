@@ -10,7 +10,7 @@ seiyaku AggregateSumAcceptance {
 
   struct Pair { int count, bool ready }
 
-  view fn run() -> int {
+  view fn run() authorize(anyone) -> int {
     let Option<Pair> some = Option::some(Pair { count: 7, ready: true });
     let from_some = some.unwrap_or(Pair { count: 90, ready: false });
     require(from_some.count == 7 && from_some.ready, AggregateSumError::SomeLost);

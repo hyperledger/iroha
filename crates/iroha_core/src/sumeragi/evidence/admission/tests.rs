@@ -43,13 +43,13 @@ fn admission_owner_preserves_root_authority_and_refunds_exact_original_backing()
     assert!(admitted.belongs_to(budget));
     assert_eq!(admitted.as_slice()[0].key(), evidence_key(&proof));
     assert_eq!(
-        admitted.as_slice()[0].attribution.scope,
+        admitted.as_slice()[0].attribution().scope,
         iroha_data_model::block::consensus::EvidenceScope::Root
     );
-    assert_eq!(admitted.as_slice()[0].attribution.height, 2);
+    assert_eq!(admitted.as_slice()[0].attribution().height, 2);
     assert_eq!(
         admitted.as_slice()[0]
-            .attribution
+            .attribution()
             .offenders
             .iter()
             .map(|offender| offender.signer)
@@ -58,7 +58,7 @@ fn admission_owner_preserves_root_authority_and_refunds_exact_original_backing()
     );
     assert!(
         admitted.as_slice()[0]
-            .attribution
+            .attribution()
             .offenders
             .iter()
             .all(|offender| offender.lane_stake.is_none())
@@ -149,7 +149,7 @@ fn replay_fence_funds_actual_native_roster_above_global_geometry() {
         |_, _| Ok(()),
     )
     .unwrap();
-    let mut claim = verified.into_attribution();
+    let mut claim = verified.into_attribution().get().clone();
     claim.offenders = (0..33_u32)
         .map(|signer| {
             let pair = iroha_crypto::KeyPair::from_seed(
@@ -231,4 +231,148 @@ fn retained_admission_classifies_only_typed_local_refusal_as_retryable() {
         })
         .into()
     ));
+}
+
+#[test]
+fn admitted_offender_graph_keeps_original_execution_pool_until_last_graph_drop() {
+    let mut chain = super::super::tests::chain();
+    chain.commit(Vec::new());
+    let state = chain.state();
+    let native = super::super::tests::conflict(&chain, 2);
+    let proof = Evidence::from_native(&native).unwrap();
+    let execution = state.ivm_execution_budget();
+    let preparation = state.evidence_preparation_budget();
+    let execution_before = execution.reserved_bytes();
+    let preparation_before = preparation.reserved_bytes();
+    let generation = state.state_view_generation();
+    let mut read = AdmissionRead::capture(
+        state,
+        &state.view(),
+        generation,
+        3,
+        std::slice::from_ref(&proof),
+    )
+    .unwrap();
+    read.complete().unwrap();
+    let owner = read.candidates.as_slice()[0].verified.as_ref().unwrap();
+    let graph = owner.attribution();
+    assert!(owner.attribution_belongs_to(&execution));
+    assert!(!owner.attribution_belongs_to(preparation));
+    let original = graph.offenders.as_ptr();
+    let compact = graph.offenders[0]
+        .peer_id
+        .public_key()
+        .borrowed_parts()
+        .unwrap()
+        .1
+        .as_ptr();
+    let bytes = owner.allocation_bytes().unwrap();
+    assert_eq!(execution.reserved_bytes(), execution_before + bytes);
+    let admitted = read.finish().unwrap();
+    let owner = &admitted.as_slice()[0];
+    let graph = owner.attribution();
+    assert_eq!(graph.offenders.as_ptr(), original);
+    assert_eq!(
+        graph.offenders[0]
+            .peer_id
+            .public_key()
+            .borrowed_parts()
+            .unwrap()
+            .1
+            .as_ptr(),
+        compact
+    );
+    assert!(owner.attribution_belongs_to(&execution));
+    assert_eq!(execution.reserved_bytes(), execution_before + bytes);
+    drop(admitted);
+    assert_eq!(execution.reserved_bytes(), execution_before);
+    assert_eq!(preparation.reserved_bytes(), preparation_before);
+}
+
+#[test]
+fn late_record_shell_refusal_retains_original_verified_graph_and_frame_for_retry() {
+    let mut chain = super::super::tests::chain();
+    chain.commit(Vec::new());
+    let state = chain.state();
+    let proof = Evidence::from_native(&super::super::tests::conflict(&chain, 2)).unwrap();
+    let generation = state.state_view_generation();
+    let execution = state.ivm_execution_budget();
+    let mut read = AdmissionRead::capture(
+        state,
+        &state.view(),
+        generation,
+        3,
+        std::slice::from_ref(&proof),
+    )
+    .unwrap();
+    let candidate = &read.candidates.as_slice()[0];
+    let frame_pointer = candidate.frame.as_ref().unwrap().as_slice().as_ptr();
+    let graph_pointer = candidate
+        .verified
+        .as_ref()
+        .unwrap()
+        .attribution()
+        .offenders
+        .as_ptr();
+    let compact_pointer = candidate.verified.as_ref().unwrap().attribution().offenders[0]
+        .peer_id
+        .public_key()
+        .borrowed_parts()
+        .unwrap()
+        .1
+        .as_ptr();
+    let graph_reserved = execution.reserved_bytes();
+    let blocker = execution
+        .try_reserve_bytes(execution.limit_bytes() - graph_reserved)
+        .unwrap();
+    let exact = iroha_allocation::ChargedShared::<super::super::record::EvidenceRecordBody>::allocation_layout();
+    let expected = execution.try_reserve(exact).unwrap_err();
+    let error = read
+        .complete()
+        .expect_err("the final original-pool record shell must refuse");
+    let EvidenceAdmissionError::Preparation(EvidencePreparationError::Admission(actual)) = error
+    else {
+        panic!("typed original shell refusal")
+    };
+    assert_eq!(actual, expected);
+    assert!(read.matches(generation, 3, std::slice::from_ref(&proof)));
+    let candidate = &read.candidates.as_slice()[0];
+    assert!(candidate.verified.as_ref().unwrap().body.is_none());
+    assert_eq!(
+        candidate.frame.as_ref().unwrap().as_slice().as_ptr(),
+        frame_pointer
+    );
+    assert_eq!(
+        candidate
+            .verified
+            .as_ref()
+            .unwrap()
+            .attribution()
+            .offenders
+            .as_ptr(),
+        graph_pointer
+    );
+    drop(blocker);
+    read.complete().unwrap();
+    let admitted = read.finish().unwrap();
+    let owner = &admitted.as_slice()[0];
+    assert_eq!(owner.native_frame().unwrap().as_ptr(), frame_pointer);
+    assert_eq!(owner.attribution().offenders.as_ptr(), graph_pointer);
+    assert_eq!(
+        owner.attribution().offenders[0]
+            .peer_id
+            .public_key()
+            .borrowed_parts()
+            .unwrap()
+            .1
+            .as_ptr(),
+        compact_pointer
+    );
+    assert!(owner.attribution_belongs_to(&execution));
+    let record = owner.record(&proof, 3, 0, 3000).unwrap();
+    assert!(record.proof_belongs_to(state.evidence_preparation_budget()));
+    assert!(record.body_belongs_to(&execution));
+    assert_eq!(record.evidence.native_frame().as_ptr(), frame_pointer);
+    drop(admitted);
+    assert_eq!(record.attribution.offenders.as_ptr(), graph_pointer);
 }

@@ -24,6 +24,8 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger-ir
 maintenance = { status = "actively-developed" }
 
 [features]
+# Owning unit-test selectors only; rejected in every non-test library build.
+mutation-testing = []
 # Use rustls by default to avoid OpenSSL dependency, simplifying compilation with musl.
 # Enable every portable production algorithm while retaining one coherent TLS policy.
 default = ["tls-rustls-native-roots", "gost", "sm"]

@@ -1074,6 +1074,15 @@ fn canonical_transaction_outcome_with_authenticator(
     hash: &HashOf<SignedTransaction>,
     authenticate: impl FnOnce(CanonicalTransactionAnchor) -> Result<CanonicalTransactionOutcome, Error>,
 ) -> Result<Option<CanonicalTransactionOutcome>, Error> {
+    canonical_transaction_read_with_authenticator(state, hash, authenticate)
+}
+// Keep the exact canonical bracket around the owned result as well as its scalar projection.
+// This retains the original carrier/query lease until the membership recheck has succeeded.
+fn canonical_transaction_read_with_authenticator<T>(
+    state: &CoreState,
+    hash: &HashOf<SignedTransaction>,
+    authenticate: impl FnOnce(CanonicalTransactionAnchor) -> Result<T, Error>,
+) -> Result<Option<T>, Error> {
     let Some(anchor) = canonical_transaction_anchor(state, hash)? else {
         return Ok(None);
     };
@@ -1096,24 +1105,86 @@ fn authenticate_canonical_transaction_outcome(
     hash: &HashOf<SignedTransaction>,
     anchor: CanonicalTransactionAnchor,
 ) -> Result<CanonicalTransactionOutcome, Error> {
+    let work = routing::app_query_limits().max_fetch_size;
+    canonical_transaction_outcome_from_reader(hash, anchor, |visitor| {
+        iroha_core::smartcontracts::isi::tx::visit_finalized_network_transactions(
+            state,
+            anchor.height,
+            anchor.block_hash,
+            work,
+            iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work),
+            visitor,
+        )
+        .map_err(crate::canonical_history::query_attempt_error)
+    })
+}
+// HTTP status is an off-chain observation. Retain its exact query-owned carrier until
+// the canonical membership bracket and matching pending projection have both completed.
+// Field order retires the funded carrier before the last original query lease/control.
+struct AuthenticatedPipelineCarrier {
+    carrier: iroha_core::smartcontracts::isi::tx::FinalizedExecutionCarrier,
+    owner: crate::history_producer::HistoryProducerOwner,
+}
+fn read_pipeline_transaction_carrier(
+    app: &SharedAppState,
+    anchor: CanonicalTransactionAnchor,
+) -> Result<AuthenticatedPipelineCarrier, Error> {
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(app)?;
+    let work = routing::app_query_limits().max_fetch_size;
+    let carrier = owner.scope(|| {
+        let budget = owner.canonical_history_budget();
+        let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
+        // G1 still requires its actual certified H2. Only successors use the original
+        // State/checkpoint ancestry. Refusal never selects another reader or pool.
+        if anchor.height == NonZeroUsize::MIN {
+            app.state.read_finalized_execution_carrier_with_read_budget(
+                anchor.height,
+                work,
+                bytes,
+                &budget,
+            )
+        } else {
+            app.state
+                .read_executed_carrier_from_checkpoints(anchor.height, work, bytes, &budget)
+        }
+        .map_err(crate::canonical_history::query_attempt_error)
+    })?;
+    Ok(AuthenticatedPipelineCarrier { carrier, owner })
+}
+// Existing private outcome controls use the same production acquisition/projection.
+#[cfg(test)]
+fn authenticate_pipeline_transaction_outcome(
+    app: &SharedAppState,
+    hash: &HashOf<SignedTransaction>,
+    anchor: CanonicalTransactionAnchor,
+) -> Result<CanonicalTransactionOutcome, Error> {
+    let original = read_pipeline_transaction_carrier(app, anchor)?;
+    original.owner.scope(|| {
+        canonical_transaction_outcome_from_reader(hash, anchor, |visitor| {
+            original
+                .carrier
+                .visit_network_transactions(anchor.block_hash, visitor)
+                .map_err(|error| crate::canonical_history::query_attempt_error(error.into()))
+        })
+    })
+}
+// A single outcome kernel retains the existing exact inclusion, duplicate, rejection and
+// timestamp checks irrespective of which authenticated, bounded carrier reader supplied it.
+fn canonical_transaction_outcome_from_reader(
+    hash: &HashOf<SignedTransaction>,
+    anchor: CanonicalTransactionAnchor,
+    read: impl FnOnce(
+        &mut dyn FnMut(&TransactionEntrypoint, &iroha_data_model::transaction::TransactionResult),
+    ) -> Result<BlockHeader, Error>,
+) -> Result<CanonicalTransactionOutcome, Error> {
     let mut result = None;
     let mut duplicate = false;
-    let work = routing::app_query_limits().max_fetch_size;
-    let header = iroha_core::smartcontracts::isi::tx::visit_finalized_network_transactions(
-        state,
-        anchor.height,
-        anchor.block_hash,
-        work,
-        iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work),
-        |entrypoint, output| {
-            if transaction_entrypoint_matches_indexed_identity(entrypoint, &anchor.entrypoint_hash)
-            {
-                let outcome = output.as_ref().map(|_| ()).map_err(Clone::clone);
-                duplicate |= result.replace(outcome).is_some();
-            }
-        },
-    )
-    .map_err(crate::canonical_history::query_attempt_error)?;
+    let header = read(&mut |entrypoint, output| {
+        if transaction_entrypoint_matches_indexed_identity(entrypoint, &anchor.entrypoint_hash) {
+            let outcome = output.as_ref().map(|_| ()).map_err(Clone::clone);
+            duplicate |= result.replace(outcome).is_some();
+        }
+    })?;
     if duplicate {
         return Err(pipeline_status_projection_error(format!(
             "transaction {hash} occurs more than once in its finalized carrier"
@@ -1138,6 +1209,7 @@ fn authenticate_canonical_transaction_outcome(
         },
     })
 }
+
 fn pipeline_status_from_state(
     state: &CoreState,
     hash: &HashOf<SignedTransaction>,
@@ -1149,18 +1221,99 @@ fn pipeline_status_terminal_or_state_entry(
     app: &SharedAppState,
     hash: &HashOf<SignedTransaction>,
 ) -> Result<Option<(PipelineStatusEntry, &'static str)>, Error> {
-    app.pipeline_status_cache.refresh_pending_blocks(&app.state);
-    if let Some(entry) = pipeline_status_from_state(&app.state, hash)? {
+    pipeline_status_terminal_or_state_entry_with_carrier_reader(app, hash, |anchor| {
+        read_pipeline_transaction_carrier(app, anchor)
+    })
+}
+fn pipeline_status_terminal_or_state_entry_with_carrier_reader(
+    app: &SharedAppState,
+    hash: &HashOf<SignedTransaction>,
+    read: impl FnOnce(CanonicalTransactionAnchor) -> Result<AuthenticatedPipelineCarrier, Error>,
+) -> Result<Option<(PipelineStatusEntry, &'static str)>, Error> {
+    let outcome = reconcile_pending_pipeline_transaction_with_carrier_reader(app, hash, read)?;
+    if let Some(entry) = outcome.map(CanonicalTransactionOutcome::into_pipeline_status_entry) {
         app.pipeline_status_cache
             .record_entry(hash.clone(), entry.clone());
         return Ok(Some((entry, "state")));
     }
-    if let Some(entry) = app.pipeline_status_cache.lookup(hash) {
+    if let Some(entry) = pipeline_status_cached_entry_without_canonical(app, hash)? {
         if entry.kind.is_terminal() {
             return Ok(Some((entry, "cache")));
         }
     }
     Ok(None)
+}
+// Test convenience delegates to the actual production reconciliation stage below. It
+// observes that stage before the HTTP scalar's separate Applied promotion.
+#[cfg(test)]
+fn reconcile_pending_pipeline_transaction(
+    app: &SharedAppState,
+    hash: &HashOf<SignedTransaction>,
+) -> Result<Option<CanonicalTransactionOutcome>, Error> {
+    reconcile_pending_pipeline_transaction_with_carrier_reader(app, hash, |anchor| {
+        read_pipeline_transaction_carrier(app, anchor)
+    })
+}
+fn reconcile_pending_pipeline_transaction_with_carrier_reader(
+    app: &SharedAppState,
+    hash: &HashOf<SignedTransaction>,
+    read: impl FnOnce(CanonicalTransactionAnchor) -> Result<AuthenticatedPipelineCarrier, Error>,
+) -> Result<Option<CanonicalTransactionOutcome>, Error> {
+    // This deliberate mutant restores only the old pre-admission side effect. The ordinary
+    // path neither reads unrelated pending carriers nor borrows State execution capacity.
+    #[cfg(all(test, sumeragi_torii_mutation = "TOR2"))]
+    app.pipeline_status_cache.refresh_pending_blocks(&app.state);
+    let authenticated =
+        canonical_transaction_read_with_authenticator(&app.state, hash, |anchor| {
+            let original = read(anchor)?;
+            let outcome = original.owner.scope(|| {
+                canonical_transaction_outcome_from_reader(hash, anchor, |visitor| {
+                    original
+                        .carrier
+                        .visit_network_transactions(anchor.block_hash, visitor)
+                        .map_err(|error| {
+                            crate::canonical_history::query_attempt_error(error.into())
+                        })
+                })
+            })?;
+            Ok((outcome, anchor, original))
+        })?;
+    if let Some((outcome, anchor, original)) = authenticated {
+        // Only this exact pending block can complete, using the already authenticated
+        // immutable join. No second I/O/decode, State budget, or bulk pending drain occurs.
+        original.owner.scope(|| {
+            app.pipeline_status_cache
+                .complete_pending_from_carrier(&original.carrier, anchor.block_hash)
+        })?;
+        return Ok(Some(outcome));
+    }
+    Ok(None)
+}
+// A cached block outcome is only a hint once the exact State binding is absent. Keep
+// ordinary local expiry/admission rejection distinct, and retain the original cache on
+// refusal so neither retry nor prepared submission can manufacture canonical authority.
+fn pipeline_status_cached_entry_without_canonical(
+    app: &SharedAppState,
+    hash: &HashOf<SignedTransaction>,
+) -> Result<Option<PipelineStatusEntry>, Error> {
+    let cached = app.pipeline_status_cache.lookup(hash);
+    if let Some(entry) = &cached {
+        let needs_canonical = matches!(
+            entry.kind,
+            PipelineStatusKind::Committed | PipelineStatusKind::Applied
+        ) || (entry.block_height.is_some()
+            && matches!(
+                entry.kind,
+                PipelineStatusKind::Rejected | PipelineStatusKind::Expired
+            ));
+        if needs_canonical && !cfg!(all(test, sumeragi_torii_mutation = "TOR1")) {
+            return Err(pipeline_status_projection_error(format!(
+                "transaction {hash} has cached {} without its exact canonical binding",
+                entry.kind.as_str()
+            )));
+        }
+    }
+    Ok(cached)
 }
 pub(crate) fn pipeline_status_local_entry_checked(
     app: &SharedAppState,
@@ -1169,7 +1322,7 @@ pub(crate) fn pipeline_status_local_entry_checked(
     if let Some(entry) = pipeline_status_terminal_or_state_entry(app, hash)? {
         return Ok(Some(entry));
     }
-    if let Some(entry) = app.pipeline_status_cache.lookup(hash) {
+    if let Some(entry) = pipeline_status_cached_entry_without_canonical(app, hash)? {
         if entry.kind == PipelineStatusKind::Queued
             && !app.queue.contains_pending_hash(
                 iroha_core::tx::external_entrypoint_hash_from_signed_hash(hash.clone()),

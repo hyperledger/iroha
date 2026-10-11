@@ -197,13 +197,42 @@ pub(crate) fn prepare_private_root_at(
     spec: &PrivateRootSpec,
     publication_root: Option<&Path>,
 ) -> crate::managed::Result<PreparedLocalnet> {
+    prepare_private_root_selected(name, directory, ports, spec, publication_root, None)
+}
+
+pub(crate) fn prepare_private_root_with_amx_at(
+    name: &str,
+    directory: &Path,
+    ports: &LocalnetPorts,
+    spec: &PrivateRootSpec,
+    publication_root: Option<&Path>,
+    sources: &crate::bootstrap::ParentBootstrapSources,
+) -> crate::managed::Result<PreparedLocalnet> {
+    prepare_private_root_selected(
+        name,
+        directory,
+        ports,
+        spec,
+        publication_root,
+        Some(sources),
+    )
+}
+
+fn prepare_private_root_selected(
+    name: &str,
+    directory: &Path,
+    ports: &LocalnetPorts,
+    spec: &PrivateRootSpec,
+    publication_root: Option<&Path>,
+    amx: Option<&crate::bootstrap::ParentBootstrapSources>,
+) -> crate::managed::Result<PreparedLocalnet> {
     spec.validate().map_err(|error| {
         Error::Invalid(format!("private-root SNS identity is invalid: {error}"))
     })?;
     if directory.exists() {
         let root = iroha_fs::PrivateDirectory::open(directory)?;
-        match root.read(PREPARED, 1024 * 1024) {
-            Ok(bytes) => {
+        match root.read_optional(PREPARED, 1024 * 1024)? {
+            Some(bytes) => {
                 if publication_root.is_some() {
                     return Err(Error::Invalid(
                         "publication stage already contains a prepared identity".into(),
@@ -217,13 +246,17 @@ pub(crate) fn prepare_private_root_at(
                     ));
                 }
                 verify_retained(root.path(), &retained.prepared, spec)?;
+                if let Some(sources) = amx {
+                    sources
+                        .require_signed_generation(&retained.prepared)
+                        .map_err(|error| Error::Invalid(error.to_string()))?;
+                }
                 return Ok(retained.prepared);
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
+            None => {}
         }
     }
-    let mut prepared = prepare_fresh(name, directory, ports, spec, publication_root)
+    let mut prepared = prepare_fresh(name, directory, ports, spec, publication_root, amx)
         .map_err(|error| Error::Invalid(format!("private-root preparation failed: {error:#}")))?;
     verify_retained(&directory.canonicalize()?, &prepared, spec)?;
     if let Some(root) = publication_root {
@@ -278,10 +311,10 @@ pub(crate) fn verify_retained(
     )?;
     let block =
         iroha_data_model::block::decode_framed_signed_block(&bytes).map_err(|_| invalid())?;
-    iroha_data_model::sumeragi_finality::genesis_epoch(&block).map_err(|_| invalid())?;
-    service_authorities::validate_signed_profile(prepared, &block)?;
-    let metadata = iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(&block)
-        .map_err(|_| invalid())?;
+    let metadata = iroha_data_model::sumeragi_finality::authenticated_genesis(&block)
+        .map_err(|_| invalid())?
+        .metadata();
+    service_authorities::validate_signed_profile(prepared, &block, &metadata)?;
     if metadata.sumeragi_context.root_scope != spec.scope()
         || NetworkId::from_genesis_hash(block.hash()).to_string() != prepared.context.network_id
     {
@@ -394,6 +427,7 @@ fn prepare_fresh(
     ports: &LocalnetPorts,
     spec: &PrivateRootSpec,
     publication_root: Option<&Path>,
+    amx: Option<&crate::bootstrap::ParentBootstrapSources>,
 ) -> Result<PreparedLocalnet> {
     init_instruction_registry();
     // Parent SDK work can carry a different address-rendering scope on this thread. A fresh
@@ -422,7 +456,7 @@ fn prepare_fresh(
         &runtime.join(LOCALNET_LEDGER_SIGNER_KEY_FILE),
         Zeroizing::new(format!("{}\n", owner.private_key.as_str())).as_bytes(),
     )?;
-    write_managed_mint_finality_seeds(&root, &peers)?;
+    prepare_managed_node_directories(&root, peers.len())?;
     // This owner creates the private domain and its restricted assets in original genesis.
     // Retain one identity for genesis, later private transactions and parent registration;
     // assigning the domain to another signer would violate ordinary asset ownership checks.
@@ -451,6 +485,10 @@ fn prepare_fresh(
         LocalnetServiceProfile::Standard,
         &owner.account_id,
     )?;
+    let genesis = match amx {
+        Some(sources) => sources.append_to(genesis)?,
+        None => genesis,
+    };
     copy_rans_tables(&root)?;
     let signed_path = root.join("genesis.signed.nrt");
     let trusted = peers
@@ -738,10 +776,7 @@ fn private_genesis(
     let mut context = SumeragiGenesisContextParameters::recommended();
     context.root_scope = spec.scope();
     let mut builder = GenesisBuilder::new_without_executor(chain.parse()?, PathBuf::from("."))
-        .with_sumeragi_context_parameters(context)
-        .with_kagemusha_mint_finality_genesis_parameters(
-            localnet_kagemusha_mint_finality_genesis_parameters(peers)?,
-        );
+        .with_sumeragi_context_parameters(context);
     let mut parameters = Parameters::default();
     parameters.set_parameter(Parameter::Custom(
         private_fee_policy(spec)?.into_custom_parameter()?,
@@ -983,6 +1018,7 @@ mod tests {
             "parent address rendering cannot change the independently generated child profile"
         );
         let owner = client.account;
+        let mut expected_roster = Vec::new();
         for peer in &prepared.peers {
             let bytes = iroha_fs::read_private(&peer.config_path, 1024 * 1024).unwrap();
             let table: toml::Table = std::str::from_utf8(&bytes).unwrap().parse().unwrap();
@@ -993,6 +1029,25 @@ mod tests {
                 Some(&peer.config_path),
             )
             .unwrap();
+            assert_eq!(table["zk"]["pipa_r"]["enabled"].as_bool(), Some(true));
+            assert!(table["zk"].get("halo2").is_none());
+            assert!(config.zk.pipa_r.enabled);
+            let retired = Zeroizing::new(format!(
+                "{}\n[zk.halo2]\nenabled = true\n",
+                std::str::from_utf8(&bytes).unwrap()
+            ));
+            assert!(parse_private_peer_config(&retired, Some(&peer.config_path)).is_err());
+            assert_eq!(
+                parse_private_peer_config(
+                    std::str::from_utf8(&bytes).unwrap(),
+                    Some(&peer.config_path),
+                )
+                .map(|retry| retry.genesis.expected_hash)
+                .unwrap(),
+                config.genesis.expected_hash,
+                "the same original generated config remains admissible after retired-field refusal"
+            );
+            expected_roster.push(config.common.peer.id().clone());
             assert_eq!(&config.genesis.public_key, client.key_pair.public_key());
             assert_eq!(
                 config.network.connect_startup_delay,
@@ -1005,22 +1060,7 @@ mod tests {
                     iroha_config::parameters::defaults::network::PREAUTH_TIMEOUT,
                 )
             );
-            let pow = &config.network.soranet_handshake.pow;
-            let expected_pow = actual::SoranetPow::default_const();
-            assert_eq!(
-                (
-                    pow.difficulty,
-                    pow.puzzle.memory_kib,
-                    pow.puzzle.time_cost,
-                    pow.puzzle.lanes,
-                ),
-                (
-                    expected_pow.difficulty,
-                    expected_pow.puzzle.memory_kib,
-                    expected_pow.puzzle.time_cost,
-                    expected_pow.puzzle.lanes,
-                )
-            );
+            managed_puzzle::assert_managed_profile(&table, &config.network.soranet_handshake.pow);
             assert!(config.torii.peer_telemetry_urls.is_empty());
             assert_eq!(config.nexus.dataspace_catalog.entries().len(), 1);
             assert_eq!(
@@ -1035,6 +1075,87 @@ mod tests {
             assert_eq!(
                 config.nexus.lane_catalog.lanes()[0].dataspace_id,
                 spec.dataspace_id
+            );
+        }
+        let signed = read_signed_genesis(&directory.join("genesis.signed.nrt")).unwrap();
+        let authenticated =
+            iroha_data_model::sumeragi_finality::authenticated_genesis(&signed).unwrap();
+        let metadata = authenticated.metadata();
+        let epoch = authenticated.into_parts().0;
+        // Derive only the mandatory account/profile value work from their canonical
+        // constructors, independently of the profile validator or metadata decoder.
+        // A DEP7 metadata replay cannot enlarge its own successful allowance.
+        let profile_limits = |allocated| {
+            norito::DecodeLimits::new(1_000_000, 48 * 1024 * 1024, 1_000_000, allocated, 64)
+        };
+        let reference = norito::core::DecodeBudgetContext::new(profile_limits(usize::MAX));
+        let mut identity_debit = 0;
+        reference.with(|| {
+            let discriminant =
+                iroha_data_model::account::address::AccountAddress::i105_discriminant(
+                    &prepared.context.account_id,
+                )
+                .unwrap();
+            let _address_profile = ChainDiscriminantGuard::enter(discriminant);
+            assert_eq!(
+                AccountId::parse_encoded(&prepared.context.account_id).unwrap(),
+                owner
+            );
+            identity_debit = reference.consumed_allocated_bytes();
+            iroha_primitives::json::Json::try_new(prepared.service_profile).unwrap();
+        });
+        let profile_debit = reference.consumed_allocated_bytes();
+        assert!(identity_debit > 0 && profile_debit > identity_debit);
+        // The already authenticated metadata must consume no additional allowance;
+        // normal identity and expected-profile validation still execute in full.
+        let profile_context = norito::core::DecodeBudgetContext::new(profile_limits(
+            usize::try_from(profile_debit).unwrap(),
+        ));
+        profile_context.with(|| {
+            service_authorities::validate_signed_profile(&prepared, &signed, &metadata)
+        }).expect("original private-root signed profile must reuse completed authenticated metadata without another codec decode");
+        assert_eq!(profile_context.consumed_allocated_bytes(), profile_debit);
+        let empty = norito::core::DecodeBudgetContext::new(profile_limits(0));
+        assert!(
+            empty
+                .with(|| service_authorities::validate_signed_profile(
+                    &prepared, &signed, &metadata
+                ))
+                .is_err(),
+            "an empty allowance must still refuse the original account validation"
+        );
+        // Complete the same required identity read, then refuse the actual JSON
+        // constructor. The production validator must return its error, not unwind.
+        let partial = norito::core::DecodeBudgetContext::new(profile_limits(
+            usize::try_from(identity_debit).unwrap(),
+        ));
+        assert!(
+            partial
+                .with(|| service_authorities::validate_signed_profile(
+                    &prepared, &signed, &metadata
+                ))
+                .is_err(),
+            "signed profile JSON construction refusal must return without panicking"
+        );
+        assert_eq!(
+            iroha_data_model::account::address::chain_discriminant(),
+            369
+        );
+        service_authorities::validate_signed_profile(&prepared, &signed, &metadata)
+            .expect("a separate pristine profile attempt must still validate its original source");
+        assert_eq!(epoch.authorization.authority_generation, 0);
+        assert_eq!(epoch.committee.len(), 4);
+        epoch
+            .authorization
+            .validate_against_generation(&epoch.generation())
+            .unwrap();
+        expected_roster.sort();
+        assert_eq!(epoch.generation().validators, expected_roster);
+        for index in 0..prepared.peers.len() {
+            assert!(
+                !managed_node_dir(&directory, index)
+                    .join("secrets/mint_finality.seed")
+                    .exists()
             );
         }
         let manifest = RawGenesisTransaction::from_path(&directory.join("genesis.json")).unwrap();

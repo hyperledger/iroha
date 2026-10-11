@@ -4,8 +4,8 @@ fn raw_norito_and_opaque_submission_are_not_source_apis() {
     let diagnostics = kotodama_lang::session::CompilerSession::default()
         .build(kotodama_lang::session::CompileRequest {
             source: r#"
-seiyaku RawSubmission {
-  kotoage fn submit() authorize("Submit") {
+seiyaku RawSubmission { permission Submit;
+  kotoage fn submit() authorize(Submit) {
     execute_instruction(norito_bytes(b"opaque"));
   }
 }

@@ -69,6 +69,7 @@ pub(crate) struct NativeFrameRead<'kura> {
     height: u64,
     hash: HashOf<BlockHeader>,
     wire_len: u64,
+    start: u64,
     journals: StableCanonicalBlockStoreMetadata,
 }
 impl NativeFrameRead<'_> {
@@ -77,10 +78,38 @@ impl NativeFrameRead<'_> {
         self.wire_len
     }
 
+    /// Compare the original native journal images across one complete byte scan.
+    /// Metadata alone never authenticates bytes: the caller must also join full raw
+    /// bytes to genuinely verified canonical receipts before any cursor reuse.
+    pub(crate) fn same_journal_image(&self, other: &Self) -> bool {
+        core::ptr::eq(self.kura, other.kura)
+            && Kura::native_frame_journal_images_unchanged(&self.journals, &other.journals)
+    }
+
+    /// Bind the same original occupied slot while allowing later journal appends.
+    /// This identifies the source owner and geometry, not continued disk-byte or QC authority.
+    pub(crate) fn same_original_slot(&self, other: &Self) -> bool {
+        core::ptr::eq(self.kura, other.kura)
+            && self.height == other.height
+            && self.hash == other.hash
+            && self.wire_len == other.wire_len
+            && self.start == other.start
+            && Kura::native_frame_journal_objects_unchanged(&self.journals, &other.journals)
+    }
+
     /// Load only this admitted slot, rechecking all durable metadata under storage guards.
     /// The returned bytes are untrusted and cannot authorize outputs by themselves.
     pub(crate) fn read(
         self,
+        admitted_wire_len: u64,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<Option<NativeFrameBytes>> {
+        self.read_original(admitted_wire_len, budget)
+    }
+
+    // The same bounded storage scan, lending the retained original descriptor across refusal.
+    pub(crate) fn read_original(
+        &self,
         admitted_wire_len: u64,
         budget: &iroha_allocation::AllocationBudget,
     ) -> Result<Option<NativeFrameBytes>> {
@@ -92,8 +121,10 @@ impl NativeFrameRead<'_> {
                 height,
                 hash,
                 wire_len,
+                start,
                 journals,
             } = self;
+            let (height, hash, wire_len, start) = (*height, *hash, *wire_len, *start);
             if admitted_wire_len != wire_len {
                 return Err(Error::CanonicalBlockWireMismatch { height });
             }
@@ -104,7 +135,7 @@ impl NativeFrameRead<'_> {
             kura.ensure_canonical_storage_not_poisoned()?;
             let mut store = kura.block_store.lock();
             let before = kura.native_frame_journal_binding(&mut store)?;
-            if !Kura::native_frame_journal_objects_unchanged(&journals, &before) {
+            if !Kura::native_frame_journal_objects_unchanged(journals, &before) {
                 return Err(Error::CanonicalBlockWireMismatch { height });
             }
             let count = store.read_exact_durable_index_count()?;
@@ -115,7 +146,9 @@ impl NativeFrameRead<'_> {
                 return Err(Error::CanonicalBlockWireMismatch { height });
             }
             let slot = store.read_block_index(position)?;
-            if slot.length != wire_len {
+            if slot.length != wire_len
+                || (!cfg!(all(test, sumeragi_core_mutation = "HC187")) && slot.start != start)
+            {
                 return Err(Error::CanonicalBlockWireMismatch { height });
             }
             let length = usize::try_from(wire_len)?;
@@ -244,7 +277,8 @@ impl Kura {
         if Self::read_durable_hash_at_height(&mut store, height)? != Some(hash) {
             return Err(Error::CanonicalBlockWireMismatch { height });
         }
-        let wire_len = store.read_block_index(position)?.length;
+        let slot = store.read_block_index(position)?;
+        let wire_len = slot.length;
         if wire_len == 0 || wire_len > STRICT_INIT_MAX_BLOCK_BYTES {
             return Err(Error::CorruptedBlockLength {
                 length: wire_len,
@@ -256,6 +290,7 @@ impl Kura {
             height,
             hash,
             wire_len,
+            start: slot.start,
             journals,
         }))
     }
@@ -321,6 +356,56 @@ mod native_execution_read_tests {
             ));
             assert_eq!(kura.canonical_query_reads_for_test(), (0, 0));
         }
+    }
+
+    #[test]
+    fn native_frame_original_start_refuses_same_inode_relocation_before_body_admission() {
+        let mut chain =
+            CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+        chain.commit_at(2_000, Vec::new());
+        let hash = chain.committed(2).block_hash();
+        let source = chain.kura().native_frame_read(2, hash).unwrap().unwrap();
+        let length = source.wire_len();
+        let original = {
+            let mut store = chain.kura().block_store.lock();
+            let slot = store.read_block_index(1).unwrap();
+            assert_eq!(slot.length, length);
+            assert_ne!(slot.start, EVICTED_BLOCK_START);
+            store
+                .write_block_index(1, slot.start.checked_add(1).unwrap(), length)
+                .unwrap();
+            slot
+        };
+        let pool = iroha_allocation::AllocationBudget::new(16 * 1024 * 1024);
+        let occupied = pool.try_reserve_bytes(pool.limit_bytes()).unwrap();
+        chain.kura().reset_canonical_query_reads_for_test();
+        let result = source.read(length, &pool);
+        // Restore the actual occupied slot before any assertion can unwind the fixture.
+        chain
+            .kura()
+            .block_store
+            .lock()
+            .write_block_index(1, original.start, original.length)
+            .unwrap();
+        assert!(
+            matches!(result, Err(Error::CanonicalBlockWireMismatch { height: 2 })),
+            "captured native start must refuse relocation before original body admission: {result:?}"
+        );
+        assert_eq!(chain.kura().canonical_query_reads_for_test(), (0, 0));
+        assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+        drop(occupied);
+        let bytes = chain
+            .kura()
+            .native_frame_read(2, hash)
+            .unwrap()
+            .unwrap()
+            .read(length, &pool)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            bytes.as_slice(),
+            chain.committed(2).block().encode_wire().unwrap()
+        );
     }
 
     #[test]
@@ -826,10 +911,10 @@ mod native_execution_read_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "iroha-core-tests"))]
 impl Kura {
     /// Corrupt the stored native frame without changing its hash/index or cached original.
-    pub(crate) fn corrupt_native_frame_for_test(&self, height: NonZeroUsize) {
+    pub fn corrupt_native_frame_for_test(&self, height: NonZeroUsize) {
         let mut store = self.block_store.lock();
         let slot = store
             .read_block_index(u64::try_from(height.get() - 1).unwrap())

@@ -1,8 +1,9 @@
 // Design example: deterministic map iteration with bounds
 // Note: multi-entry iteration requires a state map.
 seiyaku MapDemo {
+    permission Entry;
     state StateMap<int, int> Entries;
-    kotoage fn sum_first_two() -> int authorize("Entry") {
+    kotoage fn sum_first_two() authorize(Entry) -> int {
         var s = 0;
         for (k, v) in Entries.take(2) {
             s = s + v;

@@ -54,6 +54,8 @@ pub struct SelectorAssignment<F> {
 /// Selector compression could not run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompressionError {
+    /// The caller cancelled selector finalization.
+    Cancelled,
     /// A selector's activation vector differs in length from the first one.
     ActivationLength {
         /// The selector index.
@@ -77,6 +79,7 @@ pub enum CompressionError {
 impl fmt::Display for CompressionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Cancelled => f.write_str("selector compression cancelled"),
             Self::ActivationLength {
                 selector,
                 expected,
@@ -98,6 +101,11 @@ impl fmt::Display for CompressionError {
 }
 
 impl std::error::Error for CompressionError {}
+impl From<iroha_pasta::Cancelled> for CompressionError {
+    fn from(_: iroha_pasta::Cancelled) -> Self {
+        Self::Cancelled
+    }
+}
 
 /// The combination plan: each inner vector lists indices into `selectors`
 /// in member order.
@@ -110,11 +118,25 @@ pub fn plan(
     selectors: &[SelectorDescription<'_>],
     max_degree: usize,
 ) -> Result<Vec<Vec<usize>>, CompressionError> {
+    plan_cancellable(selectors, max_degree, None)
+}
+
+/// Plan selectors with bounded scans of activation rows.
+///
+/// # Errors
+/// As [`plan`], or [`CompressionError::Cancelled`].
+pub fn plan_cancellable(
+    selectors: &[SelectorDescription<'_>],
+    max_degree: usize,
+    cancellation: Option<&iroha_pasta::CancellationToken>,
+) -> Result<Vec<Vec<usize>>, CompressionError> {
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
     let Some(first) = selectors.first() else {
         return Ok(Vec::new());
     };
     let n = first.activations.len();
     for selector in selectors {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         if selector.activations.len() != n {
             return Err(CompressionError::ActivationLength {
                 selector: selector.selector,
@@ -139,22 +161,35 @@ pub fn plan(
 
     // Lower-triangular exclusion matrix: two selectors active on one row
     // cannot share a fixed column.
-    let mut exclusion: Vec<Vec<bool>> = (0..simple.len()).map(|i| vec![false; i]).collect();
+    let mut exclusion: Vec<Vec<bool>> = (0..simple.len())
+        .map(|i| {
+            iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+            Ok(vec![false; i])
+        })
+        .collect::<Result<_, CompressionError>>()?;
     for (i, &selector_index) in simple.iter().enumerate() {
         let rows = selectors[selector_index].activations;
         for (j, &other_index) in simple.iter().enumerate().take(i) {
-            if rows
+            iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+            for (index, (left, right)) in rows
                 .iter()
                 .zip(selectors[other_index].activations)
-                .any(|(left, right)| *left && *right)
+                .enumerate()
             {
-                exclusion[i][j] = true;
+                if index % 1024 == 0 {
+                    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+                }
+                if *left && *right {
+                    exclusion[i][j] = true;
+                    break;
+                }
             }
         }
     }
 
     let mut added = vec![false; simple.len()];
     for (i, &selector_index) in simple.iter().enumerate() {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         if added[i] {
             continue;
         }
@@ -173,6 +208,7 @@ pub fn plan(
         let mut combination_added = vec![i];
 
         'candidates: for (j, &candidate_index) in simple.iter().enumerate().skip(i + 1) {
+            iroha_pasta::CancellationToken::checkpoint(cancellation)?;
             if d + combination.len() == max_degree {
                 break 'candidates;
             }
@@ -196,6 +232,7 @@ pub fn plan(
         }
         combinations.push(combination);
     }
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
     Ok(combinations)
 }
 
@@ -213,19 +250,34 @@ pub type ProcessOutput<F> = (Vec<Vec<F>>, Vec<SelectorAssignment<F>>);
 pub fn process<F: PastaField>(
     selectors: &[SelectorDescription<'_>],
     max_degree: usize,
-    mut allocate_fixed_column: impl FnMut() -> Expression<F>,
+    allocate_fixed_column: impl FnMut() -> Expression<F>,
 ) -> Result<ProcessOutput<F>, CompressionError> {
-    let combinations = plan(selectors, max_degree)?;
+    process_cancellable(selectors, max_degree, allocate_fixed_column, None)
+}
+
+/// Finalize selector columns with caller-owned cancellation.
+///
+/// # Errors
+/// As [`process`], or [`CompressionError::Cancelled`].
+pub fn process_cancellable<F: PastaField>(
+    selectors: &[SelectorDescription<'_>],
+    max_degree: usize,
+    mut allocate_fixed_column: impl FnMut() -> Expression<F>,
+    cancellation: Option<&iroha_pasta::CancellationToken>,
+) -> Result<ProcessOutput<F>, CompressionError> {
+    let combinations = plan_cancellable(selectors, max_degree, cancellation)?;
     let n = selectors
         .first()
         .map_or(0, |selector| selector.activations.len());
     let mut columns = Vec::with_capacity(combinations.len());
     let mut assignments = Vec::with_capacity(selectors.len());
     for (combination_index, combination) in combinations.iter().enumerate() {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         let mut column = vec![F::ZERO; n];
         let query = allocate_fixed_column();
         let mut assigned_root = F::ONE;
         for (member, &selector_index) in combination.iter().enumerate() {
+            iroha_pasta::CancellationToken::checkpoint(cancellation)?;
             let selector = &selectors[selector_index];
             // q * prod_{r != assigned_root} (r - q), in root order.
             let mut expression = query.clone();
@@ -237,7 +289,11 @@ pub fn process<F: PastaField>(
                 root += F::ONE;
             }
             // Members of one combination are disjoint, so no row is written twice.
-            for (value, active) in column.iter_mut().zip(selector.activations) {
+            for (index, (value, active)) in column.iter_mut().zip(selector.activations).enumerate()
+            {
+                if index % 1024 == 0 {
+                    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+                }
                 if *active {
                     *value = assigned_root;
                 }
@@ -252,11 +308,48 @@ pub fn process<F: PastaField>(
         }
         columns.push(column);
     }
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
     Ok((columns, assignments))
 }
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn cancellation_during_selector_allocation_returns_no_partial_columns() {
+        use iroha_pasta::CancellationToken;
+        let rows = rows(&[&[0, 2], &[1, 3]], 4096);
+        let selectors = describe(&rows, &[2, 2]);
+        let token = CancellationToken::new();
+        let mut allocated = 0;
+        let result = process_cancellable::<Fp>(
+            &selectors,
+            4,
+            || {
+                allocated += 1;
+                token.cancel();
+                Expression::Constant(Fp::ONE)
+            },
+            Some(&token),
+        );
+        assert_eq!(allocated, 1);
+        assert_eq!(result, Err(CompressionError::Cancelled));
+        assert_eq!(
+            plan_cancellable(&selectors, 4, Some(&token)),
+            Err(CompressionError::Cancelled)
+        );
+        let fresh = CancellationToken::new();
+        assert_eq!(
+            process_cancellable::<Fp>(
+                &selectors,
+                4,
+                || Expression::Constant(Fp::ONE),
+                Some(&fresh)
+            ),
+            process::<Fp>(&selectors, 4, || Expression::Constant(Fp::ONE)),
+        );
+    }
+
     use ff::Field;
     use iroha_pasta::Fp;
     use rand_chacha::ChaCha20Rng;

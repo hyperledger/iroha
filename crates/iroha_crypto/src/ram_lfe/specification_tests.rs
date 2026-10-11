@@ -339,30 +339,59 @@ fn position(body: &str, needle: &str) -> usize {
 fn torii_call_order_is_what_the_inventory_states() {
     let source = repository_file("crates/iroha_torii/src/identifier_resolution.rs");
 
-    // The encrypted execution refuses the insecure backends first and then
-    // every backend except the programmed one.
-    let execute = method_body(&source, "execute_encrypted");
+    let supported = method_body(&source, "require_supported_program_policy");
+    assert_eq!(supported.matches("require_production_support()").count(), 2);
+
+    let owner_source = repository_file("crates/iroha_torii/src/identifier_resolution/owner_prf.rs");
+    // Refuse diagnostic backends and require the signed native HKDF contract
+    // before looking up private runtime material or evaluating the owner input.
+    let execute = method_body(&owner_source, "execute_owner_prf");
     assert!(
         position(execute, "require_supported_program_policy(")
             < position(execute, "UnsupportedBackend(")
     );
-    let supported = method_body(&source, "require_supported_program_policy");
-    assert_eq!(supported.matches("require_production_support()").count(), 2);
-
-    // The general identifier path runs the encrypted execution before it
-    // looks at the opening.
-    let derive = method_body(&source, "derive_encrypted");
+    assert!(position(execute, "UnsupportedBackend(") < position(execute, "self.runtime("));
     assert!(
-        position(derive, "self.execute_encrypted(") < position(derive, "validate_output_opening(")
+        position(execute, "SignerMismatch")
+            < position(execute, "evaluate_commitment_with_hidden_program(")
+    );
+    assert!(
+        position(execute, "request.normalized_input.zeroize()")
+            < position(execute, "let mut evaluated = evaluation?")
+    );
+    assert!(
+        position(execute, "evaluated.output.zeroize()")
+            < position(execute, "let output = evaluated.opaque_id")
     );
 
-    // The phone path checks the pinned contract shape first and only then
-    // runs the encrypted execution.
-    let phone = method_body(&source, "derive_phone_retail_encrypted");
+    // Recompute the exact owner input and authenticate the original opening
+    // before deriving an identifier. Phone claims additionally authenticate
+    // the independent pinned attestor before returning a draft.
+    let derive = method_body(&owner_source, "derive_owner_prf");
     assert!(
-        position(phone, "InvalidPhoneCanonicality(") < position(phone, "self.execute_encrypted(")
+        position(derive, "self.execute_owner_prf(") < position(derive, "validate_owner_prf_lease(")
     );
-    assert!(position(phone, "is_phone_retail()") < position(phone, "self.execute_encrypted("));
+    assert!(
+        position(derive, "validate_owner_prf_lease(")
+            < position(derive, "validate_output_opening(")
+    );
+    assert!(
+        position(derive, "validate_output_opening(")
+            < position(derive, "identifier_hashes_from_output_hash(")
+    );
+    assert!(position(derive, "is_phone_retail()") < position(derive, "attestation.verify("));
+    assert!(
+        position(derive, "attestation.verify(")
+            < position(derive, "identifier_hashes_from_output_hash(")
+    );
+
+    let opening = method_body(&owner_source, "owner_prf_opening");
+    assert!(position(opening, "SignerMismatch") < position(opening, "sign_attestation_payload("));
+    assert!(
+        position(opening, "validate_owner_prf_lease(")
+            < position(opening, "sign_attestation_payload(")
+    );
+    assert_eq!(opening.matches("validate_owner_prf_lease(").count(), 2);
 }
 
 #[test]

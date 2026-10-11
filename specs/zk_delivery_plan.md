@@ -180,8 +180,8 @@ loaded and idle-chain proof-to-inclusion timing. Emergency Fast stays read-only.
 
 AXT additionally proves D7's exact successful source execution, ordered transaction
 set and transfer occurrence. For ordinary effects, `new_root` binds certified
-`ordinary_writes_root`, not combined `post_state_root`; mixed KAGEMUSHA blocks test
-the distinction. At destination, check fresh issuer signatures and current
+`ordinary_writes_root`, not combined `post_state_root`; blocks that mix ordinary and
+other certified writes test the distinction. At destination, check fresh issuer signatures and current
 transaction-view policy/key/asset incarnation/code/ABI/generation/counter/expiry and
 pending transitions. Consume nonce, occurrence, budget and effects atomically.
 Preserve same-block revocation/rotation, equal-byte policy restoration and every
@@ -723,7 +723,7 @@ Acceptance: Record workload/worker/platform/load/warm-cold conditions and observ
 
 Deliverable: Bind exact successful source execution, ordered transaction set and transfer occurrence through D7/WG/certified-result openings; specify current destination issuer authority separately from historical anchors.
 
-Acceptance: ordinary new_root is ordinary_writes_root, not combined post_state_root; test mixed KAGEMUSHA top-ups. Bind current transaction-view policy/key/asset incarnation/code/ABI/counter/generation/expiry/pending transitions, fresh issuer signature and atomic nonce/source-occurrence/budget consumption.
+Acceptance: ordinary new_root is ordinary_writes_root, not combined post_state_root; test blocks that mix ordinary and other certified writes. Bind current transaction-view policy/key/asset incarnation/code/ABI/counter/generation/expiry/pending transitions, fresh issuer signature and atomic nonce/source-occurrence/budget consumption.
 
 ### A.2 Complete ordinary FASTPQ effect relation
 

@@ -1,0 +1,43 @@
+{
+  "valid": [
+    "kotodama::AccountView{id: AccountId, metadata: Json}",
+    "kotodama::AssetView{id: AssetId, amount: quantity}",
+    "kotodama::AssetDefinitionView{id: AssetDefinitionId, name: string, description: Option<string>, owned_by: AccountId, total_quantity: quantity, numeric_scale: Option<int>, metadata: Json}",
+    "kotodama::DomainView{id: DomainId, owned_by: AccountId, metadata: Json}",
+    "kotodama::NftView{id: NftId, owned_by: AccountId, content: Json}",
+    "kotodama::QueryPage{items: List<kotodama::AccountView{id: AccountId, metadata: Json}, 64>, next_offset: Option<int>}",
+    "kotodama::QueryPage{items: List<kotodama::AssetView{id: AssetId, amount: quantity}, 64>, next_offset: Option<int>}",
+    "kotodama::QueryPage{items: List<kotodama::AssetDefinitionView{id: AssetDefinitionId, name: string, description: Option<string>, owned_by: AccountId, total_quantity: quantity, numeric_scale: Option<int>, metadata: Json}, 64>, next_offset: Option<int>}",
+    "kotodama::QueryPage{items: List<kotodama::DomainView{id: DomainId, owned_by: AccountId, metadata: Json}, 64>, next_offset: Option<int>}",
+    "kotodama::QueryPage{items: List<kotodama::NftView{id: NftId, owned_by: AccountId, content: Json}, 64>, next_offset: Option<int>}",
+    "(kotodama::AccountView{id: AccountId, metadata: Json}, kotodama::AssetView{id: AssetId, amount: quantity})",
+    "StateMap<Name, kotodama::QueryPage{items: List<kotodama::AccountView{id: AccountId, metadata: Json}, 64>, next_offset: Option<int>}>",
+    "kotodama::StatePage{items: List<(int, Fixture::Empty{}), 8>, next: Option<StateCursor<int>>}",
+    "StateMap<(AccountId, (int, Name)), bool>",
+    "StateCursor<(AccountId, (int, Name))>",
+    "kotodama::StatePage{items: List<((AccountId, (int, Name)), bool), 8>, next: Option<StateCursor<(AccountId, (int, Name))>>}"
+  ],
+  "invalid": [
+    "kotodama::AccountView{}",
+    "kotodama::AssetView{}",
+    "kotodama::AssetDefinitionView{}",
+    "kotodama::DomainView{}",
+    "kotodama::NftView{}",
+    "kotodama::QueryPage{}",
+    "kotodama::StatePage{}",
+    "kotodama::AccountView{id: AssetId, metadata: Json}",
+    "kotodama::AssetView{id: AssetId, amount: decimal}",
+    "kotodama::AssetDefinitionView{id: AssetDefinitionId, name: string, description: string, owned_by: AccountId, total_quantity: quantity, numeric_scale: Option<int>, metadata: Json}",
+    "kotodama::QueryPage{items: List<kotodama::AccountView{id: AccountId, metadata: Json}, 63>, next_offset: Option<int>}",
+    "kotodama::QueryPage{items: List<kotodama::AccountView{id: AccountId, metadata: Json}, 64>, next_offset: Option<bool>}",
+    "kotodama::QueryPage{items: List<Fixture::Empty{}, 64>, next_offset: Option<int>}",
+    "kotodama::QueryPage{items: List<kotodama::AccountView{id: AccountId, metadata: Json}, 64>, next: Option<int>}",
+    "kotodama::StatePage{items: List<(int, bool), 8>, next: Option<StateCursor<bool>>}",
+    "StateMap<(int,), bool>",
+    "StateMap<(int,Json), bool>",
+    "StateCursor<(int, Json)>",
+    "StateCursor<(int)>",
+    "StateMap<(int,  bool), bool>",
+    "kotodama::StatePage{items: List<((int, Name), bool), 8>, next: Option<StateCursor<(Name, int)>>}"
+  ]
+}

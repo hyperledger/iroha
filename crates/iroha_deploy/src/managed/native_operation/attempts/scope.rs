@@ -1,5 +1,6 @@
 //! Sealed local body-chain evidence; only the custody owner supplies its original namespace proof.
 use super::*;
+use crate::managed::stream_token_custody::body_history::SnapshotReadPass;
 use std::sync::Arc;
 
 mod sealed {
@@ -36,6 +37,20 @@ pub(in crate::managed) trait EnrollmentScopeEvidence:
     fn operation(&self) -> &PrivateDirectory;
     fn fees(&self) -> &super::super::Fees;
     fn revalidate(&self) -> Result<()>;
+    fn with_snapshot_read_pass(
+        &self,
+        action: &mut dyn FnMut(Option<&SnapshotReadPass<'_>>) -> Result<()>,
+    ) -> Result<()>;
+    fn revalidate_with_snapshot_read_pass(&self, pass: Option<&SnapshotReadPass<'_>>)
+    -> Result<()>;
+    fn revalidate_in_tree(
+        &self,
+        pass: Option<&SnapshotReadPass<'_>>,
+        tree: &mut iroha_fs::PrivateReadTreeScope<'_>,
+        root_read: Option<&mut GraphRootReadPass<'_, '_>>,
+    ) -> Result<()>;
+    // Pure membership only; the graph caller retains fresh operation/scope validation.
+    fn covers_semantic_original(&self, pass: &SnapshotReadPass<'_>, semantic: [u8; 32]) -> bool;
     fn require_active(&self) -> Result<()>;
 }
 pub(in crate::managed) trait BodyReplacementTarget:
@@ -48,12 +63,18 @@ pub(in crate::managed) trait BodyReplacementTarget:
     fn successor_selection(&self) -> [u8; 32];
     fn fees(&self) -> &super::super::Fees;
     fn validate_target(&self) -> Result<()>;
+    fn validate_target_with_snapshot_read_pass(
+        &self,
+        pass: Option<&SnapshotReadPass<'_>>,
+    ) -> Result<()>;
 }
 pub(in crate::managed) trait SemanticSuccessor:
     sealed::SemanticSuccessor
 {
     fn target(&self) -> &dyn BodyReplacementTarget;
     fn revalidate(&self) -> Result<()>;
+    fn revalidate_with_snapshot_read_pass(&self, pass: Option<&SnapshotReadPass<'_>>)
+    -> Result<()>;
 }
 
 struct BodyScopeState {
@@ -70,8 +91,9 @@ impl BodyDispatchScope {
     pub(in crate::managed) fn verify(
         evidence: Arc<dyn EnrollmentScopeEvidence>,
         predecessor: Option<VerifiedUnsignedClosure>,
+        pass: Option<&EnrollmentReadPass<'_>>,
     ) -> Result<Self> {
-        evidence.revalidate()?;
+        evidence.revalidate_with_snapshot_read_pass(pass.and_then(EnrollmentReadPass::snapshot))?;
         let binding = evidence.binding();
         if !is_enrollment(binding.purpose)
             || binding.outer_intent == [0; 32]
@@ -88,7 +110,7 @@ impl BodyDispatchScope {
         let root_identity = evidence.root().identity()?;
         let operation_identity = evidence.operation().identity()?;
         if let Some(prior) = &predecessor {
-            prior.require_retained()?;
+            prior.require_retained_with_pass(pass)?;
             if prior.purpose() != binding.purpose
                 || prior.outer_intent() != binding.outer_intent
                 || prior.root_identity() != root_identity
@@ -108,7 +130,7 @@ impl BodyDispatchScope {
                 operation_identity,
             }),
         };
-        value.revalidate()?;
+        value.revalidate_with_pass(pass)?;
         Ok(value)
     }
     fn duplicate(&self) -> Self {
@@ -116,19 +138,38 @@ impl BodyDispatchScope {
             state: Arc::clone(&self.state),
         }
     }
+    fn revalidate_with_pass(&self, pass: Option<&EnrollmentReadPass<'_>>) -> Result<()> {
+        match pass {
+            Some(pass) if pass.covers_predecessor(self.state.predecessor.as_ref()) => {
+                self.revalidate_local(pass.snapshot())
+            }
+            _ => self.revalidate(),
+        }
+    }
     fn revalidate(&self) -> Result<()> {
-        self.revalidate_local()?;
+        self.revalidate_local(None)?;
         if let Some(prior) = &self.state.predecessor {
             retained_graph::validate_predecessor(prior)?;
-            self.revalidate_local()?;
+            self.revalidate_local(None)?;
         }
         Ok(())
     }
     // Does not descend through another History. The graph owner validates every retained
     // predecessor separately while preserving this exact evidence and native handle graph.
-    fn revalidate_local(&self) -> Result<()> {
+    fn revalidate_local(&self, pass: Option<&SnapshotReadPass<'_>>) -> Result<()> {
+        self.revalidate_local_in_tree(pass, None, None)
+    }
+    fn revalidate_local_in_tree(
+        &self,
+        pass: Option<&SnapshotReadPass<'_>>,
+        tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
+        root_read: Option<&mut GraphRootReadPass<'_, '_>>,
+    ) -> Result<()> {
         let value = &self.state;
-        value.evidence.revalidate()?;
+        match tree {
+            Some(tree) => value.evidence.revalidate_in_tree(pass, tree, root_read)?,
+            None => value.evidence.revalidate_with_snapshot_read_pass(pass)?,
+        }
         if value.evidence.root().identity()? != value.root_identity
             || value.evidence.operation().identity()? != value.operation_identity
         {
@@ -182,10 +223,13 @@ impl HistoryScope {
         operation: &PrivateDirectory,
         purpose: Purpose,
         semantic: [u8; 32],
+        pass: Option<&EnrollmentReadPass<'_>>,
     ) -> Result<()> {
         match self {
             Self::FixedBody if !is_enrollment(purpose) => {}
-            Self::Enrollment(value) if is_enrollment(purpose) => value.revalidate()?,
+            Self::Enrollment(value) if is_enrollment(purpose) => {
+                value.revalidate_with_pass(pass)?
+            }
             _ => {
                 return Err(invalid(
                     "dispatch purpose requires its exact closed body scope",
@@ -201,10 +245,15 @@ impl HistoryScope {
         operation: &PrivateDirectory,
         purpose: Purpose,
         semantic: [u8; 32],
+        pass: Option<&SnapshotReadPass<'_>>,
+        tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
+        root_read: Option<&mut GraphRootReadPass<'_, '_>>,
     ) -> Result<()> {
         match self {
             Self::FixedBody if !is_enrollment(purpose) => {}
-            Self::Enrollment(value) if is_enrollment(purpose) => value.revalidate_local()?,
+            Self::Enrollment(value) if is_enrollment(purpose) => {
+                value.revalidate_local_in_tree(pass, tree, root_read)?
+            }
             _ => {
                 return Err(invalid(
                     "dispatch purpose requires its exact closed body scope",
@@ -235,6 +284,34 @@ impl HistoryScope {
             }
         }
         Ok(())
+    }
+    // Invoked only by the graph-specific capability after fresh validate_local above.
+    // Keep the caller's exact operation path, purpose and semantic joined to this evidence;
+    // validate_local retains both native identity checks at the local entry and exit.
+    pub(super) fn covers_semantic_original(
+        &self,
+        pass: &SnapshotReadPass<'_>,
+        operation: &PrivateDirectory,
+        purpose: Purpose,
+        semantic: [u8; 32],
+    ) -> bool {
+        let Self::Enrollment(value) = self else {
+            return false;
+        };
+        let evidence = &value.state.evidence;
+        evidence.binding().purpose == purpose
+            && evidence.binding().semantic == semantic
+            && evidence.operation().path() == operation.path()
+            && evidence.covers_semantic_original(pass, semantic)
+    }
+    pub(super) fn with_snapshot_read_pass(
+        &self,
+        action: &mut dyn FnMut(Option<&SnapshotReadPass<'_>>) -> Result<()>,
+    ) -> Result<()> {
+        match self {
+            Self::FixedBody => action(None),
+            Self::Enrollment(value) => value.state.evidence.with_snapshot_read_pass(action),
+        }
     }
     pub(super) fn predecessor(&self) -> Option<&VerifiedUnsignedClosure> {
         match self {

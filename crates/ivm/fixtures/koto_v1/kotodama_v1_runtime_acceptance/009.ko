@@ -1,6 +1,6 @@
 
 seiyaku NativeJsonRuntimeAcceptance {
-  view fn run() -> Json {
+  view fn run() authorize(anyone) -> Json {
     let List<string, 4> labels = ["primary", "secondary"];
     var List<bytes, 2> blobs = [];
     let _ = blobs.try_push(b"\xaa");

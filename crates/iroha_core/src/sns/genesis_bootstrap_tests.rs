@@ -6,11 +6,9 @@ use iroha_data_model::{
     NetworkId,
     block::{
         SignedBlock,
-        consensus::{
-            PrivateRootFeePolicy, SumeragiGenesisContextParameters, SumeragiRootScope,
-            ValidatorPower,
-        },
+        consensus::{PrivateRootFeePolicy, SumeragiGenesisContextParameters, SumeragiRootScope},
     },
+    nexus::DataSpaceCatalog,
     parameter::{Parameter, system::SumeragiConsensusMode},
 };
 use iroha_genesis::{GenesisBuilder, GenesisTopologyEntry};
@@ -31,13 +29,6 @@ fn policy() -> PrivateRootFeePolicy {
 fn genesis(scope: SumeragiRootScope, parameters: Vec<Parameter>) -> SignedBlock {
     iroha_genesis::init_instruction_registry();
     let validators = crate::sumeragi::test_chain::fixture_validators();
-    let roster = validators
-        .iter()
-        .map(|(validator, _)| ValidatorPower {
-            validator: validator.clone(),
-            power: 1,
-        })
-        .collect::<Vec<_>>();
     let mut context = SumeragiGenesisContextParameters::recommended();
     context.root_scope = scope;
     let builder = GenesisBuilder::new_without_executor("sns-private-bootstrap".into(), ".")
@@ -47,10 +38,7 @@ fn genesis(scope: SumeragiRootScope, parameters: Vec<Parameter>) -> SignedBlock 
                 .map(|(peer, pop)| GenesisTopologyEntry::new(peer, pop))
                 .collect(),
         )
-        .with_sumeragi_context_parameters(context)
-        .with_kagemusha_mint_finality_genesis_parameters(
-            crate::kagemusha_v1_test_fixtures::mint_finality_genesis_parameters(&roster),
-        );
+        .with_sumeragi_context_parameters(context);
     let builder = parameters
         .into_iter()
         .fold(builder, GenesisBuilder::append_parameter);

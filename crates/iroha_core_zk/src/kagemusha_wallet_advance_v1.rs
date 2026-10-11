@@ -14,7 +14,7 @@
 //! - `platform`: the platform interface the provider needs — tri-state key, anchor and storage
 //!   probes (`Present | Absent | Unavailable`, never inferring absence from an error), explicit
 //!   write outcomes (`Published | NotPublished | Uncertain`), the boot identity, a
-//!   sleep-inclusive monotonic clock, single-step filesystem operations, and the role-checked
+//!   sleep-inclusive monotonic clock, single-step filesystem operations, and the domain-checked
 //!   signer that freezes the hardware output with `kagemusha_wallet_freeze_signature_v1`.
 //! - `store`: the durable store composing filesystem steps into create-new, paired,
 //!   same-content-rewrite and removal primitives, its `std::fs` backend, and (tests and
@@ -76,7 +76,8 @@
 //! retirement, Selected-marker capabilities, the durable store and the receipt signer are
 //! private: a capability exists only for a marker published here or adopted after its exact
 //! bytes were read back, the receipt signer re-reads that marker immediately before signing,
-//! and the payment key's `key_sign` takes a preimage only the role-checked signers construct.
+//! and the payment key's `key_sign` takes exactly the 32-byte Poseidon signing message that
+//! only the domain-checked signers construct.
 //!
 //! # Durability doctrine
 //!
@@ -94,30 +95,37 @@
 //! flows, exercised by crash matrices over the simulated filesystem (process crashes, power
 //! loss with exhaustive survival subsets of unsynced directory operations, lost writebacks,
 //! faults during recovery and platform faults); run them with
-//! `cargo test -p iroha_core_zk --lib kagemusha_wallet_advance_v1`. Platform adapters (Android
-//! Keystore and storage, iPhone Secure Enclave and keychain) and the bridge wiring are not
-//! implemented yet, and nothing here has run on a phone.
-// TODO(G2-bridge): JNI and C-vtable platform adapters and the exclusive per-process handle
-// (one provider per process; revoke the handle after an uncertain dispatch).
-// TODO(G2-S): the state owner's G1 transition owner (`assemble_output_v1`, receipt body from
-// the credential), its archive under `slots/<slot>/archive/`, the E8 activation request and
-// its acknowledgement-driven capsule collection.
-// TODO(G2-iOS): Swift adapter (canary, `kern.bootsessionuuid`, keychain anchor) and device
-// tests of keychain power-loss durability and the residual anchor window.
-// TODO(G2-fs): typed descriptor-relative primitives in `iroha_fs` replace the path-based
-// `std::fs` backend in `store`.
+//! `cargo test -p iroha_core_zk --lib kagemusha_wallet_advance_v1`. Shared wallet state,
+//! authenticated archive indexes and descriptor-relative filesystem custody are implemented.
+//! Mobile callback adapters live in `connect_norito_bridge`. The native state owner connects
+//! authenticated operation/Λ/Ω source admission, retained activation and covered-witness
+//! collection. Foreign open requires an actual complete source grant; these implementations
+//! alone establish neither artifact qualification nor phone qualification.
+// TODO(G2-iOS): device tests of keychain power-loss durability and residual anchor window.
 
 mod advance;
 mod anchor;
+mod archive;
 mod capsule;
 mod completion;
 mod enrollment;
+mod enrollment_phase;
 mod layout;
 mod marker;
 mod platform;
+mod prekey_custody;
 mod provider;
+#[cfg(test)]
+use enrollment::KagemushaWalletChallengeLivenessV1;
+pub(crate) use enrollment_phase::{
+    KagemushaWalletEnrollmentBindingV1, KagemushaWalletEnrollmentPhaseStateV1,
+    KagemushaWalletEnrollmentPhaseV1, kagemusha_wallet_prekey_client_digest_v1,
+    kagemusha_wallet_prekey_permit_digest_v1,
+};
+pub(crate) use prekey_custody::{PreKeyPublicationV1, PreKeyRecordV1, PreKeySlotSelectionV1};
 mod reconcile;
 mod retained;
+mod setup;
 mod store;
 mod terminal;
 
@@ -126,7 +134,6 @@ pub use self::store::{
     KagemushaWalletSimFaultV1, KagemushaWalletSimFsV1, KagemushaWalletSimLockV1,
     KagemushaWalletSimPowerLossV1, KagemushaWalletSimStagedFileV1, KagemushaWalletSimStepV1,
 };
-#[cfg(unix)]
 pub use self::store::{KagemushaWalletStdFsLockV1, KagemushaWalletStdFsV1};
 pub use self::{
     advance::{
@@ -135,12 +142,17 @@ pub use self::{
         KagemushaWalletCapacityClassV1, KagemushaWalletExpectedHeadV1,
         KagemushaWalletNotPerformedV1, KagemushaWalletTransitionOwnerV1,
     },
+    anchor::KAGEMUSHA_WALLET_ANCHOR_MAX_BYTES_V1,
+    archive::{
+        KAGEMUSHA_WALLET_ARCHIVE_MANIFEST_MAX_BYTES_V1, KagemushaWalletArchiveAccessV1,
+        kagemusha_wallet_archive_checkpoint_digest_v1, kagemusha_wallet_archive_object_digest_v1,
+    },
     capsule::{KAGEMUSHA_WALLET_FROZEN_FILE_OVERHEAD_BYTES_V1, KagemushaWalletFrozenFrameV1},
     completion::KagemushaWalletCompletionFrameV1,
     enrollment::{
-        KAGEMUSHA_WALLET_ENROLLMENT_REQUEST_MAX_BYTES_V1, KagemushaWalletChallengeLivenessV1,
+        KAGEMUSHA_WALLET_ENROLLMENT_REQUEST_MAX_BYTES_V1, KagemushaWalletEnrollmentDatesV1,
         KagemushaWalletEnrollmentRecordV1, KagemushaWalletEnrollmentStepV1,
-        KagemushaWalletIntentV1,
+        KagemushaWalletFreshGenerationV1, KagemushaWalletIntentV1,
     },
     layout::{
         KAGEMUSHA_WALLET_BALLAST_BYTES_V1, KAGEMUSHA_WALLET_ROOT_DIR_NAME_V1,
@@ -149,15 +161,16 @@ pub use self::{
     },
     marker::{KagemushaWalletMarkerPhaseV1, KagemushaWalletMarkerRecordV1},
     platform::{
-        KAGEMUSHA_WALLET_PAYMENT_KEY_SIGNING_DOMAINS_V1, KagemushaWalletAnchorPolicyV1,
-        KagemushaWalletEntryKindV1, KagemushaWalletFsV1, KagemushaWalletKeyGenerationRequestV1,
+        KAGEMUSHA_WALLET_KEY_ENUMERATION_MAX_SLOTS_V1, KAGEMUSHA_WALLET_PAYMENT_KEY_DOMAINS_V1,
+        KagemushaWalletAnchorPolicyV1, KagemushaWalletEntryKindV1, KagemushaWalletFsV1,
+        KagemushaWalletKeyGenerationPolicyV1, KagemushaWalletKeyGenerationRequestV1,
         KagemushaWalletKeyGenerationV1, KagemushaWalletKeyProfileV1, KagemushaWalletListedEntryV1,
         KagemushaWalletNotPublishedV1, KagemushaWalletPlatformSignatureV1,
         KagemushaWalletPlatformV1, KagemushaWalletProbeV1, KagemushaWalletPublishOutcomeV1,
         KagemushaWalletReadV1, KagemushaWalletRemoveOutcomeV1, KagemushaWalletSignErrorV1,
-        KagemushaWalletSigningMessageV1, KagemushaWalletUnavailableV1,
+        KagemushaWalletSignMessageV1, KagemushaWalletUnavailableV1,
         kagemusha_wallet_boot_id_from_text_v1, kagemusha_wallet_native_boot_id_v1,
-        kagemusha_wallet_native_monotonic_ms_v1, kagemusha_wallet_sign_role_v1,
+        kagemusha_wallet_native_monotonic_ms_v1, kagemusha_wallet_sign_domain_v1,
     },
     provider::{
         KagemushaWalletProviderOptionsV1, KagemushaWalletProviderV1, KagemushaWalletSlotStatusV1,
@@ -217,6 +230,9 @@ pub enum KagemushaWalletLostCustodyV1 {
 }
 
 /// Error of the provider.
+// Fixed retained-status digests stay inline so this bounded error remains Copy.
+// On 32-bit targets pointer-sized variants are smaller; no extra allocation is needed.
+#[cfg_attr(target_pointer_width = "32", allow(variant_size_differences))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum KagemushaWalletProviderErrorV1 {
     /// Storage, the key store or the platform gave no definitive answer; retry.
@@ -359,3 +375,7 @@ mod tests {
         assert!(decode_envelope_v1::<KagemushaWalletRootSentinelV1>(&corrupt, 1_024).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "kagemusha_wallet_enrollment_v1/tests.rs"]
+mod enrollment_owner_tests;

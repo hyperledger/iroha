@@ -4,7 +4,7 @@ seiyaku ResultPropagationLayoutAcceptance {
     Result::err(true)
   }
 
-  view fn run() -> Result<(int, int), bool> {
+  view fn run() authorize(anyone) -> Result<(int, int), bool> {
     let value = source()?;
     Result::ok((value, value))
   }

@@ -1,12 +1,12 @@
 
-seiyaku Test {
+seiyaku Test { permission Entry;
   state StateMap<Name, int> Foo;
 
-  kotoage fn set(Name pool, int value)  authorize("Entry") {
+  kotoage fn set(Name pool, int value) authorize(Entry) {
     Foo[pool] = value;
   }
 
-  kotoage fn get(Name pool) -> int  authorize("Entry") {
+  kotoage fn get(Name pool) authorize(Entry) -> int {
     return Foo.get(pool).unwrap_or(0);
   }
 }

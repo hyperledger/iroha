@@ -123,15 +123,11 @@ use iroha_data_model::soranet::privacy_metrics::{
 };
 use iroha_data_model::{
     self,
-    block::{
-        BlockHeader, SharedSignedBlock, SignedBlock,
-        consensus::{EvidencePenaltyStatus, EvidenceRecord},
-    },
+    block::{BlockHeader, SharedSignedBlock, SignedBlock, consensus::EvidencePenaltyStatus},
     consensus::ConsensusKeyRecord,
     nexus::{
-        DataSpaceCatalog, LaneLifecycleStatusV1, PublicLaneRewardRecord, PublicLaneStakeShare,
-        PublicLaneUnbonding, PublicLaneValidatorRecord, PublicLaneValidatorStatus,
-        UniversalAccountId,
+        DataSpaceCatalog, LaneLifecycleStatusV1, PublicLaneStakeShare, PublicLaneUnbonding,
+        PublicLaneValidatorRecord, PublicLaneValidatorStatus, UniversalAccountId,
     },
     prelude::*,
     proof::VerifyingKeyId,
@@ -370,11 +366,19 @@ impl DataspaceReadVisibility {
         world: &impl WorldReadOnly,
         definition_id: &AssetDefinitionId,
     ) -> bool {
-        self.can_read_all
-            || world
-                .asset_definition_domains()
-                .get(definition_id)
-                .is_some_and(|domain| self.allows_domain(world, domain))
+        if self.can_read_all {
+            return true;
+        }
+        // The immutable home determines definition visibility. A holder's bucket or
+        // a mutable alias must never grant access to another namespace's definition.
+        // Global definitions have no owning domain or direct-dataspace binding.
+        use iroha_data_model::asset::AssetDefinitionHome;
+        match world.asset_definition_home(definition_id) {
+            Ok(Some(AssetDefinitionHome::Global)) => self.allows_dataspace(DataSpaceId::UNIVERSAL),
+            Ok(Some(AssetDefinitionHome::Domain(domain))) => self.allows_domain(world, &domain),
+            Ok(Some(AssetDefinitionHome::Dataspace(dataspace))) => self.allows_dataspace(dataspace),
+            Ok(None) | Err(_) => false,
+        }
     }
 
     /// Return whether an asset bucket and its holder belong only to visible routes.
@@ -2802,59 +2806,70 @@ pub struct RamLfeProgramPolicyListDto {
     pub total: u64,
     pub items: Vec<RamLfeProgramPolicySummaryDto>,
 }
-(Debug, norito::derive::NoritoDeserialize, norito::derive::NoritoSerialize)
-/// Execute one RAM-LFE program from a BFV-encrypted input.
+(Clone, Debug, crate::json_macros::JsonSerialize, norito::derive::NoritoDeserialize, norito::derive::NoritoSerialize)
+/// Evaluate an exact signed ledger owner input under the native PRF.
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_torii::routing::RamLfeExecuteRequestDto")]
 pub struct RamLfeExecuteRequestDto {
-    pub encrypted_input: String,
+    pub normalized_input: String,
+    pub input_nonce: String,
 }
 }
 impl norito::json::JsonDeserialize for RamLfeExecuteRequestDto {
-    fn json_deserialize(
-        parser: &mut norito::json::Parser<'_>,
-    ) -> Result<Self, norito::json::Error> {
+    fn json_deserialize(parser: &mut norito::json::Parser<'_>) -> Result<Self, norito::json::Error> {
         let mut object = norito::json::MapVisitor::new(parser)?;
-        let mut encrypted_input = None;
+        let mut normalized_input: Option<zeroize::Zeroizing<String>> = None;
+        let mut input_nonce: Option<zeroize::Zeroizing<String>> = None;
         while let Some(key) = object.next_key()? {
             match key.as_str() {
-                "encrypted_input" => {
-                    if encrypted_input.is_some() {
-                        return Err(norito::json::MapVisitor::duplicate_field(key.as_str()));
-                    }
-                    encrypted_input = Some(object.parse_value::<String>()?);
+                "normalized_input" => {
+                    if normalized_input.is_some() { return Err(norito::json::MapVisitor::duplicate_field(key.as_str())); }
+                    normalized_input = Some(zeroize::Zeroizing::new(object.parse_value::<String>()?));
+                }
+                "input_nonce" => {
+                    if input_nonce.is_some() { return Err(norito::json::MapVisitor::duplicate_field(key.as_str())); }
+                    input_nonce = Some(zeroize::Zeroizing::new(object.parse_value::<String>()?));
                 }
                 other => return Err(norito::json::MapVisitor::unknown_field(other)),
             }
         }
         object.finish()?;
+        let normalized_input = normalized_input.ok_or_else(|| norito::json::MapVisitor::missing_field("normalized_input"))?;
+        let input_nonce = input_nonce.ok_or_else(|| norito::json::MapVisitor::missing_field("input_nonce"))?;
         Ok(Self {
-            encrypted_input: encrypted_input
-                .ok_or_else(|| norito::json::MapVisitor::missing_field("encrypted_input"))?,
+            normalized_input: normalized_input.to_string(),
+            input_nonce: input_nonce.to_string(),
         })
     }
     fn json_from_value(value: &norito::json::Value) -> Result<Self, norito::json::Error> {
-        let object = value.as_object().ok_or_else(|| {
-            norito::json::Error::Message("expected RAM-LFE execute request object".into())
-        })?;
-        let mut encrypted_input = None;
+        let object = value.as_object().ok_or_else(|| norito::json::Error::Message("expected owner PRF request object".into()))?;
+        let mut normalized_input: Option<zeroize::Zeroizing<String>> = None;
+        let mut input_nonce: Option<zeroize::Zeroizing<String>> = None;
         for (key, value) in object {
             match key.as_str() {
-                "encrypted_input" => {
-                    if encrypted_input.is_some() {
-                        return Err(norito::json::Error::duplicate_field(key));
-                    }
-                    encrypted_input = Some(
-                        <String as norito::json::JsonDeserialize>::json_from_value(value)?,
-                    );
+                "normalized_input" => {
+                    if normalized_input.is_some() { return Err(norito::json::Error::duplicate_field(key.as_str())); }
+                    normalized_input = Some(zeroize::Zeroizing::new(<String as norito::json::JsonDeserialize>::json_from_value(value)?));
+                }
+                "input_nonce" => {
+                    if input_nonce.is_some() { return Err(norito::json::Error::duplicate_field(key.as_str())); }
+                    input_nonce = Some(zeroize::Zeroizing::new(<String as norito::json::JsonDeserialize>::json_from_value(value)?));
                 }
                 other => return Err(norito::json::Error::unknown_field(other)),
             }
         }
+        let normalized_input = normalized_input.ok_or_else(|| norito::json::Error::missing_field("normalized_input"))?;
+        let input_nonce = input_nonce.ok_or_else(|| norito::json::Error::missing_field("input_nonce"))?;
         Ok(Self {
-            encrypted_input: encrypted_input
-                .ok_or_else(|| norito::json::Error::missing_field("encrypted_input"))?,
+            normalized_input: normalized_input.to_string(),
+            input_nonce: input_nonce.to_string(),
         })
+    }
+}
+impl Drop for RamLfeExecuteRequestDto {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.normalized_input);
+        zeroize::Zeroize::zeroize(&mut self.input_nonce);
     }
 }
 derived_items! {
@@ -2862,9 +2877,12 @@ derived_items! {
 /// Successful response emitted by `/v1/ram-lfe/programs/{program_id}/execute`.
 pub struct RamLfeExecuteResponseDto {
     pub program_id: String,
+    /// Original native canonical ProgramId frame in uppercase hex (at most 4096 bytes).
+    /// It is DATA bound by the signed receipt associated_data_hash, not a new authority.
+    pub program_id_canonical: String,
     pub opaque_hash: String,
     pub receipt_hash: String,
-    pub output_ciphertext: String,
+    pub opaque_output: String,
     pub output_hash: String,
     pub associated_data_hash: String,
     pub executed_at_ms: u64,
@@ -2965,55 +2983,59 @@ pub struct IdentifierPolicyListDto {
     pub total: u64,
     pub items: Vec<IdentifierPolicySummaryDto>,
 }
-(Debug, norito::derive::NoritoDeserialize, norito::derive::NoritoSerialize)
-/// Resolve an encrypted identifier under one policy namespace.
+(Clone, Debug, crate::json_macros::JsonSerialize, norito::derive::NoritoDeserialize, norito::derive::NoritoSerialize)
+/// Current signed owner prepare/claim schema; no encrypted predecessor.
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_torii::routing::IdentifierResolveRequestDto")]
 pub struct IdentifierResolveRequestDto {
+    pub phase: String,
     pub policy_id: String,
-    pub encrypted_input: String,
-    pub output_opening: iroha_data_model::ram_lfe::RamLfeOutputOpening,
+    pub normalized_input: String,
+    pub input_nonce: String,
     #[norito(default)]
-    pub phone_retail_canonicality:
-        Option<iroha_data_model::identifier::PhoneRetailCanonicalityAttestationV1>,
+    #[norito(skip_serializing_if = "Option::is_none")]
+    pub output_opening: Option<iroha_data_model::ram_lfe::RamLfeOutputOpening>,
+    #[norito(default)]
+    #[norito(skip_serializing_if = "Option::is_none")]
+    pub phone_retail_canonicality: Option<iroha_data_model::identifier::PhoneRetailCanonicalityAttestationV1>,
 }
 }
 impl norito::json::JsonDeserialize for IdentifierResolveRequestDto {
-    fn json_deserialize(
-        parser: &mut norito::json::Parser<'_>,
-    ) -> Result<Self, norito::json::Error> {
+    fn json_deserialize(parser: &mut norito::json::Parser<'_>) -> Result<Self, norito::json::Error> {
         let mut object = norito::json::MapVisitor::new(parser)?;
+        let mut phase = None;
         let mut policy_id = None;
-        let mut encrypted_input = None;
+        let mut normalized_input: Option<zeroize::Zeroizing<String>> = None;
+        let mut input_nonce: Option<zeroize::Zeroizing<String>> = None;
         let mut output_opening = None;
+        let mut seen_output_opening = false;
         let mut phone_retail_canonicality = None;
         let mut seen_phone_retail_canonicality = false;
         while let Some(key) = object.next_key()? {
             match key.as_str() {
+                "phase" => {
+                    if phase.is_some() { return Err(norito::json::MapVisitor::duplicate_field(key.as_str())); }
+                    phase = Some(object.parse_value::<String>()?);
+                }
                 "policy_id" => {
-                    if policy_id.is_some() {
-                        return Err(norito::json::MapVisitor::duplicate_field(key.as_str()));
-                    }
+                    if policy_id.is_some() { return Err(norito::json::MapVisitor::duplicate_field(key.as_str())); }
                     policy_id = Some(object.parse_value::<String>()?);
                 }
-                "encrypted_input" => {
-                    if encrypted_input.is_some() {
-                        return Err(norito::json::MapVisitor::duplicate_field(key.as_str()));
-                    }
-                    encrypted_input = Some(object.parse_value::<String>()?);
+                "normalized_input" => {
+                    if normalized_input.is_some() { return Err(norito::json::MapVisitor::duplicate_field(key.as_str())); }
+                    normalized_input = Some(zeroize::Zeroizing::new(object.parse_value::<String>()?));
+                }
+                "input_nonce" => {
+                    if input_nonce.is_some() { return Err(norito::json::MapVisitor::duplicate_field(key.as_str())); }
+                    input_nonce = Some(zeroize::Zeroizing::new(object.parse_value::<String>()?));
                 }
                 "output_opening" => {
-                    if output_opening.is_some() {
-                        return Err(norito::json::MapVisitor::duplicate_field(key.as_str()));
-                    }
-                    output_opening = Some(
-                        object.parse_value::<iroha_data_model::ram_lfe::RamLfeOutputOpening>()?,
-                    );
+                    if seen_output_opening { return Err(norito::json::MapVisitor::duplicate_field(key.as_str())); }
+                    seen_output_opening = true;
+                    output_opening = object.parse_value::<Option<iroha_data_model::ram_lfe::RamLfeOutputOpening>>()?;
                 }
                 "phone_retail_canonicality" => {
-                    if seen_phone_retail_canonicality {
-                        return Err(norito::json::MapVisitor::duplicate_field(key.as_str()));
-                    }
+                    if seen_phone_retail_canonicality { return Err(norito::json::MapVisitor::duplicate_field(key.as_str())); }
                     seen_phone_retail_canonicality = true;
                     phone_retail_canonicality = object.parse_value::<Option<iroha_data_model::identifier::PhoneRetailCanonicalityAttestationV1>>()?;
                 }
@@ -3021,72 +3043,93 @@ impl norito::json::JsonDeserialize for IdentifierResolveRequestDto {
             }
         }
         object.finish()?;
+        let phase = phase.ok_or_else(|| norito::json::MapVisitor::missing_field("phase"))?;
+        let policy_id = policy_id.ok_or_else(|| norito::json::MapVisitor::missing_field("policy_id"))?;
+        let normalized_input = normalized_input.ok_or_else(|| norito::json::MapVisitor::missing_field("normalized_input"))?;
+        let input_nonce = input_nonce.ok_or_else(|| norito::json::MapVisitor::missing_field("input_nonce"))?;
         Ok(Self {
-            policy_id: policy_id
-                .ok_or_else(|| norito::json::MapVisitor::missing_field("policy_id"))?,
-            encrypted_input: encrypted_input
-                .ok_or_else(|| norito::json::MapVisitor::missing_field("encrypted_input"))?,
-            output_opening: output_opening
-                .ok_or_else(|| norito::json::MapVisitor::missing_field("output_opening"))?,
+            phase,
+            policy_id,
+            normalized_input: normalized_input.to_string(),
+            input_nonce: input_nonce.to_string(),
+            output_opening,
             phone_retail_canonicality,
         })
     }
     fn json_from_value(value: &norito::json::Value) -> Result<Self, norito::json::Error> {
-        let object = value.as_object().ok_or_else(|| {
-            norito::json::Error::Message("expected identifier resolve request object".into())
-        })?;
+        let object = value.as_object().ok_or_else(|| norito::json::Error::Message("expected owner PRF request object".into()))?;
+        let mut phase = None;
         let mut policy_id = None;
-        let mut encrypted_input = None;
+        let mut normalized_input: Option<zeroize::Zeroizing<String>> = None;
+        let mut input_nonce: Option<zeroize::Zeroizing<String>> = None;
         let mut output_opening = None;
+        let mut seen_output_opening = false;
         let mut phone_retail_canonicality = None;
         let mut seen_phone_retail_canonicality = false;
         for (key, value) in object {
             match key.as_str() {
-                "policy_id" => {
-                    if policy_id.is_some() {
-                        return Err(norito::json::Error::duplicate_field(key));
-                    }
-                    policy_id = Some(<String as norito::json::JsonDeserialize>::json_from_value(
-                        value,
-                    )?);
+                "phase" => {
+                    if phase.is_some() { return Err(norito::json::Error::duplicate_field(key.as_str())); }
+                    phase = Some(<String as norito::json::JsonDeserialize>::json_from_value(value)?);
                 }
-                "encrypted_input" => {
-                    if encrypted_input.is_some() {
-                        return Err(norito::json::Error::duplicate_field(key));
-                    }
-                    encrypted_input = Some(
-                        <String as norito::json::JsonDeserialize>::json_from_value(value)?,
-                    );
+                "policy_id" => {
+                    if policy_id.is_some() { return Err(norito::json::Error::duplicate_field(key.as_str())); }
+                    policy_id = Some(<String as norito::json::JsonDeserialize>::json_from_value(value)?);
+                }
+                "normalized_input" => {
+                    if normalized_input.is_some() { return Err(norito::json::Error::duplicate_field(key.as_str())); }
+                    normalized_input = Some(zeroize::Zeroizing::new(<String as norito::json::JsonDeserialize>::json_from_value(value)?));
+                }
+                "input_nonce" => {
+                    if input_nonce.is_some() { return Err(norito::json::Error::duplicate_field(key.as_str())); }
+                    input_nonce = Some(zeroize::Zeroizing::new(<String as norito::json::JsonDeserialize>::json_from_value(value)?));
                 }
                 "output_opening" => {
-                    if output_opening.is_some() {
-                        return Err(norito::json::Error::duplicate_field(key));
-                    }
-                    output_opening = Some(
-                        <iroha_data_model::ram_lfe::RamLfeOutputOpening as norito::json::JsonDeserialize>::json_from_value(value)?,
-                    );
+                    if seen_output_opening { return Err(norito::json::Error::duplicate_field(key.as_str())); }
+                    seen_output_opening = true;
+                    output_opening = <Option<iroha_data_model::ram_lfe::RamLfeOutputOpening> as norito::json::JsonDeserialize>::json_from_value(value)?;
                 }
                 "phone_retail_canonicality" => {
-                    if seen_phone_retail_canonicality {
-                        return Err(norito::json::Error::duplicate_field(key));
-                    }
+                    if seen_phone_retail_canonicality { return Err(norito::json::Error::duplicate_field(key.as_str())); }
                     seen_phone_retail_canonicality = true;
                     phone_retail_canonicality = <Option<iroha_data_model::identifier::PhoneRetailCanonicalityAttestationV1> as norito::json::JsonDeserialize>::json_from_value(value)?;
                 }
                 other => return Err(norito::json::Error::unknown_field(other)),
             }
         }
+        let phase = phase.ok_or_else(|| norito::json::Error::missing_field("phase"))?;
+        let policy_id = policy_id.ok_or_else(|| norito::json::Error::missing_field("policy_id"))?;
+        let normalized_input = normalized_input.ok_or_else(|| norito::json::Error::missing_field("normalized_input"))?;
+        let input_nonce = input_nonce.ok_or_else(|| norito::json::Error::missing_field("input_nonce"))?;
         Ok(Self {
-            policy_id: policy_id.ok_or_else(|| norito::json::Error::missing_field("policy_id"))?,
-            encrypted_input: encrypted_input
-                .ok_or_else(|| norito::json::Error::missing_field("encrypted_input"))?,
-            output_opening: output_opening
-                .ok_or_else(|| norito::json::Error::missing_field("output_opening"))?,
+            phase,
+            policy_id,
+            normalized_input: normalized_input.to_string(),
+            input_nonce: input_nonce.to_string(),
+            output_opening,
             phone_retail_canonicality,
         })
     }
 }
+impl Drop for IdentifierResolveRequestDto {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.normalized_input);
+        zeroize::Zeroize::zeroize(&mut self.input_nonce);
+    }
+}
 derived_items! {
+(Clone, Debug, crate::json_macros::JsonSerialize, crate::json_macros::JsonDeserialize, norito::derive::NoritoSerialize, norito::derive::NoritoDeserialize,)
+/// Original native opening and beneficiary scope for independent phone attestation.
+pub struct IdentifierPrfPrepareResponseDto {
+    /// Exact genesis identity in lowercase raw32 hex.
+    pub network_id: String,
+    pub policy_id: String,
+    pub account_id: String,
+    pub uaid: String,
+    pub output_opening: iroha_data_model::ram_lfe::RamLfeOutputOpening,
+    #[norito(skip_serializing_if = "Option::is_none")]
+    pub phone_retail_canonicality_payload: Option<iroha_data_model::identifier::PhoneRetailCanonicalityPayloadV1>,
+}
 ( Clone, Debug, crate::json_macros::JsonSerialize, crate::json_macros::JsonDeserialize, norito::derive::NoritoSerialize, norito::derive::NoritoDeserialize,)
 /// Successful response emitted by `/v1/identifiers/resolve`.
 pub struct IdentifierResolveResponseDto {
@@ -3098,107 +3141,24 @@ pub struct IdentifierResolveResponseDto {
 }
 }
 #[cfg(all(test, feature = "app_api"))]
-mod ram_lfe_encrypted_only_request_dto_tests {
+mod identifier_owner_prf_request_dto_tests {
     use super::*;
-    routing_test! { sync ram_lfe_execute_request_rejects_legacy_plaintext_fields
-        let error = norito::json::from_str::<RamLfeExecuteRequestDto>(
-            r#"{"encrypted_input":"ciphertext","input_hex":"74657374"}"#,
-        )
-        .expect_err("RAM-LFE execute requests must reject plaintext input_hex");
-        assert!(error.to_string().contains("input_hex"));
-        let error = norito::json::from_str::<RamLfeExecuteRequestDto>(
-            r#"{"encrypted_input":"ciphertext","plaintext":"test"}"#,
-        )
-        .expect_err("RAM-LFE execute requests must reject plaintext aliases");
-        assert!(error.to_string().contains("plaintext"));
+    routing_test! { sync owner_prf_dto_accepts_only_exact_required_current_fields
+        let execute = r#"{"normalized_input":"alice","input_nonce":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#;
+        assert!(norito::json::from_str::<RamLfeExecuteRequestDto>(execute).is_ok());
+        for input in [r#"{}"#, r#"[]"#, r#"{"normalized_input":1,"input_nonce":"a"}"#, r#"{"normalized_input":"alice"}"#, r#"{"encrypted_input":"ciphertext"}"#, r#"{"normalized_input":"a","normalized_input":"b","input_nonce":"a"}"#, r#"{"normalized_input":"a","input_nonce":"a","input_nonce":"b"}"#, r#"{"normalized_input":"a","input_nonce":"a","input":"b"}"#] {
+            assert!(norito::json::from_str::<RamLfeExecuteRequestDto>(input).is_err(), "{input}");
+        }
     }
-    routing_test! { sync ram_lfe_execute_request_rejects_missing_or_non_string_ciphertext
-        let error = norito::json::from_str::<RamLfeExecuteRequestDto>(r#"{}"#)
-            .expect_err("encrypted input is mandatory");
-        assert!(error.to_string().contains("encrypted_input"));
-        let error = norito::json::from_str::<RamLfeExecuteRequestDto>(r#"{"encrypted_input":123}"#)
-            .expect_err("encrypted input must be a string envelope");
-        assert!(
-            !error.to_string().is_empty(),
-            "non-string ciphertext rejection should report an error"
-        );
-        let error = norito::json::from_str::<RamLfeExecuteRequestDto>(r#"["ciphertext"]"#)
-            .expect_err("RAM-LFE execute request must be a JSON object");
-        assert!(error.to_string().contains("object"));
+    routing_test! { sync owner_claim_dto_rejects_retired_duplicate_and_unknown_fields
+        let current = r#"{"phase":"prepare","policy_id":"phone#retail","normalized_input":"+6771234567","input_nonce":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#;
+        assert!(norito::json::from_str::<IdentifierResolveRequestDto>(current).is_ok());
+        for input in [r#"{"policy_id":"phone#retail","encrypted_input":"ciphertext"}"#, r#"{"phase":"prepare","phase":"claim","policy_id":"p","normalized_input":"a","input_nonce":"a"}"#, r#"{"phase":"claim","policy_id":"p","normalized_input":"a","input_nonce":"a","output_opening":null,"output_opening":null}"#, r#"{"phase":"claim","policy_id":"p","normalized_input":"a","input_nonce":"a","phone_retail_canonicality":null,"phone_retail_canonicality":null}"#] {
+            assert!(norito::json::from_str::<IdentifierResolveRequestDto>(input).is_err(), "{input}");
+        }
     }
-    routing_test! { sync ram_lfe_execute_request_rejects_ciphertext_alias_fields
-        let error =
-            norito::json::from_str::<RamLfeExecuteRequestDto>(r#"{"encryptedInput":"ciphertext"}"#)
-                .expect_err("camelCase encrypted-input aliases must be rejected");
-        assert!(error.to_string().contains("encryptedInput"));
-        let error = norito::json::from_str::<RamLfeExecuteRequestDto>(
-            r#"{"encrypted_input":"ciphertext","ciphertext":"legacy-alias"}"#,
-        )
-        .expect_err("ciphertext aliases must be rejected");
-        assert!(error.to_string().contains("ciphertext"));
-        let error = norito::json::from_str::<RamLfeExecuteRequestDto>(
-            r#"{"encrypted_input":"ciphertext-a","encrypted_input":"ciphertext-b"}"#,
-        )
-        .expect_err("duplicate encrypted inputs must be rejected");
-        assert!(error.to_string().contains("encrypted_input"));
-    }
-    routing_test! { sync identifier_resolve_request_rejects_legacy_plaintext_fields
-        let error = norito::json::from_str::<IdentifierResolveRequestDto>(
-            r#"{"policy_id":"policy","encrypted_input":"ciphertext","input_hex":"74657374"}"#,
-        )
-        .expect_err("identifier resolution must reject plaintext input_hex");
-        assert!(error.to_string().contains("input_hex"));
-        let error = norito::json::from_str::<IdentifierResolveRequestDto>(
-            r#"{"policy_id":"policy","encrypted_input":"ciphertext","identifier":"alice"}"#,
-        )
-        .expect_err("identifier resolution must reject plaintext identifier aliases");
-        assert!(error.to_string().contains("identifier"));
-    }
-    routing_test! { sync identifier_resolve_request_requires_opening_and_encrypted_input
-        let error = norito::json::from_str::<IdentifierResolveRequestDto>(
-            r#"{"policy_id":"policy","encrypted_input":"ciphertext"}"#,
-        )
-        .expect_err("identifier resolution requires an external output opening");
-        assert!(error.to_string().contains("output_opening"));
-        let error =
-            norito::json::from_str::<IdentifierResolveRequestDto>(r#"{"policy_id":"policy"}"#)
-                .expect_err("encrypted input is mandatory");
-        assert!(error.to_string().contains("encrypted_input"));
-        let error = norito::json::from_str::<IdentifierResolveRequestDto>(
-            r#"{"encrypted_input":"ciphertext"}"#,
-        )
-        .expect_err("policy id is mandatory");
-        assert!(error.to_string().contains("policy_id"));
-    }
-    routing_test! { sync identifier_resolve_request_rejects_malformed_encrypted_fields
-        use iroha_crypto::{Algorithm, Hash, KeyPair, SignatureOf};
 
-        let error = norito::json::from_str::<IdentifierResolveRequestDto>(
-            r#"{"policy_id":123,"encrypted_input":"ciphertext","output_opening":{}}"#,
-        )
-        .expect_err("policy ids must be strings");
-        assert!(
-            !error.to_string().is_empty(),
-            "non-string policy id rejection should report an error"
-        );
-        let error = norito::json::from_str::<IdentifierResolveRequestDto>(
-            r#"{"policy_id":"policy","encrypted_input":{"hex":"ciphertext"},"output_opening":{}}"#,
-        )
-        .expect_err("encrypted input must be a string envelope");
-        assert!(
-            !error.to_string().is_empty(),
-            "non-string encrypted input rejection should report an error"
-        );
-        let error = norito::json::from_str::<IdentifierResolveRequestDto>(
-            r#"{"policy_id":"policy-a","policy_id":"policy-b","encrypted_input":"ciphertext","output_opening":{}}"#,
-        )
-        .expect_err("duplicate policy ids must be rejected");
-        assert!(error.to_string().contains("policy_id"));
-        let error = norito::json::from_str::<IdentifierResolveRequestDto>(
-            r#"{"policy_id":"policy","encrypted_input":"ciphertext-a","encrypted_input":"ciphertext-b","output_opening":{}}"#,
-        )
-        .expect_err("duplicate encrypted inputs must be rejected");
-        assert!(error.to_string().contains("encrypted_input"));
+    routing_test! { sync current_owner_request_preserves_nested_opening_strictness
         let signer = KeyPair::try_from_seed(vec![0x35; 32], Algorithm::Ed25519)
             .expect("derive output-opening fixture key");
         let payload = iroha_data_model::ram_lfe::RamLfeOutputOpeningPayload {
@@ -3219,7 +3179,7 @@ mod ram_lfe_encrypted_only_request_dto_tests {
         };
         let opening_json = norito::json::to_string(&opening).expect("encode output-opening fixture");
         let duplicate_opening = [
-            r#"{"policy_id":"policy","encrypted_input":"ciphertext","output_opening": "#,
+            r#"{"policy_id":"policy","phase":"claim","normalized_input":"alice","input_nonce":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","output_opening": "#,
             opening_json.as_str(),
             r#","output_opening": "#,
             opening_json.as_str(),
@@ -3230,7 +3190,7 @@ mod ram_lfe_encrypted_only_request_dto_tests {
         .expect_err("duplicate output openings must be rejected");
         assert!(error.to_string().contains("output_opening"));
         let valid_request = [
-            r#"{"policy_id":"policy","encrypted_input":"ciphertext","output_opening": "#,
+            r#"{"policy_id":"policy","phase":"claim","normalized_input":"alice","input_nonce":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","output_opening": "#,
             opening_json.as_str(),
             "}",
         ]
@@ -3244,7 +3204,7 @@ mod ram_lfe_encrypted_only_request_dto_tests {
             opening_json.replacen("\"program_id\":", &duplicate_program_id_key, 1);
         assert_ne!(duplicate_opening_json, opening_json, "fixture has program_id");
         let nested_duplicate = [
-            r#"{"policy_id":"policy","encrypted_input":"ciphertext","output_opening": "#,
+            r#"{"policy_id":"policy","phase":"claim","normalized_input":"alice","input_nonce":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","output_opening": "#,
             duplicate_opening_json.as_str(),
             "}",
         ]
@@ -3253,7 +3213,7 @@ mod ram_lfe_encrypted_only_request_dto_tests {
         .expect_err("nested duplicate output-opening fields must be rejected");
         assert!(error.to_string().contains("program_id"), "{error}");
         let error = norito::json::from_str::<IdentifierResolveRequestDto>(
-            r#"{"policy_id":"policy","encrypted_input":"ciphertext","output_opening":"not-an-opening"}"#,
+            r#"{"policy_id":"policy","phase":"claim","normalized_input":"alice","input_nonce":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","output_opening":"not-an-opening"}"#,
         )
         .expect_err("output openings must be structured attestation objects");
         assert!(
@@ -3261,18 +3221,41 @@ mod ram_lfe_encrypted_only_request_dto_tests {
             "non-object output opening rejection should report an error"
         );
     }
+
 }
+
 derived_items! {
 ( Clone, Debug, crate::json_macros::JsonSerialize, crate::json_macros::JsonDeserialize, norito::derive::NoritoSerialize, norito::derive::NoritoDeserialize,)
 /// Canonical public identifier-resolution receipt payload.
 pub struct IdentifierResolutionReceiptPayloadDto {
+    /// Mandatory first signed Model field, projected as lowercase raw32 hex.
+    pub network_id: String,
     pub policy_id: String,
     pub execution: RamLfeExecutionReceiptPayloadDto,
-    pub opening: iroha_data_model::ram_lfe::RamLfeOutputOpening,
+    pub opening: IdentifierOutputOpeningDto,
     pub opaque_id: String,
     pub receipt_hash: String,
     pub uaid: String,
     pub account_id: String,
+}
+( Clone, Debug, crate::json_macros::JsonSerialize, crate::json_macros::JsonDeserialize, norito::derive::NoritoSerialize, norito::derive::NoritoDeserialize,)
+/// Flat public receipt opening; prepare and claim requests retain the original typed Model grammar.
+pub struct IdentifierOutputOpeningDto {
+    pub payload: IdentifierOutputOpeningPayloadDto,
+    pub signature: String,
+}
+( Clone, Debug, crate::json_macros::JsonSerialize, crate::json_macros::JsonDeserialize, norito::derive::NoritoSerialize, norito::derive::NoritoDeserialize,)
+/// Exact public opening projection with canonical lower hexadecimal hashes.
+pub struct IdentifierOutputOpeningPayloadDto {
+    pub program_id: String,
+    pub input_ciphertext_hash: String,
+    pub output_ciphertext_hash: String,
+    pub parameter_digest: String,
+    pub evaluation_key_digest: String,
+    pub opened_output_hash: String,
+    pub opened_at_ms: u64,
+    #[norito(skip_serializing_if = "Option::is_none")]
+    pub expires_at_ms: Option<u64>,
 }
 ( Clone, Debug, crate::json_macros::JsonSerialize, crate::json_macros::JsonDeserialize, norito::derive::NoritoSerialize, norito::derive::NoritoDeserialize,)
 /// Persisted identifier-claim binding returned by receipt-hash lookup.
@@ -3451,10 +3434,6 @@ use iroha_data_model::events::{
     EventFilterBox,
     pipeline::{BlockEventFilter, TransactionEventFilter, TransactionStatus},
 };
-#[cfg(test)]
-use iroha_data_model::nexus::PublicLaneRewardRole;
-#[cfg(test)]
-use iroha_data_model::nexus::PublicLaneRewardShare;
 #[cfg(test)]
 use sorafs_manifest::PinPolicy as ManifestPinPolicy;
 #[cfg(test)]
@@ -4318,7 +4297,7 @@ app_api_items! {
 )]
 /// Filters for proofs listing
 pub struct ProofListQuery {
-    /// Exact backend match (e.g., "halo2/ipa"). If None, include all backends.
+    /// Exact backend match (e.g., "pipa-r/pasta"). If None, include all backends.
     pub backend: Option<String>,
     /// Status filter: "Submitted" | "Verified" | "Rejected" (case-sensitive)
     pub status: Option<String>,
@@ -4951,7 +4930,7 @@ async fn handle_count_proofs_with_admission(
 )]
 /// Optional filters for verifying key listing
 pub struct VkListQuery {
-    /// Exact backend match (e.g., "halo2/ipa"). If None, include all backends.
+    /// Exact backend match (e.g., "pipa-r/pasta"). If None, include all backends.
     pub backend: Option<String>,
     /// Status filter: "Active", "Proposed", or "Withdrawn" (case-sensitive).
     pub status: Option<String>,
@@ -5858,28 +5837,6 @@ where
         .await
         .map_err(|_| query_internal_error(worker_failure))?
 }
-/// GET /v1/bridge/finality/{height} — Self-contained finality proof for a block.
-#[iroha_futures::telemetry_future]
-pub(crate) async fn handle_v1_bridge_finality(
-    state: Arc<CoreState>,
-    height: u64,
-    format: crate::utils::ResponseFormat,
-    admission: crate::QueryAdmissionPermit,
-) -> Result<Response> {
-    run_admitted_blocking(
-        admission,
-        "bridge finality verification worker failed",
-        move || {
-            let proof = iroha_core::sumeragi::finality::build_proof(&state.view(), height)
-                .map_err(map_current_finality_error)?;
-            if matches!(format, crate::utils::ResponseFormat::Norito) {
-                return Ok(crate::NoritoBody(proof).into_response());
-            }
-            pretty_json_response(&proof)
-        },
-    )
-    .await
-}
 /// GET /v1/bridge/finality/attestation/{height|latest} — Challenge-bound
 /// node-signed finality proof for the exact durable state tip plus its
 /// committed genesis. `height = None` selects `latest`: the durable tip of the
@@ -5961,7 +5918,7 @@ pub(crate) async fn handle_v1_bridge_finality_bundle(
     )
     .await
 }
-fn map_current_finality_error(err: iroha_core::sumeragi::finality::ProofError) -> Error {
+pub(super) fn map_current_finality_error(err: iroha_core::sumeragi::finality::ProofError) -> Error {
     use iroha_core::sumeragi::{certified_chain::ChainReadError, finality::ProofError};
     match err {
         ProofError::Chain(
@@ -7558,10 +7515,8 @@ mod evidence_list_query_contract_tests {
                 view: 0,
                 block_hash: Hash32([hash; 32]),
                 result: Hash32([3; 32]),
-                attest: false,
                 signer: 0,
                 sig: Signature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
-                attestation: None,
             };
             vote.sig = Signature(
                 iroha_crypto::Signature::new(key.private_key(), &vote.preimage())
@@ -7572,7 +7527,7 @@ mod evidence_list_query_contract_tests {
             vote
         };
         // Transport projection only; original history remains responsible for attribution.
-        let mut record = EvidenceRecord {
+        let mut record = iroha_data_model::block::consensus::EvidenceRecord {
             evidence: Evidence::from_native(&NativeEvidence::VoteEquivocation(vote(4), vote(5)))
                 .unwrap(),
             attribution: EvidenceAttribution {
@@ -7813,7 +7768,10 @@ pub async fn handle_v1_sumeragi_evidence_list(
         // count-first encoder makes its exact destination allocation.
         let wire = SumeragiEvidenceListWireResponse {
             total,
-            items: records.iter().map(|record| (**record).clone()).collect(),
+            items: records
+                .iter()
+                .map(|record| record.canonical_projection())
+                .collect(),
         };
         return bounded_sumeragi_evidence_list_norito_response(
             &wire,
@@ -7823,7 +7781,16 @@ pub async fn handle_v1_sumeragi_evidence_list(
     // Map to Norito-JSON response
     let items: Vec<norito::json::Value> = records
         .iter()
-        .map(|record| evidence_to_json(record))
+        .map(|record| {
+            evidence_fields_to_json(
+                &record.evidence,
+                &record.attribution,
+                record.recorded_at_height,
+                record.recorded_at_view,
+                record.recorded_at_ms,
+                record.penalty_status,
+            )
+        })
         .collect::<Result<Vec<_>>>()?;
     let payload = json_object(vec![json_entry("total", total), json_entry("items", items)]);
     bounded_sumeragi_evidence_list_json_response(
@@ -8996,9 +8963,27 @@ fn evidence_penalty_status_to_json(status: EvidencePenaltyStatus) -> Value {
     lifecycle.insert("details".into(), details);
     Value::Object(lifecycle)
 }
-fn evidence_to_json(rec: &EvidenceRecord) -> Result<Value> {
+#[cfg(test)]
+fn evidence_to_json(rec: &iroha_data_model::block::consensus::EvidenceRecord) -> Result<Value> {
+    evidence_fields_to_json(
+        &rec.evidence,
+        &rec.attribution,
+        rec.recorded_at_height,
+        rec.recorded_at_view,
+        rec.recorded_at_ms,
+        rec.penalty_status,
+    )
+}
+fn evidence_fields_to_json(
+    evidence: &iroha_data_model::block::consensus::Evidence,
+    attribution: &iroha_data_model::block::consensus::EvidenceAttribution,
+    recorded_at_height: u64,
+    recorded_at_view: u64,
+    recorded_at_ms: u64,
+    penalty_status: EvidencePenaltyStatus,
+) -> Result<Value> {
     use iroha_sumeragi::message::Evidence as NativeEvidence;
-    let native = rec.evidence.decode_native().map_err(|error| match error {
+    let native = evidence.decode_native().map_err(|error| match error {
         iroha_sumeragi::message::CodecError::Resource(_) => {
             Error::Query(iroha_data_model::ValidationFail::QueryFailed(
                 iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded,
@@ -9013,7 +8998,6 @@ fn evidence_to_json(rec: &EvidenceRecord) -> Result<Value> {
         NativeEvidence::InvalidProposal { .. } => "invalid_proposal",
         NativeEvidence::ConflictingCertificates(..) => "conflicting_certificates",
     };
-    let attribution = &rec.attribution;
     let offenders = attribution
         .offenders
         .iter()
@@ -9029,10 +9013,10 @@ fn evidence_to_json(rec: &EvidenceRecord) -> Result<Value> {
         "epoch": (attribution.epoch), "context_id": (hex::encode(attribution.context_id)),
         "authority_generation": (hex::encode(attribution.authority_generation)),
         "offenders": offenders, "safety_violation": (attribution.safety_violation),
-        "native_frame_hash": (hash_to_hex(iroha_crypto::Hash::new(rec.evidence.native_frame()))),
-        "recorded_height": (rec.recorded_at_height), "recorded_view": (rec.recorded_at_view),
-        "recorded_ms": (rec.recorded_at_ms), "consensus_admitted_height": (rec.recorded_at_height),
-        "penalty_status": (evidence_penalty_status_to_json(rec.penalty_status))
+        "native_frame_hash": (hash_to_hex(iroha_crypto::Hash::new(evidence.native_frame()))),
+        "recorded_height": (recorded_at_height), "recorded_view": (recorded_at_view),
+        "recorded_ms": (recorded_at_ms), "consensus_admitted_height": (recorded_at_height),
+        "penalty_status": (evidence_penalty_status_to_json(penalty_status))
     }))
 }
 fn reject_direct_multisig_signing(
@@ -10153,6 +10137,9 @@ mod contract_manifest_response_tests {
     }
     routing_test! { sync response_serializes_the_complete_canonical_manifest
         let expected_manifest = ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: vec![iroha_data_model::smart_contract::manifest::ContractPermissionDescriptorV1 { name:"TreasuryTransfer".parse().unwrap(), scope:iroha_data_model::smart_contract::manifest::ContractPermissionScopeV1::Instance }],
             seiyaku_name: Some("Treasury".to_owned()),
             code_hash: Some(Hash::new(b"complete-code")),
             abi_hash: Some(Hash::new(b"complete-abi")),
@@ -10190,7 +10177,7 @@ mod contract_manifest_response_tests {
                 return_schema: Some(EntrypointValueTypeV1 {
                     nodes: vec![EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)],
                 }),
-                permission: Some("TreasuryTransfer".to_owned()),
+                authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission("TreasuryTransfer".parse().unwrap()),
                 read_keys: vec!["state:Balances".to_owned()],
                 write_keys: vec!["state:Balances".to_owned()],
                 access_hints_complete: Some(true),
@@ -10252,6 +10239,7 @@ mod contract_manifest_response_tests {
             "compiler_fingerprint",
             "features_bitmap",
             "access_set_hints",
+            "permissions",
             "entrypoints",
             "states",
             "error_types",
@@ -10273,7 +10261,7 @@ mod contract_manifest_response_tests {
             "argument_schema",
             "return_type",
             "return_schema",
-            "permission",
+            "authorization",
             "read_keys",
             "write_keys",
             "access_hints_complete",
@@ -10295,11 +10283,12 @@ pub struct ContractStateQuery {
     pub contract_address: Option<String>,
     /// Optional on-chain contract alias used to scope logical state paths.
     pub contract_alias: Option<String>,
-    /// Exact state key path (Name).
+    /// Exact state path. With `decode=json`, map keys accept scalar text, tuple JSON,
+    /// `json-<JSON>` for explicit logical values, or `record-<canonical-record-hex>`.
     pub path: Option<String>,
-    /// Comma-separated list of at most 10,000 state key paths (Names).
+    /// At most 10,000 comma-separated state paths; commas inside JSON keys are preserved.
     pub paths: Option<String>,
-    /// Prefix for state key paths (Name).
+    /// Prefix for canonical state paths.
     pub prefix: Option<String>,
     /// Include base64-encoded values (default true).
     pub include_value: Option<bool>,
@@ -10356,9 +10345,41 @@ fn parse_contract_state_decode_mode(
     }
 }
 enum ContractStateSelection {
-    Exact(StatePath),
-    Paths(Vec<StatePath>),
+    Exact(String),
+    Paths(Vec<String>),
     Prefix(StatePath),
+}
+/// Identify the logical JSON portion without interpreting it as a physical path.
+fn contract_state_json_key_parts(path: &str) -> Option<(&str, &str)> {
+    let (base, suffix) = path.split_once('/')?;
+    suffix.strip_prefix("json-").map(|json| (base, json)).or_else(|| {
+        suffix.starts_with('[').then_some((base, suffix))
+    })
+}
+/// Validate plain paths unchanged, or a bounded map base plus JSON key in decoded queries.
+/// The latter must subsequently resolve against an installed map schema before any lookup.
+fn parse_contract_state_query_path(
+    value: &str,
+    decode_mode: Option<ContractStateDecodeMode>,
+) -> core::result::Result<String, String> {
+    if matches!(decode_mode, Some(ContractStateDecodeMode::Json))
+        && let Some((base, json)) = contract_state_json_key_parts(value)
+    {
+        base.parse::<Name>().map_err(|error| format!("invalid state map base: {error}"))?;
+        if value.len() - base.len() - 1 > ivm::syscalls::STATE_MAP_MAX_KEY_BYTES {
+            return Err("logical map key exceeds the V1 byte limit".to_owned());
+        }
+        norito::json::validate_json(json)
+            .map_err(|error| format!("invalid logical map key JSON: {error}"))?;
+    } else {
+        StatePath::validate_canonical(value)
+            .map_err(|error| format!("invalid path `{value}`: {error}"))?;
+    }
+    let mut path = String::new();
+    path.try_reserve_exact(value.len())
+        .map_err(|_| "contract state query path allocation failed".to_owned())?;
+    path.push_str(value);
+    Ok(path)
 }
 fn contract_state_schema_is_relevant(
     selection: &ContractStateSelection,
@@ -10561,98 +10582,80 @@ fn encode_contract_state_pointer_tlv_bytes(
     };
     encode_contract_state_tlv(type_id, &payload)
 }
+/// Resolve a scalar convenience key, a tuple JSON value, an explicit json-
+/// value, or a validated record- key. Every form selects the same schema-bound
+/// StateValueRecordV1 physical bytes; bare scalar TLVs are never storage keys.
 fn contract_state_stored_map_key_suffix(
     key_ty: &ivm::EmbeddedStateType,
     logical_key_suffix: &str,
 ) -> Option<String> {
-    let logical_key_suffix = if let Some(escaped) = logical_key_suffix.strip_prefix("logical-")
-        && escaped.starts_with("tlv-")
-    {
-        escaped
-    } else {
-        if let Some(stored_suffix) = logical_key_suffix.strip_prefix("tlv-") {
-            validate_contract_state_stored_map_key_suffix(key_ty, stored_suffix).ok()?;
-            return Some(stored_suffix.to_owned());
-        }
-        logical_key_suffix
+    use iroha_data_model::smart_contract::entrypoint::{
+        EntrypointArgumentFieldV1, EntrypointArgumentSchemaV1, EntrypointValueAtomV1,
     };
-    let canonical_key = match key_ty {
-        ivm::EmbeddedStateType::Bool => {
-            let value = match logical_key_suffix {
-                "true" | "1" => 1_i64,
-                "false" | "0" => 0_i64,
-                _ => return None,
-            };
-            let _canonical_flags =
-                norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
-            norito::to_bytes(&value).ok()?
-        }
-        ivm::EmbeddedStateType::Int
-        | ivm::EmbeddedStateType::Decimal
-        | ivm::EmbeddedStateType::Quantity
-        | ivm::EmbeddedStateType::String
-        | ivm::EmbeddedStateType::Bytes
-        | ivm::EmbeddedStateType::Name
-        | ivm::EmbeddedStateType::AccountId
-        | ivm::EmbeddedStateType::AssetDefinitionId
-        | ivm::EmbeddedStateType::AssetId
-        | ivm::EmbeddedStateType::NftId
-        | ivm::EmbeddedStateType::DomainId
-        | ivm::EmbeddedStateType::DataSpaceId => {
-            encode_contract_state_pointer_tlv_bytes(key_ty, logical_key_suffix)?
-        }
-        _ => return None,
-    };
-    Some(hex::encode(canonical_key))
-}
-#[cfg(all(feature = "app_api", test))]
-fn contract_state_logical_map_key_suffix(
-    key_ty: &ivm::EmbeddedStateType,
-    stored_key_suffix: &str,
-) -> Option<String> {
-    let canonical_key = hex::decode(stored_key_suffix).ok()?;
-    if hex::encode(&canonical_key) != stored_key_suffix {
+    use ivm::state_value::{StateValueAtomV1, StateValueRecordV1, state_value_schema_hash_v1};
+
+    if let Some(stored_suffix) = logical_key_suffix.strip_prefix("record-") {
+        validate_contract_state_stored_map_key_suffix(key_ty, stored_suffix).ok()?;
+        return Some(stored_suffix.to_owned());
+    }
+    // Bound producer input before parsing JSON or constructing pointer payloads.
+    if logical_key_suffix.len() > ivm::syscalls::STATE_MAP_MAX_KEY_BYTES {
         return None;
     }
-    let logical_key = match key_ty {
-        ivm::EmbeddedStateType::Bool => {
-            let value: i64 =
-                decode_canonical_contract_state_norito(&canonical_key, "bool map key").ok()?;
-            match value {
-                0 => "false".to_owned(),
-                1 => "true".to_owned(),
+    let public_key = ivm_abi::state_value::state_map_key_schema_v1(key_ty).ok()?;
+    let schema = contract_state_value_schema(key_ty).ok()?;
+    let json = logical_key_suffix.strip_prefix("json-").or_else(|| {
+        matches!(key_ty, ivm::EmbeddedStateType::Tuple(_)).then_some(logical_key_suffix)
+    });
+    let atoms = if let Some(json) = json {
+        let argument_schema = EntrypointArgumentSchemaV1 {
+            fields: vec![EntrypointArgumentFieldV1 {
+                name: "key".to_owned(),
+                ty: public_key,
+            }],
+        };
+        // Query JSON is a logical value, so whitespace and equivalent escapes
+        // must resolve to the same canonical record instead of requiring callers
+        // to provide the internal Json wrapper's canonical lexical form.
+        let argument_json: norito::json::Value =
+            norito::json::from_str(&format!("{{\"key\":{json}}}")).ok()?;
+        let payload = IrohaJson::from_norito_value_ref(&argument_json).ok()?;
+        let argument = ivm_abi::arguments::argument_record_from_json(&argument_schema, &payload).ok()?;
+        let mut atoms = Vec::new();
+        atoms.try_reserve_exact(argument.atoms.len()).ok()?;
+        for atom in argument.atoms {
+            atoms.push(match atom {
+                EntrypointValueAtomV1::Bool(value) => StateValueAtomV1::Bool(value),
+                EntrypointValueAtomV1::Pointer(envelope) => StateValueAtomV1::Pointer(envelope),
+                // The canonical key schema permits only scalar leaves and tuples.
                 _ => return None,
-            }
+            });
         }
-        ivm::EmbeddedStateType::Bytes => {
-            let payload = decode_contract_state_pointer_payload(
-                &canonical_key,
-                ivm::pointer_abi::PointerType::Blob,
-                "bytes map key",
-            )
-            .ok()?;
-            format!("0x{}", hex::encode(payload))
-        }
-        ivm::EmbeddedStateType::Int
-        | ivm::EmbeddedStateType::Decimal
-        | ivm::EmbeddedStateType::Quantity
-        | ivm::EmbeddedStateType::String
-        | ivm::EmbeddedStateType::Name
-        | ivm::EmbeddedStateType::AccountId
-        | ivm::EmbeddedStateType::AssetDefinitionId
-        | ivm::EmbeddedStateType::AssetId
-        | ivm::EmbeddedStateType::NftId
-        | ivm::EmbeddedStateType::DomainId
-        | ivm::EmbeddedStateType::DataSpaceId => {
-            let decoded =
-                decode_contract_state_pointer_json_fragment(&canonical_key, key_ty).ok()?;
-            norito::json::from_str::<String>(&decoded).ok()?
-        }
-        _ => return None,
+        atoms
+    } else if matches!(key_ty, ivm::EmbeddedStateType::Bool) {
+        vec![StateValueAtomV1::Bool(match logical_key_suffix {
+            "true" | "1" => true,
+            "false" | "0" => false,
+            _ => return None,
+        })]
+    } else {
+        vec![StateValueAtomV1::Pointer(
+            encode_contract_state_pointer_tlv_bytes(key_ty, logical_key_suffix)?,
+        )]
     };
-    (contract_state_stored_map_key_suffix(key_ty, &logical_key).as_deref()
-        == Some(stored_key_suffix))
-    .then_some(logical_key)
+    if !schema.validate_atoms(&atoms) {
+        return None;
+    }
+    let schema_bytes = norito::encode_canonical(&schema).ok()?;
+    let record = StateValueRecordV1 {
+        schema_hash: state_value_schema_hash_v1(&schema_bytes),
+        atoms,
+    };
+    if norito::canonical_frame_len(&record).ok()? > ivm::syscalls::STATE_MAP_MAX_KEY_BYTES {
+        return None;
+    }
+    let frame = norito::encode_canonical(&record).ok()?;
+    Some(hex::encode(frame))
 }
 fn contract_state_logical_map_entry_value(
     registry: &BTreeMap<String, Option<ivm::EmbeddedStateType>>,
@@ -10705,6 +10708,7 @@ fn contract_state_value_schema(
             ivm::EmbeddedStateType::List { element, .. } => pending.push(element),
             ivm::EmbeddedStateType::Unit
             | ivm::EmbeddedStateType::Error(_)
+            | ivm::EmbeddedStateType::Enum(_)
             | ivm::EmbeddedStateType::StateCursor(_)
             | ivm::EmbeddedStateType::Int
             | ivm::EmbeddedStateType::Decimal
@@ -10844,7 +10848,9 @@ fn decode_contract_state_pointer_json_fragment(
             value.to_string()
         }
         Type::StateCursor(key) => {
-            ivm::state_cursor::validate_cursor_envelope(*key, envelope)
+            let key_hash = iroha_data_model::smart_contract::entrypoint::state_key_schema_hash_v1(key)
+                .ok_or_else(|| "invalid state cursor key schema".to_owned())?;
+            ivm::state_cursor::validate_cursor_envelope(key_hash, envelope)
                 .map_err(|err| format!("invalid state cursor envelope: {err}"))?;
             let payload = decode_contract_state_pointer_payload(
                 envelope,
@@ -10855,6 +10861,7 @@ fn decode_contract_state_pointer_json_fragment(
         }
         Type::Unit
         | Type::Error(_)
+        | Type::Enum(_)
         | Type::Bool
         | Type::Tuple(_)
         | Type::Struct { .. }
@@ -11236,7 +11243,7 @@ fn decode_contract_state_atoms_json(
                                 )?;
                             }
                         }
-                        Type::Unit | Type::Error(_) => {
+                        Type::Unit | Type::Error(_) | Type::Enum(_) => {
                             let (stream_atoms, index) = {
                                 let cursor = cursors
                                     .get(stream)
@@ -11255,9 +11262,22 @@ fn decode_contract_state_atoms_json(
                                     norito::json::write_json_string(&variant.name, &mut fragment);
                                     ContractStateJsonNode::Fragment(fragment)
                                 }
+                                (Type::Enum(enumeration), Some(Atom::EnumCode(code))) => {
+                                    let variant = enumeration.variant(*code).ok_or_else(|| {
+                                        "enum state value has an undeclared variant code".to_owned()
+                                    })?;
+                                    let mut fragment = String::new();
+                                    norito::json::write_json_string(&variant.name, &mut fragment);
+                                    ContractStateJsonNode::Fragment(fragment)
+                                }
                                 (Type::Unit, _) => {
                                     return Err(
                                         "Unit state value is not a canonical Unit atom".into(),
+                                    );
+                                }
+                                (Type::Enum(_), _) => {
+                                    return Err(
+                                        "enum state value is not a canonical enum code atom".into(),
                                     );
                                 }
                                 _ => {
@@ -11468,6 +11488,9 @@ fn validate_contract_state_stored_map_key_suffix(
     if suffix.is_empty() || suffix.contains('/') {
         return Err("durable map entry has an empty or nested key suffix".to_owned());
     }
+    if suffix.len() > ivm::syscalls::STATE_MAP_MAX_KEY_BYTES * 2 {
+        return Err("durable map entry key exceeds the canonical V1 bounds".to_owned());
+    }
     if suffix.len() % 2 != 0
         || !suffix
             .bytes()
@@ -11480,35 +11503,10 @@ fn validate_contract_state_stored_map_key_suffix(
     if encoded.is_empty() || encoded.len() > ivm::syscalls::STATE_MAP_MAX_KEY_BYTES {
         return Err("durable map entry key exceeds the canonical V1 bounds".to_owned());
     }
-    match key_ty {
-        ivm::EmbeddedStateType::Bool => {
-            let _canonical_flags =
-                norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
-            let false_key = norito::to_bytes(&0_i64)
-                .map_err(|error| format!("encode canonical false map key: {error}"))?;
-            let true_key = norito::to_bytes(&1_i64)
-                .map_err(|error| format!("encode canonical true map key: {error}"))?;
-            if encoded != false_key && encoded != true_key {
-                return Err("durable Bool map key is not canonical false or true".to_owned());
-            }
-        }
-        ivm::EmbeddedStateType::Int
-        | ivm::EmbeddedStateType::Decimal
-        | ivm::EmbeddedStateType::Quantity
-        | ivm::EmbeddedStateType::String
-        | ivm::EmbeddedStateType::Bytes
-        | ivm::EmbeddedStateType::Name
-        | ivm::EmbeddedStateType::AccountId
-        | ivm::EmbeddedStateType::AssetDefinitionId
-        | ivm::EmbeddedStateType::AssetId
-        | ivm::EmbeddedStateType::NftId
-        | ivm::EmbeddedStateType::DomainId
-        | ivm::EmbeddedStateType::DataSpaceId => {
-            decode_contract_state_pointer_json_fragment(&encoded, key_ty)
-                .map_err(|error| format!("invalid typed durable map key: {error}"))?;
-        }
-        _ => return Err("deployed durable map key schema is not supported by V1".to_owned()),
-    }
+    ivm_abi::state_value::state_map_key_schema_v1(key_ty)
+        .map_err(|error| format!("invalid durable map key schema: {error}"))?;
+    decode_contract_state_scalar_json(&encoded, key_ty)
+        .map_err(|error| format!("invalid typed durable map key: {error}"))?;
     Ok(())
 }
 fn match_contract_state_map_key_suffix(
@@ -11521,7 +11519,7 @@ fn match_contract_state_map_key_suffix(
     };
     validate_contract_state_stored_map_key_suffix(key_ty, stored_key_suffix)?;
     Ok(Some((
-        format!("tlv-{stored_key_suffix}"),
+        format!("record-{stored_key_suffix}"),
         stored_key_suffix.to_owned(),
     )))
 }
@@ -11596,6 +11594,79 @@ fn contract_state_logical_path_exists(
     };
     contract_state_value_exists(logical_path, schema, has_value)
 }
+/// Split query paths without treating commas inside tuple or explicit JSON keys as separators.
+fn contract_state_query_paths(raw: &str) -> core::result::Result<Vec<&str>, String> {
+    let mut paths = Vec::new();
+    let mut start = 0;
+    let mut saw_separator = false;
+    let mut json = false;
+    let mut quoted = false;
+    let mut escaped = false;
+    let mut brackets = [0_u8; 256];
+    let mut depth = 0;
+    for (offset, byte) in raw.bytes().enumerate() {
+        if json {
+            if quoted {
+                if escaped {
+                    escaped = false;
+                } else if byte == b'\\' {
+                    escaped = true;
+                } else if byte == b'"' {
+                    quoted = false;
+                }
+                continue;
+            }
+            match byte {
+                b'"' => quoted = true,
+                b'[' | b'{' => {
+                    if depth == brackets.len() {
+                        return Err("state key JSON exceeds the V1 depth limit".to_owned());
+                    }
+                    brackets[depth] = byte;
+                    depth += 1;
+                }
+                b']' | b'}' => {
+                    let expected = if byte == b']' { b'[' } else { b'{' };
+                    if depth == 0 || brackets[depth - 1] != expected {
+                        return Err("state key JSON has unmatched delimiters".to_owned());
+                    }
+                    depth -= 1;
+                }
+                _ => {}
+            }
+        } else if !saw_separator && byte == b'/' {
+            saw_separator = true;
+            let key = &raw[offset + 1..];
+            json = key.starts_with("json-") || key.starts_with('[');
+        }
+        if byte == b',' && !quoted && depth == 0 {
+            let path = raw[start..offset].trim();
+            if !path.is_empty() {
+                if paths.len() == CONTRACT_STATE_MAX_EXPLICIT_PATHS_V1 {
+                    return Err(format!("paths supports at most {CONTRACT_STATE_MAX_EXPLICIT_PATHS_V1} entries"));
+                }
+                try_push_contract_state_item(&mut paths, path)?;
+            }
+            start = offset + 1;
+            saw_separator = false;
+            json = false;
+        }
+    }
+    if quoted || depth != 0 {
+        return Err("state key JSON has unmatched delimiters".to_owned());
+    }
+    let path = raw[start..].trim();
+    if !path.is_empty() {
+        if paths.len() == CONTRACT_STATE_MAX_EXPLICIT_PATHS_V1 {
+            return Err(format!("paths supports at most {CONTRACT_STATE_MAX_EXPLICIT_PATHS_V1} entries"));
+        }
+        try_push_contract_state_item(&mut paths, path)?;
+    }
+    if paths.is_empty() {
+        return Err("paths is empty".to_owned());
+    }
+    Ok(paths)
+}
 #[iroha_futures::telemetry_future]
 pub async fn handle_get_contract_state(
     state: Arc<CoreState>,
@@ -11653,23 +11724,15 @@ pub async fn handle_get_contract_state(
     let decode_mode =
         parse_contract_state_decode_mode(q.decode.as_deref()).map_err(conversion_error)?;
     let selection = if let Some(path_raw) = q.path.take() {
-        ContractStateSelection::Exact(parse_state_path(&path_raw, "path")?)
+        ContractStateSelection::Exact(
+            parse_contract_state_query_path(&path_raw, decode_mode).map_err(conversion_error)?,
+        )
     } else if let Some(paths_raw) = q.paths.take() {
         let mut paths = Vec::new();
-        for raw in paths_raw.split(',') {
-            let trimmed = raw.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            if paths.len() == CONTRACT_STATE_MAX_EXPLICIT_PATHS_V1 {
-                return Err(conversion_error(format!(
-                    "paths supports at most {CONTRACT_STATE_MAX_EXPLICIT_PATHS_V1} entries"
-                )));
-            }
-            paths.push(parse_state_path(trimmed, "path")?);
-        }
-        if paths.is_empty() {
-            return Err(conversion_error("paths is empty".to_owned()));
+        for raw in contract_state_query_paths(&paths_raw).map_err(conversion_error)? {
+            let path = parse_contract_state_query_path(raw, decode_mode).map_err(conversion_error)?;
+            try_push_contract_state_item(&mut paths, path)
+                .map_err(conversion_error)?;
         }
         ContractStateSelection::Paths(paths)
     } else {
@@ -11740,21 +11803,39 @@ pub async fn handle_get_contract_state(
     } else {
         None
     };
+    // Logical JSON keys have no StatePath privileges. Resolve them through the
+    // deployed key schema, then validate the exact scoped physical path.
+    let validate_query_path = |path: &str| -> Result<()> {
+        if let Some(registry) = schema_registry.as_ref() {
+            if let Some((base, key, suffix)) = contract_state_logical_map_parts(registry, path) {
+                let encoded = contract_state_stored_map_key_suffix(key, suffix).ok_or_else(|| {
+                    conversion_error("state map key is not valid for the deployed key schema".to_owned())
+                })?;
+                scoped_path_for(&format!("{base}/{encoded}"))?;
+                return Ok(());
+            }
+            if contract_state_json_key_parts(path).is_some() {
+                return Err(conversion_error("logical JSON key requires a declared deployed map schema".to_owned()));
+            }
+        }
+        scoped_path_for(path)?;
+        Ok(())
+    };
+    match &selection {
+        ContractStateSelection::Exact(path) => validate_query_path(path)?,
+        ContractStateSelection::Paths(paths) => {
+            for path in paths {
+                validate_query_path(path)?;
+            }
+        }
+        ContractStateSelection::Prefix(_) => {}
+    }
     let get_value = |path: &str| {
-        let scoped = if let Some(prefix) = scoped_prefix.as_ref() {
-            format!("{prefix}{path}")
-        } else {
-            path.to_owned()
-        };
-        storage.get(scoped.as_str()).cloned()
+        let scoped = scoped_path_for(path).ok()?;
+        storage.get(scoped.as_ref()).cloned()
     };
     let has_value = |path: &str| {
-        let scoped = if let Some(prefix) = scoped_prefix.as_ref() {
-            format!("{prefix}{path}")
-        } else {
-            path.to_owned()
-        };
-        storage.get(scoped.as_str()).is_some()
+        scoped_path_for(path).is_ok_and(|scoped| storage.get(scoped.as_ref()).is_some())
     };
     let get_schema_aware_value = |path: &str| {
         let Some(registry) = schema_registry.as_ref() else {
@@ -11863,7 +11944,7 @@ pub async fn handle_get_contract_state(
         })
     };
     if let ContractStateSelection::Exact(state_path) = &selection {
-        let path = state_path.as_ref();
+        let path = state_path.as_str();
         let stored = get_schema_aware_value(path);
         let logical_found = schema_registry
             .as_ref()
@@ -11903,7 +11984,7 @@ pub async fn handle_get_contract_state(
         let mut entries = Vec::with_capacity(parsed.len());
         let mut paths = Vec::with_capacity(parsed.len());
         for state_path in parsed {
-            let path = state_path.as_ref();
+            let path = state_path.as_str();
             let stored = get_schema_aware_value(path);
             let logical_found = schema_registry.as_ref().is_some_and(|registry| {
                 contract_state_logical_path_exists(registry, path, &has_value)
@@ -12094,7 +12175,7 @@ mod contract_state_tests {
     include!("routing/contract_state_nominal_tests.rs");
     routing_test! { sync contract_state_schema_interest_is_query_local
         let exact = ContractStateSelection::Exact(
-            StatePath::from_str("orders/by-id").expect("exact state path"),
+            "orders/by-id".to_owned(),
         );
         assert!(contract_state_schema_is_relevant(&exact, "orders"));
         assert!(!contract_state_schema_is_relevant(&exact, "unrelated"));
@@ -12256,7 +12337,7 @@ mod contract_state_tests {
                 let (deep_ty, mut atoms) =
                     nested_bool_list_fixture(ivm::state_value::MAX_STATE_VALUE_NODES - 3);
                 let ty = ivm::EmbeddedStateType::Struct {
-                    name: "DeepThenInvalid".to_owned(),
+                    name: "Fixture::DeepThenInvalid".to_owned(),
                     fields: vec![
                         ivm::EmbeddedStateFieldDescriptor {
                             name: "deep".to_owned(),
@@ -12333,7 +12414,7 @@ mod contract_state_tests {
             .stack_size(128 * 1024)
             .spawn(|| {
                 let ty = ivm::EmbeddedStateType::Struct {
-                    name: "NativeJsonEnvelope".to_owned(),
+                    name: "Fixture::NativeJsonEnvelope".to_owned(),
                     fields: vec![ivm::EmbeddedStateFieldDescriptor {
                         name: "payload".to_owned(),
                         ty: ivm::EmbeddedStateType::Json,
@@ -12385,7 +12466,7 @@ mod contract_state_tests {
     fn contract_state_flat_projection_preserves_aggregate_shapes_and_canonical_field_order() {
         use ivm::state_value::StateValueAtomV1 as Atom;
         let ty = ivm::EmbeddedStateType::Struct {
-            name: "AggregateProjection".to_owned(),
+            name: "Fixture::AggregateProjection".to_owned(),
             fields: vec![
                 ivm::EmbeddedStateFieldDescriptor {
                     name: "z_tuple".to_owned(),
@@ -12770,7 +12851,7 @@ mod contract_state_tests {
             "trailing bytes after a state record must reject"
         );
     }
-    routing_test! { sync contract_state_map_key_suffix_uses_canonical_numeric_pointer_envelopes
+    routing_test! { sync contract_state_map_key_suffix_uses_canonical_numeric_records
         let int = "42"
             .parse::<iroha_primitives::bigint::BigInt>()
             .expect("parse int");
@@ -12798,7 +12879,9 @@ mod contract_state_tests {
                 ivm_abi::numeric_tlv::encode_quantity(&quantity).expect("encode quantity"),
             ),
         ] {
-            let expected = hex::encode(expected);
+            let expected = hex::encode(make_state_record(
+                &ty, vec![ivm::state_value::StateValueAtomV1::Pointer(expected)],
+            ));
             assert_eq!(
                 contract_state_stored_map_key_suffix(&ty, raw).as_deref(),
                 Some(expected.as_str())
@@ -12838,7 +12921,7 @@ mod contract_state_tests {
     routing_test! { sync decode_contract_state_map_value_json_preserves_struct_field_encodings
         use ivm::state_value::StateValueAtomV1;
         let schema = ivm::EmbeddedStateType::Struct {
-            name: "MintRequestRecord".to_owned(),
+            name: "Fixture::MintRequestRecord".to_owned(),
             fields: vec![
                 ivm::EmbeddedStateFieldDescriptor {
                     name: "status".to_owned(),
@@ -13004,7 +13087,7 @@ mod contract_state_tests {
             .expect_err("a record cannot be decoded under a different deployed schema");
         assert!(error.contains("schema"), "{error}");
     }
-    routing_test! { sync contract_state_quantity_map_keys_use_canonical_tlv_bytes
+    routing_test! { sync contract_state_quantity_map_keys_use_canonical_record_bytes
         let ty = ivm::EmbeddedStateType::Quantity;
         let canonical =
             contract_state_stored_map_key_suffix(&ty, "7").expect("canonical quantity map key");
@@ -13012,12 +13095,14 @@ mod contract_state_tests {
             contract_state_stored_map_key_suffix(&ty, "7.00").expect("equivalent quantity map key");
         assert_eq!(canonical, equivalent);
         let encoded = hex::decode(&canonical).expect("stored suffix is lowercase hex");
-        let tlv = ivm::pointer_abi::validate_tlv_bytes(&encoded).expect("stored suffix is a TLV");
+        let record = ivm::state_value::decode_canonical_state_value_record_v1(&encoded)
+            .expect("stored suffix is a canonical state record");
+        let [ivm::state_value::StateValueAtomV1::Pointer(envelope)] = record.atoms.as_slice() else {
+            panic!("quantity key has one pointer atom");
+        };
+        let tlv = ivm::pointer_abi::validate_tlv_bytes(envelope).expect("canonical quantity TLV");
         assert_eq!(tlv.type_id, PointerType::Quantity);
-        assert_eq!(
-            contract_state_logical_map_key_suffix(&ty, &canonical).as_deref(),
-            Some("7"),
-        );
+        assert_eq!(decode_contract_state_scalar_json(&encoded, &ty).unwrap().get(), "\"7\"");
         assert_eq!(
             match_contract_state_map_key_suffix("Prices", &ty, "Other/path")
                 .expect("an unrelated path is not malformed"),
@@ -13026,7 +13111,7 @@ mod contract_state_tests {
         assert_eq!(
             match_contract_state_map_key_suffix("Prices", &ty, &format!("Prices/{canonical}"))
                 .expect("canonical stored key"),
-            Some((format!("tlv-{canonical}"), canonical.clone()))
+            Some((format!("record-{canonical}"), canonical.clone()))
         );
         let uppercase = canonical.to_ascii_uppercase();
         assert_ne!(uppercase, canonical);
@@ -13056,12 +13141,14 @@ mod contract_state_tests {
         assert!(
             match_contract_state_map_key_suffix("Prices", &ty, &format!("Prices/{corrupt}"))
                 .is_err(),
-            "a key with a corrupt TLV digest must reject",
+            "a key with a corrupt record checksum must reject",
         );
         let _canonical_flags =
             norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
-        let false_key = hex::encode(norito::to_bytes(&0_i64).expect("encode false key"));
-        let true_key = hex::encode(norito::to_bytes(&1_i64).expect("encode true key"));
+        let false_key = contract_state_stored_map_key_suffix(&ivm::EmbeddedStateType::Bool, "false")
+            .expect("canonical false key");
+        let true_key = contract_state_stored_map_key_suffix(&ivm::EmbeddedStateType::Bool, "true")
+            .expect("canonical true key");
         let invalid_bool = hex::encode(norito::to_bytes(&2_i64).expect("encode invalid bool key"));
         for key in [false_key, true_key] {
             assert_eq!(
@@ -13071,7 +13158,7 @@ mod contract_state_tests {
                     &format!("Flags/{key}"),
                 )
                 .expect("canonical Bool key"),
-                Some((format!("tlv-{key}"), key)),
+                Some((format!("record-{key}"), key)),
             );
         }
         assert!(
@@ -13129,34 +13216,31 @@ mod contract_state_tests {
         assert_eq!(
             contract_state_logical_map_entry_value(
                 &registry,
-                &format!("Prices/tlv-{canonical}"),
+                &format!("Prices/record-{canonical}"),
                 &|path| canonical_storage.get(path).cloned(),
             ),
             Some(vec![0x7f]),
             "the explicit, validated physical form remains round-trippable"
         );
     }
-    routing_test! { sync contract_state_logical_keys_can_escape_the_physical_tlv_namespace
-        for ty in [
-            ivm::EmbeddedStateType::String,
-            ivm::EmbeddedStateType::Bytes,
-            ivm::EmbeddedStateType::Name,
-        ] {
-            let expected = encode_contract_state_pointer_tlv_bytes(&ty, "tlv-deadbeef")
-                .expect("logical key encodes");
-            assert_eq!(
-                contract_state_stored_map_key_suffix(&ty, "logical-tlv-deadbeef"),
-                Some(hex::encode(expected)),
-                "the logical escape must preserve a key that starts with the physical tag"
-            );
-            assert_eq!(
-                contract_state_stored_map_key_suffix(&ty, "tlv-deadbeef"),
-                None,
-                "an unescaped physical tag must never be reinterpreted as logical text"
-            );
+    routing_test! { sync contract_state_json_keys_disambiguate_reserved_query_prefixes
+        for ty in [ivm::EmbeddedStateType::String, ivm::EmbeddedStateType::Name] {
+            for value in ["record-deadbeef", "json-true"] {
+                let envelope = encode_contract_state_pointer_tlv_bytes(&ty, value)
+                    .expect("logical key encodes");
+                let expected = make_state_record(
+                    &ty, vec![ivm::state_value::StateValueAtomV1::Pointer(envelope)],
+                );
+                assert_eq!(
+                    contract_state_stored_map_key_suffix(&ty, &format!("json-\"{value}\"")),
+                    Some(hex::encode(expected)),
+                    "explicit JSON selects logical text without interpreting the reserved prefix"
+                );
+                assert_eq!(contract_state_stored_map_key_suffix(&ty, value), None);
+            }
         }
     }
-    routing_test! { sync contract_state_numeric_map_keys_use_exact_nominal_pointer_envelopes
+    routing_test! { sync contract_state_numeric_map_keys_use_exact_nominal_records
         for (ty, first, equivalent) in [
             (ivm::EmbeddedStateType::Int, "7", "7"),
             (ivm::EmbeddedStateType::Decimal, "7.00", "7"),
@@ -13166,7 +13250,9 @@ mod contract_state_tests {
                 .expect("canonical numeric state-map key");
             let canonical = encode_contract_state_pointer_tlv_bytes(&ty, equivalent)
                 .expect("canonical numeric pointer envelope");
-            assert_eq!(suffix, hex::encode(canonical));
+            assert_eq!(suffix, hex::encode(make_state_record(
+                &ty, vec![ivm::state_value::StateValueAtomV1::Pointer(canonical)],
+            )));
             assert_eq!(
                 suffix,
                 contract_state_stored_map_key_suffix(&ty, equivalent)
@@ -13220,9 +13306,11 @@ fn encode_contract_argument_record(
         (None, None) => Ok(None),
         (None, Some(_)) => Err("zero-parameter entrypoint must not receive a payload".to_owned()),
         (Some(_), None) => Err("parameterized entrypoint requires a payload".to_owned()),
-        (Some(schema), Some(payload)) => ivm_abi::arguments::encode_argument_record_from_json(schema, payload)
-            .map(Some)
-            .map_err(|error| format!("payload does not match entrypoint schema: {error}")),
+        (Some(schema), Some(payload)) => {
+            ivm_abi::arguments::encode_argument_record_from_json_detailed(schema, payload)
+                .map(Some)
+                .map_err(|error| format!("payload does not match entrypoint schema: {error}"))
+        }
     }
 }
 fn prepare_contract_argument_record(
@@ -14920,6 +15008,7 @@ fn evaluate_contract_view_request(
                 entrypoint: resolved_entrypoint.to_owned(),
                 error: err.message,
                 vm_diagnostic: err.vm_diagnostic,
+                fault: err.fault,
             }));
         }
     };
@@ -15015,6 +15104,7 @@ pub fn handle_post_contract_call_simulate(
             result: result.result,
             error: None,
             vm_diagnostic: None,
+            fault: None,
         },
         Err(err) => ContractCallSimulateResponseDto {
             ok: false,
@@ -15030,6 +15120,7 @@ pub fn handle_post_contract_call_simulate(
             result: None,
             error: Some(err.message),
             vm_diagnostic: err.vm_diagnostic,
+            fault: err.fault,
         },
     };
     let body = encode_contract_call_simulation_response_bounded(
@@ -15339,6 +15430,7 @@ fn resolve_contract_entrypoint_pc(
 struct ContractViewExecutionError {
     message: String,
     vm_diagnostic: Option<ContractViewVmDiagnosticDto>,
+    fault: Option<iroha_data_model::executor::fault::IvmFaultV1>,
 }
 struct ContractCallSimulationExecution {
     normalized_payload: Option<IrohaJson>,
@@ -15349,6 +15441,7 @@ struct ContractCallSimulationExecution {
 struct ContractCallSimulationError {
     message: String,
     vm_diagnostic: Option<ContractViewVmDiagnosticDto>,
+    fault: Option<iroha_data_model::executor::fault::IvmFaultV1>,
     normalized_payload: Option<IrohaJson>,
     gas_used: u64,
     queued_instructions: Vec<iroha_data_model::isi::InstructionBox>,
@@ -15800,6 +15893,18 @@ fn append_contract_vm_diagnostic(
     append_contract_json_optional_bool(out, diagnostic.predecoded_hit, max_bytes)?;
     append_contract_simulation_json_literal(out, b"}", max_bytes)
 }
+fn append_contract_json_optional_fault(
+    out: &mut Vec<u8>,
+    fault: Option<&iroha_data_model::executor::fault::IvmFaultV1>,
+    max_bytes: usize,
+) -> Result<()> {
+    let Some(fault) = fault else {
+        return append_contract_simulation_json_literal(out, b"null", max_bytes);
+    };
+    let fragment = norito::json::to_json_bounded(fault, max_bytes.saturating_sub(out.len()))
+        .map_err(|error| conversion_error(format!("failed to encode bounded runtime fault: {error}")))?;
+    append_contract_simulation_json_literal(out, fragment.as_bytes(), max_bytes)
+}
 fn append_contract_json_optional_diagnostic(
     out: &mut Vec<u8>,
     diagnostic: Option<&ContractViewVmDiagnosticDto>,
@@ -15881,7 +15986,9 @@ fn append_contract_view_error_fields(
     append_contract_simulation_json_literal(out, b",\"error\":", max_bytes)?;
     append_contract_json_string(out, &response.error, max_bytes)?;
     append_contract_simulation_json_literal(out, b",\"vm_diagnostic\":", max_bytes)?;
-    append_contract_json_optional_diagnostic(out, response.vm_diagnostic.as_ref(), max_bytes)
+    append_contract_json_optional_diagnostic(out, response.vm_diagnostic.as_ref(), max_bytes)?;
+    append_contract_simulation_json_literal(out, b",\"fault\":", max_bytes)?;
+    append_contract_json_optional_fault(out, response.fault.as_ref(), max_bytes)
 }
 fn encode_contract_view_success_bounded(
     response: &ContractViewResponseDto,
@@ -15947,6 +16054,8 @@ fn encode_contract_call_simulation_response_bounded(
     append_contract_json_optional_string(&mut out, response.error.as_deref(), max_bytes)?;
     append_contract_simulation_json_literal(&mut out, b",\"vm_diagnostic\":", max_bytes)?;
     append_contract_json_optional_diagnostic(&mut out, response.vm_diagnostic.as_ref(), max_bytes)?;
+    append_contract_simulation_json_literal(&mut out, b",\"fault\":", max_bytes)?;
+    append_contract_json_optional_fault(&mut out, response.fault.as_ref(), max_bytes)?;
     append_contract_simulation_json_literal(&mut out, b"}", max_bytes)?;
     Ok(out)
 }
@@ -15994,22 +16103,6 @@ fn exact_contract_permission_target(
         .into()
     } else {
         iroha_data_model::permission::Permission::new(required.to_owned(), IrohaJson::new(()))
-    }
-}
-fn authority_has_exact_contract_permission(
-    world: &impl WorldReadOnly,
-    authority: &iroha_data_model::account::AccountId,
-    contract_address: &iroha_data_model::smart_contract::ContractAddress,
-    entrypoint: &str,
-    required: &str,
-) -> std::result::Result<bool, iroha_core::execution_attempt::ExecutionAttemptError<String>> {
-    use iroha_core::execution_attempt::ExecutionAttemptError;
-    match iroha_core::executor::enforce_named_contract_entrypoint_permission(
-        world, authority, contract_address, entrypoint, Some(required),
-    ) {
-        Ok(()) => Ok(true),
-        Err(ExecutionAttemptError::Rejected(iroha_data_model::ValidationFail::NotPermitted(_))) => Ok(false),
-        Err(error) => Err(error.map_rejection(|error| format!("failed to resolve contract authority: {error}"))),
     }
 }
 // Only completed attempts can be serialized into the public view/simulation result DTOs.
@@ -16112,97 +16205,31 @@ fn ensure_contract_view_authorized(
     authority: &iroha_data_model::account::AccountId,
     contract_address: &iroha_data_model::smart_contract::ContractAddress,
     entrypoint: &str,
-    required: Option<&str>,
+    authorization: &manifest::EntrypointAuthorizationV1,
 ) -> std::result::Result<(), iroha_core::execution_attempt::ExecutionAttemptError<ContractViewExecutionError>> {
-    let Some(required) = required else {
-        return Ok(());
-    };
-    let required = required.trim();
-    if required.is_empty() {
-        Err(ContractViewExecutionError {
-            message: "contract view authorization must not be empty".to_owned(),
+    iroha_core::executor::enforce_named_contract_entrypoint_authorization(world, authority, contract_address, entrypoint, authorization)
+        .map_err(|error| error.map_rejection(|error| ContractViewExecutionError {
+            message: error.to_string(),
             vm_diagnostic: None,
-        }.into())
-    } else if authority_has_exact_contract_permission(
-        world,
-        authority,
-        contract_address,
-        entrypoint,
-        required,
-    )
-    .map_err(|error| error.map_rejection(|message| ContractViewExecutionError {
-        message,
-        vm_diagnostic: None,
-    }))? {
-        Ok(())
-    } else {
-        Err(ContractViewExecutionError {
-            message: format!(
-                "contract view entrypoint `{entrypoint}` requires permission `{required}`"
-            ),
-            vm_diagnostic: None,
-        }.into())
-    }
-}
-fn contract_call_runtime_permission(
-    kind: manifest::EntryPointKind,
-    declared_permission: Option<&str>,
-) -> Option<&str> {
-    match kind {
-        manifest::EntryPointKind::Kotoage => declared_permission,
-        manifest::EntryPointKind::Hajimari => {
-            Some(iroha_data_model::smart_contract::CONTRACT_HAJIMARI_PERMISSION_NAME)
-        }
-        manifest::EntryPointKind::Kaizen => {
-            Some(iroha_data_model::smart_contract::CONTRACT_KAIZEN_PERMISSION_NAME)
-        }
-        manifest::EntryPointKind::View => None,
-    }
+            fault: None,
+        }))
 }
 fn ensure_contract_call_authorized(
     world: &impl WorldReadOnly,
     authority: &iroha_data_model::account::AccountId,
     contract_address: &iroha_data_model::smart_contract::ContractAddress,
     entrypoint: &str,
-    required: Option<&str>,
+    authorization: &manifest::EntrypointAuthorizationV1,
 ) -> std::result::Result<(), iroha_core::execution_attempt::ExecutionAttemptError<ContractCallSimulationError>> {
-    let Some(required) = required else {
-        return Ok(());
-    };
-    let required = required.trim();
-    if required.is_empty() {
-        return Err(ContractCallSimulationError {
-            message: "contract entrypoint authorization must not be empty".to_owned(),
+    iroha_core::executor::enforce_named_contract_entrypoint_authorization(world, authority, contract_address, entrypoint, authorization)
+        .map_err(|error| error.map_rejection(|error| ContractCallSimulationError {
+            message: error.to_string(),
             vm_diagnostic: None,
+            fault: None,
             normalized_payload: None,
             gas_used: 0,
             queued_instructions: Vec::new(),
-        }.into());
-    }
-    if authority_has_exact_contract_permission(
-        world,
-        authority,
-        contract_address,
-        entrypoint,
-        required,
-    )
-    .map_err(|error| error.map_rejection(|message| ContractCallSimulationError {
-        message,
-        vm_diagnostic: None,
-        normalized_payload: None,
-        gas_used: 0,
-        queued_instructions: Vec::new(),
-    }))? {
-        Ok(())
-    } else {
-        Err(ContractCallSimulationError {
-            message: format!("contract entrypoint `{entrypoint}` requires permission `{required}`"),
-            vm_diagnostic: None,
-            normalized_payload: None,
-            gas_used: 0,
-            queued_instructions: Vec::new(),
-        }.into())
-    }
+        }))
 }
 fn execute_contract_view(
     state: &CoreState,
@@ -16223,6 +16250,7 @@ fn execute_contract_view(
     .map_err(|err| ContractViewExecutionError {
         message: err.to_string(),
         vm_diagnostic: None,
+        fault: None,
     })?;
     let query_view = state.query_view();
     iroha_core::smartcontracts::code::ensure_contract_ready_for_view(
@@ -16233,6 +16261,7 @@ fn execute_contract_view(
     .map_err(|error| ContractViewExecutionError {
         message: error.to_string(),
         vm_diagnostic: None,
+        fault: None,
     })?;
     let live_alias = resolve_exact_contract_runtime_alias(
         &query_view.world,
@@ -16243,15 +16272,17 @@ fn execute_contract_view(
     .map_err(|message| ContractViewExecutionError {
         message,
         vm_diagnostic: None,
+        fault: None,
     })?;
     let embedded_descriptor =
         exact_prepared_entrypoint(program.prepared_contract(), selector, descriptor).map_err(
             |message| ContractViewExecutionError {
                 message,
                 vm_diagnostic: None,
+                fault: None,
             },
         )?;
-    let runtime_permission = embedded_descriptor.permission.clone();
+    let runtime_permission = embedded_descriptor.authorization.clone();
     let normalized_payload = normalize_contract_payload_after_authorization(
         || {
             ensure_contract_view_authorized(
@@ -16259,7 +16290,7 @@ fn execute_contract_view(
                 authority,
                 contract_address,
                 selector,
-                runtime_permission.as_deref(),
+                &runtime_permission,
             )
         },
         descriptor,
@@ -16267,6 +16298,7 @@ fn execute_contract_view(
         |error| ContractViewExecutionError {
             message: error.to_string(),
             vm_diagnostic: None,
+            fault: None,
         }.into(),
     )?;
     let mut host = iroha_core::smartcontracts::ivm::host::CoreHostImpl::with_accounts(
@@ -16284,6 +16316,7 @@ fn execute_contract_view(
     .map_err(|error| error.map_rejection(|error| ContractViewExecutionError {
         message: error.to_string(),
         vm_diagnostic: None,
+        fault: None,
     }))?;
     let arguments = prepare_contract_argument_record(
         program.prepared_contract(),
@@ -16294,6 +16327,7 @@ fn execute_contract_view(
     .map_err(|message| ContractViewExecutionError {
         message,
         vm_diagnostic: None,
+        fault: None,
     })?;
     let prepared_arguments = arguments.clone();
     host.set_entrypoint_argument_record(arguments);
@@ -16308,52 +16342,56 @@ fn execute_contract_view(
         .map_err(|err| contract_vm_attempt_error(err, |err| ContractViewExecutionError {
             message: format!("failed to prepare contract view runtime: {err}"),
             vm_diagnostic: None,
+            fault: None,
         }))?;
     // Views are not allowed to retain any instruction, durable-state write,
     // FastPQ entry, or completed AXT artifact. Reject before those containers grow.
     host.restrict_output_limits(iroha_core::smartcontracts::ivm::host::HostOutputLimits::new(0, 0));
     host.set_crypto_config(Arc::clone(&query_view.crypto));
-    host.set_halo2_config(&query_view.zk.halo2);
+    host.set_zk_config(&query_view.zk);
     host.set_chain_id(&query_view.chain_id);
     host.hydrate_axt_state(&query_view)
         .map_err(|error| ContractViewExecutionError {
             message: format!("invalid AXT policy snapshot: {error}"),
             vm_diagnostic: None,
+            fault: None,
         })?;
     host.set_public_inputs_from_parameters(query_view.world.parameters());
     hydrate_contract_vrf_epoch_seeds(&mut host, &query_view, |message| {
         ContractViewExecutionError {
             message: format!("invalid VRF epoch seed source: {message}"),
             vm_diagnostic: None,
+            fault: None,
         }
     })?;
     host.set_query_state(&query_view);
     host.set_prepared_contract_cache(program.prepared_contract_cache());
     vm.set_gas_limit(gas_limit);
-    if let Some(arguments) = prepared_arguments.as_ref() {
-        arguments
-            .precharge_vm(&mut vm)
-            .map_err(|error| contract_vm_attempt_error(error, |error| ContractViewExecutionError {
-                message: format!("failed to precharge contract view arguments: {error}"),
-                vm_diagnostic: None,
-            }))?;
-    }
     let return_pc = vm.memory.code_len();
     vm.set_register(1, return_pc);
     vm.set_program_counter(entry_pc)
         .map_err(|err| contract_vm_attempt_error(err, |err| ContractViewExecutionError {
             message: format!("failed to seek to contract view entrypoint: {err}"),
             vm_diagnostic: None,
+            fault: None,
         }))?;
-    vm.run_with_host(&mut host)
+    let precharge_result = prepared_arguments.as_ref()
+        .map_or(Ok(()), |arguments| arguments.precharge_vm(&mut vm));
+    if let Err(error) = &precharge_result {
+        vm.record_boundary_fault(error, iroha_data_model::executor::fault::IvmFaultPositionV1::Initialization);
+    }
+    precharge_result.and_then(|()| vm.run_with_host(&mut host))
+        .and_then(|()| host.finish_contract_result(&vm).map(|_| ()))
         .map_err(|err| contract_vm_attempt_error(err, |err| ContractViewExecutionError {
             message: format!("contract view execution failed: {err}"),
             vm_diagnostic: vm.last_diagnostic().map(|diagnostic| map_vm_diagnostic(diagnostic, &err)),
+            fault: vm.execution_fault(&err, iroha_data_model::executor::fault::IvmFaultPositionV1::ReturnValidation),
         }))?;
     if let Some(violation) = host.output_budget_violation() {
         return Err(ContractViewExecutionError {
             message: format!("contract view attempted bounded output: {violation:?}"),
             vm_diagnostic: None,
+            fault: None,
         }.into());
     }
     let queued = host.drain_instructions();
@@ -16361,6 +16399,7 @@ fn execute_contract_view(
         return Err(ContractViewExecutionError {
             message: "view entrypoint attempted to emit instructions".to_owned(),
             vm_diagnostic: None,
+            fault: None,
         }.into());
     }
     let durable_overlay = host.drain_durable_state_overlay();
@@ -16368,6 +16407,7 @@ fn execute_contract_view(
         return Err(ContractViewExecutionError {
             message: "view entrypoint attempted to mutate durable state".to_owned(),
             vm_diagnostic: None,
+            fault: None,
         }.into());
     }
     let value = descriptor.return_schema.as_ref().map_or_else(
@@ -16377,6 +16417,7 @@ fn execute_contract_view(
                 error.map_rejection(|err| ContractViewExecutionError {
                     message: err.to_string(),
                     vm_diagnostic: None,
+                    fault: None,
                 })
             })
         },
@@ -16384,6 +16425,7 @@ fn execute_contract_view(
     IrohaJson::from_norito_value_ref(&value).map_err(|error| ContractViewExecutionError {
         message: format!("contract view returned invalid or oversized JSON: {error}"),
         vm_diagnostic: None,
+        fault: None,
     }).map_err(Into::into)
 }
 fn execute_contract_call_simulation(
@@ -16402,6 +16444,7 @@ fn execute_contract_call_simulation(
             .map_err(|err| ContractCallSimulationError {
                 message: err.to_string(),
                 vm_diagnostic: None,
+                fault: None,
                 normalized_payload: None,
                 gas_used: 0,
                 queued_instructions: Vec::new(),
@@ -16416,6 +16459,7 @@ fn execute_contract_call_simulation(
     .map_err(|error| ContractCallSimulationError {
         message: error.to_string(),
         vm_diagnostic: None,
+        fault: None,
         normalized_payload: None,
         gas_used: 0,
         queued_instructions: Vec::new(),
@@ -16429,6 +16473,7 @@ fn execute_contract_call_simulation(
     .map_err(|message| ContractCallSimulationError {
         message,
         vm_diagnostic: None,
+        fault: None,
         normalized_payload: None,
         gas_used: 0,
         queued_instructions: Vec::new(),
@@ -16438,16 +16483,13 @@ fn execute_contract_call_simulation(
             |message| ContractCallSimulationError {
                 message,
                 vm_diagnostic: None,
+                fault: None,
                 normalized_payload: None,
                 gas_used: 0,
                 queued_instructions: Vec::new(),
             },
         )?;
-    let runtime_permission = contract_call_runtime_permission(
-        embedded_descriptor.kind,
-        embedded_descriptor.permission.as_deref(),
-    )
-    .map(str::to_owned);
+    let runtime_permission = embedded_descriptor.authorization.clone();
     let normalized_payload = normalize_contract_payload_after_authorization(
         || {
             ensure_contract_call_authorized(
@@ -16455,7 +16497,7 @@ fn execute_contract_call_simulation(
                 authority,
                 contract_address,
                 selector,
-                runtime_permission.as_deref(),
+                &runtime_permission,
             )
         },
         descriptor,
@@ -16463,6 +16505,7 @@ fn execute_contract_call_simulation(
         |error| ContractCallSimulationError {
             message: error.to_string(),
             vm_diagnostic: None,
+            fault: None,
             normalized_payload: None,
             gas_used: 0,
             queued_instructions: Vec::new(),
@@ -16483,6 +16526,7 @@ fn execute_contract_call_simulation(
     .map_err(|error| error.map_rejection(|error| ContractCallSimulationError {
         message: error.to_string(),
         vm_diagnostic: None,
+        fault: None,
         normalized_payload: normalized_payload.clone(),
         gas_used: 0,
         queued_instructions: Vec::new(),
@@ -16496,6 +16540,7 @@ fn execute_contract_call_simulation(
     .map_err(|message| ContractCallSimulationError {
         message,
         vm_diagnostic: None,
+        fault: None,
         normalized_payload: normalized_payload.clone(),
         gas_used: 0,
         queued_instructions: Vec::new(),
@@ -16513,6 +16558,7 @@ fn execute_contract_call_simulation(
         .map_err(|err| contract_vm_attempt_error(err, |err| ContractCallSimulationError {
             message: format!("failed to prepare contract call runtime: {err}"),
             vm_diagnostic: None,
+            fault: None,
             normalized_payload: normalized_payload.clone(),
             gas_used: 0,
             queued_instructions: Vec::new(),
@@ -16524,12 +16570,13 @@ fn execute_contract_call_simulation(
         ),
     );
     host.set_crypto_config(Arc::clone(&query_view.crypto));
-    host.set_halo2_config(&query_view.zk.halo2);
+    host.set_zk_config(&query_view.zk);
     host.set_chain_id(&query_view.chain_id);
     host.hydrate_axt_state(&query_view)
         .map_err(|error| ContractCallSimulationError {
             message: format!("invalid AXT policy snapshot: {error}"),
             vm_diagnostic: None,
+            fault: None,
             normalized_payload: normalized_payload.clone(),
             gas_used: 0,
             queued_instructions: Vec::new(),
@@ -16539,6 +16586,7 @@ fn execute_contract_call_simulation(
         ContractCallSimulationError {
             message: format!("invalid VRF epoch seed source: {message}"),
             vm_diagnostic: None,
+            fault: None,
             normalized_payload: normalized_payload.clone(),
             gas_used: 0,
             queued_instructions: Vec::new(),
@@ -16547,28 +16595,24 @@ fn execute_contract_call_simulation(
     host.set_query_state(&query_view);
     host.set_prepared_contract_cache(program.prepared_contract_cache());
     vm.set_gas_limit(gas_limit);
-    if let Some(arguments) = prepared_arguments.as_ref() {
-        arguments
-            .precharge_vm(&mut vm)
-            .map_err(|error| contract_vm_attempt_error(error, |error| ContractCallSimulationError {
-                message: format!("failed to precharge contract call arguments: {error}"),
-                vm_diagnostic: None,
-                normalized_payload: normalized_payload.clone(),
-                gas_used: 0,
-                queued_instructions: Vec::new(),
-            }))?;
-    }
     let return_pc = vm.memory.code_len();
     vm.set_register(1, return_pc);
     vm.set_program_counter(entry_pc)
         .map_err(|err| contract_vm_attempt_error(err, |err| ContractCallSimulationError {
             message: format!("failed to seek to contract call entrypoint: {err}"),
             vm_diagnostic: None,
+            fault: None,
             normalized_payload: normalized_payload.clone(),
             gas_used: 0,
             queued_instructions: Vec::new(),
         }))?;
-    let run_result = vm.run_with_host(&mut host);
+    let precharge_result = prepared_arguments.as_ref()
+        .map_or(Ok(()), |arguments| arguments.precharge_vm(&mut vm));
+    if let Err(error) = &precharge_result {
+        vm.record_boundary_fault(error, iroha_data_model::executor::fault::IvmFaultPositionV1::Initialization);
+    }
+    let run_result = precharge_result.and_then(|()| vm.run_with_host(&mut host))
+        .and_then(|()| host.finish_contract_result(&vm));
     if let Err(error) = &run_result {
         if let Some(reason) = iroha_core::execution_attempt::ExecutionDeferred::from_vm_error(error) {
             return Err(iroha_core::execution_attempt::ExecutionAttemptError::Deferred(reason));
@@ -16577,6 +16621,7 @@ fn execute_contract_call_simulation(
     if let Some(violation) = host.output_budget_violation() {
         return Err(ContractCallSimulationError {
             message: format!("contract call simulation output budget exceeded: {violation:?}"),
+            fault: run_result.as_ref().err().and_then(|error| vm.execution_fault(error, iroha_data_model::executor::fault::IvmFaultPositionV1::ReturnValidation)),
             vm_diagnostic: run_result.as_ref().err().and_then(|error| {
                 vm.last_diagnostic().map(|diagnostic| map_vm_diagnostic(diagnostic, error))
             }),
@@ -16586,17 +16631,36 @@ fn execute_contract_call_simulation(
         }.into());
     }
     let queued = host.drain_instructions();
-    let _durable_state_overlay = host.drain_durable_state_overlay();
+    let durable_state_overlay = host.drain_durable_state_overlay();
     let gas_used = gas_limit.saturating_sub(vm.gas_remaining);
     let queued_instructions = queued;
+    let returned_error = matches!(run_result, Ok(true));
     if let Err(err) = run_result {
         return Err(ContractCallSimulationError {
             message: format!("contract call simulation failed: {err}"),
             vm_diagnostic: vm.last_diagnostic().map(|diagnostic| map_vm_diagnostic(diagnostic, &err)),
+            fault: vm.execution_fault(&err, iroha_data_model::executor::fault::IvmFaultPositionV1::ReturnValidation),
             normalized_payload,
             gas_used,
             queued_instructions,
         }.into());
+    }
+    if !returned_error {
+        iroha_core::smartcontracts::code::validate_simulated_contract_lifecycle_completion(
+            &query_view.world,
+            &query_view.execution_budget(),
+            contract_address,
+            program.code_hash,
+            descriptor.kind,
+            &durable_state_overlay,
+        ).map_err(|error| error.map_rejection(|error| ContractCallSimulationError {
+            message: error.to_string(),
+            vm_diagnostic: None,
+            fault: None,
+            normalized_payload: normalized_payload.clone(),
+            gas_used,
+            queued_instructions: queued_instructions.clone(),
+        }))?;
     }
     let result = descriptor
         .return_schema
@@ -16608,6 +16672,7 @@ fn execute_contract_call_simulation(
                     error.map_rejection(|err| ContractCallSimulationError {
                         message: err.to_string(),
                         vm_diagnostic: None,
+                        fault: None,
                         normalized_payload: normalized_payload.clone(),
                         gas_used,
                         queued_instructions: queued_instructions.clone(),
@@ -16622,6 +16687,13 @@ fn execute_contract_call_simulation(
         result,
     })
 }
+/// Build the contract-call metadata that consensus binds to a top-level `ContractCall`.
+///
+/// Admission rejects a call whose `contract_address`, `contract_code_hash`,
+/// `contract_entrypoint`, `contract_alias` (live alias) or `contract_payload`
+/// (canonical argument record) differs from the signed invocation. Contract feeds
+/// derive module, event kind and normalized payload from these keys when they
+/// project the committed call, so no unbound event metadata is written here.
 fn build_contract_call_metadata(
     _manifest: &manifest::ContractManifest,
     contract_address: &iroha_data_model::smart_contract::ContractAddress,
@@ -16657,34 +16729,6 @@ fn build_contract_call_metadata(
         let payload_key =
             Name::from_str("contract_payload").expect("static metadata key `contract_payload`");
         metadata.insert(payload_key, payload.clone());
-    }
-    if let Some(module) = canonical_contract_module(
-        contract_alias.map(ToString::to_string).as_deref(),
-        &contract_address.to_string(),
-    ) {
-        let module_key =
-            Name::from_str("contract_module").expect("static metadata key `contract_module`");
-        metadata.insert(module_key, IrohaJson::new(module.to_owned()));
-        if let Some(entrypoint) = entrypoint {
-            if let Some(event_kind) = canonical_contract_event_kind(module, entrypoint) {
-                let event_kind_key = Name::from_str("contract_event_kind")
-                    .expect("static metadata key `contract_event_kind`");
-                metadata.insert(event_kind_key, IrohaJson::new(event_kind.to_owned()));
-                let schema_version_key = Name::from_str("contract_event_schema_version")
-                    .expect("static metadata key `contract_event_schema_version`");
-                metadata.insert(schema_version_key, IrohaJson::new(1_u64));
-                let provenance_key = Name::from_str("contract_event_provenance")
-                    .expect("static metadata key `contract_event_provenance`");
-                metadata.insert(provenance_key, IrohaJson::new("emitted"));
-                if let Some(event_payload) =
-                    canonical_contract_event_payload(module, entrypoint, payload)
-                {
-                    let payload_key = Name::from_str("contract_event_payload")
-                        .expect("static metadata key `contract_event_payload`");
-                    metadata.insert(payload_key, event_payload);
-                }
-            }
-        }
     }
     metadata
 }
@@ -17959,7 +18003,7 @@ fn exact_multisig_contract_call_target_with_world<W: iroha_core::state::WorldRea
     }
     let descriptor = prepared.entrypoint_descriptor(&contract_entrypoint)?;
     if descriptor.kind != manifest::EntryPointKind::Kotoage
-        || !matches!(descriptor.permission.as_deref(), Some(value) if !value.is_empty())
+        || !matches!(descriptor.authorization, manifest::EntrypointAuthorizationV1::Permission(_))
     {
         return None;
     }
@@ -18250,7 +18294,7 @@ fn strict_multisig_contract_call_intent_with_world<W: iroha_core::state::WorldRe
     }
     let descriptor = prepared.entrypoint_descriptor(&parsed.contract_entrypoint)?;
     if descriptor.kind != manifest::EntryPointKind::Kotoage
-        || descriptor.permission.as_deref().is_none_or(str::is_empty)
+        || !matches!(descriptor.authorization, manifest::EntrypointAuthorizationV1::Permission(_))
     {
         return None;
     }
@@ -18664,11 +18708,22 @@ mod multisig_contract_call_tests {
             &authority, 0, iroha_model_base::topology::DataSpaceId::UNIVERSAL,
         ).unwrap();
         let mut world = World::with([], [Account::new(authority.clone()).build(&authority)], []);
-        let grant: Permission = iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
-            contract: address.clone(), entrypoint: "inspect".into(),
+        let grant: Permission = iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+            contract: address.clone(), permission: "Inspect".parse().unwrap(),
         }.into();
-        world.account_permissions_mut_for_testing().insert(authority.clone(), std::collections::BTreeSet::from([grant]));
-        let run = || ensure_contract_view_authorized(&world.view(), &authority, &address, "inspect", Some("CanInvokeContractEntrypoint"));
+        world.account_permissions_mut_for_testing().insert(
+            authority.clone(), std::collections::BTreeSet::from([grant]),
+        );
+        let state = CoreState::new_for_testing(world, iroha_core::kura::Kura::blank_kura_for_testing(), iroha_core::query::store::LiveQueryStore::start_test());
+        let mut block = state.block(iroha_data_model::block::BlockHeader::new(core::num::NonZeroU64::new(1).unwrap(), None, None, 0, 0));
+        let mut transaction = block.transaction();
+        let world = &mut transaction.world;
+        let (artifact, manifest) = kotodama_lang::compiler::Compiler::new().compile_source_with_manifest("seiyaku CapacityRole { permission Inspect; view fn inspect() authorize(Inspect) -> int { return 1; } }").unwrap();
+        let code_hash = ivm::contract_code_hash(&artifact);
+        world.bind_active_contract_subject_for_testing(address.clone(), code_hash);
+        world.contract_manifests_mut_for_testing().insert(iroha_data_model::smart_contract::ContractArtifactId::for_address(&address, code_hash).unwrap(), manifest);
+        let policy = manifest::EntrypointAuthorizationV1::Permission("Inspect".parse().unwrap());
+        let run = || ensure_contract_view_authorized(&*world, &authority, &address, "inspect", &policy);
         assert!(run().is_ok());
         let refused = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(96, usize::MAX, usize::MAX, 0, 32), run,
@@ -18679,11 +18734,11 @@ mod multisig_contract_call_tests {
         assert!(matches!(transport, Err(Error::Query(iroha_data_model::ValidationFail::QueryFailed(
             iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded)))));
         assert!(matches!(contract_transport_attempt(run()), Ok(Ok(()))));
-        let denied = ensure_contract_view_authorized(&world.view(), &authority, &address, "another", Some("CanInvokeContractEntrypoint"));
+        let denied = ensure_contract_view_authorized(&*world, &authority, &address, "another", &policy);
         assert!(matches!(contract_transport_attempt(denied), Ok(Err(_))));
         let refused_call = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(96, usize::MAX, usize::MAX, 0, 32),
-            || ensure_contract_call_authorized(&world.view(), &authority, &address, "inspect", Some("CanInvokeContractEntrypoint")),
+            || ensure_contract_call_authorized(&*world, &authority, &address, "inspect", &policy),
         );
         assert!(matches!(contract_transport_attempt(refused_call), Err(Error::Query(iroha_data_model::ValidationFail::QueryFailed(
             iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded)))));
@@ -18795,6 +18850,9 @@ mod multisig_contract_call_tests {
         entrypoints: Option<Vec<manifest::EntrypointDescriptor>>,
     ) -> manifest::ContractManifest {
         manifest::ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: None,
             abi_hash: None,
@@ -18934,7 +18992,7 @@ mod multisig_contract_call_tests {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("CanInvokeContractEntrypoint".to_owned()),
+            authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission("CanInvokeContractEntrypoint".parse().unwrap()),
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -19024,7 +19082,7 @@ mod multisig_contract_call_tests {
                 return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: Some("CanInvokeContractEntrypoint".to_owned()),
+                authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission("CanInvokeContractEntrypoint".parse().unwrap()),
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: Some(true),
@@ -19536,6 +19594,9 @@ mod multisig_contract_call_tests {
     }
     routing_test! { sync contract_call_metadata_excludes_retired_fee_fields
         let manifest = manifest::ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: None,
             abi_hash: None,
@@ -19593,7 +19654,16 @@ mod contract_entrypoint_validation_tests {
     fn manifest_with_entrypoints(
         entrypoints: Option<Vec<EntrypointDescriptor>>,
     ) -> ContractManifest {
+        let mut permissions: Vec<_> = entrypoints.iter().flatten().filter_map(|entry| match &entry.authorization {
+            manifest::EntrypointAuthorizationV1::Permission(name) => Some(manifest::ContractPermissionDescriptorV1 { name:name.clone(), scope:manifest::ContractPermissionScopeV1::Instance }),
+            _ => None,
+        }).collect();
+        permissions.sort_by(|a,b| a.name.cmp(&b.name));
+        permissions.dedup_by(|a,b| a.name == b.name);
         ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions,
             seiyaku_name: None,
             code_hash: None,
             abi_hash: None,
@@ -19633,7 +19703,7 @@ mod contract_entrypoint_validation_tests {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: None,
+            authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -19656,7 +19726,7 @@ mod contract_entrypoint_validation_tests {
                 return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: None,
+                authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: Some(true),
@@ -19672,7 +19742,7 @@ mod contract_entrypoint_validation_tests {
                 return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: None,
+                authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: Some(true),
@@ -19688,7 +19758,7 @@ mod contract_entrypoint_validation_tests {
                 return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: None,
+                authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: Some(true),
@@ -19731,32 +19801,12 @@ mod contract_entrypoint_validation_tests {
         assert!(expect_conversion(err).contains("read-only"));
     }
     routing_test! { sync lifecycle_permissions_are_defined_by_the_runtime
-        let mut descriptor = EntrypointDescriptor {
-            name: "hajimari".to_owned(),
-            kind: manifest::EntryPointKind::Hajimari,
-            params: Vec::new(),
-            argument_schema: None,
-            return_type: Some("()".to_owned()),
-            return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
-                nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
-            }),
-            permission: Some("SourceCannotOverrideLifecycle".to_owned()),
-            read_keys: Vec::new(),
-            write_keys: Vec::new(),
-            access_hints_complete: Some(true),
-            access_hints_skipped: Vec::new(),
-            triggers: Vec::new(),
-        };
-        assert_eq!(
-            contract_call_runtime_permission(descriptor.kind, descriptor.permission.as_deref()),
-            Some(iroha_data_model::smart_contract::CONTRACT_HAJIMARI_PERMISSION_NAME)
-        );
-        descriptor.kind = manifest::EntryPointKind::Kaizen;
-        assert_eq!(
-            contract_call_runtime_permission(descriptor.kind, descriptor.permission.as_deref()),
-            Some(iroha_data_model::smart_contract::CONTRACT_KAIZEN_PERMISSION_NAME)
-        );
+        let (_, manifest) = kotodama_lang::compiler::Compiler::new().compile_source_with_manifest("seiyaku LifecyclePolicy { hajimari() {} kaizen() {} }").unwrap();
+        for descriptor in manifest.entrypoints.unwrap() {
+            assert_eq!(descriptor.authorization, manifest::EntrypointAuthorizationV1::RuntimeLifecycle);
+        }
     }
+
 }
 #[cfg(all(test, feature = "app_api"))]
 mod contract_payload_normalization_tests {
@@ -19808,7 +19858,7 @@ mod contract_payload_normalization_tests {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("ExecuteContract".to_owned()),
+            authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission("ExecuteContract".parse().unwrap()),
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -19832,7 +19882,7 @@ mod contract_payload_normalization_tests {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("ExecuteContract".to_owned()),
+            authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission("ExecuteContract".parse().unwrap()),
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -19856,7 +19906,7 @@ mod contract_payload_normalization_tests {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("ExecuteContract".to_owned()),
+            authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission("ExecuteContract".parse().unwrap()),
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -19877,7 +19927,7 @@ mod contract_payload_normalization_tests {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("ExecuteContract".to_owned()),
+            authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission("ExecuteContract".parse().unwrap()),
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -20062,14 +20112,14 @@ mod contract_payload_normalization_tests {
         let code = kotodama_lang::compiler::Compiler::new()
             .compile_source(
                 r#"
-seiyaku PublicCallPayloadNormalizeTest {
+seiyaku PublicCallPayloadNormalizeTest { permission CanEnactGovernance;
 
   kotoage fn burn_and_record(
     AccountId sender,
     AssetDefinitionId settlement_asset,
     int amount,
     bytes record_instruction
-  ) authorize("CanEnactGovernance") {}
+  ) authorize(CanEnactGovernance) {}
 }
 "#,
             )
@@ -20202,14 +20252,14 @@ mod multisig_selector_tests {
         permission, prelude as dm,
         query::error::QueryExecutionFail,
     };
-    use iroha_model_base::{topology::DataSpaceId, topology::LaneId};
     use iroha_executor_data_model::isi::multisig::{
         MultisigAccountState, MultisigApprove, MultisigInvalidateOutstanding,
         MultisigProposalValue, MultisigPropose, MultisigSpec,
     };
-    use iroha_executor_data_model::permission::{
-        governance::CanEnactGovernance, smart_contract::CanManageSmartContractCode,
+    use iroha_executor_data_model::permission::smart_contract::{
+        CanManageSmartContractCode, CanUseContractPermission,
     };
+    use iroha_model_base::{topology::DataSpaceId, topology::LaneId};
     use iroha_primitives::const_vec::ConstVec;
     use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
     fn checked_multisig_selector_keypair(seed: u8, context: &'static str) -> KeyPair {
@@ -20302,18 +20352,24 @@ mod multisig_selector_tests {
             receiver,
         )
     }
-    fn build_paynet_routing_state(world: World) -> Arc<State> {
+    fn build_paynet_routing_state(mut world: World) -> Arc<State> {
+        crate::test_utils::bind_fixture_root(
+            &mut world,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        );
         let (lane_catalog, dataspace_catalog) = paynet_routing_catalogs();
         let mut nexus = iroha_config::parameters::actual::Nexus::default();
         nexus.routing_policy = paynet_routing_policy();
-        nexus.lane_config = iroha_config::parameters::actual::LaneConfig::from_catalog(&lane_catalog);
+        nexus.lane_config =
+            iroha_config::parameters::actual::LaneConfig::from_catalog(&lane_catalog);
         nexus.lane_catalog = lane_catalog;
         nexus.dataspace_catalog = dataspace_catalog;
         // Bind the configured catalog before State captures its native routing authority,
         // retaining the same zero-fee component defaults as build_state.
-        let network_id = dm::NetworkId::from_genesis_hash(HashOf::<dm::BlockHeader>::from_untyped_unchecked(
-            iroha_crypto::Hash::new(b"torii-multisig-routing-fixture"),
-        ));
+        let network_id =
+            dm::NetworkId::from_genesis_hash(HashOf::<dm::BlockHeader>::from_untyped_unchecked(
+                iroha_crypto::Hash::new(b"torii-multisig-routing-fixture"),
+            ));
         let (state, _) = State::new_with_chain_and_network_id_and_pre_genesis_nexus_for_testing(
             world,
             nexus,
@@ -20326,7 +20382,12 @@ mod multisig_selector_tests {
     fn test_asset_definition_id() -> dm::AssetDefinitionId {
         test_asset_definition_id_from_hex("550e8400e29b41d4a7164466554400aa")
     }
-    fn build_state(world: World) -> Arc<State> {
+    fn build_state(mut world: World) -> Arc<State> {
+        // Fee quotation reads the immutable root even when this fixture charges zero.
+        crate::test_utils::bind_fixture_root(
+            &mut world,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        );
         let kura = Kura::blank_kura_for_testing();
         let query = LiveQueryStore::start_test();
         Arc::new(State::new_for_testing(world, kura, query))
@@ -20568,8 +20629,8 @@ mod multisig_selector_tests {
     fn minimal_ivm_program() -> Vec<u8> {
         kotodama_lang::compiler::Compiler::new()
             .compile_source(
-                r#"seiyaku TestContract {
-                    kotoage fn main() authorize("CanEnactGovernance") {}
+                r#"seiyaku TestContract { permission CanEnactGovernance;
+                    kotoage fn main() authorize(CanEnactGovernance) {}
                 }"#,
             )
             .expect("compile complete ABI V1 multisig contract fixture")
@@ -20656,6 +20717,7 @@ mod multisig_selector_tests {
             contract_address,
             minimal_ivm_program(),
             None,
+            std::slice::from_ref(authority),
         );
     }
     fn derived_universal_contract_address(
@@ -20679,6 +20741,7 @@ mod multisig_selector_tests {
         contract_address: &iroha_data_model::smart_contract::ContractAddress,
         code: Vec<u8>,
         contract_alias: Option<iroha_data_model::smart_contract::ContractAlias>,
+        permission_holders: &[dm::AccountId],
     ) {
         let mut block = state.block(dm::BlockHeader::new(
             NonZeroU64::new(1).expect("height"),
@@ -20692,13 +20755,16 @@ mod multisig_selector_tests {
         Grant::account_permission(register_permission, authority.clone())
             .execute(authority, &mut stx)
             .expect("grant CanManageSmartContractCode");
-        let enact_permission: permission::Permission = CanEnactGovernance.into();
-        Grant::account_permission(enact_permission, authority.clone())
-            .execute(authority, &mut stx)
-            .expect("grant CanEnactGovernance");
         let verified = ivm::verify_contract_artifact(&code).expect("verify contract artifact");
-        let code_hash =
-            register_code_bytes(authority,contract_address.dataspace_id().expect("test contract dataspace"), code, &mut stx).expect("register contract bytes");
+        let code_hash = register_code_bytes(
+            authority,
+            contract_address
+                .dataspace_id()
+                .expect("test contract dataspace"),
+            code,
+            &mut stx,
+        )
+        .expect("register contract bytes");
         assert_eq!(
             verified.code_hash, code_hash,
             "verified code hash must match stored bytes"
@@ -20706,15 +20772,38 @@ mod multisig_selector_tests {
         let signing = manifest_signing_test_support::ManifestSigningFixture::new(1);
         let manifest = verified
             .manifest
-            .try_signed(signing.context(), signing.max_frame_bytes(), authority_keypair)
+            .try_signed(
+                signing.context(),
+                signing.max_frame_bytes(),
+                authority_keypair,
+            )
             .expect("funded canonical contract fixture manifest");
-        register_manifest(authority,contract_address.dataspace_id().expect("test contract dataspace"), manifest, &mut stx).expect("register manifest");
+        register_manifest(
+            authority,
+            contract_address
+                .dataspace_id()
+                .expect("test contract dataspace"),
+            manifest,
+            &mut stx,
+        )
+        .expect("register manifest");
         stx.world.bind_inactive_contract_subject_for_testing(
             contract_address.clone(),
             authority.clone(),
         );
         activate_instance(authority, contract_address.clone(), 1, code_hash, &mut stx)
             .expect("activate instance");
+        for holder in permission_holders {
+            Grant::account_permission(
+                CanUseContractPermission {
+                    contract: contract_address.clone(),
+                    permission: "CanEnactGovernance".parse().expect("fixture role"),
+                },
+                holder.clone(),
+            )
+            .execute(authority, &mut stx)
+            .expect("owner grants the exact declared instance permission");
+        }
         if let Some(contract_alias) = contract_alias {
             let alias_dataspace = contract_address
                 .dataspace_id()
@@ -20743,6 +20832,153 @@ mod multisig_selector_tests {
         block
             .commit_world_overlay_for_testing()
             .expect("commit block");
+    }
+    #[test]
+    fn lifecycle_simulation_checks_new_scalars_and_preserves_pending_on_err() {
+        use iroha_core::execution_attempt::ExecutionAttemptError;
+        for (case, body) in [
+            ("initialized", "enabled = true; return Result::ok(());"),
+            ("missing", "return Result::ok(());"),
+            (
+                "recoverable",
+                "enabled = true; return Result::err(MigrationError::Deferred);",
+            ),
+        ] {
+            let keypair = checked_multisig_selector_keypair(92, "upgrade simulation");
+            let authority = dm::AccountId::new(keypair.public_key().clone());
+            let state = build_state(World::with(
+                [],
+                [dm::Account::new(authority.clone()).build(&authority)],
+                [],
+            ));
+            let address = derived_universal_contract_address(&authority, 92);
+            let (previous, _) = kotodama_lang::compiler::Compiler::new()
+                .compile_source_with_manifest(
+                    "seiyaku SimulationUpgrade { kotoage fn run() authorize(anyone) {} }",
+                )
+                .unwrap();
+            install_contract_instance_with_code(
+                &state,
+                &authority,
+                &keypair,
+                &address,
+                previous,
+                None,
+                &[],
+            );
+            let source = format!(
+                "seiyaku SimulationUpgrade {{ error enum MigrationError {{ Deferred = 1 }} state bool enabled; hajimari() {{ enabled = false; }} kaizen() -> Result<(), MigrationError> {{ {body} }} kotoage fn run() authorize(anyone) {{}} }}"
+            );
+            let (replacement, manifest) = kotodama_lang::compiler::Compiler::new()
+                .compile_source_with_manifest(&source)
+                .unwrap();
+            let descriptor = manifest
+                .entrypoints
+                .as_ref()
+                .unwrap()
+                .iter()
+                .find(|entry| entry.name == "kaizen")
+                .unwrap()
+                .clone();
+            let mut block = state.block(dm::BlockHeader::new(
+                NonZeroU64::new(2).unwrap(),
+                None,
+                None,
+                0,
+                0,
+            ));
+            let mut transaction = block.transaction();
+            let code_hash = register_code_bytes(
+                &authority,
+                DataSpaceId::UNIVERSAL,
+                replacement.clone(),
+                &mut transaction,
+            )
+            .unwrap();
+            let signing = manifest_signing_test_support::ManifestSigningFixture::new(1);
+            register_manifest(
+                &authority,
+                DataSpaceId::UNIVERSAL,
+                manifest
+                    .try_signed(signing.context(), signing.max_frame_bytes(), &keypair)
+                    .unwrap(),
+                &mut transaction,
+            )
+            .unwrap();
+            activate_instance(&authority, address.clone(), 2, code_hash, &mut transaction).unwrap();
+            Grant::account_permission(
+                Permission::from(iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint { contract: address.clone(), entrypoint: "kaizen".into() }),
+                authority.clone(),
+            ).execute(&authority, &mut transaction).unwrap();
+            transaction.apply();
+            block.commit_world_overlay_for_testing().unwrap();
+            let before: BTreeMap<_, _> = state
+                .world_view()
+                .smart_contract_state()
+                .iter()
+                .map(|(path, value)| (path.clone(), value.clone()))
+                .collect();
+            let mut cache =
+                iroha_core::smartcontracts::ivm::cache::IvmCache::with_prepared_contract_cache(
+                    4,
+                    state.view().prepared_contract_cache(),
+                );
+            let program = cache.summarize_program(&replacement).unwrap();
+            let execution = execute_contract_call_simulation(
+                &state,
+                &authority,
+                &address,
+                None,
+                &program,
+                "kaizen",
+                &descriptor,
+                None,
+                2_000_000,
+            );
+            match (case, execution) {
+                ("missing", Err(ExecutionAttemptError::Rejected(error))) => {
+                    assert!(
+                        error.message.contains("did not initialize"),
+                        "{}",
+                        error.message
+                    );
+                    assert!(error.gas_used > 0);
+                }
+                ("initialized" | "recoverable", Ok(execution)) => {
+                    assert!(execution.gas_used > 0);
+                    let result: Value =
+                        norito::json::from_str(execution.result.as_ref().unwrap().get()).unwrap();
+                    let tag = if case == "recoverable" { "err" } else { "ok" };
+                    assert!(result.as_object().unwrap().contains_key(tag));
+                }
+                (_, Err(error)) => panic!(
+                    "{case} unexpectedly failed: {}",
+                    match error {
+                        ExecutionAttemptError::Rejected(error) => error.message,
+                        ExecutionAttemptError::Deferred(error) => format!("{error:?}"),
+                    }
+                ),
+                (_, Ok(_)) => panic!("{case} unexpectedly completed"),
+            }
+            let after: BTreeMap<_, _> = state
+                .world_view()
+                .smart_contract_state()
+                .iter()
+                .map(|(path, value)| (path.clone(), value.clone()))
+                .collect();
+            assert_eq!(
+                after, before,
+                "{case} must retain pending lifecycle and all original storage"
+            );
+            assert!(
+                iroha_core::smartcontracts::code::ensure_contract_ready_for_view(
+                    &state.world_view(),
+                    &address,
+                    code_hash
+                )
+                .is_err()
+            );
+        }
     }
     fn expect_conversion(err: Error) -> String {
         match err {
@@ -21073,13 +21309,8 @@ mod multisig_selector_tests {
             destination.clone(),
         )
         .into();
-        let mut proposal = MultisigProposalValue::new(
-            vec![instruction.clone()],
-            100,
-            200,
-            BTreeSet::new(),
-            None,
-        );
+        let mut proposal =
+            MultisigProposalValue::new(vec![instruction.clone()], 100, 200, BTreeSet::new(), None);
         let world = World::default();
         let world_view = world.view();
         assert_eq!(
@@ -21303,25 +21534,35 @@ mod multisig_selector_tests {
             creation_time_ms: Some(current_time_millis()),
             transaction_ttl_ms: Some(60_000),
             fee_payment: iroha_data_model::transaction::FeePaymentIntent::authority(
-                Vec::new(), NonZeroU64::new(10_000),
+                Vec::new(),
+                NonZeroU64::new(10_000),
             ),
         };
         (state, build_queue(), key, request)
     }
     fn detached_public_contract_call(
-        state: &Arc<State>, queue: &Arc<Queue>, key: &KeyPair, request: &ContractCallDto,
+        state: &Arc<State>,
+        queue: &Arc<Queue>,
+        key: &KeyPair,
+        request: &ContractCallDto,
     ) -> (ContractCallDto, dm::TransactionBuilder) {
         let prepared = prepare_contract_call_request(queue.clone(), state.clone(), request.clone())
             .expect("prepare exact public contract call");
-        let encoded = prepared.response.transaction_payload_b64.expect("prepared bytes");
-        let bytes = base64::engine::general_purpose::STANDARD.decode(&encoded).expect("base64");
+        let encoded = prepared
+            .response
+            .transaction_payload_b64
+            .expect("prepared bytes");
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&encoded)
+            .expect("base64");
         let builder = dm::TransactionBuilder::decode_payload(&bytes).expect("payload");
         let signature = Signature::try_new(key.private_key(), &builder.payload_hash_bytes())
             .expect("sign exact prepared payload");
         let mut request = request.clone();
         request.fee_payment = builder.payload().fee_payment.clone();
         request.public_key_hex = Some(hex::encode(key.public_key().to_bytes().1));
-        request.signature_b64 = Some(base64::engine::general_purpose::STANDARD.encode(signature.payload()));
+        request.signature_b64 =
+            Some(base64::engine::general_purpose::STANDARD.encode(signature.payload()));
         request.transaction_payload_b64 = Some(encoded);
         (request, builder)
     }
@@ -22878,9 +23119,9 @@ mod multisig_selector_tests {
         let code = kotodama_lang::compiler::Compiler::new()
             .compile_source(
                 r#"
-seiyaku BytesPayloadNormalizeTest {
+seiyaku BytesPayloadNormalizeTest { permission CanEnactGovernance;
 
-  kotoage fn create(bytes alias_literal) authorize("CanEnactGovernance") {}
+  kotoage fn create(bytes alias_literal) authorize(CanEnactGovernance) {}
 }
 "#,
             )
@@ -22895,6 +23136,7 @@ seiyaku BytesPayloadNormalizeTest {
             &derived_universal_contract_address(&authority_account_id, 1),
             code,
             Some(contract_alias.clone()),
+            std::slice::from_ref(&multisig_account_id),
         );
         let contract_address = derived_universal_contract_address(&authority_account_id, 1);
         let request_payload = IrohaJson::new(norito::json!({
@@ -24334,18 +24576,37 @@ pub async fn handle_post_multisig_propose(
         resolve_multisig_account_and_spec(&state, &selector, Some(&signer_account_id))?;
     let mut proposal_instructions = instructions;
     if proposal_instructions.iter().any(|instruction| {
-        instruction.as_any().downcast_ref::<dm::Log>().is_some_and(|log| {
-            log.msg.starts_with(iroha_core::retail_fee::ASSESSMENT_MARKER_PREFIX)
-        })
+        instruction
+            .as_any()
+            .downcast_ref::<dm::Log>()
+            .is_some_and(|log| {
+                log.msg
+                    .starts_with(iroha_core::retail_fee::ASSESSMENT_MARKER_PREFIX)
+            })
     }) {
-        return Err(conversion_error("multisig instructions must not contain a caller-supplied fee assessment marker".into()));
+        return Err(conversion_error(
+            "multisig instructions must not contain a caller-supplied fee assessment marker".into(),
+        ));
     }
     if let Some(assessment) = &validation_fee_assessment {
         if assessment.account_id != multisig_account_id {
-            return Err(conversion_error("retail fee assessment must belong to the multisig execution account".into()));
+            return Err(conversion_error(
+                "retail fee assessment must belong to the multisig execution account".into(),
+            ));
         }
-        let bytes = norito::encode_canonical(assessment).map_err(|error| conversion_error(error.to_string()))?;
-        proposal_instructions.push(dm::Log::new(dm::Level::TRACE, format!("{}{}", iroha_core::retail_fee::ASSESSMENT_MARKER_PREFIX, hex::encode(bytes))).into());
+        let bytes = norito::encode_canonical(assessment)
+            .map_err(|error| conversion_error(error.to_string()))?;
+        proposal_instructions.push(
+            dm::Log::new(
+                dm::Level::TRACE,
+                format!(
+                    "{}{}",
+                    iroha_core::retail_fee::ASSESSMENT_MARKER_PREFIX,
+                    hex::encode(bytes)
+                ),
+            )
+            .into(),
+        );
     }
     let proposal_hash = HashOf::new(&proposal_instructions);
     let proposal_id = hex::encode(proposal_hash.as_ref());
@@ -25121,13 +25382,18 @@ fn validate_account_recovery_cancellation_authority(
     signer: &AccountId,
 ) -> Result<()> {
     if !request.is_pending() {
-        return Err(conversion_error("account recovery request is not pending".to_owned()));
+        return Err(conversion_error(
+            "account recovery request is not pending".to_owned(),
+        ));
     }
     if signer == active {
         return Ok(());
     }
     recovery_guardian_authorized(policy, signer)?;
-    if request.cancellation_approvals.contains(&signer.subject_id()) {
+    if request
+        .cancellation_approvals
+        .contains(&signer.subject_id())
+    {
         return Err(conversion_error(
             "guardian already approved cancellation of this native request".to_owned(),
         ));
@@ -25159,7 +25425,9 @@ pub async fn handle_post_account_recovery_cancel(
                 .to_owned(),
         ));
     }
-    let now_ms = state.latest_block_header_fast().map_or(0, |header| header.creation_time_ms);
+    let now_ms = state
+        .latest_block_header_fast()
+        .map_or(0, |header| header.creation_time_ms);
     let nexus = state.nexus_snapshot();
     let lineage = iroha_core::sns::resolve_active_account_id_rekey_lineage_for_alias(
         &state.world_view(),
@@ -25169,7 +25437,9 @@ pub async fn handle_post_account_recovery_cancel(
         now_ms,
     )
     .map_err(|error| {
-        Error::Query(iroha_data_model::ValidationFail::InternalError(error.to_string()))
+        Error::Query(iroha_data_model::ValidationFail::InternalError(
+            error.to_string(),
+        ))
     })?;
     if lineage.as_ref() != Some(&active) {
         return Err(conversion_error(
@@ -25237,7 +25507,8 @@ fn account_recovery_invalidation_evidence(
             )));
         }
         let terminal_key = multisig_proposal_terminal_state_contract_key(
-            &request.active_account_id_at_proposal, proposal_hash,
+            &request.active_account_id_at_proposal,
+            proposal_hash,
         );
         let bytes = storage.get(terminal_key.as_ref()).ok_or_else(|| {
             conversion_error(format!(
@@ -25251,7 +25522,11 @@ fn account_recovery_invalidation_evidence(
                 ))
             },
         )?;
-        validate_multisig_terminal_proposal_binding(&request.active_account_id_at_proposal, proposal_hash, &terminal)?;
+        validate_multisig_terminal_proposal_binding(
+            &request.active_account_id_at_proposal,
+            proposal_hash,
+            &terminal,
+        )?;
         if terminal.terminal_at_ms == 0 {
             return Err(conversion_error(format!(
                 "recovery-invalidated proposal `{proposal_hash}` is missing its terminal timestamp"
@@ -25307,7 +25582,9 @@ fn validate_account_recovery_status_lineage(
             world, catalog, alias, account, now_ms,
         )
         .map_err(|error| {
-            Error::Query(iroha_data_model::ValidationFail::InternalError(error.to_string()))
+            Error::Query(iroha_data_model::ValidationFail::InternalError(
+                error.to_string(),
+            ))
         })
     };
     if resolve(&request.active_account_id_at_proposal)?.as_ref() != Some(active) {
@@ -25346,7 +25623,9 @@ pub async fn handle_post_account_recovery_status(
         .cloned();
     drop(world);
     validate_account_recovery_status_policy(
-        state.as_ref(), policy.as_ref(), recovery_request.as_ref(),
+        state.as_ref(),
+        policy.as_ref(),
+        recovery_request.as_ref(),
     )?;
     if let Some(recovery_request) = recovery_request.as_ref() {
         if recovery_request.alias != account_alias {
@@ -25386,6 +25665,7 @@ pub async fn handle_post_account_recovery_status(
         invalidation_evidence_complete,
     }))
 }
+
 #[cfg(all(test, feature = "app_api"))]
 mod account_recovery_route_tests {
     use super::*;
@@ -26477,14 +26757,14 @@ mod vk_record_input_tests {
     routing_test! { sync mk_record_from_inputs_sets_optional_fields
         let vk_bytes = vec![1, 2, 3, 4];
         let inputs = VkRecordInputs {
-            backend: "halo2/ipa".to_string(),
+            backend: "pipa-r/pasta".to_string(),
             version: 1,
             status: Some(ConfidentialStatus::Active),
             vk_bytes: Some(vk_bytes.clone()),
             commitment_hex: None,
             circuit_id: "circuit_alpha".to_string(),
             public_inputs_schema_hash_hex: sample_hex32(0xAA),
-            curve: Some("pallas".to_string()),
+            curve: Some("vesta".to_string()),
             gas_schedule_id: Some("sched_default".to_string()),
             vk_len: Some(vk_bytes.len() as u32),
             max_proof_bytes: Some(8192),
@@ -26505,15 +26785,15 @@ mod vk_record_input_tests {
     }
     routing_test! { sync vk_record_detail_json_preserves_identity_and_exact_norito_archive
         let mut record = mk_record_from_inputs(VkRecordInputs {
-            backend: "halo2/ipa".to_string(),
+            backend: "pipa-r/pasta".to_string(),
             version: 7,
             status: Some(ConfidentialStatus::Active),
             vk_bytes: Some(vec![1, 2, 3, 4]),
             commitment_hex: None,
-            circuit_id: "confidential-unshield-v3".to_string(),
+            circuit_id: "pipa-r/pasta/confidential-unshield-change-v1".to_string(),
             public_inputs_schema_hash_hex: sample_hex32(0xA5),
-            curve: Some("pallas".to_string()),
-            gas_schedule_id: Some("halo2_default".to_string()),
+            curve: Some("vesta".to_string()),
+            gas_schedule_id: Some("native_pipa_r_default".to_string()),
             vk_len: Some(4),
             max_proof_bytes: Some(16_384),
             metadata_uri_cid: Some("ipfs://metadata".to_string()),
@@ -26523,10 +26803,10 @@ mod vk_record_input_tests {
         })
         .expect("record created");
         record.namespace = "confidential_assets".to_owned();
-        record.owner_manifest_id = Some("builtin:confidential-unshield-v3".to_owned());
+        record.owner_manifest_id = Some("builtin:pipa-r/pasta/confidential-unshield-change-v1".to_owned());
         let id = iroha_data_model::proof::VerifyingKeyId::new(
-            "halo2/ipa",
-            "confidential-unshield-v3",
+            "pipa-r/pasta",
+            "pipa-r/pasta/confidential-unshield-change-v1",
         );
         let detail = vk_detail_to_json(&id, &record).expect("build verifier record detail");
         let detail_object = detail.as_object().expect("verifier detail JSON object");
@@ -26608,14 +26888,14 @@ mod vk_record_input_tests {
     }
     routing_test! { sync mk_record_requires_vk_len_without_bytes
         let res = mk_record_from_inputs(VkRecordInputs {
-            backend: "halo2/ipa".to_string(),
+            backend: "pipa-r/pasta".to_string(),
             version: 1,
             status: Some(ConfidentialStatus::Active),
             vk_bytes: None,
             commitment_hex: Some(sample_hex32(0x11)),
             circuit_id: "circuit_alpha".to_string(),
             public_inputs_schema_hash_hex: sample_hex32(0x22),
-            curve: Some("pallas".to_string()),
+            curve: Some("vesta".to_string()),
             gas_schedule_id: Some("sched_default".to_string()),
             vk_len: None,
             max_proof_bytes: None,
@@ -26628,14 +26908,14 @@ mod vk_record_input_tests {
     }
     routing_test! { sync mk_record_allows_missing_gas_schedule
         let record = mk_record_from_inputs(VkRecordInputs {
-            backend: "halo2/ipa".to_string(),
+            backend: "pipa-r/pasta".to_string(),
             version: 1,
             status: Some(ConfidentialStatus::Active),
             vk_bytes: Some(vec![1, 2, 3]),
             commitment_hex: None,
             circuit_id: "circuit_alpha".to_string(),
             public_inputs_schema_hash_hex: sample_hex32(0x33),
-            curve: Some("pallas".to_string()),
+            curve: Some("vesta".to_string()),
             gas_schedule_id: None,
             vk_len: Some(3),
             max_proof_bytes: None,
@@ -26649,14 +26929,14 @@ mod vk_record_input_tests {
     }
     routing_test! { sync mk_record_allows_withdrawn_status
         let record = mk_record_from_inputs(VkRecordInputs {
-            backend: "halo2/ipa".to_string(),
+            backend: "pipa-r/pasta".to_string(),
             version: 1,
             status: Some(ConfidentialStatus::Withdrawn),
             vk_bytes: Some(vec![1, 2, 3]),
             commitment_hex: None,
             circuit_id: "circuit_alpha".to_string(),
             public_inputs_schema_hash_hex: sample_hex32(0x44),
-            curve: Some("pallas".to_string()),
+            curve: Some("vesta".to_string()),
             gas_schedule_id: Some("sched_default".to_string()),
             vk_len: Some(3),
             max_proof_bytes: None,
@@ -26671,14 +26951,14 @@ mod vk_record_input_tests {
     routing_test! { sync mk_record_rejects_inconsistent_heights
         for withdraw_height in [100, 200] {
             let res = mk_record_from_inputs(VkRecordInputs {
-                backend: "halo2/ipa".to_string(),
+                backend: "pipa-r/pasta".to_string(),
                 version: 1,
                 status: Some(ConfidentialStatus::Active),
                 vk_bytes: Some(vec![1, 2, 3]),
                 commitment_hex: None,
                 circuit_id: "circuit_alpha".to_string(),
                 public_inputs_schema_hash_hex: sample_hex32(0x55),
-                curve: Some("pallas".to_string()),
+                curve: Some("vesta".to_string()),
                 gas_schedule_id: Some("sched_default".to_string()),
                 vk_len: Some(3),
                 max_proof_bytes: None,
@@ -27469,6 +27749,8 @@ pub struct ContractCallSimulateResponseDto {
     /// VM diagnostic information when simulation fails.
     #[norito(default)]
     pub vm_diagnostic: Option<ContractViewVmDiagnosticDto>,
+    /// Bounded canonical runtime fault; null for non-VM failures and application rejections.
+    pub fault: Option<iroha_data_model::executor::fault::IvmFaultV1>,
 }
 }
 app_api_items! {
@@ -27591,6 +27873,8 @@ pub struct ContractViewErrorResponseDto {
     pub error: String,
     #[norito(default)]
     pub vm_diagnostic: Option<ContractViewVmDiagnosticDto>,
+    /// Bounded canonical runtime fault; null for non-VM failures and application rejections.
+    pub fault: Option<iroha_data_model::executor::fault::IvmFaultV1>,
 }
 ( Debug, Clone, Default, crate::json_macros::JsonDeserialize, norito::derive::NoritoDeserialize, crate::json_macros::JsonSerialize, norito::derive::NoritoSerialize,)
 #[norito(decode_from_slice)]
@@ -31088,24 +31372,25 @@ struct ContractActivityProjection {
     result_ok: bool,
     contract_address: String,
     contract_alias: Option<String>,
-    contract_entrypoint: Option<String>,
+    contract_entrypoint: String,
     contract_payload: Option<norito::json::Value>,
     fee_payment: Option<iroha_data_model::transaction::FeePaymentIntent>,
 }
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct ContractEventProjection {
     event_id: String,
     schema_version: u64,
     provenance: String,
     authority: Option<String>,
     timestamp_ms: Option<u64>,
-    tx_hash_hex: String,
+    execution_hash_hex: String,
+    output_index: u64,
+    emission_index: u64,
+    emission: Value,
     block_height: u64,
     block_hash_hex: String,
     result_ok: bool,
     contract_address: String,
-    contract_alias: Option<String>,
-    module: String,
     event_kind: String,
     participants: Vec<String>,
     asset_ids: Vec<String>,
@@ -31124,8 +31409,6 @@ struct ContractEventIndex {
     items: Vec<ContractEventProjection>,
     by_authority: std::collections::HashMap<String, Vec<usize>>,
     by_contract_address: std::collections::HashMap<String, Vec<usize>>,
-    by_contract_alias: std::collections::HashMap<String, Vec<usize>>,
-    by_module: std::collections::HashMap<String, Vec<usize>>,
     by_event_kind: std::collections::HashMap<String, Vec<usize>>,
     by_participant: std::collections::HashMap<String, Vec<usize>>,
     by_asset_id: std::collections::HashMap<String, Vec<usize>>,
@@ -31634,10 +31917,6 @@ fn append_contract_event_projection(
         &projection.contract_address,
         position,
     );
-    if let Some(alias) = projection.contract_alias.as_deref() {
-        contract_event_insert_index(&mut index.by_contract_alias, alias, position);
-    }
-    contract_event_insert_index(&mut index.by_module, &projection.module, position);
     contract_event_insert_index(&mut index.by_event_kind, &projection.event_kind, position);
     for participant in &projection.participants {
         contract_event_insert_index(&mut index.by_participant, participant, position);
@@ -31652,498 +31931,6 @@ fn append_contract_event_projection(
         index.error_positions.push(position);
     }
     index.items.push(projection);
-}
-fn contract_event_module(contract_alias: Option<&str>, contract_address: &str) -> String {
-    if let Some(module) = canonical_contract_module(contract_alias, contract_address) {
-        return module.to_owned();
-    }
-    let source = contract_alias.unwrap_or(contract_address);
-    source
-        .split(|ch: char| matches!(ch, '.' | '/' | ':' | ' '))
-        .find(|segment| !segment.is_empty())
-        .unwrap_or(source)
-        .to_owned()
-}
-fn canonical_contract_module(
-    contract_alias: Option<&str>,
-    contract_address: &str,
-) -> Option<&'static str> {
-    trader_contract_module(contract_alias, contract_address)
-        .or_else(|| uranai_contract_module(contract_alias, contract_address))
-}
-fn uranai_contract_module(
-    contract_alias: Option<&str>,
-    contract_address: &str,
-) -> Option<&'static str> {
-    let source = contract_alias
-        .unwrap_or(contract_address)
-        .trim()
-        .to_ascii_lowercase();
-    if source.contains("uranai") || source.contains("uranai_market") {
-        return Some("uranai");
-    }
-    None
-}
-fn trader_contract_module(
-    contract_alias: Option<&str>,
-    contract_address: &str,
-) -> Option<&'static str> {
-    let source = contract_alias
-        .unwrap_or(contract_address)
-        .trim()
-        .to_ascii_lowercase();
-    if source.contains("dlmm_router") {
-        return Some("swaps");
-    }
-    if source.contains("n3x_hub") {
-        return Some("n3x");
-    }
-    if source.contains("perps_engine") {
-        return Some("perps");
-    }
-    if source.contains("farms.farm") || source.contains("fixturefarms") || source.ends_with(".farm")
-    {
-        return Some("farms");
-    }
-    if source.contains("sale_factory") {
-        return Some("launchpad");
-    }
-    if source.contains("options.factory")
-        || source.contains("options.manager")
-        || source.contains("optfactory")
-        || source.contains("optmgr")
-    {
-        return Some("options");
-    }
-    if source.contains("policy_manager") || source.contains("fixturecover") {
-        return Some("cover");
-    }
-    if source.contains("settlement_router") || source.contains("intents.") {
-        return Some("intents");
-    }
-    if source.contains("vaults.manager") || source.contains("manager::vaults") {
-        return Some("vaults");
-    }
-    if source.contains("operators.registry") || source.contains("registry::operators") {
-        return Some("operators");
-    }
-    if source.contains("portfolio_margin") || source.contains("margin.") {
-        return Some("margin");
-    }
-    if source.contains("rwa.market") || source.contains("market::rwa") {
-        return Some("rwa");
-    }
-    if source.contains("hook_manager") || source.contains("dlmm_hooks") {
-        return Some("dlmmHooks");
-    }
-    None
-}
-fn canonical_contract_event_kind(module: &str, entrypoint: &str) -> Option<&'static str> {
-    let normalized = entrypoint.trim().to_ascii_lowercase();
-    match (module, normalized.as_str()) {
-        ("swaps", "route_swap") => Some("swap_executed"),
-        ("n3x", "deposit_and_mint") => Some("n3x_minted"),
-        ("n3x", "burn_and_redeem") => Some("n3x_redeemed"),
-        ("perps", "open_position") => Some("perps_position_opened"),
-        ("perps", "modify_position") => Some("perps_position_modified"),
-        ("perps", "add_margin") => Some("perps_margin_added"),
-        ("perps", "remove_margin") => Some("perps_margin_removed"),
-        ("perps", "close_position") => Some("perps_position_closed"),
-        ("perps", "sync_funding") => Some("perps_funding_synced"),
-        ("perps", "run_liquidation_pass") => Some("perps_liquidation_pass"),
-        ("farms", "stake") => Some("farm_staked"),
-        ("farms", "unstake") => Some("farm_unstaked"),
-        ("farms", "claim") => Some("farm_rewards_claimed"),
-        ("launchpad", "contribute") | ("launchpad", "contribute_recorded") => {
-            Some("launchpad_contributed")
-        }
-        ("launchpad", "claim_allocation") => Some("launchpad_claimed"),
-        ("launchpad", "refund_allocation") => Some("launchpad_refunded"),
-        ("launchpad", "finalize_sale_activation") => Some("launchpad_activation_finalized"),
-        ("options", "create_series") => Some("options_series_created"),
-        ("options", "buy_shout") | ("options", "buy_outperformance") => {
-            Some("options_position_bought")
-        }
-        ("options", "record_shout") => Some("options_shout_recorded"),
-        ("options", "exercise_shout_position")
-        | ("options", "exercise_outperformance_position") => Some("options_position_exercised"),
-        ("options", "settle_series") => Some("options_series_settled"),
-        ("cover", "register_policy") => Some("cover_policy_opened"),
-        ("cover", "record_observation") => Some("cover_observation_recorded"),
-        ("cover", "route_claim") => Some("cover_claim_routed"),
-        ("cover", "expire_policy") => Some("cover_policy_expired"),
-        ("intents", "open_intent") => Some("intent_opened"),
-        ("intents", "cancel_intent") => Some("intent_cancelled"),
-        ("intents", "fill_intent") => Some("intent_filled"),
-        ("vaults", "register_vault") => Some("vault_registered"),
-        ("vaults", "deposit") => Some("vault_deposited"),
-        ("vaults", "request_redeem") => Some("vault_redeem_requested"),
-        ("vaults", "claim_redeem") => Some("vault_redeem_claimed"),
-        ("operators", "register_operator") => Some("operator_registered"),
-        ("operators", "bond") => Some("operator_bonded"),
-        ("operators", "heartbeat") => Some("operator_heartbeat"),
-        ("operators", "claim_fees") => Some("operator_fees_claimed"),
-        ("margin", "register_market") => Some("margin_market_registered"),
-        ("margin", "deposit_collateral") => Some("margin_collateral_deposited"),
-        ("margin", "withdraw_collateral") => Some("margin_collateral_withdrawn"),
-        ("margin", "lock_exposure") => Some("margin_exposure_locked"),
-        ("margin", "liquidate_account") => Some("margin_account_liquidated"),
-        ("rwa", "issue_lot") => Some("rwa_lot_issued"),
-        ("rwa", "bind_share_asset") => Some("rwa_share_asset_bound"),
-        ("rwa", "report_nav") => Some("rwa_nav_reported"),
-        ("rwa", "request_redemption") => Some("rwa_redemption_requested"),
-        ("rwa", "settle_redemption") => Some("rwa_redemption_settled"),
-        ("dlmmHooks", "configure_hook_policy") => Some("dlmm_hook_configured"),
-        ("dlmmHooks", "place_limit_order") => Some("dlmm_hook_limit_order_placed"),
-        ("dlmmHooks", "schedule_twamm") => Some("dlmm_hook_twamm_scheduled"),
-        ("dlmmHooks", "record_execution") => Some("dlmm_hook_execution_recorded"),
-        ("uranai", "bind") => Some("contract_bound"),
-        ("uranai", "create_market") => Some("market_created"),
-        ("uranai", "buy") => Some("shares_bought"),
-        ("uranai", "sell") => Some("shares_sold"),
-        ("uranai", "private_buy") => Some("private_shares_bought"),
-        ("uranai", "claim") => Some("payout_claimed"),
-        ("uranai", "private_claim") => Some("private_payout_claimed"),
-        ("uranai", "report_market") => Some("market_reported"),
-        ("uranai", "shield_deposit") => Some("shield_deposit_recorded"),
-        ("uranai", "sweep_creation_fees") => Some("creation_fees_swept"),
-        _ => None,
-    }
-}
-fn canonical_contract_event_payload(
-    module: &str,
-    entrypoint: &str,
-    payload: Option<&IrohaJson>,
-) -> Option<IrohaJson> {
-    fn payload_object(payload: &IrohaJson) -> Option<Map> {
-        let parsed = json::parse_value(payload.get()).ok()?;
-        match parsed {
-            Value::Object(object) => Some(object),
-            other => {
-                let mut object = Map::new();
-                object.insert("value".into(), other);
-                Some(object)
-            }
-        }
-    }
-    fn is_uranai_private_proof_key(key: &str) -> bool {
-        let normalized = key
-            .chars()
-            .filter(|ch| *ch != '_')
-            .flat_map(|ch| ch.to_lowercase())
-            .collect::<String>();
-        matches!(
-            normalized.as_str(),
-            "proofenv" | "proof" | "openverifyproof" | "privatekey"
-        )
-    }
-    fn redact_uranai_private_proofs_from_value(value: &mut Value) -> bool {
-        match value {
-            Value::Object(object) => redact_uranai_private_proofs_from_object(object),
-            Value::Array(array) => array.iter_mut().fold(false, |redacted, item| {
-                redact_uranai_private_proofs_from_value(item) || redacted
-            }),
-            _ => false,
-        }
-    }
-    fn redact_uranai_private_proofs_from_object(object: &mut Map) -> bool {
-        let keys = object
-            .keys()
-            .filter(|key| is_uranai_private_proof_key(key))
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut redacted = false;
-        for key in keys {
-            redacted |= object.remove(&key).is_some();
-        }
-        for value in object.values_mut() {
-            redacted |= redact_uranai_private_proofs_from_value(value);
-        }
-        redacted
-    }
-    fn copy_first(object: &Map, target: &mut Map, target_key: &str, keys: &[&str]) -> bool {
-        for key in keys {
-            if let Some(value) = object.get(*key) {
-                target.insert(target_key.into(), value.clone());
-                return true;
-            }
-        }
-        false
-    }
-    fn first_i64(object: &Map, keys: &[&str]) -> Option<i64> {
-        keys.iter().find_map(|key| {
-            object.get(*key).and_then(|value| {
-                value
-                    .as_i64()
-                    .or_else(|| value.as_u64().and_then(|raw| i64::try_from(raw).ok()))
-                    .or_else(|| value.as_str().and_then(|raw| raw.parse::<i64>().ok()))
-            })
-        })
-    }
-    let mut normalized = payload_object(payload?)?;
-    let normalized_entrypoint = entrypoint.trim().to_ascii_lowercase();
-    match (module, normalized_entrypoint.as_str()) {
-        ("uranai", _) => {
-            let redacted = redact_uranai_private_proofs_from_object(&mut normalized);
-            if redacted
-                || matches!(
-                    normalized_entrypoint.as_str(),
-                    "private_buy" | "private_claim"
-                )
-            {
-                normalized.insert("private_proof_redacted".into(), Value::Bool(true));
-            }
-        }
-        ("swaps", "route_swap") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "amount",
-                &["amount_in"],
-            );
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "amount_in",
-                &["amount_in"],
-            );
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "min_out",
-                &["min_out"],
-            );
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "input_is_base",
-                &["input_is_base"],
-            );
-        }
-        ("n3x", "deposit_and_mint") => {
-            if let Some(total) = first_i64(&normalized, &["usdt_in"]).and_then(|usdt| {
-                Some(
-                    usdt + first_i64(&normalized, &["usdc_in"]).unwrap_or(0)
-                        + first_i64(&normalized, &["kusd_in"]).unwrap_or(0),
-                )
-            }) {
-                normalized.insert("amount".into(), Value::from(total));
-            }
-        }
-        ("n3x", "burn_and_redeem") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "amount",
-                &["n3x_amount"],
-            );
-        }
-        ("perps", "open_position") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "market_id",
-                &["market_id"],
-            );
-            copy_first(&normalized.clone(), &mut normalized, "notional", &["size"]);
-            copy_first(&normalized.clone(), &mut normalized, "size", &["size"]);
-            copy_first(&normalized.clone(), &mut normalized, "margin", &["margin"]);
-        }
-        ("perps", "modify_position") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "position_id",
-                &["position_id"],
-            );
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "size_delta",
-                &["size_delta"],
-            );
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "margin_delta",
-                &["margin_delta"],
-            );
-        }
-        ("perps", "add_margin") | ("perps", "remove_margin") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "position_id",
-                &["position_id"],
-            );
-            copy_first(&normalized.clone(), &mut normalized, "amount", &["amount"]);
-        }
-        ("perps", "close_position") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "position_id",
-                &["position_id"],
-            );
-        }
-        ("perps", "sync_funding") | ("perps", "run_liquidation_pass") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "market_id",
-                &["market_id"],
-            );
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "amount",
-                &["max_positions"],
-            );
-        }
-        ("farms", "stake") | ("farms", "unstake") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "position",
-                &["position"],
-            );
-            copy_first(&normalized.clone(), &mut normalized, "amount", &["amount"]);
-        }
-        ("farms", "claim") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "position",
-                &["position"],
-            );
-        }
-        ("launchpad", "contribute") | ("launchpad", "contribute_recorded") => {
-            copy_first(&normalized.clone(), &mut normalized, "sale", &["sale"]);
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "allocation",
-                &["allocation"],
-            );
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "amount",
-                &["payment_amount"],
-            );
-        }
-        ("launchpad", "claim_allocation") | ("launchpad", "refund_allocation") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "allocation",
-                &["allocation"],
-            );
-        }
-        ("launchpad", "finalize_sale_activation") => {
-            copy_first(&normalized.clone(), &mut normalized, "sale", &["sale"]);
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "amount",
-                &["claim_inventory_amount"],
-            );
-        }
-        ("options", "create_series") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "series_id",
-                &["series_id"],
-            );
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "notional",
-                &["max_notional"],
-            );
-        }
-        ("options", "buy_shout") | ("options", "buy_outperformance") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "series_id",
-                &["series_id"],
-            );
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "notional",
-                &["notional"],
-            );
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "premium_paid",
-                &["premium_paid"],
-            );
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "collateral_locked",
-                &["collateral_locked"],
-            );
-        }
-        ("options", "record_shout")
-        | ("options", "exercise_shout_position")
-        | ("options", "exercise_outperformance_position") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "position_id",
-                &["position_id"],
-            );
-        }
-        ("options", "settle_series") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "series_id",
-                &["series_id"],
-            );
-        }
-        ("cover", "register_policy") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "policy_id",
-                &["policy_id"],
-            );
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "notional",
-                &["covered_notional"],
-            );
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "premium_paid",
-                &["premium_paid"],
-            );
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "payout_amount",
-                &["payout_amount"],
-            );
-        }
-        ("cover", "record_observation") | ("cover", "route_claim") | ("cover", "expire_policy") => {
-            copy_first(
-                &normalized.clone(),
-                &mut normalized,
-                "policy_id",
-                &["policy_id"],
-            );
-        }
-        _ => {}
-    }
-    Some(IrohaJson::new(Value::Object(normalized)))
 }
 fn participant_hint_key(key: &str) -> bool {
     matches!(
@@ -32245,73 +32032,144 @@ fn collect_contract_event_payload_fields(
         numeric_fields,
     )
 }
-fn contract_event_projection_from_tx(
-    height: usize,
+/// Provenance of records emitted by actual successful finalized contract execution.
+const CONTRACT_EVENT_PROVENANCE: &str = "emitted";
+/// Version of the native contract-event query row.
+const CONTRACT_EVENT_SCHEMA_VERSION: u64 = 1;
+/// The part of a committed transaction that consensus bound to a contract call.
+struct BoundContractCall {
+    /// Address from the signed invocation.
+    contract_address: String,
+    /// Entrypoint from the signed invocation.
+    entrypoint: String,
+    /// Live alias of the address; present only when consensus bound the metadata.
+    contract_alias: Option<String>,
+    /// Canonical argument payload; present only when consensus bound the metadata.
+    payload: Option<Value>,
+}
+/// Return the contract call a committed transaction executed, if any.
+///
+/// Only a top-level [`Executable::ContractCall`] is a contract call, and its
+/// signed invocation supplies the address and entrypoint. Admission binds a
+/// call's `contract_alias` and `contract_payload` metadata to the invocation
+/// before executing it, so those two keys are read only from a call that
+/// committed successfully and whose metadata names that very invocation. No other
+/// key is read: `contract_module` and `contract_event_*` are never checked by
+/// consensus, so any signer could write them.
+fn bound_contract_call(tx: &impl HistoryTransaction) -> Option<BoundContractCall> {
+    let signed = match tx.entrypoint() {
+        TransactionEntrypoint::External(signed) => signed,
+        TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
+        TransactionEntrypoint::SealedCommitment(_) => return None,
+    };
+    let Executable::ContractCall(invocation) = signed.instructions() else {
+        return None;
+    };
+    let metadata_bound =
+        tx.result().as_ref().is_ok() && contract_call_metadata_names_invocation(tx, invocation);
+    Some(BoundContractCall {
+        contract_address: invocation.contract_address.to_string(),
+        entrypoint: invocation.entrypoint.clone(),
+        contract_alias: metadata_bound
+            .then(|| tx_metadata_string(tx, "contract_alias"))
+            .flatten(),
+        payload: metadata_bound
+            .then(|| tx_metadata_json_value(tx, "contract_payload"))
+            .flatten(),
+    })
+}
+/// Mirror admission's identity check: the metadata names exactly `invocation`.
+fn contract_call_metadata_names_invocation(
     tx: &impl HistoryTransaction,
-) -> Option<ContractEventProjection> {
-    let base = project_tx(tx);
-    let contract_address = tx_metadata_string(tx, "contract_address")?;
-    let contract_alias = tx_metadata_string(tx, "contract_alias");
-    let payload = tx_metadata_json_value(tx, "contract_event_payload")
-        .or_else(|| tx_metadata_json_value(tx, "contract_payload"));
-    let event_kind = tx_metadata_string(tx, "contract_event_kind")
-        .or_else(|| tx_metadata_string(tx, "contract_entrypoint"))
-        .unwrap_or_else(|| "contract_call".to_owned());
-    let schema_version = tx_metadata_u64(tx, "contract_event_schema_version").unwrap_or(1);
-    let provenance =
-        tx_metadata_string(tx, "contract_event_provenance").unwrap_or_else(|| "derived".to_owned());
-    let module = tx_metadata_string(tx, "contract_module")
-        .unwrap_or_else(|| contract_event_module(contract_alias.as_deref(), &contract_address));
-    let fee_payment = tx_fee_projection(tx);
-    let (mut participants, mut asset_ids, numeric_fields) = payload
-        .as_ref()
-        .map(collect_contract_event_payload_fields)
-        .unwrap_or_else(|| (Vec::new(), Vec::new(), Map::new()));
-    if let Some(authority) = base.authority.as_ref() {
-        participants.push(authority.clone());
-    }
-    if let Some(intent) = fee_payment.as_ref() {
-        if let Some((program_id, _)) = intent.sponsor_program() {
-            participants.push(program_id.sponsor.to_string());
-        }
-        asset_ids.extend(
-            intent
-                .charge_limits()
-                .iter()
-                .map(|limit| limit.asset_definition_id.to_string()),
-        );
-    }
+    invocation: &iroha_data_model::transaction::executable::ContractInvocation,
+) -> bool {
+    let address = tx_metadata_string(tx, "contract_address").and_then(|address| {
+        address
+            .trim()
+            .parse::<iroha_data_model::smart_contract::ContractAddress>()
+            .ok()
+    });
+    let code_hash =
+        tx_metadata_string(tx, "contract_code_hash").and_then(|hash| hash.parse::<Hash>().ok());
+    let entrypoint = tx_metadata_string(tx, "contract_entrypoint");
+    address.as_ref() == Some(&invocation.contract_address)
+        && code_hash == Some(invocation.expected_code_hash)
+        && entrypoint.as_deref().map(str::trim) == Some(invocation.entrypoint.as_str())
+}
+/// Project one authenticated committed emission without resolving current code or aliases.
+fn contract_event_projection(
+    height: u64,
+    block_hash: HashOf<BlockHeader>,
+    timestamp_ms: u64,
+    output_index: u64,
+    emission_index: u64,
+    execution_hash: Hash,
+    emission: &iroha_data_model::smart_contract::event::ContractEmissionV1,
+    fee_payment: Option<iroha_data_model::transaction::FeePaymentIntent>,
+) -> Result<ContractEventProjection> {
+    let payload = ivm::value_record::render_entrypoint_return_record(&emission.definition.payload_type, &emission.payload)
+        .map_err(|error| conversion_error(format!("committed contract emission is malformed: {error}")))?;
+    let (mut participants, asset_ids, numeric_fields) = collect_contract_event_payload_fields(&payload);
+    participants.push(emission.caller.to_string());
     participants.sort();
     participants.dedup();
-    asset_ids.sort();
-    asset_ids.dedup();
-    Some(ContractEventProjection {
-        event_id: format!("{}:0", tx.entrypoint_hash()),
-        schema_version,
-        provenance,
-        authority: base.authority,
-        timestamp_ms: base.timestamp_ms,
-        tx_hash_hex: format!("{}", tx.entrypoint_hash()),
-        block_height: height as u64,
-        block_hash_hex: format!("{}", tx.block_hash()),
-        result_ok: base.result_ok,
-        contract_address,
-        contract_alias,
-        module,
-        event_kind,
+    Ok(ContractEventProjection {
+        event_id: format!("{block_hash}:{output_index}:{emission_index}"),
+        schema_version: CONTRACT_EVENT_SCHEMA_VERSION,
+        provenance: CONTRACT_EVENT_PROVENANCE.to_owned(),
+        authority: Some(emission.caller.to_string()),
+        timestamp_ms: Some(timestamp_ms),
+        execution_hash_hex: execution_hash.to_string(),
+        output_index,
+        emission_index,
+        emission: norito::json::to_value(emission).map_err(|error| conversion_error(error.to_string()))?,
+        block_height: height,
+        block_hash_hex: block_hash.to_string(),
+        result_ok: true,
+        contract_address: emission.contract.to_string(),
+        event_kind: emission.definition.name.to_string(),
         participants,
         asset_ids,
         numeric_fields,
-        payload,
+        payload: Some(payload),
         fee_payment,
     })
 }
 fn contract_event_projections_for_height_range(
     state: &CoreState, start_height: usize, end_height: usize, expected_end_hash: HashOf<BlockHeader>,
 ) -> Result<Vec<ContractEventProjection>> {
-    project_finalized_network_range(state, start_height, end_height, false, expected_end_hash, |height, tx| {
-        contract_event_projection_from_tx(height, tx).into_iter().collect()
-    })
+    if start_height == 0 || start_height > end_height { return Ok(Vec::new()); }
+    let end = u64::try_from(end_height).map_err(|_| history_capacity_error())?;
+    require_history_anchor(state, end, expected_end_hash)?;
+    let maximum = app_query_limits().max_fetch_size;
+    let mut budget = HistoryReadBudget::new();
+    let mut rows = Vec::new();
+    for height in start_height..=end_height {
+        let block = budget.read(state, NonZeroUsize::new(height).ok_or_else(history_capacity_error)?)?;
+        let timestamp_ms = u64::try_from(block.header().creation_time().as_millis()).map_err(|_| history_capacity_error())?;
+        for (output_index, output) in block.execution_outputs().iter().enumerate() {
+            let emissions = output.result().contract_events();
+            if emissions.is_empty() { continue; }
+            if output.result().as_ref().is_err() { return Err(conversion_error("rejected output retains contract emissions".into())); }
+            let count = rows.len().checked_add(emissions.len()).ok_or_else(history_capacity_error)?;
+            check_history_retention(count, maximum)?;
+            let execution_hash = output.execution_call_hash(block.hash(), &*block).map_err(conversion_error)?;
+            let fee_payment = match output {
+                iroha_data_model::block::execution_output::ExecutionOutputV1::Network(network) => {
+                    let entrypoint = block.network_entrypoint_at(network.input_index as usize)
+                        .ok_or_else(|| conversion_error("emission output lost its Network input".into()))?;
+                    let transaction = BorrowedNetworkTransaction { entrypoint, entrypoint_hash: entrypoint.hash(), result: &network.result, block_hash: block.hash() };
+                    tx_fee_projection(&transaction)
+                }
+                _ => None,
+            };
+            for (emission_index, emission) in emissions.iter().enumerate() {
+                rows.push(contract_event_projection(height as u64, block.hash(), timestamp_ms, output_index as u64, emission_index as u64, execution_hash, emission, fee_payment.clone())?);
+            }
+        }
+    }
+    require_history_anchor(state, end, expected_end_hash)?;
+    Ok(rows)
 }
 fn build_contract_event_index(
     state: &CoreState,
@@ -32467,16 +32325,6 @@ fn contract_event_candidate_positions<'a>(
             return empty;
         }
     }
-    if let Some(contract_alias) = params.contract_alias.as_deref() {
-        if let Some(empty) = consider(index.by_contract_alias.get(contract_alias)) {
-            return empty;
-        }
-    }
-    if let Some(module) = params.module.as_deref() {
-        if let Some(empty) = consider(index.by_module.get(module)) {
-            return empty;
-        }
-    }
     if let Some(event_kind) = params.event_kind.as_deref() {
         if let Some(empty) = consider(index.by_event_kind.get(event_kind)) {
             return empty;
@@ -32533,16 +32381,6 @@ fn contract_event_matches(
     }
     if let Some(expected) = params.contract_address.as_deref() {
         if projection.contract_address != expected {
-            return false;
-        }
-    }
-    if let Some(expected) = params.contract_alias.as_deref() {
-        if projection.contract_alias.as_deref() != Some(expected) {
-            return false;
-        }
-    }
-    if let Some(expected) = params.module.as_deref() {
-        if projection.module != expected {
             return false;
         }
     }
@@ -32776,15 +32614,6 @@ fn tx_metadata_string(
         value => norito::json::to_json(&value).ok(),
     }
 }
-fn tx_metadata_u64(tx: &impl HistoryTransaction, key: &str) -> Option<u64> {
-    match tx_metadata_json_value(tx, key)? {
-        norito::json::Value::Number(value) => value
-            .as_u64()
-            .or_else(|| value.as_i64().and_then(|v| u64::try_from(v).ok())),
-        norito::json::Value::String(value) => value.parse::<u64>().ok(),
-        _ => None,
-    }
-}
 fn append_asset_ids_from_instruction(
     out: &mut Vec<iroha_data_model::asset::AssetId>,
     instr: &iroha_data_model::isi::InstructionBox,
@@ -32793,7 +32622,7 @@ fn append_asset_ids_from_instruction(
         asset::AssetId,
         isi::{
             BurnBox, CustomInstruction, MintBox, RemoveAssetKeyValue, SetAssetKeyValue,
-            TransferAssetBatch, TransferBox, staking::RecordPublicLaneRewards,
+            TransferAssetBatch, TransferBox,
         },
     };
     use iroha_executor_data_model::isi::multisig::MultisigInstructionBox;
@@ -32844,10 +32673,6 @@ fn append_asset_ids_from_instruction(
         push_asset(out, remove.asset());
         return;
     }
-    if let Some(rewards) = any.downcast_ref::<RecordPublicLaneRewards>() {
-        push_asset(out, rewards.reward_asset());
-        return;
-    }
     if let Some(custom) = any.downcast_ref::<CustomInstruction>() {
         if let Ok(MultisigInstructionBox::Propose(propose)) =
             MultisigInstructionBox::try_from(custom.payload())
@@ -32866,7 +32691,7 @@ fn instruction_matches_asset_id(
         asset::AssetId,
         isi::{
             BurnBox, CustomInstruction, MintBox, RemoveAssetKeyValue, SetAssetKeyValue,
-            TransferAssetBatch, TransferBox, staking::RecordPublicLaneRewards,
+            TransferAssetBatch, TransferBox,
         },
     };
     use iroha_executor_data_model::isi::multisig::MultisigInstructionBox;
@@ -32904,9 +32729,6 @@ fn instruction_matches_asset_id(
     }
     if let Some(remove) = any.downcast_ref::<RemoveAssetKeyValue>() {
         return remove.asset() == expected;
-    }
-    if let Some(rewards) = any.downcast_ref::<RecordPublicLaneRewards>() {
-        return rewards.reward_asset() == expected;
     }
     if let Some(custom) = any.downcast_ref::<CustomInstruction>() {
         if let Ok(MultisigInstructionBox::Propose(propose)) =
@@ -33051,24 +32873,25 @@ fn project_tx(tx: &impl HistoryTransaction) -> TxProjection {
             .filter(|value| !value.is_empty()),
     }
 }
+/// Project one committed contract call into a contract-activity row; see
+/// [`bound_contract_call`] for which fields are trusted.
 fn contract_activity_projection_from_tx(
     height: usize,
     tx: &impl HistoryTransaction,
 ) -> Option<ContractActivityProjection> {
+    let call = bound_contract_call(tx)?;
     let base = project_tx(tx);
-    let contract_address = tx_metadata_string(tx, "contract_address")?;
-    let fee_payment = tx_fee_projection(tx);
     Some(ContractActivityProjection {
         authority: base.authority,
         timestamp_ms: base.timestamp_ms,
         entrypoint_hash: base.entrypoint_hash,
         block_height: height as u64,
         result_ok: base.result_ok,
-        contract_address,
-        contract_alias: tx_metadata_string(tx, "contract_alias"),
-        contract_entrypoint: tx_metadata_string(tx, "contract_entrypoint"),
-        contract_payload: tx_metadata_json_value(tx, "contract_payload"),
-        fee_payment,
+        contract_address: call.contract_address,
+        contract_alias: call.contract_alias,
+        contract_entrypoint: call.entrypoint,
+        contract_payload: call.payload,
+        fee_payment: tx_fee_projection(tx),
     })
 }
 fn tx_fee_projection(
@@ -33139,14 +32962,6 @@ pub const ENDPOINT_CONTRACTS_ROLLUPS_SWAPS_FILLS: &str = "/v1/contracts/rollups/
 pub const ENDPOINT_CONTRACTS_ROLLUPS_TRADER_ACTIVITY: &str =
     "/v1/contracts/rollups/trader/activity";
 pub const ENDPOINT_CONTRACTS_ROLLUPS_TRADER_ACCOUNT: &str = "/v1/contracts/rollups/trader/account";
-pub const ENDPOINT_CONTRACTS_ROLLUPS_INTENTS: &str = "/v1/contracts/rollups/intents";
-pub const ENDPOINT_CONTRACTS_ROLLUPS_VAULT_POSITIONS: &str =
-    "/v1/contracts/rollups/vaults/positions";
-pub const ENDPOINT_CONTRACTS_ROLLUPS_OPERATORS_STATUS: &str =
-    "/v1/contracts/rollups/operators/status";
-pub const ENDPOINT_CONTRACTS_ROLLUPS_MARGIN_HEALTH: &str = "/v1/contracts/rollups/margin/health";
-pub const ENDPOINT_CONTRACTS_ROLLUPS_RWA_LOTS: &str = "/v1/contracts/rollups/rwa/lots";
-pub const ENDPOINT_CONTRACTS_ROLLUPS_DLMM_HOOKS: &str = "/v1/contracts/rollups/dlmm/hooks";
 pub const ENDPOINT_CONTRACTS_ROLLUPS_URANAI_MARKETS_HISTORY: &str =
     "/v1/contracts/rollups/uranai/markets/history";
 pub(crate) const ENDPOINT_ACCOUNTS_PERMISSIONS: &str = "/v1/accounts/{account_id}/permissions";
@@ -33206,8 +33021,6 @@ pub struct PublicLaneRewardsQueryParams {
     /// Optional asset identifier filter.
     #[norito(default)]
     pub asset_id: Option<String>,
-    #[norito(default)]
-    pub upto_epoch: Option<u64>,
 }
 ( Debug, Default, Clone, crate::json_macros::JsonSerialize, crate::json_macros::JsonDeserialize, norito::derive::NoritoDeserialize,)
 pub struct NexusDataspacesAccountSummaryQueryParams {
@@ -33231,7 +33044,7 @@ pub fn parse_account_path_segment(
             Error::Query(iroha_data_model::ValidationFail::QueryFailed(
                 QueryExecutionFail::Conversion(format!(
                     "invalid account_id `{literal}`: {}",
-                    err.reason()
+                    err.code_str()
                 )),
             ))
         })
@@ -33242,15 +33055,16 @@ pub(crate) fn parse_account_literal_with_state(
     literal: &str,
     telemetry: &MaybeTelemetry,
     context: &'static str,
-) -> Result<(iroha_data_model::account::AccountId, String), iroha_model_base::error::ParseError> {
+) -> Result<
+    (iroha_data_model::account::AccountId, String),
+    iroha_data_model::account::AccountIdParseError,
+> {
     match AccountId::parse_encoded(literal) {
         Ok(account_id) => {
             let canonical = account_id.to_string();
             if literal != canonical {
-                let err = iroha_model_base::error::ParseError::new(
-                    "account id must use its exact canonical I105 literal",
-                );
-                record_account_literal_reject(telemetry, context, err.reason());
+                let err = iroha_data_model::account::AccountIdParseError::InvalidFormat;
+                record_account_literal_reject(telemetry, context, err.code_str());
                 return Err(err);
             }
             Ok((account_id, canonical))
@@ -33260,7 +33074,7 @@ pub(crate) fn parse_account_literal_with_state(
             // permissioned operation and must use a caller-aware path that verifies the exact
             // applicable domain or dataspace `CanResolveAccountAlias` grant before consulting
             // active SNS state.
-            record_account_literal_reject(telemetry, context, base_err.reason());
+            record_account_literal_reject(telemetry, context, base_err.code_str());
             Err(base_err)
         }
     }
@@ -33275,7 +33089,7 @@ pub(crate) fn parse_account_path_segment_with_state(
     use iroha_data_model::{ValidationFail, query::error::QueryExecutionFail};
     parse_account_literal_with_state(state, literal, telemetry, endpoint).map_err(|err| {
         Error::Query(ValidationFail::QueryFailed(QueryExecutionFail::Conversion(
-            format!("invalid account_id `{literal}`: {}", err.reason()),
+            format!("invalid account_id `{literal}`: {}", err.code_str()),
         )))
     })
 }
@@ -33318,7 +33132,7 @@ fn canonicalize_account_literal_value(
                 Err(err) => Err(Error::Query(ValidationFail::QueryFailed(
                     QueryExecutionFail::Conversion(format!(
                         "invalid account filter literal `{current_literal}`: {}",
-                        err.reason()
+                        err.code_str()
                     )),
                 ))),
             }
@@ -33412,7 +33226,7 @@ fn canonicalize_query_account_literal(
             };
             canonical.map_err(|err| {
                 Error::Query(ValidationFail::QueryFailed(QueryExecutionFail::Conversion(
-                    format!("invalid `{label}` literal `{raw}`: {}", err.reason()),
+                    format!("invalid `{label}` literal `{raw}`: {}", err.code_str()),
                 )))
             })
         })
@@ -33423,11 +33237,11 @@ pub fn parse_account_literal(
     literal: &str,
     telemetry: &MaybeTelemetry,
     context: &'static str,
-) -> Result<AccountId, iroha_model_base::error::ParseError> {
+) -> Result<AccountId, iroha_data_model::account::AccountIdParseError> {
     match AccountId::parse_encoded(literal) {
         Ok(parsed) => Ok(parsed),
         Err(err) => {
-            record_account_literal_reject(telemetry, context, err.reason());
+            record_account_literal_reject(telemetry, context, err.code_str());
             Err(err)
         }
     }
@@ -33463,7 +33277,7 @@ mod address_metrics_tests {
         let metrics = telemetry.metrics().await;
         let reason = iroha_data_model::account::AccountId::parse_encoded(NONCANONICAL_LITERAL)
             .expect_err("domain-suffixed literal should fail")
-            .reason();
+            .code_str();
         let invalid_counter = metrics
             .torii_address_invalid_total
             .with_label_values(&[TEST_CONTEXT, reason]);
@@ -33519,7 +33333,7 @@ mod address_metrics_tests {
         let literal = "sorainvalid@kaigi";
         let reason = AccountId::parse_encoded(literal)
             .expect_err("literal must fail")
-            .reason();
+            .code_str();
         let before = metrics
             .torii_address_invalid_total
             .with_label_values(&[KAIGI_SSE_CONTEXT, reason])
@@ -33551,7 +33365,7 @@ mod account_path_metric_tests {
         let literal = "bad@banka.dataspace";
         let reason = AccountId::parse_encoded(literal)
             .expect_err("literal must be rejected")
-            .reason();
+            .code_str();
         let before = {
             let metrics = telemetry.metrics().await;
             metrics
@@ -33716,6 +33530,24 @@ impl HistoryVisibilityReads {
                 false
             }
         }
+    }
+    fn allows_contract_event(&self, visibility: &DataspaceReadVisibility, projection: &ContractEventProjection) -> bool {
+        let mut reads = self.reads.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if reads.error.is_some() { return false; }
+        let result = (|| -> Result<bool> {
+            if projection.block_height == 0 || projection.block_height > self.height {
+                return Err(conversion_error("event visibility source exceeds its captured prefix".into()));
+            }
+            let height = usize::try_from(projection.block_height).ok().and_then(NonZeroUsize::new)
+                .ok_or_else(|| conversion_error("event visibility height exceeds host range".into()))?;
+            if reads.block.as_ref().is_none_or(|(cached_height, _)| *cached_height != height.get()) {
+                let block = reads.budget.read(&self.state, height)?;
+                reads.block = Some((height.get(), block));
+            }
+            let (_, block) = reads.block.as_ref().expect("retained authenticated carrier");
+            native_contract_emission_is_visible_in_block(visibility, projection, block)
+        })();
+        match result { Ok(allowed) => allowed, Err(error) => { reads.error = Some(error); false } }
     }
     fn refuse(&self, message: &str) -> bool {
         let mut reads = self
@@ -34330,7 +34162,7 @@ mod tx_query_filter_tests {
     use super::*;
     use iroha_crypto::{Hash, HashOf as GenericHashOf, KeyPair};
     use iroha_data_model::isi::{
-        RemoveAssetKeyValue, SetAssetKeyValue, staking::RecordPublicLaneRewards,
+        RemoveAssetKeyValue, SetAssetKeyValue,
     };
     use iroha_data_model::prelude as dm;
     use iroha_executor_data_model::isi::multisig::{MultisigCancel, MultisigPropose};
@@ -34791,22 +34623,6 @@ mod tx_query_filter_tests {
         let (bob, _) = account_with_key();
         let remove = dm::RemoveKeyValue::account(alice.clone(), "key".parse().unwrap());
         let instruction: dm::InstructionBox = remove.into();
-        assert!(instruction_matches_account_id(&instruction, &alice));
-        assert!(!instruction_matches_account_id(&instruction, &bob));
-    }
-    routing_test! { sync instruction_matches_account_id_matches_public_lane_rewards_asset_account
-        let (alice, _) = account_with_key();
-        let (bob, _) = account_with_key();
-        let reward_asset = dm::AssetId::new(test_asset_definition_id(), alice.clone());
-        let rewards = RecordPublicLaneRewards {
-            lane_id: iroha_model_base::topology::LaneId::SINGLE,
-            epoch: 1,
-            reward_asset,
-            total_reward: 1_u32.into(),
-            shares: Vec::new(),
-            metadata: iroha_model_base::metadata::Metadata::default(),
-        };
-        let instruction: dm::InstructionBox = rewards.into();
         assert!(instruction_matches_account_id(&instruction, &alice));
         assert!(!instruction_matches_account_id(&instruction, &bob));
     }
@@ -36597,6 +36413,124 @@ mod explorer_lookup_tests {
         (state, public_dataspace, definition_id)
     }
 
+    routing_test! { async global_asset_collection_keeps_exact_holder_and_immutable_home_visibility
+        let (owner, _) = checked_explorer_lookup_account(0x35, "global balance collection owner");
+        let (other, _) = checked_explorer_lookup_account(0x36, "other global balance holder");
+        let private_home = DomainId::try_new("cash", "restricted").expect("private home");
+        let global: AssetDefinitionId = "6TEAJqbb8oEPmLncoNiMRbLEK6tw".parse().expect("global XOR");
+        let private = AssetDefinitionId::derive_from_components(private_home.clone(), "private".parse().unwrap());
+        let unknown = AssetDefinitionId::derive_from_components(private_home.clone(), "absent".parse().unwrap());
+        let definition = |id, name, home| dm::AssetDefinition::numeric(
+            id, name, iroha_data_model::asset::AssetBalancePolicy::Global, home,
+        ).build(&owner);
+        let mut world = World::with_assets(
+            [dm::Domain::new(private_home.clone()).build(&owner)],
+            [dm::Account::new(owner.clone()).build(&owner), dm::Account::new(other.clone()).build(&other)],
+            [definition(global.clone(), "XOR", None), definition(private.clone(), "Private", Some(private_home))],
+            [
+                dm::Asset::new(dm::AssetId::new(global.clone(), owner.clone()), iroha_primitives::numeric::Quantity::from(10_u32)),
+                dm::Asset::new(dm::AssetId::new(global.clone(), other.clone()), iroha_primitives::numeric::Quantity::from(99_u32)),
+                dm::Asset::new(dm::AssetId::new(private.clone(), owner.clone()), iroha_primitives::numeric::Quantity::from(7_u32)),
+            ],
+            [],
+        );
+        crate::test_utils::bind_fixture_root(&mut world, iroha_data_model::block::consensus::SumeragiRootScope::Global);
+        let private_dataspace = DataSpaceId::new(7);
+        let catalog = DataSpaceCatalog::new(vec![
+            iroha_data_model::nexus::DataSpaceMetadata::default(),
+            iroha_data_model::nexus::DataSpaceMetadata {
+                id: private_dataspace, alias: "restricted".to_owned(), description: None, fault_tolerance: 1,
+            },
+        ]).expect("global and private catalog");
+        let state = Arc::new(State::new_with_pre_genesis_nexus_for_testing(
+            world,
+            iroha_config::parameters::actual::Nexus { dataspace_catalog: catalog, ..Default::default() },
+            LiveQueryStore::start_test(),
+        ));
+        let visibility = DataspaceReadVisibility::exact_account(BTreeSet::from([DataSpaceId::UNIVERSAL]), owner.clone());
+        {
+            let world = state.world_view();
+            assert!(world.asset_definitions().get(&global).unwrap().alias().is_none());
+            assert!(visibility.allows_asset_definition(&world, &global), "global home does not require an alias or domain binding");
+            assert!(!visibility.allows_asset_definition(&world, &private), "a global balance policy does not reveal a private definition home");
+            assert!(!visibility.allows_asset_definition(&world, &unknown));
+            assert!(!visibility.allows_asset(&world, &dm::AssetId::new(global.clone(), other)), "an exact holder read must not expose another holder");
+            let private_only = DataspaceReadVisibility::new(BTreeSet::from([private_dataspace]), false);
+            assert!(!private_only.allows_asset_definition(&world, &global));
+            assert!(private_only.allows_asset_definition(&world, &private));
+        }
+        let page = collection_sources::execute_collection_local(
+            None,
+            &state,
+            &collection_sources::CollectionTarget::AccountAssets(owner.to_string()),
+            iroha_torii_shared::list_query::ListQuery::new(),
+            &MaybeTelemetry::for_tests(),
+            &visibility,
+        ).await.expect("exact holder global balance collection");
+        assert_eq!(page.items.len(), 1, "global balance appears without private-home or other-holder balances");
+        assert_eq!(page.items[0]["asset"].as_str(), Some(global.to_string().as_str()));
+        assert_eq!(page.items[0]["account_id"].as_str(), Some(owner.to_string().as_str()));
+        assert_eq!(page.items[0]["scope"].as_str(), Some("global"));
+        assert_eq!(page.items[0]["quantity"].as_str(), Some("10"));
+    }
+
+    routing_test! { sync direct_dataspace_definition_visibility_uses_immutable_home
+        let (owner, _) = checked_explorer_lookup_account(0x33, "direct definition visibility owner");
+        let home = DataSpaceId::new(8_648_377_547_929_788_715);
+        let other = DataSpaceId::new(8);
+        let definition_id = AssetDefinitionId::derive_from_components(
+            DomainId::try_new("cash", "public").expect("id seed"),
+            "kina".parse().expect("name"),
+        );
+        let mut definition = dm::AssetDefinition::numeric(
+            definition_id.clone(), "Kina", iroha_data_model::asset::AssetBalancePolicy::DataspaceRestricted, None,
+        ).build(&owner);
+        definition.alias = Some("kina#public".parse().expect("non-authoritative alias"));
+        let mut world = World::default();
+        world
+            .insert_direct_asset_definition_with_assets_for_testing(definition, home, [])
+            .expect("direct home fixture");
+        let view = world.view();
+        assert!(DataspaceReadVisibility::new(BTreeSet::from([home]), false).allows_asset_definition(&view, &definition_id));
+        assert!(!DataspaceReadVisibility::new(BTreeSet::from([other, DataSpaceId::UNIVERSAL]), false).allows_asset_definition(&view, &definition_id));
+    }
+
+    routing_test! { sync direct_definition_asset_visibility_requires_home_holder_and_bucket
+        let (owner, _) = checked_explorer_lookup_account(0x34, "direct balance visibility owner");
+        let home = DataSpaceId::new(7);
+        let bucket = DataSpaceId::new(8);
+        let definition_id = AssetDefinitionId::derive_from_components(
+            DomainId::try_new("cash", "universal").expect("id seed"), "kina".parse().expect("name"),
+        );
+        let definition = dm::AssetDefinition::numeric(
+            definition_id.clone(), "Kina", iroha_data_model::asset::AssetBalancePolicy::DataspaceRestricted, None,
+        ).build(&owner);
+        let account = dm::Account::new(owner.clone()).build(&owner);
+        let asset_id = dm::AssetId::with_scope(definition_id.clone(), owner.clone(), iroha_data_model::asset::AssetBalanceScope::Dataspace(bucket));
+        let asset = dm::Asset::new(asset_id.clone(), iroha_primitives::numeric::Quantity::from(1_u32));
+        let mut world = World::with([], [account], []);
+        world
+            .insert_direct_asset_definition_with_assets_for_testing(definition, home, [asset])
+            .expect("direct home fixture");
+        crate::test_utils::bind_fixture_root(&mut world, iroha_data_model::block::consensus::SumeragiRootScope::Global);
+        let catalog = DataSpaceCatalog::new(vec![
+            iroha_data_model::nexus::DataSpaceMetadata::default(),
+            iroha_data_model::nexus::DataSpaceMetadata { id: home, alias: "home".to_owned(), description: None, fault_tolerance: 1 },
+            iroha_data_model::nexus::DataSpaceMetadata { id: bucket, alias: "bucket".to_owned(), description: None, fault_tolerance: 1 },
+        ]).expect("catalog");
+        let state = Arc::new(State::new_with_pre_genesis_nexus_for_testing(
+            world,
+            iroha_config::parameters::actual::Nexus { dataspace_catalog: catalog, ..Default::default() },
+            LiveQueryStore::start_test(),
+        ));
+        bind_account_alias_for_test(&state, &owner, "holder@universal");
+        let world = state.world_view();
+        for partial in [BTreeSet::from([home, bucket]), BTreeSet::from([home, DataSpaceId::UNIVERSAL]), BTreeSet::from([bucket, DataSpaceId::UNIVERSAL])] {
+            assert!(!DataspaceReadVisibility::new(partial, false).allows_asset(&world, &asset_id));
+        }
+        assert!(DataspaceReadVisibility::new(BTreeSet::from([home, bucket, DataSpaceId::UNIVERSAL]), false).allows_asset(&world, &asset_id));
+    }
+
     routing_test! { sync account_metadata_requires_every_bound_dataspace
         let (state, account_id, public_dataspace, restricted_dataspace) =
             mixed_binding_account_visibility_fixture();
@@ -37964,6 +37898,166 @@ mod explorer_lookup_tests {
             "invalid instruction index should return not found"
         );
     }
+
+    #[cfg(feature = "telemetry")]
+    #[tokio::test]
+    async fn telemetry_live_polls_owned_history_after_handler_and_releases_each_snapshot() {
+        use iroha_data_model::events::pipeline::{BlockEvent, BlockStatus};
+
+        let instruction: dm::InstructionBox =
+            dm::Log::new(dm::Level::INFO, "telemetry".to_owned()).into();
+        let (chain, _) = build_chain_with_executables_and_route_plans(
+            vec![dm::Executable::from(vec![instruction])],
+            None,
+            None,
+        );
+        let source = Arc::clone(chain.state());
+        let height = source.committed_height() as u64;
+        assert!(height > 0);
+        let header = crate::history_producer::HistoryProducerOwner::for_test().scope(|| {
+            HistoryReadBudget::new()
+                .read(&source, nonzero_height(height).unwrap())
+                .unwrap()
+                .header()
+                .clone()
+        });
+        let mut app = crate::mk_app_state_for_tests();
+        let working = 48_000_000_usize;
+        let app_mut = Arc::get_mut(&mut app).expect("new test application is uniquely owned");
+        app_mut.query_fanout_working_set_bytes = working;
+        app_mut.query_fanout_inflight = crate::ByteWeightedMemoryPool::new(working).unwrap();
+        let telemetry = MaybeTelemetry::for_tests();
+        let events: EventsSender = tokio::sync::broadcast::channel(4).0;
+        let response = handle_v1_telemetry_live(
+            source,
+            telemetry.clone(),
+            app.peer_telemetry.clone(),
+            events.clone(),
+            app.clone(),
+        )
+        .unwrap()
+        .into_response();
+        assert!(crate::history_producer::HistoryProducerOwner::current().is_err());
+        let mut body = response.into_body();
+        let first = next_sse_chunk(&mut body).await;
+        assert!(first.starts_with("data: "), "{first}");
+        let payload: norito::json::Value =
+            norito::json::from_str(first.trim_start_matches("data: ").trim()).unwrap();
+        assert_eq!(payload["kind"].as_str(), Some("first"));
+        assert_eq!(payload["network_status"]["block"].as_u64(), Some(height));
+        assert!(!payload["network_status"]["block_created_at"].is_null());
+        assert!(
+            app.query_fanout_inflight
+                .try_acquire_parts([working as u64])
+                .is_some(),
+            "completed scalar snapshot must release its native history backing"
+        );
+        assert!(crate::history_producer::HistoryProducerOwner::current().is_err());
+
+        // The initially due interval tick executes after bootstrap, outside the
+        // handler's task-local scope, and must emit a real changed metric.
+        telemetry
+            .metrics()
+            .await
+            .txs
+            .with_label_values(&["accepted"])
+            .inc();
+        let tick = next_sse_chunk(&mut body).await;
+        assert!(tick.starts_with("data: "), "{tick}");
+        let payload: norito::json::Value =
+            norito::json::from_str(tick.trim_start_matches("data: ").trim()).unwrap();
+        assert_eq!(payload["kind"].as_str(), Some("network_status"));
+        assert_eq!(payload["transactions_accepted"].as_u64(), Some(1));
+
+        telemetry
+            .metrics()
+            .await
+            .txs
+            .with_label_values(&["accepted"])
+            .inc();
+        events
+            .send(
+                BlockEvent {
+                    header,
+                    status: BlockStatus::Committed,
+                }
+                .into(),
+            )
+            .unwrap();
+        let delta = next_sse_chunk(&mut body).await;
+        assert!(delta.starts_with("data: "), "{delta}");
+        let payload: norito::json::Value =
+            norito::json::from_str(delta.trim_start_matches("data: ").trim()).unwrap();
+        assert_eq!(payload["kind"].as_str(), Some("network_status"));
+        assert_eq!(payload["transactions_accepted"].as_u64(), Some(2));
+        assert!(
+            app.query_fanout_inflight
+                .try_acquire_parts([working as u64])
+                .is_some()
+        );
+        assert!(crate::history_producer::HistoryProducerOwner::current().is_err());
+        let retained_app = Arc::downgrade(&app);
+        drop(app);
+        assert!(
+            retained_app.upgrade().is_some(),
+            "deferred stream retains acquisition authority"
+        );
+        drop(body);
+        assert!(
+            retained_app.upgrade().is_none(),
+            "stream drop releases acquisition authority"
+        );
+    }
+
+    #[cfg(feature = "telemetry")]
+    #[tokio::test]
+    async fn telemetry_live_refuses_exhausted_history_pool_without_bypassing_admission() {
+        let instruction: dm::InstructionBox =
+            dm::Log::new(dm::Level::INFO, "telemetry capacity".to_owned()).into();
+        let (chain, _) = build_chain_with_executables_and_route_plans(
+            vec![dm::Executable::from(vec![instruction])],
+            None,
+            None,
+        );
+        let mut app = crate::mk_app_state_for_tests();
+        let working = 48_000_000_usize;
+        let app_mut = Arc::get_mut(&mut app).expect("new test application is uniquely owned");
+        app_mut.query_fanout_working_set_bytes = working;
+        app_mut.query_fanout_inflight = crate::ByteWeightedMemoryPool::new(working).unwrap();
+        let occupied = app
+            .query_fanout_inflight
+            .try_acquire_parts([working as u64])
+            .unwrap();
+        let response = handle_v1_telemetry_live(
+            Arc::clone(chain.state()),
+            MaybeTelemetry::for_tests(),
+            app.peer_telemetry.clone(),
+            app.events.clone(),
+            app.clone(),
+        )
+        .unwrap()
+        .into_response();
+        let mut body = response.into_body();
+        let refused = next_sse_chunk(&mut body).await;
+        assert!(
+            refused.starts_with(':') && refused.contains("error"),
+            "{refused}"
+        );
+        assert!(!refused.contains("data:"));
+        assert!(
+            app.query_fanout_inflight
+                .try_acquire_parts([working as u64])
+                .is_none()
+        );
+        assert!(crate::history_producer::HistoryProducerOwner::current().is_err());
+        drop(body);
+        drop(occupied);
+        assert!(
+            app.query_fanout_inflight
+                .try_acquire_parts([working as u64])
+                .is_some()
+        );
+    }
     routing_test! { async explorer_sse_lag_is_machine_readable_and_terminal
         let instruction: dm::InstructionBox = dm::Log::new(dm::Level::INFO, "initial".to_owned()).into();
         let (mut chain, _) = build_chain_with_executables_and_route_plans(
@@ -38344,7 +38438,7 @@ mod query_endpoint_tests {
         );
         let req = http::Request::builder()
             .method("GET")
-            .uri("/v1/proofs/halo2/ipa:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            .uri("/v1/proofs/pipa-r/pasta:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
             .body(axum::body::Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
@@ -38374,19 +38468,15 @@ mod query_endpoint_tests {
         let (mut block, recording) = iroha_core::block::ValidBlock::start_component_execution(&source, &state)
             .expect("original proof component execution");
         let mut stx = block.transaction();
-        use iroha_core_zk::test_utils::halo2_fixture_envelope;
+        use iroha_core_zk::test_utils::native_framing_fixture_envelope;
         use iroha_data_model::proof;
-        // Avoid importing iroha_schema here to keep dev-deps minimal in this crate's tests.
-        type Ident = String;
-        let backend: Ident = "halo2/ipa".into();
-        let circuit_id = "tiny-add-public";
-        let envelope_circuit_id = "halo2/ipa:tiny-add-public";
-        let seed_fixture = halo2_fixture_envelope(envelope_circuit_id, [0; 32]);
-        let vk_box = seed_fixture
-            .vk_box(backend.clone())
-            .unwrap_or_else(|| proof::VerifyingKeyBox::new(backend.clone(), vec![0xAA, 0xBB]));
+        let backend = "pipa-r/pasta".to_owned();
+        let circuit_id = iroha_core_zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID;
+        let vk_box = iroha_core_zk::confidential_v2::confidential_transfer_v2_vk_box()
+            .expect("compiled native transfer key");
         let vk_commitment = iroha_core_zk::hash_vk(&vk_box);
-        let fixture = halo2_fixture_envelope(envelope_circuit_id, vk_commitment);
+        // Framing-only transcript is rejected by the real verifier and recorded.
+        let fixture = native_framing_fixture_envelope(circuit_id, vk_commitment);
         let proof = fixture.proof_box(backend.clone());
         let vk_id = proof::VerifyingKeyId::new(backend.clone(), "torii_proof_smoke_vk");
         let mut vk_record = proof::VerifyingKeyRecord::new_with_owner(
@@ -38394,14 +38484,14 @@ mod query_endpoint_tests {
             circuit_id,
             None,
             "test",
-            iroha_data_model::zk::BackendTag::Halo2IpaPasta,
-            "pallas",
+            iroha_data_model::zk::BackendTag::NativePipaRPasta,
+            "vesta",
             fixture.schema_hash,
             vk_commitment,
         );
         vk_record.vk_len = u32::try_from(vk_box.bytes.len()).expect("fixture vk length fits");
         vk_record.max_proof_bytes = 1024 * 1024;
-        vk_record.gas_schedule_id = Some("halo2_default".into());
+        vk_record.gas_schedule_id = Some("native_pipa_r_default".into());
         vk_record.status = iroha_data_model::confidential::ConfidentialStatus::Active;
         vk_record.key = Some(vk_box);
         stx.world
@@ -38444,7 +38534,7 @@ mod query_endpoint_tests {
         let rec = resp.0;
         assert!(matches!(
             rec.status,
-            proof::ProofStatus::Verified | proof::ProofStatus::Rejected
+            proof::ProofStatus::Rejected
         ));
         assert_eq!(rec.id.proof_hash, arr);
     }
@@ -38458,17 +38548,13 @@ pub struct ContractEventsSseParams {
     pub authority: Option<String>,
     /// Filter by contract address.
     pub contract_address: Option<String>,
-    /// Filter by deployed contract alias.
-    pub contract_alias: Option<String>,
-    /// Filter by derived module identifier.
-    pub module: Option<String>,
     /// Filter by event kind.
     pub event_kind: Option<String>,
     /// Filter by participant account/account-alias-like references.
     pub participant: Option<String>,
     /// Filter by asset identifier references.
     pub asset_id: Option<String>,
-    /// Filter by event provenance.
+    /// Filter by event provenance; only `emitted` matches.
     pub provenance: Option<String>,
     /// Filter items whose timestamp is greater than or equal to this value.
     pub since_timestamp_ms: Option<u64>,
@@ -38491,8 +38577,6 @@ fn contract_event_query_from_sse_params(
         offset: 0,
         authority: params.authority.clone(),
         contract_address: params.contract_address.clone(),
-        contract_alias: params.contract_alias.clone(),
-        module: params.module.clone(),
         event_kind: params.event_kind.clone(),
         participant: params.participant.clone(),
         asset_id: params.asset_id.clone(),
@@ -38579,7 +38663,7 @@ pub fn stream_resume_unsupported_response() -> Response {
         .insert(crate::ReviewedProtocolNativeError::StreamResumeUnsupported);
     response
 }
-/// GET /v1/contracts/events/sse – Server-Sent Events stream of generic contract events.
+/// GET /v1/contracts/events/sse – Server-Sent Events stream of committed native contract emissions.
 pub fn handle_v1_contracts_events_sse(
     events: EventsSender,
     state: Arc<CoreState>,
@@ -38755,12 +38839,48 @@ fn contract_event_projection_is_visible(
     visibility: &DataspaceReadVisibility,
     projection: &ContractEventProjection,
 ) -> bool {
-    committed_entrypoint_is_visible(
-        reads,
-        visibility,
-        projection.block_height,
-        &projection.tx_hash_hex,
-    )
+    reads.allows_contract_event(visibility, projection)
+}
+// Emitting contracts preserve the authenticated private root scope. Network-sourced
+// callbacks additionally retain their immutable input route; Time and BlockApproved
+// events are public source facts. No current trigger or alias lookup belongs here.
+fn native_contract_emission_source_is_visible(
+    visibility: &DataspaceReadVisibility,
+    block: &SignedBlock,
+    output: &iroha_data_model::block::execution_output::ExecutionOutputV1,
+    emission: &iroha_data_model::smart_contract::event::ContractEmissionV1,
+) -> bool {
+    use iroha_data_model::block::execution_output::{ExecutionOutputV1, PipelineEventPositionV1};
+    if !emission.contract.dataspace_id().is_ok_and(|id| visibility.allows_dataspace(id)) { return false; }
+    match output {
+        ExecutionOutputV1::Network(source) => visibility.allows_external_entrypoint(block, source.input_index as usize),
+        ExecutionOutputV1::Pipeline(source) => match source.invocation.event {
+            PipelineEventPositionV1::Network(index) => visibility.allows_external_entrypoint(block, index as usize),
+            PipelineEventPositionV1::BlockApproved => true,
+        },
+        ExecutionOutputV1::Time(_) => true,
+    }
+}
+fn native_contract_emission_is_visible_in_block(
+    visibility: &DataspaceReadVisibility,
+    projection: &ContractEventProjection,
+    block: &SignedBlock,
+) -> Result<bool> {
+    if block.header().height().get() != projection.block_height || block.hash().to_string() != projection.block_hash_hex {
+        return Err(conversion_error("event carrier differs from the projected source".into()));
+    }
+    let output = usize::try_from(projection.output_index).ok().and_then(|index| block.execution_outputs().get(index))
+        .ok_or_else(|| conversion_error("event output coordinate is absent".into()))?;
+    let emission = usize::try_from(projection.emission_index).ok().and_then(|index| output.result().contract_events().as_slice().get(index))
+        .ok_or_else(|| conversion_error("event emission coordinate is absent".into()))?;
+    let hash = output.execution_call_hash(block.hash(), block).map_err(conversion_error)?;
+    if output.result().as_ref().is_err() || hash.to_string() != projection.execution_hash_hex
+        || emission.contract.to_string() != projection.contract_address
+        || emission.definition.name.as_ref() != projection.event_kind
+        || norito::json::to_value(emission).map_err(|error| conversion_error(error.to_string()))? != projection.emission {
+        return Err(conversion_error("event projection differs from its authenticated output".into()));
+    }
+    Ok(native_contract_emission_source_is_visible(visibility, block, output, emission))
 }
 /// GET /v1/events/sse – Server-Sent Events stream of JSON events.
 ///
@@ -39300,9 +39420,11 @@ struct TelemetryLiveState {
     rx: tokio::sync::broadcast::Receiver<EventBox>,
     ticker: tokio::time::Interval,
     state: Arc<CoreState>,
-    kura: Arc<Kura>,
     telemetry: MaybeTelemetry,
     peer_telemetry: Arc<crate::telemetry::peers::PeerTelemetryService>,
+    // Retain acquisition authority across deferred body polls, not one cumulative
+    // producer budget for an unbounded stream. Each snapshot admits its own read.
+    history_app: crate::SharedAppState,
     pending: VecDeque<SseEvent>,
     bootstrap_pending: bool,
     prev_peers_info: BTreeMap<String, String>,
@@ -39314,10 +39436,10 @@ struct TelemetryLiveState {
 /// GET `/v1/telemetry/live` — SSE stream with peer and network telemetry deltas.
 pub fn handle_v1_telemetry_live(
     state: Arc<CoreState>,
-    kura: Arc<Kura>,
     telemetry: MaybeTelemetry,
     peer_telemetry: Arc<crate::telemetry::peers::PeerTelemetryService>,
     events: EventsSender,
+    history_app: crate::SharedAppState,
 ) -> Result<Sse<impl futures::Stream<Item = Result<SseEvent, Infallible>>>, Error> {
     if !telemetry.allows_metrics() {
         return Err(Error::telemetry_profile_forbidden(
@@ -39332,9 +39454,9 @@ pub fn handle_v1_telemetry_live(
             rx: events.subscribe(),
             ticker,
             state,
-            kura,
             telemetry,
             peer_telemetry,
+            history_app,
             pending: VecDeque::new(),
             bootstrap_pending: true,
             prev_peers_info: BTreeMap::new(),
@@ -39351,9 +39473,9 @@ pub fn handle_v1_telemetry_live(
                 if state.bootstrap_pending {
                     match collect_telemetry_live_snapshot(
                         state.state.clone(),
-                        state.kura.clone(),
                         state.telemetry.clone(),
                         state.peer_telemetry.clone(),
+                        &state.history_app,
                     )
                     .await
                     {
@@ -39378,9 +39500,9 @@ pub fn handle_v1_telemetry_live(
                     _ = state.ticker.tick() => {
                         match collect_telemetry_live_snapshot(
                             state.state.clone(),
-                            state.kura.clone(),
                             state.telemetry.clone(),
                             state.peer_telemetry.clone(),
+                            &state.history_app,
                         ).await {
                             Ok(snapshot) => enqueue_telemetry_deltas(&mut state, snapshot),
                             Err(error) => {
@@ -39396,10 +39518,10 @@ pub fn handle_v1_telemetry_live(
                         match recv {
                             Ok(event_box) => {
                                 if committed_block_height(&event_box).is_some() {
-                                    match explorer_network_metrics_snapshot(
+                                    match telemetry_live_network_metrics_snapshot(
                                         state.state.clone(),
-                                        state.kura.clone(),
                                         &state.telemetry,
+                                        &state.history_app,
                                     ).await {
                                         Ok(network) => enqueue_telemetry_network_delta(&mut state, network),
                                         Err(error) => {
@@ -39432,12 +39554,13 @@ pub fn handle_v1_telemetry_live(
 #[cfg(all(feature = "app_api", feature = "telemetry"))]
 async fn collect_telemetry_live_snapshot(
     state: Arc<CoreState>,
-    kura: Arc<Kura>,
     telemetry: MaybeTelemetry,
     peer_telemetry: Arc<crate::telemetry::peers::PeerTelemetryService>,
+    history_app: &crate::SharedAppState,
 ) -> Result<TelemetryLiveSnapshot, Error> {
     let peer_snapshot = peer_telemetry.snapshot().await;
-    let network_status = explorer_network_metrics_snapshot(state, kura, &telemetry).await?;
+    let network_status =
+        telemetry_live_network_metrics_snapshot(state, &telemetry, history_app).await?;
     Ok(TelemetryLiveSnapshot {
         peers_info: peer_snapshot.peers_info,
         peers_status: peer_snapshot.peers_status,
@@ -39445,6 +39568,20 @@ async fn collect_telemetry_live_snapshot(
         network_status,
     })
 }
+#[cfg(all(feature = "app_api", feature = "telemetry"))]
+async fn telemetry_live_network_metrics_snapshot(
+    state: Arc<CoreState>,
+    telemetry: &MaybeTelemetry,
+    app: &crate::SharedAppState,
+) -> Result<crate::explorer::ExplorerNetworkMetricsDto, Error> {
+    let reservation = crate::try_acquire_new_query_fanout_memory(app)
+        .map_err(|_| crate::native_projection_response::capacity())?;
+    let owner = crate::history_producer::HistoryProducerOwner::from_reservation(&reservation)?;
+    // Only copied metric scalars escape this read; no canonical block backing is
+    // retained in the SSE queue. Keep the real owner until the read completes.
+    explorer_network_metrics_snapshot(state, telemetry, &owner).await
+}
+
 #[cfg(all(feature = "app_api", feature = "telemetry"))]
 fn enqueue_telemetry_bootstrap(state: &mut TelemetryLiveState, snapshot: TelemetryLiveSnapshot) {
     let mut peers_info = BTreeMap::new();
@@ -40806,6 +40943,11 @@ pub fn event_to_json_value(ev: &iroha_data_model::events::EventBox) -> norito::j
                     "rejection_reason".into(),
                     Value::from(crate::pipeline_rejection_summary(reason)),
                 );
+                if let iroha_data_model::transaction::error::TransactionRejectionReason::Validation(
+                    iroha_data_model::ValidationFail::IvmFault(fault)
+                ) = reason {
+                    m.insert("fault".into(), norito::json!(fault));
+                }
             }
             Value::Object(m)
         }
@@ -41021,6 +41163,7 @@ fn data_event_kind(event: &iroha_data_model::events::data::DataEvent) -> &'stati
         E::Bridge(_) => "Bridge",
         E::GameSession(_) => "GameSession",
         E::Sccp(_) => "Sccp",
+        E::KagemushaLoadCommitted(_) => "KagemushaLoadCommitted",
     }
 }
 app_api_items! {
@@ -41495,11 +41638,11 @@ mod sse_filter_validation_tests {
     routing_test! { sync sse_filter_accepts_proof_only_filter
         let expr = FilterExpr::Eq(
             FieldPath("proof_backend".into()),
-            norito::json::Value::String("halo2/ipa".into()),
+            norito::json::Value::String("pipa-r/pasta".into()),
         );
         let spec = parse_sse_filters(&expr).expect("proof-only filter should parse");
         assert!(spec.filters.is_none());
-        assert_eq!(spec.proof_backend.unwrap(), vec!["halo2/ipa".to_string()]);
+        assert_eq!(spec.proof_backend.unwrap(), vec!["pipa-r/pasta".to_string()]);
     }
     routing_test! { sync sse_filter_params_reject_malformed_text_with_position
         let err = parse_sse_filter_params(Some("tx_hash ==")).expect_err("incomplete filter rejected");
@@ -42184,7 +42327,7 @@ mod validation_fee_torii_ingress_tests {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("CanInvokeContractEntrypoint".to_owned()),
+            authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission("Payout".parse().unwrap()),
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: None,
@@ -42204,6 +42347,9 @@ mod validation_fee_torii_ingress_tests {
             }],
         };
         let interface = ivm::EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: vec![iroha_data_model::smart_contract::manifest::ContractPermissionDescriptorV1 {name:"Payout".parse().unwrap(),scope:iroha_data_model::smart_contract::manifest::ContractPermissionScopeV1::Instance}],
             callables: vec![ivm::call::EmbeddedCallableV1 {
                 entry_pc: 0,
                 frame_bytes: 0,
@@ -42223,7 +42369,7 @@ mod validation_fee_torii_ingress_tests {
                 argument_schema: entrypoint.argument_schema.clone(),
                 return_type: entrypoint.return_type.clone(),
                 return_schema: entrypoint.return_schema.clone(),
-                permission: entrypoint.permission.clone(),
+                authorization: entrypoint.authorization.clone(),
                 read_keys: entrypoint.read_keys.clone(),
                 write_keys: entrypoint.write_keys.clone(),
                 access_hints_complete: entrypoint.access_hints_complete,
@@ -42263,7 +42409,7 @@ mod validation_fee_torii_ingress_tests {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("CanInvokeContractEntrypoint".to_owned()),
+            authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission("SwapQuotePublic".parse().unwrap()),
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: None,
@@ -42271,6 +42417,9 @@ mod validation_fee_torii_ingress_tests {
             triggers: Vec::new(),
         };
         let interface = ivm::EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: vec![iroha_data_model::smart_contract::manifest::ContractPermissionDescriptorV1 {name:"SwapQuotePublic".parse().unwrap(),scope:iroha_data_model::smart_contract::manifest::ContractPermissionScopeV1::Instance}],
             callables: vec![ivm::call::EmbeddedCallableV1 {
                 entry_pc: 0,
                 frame_bytes: 0,
@@ -42290,7 +42439,7 @@ mod validation_fee_torii_ingress_tests {
                 argument_schema: entrypoint.argument_schema.clone(),
                 return_type: entrypoint.return_type.clone(),
                 return_schema: entrypoint.return_schema.clone(),
-                permission: entrypoint.permission.clone(),
+                authorization: entrypoint.authorization.clone(),
                 read_keys: entrypoint.read_keys.clone(),
                 write_keys: entrypoint.write_keys.clone(),
                 access_hints_complete: entrypoint.access_hints_complete,
@@ -42872,6 +43021,8 @@ mod validation_fee_torii_ingress_tests {
             },
             TEST_PARLIAMENT_POLICY_VERSION,
             10,
+            // Height 20, the fixture's sortition slot, is the first native pulse height.
+            21,
             proposal_kind.effect_preimage_hash_v1(),
             expected_head,
             requirements.clone(),
@@ -43896,17 +44047,13 @@ pub struct ContractEventGetParams {
     pub authority: Option<String>,
     /// Filter by contract address.
     pub contract_address: Option<String>,
-    /// Filter by deployed contract alias.
-    pub contract_alias: Option<String>,
-    /// Filter by derived module identifier.
-    pub module: Option<String>,
     /// Filter by event kind.
     pub event_kind: Option<String>,
     /// Filter by participant account/account-alias-like references.
     pub participant: Option<String>,
     /// Filter by asset identifier references.
     pub asset_id: Option<String>,
-    /// Filter by event provenance (`emitted` or `derived`).
+    /// Filter by event provenance; only `emitted` matches.
     pub provenance: Option<String>,
     /// Filter items whose timestamp is greater than or equal to this value.
     pub since_timestamp_ms: Option<u64>,
@@ -44417,12 +44564,10 @@ fn contract_activity_projections_to_json(
                     norito::json::Value::from(alias.clone()),
                 );
             }
-            if let Some(entrypoint) = it.contract_entrypoint.as_ref() {
-                m.insert(
-                    "contract_entrypoint".into(),
-                    norito::json::Value::from(entrypoint.clone()),
-                );
-            }
+            m.insert(
+                "contract_entrypoint".into(),
+                norito::json::Value::from(it.contract_entrypoint.clone()),
+            );
             if let Some(payload) = it.contract_payload.as_ref() {
                 m.insert("contract_payload".into(), payload.clone());
             }
@@ -44439,6 +44584,9 @@ fn contract_activity_projections_to_json(
 }
 fn contract_event_projection_to_json_value(it: &ContractEventProjection) -> norito::json::Value {
     let mut m = norito::json::Map::new();
+    m.insert("output_index".into(), Value::from(it.output_index));
+    m.insert("emission_index".into(), Value::from(it.emission_index));
+    m.insert("emission".into(), it.emission.clone());
     m.insert(
         "event_id".into(),
         norito::json::Value::from(it.event_id.clone()),
@@ -44460,8 +44608,8 @@ fn contract_event_projection_to_json_value(it: &ContractEventProjection) -> nori
         m.insert("timestamp_ms".into(), norito::json::Value::from(ts));
     }
     m.insert(
-        "tx_hash_hex".into(),
-        norito::json::Value::from(it.tx_hash_hex.clone()),
+        "execution_hash_hex".into(),
+        norito::json::Value::from(it.execution_hash_hex.clone()),
     );
     m.insert(
         "block_height".into(),
@@ -44475,16 +44623,6 @@ fn contract_event_projection_to_json_value(it: &ContractEventProjection) -> nori
     m.insert(
         "contract_address".into(),
         norito::json::Value::from(it.contract_address.clone()),
-    );
-    if let Some(alias) = it.contract_alias.as_ref() {
-        m.insert(
-            "contract_alias".into(),
-            norito::json::Value::from(alias.clone()),
-        );
-    }
-    m.insert(
-        "module".into(),
-        norito::json::Value::from(it.module.clone()),
     );
     m.insert(
         "event_kind".into(),
@@ -44543,21 +44681,6 @@ fn contract_event_projections_to_json(
 const DEFAULT_TRADER_SWAP_SCAN_LIMIT: u64 = 600;
 const MAX_TRADER_SWAP_SCAN_LIMIT: u64 = 5_000;
 const DEFAULT_TRADER_CANDLE_BUCKET_MS: u64 = 900_000;
-const TRADER_MODULE_ORDER: &[&str] = &[
-    "swaps",
-    "n3x",
-    "perps",
-    "farms",
-    "launchpad",
-    "options",
-    "cover",
-    "intents",
-    "vaults",
-    "operators",
-    "margin",
-    "rwa",
-    "dlmmHooks",
-];
 #[derive(Debug, Clone)]
 struct SwapFillRollupItem {
     record_id: u64,
@@ -44597,134 +44720,6 @@ struct SwapAnalytics {
     last_price: Option<f64>,
     win_rate: Option<f64>,
     avg_cushion_ratio: Option<f64>,
-}
-#[derive(Debug, Clone)]
-struct TraderActivityItem {
-    module_key: String,
-    module_label: String,
-    contract_address: String,
-    timestamp_ms: Option<u64>,
-    action: String,
-    exposure: String,
-    context: String,
-    execution_hash: String,
-}
-fn trader_module_label(module: &str) -> &'static str {
-    match module {
-        "swaps" => "Swaps",
-        "n3x" => "n3x Basket",
-        "perps" => "Perps Engine",
-        "farms" => "Farms",
-        "launchpad" => "Launchpad",
-        "options" => "Options",
-        "cover" => "Cover",
-        "intents" => "Intents",
-        "vaults" => "Vaults",
-        "operators" => "Operators",
-        "margin" => "Portfolio Margin",
-        "rwa" => "RWA Markets",
-        "dlmmHooks" => "DLMM Hooks",
-        _ => "Contract",
-    }
-}
-fn trader_module_contract_key(module: &str) -> &'static str {
-    match module {
-        "swaps" => "dlmm.dlmm_router",
-        "n3x" => "n3x.n3x_hub",
-        "perps" => "perps.perps_engine",
-        "farms" => "farms.farm",
-        "launchpad" => "launchpad.sale_factory",
-        "options" => "options.factory",
-        "cover" => "cover.policy_manager",
-        "intents" => "intents.settlement_router",
-        "vaults" => "vaults.manager",
-        "operators" => "operators.registry",
-        "margin" => "margin.portfolio_margin",
-        "rwa" => "rwa.market",
-        "dlmmHooks" => "dlmm_hooks.hook_manager",
-        _ => "unknown",
-    }
-}
-#[cfg(test)]
-fn trader_module_alias_candidates(module: &str) -> &'static [&'static str] {
-    match module {
-        "swaps" => &["dlmm_router::dlmm.universal"],
-        "n3x" => &["n3x_hub::n3x.universal"],
-        "perps" => &["perps_engine::perps.universal"],
-        "farms" => &["farm::farms.universal"],
-        "launchpad" => &["sale_factory::launchpad.universal"],
-        "options" => &["factory::options.universal", "manager::options.universal"],
-        "cover" => &["policy_manager::cover.universal"],
-        "intents" => &["settlement_router::intents.universal"],
-        "vaults" => &["manager::vaults.universal"],
-        "operators" => &["registry::operators.universal"],
-        "margin" => &["portfolio_margin::margin.universal"],
-        "rwa" => &["market::rwa.universal"],
-        "dlmmHooks" => &["hook_manager::dlmm_hooks.universal"],
-        _ => &[],
-    }
-}
-fn trader_module_is_supported(module: &str) -> bool {
-    TRADER_MODULE_ORDER
-        .iter()
-        .any(|candidate| *candidate == module)
-}
-fn compact_number(value: f64, max_fraction_digits: usize) -> String {
-    if !value.is_finite() {
-        return "-".to_owned();
-    }
-    let mut rendered = format!("{value:.prec$}", prec = max_fraction_digits);
-    while rendered.contains('.') && rendered.ends_with('0') {
-        rendered.pop();
-    }
-    if rendered.ends_with('.') {
-        rendered.pop();
-    }
-    if rendered.is_empty() {
-        "0".to_owned()
-    } else {
-        rendered
-    }
-}
-fn format_signed_asset_amount(value: f64, symbol: &str) -> String {
-    if !value.is_finite() {
-        return "-".to_owned();
-    }
-    let sign = if value > 0.0 {
-        "+"
-    } else if value < 0.0 {
-        "-"
-    } else {
-        ""
-    };
-    format!("{sign}{} {}", compact_number(value.abs(), 4), symbol)
-}
-fn asset_ticker(asset_id: &str) -> String {
-    asset_id
-        .split('#')
-        .next()
-        .unwrap_or(asset_id)
-        .trim()
-        .to_ascii_uppercase()
-}
-fn humanize_identifier(raw: &str) -> String {
-    raw.split('_')
-        .filter(|segment| !segment.is_empty())
-        .map(|segment| {
-            let mut chars = segment.chars();
-            match chars.next() {
-                Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-fn format_timestamp_label(timestamp_ms: Option<u64>) -> String {
-    timestamp_ms
-        .and_then(|raw| OffsetDateTime::from_unix_timestamp((raw / 1000) as i64).ok())
-        .map(|dt| format!("{:02}:{:02} UTC", dt.hour(), dt.minute()))
-        .unwrap_or_else(|| "-".to_owned())
 }
 fn value_as_i64(value: &Value) -> Option<i64> {
     value
@@ -44894,7 +44889,7 @@ impl UranaiDpmReplayState {
         object.insert("blockHeight".into(), Value::from(projection.block_height));
         object.insert(
             "txHashHex".into(),
-            Value::from(projection.tx_hash_hex.clone()),
+            Value::from(projection.execution_hash_hex.clone()),
         );
         object.insert("tradeCount".into(), Value::from(self.trade_count));
         object.insert(
@@ -45113,11 +45108,11 @@ fn uranai_quote_dpm_sell(
     i64::try_from(collateral_out).ok()
 }
 fn uranai_replay_action(event_kind: &str) -> Option<UranaiReplayAction> {
-    match event_kind.trim().to_ascii_lowercase().as_str() {
-        "market_created" | "create_market" => Some(UranaiReplayAction::CreateMarket),
-        "shares_bought" | "buy" => Some(UranaiReplayAction::Buy),
-        "shares_sold" | "sell" => Some(UranaiReplayAction::Sell),
-        "private_shares_bought" | "private_buy" => Some(UranaiReplayAction::PrivateBuy),
+    match event_kind {
+        "market_created" => Some(UranaiReplayAction::CreateMarket),
+        "shares_bought" => Some(UranaiReplayAction::Buy),
+        "shares_sold" => Some(UranaiReplayAction::Sell),
+        "private_shares_bought" => Some(UranaiReplayAction::PrivateBuy),
         _ => None,
     }
 }
@@ -45128,20 +45123,7 @@ fn uranai_projection_contract_matches(
     projection: &ContractEventProjection,
     params: &UranaiMarketHistoryParams,
 ) -> bool {
-    if !projection.result_ok || projection.module != "uranai" {
-        return false;
-    }
-    if let Some(contract_address) = params.contract_address.as_deref() {
-        if projection.contract_address != contract_address {
-            return false;
-        }
-    }
-    if let Some(contract_alias) = params.contract_alias.as_deref() {
-        if projection.contract_alias.as_deref() != Some(contract_alias) {
-            return false;
-        }
-    }
-    true
+    projection.result_ok && params.contract_address.as_ref().is_some_and(|address| &projection.contract_address == address)
 }
 fn uranai_history_timestamp_in_range(
     timestamp_ms: Option<u64>,
@@ -45176,7 +45158,7 @@ fn collect_uranai_market_history_points(
     let mut replay = UranaiDpmReplayState::new(market_id);
     let mut points = Vec::new();
     let mut contract_address = params.contract_address.clone();
-    let mut contract_alias = params.contract_alias.clone();
+    let contract_alias = params.contract_alias.clone();
     let mut candidates = index
         .items
         .iter()
@@ -45208,9 +45190,6 @@ fn collect_uranai_market_history_points(
             }
         };
         contract_address.get_or_insert_with(|| projection.contract_address.clone());
-        if contract_alias.is_none() {
-            contract_alias = projection.contract_alias.clone();
-        }
         match action {
             UranaiReplayAction::CreateMarket => replay.configure_market(&payload),
             UranaiReplayAction::Buy | UranaiReplayAction::PrivateBuy => {
@@ -45519,7 +45498,7 @@ fn load_swap_fill_rollup(
         conversion_error(format!(
             "invalid authority `{}`: {}",
             params.authority,
-            err.reason()
+            err.code_str()
         ))
     })?;
     let prepared = resolve_rollup_contract_target(
@@ -45545,10 +45524,9 @@ fn load_swap_fill_rollup(
             projection.result_ok
                 && projection.authority.as_deref() == Some(authority.as_str())
                 && projection.contract_address == contract_address_literal
-                && projection.module == "swaps"
                 && matches!(
                     projection.event_kind.as_str(),
-                    "swap_executed" | "route_swap"
+                    "swap_executed"
                 )
         })
         .cloned()
@@ -45673,7 +45651,7 @@ fn stitch_visible_swap_fill_records(
                 .position(|projection| swap_fill_record_matches_projection(&record, projection))?;
             let event = visible_events.remove(matched_index);
             record.timestamp_ms = event.timestamp_ms;
-            record.execution_hash = Some(event.tx_hash_hex);
+            record.execution_hash = Some(event.execution_hash_hex);
             Some(record)
         })
         .collect()
@@ -45865,375 +45843,6 @@ fn event_payload_object(projection: &ContractEventProjection) -> Option<Map> {
         _ => None,
     })
 }
-fn trader_activity_item_from_projection(
-    projection: &ContractEventProjection,
-) -> TraderActivityItem {
-    let payload = event_payload_object(projection).unwrap_or_default();
-    let mut action = humanize_identifier(&projection.event_kind);
-    let mut exposure = "-".to_owned();
-    let mut context = trader_module_label(&projection.module).to_owned();
-    match projection.event_kind.as_str() {
-        "swap_executed" | "route_swap" => {
-            let input_is_base = object_lookup_i64(&payload, &["input_is_base"]).unwrap_or(1);
-            let amount_in = object_lookup_i64(&payload, &["amount_in", "amount"]).unwrap_or(0);
-            let amount_out = object_lookup_i64(&payload, &["amount_out"]).unwrap_or(0);
-            let min_out = object_lookup_i64(&payload, &["min_out"]).unwrap_or(0);
-            action = if input_is_base == 1 {
-                "Bought quote".to_owned()
-            } else {
-                "Sold quote".to_owned()
-            };
-            exposure = format!(
-                "{} -> {}",
-                compact_number(amount_in as f64, 0),
-                compact_number(amount_out as f64, 0)
-            );
-            context = format!("Min out {}", compact_number(min_out as f64, 0));
-        }
-        "n3x_minted" => {
-            action = "Minted n3x".to_owned();
-            let amount = object_lookup_i64(&payload, &["amount"]).unwrap_or(0);
-            exposure = format!("{} basket in", compact_number(amount as f64, 0));
-            let usdt = object_lookup_i64(&payload, &["usdt_in"]).unwrap_or(0);
-            let usdc = object_lookup_i64(&payload, &["usdc_in"]).unwrap_or(0);
-            let kusd = object_lookup_i64(&payload, &["kusd_in"]).unwrap_or(0);
-            context = format!(
-                "{} USDT / {} USDC / {} KUSD",
-                compact_number(usdt as f64, 0),
-                compact_number(usdc as f64, 0),
-                compact_number(kusd as f64, 0)
-            );
-        }
-        "n3x_redeemed" => {
-            action = "Redeemed n3x".to_owned();
-            let amount = object_lookup_i64(&payload, &["amount", "n3x_amount"]).unwrap_or(0);
-            exposure = format!("{} N3X", compact_number(amount as f64, 0));
-            context = "Basket redeem".to_owned();
-        }
-        "perps_position_opened"
-        | "perps_position_modified"
-        | "perps_margin_added"
-        | "perps_margin_removed"
-        | "perps_position_closed"
-        | "perps_funding_synced"
-        | "perps_liquidation_pass" => {
-            let position_id = object_lookup_i64(&payload, &["position_id"]);
-            let market_id = object_lookup_i64(&payload, &["market_id"]);
-            let size = object_lookup_i64(&payload, &["size", "size_delta", "notional"]);
-            let margin = object_lookup_i64(&payload, &["margin", "margin_delta", "amount"]);
-            exposure = [
-                size.map(|value| format!("{} size", compact_number(value as f64, 0))),
-                margin.map(|value| format!("{} margin", compact_number(value as f64, 0))),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ");
-            if exposure.is_empty() {
-                exposure = "Perp action".to_owned();
-            }
-            context = [
-                market_id.map(|value| format!("Market {value}")),
-                position_id.map(|value| format!("Position #{value}")),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ");
-            if context.is_empty() {
-                context = "Perps Engine".to_owned();
-            }
-        }
-        "farm_staked" | "farm_unstaked" | "farm_rewards_claimed" => {
-            let position = object_lookup_string(&payload, &["position"]);
-            let amount = object_lookup_i64(&payload, &["amount"]);
-            exposure = amount
-                .map(|value| compact_number(value as f64, 0))
-                .unwrap_or_else(|| "Farm action".to_owned());
-            context = position
-                .map(|value| format!("Position {value}"))
-                .unwrap_or_else(|| "Farm position".to_owned());
-        }
-        "launchpad_contributed"
-        | "launchpad_claimed"
-        | "launchpad_refunded"
-        | "launchpad_activation_finalized" => {
-            let sale = object_lookup_string(&payload, &["sale"]);
-            let allocation = object_lookup_string(&payload, &["allocation"]);
-            let amount = object_lookup_i64(&payload, &["amount", "payment_amount"]);
-            exposure = amount
-                .map(|value| compact_number(value as f64, 0))
-                .unwrap_or_else(|| "Launchpad action".to_owned());
-            context = [sale, allocation]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(" · ");
-            if context.is_empty() {
-                context = "Launchpad".to_owned();
-            }
-        }
-        "options_series_created"
-        | "options_position_bought"
-        | "options_shout_recorded"
-        | "options_position_exercised"
-        | "options_series_settled" => {
-            let series_id = object_lookup_i64(&payload, &["series_id"]);
-            let position_id = object_lookup_i64(&payload, &["position_id"]);
-            let notional = object_lookup_i64(&payload, &["notional"]);
-            let premium = object_lookup_i64(&payload, &["premium_paid"]);
-            exposure = [
-                notional.map(|value| format!("{} notional", compact_number(value as f64, 0))),
-                premium.map(|value| format!("{} premium", compact_number(value as f64, 0))),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ");
-            if exposure.is_empty() {
-                exposure = "Option action".to_owned();
-            }
-            context = [
-                series_id.map(|value| format!("Series #{value}")),
-                position_id.map(|value| format!("Position #{value}")),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ");
-            if context.is_empty() {
-                context = "Options".to_owned();
-            }
-        }
-        "cover_policy_opened"
-        | "cover_observation_recorded"
-        | "cover_claim_routed"
-        | "cover_policy_expired" => {
-            let policy_id = object_lookup_i64(&payload, &["policy_id"]);
-            let notional = object_lookup_i64(&payload, &["notional", "covered_notional"]);
-            let payout = object_lookup_i64(&payload, &["payout_amount"]);
-            exposure = [
-                notional.map(|value| format!("{} covered", compact_number(value as f64, 0))),
-                payout.map(|value| format!("{} payout", compact_number(value as f64, 0))),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ");
-            if exposure.is_empty() {
-                exposure = "Policy action".to_owned();
-            }
-            context = policy_id
-                .map(|value| format!("Policy #{value}"))
-                .unwrap_or_else(|| "Cover".to_owned());
-        }
-        event
-            if projection.module == "intents"
-                && matches!(
-                    event,
-                    "intent_opened" | "intent_cancelled" | "intent_filled"
-                ) =>
-        {
-            let intent_id = object_lookup_string(&payload, &["intent_id"]);
-            let amount_in = object_lookup_i64(&payload, &["amount_in"]);
-            let min_out = object_lookup_i64(&payload, &["min_out"]);
-            let amount_out = object_lookup_i64(&payload, &["amount_out"]);
-            exposure = [
-                amount_in.map(|value| format!("{} in", compact_number(value as f64, 0))),
-                amount_out.map(|value| format!("{} out", compact_number(value as f64, 0))),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ");
-            if exposure.is_empty() {
-                exposure = min_out
-                    .map(|value| format!("{} min out", compact_number(value as f64, 0)))
-                    .unwrap_or_else(|| "Intent action".to_owned());
-            }
-            context = intent_id
-                .map(|value| format!("Intent {value}"))
-                .unwrap_or_else(|| "Intents".to_owned());
-        }
-        event
-            if projection.module == "vaults"
-                && matches!(
-                    event,
-                    "vault_registered"
-                        | "vault_deposited"
-                        | "vault_redeem_requested"
-                        | "vault_redeem_claimed"
-                ) =>
-        {
-            let vault_id = object_lookup_string(&payload, &["vault_id"]);
-            let position_id = object_lookup_string(&payload, &["position_id"]);
-            let amount = object_lookup_i64(&payload, &["amount", "shares"]);
-            exposure = amount
-                .map(|value| compact_number(value as f64, 0))
-                .unwrap_or_else(|| "Vault action".to_owned());
-            context = [vault_id, position_id]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(" · ");
-            if context.is_empty() {
-                context = "Vaults".to_owned();
-            }
-        }
-        event
-            if projection.module == "operators"
-                && matches!(
-                    event,
-                    "operator_registered"
-                        | "operator_bonded"
-                        | "operator_heartbeat"
-                        | "operator_fees_claimed"
-                ) =>
-        {
-            let service = object_lookup_string(&payload, &["service"]);
-            let amount = object_lookup_i64(&payload, &["amount", "min_bond", "fees_accrued"]);
-            let health = object_lookup_i64(&payload, &["health_bps"]);
-            exposure = [
-                amount.map(|value| compact_number(value as f64, 0)),
-                health.map(|value| format!("{} bps health", compact_number(value as f64, 0))),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ");
-            if exposure.is_empty() {
-                exposure = "Operator action".to_owned();
-            }
-            context = service
-                .map(|value| format!("Service {value}"))
-                .unwrap_or_else(|| "Operators".to_owned());
-        }
-        event
-            if projection.module == "margin"
-                && matches!(
-                    event,
-                    "margin_market_registered"
-                        | "margin_collateral_deposited"
-                        | "margin_collateral_withdrawn"
-                        | "margin_exposure_locked"
-                        | "margin_account_liquidated"
-                ) =>
-        {
-            let market_id = object_lookup_string(&payload, &["market_id"]);
-            let account_key = object_lookup_string(&payload, &["account_key"]);
-            let amount = object_lookup_i64(&payload, &["amount", "exposure_delta"]);
-            exposure = amount
-                .map(|value| compact_number(value as f64, 0))
-                .unwrap_or_else(|| "Margin action".to_owned());
-            context = [market_id, account_key]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(" · ");
-            if context.is_empty() {
-                context = "Portfolio Margin".to_owned();
-            }
-        }
-        event
-            if projection.module == "rwa"
-                && matches!(
-                    event,
-                    "rwa_lot_issued"
-                        | "rwa_share_asset_bound"
-                        | "rwa_nav_reported"
-                        | "rwa_redemption_requested"
-                        | "rwa_redemption_settled"
-                ) =>
-        {
-            let market_id = object_lookup_string(&payload, &["market_id"]);
-            let redemption_id = object_lookup_string(&payload, &["redemption_id"]);
-            let shares = object_lookup_i64(&payload, &["shares", "total_shares"]);
-            let nav = object_lookup_i64(&payload, &["nav_per_share", "initial_nav_per_share"]);
-            exposure = [
-                shares.map(|value| format!("{} shares", compact_number(value as f64, 0))),
-                nav.map(|value| format!("{} NAV", compact_number(value as f64, 0))),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ");
-            if exposure.is_empty() {
-                exposure = "RWA action".to_owned();
-            }
-            context = [market_id, redemption_id]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(" · ");
-            if context.is_empty() {
-                context = "RWA Markets".to_owned();
-            }
-        }
-        event
-            if projection.module == "dlmmHooks"
-                && matches!(
-                    event,
-                    "dlmm_hook_configured"
-                        | "dlmm_hook_limit_order_placed"
-                        | "dlmm_hook_twamm_scheduled"
-                        | "dlmm_hook_execution_recorded"
-                ) =>
-        {
-            let hook_id = object_lookup_string(&payload, &["hook_id"]);
-            let order_id = object_lookup_string(&payload, &["order_id"]);
-            let amount_in = object_lookup_i64(&payload, &["amount_in"]);
-            let min_out = object_lookup_i64(&payload, &["min_out", "amount_out"]);
-            exposure = [
-                amount_in.map(|value| format!("{} in", compact_number(value as f64, 0))),
-                min_out.map(|value| format!("{} out", compact_number(value as f64, 0))),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ");
-            if exposure.is_empty() {
-                exposure = "Hook action".to_owned();
-            }
-            context = [hook_id, order_id]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(" · ");
-            if context.is_empty() {
-                context = "DLMM Hooks".to_owned();
-            }
-        }
-        _ => {
-            if !payload.is_empty() {
-                let summary = payload
-                    .iter()
-                    .filter_map(|(key, value)| match value {
-                        Value::String(text) if !text.is_empty() => Some(format!("{key}={text}")),
-                        Value::Number(number) => {
-                            Some(format!("{key}={}", exact_json_number_text(number)))
-                        }
-                        _ => None,
-                    })
-                    .take(3)
-                    .collect::<Vec<_>>()
-                    .join(" · ");
-                if !summary.is_empty() {
-                    exposure = summary;
-                }
-            }
-        }
-    }
-    TraderActivityItem {
-        module_key: projection.module.clone(),
-        module_label: trader_module_label(&projection.module).to_owned(),
-        contract_address: projection.contract_address.clone(),
-        timestamp_ms: projection.timestamp_ms,
-        action,
-        exposure,
-        context,
-        execution_hash: projection.tx_hash_hex.clone(),
-    }
-}
 fn collect_trader_activity_page(
     index: &ContractEventIndex,
     params: &ContractEventGetParams,
@@ -46249,7 +45858,6 @@ fn collect_trader_activity_page(
     let mut items = Vec::new();
     let mut visit = |projection: &ContractEventProjection| {
         if !is_visible(projection)
-            || !trader_module_is_supported(&projection.module)
             || !contract_event_matches(projection, params)
         {
             return;
@@ -46275,212 +45883,6 @@ fn collect_trader_activity_page(
         ContractEventCandidatePositions::Empty => {}
     }
     (items, matched)
-}
-fn trader_activity_items_to_json(items: &[TraderActivityItem]) -> Vec<Value> {
-    items
-        .iter()
-        .map(|item| {
-            let mut object = Map::new();
-            object.insert("moduleKey".into(), Value::from(item.module_key.clone()));
-            object.insert("moduleLabel".into(), Value::from(item.module_label.clone()));
-            object.insert(
-                "timestampMs".into(),
-                item.timestamp_ms.map_or(Value::Null, Value::from),
-            );
-            object.insert("action".into(), Value::from(item.action.clone()));
-            object.insert("exposure".into(), Value::from(item.exposure.clone()));
-            object.insert("context".into(), Value::from(item.context.clone()));
-            object.insert(
-                "executionHash".into(),
-                Value::from(item.execution_hash.clone()),
-            );
-            Value::Object(object)
-        })
-        .collect()
-}
-fn module_card_json(
-    key: &str,
-    contract_address: Option<String>,
-    status_tone: &str,
-    status_label: &str,
-    hero: String,
-    blurb: String,
-    radar_value: String,
-    metrics: [(&str, String); 3],
-) -> Value {
-    let mut object = Map::new();
-    object.insert("key".into(), Value::from(key.to_owned()));
-    object.insert(
-        "label".into(),
-        Value::from(trader_module_label(key).to_owned()),
-    );
-    object.insert(
-        "contractKey".into(),
-        Value::from(trader_module_contract_key(key).to_owned()),
-    );
-    object.insert(
-        "contractAddress".into(),
-        contract_address.map_or(Value::Null, Value::from),
-    );
-    object.insert("statusTone".into(), Value::from(status_tone.to_owned()));
-    object.insert("statusLabel".into(), Value::from(status_label.to_owned()));
-    object.insert("hero".into(), Value::from(hero));
-    object.insert("blurb".into(), Value::from(blurb));
-    object.insert("radarValue".into(), Value::from(radar_value));
-    object.insert(
-        "metrics".into(),
-        Value::Array(
-            metrics
-                .into_iter()
-                .map(|(label, value)| {
-                    crate::json_object(vec![
-                        crate::json_entry("label", label),
-                        crate::json_entry("value", value),
-                    ])
-                })
-                .collect(),
-        ),
-    );
-    Value::Object(object)
-}
-fn build_trader_account_modules_json(
-    fills: &SwapFillRollup,
-    analytics: &SwapAnalytics,
-    activities: &[TraderActivityItem],
-) -> Vec<Value> {
-    let base_symbol = asset_ticker(&fills.base_asset_id);
-    let quote_symbol = asset_ticker(&fills.quote_asset_id);
-    TRADER_MODULE_ORDER
-        .iter()
-        .map(|module| {
-            let latest = activities.iter().find(|item| item.module_key == *module);
-            let contract_address = latest
-                .map(|item| item.contract_address.clone())
-                .or_else(|| {
-                    (*module == "swaps" && !fills.items.is_empty())
-                        .then(|| fills.contract_address.clone())
-                });
-            if *module == "swaps" {
-                let Some(contract_address) = contract_address else {
-                    return module_card_json(
-                        "swaps",
-                        None,
-                        "missing",
-                        "Unavailable",
-                        "No visible swaps".to_owned(),
-                        "No visible deployment or swap activity is available for this authority."
-                            .to_owned(),
-                        "Missing".to_owned(),
-                        [
-                            ("Contract", "Unavailable".to_owned()),
-                            ("Last Action", "-".to_owned()),
-                            ("Last Seen", "-".to_owned()),
-                        ],
-                    );
-                };
-                return module_card_json(
-                    "swaps",
-                    Some(contract_address),
-                    if fills.items.is_empty() { "watch" } else { "live" },
-                    if fills.items.is_empty() {
-                        "Awaiting flow"
-                    } else {
-                        "Trading"
-                    },
-                    analytics
-                        .total_pnl_base
-                        .map(|value| format_signed_asset_amount(value, &base_symbol))
-                        .unwrap_or_else(|| "No personal PnL yet".to_owned()),
-                    if fills.items.is_empty() {
-                        "The router is deployed, but this wallet has no successful fills in the visible journal window yet."
-                            .to_owned()
-                    } else {
-                        format!(
-                            "Avg entry {} {} · Open {} {} · {} executed fills",
-                            analytics
-                                .avg_entry
-                                .map(|value| compact_number(value, 4))
-                                .unwrap_or_else(|| "-".to_owned()),
-                            base_symbol,
-                            compact_number(analytics.open_quote_amount, 4),
-                            quote_symbol,
-                            fills.items.len()
-                        )
-                    },
-                    if fills.items.is_empty() {
-                        "No fills".to_owned()
-                    } else {
-                        format!("{} fills", fills.items.len())
-                    },
-                    [
-                        (
-                            "Avg Entry",
-                            analytics
-                                .avg_entry
-                                .map(|value| format!("{} {}", compact_number(value, 4), base_symbol))
-                                .unwrap_or_else(|| "-".to_owned()),
-                        ),
-                        (
-                            "Realized",
-                            format_signed_asset_amount(analytics.realized_pnl_base, &base_symbol),
-                        ),
-                        (
-                            "Open Quote",
-                            format!("{} {}", compact_number(analytics.open_quote_amount, 4), quote_symbol),
-                        ),
-                    ],
-                );
-            }
-            match (contract_address, latest) {
-                (None, _) => module_card_json(
-                    module,
-                    None,
-                    "missing",
-                    "Unavailable",
-                    "Not available here".to_owned(),
-                    format!(
-                        "No visible deployment or activity is available for {}.",
-                        trader_module_contract_key(module)
-                    ),
-                    "Missing".to_owned(),
-                    [
-                        ("Contract", "Unavailable".to_owned()),
-                        ("Last Action", "-".to_owned()),
-                        ("Last Seen", "-".to_owned()),
-                    ],
-                ),
-                (Some(contract_address), None) => module_card_json(
-                    module,
-                    Some(contract_address),
-                    "watch",
-                    "Watching",
-                    "No recent wallet activity".to_owned(),
-                    "This product is deployed, but no recent canonical trader events were found for the selected authority."
-                        .to_owned(),
-                    "Watching".to_owned(),
-                    [
-                        ("Contract", trader_module_contract_key(module).to_owned()),
-                        ("Last Action", "None yet".to_owned()),
-                        ("Last Seen", "-".to_owned()),
-                    ],
-                ),
-                (Some(contract_address), Some(latest)) => module_card_json(
-                    module,
-                    Some(contract_address),
-                    "live",
-                    "Live",
-                    latest.exposure.clone(),
-                    format!("{} · {}", latest.action, latest.context),
-                    latest.action.clone(),
-                    [
-                        ("Latest", latest.action.clone()),
-                        ("Context", latest.context.clone()),
-                        ("Last Seen", format_timestamp_label(latest.timestamp_ms)),
-                    ],
-                ),
-            }
-        })
-        .collect()
 }
 pub async fn handle_v1_contracts_rollups_swaps_fills_get(
     state: Arc<CoreState>,
@@ -46599,7 +46001,7 @@ pub async fn handle_v1_contracts_rollups_swaps_candles_get(
 pub async fn handle_v1_contracts_rollups_uranai_markets_history_get(
     state: Arc<CoreState>,
     visibility: DataspaceReadVisibility,
-    crate::NoritoQuery(params): crate::NoritoQuery<UranaiMarketHistoryParams>,
+    crate::NoritoQuery(mut params): crate::NoritoQuery<UranaiMarketHistoryParams>,
     _telemetry: MaybeTelemetry,
 ) -> Result<impl IntoResponse> {
     let visibility_owner = HistoryVisibilityReads::new(Arc::clone(&state));
@@ -46612,6 +46014,8 @@ pub async fn handle_v1_contracts_rollups_uranai_markets_history_get(
                 .to_owned(),
         });
     }
+    let target = resolve_rollup_contract_target(state.as_ref(), params.contract_address.as_deref(), params.contract_alias.as_deref(), "uranai::markets.universal")?;
+    params.contract_address = Some(target.contract_address.to_string());
     let cap = app_query_page_cap(&state);
     let pagination = enforce_app_pagination(
         params.limit,
@@ -46678,13 +46082,13 @@ pub async fn handle_v1_contracts_rollups_trader_activity_get(
     let activity_items = page
         .items
         .iter()
-        .map(trader_activity_item_from_projection)
+        .cloned()
         .collect::<Vec<_>>();
     let mut top = Map::new();
     top.insert("ok".into(), Value::Bool(true));
     top.insert(
         "items".into(),
-        Value::Array(trader_activity_items_to_json(&activity_items)),
+        Value::Array(contract_event_projections_to_json(&activity_items)),
     );
     insert_page_metadata(&mut top, &page, count_mode);
     Ok(infallible_pretty_json_response(&Value::Object(top), "{}"))
@@ -46721,8 +46125,6 @@ pub async fn handle_v1_contracts_rollups_trader_account_get(
         offset: 0,
         authority: Some(fills.authority.clone()),
         contract_address: None,
-        contract_alias: None,
-        module: None,
         event_kind: None,
         participant: None,
         asset_id: None,
@@ -46750,7 +46152,7 @@ pub async fn handle_v1_contracts_rollups_trader_account_get(
     );
     let activity_items = activity_projections
         .iter()
-        .map(trader_activity_item_from_projection)
+        .cloned()
         .collect::<Vec<_>>();
     let mut top = Map::new();
     top.insert("ok".into(), Value::Bool(true));
@@ -46768,12 +46170,8 @@ pub async fn handle_v1_contracts_rollups_trader_account_get(
     top.insert("fillCount".into(), Value::from(fills.items.len() as u64));
     top.insert("metrics".into(), swap_analytics_to_json_value(&analytics));
     top.insert(
-        "modules".into(),
-        Value::Array(build_trader_account_modules_json(
-            &fills,
-            &analytics,
-            &activity_items,
-        )),
+        "activity".into(),
+        Value::Array(contract_event_projections_to_json(&activity_items)),
     );
     Ok(infallible_pretty_json_response(&Value::Object(top), "{}"))
 
@@ -46781,155 +46179,252 @@ pub async fn handle_v1_contracts_rollups_trader_account_get(
     visibility_owner.finish()?;
     response
 }
-async fn handle_v1_contracts_rollups_module_get(
-    state: Arc<CoreState>,
-    visibility: DataspaceReadVisibility,
-    crate::NoritoQuery(mut params): crate::NoritoQuery<ContractEventGetParams>,
-    module: &'static str,
-    endpoint: &'static str,
-    rollup_kind: &'static str,
-) -> Result<axum::response::Response> {
-    let visibility_owner = HistoryVisibilityReads::new(Arc::clone(&state));
-    let visibility_reads = &visibility_owner;
-    let response = async {
-    params.module = Some(module.to_owned());
-    params.result_ok = Some(params.result_ok.unwrap_or(true));
-    let cap = app_query_page_cap(&state);
-    let pagination = enforce_app_pagination(params.limit, params.offset, cap, endpoint)?;
-    let count_mode = app_count_mode(params.count_mode.as_deref(), endpoint);
-    let index = contract_event_index_snapshot(state.as_ref())?;
-    let (items, total) = collect_trader_activity_page(
-        index.as_ref(),
-        &params,
-        pagination,
-        |projection| {
-            contract_event_projection_is_visible(visibility_reads, &visibility, projection)
+#[cfg(all(test, feature = "app_api"))]
+mod contract_feed_binding_tests {
+    //! Contract feeds trust only what consensus bound to an executed call.
+    use super::*;
+    use iroha_data_model::{
+        smart_contract::ContractAddress,
+        transaction::{
+            FeePaymentIntent, TransactionBuilder,
+            error::TransactionRejectionReason,
+            executable::{ContractArgumentRecord, ContractInvocation},
         },
-    );
-    let page = page_result_from_counted_items(items, total, params.offset, count_mode);
-    let activity_items = page
-        .items
-        .iter()
-        .map(trader_activity_item_from_projection)
-        .collect::<Vec<_>>();
-    let mut top = Map::new();
-    top.insert("ok".into(), Value::Bool(true));
-    top.insert("module".into(), Value::from(module));
-    top.insert(
-        "moduleLabel".into(),
-        Value::from(trader_module_label(module)),
-    );
-    top.insert("rollupKind".into(), Value::from(rollup_kind));
-    top.insert(
-        "contractKey".into(),
-        Value::from(trader_module_contract_key(module)),
-    );
-    top.insert(
-        "items".into(),
-        Value::Array(trader_activity_items_to_json(&activity_items)),
-    );
-    insert_page_metadata(&mut top, &page, count_mode);
-    Ok(infallible_pretty_json_response(&Value::Object(top), "{}"))
-
-    }.await;
-    visibility_owner.finish()?;
-    response
-}
-pub async fn handle_v1_contracts_rollups_intents_get(
-    state: Arc<CoreState>,
-    visibility: DataspaceReadVisibility,
-    query: crate::NoritoQuery<ContractEventGetParams>,
-    _telemetry: MaybeTelemetry,
-) -> Result<impl IntoResponse> {
-    handle_v1_contracts_rollups_module_get(
-        state,
-        visibility,
-        query,
-        "intents",
-        ENDPOINT_CONTRACTS_ROLLUPS_INTENTS,
-        "intent_lifecycle",
-    )
-    .await
-}
-pub async fn handle_v1_contracts_rollups_vault_positions_get(
-    state: Arc<CoreState>,
-    visibility: DataspaceReadVisibility,
-    query: crate::NoritoQuery<ContractEventGetParams>,
-    _telemetry: MaybeTelemetry,
-) -> Result<impl IntoResponse> {
-    handle_v1_contracts_rollups_module_get(
-        state,
-        visibility,
-        query,
-        "vaults",
-        ENDPOINT_CONTRACTS_ROLLUPS_VAULT_POSITIONS,
-        "vault_positions",
-    )
-    .await
-}
-pub async fn handle_v1_contracts_rollups_operators_status_get(
-    state: Arc<CoreState>,
-    visibility: DataspaceReadVisibility,
-    query: crate::NoritoQuery<ContractEventGetParams>,
-    _telemetry: MaybeTelemetry,
-) -> Result<impl IntoResponse> {
-    handle_v1_contracts_rollups_module_get(
-        state,
-        visibility,
-        query,
-        "operators",
-        ENDPOINT_CONTRACTS_ROLLUPS_OPERATORS_STATUS,
-        "operator_status",
-    )
-    .await
-}
-pub async fn handle_v1_contracts_rollups_margin_health_get(
-    state: Arc<CoreState>,
-    visibility: DataspaceReadVisibility,
-    query: crate::NoritoQuery<ContractEventGetParams>,
-    _telemetry: MaybeTelemetry,
-) -> Result<impl IntoResponse> {
-    handle_v1_contracts_rollups_module_get(
-        state,
-        visibility,
-        query,
-        "margin",
-        ENDPOINT_CONTRACTS_ROLLUPS_MARGIN_HEALTH,
-        "margin_health",
-    )
-    .await
-}
-pub async fn handle_v1_contracts_rollups_rwa_lots_get(
-    state: Arc<CoreState>,
-    visibility: DataspaceReadVisibility,
-    query: crate::NoritoQuery<ContractEventGetParams>,
-    _telemetry: MaybeTelemetry,
-) -> Result<impl IntoResponse> {
-    handle_v1_contracts_rollups_module_get(
-        state,
-        visibility,
-        query,
-        "rwa",
-        ENDPOINT_CONTRACTS_ROLLUPS_RWA_LOTS,
-        "rwa_lots",
-    )
-    .await
-}
-pub async fn handle_v1_contracts_rollups_dlmm_hooks_get(
-    state: Arc<CoreState>,
-    visibility: DataspaceReadVisibility,
-    query: crate::NoritoQuery<ContractEventGetParams>,
-    _telemetry: MaybeTelemetry,
-) -> Result<impl IntoResponse> {
-    handle_v1_contracts_rollups_module_get(
-        state,
-        visibility,
-        query,
-        "dlmmHooks",
-        ENDPOINT_CONTRACTS_ROLLUPS_DLMM_HOOKS,
-        "dlmm_hooks",
-    )
-    .await
+    };
+    use iroha_test_samples::{ALICE_ID, ALICE_KEYPAIR};
+    const ROUTER_ALIAS: &str = "dlmm_router::soraswap.universal";
+    fn network() -> iroha_data_model::NetworkId {
+        iroha_data_model::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+            b"contract feed binding fixture",
+        )))
+    }
+    fn router_address() -> ContractAddress {
+        ContractAddress::derive(&network(), &ALICE_ID, 3, DataSpaceId::UNIVERSAL)
+            .expect("derive router address")
+    }
+    fn router_code_hash() -> Hash {
+        Hash::new(b"dlmm router code")
+    }
+    fn router_call() -> ContractInvocation {
+        ContractInvocation {
+            contract_address: router_address(),
+            expected_code_hash: router_code_hash(),
+            entrypoint: "route_swap".to_owned(),
+            arguments: Some(
+                ContractArgumentRecord::try_new(vec![1, 2, 3]).expect("bounded argument record"),
+            ),
+        }
+    }
+    fn insert(metadata: &mut Metadata, key: &str, value: IrohaJson) {
+        metadata.insert(Name::from_str(key).expect("static metadata key"), value);
+    }
+    /// The keys consensus binds to `router_call()`, as Torii's call route writes them.
+    fn bound_router_metadata() -> Metadata {
+        let mut metadata = Metadata::default();
+        insert(
+            &mut metadata,
+            "contract_address",
+            IrohaJson::new(router_address().to_string()),
+        );
+        insert(
+            &mut metadata,
+            "contract_code_hash",
+            IrohaJson::new(router_code_hash().to_string()),
+        );
+        insert(
+            &mut metadata,
+            "contract_alias",
+            IrohaJson::new(ROUTER_ALIAS),
+        );
+        insert(
+            &mut metadata,
+            "contract_entrypoint",
+            IrohaJson::new("route_swap"),
+        );
+        insert(
+            &mut metadata,
+            "contract_payload",
+            IrohaJson::new(norito::json!({
+                "amount_in": "100",
+                "min_out": "95",
+                "receiver": "bob@universal"
+            })),
+        );
+        metadata
+    }
+    /// Claims no consensus rule checks, written by the signer.
+    fn with_forged_event_claims(mut metadata: Metadata) -> Metadata {
+        insert(&mut metadata, "contract_module", IrohaJson::new("perps"));
+        insert(
+            &mut metadata,
+            "contract_event_kind",
+            IrohaJson::new("perps_position_liquidated"),
+        );
+        insert(
+            &mut metadata,
+            "contract_event_provenance",
+            IrohaJson::new("emitted"),
+        );
+        insert(
+            &mut metadata,
+            "contract_event_schema_version",
+            IrohaJson::new(9_u64),
+        );
+        insert(
+            &mut metadata,
+            "contract_event_payload",
+            IrohaJson::new(norito::json!({ "trader": "mallory@universal", "amount": 1_000_000 })),
+        );
+        metadata
+    }
+    fn signed(metadata: Metadata, executable: Executable) -> TransactionEntrypoint {
+        TransactionEntrypoint::External(
+            TransactionBuilder::new(
+                network(),
+                ALICE_ID.clone(),
+                FeePaymentIntent::authority(Vec::new(), None),
+            )
+            .with_metadata(metadata)
+            .with_executable(executable)
+            .sign(ALICE_KEYPAIR.private_key()),
+        )
+    }
+    fn committed(ok: bool) -> TransactionResult {
+        TransactionResult::new(if ok {
+            Ok(Vec::new())
+        } else {
+            Err(TransactionRejectionReason::Validation(
+                iroha_data_model::ValidationFail::NotPermitted("fixture rejection".into()),
+            ))
+        })
+    }
+    fn history<'a>(
+        entrypoint: &'a TransactionEntrypoint,
+        result: &'a TransactionResult,
+    ) -> BorrowedNetworkTransaction<'a> {
+        BorrowedNetworkTransaction {
+            entrypoint,
+            entrypoint_hash: entrypoint.hash(),
+            result,
+            block_hash: HashOf::from_untyped_unchecked(Hash::new(b"contract feed block")),
+        }
+    }
+    routing_test! { sync non_contract_transactions_never_reach_contract_feeds
+        let ok = committed(true);
+        for executable in [
+            Executable::Instructions(iroha_primitives::const_vec::ConstVec::new_empty()),
+            Executable::Batch(iroha_primitives::const_vec::ConstVec::new_empty()),
+        ] {
+            let entrypoint = signed(with_forged_event_claims(bound_router_metadata()), executable);
+            let tx = history(&entrypoint, &ok);
+            assert!(
+                tx.result().contract_events().is_empty(),
+                "metadata alone must not create a contract event"
+            );
+            assert!(
+                contract_activity_projection_from_tx(4, &tx).is_none(),
+                "metadata alone must not create contract activity"
+            );
+        }
+    }
+    routing_test! { sync committed_call_event_is_derived_from_its_bound_call
+        let entrypoint = signed(
+            with_forged_event_claims(bound_router_metadata()),
+            Executable::ContractCall(router_call()),
+        );
+        let ok = committed(true);
+        let tx = history(&entrypoint, &ok);
+        assert!(tx.result().contract_events().is_empty(), "calls do not synthesize emissions");
+        let activity = contract_activity_projection_from_tx(4, &tx).expect("committed call");
+        assert_eq!(activity.contract_address, router_address().to_string());
+        assert_eq!(activity.contract_alias.as_deref(), Some(ROUTER_ALIAS));
+        assert_eq!(activity.contract_entrypoint, "route_swap");
+        assert_eq!(
+            activity.contract_payload.as_ref().expect("bound payload")["amount_in"].as_str(),
+            Some("100")
+        );
+    }
+    routing_test! { sync rejected_call_withholds_unbound_metadata
+        let entrypoint = signed(
+            with_forged_event_claims(bound_router_metadata()),
+            Executable::ContractCall(router_call()),
+        );
+        let rejected = committed(false);
+        let tx = history(&entrypoint, &rejected);
+        assert!(tx.result().contract_events().is_empty(), "rejected calls emit nothing");
+        let address = router_address().to_string();
+        let activity = contract_activity_projection_from_tx(4, &tx).expect("rejected call");
+        assert_eq!(activity.contract_address, address);
+        assert_eq!(activity.contract_entrypoint, "route_swap");
+        assert_eq!(activity.contract_alias, None);
+        assert_eq!(activity.contract_payload, None);
+    }
+    routing_test! { sync committed_call_ignores_metadata_naming_another_call
+        let other_address =
+            ContractAddress::derive(&network(), &ALICE_ID, 4, DataSpaceId::UNIVERSAL)
+                .expect("derive another address")
+                .to_string();
+        let ok = committed(true);
+        for (key, value) in [
+            ("contract_address", IrohaJson::new(other_address)),
+            (
+                "contract_code_hash",
+                IrohaJson::new(Hash::new(b"other code").to_string()),
+            ),
+            ("contract_entrypoint", IrohaJson::new("close_position")),
+        ] {
+            let mut metadata = bound_router_metadata();
+            insert(&mut metadata, key, value);
+            let entrypoint = signed(metadata, Executable::ContractCall(router_call()));
+            let tx = history(&entrypoint, &ok);
+            assert!(tx.result().contract_events().is_empty(), "metadata never creates an emission");
+            let activity = contract_activity_projection_from_tx(4, &tx).expect("committed call");
+            assert_eq!(activity.contract_entrypoint, "route_swap", "{key}");
+            assert_eq!(activity.contract_alias, None, "{key}");
+            assert_eq!(activity.contract_payload, None, "{key}");
+        }
+    }
+    routing_test! { sync contract_call_metadata_carries_only_consensus_bound_keys
+        let manifest = manifest::ContractManifest {
+            permissions: Vec::new(),
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            seiyaku_name: None,
+            code_hash: None,
+            abi_hash: None,
+            compiler_fingerprint: None,
+            features_bitmap: None,
+            access_set_hints: None,
+            entrypoints: None,
+            states: None,
+            kotoba: None,
+            error_messages: None,
+            error_types: None,
+            provenance: None,
+        };
+        let alias: iroha_data_model::smart_contract::ContractAlias =
+            ROUTER_ALIAS.parse().expect("router alias");
+        let metadata = build_contract_call_metadata(
+            &manifest,
+            &router_address(),
+            &router_code_hash(),
+            Some(&alias),
+            Some("route_swap"),
+            Some(&IrohaJson::new(norito::json!({ "amount_in": "100" }))),
+        );
+        let keys = metadata
+            .iter()
+            .map(|(key, _)| key.as_ref().to_owned())
+            .collect::<BTreeSet<_>>();
+        let bound = [
+            "contract_address",
+            "contract_alias",
+            "contract_code_hash",
+            "contract_entrypoint",
+            "contract_payload",
+        ];
+        assert_eq!(keys, bound.iter().map(|key| (*key).to_owned()).collect::<BTreeSet<_>>());
+    }
 }
 #[cfg(all(test, feature = "app_api"))]
 mod tx_projection_display_tests {
@@ -46942,15 +46437,7 @@ mod tx_projection_display_tests {
             u128::MAX.to_string()
         );
     }
-    routing_test! { sync trader_module_alias_candidates_are_parseable_contract_aliases
-        for module in TRADER_MODULE_ORDER {
-            for alias in trader_module_alias_candidates(module) {
-                alias
-                    .parse::<iroha_data_model::smart_contract::ContractAlias>()
-                    .unwrap_or_else(|err| panic!("invalid alias candidate `{alias}`: {err}"));
-            }
-        }
-    }
+
     routing_test! { sync contract_activity_projection_json_preserves_payload_and_fee_fields
         let account: AccountId = ALICE_ID.clone();
         let projection = ContractActivityProjection {
@@ -46961,7 +46448,7 @@ mod tx_projection_display_tests {
             result_ok: true,
             contract_address: "irohac1router".into(),
             contract_alias: Some("dlmm_router".into()),
-            contract_entrypoint: Some("route_swap".into()),
+            contract_entrypoint: "route_swap".into(),
             contract_payload: Some(norito::json!({
                 "amount_in": 10,
                 "min_out": 9
@@ -46989,18 +46476,20 @@ mod tx_projection_display_tests {
     routing_test! { sync contract_event_projection_json_preserves_generic_fields
         let account: AccountId = ALICE_ID.clone();
         let projection = ContractEventProjection {
+            output_index: 0,
+            emission_index: 0,
+            emission: Value::Null,
             event_id: "feedface:0".into(),
             schema_version: 1,
-            provenance: "derived".into(),
+            provenance: "emitted".into(),
             authority: Some(account.to_string()),
             timestamp_ms: Some(456),
-            tx_hash_hex: "feedface".into(),
+            execution_hash_hex: "feedface".into(),
             block_height: 9,
             block_hash_hex: "block-feedface".into(),
             result_ok: true,
             contract_address: "irohac1router".into(),
-            contract_alias: Some("dlmm_router".into()),
-            module: "dlmm_router".into(),
+
             event_kind: "route_swap".into(),
             participants: vec![account.to_string()],
             asset_ids: vec!["xor#universal".into()],
@@ -47034,18 +46523,20 @@ mod tx_projection_display_tests {
         let bob: AccountId = BOB_ID.clone();
         let items = vec![
             ContractEventProjection {
+            output_index: 0,
+            emission_index: 0,
+            emission: Value::Null,
                 event_id: "hash-1:0".into(),
                 schema_version: 1,
-                provenance: "derived".into(),
+                provenance: "emitted".into(),
                 authority: Some(alice.to_string()),
                 timestamp_ms: Some(100),
-                tx_hash_hex: "hash-1".into(),
+                execution_hash_hex: "hash-1".into(),
                 block_height: 1,
                 block_hash_hex: "block-1".into(),
                 result_ok: true,
                 contract_address: "router-a".into(),
-                contract_alias: Some("dlmm_router".into()),
-                module: "swaps".into(),
+
                 event_kind: "route_swap".into(),
                 participants: vec![alice.to_string()],
                 asset_ids: vec!["xor#universal".into()],
@@ -47054,18 +46545,20 @@ mod tx_projection_display_tests {
                 fee_payment: None,
             },
             ContractEventProjection {
+            output_index: 0,
+            emission_index: 0,
+            emission: Value::Null,
                 event_id: "hash-2:0".into(),
                 schema_version: 1,
-                provenance: "derived".into(),
+                provenance: "emitted".into(),
                 authority: Some(alice.to_string()),
                 timestamp_ms: Some(200),
-                tx_hash_hex: "hash-2".into(),
+                execution_hash_hex: "hash-2".into(),
                 block_height: 2,
                 block_hash_hex: "block-2".into(),
                 result_ok: false,
                 contract_address: "router-a".into(),
-                contract_alias: Some("dlmm_router".into()),
-                module: "swaps".into(),
+
                 event_kind: "cancel_swap".into(),
                 participants: vec![alice.to_string()],
                 asset_ids: vec!["xor#universal".into()],
@@ -47074,18 +46567,20 @@ mod tx_projection_display_tests {
                 fee_payment: None,
             },
             ContractEventProjection {
+            output_index: 0,
+            emission_index: 0,
+            emission: Value::Null,
                 event_id: "hash-3:0".into(),
                 schema_version: 1,
-                provenance: "derived".into(),
+                provenance: "emitted".into(),
                 authority: Some(bob.to_string()),
                 timestamp_ms: Some(300),
-                tx_hash_hex: "hash-3".into(),
+                execution_hash_hex: "hash-3".into(),
                 block_height: 3,
                 block_hash_hex: "block-3".into(),
                 result_ok: true,
                 contract_address: "router-b".into(),
-                contract_alias: Some("other_router".into()),
-                module: "perps".into(),
+
                 event_kind: "open_position".into(),
                 participants: vec![bob.to_string(), alice.to_string()],
                 asset_ids: vec!["usdt#soraswap.universal".into()],
@@ -47094,18 +46589,20 @@ mod tx_projection_display_tests {
                 fee_payment: None,
             },
             ContractEventProjection {
+            output_index: 0,
+            emission_index: 0,
+            emission: Value::Null,
                 event_id: "hash-4:0".into(),
                 schema_version: 1,
-                provenance: "derived".into(),
+                provenance: "emitted".into(),
                 authority: Some(alice.to_string()),
                 timestamp_ms: Some(400),
-                tx_hash_hex: "hash-4".into(),
+                execution_hash_hex: "hash-4".into(),
                 block_height: 4,
                 block_hash_hex: "block-4".into(),
                 result_ok: true,
                 contract_address: "router-a".into(),
-                contract_alias: Some("dlmm_router".into()),
-                module: "swaps".into(),
+
                 event_kind: "route_swap".into(),
                 participants: vec![alice.to_string(), "i105sponsor@universal".into()],
                 asset_ids: vec!["xor#universal".into(), "usdt#soraswap.universal".into()],
@@ -47124,10 +46621,10 @@ mod tx_projection_display_tests {
         let index = sample_contract_event_index();
         let params = ContractEventGetParams {
             authority: Some(ALICE_ID.to_string()),
-            module: Some("swaps".into()),
+            contract_address: Some("router-a".into()),
             event_kind: Some("route_swap".into()),
             asset_id: Some("xor#universal".into()),
-            provenance: Some("derived".into()),
+            provenance: Some("emitted".into()),
             result_ok: Some(true),
             ..Default::default()
         };
@@ -47158,7 +46655,7 @@ mod tx_projection_display_tests {
         );
         assert_eq!(total, 3);
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].tx_hash_hex, "hash-3");
+        assert_eq!(items[0].execution_hash_hex, "hash-3");
     }
     routing_test! { sync contract_event_visibility_precedes_filters_offsets_and_counts
         let index = sample_contract_event_index();
@@ -47176,56 +46673,14 @@ mod tx_projection_display_tests {
                 cap: 100,
             },
             None,
-            |projection| projection.tx_hash_hex != "hash-3",
+            |projection| projection.execution_hash_hex != "hash-3",
         );
         assert_eq!(total, 2, "hidden events must not influence exact counts");
         assert_eq!(items.len(), 1);
         assert_eq!(
-            items[0].tx_hash_hex, "hash-1",
+            items[0].execution_hash_hex, "hash-1",
             "offsets must be applied within the visible event sequence"
         );
-    }
-    routing_test! { sync uranai_event_payload_normalization_redacts_private_proofs
-        assert_eq!(
-            canonical_contract_module(Some("uranai::markets.universal"), "irohac1uranai"),
-            Some("uranai")
-        );
-        assert_eq!(
-            canonical_contract_event_kind("uranai", "private_buy"),
-            Some("private_shares_bought")
-        );
-        let payload = IrohaJson::new(norito::json!({
-            "market_id": "mkt-1",
-            "outcome_index": 1,
-            "collateral_in": 25,
-            "proof_env": "secret-proof",
-            "proof": "secret-proof-alias",
-            "proofs": [
-                {
-                    "proofEnv": "nested-secret",
-                    "note": "kept"
-                }
-            ],
-            "open_verify": {
-                "openVerifyProof": "nested-open-secret",
-                "publicSignal": "kept"
-            },
-            "wallet": {
-                "private_key": "nested-private-key"
-            }
-        }));
-        let normalized = canonical_contract_event_payload("uranai", "private_buy", Some(&payload))
-            .expect("normalized payload");
-        let value = json::parse_value(normalized.get()).expect("json payload");
-        assert_eq!(value["market_id"].as_str(), Some("mkt-1"));
-        assert_eq!(value["private_proof_redacted"].as_bool(), Some(true));
-        assert!(value.get("proof_env").is_none());
-        assert!(value.get("proof").is_none());
-        assert!(value["proofs"][0].get("proofEnv").is_none());
-        assert_eq!(value["proofs"][0]["note"].as_str(), Some("kept"));
-        assert!(value["open_verify"].get("openVerifyProof").is_none());
-        assert_eq!(value["open_verify"]["publicSignal"].as_str(), Some("kept"));
-        assert!(value["wallet"].get("private_key").is_none());
     }
     fn uranai_projection(
         event_kind: &str,
@@ -47234,18 +46689,19 @@ mod tx_projection_display_tests {
         payload: Value,
     ) -> ContractEventProjection {
         ContractEventProjection {
+            output_index: 0,
+            emission_index: 0,
+            emission: Value::Null,
             event_id: format!("uranai-{block_height}:0"),
-            schema_version: 1,
-            provenance: "emitted".into(),
+            schema_version: CONTRACT_EVENT_SCHEMA_VERSION,
+            provenance: CONTRACT_EVENT_PROVENANCE.into(),
             authority: Some(ALICE_ID.to_string()),
             timestamp_ms: Some(timestamp_ms),
-            tx_hash_hex: format!("hash-{block_height}"),
+            execution_hash_hex: format!("hash-{block_height}"),
             block_height,
             block_hash_hex: format!("block-{block_height}"),
             result_ok: true,
             contract_address: "irohac1uranai".into(),
-            contract_alias: Some("uranai::markets.universal".into()),
-            module: "uranai".into(),
             event_kind: event_kind.into(),
             participants: vec![ALICE_ID.to_string()],
             asset_ids: Vec::new(),
@@ -47315,7 +46771,7 @@ mod tx_projection_display_tests {
             market_id: "mkt-1".into(),
             limit: Some(1),
             offset: 0,
-            contract_address: None,
+            contract_address: Some("irohac1uranai".into()),
             contract_alias: Some("uranai::markets.universal".into()),
             since_timestamp_ms: Some(250),
             until_timestamp_ms: Some(450),
@@ -47371,7 +46827,7 @@ mod tx_projection_display_tests {
                 cap: 100,
             },
             AppCountMode::Exact,
-            |projection| !matches!(projection.tx_hash_hex.as_str(), "hash-2" | "hash-4"),
+            |projection| !matches!(projection.execution_hash_hex.as_str(), "hash-2" | "hash-4"),
         );
         assert_eq!(json["total"].as_u64(), Some(1));
         assert_eq!(json["items"].as_array().map(Vec::len), Some(1));
@@ -47630,24 +47086,49 @@ mod tx_projection_display_tests {
         assert_eq!(json["total"].as_u64(), Some(0));
     }
     routing_test! { sync swap_fill_stitching_omits_records_without_a_visible_committed_event
+        use iroha_data_model::smart_contract::{entrypoint::*, event::*};
         let rollup = sample_swap_fill_rollup();
-        let mut visible_events = vec![ContractEventProjection {
-            timestamp_ms: Some(1_000),
-            tx_hash_hex: "visible-buy".into(),
-            payload: Some(norito::json!({
-                "record_id": 6,
-                "amount_in": 50,
-                "amount_out": 100,
-                "min_out": 95,
-                "input_is_base": 1
-            })),
-            ..Default::default()
-        }];
+        let fields = ["record_id", "amount_in", "amount_out", "min_out", "input_is_base"];
+        let mut nodes = vec![EntrypointValueTypeNodeV1::Struct(EntrypointStructTypeNodeV1 {
+            name: "Router::SwapFilled".into(),
+            fields: fields.iter().map(|field| (*field).to_owned()).collect(),
+        })];
+        nodes.extend(fields.iter().map(|_| EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)));
+        let payload_type = EntrypointValueTypeV1 { nodes };
+        let emission = ContractEmissionV1 {
+            contract: iroha_data_model::smart_contract::ContractAddress::derive(
+                &iroha_data_model::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+                    Hash::new(b"swap projection fixture network"),
+                )),
+                &ALICE_ID, 1, DataSpaceId::UNIVERSAL,
+            ).unwrap(),
+            code_hash: Hash::new(b"swap projection fixture artifact"), entrypoint: 0, event: 0,
+            caller: ALICE_ID.clone(),
+            payload: EntrypointReturnRecordV1 {
+                schema_hash: entrypoint_return_schema_hash_v1(&norito::encode_canonical(&payload_type).unwrap()),
+                atoms: [6, 50, 100, 95, 1].into_iter().map(|value| {
+                    EntrypointValueAtomV1::Pointer(ivm_abi::numeric_tlv::encode_int(
+                        &iroha_primitives::bigint::BigInt::from(value),
+                    ).unwrap())
+                }).collect(),
+            },
+            definition: ContractEventDescriptorV1 {
+                name: "SwapFilled".parse().unwrap(), payload_type,
+            },
+        };
+        let execution_hash = Hash::new(b"visible swap execution");
+        let projection = contract_event_projection(
+            1, HashOf::from_untyped_unchecked(Hash::new(b"visible swap block")), 1_000,
+            0, 0, execution_hash, &emission, None,
+        ).expect("project exact native emission");
+        assert_eq!(projection.emission, norito::json::to_value(&emission).unwrap());
+        assert_eq!(projection.provenance, CONTRACT_EVENT_PROVENANCE);
+        let mut visible_events = vec![projection];
         let stitched =
             stitch_visible_swap_fill_records(rollup.items.clone(), &mut visible_events);
         assert_eq!(stitched.len(), 1);
         assert_eq!(stitched[0].record_id, 6);
-        assert_eq!(stitched[0].execution_hash.as_deref(), Some("visible-buy"));
+        assert_eq!(stitched[0].execution_hash.as_deref(), Some(execution_hash.to_string().as_str()));
         assert!(visible_events.is_empty());
     }
     routing_test! { sync compute_swap_analytics_tracks_realized_and_open_inventory
@@ -47663,38 +47144,26 @@ mod tx_projection_display_tests {
         let avg_cushion_ratio = analytics.avg_cushion_ratio.expect("avg cushion ratio");
         assert!((avg_cushion_ratio - 1.15).abs() < 1e-9);
     }
-    routing_test! { sync trader_account_modules_do_not_project_unseen_contract_bindings
-        let mut rollup = sample_swap_fill_rollup();
-        rollup.contract_address.clear();
-        rollup.base_asset_id.clear();
-        rollup.quote_asset_id.clear();
-        rollup.items.clear();
-        let modules = build_trader_account_modules_json(
-            &rollup,
-            &SwapAnalytics::default(),
-            &[],
-        );
-        assert_eq!(modules.len(), TRADER_MODULE_ORDER.len());
-        assert!(modules.iter().all(|module| module["contractAddress"].is_null()));
-        assert_eq!(modules[0]["statusLabel"].as_str(), Some("Unavailable"));
-    }
-    routing_test! { sync trader_activity_page_ignores_unsupported_modules
+
+    routing_test! { sync trader_activity_page_includes_every_declared_event_name
         let mut index = sample_contract_event_index();
         append_contract_event_projection(
             &mut index,
             ContractEventProjection {
+            output_index: 0,
+            emission_index: 0,
+            emission: Value::Null,
                 event_id: "hash-5:0".into(),
                 schema_version: 1,
-                provenance: "derived".into(),
+                provenance: "emitted".into(),
                 authority: Some(ALICE_ID.to_string()),
                 timestamp_ms: Some(500),
-                tx_hash_hex: "hash-5".into(),
+                execution_hash_hex: "hash-5".into(),
                 block_height: 5,
                 block_hash_hex: "block-5".into(),
                 result_ok: true,
                 contract_address: "router-c".into(),
-                contract_alias: Some("unknown_router".into()),
-                module: "unsupported".into(),
+
                 event_kind: "custom_event".into(),
                 participants: vec![ALICE_ID.to_string()],
                 asset_ids: Vec::new(),
@@ -47718,9 +47187,9 @@ mod tx_projection_display_tests {
             },
             |_| true,
         );
-        assert_eq!(total, 2);
+        assert_eq!(total, 3);
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].tx_hash_hex, "hash-4");
+        assert_eq!(items[0].execution_hash_hex, "hash-5");
     }
     routing_test! { sync trader_rollup_visibility_precedes_filters_offsets_and_counts
         let index = sample_contract_event_index();
@@ -47737,11 +47206,11 @@ mod tx_projection_display_tests {
                 offset: 1,
                 cap: 100,
             },
-            |projection| projection.tx_hash_hex != "hash-3",
+            |projection| projection.execution_hash_hex != "hash-3",
         );
         assert_eq!(total, 2, "hidden events must not affect rollup counts");
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].tx_hash_hex, "hash-1");
+        assert_eq!(items[0].execution_hash_hex, "hash-1");
     }
 }
 // ---------------------- Balances and Holders ----------------------
@@ -50942,8 +50411,10 @@ pub(crate) fn prepared_submit_outcome(
             })?;
         return Ok(Some(prepared_outcome_from_pipeline_status(status.kind)));
     }
-    // A queue/cache observation reports Pending only; it never proves application.
-    if let Some(status) = app.pipeline_status_cache.lookup(&transaction_hash) {
+    // Local queue/admission/expiry hints never replace a missing canonical block outcome.
+    if let Some(status) =
+        crate::pipeline_status_cached_entry_without_canonical(app, &transaction_hash)?
+    {
         return Ok(Some(prepared_outcome_from_pipeline_status(status.kind)));
     }
     if app
@@ -52117,7 +51588,7 @@ pub(crate) async fn handle_v1_nexus_dataspaces_account_summary_with_visibility(
     .map_err(|err| {
         conversion_error(format!(
             "invalid account literal `{literal}`: {}",
-            err.reason()
+            err.code_str()
         ))
     })?;
     record_account_literal_selection(&telemetry, ENDPOINT_NEXUS_DATASPACES_ACCOUNT_SUMMARY);
@@ -53993,8 +53464,16 @@ pub async fn handle_v1_explorer_health(
         let head_height = state.committed_height() as u64;
         let body = crate::explorer::ExplorerHealthDto {
             head_height,
-            head_created_at: latest_block_created_at(state.as_ref(), head_height)?,
-            sampled_at: crate::explorer_history::HistoryTime(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_| explorer_response_capacity_error())?),
+            head_created_at: latest_block_created_at(
+                state.as_ref(),
+                head_height,
+                &owner.canonical_history_budget(),
+            )?,
+            sampled_at: crate::explorer_history::HistoryTime(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|_| explorer_response_capacity_error())?,
+            ),
         };
         owner.json(&body)
     });
@@ -54094,7 +53573,6 @@ impl ExplorerInstructionFilters {
 #[cfg(all(feature = "app_api", feature = "telemetry"))]
 pub async fn handle_v1_explorer_metrics(
     state: Arc<CoreState>,
-    kura: Arc<Kura>,
     telemetry: MaybeTelemetry,
     visibility: DataspaceReadVisibility,
 ) -> Result<AxResponse, Error> {
@@ -54111,82 +53589,108 @@ pub async fn handle_v1_explorer_metrics(
             telemetry.profile(),
         ));
     }
-    let dto = explorer_network_metrics_snapshot(state, kura, &telemetry).await?;
-    crate::history_producer::HistoryProducerOwner::current()?.json(&dto)
+    let owner = crate::history_producer::HistoryProducerOwner::current()?;
+    let dto = explorer_network_metrics_snapshot(state, &telemetry, &owner).await?;
+    owner.json(&dto)
 }
 #[cfg(all(feature = "app_api", feature = "telemetry"))]
 async fn explorer_network_metrics_snapshot(
     state: Arc<CoreState>,
-    kura: Arc<Kura>,
     telemetry: &MaybeTelemetry,
+    owner: &crate::history_producer::HistoryProducerOwner,
 ) -> Result<crate::explorer::ExplorerNetworkMetricsDto, Error> {
     let metrics = telemetry.metrics().await;
-    let world = state.world_view();
-    let peers = world.peers().len() as u64;
-    let domains = world.domains().len() as u64;
-    let accounts = world.accounts().len() as u64;
-    let assets = world.assets().len() as u64 + world.nfts().len() as u64;
-    let finalized_block = state.committed_height() as u64;
-    let transactions_accepted = metrics.txs.with_label_values(&["accepted"]).get();
-    let transactions_rejected = metrics.txs.with_label_values(&["rejected"]).get();
-    let avg_commit_time_ms = metrics.last_commit_time_ms.get();
-    let avg_commit_time = if avg_commit_time_ms == 0 {
-        None
-    } else {
-        Some(crate::explorer::ExplorerDurationDto {
-            ms: avg_commit_time_ms,
+    // Install the native owner only after the asynchronous metrics refresh.
+    // This synchronous scope cannot leak into another task or survive an await.
+    owner.scope(|| {
+        let world = state.world_view();
+        let peers = world.peers().len() as u64;
+        let domains = world.domains().len() as u64;
+        let accounts = world.accounts().len() as u64;
+        let assets = world.assets().len() as u64 + world.nfts().len() as u64;
+        let finalized_block = state.committed_height() as u64;
+        let transactions_accepted = metrics.txs.with_label_values(&["accepted"]).get();
+        let transactions_rejected = metrics.txs.with_label_values(&["rejected"]).get();
+        let avg_commit_time_ms = metrics.last_commit_time_ms.get();
+        let avg_commit_time = if avg_commit_time_ms == 0 {
+            None
+        } else {
+            Some(crate::explorer::ExplorerDurationDto {
+                ms: avg_commit_time_ms,
+            })
+        };
+        let history_budget = owner.canonical_history_budget();
+        let block_created_at =
+            latest_block_created_at(state.as_ref(), finalized_block, &history_budget)?;
+        let avg_block_time =
+            average_block_time_ms(state.as_ref(), finalized_block, 20, &history_budget)?
+                .map(|ms| crate::explorer::ExplorerDurationDto { ms });
+        Ok(crate::explorer::ExplorerNetworkMetricsDto {
+            peers,
+            domains,
+            accounts,
+            assets,
+            transactions_accepted,
+            transactions_rejected,
+            block: finalized_block,
+            block_created_at,
+            finalized_block,
+            avg_commit_time,
+            avg_block_time,
         })
-    };
-    let execution_budget = state.ivm_execution_budget();
-    let block_created_at = latest_block_created_at(state.as_ref(), finalized_block)?;
-    let avg_block_time = average_block_time_ms(kura.as_ref(), finalized_block, 20, &execution_budget)?
-        .map(|ms| crate::explorer::ExplorerDurationDto { ms });
-    Ok(crate::explorer::ExplorerNetworkMetricsDto {
-        peers,
-        domains,
-        accounts,
-        assets,
-        transactions_accepted,
-        transactions_rejected,
-        block: finalized_block,
-        block_created_at,
-        finalized_block,
-        avg_commit_time,
-        avg_block_time,
     })
 }
 fn latest_block_created_at(
     state: &CoreState,
     height: u64,
+    history_budget: &iroha_core::state::CanonicalHistoryReadBudget,
 ) -> Result<Option<crate::explorer_history::HistoryTime>> {
-    let Some(height) = nonzero_height(height) else { return Ok(None); };
-    let block = HistoryReadBudget::new().read(state, height)?;
-    Ok(Some(crate::explorer_history::HistoryTime(block.header().creation_time())))
+    let Some(height) = nonzero_height(height) else {
+        return Ok(None);
+    };
+    let block = state
+        .read_canonical_history_block(height, history_budget)
+        .map_err(crate::canonical_history::query_attempt_error)?;
+    Ok(Some(crate::explorer_history::HistoryTime(
+        block.header().creation_time(),
+    )))
 }
 fn average_block_time_ms(
-    kura: &Kura,
+    state: &CoreState,
     latest: u64,
     window: usize,
-    execution_budget: &iroha_core::state::AllocationBudget,
+    history_budget: &iroha_core::state::CanonicalHistoryReadBudget,
 ) -> Result<Option<u64>> {
-    if latest <= 1 || window == 0 { return Ok(None); }
+    if latest <= 1 || window == 0 {
+        return Ok(None);
+    }
     let mut height = latest;
     let mut prev_ts_ms: Option<u128> = None;
     let mut deltas: Vec<u128> = Vec::new();
     let mut remaining = window;
     while height >= 1 && remaining > 0 {
-        let Some(nonzero_height) = nonzero_height(height) else { break; };
-        let Some(block) = kura.get_block(nonzero_height, execution_budget).map_err(crate::canonical_history::kura_attempt_error)? else { break; };
+        let Some(nonzero_height) = nonzero_height(height) else {
+            break;
+        };
+        let block = state
+            .read_canonical_history_block(nonzero_height, history_budget)
+            .map_err(crate::canonical_history::query_attempt_error)?;
         let ts_ms = block.header().creation_time().as_millis();
         if let Some(prev) = prev_ts_ms {
-            if prev >= ts_ms { deltas.push(prev - ts_ms); }
+            if prev >= ts_ms {
+                deltas.push(prev - ts_ms);
+            }
         }
         prev_ts_ms = Some(ts_ms);
-        if height == 1 { break; }
+        if height == 1 {
+            break;
+        }
         height -= 1;
         remaining -= 1;
     }
-    Ok(if deltas.is_empty() { None } else {
+    Ok(if deltas.is_empty() {
+        None
+    } else {
         let sum: u128 = deltas.iter().copied().sum();
         Some((sum / (deltas.len() as u128)) as u64)
     })
@@ -55356,6 +54860,7 @@ pub async fn handle_v1_explorer_asset_definition_detail(
             &definition_id,
             &visibility,
         ),
+        asset_definition_dataspace_for_read(&world, &definition_id)?,
     );
     let zero_locked_quantity = Quantity::zero();
     if definition_id == governance.voting_asset_id {
@@ -56937,15 +56442,35 @@ fn handle_v1_explorer_block_detail_sync(
     );
     response
 }
+/// Read the immutable direct home without treating corrupt authoritative state as no home.
+pub(crate) fn asset_definition_dataspace_for_read(
+    world: &impl WorldReadOnly,
+    definition_id: &AssetDefinitionId,
+) -> Result<Option<DataSpaceId>, Error> {
+    world.asset_definition_dataspace(definition_id).map_err(|error| {
+        Error::Query(iroha_data_model::ValidationFail::InternalError(
+            format!("invalid asset-definition home: {error}"),
+        ))
+    })
+}
 fn asset_definition_to_json_value(
     def: &iroha_data_model::asset::definition::AssetDefinition,
     alias_binding: Option<&AssetAliasBindingDto>,
+    owning_dataspace: Option<DataSpaceId>,
 ) -> Result<norito::json::Value> {
     let mut value = norito::json::to_value(def).map_err(|error| {
         Error::Query(iroha_data_model::ValidationFail::InternalError(
             error.to_string(),
         ))
     })?;
+    if let norito::json::Value::Object(map) = &mut value {
+        map.insert(
+            "owning_dataspace".into(),
+            owning_dataspace.map_or(norito::json::Value::Null, |dataspace| {
+                norito::json::Value::from(dataspace.as_u64().to_string())
+            }),
+        );
+    }
     if let (Some(binding), norito::json::Value::Object(map)) = (alias_binding, &mut value) {
         map.insert(
             "alias".into(),
@@ -57107,7 +56632,7 @@ pub async fn handle_v1_nexus_public_lane_stake(
                     Error::Query(iroha_data_model::ValidationFail::QueryFailed(
                         iroha_data_model::query::error::QueryExecutionFail::Conversion(format!(
                             "invalid validator literal `{canonical}`: {}",
-                            err.reason()
+                            err.code_str()
                         )),
                     ))
                 })?,
@@ -57180,19 +56705,14 @@ pub async fn handle_v1_nexus_public_lane_rewards(
         None => None,
     };
     record_account_literal_selection(&telemetry, ENDPOINT_NEXUS_PUBLIC_LANE_REWARDS);
-    let upto_epoch = params.upto_epoch.unwrap_or(u64::MAX);
     if !state.is_lane_active_for_authority(lane_id) {
         return lane_items_response(lane_id, Vec::new());
     }
-    let world = state.world_view();
+    let view = state.view();
+    let height = u64::try_from(view.height())
+        .map_err(|_| conversion_error("committed reward height overflow".into()))?;
     let rewards = collect_pending_public_lane_rewards(
-        lane_id,
-        &account_id,
-        upto_epoch,
-        asset_filter.as_ref(),
-        world.public_lane_reward_claims().get(&(lane_id, account_id.clone())),
-        world.public_lane_reward_accruals().iter(),
-        world.public_lane_rewards().iter(),
+        view.world(), height, lane_id, &account_id, asset_filter.as_ref(),
     )?;
     let mut entries = rewards
         .into_iter()
@@ -57229,12 +56749,6 @@ fn public_lane_stake_share_matches_key(
 ) -> bool {
     key.0 == share.lane_id && key.1 == share.validator && key.2 == share.staker
 }
-fn public_lane_reward_record_matches_key(
-    key: &(LaneId, u64),
-    record: &PublicLaneRewardRecord,
-) -> bool {
-    key.0 == record.lane_id && key.1 == record.epoch
-}
 }
 #[cfg(all(test, feature = "app_api"))]
 routing_test! { sync public_lane_validator_record_matches_key_rejects_mismatched_rows
@@ -57262,7 +56776,6 @@ routing_test! { sync public_lane_validator_record_matches_key_rejects_mismatched
         activation_height: 1,
         election_exit_height: None,
         deactivation_height: None,
-        last_reward_epoch: None,
     };
     assert!(public_lane_validator_record_matches_key(&key, &record));
     record.lane_id = LaneId::new(10);
@@ -57289,7 +56802,6 @@ routing_test! { sync public_lane_validator_projection_distinguishes_election_exi
         stake_account: validator.clone(), total_stake: 100_u64.into(), self_stake: 100_u64.into(),
         metadata: Metadata::default(), status: PublicLaneValidatorStatus::Active,
         activation_height: 21, election_exit_height: Some(41), deactivation_height: None,
-        last_reward_epoch: None,
     };
     let (_, value) = validator_record_to_json(&record);
     assert_eq!(value.get("election_exit_height").and_then(Value::as_u64), Some(41));
@@ -57363,220 +56875,6 @@ routing_test! { sync public_lane_stake_share_matches_key_rejects_mismatched_rows
     assert!(!public_lane_stake_share_matches_key(&key, &share));
 }
 #[cfg(all(test, feature = "app_api"))]
-routing_test! { sync public_lane_reward_record_matches_key_rejects_mismatched_rows
-    let recipient = AccountId::new(
-        checked_routing_fixture_keypair(
-            0x78,
-            Algorithm::Ed25519,
-            "derive public lane reward recipient fixture",
-        )
-        .public_key()
-        .clone(),
-    );
-    let asset = AssetId::new(
-        test_asset_definition_id_from_hex("550e8400e29b41d4a7164466554400aa"),
-        recipient.clone(),
-    );
-    let key = (LaneId::new(14), 8);
-    let mut record = PublicLaneRewardRecord {
-        lane_id: key.0,
-        epoch: key.1,
-        asset,
-        total_reward: iroha_primitives::numeric::Quantity::from(3_u32),
-        shares: vec![PublicLaneRewardShare {
-            account: recipient,
-            role: PublicLaneRewardRole::Validator,
-            amount: iroha_primitives::numeric::Quantity::from(3_u32),
-        }],
-        metadata: Metadata::default(),
-    };
-    assert!(public_lane_reward_record_matches_key(&key, &record));
-    record.lane_id = LaneId::new(15);
-    assert!(!public_lane_reward_record_matches_key(&key, &record));
-    record.lane_id = key.0;
-    record.epoch = 9;
-    assert!(!public_lane_reward_record_matches_key(&key, &record));
-}
-#[cfg(all(test, feature = "app_api"))]
-routing_test! { sync collect_pending_public_lane_rewards_includes_unclaimed_epoch_zero
-    let account = AccountId::new(checked_routing_fixture_keypair(
-        0x7D, Algorithm::Ed25519, "derive epoch zero reward fixture",
-    ).public_key().clone());
-    let lane_id = LaneId::SINGLE;
-    let asset = AssetId::new(
-        test_asset_definition_id_from_hex("550e8400e29b41d4a7164466554400bb"), account.clone(),
-    );
-    let mut claims = BTreeMap::new();
-    let rewards = BTreeMap::from([((lane_id, 0), PublicLaneRewardRecord {
-        lane_id, epoch: 0, asset: asset.clone(), total_reward: Quantity::from(25_u64),
-        shares: vec![PublicLaneRewardShare { account: account.clone(), role: PublicLaneRewardRole::Nominator, amount: Quantity::from(25_u64) }],
-        metadata: Metadata::default(),
-    })]);
-    let pending = collect_pending_public_lane_rewards(lane_id, &account, 0, None, claims.get(&(lane_id, account.clone())), std::iter::empty(), rewards.iter()).unwrap();
-    assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].amount, Quantity::from(25_u64));
-    assert_eq!(pending[0].latest_unprocessed_epoch, Some(0));
-    assert_eq!(pending[0].processed_through_epoch, None);
-    claims.insert((lane_id, account.clone()), iroha_data_model::nexus::PublicLaneRewardClaimStateV1 { through_epoch: Some(0) });
-    assert!(collect_pending_public_lane_rewards(lane_id, &account, 0, None, claims.get(&(lane_id, account.clone())), std::iter::empty(), rewards.iter()).unwrap().is_empty());
-}
-#[cfg(all(test, feature = "app_api"))]
-routing_test! { sync collect_pending_public_lane_rewards_ignores_mismatched_reward_rows
-    let account = AccountId::new(
-        checked_routing_fixture_keypair(
-            0x7C,
-            Algorithm::Ed25519,
-            "derive public lane pending reward account fixture",
-        )
-        .public_key()
-        .clone(),
-    );
-    let lane_id = LaneId::new(16);
-    let asset = AssetId::new(
-        test_asset_definition_id_from_hex("550e8400e29b41d4a7164466554400bb"),
-        account.clone(),
-    );
-    let other_asset = AssetId::new(
-        test_asset_definition_id_from_hex("550e8400e29b41d4a7164466554400bc"),
-        account.clone(),
-    );
-    let mut claims = BTreeMap::new();
-    claims.insert((lane_id, account.clone()), iroha_data_model::nexus::PublicLaneRewardClaimStateV1 { through_epoch: Some(1) });
-    let valid_reward = |epoch: u64, amount: u32| PublicLaneRewardRecord {
-        lane_id,
-        epoch,
-        asset: asset.clone(),
-        total_reward: iroha_primitives::numeric::Quantity::from(amount),
-        shares: vec![PublicLaneRewardShare {
-            account: account.clone(),
-            role: PublicLaneRewardRole::Nominator,
-            amount: iroha_primitives::numeric::Quantity::from(amount),
-        }],
-        metadata: Metadata::default(),
-    };
-    let mismatched_reward =
-        |record_lane_id: LaneId, record_epoch: u64, amount: u32| PublicLaneRewardRecord {
-            lane_id: record_lane_id,
-            epoch: record_epoch,
-            asset: asset.clone(),
-            total_reward: iroha_primitives::numeric::Quantity::from(amount),
-            shares: vec![PublicLaneRewardShare {
-                account: account.clone(),
-                role: PublicLaneRewardRole::Nominator,
-                amount: iroha_primitives::numeric::Quantity::from(amount),
-            }],
-            metadata: Metadata::default(),
-        };
-    let mut rewards = BTreeMap::new();
-    rewards.insert((lane_id, 2), valid_reward(2, 5));
-    rewards.insert((lane_id, 3), mismatched_reward(LaneId::new(17), 3, 99));
-    rewards.insert((lane_id, 4), mismatched_reward(lane_id, 40, 99));
-    rewards.insert((lane_id, 5), valid_reward(5, 7));
-    rewards.insert((lane_id, 6), valid_reward(6, 13));
-    rewards.insert(
-        (LaneId::new(18), 1),
-        PublicLaneRewardRecord {
-            lane_id: LaneId::new(18),
-            epoch: 1,
-            asset: other_asset,
-            total_reward: iroha_primitives::numeric::Quantity::from(111_u32),
-            shares: vec![PublicLaneRewardShare {
-                account: account.clone(),
-                role: PublicLaneRewardRole::Nominator,
-                amount: iroha_primitives::numeric::Quantity::from(111_u32),
-            }],
-            metadata: Metadata::default(),
-        },
-    );
-    let pending = collect_pending_public_lane_rewards(
-        lane_id,
-        &account,
-        5,
-        None,
-        claims.get(&(lane_id, account.clone())),
-        std::iter::empty(),
-        rewards.iter(),
-    )
-    .expect("pending reward collection should succeed");
-    assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].lane_id, lane_id);
-    assert_eq!(&pending[0].account, &account);
-    assert_eq!(&pending[0].asset, &asset);
-    assert_eq!(pending[0].processed_through_epoch, Some(1));
-    assert_eq!(pending[0].latest_unprocessed_epoch, Some(5));
-    assert_eq!(
-        &pending[0].amount,
-        &iroha_primitives::numeric::Quantity::from(12_u32)
-    );
-}
-#[cfg(all(test, feature = "app_api"))]
-routing_test! { sync collect_pending_public_lane_rewards_retains_processed_dust_by_exact_source
-    let account = AccountId::new(checked_routing_fixture_keypair(
-        0x7E, Algorithm::Ed25519, "derive retained reward recipient",
-    ).public_key().clone());
-    let other = AccountId::new(checked_routing_fixture_keypair(
-        0x7F, Algorithm::Ed25519, "derive second reward custody source",
-    ).public_key().clone());
-    let lane_id = LaneId::new(19);
-    let definition = test_asset_definition_id_from_hex("550e8400e29b41d4a7164466554400bd");
-    let first_source = AssetId::new(definition.clone(), account.clone());
-    let second_source = AssetId::new(definition, other.clone());
-    let claims = BTreeMap::from([(
-        (lane_id, account.clone()),
-        iroha_data_model::nexus::PublicLaneRewardClaimStateV1 {
-            through_epoch: Some(100),
-        },
-    )]);
-    let mut accruals = BTreeMap::from([
-        ((lane_id, account.clone(), first_source.clone()), Quantity::from(2_u32)),
-        ((lane_id, other, second_source.clone()), Quantity::from(99_u32)),
-    ]);
-    let reward = |epoch: u64, asset: AssetId, amount: u32| PublicLaneRewardRecord {
-        lane_id,
-        epoch,
-        asset,
-        total_reward: Quantity::from(amount),
-        shares: vec![PublicLaneRewardShare {
-            account: account.clone(),
-            role: PublicLaneRewardRole::Nominator,
-            amount: Quantity::from(amount),
-        }],
-        metadata: Metadata::default(),
-    };
-    let rewards = BTreeMap::from([
-        ((lane_id, 0), reward(0, first_source.clone(), 11)),
-        ((lane_id, 101), reward(101, first_source.clone(), 7)),
-        ((lane_id, 102), reward(102, second_source.clone(), 3)),
-    ]);
-    let pending = collect_pending_public_lane_rewards(
-        lane_id, &account, 101, None, claims.get(&(lane_id, account.clone())), accruals.iter(), rewards.iter(),
-    ).unwrap();
-    assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].asset, first_source);
-    assert_eq!(pending[0].processed_through_epoch, Some(100));
-    assert_eq!(pending[0].latest_unprocessed_epoch, Some(101));
-    assert_eq!(pending[0].amount, Quantity::from(9_u32));
-    let dust_only = collect_pending_public_lane_rewards(
-        lane_id, &account, 100, None, claims.get(&(lane_id, account.clone())), accruals.iter(), rewards.iter(),
-    ).unwrap();
-    assert_eq!(dust_only.len(), 1);
-    assert_eq!(dust_only[0].amount, Quantity::from(2_u32));
-    assert_eq!(dust_only[0].processed_through_epoch, Some(100));
-    assert_eq!(dust_only[0].latest_unprocessed_epoch, None);
-    let filtered = collect_pending_public_lane_rewards(
-        lane_id, &account, 102, Some(&second_source), claims.get(&(lane_id, account.clone())), accruals.iter(), rewards.iter(),
-    ).unwrap();
-    assert_eq!(filtered.len(), 1);
-    assert_eq!(filtered[0].asset, second_source);
-    assert_eq!(filtered[0].amount, Quantity::from(3_u32));
-    assert_eq!(filtered[0].latest_unprocessed_epoch, Some(102));
-    accruals.remove(&(lane_id, account.clone(), first_source));
-    let paid = collect_pending_public_lane_rewards(
-        lane_id, &account, 100, None, claims.get(&(lane_id, account.clone())), accruals.iter(), rewards.iter(),
-    ).unwrap();
-    assert!(paid.is_empty(), "a paid source must not remain pending");
-}
-#[cfg(all(test, feature = "app_api"))]
 async fn public_lane_items_payload(response: Response) -> Value {
     let body = http_body_util::BodyExt::collect(response.into_body())
         .await
@@ -57622,10 +56920,6 @@ routing_test! { async public_lane_handlers_hide_future_created_autoscale_stale_r
         )
         .public_key()
         .clone(),
-    );
-    let asset = AssetId::new(
-        test_asset_definition_id_from_hex("550e8400e29b41d4a7164466554407a1"),
-        staker.clone(),
     );
     let state = CoreState::new_for_testing(
         iroha_core::state::World::default(),
@@ -57679,7 +56973,6 @@ routing_test! { async public_lane_handlers_hide_future_created_autoscale_stale_r
                 activation_height: 1,
                 election_exit_height: None,
                 deactivation_height: None,
-                last_reward_epoch: None,
             },
         );
         stx.world.public_lane_stake_shares_mut_for_testing().insert(
@@ -57690,21 +56983,6 @@ routing_test! { async public_lane_handlers_hide_future_created_autoscale_stale_r
                 staker: staker.clone(),
                 bonded: iroha_primitives::numeric::Quantity::from(5_u32),
                 pending_unbonds: BTreeMap::new(),
-                metadata: Metadata::default(),
-            },
-        );
-        stx.world.public_lane_rewards_mut_for_testing().insert(
-            (future_lane, 1),
-            PublicLaneRewardRecord {
-                lane_id: future_lane,
-                epoch: 1,
-                asset,
-                total_reward: iroha_primitives::numeric::Quantity::from(3_u32),
-                shares: vec![PublicLaneRewardShare {
-                    account: staker.clone(),
-                    role: PublicLaneRewardRole::Nominator,
-                    amount: iroha_primitives::numeric::Quantity::from(3_u32),
-                }],
                 metadata: Metadata::default(),
             },
         );
@@ -57740,7 +57018,6 @@ routing_test! { async public_lane_handlers_hide_future_created_autoscale_stale_r
         PublicLaneRewardsQueryParams {
             account: Some(staker.to_string()),
             asset_id: None,
-            upto_epoch: None,
         },
         MaybeTelemetry::disabled(),
     )
@@ -57784,13 +57061,6 @@ fn validator_record_to_json(record: &PublicLaneValidatorRecord) -> (String, Valu
             .unwrap_or(Value::Null),
     );
     map.insert("metadata".into(), metadata_to_json(&record.metadata));
-    map.insert(
-        "last_reward_epoch".into(),
-        record
-            .last_reward_epoch
-            .map(Value::from)
-            .unwrap_or(Value::Null),
-    );
     map.insert("authority_source".into(), Value::from("staking"));
     (canonical_validator, Value::Object(map))
 }
@@ -57815,7 +57085,6 @@ fn manifest_validator_to_json(
     map.insert("election_exit_height".into(), Value::Null);
     map.insert("deactivation_height".into(), Value::Null);
     map.insert("metadata".into(), metadata_to_json(&Metadata::default()));
-    map.insert("last_reward_epoch".into(), Value::Null);
     map.insert("authority_source".into(), Value::from("manifest"));
     (canonical_validator, Value::Object(map))
 }
@@ -57876,14 +57145,11 @@ fn pending_reward_to_json(
     map.insert("lane_id".into(), Value::from(u64::from(reward.lane_id)));
     map.insert("account".into(), Value::from(account_literal));
     map.insert("asset".into(), Value::from(reward.asset.to_string()));
-    map.insert(
-        "processed_through_epoch".into(),
-        reward.processed_through_epoch.map_or(Value::Null, Value::from),
-    );
-    map.insert(
-        "latest_unprocessed_epoch".into(),
-        reward.latest_unprocessed_epoch.map_or(Value::Null, Value::from),
-    );
+    map.insert("beneficiary_id".into(), Value::from(reward.beneficiary_id.to_string()));
+    map.insert("beneficiary_revision".into(), Value::from(reward.beneficiary_revision));
+    map.insert("expected_claim_sequence".into(), Value::from(reward.expected_claim_sequence));
+    map.insert("lifecycle_seal".into(), Value::from(hex::encode(reward.lifecycle_seal)));
+    map.insert("claimable".into(), Value::from(reward.claimable));
     map.insert("amount".into(), Value::from(reward.amount.to_string()));
     (
         reward.asset.to_string(),
@@ -60253,3 +59519,68 @@ include!("tests/routing.rs");
 #[cfg(all(test, feature = "app_api"))]
 #[path = "routing/canonical_network_history_tests.rs"]
 mod canonical_network_history_tests;
+
+#[cfg(all(test, feature = "app_api"))]
+mod runtime_fault_json_tests {
+    use super::*;
+    use iroha_data_model::executor::fault::{
+        IvmFaultKindV1, IvmFaultPositionV1, IvmFaultSiteV1, IvmFaultV1, IvmInvocationSelectorV1,
+    };
+
+    #[test]
+    fn bounded_view_and_simulation_json_keep_exact_fault_and_required_null() {
+        let fault = IvmFaultV1 {
+            kind: IvmFaultKindV1::OutOfGas,
+            site: IvmFaultSiteV1 {
+                code_hash: iroha_crypto::Hash::new(b"nested-callee"),
+                selector: IvmInvocationSelectorV1::Entrypoint(2),
+                position: IvmFaultPositionV1::Initialization,
+            },
+        };
+        for fault in [Some(fault), None] {
+            let view = ContractViewErrorResponseDto {
+                ok: false,
+                dataspace: "universal".into(),
+                contract_address: None,
+                code_hash_hex: "11".repeat(32),
+                abi_hash_hex: "22".repeat(32),
+                entrypoint: "read".into(),
+                error: "execution failed".into(),
+                vm_diagnostic: None,
+                fault,
+            };
+            let bytes = encode_contract_view_error_bounded(&view, 4096).unwrap();
+            let json: norito::json::Value = norito::json::from_slice(&bytes).unwrap();
+            assert_eq!(json.get("fault"), Some(&norito::json!(fault)));
+            assert!(encode_contract_view_error_bounded(&view, bytes.len()).is_ok());
+            assert!(encode_contract_view_error_bounded(&view, bytes.len() - 1).is_err());
+            let simulation = ContractCallSimulateResponseDto {
+                ok: false,
+                dataspace: "universal".into(),
+                contract_address: None,
+                code_hash_hex: "11".repeat(32),
+                abi_hash_hex: "22".repeat(32),
+                entrypoint: "run".into(),
+                normalized_payload: None,
+                gas_limit: 99,
+                gas_used: 99,
+                queued_instructions: Vec::new(),
+                result: None,
+                error: Some("execution failed".into()),
+                vm_diagnostic: None,
+                fault,
+            };
+            let bytes =
+                encode_contract_call_simulation_response_bounded(&simulation, 4096).unwrap();
+            let json: norito::json::Value = norito::json::from_slice(&bytes).unwrap();
+            assert_eq!(json.get("fault"), Some(&norito::json!(fault)));
+            assert!(
+                encode_contract_call_simulation_response_bounded(&simulation, bytes.len()).is_ok()
+            );
+            assert!(
+                encode_contract_call_simulation_response_bounded(&simulation, bytes.len() - 1)
+                    .is_err()
+            );
+        }
+    }
+}

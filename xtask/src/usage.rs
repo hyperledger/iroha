@@ -39,7 +39,7 @@ fn print_usage() {
         "    Measure PoR verification time against the Halo2 verifier budget using the provided manifest/payload (defaults to fixtures/da/reconstruct/rs_parity_v1). Fails if verification exceeds the budget."
     );
     eprintln!(
-        "  cargo xtask kagami-profiles --kagemusha-mint-finality-parameters-dir <DIR> [--profile <iroha3-dev|iroha3-nexus>] [--out <dir>] [--kagami <path>] [--nexus-xor-asset-definition-id <BASE58>]"
+        "  cargo xtask kagami-profiles --xor-allocations-dir <DIR> [--profile <iroha3-dev|iroha3-nexus>] [--out <dir>] [--kagami <path>] [--nexus-xor-asset-definition-id <BASE58>]"
     );
     eprintln!(
         "    Rebuild the canned Kagami profile bundles (genesis + PoPs + snippets) under defaults/kagami for Iroha 3 smoke tests; Nexus regeneration requires an explicit canonical XOR asset id."

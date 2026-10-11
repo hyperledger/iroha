@@ -30,3 +30,18 @@ impl<K: Key, V: Value, M: mv::storage::StorageMode<K, V>> StorageField<'_, K, V,
 #[cfg(test)]
 #[path = "original_images/tests.rs"]
 mod tests;
+
+impl<V: Value, C: Send + Sync + 'static> CellField<'_, V, C> {
+    /// Borrow both exact original cell values in the complete frozen/read phases.
+    /// No executing, capturing, publishing or released owner can become a source.
+    pub fn frozen_values(&self) -> Option<(&V, &V)> {
+        if self.released {
+            return None;
+        }
+        match self.phase.as_ref() {
+            Some(Phase::Frozen(original)) => Some((original.get(), original.get_before_block())),
+            Some(Phase::Reading(original)) => Some((original.get(), original.get_before_block())),
+            _ => None,
+        }
+    }
+}

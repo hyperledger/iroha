@@ -160,7 +160,7 @@ fn original_aggregate_file_restart_preserves_exact_scalar_and_cipher_at_four_and
             &digest,
         )
         .unwrap()
-        .decrypt_easy_in_place(&digest, &mut original_plain)
+        .decrypt_easy_in_place(digest, &mut original_plain)
         .unwrap();
         assert_eq!(
             plain,
@@ -450,7 +450,7 @@ fn aggregate_replay_and_every_original_component_require_exact_authenticated_pub
                 }
             }
             _ => changed.transcript_hash[0] ^= 1,
-        };
+        }
         let mut recovery =
             PreparedDkgAggregateCheckpointV1::new(&fixture.parameters, 4, &pool).unwrap();
         assert!(
@@ -467,7 +467,7 @@ fn aggregate_replay_and_every_original_component_require_exact_authenticated_pub
         erased(&recovery);
     }
     let parts = *original.destination.components.as_ref().unwrap().as_slice()[0];
-    for component in 0..3 {
+    for (component, part) in parts.iter().enumerate() {
         for malformed in [true, false] {
             let mut record = original.destination.record();
             let range = component * 32..(component + 1) * 32;
@@ -475,7 +475,7 @@ fn aggregate_replay_and_every_original_component_require_exact_authenticated_pub
                 [0xff; 32]
             } else {
                 let mut changed = [0; 32];
-                if parts[component] == changed {
+                if *part == changed {
                     changed[31] = 1;
                 }
                 changed
@@ -494,7 +494,7 @@ fn aggregate_replay_and_every_original_component_require_exact_authenticated_pub
                 &digest,
             )
             .unwrap()
-            .encrypt_easy_in_place(&digest, &mut changed)
+            .encrypt_easy_in_place(digest, &mut changed)
             .unwrap();
             let mut recovery =
                 PreparedDkgAggregateCheckpointV1::new(&fixture.parameters, 4, &pool).unwrap();

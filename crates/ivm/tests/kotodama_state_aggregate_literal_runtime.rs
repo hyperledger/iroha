@@ -44,10 +44,10 @@ fn mixed_pointer_and_scalar_literal_fields_keep_their_exact_types() {
 #[test]
 fn empty_nominal_products_roundtrip_through_durable_state_lists() {
     let vm = run_program(
-        r#"seiyaku EmptyState {
+        r#"seiyaku EmptyState { permission WriteState;
             struct Empty {}
             state StateMap<Name, List<Empty, 2>> Values;
-            kotoage fn main() -> bool authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) -> bool {
                 let key = Name::parse("empty");
                 let List<Empty, 2> expected = [Empty {}, Empty {}];
                 Values[key] = expected;

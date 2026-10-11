@@ -104,12 +104,12 @@ pub(super) fn assert_public_metadata(before: &CompileOutput, after: &CompileOutp
 
 #[test]
 fn exact_private_body_movement_keeps_public_schema_effects_and_access_completeness() {
-    let source = r#"seiyaku SingleUsePrivate {
+    let source = r#"seiyaku SingleUsePrivate { permission Entry;
         state int counter;
         hajimari() { counter = 0; }
         fn touch(int _ key) -> int { counter = counter + key; return counter; }
-        kotoage fn update(int key) -> int authorize("Entry") { return touch(key); }
-        view fn read() -> int { return counter; }
+        kotoage fn update(int key) authorize(Entry) -> int { return touch(key); }
+        view fn read() authorize(anyone) -> int { return counter; }
     }"#;
     let before = compile(source, true);
     let after = compile(source, false);
@@ -140,9 +140,9 @@ fn exact_private_body_movement_keeps_public_schema_effects_and_access_completene
 fn declaration_authority_roots_and_repeated_helpers_remain_separate_callables() {
     let source = r#"seiyaku PrivateExclusions {
         fn shared(int _ value) -> int { return value + 1; }
-        view fn public_helper(int value) -> int { return value + 2; }
-        view fn first(int value) -> int { return shared(value); }
-        view fn second(int value) -> int { return shared(value); }
+        view fn public_helper(int value) authorize(anyone) -> int { return value + 2; }
+        view fn first(int value) authorize(anyone) -> int { return shared(value); }
+        view fn second(int value) authorize(anyone) -> int { return shared(value); }
     }"#;
     let before = compile(source, true);
     let after = compile(source, false);
@@ -166,7 +166,7 @@ fn declaration_authority_roots_and_repeated_helpers_remain_separate_callables() 
 
 #[test]
 fn conservative_private_call_comparison_scope_retires_after_unwind() {
-    let source = "seiyaku Scope { fn leaf(int _ value) -> int { return value + 1; } view fn main(int value) -> int { return leaf(value); } }";
+    let source = "seiyaku Scope { fn leaf(int _ value) -> int { return value + 1; } view fn main(int value) authorize(anyone) -> int { return leaf(value); } }";
     let failure =
         std::panic::catch_unwind(|| with_private_calls_retained(|| panic!("comparison unwind")));
     assert!(failure.is_err());
@@ -226,7 +226,7 @@ fn typed_private_candidates_exclude_attributes_secrets_and_state_or_aggregate_ha
         ast::FunctionKind,
         semantic::{Type, TypedItem},
     };
-    let source = "seiyaku Candidates { fn helper(int _ value) -> int { return value + 1; } view fn main(int value) -> int { return helper(value); } }";
+    let source = "seiyaku Candidates { fn helper(int _ value) -> int { return value + 1; } view fn main(int value) authorize(anyone) -> int { return helper(value); } }";
     let typed = crate::semantic::analyze(&crate::parser::parse(source).unwrap()).unwrap();
     assert_eq!(
         super::private_inline_candidates(&typed),
@@ -245,7 +245,7 @@ fn typed_private_candidates_exclude_attributes_secrets_and_state_or_aggregate_ha
             .unwrap();
         match exclusion {
             0 => function.modifiers.kind = FunctionKind::View,
-            1 => function.modifiers.permission = Some("Entry".to_owned()),
+            1 => function.modifiers.authorization = Some("Entry".to_owned()),
             2 => function.modifiers.is_test = true,
             3 => function.modifiers.test_fixture = Some("fixture".to_owned()),
             4 => function.ret_ty = Some(Type::Secret(Box::new(Type::Int))),

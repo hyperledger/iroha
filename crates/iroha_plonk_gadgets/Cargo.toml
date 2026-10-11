@@ -25,7 +25,26 @@ iroha_plonk = { workspace = true }
 ff = "0.13.1"
 
 [dev-dependencies]
+# Exact ordinary ledger Merkle hashing and normal validator signature oracles.
+iroha_crypto = { workspace = true, default-features = false, features = ["bls"] }
+# Fallible kernel resource probes for the qualification harness only.
+iroha_measurement = { workspace = true }
+# The harness owns and verifies its actual computational worker pool.
+rayon = { workspace = true }
 # The shared KAGEMUSHA Poseidon vectors in `fixtures/native_prover/kats_v1.json`.
 norito = { workspace = true, default-features = false, features = ["base-codec"] }
 # Deterministic recovery streams for reproducible test proofs.
 rand_chacha = "0.3.1"
+# Independent SHA-256 oracle for the SHA-256 chip tests (already a
+# dependency of `iroha_plonk`).
+sha2 = "0.10.9"
+# Independent big-integer oracle for the foreign-field chip tests.
+num-bigint = "0.4.6"
+# Independent P-256 ECDSA oracle for the P-256 chip tests (already in the
+# lockfile with these features through `iroha_data_model`).
+p256 = { version = "0.13.2", default-features = false, features = ["std", "ecdsa"] }
+# Independent BLS12-381 differential oracles; never part of circuit admission.
+ark-bls12-381 = { version = "0.4.0", default-features = false, features = ["curve"] }
+ark-ff = { version = "0.4.2", default-features = false }
+ark-ec = { version = "0.4.2", default-features = false }
+ark-serialize = { version = "0.4.2", default-features = false }

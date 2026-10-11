@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-#define CONNECT_NORITO_BRIDGE_ABI_VERSION 25
+#define CONNECT_NORITO_BRIDGE_ABI_VERSION 29
 
 #define CONNECT_NORITO_ERR_ACCOUNT_ADDRESS -200
 #define CONNECT_NORITO_ERR_UNSUPPORTED_ALGORITHM -21
@@ -561,6 +561,13 @@ int32_t connect_norito_encode_envelope_sign_result_ok(
     const uint8_t* sig, unsigned long sig_len,
     uint8_t** out_ptr, unsigned long* out_len);
 
+// Encode the current signature algorithm and its exact signature bytes.
+int32_t connect_norito_encode_envelope_sign_result_ok_with_alg(
+    uint64_t seq,
+    const char* alg_ptr, unsigned long alg_len,
+    const uint8_t* sig_ptr, unsigned long sig_len,
+    uint8_t** out_ptr, unsigned long* out_len);
+
 int32_t connect_norito_encode_envelope_sign_result_err(
     uint64_t seq,
     const uint8_t* code, unsigned long code_len,
@@ -1065,6 +1072,11 @@ int32_t connect_norito_decode_control_approve_account(
 int32_t connect_norito_decode_control_approve_sig(
     const uint8_t* inp, unsigned long inp_len,
     uint8_t* out_sig); // 64 bytes
+
+// Return the current wallet signature algorithm label from an Approve frame.
+int32_t connect_norito_decode_control_approve_sig_alg(
+    const uint8_t* inp_ptr, unsigned long inp_len,
+    char** out_alg_ptr, unsigned long* out_alg_len);
 
 int32_t connect_norito_decode_control_approve_account_json(
     const uint8_t* inp, unsigned long inp_len,
@@ -1788,6 +1800,408 @@ typedef struct {
 } connect_norito_acceleration_state;
 
 int32_t connect_norito_acceleration_state_get_v1(connect_norito_acceleration_state* out_state, size_t out_len);
+
+/* KAGEMUSHA wallet V1: opaque exclusive owner. No arbitrary-sign entry point.
+ * Open requires an authenticated native runtime; unprovisioned runtimes return -4 (ArtifactsUnavailable).
+ * Callback contexts must be thread-safe and remain valid from retain through release.
+ * Outputs own canonical Norito/exact retained bytes; free them with connect_norito_free.
+ * Failure: -1 input, -2 closed, -3 capacity, -4 artifacts, -5 unavailable, -6 uncertain,
+ * -7 custody lost, -8 fold required, -9 proof rejected, -10 cancelled, -11 conflict,
+ * -12 not enough storage, -13 terminal/key lost, -14 not enough memory,
+ * -100 internal (outcome must be reconciled).
+ */
+/* Design §5.3 runtime capacity results, checked on this phone before proving and before
+ * commit against bounds derived from the installed relations: the operation is refused before
+ * commit, nothing is debited or credited, the receipt or Payment stays deliverable, and the
+ * holder retries after freeing storage or memory. Never a device verdict. */
+#define CONNECT_NORITO_KAGEMUSHA_WALLET_NOT_ENOUGH_STORAGE -12
+#define CONNECT_NORITO_KAGEMUSHA_WALLET_NOT_ENOUGH_MEMORY -14
+typedef struct {
+    uint32_t tag; /* 0 success, 1 absent, 2 unavailable/not performed, 3 exists,
+                     4 uncertain, 5 destination absent; interpreted per operation. */
+    uint32_t reason; /* 0 locked, 1 first unlock, 2 busy, 3 I/O, 4 platform,
+                       5 unusable key, 6 permanently invalidated. */
+    int32_t code;
+    size_t length;
+} connect_norito_kagemusha_platform_reply_v1;
+typedef struct {
+    uint32_t version; /* exactly 1 */
+    uint32_t anchor_policy; /* exactly 1: Apple Keychain; Android uses JNI */
+    void* context;
+    void (*retain)(void* context);
+    void (*release)(void* context);
+    /* op: 0 key probe, 1 generate (input32/aux profile1/2/3 (3 Android TEE-only; Apple refuses)), 2 sign (input32),
+       3 key delete, 4 anchor read, 5 anchor create, 6 update, 7 storage state,
+       8 boot UUID UTF8, 9 prepare non-backup custody root UTF8,
+       10 complete ascending unique nonzero32 key slots (at most4096, no truncation).
+       13 readback only of this owner's retained successful generation return (input32/aux profile1/2):
+       tag0 original SEC1 key, tag3 no held successful return (not key absence), tag2 unavailable.
+       slot32 is required for operations0..6 and13, null for operations7..10.
+       Never retain or exceed borrowed buffers. */
+    void (*invoke)(void* context, uint32_t operation, const uint8_t* slot32,
+                   const uint8_t* input, size_t input_len, uint32_t auxiliary,
+                   uint8_t* output, size_t output_capacity,
+                   connect_norito_kagemusha_platform_reply_v1* reply);
+} connect_norito_kagemusha_platform_v1;
+typedef struct {
+    int32_t status; /* 0 unknown,1 complete,2 pending,3 not performed,4 archived,
+                      5 delivery loss,6 idle,7 caught up,8 checkpoint,9 folded,
+                      10 CreditStatus,11 preparing; setup only:12 original,
+                      13 owned time challenge,14 time exchange retained;
+                      open only:15 account challenge,16 admitted handle;17 activation transport; negative failure. */
+    int32_t reason; /* failure platform reason, -1 if inapplicable */
+    int32_t platform_code;
+    uint64_t sequence_low;
+    uint64_t sequence_high;
+    uint32_t detail; /* checkpoint ordinal or not-performed reason: 0 stale head, 2 invalid */
+    uint8_t* bytes;
+    size_t length;
+} connect_norito_kagemusha_wallet_result_v1;
+/* Source-selected snapshot. All amounts are Native projections, never operation permission.
+   An unfolded head owns value subject to P4; only bit1 admits folded_balance. Failure clears
+   all projection fields. Optional field storage is meaningful only under its explicit bit. */
+typedef struct { uint64_t low; uint64_t high; } connect_norito_kagemusha_wallet_u128_v1;
+typedef struct {
+    int32_t status;
+    int32_t reason;
+    int32_t platform_code;
+    uint32_t lifecycle; /* Active1, Retiring2; Retiring can Send/Unload remaining value */
+    uint32_t flags; /* bit0 verified fold exists; bit1 exact current head folded */
+    uint8_t scheme[32];
+    uint8_t wallet[32];
+    uint8_t head[32];
+    uint8_t credential[32];
+    uint8_t folded_head[32];
+    uint8_t folded_credential[32];
+    connect_norito_kagemusha_wallet_u128_v1 sequence;
+    connect_norito_kagemusha_wallet_u128_v1 balance;
+    connect_norito_kagemusha_wallet_u128_v1 core_burned_total;
+    connect_norito_kagemusha_wallet_u128_v1 known_burned_total;
+    connect_norito_kagemusha_wallet_u128_v1 owned_balance;
+    connect_norito_kagemusha_wallet_u128_v1 folded_balance;
+    connect_norito_kagemusha_wallet_u128_v1 fold_backlog;
+    connect_norito_kagemusha_wallet_u128_v1 folded_sequence;
+    connect_norito_kagemusha_wallet_u128_v1 folded_burned_total;
+} connect_norito_kagemusha_wallet_snapshot_v1_t;
+/* Fixed writable output, no allocated bytes to free. Call on a worker; it may verify Ω. */
+int32_t connect_norito_kagemusha_wallet_snapshot_v1(uint64_t handle, connect_norito_kagemusha_wallet_snapshot_v1_t* out);
+uint32_t connect_norito_kagemusha_wallet_revision_v1(void);
+
+/* Canonical Load transport DATA only. Does not verify finality/proofs or change value.
+ * Three selectors are exactly32 bytes; payer is strict canonical I105 UTF-8<=1024;
+ * unsigned canonical receipt<=512, canonical native LoadFinality original<=262144.
+ * Zero means exact canonical data/selection/payer/receipt-digest binding only.
+ * out_height is a writable untrusted DATA locator, zeroed on failure.
+ * No pointer is retained. Native wallet Load independently authorizes all value. */
+int32_t connect_norito_kagemusha_wallet_load_original_validate_v1(
+    const uint8_t *scheme, const uint8_t *wallet, const uint8_t *request,
+    const uint8_t *payer, size_t payer_length,
+    const uint8_t *receipt, size_t receipt_length,
+    const uint8_t *finality, size_t finality_length, uint64_t *out_height);
+
+/* Native startup supplies the runtime handle. Foreign originals do not select trust pins. */
+typedef struct {
+    const uint8_t* credential;
+    size_t credential_length;
+    const uint8_t* certificates;
+    size_t certificates_length;
+    const uint8_t* account;
+    size_t account_length;
+    const uint8_t* asset;
+    size_t asset_length;
+} connect_norito_kagemusha_wallet_open_request_v1;
+/* Kind15: fresh account challenge32; kind16: admitted wallet handle in sequence_low. */
+int32_t connect_norito_kagemusha_wallet_open_begin_v1(uint64_t runtime, const connect_norito_kagemusha_wallet_open_request_v1* request, connect_norito_kagemusha_wallet_result_v1* out);
+int32_t connect_norito_kagemusha_wallet_open_finish_v1(uint64_t runtime, const uint8_t* signature, size_t length, connect_norito_kagemusha_wallet_result_v1* out);
+int32_t connect_norito_kagemusha_wallet_open_cancel_v1(uint64_t runtime);
+int32_t connect_norito_kagemusha_wallet_close_v1(uint64_t handle);
+int32_t connect_norito_kagemusha_wallet_activity_v1(uint64_t handle, uint8_t foreground, uint8_t charging);
+// Native lifecycle intent; no caller state, roots, proof, time or nonce. Selector meanings:
+// Load0(receipt,finality), Send1(Request), Receive2(Payment,credential,certificates),
+// Credential3/SchemePolicy4/Blacklist5/TimeAnchor6/QuotaShare7(update,certificates),
+// Unload8(optional quote+certificates, positive amount), Retire9(no originals),
+// ReceiveFromOffer10(Payment,signed Offer). Native extracts the Offer payer originals.
+// Unused slots/amount are zero. request_id is a nonzero local retry identity.
+// Original bounds are selector-specific; Payment remains <=10,000 bytes.
+typedef struct {
+    const uint8_t* request_id;
+    uint32_t selector;
+    connect_norito_kagemusha_wallet_u128_v1 amount;
+    const uint8_t* first;
+    size_t first_length;
+    const uint8_t* second;
+    size_t second_length;
+    const uint8_t* third;
+    size_t third_length;
+} connect_norito_kagemusha_wallet_operation_request_v1;
+// Setup through the same exclusive Native owner. Selectors:
+// Bootstrap0(no originals), Offer1(positive amount), Request2(Offer, optional fee+certificate),
+// Credited3(Credited), BeginTime4(no originals), FinishTime5(TimeAnchor, certificate, owned token),
+// CancelTime6(owned token); envelope wrap7..10 / unwrap11..14 in Offer,Request,Payment,Credited order.
+// BackgroundStatus18(no inputs) returns kind29: detail bits0..1 phase (0 not started,
+// 1 parked,2 running), bit2 eligible,bit3 backlog known; sequence is last observed durable
+// backlog. No bytes or proof readiness. Terminal worker errors are returned unchanged and
+// remain parked until observed, followed by a later activity/payment wake. Activity starts
+// at most one native worker; close cancels and joins it before releasing custody.
+// FeeClaim20(nonzero credit id in setup_id, no originals): kind31 canonical retained pair <=21,024, or kind32 no pending claim.
+// ClaimPayment21/ClaimRequest22(first canonical pair <=21,024) return kind12 exact original DATA, not an admission verdict.
+// LedgerFinality23(first original SumeragiFinalityProof <=36MiB) verifies one contiguous native-rooted step;
+// LedgerStatus24(no inputs): kind33 sequence_low=u64 height, sequence_high/detail=0, bytes32 block hash, or kind34 absent.
+// FeePayout25(nonzero credit id, first World snapshot <=32MiB, second payout record <=1024) returns kind35 only after
+// native selected-tip authentication and durable exact payout acknowledgement. No caller checkpoints/verdicts accepted.
+// FeeClaimTransport26(first retained pair <=21,024, second canonical beneficiary AccountId <=16,384)
+// returns kind36 canonical FeeClaim <=16,384 after exact schedule/beneficiary binding; DATA only, not payout confirmation.
+// LedgerLoad27(nonzero setup_id, positive amount, no originals) returns kind40 canonical instruction <=65536.
+// Native freezes its selected next ordinal and returns the same original on exact request retries.
+// Retired selectors28/31/32 and result kinds41/43 are not reused. Wallets verify received Load
+// terminal proofs; server finality PKs are neither required nor read by wallet installation.
+// LedgerInstruction29(token=1 Activate/2 Unload/3 CloseLoads, first original <=65536) returns kind40;
+// conversion does not confirm execution. Kind40 has zero sequence/detail and nonempty bytes.
+// LedgerFinality23 atomically retains the genuinely verified native checkpoint under the same manifest.
+// ConfirmUnload30(nonzero transaction entrypoint hash in setup_id, first exact Unload original <=65536)
+// verifies successful input/output inclusion and saves its confirmation before returning kind42 (same geometry as kind33).
+// UnloadProofProgress33(nonzero tx hash setup_id, first exact Unload <=65536) returns kind42 for
+// retained authentic successful inclusion, kind33 for verified history, or kind34 when not started.
+// Missing inclusion is distinct from malformed/mismatched custody, which remains an error.
+// IngestUnloadProof34 adds second ordinary proof <=36MiB and returns kind33. Both use a separate
+// transaction+claim-bound cursor; ConfirmUnload30 consumes its selected block, independent of later global tips.
+// RetainActivationAttempt46(first exact signed Activate transaction <=65536) durably registers
+// a same-account/network/inner-Activation outer attempt before its first POST. New intake after
+// family confirmation is rejected; exact registered intake is idempotent. No clock or non-inclusion
+// authority is inferred. Unsupported earlier DATA layouts are preserved and rejected, never reset.
+// ConfirmActivation35(first registered signed Activate transaction <=65536) returns kind44 only after
+// Native verifies successful exact input/output inclusion of a retained attempt and durably confirms
+// the shared wallet activation. Kind44 does not assert successful execution of every outer attempt.
+// IngestActivationProof36(first exact signed transaction <=65536, second complete finality <=36MiB)
+// verifies one next block in that registered attempt's separate cursor, independent of other attempts
+// and the ordinary ledger tip. Each attempt retains its selected checkpoint; the winning actual finality
+// original remains independently retained. Cleanup may retire only that attempt's replaced prefix.
+// Matching successful execution is confirmed atomically before the cursor can pass its block.
+// ActivationProofProgress37(first exact signed transaction <=65536) reads that cursor after restart.
+// Results44 family confirmed /45 verifying /49 this attempt authentically rejected:
+// sequence_low=verified height, sequence_high/detail=0, bytes=32-byte block hash.
+// Rejected49 retains exact authenticated failed input/output execution and its checkpoint, never
+// unlocks first Load, and does not prevent another retained attempt from proving activation.
+// Result46 not started: zero sequence/detail, empty bytes. Confirmed result44 requires height>=2.
+// Setup35..37/46 use zero setup_id/amount/token and no unused originals. No HTTP receipt is authority.
+// RequestFeeSelection38(no inputs) returns kind12 bytes64 = asset digest32 || selected fee digest32.
+// Zero fee digest means Native-selected zero fee; this projection is DATA, never Request authority.
+// RequestWithFeePolicy39(nonzero setup_id, first Offer <=10000, optional paired second FeeSchedule
+// PolicyData envelope and third Certificates PolicyData envelope <=10000 each) invokes ordinary
+// Native Request with authenticated exact originals. No pair is accepted only by the zero-fee rule.
+// ValidateRequestFeePolicy40(first FeeSchedule envelope, second Certificates envelope, each <=10000)
+// verifies signatures, scheme, asset, signer role and selected fee digest; returns the same bytes64.
+// Intake/cache validation does not refresh policy. Exact Request retries retain the original pair.
+// AcceptCreditedForSend41 and CreditedForSendStatus42 use nonzero selected Send request identity
+// and first exact Credited original <=10000; other inputs are zero. Both return ordinary Archive
+// outcomes. Native binds delivery evidence to that Send before issuing or recovering its intent.
+// UnloadClaim45(nonzero completed Unload request id in setup_id; optional first canonical charge beneficiary <=16,384;
+// no other inputs) returns kind48 canonical UnloadClaim <=16,384 from exact selected originals and native-admitted account.
+// Pending remains an error requiring the existing retry flow; this projection never signs, debits or acknowledges settlement.
+// CloseLoads19(nonzero setup_id retry identity, no originals) returns kind30, exact durable signed closure frame <=16,384 bytes;
+// Reuse an id for exact retries; a fresh id selects current native source after a preissued Load.
+// It does not confirm ledger closure or authorize key retirement.
+// Activation15(no inputs) returns kind17, exact durable Activate frame <=16,384 bytes.
+// CreditedReceive16(first=Receive package), CreditedStatus17(first=CreditStatus) return
+// kind12 canonical Credited data after native shape/scheme/full-envelope bounds; no proof verdict.
+// CreditProjection43 takes only the nonzero Receive request id; DeliveryProjection44 takes
+// nonzero Send request id, first exact completed-Archive Credited anchor <=10000 and optional
+// second newer Credited <=10000. Third/amount/token are zero. Both return kind47, <=10092:
+// LE16 version1; evidence byte1=unfolded/2=credited/3=burned; archive byte0=receiver,
+// 1=awaiting fold/2=removed/3=retained; core-pending byte; three zeros; credit32;
+// Payment digest32; LE128amount; LE32original length; exact receiver Credited <=10000.
+// Payer original length is zero. Projection is display evidence, never permission to mutate.
+// CollectRetained47 takes only the historical u128 sequence in amount (zero is allowed).
+// setup_id/token/all original inputs must be zero/empty. Native verifies the selected newer
+// covering fold and derives the exact Send nonmembership path from retained native custody.
+// Results50 idle (zero sequence),51 progress,52 collected (exact requested sequence) have
+// empty bytes/detail0. Repeat the same sequence after interruption. Required fee/activation
+// originals, permanent replay records and all keys remain; this never destroys custody.
+// ReviewCustodyDeletion48(no inputs) returns kind53: sequence_low is a positive owner-local
+// one-use token<=INT64_MAX; high/detail0; exact254-byte display DATA. Magic8 "KWCDV1\0\0";
+// phase1Pending/2Released, lifecycle1Active/2Retiring, selected operation kind1..8, then three
+// bool bytes for nonempty pending-outgoing, fee-claim and Load/Unload-recovery maps; slot32,
+// marker32, scheme32, asset32, wallet32, head32; LE128sequence, gross balance, core burns.
+// These are retained values, NOT fully folded spendable balance; unfinished proofs can reveal burns.
+// ConfirmCustodyDeletion49(token only) consumes that exact native review after explicit warning
+// and user confirmation: permanent key/offline-value recovery, pending delivery and unpaid/late
+// claim loss. No marker, path, amount, approval flag or projection DATA is accepted as authority.
+// ResumeCustodyDeletion50(no inputs) reconciles an attempted deletion without newly publishing one.
+// Result54 has exact nonzero terminal marker32, all scalar fields0; money calls remain terminal.
+// Result56 has empty bytes/all scalars0: definite noncommit; fresh review/confirmation required.
+// Any uncertain attempt freezes money calls until actual reconciliation. Durable terminal cleanup
+// is idempotent, including after restart; it never re-creates a key or wallet incarnation.
+// DiscardCustodyDeletion51(token only) drops an unused review; kind55 empty/all scalars0.
+// Discard never undoes an attempted deletion. Review tokens cannot alias owners or purposes.
+// EpochProgress52(no inputs) returns kind57: sequence_low=epoch, sequence_high/detail=0,
+// bytes16=LE64first_height || LE64boundary_height. These heights select transport, not value.
+// EpochBoundary53 takes expected u64 epoch in amount (high64 zero; epoch0 is valid), first
+// canonical commit certificate <=262144, all other inputs zero/empty. Native authenticates
+// its incumbent from protected custody, verifies the exact boundary and atomically retains
+// the successor. Exact retries reconcile publication uncertainty and never regress progress.
+// Older epoch checkpoints remain available for delayed Load receipts. Both return kind57.
+// setup_id is exactly32 bytes: nonzero only for selectors1/2/19/20/25/27/30/33/34/39/41/42/43/44/45; all zero otherwise.
+// Unused originals/amount/token are empty/zero. Original bounds are selected by Native;
+// signer certificate frames are <=512 bytes. No caller clock, nonce, proof verdict or arbitrary signing body.
+// Transport uses first only and returns canonical bytes; it grants no monetary verdict.
+typedef struct {
+    const uint8_t* setup_id;
+    uint32_t selector;
+    connect_norito_kagemusha_wallet_u128_v1 amount;
+    uint64_t token;
+    const uint8_t* first;
+    size_t first_length;
+    const uint8_t* second;
+    size_t second_length;
+    const uint8_t* third;
+    size_t third_length;
+} connect_norito_kagemusha_wallet_setup_request_v1;
+// Setup results: Bootstrap/Credited preserve completion statuses; CancelTime returns idle6.
+// 12=exact original bytes;13=Native-owned one-use time challenge (token in sequence_low);
+// 14=direct time exchange retained. Token is valid only for the same open Native owner.
+// Neither 12,13,14 nor17 is monetary completion;17 is not ledger activation confirmation. Result bytes use connect_norito_free.
+int32_t connect_norito_kagemusha_wallet_setup_v1(uint64_t handle, const connect_norito_kagemusha_wallet_setup_request_v1* request, connect_norito_kagemusha_wallet_result_v1* out);
+
+// Read-only same-owner DATA, always generic original kind12 with zero sequence/detail.
+// Selector0 metadata (empty identity): exact KWMDV1\0\0 frame <=5268 bytes.
+// Selector1 released request /2 operation: exact KWROV1\0\0 frame <=20066 bytes.
+// Selector3 exact prepared Load request: KWLPV1\0\0 frame <=65756 bytes, or exactly
+// KWLNV1\0\0 (8 bytes) for absent selected plan only. Selectors1..3 use nonzero32.
+// Domain-specific frames are never general result kinds or monetary/custody verdicts.
+// Unload claims use canonical setup45/status48; activation rejection remains status49.
+int32_t connect_norito_kagemusha_wallet_observe_v1(uint64_t handle, uint32_t selector, const uint8_t* identity, size_t identity_length, connect_norito_kagemusha_wallet_result_v1* out);
+// Pure full AccountId codecs, no ownership or signing authority. Bounds4096, response12.
+int32_t connect_norito_kagemusha_wallet_account_original_v1(const uint8_t* literal, size_t length, connect_norito_kagemusha_wallet_result_v1* out);
+int32_t connect_norito_kagemusha_wallet_account_display_v1(const uint8_t* original, size_t length, uint16_t prefix, connect_norito_kagemusha_wallet_result_v1* out);
+
+/* Enrollment originals only. Native startup selects approved policy/root and owns custody.
+ * Actions:0 requestId32/account/asset,1 account signature,2 progress,3 Android(leaf-first KeyMint DER chain only; first/second/third empty),
+ * 4 Apple(keyid32/attestation/assertion),5 E5 account signature,6 exact E6 result,7 load runtime,8 begin original open from retained E5/E6,9 signed pre-key permit<=2048,10 permanently abandon unused enrollment,11 installed-session JWT<=16384/DPoP<=4096/rootDER<=16384 (Apple: the selected App Attestation root; Android: empty),12 persisted E6<=262144/account<=4096 (Native-selected asset, ordinary original open),
+ * 13 retained Apple vendor originals,14 consume stage1..3 one-dispatch authorization,
+ * 15 retain actual stage1..3 vendor return,16 read retained E5,17 final Apple collection live check,
+ * 18 read/adopt exact durable E6 (25 original or20 verified absence),
+ * 19 renew the same owner's authenticated session(JWT/DPoP/root bounds as11):39 empty ack.
+ * Renewal preserves provider/platform/slot/attempt dates/evidence/E5/E6 and invalidates
+ * pending dispatch/challenges. A new0 with the same request ID precedes new live effects.
+ * Selectors13/16/17/18 have no inputs; unavailable, lost or malformed custody remains an error.
+ * Apple originals result38 is three u32-BE length-prefixed DATA originals (keyID UTF8<=4096,
+ * attestation<=65536, assertion<=4096); result39 acknowledges custody, never monetary success.
+ * Unused buffers/count must be zero. Android chain2..8, each item1..16384 bytes, total<=65536.
+ * Output:18 local challenge32,19 fixed FFI target161(slot32,key65,challenge32,binding32),
+ * 20 pending,21 abandoned,22 Bootstrap selected,23 E5 challenge32,24 exact E5<=524288,
+ * 25 exact E6<=262144,26 complete-source runtime ready,27 issuer dispatch DATA<=16384,28 exact signed Abandon<=1024,37 authenticated selection(scale:u32BE + asset original<=1024). All carry the same handle in sequence.
+ * Selector20 permanently abandons and returns 59 with the exact canonical Abandon ledger
+ * instruction (<=65536 bytes, same handle in sequence), or58 empty for the local form.
+ * Abandon10 returns 58 (empty) for the local no-marker form, which has nothing to submit, or 28
+ * with the exact retained signed Abandonment frame (marker form) for the holder's account to submit.
+ * E6 is not ledger activation. Payment bounds remain10000. */
+typedef struct connect_norito_kagemusha_wallet_enrollment_item_v1 {
+    const uint8_t* bytes;
+    size_t length;
+} connect_norito_kagemusha_wallet_enrollment_item_v1;
+typedef struct connect_norito_kagemusha_wallet_enrollment_request_v1 {
+    uint32_t selector;
+    const uint8_t* first;
+    size_t first_length;
+    const uint8_t* second;
+    size_t second_length;
+    const uint8_t* third;
+    size_t third_length;
+    const connect_norito_kagemusha_wallet_enrollment_item_v1* certificates;
+    size_t certificate_count;
+} connect_norito_kagemusha_wallet_enrollment_request_v1;
+int32_t connect_norito_kagemusha_wallet_enrollment_v1(uint64_t runtime, const connect_norito_kagemusha_wallet_enrollment_request_v1* request, connect_norito_kagemusha_wallet_result_v1* out);
+/* Closed E1 refusal table (design 2.4). Returns the holder class of a relayed issuer code:
+ * 1 Phone, 2 App, 3 Attempt, 4 Account. android is 1 (Android) or 0 (Apple). Zero, unknown and
+ * platform-inapplicable codes, and any other android value, return -1. Pure: no handle or state. */
+int32_t connect_norito_kagemusha_wallet_enrollment_refusal_v1(uint16_t code, uint8_t android);
+
+int32_t connect_norito_kagemusha_wallet_execute_v1(uint64_t handle, const connect_norito_kagemusha_wallet_operation_request_v1* request, connect_norito_kagemusha_wallet_result_v1* out);
+// Result11=preparing (no Advance selected); result2=pending (irreversible Advance selected).
+int32_t connect_norito_kagemusha_wallet_request_status_v1(uint64_t handle, const uint8_t* request_id32, connect_norito_kagemusha_wallet_result_v1* out);
+int32_t connect_norito_kagemusha_wallet_retry_v1(uint64_t handle, const uint8_t* operation32, connect_norito_kagemusha_wallet_result_v1* out);
+int32_t connect_norito_kagemusha_wallet_resume_v1(uint64_t handle, connect_norito_kagemusha_wallet_result_v1* out);
+int32_t connect_norito_kagemusha_wallet_fold_v1(uint64_t handle, connect_norito_kagemusha_wallet_result_v1* out);
+int32_t connect_norito_kagemusha_wallet_credit_status_v1(uint64_t handle, const uint8_t* credit32, const uint8_t* payment32, connect_norito_kagemusha_wallet_result_v1* out);
+
+/** Fixed Send/Unload Native intake: selector1/8; no foreign source identifiers.
+ * Send: amount0, first signed Request1..10000, second canonical AccountId1..4096.
+ * Native authenticates the complete Request, then canonical-decodes the singleEd25519
+ * account original and binds its Role::Account digest to that signed destination.
+ * Unload: nonzero amount, first optional quote1..1024; second is the exact closed DATA
+ * carrier KWUCV1\0\0 || LE32 certificates_length || certificates1..10000 ||
+ * LE32 beneficiary_length || canonical beneficiary AccountId1..4096 (maximum14112).
+ * Both carriers are absent for uncharged Unload. Native verifies the quote/certificates,
+ * binds the beneficiary before review, and retains/rechecks it before execution.
+ * Raw certificate-only charged review is rejected; monetary intent/wire is unchanged. */
+typedef struct connect_norito_kagemusha_wallet_review_request_v1 {
+  uint32_t selector;
+  connect_norito_kagemusha_wallet_u128_v1 amount;
+  const uint8_t *first;
+  size_t first_length;
+  const uint8_t *second;
+  size_t second_length;
+} connect_norito_kagemusha_wallet_review_request_v1;
+/** Authenticate only: separate result18, positive owner-local one-use token in sequence_low,
+ * sequence_high/detail zero; KWORV1\0\0, operation1/8,
+ * four LE UInt128 amount/fee/grossDebit/netDestination; receiverPresence byte+receiver32;
+ * destinationAccount/request/charge/scheme/wallet/currentHead/sourceState/sourceCapsule/
+ * credential/artifactManifest32 each, then canonical SEC1 paymentKey65 (491-byte prefix),
+ * mandatory LE UInt32 destinationAccountOriginalLength, then those exact AccountId bytes.
+ * Send length1..4096, Unload length0; exact total495+length. No491-byte fallback.
+ * The original is authenticated display DATA, not an I105 literal or chain discriminator.
+ * Copyable DATA cannot reconstruct the actual retained Native review. Free with connect_norito_free. */
+int32_t connect_norito_kagemusha_wallet_review_v1(uint64_t handle,
+    const connect_norito_kagemusha_wallet_review_request_v1 *request,
+    connect_norito_kagemusha_wallet_result_v1 *out);
+/** Consume actual review after fresh hardware approval; current source and ordinary proofs
+ * remain mandatory before Advance. No financial input is reconstructed from projection DATA. */
+int32_t connect_norito_kagemusha_wallet_execute_reviewed_v1(uint64_t handle,
+    uint64_t token, const uint8_t *request_id32, connect_norito_kagemusha_wallet_result_v1 *out);
+/** Cancel an in-memory review only; no durable custody mutation. */
+int32_t connect_norito_kagemusha_wallet_discard_review_v1(uint64_t handle, uint64_t token);
+
+// Mandatory original base authenticated under public build-selected Ed25519 trust.
+// Whole app manifest <=8MiB; envelope <=2048; wallet runtime <=128KiB;
+// signed genesis <=64MiB; root UTF-8 <=4096. Verifier pack/catalog retain Native caps.
+// Four signed base originals are mandatory. BPNG signed financialOriginals:null
+// with an absent financial trio returns -4/no attempt after authenticating that base.
+// Partial offers or signed full selections without all originals return -1.
+typedef struct {
+    const uint8_t* app_manifest; size_t app_manifest_length;
+    const uint8_t* envelope; size_t envelope_length;
+    const uint8_t* wallet_runtime; size_t wallet_runtime_length;
+    const uint8_t* verifier_pack; size_t verifier_pack_length;
+    const uint8_t* producer_inventory; size_t producer_inventory_length;
+    const uint8_t* signed_genesis; size_t signed_genesis_length;
+    const uint8_t* originals_root; size_t originals_root_length;
+    /* Generic signed application release requires canonical registration source DATA (8192 max). */
+    const uint8_t* registration_source; size_t registration_source_length;
+} connect_norito_kagemusha_wallet_runtime_originals_v1;
+// Uses the existing platform custody_root callback and retains the actual provider and
+// authenticated originals together before registry admission. No reservation or permission.
+/* Move-only opaque actual Runtime+authenticated BoundOriginals; no registry ID or reservation.
+ * Native alone constructs it after the exact eight-role originals and full financial graph qualification.
+ * Caller owns exact pointer once; serialize registration/close, never copy/dereference/forge.
+ * Zero begin creates the owner; failure clears output. Ordinary register refusal preserves it.
+ * Register zero transfers once to existing runtime ID and clears pointer. Close zero alone
+ * acknowledges custody join and clears pointer; failure retains exact closing owner.
+ * New first-release symbols; install_runtime_v1 is retired with no alias. */
+typedef struct connect_norito_kagemusha_wallet_installation_attempt_v1 connect_norito_kagemusha_wallet_installation_attempt_v1;
+int32_t connect_norito_kagemusha_wallet_installation_begin_v1(
+    const connect_norito_kagemusha_wallet_runtime_originals_v1* originals,
+    const connect_norito_kagemusha_platform_v1* platform,
+    connect_norito_kagemusha_wallet_installation_attempt_v1** out_attempt);
+int32_t connect_norito_kagemusha_wallet_installation_register_v1(
+    connect_norito_kagemusha_wallet_installation_attempt_v1** attempt, uint64_t* out_runtime);
+int32_t connect_norito_kagemusha_wallet_installation_close_v1(
+    connect_norito_kagemusha_wallet_installation_attempt_v1** attempt);
+/* Rebind only the registration locator's DATA path after copying originals into private storage.
+ * source<=8192 and UTF-8 root<=4096; status12 canonical DATA, never proof/admission/copy success.
+ * Native validates private no-follow root custody; installation still verifies all originals. */
+int32_t connect_norito_kagemusha_wallet_registration_source_relocate_v1(
+    const uint8_t* source, size_t source_length, const uint8_t* root, size_t root_length,
+    connect_norito_kagemusha_wallet_result_v1* out);
 
 #ifdef __cplusplus
 } // extern "C"

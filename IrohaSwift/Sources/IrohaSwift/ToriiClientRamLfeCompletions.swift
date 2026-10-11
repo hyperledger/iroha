@@ -19,25 +19,14 @@ extension ToriiClient {
     }
 
     @discardableResult
-    public func resolveIdentifier(policyId: String,
-                                  encryptedInputHex: String,
-                                  outputOpening: ToriiRamLfeOutputOpening,
-                                  canonicalAuth: ToriiCanonicalRequestAuth,
-                                  completion: @escaping (Result<ToriiIdentifierResolutionReceipt?, Swift.Error>) -> Void) -> Task<Void, Never> {
-        runTask(completion) {
-            try await self.resolveIdentifier(
-                policyId: policyId,
-                encryptedInputHex: encryptedInputHex,
-                outputOpening: outputOpening,
-                canonicalAuth: canonicalAuth
-            )
-        }
-    }
-
-    @discardableResult
     public func getIdentifierClaimByReceiptHash(_ receiptHash: String,
                                                 completion: @escaping (Result<ToriiIdentifierClaimRecord?, Swift.Error>) -> Void) -> Task<Void, Never> {
         runTask(completion) { try await self.getIdentifierClaimByReceiptHash(receiptHash) }
+    }
+
+    @discardableResult
+    public func prepareIdentifierClaim(accountId: String, requestBody: ToriiIdentifierLookupRequest, canonicalAuth: ToriiCanonicalRequestAuth, completion: @escaping (Result<ToriiIdentifierPrfPrepareResponse?, Swift.Error>) -> Void) -> Task<Void, Never> {
+        runTask(completion) { try await self.prepareIdentifierClaim(accountId: accountId, requestBody: requestBody, canonicalAuth: canonicalAuth) }
     }
 
     @discardableResult
@@ -55,24 +44,6 @@ extension ToriiClient {
     }
 
     @discardableResult
-    public func issueIdentifierClaimReceipt(accountId: String,
-                                            policyId: String,
-                                            encryptedInputHex: String,
-                                            outputOpening: ToriiRamLfeOutputOpening,
-                                            canonicalAuth: ToriiCanonicalRequestAuth,
-                                            completion: @escaping (Result<ToriiIdentifierResolutionReceipt?, Swift.Error>) -> Void) -> Task<Void, Never> {
-        runTask(completion) {
-            try await self.issueIdentifierClaimReceipt(
-                accountId: accountId,
-                policyId: policyId,
-                encryptedInputHex: encryptedInputHex,
-                outputOpening: outputOpening,
-                canonicalAuth: canonicalAuth
-            )
-        }
-    }
-
-    @discardableResult
     public func executeRamLfeProgram(programId: String,
                                      requestBody: ToriiRamLfeExecuteRequest,
                                      canonicalAuth: ToriiCanonicalRequestAuth,
@@ -81,20 +52,6 @@ extension ToriiClient {
             try await self.executeRamLfeProgram(
                 programId: programId,
                 requestBody: requestBody,
-                canonicalAuth: canonicalAuth
-            )
-        }
-    }
-
-    @discardableResult
-    public func executeRamLfeProgram(programId: String,
-                                     encryptedInputHex: String,
-                                     canonicalAuth: ToriiCanonicalRequestAuth,
-                                     completion: @escaping (Result<ToriiRamLfeExecuteResponse?, Swift.Error>) -> Void) -> Task<Void, Never> {
-        runTask(completion) {
-            try await self.executeRamLfeProgram(
-                programId: programId,
-                encryptedInputHex: encryptedInputHex,
                 canonicalAuth: canonicalAuth
             )
         }

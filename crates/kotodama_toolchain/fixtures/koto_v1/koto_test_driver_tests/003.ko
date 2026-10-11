@@ -1,6 +1,6 @@
 
             seiyaku ExactGraph {
-                view fn current() -> int { return calc::value(); }
+                view fn current() authorize(anyone) -> int { return calc::value(); }
 
                 #[test]
                 fn dependency_is_exact() {

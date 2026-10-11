@@ -354,7 +354,6 @@ fn alternate_qc_source(fixture: &Fixture, height: u64) -> Arc<State> {
         height,
         original.block_hash,
         original.result,
-        original.attest,
         Signers::LastThree,
     );
     assert_eq!(

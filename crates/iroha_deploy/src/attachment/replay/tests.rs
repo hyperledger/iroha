@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::attachment::tests::Fixture;
-use iroha_data_model::sumeragi_finality::{SumeragiFinalityAttestation, SumeragiFinalityProof};
+use iroha_data_model::sumeragi_finality::SumeragiFinalityProof;
 use iroha_model_base::peer::PeerId;
 use std::{cell::RefCell, collections::BTreeMap};
 
@@ -34,7 +34,7 @@ impl FinalitySource for Source {
         &self,
         _: &PeerId,
         _: &[u8; 32],
-    ) -> std::result::Result<SumeragiFinalityAttestation, Self::Error> {
+    ) -> std::result::Result<crate::verify::finality::FinalityAttestation, Self::Error> {
         Err(std::io::Error::other(
             "replay must not replace its captured comparison",
         ))

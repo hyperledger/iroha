@@ -1,11 +1,11 @@
 //! Native parity, coordinated arbitrary-field mutations and real IPA controls.
 
 use super::*;
-use crate::halo2_backend;
-use halo2_proofs::{
-    circuit::SimpleFloorPlanner,
-    dev::{MockProver, VerifyFailure},
-    plonk::{Circuit, Instance},
+use crate::ram_lfe_test_support::NativeProof;
+use iroha_plonk::{
+    check::{CheckFailure, CheckMode, CheckReport, check_circuit},
+    cs::Instance,
+    frontend::{Circuit, SimpleFloorPlanner},
 };
 use std::{cell::RefCell, sync::Arc, time::Instant};
 
@@ -67,8 +67,7 @@ impl<F: PastaField, const L: usize> HashCircuit<F, L> {
         let mut meta = ConstraintSystem::<F>::default();
         let _ = Self::configure(&mut meta);
         // Source cells have explicit disjoint absolute rows after the hash.
-        // Axiom's MockProver panics if assignment reaches unusable rows, so
-        // check the bounded layout before any domain-sized allocation.
+        // Preflight the bounded layout before any domain-sized allocation;
         let required = hash_rows(L) + L + meta.minimum_rows();
         if 1_usize.checked_shl(k).is_none_or(|rows| rows < required) {
             return Err(Error::NotEnoughRowsAvailable { current_k: k });
@@ -76,16 +75,20 @@ impl<F: PastaField, const L: usize> HashCircuit<F, L> {
         Ok(())
     }
 
-    fn mock(&self, k: u32, instances: Vec<Vec<F>>) -> Result<MockProver<F>, Error> {
+    fn check(&self, k: u32, instances: Vec<Vec<F>>) -> Result<CheckReport<F>, Error> {
         Self::preflight(k)?;
-        MockProver::run(k, self, instances)
+        check_circuit(self, k, &instances, CheckMode::Strict)
     }
 }
 
 impl<F: PastaField, const L: usize> Circuit<F> for HashCircuit<F, L> {
     type Config = (PoseidonConfig<F>, Column<Instance>);
     type FloorPlanner = SimpleFloorPlanner;
-    type Params = ();
+    type Params = bool;
+
+    fn params(&self) -> bool {
+        self.bind_output
+    }
 
     fn without_witnesses(&self) -> Self {
         let mut empty = Self::new([F::ZERO; L]);
@@ -94,8 +97,12 @@ impl<F: PastaField, const L: usize> Circuit<F> for HashCircuit<F, L> {
     }
 
     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+        Self::configure_with_params(meta, true)
+    }
+
+    fn configure_with_params(meta: &mut ConstraintSystem<F>, bind_output: bool) -> Self::Config {
         let config = PoseidonConfig::configure(meta);
-        let instance = meta.instance_column();
+        let instance = meta.instance_column(usize::from(bind_output));
         meta.enable_equality(instance);
         (config, instance)
     }
@@ -111,16 +118,22 @@ impl<F: PastaField, const L: usize> Circuit<F> for HashCircuit<F, L> {
         let inputs: [Cell; L] = layouter.assign_region(
             || "original private input cells",
             |mut region| {
-                Ok(std::array::from_fn(|index| {
+                let mut cells = Vec::with_capacity(L);
+                for index in 0..L {
                     let value: F = Option::from(F::from_repr(self.values.0[index]))
                         .expect("owned canonical input");
-                    // Axiom's single-pass floor planner uses absolute rows;
-                    // region names do not reserve disjoint advice cells.
-                    // Keep original sources beyond the complete hash region.
-                    region
-                        .assign_advice(config.input[0], hash_rows(L) + index, Value::known(value))
-                        .cell()
-                }))
+                    // Sources occupy disjoint absolute rows after the hash.
+                    cells.push(
+                        region
+                            .assign_advice(
+                                config.input[0],
+                                hash_rows(L) + index,
+                                Value::known(value),
+                            )?
+                            .cell(),
+                    );
+                }
+                Ok(cells.try_into().expect("exact input count"))
             },
         )?;
         let output = hash(
@@ -132,7 +145,7 @@ impl<F: PastaField, const L: usize> Circuit<F> for HashCircuit<F, L> {
             self.stop,
         )?;
         if self.bind_output {
-            layouter.constrain_instance(output, instance, 0);
+            layouter.constrain_instance(output, instance, 0)?;
         }
         Ok(())
     }
@@ -141,9 +154,10 @@ impl<F: PastaField, const L: usize> Circuit<F> for HashCircuit<F, L> {
 fn assert_valid<F: PastaField, const L: usize>(values: [F; L], k: u32) {
     let circuit = HashCircuit::new(values);
     circuit
-        .mock(k, vec![circuit.expected()])
+        .check(k, vec![circuit.expected()])
         .expect("bounded shape")
-        .assert_satisfied();
+        .into_result()
+        .expect("all constraints hold");
 }
 
 #[test]
@@ -158,9 +172,10 @@ fn every_upstream_hash_vector_matches_both_field_circuits() {
             let circuit = HashCircuit::<F, 2>::new(values);
             assert_eq!(circuit.expected(), vec![expected]);
             circuit
-                .mock(7, vec![vec![expected]])
+                .check(7, vec![vec![expected]])
                 .unwrap()
-                .assert_satisfied();
+                .into_result()
+                .expect("all constraints hold");
         }
     }
     check::<Fp>(include_bytes!(
@@ -184,21 +199,27 @@ fn odd_even_lengths_match_native_and_reject_wrong_public_output() {
         let circuit = HashCircuit::new([F::ONE; 3]);
         let mut public = circuit.expected();
         public[0] += F::ONE;
-        assert!(circuit.mock(8, vec![public]).unwrap().verify().is_err());
+        assert!(
+            circuit
+                .check(8, vec![public])
+                .unwrap()
+                .into_result()
+                .is_err()
+        );
     }
     check::<Fp>();
     check::<Fq>();
 }
 
-fn failures<F: PastaField>(fault: Fault<F>) -> Vec<VerifyFailure> {
+fn failures<F: PastaField>(fault: Fault<F>) -> Vec<CheckFailure<F>> {
     let label = format!("coordinated mutation must fail without an output binding: {fault:?}");
     let mut circuit = HashCircuit::new([F::from(3), F::from(7), F::from(11)]);
     circuit.bind_output = false;
     circuit.faults.push(fault);
     circuit
-        .mock(8, vec![Vec::new()])
+        .check(8, vec![Vec::new()])
         .unwrap()
-        .verify()
+        .into_result()
         .expect_err(&label)
 }
 
@@ -216,7 +237,7 @@ fn every_round_rejects_propagated_arbitrary_field_changes_without_output_checks(
                     });
                     assert!(rejected.iter().all(|failure| matches!(
                         failure,
-                        VerifyFailure::ConstraintNotSatisfied { .. }
+                        CheckFailure::ConstraintNotSatisfied { .. }
                     )));
                 }
             }
@@ -236,10 +257,12 @@ fn every_paired_first_sbox_rejects_propagated_fractions_without_output_checks() 
                     row: block * (ROUND_ROWS + 1) + 5 + pair,
                     value: half,
                 });
-                assert!(rejected.iter().all(|failure| matches!(
-                    failure,
-                    VerifyFailure::ConstraintNotSatisfied { .. }
-                )));
+                assert!(
+                    rejected.iter().all(|failure| matches!(
+                        failure,
+                        CheckFailure::ConstraintNotSatisfied { .. }
+                    ))
+                );
             }
         }
     }
@@ -260,7 +283,7 @@ fn initial_absorption_copy_and_padding_constraints_reject_coordinated_fractions(
             assert!(
                 rejected
                     .iter()
-                    .all(|failure| matches!(failure, VerifyFailure::ConstraintNotSatisfied { .. }))
+                    .all(|failure| matches!(failure, CheckFailure::ConstraintNotSatisfied { .. }))
             );
         }
         for row in [1, ROUND_ROWS + 2] {
@@ -284,7 +307,7 @@ fn initial_absorption_copy_and_padding_constraints_reject_coordinated_fractions(
                 assert!(
                     rejected
                         .iter()
-                        .all(|failure| matches!(failure, VerifyFailure::Permutation { .. }))
+                        .all(|failure| matches!(failure, CheckFailure::CopyMismatch { .. }))
                 );
             }
         }
@@ -292,7 +315,7 @@ fn initial_absorption_copy_and_padding_constraints_reject_coordinated_fractions(
         assert!(
             rejected
                 .iter()
-                .all(|failure| matches!(failure, VerifyFailure::ConstraintNotSatisfied { .. }))
+                .all(|failure| matches!(failure, CheckFailure::ConstraintNotSatisfied { .. }))
         );
     }
     check::<Fp>();
@@ -314,14 +337,18 @@ fn actual_owned_field_and_input_cells_clear_on_success_error_and_unwind() {
             let outcome = std::panic::catch_unwind(|| {
                 let mut circuit = HashCircuit::new([F::ONE; 3]);
                 circuit.stop = stop;
-                circuit.mock(8, vec![circuit.expected()])
+                circuit.check(8, vec![circuit.expected()])
             });
             if matches!(stop, Stop::PanicAfterAbsorb | Stop::PanicAfterPartialSbox) {
                 assert!(outcome.is_err());
             } else if matches!(stop, Stop::ErrorAfterAbsorb | Stop::ErrorAfterPartialSbox) {
                 assert!(outcome.unwrap().is_err());
             } else {
-                outcome.unwrap().unwrap().assert_satisfied();
+                outcome
+                    .unwrap()
+                    .unwrap()
+                    .into_result()
+                    .expect("all constraints hold");
             }
             for observed in [&CLEARED, &INPUTS_CLEARED] {
                 observed.with(|values| {
@@ -344,7 +371,7 @@ fn geometry_and_fixed_bounds_are_explicit() {
     assert_eq!(meta.num_advice_columns(), 5);
     assert_eq!(meta.advice_queries().len(), 8);
     assert_eq!(meta.lookups().len(), 0);
-    assert_eq!(meta.permutation().get_columns().len(), 6);
+    assert_eq!(meta.permutation().columns().len(), 6);
     assert_eq!(meta.num_fixed_columns(), 6);
     assert_eq!(meta.fixed_queries().len(), 6);
     assert_eq!(hash_rows(3), 75);
@@ -355,12 +382,12 @@ fn geometry_and_fixed_bounds_are_explicit() {
     );
     assert!(
         HashCircuit::<Fp, 0>::new([])
-            .mock(8, vec![Vec::new()])
+            .check(8, vec![Vec::new()])
             .is_err()
     );
     assert!(
         HashCircuit::<Fp, 2055>::new([Fp::ZERO; 2055])
-            .mock(8, vec![Vec::new()])
+            .check(8, vec![Vec::new()])
             .is_err()
     );
     println!(
@@ -370,7 +397,7 @@ fn geometry_and_fixed_bounds_are_explicit() {
         meta.advice_queries().len(),
         meta.num_fixed_columns(),
         meta.fixed_queries().len(),
-        meta.permutation().get_columns().len(),
+        meta.permutation().columns().len(),
         meta.blinding_factors(),
         meta.minimum_rows(),
         hash_rows(MAX_FIELDS)
@@ -384,13 +411,14 @@ fn maximum_record_matches_native_and_refuses_insufficient_rows() {
             F::from(17 * i as u64 + 3)
         }));
         assert!(matches!(
-            circuit.mock(15, vec![circuit.expected()]),
+            circuit.check(15, vec![circuit.expected()]),
             Err(Error::NotEnoughRowsAvailable { current_k: 15 })
         ));
         circuit
-            .mock(16, vec![circuit.expected()])
+            .check(16, vec![circuit.expected()])
             .unwrap()
-            .assert_satisfied();
+            .into_result()
+            .expect("all constraints hold");
     }
     check::<Fp>();
     check::<Fq>();
@@ -399,29 +427,24 @@ fn maximum_record_matches_native_and_refuses_insufficient_rows() {
 fn genuine_ipa<const L: usize>(circuit: HashCircuit<Fp, L>, k: u32) {
     HashCircuit::<Fp, L>::preflight(k).unwrap();
     let started = Instant::now();
-    let params = halo2_backend::params_new(k);
-    let vk = halo2_backend::keygen_vk(&params, &circuit.without_witnesses()).unwrap();
-    let vk_bytes = halo2_backend::verifying_key_to_processed_bytes(&vk).len();
-    let pk = halo2_backend::keygen_pk(&params, vk.clone(), &circuit.without_witnesses()).unwrap();
+    let setup = NativeProof::new(k, &circuit);
+    let vk_bytes = setup.key_bytes();
     let keygen_ms = started.elapsed().as_secs_f64() * 1000.0;
     let public = circuit.expected();
-    let columns: [&[Fp]; 1] = [&public];
-    let instances: [&[&[Fp]]; 1] = [&columns];
     let started = Instant::now();
-    let proof = halo2_backend::create_ipa_proof(&params, &pk, &[circuit], &instances).unwrap();
+    let proof = setup.prove(circuit, &public);
     let prove_ms = started.elapsed().as_secs_f64() * 1000.0;
     let started = Instant::now();
-    halo2_backend::verify_ipa_proof(&params, &vk, &proof, &instances).unwrap();
+    setup.verify(&public, &proof).unwrap();
     let verify_ms = started.elapsed().as_secs_f64() * 1000.0;
     let wrong = [public[0] + Fp::ONE];
-    let wrong_columns: [&[Fp]; 1] = [&wrong];
-    assert!(halo2_backend::verify_ipa_proof(&params, &vk, &proof, &[&wrong_columns]).is_err());
+    assert!(setup.verify(&wrong, &proof).is_err());
     let mut changed = proof.clone();
     changed[0] ^= 1;
-    assert!(halo2_backend::verify_ipa_proof(&params, &vk, &changed, &instances).is_err());
+    assert!(setup.verify(&public, &changed).is_err());
     let mut suffixed = proof.clone();
     suffixed.push(0);
-    assert!(halo2_backend::verify_ipa_proof(&params, &vk, &suffixed, &instances).is_err());
+    assert!(setup.verify(&public, &suffixed).is_err());
     assert!(proof.len() < 192 * 1024);
     println!(
         "RAM_LFE_POSEIDON_METRICS k={k} inputs={L} hash_rows={} proof_bytes={} vk_bytes={vk_bytes} keygen_ms={keygen_ms:.3} prove_ms={prove_ms:.3} verify_ms={verify_ms:.3} owned_input_bytes={} owned_working_fields=8",

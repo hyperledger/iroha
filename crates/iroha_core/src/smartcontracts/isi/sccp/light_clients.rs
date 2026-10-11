@@ -1,12 +1,19 @@
 //! Inbound light clients (`specs/sccp.md` §4.13). Owners: ws33 (Parliament half:
-//! [`is_usable`], [`initialize`], [`install_checkpoint`], [`freeze`]) and ws41 (advance half:
-//! [`execute_advance`], [`execute_report_equivocation`], [`verify_source_proof`],
-//! [`preverify_keeper_advance`], [`prune`]).
+//! [`is_usable`], [`initialize`], [`install_checkpoint`], [`freeze`], [`activate_profile`]) and
+//! ws41 (advance half: [`execute_advance`], [`execute_report_equivocation`],
+//! [`verify_source_proof`], [`preverify_keeper_advance`], [`prune`]).
 //!
 //! World state stores authenticated source validator sets with validity ranges and finalized
 //! checkpoints. Every advance is permissionless and proof-carrying; the Parliament only
-//! initializes, re-initializes, freezes and installs trusted checkpoints. Chain verification
-//! itself lives in `iroha_sccp::light_client`.
+//! initializes, re-initializes, freezes, installs trusted checkpoints and activates compiled
+//! profile versions. Chain verification itself lives in `iroha_sccp::light_client`.
+//!
+//! **Profile versions (§4.13.2).** Every verifier call runs under the compiled profile versions
+//! active at the executing height ([`active_profiles_at`]). A release that does not compile an
+//! active version (or compiles other content under it) defers the attempt with
+//! `VerifierArtifactsUnavailable`, so the node refuses to apply the block instead of verifying
+//! under different rules; the same holds for enacting an activation of a version it does not
+//! compile.
 
 use super::{
     Error,
@@ -24,18 +31,23 @@ use iroha_data_model::{
             SccpLightClientInitializedV1, SccpTrustedCheckpointInstalledV1,
         },
         governance::{
-            SccpFreezeLightClientActionV1, SccpInitializeLightClientActionV1,
-            SccpInstallTrustedCheckpointActionV1,
+            SccpActivateLightClientProfileActionV1, SccpFreezeLightClientActionV1,
+            SccpInitializeLightClientActionV1, SccpInstallTrustedCheckpointActionV1,
         },
         inbound::SccpSourceProofBytesV1,
         light_client::{
-            SccpLcCheckpointOriginV1, SccpLcCheckpointV1, SccpLcConsensusSetV1,
-            SccpLcFreezeReasonV1, SccpLcParliamentFreezeV1, SccpLightClientV1,
+            SCCP_LC_GENESIS_PROFILE_VERSION_V1, SccpLcCheckpointOriginV1, SccpLcCheckpointV1,
+            SccpLcConsensusSetV1, SccpLcFreezeReasonV1, SccpLcParliamentFreezeV1,
+            SccpLcProfileActivationV1, SccpLightClientV1,
         },
     },
 };
 use iroha_sccp::light_client::{
     self as lc,
+    profile::{
+        SCCP_LC_PROFILE_NETWORKS_V1, SccpChainProfilesV1, SccpLcActiveProfilesV1,
+        SccpLcProfileCatalogV1, SccpLcProfileRefV1, SccpLcProfileUnavailableV1,
+    },
     proof::SccpVerifiedProofV1,
     state::{SccpLcPurgeV1, SccpLcStateView, state_hash},
 };
@@ -70,7 +82,7 @@ pub(crate) fn exceeded_verifier_limit(
     if work.proof_bytes > limits.max_proof_bytes_per_proof.get() {
         return Some("max_proof_bytes_per_proof");
     }
-    let categories: [(u64, u64, u64, u64, &'static str, &'static str); 8] = [
+    let categories: [(u64, u64, u64, u64, &'static str, &'static str); 7] = [
         (
             in_tx.proofs.into(),
             in_block.proofs.into(),
@@ -129,14 +141,6 @@ pub(crate) fn exceeded_verifier_limit(
             "max_bls_vote_attestations_per_block",
         ),
         (
-            in_tx.secp256k1_recoveries.into(),
-            in_block.secp256k1_recoveries.into(),
-            limits.max_secp256k1_recoveries_per_transaction.get().into(),
-            limits.max_secp256k1_recoveries_per_block.get().into(),
-            "max_secp256k1_recoveries_per_transaction",
-            "max_secp256k1_recoveries_per_block",
-        ),
-        (
             in_tx.ed25519_signature_checks.into(),
             in_block.ed25519_signature_checks.into(),
             limits
@@ -173,17 +177,211 @@ fn reserve_work(
         .map_err(|limit| refuse(format_args!("SCCP verifier work exceeds zk.sccp.{limit}")))
 }
 
+/// Return the light-client profile active for every network at Taira height `height`
+/// (§4.13.2): for each network, its highest recorded activation whose `activation_height` is at
+/// most `height`, and otherwise version 1 of `catalog`.
+///
+/// Recorded activations carry their own profile hash, so the result depends on `catalog` only
+/// through the immutable version 1.
+#[must_use]
+pub fn active_profiles_at(
+    world: &(impl WorldReadOnly + ?Sized),
+    height: u64,
+    catalog: &SccpLcProfileCatalogV1<'_>,
+) -> SccpLcActiveProfilesV1 {
+    let mut active = catalog.genesis();
+    for network in SCCP_LC_PROFILE_NETWORKS_V1 {
+        let recorded =
+            store::light_client_profiles::range(world, (network, 0)..=(network, u32::MAX))
+                .rev()
+                .find(|(_, activation)| activation.activation_height <= height);
+        if let Some(((_, version), activation)) = recorded {
+            active = active.with(
+                network,
+                SccpLcProfileRefV1 {
+                    version: *version,
+                    profile_hash: activation.profile_hash,
+                },
+            );
+        }
+    }
+    active
+}
+
+/// Return the newest recorded profile version of `network` whatever its activation height, or 1
+/// when the Parliament never activated one: the bound a new activation must exceed.
+#[must_use]
+pub fn newest_profile_version(
+    world: &(impl WorldReadOnly + ?Sized),
+    network: SccpNetworkV1,
+) -> u32 {
+    store::light_client_profiles::range(world, (network, 0)..=(network, u32::MAX))
+        .next_back()
+        .map_or(SCCP_LC_GENESIS_PROFILE_VERSION_V1, |((_, version), _)| {
+            *version
+        })
+}
+
+/// Check that this release compiles the light-client profile version active for every network
+/// at `height`, with the recorded hash (snapshot restore, §4.13.2).
+///
+/// # Errors
+///
+/// Returns the first network whose active version this release cannot verify under.
+pub fn ensure_profiles_compiled(
+    world: &(impl WorldReadOnly + ?Sized),
+    height: u64,
+) -> Result<(), SccpLcProfileUnavailableV1> {
+    let catalog = SccpLcProfileCatalogV1::compiled();
+    catalog
+        .resolve(&active_profiles_at(world, height, &catalog))
+        .map(drop)
+}
+
+/// Fail closed on an active profile version this release cannot verify under: record the
+/// `VerifierArtifactsUnavailable` deferral so the node refuses to apply the block (§4.13.2).
+fn defer_unavailable(
+    state_transaction: &mut StateTransaction<'_, '_>,
+    unavailable: SccpLcProfileUnavailableV1,
+) -> Error {
+    let _ = state_transaction
+        .defer_execution(ivm::error::ExecutionDeferral::VerifierArtifactsUnavailable);
+    refuse(format_args!("{unavailable}; the block is not applied"))
+}
+
+/// Return the compiled profiles active at the executing block height, resolved in `catalog`.
+///
+/// # Errors
+///
+/// Defers the attempt (see [`defer_unavailable`]) when `catalog` lacks an active version.
+fn executing_profiles_in(
+    state_transaction: &mut StateTransaction<'_, '_>,
+    catalog: &SccpLcProfileCatalogV1<'_>,
+) -> Result<SccpChainProfilesV1, Error> {
+    let height = state_transaction.block_height();
+    let active = active_profiles_at(&*state_transaction.world, height, catalog);
+    catalog
+        .resolve(&active)
+        .map_err(|unavailable| defer_unavailable(state_transaction, unavailable))
+}
+
+/// Return this release's compiled profiles active at the executing block height.
+///
+/// # Errors
+///
+/// Defers the attempt when this release lacks an active version.
+pub fn executing_profiles(
+    state_transaction: &mut StateTransaction<'_, '_>,
+) -> Result<SccpChainProfilesV1, Error> {
+    executing_profiles_in(state_transaction, &SccpLcProfileCatalogV1::compiled())
+}
+
+/// Return this release's compiled profiles active at height `height` for admission-time
+/// pre-verification, which runs against committed state for the next block. Admission is local,
+/// so an unavailable version only rejects the transaction here.
+///
+/// # Errors
+///
+/// Rejects when this release lacks an active version.
+pub fn admission_profiles(
+    world: &(impl WorldReadOnly + ?Sized),
+    height: u64,
+) -> Result<SccpChainProfilesV1, SccpAdmissionRejectV1> {
+    let catalog = SccpLcProfileCatalogV1::compiled();
+    catalog
+        .resolve(&active_profiles_at(world, height, &catalog))
+        .map_err(|unavailable| SccpAdmissionRejectV1::new(unavailable.to_string()))
+}
+
 /// Return whether the light client of `network` is installed, not frozen and within its
-/// weak-subjectivity bound at Taira time `now_ms`, so burns on its chain are provable
-/// (§4.13.2). A network whose light client this release cannot verify is never usable.
+/// weak-subjectivity bound at Taira time `now_ms` under `profiles`, so burns on its chain are
+/// provable (§4.13.2). A network whose light client this release cannot verify is never usable.
 #[must_use]
 pub fn is_usable(
     world: &(impl WorldReadOnly + ?Sized),
+    profiles: &SccpChainProfilesV1,
     network: SccpNetworkV1,
     now_ms: u64,
 ) -> bool {
     store::light_clients::get(world, &network).is_some_and(|light_client| !light_client.is_frozen())
-        && lc::is_aged(&WorldLightClientView(world), network, now_ms) == Ok(false)
+        && lc::is_aged_with_profiles(profiles, &WorldLightClientView(world), network, now_ms)
+            == Ok(false)
+}
+
+/// Apply an enacted `ActivateLightClientProfile` (§4.13.2, §4.14.3): record `version` of
+/// `network` as active from the next block, with the profile hash the Parliament voted on.
+///
+/// # Errors
+///
+/// Refuses (the enactment ends `ExecutionFailed`) a version that does not exceed the network's
+/// newest recorded version, and a version `catalog` compiles with another hash. Defers the
+/// attempt, refusing the block, when `catalog` does not compile the version: this release
+/// cannot tell an unknown version from a newer one, and must not record what it cannot verify.
+fn activate_profile_in(
+    state_transaction: &mut StateTransaction<'_, '_>,
+    action: &SccpActivateLightClientProfileActionV1,
+    proposal_id: [u8; 32],
+    catalog: &SccpLcProfileCatalogV1<'_>,
+) -> Result<(), Error> {
+    let network = action.network;
+    if !network.is_external() {
+        return Err(refuse("light-client profiles belong to external networks"));
+    }
+    let newest = newest_profile_version(&*state_transaction.world, network);
+    if action.version <= newest {
+        return Err(refuse(format_args!(
+            "{} profile version {} does not exceed the newest activated version {newest}",
+            network.profile_key(),
+            action.version
+        )));
+    }
+    let profile = SccpLcProfileRefV1 {
+        version: action.version,
+        profile_hash: action.profile_hash,
+    };
+    match catalog.check(network, profile) {
+        Ok(()) => {}
+        Err(mismatch @ SccpLcProfileUnavailableV1::HashMismatch { .. }) => {
+            return Err(refuse(format_args!("{mismatch}")));
+        }
+        Err(unknown @ SccpLcProfileUnavailableV1::NotCompiled { .. }) => {
+            return Err(defer_unavailable(state_transaction, unknown));
+        }
+    }
+    let activation_height = state_transaction
+        .block_height()
+        .checked_add(1)
+        .ok_or_else(|| refuse("the activation height overflows"))?;
+    store::light_client_profiles::insert(
+        state_transaction,
+        (network, action.version),
+        SccpLcProfileActivationV1 {
+            profile_hash: action.profile_hash,
+            activation_height,
+            proposal_id,
+        },
+    )?;
+    Ok(())
+}
+
+/// Apply an enacted `ActivateLightClientProfile` against this release's compiled profiles; see
+/// [`activate_profile_in`].
+///
+/// # Errors
+///
+/// Refuses a non-monotone version or a hash mismatch; defers on a version this release does not
+/// compile.
+pub fn activate_profile(
+    state_transaction: &mut StateTransaction<'_, '_>,
+    action: &SccpActivateLightClientProfileActionV1,
+    proposal_id: [u8; 32],
+) -> Result<(), Error> {
+    activate_profile_in(
+        state_transaction,
+        action,
+        proposal_id,
+        &SccpLcProfileCatalogV1::compiled(),
+    )
 }
 
 /// Write `checkpoint` of `network` (replacing a same-height record) and keep the lowest
@@ -285,7 +483,9 @@ pub fn initialize(
 ) -> Result<(), Error> {
     let network = action.network;
     let now_ms = state_transaction.block_unix_timestamp_ms();
-    let initial = lc::initialize_light_client(
+    let profiles = executing_profiles(state_transaction)?;
+    let initial = lc::initialize_light_client_with_profiles(
+        &profiles,
         &WorldLightClientView(&*state_transaction.world),
         network,
         action.expected,
@@ -338,8 +538,9 @@ pub fn initialize(
 ///
 /// # Errors
 ///
-/// Fails when the light client is not installed, the checkpoint is malformed, or it conflicts
-/// with a stored checkpoint at the same height.
+/// Fails for TON (its light client reads no checkpoints), when the light client is not
+/// installed, the checkpoint is malformed, or it conflicts with a stored checkpoint at the same
+/// height.
 pub fn install_checkpoint(
     state_transaction: &mut StateTransaction<'_, '_>,
     action: &SccpInstallTrustedCheckpointActionV1,
@@ -477,7 +678,9 @@ pub fn execute_advance(
         state_transaction,
         lc::advance_work(network, &instruction.advance),
     )?;
-    let delta = lc::apply_advance(
+    let profiles = executing_profiles(state_transaction)?;
+    let delta = lc::apply_advance_with_profiles(
+        &profiles,
         &WorldLightClientView(&*state_transaction.world),
         network,
         &instruction.advance,
@@ -514,7 +717,9 @@ pub fn execute_report_equivocation(
         state_transaction,
         lc::evidence_work(network, &instruction.a, &instruction.b),
     )?;
-    let reason = lc::verify_equivocation(
+    let profiles = executing_profiles(state_transaction)?;
+    let reason = lc::verify_equivocation_with_profiles(
+        &profiles,
         &WorldLightClientView(&*state_transaction.world),
         network,
         &instruction.a,
@@ -548,7 +753,9 @@ pub fn verify_source_proof(
     proof: &SccpSourceProofBytesV1,
 ) -> Result<SccpVerifiedProofV1, Error> {
     reserve_work(state_transaction, lc::proof_work(network, proof))?;
-    let verified = lc::verify_proof(
+    let profiles = executing_profiles(state_transaction)?;
+    let verified = lc::verify_proof_with_profiles(
+        &profiles,
         &WorldLightClientView(&*state_transaction.world),
         network,
         proof,
@@ -566,38 +773,41 @@ pub fn verify_source_proof(
     Ok(verified)
 }
 
-/// Pre-verify a keeper advance from a bridge key's account and return its admission keys (one
-/// pending exempt advance per authority and network, §4.13.4).
+/// Return whether `instruction` is an eligible keeper advance (§4.13.4, §4.19): the advance
+/// frame decodes for `instruction.network` and is not a `Backfill`. A `Backfill` and an
+/// undecodable frame pay the ordinary fee.
 ///
-/// The advance is exempt only from an active or pending bridge key's account and only when it
-/// moves the head against committed state.
+/// The rule is the same for every authority, registered or not, so it reads neither the
+/// authority nor state: [`super::fees::exempt_class`] adds only that SCCP exists, and
+/// [`super::admission::allows_unregistered_authority`] admits an absent authority for exactly
+/// the advances this function accepts. Whether the advance verifies and moves the head is
+/// admission pre-verification ([`preverify_keeper_advance`]), not eligibility.
+#[must_use]
+pub fn keeper_advance_eligible(instruction: &AdvanceSccpLightClientV1) -> bool {
+    lc::proof::SccpLcAdvanceV1::from_frame(instruction.advance.as_bytes()).is_ok_and(|advance| {
+        advance.network() == instruction.network
+            && !matches!(advance, lc::proof::SccpLcAdvanceV1::Backfill { .. })
+    })
+}
+
+/// Pre-verify an eligible keeper advance ([`keeper_advance_eligible`]) and return its
+/// admission keys (one pending exempt advance per authority and network, §4.13.4).
+///
+/// An eligible advance must verify and move the head against committed state, verified under
+/// the light-client profiles active at `next_block_height`.
 ///
 /// # Errors
 ///
-/// Rejects an authority that is not a live bridge key, an advance that does not verify, and an
-/// advance that would not move the head.
+/// Rejects an advance of an uninstalled light client or with a stale expected state hash, an
+/// advance that does not verify, an advance that would not move the head, and any advance
+/// while this release lacks an active profile version.
 pub fn preverify_keeper_advance(
     world: &(impl WorldReadOnly + ?Sized),
     now_ms: u64,
+    next_block_height: u64,
     instruction: &AdvanceSccpLightClientV1,
     authority: &AccountId,
 ) -> Result<SccpAdmissionKeysV1, SccpAdmissionRejectV1> {
-    let address = super::bridge_keys::bridge_key_address_of(authority)
-        .ok_or_else(|| SccpAdmissionRejectV1::new("authority is not a bridge key's account"))?;
-    let live = store::bridge_key_owners::get(world, &address)
-        .and_then(|peer| store::bridge_keys::get(world, peer))
-        .is_some_and(|state| {
-            state
-                .active
-                .iter()
-                .chain(state.pending.iter())
-                .any(|key| key.address == address && !key.faulted)
-        });
-    if !live {
-        return Err(SccpAdmissionRejectV1::new(
-            "authority is not an active or pending bridge key",
-        ));
-    }
     let network = instruction.network;
     let current = store::light_clients::get(world, &network)
         .ok_or_else(|| SccpAdmissionRejectV1::new("the light client is not installed"))?;
@@ -607,7 +817,9 @@ pub fn preverify_keeper_advance(
     {
         return Err(SccpAdmissionRejectV1::new("stale expected state hash"));
     }
-    let delta = lc::apply_advance(
+    let profiles = admission_profiles(world, next_block_height)?;
+    let delta = lc::apply_advance_with_profiles(
+        &profiles,
         &WorldLightClientView(world),
         network,
         &instruction.advance,
@@ -619,10 +831,15 @@ pub fn preverify_keeper_advance(
             "the advance does not move the head",
         ));
     }
-    Ok(
-        SccpAdmissionKeysV1::new(super::admission::SccpExemptClassV1::KeeperAdvance { network })
-            .with_exclusive(&(authority.clone(), network)),
-    )
+    Ok(keeper_advance_keys(authority, network))
+}
+
+/// Return the admission keys of an exempt keeper advance of `network` from `authority`: at
+/// most one is pending per authority and network, whether or not the authority is registered
+/// (§4.13.4, §4.19).
+fn keeper_advance_keys(authority: &AccountId, network: SccpNetworkV1) -> SccpAdmissionKeysV1 {
+    SccpAdmissionKeysV1::new(super::admission::SccpExemptClassV1::KeeperAdvance { network })
+        .with_exclusive(&(authority.clone(), network))
 }
 
 /// Prune expired light-client sets and checkpoints, deleting at most `budget` records, and
@@ -686,11 +903,16 @@ mod tests {
     fn advances_and_reports_need_an_installed_light_client() {
         let state = blank_state();
         let view = state.world_view();
-        assert!(!is_usable(&view, SccpNetworkV1::EthereumMainnet, 0));
+        assert!(!is_usable(
+            &view,
+            SccpChainProfilesV1::genesis(),
+            SccpNetworkV1::EthereumMainnet,
+            0
+        ));
         let reject =
-            preverify_keeper_advance(&view, 0, &SampleInstructions::advance(), &authority(1))
-                .expect_err("not a bridge key");
-        assert!(reject.reason.contains("bridge key"), "{reject}");
+            preverify_keeper_advance(&view, 0, 1, &SampleInstructions::advance(), &authority(1))
+                .expect_err("not installed");
+        assert!(reject.reason.contains("not installed"), "{reject}");
         let mut block = state.block(header(2));
         let mut stx = block.transaction();
         assert_eq!(prune(&mut stx, 1_024), 0);
@@ -704,47 +926,150 @@ mod tests {
             .expect_err("not installed");
     }
 
+    /// Return a decodable advance frame of `network`: an empty Ethereum update list, or an
+    /// empty `Backfill` segment.
+    pub(crate) fn advance_frame(backfill: bool) -> AdvanceSccpLightClientV1 {
+        use iroha_sccp::light_client::{
+            ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
+            proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
+        };
+        let advance = if backfill {
+            SccpLcAdvanceV1::Backfill {
+                segment: SccpLcSegmentV1::Ethereum(EthereumHeaderSegmentV1 {
+                    headers: Vec::new(),
+                }),
+            }
+        } else {
+            SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
+                updates: Vec::new(),
+            })
+        };
+        AdvanceSccpLightClientV1 {
+            network: SccpNetworkV1::EthereumMainnet,
+            expected_state_hash: None,
+            advance: advance.to_bytes().expect("bounded advance"),
+        }
+    }
+
+    #[test]
+    fn keeper_advances_are_eligible_by_their_frame_alone() {
+        let advance = advance_frame(false);
+        assert!(
+            keeper_advance_eligible(&advance),
+            "a decodable advance of its network needs no registered key"
+        );
+        assert!(
+            !keeper_advance_eligible(&advance_frame(true)),
+            "a Backfill pays the ordinary fee"
+        );
+        assert!(
+            !keeper_advance_eligible(&SampleInstructions::advance()),
+            "an undecodable frame pays the ordinary fee"
+        );
+        let mut other_network = advance;
+        other_network.network = SccpNetworkV1::BscMainnet;
+        assert!(
+            !keeper_advance_eligible(&other_network),
+            "a frame of another network pays the ordinary fee"
+        );
+    }
+
+    #[test]
+    fn eligible_keeper_advances_are_preverified_whatever_their_authority() {
+        // An unregistered authority's eligible advance is pre-verified like a registered one's:
+        // a stale guard, and an advance that proves nothing, are rejected at admission.
+        let state = blank_state();
+        let mut block = state.block(header(2));
+        let mut stx = block.transaction();
+        let network = SccpNetworkV1::EthereumMainnet;
+        store::light_clients::insert(&mut stx, network, installed(100)).expect("lc");
+        let advance = advance_frame(false);
+        assert!(keeper_advance_eligible(&advance));
+        for unregistered in [authority(7), authority(8)] {
+            let mut stale = advance.clone();
+            stale.expected_state_hash = Some([0xee; 32]);
+            let reject = preverify_keeper_advance(&*stx.world, 0, 3, &stale, &unregistered)
+                .expect_err("stale guard");
+            assert!(reject.reason.contains("stale"), "{reject}");
+            preverify_keeper_advance(&*stx.world, 0, 3, &advance, &unregistered)
+                .expect_err("an advance that proves nothing is rejected at admission");
+        }
+    }
+
+    #[test]
+    fn one_exempt_advance_is_pending_per_authority_and_network() {
+        use crate::smartcontracts::isi::sccp::admission::{
+            SccpExemptClassV1, SccpPendingClaimErrorV1, SccpPendingIndexV1,
+        };
+        use iroha_crypto::{Hash, HashOf};
+        let entry = |seed: u8| HashOf::from_untyped_unchecked(Hash::prehashed([seed; 32]));
+        let (eth, bsc) = (SccpNetworkV1::EthereumMainnet, SccpNetworkV1::BscMainnet);
+        let keys = keeper_advance_keys(&authority(1), eth);
+        assert_eq!(
+            keys.class,
+            SccpExemptClassV1::KeeperAdvance { network: eth }
+        );
+        assert!(keys.content.is_empty());
+        let mut index = SccpPendingIndexV1::default();
+        index.claim(entry(1), keys).expect("first advance");
+        assert_eq!(
+            index.claim(entry(2), keeper_advance_keys(&authority(1), eth)),
+            Err(SccpPendingClaimErrorV1::ExclusiveHeld { holder: entry(1) })
+        );
+        index
+            .claim(entry(3), keeper_advance_keys(&authority(2), eth))
+            .expect("another authority");
+        index
+            .claim(entry(4), keeper_advance_keys(&authority(1), bsc))
+            .expect("another network");
+        index.release(&entry(1));
+        index
+            .claim(entry(2), keeper_advance_keys(&authority(1), eth))
+            .expect("the limit is free once the pending advance leaves the queue");
+    }
+
     #[test]
     fn verifier_work_is_reserved_per_transaction_and_block() {
         use lc::SccpVerifierWorkV1 as Work;
         let state = blank_state();
         let mut block = state.block(header(2));
-        // A full TRON advance: 16 segments of 128 signed headers.
-        let full_advance = Work {
+        // The BSC vote attestations one transaction may carry: four full 16-step advances.
+        let full_transaction = Work {
             proof_bytes: 1_000,
             native_headers: 2_048,
-            secp256k1_recoveries: 2_048,
+            bls_vote_attestations: 64,
             ..Work::default()
         };
-        let one_recovery = Work {
-            secp256k1_recoveries: 1,
+        let one_attestation = Work {
+            bls_vote_attestations: 1,
             ..Work::default()
         };
         {
             let mut stx = block.transaction();
-            stx.reserve_sccp_verifier_work(&full_advance)
-                .expect("a full advance fits one transaction");
+            stx.reserve_sccp_verifier_work(&full_transaction)
+                .expect("the per-transaction limit fits one transaction");
             assert_eq!(
-                stx.reserve_sccp_verifier_work(&one_recovery),
-                Err("max_secp256k1_recoveries_per_transaction")
+                stx.reserve_sccp_verifier_work(&one_attestation),
+                Err("max_bls_vote_attestations_per_transaction")
             );
             stx.apply();
         }
         {
             // A dropped transaction releases its reservation.
             let mut stx = block.transaction();
-            stx.reserve_sccp_verifier_work(&full_advance).expect("fits");
+            stx.reserve_sccp_verifier_work(&full_transaction)
+                .expect("fits");
         }
         for _ in 0..3 {
             let mut stx = block.transaction();
-            stx.reserve_sccp_verifier_work(&full_advance)
-                .expect("four full advances fit one block");
+            stx.reserve_sccp_verifier_work(&full_transaction)
+                .expect("four full transactions fit one block");
             stx.apply();
         }
         let mut stx = block.transaction();
         assert_eq!(
-            stx.reserve_sccp_verifier_work(&one_recovery),
-            Err("max_secp256k1_recoveries_per_block")
+            stx.reserve_sccp_verifier_work(&one_attestation),
+            Err("max_bls_vote_attestations_per_block")
         );
         let oversized = Work {
             proof_bytes: stx.zk.sccp.max_proof_bytes_per_proof.get() + 1,
@@ -902,6 +1227,250 @@ mod tests {
         assert_eq!(store::light_client_checkpoints::len(&*stx.world), 4);
     }
 
+    use iroha_sccp::light_client::profile::{
+        BSC_MAINNET_VERSIONS, ETHEREUM_MAINNET, ETHEREUM_MAINNET_SUPPORTED_UNTIL_EPOCH,
+        EthereumChainProfileV1, GENESIS_PROFILES, TON_MAINNET_VERSIONS,
+    };
+
+    /// Ethereum versions of a later release: version 1 plus versions 2 and 3, each extending
+    /// `supported_until`.
+    const LATER_ETHEREUM: [EthereumChainProfileV1; 3] = [
+        ETHEREUM_MAINNET,
+        ETHEREUM_MAINNET.with_supported_until_epoch(ETHEREUM_MAINNET_SUPPORTED_UNTIL_EPOCH + 1),
+        ETHEREUM_MAINNET.with_supported_until_epoch(ETHEREUM_MAINNET_SUPPORTED_UNTIL_EPOCH + 2),
+    ];
+
+    /// A release that compiles the first `count` of [`LATER_ETHEREUM`].
+    fn release_with(count: usize) -> SccpLcProfileCatalogV1<'static> {
+        SccpLcProfileCatalogV1 {
+            ethereum: &LATER_ETHEREUM[..count],
+            bsc: BSC_MAINNET_VERSIONS,
+            ton: TON_MAINNET_VERSIONS,
+        }
+    }
+
+    fn activation(version: u32) -> SccpActivateLightClientProfileActionV1 {
+        SccpActivateLightClientProfileActionV1 {
+            network: SccpNetworkV1::EthereumMainnet,
+            version,
+            profile_hash: LATER_ETHEREUM[usize::try_from(version - 1).expect("small")]
+                .profile_hash(),
+        }
+    }
+
+    fn deferred(stx: &StateTransaction<'_, '_>) -> bool {
+        stx.execution_deferral().is_some_and(|deferral| {
+            deferral.reason() == ivm::error::ExecutionDeferral::VerifierArtifactsUnavailable
+        })
+    }
+
+    #[test]
+    fn activation_is_monotone_checks_the_compiled_hash_and_takes_effect_next_block() {
+        let state = blank_state();
+        let mut block = state.block(header(5));
+        let network = SccpNetworkV1::EthereumMainnet;
+        {
+            let mut stx = block.transaction();
+            let later = release_with(3);
+            assert_eq!(newest_profile_version(&*stx.world, network), 1);
+            activate_profile_in(&mut stx, &activation(2), [4; 32], &later).expect("version 2");
+            assert_eq!(
+                store::light_client_profiles::get(&*stx.world, &(network, 2)),
+                Some(&SccpLcProfileActivationV1 {
+                    profile_hash: LATER_ETHEREUM[1].profile_hash(),
+                    activation_height: 6,
+                    proposal_id: [4; 32],
+                })
+            );
+            assert_eq!(newest_profile_version(&*stx.world, network), 2);
+            // The enacting block still runs version 1; version 2 applies from the next block.
+            assert_eq!(
+                active_profiles_at(&*stx.world, 5, &later),
+                later.genesis(),
+                "the enacting block keeps the previous version"
+            );
+            assert_eq!(
+                active_profiles_at(&*stx.world, 6, &later)
+                    .get(network)
+                    .map(|profile| profile.version),
+                Some(2)
+            );
+            for stale in [1, 2] {
+                let error = activate_profile_in(&mut stx, &activation(stale), [5; 32], &later)
+                    .expect_err("not above the newest version");
+                assert!(error.to_string().contains("does not exceed"), "{error}");
+            }
+            let mut forged = activation(3);
+            forged.profile_hash = [9; 32];
+            let error =
+                activate_profile_in(&mut stx, &forged, [5; 32], &later).expect_err("another hash");
+            assert!(
+                error.to_string().contains("another profile hash"),
+                "{error}"
+            );
+            assert!(
+                !deferred(&stx),
+                "a hash mismatch is a deterministic refusal"
+            );
+            let mut taira = activation(3);
+            taira.network = SccpNetworkV1::SoraTaira;
+            activate_profile_in(&mut stx, &taira, [5; 32], &later).expect_err("Taira");
+            // Versions may be skipped as long as they grow.
+            activate_profile_in(&mut stx, &activation(3), [6; 32], &later).expect("version 3");
+            assert_eq!(newest_profile_version(&*stx.world, network), 3);
+            stx.apply();
+        }
+        {
+            // A release that does not compile the version fails closed instead of refusing.
+            let mut stx = block.transaction();
+            let mut unknown = activation(3);
+            unknown.version = 4;
+            let error = activate_profile_in(&mut stx, &unknown, [7; 32], &release_with(3))
+                .expect_err("version 4 is not compiled");
+            assert!(error.to_string().contains("not applied"), "{error}");
+            assert!(deferred(&stx));
+        }
+    }
+
+    #[test]
+    fn verification_switches_profiles_at_the_activation_height() {
+        let state = blank_state();
+        let network = SccpNetworkV1::EthereumMainnet;
+        let later = release_with(2);
+        let mut block = state.block(header(5));
+        let mut stx = block.transaction();
+        activate_profile_in(&mut stx, &activation(2), [4; 32], &later).expect("version 2");
+        let genesis_hash = crate::state::sccp_genesis_policy_hash_v1();
+        let world = &*stx.world;
+        // Before the activation height the new release resolves exactly what the old one does,
+        // so blocks from before the activation replay identically under it.
+        let old_rules = SccpLcProfileCatalogV1::compiled()
+            .resolve(&active_profiles_at(
+                world,
+                5,
+                &SccpLcProfileCatalogV1::compiled(),
+            ))
+            .expect("version 1");
+        let new_rules = later
+            .resolve(&active_profiles_at(world, 5, &later))
+            .expect("version 1");
+        assert_eq!(old_rules, GENESIS_PROFILES);
+        assert_eq!(new_rules, old_rules);
+        assert_eq!(crate::state::sccp_policy_hash_v1(world, 5), genesis_hash);
+        // From the activation height the new release verifies under version 2 and the digest
+        // commits to it; the old release cannot resolve it and fails closed.
+        let switched = later
+            .resolve(&active_profiles_at(world, 6, &later))
+            .expect("version 2");
+        assert_eq!(switched.ethereum, LATER_ETHEREUM[1]);
+        assert_ne!(switched, GENESIS_PROFILES);
+        assert_ne!(crate::state::sccp_policy_hash_v1(world, 6), genesis_hash);
+        assert_eq!(
+            ensure_profiles_compiled(world, 6),
+            Err(SccpLcProfileUnavailableV1::NotCompiled {
+                network,
+                version: 2
+            })
+        );
+        assert_eq!(ensure_profiles_compiled(world, 5), Ok(()));
+        let reject = admission_profiles(world, 6).expect_err("not compiled");
+        assert!(reject.reason.contains("does not compile"), "{reject}");
+        assert_eq!(admission_profiles(world, 5), Ok(GENESIS_PROFILES));
+    }
+
+    #[test]
+    fn compiling_a_version_without_activating_it_keeps_the_digest() {
+        let state = blank_state();
+        let view = state.world_view();
+        for height in [1, 1_000] {
+            let old_release = active_profiles_at(&view, height, &release_with(1));
+            let new_release = active_profiles_at(&view, height, &release_with(3));
+            assert_eq!(old_release, new_release);
+            assert_eq!(old_release.policy_hash(), new_release.policy_hash());
+            assert_eq!(
+                crate::state::sccp_policy_hash_v1(&view, height),
+                crate::state::sccp_genesis_policy_hash_v1()
+            );
+        }
+    }
+
+    #[test]
+    fn executing_under_an_uncompiled_active_version_defers_the_block() {
+        let state = blank_state();
+        let network = SccpNetworkV1::EthereumMainnet;
+        let mut block = state.block(header(6));
+        // Version 2, recorded by a release that compiles it, active from this block.
+        let record = |stx: &mut StateTransaction<'_, '_>| {
+            store::light_client_profiles::insert(
+                stx,
+                (network, 2),
+                SccpLcProfileActivationV1 {
+                    profile_hash: LATER_ETHEREUM[1].profile_hash(),
+                    activation_height: 6,
+                    proposal_id: [4; 32],
+                },
+            )
+            .expect("record");
+        };
+        {
+            let mut stx = block.transaction();
+            record(&mut stx);
+            let profiles = executing_profiles_in(&mut stx, &release_with(2)).expect("compiled");
+            assert_eq!(profiles.ethereum, LATER_ETHEREUM[1]);
+            assert!(!deferred(&stx));
+        }
+        {
+            let mut stx = block.transaction();
+            record(&mut stx);
+            let error = executing_profiles(&mut stx).expect_err("this release lacks version 2");
+            assert!(error.to_string().contains("not applied"), "{error}");
+            assert!(deferred(&stx));
+        }
+        {
+            // A verifier entry point fails closed rather than refusing the action.
+            let mut stx = block.transaction();
+            record(&mut stx);
+            let action = SccpInitializeLightClientActionV1 {
+                network,
+                expected: iroha_data_model::sccp::light_client::SccpLcInitExpectationV1::Absent,
+                params:
+                    iroha_data_model::sccp::light_client::SccpLightClientParamsV1::defaults_for(
+                        network,
+                    )
+                    .expect("ethereum defaults"),
+                bootstrap: iroha_data_model::sccp::light_client::SccpLcBootstrapV1 {
+                    network,
+                    bytes: vec![1, 2, 3],
+                },
+            };
+            initialize(&mut stx, &action, [1; 32]).expect_err("deferred");
+            assert!(deferred(&stx));
+        }
+        {
+            // Without the activation version 1 applies and the malformed bootstrap is refused.
+            let mut stx = block.transaction();
+            initialize(
+                &mut stx,
+                &SccpInitializeLightClientActionV1 {
+                    network,
+                    expected: iroha_data_model::sccp::light_client::SccpLcInitExpectationV1::Absent,
+                    params:
+                        iroha_data_model::sccp::light_client::SccpLightClientParamsV1::defaults_for(
+                            network,
+                        )
+                        .expect("ethereum defaults"),
+                    bootstrap: iroha_data_model::sccp::light_client::SccpLcBootstrapV1 {
+                        network,
+                        bytes: vec![1, 2, 3],
+                    },
+                },
+                [1; 32],
+            )
+            .expect_err("malformed bootstrap");
+            assert!(!deferred(&stx), "a deterministic refusal, not a deferral");
+        }
+    }
+
     #[test]
     fn trusted_checkpoints_and_freezes_need_an_installed_light_client() {
         let state = blank_state();
@@ -913,6 +1482,26 @@ mod tests {
             checkpoint: checkpoint(5, SccpLcCheckpointOriginV1::Parliament).data,
         };
         install_checkpoint(&mut stx, &action, [1; 32]).expect_err("not installed");
+        // TON is refused before anything else: it records no checkpoints.
+        let ton = SccpNetworkV1::TonMainnet;
+        let error = install_checkpoint(
+            &mut stx,
+            &SccpInstallTrustedCheckpointActionV1 {
+                network: ton,
+                ..action.clone()
+            },
+            [1; 32],
+        )
+        .expect_err("TON reads no checkpoints");
+        assert!(
+            error.to_string().contains("reads no checkpoints"),
+            "{error}"
+        );
+        assert!(!deferred(&stx), "a deterministic refusal, not a deferral");
+        assert_eq!(
+            store::light_client_checkpoints::get(&*stx.world, &(ton, 5)),
+            None
+        );
         freeze(
             &mut stx,
             &SccpFreezeLightClientActionV1 { network },
@@ -955,6 +1544,11 @@ mod tests {
             *store::light_clients::get(&*stx.world, &network).expect("installed"),
             frozen
         );
-        assert!(!is_usable(&*stx.world, network, 0));
+        assert!(!is_usable(
+            &*stx.world,
+            SccpChainProfilesV1::genesis(),
+            network,
+            0
+        ));
     }
 }

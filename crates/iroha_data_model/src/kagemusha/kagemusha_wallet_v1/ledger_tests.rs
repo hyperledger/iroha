@@ -1,10 +1,13 @@
-//! Load voucher, unload and fee claim, ledger control, activation, closure and abandonment
+//! Ordinary Load receipt, unload and fee claim, ledger control, activation, closure and abandonment
 //! tests.
 
 use p256::ecdsa::SigningKey;
 
 use super::*;
-use crate::kagemusha::kagemusha_wallet_v1::digest::kagemusha_wallet_digest_v1;
+use crate::isi::kagemusha_wallet::load_finality::{
+    KAGEMUSHA_WALLET_LOAD_RECEIPT_MAX_BYTES_V1, KAGEMUSHA_WALLET_LOAD_RECEIPT_TRANSCRIPT_BYTES_V1,
+    KagemushaWalletLoadReceiptV1,
+};
 use crate::kagemusha::kagemusha_wallet_v1::{
     KagemushaWalletChargeQuoteBodyV1, KagemushaWalletEvidenceKindV1, KagemushaWalletStatementV1,
     KagemushaWalletValidationErrorV1,
@@ -22,31 +25,24 @@ use crate::kagemusha::kagemusha_wallet_v1::{
         },
     },
 };
+use crate::kagemusha::{
+    KagemushaWalletChargeKindV1, KagemushaWalletSignerCertificateV1, KagemushaWalletStateV1,
+};
 
 const NONCE: [u8; 32] = [0x4c; 32];
 const ISSUED_AT_MS: u64 = 1_790_000_200_000;
 /// Ed25519 seed of the charge beneficiary account.
 const BENEFICIARY_SEED: u8 = 0x5b;
 
-/// Wallet with its `LoadAuthorization` and `RegulatoryPolicy` signers.
+/// Wallet with its regulatory quote signer.
 struct LedgerFixture {
     identity: IdentityFixture,
-    authorizer: SigningKey,
-    authorizer_certificate: KagemushaWalletSignerCertificateV1,
     regulator: SigningKey,
     regulator_certificate: KagemushaWalletSignerCertificateV1,
 }
 
 fn ledger_fixture() -> LedgerFixture {
     let identity = identity_fixture(KagemushaWalletEvidenceKindV1::AndroidKeyMintTee, 0x67);
-    let authorizer = signing_key(0x35);
-    let authorizer_certificate = test_certificate(
-        &identity.scheme,
-        &identity.root,
-        KagemushaWalletSignerRoleV1::LoadAuthorization,
-        &authorizer,
-        4,
-    );
     let regulator = signing_key(0x36);
     let regulator_certificate = test_certificate(
         &identity.scheme,
@@ -57,8 +53,6 @@ fn ledger_fixture() -> LedgerFixture {
     );
     LedgerFixture {
         identity,
-        authorizer,
-        authorizer_certificate,
         regulator,
         regulator_certificate,
     }
@@ -73,36 +67,25 @@ impl LedgerFixture {
         self.credential().body.scheme_id
     }
 
-    fn voucher_body(
-        &self,
-        online_charge: u128,
-        charge_quote: [u8; 32],
-    ) -> KagemushaWalletLoadVoucherBodyV1 {
+    fn receipt(&self, online_charge: u128, charge_quote: [u8; 32]) -> KagemushaWalletLoadReceiptV1 {
         let body = &self.credential().body;
-        KagemushaWalletLoadVoucherBodyV1 {
-            version: KAGEMUSHA_WALLET_VERSION_V1,
+        KagemushaWalletLoadReceiptV1 {
+            version: 1,
             scheme_id: body.scheme_id,
             asset_digest: body.asset_digest,
             wallet_id: body.wallet_id,
+            request_id: [0x7b; 32],
             ordinal: 0,
             amount: 5_000,
             online_charge,
             charge_quote,
             transaction_hash: [0x7a; 32],
             block_height: 42,
-            authorizer_certificate: self.authorizer_certificate.certificate_digest(),
+            payer_account_digest: kagemusha_wallet_account_digest_v1(&test_account(
+                BENEFICIARY_SEED,
+            ))
+            .unwrap(),
         }
-    }
-
-    fn sign_voucher(
-        &self,
-        body: KagemushaWalletLoadVoucherBodyV1,
-    ) -> WalletResult<KagemushaWalletLoadVoucherV1> {
-        KagemushaWalletLoadVoucherV1::sign(
-            body,
-            &self.authorizer_certificate,
-            raw_output(&self.authorizer, &body.signing_message()),
-        )
     }
 
     fn charge_quote(
@@ -307,8 +290,8 @@ impl LedgerFixture {
     }
 }
 
-/// One mutation of a load voucher body.
-type VoucherBodyMutation = fn(&mut KagemushaWalletLoadVoucherBodyV1);
+/// One mutation of an original Load receipt.
+type LoadReceiptMutation = fn(&mut KagemushaWalletLoadReceiptV1);
 /// One mutation of a ledger control body.
 type ControlBodyMutation = fn(&mut KagemushaWalletLedgerControlBodyV1);
 
@@ -334,7 +317,7 @@ fn assert_signature<T: core::fmt::Debug>(result: WalletResult<T>, expected: Doma
 
 #[test]
 fn kagemusha_wallet_v1_ledger_layouts_and_tags() {
-    assert_eq!(KAGEMUSHA_WALLET_LOAD_VOUCHER_BODY_TRANSCRIPT_BYTES_V1, 250);
+    assert_eq!(KAGEMUSHA_WALLET_LOAD_RECEIPT_TRANSCRIPT_BYTES_V1, 282);
     assert_eq!(KAGEMUSHA_WALLET_LEDGER_CONTROL_UNION_BYTES_V1, 80);
     assert_eq!(
         KAGEMUSHA_WALLET_LEDGER_CONTROL_BODY_TRANSCRIPT_BYTES_V1,
@@ -346,23 +329,13 @@ fn kagemusha_wallet_v1_ledger_layouts_and_tags() {
     );
     assert_eq!(max_width_v1(&[]), 0);
     let f = ledger_fixture();
-    let body = f.voucher_body(0, [0; 32]);
-    let transcript = body.transcript();
-    assert_eq!(
-        transcript.len(),
-        KAGEMUSHA_WALLET_LOAD_VOUCHER_BODY_TRANSCRIPT_BYTES_V1
-    );
-    assert_eq!(&transcript[146..178], &[0; 32]);
-    assert_eq!(&transcript[178..210], &[0x7a; 32]);
-    assert_eq!(&transcript[210..218], &42_u64.to_le_bytes());
-    assert_eq!(
-        body.signing_message(),
-        kagemusha_wallet_signing_message_v1(Domain::Voucher, &transcript)
-    );
-    assert_eq!(
-        body.signing_message(),
-        kagemusha_wallet_signing_message_v1(Domain::Voucher, &transcript)
-    );
+    let receipt = f.receipt(0, [0; 32]);
+    let transcript = receipt.transcript().unwrap();
+    assert_eq!(transcript.len(), 282);
+    assert_eq!(&transcript[178..210], &[0; 32]);
+    assert_eq!(&transcript[210..242], &[0x7a; 32]);
+    assert_eq!(&transcript[242..250], &42_u64.to_le_bytes());
+    assert_eq!(&transcript[250..], &receipt.payer_account_digest);
 
     let actions = [
         KagemushaWalletLedgerControlActionV1::Activate {
@@ -397,23 +370,14 @@ fn kagemusha_wallet_v1_ledger_layouts_and_tags() {
 }
 
 #[test]
-fn kagemusha_wallet_v1_load_voucher_sign_verify_and_effect() {
+fn kagemusha_wallet_v1_ordinary_load_receipt_shape_binding_and_effect() {
     let f = ledger_fixture();
-    let voucher = f.sign_voucher(f.voucher_body(0, [0; 32])).expect("voucher");
-    voucher
-        .verify(&f.identity.scheme, &f.authorizer_certificate)
-        .expect("verify");
-    let mut signed = voucher.body.signing_message().to_vec();
-    signed.extend_from_slice(voucher.signature.as_raw_bytes());
-    assert_eq!(
-        voucher.voucher_digest(),
-        kagemusha_wallet_digest_v1(Role::Voucher, &signed)
-    );
-    let effect = voucher.load_effect().expect("effect");
+    let receipt = f.receipt(0, [0; 32]);
+    let effect = receipt.load_effect().unwrap();
     assert_eq!(
         effect,
         KagemushaWalletEffectV1::Load {
-            voucher: voucher.voucher_digest(),
+            receipt_digest: receipt.receipt_digest().unwrap(),
             load_ordinal: 0,
             amount: 5_000,
             online_charge: 0,
@@ -427,117 +391,98 @@ fn kagemusha_wallet_v1_load_voucher_sign_verify_and_effect() {
         effect,
     )
     .validate_for_credential(f.credential())
-    .expect("load statement");
-    assert_eq!(voucher.ledger_debit().expect("debit"), 5_000);
-    voucher.require_charge_quote(None).expect("no quote");
+    .unwrap();
+    assert_eq!(receipt.ledger_debit().unwrap(), 5_000);
+    receipt.require_charge_quote(None).unwrap();
     let quote = f.charge_quote(KagemushaWalletChargeKindV1::Load, 0, 5_000, 25);
     assert_invalid(
-        voucher.require_charge_quote(Some(&quote)),
-        "voucher.charge_quote",
+        receipt.require_charge_quote(Some(&quote)),
+        "load_receipt.charge_quote",
     );
-    let state =
-        KagemushaWalletStateV1::bootstrap(f.credential(), field_value(0x5d)).expect("state");
-    voucher.require_next_for(&state).expect("next voucher");
+    let state = KagemushaWalletStateV1::bootstrap(f.credential(), field_value(0x5d)).unwrap();
+    receipt.require_next_for(&state).unwrap();
     let mut later = state;
     later.core.next_load = 1;
-    assert_invalid(voucher.require_next_for(&later), "voucher.ordinal");
-
-    // A charged load names its quote and carries its exact terms (design C7).
-    let charged = f
-        .sign_voucher(f.voucher_body(25, quote.charge_quote_digest()))
-        .expect("charged voucher");
-    charged.require_charge_quote(Some(&quote)).expect("quote");
-    assert_eq!(charged.ledger_debit().expect("debit"), 5_025);
-    assert_invalid(charged.require_charge_quote(None), "voucher.charge_quote");
-    let other_ordinal = f.charge_quote(KagemushaWalletChargeKindV1::Load, 1, 5_000, 25);
-    let mismatched = f
-        .sign_voucher(f.voucher_body(25, other_ordinal.charge_quote_digest()))
-        .expect("voucher");
+    assert_invalid(receipt.require_next_for(&later), "load_receipt.ordinal");
+    let charged = f.receipt(25, quote.charge_quote_digest());
+    charged.require_charge_quote(Some(&quote)).unwrap();
+    assert_eq!(charged.ledger_debit().unwrap(), 5_025);
     assert_invalid(
-        mismatched.require_charge_quote(Some(&other_ordinal)),
+        charged.require_charge_quote(None),
+        "load_receipt.charge_quote",
+    );
+    let other = f.charge_quote(KagemushaWalletChargeKindV1::Load, 1, 5_000, 25);
+    assert_invalid(
+        f.receipt(25, other.charge_quote_digest())
+            .require_charge_quote(Some(&other)),
         "charge_quote.ordinal",
     );
-    let unload_quote = f.charge_quote(KagemushaWalletChargeKindV1::Unload, 0, 5_000, 25);
-    let unload_voucher = f
-        .sign_voucher(f.voucher_body(25, unload_quote.charge_quote_digest()))
-        .expect("voucher");
+    let unload = f.charge_quote(KagemushaWalletChargeKindV1::Unload, 0, 5_000, 25);
     assert_invalid(
-        unload_voucher.require_charge_quote(Some(&unload_quote)),
+        f.receipt(25, unload.charge_quote_digest())
+            .require_charge_quote(Some(&unload)),
         "charge_quote.kind",
     );
     assert_invalid(
-        charged.require_charge_quote(Some(&other_ordinal)),
-        "voucher.charge_quote",
+        charged.require_charge_quote(Some(&other)),
+        "load_receipt.charge_quote",
     );
-
-    let mutations: [(VoucherBodyMutation, &str); 6] = [
-        (|body| body.amount = 0, "voucher.amount"),
-        (|body| body.block_height = 0, "voucher.block_height"),
-        (|body| body.online_charge = 1, "voucher.charge_quote"),
+    let mutations: [(LoadReceiptMutation, &str); 10] = [
+        (|r| r.amount = 0, "load_receipt.amount"),
+        (|r| r.block_height = 0, "load_receipt.block_height"),
+        (|r| r.block_height = 1, "load_receipt.block_height"),
+        (|r| r.online_charge = 1, "load_receipt.charge_quote"),
+        (|r| r.charge_quote = [0x31; 32], "load_receipt.charge_quote"),
+        (|r| r.charge_quote = [255; 32], "load_receipt.charge_quote"),
+        (|r| r.request_id = [0; 32], "load_receipt.request_id"),
         (
-            |body| body.charge_quote = [0x31; 32],
-            "voucher.charge_quote",
+            |r| r.transaction_hash = [0; 32],
+            "load_receipt.transaction_hash",
         ),
+        (|r| r.wallet_id = [0; 32], "load_receipt.wallet_id"),
         (
-            |body| body.transaction_hash = [0; 32],
-            "voucher.transaction_hash",
+            |r| r.payer_account_digest = [0; 32],
+            "load_receipt.payer_account_digest",
         ),
-        (|body| body.wallet_id = [0; 32], "voucher.wallet_id"),
     ];
     for (mutate, field) in mutations {
-        let mut body = f.voucher_body(0, [0; 32]);
-        mutate(&mut body);
-        assert_invalid(f.sign_voucher(body), field);
+        let mut bad = receipt;
+        mutate(&mut bad);
+        assert_invalid(bad.validate(), field);
     }
-    let mut overflow = f.voucher_body(1, [0x32; 32]);
+    let mut overflow = charged;
     overflow.amount = u128::MAX;
     assert!(matches!(
-        f.sign_voucher(overflow),
+        overflow.validate(),
         Err(KagemushaWalletValidationErrorV1::ArithmeticOverflow { .. })
     ));
-    let body = f.voucher_body(0, [0; 32]);
-    assert_invalid(
-        KagemushaWalletLoadVoucherV1::sign(
-            body,
-            &f.regulator_certificate,
-            raw_output(&f.regulator, &body.signing_message()),
-        ),
-        "voucher.authorizer_certificate",
-    );
-    let mut wrong_role = body;
-    wrong_role.authorizer_certificate = f.regulator_certificate.certificate_digest();
-    assert_invalid(
-        KagemushaWalletLoadVoucherV1::sign(
-            wrong_role,
-            &f.regulator_certificate,
-            raw_output(&f.regulator, &wrong_role.signing_message()),
-        ),
-        "certificate.role",
-    );
-
-    let frame = voucher.to_canonical_bytes().expect("frame");
-    assert!(frame.len() <= KAGEMUSHA_WALLET_LOAD_VOUCHER_MAX_BYTES_V1);
+    overflow = receipt;
+    overflow.ordinal = u128::MAX;
+    assert!(matches!(
+        overflow.validate(),
+        Err(KagemushaWalletValidationErrorV1::ArithmeticOverflow { .. })
+    ));
+    let encoded = receipt.to_canonical_bytes().unwrap();
     assert_eq!(
-        KagemushaWalletLoadVoucherV1::decode_canonical(&frame, &f.scheme_id()).expect("decode"),
-        voucher
+        KagemushaWalletLoadReceiptV1::decode_canonical(&encoded).unwrap(),
+        receipt
     );
-    assert!(matches!(
-        KagemushaWalletLoadVoucherV1::decode_canonical(&frame, &[0x33; 32]),
-        Err(KagemushaWalletValidationErrorV1::SchemeMismatch { .. })
-    ));
-    assert!(matches!(
-        KagemushaWalletLoadVoucherV1::decode_canonical(
-            &vec![0; KAGEMUSHA_WALLET_LOAD_VOUCHER_MAX_BYTES_V1 + 1],
-            &f.scheme_id()
-        ),
-        Err(KagemushaWalletValidationErrorV1::EncodedSizeExceeded { .. })
-    ));
-    assert_every_flip_rejected_or_rebound(&frame, voucher.voucher_digest(), |bytes| {
-        let voucher = KagemushaWalletLoadVoucherV1::decode_canonical(bytes, &f.scheme_id()).ok()?;
-        voucher
-            .verify(&f.identity.scheme, &f.authorizer_certificate)
-            .ok()?;
-        Some(voucher.voucher_digest())
+    assert!(
+        KagemushaWalletLoadReceiptV1::decode_canonical(&vec![
+            0;
+            KAGEMUSHA_WALLET_LOAD_RECEIPT_MAX_BYTES_V1
+                + 1
+        ])
+        .is_err()
+    );
+    let mut trailing = encoded.clone();
+    trailing.push(0);
+    assert!(KagemushaWalletLoadReceiptV1::decode_canonical(&trailing).is_err());
+    assert_every_flip_rejected_or_rebound(&encoded, receipt.receipt_digest().unwrap(), |bytes| {
+        KagemushaWalletLoadReceiptV1::decode_canonical(bytes)
+            .ok()?
+            .receipt_digest()
+            .ok()
     });
 }
 
@@ -547,7 +492,7 @@ fn kagemusha_wallet_v1_ledger_control_sign_verify_and_flips() {
     let key = f.credential().body.payment_key;
     let control = f.control(
         f.control_body(KagemushaWalletLedgerControlActionV1::CloseLoads {
-            package_digest: [0x41; 32],
+            package_digest: field_value(0x41),
             next_load: 3,
         }),
     );
@@ -658,7 +603,7 @@ fn kagemusha_wallet_v1_activation_records_the_bootstrap_package() {
     let mut digest = activation.clone();
     digest.control = f.control(
         f.control_body(KagemushaWalletLedgerControlActionV1::Activate {
-            package_digest: [0x51; 32],
+            package_digest: field_value(0x51),
         }),
     );
     assert_invalid(digest.validate(), "activation.package_digest");
@@ -674,7 +619,7 @@ fn kagemusha_wallet_v1_activation_records_the_bootstrap_package() {
     let mut action = activation.clone();
     action.control = f.control(
         f.control_body(KagemushaWalletLedgerControlActionV1::CloseLoads {
-            package_digest: [0x52; 32],
+            package_digest: field_value(0x52),
             next_load: 0,
         }),
     );
@@ -765,7 +710,7 @@ fn kagemusha_wallet_v1_close_loads_requires_a_retiring_package() {
     let mut digest = close.clone();
     digest.control = f.control(
         f.control_body(KagemushaWalletLedgerControlActionV1::CloseLoads {
-            package_digest: [0x61; 32],
+            package_digest: field_value(0x61),
             next_load: 7,
         }),
     );

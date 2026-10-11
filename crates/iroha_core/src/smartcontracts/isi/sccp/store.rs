@@ -29,7 +29,10 @@ use iroha_data_model::{
         inbound::SccpInboundRecordV1,
         keys::{SccpAttestationFaultRecordV1, SccpBridgeKeyStateV1},
         keys_index::SccpPruneCursorV1,
-        light_client::{SccpLcCheckpointV1, SccpLcConsensusSetV1, SccpLightClientV1},
+        light_client::{
+            SCCP_LC_GENESIS_PROFILE_VERSION_V1, SccpLcCheckpointV1, SccpLcConsensusSetV1,
+            SccpLcProfileActivationV1, SccpLightClientV1,
+        },
         outbound::SccpOutboundMessageRecordV1,
         params::{SCCP_MESSAGES_MAX_PER_BLOCK_V1, SccpParametersV1},
         registry::SccpRouteV1,
@@ -297,6 +300,14 @@ storage_map! {
     /// Lowest checkpoint height per `(network, stride bucket)`, kept permanently (§4.13.1).
     light_client_stride_index => sccp_light_client_stride_index: (SccpNetworkV1, u64) => u64
 }
+storage_map! {
+    /// Parliament-activated light-client profile versions by `(network, version)` (§4.13.2):
+    /// an external network, a version above the genesis version 1 and a nonzero profile hash.
+    light_client_profiles => sccp_light_client_profiles: (SccpNetworkV1, u32) => SccpLcProfileActivationV1,
+    valid((network, version), activation) => network.is_external()
+        && *version > SCCP_LC_GENESIS_PROFILE_VERSION_V1
+        && activation.profile_hash != [0; 32]
+}
 
 /// Return the governance revision of `subject`, which is 0 when absent (§4.14.3).
 #[must_use]
@@ -516,6 +527,30 @@ mod tests {
                 .map(drop),
         );
         refused(pending_counts::insert(&mut stx, (SccpNetworkV1::BscMainnet, 1), (0, 0)).map(drop));
+        let activation = |profile_hash| SccpLcProfileActivationV1 {
+            profile_hash,
+            activation_height: 4,
+            proposal_id: [1; 32],
+        };
+        for (key, profile_hash) in [
+            ((SccpNetworkV1::EthereumMainnet, 1), [1; 32]),
+            ((SccpNetworkV1::EthereumMainnet, 0), [1; 32]),
+            ((SccpNetworkV1::SoraTaira, 2), [1; 32]),
+            ((SccpNetworkV1::EthereumMainnet, 2), [0; 32]),
+        ] {
+            refused(
+                light_client_profiles::insert(&mut stx, key, activation(profile_hash)).map(drop),
+            );
+        }
+        assert!(light_client_profiles::is_empty(&*stx.world));
+        assert_eq!(
+            light_client_profiles::insert(
+                &mut stx,
+                (SccpNetworkV1::EthereumMainnet, 2),
+                activation([1; 32])
+            ),
+            Ok(None)
+        );
         assert!(bridge_key_owners::is_empty(&*stx.world));
         assert!(rosters::is_empty(&*stx.world));
         assert!(block_leaves::is_empty(&*stx.world));
@@ -532,7 +567,7 @@ mod tests {
         let state = blank_state();
         let mut block = state.block(header(3));
         let mut stx = block.transaction();
-        let key = (SccpNetworkV1::TronMainnet, 2);
+        let key = (SccpNetworkV1::BscMainnet, 2);
         assert_eq!(pending_count(&*stx.world, &key), (0, 0));
         assert_eq!(set_pending_counts(&mut stx, key, (2, 0)), (0, 0));
         assert_eq!(set_pending_counts(&mut stx, key, (1, 1)), (2, 0));

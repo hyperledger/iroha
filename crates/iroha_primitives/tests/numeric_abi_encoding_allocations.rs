@@ -2,16 +2,20 @@
 // The allocator hook belongs only to this registered integration test process.
 #![allow(unsafe_code)]
 
+use iroha_allocation::{AllocationBudget, ChargedBufferError};
 use iroha_primitives::{
     bigint::BigInt,
-    numeric::{MAX_DECIMAL_SCALE, MAX_MANTISSA_BYTES, Numeric, Quantity},
+    numeric::{
+        MAX_DECIMAL_SCALE, MAX_MANTISSA_BYTES, Numeric, PreparedQuantityDecode, Quantity,
+        QuantityDecodeAdmissionError,
+    },
     numeric_abi::{
         DecimalValueV1, IntValueV1, NumericAbiError, PreparedNumericFrameV1, QuantityValueV1,
     },
 };
 use norito::{
     SerializePayload,
-    core::{DecodeFlagsGuard, Encoder, header_flags},
+    core::{DecodeFlagsGuard, DecodeFromSlice, Encoder, header_flags},
 };
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -26,6 +30,8 @@ struct Requests {
     realloc: usize,
 }
 thread_local! {
+    static REFUSED_SIZE: Cell<Option<usize>> = const { Cell::new(None) };
+    static DEALLOCATIONS: Cell<(Option<usize>, usize)> = const { Cell::new((None, 0)) };
     static REQUESTS: Cell<Requests> = const { Cell::new(Requests {
         active: false, alloc: 0, zeroed: 0, realloc: 0,
     }) };
@@ -50,18 +56,33 @@ struct TrackingAllocator;
 unsafe impl GlobalAlloc for TrackingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         request(0);
+        if REFUSED_SIZE.try_with(Cell::get).unwrap_or(None) == Some(layout.size()) {
+            return core::ptr::null_mut();
+        }
         unsafe { System.alloc(layout) }
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         request(1);
+        if REFUSED_SIZE.try_with(Cell::get).unwrap_or(None) == Some(layout.size()) {
+            return core::ptr::null_mut();
+        }
         unsafe { System.alloc_zeroed(layout) }
     }
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
         request(2);
+        if REFUSED_SIZE.try_with(Cell::get).unwrap_or(None) == Some(size) {
+            return core::ptr::null_mut();
+        }
         unsafe { System.realloc(pointer, layout, size) }
     }
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
         unsafe { System.dealloc(pointer, layout) }
+        let _ = DEALLOCATIONS.try_with(|cell| {
+            let (size, count) = cell.get();
+            if size == Some(layout.size()) {
+                cell.set((size, count + 1));
+            }
+        });
     }
 }
 #[global_allocator]
@@ -91,7 +112,7 @@ fn measured<T>(operation: impl FnOnce() -> T) -> (T, Requests) {
 }
 fn literal_body(bytes: &[u8], scale: Option<u8>) -> Vec<u8> {
     let mut body = Vec::with_capacity(4 + bytes.len() + usize::from(scale.is_some()));
-    body.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+    body.extend_from_slice(&u32::try_from(bytes.len()).unwrap().to_le_bytes());
     body.extend_from_slice(bytes);
     if let Some(scale) = scale {
         body.push(scale);
@@ -335,11 +356,245 @@ fn numeric_body_and_length_queries_allocate_no_temporary_storage() {
     minimum[MAX_MANTISSA_BYTES - 1] = 0x80;
     for scale in 0..=MAX_DECIMAL_SCALE {
         for bytes in [&[0x01][..], &[0xff], &maximum, &minimum] {
-            assert_scaled(bytes, scale as u8);
+            assert_scaled(bytes, u8::try_from(scale).unwrap());
         }
     }
     assert_scaled(&[], 0);
     assert_prepared_neighbors_reject_without_requests();
     assert_native_clone_positive_control();
     assert_hook_positive_control();
+}
+
+fn with_refused_size<T>(bytes: usize, operation: impl FnOnce() -> T) -> T {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            REFUSED_SIZE.with(|cell| cell.set(None));
+        }
+    }
+    assert!(REFUSED_SIZE.with(Cell::get).is_none());
+    REFUSED_SIZE.with(|cell| cell.set(Some(bytes)));
+    let reset = Reset;
+    let value = operation();
+    drop(reset);
+    value
+}
+fn observed_deallocations() -> usize {
+    DEALLOCATIONS.with(|cell| cell.get().1)
+}
+fn with_deallocations<T>(bytes: usize, operation: impl FnOnce() -> T) -> (T, usize) {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            DEALLOCATIONS.with(|cell| cell.set((None, cell.get().1)));
+        }
+    }
+    assert!(DEALLOCATIONS.with(|cell| cell.get().0).is_none());
+    DEALLOCATIONS.with(|cell| cell.set((Some(bytes), 0)));
+    let reset = Reset;
+    let value = operation();
+    let count = observed_deallocations();
+    drop(reset);
+    (value, count)
+}
+fn quantity_payload(value: &Quantity) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    value
+        .serialize(&mut Encoder::for_buffer(&mut bytes))
+        .unwrap();
+    bytes
+}
+
+#[test]
+fn one_pass_quantity_allocates_only_final_digits_and_preserves_allocator_refusal_order() {
+    let mut maximum = [0xff; MAX_MANTISSA_BYTES];
+    maximum[MAX_MANTISSA_BYTES - 1] = 0x7f;
+    let maximum = Quantity::from_canonical_numeric(
+        Numeric::try_new(BigInt::from_twos_bytes(&maximum).unwrap(), 0).unwrap(),
+    )
+    .unwrap();
+    for flags in [0, header_flags::COMPACT_LEN] {
+        let _flags = DecodeFlagsGuard::enter(flags);
+        for source in [
+            Quantity::from(0_u32),
+            Quantity::from(1_u32),
+            maximum.clone(),
+        ] {
+            let bytes = quantity_payload(&source);
+            let layout = source.admission_clone_layout().unwrap();
+            let pool = AllocationBudget::new(layout.size());
+            let limits =
+                norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 32);
+            let context = norito::core::DecodeBudgetContext::new(limits);
+            let (result, requests) = context
+                .with(|| measured(|| PreparedQuantityDecode::try_decode_payload(&bytes, &pool)));
+            let owner = result.unwrap_or_else(|error| panic!("{error}"));
+            assert_eq!(owner.get(), &source);
+            assert!(owner.belongs_to(&pool));
+            assert_eq!(
+                requests,
+                Requests {
+                    active: false,
+                    alloc: usize::from(layout.size() != 0),
+                    zeroed: 0,
+                    realloc: 0
+                }
+            );
+            assert_eq!(pool.reserved_bytes(), layout.size());
+            assert_eq!(
+                context.consumed_allocated_bytes(),
+                u64::try_from(layout.size()).unwrap()
+            );
+            drop(owner);
+            assert_eq!(pool.reserved_bytes(), 0);
+        }
+        let source = Quantity::from(1_u32);
+        let valid = quantity_payload(&source);
+        let mut late = valid.clone();
+        let end = late.len();
+        late[end - core::mem::size_of::<u32>()..]
+            .copy_from_slice(&(MAX_DECIMAL_SCALE + 1).to_le_bytes());
+        let original = (late.as_ptr(), late.len());
+        let layout = source.admission_clone_layout().unwrap();
+        let pool = AllocationBudget::new(layout.size());
+        let limits =
+            norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 32);
+        let context = norito::core::DecodeBudgetContext::new(limits);
+        let (failure, requests) = with_refused_size(layout.size(), || {
+            context.with(|| measured(|| PreparedQuantityDecode::try_decode_payload(&late, &pool)))
+        });
+        assert_eq!(
+            requests,
+            Requests {
+                active: false,
+                alloc: 1,
+                zeroed: 0,
+                realloc: 0
+            }
+        );
+        let failure = failure
+            .err()
+            .expect("genuine native-digit request must refuse");
+        assert!(matches!(failure,
+            QuantityDecodeAdmissionError::Allocation(ChargedBufferError::Allocator { requested_bytes })
+            if requested_bytes == layout.size()
+        ));
+        assert_eq!(pool.reserved_bytes(), 0);
+        assert_eq!(
+            context.consumed_allocated_bytes(),
+            u64::try_from(layout.size()).unwrap()
+        );
+        let (retry, requests) =
+            context.with(|| measured(|| PreparedQuantityDecode::try_decode_payload(&valid, &pool)));
+        let retry = retry.unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(retry.get(), &source);
+        assert_eq!(
+            requests,
+            Requests {
+                active: false,
+                alloc: 1,
+                zeroed: 0,
+                realloc: 0
+            }
+        );
+        assert_eq!(
+            context.consumed_allocated_bytes(),
+            u64::try_from(2 * layout.size()).unwrap()
+        );
+        drop(retry);
+        let expected = Quantity::decode_from_slice(&late).unwrap_err();
+        let (failure, freed) = with_deallocations(layout.size(), || {
+            context.with(|| PreparedQuantityDecode::try_decode_payload(&late, &pool))
+        });
+        let failure = failure.err().expect("original late scale still refuses");
+        let QuantityDecodeAdmissionError::Codec(actual) = failure else {
+            panic!("original late scalar")
+        };
+        assert_eq!(actual.to_string(), expected.to_string());
+        assert_eq!(freed, 1, "admitted digits are reclaimed on scalar refusal");
+        assert_eq!(
+            pool.reserved_bytes(),
+            0,
+            "diagnostic String custody remains separate"
+        );
+        assert_eq!(
+            context.consumed_allocated_bytes(),
+            u64::try_from(3 * layout.size()).unwrap()
+        );
+        assert_eq!((late.as_ptr(), late.len()), original);
+    }
+    let unwind =
+        std::panic::catch_unwind(|| with_refused_size(7, || panic!("refusal guard unwind")));
+    assert!(unwind.is_err());
+    assert!(REFUSED_SIZE.with(Cell::get).is_none());
+    let unwind =
+        std::panic::catch_unwind(|| with_deallocations(7, || panic!("deallocation guard unwind")));
+    assert!(unwind.is_err());
+    assert!(DEALLOCATIONS.with(|cell| cell.get().0).is_none());
+    assert_hook_positive_control();
+}
+
+#[test]
+fn one_pass_quantity_drop_deallocates_before_original_release_wake() {
+    use iroha_allocation::release::ReleaseRegistration;
+    use std::{
+        sync::Arc,
+        task::{Context, Poll, Wake, Waker},
+    };
+    struct Check {
+        pool: AllocationBudget,
+    }
+    impl Wake for Check {
+        fn wake(self: Arc<Self>) {
+            assert_eq!(
+                observed_deallocations(),
+                1,
+                "native digits are gone before refund wake"
+            );
+            assert_eq!(
+                self.pool.reserved_bytes(),
+                ReleaseRegistration::allocation_layout().size()
+            );
+        }
+    }
+    let _flags = DecodeFlagsGuard::enter(0);
+    let mut maximum = [0xff; MAX_MANTISSA_BYTES];
+    maximum[MAX_MANTISSA_BYTES - 1] = 0x7f;
+    let source = Quantity::from_canonical_numeric(
+        Numeric::try_new(BigInt::from_twos_bytes(&maximum).unwrap(), 0).unwrap(),
+    )
+    .unwrap();
+    let bytes = quantity_payload(&source);
+    let layout = source.admission_clone_layout().unwrap();
+    let registration_layout = ReleaseRegistration::allocation_layout();
+    let pool = AllocationBudget::new(layout.size() + registration_layout.size());
+    let mut prepaid = pool.try_reserve(registration_layout).unwrap();
+    let mut registration = ReleaseRegistration::from_reservation(&mut prepaid).unwrap();
+    drop(prepaid);
+    let owner = PreparedQuantityDecode::try_decode_payload(&bytes, &pool)
+        .unwrap_or_else(|error| panic!("{error}"));
+    let refusal = pool.try_reserve(layout).unwrap_err();
+    let iroha_allocation::AllocationRefusal::Capacity { release: wait, .. } = refusal else {
+        panic!("original live value must occupy the finite pool")
+    };
+    let waker = Waker::from(Arc::new(Check { pool: pool.clone() }));
+    assert_eq!(
+        registration.poll_wait(&wait, &mut Context::from_waker(&waker)),
+        Poll::Pending
+    );
+    let (unwind, freed) = with_deallocations(layout.size(), || {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _owner = owner;
+            panic!("one-pass Quantity owner interrupted")
+        }))
+    });
+    assert!(unwind.is_err());
+    assert_eq!(freed, 1);
+    assert_eq!(
+        registration.poll_wait(&wait, &mut Context::from_waker(&waker)),
+        Poll::Ready(())
+    );
+    registration.cancel();
+    drop((wait, registration));
+    assert_eq!(pool.reserved_bytes(), 0);
 }

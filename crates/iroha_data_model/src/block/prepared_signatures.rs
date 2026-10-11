@@ -204,7 +204,7 @@ impl PreparedSignedBlockSignaturesDecode {
     /// It proves signature custody only, never execution, finality or full-graph admission.
     ///
     /// # Errors
-    /// Rejects a changed original source or foreign pool exactly as retained_signatures.
+    /// Rejects a changed original source or foreign pool exactly as `retained_signatures`.
     /// An incomplete/retired decoder or a different collection returns false.
     pub fn retains_signature_custody(
         &self,

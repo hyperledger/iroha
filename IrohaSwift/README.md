@@ -133,26 +133,87 @@ objects, and the Rust wallet Advance provider
 and the monotonic clock.
 
 `KagemushaWalletWireV1` consumes `fixtures/kagemusha/wallet_v1_vectors.json` and
-mirrors only what an SDK needs before it hands bytes to the typed decoder: the
-SHA-256 domain-separated digests (`digest(role:body:)`, `signedObjectDigest`), the raw
-low-S P-256 signature rule, the canonical σ-field encoding check
-(`isCanonicalFieldValue`), the envelope frame header with its per-kind bounds
-(`inspectEnvelope`, `validateEnvelope`) and the strict `kgm1:` text form
-(`encodeText`, `decodeText`). Poseidon values (`credit_id`, `proof_digest`, the
-Payment digest, commitments, chains, roots and openings) are computed only by the
-native Rust core; Swift carries them as opaque canonical σ-field values and never
-recomputes them. Structural envelope checks carry no monetary or delivery
-authority; typed decoding and verification of the message bodies remain open
-(TODO(G4)).
+mirrors only what an SDK needs before it hands bytes to the typed decoder: the SHA-256
+18 domain-separated digests (`digest(role:body:)`, `artifactManifestDigest`), the signing
+domains (`KagemushaWalletSigningDomainV1`), the raw low-S ECDSA-P256-SHA256 rule over
+32-byte signing messages (`verifySignature(publicKey:message:signature:)`), the
+canonical σ-field encoding check (`isCanonicalFieldValue`), the envelope frame header
+with its per-kind bounds (`inspectEnvelope`, `validateEnvelope`) and the strict
+`kgm1:` text form (`encodeText`, `decodeText`). Every signature signs the 32-byte
+Poseidon message `P_bytes(domain, transcript)` of its body. Poseidon values (signing
+messages, signed-object digests except the artifact manifest, certificate-set, package,
+statement, operation and nullifier digests, `credit_id`, `proof_digest`, the Payment, lineage, credit-opening,
+credit-status and Credited digests, commitments, chains, indexed-tree and quota-array roots and
+openings) are computed only by the native Rust core; Swift carries them as opaque
+canonical σ-field values and never recomputes them. Structural envelope checks carry
+no monetary or delivery authority; typed decoding and verification of the message
+bodies remain open (TODO(G4)).
 
 `KagemushaWalletApplePlatformV1` is the iPhone platform adapter of the Rust wallet
-Advance provider (Secure Enclave payment key, passcode-bound keychain rollback anchor,
-protected-data canary and custody root); `KagemushaWalletAppleSystemV1.swift` holds
-its replaceable operating-system seams. Construct it with the app's App ID prefix,
-which names its own keychain access group. Its only app-facing operation is
-`attestEnrollment(slot:paymentPublicKey:challengeDigest:)`, the App Attest evidence of
-enrollment step E5; key use and the anchor are reached only through the Rust provider.
-Registering the adapter with the native bridge remains open (TODO(G2-bridge)).
+Advance provider (Secure Enclave payment key that signs exactly the 32-byte message
+the Rust signer passes with `kSecKeyAlgorithmECDSASignatureMessageX962SHA256`,
+passcode-bound keychain rollback anchor, protected-data canary and custody root);
+`KagemushaWalletAppleSystemV1.swift` holds its replaceable operating-system seams.
+Construct it with the app's App ID prefix, which names its own keychain access group.
+`attestEnrollment(slot:paymentPublicKey:challengeDigest:)` produces the App Attest
+evidence of enrollment step E5; key use and the anchor are reached only through the
+Rust provider. Trusted native application startup calls the bridge's
+`start_native_wallet` loader with independently provisioned installation pins,
+authenticated genesis and the complete signed producer graph. Swift receives only
+that opaque runtime handle. `KagemushaWalletRuntimeV1.begin` submits exact
+credential, Enrollment CertificateSet, account and asset-scope originals; the
+existing Ed25519 account signs the returned native challenge. A successful finish
+transfers custody to `KagemushaWalletV1`. Failed finish consumes the challenge and
+retains the runtime for a fresh begin. `cancelPendingOpen` recovers interrupted
+begin delivery; `retryOpenCompletion` recovers an interrupted finish response for
+the same live handle without repeating authorization.
+
+`KagemushaWalletV1` exposes typed setup, Load/Send/Receive/refresh/Unload/Retiring,
+retry/status, folding and activity. Request publication durably selects its exact
+original and recorded blacklist decision together. Offer/Request setup bytes are
+canonical object frames, while peer transports require an Envelope frame. Use
+`envelope(_:original:)` and `original(_:envelope:)` for native, bounded conversion
+with the expected kind and this wallet's scheme; conversion grants no authority.
+Direct-time challenges are bound to the issuing wallet and can be finished or
+cancelled exactly once; cancellation changes no anchor. Invalid local response
+bounds leave the challenge usable, while native dispatch consumes it even on failure.
+Headers and rebuilt authenticated native artifacts are mandatory. An unprovisioned
+runtime reports `artifactsUnavailable`; full real-wallet and phone qualification
+remain open.
+
+`KagemushaWalletEnrollmentV1` drives E2–E6 under a native-provisioned exclusive
+owner. Native configuration selects the genuine approved scheme/policy/root originals.
+The existing account first authorizes local key creation, then signs the exact E5
+binding over that generated key and original evidence. Native retains E5 before
+returning network bytes, including the App Attest key identifier and first assertion.
+Enrollment begin returns native-retained issuer dispatch DATA for the selected request ID,
+account and asset. `acceptPermit` verifies the rooted signed pre-key permit before returning
+the existing-account challenge. Native checks the same-boot elapsed deadline again at actual
+key generation and preserves the original server attempt across retries.
+The issuer still owns live-challenge, account eligibility and platform verification.
+Native authenticates and retains its exact E6 evidence and signed credential before
+selecting credential zero. `loadRuntime` qualifies the complete proof-source graph;
+`beginEnrolled` then starts the separate account-admission challenge using those retained
+originals. Missing artifacts remain unavailable without losing enrollment custody.
+
+E1 refusals use the closed `u16` codes 1–12 of the design's §2.4 table, relayed by BPNG
+Core unchanged and never replaced by free text. `KagemushaWalletEnrollmentRefusalV1`
+names each code, and its `holderClass` (`phone`, `app`, `attempt` or `account`) says what
+the holder can do; the app owns the wording. `init(relayedCode:)` admits a code only when
+Native's closed table (`connect_norito_kagemusha_wallet_enrollment_refusal_v1`) and this
+projection agree, so zero, unknown and Android-only codes are protocol errors for iPhone
+evidence. `KagemushaWalletEnrollmentOutcomeV1.parse` reads the one outcome header of a
+response: `refused(reason)` (403, terminal for this attempt), `deliveryWithheld(reason)` (403,
+code 11 or 12 at E6 delivery: the Issued outcome and its E6 stay retained, so keep the slot
+and retry delivery) or `outcomeUnknown` (409: recover or abandon, never restart). A
+`Unavailable` response carries no outcome header and is retried with the same originals.
+Capacity shortfalls before commit are the typed native statuses
+`KagemushaWalletErrorV1.notEnoughStorageStatus` (-12) and `notEnoughMemoryStatus` (-14).
+
+After Bootstrap, `activation()` returns the exact retained signed Activate frame for
+ledger submission. It does not confirm ledger activation. Bootstrap originals cannot
+be collected before the activation plan retains its complete source copies. Full
+issuer/ledger integration and real-device qualification remain separate gates.
 
 The DA read/proof surface is fully typed. Use `getDaProofPolicies`,
 `listDaCommitments`, `proveDaCommitment`, `verifyDaCommitment`,
@@ -389,9 +450,27 @@ A separate `MOBILE_SDK_LOCAL_UNIT_ARTIFACT_DIR` input may select a producer-vali
 single-host macOS archive for debug unit tests. It requires genuine current-source
 static capture, normalization, complete-archive native consumer checks, and the
 explicit `local-unit` artifact schema. It retains every package test and exact
-ABI-25 admission. It cannot be selected together with the external/release input;
+ABI-29 admission. It cannot be selected together with the external/release input;
 iOS and Release compilation reject it. It is never accepted by the canonical
 three-slice validator, pin owner, archive owner, or release publication.
+
+For the complete local macOS Debug test suite, use this command from the repository
+root with Python 3.12, full Xcode selected through `xcode-select` or `DEVELOPER_DIR`,
+and rustup installed:
+
+```bash
+python3.12 scripts/test_swift_local.py
+```
+
+Unset `MOBILE_SDK_LOCAL_UNIT_ARTIFACT_DIR`, `MOBILE_SDK_APPLE_ARTIFACT_DIR`, and
+`MOBILE_SDK_REQUIRE_EXTERNAL_APPLE_ARTIFACT` before running it. The command builds
+the current native source, produces and verifies its local-unit artifact, then
+runs every Swift test and verifies the inputs again. Cargo reuses
+`target/native-sdk-host-local` (override with an absolute `--target-dir`); SwiftPM
+reuses `IrohaSwift/.build`. Fresh artifacts and logs remain under
+`target/qualification/swift-local-*`. `--jobs` optionally sets the Cargo job budget.
+The command leaves `dist/` untouched and never accepts a stale ABI. Direct
+`swift test` still requires a matching artifact to be prepared and selected first.
 
 The Apple pull-request lane preserves that build envelope while avoiding a
 hosted-runner timeout: five isolated macOS jobs each build one attested target
@@ -952,7 +1031,7 @@ let finality = try await torii.waitForDetachedAssetTransferFinality(
 )
 ```
 
-Preparation fails closed unless ABI-25 native inspection proves the versioned
+Preparation fails closed unless ABI-29 native inspection proves the versioned
 scaffold has the exact authority, network identity, protocol receipt chain, definition, source scope, amount,
 destination, memo, typed fee payer, creation time, TTL, and no extra metadata.
 The prepare route obtains the canonical fee quote and replaces only the charge
@@ -991,7 +1070,7 @@ guard assessment.intentHash == intentHash.map { String(format: "%02X", $0) }.joi
 let canonicalMarker = try assessment.marker()
 ```
 
-The three ABI-25 retail fee operations use native typed Norito and reject
+The three ABI-29 retail fee operations use native typed Norito and reject
 noncanonical markers. Local decoding does not verify that an assessment is
 current or authorized. Signed read and verified finality remain required before
 payment approval; admission checks the assessment against ledger state.
@@ -1021,9 +1100,12 @@ top-level `ToriiClientError.api` carrying Torii's stable error envelope.
 
 Wallets must use the two-step detached call flow when the signing key is held by
 the client. Build the invocation from a trusted contract artifact and argument
-schema, and commit to the exact final metadata (including deterministic
-`contract_module`/`contract_event_*` entries when the selected contract emits
-them) before asking Torii for signing bytes:
+schema, and commit to the exact final metadata before asking Torii for signing
+bytes. That metadata is the caller's own entries plus the consensus-bound call
+keys Torii adds (`contract_address`, `contract_code_hash`, `contract_alias` when
+targeting an alias, `contract_entrypoint`, and `contract_payload` when the
+entrypoint takes arguments); Torii adds no `contract_module` or
+`contract_event_*` entries, so a draft intent claiming them is rejected:
 
 ```swift
 let intent = try ToriiContractCallDraftIntent(
@@ -1453,7 +1535,7 @@ stale native bridge fail closed. The signed fetch bypasses local cached response
 and sends `Cache-Control: no-cache, no-store` for current committed state.
 `PrivacyExact12CapabilityAdmissionV1` issues
 an opaque per-protocol token only when the committed row is active, ready, and
-byte-identical to the ABI25 native-validated compiled catalog. The generic
+byte-identical to the ABI29 native-validated compiled catalog. The generic
 transaction-frame initializer rejects `SubmitPrivacyProofV1`, and the admitted
 factory revalidates the native catalog, manifest, consensus action ceiling, and
 complete final V1 envelope profile tuple both at construction and final encoding.
@@ -1464,7 +1546,7 @@ Final batch encoding also compares the token and statement against the batch's
 exact `networkId`; an admission from another network cannot be reused. Managed
 fixture projection and standalone native validation do not mint network authority.
 
-ABI25 requires exactly six privacy C exports, including
+ABI29 requires exactly six privacy C exports, including
 `iroha_privacy_validate_exact12_capability_manifest_v1`. Swift passes the exact
 Torii archive to the canonical Rust validator before projecting its fields.
 Rust checks the complete release and deployment records, artifact counts,
@@ -1476,7 +1558,7 @@ without the manifest validator is unavailable.
 envelopes, submit instructions, transaction intents, unsigned payloads, signed
 transactions, and transaction hashes for all twelve rows;
 `validateExact12FixtureBundleV1(_:)`
-accepts only the canonical bundle and enforces a 2 MiB input ceiling. ABI 25
+accepts only the canonical bundle and enforces a 2 MiB input ceiling. ABI 29
 availability requires both compiled-catalog symbols, both exact-12 fixture symbols,
 the capability-manifest validator, the zeroizing-free symbol, and successful typed probes. Generic
 request/build/verify dispatch and free-form selectors are absent; proofs use
@@ -1743,8 +1825,8 @@ Inspect verifying keys via the Torii helpers:
 
 ```swift
 if #available(iOS 15, macOS 12, *) {
-    let detail = try await torii.getVerifyingKey(backend: "halo2/ipa", name: "payments_v1")
-    let current = try await torii.listVerifyingKeys(query: ToriiVerifyingKeyListQuery(backend: "halo2/ipa"))
+    let detail = try await torii.getVerifyingKey(backend: "pipa-r/pasta", name: "payments_v1")
+    let current = try await torii.listVerifyingKeys(query: ToriiVerifyingKeyListQuery(backend: "pipa-r/pasta"))
     print("vk status:", detail.record.status, "count:", current.count)
 }
 ```
@@ -1847,15 +1929,15 @@ routes.
 
 ### Verifying key registry
 
-Interact with the Torii verifying-key endpoints to inspect and monitor Halo2 verifier metadata:
+Interact with the Torii verifying-key endpoints to inspect and monitor native PIPA-R verifier metadata. Verifying-key lists use one JSON array format, including `ids_only` responses:
 
 ```swift
 if #available(iOS 15, macOS 12, *) {
-    let detail = try await torii.getVerifyingKey(backend: "halo2/ipa", name: "vk_main")
+    let detail = try await torii.getVerifyingKey(backend: "pipa-r/pasta", name: "vk_main")
     print("vk status:", detail.record.status)
 
     let idsOnly = try await torii.listVerifyingKeys(
-        query: ToriiVerifyingKeyListQuery(backend: "halo2/ipa", idsOnly: true)
+        query: ToriiVerifyingKeyListQuery(backend: "pipa-r/pasta", idsOnly: true)
     )
     print("known ids:", idsOnly.map(\.id.name))
 }
@@ -1878,12 +1960,12 @@ if #available(iOS 15, macOS 12, *) {
     let draft = try await torii.registerVerifyingKey(
         ToriiVerifyingKeyRegisterRequest(
             authority: "alice",
-            backend: "halo2/ipa",
+            backend: "pipa-r/pasta",
             name: "vk_main",
             version: 1,
-            circuitId: "halo2/ipa::transfer_v1",
+            circuitId: "pipa-r/pasta/confidential-transfer-v1",
             publicInputsSchemaHashHex: String(repeating: "a", count: 64),
-            gasScheduleId: "halo2_default",
+            gasScheduleId: "native_pipa_r_default",
             verifyingKeyBytes: Data([1, 2, 3]),
             status: .active
         )
@@ -1929,7 +2011,7 @@ if #available(iOS 15, macOS 12, *) {
 
     // Proof outcomes, narrowed on Torii by backend and matched locally by proof hash.
     let proofs = torii.streamProofEvents(
-        filter: ToriiProofEventFilter(backend: "halo2/ipa", proofHashHex: String(repeating: "a", count: 64))
+        filter: ToriiProofEventFilter(backend: "pipa-r/pasta", proofHashHex: String(repeating: "a", count: 64))
     )
     Task.detached {
         do {
@@ -2407,8 +2489,10 @@ from that exact archive.
   packages inherit the required native links without additional linker flags.
 - Broken bridge symbols surface `bridgeUnavailable`/`nativeBridgeUnavailable` errors
   that include the expected xcframework location.
-- Example: `swift test --package-path IrohaSwift --disable-automatic-resolution`
-  requires the bridge artifact and reviewed `Package.resolved` to be materialized first.
+- For local macOS tests, `python3.12 scripts/test_swift_local.py` prepares the current
+  native dependency and runs the complete suite. Direct
+  `swift test --package-path IrohaSwift --disable-automatic-resolution` requires the
+  matching bridge artifact and reviewed `Package.resolved` to be materialized first.
 
 ## SwiftUI demo and CI
 
@@ -2520,7 +2604,7 @@ one scalar field. They have no hash marker, alias tag or issuance timestamp.
 The roster root remains a separate marked Iroha hash.
 
 Account-controller policies retain the full u16 member count (1–65,535). The
-public address constructors and parsers require the ABI-25 Rust address codec
+public address constructors and parsers require the ABI-29 Rust address codec
 for complete key and policy admission. Canonical I105 parsers reject surrounding
 Unicode whitespace; unavailable native validation is an
 explicit error. The
@@ -2544,14 +2628,25 @@ account ordering, establish rekey authority or verify an authorization proof.
 all five private actions and a complex private create to Rust-owned model
 bytes. Its synthetic proofs are wire fixtures. Proof generation, native bridge
 qualification and four-validator execution require separate evidence. The
-canonical Swift package always requires the real ABI25 NoritoBridge artifact.
+canonical Swift package always requires the real ABI29 NoritoBridge artifact.
 
 `ValidatorStakingNoritoV1` decodes first-release authority generations, epoch
 authorizations, signed all-edge beacon DKG records, committee transitions,
-typed registration, bond, withdrawal and slash plans, bounded reward claims with an explicit optional fee-custody
-payment, and peer rebinding. Its Rust-authored fixture is
+typed registration, bond, withdrawal and slash plans, bounded reward claims with
+one mandatory exact funded XOR payment, and peer rebinding. Its Rust-authored fixture is
 `fixtures/validator_staking/norito_v1.tsv`; the consumer tests also reject
 truncated records, malformed peer bindings, invalid withdrawal hash widths or markers,
 retired reward-plan layouts, invalid fee custody and
 noncanonical quantity decimals. This structural codec
 does not verify signatures, custody, or committee activation.
+
+The enrollment handle's explicit `abandon` action permanently closes an unused enrollment
+before runtime handoff and returns `KagemushaWalletEnrollmentAbandonmentV1`: `localAbandoned`
+when no enrollment marker existed (nothing to submit; the slot is terminal and no key is ever
+generated or adopted under it), or `abandonment(frame)` with the exact retained signed frame,
+which the holder's account submits until its finalized inclusion is authenticated. A fresh
+enrollment with a new challenge, slot and key may start as soon as `abandon` returns. Native
+refuses once Bootstrap is selected. Closing the handle only releases ownership. Abandon output is published
+before an immutable digest selection, and nothing is returned until both are durable; a missing
+selected original is refused. Recovery may complete a missing selection for a present valid
+original. This local mechanism does not establish protection against complete filesystem rollback.

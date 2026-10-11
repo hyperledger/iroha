@@ -67,9 +67,14 @@ final class IrohaPeerNfcJavaConsumerTest {
   @Test
   void peerMessageKindsAreExactlyTheWalletEnvelopeTags() {
     assertEquals(7, IrohaPeerPayloadKind.values().length);
+    assertEquals(10_000, KagemushaWalletWireV1.MESSAGE_MAX_BYTES);
+    assertEquals(16 + 10_000 + 4_096, IrohaPeerWalletRequestV1.MAXIMUM_BYTES);
     for (final IrohaPeerPayloadKind kind : IrohaPeerPayloadKind.values()) {
       assertEquals(kind.getWalletMessageKind().wireTag, kind.getCode());
-      assertEquals(kind.getWalletMessageKind().maximumFrameBytes, kind.getMaximumWalletFrameBytes());
+      final int expectedMaximum = kind == IrohaPeerPayloadKind.REQUEST
+          ? IrohaPeerWalletRequestV1.MAXIMUM_BYTES
+          : kind.getWalletMessageKind().maximumFrameBytes;
+      assertEquals(expectedMaximum, kind.getMaximumWalletFrameBytes());
       assertSame(kind, IrohaPeerPayloadKind.fromCode(kind.getCode()));
       assertSame(kind, IrohaPeerPayloadKind.of(kind.getWalletMessageKind()));
     }

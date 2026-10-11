@@ -36,6 +36,7 @@ compiler capability; the source still cannot override execution-header metadata.
 
 ```kotodama
 seiyaku Counter {
+    permission CanIncrementCounter;
     error enum CounterError {
         NonPositiveDelta = 1,
     }
@@ -46,14 +47,14 @@ seiyaku Counter {
         value = 0;
     }
 
-    kotoage fn increment(int delta) -> int authorize("CanIncrementCounter") {
+    kotoage fn increment(int delta) authorize(CanIncrementCounter) -> int {
         require(delta > 0, CounterError::NonPositiveDelta);
         let int next = value + delta;
         value = next;
         return next;
     }
 
-    view fn current() -> int {
+    view fn current() authorize(anyone) -> int {
         return value;
     }
 }
@@ -76,17 +77,19 @@ the `quantity` type from their context. The runtime regression owner is
 
 ```kotodama
 seiyaku Proposals {
+    permission CreateProposal;
+    permission FinalizeProposal;
     error enum Failure { Missing = 1, NotPending = 2, InvalidAmount = 3, Exists = 4 }
     struct Proposal { quantity amount, int status, int finalized_at_ms }
     state StateMap<Name, Proposal> Requests;
 
-    kotoage fn create(Name id, quantity amount) authorize("CreateProposal") {
+    kotoage fn create(Name id, quantity amount) authorize(CreateProposal) {
         require(amount > 0, Failure::InvalidAmount);
         require(!Requests.contains(id), Failure::Exists);
         Requests[id] = Proposal { amount, status: 1, finalized_at_ms: 0 };
     }
 
-    kotoage fn finalize(Name id, int finalized_at_ms) authorize("FinalizeProposal") {
+    kotoage fn finalize(Name id, int finalized_at_ms) authorize(FinalizeProposal) {
         var request = Requests.get(id).expect(Failure::Missing);
         require(request.status == 1, Failure::NotPending);
         request.status = 2;
@@ -104,13 +107,13 @@ select direct syscalls, or submit opaque instruction bytes.
 
 ```kotodama
 seiyaku TransferDemo {
-    kotoage fn transfer() authorize("AssetTransferRole") {
+    permission AssetTransferRole;
+    kotoage fn transfer() authorize(AssetTransferRole) {
         ledger::asset::transfer(
             source: AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"),
             destination: AccountId::parse("sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76"),
             asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"),
             amount: 10,
-            dataspace: DataSpaceId::parse("0"),
         );
     }
 }
@@ -134,12 +137,13 @@ typed kotoage declaration.
 
 ```kotodama
 seiyaku ScheduledSettlement {
-    kotoage fn settle() authorize("CanSettle") {
+    permission CanSettle;
+    kotoage fn settle() authorize(CanSettle) {
         debug::info("settlement tick");
     }
 
     trigger hourly -> settle {
-        on time schedule(0, 3600000);
+        on time schedule(start_ms: 0, period_ms: 60 * 60 * 1_000);
         repeats indefinitely;
         metadata {
             purpose: "settlement";
@@ -185,7 +189,12 @@ inclusively at 1 MiB. For a prepared call, the host validates the trusted flat
 schema and derives its conservative maximum aggregate and pointer-allocation
 bound before decoding the untrusted record. The signed wire lengths and that
 bound must be affordable first; the host then validates and decodes the record
-exactly once. The complete signed record remains host-owned, and the public
+exactly once. Default hosts acquire that record through the metered
+`entrypoint_argument_record` public input as `NoritoBytes`; admitted hosts may
+provide the prepared owner directly. `trigger_event_json` independently exposes
+the actual firing `Json`, never the argument record. Missing record inputs
+are refused without falling back to the event key. The complete signed record
+remains host-owned, and the public
 wrapper receives only its domain-separated binding plus typed ABI words. The
 host preflights the complete aligned allocation sequence: pointer TLVs and the
 word table prefer INPUT and spill into owned HEAP, while raw `List` and sum

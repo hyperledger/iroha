@@ -7,7 +7,7 @@ const schemas = Object.freeze({
   PrepareRegistration: fields("validator:account peer_id:PeerId amount:quantity candidate:bool"),
   PrepareBond: fields("validator:account staker:account amount:quantity"),
   PrepareUnbond: fields("validator:account staker:account request_id:hash"),
-  PrepareClaim: fields("recipient:account upto_epoch:?u64 max_records:u16 accrued_sources:AccruedSources"),
+  PrepareClaim: fields("recipient:account"),
   PreparationRequest: fields("lane_id:lane valid_for_blocks:u64 operation:PreparationOperation"),
   PreparationBalance: fields("asset:AssetId balance:quantity stake_reserved:quantity rewards_reserved:quantity"),
   Preparation: fields("request:PreparationRequest network_id:network observed_height:u64 observed_block_hash:hash observed_ledger_time_ms:u64 assumed_execution_height:u64 xor_asset_definition_id:definition plan:PreparedPlan balances:PreparationBalances"),
@@ -18,13 +18,9 @@ const schemas = Object.freeze({
   MonetaryUnbond: fields("activation_height:u64 request_hash:hash"),
   MonetarySlash: fields("activation_height:u64 slashable_exposure:quantity"),
   MonetaryPlan: fields("network_scope:MonetaryScope valid_until_height:u64 source_asset:AssetId destination_asset:AssetId amount:quantity precondition:MonetaryPrecondition"),
-  RewardClaimState: fields("through_epoch:?u64"),
-  RewardRecordRef: fields("epoch:u64 record_hash:hash"),
-  RewardClaimSource: fields("source_asset:AssetId destination_asset:AssetId expected_accrued:?quantity payout:quantity"),
   FeeRewardClaim: fields("lifecycle_seal:bytes32 beneficiary_id:account beneficiary_revision:u64 source_asset:AssetId destination_asset:AssetId amount:quantity expected_claim_sequence:u64"),
-  RewardClaimPlan: fields("network_scope:MonetaryScope valid_until_height:u64 expected_state:?RewardClaimState records:RewardRecords sources:RewardSources fee_claim:?FeeRewardClaim"),
-  ValidatorKeys: fields("validator:PeerId eq_proof_public_key:bytes32 ep_proof_public_key:bytes32"),
-  AuthorityGeneration: fields("version:u16 network_id:network generation:u64 validators:Validators"),
+  RewardClaimPlan: fields("network_scope:MonetaryScope valid_until_height:u64 fee_claim:FeeRewardClaim"),
+  ValidatorGeneration: fields("network_id:network generation:u64 validators:Validators"),
   InstalledBeacon: fields("session_id:bytes32 transcript_hash:bytes32"),
   EpochAuthorization: fields("version:u16 network_id:network epoch:u64 first_height:u64 last_height:u64 authority_generation:u64 authority_id:bytes32 beacon:BeaconBinding previous_authorization_id:bytes32 transition_id:bytes32 decision:EpochDecision"),
 });
@@ -37,7 +33,7 @@ const variants = Object.freeze({
   BeaconBinding: [["bootstrap", null], ["installed", "InstalledBeacon"]],
   EpochDecision: [["genesis", null], ["activate", null], ["retain", null], ["retain_and_cancel", null]],
 });
-const vectors = Object.freeze({ AccruedSources: ["AssetId", 64], PreparationBalances: ["PreparationBalance", 128], RewardRecords: ["RewardRecordRef", 64], RewardSources: ["RewardClaimSource", 64], Validators: ["ValidatorKeys", 31] });
+const vectors = Object.freeze({ PreparationBalances: ["PreparationBalance", 2], Validators: ["PeerId", 31] });
 function exact(value, names, label) {
   if (!value || typeof value !== "object" || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) throw new TypeError(`${label} requires exact native fields`);
   const keys = Reflect.ownKeys(value);
@@ -93,29 +89,21 @@ export function createNoritoStakingCodecs(h) {
   function validate(name, value) {
     if (name === "PreparationRequest" && BigInt(value.valid_for_blocks) === 0n) throw new TypeError("preparation expiry offset must be positive");
     if (["PrepareRegistration", "PrepareBond"].includes(name) && !positive(value.amount)) throw new TypeError("preparation amount must be positive");
-    if (name === "PrepareClaim") {
-      if (Number(value.max_records) > 64 || value.accrued_sources.some((source, index) => index > 0 && assetOrder(value.accrued_sources[index - 1], source) >= 0)) throw new TypeError("reward preparation requires at most 64 records and strictly ordered sources");
-    }
     if (name === "MonetaryPlan" && (BigInt(value.valid_until_height) === 0n || !positive(value.amount) || !sameAsset(value.source_asset, value.destination_asset))) throw new TypeError("invalid staking monetary plan");
-    if (name === "RewardClaimSource" && (!sameAsset(value.source_asset, value.destination_asset) || value.expected_accrued !== null && !positive(value.expected_accrued))) throw new TypeError("invalid reward source asset or accrual");
     if (name === "FeeRewardClaim" && (!Buffer.from(value.lifecycle_seal).some((byte) => byte !== 0) || !positive(value.amount) || value.source_asset.scope.kind !== "global" || value.destination_asset.scope.kind !== "global" || !sameAsset(value.source_asset, value.destination_asset))) throw new TypeError("invalid fee reward custody or amount");
     if (name === "RewardClaimPlan") {
       if (BigInt(value.valid_until_height) === 0n) throw new TypeError("reward expiry must be positive");
-      let previous = value.expected_state?.through_epoch ?? null;
-      for (const row of value.records) {
-        if (previous !== null && BigInt(previous) >= BigInt(row.epoch)) throw new TypeError("reward epochs must advance the cursor");
-        previous = row.epoch;
-      }
-      let prior = null;
-      const recipient = value.sources[0]?.destination_asset.account ?? value.fee_claim?.destination_asset.account;
-      for (const row of value.sources) {
-        if (prior && assetOrder(prior, row.source_asset) >= 0) throw new TypeError("reward sources must use strict AssetId order");
-        if (!encode("account", recipient).equals(encode("account", row.destination_asset.account))) throw new TypeError("reward plan changes recipient");
-        prior = row.source_asset;
-      }
-      if (value.fee_claim && !encode("account", recipient).equals(encode("account", value.fee_claim.destination_asset.account))) throw new TypeError("fee reward changes recipient");
     }
-    if (name === "AuthorityGeneration" && (Number(value.version) !== 1 || value.validators.length < 4 || (value.validators.length - 1) % 3 !== 0)) throw new TypeError("invalid authority-generation geometry");
+    if (name === "ValidatorGeneration") {
+      if (value.validators.length < 4 || (value.validators.length - 1) % 3 !== 0) throw new TypeError("invalid validator-generation geometry");
+      let previous = null;
+      for (const validator of value.validators) {
+        const { curve, publicKey } = h.parsePublicKeyLiteral(validator.public_key, "validator generation key");
+        if (curve !== h.curveIdFromAlgorithm("bls_normal") || publicKey.length !== 48) throw new TypeError("validator generation requires BLS-normal public keys");
+        if (previous && Buffer.compare(previous, publicKey) >= 0) throw new TypeError("validator generation requires strictly ordered unique keys");
+        previous = publicKey;
+      }
+    }
     if (name === "EpochAuthorization" && (Number(value.version) !== 1 || BigInt(value.first_height) === 0n || BigInt(value.last_height) < BigInt(value.first_height))) throw new TypeError("invalid epoch authorization");
   }
   function encode(name, value, context = name) {
@@ -209,14 +197,9 @@ export function createNoritoStakingCodecs(h) {
       if (!matches || BigInt(plan.precondition.value.activation_height) === 0n) fail("monetary_intent");
       assets.push(plan.source_asset, plan.destination_asset);
     } else {
-      if (request.operation.kind !== "claim_rewards" || plan.records.length > Number(intent.max_records)) fail("reward_intent");
-      if (intent.upto_epoch !== null && (plan.records.some((row) => BigInt(row.epoch) > BigInt(intent.upto_epoch)) || plan.expected_state?.through_epoch != null && BigInt(plan.expected_state.through_epoch) > BigInt(intent.upto_epoch))) fail("reward_epoch_cut");
-      if (!intent.accrued_sources.every((selected) => plan.sources.some((source) => equal("AssetId", source.source_asset, selected) && source.expected_accrued !== null && positive(source.expected_accrued)))) fail("selected_accrual");
-      if (plan.records.length === 0 && (plan.sources.length !== intent.accrued_sources.length || plan.sources.some((source, index) => !equal("AssetId", source.source_asset, intent.accrued_sources[index])))) fail("unselected_accrual");
-      for (const source of [...plan.sources, ...(plan.fee_claim ? [plan.fee_claim] : [])]) {
-        if (!equal("account", source.destination_asset.account, intent.recipient)) fail("reward_recipient");
-        assets.push(source.source_asset, source.destination_asset);
-      }
+      if (request.operation.kind !== "claim_rewards") fail("reward_intent");
+      if (!equal("account", plan.fee_claim.destination_asset.account, intent.recipient)) fail("reward_recipient");
+      assets.push(plan.fee_claim.source_asset, plan.fee_claim.destination_asset);
     }
     assets.sort(assetOrder);
     const unique = assets.filter((asset, index) => index === 0 || assetOrder(assets[index - 1], asset) !== 0);

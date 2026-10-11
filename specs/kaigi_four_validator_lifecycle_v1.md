@@ -5,17 +5,17 @@ usage circuits against four real permissioned validators. Its implementation is 
 compilation and real execution; this document does not assert deployment qualification.
 
 `iroha_core::privacy_release_evidence::kaigi` owns pure fixture construction under the
-nonshipping `privacy-release-evidence` and `zk-halo2` features. It uses existing Core Halo2,
-`kaigi_zk` and entropy dependencies, with no additional Cargo graph. The helper returns
+nonshipping `privacy-release-evidence` feature. It uses the migrated native PIPA-R
+`kaigi_zk` owner and entropy dependencies. The helper returns
 ordinary configuration references, `RegisterVerifyingKey` instructions and real canonical
 proof carriers. It never reads or mutates `StateTransaction`, installs a key or grants
 permission. Fixed fixture openings are unsuitable for production; proof generation uses
-real IPA proofs and the canonical circuit-owned authorization/usage context.
+real PIPA-R proofs and the canonical circuit-owned authorization/usage context.
 
 The existing `crates/iroha_core/tests/kaigi_privacy.rs` assertions remain intact. Their
 pure key-generation, proof framing and circuit helpers supply the fixture implementation;
 the network gate installs the returned keys with signed governed instructions. The
-network builder projects both ordinary Kaigi key references and enabled Halo2 state
+network builder projects both ordinary Kaigi key references and enabled native PIPA-R state
 into signed genesis through its existing policy-hash owner. Daemon policy equality
 must remain enforced: a stale daemon failure cannot be repaired by altering genesis.
 
@@ -55,7 +55,7 @@ Do not set `RUST_MIN_STACK` globally, since daemon children would inherit it.
 Only the coordinated build owner should execute these commands:
 
 ```sh
-cargo test --locked -p iroha_core --lib --features privacy-release-evidence,proofs-halo2 --no-run --message-format=json-render-diagnostics
+cargo test --locked -p iroha_core --lib --features privacy-release-evidence --no-run --message-format=json-render-diagnostics
 cargo test --locked -p integration_tests --test network_functional --features privacy-release-evidence,zk-stark --no-run --message-format=json-render-diagnostics
 ```
 

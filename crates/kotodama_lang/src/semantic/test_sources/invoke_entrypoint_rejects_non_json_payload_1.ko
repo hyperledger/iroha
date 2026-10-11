@@ -1,6 +1,6 @@
 
-            seiyaku Demo {
-                kotoage fn run(int count) -> int authorize("Run") { return count; }
+            seiyaku Demo { permission Run;
+                kotoage fn run(int count) authorize(Run) -> int { return count; }
 
                 #[test]
                 fn drive_run() {

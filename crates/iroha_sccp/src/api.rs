@@ -10,51 +10,53 @@
 //!
 //! Proof material:
 //!
-//! - [`SccpRosterViewV1`]: one roster generation as destinations see it (§3.7, `RosterV1` of
-//!   §5.2.2) with its digest.
 //! - [`SccpSignatureSetV1`]: a §3.8 signature set, one 65-byte signature per set bitmap bit in
 //!   ascending bit order.
 //! - [`SccpHistoryProofV1`]: a historical SCCP block and its history path (§3.5).
-//! - [`SccpMessageProofBundleV1`] (`GET /v1/sccp/messages/{id}/proof`) and
-//!   [`SccpControlProofBundleV1`] (`GET /v1/sccp/controls/{network}/{revision}/{nonce}/proof`):
-//!   everything one `finalizeFromTaira*`/`voidExpired*` or `applyControl*` call needs.
-//! - [`SccpRotationStepV1`] and [`SccpRotationChainV1`] (`GET /v1/sccp/rosters/rotations`): the
-//!   ordered catch-up chain for `rotateRosters`, with the first unattested handoff when the chain
-//!   is broken.
+//! - [`SccpMessageProofBundleV1`] and [`SccpControlProofBundleV1`]: the leaf of one transfer or
+//!   control, its block path and, for an older block, the history proof.
 //!
-//! Nothing here is trusted by its reader: wallets recompute every digest, roster hash, signature
-//! and Merkle path locally (`iroha_sccp_wallet::pure`). The conversions below map the records
-//! onto the contract-visible `v1` structures that the verifiers and ABI encoders take.
+//! The bundles carry no finality proof and no route serves them: destinations verify Taira's
+//! Sumeragi `CommitQC`, so the attestation statement and the roster and rotation records of
+//! the attestation transport are gone. [`SccpSignatureSetV1`] remains only as the view of
+//! `crate::v1::signature`, which WP-S1 deletes with the other revision 4 encodings.
 //!
-//! - [`SccpCapabilitiesV1`] (`GET /v1/sccp/capabilities`): identity, parameters and
-//!   attestation health.
+//! TODO: Torii work package (TT-A1): add the block reference and the certificate of §6 to both
+//! bundles, the committee generation, rotation, evidence and hold records, and serve them.
 //!
-//! Routes that serve stored data-model records (registry, outbound records, rosters, bridge
-//! keys) use those records directly.
+//! Nothing here is trusted by its reader: wallets recompute every digest, signature and Merkle
+//! path locally (`iroha_sccp_wallet::pure`). The conversions below map the records onto the
+//! contract-visible `v1` structures that the verifiers and ABI encoders take.
 //!
-//! TODO(ws35): add the remaining §6 read-API records (attestation views and the governance
-//! targets beyond the proposal listing).
+//! - [`SccpCapabilitiesV1`] (`GET /v1/sccp/capabilities`): identity, parameters, compiled
+//!   light-client profiles and page limits.
+//! - The views of [`views`]: the message status union, outbound and control pages, recent
+//!   messages, light-client detail and checkpoint cover, governance proposal detail and history
+//!   paths.
+//!
+//! Routes that serve stored data-model records (registry, light-client sets) use those records
+//! directly.
+//!
+//! TODO(ws35): add the governance targets beyond the proposal listing and detail (diffs,
+//! readiness).
 
-use iroha_data_model::{bridge::SccpNetworkV1, sccp::attestation::SccpAttestationStatementV1};
+use iroha_data_model::bridge::SccpNetworkV1;
 use norito::codec::{Decode, Encode};
+
+pub mod views;
+pub use views::*;
 
 use crate::v1::{
     constants::{
-        MAX_BLOCK_PATH, MAX_HISTORY_PATH, MAX_PAYLOAD_BYTES, MAX_ROSTER_MEMBERS,
-        MAX_ROTATIONS_PER_CALL, SIGNATURE_BYTES,
+        MAX_BLOCK_PATH, MAX_HISTORY_PATH, MAX_PAYLOAD_BYTES, MAX_ROSTER_MEMBERS, SIGNATURE_BYTES,
     },
-    eip712::AttestationFieldsV1,
     proof::{ControlProofV1, HistoryBlockV1, HistoryProofV1, MessageProofV1},
-    roster::{RosterError, RosterV1},
     signature::SignatureSetV1,
 };
 
-/// A record exceeds a protocol bound before any cryptographic check (§3.4, §3.5, §3.7, §3.8,
-/// §5.1.5).
+/// A record exceeds a protocol bound before any cryptographic check (§3.4, §3.5, §3.8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ApiShapeError {
-    /// More than 31 roster members.
-    TooManyMembers,
     /// More than 31 signatures, or a signature count that differs from the bitmap popcount.
     BadSignatureCount,
     /// A block path longer than 9 siblings.
@@ -63,155 +65,22 @@ pub enum ApiShapeError {
     HistoryPathTooLong,
     /// A transfer payload longer than 4096 bytes.
     PayloadTooLong,
-    /// More than 16 rotation steps in one chain page.
-    TooManyRotations,
 }
 
 impl core::fmt::Display for ApiShapeError {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter.write_str(match self {
-            Self::TooManyMembers => "a roster has at most 31 members",
             Self::BadSignatureCount => {
                 "a signature set has one signature per set bitmap bit and at most 31"
             }
             Self::BlockPathTooLong => "a block path has at most 9 siblings",
             Self::HistoryPathTooLong => "a history path has at most 32 siblings",
             Self::PayloadTooLong => "a transfer payload has at most 4096 bytes",
-            Self::TooManyRotations => "a rotation chain page has at most 16 steps",
         })
     }
 }
 
 impl std::error::Error for ApiShapeError {}
-
-// ---------------------------------------------------------------------------------------------
-// Attestation statement <-> contract-visible fields
-// ---------------------------------------------------------------------------------------------
-
-impl From<SccpAttestationStatementV1> for AttestationFieldsV1 {
-    fn from(statement: SccpAttestationStatementV1) -> Self {
-        Self {
-            height: statement.height,
-            epoch: statement.epoch,
-            timestamp_ms: statement.timestamp_ms,
-            block_hash: statement.block_hash,
-            sccp_root: statement.sccp_root,
-            message_count: statement.message_count,
-            history_root: statement.history_root,
-            history_size: statement.history_size,
-            roster_digest: statement.roster_digest,
-            next_roster_digest: statement.next_roster_digest,
-        }
-    }
-}
-
-impl From<AttestationFieldsV1> for SccpAttestationStatementV1 {
-    fn from(fields: AttestationFieldsV1) -> Self {
-        Self {
-            height: fields.height,
-            epoch: fields.epoch,
-            timestamp_ms: fields.timestamp_ms,
-            block_hash: fields.block_hash,
-            sccp_root: fields.sccp_root,
-            message_count: fields.message_count,
-            history_root: fields.history_root,
-            history_size: fields.history_size,
-            roster_digest: fields.roster_digest,
-            next_roster_digest: fields.next_roster_digest,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Roster view
-// ---------------------------------------------------------------------------------------------
-
-/// One roster generation as destinations receive it (§3.7), with its claimed digest.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
-)]
-#[norito(no_fast_from_json)]
-#[norito(decode_from_slice)]
-#[norito(deny_unknown_fields)]
-#[derive(norito::NoritoSchema)]
-#[norito_schema(name = "iroha_sccp::api::SccpRosterViewV1")]
-pub struct SccpRosterViewV1 {
-    /// Generation number, at least 1.
-    pub generation: u64,
-    /// Start of validity (Taira time of the generation's rotation block).
-    pub valid_from_ms: u64,
-    /// End of validity.
-    pub valid_until_ms: u64,
-    /// `t = ⌊2n/3⌋ + 1`.
-    pub threshold: u8,
-    /// Bridge-key addresses in §3.7 order: zero (keyless) slots first, then strictly ascending.
-    pub members: Vec<[u8; 20]>,
-    /// §3.7 roster digest.
-    pub digest: [u8; 32],
-}
-
-impl SccpRosterViewV1 {
-    /// The view of `roster` under the given Taira `NetworkId`, with its threshold and digest.
-    ///
-    /// # Errors
-    ///
-    /// Returns the [`RosterError`] of a roster that breaks a §3.7 rule.
-    pub fn from_roster(
-        roster: &RosterV1,
-        taira_network_id: &[u8; 32],
-    ) -> Result<Self, RosterError> {
-        let digest = roster.digest(taira_network_id)?;
-        let threshold = u8::try_from(roster.threshold()).map_err(|_| RosterError::BadSize)?;
-        Ok(Self {
-            generation: roster.generation,
-            valid_from_ms: roster.valid_from_ms,
-            valid_until_ms: roster.valid_until_ms,
-            threshold,
-            members: roster.members.clone(),
-            digest,
-        })
-    }
-
-    /// The contract-visible roster, with the `n`, generation, ordering and threshold checks a
-    /// destination performs while hashing (the claimed [`Self::digest`] is not consulted).
-    ///
-    /// # Errors
-    ///
-    /// Returns the first violated [`RosterError`].
-    pub fn to_roster(&self) -> Result<RosterV1, RosterError> {
-        let roster = RosterV1 {
-            generation: self.generation,
-            valid_from_ms: self.valid_from_ms,
-            valid_until_ms: self.valid_until_ms,
-            members: self.members.clone(),
-        };
-        roster.validate()?;
-        if usize::from(self.threshold) != roster.threshold() {
-            return Err(RosterError::BadThreshold);
-        }
-        Ok(roster)
-    }
-
-    /// Reject a member list longer than any roster (bounds work before hashing).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ApiShapeError::TooManyMembers`].
-    pub fn check_shape(&self) -> Result<(), ApiShapeError> {
-        if self.members.len() > MAX_ROSTER_MEMBERS {
-            return Err(ApiShapeError::TooManyMembers);
-        }
-        Ok(())
-    }
-}
 
 // ---------------------------------------------------------------------------------------------
 // Signature set
@@ -379,12 +248,15 @@ impl From<&HistoryProofV1> for SccpHistoryProofV1 {
 // Message proof bundle
 // ---------------------------------------------------------------------------------------------
 
-/// `GET /v1/sccp/messages/{message_id}/proof`: everything one `finalizeFromTaira*` or
-/// `voidExpired*` call needs (§5.1.3, §5.1.8, §6).
+/// The leaf-and-path part of a message proof (§3.4, §3.5, §6).
 ///
-/// Without [`Self::history`] the message is proven against the attested block itself (direct
-/// mode, [`Self::message_count`] equals the statement's); with it, the message is proven
-/// against the historical block and that block against the statement's history root.
+/// Without [`Self::history`] the message is proven against the root of its own block; with it,
+/// the message is proven against the historical block and that block against a later history
+/// root. The bundle names no finality proof of either root, and no route serves it.
+///
+/// TODO: Torii work package (TT-A1): add `block: SccpBlockRefV1` and
+/// `certificate: SccpCertificateV1` (§6) and serve the bundle from
+/// `GET /v1/sccp/messages/{message_id}/proof`.
 #[derive(
     Debug,
     Clone,
@@ -415,14 +287,6 @@ pub struct SccpMessageProofBundleV1 {
     pub message_count: u32,
     /// Block path of the transfer leaf (at most 9 siblings).
     pub path: Vec<[u8; 32]>,
-    /// The attested statement.
-    pub statement: SccpAttestationStatementV1,
-    /// EIP-712 digest of the statement (§3.6).
-    pub digest: [u8; 32],
-    /// The roster generation that signed the statement.
-    pub roster: SccpRosterViewV1,
-    /// At least `t` signatures of that roster, ascending.
-    pub signatures: SccpSignatureSetV1,
     /// History proof of an older block (historical mode), or `None` (direct mode).
     #[norito(required)]
     pub history: Option<SccpHistoryProofV1>,
@@ -433,12 +297,6 @@ impl SccpMessageProofBundleV1 {
     #[must_use]
     pub fn is_historical(&self) -> bool {
         self.history.is_some()
-    }
-
-    /// The contract-visible attestation of the statement.
-    #[must_use]
-    pub fn attestation(&self) -> AttestationFieldsV1 {
-        self.statement.into()
     }
 
     /// `MessageProofV1 { payload, leafIndex, path }` (§5.2.2).
@@ -457,7 +315,7 @@ impl SccpMessageProofBundleV1 {
         self.history.as_ref().map(HistoryProofV1::from)
     }
 
-    /// Reject oversized fields before any hashing or signature recovery.
+    /// Reject oversized fields before any hashing.
     ///
     /// # Errors
     ///
@@ -469,8 +327,6 @@ impl SccpMessageProofBundleV1 {
         if self.path.len() > MAX_BLOCK_PATH {
             return Err(ApiShapeError::BlockPathTooLong);
         }
-        self.roster.check_shape()?;
-        self.signatures.check_shape()?;
         if let Some(history) = &self.history {
             history.check_shape()?;
         }
@@ -482,11 +338,15 @@ impl SccpMessageProofBundleV1 {
 // Control proof bundle
 // ---------------------------------------------------------------------------------------------
 
-/// `GET /v1/sccp/controls/{network}/{revision}/{control_nonce}/proof`: everything one
-/// `applyControl*` call (or TON `sccp_apply_control`) needs (§4.14.6, §5.1.6, §6).
+/// The leaf-and-path part of a control proof (§4.14.6, §5.1.6, §6).
 ///
 /// The bundle carries the control's fields, never its leaf: a verifier computes the control
-/// leaf from the destination's own immutables and these fields.
+/// leaf from the destination's own immutables and these fields. It names no finality proof of
+/// the block root, and no route serves it.
+///
+/// TODO: Torii work package (TT-A1): add `block: SccpBlockRefV1` and
+/// `certificate: SccpCertificateV1` (§6) and serve the bundle from
+/// `GET /v1/sccp/controls/{network}/{revision}/{control_nonce}/proof`.
 #[derive(
     Debug,
     Clone,
@@ -518,14 +378,6 @@ pub struct SccpControlProofBundleV1 {
     pub message_count: u32,
     /// Block path of the control leaf (at most 9 siblings).
     pub path: Vec<[u8; 32]>,
-    /// The attested statement.
-    pub statement: SccpAttestationStatementV1,
-    /// EIP-712 digest of the statement (§3.6).
-    pub digest: [u8; 32],
-    /// The roster generation that signed the statement.
-    pub roster: SccpRosterViewV1,
-    /// At least `t` signatures of that roster, ascending.
-    pub signatures: SccpSignatureSetV1,
     /// History proof of an older block (historical mode), or `None` (direct mode).
     #[norito(required)]
     pub history: Option<SccpHistoryProofV1>,
@@ -536,12 +388,6 @@ impl SccpControlProofBundleV1 {
     #[must_use]
     pub fn is_historical(&self) -> bool {
         self.history.is_some()
-    }
-
-    /// The contract-visible attestation of the statement.
-    #[must_use]
-    pub fn attestation(&self) -> AttestationFieldsV1 {
-        self.statement.into()
     }
 
     /// `ControlProofV1 { controlNonce, paused, leafIndex, path }` (§5.2.2).
@@ -561,7 +407,7 @@ impl SccpControlProofBundleV1 {
         self.history.as_ref().map(HistoryProofV1::from)
     }
 
-    /// Reject oversized fields before any hashing or signature recovery.
+    /// Reject oversized fields before any hashing.
     ///
     /// # Errors
     ///
@@ -570,8 +416,6 @@ impl SccpControlProofBundleV1 {
         if self.path.len() > MAX_BLOCK_PATH {
             return Err(ApiShapeError::BlockPathTooLong);
         }
-        self.roster.check_shape()?;
-        self.signatures.check_shape()?;
         if let Some(history) = &self.history {
             history.check_shape()?;
         }
@@ -580,138 +424,8 @@ impl SccpControlProofBundleV1 {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Rotation chain
+// Governance and capabilities
 // ---------------------------------------------------------------------------------------------
-
-/// One attested handoff: the rotation statement signed by the outgoing generation, and both
-/// generations (`RotationV1` of §5.2.2 plus the statement digest).
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
-)]
-#[norito(no_fast_from_json)]
-#[norito(decode_from_slice)]
-#[norito(deny_unknown_fields)]
-#[derive(norito::NoritoSchema)]
-#[norito_schema(name = "iroha_sccp::api::SccpRotationStepV1")]
-pub struct SccpRotationStepV1 {
-    /// The rotation statement (`next_roster_digest ≠ 0`).
-    pub statement: SccpAttestationStatementV1,
-    /// EIP-712 digest of the statement.
-    pub digest: [u8; 32],
-    /// At least `t` signatures of the outgoing generation.
-    pub signatures: SccpSignatureSetV1,
-    /// The outgoing generation.
-    pub current_roster: SccpRosterViewV1,
-    /// The successor generation.
-    pub next_roster: SccpRosterViewV1,
-}
-
-impl SccpRotationStepV1 {
-    /// The contract-visible attestation of the statement.
-    #[must_use]
-    pub fn attestation(&self) -> AttestationFieldsV1 {
-        self.statement.into()
-    }
-
-    /// Reject oversized rosters or signature sets.
-    ///
-    /// # Errors
-    ///
-    /// Returns the first violated [`ApiShapeError`].
-    pub fn check_shape(&self) -> Result<(), ApiShapeError> {
-        self.current_roster.check_shape()?;
-        self.next_roster.check_shape()?;
-        self.signatures.check_shape()
-    }
-}
-
-/// `GET /v1/sccp/rosters/rotations?after_generation=G`: the ordered catch-up chain from
-/// generation `G`, ready for one `rotateRosters` call (§5.1.5, §6).
-#[derive(
-    Debug,
-    Clone,
-    Default,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
-)]
-#[norito(no_fast_from_json)]
-#[norito(decode_from_slice)]
-#[norito(deny_unknown_fields)]
-#[derive(norito::NoritoSchema)]
-#[norito_schema(name = "iroha_sccp::api::SccpRotationChainV1")]
-pub struct SccpRotationChainV1 {
-    /// Consecutive handoffs `G → G+1 → …`, at most 16 per page.
-    pub steps: Vec<SccpRotationStepV1>,
-    /// Rotation height of the first handoff that is not attested yet, when the chain is broken
-    /// there (§4.3.3).
-    #[norito(required)]
-    pub first_unattested_handoff: Option<u64>,
-}
-
-impl SccpRotationChainV1 {
-    /// Reject pages with more than 16 steps or oversized steps.
-    ///
-    /// # Errors
-    ///
-    /// Returns the first violated [`ApiShapeError`].
-    pub fn check_shape(&self) -> Result<(), ApiShapeError> {
-        if self.steps.len() > MAX_ROTATIONS_PER_CALL {
-            return Err(ApiShapeError::TooManyRotations);
-        }
-        self.steps
-            .iter()
-            .try_for_each(SccpRotationStepV1::check_shape)
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// JSON helper: padded standard base64 for byte strings
-// ---------------------------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------------------------
-// Capabilities
-// ---------------------------------------------------------------------------------------------
-
-/// One member of the current generation with its liveness (`GET /v1/sccp/capabilities`).
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Decode,
-    Encode,
-    norito::derive::JsonSerialize,
-    norito::derive::JsonDeserialize,
-)]
-#[norito(no_fast_from_json)]
-#[norito(decode_from_slice)]
-#[norito(deny_unknown_fields)]
-#[derive(norito::NoritoSchema)]
-#[norito_schema(name = "iroha_sccp::api::SccpMemberLivenessV1")]
-pub struct SccpMemberLivenessV1 {
-    /// Member index in the generation.
-    pub index: u8,
-    /// Bridge-key address; zero for a keyless slot.
-    pub address: [u8; 20],
-    /// Last height this address signed, if any.
-    #[norito(required)]
-    pub last_signed_height: Option<u64>,
-}
 
 /// One open SCCP governance proposal (`GET /v1/sccp/governance/proposals`, §4.14.5 item 4).
 ///
@@ -746,7 +460,7 @@ pub struct SccpGovernanceProposalStatusV1 {
     pub latest_attempt: Option<iroha_data_model::governance::types::GovernanceAttemptV1>,
 }
 
-/// A rotation subject whose handoff is not attested yet (§4.3.3).
+/// The light-client profile one source chain runs under for the next Taira block (§4.13.2, §6).
 #[derive(
     Debug,
     Clone,
@@ -763,18 +477,33 @@ pub struct SccpGovernanceProposalStatusV1 {
 #[norito(decode_from_slice)]
 #[norito(deny_unknown_fields)]
 #[derive(norito::NoritoSchema)]
-#[norito_schema(name = "iroha_sccp::api::SccpPendingHandoffV1")]
-pub struct SccpPendingHandoffV1 {
-    /// Rotation height.
-    pub height: u64,
-    /// Outgoing generation.
-    pub generation: u64,
-    /// Whether it stayed unattested for `attestation_stall_ms` of Taira time.
-    pub stalled: bool,
+#[norito_schema(name = "iroha_sccp::api::SccpLcProfileStatusV1")]
+pub struct SccpLcProfileStatusV1 {
+    /// External source chain.
+    pub network: SccpNetworkV1,
+    /// Active compiled profile version (1 until the Parliament activates another).
+    pub version: u32,
+    /// Profile hash of the version: the hash the activation recorded, or the compiled hash of
+    /// version 1.
+    pub profile_hash: [u8; 32],
+    /// First Taira height verifying under the version; `None` for version 1 (from genesis).
+    #[norito(required)]
+    pub activation_height: Option<u64>,
+    /// Parliament proposal that activated the version; `None` for version 1.
+    #[norito(required)]
+    pub proposal_id: Option<[u8; 32]>,
+    /// Unix time (ms) from which source evidence lies beyond the version's `supported_until`
+    /// and fails closed; wallets stop burning seven days before it (§7.2).
+    #[norito(required)]
+    pub supported_until_ms: Option<u64>,
 }
 
-/// `GET /v1/sccp/capabilities`: the Taira identity, parameters and attestation health a wallet
-/// reads before any flow (§6, §7.1).
+/// `GET /v1/sccp/capabilities`: the Taira identity, parameters and light-client profiles a
+/// wallet reads before any flow (§6, §7.1).
+///
+/// TODO: Torii work package (TT-A1): add the finality constants, the current committee
+/// generation with its deadline, the liability clock, the forgery-hold summary, the seated
+/// panel ids and the launch-gate state of §6.
 #[derive(
     Debug,
     Clone,
@@ -801,15 +530,22 @@ pub struct SccpCapabilitiesV1 {
     pub parameters: Option<iroha_data_model::sccp::params::SccpParametersV1>,
     /// Latest committed Taira height.
     pub committed_height: u64,
-    /// Highest attested subject height, if any.
-    #[norito(required)]
-    pub latest_attested_height: Option<u64>,
-    /// Current roster generation (0 before the first).
-    pub current_generation: u64,
-    /// Members of the current generation.
-    pub members: Vec<SccpMemberLivenessV1>,
-    /// Unattested rotation subjects, oldest first.
-    pub pending_handoffs: Vec<SccpPendingHandoffV1>,
+    /// Active light-client profile of every external source chain, in network order.
+    pub light_client_profiles: Vec<SccpLcProfileStatusV1>,
+    /// Taira chain id.
+    pub chain_id: String,
+    /// Newest compiled source-chain profile of every network in the running release (§4.13.2),
+    /// in network order. The chain verifies under `light_client_profiles`, which may name an
+    /// older version until the Parliament activates the newer one.
+    pub profiles: Vec<SccpChainProfileViewV1>,
+    /// Keccak-256 commitment to the version and profile hash active at the next block for every
+    /// network (`SccpLcActiveProfilesV1::policy_hash`, the versions `light_client_profiles`
+    /// lists): the SCCP light-client input of the confidential policy digest (§4.13.2).
+    pub profiles_policy_hash: [u8; 32],
+    /// Page limits of the read routes.
+    pub limits: SccpReadLimitsV1,
+    /// Path templates of the SCCP read routes this peer serves.
+    pub path_templates: Vec<String>,
 }
 
 /// Norito JSON field helper for `Vec<u8>` as padded standard base64 (RFC 4648 §4), the
@@ -904,59 +640,24 @@ mod tests {
     use norito::{NoritoSchema as _, codec::DecodeAll, core::DecodeFromSlice, json::Value};
 
     use super::*;
-    use crate::v1::{
-        hashes::keccak256,
-        signature::{address_of_secret, sign_digest},
-    };
-
-    const TAIRA: [u8; 32] = [0x11; 32];
+    use crate::v1::{hashes::keccak256, signature::sign_digest};
 
     fn secret(index: u8) -> [u8; 32] {
         keccak256(&[b"SCCP/API/TEST/KEY", &[index]])
     }
 
-    fn roster(generation: u64) -> RosterV1 {
-        let mut members: Vec<[u8; 20]> = (0..3)
-            .map(|index| address_of_secret(&secret(index)).expect("valid secret"))
-            .collect();
-        members.push([0; 20]);
-        members.sort_unstable();
-        RosterV1 {
-            generation,
-            valid_from_ms: 1_800_000_000_000,
-            valid_until_ms: 1_800_000_000_000 + 14 * 86_400_000,
-            members,
-        }
-    }
-
-    fn statement(roster: &RosterV1, next: [u8; 32]) -> SccpAttestationStatementV1 {
-        SccpAttestationStatementV1 {
-            height: 100,
-            epoch: 3,
-            timestamp_ms: 1_800_000_100_000,
-            block_hash: [0xb1; 32],
-            sccp_root: [0xc2; 32],
-            message_count: 3,
-            history_root: [0xd3; 32],
-            history_size: 2,
-            roster_digest: roster.digest(&TAIRA).expect("valid roster"),
-            next_roster_digest: next,
-        }
-    }
-
-    fn signatures(roster: &RosterV1, digest: &[u8; 32]) -> SccpSignatureSetV1 {
-        let entries: Vec<(usize, [u8; 65])> = (0..3)
+    /// Three signatures of a four-slot set over one digest, as the API view.
+    fn signatures() -> SccpSignatureSetV1 {
+        let digest = keccak256(&[b"SCCP/API/TEST/DIGEST"]);
+        let entries: Vec<(usize, [u8; 65])> = (0..3_u8)
             .map(|key| {
-                let address = address_of_secret(&secret(key)).expect("valid secret");
-                let index = roster
-                    .members
-                    .iter()
-                    .position(|member| *member == address)
-                    .expect("member");
-                (index, sign_digest(&secret(key), digest).expect("signature"))
+                (
+                    usize::from(key) + 1,
+                    sign_digest(&secret(key), &digest).expect("signature"),
+                )
             })
             .collect();
-        let set = SignatureSetV1::from_signers(roster.n(), &entries).expect("set");
+        let set = SignatureSetV1::from_signers(4, &entries).expect("set");
         SccpSignatureSetV1::try_from(&set).expect("view")
     }
 
@@ -971,9 +672,6 @@ mod tests {
     }
 
     fn message_bundle(history: Option<SccpHistoryProofV1>) -> SccpMessageProofBundleV1 {
-        let roster = roster(7);
-        let statement = statement(&roster, [0; 32]);
-        let digest = AttestationFieldsV1::from(statement).digest(&TAIRA);
         SccpMessageProofBundleV1 {
             message_id: [0x0a; 32],
             payload: vec![0x02, 0x01, 0xaa, 0xbb],
@@ -981,16 +679,11 @@ mod tests {
             leaf_index: 1,
             message_count: 3,
             path: vec![[0x01; 32], [0x02; 32]],
-            statement,
-            digest,
-            signatures: signatures(&roster, &digest),
-            roster: SccpRosterViewV1::from_roster(&roster, &TAIRA).expect("view"),
             history,
         }
     }
 
     fn control_bundle(history: Option<SccpHistoryProofV1>) -> SccpControlProofBundleV1 {
-        let bundle = message_bundle(history.clone());
         SccpControlProofBundleV1 {
             network: SccpNetworkV1::EthereumMainnet,
             revision: 1,
@@ -999,29 +692,7 @@ mod tests {
             leaf_index: 2,
             message_count: 3,
             path: vec![[0x03; 32]],
-            statement: bundle.statement,
-            digest: bundle.digest,
-            roster: bundle.roster,
-            signatures: bundle.signatures,
             history,
-        }
-    }
-
-    fn rotation_chain(first_unattested_handoff: Option<u64>) -> SccpRotationChainV1 {
-        let current = roster(7);
-        let next = roster(8);
-        let next_view = SccpRosterViewV1::from_roster(&next, &TAIRA).expect("view");
-        let statement = statement(&current, next_view.digest);
-        let digest = AttestationFieldsV1::from(statement).digest(&TAIRA);
-        SccpRotationChainV1 {
-            steps: vec![SccpRotationStepV1 {
-                statement,
-                digest,
-                signatures: signatures(&current, &digest),
-                current_roster: SccpRosterViewV1::from_roster(&current, &TAIRA).expect("view"),
-                next_roster: next_view,
-            }],
-            first_unattested_handoff,
         }
     }
 
@@ -1087,12 +758,16 @@ mod tests {
     #[test]
     fn api_shape_errors_display_their_bounds() {
         assert_eq!(
-            ApiShapeError::TooManyMembers.to_string(),
-            "a roster has at most 31 members"
+            ApiShapeError::BadSignatureCount.to_string(),
+            "a signature set has one signature per set bitmap bit and at most 31"
         );
         assert_eq!(
-            ApiShapeError::TooManyRotations.to_string(),
-            "a rotation chain page has at most 16 steps"
+            ApiShapeError::BlockPathTooLong.to_string(),
+            "a block path has at most 9 siblings"
+        );
+        assert_eq!(
+            ApiShapeError::HistoryPathTooLong.to_string(),
+            "a history path has at most 32 siblings"
         );
         let boxed: Box<dyn std::error::Error> = Box::new(ApiShapeError::PayloadTooLong);
         assert!(boxed.to_string().contains("4096"));
@@ -1100,10 +775,6 @@ mod tests {
 
     #[test]
     fn api_schema_names_are_stable() {
-        assert_eq!(
-            SccpRosterViewV1::nominal_name(),
-            "iroha_sccp::api::SccpRosterViewV1"
-        );
         assert_eq!(
             SccpSignatureSetV1::nominal_name(),
             "iroha_sccp::api::SccpSignatureSetV1"
@@ -1121,13 +792,36 @@ mod tests {
             "iroha_sccp::api::SccpControlProofBundleV1"
         );
         assert_eq!(
-            SccpRotationStepV1::nominal_name(),
-            "iroha_sccp::api::SccpRotationStepV1"
+            SccpLcProfileStatusV1::nominal_name(),
+            "iroha_sccp::api::SccpLcProfileStatusV1"
         );
-        assert_eq!(
-            SccpRotationChainV1::nominal_name(),
-            "iroha_sccp::api::SccpRotationChainV1"
-        );
+    }
+
+    #[test]
+    fn light_client_profile_status_roundtrips_and_is_closed() {
+        let genesis = SccpLcProfileStatusV1 {
+            network: SccpNetworkV1::EthereumMainnet,
+            version: 1,
+            profile_hash: [0x11; 32],
+            activation_height: None,
+            proposal_id: None,
+            supported_until_ms: Some(1_814_313_600_000),
+        };
+        let activated = SccpLcProfileStatusV1 {
+            network: SccpNetworkV1::TonMainnet,
+            version: 2,
+            profile_hash: [0x22; 32],
+            activation_height: Some(1_234),
+            proposal_id: Some([0x33; 32]),
+            supported_until_ms: None,
+        };
+        for status in [genesis, activated] {
+            roundtrip(&status);
+            assert_rejects_unknown_field(&status);
+            for field in ["activation_height", "proposal_id", "supported_until_ms"] {
+                assert_requires_field(&status, field);
+            }
+        }
     }
 
     #[test]
@@ -1136,27 +830,91 @@ mod tests {
         roundtrip(&message_bundle(Some(history())));
         roundtrip(&control_bundle(None));
         roundtrip(&control_bundle(Some(history())));
-        roundtrip(&rotation_chain(None));
-        roundtrip(&rotation_chain(Some(151)));
-        roundtrip(&SccpRotationChainV1::default());
         roundtrip(&history());
-        roundtrip(&message_bundle(None).roster);
-        roundtrip(&message_bundle(None).signatures);
+        roundtrip(&signatures());
+        roundtrip(&SccpSignatureSetV1::default());
     }
 
     #[test]
     fn api_json_objects_are_closed_and_complete() {
         assert_rejects_unknown_field(&message_bundle(None));
         assert_rejects_unknown_field(&control_bundle(Some(history())));
-        assert_rejects_unknown_field(&rotation_chain(None));
         assert_rejects_unknown_field(&history());
-        assert_rejects_unknown_field(&message_bundle(None).roster);
-        assert_rejects_unknown_field(&message_bundle(None).signatures);
+        assert_rejects_unknown_field(&signatures());
         assert_requires_field(&message_bundle(None), "history");
         assert_requires_field(&message_bundle(None), "payload");
         assert_requires_field(&control_bundle(None), "history");
         assert_requires_field(&control_bundle(None), "control_nonce");
-        assert_requires_field(&rotation_chain(None), "first_unattested_handoff");
+    }
+
+    #[test]
+    fn bundles_carry_no_attestation_roster_or_signature_field() {
+        // The attestation transport is gone: a bundle that still names one of its fields is not
+        // a bundle.
+        let retired = ["statement", "digest", "roster", "signatures"];
+        let message = norito::json::to_value(&message_bundle(None)).expect("JSON value");
+        let control = norito::json::to_value(&control_bundle(None)).expect("JSON value");
+        for field in retired {
+            assert!(message.get(field).is_none(), "{field}");
+            assert!(control.get(field).is_none(), "{field}");
+            let mut hostile = message.clone();
+            hostile
+                .as_object_mut()
+                .expect("object")
+                .insert(field.to_owned(), Value::Null);
+            let text = norito::json::to_json(&hostile).expect("JSON");
+            assert!(
+                norito::json::from_json::<SccpMessageProofBundleV1>(&text).is_err(),
+                "{text}"
+            );
+            let mut hostile = control.clone();
+            hostile
+                .as_object_mut()
+                .expect("object")
+                .insert(field.to_owned(), Value::Null);
+            let text = norito::json::to_json(&hostile).expect("JSON");
+            assert!(
+                norito::json::from_json::<SccpControlProofBundleV1>(&text).is_err(),
+                "{text}"
+            );
+        }
+        let message_fields: Vec<&str> = message
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            message_fields,
+            [
+                "deadline_ms",
+                "history",
+                "leaf_index",
+                "message_count",
+                "message_id",
+                "path",
+                "payload",
+            ]
+        );
+        let control_fields: Vec<&str> = control
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            control_fields,
+            [
+                "control_nonce",
+                "history",
+                "leaf_index",
+                "message_count",
+                "network",
+                "path",
+                "paused",
+                "revision",
+            ]
+        );
     }
 
     #[test]
@@ -1167,8 +925,11 @@ mod tests {
             json.get("payload").and_then(Value::as_str),
             Some("AgGquw==")
         );
-        let digest = json.get("digest").and_then(Value::as_str).expect("digest");
-        assert_eq!(digest.len(), 64);
+        let message_id = json
+            .get("message_id")
+            .and_then(Value::as_str)
+            .expect("message id");
+        assert_eq!(message_id, "0A".repeat(32));
         assert!(json.get("history").expect("history key").is_null());
         let mut hostile = json.clone();
         hostile
@@ -1211,65 +972,15 @@ mod tests {
     }
 
     #[test]
-    fn statement_and_attestation_fields_convert_both_ways() {
-        let roster = roster(7);
-        let statement = statement(&roster, [0x5d; 32]);
-        let fields = AttestationFieldsV1::from(statement);
-        assert_eq!(fields.height, 100);
-        assert_eq!(fields.epoch, 3);
-        assert_eq!(fields.timestamp_ms, 1_800_000_100_000);
-        assert_eq!(fields.block_hash, [0xb1; 32]);
-        assert_eq!(fields.sccp_root, [0xc2; 32]);
-        assert_eq!(fields.message_count, 3);
-        assert_eq!(fields.history_root, [0xd3; 32]);
-        assert_eq!(fields.history_size, 2);
-        assert_eq!(fields.roster_digest, statement.roster_digest);
-        assert_eq!(fields.next_roster_digest, [0x5d; 32]);
-        assert_eq!(SccpAttestationStatementV1::from(fields), statement);
-    }
-
-    #[test]
-    fn roster_view_converts_and_checks_the_threshold() {
-        let roster = roster(7);
-        let view = SccpRosterViewV1::from_roster(&roster, &TAIRA).expect("view");
-        assert_eq!(view.threshold, 3);
-        assert_eq!(view.digest, roster.digest(&TAIRA).expect("digest"));
-        assert_eq!(view.to_roster().expect("roster"), roster);
-        let mut bad_threshold = view.clone();
-        bad_threshold.threshold = 4;
-        assert_eq!(bad_threshold.to_roster(), Err(RosterError::BadThreshold));
-        let mut unordered = view.clone();
-        unordered.members.reverse();
-        assert_eq!(unordered.to_roster(), Err(RosterError::BadOrder));
-        let mut too_small = view.clone();
-        too_small.members.truncate(3);
-        assert_eq!(too_small.to_roster(), Err(RosterError::BadSize));
-        let mut too_many = view.clone();
-        too_many.members = vec![[1; 20]; 32];
-        assert_eq!(too_many.check_shape(), Err(ApiShapeError::TooManyMembers));
-        assert_eq!(view.check_shape(), Ok(()));
-        let empty = RosterV1 {
-            members: Vec::new(),
-            ..roster
-        };
-        assert_eq!(
-            SccpRosterViewV1::from_roster(&empty, &TAIRA),
-            Err(RosterError::BadSize)
-        );
-    }
-
-    #[test]
     fn signature_set_view_converts_and_checks_counts() {
-        let bundle = message_bundle(None);
-        let set = bundle.signatures.to_signature_set();
+        let view = signatures();
+        let set = view.to_signature_set();
         assert_eq!(set.signatures.len(), 3 * SIGNATURE_BYTES);
-        assert_eq!(set.signer_bitmap, bundle.signatures.signer_bitmap);
-        assert_eq!(
-            SccpSignatureSetV1::try_from(&set).expect("view"),
-            bundle.signatures
-        );
-        assert_eq!(bundle.signatures.popcount(), 3);
-        assert_eq!(bundle.signatures.check_shape(), Ok(()));
+        assert_eq!(set.signer_bitmap, view.signer_bitmap);
+        assert_eq!(set.signer_bitmap, 0b1110);
+        assert_eq!(SccpSignatureSetV1::try_from(&set).expect("view"), view);
+        assert_eq!(view.popcount(), 3);
+        assert_eq!(view.check_shape(), Ok(()));
         let ragged = SignatureSetV1 {
             signer_bitmap: 1,
             signatures: vec![0; 64],
@@ -1278,10 +989,19 @@ mod tests {
             SccpSignatureSetV1::try_from(&ragged),
             Err(ApiShapeError::BadSignatureCount)
         );
-        let mut mismatched = bundle.signatures.clone();
+        let mut mismatched = view;
         mismatched.signatures.pop();
         assert_eq!(
             mismatched.check_shape(),
+            Err(ApiShapeError::BadSignatureCount)
+        );
+        // More signatures than any committee has seats, even with a matching bitmap.
+        let oversized = SccpSignatureSetV1 {
+            signer_bitmap: u32::MAX,
+            signatures: vec![[0; 65]; 32],
+        };
+        assert_eq!(
+            oversized.check_shape(),
             Err(ApiShapeError::BadSignatureCount)
         );
     }
@@ -1306,7 +1026,6 @@ mod tests {
         let direct = message_bundle(None);
         assert!(!direct.is_historical());
         assert_eq!(direct.history_proof(), None);
-        assert_eq!(direct.attestation().digest(&TAIRA), direct.digest);
         let proof = direct.message_proof();
         assert_eq!(proof.payload, direct.payload);
         assert_eq!(proof.leaf_index, 1);
@@ -1332,7 +1051,6 @@ mod tests {
 
         let control = control_bundle(Some(history()));
         assert!(control.is_historical());
-        assert_eq!(control.attestation().digest(&TAIRA), control.digest);
         let control_proof = control.control_proof();
         assert_eq!(control_proof.control_nonce, 2);
         assert!(control_proof.paused);
@@ -1346,25 +1064,16 @@ mod tests {
             Err(ApiShapeError::BlockPathTooLong)
         );
         assert!(!control_bundle(None).is_historical());
-    }
-
-    #[test]
-    fn rotation_chain_shape_is_bounded() {
-        let chain = rotation_chain(None);
-        assert_eq!(chain.check_shape(), Ok(()));
-        let step = &chain.steps[0];
-        assert_eq!(step.attestation().digest(&TAIRA), step.digest);
-        assert!(step.attestation().is_rotation());
-        let long = SccpRotationChainV1 {
-            steps: vec![step.clone(); MAX_ROTATIONS_PER_CALL + 1],
-            first_unattested_handoff: None,
-        };
-        assert_eq!(long.check_shape(), Err(ApiShapeError::TooManyRotations));
-        let mut bad_step = step.clone();
-        bad_step.signatures.signer_bitmap = 0;
+        // A history path beyond 32 siblings is refused through either bundle.
+        let mut long_history = history();
+        long_history.path = vec![[0; 32]; MAX_HISTORY_PATH + 1];
         assert_eq!(
-            bad_step.check_shape(),
-            Err(ApiShapeError::BadSignatureCount)
+            message_bundle(Some(long_history.clone())).check_shape(),
+            Err(ApiShapeError::HistoryPathTooLong)
+        );
+        assert_eq!(
+            control_bundle(Some(long_history)).check_shape(),
+            Err(ApiShapeError::HistoryPathTooLong)
         );
     }
 }

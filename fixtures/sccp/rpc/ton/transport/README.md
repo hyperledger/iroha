@@ -2,7 +2,14 @@
 
 Recorded `liteServer.*` exchanges and an ADNL-TCP handshake vector, replayed by
 `crates/iroha_sccp_rpc/tests/ton_liteclient.rs` through an in-process mock
-liteserver. The tests never reach the network.
+liteserver. `iroha_sccp` also decodes the answers
+(`crates/iroha_sccp/src/test_support/ton_capture.rs`) and runs them through the
+TON light client and its native primitives
+(`crates/iroha_sccp/src/test_fixtures/ton_mainnet_capture_tests.rs` and
+`light_client/ton/tests.rs`): the key-block bootstrap, the config-28 shuffle
+against the subset hash of real headers, the Simplex signatures of a block and
+of a key-block hop, and proofs that prune `state_update` (`specs/sccp.md`
+§4.13.3). The tests never reach the network.
 
 ## `recorded.json` and `answers/`
 

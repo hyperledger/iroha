@@ -139,7 +139,9 @@ fn raw_selector_preparation_refusal_retries_the_same_state_owner() {
     let cache = view.prepared_contract_cache();
     let budget = cache.execution_budget();
     let bytes = kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku PrepassFunding { kotoage fn main() authorize(\"Run\") {} }")
+        .compile_source(
+            "seiyaku PrepassFunding { permission Run;  kotoage fn main() authorize(Run) {} }",
+        )
         .unwrap();
     let original_limit = budget.limit_bytes();
     let baseline = budget.reserved_bytes();

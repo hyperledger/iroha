@@ -1,12 +1,16 @@
 seiyaku __CONTRACT_NAME__ {
-    view fn main() -> Json {
+    view fn main() authorize(anyone) -> Json {
         return json {
             app: "__APP_NAME__",
             status: "ready",
         };
     }
 
-    view fn serve_healthz(bytes _request_body, Json _request_meta, int observed_height) -> Json {
+    view fn serve_healthz(
+        bytes _request_body,
+        Json _request_meta,
+        int observed_height,
+    ) authorize(anyone) -> Json {
         return json {
             app: "__APP_NAME__",
             observed_height: observed_height,

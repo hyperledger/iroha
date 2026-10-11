@@ -1,5 +1,5 @@
 
-        seiyaku C {
+        seiyaku C { permission WriteState;
             struct PolicyState {
                 int version,
                 bytes document,
@@ -24,7 +24,7 @@
                 };
             }
 
-            kotoage fn main() -> int authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) -> int {
                 let policy = Policies.get(Name::parse("missing")).unwrap_or(
                     observed_fallback(),
                 );

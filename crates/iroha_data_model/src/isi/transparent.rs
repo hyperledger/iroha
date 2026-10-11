@@ -1114,10 +1114,7 @@ impl<'a> norito::core::DecodeFromSlice<'a> for InvalidInstruction {
             super::read_aos_field(bytes, &mut offset, flags)?,
             flags,
         )?;
-        let payload_hash = super::decode_aos_canonical_field::<[u8; 32]>(
-            super::read_aos_field(bytes, &mut offset, flags)?,
-            flags,
-        )?;
+        let payload_hash = super::decode_aos_byte_array_field::<32>(bytes, &mut offset, flags)?;
         let message = super::decode_aos_canonical_field::<String>(
             super::read_aos_field(bytes, &mut offset, flags)?,
             flags,

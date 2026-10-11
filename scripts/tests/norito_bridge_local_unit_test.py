@@ -47,7 +47,7 @@ def originals():
                'source_changes': [], 'source_before': source, 'source_after': source,
                'finished_unix': 12, 'native_companion_sha256': 'c' * 64}
     component = {'emitter_path': '/owned/emitter.json', 'emitter_sha256': 'd' * 64,
-                 'qualified': True, 'observed_abi_version': 25,
+                 'qualified': True, 'observed_abi_version': 29,
                  'artifact_path': '/owned/retained/lib.dylib', 'artifact_sha256': 'c' * 64,
                  'source_before': source, 'source_after': source,
                  'toolchain_before': tools, 'toolchain_after': tools,
@@ -72,6 +72,33 @@ def test_inert_emitter_component_static_relationship_parser_positive(originals):
     assert actual == originals[1]['static_capture']['actual_cargo_artifact']
     assert set(actual['target']['crate_types']) == {'cdylib', 'staticlib', 'rlib'}
     assert type(actual['fresh']) is bool
+
+
+def test_child_environment_keeps_scratch_inside_original_private_capture(tmp_path, monkeypatch):
+    root = tmp_path / 'source'; output = root / 'target/qualification/capture'
+    output.mkdir(parents=True, mode=0o700); (output / 'temporary').mkdir(mode=0o700)
+    monkeypatch.setenv('TMPDIR', '/unrelated/temporary')
+    config = {'developer_dir': '/stock/Developer'}
+    selected = unit.child_environment(root, output, config)
+    assert selected == {'HOME': str(Path.home()), 'PATH': '/usr/bin:/bin',
+                        'TMPDIR': str(output / 'temporary'), 'LANG': 'C.UTF-8',
+                        'LC_ALL': 'C.UTF-8', 'DEVELOPER_DIR': '/stock/Developer'}
+
+
+@pytest.mark.parametrize('change', ('missing', 'public', 'alias', 'file', 'external-output'))
+def test_child_scratch_rejects_nonprivate_or_redirected_storage(tmp_path, change):
+    root = tmp_path / 'source'; output = root / 'target/qualification/capture'
+    output.mkdir(parents=True, mode=0o700); temporary = output / 'temporary'
+    if change == 'public': temporary.mkdir(mode=0o755)
+    elif change == 'alias':
+        other = output / 'other'; other.mkdir(mode=0o700)
+        temporary.symlink_to(other, target_is_directory=True)
+    elif change == 'file': temporary.write_bytes(b'not a directory')
+    elif change == 'external-output':
+        output = tmp_path / 'external'; output.mkdir(mode=0o700)
+        (output / 'temporary').mkdir(mode=0o700)
+    with pytest.raises((RuntimeError, FileNotFoundError)):
+        unit.child_environment(root, output, {'developer_dir': '/stock/Developer'})
 
 
 
@@ -101,8 +128,18 @@ def test_wrong_stale_archive_emitter_source_tool_and_component_relationship_refu
 
 def test_current_repository_owned_c_jni_and_privacy_policy_is_exact():
     policy = unit.native_policy(ROOT)
-    assert len(policy['c_jni']) == 114
+    assert len(policy['c_jni']) == 88
+    assert sum(symbol.startswith('connect_norito_kagemusha_wallet_') for symbol in policy['c_jni']) == 27
+    assert sum('offline_wallet_KagemushaWalletNativeV1_' in symbol for symbol in policy['c_jni']) == 15
+    for method in ('beginInstallation', 'registerInstallation', 'closeInstallation', 'relocateRegistrationSource'):
+        assert 'Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_' + method in policy['c_jni']
+    assert 'Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_installRuntime' not in policy['c_jni']
+    assert "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletLoadOriginalNativeV1_validate" in policy["c_jni"]
     assert len(policy['privacy']) == 6
+    assert 'connect_norito_kagemusha_wallet_setup_v1' in policy['required']
+    assert 'Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_setup' in policy['required']
+    assert 'connect_norito_kagemusha_wallet_snapshot_v1' in policy['required']
+    assert 'Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_snapshot' in policy['required']
     assert set(policy['c_jni']) <= set(policy['required'])
 
 
@@ -119,6 +156,58 @@ def test_release_ios_and_other_scope_refusal(scope, platform, configuration, ext
 
 def test_local_unit_debug_host_is_the_only_policy_positive():
     unit.host_policy('local-unit', 'macos', 'debug')
+
+
+def artifact_directory(tmp_path):
+    """Inert filesystem fixture for artifact path custody, never a copied checkout."""
+    root = tmp_path.resolve() / 'root'
+    parent = root / 'target' / 'qualification' / 'native-sdk'
+    parent.mkdir(parents=True, mode=0o700)
+    return root, parent
+
+
+def test_artifact_output_stays_create_only_inside_owned_checkout_lane(tmp_path):
+    root, parent = artifact_directory(tmp_path)
+    output = parent / 'host'
+    unit.artifact_root(root, output)
+    assert not output.exists()
+    output.mkdir(mode=0o700)
+    with pytest.raises(unit.Refused, match='create-only'):
+        unit.artifact_root(root, output)
+
+
+@pytest.mark.parametrize('relative', ('../outside', 'crates/generated', 'target/other',
+                                    'target/qualification'))
+def test_artifact_output_refuses_external_and_source_destinations(tmp_path, relative):
+    root, _ = artifact_directory(tmp_path)
+    output = (root / relative).resolve()
+    with pytest.raises(unit.Refused, match='target/qualification'):
+        unit.artifact_root(root, output)
+    assert not output.exists() or output == root / 'target' / 'qualification'
+
+
+def test_artifact_output_refuses_public_parent_and_symbolic_ancestors(tmp_path):
+    root, parent = artifact_directory(tmp_path)
+    parent.chmod(0o755)
+    with pytest.raises(unit.Refused, match='mode0700'):
+        unit.artifact_root(root, parent / 'host')
+    parent.chmod(0o700)
+    alias = parent.parent / 'alias'
+    alias.symlink_to(parent, target_is_directory=True)
+    with pytest.raises(unit.Refused, match='canonical'):
+        unit.artifact_root(root, alias / 'host')
+    output = parent / 'host'
+    output.symlink_to(parent / 'missing')
+    with pytest.raises(unit.Refused, match='create-only'):
+        unit.artifact_root(root, output)
+
+
+def test_artifact_output_refuses_noncanonical_and_relative_paths(tmp_path):
+    root, parent = artifact_directory(tmp_path)
+    with pytest.raises(unit.Refused, match='absolute canonical'):
+        unit.artifact_root(root, Path('target/qualification/host'))
+    with pytest.raises(unit.Refused, match='absolute canonical'):
+        unit.artifact_root(root, parent / '..' / 'host')
 
 
 def command_fixture():
@@ -239,7 +328,7 @@ def test_make_dependency_words_are_not_shell_evaluated():
 
 def manifest_fixture():
     return {'schema': unit.SCHEMA, 'artifact_scope': 'local-unit', 'purpose': unit.PURPOSE,
-            'version': '0.1.0', 'native_bridge_abi_version': 25,
+            'version': '0.1.0', 'native_bridge_abi_version': 29,
             'target_triple': 'aarch64-apple-darwin', 'hashes': {'macos-arm64': 'a' * 64},
             'producer_record': '/owned/producer-record.json', 'producer_record_sha256': 'b' * 64,
             'source_inputs': {'inert-source': 'c' * 64}, 'tool_inputs': {'inert-tool': 'd' * 64},

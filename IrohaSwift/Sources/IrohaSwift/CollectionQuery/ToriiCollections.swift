@@ -449,6 +449,8 @@ public struct ToriiAssetDefinition: ToriiIdentifiedRow, Equatable {
     public let alias: String?
     public let ownedBy: String?
     public let owningDomain: String?
+    /// Immutable direct definition home, kept as exact decimal text independently of balance scope.
+    public let owningDataspace: String?
     public let mintable: String?
     public let description: String?
     public let logo: String?
@@ -466,6 +468,7 @@ public struct ToriiAssetDefinition: ToriiIdentifiedRow, Equatable {
         case alias
         case ownedBy = "owned_by"
         case owningDomain = "owning_domain"
+        case owningDataspace = "owning_dataspace"
         case mintable
         case description
         case logo
@@ -482,6 +485,13 @@ public struct ToriiAssetDefinition: ToriiIdentifiedRow, Equatable {
         alias = try container.decodeIfPresent(String.self, forKey: .alias)
         ownedBy = try container.decodeIfPresent(String.self, forKey: .ownedBy)
         owningDomain = try container.decodeIfPresent(String.self, forKey: .owningDomain)
+        owningDataspace = try container.decodeIfPresent(String.self, forKey: .owningDataspace)
+        if let home = owningDataspace {
+            guard owningDomain == nil, let value = UInt64(home), value != 0, String(value) == home else {
+                throw DecodingError.dataCorruptedError(forKey: .owningDataspace, in: container,
+                    debugDescription: "direct dataspace home must be canonical nonzero u64 text and exclude owning_domain")
+            }
+        }
         mintable = try container.decodeIfPresent(String.self, forKey: .mintable)
         description = try container.decodeIfPresent(String.self, forKey: .description)
         logo = try container.decodeIfPresent(String.self, forKey: .logo)
@@ -498,6 +508,7 @@ public struct ToriiAssetDefinition: ToriiIdentifiedRow, Equatable {
         public static let alias = ToriiField("alias")
         public static let ownedBy = ToriiField("owned_by")
         public static let owningDomain = ToriiField("owning_domain")
+        public static let owningDataspace = ToriiField("owning_dataspace")
         public static let mintable = ToriiField("mintable")
         public static let aliasBindingAlias = ToriiField("alias_binding.alias")
         public static let aliasBindingStatus = ToriiField("alias_binding.status")

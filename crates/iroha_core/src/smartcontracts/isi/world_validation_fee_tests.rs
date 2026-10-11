@@ -391,6 +391,274 @@ fn fee_sponsor_revision_fixture(
         }],
     }
 }
+/// Immutable, exact-input proof fixtures owned only by fee-sponsor unit tests.
+///
+/// The first artifact for each complete request is produced by the unchanged
+/// genuine helper. The lookup mutex is released before production, and callers
+/// receive owned clones so their negative mutations cannot change shared bytes.
+struct VerifiedFeeSponsorProofFixtures {
+    entries: std::sync::Mutex<Vec<VerifiedFeeSponsorProofFixture>>,
+}
+
+struct VerifiedFeeSponsorProofFixture {
+    batch: fastpq_prover::TransitionBatch,
+    binding: iroha_data_model::nexus::AxtFastpqBinding,
+    proof: std::sync::Arc<std::sync::OnceLock<Vec<u8>>>,
+}
+
+impl VerifiedFeeSponsorProofFixtures {
+    const fn new() -> Self {
+        Self {
+            entries: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn get_or_produce(
+        &self,
+        batch: &fastpq_prover::TransitionBatch,
+        binding: &iroha_data_model::nexus::AxtFastpqBinding,
+        produce: impl FnOnce() -> Vec<u8>,
+    ) -> Vec<u8> {
+        let proof = {
+            let mut entries = self.entries.lock().expect("fee-sponsor fixture lookup");
+            if let Some(entry) = entries
+                .iter()
+                .find(|entry| &entry.batch == batch && &entry.binding == binding)
+            {
+                std::sync::Arc::clone(&entry.proof)
+            } else {
+                let proof = std::sync::Arc::new(std::sync::OnceLock::new());
+                entries.push(VerifiedFeeSponsorProofFixture {
+                    batch: batch.clone(),
+                    binding: binding.clone(),
+                    proof: std::sync::Arc::clone(&proof),
+                });
+                proof
+            }
+        };
+        // OnceLock retains only a successful initialization. A genuine producer
+        // panic propagates to its test and leaves this exact request retryable.
+        proof.get_or_init(produce).clone()
+    }
+}
+
+// These values test only cache ownership and complete-key equality. They are
+// never passed to a prover, verifier, instruction, or SDK qualification path.
+fn verified_fee_sponsor_proof_cache_test_key() -> (
+    fastpq_prover::TransitionBatch,
+    iroha_data_model::nexus::AxtFastpqBinding,
+) {
+    let mut batch = fastpq_prover::TransitionBatch::new(
+        fastpq_prover::AXT_DEFAULT_PARAMETER,
+        fastpq_prover::PublicInputs {
+            dsid: [7; 16],
+            slot: 1,
+            old_root: [1; 32],
+            new_root: [2; 32],
+            perm_root: [3; 32],
+            tx_set_hash: [4; 32],
+        },
+    );
+    batch.push(fastpq_prover::StateTransition::new(
+        b"cache-test-account".to_vec(),
+        vec![10],
+        vec![0],
+        fastpq_prover::OperationKind::Transfer,
+    ));
+    batch.metadata.insert(
+        fastpq_prover::AXT_FASTPQ_MANIFEST_ROOT_METADATA_KEY.to_owned(),
+        vec![0x63; 32],
+    );
+    batch.metadata.insert(
+        fastpq_prover::AXT_FASTPQ_DA_COMMITMENT_METADATA_KEY.to_owned(),
+        vec![0; 33],
+    );
+    batch.metadata.insert(
+        fastpq_prover::AXT_FASTPQ_EXPIRY_SLOT_METADATA_KEY.to_owned(),
+        20_u64.to_le_bytes().to_vec(),
+    );
+    let binding = iroha_data_model::nexus::AxtFastpqBinding {
+        parameter: fastpq_prover::AXT_DEFAULT_PARAMETER.to_owned(),
+        source_dsid: 7,
+        source_dataspace: "cache-test-dataspace".to_owned(),
+        source_receipt_id: "cache-test-receipt".to_owned(),
+        source_tx_commitment: "11".repeat(32),
+        claim_type: "tx_predicate".to_owned(),
+        claim_digest: "22".repeat(32),
+        witness_commitment: "33".repeat(32),
+        policy_commitment: "44".repeat(32),
+        verified_effect_type: "fee_sponsor_vault_allocation".to_owned(),
+        corridor: "cache-test-corridor".to_owned(),
+        verifier_id: "fastpq".to_owned(),
+        verifier_version: "v1".to_owned(),
+        target_dsids: vec![0],
+        effect_binding: None,
+        remote_spend_intent_commitments: Vec::new(),
+    };
+    (batch, binding)
+}
+
+#[test]
+fn verified_fee_sponsor_proof_fixtures_keep_policy_da_and_expiry_separate() {
+    let fixtures = VerifiedFeeSponsorProofFixtures::new();
+    let (batch, binding) = verified_fee_sponsor_proof_cache_test_key();
+    let mut wrong_policy = binding.clone();
+    wrong_policy.policy_commitment = "64".repeat(32);
+    let mut with_da = batch.clone();
+    let mut da = vec![1];
+    da.extend_from_slice(&[0x22; 32]);
+    with_da.metadata.insert(
+        fastpq_prover::AXT_FASTPQ_DA_COMMITMENT_METADATA_KEY.to_owned(),
+        da,
+    );
+    let mut later_expiry = batch.clone();
+    later_expiry.metadata.insert(
+        fastpq_prover::AXT_FASTPQ_EXPIRY_SLOT_METADATA_KEY.to_owned(),
+        21_u64.to_le_bytes().to_vec(),
+    );
+    for (index, (batch, binding)) in [
+        (&batch, &binding),
+        (&batch, &wrong_policy),
+        (&with_da, &binding),
+        (&later_expiry, &binding),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let bytes = vec![u8::try_from(index).expect("four fixture contexts")];
+        assert_eq!(
+            fixtures.get_or_produce(batch, binding, || bytes.clone()),
+            bytes
+        );
+        assert_eq!(
+            fixtures.get_or_produce(batch, binding, || panic!("same complete request")),
+            bytes
+        );
+    }
+}
+
+#[test]
+fn verified_fee_sponsor_proof_fixtures_use_complete_batch_and_binding_values() {
+    let fixtures = VerifiedFeeSponsorProofFixtures::new();
+    let (batch, binding) = verified_fee_sponsor_proof_cache_test_key();
+    assert_eq!(
+        fixtures.get_or_produce(&batch, &binding, || vec![0]),
+        vec![0]
+    );
+    let mut requests = Vec::new();
+    let mut different = batch.clone();
+    different.parameter.push_str("-different");
+    requests.push((different, binding.clone()));
+    let mut different = batch.clone();
+    different.public_inputs.old_root[0] ^= 1;
+    requests.push((different, binding.clone()));
+    let mut different = batch.clone();
+    different.transitions[0].pre_value.push(1);
+    requests.push((different, binding.clone()));
+    let mut different = batch.clone();
+    different
+        .metadata
+        .insert("private-witness".to_owned(), vec![1]);
+    requests.push((different, binding.clone()));
+    let mut different = batch.clone();
+    different.metadata.insert(
+        fastpq_prover::AXT_FASTPQ_MANIFEST_ROOT_METADATA_KEY.to_owned(),
+        vec![0x64; 32],
+    );
+    requests.push((different, binding.clone()));
+    let mut different = binding.clone();
+    different.source_dsid += 1;
+    requests.push((batch.clone(), different));
+    let mut different = binding.clone();
+    different.claim_digest = "55".repeat(32);
+    requests.push((batch.clone(), different));
+    let mut different = binding.clone();
+    different.remote_spend_intent_commitments.push([1; 32]);
+    requests.push((batch.clone(), different));
+    for (index, (different_batch, different_binding)) in requests.iter().enumerate() {
+        let bytes = vec![u8::try_from(index + 1).expect("bounded key cases")];
+        assert_eq!(
+            fixtures.get_or_produce(different_batch, different_binding, || bytes.clone()),
+            bytes
+        );
+    }
+    assert_eq!(
+        fixtures.get_or_produce(&batch, &binding, || panic!("original complete request")),
+        vec![0]
+    );
+}
+
+#[test]
+fn verified_fee_sponsor_proof_fixtures_return_independent_owned_bytes() {
+    let fixtures = VerifiedFeeSponsorProofFixtures::new();
+    let (batch, binding) = verified_fee_sponsor_proof_cache_test_key();
+    let mut mutated = fixtures.get_or_produce(&batch, &binding, || vec![1, 2, 3]);
+    mutated[0] ^= 0xFF;
+    mutated.push(4);
+    assert_eq!(
+        fixtures.get_or_produce(&batch, &binding, || panic!("shared value already produced")),
+        vec![1, 2, 3]
+    );
+    assert_ne!(mutated, vec![1, 2, 3]);
+}
+
+#[test]
+fn verified_fee_sponsor_proof_fixtures_produce_once_for_concurrent_equal_requests() {
+    let fixtures = VerifiedFeeSponsorProofFixtures::new();
+    let (batch, binding) = verified_fee_sponsor_proof_cache_test_key();
+    let start = std::sync::Barrier::new(8);
+    let attempts = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        let mut threads = Vec::new();
+        for _ in 0..8 {
+            threads.push(scope.spawn(|| {
+                start.wait();
+                fixtures.get_or_produce(&batch, &binding, || {
+                    assert_eq!(
+                        attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+                        0
+                    );
+                    vec![1, 2, 3]
+                })
+            }));
+        }
+        for thread in threads {
+            assert_eq!(
+                thread.join().expect("cache caller completed"),
+                vec![1, 2, 3]
+            );
+        }
+    });
+    assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn verified_fee_sponsor_proof_fixtures_do_not_cache_panics_or_poison_other_keys() {
+    let fixtures = VerifiedFeeSponsorProofFixtures::new();
+    let (batch, binding) = verified_fee_sponsor_proof_cache_test_key();
+    let failed = std::panic::catch_unwind(|| {
+        fixtures.get_or_produce(&batch, &binding, || panic!("synthetic producer refusal"))
+    });
+    assert!(
+        failed.is_err(),
+        "producer failure must reach its original caller"
+    );
+    let mut unrelated = binding.clone();
+    unrelated.source_dsid += 1;
+    assert_eq!(
+        fixtures.get_or_produce(&batch, &unrelated, || vec![2]),
+        vec![2]
+    );
+    assert_eq!(
+        fixtures.get_or_produce(&batch, &binding, || vec![1]),
+        vec![1]
+    );
+    assert_eq!(
+        fixtures.get_or_produce(&batch, &binding, || panic!("successful retry is cached")),
+        vec![1]
+    );
+}
+
 fn verified_fee_sponsor_registration_fixture(
     frozen_manifest_root: Option<[u8; 32]>,
     proof_manifest_root: [u8; 32],
@@ -574,7 +842,10 @@ fn verified_fee_sponsor_registration_fixture(
         Some(proof_expiry),
     )
     .expect("bind verified fee sponsor proof metadata");
-    let proof = crate::unit_test_support::prove_axt_bound_batch_when_available(&batch, &binding);
+    static PROOFS: VerifiedFeeSponsorProofFixtures = VerifiedFeeSponsorProofFixtures::new();
+    let proof = PROOFS.get_or_produce(&batch, &binding, || {
+        crate::unit_test_support::prove_axt_bound_batch_when_available(&batch, &binding)
+    });
     let proof_blob = fastpq_prover::axt_proof_blob_from_bound_batch(
         &batch,
         proof,

@@ -1,17 +1,17 @@
 
-        seiyaku C {
+        seiyaku C { permission WriteState;
             state StateMap<int, int> Counter;
             state StateMap<Name, int> CountByKey;
             state StateMap<Name, int> IndexById;
             state StateMap<int, int> EntryByPosition;
 
             fn next_index() -> int {
-                let value = Counter.ensure(key: 1, default: 0);
+                let value = Counter.get_or_insert(1, 0);
                 Counter[1] = value + 1;
                 return value;
             }
 
-            kotoage fn main() -> int authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) -> int {
                 let tranche_id = Name::parse("t2");
                 let beneficiary_lookup_key = Name::parse("alice");
                 CountByKey[beneficiary_lookup_key] = 1;

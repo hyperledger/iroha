@@ -18,6 +18,9 @@ mod data_availability_http_tests;
 mod data_availability_query_tests;
 mod dispatch;
 mod gateway_compliance;
+pub mod kagemusha;
+#[cfg(test)]
+mod kagemusha_http_tests;
 mod moderation;
 mod multisig_validation;
 pub mod musubi;
@@ -46,6 +49,8 @@ mod transaction_dispatch_error;
 mod transaction_wait;
 mod validator_committee;
 pub use transaction_wait::TransactionFinalityFailure;
+#[cfg(test)]
+mod confirmation_poll_tests;
 #[cfg(test)]
 mod transaction_wait_tests;
 mod workflow_ledger;
@@ -4396,7 +4401,7 @@ pub struct ZkVkTransactionDraft {
 /// Filters for `/v1/zk/proofs` list/count endpoints.
 #[derive(Debug, Default, Clone)]
 pub struct ZkProofsFilter<'a> {
-    /// Exact backend (e.g., `halo2/ipa`).
+    /// Exact backend (e.g., `pipa-r/pasta`).
     pub backend: Option<&'a str>,
     /// Status filter (`Submitted`, `Verified`, `Rejected`).
     pub status: Option<&'a str>,
@@ -7889,7 +7894,6 @@ impl Client {
         &self,
         lane_id: LaneId,
         account: &str,
-        upto_epoch: Option<u64>,
     ) -> Result<JsonValue> {
         if account.is_empty() {
             return Err(eyre!("account filter must not be empty"));
@@ -7898,12 +7902,9 @@ impl Client {
             &self.torii_url,
             &format!("v1/nexus/public-lanes/{}/rewards/pending", lane_id.as_u32()),
         );
-        let mut req = self
+        let req = self
             .default_request(HttpMethod::GET, url)
             .param("account", account);
-        if let Some(epoch) = upto_epoch {
-            req = req.param("upto_epoch", &epoch);
-        }
         let resp = self.send_builder(req)?;
         Self::ensure_response_status(
             &resp,
@@ -8058,7 +8059,7 @@ fn lifecycle_status() -> LaneLifecycleStatusV1 {
 mod status_tests {
     use super::*;
     use iroha_torii_shared::status::{
-        BuildStatus, CryptoStatus, GovernanceStatus, Halo2Status, StackStatus,
+        BuildStatus, CryptoStatus, DiagnosticTraceStatus, GovernanceStatus, StackStatus,
         SumeragiConsensusStatus,
     };
     use norito::json::Value as JsonValue;
@@ -8088,7 +8089,7 @@ mod status_tests {
             crypto: CryptoStatus {
                 sm_helpers_available: true,
                 sm_openssl_preview_enabled: true,
-                halo2: Halo2Status::default(),
+                trace: DiagnosticTraceStatus::default(),
             },
             sumeragi: Some(SumeragiConsensusStatus::default()),
             governance: GovernanceStatus::default(),
@@ -10465,7 +10466,7 @@ mod evidence_http_tests {
         overrides: &[(&str, norito::json::Value)],
     ) -> norito::json::Value {
         use base64::Engine as _;
-        let backend = "halo2/ipa";
+        let backend = "pipa-r/pasta";
         let vk_bytes = vec![1, 2, 3];
         let mut object = norito::json::Map::new();
         object.insert("backend".into(), norito::json::Value::from(backend));
@@ -10482,7 +10483,7 @@ mod evidence_http_tests {
         );
         object.insert(
             "gas_schedule_id".into(),
-            norito::json::Value::from("halo2_default"),
+            norito::json::Value::from("native_pipa_r_default"),
         );
         object.insert(
             "commitment_hex".into(),
@@ -10512,7 +10513,7 @@ mod evidence_http_tests {
             proof::VerifyingKeyId,
             transaction::FeePaymentIntent,
         };
-        let id = VerifyingKeyId::new("halo2/ipa", "vk_main");
+        let id = VerifyingKeyId::new("pipa-r/pasta", "vk_main");
         let record =
             expected_zk_vk_record_from_request(request).expect("build expected VK draft record");
         let instruction = match operation {
@@ -11506,10 +11507,8 @@ mod evidence_http_tests {
                 view: 3,
                 block_hash: Hash32([seed; 32]),
                 result: Hash32([0x57; 32]),
-                attest: false,
                 signer: 0,
                 sig: NativeSignature([0; SIGNATURE_LEN]),
-                attestation: None,
             };
             vote.sig = NativeSignature(
                 Signature::new(key.private_key(), &vote.preimage())
@@ -15037,6 +15036,8 @@ impl AccountClient {
     ///
     /// Queue-plan ambiguity is retained while finality is reconciled and attached
     /// to an unresolved confirmation error without replaying the transaction.
+    /// Automatic polling uses the shorter configured timeout or remaining context deadline;
+    /// preparation and submission never renew that inherited deadline.
     ///
     /// # Errors
     /// Returns compatibility, transport, rejection, expiry, timeout, or unresolved
@@ -15076,12 +15077,21 @@ impl AccountClient {
         } else {
             client.transaction_status_timeout
         };
+        // Select cadence after preparation and submission from the actual remaining context.
+        // Keep the configured timeout and inherited absolute deadline as the wait's owners;
+        // a long configured timeout must not impose long sleeps on a short original turn.
+        let polling_budget = client
+            .http_transport
+            .deadline()
+            .map_or(timeout, |deadline| {
+                timeout.min(deadline.saturating_duration_since(std::time::Instant::now()))
+            });
         client
             .wait_until_transaction_applied(
                 hash,
                 TransactionWaitOptions {
                     timeout,
-                    poll_interval: Client::tx_confirmation_poll_interval(timeout),
+                    poll_interval: Client::tx_confirmation_poll_interval(polling_budget),
                 },
             )
             .await
@@ -16129,7 +16139,7 @@ impl Client {
     /// # Errors
     /// Returns an error if request serialization, canonical request signing, or
     /// the HTTP call fails.
-    pub fn post_alias_setup_plan(
+    pub async fn post_alias_setup_plan(
         &self,
         request: &AliasSetupPlanRequestV1,
     ) -> Result<Response<Vec<u8>>> {
@@ -16140,13 +16150,20 @@ impl Client {
                 AliasSetupPlanRequestV1::VERSION,
             ));
         }
-        let url = join_torii_url(&self.torii_url, "v1/aliases/setup/plan");
-        let body = norito::json::to_vec(request)?;
-        self.send_builder(
+        // The address context is thread-local. Finish encoding and signing
+        // before awaiting transport so another task never inherits this guard.
+        let prepared = {
+            let _format = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
+                self.account_chain_discriminant,
+            );
+            let url = join_torii_url(&self.torii_url, "v1/aliases/setup/plan");
+            let body = norito::json::to_vec(request)?;
             self.account_signed_request(HttpMethod::POST, url, body)?
                 .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
-                .header(http::header::ACCEPT, APPLICATION_JSON),
-        )
+                .header(http::header::ACCEPT, APPLICATION_JSON)
+                .build()?
+        };
+        self.dispatch_request(prepared).await
     }
     /// Request and fully verify one executable alias setup plan.
     ///
@@ -16157,11 +16174,11 @@ impl Client {
     /// # Errors
     /// Returns an error for request failures, non-success planner responses,
     /// malformed JSON, an invalid plan, an authority/network mismatch, or expiry.
-    pub fn plan_alias_setup(
+    pub async fn plan_alias_setup(
         &self,
         request: &AliasSetupPlanRequestV1,
     ) -> Result<AliasTransactionPlanV1> {
-        let response = self.post_alias_setup_plan(request)?;
+        let response = self.post_alias_setup_plan(request).await?;
         if response.status() != StatusCode::OK {
             let status = response.status();
             let detail = String::from_utf8_lossy(response.body());
@@ -16185,6 +16202,9 @@ impl Client {
                 }
             ));
         }
+        let _format = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
+            self.account_chain_discriminant,
+        );
         let plan: AliasTransactionPlanV1 = norito::json::from_slice(response.body())
             .wrap_err("decode alias setup transaction plan")?;
         self.verify_alias_setup_plan_for_request(request, &plan)?;
@@ -23770,7 +23790,7 @@ mod tests {
                 "authority": (authority.as_str()),
                 "network_id": (client.network_id.clone()),
                 "election_id": "election-1",
-                "backend": "halo2/ipa",
+                "backend": "pipa-r/pasta",
                 "envelope_b64": "cHJvb2Y="
             });
             payload
@@ -23817,7 +23837,7 @@ mod tests {
                             "authority": (authority.as_str()),
                             "network_id": (client.network_id.clone()),
                             "election_id": "election-1",
-                            "backend": "halo2/ipa",
+                            "backend": "pipa-r/pasta",
                             "envelope_b64": "cHJvb2Y="
                         }))
                         .expect("exact-network ZK ballot draft");
@@ -25153,21 +25173,19 @@ mod tests {
                 .contains("decode account-alias")
         );
     }
-    #[test]
-    fn alias_setup_plan_sends_canonical_account_signed_request() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn alias_setup_plan_sends_canonical_account_signed_request() {
         let client = client_with_base_url(base_url());
         let store: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
         let response = json_response(StatusCode::OK, "{}");
         let request = AliasSetupPlanRequestV1::new(Vec::new());
-        with_mock_http(respond_with(&store, response), |mock_transport| {
-            let client = client
-                .clone()
-                .with_test_http_transport(mock_transport.clone());
-
-            client
-                .post_alias_setup_plan(&request)
-                .expect("signed alias setup planning request");
+        let transport_client = with_mock_http(respond_with(&store, response), |mock_transport| {
+            client.clone().with_test_http_transport(mock_transport)
         });
+        transport_client
+            .post_alias_setup_plan(&request)
+            .await
+            .expect("signed alias setup planning request");
         let snapshots = store.lock().expect("snapshot store");
         let snapshot = snapshots.first().expect("snapshot");
         assert_eq!(snapshot.method, HttpMethod::POST);
@@ -25177,8 +25195,8 @@ mod tests {
         assert_eq!(decoded, request);
         assert_canonical_account_signed_json_request(&client, snapshot);
     }
-    #[test]
-    fn alias_setup_plan_response_is_bound_to_complete_signed_request() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn alias_setup_plan_response_is_bound_to_complete_signed_request() {
         let client = client_with_base_url(base_url());
         let plan = alias_setup_plan_fixture(&client);
         let instruction = iroha_data_model::isi::decode_instruction_from_pair(
@@ -25196,17 +25214,163 @@ mod tests {
         let store: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
         let response_body = norito::json::to_json(&plan).expect("encode plan response");
         let response = json_response(StatusCode::OK, &response_body);
-        let actual = with_mock_http(respond_with(&store, response), |mock_transport| {
-            let client = client
-                .clone()
-                .with_test_http_transport(mock_transport.clone());
-
-            client
-                .plan_alias_setup(&request)
-                .expect("verified typed alias setup plan")
+        let transport_client = with_mock_http(respond_with(&store, response), |mock_transport| {
+            client.clone().with_test_http_transport(mock_transport)
         });
+        let actual = transport_client
+            .plan_alias_setup(&request)
+            .await
+            .expect("verified typed alias setup plan");
         assert_eq!(actual, plan);
+        let mut changed = request;
+        changed.intents[0].acquisition.term_years = 2;
+        let error = transport_client
+            .plan_alias_setup(&changed)
+            .await
+            .expect_err("a valid plan for another signed request must be rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("does not exactly match the signed planning request"),
+            "{error}",
+        );
     }
+    #[tokio::test(flavor = "current_thread")]
+    async fn alias_setup_plan_yields_without_leaking_address_context() {
+        use super::capability_test_support::{AsyncOnlyTransport, GatedTransport, TransportGate};
+        use iroha_data_model::account::address::{ChainDiscriminantGuard, chain_discriminant};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        fn send_future<F: std::future::Future + Send>(future: F) -> F {
+            future
+        }
+        let ambient = chain_discriminant();
+        let selected = if ambient == 369 { 753 } else { 369 };
+        let mut builder = client_with_base_url(base_url()).to_builder();
+        builder.account_chain_discriminant = selected;
+        let client = builder.build().expect("explicit address context");
+        let plan = alias_setup_plan_fixture(&client);
+        let instruction = iroha_data_model::isi::decode_instruction_from_pair(
+            &plan.body.instructions[0].wire_id,
+            &plan.body.instructions[0].framed_payload,
+        )
+        .unwrap();
+        let request = AliasSetupPlanRequestV1::new(vec![
+            instruction
+                .as_any()
+                .downcast_ref::<EnsureAlias>()
+                .unwrap()
+                .clone(),
+        ]);
+        let response = {
+            let _format = ChainDiscriminantGuard::enter(selected);
+            json_response(StatusCode::OK, &norito::json::to_json(&plan).unwrap())
+        };
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let completed = Arc::new(AtomicUsize::new(0));
+        let gate = Arc::new(TransportGate::default());
+        let transport = Arc::new(GatedTransport {
+            inner: AsyncOnlyTransport {
+                responder: Box::new(move |_| Ok(response.clone())),
+                requests: requests.clone(),
+                completed: completed.clone(),
+                delay: Duration::ZERO,
+            },
+            gate: gate.clone(),
+        });
+        let client = client
+            .to_builder()
+            .http_transport(transport)
+            .build()
+            .unwrap();
+        let (actual, ()) = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(send_future(client.plan_alias_setup(&request)), async {
+                gate.wait_until_entered().await;
+                assert_eq!(
+                    chain_discriminant(),
+                    ambient,
+                    "encoding guard leaked across I/O"
+                );
+                assert_eq!(completed.load(Ordering::SeqCst), 0);
+                gate.release();
+            })
+        })
+        .await
+        .expect("sibling task must run while the planner awaits transport");
+        assert_eq!(actual.unwrap(), plan);
+        assert_eq!(
+            chain_discriminant(),
+            ambient,
+            "response decoding restored caller context"
+        );
+        assert_eq!(completed.load(Ordering::SeqCst), 1);
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        let snapshot = RequestSnapshot::from(&requests[0]);
+        assert_canonical_account_signed_json_request(&client, &snapshot);
+        let decoded: AliasSetupPlanRequestV1 = {
+            let _format = ChainDiscriminantGuard::enter(selected);
+            norito::json::from_slice(&snapshot.body).unwrap()
+        };
+        assert_eq!(decoded, request);
+    }
+
+    #[test]
+    fn alias_setup_blocking_facade_uses_only_owned_async_transport() {
+        use super::capability_test_support::AsyncOnlyTransport;
+        use iroha_data_model::account::address::ChainDiscriminantGuard;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let client = client_with_base_url(base_url());
+        let plan = alias_setup_plan_fixture(&client);
+        let instruction = iroha_data_model::isi::decode_instruction_from_pair(
+            &plan.body.instructions[0].wire_id,
+            &plan.body.instructions[0].framed_payload,
+        )
+        .unwrap();
+        let request = AliasSetupPlanRequestV1::new(vec![
+            instruction
+                .as_any()
+                .downcast_ref::<EnsureAlias>()
+                .unwrap()
+                .clone(),
+        ]);
+        let response = {
+            let _format = ChainDiscriminantGuard::enter(client.account_chain_discriminant);
+            json_response(StatusCode::OK, &norito::json::to_json(&plan).unwrap())
+        };
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let completed = Arc::new(AtomicUsize::new(0));
+        let transport = Arc::new(AsyncOnlyTransport {
+            responder: Box::new(move |_| Ok(response.clone())),
+            requests: requests.clone(),
+            completed: completed.clone(),
+            delay: Duration::ZERO,
+        });
+        let client = crate::blocking::Client::from_client(
+            client
+                .to_builder()
+                .http_transport(transport)
+                .build()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            client.post_alias_setup_plan(&request).unwrap().status(),
+            StatusCode::OK
+        );
+        assert_eq!(client.clone().plan_alias_setup(&request).unwrap(), plan);
+        assert_eq!(completed.load(Ordering::SeqCst), 2);
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        for request in requests.iter() {
+            assert_canonical_account_signed_json_request(
+                client.client(),
+                &RequestSnapshot::from(request),
+            );
+        }
+    }
+
     #[test]
     fn alias_setup_plan_verification_preserves_exact_registry_frames() {
         let client = client_with_base_url(base_url());
@@ -27935,13 +28099,17 @@ mod tests {
         assert_canonical_account_signed_request(&client, snapshot);
     }
     fn compiled_contract_code_artifact_fixture() -> &'static [u8] {
-        // Retained compiler-produced, admitted public fixture; regeneration and
-        // provenance live beside these repository-local bytes. No compiler is
-        // required to run the SDK regression.
+        // The canonical compiler owner publishes this artifact and its manifest
+        // together after independent native admission. No compiler is needed here.
         let artifact = include_bytes!("../tests/fixtures/contract_code_readback/code_readback.to");
+        let manifest: iroha_data_model::smart_contract::manifest::ContractManifest =
+            norito::json::from_str(include_str!(
+                "../tests/fixtures/contract_code_readback/code_readback.manifest.json"
+            ))
+            .expect("decode the compiler-owned SDK contract manifest");
         assert_eq!(
-            hex::encode(iroha_data_model::smart_contract::contract_code_hash(artifact).as_ref()),
-            "8ea032a639a92b0c46b366b93a8207699e3253bf4c14fd159c6f1f5261b928a9",
+            iroha_data_model::smart_contract::contract_code_hash(artifact),
+            manifest.code_hash.expect("native artifact identity"),
             "checked-in fixture must retain its native artifact identity"
         );
         artifact
@@ -29762,7 +29930,6 @@ mod tests {
             client.get_public_lane_pending_rewards(
                 LaneId::new(0),
                 "sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE",
-                Some(5),
             )
         });
         let payload = payload.expect("request succeeds");
@@ -29776,7 +29943,7 @@ mod tests {
             "account".into(),
             "sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE".into()
         )));
-        assert!(pairs.contains(&("upto_epoch".into(), "5".into())));
+        assert_eq!(pairs.len(), 1);
     }
     #[test]
     fn get_explorer_account_qr_parses_payload_and_omits_query_params() {

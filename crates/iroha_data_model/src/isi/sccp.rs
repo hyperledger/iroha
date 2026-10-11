@@ -1,22 +1,18 @@
 //! SCCP v1 instructions (`specs/sccp.md` §4).
 //!
-//! These are the wire structs of the ten SCCP v1 instructions. Core enforces every SCCP rule;
+//! These are the wire structs of the seven SCCP v1 instructions. Core enforces every SCCP rule;
 //! the default executor only allows visitors through. Per-chain proofs, advances and evidence
 //! are the bounded opaque wrappers of [`crate::sccp`], decoded by `iroha_sccp::light_client`.
 
 use crate::{
-    DeriveJsonDeserialize, DeriveJsonSerialize, NetworkId,
+    DeriveJsonDeserialize, DeriveJsonSerialize,
     bridge::SccpNetworkV1,
     sccp::{
-        attestation::{SccpAttestationSignatureV1, SccpAttestationStatementV1},
         inbound::SccpSourceProofBytesV1,
-        keys::SccpBridgeKeyBindingV1,
         light_client::{SccpLcAdvanceBytesV1, SccpLcEvidenceBytesV1},
         params::SccpParametersV1,
     },
 };
-use iroha_crypto::SignatureOf;
-use iroha_model_base::peer::PeerId;
 use iroha_primitives::numeric::Numeric;
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
@@ -49,127 +45,6 @@ pub struct InitializeSccpV1 {
     pub reset_nonce: [u8; 32],
 }
 impl crate::seal::Instruction for InitializeSccpV1 {}
-
-/// Register or revoke a peer's bridge key (§4.2.2).
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    IntoSchema,
-    DeriveJsonSerialize,
-    DeriveJsonDeserialize,
-)]
-#[norito(no_fast_from_json)]
-#[norito(deny_unknown_fields)]
-#[derive(norito::NoritoSchema)]
-#[norito_schema(name = "iroha_data_model::isi::sccp::SetSccpBridgeKeyV1")]
-pub struct SetSccpBridgeKeyV1 {
-    /// Registered peer whose key changes.
-    pub peer: PeerId,
-    /// Compressed secp256k1 key; `None` revokes from `activation_epoch`.
-    #[norito(required)]
-    pub public_key: Option<[u8; 33]>,
-    /// Epoch from which the binding applies (0 exactly in genesis).
-    pub activation_epoch: u64,
-    /// Must equal the peer's `next_binding_nonce`.
-    pub binding_nonce: u64,
-    /// Consent of the peer's consensus key to [`Self::binding`].
-    pub peer_signature: SignatureOf<SccpBridgeKeyBindingV1>,
-    /// §3.8 proof of possession over the `SccpBridgeKey` digest; required iff `public_key` is
-    /// present.
-    #[norito(required)]
-    pub key_pop: Option<[u8; 65]>,
-}
-impl crate::seal::Instruction for SetSccpBridgeKeyV1 {}
-
-impl SetSccpBridgeKeyV1 {
-    /// Return the binding message `peer_signature` must sign under `network_id`.
-    #[must_use]
-    pub fn binding(&self, network_id: NetworkId) -> SccpBridgeKeyBindingV1 {
-        SccpBridgeKeyBindingV1::new(
-            network_id,
-            self.peer.clone(),
-            self.public_key,
-            self.activation_epoch,
-            self.binding_nonce,
-        )
-    }
-
-    /// Return whether `key_pop` is present exactly when `public_key` is.
-    #[must_use]
-    pub const fn pop_matches_key_presence(&self) -> bool {
-        self.public_key.is_some() == self.key_pop.is_some()
-    }
-}
-
-/// Store bridge-key signatures of attestation statements (§4.8).
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    IntoSchema,
-    DeriveJsonSerialize,
-    DeriveJsonDeserialize,
-)]
-#[norito(no_fast_from_json)]
-#[norito(deny_unknown_fields)]
-#[derive(norito::NoritoSchema)]
-#[norito_schema(name = "iroha_data_model::isi::sccp::SubmitSccpAttestationsV1")]
-pub struct SubmitSccpAttestationsV1 {
-    /// Entries sorted by `(height, signer_index)` without duplicates.
-    pub entries: Vec<SccpAttestationSignatureV1>,
-}
-impl crate::seal::Instruction for SubmitSccpAttestationsV1 {}
-
-impl SubmitSccpAttestationsV1 {
-    /// Return whether the entries are strictly ascending by `(height, signer_index)` (§4.8
-    /// check 1, without the count bound).
-    #[must_use]
-    pub fn entries_strictly_ascending(&self) -> bool {
-        self.entries
-            .windows(2)
-            .all(|pair| pair[0].key() < pair[1].key())
-    }
-}
-
-/// Submit equivocation evidence against a bridge key (§4.11).
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    IntoSchema,
-    DeriveJsonSerialize,
-    DeriveJsonDeserialize,
-)]
-#[norito(no_fast_from_json)]
-#[norito(deny_unknown_fields)]
-#[derive(norito::NoritoSchema)]
-#[norito_schema(name = "iroha_data_model::isi::sccp::SubmitSccpAttestationFaultV1")]
-pub struct SubmitSccpAttestationFaultV1 {
-    /// Faulty statement (all ten §3.6.1 fields).
-    pub statement: SccpAttestationStatementV1,
-    /// Bridge-key signature over the statement's §3.6 digest.
-    pub signature: [u8; 65],
-}
-impl crate::seal::Instruction for SubmitSccpAttestationFaultV1 {}
 
 /// Lock XOR and record an outbound message to an external network (§4.4).
 #[derive(
@@ -460,77 +335,36 @@ pub struct ReportSccpLightClientEquivocationV1 {
 }
 impl crate::seal::Instruction for ReportSccpLightClientEquivocationV1 {}
 
-fn sccp_decode_flags() -> u8 {
-    norito::core::effective_decode_flags().unwrap_or_else(norito::core::default_encode_flags)
-}
-
-macro_rules! impl_sccp_decode_from_slice {
-    ($ty:ty { $($field:ident : $field_ty:ty),+ $(,)? }) => {
-        impl<'a> norito::core::DecodeFromSlice<'a> for $ty {
-            fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
-                let flags = sccp_decode_flags();
-                let mut offset = 0usize;
-                $(
-                    let $field = super::decode_aos_canonical_field::<$field_ty>(
-                        super::read_aos_field(bytes, &mut offset, flags)?,
-                        flags,
-                    )?;
-                )+
-                if offset != bytes.len() {
-                    return Err(norito::core::Error::LengthMismatch);
-                }
-                norito::core::note_payload_access(bytes, offset);
-                Ok((Self { $($field),+ }, offset))
-            }
-        }
-    };
-}
-
-impl_sccp_decode_from_slice!(InitializeSccpV1 {
+impl_aos_decode_from_slice!(InitializeSccpV1 {
     parameters: SccpParametersV1,
     reset_nonce: [u8; 32],
 });
-impl_sccp_decode_from_slice!(SetSccpBridgeKeyV1 {
-    peer: PeerId,
-    public_key: Option<[u8; 33]>,
-    activation_epoch: u64,
-    binding_nonce: u64,
-    peer_signature: SignatureOf<SccpBridgeKeyBindingV1>,
-    key_pop: Option<[u8; 65]>,
-});
-impl_sccp_decode_from_slice!(SubmitSccpAttestationsV1 {
-    entries: Vec<SccpAttestationSignatureV1>,
-});
-impl_sccp_decode_from_slice!(SubmitSccpAttestationFaultV1 {
-    statement: SccpAttestationStatementV1,
-    signature: [u8; 65],
-});
-impl_sccp_decode_from_slice!(RecordSccpMessage {
+impl_aos_decode_from_slice!(RecordSccpMessage {
     network: SccpNetworkV1,
     expected_revision: u32,
     amount: Numeric,
     recipient: Vec<u8>,
 });
-impl_sccp_decode_from_slice!(SubmitSccpInboundMessageV1 {
+impl_aos_decode_from_slice!(SubmitSccpInboundMessageV1 {
     network: SccpNetworkV1,
     revision: u32,
     payload: Vec<u8>,
     proof: SccpSourceProofBytesV1,
 });
-impl_sccp_decode_from_slice!(SettleSccpV1 {
+impl_aos_decode_from_slice!(SettleSccpV1 {
     target: SccpSettleTargetV1,
 });
-impl_sccp_decode_from_slice!(SubmitSccpOutboundVoidV1 {
+impl_aos_decode_from_slice!(SubmitSccpOutboundVoidV1 {
     network: SccpNetworkV1,
     revision: u32,
     proof: SccpSourceProofBytesV1,
 });
-impl_sccp_decode_from_slice!(AdvanceSccpLightClientV1 {
+impl_aos_decode_from_slice!(AdvanceSccpLightClientV1 {
     network: SccpNetworkV1,
     expected_state_hash: Option<[u8; 32]>,
     advance: SccpLcAdvanceBytesV1,
 });
-impl_sccp_decode_from_slice!(ReportSccpLightClientEquivocationV1 {
+impl_aos_decode_from_slice!(ReportSccpLightClientEquivocationV1 {
     network: SccpNetworkV1,
     a: SccpLcEvidenceBytesV1,
     b: SccpLcEvidenceBytesV1,
@@ -543,59 +377,10 @@ mod tests {
         isi::test_support::assert_slice_roundtrip,
         sccp::test_support::{assert_rejects_unknown_field, roundtrip},
     };
-    use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
     use norito::{codec::DecodeAll, core::DecodeFromSlice as _};
 
     const ETH: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
     const TON: SccpNetworkV1 = SccpNetworkV1::TonMainnet;
-
-    fn key_pair(seed: u8) -> KeyPair {
-        KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
-            .expect("deterministic Ed25519 seed")
-    }
-
-    fn network_id(seed: u8) -> NetworkId {
-        NetworkId::from_genesis_hash(HashOf::<crate::block::BlockHeader>::from_untyped_unchecked(
-            Hash::new([seed; Hash::LENGTH]),
-        ))
-    }
-
-    fn set_bridge_key(public_key: Option<[u8; 33]>) -> SetSccpBridgeKeyV1 {
-        let peer_keys = key_pair(1);
-        let peer = PeerId::new(peer_keys.public_key().clone());
-        let binding = SccpBridgeKeyBindingV1::new(network_id(7), peer.clone(), public_key, 3, 0);
-        SetSccpBridgeKeyV1 {
-            peer,
-            public_key,
-            activation_epoch: 3,
-            binding_nonce: 0,
-            peer_signature: SignatureOf::new(peer_keys.private_key(), &binding),
-            key_pop: public_key.map(|_| [0x1b; 65]),
-        }
-    }
-
-    fn statement() -> SccpAttestationStatementV1 {
-        SccpAttestationStatementV1 {
-            height: 9,
-            epoch: 1,
-            timestamp_ms: 1_758_000_000_000,
-            block_hash: [1; 32],
-            sccp_root: [2; 32],
-            message_count: 1,
-            history_root: [3; 32],
-            history_size: 1,
-            roster_digest: [4; 32],
-            next_roster_digest: [0; 32],
-        }
-    }
-
-    fn entry(height: u64, signer_index: u8) -> SccpAttestationSignatureV1 {
-        SccpAttestationSignatureV1 {
-            height,
-            signer_index,
-            signature: [0x1c; 65],
-        }
-    }
 
     fn proof() -> SccpSourceProofBytesV1 {
         SccpSourceProofBytesV1::new(vec![0x4e, 0x52, 0x54, 0x30, 0x01]).expect("bounded")
@@ -624,15 +409,6 @@ mod tests {
         check(&InitializeSccpV1 {
             parameters: SccpParametersV1::taira_default(),
             reset_nonce: [0x5a; 32],
-        });
-        check(&set_bridge_key(Some([2; 33])));
-        check(&set_bridge_key(None));
-        check(&SubmitSccpAttestationsV1 {
-            entries: vec![entry(9, 0), entry(9, 4), entry(10, 1)],
-        });
-        check(&SubmitSccpAttestationFaultV1 {
-            statement: statement(),
-            signature: [0x1b; 65],
         });
         check(&RecordSccpMessage {
             network: ETH,
@@ -693,55 +469,6 @@ mod tests {
                 "iroha_data_model::isi::sccp::RecordSccpMessage",
             ]
         );
-    }
-
-    #[test]
-    fn binding_is_rebuilt_from_the_instruction_and_verifies() {
-        let instruction = set_bridge_key(Some([2; 33]));
-        let binding = instruction.binding(network_id(7));
-        assert_eq!(
-            binding.domain(),
-            crate::sccp::keys::SCCP_BRIDGE_KEY_BINDING_DOMAIN_V1
-        );
-        assert_eq!(binding.peer, instruction.peer);
-        assert_eq!(binding.public_key, Some([2; 33]));
-        assert_eq!(binding.activation_epoch, 3);
-        assert_eq!(binding.binding_nonce, 0);
-        let peer_key = key_pair(1).public_key().clone();
-        instruction
-            .peer_signature
-            .verify(&peer_key, &binding)
-            .expect("peer consent verifies");
-        assert!(
-            instruction
-                .peer_signature
-                .verify(&peer_key, &instruction.binding(network_id(8)))
-                .is_err(),
-            "consent is bound to the NetworkId"
-        );
-    }
-
-    #[test]
-    fn pop_presence_must_match_key_presence() {
-        assert!(set_bridge_key(Some([2; 33])).pop_matches_key_presence());
-        assert!(set_bridge_key(None).pop_matches_key_presence());
-        let mut missing_pop = set_bridge_key(Some([2; 33]));
-        missing_pop.key_pop = None;
-        assert!(!missing_pop.pop_matches_key_presence());
-        let mut stray_pop = set_bridge_key(None);
-        stray_pop.key_pop = Some([0; 65]);
-        assert!(!stray_pop.pop_matches_key_presence());
-    }
-
-    #[test]
-    fn attestation_entries_must_be_strictly_ascending() {
-        let batch = |entries| SubmitSccpAttestationsV1 { entries };
-        assert!(batch(vec![]).entries_strictly_ascending());
-        assert!(batch(vec![entry(1, 0)]).entries_strictly_ascending());
-        assert!(batch(vec![entry(1, 0), entry(1, 1), entry(2, 0)]).entries_strictly_ascending());
-        assert!(!batch(vec![entry(1, 1), entry(1, 1)]).entries_strictly_ascending());
-        assert!(!batch(vec![entry(1, 2), entry(1, 1)]).entries_strictly_ascending());
-        assert!(!batch(vec![entry(2, 0), entry(1, 5)]).entries_strictly_ascending());
     }
 
     #[test]

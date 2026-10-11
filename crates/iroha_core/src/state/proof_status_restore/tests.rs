@@ -250,7 +250,6 @@ fn actual_state_constructor_and_snapshot_restore_keep_the_live_proof_predecessor
     assert_eq!(encoded(&state.world.proofs_by_status), expected);
     let value = json::to_value(&state).unwrap();
     let recovered = deserialize::KuraSeed {
-        operation_index_budget: crate::state::kagemusha_operation_indexes::default_budget(),
         execution_budget: state.ivm_execution_budget(),
         lane_manifests: state.lane_manifests.read().clone(),
         kura: Kura::blank_kura_for_testing(),

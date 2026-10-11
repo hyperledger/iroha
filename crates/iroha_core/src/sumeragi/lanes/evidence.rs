@@ -14,7 +14,6 @@ use iroha_data_model::{
 };
 use iroha_sumeragi::{
     availability::{AvailabilitySource, AvailableBody},
-    crypto::NoAttestation,
     message::{Qc, VoteKind},
     types::{Hash32, HeightConfig},
 };
@@ -123,7 +122,6 @@ pub fn verify_lane_certificate(
         || header.epoch != config.epoch.id
         || header.parent_hash != Hash32(predecessor.block_hash)
         || header.parent_result != Hash32(predecessor.result)
-        || header.attest
         || !header.control_witness.is_empty()
         || header.payload_len > config.params.max_block_bytes
         || usize::try_from(header.proposer).map_or(true, |index| index >= config.committee.n())
@@ -131,14 +129,13 @@ pub fn verify_lane_certificate(
         || qc.height != height
         || qc.view < header.origin_view
         || qc.block_hash != body.hash(&crypto)
-        || qc.attest != header.attest
     {
         return Err(LaneEntryError::Binding(
             "header, predecessor, payload or QC subject differs",
         ));
     }
     iroha_sumeragi::crypto::Verifier::new(&crypto, &instance, &config.epoch.id, &config.committee)
-        .verify_qc(&NoAttestation, qc)
+        .verify_qc(qc)
         .map_err(|error| LaneEntryError::Certificate(format!("{error:?}")))?;
     let source = AvailabilitySource::new(instance, height, qc.block_hash, config.clone())
         .map_err(|_| LaneEntryError::Binding("invalid independent availability source"))?;

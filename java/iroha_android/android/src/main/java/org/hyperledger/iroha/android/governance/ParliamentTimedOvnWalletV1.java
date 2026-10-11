@@ -17,14 +17,14 @@ import org.hyperledger.iroha.sdk.client.ParliamentTimedOvnCastingProofPageVerifi
  * <p>The canonical implementation is the Kotlin {@code client-android} wallet. It generates the
  * 32-byte seed locally, persists only an AES-GCM envelope protected by a non-exportable
  * AndroidKeyStore key, verifies a consensus-authenticated proof against an immutable external
- * trust anchor before borrowing the seed for one ABI-25 JNI call, and returns only the fixed-width
+ * trust anchor before borrowing the seed for one ABI-29 JNI call, and returns only the fixed-width
  * public registration or masked-ballot record together with its authenticated promoted checkpoint.
  * This facade deliberately adds no raw seed
  * constructor, getter, serializer, logging path, global-network fallback, or software proof path.
  */
 public final class ParliamentTimedOvnWalletV1 {
   /** Exact connect_norito_bridge ABI required by the first-release wallet boundary. */
-  public static final int REQUIRED_BRIDGE_ABI_VERSION = 25;
+  public static final int REQUIRED_BRIDGE_ABI_VERSION = 29;
 
   /** Maximum complete framed {@code ParliamentTimedOvnCastingProofResponseV1}. */
   public static final int MAXIMUM_CASTING_PROOF_RESPONSE_BYTES = 8 * 1024 * 1024;
@@ -41,7 +41,7 @@ public final class ParliamentTimedOvnWalletV1 {
   private static final int MAXIMUM_AUTHORITY_BYTES = 8 * 1024;
   private static final int MAXIMUM_ALIAS_CHARS = 128;
   private static final String NATIVE_UNAVAILABLE_MESSAGE =
-      "ABI-25 connect_norito_bridge with proof-gated Parliament wallet symbols is required";
+      "ABI-29 connect_norito_bridge with proof-gated Parliament wallet symbols is required";
   private static final String NATIVE_REJECTED_MESSAGE =
       "Parliament timed-OVN native wallet rejected the operation";
 
@@ -61,7 +61,7 @@ public final class ParliamentTimedOvnWalletV1 {
                 applicationContext == null ? requiredContext : applicationContext)));
   }
 
-  /** Whether the exact ABI-25 proof-gated native record builders are available. */
+  /** Whether the exact ABI-29 proof-gated native record builders are available. */
   public boolean isAvailable() {
     return backend.isAvailable();
   }

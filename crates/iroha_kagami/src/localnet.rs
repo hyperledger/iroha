@@ -163,7 +163,7 @@ pub struct Args {
     #[arg(long, default_value_t = 0)]
     extra_accounts: u16,
     /// Register the optional sample asset and mint to the default account.
-    /// The built-in KAGEMUSHA V1 asset is always emitted.
+    /// The built-in localnet asset is always emitted.
     #[arg(long, default_value_t = false)]
     sample_asset: bool,
     /// Register additional asset definition IDs owned by the generated client signer.

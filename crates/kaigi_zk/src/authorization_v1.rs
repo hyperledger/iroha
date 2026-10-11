@@ -6,20 +6,18 @@
 //! the permanent call namespace, the pre-state, and participation sequence.
 //! This relation makes no hidden Merkle-path or ledger-membership claim.
 //!
-//! TODO: complete the atomic model/Core/SDK cutover before admitting this
-//! relation in production; the previous circuits are not compatibility APIs.
-//!
 //! Owned witness bytes and CPU sponge state are securely cleared. Pasta
-//! arithmetic may create compiler/register copies, and Halo2 owns additional
+//! arithmetic may create compiler/register copies, and native prover owns additional
 //! Value, assignment, and prover buffers. Their erasure is not guaranteed here.
 
-use core::{array, fmt};
+#[cfg(test)]
+use core::array;
+use core::fmt;
 
-use halo2_proofs::{
-    circuit::{Cell, Layouter, SimpleFloorPlanner, Value},
-    halo2curves::ff::{Field, PrimeField},
-    plonk::{Circuit, ConstraintSystem, Error, Expression, Selector},
-    poly::Rotation,
+use ff::{Field, PrimeField};
+use iroha_plonk::{
+    cs::{ConstraintSystem, Expression, Rotation, Selector},
+    frontend::{Cell, Circuit, Error, Layouter, SimpleFloorPlanner, Value},
 };
 use zeroize::Zeroizing;
 
@@ -36,9 +34,9 @@ pub const KAIGI_AUTHORIZATION_CIRCUIT_K_V1: u32 = 13;
 /// Exactly one instance column contains this many scalars.
 pub const KAIGI_AUTHORIZATION_INSTANCE_ROWS_V1: usize = 31;
 /// Canonical circuit identity for the final authorization relation.
-pub const KAIGI_AUTHORIZATION_CIRCUIT_ID_V1: &str = "halo2/pasta/ipa/kaigi-authorization-v1";
-/// Internal dispatcher key obtained from the canonical IPA circuit identifier.
-pub const KAIGI_AUTHORIZATION_BACKEND_V1: &str = "halo2/pasta/kaigi-authorization-v1";
+pub const KAIGI_AUTHORIZATION_CIRCUIT_ID_V1: &str = "pipa-r/pasta/kaigi-authorization-v1";
+/// Exact native registry label for the compiled authorization relation.
+pub const KAIGI_AUTHORIZATION_BACKEND_V1: &str = "pipa-r/pasta/kaigi-authorization-v1";
 /// Canonical public-input schema for the final authorization relation.
 pub const KAIGI_AUTHORIZATION_PUBLIC_INPUTS_SCHEMA_V1: &[u8] = b"kaigi-authorization-v1";
 /// Goldilocks modulus; every identity limb is strictly below this value.
@@ -390,7 +388,7 @@ impl Circuit<Scalar> for KaigiAuthorizationCircuitV1 {
     }
 
     fn configure(meta: &mut ConstraintSystem<Scalar>) -> Self::Config {
-        let shared = KaigiRelationConfigV1::configure(meta);
+        let shared = KaigiRelationConfigV1::configure(meta, KAIGI_AUTHORIZATION_INSTANCE_ROWS_V1);
         let value = shared.value;
         let previous = shared.previous;
         let input = shared.input;
@@ -462,22 +460,26 @@ impl Circuit<Scalar> for KaigiAuthorizationCircuitV1 {
         let (cells, secret) = layouter.assign_region(
             || "Kaigi typed context",
             |mut region| {
-                let cells = array::from_fn(|row| {
-                    region
-                        .assign_advice(config.shared.value, row, words[row])
-                        .cell()
-                });
+                let cells: [Cell; CONTEXT_WORDS] = (0..CONTEXT_WORDS)
+                    .map(|row| {
+                        Ok(region
+                            .assign_advice(config.shared.value, row, words[row])?
+                            .cell())
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?
+                    .try_into()
+                    .map_err(|_| Error::Synthesis)?;
                 let secret = region
-                    .assign_advice(config.shared.value, CONTEXT_WORDS, blinding)
+                    .assign_advice(config.shared.value, CONTEXT_WORDS, blinding)?
                     .cell();
                 Ok((cells, secret))
             },
         )?;
         let cells: [Cell; CONTEXT_WORDS] = cells;
         for (row, cell) in cells.iter().enumerate() {
-            layouter.constrain_instance(*cell, config.shared.instance, row);
+            layouter.constrain_instance(*cell, config.shared.instance, row)?;
         }
-        // The pinned Axiom SimpleFloorPlanner uses absolute assignment rows.
+        // The native SimpleFloorPlanner uses absolute assignment rows.
         // Reserve disjoint offsets explicitly for every fixed-shape gadget.
         let mut offset = CONTEXT_WORDS + 1;
         for row in (0..CONTEXT_WORDS).filter(|row| *row != ACTION_ROW) {
@@ -496,11 +498,11 @@ impl Circuit<Scalar> for KaigiAuthorizationCircuitV1 {
                     |mut region| {
                         config.shared.q_goldilocks.enable(&mut region, offset)?;
                         let value = region
-                            .assign_advice(config.shared.previous[0], offset, words[row])
+                            .assign_advice(config.shared.previous[0], offset, words[row])?
                             .cell();
-                        region.constrain_equal(value, cells[row]);
+                        region.constrain_equal(value, cells[row])?;
                         Ok(region
-                            .assign_advice(config.shared.previous[1], offset, complement)
+                            .assign_advice(config.shared.previous[1], offset, complement)?
                             .cell())
                     },
                 )?;
@@ -565,7 +567,7 @@ impl Circuit<Scalar> for KaigiAuthorizationCircuitV1 {
             (NULLIFIER_ROW, nullifier),
             (AUTHORIZATION_ROW, authorization),
         ] {
-            layouter.constrain_instance(cell, config.shared.instance, row);
+            layouter.constrain_instance(cell, config.shared.instance, row)?;
         }
         Ok(())
     }
@@ -594,8 +596,8 @@ fn assign_roles(
                     (config.shared.previous[0], 10 + index),
                     (config.shared.previous[1], 16 + index),
                 ] {
-                    let cell = region.assign_advice(column, row, words[source]).cell();
-                    region.constrain_equal(cell, cells[source]);
+                    let cell = region.assign_advice(column, row, words[source])?.cell();
+                    region.constrain_equal(cell, cells[source])?;
                 }
                 let difference = words[10 + index] - words[16 + index];
                 let inverse = difference.zip(selected).map(|(difference, selected)| {
@@ -608,19 +610,19 @@ fn assign_roles(
                 selected = selected
                     .zip(difference)
                     .map(|(selected, difference)| selected || !bool::from(difference.is_zero()));
-                region.assign_advice(config.shared.previous[2], row, inverse);
+                region.assign_advice(config.shared.previous[2], row, inverse)?;
                 let before = region
-                    .assign_advice(config.shared.input[0], row, sum)
+                    .assign_advice(config.shared.input[0], row, sum)?
                     .cell();
                 if let Some(previous) = previous_sum {
-                    region.constrain_equal(before, previous);
+                    region.constrain_equal(before, previous)?;
                 } else {
                     region.constrain_constant(before, Scalar::ZERO)?;
                 }
                 sum = sum + difference * inverse;
                 previous_sum = Some(
                     region
-                        .assign_advice(config.shared.input[1], row, sum)
+                        .assign_advice(config.shared.input[1], row, sum)?
                         .cell(),
                 );
             }
@@ -630,27 +632,27 @@ fn assign_roles(
                 (config.shared.value, ACTION_ROW),
                 (config.shared.previous[0], SEQUENCE_ROW),
             ] {
-                let cell = region.assign_advice(column, row, words[source]).cell();
-                region.constrain_equal(cell, cells[source]);
+                let cell = region.assign_advice(column, row, words[source])?.cell();
+                region.constrain_equal(cell, cells[source])?;
             }
             region.assign_advice(
                 config.shared.previous[1],
                 row,
                 words[SEQUENCE_ROW].map(|v| v.invert().unwrap_or(Scalar::ZERO)),
-            );
+            )?;
             let blind = region
-                .assign_advice(config.shared.previous[2], row, secret.1)
+                .assign_advice(config.shared.previous[2], row, secret.1)?
                 .cell();
-            region.constrain_equal(blind, secret.0);
+            region.constrain_equal(blind, secret.0)?;
             region.assign_advice(
                 config.shared.input[1],
                 row,
                 secret.1.map(|v| v.invert().unwrap_or(Scalar::ZERO)),
-            );
+            )?;
             let difference = region
-                .assign_advice(config.shared.input[0], row, sum)
+                .assign_advice(config.shared.input[0], row, sum)?
                 .cell();
-            region.constrain_equal(difference, previous_sum.expect("six fixed identity limbs"));
+            region.constrain_equal(difference, previous_sum.expect("six fixed identity limbs"))?;
             Ok(())
         },
     )

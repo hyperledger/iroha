@@ -6,33 +6,24 @@
 //! restricted to this ZK module so callers cannot bypass that workflow.
 
 use blake3::Hasher as Blake3Hasher;
-use halo2_proofs::{
-    halo2curves::{
-        ff::{Field as _, PrimeField as _},
-        pasta::Fp as Scalar,
-    },
-    plonk::Circuit,
-};
+use ff::{Field as _, PrimeField as _};
 use iroha_crypto::Hash as CryptoHash;
 use iroha_data_model::proof::VerifyingKeyBox;
-#[cfg(test)]
-use iroha_data_model::zk::StarkFriOpenProofV1;
 use iroha_data_model::{
     NetworkId,
     confidential::ConfidentialStatus,
     proof::{ProofBox, VerifyingKeyRecord},
     zk::{BackendTag, OpenVerifyEnvelope},
 };
+use iroha_pasta::Fp as Scalar;
 use zeroize::{Zeroize, Zeroizing};
 /// Canonical circuit identifier for two-input/two-output confidential transfers.
-pub const CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID: &str =
-    "halo2/pasta/ipa/confidential-transfer-2x2-merkle16-axiom-poseidon-v3";
+pub const CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID: &str = "pipa-r/pasta/confidential-transfer-v1";
 /// Canonical circuit identifier for full confidential unshielding.
-pub const CONFIDENTIAL_UNSHIELD_V2_CIRCUIT_ID: &str =
-    "halo2/pasta/ipa/confidential-unshield-full-merkle16-axiom-poseidon-v3";
+pub const CONFIDENTIAL_UNSHIELD_V2_CIRCUIT_ID: &str = "pipa-r/pasta/confidential-unshield-full-v1";
 /// Canonical circuit identifier for unshielding with one change output.
 pub const CONFIDENTIAL_UNSHIELD_V3_CIRCUIT_ID: &str =
-    "halo2/pasta/ipa/confidential-unshield-change-merkle16-axiom-poseidon-v4";
+    "pipa-r/pasta/confidential-unshield-change-v1";
 /// IPA domain exponent for confidential transfer V2.
 pub const CONFIDENTIAL_TRANSFER_V2_IPA_K: u32 = 13;
 /// IPA domain exponent for confidential unshield V2.
@@ -41,13 +32,13 @@ pub const CONFIDENTIAL_UNSHIELD_V2_IPA_K: u32 = 13;
 pub const CONFIDENTIAL_UNSHIELD_V3_IPA_K: u32 = 13;
 /// Reviewed digest of the canonical full-unshield verifier key.
 pub const CONFIDENTIAL_UNSHIELD_V2_VK_DIGEST_V1: [u8; 32] = [
-    0x7a, 0x60, 0x9d, 0x2e, 0x33, 0x8f, 0x0d, 0x4f, 0xc7, 0x00, 0xd8, 0xb9, 0xc7, 0x36, 0xa7, 0x03,
-    0x00, 0xdd, 0x94, 0xfa, 0x1f, 0x30, 0x8a, 0xe8, 0x97, 0xfb, 0x74, 0xf9, 0x73, 0x30, 0xb6, 0x1e,
+    0x29, 0xb9, 0xab, 0xd2, 0x7a, 0x25, 0xf2, 0x90, 0xac, 0xa4, 0x7d, 0x25, 0x52, 0x3a, 0x7a, 0x16,
+    0x85, 0x1f, 0xda, 0xde, 0x9b, 0x49, 0x5e, 0xc4, 0xe8, 0x2f, 0x54, 0x6e, 0x28, 0x18, 0xf8, 0x0d,
 ];
 /// Reviewed digest of the canonical change-unshield verifier key.
 pub const CONFIDENTIAL_UNSHIELD_V3_VK_DIGEST_V1: [u8; 32] = [
-    0x20, 0x27, 0xa3, 0x64, 0x2b, 0xab, 0x3c, 0x13, 0x18, 0x4f, 0xb1, 0x74, 0xda, 0xeb, 0x66, 0x37,
-    0x59, 0xe3, 0x9e, 0xa0, 0x12, 0x34, 0xd6, 0x10, 0xa5, 0x63, 0x64, 0xf8, 0xb2, 0x51, 0xbb, 0xd8,
+    0x11, 0x2e, 0xff, 0x63, 0x4e, 0xc4, 0x22, 0x71, 0x5a, 0xcf, 0x9c, 0x81, 0x0f, 0x33, 0xab, 0xda,
+    0x93, 0xdc, 0x9f, 0x0d, 0x67, 0xb0, 0x5c, 0xec, 0xb4, 0x39, 0x93, 0x61, 0xe4, 0x7f, 0x60, 0xe3,
 ];
 /// Fixed depth of the confidential commitment tree.
 pub const CONFIDENTIAL_TREE_DEPTH_V2: usize = 16;
@@ -59,21 +50,6 @@ pub const CONFIDENTIAL_TREE_CAPACITY_V2: usize = 1 << CONFIDENTIAL_TREE_DEPTH_V2
 /// the current commitment count. A full tree has no populated lower frontier
 /// slots; its separately persisted current root retains the completed root.
 pub type ConfidentialTreeFrontierV2 = [Option<[u8; 32]>; CONFIDENTIAL_TREE_DEPTH_V2];
-/// Unsigned range families shared by the public schema, standalone circuits,
-/// and confidential proof builders.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ConfidentialUnsignedRangeV1 {
-    /// Atomic confidential amounts and public redemption amounts.
-    Amount,
-}
-impl ConfidentialUnsignedRangeV1 {
-    /// Exact bit width enforced by every circuit projection.
-    pub(crate) const fn bits(self) -> usize {
-        match self {
-            Self::Amount => 128,
-        }
-    }
-}
 macro_rules! define_confidential_public_input_spec {
     (
         $(#[$struct_meta:meta])*
@@ -84,10 +60,10 @@ macro_rules! define_confidential_public_input_spec {
         order $order:ident;
         schema $schema:ident = $prefix:literal, $suffix:literal;
         first $first_variant:ident => $first_member:ident,
-            $first_name:literal, $first_doc:literal, $first_range:expr;
+            $first_name:literal, $first_doc:literal;
         rest $(
             $variant:ident => $member:ident,
-                $name:literal, $doc:literal, $range:expr;
+                $name:literal, $doc:literal;
         )+
     ) => {
         $(#[$struct_meta])*
@@ -113,12 +89,6 @@ macro_rules! define_confidential_public_input_spec {
                 match self {
                     Self::$first_variant => $first_name,
                     $(Self::$variant => $name,)+
-                }
-            }
-            $field_visibility const fn range(self) -> Option<ConfidentialUnsignedRangeV1> {
-                match self {
-                    Self::$first_variant => $first_range,
-                    $(Self::$variant => $range,)+
                 }
             }
         }
@@ -149,7 +119,7 @@ macro_rules! define_confidential_public_input_spec {
     };
 }
 /// Canonical public-input schema for confidential transfer V2.
-pub const CONFIDENTIAL_TRANSFER_V2_PUBLIC_INPUTS_SCHEMA_V1: &[u8] = br#"{"schema":"confidential_transfer_v3","hash":"axiom_poseidon_t3_r2_rf8_rp57_mds0","merkle_leaf_domain":"cfleaf03","merkle_node_domain":"cfnode03","public_inputs":["input_commitment_0","input_commitment_1","nullifier_0","nullifier_1","output_commitment_0","output_commitment_1","root","asset_tag","network_tag"]}"#;
+pub const CONFIDENTIAL_TRANSFER_V2_PUBLIC_INPUTS_SCHEMA_V1: &[u8] = br#"{"schema":"confidential_transfer_v3","hash":"poseidon_t3_r2_rf8_rp57_mds0","merkle_leaf_domain":"cfleaf03","merkle_node_domain":"cfnode03","public_inputs":["input_commitment_0","input_commitment_1","nullifier_0","nullifier_1","output_commitment_0","output_commitment_1","root","asset_tag","network_tag"]}"#;
 define_confidential_public_input_spec! {
     /// Typed full-unshield public-input contract.
     pub(crate) struct ConfidentialUnshieldFullPublicInputsV1;
@@ -158,25 +128,25 @@ define_confidential_public_input_spec! {
     count 8;
     order CONFIDENTIAL_UNSHIELD_V2_PUBLIC_INPUT_ORDER_V1;
     schema CONFIDENTIAL_UNSHIELD_V2_PUBLIC_INPUTS_SCHEMA_V1 =
-        "{\"schema\":\"confidential_unshield_full_v3\",\"hash\":\"axiom_poseidon_t3_r2_rf8_rp57_mds0\",\"merkle_leaf_domain\":\"cfleaf03\",\"merkle_node_domain\":\"cfnode03\",\"public_inputs\":[",
+        "{\"schema\":\"confidential_unshield_full_v3\",\"hash\":\"poseidon_t3_r2_rf8_rp57_mds0\",\"merkle_leaf_domain\":\"cfleaf03\",\"merkle_node_domain\":\"cfnode03\",\"public_inputs\":[",
         "]}";
     first InputCommitment0 => input_commitment_0,
-        "input_commitment_0", "First authenticated input commitment.", None;
+        "input_commitment_0", "First authenticated input commitment.";
     rest
         InputCommitment1 => input_commitment_1,
-            "input_commitment_1", "Optional second authenticated input commitment.", None;
+            "input_commitment_1", "Optional second authenticated input commitment.";
         Nullifier0 => nullifier_0,
-            "nullifier_0", "First authenticated spend nullifier.", None;
+            "nullifier_0", "First authenticated spend nullifier.";
         Nullifier1 => nullifier_1,
-            "nullifier_1", "Optional second authenticated spend nullifier.", None;
+            "nullifier_1", "Optional second authenticated spend nullifier.";
         Root => root,
-            "root", "Authenticated commitment-tree root.", None;
+            "root", "Authenticated commitment-tree root.";
         PublicAmount => public_amount,
-            "public_amount", "Exact public redemption amount.", Some(ConfidentialUnsignedRangeV1::Amount);
+            "public_amount", "Exact public redemption amount.";
         AssetTag => asset_tag,
-            "asset_tag", "Asset-domain tag.", None;
+            "asset_tag", "Asset-domain tag.";
         NetworkTag => network_tag,
-            "network_tag", "Exact-network domain tag.", None;
+            "network_tag", "Exact-network domain tag.";
 }
 define_confidential_public_input_spec! {
     /// Typed change-unshield public-input contract.
@@ -186,27 +156,27 @@ define_confidential_public_input_spec! {
     count 9;
     order CONFIDENTIAL_UNSHIELD_V3_PUBLIC_INPUT_ORDER_V1;
     schema CONFIDENTIAL_UNSHIELD_V3_PUBLIC_INPUTS_SCHEMA_V1 =
-        "{\"schema\":\"confidential_unshield_change_v4\",\"hash\":\"axiom_poseidon_t3_r2_rf8_rp57_mds0\",\"merkle_leaf_domain\":\"cfleaf03\",\"merkle_node_domain\":\"cfnode03\",\"public_inputs\":[",
+        "{\"schema\":\"confidential_unshield_change_v4\",\"hash\":\"poseidon_t3_r2_rf8_rp57_mds0\",\"merkle_leaf_domain\":\"cfleaf03\",\"merkle_node_domain\":\"cfnode03\",\"public_inputs\":[",
         "]}";
     first InputCommitment0 => input_commitment_0,
-        "input_commitment_0", "First authenticated input commitment.", None;
+        "input_commitment_0", "First authenticated input commitment.";
     rest
         InputCommitment1 => input_commitment_1,
-            "input_commitment_1", "Optional second authenticated input commitment.", None;
+            "input_commitment_1", "Optional second authenticated input commitment.";
         Nullifier0 => nullifier_0,
-            "nullifier_0", "First authenticated spend nullifier.", None;
+            "nullifier_0", "First authenticated spend nullifier.";
         Nullifier1 => nullifier_1,
-            "nullifier_1", "Optional second authenticated spend nullifier.", None;
+            "nullifier_1", "Optional second authenticated spend nullifier.";
         ChangeCommitment0 => change_commitment_0,
-            "change_commitment_0", "Sole proof-authenticated change commitment.", None;
+            "change_commitment_0", "Sole proof-authenticated change commitment.";
         Root => root,
-            "root", "Authenticated commitment-tree root.", None;
+            "root", "Authenticated commitment-tree root.";
         PublicAmount => public_amount,
-            "public_amount", "Exact public redemption amount.", Some(ConfidentialUnsignedRangeV1::Amount);
+            "public_amount", "Exact public redemption amount.";
         AssetTag => asset_tag,
-            "asset_tag", "Asset-domain tag.", None;
+            "asset_tag", "Asset-domain tag.";
         NetworkTag => network_tag,
-            "network_tag", "Exact-network domain tag.", None;
+            "network_tag", "Exact-network domain tag.";
 }
 /// Maximum accepted encoded confidential proof size.
 pub const CONFIDENTIAL_V2_MAX_PROOF_BYTES: u32 = 192 * 1024;
@@ -307,7 +277,7 @@ pub(super) struct ConfidentialTransferProofV2 {
     pub output_commitments: Vec<[u8; 32]>,
     /// Authenticated input commitment-tree root.
     pub root: [u8; 32],
-    /// Encoded Halo2 proof envelope.
+    /// Encoded native PIPA-R proof envelope.
     pub proof: ProofBox,
 }
 /// Secret opening and tree position for one unshield input.
@@ -330,7 +300,7 @@ pub(super) struct ConfidentialUnshieldProofV2 {
     pub nullifiers: Vec<[u8; 32]>,
     /// Authenticated input commitment-tree root.
     pub root: [u8; 32],
-    /// Encoded Halo2 proof envelope.
+    /// Encoded native PIPA-R proof envelope.
     pub proof: ProofBox,
 }
 /// Secret opening for the optional unshield-change output.
@@ -351,7 +321,7 @@ pub(super) struct ConfidentialUnshieldProofV3 {
     pub output_commitments: Vec<[u8; 32]>,
     /// Authenticated input commitment-tree root.
     pub root: [u8; 32],
-    /// Encoded Halo2 proof envelope.
+    /// Encoded native PIPA-R proof envelope.
     pub proof: ProofBox,
 }
 confidential_redacted_debug_v2!(ConfidentialMerklePathV2);
@@ -436,206 +406,35 @@ pub fn is_confidential_transfer_v2_circuit_id(raw: &str) -> bool {
 pub fn is_confidential_unshield_v2_circuit_id(raw: &str) -> bool {
     raw == CONFIDENTIAL_UNSHIELD_V2_CIRCUIT_ID
 }
-type ConfidentialV2ProvingKey = super::halo2_backend::ProvingKey;
-type ConfidentialV2VerifyingKey = super::halo2_backend::VerifyingKey;
-fn build_confidential_v2_vk_box<C>(
-    k: u32,
-    circuit_id: &str,
-    circuit: &C,
-) -> Result<VerifyingKeyBox, String>
-where
-    C: Circuit<Scalar>,
-{
-    let params = super::pasta_params_new(k);
-    let vk = super::halo2_backend::keygen_vk(&params, circuit)
-        .map_err(|err| format!("failed to generate confidential v2 verifying key: {err}"))?;
-    let mut bytes = super::zk1::wrap_start();
-    super::zk1::wrap_append_ipa_k(&mut bytes, k);
-    super::zk1::wrap_append_circuit_id(&mut bytes, circuit_id);
-    super::zk1::wrap_append_vk_pasta(&mut bytes, &vk);
-    Ok(VerifyingKeyBox::new(
-        super::ZK_BACKEND_HALO2_IPA.to_owned(),
-        bytes,
-    ))
-}
-fn ensure_confidential_v2_vk_box_shape(
-    vk_box: &VerifyingKeyBox,
-    circuit_id: &str,
-    ipa_k: u32,
-    label: &str,
-) -> Result<(), String> {
-    let actual_ipa_k =
-        super::zk1::ensure_halo2_ipa_vk_envelope_shape_any_k(&vk_box.bytes, circuit_id)
-            .map_err(|err| format!("{label} verifier key {err}"))?;
-    if actual_ipa_k != ipa_k {
-        return Err(format!(
-            "{label} verifier key IPAK `{actual_ipa_k}` is not `{ipa_k}`"
-        ));
-    }
-    let h2vk = super::zk1::h2vk_payload(vk_box.bytes.as_slice())
-        .map_err(|err| format!("{label} verifier key {err}"))?;
-    let (h2vk_k, _compress_selectors, _fixed_columns) = super::zk1::halo2_pasta_vk_header(h2vk)
-        .map_err(|err| format!("{label} verifier key {err}"))?;
-    if h2vk_k != actual_ipa_k {
-        return Err(format!(
-            "{label} verifier key IPAK `{actual_ipa_k}` does not match H2VK domain `{h2vk_k}`"
-        ));
-    }
-    Ok(())
-}
-/// Return the process-cached canonical confidential-transfer verifying key.
+/// Return the exact compiled native transfer key carrier.
 pub fn confidential_transfer_v2_vk_box() -> Result<VerifyingKeyBox, String> {
-    static CACHE: std::sync::OnceLock<Result<VerifyingKeyBox, String>> = std::sync::OnceLock::new();
-    CACHE
-        .get_or_init(|| {
-            build_confidential_v2_vk_box(
-                CONFIDENTIAL_TRANSFER_V2_IPA_K,
-                CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
-                &secure_relation_v3::ConfidentialTransferCircuitV3::<
-                    CONFIDENTIAL_TREE_DEPTH_V2,
-                >::default(),
-            )
-        })
-        .clone()
+    native::verifying_key(native::Kind::Transfer)
 }
-/// Require an exact canonical confidential-transfer verifying key.
+/// Authenticate the exact compiled native transfer key carrier.
 pub fn ensure_confidential_transfer_v2_canonical_vk_box(
-    vk_box: &VerifyingKeyBox,
+    key: &VerifyingKeyBox,
 ) -> Result<(), String> {
-    if vk_box.backend.as_str() != super::ZK_BACKEND_HALO2_IPA {
-        return Err(format!(
-            "Confidential transfer v2 verifier key backend `{}` is not `{}`",
-            vk_box.backend,
-            super::ZK_BACKEND_HALO2_IPA
-        ));
-    }
-    if vk_box.bytes.is_empty() {
-        return Err("Confidential transfer v2 verifier key must be non-empty".to_owned());
-    }
-    {
-        ensure_confidential_v2_vk_box_shape(
-            vk_box,
-            CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
-            CONFIDENTIAL_TRANSFER_V2_IPA_K,
-            "Confidential transfer v2",
-        )?;
-        let canonical = confidential_transfer_v2_vk_box()?;
-        if super::hash_vk(vk_box) != super::hash_vk(&canonical) || vk_box.bytes != canonical.bytes {
-            return Err(
-                "Confidential transfer v2 verifier key must match the canonical semantic circuit key"
-                    .to_owned(),
-            );
-        }
-        Ok(())
-    }
+    native::validate_key(native::Kind::Transfer, key)
 }
-/// Return the process-cached canonical full-unshield verifying key.
+/// Return the exact compiled native full-redemption key carrier.
 pub fn confidential_unshield_v2_vk_box() -> Result<VerifyingKeyBox, String> {
-    static CACHE: std::sync::OnceLock<Result<VerifyingKeyBox, String>> = std::sync::OnceLock::new();
-    CACHE
-        .get_or_init(|| {
-            build_confidential_v2_vk_box(
-                CONFIDENTIAL_UNSHIELD_V2_IPA_K,
-                CONFIDENTIAL_UNSHIELD_V2_CIRCUIT_ID,
-                &secure_relation_v3::ConfidentialUnshieldFullCircuitV3::<
-                    CONFIDENTIAL_TREE_DEPTH_V2,
-                >::default(),
-            )
-        })
-        .clone()
+    native::verifying_key(native::Kind::Full)
 }
-/// Require an exact canonical full-unshield verifying key.
+/// Authenticate the exact compiled native full-redemption key carrier.
 pub fn ensure_confidential_unshield_v2_canonical_vk_box(
-    vk_box: &VerifyingKeyBox,
+    key: &VerifyingKeyBox,
 ) -> Result<(), String> {
-    if vk_box.backend.as_str() != super::ZK_BACKEND_HALO2_IPA {
-        return Err(format!(
-            "Confidential unshield v2 verifier key backend `{}` is not `{}`",
-            vk_box.backend,
-            super::ZK_BACKEND_HALO2_IPA
-        ));
-    }
-    if vk_box.bytes.is_empty() {
-        return Err("Confidential unshield v2 verifier key must be non-empty".to_owned());
-    }
-    {
-        ensure_confidential_v2_vk_box_shape(
-            vk_box,
-            CONFIDENTIAL_UNSHIELD_V2_CIRCUIT_ID,
-            CONFIDENTIAL_UNSHIELD_V2_IPA_K,
-            "Confidential unshield v2",
-        )?;
-        let canonical = confidential_unshield_v2_vk_box()?;
-        if super::hash_vk(&canonical) != CONFIDENTIAL_UNSHIELD_V2_VK_DIGEST_V1 {
-            return Err(
-                "generated confidential unshield v2 verifier key diverges from its reviewed digest"
-                    .to_owned(),
-            );
-        }
-        if super::hash_vk(vk_box) != CONFIDENTIAL_UNSHIELD_V2_VK_DIGEST_V1
-            || vk_box.bytes != canonical.bytes
-        {
-            return Err(
-                "Confidential unshield v2 verifier key must match the canonical semantic circuit key"
-                    .to_owned(),
-            );
-        }
-        Ok(())
-    }
+    native::validate_key(native::Kind::Full, key)
 }
-/// Return the process-cached canonical change-unshield verifying key.
+/// Return the exact compiled native redemption-with-change key carrier.
 pub fn confidential_unshield_v3_vk_box() -> Result<VerifyingKeyBox, String> {
-    static CACHE: std::sync::OnceLock<Result<VerifyingKeyBox, String>> = std::sync::OnceLock::new();
-    CACHE
-        .get_or_init(|| {
-            build_confidential_v2_vk_box(
-                CONFIDENTIAL_UNSHIELD_V3_IPA_K,
-                CONFIDENTIAL_UNSHIELD_V3_CIRCUIT_ID,
-                &secure_relation_v3::ConfidentialUnshieldChangeCircuitV4::<
-                    CONFIDENTIAL_TREE_DEPTH_V2,
-                >::default(),
-            )
-        })
-        .clone()
+    native::verifying_key(native::Kind::Change)
 }
-/// Require an exact canonical change-unshield verifying key.
+/// Authenticate the exact compiled native redemption-with-change key carrier.
 pub fn ensure_confidential_unshield_v3_canonical_vk_box(
-    vk_box: &VerifyingKeyBox,
+    key: &VerifyingKeyBox,
 ) -> Result<(), String> {
-    if vk_box.backend.as_str() != super::ZK_BACKEND_HALO2_IPA {
-        return Err(format!(
-            "Confidential unshield v3 verifier key backend `{}` is not `{}`",
-            vk_box.backend,
-            super::ZK_BACKEND_HALO2_IPA
-        ));
-    }
-    if vk_box.bytes.is_empty() {
-        return Err("Confidential unshield v3 verifier key must be non-empty".to_owned());
-    }
-    {
-        ensure_confidential_v2_vk_box_shape(
-            vk_box,
-            CONFIDENTIAL_UNSHIELD_V3_CIRCUIT_ID,
-            CONFIDENTIAL_UNSHIELD_V3_IPA_K,
-            "Confidential unshield v3",
-        )?;
-        let canonical = confidential_unshield_v3_vk_box()?;
-        if super::hash_vk(&canonical) != CONFIDENTIAL_UNSHIELD_V3_VK_DIGEST_V1 {
-            return Err(
-                "generated confidential unshield v3 verifier key diverges from its reviewed digest"
-                    .to_owned(),
-            );
-        }
-        if super::hash_vk(vk_box) != CONFIDENTIAL_UNSHIELD_V3_VK_DIGEST_V1
-            || vk_box.bytes != canonical.bytes
-        {
-            return Err(
-                "Confidential unshield v3 verifier key must match the canonical semantic circuit key"
-                    .to_owned(),
-            );
-        }
-        Ok(())
-    }
+    native::validate_key(native::Kind::Change, key)
 }
 fn confidential_v2_vk_record(
     name: &str,
@@ -647,15 +446,15 @@ fn confidential_v2_vk_record(
     let mut record = VerifyingKeyRecord::new(
         version,
         circuit_id,
-        BackendTag::Halo2IpaPasta,
-        "pallas",
+        BackendTag::NativePipaRPasta,
+        "vesta",
         CryptoHash::new(public_inputs_schema).into(),
         super::hash_vk(&vk_box),
     );
     record.vk_len = u32::try_from(vk_box.bytes.len())
         .map_err(|_| "confidential v2 verifying key length overflowed u32".to_owned())?;
     record.max_proof_bytes = CONFIDENTIAL_V2_MAX_PROOF_BYTES;
-    record.gas_schedule_id = Some("halo2_default".to_owned());
+    record.gas_schedule_id = Some("native_pipa_r_default".to_owned());
     record.key = Some(vk_box);
     record.status = ConfidentialStatus::Active;
     record.namespace = name.to_owned();
@@ -720,37 +519,25 @@ pub fn parse_transfer_public_inputs(
     ),
     String,
 > {
-    let columns = extract_confidential_public_columns(proof_bytes)
-        .ok_or_else(|| "failed to decode transfer proof public inputs".to_owned())?;
-    if columns.len() != 9 || columns.iter().any(|column| column.len() != 1) {
-        return Err("transfer proof must expose 9 single-row instance columns".to_owned());
+    let envelope: OpenVerifyEnvelope =
+        norito::decode_canonical(proof_bytes).map_err(|error| error.to_string())?;
+    if envelope.circuit_id != CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID {
+        return Err("not a native confidential transfer envelope".into());
     }
+    let columns =
+        super::native_pipa_r::public_instances(super::ZK_BACKEND_NATIVE_PIPA_R, &envelope)?;
+    let rows = &columns[0];
     Ok((
-        [columns[0][0], columns[1][0]],
-        [columns[2][0], columns[3][0]],
-        [columns[4][0], columns[5][0]],
-        columns[6][0],
-        columns[7][0],
-        columns[8][0],
+        [rows[0].to_repr(), rows[1].to_repr()],
+        [rows[2].to_repr(), rows[3].to_repr()],
+        [rows[4].to_repr(), rows[5].to_repr()],
+        rows[6].to_repr(),
+        rows[7].to_repr(),
+        rows[8].to_repr(),
     ))
 }
-#[cfg(test)]
-fn extract_confidential_public_columns(proof_bytes: &[u8]) -> Option<Vec<Vec<[u8; 32]>>> {
-    let envelope = norito::decode_canonical::<OpenVerifyEnvelope>(proof_bytes).ok()?;
-    envelope.validate_for_admission().ok()?;
-    match envelope.backend {
-        BackendTag::Halo2IpaPasta => {
-            super::extract_pasta_instance_columns_bytes(&envelope.proof_bytes)
-        }
-        BackendTag::Stark => norito::decode_canonical::<StarkFriOpenProofV1>(&envelope.proof_bytes)
-            .ok()
-            .map(|proof| proof.public_inputs),
-    }
-}
 pub(crate) fn scalar_from_repr(bytes: [u8; 32]) -> Option<Scalar> {
-    let mut repr = <Scalar as halo2_proofs::halo2curves::ff::PrimeField>::Repr::default();
-    repr.as_mut().copy_from_slice(&bytes);
-    Option::from(Scalar::from_repr(repr))
+    Option::from(Scalar::from_repr(bytes))
 }
 fn scalar_to_repr_bytes(value: Scalar) -> [u8; 32] {
     let mut out = [0u8; 32];
@@ -777,2052 +564,19 @@ fn hash_to_scalar(label: &[u8], parts: &[&[u8]]) -> Scalar {
     }
 }
 fn scalar_from_u128(amount: u128) -> Scalar {
-    let mut repr = <Scalar as halo2_proofs::halo2curves::ff::PrimeField>::Repr::default();
+    let mut repr = <Scalar as ff::PrimeField>::Repr::default();
     repr.as_mut()[..16].copy_from_slice(&amount.to_le_bytes());
     Scalar::from_repr(repr).expect("u128 always fits inside Pasta Fp")
 }
-pub(crate) type ConfidentialPoseidonSpecV3<F> =
-    halo2_base::poseidon::hasher::spec::OptimizedPoseidonSpec<
-        F,
-        CONFIDENTIAL_POSEIDON_T_V3,
-        CONFIDENTIAL_POSEIDON_RATE_V3,
-    >;
-pub(crate) type ConfidentialNativePoseidonV3<F> = snark_verifier::util::hash::Poseidon<
-    F,
-    F,
-    CONFIDENTIAL_POSEIDON_T_V3,
-    CONFIDENTIAL_POSEIDON_RATE_V3,
->;
-pub(crate) trait ConfidentialPoseidonFieldV3:
-    snark_verifier::util::arithmetic::FieldExt + Sized + 'static
-{
-    fn confidential_poseidon_spec_v3() -> &'static ConfidentialPoseidonSpecV3<Self>;
-    fn with_confidential_poseidon_v3<R>(
-        callback: impl FnOnce(&mut ConfidentialNativePoseidonV3<Self>) -> R,
-    ) -> R;
+pub(crate) fn confidential_poseidon_hash_v3<F: iroha_pasta::poseidon::PoseidonField>(
+    domain: u64,
+    inputs: &[F],
+) -> F {
+    iroha_pasta::poseidon::hash_with_domain(domain, inputs)
 }
-fn confidential_poseidon_fp_spec_v3() -> &'static ConfidentialPoseidonSpecV3<Scalar> {
-    static SPEC: std::sync::OnceLock<ConfidentialPoseidonSpecV3<Scalar>> =
-        std::sync::OnceLock::new();
-    SPEC.get_or_init(|| {
-        ConfidentialPoseidonSpecV3::new::<
-            CONFIDENTIAL_POSEIDON_FULL_ROUNDS_V3,
-            CONFIDENTIAL_POSEIDON_PARTIAL_ROUNDS_V3,
-            CONFIDENTIAL_POSEIDON_SECURE_MDS_V3,
-        >()
-    })
-}
-std::thread_local! {
-    static CONFIDENTIAL_POSEIDON_FP_V3: std::cell::RefCell<ConfidentialNativePoseidonV3<Scalar>> =
-        std::cell::RefCell::new(ConfidentialNativePoseidonV3::from_spec(
-            &*snark_verifier::loader::native::LOADER,
-            confidential_poseidon_fp_spec_v3().clone(),
-        ));
-}
-impl ConfidentialPoseidonFieldV3 for Scalar {
-    fn confidential_poseidon_spec_v3() -> &'static ConfidentialPoseidonSpecV3<Self> {
-        confidential_poseidon_fp_spec_v3()
-    }
-    fn with_confidential_poseidon_v3<R>(
-        callback: impl FnOnce(&mut ConfidentialNativePoseidonV3<Self>) -> R,
-    ) -> R {
-        CONFIDENTIAL_POSEIDON_FP_V3.with(|hasher| callback(&mut hasher.borrow_mut()))
-    }
-}
-#[cfg(test)]
-fn confidential_poseidon_fq_spec_v3()
--> &'static ConfidentialPoseidonSpecV3<halo2_proofs::halo2curves::pasta::Fq> {
-    static SPEC: std::sync::OnceLock<
-        ConfidentialPoseidonSpecV3<halo2_proofs::halo2curves::pasta::Fq>,
-    > = std::sync::OnceLock::new();
-    SPEC.get_or_init(|| {
-        ConfidentialPoseidonSpecV3::new::<
-            CONFIDENTIAL_POSEIDON_FULL_ROUNDS_V3,
-            CONFIDENTIAL_POSEIDON_PARTIAL_ROUNDS_V3,
-            CONFIDENTIAL_POSEIDON_SECURE_MDS_V3,
-        >()
-    })
-}
-#[cfg(test)]
-std::thread_local! {
-    #[cfg(test)]
-    static CONFIDENTIAL_POSEIDON_FQ_V3: std::cell::RefCell<
-        ConfidentialNativePoseidonV3<halo2_proofs::halo2curves::pasta::Fq>,
-    > = std::cell::RefCell::new(ConfidentialNativePoseidonV3::from_spec(
-        &*snark_verifier::loader::native::LOADER,
-        confidential_poseidon_fq_spec_v3().clone(),
-    ));
-}
-#[cfg(test)]
-impl ConfidentialPoseidonFieldV3 for halo2_proofs::halo2curves::pasta::Fq {
-    fn confidential_poseidon_spec_v3() -> &'static ConfidentialPoseidonSpecV3<Self> {
-        confidential_poseidon_fq_spec_v3()
-    }
-    fn with_confidential_poseidon_v3<R>(
-        callback: impl FnOnce(&mut ConfidentialNativePoseidonV3<Self>) -> R,
-    ) -> R {
-        CONFIDENTIAL_POSEIDON_FQ_V3.with(|hasher| callback(&mut hasher.borrow_mut()))
-    }
-}
-pub(crate) fn confidential_poseidon_hash_v3<F>(domain: u64, inputs: &[F]) -> F
-where
-    F: ConfidentialPoseidonFieldV3,
-{
-    let mut preimage = Vec::with_capacity(inputs.len() + 2);
-    preimage.push(F::from(domain));
-    preimage.push(F::from_u128(inputs.len() as u128));
-    preimage.extend_from_slice(inputs);
-    F::with_confidential_poseidon_v3(|hasher| {
-        hasher.clear();
-        hasher.update(&preimage);
-        hasher.squeeze()
-    })
-}
-/// Shared confidential relation expressions used by standalone proofs.
-pub(super) mod confidential_relation_gadget {
-    use halo2_base::{
-        AssignedValue, Context,
-        gates::{RangeChip, RangeInstructions},
-        poseidon::hasher::PoseidonHasher,
-        utils::BigPrimeField,
-    };
-    /// Shared secure Poseidon gadget for confidential and recursive relations.
-    pub(crate) struct ConfidentialPoseidonChipV3<F: BigPrimeField> {
-        hasher: PoseidonHasher<
-            F,
-            { super::CONFIDENTIAL_POSEIDON_T_V3 },
-            { super::CONFIDENTIAL_POSEIDON_RATE_V3 },
-        >,
-    }
-    impl<F> ConfidentialPoseidonChipV3<F>
-    where
-        F: BigPrimeField + super::ConfidentialPoseidonFieldV3,
-    {
-        /// Initialize the pinned Axiom specification and reusable constants.
-        pub(crate) fn new(ctx: &mut Context<F>, range: &RangeChip<F>) -> Self {
-            let spec = F::confidential_poseidon_spec_v3().clone();
-            let mut hasher = PoseidonHasher::new(spec);
-            hasher.initialize_consts(ctx, range.gate());
-            Self { hasher }
-        }
-        /// Hash a fixed-arity list with an explicit use-domain and arity word.
-        pub(crate) fn hash(
-            &self,
-            ctx: &mut Context<F>,
-            range: &RangeChip<F>,
-            domain: u64,
-            inputs: &[AssignedValue<F>],
-        ) -> AssignedValue<F> {
-            let mut preimage = Vec::with_capacity(inputs.len() + 2);
-            preimage.push(ctx.load_constant(F::from(domain)));
-            preimage.push(ctx.load_constant(F::from(inputs.len() as u64)));
-            preimage.extend_from_slice(inputs);
-            self.hasher.hash_fix_len_array(ctx, range.gate(), &preimage)
-        }
-    }
-}
-/// Secure-permutation confidential relations built entirely in one constrained
-/// `halo2-base` execution trace.
-///
-/// Every value consumed by this relation, including public instances, range checks, presence flags,
-/// note openings, nullifiers, and Merkle paths, is an `AssignedValue` in the same copy-constraint
-/// graph. This avoids unconstrained bridges between advice cells and virtual-region hashes.
-pub(crate) mod secure_relation_v3 {
-    use super::{
-        CONFIDENTIAL_POSEIDON_MERKLE_LEAF_DOMAIN_V3, CONFIDENTIAL_POSEIDON_MERKLE_NODE_DOMAIN_V3,
-        CONFIDENTIAL_POSEIDON_NOTE_DOMAIN_V3, CONFIDENTIAL_POSEIDON_NULLIFIER_DOMAIN_V3,
-        CONFIDENTIAL_POSEIDON_OWNER_DOMAIN_V3, ConfidentialMerklePathV2,
-        ConfidentialTransferWitnessV2, ConfidentialUnshieldChangePublicInputV1,
-        ConfidentialUnshieldChangePublicInputsV1, ConfidentialUnshieldFullPublicInputV1,
-        ConfidentialUnshieldFullPublicInputsV1, ConfidentialUnshieldWitnessV2,
-        ConfidentialUnshieldWitnessV3, ConfidentialUnsignedRangeV1, Scalar,
-        confidential_relation_gadget, scalar_from_repr, scalar_from_u128,
-    };
-    use halo2_base::{
-        AssignedValue, Context, QuantumCell,
-        gates::{
-            GateInstructions, RangeInstructions,
-            circuit::{BaseCircuitParams, BaseConfig, builder::BaseCircuitBuilder},
-        },
-        halo2_proofs::plonk::Assigned,
-    };
-    use halo2_proofs::{
-        circuit::Layouter,
-        halo2curves::ff::Field as _,
-        plonk::{Circuit, ConstraintSystem, Error as PlonkError},
-    };
-    use zeroize::Zeroize as _;
-    const MINIMUM_UNUSABLE_ROWS: usize = 9;
-    fn canonical_scalar(bytes: [u8; 32], label: &str) -> Result<Scalar, String> {
-        scalar_from_repr(bytes).ok_or_else(|| format!("{label} must be a canonical Pasta scalar"))
-    }
-    fn canonical_nonzero_scalar(bytes: [u8; 32], label: &str) -> Result<Scalar, String> {
-        canonical_scalar(bytes, label).and_then(|value| {
-            if value == Scalar::ZERO {
-                Err(format!("{label} must be non-zero"))
-            } else {
-                Ok(value)
-            }
-        })
-    }
-    fn validate_path<const DEPTH: usize>(
-        path: &ConfidentialMerklePathV2,
-        label: &str,
-    ) -> Result<(), String> {
-        if path.siblings.len() != DEPTH
-            || path.directions.len() != DEPTH
-            || path.witness_nodes.len() != DEPTH
-        {
-            return Err(format!(
-                "{label} must contain exactly {DEPTH} siblings, directions, and witness nodes"
-            ));
-        }
-        for (level, sibling) in path.siblings.iter().copied().enumerate() {
-            canonical_scalar(sibling, &format!("{label} sibling[{level}]"))?;
-        }
-        for (level, direction) in path.directions.iter().copied().enumerate() {
-            if direction > 1 {
-                return Err(format!("{label} direction[{level}] must be zero or one"));
-            }
-        }
-        for (level, node) in path.witness_nodes.iter().copied().enumerate() {
-            canonical_scalar(node, &format!("{label} witness_node[{level}]"))?;
-        }
-        canonical_scalar(path.root, &format!("{label} root"))?;
-        Ok(())
-    }
-    pub(super) fn validate_transfer_witness<const DEPTH: usize>(
-        witness: &ConfidentialTransferWitnessV2,
-    ) -> Result<(), String> {
-        if witness.input_0_amount == 0 || witness.output_0_amount == 0 {
-            return Err("mandatory transfer amounts must be non-zero".to_owned());
-        }
-        if witness.input_0_rho == [0; 32] || witness.output_0_rho == [0; 32] {
-            return Err("mandatory transfer rho values must be non-zero".to_owned());
-        }
-        canonical_nonzero_scalar(witness.spend_scalar, "transfer spend scalar")?;
-        canonical_nonzero_scalar(witness.input_0_diversifier, "transfer input 0 diversifier")?;
-        canonical_nonzero_scalar(witness.output_0_owner_tag, "transfer output 0 owner tag")?;
-        canonical_nonzero_scalar(witness.asset_tag, "transfer asset tag")?;
-        canonical_nonzero_scalar(witness.network_tag, "transfer network tag")?;
-        validate_path::<DEPTH>(&witness.input_0_path, "transfer input 0 path")?;
-        validate_path::<DEPTH>(&witness.input_1_path, "transfer input 1 path")?;
-        if witness.include_input_1 {
-            if witness.input_1_amount == 0 || witness.input_1_rho == [0; 32] {
-                return Err("present transfer input 1 must have non-zero amount and rho".to_owned());
-            }
-            canonical_nonzero_scalar(witness.input_1_diversifier, "transfer input 1 diversifier")?;
-        } else if witness.input_1_amount != 0
-            || witness.input_1_rho != [0; 32]
-            || witness.input_1_diversifier != [0; 32]
-        {
-            return Err(
-                "absent transfer input 1 opening must use the canonical all-zero form".to_owned(),
-            );
-        }
-        if witness.include_output_1 {
-            if witness.output_1_amount == 0 || witness.output_1_rho == [0; 32] {
-                return Err(
-                    "present transfer output 1 must have non-zero amount and rho".to_owned(),
-                );
-            }
-            canonical_nonzero_scalar(witness.output_1_owner_tag, "transfer output 1 owner tag")?;
-        } else if witness.output_1_amount != 0
-            || witness.output_1_rho != [0; 32]
-            || witness.output_1_owner_tag != [0; 32]
-        {
-            return Err(
-                "absent transfer output 1 opening must use the canonical all-zero form".to_owned(),
-            );
-        }
-        Ok(())
-    }
-    fn validate_unshield_inputs<const DEPTH: usize>(
-        include_input_1: bool,
-        input_amounts: [u128; 2],
-        input_rhos: [[u8; 32]; 2],
-        spend_scalar: [u8; 32],
-        diversifiers: [[u8; 32]; 2],
-        asset_tag: [u8; 32],
-        network_tag: [u8; 32],
-        paths: [&ConfidentialMerklePathV2; 2],
-    ) -> Result<(), String> {
-        if input_amounts[0] == 0 || input_rhos[0] == [0; 32] {
-            return Err("mandatory unshield input must have non-zero amount and rho".to_owned());
-        }
-        canonical_nonzero_scalar(spend_scalar, "unshield spend scalar")?;
-        canonical_nonzero_scalar(diversifiers[0], "unshield input 0 diversifier")?;
-        canonical_nonzero_scalar(asset_tag, "unshield asset tag")?;
-        canonical_nonzero_scalar(network_tag, "unshield network tag")?;
-        validate_path::<DEPTH>(paths[0], "unshield input 0 path")?;
-        validate_path::<DEPTH>(paths[1], "unshield input 1 path")?;
-        if include_input_1 {
-            if input_amounts[1] == 0 || input_rhos[1] == [0; 32] {
-                return Err("present unshield input 1 must have non-zero amount and rho".to_owned());
-            }
-            canonical_nonzero_scalar(diversifiers[1], "unshield input 1 diversifier")?;
-        } else if input_amounts[1] != 0 || input_rhos[1] != [0; 32] || diversifiers[1] != [0; 32] {
-            return Err(
-                "absent unshield input 1 opening must use the canonical all-zero form".to_owned(),
-            );
-        }
-        Ok(())
-    }
-    fn validate_unshield_v2_witness<const DEPTH: usize>(
-        witness: &ConfidentialUnshieldWitnessV2,
-    ) -> Result<(), String> {
-        validate_unshield_inputs::<DEPTH>(
-            witness.include_input_1,
-            [witness.input_0_amount, witness.input_1_amount],
-            [witness.input_0_rho, witness.input_1_rho],
-            witness.spend_scalar,
-            [witness.input_0_diversifier, witness.input_1_diversifier],
-            witness.asset_tag,
-            witness.network_tag,
-            [&witness.input_0_path, &witness.input_1_path],
-        )
-    }
-    pub(super) fn validate_unshield_v3_witness<const DEPTH: usize>(
-        witness: &ConfidentialUnshieldWitnessV3,
-    ) -> Result<(), String> {
-        validate_unshield_inputs::<DEPTH>(
-            witness.include_input_1,
-            [witness.input_0_amount, witness.input_1_amount],
-            [witness.input_0_rho, witness.input_1_rho],
-            witness.spend_scalar,
-            [witness.input_0_diversifier, witness.input_1_diversifier],
-            witness.asset_tag,
-            witness.network_tag,
-            [&witness.input_0_path, &witness.input_1_path],
-        )?;
-        if witness.include_output_0 {
-            if witness.output_0_amount == 0 || witness.output_0_rho == [0; 32] {
-                return Err("present unshield output must have non-zero amount and rho".to_owned());
-            }
-        } else if witness.output_0_amount != 0 || witness.output_0_rho != [0; 32] {
-            return Err(
-                "absent unshield output must use the canonical all-zero opening".to_owned(),
-            );
-        }
-        Ok(())
-    }
-    fn assert_equal(
-        ctx: &mut halo2_base::Context<Scalar>,
-        range: &halo2_base::gates::RangeChip<Scalar>,
-        lhs: AssignedValue<Scalar>,
-        rhs: impl Into<QuantumCell<Scalar>>,
-    ) {
-        let difference = range.gate().sub(ctx, lhs, rhs);
-        range
-            .gate()
-            .assert_is_const(ctx, &difference, &Scalar::ZERO);
-    }
-    fn assert_nonzero(
-        ctx: &mut halo2_base::Context<Scalar>,
-        range: &halo2_base::gates::RangeChip<Scalar>,
-        value: AssignedValue<Scalar>,
-    ) {
-        let is_zero = range.gate().is_zero(ctx, value);
-        range.gate().assert_is_const(ctx, &is_zero, &Scalar::ZERO);
-    }
-    fn constrain_optional_nonzero(
-        ctx: &mut halo2_base::Context<Scalar>,
-        range: &halo2_base::gates::RangeChip<Scalar>,
-        value: AssignedValue<Scalar>,
-        present: AssignedValue<Scalar>,
-    ) {
-        let is_zero = range.gate().is_zero(ctx, value);
-        let absent = range.gate().not(ctx, present);
-        assert_equal(ctx, range, is_zero, absent);
-    }
-    fn note_hash(
-        ctx: &mut halo2_base::Context<Scalar>,
-        range: &halo2_base::gates::RangeChip<Scalar>,
-        poseidon: &confidential_relation_gadget::ConfidentialPoseidonChipV3<Scalar>,
-        amount: AssignedValue<Scalar>,
-        rho: AssignedValue<Scalar>,
-        owner: AssignedValue<Scalar>,
-        asset: AssignedValue<Scalar>,
-    ) -> AssignedValue<Scalar> {
-        poseidon.hash(
-            ctx,
-            range,
-            CONFIDENTIAL_POSEIDON_NOTE_DOMAIN_V3,
-            &[amount, rho, owner, asset],
-        )
-    }
-    fn nullifier_hash(
-        ctx: &mut halo2_base::Context<Scalar>,
-        range: &halo2_base::gates::RangeChip<Scalar>,
-        poseidon: &confidential_relation_gadget::ConfidentialPoseidonChipV3<Scalar>,
-        spend: AssignedValue<Scalar>,
-        rho: AssignedValue<Scalar>,
-        asset: AssignedValue<Scalar>,
-        network: AssignedValue<Scalar>,
-    ) -> AssignedValue<Scalar> {
-        poseidon.hash(
-            ctx,
-            range,
-            CONFIDENTIAL_POSEIDON_NULLIFIER_DOMAIN_V3,
-            &[spend, rho, asset, network],
-        )
-    }
-    fn merkle_root<const DEPTH: usize>(
-        ctx: &mut halo2_base::Context<Scalar>,
-        range: &halo2_base::gates::RangeChip<Scalar>,
-        poseidon: &confidential_relation_gadget::ConfidentialPoseidonChipV3<Scalar>,
-        commitment: AssignedValue<Scalar>,
-        path: Option<&ConfidentialMerklePathV2>,
-    ) -> AssignedValue<Scalar> {
-        let mut node = poseidon.hash(
-            ctx,
-            range,
-            CONFIDENTIAL_POSEIDON_MERKLE_LEAF_DOMAIN_V3,
-            &[commitment],
-        );
-        for level in 0..DEPTH {
-            let sibling = ctx.load_witness(
-                path.and_then(|value| value.siblings.get(level).copied())
-                    .map_or(Scalar::ZERO, |bytes| {
-                        canonical_scalar(bytes, "validated Merkle sibling")
-                            .expect("validated Merkle sibling")
-                    }),
-            );
-            let direction = ctx.load_witness(Scalar::from(u64::from(
-                path.and_then(|value| value.directions.get(level).copied())
-                    .unwrap_or(0),
-            )));
-            range.gate().assert_bit(ctx, direction);
-            let left = range.gate().select(ctx, sibling, node, direction);
-            let right = range.gate().select(ctx, node, sibling, direction);
-            node = poseidon.hash(
-                ctx,
-                range,
-                CONFIDENTIAL_POSEIDON_MERKLE_NODE_DOMAIN_V3,
-                &[left, right],
-            );
-            let carried_node = ctx.load_witness(
-                path.and_then(|value| value.witness_nodes.get(level).copied())
-                    .map_or(Scalar::ZERO, |bytes| {
-                        canonical_scalar(bytes, "validated Merkle witness node")
-                            .expect("validated Merkle witness node")
-                    }),
-            );
-            assert_equal(ctx, range, node, carried_node);
-        }
-        let carried_root = ctx.load_witness(path.map_or(Scalar::ZERO, |value| {
-            canonical_scalar(value.root, "validated Merkle root").expect("validated Merkle root")
-        }));
-        assert_equal(ctx, range, node, carried_root);
-        node
-    }
-    fn wipe_builder(builder: &mut BaseCircuitBuilder<Scalar>) {
-        for phase in &mut builder.core_mut().phase_manager {
-            for context in &mut phase.threads {
-                context.wipe_advice();
-            }
-        }
-        for column in &mut builder.assigned_instances {
-            for value in column {
-                value.value = Assigned::Trivial(Scalar::ZERO);
-            }
-        }
-        builder.clear();
-    }
-    /// Already-constrained transfer cells needed by recursive StepEq.
-    #[derive(Clone, Debug)]
-    pub(crate) struct AssignedConfidentialTransferStepV4 {
-        /// Existing standalone public schema in its exact order.
-        pub(crate) public: [AssignedValue<Scalar>; 9],
-        /// Sum of the one or two constrained input openings.
-        #[expect(
-            dead_code,
-            reason = "Retain the exact constrained cell for recursive transfer composition"
-        )]
-        pub(crate) input_amount: AssignedValue<Scalar>,
-        /// Constrained recipient opening amount.
-        #[expect(
-            dead_code,
-            reason = "Retain the exact constrained cell for recursive transfer composition"
-        )]
-        pub(crate) recipient_amount: AssignedValue<Scalar>,
-        /// Constrained optional change opening amount, exactly zero when absent.
-        #[expect(
-            dead_code,
-            reason = "Retain the exact constrained cell for recursive transfer composition"
-        )]
-        pub(crate) change_amount: AssignedValue<Scalar>,
-        /// Constrained optional-input presence bit.
-        #[expect(
-            dead_code,
-            reason = "Retain the exact constrained cell for recursive transfer composition"
-        )]
-        pub(crate) has_second_input: AssignedValue<Scalar>,
-        /// Constrained change-output presence bit.
-        #[expect(
-            dead_code,
-            reason = "Retain the exact constrained cell for recursive transfer composition"
-        )]
-        pub(crate) has_change: AssignedValue<Scalar>,
-    }
-    /// Assign the complete secure transfer relation into an existing Eq/Fp
-    /// builder and retain the exact amount cells needed by StepEq.
-    ///
-    /// Recursive StepEq uses this exact function; the standalone transfer
-    /// circuit below is only a thin instance-exposure wrapper around it.
-    pub(crate) fn assign_confidential_transfer_step_v4<const DEPTH: usize>(
-        ctx: &mut Context<Scalar>,
-        range: &halo2_base::gates::RangeChip<Scalar>,
-        witness: Option<&ConfidentialTransferWitnessV2>,
-    ) -> Result<AssignedConfidentialTransferStepV4, String> {
-        if let Some(witness) = witness {
-            validate_transfer_witness::<DEPTH>(witness)?;
-        }
-        let gate = range.gate();
-        let present_input_1 =
-            ctx.load_witness(if witness.is_some_and(|value| value.include_input_1) {
-                Scalar::ONE
-            } else {
-                Scalar::ZERO
-            });
-        let present_output_1 =
-            ctx.load_witness(if witness.is_some_and(|value| value.include_output_1) {
-                Scalar::ONE
-            } else {
-                Scalar::ZERO
-            });
-        gate.assert_bit(ctx, present_input_1);
-        gate.assert_bit(ctx, present_output_1);
-        let amounts = [
-            witness.map_or(0, |value| value.input_0_amount),
-            witness.map_or(0, |value| value.input_1_amount),
-            witness.map_or(0, |value| value.output_0_amount),
-            witness.map_or(0, |value| value.output_1_amount),
-        ]
-        .map(|amount| ctx.load_witness(scalar_from_u128(amount)));
-        for amount in amounts {
-            range.range_check(ctx, amount, ConfidentialUnsignedRangeV1::Amount.bits());
-        }
-        assert_nonzero(ctx, &range, amounts[0]);
-        constrain_optional_nonzero(ctx, &range, amounts[1], present_input_1);
-        assert_nonzero(ctx, &range, amounts[2]);
-        constrain_optional_nonzero(ctx, &range, amounts[3], present_output_1);
-        let input_sum = gate.add(ctx, amounts[0], amounts[1]);
-        let output_sum = gate.add(ctx, amounts[2], amounts[3]);
-        assert_equal(ctx, &range, input_sum, output_sum);
-        let rho_bytes = [
-            witness.map_or([0; 32], |value| value.input_0_rho),
-            witness.map_or([0; 32], |value| value.input_1_rho),
-            witness.map_or([0; 32], |value| value.output_0_rho),
-            witness.map_or([0; 32], |value| value.output_1_rho),
-        ];
-        let rho_present = [
-            witness.is_some(),
-            witness.is_some_and(|value| value.include_input_1),
-            witness.is_some(),
-            witness.is_some_and(|value| value.include_output_1),
-        ];
-        let rho: [AssignedValue<Scalar>; 4] = std::array::from_fn(|index| {
-            ctx.load_witness(if rho_present[index] {
-                super::hash_to_scalar(b"iroha.confidential.v3.note_rho", &[&rho_bytes[index]])
-            } else {
-                Scalar::ZERO
-            })
-        });
-        // Keep the circuit shape independent of whether a proving witness is
-        // present. Key generation configures the circuit without a witness,
-        // so conditionally omitting these constraints produces a different
-        // advice layout at proving time.
-        assert_nonzero(ctx, &range, rho[0]);
-        constrain_optional_nonzero(ctx, &range, rho[1], present_input_1);
-        assert_nonzero(ctx, &range, rho[2]);
-        constrain_optional_nonzero(ctx, &range, rho[3], present_output_1);
-        let spend = ctx.load_witness(match witness {
-            Some(value) => canonical_nonzero_scalar(value.spend_scalar, "transfer spend scalar")
-                .expect("validated transfer spend scalar"),
-            None => Scalar::ZERO,
-        });
-        let diversifiers = [
-            witness.map_or([0; 32], |value| value.input_0_diversifier),
-            witness.map_or([0; 32], |value| value.input_1_diversifier),
-        ]
-        .map(|value| {
-            ctx.load_witness(
-                canonical_scalar(value, "validated transfer diversifier")
-                    .expect("validated transfer diversifier"),
-            )
-        });
-        let output_owners = [
-            witness.map_or([0; 32], |value| value.output_0_owner_tag),
-            witness.map_or([0; 32], |value| value.output_1_owner_tag),
-        ]
-        .map(|value| {
-            ctx.load_witness(
-                canonical_scalar(value, "validated transfer owner tag")
-                    .expect("validated transfer owner tag"),
-            )
-        });
-        let asset = ctx.load_witness(match witness {
-            Some(value) => canonical_nonzero_scalar(value.asset_tag, "transfer asset tag")
-                .expect("validated transfer asset tag"),
-            None => Scalar::ZERO,
-        });
-        let network = ctx.load_witness(match witness {
-            Some(value) => canonical_nonzero_scalar(value.network_tag, "transfer network tag")
-                .expect("validated transfer network tag"),
-            None => Scalar::ZERO,
-        });
-        for value in [spend, diversifiers[0], output_owners[0], asset, network] {
-            assert_nonzero(ctx, &range, value);
-        }
-        constrain_optional_nonzero(ctx, &range, diversifiers[1], present_input_1);
-        constrain_optional_nonzero(ctx, &range, output_owners[1], present_output_1);
-        let poseidon = confidential_relation_gadget::ConfidentialPoseidonChipV3::new(ctx, &range);
-        let input_owners = diversifiers.map(|diversifier| {
-            poseidon.hash(
-                ctx,
-                &range,
-                CONFIDENTIAL_POSEIDON_OWNER_DOMAIN_V3,
-                &[spend, diversifier],
-            )
-        });
-        let commitments = [
-            note_hash(
-                ctx,
-                &range,
-                &poseidon,
-                amounts[0],
-                rho[0],
-                input_owners[0],
-                asset,
-            ),
-            note_hash(
-                ctx,
-                &range,
-                &poseidon,
-                amounts[1],
-                rho[1],
-                input_owners[1],
-                asset,
-            ),
-            note_hash(
-                ctx,
-                &range,
-                &poseidon,
-                amounts[2],
-                rho[2],
-                output_owners[0],
-                asset,
-            ),
-            note_hash(
-                ctx,
-                &range,
-                &poseidon,
-                amounts[3],
-                rho[3],
-                output_owners[1],
-                asset,
-            ),
-        ];
-        let nullifiers = [
-            nullifier_hash(ctx, &range, &poseidon, spend, rho[0], asset, network),
-            nullifier_hash(ctx, &range, &poseidon, spend, rho[1], asset, network),
-        ];
-        for value in [commitments[0], commitments[2], nullifiers[0]] {
-            assert_nonzero(ctx, &range, value);
-        }
-        let duplicate_nullifier = gate.is_equal(ctx, nullifiers[0], nullifiers[1]);
-        let selected_duplicate = gate.mul(ctx, present_input_1, duplicate_nullifier);
-        gate.assert_is_const(ctx, &selected_duplicate, &Scalar::ZERO);
-        let duplicate_output = gate.is_equal(ctx, commitments[2], commitments[3]);
-        let selected_duplicate = gate.mul(ctx, present_output_1, duplicate_output);
-        gate.assert_is_const(ctx, &selected_duplicate, &Scalar::ZERO);
-        let public_input_1 = gate.mul(ctx, present_input_1, commitments[1]);
-        let root_0 = merkle_root::<DEPTH>(
-            ctx,
-            &range,
-            &poseidon,
-            commitments[0],
-            witness.map(|value| &value.input_0_path),
-        );
-        let root_1 = merkle_root::<DEPTH>(
-            ctx,
-            &range,
-            &poseidon,
-            public_input_1,
-            witness.map(|value| &value.input_1_path),
-        );
-        // An absent input has no membership claim against the ledger tree.
-        // Its private dummy path belongs to the canonical empty tree, which
-        // remains available even when every ledger-tree leaf is occupied.
-        let root_difference = gate.sub(ctx, root_0, root_1);
-        let present_root_difference = gate.mul(ctx, present_input_1, root_difference);
-        gate.assert_is_const(ctx, &present_root_difference, &Scalar::ZERO);
-        let public_nullifier_1 = gate.mul(ctx, present_input_1, nullifiers[1]);
-        let public_output_1 = gate.mul(ctx, present_output_1, commitments[3]);
-        Ok(AssignedConfidentialTransferStepV4 {
-            public: [
-                commitments[0],
-                public_input_1,
-                nullifiers[0],
-                public_nullifier_1,
-                commitments[2],
-                public_output_1,
-                root_0,
-                asset,
-                network,
-            ],
-            input_amount: input_sum,
-            recipient_amount: amounts[2],
-            change_amount: amounts[3],
-            has_second_input: present_input_1,
-            has_change: present_output_1,
-        })
-    }
-    /// Existing standalone transfer assignment wrapper.
-    pub(crate) fn assign_confidential_transfer_v3<const DEPTH: usize>(
-        ctx: &mut Context<Scalar>,
-        range: &halo2_base::gates::RangeChip<Scalar>,
-        witness: Option<&ConfidentialTransferWitnessV2>,
-    ) -> Result<[AssignedValue<Scalar>; 9], String> {
-        Ok(assign_confidential_transfer_step_v4::<DEPTH>(ctx, range, witness)?.public)
-    }
-    fn transfer_builder<const DEPTH: usize>(
-        witness: Option<&ConfidentialTransferWitnessV2>,
-        k: usize,
-    ) -> Result<BaseCircuitBuilder<Scalar>, String> {
-        let mut builder = BaseCircuitBuilder::new(false)
-            .use_k(k)
-            .use_lookup_bits(k - 1)
-            .use_instance_columns(9);
-        let range = builder.range_chip();
-        let bindings = assign_confidential_transfer_v3::<DEPTH>(builder.main(0), &range, witness)?;
-        builder.assigned_instances = bindings.map(|value| vec![value]).to_vec();
-        builder.calculate_params(Some(MINIMUM_UNUSABLE_ROWS));
-        Ok(builder)
-    }
-    #[derive(Clone, Copy)]
-    enum UnshieldWitnessRef<'a> {
-        Full(Option<&'a ConfidentialUnshieldWitnessV2>),
-        Change(Option<&'a ConfidentialUnshieldWitnessV3>),
-    }
-    #[derive(Clone, Debug)]
-    struct AssignedUnshieldRelationV4 {
-        input_commitment_0: AssignedValue<Scalar>,
-        input_commitment_1: AssignedValue<Scalar>,
-        nullifier_0: AssignedValue<Scalar>,
-        nullifier_1: AssignedValue<Scalar>,
-        change_commitment_0: Option<AssignedValue<Scalar>>,
-        root: AssignedValue<Scalar>,
-        public_amount: AssignedValue<Scalar>,
-        asset_tag: AssignedValue<Scalar>,
-        network_tag: AssignedValue<Scalar>,
-    }
-    impl AssignedUnshieldRelationV4 {
-        fn full_public_inputs(
-            &self,
-        ) -> Result<ConfidentialUnshieldFullPublicInputsV1<AssignedValue<Scalar>>, String> {
-            if self.change_commitment_0.is_some() {
-                return Err(
-                    "full-unshield relation unexpectedly produced a change commitment".to_owned(),
-                );
-            }
-            Ok(ConfidentialUnshieldFullPublicInputsV1 {
-                input_commitment_0: self.input_commitment_0,
-                input_commitment_1: self.input_commitment_1,
-                nullifier_0: self.nullifier_0,
-                nullifier_1: self.nullifier_1,
-                root: self.root,
-                public_amount: self.public_amount,
-                asset_tag: self.asset_tag,
-                network_tag: self.network_tag,
-            })
-        }
-        fn change_public_inputs(
-            &self,
-        ) -> Result<ConfidentialUnshieldChangePublicInputsV1<AssignedValue<Scalar>>, String>
-        {
-            let change_commitment_0 = self.change_commitment_0.ok_or_else(|| {
-                "change-unshield relation omitted its public change commitment".to_owned()
-            })?;
-            Ok(ConfidentialUnshieldChangePublicInputsV1 {
-                input_commitment_0: self.input_commitment_0,
-                input_commitment_1: self.input_commitment_1,
-                nullifier_0: self.nullifier_0,
-                nullifier_1: self.nullifier_1,
-                change_commitment_0,
-                root: self.root,
-                public_amount: self.public_amount,
-                asset_tag: self.asset_tag,
-                network_tag: self.network_tag,
-            })
-        }
-    }
-    fn assign_unshield_relation<const DEPTH: usize>(
-        ctx: &mut Context<Scalar>,
-        range: &halo2_base::gates::RangeChip<Scalar>,
-        witness: UnshieldWitnessRef<'_>,
-    ) -> Result<AssignedUnshieldRelationV4, String> {
-        match witness {
-            UnshieldWitnessRef::Full(Some(value)) => {
-                validate_unshield_v2_witness::<DEPTH>(value)?;
-            }
-            UnshieldWitnessRef::Change(Some(value)) => {
-                validate_unshield_v3_witness::<DEPTH>(value)?;
-            }
-            UnshieldWitnessRef::Full(None) | UnshieldWitnessRef::Change(None) => {}
-        }
-        let gate = range.gate();
-        let include_input_1 = match witness {
-            UnshieldWitnessRef::Full(Some(value)) => value.include_input_1,
-            UnshieldWitnessRef::Change(Some(value)) => value.include_input_1,
-            UnshieldWitnessRef::Full(None) | UnshieldWitnessRef::Change(None) => false,
-        };
-        let present_input_1 = ctx.load_witness(if include_input_1 {
-            Scalar::ONE
-        } else {
-            Scalar::ZERO
-        });
-        gate.assert_bit(ctx, present_input_1);
-        let input_amounts_u128 = match witness {
-            UnshieldWitnessRef::Full(Some(value)) => [value.input_0_amount, value.input_1_amount],
-            UnshieldWitnessRef::Change(Some(value)) => [value.input_0_amount, value.input_1_amount],
-            UnshieldWitnessRef::Full(None) | UnshieldWitnessRef::Change(None) => [0; 2],
-        };
-        let input_amounts =
-            input_amounts_u128.map(|amount| ctx.load_witness(scalar_from_u128(amount)));
-        for amount in input_amounts {
-            range.range_check(ctx, amount, ConfidentialUnsignedRangeV1::Amount.bits());
-        }
-        assert_nonzero(ctx, &range, input_amounts[0]);
-        constrain_optional_nonzero(ctx, &range, input_amounts[1], present_input_1);
-        let input_rho_bytes = match witness {
-            UnshieldWitnessRef::Full(Some(value)) => [value.input_0_rho, value.input_1_rho],
-            UnshieldWitnessRef::Change(Some(value)) => [value.input_0_rho, value.input_1_rho],
-            UnshieldWitnessRef::Full(None) | UnshieldWitnessRef::Change(None) => [[0; 32]; 2],
-        };
-        let input_rho: [AssignedValue<Scalar>; 2] = std::array::from_fn(|index| {
-            ctx.load_witness(if index == 0 || include_input_1 {
-                super::hash_to_scalar(
-                    b"iroha.confidential.v3.note_rho",
-                    &[&input_rho_bytes[index]],
-                )
-            } else {
-                Scalar::ZERO
-            })
-        });
-        assert_nonzero(ctx, &range, input_rho[0]);
-        constrain_optional_nonzero(ctx, &range, input_rho[1], present_input_1);
-        let (spend_bytes, diversifier_bytes, asset_bytes, network_bytes) = match witness {
-            UnshieldWitnessRef::Full(Some(value)) => (
-                value.spend_scalar,
-                [value.input_0_diversifier, value.input_1_diversifier],
-                value.asset_tag,
-                value.network_tag,
-            ),
-            UnshieldWitnessRef::Change(Some(value)) => (
-                value.spend_scalar,
-                [value.input_0_diversifier, value.input_1_diversifier],
-                value.asset_tag,
-                value.network_tag,
-            ),
-            UnshieldWitnessRef::Full(None) | UnshieldWitnessRef::Change(None) => {
-                ([0; 32], [[0; 32]; 2], [0; 32], [0; 32])
-            }
-        };
-        let decode = |bytes, label| {
-            if matches!(
-                witness,
-                UnshieldWitnessRef::Full(None) | UnshieldWitnessRef::Change(None)
-            ) {
-                Scalar::ZERO
-            } else {
-                canonical_scalar(bytes, label).expect("validated unshield scalar")
-            }
-        };
-        let spend = ctx.load_witness(decode(spend_bytes, "validated unshield spend scalar"));
-        let diversifiers = diversifier_bytes
-            .map(|bytes| ctx.load_witness(decode(bytes, "validated unshield diversifier")));
-        let asset = ctx.load_witness(decode(asset_bytes, "validated unshield asset tag"));
-        let network = ctx.load_witness(decode(network_bytes, "validated unshield network tag"));
-        for value in [spend, diversifiers[0], asset, network] {
-            assert_nonzero(ctx, &range, value);
-        }
-        constrain_optional_nonzero(ctx, &range, diversifiers[1], present_input_1);
-        let poseidon = confidential_relation_gadget::ConfidentialPoseidonChipV3::new(ctx, &range);
-        let input_owners = diversifiers.map(|diversifier| {
-            poseidon.hash(
-                ctx,
-                &range,
-                CONFIDENTIAL_POSEIDON_OWNER_DOMAIN_V3,
-                &[spend, diversifier],
-            )
-        });
-        let input_commitments = [
-            note_hash(
-                ctx,
-                &range,
-                &poseidon,
-                input_amounts[0],
-                input_rho[0],
-                input_owners[0],
-                asset,
-            ),
-            note_hash(
-                ctx,
-                &range,
-                &poseidon,
-                input_amounts[1],
-                input_rho[1],
-                input_owners[1],
-                asset,
-            ),
-        ];
-        let nullifiers = [
-            nullifier_hash(ctx, &range, &poseidon, spend, input_rho[0], asset, network),
-            nullifier_hash(ctx, &range, &poseidon, spend, input_rho[1], asset, network),
-        ];
-        for value in [input_commitments[0], nullifiers[0]] {
-            assert_nonzero(ctx, &range, value);
-        }
-        let duplicate_nullifier = gate.is_equal(ctx, nullifiers[0], nullifiers[1]);
-        let selected_duplicate = gate.mul(ctx, present_input_1, duplicate_nullifier);
-        gate.assert_is_const(ctx, &selected_duplicate, &Scalar::ZERO);
-        let public_input_1 = gate.mul(ctx, present_input_1, input_commitments[1]);
-        let paths = match witness {
-            UnshieldWitnessRef::Full(Some(value)) => {
-                [Some(&value.input_0_path), Some(&value.input_1_path)]
-            }
-            UnshieldWitnessRef::Change(Some(value)) => {
-                [Some(&value.input_0_path), Some(&value.input_1_path)]
-            }
-            UnshieldWitnessRef::Full(None) | UnshieldWitnessRef::Change(None) => [None, None],
-        };
-        let root_0 = merkle_root::<DEPTH>(ctx, &range, &poseidon, input_commitments[0], paths[0]);
-        let root_1 = merkle_root::<DEPTH>(ctx, &range, &poseidon, public_input_1, paths[1]);
-        // Only an actual second note must authenticate against the public anchor.
-        let root_difference = gate.sub(ctx, root_0, root_1);
-        let present_root_difference = gate.mul(ctx, present_input_1, root_difference);
-        gate.assert_is_const(ctx, &present_root_difference, &Scalar::ZERO);
-        let public_nullifier_1 = gate.mul(ctx, present_input_1, nullifiers[1]);
-        let input_sum = gate.add(ctx, input_amounts[0], input_amounts[1]);
-        let mut change_commitment_0 = None;
-        let public_amount = if let UnshieldWitnessRef::Change(change_witness) = witness {
-            let include_output_0 = change_witness.is_some_and(|value| value.include_output_0);
-            let present_output_0 = ctx.load_witness(if include_output_0 {
-                Scalar::ONE
-            } else {
-                Scalar::ZERO
-            });
-            gate.assert_bit(ctx, present_output_0);
-            let output_amount_u128 = change_witness.map_or(0, |value| value.output_0_amount);
-            let output_amount = ctx.load_witness(scalar_from_u128(output_amount_u128));
-            range.range_check(
-                ctx,
-                output_amount,
-                ConfidentialUnshieldChangePublicInputV1::PublicAmount
-                    .range()
-                    .expect("change-unshield public amount range is specified")
-                    .bits(),
-            );
-            constrain_optional_nonzero(ctx, &range, output_amount, present_output_0);
-            let output_rho_bytes = change_witness.map_or([0; 32], |value| value.output_0_rho);
-            let output_rho = ctx.load_witness(if include_output_0 {
-                super::hash_to_scalar(b"iroha.confidential.v3.note_rho", &[&output_rho_bytes])
-            } else {
-                Scalar::ZERO
-            });
-            constrain_optional_nonzero(ctx, &range, output_rho, present_output_0);
-            let one = ctx.load_constant(Scalar::ONE);
-            let output_owner = poseidon.hash(
-                ctx,
-                &range,
-                CONFIDENTIAL_POSEIDON_OWNER_DOMAIN_V3,
-                &[spend, one],
-            );
-            let change_commitment = note_hash(
-                ctx,
-                &range,
-                &poseidon,
-                output_amount,
-                output_rho,
-                output_owner,
-                asset,
-            );
-            let public_change_commitment = gate.mul(ctx, present_output_0, change_commitment);
-            constrain_optional_nonzero(ctx, &range, public_change_commitment, present_output_0);
-            for input in input_commitments {
-                let equal = gate.is_equal(ctx, change_commitment, input);
-                let selected_equal = gate.mul(ctx, present_output_0, equal);
-                gate.assert_is_const(ctx, &selected_equal, &Scalar::ZERO);
-            }
-            let public_amount = gate.sub(ctx, input_sum, output_amount);
-            range.range_check(
-                ctx,
-                public_amount,
-                ConfidentialUnshieldChangePublicInputV1::PublicAmount
-                    .range()
-                    .expect("change-unshield public amount range is specified")
-                    .bits(),
-            );
-            assert_nonzero(ctx, &range, public_amount);
-            change_commitment_0 = Some(public_change_commitment);
-            public_amount
-        } else {
-            range.range_check(
-                ctx,
-                input_sum,
-                ConfidentialUnshieldFullPublicInputV1::PublicAmount
-                    .range()
-                    .expect("full-unshield public amount range is specified")
-                    .bits(),
-            );
-            assert_nonzero(ctx, &range, input_sum);
-            input_sum
-        };
-        Ok(AssignedUnshieldRelationV4 {
-            input_commitment_0: input_commitments[0],
-            input_commitment_1: public_input_1,
-            nullifier_0: nullifiers[0],
-            nullifier_1: public_nullifier_1,
-            change_commitment_0,
-            root: root_0,
-            public_amount,
-            asset_tag: asset,
-            network_tag: network,
-        })
-    }
-    fn unshield_builder<const DEPTH: usize>(
-        witness: UnshieldWitnessRef<'_>,
-        k: usize,
-    ) -> Result<BaseCircuitBuilder<Scalar>, String> {
-        let instance_count = if matches!(witness, UnshieldWitnessRef::Change(_)) {
-            9
-        } else {
-            8
-        };
-        let mut builder = BaseCircuitBuilder::new(false)
-            .use_k(k)
-            .use_lookup_bits(k - 1)
-            .use_instance_columns(instance_count);
-        let range = builder.range_chip();
-        let bindings = assign_unshield_relation::<DEPTH>(builder.main(0), &range, witness)?;
-        let public = if matches!(witness, UnshieldWitnessRef::Change(_)) {
-            bindings.change_public_inputs()?.into_array().to_vec()
-        } else {
-            bindings.full_public_inputs()?.into_array().to_vec()
-        };
-        builder.assigned_instances = public.into_iter().map(|value| vec![value]).collect();
-        builder.calculate_params(Some(MINIMUM_UNUSABLE_ROWS));
-        Ok(builder)
-    }
-    /// Fixed-shape transfer relation using the full secure permutation.
-    #[derive(Clone, Default)]
-    pub(crate) struct ConfidentialTransferCircuitV3<const DEPTH: usize> {
-        pub(super) witness: Option<ConfidentialTransferWitnessV2>,
-    }
-    impl<const DEPTH: usize> zeroize::Zeroize for ConfidentialTransferCircuitV3<DEPTH> {
-        fn zeroize(&mut self) {
-            if let Some(witness) = &mut self.witness {
-                witness.zeroize();
-            }
-            self.witness = None;
-        }
-    }
-    impl<const DEPTH: usize> Drop for ConfidentialTransferCircuitV3<DEPTH> {
-        fn drop(&mut self) {
-            self.zeroize();
-        }
-    }
-    impl<const DEPTH: usize> Circuit<Scalar> for ConfidentialTransferCircuitV3<DEPTH> {
-        type Config = BaseConfig<Scalar>;
-        type FloorPlanner = halo2_proofs::circuit::SimpleFloorPlanner;
-        type Params = ();
-        fn without_witnesses(&self) -> Self {
-            Self::default()
-        }
-        fn configure(meta: &mut ConstraintSystem<Scalar>) -> Self::Config {
-            let params: BaseCircuitParams =
-                transfer_builder::<DEPTH>(None, super::CONFIDENTIAL_TRANSFER_V2_IPA_K as usize)
-                    .expect("witness-free transfer relation must have a valid fixed shape")
-                    .config_params;
-            BaseConfig::configure(meta, params)
-        }
-        fn synthesize(
-            &self,
-            config: Self::Config,
-            layouter: impl Layouter<Scalar>,
-        ) -> Result<(), PlonkError> {
-            let mut builder = match transfer_builder::<DEPTH>(
-                self.witness.as_ref(),
-                super::CONFIDENTIAL_TRANSFER_V2_IPA_K as usize,
-            ) {
-                Ok(builder) => builder,
-                Err(_) => return Err(PlonkError::Synthesis),
-            };
-            let result = <BaseCircuitBuilder<Scalar> as Circuit<Scalar>>::synthesize(
-                &builder, config, layouter,
-            );
-            wipe_builder(&mut builder);
-            result
-        }
-    }
-    /// Fixed-shape complete-unshield relation using the full secure permutation.
-    #[derive(Clone, Default)]
-    pub(crate) struct ConfidentialUnshieldFullCircuitV3<const DEPTH: usize> {
-        pub(super) witness: Option<ConfidentialUnshieldWitnessV2>,
-    }
-    impl<const DEPTH: usize> zeroize::Zeroize for ConfidentialUnshieldFullCircuitV3<DEPTH> {
-        fn zeroize(&mut self) {
-            if let Some(witness) = &mut self.witness {
-                witness.zeroize();
-            }
-            self.witness = None;
-        }
-    }
-    impl<const DEPTH: usize> Drop for ConfidentialUnshieldFullCircuitV3<DEPTH> {
-        fn drop(&mut self) {
-            self.zeroize();
-        }
-    }
-    impl<const DEPTH: usize> Circuit<Scalar> for ConfidentialUnshieldFullCircuitV3<DEPTH> {
-        type Config = BaseConfig<Scalar>;
-        type FloorPlanner = halo2_proofs::circuit::SimpleFloorPlanner;
-        type Params = ();
-        fn without_witnesses(&self) -> Self {
-            Self::default()
-        }
-        fn configure(meta: &mut ConstraintSystem<Scalar>) -> Self::Config {
-            let params = unshield_builder::<DEPTH>(
-                UnshieldWitnessRef::Full(None),
-                super::CONFIDENTIAL_UNSHIELD_V2_IPA_K as usize,
-            )
-            .expect("witness-free full-unshield relation must have a valid fixed shape")
-            .config_params;
-            BaseConfig::configure(meta, params)
-        }
-        fn synthesize(
-            &self,
-            config: Self::Config,
-            layouter: impl Layouter<Scalar>,
-        ) -> Result<(), PlonkError> {
-            let mut builder = match unshield_builder::<DEPTH>(
-                UnshieldWitnessRef::Full(self.witness.as_ref()),
-                super::CONFIDENTIAL_UNSHIELD_V2_IPA_K as usize,
-            ) {
-                Ok(builder) => builder,
-                Err(_) => return Err(PlonkError::Synthesis),
-            };
-            let result = <BaseCircuitBuilder<Scalar> as Circuit<Scalar>>::synthesize(
-                &builder, config, layouter,
-            );
-            wipe_builder(&mut builder);
-            result
-        }
-    }
-    /// Fixed-shape change-unshield relation using the full secure permutation.
-    #[derive(Clone, Default)]
-    pub(crate) struct ConfidentialUnshieldChangeCircuitV4<const DEPTH: usize> {
-        pub(super) witness: Option<ConfidentialUnshieldWitnessV3>,
-    }
-    impl<const DEPTH: usize> zeroize::Zeroize for ConfidentialUnshieldChangeCircuitV4<DEPTH> {
-        fn zeroize(&mut self) {
-            if let Some(witness) = &mut self.witness {
-                witness.zeroize();
-            }
-            self.witness = None;
-        }
-    }
-    impl<const DEPTH: usize> Drop for ConfidentialUnshieldChangeCircuitV4<DEPTH> {
-        fn drop(&mut self) {
-            self.zeroize();
-        }
-    }
-    impl<const DEPTH: usize> Circuit<Scalar> for ConfidentialUnshieldChangeCircuitV4<DEPTH> {
-        type Config = BaseConfig<Scalar>;
-        type FloorPlanner = halo2_proofs::circuit::SimpleFloorPlanner;
-        type Params = ();
-        fn without_witnesses(&self) -> Self {
-            Self::default()
-        }
-        fn configure(meta: &mut ConstraintSystem<Scalar>) -> Self::Config {
-            let params = unshield_builder::<DEPTH>(
-                UnshieldWitnessRef::Change(None),
-                super::CONFIDENTIAL_UNSHIELD_V3_IPA_K as usize,
-            )
-            .expect("witness-free change-unshield relation must have a valid fixed shape")
-            .config_params;
-            BaseConfig::configure(meta, params)
-        }
-        fn synthesize(
-            &self,
-            config: Self::Config,
-            layouter: impl Layouter<Scalar>,
-        ) -> Result<(), PlonkError> {
-            let mut builder = match unshield_builder::<DEPTH>(
-                UnshieldWitnessRef::Change(self.witness.as_ref()),
-                super::CONFIDENTIAL_UNSHIELD_V3_IPA_K as usize,
-            ) {
-                Ok(builder) => builder,
-                Err(_) => return Err(PlonkError::Synthesis),
-            };
-            let result = <BaseCircuitBuilder<Scalar> as Circuit<Scalar>>::synthesize(
-                &builder, config, layouter,
-            );
-            wipe_builder(&mut builder);
-            result
-        }
-    }
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use crate::confidential_v2::{confidential_poseidon_hash_v3, scalar_to_repr_bytes};
-        use halo2_proofs::dev::MockProver;
-        fn native_hash(domain: u64, inputs: &[Scalar]) -> Scalar {
-            confidential_poseidon_hash_v3(domain, inputs)
-        }
-        fn sample_witness_shape(
-            include_input_1: bool,
-            include_output_1: bool,
-        ) -> ConfidentialTransferWitnessV2 {
-            let spend = Scalar::from(41);
-            let diversifiers = [
-                Scalar::from(43),
-                if include_input_1 {
-                    Scalar::from(47)
-                } else {
-                    Scalar::ZERO
-                },
-            ];
-            let input_rho_bytes = [
-                [0x11; 32],
-                if include_input_1 { [0x22; 32] } else { [0; 32] },
-            ];
-            let input_rho = [
-                super::super::hash_to_scalar(
-                    b"iroha.confidential.v3.note_rho",
-                    &[&input_rho_bytes[0]],
-                ),
-                if include_input_1 {
-                    super::super::hash_to_scalar(
-                        b"iroha.confidential.v3.note_rho",
-                        &[&input_rho_bytes[1]],
-                    )
-                } else {
-                    Scalar::ZERO
-                },
-            ];
-            let asset = Scalar::from(53);
-            let input_owner = diversifiers.map(|diversifier| {
-                native_hash(CONFIDENTIAL_POSEIDON_OWNER_DOMAIN_V3, &[spend, diversifier])
-            });
-            let input_commitments = [
-                native_hash(
-                    CONFIDENTIAL_POSEIDON_NOTE_DOMAIN_V3,
-                    &[
-                        Scalar::from(if include_input_1 { 5u64 } else { 12u64 }),
-                        input_rho[0],
-                        input_owner[0],
-                        asset,
-                    ],
-                ),
-                if include_input_1 {
-                    native_hash(
-                        CONFIDENTIAL_POSEIDON_NOTE_DOMAIN_V3,
-                        &[Scalar::from(7), input_rho[1], input_owner[1], asset],
-                    )
-                } else {
-                    Scalar::ZERO
-                },
-            ];
-            let empty_leaf =
-                native_hash(CONFIDENTIAL_POSEIDON_MERKLE_LEAF_DOMAIN_V3, &[Scalar::ZERO]);
-            let leaves = [
-                native_hash(
-                    CONFIDENTIAL_POSEIDON_MERKLE_LEAF_DOMAIN_V3,
-                    &[input_commitments[0]],
-                ),
-                if include_input_1 {
-                    native_hash(
-                        CONFIDENTIAL_POSEIDON_MERKLE_LEAF_DOMAIN_V3,
-                        &[input_commitments[1]],
-                    )
-                } else {
-                    empty_leaf
-                },
-            ];
-            let input_pair = native_hash(
-                CONFIDENTIAL_POSEIDON_MERKLE_NODE_DOMAIN_V3,
-                &[leaves[0], leaves[1]],
-            );
-            let empty_pair = native_hash(
-                CONFIDENTIAL_POSEIDON_MERKLE_NODE_DOMAIN_V3,
-                &[empty_leaf, empty_leaf],
-            );
-            let root = native_hash(
-                CONFIDENTIAL_POSEIDON_MERKLE_NODE_DOMAIN_V3,
-                &[input_pair, empty_pair],
-            );
-            let path_0 = ConfidentialMerklePathV2 {
-                siblings: [leaves[1], empty_pair].map(scalar_to_repr_bytes).to_vec(),
-                directions: vec![0, 0],
-                witness_nodes: [input_pair, root].map(scalar_to_repr_bytes).to_vec(),
-                root: scalar_to_repr_bytes(root),
-            };
-            let path_1 = ConfidentialMerklePathV2 {
-                siblings: [leaves[0], empty_pair].map(scalar_to_repr_bytes).to_vec(),
-                directions: vec![1, 0],
-                witness_nodes: [input_pair, root].map(scalar_to_repr_bytes).to_vec(),
-                root: scalar_to_repr_bytes(root),
-            };
-            ConfidentialTransferWitnessV2 {
-                include_input_1,
-                include_output_1,
-                input_0_amount: if include_input_1 { 5 } else { 12 },
-                input_1_amount: if include_input_1 { 7 } else { 0 },
-                output_0_amount: if include_output_1 { 8 } else { 12 },
-                output_1_amount: if include_output_1 { 4 } else { 0 },
-                input_0_rho: input_rho_bytes[0],
-                input_1_rho: input_rho_bytes[1],
-                output_0_rho: [0x33; 32],
-                output_1_rho: if include_output_1 {
-                    [0x44; 32]
-                } else {
-                    [0; 32]
-                },
-                spend_scalar: scalar_to_repr_bytes(spend),
-                input_0_diversifier: scalar_to_repr_bytes(diversifiers[0]),
-                input_1_diversifier: scalar_to_repr_bytes(diversifiers[1]),
-                output_0_owner_tag: scalar_to_repr_bytes(Scalar::from(59)),
-                output_1_owner_tag: scalar_to_repr_bytes(if include_output_1 {
-                    Scalar::from(67)
-                } else {
-                    Scalar::ZERO
-                }),
-                asset_tag: scalar_to_repr_bytes(asset),
-                network_tag: scalar_to_repr_bytes(Scalar::from(61)),
-                input_0_path: path_0,
-                input_1_path: if include_input_1 {
-                    path_1
-                } else {
-                    super::super::confidential_absent_input_path_v3::<2>()
-                },
-            }
-        }
-        fn sample_witness() -> ConfidentialTransferWitnessV2 {
-            sample_witness_shape(true, false)
-        }
-        fn instances(builder: &BaseCircuitBuilder<Scalar>) -> Vec<Vec<Scalar>> {
-            builder
-                .assigned_instances
-                .iter()
-                .map(|column| column.iter().map(|value| *value.value()).collect())
-                .collect()
-        }
-        fn expected_instances(witness: &ConfidentialTransferWitnessV2) -> Vec<Vec<Scalar>> {
-            let spend = scalar_from_repr(witness.spend_scalar).expect("canonical spend scalar");
-            let asset = scalar_from_repr(witness.asset_tag).expect("canonical asset tag");
-            let network = scalar_from_repr(witness.network_tag).expect("canonical network tag");
-            let amounts = [
-                witness.input_0_amount,
-                witness.input_1_amount,
-                witness.output_0_amount,
-                witness.output_1_amount,
-            ]
-            .map(scalar_from_u128);
-            let rho_bytes = [
-                witness.input_0_rho,
-                witness.input_1_rho,
-                witness.output_0_rho,
-                witness.output_1_rho,
-            ];
-            let rho = rho_bytes.map(|rho| {
-                super::super::hash_to_scalar(b"iroha.confidential.v3.note_rho", &[&rho])
-            });
-            let input_owners =
-                [witness.input_0_diversifier, witness.input_1_diversifier].map(|bytes| {
-                    native_hash(
-                        CONFIDENTIAL_POSEIDON_OWNER_DOMAIN_V3,
-                        &[
-                            spend,
-                            scalar_from_repr(bytes).expect("canonical diversifier"),
-                        ],
-                    )
-                });
-            let output_owners = [
-                scalar_from_repr(witness.output_0_owner_tag).expect("canonical owner tag"),
-                scalar_from_repr(witness.output_1_owner_tag).expect("canonical owner tag"),
-            ];
-            let commitments = [
-                native_hash(
-                    CONFIDENTIAL_POSEIDON_NOTE_DOMAIN_V3,
-                    &[amounts[0], rho[0], input_owners[0], asset],
-                ),
-                native_hash(
-                    CONFIDENTIAL_POSEIDON_NOTE_DOMAIN_V3,
-                    &[amounts[1], rho[1], input_owners[1], asset],
-                ),
-                native_hash(
-                    CONFIDENTIAL_POSEIDON_NOTE_DOMAIN_V3,
-                    &[amounts[2], rho[2], output_owners[0], asset],
-                ),
-                native_hash(
-                    CONFIDENTIAL_POSEIDON_NOTE_DOMAIN_V3,
-                    &[amounts[3], rho[3], output_owners[1], asset],
-                ),
-            ];
-            let nullifiers = [rho[0], rho[1]].map(|rho| {
-                native_hash(
-                    CONFIDENTIAL_POSEIDON_NULLIFIER_DOMAIN_V3,
-                    &[spend, rho, asset, network],
-                )
-            });
-            vec![
-                vec![commitments[0]],
-                vec![if witness.include_input_1 {
-                    commitments[1]
-                } else {
-                    Scalar::ZERO
-                }],
-                vec![nullifiers[0]],
-                vec![if witness.include_input_1 {
-                    nullifiers[1]
-                } else {
-                    Scalar::ZERO
-                }],
-                vec![commitments[2]],
-                vec![if witness.include_output_1 {
-                    commitments[3]
-                } else {
-                    Scalar::ZERO
-                }],
-                vec![scalar_from_repr(witness.input_0_path.root).expect("canonical root")],
-                vec![asset],
-                vec![network],
-            ]
-        }
-        #[test]
-        fn secure_transfer_relation_accepts_valid_witness_and_rejects_public_mutation() {
-            const K: usize = super::super::CONFIDENTIAL_TRANSFER_V2_IPA_K as usize;
-            let witness = sample_witness();
-            let builder = transfer_builder::<2>(Some(&witness), K).expect("valid witness");
-            let public = expected_instances(&witness);
-            assert_eq!(instances(&builder), public);
-            MockProver::run(K as u32, &builder, public.clone())
-                .expect("secure transfer relation")
-                .assert_satisfied();
-            for column in 0..public.len() {
-                let mut mutated = public.clone();
-                mutated[column][0] += Scalar::ONE;
-                assert!(
-                    MockProver::run(K as u32, &builder, mutated)
-                        .expect("mutated secure transfer relation")
-                        .verify()
-                        .is_err(),
-                    "substitution in public column {column} must not satisfy the relation"
-                );
-            }
-        }
-        #[test]
-        fn secure_transfer_relation_rejects_bad_path_direction_and_unbalanced_amounts() {
-            const K: usize = super::super::CONFIDENTIAL_TRANSFER_V2_IPA_K as usize;
-            let mut bad_direction = sample_witness();
-            bad_direction.input_0_path.directions[0] = 1;
-            let builder =
-                transfer_builder::<2>(Some(&bad_direction), K).expect("canonical witness");
-            assert!(
-                MockProver::run(K as u32, &builder, instances(&builder))
-                    .expect("bad-direction secure transfer relation")
-                    .verify()
-                    .is_err()
-            );
-            let mut unbalanced = sample_witness();
-            unbalanced.output_0_amount += 1;
-            let builder = transfer_builder::<2>(Some(&unbalanced), K).expect("canonical witness");
-            assert!(
-                MockProver::run(K as u32, &builder, instances(&builder))
-                    .expect("unbalanced secure transfer relation")
-                    .verify()
-                    .is_err()
-            );
-        }
-        #[test]
-        fn secure_transfer_relation_accepts_all_supported_presence_shapes() {
-            const K: usize = super::super::CONFIDENTIAL_TRANSFER_V2_IPA_K as usize;
-            for include_input_1 in [false, true] {
-                for include_output_1 in [false, true] {
-                    let witness = sample_witness_shape(include_input_1, include_output_1);
-                    let builder = transfer_builder::<2>(Some(&witness), K)
-                        .expect("canonical presence-shape witness");
-                    let public = expected_instances(&witness);
-                    assert_eq!(instances(&builder), public);
-                    MockProver::run(K as u32, &builder, public)
-                        .expect("presence-shape secure transfer relation")
-                        .assert_satisfied();
-                }
-            }
-        }
-        #[test]
-        fn secure_transfer_builder_rejects_noncanonical_and_nonexact_witnesses() {
-            const K: usize = super::super::CONFIDENTIAL_TRANSFER_V2_IPA_K as usize;
-            let mut witness = sample_witness();
-            witness.spend_scalar = [0xff; 32];
-            assert!(transfer_builder::<2>(Some(&witness), K).is_err());
-            let mut witness = sample_witness();
-            witness.input_0_path.siblings.push([0; 32]);
-            assert!(transfer_builder::<2>(Some(&witness), K).is_err());
-            let mut witness = sample_witness();
-            witness.input_0_path.witness_nodes.pop();
-            assert!(transfer_builder::<2>(Some(&witness), K).is_err());
-            let mut witness = sample_witness();
-            witness.input_0_path.directions[0] = 2;
-            assert!(transfer_builder::<2>(Some(&witness), K).is_err());
-            let mut witness = sample_witness_shape(false, false);
-            witness.input_1_rho = [9; 32];
-            assert!(transfer_builder::<2>(Some(&witness), K).is_err());
-            let mut witness = sample_witness_shape(false, false);
-            witness.output_1_owner_tag = scalar_to_repr_bytes(Scalar::ONE);
-            assert!(transfer_builder::<2>(Some(&witness), K).is_err());
-        }
-        #[test]
-        fn secure_transfer_relation_rejects_each_private_witness_and_path_substitution() {
-            const K: usize = super::super::CONFIDENTIAL_TRANSFER_V2_IPA_K as usize;
-            let original = sample_witness_shape(true, true);
-            let public = expected_instances(&original);
-            let bump = |bytes: [u8; 32]| {
-                scalar_to_repr_bytes(
-                    scalar_from_repr(bytes).expect("canonical mutation source") + Scalar::ONE,
-                )
-            };
-            let rejects =
-                |label: &str, witness: ConfidentialTransferWitnessV2| match transfer_builder::<2>(
-                    Some(&witness),
-                    K,
-                ) {
-                    Err(_) => {}
-                    Ok(builder) => assert!(
-                        MockProver::run(K as u32, &builder, public.clone())
-                            .expect("private-witness mutation prover")
-                            .verify()
-                            .is_err(),
-                        "private substitution `{label}` must fail"
-                    ),
-                };
-            let mut witness = original.clone();
-            witness.input_0_amount += 1;
-            witness.output_0_amount += 1;
-            rejects("amounts", witness);
-            for (label, mutate) in [
-                ("input_0_rho", 0usize),
-                ("input_1_rho", 1),
-                ("output_0_rho", 2),
-                ("output_1_rho", 3),
-            ] {
-                let mut witness = original.clone();
-                match mutate {
-                    0 => witness.input_0_rho[0] ^= 1,
-                    1 => witness.input_1_rho[0] ^= 1,
-                    2 => witness.output_0_rho[0] ^= 1,
-                    3 => witness.output_1_rho[0] ^= 1,
-                    _ => unreachable!(),
-                }
-                rejects(label, witness);
-            }
-            for (label, mutate) in [
-                ("spend_scalar", 0usize),
-                ("input_0_diversifier", 1),
-                ("input_1_diversifier", 2),
-                ("output_0_owner", 3),
-                ("output_1_owner", 4),
-                ("asset_tag", 5),
-                ("network_tag", 6),
-            ] {
-                let mut witness = original.clone();
-                match mutate {
-                    0 => witness.spend_scalar = bump(witness.spend_scalar),
-                    1 => {
-                        witness.input_0_diversifier = bump(witness.input_0_diversifier);
-                    }
-                    2 => {
-                        witness.input_1_diversifier = bump(witness.input_1_diversifier);
-                    }
-                    3 => witness.output_0_owner_tag = bump(witness.output_0_owner_tag),
-                    4 => witness.output_1_owner_tag = bump(witness.output_1_owner_tag),
-                    5 => witness.asset_tag = bump(witness.asset_tag),
-                    6 => witness.network_tag = bump(witness.network_tag),
-                    _ => unreachable!(),
-                }
-                rejects(label, witness);
-            }
-            for path_index in 0..2 {
-                for level in 0..2 {
-                    let mut sibling = original.clone();
-                    let path = if path_index == 0 {
-                        &mut sibling.input_0_path
-                    } else {
-                        &mut sibling.input_1_path
-                    };
-                    path.siblings[level] = bump(path.siblings[level]);
-                    rejects("path_sibling", sibling);
-                    let mut direction = original.clone();
-                    let path = if path_index == 0 {
-                        &mut direction.input_0_path
-                    } else {
-                        &mut direction.input_1_path
-                    };
-                    path.directions[level] ^= 1;
-                    rejects("path_direction", direction);
-                    let mut node = original.clone();
-                    let path = if path_index == 0 {
-                        &mut node.input_0_path
-                    } else {
-                        &mut node.input_1_path
-                    };
-                    path.witness_nodes[level] = bump(path.witness_nodes[level]);
-                    rejects("path_witness_node", node);
-                }
-                let mut root = original.clone();
-                let path = if path_index == 0 {
-                    &mut root.input_0_path
-                } else {
-                    &mut root.input_1_path
-                };
-                path.root = bump(path.root);
-                rejects("path_root", root);
-            }
-            let mut presence = original.clone();
-            presence.include_input_1 = false;
-            rejects("input_presence", presence);
-            let mut presence = original;
-            presence.include_output_1 = false;
-            rejects("output_presence", presence);
-        }
-        fn sample_full_unshield_witness() -> ConfidentialUnshieldWitnessV2 {
-            let transfer = sample_witness_shape(true, false);
-            full_unshield_from_transfer(&transfer)
-        }
-        fn full_unshield_from_transfer(
-            transfer: &ConfidentialTransferWitnessV2,
-        ) -> ConfidentialUnshieldWitnessV2 {
-            ConfidentialUnshieldWitnessV2 {
-                include_input_1: transfer.include_input_1,
-                input_0_amount: transfer.input_0_amount,
-                input_1_amount: transfer.input_1_amount,
-                input_0_rho: transfer.input_0_rho,
-                input_1_rho: transfer.input_1_rho,
-                spend_scalar: transfer.spend_scalar,
-                input_0_diversifier: transfer.input_0_diversifier,
-                input_1_diversifier: transfer.input_1_diversifier,
-                asset_tag: transfer.asset_tag,
-                network_tag: transfer.network_tag,
-                input_0_path: transfer.input_0_path.clone(),
-                input_1_path: transfer.input_1_path.clone(),
-            }
-        }
-        fn sample_change_unshield_witness() -> ConfidentialUnshieldWitnessV3 {
-            let full = sample_full_unshield_witness();
-            change_unshield_from_full(&full)
-        }
-        fn change_unshield_from_full(
-            full: &ConfidentialUnshieldWitnessV2,
-        ) -> ConfidentialUnshieldWitnessV3 {
-            ConfidentialUnshieldWitnessV3 {
-                include_input_1: full.include_input_1,
-                include_output_0: true,
-                input_0_amount: full.input_0_amount,
-                input_1_amount: full.input_1_amount,
-                output_0_amount: 4,
-                input_0_rho: full.input_0_rho,
-                input_1_rho: full.input_1_rho,
-                output_0_rho: [0x75; 32],
-                spend_scalar: full.spend_scalar,
-                input_0_diversifier: full.input_0_diversifier,
-                input_1_diversifier: full.input_1_diversifier,
-                asset_tag: full.asset_tag,
-                network_tag: full.network_tag,
-                input_0_path: full.input_0_path.clone(),
-                input_1_path: full.input_1_path.clone(),
-            }
-        }
-        #[test]
-        fn internal_witness_debug_redacts_spend_scalar_and_all_openings() {
-            let transfer = sample_witness();
-            let full = sample_full_unshield_witness();
-            let change = sample_change_unshield_witness();
-            let values: [(&dyn core::fmt::Debug, &str); 3] = [
-                (&transfer, "ConfidentialTransferWitnessV2"),
-                (&full, "ConfidentialUnshieldWitnessV2"),
-                (&change, "ConfidentialUnshieldWitnessV3"),
-            ];
-            for (value, name) in values {
-                for rendered in [format!("{value:?}"), format!("{value:#?}")] {
-                    let fields = rendered.strip_prefix(name).unwrap();
-                    assert!(fields.contains(".."));
-                    assert!(
-                        fields
-                            .bytes()
-                            .all(|byte| matches!(byte, b' ' | b'\n' | b'{' | b'}' | b'.'))
-                    );
-                }
-            }
-        }
-        #[test]
-        fn secure_single_input_relations_accept_full_trees() {
-            const K: usize = super::super::CONFIDENTIAL_TRANSFER_V2_IPA_K as usize;
-            let mut transfer = sample_witness_shape(false, false);
-            let commitment = scalar_to_repr_bytes(expected_instances(&transfer)[0][0]);
-            transfer.input_0_path = super::super::tests::full_tree_input_path_v3::<2>(commitment);
-            assert_ne!(transfer.input_0_path.root, transfer.input_1_path.root);
-            let builder = transfer_builder::<2>(Some(&transfer), K).expect("single-input transfer");
-            MockProver::run(K as u32, &builder, expected_instances(&transfer))
-                .expect("full-tree single-input transfer")
-                .assert_satisfied();
-            let full = full_unshield_from_transfer(&transfer);
-            let builder = unshield_builder::<2>(UnshieldWitnessRef::Full(Some(&full)), K)
-                .expect("single-input full unshield");
-            MockProver::run(K as u32, &builder, expected_full_unshield_instances(&full))
-                .expect("full-tree single-input full unshield")
-                .assert_satisfied();
-            let mut change = change_unshield_from_full(&full);
-            for include_output_0 in [true, false] {
-                change.include_output_0 = include_output_0;
-                if !include_output_0 {
-                    change.output_0_amount = 0;
-                    change.output_0_rho = [0; 32];
-                }
-                let builder = unshield_builder::<2>(UnshieldWitnessRef::Change(Some(&change)), K)
-                    .expect("single-input change or terminal unshield");
-                MockProver::run(
-                    K as u32,
-                    &builder,
-                    expected_change_unshield_instances(&change),
-                )
-                .expect("full-tree single-input change or terminal unshield")
-                .assert_satisfied();
-            }
-        }
-        #[test]
-        fn secure_present_second_input_rejects_membership_in_another_tree() {
-            const K: usize = super::super::CONFIDENTIAL_TRANSFER_V2_IPA_K as usize;
-            let mut transfer = sample_witness_shape(true, false);
-            let commitment = scalar_to_repr_bytes(expected_instances(&transfer)[1][0]);
-            // This is a valid path for the correct second note, but against a
-            // different root. Rejection must come from the presence-gated
-            // common-root constraint, not from malformed path arithmetic.
-            transfer.input_1_path = super::super::tests::full_tree_input_path_v3::<2>(commitment);
-            assert_ne!(transfer.input_0_path.root, transfer.input_1_path.root);
-            let builder = transfer_builder::<2>(Some(&transfer), K).expect("canonical transfer");
-            assert!(
-                MockProver::run(K as u32, &builder, expected_instances(&transfer))
-                    .expect("different-root transfer")
-                    .verify()
-                    .is_err()
-            );
-            let full = full_unshield_from_transfer(&transfer);
-            let builder = unshield_builder::<2>(UnshieldWitnessRef::Full(Some(&full)), K)
-                .expect("canonical full unshield");
-            assert!(
-                MockProver::run(K as u32, &builder, expected_full_unshield_instances(&full))
-                    .expect("different-root full unshield")
-                    .verify()
-                    .is_err()
-            );
-            let change = change_unshield_from_full(&full);
-            let builder = unshield_builder::<2>(UnshieldWitnessRef::Change(Some(&change)), K)
-                .expect("canonical change unshield");
-            assert!(
-                MockProver::run(
-                    K as u32,
-                    &builder,
-                    expected_change_unshield_instances(&change)
-                )
-                .expect("different-root change unshield")
-                .verify()
-                .is_err()
-            );
-        }
-        fn expected_full_unshield_instances(
-            witness: &ConfidentialUnshieldWitnessV2,
-        ) -> Vec<Vec<Scalar>> {
-            let transfer = ConfidentialTransferWitnessV2 {
-                include_input_1: witness.include_input_1,
-                include_output_1: false,
-                input_0_amount: witness.input_0_amount,
-                input_1_amount: witness.input_1_amount,
-                output_0_amount: witness.input_0_amount + witness.input_1_amount,
-                output_1_amount: 0,
-                input_0_rho: witness.input_0_rho,
-                input_1_rho: witness.input_1_rho,
-                output_0_rho: [1; 32],
-                output_1_rho: [0; 32],
-                spend_scalar: witness.spend_scalar,
-                input_0_diversifier: witness.input_0_diversifier,
-                input_1_diversifier: witness.input_1_diversifier,
-                output_0_owner_tag: scalar_to_repr_bytes(Scalar::ONE),
-                output_1_owner_tag: [0; 32],
-                asset_tag: witness.asset_tag,
-                network_tag: witness.network_tag,
-                input_0_path: witness.input_0_path.clone(),
-                input_1_path: witness.input_1_path.clone(),
-            };
-            let transfer_public = expected_instances(&transfer);
-            vec![
-                transfer_public[0].clone(),
-                transfer_public[1].clone(),
-                transfer_public[2].clone(),
-                transfer_public[3].clone(),
-                transfer_public[6].clone(),
-                vec![scalar_from_u128(
-                    witness.input_0_amount + witness.input_1_amount,
-                )],
-                transfer_public[7].clone(),
-                transfer_public[8].clone(),
-            ]
-        }
-        fn expected_change_unshield_instances(
-            witness: &ConfidentialUnshieldWitnessV3,
-        ) -> Vec<Vec<Scalar>> {
-            let full = ConfidentialUnshieldWitnessV2 {
-                include_input_1: witness.include_input_1,
-                input_0_amount: witness.input_0_amount,
-                input_1_amount: witness.input_1_amount,
-                input_0_rho: witness.input_0_rho,
-                input_1_rho: witness.input_1_rho,
-                spend_scalar: witness.spend_scalar,
-                input_0_diversifier: witness.input_0_diversifier,
-                input_1_diversifier: witness.input_1_diversifier,
-                asset_tag: witness.asset_tag,
-                network_tag: witness.network_tag,
-                input_0_path: witness.input_0_path.clone(),
-                input_1_path: witness.input_1_path.clone(),
-            };
-            let full_public = expected_full_unshield_instances(&full);
-            let spend = scalar_from_repr(witness.spend_scalar).expect("canonical spend");
-            let asset = scalar_from_repr(witness.asset_tag).expect("canonical asset");
-            let change = if witness.include_output_0 {
-                let output_rho = super::super::hash_to_scalar(
-                    b"iroha.confidential.v3.note_rho",
-                    &[&witness.output_0_rho],
-                );
-                let output_owner =
-                    native_hash(CONFIDENTIAL_POSEIDON_OWNER_DOMAIN_V3, &[spend, Scalar::ONE]);
-                native_hash(
-                    CONFIDENTIAL_POSEIDON_NOTE_DOMAIN_V3,
-                    &[
-                        scalar_from_u128(witness.output_0_amount),
-                        output_rho,
-                        output_owner,
-                        asset,
-                    ],
-                )
-            } else {
-                Scalar::ZERO
-            };
-            vec![
-                full_public[0].clone(),
-                full_public[1].clone(),
-                full_public[2].clone(),
-                full_public[3].clone(),
-                vec![change],
-                full_public[4].clone(),
-                vec![scalar_from_u128(
-                    witness.input_0_amount + witness.input_1_amount
-                        - if witness.include_output_0 {
-                            witness.output_0_amount
-                        } else {
-                            0
-                        },
-                )],
-                full_public[6].clone(),
-                full_public[7].clone(),
-            ]
-        }
-        #[test]
-        fn secure_relation_layouts_are_witness_independent() {
-            fn assert_same_shape(
-                label: &str,
-                witness_free: &BaseCircuitBuilder<Scalar>,
-                populated: &BaseCircuitBuilder<Scalar>,
-            ) {
-                let witness_free_stats = witness_free.statistics();
-                let populated_stats = populated.statistics();
-                assert_eq!(
-                    witness_free_stats.gate.total_advice_per_phase,
-                    populated_stats.gate.total_advice_per_phase,
-                    "{label} gate advice shape"
-                );
-                assert_eq!(
-                    witness_free_stats.total_lookup_advice_per_phase,
-                    populated_stats.total_lookup_advice_per_phase,
-                    "{label} lookup advice shape"
-                );
-                assert_eq!(
-                    witness_free.config_params.num_advice_per_phase,
-                    populated.config_params.num_advice_per_phase,
-                    "{label} gate column shape"
-                );
-                assert_eq!(
-                    witness_free.config_params.num_lookup_advice_per_phase,
-                    populated.config_params.num_lookup_advice_per_phase,
-                    "{label} lookup column shape"
-                );
-                assert_eq!(
-                    witness_free.config_params.num_instance_columns,
-                    populated.config_params.num_instance_columns,
-                    "{label} instance column shape"
-                );
-            }
-            const TRANSFER_K: usize = super::super::CONFIDENTIAL_TRANSFER_V2_IPA_K as usize;
-            let transfer_empty = transfer_builder::<2>(None, TRANSFER_K).expect("empty transfer");
-            for include_input_1 in [false, true] {
-                for include_output_1 in [false, true] {
-                    let witness = sample_witness_shape(include_input_1, include_output_1);
-                    let populated = transfer_builder::<2>(Some(&witness), TRANSFER_K)
-                        .expect("populated transfer");
-                    assert_same_shape("transfer", &transfer_empty, &populated);
-                }
-            }
-            const FULL_UNSHIELD_K: usize = super::super::CONFIDENTIAL_UNSHIELD_V2_IPA_K as usize;
-            let full_empty = unshield_builder::<2>(UnshieldWitnessRef::Full(None), FULL_UNSHIELD_K)
-                .expect("empty full unshield");
-            let full_witness = sample_full_unshield_witness();
-            let full_populated = unshield_builder::<2>(
-                UnshieldWitnessRef::Full(Some(&full_witness)),
-                FULL_UNSHIELD_K,
-            )
-            .expect("populated full unshield");
-            assert_same_shape("full unshield", &full_empty, &full_populated);
-            const CHANGE_UNSHIELD_K: usize = super::super::CONFIDENTIAL_UNSHIELD_V3_IPA_K as usize;
-            let change_empty =
-                unshield_builder::<2>(UnshieldWitnessRef::Change(None), CHANGE_UNSHIELD_K)
-                    .expect("empty change unshield");
-            let mut change_witness = sample_change_unshield_witness();
-            let change_populated = unshield_builder::<2>(
-                UnshieldWitnessRef::Change(Some(&change_witness)),
-                CHANGE_UNSHIELD_K,
-            )
-            .expect("populated change unshield");
-            assert_same_shape("change unshield", &change_empty, &change_populated);
-            change_witness.include_output_0 = false;
-            change_witness.output_0_amount = 0;
-            change_witness.output_0_rho = [0; 32];
-            let terminal_populated = unshield_builder::<2>(
-                UnshieldWitnessRef::Change(Some(&change_witness)),
-                CHANGE_UNSHIELD_K,
-            )
-            .expect("terminal change unshield");
-            assert_same_shape(
-                "terminal change unshield",
-                &change_empty,
-                &terminal_populated,
-            );
-        }
-        #[test]
-        fn secure_full_unshield_relation_binds_every_public_column() {
-            const K: usize = super::super::CONFIDENTIAL_UNSHIELD_V2_IPA_K as usize;
-            let witness = sample_full_unshield_witness();
-            let builder = unshield_builder::<2>(UnshieldWitnessRef::Full(Some(&witness)), K)
-                .expect("canonical full unshield");
-            let public = expected_full_unshield_instances(&witness);
-            assert_eq!(instances(&builder), public);
-            MockProver::run(K as u32, &builder, public.clone())
-                .expect("secure full-unshield relation")
-                .assert_satisfied();
-            for column in 0..public.len() {
-                let mut mutated = public.clone();
-                mutated[column][0] += Scalar::ONE;
-                assert!(
-                    MockProver::run(K as u32, &builder, mutated)
-                        .expect("mutated full-unshield relation")
-                        .verify()
-                        .is_err(),
-                    "substitution in full-unshield public column {column} must fail"
-                );
-            }
-        }
-        #[test]
-        fn secure_change_unshield_relation_binds_change_and_public_amount() {
-            const K: usize = super::super::CONFIDENTIAL_UNSHIELD_V3_IPA_K as usize;
-            let witness = sample_change_unshield_witness();
-            let builder = unshield_builder::<2>(UnshieldWitnessRef::Change(Some(&witness)), K)
-                .expect("canonical change unshield");
-            let public = expected_change_unshield_instances(&witness);
-            assert_eq!(instances(&builder), public);
-            MockProver::run(K as u32, &builder, public.clone())
-                .expect("secure change-unshield relation")
-                .assert_satisfied();
-            for column in 0..public.len() {
-                let mut mutated = public.clone();
-                mutated[column][0] += Scalar::ONE;
-                assert!(
-                    MockProver::run(K as u32, &builder, mutated)
-                        .expect("mutated change-unshield relation")
-                        .verify()
-                        .is_err(),
-                    "substitution in change-unshield public column {column} must fail"
-                );
-            }
-            let mut terminal = sample_change_unshield_witness();
-            terminal.include_output_0 = false;
-            terminal.output_0_amount = 0;
-            terminal.output_0_rho = [0; 32];
-            let terminal_builder =
-                unshield_builder::<2>(UnshieldWitnessRef::Change(Some(&terminal)), K)
-                    .expect("canonical terminal V3 unshield");
-            let terminal_public = expected_change_unshield_instances(&terminal);
-            assert_eq!(instances(&terminal_builder), terminal_public);
-            MockProver::run(K as u32, &terminal_builder, terminal_public)
-                .expect("secure terminal V3 unshield relation")
-                .assert_satisfied();
-            let mut malformed = terminal;
-            malformed.output_0_amount = 1;
-            assert!(
-                unshield_builder::<2>(UnshieldWitnessRef::Change(Some(&malformed)), K).is_err()
-            );
-        }
-        #[test]
-        #[ignore = "explicit production-depth release resource measurement"]
-        fn report_production_depth_secure_relation_shapes() {
-            fn report(label: &str, builder: &BaseCircuitBuilder<Scalar>) {
-                let stats = builder.statistics();
-                eprintln!(
-                    "{label}: k={} advice_cells={:?} advice_columns={:?} fixed_columns={} lookup_cells={:?} lookup_columns={:?} instance_columns={}",
-                    builder.config_params.k,
-                    stats.gate.total_advice_per_phase,
-                    builder.config_params.num_advice_per_phase,
-                    builder.config_params.num_fixed,
-                    stats.total_lookup_advice_per_phase,
-                    builder.config_params.num_lookup_advice_per_phase,
-                    builder.config_params.num_instance_columns,
-                );
-            }
-            report(
-                "transfer",
-                &transfer_builder::<{ super::super::CONFIDENTIAL_TREE_DEPTH_V2 }>(
-                    None,
-                    super::super::CONFIDENTIAL_TRANSFER_V2_IPA_K as usize,
-                )
-                .expect("transfer shape"),
-            );
-            report(
-                "full-unshield",
-                &unshield_builder::<{ super::super::CONFIDENTIAL_TREE_DEPTH_V2 }>(
-                    UnshieldWitnessRef::Full(None),
-                    super::super::CONFIDENTIAL_UNSHIELD_V2_IPA_K as usize,
-                )
-                .expect("full-unshield shape"),
-            );
-            report(
-                "change-unshield",
-                &unshield_builder::<{ super::super::CONFIDENTIAL_TREE_DEPTH_V2 }>(
-                    UnshieldWitnessRef::Change(None),
-                    super::super::CONFIDENTIAL_UNSHIELD_V3_IPA_K as usize,
-                )
-                .expect("change-unshield shape"),
-            );
-        }
-    }
-}
+#[path = "confidential_witness.rs"]
+mod witness_validation;
+
 /// Derive the default-diversifier owner tag for a confidential spend key.
 pub fn derive_confidential_owner_tag_v2(spend_key: &[u8]) -> Result<[u8; 32], String> {
     derive_confidential_owner_tag_v2_with_diversifier(
@@ -3972,209 +1726,40 @@ impl Drop for ConfidentialUnshieldWitnessV3 {
         self.zeroize();
     }
 }
-fn parse_vk_for_transfer(
-    circuit_id: &str,
-    vk_box: &VerifyingKeyBox,
-) -> Result<(super::PastaParams, ConfidentialV2VerifyingKey), String> {
-    if vk_box.backend.as_str() != super::ZK_BACKEND_HALO2_IPA {
-        return Err("confidential v2 proving requires a halo2/ipa verifying key".to_owned());
-    }
-    if !is_confidential_transfer_v2_circuit_id(circuit_id) {
-        return Err(format!(
-            "unsupported confidential transfer verifier circuit `{circuit_id}`"
-        ));
-    }
-    let params = super::zkparse::params_for_circuit_v1(vk_box.bytes.as_slice(), circuit_id)
-        .ok_or_else(|| {
-            "invalid fixed confidential-transfer parameter metadata in verifying key envelope"
-                .to_owned()
-        })?;
-    let parsed = super::zkparse::vk_from_bytes::<
-        secure_relation_v3::ConfidentialTransferCircuitV3<CONFIDENTIAL_TREE_DEPTH_V2>,
-    >(vk_box.bytes.as_slice(), &params)
-    .ok_or_else(|| {
-        "missing/invalid H2VK payload for confidential transfer verifying key".to_owned()
-    })?;
-    Ok((params, parsed))
-}
-fn parse_vk_for_unshield_v2(
-    circuit_id: &str,
-    vk_box: &VerifyingKeyBox,
-) -> Result<(super::PastaParams, ConfidentialV2VerifyingKey), String> {
-    if vk_box.backend.as_str() != super::ZK_BACKEND_HALO2_IPA {
-        return Err("confidential v2 proving requires a halo2/ipa verifying key".to_owned());
-    }
-    if !is_confidential_unshield_v2_circuit_id(circuit_id) {
-        return Err(format!(
-            "unsupported confidential unshield verifier circuit `{circuit_id}`"
-        ));
-    }
-    let params = super::zkparse::params_for_circuit_v1(vk_box.bytes.as_slice(), circuit_id)
-        .ok_or_else(|| {
-            "invalid fixed confidential-unshield parameter metadata in verifying key envelope"
-                .to_owned()
-        })?;
-    let parsed = super::zkparse::vk_from_bytes::<
-        secure_relation_v3::ConfidentialUnshieldFullCircuitV3<CONFIDENTIAL_TREE_DEPTH_V2>,
-    >(vk_box.bytes.as_slice(), &params)
-    .ok_or_else(|| {
-        "missing/invalid H2VK payload for confidential unshield verifying key".to_owned()
-    })?;
-    Ok((params, parsed))
-}
-fn parse_vk_for_unshield_v3(
-    circuit_id: &str,
-    vk_box: &VerifyingKeyBox,
-) -> Result<(super::PastaParams, ConfidentialV2VerifyingKey), String> {
-    if vk_box.backend.as_str() != super::ZK_BACKEND_HALO2_IPA {
-        return Err("confidential v3 proving requires a halo2/ipa verifying key".to_owned());
-    }
-    if !is_confidential_unshield_v3_circuit_id(circuit_id) {
-        return Err(format!(
-            "unsupported confidential unshield verifier circuit `{circuit_id}`"
-        ));
-    }
-    let params = super::zkparse::params_for_circuit_v1(vk_box.bytes.as_slice(), circuit_id)
-        .ok_or_else(|| {
-            "invalid fixed confidential-unshield parameter metadata in verifying key envelope"
-                .to_owned()
-        })?;
-    let parsed = super::zkparse::vk_from_bytes::<
-        secure_relation_v3::ConfidentialUnshieldChangeCircuitV4<CONFIDENTIAL_TREE_DEPTH_V2>,
-    >(vk_box.bytes.as_slice(), &params)
-    .ok_or_else(|| {
-        "missing/invalid H2VK payload for confidential unshield verifying key".to_owned()
-    })?;
-    Ok((params, parsed))
-}
-fn derive_confidential_v2_proving_key<C>(
-    params: &super::PastaParams,
-    parsed_vk: ConfidentialV2VerifyingKey,
-    empty_circuit: &C,
-    context: &str,
-) -> Result<ConfidentialV2ProvingKey, String>
-where
-    C: Circuit<Scalar>,
-{
-    super::halo2_backend::keygen_pk(params, parsed_vk, empty_circuit)
-        .map_err(|err| format!("failed to derive confidential {context} proving key: {err}"))
-}
-fn cached_confidential_transfer_v2_proving_key() -> Result<&'static ConfidentialV2ProvingKey, String>
-{
-    static CACHE: std::sync::OnceLock<Result<ConfidentialV2ProvingKey, String>> =
-        std::sync::OnceLock::new();
-    match CACHE.get_or_init(|| {
-        let vk_box = confidential_transfer_v2_vk_box()?;
-        let (params, parsed_vk) =
-            parse_vk_for_transfer(CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID, &vk_box)?;
-        derive_confidential_v2_proving_key(
-            &params,
-            parsed_vk,
-            &secure_relation_v3::ConfidentialTransferCircuitV3::<
-                CONFIDENTIAL_TREE_DEPTH_V2,
-            >::default(),
-            "transfer",
-        )
-    }) {
-        Ok(proving_key) => Ok(proving_key),
-        Err(err) => Err(err.clone()),
-    }
-}
-fn cached_confidential_unshield_v2_proving_key() -> Result<&'static ConfidentialV2ProvingKey, String>
-{
-    static CACHE: std::sync::OnceLock<Result<ConfidentialV2ProvingKey, String>> =
-        std::sync::OnceLock::new();
-    match CACHE.get_or_init(|| {
-        let vk_box = confidential_unshield_v2_vk_box()?;
-        let (params, parsed_vk) =
-            parse_vk_for_unshield_v2(CONFIDENTIAL_UNSHIELD_V2_CIRCUIT_ID, &vk_box)?;
-        derive_confidential_v2_proving_key(
-            &params,
-            parsed_vk,
-            &secure_relation_v3::ConfidentialUnshieldFullCircuitV3::<
-                CONFIDENTIAL_TREE_DEPTH_V2,
-            >::default(),
-            "unshield",
-        )
-    }) {
-        Ok(proving_key) => Ok(proving_key),
-        Err(err) => Err(err.clone()),
-    }
-}
-fn cached_confidential_unshield_v3_proving_key() -> Result<&'static ConfidentialV2ProvingKey, String>
-{
-    static CACHE: std::sync::OnceLock<Result<ConfidentialV2ProvingKey, String>> =
-        std::sync::OnceLock::new();
-    match CACHE.get_or_init(|| {
-        let vk_box = confidential_unshield_v3_vk_box()?;
-        let (params, parsed_vk) =
-            parse_vk_for_unshield_v3(CONFIDENTIAL_UNSHIELD_V3_CIRCUIT_ID, &vk_box)?;
-        derive_confidential_v2_proving_key(
-            &params,
-            parsed_vk,
-            &secure_relation_v3::ConfidentialUnshieldChangeCircuitV4::<
-                CONFIDENTIAL_TREE_DEPTH_V2,
-            >::default(),
-            "unshield",
-        )
-    }) {
-        Ok(proving_key) => Ok(proving_key),
-        Err(err) => Err(err.clone()),
-    }
-}
-fn create_confidential_v2_proof<C>(
-    params: &super::PastaParams,
-    proving_key: &ConfidentialV2ProvingKey,
-    circuit: C,
-    instance_wrapper: &[&[&[Scalar]]],
-    context: &str,
-) -> Result<Vec<u8>, String>
-where
-    C: Circuit<Scalar>,
-{
-    let proof_raw =
-        super::halo2_backend::create_ipa_proof(params, proving_key, &[circuit], instance_wrapper)
-            .map_err(|err| format!("failed to create confidential {context} proof: {err}"))?;
-    Ok(proof_raw)
-}
-fn encode_halo2_envelope(
+fn encode_native_envelope(
     required_relation: super::ProofRelation,
-    circuit_id: &str,
+    kind: native::Kind,
     vk_box: &VerifyingKeyBox,
-    schema_descriptor: Vec<u8>,
-    instance_columns: &[Vec<Scalar>],
-    proof_raw: Vec<u8>,
+    proved: iroha_data_model::zk::NativePipaRProofV1,
 ) -> Result<ProofBox, String> {
-    let mut proof_payload = super::zk1::wrap_start();
-    super::zk1::wrap_append_proof(&mut proof_payload, &proof_raw);
-    let instance_refs: Vec<&[Scalar]> = instance_columns.iter().map(Vec::as_slice).collect();
-    super::zk1::wrap_append_instances_pasta_fp_cols(instance_refs.as_slice(), &mut proof_payload);
+    native::validate_key(kind, vk_box)?;
     let envelope = OpenVerifyEnvelope {
-        backend: BackendTag::Halo2IpaPasta,
-        circuit_id: circuit_id.to_owned(),
+        backend: BackendTag::NativePipaRPasta,
+        circuit_id: kind.circuit_id().to_owned(),
         vk_hash: super::hash_vk(vk_box),
-        public_inputs: schema_descriptor,
-        proof_bytes: proof_payload,
+        public_inputs: kind.schema().to_vec(),
+        proof_bytes: norito::encode_canonical(&proved).map_err(|error| error.to_string())?,
         aux: Vec::new(),
     };
-    let encoded = norito::encode_canonical(&envelope)
-        .map_err(|err| format!("failed to encode confidential proof envelope: {err}"))?;
-    let proof = ProofBox::new(super::ZK_BACKEND_HALO2_IPA.to_owned(), encoded);
+    let proof = ProofBox::new(
+        super::ZK_BACKEND_NATIVE_PIPA_R.to_owned(),
+        norito::encode_canonical(&envelope).map_err(|error| error.to_string())?,
+    );
     let cap = CONFIDENTIAL_V2_MAX_PROOF_BYTES as usize;
     super::verify_for_relation(
         required_relation,
         &proof,
         vk_box,
         super::ZkVerifyGuardrails {
-            halo2_enabled: true,
-            halo2_max_envelope_bytes: cap,
-            halo2_max_proof_bytes: cap,
+            pipa_r_enabled: true,
+            pipa_r_max_envelope_bytes: cap,
+            pipa_r_max_proof_bytes: cap,
             stark_enabled: false,
             stark_max_envelope_bytes: 0,
             stark_max_proof_bytes: 0,
         },
     )
-    .map_err(|err| format!("generated confidential proof failed local self-verification: {err}"))?;
+    .map_err(|error| format!("generated confidential proof failed local verification: {error}"))?;
     Ok(proof)
 }
 struct PreparedConfidentialTransferV3 {
@@ -4326,7 +1911,7 @@ fn prepare_confidential_transfer_v3_resolved_paths(
         input_0_path,
         input_1_path,
     };
-    secure_relation_v3::validate_transfer_witness::<CONFIDENTIAL_TREE_DEPTH_V2>(&witness)?;
+    witness_validation::validate_transfer_witness::<CONFIDENTIAL_TREE_DEPTH_V2>(&witness)?;
     Ok(PreparedConfidentialTransferV3 {
         witness,
         input_commitments: [input_0_commitment, input_1_commitment],
@@ -4360,7 +1945,10 @@ fn build_confidential_transfer_proof_v2_resolved_paths(
     >,
 ) -> Result<ConfidentialTransferProofV2, String> {
     ensure_confidential_transfer_v2_canonical_vk_box(vk_box)?;
-    let (params, _parsed_vk) = parse_vk_for_transfer(circuit_id, vk_box)?;
+    if circuit_id != native::Kind::Transfer.circuit_id() {
+        return Err("unsupported native confidential circuit identifier".to_owned());
+    }
+    native::validate_key(native::Kind::Transfer, vk_box)?;
     let prepared = prepare_confidential_transfer_v3_resolved_paths(
         network_id,
         asset_definition_id,
@@ -4380,25 +1968,12 @@ fn build_confidential_transfer_proof_v2_resolved_paths(
         output_count,
         ..
     } = prepared;
-    let circuit = secure_relation_v3::ConfidentialTransferCircuitV3::<CONFIDENTIAL_TREE_DEPTH_V2> {
-        witness: Some(witness),
-    };
-    let instance_refs: Vec<&[Scalar]> = instance_columns.iter().map(Vec::as_slice).collect();
-    let instance_wrapper = vec![instance_refs.as_slice()];
-    let proof_raw = create_confidential_v2_proof(
-        &params,
-        cached_confidential_transfer_v2_proving_key()?,
-        circuit,
-        &instance_wrapper,
-        "transfer",
-    )?;
-    let proof = encode_halo2_envelope(
+    let proved = native::prove_transfer(witness, instance_columns)?;
+    let proof = encode_native_envelope(
         super::ProofRelation::ConfidentialTransfer,
-        CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
+        native::Kind::Transfer,
         vk_box,
-        CONFIDENTIAL_TRANSFER_V2_PUBLIC_INPUTS_SCHEMA_V1.to_vec(),
-        &instance_columns,
-        proof_raw,
+        proved,
     )?;
     Ok(ConfidentialTransferProofV2 {
         nullifiers: nullifiers[..input_count].to_vec(),
@@ -4591,7 +2166,10 @@ fn build_confidential_unshield_proof_v2_resolved_paths(
         );
     }
     ensure_confidential_unshield_v2_canonical_vk_box(vk_box)?;
-    let (params, _parsed_vk) = parse_vk_for_unshield_v2(circuit_id, vk_box)?;
+    if circuit_id != native::Kind::Full.circuit_id() {
+        return Err("unsupported native confidential circuit identifier".to_owned());
+    }
+    native::validate_key(native::Kind::Full, vk_box)?;
     let spend_scalar = hash_to_scalar(b"iroha.confidential.v3.spend_scalar", &[spend_key]);
     let spend_scalar_bytes = Zeroizing::new(scalar_to_repr_bytes(spend_scalar));
     let asset_tag = derive_confidential_asset_tag_v3(asset_definition_id)?;
@@ -4643,10 +2221,6 @@ fn build_confidential_unshield_proof_v2_resolved_paths(
         input_0_path,
         input_1_path,
     };
-    let circuit =
-        secure_relation_v3::ConfidentialUnshieldFullCircuitV3::<CONFIDENTIAL_TREE_DEPTH_V2> {
-            witness: Some(witness),
-        };
     let public = ConfidentialUnshieldFullPublicInputsV1 {
         input_commitment_0: input_0_commitment,
         input_commitment_1: input_1_commitment,
@@ -4672,22 +2246,12 @@ fn build_confidential_unshield_proof_v2_resolved_paths(
         })?
         .into_array()
         .to_vec();
-    let instance_refs: Vec<&[Scalar]> = instance_columns.iter().map(Vec::as_slice).collect();
-    let instance_wrapper = vec![instance_refs.as_slice()];
-    let proof_raw = create_confidential_v2_proof(
-        &params,
-        cached_confidential_unshield_v2_proving_key()?,
-        circuit,
-        &instance_wrapper,
-        "unshield",
-    )?;
-    let proof = encode_halo2_envelope(
+    let proved = native::prove_full(witness, instance_columns)?;
+    let proof = encode_native_envelope(
         super::ProofRelation::ConfidentialFullUnshield,
-        CONFIDENTIAL_UNSHIELD_V2_CIRCUIT_ID,
+        native::Kind::Full,
         vk_box,
-        CONFIDENTIAL_UNSHIELD_V2_PUBLIC_INPUTS_SCHEMA_V1.to_vec(),
-        &instance_columns,
-        proof_raw,
+        proved,
     )?;
     Ok(ConfidentialUnshieldProofV2 {
         nullifiers: if input_1.is_some() {
@@ -4987,7 +2551,7 @@ fn prepare_confidential_unshield_change_v4_resolved_paths(
         input_0_path,
         input_1_path,
     };
-    secure_relation_v3::validate_unshield_v3_witness::<CONFIDENTIAL_TREE_DEPTH_V2>(&witness)?;
+    witness_validation::validate_unshield_v3_witness::<CONFIDENTIAL_TREE_DEPTH_V2>(&witness)?;
     Ok(PreparedConfidentialUnshieldChangeV4 {
         witness,
         public: ConfidentialUnshieldChangePublicInputsV1 {
@@ -5029,7 +2593,10 @@ fn build_confidential_unshield_proof_v3_resolved_paths(
     >,
 ) -> Result<ConfidentialUnshieldProofV3, String> {
     ensure_confidential_unshield_v3_canonical_vk_box(vk_box)?;
-    let (params, _parsed_vk) = parse_vk_for_unshield_v3(circuit_id, vk_box)?;
+    if circuit_id != native::Kind::Change.circuit_id() {
+        return Err("unsupported native confidential circuit identifier".to_owned());
+    }
+    native::validate_key(native::Kind::Change, vk_box)?;
     let prepared = prepare_confidential_unshield_change_v4_resolved_paths(
         network_id,
         asset_definition_id,
@@ -5049,26 +2616,12 @@ fn build_confidential_unshield_proof_v3_resolved_paths(
         input_count,
         ..
     } = prepared;
-    let circuit =
-        secure_relation_v3::ConfidentialUnshieldChangeCircuitV4::<CONFIDENTIAL_TREE_DEPTH_V2> {
-            witness: Some(witness),
-        };
-    let instance_refs: Vec<&[Scalar]> = instance_columns.iter().map(Vec::as_slice).collect();
-    let instance_wrapper = vec![instance_refs.as_slice()];
-    let proof_raw = create_confidential_v2_proof(
-        &params,
-        cached_confidential_unshield_v3_proving_key()?,
-        circuit,
-        &instance_wrapper,
-        "unshield",
-    )?;
-    let proof = encode_halo2_envelope(
+    let proved = native::prove_change(witness, instance_columns)?;
+    let proof = encode_native_envelope(
         super::ProofRelation::ConfidentialChangeUnshield,
-        CONFIDENTIAL_UNSHIELD_V3_CIRCUIT_ID,
+        native::Kind::Change,
         vk_box,
-        CONFIDENTIAL_UNSHIELD_V3_PUBLIC_INPUTS_SCHEMA_V1.to_vec(),
-        &instance_columns,
-        proof_raw,
+        proved,
     )?;
     Ok(ConfidentialUnshieldProofV3 {
         nullifiers: nullifiers[..input_count].to_vec(),
@@ -5238,3 +2791,10 @@ pub(super) fn build_confidential_unshield_proof_v3_with_paths(
     )
 }
 include!("confidential_v2_tests.rs");
+
+#[path = "confidential_native/mod.rs"]
+pub(crate) mod native;
+
+#[cfg(test)]
+#[path = "confidential_hash_tests.rs"]
+mod native_hash_tests;

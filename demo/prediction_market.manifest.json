@@ -1,7 +1,7 @@
 {
   "seiyaku_name": "PredictionMarket",
-  "code_hash": "hash:583EB9A6BD83F7697DB4ED0B5A8275EFD409222D06186D86979111A8BD4E238D#A133",
-  "abi_hash": "hash:C7281066EC6F2FB47A2B0051C1D2AC95562F6CA7A576011CF173E07E845FDEC1#D973",
+  "code_hash": "hash:CBC8C6B5CC914D085D6A126FB169DA7803A3D337060E258C07A81A9FBD6A6501#BF4E",
+  "abi_hash": "hash:D87449F2EC45628B835C736C9915EAA85BFCB87E544DA269FDB7C4889D3DB82F#F1D1",
   "compiler_fingerprint": "kotodama_lang/2.0.0-rc.2.0",
   "features_bitmap": 0,
   "access_set_hints": {
@@ -11,10 +11,10 @@
       "account:sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE",
       "account:sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
       "asset:*",
-      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76#dataspace:0",
-      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE#dataspace:0",
-      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV#dataspace:0",
-      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc:$authority:dataspace:0",
+      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76",
+      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE",
+      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc:$authority",
       "asset_def:*",
       "asset_def:61CtjvNd9T3THAR65GsMVHr82Bjc",
       "state:alice_staked",
@@ -23,10 +23,10 @@
     ],
     "write_keys": [
       "asset:*",
-      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76#dataspace:0",
-      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE#dataspace:0",
-      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV#dataspace:0",
-      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc:$authority:dataspace:0",
+      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76",
+      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE",
+      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+      "asset:61CtjvNd9T3THAR65GsMVHr82Bjc:$authority",
       "state:alice_staked",
       "state:bob_staked",
       "state:resolved"
@@ -34,6 +34,16 @@
     "dynamic_reads": [],
     "dynamic_writes": []
   },
+  "permissions": [
+    {
+      "name": "MarketUser",
+      "scope": {
+        "kind": "Instance",
+        "value": null
+      }
+    }
+  ],
+  "events": [],
   "entrypoints": [
     {
       "name": "hajimari",
@@ -52,7 +62,10 @@
           }
         ]
       },
-      "permission": null,
+      "authorization": {
+        "kind": "RuntimeLifecycle",
+        "value": null
+      },
       "read_keys": [],
       "write_keys": [
         "state:alice_staked",
@@ -80,21 +93,24 @@
           }
         ]
       },
-      "permission": "MarketUser",
+      "authorization": {
+        "kind": "Permission",
+        "value": "MarketUser"
+      },
       "read_keys": [
         "state:resolved",
         "state:alice_staked",
         "state:bob_staked",
         "asset:*",
-        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE#dataspace:0",
+        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE",
         "account:sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE",
         "asset_def:*",
         "asset_def:61CtjvNd9T3THAR65GsMVHr82Bjc",
-        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV#dataspace:0",
+        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
         "account:sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
-        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76#dataspace:0",
+        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76",
         "account:sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76",
-        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc:$authority:dataspace:0",
+        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc:$authority",
         "account:$authority"
       ],
       "write_keys": [
@@ -102,10 +118,10 @@
         "state:alice_staked",
         "state:bob_staked",
         "asset:*",
-        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE#dataspace:0",
-        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV#dataspace:0",
-        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76#dataspace:0",
-        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc:$authority:dataspace:0"
+        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE",
+        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc#sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76",
+        "asset:61CtjvNd9T3THAR65GsMVHr82Bjc:$authority"
       ],
       "access_hints_complete": true,
       "access_hints_skipped": [],
@@ -186,6 +202,7 @@
       ]
     }
   ],
+  "enum_types": [],
   "error_messages": null,
   "kotoba": null,
   "provenance": null

@@ -12,8 +12,8 @@
 //! says its key signed at `height` (`-` when nothing), comma-separated:
 //!
 //! - `proposal:<view>:<block>`: the last proposal;
-//! - `prepare:<view>:<block>:<result>:<attest 0|1>`: the last Prepare vote;
-//! - `lock:<view>:<block>:<result>:<attest 0|1>`: the lock, which also records every Commit
+//! - `prepare:<view>:<block>:<result>`: the last Prepare vote;
+//! - `lock:<view>:<block>:<result>`: the lock, which also records every Commit
 //!   vote (a Commit at `(h, v)` is always for the lock of view `v`, §6.5);
 //! - `timeout:<view>:<view of the carried PrepareQC, or ->`: the last timeout.
 //!
@@ -49,7 +49,6 @@ pub(super) fn block_applied(block: &AvailableBody, commit_qc: &Qc) {
         result = %commit_qc.result,
         proposer = block.header().proposer,
         payload_bytes = block.header().payload_len,
-        attest = commit_qc.attest,
         "sumeragi block applied"
     );
 }
@@ -78,20 +77,14 @@ impl fmt::Display for Signed<'_> {
         }
         if let Some(vote) = &record.prepare {
             entries.push(format!(
-                "prepare:{}:{}:{}:{}",
-                vote.view,
-                vote.block_hash,
-                vote.result,
-                u8::from(vote.attest)
+                "prepare:{}:{}:{}",
+                vote.view, vote.block_hash, vote.result
             ));
         }
         if let Some(lock) = &record.lock {
             entries.push(format!(
-                "lock:{}:{}:{}:{}",
-                lock.view,
-                lock.block_hash,
-                lock.result,
-                u8::from(lock.attest)
+                "lock:{}:{}:{}",
+                lock.view, lock.block_hash, lock.result
             ));
         }
         if let Some(timeout) = &record.timeout {
@@ -234,7 +227,6 @@ mod tests {
         qc.height = 7;
         qc.view = view;
         qc.block_hash = block_hash;
-        qc.attest = true;
         qc
     }
 
@@ -250,7 +242,6 @@ mod tests {
             view: 1,
             block_hash: Hash32([0xb1; 32]),
             result: Hash32([0xc1; 32]),
-            attest: false,
         });
         record.timeout = Some(RecordedTimeout {
             view: 0,
@@ -269,7 +260,7 @@ mod tests {
         let (b1, c1) = (hex32(0xb1), hex32(0xc1));
         assert_eq!(
             Signed(&signed_record()).to_string(),
-            format!("proposal:1:{b1},prepare:1:{b1}:{c1}:0,lock:1:{b1}:{c1}:1,timeout:0:-")
+            format!("proposal:1:{b1},prepare:1:{b1}:{c1},lock:1:{b1}:{c1},timeout:0:-")
         );
         let mut record = signed_record();
         record.timeout = Some(RecordedTimeout {
@@ -394,6 +385,5 @@ mod tests {
         assert_eq!(line.field("result"), Some(hex32(0xe1).as_str()));
         assert_eq!(line.field("proposer"), Some("0"));
         assert_eq!(line.field("payload_bytes"), Some("2"));
-        assert_eq!(line.field("attest"), Some("false"));
     }
 }

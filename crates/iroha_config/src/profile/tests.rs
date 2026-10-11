@@ -554,16 +554,18 @@ fn digests_are_pinned() {
     // The native Sumeragi hard cut removed block/queue geometry from both the
     // static profile and DerivedGeometryV1 (8a99f3f5ba). Pin the resulting first-
     // release shape; retaining the removed queue fields would change semantics.
-    // ZK delivery plan task F.4 removed `[static.zk.halo2] enabled = true`: ZK
+    // ZK delivery plan task F.4 removed static verifier selection: ZK
     // validity values are the committed `zk_validity_policy_v1` parameter, not
     // node configuration, and the key no longer exists in the node schema.
     assert_eq!(
         profile.consensus_digest(4).unwrap().to_string(),
         "6dcc49948b24ea6675e4cfbfd3dfd963b5d91daa011f3d8b6eb4f00296c073fb"
     );
+    // The retired Torii KAGEMUSHA command policy is absent from this canonical input.
+    // Native proof-backend selection above does not change this separate policy input.
     assert_eq!(
         profile.policy_digest().unwrap().to_string(),
-        "8c4ccda4944019c394c4439feb06516aaf16f3dfb1cffdb07c0dd2b850f9d023"
+        "cd24824ed35812f798b8c01ed965b23fdfd535795a4c402de87d0d4fd41e47a7"
     );
 }
 
@@ -874,6 +876,42 @@ fn node_key_admission_follows_the_allowlist_and_tunables() {
         "private_key_file",
     ] {
         assert!(!profile.admits_node_key(rejected), "{rejected}");
+    }
+}
+
+#[test]
+fn removed_publisher_keys_are_rejected_by_every_compiled_profile() {
+    for id in ProfileId::ALL {
+        let profile = Profile::compiled(id).unwrap();
+        for rejected in [
+            "kagemusha_load_authorizer.keyring_file",
+            "kagemusha_load_authorizer.submitter_key_file",
+            "kagemusha_load_authorizer",
+            "kagemusha_load_authorizer.enabled",
+            "kagemusha_load_authorizer.keyring",
+            "kagemusha_load_authorizer.submitter_key",
+            "kagemusha_load_authorizer.poll_interval_ms",
+            "kagemusha_load_authorizer.page_size",
+            "kagemusha_load_authorizer.block_bytes",
+            "kagemusha_load_authorizer.journal_bytes",
+            "kagemusha_load_authorizer.block_count",
+            "kagemusha_load_authorizer.allocated_bytes",
+            "kagemusha_load_authorizer.transaction_ttl_ms",
+            "kagemusha_load_authorizer.charge_limits",
+            "kagemusha_load_authorizer.keyring_file.inline",
+            "kagemusha_load_authorizer.submitter_key_file.inline",
+        ] {
+            assert!(!profile.admits_node_key(rejected), "{id}: {rejected}");
+        }
+        assert!(
+            !profile
+                .static_config()
+                .contains_key("kagemusha_load_authorizer")
+        );
+        assert!(!profile.policy().contains_key("kagemusha_load_authorizer"));
+        for role in ProfileRole::ALL {
+            assert!(!profile.role(role).contains_key("kagemusha_load_authorizer"));
+        }
     }
 }
 

@@ -117,6 +117,8 @@ class CargoInvocationTests(unittest.TestCase):
         executable = Path(sys.executable).resolve(strict=True)
         environment = {key: "fixture" for key in runner.PROFILES["apple-macos"]}
         environment["CARGO_HOME"] = str(self.cache)
+        environment[runner.WALLET_RUNTIME_AUTHORITY_INPUT] = "cbsi-release-v1"
+        environment[runner.WALLET_RUNTIME_TRUST_INPUT] = "3" * 64
         tools = {name: runner.authenticate_regular_executable(name, str(executable)) for name in ("CARGO", "RUSTC", "RUSTDOC")}
         args = argparse.Namespace(profile="apple-macos", working_directory=self.invocation,
                                   assignments=list(environment.items()), command=[str(executable)])

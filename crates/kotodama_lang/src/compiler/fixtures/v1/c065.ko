@@ -1,7 +1,7 @@
 
-seiyaku CompilerFixture {
+seiyaku CompilerFixture { permission Admin;
 
-kotoage fn batch() authorize("Admin") {
+kotoage fn batch() authorize(Admin) {
   ledger::asset::batch::begin();
   ledger::asset::batch::end();
   ledger::asset::batch::begin();

@@ -1,6 +1,6 @@
 
 seiyaku CompilerFixture {
-    view fn length(bytes value) -> int {
+    view fn length(bytes value) authorize(anyone) -> int {
         return bytes::len(value);
     }
 }

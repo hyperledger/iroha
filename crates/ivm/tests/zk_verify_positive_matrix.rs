@@ -1,8 +1,9 @@
+//! Canonical standalone proof syscall bounds and authority rejection.
 use iroha_data_model::zk::{BackendTag, OpenVerifyEnvelope};
 use ivm::{IVMHost, syscalls};
 fn build_env(public_input_len: usize) -> Vec<u8> {
     let envelope = OpenVerifyEnvelope::new(
-        BackendTag::Halo2IpaPasta,
+        BackendTag::NativePipaRPasta,
         ivm::host::LABEL_VOTE_BALLOT,
         [1; 32],
         vec![1; public_input_len],
@@ -23,11 +24,10 @@ fn make_tlv(type_id: u16, payload: &[u8]) -> Vec<u8> {
 #[test]
 fn default_host_fails_closed_for_canonical_input_size_matrix() {
     let mut vm = ivm::IVM::new(u64::MAX);
-    let cfg = ivm::host::ZkHalo2Config {
-        enabled: true,
+    let cfg = ivm::host::ZkVerifyLimits {
         ..Default::default()
     };
-    let mut host = ivm::host::DefaultHost::new().with_zk_halo2_config(cfg);
+    let mut host = ivm::host::DefaultHost::new().with_zk_verify_limits(cfg);
     for public_input_len in [8, 16] {
         let env = build_env(public_input_len);
         let tlv = make_tlv(ivm::PointerType::NoritoBytes as u16, &env);

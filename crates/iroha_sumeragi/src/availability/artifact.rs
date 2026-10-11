@@ -454,7 +454,6 @@ mod tests {
                 proposer: 2,
                 skipped_leaders: vec![keys.key(0)],
                 control_witness: ControlWitness::empty(),
-                attest: true,
             };
             let hashes: Vec<_> = (0..shape.chunk_count())
                 .map(|i| {

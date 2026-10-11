@@ -3,13 +3,13 @@
 //! Proofs carry the canonical block and its embedded commit certificate. A structural
 //! decode is never an authenticated execution capability: only the contiguous verifier
 //! constructs [`VerifiedSumeragiBlock`]. The receipt proves exact-quorum execution finality;
-//! it does not verify embedded application attestations or grant KAGEMUSHA mint authority. Genesis has no quorum certificate; its execution
-//! result is authenticated by a successor's parent-result binding or independent node
+//! with the signed RS16 availability binding. Genesis has no quorum certificate; its
+//! execution result is authenticated by a successor's parent-result binding or independent node
 //! attestations, not by inventing a genesis quorum certificate.
 //!
 //! This module owns the sole canonical execution-result codec and authenticated epoch/schedule
-//! graph shared with Core. Core produces execution witnesses, validates application attestations
-//! and beacon signatures, and publishes these same results; portable readers authenticate the
+//! graph shared with Core. Core produces execution witnesses, validates beacon signatures,
+//! and publishes these same results; portable readers authenticate the
 //! resulting commit-finality chain without introducing another result layout or authority source.
 
 mod schedule;
@@ -30,7 +30,17 @@ pub use beacon::{
     global_threshold_beacon_pulse_payload_v1, validate_beacon_pulse_shape,
 };
 mod genesis;
-pub use genesis::{GenesisReadError, genesis_epoch, signed_genesis_consensus_metadata};
+pub use genesis::{
+    AuthenticatedGenesis, AuthenticatedSignedGenesisV1, GenesisReadError,
+    MAX_SIGNED_GENESIS_BYTES_V1, OriginalGenesisRead, OriginalGenesisReadError,
+    SignedGenesisPinsV1, authenticate_signed_genesis_v1, authenticated_genesis,
+    signed_genesis_consensus_metadata,
+};
+mod genesis_dataspace;
+pub use genesis_dataspace::{
+    GENESIS_DATASPACE_VERIFICATION_SCHEMA_V1, GenesisDataspaceAuthorityV1, GenesisDataspaceError,
+    GenesisDataspaceSelectorV1, VerifiedGenesisDataspaceCutV1, verify_genesis_dataspace_v1,
+};
 mod lane_state_commitment;
 mod native_lanes;
 pub use lane_state_commitment::SumeragiLaneStateCommitment;
@@ -39,8 +49,19 @@ pub use native_lanes::{
 };
 mod commitment;
 pub use commitment::*;
+pub mod certified_result;
+pub use certified_result::{
+    CertifiedResultError, CertifiedResultScope, CertifiedResultV1, FinalityHeaderError,
+    MAX_RESULT_BODY_BYTES, RESULT_BODY_TAG, SccpFinalityHeaderFieldsV1, SccpFinalityHeaderV1,
+    committee_root, context_committee_root,
+};
 mod checkpoint;
 pub use checkpoint::{MAX_FINALITY_CHECKPOINT_BYTES, SumeragiFinalityCheckpoint};
+mod compact;
+pub use compact::{
+    MAX_COMMIT_CERTIFICATE_BYTES_V1, MAX_COMMIT_CHECKPOINT_BYTES, SumeragiCommitCertificateV1,
+    SumeragiCommitCheckpointV1, SumeragiCommitVerifierV1, VerifiedSumeragiCommitV1,
+};
 mod page;
 pub use page::{VerifiedFinalityPage, certified_block_context_id, verify_checkpoint_page};
 mod world_state;
@@ -112,9 +133,9 @@ pub enum FinalityReadError {
     /// The original signed genesis could not be read or authenticated.
     #[error(transparent)]
     Genesis(#[from] GenesisReadError),
-    /// Exact original checkpoint decoder fields, before any caller locality classification.
+    /// Exact original canonical block decoder fields, before any caller locality classification.
     /// Intrinsic format ceilings are not automatically a retryable caller refusal.
-    #[error("checkpoint decoder resource: {0}")]
+    #[error("canonical block decoder resource: {0}")]
     DecodeResource(#[source] norito::core::DecodeAttemptError),
 }
 
@@ -129,9 +150,29 @@ pub enum FinalityReadError {
 pub fn consensus_configuration_fingerprint(
     genesis: &SignedBlock,
 ) -> Result<Hash, GenesisReadError> {
-    let epoch = genesis_epoch(genesis)?;
+    let authenticated = authenticated_genesis(genesis)?;
+    #[cfg(not(all(test, sumeragi_model_mutation = "DM13")))]
+    let metadata = authenticated.metadata();
+    let epoch = authenticated.into_parts().0;
+    #[cfg(all(test, sumeragi_model_mutation = "DM13"))]
     let metadata = signed_genesis_consensus_metadata(genesis)?;
-    let mut parameters = ExplicitParameters::new(metadata.block_cadence_ms);
+    let parameters = explicit_genesis_chain_parameters(genesis, metadata.block_cadence_ms)?;
+    let encoded = norito::encode_canonical(&(crate::sumeragi::PROTOCOL_VERSION, epoch, parameters))
+        .map_err(|error| error.to_string())?;
+    Ok(Hash::new_from_chunks(&[
+        b"iroha:native-config:v1",
+        &encoded,
+    ]))
+}
+
+// Both callers carry the cadence from their canonical authentication of this exact
+// signed body. The same original instruction kernel still requires each explicit
+// parameter exactly once; results and mutable World never supply these lag-two values.
+fn explicit_genesis_chain_parameters(
+    genesis: &SignedBlock,
+    block_cadence_ms: std::num::NonZeroU64,
+) -> Result<ChainParamsRecord, GenesisReadError> {
+    let mut parameters = ExplicitParameters::new(block_cadence_ms);
     for transaction in genesis.external_transactions() {
         let Executable::Instructions(instructions) = transaction.instructions() else {
             return Err("native configuration requires explicit signed instructions".into());
@@ -144,13 +185,7 @@ pub fn consensus_configuration_fingerprint(
             }
         }
     }
-    let parameters = parameters.finish()?;
-    let encoded = norito::encode_canonical(&(crate::sumeragi::PROTOCOL_VERSION, epoch, parameters))
-        .map_err(|error| error.to_string())?;
-    Ok(Hash::new_from_chunks(&[
-        b"iroha:native-config:v1",
-        &encoded,
-    ]))
+    parameters.finish().map_err(Into::into)
 }
 
 struct ExplicitParameters {
@@ -483,6 +518,15 @@ impl SumeragiFinalityProof {
     fn decode_parts(
         &self,
     ) -> Result<(DecodedSumeragiBlock, Option<Vec<u8>>, ProofCrypto), FinalityError> {
+        self.decode_parts_with_validation(None)
+    }
+
+    // Enclosing checkpoint and attestation operations may supply a pure epoch workspace.
+    // Independent proof readers preserve the original separate scopes and allocation charges.
+    fn decode_parts_with_validation(
+        &self,
+        mut validation: Option<&mut EpochValidationScope>,
+    ) -> Result<(DecodedSumeragiBlock, Option<Vec<u8>>, ProofCrypto), FinalityError> {
         need(
             !self.block_wire.is_empty() && self.block_wire.len() <= MAX_FINALITY_BLOCK_BYTES,
             "block frame exceeds its finite bound",
@@ -492,10 +536,10 @@ impl SumeragiFinalityProof {
             || decode_framed_signed_block(&self.block_wire),
         )
         .map_err(malformed)?;
-        need(
-            block.encode_wire().map_err(malformed)? == self.block_wire,
-            "block frame is not canonical",
-        )?;
+        // The framed decoder already streams exact canonical equality under the original
+        // limits. Retire payload/layout state before the independent certificate decoders,
+        // without materializing another complete block frame.
+        norito::core::reset_decode_state();
         need(
             block.header() == self.block_header && block.has_results(),
             "header or execution-result binding differs",
@@ -507,8 +551,18 @@ impl SumeragiFinalityProof {
         let certificate = block
             .commit_certificate()
             .ok_or_else(|| FinalityError("embedded commit certificate missing".into()))?;
-        let commitment =
-            ExecutionResultCommitment::decode(certificate.result_preimage()).map_err(malformed)?;
+        let commitment = validation
+            .as_deref_mut()
+            .map_or_else(
+                || ExecutionResultCommitment::decode(certificate.result_preimage()),
+                |validation| {
+                    ExecutionResultCommitment::decode_with_validation(
+                        certificate.result_preimage(),
+                        validation,
+                    )
+                },
+            )
+            .map_err(malformed)?;
         need(
             commitment.height == self.height(),
             "result height differs from its block",
@@ -531,7 +585,12 @@ impl SumeragiFinalityProof {
                     }),
             "proof roster differs from its complete epoch context",
         )?;
-        let epoch = core_epoch(&commitment.schedule.current).map_err(malformed)?;
+        let epoch = validation
+            .map_or_else(
+                || core_epoch(&commitment.schedule.current),
+                |validation| validation.core_epoch(&commitment.schedule.current),
+            )
+            .map_err(malformed)?;
         let result = result_of_preimage(certificate.result_preimage());
         let (len, hash) = block.executed_block_wire_identity().map_err(malformed)?;
         need(
@@ -568,15 +627,13 @@ impl SumeragiFinalityProof {
                 header.height == self.height()
                     && header.epoch == epoch.id
                     && qc.epoch == epoch.id
-                    && (commitment.schedule.boundary.is_none() || header.attest)
                     && usize::try_from(header.payload_len).ok() == Some(payload.len())
                     && header.payload_hash == payload_hash(&crypto, &payload)
                     && qc.kind == VoteKind::Commit
                     && qc.height == header.height
                     && qc.instance == header.instance
                     && qc.block_hash == core_hash
-                    && qc.result == result
-                    && qc.attest == header.attest,
+                    && qc.result == result,
                 "current certificate does not bind this block and execution",
             )?;
             need(
@@ -589,18 +646,9 @@ impl SumeragiFinalityProof {
                 }),
                 "beacon pulse names another native consensus context",
             )?;
-            need(
-                if qc.needs_attestations() {
-                    qc.attestations.len() == committee.q()
-                } else {
-                    qc.attestations.is_empty()
-                },
-                "certificate attestation shape differs from its signed flag",
-            )?;
-            // Exact quorum signatures authenticate execution finality. Embedded application
-            // attestations remain separate evidence; this proof grants no attestation capability.
+            // Exact quorum signatures authenticate the execution commitment.
             iroha_sumeragi::crypto::Verifier::new(&crypto, &header.instance, &epoch.id, &committee)
-                .verify_qc_signatures(&qc)
+                .verify_qc(&qc)
                 .map_err(|error| FinalityError(format!("commit certificate: {error:?}")))?;
             (Some(header), core_hash, Some(availability), Some(payload))
         };
@@ -705,6 +753,50 @@ impl VerifiedSumeragiBlock {
         )
     }
 
+    /// Join two already authenticated non-genesis Global receipts at one exact native edge.
+    ///
+    /// Both original verifiers have already authenticated their complete result/schedule and
+    /// certificate witnesses. This compares those opaque decisions without re-decoding proofs,
+    /// rechecking signatures, or making a fresh-currentness claim. Alternate valid local QC
+    /// witnesses are equivalent; equal proposal hashes with different execution results are not.
+    ///
+    /// # Errors
+    /// Rejects genesis, a foreign network/chain/root, a height gap, a changed native parent
+    /// hash/result or Iroha predecessor, or inconsistent authenticated successor slots.
+    pub fn verify_immediate_global_successor_of(
+        &self,
+        parent: &Self,
+        expected_network: NetworkId,
+        expected_chain: &str,
+    ) -> Result<(), FinalityError> {
+        parent.verify_global_scope(expected_network, expected_chain)?;
+        self.verify_global_scope(expected_network, expected_chain)?;
+        let header = self
+            .0
+            .header
+            .as_ref()
+            .ok_or_else(|| FinalityError("Global successor has no native header".into()))?;
+        need(
+            parent.height().checked_add(1) == Some(self.height())
+                && header.parent_hash == parent.core_hash()
+                && header.parent_result == parent.result()
+                && self.header().prev_block_hash() == Some(parent.header().hash()),
+            "Global successor differs from its exact authenticated native parent",
+        )?;
+        let previous = &parent.commitment().schedule;
+        let current = &self.commitment().schedule;
+        need(
+            previous.height == parent.height() && current.height == self.height(),
+            "Global successor schedule differs from its authenticated block heights",
+        )?;
+        // Both opaque receipts already passed the complete individual schedule/epoch and
+        // QC/availability checks. Exact parent R joins the child's boundary/beacon authority
+        // to this original commitment; the pure cross-result rule has one canonical owner.
+        previous
+            .validate_successor_relation(current)
+            .map_err(malformed)
+    }
+
     /// Canonical executed bytes with only the node-local certificate removed.
     ///
     /// # Errors
@@ -757,6 +849,37 @@ struct Decision {
     executed_len: u64,
 }
 
+// Selected-roster and root-instance checks shared only by the two canonical genesis
+// owners. Callers first run their original ProofCrypto/authentication order; this private
+// borrowed kernel creates no authority token, body clone or second metadata decoder.
+fn authenticated_genesis_instance(
+    trusted_genesis: &SignedBlock,
+    chain_id: &str,
+    validators: &[FinalityValidator],
+    crypto: &ProofCrypto,
+    epoch: &crate::sumeragi::epoch::ValidatorEpochContextV1,
+    root_scope: crate::block::consensus::SumeragiRootScope,
+) -> Result<Hash32, FinalityError> {
+    need(
+        validators.len() == epoch.committee.len()
+            && validators
+                .iter()
+                .zip(&epoch.committee)
+                .all(|(selected, member)| {
+                    selected.public_key == *member.validator.public_key()
+                        && selected.proof_of_possession == member.proof_of_possession
+                }),
+        "selected roster differs from signed genesis authority",
+    )?;
+    root_scope
+        .instance_id(
+            crypto,
+            crate::NetworkId::from_genesis_hash(trusted_genesis.hash()),
+            chain_id,
+        )
+        .map_err(malformed)
+}
+
 /// Independent current-certificate verifier retaining only authenticated prefix decisions.
 #[derive(Debug, Clone)]
 pub struct SumeragiFinalityVerifier {
@@ -766,6 +889,7 @@ pub struct SumeragiFinalityVerifier {
     instance: Hash32,
     genesis_committee_digest: [u8; 32],
     genesis_epoch: crate::sumeragi::epoch::ValidatorEpochContextV1,
+    genesis_metadata: crate::parameter::system::ConsensusHandshakeMetadata,
     decisions: BTreeMap<u64, Decision>,
 }
 impl SumeragiFinalityVerifier {
@@ -779,59 +903,87 @@ impl SumeragiFinalityVerifier {
         chain_id: &str,
         validators: Vec<FinalityValidator>,
     ) -> Result<Self, FinalityReadError> {
+        Self::new_with_validation(trusted_genesis, chain_id, validators, None)
+    }
+    fn new_with_validation(
+        trusted_genesis: &SignedBlock,
+        chain_id: &str,
+        validators: Vec<FinalityValidator>,
+        validation: Option<&EpochValidationScope>,
+    ) -> Result<Self, FinalityReadError> {
         need(
             trusted_genesis.header().is_genesis(),
             "trust root must be signed genesis",
         )?;
         let (crypto, committee) = ProofCrypto::new(&validators)?;
-        let genesis_epoch = genesis_epoch(trusted_genesis)?;
-        need(
-            validators.len() == genesis_epoch.committee.len()
-                && validators
-                    .iter()
-                    .zip(&genesis_epoch.committee)
-                    .all(|(selected, member)| {
-                        selected.public_key == *member.validator.public_key()
-                            && selected.proof_of_possession == member.proof_of_possession
-                    }),
-            "selected roster differs from signed genesis authority",
+        let authenticated =
+            genesis::authenticated_genesis_with_validation(trusted_genesis, validation)?;
+        let genesis_metadata = authenticated.metadata();
+        let (genesis_epoch, root_scope) = authenticated.into_parts();
+        let instance = authenticated_genesis_instance(
+            trusted_genesis,
+            chain_id,
+            &validators,
+            &crypto,
+            &genesis_epoch,
+            root_scope,
         )?;
-        let instance = signed_genesis_consensus_metadata(trusted_genesis)?
-            .sumeragi_context
-            .root_scope
-            .instance_id(
-                &crypto,
-                crate::NetworkId::from_genesis_hash(trusted_genesis.hash()),
-                chain_id,
-            )
-            .map_err(malformed)?;
         Ok(Self {
             genesis: trusted_genesis.clone(),
             chain_id: chain_id.to_owned(),
             genesis_committee: validators,
             genesis_epoch,
+            genesis_metadata,
             instance,
             genesis_committee_digest: chain_hash(&committee_digest_preimage(&committee)).0,
             decisions: BTreeMap::new(),
         })
+    }
+    /// Exact chain label selected with this owner's authenticated signed genesis.
+    /// This immutable value participates in the consensus instance binding.
+    #[must_use]
+    pub fn chain_id(&self) -> &str {
+        &self.chain_id
     }
     /// The selected current consensus instance.
     #[must_use]
     pub fn instance(&self) -> Hash32 {
         self.instance
     }
+    /// Exact initial epoch reconstructed from this owner's authenticated signed
+    /// genesis, including its network, generation and original ordered key `PoPs`.
+    /// This does not authenticate any genesis execution result or later epoch.
+    /// The installation owner must independently select and pin the genesis root.
+    #[must_use]
+    pub const fn initial_epoch(&self) -> &crate::sumeragi::epoch::ValidatorEpochContextV1 {
+        &self.genesis_epoch
+    }
+    /// Initial lag-two chain parameters from the retained original signed body.
+    /// All seven explicit Sumeragi instructions remain mandatory and unique;
+    /// the block cadence comes from its unique signed consensus metadata. These
+    /// values seed the native Ready slots for heights two and three, never from
+    /// an unauthenticated genesis execution result or current mutable state.
+    ///
+    /// # Errors
+    /// Rejects missing, duplicate or invalid original explicit parameters. The cadence
+    /// is retained from construction's canonical authentication, with no further decoding.
+    /// This never fills omitted fields with local defaults, changes the selected root,
+    /// or grants global scope.
+    pub fn initial_chain_parameters(&self) -> Result<ChainParamsRecord, GenesisReadError> {
+        #[cfg(not(all(test, sumeragi_model_mutation = "DM14")))]
+        let metadata = self.genesis_metadata;
+        #[cfg(all(test, sumeragi_model_mutation = "DM14"))]
+        let metadata = signed_genesis_consensus_metadata(&self.genesis)?;
+        explicit_genesis_chain_parameters(&self.genesis, metadata.block_cadence_ms)
+    }
     /// Immutable root ownership from the original independently selected signed genesis.
     ///
     /// Parent-network services must require [`crate::block::consensus::SumeragiRootScope::Global`]
     /// explicitly; a valid private-root certificate does not grant global parent authority.
-    /// # Errors
-    /// The retained signed genesis no longer contains valid canonical consensus metadata.
-    pub fn root_scope(
-        &self,
-    ) -> Result<crate::block::consensus::SumeragiRootScope, GenesisReadError> {
-        Ok(signed_genesis_consensus_metadata(&self.genesis)?
-            .sumeragi_context
-            .root_scope)
+    /// This returns the same constructor-authenticated scalar; it performs no decoding.
+    #[must_use]
+    pub const fn root_scope(&self) -> crate::block::consensus::SumeragiRootScope {
+        self.genesis_metadata.sumeragi_context.root_scope
     }
     /// Admit exactly the next proof into the authenticated contiguous prefix.
     ///
@@ -882,24 +1034,46 @@ impl SumeragiFinalityVerifier {
         &self,
         candidate: &SumeragiFinalityProof,
     ) -> Result<VerifiedSumeragiBlock, FinalityError> {
+        self.verify_retained_decision_with_validation(candidate, None)
+    }
+
+    // Checkpoint import and export borrow their lexical pure epoch work here, without
+    // another owned proof return boundary. Standalone witness readers pass None.
+    fn verify_retained_decision_with_validation(
+        &self,
+        candidate: &SumeragiFinalityProof,
+        mut validation: Option<&mut EpochValidationScope>,
+    ) -> Result<VerifiedSumeragiBlock, FinalityError> {
         let expected = self
             .decisions
             .get(&candidate.height())
             .ok_or_else(|| FinalityError("decision is outside authenticated prefix".into()))?;
-        let candidate = self.check(candidate)?;
-        let found = Self::decision(&candidate);
+        let (decoded, proposal, crypto) =
+            candidate.decode_parts_with_validation(validation.as_deref_mut())?;
+        self.check_trusted(
+            candidate,
+            &decoded,
+            proposal.as_deref(),
+            &crypto,
+            validation,
+        )?;
+        // check() releases these original owners before returning its decoded graph. Preserve
+        // that reverse-binding drop order before the retained comparison on this direct path.
+        drop(crypto);
+        drop(proposal);
+        // Compare the checked graph in place; only new prefix insertion owns a decision copy.
         need(
-            found.block_hash == expected.block_hash
-                && found.core_hash == expected.core_hash
-                && found.result == expected.result
-                && found.committee_digest == expected.committee_digest
-                && found.schedule == expected.schedule
-                && found.beacon == expected.beacon
-                && found.executed_hash == expected.executed_hash
-                && found.executed_len == expected.executed_len,
+            decoded.block.hash() == expected.block_hash
+                && decoded.core_hash == expected.core_hash
+                && decoded.result == expected.result
+                && decoded.committee_digest == expected.committee_digest
+                && decoded.commitment.schedule == expected.schedule
+                && decoded.commitment.beacon == expected.beacon
+                && decoded.commitment.execution.executed_block_wire_hash == expected.executed_hash
+                && decoded.commitment.execution.executed_block_wire_len == expected.executed_len,
             "proof differs from retained authenticated decision",
         )?;
-        Ok(VerifiedSumeragiBlock(candidate))
+        Ok(VerifiedSumeragiBlock(decoded))
     }
 
     fn decision(value: &DecodedSumeragiBlock) -> Decision {
@@ -914,12 +1088,28 @@ impl SumeragiFinalityVerifier {
             executed_len: value.commitment.execution.executed_block_wire_len,
         }
     }
+    fn check(&self, proof: &SumeragiFinalityProof) -> Result<DecodedSumeragiBlock, FinalityError> {
+        let (decoded, proposal, crypto) = proof.decode_parts()?;
+        self.check_trusted(proof, &decoded, proposal.as_deref(), &crypto, None)?;
+        Ok(decoded)
+    }
+
+    // Authenticate the original decoded graph against this verifier's selected root/prefix.
+    // Borrow the original proposal and crypto owners through the same last RS16 check; callers
+    // release them at the original check boundary before comparing retained decision fields.
+    #[inline(never)]
     #[expect(
         clippy::suspicious_operation_groupings,
         reason = "the child header intentionally binds the parent's core hash and result"
     )]
-    fn check(&self, proof: &SumeragiFinalityProof) -> Result<DecodedSumeragiBlock, FinalityError> {
-        let (decoded, proposal, crypto) = proof.decode_parts()?;
+    fn check_trusted(
+        &self,
+        proof: &SumeragiFinalityProof,
+        decoded: &DecodedSumeragiBlock,
+        proposal: Option<&[u8]>,
+        crypto: &ProofCrypto,
+        mut validation: Option<&mut EpochValidationScope>,
+    ) -> Result<(), FinalityError> {
         let height = proof.height();
         if height == 1 {
             need(
@@ -940,16 +1130,38 @@ impl SumeragiFinalityVerifier {
                     && decoded.commitment.schedule.current == self.genesis_epoch,
                 "genesis proof differs from independently selected signed root",
             )?;
-            ConsensusSchedule::from_genesis_outcome(&decoded.commitment.schedule)
+            validation
+                .as_deref_mut()
+                .map_or_else(
+                    || ConsensusSchedule::from_genesis_outcome(&decoded.commitment.schedule),
+                    |validation| {
+                        ConsensusSchedule::from_genesis_outcome_with_validation(
+                            &decoded.commitment.schedule,
+                            validation,
+                        )
+                    },
+                )
                 .map_err(malformed)?;
         } else {
             let parent = self
                 .decisions
                 .get(&(height - 1))
                 .ok_or_else(|| FinalityError("authenticated parent is missing".into()))?;
-            parent
-                .schedule
-                .validate_successor(&decoded.commitment.schedule)
+            validation
+                .as_deref_mut()
+                .map_or_else(
+                    || {
+                        parent
+                            .schedule
+                            .validate_successor(&decoded.commitment.schedule)
+                    },
+                    |validation| {
+                        parent.schedule.validate_successor_with_validation(
+                            &decoded.commitment.schedule,
+                            validation,
+                        )
+                    },
+                )
                 .map_err(malformed)?;
             if let Some(boundary) = &decoded.commitment.schedule.boundary {
                 need(
@@ -1001,13 +1213,17 @@ impl SumeragiFinalityVerifier {
                 scheduled.height == height,
                 "availability configuration height differs",
             )?;
-            let config = scheduled.height_config().map_err(malformed)?;
+            let config = validation
+                .map_or_else(
+                    || scheduled.height_config(),
+                    |validation| scheduled.height_config_with_validation(validation),
+                )
+                .map_err(malformed)?;
             let availability = decoded
                 .availability
                 .as_ref()
                 .ok_or_else(|| FinalityError("mandatory availability frame is absent".into()))?;
             let payload = proposal
-                .as_deref()
                 .ok_or_else(|| FinalityError("canonical proposal image is absent".into()))?;
             verify_payload_availability(
                 self.instance,
@@ -1015,10 +1231,10 @@ impl SumeragiFinalityVerifier {
                 header,
                 availability,
                 payload,
-                &crypto,
+                crypto,
             )?;
         }
-        Ok(decoded)
+        Ok(())
     }
 }
 
@@ -1095,8 +1311,25 @@ impl SumeragiFinalityAttestationBody {
                 && self.status.applied_height == self.status.committed_height,
             "attestation challenge, identity or durable-tip binding differs",
         )?;
-        let genesis = self.genesis_finality_proof.decode_checked()?;
-        let tip = self.finality_proof.decode_checked()?;
+        let (genesis, tip) = if norito::core::decode_limits_active() {
+            // Preserve both independent decodes and every original cumulative admission.
+            let genesis = self.genesis_finality_proof.decode_checked()?;
+            let tip = self.finality_proof.decode_checked()?;
+            (genesis, tip)
+        } else {
+            // Share only exact immutable epoch validation inside this one statement. Each
+            // proof still decodes its full frame and checks its own roster and certificate.
+            let mut validation = EpochValidationScope::new();
+            let genesis = self
+                .genesis_finality_proof
+                .decode_parts_with_validation(Some(&mut validation))
+                .map(|(decoded, _, _)| decoded)?;
+            let tip = self
+                .finality_proof
+                .decode_parts_with_validation(Some(&mut validation))
+                .map(|(decoded, _, _)| decoded)?;
+            (genesis, tip)
+        };
         if let Some(header) = tip.header.as_ref() {
             need(
                 header.instance.0 == self.status.instance,
@@ -1246,11 +1479,20 @@ impl Crypto for ProofCrypto {
     }
 }
 
-#[cfg(all(test, feature = "transparent_api"))]
+#[cfg(test)]
 pub(crate) mod tests;
 
+#[cfg(test)]
+mod attestation_validation_tests;
+
+#[cfg(test)]
+mod immediate_successor_tests;
+
+#[cfg(all(test, feature = "transparent_api"))]
+mod retained_decision_tests;
+
 /// Fixed public signing material for native proof tests; never deployment trust or execution evidence.
-#[cfg(all(any(test, feature = "test-fixtures"), feature = "transparent_api"))]
+#[cfg(any(test, all(feature = "test-fixtures", feature = "transparent_api")))]
 pub mod test_fixtures;
 
 #[cfg(all(test, feature = "transparent_api"))]
@@ -1266,6 +1508,7 @@ mod configuration_fingerprint_tests {
     fn signed_parameters(
         original: &SignedBlock,
         parameters: Vec<SumeragiParameter>,
+        cadence: Option<std::num::NonZeroU64>,
     ) -> SignedBlock {
         let mut instructions: Vec<crate::isi::InstructionBox> = original
             .external_transactions()
@@ -1284,6 +1527,23 @@ mod configuration_fingerprint_tests {
                     .cloned()
             })
             .collect();
+        if let Some(cadence) = cadence {
+            use crate::parameter::{CustomParameter, system::consensus_metadata};
+            let mut metadata = signed_genesis_consensus_metadata(original).unwrap();
+            metadata.block_cadence_ms = cadence;
+            instructions.retain(|instruction| {
+                !instruction.as_any().downcast_ref::<SetParameter>().is_some_and(|set| {
+                    matches!(set.inner(), Parameter::Custom(custom) if custom.id() == &consensus_metadata::handshake_meta_id())
+                })
+            });
+            instructions.push(
+                SetParameter::new(Parameter::Custom(CustomParameter::new(
+                    consensus_metadata::handshake_meta_id(),
+                    iroha_primitives::json::Json::new(metadata),
+                )))
+                .into(),
+            );
+        }
         instructions.extend(
             parameters
                 .into_iter()
@@ -1311,25 +1571,29 @@ mod configuration_fingerprint_tests {
             expected,
             consensus_configuration_fingerprint(&signed_parameters(
                 fixture.genesis(),
-                parameters.clone()
+                parameters.clone(),
+                None,
             ))
             .unwrap()
         );
         for index in 0..parameters.len() {
             let mut missing = parameters.clone();
             missing.remove(index);
+            let missing = signed_parameters(fixture.genesis(), missing, None);
+            assert!(consensus_configuration_fingerprint(&missing).is_err());
             assert!(
-                consensus_configuration_fingerprint(&signed_parameters(fixture.genesis(), missing))
+                selected_verifier(&fixture, &missing)
+                    .initial_chain_parameters()
                     .is_err()
             );
             let mut repeated = parameters.clone();
             repeated.push(parameters[index]);
+            let repeated = signed_parameters(fixture.genesis(), repeated, None);
+            assert!(consensus_configuration_fingerprint(&repeated).is_err());
             assert!(
-                consensus_configuration_fingerprint(&signed_parameters(
-                    fixture.genesis(),
-                    repeated
-                ))
-                .is_err()
+                selected_verifier(&fixture, &repeated)
+                    .initial_chain_parameters()
+                    .is_err()
             );
         }
         assert!(
@@ -1337,6 +1601,150 @@ mod configuration_fingerprint_tests {
                 test_fixtures::NativeFinalityFixture::new().genesis()
             )
             .is_err()
+        );
+    }
+
+    fn selected_verifier(
+        fixture: &test_fixtures::NativeFinalityFixture,
+        genesis: &SignedBlock,
+    ) -> SumeragiFinalityVerifier {
+        SumeragiFinalityVerifier::new(
+            genesis,
+            fixture.chain_id(),
+            fixture.genesis_proof().committee.clone(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn initial_signed_values_seed_both_ready_slots_and_exact_fingerprint_bytes() {
+        let fixture = test_fixtures::NativeFinalityFixture::new_with_explicit_parameters();
+        let selected = selected_verifier(&fixture, fixture.genesis());
+        let epoch = authenticated_genesis(fixture.genesis())
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap();
+        assert_eq!(selected.initial_epoch(), &epoch);
+        assert_eq!(epoch.network_id, fixture.network_id());
+        assert_eq!(epoch.authorization.epoch, 0);
+        assert_eq!(epoch.authorization.first_height, 1);
+        assert_eq!(
+            selected.root_scope(),
+            crate::block::consensus::SumeragiRootScope::Global
+        );
+
+        let mut authored = SumeragiParameters::default();
+        authored.block_cadence_ms = std::num::NonZeroU64::new(1100).unwrap();
+        authored.payload_retry_interval_ms =
+            std::num::NonZeroU64::new(authored.payload_retry_interval_ms.get() + 1).unwrap();
+        authored.exec_budget_ms =
+            std::num::NonZeroU64::new(authored.exec_budget_ms.get() + 1).unwrap();
+        authored.apply_budget_ms =
+            std::num::NonZeroU64::new(authored.apply_budget_ms.get() + 1).unwrap();
+        authored.max_block_bytes =
+            std::num::NonZeroU32::new(authored.max_block_bytes.get() - 1).unwrap();
+        authored.epoch_length_blocks =
+            std::num::NonZeroU64::new(authored.epoch_length_blocks.get() + 1).unwrap();
+        let changed = signed_parameters(
+            fixture.genesis(),
+            authored.parameters().collect(),
+            Some(authored.block_cadence_ms),
+        );
+        let changed_owner = selected_verifier(&fixture, &changed);
+        let expected = ChainParamsRecord::from_parameters(&authored);
+        assert_eq!(changed_owner.initial_chain_parameters().unwrap(), expected);
+        let schedule =
+            ConsensusSchedule::from_genesis(changed_owner.initial_epoch().clone(), expected)
+                .unwrap();
+        for height in [2, 3] {
+            let slot = schedule.ready(height).unwrap();
+            assert_eq!(slot.height, height);
+            assert_eq!(slot.epoch, *changed_owner.initial_epoch());
+            assert_eq!(slot.params, expected);
+        }
+
+        // The fingerprint remains exactly the existing native tuple transcript,
+        // including its unchanged domain and canonical encoding. The new owner
+        // exposes fields; it introduces no alternate configuration wire layout.
+        for (genesis, owner, expected) in [
+            (
+                fixture.genesis(),
+                &selected,
+                ChainParamsRecord::from_parameters(&SumeragiParameters::default()),
+            ),
+            (&changed, &changed_owner, expected),
+        ] {
+            let bytes = norito::encode_canonical(&(
+                crate::sumeragi::PROTOCOL_VERSION,
+                authenticated_genesis(genesis)
+                    .map(|genesis| genesis.into_parts().0)
+                    .unwrap(),
+                expected,
+            ))
+            .unwrap();
+            let owned_bytes = norito::encode_canonical(&(
+                crate::sumeragi::PROTOCOL_VERSION,
+                owner.initial_epoch().clone(),
+                owner.initial_chain_parameters().unwrap(),
+            ))
+            .unwrap();
+            assert_eq!(bytes, owned_bytes);
+            assert_eq!(
+                consensus_configuration_fingerprint(genesis).unwrap(),
+                Hash::new_from_chunks(&[b"iroha:native-config:v1", &bytes])
+            );
+        }
+        assert_eq!(
+            selected.initial_chain_parameters().unwrap(),
+            ChainParamsRecord::from_parameters(&SumeragiParameters::default())
+        );
+        assert_ne!(selected.instance(), changed_owner.instance());
+    }
+
+    #[test]
+    fn initial_readers_require_the_original_signature_and_roster_owner() {
+        let fixture = test_fixtures::NativeFinalityFixture::new_with_explicit_parameters();
+        let mut wrong_pop = fixture.genesis_proof().committee.clone();
+        wrong_pop[0].proof_of_possession[0] ^= 1;
+        assert!(
+            SumeragiFinalityVerifier::new(fixture.genesis(), fixture.chain_id(), wrong_pop)
+                .is_err()
+        );
+        let mut tampered = fixture.genesis().clone();
+        let foreign = KeyPair::from_seed(vec![0xA6; 32], Algorithm::Ed25519);
+        tampered
+            .replace_signatures(
+                crate::block::BlockSignatures::try_from_iter([crate::block::BlockSignature::new(
+                    0,
+                    SignatureOf::new(foreign.private_key(), &tampered.header()),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        assert!(
+            SumeragiFinalityVerifier::new(
+                &tampered,
+                fixture.chain_id(),
+                fixture.genesis_proof().committee.clone()
+            )
+            .is_err()
+        );
+        let private = test_fixtures::NativeFinalityFixture::start_with_scope(
+            fixture.chain_id(),
+            crate::block::consensus::SumeragiRootScope::Dataspace {
+                parent_network_id: fixture.network_id(),
+                dataspace_id: iroha_model_base::topology::DataSpaceId::new(9),
+            },
+        );
+        let owner = private.verifier();
+        assert!(matches!(
+            owner.root_scope(),
+            crate::block::consensus::SumeragiRootScope::Dataspace { .. }
+        ));
+        assert_ne!(owner.initial_epoch().network_id, fixture.network_id());
+        assert_ne!(owner.instance(), fixture.verifier().instance());
+        assert!(
+            owner.initial_chain_parameters().is_err(),
+            "private roots also require explicit signed parameters; no defaults"
         );
     }
 
@@ -1350,7 +1758,7 @@ mod configuration_fingerprint_tests {
                 *value = std::num::NonZeroU64::new(value.get() + 1).unwrap();
             }
         }
-        let changed = signed_parameters(fixture.genesis(), parameters);
+        let changed = signed_parameters(fixture.genesis(), parameters, None);
         assert_ne!(
             original,
             consensus_configuration_fingerprint(&changed).unwrap()

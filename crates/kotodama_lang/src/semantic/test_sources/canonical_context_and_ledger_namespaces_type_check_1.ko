@@ -1,11 +1,11 @@
 
-            seiyaku Payments {
+            seiyaku Payments { permission TransferAsset;
                 kotoage fn transfer(
                     AccountId recipient,
                     AssetDefinitionId asset,
                     quantity amount,
                     DataSpaceId dataspace
-                ) authorize("TransferAsset") {
+                ) authorize(TransferAsset) {
                     let sender = context::authority();
                     ledger::asset::transfer(
                         source: sender,

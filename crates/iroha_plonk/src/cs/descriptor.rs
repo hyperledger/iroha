@@ -414,6 +414,10 @@ pub enum DescriptorRule {
     BlindingFactors,
     /// Rule 4: an instance length exceeds the usable rows.
     InstanceLength,
+    /// Rule 4: V2 instance types are missing or invalid.
+    InstanceType,
+    /// Rule 2: the transcript profile requires different instance or suffix modes.
+    TranscriptProfile,
     /// Rule 5: a query names a missing column.
     QueryColumn,
     /// Rule 5: a `(column, rotation)` query repeats.
@@ -446,9 +450,9 @@ impl DescriptorRule {
     pub const fn rule_number(self) -> u8 {
         match self {
             Self::Decode | Self::FrameTooLarge | Self::Bounds => 1,
-            Self::Version | Self::Moduli | Self::ParamsDigest => 2,
+            Self::Version | Self::Moduli | Self::ParamsDigest | Self::TranscriptProfile => 2,
             Self::Degree => 3,
-            Self::BlindingFactors | Self::InstanceLength => 4,
+            Self::BlindingFactors | Self::InstanceLength | Self::InstanceType => 4,
             Self::QueryColumn | Self::DuplicateQuery | Self::RotationCollision => 5,
             Self::Expression | Self::ExpressionDegree | Self::EmptyGate | Self::Lookup => 6,
             Self::Permutation => 7,
@@ -503,6 +507,13 @@ impl fmt::Display for DescriptorError {
 }
 
 impl std::error::Error for DescriptorError {}
+
+impl DescriptorError {
+    /// Whether descriptor construction stopped because its caller cancelled.
+    pub fn is_cancelled(&self) -> bool {
+        matches!(self, Self::ConstraintSystem(error) if matches!(error.as_ref(), CsError::Cancelled))
+    }
+}
 
 impl From<DescriptorRule> for DescriptorError {
     fn from(rule: DescriptorRule) -> Self {
@@ -1413,6 +1424,19 @@ impl CircuitDescriptorV1 {
     ///
     /// Rule 8 when the activations disagree with the selector map.
     pub fn check_selector_plan(&self, activations: &[Vec<bool>]) -> Result<(), DescriptorError> {
+        self.check_selector_plan_cancellable(activations, None)
+    }
+
+    /// Recheck the same selector map with bounded activation-row cancellation.
+    ///
+    /// # Errors
+    /// As [`Self::check_selector_plan`], or typed constraint-system cancellation.
+    pub fn check_selector_plan_cancellable(
+        &self,
+        activations: &[Vec<bool>],
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(), DescriptorError> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(CsError::from)?;
         let entries = &self.selectors.entries;
         let n = self.n()?;
         if activations.len() != entries.len() || activations.iter().any(|rows| rows.len() != n) {
@@ -1431,9 +1455,19 @@ impl CircuitDescriptorV1 {
                 max_degree: usize::from(entry.max_degree),
             })
             .collect();
-        let plan = selector_compression::plan(&descriptions, usize::from(self.degree))
-            .map_err(|_| DescriptorRule::Selectors)?;
+        let plan = selector_compression::plan_cancellable(
+            &descriptions,
+            usize::from(self.degree),
+            cancellation,
+        )
+        .map_err(|error| match error {
+            selector_compression::CompressionError::Cancelled => {
+                DescriptorError::from(CsError::Cancelled)
+            }
+            _ => DescriptorError::from(DescriptorRule::Selectors),
+        })?;
         for (combination, members) in plan.iter().enumerate() {
+            iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(CsError::from)?;
             for (member, selector) in members.iter().enumerate() {
                 let entry = entries.get(*selector).ok_or(DescriptorRule::Selectors)?;
                 if entry.combination as usize != combination

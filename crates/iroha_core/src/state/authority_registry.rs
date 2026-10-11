@@ -167,20 +167,21 @@ impl Field {
 // same entries as the descriptors. There is deliberately no fallback arm.
 macro_rules! classified_owner {
     ($owner:ident, $check:ident, $registry:ident, readers = $readers:ident, {
-        $( $(#[$attribute:meta])* $field:ident : $ty:ty => ($id:literal, $role:expr); )+
+        $( $(#[$attribute:meta])* $field:ident : $ty:ty => ($id:literal, $role:expr), release = $release:ident; )+
     }) => {
         classified_owner!($owner, $check, $registry, {
             $( $(#[$attribute])* $field : $ty => ($id, $role); )+
         });
         /// Exhaustive original reader releases, retained beyond enclosing fences.
+        /// Slot names are physical custody metadata, separate from canonical field identity.
         pub(crate) struct $readers {
-            $( $(#[$attribute])* pub(crate) $field:
+            $( $(#[$attribute])* pub(crate) $release:
                 <$ty as crate::state::view_acquisition::StateFieldReader>::Releases, )+
         }
         impl $readers {
             pub(crate) fn new(owner: &$owner) -> Self {
                 Self {
-                    $( $(#[$attribute])* $field:
+                    $( $(#[$attribute])* $release:
                         crate::state::view_acquisition::StateFieldReader::reader_releases(&owner.$field), )+
                 }
             }
@@ -335,6 +336,8 @@ pub(crate) const STATE_FIELDS: &[Field] = state::STATE_FIELDS;
 /// Classified fields of the concrete heap-owned World data owner.
 pub(crate) const WORLD_FIELDS: &[Field] = world::WORLD_FIELDS;
 
+#[cfg(test)]
+pub(in crate::state) mod inventory_test_support;
 #[cfg(test)]
 mod runtime_codec_tests;
 #[cfg(test)]

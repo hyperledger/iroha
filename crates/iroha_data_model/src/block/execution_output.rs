@@ -483,6 +483,7 @@ impl ExecutionOutputV1 {
                 if error.reason == EXECUTION_OUTPUT_LIMIT_REASON
         ) || !self.result().batch_transfer_outcomes().is_empty()
             || self.result().nexus_fee_receipt().is_some()
+            || !self.result().contract_events().is_empty()
         {
             return false;
         }
@@ -532,6 +533,7 @@ impl ExecutionOutputV1 {
                 if error.reason == INTERNAL_REJECTION_DIAGNOSTIC_OMITTED)
             && self.result().batch_transfer_outcomes().is_empty()
             && self.result().nexus_fee_receipt().is_none()
+            && self.result().contract_events().is_empty()
             && matches!(
                 diagnostic,
                 Some(TriggerFailureRootV1::OmittedAfterRejection)
@@ -647,6 +649,26 @@ impl ExecutionOutputV1 {
             }
         };
         let result = self.result();
+        if result.0.is_err() && !result.contract_events().is_empty() {
+            return Err("rejected execution output cannot publish contract emissions".into());
+        }
+        for event in result.contract_events() {
+            if !event.definition.validate() {
+                return Err("contract emission has an invalid source definition".into());
+            }
+            let schema = norito::encode_canonical(&event.definition.payload_type)
+                .map_err(|error| error.to_string())?;
+            if event.payload.schema_hash
+                != crate::smart_contract::entrypoint::entrypoint_return_schema_hash_v1(&schema)
+                || event
+                    .definition
+                    .payload_type
+                    .word_kinds_for_atoms(&event.payload.atoms)
+                    .is_none()
+            {
+                return Err("contract emission payload does not match its exact schema".into());
+            }
+        }
         if result.0.is_err() && !result.batch_transfer_outcomes().is_empty() {
             return Err("rolled-back output retains batch-transfer receipts".into());
         }

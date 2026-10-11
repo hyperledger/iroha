@@ -1,6 +1,6 @@
 //! Exact catalog linking declared canonical tables to actual State readers.
 //!
-//! The catalog contains 217 table outputs in 216 capture groups. Complete table
+//! The catalog declares each original table output and capture group. Complete
 //! coverage admits declared schema metadata and cannot authorize finality.
 //! Even complete coverage will need one State publication cut, derived-index
 //! checks, durable Kura node custody, predecessor binding and recovery before
@@ -79,19 +79,9 @@ use musubi_native::{
 };
 
 capture_world_table_once!(
-    capture_public_lane_reward_accruals_once,
-    public_lane_reward_accruals,
-    "world.public_lane_reward_accruals"
-);
-capture_world_table_once!(
     capture_public_lane_stake_custody_once,
     public_lane_stake_custody,
     "world.public_lane_stake_custody"
-);
-capture_world_table_once!(
-    capture_validator_candidate_keys_once,
-    validator_candidate_keys,
-    "world.validator_candidate_keys"
 );
 capture_world_table_once!(
     capture_validator_committee_transitions_once,
@@ -275,6 +265,11 @@ capture_world_table_once!(
     capture_axt_asset_incarnations_once,
     axt_asset_incarnations,
     "world.axt_asset_incarnations"
+);
+capture_world_table_once!(
+    capture_asset_definition_direct_homes_once,
+    asset_definition_direct_homes,
+    "world.asset_definition_direct_homes"
 );
 capture_world_table_once!(
     capture_axt_replay_ledger_once,
@@ -463,6 +458,11 @@ capture_world_table_once!(
     capture_privacy_activations_once,
     privacy_activations,
     "world.privacy_activations"
+);
+capture_world_table_once!(
+    capture_kagemusha_wallet_ledger_once,
+    kagemusha_wallet_ledger,
+    "world.kagemusha_wallet_ledger"
 );
 capture_world_table_once!(
     capture_private_settlement_governance_once,
@@ -743,6 +743,11 @@ capture_world_table_once!(
     sccp_light_client_stride_index,
     "world.sccp_light_client_stride_index"
 );
+capture_world_table_once!(
+    capture_sccp_light_client_profiles_once,
+    sccp_light_client_profiles,
+    "world.sccp_light_client_profiles"
+);
 
 const TABLE_MATERIALIZERS: &[TableMaterializer] = &[
     TableMaterializer::Single {
@@ -819,6 +824,7 @@ const TABLE_MATERIALIZERS: &[TableMaterializer] = &[
     capture_space_directory_manifests_once::MATERIALIZER,
     capture_axt_handle_counters_once::MATERIALIZER,
     capture_axt_asset_incarnations_once::MATERIALIZER,
+    capture_asset_definition_direct_homes_once::MATERIALIZER,
     capture_axt_replay_ledger_once::MATERIALIZER,
     capture_axt_spend_nonce_ledger_once::MATERIALIZER,
     capture_axt_source_transfer_replay_ledger_once::MATERIALIZER,
@@ -858,6 +864,7 @@ const TABLE_MATERIALIZERS: &[TableMaterializer] = &[
     capture_poseidon_params_once::MATERIALIZER,
     capture_runtime_upgrades_once::MATERIALIZER,
     capture_privacy_activations_once::MATERIALIZER,
+    capture_kagemusha_wallet_ledger_once::MATERIALIZER,
     capture_private_settlement_governance_once::MATERIALIZER,
     capture_private_settlement_pools_once::MATERIALIZER,
     capture_private_settlement_roots_once::MATERIALIZER,
@@ -957,15 +964,8 @@ const TABLE_MATERIALIZERS: &[TableMaterializer] = &[
         capture: capture_repo_agreements_once,
     },
     native_world::capture_settlement_receipts_once::MATERIALIZER,
-    native_world::capture_kagemusha_mint_credit_operations_once::MATERIALIZER,
-    native_world::capture_kagemusha_issuance_operations_once::MATERIALIZER,
-    native_world::capture_kagemusha_redemption_id_operations_once::MATERIALIZER,
-    native_world::capture_kagemusha_terminal_nullifier_operations_once::MATERIALIZER,
     native_world::capture_public_lane_validators_once::MATERIALIZER,
     native_world::capture_public_lane_stake_shares_once::MATERIALIZER,
-    native_world::capture_public_lane_rewards_once::MATERIALIZER,
-    native_world::capture_public_lane_reward_claims_once::MATERIALIZER,
-    capture_public_lane_reward_accruals_once::MATERIALIZER,
     capture_public_lane_stake_custody_once::MATERIALIZER,
     native_world::capture_zk_assets_once::MATERIALIZER,
     native_world::capture_elections_once::MATERIALIZER,
@@ -984,7 +984,6 @@ const TABLE_MATERIALIZERS: &[TableMaterializer] = &[
     native_world::capture_tle_key_session_lifecycles_once::MATERIALIZER,
     native_world::capture_tle_active_key_session_once::MATERIALIZER,
     native_world::capture_timed_ovn_evidence_once::MATERIALIZER,
-    capture_validator_candidate_keys_once::MATERIALIZER,
     capture_validator_committee_transitions_once::MATERIALIZER,
     native_world::capture_global_beacon_dkg_once::MATERIALIZER,
     native_world::capture_global_beacon_key_sessions_once::MATERIALIZER,
@@ -1015,6 +1014,7 @@ const TABLE_MATERIALIZERS: &[TableMaterializer] = &[
     capture_sccp_light_client_sets_once::MATERIALIZER,
     capture_sccp_light_client_checkpoints_once::MATERIALIZER,
     capture_sccp_light_client_stride_index_once::MATERIALIZER,
+    capture_sccp_light_client_profiles_once::MATERIALIZER,
     TableMaterializer::TransactionMembership,
 ];
 
@@ -1062,6 +1062,7 @@ pub(in crate::state) fn catalog_table_ids() -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::authority_registry::inventory_test_support;
     fn policy(tables: LeafLimits) -> TableCaptureLimits {
         TableCaptureLimits {
             musubi: crate::state::authority_registry::complete::table_capture::musubi_test_limits(),
@@ -1183,7 +1184,7 @@ mod tests {
     #[test]
     fn actual_table_catalog_admits_metadata_then_enforces_original_node_capacity() {
         let count = require_exact_table_materializers(STATE_FIELDS, TABLE_MATERIALIZERS).unwrap();
-        assert_eq!(count, 217);
+        assert_eq!(count, inventory_test_support::canonical_table_ids().len());
         assert_eq!(require_complete_inventory(STATE_FIELDS), Ok(()));
         let state = state();
         let budget = state.ivm_execution_budget();
@@ -1253,6 +1254,7 @@ mod tests {
             "world.space_directory_manifests",
             "world.axt_handle_counters",
             "world.axt_asset_incarnations",
+            "world.asset_definition_direct_homes",
             "world.axt_replay_ledger",
             "world.axt_spend_nonce_ledger",
             "world.axt_source_transfer_replay_ledger",
@@ -1274,6 +1276,7 @@ mod tests {
             "world.poseidon_params",
             "world.runtime_upgrades",
             "world.privacy_activations",
+            "world.kagemusha_wallet_ledger",
             "world.private_settlement_governance",
             "world.private_settlement_pools",
             "world.private_settlement_roots",
@@ -1364,15 +1367,8 @@ mod tests {
             "world.soradns_release_signers",
             "world.repo_agreements",
             "world.settlement_receipts",
-            "world.kagemusha_mint_credit_operations",
-            "world.kagemusha_issuance_operations",
-            "world.kagemusha_redemption_id_operations",
-            "world.kagemusha_terminal_nullifier_operations",
             "world.public_lane_validators",
             "world.public_lane_stake_shares",
-            "world.public_lane_rewards",
-            "world.public_lane_reward_claims",
-            "world.public_lane_reward_accruals",
             "world.public_lane_stake_custody",
             "world.zk_assets",
             "world.elections",
@@ -1388,7 +1384,6 @@ mod tests {
             "world.tle_key_session_lifecycles",
             "world.tle_active_key_session",
             "world.timed_ovn_evidence",
-            "world.validator_candidate_keys",
             "world.validator_committee_transitions",
             "world.global_beacon_dkg",
             "world.global_beacon_key_sessions",
@@ -1419,6 +1414,7 @@ mod tests {
             "world.sccp_light_client_sets",
             "world.sccp_light_client_checkpoints",
             "world.sccp_light_client_stride_index",
+            "world.sccp_light_client_profiles",
             "state.transactions.current",
             "state.transactions.rollback",
         ];
@@ -1431,7 +1427,15 @@ mod tests {
         );
         // Every listed Single has one table; the one indivisible transaction
         // membership owner retains both current and rollback tables together.
-        assert_eq!(expected.len(), 217);
+        let fixture_tables = inventory_test_support::canonical_table_ids();
+        assert_eq!(expected.len(), fixture_tables.len());
+        assert_eq!(
+            expected
+                .iter()
+                .map(|id| (*id).to_owned())
+                .collect::<std::collections::BTreeSet<_>>(),
+            fixture_tables,
+        );
         assert_eq!(
             TABLE_MATERIALIZERS
                 .iter()
@@ -1465,9 +1469,9 @@ mod tests {
         );
         assert_eq!(
             require_exact_table_materializers(STATE_FIELDS, TABLE_MATERIALIZERS),
-            Ok(217)
+            Ok(fixture_tables.len())
         );
-        assert_eq!(TABLE_MATERIALIZERS.len(), 216);
+        assert_eq!(TABLE_MATERIALIZERS.len(), fixture_tables.len() - 1);
         assert_eq!(
             TABLE_MATERIALIZERS
                 .iter()
@@ -1837,6 +1841,9 @@ mod tests {
 
         const MAX_IMAGE_BYTES: usize = 0x0010_0000; // IVM V1's image ceiling after the fixed header.
         let interface = ivm::EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             callables: vec![crate::ivm_test_support::unit_callable(0)],
             seiyaku_name: "TestContract".to_owned(),
             compiler_fingerprint: "iroha-core-state-root-test".to_owned(),
@@ -1853,7 +1860,8 @@ mod tests {
                 return_schema: Some(EntrypointValueTypeV1 {
                     nodes: vec![EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: Some("CanInvoke".to_owned()),
+                authorization:
+                    iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: None,

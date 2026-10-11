@@ -12,7 +12,7 @@ use ivm_abi::{VMError, metadata::ProgramMetadata};
 
 /// Fixed scalar identity derived only by the native admission owner.
 #[derive(Clone, Debug)]
-pub(super) struct AdmittedProgramSeal {
+pub struct AdmittedProgramSeal {
     metadata: ProgramMetadata,
     header_len: usize,
     code_offset: usize,
@@ -106,7 +106,9 @@ mod tests {
 
     fn actual() -> (Vec<u8>, VerifiedContractArtifact) {
         let bytes = kotodama_lang::compiler::Compiler::new()
-            .compile_source("seiyaku AdmittedRange { view fn value() -> int { return 7; } }")
+            .compile_source(
+                "seiyaku AdmittedRange { view fn value() authorize(anyone) -> int { return 7; } }",
+            )
             .unwrap();
         let verified = crate::verify_contract_artifact(&bytes).unwrap();
         (bytes, verified)

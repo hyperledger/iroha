@@ -20,7 +20,7 @@ pub(super) struct KeyedRead {
     budget: AllocationBudget,
     crypto: SharedCrypto,
     schedule: Arc<dyn AvailabilitySchedule>,
-    verifier: Arc<dyn AttestationVerifier + Send + Sync>,
+
     phase: Phase,
 }
 
@@ -32,7 +32,6 @@ impl KeyedRead {
         budget: AllocationBudget,
         crypto: SharedCrypto,
         schedule: Arc<dyn AvailabilitySchedule>,
-        verifier: Arc<dyn AttestationVerifier + Send + Sync>,
     ) -> Self {
         let phase = block.map_or(Phase::Absent, |block| {
             Phase::Certificate(CertificateRead::new(block, budget.clone()))
@@ -42,7 +41,6 @@ impl KeyedRead {
             budget,
             crypto,
             schedule,
-            verifier,
             phase,
         }
     }
@@ -87,7 +85,6 @@ impl BodyReadJob for KeyedRead {
                     let actual = match committed_read::certified_source(
                         &*self.schedule,
                         &*self.crypto,
-                        &*self.verifier,
                         self.source.height(),
                         &decoded.header,
                         &decoded.commit_qc,

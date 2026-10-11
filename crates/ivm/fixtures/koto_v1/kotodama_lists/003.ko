@@ -1,6 +1,6 @@
 
             seiyaku ListGetGas {
-                view fn main(int index) -> int {
+                view fn main(int index) authorize(anyone) -> int {
                     let List<int, 8> values = [10, 20, 30, 40];
                     return values.get(index).unwrap_or(99);
                 }

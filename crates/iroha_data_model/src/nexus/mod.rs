@@ -26,6 +26,7 @@ use std::{
     str::FromStr,
 };
 use thiserror::Error;
+mod amx_context;
 mod axt;
 mod committee;
 mod committee_status;
@@ -38,6 +39,7 @@ mod privacy;
 mod private_settlement;
 mod relay;
 mod runtime_catalog;
+pub use amx_context::*;
 pub use axt::*;
 pub use committee::*;
 pub use committee_status::*;
@@ -1645,10 +1647,14 @@ pub struct LaneCatalog {
 impl LaneCatalog {
     /// Build a catalog ensuring identifiers and aliases are unique and in range.
     ///
+    /// Every lane of one dataspace shares one [`LaneVisibility`], and the universal dataspace is
+    /// always public, so a dataspace has a single read and disclosure class.
+    ///
     /// # Errors
     /// Returns a [`LaneCatalogError`] when lane metadata uses the retired shard key, carries an
     /// invalid functional policy, violates alias or identifier uniqueness, exceeds the configured
-    /// lane count, or exceeds the consensus-wide active-lane bound.
+    /// lane count, exceeds the consensus-wide active-lane bound, mixes visibilities within one
+    /// dataspace, or restricts a universal lane.
     pub fn new(
         lane_count: NonZeroU32,
         mut lanes: Vec<LaneConfig>,
@@ -1664,9 +1670,24 @@ impl LaneCatalog {
         }
         let mut seen_ids = BTreeSet::new();
         let mut seen_aliases = BTreeSet::new();
+        let mut dataspace_visibility = BTreeMap::new();
         for lane in &lanes {
             if lane.alias.trim().is_empty() {
                 return Err(LaneCatalogError::EmptyAlias(lane.id));
+            }
+            if lane.dataspace_id == DataSpaceId::UNIVERSAL
+                && lane.visibility != LaneVisibility::Public
+            {
+                return Err(LaneCatalogError::RestrictedUniversalLane(lane.id));
+            }
+            if *dataspace_visibility
+                .entry(lane.dataspace_id)
+                .or_insert(lane.visibility)
+                != lane.visibility
+            {
+                return Err(LaneCatalogError::MixedDataspaceVisibility {
+                    dataspace: lane.dataspace_id,
+                });
             }
             lane.validate_policy_surface()?;
             if lane.id.as_u32() >= lane_count.get() {
@@ -1716,6 +1737,15 @@ impl LaneCatalog {
     #[must_use]
     pub fn by_alias(&self, alias: &str) -> Option<&LaneConfig> {
         self.lanes.iter().find(|lane| lane.alias == alias)
+    }
+    /// The single visibility shared by every lane of `dataspace`, or `None` when the catalog
+    /// has no lane for it.
+    #[must_use]
+    pub fn dataspace_visibility(&self, dataspace: DataSpaceId) -> Option<LaneVisibility> {
+        self.lanes
+            .iter()
+            .find(|lane| lane.dataspace_id == dataspace)
+            .map(|lane| lane.visibility)
     }
     /// Apply a lifecycle plan, producing a new catalog with the requested additions and retirements.
     ///
@@ -1833,6 +1863,15 @@ pub enum LaneCatalogError {
         /// Total number of configured lanes.
         lane_count: u32,
     },
+    /// Lanes of one dataspace declared different visibilities.
+    #[error("dataspace {} mixes public and restricted lanes", dataspace.as_u64())]
+    MixedDataspaceVisibility {
+        /// Dataspace whose lanes disagree about their visibility.
+        dataspace: DataSpaceId,
+    },
+    /// A lane of the universal dataspace was declared restricted.
+    #[error("universal lane {0} must be public")]
+    RestrictedUniversalLane(LaneId),
 }
 /// Metadata describing a configured physical data space.
 #[derive(
@@ -3163,6 +3202,114 @@ mod tests {
         let err = norito::json::from_str::<LaneLifecycleParameterV1>(&encoded)
             .expect_err("nested duplicate lane fields must fail closed");
         assert!(err.to_string().contains("duplicate field `alias`"));
+    }
+    fn visibility_lane(
+        id: u32,
+        alias: &str,
+        dataspace: DataSpaceId,
+        visibility: LaneVisibility,
+    ) -> LaneConfig {
+        LaneConfig {
+            id: LaneId::new(id),
+            alias: alias.to_owned(),
+            dataspace_id: dataspace,
+            visibility,
+            ..LaneConfig::default()
+        }
+    }
+    /// The fresh Taira layout: three public universal lanes, restricted dpn (3), is2 (4),
+    /// cbsi (6) and is (7), and public bpng (5), one dataspace per participant lane.
+    fn taira_reset_catalog_lanes() -> Vec<LaneConfig> {
+        let dataspace = |seed: u64| DataSpaceId::new(0x7a1a_0000_0000_0000 | seed);
+        let mut lanes = vec![
+            visibility_lane(0, "core", DataSpaceId::UNIVERSAL, LaneVisibility::Public),
+            visibility_lane(
+                1,
+                "governance",
+                DataSpaceId::UNIVERSAL,
+                LaneVisibility::Public,
+            ),
+            visibility_lane(2, "zk", DataSpaceId::UNIVERSAL, LaneVisibility::Public),
+        ];
+        for (id, alias, visibility) in [
+            (3, "dpn", LaneVisibility::Restricted),
+            (4, "is2", LaneVisibility::Restricted),
+            (5, "bpng", LaneVisibility::Public),
+            (6, "cbsi", LaneVisibility::Restricted),
+            (7, "is", LaneVisibility::Restricted),
+        ] {
+            lanes.push(visibility_lane(
+                id,
+                alias,
+                dataspace(u64::from(id)),
+                visibility,
+            ));
+        }
+        lanes
+    }
+    #[test]
+    fn lane_catalog_keeps_one_visibility_per_dataspace_and_public_universal_lanes() {
+        let lane_count = NonZeroU32::new(8).expect("nonzero");
+        let catalog =
+            LaneCatalog::new(lane_count, taira_reset_catalog_lanes()).expect("Taira reset layout");
+        assert_eq!(
+            catalog.dataspace_visibility(DataSpaceId::UNIVERSAL),
+            Some(LaneVisibility::Public)
+        );
+        for lane in catalog.lanes() {
+            assert_eq!(
+                catalog.dataspace_visibility(lane.dataspace_id),
+                Some(lane.visibility)
+            );
+        }
+        assert_eq!(catalog.dataspace_visibility(DataSpaceId::new(99)), None);
+
+        let mut mixed = taira_reset_catalog_lanes();
+        let cbsi = mixed[6].dataspace_id;
+        mixed.push(visibility_lane(
+            8,
+            "cbsi-public",
+            cbsi,
+            LaneVisibility::Public,
+        ));
+        assert_eq!(
+            LaneCatalog::new(NonZeroU32::new(9).unwrap(), mixed),
+            Err(LaneCatalogError::MixedDataspaceVisibility { dataspace: cbsi })
+        );
+
+        let mut restricted_universal = taira_reset_catalog_lanes();
+        restricted_universal[2].visibility = LaneVisibility::Restricted;
+        assert_eq!(
+            LaneCatalog::new(lane_count, restricted_universal),
+            Err(LaneCatalogError::RestrictedUniversalLane(LaneId::new(2)))
+        );
+
+        // A lifecycle addition cannot introduce a second visibility for an existing dataspace.
+        let addition = LaneLifecyclePlan {
+            additions: vec![visibility_lane(
+                8,
+                "bpng-restricted",
+                catalog.lanes()[5].dataspace_id,
+                LaneVisibility::Restricted,
+            )],
+            retire: Vec::new(),
+        };
+        assert!(matches!(
+            catalog.apply_lifecycle(&addition),
+            Err(LaneCatalogError::MixedDataspaceVisibility { .. })
+        ));
+        let same_class = LaneLifecyclePlan {
+            additions: vec![visibility_lane(
+                8,
+                "bpng-second",
+                catalog.lanes()[5].dataspace_id,
+                LaneVisibility::Public,
+            )],
+            retire: Vec::new(),
+        };
+        catalog
+            .apply_lifecycle(&same_class)
+            .expect("a same-class addition keeps the dataspace class");
     }
     #[test]
     fn lane_lifecycle_rejects_unknown_retire_or_empty() {

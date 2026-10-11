@@ -15,10 +15,10 @@
 
 use super::{
     deployment::SccpDeploymentV1,
-    keys::SccpFaultRefV1,
     light_client::{
-        SCCP_LC_BOOTSTRAP_MAX_BYTES_V1, SccpLcBootstrapV1, SccpLcCheckpointDataV1,
-        SccpLcInitExpectationV1, SccpLightClientParamsError, SccpLightClientParamsV1,
+        SCCP_LC_BOOTSTRAP_MAX_BYTES_V1, SCCP_LC_GENESIS_PROFILE_VERSION_V1, SccpLcBootstrapV1,
+        SccpLcCheckpointDataV1, SccpLcInitExpectationV1, SccpLightClientParamsError,
+        SccpLightClientParamsV1,
     },
     params::{SccpParametersError, SccpParametersV1},
 };
@@ -26,7 +26,6 @@ use crate::{
     DeriveJsonDeserialize, DeriveJsonSerialize, NetworkId, account::AccountId,
     bridge::SccpNetworkV1,
 };
-use iroha_model_base::peer::PeerId;
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 
@@ -43,13 +42,13 @@ pub const SCCP_TON_MAX_WRAPPED_SUPPLY_EXCLUSIVE_V1: u128 = 1 << 96;
 ///
 /// Ordering is by variant in declaration order, then by the variant's value, which fixes the
 /// canonical order of `S(P)` and of `base_revisions`.
-#[expect(
-    variant_size_differences,
-    reason = "subjects are short-lived map keys; boxing the peer id would only add an allocation"
-)]
+///
+/// Codec index 4 belonged to the bridge-key fault subject of the attestation transport and stays
+/// unassigned.
 #[derive(
     Debug,
     Clone,
+    Copy,
     PartialEq,
     Eq,
     PartialOrd,
@@ -76,7 +75,7 @@ pub enum SccpGovernanceSubjectV1 {
     #[codec(index = 1)]
     #[norito(rename = "route_control")]
     RouteControl(SccpNetworkV1),
-    /// Light client of one external network.
+    /// Light client of one external network, including its active compiled profile version.
     #[codec(index = 2)]
     #[norito(rename = "light_client")]
     LightClient(SccpNetworkV1),
@@ -84,13 +83,12 @@ pub enum SccpGovernanceSubjectV1 {
     #[codec(index = 3)]
     #[norito(rename = "parameters")]
     Parameters,
-    /// Fault bar of one validator's bridge keys.
-    #[codec(index = 4)]
-    #[norito(rename = "bridge_key_fault")]
-    BridgeKeyFault(PeerId),
 }
 
 /// `RegisterRoute`: stage a new revision bound to one destination deployment.
+///
+/// TODO: WP-S4: add `initial_committee: SccpCommitteePinV1` (§4.14.3 P1 to P5). Until the action
+/// carries the pin, Core refuses its enactment, so no route can be registered.
 #[derive(
     Debug,
     Clone,
@@ -121,8 +119,6 @@ pub struct SccpRegisterRouteActionV1 {
     /// Supply cap in Taira units (equal to token units); equals the contract cap.
     #[norito(json = "crate::json_helpers::u128_string")]
     pub max_wrapped_supply: u128,
-    /// Roster generation the deployment was constructed with; its digest is pinned.
-    pub initial_roster_generation: u64,
 }
 
 /// Action naming one revision of one route (`ActivateRevision`, `DeactivateOutbound`,
@@ -360,6 +356,40 @@ pub struct SccpFreezeLightClientActionV1 {
     pub network: SccpNetworkV1,
 }
 
+/// `ActivateLightClientProfile`: make a compiled light-client profile version the network's
+/// active version from the block after enactment (§4.13.2).
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+)]
+#[norito(no_fast_from_json)]
+#[norito(decode_from_slice)]
+#[norito(deny_unknown_fields)]
+#[derive(norito::NoritoSchema)]
+#[norito_schema(
+    name = "iroha_data_model::sccp::governance::SccpActivateLightClientProfileActionV1"
+)]
+pub struct SccpActivateLightClientProfileActionV1 {
+    /// External source chain.
+    pub network: SccpNetworkV1,
+    /// Compiled profile version; at least 2 and above the network's newest recorded version.
+    pub version: u32,
+    /// Keccak-256 of the version's canonical profile bytes; the enacting release must compile
+    /// the version with exactly this hash.
+    pub profile_hash: [u8; 32],
+}
+
 /// `SetParameters`: replace the complete SCCP parameter value.
 #[derive(
     Debug,
@@ -386,35 +416,11 @@ pub struct SccpSetParametersActionV1 {
     pub next: SccpParametersV1,
 }
 
-/// `ClearBridgeKeyFault`: clear a peer's bar while it still names exactly `fault`.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    IntoSchema,
-    DeriveJsonSerialize,
-    DeriveJsonDeserialize,
-)]
-#[norito(no_fast_from_json)]
-#[norito(decode_from_slice)]
-#[norito(deny_unknown_fields)]
-#[derive(norito::NoritoSchema)]
-#[norito_schema(name = "iroha_data_model::sccp::governance::SccpClearBridgeKeyFaultActionV1")]
-pub struct SccpClearBridgeKeyFaultActionV1 {
-    /// Validator whose bridge keys are barred.
-    pub peer: PeerId,
-    /// Fault the proposer saw in `barred`.
-    pub fault: SccpFaultRefV1,
-}
-
 /// One Parliament-enacted SCCP action (§4.14.3). Each has exactly one subject
 /// ([`SccpGovernanceActionV1::subject`]).
+///
+/// Codec index 13 belonged to the bridge-key fault clearing of the attestation transport and
+/// stays unassigned.
 #[derive(
     Debug,
     Clone,
@@ -488,16 +494,17 @@ pub enum SccpGovernanceActionV1 {
     #[codec(index = 12)]
     #[norito(rename = "set_parameters")]
     SetParameters(SccpSetParametersActionV1),
-    /// Clear a peer's bridge-key fault bar (subject `BridgeKeyFault`).
-    #[codec(index = 13)]
-    #[norito(rename = "clear_bridge_key_fault")]
-    ClearBridgeKeyFault(SccpClearBridgeKeyFaultActionV1),
+    /// Activate a compiled light-client profile version (subject `LightClient`).
+    #[codec(index = 14)]
+    #[norito(rename = "activate_light_client_profile")]
+    ActivateLightClientProfile(SccpActivateLightClientProfileActionV1),
 }
 
 /// One entry of `base_revisions`: a subject and the `rev(s)` the proposer saw.
 #[derive(
     Debug,
     Clone,
+    Copy,
     PartialEq,
     Eq,
     PartialOrd,
@@ -663,6 +670,30 @@ pub enum SccpGovernanceStaticError {
         /// Bootstrap length in bytes.
         len: usize,
     },
+    /// `ActivateLightClientProfile` names version 0 or 1; version 1 is active from genesis.
+    #[error(
+        "action {action} activates light-client profile version {version}; version 1 is active \
+         from genesis, so activations start at version 2"
+    )]
+    GenesisLightClientProfileVersion {
+        /// Index of the offending action.
+        action: usize,
+        /// Named version.
+        version: u32,
+    },
+    /// `ActivateLightClientProfile` names a zero profile hash.
+    #[error("action {action} activates a light-client profile with a zero profile hash")]
+    ZeroLightClientProfileHash {
+        /// Index of the offending action.
+        action: usize,
+    },
+    /// `InstallTrustedCheckpoint` names TON, whose light client reads no checkpoints (old
+    /// masterchain blocks are reached through `OldMcBlocksInfo`).
+    #[error("action {action} installs a TON checkpoint; the TON light client reads none")]
+    TonTrustedCheckpoint {
+        /// Index of the offending action.
+        action: usize,
+    },
     /// `SetParameters` carries parameters that break a §4.1 rule.
     #[error("action {action} parameters are invalid: {error}")]
     InvalidParameters {
@@ -705,27 +736,23 @@ impl SccpGovernanceActionV1 {
                 network,
                 ..
             })
-            | Self::FreezeLightClient(SccpFreezeLightClientActionV1 { network }) => {
-                SccpGovernanceSubjectV1::LightClient(*network)
-            }
+            | Self::FreezeLightClient(SccpFreezeLightClientActionV1 { network })
+            | Self::ActivateLightClientProfile(SccpActivateLightClientProfileActionV1 {
+                network,
+                ..
+            }) => SccpGovernanceSubjectV1::LightClient(*network),
             Self::SetParameters(_) => SccpGovernanceSubjectV1::Parameters,
-            Self::ClearBridgeKeyFault(action) => {
-                SccpGovernanceSubjectV1::BridgeKeyFault(action.peer.clone())
-            }
         }
     }
 
-    /// Return the network the action names, if any (`SetParameters` and `ClearBridgeKeyFault`
-    /// name none).
+    /// Return the network the action names, if any (`SetParameters` names none).
     #[must_use]
     pub fn network(&self) -> Option<SccpNetworkV1> {
         match self.subject() {
             SccpGovernanceSubjectV1::Route(network)
             | SccpGovernanceSubjectV1::RouteControl(network)
             | SccpGovernanceSubjectV1::LightClient(network) => Some(network),
-            SccpGovernanceSubjectV1::Parameters | SccpGovernanceSubjectV1::BridgeKeyFault(_) => {
-                None
-            }
+            SccpGovernanceSubjectV1::Parameters => None,
         }
     }
 
@@ -734,16 +761,13 @@ impl SccpGovernanceActionV1 {
     pub fn first_json_u64_violation(&self) -> Option<&'static str> {
         let maximum = SCCP_JSON_SAFE_U64_MAX_V1;
         match self {
-            Self::RegisterRoute(action) => (action.initial_roster_generation > maximum).then_some(
-                "SCCP proposal initial_roster_generation exceeds the exact JSON integer maximum",
-            ),
             Self::InitializeLightClient(action) => action.params.first_json_u64_violation(maximum),
             Self::InstallTrustedCheckpoint(action) => {
                 action.checkpoint.first_json_u64_violation(maximum)
             }
             Self::SetParameters(action) => action.next.first_json_u64_violation(maximum),
-            Self::ClearBridgeKeyFault(action) => action.fault.first_json_u64_violation(maximum),
-            Self::ActivateRevision(_)
+            Self::RegisterRoute(_)
+            | Self::ActivateRevision(_)
             | Self::SwitchRevision(_)
             | Self::DeactivateOutbound(_)
             | Self::RetireRevision(_)
@@ -751,7 +775,8 @@ impl SccpGovernanceActionV1 {
             | Self::ReleaseStranded(_)
             | Self::SetTairaPaused(_)
             | Self::SetDestinationPaused(_)
-            | Self::FreezeLightClient(_) => None,
+            | Self::FreezeLightClient(_)
+            | Self::ActivateLightClientProfile(_) => None,
         }
     }
 
@@ -830,14 +855,33 @@ impl SccpGovernanceActionV1 {
                 }
                 Ok(())
             }
+            // The Propose step reads no state: the staking floor and the Parliament attempt
+            // latency are checked at enactment (`SccpParametersV1::validate_against`).
             Self::SetParameters(set) => set
                 .next
                 .validate()
                 .map_err(|error| SccpGovernanceStaticError::InvalidParameters { action, error }),
-            Self::SetTairaPaused(_)
-            | Self::InstallTrustedCheckpoint(_)
-            | Self::FreezeLightClient(_)
-            | Self::ClearBridgeKeyFault(_) => Ok(()),
+            Self::ActivateLightClientProfile(activate) => {
+                if activate.version <= SCCP_LC_GENESIS_PROFILE_VERSION_V1 {
+                    return Err(
+                        SccpGovernanceStaticError::GenesisLightClientProfileVersion {
+                            action,
+                            version: activate.version,
+                        },
+                    );
+                }
+                if activate.profile_hash == [0; 32] {
+                    return Err(SccpGovernanceStaticError::ZeroLightClientProfileHash { action });
+                }
+                Ok(())
+            }
+            Self::InstallTrustedCheckpoint(install) => {
+                if install.network == SccpNetworkV1::TonMainnet {
+                    return Err(SccpGovernanceStaticError::TonTrustedCheckpoint { action });
+                }
+                Ok(())
+            }
+            Self::SetTairaPaused(_) | Self::FreezeLightClient(_) => Ok(()),
         }
     }
 }
@@ -861,7 +905,8 @@ impl SccpGovernanceProposalV1 {
     /// `network_id` equals `live`; there are 1..=16 actions; every action names an external
     /// network, nonzero revisions, a positive amount and cap (TON cap below `2^96`), a
     /// deployment that fits its network, a memo of at most 256 bytes, valid light-client params
-    /// and a bounded bootstrap of the same network, and valid parameters; no two
+    /// and a bounded bootstrap of the same network, no trusted checkpoint for TON, a light-client
+    /// profile version of at least 2 with a nonzero profile hash, and valid parameters; no two
     /// `RegisterRoute` actions share a destination word; `base_revisions` lists exactly `S(P)`
     /// in ascending order; and every `u64` is at most `2^53 − 1`.
     ///
@@ -910,9 +955,8 @@ impl SccpGovernanceProposalV1 {
 
     /// Return a message for the first `u64` anywhere in the payload above `2^53 − 1`.
     ///
-    /// Covers base revisions, roster generations, parameters, light-client params, checkpoint
-    /// fields and fault heights. This is the SCCP arm of
-    /// `first_release_exact_json_u64_invariant_error`.
+    /// Covers base revisions, parameters, light-client params and checkpoint fields. This is the
+    /// SCCP arm of `first_release_exact_json_u64_invariant_error`.
     #[must_use]
     pub fn first_json_u64_violation(&self) -> Option<&'static str> {
         if self

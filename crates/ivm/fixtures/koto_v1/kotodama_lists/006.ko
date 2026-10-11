@@ -1,6 +1,6 @@
 
         seiyaku ListEnumerate {
-            view fn main() -> int {
+            view fn main() authorize(anyone) -> int {
                 let List<int, 4> values = [7, 8];
                 let indexed = values.enumerate();
                 let pair = indexed.get(1).unwrap_or((0, 0));

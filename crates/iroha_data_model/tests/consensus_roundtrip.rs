@@ -11,17 +11,12 @@ use iroha_data_model::{
         },
         consensus::{SumeragiGenesisContextParameters, ValidatorPower},
     },
-    isi::kagemusha_v1::{
-        KAGEMUSHA_CHAIN_VERSION_V1, KagemushaMintFinalityAuthorityGenerationTemplateV1,
-        KagemushaMintFinalityAuthorityGenerationV1, KagemushaMintFinalityGenesisParametersV1,
-        KagemushaMintFinalityValidatorKeysV1,
-    },
     sumeragi::{
         BeaconHorizonStatusV1, PROTOCOL_VERSION, SumeragiFootprint, SumeragiHaltReason,
         SumeragiStatus,
         epoch::{
             BeaconEpochBindingV1, InstalledBeaconEpochBindingV1, ValidatorEpochAuthorizationV1,
-            ValidatorEpochDecisionV1,
+            ValidatorEpochDecisionV1, ValidatorGenerationV1,
         },
     },
 };
@@ -40,46 +35,42 @@ fn sample_block_hash(seed: u8) -> HashOf<BlockHeader> {
     HashOf::from_untyped_unchecked(sample_hash(seed))
 }
 
-fn mint_finality_authority(
+fn validator_generation(
     network_id: NetworkId,
     generation: u64,
     roster: &[ValidatorPower],
-) -> KagemushaMintFinalityAuthorityGenerationV1 {
-    KagemushaMintFinalityAuthorityGenerationV1 {
-        version: KAGEMUSHA_CHAIN_VERSION_V1,
+) -> ValidatorGenerationV1 {
+    ValidatorGenerationV1 {
         network_id,
         generation,
         validators: roster
             .iter()
-            .enumerate()
-            .map(|(index, validator)| KagemushaMintFinalityValidatorKeysV1 {
-                validator: validator.validator.clone(),
-                eq_proof_public_key: [u8::try_from(index + 1).expect("small fixture roster"); 32],
-                ep_proof_public_key: [u8::try_from(index + 17).expect("small fixture roster"); 32],
-            })
+            .map(|validator| validator.validator.clone())
             .collect(),
     }
 }
 
-fn mint_finality_genesis_authorization(
-    authority: &KagemushaMintFinalityAuthorityGenerationV1,
+fn genesis_authorization(
+    generation: &ValidatorGenerationV1,
     last_height: u64,
 ) -> ValidatorEpochAuthorizationV1 {
     let authorization = ValidatorEpochAuthorizationV1 {
-        version: KAGEMUSHA_CHAIN_VERSION_V1,
-        network_id: authority.network_id,
+        version: 1,
+        network_id: generation.network_id,
         epoch: 0,
         first_height: 1,
         last_height,
-        authority_generation: authority.generation,
-        authority_id: authority.authority_id().expect("valid fixture authority"),
+        authority_generation: generation.generation,
+        authority_id: generation
+            .generation_id()
+            .expect("valid fixture generation"),
         beacon: BeaconEpochBindingV1::Bootstrap,
         previous_authorization_id: [0; 32],
         transition_id: [0; 32],
         decision: ValidatorEpochDecisionV1::Genesis,
     };
     authorization
-        .validate_against_authority(authority)
+        .validate_against_generation(generation)
         .expect("valid fixture genesis authorization");
     authorization
 }
@@ -252,10 +243,8 @@ fn rng_evidence(rng: &mut DeterministicRng) -> Evidence {
             view,
             block_hash: Hash32([subject; 32]),
             result,
-            attest: false,
             signer: 0,
             sig: NativeSignature([0; SIGNATURE_LEN]),
-            attestation: None,
         };
         vote.sig = NativeSignature(
             iroha_crypto::Signature::new(key.private_key(), &vote.preimage())
@@ -289,7 +278,7 @@ fn fixture_attribution(evidence: &Evidence) -> EvidenceAttribution {
     }
 }
 #[test]
-fn authority_generations_and_epoch_authorizations_roundtrip() {
+fn validator_generations_and_epoch_authorizations_roundtrip() {
     let mut rng = DeterministicRng::new(0xE1D3_0031);
     let rng = &mut rng;
     let mut roster = [0xA1, 0xA2, 0xA3, 0xA4]
@@ -303,30 +292,27 @@ fn authority_generations_and_epoch_authorizations_roundtrip() {
     for authorization_case in 0..3 {
         let height = rng.next_u64().max(2);
         let network_id = NetworkId::from_genesis_hash(rng_block_hash(rng));
-        let incumbent = mint_finality_authority(network_id, 0, &roster);
-        let (mint_finality_authorization, mint_finality_authority) = if authorization_case == 0 {
-            (
-                mint_finality_genesis_authorization(&incumbent, height),
-                incumbent,
-            )
+        let incumbent = validator_generation(network_id, 0, &roster);
+        let (authorization, generation) = if authorization_case == 0 {
+            (genesis_authorization(&incumbent, height), incumbent)
         } else {
-            let previous = mint_finality_genesis_authorization(&incumbent, 1);
+            let previous = genesis_authorization(&incumbent, 1);
             let retained = authorization_case == 1;
-            let authority = if retained {
+            let generation = if retained {
                 incumbent
             } else {
-                mint_finality_authority(network_id, 1, &roster)
+                validator_generation(network_id, 1, &roster)
             };
             let authorization = ValidatorEpochAuthorizationV1 {
-                version: KAGEMUSHA_CHAIN_VERSION_V1,
+                version: 1,
                 network_id,
                 epoch: 1,
                 first_height: 2,
                 last_height: height,
-                authority_generation: authority.generation,
-                authority_id: authority
-                    .authority_id()
-                    .expect("valid fixture successor authority"),
+                authority_generation: generation.generation,
+                authority_id: generation
+                    .generation_id()
+                    .expect("valid fixture successor generation"),
                 beacon: BeaconEpochBindingV1::Installed(InstalledBeaconEpochBindingV1 {
                     session_id: [0xB1; 32],
                     transcript_hash: [0xB2; 32],
@@ -342,16 +328,16 @@ fn authority_generations_and_epoch_authorizations_roundtrip() {
                 },
             };
             authorization
-                .validate_against_authority(&authority)
-                .expect("valid successor authority binding");
+                .validate_against_generation(&generation)
+                .expect("valid successor generation binding");
             authorization
                 .validate_successor(&previous)
                 .expect("contiguous fixture authorization");
-            (authorization, authority)
+            (authorization, generation)
         };
 
-        assert_roundtrip(&mint_finality_authority);
-        assert_roundtrip(&mint_finality_authorization);
+        generation.validate().expect("valid fixture generation");
+        assert_roundtrip(&authorization);
     }
 }
 fn rng_evidence_record(rng: &mut DeterministicRng, evidence: Evidence) -> EvidenceRecord {
@@ -440,42 +426,6 @@ fn consensus_genesis_norito_roundtrip() {
     assert_roundtrip(&npos);
     assert_roundtrip(&with_npos);
     assert_roundtrip(&without_npos);
-}
-#[test]
-fn kagemusha_mint_finality_genesis_parameters_norito_roundtrip() {
-    let network_id = NetworkId::from_genesis_hash(sample_block_hash(0xD0));
-    let mut roster = [0xD1, 0xD2, 0xD3, 0xD4]
-        .into_iter()
-        .map(|seed| ValidatorPower {
-            validator: checked_bls_peer_id_from_seed(seed),
-            power: 1,
-        })
-        .collect::<Vec<_>>();
-    roster.sort();
-    let authority = mint_finality_authority(network_id, 0, &roster);
-    let parameters = KagemushaMintFinalityGenesisParametersV1 {
-        authority_generation: KagemushaMintFinalityAuthorityGenerationTemplateV1 {
-            version: authority.version,
-            generation: authority.generation,
-            validators: authority.validators,
-        },
-    };
-    parameters.validate().expect("valid genesis authority");
-    assert_roundtrip(&parameters);
-    let mut non_genesis = parameters.clone();
-    non_genesis.authority_generation.generation = 1;
-    assert!(
-        non_genesis.validate().is_err(),
-        "genesis cannot install a relabeled successor generation"
-    );
-    assert_eq!(
-        parameters
-            .authority_generation
-            .bind_network_id(network_id)
-            .expect("bind final network identity")
-            .network_id,
-        network_id
-    );
 }
 #[test]
 fn consensus_persistence_norito_roundtrip() {

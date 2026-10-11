@@ -385,3 +385,226 @@ fn source_bound_current_admission_preserves_signed_genesis_material_expiry_and_c
         "missing original genesis frame is not replaced by retained admission bytes"
     );
 }
+
+/// Keep a real signed genesis transaction and its original empty-State context without executing
+/// it, so each direct-source rejection can be inspected independently before any journal effect.
+fn direct_initializer_context(instructions: Vec<InstructionBox>) -> (State, SignedTransaction) {
+    let owner = AccountId::new(key(1).public_key().clone());
+    let mut builder = TransactionBuilder::new_genesis(
+        owner.clone(),
+        FeePaymentIntent::authority(Vec::new(), None),
+    );
+    builder.set_creation_time(Duration::from_millis(NOW * 1000));
+    let transaction = builder
+        .with_instructions(instructions)
+        .try_sign(key(1).private_key())
+        .unwrap();
+    let mut genesis = BlockBuilder::new(BlockHeader::new(
+        1.try_into().unwrap(),
+        None,
+        None,
+        NOW * 1000,
+        0,
+    ));
+    genesis.push_transaction(transaction.clone());
+    let genesis = genesis
+        .try_build_with_signature(0, key(0xfe).private_key())
+        .unwrap();
+    let mut world = World::new();
+    let (id, account) = iroha_data_model::account::Account::new(owner.clone())
+        .build(&owner)
+        .into_key_value();
+    world.accounts.insert(id, account);
+    let state = State::new_with_chain_and_network_id_for_testing(
+        world,
+        Kura::blank_kura_for_testing(),
+        LiveQueryStore::start_test(),
+        "genesis-admission-test".parse().unwrap(),
+        NetworkId::from_genesis_hash(genesis.hash()),
+    );
+    (state, transaction)
+}
+
+#[test]
+fn direct_initializer_hashes_only_its_exact_instruction_in_an_unrelated_genesis_batch() {
+    use crate::executor::{Executor, sorafs_admission_hash_probe};
+    let fixture = Fixture::new();
+    let mut instructions: Vec<InstructionBox> = (0..16)
+        .map(|index| {
+            iroha_data_model::isi::Log::new(
+                iroha_logger::Level::INFO,
+                format!("unrelated genesis instruction {index}"),
+            )
+            .into()
+        })
+        .collect();
+    instructions.push(initializer(&fixture).into());
+    let (state, source) = direct_initializer_context(instructions.clone());
+    let mut block = state.block(BlockHeader::new(
+        1.try_into().unwrap(),
+        None,
+        None,
+        NOW * 1000,
+        0,
+    ));
+    let mut tx = block.transaction();
+    tx.current_network_entrypoint_hash = Some(source.hash_as_entrypoint());
+    tx.current_tx_hash = Some(source.hash());
+    tx.tx_call_hash = Some(iroha_crypto::Hash::from(source.hash_as_entrypoint()));
+    tx.current_entrypoint_index = Some(0);
+    let (recognized, hashes) = sorafs_admission_hash_probe::count(|| {
+        instructions
+            .iter()
+            .enumerate()
+            .map(|(index, instruction)| {
+                Executor::direct_sorafs_admission_initialization(
+                    &tx,
+                    &source,
+                    instruction,
+                    index,
+                    true,
+                )
+            })
+            .collect::<Vec<_>>()
+    });
+    assert!(recognized[..16].iter().all(|recognized| !recognized));
+    assert!(
+        recognized[16],
+        "the exact initializer remains authenticated"
+    );
+    assert_eq!(
+        hashes, 1,
+        "unrelated instructions must never hash the full batch"
+    );
+    for index in [0, instructions.len(), usize::MAX] {
+        let (recognized, hashes) = sorafs_admission_hash_probe::count(|| {
+            Executor::direct_sorafs_admission_initialization(
+                &tx,
+                &source,
+                &instructions[16],
+                index,
+                true,
+            )
+        });
+        assert!(!recognized);
+        assert_eq!(
+            hashes, 0,
+            "an absent or different original ordinal is not hashed"
+        );
+    }
+    let mut different = initializer(&fixture);
+    different.council.signature_threshold += 1;
+    let (recognized, hashes) = sorafs_admission_hash_probe::count(|| {
+        Executor::direct_sorafs_admission_initialization(&tx, &source, &different.into(), 16, true)
+    });
+    assert!(!recognized);
+    assert_eq!(
+        hashes, 0,
+        "a same-type instruction must still equal its signed original"
+    );
+    assert!(native::read_head(tx.world(), None).unwrap().is_none());
+}
+
+#[test]
+fn direct_initializer_keeps_original_hash_network_and_genesis_context_refusals() {
+    use crate::executor::{Executor, sorafs_admission_hash_probe};
+    let fixture = Fixture::new();
+    let instruction: InstructionBox = initializer(&fixture).into();
+    let (state, source) = direct_initializer_context(vec![instruction.clone()]);
+    let mut block = state.block(BlockHeader::new(
+        1.try_into().unwrap(),
+        None,
+        None,
+        NOW * 1000,
+        0,
+    ));
+    let mut tx = block.transaction();
+    let outer = source.hash_as_entrypoint();
+    let signed_hash = source.hash();
+    let call_hash = iroha_crypto::Hash::from(outer);
+    for refusal in 0..8 {
+        tx.current_network_entrypoint_hash = Some(outer);
+        tx.current_tx_hash = Some(signed_hash);
+        tx.tx_call_hash = Some(call_hash);
+        tx.current_entrypoint_index = Some(0);
+        match refusal {
+            0 => {}
+            1 => tx.current_network_entrypoint_hash = None,
+            2 => {
+                tx.current_network_entrypoint_hash =
+                    Some(iroha_crypto::HashOf::from_untyped_unchecked(
+                        iroha_crypto::Hash::prehashed([0x42; 32]),
+                    ))
+            }
+            3 => tx.tx_call_hash = None,
+            4 => tx.tx_call_hash = Some(iroha_crypto::Hash::prehashed([0x42; 32])),
+            5 => tx.current_tx_hash = None,
+            6 => {
+                tx.current_tx_hash = Some(iroha_crypto::HashOf::from_untyped_unchecked(
+                    iroha_crypto::Hash::prehashed([0x42; 32]),
+                ))
+            }
+            7 => tx.current_entrypoint_index = None,
+            _ => unreachable!(),
+        }
+        let (recognized, hashes) = sorafs_admission_hash_probe::count(|| {
+            Executor::direct_sorafs_admission_initialization(&tx, &source, &instruction, 0, true)
+        });
+        assert_eq!(
+            recognized,
+            refusal == 0,
+            "original source refusal {refusal}"
+        );
+        assert_eq!(
+            hashes, 1,
+            "applicable instructions still authenticate the original hash"
+        );
+    }
+    tx.current_network_entrypoint_hash = Some(outer);
+    tx.current_tx_hash = Some(signed_hash);
+    tx.tx_call_hash = Some(call_hash);
+    tx.current_entrypoint_index = Some(0);
+    let (recognized, hashes) = sorafs_admission_hash_probe::count(|| {
+        Executor::direct_sorafs_admission_initialization(&tx, &source, &instruction, 0, false)
+    });
+    assert!(!recognized);
+    assert_eq!(
+        hashes, 0,
+        "indirect execution cannot acquire the direct source"
+    );
+    let ordinary = signed(vec![instruction.clone()], *tx.network_id(), NOW * 1000);
+    tx.current_network_entrypoint_hash = Some(ordinary.hash_as_entrypoint());
+    tx.current_tx_hash = Some(ordinary.hash());
+    tx.tx_call_hash = Some(iroha_crypto::Hash::from(ordinary.hash_as_entrypoint()));
+    let (recognized, hashes) = sorafs_admission_hash_probe::count(|| {
+        Executor::direct_sorafs_admission_initialization(&tx, &ordinary, &instruction, 0, true)
+    });
+    assert!(
+        !recognized,
+        "a valid Network-scoped source cannot gain genesis authority"
+    );
+    assert_eq!(hashes, 1);
+    assert!(native::read_head(tx.world(), None).unwrap().is_none());
+    drop(tx);
+    drop(block);
+    let mut later = state.block(BlockHeader::new(
+        2.try_into().unwrap(),
+        None,
+        None,
+        NOW * 1000 + 1,
+        0,
+    ));
+    let mut tx = later.transaction();
+    tx.current_network_entrypoint_hash = Some(outer);
+    tx.current_tx_hash = Some(signed_hash);
+    tx.tx_call_hash = Some(call_hash);
+    tx.current_entrypoint_index = Some(0);
+    let (recognized, hashes) = sorafs_admission_hash_probe::count(|| {
+        Executor::direct_sorafs_admission_initialization(&tx, &source, &instruction, 0, true)
+    });
+    assert!(
+        !recognized,
+        "a matching signed source cannot authorize a later block"
+    );
+    assert_eq!(hashes, 0);
+}

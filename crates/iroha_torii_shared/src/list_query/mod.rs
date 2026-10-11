@@ -1109,7 +1109,13 @@ mod service_depth_tests {
             source
                 .validate()
                 .expect("original supported list-query controls");
-            let expected = norito::json::to_json(&source.to_json_value()).unwrap();
+            // Typed aggregate writers retain declaration order; materializing a
+            // Value alphabetizes object keys and is only a semantic oracle.
+            let expected = norito::json::to_json(source).unwrap();
+            assert_eq!(
+                norito::json::from_str::<Value>(&expected).unwrap(),
+                source.to_json_value()
+            );
             audit(&expected, |sink| source.write_json_to(sink));
         }
     }

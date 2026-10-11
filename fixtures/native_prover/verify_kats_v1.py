@@ -243,6 +243,39 @@ def point_rejected(hex_value: str, base: int) -> bool:
     return sqrt_mod(pow(x, 3, base) + CURVE_B, base) is None
 
 
+def check_confidential_vectors(document: dict, vectors: dict) -> int:
+    """Independently rederive the complete retired confidential oracle corpus."""
+    assert vectors["schema"] == "iroha.native_prover.confidential_poseidon.v1"
+    cases = [
+        ("cfownr03", [3, 5]), ("cfnote03", [3, 5, 8, 13]),
+        ("cfnull03", [3, 5, 8, 13]), ("cfleaf03", [3]),
+        ("cfnode03", [3, 5]), ("cfasst03", [3]), ("cfnet_03", [3]),
+    ]
+    assert vectors["domain_cases"] == [{"tag": tag, "inputs": inputs} for tag, inputs in cases]
+    domains = [0, (1 << 64) - 1, int.from_bytes(b"cfnote03", "little")]
+    assert vectors["boundary_domains"] == domains
+    assert set(vectors["fields"]) == set(FIELDS)
+    count = 0
+    for field, modulus in FIELDS.items():
+        outputs = vectors["fields"][field]
+        assert len(outputs["domain_outputs"]) == len(cases)
+        assert len(outputs["boundary_outputs"]) == 34
+        for (tag, inputs), expected in zip(cases, outputs["domain_outputs"]):
+            assert le_hex(domain_hash(document, field, tag, inputs)) == expected
+            count += 1
+        for length, expected in enumerate(outputs["boundary_outputs"]):
+            assert len(expected) == len(domains)
+            inputs = [
+                (0, 1, modulus - 1, index)[index % 4]
+                for index in range(length)
+            ]
+            for domain, output in zip(domains, expected):
+                actual = Sponge(document, field).squeeze([domain, length, *inputs])
+                assert le_hex(actual) == output, (field, length, domain)
+                count += 1
+    return count
+
+
 def check_rejections(document: dict) -> int:
     """Every recorded transcript rejection is a malformed input, without repeats."""
     count = 0
@@ -278,6 +311,10 @@ def main(argv: list[str]) -> int:
         "blake2b_challenges": check_blake2b(document),
         "poseidon_transcript_challenges": check_poseidon_transcript(document),
         "native_hashes": check_native_hashes(document),
+        "confidential_boundary_vectors": check_confidential_vectors(
+            document,
+            json.loads(Path(__file__).with_name("confidential_poseidon_v1.json").read_text(encoding="utf-8")),
+        ),
         "rejections": check_rejections(document),
     }
     print(f"{path}: verified " + ", ".join(f"{name}={count}" for name, count in results.items()))

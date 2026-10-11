@@ -14,6 +14,6 @@ isi! {
     }
 }
 impl crate::seal::Instruction for MutateSorafsTopologyAuthority {}
-impl_sorafs_decode_from_slice!(MutateSorafsTopologyAuthority {
+impl_aos_decode_from_slice!(MutateSorafsTopologyAuthority {
     transition: TopologyTransitionV1,
 });

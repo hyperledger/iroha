@@ -1,6 +1,6 @@
 
 seiyaku RoundedQuantity {
-    view fn calculate(quantity value, decimal divisor, int scale) -> quantity {
+    view fn calculate(quantity value, decimal divisor, int scale) authorize(anyone) -> quantity {
         return value.div_round(
             divisor: divisor,
             scale: scale,

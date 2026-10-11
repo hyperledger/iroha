@@ -1651,12 +1651,7 @@ fn proof_processing_context_hash(
     processing_context_put_bytes(&mut hasher, b"iroha:torii:zk-prover-retry-context:v1");
     processing_context_put_str(&mut hasher, ctx.build_identity.version());
     processing_context_put_option_str(&mut hasher, Some(ctx.build_identity.source_commit()));
-    hasher.update([
-        cfg!(feature = "zk-halo2") as u8,
-        cfg!(feature = "zk-halo2-ipa") as u8,
-        cfg!(feature = "zk-stark") as u8,
-        cfg!(feature = "circuit-params") as u8,
-    ]);
+    hasher.update([cfg!(feature = "zk-stark") as u8]);
     hasher.update(
         u64::try_from(ctx.allowed_backends.len())
             .unwrap_or(u64::MAX)
@@ -1791,10 +1786,6 @@ fn process_proof_attachment_in_view(
         terminal_error |= !retryable;
     }
     match production_verify_backend_tag(backend_str) {
-        Some(BackendTag::Halo2IpaPasta) if !cfg!(feature = "zk-halo2-ipa") => {
-            errors.push("halo2 verification is unavailable in this node build".into());
-            retryable = true;
-        }
         Some(BackendTag::Stark) if !cfg!(feature = "zk-stark") => {
             errors.push("stark verification is unavailable in this node build".into());
             retryable = true;
@@ -1804,31 +1795,32 @@ fn process_proof_attachment_in_view(
     if let Some(view) = verifier_view {
         let zk = &view.zk;
         match production_verify_backend_tag(backend_str) {
-            Some(BackendTag::Halo2IpaPasta) if !zk.halo2.enabled => {
+            Some(BackendTag::NativePipaRPasta) if !zk.pipa_r.enabled => {
                 errors.push(
-                    "halo2 verification is disabled by the committed ZK validity policy".into(),
+                    "native PIPA-R verification is disabled by the committed ZK validity policy"
+                        .into(),
                 );
                 retryable = true;
             }
-            Some(BackendTag::Halo2IpaPasta)
-                if attachment.proof.bytes.len() > zk.halo2.max_envelope_bytes =>
+            Some(BackendTag::NativePipaRPasta)
+                if attachment.proof.bytes.len() > zk.pipa_r.max_envelope_bytes =>
             {
                 errors.push(format!(
-                    "halo2 proof exceeds the committed max_envelope_bytes {}",
-                    zk.halo2.max_envelope_bytes
+                    "native PIPA-R proof exceeds the committed max_envelope_bytes {}",
+                    zk.pipa_r.max_envelope_bytes
                 ));
                 retryable = true;
             }
-            Some(BackendTag::Halo2IpaPasta) => {
+            Some(BackendTag::NativePipaRPasta) => {
                 if let Ok(envelope) = norito::decode_canonical::<
                     iroha_data_model::zk::OpenVerifyEnvelope,
                 >(&attachment.proof.bytes)
-                    && envelope.backend == BackendTag::Halo2IpaPasta
-                    && envelope.proof_bytes.len() > zk.halo2.max_proof_bytes
+                    && envelope.backend == BackendTag::NativePipaRPasta
+                    && envelope.proof_bytes.len() > zk.pipa_r.max_proof_bytes
                 {
                     errors.push(format!(
-                        "halo2 proof exceeds the committed max_proof_bytes {}",
-                        zk.halo2.max_proof_bytes
+                        "native PIPA-R proof exceeds the committed max_proof_bytes {}",
+                        zk.pipa_r.max_proof_bytes
                     ));
                     retryable = true;
                 }
@@ -3248,7 +3240,8 @@ mod tests {
                 "trusted-setup backend {backend} must not pass broad prover allowlists"
             );
         }
-        assert!(backend_allowed("halo2/ipa", &broad_halo2));
+        assert!(!backend_allowed("halo2/ipa", &broad_halo2));
+        assert!(backend_allowed("pipa-r/pasta", &["pipa-r/".to_owned()]));
     }
     #[test]
     fn prover_backend_allowlist_rejects_developer_only_labels() {
@@ -3278,11 +3271,13 @@ mod tests {
                 "developer-only backend {backend} must not pass even an empty prover allowlist"
             );
         }
-        assert!(backend_allowed("halo2/ipa", &[]));
+        assert!(backend_allowed("pipa-r/pasta", &[]));
+        assert!(!backend_allowed("halo2/ipa", &[]));
     }
     #[test]
     fn prover_backend_allowlist_rejects_protocol_claimed_and_unregistered_stark_labels() {
         let broad_backends = [
+            "pipa-r".to_owned(),
             "halo2/ipa".to_owned(),
             "halo2/pasta".to_owned(),
             "stark/fri".to_owned(),
@@ -3326,8 +3321,11 @@ mod tests {
             );
         }
         for backend in [
-            "halo2/ipa",
-            "halo2/pasta/kaigi-usage-v1",
+            "pipa-r/pasta",
+            "pipa-r/pasta/confidential-transfer-v1",
+            "pipa-r/pasta/confidential-unshield-full-v1",
+            "pipa-r/pasta/confidential-unshield-change-v1",
+            "pipa-r/pasta/kaigi-usage-v1",
             "stark/fri/poseidon-x7-goldilocks-6x64-v1",
         ] {
             assert!(
@@ -3825,9 +3823,9 @@ mod tests {
             verification_attempts: None,
         };
         let attachment = ProofAttachment::new_ref(
-            "halo2/ipa".to_owned(),
-            ProofBox::new("halo2/ipa".to_owned(), vec![0x42]),
-            VerifyingKeyId::new("halo2/ipa", "missing-vk"),
+            "pipa-r/pasta".to_owned(),
+            ProofBox::new("pipa-r/pasta".to_owned(), vec![0x42]),
+            VerifyingKeyId::new("pipa-r/pasta", "missing-vk"),
         );
         let report = process_proof_attachment(&ctx, &attachment);
         let error = report
@@ -3835,6 +3833,70 @@ mod tests {
             .expect("supported missing verifier must report registry miss");
         assert!(error.contains("verifying key not found"));
         assert!(report.circuit_id.is_none());
+    }
+    #[test]
+    fn native_pipa_r_worker_policy_is_bounded_and_invalidates_retry_context() {
+        use iroha_config::parameters::actual::Zk;
+        let backend = "pipa-r/pasta";
+        let envelope = iroha_data_model::zk::OpenVerifyEnvelope {
+            backend: BackendTag::NativePipaRPasta,
+            circuit_id: "pipa-r/pasta/kaigi-usage-v1".into(),
+            vk_hash: [1; 32],
+            public_inputs: vec![1],
+            proof_bytes: vec![1, 2],
+            aux: Vec::new(),
+        };
+        // Policy inspection does not make this framing fixture a valid proof.
+        // No verifier key is installed and verification must never be attempted.
+        let attachment = ProofAttachment::new_ref(
+            backend.into(),
+            ProofBox::new(backend.into(), norito::encode_canonical(&envelope).unwrap()),
+            VerifyingKeyId::new(backend, "missing-native-key"),
+        );
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let context = |configure: fn(&mut Zk)| {
+            let mut state = CoreState::new_for_testing(
+                iroha_core::state::World::new(),
+                iroha_core::kura::Kura::blank_kura_for_testing(),
+                iroha_core::query::store::LiveQueryStore::start_test(),
+            );
+            let mut zk = state.zk_snapshot();
+            configure(&mut zk);
+            state.set_zk(zk).unwrap();
+            ProverContext {
+                build_identity: crate::build_identity_test_fixture::build_identity(),
+                keys_dir: PathBuf::new(),
+                allowed_backends: vec![backend.into()],
+                allowed_circuits: Vec::new(),
+                state: Some(Arc::new(state)),
+                verification_attempts: Some(Arc::clone(&attempts)),
+            }
+        };
+        let baseline = context(|_| {});
+        let hash = |ctx: &ProverContext| {
+            proof_processing_context_hash(
+                ctx,
+                Some(&ctx.state.as_ref().unwrap().query_view()),
+                std::slice::from_ref(&attachment),
+            )
+        };
+        let baseline_hash = hash(&baseline);
+        let cases: [(fn(&mut Zk), &str); 3] = [
+            (|zk| zk.pipa_r.enabled = false, "verification is disabled"),
+            (|zk| zk.pipa_r.max_envelope_bytes = 1, "max_envelope_bytes"),
+            (|zk| zk.pipa_r.max_proof_bytes = 1, "max_proof_bytes"),
+        ];
+        for (configure, expected) in cases {
+            let ctx = context(configure);
+            assert_ne!(hash(&ctx), baseline_hash);
+            let report = process_proof_attachment(&ctx, &attachment);
+            assert!(!report.ok);
+            let error = report.error.unwrap();
+            assert!(error.contains("native PIPA-R"), "{error}");
+            assert!(error.contains(expected), "{error}");
+            assert!(!error.contains("halo2 verification"), "{error}");
+        }
+        assert_eq!(attempts.load(AtomicOrdering::SeqCst), 0);
     }
     fn anon_tenant_key() -> String {
         super::super::zk_attachments::AttachmentTenant::anonymous()

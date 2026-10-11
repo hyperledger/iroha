@@ -270,6 +270,7 @@ fn validate_governed_contract_lifecycle(
         "pending_owner",
         "parliament_delegated",
         "active_code_hash_hex",
+        "retained_code_hash_hex",
         "revision",
         "emergency_hold",
     ];
@@ -351,6 +352,19 @@ fn validate_governed_contract_lifecycle(
     if owner == GovernedContractLifecycleOwner::Parliament && parliament_delegated {
         return Err(eyre!(
             "governed contract response.lifecycle.parliament_delegated must be false for a Parliament-owned contract"
+        ));
+    }
+    let retained_code_hash = match object.get("retained_code_hash_hex") {
+        Some(Value::Null) => None,
+        _ => Some(require_canonical_hex32_field(
+            object,
+            "retained_code_hash_hex",
+            "governed contract response.lifecycle",
+        )?),
+    };
+    if active_code_hash.is_some() && retained_code_hash != active_code_hash {
+        return Err(eyre!(
+            "governed contract response.lifecycle.retained_code_hash_hex must match active_code_hash_hex for an active binding"
         ));
     }
     match active_code_hash {
@@ -1042,9 +1056,34 @@ mod tests {
             "pending_owner": null,
             "parliament_delegated": false,
             "active_code_hash_hex": active_code_hash_hex,
+            "retained_code_hash_hex": active_code_hash_hex,
             "revision": 1,
             "emergency_hold": null
         })
+    }
+
+    #[test]
+    fn suspended_lifecycle_keeps_its_required_schema_binding() {
+        let mut retained = lifecycle(None);
+        retained.as_object_mut().unwrap().insert(
+            "retained_code_hash_hex".into(),
+            Value::from("22".repeat(32)),
+        );
+        validate_governed_contract_lifecycle(&retained, None, false)
+            .expect("suspended binding is preserved");
+        retained
+            .as_object_mut()
+            .unwrap()
+            .remove("retained_code_hash_hex");
+        assert!(validate_governed_contract_lifecycle(&retained, None, false).is_err());
+        let mut active = lifecycle(Some(&"22".repeat(32)));
+        active.as_object_mut().unwrap().insert(
+            "retained_code_hash_hex".into(),
+            Value::from("33".repeat(32)),
+        );
+        assert!(
+            validate_governed_contract_lifecycle(&active, Some(&"22".repeat(32)), false).is_err()
+        );
     }
 
     fn inactive_binding() -> Value {
@@ -1289,6 +1328,7 @@ mod tests {
                 "pending_owner": "parliament",
                 "parliament_delegated": true,
                 "active_code_hash_hex": null,
+                "retained_code_hash_hex": null,
                 "revision": 7,
                 "emergency_hold": {
                     "incident_digest_hex": ("33".repeat(32)),

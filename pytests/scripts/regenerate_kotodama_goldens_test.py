@@ -435,15 +435,21 @@ def test_run_contract_tests_executes_only_the_pinned_inventory(
             return json.dumps(
                 {
                     "target": str(goldens.TEST_SOURCE),
+                    "seiyaku": "ContractFlowExample",
                     "seed": 0,
                     "passed": 1,
                     "failed": 0,
                     "tests": [
                         {
                             "name": goldens.EXACT_TEST_NAME,
+                            "file": str(goldens.TEST_SOURCE),
                             "line": 7,
+                            "column": 8,
                             "passed": True,
                             "duration_ns": 10,
+                            "gas": 0,
+                            "cycles": 43,
+                            "calls": [],
                             "failure": None,
                         }
                     ],
@@ -452,11 +458,13 @@ def test_run_contract_tests_executes_only_the_pinned_inventory(
         if index == 4:
             (stage / "contract-flow-tests.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
-                f'<testsuite name="{goldens.TEST_SOURCE}" tests="1" '
+                '<testsuite name="ContractFlowExample" tests="1" '
                 'failures="0" time="0.000000010" seed="0">\n'
                 f'  <testcase name="{goldens.EXACT_TEST_NAME}" '
-                f'classname="{goldens.TEST_SOURCE}" line="7" '
+                f'classname="{goldens.TEST_SOURCE}" file="{goldens.TEST_SOURCE}" line="7" '
                 'time="0.000000010">\n'
+                '    <properties><property name="gas" value="0"/>'
+                '<property name="cycles" value="43"/></properties>\n'
                 "  </testcase>\n"
                 "</testsuite>\n",
                 encoding="utf-8",
@@ -473,33 +481,48 @@ def test_run_contract_tests_executes_only_the_pinned_inventory(
     assert report["tests"][0]["name"] == goldens.EXACT_TEST_NAME
 
 
-def test_contract_report_validation_rejects_malformed_or_divergent_output(
-    tmp_path: Path,
-) -> None:
-    valid = {
-        "target": "demo.test.ko",
+@pytest.fixture
+def successful_contract_reports(tmp_path: Path) -> tuple[dict, Path]:
+    report = {
+        "target": "demo.ko",
+        "seiyaku": "Demo",
         "seed": 0,
         "passed": 1,
         "failed": 0,
         "tests": [
             {
                 "name": "roundtrip",
+                "file": "demo.test.ko",
                 "line": 3,
+                "column": 8,
                 "passed": True,
                 "duration_ns": 1,
+                "gas": 10,
+                "cycles": 43,
+                "calls": [{"kotoage": "increment", "gas": 10, "cycles": 21}],
                 "failure": None,
             }
         ],
     }
     junit = tmp_path / "report.xml"
     junit.write_text(
-        '<testsuite name="demo.test.ko" tests="1" failures="0" '
+        '<testsuite name="Demo" tests="1" failures="0" '
         'time="0.000000001" seed="0">\n'
-        '  <testcase name="roundtrip" classname="demo.test.ko" '
-        'line="3" time="0.000000001"></testcase>\n'
+        '  <testcase name="roundtrip" classname="demo.test.ko" file="demo.test.ko" '
+        'line="3" time="0.000000002">\n'
+        '    <properties><property name="gas" value="10"/>'
+        '<property name="cycles" value="43"/></properties>\n'
+        '  </testcase>\n'
         "</testsuite>\n",
         encoding="utf-8",
     )
+    return report, junit
+
+
+def test_contract_report_validation_rejects_malformed_or_divergent_output(
+    successful_contract_reports: tuple[dict, Path],
+) -> None:
+    valid, junit = successful_contract_reports
     goldens.validate_contract_test_reports(json.dumps(valid), junit)
 
     with pytest.raises(goldens.GoldenError, match="invalid JSON"):
@@ -519,6 +542,69 @@ def test_contract_report_validation_rejects_malformed_or_divergent_output(
     junit.write_text(divergent, encoding="utf-8")
     with pytest.raises(goldens.GoldenError, match="inventories differ"):
         goldens.validate_contract_test_reports(json.dumps(valid), junit)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("file", ""), ("column", 0), ("column", True), ("gas", -1),
+     ("cycles", True), ("cycles", 2**64), ("calls", {}), ("failure", {})],
+)
+def test_contract_reports_reject_invalid_current_result_fields(
+    successful_contract_reports: tuple[dict, Path], field: str, value: object
+) -> None:
+    report, junit = successful_contract_reports
+    report["tests"][0][field] = value
+    with pytest.raises(goldens.GoldenError, match="invalid successful test result"):
+        goldens.validate_contract_test_reports(json.dumps(report), junit)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [None, {}, {"kotoage": "increment", "gas": 1},
+     {"kotoage": "", "gas": 1, "cycles": 1},
+     {"kotoage": "increment", "gas": True, "cycles": 1},
+     {"kotoage": "increment", "gas": 1, "cycles": -1}],
+)
+def test_contract_reports_reject_noncanonical_calls(
+    successful_contract_reports: tuple[dict, Path], call: object
+) -> None:
+    report, junit = successful_contract_reports
+    report["tests"][0]["calls"] = [call]
+    with pytest.raises(goldens.GoldenError, match="noncanonical call result"):
+        goldens.validate_contract_test_reports(json.dumps(report), junit)
+
+
+@pytest.mark.parametrize("field", ["seiyaku", "file", "column", "gas", "cycles", "calls"])
+def test_contract_reports_reject_retired_report_shapes(
+    successful_contract_reports: tuple[dict, Path], field: str
+) -> None:
+    report, junit = successful_contract_reports
+    del (report if field == "seiyaku" else report["tests"][0])[field]
+    with pytest.raises(goldens.GoldenError, match="noncanonical"):
+        goldens.validate_contract_test_reports(json.dumps(report), junit)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        ('name="Demo"', 'name="demo.ko"', "does not match"),
+        ('classname="demo.test.ko"', 'classname="demo.ko"', "source locations differ"),
+        ('file="demo.test.ko"', 'file="other.test.ko"', "source locations differ"),
+        ('line="3"', 'line="4"', "source locations differ"),
+        ('name="gas" value="10"', 'name="gas" value="11"', "execution metrics differ"),
+        ('name="cycles" value="43"', 'name="cycles" value="44"', "execution metrics differ"),
+        ('name="cycles"', 'name="gas"', "noncanonical test properties"),
+        ('<property name="cycles" value="43"/>', '', "noncanonical test properties"),
+        ('</testcase>', '<failure/></testcase>', "noncanonical test properties"),
+    ],
+)
+def test_contract_reports_bind_current_junit_identity_and_metrics(
+    successful_contract_reports: tuple[dict, Path], old: str, new: str, message: str
+) -> None:
+    report, junit = successful_contract_reports
+    junit.write_text(junit.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+    with pytest.raises(goldens.GoldenError, match=message):
+        goldens.validate_contract_test_reports(json.dumps(report), junit)
 
 
 def test_artifact_code_metrics_locates_literals_and_counts_relocation_nops(

@@ -211,7 +211,7 @@ fn zero_retention_and_pool_shrink_keep_each_array_until_its_final_borrower() {
 #[test]
 fn native_contract_preparation_funds_and_retains_its_original_graph() {
     let artifact = kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku GraphOwner { view fn main() -> bool { true } }")
+        .compile_source("seiyaku GraphOwner { view fn main() authorize(anyone) -> bool { true } }")
         .unwrap();
     let budget = AllocationBudget::new(64 * 1024 * 1024);
     let contract = crate::prepare_contract_with_memory_budget(&artifact, &budget).unwrap();

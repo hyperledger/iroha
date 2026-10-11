@@ -5,10 +5,7 @@
 //! this module is written out as a literal and recomputed from its canonical string by the golden
 //! tests below, so a typo in either the string or the value fails the build's test suite.
 
-use iroha_data_model::sccp::params::{
-    SCCP_MAX_CLOCK_SKEW_MS_V1, SCCP_MAX_ROSTER_VALIDITY_MS_V1, SCCP_MESSAGES_MAX_PER_BLOCK_V1,
-    SCCP_PREVIOUS_ROSTER_GRACE_MS_V1,
-};
+use iroha_data_model::sccp::params::SCCP_MESSAGES_MAX_PER_BLOCK_V1;
 
 /// Decode a 64-digit lowercase or uppercase hex literal at compile time.
 const fn hex32(literal: &str) -> [u8; 32] {
@@ -308,11 +305,11 @@ pub const SELECTORS: [(&str, &str, [u8; 4]); 22] = [
 // ---------------------------------------------------------------------------------------------
 
 /// `PREVIOUS_ROSTER_GRACE_MS` (24 h).
-pub const PREVIOUS_ROSTER_GRACE_MS: u64 = SCCP_PREVIOUS_ROSTER_GRACE_MS_V1;
-/// `MAX_ROSTER_VALIDITY_MS` (30 d); also the Taira parameter bound.
-pub const MAX_ROSTER_VALIDITY_MS: u64 = SCCP_MAX_ROSTER_VALIDITY_MS_V1;
+pub const PREVIOUS_ROSTER_GRACE_MS: u64 = 86_400_000;
+/// `MAX_ROSTER_VALIDITY_MS` (30 d).
+pub const MAX_ROSTER_VALIDITY_MS: u64 = 2_592_000_000;
 /// `MAX_CLOCK_SKEW_MS` (1 h).
-pub const MAX_CLOCK_SKEW_MS: u64 = SCCP_MAX_CLOCK_SKEW_MS_V1;
+pub const MAX_CLOCK_SKEW_MS: u64 = 3_600_000;
 /// Maximum SCCP leaves (transfers and controls) per block.
 pub const MAX_BLOCK_LEAVES: u32 = SCCP_MESSAGES_MAX_PER_BLOCK_V1;
 /// Maximum siblings of a block commitment path (`ceil(log2(512))`).
@@ -327,7 +324,7 @@ pub const MIN_ROSTER_MEMBERS: usize = 4;
 pub const MAX_ROSTER_MEMBERS: usize = 31;
 /// Maximum rotations in one `rotateRosters` call.
 pub const MAX_ROTATIONS_PER_CALL: usize = 16;
-/// Maximum `voidFrozen` range on EVM and TRON.
+/// Maximum `voidFrozen` range on EVM.
 pub const MAX_VOID_FROZEN_RANGE_EVM: u64 = 256;
 /// Maximum `sccp_void_frozen` range on TON (one bucket).
 pub const MAX_VOID_FROZEN_RANGE_TON: u64 = 512;
@@ -350,16 +347,12 @@ pub const CODEC_CANONICAL_TEXT: u8 = 1;
 pub const CODEC_EVM_ADDRESS20: u8 = 2;
 /// Codec 3: Taira `AccountAddress` payload bytes.
 pub const CODEC_TAIRA_ACCOUNT: u8 = 3;
-/// Codec 5: 21-byte TRON address with the `0x41` prefix.
-pub const CODEC_TRON_ADDRESS21: u8 = 5;
 /// Codec 7: 36-byte TON account (`i32` workchain 0 ‖ account id).
 pub const CODEC_TON_ACCOUNT36: u8 = 7;
 /// Maximum canonical-text length.
 pub const MAX_CANONICAL_TEXT_BYTES: usize = 256;
 /// Maximum Taira account payload length.
 pub const MAX_TAIRA_ACCOUNT_BYTES: usize = 1024;
-/// First byte of a TRON address.
-pub const TRON_ADDRESS_PREFIX: u8 = 0x41;
 /// Exclusive upper bound of amounts when either endpoint is TON (`2^96`).
 pub const TON_AMOUNT_BOUND: u128 = 1 << 96;
 /// Scale of Taira XOR and decimals of every destination token.
@@ -377,8 +370,6 @@ pub const TAG_SORA_TAIRA: u8 = 0x40;
 pub const TAG_ETHEREUM: u8 = 0x41;
 /// `bsc-mainnet` profile tag.
 pub const TAG_BSC: u8 = 0x42;
-/// `tron-mainnet` profile tag.
-pub const TAG_TRON: u8 = 0x43;
 /// `ton-mainnet` profile tag.
 pub const TAG_TON: u8 = 0x44;
 /// SCCP domain of Taira.
@@ -389,22 +380,16 @@ pub const DOMAIN_ETHEREUM: u32 = 1;
 pub const DOMAIN_BSC: u32 = 2;
 /// SCCP domain of TON.
 pub const DOMAIN_TON: u32 = 4;
-/// SCCP domain of TRON.
-pub const DOMAIN_TRON: u32 = 5;
 /// Ethereum mainnet chain id.
 pub const ETHEREUM_CHAIN_ID: u64 = 1;
 /// BSC mainnet chain id.
 pub const BSC_CHAIN_ID: u64 = 56;
-/// TRON mainnet TVM chain id.
-pub const TRON_CHAIN_ID: u64 = 0x2b66_53dc;
 /// TON mainnet global id.
 pub const TON_GLOBAL_ID: i32 = -239;
 /// Route id of the Ethereum route.
 pub const ROUTE_ID_ETHEREUM: &str = "taira_eth_xor";
 /// Route id of the BSC route.
 pub const ROUTE_ID_BSC: &str = "taira_bsc_xor";
-/// Route id of the TRON route.
-pub const ROUTE_ID_TRON: &str = "taira_tron_xor";
 /// Route id of the TON route.
 pub const ROUTE_ID_TON: &str = "taira_ton_xor";
 
@@ -552,7 +537,6 @@ mod tests {
         assert_eq!(1_u32 << MAX_BLOCK_PATH, MAX_BLOCK_LEAVES);
         assert_eq!(1_u64 << MAX_HISTORY_PATH, MAX_HISTORY_SIZE);
         assert_eq!(TON_AMOUNT_BOUND, 79_228_162_514_264_337_593_543_950_336);
-        assert_eq!(TRON_CHAIN_ID, 728_126_428);
     }
 
     #[test]

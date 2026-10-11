@@ -1,4 +1,5 @@
 seiyaku ContractViewAccountIdTest {
+    permission CanEnactGovernance;
     state AccountId Stored;
     fn bind_impl(AccountId account_id) {
         Stored = account_id;
@@ -8,19 +9,19 @@ seiyaku ContractViewAccountIdTest {
         bind_impl(account_id: account_id);
     }
 
-    kotoage fn bind(AccountId account_id) authorize("CanEnactGovernance") {
+    kotoage fn bind(AccountId account_id) authorize(CanEnactGovernance) {
         bind_impl(account_id: account_id);
     }
 
-    view fn literal() -> AccountId {
+    view fn literal() authorize(anyone) -> AccountId {
         return context::authority();
     }
 
-    view fn stored() -> AccountId {
+    view fn stored() authorize(anyone) -> AccountId {
         return Stored;
     }
 
-    view fn stored_tuple() -> (AccountId, int) {
+    view fn stored_tuple() authorize(anyone) -> (AccountId, int) {
         return (Stored, 1);
     }
 }

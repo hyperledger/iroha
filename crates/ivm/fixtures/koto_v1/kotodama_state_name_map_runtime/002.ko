@@ -1,7 +1,7 @@
 
-        seiyaku C {
+        seiyaku C { permission WriteState;
             state StateMap<Name, int> Foo;
-            kotoage fn main() -> int authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) -> int {
                 Foo[Name::parse("alice")] = 1;
                 let prior = Foo.get(Name::parse("alice")).unwrap_or(0);
                 Foo[Name::parse("alice")] = prior + 1;

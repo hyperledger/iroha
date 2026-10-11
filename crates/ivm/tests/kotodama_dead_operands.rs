@@ -50,7 +50,7 @@ fn cycle_source() -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "seiyaku Cycles {{ fn choose({parameters}) -> int {{ {branches} return a11 - a12; }} view fn main() -> (int, int, int, int, int, int, int) {{ return ({calls}); }} }}"
+        "seiyaku Cycles {{ fn choose({parameters}) -> int {{ {branches} return a11 - a12; }} view fn main() authorize(anyone) -> (int, int, int, int, int, int, int) {{ return ({calls}); }} }}"
     )
 }
 
@@ -94,7 +94,7 @@ fn dead_numeric_register_cycle_executes_all_branches_on_both_hosts() {
 #[test]
 fn host_operands_live_in_tuples_survive_numeric_state_and_nested_calls() {
     let program = compile(
-        r#"seiyaku CarriedOperands {
+        r#"seiyaku CarriedOperands { permission WriteState;
         state StateMap<Name, int> Values;
         fn subtract(int left, int right) -> int { return left - right; }
         fn carry(Name key, int left, int right) -> (int, int, int, int) {
@@ -104,7 +104,7 @@ fn host_operands_live_in_tuples_survive_numeric_state_and_nested_calls() {
             let result = subtract(left: left, right: right);
             return (originals.0, originals.1, Values.get(key).unwrap_or(0), result);
         }
-        kotoage fn main() -> (int, int, int, int) authorize("WriteState") {
+        kotoage fn main() authorize(WriteState) -> (int, int, int, int) {
             return carry(key: Name::parse("retained"), left: 91, right: 37);
         }
     }"#,

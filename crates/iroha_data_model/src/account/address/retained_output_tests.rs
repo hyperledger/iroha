@@ -115,7 +115,9 @@ fn inbound_controller_decode_and_admission_clone_still_require_capacity() {
     norito::with_decode_limits_scope(zero_budget(), || {
         assert!(matches!(
             AccountAddress::from_canonical_bytes(&canonical),
-            Err(AccountAddressError::DecodeResourceLimit)
+            Err(AccountAddressError::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { limit: 0, .. }
+            ))
         ));
         assert!(public_key.try_clone_for_admission().is_err());
     });

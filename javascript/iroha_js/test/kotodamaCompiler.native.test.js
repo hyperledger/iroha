@@ -11,7 +11,8 @@ const RESULT_FIELDS = ["diagnosticsJson", "ok", "output"];
 
 nativeTest("native Kotodama success uses an explicit null diagnostics sentinel", async () => {
   const raw = await nativeBinding.compileKotodama({
-    source: "seiyaku Demo { view fn ping() -> int { return 1; } }",
+    artifacts: [],
+    source: "seiyaku Demo { view fn ping() authorize(anyone) -> int { return 1; } }",
     zk: false,
   });
 
@@ -19,7 +20,11 @@ nativeTest("native Kotodama success uses an explicit null diagnostics sentinel",
   assert.equal(raw.ok, true);
   assert.notEqual(raw.output, null);
   assert.equal(raw.diagnosticsJson, null);
-  assert.equal(normalizeCompilerResult(raw).ok, true);
+  const normalized = normalizeCompilerResult(raw);
+  assert.equal(normalized.ok, true);
+  assert.ok(normalized.output.sourceMap.some((entry) => entry.source_kind === "function"));
+  assert.ok(normalized.output.sourceMap.some((entry) => entry.source_kind === "statement"));
+  assert.ok(normalized.output.sourceMap.length > normalized.output.budgetReport.length);
 });
 
 nativeTest("native Kotodama compiler matches the generated current Rust artifact fixture", async () => {
@@ -31,7 +36,7 @@ nativeTest("native Kotodama compiler matches the generated current Rust artifact
     new URL("./fixtures/current_rust_contract_artifact.ko", import.meta.url),
     "utf8",
   );
-  const raw = await nativeBinding.compileKotodama({ source, sourceName: fixture.source, zk: false });
+  const raw = await nativeBinding.compileKotodama({ artifacts: [], source, sourceName: fixture.source, zk: false });
   assert.equal(raw.ok, true, raw.diagnosticsJson);
   const result = normalizeCompilerResult(raw);
   assert.equal(result.ok, true);
@@ -50,6 +55,7 @@ nativeTest("native Kotodama compiler matches the generated current Rust artifact
 
 nativeTest("native Kotodama failure uses an explicit null output sentinel", async () => {
   const raw = await nativeBinding.compileKotodama({
+    artifacts: [],
     source: "seiyaku Demo {\n🙂\n}",
     zk: false,
   });
@@ -65,7 +71,7 @@ nativeTest("native Kotodama failure uses an explicit null output sentinel", asyn
 
 
 nativeTest("native Kotodama V1 preserves declared arguments and composable value schemas", async () => {
-  const source = `seiyaku NativeValues {
+  const source = `seiyaku NativeValues { permission Deposit;
     const int PAGE_SIZE = 2;
     error enum VaultError { CapacityExceeded = 7; ZeroDeposit = 1; }
     state () marker;
@@ -78,7 +84,7 @@ nativeTest("native Kotodama V1 preserves declared arguments and composable value
       value + minimum + maximum
     }
 
-    kotoage fn deposit(() _ receipt, int amount) -> Result<(), VaultError> authorize("Deposit") {
+    kotoage fn deposit(() _ receipt, int amount) authorize(Deposit) -> Result<(), VaultError> {
       marker = receipt;
       if amount == 0 { return Result::err(VaultError::ZeroDeposit); }
       let adjusted = combine(amount, maximum: 10, minimum: 0);
@@ -86,14 +92,14 @@ nativeTest("native Kotodama V1 preserves declared arguments and composable value
       Result::ok(())
     }
 
-    view fn read_marker() -> () { marker }
-    view fn nested(Option<Option<()>> value) -> Option<Option<()>> { value }
-    view fn resume(Option<StateCursor<int>> after) -> Option<StateCursor<int>> { after }
-    view fn browse(Option<StateCursor<int>> after) -> StatePage<int, bool, PAGE_SIZE * 2> {
+    view fn read_marker() authorize(anyone) -> () { marker }
+    view fn nested(Option<Option<()>> value) authorize(anyone) -> Option<Option<()>> { value }
+    view fn resume(Option<StateCursor<int>> after) authorize(anyone) -> Option<StateCursor<int>> { after }
+    view fn browse(Option<StateCursor<int>> after) authorize(anyone) -> StatePage<int, bool, PAGE_SIZE * 2> {
       Flags.page(limit: PAGE_SIZE * 2, after: after)
     }
   }`;
-  const request = { source, sourceName: "contracts/native-values.ko", zk: false };
+  const request = { artifacts: [], source, sourceName: "contracts/native-values.ko", zk: false };
   const raw = await nativeBinding.compileKotodama(request);
   assert.deepEqual(Object.keys(raw).sort(), RESULT_FIELDS);
   assert.equal(raw.ok, true, raw.diagnosticsJson);
@@ -111,7 +117,7 @@ nativeTest("native Kotodama V1 preserves declared arguments and composable value
   const unit = { kind: "Unit", value: null };
   const option = { kind: "Option", value: null };
   const integer = { kind: "Leaf", value: { kind: "Int", value: null } };
-  const cursor = { kind: "StateCursor", value: { kind: "Int", value: null } };
+  const cursor = { kind: "StateCursor", value: { nodes: [integer] } };
   const error = {
     identity: "NativeValues::VaultError",
     variants: [
@@ -131,7 +137,7 @@ nativeTest("native Kotodama V1 preserves declared arguments and composable value
   // Source labels do not rename fields in the public JSON argument record.
   const deposit = entries.get("deposit");
   assert.deepEqual(deposit.kind, { kind: "Kotoage", value: null });
-  assert.equal(deposit.permission, "Deposit");
+  assert.deepEqual(deposit.authorization, { kind: "Permission", value: "Deposit" });
   assert.deepEqual(deposit.params, [
     { name: "receipt", type_name: "()" },
     { name: "amount", type_name: "int" },
@@ -180,7 +186,7 @@ nativeTest("native Kotodama V1 preserves declared arguments and composable value
   assert.equal(entries.get("browse").return_type, "StatePage<int, bool, 4>");
   assert.deepEqual(entries.get("browse").return_schema, {
     nodes: [
-      { kind: "Struct", value: { name: "StatePage", fields: ["items", "next"] } },
+      { kind: "Struct", value: { name: "kotodama::StatePage", fields: ["items", "next"] } },
       { kind: "List", value: { capacity: 4 } },
       { kind: "Tuple", value: 2 },
       integer,
@@ -212,15 +218,28 @@ nativeTest("native Kotodama V1 preserves declared arguments and composable value
       assert.deepEqual(accepted.output.manifest, result.output.manifest);
     }
   }
-  // Retain both rejection contracts: positional-only declarations cannot be named,
-  // and StateMap.page retains its required builtin labels.
+  const positionalPageSource = source.replace(
+    "Flags.page(limit: PAGE_SIZE * 2, after: after)",
+    "Flags.page(after, limit: PAGE_SIZE * 2)",
+  );
+  assert.notEqual(positionalPageSource, source);
+  const positionalPage = normalizeCompilerResult(await nativeBinding.compileKotodama({
+    ...request, source: positionalPageSource,
+  }));
+  assert.equal(positionalPage.ok, true);
+  assert.deepEqual(positionalPage.output.manifest.entrypoints, manifest.entrypoints);
+
+  // Positional-only declarations cannot be named; receiver methods accept
+  // positional values but still reject names absent from their signature.
   for (const [original, replacement, expectedCode] of [
     [signature, "fn combine(int _ value, int _ minimum, int maximum)", "E_POSITIONAL_ARGUMENT_REQUIRED"],
-    ["Flags.page(limit: PAGE_SIZE * 2, after: after)", "Flags.page(after, limit: PAGE_SIZE * 2)", "E_NAMED_ARGUMENTS_REQUIRED"],
+    ["Flags.page(limit: PAGE_SIZE * 2, after: after)", "Flags.page(limit: PAGE_SIZE * 2, unknown: after)", "E_UNKNOWN_NAMED_ARGUMENT"],
   ]) {
     assert.equal(source.split(original).length, 2);
+    const rejectedSource = source.replace(original, replacement);
+    assert.notEqual(rejectedSource, source);
     const rejectedRaw = await nativeBinding.compileKotodama({
-      ...request, source: source.replace(original, replacement),
+      ...request, source: rejectedSource,
     });
     assert.equal(rejectedRaw.ok, false, replacement);
     assert.equal(rejectedRaw.output, null);
@@ -237,20 +256,29 @@ nativeTest("native Kotodama V1 preserves declared arguments and composable value
 
 nativeTest("native Kotodama preserves required argument names for builtins", async () => {
   const source = `seiyaku NativeBuiltinLabels {
-    view fn update() {
+    view fn update() authorize(anyone) {
       var List<int, 2> values = [1];
       let _ = values.try_set(index: 0, value: 1);
+      let _page = ledger::query::accounts(offset: 0, limit: 2);
     }
   }`;
-  const request = { source, sourceName: "contracts/native-builtin-labels.ko", zk: false };
+  const request = { artifacts: [], source, sourceName: "contracts/native-builtin-labels.ko", zk: false };
   const raw = await nativeBinding.compileKotodama(request);
   assert.equal(raw.ok, true, raw.diagnosticsJson);
   assert.equal(raw.diagnosticsJson, null);
   assert.equal(normalizeCompilerResult(raw).ok, true);
 
+  const positionalReceiverSource = source.replace("values.try_set(index: 0, value: 1)", "values.try_set(0, 1)");
+  assert.notEqual(positionalReceiverSource, source);
+  const positionalReceiver = normalizeCompilerResult(await nativeBinding.compileKotodama({
+    ...request, source: positionalReceiverSource,
+  }));
+  assert.equal(positionalReceiver.ok, true);
+
+  const rejectedSource = source.replace("ledger::query::accounts(offset: 0, limit: 2)", "ledger::query::accounts(0, 2)");
+  assert.notEqual(rejectedSource, source);
   const rejectedRaw = await nativeBinding.compileKotodama({
-    ...request,
-    source: source.replace("values.try_set(index: 0, value: 1)", "values.try_set(0, 1)"),
+    ...request, source: rejectedSource,
   });
   assert.equal(rejectedRaw.ok, false);
   assert.equal(rejectedRaw.output, null);

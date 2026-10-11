@@ -58,6 +58,9 @@ pub struct Args {
     /// Exact signed genesis block-header hash.
     #[arg(long, value_name = "HASH")]
     expected_hash: HashOf<BlockHeader>,
+    /// Publish the exact public Nexus AMX context preimage after all four configurations agree.
+    #[arg(long, value_name = "PATH")]
+    nexus_context_output: Option<PathBuf>,
 }
 
 #[derive(norito::JsonSerialize)]
@@ -69,6 +72,7 @@ struct Receipt {
     bound_manifest_sha256: String,
     pre_sign_manifest_sha256: String,
     signed_genesis_sha256: String,
+    nexus_amx_context_sha256: String,
     peer_config_sha256: Vec<String>,
     peer_config_set_sha256: String,
     genesis_public_key: String,
@@ -607,26 +611,43 @@ impl<T: Write> RunArgs<T> for Args {
             color_eyre::eyre::eyre!("prepared genesis failed full core validation: {error}")
         })?;
         let signed_context = manifest.sumeragi_context_parameters();
+        let mut nexus_context = None;
         for (config, binding) in configs.iter().zip(&validator_bindings) {
-            let (nexus_amx_context_hash, execution_policy_hash) =
-                super::staged_signed_sumeragi_context_hashes(&manifest, validated.block(), config)
-                    .wrap_err_with(|| {
-                        format!(
-                            "restage signed genesis under effective validator policy {}",
-                            binding.slug
-                        )
-                    })?;
+            let staged = iroha_deploy::genesis::staging::restage_signed_sumeragi_context_hashes(
+                &manifest,
+                Some(config),
+                validated.block(),
+            )
+            .wrap_err_with(|| {
+                format!(
+                    "restage signed genesis under effective validator policy {}",
+                    binding.slug
+                )
+            })?;
             ensure!(
-                nexus_amx_context_hash == Hash::prehashed(signed_context.nexus_amx_context_hash),
+                staged.nexus_amx_context_hash
+                    == Hash::prehashed(signed_context.nexus_amx_context_hash),
                 "effective validator {} Nexus/AMX context differs from signed genesis",
                 binding.slug
             );
             ensure!(
-                execution_policy_hash == Hash::prehashed(signed_context.execution_policy_hash),
+                staged.execution_policy_hash
+                    == Hash::prehashed(signed_context.execution_policy_hash),
                 "effective validator {} execution policy differs from signed genesis",
                 binding.slug
             );
+            if let Some(original) = &nexus_context {
+                ensure!(
+                    original == &staged.nexus_amx_context_preimage,
+                    "effective validator {} Nexus AMX preimage differs",
+                    binding.slug
+                );
+            } else {
+                nexus_context = Some(staged.nexus_amx_context_preimage);
+            }
         }
+        let nexus_context =
+            nexus_context.ok_or_else(|| eyre!("missing staged Nexus AMX context"))?;
         ensure!(
             validated.validator_pops()
                 == &validator_bindings
@@ -647,6 +668,7 @@ impl<T: Write> RunArgs<T> for Args {
             bound_manifest_sha256: hex::encode(sha256(&manifest_bytes)),
             pre_sign_manifest_sha256: hex::encode(sha256(&pre_sign_bytes)),
             signed_genesis_sha256: hex::encode(sha256(&signed_bytes)),
+            nexus_amx_context_sha256: hex::encode(sha256(&nexus_context)),
             peer_config_set_sha256: config_set_sha256(&peer_config_sha256),
             peer_config_sha256,
             genesis_public_key: self.genesis_public_key.to_string(),
@@ -658,6 +680,15 @@ impl<T: Write> RunArgs<T> for Args {
             staged_context_passed: true,
             full_core_validation_passed: true,
         };
+        if let Some(path) = &self.nexus_context_output {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .wrap_err("create public Nexus AMX context without replacement")?;
+            file.write_all(&nexus_context)?;
+            file.sync_all()?;
+        }
         writeln!(writer, "{}", norito::json::to_json(&receipt)?)?;
         tui::success("Prepared signed genesis bundle verified");
         Ok(())
@@ -847,15 +878,17 @@ mod tests {
                 }
             })
             .collect::<Vec<_>>();
-        let reviewed = super::super::complete_test_genesis_builder_for_peers(
+        let reviewed = super::super::complete_test_genesis_builder(
             GenesisBuilder::new_without_executor(configs[0].common.chain.clone(), ".")
                 .append_parameter(Parameter::Custom(
                     SumeragiNposParameters::default().into_custom_parameter(),
-                )),
-            validator_bindings
-                .iter()
-                .map(|binding| PeerId::new(binding.public_key.clone()))
-                .collect(),
+                ))
+                .set_topology(
+                    validator_bindings
+                        .iter()
+                        .map(|binding| PeerId::new(binding.public_key.clone()))
+                        .collect(),
+                ),
         )
         .build_raw()
         .expect("complete prepared-bundle test genesis")
@@ -1026,6 +1059,10 @@ mod tests {
     }
 
     fn run_fixture(fixture: &Fixture) -> Outcome {
+        run_fixture_output(fixture, None)
+    }
+
+    fn run_fixture_output(fixture: &Fixture, output: Option<PathBuf>) -> Outcome {
         Args {
             reviewed_manifest: fixture.reviewed.clone(),
             validator_roster: fixture.roster.clone(),
@@ -1035,8 +1072,31 @@ mod tests {
             peer_configs: fixture.configs.clone(),
             genesis_public_key: fixture.signer.public_key().clone(),
             expected_hash: fixture.expected_hash,
+            nexus_context_output: output,
         }
         .run(&mut BufWriter::new(Vec::<u8>::new()))
+    }
+
+    #[test]
+    fn prepared_verifier_exports_exact_context_without_replacement() {
+        let fixture = fixture();
+        let output = fixture.signed.with_file_name("nexus-amx-context.v1.bin");
+        run_fixture_output(&fixture, Some(output.clone())).expect("export verified context");
+        let preimage = std::fs::read(&output).expect("read exported context");
+        let signed = iroha_data_model::block::decode_framed_signed_block(
+            &std::fs::read(&fixture.signed).expect("read signed original"),
+        )
+        .expect("decode signed original");
+        let metadata =
+            iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(&signed)
+                .expect("signed genesis metadata");
+        assert_eq!(
+            Hash::new(&preimage),
+            Hash::prehashed(metadata.sumeragi_context.nexus_amx_context_hash)
+        );
+        iroha_data_model::nexus::decode_nexus_amx_context_v1(&preimage).expect("strict context");
+        assert!(run_fixture_output(&fixture, Some(output.clone())).is_err());
+        assert_eq!(std::fs::read(output).unwrap(), preimage);
     }
 
     #[test]

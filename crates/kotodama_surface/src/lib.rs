@@ -7,5 +7,6 @@
 //! on the compiler implementation. Tooling uses the same registry of reserved
 //! source names.
 
+pub mod builtin_docs;
 pub mod builtins;
 pub mod source_policy;

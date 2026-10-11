@@ -24,14 +24,10 @@ pub const DELTA_NOMINAL: Millis = 500;
 /// Nominal local processing delay `δ_nom` used by config validation (§9.4).
 pub const LOCAL_DELAY_NOMINAL: Millis = 50;
 /// Extra frame budget over `max_block_bytes`: the certificate/header allowance plus the
-/// complete bounded control frame, one result witness, compact shares, and worst-case member
-/// key/TC overhead up to the generic core committee bound (§9.4, O10).
+/// complete bounded control frame and worst-case member key/TC overhead up to the generic core committee bound (§9.4, O10).
 #[allow(clippy::cast_possible_truncation, reason = "const operands ≤ 64 KiB")]
 pub const FRAME_OVERHEAD: u32 = 64 * 1024
-    + crate::message::MAX_RESULT_WITNESS_BYTES as u32
-    + crate::types::MAX_COMMITTEE_SIZE as u32
-        * (crate::message::MAX_ATTESTATION_SIGNATURE_BYTES + crate::types::MAX_PUBLIC_KEY_LEN + 64)
-            as u32
+    + crate::types::MAX_COMMITTEE_SIZE as u32 * (crate::types::MAX_PUBLIC_KEY_LEN + 64) as u32
     + crate::types::MAX_CONTROL_WITNESS_BYTES as u32
     + 32;
 /// Upper bound of `T_max_eff` (2^40 ms ≈ 35 years). Up to this bound [`view_timeout`] and
@@ -906,15 +902,12 @@ mod tests {
         assert_eq!(
             u64::from(FRAME_OVERHEAD),
             64 * 1024
-                + crate::message::MAX_RESULT_WITNESS_BYTES as u64
                 + crate::types::MAX_COMMITTEE_SIZE as u64
-                    * (crate::message::MAX_ATTESTATION_SIGNATURE_BYTES
-                        + crate::types::MAX_PUBLIC_KEY_LEN
-                        + 64) as u64
+                    * (crate::types::MAX_PUBLIC_KEY_LEN + 64) as u64
                 + crate::types::MAX_CONTROL_WITNESS_BYTES as u64
                 + 32
         );
-        assert_eq!(FRAME_OVERHEAD, 591_904);
+        assert_eq!(FRAME_OVERHEAD, 264_224);
         let local = LocalParams::default();
         assert_eq!(local.sync_max_bytes, 16 * 1024 * 1024);
         let with_payload = |max_block_bytes: u32| {
@@ -985,11 +978,9 @@ mod tests {
     /// The narrowing casts of `FRAME_OVERHEAD` are lossless: the value matches its `u64` sum.
     #[test]
     fn frame_overhead_is_exact() {
-        let operands =
-            crate::message::MAX_ATTESTATION_SIGNATURE_BYTES + crate::types::MAX_PUBLIC_KEY_LEN + 64;
+        let operands = crate::types::MAX_PUBLIC_KEY_LEN + 64;
         let exact = [
             64 * 1024,
-            crate::message::MAX_RESULT_WITNESS_BYTES,
             crate::types::MAX_COMMITTEE_SIZE * operands,
             crate::types::MAX_CONTROL_WITNESS_BYTES,
             32,

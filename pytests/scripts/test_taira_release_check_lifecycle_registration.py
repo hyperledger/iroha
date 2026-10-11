@@ -81,9 +81,9 @@ class LifecycleRegistrationTests(unittest.TestCase):
         with self.assertRaisesRegex(gate.CheckError, 'module path leaves package'):
             gate.validate_torii_lifecycle_test_registration(self.root)
 
-    def test_required_feature_removed_from_default_closure_is_rejected(self):
+    def test_required_feature_removed_from_selected_closure_is_rejected(self):
         self.replace('Cargo.toml', 'default = ["node-api"]', 'default = []')
-        with self.assertRaisesRegex(gate.CheckError, 'non-default features'):
+        with self.assertRaisesRegex(gate.CheckError, 'unselected features'):
             gate.validate_torii_lifecycle_test_registration(self.root)
 
     def test_registration_failure_stops_before_source_subprocesses_or_rustc(self):
@@ -99,3 +99,28 @@ class LifecycleRegistrationTests(unittest.TestCase):
         mv.assert_called_once_with(self.root)
         child.assert_not_called()
         rust.assert_not_called()
+
+    def test_fixture_authority_is_explicit_in_tests_and_absent_from_shipping_defaults(self):
+        selection = gate.native_harness_selection(("torii-lifecycle",))
+        self.assertEqual(selection, ["-p", "iroha_torii", "--test", "torii_nexus_sorafs",
+                                     "--features", "iroha_torii/test-fixtures"])
+        self.assertIn('default = ["node-api"]', (REPO / PACKAGE / 'Cargo.toml').read_text())
+        gate.validate_torii_lifecycle_test_registration(self.root)
+        with patch.object(gate, 'native_harness_selection', return_value=selection[:-2]):
+            with self.assertRaisesRegex(gate.CheckError, 'unselected features'):
+                gate.validate_torii_lifecycle_test_registration(self.root)
+
+    def test_undeclared_selected_feature_and_unselected_required_feature_are_rejected(self):
+        for kind in ('undeclared', 'unselected'):
+            with self.subTest(kind=kind):
+                (self.root / PACKAGE / 'Cargo.toml').write_bytes((REPO / PACKAGE / 'Cargo.toml').read_bytes())
+                if kind == 'undeclared':
+                    self.replace('Cargo.toml', 'test-fixtures = ["iroha_core/iroha-core-tests"]',
+                                 'removed-fixtures = ["iroha_core/iroha-core-tests"]')
+                    expected = 'selected feature is not declared'
+                else:
+                    self.replace('Cargo.toml', 'required-features = ["app_api", "test-fixtures"]',
+                                 'required-features = ["app_api", "test-fixtures", "ws_integration_tests"]')
+                    expected = 'unselected features'
+                with self.assertRaisesRegex(gate.CheckError, expected):
+                    gate.validate_torii_lifecycle_test_registration(self.root)

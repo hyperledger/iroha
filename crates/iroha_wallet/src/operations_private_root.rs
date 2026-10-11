@@ -209,10 +209,11 @@ impl AccountService {
     /// Clone this exact account context with a deadline shared by every subsequent HTTP request.
     ///
     /// Use the clone for prepare, submit or read-only recovery within one attachment deadline.
-    /// Applying another deadline can only shorten an existing one.
+    /// Applying another deadline can only shorten an existing one. The clone retains the original
+    /// blocking runtime and connection pools, so either view may outlive the other.
     ///
     /// # Errors
-    /// Rejects an elapsed deadline or inability to construct the native blocking facade.
+    /// Rejects an elapsed deadline or invalid bounded account authority binding.
     pub fn with_deadline(&self, deadline: Instant) -> Result<Self> {
         let deadline = self
             .deadline
@@ -222,7 +223,7 @@ impl AccountService {
         }
         Ok(Self {
             config: self.config.clone(),
-            client: Client::from_client(self.client.client().with_request_deadline(deadline))?,
+            client: self.client.with_request_deadline(deadline)?,
             deadline: Some(deadline),
             cancellation: self.cancellation.clone(),
         })

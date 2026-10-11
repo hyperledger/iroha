@@ -44,6 +44,7 @@ public enum ToriiEntrypointValueTypeNodeKindV1
     Unit,
     Error,
     StateCursor,
+    Enum,
 }
 
 /// <summary>Named product metadata for a flat boundary-schema node.</summary>
@@ -81,7 +82,10 @@ public sealed record class ToriiEntrypointValueTypeNodeV1
 
     public ToriiContractErrorTypeDescriptor? ErrorValue { get; init; }
 
-    public ToriiEntrypointValueKindV1? CursorKeyKind { get; init; }
+    public ToriiContractEnumTypeDescriptor? EnumValue { get; init; }
+
+    /// <summary>Complete scalar or tuple key schema authenticated by the cursor.</summary>
+    public ToriiEntrypointValueTypeV1? CursorKeySchema { get; init; }
 }
 
 /// <summary>Exact flat preorder value schema used at a Kotodama V1 public boundary.</summary>
@@ -224,6 +228,24 @@ public sealed record class ToriiContractTriggerDescriptor
     public ToriiContractTriggerCallback Callback { get; init; } = new();
 }
 
+/// <summary>Closed public, declared-role, or runtime lifecycle authorization.</summary>
+public abstract record ToriiEntrypointAuthorizationV1
+{
+    public sealed record Anyone : ToriiEntrypointAuthorizationV1;
+    public sealed record Permission(string Name) : ToriiEntrypointAuthorizationV1;
+    public sealed record RuntimeLifecycle : ToriiEntrypointAuthorizationV1;
+}
+
+/// <summary>Instance role or explicitly imported chain permission.</summary>
+public abstract record ToriiContractPermissionScopeV1
+{
+    public sealed record Instance : ToriiContractPermissionScopeV1;
+    public sealed record Chain(string PermissionName) : ToriiContractPermissionScopeV1;
+}
+
+/// <summary>One signed permission declaration in canonical name order.</summary>
+public sealed record ToriiContractPermissionDescriptorV1(string Name, ToriiContractPermissionScopeV1 Scope);
+
 /// <summary>Exact public interface metadata for one Kotodama entrypoint.</summary>
 public sealed record class ToriiContractEntrypointDescriptor
 {
@@ -250,7 +272,7 @@ public sealed record class ToriiContractEntrypointDescriptor
 
     public ToriiEntrypointValueTypeV1? ReturnSchema { get; init; }
 
-    public string? Permission { get; init; }
+    public required ToriiEntrypointAuthorizationV1 Authorization { get; init; }
 
     public IReadOnlyList<string> ReadKeys
     {
@@ -311,6 +333,36 @@ public sealed record class ToriiContractErrorTypeDescriptor
     }
 }
 
+/// <summary>One named nonzero code within a nominal ordinary enum type.</summary>
+public sealed record class ToriiContractEnumVariantDescriptor
+{
+    public string Name { get; init; } = string.Empty;
+
+    public uint Code { get; init; }
+}
+
+/// <summary>Exact package and source identity with its canonical finite variant schema.</summary>
+public sealed record class ToriiContractEnumTypeDescriptor
+{
+    private ToriiContractEnumVariantDescriptor[] variants = Array.Empty<ToriiContractEnumVariantDescriptor>();
+
+    public string Identity { get; init; } = string.Empty;
+
+    public IReadOnlyList<ToriiContractEnumVariantDescriptor> Variants
+    {
+        get => ToriiListSnapshots.CopyRequired(variants);
+        init => variants = ToriiListSnapshots.CopyNonNullItems(value, nameof(Variants))
+            ?? Array.Empty<ToriiContractEnumVariantDescriptor>();
+    }
+}
+
+/// <summary>Authenticated event declaration with a durable named payload schema.</summary>
+public sealed record class ToriiContractEventDescriptor
+{
+    public required string Name { get; init; }
+    public required ToriiEntrypointValueTypeV1 PayloadType { get; init; }
+}
+
 /// <summary>Authenticated static presentation text for one declared nominal error variant.</summary>
 public sealed record class ToriiContractErrorMessage
 {
@@ -356,9 +408,12 @@ public sealed record class ToriiContractManifest
 {
     private string? codeHash;
     private string? abiHash;
+    private ToriiContractPermissionDescriptorV1[] permissions = Array.Empty<ToriiContractPermissionDescriptorV1>();
     private ToriiContractEntrypointDescriptor[]? entrypoints;
     private ToriiContractStateDescriptor[]? states;
     private ToriiContractErrorTypeDescriptor[]? errorTypes;
+    private ToriiContractEnumTypeDescriptor[] enumTypes = Array.Empty<ToriiContractEnumTypeDescriptor>();
+    private ToriiContractEventDescriptor[] events = Array.Empty<ToriiContractEventDescriptor>();
     private ToriiContractErrorMessage[]? errorMessages;
     private ToriiContractKotobaTranslationEntry[]? kotoba;
 
@@ -381,6 +436,27 @@ public sealed record class ToriiContractManifest
     public ulong? FeaturesBitmap { get; init; }
 
     public ToriiContractAccessSetHints? AccessSetHints { get; init; }
+
+    public required IReadOnlyList<ToriiContractPermissionDescriptorV1> Permissions
+    {
+        get => ToriiListSnapshots.CopyRequired(permissions);
+        init => permissions = ToriiListSnapshots.CopyNonNullItems(value, nameof(Permissions))
+            ?? throw new ArgumentNullException(nameof(Permissions));
+    }
+
+    public required IReadOnlyList<ToriiContractEnumTypeDescriptor> EnumTypes
+    {
+        get => ToriiListSnapshots.CopyRequired(enumTypes);
+        init => enumTypes = ToriiListSnapshots.CopyNonNullItems(value, nameof(EnumTypes))
+            ?? throw new ArgumentNullException(nameof(EnumTypes));
+    }
+
+    public required IReadOnlyList<ToriiContractEventDescriptor> Events
+    {
+        get => ToriiListSnapshots.CopyRequired(events);
+        init => events = ToriiListSnapshots.CopyNonNullItems(value, nameof(Events))
+            ?? throw new ArgumentNullException(nameof(Events));
+    }
 
     public IReadOnlyList<ToriiContractEntrypointDescriptor>? Entrypoints
     {

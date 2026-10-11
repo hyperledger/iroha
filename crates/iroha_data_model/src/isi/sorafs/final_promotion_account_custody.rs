@@ -18,7 +18,7 @@ isi! {
     }
 }
 impl crate::seal::Instruction for MutateSorafsFinalPromotionAccountCustody {}
-impl_sorafs_decode_from_slice!(MutateSorafsFinalPromotionAccountCustody {
+impl_aos_decode_from_slice!(MutateSorafsFinalPromotionAccountCustody {
     deployment_id: String,
     expected_control_revision: u64,
     expected_control_digest: [u8; 32],

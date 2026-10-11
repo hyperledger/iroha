@@ -9,7 +9,7 @@ Only the pinned renderer creates final FD200 units; native code admits credentia
 Static retained path arguments and per-attempt derived assembly arguments have
 separate records. No prior four-file public bundle is accepted as the new closure.
 Runtime signing keys and peer configs are passed only to native code. This module
-also retains the locked operator-custody retirement, seed metadata continuity and
+also retains the locked operator-custody retirement, signer metadata continuity and
 boot publication checks used by the deployed corridor.
 The guest plan explicitly lists retired_public_imports (possibly empty). Each
 closed import names digest-pinned inventory, retirement, binary_manifest and
@@ -54,10 +54,10 @@ PHASES = (
     "prepare-public-inputs",
     "prepare-beacon-inputs",
     "assemble",
-    "seed-pre",
+    "signer-pre",
     "authorize",
     "apply",
-    "seed-post",
+    "signer-post",
     "persistence",
     "public-validation",
 )
@@ -561,6 +561,8 @@ def ssh_host_key_paths(argv, *, proxy=False):
         "checkhostip": "no",
         "connectionattempts": "1",
         "numberofpasswordprompts": "0",
+        # Compress the byte stream before SSH encryption; payload pins stay exact.
+        "compression": "yes",
     }
     require(
         set(options)
@@ -2622,7 +2624,7 @@ CONTINUITY_PREP = None
 CONTINUITY_OUT = None
 CONTINUITY_COMMIT = None
 CONTINUITY_ASSEMBLY = None
-CONTINUITY_SCHEMA = "iroha.kagemusha.fixed4.seed-authority.v1"
+CONTINUITY_SCHEMA = "iroha.taira.fixed4.signer-authority.v1"
 
 
 def _continuity_need(ok, message):
@@ -2675,7 +2677,7 @@ def _continuity_stamp(info):
     }
 
 
-def _continuity_seed_metadata(path):
+def _continuity_signer_metadata(path):
     fd = _continuity_open_direct(path, metadata_only=True)
     try:
         info = os.fstat(fd)
@@ -2684,8 +2686,8 @@ def _continuity_seed_metadata(path):
             and info.st_mode == stat.S_IFREG | 0o600
             and (info.st_uid == 0)
             and (info.st_nlink == 1)
-            and (info.st_size == 32),
-            "Retained FD199 source must be root0600, single-link, 32-byte regular file",
+            and (info.st_size == 71),
+            "Retained FD198 source must be root0600, single-link, 71-byte regular file",
         )
         return _continuity_stamp(info)
     finally:
@@ -2816,21 +2818,22 @@ def _continuity_unit_sources(data, role, renderer):
             and isinstance(node.targets[0], ast.Name)
         ):
             key = node.targets[0].id
-            if key in ("runtime_key", "mint_finality_seed", "cmd"):
+            if key in ("runtime_key", "global_beacon_credential", "cmd"):
                 _continuity_need(
                     key not in fields, "Duplicate generated launcher binding"
                 )
                 fields[key] = ast.literal_eval(node.value)
     _continuity_need(
-        set(fields) == {"runtime_key", "mint_finality_seed", "cmd"},
+        set(fields) == {"runtime_key", "global_beacon_credential", "cmd"}
+        and fields["global_beacon_credential"] is None,
         "Generated signer bindings incomplete",
     )
     _continuity_need(
         renderer["render"](
-            role, fields["runtime_key"], fields["mint_finality_seed"]
+            role, fields["runtime_key"]
         ).encode()
         == data,
-        "Unit is not exact reviewed FD198/FD199 renderer output",
+        "Unit is not exact reviewed FD198 renderer output",
     )
     return fields
 
@@ -2850,36 +2853,30 @@ def _continuity_checked_hash_body(value):
     return value[5:69].lower()
 
 
-def _continuity_mint_finality_peers(manifest):
-    """Read the sole first-release generation-zero authority in native order."""
-    mint = manifest.get("kagemusha_mint_finality")
+def _continuity_topology_peers(manifest):
+    """Read the exact four validator identities from the signed genesis topology."""
     _continuity_need(
-        isinstance(mint, dict) and set(mint) == {"authority_generation"},
-        "Genesis must contain only the first-release mint-finality authority",
+        isinstance(manifest, dict) and isinstance(manifest.get("transactions"), list),
+        "Genesis must contain native transactions and topology",
     )
-    authority = mint["authority_generation"]
-    _continuity_need(
-        isinstance(authority, dict)
-        and type(authority.get("version")) is int
-        and authority["version"] == 1
-        and type(authority.get("generation")) is int
-        and authority["generation"] == 0
-        and isinstance(authority.get("validators"), list),
-        "Genesis must contain a generation-zero mint-finality authority",
-    )
-    rows = authority["validators"]
-    _continuity_need(len(rows) == 4, "Exact four native ordered peers required")
     peers = []
-    for row in rows:
+    for transaction in manifest["transactions"]:
         _continuity_need(
-            isinstance(row, dict)
-            and isinstance(row.get("validator"), str)
-            and bool(row["validator"]),
-            "Mint-finality validator identity is missing",
+            isinstance(transaction, dict)
+            and isinstance(transaction.get("topology", []), list),
+            "Genesis transaction topology is malformed",
         )
-        peers.append(row["validator"])
+        for row in transaction.get("topology", []):
+            _continuity_need(
+                isinstance(row, dict)
+                and isinstance(row.get("peer"), str)
+                and bool(row["peer"]),
+                "Genesis topology peer identity is missing",
+            )
+            peers.append(row["peer"])
     _continuity_need(
-        len(set(peers)) == 4, "Exact four distinct native ordered peers required"
+        len(peers) == len(set(peers)) == 4,
+        "Exact four distinct native topology peers required",
     )
     return peers
 
@@ -2909,11 +2906,15 @@ def _continuity_capture(args):
     manifest = _continuity_parse(
         CONTINUITY_PREP / "network/genesis.json", limit=32 * 1024 * 1024
     )
-    peers = _continuity_mint_finality_peers(manifest)
+    peers = _continuity_topology_peers(manifest)
     renderer = _continuity_load_public_module(
         CONTINUITY_UNIT_RENDERER, CONTINUITY_RENDERER_SHA
     )
     clients = {row["slug"]: row for row in inventory["validator_clients"]}
+    _continuity_need(
+        len(inventory["validators"]) == len(inventory["validator_clients"]) == len(clients) == 4,
+        "Capture requires exactly four distinct validator clients",
+    )
     rows = []
     for index, validator in enumerate(inventory["validators"]):
         role = validator["slug"]
@@ -2950,9 +2951,9 @@ def _continuity_capture(args):
             {
                 "peer_id": clients[role]["peer_id"],
                 "systemd_unit": unit,
-                "seed_path": fields["mint_finality_seed"],
-                "seed_fd": 199,
-                "seed_file": _continuity_seed_metadata(fields["mint_finality_seed"]),
+                "signer_path": fields["runtime_key"],
+                "signer_fd": 198,
+                "signer_file": _continuity_signer_metadata(fields["runtime_key"]),
                 "exe_sha256": exe["sha256"],
                 "config_sha256": config["sha256"],
                 "binding": {
@@ -2982,14 +2983,14 @@ def _continuity_capture(args):
     by_peer = {row["peer_id"]: row for row in rows}
     _continuity_need(
         set(by_peer) == set(peers)
-        and len({(r["seed_file"]["device"], r["seed_file"]["inode"]) for r in rows})
+        and len({(r["signer_file"]["device"], r["signer_file"]["inode"]) for r in rows})
         == 4,
-        "Seed mapping must cover four distinct native peers/source inodes",
+        "Runtime signer mapping must cover four distinct native peers/source inodes",
     )
     rows = [by_peer[peer] for peer in peers]
     CONTINUITY_OUT.mkdir(mode=0o700)
     value = {
-        "schema": "iroha.kagemusha.fixed4.seed-prestart.v1",
+        "schema": "iroha.taira.fixed4.signer-prestart.v1",
         "commit": CONTINUITY_COMMIT,
         "network_id": network_id,
         "genesis_hash": args.genesis_hash,
@@ -3007,7 +3008,7 @@ def _continuity_capture(args):
             {
                 "prestart_path": str(CONTINUITY_OUT / "prestart.json"),
                 "sha256": digest,
-                "seeds_read": False,
+                "signers_read": False,
             }
         )
     )
@@ -3092,7 +3093,8 @@ def _continuity_reconcile(args):
         CONTINUITY_OUT / "prestart.json", expected=args.prestart_sha256
     )
     _continuity_need(
-        before["commit"] == CONTINUITY_COMMIT
+        before["schema"] == "iroha.taira.fixed4.signer-prestart.v1"
+        and before["commit"] == CONTINUITY_COMMIT
         and before["genesis_hash"] == args.genesis_hash
         and (
             before["boot_id"]
@@ -3108,27 +3110,27 @@ def _continuity_reconcile(args):
         Path(args.local_node_module), args.local_node_sha256
     )["LocalNode"]
     _continuity_need(
-        isinstance(getattr(args, "seed_observation_source", None), str)
-        and len(args.seed_observation_source) <= 350 * 1024
-        and isinstance(getattr(args, "seed_observation_sha256", None), str)
-        and re.fullmatch("[0-9a-f]{64}", args.seed_observation_sha256),
-        "Explicit maintained seed observation helper required",
+        isinstance(getattr(args, "signer_observation_source", None), str)
+        and len(args.signer_observation_source) <= 350 * 1024
+        and isinstance(getattr(args, "signer_observation_sha256", None), str)
+        and re.fullmatch("[0-9a-f]{64}", args.signer_observation_sha256),
+        "Explicit maintained signer observation helper required",
     )
-    observation_raw = base64.b64decode(args.seed_observation_source, validate=True)
+    observation_raw = base64.b64decode(args.signer_observation_source, validate=True)
     _continuity_need(
         len(observation_raw) <= 256 * 1024
-        and hashlib.sha256(observation_raw).hexdigest() == args.seed_observation_sha256,
-        "Exact maintained seed observation helper required",
+        and hashlib.sha256(observation_raw).hexdigest() == args.signer_observation_sha256,
+        "Exact maintained signer observation helper required",
     )
-    observation = {"__name__": "reviewed_seed_observation"}
-    exec(compile(observation_raw, "<maintained-seed-observation>", "exec"), observation)
+    observation = {"__name__": "reviewed_signer_observation"}
+    exec(compile(observation_raw, "<maintained-signer-observation>", "exec"), observation)
     receipt_rows = []
     observations = []
     genesis_block_hash = None
     for row in before["nodes"]:
         _continuity_need(
-            _continuity_seed_metadata(row["seed_path"]) == row["seed_file"],
-            "Retained seed changed after pre-start capture",
+            _continuity_signer_metadata(row["signer_path"]) == row["signer_file"],
+            "Retained signer changed after pre-start capture",
         )
         state = _continuity_systemd(row["systemd_unit"])
         _continuity_need(
@@ -3158,15 +3160,15 @@ def _continuity_reconcile(args):
         node.assert_identity()
         _continuity_need(
             _continuity_systemd(row["systemd_unit"]) == state
-            and _continuity_seed_metadata(row["seed_path"]) == row["seed_file"],
-            "Process/unit/retained seed changed during successful startup observation",
+            and _continuity_signer_metadata(row["signer_path"]) == row["signer_file"],
+            "Process/unit/retained signer changed during successful startup observation",
         )
         keys = (
             "peer_id",
             "systemd_unit",
-            "seed_path",
-            "seed_fd",
-            "seed_file",
+            "signer_path",
+            "signer_fd",
+            "signer_file",
             "exe_sha256",
             "config_sha256",
         )
@@ -3200,18 +3202,18 @@ def _continuity_reconcile(args):
         "genesis_block_hash": genesis_block_hash,
         "nodes": receipt_rows,
     }
-    digest = _continuity_write(CONTINUITY_OUT / "seed-authority-receipt.json", receipt)
+    digest = _continuity_write(CONTINUITY_OUT / "signer-authority-receipt.json", receipt)
     print(
         json.dumps(
             {
-                "seed_authority_receipt": {
-                    "path": str(CONTINUITY_OUT / "seed-authority-receipt.json"),
+                "signer_authority_receipt": {
+                    "path": str(CONTINUITY_OUT / "signer-authority-receipt.json"),
                     "sha256": digest,
                 },
                 "public_process_bindings": str(
                     CONTINUITY_OUT / "public-process-bindings.json"
                 ),
-                "seeds_read": False,
+                "signers_read": False,
             }
         )
     )
@@ -3219,7 +3221,7 @@ def _continuity_reconcile(args):
 
 # Boot custody and evidence
 BOOT_SOURCE_MANIFEST = None
-BOOT_SEED = None
+BOOT_SIGNER = None
 BOOT_ROOT = None
 BOOT_OUT = None
 BOOT_NGINX_SHA = None
@@ -3546,16 +3548,17 @@ def _boot_main(request):
         "actual transfer differs",
     )
     pre = json.loads(
-        _boot_read(BOOT_SEED / "prestart.json", request["prestart_sha256"])
+        _boot_read(BOOT_SIGNER / "prestart.json", request["prestart_sha256"])
     )
     authority = json.loads(
         _boot_read(
-            BOOT_SEED / "seed-authority-receipt.json", request["authority_sha256"]
+            BOOT_SIGNER / "signer-authority-receipt.json", request["authority_sha256"]
         )
     )
-    startup = json.loads(_boot_read(BOOT_SEED / "startup-evidence.json"))
+    startup = json.loads(_boot_read(BOOT_SIGNER / "startup-evidence.json"))
     _boot_need(
-        pre["commit"] == BOOT_COMMIT
+        pre["schema"] == "iroha.taira.fixed4.signer-prestart.v1"
+        and pre["commit"] == BOOT_COMMIT
         and pre["genesis_hash"] == BOOT_GENESIS
         and (
             pre["boot_id"]
@@ -3564,12 +3567,12 @@ def _boot_main(request):
         "pre/post boot identity differs",
     )
     _boot_need(
-        authority["schema"] == "iroha.kagemusha.fixed4.seed-authority.v1"
+        authority["schema"] == "iroha.taira.fixed4.signer-authority.v1"
         and authority["network_id"]
         == authority["genesis_block_hash"]
         == pre["network_id"]
         and (len(authority["nodes"]) == 4),
-        "actual seed authority proof differs",
+        "actual signer authority proof differs",
     )
     _boot_need(
         startup["prestart_sha256"] == request["prestart_sha256"]
@@ -3601,7 +3604,7 @@ def _boot_main(request):
     _boot_need(
         len(peers) == 4
         and {row["peer_id"] for row in authority["nodes"]} == set(peers),
-        "seed authority peer binding differs",
+        "signer authority peer binding differs",
     )
     pids = {
         peers[row["peer_id"]]["systemd_unit"]: row["main_pid"]
@@ -3727,7 +3730,7 @@ def local_arguments(raw, qualification_scope):
         ("--onboarding-token", 1),
     ) + ((("--inrou-stage-dir", 1),) if qualification_scope == "full_inrou" else ()) + (
         ("--validator-unit", 4),
-        ("--edge-unit", 1),
+        ("--native-edge-capability", 1),
         ("--known-hosts", 1),
     )
     require(
@@ -3810,7 +3813,7 @@ def prepare_beacon_arguments(cli, assembly, plan, static_args, arguments, draft,
         data = public_record(initial, retained["systemd_unit_sha256"], owner=0)
         fields = _continuity_unit_sources(data, validator["slug"], renderer)
         rendered = renderer["render"](
-            validator["slug"], fields["runtime_key"], fields["mint_finality_seed"],
+            validator["slug"], fields["runtime_key"],
             row["credential_path"], config_file=row["config_file"])
         require(isinstance(rendered, str), "authenticated renderer omitted exact unit text")
         path = units / validator["systemd_unit"]
@@ -4026,7 +4029,7 @@ def preserve_preapply_outputs(attempt):
         not (attempt / "apply-started.json").exists(),
         "native apply frontier forbids preapply replay",
     )
-    names = {"assembly", "seed-continuity", "native", "failure.json"}
+    names = {"assembly", "signer-continuity", "native", "failure.json"}
     names.update(path.name for path in attempt.glob("*-phase.json"))
     names.update(path.name for path in attempt.glob("capacity-*.json"))
     existing = [attempt / name for name in sorted(names) if (attempt / name).exists()]
@@ -4095,7 +4098,7 @@ def configure_protocols(
         "CONTINUITY_RUNTIME": runtime,
         "CONTINUITY_PREP": Path(plan["prep_root"]),
         "CONTINUITY_ASSEMBLY": attempt / "assembly",
-        "CONTINUITY_OUT": attempt / "seed-continuity",
+        "CONTINUITY_OUT": attempt / "signer-continuity",
         "CONTINUITY_UNIT_RENDERER": Path(plan["unit_renderer"]["path"]),
         "CONTINUITY_RENDERER_SHA": plan["unit_renderer"]["sha256"],
         "CONTINUITY_COMMIT": commit,
@@ -4106,7 +4109,7 @@ def configure_protocols(
         "BOOT_NGINX_SHA": inventory["edge"]["systemd_unit_sha256"],
         "BOOT_BINARY_MANIFEST": Path(plan["binary_manifest"]),
         "BOOT_SOURCE_MANIFEST": Path(plan["source_manifest"]),
-        "BOOT_SEED": attempt / "seed-continuity",
+        "BOOT_SIGNER": attempt / "signer-continuity",
         "BOOT_ASSEMBLY": attempt / "assembly",
         "BOOT_EXPECTED_MAC": plan["expected_mac"],
     }
@@ -4945,18 +4948,18 @@ def guest_locked(request, capacity, root):
             "fresh native identity differs",
         )
         completed.append(phase)
-        phase = "seed-pre"
-        seed_args = SimpleNamespace(
+        phase = "signer-pre"
+        signer_args = SimpleNamespace(
             commit=binary["commit"],
             genesis_hash=inventory["next_genesis_hash"],
             prestart_sha256=None,
             local_node_module=plan["local_node"]["path"],
             local_node_sha256=plan["local_node"]["sha256"],
-            seed_observation_source=request.get("seed_observation_source"),
-            seed_observation_sha256=request.get("seed_observation_sha256"),
+            signer_observation_source=request.get("signer_observation_source"),
+            signer_observation_sha256=request.get("signer_observation_sha256"),
         )
-        call_phase(phase, lambda: _continuity_capture(seed_args), attempt)
-        seed_args.prestart_sha256 = hashlib.sha256(
+        call_phase(phase, lambda: _continuity_capture(signer_args), attempt)
+        signer_args.prestart_sha256 = hashlib.sha256(
             public_record(CONTINUITY_OUT / "prestart.json", owner=0, private=True)
         ).hexdigest()
         completed.append(phase)
@@ -4993,12 +4996,12 @@ def guest_locked(request, capacity, root):
             / (assembled["deployment_id"] + ".journal.json"),
         )
         completed.append(phase)
-        phase = "seed-post"
-        call_phase(phase, lambda: _continuity_reconcile(seed_args), attempt)
+        phase = "signer-post"
+        call_phase(phase, lambda: _continuity_reconcile(signer_args), attempt)
         completed.append(phase)
         authority_sha = hashlib.sha256(
             public_record(
-                CONTINUITY_OUT / "seed-authority-receipt.json", owner=0, private=True
+                CONTINUITY_OUT / "signer-authority-receipt.json", owner=0, private=True
             )
         ).hexdigest()
         phase = "persistence"
@@ -5009,7 +5012,7 @@ def guest_locked(request, capacity, root):
                     "commit": binary["commit"],
                     "transfer_sha256": request["binary_sha256"],
                     "source_sha256": request["source_sha256"],
-                    "prestart_sha256": seed_args.prestart_sha256,
+                    "prestart_sha256": signer_args.prestart_sha256,
                     "authority_sha256": authority_sha,
                 }
             ),
@@ -5056,7 +5059,7 @@ def guest_locked(request, capacity, root):
         "completed": completed,
         "private_attempt": str(attempt),
         "native_apply_passed": True,
-        "seed_continuity_passed": True,
+        "signer_continuity_passed": True,
         "boot_persistence_passed": True,
         "public_endpoints_verified": True,
         "public_application_validation_completed": False,
@@ -5095,12 +5098,12 @@ def preserve_postcondition_outputs(attempt):
         "result.json",
         "boot-persistence",
         "native/public-validation",
-        "seed-post-phase.json",
+        "signer-post-phase.json",
         "persistence-phase.json",
         "public-validation-phase.json",
-        "seed-continuity/startup-evidence.json",
-        "seed-continuity/public-process-bindings.json",
-        "seed-continuity/seed-authority-receipt.json",
+        "signer-continuity/startup-evidence.json",
+        "signer-continuity/public-process-bindings.json",
+        "signer-continuity/signer-authority-receipt.json",
     ]
     existing = [name for name in relative if (attempt / name).exists()]
     if not existing:
@@ -5204,9 +5207,9 @@ def public_validation(binary, inventory, directory):
             observed[name] = decode(
                 public_record(log / "body.json", owner=0, private=True, limit=1024 * 1024)
             )
-    seed = decode(
+    signer = decode(
         public_record(
-            CONTINUITY_OUT / "seed-authority-receipt.json", owner=0, private=True
+            CONTINUITY_OUT / "signer-authority-receipt.json", owner=0, private=True
         )
     )
     status, rpc = observed["status"], observed["mcp"]
@@ -5215,7 +5218,7 @@ def public_validation(binary, inventory, directory):
         and status["build"].get("target_triple") == "aarch64-unknown-linux-gnu"
         and type(observed["tip"]) is int
         and observed["tip"] > 0
-        and observed["network"].get("network_id") == seed["network_id"]
+        and observed["network"].get("network_id") == signer["network_id"]
         and observed["network"].get("chain_discriminant") == 369,
         "public source, committed tip or NetworkId differs from the completed deployment",
     )
@@ -5232,7 +5235,7 @@ def public_validation(binary, inventory, directory):
         "public_readiness_passed": True,
         "public_source_passed": True,
         "public_mcp_health_passed": True,
-        "public_network_id": seed["network_id"],
+        "public_network_id": signer["network_id"],
         "public_tip": observed["tip"],
         "application_validation_completed": False,
     }
@@ -5244,7 +5247,7 @@ def resume_postconditions(request, attempt, terminal_path):
     """After proven native completion, repeat only observations and idempotent boot enable."""
     plan, binary, source = request["plan"], request["binary"], request["source"]
     started = time.monotonic()
-    phase = "seed-post"
+    phase = "signer-post"
     with completed_execution_lock(plan):
         proof = completed_attempt(plan, attempt, required=True)
         require(
@@ -5276,7 +5279,7 @@ def resume_postconditions(request, attempt, terminal_path):
             binary,
             arguments,
         )
-        seed_args = SimpleNamespace(
+        signer_args = SimpleNamespace(
             commit=binary["commit"],
             genesis_hash=inventory["next_genesis_hash"],
             prestart_sha256=hashlib.sha256(
@@ -5284,18 +5287,18 @@ def resume_postconditions(request, attempt, terminal_path):
             ).hexdigest(),
             local_node_module=plan["local_node"]["path"],
             local_node_sha256=plan["local_node"]["sha256"],
-            seed_observation_source=request.get("seed_observation_source"),
-            seed_observation_sha256=request.get("seed_observation_sha256"),
+            signer_observation_source=request.get("signer_observation_source"),
+            signer_observation_sha256=request.get("signer_observation_sha256"),
         )
         preserve_postcondition_outputs(attempt)
-        completed = list(PHASES[: PHASES.index("seed-post")])
+        completed = list(PHASES[: PHASES.index("signer-post")])
         try:
-            call_phase(phase, lambda: _continuity_reconcile(seed_args), attempt)
+            call_phase(phase, lambda: _continuity_reconcile(signer_args), attempt)
             completed.append(phase)
             phase = "persistence"
             authority_sha = hashlib.sha256(
                 public_record(
-                    CONTINUITY_OUT / "seed-authority-receipt.json",
+                    CONTINUITY_OUT / "signer-authority-receipt.json",
                     owner=0,
                     private=True,
                 )
@@ -5307,7 +5310,7 @@ def resume_postconditions(request, attempt, terminal_path):
                         "commit": binary["commit"],
                         "transfer_sha256": request["binary_sha256"],
                         "source_sha256": request["source_sha256"],
-                        "prestart_sha256": seed_args.prestart_sha256,
+                        "prestart_sha256": signer_args.prestart_sha256,
                         "authority_sha256": authority_sha,
                     }
                 ),
@@ -5354,7 +5357,7 @@ def resume_postconditions(request, attempt, terminal_path):
         "qualification_scope": inventory["qualification_scope"],
         "private_attempt": str(attempt),
         "native_apply_passed": True,
-        "seed_continuity_passed": True,
+        "signer_continuity_passed": True,
         "boot_persistence_passed": True,
         "public_endpoints_verified": True,
         "public_application_validation_completed": False,
@@ -5512,12 +5515,12 @@ def main():
     capacity_source = public_record(
         Path(__file__).resolve().with_name("taira_disk_capacity.py"), limit=1024 * 1024
     )
-    seed_observation_source = public_record(
-        Path(__file__).resolve().with_name("taira_seed_observation.py"), limit=256 * 1024
+    signer_observation_source = public_record(
+        Path(__file__).resolve().with_name("taira_signer_observation.py"), limit=256 * 1024
     )
     request = {
-        "seed_observation_source": base64.b64encode(seed_observation_source).decode(),
-        "seed_observation_sha256": hashlib.sha256(seed_observation_source).hexdigest(),
+        "signer_observation_source": base64.b64encode(signer_observation_source).decode(),
+        "signer_observation_sha256": hashlib.sha256(signer_observation_source).hexdigest(),
         "plan": plan["guest"],
         "commit": commit,
         "build": records["preparation"],

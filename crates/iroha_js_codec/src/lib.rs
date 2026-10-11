@@ -59,6 +59,7 @@ use iroha_data_model::isi::MintBox;
 use iroha_data_model::isi::RecordKaigiUsage;
 use iroha_data_model::isi::Register;
 use iroha_data_model::isi::RegisterBox;
+use iroha_data_model::isi::RegisterDataspaceAssetDefinition;
 use iroha_data_model::isi::RegisterKaigiRelay;
 use iroha_data_model::isi::RegisterPeerWithPop;
 use iroha_data_model::isi::RemoveKeyValue;
@@ -1310,6 +1311,20 @@ where
 /// Returns an error when the value is not an instruction object, names an unsupported
 /// instruction, or violates the strict contract of the named instruction.
 pub fn value_to_instruction(value: json::Value) -> CodecResult<InstructionBox> {
+    // This standalone registration has one exact envelope and a full-width native dataspace
+    // field. Refuse additional instruction keys before any other parser can consume them.
+    if let json::Value::Object(fields) = &value
+        && fields.contains_key("RegisterDataspaceAssetDefinition")
+    {
+        require_exact_json_fields(
+            fields,
+            &["RegisterDataspaceAssetDefinition"],
+            "direct-dataspace asset registration envelope",
+        )?;
+        return register_dataspace_asset_definition_from_json(
+            fields["RegisterDataspaceAssetDefinition"].clone(),
+        );
+    }
     // Check the complete artifact envelope before a generic parser can consume
     // a different key (including a null/non-object payload) and hide it.
     if let json::Value::Object(fields) = &value
@@ -1380,6 +1395,9 @@ pub fn value_to_instruction(value: json::Value) -> CodecResult<InstructionBox> {
             || instruction.as_any().is::<RegisterSmartContractCode>()
             || instruction.as_any().is::<RegisterSmartContractBytes>()
             || instruction.as_any().is::<RemoveSmartContractBytes>()
+            || instruction
+                .as_any()
+                .is::<RegisterDataspaceAssetDefinition>()
         {
             return Err(CodecError::new(
                 CodecErrorKind::InvalidArgument,
@@ -1943,6 +1961,18 @@ fn cancel_smart_contract_code_upload_from_json(
     Ok(InstructionBox::from(CancelSmartContractCodeUpload {
         artifact_id,
     }))
+}
+
+/// Admit the exact native fields of a direct-dataspace registration.
+fn register_dataspace_asset_definition_from_json(
+    value: json::Value,
+) -> CodecResult<InstructionBox> {
+    let instruction: RegisterDataspaceAssetDefinition =
+        strict_typed_instruction(&value, "RegisterDataspaceAssetDefinition")?;
+    instruction
+        .validate()
+        .map_err(|error| CodecError::new(CodecErrorKind::InvalidArgument, error.to_string()))?;
+    Ok(instruction.into())
 }
 
 /// Admit the strict `Register` instruction payload.
@@ -3654,6 +3684,7 @@ fn ledger_instruction_to_json(
     instruction: &dyn InstructionTrait,
 ) -> Option<CodecResult<json::Value>> {
     render_variants_as(instruction, register_box_to_json)
+        .or_else(|| render_as(instruction, register_dataspace_asset_definition_to_json))
         .or_else(|| render_variants_as(instruction, unregister_box_to_json))
         .or_else(|| render_variants_as(instruction, mint_box_to_json))
         .or_else(|| render_variants_as(instruction, transfer_box_to_json))
@@ -4263,6 +4294,19 @@ fn set_key_value_box_to_json(set_key_value: &SetKeyValueBox) -> CodecResult<Opti
         return Ok(Some(json::Value::Object(outer)));
     }
     Ok(None)
+}
+
+/// Render a direct-dataspace registration without narrowing its dataspace ID.
+fn register_dataspace_asset_definition_to_json(
+    registration: &RegisterDataspaceAssetDefinition,
+) -> CodecResult<json::Value> {
+    registration
+        .validate()
+        .map_err(|error| CodecError::new(CodecErrorKind::InvalidArgument, error.to_string()))?;
+    Ok(instruction_envelope(
+        "RegisterDataspaceAssetDefinition",
+        json::to_value(registration).map_err(codec_error)?,
+    ))
 }
 
 /// Render `SetAssetDefinitionAlias` through its strict JSON contract.

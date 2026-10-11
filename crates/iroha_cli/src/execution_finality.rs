@@ -917,8 +917,8 @@ mod tests {
         );
     }
     #[test]
-    fn original_zero_top_up_boundary_continues_native_finality_across_files() {
-        // Actual original Core execution and paired-Pasta verification, with a genuinely
+    fn original_epoch_boundary_continues_native_finality_across_files() {
+        // Actual original Core execution and native finality verification, with a genuinely
         // proved DKG seeded as component prestate. This is not a live ceremony test.
         let mut chain = CertifiedTestChain::npos_boundary_fixture();
         let checkpoint = build_checkpoint(&chain.state().view(), 9).unwrap();
@@ -944,8 +944,6 @@ mod tests {
             .unwrap();
         let verified = stream.latest.as_ref().unwrap();
         assert_eq!(verified.height(), 10);
-        assert_eq!(verified.execution().kagemusha_top_up_count, 0);
-        assert!(verified.execution().kagemusha_top_up_root.is_none());
         let selected = verified
             .commitment()
             .schedule
@@ -955,8 +953,8 @@ mod tests {
             .next
             .clone();
         assert_eq!(
-            selected.authority,
-            verified.commitment().schedule.current.authority
+            selected.generation(),
+            verified.commitment().schedule.current.generation()
         );
         assert_eq!(
             selected.authorization.epoch,
@@ -965,9 +963,7 @@ mod tests {
         let certificate = verified.block().commit_certificate().unwrap();
         let qc: iroha_sumeragi::message::Qc =
             norito::decode_canonical(certificate.commit_qc()).unwrap();
-        assert!(qc.attest);
-        assert_eq!(qc.attestations.len(), 3);
-        assert!(qc.attestation_witness.is_some());
+        assert_eq!(qc.signers.count_ones(), 3);
         stream
             .consume(&[norito::encode_canonical(&child).unwrap()])
             .expect("authenticated epoch successor across another file boundary");

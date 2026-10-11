@@ -2,7 +2,7 @@
 seiyaku CompilerFixture {
 
 fn rhs() -> bool { return true; }
-view fn both(bool value) -> bool { return value && rhs(); }
-view fn either(bool value) -> bool { return value || rhs(); }
+view fn both(bool value) authorize(anyone) -> bool { return value && rhs(); }
+view fn either(bool value) authorize(anyone) -> bool { return value || rhs(); }
 
 }

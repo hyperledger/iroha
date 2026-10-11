@@ -15,17 +15,17 @@ class RamLfeOutputOpeningPayload(
 ) {
     fun toJsonMap(): Map<String, Any> {
         val payload = LinkedHashMap<String, Any>()
-        payload["program_id"] = HttpClientTransport.normalizeNonBlank(programId, "opening.payload.programId")
+        payload["program_id"] = linkedMapOf("name" to IdentifierOwnerInputV1.exactText(programId, "opening.payload.programId"))
         payload["input_ciphertext_hash"] =
-            HttpClientTransport.normalizeHex32(inputCiphertextHash, "opening.payload.inputCiphertextHash")
+            IdentifierOwnerInputV1.modelHashLiteral(inputCiphertextHash)
         payload["output_ciphertext_hash"] =
-            HttpClientTransport.normalizeHex32(outputCiphertextHash, "opening.payload.outputCiphertextHash")
+            IdentifierOwnerInputV1.modelHashLiteral(outputCiphertextHash)
         payload["parameter_digest"] =
-            HttpClientTransport.normalizeHex32(parameterDigest, "opening.payload.parameterDigest")
+            IdentifierOwnerInputV1.modelHashLiteral(parameterDigest)
         payload["evaluation_key_digest"] =
-            HttpClientTransport.normalizeHex32(evaluationKeyDigest, "opening.payload.evaluationKeyDigest")
+            IdentifierOwnerInputV1.modelHashLiteral(evaluationKeyDigest)
         payload["opened_output_hash"] =
-            HttpClientTransport.normalizeHex32(openedOutputHash, "opening.payload.openedOutputHash")
+            IdentifierOwnerInputV1.modelHashLiteral(openedOutputHash)
         payload["opened_at_ms"] = openedAtMs
         if (expiresAtMs != null) {
             payload["expires_at_ms"] = expiresAtMs
@@ -34,7 +34,7 @@ class RamLfeOutputOpeningPayload(
     }
 }
 
-/** Externally attested opening of a RAM-LFE encrypted output. */
+/** Original externally signed opening; JSON uses the exact typed Model grammar. */
 class RamLfeOutputOpening(
     @JvmField val payload: RamLfeOutputOpeningPayload,
     @JvmField val signature: String,
@@ -42,7 +42,7 @@ class RamLfeOutputOpening(
     fun toJsonMap(): Map<String, Any> {
         val opening = LinkedHashMap<String, Any>()
         opening["payload"] = payload.toJsonMap()
-        opening["signature"] = HttpClientTransport.normalizeEvenLengthHex(signature, "opening.signature")
+        opening["signature"] = IdentifierOwnerInputV1.rawSignature(signature, "opening.signature").uppercase()
         return opening
     }
 }

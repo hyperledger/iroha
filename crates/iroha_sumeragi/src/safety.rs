@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     api::{HaltReason, LocalFault},
-    crypto::{AttestationVerifier, Crypto},
+    crypto::Crypto,
     message::{self, Qc, TimeoutCert, VoteKind},
     types::{Committee, EpochConfig, EpochId, Hash32, PublicKey, ValidatorIndex},
 };
@@ -30,7 +30,7 @@ pub struct RecordedProposal {
     pub justify: Option<TimeoutCert>,
 }
 
-/// `(view, block_hash, result, attest)` of the last Prepare vote signed.
+/// `(view, block_hash, result)` of the last Prepare vote signed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, norito::Encode, norito::Decode)]
 pub struct RecordedVote {
     /// View of the vote.
@@ -39,9 +39,6 @@ pub struct RecordedVote {
     pub block_hash: Hash32,
     /// Voted result.
     pub result: Hash32,
-    /// The signed attestation flag of the block (§3.7), so a restart re-signs the identical
-    /// preimage.
-    pub attest: bool,
 }
 
 /// `(view, exact PrepareQC carried)` of the last timeout signed.
@@ -363,7 +360,6 @@ impl RestartPlan {
 /// `HaltReason::SafetyRecordInconsistent` when it is missing or does not verify.
 pub fn check_recommit<'a>(
     crypto: &dyn Crypto,
-    verifier: &dyn AttestationVerifier,
     committee_next: &Committee,
     epoch_next: &EpochConfig,
     tip_height: u64,
@@ -383,7 +379,7 @@ pub fn check_recommit<'a>(
                 &epoch_next.id,
                 committee_next,
             )
-            .verify_qc(verifier, qc)
+            .verify_qc(qc)
             .is_ok());
     valid
         .then_some(qc)
@@ -514,7 +510,6 @@ mod tests {
                 view: 3,
                 block_hash: h(2),
                 result: h(3),
-                attest: false,
             }),
             timeout: Some(RecordedTimeout {
                 view: 4,
@@ -741,7 +736,6 @@ mod tests {
                 view: 4,
                 block_hash: h(2),
                 result: h(3),
-                attest: false,
             }),
             timeout: Some(RecordedTimeout {
                 view: 4,
@@ -782,7 +776,6 @@ mod tests {
                 view: 9,
                 block_hash: h(1),
                 result: h(1),
-                attest: false,
             }),
             ..fresh
         };
@@ -956,7 +949,6 @@ mod tests {
         let record = full_record_for(&v, &v.key(1), t + 2);
         let qc = check_recommit(
             &v.crypto,
-            &crate::testing::FakeVerifier,
             &v.committee,
             &crate::testing::TEST_EPOCH,
             t,
@@ -982,7 +974,6 @@ mod tests {
         assert_eq!(
             check_recommit(
                 &v.crypto,
-                &crate::testing::FakeVerifier,
                 &v.committee,
                 &crate::testing::TEST_EPOCH,
                 t,
@@ -998,7 +989,6 @@ mod tests {
         assert_eq!(
             check_recommit(
                 &v.crypto,
-                &crate::testing::FakeVerifier,
                 &v.committee,
                 &crate::testing::TEST_EPOCH,
                 t,
@@ -1017,7 +1007,6 @@ mod tests {
         assert_eq!(
             check_recommit(
                 &v.crypto,
-                &crate::testing::FakeVerifier,
                 &v.committee,
                 &crate::testing::TEST_EPOCH,
                 t,
@@ -1030,7 +1019,6 @@ mod tests {
         assert_eq!(
             check_recommit(
                 &other.crypto,
-                &crate::testing::FakeVerifier,
                 &other.committee,
                 &crate::testing::TEST_EPOCH,
                 t,
@@ -1042,7 +1030,6 @@ mod tests {
         assert_eq!(
             check_recommit(
                 &v.crypto,
-                &crate::testing::FakeVerifier,
                 &v.committee,
                 &crate::testing::TEST_EPOCH,
                 t + 1,

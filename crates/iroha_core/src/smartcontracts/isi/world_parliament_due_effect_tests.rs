@@ -427,7 +427,8 @@ fn parliament_validation_fee_payout_lifecycle_enacts_at_the_exact_due_height() {
                 .cloned()
                 .expect("bound payout pool contract address");
             for (permission, required_holder, permission_label) in
-                validation_fee_runtime_permissions(&binding, &pool_contract_address)
+                validation_fee_runtime_permissions(execution, &binding, &pool_contract_address)
+                    .expect("immutable payout manifests declare exact scoped permissions")
             {
                 assert!(
                     execution

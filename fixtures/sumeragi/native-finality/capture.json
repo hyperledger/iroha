@@ -2,69 +2,82 @@
   "format": "iroha.native-finality.checkpoint-fixture-capture",
   "version": 1,
   "chain_id": "portable-native-fixture",
-  "network_id": "hash:29B206F46FD584175943C2AEAE45744DE42D98F3311A263563CE575D48D450FD#5B28",
+  "network_id": "hash:9B2807B326BBEB61CB9A2608E2F7F19F8B1722CE4ED937395F53F0253086B3B7#F3C8",
   "generator": {
     "path": "crates/iroha_data_model/src/sumeragi_finality/test_fixtures.rs",
-    "source_sha256": "9bee8e3830c4b550caf484b0a9dc8264acef93b7496ff08cb7a455019bcbe31b",
+    "source_sha256": "10f24f9aac93da38615e04f621b6a75069b6993cc054cc5af7e948615546e78e",
     "test": "sumeragi_finality::test_fixtures::tests::capture_native_checkpoint_fixtures",
-    "command": "target/cargo-fast/kot/debug/deps/iroha_data_model-6781c17f2d8284ef --exact sumeragi_finality::test_fixtures::tests::capture_native_checkpoint_fixtures --ignored --nocapture",
-    "compiled_harness_path": "target/cargo-fast/kot/debug/deps/iroha_data_model-6781c17f2d8284ef",
-    "compiled_harness_sha256": "d99a03a990bb13a741965006e6902e02c83c99cbd0485410043ce4c742d19d47",
-    "source_commit": "a40f3f05f26825ba8cc7a4b88ac573b13cf1b557",
+    "command": "scripts/cargo_fast.sh --stable-local-metadata --target-slot kg-gadgets --jobs 2 -- test -p iroha_data_model --features test-fixtures,transparent_api --lib sumeragi_finality -- --test-threads=2",
+    "compiled_harness_path": "target/cargo-fast/kg-gadgets/debug/deps/iroha_data_model-5db0bbbc072c8009",
+    "compiled_harness_sha256": "0f91a9aa46097a8fc181070a668acfb46b32197b1a1b37c783ae7bbf92eb4b9e",
+    "source_commit": "538b5fe99730a0686e7de0677cbc2a2477471d09",
     "result_codec_sources": [
       {
         "path": "crates/iroha_data_model/src/sumeragi_finality/commitment.rs",
-        "sha256": "a7ef33684e32e71bece2b86004cf0bf039a4e0445433f6bbd224ac4b3f027167"
+        "sha256": "610a0eaeb052623dfd151a4a2f6b4f2e61370c5b607f9a1efae99a7914b8505d"
       },
       {
         "path": "crates/iroha_data_model/src/sumeragi_finality/commitment/wire.rs",
-        "sha256": "28499d642222c685e5d0eadc628368faac9f51da624f12e8b68a8167ff4e7808"
+        "sha256": "db3da38b8aa7ca944cd2da833c86aa73b1231111d3921172a191a1d92ff8209c"
       },
       {
         "path": "crates/iroha_data_model/src/block/consensus.rs",
-        "sha256": "55b65bee940b64ec8e40fb899b20fedfd312beb064c4e9abd6b6f37dbb904a8f"
+        "sha256": "8517320e218bde582c4f12a9c1a407576f037d0202a5be73ab6e62e301784eea"
       },
       {
         "path": "crates/iroha_data_model/src/block/consensus/root_scope.rs",
         "sha256": "ad6be30e63e85fb95cf1970e7bd51abfb607348f71958a0853fa64d2057405e9"
       }
     ],
-    "source_tree_clean": false
+    "source_tree_clean": false,
+    "checkpoint_codec_source": {
+      "path": "crates/iroha_data_model/src/sumeragi_finality/checkpoint.rs",
+      "sha256": "56a51933c60a016a3a3267766b5b9d06212a602181be835af96483da336e5508"
+    },
+    "consensus_codec_sources": [
+      {
+        "path": "crates/iroha_data_model/src/sumeragi_finality.rs",
+        "sha256": "5cb9fd086a7558fe335f3d92f0dde89752cd82d55ee11c40caef6738c5122fbd"
+      },
+      {
+        "path": "crates/iroha_sumeragi/src/types.rs",
+        "sha256": "0ca0c2e0588d78c95c1c2784c0a578ddae5db8841ef9c5446a86a8f3559d768f"
+      },
+      {
+        "path": "crates/iroha_sumeragi/src/crypto.rs",
+        "sha256": "9395a34eab4c046f008039e6795354a10c1520044adb2af6faa5adb418e02493"
+      }
+    ]
   },
   "captures": [
     {
-      "log": "output/android-device-support-native-20261001/finality-capture-current-1.log",
-      "sha256": "59040b56c15192744e1e150e0d85eba89a8c56511e24e4df86f5098b46d4ce4a",
-      "command": "cargo iroha-fast --target-slot kot --stable-local-metadata --incremental -- test --locked --offline -p iroha_data_model --lib --features test-fixtures sumeragi_finality::test_fixtures::tests::capture_native_checkpoint_fixtures -- --exact --ignored --nocapture",
+      "log": "target/qualification/s22-datamodel-retirement/checkpoint-capture-1.log",
+      "sha256": "ed54dd3b7b190168ae61c7a0a66da9ab1c111153909b22c8cc16ebb3a9ee8926",
+      "command": "target/cargo-fast/kg-gadgets/debug/deps/iroha_data_model-5db0bbbc072c8009 sumeragi_finality::test_fixtures::tests::capture_native_checkpoint_fixtures --exact --ignored --nocapture",
       "result": "1 passed; 0 failed; explicit exporter invocation; complete capture log retained"
     },
     {
-      "log": "output/android-device-support-native-20261001/finality-capture-current-2.log",
-      "sha256": "1fe11881709447bc946bff756583142a8e051293c0472c7fa4a3cf8f908be5b1",
-      "command": "target/cargo-fast/kot/debug/deps/iroha_data_model-6781c17f2d8284ef --exact sumeragi_finality::test_fixtures::tests::capture_native_checkpoint_fixtures --ignored --nocapture",
-      "result": "1 passed; 0 failed; explicit exporter invocation; complete capture log retained"
-    },
-    {
-      "log": "output/android-device-support-native-20261001/finality-capture-current-3.log",
-      "sha256": "65e93afee334ebee9ccdf0a2e11d2d83651fbaabb7ff89475bdf9bf682bd01c4",
-      "command": "target/cargo-fast/kot/debug/deps/iroha_data_model-6781c17f2d8284ef --exact sumeragi_finality::test_fixtures::tests::capture_native_checkpoint_fixtures --ignored --nocapture",
+      "log": "target/qualification/s22-datamodel-retirement/checkpoint-capture-2.log",
+      "sha256": "ed54dd3b7b190168ae61c7a0a66da9ab1c111153909b22c8cc16ebb3a9ee8926",
+      "command": "target/cargo-fast/kg-gadgets/debug/deps/iroha_data_model-5db0bbbc072c8009 sumeragi_finality::test_fixtures::tests::capture_native_checkpoint_fixtures --exact --ignored --nocapture",
       "result": "1 passed; 0 failed; explicit exporter invocation; complete capture log retained"
     }
   ],
-  "byte_identical_runs": 3,
+  "byte_identical_runs": 2,
   "artifacts": [
     {
       "path": "fixtures/sumeragi/native-finality/genesis-checkpoint.nrt",
       "height": 1,
-      "bytes": 27666,
-      "sha256": "cc99319f06b03e4b86ee711f30c5232fbe494656f1e4d11735df1ab9f6f68588"
+      "bytes": 21494,
+      "sha256": "9b249ca758b856481bcf1cd19b2fcd546043865036a79e035ecd7ba76f644e22"
     },
     {
       "path": "fixtures/sumeragi/native-finality/height-2-checkpoint.nrt",
       "height": 2,
-      "bytes": 31838,
-      "sha256": "e6a91812fc3f4399e53fa799f4cb2f8ae368b0f5a791070996a3e70399ff001e"
+      "bytes": 24929,
+      "sha256": "0f62325585493233cf88650c8cd49596677309a65fd83c9e1776f6026514da6c"
     }
   ],
-  "scope": "Deterministic protocol fixtures: exact signed genesis and real native three-of-four BLS H2 certificate plus genuine signed RS16 availability over synthetic outputs, using the sole compact ExecutionResultCommitment schedule projection. Canonical roundtrip and contiguous checkpoint page verified by exporter. No World execution, monetary effect, production custody, network liveness or release qualification claim."
+  "scope": "Deterministic first-release protocol fixtures after generic consensus-attestation retirement: exact signed genesis and genuine native three-of-four BLS H2 CommitQC plus signed RS16 availability over synthetic outputs, using the sole compact ExecutionResultCommitment schedule projection. Canonical roundtrip and contiguous checkpoint page verified by the exporter. No World execution, monetary effect, production custody, network liveness or release qualification claim.",
+  "captured_at_utc": "2026-10-06T11:09:34.267880+00:00"
 }

@@ -7,10 +7,10 @@
 //!   and a different one changes them;
 //! - a mutated witness (overdraft, a debit that ignores the lineage
 //!   `burned_total`, newer policy epoch, early accepted time, a blacklist
-//!   older than the maximum age or issued after the accepted time, `u128`
-//!   overflow) is refused by [`SigmaProver::prove`] with its violation, and
-//!   the engine itself refuses it (a limb lookup input is missing from its
-//!   table);
+//!   older than the maximum age or issued after the accepted time, a Send at
+//!   the lease expiry, `u128` overflow) is refused by
+//!   [`SigmaProver::prove`] with its violation, and the engine itself
+//!   refuses it (a limb lookup input is missing from its table);
 //! - a forger who zeroes the failing range checks so every lookup passes
 //!   gets a proof from the engine, and the verifier rejects it (the zeroed
 //!   check breaks the copy from the checked value);
@@ -19,8 +19,10 @@
 //!
 //! Every byte of a proof, flipped, is rejected; a proof on Pallas verifies
 //! too; a forged identity proves only its own head; a proof under one
-//! selector does not verify under another; keys and proofs do not depend on
-//! the Rayon pool size. All tests here prove for real and are ignored in
+//! selector does not verify under another; a listed counterparty and the
+//! quota rule's violations have no accepted proof; the full mask proves and
+//! verifies at its single-lane `k = 14` shape; keys and proofs do not depend
+//! on the Rayon pool size. All tests here prove for real and are ignored in
 //! debug builds.
 
 mod common;
@@ -28,20 +30,21 @@ mod common;
 use core::fmt::Write as _;
 
 use common::{
-    CHECK_SEED, RELATION_CASES, RELATION_CHECK_CASES, RELATIONS, SEND_BLACKLIST, budget_shape,
-    case_label, folded, forged_witness, recovery, relation_shapes, vesta_params, vesta_prover,
+    CHECK_SEED, RECEIVE_BLACKLIST, RELATION_CASES, RELATION_CHECK_CASES, RELATIONS, SEND_BLACKLIST,
+    SEND_EVERY, SEND_QUOTAS, budget_shape, case_label, folded, forged_witness, pinned_shape,
+    recovery, relation_shapes, vesta_params, vesta_prover,
 };
 use ff::Field;
 use iroha_kagemusha_proof::{
-    ConsumerError, Mutation, ProofFormat, SigmaAllowlist, SigmaError, SigmaProver, SigmaRelation,
-    StepRelation, VerifyingKeyEntry, Violation, check_send, lineage_view_of, sample_witness,
+    ConsumerError, Mutation, SigmaAllowlist, SigmaError, SigmaProver, SigmaRelation, StepRelation,
+    VerifyingKeyEntry, Violation, check_send, lineage_view_of, sample_witness,
 };
 use iroha_pasta::{Ep, Eq, Fp, Fq};
 use iroha_plonk::{ProverConfig, ProverError, create_proof, prove_circuit};
 use rayon::prelude::*;
 
 #[test]
-#[ignore = "20 cases with real proofs; run in release"]
+#[ignore = "30 cases with real proofs; run in release"]
 fn relation_checks_as_real_proofs() {
     let mut cases = 0;
     for relation in relation_shapes() {
@@ -60,9 +63,7 @@ fn relation_checks_as_real_proofs() {
                 let proof = prover.prove(&witness, recovery(2)).expect("proof");
                 assert_eq!(
                     proof.bytes.len(),
-                    shape
-                        .proof_length::<Eq>(ProofFormat::KAGEMUSHA_STEP)
-                        .expect("length")
+                    shape.proof_length::<Eq>().expect("length")
                 );
                 assert_eq!(
                     verifier.verify(&proof.public, &proof.bytes),
@@ -196,8 +197,7 @@ fn every_proof_byte_is_bound() {
 fn pallas_step_proofs_verify() {
     for case in [SigmaRelation::SEND, SigmaRelation::RECEIVE] {
         let shape = budget_shape(folded(case));
-        let prover =
-            SigmaProver::<Ep>::keygen(shape, ProofFormat::KAGEMUSHA_STEP).expect("Pallas keys");
+        let prover = SigmaProver::<Ep>::keygen(shape).expect("Pallas keys");
         let witness = sample_witness::<Fq>(CHECK_SEED, case, Mutation::None);
         let proof = prover.prove(&witness, recovery(5)).expect("Pallas proof");
         assert_eq!(
@@ -206,9 +206,7 @@ fn pallas_step_proofs_verify() {
         );
         assert_eq!(
             proof.bytes.len(),
-            shape
-                .proof_length::<Ep>(ProofFormat::KAGEMUSHA_STEP)
-                .expect("length")
+            shape.proof_length::<Ep>().expect("length")
         );
         let mutated = sample_witness::<Fq>(
             CHECK_SEED,
@@ -230,7 +228,7 @@ fn pallas_step_proofs_verify() {
 /// A witness of the other step is refused before proving, and a proof
 /// verifies only under its own selector of the allowlist.
 #[test]
-#[ignore = "key generation for three selectors; run in release"]
+#[ignore = "key generation for five selectors; run in release"]
 fn proofs_verify_only_under_their_selector() {
     let mut allowlist = SigmaAllowlist::<Eq>::new();
     let mut provers = Vec::new();
@@ -248,13 +246,10 @@ fn proofs_verify_only_under_their_selector() {
             .iter()
             .map(VerifyingKeyEntry::selector)
             .collect::<Vec<_>>(),
-        vec![(3, 0), (3, 1), (4, 0)]
+        vec![(3, 0), (3, 1), (3, 4), (4, 0), (4, 1)]
     );
     for (entry, (_, prover)) in entries.iter().zip(&provers) {
-        let length = prover
-            .shape()
-            .proof_length::<Eq>(ProofFormat::KAGEMUSHA_STEP)
-            .expect("length");
+        let length = prover.shape().proof_length::<Eq>().expect("length");
         assert_eq!(usize::try_from(entry.proof_bytes).expect("u32"), length);
         assert_eq!(entry.transcript()[5..37], entry.verifying_key_digest);
         println!(
@@ -307,6 +302,128 @@ fn proofs_verify_only_under_their_selector() {
     ));
 }
 
+/// A refused witness the engine is asked to prove anyway: it errs, or its
+/// proof is rejected.
+fn engine_refuses(
+    prover: &SigmaProver<Eq>,
+    witness: &iroha_kagemusha_proof::StepWitness<Fp>,
+    label: &str,
+) {
+    let relation = prover.shape().params.relation().relation;
+    let circuit = prover.circuit(witness).expect("circuit");
+    let claimed = witness.evaluate(relation).public();
+    let engine = prove_circuit(
+        prover.params(),
+        prover.proving_key(),
+        &circuit,
+        &[claimed.instance()],
+        recovery(3),
+        ProverConfig::default(),
+    );
+    match engine {
+        Err(error) => println!("M12_REFUSED case={label} engine={error:?}"),
+        Ok(proof) => {
+            assert!(
+                prover.verifier().verify(&claimed, &proof).is_err(),
+                "{label}: the engine's proof of a refused witness verifies"
+            );
+            println!("M12_REFUSED case={label} engine=proved verdict=rejected");
+        }
+    }
+}
+
+/// A listed counterparty has no accepted proof under either step's
+/// blacklist relation; with no list held the same account is proved.
+#[test]
+#[ignore = "real proofs of the blacklist relations; run in release"]
+fn a_listed_counterparty_has_no_accepted_proof() {
+    for case in [SEND_BLACKLIST, RECEIVE_BLACKLIST] {
+        let prover = vesta_prover(budget_shape(folded(case)));
+        let listed = sample_witness::<Fp>(CHECK_SEED, case, Mutation::Listed);
+        assert_eq!(
+            prover.prove(&listed, recovery(2)).map(|proof| proof.bytes),
+            Err(SigmaError::RelationViolated(vec![
+                Violation::BlacklistListed
+            ]))
+        );
+        engine_refuses(&prover, &listed, &case.label());
+        let mut unheld = listed;
+        unheld.predecessor.core.controls.blacklist_version = 0;
+        let unheld_prover = match &mut unheld.inputs {
+            iroha_kagemusha_proof::StepInputs::Send(_) => prover,
+            iroha_kagemusha_proof::StepInputs::Receive(receive) => {
+                receive.request.receiver_blacklist_version = 0;
+                receive.request.receiver_blacklist_root = [0; 32];
+                vesta_prover(budget_shape(folded(SigmaRelation::RECEIVE)))
+            }
+        };
+        let proof = unheld_prover
+            .prove(&unheld, recovery(2))
+            .expect("no list held");
+        assert_eq!(
+            unheld_prover.verifier().verify(&proof.public, &proof.bytes),
+            Ok(())
+        );
+    }
+}
+
+/// The quota relation and the full mask at their single-lane `k = 14`
+/// shape: honest proofs verify; an exceeded window and an untouched kind are
+/// refused by the library and the engine, and a forger who zeroes the
+/// exceeded window's failing range check gets a rejected proof.
+#[test]
+#[ignore = "k = 14 keys and proofs; run in release"]
+fn quota_relations_prove_at_k14() {
+    for case in [SEND_QUOTAS, SEND_EVERY] {
+        let shape = pinned_shape(folded(case), (14, 1));
+        let prover = vesta_prover(shape);
+        let verifier = prover.verifier();
+        let honest = sample_witness::<Fp>(CHECK_SEED + 1, case, Mutation::None);
+        let proof = prover.prove(&honest, recovery(2)).expect("honest proof");
+        assert_eq!(verifier.verify(&proof.public, &proof.bytes), Ok(()));
+        assert_eq!(
+            proof.bytes.len(),
+            shape.proof_length::<Eq>().expect("length")
+        );
+        for (mutation, violation) in [
+            (Mutation::QuotaExceeded, Violation::QuotaExceeded),
+            (Mutation::QuotaUntouched, Violation::QuotaKindUntouched),
+        ] {
+            let witness = sample_witness::<Fp>(CHECK_SEED, case, mutation);
+            let label = format!("{} {mutation:?}", case.label());
+            assert_eq!(
+                prover.prove(&witness, recovery(2)).map(|proof| proof.bytes),
+                Err(SigmaError::RelationViolated(vec![violation])),
+                "{label}"
+            );
+            engine_refuses(&prover, &witness, &label);
+            assert!(
+                verifier
+                    .verify(&witness.evaluate(case).public(), &proof.bytes)
+                    .is_err()
+            );
+        }
+        let exceeded = sample_witness::<Fp>(CHECK_SEED, case, Mutation::QuotaExceeded);
+        let (forged, instance, _) = forged_witness(&prover, &exceeded);
+        let forged_proof = create_proof(
+            prover.params(),
+            prover.proving_key(),
+            &forged,
+            recovery(4),
+            ProverConfig::default(),
+        )
+        .expect("the engine proves the forged witness");
+        let claimed = exceeded.evaluate(case).public();
+        assert_eq!(claimed.instance(), instance);
+        assert!(verifier.verify(&claimed, &forged_proof).is_err());
+        println!(
+            "M12_QUOTA case={} k=14 lanes=1 bytes={} exceeded=refused untouched=refused forged=rejected",
+            case.label(),
+            proof.bytes.len()
+        );
+    }
+}
+
 /// A forger proves a Send from a state with a substituted asset (consistent:
 /// the circuit recomputes everything). The proof verifies for its own
 /// statement, whose predecessor is not the real head; the statement the
@@ -357,12 +474,8 @@ fn keys_and_proofs_do_not_depend_on_the_pool_size() {
                 .build()
                 .expect("pool");
             let (vk, descriptor, proof) = pool.install(|| {
-                let prover = SigmaProver::<Eq>::keygen_with_params(
-                    shape,
-                    ProofFormat::KAGEMUSHA_STEP,
-                    vesta_params(shape.k),
-                )
-                .expect("keys");
+                let prover = SigmaProver::<Eq>::keygen_with_params(shape, vesta_params(shape.k))
+                    .expect("keys");
                 let proof = prover.prove(&witness, recovery(7)).expect("proof");
                 let verifier = prover.verifier();
                 assert_eq!(verifier.verify(&proof.public, &proof.bytes), Ok(()));
@@ -386,4 +499,205 @@ fn keys_and_proofs_do_not_depend_on_the_pool_size() {
             case.label()
         );
     }
+}
+
+#[test]
+#[ignore = "genuine imported sigma proofs on both Pasta curves; run in release"]
+fn installed_sigma_originals_prove_and_preserve_key_continuity() {
+    use iroha_pasta::{PastaCurve, msm::MemoryBudget, poseidon::PoseidonField};
+    use iroha_plonk::{
+        keys::{CosetCachePolicy, pk::artifact::ReadConfig},
+        pcs::ipa::PinnedParams,
+    };
+    fn run<C: PastaCurve>()
+    where
+        C::ScalarExt: PoseidonField,
+    {
+        for relation in [SigmaRelation::SEND, SigmaRelation::RECEIVE] {
+            let shape = budget_shape(folded(relation));
+            let params = PinnedParams::<C>::derive(shape.k).unwrap();
+            // Test fixture production is explicit keygen. Runtime intake below imports only.
+            let producer = SigmaProver::keygen_with_params(shape, params.clone()).unwrap();
+            let original = producer.proving_key().artifact_bytes_v2().unwrap();
+            let verifier = producer.verifier();
+            let imported = SigmaProver::from_original_artifact(
+                shape,
+                params,
+                verifier.descriptor_bytes(),
+                verifier.vk_bytes(),
+                &original,
+                ReadConfig {
+                    maximum_bytes: original.len(),
+                    maximum_rows: 1 << shape.k,
+                    coset_cache: CosetCachePolicy::OnDemand,
+                    msm_budget: MemoryBudget::DEFAULT,
+                },
+            )
+            .expect("installed sigma original");
+            assert!(!imported.proving_key().has_coset_cache());
+            assert_eq!(
+                imported.proving_key().artifact_bytes_v2().unwrap(),
+                original
+            );
+            assert_eq!(imported.verifier().vk_bytes(), verifier.vk_bytes());
+            assert_eq!(imported.verifier().binding(), verifier.binding());
+            let witness = sample_witness::<C::ScalarExt>(CHECK_SEED, relation, Mutation::None);
+            let proof = imported
+                .prove(&witness, recovery(81))
+                .expect("genuine imported sigma proof");
+            verifier
+                .verify(&proof.public, &proof.bytes)
+                .expect("original installed key");
+            let mut wrong = proof.public;
+            wrong.statement += C::ScalarExt::ONE;
+            assert!(verifier.verify(&wrong, &proof.bytes).is_err());
+        }
+    }
+    run::<Eq>();
+    run::<Ep>();
+}
+
+#[test]
+#[ignore = "genuine sigma PK import refusal against actual source tables; run in release"]
+fn installed_sigma_originals_reject_substitution_bounds_and_wrong_source() {
+    use iroha_pasta::msm::MemoryBudget;
+    use iroha_plonk::{
+        keys::{
+            CosetCachePolicy,
+            pk::artifact::{Error as ArtifactError, ReadConfig},
+        },
+        pcs::ipa::PinnedParams,
+    };
+    let shape = budget_shape(folded(SigmaRelation::SEND));
+    let params = common::vesta_params(shape.k);
+    let producer = SigmaProver::keygen_with_params(shape, params.clone()).unwrap();
+    let original = producer.proving_key().artifact_bytes_v2().unwrap();
+    let verifier = producer.verifier();
+    let config = ReadConfig {
+        maximum_bytes: original.len(),
+        maximum_rows: 1 << shape.k,
+        coset_cache: CosetCachePolicy::OnDemand,
+        msm_budget: MemoryBudget::DEFAULT,
+    };
+    let mount = |bytes: &[u8], selected: ReadConfig| {
+        SigmaProver::from_original_artifact(
+            shape,
+            params.clone(),
+            verifier.descriptor_bytes(),
+            verifier.vk_bytes(),
+            bytes,
+            selected,
+        )
+    };
+    let mut bounded = config;
+    bounded.maximum_bytes -= 1;
+    assert!(matches!(
+        mount(&original, bounded),
+        Err(SigmaError::Artifact(ArtifactError::Length))
+    ));
+    bounded = config;
+    bounded.maximum_rows -= 1;
+    assert!(matches!(
+        mount(&original, bounded),
+        Err(SigmaError::Artifact(ArtifactError::Length))
+    ));
+    assert!(matches!(
+        mount(&original[..original.len() - 1], config),
+        Err(SigmaError::Artifact(ArtifactError::Length))
+    ));
+    let mut extra = original.clone();
+    extra.push(0);
+    assert!(matches!(
+        mount(&extra, config),
+        Err(SigmaError::Artifact(ArtifactError::Length))
+    ));
+    let mut corrupted = original.clone();
+    corrupted[8] ^= 1;
+    assert!(matches!(
+        mount(&corrupted, config),
+        Err(SigmaError::Artifact(ArtifactError::Encoding))
+    ));
+    let vk_len = u32::from_le_bytes(original[40..44].try_into().unwrap()) as usize;
+    let tables_start = 44 + vk_len + 32;
+    corrupted = original.clone();
+    corrupted[tables_start..tables_start + 32].fill(0xff);
+    assert!(matches!(
+        mount(&corrupted, config),
+        Err(SigmaError::Artifact(ArtifactError::Encoding))
+    ));
+    let other_source = budget_shape(folded(SigmaRelation::RECEIVE));
+    assert!(matches!(
+        SigmaProver::from_original_artifact(
+            other_source,
+            params.clone(),
+            verifier.descriptor_bytes(),
+            verifier.vk_bytes(),
+            &original,
+            config,
+        ),
+        Err(SigmaError::Artifact(
+            ArtifactError::Profile | ArtifactError::Source
+        ))
+    ));
+    let other_key = SigmaProver::keygen_with_params(other_source, params.clone())
+        .unwrap()
+        .verifier();
+    assert!(matches!(
+        SigmaProver::from_original_artifact(
+            shape,
+            params.clone(),
+            verifier.descriptor_bytes(),
+            other_key.vk_bytes(),
+            &original,
+            config,
+        ),
+        Err(SigmaError::ArtifactKeyMismatch | SigmaError::VerifyingKey(_))
+    ));
+    assert!(matches!(
+        SigmaProver::from_original_artifact(
+            shape,
+            common::vesta_params(6),
+            verifier.descriptor_bytes(),
+            verifier.vk_bytes(),
+            &original,
+            config,
+        ),
+        Err(SigmaError::ParamsK { .. })
+    ));
+    assert!(matches!(
+        SigmaProver::from_original_artifact(
+            shape,
+            params.clone(),
+            &[0; 32],
+            verifier.vk_bytes(),
+            &original,
+            config,
+        ),
+        Err(SigmaError::Descriptor(_))
+    ));
+    let mut wrong_profile =
+        iroha_plonk::cs::CircuitDescriptorV2::decode(verifier.descriptor_bytes()).unwrap();
+    wrong_profile.instance_types[0] = iroha_plonk::cs::InstanceType::Field;
+    assert!(matches!(
+        SigmaProver::from_original_artifact(
+            shape,
+            params.clone(),
+            &wrong_profile.encode().unwrap(),
+            verifier.vk_bytes(),
+            &original,
+            config,
+        ),
+        Err(SigmaError::Profile)
+    ));
+    assert!(
+        SigmaProver::<Ep>::from_original_artifact(
+            shape,
+            PinnedParams::<Ep>::derive(shape.k).unwrap(),
+            verifier.descriptor_bytes(),
+            verifier.vk_bytes(),
+            &original,
+            config,
+        )
+        .is_err()
+    );
 }

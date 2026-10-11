@@ -111,9 +111,12 @@ impl DriverHost {
                     result: Ok(()),
                 }),
             },
-            Op::Exec(ExecOp::Execute { block, .. }) => out.push(SimOp::Execute {
+            Op::Exec(ExecOp::Execute {
+                block, certified, ..
+            }) => out.push(SimOp::Execute {
                 op: exec_op(self),
                 block: Box::new((*block).clone()),
+                certified,
             }),
             Op::Exec(ExecOp::Discard { height, keep }) => out.push(SimOp::Discard {
                 op: exec_op(self),
@@ -135,12 +138,9 @@ impl DriverHost {
                 block: Box::new(commit.block.clone()),
                 qc: Box::new(commit.qc.clone()),
             }),
-            Op::Exec(ExecOp::BuildControlWitness { .. }) => {
-                self.complete_kernel(Completion::Exec(ExecDone::ControlWitnessBuilt(Ok((
-                    iroha_sumeragi::types::ControlWitness::empty(),
-                    false,
-                )))))
-            }
+            Op::Exec(ExecOp::BuildControlWitness { .. }) => self.complete_kernel(Completion::Exec(
+                ExecDone::ControlWitnessBuilt(Ok(iroha_sumeragi::types::ControlWitness::empty())),
+            )),
             Op::Exec(ExecOp::DriveApplicationControl(_)) => self.complete_kernel(Completion::Exec(
                 ExecDone::ApplicationControlDriven(Ok(None)),
             )),
@@ -193,7 +193,6 @@ impl Host for DriverHost {
             signers: start.signers,
             crypto: start.crypto,
             hasher: Box::new(SimCrypto::new()),
-            attestation: start.attestation,
             now: start.now,
             ingress: Arc::new(Mutex::new(Ingress::new(IngressLimits::default()))),
             config: DriverConfig::default(),
@@ -221,9 +220,9 @@ impl Host for DriverHost {
 
     fn deliver(&mut self, event: Event) {
         match event {
-            Event::PayloadBuilt {
-                payload, attest, ..
-            } => self.complete_kernel(Completion::Exec(ExecDone::Built(Ok((payload, attest))))),
+            Event::PayloadBuilt { payload, .. } => {
+                self.complete_kernel(Completion::Exec(ExecDone::Built(Ok(payload))))
+            }
             other => {
                 if let Some(kernel) = self.kernel() {
                     kernel.deliver(other);
@@ -401,4 +400,33 @@ fn payload_action(request: super::super::serve::ServeRequest) -> Option<Action> 
             }
         },
     })
+}
+
+/// Device dispatch retains the core's clock-guard exemption on both execution paths.
+#[test]
+fn execute_device_mapping_preserves_certification() {
+    let block = super::block(
+        1,
+        iroha_sumeragi::types::Hash32([0xa0; 32]),
+        iroha_sumeragi::types::Hash32([0xa1; 32]),
+        iroha_sumeragi::sim::driver::encode_tx(1, false, 0),
+    );
+    let block_hash = super::hash(&block);
+    let mut host = DriverHost::default();
+    for certified in [false, true] {
+        let mut out = Vec::new();
+        host.map(
+            Op::Exec(ExecOp::Execute {
+                block: Arc::new(block.clone()),
+                block_hash,
+                certified,
+            }),
+            &mut out,
+        );
+        assert!(matches!(
+            out.as_slice(),
+            [SimOp::Execute { block: mapped, certified: actual, .. }]
+                if *actual == certified && mapped.as_ref() == &block
+        ));
+    }
 }

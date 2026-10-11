@@ -207,10 +207,11 @@ mod tests {
 
     fn inventory(value: i32) -> ContractSourceInventory {
         ContractSourceInventory {
+            artifacts: Vec::new(),
             root: ContractSourceFile {
                 source_name: "main.ko".into(),
                 source_text: format!(
-                    "seiyaku NativeSource {{ view fn value() -> int {{ return {value}; }} }}"
+                    "seiyaku NativeSource {{ view fn value() authorize(anyone) -> int {{ return {value}; }} }}"
                 ),
             },
             sources: Vec::new(),
@@ -224,49 +225,68 @@ mod tests {
     fn compile(input: &ContractSourceInventory) -> NativeCompilationResult {
         input.validate().unwrap();
         let session = kotodama_lang::session::CompilerSession::default();
-        let output =
-            if input.sources.is_empty() && input.imports.is_empty() && input.packages.is_empty() {
-                session
-                    .build(kotodama_lang::session::CompileRequest {
-                        source: &input.root.source_text,
-                        source_name: Some(&input.root.source_name),
+        let output = if input.sources.is_empty()
+            && input.artifacts.is_empty()
+            && input.imports.is_empty()
+            && input.packages.is_empty()
+        {
+            session
+                .build(kotodama_lang::session::CompileRequest {
+                    source: &input.root.source_text,
+                    source_name: Some(&input.root.source_name),
+                })
+                .unwrap()
+        } else {
+            fn file(input: &ContractSourceFile) -> kotodama_lang::linker::SourceModuleUnit {
+                kotodama_lang::linker::SourceModuleUnit {
+                    source_name: input.source_name.clone(),
+                    source: input.source_text.clone(),
+                }
+            }
+            fn import(input: &ContractSourceImport) -> kotodama_lang::linker::ImportBinding {
+                kotodama_lang::linker::ImportBinding {
+                    alias: input.alias.clone(),
+                    package: input.package.clone(),
+                }
+            }
+            // These fixture clones are deliberately not a production conversion owner. Native
+            // registration must fund the complete original input/compiler overlap separately.
+            let graph = kotodama_lang::linker::SourceLinkRequest {
+                artifacts: input
+                    .artifacts
+                    .iter()
+                    .map(|artifact| kotodama_lang::linker::SourceContractArtifact {
+                        source_name: artifact.source_name.clone(),
+                        artifact: artifact.artifact.clone(),
                     })
-                    .unwrap()
-            } else {
-                fn file(input: &ContractSourceFile) -> kotodama_lang::linker::SourceModuleUnit {
-                    kotodama_lang::linker::SourceModuleUnit {
-                        source_name: input.source_name.clone(),
-                        source: input.source_text.clone(),
-                    }
-                }
-                fn import(input: &ContractSourceImport) -> kotodama_lang::linker::ImportBinding {
-                    kotodama_lang::linker::ImportBinding {
-                        alias: input.alias.clone(),
-                        package: input.package.clone(),
-                    }
-                }
-                // These fixture clones are deliberately not a production conversion owner. Native
-                // registration must fund the complete original input/compiler overlap separately.
-                let graph = kotodama_lang::linker::SourceLinkRequest {
-                    root: file(&input.root),
-                    sources: input.sources.iter().map(file).collect(),
-                    imports: input.imports.iter().map(import).collect(),
-                    packages: input
-                        .packages
-                        .iter()
-                        .map(|package| kotodama_lang::linker::SourcePackageUnit {
-                            identity: package.identity.clone(),
-                            modules: package.modules.iter().map(file).collect(),
-                            sources: package.sources.iter().map(file).collect(),
-                            exports: package.exports.iter().cloned().collect(),
-                            imports: package.imports.iter().map(import).collect(),
-                        })
-                        .collect(),
-                };
-                kotodama_lang::driver::BuildDriver::new(session, "native-source-fixture")
-                    .compile_project(graph, &input.root.source_name)
-                    .unwrap()
+                    .collect(),
+                root: file(&input.root),
+                sources: input.sources.iter().map(file).collect(),
+                imports: input.imports.iter().map(import).collect(),
+                packages: input
+                    .packages
+                    .iter()
+                    .map(|package| kotodama_lang::linker::SourcePackageUnit {
+                        artifacts: package
+                            .artifacts
+                            .iter()
+                            .map(|artifact| kotodama_lang::linker::SourceContractArtifact {
+                                source_name: artifact.source_name.clone(),
+                                artifact: artifact.artifact.clone(),
+                            })
+                            .collect(),
+                        identity: package.identity.clone(),
+                        modules: package.modules.iter().map(file).collect(),
+                        sources: package.sources.iter().map(file).collect(),
+                        exports: package.exports.iter().cloned().collect(),
+                        imports: package.imports.iter().map(import).collect(),
+                    })
+                    .collect(),
             };
+            kotodama_lang::driver::BuildDriver::new(session, "native-source-fixture")
+                .compile_project(graph, &input.root.source_name)
+                .unwrap()
+        };
         NativeCompilationResult {
             output,
             source_inventory_hash: input.commitment().unwrap(),
@@ -279,15 +299,21 @@ mod tests {
         ContractManifest,
         Vec<u8>,
     ) {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let input = inventory(7);
         let output = compile(&input).output;
         let key = KeyPair::from_seed(
             b"native-source-first-registrar".to_vec(),
             Algorithm::Ed25519,
         );
-        let manifest = output.manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &key).expect("sign bounded fixture manifest");
+        let manifest = output
+            .manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &key,
+            )
+            .expect("sign bounded fixture manifest");
         let identity = RegistrationIdentity {
             network_id: NetworkId::from_genesis_hash(
                 HashOf::<BlockHeader>::from_untyped_unchecked(Hash::new(
@@ -336,10 +362,10 @@ mod tests {
 
     #[test]
     fn actual_locked_package_compilation_authenticates_complete_original_inventory() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (mut identity, _, _, _) = fixture();
         let input = ContractSourceInventory {
+            artifacts: Vec::new(),
             root: ContractSourceFile {
                 source_name: "app.ko".into(),
                 source_text:
@@ -354,7 +380,7 @@ mod tests {
                 ContractSourceFile {
                     source_name: "parts/view.ko".into(),
                     source_text:
-                        "view fn value() -> int { return local::value() + calc::value(); }".into(),
+                        "view fn value() authorize(anyone) -> int { return local::value() + calc::value(); }".into(),
                 },
                 ContractSourceFile {
                     source_name: "unused.ko".into(),
@@ -366,6 +392,7 @@ mod tests {
                 package: "std/math@1".into(),
             }],
             packages: vec![ContractSourcePackage {
+                artifacts: Vec::new(),
                 identity: "std/math@1".into(),
                 modules: vec![ContractSourceFile {
                     source_name: "src/math.ko".into(),
@@ -385,7 +412,15 @@ mod tests {
             b"native-source-locked-package-fixture".to_vec(),
             Algorithm::Ed25519,
         );
-        let manifest = native.output.manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &key).expect("sign bounded fixture manifest");
+        let manifest = native
+            .output
+            .manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &key,
+            )
+            .expect("sign bounded fixture manifest");
         let code = native.output.artifact.clone();
         let prepared = finish_native_compilation(
             identity,

@@ -24,10 +24,7 @@ use ivm_abi::state_value::{
     state_value_schema_for_embedded_type_v1, state_value_schema_hash_v1,
 };
 use ivm_abi::sum::SumLayoutV1;
-use ivm_abi::{
-    codec::{decode_canonical_norito as decode_abi_canonical_norito, encode_canonical_norito},
-    list::ListLayoutV1,
-};
+use ivm_abi::{codec::encode_canonical_norito, list::ListLayoutV1};
 #[cfg(test)]
 use norito::{decode_from_bytes, to_bytes};
 const STATE_VALUE_GAS_BASE: u64 = 32;
@@ -98,7 +95,12 @@ fn decode_canonical_norito<T>(payload: &[u8]) -> Result<T, VMError>
 where
     T: for<'__frame> norito::NoritoDeserialize<'__frame> + norito::NoritoSerialize,
 {
-    decode_abi_canonical_norito(payload).map_err(|_| VMError::DecodeError)
+    norito::decode_canonical(payload).map_err(|error| match error {
+        norito::Error::AllocationFailed { .. } => {
+            VMError::ExecutionDeferred(crate::ExecutionDeferral::AllocationUnavailable)
+        }
+        _ => VMError::DecodeError,
+    })
 }
 fn validate_pointer_payload(kind: StateValueKindV1, payload: &[u8]) -> Result<(), VMError> {
     match kind {
@@ -205,6 +207,7 @@ fn skip_state_node(nodes: &[StateValueNodeV1], node_index: &mut usize) -> Result
             | StateValueNodeV1::Leaf(_)
             | StateValueNodeV1::Unit
             | StateValueNodeV1::Error(_)
+            | StateValueNodeV1::Enum(_)
             | StateValueNodeV1::StateCursor(_) => 0,
         };
         pending = pending.checked_add(children).ok_or(VMError::DecodeError)?;
@@ -248,6 +251,7 @@ fn state_node_word_count(
             | StateValueNodeV1::Leaf(_)
             | StateValueNodeV1::Unit
             | StateValueNodeV1::Error(_)
+            | StateValueNodeV1::Enum(_)
             | StateValueNodeV1::StateCursor(_) => {
                 words = words.checked_add(1).ok_or(VMError::DecodeError)?;
             }
@@ -255,7 +259,7 @@ fn state_node_word_count(
     }
     Ok(words)
 }
-fn validate_state_pointer_atom(
+pub(crate) fn validate_state_pointer_atom(
     policy: ivm_abi::SyscallPolicy,
     kind: StateValueKindV1,
     envelope: &[u8],
@@ -399,19 +403,31 @@ fn validate_state_atoms_recursive(
                         else {
                             return Err(VMError::DecodeError);
                         };
-                        ivm_abi::state_cursor::validate_cursor_envelope(*key, envelope)?;
+                        ivm_abi::state_cursor::validate_cursor_envelope(
+                            iroha_data_model::smart_contract::entrypoint::state_key_schema_hash_v1(
+                                key,
+                            )
+                            .ok_or(VMError::DecodeError)?,
+                            envelope,
+                        )?;
                         cursor.atom_index = cursor
                             .atom_index
                             .checked_add(1)
                             .ok_or(VMError::DecodeError)?;
                     }
-                    StateValueNodeV1::Unit | StateValueNodeV1::Error(_) => {
+                    StateValueNodeV1::Unit
+                    | StateValueNodeV1::Error(_)
+                    | StateValueNodeV1::Enum(_) => {
                         match (node, cursor_atoms.get(cursor.atom_index)) {
                             (StateValueNodeV1::Unit, Some(StateValueAtomV1::Unit)) => {}
                             (
                                 StateValueNodeV1::Error(error),
                                 Some(StateValueAtomV1::ErrorCode(code)),
                             ) if error.variant(*code).is_some() => {}
+                            (
+                                StateValueNodeV1::Enum(descriptor),
+                                Some(StateValueAtomV1::EnumCode(code)),
+                            ) if descriptor.variant(*code).is_some() => {}
                             _ => return Err(VMError::DecodeError),
                         }
                         cursor.atom_index = cursor
@@ -503,9 +519,15 @@ pub(crate) fn validate_state_value_record(
     schema: &StateValueSchemaV1,
     payload: &[u8],
 ) -> Result<(), VMError> {
+    validate_state_value_record_for_policy(vm.syscall_policy(), schema, payload)
+}
+pub(crate) fn validate_state_value_record_for_policy(
+    policy: ivm_abi::SyscallPolicy,
+    schema: &StateValueSchemaV1,
+    payload: &[u8],
+) -> Result<(), VMError> {
     let schema_payload = encode_canonical_norito(schema).map_err(|_| VMError::DecodeError)?;
-    decode_validated_state_value_record(vm.syscall_policy(), schema, &schema_payload, payload)
-        .map(drop)
+    decode_validated_state_value_record(policy, schema, &schema_payload, payload).map(drop)
 }
 #[derive(Clone, Copy)]
 struct StateEncodeContext<'a> {
@@ -843,7 +865,9 @@ fn encode_state_node(
                             .unwrap_or(usize::MAX),
                         );
                     }
-                    StateValueNodeV1::Unit | StateValueNodeV1::Error(_) => {
+                    StateValueNodeV1::Unit
+                    | StateValueNodeV1::Error(_)
+                    | StateValueNodeV1::Enum(_) => {
                         let word = *cursor
                             .words
                             .as_slice()
@@ -859,6 +883,11 @@ fn encode_state_node(
                                 let code = u32::try_from(word).map_err(|_| VMError::DecodeError)?;
                                 error.variant(code).ok_or(VMError::DecodeError)?;
                                 StateValueAtomV1::ErrorCode(code)
+                            }
+                            StateValueNodeV1::Enum(descriptor) => {
+                                let code = u32::try_from(word).map_err(|_| VMError::DecodeError)?;
+                                descriptor.variant(code).ok_or(VMError::DecodeError)?;
+                                StateValueAtomV1::EnumCode(code)
                             }
                             _ => return Err(VMError::DecodeError),
                         };
@@ -905,7 +934,13 @@ fn encode_state_node(
                             PointerType::NoritoBytes,
                             context.resolver,
                         )?;
-                        ivm_abi::state_cursor::validate_cursor_envelope(*key, envelope)?;
+                        ivm_abi::state_cursor::validate_cursor_envelope(
+                            iroha_data_model::smart_contract::entrypoint::state_key_schema_hash_v1(
+                                key,
+                            )
+                            .ok_or(VMError::DecodeError)?,
+                            envelope,
+                        )?;
                         encoded_pointer_bytes =
                             encoded_pointer_bytes.saturating_add(envelope.len());
                         outputs
@@ -1361,13 +1396,19 @@ fn plan_state_atoms(
                             work.push(Work::Plan(item_cursor));
                         }
                     }
-                    StateValueNodeV1::Unit | StateValueNodeV1::Error(_) => {
+                    StateValueNodeV1::Unit
+                    | StateValueNodeV1::Error(_)
+                    | StateValueNodeV1::Enum(_) => {
                         let scalar = match (node, cursor_atoms.get(cursor.atom_index)) {
                             (StateValueNodeV1::Unit, Some(StateValueAtomV1::Unit)) => 0,
                             (
                                 StateValueNodeV1::Error(error),
                                 Some(StateValueAtomV1::ErrorCode(code)),
                             ) if error.variant(*code).is_some() => u64::from(*code),
+                            (
+                                StateValueNodeV1::Enum(descriptor),
+                                Some(StateValueAtomV1::EnumCode(code)),
+                            ) if descriptor.variant(*code).is_some() => u64::from(*code),
                             _ => return Err(VMError::DecodeError),
                         };
                         cursor.atom_index = cursor
@@ -1907,7 +1948,7 @@ mod tests {
         StateValueSchemaV1 {
             nodes: vec![
                 StateValueNodeV1::Struct {
-                    name: "Mixed".into(),
+                    name: "Fixture::Mixed".into(),
                     fields: vec!["label".into(), "enabled".into(), "count".into()],
                 },
                 StateValueNodeV1::Leaf(StateValueKindV1::Name),
@@ -1975,12 +2016,12 @@ mod tests {
             instance: "local::金庫".into(),
             map: "balances".parse().unwrap(),
             schema_hash: [3; 32],
-            key_type: EntrypointValueKindV1::Int,
+            key_schema_hash: iroha_data_model::smart_contract::entrypoint::state_key_schema_hash_v1(&iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)] }).unwrap(),
             last_key: "balances/00".parse().unwrap(),
         };
         let frame = cursor.encode_frame().unwrap();
         let schema = StateValueSchemaV1 {
-            nodes: vec![StateValueNodeV1::StateCursor(EntrypointValueKindV1::Int)],
+            nodes: vec![StateValueNodeV1::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)] })],
         };
         let mut vm = IVM::new(u64::MAX);
         let schema_pointer = install_schema(&mut vm, &schema);
@@ -2001,7 +2042,7 @@ mod tests {
         let wrong = install_schema(
             &mut vm,
             &StateValueSchemaV1 {
-                nodes: vec![StateValueNodeV1::StateCursor(EntrypointValueKindV1::Bool)],
+                nodes: vec![StateValueNodeV1::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Bool)] })],
             },
         );
         vm.set_register(10, wrong);
@@ -2013,7 +2054,7 @@ mod tests {
     fn empty_nominal_state_products_use_unit_slots_and_empty_atom_tapes() {
         let empty = StateValueSchemaV1 {
             nodes: vec![StateValueNodeV1::Struct {
-                name: "Empty".into(),
+                name: "Fixture::Empty".into(),
                 fields: Vec::new(),
             }],
         };
@@ -2074,6 +2115,43 @@ mod tests {
         );
     }
     #[test]
+    fn ordinary_enum_state_roundtrip_keeps_codes_out_of_error_domain() {
+        let schema = StateValueSchemaV1 { nodes: vec![StateValueNodeV1::Enum(iroha_data_model::smart_contract::manifest::ContractEnumTypeDescriptorV1 {
+                identity: "local::Status".into(),
+                variants: vec![
+                    iroha_data_model::smart_contract::manifest::ContractEnumVariantDescriptorV1 { name: "Open".into(), code: 1 },
+                    iroha_data_model::smart_contract::manifest::ContractEnumVariantDescriptorV1 { name: "Closed".into(), code: 7 },
+                ],
+            })] };
+        let mut vm = IVM::new(u64::MAX);
+        let schema_pointer = install_schema(&mut vm, &schema);
+        let table = vm.alloc_heap(8).unwrap();
+        vm.store_u64(table, 7).unwrap();
+        vm.set_register(10, schema_pointer);
+        vm.set_register(11, table);
+        vm.set_register(12, 1);
+        encode_state_value(&mut vm, identity_address).unwrap();
+        let record_pointer = vm.register(10);
+        let record: StateValueRecordV1 =
+            decode_from_bytes(vm.validate_tlv(record_pointer).unwrap().payload).unwrap();
+        assert_eq!(record.atoms, vec![StateValueAtomV1::EnumCode(7)]);
+        vm.set_register(10, schema_pointer);
+        vm.set_register(11, record_pointer);
+        decode_state_value(&mut vm, identity_address).unwrap();
+        let decoded = vm.validate_tlv(vm.register(10)).unwrap();
+        assert_eq!(&decoded.payload[1..], &7_u64.to_le_bytes());
+        for word in [0, 2, u64::MAX] {
+            vm.store_u64(table, word).unwrap();
+            vm.set_register(10, schema_pointer);
+            vm.set_register(11, table);
+            vm.set_register(12, 1);
+            assert_eq!(
+                encode_state_value(&mut vm, identity_address),
+                Err(VMError::DecodeError)
+            );
+        }
+    }
+    #[test]
     fn unit_and_nominal_error_state_roundtrip_rejects_invalid_words() {
         let schema = StateValueSchemaV1 {
             nodes: vec![
@@ -2120,7 +2198,7 @@ mod tests {
         let schema = StateValueSchemaV1 {
             nodes: vec![
                 StateValueNodeV1::Struct {
-                    name: "Pair".into(),
+                    name: "Fixture::Pair".into(),
                     fields: vec!["count".into(), "ready".into()],
                 },
                 StateValueNodeV1::Leaf(StateValueKindV1::Int),
@@ -2155,11 +2233,11 @@ mod tests {
         let schema = StateValueSchemaV1 {
             nodes: vec![
                 StateValueNodeV1::Struct {
-                    name: "Outer".into(),
+                    name: "Fixture::Outer".into(),
                     fields: vec!["inner".into()],
                 },
                 StateValueNodeV1::Struct {
-                    name: "Inner".into(),
+                    name: "Fixture::Inner".into(),
                     fields: vec!["value".into()],
                 },
                 StateValueNodeV1::Leaf(StateValueKindV1::Bytes),
@@ -2261,7 +2339,7 @@ mod tests {
         let first = StateValueSchemaV1 {
             nodes: vec![
                 StateValueNodeV1::Struct {
-                    name: "First".into(),
+                    name: "Fixture::First".into(),
                     fields: vec!["value".into()],
                 },
                 StateValueNodeV1::Leaf(StateValueKindV1::Int),
@@ -2270,7 +2348,7 @@ mod tests {
         let second = StateValueSchemaV1 {
             nodes: vec![
                 StateValueNodeV1::Struct {
-                    name: "Second".into(),
+                    name: "Fixture::Second".into(),
                     fields: vec!["value".into()],
                 },
                 StateValueNodeV1::Leaf(StateValueKindV1::Int),

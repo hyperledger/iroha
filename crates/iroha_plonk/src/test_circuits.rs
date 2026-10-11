@@ -95,6 +95,7 @@ pub fn setup<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(circuit: &Ci, choice: Cho
 impl<C: PastaCurve> Setup<C>
 where
     C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
 {
     /// Proves `circuit` with a fixed `ChaCha20` seed.
     pub fn prove<Ci: Circuit<C::ScalarExt>>(

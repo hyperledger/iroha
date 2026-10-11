@@ -77,7 +77,7 @@ fn named_status_frames_preserve_complete_wire_contract() {
         &fixtures,
     );
     check::<GovernanceStatus>("GovernanceStatus", &fixtures);
-    check::<Halo2Status>("Halo2Status", &fixtures);
+    check::<DiagnosticTraceStatus>("DiagnosticTraceStatus", &fixtures);
     check::<NexusDataspaceCatalogStatus>("NexusDataspaceCatalogStatus", &fixtures);
     check::<NexusDataspaceTeuStatus>("NexusDataspaceTeuStatus", &fixtures);
     check::<NexusLaneManifestValidatorBindingStatus>(

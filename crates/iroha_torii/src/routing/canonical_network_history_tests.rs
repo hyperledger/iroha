@@ -15,27 +15,60 @@ use iroha_data_model::{
     trigger::DataTriggerStep,
 };
 
-fn carrier() -> SignedBlock {
+/// Signer, network and invoked contract of the carrier's sealed contract call.
+fn carrier_identity() -> (
+    KeyPair,
+    iroha_data_model::NetworkId,
+    iroha_data_model::smart_contract::ContractAddress,
+) {
     let key = KeyPair::try_from_seed(vec![0x73; 32], Algorithm::Ed25519).unwrap();
+    let network = iroha_data_model::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+        Hash::new(b"routing query fixture"),
+    ));
+    let contract = iroha_data_model::smart_contract::ContractAddress::derive(
+        &network,
+        &AccountId::new(key.public_key().clone()),
+        1,
+        DataSpaceId::UNIVERSAL,
+    )
+    .unwrap();
+    (key, network, contract)
+}
+
+fn carrier() -> SignedBlock {
+    carrier_with_context(None)
+}
+
+fn carrier_with_context(
+    context: Option<iroha_data_model::block::BlockExecutionContextBundle>,
+) -> SignedBlock {
+    let (key, network, contract) = carrier_identity();
     let mut metadata = iroha_model_base::metadata::Metadata::default();
     metadata.insert(
         "contract_address".parse().unwrap(),
-        iroha_primitives::json::Json::new("contract"),
+        iroha_primitives::json::Json::new(contract.to_string()),
     );
     metadata.insert(
         "contract_entrypoint".parse().unwrap(),
         iroha_primitives::json::Json::new("submit"),
     );
-    let network = iroha_data_model::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
-        Hash::new(b"routing query fixture"),
-    ));
     let mut tx = TransactionBuilder::new(
         network,
         AccountId::new(key.public_key().clone()),
         FeePaymentIntent::authority(vec![], None),
     );
     tx.set_creation_time(Duration::from_millis(900));
-    let signed = tx.with_metadata(metadata).sign(key.private_key());
+    let signed = tx
+        .with_metadata(metadata)
+        .with_executable(Executable::ContractCall(
+            iroha_data_model::transaction::executable::ContractInvocation {
+                contract_address: contract,
+                expected_code_hash: Hash::new(b"routing contract"),
+                entrypoint: "submit".to_owned(),
+                arguments: None,
+            },
+        ))
+        .sign(key.private_key());
     let header = BlockHeader::new(
         std::num::NonZeroU64::new(2).unwrap(),
         Some(HashOf::from_untyped_unchecked(Hash::new(b"routing parent"))),
@@ -44,6 +77,7 @@ fn carrier() -> SignedBlock {
         0,
     );
     let mut builder = BlockBuilder::new(header);
+    builder.set_execution_context(context);
     builder.push_sealed_transaction_reveal(SealedTransactionReveal::new(
         Hash::new(b"routing commitment"),
         signed,
@@ -148,12 +182,13 @@ fn borrowed_history_projection_matches_real_typed_proof_dto_and_sealed_identity(
     let a = contract_activity_projection_from_tx(2, &borrowed).unwrap();
     let b = contract_activity_projection_from_tx(2, &owned).unwrap();
     assert_eq!(a.entrypoint_hash, b.entrypoint_hash);
-    assert_eq!(a.contract_address, "contract");
+    assert_eq!(a.contract_address, carrier_identity().2.to_string());
+    assert_eq!(a.contract_entrypoint, "submit");
     assert!(!a.result_ok);
-    let event = contract_event_projection_from_tx(2, &borrowed).unwrap();
-    assert_eq!(event.tx_hash_hex, source.hash().to_string());
-    assert_eq!(event.block_hash_hex, block.hash().to_string());
-    assert!(!event.result_ok);
+    assert!(
+        output.result.contract_events().is_empty(),
+        "call metadata never becomes an emitted event"
+    );
     let calls = external_signed_transaction_results(&block).collect::<Vec<_>>();
     assert_eq!(block.execution_outputs().len(), 2);
     assert_eq!(
@@ -241,4 +276,215 @@ fn visibility_refusal_is_sticky_until_consuming_finish() {
     assert!(owner.allows(&DataspaceReadVisibility::all_for_tests(), 1, None, source));
     assert!(owner.finish().is_err());
     HistoryVisibilityReads::new(state).finish().unwrap();
+}
+
+fn emission_fixture(
+    dataspace: DataSpaceId,
+) -> iroha_data_model::smart_contract::event::ContractEmissionV1 {
+    use iroha_data_model::smart_contract::{entrypoint::*, event::*};
+    let (key, network, _) = carrier_identity();
+    let caller = AccountId::new(key.public_key().clone());
+    let payload_type = EntrypointValueTypeV1 {
+        nodes: vec![
+            EntrypointValueTypeNodeV1::Struct(EntrypointStructTypeNodeV1 {
+                name: "Fixture::Accepted".into(),
+                fields: vec!["active".into()],
+            }),
+            EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Bool),
+        ],
+    };
+    let payload = EntrypointReturnRecordV1 {
+        schema_hash: entrypoint_return_schema_hash_v1(
+            &norito::encode_canonical(&payload_type).unwrap(),
+        ),
+        atoms: vec![EntrypointValueAtomV1::Bool(true)],
+    };
+    ContractEmissionV1 {
+        contract: iroha_data_model::smart_contract::ContractAddress::derive(
+            &network, &caller, 2, dataspace,
+        )
+        .unwrap(),
+        code_hash: Hash::new(b"actual immutable event artifact"),
+        entrypoint: 1,
+        event: 0,
+        caller,
+        definition: ContractEventDescriptorV1 {
+            name: "Accepted".parse().unwrap(),
+            payload_type,
+        },
+        payload,
+    }
+}
+
+#[test]
+fn native_emission_visibility_preserves_emitter_and_network_callback_route_scopes() {
+    use iroha_data_model::block::{
+        BlockExecutionContextBundle, ExternalExecutionContext, ExternalExecutionRouteLeg,
+        ExternalExecutionRouteRole,
+    };
+    let block = carrier();
+    let visible = DataSpaceId::new(7);
+    let hidden = DataSpaceId::new(8);
+    let reader = DataspaceReadVisibility::new(BTreeSet::from([visible]), false);
+    let emission = emission_fixture(visible);
+    let time = block.execution_outputs()[1].clone();
+    assert!(native_contract_emission_source_is_visible(
+        &reader, &block, &time, &emission
+    ));
+    assert!(!native_contract_emission_source_is_visible(
+        &reader,
+        &block,
+        &time,
+        &emission_fixture(hidden)
+    ));
+    let ExecutionOutputV1::Time(time) = time else {
+        unreachable!()
+    };
+    let mut pipeline = PipelineExecutionOutputV1 {
+        invocation: PipelineInvocationV1 {
+            event: PipelineEventPositionV1::BlockApproved,
+            candidate_index: 0,
+            trigger: time.invocation.trigger,
+        },
+        result: time.result,
+        failure_root: None,
+        completions: time.completions,
+    };
+    assert!(native_contract_emission_source_is_visible(
+        &reader,
+        &block,
+        &ExecutionOutputV1::Pipeline(pipeline.clone()),
+        &emission
+    ));
+    assert!(!native_contract_emission_source_is_visible(
+        &reader,
+        &block,
+        &ExecutionOutputV1::Pipeline(pipeline.clone()),
+        &emission_fixture(hidden)
+    ));
+    pipeline.invocation.event = PipelineEventPositionV1::Network(0);
+    let entrypoint = block.network_entrypoint_at(0).unwrap().hash();
+    // Bind each route before installing outputs: changing the durable context
+    // correctly invalidates all results attached to the previous block identity.
+    let block = carrier_with_context(Some(BlockExecutionContextBundle::new(vec![
+        ExternalExecutionContext::new(entrypoint, LaneId::new(7), visible),
+    ])));
+    assert!(native_contract_emission_source_is_visible(
+        &reader,
+        &block,
+        &ExecutionOutputV1::Pipeline(pipeline.clone()),
+        &emission
+    ));
+    assert!(native_contract_emission_source_is_visible(
+        &reader,
+        &block,
+        &block.execution_outputs()[0],
+        &emission
+    ));
+    let block = carrier_with_context(Some(BlockExecutionContextBundle::new(vec![
+        ExternalExecutionContext::with_routing_plan(
+            entrypoint,
+            LaneId::new(7),
+            visible,
+            Hash::new(b"mixed emission root route"),
+            vec![
+                ExternalExecutionRouteLeg::new(
+                    LaneId::new(7),
+                    visible,
+                    ExternalExecutionRouteRole::Coordinator,
+                ),
+                ExternalExecutionRouteLeg::new(
+                    LaneId::new(8),
+                    hidden,
+                    ExternalExecutionRouteRole::Participant,
+                ),
+            ],
+        ),
+    ])));
+    assert!(!native_contract_emission_source_is_visible(
+        &reader,
+        &block,
+        &ExecutionOutputV1::Pipeline(pipeline),
+        &emission
+    ));
+    assert!(!native_contract_emission_source_is_visible(
+        &reader,
+        &block,
+        &block.execution_outputs()[0],
+        &emission
+    ));
+}
+
+#[test]
+fn native_emission_projection_binds_full_historical_record_and_coordinates() {
+    use iroha_data_model::smart_contract::event::ContractEmissionsV1;
+    let mut block = carrier();
+    let mut rows = block.execution_outputs().to_vec();
+    let first = emission_fixture(DataSpaceId::new(7));
+    let mut second = first.clone();
+    second.event = 1;
+    second.entrypoint = 2;
+    let ExecutionOutputV1::Time(time) = &mut rows[1] else {
+        unreachable!()
+    };
+    time.result
+        .set_contract_events(ContractEmissionsV1::from_untrusted(vec![
+            first.clone(),
+            second,
+        ]));
+    block
+        .set_execution_outputs(
+            rows,
+            1,
+            Default::default(),
+            vec![],
+            Default::default(),
+            Default::default(),
+            &ExecutionOutputLimits {
+                max_outputs: 4,
+                max_output_bytes: 65536,
+                max_total_output_bytes: 262144,
+                max_executed_wire_bytes: 1048576,
+            },
+        )
+        .unwrap();
+    let output = &block.execution_outputs()[1];
+    let hash = output.execution_call_hash(block.hash(), &block).unwrap();
+    let mut projection =
+        contract_event_projection(2, block.hash(), 1000, 1, 0, hash, &first, None).unwrap();
+    assert_eq!(projection.event_kind, "Accepted");
+    assert_eq!(projection.provenance, "emitted");
+    assert_eq!(
+        projection.payload.as_ref().unwrap()["active"],
+        Value::Bool(true)
+    );
+    assert_eq!(
+        projection.emission["definition"]["name"],
+        Value::from("Accepted")
+    );
+    let reader = DataspaceReadVisibility::new(BTreeSet::from([DataSpaceId::new(7)]), false);
+    assert!(native_contract_emission_is_visible_in_block(&reader, &projection, &block).unwrap());
+    assert!(
+        !native_contract_emission_is_visible_in_block(
+            &DataspaceReadVisibility::default(),
+            &projection,
+            &block
+        )
+        .unwrap()
+    );
+    projection.emission_index = 1;
+    assert!(native_contract_emission_is_visible_in_block(&reader, &projection, &block).is_err());
+    projection.emission_index = 0;
+    projection.execution_hash_hex = Hash::new(b"forged root").to_string();
+    assert!(
+        native_contract_emission_is_visible_in_block(
+            &DataspaceReadVisibility::all_for_tests(),
+            &projection,
+            &block
+        )
+        .is_err()
+    );
+    projection.execution_hash_hex = hash.to_string();
+    projection.emission = Value::Null;
+    assert!(native_contract_emission_is_visible_in_block(&reader, &projection, &block).is_err());
 }

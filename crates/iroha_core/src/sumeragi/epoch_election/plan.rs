@@ -5,7 +5,6 @@
 //! its immutable funded guard before releasing these borrows and beginning execution.
 
 use super::*;
-use iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1;
 use iroha_data_model::sumeragi::epoch::{ValidatorEpochAuthorizationV1, ValidatorEpochDecisionV1};
 
 /// A complete checked boundary decision that still borrows its selecting prestate.
@@ -13,7 +12,8 @@ pub(super) struct BoundaryInputs<'a> {
     pub(super) current: &'a ValidatorEpochContextV1,
     pub(super) selection_anchor: iroha_crypto::HashOf<iroha_data_model::block::BlockHeader>,
     pub(super) authorization: ValidatorEpochAuthorizationV1,
-    pub(super) authority: &'a KagemushaMintFinalityAuthorityGenerationV1,
+    // The authorization retains the scalar generation and its canonical roster commitment;
+    // the exact original committee remains borrowed until funded materialization.
     pub(super) committee: &'a [iroha_data_model::sumeragi::epoch::ValidatorCommitteeMemberV1],
     pub(super) entropy: BoundaryEntropy,
     pub(super) future: SelectedCommittee<'a>,
@@ -24,7 +24,7 @@ pub(super) struct BoundaryInputs<'a> {
     pub(super) after_next_params: crate::sumeragi::schedule::ChainParamsRecord,
 }
 
-/// Every frozen seat needs both its signed credential readiness and original XOR custody.
+/// Every frozen seat needs its actual beacon-share readiness and original XOR custody.
 /// The caller verifies the genuine attempt and every supplied proof before this check;
 /// a target quorum never substitutes for the complete immutable target roster.
 pub(super) fn prepared_committee_ready(
@@ -131,7 +131,7 @@ pub(super) fn boundary_inputs<'a>(
     );
     let source = CheckedElectionView::new(world, policy, original_budget)?;
     let completed = world.validator_committee_transitions().get(&next_epoch);
-    let (last_height, decision, transition_id, authority, committee, beacon) =
+    let (last_height, decision, transition_id, generation, committee, beacon) =
         if let Some(transition) = completed {
             if transition.outcome.is_some() {
                 return Err("boundary attempt is already terminal".into());
@@ -159,7 +159,7 @@ pub(super) fn boundary_inputs<'a>(
                     preparation.last_height,
                     ValidatorEpochDecisionV1::Activate,
                     id,
-                    &credentials.authority,
+                    preparation.authority_generation,
                     preparation.committee.as_slice(),
                     credentials.beacon,
                 )
@@ -168,7 +168,7 @@ pub(super) fn boundary_inputs<'a>(
                     preparation.last_height,
                     ValidatorEpochDecisionV1::RetainAndCancel,
                     id,
-                    &current.authority,
+                    current.authorization.authority_generation,
                     current.committee.as_slice(),
                     entropy.beacon,
                 )
@@ -180,7 +180,7 @@ pub(super) fn boundary_inputs<'a>(
                     .ok_or("retained epoch end overflows")?,
                 ValidatorEpochDecisionV1::Retain,
                 [0; 32],
-                &current.authority,
+                current.authorization.authority_generation,
                 current.committee.as_slice(),
                 entropy.beacon,
             )
@@ -206,16 +206,22 @@ pub(super) fn boundary_inputs<'a>(
             return Err("retained beacon does not cover the next epoch".into());
         }
     }
+    let generation_id = if decision == ValidatorEpochDecisionV1::Activate {
+        // The canonical model's generation projection owns a roster. Admit that temporary
+        // graph in the original pool rather than deep-cloning it outside allocation custody.
+        super::owned::generation_id(current.network_id, generation, committee, original_budget)?
+    } else {
+        // current.validate() already checked this exact original network, number and roster.
+        current.authorization.authority_id
+    };
     let authorization = ValidatorEpochAuthorizationV1 {
         version: 1,
         network_id: current.network_id,
         epoch: next_epoch,
         first_height: next_first,
         last_height,
-        authority_generation: authority.generation,
-        authority_id: authority
-            .authority_id()
-            .map_err(|error| error.to_string())?,
+        authority_generation: generation,
+        authority_id: generation_id,
         beacon: BeaconEpochBindingV1::Installed(beacon),
         previous_authorization_id: current
             .authorization
@@ -226,9 +232,6 @@ pub(super) fn boundary_inputs<'a>(
     };
     authorization
         .validate_successor(&current.authorization)
-        .map_err(|error| error.to_string())?;
-    authorization
-        .validate_against_authority(authority)
         .map_err(|error| error.to_string())?;
     let future_first = last_height
         .checked_add(1)
@@ -255,7 +258,6 @@ pub(super) fn boundary_inputs<'a>(
         current,
         selection_anchor,
         authorization,
-        authority,
         committee,
         entropy,
         future,

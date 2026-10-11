@@ -4,7 +4,10 @@
 //! fully verified native prefix can install the opaque value in its funded Cell.
 
 use super::*;
-use crate::sumeragi::certified_chain::{CertifiedChain, CommittedBlock};
+use crate::{
+    execution_attempt::ExecutionAttemptError,
+    sumeragi::certified_chain::{CertifiedChain, ChainReadError, CommittedBlock},
+};
 use iroha_allocation::{AllocationBudget, AllocationCharge};
 use iroha_sumeragi::types::Hash32;
 
@@ -109,6 +112,21 @@ pub(in crate::state) enum TipRestoreError {
     History(String),
     /// The exact local pool cannot fund the original Cell.
     Admission(StateStorageAdmissionError),
+    /// Original native history resources refused this unfinished local attempt.
+    Deferred(crate::execution_attempt::ExecutionDeferred),
+}
+impl From<ExecutionAttemptError<ChainReadError>> for TipRestoreError {
+    fn from(error: ExecutionAttemptError<ChainReadError>) -> Self {
+        match error {
+            ExecutionAttemptError::Rejected(error) => Self::History(error.to_string()),
+            #[cfg(all(test, sumeragi_core_mutation = "HC216"))]
+            ExecutionAttemptError::Deferred(original) => Self::History(
+                ExecutionAttemptError::<ChainReadError>::Deferred(original).to_string(),
+            ),
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC216")))]
+            ExecutionAttemptError::Deferred(original) => Self::Deferred(original),
+        }
+    }
 }
 impl From<String> for TipRestoreError {
     fn from(message: String) -> Self {
@@ -172,7 +190,7 @@ impl NativeExecutionTipSnapshot {
             return Err(TipRestoreError::GenesisReplayRequired);
         }
         let chain = CertifiedChain::from_pinned(chain_id, network, hashes, kura, budget)
-            .map_err(|error| error.to_string())?;
+            .map_err(TipRestoreError::from)?;
         // One verified walk over the native prefix authenticates the tip and its
         // predecessor and records history checkpoints for off-chain readers.
         let checkpoints = kura.history_checkpoints();
@@ -180,7 +198,7 @@ impl NativeExecutionTipSnapshot {
             Some(record(
                 chain
                     .authenticated_execution(1)
-                    .map_err(|error| error.to_string())?
+                    .map_err(TipRestoreError::from)?
                     .committed(),
             ))
         } else {
@@ -189,7 +207,7 @@ impl NativeExecutionTipSnapshot {
         let mut current = None;
         for certified in chain.walk(2, height) {
             let block = certified
-                .map_err(|error| error.to_string())?
+                .map_err(TipRestoreError::from)?
                 .into_authenticated_execution()
                 .map_err(|error| error.to_string())?;
             let block = record(block.committed());

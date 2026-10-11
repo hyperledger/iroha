@@ -5,7 +5,7 @@ seiyaku PointerStateAcceptance {
 
   hajimari() { Message = "言霊"; }
 
-  view fn run() -> int {
+  view fn run() authorize(anyone) -> int {
     require(Message == "言霊", PointerStateError::LiteralLost);
     return 1;
   }

@@ -1,7 +1,6 @@
 //! Structural fixtures for canonical output ownership; these grant no execution authority.
 use super::{BlockHeader, SignedBlock, execution_output::*, output_budget::ExecutionOutputLimits};
 use crate::{
-    account::AccountId,
     events::time::{TimeEvent, TimeInterval},
     transaction::signed::{ExecutionStep, TransactionResult, TransactionResultInner},
     trigger::{DataTriggerStep, TriggerId},
@@ -49,7 +48,6 @@ pub fn time(
         completions: vec![],
     })
 }
-#[cfg(feature = "transparent_api")]
 pub fn install_network(
     block: &mut SignedBlock,
     results: Vec<TransactionResultInner>,
@@ -74,6 +72,7 @@ pub fn install_network(
 pub fn proposal(count: usize) -> SignedBlock {
     use crate::{
         Level,
+        account::AccountId,
         isi::Log,
         transaction::{FeePaymentIntent, TransactionBuilder},
     };
@@ -108,7 +107,6 @@ pub fn proposal(count: usize) -> SignedBlock {
     builder.build_with_signature(0, key.private_key())
 }
 
-#[cfg(feature = "transparent_api")]
 pub fn install(
     block: &mut SignedBlock,
     outputs: Vec<ExecutionOutputV1>,
@@ -134,7 +132,6 @@ pub fn simple_time(block: &SignedBlock, schedule_index: u32) -> ExecutionOutputV
     )
 }
 
-#[cfg(feature = "transparent_api")]
 pub fn committed(block: &SignedBlock, input_index: u32) -> crate::query::CommittedTransaction {
     use iroha_crypto::HashOf;
     let entrypoint = block

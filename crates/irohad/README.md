@@ -470,11 +470,6 @@ secrets from fixed files under `<data_dir>/secrets/` (`irohad::node_secrets`):
   handle `software://iroha/node-secrets/runtime-signer/<public key hex>`,
   `revision = 1` and the policy digest
   `iroha_config::parameters::actual::node_runtime_signer::policy_digest_v1()`.
-- `mint_finality.seed`: the raw 32-byte KAGEMUSHA mint-finality seed, bound
-  against the authenticated signed genesis mint-finality roster. A peer the
-  roster names requires it; an unnamed peer that holds one keeps it as an
-  unseated candidate that signs only once a later authenticated generation seats
-  it. `sumeragi.mint_finality_seed_fd` is rejected for such a node.
 - `beacon.cred`: the global-beacon seat credential, loaded when present on a
   validator. Its provider binding comes from the credential header; a configured
   `sumeragi.global_beacon_partial_signer_provider_*` binding must equal it.
@@ -545,9 +540,10 @@ You may deploy Iroha as a [native binary](#native-binary) or by using [Docker](#
     Adjust the file layout if you prefer another location. `irohad` resolves
     relative paths from the directory that contains `config.toml`. The checked-in
     Nexus source is intentionally not a `RawGenesisTransaction` and cannot be
-    signed or selected by `[genesis]`. Materialize it with operator-provisioned
-    public mint-finality parameters for the final validator identities. Do not
-    substitute Taira authority or Taira's XOR asset ID.
+    signed or selected by `[genesis]`. Materialize it with the network's explicit
+    canonical XOR asset definition, then embed the final ordered BLS topology and
+    proofs of possession before signing. Do not substitute Taira validator keys
+    or Taira's XOR asset ID.
 
 3. **Provision keys and network settings.**
 
@@ -567,14 +563,13 @@ You may deploy Iroha as a [native binary](#native-binary) or by using [Docker](#
 
 4. **Generate and sign the genesis block.**
 
-    - Materialize the reviewed source with the public half of the operator-owned
-      KAGEMUSHA mint-finality authority. The corresponding private authority
-      remains runtime-only:
+    - Materialize the reviewed source. An NPoS source also takes the network's
+      explicit canonical XOR definition; a permissioned source takes none:
 
       ```bash
       cargo run --release -p iroha_kagami -- \
         genesis materialize deploy/peer/genesis.template.json \
-        --kagemusha-mint-finality-parameters <PUBLIC_AUTHORITY_PARAMETERS_JSON> \
+        --xor-asset-definition-id <XOR_ASSET_DEFINITION_ID> \
         > deploy/peer/genesis.json
       ```
 

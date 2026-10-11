@@ -38,17 +38,76 @@
 //! endomorphism image of the base (`32 + 1 + 64` bytes); each window recodes
 //! its signed digits from the halves in closed form, so there is no digit
 //! table. The terms are split in chunks whose split data takes at most half
-//! the memory budget, and the chunk sums add up, so the working set beyond
-//! the caller's inputs is bounded by the budget.
+//! the memory budget, and the chunk sums add up. Split data, window results
+//! and concurrent bucket arrays are reserved against the same process-wide
+//! 64 MiB scratch cap as the Pasta prover MSMs. If no allocation fits, a
+//! stack-only complete scalar multiplication path preserves the result.
 
 use ff::{Field, PrimeField};
 use group::prime::PrimeCurveAffine;
 use iroha_pasta::{
-    PastaAffine, PastaCurve, PastaField,
-    msm::{FixedBaseTable, MemoryBudget, MsmError, msm_public, msm_secret},
+    CancellationToken, PastaAffine, PastaCurve, PastaField,
+    msm::{
+        BoundedSecretScalars, FixedBaseTable, MemoryBudget, MsmError, SharedMemoryBudget,
+        msm_public_cancellable, msm_secret_bounded_cancellable, msm_secret_cancellable,
+    },
     params::ParamsIpa,
 };
 use rayon::prelude::*;
+
+// Scoped to the calling thread, before any commitment worker dispatch. This observes
+// coefficient/evaluation commitments, including optional-table paths, without a
+// process-wide test counter or any shipping configuration.
+#[cfg(test)]
+pub(crate) mod test_observation {
+    use std::{cell::Cell, marker::PhantomData, rc::Rc, thread::LocalKey};
+
+    thread_local! {
+        static CALLS: Cell<Option<usize>> = const { Cell::new(None) };
+    }
+
+    /// An unwind-safe observation confined to its originating test thread.
+    pub struct CommitmentProbe {
+        calls: &'static LocalKey<Cell<Option<usize>>>,
+        _not_send: PhantomData<Rc<()>>,
+    }
+
+    impl CommitmentProbe {
+        /// Begin a non-nested observation of actual commitment entries.
+        pub(crate) fn start() -> Self {
+            CALLS.with(|calls| {
+                assert!(calls.get().is_none(), "nested commitment probe");
+                calls.set(Some(0));
+            });
+            Self {
+                calls: &CALLS,
+                _not_send: PhantomData,
+            }
+        }
+
+        /// Number of calls through the shared commitment entry on this thread.
+        pub(crate) fn calls(&self) -> usize {
+            self.calls
+                .with(|calls| calls.get().expect("active commitment probe"))
+        }
+    }
+
+    impl Drop for CommitmentProbe {
+        fn drop(&mut self) {
+            self.calls.with(|calls| calls.set(None));
+        }
+    }
+
+    pub(super) fn record() {
+        CALLS.with(|calls| {
+            if let Some(count) = calls.get() {
+                calls.set(Some(
+                    count.checked_add(1).expect("commitment probe overflow"),
+                ));
+            }
+        });
+    }
+}
 
 /// The key-generation blind (`Blind::default()` in the vendored code).
 pub const DEFAULT_BLIND: u64 = 1;
@@ -63,6 +122,7 @@ pub enum Secrecy {
 }
 
 /// `sum_i scalars[i] * bases[i] + blind * w` with `scalars.len() <= bases.len()`.
+#[allow(clippy::too_many_arguments)]
 fn commit_with_bases<C: PastaCurve>(
     bases: &[C::AffineExt],
     table: Option<&FixedBaseTable<C>>,
@@ -71,7 +131,12 @@ fn commit_with_bases<C: PastaCurve>(
     w: &C::AffineExt,
     secrecy: Secrecy,
     budget: MemoryBudget,
+    cancellation: Option<&CancellationToken>,
 ) -> Result<C, MsmError> {
+    #[cfg(test)]
+    test_observation::record();
+    CancellationToken::checkpoint(cancellation)?;
+    let shared = SharedMemoryBudget::process_default();
     let bases = bases.get(..scalars.len()).ok_or(MsmError::LengthMismatch(
         iroha_pasta::LengthMismatch {
             left: scalars.len(),
@@ -80,18 +145,22 @@ fn commit_with_bases<C: PastaCurve>(
     ))?;
     let sum = match (table, secrecy) {
         (Some(table), Secrecy::Public) if table.len() == scalars.len() => {
-            table.msm_public(scalars, budget)?
+            table.msm_public_cancellable(scalars, budget, &shared, cancellation)?
         }
         (Some(table), Secrecy::Secret) if table.len() == scalars.len() => {
-            table.msm_secret(scalars, budget)?
+            table.msm_secret_cancellable(scalars, budget, &shared, cancellation)?
         }
-        (_, Secrecy::Public) => msm_public::<C>(scalars, bases, budget)?,
-        (_, Secrecy::Secret) => msm_secret::<C>(scalars, bases, budget)?,
+        (_, Secrecy::Public) => {
+            msm_public_cancellable::<C>(scalars, bases, budget, &shared, cancellation)?
+        }
+        (_, Secrecy::Secret) => {
+            msm_secret_cancellable::<C>(scalars, bases, budget, &shared, cancellation)?
+        }
     };
-    let blind_term = match secrecy {
-        Secrecy::Public => w.to_curve().mul_vartime(blind),
-        Secrecy::Secret => w.to_curve() * *blind,
-    };
+    // The constant-time multiplication is stack-only; the variable-time
+    // GLV helper allocates wNAF vectors outside MSM admission.
+    let blind_term = w.to_curve() * *blind;
+    CancellationToken::checkpoint(cancellation)?;
     Ok(sum + blind_term)
 }
 
@@ -108,6 +177,21 @@ pub fn commit<C: PastaCurve>(
     secrecy: Secrecy,
     budget: MemoryBudget,
 ) -> Result<C, MsmError> {
+    commit_cancellable(params, coeffs, blind, secrecy, budget, None)
+}
+
+/// Commits with a caller-owned cancellation signal, joining every task.
+///
+/// # Errors
+/// As [`commit`], or [`MsmError::Cancelled`].
+pub fn commit_cancellable<C: PastaCurve>(
+    params: &ParamsIpa<C>,
+    coeffs: &[C::ScalarExt],
+    blind: &C::ScalarExt,
+    secrecy: Secrecy,
+    budget: MemoryBudget,
+    cancellation: Option<&CancellationToken>,
+) -> Result<C, MsmError> {
     commit_with_bases(
         params.g(),
         None,
@@ -116,6 +200,7 @@ pub fn commit<C: PastaCurve>(
         &params.w(),
         secrecy,
         budget,
+        cancellation,
     )
 }
 
@@ -131,6 +216,21 @@ pub fn commit_lagrange<C: PastaCurve>(
     secrecy: Secrecy,
     budget: MemoryBudget,
 ) -> Result<C, MsmError> {
+    commit_lagrange_cancellable(params, values, blind, secrecy, budget, None)
+}
+
+/// Commits with a caller-owned cancellation signal, joining every task.
+///
+/// # Errors
+/// As [`commit_lagrange`], or [`MsmError::Cancelled`].
+pub fn commit_lagrange_cancellable<C: PastaCurve>(
+    params: &ParamsIpa<C>,
+    values: &[C::ScalarExt],
+    blind: &C::ScalarExt,
+    secrecy: Secrecy,
+    budget: MemoryBudget,
+    cancellation: Option<&CancellationToken>,
+) -> Result<C, MsmError> {
     commit_with_bases(
         params.g_lagrange(),
         None,
@@ -139,6 +239,7 @@ pub fn commit_lagrange<C: PastaCurve>(
         &params.w(),
         secrecy,
         budget,
+        cancellation,
     )
 }
 
@@ -178,6 +279,27 @@ impl<C: PastaCurve> CommitmentTables<C> {
         }
     }
 
+    /// Build optional public tables while preserving typed cancellation.
+    ///
+    /// # Errors
+    /// [`MsmError::Cancelled`] after construction tasks join. Budget refusal keeps the
+    /// corresponding table absent, exactly as [`Self::build`].
+    pub fn build_cancellable(
+        params: &ParamsIpa<C>,
+        budget: MemoryBudget,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Self, MsmError> {
+        let table = |bases| match FixedBaseTable::new_cancellable(bases, budget, cancellation) {
+            Ok(table) => Ok(Some(table)),
+            Err(MsmError::Budget(_)) => Ok(None),
+            Err(error) => Err(error),
+        };
+        let g_lagrange = table(params.g_lagrange())?;
+        let g = table(params.g())?;
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+        Ok(Self { g, g_lagrange })
+    }
+
     /// Whether the `g` and `g_lagrange` tables exist.
     #[must_use]
     pub fn present(&self) -> (bool, bool) {
@@ -197,6 +319,22 @@ impl<C: PastaCurve> CommitmentTables<C> {
         secrecy: Secrecy,
         budget: MemoryBudget,
     ) -> Result<C, MsmError> {
+        self.commit_cancellable(params, coeffs, blind, secrecy, budget, None)
+    }
+
+    /// Commits with a caller-owned cancellation signal, joining every task.
+    ///
+    /// # Errors
+    /// As [`Self::commit`], or [`MsmError::Cancelled`].
+    pub fn commit_cancellable(
+        &self,
+        params: &ParamsIpa<C>,
+        coeffs: &[C::ScalarExt],
+        blind: &C::ScalarExt,
+        secrecy: Secrecy,
+        budget: MemoryBudget,
+        cancellation: Option<&CancellationToken>,
+    ) -> Result<C, MsmError> {
         commit_with_bases(
             params.g(),
             self.g.as_ref(),
@@ -205,6 +343,7 @@ impl<C: PastaCurve> CommitmentTables<C> {
             &params.w(),
             secrecy,
             budget,
+            cancellation,
         )
     }
 
@@ -222,6 +361,83 @@ impl<C: PastaCurve> CommitmentTables<C> {
         secrecy: Secrecy,
         budget: MemoryBudget,
     ) -> Result<C, MsmError> {
+        self.commit_lagrange_cancellable(params, values, blind, secrecy, budget, None)
+    }
+
+    /// Commit a secret evaluation column whose usable prefix has a public bound.
+    /// The bound is `(prefix_len, bits)`; random padding stays full-width and the
+    /// existing constant-time blind multiplication is unchanged. Optional tables
+    /// keep their existing whole-column path, but only after prefix validation.
+    pub(crate) fn commit_lagrange_bounded_prefix_cancellable(
+        &self,
+        params: &ParamsIpa<C>,
+        values: &[C::ScalarExt],
+        public_bound: (usize, usize),
+        blind: &C::ScalarExt,
+        budget: MemoryBudget,
+        cancellation: Option<&CancellationToken>,
+    ) -> Result<C, MsmError> {
+        let (prefix_len, bits) = public_bound;
+        let prefix = values.get(..prefix_len).ok_or(MsmError::LengthMismatch(
+            iroha_pasta::LengthMismatch {
+                left: prefix_len,
+                right: values.len(),
+            },
+        ))?;
+        let checked = BoundedSecretScalars::new(prefix, bits, cancellation)?;
+        if self.g_lagrange.is_some() {
+            return self.commit_lagrange_cancellable(
+                params,
+                values,
+                blind,
+                Secrecy::Secret,
+                budget,
+                cancellation,
+            );
+        }
+        #[cfg(test)]
+        test_observation::record();
+        let all_bases = params.g_lagrange();
+        let bases = all_bases
+            .get(..values.len())
+            .ok_or(MsmError::LengthMismatch(iroha_pasta::LengthMismatch {
+                left: values.len(),
+                right: all_bases.len(),
+            }))?;
+        let shared = SharedMemoryBudget::process_default();
+        let mut sum = zeroize::Zeroizing::new(msm_secret_bounded_cancellable::<C>(
+            &checked,
+            &bases[..prefix_len],
+            budget,
+            &shared,
+            cancellation,
+        )?);
+        // The first kernel has released its scratch before the padding kernel.
+        *sum += msm_secret_cancellable::<C>(
+            &values[prefix_len..],
+            &bases[prefix_len..],
+            budget,
+            &shared,
+            cancellation,
+        )?;
+        *sum += params.w().to_curve() * *blind;
+        CancellationToken::checkpoint(cancellation)?;
+        Ok(*sum)
+    }
+
+    /// Commits with a caller-owned cancellation signal, joining every task.
+    ///
+    /// # Errors
+    /// As [`Self::commit_lagrange`], or [`MsmError::Cancelled`].
+    pub fn commit_lagrange_cancellable(
+        &self,
+        params: &ParamsIpa<C>,
+        values: &[C::ScalarExt],
+        blind: &C::ScalarExt,
+        secrecy: Secrecy,
+        budget: MemoryBudget,
+        cancellation: Option<&CancellationToken>,
+    ) -> Result<C, MsmError> {
         commit_with_bases(
             params.g_lagrange(),
             self.g_lagrange.as_ref(),
@@ -230,6 +446,7 @@ impl<C: PastaCurve> CommitmentTables<C> {
             &params.w(),
             secrecy,
             budget,
+            cancellation,
         )
     }
 }
@@ -282,9 +499,13 @@ fn complete_window_sum<C: PastaCurve>(
     bases: &[C::AffineExt],
     start: usize,
     width: usize,
+    cancellation: Option<&CancellationToken>,
 ) -> C {
     let mut buckets = vec![C::identity(); (1_usize << width) - 1];
-    for (scalar, base) in limbs.iter().zip(bases) {
+    for (index, (scalar, base)) in limbs.iter().zip(bases).enumerate() {
+        if index % 256 == 0 && CancellationToken::checkpoint(cancellation).is_err() {
+            return C::identity();
+        }
         let digit = window_digit(scalar, start, width);
         if let Some(bucket) = digit
             .checked_sub(1)
@@ -434,6 +655,7 @@ fn glv_chunk_terms<C: PastaCurve>(budget: MemoryBudget) -> usize {
 fn glv_terms<C: PastaCurve>(
     scalars: &[C::ScalarExt],
     bases: &[C::AffineExt],
+    cancellation: Option<&CancellationToken>,
 ) -> Option<GlvTerms<C::AffineExt>> {
     let beta = <C::AffineExt as PastaAffine>::endo_beta();
     let terms = scalars.len().min(bases.len());
@@ -449,6 +671,9 @@ fn glv_terms<C: PastaCurve>(
         .zip(split.images.par_iter_mut())
         .zip(scalars.par_iter().zip(bases))
         .try_for_each(|(((halves, signs), image), (scalar, base))| {
+            if CancellationToken::checkpoint(cancellation).is_err() {
+                return None;
+            }
             let decomposition = C::glv_decompose(scalar)?;
             // phi(x, y) = (beta x, y) = [ZETA] (x, y); the identity (0, 0)
             // maps to itself.
@@ -468,6 +693,7 @@ fn signed_window_sum<C: PastaCurve>(
     bases: &[C::AffineExt],
     window: usize,
     width: usize,
+    cancellation: Option<&CancellationToken>,
 ) -> C {
     let recoder = SignedWindow::new(width, window);
     let mut buckets = vec![C::identity(); 1_usize << (width - 1)];
@@ -477,7 +703,10 @@ fn signed_window_sum<C: PastaCurve>(
         .zip(&terms.signs)
         .zip(&terms.images)
         .zip(bases);
-    for (((halves, signs), image), base) in split {
+    for (index, (((halves, signs), image), base)) in split.enumerate() {
+        if index % 256 == 0 && CancellationToken::checkpoint(cancellation).is_err() {
+            return C::identity();
+        }
         for (half, point, negative) in [
             (halves[0], base, signs & 1 != 0),
             (halves[1], image, signs & 2 != 0),
@@ -516,12 +745,20 @@ fn combine_windows<C: PastaCurve>(
     width: usize,
     concurrency: usize,
     window_sum: impl Fn(usize) -> C + Sync,
+    cancellation: Option<&CancellationToken>,
 ) -> C {
-    let indices: Vec<usize> = (0..windows).collect();
-    let mut sums: Vec<C> = Vec::with_capacity(windows);
-    for wave in indices.chunks(concurrency.clamp(1, windows.max(1))) {
-        let wave_sums: Vec<C> = wave.par_iter().map(|window| window_sum(*window)).collect();
-        sums.extend(wave_sums);
+    let concurrency = concurrency.clamp(1, windows.max(1));
+    let mut sums = vec![C::identity(); windows];
+    for (wave, slots) in sums.chunks_mut(concurrency).enumerate() {
+        if CancellationToken::checkpoint(cancellation).is_err() {
+            return C::identity();
+        }
+        slots.par_iter_mut().enumerate().for_each(|(slot, sum)| {
+            if CancellationToken::checkpoint(cancellation).is_err() {
+                return;
+            }
+            *sum = window_sum(wave * concurrency + slot);
+        });
     }
     let mut total = C::identity();
     for sum in sums.iter().rev() {
@@ -533,6 +770,49 @@ fn combine_windows<C: PastaCurve>(
     total
 }
 
+/// Accounts for persistent columns, all window results, and every bucket
+/// array in one parallel wave before any of those allocations are made.
+fn window_scratch<C: PastaCurve>(
+    persistent: usize,
+    windows: usize,
+    buckets_per_window: usize,
+    budget: MemoryBudget,
+) -> Option<(usize, usize)> {
+    let point = core::mem::size_of::<C>();
+    let fixed = persistent.checked_add(windows.checked_mul(point)?)?;
+    let window = buckets_per_window.checked_mul(point)?;
+    let concurrency = budget
+        .bytes()
+        .checked_sub(fixed)?
+        .checked_div(window)?
+        .min(windows)
+        .min(rayon::current_num_threads());
+    if concurrency == 0 {
+        return None;
+    }
+    Some((
+        concurrency,
+        fixed.checked_add(concurrency.checked_mul(window)?)?,
+    ))
+}
+
+/// Complete scalar multiplication uses a stack-only fixed window. Scarce scratch
+/// changes performance, never the verifier's accepted group equation.
+fn complete_without_scratch<C: PastaCurve>(
+    scalars: &[C::ScalarExt],
+    bases: &[C::AffineExt],
+    cancellation: Option<&CancellationToken>,
+) -> C {
+    let mut sum = C::identity();
+    for (scalar, base) in scalars.iter().zip(bases) {
+        if CancellationToken::checkpoint(cancellation).is_err() {
+            return C::identity();
+        }
+        sum += base.to_curve() * *scalar;
+    }
+    sum
+}
+
 /// [`msm_complete`] on GLV-split, signed-digit windows, or `None` when a
 /// split is unavailable. The terms are split in chunks of
 /// [`glv_chunk_terms`] whose sums add up: the split data never takes more
@@ -541,20 +821,59 @@ fn msm_complete_glv<C: PastaCurve>(
     scalars: &[C::ScalarExt],
     bases: &[C::AffineExt],
     budget: MemoryBudget,
+    shared: &SharedMemoryBudget,
+    cancellation: Option<&CancellationToken>,
 ) -> Option<C> {
     let n = scalars.len().min(bases.len());
-    let chunk = glv_chunk_terms::<C>(budget);
     let mut total = C::identity();
-    for (scalars, bases) in scalars[..n].chunks(chunk).zip(bases[..n].chunks(chunk)) {
-        let split_bytes = scalars.len().saturating_mul(glv_term_bytes::<C>());
-        let buckets = MemoryBudget::new(budget.bytes().saturating_sub(split_bytes));
-        let terms = glv_terms::<C>(scalars, bases)?;
-        let width = signed_window(scalars.len().saturating_mul(2), buckets);
-        let windows = signed_windows(width);
-        let concurrency = buckets.bytes() / (BUCKET_BYTES << (width - 1));
-        total += combine_windows(windows, width, concurrency, |window| {
-            signed_window_sum::<C>(&terms, bases, window, width)
+    let mut start = 0;
+    while start < n {
+        if CancellationToken::checkpoint(cancellation).is_err() {
+            return Some(C::identity());
+        }
+        let available = MemoryBudget::new(budget.bytes().min(shared.available_bytes()));
+        let count = glv_chunk_terms::<C>(available).min(n - start);
+        let split_bytes = count.saturating_mul(glv_term_bytes::<C>());
+        let buckets = MemoryBudget::new(available.bytes().saturating_sub(split_bytes));
+        let preferred = signed_window(count.saturating_mul(2), buckets);
+        let plan = (1..=preferred).rev().find_map(|width| {
+            let windows = signed_windows(width);
+            window_scratch::<C>(split_bytes, windows, 1 << (width - 1), available)
+                .map(|(concurrency, bytes)| (width, windows, concurrency, bytes))
         });
+        let Some((width, windows, concurrency, bytes)) = plan else {
+            return Some(
+                total
+                    + complete_without_scratch::<C>(
+                        &scalars[start..n],
+                        &bases[start..n],
+                        cancellation,
+                    ),
+            );
+        };
+        // Never wait while a Rayon task may own another reservation.
+        let Some(_scratch) = shared.try_reserve(bytes) else {
+            return Some(
+                total
+                    + complete_without_scratch::<C>(
+                        &scalars[start..n],
+                        &bases[start..n],
+                        cancellation,
+                    ),
+            );
+        };
+        let end = start + count;
+        let terms = glv_terms::<C>(&scalars[start..end], &bases[start..end], cancellation)?;
+        total += combine_windows(
+            windows,
+            width,
+            concurrency,
+            |window| {
+                signed_window_sum::<C>(&terms, &bases[start..end], window, width, cancellation)
+            },
+            cancellation,
+        );
+        start = end;
     }
     Some(total)
 }
@@ -564,23 +883,67 @@ fn msm_complete_glv<C: PastaCurve>(
 /// equal lengths; extra entries of the longer one are ignored. Each scalar is
 /// split with the GLV endomorphism into two signed-digit halves (see the
 /// module documentation). Windows run in waves on the caller's Rayon pool,
-/// at most as many at once as `budget` holds buckets for (always at least
-/// one), and are combined in window order, so the result is the same group
-/// element for every thread count and budget. It never fails.
+/// limited by both `budget` and the process-wide shared MSM scratch cap.
+/// Windows are combined in order, so the result is the same group element
+/// for every thread count and budget. With no scratch available it uses
+/// complete scalar multiplications without heap allocation. It never fails.
 #[must_use]
 pub fn msm_complete<C: PastaCurve>(
     scalars: &[C::ScalarExt],
     bases: &[C::AffineExt],
     budget: MemoryBudget,
 ) -> C {
+    msm_complete_with_shared_budget(
+        scalars,
+        bases,
+        budget,
+        &SharedMemoryBudget::process_default(),
+    )
+}
+
+/// [`msm_complete`] with an additional shared caller scratch ceiling.
+///
+/// All kernel-owned heap buffers, including GLV splits, scalar limbs,
+/// window results and concurrent bucket arrays, are admitted before
+/// allocation. Contention uses the allocation-free complete path without
+/// waiting, and cannot change the result. Input slices and retained caller
+/// data are outside this scratch budget.
+#[must_use]
+pub fn msm_complete_with_shared_budget<C: PastaCurve>(
+    scalars: &[C::ScalarExt],
+    bases: &[C::AffineExt],
+    budget: MemoryBudget,
+    shared: &SharedMemoryBudget,
+) -> C {
+    msm_complete_cancellable(scalars, bases, budget, shared, None).expect("no cancellation signal")
+}
+
+/// Complete-formula public MSM with explicit cooperative cancellation.
+///
+/// # Errors
+/// Returns cancellation only after all Rayon tasks join and scratch permits
+/// release; no partial group equation is exposed to verifier callers.
+pub fn msm_complete_cancellable<C: PastaCurve>(
+    scalars: &[C::ScalarExt],
+    bases: &[C::AffineExt],
+    budget: MemoryBudget,
+    shared: &SharedMemoryBudget,
+    cancellation: Option<&CancellationToken>,
+) -> Result<C, iroha_pasta::Cancelled> {
+    CancellationToken::checkpoint(cancellation)?;
     debug_assert_eq!(scalars.len(), bases.len());
     let n = scalars.len().min(bases.len());
     if n == 0 {
-        return C::identity();
+        return Ok(C::identity());
     }
     let (scalars, bases) = (&scalars[..n], &bases[..n]);
-    msm_complete_glv::<C>(scalars, bases, budget)
-        .unwrap_or_else(|| msm_complete_unsigned::<C>(scalars, bases, budget))
+    let candidate = msm_complete_glv::<C>(scalars, bases, budget, shared, cancellation);
+    CancellationToken::checkpoint(cancellation)?;
+    let result = candidate.unwrap_or_else(|| {
+        msm_complete_unsigned::<C>(scalars, bases, budget, shared, cancellation)
+    });
+    CancellationToken::checkpoint(cancellation)?;
+    Ok(result)
 }
 
 /// [`msm_complete`] on unsigned full-width windows: the fallback when a GLV
@@ -589,14 +952,29 @@ fn msm_complete_unsigned<C: PastaCurve>(
     scalars: &[C::ScalarExt],
     bases: &[C::AffineExt],
     budget: MemoryBudget,
+    shared: &SharedMemoryBudget,
+    cancellation: Option<&CancellationToken>,
 ) -> C {
     let n = scalars.len().min(bases.len());
     if n == 0 {
         return C::identity();
     }
-    let width = complete_window(n, budget);
+    let available = MemoryBudget::new(budget.bytes().min(shared.available_bytes()));
+    let persistent = n.saturating_mul(core::mem::size_of::<[u64; 4]>());
+    let buckets = MemoryBudget::new(available.bytes().saturating_sub(persistent));
+    let preferred = complete_window(n, buckets);
     let bits = usize::try_from(<C::ScalarExt as PrimeField>::NUM_BITS).unwrap_or(256);
-    let windows = bits.div_ceil(width);
+    let plan = (1..=preferred).rev().find_map(|width| {
+        let windows = bits.div_ceil(width);
+        window_scratch::<C>(persistent, windows, (1 << width) - 1, available)
+            .map(|(concurrency, bytes)| (width, windows, concurrency, bytes))
+    });
+    let Some((width, windows, concurrency, bytes)) = plan else {
+        return complete_without_scratch::<C>(scalars, bases, cancellation);
+    };
+    let Some(_scratch) = shared.try_reserve(bytes) else {
+        return complete_without_scratch::<C>(scalars, bases, cancellation);
+    };
     let limbs: Vec<[u64; 4]> = scalars[..n]
         .par_iter()
         .map(|scalar| {
@@ -611,10 +989,13 @@ fn msm_complete_unsigned<C: PastaCurve>(
         })
         .collect();
     let bases = &bases[..n];
-    let concurrency = budget.bytes() / (BUCKET_BYTES << width);
-    combine_windows(windows, width, concurrency, |window| {
-        complete_window_sum::<C>(&limbs, bases, window * width, width)
-    })
+    combine_windows(
+        windows,
+        width,
+        concurrency,
+        |window| complete_window_sum::<C>(&limbs, bases, window * width, width, cancellation),
+        cancellation,
+    )
 }
 
 /// A linear combination of points `sum_i scalars[i] * bases[i]` (public
@@ -693,6 +1074,23 @@ impl<C: PastaCurve> Msm<C> {
         msm_complete::<C>(&self.scalars, &self.bases, budget)
     }
 
+    /// Evaluate with an explicit signal, preserving complete group operations.
+    /// # Errors
+    /// Cancellation after all admitted kernel tasks join and scratch is released.
+    pub fn evaluate_cancellable(
+        &self,
+        budget: MemoryBudget,
+        cancellation: Option<&CancellationToken>,
+    ) -> Result<C, iroha_pasta::Cancelled> {
+        msm_complete_cancellable::<C>(
+            &self.scalars,
+            &self.bases,
+            budget,
+            &SharedMemoryBudget::process_default(),
+            cancellation,
+        )
+    }
+
     /// Whether the combination is the identity.
     #[must_use]
     pub fn is_identity(&self, budget: MemoryBudget) -> bool {
@@ -714,6 +1112,7 @@ pub(crate) fn default_blind<F: PastaField>() -> F {
 #[cfg(test)]
 mod tests {
     use group::{Curve, Group};
+    use iroha_pasta::msm::msm_public;
     use iroha_pasta::{Ep, Eq, Fq, msm::msm_naive};
     use rand_chacha::ChaCha20Rng;
     use rand_core_06::SeedableRng;
@@ -897,7 +1296,13 @@ mod tests {
             let budget = MemoryBudget::new(2 * terms * term);
             assert_eq!(glv_chunk_terms::<Ep>(budget), terms);
             assert_eq!(
-                msm_complete_glv::<Ep>(&scalars, &bases, budget),
+                msm_complete_glv::<Ep>(
+                    &scalars,
+                    &bases,
+                    budget,
+                    &SharedMemoryBudget::process_default(),
+                    None
+                ),
                 Some(expected),
                 "{terms} terms per chunk"
             );
@@ -1043,12 +1448,24 @@ mod tests {
                 MemoryBudget::new(BUCKET_BYTES * 8),
             ] {
                 assert_eq!(
-                    msm_complete_glv::<C>(&scalars, &bases, budget),
+                    msm_complete_glv::<C>(
+                        &scalars,
+                        &bases,
+                        budget,
+                        &SharedMemoryBudget::process_default(),
+                        None
+                    ),
                     Some(expected),
                     "n = {n}"
                 );
                 assert_eq!(
-                    msm_complete_unsigned::<C>(&scalars, &bases, budget),
+                    msm_complete_unsigned::<C>(
+                        &scalars,
+                        &bases,
+                        budget,
+                        &SharedMemoryBudget::process_default(),
+                        None
+                    ),
                     expected
                 );
             }
@@ -1077,15 +1494,135 @@ mod tests {
             let scalars: Vec<Fq> = (0..n).map(|_| Fq::random(&mut rng)).collect();
             let bases: Vec<_> = (0..n).map(|_| Ep::random(&mut rng).to_affine()).collect();
             assert_eq!(
-                msm_complete_glv::<Ep>(&scalars, &bases, MemoryBudget::DEFAULT),
+                msm_complete_glv::<Ep>(
+                    &scalars,
+                    &bases,
+                    MemoryBudget::DEFAULT,
+                    &SharedMemoryBudget::process_default(),
+                    None
+                ),
                 Some(msm_complete_unsigned::<Ep>(
                     &scalars,
                     &bases,
-                    MemoryBudget::DEFAULT
+                    MemoryBudget::DEFAULT,
+                    &SharedMemoryBudget::process_default(),
+                    None
                 )),
                 "round {round}"
             );
         }
+    }
+
+    #[test]
+    fn window_scratch_accounts_for_all_heap_buffers() {
+        let point = core::mem::size_of::<Ep>();
+        let persistent = 17 * glv_term_bytes::<Ep>();
+        let windows = signed_windows(4);
+        let buckets = 1 << 3;
+        let minimum = persistent + (windows + buckets) * point;
+        assert!(
+            window_scratch::<Ep>(persistent, windows, buckets, MemoryBudget::new(minimum - 1))
+                .is_none()
+        );
+        assert_eq!(
+            window_scratch::<Ep>(persistent, windows, buckets, MemoryBudget::new(minimum)),
+            Some((1, minimum))
+        );
+        assert!(
+            window_scratch::<Ep>(usize::MAX, windows, buckets, MemoryBudget::DEFAULT).is_none()
+        );
+        for workers in [1, 4] {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(workers)
+                .build()
+                .expect("pool");
+            let (concurrency, bytes) = pool.install(|| {
+                window_scratch::<Ep>(persistent, windows, buckets, MemoryBudget::DEFAULT)
+                    .expect("plan")
+            });
+            assert_eq!(concurrency, workers);
+            assert_eq!(
+                bytes,
+                persistent + windows * point + workers * buckets * point
+            );
+        }
+    }
+
+    /// Concurrent complete verifier MSMs use shared admission, and a zero
+    /// shared ceiling exercises the stack-only path on both kernels.
+    fn complete_shared_budget<C: PastaCurve>(seed: u64) {
+        let mut rng = ChaCha20Rng::seed_from_u64(seed);
+        let (scalars, bases) = adversarial::<C>(65, &mut rng);
+        let expected = msm_naive::<C>(&scalars, &bases);
+        let shared = SharedMemoryBudget::new(32 << 10);
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .expect("pool");
+        pool.install(|| {
+            (0..8).into_par_iter().for_each(|_| {
+                assert_eq!(
+                    msm_complete_with_shared_budget::<C>(
+                        &scalars,
+                        &bases,
+                        MemoryBudget::DEFAULT,
+                        &shared
+                    ),
+                    expected
+                );
+            });
+        });
+        assert_eq!(shared.in_use_bytes(), 0);
+        assert!(shared.peak_bytes() <= shared.limit_bytes());
+        // A zero caller cap deterministically exercises fallback without
+        // depending on unrelated process reservations made by other tests.
+        let blocked = SharedMemoryBudget::new(0);
+        pool.install(|| {
+            assert_eq!(
+                msm_complete_with_shared_budget::<C>(
+                    &scalars,
+                    &bases,
+                    MemoryBudget::DEFAULT,
+                    &blocked
+                ),
+                expected
+            );
+            assert_eq!(
+                msm_complete_unsigned::<C>(&scalars, &bases, MemoryBudget::DEFAULT, &blocked, None),
+                expected
+            );
+        });
+        assert_eq!(blocked.peak_bytes(), 0);
+        assert_eq!(blocked.in_use_bytes(), 0);
+        let single = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .expect("one-worker pool");
+        let saturated = SharedMemoryBudget::new(1);
+        let held = saturated.try_reserve(1).expect("one byte of scratch");
+        // An admission wait here would deadlock: this worker cannot drop
+        // its reservation until both nested calls return.
+        let nested = || {
+            msm_complete_with_shared_budget::<C>(
+                &scalars,
+                &bases,
+                MemoryBudget::DEFAULT,
+                &saturated,
+            )
+        };
+        assert_eq!(
+            single.install(|| rayon::join(nested, nested)),
+            (expected, expected)
+        );
+        assert_eq!(saturated.in_use_bytes(), 1);
+        drop(held);
+        assert_eq!(saturated.in_use_bytes(), 0);
+    }
+
+    #[test]
+    fn complete_msm_shared_cap_and_contention_preserve_both_curves() {
+        complete_shared_budget::<Ep>(85);
+        complete_shared_budget::<Eq>(86);
     }
 
     /// Release timing of the verifier MSM against the prover-only
@@ -1233,3 +1770,7 @@ mod tests {
         assert!(Msm::<Ep>::default().is_identity(MemoryBudget::DEFAULT));
     }
 }
+
+#[cfg(test)]
+#[path = "commit/bounded_tests.rs"]
+mod bounded_tests;

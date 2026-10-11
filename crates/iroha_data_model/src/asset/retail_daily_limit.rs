@@ -105,8 +105,6 @@ pub struct RetailIdentityCommitmentV1 {
 pub enum RetailMovementPurposeV1 {
     /// A verified mint or redemption by the monetary issuer.
     MonetaryIssuer,
-    /// A verified KAGEMUSHA reserve movement.
-    KagemushaReserve,
     /// A verified bridge, settlement or reserve movement.
     ProtocolCustody,
 }

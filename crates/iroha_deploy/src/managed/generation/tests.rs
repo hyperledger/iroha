@@ -57,7 +57,10 @@ fn published_generation_survives_retry_with_an_unpublished_leftover() {
     let pin = read(&directory).unwrap().launcher;
     let mut request = LocalnetRequest::new(pin.path.clone(), pin.path);
     request.service_profile = prepared.service_profile;
-    assert!(matches!(store.up(&request), Err(Error::Io(_))));
+    assert!(matches!(
+        store.up(&request),
+        Err(Error::Timeout(timeout)) if timeout == request.startup_timeout
+    ));
     assert_eq!(encode(&read(&directory).unwrap()).unwrap(), before);
     assert_eq!(store.prepared("local").unwrap(), prepared);
 }
@@ -86,10 +89,7 @@ fn staged_private_generation_publishes_exact_final_paths_and_original_identity()
     let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
     let networks = PrivateDirectory::open(store.root().join("networks")).unwrap();
     let directory = networks.create_child("private").unwrap();
-    directory
-        .write_atomic("binary", b"fixture bytes", PublishMode::CreateNew)
-        .unwrap();
-    let binary = directory.path().join("binary");
+    let binary = std::env::current_exe().unwrap();
     let pin = store::pin_binary(&binary).unwrap();
     let mut request = LocalnetRequest::private_root(binary.clone(), binary);
     request.name = "private".into();
@@ -187,10 +187,7 @@ fn staged_global_generation_publishes_all_runtime_paths_and_custody() {
     let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
     let networks = PrivateDirectory::open(store.root().join("networks")).unwrap();
     let directory = networks.create_child("local").unwrap();
-    directory
-        .write_atomic("binary", b"fixture bytes", PublishMode::CreateNew)
-        .unwrap();
-    let binary = directory.path().join("binary");
+    let binary = std::env::current_exe().unwrap();
     let pin = store::pin_binary(&binary).unwrap();
     let request = LocalnetRequest::new(binary.clone(), binary);
     let _operation = store::acquire(&directory, "operation.lock", "local").unwrap();
@@ -242,10 +239,7 @@ fn staged_service_authorities_publish_exact_identity_and_private_custody() {
     let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
     let networks = PrivateDirectory::open(store.root().join("networks")).unwrap();
     let directory = networks.create_child("native-authorities").unwrap();
-    directory
-        .write_atomic("binary", b"fixture bytes", PublishMode::CreateNew)
-        .unwrap();
-    let binary = directory.path().join("binary");
+    let binary = std::env::current_exe().unwrap();
     let pin = store::pin_binary(&binary).unwrap();
     let mut request = LocalnetRequest::new(binary.clone(), binary);
     request.name = "native-authorities".into();
@@ -286,5 +280,57 @@ fn staged_service_authorities_publish_exact_identity_and_private_custody() {
             .stream_token_authorities()
             .unwrap(),
         Some(manifest)
+    );
+}
+
+#[test]
+fn optional_generation_requires_initial_absence_and_keeps_visible_manifest_refusal() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = PrivateDirectory::open_or_create(temporary.path().join("context")).unwrap();
+    assert!(read_optional(&root).unwrap().is_none());
+    assert!(
+        matches!(read(&root), Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound)
+    );
+    let generation = root.create_child(DIRECTORY).unwrap();
+    generation
+        .write_atomic(
+            "owner.key",
+            b"published original custody",
+            PublishMode::CreateNew,
+        )
+        .unwrap();
+    assert!(matches!(read_optional(&root), Err(Error::Invalid(_))));
+    assert!(matches!(read(&root), Err(Error::Invalid(_))));
+    assert_eq!(
+        generation.read("owner.key", 64).unwrap().as_slice(),
+        b"published original custody"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn optional_generation_parent_refusal_cannot_authorize_preparation_and_original_retry() {
+    let _resources = super::super::native_test_guard();
+    let temporary = tempfile::tempdir().unwrap();
+    let (_, root, _) = super::super::tests::fixture(&temporary.path().join("managed"), "local");
+    let original = encode(&read(&root).unwrap()).unwrap();
+    assert_eq!(
+        encode(&read_optional(&root).unwrap().unwrap()).unwrap(),
+        original
+    );
+    let displaced = root.path().with_file_name("displaced");
+    std::fs::rename(root.path(), &displaced).unwrap();
+    assert!(read_optional(&root).is_err());
+    assert!(fresh_stage(&root).is_err());
+    let replacement = PrivateDirectory::open_or_create(root.path()).unwrap();
+    assert!(read_optional(&root).is_err());
+    assert!(fresh_stage(&root).is_err());
+    assert!(replacement.entries(1).unwrap().is_empty());
+    drop(replacement);
+    std::fs::remove_dir(root.path()).unwrap();
+    std::fs::rename(&displaced, root.path()).unwrap();
+    assert_eq!(
+        encode(&read_optional(&root).unwrap().unwrap()).unwrap(),
+        original
     );
 }

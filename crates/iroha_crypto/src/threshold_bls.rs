@@ -2675,7 +2675,7 @@ mod tests {
                 Err(ThresholdBlsError::PrivateShareDecryption)
             ));
         }
-        let mut tampered = ciphertext.clone();
+        let mut tampered = ciphertext;
         *tampered.last_mut().expect("AEAD tag") ^= 1;
         assert!(matches!(
             open_das_ren_private_share(

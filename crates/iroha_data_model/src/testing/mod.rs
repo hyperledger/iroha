@@ -6,22 +6,9 @@
 pub mod axt;
 /// Canonical V1 appeal-finance cancellation fixtures.
 pub mod cancel_asset_lock;
-/// Deterministic KAGEMUSHA V1 signing fixtures.
-pub mod kagemusha;
-
-/// Canonical threshold-signed Experimental release fixtures for operator and SDK tests.
-pub mod kagemusha_release {
-    pub use crate::kagemusha::kagemusha_release_v1::fixture_support::KagemushaExperimentalReleaseFixtureV1;
-}
 
 /// Genuine native certificate/checkpoint fixtures; execution outputs remain synthetic test inputs.
 #[cfg(feature = "transparent_api")]
 pub mod native_finality;
-
-/// Genuine model crypto admission over explicit synthetic ordinary platform evidence.
-pub mod ordinary_app_enrollment;
-/// Ordinary Mint codec/signature fixtures with explicit inert proof data; no debit authority.
-pub mod ordinary_mint;
-
-/// Complete ordinary Node Mint transport fixtures; all clock/policy proofs are explicitly inert.
-pub mod ordinary_node_mint;
+/// Deterministic validator-generation and epoch-authorization builders.
+pub mod sumeragi_epoch;

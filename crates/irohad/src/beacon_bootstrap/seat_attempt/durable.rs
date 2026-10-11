@@ -107,6 +107,19 @@ impl FieldDestination for Destination {
     type Error = Infallible;
 }
 macro_rules! field {
+    ($record:ty,$owner:ident,$index:literal,[u8; $length:expr],$name:ident) => {
+        impl DecodeField<$index, [u8; $length]> for DestinationFor<'_, $record> {
+            type Value = ();
+            fn decode_field(
+                &mut self,
+                field: CanonicalField<'_, [u8; $length]>,
+            ) -> Result<(), DecodeIntoError<Infallible>> {
+                self.owner.$owner.as_mut_slice()[0].$name =
+                    field.decode_owned().map_err(DecodeIntoError::Codec)?;
+                Ok(())
+            }
+        }
+    };
     ($record:ty,$owner:ident,$index:literal,$ty:ty,$name:ident) => {
         impl DecodeField<$index, $ty> for DestinationFor<'_, $record> {
             type Value = ();
@@ -141,6 +154,18 @@ impl<T> FieldDestination for InlineFor<'_, T> {
     type Error = Infallible;
 }
 macro_rules! inline_field {
+    ($record:ty,$index:literal,[u8; $length:expr],$name:ident) => {
+        impl DecodeField<$index, [u8; $length]> for InlineFor<'_, $record> {
+            type Value = ();
+            fn decode_field(
+                &mut self,
+                field: CanonicalField<'_, [u8; $length]>,
+            ) -> Result<(), DecodeIntoError<Infallible>> {
+                self.0.$name = field.decode_owned().map_err(DecodeIntoError::Codec)?;
+                Ok(())
+            }
+        }
+    };
     ($record:ty,$index:literal,$ty:ty,$name:ident) => {
         impl DecodeField<$index, $ty> for InlineFor<'_, $record> {
             type Value = ();
@@ -194,6 +219,17 @@ impl FieldDestination for SourceFields {
     type Error = Infallible;
 }
 macro_rules! source_field {
+    ($index:literal,[u8; $length:expr]) => {
+        impl DecodeField<$index, [u8; $length]> for SourceFields {
+            type Value = [u8; $length];
+            fn decode_field(
+                &mut self,
+                field: CanonicalField<'_, [u8; $length]>,
+            ) -> Result<[u8; $length], DecodeIntoError<Infallible>> {
+                field.decode_owned().map_err(DecodeIntoError::Codec)
+            }
+        }
+    };
     ($index:literal,$ty:ty) => {
         impl DecodeField<$index, $ty> for SourceFields {
             type Value = $ty;
@@ -1609,3 +1645,181 @@ pub(super) fn read_file(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod raw_field_adapter_tests {
+    use super::*;
+
+    fn check_raw_record<const N: usize, E: std::fmt::Debug>(
+        value: &impl SerializePayload,
+        raw_indices: &[usize],
+        start: usize,
+        mut decode: impl FnMut(&[u8]) -> std::result::Result<usize, DecodeIntoError<E>>,
+    ) {
+        let mut payload = Vec::new();
+        norito::core::serialize_to_writer(value, &mut payload).unwrap();
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 32);
+        let (decoded, usage) =
+            norito::core::with_decode_limits_measured(limits, || decode(&payload));
+        assert_eq!(decoded.unwrap(), payload.len());
+        assert_eq!(usage.total_allocated_bytes(), 0);
+        for &index in raw_indices {
+            let mut offset = start;
+            let mut frame_start = 0;
+            let mut body_start = 0;
+            for _ in 0..=index {
+                frame_start = offset;
+                let (length, prefix) =
+                    norito::core::inspect_len_from_slice(&payload[offset..]).unwrap();
+                body_start = offset + prefix;
+                offset = body_start + length;
+            }
+            let raw: [u8; N] = payload[body_start..offset].try_into().unwrap();
+            let mut generic = Vec::new();
+            norito::core::serialize_to_writer(&raw, &mut generic).unwrap();
+            assert_ne!(generic.len(), N);
+            let mut long = raw.to_vec();
+            long.push(0xa5);
+            for body in [raw[..N - 1].to_vec(), long, generic] {
+                let mut malformed = payload[..frame_start].to_vec();
+                norito::core::write_len_header_to_vec(&mut malformed, body.len() as u64);
+                malformed.extend_from_slice(&body);
+                malformed.extend_from_slice(&payload[offset..]);
+                let (decoded, usage) =
+                    norito::core::with_decode_limits_measured(limits, || decode(&malformed));
+                assert!(matches!(
+                    decoded,
+                    Err(DecodeIntoError::Codec(norito::Error::LengthMismatch))
+                ));
+                assert_eq!(usage.total_allocated_bytes(), 0);
+            }
+        }
+    }
+
+    fn hash(seed: u8) -> [u8; 32] {
+        std::array::from_fn(|i| (i as u8).wrapping_add(seed))
+    }
+
+    #[test]
+    fn durable_raw_fields_keep_both_layouts_original_credit_and_generic_source_arrays() {
+        for flags in [0, norito::core::header_flags::COMPACT_LEN] {
+            let _flags = norito::core::DecodeFlagsGuard::enter(flags);
+            let expiry = DurableDeadline {
+                boot: hash(0x41),
+                origin_nanos: 100,
+                expiry_nanos: 200,
+            };
+            let mut binding = empty_context();
+            binding.network_id = hash(0x11);
+            binding.attempt_id = hash(0x12);
+            binding.session_id = hash(0x13);
+            binding.roster_hash = hash(0x14);
+            binding.lifecycle_key_hash = hash(0x15);
+            binding.provider_handle_hash = hash(0x16);
+            binding.public_output_hash = hash(0x17);
+            binding.phase_input_hash = hash(0x18);
+            binding.producer_intent_hash = hash(0x19);
+            binding.previous_checkpoint_hash = hash(0x1a);
+            binding.source = DkgCheckpointSourceV1::ExecutedNativeTip {
+                height: 9,
+                block_hash: hash(0x21),
+                core_hash: hash(0x22),
+                result_hash: hash(0x23),
+            };
+            let mut decoded_binding = empty_context();
+            check_raw_record::<32, _>(&binding, &[0, 1, 3, 4, 6, 7, 16, 17, 18, 19], 0, |bytes| {
+                DkgCheckpointBindingV1::decode_fields(bytes, &mut InlineFor(&mut decoded_binding))
+                    .map(|(_, used)| used)
+            });
+            assert_eq!(decoded_binding, binding);
+            let mut decoded_expiry = DurableDeadline {
+                boot: [0; 32],
+                ..expiry
+            };
+            check_raw_record::<32, _>(&expiry, &[0], 0, |bytes| {
+                DurableDeadline::decode_fields(bytes, &mut InlineFor(&mut decoded_expiry))
+                    .map(|(_, used)| used)
+            });
+            assert_eq!(decoded_expiry, expiry);
+            for (source, indices) in [
+                (
+                    DkgCheckpointSourceV1::SignedGenesisAuthorization {
+                        genesis_hash: hash(0x31),
+                    },
+                    &[0][..],
+                ),
+                (binding.source, &[1, 2, 3][..]),
+            ] {
+                check_raw_record::<32, _>(&source, indices, 4, |bytes| {
+                    DkgCheckpointSourceV1::decode_fields(bytes, &mut SourceFields).map(
+                        |(decoded, used)| {
+                            assert_eq!(decoded, source);
+                            used
+                        },
+                    )
+                });
+            }
+            let mut intent = Intent::empty(expiry);
+            intent.context = binding;
+            intent.claim_identity = [17, 18, 19, 20];
+            intent.claim_path_hash = hash(0x51);
+            intent.fifo_identity = [21, 22, 23, 24];
+            intent.previous_head_hash = hash(0x52);
+            intent.continuation_hash = hash(0x53);
+            intent.continuation_source = binding.source;
+            intent.source_hashes = [hash(0x61), hash(0x71)];
+            intent.stream_generations = [25, 26];
+            let head = Head {
+                version: 1,
+                context: binding,
+                checkpoint_hash: hash(0x81),
+                previous_head_hash: hash(0x91),
+            };
+            let pool = AllocationBudget::new(1 << 20);
+            let mut destination = Destination {
+                intent: ChargedBuffer::new(1, &pool).unwrap(),
+                head: ChargedBuffer::new(1, &pool).unwrap(),
+            };
+            destination.intent.push_reserved(Intent::empty(expiry));
+            destination.head.push_reserved(Head::empty());
+            let pointers = (
+                destination.intent.as_slice().as_ptr(),
+                destination.head.as_slice().as_ptr(),
+            );
+            let blocker = pool
+                .try_reserve_bytes(pool.limit_bytes() - pool.reserved_bytes())
+                .unwrap();
+            check_raw_record::<32, _>(&intent, &[5, 7, 8], 0, |bytes| {
+                Intent::decode_fields(
+                    bytes,
+                    &mut DestinationFor::<Intent> {
+                        owner: &mut destination,
+                        expiry,
+                        marker: std::marker::PhantomData,
+                    },
+                )
+                .map(|(_, used)| used)
+            });
+            assert_eq!(destination.intent.as_slice()[0], intent);
+            check_raw_record::<32, _>(&head, &[2, 3], 0, |bytes| {
+                Head::decode_fields(
+                    bytes,
+                    &mut DestinationFor::<Head> {
+                        owner: &mut destination,
+                        expiry,
+                        marker: std::marker::PhantomData,
+                    },
+                )
+                .map(|(_, used)| used)
+            });
+            assert_eq!(destination.head.as_slice()[0], head);
+            assert_eq!(destination.intent.as_slice().as_ptr(), pointers.0);
+            assert_eq!(destination.head.as_slice().as_ptr(), pointers.1);
+            assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+            drop(destination);
+            assert_eq!(pool.reserved_bytes(), blocker.remaining_bytes());
+            drop(blocker);
+            assert_eq!(pool.reserved_bytes(), 0);
+        }
+    }
+}

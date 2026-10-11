@@ -102,7 +102,8 @@ pub fn set_activation(
 }
 
 /// Apply a proven frozen void: set `destination_frozen` and move a live revision to
-/// `InboundOnly` (§4.14.2, §4.16).
+/// `InboundOnly` (§4.14.2, §4.16). Return whether the revision changed, so a replayed frozen
+/// void of an already frozen and drained revision is reported as changing nothing.
 ///
 /// # Errors
 ///
@@ -111,7 +112,7 @@ pub fn apply_frozen_void(
     state_transaction: &mut StateTransaction<'_, '_>,
     network: SccpNetworkV1,
     revision: u32,
-) -> Result<(), Error> {
+) -> Result<bool, Error> {
     let mut route = store::routes::get(&*state_transaction.world, &network)
         .cloned()
         .ok_or_else(|| refuse(format_args!("no route to {}", network.profile_key())))?;
@@ -119,9 +120,12 @@ pub fn apply_frozen_void(
         .revisions
         .get_mut(&revision)
         .ok_or_else(|| refuse(format_args!("revision {revision} does not exist")))?;
-    record.destination_frozen = true;
     let from = record.activation;
     let moved = from.is_live();
+    if record.destination_frozen && !moved {
+        return Ok(false);
+    }
+    record.destination_frozen = true;
     if moved {
         record.activation = SccpRouteActivationV1::InboundOnly;
     }
@@ -135,7 +139,7 @@ pub fn apply_frozen_void(
             Some(SccpRouteActivationV1::InboundOnly),
         );
     }
-    Ok(())
+    Ok(true)
 }
 
 /// Return whether the latest destination control of `(network, revision)` pauses minting
@@ -222,18 +226,32 @@ mod tests {
         let state = blank_state();
         let mut block = state.block(header(2));
         let mut stx = block.transaction();
-        let network = SccpNetworkV1::TronMainnet;
+        let network = SccpNetworkV1::BscMainnet;
         apply_frozen_void(&mut stx, network, 1).expect_err("no route");
         store::routes::insert(&mut stx, network, sample_route(network)).expect("route");
-        apply_frozen_void(&mut stx, network, 1).expect("staged stays staged");
+        assert_eq!(
+            apply_frozen_void(&mut stx, network, 1),
+            Ok(true),
+            "staged stays staged"
+        );
         assert_eq!(activation(&stx, network, 1), SccpRouteActivationV1::Staged);
+        assert_eq!(
+            apply_frozen_void(&mut stx, network, 1),
+            Ok(false),
+            "a replay changes nothing"
+        );
         set_activation(&mut stx, network, 1, SccpRouteActivationV1::Bidirectional)
             .expect("activate");
         set_activation(&mut stx, network, 1, SccpRouteActivationV1::Paused).expect("pause");
-        apply_frozen_void(&mut stx, network, 1).expect("frozen");
+        assert_eq!(apply_frozen_void(&mut stx, network, 1), Ok(true), "frozen");
         assert_eq!(
             activation(&stx, network, 1),
             SccpRouteActivationV1::InboundOnly
+        );
+        assert_eq!(
+            apply_frozen_void(&mut stx, network, 1),
+            Ok(false),
+            "a drained replay changes nothing"
         );
         assert!(
             store::routes::get(&*stx.world, &network)

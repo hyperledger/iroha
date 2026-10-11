@@ -6,9 +6,7 @@ use crate::{
     block::ValidBlock, query::store::LiveQueryStore, sumeragi::network_topology::Topology,
 };
 use iroha_crypto::{Algorithm, KeyPair};
-use iroha_data_model::block::consensus::{
-    ConsensusMode, SumeragiGenesisContextParameters, ValidatorPower,
-};
+use iroha_data_model::block::consensus::{ConsensusMode, SumeragiGenesisContextParameters};
 use iroha_genesis::{GenesisBuilder, GenesisTopologyEntry};
 use iroha_model_base::{chain::ChainId, peer::PeerId};
 use iroha_primitives::time::TimeSource;
@@ -33,21 +31,11 @@ fn genesis(
             )
         })
         .collect::<Vec<_>>();
-    let roster = entries
-        .iter()
-        .map(|entry| ValidatorPower {
-            validator: entry.peer.clone(),
-            power: 1,
-        })
-        .collect::<Vec<_>>();
     let topology = Topology::new(entries.iter().map(|entry| entry.peer.clone()));
     let mut builder =
         GenesisBuilder::new_without_executor(ChainId::from("carrier-preparation"), ".")
             .set_topology(entries)
-            .with_sumeragi_context_parameters(parameters)
-            .with_kagemusha_mint_finality_genesis_parameters(
-                crate::kagemusha_v1_test_fixtures::mint_finality_genesis_parameters(&roster),
-            );
+            .with_sumeragi_context_parameters(parameters);
     for instruction in instructions {
         builder = builder.append_instruction(instruction.clone());
     }

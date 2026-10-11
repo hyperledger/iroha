@@ -1,7 +1,8 @@
 // Mint `6pEP9RjNoZ7beWkT3pLfKoM1dyfi` (canonical asset-definition address below) for the trigger authority.
 // `val` is decoded once from the trigger's canonical Norito argument record.
 seiyaku MintRoseTrigger {
-    kotoage fn run(quantity val) authorize("Admin") {
+    permission Admin;
+    kotoage fn run(quantity val) authorize(Admin) {
         ledger::asset::mint(
             account: context::authority(),
             asset_definition: AssetDefinitionId::parse("6pEP9RjNoZ7beWkT3pLfKoM1dyfi"),

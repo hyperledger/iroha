@@ -29,9 +29,6 @@ fn certify_private_root(root: DataspaceChain) -> (DataspaceChain, CertifiedTestC
         state,
         kura,
         validator_keys: root.chain.keys.clone(),
-        pasta_seeds: (0..4)
-            .map(|index| zeroize::Zeroizing::new([0xA0 + index; 32]))
-            .collect(),
         clock: ALICE_KEYPAIR.clone(),
         lane_blocks: Arc::new(super::super::super::super::lanes::merge::NoLanes),
     })
@@ -309,9 +306,9 @@ fn signed_private_registry_lookup_does_not_publish_refusal_as_absence() {
     let (bytes, manifest) = kotodama_lang::compiler::Compiler::new()
         .compile_source_with_manifest(
             r#"
-seiyaku OriginalRegistry {
+seiyaku OriginalRegistry { permission CanReadRegistry;
   hajimari() {}
-  kotoage fn main() authorize("CanReadRegistry") {}
+  kotoage fn main() authorize(CanReadRegistry) {}
 }
 "#,
         )

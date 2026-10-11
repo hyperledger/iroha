@@ -2,7 +2,9 @@
 //! lanes with O5 priorities and O6 bounds, the O2 persist-before-effect barrier, the write
 //! device, the executor honouring O4, and the transaction encoding of the payload builder. The
 //! lanes and the barrier belong to the hosted node ([`super::host::FakeHost`]); the device, the
-//! executor and the builder are the world's fake backends.
+//! executor and the builder are the world's fake backends. A world with a
+//! [`super::scenario::ClockGuard`] stamps every built payload with a leading block-time record
+//! and runs the application clock guard of §4.5 in the executor.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -12,7 +14,7 @@ use crate::{
     availability::AvailableBody,
     message::{Qc, WireMessage},
     safety::SafetyRecord,
-    testing::{Executed, sha256},
+    testing::sha256,
     types::{Hash32, Millis, PublicKey},
 };
 
@@ -388,6 +390,8 @@ pub struct Job {
     pub req: u64,
     /// The block.
     pub block: AvailableBody,
+    /// The `Execute`'s `certified` flag: the application clock guard skips the block (§4.5).
+    pub certified: bool,
     /// Cancelled while running.
     pub cancelled: bool,
     /// Job id.
@@ -409,9 +413,6 @@ pub struct Executor {
     pub running: Option<(Job, Millis)>,
     /// Post-states: block hash → (height, result).
     pub cache: BTreeMap<Hash32, (u64, Hash32)>,
-    /// The statements of the `Valid` executions, shared with the node's execution-gated
-    /// attestor (§3.7 A2: `R`'s preimage comes from the node's own execution).
-    pub executed: Executed,
     /// For a host that owns its scheduling (§13.5): the block whose post-state its last
     /// `Prepare` made ready to commit. Any other executor operation drops it (the application
     /// may hold one live overlay), and a `Commit` needs it.
@@ -420,13 +421,14 @@ pub struct Executor {
 }
 
 impl Executor {
-    /// Queue an `Execute`.
-    pub fn submit(&mut self, bh: Hash32, req: u64, block: AvailableBody) {
+    /// Queue an `Execute` with its `certified` flag (§4.5).
+    pub fn submit(&mut self, bh: Hash32, req: u64, block: AvailableBody, certified: bool) {
         self.next_job += 1;
         self.queue.push(Job {
             bh,
             req,
             block,
+            certified,
             cancelled: false,
             id: self.next_job,
             outcome: None,
@@ -469,7 +471,6 @@ impl Executor {
         self.parked.clear();
         self.running = None;
         self.cache.clear();
-        self.executed.clear();
         self.prepared = None;
     }
 
@@ -486,29 +487,66 @@ pub const TX_HEADER: usize = 1 + 8 + 1 + 2;
 
 /// Transaction flag: the transaction is poison (every block holding it is `Invalid`).
 const TX_POISON: u8 = 0x01;
-/// Transaction flag: the transaction needs mint finality, so its block is flagged (§3.7, F37).
-const TX_MINT: u8 = 0x02;
+/// Transaction flag: the transaction applies due application work (the keepalive validity
+/// predicate K2 of `specs/sccp.md` in the real application), so its block is subject to
+/// the stale-due-work guard CT5 (§4.5).
+const TX_DUE: u8 = 0x02;
 
-/// Encode a transaction: `0x54 ‖ be64(id) ‖ flags ‖ be16(pad) ‖ pad bytes`; flag bit 0 = poison.
+/// Block-time record tag of the simulator's application (§4.5): a payload stamped by a builder
+/// of a world with a [`super::scenario::ClockGuard`] starts with `0x43 ‖ be64(t_ms)`.
+const TIME_TAG: u8 = 0x43;
+/// Length of the block-time record.
+pub const TIME_RECORD: usize = 1 + 8;
+
+/// Encode a transaction: `0x54 ‖ be64(id) ‖ flags ‖ be16(pad) ‖ pad bytes`; bit 0 means poison.
 pub fn encode_tx(id: u64, poison: bool, pad: u16) -> Vec<u8> {
-    encode_tx_flagged(id, poison, false, pad)
+    encode_tx_with_due(id, poison, false, pad)
 }
 
-/// [`encode_tx`] with flag bit 1 = the transaction needs mint finality (§3.7, F37).
-pub fn encode_tx_flagged(id: u64, poison: bool, mint: bool, pad: u16) -> Vec<u8> {
+/// [`encode_tx`] with flag bit 1 indicating due application work (§4.5 CT5).
+pub fn encode_tx_with_due(id: u64, poison: bool, due: bool, pad: u16) -> Vec<u8> {
     let mut out = Vec::with_capacity(TX_HEADER + usize::from(pad));
     out.push(TX_TAG);
     out.extend_from_slice(&id.to_be_bytes());
-    out.push(if poison { TX_POISON } else { 0 } | if mint { TX_MINT } else { 0 });
+    out.push(if poison { TX_POISON } else { 0 } | if due { TX_DUE } else { 0 });
     out.extend_from_slice(&pad.to_be_bytes());
     out.extend(std::iter::repeat_n(0xab, usize::from(pad)));
     out
 }
 
-/// Decode the transactions of a payload as `(id, poison)`; trailing garbage is ignored.
+/// The block-time record of a block time `t_ms` (§4.5); a builder puts it first.
+pub fn encode_time(t_ms: u64) -> [u8; TIME_RECORD] {
+    let mut out = [0; TIME_RECORD];
+    out[0] = TIME_TAG;
+    out[1..].copy_from_slice(&t_ms.to_be_bytes());
+    out
+}
+
+/// The block time `t(block)` of a payload: its leading block-time record, if any (§4.5).
+pub fn block_time(payload: &[u8]) -> Option<u64> {
+    let record = payload.get(..TIME_RECORD)?;
+    if record[0] != TIME_TAG {
+        return None;
+    }
+    let mut bytes = [0; 8];
+    bytes.copy_from_slice(&record[1..]);
+    Some(u64::from_be_bytes(bytes))
+}
+
+/// The transactions of a payload: everything after its block-time record, if any.
+fn transactions(payload: &[u8]) -> &[u8] {
+    if block_time(payload).is_some() {
+        &payload[TIME_RECORD..]
+    } else {
+        payload
+    }
+}
+
+/// Decode the transactions of a payload as `(id, poison)`; a leading block-time record is
+/// skipped and trailing garbage is ignored.
 pub fn decode_txs(payload: &[u8]) -> Vec<(u64, bool)> {
     let mut out = Vec::new();
-    let mut rest = payload;
+    let mut rest = transactions(payload);
     while rest.len() >= TX_HEADER && rest[0] == TX_TAG {
         let Ok(id) = <[u8; 8]>::try_from(&rest[1..9]) else {
             break;
@@ -525,12 +563,16 @@ pub fn decode_txs(payload: &[u8]) -> Vec<(u64, bool)> {
     out
 }
 
-/// The application's flag rule of the simulator (§3.7 A1): a block needs attestations iff its
-/// payload carries a mint transaction (`EMPTY` never does).
-pub fn payload_mints(payload: &[u8]) -> bool {
-    let mut rest = payload;
+/// Whether a payload applies due work (a transaction with the due flag; §4.5 CT5).
+pub fn payload_due(payload: &[u8]) -> bool {
+    any_tx_flag(payload, TX_DUE)
+}
+
+/// Whether a transaction of the payload carries `flag`.
+fn any_tx_flag(payload: &[u8], flag: u8) -> bool {
+    let mut rest = transactions(payload);
     while rest.len() >= TX_HEADER && rest[0] == TX_TAG {
-        if rest[9] & TX_MINT != 0 {
+        if rest[9] & flag != 0 {
             return true;
         }
         let len = TX_HEADER + usize::from(u16::from_be_bytes([rest[10], rest[11]]));
@@ -542,18 +584,13 @@ pub fn payload_mints(payload: &[u8]) -> bool {
     false
 }
 
-/// The simulator's `exec` of a block (§4.1, §4.2): `Invalid` if its header flag differs from
-/// the application's payload flag rule ([`payload_mints`]; epoch boundaries are flagged by the
-/// same rule as every other height), otherwise [`reference_exec`].
+/// Execute a block only in its exact scheduling epoch, then apply [`reference_exec`].
 pub fn block_exec(
     parent_result: &Hash32,
     block: &AvailableBody,
     epoch: &crate::types::EpochConfig,
 ) -> ExecOutcome {
-    if block.header().epoch != epoch.id
-        || !epoch.contains(block.header().height)
-        || block.header().attest != payload_mints(block.payload().as_slice())
-    {
+    if block.header().epoch != epoch.id || !epoch.contains(block.header().height) {
         return ExecOutcome::Invalid;
     }
     reference_exec(parent_result, block.payload().as_slice())
@@ -678,7 +715,6 @@ mod tests {
                 payload_len: 0,
                 proposer: 0,
                 skipped_leaders: Vec::new(),
-                attest: false,
             },
             &encode_tx(1, false, 0),
         );
@@ -768,71 +804,45 @@ mod tests {
         assert!(!io.is_ready(fresh, 100), "a delayed attempt must yield too");
     }
 
+    /// The block-time record and the due flag of the simulator's application (§4.5): a leading
+    /// record is skipped by every transaction reader, and only a leading record is a block time.
     #[test]
-    fn mint_flag_rule() {
-        let mut payload = encode_tx(1, false, 2);
-        assert!(!payload_mints(&payload));
-        payload.extend(encode_tx_flagged(2, false, true, 1));
-        assert!(payload_mints(&payload));
-        assert_eq!(decode_txs(&payload), vec![(1, false), (2, false)]);
-        assert!(!payload_mints(&[]));
-        assert!(!payload_mints(&[TX_TAG, 0, 0]), "truncated");
-        let header = BlockHeader {
-            control_witness: crate::types::ControlWitness::empty(),
-            epoch: crate::testing::TEST_EPOCH.id,
-            instance: Hash32::ZERO,
-            height: 1,
-            origin_view: 0,
-            parent_hash: Hash32::ZERO,
-            parent_result: Hash32::ZERO,
-            payload_hash: Hash32::ZERO,
-            availability_digest: crate::types::Hash32::ZERO,
-            payload_len: 0,
-            proposer: 0,
-            skipped_leaders: Vec::new(),
-            attest: false,
-        };
-        let block = |attest: bool, payload: Vec<u8>| {
-            fixture_body(
-                BlockHeader {
-                    attest,
-                    ..header.clone()
-                },
-                &payload,
-            )
-        };
-        let parent = Hash32([1; 32]);
+    fn block_time_record_and_due_flag() {
+        let mut payload = encode_time(1_234_567).to_vec();
+        payload.extend(encode_tx_with_due(1, false, true, 2));
+        payload.extend(encode_tx_with_due(2, true, false, 0));
+        assert_eq!(block_time(&payload), Some(1_234_567));
+        assert_eq!(decode_txs(&payload), vec![(1, false), (2, true)]);
+        assert!(payload_due(&payload));
+        assert!(!payload_due(&encode_tx(3, false, 0)));
+        assert_eq!(encode_tx_with_due(4, true, false, 1), encode_tx(4, true, 1));
+        // Unstamped payloads (every world without a clock guard) are unchanged.
+        let plain = encode_tx(5, false, 0);
+        assert_eq!(block_time(&plain), None);
+        assert_eq!(decode_txs(&plain), vec![(5, false)]);
+        assert_eq!(block_time(&[]), None);
         assert_eq!(
-            block_exec(
-                &parent,
-                &block(false, encode_tx(0, false, 0)),
-                &crate::testing::TEST_EPOCH
-            ),
-            reference_exec(&parent, &encode_tx(0, false, 0))
+            block_time(&encode_time(9)[..TIME_RECORD - 1]),
+            None,
+            "truncated"
         );
+        let mut late = plain.clone();
+        late.extend(encode_time(9));
         assert_eq!(
-            block_exec(
-                &parent,
-                &block(true, encode_tx(0, false, 0)),
-                &crate::testing::TEST_EPOCH
-            ),
-            ExecOutcome::Invalid
+            block_time(&late),
+            None,
+            "only a leading record is a block time"
         );
-        assert_eq!(
-            block_exec(
-                &parent,
-                &block(false, payload.clone()),
-                &crate::testing::TEST_EPOCH
-            ),
-            ExecOutcome::Invalid
-        );
-        assert_eq!(
-            block_exec(
-                &parent,
-                &block(true, payload.clone()),
-                &crate::testing::TEST_EPOCH
-            ),
-            reference_exec(&parent, &payload)
+        // The record is part of the payload, so `R` binds the block time.
+        let mut valid = encode_time(7).to_vec();
+        valid.extend(encode_tx_with_due(6, false, true, 0));
+        assert!(matches!(
+            reference_exec(&Hash32::ZERO, &valid),
+            ExecOutcome::Valid(_)
+        ));
+        assert_ne!(
+            reference_exec(&Hash32::ZERO, &valid[TIME_RECORD..]),
+            reference_exec(&Hash32::ZERO, &valid)
         );
     }
 

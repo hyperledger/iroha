@@ -1,0 +1,20 @@
+seiyaku Wrapping {
+    state StateMap<Name, quantity> Credit;
+    fn credit_value(Name position_id) -> quantity { return 0; }
+    fn growth(Name position_id, quantity shares, quantity growth_base, quantity debt_base) -> quantity {
+        let quantity updated = credit_value(position_id) + shares * (growth_base - debt_base) + growth_base;
+        let quantity chosen = (growth_base > debt_base) ? growth_base - debt_base : credit_value(position_id);
+        if growth_base > debt_base && credit_value(position_id) + shares > growth_base + debt_base + shares {
+            return updated;
+        }
+        return chosen;
+    }
+    view fn mirror(Name position_id) authorize(anyone) -> (int, int, quantity, decimal, decimal, quantity, quantity, int, int) {
+        return (1, 2, credit_value(position_id), 1.5, 2.5, credit_value(position_id), credit_value(position_id), 3, 4);
+    }
+    view fn chain(Name position_id) authorize(anyone) -> quantity {
+        return Credit.get(position_id).unwrap_or_default().checked_add(credit_value(position_id)).unwrap_or(0);
+    }
+    fn short_tuple() -> (int, int) { return (1, 2); }
+    fn guard(bool resolved, bool staked) -> bool { return !resolved && !staked; }
+}

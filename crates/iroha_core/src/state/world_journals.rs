@@ -13,7 +13,6 @@ use super::{
     WorldBlockFields,
 };
 use crate::smartcontracts::isi::triggers::set::{DetachError, DetachedSet, SetBlockCapture};
-use iroha_allocation::{AllocationBudget, OwnedAllocationScope};
 use iroha_data_model::{events::EventBox, nexus::DataSpaceCatalog};
 use mv::{
     BlockCapture, BlockMode, Key, Value,
@@ -110,9 +109,6 @@ pub(in crate::state) struct DetachedWorld<Admission> {
     external_event_buf: Vec<EventBox>,
     shells: WorldJournalShellReservation,
     admission: Admission,
-    // The original finite pool is Send; its refund scope is thread-bound and
-    // must be reentered only by the synchronous physical publisher.
-    operation_index_budget: AllocationBudget,
 }
 
 impl<Admission> DetachedWorld<Admission> {
@@ -172,7 +168,6 @@ trait RetainedWorldField: Send + Sync {
     fn publication_slot<'target>(
         self: Box<Self>,
         target: &'target World,
-        scope: &OwnedAllocationScope,
     ) -> Box<dyn publication::PreparedWorldField + 'target>;
 }
 
@@ -257,9 +252,8 @@ where
     fn publication_slot<'target>(
         self: Box<Self>,
         target: &'target World,
-        scope: &OwnedAllocationScope,
     ) -> Box<dyn publication::PreparedWorldField + 'target> {
-        publication::storage_slot(self, target, scope)
+        publication::storage_slot(self, target)
     }
 }
 
@@ -332,9 +326,7 @@ impl<V: Value, C: Send + Sync + 'static> RetainedWorldField for RetainedCell<V, 
     fn publication_slot<'target>(
         self: Box<Self>,
         target: &'target World,
-        scope: &OwnedAllocationScope,
     ) -> Box<dyn publication::PreparedWorldField + 'target> {
-        let _ = scope;
         publication::cell_slot(self, target)
     }
 }
@@ -415,9 +407,7 @@ impl RetainedWorldField for RetainedTriggers {
     fn publication_slot<'target>(
         self: Box<Self>,
         target: &'target World,
-        scope: &OwnedAllocationScope,
     ) -> Box<dyn publication::PreparedWorldField + 'target> {
-        let _ = scope;
         publication::triggers_slot(self, target)
     }
 }
@@ -482,8 +472,6 @@ macro_rules! declare_world_capture {
             refusal: Option<CaptureError<Infallible>>,
             started: bool,
             complete: bool,
-            // Last: every original field retires before deferred pool refunds.
-            operation_index_scope: Option<OwnedAllocationScope>,
         }
         #[allow(non_camel_case_types)]
         impl<OriginalShell, $($prefix: WorldCaptureSlot,)* $($privacy: WorldCaptureSlot,)* $($suffix: WorldCaptureSlot,)*>
@@ -528,13 +516,7 @@ macro_rules! declare_world_capture {
                 // Materialization requires every enclosing writer free. Only
                 // now retire the same emptied shell and its retained control credit.
                 drop(pending.original_shell.take());
-                let scope = pending.operation_index_scope.take().expect("original operation index scope");
-                let operation_index_budget = scope.allocation_budget().clone();
-                // No writer remains in the detached carrier. Unlink this
-                // thread's scope before the journals can cross threads.
-                drop(scope);
-                DetachedWorld { mode: pending.mode, fields, dataspace_catalog, external_event_buf, shells: pending.shells.take().expect("original shell reservation"), admission,
-                    operation_index_budget }
+                DetachedWorld { mode: pending.mode, fields, dataspace_catalog, external_event_buf, shells: pending.shells.take().expect("original shell reservation"), admission }
             }
         }
         #[allow(non_camel_case_types)]
@@ -606,14 +588,12 @@ macro_rules! capture_world_fields {
         let mut pending = WorldCapture {
             $($prefix: None,)* $($privacy: None,)* $($suffix: None,)*
             extras: None, original_shell: None, shells: Some($shells), mode, refusal, started: false, complete: false,
-            operation_index_scope: Some($original.operation_index_scope.clone()),
         };
         fill_world_capture(|| {
             let WorldBlockFields {
                 dataspace_catalog,
                 $($prefix,)* $($privacy,)* $($suffix,)*
                 external_event_buf,
-                operation_index_scope: _scope,
             } = $original.fields.as_deref_mut().expect("original World block fields");
             // The exhaustive pattern binds references, not another complete
             // World. Each helper moves the exact original into its caller slot.

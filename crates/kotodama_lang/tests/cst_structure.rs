@@ -22,7 +22,7 @@ fn collect_nodes<'tree>(node: &'tree GreenNode, nodes: &mut Vec<&'tree GreenNode
 }
 #[test]
 fn valid_contract_has_declaration_and_statement_structure() {
-    let text = r#"seiyaku Shape {
+    let text = r#"seiyaku Shape { permission Run;
         struct Pair { int left, int right }
         error enum Failure { Bad = 1 }
         const int LIMIT = 4;
@@ -36,12 +36,12 @@ fn valid_contract_has_declaration_and_statement_structure() {
             }
         }
 
-        kotoage fn run(int value) authorize("Run") {
+        kotoage fn run(int value) authorize(Run) {
             let int copy = value;
             return;
         }
 
-        view fn read() -> int { return 1; }
+        view fn read() authorize(anyone) -> int { return 1; }
     }
 "#;
     let source = SourceFile::new(SourceId(11), "shape.ko", text);
@@ -55,7 +55,7 @@ fn valid_contract_has_declaration_and_statement_structure() {
         SyntaxKind::SourceUnit,
         SyntaxKind::ItemList,
         SyntaxKind::StructItem,
-        SyntaxKind::ErrorEnumItem,
+        SyntaxKind::EnumItem,
         SyntaxKind::ConstItem,
         SyntaxKind::StateItem,
         SyntaxKind::TriggerItem,

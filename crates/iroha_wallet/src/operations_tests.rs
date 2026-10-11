@@ -615,7 +615,7 @@ pub(super) fn private_root_fixture() -> (
     use iroha_data_model::{
         block::consensus::SumeragiRootScope,
         sns::{DATASPACE_ALIAS_SUFFIX_ID, NameSelectorV1},
-        sumeragi_finality::{genesis_epoch, test_fixtures::NativeFinalityFixture},
+        sumeragi_finality::{authenticated_genesis, test_fixtures::NativeFinalityFixture},
     };
     let dataspace = iroha_model_base::topology::DataSpaceId::from_hash(
         &NameSelectorV1::new(DATASPACE_ALIAS_SUFFIX_ID, "walletroot")
@@ -636,7 +636,9 @@ pub(super) fn private_root_fixture() -> (
         fixture.chain_id().parse().unwrap(),
         fixture.network_id(),
         genesis.result().0,
-        genesis_epoch(fixture.genesis()).unwrap(),
+        authenticated_genesis(fixture.genesis())
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap(),
     )
     .unwrap();
     (fixture, registration)
@@ -790,6 +792,81 @@ fn private_operation_http_deadline_cannot_be_extended() {
     assert!(repeated.with_deadline(std::time::Instant::now()).is_err());
     assert_eq!(transport.quote_count.load(Ordering::SeqCst), 0);
     assert_eq!(transport.dispatch_count.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn wallet_deadline_view_keeps_identity_cancellation_and_signed_journal_after_drop() {
+    let (source, transport) = service();
+    let signal = Arc::new(AtomicBool::new(false));
+    let source = source.with_cancellation(Arc::clone(&signal)).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let bounded = source.with_deadline(deadline).unwrap();
+    assert_eq!(source.deadline, None);
+    assert_eq!(bounded.deadline, Some(deadline));
+    assert!(Arc::ptr_eq(
+        source.cancellation.as_ref().unwrap(),
+        bounded.cancellation.as_ref().unwrap()
+    ));
+    assert_eq!(
+        source.client.account_client().authority(),
+        bounded.client.account_client().authority()
+    );
+    assert_eq!(
+        source.client.account_client().network_id(),
+        bounded.client.account_client().network_id()
+    );
+    assert_eq!(
+        source.client.account_client().endpoint(),
+        bounded.client.account_client().endpoint()
+    );
+    assert_eq!(
+        source.client.account_client().signing_capability(),
+        bounded.client.account_client().signing_capability()
+    );
+    assert_eq!(
+        source.client.client().key_pair().public_key(),
+        bounded.client.client().key_pair().public_key()
+    );
+    assert_eq!(
+        source.client.client().headers(),
+        bounded.client.client().headers()
+    );
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("deadline-transfer");
+    let expected = request();
+    let prepared = bounded.prepare_transfer(&expected, &path).unwrap();
+    assert_eq!(prepared.status, OperationStatus::Prepared);
+    let signed = std::fs::read(path.join("operation.json")).unwrap();
+    let retained = bounded
+        .inspect_transfer_preparation(&path, &expected)
+        .unwrap();
+    let original_hash = retained.signed_transaction().unwrap().hash();
+    assert_eq!(retained.phase(), NativePreparationPhase::Signed);
+    drop(bounded);
+    let before = transport.requests.load(Ordering::SeqCst);
+    let inspected = source
+        .inspect_transfer_preparation(&path, &expected)
+        .unwrap();
+    assert_eq!(inspected.phase(), NativePreparationPhase::Signed);
+    assert_eq!(
+        inspected.signed_transaction().unwrap().hash(),
+        original_hash
+    );
+    assert!(source.with_deadline(std::time::Instant::now()).is_err());
+    let shorter = source
+        .with_deadline(deadline - Duration::from_secs(10))
+        .unwrap();
+    signal.store(true, Ordering::Release);
+    assert!(
+        shorter
+            .prepare_transfer(&expected, &temporary.path().join("cancelled"))
+            .is_err()
+    );
+    assert_eq!(transport.requests.load(Ordering::SeqCst), before);
+    assert_eq!(transport.quote_count.load(Ordering::SeqCst), 1);
+    assert_eq!(transport.dispatch_count.load(Ordering::SeqCst), 0);
+    assert_eq!(std::fs::read(path.join("operation.json")).unwrap(), signed);
+    assert_eq!(source.deadline, None);
 }
 
 #[test]

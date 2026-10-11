@@ -117,14 +117,14 @@ SDK_FIXTURE_READERS = {
 STRICT_NATIVE_PROFILE_MARKERS = {
     "IrohaSwift/Tests/IrohaSwiftTests/SorafsReferenceValidatorsTests.swift": (
         "guard SorafsReferenceValidators.isAppealFinanceNativeAvailable else {",
-        'return XCTFail("ABI-25 appeal-finance reference bridge is required")',
+        'return XCTFail("ABI-29 appeal-finance reference bridge is required")',
     ),
     (
         "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/"
         "sorafs/SorafsReferenceValidatorsTest.kt"
     ): (
         "SorafsReferenceValidators.isNativeAvailable()",
-        '"ABI-25 appeal-finance reference bridge is required"',
+        '"ABI-29 appeal-finance reference bridge is required"',
     ),
     (
         "java/iroha_android/src/test/java/org/hyperledger/iroha/android/"
@@ -132,11 +132,11 @@ STRICT_NATIVE_PROFILE_MARKERS = {
     ): (
         "requireNativeBridge();",
         "throw new AssertionError(",
-        '"ABI-25 connect_norito_bridge with all SoraFS reference symbols is required."',
+        '"ABI-29 connect_norito_bridge with all SoraFS reference symbols is required."',
     ),
     "csharp/tests/Hyperledger.Iroha.Sdk.Tests/SoraFsReferenceValidatorsTests.cs": (
         "SoraFsReferenceValidators.IsAppealFinanceAvailable()",
-        '"ABI-25 appeal-finance reference bridge is required."',
+        '"ABI-29 appeal-finance reference bridge is required."',
     ),
     "javascript/iroha_js/test/helpers/nativeRequirements.js": (
         "registerNativeRequirementFailure(",
@@ -485,7 +485,7 @@ def test_native_appeal_finance_profiles_fail_instead_of_skipping(
     test_path: str,
     required_markers: tuple[str, ...],
 ) -> None:
-    """A missing ABI-25 bridge is a parity failure in every native SDK lane."""
+    """A missing ABI-29 bridge is a parity failure in every native SDK lane."""
 
     source = read(test_path)
     for marker in required_markers:
@@ -737,7 +737,7 @@ def test_parity_fixture_snapshot_rejects_missing_inputs() -> None:
 
 
 def test_native_release_jobs_build_and_require_the_bridge() -> None:
-    """C# and both mobile jobs fail closed when the ABI-25 bridge is absent."""
+    """C# and both mobile jobs fail closed when the ABI-29 bridge is absent."""
 
     csharp = read(".github/workflows/pr_csharp.yml")
     mobile = read(".github/workflows/mobile_sdk_artifacts.yml")
@@ -787,7 +787,7 @@ def test_native_release_jobs_build_and_require_the_bridge() -> None:
     assert "swift test --filter SorafsOrchestratorParityTests" in parity_runner
     assert "swift test --filter CancelAssetLockV1Tests" in parity_runner
     assert "swift test --filter SorafsReferenceValidatorsTests" in parity_runner
-    assert "name: Build exact ABI-25 NoritoBridge XCFramework" in parity
+    assert "name: Build exact ABI-29 NoritoBridge XCFramework" in parity
     assert "check_mobile_sdk_artifacts.sh --apple-only" in parity
     assert parity.count("IROHA_JS_NATIVE_BUILD_PROFILE:") == 1
     assert 'IROHA_JS_NATIVE_BUILD_PROFILE: "release"' in parity
@@ -817,7 +817,7 @@ def test_native_release_jobs_build_and_require_the_bridge() -> None:
     )
     assert "check_native_sdk_artifact.py record" in parity
     assert "check_native_sdk_artifact.py verify" in parity
-    assert "native-sdk-abi25.json" in parity
+    assert "native-sdk-abi29.json" in parity
     assert "ABI-21" not in parity
     assert (
         "dotnet build Hyperledger.Iroha.Sdk.sln -c Release --no-restore "
@@ -913,7 +913,7 @@ def test_swift_native_bridge_contract_requires_universal_macos_slice() -> None:
 
 
 def test_python_native_lane_covers_appeal_finance_and_provider_ingest_without_skips() -> None:
-    """The Python ABI-25 lane must exercise every native SoraFS V1 profile."""
+    """The Python ABI-29 lane must exercise every native SoraFS V1 profile."""
 
     runner = read("ci/check_sorafs_python_native_sdk.sh")
     ignore_rules = read(".gitignore")
@@ -926,7 +926,7 @@ def test_python_native_lane_covers_appeal_finance_and_provider_ingest_without_sk
         assert (
             f"python/iroha_python/src/iroha_python/{native_pattern}" in ignore_rules
         )
-    assert "Python native SDK artifacts must be rebuilt in the ABI-25 lane, not tracked" in runner
+    assert "Python native SDK artifacts must be rebuilt in the ABI-29 lane, not tracked" in runner
     assert 'export VIRTUAL_ENV="${SDK_SESSION}/venv"' in runner
     assert 'export PATH="${VIRTUAL_ENV}/bin:${PATH}"' in runner
     assert 'cd "${ROOT_DIR}/python/iroha_native"' in runner
@@ -1143,3 +1143,69 @@ def test_runtime_parser_registration_cannot_expand_to_framework_execution(select
     assert source.count(selector) == 1
     changed = source.replace(selector, selector.split("::", 1)[0])
     assert automation._javascript_child_python_controls_errors(changed)
+
+
+@pytest.fixture(scope="module")
+def mobile_host_jvm_prerequisite_checker():
+    import importlib.util
+    path = REPO_ROOT / "scripts/check_sorafs_release_automation.py"
+    spec = importlib.util.spec_from_file_location("mobile_host_jvm_prerequisite_contract", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_mobile_full_jvm_suite_builds_and_binds_its_fixture_generator(mobile_host_jvm_prerequisite_checker) -> None:
+    source = read(".github/workflows/mobile_sdk_artifacts.yml")
+    assert mobile_host_jvm_prerequisite_checker._mobile_host_jvm_prerequisite_errors(source) == []
+    assert '- "tools/kotlin-fixture-gen/**"' in source
+    # Preserve every original complete-suite consumer and publication command.
+    for task in (
+        ":core-jvm:test", ":tools:test", ":client-android:testDebugUnitTest",
+        ":client-android:testDebugHostNative", ":client-android:lintRelease",
+        ":kagemusha-wallet-android:testDebugUnitTest", ":kagemusha-wallet-android:lintRelease",
+        ":core-jvm:cyclonedxDirectBom", ":client-android:cyclonedxDirectBom",
+        ":kagemusha-wallet-android:cyclonedxDirectBom",
+        ":core-jvm:publishReleasePublicationToMavenLocal",
+        ":client-android:publishReleasePublicationToMavenLocal",
+        ":kagemusha-wallet-android:publishReleasePublicationToMavenLocal",
+        ":core-jvm:publishReleasePublicationToMobileSdkRepository",
+        ":client-android:publishReleasePublicationToMobileSdkRepository",
+        ":kagemusha-wallet-android:publishReleasePublicationToMobileSdkRepository",
+    ):
+        assert task in source
+
+
+@pytest.mark.parametrize("before,after", (
+    ('--features privacy-production-enabled', '--features dev-tools'),
+    ('cargo build --locked -p kotlin-fixture-gen', '# cargo build --locked -p kotlin-fixture-gen'),
+    ('--features dev-tools --bin kotlin-fixture-gen', '--bin kotlin-fixture-gen'),
+    ('--features dev-tools --bin kotlin-fixture-gen', '--features dev-tools --bin wrong-generator'),
+    ('fixture_generator="$CARGO_TARGET_DIR/debug/kotlin-fixture-gen"', 'fixture_generator="$GITHUB_WORKSPACE/target/debug/kotlin-fixture-gen"'),
+    ('&& ! -L "$fixture_generator" && -x "$fixture_generator"', '&& -x "$fixture_generator"'),
+    ('&& ! -L "$fixture_generator" && -x "$fixture_generator"', '&& ! -L "$fixture_generator"'),
+    ('echo "IROHA_KOTLIN_FIXTURE_GEN_BIN=$fixture_generator"', 'echo "IROHA_KOTLIN_FIXTURE_GEN_BIN=stale-generator"'),
+    ('set -euo pipefail', 'set -uo pipefail'),
+    ('--no-build-cache --rerun-tasks', ''),
+))
+def test_mobile_full_jvm_suite_refuses_missing_wrong_or_unexecuted_generator_prerequisites(mobile_host_jvm_prerequisite_checker, before, after) -> None:
+    source = read(".github/workflows/mobile_sdk_artifacts.yml")
+    # Only the actual host prerequisite step is changed; other jobs keep their
+    # genuine source, ABI, artifact and SDK assertions.
+    start = source.index('      - name: Build host SoraFS reference native bridge\n')
+    prefix, body = source[:start], source[start:]
+    assert before in body
+    changed = prefix + body.replace(before, after, 1)
+    assert mobile_host_jvm_prerequisite_checker._mobile_host_jvm_prerequisite_errors(changed)
+
+
+def test_mobile_full_jvm_suite_rejects_late_generator_build(mobile_host_jvm_prerequisite_checker) -> None:
+    source = read(".github/workflows/mobile_sdk_artifacts.yml")
+    start = source.index('      - name: Build host SoraFS reference native bridge\n')
+    end = source.index('      - name: Build Android native bridge libraries\n', start)
+    block = source[start:end]
+    changed = source[:start] + source[end:]
+    position = changed.index('      - name: Collect canonical Kotlin runtime SBOMs\n')
+    changed = changed[:position] + block + changed[position:]
+    assert mobile_host_jvm_prerequisite_checker._mobile_host_jvm_prerequisite_errors(changed)

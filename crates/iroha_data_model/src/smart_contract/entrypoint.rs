@@ -70,13 +70,8 @@ const KOTODAMA_V1_RESERVED_TYPE_DECLARATIONS: &[&str] = &[
     "__kotodama_quantity_ratio_round",
     "__kotodama_decimal_to_int_trunc",
     "__kotodama_decimal_to_int_round",
-    "is_some",
-    "is_none",
-    "is_ok",
-    "is_err",
-    "unwrap_or",
-    "unwrap_err_or",
-    "expect",
+    "__kotodama_option_ok_or",
+    "__kotodama_result_or_err",
     "i8",
     "i16",
     "i32",
@@ -264,7 +259,7 @@ impl EntrypointValueKindV1 {
 #[norito(no_fast_from_json)]
 #[norito(deny_unknown_fields)]
 pub struct EntrypointStructTypeNodeV1 {
-    /// Source type name, included in the schema identity.
+    /// Exact qualified source identity, including its declaring contract or module owner.
     pub name: String,
     /// Ordered source field names. Child nodes immediately follow.
     pub fields: Vec<String>,
@@ -332,8 +327,10 @@ pub enum EntrypointValueTypeNodeV1 {
     Unit,
     /// Nominal finite error value, carried by its validated enum-local code.
     Error(super::manifest::ContractErrorTypeDescriptor),
-    /// Opaque canonical cursor for one exact scalar map-key kind.
-    StateCursor(EntrypointValueKindV1),
+    /// Opaque canonical cursor for one exact scalar or tuple map-key schema.
+    StateCursor(EntrypointValueTypeV1),
+    /// Ordinary nominal enum carried by its validated enum-local code.
+    Enum(super::manifest::ContractEnumTypeDescriptorV1),
 }
 /// Flat, compiler-emitted recursive value type schema.
 #[repr(transparent)]
@@ -420,8 +417,13 @@ impl<'a> norito::json::FastFromJson<'a> for EntrypointValueTypeV1 {
 // These nominal names are compiler-reserved. Matching their complete subtree
 // here keeps artifact admission from trusting a forged name with different
 // fields or pointer kinds.
+mod state_key;
 /// Shared allocation-free flat-tree and reserved nominal shape validation.
 pub mod type_structure;
+pub use state_key::{
+    STATE_KEY_SCHEMA_HASH_DOMAIN_V1, state_key_schema_depth_v1, state_key_schema_hash_v1,
+    validate_state_key_schema_v1, visit_state_key_type_v1,
+};
 use type_structure::{is_core_query_view_name, validate_reserved_nominal_shapes_v1};
 
 fn entrypoint_node_child_count(node: &EntrypointValueTypeNodeV1) -> usize {
@@ -433,7 +435,8 @@ fn entrypoint_node_child_count(node: &EntrypointValueTypeNodeV1) -> usize {
         EntrypointValueTypeNodeV1::Leaf(_)
         | EntrypointValueTypeNodeV1::Unit
         | EntrypointValueTypeNodeV1::StateCursor(_)
-        | EntrypointValueTypeNodeV1::Error(_) => 0,
+        | EntrypointValueTypeNodeV1::Error(_)
+        | EntrypointValueTypeNodeV1::Enum(_) => 0,
     }
 }
 /// Return the exact preorder range occupied by one structurally complete boundary-type subtree.
@@ -492,41 +495,59 @@ impl EntrypointValueTypeV1 {
         if self.nodes.is_empty() || self.nodes.len() > MAX_ENTRYPOINT_ARGUMENT_TYPE_NODES {
             return None;
         }
-        let mut stack = Vec::<Frame>::new();
+        let mut stack = [Frame {
+            remaining: 0,
+            suppress_words: false,
+        }; MAX_ENTRYPOINT_ARGUMENT_TYPE_DEPTH];
+        let mut stack_len = 0_usize;
         let mut max_words = 0_usize;
+        let mut total_nodes = self.nodes.len();
         for (index, node) in self.nodes.iter().enumerate() {
-            while stack.last().is_some_and(|frame| frame.remaining == 0) {
-                stack.pop();
+            while stack_len != 0 && stack[stack_len - 1].remaining == 0 {
+                stack_len -= 1;
             }
             let suppress_words = if index == 0 {
                 false
             } else {
-                let parent = stack.last_mut()?;
+                let parent = stack.get_mut(stack_len.checked_sub(1)?)?;
                 parent.remaining = parent.remaining.checked_sub(1)?;
                 parent.suppress_words
             };
-            let depth = stack.len().checked_add(1)?;
+            let depth = stack_len.checked_add(1)?;
             if depth > MAX_ENTRYPOINT_ARGUMENT_TYPE_DEPTH {
                 return None;
             }
             match node {
-                EntrypointValueTypeNodeV1::StateCursor(key) if !key.is_state_cursor_key() => {
-                    return None;
+                EntrypointValueTypeNodeV1::StateCursor(key) => {
+                    let key_depth = state_key_schema_depth_v1(key)?;
+                    total_nodes = total_nodes.checked_add(key.nodes.len())?;
+                    if total_nodes > MAX_ENTRYPOINT_ARGUMENT_TYPE_NODES
+                        || depth.checked_add(key_depth)? > MAX_ENTRYPOINT_ARGUMENT_TYPE_DEPTH
+                    {
+                        return None;
+                    }
                 }
                 EntrypointValueTypeNodeV1::Error(error) if !error.validate() => return None,
+                EntrypointValueTypeNodeV1::Enum(descriptor) if !descriptor.validate() => {
+                    return None;
+                }
                 EntrypointValueTypeNodeV1::Struct(node) => {
                     if !is_canonical_kotodama_struct_name(&node.name)
                         || node
                             .fields
                             .iter()
                             .any(|field| !is_canonical_kotodama_identifier(field))
-                        || node
-                            .fields
-                            .iter()
-                            .collect::<std::collections::BTreeSet<_>>()
-                            .len()
-                            != node.fields.len()
+                        || node.fields.len() > MAX_ENTRYPOINT_ARGUMENT_TYPE_NODES
                     {
+                        return None;
+                    }
+                    let mut names = [""; MAX_ENTRYPOINT_ARGUMENT_TYPE_NODES];
+                    for (index, field) in node.fields.iter().enumerate() {
+                        names[index] = field.as_str();
+                    }
+                    let names = &mut names[..node.fields.len()];
+                    names.sort_unstable();
+                    if names.windows(2).any(|pair| pair[0] == pair[1]) {
                         return None;
                     }
                 }
@@ -554,22 +575,24 @@ impl EntrypointValueTypeV1 {
                             | EntrypointValueTypeNodeV1::Unit
                             | EntrypointValueTypeNodeV1::StateCursor(_)
                             | EntrypointValueTypeNodeV1::Error(_)
+                            | EntrypointValueTypeNodeV1::Enum(_)
                     ))
             {
                 max_words = max_words.checked_add(1)?;
             }
             let children = entrypoint_node_child_count(node);
             if children != 0 {
-                stack.push(Frame {
+                *stack.get_mut(stack_len)? = Frame {
                     remaining: children,
                     suppress_words: suppress_words || is_handle,
-                });
+                };
+                stack_len += 1;
             }
         }
-        while stack.last().is_some_and(|frame| frame.remaining == 0) {
-            stack.pop();
+        while stack_len != 0 && stack[stack_len - 1].remaining == 0 {
+            stack_len -= 1;
         }
-        if !stack.is_empty() || !validate_reserved_nominal_shapes_v1(&self.nodes) {
+        if stack_len != 0 || !validate_reserved_nominal_shapes_v1(&self.nodes) {
             return None;
         }
         Some(EntrypointTypeAnalysisV1 { max_words })
@@ -654,7 +677,7 @@ impl EntrypointValueTypeV1 {
         for node in self.nodes.iter().rev() {
             let value = match node {
                 EntrypointValueTypeNodeV1::StateCursor(key) => RenderedEntrypointType {
-                    text: format!("StateCursor<{}>", key.canonical_type_name()),
+                    text: format!("StateCursor<{}>", key.canonical_type_name()?),
                     core_view: None,
                     list_element_core_view: None,
                 },
@@ -668,10 +691,15 @@ impl EntrypointValueTypeV1 {
                     core_view: None,
                     list_element_core_view: None,
                 },
+                EntrypointValueTypeNodeV1::Enum(descriptor) => RenderedEntrypointType {
+                    text: descriptor.identity.clone(),
+                    core_view: None,
+                    list_element_core_view: None,
+                },
                 EntrypointValueTypeNodeV1::Struct(node) => {
                     let children =
                         take_rendered_entrypoint_children(&mut rendered, node.fields.len())?;
-                    let (text, core_view) = if node.name == "StatePage" {
+                    let (text, core_view) = if node.name == "kotodama::StatePage" {
                         let list = &children.first()?.text;
                         let body = list.strip_prefix("List<(")?;
                         let (types, capacity) = body.rsplit_once("), ")?;
@@ -679,11 +707,12 @@ impl EntrypointValueTypeV1 {
                             format!("StatePage<{types}, {}>", capacity.strip_suffix('>')?),
                             None,
                         )
-                    } else if node.name == "QueryPage" {
+                    } else if node.name == "kotodama::QueryPage" {
                         let view_name = children.first()?.list_element_core_view.clone()?;
                         (format!("QueryPage<{view_name}>"), None)
                     } else if is_core_query_view_name(&node.name) {
-                        (node.name.clone(), Some(node.name.clone()))
+                        let name = node.name.strip_prefix("kotodama::")?.to_owned();
+                        (name.clone(), Some(name))
                     } else {
                         (format!("struct {}", node.name), None)
                     };
@@ -766,6 +795,10 @@ struct EntrypointTypeAnalysisV1 {
     norito::NoritoSchema,
 )]
 #[norito_schema(name = "iroha_data_model::smart_contract::entrypoint::EntrypointValueWordKindV1")]
+#[expect(
+    variant_size_differences,
+    reason = "A cursor's fixed schema digest keeps word descriptors Copy and allocation-free"
+)]
 pub enum EntrypointValueWordKindV1 {
     /// One active-only compiler-owned Option/Result handle.
     Sum,
@@ -777,14 +810,34 @@ pub enum EntrypointValueWordKindV1 {
     Unit,
     /// Validated enum-local u32 code for a nominal error type.
     Error,
-    /// Canonical cursor-frame pointer bound to its exact scalar key kind.
-    StateCursor(EntrypointValueKindV1),
+    /// Canonical cursor-frame pointer bound to its complete key-schema hash.
+    StateCursor([u8; 32]),
+    /// Validated enum-local u32 code for an ordinary nominal enum.
+    Enum,
 }
 /// Canonical wire atom in a public entrypoint value record.
 #[derive(
-    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Encode, Decode, IntoSchema, norito::NoritoSchema,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Encode,
+    Decode,
+    IntoSchema,
+    norito::NoritoSchema,
+    DeriveFast,
+    DeriveJsonSer,
+    DeriveJsonDe,
 )]
 #[norito_schema(name = "iroha_data_model::smart_contract::entrypoint::EntrypointValueAtomV1")]
+#[norito(
+    no_fast_from_json,
+    tag = "kind",
+    content = "value",
+    deny_unknown_fields
+)]
 pub enum EntrypointValueAtomV1 {
     /// Option/Result tag.
     Tag(bool),
@@ -805,6 +858,8 @@ pub enum EntrypointValueAtomV1 {
     Unit,
     /// Enum-local code validated against the exact nominal error schema.
     ErrorCode(u32),
+    /// Enum-local code validated against the exact ordinary enum schema.
+    EnumCode(u32),
 }
 /// Schema-bound canonical Norito payload supplied to a public entrypoint wrapper.
 #[derive(
@@ -819,9 +874,22 @@ pub struct EntrypointArgumentRecordV1 {
 }
 /// Schema-bound canonical Norito payload returned by a nested contract call.
 #[derive(
-    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Encode, Decode, IntoSchema, norito::NoritoSchema,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Encode,
+    Decode,
+    IntoSchema,
+    norito::NoritoSchema,
+    DeriveFast,
+    DeriveJsonSer,
+    DeriveJsonDe,
 )]
 #[norito_schema(name = "iroha_data_model::smart_contract::entrypoint::EntrypointReturnRecordV1")]
+#[norito(no_fast_from_json, deny_unknown_fields)]
 pub struct EntrypointReturnRecordV1 {
     /// Domain-separated hash of the exact encoded return value schema.
     pub schema_hash: [u8; 32],
@@ -881,11 +949,27 @@ impl EntrypointArgumentSchemaV1 {
         if self.fields.is_empty() || self.fields.len() > MAX_ENTRYPOINT_ARGUMENTS {
             return false;
         }
-        let mut names = std::collections::BTreeSet::new();
-        self.fields.iter().all(|field| {
-            is_canonical_kotodama_identifier(&field.name)
-                && names.insert(field.name.as_str())
-                && field.ty.validate()
+        // Sort compact indices into the borrowed names: the full ABI bound needs
+        // 16 KiB instead of 128 KiB of string references on a 64-bit host. This
+        // keeps validation allocation-free and leaves declaration order intact.
+        let mut indices = [0_u16; MAX_ENTRYPOINT_ARGUMENTS];
+        for (index, field) in self.fields.iter().enumerate() {
+            if !is_canonical_kotodama_identifier(&field.name) || !field.ty.validate() {
+                return false;
+            }
+            let Ok(compact_index) = u16::try_from(index) else {
+                return false;
+            };
+            indices[index] = compact_index;
+        }
+        let indices = &mut indices[..self.fields.len()];
+        indices.sort_unstable_by(|left, right| {
+            self.fields[usize::from(*left)]
+                .name
+                .cmp(&self.fields[usize::from(*right)].name)
+        });
+        !indices.windows(2).any(|pair| {
+            self.fields[usize::from(pair[0])].name == self.fields[usize::from(pair[1])].name
         }) && self.word_count_unchecked() <= MAX_ENTRYPOINT_ARGUMENT_WORDS
     }
     /// Return the total fixed-width table word count for this schema.
@@ -978,10 +1062,13 @@ fn max_entrypoint_word_kinds(
         children.reverse();
         let words = match node {
             EntrypointValueTypeNodeV1::StateCursor(key) => {
-                vec![EntrypointValueWordKindV1::StateCursor(*key)]
+                vec![EntrypointValueWordKindV1::StateCursor(
+                    state_key_schema_hash_v1(key)?,
+                )]
             }
             EntrypointValueTypeNodeV1::Unit => vec![EntrypointValueWordKindV1::Unit],
             EntrypointValueTypeNodeV1::Error(_) => vec![EntrypointValueWordKindV1::Error],
+            EntrypointValueTypeNodeV1::Enum(_) => vec![EntrypointValueWordKindV1::Enum],
             EntrypointValueTypeNodeV1::Struct(product) if product.fields.is_empty() => {
                 vec![EntrypointValueWordKindV1::Unit]
             }
@@ -1012,10 +1099,15 @@ fn entrypoint_atom_word_kind(
     use EntrypointValueTypeNodeV1 as Node;
     use EntrypointValueWordKindV1 as Word;
     match (node, atom) {
-        (Node::StateCursor(key), Atom::Pointer(_)) => Some(Word::StateCursor(*key)),
+        (Node::StateCursor(key), Atom::Pointer(_)) => {
+            Some(Word::StateCursor(state_key_schema_hash_v1(key)?))
+        }
         (Node::Unit, Atom::Unit) => Some(Word::Unit),
         (Node::Error(error), Atom::ErrorCode(code)) if error.variant(*code).is_some() => {
             Some(Word::Error)
+        }
+        (Node::Enum(descriptor), Atom::EnumCode(code)) if descriptor.variant(*code).is_some() => {
+            Some(Word::Enum)
         }
         (Node::Leaf(EntrypointValueKindV1::Bool), Atom::Bool(_)) => {
             Some(Word::Leaf(EntrypointValueKindV1::Bool))
@@ -1049,6 +1141,7 @@ fn walk_entrypoint_value_atoms(
             EntrypointValueTypeNodeV1::StateCursor(_)
             | EntrypointValueTypeNodeV1::Unit
             | EntrypointValueTypeNodeV1::Error(_)
+            | EntrypointValueTypeNodeV1::Enum(_)
             | EntrypointValueTypeNodeV1::Leaf(_) => {
                 let Some(word_kind) = atoms
                     .get(cursor)
@@ -1160,7 +1253,7 @@ pub fn is_canonical_kotodama_package_identity(value: &str) -> bool {
     let path = parts.next().unwrap_or_default();
     path.split('/').all(component) && parts.next().is_none_or(component) && parts.next().is_none()
 }
-/// Validate an unqualified, locked-package, or root-local module struct identity.
+/// Validate a contract-qualified, locked-package, or root-local module struct identity.
 ///
 /// Package identities retain their locked spelling. Unit and type names use the same
 /// declaration vocabulary as source; qualified compiler-owned names are never aliases.
@@ -1175,10 +1268,13 @@ pub fn is_canonical_kotodama_struct_name(value: &str) -> bool {
     if value.len() > 1024 {
         return false;
     }
+    if is_core_query_view_name(value)
+        || matches!(value, "kotodama::QueryPage" | "kotodama::StatePage")
+    {
+        return true;
+    }
     if !value.contains("::") {
-        return declaration(value)
-            || is_core_query_view_name(value)
-            || matches!(value, "QueryPage" | "StatePage");
+        return false;
     }
     if value.contains("__kotodama_link_") {
         return false;
@@ -1191,6 +1287,9 @@ pub fn is_canonical_kotodama_struct_name(value: &str) -> bool {
         parts.next(),
         parts.next(),
     ) {
+        (Some(unit), Some(name), None, None, None) => {
+            unit != "kotodama" && declaration(unit) && declaration(name)
+        }
         (Some("local"), Some(digest), Some(unit), Some(name), None) => {
             digest.len() == 64
                 && digest
@@ -1230,6 +1329,8 @@ pub fn is_canonical_kotodama_identifier(value: &str) -> bool {
                 | "decimal"
                 | "else"
                 | "enum"
+                | "emit"
+                | "event"
                 | "error"
                 | "export"
                 | "false"
@@ -1246,6 +1347,7 @@ pub fn is_canonical_kotodama_identifier(value: &str) -> bool {
                 | "let"
                 | "match"
                 | "module"
+                | "permission"
                 | "quantity"
                 | "return"
                 | "seiyaku"
@@ -1295,6 +1397,45 @@ mod tests {
         for package in ["", "a::b", "a//b", "a@", "a@@1", "../a"] {
             assert!(!is_canonical_kotodama_package_identity(package));
         }
+    }
+
+    #[test]
+    fn struct_nominality_requires_an_owner_and_reserves_builtin_identities() {
+        use super::*;
+        for name in [
+            "Receipt",
+            "AccountView",
+            "kotodama::Receipt",
+            "Main::AccountView",
+        ] {
+            assert!(!is_canonical_kotodama_struct_name(name), "{name}");
+        }
+        for name in [
+            "Payments::Receipt",
+            "Other::Receipt",
+            "kotodama::AccountView",
+        ] {
+            assert!(is_canonical_kotodama_struct_name(name), "{name}");
+        }
+        let make = |name: &str| EntrypointValueTypeV1 {
+            nodes: vec![EntrypointValueTypeNodeV1::Struct(
+                EntrypointStructTypeNodeV1 {
+                    name: name.to_owned(),
+                    fields: vec![],
+                },
+            )],
+        };
+        let left = make("Payments::Receipt");
+        let right = make("Other::Receipt");
+        assert!(left.validate() && right.validate());
+        assert_ne!(
+            entrypoint_return_schema_hash_v1(&norito::encode_canonical(&left).unwrap()),
+            entrypoint_return_schema_hash_v1(&norito::encode_canonical(&right).unwrap()),
+        );
+        assert!(
+            !make("kotodama::AccountView").validate(),
+            "reserved identities keep their complete shape"
+        );
     }
     #[test]
     fn nominal_errors_and_unit_roundtrip_with_exact_sum_validation() {
@@ -1349,6 +1490,108 @@ mod tests {
     }
     use super::*;
     #[test]
+    fn ordinary_enum_schema_preserves_nominality_and_nested_active_atoms() {
+        use crate::smart_contract::manifest::{
+            ContractEnumTypeDescriptorV1, ContractEnumVariantDescriptorV1,
+        };
+        let descriptor = ContractEnumTypeDescriptorV1 {
+            identity: "example/vault@1::Vault::Phase".into(),
+            variants: vec![ContractEnumVariantDescriptorV1 {
+                name: "Open".into(),
+                code: 7,
+            }],
+        };
+        let enum_type = EntrypointValueTypeV1 {
+            nodes: vec![EntrypointValueTypeNodeV1::Enum(descriptor.clone())],
+        };
+        assert_eq!(enum_type.word_count(), Some(1));
+        assert_eq!(
+            enum_type.word_kinds(),
+            Some(vec![EntrypointValueWordKindV1::Enum])
+        );
+        assert_eq!(
+            enum_type.canonical_type_name(),
+            Some(descriptor.identity.clone())
+        );
+        assert!(enum_type.validate_atoms(&[EntrypointValueAtomV1::EnumCode(7)]));
+        for atom in [
+            EntrypointValueAtomV1::EnumCode(0),
+            EntrypointValueAtomV1::EnumCode(1),
+            EntrypointValueAtomV1::ErrorCode(7),
+        ] {
+            assert!(!enum_type.validate_atoms(&[atom]));
+        }
+        let nested = EntrypointValueTypeV1 {
+            nodes: vec![
+                EntrypointValueTypeNodeV1::Option,
+                EntrypointValueTypeNodeV1::List(EntrypointListTypeNodeV1 { capacity: 2 }),
+                EntrypointValueTypeNodeV1::Enum(descriptor.clone()),
+            ],
+        };
+        let atoms = vec![
+            EntrypointValueAtomV1::Tag(true),
+            EntrypointValueAtomV1::List(2),
+            EntrypointValueAtomV1::EnumCode(7),
+            EntrypointValueAtomV1::EnumCode(7),
+        ];
+        assert!(nested.validate_atoms(&atoms));
+        assert_eq!(
+            nested.word_kinds_for_atoms(&atoms),
+            Some(vec![EntrypointValueWordKindV1::Sum])
+        );
+        let frame = norito::to_bytes(&nested).unwrap();
+        assert_eq!(
+            norito::decode_canonical::<EntrypointValueTypeV1>(&frame).unwrap(),
+            nested
+        );
+        let json = norito::json::to_json(&nested).unwrap();
+        assert_eq!(
+            norito::json::from_str::<EntrypointValueTypeV1>(&json).unwrap(),
+            nested
+        );
+        let record = EntrypointReturnRecordV1 {
+            schema_hash: entrypoint_return_schema_hash_v1(&norito::codec::Encode::encode(&nested)),
+            atoms,
+        };
+        let json = norito::json::to_json(&record).unwrap();
+        assert_eq!(
+            norito::json::from_str::<EntrypointReturnRecordV1>(&json).unwrap(),
+            record
+        );
+        assert!(
+            norito::json::from_str::<EntrypointReturnRecordV1>(&json.replacen(
+                '{',
+                "{\"unknown\":true,",
+                1
+            ))
+            .is_err()
+        );
+        let mut other = enum_type.clone();
+        let EntrypointValueTypeNodeV1::Enum(other_descriptor) = &mut other.nodes[0] else {
+            unreachable!()
+        };
+        other_descriptor.identity = "example/other@1::Other::Phase".into();
+        assert_ne!(
+            entrypoint_return_schema_hash_v1(&norito::codec::Encode::encode(&enum_type)),
+            entrypoint_return_schema_hash_v1(&norito::codec::Encode::encode(&other))
+        );
+        let EntrypointValueTypeNodeV1::Enum(other_descriptor) = &mut other.nodes[0] else {
+            unreachable!()
+        };
+        other_descriptor.variants[0].code = 0;
+        assert!(!other.validate());
+        assert!(
+            norito::decode_canonical::<EntrypointValueTypeV1>(&norito::to_bytes(&other).unwrap())
+                .is_err()
+        );
+        let tag = norito::codec::Encode::encode(&enum_type.nodes[0]);
+        assert_eq!(&tag[..4], &9_u32.to_le_bytes());
+        let tag = norito::codec::Encode::encode(&EntrypointValueAtomV1::EnumCode(7));
+        assert_eq!(&tag[..4], &6_u32.to_le_bytes());
+        let tag = norito::codec::Encode::encode(&EntrypointValueWordKindV1::Enum);
+        assert_eq!(&tag[..4], &6_u32.to_le_bytes());
+    }
+    #[test]
     fn nominal_public_schema_and_atom_tags_are_pinned() {
         let descriptor = super::super::manifest::ContractErrorTypeDescriptor {
             identity: "example::Error".into(),
@@ -1361,7 +1604,7 @@ mod tests {
             (EntrypointValueTypeNodeV1::Unit, 6_u32),
             (EntrypointValueTypeNodeV1::Error(descriptor), 7),
             (
-                EntrypointValueTypeNodeV1::StateCursor(EntrypointValueKindV1::Int),
+                EntrypointValueTypeNodeV1::StateCursor(leaf(EntrypointValueKindV1::Int)),
                 8,
             ),
         ] {
@@ -1381,7 +1624,7 @@ mod tests {
         let mut schema = EntrypointValueTypeV1 {
             nodes: vec![
                 EntrypointValueTypeNodeV1::Struct(EntrypointStructTypeNodeV1 {
-                    name: "StatePage".into(),
+                    name: "kotodama::StatePage".into(),
                     fields: vec!["items".into(), "next".into()],
                 }),
                 EntrypointValueTypeNodeV1::List(EntrypointListTypeNodeV1 { capacity: 8 }),
@@ -1389,7 +1632,7 @@ mod tests {
                 EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int),
                 EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Bool),
                 EntrypointValueTypeNodeV1::Option,
-                EntrypointValueTypeNodeV1::StateCursor(EntrypointValueKindV1::Int),
+                EntrypointValueTypeNodeV1::StateCursor(leaf(EntrypointValueKindV1::Int)),
             ],
         };
         assert_eq!(
@@ -1397,9 +1640,9 @@ mod tests {
             Some("StatePage<int, bool, 8>")
         );
         assert_eq!(schema.word_count(), Some(2));
-        schema.nodes[6] = EntrypointValueTypeNodeV1::StateCursor(EntrypointValueKindV1::Bool);
+        schema.nodes[6] = EntrypointValueTypeNodeV1::StateCursor(leaf(EntrypointValueKindV1::Bool));
         assert!(!schema.validate());
-        schema.nodes[6] = EntrypointValueTypeNodeV1::StateCursor(EntrypointValueKindV1::Int);
+        schema.nodes[6] = EntrypointValueTypeNodeV1::StateCursor(leaf(EntrypointValueKindV1::Int));
         schema.nodes[1] =
             EntrypointValueTypeNodeV1::List(EntrypointListTypeNodeV1 { capacity: 65 });
         assert!(!schema.validate());
@@ -1407,9 +1650,9 @@ mod tests {
     #[test]
     fn cursor_schema_is_a_nominal_one_word_pointer_and_rejects_json_keys() {
         let schema = EntrypointValueTypeV1 {
-            nodes: vec![EntrypointValueTypeNodeV1::StateCursor(
+            nodes: vec![EntrypointValueTypeNodeV1::StateCursor(leaf(
                 EntrypointValueKindV1::Int,
-            )],
+            ))],
         };
         assert_eq!(
             schema.canonical_type_name().as_deref(),
@@ -1418,7 +1661,7 @@ mod tests {
         assert_eq!(
             schema.word_kinds(),
             Some(vec![EntrypointValueWordKindV1::StateCursor(
-                EntrypointValueKindV1::Int
+                state_key_schema_hash_v1(&leaf(EntrypointValueKindV1::Int)).unwrap()
             )])
         );
         let frame = norito::encode_canonical(&schema).unwrap();
@@ -1428,9 +1671,9 @@ mod tests {
         );
         assert!(
             !EntrypointValueTypeV1 {
-                nodes: vec![EntrypointValueTypeNodeV1::StateCursor(
+                nodes: vec![EntrypointValueTypeNodeV1::StateCursor(leaf(
                     EntrypointValueKindV1::Json
-                )]
+                ))]
             }
             .validate()
         );
@@ -1466,7 +1709,7 @@ mod tests {
         EntrypointValueTypeV1 {
             nodes: vec![
                 EntrypointValueTypeNodeV1::Struct(EntrypointStructTypeNodeV1 {
-                    name: "AccountView".into(),
+                    name: "kotodama::AccountView".into(),
                     fields: vec!["id".into(), "metadata".into()],
                 }),
                 EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::AccountId),
@@ -1480,7 +1723,7 @@ mod tests {
         EntrypointValueTypeV1 {
             nodes: vec![
                 Node::Struct(EntrypointStructTypeNodeV1 {
-                    name: "AssetDefinitionView".into(),
+                    name: "kotodama::AssetDefinitionView".into(),
                     fields: [
                         "id",
                         "name",
@@ -1509,7 +1752,7 @@ mod tests {
     fn query_page_schema(view: &EntrypointValueTypeV1) -> EntrypointValueTypeV1 {
         let mut nodes = vec![
             EntrypointValueTypeNodeV1::Struct(EntrypointStructTypeNodeV1 {
-                name: "QueryPage".into(),
+                name: "kotodama::QueryPage".into(),
                 fields: vec!["items".into(), "next_offset".into()],
             }),
             EntrypointValueTypeNodeV1::List(EntrypointListTypeNodeV1 {
@@ -1528,7 +1771,7 @@ mod tests {
         let ty = EntrypointValueTypeV1 {
             nodes: vec![
                 EntrypointValueTypeNodeV1::Struct(EntrypointStructTypeNodeV1 {
-                    name: "Receipt".into(),
+                    name: "Fixture::Receipt".into(),
                     fields: vec!["status".into(), "detail".into()],
                 }),
                 EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Bool),
@@ -1547,7 +1790,7 @@ mod tests {
         assert_eq!(decoded.word_count(), Some(2));
         assert_eq!(
             decoded.canonical_type_name().as_deref(),
-            Some("struct Receipt")
+            Some("struct Fixture::Receipt")
         );
     }
     #[test]
@@ -1878,6 +2121,84 @@ mod tests {
         );
     }
     #[test]
+    fn argument_schema_preserves_order_at_full_abi_bound_and_rejects_distant_duplicates() {
+        let mut schema = EntrypointArgumentSchemaV1 {
+            fields: (0..MAX_ENTRYPOINT_ARGUMENTS)
+                .rev()
+                .map(|index| EntrypointArgumentFieldV1 {
+                    name: format!("arg{index:04}"),
+                    ty: EntrypointValueTypeV1 {
+                        nodes: vec![EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)],
+                    },
+                })
+                .collect(),
+        };
+        let names: Vec<_> = schema
+            .fields
+            .iter()
+            .map(|field| field.name.clone())
+            .collect();
+        assert!(schema.validate());
+        assert_eq!(schema.word_count(), Some(MAX_ENTRYPOINT_ARGUMENT_WORDS));
+        assert!(schema.fields.iter().map(|field| &field.name).eq(&names));
+        for duplicate in [
+            1,
+            MAX_ENTRYPOINT_ARGUMENTS / 2,
+            MAX_ENTRYPOINT_ARGUMENTS - 1,
+        ] {
+            let original = core::mem::replace(&mut schema.fields[duplicate].name, names[0].clone());
+            assert!(!schema.validate(), "duplicate argument index {duplicate}");
+            schema.fields[duplicate].name = original;
+            assert!(schema.validate());
+        }
+        schema.fields.push(EntrypointArgumentFieldV1 {
+            name: "one_too_many".into(),
+            ty: EntrypointValueTypeV1 {
+                nodes: vec![EntrypointValueTypeNodeV1::Unit],
+            },
+        });
+        assert!(
+            !schema.validate(),
+            "argument count bound applies even to a unit field"
+        );
+        schema.fields.pop();
+        schema.fields[0].name = "invalid-name".into();
+        assert!(!schema.validate());
+        schema.fields[0].name = names[0].clone();
+        schema.fields[0].ty.nodes.clear();
+        assert!(!schema.validate());
+    }
+    #[test]
+    fn fixed_stack_schema_analysis_requires_unique_fields_and_exact_children() {
+        let mut schema = EntrypointValueTypeV1 {
+            nodes: vec![
+                EntrypointValueTypeNodeV1::Struct(EntrypointStructTypeNodeV1 {
+                    name: "Fixture::Pair".into(),
+                    fields: vec!["z".into(), "a".into()],
+                }),
+                EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Bool),
+                EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Bool),
+            ],
+        };
+        assert_eq!(schema.word_count(), Some(2));
+        let EntrypointValueTypeNodeV1::Struct(product) = &mut schema.nodes[0] else {
+            unreachable!()
+        };
+        product.fields[1] = "z".into();
+        assert!(!schema.validate());
+        let EntrypointValueTypeNodeV1::Struct(product) = &mut schema.nodes[0] else {
+            unreachable!()
+        };
+        product.fields[1] = "a".into();
+        schema.nodes.pop();
+        assert!(!schema.validate());
+        schema
+            .nodes
+            .push(EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Bool));
+        schema.nodes.push(EntrypointValueTypeNodeV1::Unit);
+        assert!(!schema.validate());
+    }
+    #[test]
     fn flat_schema_accepts_exact_node_budget_and_rejects_one_more() {
         let at_limit = wide_tuple_schema(MAX_ENTRYPOINT_ARGUMENT_TYPE_NODES - 1);
         assert_eq!(at_limit.nodes.len(), MAX_ENTRYPOINT_ARGUMENT_TYPE_NODES);
@@ -2080,7 +2401,7 @@ mod tests {
             EntrypointValueTypeV1 {
                 nodes: vec![
                     Node::Struct(EntrypointStructTypeNodeV1 {
-                        name: "AssetView".into(),
+                        name: "kotodama::AssetView".into(),
                         fields: vec!["id".into(), "amount".into()],
                     }),
                     Node::Leaf(Kind::AssetId),
@@ -2091,7 +2412,7 @@ mod tests {
             EntrypointValueTypeV1 {
                 nodes: vec![
                     Node::Struct(EntrypointStructTypeNodeV1 {
-                        name: "DomainView".into(),
+                        name: "kotodama::DomainView".into(),
                         fields: vec!["id".into(), "owned_by".into(), "metadata".into()],
                     }),
                     Node::Leaf(Kind::DomainId),
@@ -2102,7 +2423,7 @@ mod tests {
             EntrypointValueTypeV1 {
                 nodes: vec![
                     Node::Struct(EntrypointStructTypeNodeV1 {
-                        name: "NftView".into(),
+                        name: "kotodama::NftView".into(),
                         fields: vec!["id".into(), "owned_by".into(), "content".into()],
                     }),
                     Node::Leaf(Kind::NftId),
@@ -2115,7 +2436,7 @@ mod tests {
             let Node::Struct(root) = &view.nodes[0] else {
                 unreachable!("projection fixture starts with a struct")
             };
-            let name = root.name.clone();
+            let name = root.name.strip_prefix("kotodama::").unwrap().to_owned();
             assert!(view.validate(), "valid reserved projection {name}");
             assert_eq!(view.canonical_type_name().as_deref(), Some(name.as_str()));
             let page = query_page_schema(&view);
@@ -2187,7 +2508,7 @@ mod tests {
         let EntrypointValueTypeNodeV1::Struct(view) = &mut unknown_view.nodes[2] else {
             unreachable!("query-page fixture has a projected struct")
         };
-        view.name = "UnknownView".into();
+        view.name = "Fixture::UnknownView".into();
         assert_reserved_rejected("unknown QueryPage projection", &unknown_view);
         let mut wrong_fields = page.clone();
         let EntrypointValueTypeNodeV1::Struct(view) = &mut wrong_fields.nodes[2] else {
@@ -2205,11 +2526,11 @@ mod tests {
         let EntrypointValueTypeNodeV1::Struct(page_node) = &mut ordinary_struct.nodes[0] else {
             unreachable!("query-page fixture starts with a struct")
         };
-        page_node.name = "Page".into();
+        page_node.name = "Fixture::Page".into();
         assert!(ordinary_struct.validate());
         assert_eq!(
             ordinary_struct.canonical_type_name().as_deref(),
-            Some("struct Page"),
+            Some("struct Fixture::Page"),
             "non-reserved user structs retain ordinary nominal rendering"
         );
     }
@@ -2255,6 +2576,8 @@ mod tests {
             "decimal",
             "else",
             "enum",
+            "emit",
+            "event",
             "error",
             "false",
             "fn",
@@ -2271,6 +2594,7 @@ mod tests {
             "let",
             "match",
             "module",
+            "permission",
             "quantity",
             "return",
             "seiyaku",
@@ -2299,7 +2623,7 @@ mod tests {
         let empty_struct = EntrypointValueTypeV1 {
             nodes: vec![EntrypointValueTypeNodeV1::Struct(
                 EntrypointStructTypeNodeV1 {
-                    name: "Empty".to_owned(),
+                    name: "Fixture::Empty".to_owned(),
                     fields: Vec::new(),
                 },
             )],
@@ -2318,7 +2642,7 @@ mod tests {
         assert!(!empty_struct.validate_atoms(&[EntrypointValueAtomV1::Unit]));
         assert_eq!(
             empty_struct.canonical_type_name().as_deref(),
-            Some("struct Empty")
+            Some("struct Fixture::Empty")
         );
         let encoded = norito::to_bytes(&empty_struct).expect("encode empty nominal schema");
         assert_eq!(
@@ -2369,7 +2693,7 @@ mod tests {
             let structure = EntrypointValueTypeV1 {
                 nodes: vec![
                     EntrypointValueTypeNodeV1::Struct(EntrypointStructTypeNodeV1 {
-                        name: "Valid".to_owned(),
+                        name: "Fixture::Valid".to_owned(),
                         fields: vec![invalid.to_owned()],
                     }),
                     EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int),
@@ -2400,7 +2724,7 @@ mod tests {
         let duplicate_fields = EntrypointValueTypeV1 {
             nodes: vec![
                 EntrypointValueTypeNodeV1::Struct(EntrypointStructTypeNodeV1 {
-                    name: "Valid".to_owned(),
+                    name: "Fixture::Valid".to_owned(),
                     fields: vec!["same".to_owned(), "same".to_owned()],
                 }),
                 EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int),
@@ -2433,7 +2757,7 @@ mod tests {
             assert_eq!(kind.canonical_type_name(), expected);
             assert_eq!(leaf(kind).canonical_type_name().as_deref(), Some(expected));
             let cursor = EntrypointValueTypeV1 {
-                nodes: vec![EntrypointValueTypeNodeV1::StateCursor(kind)],
+                nodes: vec![EntrypointValueTypeNodeV1::StateCursor(leaf(kind))],
             };
             if kind == EntrypointValueKindV1::Json {
                 assert_eq!(cursor.canonical_type_name(), None);
@@ -2470,7 +2794,7 @@ mod tests {
             Atom::List(0),
         ];
         let mut nodes = vec![
-            (Node::StateCursor(EntrypointValueKindV1::Int), 0),
+            (Node::StateCursor(leaf(EntrypointValueKindV1::Int)), 0),
             (Node::Unit, 2),
             (Node::Error(error), 3),
         ];

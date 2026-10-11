@@ -4,7 +4,7 @@ seiyaku Stable {
         let int copy = value;
         return copy;
     }
-    view fn read(int value) -> int {
+    view fn read(int value) authorize(anyone) -> int {
         return helper(value: value);
     }
 }

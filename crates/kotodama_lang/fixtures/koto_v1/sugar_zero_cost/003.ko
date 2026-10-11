@@ -1,6 +1,6 @@
 
         seiyaku OptionPropagation {
-            view fn main(Option<int> value) -> Option<(int, int)> {
+            view fn main(Option<int> value) authorize(anyone) -> Option<(int, int)> {
                 let payload = value?;
                 Option::some((payload, payload))
             }

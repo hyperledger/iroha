@@ -1,5 +1,5 @@
 seiyaku ListRuntime {
-                view fn count(List<int, 4> values) -> int {
+                view fn count(List<int, 4> values) authorize(anyone) -> int {
                     let length = values.len();
                     let _contains = values.contains(1);
                     let _first = values.get(0);

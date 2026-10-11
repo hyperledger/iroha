@@ -33,29 +33,27 @@ impl std::fmt::Debug for DefaultHttpTransport {
 
 /// Reqwest connection pools owned by one immutable client context.
 ///
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct ReqwestHttpTransport {
     blocking: OnceLock<BlockingClient>,
     blocking_direct_loopback: OnceLock<BlockingClient>,
-    asynchronous: reqwest::Client,
-    asynchronous_direct_loopback: reqwest::Client,
+    asynchronous: tokio::sync::OnceCell<reqwest::Client>,
+    asynchronous_direct_loopback: tokio::sync::OnceCell<reqwest::Client>,
+}
+
+impl Default for DefaultHttpTransport {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DefaultHttpTransport {
-    /// Construct isolated lazy blocking and eager asynchronous HTTP connection pools.
-    pub(crate) fn new() -> crate::Result<Self> {
-        Ok(Self {
-            inner: Arc::new(ReqwestHttpTransport {
-                // Building reqwest's blocking client briefly enters an internal
-                // runtime. Defer that work until a checked blocking send so
-                // constructing an async SDK context inside Tokio stays safe.
-                blocking: OnceLock::new(),
-                blocking_direct_loopback: OnceLock::new(),
-                asynchronous: build_async_http_client()?,
-                asynchronous_direct_loopback: build_direct_loopback_async_http_client()?,
-            }),
+    /// Retain isolated lazy connection pools without loading TLS roots or opening a runtime.
+    pub(crate) fn new() -> Self {
+        Self {
+            inner: Arc::new(ReqwestHttpTransport::default()),
             deadline: None,
-        })
+        }
     }
 
     pub(crate) fn from_shared(transport: Arc<dyn HttpTransport>) -> Self {
@@ -383,6 +381,7 @@ fn enforce_transport_response_bound(
 
 impl HttpTransport for ReqwestHttpTransport {
     fn send_blocking(&self, request: TransportRequest) -> Result<Response<Bytes>> {
+        let started = std::time::Instant::now();
         let TransportRequest {
             method,
             url,
@@ -405,7 +404,7 @@ impl HttpTransport for ReqwestHttpTransport {
         if !body.is_empty() {
             builder = builder.body(body);
         }
-        if let Some(timeout) = timeout {
+        if let Some(timeout) = remaining_request_timeout(timeout, started)? {
             builder = builder.timeout(timeout);
         }
         let response = builder
@@ -419,38 +418,76 @@ impl HttpTransport for ReqwestHttpTransport {
     }
 
     fn send(&self, request: TransportRequest) -> TransportFuture<'_> {
-        Box::pin(async move {
-            let TransportRequest {
-                method,
-                url,
-                headers,
-                body,
-                timeout,
-                max_response_bytes,
-                direct_loopback,
-            } = request;
-            let client = if direct_loopback {
-                &self.asynchronous_direct_loopback
+        Box::pin(self.send_async_with(request, |direct| {
+            if direct {
+                build_direct_loopback_async_http_client()
             } else {
-                &self.asynchronous
-            };
-            let mut builder = client.request(method.clone(), url.clone());
-            for (name, value) in headers {
-                builder = builder.header(name, value);
+                build_async_http_client()
             }
-            if !body.is_empty() {
-                builder = builder.body(body);
-            }
-            if let Some(timeout) = timeout {
-                builder = builder.timeout(timeout);
-            }
-            let response = builder
-                .send()
-                .await
-                .wrap_err_with(|| format!("Failed to send http {method} request to {url}"))?;
-            crate::client::bounded_async_response::into_response(response, max_response_bytes).await
-        })
+        }))
     }
+}
+
+impl ReqwestHttpTransport {
+    // One request path; the constructor dependency also exercises initialization failures
+    // without substituting HTTP dispatch, response bounds or request policy in tests.
+    async fn send_async_with(
+        &self,
+        request: TransportRequest,
+        initialize: impl FnOnce(bool) -> crate::Result<reqwest::Client> + Send,
+    ) -> Result<Response<Bytes>> {
+        let started = std::time::Instant::now();
+        let TransportRequest {
+            method,
+            url,
+            headers,
+            body,
+            timeout,
+            max_response_bytes,
+            direct_loopback,
+        } = request;
+        let pool = if direct_loopback {
+            &self.asynchronous_direct_loopback
+        } else {
+            &self.asynchronous
+        };
+        // Failure and cancellation leave the cell empty; concurrent users share only a
+        // successfully constructed pool and never retry an HTTP request on its behalf.
+        let client = pool
+            .get_or_try_init(|| async move { initialize(direct_loopback) })
+            .await?;
+        let mut builder = client.request(method.clone(), url.clone());
+        for (name, value) in headers {
+            builder = builder.header(name, value);
+        }
+        if !body.is_empty() {
+            builder = builder.body(body);
+        }
+        if let Some(timeout) = remaining_request_timeout(timeout, started)? {
+            builder = builder.timeout(timeout);
+        }
+        let response = builder
+            .send()
+            .await
+            .wrap_err_with(|| format!("Failed to send http {method} request to {url}"))?;
+        crate::client::bounded_async_response::into_response(response, max_response_bytes).await
+    }
+}
+
+// Pool initialization can synchronously load native TLS roots, and waiting for another
+// initializer also consumes this request's budget. Refuse before I/O when either exhausted it.
+fn remaining_request_timeout(
+    timeout: Option<std::time::Duration>,
+    started: std::time::Instant,
+) -> Result<Option<std::time::Duration>> {
+    timeout
+        .map(|budget| {
+            budget
+                .checked_sub(started.elapsed())
+                .filter(|remaining| !remaining.is_zero())
+                .ok_or_else(request_deadline_elapsed)
+        })
+        .transpose()
 }
 
 #[cfg(test)]
@@ -608,6 +645,8 @@ fn build_http_client() -> BlockingClient {
         .expect("Failed to build blocking HTTP client")
 }
 fn build_async_http_client() -> crate::Result<reqwest::Client> {
+    #[cfg(test)]
+    lazy_tests::record_construction();
     async_http_client_builder()
         .build()
         .map_err(|error| crate::Error::TransportConstruction {
@@ -634,6 +673,8 @@ fn build_direct_loopback_http_client() -> BlockingClient {
         .expect("Failed to build direct loopback HTTP client")
 }
 fn build_direct_loopback_async_http_client() -> crate::Result<reqwest::Client> {
+    #[cfg(test)]
+    lazy_tests::record_construction();
     let addresses = [
         std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
         std::net::SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 0)),
@@ -780,8 +821,7 @@ mod tests {
     };
 
     fn owned_request_builder(method: Method, url: Url) -> DefaultRequestBuilder {
-        DefaultRequestBuilder::new(method, url)
-            .with_transport(DefaultHttpTransport::new().expect("test HTTP transport"))
+        DefaultRequestBuilder::new(method, url).with_transport(DefaultHttpTransport::new())
     }
 
     fn mocked_request_builder(
@@ -795,7 +835,7 @@ mod tests {
 
     #[tokio::test]
     async fn default_transport_construction_is_safe_inside_async_runtime() {
-        let transport = DefaultHttpTransport::new().expect("test HTTP transport");
+        let transport = DefaultHttpTransport::new();
         let clone = transport.clone();
         assert!(transport.shares_pools_with(&clone));
         drop(clone);
@@ -1529,3 +1569,7 @@ mod tests {
         assert_eq!(body, b"1234");
     }
 }
+
+#[cfg(test)]
+#[path = "http_default/lazy_tests.rs"]
+mod lazy_tests;

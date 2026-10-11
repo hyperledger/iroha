@@ -1,4 +1,4 @@
-//! Funded real-XOR rewards and source-bound withdrawal across certified replacement.
+//! Source-bound real-XOR withdrawal across certified replacement and liability expiry.
 
 use super::*;
 use iroha::{
@@ -6,22 +6,19 @@ use iroha::{
     crypto::HashOf,
     data_model::{
         block::consensus::NexusFeeSettlementV1,
-        isi::staking::{
-            ClaimPublicLaneRewards, FinalizePublicLaneUnbond, RecordPublicLaneRewards,
-            SchedulePublicLaneUnbond,
-        },
+        isi::staking::{FinalizePublicLaneUnbond, SchedulePublicLaneUnbond},
         nexus::{
             FeeDebitSource, PublicLanePreparationBalanceV1, PublicLanePreparationOperationV1,
             PublicLanePreparationRequestV1, PublicLanePreparationV1, PublicLanePrepareBondV1,
             PublicLanePrepareClaimV1, PublicLanePrepareUnbondV1, PublicLanePreparedPlanV1,
-            PublicLaneRewardRole, PublicLaneRewardShare, PublicLaneUnbonding,
-            public_lane_unbonding_commitment,
+            PublicLaneUnbonding, public_lane_unbonding_commitment,
         },
     },
 };
-use std::time::{SystemTime, UNIX_EPOCH};
-
-const REWARD_EPOCH: u64 = 2;
+use std::{
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 /// Select a finite wall-clock unlock; eligibility still requires certified replacement
 /// and the complete authenticated evidence/slashing horizon.
@@ -199,9 +196,9 @@ pub(super) struct WithdrawalLifecycle {
     // departing owner has withdrawn. This is a read, never a new delegation.
     reserve_validator: AccountId,
     pending: PublicLaneUnbonding,
-    signed_genesis_hash: HashOf<iroha::data_model::block::BlockHeader>,
     network_id: NetworkId,
     retained_stake: Quantity,
+    history: Arc<committee_staking_history::RetainedHistory>,
 }
 
 impl WithdrawalLifecycle {
@@ -311,18 +308,13 @@ impl WithdrawalLifecycle {
             validate_joined_custody(&confirmed, &confirmed_auxiliary)?;
             break (prepared, auxiliary, supply);
         };
-        let (_, chain) = tokio::time::timeout_at(
+        let chain = tokio::time::timeout_at(
             deadline.into(),
             read_on_dedicated_thread({
                 let client = self.owner.client.clone();
-                let network_id = self.network_id;
-                let genesis = self.signed_genesis_hash;
+                let history = Arc::clone(&self.history);
                 let height = prepared.observed_height;
-                move || {
-                    read_contiguous_finality_chain_until(
-                        &client, network_id, genesis, height, deadline,
-                    )
-                }
+                move || history.read_until(&client, height, deadline)
             }),
         )
         .await
@@ -528,7 +520,13 @@ impl WithdrawalLifecycle {
         {
             verify_equal_vote_context(block, expected)?;
             ensure!(
-                block.commitment().schedule.current.authority.generation == 2,
+                block
+                    .commitment()
+                    .schedule
+                    .current
+                    .authorization
+                    .authority_generation
+                    == 2,
                 "custody-release progress must retain the authenticated four-seat generation"
             );
         }
@@ -542,35 +540,64 @@ pub(super) async fn submit_signed(
     instruction: InstructionBox,
     applied: bool,
 ) -> Result<SignedTransaction> {
-    let account = client.account_client();
-    let mut payload = account.prepare_transaction(AccountTransactionDraft::new(
-        vec![instruction],
-        FeePaymentIntent::authority(Vec::new(), None),
-        Metadata::default(),
-    ))?;
-    let quote = account
-        .quote_fees(FeeQuoteRequest::AccountSignature { payload: &payload })
-        .await?;
-    ensure!(
-        payload
-            .fee_payment
-            .has_same_payer_and_gas_bound(&quote.intent),
-        "fee quote changed the selected monetary-plan signer"
-    );
-    payload.fee_payment = quote.intent;
-    let transaction = account.sign_transaction(payload)?;
-    let result = account.submit_transaction_and_wait(&transaction).await;
-    if applied {
-        result.wrap_err("signed monetary transaction failed")?;
-    } else {
+    let deadline = Instant::now() + WAIT;
+    committee_status::submit_async_until(client.client().clone(), deadline, |bounded| async move {
+        let account = bounded.account_client()?;
+        let mut payload = account.prepare_transaction(AccountTransactionDraft::new(
+            vec![instruction],
+            FeePaymentIntent::authority(Vec::new(), None),
+            Metadata::default(),
+        ))?;
+        let quote = account
+            .quote_fees(FeeQuoteRequest::AccountSignature { payload: &payload })
+            .await?;
         ensure!(
-            result.is_err(),
-            "rejected monetary operation unexpectedly applied"
+            payload
+                .fee_payment
+                .has_same_payer_and_gas_bound(&quote.intent),
+            "fee quote changed the selected monetary-plan signer"
         );
-    }
-    // A submission error alone is not rejection evidence; the caller must find the
-    // exact signed input and its rejected Network output in authenticated finality.
-    Ok(transaction)
+        payload.fee_payment = quote.intent;
+        let transaction = account.sign_transaction(payload)?;
+        let result = account.submit_transaction_and_wait(&transaction).await;
+        if applied {
+            result.wrap_err("signed monetary transaction failed")?;
+            bounded
+                .wait_until_transaction_applied_local(
+                    transaction.hash(),
+                    iroha::client::TransactionWaitOptions {
+                        timeout: deadline.saturating_duration_since(Instant::now()),
+                        poll_interval: POLL,
+                    },
+                )
+                .await?;
+        } else {
+            let error = result
+                .err()
+                .ok_or_else(|| eyre!("rejected monetary operation unexpectedly applied"))?;
+            let Some(failure) = error.chain().find_map(|cause| {
+                cause.downcast_ref::<iroha::client::TransactionFinalityFailure>()
+            }) else {
+                return Err(error)
+                    .wrap_err("signed monetary rejection lacks exact global State completion");
+            };
+            if failure.response().status.kind != "Rejected" {
+                return Err(error)
+                    .wrap_err("signed monetary operation did not reach State Rejected");
+            }
+            committee_status::observe_rejected_until(
+                bounded,
+                transaction.hash(),
+                failure,
+                deadline,
+            )
+            .await?;
+        }
+        // Local status is only a readback fence. Exact rejected Network output, fee and
+        // monetary effects still come from the independently authenticated native chain.
+        Ok(transaction)
+    })
+    .await
 }
 
 fn require_only_accounted_input(
@@ -744,6 +771,7 @@ fn assert_effects(
     Ok(())
 }
 
+#[cfg(test)]
 fn assert_reward_reservation(
     before: &Observation,
     after: &Observation,
@@ -767,8 +795,8 @@ fn assert_reward_reservation(
     Ok(())
 }
 
-/// Reserve existing treasury XOR, claim its exact bounded record, and retain a full bond.
-pub(super) async fn fund_rewards_and_schedule_withdrawal(
+/// Schedule a full-bond withdrawal and preserve its authenticated committee liability.
+pub(super) async fn schedule_retained_withdrawal(
     network: &sandbox::SerializedNetwork,
     admin: &Client,
     owner: &Operator,
@@ -849,6 +877,11 @@ pub(super) async fn fund_rewards_and_schedule_withdrawal(
             .and_then(|height| height.checked_add(npos.slashing_delay_blocks))
             .ok_or_else(|| eyre!("unbond liability horizon overflow"))?,
     };
+    let history = Arc::new(committee_staking_history::RetainedHistory::new(
+        network.chain_id(),
+        network.network_id(),
+        signed_genesis_hash,
+    )?);
     let mut lifecycle = WithdrawalLifecycle {
         destination: AssetId::with_scope(xor, owner.account.clone(), *escrow.scope()),
         owner,
@@ -856,9 +889,9 @@ pub(super) async fn fund_rewards_and_schedule_withdrawal(
         reward_treasury,
         reserve_validator,
         pending,
-        signed_genesis_hash,
         network_id: network.network_id(),
         retained_stake: Quantity::zero(),
+        history,
     };
     let before_schedule = lifecycle
         .observe(PublicLanePreparationOperationV1::Bond(
@@ -913,138 +946,12 @@ pub(super) async fn fund_rewards_and_schedule_withdrawal(
         before_reward.prepared.observed_height < TARGET_LAST,
         "unbond scheduling missed the seven-seat tenure"
     );
-    let reward: Quantity = 25_u64.into();
-    let record = submit_signed(
-        &admin,
-        RecordPublicLaneRewards {
-            lane_id: LaneId::SINGLE,
-            epoch: REWARD_EPOCH,
-            reward_asset: lifecycle.reward_treasury.clone(),
-            total_reward: reward.clone(),
-            shares: vec![PublicLaneRewardShare {
-                account: lifecycle.owner.account.clone(),
-                role: PublicLaneRewardRole::Validator,
-                amount: reward.clone(),
-            }],
-            metadata: Metadata::default(),
-        }
-        .into(),
-        true,
-    )
-    .await?;
-    ensure!(
-        record.authority() == lifecycle.reward_treasury.account(),
-        "the exact signed reward input must spend its own configured treasury fee"
-    );
-    let claim = lifecycle
-        .observe(PublicLanePreparationOperationV1::ClaimRewards(
-            PublicLanePrepareClaimV1 {
-                recipient: lifecycle.owner.account.clone(),
-                upto_epoch: Some(REWARD_EPOCH),
-                max_records: 1,
-                accrued_sources: Vec::new(),
-            },
-        ))
-        .await?;
-    let fee = actual_fee(
-        &before_reward,
-        &claim,
-        &record,
-        true,
-        None,
-        lifecycle.escrow.definition(),
-    )?;
-    assert_reward_reservation(
-        &before_reward,
-        &claim,
-        &lifecycle.reward_treasury,
-        &lifecycle.escrow,
-        &lifecycle.destination,
-        &reward,
-        &fee,
-    )?;
-    let PublicLanePreparedPlanV1::Claim(plan) = &claim.prepared.plan else {
-        return Err(eyre!("reward read returned withdrawal"));
-    };
-    ensure!(
-        plan.records.len() == 1
-            && plan.records[0].epoch == REWARD_EPOCH
-            && plan.sources.len() == 1
-            && plan.sources[0].source_asset == lifecycle.reward_treasury
-            && plan.sources[0].destination_asset == lifecycle.destination
-            && plan.sources[0].payout == reward
-            && plan.fee_claim.is_none(),
-        "bounded reward plan differs from funded treasury distribution"
-    );
-    let transaction = submit_signed(
-        &lifecycle.owner.client,
-        ClaimPublicLaneRewards {
-            lane_id: LaneId::SINGLE,
-            account: lifecycle.owner.account.clone(),
-            claim_plan: plan.clone(),
-        }
-        .into(),
-        true,
-    )
-    .await?;
-    let after_claim = lifecycle.observe(lifecycle.unbond_intent()).await?;
-    let fee = actual_fee(
-        &claim,
-        &after_claim,
-        &transaction,
-        true,
-        None,
-        lifecycle.escrow.definition(),
-    )?;
-    assert_effects(
-        &claim,
-        &after_claim,
-        &lifecycle.reward_treasury,
-        &lifecycle.destination,
-        &reward,
-        &Quantity::zero(),
-        &reward,
-        &lifecycle.owner.account,
-        &fee,
-    )?;
-    let replay = submit_signed(
-        &lifecycle.owner.client,
-        ClaimPublicLaneRewards {
-            lane_id: LaneId::SINGLE,
-            account: lifecycle.owner.account.clone(),
-            claim_plan: plan.clone(),
-        }
-        .into(),
-        false,
-    )
-    .await?;
-    ensure!(
-        replay.hash() != transaction.hash(),
-        "claim replay must be a new signed transaction carrying the exact consumed plan"
-    );
-    let after_replay = lifecycle.observe(lifecycle.unbond_intent()).await?;
-    let replay_fee = actual_fee(
-        &after_claim,
-        &after_replay,
-        &replay,
-        false,
-        Some("reward claim processing cursor changed after signing"),
-        lifecycle.escrow.definition(),
-    )?;
-    assert_effects(
-        &after_claim,
-        &after_replay,
-        &lifecycle.reward_treasury,
-        &lifecycle.destination,
-        &Quantity::zero(),
-        &Quantity::zero(),
-        &Quantity::zero(),
-        &lifecycle.owner.account,
-        &replay_fee,
-    )?;
+    // TODO: qualify automatic funded reward conversion and signed nominator claims
+    // in a real-peer scenario with authenticated monthly funding and reference
+    // observations. This retained-tenure scenario only qualifies principal custody.
     lifecycle
         .reject_early(
-            after_replay,
+            before_reward,
             "authenticated release of current and frozen committee obligations",
         )
         .await?;
@@ -1071,9 +978,6 @@ mod tests {
             valid_for_blocks: EPOCH,
             operation: PublicLanePreparationOperationV1::ClaimRewards(PublicLanePrepareClaimV1 {
                 recipient: BOB_ID.clone(),
-                upto_epoch: Some(REWARD_EPOCH),
-                max_records: 1,
-                accrued_sources: Vec::new(),
             }),
         };
         let hash = Hash::new(b"accounting helper observation; not network qualification");

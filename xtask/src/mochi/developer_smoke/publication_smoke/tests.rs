@@ -227,3 +227,36 @@ fn consumer_fixture_uses_only_exact_registry_dependency_and_no_local_override() 
     assert!(!consumer.contains_key("workspace"));
     assert!(CONSUMER_SOURCE.contains("published::value()"));
 }
+
+#[test]
+fn publication_fixture_sources_preserve_public_and_library_function_roles() {
+    use kotodama_lang::ast::{FunctionKind, Item};
+
+    let consumer = kotodama_lang::parser::parse(CONSUMER_SOURCE)
+        .expect("parse the exact cold publication consumer offline");
+    let quote = consumer
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Function(function) if function.name == "quote" => Some(function),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(quote.modifiers.kind, FunctionKind::View);
+    assert_eq!(quote.modifiers.authorization.as_deref(), Some("anyone"));
+
+    // Module exports remain ordinary library functions, not public entrypoints.
+    let library = kotodama_lang::parser::parse(LIBRARY_SOURCE)
+        .expect("parse the exact publication library offline");
+    let value = library
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Function(function) if function.name == "value" => Some(function),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(value.modifiers.kind, FunctionKind::Private);
+    assert!(value.modifiers.authorization.is_none());
+    assert!(library.exports.iter().any(|export| export.name == "value"));
+}

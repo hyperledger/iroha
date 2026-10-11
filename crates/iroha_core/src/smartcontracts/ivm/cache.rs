@@ -1777,6 +1777,9 @@ mod tests {
     pub(super) fn minimal_program() -> Vec<u8> {
         let mut program = ivm::ProgramMetadata::default().encode();
         let interface = ivm::EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             callables: vec![ivm::call::EmbeddedCallableV1 {
                 entry_pc: 0,
                 frame_bytes: 0,
@@ -1798,7 +1801,7 @@ mod tests {
                 return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: None,
+                authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: Some(true),
@@ -1966,8 +1969,8 @@ mod tests {
     #[test]
     fn generic_summary_rejects_contract_only_syscalls_with_stable_reason() {
         for syscall in [
-            ivm::syscalls::SYSCALL_GRANT_CONTRACT_ENTRYPOINT,
-            ivm::syscalls::SYSCALL_REVOKE_CONTRACT_ENTRYPOINT,
+            ivm::syscalls::SYSCALL_GRANT_CONTRACT_PERMISSION,
+            ivm::syscalls::SYSCALL_REVOKE_CONTRACT_PERMISSION,
             ivm::syscalls::SYSCALL_DEACTIVATE_CONTRACT_INSTANCE,
             ivm::syscalls::SYSCALL_REMOVE_SMART_CONTRACT_BYTES,
             ivm::syscalls::SYSCALL_REGISTER_SMART_CONTRACT_CODE,

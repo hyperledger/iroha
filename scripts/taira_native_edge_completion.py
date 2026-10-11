@@ -121,7 +121,10 @@ def validate_observed(reference, *, directory=False):
     fields(observed, IDENTITY_KEYS, "native_identity_fields")
     need(all(type(value) is int and 0 <= value <= 2**64 - 1 for value in observed.values()),
          "native_identity_numbers")
-    need(observed["uid"] == os.geteuid() and observed["gid"] == os.getegid()
+    # Owner-private files may inherit their publisher directory's group. The
+    # group remains part of the exact retained identity; mode 0600 grants it no
+    # access. Match the maintained nginx publisher's owner-private contract.
+    need(observed["uid"] == os.geteuid() and (not directory or observed["gid"] == os.getegid())
          and observed["mode"] == (0o700 if directory else 0o600)
          and (directory or observed["links"] == 1), "unsafe_retained_owner")
 

@@ -1,4 +1,5 @@
 //! Validate `trusted_peers_pop` validator-subset and parsing rules.
+
 use iroha_config::parameters::user::Root as UserConfig;
 use iroha_config_base::read::ConfigReader;
 use iroha_config_base::toml::TomlSource;

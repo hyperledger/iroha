@@ -37,6 +37,9 @@ pub(crate) enum StateRestoreError {
     /// Original finite resources refused the complete native participant graph.
     #[error("snapshot native AMX admission deferred: {0}")]
     NativeAmx(#[source] crate::sumeragi::amx::NativeAmxAdmissionError),
+    /// Original resources refused canonical immutable evidence graph restoration.
+    #[error("snapshot native evidence admission deferred: {0}")]
+    Evidence(#[source] crate::sumeragi::evidence::record::EvidenceRecordRestoreError),
     /// The local VM image could not be constructed before restoring State.
     #[error("snapshot State VM initialization deferred: {0}")]
     VmInitialization(#[source] ivm::VMError),
@@ -46,6 +49,27 @@ pub(crate) enum StateRestoreError {
     /// Original execution resources refused this local restore attempt.
     #[error("snapshot State execution deferred: {0}")]
     ExecutionDeferred(#[source] crate::execution_attempt::ExecutionDeferred),
+}
+impl From<native_execution_tip::TipRestoreError> for StateRestoreError {
+    fn from(error: native_execution_tip::TipRestoreError) -> Self {
+        match error {
+            native_execution_tip::TipRestoreError::GenesisReplayRequired => {
+                Self::NativeExecutionReplayRequired
+            }
+            native_execution_tip::TipRestoreError::History(message) => {
+                Self::Serialization(json::Error::InvalidField {
+                    field: "native_execution_tip".into(),
+                    message,
+                })
+            }
+            native_execution_tip::TipRestoreError::Admission(error) => {
+                Self::Admission(StateAdmissionError::Storage(error))
+            }
+            native_execution_tip::TipRestoreError::Deferred(original) => {
+                Self::ExecutionDeferred(original)
+            }
+        }
+    }
 }
 impl From<mv::storage::AdmittedStorageError> for StateRestoreError {
     fn from(error: mv::storage::AdmittedStorageError) -> Self {
@@ -100,52 +124,6 @@ enum SnapshotJsonField<'a> {
     Owned(json::Value),
 }
 impl<'a> SnapshotJsonField<'a> {
-    fn into_operation_index(
-        self,
-        budget: iroha_allocation::AllocationBudget,
-        refusal: &std::cell::RefCell<Option<mv::storage::AdmittedStorageError>>,
-    ) -> Result<OperationIndex, json::Error> {
-        let result = match self {
-            Self::Borrowed { raw } => super::kagemusha_operation_indexes::restore_json(raw, budget),
-            #[cfg(test)]
-            Self::Owned(json::Value::Object(mut fields)) => {
-                let revert = fields
-                    .remove("revert")
-                    .ok_or_else(|| json::MapVisitor::missing_field("revert"))?;
-                let blocks = fields
-                    .remove("blocks")
-                    .ok_or_else(|| json::MapVisitor::missing_field("blocks"))?;
-                if !fields.is_empty() {
-                    return Err(json::Error::Message(
-                        "unexpected fixed-index snapshot field".into(),
-                    ));
-                }
-                let source = format!(
-                    "{{\"revert\":{},\"blocks\":{}}}",
-                    json::to_json(&revert)?,
-                    json::to_json(&blocks)?
-                );
-                super::kagemusha_operation_indexes::restore_json(&source, budget)
-            }
-            #[cfg(test)]
-            Self::Owned(_) => {
-                return Err(json::Error::Message(
-                    "fixed-index snapshot must be an object".into(),
-                ));
-            }
-        };
-        result.map_err(|error| match error {
-            super::kagemusha_operation_indexes::OperationIndexRestoreError::Encoding(error) => {
-                error
-            }
-            super::kagemusha_operation_indexes::OperationIndexRestoreError::Admission(error) => {
-                refusal.borrow_mut().get_or_insert(error);
-                // Control flow only: the outer decoder returns the retained typed
-                // refusal, so this sentinel cannot authorize empty-state fallback.
-                json::Error::Message("original fixed-index restore allocation refused".into())
-            }
-        })
-    }
     fn decode_canonical<T>(self, field: &str) -> Result<T, json::Error>
     where
         T: JsonDeserialize + JsonSerialize,
@@ -198,6 +176,47 @@ impl<'a> SnapshotJsonField<'a> {
         decoded.map_err(|error| match error {
             StateRestoreError::Serialization(error) => json::Error::InvalidField {
                 field: "transactions".to_owned(),
+                message: error.to_string(),
+            }
+            .into(),
+            local => local,
+        })
+    }
+    fn decode_evidence(
+        self,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<Storage<iroha_crypto::Hash, RetainedEvidenceRecord>, StateRestoreError> {
+        let decoded: Result<
+            Storage<iroha_crypto::Hash, RetainedEvidenceRecord>,
+            StateRestoreError,
+        > = (|| {
+            let (raw, has_original_bytes) = match &self {
+                Self::Borrowed { raw } => (std::borrow::Cow::Borrowed(*raw), true),
+                #[cfg(test)]
+                Self::Owned(value) => (std::borrow::Cow::Owned(json::to_json(value)?), false),
+            };
+            let value = crate::sumeragi::evidence::record::restore_storage(&raw, budget).map_err(
+                |error| match error {
+                    crate::sumeragi::evidence::record::EvidenceRecordRestoreError::Json(error) => {
+                        StateRestoreError::Serialization(error)
+                    }
+                    local => StateRestoreError::Evidence(local),
+                },
+            )?;
+            // Production borrows the original bytes and requires their exact canonical
+            // representation. The test-only DOM adapter has already discarded field
+            // order, just like decode_canonical's owned path above. Neither path grants
+            // authority to restored claims. Comparison scratch retains its existing TODO.
+            if has_original_bytes && json::to_json(&value)?.as_bytes() != raw.as_bytes() {
+                return Err(StateRestoreError::Serialization(json::Error::Message(
+                    "snapshot field is not canonically encoded".into(),
+                )));
+            }
+            Ok(value)
+        })();
+        decoded.map_err(|error| match error {
+            StateRestoreError::Serialization(error) => json::Error::InvalidField {
+                field: "consensus_evidence".into(),
                 message: error.to_string(),
             }
             .into(),
@@ -354,16 +373,12 @@ fn canonical_world_field_order() -> &'static [&'static str] {
 #[derive(Clone, Copy)]
 pub struct IvmSeed<'e, T> {
     pub ivm: &'e IVM,
-    pub operation_index_budget: &'e iroha_allocation::AllocationBudget,
-    pub operation_index_refusal: &'e std::cell::RefCell<Option<mv::storage::AdmittedStorageError>>,
     _marker: PhantomData<T>,
 }
 impl<'e, T> IvmSeed<'e, T> {
     pub fn cast<U>(&self) -> IvmSeed<'e, U> {
         IvmSeed {
             ivm: self.ivm,
-            operation_index_budget: self.operation_index_budget,
-            operation_index_refusal: self.operation_index_refusal,
             _marker: PhantomData,
         }
     }
@@ -375,7 +390,6 @@ impl IvmSeed<'_, TriggerSet> {
     }
 }
 pub struct KuraSeed {
-    pub operation_index_budget: iroha_allocation::AllocationBudget,
     /// Original caller-owned execution pool retained by the restored State.
     pub execution_budget: iroha_allocation::AllocationBudget,
     pub kura: Arc<Kura>,
@@ -415,7 +429,6 @@ mod state_snapshot_decode_error_tests {
             let kura = crate::kura::Kura::blank_kura_for_testing();
             let seed = KuraSeed {
                 execution_budget: iroha_allocation::AllocationBudget::new(0),
-                operation_index_budget: iroha_allocation::AllocationBudget::new(0),
                 kura: Arc::clone(&kura),
                 lane_manifests: Arc::new(
                     crate::governance::manifest::LaneManifestRegistry::default(),
@@ -539,8 +552,7 @@ impl KuraSeed {
             BuildStateInputs {
                 execution_budget: self.execution_budget.clone(),
                 lane_manifests: self.lane_manifests,
-                world: World(Box::new(WorldData::try_new_with_budgets(
-                    self.operation_index_budget.clone(),
+                world: World(Box::new(WorldData::try_new_with_execution_budget(
                     &self.execution_budget,
                 )?)),
                 block_hashes,
@@ -631,28 +643,9 @@ impl KuraSeed {
     }
     fn into_state_from_snapshot_map(
         self,
-        map: SnapshotJsonMap<'_>,
-        allow_durable_recovery: bool,
-        replay_nexus: Option<iroha_config::parameters::actual::Nexus>,
-    ) -> Result<Box<State>, StateRestoreError> {
-        let refusal = std::cell::RefCell::new(None);
-        let result = self.into_state_from_snapshot_map_inner(
-            map,
-            allow_durable_recovery,
-            replay_nexus,
-            &refusal,
-        );
-        match refusal.into_inner() {
-            Some(error) => Err(error.into()),
-            None => result,
-        }
-    }
-    fn into_state_from_snapshot_map_inner(
-        self,
         mut map: SnapshotJsonMap<'_>,
         allow_durable_recovery: bool,
         replay_nexus: Option<iroha_config::parameters::actual::Nexus>,
-        operation_index_refusal: &std::cell::RefCell<Option<mv::storage::AdmittedStorageError>>,
     ) -> Result<Box<State>, StateRestoreError> {
         const CANONICAL_FIELDS: &[&str] = &[
             "chain_id",
@@ -664,10 +657,6 @@ impl KuraSeed {
             "transactions",
             "public_lane_validators",
             "public_lane_stake_shares",
-            "public_lane_rewards",
-            "public_lane_reward_claims",
-            "public_lane_reward_accruals",
-            "public_lane_reward_reserves",
             "public_lane_stake_custody",
             "public_lane_stake_reserves",
             "space_directory_manifests",
@@ -699,8 +688,6 @@ impl KuraSeed {
         }
         let ivm_runtime = IVM::try_new(0).map_err(StateRestoreError::VmInitialization)?;
         let ivm_seed = IvmSeed {
-            operation_index_budget: &self.operation_index_budget,
-            operation_index_refusal,
             ivm: &ivm_runtime,
             _marker: PhantomData,
         };
@@ -719,35 +706,6 @@ impl KuraSeed {
             "public_lane_stake_shares",
             public_lane_stake_share_matches_key,
         )?;
-        world.public_lane_rewards =
-            take_required::<snapshot_storage::SnapshotStorage>(&mut map, "public_lane_rewards")?
-                .decode("public_lane_rewards", public_lane_reward_record_matches_key)?;
-        world.public_lane_reward_claims = take_required::<snapshot_storage::SnapshotStorage>(
-            &mut map,
-            "public_lane_reward_claims",
-        )?
-        .decode(
-            "public_lane_reward_claims",
-            |_: &(LaneId, AccountId), value: &PublicLaneRewardClaimStateV1| {
-                value.through_epoch.is_some()
-            },
-        )?;
-        world.public_lane_reward_accruals = take_required::<snapshot_storage::SnapshotStorage>(
-            &mut map,
-            "public_lane_reward_accruals",
-        )?
-        .decode(
-            "public_lane_reward_accruals",
-            |_: &(LaneId, AccountId, AssetId), value: &Quantity| !value.is_zero(),
-        )?;
-        world.public_lane_reward_reserves = take_required::<snapshot_storage::SnapshotStorage>(
-            &mut map,
-            "public_lane_reward_reserves",
-        )?
-        .decode(
-            "public_lane_reward_reserves",
-            |_: &AssetId, value: &Quantity| !value.is_zero(),
-        )?;
         world.public_lane_stake_custody = take_required::<snapshot_storage::SnapshotStorage>(
             &mut map,
             "public_lane_stake_custody",
@@ -764,23 +722,7 @@ impl KuraSeed {
             "public_lane_stake_reserves",
             |_: &AssetId, value: &Quantity| !value.is_zero(),
         )?;
-        validate_public_lane_reward_reserves(&world.view()).map_err(|error| {
-            error.map_rejection(|message| json::Error::InvalidField {
-                field: "public_lane_reward_reserves.blocks".to_owned(),
-                message,
-            })
-        })?;
-        {
-            let previous_world = world.try_block_and_revert(&self.execution_budget)?;
-            validate_public_lane_reward_reserves(&previous_world).map_err(|error| {
-                error.map_rejection(|message| json::Error::InvalidField {
-                    field: "public_lane_reward_reserves.revert".to_owned(),
-                    message,
-                })
-            })?;
-        }
-
-        validate_public_lane_stake_reserves(&world.view()).map_err(|error| {
+        validate_public_lane_stake_reserves_for_restore(&world.view()).map_err(|error| {
             error.map_rejection(|message| json::Error::InvalidField {
                 field: "public_lane_stake_reserves.blocks".to_owned(),
                 message,
@@ -788,7 +730,7 @@ impl KuraSeed {
         })?;
         {
             let previous_world = world.try_block_and_revert(&self.execution_budget)?;
-            validate_public_lane_stake_reserves(&previous_world).map_err(|error| {
+            validate_public_lane_stake_reserves_for_restore(&previous_world).map_err(|error| {
                 error.map_rejection(|message| json::Error::InvalidField {
                     field: "public_lane_stake_reserves.revert".to_owned(),
                     message,
@@ -851,20 +793,7 @@ impl KuraSeed {
                 &block_hashes,
                 &self.kura,
             )
-            .map_err(|error| match error {
-                native_execution_tip::TipRestoreError::GenesisReplayRequired => {
-                    StateRestoreError::NativeExecutionReplayRequired
-                }
-                native_execution_tip::TipRestoreError::History(message) => {
-                    StateRestoreError::Serialization(json::Error::InvalidField {
-                        field: "native_execution_tip".into(),
-                        message,
-                    })
-                }
-                native_execution_tip::TipRestoreError::Admission(error) => {
-                    StateRestoreError::Admission(StateAdmissionError::Storage(error))
-                }
-            })?;
+            .map_err(StateRestoreError::from)?;
         let committed_height =
             u64::try_from(block_hashes.hash_count()).map_err(|_| json::Error::InvalidField {
                 field: "state.block_hashes".to_owned(),
@@ -1465,12 +1394,10 @@ pub(in crate::state) fn decode_world_snapshot_projection_for_testing(
     value: json::Value,
     reference_block_hashes: &[HashOf<BlockHeader>],
 ) -> Result<World, StateRestoreError> {
-    let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-    let operation_index_refusal = std::cell::RefCell::new(None);
     let execution_budget = &iroha_allocation::AllocationBudget::new(
         iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
     );
-    let result = (|| {
+    (|| {
         let json::Value::Object(fields) = value else {
             return Err(json::Error::Message(
                 "World projection requires its exact State envelope".into(),
@@ -1484,8 +1411,6 @@ pub(in crate::state) fn decode_world_snapshot_projection_for_testing(
             .into_object("world")?;
         let ivm = IVM::try_new(0).map_err(StateRestoreError::VmInitialization)?;
         let seed = IvmSeed {
-            operation_index_budget: &operation_index_budget,
-            operation_index_refusal: &operation_index_refusal,
             ivm: &ivm,
             _marker: PhantomData,
         };
@@ -1504,35 +1429,6 @@ pub(in crate::state) fn decode_world_snapshot_projection_for_testing(
             "public_lane_stake_shares",
             public_lane_stake_share_matches_key,
         )?;
-        world.public_lane_rewards =
-            take_required::<snapshot_storage::SnapshotStorage>(&mut map, "public_lane_rewards")?
-                .decode("public_lane_rewards", public_lane_reward_record_matches_key)?;
-        world.public_lane_reward_claims = take_required::<snapshot_storage::SnapshotStorage>(
-            &mut map,
-            "public_lane_reward_claims",
-        )?
-        .decode(
-            "public_lane_reward_claims",
-            |_: &(LaneId, AccountId), value: &PublicLaneRewardClaimStateV1| {
-                value.through_epoch.is_some()
-            },
-        )?;
-        world.public_lane_reward_accruals = take_required::<snapshot_storage::SnapshotStorage>(
-            &mut map,
-            "public_lane_reward_accruals",
-        )?
-        .decode(
-            "public_lane_reward_accruals",
-            |_: &(LaneId, AccountId, AssetId), value: &Quantity| !value.is_zero(),
-        )?;
-        world.public_lane_reward_reserves = take_required::<snapshot_storage::SnapshotStorage>(
-            &mut map,
-            "public_lane_reward_reserves",
-        )?
-        .decode(
-            "public_lane_reward_reserves",
-            |_: &AssetId, value: &Quantity| !value.is_zero(),
-        )?;
         world.public_lane_stake_custody = take_required::<snapshot_storage::SnapshotStorage>(
             &mut map,
             "public_lane_stake_custody",
@@ -1549,23 +1445,7 @@ pub(in crate::state) fn decode_world_snapshot_projection_for_testing(
             "public_lane_stake_reserves",
             |_: &AssetId, value: &Quantity| !value.is_zero(),
         )?;
-        validate_public_lane_reward_reserves(&world.view()).map_err(|error| {
-            error.map_rejection(|message| json::Error::InvalidField {
-                field: "public_lane_reward_reserves.blocks".to_owned(),
-                message,
-            })
-        })?;
-        {
-            let previous_world = world.try_block_and_revert(execution_budget)?;
-            validate_public_lane_reward_reserves(&previous_world).map_err(|error| {
-                error.map_rejection(|message| json::Error::InvalidField {
-                    field: "public_lane_reward_reserves.revert".to_owned(),
-                    message,
-                })
-            })?;
-        }
-
-        validate_public_lane_stake_reserves(&world.view()).map_err(|error| {
+        validate_public_lane_stake_reserves_for_restore(&world.view()).map_err(|error| {
             error.map_rejection(|message| json::Error::InvalidField {
                 field: "public_lane_stake_reserves.blocks".to_owned(),
                 message,
@@ -1573,7 +1453,7 @@ pub(in crate::state) fn decode_world_snapshot_projection_for_testing(
         })?;
         {
             let previous_world = world.try_block_and_revert(execution_budget)?;
-            validate_public_lane_stake_reserves(&previous_world).map_err(|error| {
+            validate_public_lane_stake_reserves_for_restore(&previous_world).map_err(|error| {
                 error.map_rejection(|message| json::Error::InvalidField {
                     field: "public_lane_stake_reserves.revert".to_owned(),
                     message,
@@ -1584,11 +1464,7 @@ pub(in crate::state) fn decode_world_snapshot_projection_for_testing(
         validate_replication_order_completion_anchors(&world, reference_block_hashes)?;
         validate_musubi_resolver_checkpoint_anchors(&world, reference_block_hashes)?;
         Ok(world)
-    })();
-    match operation_index_refusal.into_inner() {
-        Some(error) => Err(error.into()),
-        None => result,
-    }
+    })()
 }
 
 /// Decode and validate both Nexus runtime component cuts without constructing
@@ -2272,6 +2148,15 @@ pub(super) fn validate_ram_lfe_program_policies(
     policies: &Storage<RamLfeProgramId, RamLfeProgramPolicy>,
 ) -> Result<(), json::Error> {
     for (program_id, policy) in policies.view().iter() {
+        if program_id != &policy.program_id {
+            return Err(json::Error::InvalidField {
+                field: format!("world.ram_lfe_program_policies.{program_id}"),
+                message: format!(
+                    "RAM-LFE program policy key {program_id} does not match embedded program id {}",
+                    policy.program_id
+                ),
+            });
+        }
         crate::smartcontracts::isi::ram_lfe::validate_program_policy(policy).map_err(|err| {
             json::Error::InvalidField {
                 field: format!("world.ram_lfe_program_policies.{program_id}"),
@@ -2778,3 +2663,112 @@ fn validate_musubi_resolver_checkpoint_anchors(
 
 #[cfg(test)]
 include!("deserialize_transaction_history_tests.rs");
+
+#[cfg(test)]
+mod evidence_record_restore_adapter_tests {
+    use super::*;
+    use crate::snapshot::TryReadError;
+    use crate::state::EvidencePreparationError;
+    use crate::sumeragi::evidence::record::EvidenceRecordRestoreError;
+    use iroha_allocation::{AllocationBudget, AllocationRefusal};
+
+    #[test]
+    fn evidence_snapshot_requires_canonical_borrowed_bytes_but_restores_owned_projection() {
+        let storage = Storage::<iroha_crypto::Hash, RetainedEvidenceRecord>::default();
+        let canonical = json::to_json(&storage).unwrap();
+        let projection = json::to_value(&storage).unwrap();
+        let reordered = json::to_json(&projection).unwrap();
+        assert_ne!(canonical, reordered, "the DOM has discarded declaration order");
+        let budget = AllocationBudget::new(1024);
+        let restored = SnapshotJsonField::Borrowed { raw: &canonical }
+            .decode_evidence(&budget)
+            .expect("canonical native snapshot bytes restore");
+        assert_eq!(json::to_json(&restored).unwrap(), canonical);
+        let rejected = SnapshotJsonField::Borrowed { raw: &reordered }
+            .decode_evidence(&budget)
+            .err()
+            .expect("reordered native snapshot bytes must remain rejected");
+        assert!(
+            matches!(rejected, StateRestoreError::Serialization(json::Error::InvalidField {ref field, ref message})
+            if field == "consensus_evidence" && message.contains("not canonically encoded"))
+        );
+        let restored = SnapshotJsonField::Owned(projection)
+            .decode_evidence(&budget)
+            .expect("test DOM projection restores through the same admitted record reader");
+        assert_eq!(json::to_json(&restored).unwrap(), canonical);
+        let mut invalid = json::to_value(&storage).unwrap();
+        let json::Value::Object(ref mut fields) = invalid else {
+            panic!("native storage is an object");
+        };
+        fields.insert("retired_field".into(), json::Value::Null);
+        assert!(
+            SnapshotJsonField::Owned(invalid)
+                .decode_evidence(&budget)
+                .is_err(),
+            "owned fixture projection still rejects unknown storage fields"
+        );
+        drop(restored);
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+
+    fn partial_original_record() -> String {
+        let key =
+            json::to_json(&iroha_crypto::Hash::new(b"original partial restore claim")).unwrap();
+        // The native byte destination is reached before this later unknown field.
+        // No native certificate or attribution authority is manufactured by the fixture.
+        format!(
+            "{{\"revert\":{{}},\"blocks\":{{{key}:{{\"evidence\":{{\"native\":[1],\"later_unknown\":null}}}}}}}}"
+        )
+    }
+
+    #[test]
+    fn borrowed_evidence_restore_adapter_preserves_original_capacity_before_late_syntax() {
+        let source = partial_original_record();
+        let budget = AllocationBudget::new(64);
+        let occupied = budget.try_reserve_bytes(budget.limit_bytes()).unwrap();
+        let layout = std::alloc::Layout::array::<u8>(1).unwrap();
+        let expected = budget.try_reserve(layout).unwrap_err();
+        assert!(matches!(&expected, AllocationRefusal::Capacity { .. }));
+        let Err(error) = SnapshotJsonField::Borrowed { raw: &source }.decode_evidence(&budget)
+        else {
+            panic!("the actual snapshot adapter must preserve original physical refusal");
+        };
+        let TryReadError::StateEvidence(EvidenceRecordRestoreError::Preparation(
+            EvidencePreparationError::Admission(actual),
+        )) = TryReadError::from(error)
+        else {
+            panic!("actual adapter must not erase original Capacity into snapshot syntax");
+        };
+        assert_eq!(actual, expected);
+        assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+        drop(occupied);
+        let Err(error) = SnapshotJsonField::Borrowed { raw: &source }.decode_evidence(&budget)
+        else {
+            panic!("after original credit returns the later canonical syntax error is reached");
+        };
+        assert!(
+            matches!(error, StateRestoreError::Serialization(json::Error::InvalidField {ref field, ref message})
+            if field == "consensus_evidence" && message.contains("later_unknown"))
+        );
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn borrowed_evidence_restore_adapter_preserves_actual_active_logical_refusal() {
+        let source = partial_original_record();
+        let budget = AllocationBudget::new(64);
+        let limits = norito::core::DecodeLimits::new(1024, 1024, 1024, 0, 32);
+        let Err(error) = norito::core::with_decode_limits_scope(limits, || {
+            SnapshotJsonField::Borrowed { raw: &source }.decode_evidence(&budget)
+        }) else {
+            panic!("active original logical scope must refuse through the real adapter");
+        };
+        let TryReadError::StateEvidence(EvidenceRecordRestoreError::Logical(original)) =
+            TryReadError::from(error)
+        else {
+            panic!("actual logical origin must not become generic snapshot syntax");
+        };
+        assert!(original.is_decode_resource_limit());
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+}

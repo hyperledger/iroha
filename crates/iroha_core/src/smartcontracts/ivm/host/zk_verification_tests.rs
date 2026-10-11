@@ -1,11 +1,10 @@
 // ZK envelope and batch-verification regression tests for the CoreHost.
-#[cfg(feature = "zk-halo2-ipa")]
 #[test]
 fn enforce_zk_envelope_maps_errors_and_ok() {
     let mut host = CoreHost::new(fixture_account("alice"));
     host.set_chain_id_bytes(b"chain".to_vec());
     host.set_current_manifest_id(Some("core".to_string()));
-    let backend = "halo2/ipa";
+    let backend = "pipa-r/pasta";
     let circuit_id = crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID;
     let vk_bytes = canonical_confidential_transfer_vk_bytes();
     let commitment = CoreHost::hash_vk_bytes(backend, &vk_bytes);
@@ -41,15 +40,14 @@ fn enforce_zk_envelope_maps_errors_and_ok() {
         Err(ivm::host::ERR_VK_MISMATCH)
     );
 }
-#[cfg(feature = "zk-halo2-ipa")]
 #[test]
 fn enforce_zk_envelope_rejects_shared_open_verify_shape_failures() {
     let mut host = CoreHost::new(fixture_account("alice"));
     host.set_chain_id_bytes(b"chain".to_vec());
     host.set_current_manifest_id(Some("core".to_string()));
-    host.halo2_config.max_envelope_bytes = usize::MAX;
-    host.halo2_config.max_proof_bytes = usize::MAX;
-    let backend = "halo2/ipa";
+    host.pipa_r_config.max_envelope_bytes = usize::MAX;
+    host.pipa_r_config.max_proof_bytes = usize::MAX;
+    let backend = "pipa-r/pasta";
     let circuit_id = crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID;
     let vk_bytes = canonical_confidential_transfer_vk_bytes();
     let commitment = CoreHost::hash_vk_bytes(backend, &vk_bytes);
@@ -142,25 +140,24 @@ fn enforce_zk_envelope_rejects_shared_open_verify_shape_failures() {
             "{label} should map to the shared validation error code"
         );
     }
-    host.halo2_config.max_proof_bytes = 8;
+    host.pipa_r_config.max_proof_bytes = 8;
     let too_large_proof = dummy_env(
         circuit_id,
         commitment,
         public_inputs,
-        vec![0xAA; host.halo2_config.max_proof_bytes + 1],
+        vec![0xAA; host.pipa_r_config.max_proof_bytes + 1],
     );
     assert_eq!(
         host.enforce_zk_envelope(&too_large_proof, "transfer"),
         Err(ivm::host::ERR_PROOF_LEN)
     );
 }
-#[cfg(feature = "zk-halo2-ipa")]
 #[test]
 fn enforce_zk_envelope_rejects_namespace_and_manifest_replays() {
     let mut host = CoreHost::new(fixture_account("alice"));
     host.set_chain_id_bytes(b"chain".to_vec());
     host.set_current_manifest_id(Some("core".to_string()));
-    let backend = "halo2/ipa";
+    let backend = "pipa-r/pasta";
     let circuit_id = crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID;
     let vk_bytes = canonical_confidential_transfer_vk_bytes();
     let commitment = CoreHost::hash_vk_bytes(backend, &vk_bytes);
@@ -206,13 +203,12 @@ fn enforce_zk_envelope_rejects_namespace_and_manifest_replays() {
         Err(ivm::host::ERR_NAMESPACE)
     );
 }
-#[cfg(feature = "zk-halo2-ipa")]
 #[test]
 fn enforce_zk_envelope_rejects_vk_metadata_mismatch() {
     let mut host = CoreHost::new(fixture_account("alice"));
     host.set_chain_id_bytes(b"chain".to_vec());
     host.set_current_manifest_id(Some("core".to_string()));
-    let backend = "halo2/ipa";
+    let backend = "pipa-r/pasta";
     let circuit_id = crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID;
     let vk_bytes = canonical_confidential_transfer_vk_bytes();
     let commitment = CoreHost::hash_vk_bytes(backend, &vk_bytes);
@@ -421,7 +417,7 @@ fn zk_verify_batch_rejects_configured_count_cap_after_metered_prepare() {
     let pointer = store_tlv(&mut vm, PointerType::NoritoBytes, &payload);
     vm.set_register(10, pointer);
     let mut host = CoreHost::new(fixture_account("alice"));
-    host.halo2_config.verifier_max_batch = 1;
+    host.zk_verify_limits.max_verify_batch = 1;
     let quote = host
         .prepare_syscall(ivm_sys::SYSCALL_ZK_VERIFY_BATCH, &vm)
         .expect("count rejection must still reserve gas");
@@ -491,10 +487,9 @@ fn generic_verify_proof_syscall_rejects_injected_non_production_vk_snapshot() {
         );
     }
 }
-#[cfg(any(feature = "zk-halo2", feature = "zk-halo2-ipa"))]
 #[test]
-fn generic_verify_proof_revalidates_injected_halo2_material_at_dispatch() {
-    let backend = "halo2/ipa";
+fn generic_verify_proof_revalidates_injected_native_material_at_dispatch() {
+    let backend = "pipa-r/pasta";
     let circuit_id = crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID;
     let public_inputs = vec![1_u8, 2, 3, 4];
     let mut vk_bytes = b"ZK1\0H2VK".to_vec();
@@ -522,9 +517,11 @@ fn generic_verify_proof_revalidates_injected_halo2_material_at_dispatch() {
         PreparedVerifyingKey {
             record,
             backend_label: Arc::from(backend),
-            material: Some(crate::zk::PreparedVerifyingKeyMaterialV1::Halo2IpaPasta {
-                ipa_k: crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_IPA_K,
-            }),
+            material: Some(
+                crate::zk::PreparedVerifyingKeyMaterialV1::NativePipaRPasta {
+                    ipa_k: crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_IPA_K,
+                },
+            ),
         },
     );
     let payload = dummy_env(circuit_id, commitment, public_inputs, vec![0xAA; 16]);
@@ -668,13 +665,12 @@ fn zk_verify_batch_reports_backend_verifier_failure_after_prechecks() {
     assert_eq!(vm.register(11), ivm::host::ERR_VERIFY);
     assert_eq!(vm.register(12), 1);
 }
-#[cfg(feature = "zk-halo2-ipa")]
 #[test]
 fn zk_verify_batch_reports_first_error_for_dummy_payloads() {
     let mut host = CoreHost::new(fixture_account("alice"));
     host.set_chain_id_bytes(b"chain".to_vec());
     host.set_current_manifest_id(Some("core".to_string()));
-    let backend = "halo2/ipa";
+    let backend = "pipa-r/pasta";
     let circuit_id = crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID;
     let vk_bytes = canonical_confidential_transfer_vk_bytes();
     let commitment = CoreHost::hash_vk_bytes(backend, &vk_bytes);
@@ -708,45 +704,61 @@ fn zk_verify_batch_reports_first_error_for_dummy_payloads() {
     assert_eq!(vm.register(11), ivm::host::ERR_VERIFY);
     assert_eq!(vm.register(12), 0);
 }
-/// `halo2.max_k` of the committed ZK validity policy at its boundary: the host of a block
-/// accepts a verifying key whose circuit size exponent equals the committed limit and
-/// refuses it with `ERR_K` when the limit is one below, whatever limit the node installed.
-#[cfg(feature = "zk-halo2-ipa")]
+
 #[test]
-fn committed_halo2_max_k_accepts_a_circuit_of_exactly_max_k_and_rejects_one_above() {
+fn queued_ballot_and_tally_require_their_distinct_verification_latches() {
+    let attachment = || {
+        iroha_data_model::proof::ProofAttachment::new_ref(
+            "pipa-r/pasta".into(),
+            iroha_data_model::proof::ProofBox::new("pipa-r/pasta".into(), vec![0xAB; 32]),
+            VerifyingKeyId::new("pipa-r/pasta", "fixture"),
+        )
+    };
+    let ballot: InstructionBox = DMZk::SubmitBallot {
+        election_id: "election1".into(),
+        ciphertext: vec![0; 32],
+        ballot_proof: attachment(),
+        nullifier: [1; 32],
+    }
+    .into();
+    let tally: InstructionBox = DMZk::FinalizeElection {
+        election_id: "election1".into(),
+        tally: vec![1, 0, 0],
+        tally_proof: attachment(),
+    }
+    .into();
+    for (instruction, expected) in [
+        (
+            ballot,
+            "missing ZK_VOTE_VERIFY_BALLOT prior to SubmitBallot",
+        ),
+        (
+            tally,
+            "missing ZK_VOTE_VERIFY_TALLY prior to FinalizeElection",
+        ),
+    ] {
+        let mut host = CoreHost::new(fixture_account("alice"));
+        assert_eq!(
+            host.validate_queued_for_zk(&[instruction]),
+            Err(ValidationFail::NotPermitted(expected.into()))
+        );
+    }
+}
+
+/// The host reads native proof-size limits from the committed policy, independently of node limits.
+#[test]
+fn committed_native_proof_limit_accepts_exact_bound_and_rejects_one_more() {
     use iroha_data_model::{parameter::Parameter, zk_validity_policy::ZkValidityPolicyV1};
-    let backend = "halo2/ipa";
+
+    let backend = "pipa-r/pasta";
     let circuit_id = crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID;
     let vk_bytes = canonical_confidential_transfer_vk_bytes();
     let commitment = CoreHost::hash_vk_bytes(backend, &vk_bytes);
     let public_inputs =
         crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_PUBLIC_INPUTS_SCHEMA_V1.to_vec();
-    let schema = schema_hash(&public_inputs);
-    let envelope = dummy_env(circuit_id, commitment, public_inputs, vec![0xAA; 16]);
-    let host_of = |zk: &iroha_config::parameters::actual::Zk| {
-        let mut host = CoreHost::new(fixture_account("alice"));
-        host.set_chain_id_bytes(b"chain".to_vec());
-        host.set_current_manifest_id(Some("core".to_string()));
-        let record = active_vk_record(
-            commitment,
-            schema,
-            backend,
-            circuit_id,
-            "transfer",
-            vk_bytes.clone(),
-        );
-        let mut map = BTreeMap::new();
-        map.insert(VerifyingKeyId::new(backend, "vk"), record);
-        host.set_verifying_keys(map).expect("set registry");
-        host.set_zk_config(zk);
-        host
-    };
-    let state_of = |max_k: u32, node_max_k: Option<u32>| {
+    for node_limit in [1, 16, 1_000] {
         let mut policy = ZkValidityPolicyV1::protocol_default();
-        policy.halo2.max_k = max_k;
-        policy
-            .validate()
-            .expect("a policy that differs in max_k is valid");
+        policy.pipa_r.max_proof_bytes = 16;
         let world = crate::state::World::default();
         {
             let mut block = world.block();
@@ -761,55 +773,50 @@ fn committed_halo2_max_k_accepts_a_circuit_of_exactly_max_k_and_rejects_one_abov
             crate::kura::Kura::blank_kura_for_testing(),
             crate::query::store::LiveQueryStore::start_test(),
         );
-        if let Some(node_max_k) = node_max_k {
-            let mut node = crate::state::default_zk_config();
-            node.halo2.max_k = node_max_k;
-            state
-                .install_node_zk(node)
-                .expect("node ZK resources install");
-        }
-        state
-    };
-    let header = iroha_data_model::block::BlockHeader::new(
-        core::num::NonZeroU64::new(2).expect("nonzero"),
-        None,
-        None,
-        0,
-        0,
-    );
-    // The circuit size exponent of the fixture key, read from the prepared key.
-    let default_zk = crate::state::default_zk_config();
-    let (_, prepared) = host_of(&default_zk)
-        .enforce_zk_envelope(&envelope, "transfer")
-        .expect("the protocol default accepts the fixture key");
-    let k = prepared
-        .material
-        .as_ref()
-        .and_then(crate::zk::PreparedVerifyingKeyMaterialV1::ipa_k)
-        .expect("an IPA key states its circuit size");
-    assert!(k > 1, "the fixture circuit leaves room below its size");
-    for node_max_k in [None, Some(1), Some(30)] {
-        // Exactly at the committed limit.
-        let state = state_of(k, node_max_k);
-        let block = state.block(header);
-        assert_eq!(block.zk.halo2.max_k, k);
-        assert!(
-            host_of(&block.zk)
-                .enforce_zk_envelope(&envelope, "transfer")
-                .is_ok(),
-            "a circuit of exactly max_k is accepted (node {node_max_k:?})"
+        let mut node = crate::state::default_zk_config();
+        node.pipa_r.max_proof_bytes = node_limit;
+        state.install_node_zk(node).expect("install node resources");
+        let block = state.block(iroha_data_model::block::BlockHeader::new(
+            core::num::NonZeroU64::new(2).expect("nonzero"),
+            None,
+            None,
+            0,
+            0,
+        ));
+        assert_eq!(block.zk.pipa_r.max_proof_bytes, 16);
+        let mut host = CoreHost::new(fixture_account("alice"));
+        host.set_chain_id_bytes(b"chain".to_vec());
+        host.set_current_manifest_id(Some("core".to_owned()));
+        let record = active_vk_record(
+            commitment,
+            schema_hash(&public_inputs),
+            backend,
+            circuit_id,
+            "transfer",
+            vk_bytes.clone(),
         );
-        drop(block);
-        // The same circuit is one above a committed limit of k - 1.
-        let state = state_of(k - 1, node_max_k);
-        let block = state.block(header);
-        assert_eq!(block.zk.halo2.max_k, k - 1);
+        host.set_verifying_keys(BTreeMap::from([(
+            VerifyingKeyId::new(backend, "vk"),
+            record,
+        )]))
+        .expect("install registry");
+        host.set_zk_config(&block.zk);
+        let at_limit = dummy_env(
+            circuit_id,
+            commitment,
+            public_inputs.clone(),
+            vec![0xAA; 16],
+        );
+        assert!(host.enforce_zk_envelope(&at_limit, "transfer").is_ok());
+        let above_limit = dummy_env(
+            circuit_id,
+            commitment,
+            public_inputs.clone(),
+            vec![0xAA; 17],
+        );
         assert_eq!(
-            host_of(&block.zk)
-                .enforce_zk_envelope(&envelope, "transfer")
-                .err(),
-            Some(ivm::host::ERR_K),
-            "a circuit one above max_k is refused (node {node_max_k:?})"
+            host.enforce_zk_envelope(&above_limit, "transfer").err(),
+            Some(ivm::host::ERR_PROOF_LEN)
         );
     }
 }

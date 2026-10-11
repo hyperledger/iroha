@@ -50,6 +50,7 @@ use iroha_core::beacon::credential::GLOBAL_BEACON_PARTIAL_SIGNER_SLOT_WIRE_ID_V1
 use iroha_core::beacon::credential::MAX_CONSENSUS_THRESHOLD_CREDENTIAL_BYTES_V1;
 use iroha_core::beacon::credential::RuntimeGlobalBeaconShareProvisioningV1;
 use iroha_core::beacon::credential::consensus_threshold_public_inventory_digest_v1;
+#[cfg(test)]
 use iroha_core::beacon::credential::decode_consensus_threshold_credential_v1;
 use iroha_core::beacon::credential::decode_global_beacon_partial_signer_credential_shares_v1;
 use iroha_core::beacon::credential::decode_global_beacon_partial_signer_credential_v1;
@@ -1836,17 +1837,14 @@ pub(crate) mod tests {
     /// Build an exact-roster provider fixture for the separate readiness broker operation.
     pub(crate) fn consensus_threshold_beacon_readiness_broker_test_fixture_v1() -> (
         ConsensusThresholdBeaconBrokerTestFixtureV1,
-        iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1,
-        iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalitySeatReadinessContextV1,
+        iroha_data_model::sumeragi::epoch::ValidatorGenerationV1,
+        iroha_data_model::nexus::ValidatorSeatReadinessContextV1,
     ) {
         let producer_budget = test_credential_budget();
         let budget = test_credential_budget();
-        use iroha_data_model::isi::kagemusha_v1::{
-            KAGEMUSHA_CHAIN_VERSION_V1, KagemushaMintFinalityAuthorityGenerationV1,
-            KagemushaMintFinalitySeatReadinessContextV1,
-        };
-        use iroha_data_model::sumeragi::epoch::{
-            BeaconEpochBindingV1, InstalledBeaconEpochBindingV1,
+        use iroha_data_model::{
+            nexus::ValidatorSeatReadinessContextV1,
+            sumeragi::epoch::{InstalledBeaconEpochBindingV1, ValidatorGenerationV1},
         };
         let network_id = network_id_v1(0xC1);
         let mut peers = (1..=4_u8)
@@ -1871,25 +1869,25 @@ pub(crate) mod tests {
             &producer_budget,
         );
         let session = fixture.validated.clone();
-        let authority = KagemushaMintFinalityAuthorityGenerationV1 {
-            version: KAGEMUSHA_CHAIN_VERSION_V1, network_id, generation: 1,
-            validators: peers.into_iter().enumerate().map(|(index, peer)|
-                iroha_core_zk::kagemusha_v1_recursion::derive_kagemusha_mint_finality_validator_keys_v1(&[0xB0 + u8::try_from(index).unwrap(); 32], 1, peer).unwrap()).collect(),
+        let authority = ValidatorGenerationV1 {
+            network_id,
+            generation: 1,
+            validators: peers,
         };
-        let context = KagemushaMintFinalitySeatReadinessContextV1 {
-            version: KAGEMUSHA_CHAIN_VERSION_V1,
+        let context = ValidatorSeatReadinessContextV1 {
+            version: 1,
             network_id,
             transition_id: [0xC3; 32],
             target_epoch: 2,
             authority_generation: 1,
-            authority_id: authority.authority_id().unwrap(),
+            authority_id: authority.generation_id().unwrap(),
             first_height: 201,
             last_height: 300,
             validator_index: 0,
-            beacon: BeaconEpochBindingV1::Installed(InstalledBeaconEpochBindingV1 {
+            beacon: InstalledBeaconEpochBindingV1 {
                 session_id: session.record().session_id,
                 transcript_hash: session.record().transcript_hash,
-            }),
+            },
         };
         let provisioning = vec![RuntimeGlobalBeaconShareProvisioningV1::new(
             fixture.validated.clone(),

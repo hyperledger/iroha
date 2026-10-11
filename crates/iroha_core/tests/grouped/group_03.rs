@@ -15,8 +15,8 @@ mod ivm_corehost_axt;
 mod ivm_corehost_domain;
 #[path = "../ivm_corehost_goldilocks.rs"]
 mod ivm_corehost_goldilocks;
-#[path = "../ivm_corehost_halo2_enabled_vendor_ok.rs"]
-mod ivm_corehost_halo2_enabled_vendor_ok;
+#[path = "../ivm_corehost_native_governance_rejection.rs"]
+mod ivm_corehost_native_governance_rejection;
 #[path = "../ivm_corehost_tlv_neg.rs"]
 mod ivm_corehost_tlv_neg;
 #[path = "../ivm_corehost_zk_gate.rs"]

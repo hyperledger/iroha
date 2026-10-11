@@ -60,7 +60,7 @@ packages = [
   "iroha_pasta",
   "iroha_plonk",
   "iroha_plonk_gadgets",
-  "iroha_plonk_oracle",
+  "iroha_plonk_recursion",
   "iroha_zkp_halo2",
   "iroha_zkp_poseidon",
   "ivm",

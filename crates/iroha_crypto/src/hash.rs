@@ -56,9 +56,10 @@ impl Hash {
     fn decode_archived(
         archived: &norito::core::Archived<Self>,
     ) -> Result<Self, norito::core::Error> {
-        let bytes = <[u8; Self::LENGTH] as norito::core::DeserializePayload>::try_deserialize(
-            archived.cast(),
-        )?;
+        let ptr = core::ptr::from_ref(archived).cast::<u8>();
+        let mut offset = 0;
+        let bytes = norito::core::decode_context_byte_array::<{ Self::LENGTH }>(ptr, &mut offset)?;
+        norito::core::finish_context_fields(ptr, offset)?;
         Self::from_marked_bytes(bytes).ok_or_else(|| norito::core::Error::InvalidValue {
             context: "hash lsb",
         })
@@ -1118,3 +1119,52 @@ mod prehashed_tests {
 #[cfg(test)]
 #[path = "hash_native_candidate_tests.rs"]
 mod native_candidate_tests;
+
+#[cfg(test)]
+mod hash_raw_wire_tests {
+    use super::*;
+
+    #[test]
+    fn hash_keeps_sole_raw_wire_and_zero_storage_charge() {
+        #[repr(align(16))]
+        struct Aligned([u8; 512]);
+        let value = Hash::prehashed([0x25; Hash::LENGTH]);
+        let raw = *value.as_ref();
+        for flags in [0, norito::core::header_flags::COMPACT_LEN] {
+            let _flags = norito::core::DecodeFlagsGuard::enter(flags);
+            let mut encoded = Vec::new();
+            norito::core::serialize_to_buffer(&value, &mut encoded).unwrap();
+            assert_eq!(encoded, raw);
+            let mut aligned = Aligned([0; 512]);
+            aligned.0[..encoded.len()].copy_from_slice(&encoded);
+            let bytes = &aligned.0[..encoded.len()];
+            let zero = norito::DecodeLimits::new(0, usize::MAX, 0, 0, 8);
+            let (decoded, usage) = norito::core::with_decode_limits_measured(zero, || {
+                let _context = norito::core::PayloadCtxGuard::enter(bytes);
+                let decoded = norito::core::decode_field_canonical::<Hash>(bytes)?;
+                assert_eq!(
+                    norito::core::payload_ctx(),
+                    Some((bytes.as_ptr() as usize, bytes.len()))
+                );
+                Ok::<_, norito::Error>(decoded)
+            });
+            assert_eq!(decoded.unwrap(), (value, bytes.len()));
+            assert_eq!(usage.total_allocated_bytes(), 0);
+            assert_eq!(usage.total_elements(), 0);
+            let mut alternate = Vec::new();
+            norito::core::serialize_to_buffer(&raw, &mut alternate).unwrap();
+            let mut extra = raw.to_vec();
+            extra.push(0);
+            for invalid in [&raw[..raw.len() - 1], &extra[..], &alternate[..]] {
+                aligned.0[..invalid.len()].copy_from_slice(invalid);
+                let bytes = &aligned.0[..invalid.len()];
+                let (decoded, usage) = norito::core::with_decode_limits_measured(zero, || {
+                    norito::core::decode_field_canonical::<Hash>(bytes)
+                });
+                assert!(matches!(decoded, Err(norito::Error::LengthMismatch)));
+                assert_eq!(usage.total_allocated_bytes(), 0);
+                assert_eq!(usage.total_elements(), 0);
+            }
+        }
+    }
+}

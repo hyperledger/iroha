@@ -29,10 +29,12 @@ required-features = ["dev-tools"]
 dev-tools = []
 
 [dependencies]
+clap = { workspace = true, features = ["derive"] }
 iroha_allocation = { workspace = true }
 ivm = { workspace = true }
 ivm_abi = { path = "../ivm_abi" }
 kotodama_lang = { workspace = true }
+kotodama_surface = { workspace = true }
 iroha_data_model = { path = "../iroha_data_model", default-features = false, features = ["transparent_api", "governance", "bls"] }
 iroha_model_base = { workspace = true }
 iroha_primitives = { path = "../iroha_primitives" }
@@ -42,7 +44,6 @@ ed25519-dalek = "2.2.0"
 
 [dev-dependencies]
 hex = { workspace = true }
-kotodama_surface = { workspace = true }
 mv = { workspace = true }
 
 [[test]]

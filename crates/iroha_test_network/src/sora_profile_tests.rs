@@ -1,4 +1,4 @@
-// Sora profile and signed-consensus tests share valid, role-separated software custody.
+// Sora profile and signed-consensus tests retain role-separated SoraFS software custody.
 
 fn sora_storage_profile_fixture() -> (tempfile::TempDir, Table) {
     let credentials = tempdir().expect("temporary SoraFS signer credentials");
@@ -73,12 +73,7 @@ fn resolve_actual_config_applies_sora_profile_non_consensus_settings() {
         config_requires_sora_profile(&config_layers),
         "SoraFS-enabled configs should trigger --sora profile detection"
     );
-    let mut merged = sora_profile_detection_defaults();
-    for layer in &config_layers {
-        merge_tables(&mut merged, layer);
-    }
-    apply_identity_defaults_for_detection(&mut merged);
-    ensure_sora_profile_trusted_peer_pop(&mut merged);
+    let (_peer_directory, _peer, merged) = sora_profile_runtime_config_fixture(&config_layers);
     let actual = parse_actual_config_for_genesis(merged, &config_layers)
         .expect("should resolve runtime-equivalent config");
     assert!(actual.torii.sorafs_storage.enabled);
@@ -124,12 +119,7 @@ fn genesis_projection_preserves_explicit_default_sora_topology_and_execution_pol
     };
     let config_layers = vec![storage_layer, topology_layer];
     assert!(config_requires_sora_profile(&config_layers));
-    let mut merged = sora_profile_detection_defaults();
-    for layer in &config_layers {
-        merge_tables(&mut merged, layer);
-    }
-    apply_identity_defaults_for_detection(&mut merged);
-    ensure_sora_profile_trusted_peer_pop(&mut merged);
+    let (_peer_directory, _peer, merged) = sora_profile_runtime_config_fixture(&config_layers);
     let before = ConfigReader::new()
         .with_env(MockEnv::default())
         .with_toml_source(TomlSource::inline(merged.clone()))
@@ -182,4 +172,83 @@ fn genesis_projection_preserves_explicit_default_sora_topology_and_execution_pol
     };
     assert_eq!(execution_policy(&projected), execution_policy(&before));
     assert!(projected.torii.sorafs_storage.enabled);
+}
+
+#[test]
+fn sora_profile_detection_uses_typed_default_catalogs_without_publisher_custody() {
+    let layer = toml::toml! {
+        [nexus]
+        lane_count = 1
+        lane_catalog = []
+        dataspace_catalog = []
+        [nexus.routing_policy]
+    };
+    let merged = merged_sora_profile_detection_config(&[layer.clone()]);
+    assert!(merged.get("kagemusha_load_authorizer").is_none());
+    assert!(!typed_sora_profile_requirements(&merged).expect("valid explicit default catalogs"));
+    assert!(!config_requires_sora_profile(&[layer]));
+    let user = ConfigReader::new()
+        .with_env(MockEnv::default())
+        .with_toml_source(TomlSource::inline(merged))
+        .read_and_complete::<iroha_config::parameters::user::Root>()
+        .expect("ordinary typed fields still readable");
+    let actual = user
+        .parse()
+        .expect("ordinary runtime config needs no retired Load publisher");
+    assert!(!actual.nexus.has_lane_overrides());
+    assert_eq!(actual.nexus.lane_config.entries().len(), 1);
+}
+
+#[test]
+fn sora_profile_detection_requires_actual_multilane_geometry_and_exact_selected_chain() {
+    let mut layers = vec![toml::toml! {
+        chain_discriminant = 369
+        [nexus]
+        lane_count = 2
+        [[nexus.lane_catalog]]
+        index = 0
+        alias = "profile-global"
+        dataspace = "universal"
+        visibility = "public"
+        [[nexus.lane_catalog]]
+        index = 1
+        alias = "profile-secondary"
+        dataspace = "universal"
+        visibility = "public"
+    }];
+    materialize_profile_account_defaults(&mut layers)
+        .expect("selected-chain literal materialization");
+    let _ambient = iroha_data_model::account::address::ChainDiscriminantGuard::enter(777);
+    let merged = merged_sora_profile_detection_config(&layers);
+    assert!(merged.get("kagemusha_load_authorizer").is_none());
+    assert!(typed_sora_profile_requirements(&merged).expect("genuine typed two-lane geometry"));
+    assert!(config_requires_sora_profile(&layers));
+}
+
+#[test]
+fn sora_profile_detection_keeps_service_flags_and_refuses_invalid_policy_fields() {
+    for [section, service, flag] in [
+        ["sorafs", "storage", "enabled"],
+        ["sorafs", "discovery", "discovery_enabled"],
+        ["sorafs", "repair", "enabled"],
+        ["sorafs", "gc", "enabled"],
+    ] {
+        for enabled in [true, false] {
+            for layer in [
+                Table::new().write([section, service, flag], enabled),
+                Table::new().write(["torii", section, service, flag], enabled),
+            ] {
+                assert_eq!(config_requires_sora_profile(&[layer]), enabled);
+            }
+        }
+    }
+    for invalid in [
+        Table::new().write(["nexus", "lane_count"], 0_i64),
+        Table::new().write(["nexus", "lane_catalog"], "invalid"),
+        Table::new().write("chain_discriminant", 65536_i64),
+        Table::new().write(["sorafs", "storage", "enabled"], "invalid"),
+    ] {
+        let merged = merged_sora_profile_detection_config(&[invalid]);
+        assert!(typed_sora_profile_requirements(&merged).is_err());
+    }
 }

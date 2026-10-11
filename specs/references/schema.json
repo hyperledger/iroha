@@ -454,6 +454,26 @@
       }
     ]
   },
+  "AccountRecoveryCancellationApproved": {
+    "Struct": [
+      {
+        "name": "account",
+        "type": "AccountId"
+      },
+      {
+        "name": "alias",
+        "type": "AccountAlias"
+      },
+      {
+        "name": "approver",
+        "type": "AccountId"
+      },
+      {
+        "name": "request",
+        "type": "AccountRecoveryRequest"
+      }
+    ]
+  },
   "AccountRecoveryCancelled": {
     "Struct": [
       {
@@ -498,11 +518,16 @@
       },
       {
         "discriminant": 4,
+        "tag": "CancellationApproved",
+        "type": "AccountRecoveryCancellationApproved"
+      },
+      {
+        "discriminant": 5,
         "tag": "Cancelled",
         "type": "AccountRecoveryCancelled"
       },
       {
-        "discriminant": 5,
+        "discriminant": 6,
         "tag": "Finalized",
         "type": "AccountRecoveryFinalized"
       }
@@ -595,6 +620,10 @@
         "type": "AccountAlias"
       },
       {
+        "name": "request_generation",
+        "type": "NonZero<u64>"
+      },
+      {
         "name": "active_account_id_at_proposal",
         "type": "AccountId"
       },
@@ -604,6 +633,10 @@
       },
       {
         "name": "approvals",
+        "type": "SortedVec<AccountId>"
+      },
+      {
+        "name": "cancellation_approvals",
         "type": "SortedVec<AccountId>"
       },
       {
@@ -717,6 +750,34 @@
       {
         "name": "material",
         "type": "Vec<u8>"
+      }
+    ]
+  },
+  "AdvanceMusubiPinOutboxV1": {
+    "Struct": [
+      {
+        "name": "network_id",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
+        "name": "pin_authority",
+        "type": "AccountId"
+      },
+      {
+        "name": "session_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "expected_revision",
+        "type": "u64"
+      },
+      {
+        "name": "expected_inventory_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "inventory_digest",
+        "type": "Array<u8, 32>"
       }
     ]
   },
@@ -899,6 +960,12 @@
       "type": "u8"
     }
   },
+  "Array<u8, 544>": {
+    "Array": {
+      "len": 544,
+      "type": "u8"
+    }
+  },
   "Array<u8, 64>": {
     "Array": {
       "len": 64,
@@ -908,6 +975,12 @@
   "Array<u8, 8>": {
     "Array": {
       "len": 8,
+      "type": "u8"
+    }
+  },
+  "Array<u8, 97>": {
+    "Array": {
+      "len": 97,
       "type": "u8"
     }
   },
@@ -2387,7 +2460,7 @@
     "Enum": [
       {
         "discriminant": 0,
-        "tag": "Halo2IpaPasta"
+        "tag": "NativePipaRPasta"
       },
       {
         "discriminant": 1,
@@ -2749,6 +2822,9 @@
       }
     ]
   },
+  "BlockSignatures": {
+    "Vec": "BlockSignature"
+  },
   "BlockStatus": {
     "Enum": [
       {
@@ -3017,6 +3093,14 @@
       }
     ]
   },
+  "CanCheckSorafsStreamTokenGateway": {
+    "Struct": [
+      {
+        "name": "gateway_id",
+        "type": "Array<u8, 32>"
+      }
+    ]
+  },
   "CanCheckSorafsTopologyApproval": {
     "Struct": [
       {
@@ -3043,6 +3127,14 @@
     ]
   },
   "CanManageAssetDefinitionConfidentialPolicy": {
+    "Struct": [
+      {
+        "name": "asset_definition",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
+  "CanManageKagemushaWallet": {
     "Struct": [
       {
         "name": "asset_definition",
@@ -3077,6 +3169,7 @@
       }
     ]
   },
+  "CanManageSorafsStreamTokenGateway": null,
   "CanManageSorafsTopologyCustody": {
     "Struct": [
       {
@@ -3166,6 +3259,14 @@
       {
         "name": "provider_id",
         "type": "ProviderId"
+      }
+    ]
+  },
+  "CanOperateSorafsStreamTokenGateway": {
+    "Struct": [
+      {
+        "name": "gateway_id",
+        "type": "Array<u8, 32>"
       }
     ]
   },
@@ -3353,6 +3454,38 @@
       }
     ]
   },
+  "CapacityDeclarationRecord": {
+    "Struct": [
+      {
+        "name": "provider_id",
+        "type": "ProviderId"
+      },
+      {
+        "name": "declaration",
+        "type": "Vec<u8>"
+      },
+      {
+        "name": "committed_capacity_gib",
+        "type": "u64"
+      },
+      {
+        "name": "registered_epoch",
+        "type": "u64"
+      },
+      {
+        "name": "valid_from_epoch",
+        "type": "u64"
+      },
+      {
+        "name": "valid_until_epoch",
+        "type": "u64"
+      },
+      {
+        "name": "metadata",
+        "type": "Metadata"
+      }
+    ]
+  },
   "CapacityDisputeId": "Array<u8, 32>",
   "CapacityDisputeOutcome": {
     "Enum": [
@@ -3396,6 +3529,38 @@
       {
         "name": "epoch_length_blocks",
         "type": "u64"
+      }
+    ]
+  },
+  "CheckMusubiPinOutboxV1": {
+    "Struct": [
+      {
+        "name": "network_id",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
+        "name": "pin_authority",
+        "type": "AccountId"
+      },
+      {
+        "name": "session_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "inventory_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "challenge",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "floor",
+        "type": "MusubiPinOutboxCheckFloorV1"
+      },
+      {
+        "name": "expected",
+        "type": "MusubiPinOutboxCheckExpectationV1"
       }
     ]
   },
@@ -3475,6 +3640,22 @@
       }
     ]
   },
+  "CollateralPolicy": {
+    "Struct": [
+      {
+        "name": "multiplier_bps",
+        "type": "u32"
+      },
+      {
+        "name": "onboarding_discount_bps",
+        "type": "u32"
+      },
+      {
+        "name": "onboarding_period_secs",
+        "type": "u64"
+      }
+    ]
+  },
   "CommitCertificate": {
     "Struct": [
       {
@@ -3492,6 +3673,18 @@
       {
         "name": "availability",
         "type": "Vec<u8>"
+      }
+    ]
+  },
+  "CommitmentDiscountTier": {
+    "Struct": [
+      {
+        "name": "minimum_commitment_gib_month",
+        "type": "u64"
+      },
+      {
+        "name": "discount_bps",
+        "type": "u16"
       }
     ]
   },
@@ -4251,6 +4444,22 @@
       }
     ]
   },
+  "CreditPolicy": {
+    "Struct": [
+      {
+        "name": "settlement_window_secs",
+        "type": "u64"
+      },
+      {
+        "name": "settlement_grace_secs",
+        "type": "u64"
+      },
+      {
+        "name": "low_balance_alert_bps",
+        "type": "u16"
+      }
+    ]
+  },
   "CryptoStatus": {
     "Struct": [
       {
@@ -4262,8 +4471,8 @@
         "type": "bool"
       },
       {
-        "name": "halo2",
-        "type": "Halo2Status"
+        "name": "trace",
+        "type": "DiagnosticTraceStatus"
       }
     ]
   },
@@ -4833,6 +5042,11 @@
         "discriminant": 23,
         "tag": "Sccp",
         "type": "SccpEvent"
+      },
+      {
+        "discriminant": 24,
+        "tag": "KagemushaLoadCommitted",
+        "type": "KagemushaLoadCommittedV1"
       }
     ]
   },
@@ -4966,6 +5180,11 @@
         "discriminant": 25,
         "tag": "Sccp",
         "type": "SccpEventFilter"
+      },
+      {
+        "discriminant": 26,
+        "tag": "KagemushaLoadCommitted",
+        "type": "Option<Array<u8, 32>>"
       }
     ]
   },
@@ -5090,6 +5309,26 @@
       }
     ]
   },
+  "DiagnosticTraceStatus": {
+    "Struct": [
+      {
+        "name": "enabled",
+        "type": "bool"
+      },
+      {
+        "name": "max_batch",
+        "type": "u32"
+      },
+      {
+        "name": "worker_threads",
+        "type": "u64"
+      },
+      {
+        "name": "queue_cap",
+        "type": "u64"
+      }
+    ]
+  },
   "DirectContractDeploymentOriginV1": {
     "Struct": [
       {
@@ -5199,6 +5438,22 @@
       {
         "name": "block_height",
         "type": "u64"
+      }
+    ]
+  },
+  "DiscountSchedule": {
+    "Struct": [
+      {
+        "name": "loyalty_months_required",
+        "type": "u16"
+      },
+      {
+        "name": "loyalty_discount_bps",
+        "type": "u16"
+      },
+      {
+        "name": "commitment_tiers",
+        "type": "Vec<CommitmentDiscountTier>"
       }
     ]
   },
@@ -6597,6 +6852,11 @@
         "discriminant": 2,
         "tag": "Burn",
         "type": "FastpqExecutionSupplyChangeV1"
+      },
+      {
+        "discriminant": 3,
+        "tag": "Retire",
+        "type": "FastpqExecutionAssetV1"
       }
     ]
   },
@@ -6662,6 +6922,11 @@
       {
         "discriminant": 1,
         "tag": "Supply",
+        "type": "FastpqExecutionAssetV1"
+      },
+      {
+        "discriminant": 2,
+        "tag": "Lifecycle",
         "type": "FastpqExecutionAssetV1"
       }
     ]
@@ -6787,8 +7052,12 @@
         "type": "FastpqCompactProfileIdV1"
       },
       {
+        "name": "source",
+        "type": "FastpqOrdinarySourceStatementLeafV1"
+      },
+      {
         "name": "statement",
-        "type": "FastpqPublicTransferStatementV1"
+        "type": "FastpqExecutionEffectStatementV1"
       },
       {
         "name": "bundle_frame",
@@ -6831,7 +7100,7 @@
         "type": "u32"
       },
       {
-        "name": "entry_transcript_count",
+        "name": "effect_count",
         "type": "u32"
       },
       {
@@ -6851,7 +7120,19 @@
         "type": "DataSpaceId"
       },
       {
-        "name": "statement_digest",
+        "name": "effects_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "slot",
+        "type": "u64"
+      },
+      {
+        "name": "perm_root",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "tx_set_hash",
         "type": "Array<u8, 32>"
       }
     ]
@@ -6869,6 +7150,10 @@
       {
         "name": "source_entries_digest",
         "type": "Hash"
+      },
+      {
+        "name": "coverage",
+        "type": "FastpqSourceEffectCoverageV1"
       },
       {
         "name": "statement_count",
@@ -7033,6 +7318,18 @@
       {
         "name": "epoch",
         "type": "u64"
+      }
+    ]
+  },
+  "FastpqSourceEffectCoverageV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Complete"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Unsupported"
       }
     ]
   },
@@ -7218,6 +7515,20 @@
       {
         "name": "max_amount",
         "type": "Quantity"
+      }
+    ]
+  },
+  "FeeDebitSource": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "account",
+        "type": "AccountId"
+      },
+      {
+        "discriminant": 1,
+        "tag": "sponsor_program",
+        "type": "FeeSponsorProgramId"
       }
     ]
   },
@@ -10715,34 +11026,6 @@
       }
     ]
   },
-  "Halo2Status": {
-    "Struct": [
-      {
-        "name": "enabled",
-        "type": "bool"
-      },
-      {
-        "name": "curve",
-        "type": "String"
-      },
-      {
-        "name": "backend",
-        "type": "String"
-      },
-      {
-        "name": "max_k",
-        "type": "u32"
-      },
-      {
-        "name": "verifier_budget_ms",
-        "type": "u64"
-      },
-      {
-        "name": "verifier_max_batch",
-        "type": "u32"
-      }
-    ]
-  },
   "HandleBudget": {
     "Struct": [
       {
@@ -10768,6 +11051,7 @@
     ]
   },
   "Hash": "Array<u8, 32>",
+  "Hash32": "Array<u8, 32>",
   "HashOf<Array<u8, 32>>": "Hash",
   "HashOf<BlockExecutionContextBundle>": "Hash",
   "HashOf<BlockHeader>": "Hash",
@@ -10775,6 +11059,7 @@
   "HashOf<DaCommitmentBundle>": "Hash",
   "HashOf<DaPinIntentBundle>": "Hash",
   "HashOf<DaProofPolicyBundle>": "Hash",
+  "HashOf<EventBox>": "Hash",
   "HashOf<ExecutionOutputV1>": "Hash",
   "HashOf<FastpqOrdinarySourceStatementLeafV1>": "Hash",
   "HashOf<FeedEvent>": "Hash",
@@ -11211,38 +11496,288 @@
     ]
   },
   "Json": "String",
-  "KagemushaMintFinalityAuthorityGenerationV1": {
+  "KagemushaLoadCommittedV1": {
+    "Struct": [
+      {
+        "name": "receipt_digest",
+        "type": "Array<u8, 32>"
+      }
+    ]
+  },
+  "KagemushaWalletLedgerActionV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "register",
+        "type": "KagemushaWalletLedgerActionV1::Register"
+      },
+      {
+        "discriminant": 1,
+        "tag": "install_verifier_pack",
+        "type": "KagemushaWalletLedgerActionV1::InstallVerifierPack"
+      },
+      {
+        "discriminant": 2,
+        "tag": "activate",
+        "type": "Vec<u8>"
+      },
+      {
+        "discriminant": 3,
+        "tag": "abandon",
+        "type": "Vec<u8>"
+      },
+      {
+        "discriminant": 4,
+        "tag": "close_loads",
+        "type": "Vec<u8>"
+      },
+      {
+        "discriminant": 5,
+        "tag": "issue_load",
+        "type": "KagemushaWalletLedgerActionV1::IssueLoad"
+      },
+      {
+        "discriminant": 6,
+        "tag": "unload",
+        "type": "Vec<u8>"
+      },
+      {
+        "discriminant": 7,
+        "tag": "claim_fee",
+        "type": "Vec<u8>"
+      },
+      {
+        "discriminant": 8,
+        "tag": "retain_certificate",
+        "type": "KagemushaWalletLedgerActionV1::RetainCertificate"
+      },
+      {
+        "discriminant": 9,
+        "tag": "retain_credential",
+        "type": "KagemushaWalletLedgerActionV1::RetainCredential"
+      },
+      {
+        "discriminant": 10,
+        "tag": "retain_request",
+        "type": "Vec<u8>"
+      }
+    ]
+  },
+  "KagemushaWalletLedgerActionV1::InstallVerifierPack": {
+    "Struct": [
+      {
+        "name": "asset",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "manifest_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "pack",
+        "type": "Vec<u8>"
+      }
+    ]
+  },
+  "KagemushaWalletLedgerActionV1::IssueLoad": {
+    "Struct": [
+      {
+        "name": "wallet",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "asset",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "ordinal",
+        "type": "u128"
+      },
+      {
+        "name": "request_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "amount",
+        "type": "u128"
+      },
+      {
+        "name": "charge",
+        "type": "Option<KagemushaWalletLoadChargeV1>"
+      }
+    ]
+  },
+  "KagemushaWalletLedgerActionV1::Register": {
+    "Struct": [
+      {
+        "name": "scheme",
+        "type": "Vec<u8>"
+      },
+      {
+        "name": "asset",
+        "type": "Vec<u8>"
+      },
+      {
+        "name": "reserve",
+        "type": "AccountId"
+      },
+      {
+        "name": "balance_scope",
+        "type": "AssetBalanceScope"
+      }
+    ]
+  },
+  "KagemushaWalletLedgerActionV1::RetainCertificate": {
+    "Struct": [
+      {
+        "name": "asset",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "certificate",
+        "type": "Vec<u8>"
+      }
+    ]
+  },
+  "KagemushaWalletLedgerActionV1::RetainCredential": {
+    "Struct": [
+      {
+        "name": "credential",
+        "type": "Vec<u8>"
+      },
+      {
+        "name": "certificates",
+        "type": "Vec<u8>"
+      }
+    ]
+  },
+  "KagemushaWalletLedgerKeyV1": "Array<u8, 97>",
+  "KagemushaWalletLedgerV1": {
+    "Struct": [
+      {
+        "name": "scheme",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "action",
+        "type": "KagemushaWalletLedgerActionV1"
+      }
+    ]
+  },
+  "KagemushaWalletLoadChargeV1": {
+    "Struct": [
+      {
+        "name": "quote",
+        "type": "Vec<u8>"
+      },
+      {
+        "name": "beneficiary",
+        "type": "AccountId"
+      }
+    ]
+  },
+  "KagemushaWalletLoadFinalityV1": {
     "Struct": [
       {
         "name": "version",
         "type": "u16"
       },
       {
-        "name": "network_id",
-        "type": "HashOf<BlockHeader>"
-      },
-      {
-        "name": "generation",
-        "type": "u64"
-      },
-      {
-        "name": "validators",
-        "type": "Vec<KagemushaMintFinalityValidatorKeysV1>"
-      }
-    ]
-  },
-  "KagemushaMintFinalityValidatorKeysV1": {
-    "Struct": [
-      {
-        "name": "validator",
-        "type": "PeerId"
-      },
-      {
-        "name": "eq_proof_public_key",
+        "name": "receipt_digest",
         "type": "Array<u8, 32>"
       },
       {
-        "name": "ep_proof_public_key",
+        "name": "certificate",
+        "type": "SumeragiCommitCertificateV1"
+      },
+      {
+        "name": "event_proof",
+        "type": "MerkleProof<EventBox>"
+      }
+    ]
+  },
+  "KagemushaWalletLoadReceiptV1": {
+    "Struct": [
+      {
+        "name": "version",
+        "type": "u16"
+      },
+      {
+        "name": "scheme_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "asset_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "wallet_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "request_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "ordinal",
+        "type": "u128"
+      },
+      {
+        "name": "amount",
+        "type": "u128"
+      },
+      {
+        "name": "online_charge",
+        "type": "u128"
+      },
+      {
+        "name": "charge_quote",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "transaction_hash",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "block_height",
+        "type": "u64"
+      },
+      {
+        "name": "payer_account_digest",
+        "type": "Array<u8, 32>"
+      }
+    ]
+  },
+  "KagemushaWalletPayoutKeyV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Unload",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Fee",
+        "type": "Array<u8, 32>"
+      }
+    ]
+  },
+  "KagemushaWalletPayoutRecordV1": {
+    "Struct": [
+      {
+        "name": "key",
+        "type": "KagemushaWalletPayoutKeyV1"
+      },
+      {
+        "name": "source",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "amount",
+        "type": "u128"
+      },
+      {
+        "name": "transaction",
         "type": "Array<u8, 32>"
       }
     ]
@@ -11626,6 +12161,18 @@
       {
         "name": "audit_path",
         "type": "Vec<Option<HashOf<Array<u8, 32>>>>"
+      }
+    ]
+  },
+  "MerkleProof<EventBox>": {
+    "Struct": [
+      {
+        "name": "leaf_index",
+        "type": "u32"
+      },
+      {
+        "name": "audit_path",
+        "type": "Vec<Option<HashOf<EventBox>>>"
       }
     ]
   },
@@ -14466,6 +15013,71 @@
       }
     ]
   },
+  "MusubiPinOutboxCheckExpectationV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Absent"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Present",
+        "type": "MusubiPinOutboxHighWaterV1"
+      }
+    ]
+  },
+  "MusubiPinOutboxCheckFloorV1": {
+    "Struct": [
+      {
+        "name": "height",
+        "type": "u64"
+      },
+      {
+        "name": "block_hash",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "context_id",
+        "type": "HeightContextId"
+      }
+    ]
+  },
+  "MusubiPinOutboxHighWaterV1": {
+    "Struct": [
+      {
+        "name": "version",
+        "type": "u8"
+      },
+      {
+        "name": "network_id",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
+        "name": "pin_authority",
+        "type": "AccountId"
+      },
+      {
+        "name": "session_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "revision",
+        "type": "u64"
+      },
+      {
+        "name": "inventory_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "recorded_at_height",
+        "type": "u64"
+      },
+      {
+        "name": "transaction_hash",
+        "type": "Array<u8, 32>"
+      }
+    ]
+  },
   "MusubiPrereleaseIdentifierV1": {
     "Enum": [
       {
@@ -15241,6 +15853,14 @@
       }
     ]
   },
+  "MutateSorafsStreamTokenGateway": {
+    "Struct": [
+      {
+        "name": "request",
+        "type": "StreamTokenGatewayRequestV1"
+      }
+    ]
+  },
   "MutateSorafsTopologyAuthority": {
     "Struct": [
       {
@@ -15293,6 +15913,18 @@
       {
         "name": "reason",
         "type": "String"
+      }
+    ]
+  },
+  "NativePipaRProofV1": {
+    "Struct": [
+      {
+        "name": "public_inputs",
+        "type": "Vec<Array<u8, 32>>"
+      },
+      {
+        "name": "proof",
+        "type": "Vec<u8>"
       }
     ]
   },
@@ -15397,6 +16029,98 @@
       {
         "name": "description",
         "type": "Option<String>"
+      }
+    ]
+  },
+  "NexusFeeReceipt": {
+    "Struct": [
+      {
+        "name": "version",
+        "type": "u16"
+      },
+      {
+        "name": "source_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "dataspace_id",
+        "type": "DataSpaceId"
+      },
+      {
+        "name": "lane_id",
+        "type": "LaneId"
+      },
+      {
+        "name": "block_height",
+        "type": "u64"
+      },
+      {
+        "name": "debit_source",
+        "type": "FeeDebitSource"
+      },
+      {
+        "name": "fee_asset_id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "program_revision",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "lease_id",
+        "type": "Option<Hash>"
+      },
+      {
+        "name": "fee_amount",
+        "type": "Quantity"
+      },
+      {
+        "name": "settlement",
+        "type": "NexusFeeSettlementV1"
+      },
+      {
+        "name": "schedule",
+        "type": "NexusFeeScheduleInputs"
+      }
+    ]
+  },
+  "NexusFeeScheduleInputs": {
+    "Struct": [
+      {
+        "name": "tx_bytes_len",
+        "type": "u64"
+      },
+      {
+        "name": "instruction_count",
+        "type": "u64"
+      },
+      {
+        "name": "gas_used",
+        "type": "u64"
+      },
+      {
+        "name": "base_fee",
+        "type": "Quantity"
+      },
+      {
+        "name": "per_byte_fee",
+        "type": "Quantity"
+      },
+      {
+        "name": "per_instruction_fee",
+        "type": "Quantity"
+      },
+      {
+        "name": "per_gas_unit_fee",
+        "type": "Quantity"
+      }
+    ]
+  },
+  "NexusFeeSettlementV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "burn"
       }
     ]
   },
@@ -15923,6 +16647,10 @@
   "NposConsensusEffects": {
     "Struct": [
       {
+        "name": "parent_service_commit_qc",
+        "type": "Option<Vec<u8>>"
+      },
+      {
         "name": "evidence_admissions",
         "type": "Vec<Evidence>"
       },
@@ -16201,6 +16929,9 @@
   "Option<HashOf<DaProofPolicyBundle>>": {
     "Option": "HashOf<DaProofPolicyBundle>"
   },
+  "Option<HashOf<EventBox>>": {
+    "Option": "HashOf<EventBox>"
+  },
   "Option<HashOf<ExecutionOutputV1>>": {
     "Option": "HashOf<ExecutionOutputV1>"
   },
@@ -16221,6 +16952,9 @@
   },
   "Option<HashOf<TransactionEntrypoint>>": {
     "Option": "HashOf<TransactionEntrypoint>"
+  },
+  "Option<KagemushaWalletLoadChargeV1>": {
+    "Option": "KagemushaWalletLoadChargeV1"
   },
   "Option<KeyedHash>": {
     "Option": "KeyedHash"
@@ -16296,6 +17030,9 @@
   },
   "Option<Name>": {
     "Option": "Name"
+  },
+  "Option<NexusFeeReceipt>": {
+    "Option": "NexusFeeReceipt"
   },
   "Option<NexusLaneRuntimeUpgradeHookStatus>": {
     "Option": "NexusLaneRuntimeUpgradeHookStatus"
@@ -16447,11 +17184,14 @@
   "Option<SortOrder>": {
     "Option": "SortOrder"
   },
-  "Option<StreamTokenDiscoveryProofV1>": {
-    "Option": "StreamTokenDiscoveryProofV1"
+  "Option<StreamTokenCustodyRecordProofV1>": {
+    "Option": "StreamTokenCustodyRecordProofV1"
   },
   "Option<StreamTokenExecutionV1>": {
     "Option": "StreamTokenExecutionV1"
+  },
+  "Option<StreamTokenGatewayQuotaRequestV1>": {
+    "Option": "StreamTokenGatewayQuotaRequestV1"
   },
   "Option<StreamingSoranetRoute>": {
     "Option": "StreamingSoranetRoute"
@@ -19198,6 +19938,42 @@
       }
     ]
   },
+  "PricingScheduleRecord": {
+    "Struct": [
+      {
+        "name": "version",
+        "type": "u16"
+      },
+      {
+        "name": "currency_code",
+        "type": "String"
+      },
+      {
+        "name": "default_storage_class",
+        "type": "StorageClass"
+      },
+      {
+        "name": "tiers",
+        "type": "Vec<TierRate>"
+      },
+      {
+        "name": "collateral",
+        "type": "CollateralPolicy"
+      },
+      {
+        "name": "credit",
+        "type": "CreditPolicy"
+      },
+      {
+        "name": "discounts",
+        "type": "DiscountSchedule"
+      },
+      {
+        "name": "notes",
+        "type": "Option<String>"
+      }
+    ]
+  },
   "PrivacyAcceptedMediumDispositionV1": {
     "Struct": [
       {
@@ -20660,6 +21436,58 @@
       }
     ]
   },
+  "ProviderCreditRecord": {
+    "Struct": [
+      {
+        "name": "provider_id",
+        "type": "ProviderId"
+      },
+      {
+        "name": "available_credit",
+        "type": "Quantity"
+      },
+      {
+        "name": "bonded",
+        "type": "Quantity"
+      },
+      {
+        "name": "required_bond",
+        "type": "Quantity"
+      },
+      {
+        "name": "expected_settlement",
+        "type": "Quantity"
+      },
+      {
+        "name": "onboarding_epoch",
+        "type": "u64"
+      },
+      {
+        "name": "last_settlement_epoch",
+        "type": "u64"
+      },
+      {
+        "name": "low_balance_since_epoch",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "slashed",
+        "type": "Quantity"
+      },
+      {
+        "name": "under_delivery_strikes",
+        "type": "u32"
+      },
+      {
+        "name": "last_penalty_epoch",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "metadata",
+        "type": "Metadata"
+      }
+    ]
+  },
   "ProviderDiscoveryProofV1": {
     "Struct": [
       {
@@ -20684,7 +21512,7 @@
       },
       {
         "name": "stream_token",
-        "type": "Option<StreamTokenDiscoveryProofV1>"
+        "type": "Option<StreamTokenCustodyRecordProofV1>"
       }
     ]
   },
@@ -20774,6 +21602,10 @@
     "Struct": [
       {
         "name": "provider_owner",
+        "type": "AccountId"
+      },
+      {
+        "name": "completion_signer",
         "type": "AccountId"
       },
       {
@@ -22006,6 +22838,10 @@
       {
         "name": "activated_at_unix_ms",
         "type": "u64"
+      },
+      {
+        "name": "origin",
+        "type": "ReputationJournalPolicyOriginV1"
       }
     ]
   },
@@ -22034,6 +22870,10 @@
       {
         "name": "token_recorder_authority",
         "type": "AccountId"
+      },
+      {
+        "name": "stream_token_delivery",
+        "type": "StreamTokenReputationDeliveryTemplateV1"
       },
       {
         "name": "max_source_age_ms",
@@ -22189,6 +23029,20 @@
       }
     ]
   },
+  "ReputationJournalPolicyOriginV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "genesis",
+        "type": "StreamTokenGatewayExecutionV1"
+      },
+      {
+        "discriminant": 1,
+        "tag": "network",
+        "type": "StreamTokenGatewayExecutionV1"
+      }
+    ]
+  },
   "ReputationJournalSourceIdV1": "Array<u8, 32>",
   "ReputationJournalSourceKindV1": {
     "Enum": [
@@ -22203,6 +23057,38 @@
       {
         "discriminant": 2,
         "tag": "stream_token"
+      }
+    ]
+  },
+  "ReserveAccountProofV1": {
+    "Struct": [
+      {
+        "name": "world",
+        "type": "WorldStateSnapshotV1"
+      },
+      {
+        "name": "owner",
+        "type": "AccountId"
+      },
+      {
+        "name": "policy",
+        "type": "Vec<u8>"
+      },
+      {
+        "name": "current",
+        "type": "Option<Vec<u8>>"
+      },
+      {
+        "name": "credit",
+        "type": "Option<Vec<u8>>"
+      },
+      {
+        "name": "capacity",
+        "type": "Option<Vec<u8>>"
+      },
+      {
+        "name": "pricing",
+        "type": "Vec<u8>"
       }
     ]
   },
@@ -22387,6 +23273,22 @@
       {
         "discriminant": 2,
         "tag": "Annual"
+      }
+    ]
+  },
+  "ReserveEventJournalHeadV1": {
+    "Struct": [
+      {
+        "name": "last_sequence",
+        "type": "u64"
+      },
+      {
+        "name": "last_target_block_height",
+        "type": "u64"
+      },
+      {
+        "name": "last_event_index",
+        "type": "u32"
       }
     ]
   },
@@ -22590,6 +23492,22 @@
       }
     ]
   },
+  "ReservePolicyProofV1": {
+    "Struct": [
+      {
+        "name": "world",
+        "type": "WorldStateSnapshotV1"
+      },
+      {
+        "name": "manager_permissions",
+        "type": "SortedVec<Permission>"
+      },
+      {
+        "name": "current",
+        "type": "Option<Vec<u8>>"
+      }
+    ]
+  },
   "ReservePolicyV1": {
     "Struct": [
       {
@@ -22719,6 +23637,18 @@
       {
         "name": "capacity_gib",
         "type": "u64"
+      }
+    ]
+  },
+  "ReserveStateV1": {
+    "Struct": [
+      {
+        "name": "policy",
+        "type": "ReserveAuthorityPolicyRecordV1"
+      },
+      {
+        "name": "journal_head",
+        "type": "ReserveEventJournalHeadV1"
       }
     ]
   },
@@ -23467,7 +24397,7 @@
       },
       {
         "discriminant": 3,
-        "tag": "credit_refused"
+        "tag": "unregistrable_recipient"
       }
     ]
   },
@@ -24089,10 +25019,6 @@
         "tag": "bsc_mainnet"
       },
       {
-        "discriminant": 67,
-        "tag": "tron_mainnet"
-      },
-      {
         "discriminant": 68,
         "tag": "ton_mainnet"
       }
@@ -24627,7 +25553,7 @@
     "Struct": [
       {
         "name": "signatures",
-        "type": "SortedVec<BlockSignature>"
+        "type": "BlockSignatures"
       },
       {
         "name": "payload",
@@ -27118,9 +28044,6 @@
   "SortedVec<AccountId>": {
     "Vec": "AccountId"
   },
-  "SortedVec<BlockSignature>": {
-    "Vec": "BlockSignature"
-  },
   "SortedVec<DataSpaceId>": {
     "Vec": "DataSpaceId"
   },
@@ -27584,6 +28507,18 @@
       }
     ]
   },
+  "StreamTokenCarRangeV1": {
+    "Struct": [
+      {
+        "name": "start",
+        "type": "u64"
+      },
+      {
+        "name": "end_inclusive",
+        "type": "u64"
+      }
+    ]
+  },
   "StreamTokenCheckPhaseV1": {
     "Enum": [
       {
@@ -27643,6 +28578,18 @@
       {
         "name": "phase",
         "type": "StreamTokenCheckPhaseV1"
+      }
+    ]
+  },
+  "StreamTokenChunkRequestV1": {
+    "Struct": [
+      {
+        "name": "chunk_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "stored_length",
+        "type": "u64"
       }
     ]
   },
@@ -27754,7 +28701,23 @@
       }
     ]
   },
-  "StreamTokenDiscoveryProofV1": {
+  "StreamTokenCustodyProofV1": {
+    "Struct": [
+      {
+        "name": "world",
+        "type": "WorldStateSnapshotV1"
+      },
+      {
+        "name": "owner",
+        "type": "AccountId"
+      },
+      {
+        "name": "current",
+        "type": "Option<StreamTokenCustodyRecordProofV1>"
+      }
+    ]
+  },
+  "StreamTokenCustodyRecordProofV1": {
     "Struct": [
       {
         "name": "head",
@@ -27766,6 +28729,7 @@
       }
     ]
   },
+  "StreamTokenExactHeaderDigestV1": "Array<u8, 32>",
   "StreamTokenExcludedKindV1": {
     "Enum": [
       {
@@ -27846,6 +28810,472 @@
       }
     ]
   },
+  "StreamTokenGatewayActionV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "configure",
+        "type": "StreamTokenGatewayPolicyV1"
+      },
+      {
+        "discriminant": 1,
+        "tag": "admit",
+        "type": "StreamTokenGatewayAdmissionRequestV1"
+      },
+      {
+        "discriminant": 2,
+        "tag": "acknowledge",
+        "type": "StreamTokenGatewayAdmissionRecordV1"
+      },
+      {
+        "discriminant": 3,
+        "tag": "release_lease",
+        "type": "StreamTokenGatewayAdmissionRecordV1"
+      },
+      {
+        "discriminant": 4,
+        "tag": "expire",
+        "type": "StreamTokenGatewayActionV1::Expire"
+      },
+      {
+        "discriminant": 5,
+        "tag": "check",
+        "type": "StreamTokenGatewayCheckV1"
+      },
+      {
+        "discriminant": 6,
+        "tag": "cancel_reputation_delivery",
+        "type": "StreamTokenGatewayActionV1::CancelReputationDelivery"
+      }
+    ]
+  },
+  "StreamTokenGatewayActionV1::CancelReputationDelivery": {
+    "Struct": [
+      {
+        "name": "record",
+        "type": "StreamTokenGatewayAdmissionRecordV1"
+      },
+      {
+        "name": "expected_recorder_policy_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "reason",
+        "type": "StreamTokenReputationCancellationReasonV1"
+      }
+    ]
+  },
+  "StreamTokenGatewayActionV1::Expire": {
+    "Struct": [
+      {
+        "name": "max_items",
+        "type": "u32"
+      }
+    ]
+  },
+  "StreamTokenGatewayAdmissionDeliveryStateV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "pending",
+        "type": "StreamTokenGatewayAdmissionDeliveryStateV1::Pending"
+      },
+      {
+        "discriminant": 1,
+        "tag": "acknowledged_exact_replay",
+        "type": "StreamTokenGatewayAdmissionDeliveryStateV1::AcknowledgedExactReplay"
+      }
+    ]
+  },
+  "StreamTokenGatewayAdmissionDeliveryStateV1::AcknowledgedExactReplay": {
+    "Struct": [
+      {
+        "name": "acknowledged_through_sequence",
+        "type": "u64"
+      }
+    ]
+  },
+  "StreamTokenGatewayAdmissionDeliveryStateV1::Pending": {
+    "Struct": [
+      {
+        "name": "predecessor_sequence",
+        "type": "u64"
+      }
+    ]
+  },
+  "StreamTokenGatewayAdmissionQualificationV1": {
+    "Struct": [
+      {
+        "name": "gateway_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "revision",
+        "type": "u64"
+      },
+      {
+        "name": "policy_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "max_pending",
+        "type": "u32"
+      },
+      {
+        "name": "max_tracked_tokens",
+        "type": "u32"
+      },
+      {
+        "name": "lease_ttl_ms",
+        "type": "u64"
+      }
+    ]
+  },
+  "StreamTokenGatewayAdmissionReadbackV1": {
+    "Struct": [
+      {
+        "name": "acknowledged_through_sequence",
+        "type": "u64"
+      },
+      {
+        "name": "high_water_sequence",
+        "type": "u64"
+      },
+      {
+        "name": "records",
+        "type": "Vec<StreamTokenGatewayAdmissionRecordV1>"
+      }
+    ]
+  },
+  "StreamTokenGatewayAdmissionRecordV1": {
+    "Struct": [
+      {
+        "name": "serving_attempt_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "admitted_under",
+        "type": "StreamTokenGatewayAdmissionQualificationV1"
+      },
+      {
+        "name": "provider_id",
+        "type": "ProviderId"
+      },
+      {
+        "name": "outcome",
+        "type": "StreamTokenValidationOutcomeV1"
+      },
+      {
+        "name": "retry_after_secs",
+        "type": "Option<u32>"
+      },
+      {
+        "name": "lease_id",
+        "type": "Option<Array<u8, 32>>"
+      },
+      {
+        "name": "lease_expires_at_unix_ms",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "lease_token_expires_at_epoch",
+        "type": "Option<u64>"
+      }
+    ]
+  },
+  "StreamTokenGatewayAdmissionRequestV1": {
+    "Struct": [
+      {
+        "name": "serving_attempt_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "context",
+        "type": "StreamTokenValidationRequestContextV1"
+      },
+      {
+        "name": "token_body_digest",
+        "type": "Option<Array<u8, 32>>"
+      },
+      {
+        "name": "token_key_version",
+        "type": "Option<u32>"
+      },
+      {
+        "name": "validated_at_unix_ms",
+        "type": "u64"
+      },
+      {
+        "name": "status",
+        "type": "StreamTokenValidationStatusV1"
+      },
+      {
+        "name": "quota",
+        "type": "Option<StreamTokenGatewayQuotaRequestV1>"
+      }
+    ]
+  },
+  "StreamTokenGatewayAdmissionResultV1": {
+    "Struct": [
+      {
+        "name": "record",
+        "type": "StreamTokenGatewayAdmissionRecordV1"
+      },
+      {
+        "name": "delivery_state",
+        "type": "StreamTokenGatewayAdmissionDeliveryStateV1"
+      }
+    ]
+  },
+  "StreamTokenGatewayCheckSubjectV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "qualification"
+      },
+      {
+        "discriminant": 1,
+        "tag": "admission",
+        "type": "StreamTokenGatewayCheckSubjectV1::Admission"
+      },
+      {
+        "discriminant": 2,
+        "tag": "serving",
+        "type": "StreamTokenGatewayCheckSubjectV1::Serving"
+      },
+      {
+        "discriminant": 3,
+        "tag": "pending",
+        "type": "StreamTokenGatewayCheckSubjectV1::Pending"
+      },
+      {
+        "discriminant": 4,
+        "tag": "acknowledged",
+        "type": "StreamTokenGatewayCheckSubjectV1::Acknowledged"
+      },
+      {
+        "discriminant": 5,
+        "tag": "released",
+        "type": "StreamTokenGatewayCheckSubjectV1::Released"
+      }
+    ]
+  },
+  "StreamTokenGatewayCheckSubjectV1::Acknowledged": {
+    "Struct": [
+      {
+        "name": "record",
+        "type": "StreamTokenGatewayAdmissionRecordV1"
+      }
+    ]
+  },
+  "StreamTokenGatewayCheckSubjectV1::Admission": {
+    "Struct": [
+      {
+        "name": "request_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "result",
+        "type": "StreamTokenGatewayAdmissionResultV1"
+      }
+    ]
+  },
+  "StreamTokenGatewayCheckSubjectV1::Pending": {
+    "Struct": [
+      {
+        "name": "max_items",
+        "type": "u32"
+      },
+      {
+        "name": "readback_digest",
+        "type": "Array<u8, 32>"
+      }
+    ]
+  },
+  "StreamTokenGatewayCheckSubjectV1::Released": {
+    "Struct": [
+      {
+        "name": "record",
+        "type": "StreamTokenGatewayAdmissionRecordV1"
+      }
+    ]
+  },
+  "StreamTokenGatewayCheckSubjectV1::Serving": {
+    "Struct": [
+      {
+        "name": "request_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "result",
+        "type": "StreamTokenGatewayAdmissionResultV1"
+      }
+    ]
+  },
+  "StreamTokenGatewayCheckV1": {
+    "Struct": [
+      {
+        "name": "challenge",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "expected_operator",
+        "type": "AccountId"
+      },
+      {
+        "name": "expected_observer",
+        "type": "AccountId"
+      },
+      {
+        "name": "floor",
+        "type": "StreamTokenGatewayFinalityFloorV1"
+      },
+      {
+        "name": "subject",
+        "type": "StreamTokenGatewayCheckSubjectV1"
+      }
+    ]
+  },
+  "StreamTokenGatewayExecutionV1": {
+    "Struct": [
+      {
+        "name": "height",
+        "type": "u64"
+      },
+      {
+        "name": "transaction_hash",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "entry_index",
+        "type": "u32"
+      },
+      {
+        "name": "instruction_index",
+        "type": "u32"
+      },
+      {
+        "name": "recorded_at_unix_ms",
+        "type": "u64"
+      },
+      {
+        "name": "authority",
+        "type": "AccountId"
+      }
+    ]
+  },
+  "StreamTokenGatewayFinalityFloorV1": {
+    "Struct": [
+      {
+        "name": "height",
+        "type": "u64"
+      },
+      {
+        "name": "block_hash",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "context_id",
+        "type": "HeightContextId"
+      }
+    ]
+  },
+  "StreamTokenGatewayPolicyV1": {
+    "Struct": [
+      {
+        "name": "network_id",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
+        "name": "compliance_gateway_id",
+        "type": "String"
+      },
+      {
+        "name": "qualification",
+        "type": "StreamTokenGatewayAdmissionQualificationV1"
+      },
+      {
+        "name": "operators",
+        "type": "SortedVec<AccountId>"
+      },
+      {
+        "name": "observers",
+        "type": "SortedVec<AccountId>"
+      },
+      {
+        "name": "valid_from_unix_ms",
+        "type": "u64"
+      },
+      {
+        "name": "valid_until_unix_ms",
+        "type": "u64"
+      },
+      {
+        "name": "max_observation_age_ms",
+        "type": "u64"
+      },
+      {
+        "name": "admission_enabled",
+        "type": "bool"
+      }
+    ]
+  },
+  "StreamTokenGatewayQuotaRequestV1": {
+    "Struct": [
+      {
+        "name": "token_id",
+        "type": "String"
+      },
+      {
+        "name": "max_streams",
+        "type": "u16"
+      },
+      {
+        "name": "requests_per_minute",
+        "type": "u32"
+      },
+      {
+        "name": "rate_limit_bytes",
+        "type": "u64"
+      },
+      {
+        "name": "requested_bytes",
+        "type": "u64"
+      },
+      {
+        "name": "expires_at_epoch",
+        "type": "u64"
+      },
+      {
+        "name": "observed_at_epoch",
+        "type": "u64"
+      }
+    ]
+  },
+  "StreamTokenGatewayRequestV1": {
+    "Struct": [
+      {
+        "name": "network_id",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
+        "name": "gateway_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "expected_policy_revision",
+        "type": "u64"
+      },
+      {
+        "name": "expected_policy_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "action",
+        "type": "StreamTokenGatewayActionV1"
+      }
+    ]
+  },
   "StreamTokenNativeOperationV1": {
     "Struct": [
       {
@@ -27907,6 +29337,168 @@
       }
     ]
   },
+  "StreamTokenPresentationV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "missing"
+      },
+      {
+        "discriminant": 1,
+        "tag": "exact_header",
+        "type": "StreamTokenExactHeaderDigestV1"
+      }
+    ]
+  },
+  "StreamTokenReputationCancellationReasonV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "credential_unavailable"
+      },
+      {
+        "discriminant": 1,
+        "tag": "authority_withdrawn"
+      }
+    ]
+  },
+  "StreamTokenReputationDeliveryDispositionV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "pending"
+      },
+      {
+        "discriminant": 1,
+        "tag": "delivered",
+        "type": "StreamTokenReputationDeliveryDispositionV1::Delivered"
+      },
+      {
+        "discriminant": 2,
+        "tag": "excluded"
+      },
+      {
+        "discriminant": 3,
+        "tag": "expired",
+        "type": "StreamTokenReputationDeliveryDispositionV1::Expired"
+      },
+      {
+        "discriminant": 4,
+        "tag": "governance_cancelled",
+        "type": "StreamTokenReputationDeliveryDispositionV1::GovernanceCancelled"
+      }
+    ]
+  },
+  "StreamTokenReputationDeliveryDispositionV1::Delivered": {
+    "Struct": [
+      {
+        "name": "journal_sequence",
+        "type": "u64"
+      },
+      {
+        "name": "event_id",
+        "type": "ReputationJournalEventIdV1"
+      },
+      {
+        "name": "execution",
+        "type": "StreamTokenGatewayExecutionV1"
+      }
+    ]
+  },
+  "StreamTokenReputationDeliveryDispositionV1::Expired": {
+    "Struct": [
+      {
+        "name": "execution",
+        "type": "StreamTokenGatewayExecutionV1"
+      }
+    ]
+  },
+  "StreamTokenReputationDeliveryDispositionV1::GovernanceCancelled": {
+    "Struct": [
+      {
+        "name": "recorder_policy_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "gateway_qualification",
+        "type": "StreamTokenGatewayAdmissionQualificationV1"
+      },
+      {
+        "name": "reason",
+        "type": "StreamTokenReputationCancellationReasonV1"
+      },
+      {
+        "name": "execution",
+        "type": "StreamTokenGatewayExecutionV1"
+      }
+    ]
+  },
+  "StreamTokenReputationDeliveryIntentV1": {
+    "Struct": [
+      {
+        "name": "network_id",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
+        "name": "record",
+        "type": "StreamTokenGatewayAdmissionRecordV1"
+      },
+      {
+        "name": "request_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "source_execution",
+        "type": "StreamTokenGatewayExecutionV1"
+      },
+      {
+        "name": "recorder_policy",
+        "type": "ReputationJournalAuthorityPolicyRecordV1"
+      },
+      {
+        "name": "transaction_ttl_limit_ms",
+        "type": "u64"
+      },
+      {
+        "name": "payload",
+        "type": "TransactionPayload"
+      }
+    ]
+  },
+  "StreamTokenReputationDeliveryTemplateV1": {
+    "Struct": [
+      {
+        "name": "allowed_gateways",
+        "type": "Vec<Array<u8, 32>>"
+      },
+      {
+        "name": "fee_payment",
+        "type": "FeePaymentIntent"
+      },
+      {
+        "name": "time_to_live_ms",
+        "type": "u64"
+      },
+      {
+        "name": "height_ttl",
+        "type": "u64"
+      }
+    ]
+  },
+  "StreamTokenRequestRouteV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "car_range",
+        "type": "StreamTokenCarRangeV1"
+      },
+      {
+        "discriminant": 1,
+        "tag": "chunk",
+        "type": "StreamTokenChunkRequestV1"
+      }
+    ]
+  },
   "StreamTokenReviewedV1": {
     "Struct": [
       {
@@ -27956,6 +29548,42 @@
       {
         "name": "status",
         "type": "StreamTokenValidationStatusV1"
+      }
+    ]
+  },
+  "StreamTokenValidationRequestContextV1": {
+    "Struct": [
+      {
+        "name": "version",
+        "type": "u8"
+      },
+      {
+        "name": "provider_id",
+        "type": "ProviderId"
+      },
+      {
+        "name": "manifest_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "manifest_cid",
+        "type": "Vec<u8>"
+      },
+      {
+        "name": "chunk_profile_handle",
+        "type": "String"
+      },
+      {
+        "name": "request_nonce_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "token_presentation",
+        "type": "StreamTokenPresentationV1"
+      },
+      {
+        "name": "route",
+        "type": "StreamTokenRequestRouteV1"
       }
     ]
   },
@@ -28291,6 +29919,50 @@
     ]
   },
   "String": "String",
+  "SumeragiCommitCertificateV1": {
+    "Struct": [
+      {
+        "name": "consensus_header",
+        "type": "Vec<u8>"
+      },
+      {
+        "name": "commit_qc",
+        "type": "Vec<u8>"
+      },
+      {
+        "name": "result_preimage",
+        "type": "Vec<u8>"
+      }
+    ]
+  },
+  "SumeragiCommitCheckpointV1": {
+    "Struct": [
+      {
+        "name": "genesis_hash",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
+        "name": "network",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
+        "name": "chain",
+        "type": "String"
+      },
+      {
+        "name": "instance",
+        "type": "Hash32"
+      },
+      {
+        "name": "initial",
+        "type": "ValidatorEpochContextV1"
+      },
+      {
+        "name": "selected",
+        "type": "ValidatorEpochContextV1"
+      }
+    ]
+  },
   "SumeragiConsensusStatus": {
     "Struct": [
       {
@@ -28994,6 +30666,22 @@
       }
     ]
   },
+  "TierRate": {
+    "Struct": [
+      {
+        "name": "storage_class",
+        "type": "StorageClass"
+      },
+      {
+        "name": "storage_price_per_gib_month",
+        "type": "Quantity"
+      },
+      {
+        "name": "egress_price_per_gib",
+        "type": "Quantity"
+      }
+    ]
+  },
   "TimeEvent": {
     "Struct": [
       {
@@ -29679,7 +31367,8 @@
   "TransactionResult": {
     "Tuple": [
       "Result<Vec<DataTriggerStep>, TransactionRejectionReason>",
-      "Vec<AssetBatchTransferOutcome>"
+      "Vec<AssetBatchTransferOutcome>",
+      "Option<NexusFeeReceipt>"
     ]
   },
   "TransactionSignature": "SignatureOf<TransactionPayload>",
@@ -30537,10 +32226,6 @@
         "type": "ConsensusMode"
       },
       {
-        "name": "authority",
-        "type": "KagemushaMintFinalityAuthorityGenerationV1"
-      },
-      {
         "name": "authorization",
         "type": "ValidatorEpochAuthorizationV1"
       },
@@ -30645,6 +32330,9 @@
   },
   "Vec<ClassRentRate>": {
     "Vec": "ClassRentRate"
+  },
+  "Vec<CommitmentDiscountTier>": {
+    "Vec": "CommitmentDiscountTier"
   },
   "Vec<CommittedTransaction>": {
     "Vec": "CommittedTransaction"
@@ -30835,9 +32523,6 @@
   "Vec<Json>": {
     "Vec": "Json"
   },
-  "Vec<KagemushaMintFinalityValidatorKeysV1>": {
-    "Vec": "KagemushaMintFinalityValidatorKeysV1"
-  },
   "Vec<KotobaTranslation>": {
     "Vec": "KotobaTranslation"
   },
@@ -30960,6 +32645,9 @@
   },
   "Vec<Option<HashOf<Array<u8, 32>>>>": {
     "Vec": "Option<HashOf<Array<u8, 32>>>"
+  },
+  "Vec<Option<HashOf<EventBox>>>": {
+    "Vec": "Option<HashOf<EventBox>>"
   },
   "Vec<Option<HashOf<ExecutionOutputV1>>>": {
     "Vec": "Option<HashOf<ExecutionOutputV1>>"
@@ -31141,6 +32829,9 @@
   "Vec<StateDescriptor>": {
     "Vec": "StateDescriptor"
   },
+  "Vec<StreamTokenGatewayAdmissionRecordV1>": {
+    "Vec": "StreamTokenGatewayAdmissionRecordV1"
+  },
   "Vec<StreamingRouteBinding>": {
     "Vec": "StreamingRouteBinding"
   },
@@ -31158,6 +32849,9 @@
   },
   "Vec<TaikaiIngestStatus>": {
     "Vec": "TaikaiIngestStatus"
+  },
+  "Vec<TierRate>": {
+    "Vec": "TierRate"
   },
   "Vec<TransactionEntrypoint>": {
     "Vec": "TransactionEntrypoint"

@@ -487,7 +487,7 @@ impl KagemushaWalletFsV1 for ReplacingFsV1 {
     fn try_lock(&self) -> io::Result<Self::Lock> {
         self.0.try_lock()
     }
-    fn staging_name(&self) -> String {
+    fn staging_name(&self) -> io::Result<String> {
         self.0.staging_name()
     }
 }

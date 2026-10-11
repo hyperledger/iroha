@@ -1,4 +1,4 @@
-//! Restore-cut checks using the real public DKG and candidate proof fixture.
+//! Restore-cut checks using the real public DKG and exact BLS generation fixture.
 
 use super::*;
 
@@ -13,15 +13,10 @@ fn committee_restore_beacon_matches_both_sides_of_activation_cut() {
     )
     .unwrap();
     let authorization = outcome(&fixture, true);
-    let credentials = fixture.transition.credentials.as_ref().unwrap().clone();
+    let credentials = *fixture.transition.credentials.as_ref().unwrap();
+    let generation = fixture.transition.preparation.generation();
     assert!(
-        validate_current_beacon(
-            &fixture.world.view(),
-            &credentials.authority,
-            &authorization,
-            20,
-        )
-        .is_err(),
+        validate_current_beacon(&fixture.world.view(), &generation, &authorization, 20,).is_err(),
         "an old active pointer cannot restore an activated authority"
     );
     let BeaconEpochBindingV1::Installed(previous) = fixture.authorization.beacon else {
@@ -56,13 +51,8 @@ fn committee_restore_beacon_matches_both_sides_of_activation_cut() {
         credentials.beacon.session_id,
     );
     for cut in [20, 21, 29] {
-        validate_current_beacon(
-            &fixture.world.view(),
-            &credentials.authority,
-            &authorization,
-            cut,
-        )
-        .expect("boundary post-state already names the next-height signer");
+        validate_current_beacon(&fixture.world.view(), &generation, &authorization, cut)
+            .expect("boundary post-state already names the next-height signer");
     }
     next.activated_at_height = Some(20);
     fixture
@@ -70,13 +60,7 @@ fn committee_restore_beacon_matches_both_sides_of_activation_cut() {
         .global_beacon_key_sessions
         .insert(credentials.beacon.session_id, next.clone());
     assert!(
-        validate_current_beacon(
-            &fixture.world.view(),
-            &credentials.authority,
-            &authorization,
-            20
-        )
-        .is_err(),
+        validate_current_beacon(&fixture.world.view(), &generation, &authorization, 20).is_err(),
         "even a well-formed lifecycle cannot change the certified activation height"
     );
     next.activated_at_height = Some(21);
@@ -89,16 +73,13 @@ fn committee_restore_beacon_matches_both_sides_of_activation_cut() {
         unreachable!()
     };
     binding.transcript_hash[0] ^= 1;
-    assert!(
-        validate_current_beacon(&fixture.world.view(), &credentials.authority, &changed, 20)
-            .is_err()
-    );
+    assert!(validate_current_beacon(&fixture.world.view(), &generation, &changed, 20).is_err());
 }
 
 #[test]
 fn committee_restore_bootstrap_permits_only_finalized_next_height_custody() {
     let fixture = fixture(4);
-    let authorization = mint_finality_genesis_for_authority(&fixture.incumbent, 10);
+    let authorization = ValidatorEpochAuthorizationV1::genesis(&fixture.incumbent, 10).unwrap();
     validate_current_beacon(&fixture.world.view(), &fixture.incumbent, &authorization, 4)
         .expect("the bootstrap ceremony finalized at four and activates at five");
     assert!(

@@ -41,10 +41,9 @@ snapshots diverge.
 
 ## 3. Regenerate Genesis Manifests
 
-- Run `kagami genesis generate --consensus-mode <mode>
-  --kagemusha-mint-finality-parameters <PUBLIC_PARAMETERS.json>` for every
-  environment, using operator-provisioned public authority that exactly matches
-  the final topology.
+- Run `kagami genesis generate --consensus-mode <mode> …` for every
+  environment. Bind the final ordered validator BLS topology and proofs of
+  possession before signing; the topology defines validator generation zero.
 - Sign the manifest (`kagami genesis sign …`) and distribute the `.nrt` payload.
   Distribute its exact bound JSON alongside it; a `.template.json` source is
   incomplete and cannot be selected by a node.

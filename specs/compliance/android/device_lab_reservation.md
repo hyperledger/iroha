@@ -44,9 +44,8 @@ from the Hardware Lab Lead.
 ## 3. Request Workflow
 
 1. **Prepare context**
-   - Update `specs/sdk/android/android_strongbox_device_matrix.md` with
-     the devices you plan to exercise and the readiness tag
-     (`attestation`, `ci`, `chaos`, `partner`).
+   - List the lanes from §2 you plan to exercise and the readiness tag
+     (`attestation`, `ci`, `chaos`, `partner`) in the request.
    - Collect the latest capacity snapshot from
      `specs/sdk/android/android_strongbox_capture_status.md`.
 2. **Submit request**
@@ -127,8 +126,6 @@ status mail.
   capacity shortfalls.
 - `specs/compliance/android/and6_compliance_checklist.md` — master
   deliverables checklist.
-- `specs/sdk/android/android_strongbox_device_matrix.md` — hardware
-  coverage tracker.
 - `specs/sdk/android/android_strongbox_attestation_run_log.md` —
   StrongBox attestation evidence referenced by AND6/AND7.
 

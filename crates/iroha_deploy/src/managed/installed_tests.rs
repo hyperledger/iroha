@@ -204,7 +204,7 @@ fn installed_private_root_lifecycle_and_listener_isolation() {
     assert_eq!(stopped.phase, ManagedPhase::Stopped);
     assert_eq!(stopped.running_peers, 0);
     let started = Instant::now();
-    let restarted = store.up_retained(&request).unwrap();
+    let restarted = store.up_retained(&request, &prepared.context).unwrap();
     let elapsed = started.elapsed();
     require_ready(&restarted);
     assert_eq!(restarted.context, ready.context);

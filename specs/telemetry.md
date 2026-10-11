@@ -601,13 +601,13 @@ Layer widths and utilization
 
 Configuration
 - Telemetry kill switch: when `telemetry_profile = "disabled"`, Torii hides `/metrics` and `/status`, no telemetry outputs are started, and all observations are skipped. Gauges/counters remain unchanged while disabled.
-- Halo2 verifier gauges:
-  - `iroha_zk_halo2_enabled`: 0/1 flag indicating whether Halo2 verification is active.
-  - `iroha_zk_halo2_curve_id`: numeric identifier for the selected curve (`0=Pallas`, `1=Pasta`, `2=Goldilocks`, `3=Bn254`).
-  - `iroha_zk_halo2_backend_id`: numeric identifier for the backend (`0=IPA`, `1=Unsupported`).
-  - `iroha_zk_halo2_max_k`: maximum supported circuit exponent (`N = 2^k`).
-  - `iroha_zk_halo2_verifier_budget_ms`: soft verifier time budget per proof (milliseconds).
-  - `iroha_zk_halo2_verifier_max_batch`: maximum proofs accepted in a batch verification.
+- Local diagnostic trace gauges (no proof or ledger authority):
+  - `iroha_zk_trace_enabled`: whether local trace checking is enabled.
+  - `iroha_zk_trace_max_batch`: maximum diagnostic tasks dispatched per batch.
+  - `iroha_zk_trace_worker_threads`: effective worker count, zero when disabled.
+  - `iroha_zk_trace_queue_cap`: effective ingress capacity, zero when disabled.
+  - `/status` exposes these as `crypto.trace` with fields `enabled`, `max_batch`,
+    `worker_threads`, and `queue_cap`.
 
 Revision-4 Sumeragi context and diagnostics
 
@@ -792,21 +792,6 @@ Pair this with `rg 'iroha_confidential_(root|frontier)_evictions_total'` to prov
 the eviction counters advanced after a maintenance window. The calibration doc
 (`specs/confidential_assets_calibration.md`) records the signed baselines
 and links to the corresponding governance acknowledgement.
-
-The same dashboard now surfaces the Halo2 verifier cache counters exposed via
-`iroha_zk_verifier_cache_events_total{cache,event}` (cache = `vk` |
-`builtin`, event = `hit` | `miss`). Use these counters to compute the 5-minute
-miss ratio:
-
-```bash
-curl -s http://127.0.0.1:8180/metrics \\
-  | rg 'iroha_zk_verifier_cache_events_total{cache="vk",event="(hit|miss)"}'
-```
-
-`dashboards/alerts/confidential_assets_rules.yml` ships the
-`ConfidentialVerifierCacheMissSpike` warning whenever misses exceed 40%
-of lookups for ten minutes, ensuring cache regressions are caught alongside the
-tree-depth guard.
 
 #### Norito RPC degraded runbook
 

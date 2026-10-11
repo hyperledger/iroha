@@ -1,6 +1,6 @@
 
 seiyaku SignedComparisonAcceptance {
-  view fn compare(int left, int right) -> (bool, bool, bool, bool, bool, bool, int, int, int, int, int, int) {
+  view fn compare(int left, int right) authorize(anyone) -> (bool, bool, bool, bool, bool, bool, int, int, int, int, int, int) {
     var int branch_eq = 0;
     var int branch_ne = 0;
     var int branch_lt = 0;

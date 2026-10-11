@@ -27,7 +27,10 @@ fn contract(source: &str, max_cycles: u64) -> PreparedContract {
     crate::prepare_contract(std::sync::Arc::<[u8]>::from(bytes)).unwrap()
 }
 fn unit() -> PreparedContract {
-    contract("seiyaku NativePackets { view fn main() { } }", 64)
+    contract(
+        "seiyaku NativePackets { view fn main() authorize(anyone) { } }",
+        64,
+    )
 }
 fn budget() -> AllocationBudget {
     AllocationBudget::new(128 * 1024 * 1024)
@@ -251,20 +254,32 @@ fn private_selector_arguments_unsupported_results_and_nonzk_profiles_are_closed_
     for (contract, selector) in [
         (unit(), "missing"),
         (
-            contract("seiyaku S { fn hidden() { } view fn main() { } }", 64),
+            contract(
+                "seiyaku S { fn hidden() { } view fn main() authorize(anyone) { } }",
+                64,
+            ),
             "hidden",
         ),
         (
-            contract("seiyaku S { view fn main(bool input) { } }", 64),
+            contract(
+                "seiyaku S { view fn main(bool input) authorize(anyone) { } }",
+                64,
+            ),
             "main",
         ),
         (
             // Bool is now an authentic public leaf. Pointer-backed Int remains
             // outside this component even though its table is also one word.
-            contract("seiyaku S { view fn main() -> int { 1 } }", 64),
+            contract(
+                "seiyaku S { view fn main() authorize(anyone) -> int { 1 } }",
+                64,
+            ),
             "main",
         ),
-        (contract("seiyaku S { view fn main() { } }", 65), "main"),
+        (
+            contract("seiyaku S { view fn main() authorize(anyone) { } }", 65),
+            "main",
+        ),
     ] {
         let mut parent = parent(&budget);
         assert!(matches!(
@@ -287,7 +302,7 @@ fn private_selector_arguments_unsupported_results_and_nonzk_profiles_are_closed_
         assert_eq!(budget.reserved_bytes(), 0);
     }
     let bytes = Compiler::new()
-        .compile_source("seiyaku S { view fn main() { } }")
+        .compile_source("seiyaku S { view fn main() authorize(anyone) { } }")
         .unwrap();
     let mut parent = parent(&budget);
     assert!(matches!(
@@ -307,7 +322,7 @@ fn child_calls_are_local_component_refusal_and_do_not_change_ordinary_validity()
     // Kotodama moves a private helper with one call site into its caller.
     // Two call sites keep `leaf` an ordinary protected child.
     let contract = contract(
-        "seiyaku Child { fn leaf() { } view fn main() { leaf(); leaf(); } }",
+        "seiyaku Child { fn leaf() { } view fn main() authorize(anyone) { leaf(); leaf(); } }",
         64,
     );
     let child_calls = contract
@@ -339,7 +354,7 @@ fn child_calls_are_local_component_refusal_and_do_not_change_ordinary_validity()
 #[test]
 fn inlined_private_helper_is_an_actual_leaf_and_matches_ordinary_execution() {
     let contract = contract(
-        "seiyaku Child { fn leaf() { } view fn main() { leaf(); } }",
+        "seiyaku Child { fn leaf() { } view fn main() authorize(anyone) { leaf(); } }",
         64,
     );
     let mut ordinary = IVM::new(10_000);
@@ -394,7 +409,7 @@ fn short_credit_wrong_pool_and_native_faults_never_publish_partial_owners() {
     for (contract, gas, expected) in [
         (unit(), 0, VMError::OutOfGas),
         (
-            contract("seiyaku S { view fn main() { } }", 1),
+            contract("seiyaku S { view fn main() authorize(anyone) { } }", 1),
             10_000,
             VMError::ExceededMaxCycles,
         ),
@@ -461,7 +476,9 @@ fn packet_clear_scrubs_the_same_fields_used_by_drop() {
 fn compiled_public_bool_leaves_use_the_same_original_capture_and_geometry() {
     for (expression, expected) in [("false", 0), ("true", 1)] {
         let artifact = contract(
-            &format!("seiyaku PublicLeaf {{ view fn main() -> bool {{ {expression} }} }}"),
+            &format!(
+                "seiyaku PublicLeaf {{ view fn main() authorize(anyone) -> bool {{ {expression} }} }}"
+            ),
             64,
         );
         let mut ordinary = IVM::new(10_000);

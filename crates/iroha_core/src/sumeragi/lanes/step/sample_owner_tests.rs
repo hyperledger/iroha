@@ -58,14 +58,45 @@ fn sample_finalizer_refusal_preserves_exact_source_and_retry_funds_only_suffix()
     let original = value.clone();
     let pointer = value.samples.as_ptr();
     pool.set_limit_bytes(demand(3) + demand(2) - 1);
+    let original_refusal = pool.try_reserve_bytes(demand(2)).unwrap_err();
     assert_eq!(
         record_sample(&mut value, Some(&policy(1)), &input(), 5, 5000, &pool),
-        Err(LaneStepError::CustodyAllocation)
+        Err(LaneStepError::Deferred(original_refusal.clone().into()))
+    );
+    let iroha_allocation::AllocationRefusal::Capacity {
+        requested_bytes,
+        reserved_bytes,
+        limit_bytes,
+        ref release,
+    } = original_refusal
+    else {
+        panic!("actual sample suffix retains the original capacity owner");
+    };
+    assert_eq!(requested_bytes, demand(2));
+    assert_eq!(reserved_bytes, demand(3));
+    assert_eq!(limit_bytes, demand(3) + demand(2) - 1);
+    let wait_pool = AllocationBudget::new(1 << 10);
+    let mut registration = crate::unit_test_support::release_registration(&wait_pool);
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    assert_eq!(
+        registration.poll_wait(release, &mut context),
+        std::task::Poll::Pending
+    );
+    let foreign = AllocationBudget::new(1);
+    drop(foreign.try_reserve_bytes(1).unwrap());
+    assert_eq!(
+        registration.poll_wait(release, &mut context),
+        std::task::Poll::Pending
     );
     assert_eq!(value, original);
     assert_eq!(value.samples.as_ptr(), pointer);
     assert_eq!(pool.reserved_bytes(), demand(3));
     pool.set_limit_bytes(demand(3) + demand(2));
+    assert_eq!(
+        registration.poll_wait(release, &mut context),
+        std::task::Poll::Ready(()),
+        "growth of this original finite pool notifies its capacity waiter"
+    );
     record_sample(&mut value, Some(&policy(1)), &input(), 5, 5000, &pool).unwrap();
     assert_eq!(
         value.samples.as_slice(),
@@ -85,6 +116,8 @@ fn sample_finalizer_refusal_preserves_exact_source_and_retry_funds_only_suffix()
     assert_eq!(pool.reserved_bytes(), demand(3));
     drop(original);
     assert_eq!(pool.reserved_bytes(), 0);
+    drop(registration);
+    assert_eq!(wait_pool.reserved_bytes(), 0);
 }
 #[test]
 fn sample_finalizer_borrowed_lane_selection_preserves_boundaries_and_saturation() {
@@ -171,5 +204,66 @@ fn sample_finalizer_borrowed_lane_selection_preserves_boundaries_and_saturation(
         "retained reader still owns exact backing"
     );
     drop(retained);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn sample_finalizer_foreign_pool_requires_recovery_without_source_or_refund_changes() {
+    let pool = AllocationBudget::new(demand(3));
+    let mut value = state(&pool);
+    let original = value.clone();
+    let pointer = value.samples.as_ptr();
+    let foreign = AllocationBudget::new(demand(4));
+    let error =
+        record_sample(&mut value, Some(&policy(8)), &input(), 5, 5000, &foreign).unwrap_err();
+    let LaneStepError::Deferred(defect) = error else {
+        panic!("foreign original sample custody cannot become a retryable pool shortage");
+    };
+    assert_eq!(
+        defect.reason(),
+        ivm::error::ExecutionDeferral::LocalInvariantViolation
+    );
+    assert!(defect.allocation_refusal().is_none());
+    assert_eq!(value, original);
+    assert_eq!(value.samples.as_ptr(), pointer);
+    assert_eq!(pool.reserved_bytes(), demand(3));
+    assert_eq!(foreign.reserved_bytes(), 0);
+    drop(value);
+    assert_eq!(pool.reserved_bytes(), demand(3));
+    drop(original);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn sample_finalizer_exceeds_limit_retains_exact_requested_suffix_demand() {
+    let pool = AllocationBudget::new(demand(1) - 1);
+    let mut value = SumeragiLaneState::default();
+    let original = value.clone();
+    let expected = pool.try_reserve_bytes(demand(1)).unwrap_err();
+    assert!(
+        matches!(expected, iroha_allocation::AllocationRefusal::ExceedsLimit {
+        requested_bytes, limit_bytes,
+    } if requested_bytes == demand(1) && limit_bytes == demand(1) - 1)
+    );
+    assert_eq!(
+        record_sample(&mut value, Some(&policy(8)), &input(), 5, 5000, &pool),
+        Err(LaneStepError::Deferred(expected.into()))
+    );
+    assert_eq!(value, original);
+    assert_eq!(pool.reserved_bytes(), 0);
+    pool.set_limit_bytes(demand(1));
+    record_sample(&mut value, Some(&policy(8)), &input(), 5, 5000, &pool).unwrap();
+    assert_eq!(
+        value.samples.as_slice(),
+        &[SumeragiLaneSample {
+            height: 5,
+            time_ms: 5000,
+            transactions: 7,
+            lanes: 1,
+        }]
+    );
+    assert!(value.samples.admitted_to(&pool));
+    assert_eq!(pool.reserved_bytes(), demand(1));
+    drop(value);
     assert_eq!(pool.reserved_bytes(), 0);
 }

@@ -1,15 +1,16 @@
 
             fn boundaries(
                 bytes payload,
-                int scheme,
+                AccountId account,
+                int quorum,
                 int tag_length,
-                int enabled,
+                bool enabled,
             ) {
                 let _verified = crypto::verify_signature(
                     message: payload,
                     signature: payload,
                     public_key: payload,
-                    scheme: scheme,
+                    scheme: SignatureScheme::Ed25519,
                 );
                 let _sealed = crypto::sm4_ccm::seal(
                     key: payload,
@@ -18,6 +19,7 @@
                     payload: payload,
                     tag_length: tag_length,
                 );
+                ledger::account::set_quorum(account: account, quorum: quorum);
                 ledger::trigger::set_enabled(trigger: Name::parse("scheduled"), enabled: enabled);
                 let _vrf = crypto::vrf::verify(request: payload);
             }

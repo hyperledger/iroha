@@ -1293,6 +1293,8 @@ pub mod fees {
     pub const QUOTE_PATH: &str = "/v1/fees/quote";
     /// Canonical exact sponsor-program lookup path.
     pub const SPONSOR_PROGRAM_BY_ID_PATH: &str = "/v1/fee-sponsor-programs/by-id";
+    /// Canonical exact sponsor-program enrollment lookup path.
+    pub const SPONSOR_ENROLLMENT_BY_ID_PATH: &str = "/v1/fee-sponsor-enrollments/by-id";
     const fn account_signed_post(
         stable_route_id: &'static str,
         path: &'static str,
@@ -1321,8 +1323,15 @@ pub mod fees {
         SPONSOR_PROGRAM_BY_ID_PATH,
         RouteEffect::ReadOnly,
     );
+    /// Read one enrollment as its sponsor or exact delegated program registrar.
+    pub const SPONSOR_ENROLLMENT_BY_ID: RouteDescriptor = account_signed_post(
+        "fee_sponsor_enrollment.by_id",
+        SPONSOR_ENROLLMENT_BY_ID_PATH,
+        RouteEffect::ReadOnly,
+    );
     /// Canonical first-release fee API catalog.
-    pub const ROUTES: &[RouteDescriptor] = &[QUOTE, SPONSOR_PROGRAM_BY_ID];
+    pub const ROUTES: &[RouteDescriptor] =
+        &[QUOTE, SPONSOR_PROGRAM_BY_ID, SPONSOR_ENROLLMENT_BY_ID];
 }
 /// Operator `WebAuthn` credential-registration and login descriptors.
 pub mod operator_authentication {
@@ -2405,7 +2414,11 @@ pub mod streaming {
     .with_path_policy(PathPolicy::ProtocolException {
         reason: "SSE transport endpoint; stream contract is not an ordinary resource",
     });
-    /// Contract-event SSE stream.
+    /// Call-derived contract-event SSE stream.
+    ///
+    /// Rows are projected from committed top-level `ContractCall` transactions and
+    /// the metadata consensus bound to them; contracts emit none of them, and
+    /// `provenance` is always `derived`.
     pub const CONTRACT_EVENTS_SSE: RouteDescriptor = RouteDescriptor::new(
         "contracts.events_stream_sse",
         HttpMethod::Get,
@@ -2676,6 +2689,11 @@ pub mod sumeragi {
     /// Read a self-contained bridge finality proof.
     pub const BRIDGE_FINALITY: RouteDescriptor =
         public_get("bridge.finality_proof.read", "/v1/bridge/finality/{height}");
+    /// Read at most 64 consecutive self-contained full proofs under one finite source owner.
+    pub const BRIDGE_FINALITY_INTERVAL: RouteDescriptor = public_get(
+        "bridge.finality_interval.read",
+        "/v1/bridge/finality/interval/{from}/{to}",
+    );
     /// Read a challenge-bound node-signed durable-tip finality attestation.
     pub const BRIDGE_FINALITY_ATTESTATION: RouteDescriptor = public_get(
         "bridge.finality_attestation.read",
@@ -2713,6 +2731,7 @@ pub mod sumeragi {
         PRIVATE_ROOT_REGISTRATION,
         PRIVATE_ROOT_ANCHOR,
         BRIDGE_FINALITY,
+        BRIDGE_FINALITY_INTERVAL,
         BRIDGE_FINALITY_ATTESTATION,
         BRIDGE_FINALITY_ATTESTATION_LATEST,
         BRIDGE_FINALITY_BUNDLE,
@@ -3972,9 +3991,13 @@ pub mod application_api {
             .with_admission(AdmissionPolicy::AuthenticatedAccount)
     }
     macro_rules! declare_routes {
-        ($($name:ident => $factory:ident($id:literal, $path:literal);)+) => {
+        ($(
+            $(#[doc = $doc:literal])*
+            $name:ident => $factory:ident($id:literal, $path:literal);
+        )+) => {
             $(
                 #[doc = concat!("Descriptor for `", $path, "`.")]
+                $(#[doc = $doc])*
                 pub const $name: RouteDescriptor = $factory($id, $path);
             )+
             /// Complete application API route family.
@@ -3997,21 +4020,27 @@ pub mod application_api {
         INTERNAL_ACCOUNTS_BY_ACCOUNT_ID_ASSETS_BY_ASSET_DEFINITION_ID_GET => internal_get("application.internal_accounts_by_account_id_assets_by_asset_definition_id_get", "/v1/internal/accounts/{account_id}/assets/{asset_definition_id}");
         ACCOUNTS_BY_ACCOUNT_ID_HISTORY_QUERY_POST => dataspace_post("application.accounts_by_account_id_history_query_post", "/v1/accounts/{account_id}/history/query");
         ACCOUNTS_BY_ACCOUNT_ID_TRANSACTIONS_QUERY_POST => dataspace_post("application.accounts_by_account_id_transactions_query_post", "/v1/accounts/{account_id}/transactions/query");
+        ///
+        /// Call-derived: one row per committed top-level `ContractCall`, projected from the
+        /// signed invocation and its consensus-bound metadata; contracts emit no rows here.
         CONTRACTS_ACTIVITY_QUERY_POST => dataspace_post("application.contracts_activity_query_post", "/v1/contracts/activity/query");
+        ///
+        /// Call-derived: one row per committed top-level `ContractCall`, projected from the
+        /// signed invocation and its consensus-bound metadata; contracts emit no rows here.
         CONTRACTS_EVENTS_QUERY_POST => dataspace_post("application.contracts_events_query_post", "/v1/contracts/events/query");
+        ///
+        /// Call-derived: one row per committed top-level `ContractCall`, projected from the
+        /// signed invocation and its consensus-bound metadata; contracts emit no rows here.
         CONTRACTS_ACTIVITY_GET => dataspace_get("application.contracts_activity_get", "/v1/contracts/activity");
+        ///
+        /// Native events in committed execution outputs, retaining the emitting contract,
+        /// signed declaration and execution coordinates.
         CONTRACTS_EVENTS_GET => dataspace_get("application.contracts_events_get", "/v1/contracts/events");
         CONTRACTS_ROLLUPS_SWAPS_FILLS_GET => dataspace_get("application.contracts_rollups_swaps_fills_get", "/v1/contracts/rollups/swaps/fills");
         CONTRACTS_ROLLUPS_SWAPS_CANDLES_GET => dataspace_get("application.contracts_rollups_swaps_candles_get", "/v1/contracts/rollups/swaps/candles");
         CONTRACTS_ROLLUPS_URANAI_MARKETS_HISTORY_GET => dataspace_get("application.contracts_rollups_uranai_markets_history_get", "/v1/contracts/rollups/uranai/markets/history");
         CONTRACTS_ROLLUPS_TRADER_ACTIVITY_GET => dataspace_get("application.contracts_rollups_trader_activity_get", "/v1/contracts/rollups/trader/activity");
         CONTRACTS_ROLLUPS_TRADER_ACCOUNT_GET => dataspace_get("application.contracts_rollups_trader_account_get", "/v1/contracts/rollups/trader/account");
-        CONTRACTS_ROLLUPS_INTENTS_GET => dataspace_sdk_get("application.contracts_rollups_intents_get", "/v1/contracts/rollups/intents");
-        CONTRACTS_ROLLUPS_VAULTS_POSITIONS_GET => dataspace_sdk_get("application.contracts_rollups_vaults_positions_get", "/v1/contracts/rollups/vaults/positions");
-        CONTRACTS_ROLLUPS_OPERATORS_STATUS_GET => dataspace_sdk_get("application.contracts_rollups_operators_status_get", "/v1/contracts/rollups/operators/status");
-        CONTRACTS_ROLLUPS_MARGIN_HEALTH_GET => dataspace_sdk_get("application.contracts_rollups_margin_health_get", "/v1/contracts/rollups/margin/health");
-        CONTRACTS_ROLLUPS_RWA_LOTS_GET => dataspace_sdk_get("application.contracts_rollups_rwa_lots_get", "/v1/contracts/rollups/rwa/lots");
-        CONTRACTS_ROLLUPS_DLMM_HOOKS_GET => dataspace_sdk_get("application.contracts_rollups_dlmm_hooks_get", "/v1/contracts/rollups/dlmm/hooks");
         ACCOUNTS_BY_ACCOUNT_ID_ASSETS_GET => dataspace_get("application.accounts_by_account_id_assets_get", "/v1/accounts/{account_id}/assets");
         ACCOUNTS_BY_ACCOUNT_ID_ASSETS_QUERY_POST => dataspace_post("application.accounts_by_account_id_assets_query_post", "/v1/accounts/{account_id}/assets/query");
         ACCOUNTS_BY_ACCOUNT_ID_PERMISSIONS_GET => dataspace_get("application.accounts_by_account_id_permissions_get", "/v1/accounts/{account_id}/permissions");
@@ -4387,6 +4416,10 @@ pub mod contracts_and_verification_keys {
         SORAFS_ORDERBOOK_EVENTS_WS_GET => app_unprojected_websocket_get("contracts.sorafs_orderbook_events_ws_get", "/v1/sorafs/orderbook/events/ws");
         SORAFS_RESERVE_POLICY_GET => app_account_read_sdk_get("contracts.sorafs_reserve_policy_get", "/v1/sorafs/reserve/policy");
         SORAFS_RESERVE_POLICY_PROOF_GET => app_account_read_sdk_get("contracts.sorafs_reserve_policy_proof_get", "/v1/sorafs/reserve/policy/{height}");
+        KAGEMUSHA_ENROLLMENT_POST => app_account_mutation_post("contracts.kagemusha_enrollment_post", "/v1/kagemusha/enrollment");
+        KAGEMUSHA_LOAD_ISSUANCE_GET => app_account_read_sdk_get("contracts.kagemusha_load_issuance_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}");
+        KAGEMUSHA_LOAD_FINALITY_GET => app_account_read_sdk_get("contracts.kagemusha_load_finality_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/finality");
+        KAGEMUSHA_LOAD_EPOCH_GET => app_account_read_sdk_get("contracts.kagemusha_load_epoch_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/epochs/{boundary}");
         SORAFS_RESERVE_ACCOUNT_PROOF_GET => app_account_read_sdk_get("contracts.sorafs_reserve_account_proof_get", "/v1/sorafs/reserve/providers/{provider_id}/proof/{height}");
         SORAFS_RESERVE_PROVIDERS_GET => app_account_read_sdk_get("contracts.sorafs_reserve_providers_get", "/v1/sorafs/reserve/providers");
         SORAFS_RESERVE_PROVIDERS_BY_PROVIDER_ID_HEX_GET => app_account_read_sdk_get("contracts.sorafs_reserve_providers_by_provider_id_hex_get", "/v1/sorafs/reserve/providers/{provider_id_hex}");
@@ -4601,9 +4634,22 @@ pub mod sccp {
         public_get("sccp.capabilities.read", "/v1/sccp/capabilities");
     /// Read every route with its escrow, stranded balance and revisions.
     pub const REGISTRY: RouteDescriptor = public_get("sccp.registry.read", "/v1/sccp/registry");
-    /// Read one outbound message record.
+    /// Read the status union of one message id (outbound, inbound or unknown).
     pub const MESSAGE: RouteDescriptor =
         public_get("sccp.message.read", "/v1/sccp/messages/{message_id}");
+    /// Read the newest outbound or inbound records.
+    pub const MESSAGES_RECENT: RouteDescriptor =
+        public_get("sccp.messages.recent", "/v1/sccp/messages/recent");
+    /// Read the outbound records of one route revision by nonce.
+    pub const OUTBOUND_BY_NONCE: RouteDescriptor = public_get(
+        "sccp.outbound.by_nonce",
+        "/v1/sccp/outbound/{network}/{revision}",
+    );
+    /// Read the destination controls of one route revision.
+    pub const CONTROLS: RouteDescriptor = public_get(
+        "sccp.controls.list",
+        "/v1/sccp/controls/{network}/{revision}",
+    );
     /// Assemble the attestation proof bundle of one outbound message.
     pub const MESSAGE_PROOF: RouteDescriptor =
         public_get("sccp.message.proof", "/v1/sccp/messages/{message_id}/proof");
@@ -4624,27 +4670,50 @@ pub mod sccp {
     /// Read every installed inbound light client.
     pub const LIGHT_CLIENTS: RouteDescriptor =
         public_get("sccp.light_client.list", "/v1/sccp/light-clients");
+    /// Read one inbound light client with its freshness and stored data.
+    pub const LIGHT_CLIENT: RouteDescriptor =
+        public_get("sccp.light_client.read", "/v1/sccp/light-clients/{network}");
     /// Read the stored consensus sets of one inbound light client.
     pub const LIGHT_CLIENT_SETS: RouteDescriptor = public_get(
         "sccp.light_client.sets",
         "/v1/sccp/light-clients/{network}/sets",
     );
+    /// Read the stored checkpoints anchoring a proof of one source height.
+    pub const LIGHT_CLIENT_CHECKPOINTS: RouteDescriptor = public_get(
+        "sccp.light_client.checkpoints",
+        "/v1/sccp/light-clients/{network}/checkpoints",
+    );
+    /// Read the history path of one SCCP block.
+    pub const HISTORY: RouteDescriptor =
+        public_get("sccp.history.proof", "/v1/sccp/history/{height}");
     /// Read the per-subject SCCP governance revisions.
     pub const GOVERNANCE: RouteDescriptor =
         public_get("sccp.governance.read", "/v1/sccp/governance");
     /// Read every open SCCP governance proposal with its newest Parliament attempt.
     pub const GOVERNANCE_PROPOSALS: RouteDescriptor =
         public_get("sccp.governance.proposals", "/v1/sccp/governance/proposals");
+    /// Read one SCCP governance proposal in any phase.
+    pub const GOVERNANCE_PROPOSAL: RouteDescriptor = public_get(
+        "sccp.governance.proposal",
+        "/v1/sccp/governance/proposals/{proposal_id}",
+    );
     /// Complete SCCP read route set.
     pub const ROUTES: &[RouteDescriptor] = &[
         CAPABILITIES,
         GOVERNANCE,
         GOVERNANCE_PROPOSALS,
+        GOVERNANCE_PROPOSAL,
+        HISTORY,
         LIGHT_CLIENTS,
+        LIGHT_CLIENT,
         LIGHT_CLIENT_SETS,
+        LIGHT_CLIENT_CHECKPOINTS,
         REGISTRY,
+        MESSAGES_RECENT,
         MESSAGE,
         MESSAGE_PROOF,
+        OUTBOUND_BY_NONCE,
+        CONTROLS,
         CONTROL_PROOF,
         ROSTER_CURRENT,
         ROSTER_ROTATIONS,

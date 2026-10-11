@@ -9,7 +9,7 @@ const TEXT_OPTION = "Option";
 const TEXT_NONCANONICAL_STRUCT = "noncanonical struct ";
 const TEXT_ENTRYPOINT = "entrypoint ";
 function rejectError(ErrorType, ...args) { throw new ErrorType(...args); }
-import { normalizeContractErrorTypeV1 } from "./contractErrorTypes.js";
+import { normalizeContractErrorTypeV1, normalizeContractEnumTypeV1 } from "./contractErrorTypes.js";
 import { isCanonicalKotodamaIdentifier, isCanonicalKotodamaStructName } from "./kotodamaIdentifiers.js";
 
 const TEXT_IS_NOT_ONE_COMPLETE_CANONICAL_PREFIX_TYPE_TREE = "is not one complete canonical prefix type tree";
@@ -41,33 +41,7 @@ const LEAF_TYPE_NAMES = new Map([
   ["Blob", "bytes"],
 ]);
 
-const CORE_QUERY_VIEWS = new Map([
-  ["AccountView", { fields: ["id", "metadata"], children: [(TEXT_ACCOUNTID), "Json"] }],
-  ["AssetView", { fields: ["id", "amount"], children: ["AssetId", "quantity"] }],
-  [
-    "AssetDefinitionView",
-    {
-      fields: ["id", "name", "description", "owned_by", "total_quantity", "numeric_scale", "metadata"],
-      children: [
-        (TEXT_ASSETDEFINITIONID),
-        "string",
-        (TEXT_OPTION + "<string>"),
-        (TEXT_ACCOUNTID),
-        "quantity",
-        "Option<int>",
-        "Json",
-      ],
-    },
-  ],
-  [
-    "DomainView",
-    { fields: ["id", "owned_by", "metadata"], children: ["DomainId", (TEXT_ACCOUNTID), "Json"] },
-  ],
-  [
-    "NftView",
-    { fields: ["id", "owned_by", "content"], children: ["NftId", (TEXT_ACCOUNTID), "Json"] },
-  ],
-]);
+import { CORE_QUERY_VIEWS } from "./kotodamaProducts.js";
 
 function fail(context, message) {
   rejectError(TypeError, `${context} ${message}`);
@@ -125,6 +99,7 @@ function childCount(node, context) {
     case "Leaf":
     case "Unit":
     case "Error":
+    case "Enum":
     case (TEXT_STATECURSOR):
       return 0;
     default:
@@ -141,7 +116,7 @@ function validateNode(node, context) {
     case "Struct": {
       requireExactKeys(node.value, ["name", "fields"], `${context}.value`);
       const reservedSchemaName =
-        CORE_QUERY_VIEWS.has(node.value.name) || node.value.name === "QueryPage" || node.value.name === "StatePage";
+        CORE_QUERY_VIEWS.has(node.value.name) || node.value.name === "kotodama::QueryPage" || node.value.name === "kotodama::StatePage";
       if (
         (!reservedSchemaName &&
           !isCanonicalKotodamaStructName(node.value.name)) ||
@@ -190,9 +165,12 @@ function validateNode(node, context) {
     case "Error":
       normalizeContractErrorTypeV1(node.value, `${context}.value`);
       break;
+    case "Enum":
+      normalizeContractEnumTypeV1(node.value, `${context}.value`);
+      break;
     case (TEXT_STATECURSOR):
-      if (node.value?.kind === "Json") fail(context, "cannot use Json cursor keys");
-      // Cursor schemas carry one exact scalar key-kind descriptor.
+      analyzeStateKeyTypeV1(node.value, `${context}.value`);
+      break;
     case "Leaf": {
       requireExactKeys(node.value, ["kind", "value"], `${context}.value`);
       if (!LEAF_TYPE_NAMES.has(node.value.kind) || node.value.value !== null) {
@@ -203,6 +181,16 @@ function validateNode(node, context) {
     default:
       fail(`${context}.kind`, TEXT_IS_NOT_A_V1_ENTRYPOINT_VALUE_TYPE_NODE);
   }
+}
+
+/** Validate one complete scalar or nested-tuple map-key schema. */
+export function analyzeStateKeyTypeV1(value, context = "state key schema") {
+  requireExactKeys(value, ["nodes"], context);
+  if (!isArray(value.nodes) || value.nodes.length === 0 || value.nodes.length > MAX_ENTRYPOINT_TYPE_NODES_V1 ||
+      value.nodes.some((node) => node?.kind !== "Tuple" && !(node?.kind === "Leaf" && node.value?.kind !== "Json"))) {
+    fail(context, "requires only scalar keys or nested tuples");
+  }
+  return analyzeEntrypointValueTypeV1(value, context);
 }
 
 /**
@@ -226,6 +214,7 @@ export function analyzeEntrypointValueTypeV1(value, context = (TEXT_ENTRYPOINT +
   const frames = [];
   let wordCount = 0;
   let maxDepth = 0;
+  let nodeCount = value.nodes.length;
   value.nodes.forEach((node, index) => {
     while (frames[frames.length - 1]?.remaining === 0) {
       frames.pop();
@@ -244,6 +233,12 @@ export function analyzeEntrypointValueTypeV1(value, context = (TEXT_ENTRYPOINT +
       fail(context, "exceeds the V1 recursive type depth");
     }
     maxDepth = Math.max(maxDepth, depth);
+    if (node.kind === TEXT_STATECURSOR) {
+      const key = analyzeStateKeyTypeV1(node.value, `${context}.cursorKey`);
+      nodeCount += key.nodeCount;
+      maxDepth = Math.max(maxDepth, depth + key.maxDepth);
+      if (nodeCount > MAX_ENTRYPOINT_TYPE_NODES_V1 || maxDepth > MAX_ENTRYPOINT_TYPE_DEPTH_V1) fail(context, "exceeds the shared cursor key schema budget");
+    }
 
     const handle = node.kind === (TEXT_OPTION) || node.kind === "Result" || node.kind === "List";
     const children = childCount(node, `${context}.nodes[${index}]`);
@@ -284,15 +279,15 @@ export function analyzeEntrypointValueTypeV1(value, context = (TEXT_ENTRYPOINT +
           ) {
             fail(context, (TEXT_CONTAINS_A + "forged reserved query-view schema"));
           }
-          result = { canonicalName: node.value.name, coreView: node.value.name };
-        } else if (node.value.name === "StatePage") {
+          result = { canonicalName: node.value.name.slice("kotodama::".length), coreView: node.value.name.slice("kotodama::".length) };
+        } else if (node.value.name === "kotodama::StatePage") {
           const [items, next] = childValues;
           const pair = items?.elementChildren;
-          if (stringify(node.value.fields) !== stringify(["items", "next"]) || items?.kind !== "List" || pair?.length !== 2 || !pair[0].scalarKind || pair[0].scalarKind === "Json" || next?.canonicalName !== `${TEXT_OPTION}<${TEXT_STATECURSOR}<${pair[0].canonicalName}>>`) {
+          if (stringify(node.value.fields) !== stringify(["items", "next"]) || items?.kind !== "List" || pair?.length !== 2 || !pair[0].stateKey || next?.canonicalName !== `${TEXT_OPTION}<${TEXT_STATECURSOR}<${pair[0].canonicalName}>>`) {
             fail(context, (TEXT_CONTAINS_A + "forged StatePage schema"));
           }
           result = { canonicalName: `StatePage<${pair[0].canonicalName}, ${pair[1].canonicalName}, ${items.capacity}>` };
-        } else if (node.value.name === "QueryPage") {
+        } else if (node.value.name === "kotodama::QueryPage") {
           const [items, nextOffset] = childValues;
           if (
             stringify(node.value.fields) !== stringify(["items", "next_offset"]) ||
@@ -313,6 +308,7 @@ export function analyzeEntrypointValueTypeV1(value, context = (TEXT_ENTRYPOINT +
         result = {
           canonicalName: `(${childValues.map((child) => child.canonicalName).join(", ")})`,
           tupleChildren: childValues,
+          stateKey: childValues.every((child) => child.stateKey),
         };
         break;
       case (TEXT_OPTION):
@@ -333,16 +329,17 @@ export function analyzeEntrypointValueTypeV1(value, context = (TEXT_ENTRYPOINT +
         };
         break;
       case (TEXT_STATECURSOR):
-        result = { canonicalName: `${TEXT_STATECURSOR}<${LEAF_TYPE_NAMES.get(node.value.kind)}>` };
+        result = { canonicalName: `${TEXT_STATECURSOR}<${analyzeStateKeyTypeV1(node.value, context).canonicalName}>` };
         break;
       case "Unit":
         result = { canonicalName: "()" };
         break;
       case "Error":
+      case "Enum":
         result = { canonicalName: node.value.identity };
         break;
       case "Leaf":
-        result = { canonicalName: LEAF_TYPE_NAMES.get(node.value.kind), scalarKind: node.value.kind };
+        result = { canonicalName: LEAF_TYPE_NAMES.get(node.value.kind), stateKey: node.value.kind !== "Json" };
         break;
       default:
         fail(context, "contains an unsupported V1 type node");
@@ -353,7 +350,7 @@ export function analyzeEntrypointValueTypeV1(value, context = (TEXT_ENTRYPOINT +
     fail(`${context}.nodes`, TEXT_IS_NOT_ONE_COMPLETE_CANONICAL_PREFIX_TYPE_TREE);
   }
   return {
-    nodeCount: value.nodes.length,
+    nodeCount,
     maxDepth,
     wordCount,
     canonicalName: rendered[0].canonicalName,

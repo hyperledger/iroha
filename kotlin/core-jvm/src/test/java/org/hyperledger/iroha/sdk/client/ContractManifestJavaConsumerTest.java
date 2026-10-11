@@ -27,7 +27,7 @@ final class ContractManifestJavaConsumerTest {
 
   @Test
   void assetDefinitionPrecisionUsesTheKotlinOwnedSevenFieldSchema() {
-    String prefix = "{\"kind\":\"Struct\",\"value\":{\"name\":\"AssetDefinitionView\","
+    String prefix = "{\"kind\":\"Struct\",\"value\":{\"name\":\"kotodama::AssetDefinitionView\","
         + "\"fields\":[\"id\",\"name\",\"description\",\"owned_by\",\"total_quantity\",\"numeric_scale\",\"metadata\"]}},";
     String option = "{\"kind\":\"Option\",\"value\":null},";
     String children = leaf("AssetDefinitionId") + "," + leaf("String") + ","
@@ -52,8 +52,8 @@ final class ContractManifestJavaConsumerTest {
   }
 
   private static EntrypointValueTypeV1 parseDefinitionSchema(String nodes) {
-    String payload = "{\"manifest\":{\"entrypoints\":[{\"name\":\"inspect\","
-        + "\"kind\":{\"kind\":\"View\",\"value\":null},\"params\":[],"
+    String payload = "{\"manifest\":{\"permissions\":[],\"events\":[],\"enum_types\":[],\"entrypoints\":[{\"name\":\"inspect\","
+        + "\"kind\":{\"kind\":\"View\",\"value\":null},\"authorization\":{\"kind\":\"Anyone\",\"value\":null},\"params\":[],"
         + "\"return_type\":\"AssetDefinitionView\",\"return_schema\":{\"nodes\":[" + nodes + "]}}]}}";
     return parseManifestFixture(payload.getBytes(StandardCharsets.UTF_8))
         .manifest.entrypoints.get(0).returnSchema;
@@ -79,7 +79,7 @@ final class ContractManifestJavaConsumerTest {
     EntrypointValueTypeV1 cursor = manifest.entrypoints.get(1).returnSchema;
     assertEquals("Option<StateCursor<int>>", cursor.canonicalTypeName);
     assertEquals(EntrypointValueTypeNodeKindV1.STATE_CURSOR, cursor.nodes.get(1).kind);
-    assertEquals(EntrypointValueKindV1.INT, cursor.nodes.get(1).leafKind);
+    assertEquals(EntrypointValueKindV1.INT, cursor.nodes.get(1).cursorKeySchema.nodes.get(0).leafKind);
     assertEquals(1, cursor.wordCount);
     assertEquals("StatePage<int, bool, 8>", manifest.entrypoints.get(2).returnSchema.canonicalTypeName);
     assertEquals(2, manifest.entrypoints.get(2).returnSchema.wordCount);
@@ -91,9 +91,9 @@ final class ContractManifestJavaConsumerTest {
         "\"type_name\": \"Result<(), missing/vault@1.0.0::金庫::拒否>\"");
     assertThrows(IllegalStateException.class, () -> parseManifestFixture(
         stateOnlyUnknown.getBytes(StandardCharsets.UTF_8)));
-    for (String forged : new String[] {"StatePage{anything: int}", "StatePage{items: List<(int, bool), 8>, next: Option<StateCursor<bool>>}"}) {
+    for (String forged : new String[] {"kotodama::StatePage{anything: int}", "kotodama::StatePage{items: List<(int, bool), 8>, next: Option<StateCursor<bool>>}"}) {
       assertThrows(IllegalStateException.class, () -> parseManifestFixture(payload.replace(
-          "StatePage{items: List<(int, bool), 8>, next: Option<StateCursor<int>>}", forged).getBytes(StandardCharsets.UTF_8)));
+          "kotodama::StatePage{items: List<(int, bool), 8>, next: Option<StateCursor<int>>}", forged).getBytes(StandardCharsets.UTF_8)));
     }
   }
 
@@ -111,7 +111,7 @@ final class ContractManifestJavaConsumerTest {
       resultNodes.add(intNode);
     }
     String tupleType = "(" + String.join(", ", Collections.nCopies(14, "int")) + ")";
-    String payload = "{\"manifest\":{\"entrypoints\":[{\"name\":\"wide\",\"kind\":{\"kind\":\"View\",\"value\":null},\"params\":["
+    String payload = "{\"manifest\":{\"permissions\":[],\"events\":[],\"enum_types\":[],\"entrypoints\":[{\"name\":\"wide\",\"kind\":{\"kind\":\"View\",\"value\":null},\"authorization\":{\"kind\":\"Anyone\",\"value\":null},\"params\":["
         + String.join(",", parameters) + "],\"argument_schema\":{\"fields\":["
         + String.join(",", fields) + "]},\"return_type\":\"" + tupleType
         + "\",\"return_schema\":{\"nodes\":[" + String.join(",", resultNodes) + "]}}]}}";
@@ -126,7 +126,7 @@ final class ContractManifestJavaConsumerTest {
       if (index > 0) overLimitParameters.append(',');
       overLimitParameters.append("{\"name\":\"p").append(index).append("\",\"type_name\":\"int\"}");
     }
-    String overLimit = "{\"manifest\":{\"entrypoints\":[{\"name\":\"wide\",\"kind\":{\"kind\":\"View\",\"value\":null},\"params\":["
+    String overLimit = "{\"manifest\":{\"permissions\":[],\"events\":[],\"enum_types\":[],\"entrypoints\":[{\"name\":\"wide\",\"kind\":{\"kind\":\"View\",\"value\":null},\"authorization\":{\"kind\":\"Anyone\",\"value\":null},\"params\":["
         + overLimitParameters + "],\"return_type\":\"()\",\"return_schema\":{\"nodes\":[{\"kind\":\"Unit\",\"value\":null}]}}]}}";
     IllegalStateException error = assertThrows(IllegalStateException.class, () ->
         parseManifestFixture(overLimit.getBytes(StandardCharsets.UTF_8)));
@@ -137,7 +137,7 @@ final class ContractManifestJavaConsumerTest {
   void javaConsumerUsesExactDynamicHintsAndEmptyProductGrammar() {
     String hint = "{\"base_key\":\"state:Balances\",\"key_type\":\"AccountId\","
         + "\"bound_kind\":\"take\",\"max_keys\":1}";
-    String prefix = "{\"manifest\":{\"access_set_hints\":{\"read_keys\":[],\"write_keys\":[],"
+    String prefix = "{\"manifest\":{\"permissions\":[],\"events\":[],\"enum_types\":[],\"access_set_hints\":{\"read_keys\":[],\"write_keys\":[],"
         + "\"dynamic_reads\":[";
     String suffix = "],\"dynamic_writes\":[]},\"states\":[{\"name\":\"Balances\","
         + "\"type_name\":\"StateMap<AccountId, quantity>\"}]}}";
@@ -151,12 +151,12 @@ final class ContractManifestJavaConsumerTest {
         (prefix + hint.replace("state:Balances", "state:Missing") + suffix)
             .getBytes(StandardCharsets.UTF_8)));
 
-    String statePrefix = "{\"manifest\":{\"states\":[{\"name\":\"Stored\",\"type_name\":\"";
+    String statePrefix = "{\"manifest\":{\"permissions\":[],\"events\":[],\"enum_types\":[],\"states\":[{\"name\":\"Stored\",\"type_name\":\"";
     String stateSuffix = "\"}]}}";
     ContractManifest emptyProduct = parseManifestFixture(
-        (statePrefix + "Transfer{}" + stateSuffix).getBytes(StandardCharsets.UTF_8)).manifest;
-    assertEquals("Transfer{}", emptyProduct.states.get(0).typeName);
+        (statePrefix + "Fixture::Transfer{}" + stateSuffix).getBytes(StandardCharsets.UTF_8)).manifest;
+    assertEquals("Fixture::Transfer{}", emptyProduct.states.get(0).typeName);
     assertThrows(IllegalStateException.class, () -> parseManifestFixture(
-        (statePrefix + "Transfer{ }" + stateSuffix).getBytes(StandardCharsets.UTF_8)));
+        (statePrefix + "Fixture::Transfer{ }" + stateSuffix).getBytes(StandardCharsets.UTF_8)));
   }
 }

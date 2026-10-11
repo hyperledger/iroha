@@ -162,7 +162,7 @@ export const SM2_PRIVATE_KEY_LENGTH: number;
 export const SM2_PUBLIC_KEY_LENGTH: number;
 export const SM2_SIGNATURE_LENGTH: number;
 export const SM2_DEFAULT_DISTINGUISHED_ID: string;
-export const PRIVACY_REQUIRED_BRIDGE_ABI_VERSION: 25;
+export const PRIVACY_REQUIRED_BRIDGE_ABI_VERSION: 29;
 
 export interface SignedTransactionResult {
   /** Exact canonical VersionedSignedTransaction V1 bytes. */
@@ -848,7 +848,7 @@ export type BinaryLike =
 export type VerifyingKeyIdLike = string | { backend: string; name: string };
 
 /** Exact JSON labels for the two generic OpenVerify engines in Norito order. */
-export type OpenVerifyBackendTag = "halo2-ipa-pasta" | "stark";
+export type OpenVerifyBackendTag = "native-pipa-r-pasta" | "stark";
 
 export interface OpenVerifyEnvelope {
   backend: OpenVerifyBackendTag;
@@ -985,12 +985,11 @@ export function extractConfidentialGasConfig(
 export interface ContractEventStreamOptions {
   authority?: string;
   contractAddress?: string;
-  contractAlias?: string;
-  module?: string;
   eventKind?: string;
   participant?: string;
   assetId?: string;
-  provenance?: string;
+  /** Only committed native emissions appear in contract event history. */
+  provenance?: "emitted";
   sinceTimestampMs?: NumericLike;
   untilTimestampMs?: NumericLike;
   resultOk?: boolean;
@@ -1020,15 +1019,13 @@ export interface ToriiBrowserContractEventStreamOptions {
   authority?: string;
   contractAddress?: string;
   contract_address?: string;
-  contractAlias?: string;
-  contract_alias?: string;
-  module?: string;
   eventKind?: string;
   event_kind?: string;
   participant?: string;
   assetId?: string;
   asset_id?: string;
-  provenance?: "emitted" | "derived";
+  /** Only committed native emissions appear in contract event history. */
+  provenance?: "emitted";
   sinceTimestampMs?: NumericLike;
   since_timestamp_ms?: NumericLike;
   untilTimestampMs?: NumericLike;
@@ -1385,13 +1382,7 @@ export interface IdentifierPolicyListResponse {
   items: ReadonlyArray<IdentifierPolicySummary>;
 }
 
-export type IdentifierPolicyClientSummary = Omit<
-  IdentifierPolicySummary,
-  "program_id" | "output_opening_public_key"
-> &
-  Partial<
-    Pick<IdentifierPolicySummary, "program_id" | "output_opening_public_key">
-  >;
+export type IdentifierPolicyClientSummary = IdentifierPolicySummary;
 
 export interface RamLfeOutputOpeningPayload {
   program_id: string;
@@ -1434,7 +1425,9 @@ export interface RamLfeExecutionReceipt {
 }
 
 export interface RamLfeExecuteOptions {
-  encryptedInput: string;
+  normalizedInput: string;
+  /** Exact nonzero lowercase raw32 nonce retained privately for the exchange. */
+  inputNonce: string;
   signal?: AbortSignal;
   canonicalAuth: CanonicalRequestAuth;
 }
@@ -1443,25 +1436,75 @@ export interface RamLfeExecuteResponse {
   program_id: string;
   opaque_hash: string;
   receipt_hash: string;
-  output_ciphertext: string;
+  /** Original full native ProgramId frame, uppercase hex, at most 4096 bytes. DATA only. */
+  program_id_canonical: string;
+  /** Current opaque32 owner output, exact uppercase hex. */
+  opaque_output: string;
   output_hash: string;
   associated_data_hash: string;
   executed_at_ms: number;
-  expires_at_ms: number | null;
-  backend: RamLfeBackend;
-  verification_mode: RamLfeVerificationMode;
+  expires_at_ms: number;
+  backend: "hkdf-sha3-512-prf-v1";
+  verification_mode: "signed";
   receipt: RamLfeExecutionReceipt;
 }
 
-export interface IdentifierResolutionRequestOptions {
+/** Exact original Model carrier from prepare. Public receipts use flat RamLfeOutputOpening. */
+export interface IdentifierOriginalOutputOpening {
+  payload: {
+    program_id: { name: string };
+    input_ciphertext_hash: string;
+    output_ciphertext_hash: string;
+    parameter_digest: string;
+    evaluation_key_digest: string;
+    opened_output_hash: string;
+    opened_at_ms: number;
+    expires_at_ms: number;
+  };
+  /** Exact uppercase Model signature bytes. */
+  signature: string;
+}
+export interface PhoneRetailCanonicalityPayloadV1 {
+  network_id: string;
+  policy_id: { kind: "phone"; business_rule: "retail" };
+  program_id: { name: "phone_retail" };
+  input_ciphertext_hash: string;
+  output_ciphertext_hash: string;
+  opened_output_hash: string;
+  canonical_phone_nullifier: string;
+  uaid: readonly [string];
+  account_id: string;
+  issued_at_ms: number;
+  expires_at_ms: number;
+}
+export interface PhoneRetailCanonicalityAttestationV1 {
+  payload: PhoneRetailCanonicalityPayloadV1;
+  signature: string;
+}
+export interface IdentifierPrepareRequestOptions {
   policyId: string;
-  encryptedInput: string;
-  outputOpening: RamLfeOutputOpening;
+  normalizedInput: string;
+  inputNonce: string;
   signal?: AbortSignal;
   canonicalAuth: CanonicalRequestAuth;
 }
+export interface IdentifierPrepareResponse {
+  network_id: string;
+  policy_id: string;
+  account_id: string;
+  uaid: string;
+  output_opening: IdentifierOriginalOutputOpening;
+  /** Unsigned input for the independent pinned phone attestor. */
+  phone_retail_canonicality_payload?: PhoneRetailCanonicalityPayloadV1;
+}
+export interface IdentifierResolutionRequestOptions extends IdentifierPrepareRequestOptions {
+  outputOpening: IdentifierOriginalOutputOpening;
+  phoneRetailCanonicality?: PhoneRetailCanonicalityAttestationV1;
+}
 
 export interface IdentifierResolutionReceiptPayload {
+  /** Exact genesis hash as mandatory lowercase raw32 hexadecimal, signed first. */
+  network_id: string;
   policy_id: string;
   execution: RamLfeExecutionReceiptPayload;
   opening: RamLfeOutputOpening;
@@ -1474,6 +1517,7 @@ export interface IdentifierResolutionReceiptPayload {
 export interface IdentifierResolutionReceipt {
   payload: IdentifierResolutionReceiptPayload;
   attestation: RamLfeReceiptAttestation;
+  phone_retail_canonicality?: PhoneRetailCanonicalityAttestationV1;
 }
 
 export interface IdentifierClaimLookupResponse {
@@ -1535,25 +1579,39 @@ export interface ToriiContractActivityItem {
   fee_payment?: NoritoFeePaymentIntent;
 }
 
+export type ContractValueAtomV1 =
+  | { kind: "Tag" | "Bool"; value: boolean }
+  | { kind: "Pointer"; value: ReadonlyArray<number> }
+  | { kind: "List" | "ErrorCode" | "EnumCode"; value: number }
+  | { kind: "Unit"; value: null };
+export interface ContractEmissionV1 {
+  contract: string;
+  code_hash: string;
+  entrypoint: number;
+  event: number;
+  caller: string;
+  definition: ContractEventDescriptorV1;
+  payload: { schema_hash: ReadonlyArray<number>; atoms: ReadonlyArray<ContractValueAtomV1> };
+}
 export interface ToriiContractEventItem {
-  block_index: number;
   event_id: string;
   schema_version: number;
-  provenance: "emitted" | "derived";
-  authority?: string;
+  provenance: "emitted";
+  authority: string;
   timestamp_ms?: number;
-  tx_hash_hex: string;
+  execution_hash_hex: string;
   block_height: number;
   block_hash_hex: string;
-  result_ok: boolean;
+  output_index: number;
+  emission_index: number;
+  result_ok: true;
   contract_address: string;
-  contract_alias?: string;
-  module: string;
   event_kind: string;
   participants?: ReadonlyArray<string>;
   asset_ids?: ReadonlyArray<string>;
   numeric_fields?: JsonValue;
-  payload?: JsonValue;
+  payload: JsonValue;
+  emission: ContractEmissionV1;
   fee_payment?: NoritoFeePaymentIntent;
 }
 
@@ -1623,16 +1681,16 @@ export type ToriiVerifyingKeyStatus = "Proposed" | "Active" | "Withdrawn";
 
 /** Exact verifier-registry labels admitted by the native Rust dispatcher. */
 export type ToriiVerifierBackendLabelV1 =
-  | "halo2/ipa"
-  | "halo2/pasta/kaigi-authorization-v1"
-  | "halo2/pasta/kaigi-usage-v1"
-  | "halo2/pasta/confidential-transfer-2x2-merkle16-axiom-poseidon-v3"
-  | "halo2/pasta/confidential-unshield-full-merkle16-axiom-poseidon-v3"
-  | "halo2/pasta/confidential-unshield-change-merkle16-axiom-poseidon-v4"
+  | "pipa-r/pasta"
+  | "pipa-r/pasta/kaigi-authorization-v1"
+  | "pipa-r/pasta/kaigi-usage-v1"
+  | "pipa-r/pasta/confidential-transfer-v1"
+  | "pipa-r/pasta/confidential-unshield-full-v1"
+  | "pipa-r/pasta/confidential-unshield-change-v1"
   | "stark/fri/poseidon-x7-goldilocks-6x64-v1";
 
 /** Canonical low-level proof-engine label stored in a verifier record. */
-export type ToriiVerifierEngineLabelV1 = "halo2-ipa-pasta" | "stark";
+export type ToriiVerifierEngineLabelV1 = "native-pipa-r-pasta" | "stark";
 
 export interface ToriiVerifyingKeyInline {
   backend: ToriiVerifierBackendLabelV1;
@@ -3157,14 +3215,18 @@ export class ToriiDataModelMismatchError extends Error {
 }
 
 export interface IdentifierRequestForPolicyOptions {
-  encryptedInput: string;
-  outputOpening: RamLfeOutputOpening;
+  normalizedInput: string;
+  inputNonce: string;
+  outputOpening: IdentifierOriginalOutputOpening;
+  phoneRetailCanonicality?: PhoneRetailCanonicalityAttestationV1;
+  networkId: NetworkId;
 }
-
 export interface IdentifierRequestForPolicy {
   policyId: string;
-  encryptedInput: string;
-  outputOpening: RamLfeOutputOpening;
+  normalizedInput: string;
+  inputNonce: string;
+  outputOpening: IdentifierOriginalOutputOpening;
+  phoneRetailCanonicality?: PhoneRetailCanonicalityAttestationV1;
 }
 
 export function encodeIdentifierResolutionReceiptPayload(payload: unknown): Buffer;
@@ -3189,9 +3251,11 @@ export function buildIdentifierRequestForPolicy(
   policySummary: IdentifierPolicyClientSummary,
   options: IdentifierRequestForPolicyOptions,
 ): IdentifierRequestForPolicy;
+/** Verify the resolver signature for an independently selected network. Core admission also checks policy, opener and independent phone authority. */
 export function verifyIdentifierResolutionReceipt(
   receipt: IdentifierResolutionReceipt,
   policySummary: IdentifierPolicyClientSummary,
+  intendedNetwork: NetworkId,
 ): boolean;
 
 type IrohaJsPublicApi = typeof import("./index.js");
@@ -4328,6 +4392,7 @@ export interface ToriiGovernanceContractLifecycle {
   pending_owner: string | null;
   parliament_delegated: boolean;
   active_code_hash_hex: string | null;
+  retained_code_hash_hex: string | null;
   revision: ToriiU64;
   emergency_hold: ToriiGovernanceContractEmergencyHold | null;
 }
@@ -6586,6 +6651,8 @@ interface RegisterAssetDefinitionAndMintInputBase {
     name: string;
     /** Immutable ownership intent; null means intentionally unowned global. */
     owningDomain: string | null;
+    /** Explicit direct namespace; owningDomain must be null when present. */
+    owningDataspace?: number | string | bigint;
     metadata?: object;
     mintable?: string;
     logo?: string | null;
@@ -7077,8 +7144,9 @@ export type ContractEntrypointValueTypeNode =
   | { kind: "List"; value: ContractEntrypointListTypeNode }
   | { kind: "Leaf"; value: ContractEntrypointValueKindRecord }
   | { kind: "Unit"; value: null }
-  | { kind: "StateCursor"; value: ContractEntrypointValueKindRecord }
-  | { kind: "Error"; value: ContractErrorTypeDescriptorRecord };
+  | { kind: "StateCursor"; value: ContractEntrypointValueType }
+  | { kind: "Error"; value: ContractErrorTypeDescriptorRecord }
+  | { kind: "Enum"; value: ContractEnumTypeDescriptorRecord };
 
 export interface ContractEntrypointValueType {
   nodes: ReadonlyArray<ContractEntrypointValueTypeNode>;
@@ -7116,6 +7184,16 @@ export interface ContractTriggerDescriptorInput {
   callback: ContractTriggerCallbackInput;
 }
 
+/** Exact authorization encoded in every current entrypoint descriptor. */
+export type EntrypointAuthorizationV1 =
+  | { kind: "Anyone"; value: null }
+  | { kind: "Permission"; value: string }
+  | { kind: "RuntimeLifecycle"; value: null };
+export type ContractPermissionScopeV1 =
+  | { kind: "Instance"; value: null }
+  | { kind: "Chain"; value: { permission_name: string } };
+export interface ContractPermissionDescriptorV1 { name: string; scope: ContractPermissionScopeV1; }
+
 export interface ContractEntrypointInput {
   name: string;
   kind: ContractEntrypointKind | ContractEntrypointKindRecord;
@@ -7124,7 +7202,7 @@ export interface ContractEntrypointInput {
   /** Every entrypoint returns a value; Unit uses `()` and a Unit schema. */
   returnType: string;
   returnSchema: ContractEntrypointValueType;
-  permission?: string | null;
+  authorization: EntrypointAuthorizationV1;
   readKeys?: ReadonlyArray<string>;
   writeKeys?: ReadonlyArray<string>;
   accessHintsComplete?: boolean | null;
@@ -7137,6 +7215,18 @@ export type ContractStateDescriptorInput = {
 } & ContractRequiredAliasPair<"typeName", "type_name", string>;
 
 export interface ContractErrorMessage { error_type: string; code: number; message: string; }
+
+/** Ordinary enum codes are schema-local and never represent runtime error codes. */
+export interface ContractEnumVariantDescriptorInput { name: string; code: NumericLike; }
+export interface ContractEnumTypeDescriptorInput {
+  identity: string;
+  variants: ReadonlyArray<ContractEnumVariantDescriptorInput>;
+}
+export interface ContractEventDescriptorV1 {
+  name: string;
+  /** Exact named Struct root; Json and StateCursor payload fields are prohibited. */
+  payload_type: ContractEntrypointValueType;
+}
 
 export interface ContractErrorVariantDescriptorInput { name: string; code: NumericLike; }
 export interface ContractErrorTypeDescriptorInput {
@@ -7165,6 +7255,9 @@ export interface ContractManifestProvenanceInput {
 }
 
 export interface ContractManifestInput {
+  permissions: ReadonlyArray<ContractPermissionDescriptorV1>;
+  events: ReadonlyArray<ContractEventDescriptorV1>;
+  enumTypes: ReadonlyArray<ContractEnumTypeDescriptorInput>;
   seiyakuName?: string | null;
   codeHash?: HashLike | null;
   abiHash?: HashLike | null;
@@ -7185,6 +7278,9 @@ export interface ContractManifestInput {
  * binary buffers are rejected at runtime.
  */
 export interface ToriiContractManifestInput {
+  permissions: ReadonlyArray<ContractPermissionDescriptorV1>;
+  events: ReadonlyArray<ContractEventDescriptorV1>;
+  enumTypes: ReadonlyArray<ContractEnumTypeDescriptorInput>;
   seiyakuName?: string | null;
   codeHash?: string | null;
   abiHash?: string | null;
@@ -7236,6 +7332,8 @@ export interface ContractCallRequest {
   contractAlias?: string;
   entrypoint: string;
   payload?: unknown;
+  /** Signed entrypoint argument schema used locally before payload hashing and request signing. */
+  argumentSchema?: ContractEntrypointArgumentSchema | null;
   metadata?: Record<string, JsonValue>;
   creationTimeMs?: NumericLike | null;
   creation_time_ms?: NumericLike | null;
@@ -7277,6 +7375,16 @@ export interface ContractCallSimulateRequest {
   gas_limit?: NumericLike;
 }
 
+/** Deterministic execution fault bound to its originating artifact and invocation. */
+export interface IvmFaultV1 {
+  kind: {kind: "OutOfGas" | "MemoryLimitExceeded" | "MemoryAccessViolation" | "MisalignedAccess" | "MemoryOutOfBounds" | "DecodeError" | "InvalidOpcode" | "UnknownSyscall" | "UnsupportedSyscall" | "GasCostOverflow" | "AssertionFailed" | "ExceededMaxCycles" | "InvalidMetadata" | "InvalidVectorLength" | "MissingHalt" | "VectorExtensionDisabled" | "ZkExtensionDisabled" | "NullifierAlreadyUsed" | "PermissionDenied" | "PrivacyViolation" | "RegisterOutOfBounds" | "NoritoInvalid" | "AbiTypeNotAllowed" | "HostOutputItemsExceeded" | "HostOutputBytesExceeded" | "AmxBudgetExceeded" | "ReentrantCall" | "CallDepthExceeded"; value: null} | {kind: "Numeric"; value: {kind: "MantissaOverflow" | "ScaleOverflow" | "DivisionByZero" | "RepeatingDecimal" | "ExactDivisionScaleOverflow" | "InvalidScale" | "InexactConversion" | "NegativeQuantity" | "QuantityUnderflow" | "InvalidRoundingMode" | "InvalidFailureMode" | "ReservedRegisterNonZero" | "NegativeSquareRoot"; value: null}} | {kind: "PointerAbi"; value: {kind: "InvalidAddress" | "UnknownType" | "TypeNotAllowed" | "WrongType" | "InvalidEnvelopeVersion" | "OversizedLength" | "TruncatedEnvelope" | "PayloadHashMismatch" | "MalformedFrame" | "SchemaMismatch" | "NonCanonical"; value: null}};
+  site: {
+    code_hash: string;
+    selector: {kind: "Generic"; value: null} | {kind: "Entrypoint"; value: number};
+    position: {kind: "Initialization" | "ReturnValidation"; value: null} | {kind: "Execute"; value: {pc_offset: number}};
+  };
+}
+
 export interface ContractCallSimulateResponse {
   ok: boolean;
   dataspace: string;
@@ -7291,6 +7399,7 @@ export interface ContractCallSimulateResponse {
   result: JsonValue | null;
   error: string | null;
   vm_diagnostic: JsonValue | null;
+  fault: IvmFaultV1 | null;
 }
 
 export interface ContractManifestRecord {
@@ -7324,6 +7433,9 @@ export interface ContractManifestRecord {
           }>;
         }
       | null;
+    permissions: ReadonlyArray<ContractPermissionDescriptorV1>;
+    events: ReadonlyArray<ContractEventDescriptorV1>;
+    enum_types: ReadonlyArray<ContractEnumTypeDescriptorRecord>;
     entrypoints: ReadonlyArray<ContractEntrypointRecord> | null;
     states: ReadonlyArray<ContractStateDescriptorRecord> | null;
     error_types: ReadonlyArray<ContractErrorTypeDescriptorRecord> | null;
@@ -7356,7 +7468,7 @@ export interface ContractEntrypointRecord {
   argument_schema: ContractEntrypointArgumentSchema | null;
   return_type: string;
   return_schema: ContractEntrypointValueType;
-  permission: string | null;
+  authorization: EntrypointAuthorizationV1;
   read_keys: ReadonlyArray<string>;
   write_keys: ReadonlyArray<string>;
   access_hints_complete: boolean | null;
@@ -7367,6 +7479,12 @@ export interface ContractEntrypointRecord {
 export interface ContractStateDescriptorRecord {
   name: string;
   type_name: string;
+}
+
+export interface ContractEnumVariantDescriptorRecord { name: string; code: number; }
+export interface ContractEnumTypeDescriptorRecord {
+  identity: string;
+  variants: ReadonlyArray<ContractEnumVariantDescriptorRecord>;
 }
 
 export interface ContractErrorVariantDescriptorRecord { name: string; code: number; }
@@ -9037,6 +9155,8 @@ export interface SubmitTransactionAndWaitOptions
 
 /** `details` of Torii's `{"code", "message", "details"}` error envelope. */
 export interface ToriiErrorDetails {
+  /** Canonical deterministic runtime fault when the HTTP error arose from IVM execution. */
+  readonly ivm_fault?: IvmFaultV1 | null;
   /** The request control at fault (`filter`, `sort`, `select`, ...). */
   readonly field?: string;
   /** The data field at fault, when there is one. */
@@ -9601,6 +9721,8 @@ export interface ToriiAssetDefinitionRow extends ToriiCollectionRowExtras {
   readonly alias?: string | null;
   readonly owned_by?: string | null;
   readonly owning_domain?: string | null;
+  /** Exact immutable direct namespace as canonical nonzero u64 decimal text. */
+  readonly owning_dataspace?: string | null;
   readonly mintable?: string | null;
   readonly description?: string | null;
   readonly logo?: string | null;
@@ -10351,6 +10473,10 @@ export declare class ToriiClient {
     receiptHash: string,
     options?: { signal?: AbortSignal },
   ): Promise<IdentifierClaimLookupResponse | null>;
+  prepareIdentifierClaimReceipt(
+    accountId: string,
+    options: IdentifierPrepareRequestOptions,
+  ): Promise<IdentifierPrepareResponse | null>;
   issueIdentifierClaimReceipt(
     accountId: string,
     options: IdentifierResolutionRequestOptions,
@@ -11893,7 +12019,7 @@ export function signQuotedIvmProvedTransactionPayload(
 export const VALIDATION_FEE_CURRENT_POLICY_PROOF_PATH: "/v1/validation-fee/policy/current/proof";
 export const VALIDATION_FEE_LEDGER_BINDING_SCHEMA: "iroha.validation-fee-ledger-binding.v1";
 export const VALIDATION_FEE_POLICY_PROOF_MAX_RESPONSE_BYTES: 4194304;
-export const VALIDATION_FEE_REQUIRED_BRIDGE_ABI_VERSION: 25;
+export const VALIDATION_FEE_REQUIRED_BRIDGE_ABI_VERSION: 29;
 export const VALIDATION_FEE_VERIFIED_POLICY_PROJECTION_SCHEMA: "iroha.validation_fee.verified_policy_projection.v1";
 
 export function normalizeValidationFeeCheckpointV1(
@@ -12484,6 +12610,26 @@ export function buildRegisterAssetDefinitionInstruction(options: {
   balance_scope_policy?: string;
   /** Immutable ownership intent; null means intentionally unowned global. */
   owningDomain: string | null;
+}): object;
+
+/** Register under explicit Native dataspace ownership without changing existing definition bytes. */
+export function buildRegisterDataspaceAssetDefinitionInstruction(options: {
+  assetDefinitionId?: string;
+  asset_definition_id?: string;
+  id?: string;
+  name: string;
+  description?: string | null;
+  alias?: string | null;
+  logo?: string | null;
+  scale?: NumericLike | null;
+  mintable?: string;
+  mintOnce?: boolean;
+  metadata?: object | null;
+  balanceScopePolicy: string;
+  balance_scope_policy?: string;
+  /** Explicit nonzero physical dataspace, independent of balance policy and aliases. */
+  dataspaceId: number | string | bigint;
+  owningDomain?: null;
 }): object;
 
 /** Exact JSON text preserves 64-bit dataspace IDs across the native signing boundary. */
@@ -13541,12 +13687,6 @@ export interface StakingMonetaryPlanV1 {
   source_asset: StakingAssetIdV1; destination_asset: StakingAssetIdV1;
   amount: string; precondition: StakingMonetaryPreconditionV1;
 }
-export interface StakingRewardClaimStateV1 { through_epoch: StakingUnsignedV1 | null; }
-export interface StakingRewardRecordRefV1 { epoch: StakingUnsignedV1; record_hash: string; }
-export interface StakingRewardClaimSourceV1 {
-  source_asset: StakingAssetIdV1; destination_asset: StakingAssetIdV1;
-  expected_accrued: string | null; payout: string;
-}
 export interface StakingFeeRewardClaimV1 {
   lifecycle_seal: Uint8Array; beneficiary_id: string; beneficiary_revision: StakingUnsignedV1;
   source_asset: StakingAssetIdV1; destination_asset: StakingAssetIdV1;
@@ -13554,12 +13694,10 @@ export interface StakingFeeRewardClaimV1 {
 }
 export interface StakingRewardClaimPlanV1 {
   network_scope: StakingScopeV1; valid_until_height: StakingUnsignedV1;
-  expected_state: StakingRewardClaimStateV1 | null; records: StakingRewardRecordRefV1[];
-  sources: StakingRewardClaimSourceV1[]; fee_claim: StakingFeeRewardClaimV1 | null;
+  fee_claim: StakingFeeRewardClaimV1;
 }
-export interface StakingValidatorKeysV1 { validator: StakingPeerIdV1; eq_proof_public_key: Uint8Array; ep_proof_public_key: Uint8Array; }
-export interface StakingAuthorityGenerationV1 {
-  version: StakingUnsignedV1; network_id: NetworkId; generation: StakingUnsignedV1; validators: StakingValidatorKeysV1[];
+export interface StakingValidatorGenerationV1 {
+  network_id: NetworkId; generation: StakingUnsignedV1; validators: StakingPeerIdV1[];
 }
 export interface StakingEpochAuthorizationV1 {
   version: StakingUnsignedV1; network_id: NetworkId; epoch: StakingUnsignedV1;
@@ -13572,7 +13710,7 @@ export interface StakingEpochAuthorizationV1 {
 export interface ValidatorStakingValueMapV1 {
   PreparationRequest: StakingPreparationRequestV1; Preparation: StakingPreparationV1;
   MonetaryPlan: StakingMonetaryPlanV1; RewardClaimPlan: StakingRewardClaimPlanV1;
-  AuthorityGeneration: StakingAuthorityGenerationV1; EpochAuthorization: StakingEpochAuthorizationV1;
+  ValidatorGeneration: StakingValidatorGenerationV1; EpochAuthorization: StakingEpochAuthorizationV1;
 }
 /** u64 values decode as bigint; explicit optional fields never default to null. */
 export function encodeValidatorStakingValueV1<K extends keyof ValidatorStakingValueMapV1>(name: K, value: ValidatorStakingValueMapV1[K]): Buffer;
@@ -13583,7 +13721,7 @@ export type StakingPreparationOperationV1 =
   | { kind: "registration"; value: { validator: string; peer_id: StakingPeerIdV1; amount: string; candidate: boolean } }
   | { kind: "bond"; value: { validator: string; staker: string; amount: string } }
   | { kind: "finalize_unbond"; value: { validator: string; staker: string; request_id: string } }
-  | { kind: "claim_rewards"; value: { recipient: string; upto_epoch: StakingUnsignedV1 | null; max_records: StakingUnsignedV1; accrued_sources: StakingAssetIdV1[] } };
+  | { kind: "claim_rewards"; value: { recipient: string } };
 export interface StakingPreparationRequestV1 { lane_id: StakingUnsignedV1; valid_for_blocks: StakingUnsignedV1; operation: StakingPreparationOperationV1; }
 export interface StakingPreparationBalanceV1 { asset: StakingAssetIdV1; balance: string; stake_reserved: string; rewards_reserved: string; }
 /** Coherent server observation; the reported block identity is not a state proof. */

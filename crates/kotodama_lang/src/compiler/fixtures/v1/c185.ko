@@ -1,5 +1,5 @@
 
-seiyaku Counter {
+seiyaku Counter { permission CanIncrement;
     const int initial = 1;
     const int step = 2;
 
@@ -9,11 +9,11 @@ seiyaku Counter {
         value = initial;
     }
 
-    kotoage fn increment() authorize("CanIncrement") {
+    kotoage fn increment() authorize(CanIncrement) {
         value = value + step;
     }
 
-    view fn current() -> int {
+    view fn current() authorize(anyone) -> int {
         return value;
     }
 }

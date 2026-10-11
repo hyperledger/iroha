@@ -599,3 +599,70 @@ fn cut_refusal_refunds_scratch_and_retries_the_original_frozen_journal() {
     drop(capture);
     assert_eq!(budget.reserved_bytes(), 0);
 }
+
+#[test]
+fn completed_cut_refusal_retains_exact_tail_rows_and_original_pool_until_delivery() {
+    let world = World::new();
+    seed(&world, &[("cut/completed", vec![1])]);
+    let budget = AllocationBudget::new(16 * 1024 * 1024);
+    let mut block = world.block();
+    block
+        .smart_contract_state
+        .insert(key("cut/completed"), vec![2]);
+    let capture = JournalCapture::capture(&block, false, &budget).unwrap();
+    block
+        .smart_contract_state
+        .insert(key("cut/completed"), vec![3]);
+    block.advance_state_accumulator(false).unwrap();
+    block.begin_freeze();
+    block.finish_freeze();
+    let root = capture.root;
+    let original_capture = capture.rows.as_slice().as_ptr();
+    let original_tip = tip();
+    completion_observer::observe(&budget, |observation| {
+        let Err((Some(pending), CutError::Deferred(reason))) =
+            capture.prepare_retained(&block, original_tip, 2, &budget)
+        else {
+            panic!("completed original tail must defer only its final actual shell");
+        };
+        assert!(matches!(reason.allocation_refusal(),
+            Some(AllocationRefusal::Capacity { requested_bytes, .. })
+            if *requested_bytes == ChargedShared::<CutCapsule>::allocation_layout().size()));
+        drop(reason);
+        let completed = observation.snapshot();
+        assert_eq!(completed.0, 1);
+        assert_eq!(completed.1, Some(pending.identity_for_test()));
+        assert_eq!(pending.capsule.rows.as_slice().len(), 1);
+        let tail = pending.capsule.rows.as_slice().as_ptr();
+        assert!(pending.budget.same_pool(&budget));
+        assert_eq!(pending.capsule.tip, original_tip);
+        assert_eq!(pending.capsule.generation, 2);
+        assert_eq!(pending.capsule.root, root);
+        assert_ne!(pending.capsule.applied_root, root);
+        assert_eq!(capture.rows.as_slice().as_ptr(), original_capture);
+        // Reconstruction scratch retired at the first refused return. Once the
+        // original blocker releases, the unchanged limit can fund final delivery.
+        observation.release_original_blocker();
+        let retained = budget.reserved_bytes();
+        let capsule = match pending.try_share() {
+            Ok(capsule) => capsule,
+            Err((_pending, error)) => {
+                panic!("same original final shell funds after release: {error}")
+            }
+        };
+        assert_eq!(capsule.rows.as_slice().as_ptr(), tail);
+        assert_eq!(capsule.identity_for_test(), completed.1.unwrap());
+        assert_eq!(observation.snapshot(), completed);
+        assert_eq!(
+            budget.reserved_bytes(),
+            retained + ChargedShared::<CutCapsule>::allocation_layout().size()
+        );
+        drop(capsule);
+        assert_eq!(
+            budget.reserved_bytes(),
+            retained - std::alloc::Layout::array::<JournalRow>(1).unwrap().size()
+        );
+    });
+    drop(capture);
+    assert_eq!(budget.reserved_bytes(), 0);
+}

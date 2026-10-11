@@ -522,3 +522,55 @@ fn generated_actions_refuse_lost_original_client_history_before_any_http() {
         }
     }
 }
+
+#[test]
+fn generated_publish_entry_refuses_foreign_member_before_journals_namespace_or_http() {
+    let (fixture, torii) = no_http_fixture();
+    let context = fixture.context().unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut request = request(&fixture, archive_transport(config(&fixture), &calls, true));
+    let root = fixture.temporary.path().join("member-workspace");
+    std::fs::create_dir_all(root.join("app")).unwrap();
+    std::fs::create_dir(root.join("other")).unwrap();
+    std::fs::write(root.join("Musubi.toml"), "manifest-version = 1\n[workspace]\nmembers = [\"app\", \"other\"]\ndefault-members = [\"other\"]\n").unwrap();
+    for name in ["app", "other"] {
+        std::fs::write(root.join(name).join("Musubi.toml"), format!("manifest-version = 1\n[package]\nnamespace = \"dev.universal\"\nname = \"{name}\"\nversion = \"1.0.0\"\nedition = \"1\"\nabi-version = 1\n[lib]\nexports = []\n")).unwrap();
+    }
+    Execution {
+        context: &context,
+        state_root: &request.state_root,
+        cache_root: &request.cache_root,
+        archive_transport: &request.archive_transport,
+    }
+    .validate()
+    .unwrap();
+    for input in [root.join("app/Musubi.toml"), root.join("app")] {
+        request.manifest_path = input;
+        request.action = GeneratedPublishAction::Begin {
+            package: Some("dev.universal/other".parse().unwrap()),
+            detach: false,
+        };
+        let outcome = publish_generated(&context, &request);
+        assert_eq!(
+            outcome.exit_code(),
+            crate::output::ErrorCode::Usage.exit_code()
+        );
+        let rendered = outcome.render(OutputFormat::Json).unwrap();
+        assert!(
+            rendered
+                .stdout()
+                .contains("selected member manifest cannot select another package")
+        );
+        assert!(!request.state_root.exists());
+        assert!(!request.cache_root.exists());
+        assert!(!fixture.namespace.journal_root.exists());
+        assert!(!root.join("Musubi.lock").exists());
+        assert!(!root.join("target").exists());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            torii.accept().unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+    }
+    fixture.no_http();
+}

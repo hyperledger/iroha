@@ -27,20 +27,20 @@ Next, add this to your crate:
 use bytes::{Bytes, BytesMut, Buf, BufMut};
 ```
 
-## no_std support
+## Iroha native fork
 
-To use `bytes` with no_std environment, disable the (enabled by default) `std` feature.
+This maintained fork is based on upstream `bytes` 1.11.1. It requires the Rust
+standard library; disabling the `std` feature is a compile error. The default
+`std` feature name remains available for dependency feature selection. Platforms
+without native atomic compare-and-swap are not supported.
 
-```toml
-[dependencies]
-bytes = { version = "1", default-features = false }
-```
+The local `Bytes::try_from_owner_with_reclaim` API retains admitted allocation
+custody until the original buffer allocation is freed. Its fallible allocation,
+owner-return and reclamation-order tests remain part of this fork.
 
-To use `bytes` with no_std environment without atomic CAS, such as thumbv6m, you also need to enable
-the `extra-platforms` feature. See the [documentation for the `portable-atomic`
-crate](https://docs.rs/portable-atomic) for more information.
-
-The MSRV when `extra-platforms` feature is enabled depends on the MSRV of `portable-atomic`.
+The three benchmark targets use the workspace Criterion harness on the pinned
+stable toolchain. Run them with `cargo bench -p bytes --benches`; use
+`cargo bench -p bytes --benches -- --test` to exercise every case once.
 
 ## Serde support
 

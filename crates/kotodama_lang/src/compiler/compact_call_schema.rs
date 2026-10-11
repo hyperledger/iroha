@@ -68,7 +68,7 @@ fn canonical_dlmm_compact_schema_retains_every_full_callable_and_exact_emitted_c
 }
 #[test]
 fn compact_schema_keeps_unused_numeric_private_call_arguments_authenticated() {
-    let source = "seiyaku Eager { fn unused(quantity value) -> quantity { let quantity constant=7; return constant; } view fn main() -> quantity { let quantity value=9; let a=unused(value:value); return unused(value:a); } }";
+    let source = "seiyaku Eager { fn unused(quantity value) -> quantity { let quantity constant=7; return constant; } view fn main() authorize(anyone) -> quantity { let quantity value=9; let a=unused(value:value); return unused(value:a); } }";
     let output = compile(source);
     assert_complete(&output);
     let report = output

@@ -474,15 +474,23 @@ impl core::fmt::Display for RoleIdWithOwner {
         write!(f, "{}|{}", self.account, self.id)
     }
 }
+// One borrowed grammar boundary is shared by text and JSON storage keys.
+// Each API retains its own account error owner; JSON must keep codec provenance.
+// I105 accounts cannot contain `|`; the complete suffix is the role name,
+// whose canonical Name grammar permits additional `|` characters.
+fn role_id_with_owner_components(
+    encoded: &str,
+) -> Result<(&str, &str), iroha_model_base::error::ParseError> {
+    encoded
+        .split_once('|')
+        .ok_or(iroha_model_base::error::ParseError::new(
+            "RoleIdWithOwner must be formatted as `account|role`",
+        ))
+}
 impl core::str::FromStr for RoleIdWithOwner {
     type Err = iroha_model_base::error::ParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        const SEPARATOR: char = '|';
-        let (account_raw, role_raw) =
-            s.split_once(SEPARATOR)
-                .ok_or(iroha_model_base::error::ParseError::new(
-                    "RoleIdWithOwner must be formatted as `account|role`",
-                ))?;
+        let (account_raw, role_raw) = role_id_with_owner_components(s)?;
         let account = AccountId::parse_encoded(account_raw).map_err(|_| {
             iroha_model_base::error::ParseError::new("Invalid account component in RoleIdWithOwner")
         })?;
@@ -497,15 +505,159 @@ impl norito::json::JsonKeyCodec for RoleIdWithOwner {
         norito::json::write_json_string(&self.to_string(), out);
     }
     fn decode_json_key(encoded: &str) -> Result<Self, norito::json::Error> {
-        encoded
-            .parse::<RoleIdWithOwner>()
-            .map_err(|err| norito::json::Error::Message(err.to_string()))
+        let (account_raw, role_raw) = role_id_with_owner_components(encoded)
+            .map_err(|error| norito::json::Error::Message(error.to_string()))?;
+        let account =
+            <AccountId as norito::json::JsonObjectKeyOwned>::from_json_key_text(account_raw)
+                .map_err(|error| {
+                    if cfg!(all(test, sumeragi_model_mutation = "DM26"))
+                        && matches!(
+                            error,
+                            norito::json::Error::ScopedDecodeResource(_)
+                                | norito::json::Error::DecodeResource(_)
+                        )
+                    {
+                        return norito::json::Error::Message(error.to_string());
+                    }
+                    error
+                })?;
+        let id = role_raw.parse().map_err(|_| {
+            norito::json::Error::Message("Invalid role component in RoleIdWithOwner".into())
+        })?;
+        Ok(Self { account, id })
     }
 }
 
 #[cfg(test)]
 mod native_assignment_tests {
     use super::*;
+    #[test]
+    fn role_assignment_storage_keys_preserve_original_account_refusal_and_retry() {
+        use norito::core::{
+            DecodeAttemptErrorKind, DecodeBudgetContext, DecodeResourceError,
+            classify_decode_attempt,
+        };
+        use norito::json::JsonKeyCodec as _;
+        let expected = RoleIdWithOwner::new(
+            AccountId::new(
+                iroha_crypto::KeyPair::from_seed(vec![42; 32], iroha_crypto::Algorithm::Ed25519)
+                    .public_key()
+                    .clone(),
+            ),
+            "ordinary_mint_purpose".parse().unwrap(),
+        );
+        let literal = expected.to_string();
+        let storage = mv::storage::Storage::<RoleIdWithOwner, ()>::new();
+        {
+            let mut block = storage.block();
+            block.insert(expected.clone(), ());
+            block.commit();
+        }
+        let wire = norito::json::to_json(&storage).unwrap();
+        let source_pointer = wire.as_ptr();
+        let decode = |mode| -> Result<(), norito::json::Error> {
+            if mode == 0 {
+                assert_eq!(RoleIdWithOwner::decode_json_key(&literal)?, expected);
+            } else {
+                let restored: mv::storage::Storage<RoleIdWithOwner, ()> =
+                    norito::json::from_json(&wire)?;
+                assert_eq!(restored.view().get(&expected), Some(&()));
+            }
+            Ok(())
+        };
+        let limits = |bytes| {
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX)
+        };
+        let demands = [0, 1].map(|mode| {
+            let (decoded, usage) =
+                norito::core::with_decode_limits_measured(limits(usize::MAX), || decode(mode));
+            decoded.expect("actual reader accepts the original canonical input");
+            let demand = usage.total_allocated_bytes();
+            assert!(demand > 0);
+            demand
+        });
+        let context_limit = demands
+            .iter()
+            .try_fold(0_usize, |sum, demand| sum.checked_add(*demand))
+            .unwrap()
+            .checked_mul(2)
+            .unwrap();
+        let pool = iroha_allocation::AllocationBudget::new(
+            DecodeBudgetContext::allocation_layout().size(),
+        );
+        let original = DecodeBudgetContext::try_new_owned(limits(context_limit), &pool).unwrap();
+        let baseline = pool.reserved_bytes();
+        // This original pool owns decoder counters. Ordinary Storage/DTO graphs are
+        // not claimed to have physical original-pool admission by this control.
+        for (mode, demand) in demands.into_iter().enumerate() {
+            let before = original.consumed_allocated_bytes();
+            let mut observed = None;
+            let refusal = original.with(|| norito::with_decode_limits_scope(
+                limits(demand - 1), || classify_decode_attempt(|| {
+                    let error = decode(mode).expect_err("one-byte-short original reader must refuse");
+                    let norito::json::Error::ScopedDecodeResource(origin) = &error else {
+                        panic!("Role assignment storage key must retain its original account scoped refusal: {error:?}");
+                    };
+                    observed = Some(origin.clone());
+                    Err::<(), _>(error.into_core_error())
+                }))).unwrap_err();
+            assert_eq!(refusal.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+            let refusal = refusal.into_error();
+            assert_eq!(
+                refusal.decode_resource_error(),
+                Some(DecodeResourceError::TotalAllocationExceeded {
+                    attempted: u64::try_from(demand).unwrap(),
+                    limit: u64::try_from(demand - 1).unwrap(),
+                })
+            );
+            let norito::Error::ScopedDecodeResource(returned) = refusal else {
+                panic!("reader must return its exact original observer");
+            };
+            assert_eq!(returned, observed.unwrap());
+            drop(returned);
+            assert_eq!(pool.reserved_bytes(), baseline);
+            let after_refusal = original.consumed_allocated_bytes();
+            // Outer counters debit the attempted final charge before the narrower
+            // inner ceiling refuses. Retry reuses that same cumulative owner.
+            assert_eq!(after_refusal - before, u64::try_from(demand).unwrap());
+            original
+                .with(|| decode(mode))
+                .expect("same input and original context retry");
+            assert_eq!(
+                original.consumed_allocated_bytes() - after_refusal,
+                u64::try_from(demand).unwrap()
+            );
+            assert_eq!(pool.reserved_bytes(), baseline);
+            let (refusal, usage) =
+                norito::core::with_decode_limits_measured(limits(demand - 1), || decode(mode));
+            let error = refusal
+                .expect_err("same input unscoped refusal")
+                .into_core_error();
+            assert_eq!(
+                error.decode_resource_error(),
+                Some(DecodeResourceError::TotalAllocationExceeded {
+                    attempted: u64::try_from(demand).unwrap(),
+                    limit: u64::try_from(demand - 1).unwrap(),
+                })
+            );
+            assert!(!matches!(error, norito::Error::ScopedDecodeResource(_)));
+            assert!(usage.total_allocated_bytes() < demand);
+        }
+        drop(original);
+        assert_eq!(pool.reserved_bytes(), 0);
+        for invalid in [
+            "no_separator".to_owned(),
+            "alice@banka.dataspace|reader".to_owned(),
+            format!("{}|bad#role", expected.account),
+        ] {
+            let error = RoleIdWithOwner::decode_json_key(&invalid).unwrap_err();
+            assert!(error.into_core_error().decode_resource_error().is_none());
+        }
+        assert_eq!(literal.parse::<RoleIdWithOwner>().unwrap(), expected);
+        assert_eq!(wire.as_ptr(), source_pointer);
+        assert_eq!(storage.view().get(&expected), Some(&()));
+    }
+
     #[test]
     fn sole_native_assignment_key_roundtrips_and_binds_account_and_role() {
         let account = AccountId::new(
@@ -524,5 +676,44 @@ mod native_assignment_tests {
             crate::sumeragi_finality::world_state_value_hash_v1(&changed).unwrap()
         );
         assert!("no_separator".parse::<RoleIdWithOwner>().is_err());
+    }
+
+    #[test]
+    fn native_assignment_keys_roundtrip_complete_role_names_containing_pipes() {
+        use norito::json::JsonKeyCodec as _;
+        let account = AccountId::new(
+            iroha_crypto::KeyPair::try_from_seed(vec![42; 32], iroha_crypto::Algorithm::Ed25519)
+                .unwrap()
+                .public_key()
+                .clone(),
+        );
+        let storage = mv::storage::Storage::<RoleIdWithOwner, ()>::new();
+        for role in ["reader|writer", "|reader", "reader|"] {
+            let expected = RoleIdWithOwner::new(account.clone(), role.parse().unwrap());
+            let literal = expected.to_string();
+            assert_eq!(literal.parse::<RoleIdWithOwner>().unwrap(), expected);
+            assert_eq!(
+                RoleIdWithOwner::decode_json_key(&literal).unwrap(),
+                expected
+            );
+            let mut key = String::new();
+            expected.encode_json_key(&mut key);
+            assert_eq!(norito::json::from_json::<String>(&key).unwrap(), literal);
+            let frame = norito::encode_canonical(&expected).unwrap();
+            assert_eq!(
+                norito::decode_canonical::<RoleIdWithOwner>(&frame).unwrap(),
+                expected
+            );
+            let mut block = storage.block();
+            block.insert(expected, ());
+            block.commit();
+        }
+        let wire = norito::json::to_json(&storage).unwrap();
+        let restored: mv::storage::Storage<RoleIdWithOwner, ()> =
+            norito::json::from_json(&wire).unwrap();
+        for role in ["reader|writer", "|reader", "reader|"] {
+            let expected = RoleIdWithOwner::new(account.clone(), role.parse().unwrap());
+            assert_eq!(restored.view().get(&expected), Some(&()));
+        }
     }
 }

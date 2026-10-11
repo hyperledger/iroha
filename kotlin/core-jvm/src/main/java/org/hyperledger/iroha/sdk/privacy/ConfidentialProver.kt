@@ -244,6 +244,7 @@ class ConfidentialProof internal constructor(
                 else -> throw ConfidentialProverException(-100)
             }
             val backend = value["backend"] as? String ?: throw ConfidentialProverException(-100)
+            require(backend == "pipa-r/pasta") { "invalid native confidential proof backend" }
             return ConfidentialProof(relation, backend, bytes(value["proof_hex"]), bytes(value["root_hex"], 32), words("nullifiers_hex"), words("output_commitments_hex"))
         }
     }

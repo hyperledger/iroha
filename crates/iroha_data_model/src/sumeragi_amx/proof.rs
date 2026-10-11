@@ -21,7 +21,7 @@ use crate::{
 const DEPTH: usize = 256;
 /// Largest canonical core header accepted in a proof.
 pub const MAX_AMX_HEADER_BYTES: usize = 8 * 1024;
-/// Largest canonical `CommitQC` accepted in a proof (attestations and their shared witness).
+/// Finite canonical `CommitQC` frame bound for the exact-quorum BLS proof reader.
 pub const MAX_AMX_QC_BYTES: usize = 128 * 1024;
 
 fn empty() -> Hash {

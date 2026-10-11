@@ -1,11 +1,10 @@
 //! Direct soundness controls and native geometry/proof comparisons for byte words.
 
 use super::*;
-use crate::halo2_backend;
-use halo2_proofs::{
-    circuit::SimpleFloorPlanner,
-    dev::MockProver,
-    plonk::{Circuit, Instance},
+use crate::ram_lfe_test_support::{NativeProof, check};
+use iroha_plonk::{
+    cs::Instance,
+    frontend::{Circuit, SimpleFloorPlanner},
 };
 use std::{sync::Arc, time::Instant};
 
@@ -57,7 +56,7 @@ impl<const N: usize, const ROT: u32, const DEGREE: usize, const ALL: bool> Circu
     }
     fn configure(meta: &mut ConstraintSystem<Scalar>) -> Self::Config {
         let config = ByteConfig::configure(meta, DEGREE, ALL);
-        let instance = meta.instance_column();
+        let instance = meta.instance_column(N);
         meta.enable_equality(instance);
         (config, instance)
     }
@@ -94,16 +93,17 @@ impl<const N: usize, const ROT: u32, const DEGREE: usize, const ALL: bool> Circu
             },
         )?;
         for (row, cell) in output.into_iter().enumerate() {
-            layouter.constrain_instance(cell, instance, row);
+            layouter.constrain_instance(cell, instance, row)?;
         }
         Ok(())
     }
 }
 fn positive<const N: usize, const ROT: u32>(values: [u64; 3]) {
     let circuit = Arithmetic::<N, ROT>::new(values);
-    MockProver::run(13, &circuit, vec![circuit.expected()])
+    check(13, &circuit, vec![circuit.expected()])
         .expect("layout")
-        .assert_satisfied();
+        .into_result()
+        .expect("all constraints hold");
 }
 
 #[test]
@@ -162,9 +162,9 @@ fn byte_words_reject_real_assignments_carries_and_nibble_aliases() {
         let mut circuit = Arithmetic::<8, 63>::new([u64::MAX; 3]);
         circuit.faults.push(Fault { row, column, value });
         assert!(
-            MockProver::run(13, &circuit, vec![circuit.expected()])
+            check(13, &circuit, vec![circuit.expected()])
                 .expect("layout")
-                .verify()
+                .into_result()
                 .is_err(),
             "surviving mutation: {label}"
         );
@@ -172,18 +172,18 @@ fn byte_words_reject_real_assignments_carries_and_nibble_aliases() {
     let mut circuit = Arithmetic::<8, 63>::new([42, 1, 2]);
     circuit.forge_source = true;
     assert!(
-        MockProver::run(13, &circuit, vec![circuit.expected()])
+        check(13, &circuit, vec![circuit.expected()])
             .expect("layout")
-            .verify()
+            .into_result()
             .is_err()
     );
     circuit.forge_source = false;
     let mut public = circuit.expected();
     public[0] += Scalar::ONE;
     assert!(
-        MockProver::run(13, &circuit, vec![public])
+        check(13, &circuit, vec![public])
             .expect("layout")
-            .verify()
+            .into_result()
             .is_err()
     );
 }
@@ -261,9 +261,9 @@ fn byte_rotation_rejects_fractional_split_without_output_constraints() {
             },
         ],
     };
-    let failures = MockProver::run(13, &circuit, vec![])
+    let failures = check(13, &circuit, vec![])
         .expect("layout")
-        .verify()
+        .into_result()
         .expect_err("fractional split rejected");
     assert!(
         failures
@@ -280,9 +280,9 @@ fn byte_rotation_rejects_fractional_split_without_output_constraints() {
         }],
     };
     assert!(
-        MockProver::run(13, &constant, vec![])
+        check(13, &constant, vec![])
             .expect("layout")
-            .verify()
+            .into_result()
             .is_err()
     );
 }
@@ -290,16 +290,16 @@ fn byte_rotation_rejects_fractional_split_without_output_constraints() {
 #[test]
 fn byte_words_reject_overflow_and_clear_owned_values() {
     let unsupported = Arithmetic::<8, 2, 5, false>::new([1, 2, 3]);
-    assert!(MockProver::run(12, &unsupported, vec![unsupported.expected()]).is_err());
+    assert!(check(12, &unsupported, vec![unsupported.expected()]).is_err());
     let circuit = Arithmetic::<4, 7>::new([u64::from(u32::MAX) + 1, 0, 0]);
-    assert!(MockProver::run(13, &circuit, vec![circuit.expected()]).is_err());
+    assert!(check(13, &circuit, vec![circuit.expected()]).is_err());
     for (fail, panic) in [(false, false), (true, false), (false, true)] {
         let before = CLEARED_WORDS.with(std::cell::Cell::get);
         let mut circuit = Arithmetic::<8, 63>::new([u64::MAX; 3]);
         circuit.fail_after_load = fail;
         circuit.panic_after_load = panic;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            MockProver::run(13, &circuit, vec![circuit.expected()])
+            check(13, &circuit, vec![circuit.expected()])
         }));
         if panic {
             assert!(result.is_err());
@@ -309,7 +309,8 @@ fn byte_words_reject_overflow_and_clear_owned_values() {
             result
                 .expect("no unwind")
                 .expect("layout")
-                .assert_satisfied();
+                .into_result()
+                .expect("all constraints hold");
         }
         assert!(CLEARED_WORDS.with(std::cell::Cell::get) >= before + 3);
     }
@@ -327,23 +328,39 @@ fn native_metrics<const DEGREE: usize>() {
             .all(|(_, at)| *at == Rotation::cur())
     );
     assert_eq!(meta.lookups().len(), 2);
-    assert_eq!(meta.permutation().get_columns().len(), 8);
+    assert_eq!(meta.permutation().columns().len(), 8);
+    if DEGREE > 9 {
+        // The first-release native descriptor has a hard degree-nine ceiling.
+        // Retain the old arithmetic shapes as checks of that rejection boundary.
+        check(12, &circuit, vec![circuit.expected()])
+            .expect("arithmetic synthesis")
+            .into_result()
+            .expect("high-degree arithmetic is satisfied");
+        let params = iroha_plonk::pcs::ipa::PinnedParams::<iroha_pasta::Eq>::derive(12)
+            .expect("native parameters");
+        let result = iroha_plonk::keys::keygen_pk_v2(
+            &params,
+            &circuit.without_witnesses(),
+            &iroha_plonk::keys::KeygenConfigV2::pipa_r(vec![iroha_plonk::cs::InstanceType::Field]),
+        );
+        assert!(matches!(
+            result,
+            Err(iroha_plonk::keys::KeyError::Descriptor(
+                iroha_plonk::cs::DescriptorError::Invalid(iroha_plonk::cs::DescriptorRule::Degree)
+            ))
+        ));
+        return;
+    }
     let start = Instant::now();
-    let params = halo2_backend::params_new(12);
-    let vk = halo2_backend::keygen_vk(&params, &circuit.without_witnesses()).expect("byte VK");
-    let vk_bytes = halo2_backend::verifying_key_to_processed_bytes(&vk).len();
-    let pk = halo2_backend::keygen_pk(&params, vk.clone(), &circuit.without_witnesses())
-        .expect("byte PK");
+    let setup = NativeProof::new(12, &circuit);
+    let vk_bytes = setup.key_bytes();
     let keygen_ms = start.elapsed().as_secs_f64() * 1000.0;
     let public = circuit.expected();
-    let columns: [&[Scalar]; 1] = [&public];
-    let instances: [&[&[Scalar]]; 1] = [&columns];
     let start = Instant::now();
-    let proof =
-        halo2_backend::create_ipa_proof(&params, &pk, &[circuit], &instances).expect("byte proof");
+    let proof = setup.prove(circuit, &public);
     let prove_ms = start.elapsed().as_secs_f64() * 1000.0;
     let start = Instant::now();
-    halo2_backend::verify_ipa_proof(&params, &vk, &proof, &instances).expect("byte verification");
+    setup.verify(&public, &proof).expect("byte verification");
     let verify_ms = start.elapsed().as_secs_f64() * 1000.0;
     println!(
         "RAM_LFE_BYTE_METRICS k=12 degree={DEGREE} advice_columns=6 table_rows={HASH_TABLE_ROWS} operation_rows=48 lookup_arguments=2 permutation_columns=8 fixed_queries_before_selector_compression={} permutation_chunk_columns={} proof_bytes={} vk_bytes={vk_bytes} keygen_ms={keygen_ms:.3} prove_ms={prove_ms:.3} verify_ms={verify_ms:.3}",
@@ -353,19 +370,19 @@ fn native_metrics<const DEGREE: usize>() {
     );
     let mut bad = public.clone();
     bad[0] += Scalar::ONE;
-    let wrong: [&[Scalar]; 1] = [&bad];
-    assert!(halo2_backend::verify_ipa_proof(&params, &vk, &proof, &[&wrong]).is_err());
+    assert!(setup.verify(&bad, &proof).is_err());
     let mut suffixed = proof.clone();
     suffixed.push(0);
-    assert!(halo2_backend::verify_ipa_proof(&params, &vk, &suffixed, &instances).is_err());
+    assert!(setup.verify(&public, &suffixed).is_err());
     let mut changed = proof;
     changed[0] ^= 1;
-    assert!(halo2_backend::verify_ipa_proof(&params, &vk, &changed, &instances).is_err());
+    assert!(setup.verify(&public, &changed).is_err());
 }
 #[test]
 fn byte_native_proofs_measure_fixed_degree_tradeoffs() {
     native_metrics::<5>();
     native_metrics::<8>();
+    native_metrics::<9>();
     native_metrics::<11>();
     native_metrics::<20>();
 }

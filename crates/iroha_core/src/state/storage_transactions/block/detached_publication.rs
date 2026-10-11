@@ -225,6 +225,21 @@ impl<'storage, Installation> DetachedTransactionsPublicationSlot<'storage, Insta
         }
     }
 
+    /// Borrow the exact reacquired original only after complete preparation.
+    pub(super) fn prepared_membership_writer(
+        &self,
+    ) -> Option<&PreparedTransactionsBlock<'storage>> {
+        if !self.complete || self.released {
+            return None;
+        }
+        match self.phase.as_ref() {
+            Some(Phase::Prepared(prepared)) if prepared.is_unpublished_for_capture() => {
+                Some(prepared)
+            }
+            _ => None,
+        }
+    }
+
     /// Test readiness before an enclosing original field moves this owner.
     pub(super) fn is_prepared(&self) -> bool {
         self.complete && !self.released
@@ -265,5 +280,49 @@ impl<'storage, Installation> DetachedTransactionsPublicationSlot<'storage, Insta
 impl<Installation> Drop for DetachedTransactionsPublicationSlot<'_, Installation> {
     fn drop(&mut self) {
         self.release_writers();
+    }
+}
+
+#[cfg(test)]
+mod publication_capture_phase_tests {
+    use super::*;
+
+    #[test]
+    fn detached_membership_cut_refuses_started_published_unwind_and_released_phases() {
+        for terminal in 0..2 {
+            let storage = TransactionsStorage::new();
+            let mut block = storage.block();
+            block.insert_block(
+                std::collections::HashSet::from([Key::from_untyped_unchecked(
+                    iroha_crypto::Hash::new(b"detached-membership-terminal-phase"),
+                )]),
+                std::num::NonZeroUsize::new(1).unwrap(),
+            );
+            let original = block.prepare_commit().unwrap().detach();
+            let mut slot = original.publication_slot::<()>(&storage);
+            assert!(slot.prepared_membership_writer().is_none());
+            slot.try_prepare(|_, _| Ok::<(), core::convert::Infallible>(()))
+                .unwrap();
+            assert!(slot.prepared_membership_writer().is_some());
+            if terminal == 0 {
+                // Model only the terminal marker retained by a caught kernel unwind.
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let Some(Phase::Prepared(prepared)) = slot.phase.as_mut() else {
+                        panic!("original prepared detached phase")
+                    };
+                    prepared.publication_started = true;
+                    panic!("caught detached unwind after original publication marker");
+                }));
+                assert!(result.is_err());
+            } else {
+                let Some(Phase::Prepared(prepared)) = slot.phase.as_mut() else {
+                    panic!("original prepared detached phase")
+                };
+                prepared.published = true;
+            }
+            assert!(slot.prepared_membership_writer().is_none());
+            slot.release_writers();
+            assert!(slot.prepared_membership_writer().is_none());
+        }
     }
 }

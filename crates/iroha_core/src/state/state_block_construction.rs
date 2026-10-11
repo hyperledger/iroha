@@ -99,7 +99,7 @@ impl State {
         zk = Some(effective_zk);
         gov = Some(self.gov.clone());
         content = Some(self.content.clone());
-        settlement = Some(self.settlement.clone());
+        settlement = Some(self.settlement);
         settlement_engine = Some(self.settlement_engine.clone());
         chain_id = Some(self.chain_id.clone());
         fastpq_transcripts = Some(BTreeMap::new());

@@ -351,12 +351,14 @@ impl<'a> CstAstLowerer<'a> {
                         _ => {
                             // Avoid borrowing self immutably and mutably in a single expression
                             let tok = self.bump();
-                            return Err(self.error(tok, "identifier or tuple index"));
+                            return Err(
+                                self.expected_error(tok, "a field name or tuple index after `.`")
+                            );
                         }
                     }
                 } else {
                     let tok = self.bump();
-                    return Err(self.error(tok, "identifier or tuple index"));
+                    return Err(self.expected_error(tok, "a field name or tuple index after `.`"));
                 };
                 // Method-call sugar: `expr.method(args...)` -> `Call { name: method, args: [expr, args...] }`
                 if self.peek(TokenKind::LParen) {
@@ -495,6 +497,9 @@ impl<'a> CstAstLowerer<'a> {
             TokenKind::String(s) => Expr::String(s.clone()),
             TokenKind::Bytes(bytes) => Expr::Bytes(bytes.clone()),
             TokenKind::Ident(name) => self.parse_named_primary(tok.clone(), name.clone())?,
+            TokenKind::Permission => {
+                self.parse_named_primary(tok.clone(), "permission".to_owned())?
+            }
             TokenKind::If => {
                 self.pos = self.pos.saturating_sub(1);
                 let statement_context =
@@ -519,7 +524,9 @@ impl<'a> CstAstLowerer<'a> {
                 // identifier is the canonical side-effect-free expression
                 // placeholder and, unlike deriving recovery from diagnostic
                 // prose, keeps editor recovery stable when messages change.
-                let mut error = self.error(tok, "expression");
+                let mut error = self.expected_error(tok, "an expression").with_help(
+                    "a value goes here: a literal, a name, a call, or a parenthesized expression",
+                );
                 error.expected = Some(SyntaxKind::Ident);
                 error.expected_owner = self.syntax.current();
                 return Err(error);
@@ -664,7 +671,10 @@ impl<'a> CstAstLowerer<'a> {
             .map_or(ident_token.range.end, |token| token.range.end);
         let name_range = TextRange::new(ident_token.range.start, name_end);
         if name == "json" {
-            if self.peek(TokenKind::LBrace) {
+            // Like struct literals, a `json { ... }` object is not recognised
+            // directly before a block (`for x in json { ... }` iterates a local
+            // named `json`); parenthesize it there.
+            if self.allow_struct_literals && self.peek(TokenKind::LBrace) {
                 return self.parse_json_object(ident_token.range.start);
             }
             if self.peek(TokenKind::LBracket) {
@@ -672,10 +682,16 @@ impl<'a> CstAstLowerer<'a> {
             }
         }
         if self.peek(TokenKind::Bang) {
-            return Err(self.error(
-                ident_token,
-                "macros are not part of Kotodama V1; use an ordinary typed constructor such as `AccountId::parse(\"...\")`, `Json::parse(\"{...}\")`, or a `b\"...\"` bytes literal",
-            ));
+            return Err(self
+                .coded_error(
+                    ident_token,
+                    "K1001",
+                    format!("`{name}!` looks like a macro call; Kotodama has no macros"),
+                )
+                .with_help("use an ordinary typed constructor such as `AccountId::parse(\"...\")`, `Json::parse(\"{...}\")`, or a `b\"...\"` bytes literal"));
+        }
+        if let Some(error) = self.foreign_sum_constructor_error(&ident_token, &name, name_range) {
+            return Err(error);
         }
         if matches!(
             name.as_str(),
@@ -692,15 +708,21 @@ impl<'a> CstAstLowerer<'a> {
                 .map_or(ident_token.range.end, |token| token.range.end);
             let range = TextRange::new(ident_token.range.start, end);
             let replacement = self.legacy_sum_replacement(&name, &parsed);
-            let mut error = self.coded_error(
-                ident_token,
-                "E_LEGACY_SUM_CONSTRUCTOR",
-                format!(
-                    "`{name}` is retired; use the canonical active-only `Option`/`Result` constructor"
-                ),
-            );
+            let canonical = name
+                .split_once("::")
+                .and_then(|(namespace, variant)| super::canonical_sum_path(namespace, variant))
+                .unwrap_or("Option::some");
+            let mut error = self
+                .coded_error(
+                    ident_token,
+                    "E_LEGACY_SUM_CONSTRUCTOR",
+                    format!("`{name}(...)` is spelled `{canonical}` in Kotodama"),
+                )
+                .with_help(super::sum_constructor_help());
             error.range = range;
-            error.fix = replacement;
+            if let Some(replacement) = replacement {
+                error = error.with_fix(range, replacement);
+            }
             return Err(error);
         }
         if name == "Option::none" {
@@ -713,14 +735,17 @@ impl<'a> CstAstLowerer<'a> {
                     .tokens
                     .get(self.pos.saturating_sub(1))
                     .map_or(opening.range.end, |token| token.range.end);
-                let mut error = self.coded_error(
-                    opening,
-                    "E_SUM_CONSTRUCTOR_FORM",
-                    "`Option::none` is a contextual value path; remove the parentheses and inactive placeholder",
-                );
-                error.range = TextRange::new(ident_token.range.start, end);
+                let mut error = self
+                    .coded_error(
+                        opening,
+                        "E_SUM_CONSTRUCTOR_FORM",
+                        "`Option::none` is a value, not a call; remove the parentheses",
+                    )
+                    .with_help("the absent value is written `Option::none`; its type comes from the context");
+                let written = TextRange::new(ident_token.range.start, end);
+                error.range = written;
                 if parsed.argument_names.is_none() {
-                    error.fix = Some("Option::none".into());
+                    error = error.with_fix(written, "Option::none");
                 }
                 return Err(error);
             }
@@ -728,10 +753,13 @@ impl<'a> CstAstLowerer<'a> {
         }
         if matches!(name.as_str(), "Option::some" | "Result::ok" | "Result::err") {
             if !self.peek(TokenKind::LParen) {
-                return Err(self.error(
-                    ident_token,
-                    "constructor call with exactly one active payload",
-                ));
+                return Err(self
+                    .coded_error(
+                        ident_token,
+                        "E_SUM_CONSTRUCTOR_FORM",
+                        format!("`{name}` is called with exactly one payload, for example `{name}(value)`"),
+                    )
+                    .with_help(super::sum_constructor_help()));
             }
             self.bump();
             let parameter_names = self.call_parameter_names(&name, false);
@@ -772,12 +800,14 @@ impl<'a> CstAstLowerer<'a> {
             self.syntax_finish(syntax_literal, start);
             result
         } else if self.peek(TokenKind::LParen) {
-            if let Some(message) = removed_free_helper_message(&name) {
+            if name.contains("::")
+                && let Some(message) = removed_free_helper_message(&name)
+            {
                 let mut error =
                     self.coded_error(ident_token, removed_free_helper_code(&name), message);
                 if let Some(replacement) = retired_trigger_alias_replacement(&name) {
                     error.range = name_range;
-                    error.fix = Some(replacement.to_owned());
+                    error = error.with_fix(name_range, replacement);
                 }
                 return Err(error);
             }
@@ -812,6 +842,70 @@ impl<'a> CstAstLowerer<'a> {
             Ok(Expr::Ident(name))
         }
     }
+    /// `E_LEGACY_SUM_CONSTRUCTOR` for `Some(x)`, `None`, `Ok(x)`, `Err(x)` and
+    /// mis-cased paths such as `Option::Some(x)`, with an exact fix.
+    ///
+    /// The lowercase `option::`/`result::` call form keeps its own payload-
+    /// aware fix below; bare lowercase names are ordinary identifiers.
+    fn foreign_sum_constructor_error(
+        &self,
+        token: &Token,
+        name: &str,
+        name_range: TextRange,
+    ) -> Option<Box<ParseError>> {
+        let calls = self.peek(TokenKind::LParen);
+        let canonical = match name.split_once("::") {
+            Some((namespace, variant)) => {
+                let canonical = super::canonical_sum_path(namespace, variant)?;
+                if canonical == name
+                    || (name.starts_with("option::") || name.starts_with("result::")) && calls
+                {
+                    return None;
+                }
+                canonical
+            }
+            None => {
+                let canonical = super::foreign_sum_constructor(name)?;
+                if name == "None" && calls {
+                    // `None()`: the absent value is not a call. An empty
+                    // argument list is rewritten together with the name.
+                    let mut error = self
+                        .coded_error(
+                            token.clone(),
+                            "E_LEGACY_SUM_CONSTRUCTOR",
+                            "`None` is spelled `Option::none` in Kotodama, and it is a value, not a call",
+                        )
+                        .reported_at(name_range)
+                        .with_help(super::sum_constructor_help());
+                    if self.peek_n(1, TokenKind::RParen)
+                        && let Some(closing) = self.tokens.get(self.pos + 1)
+                    {
+                        error = error.with_fix(
+                            TextRange::new(name_range.start, closing.range.end),
+                            canonical,
+                        );
+                    }
+                    return Some(error);
+                }
+                // `Some`/`Ok`/`Err` are constructor calls; a bare name is an
+                // ordinary identifier.
+                if name != "None" && !calls {
+                    return None;
+                }
+                canonical
+            }
+        };
+        Some(
+            self.coded_error(
+                token.clone(),
+                "E_LEGACY_SUM_CONSTRUCTOR",
+                format!("`{name}` is spelled `{canonical}` in Kotodama"),
+            )
+            .reported_at(name_range)
+            .with_help(super::sum_constructor_help())
+            .with_fix(name_range, canonical),
+        )
+    }
     fn parse_json_object(&mut self, start: u32) -> ParseResult<Expr> {
         self.with_syntax(
             SyntaxKind::JsonObjectExpr,
@@ -831,9 +925,9 @@ impl<'a> CstAstLowerer<'a> {
                 let key = match &key_token.kind {
                     TokenKind::Ident(key) | TokenKind::String(key) => key.clone(),
                     _ => {
-                        return Err(this.error(
+                        return Err(this.expected_error(
                             key_token,
-                            "JSON object key as an identifier or quoted string",
+                            "a JSON object key (identifier or string literal)",
                         ));
                     }
                 };
@@ -993,7 +1087,25 @@ impl<'a> CstAstLowerer<'a> {
                 } else {
                     None
                 };
-                Ok((name, self.parse_expr()?))
+                let expression = if self.peek(TokenKind::LBrace) {
+                    let start = self.current_start();
+                    let syntax_record = self.syntax_start(SyntaxKind::ArgumentRecord, start);
+                    self.bump();
+                    let fields = self.parse_struct_literal_fields()?;
+                    self.expect(TokenKind::RBrace)?;
+                    self.syntax_finish(syntax_record, start);
+                    let range = TextRange::new(start, self.previous_end(start));
+                    self.source_expression(
+                        AstNodeKind::Expression,
+                        range,
+                        Expr::ArgumentRecord {
+                            fields: fields.into_inner(),
+                        },
+                    )
+                } else {
+                    self.parse_expr()?
+                };
+                Ok((name, expression))
             })();
             if let Some(syntax_named) = syntax_named {
                 self.syntax_finish(syntax_named, argument_start);
@@ -1052,7 +1164,9 @@ impl<'a> CstAstLowerer<'a> {
             let field = self.with_syntax(SyntaxKind::StructLiteralField, field_start, |this| {
                 let token = this.bump();
                 let TokenKind::Ident(name) = token.kind.clone() else {
-                    return Err(this.error(token, "named struct field"));
+                    return Err(this
+                        .expected_error(token, "a struct field name")
+                        .with_help("struct literals name every field: `Point { x: 1, y: 2 }`"));
                 };
                 if fields.iter().any(|field| field.name == name) {
                     return Err(this.coded_error(

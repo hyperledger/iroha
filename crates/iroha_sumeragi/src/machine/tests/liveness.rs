@@ -1,9 +1,13 @@
-//! Named deterministic liveness tests (§13.4, ML1–ML26) that one core can express.
+//! Named deterministic liveness tests (§13.4, ML1–ML26, and MS51's `det_s51`) that one core can
+//! express.
 //! `det_l9` and `det_l10` need several live cores and are in `cluster`; `det_l12` (driver
 //! scheduling) and the randomized scenarios belong to the simulator stage.
 
 use super::*;
-use crate::preimage::{KIND_COMMIT, KIND_PREPARE};
+use crate::{
+    pacemaker::exec_retry_delay,
+    preimage::{KIND_COMMIT, KIND_PREPARE},
+};
 
 fn prop(h: &mut H, view: u64, block: &AvailableBody, justify: Option<TimeoutCert>) -> Vec<Action> {
     let p = h.proposal(view, block, justify);
@@ -205,7 +209,7 @@ fn det_l5_lost_vote_retransmitted() {
     qc_msg(&mut h, pqc.clone());
     let voter = h.others(1, &[])[0];
     let vote = h.vote(VoteKind::Prepare, voter, 0, &b);
-    let out = h.deliver(voter, WireMessage::Vote(vote.clone()));
+    let out = h.deliver(voter, WireMessage::Vote(vote));
     let answers = sent(&out)
         .into_iter()
         .filter(|(to, m)| {
@@ -545,6 +549,113 @@ fn det_l17_hidden_pqc_reexecutes() {
         assert_eq!((prepared[0].view, prepared[0].result), (2, pqc.result));
         assert!(faults(&h.all).is_empty(), "variant {variant}");
     }
+}
+
+/// `det_s51_execute_certified_flag` (MS51; §4.5 "Certified re-proposals", §6.2 step 9): n = 4,
+/// X is set B at (1, 0) and set A at (1, 2). A fresh block is executed with
+/// `certified = false`, and so is its retry after the application guard answers
+/// `Failed(ClockAhead)`. Its `PrepareQC` (W, Y, Z) is hidden from X until `TC(1)` carries it;
+/// the re-proposal is executed with `certified = true`, and so is its retry after
+/// `Failed(StaleDueWork)`, re-evaluated at the `RetryAt` emission; the certified execution then
+/// Prepares `Q`'s result. A second core covers the node's own lock: a `PrepareQC` that others
+/// formed arrives while the guard refuses the uncertified execution, and the retry is certified.
+#[test]
+#[allow(clippy::many_single_char_names)] // W, X, Y, Z as in the spec
+fn det_s51_execute_certified_flag() {
+    let mut h = H::new(4, pick::set_b(0));
+    let x = h.my_idx();
+    assert!(h.round(2).in_set_a(x) && h.leader(1) != x && h.leader(2) != x);
+    let others = h.others(3, &[]);
+    let (w, y, z) = (others[0], others[1], others[2]);
+    let latest = |h: &H| {
+        let (_, req, _) = h.pending_exec.last().expect("an outstanding Execute");
+        (*req, h.exec_certified[req])
+    };
+    // (1) Fresh: uncertified, also on the retry after a guard's `Failed`.
+    let b = h.block(0, b"B");
+    prop(&mut h, 0, &b, None);
+    let (bh, r1, _) = h.pending_exec.pop().expect("Execute r1");
+    assert_eq!(h.exec_certified.get(&r1), Some(&false));
+    let out = h.fire(Event::Executed {
+        block_hash: bh,
+        req: r1,
+        outcome: ExecOutcome::Failed("ClockAhead".to_owned()),
+    });
+    assert!(votes(&out).is_empty() && h.pending_exec.is_empty());
+    let retry = h.now + exec_retry_delay(0, h.local.rebroadcast_interval);
+    h.run_until(retry);
+    let (r1b, certified) = latest(&h);
+    assert!(
+        r1b > r1 && !certified,
+        "the retry of a fresh block stays uncertified"
+    );
+    // (2) PQC(B, 0) is hidden from X; views 0 and 1 fail; TC(1) carries it.
+    let pqc = h.qc(VoteKind::Prepare, 0, &b, &[w, y, z]);
+    let deadline = h.core.view_deadline().unwrap();
+    h.run_until(deadline);
+    for s in [w, y] {
+        let t = h.timeout(s, 0, None);
+        h.deliver(s, WireMessage::Timeout(Box::new(t)));
+    }
+    assert_eq!(h.core.view, 1);
+    let deadline = h.core.view_deadline().unwrap();
+    h.run_until(deadline);
+    let tw = h.timeout(w, 1, None);
+    h.deliver(w, WireMessage::Timeout(Box::new(tw)));
+    let tz = h.timeout(z, 1, Some(pqc.clone()));
+    h.deliver(z, WireMessage::Timeout(Box::new(tz)));
+    assert_eq!(h.core.view, 2);
+    let tc = h.core.high_tc.clone().unwrap();
+    assert_eq!(tc.high_pqc, Some(pqc.clone()));
+    // (3) The re-proposal is certified, and so is its retry after `Failed(StaleDueWork)`.
+    prop(&mut h, 2, &b, Some(tc));
+    let (r2, certified) = latest(&h);
+    assert!(
+        r2 > r1b && certified,
+        "the re-proposal of a certified block"
+    );
+    h.pending_exec.clear();
+    let out = h.fire(Event::Executed {
+        block_hash: bh,
+        req: r2,
+        outcome: ExecOutcome::Failed("StaleDueWork".to_owned()),
+    });
+    assert!(votes(&out).is_empty());
+    h.run_until(h.now + exec_retry_delay(0, h.local.rebroadcast_interval));
+    let (r3, certified) = latest(&h);
+    assert!(r3 > r2 && certified, "re-evaluated at the RetryAt emission");
+    let out = h.exec_all();
+    let prepared = votes_of(&out, VoteKind::Prepare);
+    assert_eq!(prepared.len(), 1);
+    assert_eq!((prepared[0].view, prepared[0].result), (2, pqc.result));
+
+    // (4) The node's own lock: PQC(C, 0), formed by W, Y and Z, reaches X while the guard
+    // refuses X's uncertified execution of C; the retry at the `RetryAt` emission is certified.
+    let mut h = H::new(4, pick::set_b(0));
+    let others = h.others(3, &[]);
+    let c = h.block(0, b"C");
+    prop(&mut h, 0, &c, None);
+    let (ch, r1, _) = h.pending_exec.pop().expect("Execute r1");
+    assert_eq!(h.exec_certified.get(&r1), Some(&false));
+    h.fire(Event::Executed {
+        block_hash: ch,
+        req: r1,
+        outcome: ExecOutcome::Failed("ClockAhead".to_owned()),
+    });
+    let lock = h.qc(VoteKind::Prepare, 0, &c, &others);
+    qc_msg(&mut h, lock.clone());
+    assert_eq!(h.core.high_pqc, Some(lock.clone()), "X holds the lock");
+    h.run_until(h.now + exec_retry_delay(0, h.local.rebroadcast_interval));
+    let (r2, certified) = latest(&h);
+    assert!(
+        r2 > r1 && certified,
+        "the node's own lock certifies the retry"
+    );
+    let out = h.exec_all();
+    assert!(
+        faults(&out).is_empty(),
+        "the certified execution agrees with the lock: {out:?}"
+    );
 }
 
 #[test]

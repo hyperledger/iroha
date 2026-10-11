@@ -184,11 +184,11 @@ while True:
     block = hashlib.sha256(f"block-{height}".encode()).hexdigest()
     result = hashlib.sha256(f"result-{height}".encode()).hexdigest()
     emit({"message": "sumeragi record durable", "instance": instance, "key": key,
-          "height": height, "epoch": 1, "signed": f"prepare:0:{block}:{result}:0"})
+          "height": height, "epoch": 1, "signed": f"prepare:0:{block}:{result}"})
     persist_height(height_file, height)
     emit({"message": "sumeragi block applied", "instance": instance, "height": height,
           "view": 0, "origin_view": 0, "block": block, "result": result,
-          "proposer": height % 4, "payload_bytes": 64, "attest": False})
+          "proposer": height % 4, "payload_bytes": 64})
     time.sleep(0.2)
 '''
 
@@ -405,7 +405,7 @@ class OrchestratorRunTests(unittest.TestCase):
             p2p = free_base(4, set(range(api, api + 4)))
             out = root / "run"
             status = soak.main(
-                ["--validators", "4", "--faults", "kill", "--seed", "1", "--duration", "10s", "--bin-dir", str(bins), "--out", str(out),
+                ["--validators", "4", "--faults", "none", "--seed", "1", "--duration", "10s", "--live-bound", "8s", "--bin-dir", str(bins), "--out", str(out),
                  "--base-api-port", str(api), "--base-p2p-port", str(p2p)]
             )
             self.assertEqual(status, soak.EXIT_HARNESS)

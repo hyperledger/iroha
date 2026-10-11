@@ -1,0 +1,62 @@
+name: Pasta arithmetic and setup controls
+
+# Source-bound arithmetic and cited-theorem premises, not protocol or device qualification.
+on:
+  pull_request:
+    paths:
+      - "crates/iroha_pasta/**"
+      - "crates/iroha_plonk/**"
+      - "crates/iroha_plonk_recursion/**"
+      - "crates/iroha_plonk_gadgets/src/pow5_fq/duplex.rs"
+      - "crates/iroha_plonk_gadgets/src/poseidon/sponge.rs"
+      - "formal/kagemusha_pasta/**"
+      - "formal/kagemusha_setup/**"
+      - "formal/kagemusha_fold/**"
+      - "fixtures/native_prover/kats_v1.json"
+      - "fixtures/native_prover/reference_verifier/**"
+      - ".github/workflows/pasta_certificates.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pasta-certificates-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  arithmetic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+      - name: Verify exact source primes, groups and SWU cover hypotheses
+        run: python3 -B -S formal/kagemusha_pasta/check.py
+      - name: Exercise arithmetic certificate rejection controls
+        run: python3 -B -S -m unittest discover -s formal/kagemusha_pasta -p 'test_*.py' -v
+      - name: Exercise fold polynomial, transcript and ideal-model controls
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p target/qualification
+          python3 -B -S -m unittest discover -s formal/kagemusha_fold -p 'test_*.py' -v 2>&1 | tee target/qualification/fold-algebra-ci.log
+      - name: Exercise source-bound setup and fixed-Poseidon controls
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p target/qualification
+          python3 -B -S -m formal.kagemusha_setup.check --output target/qualification/setup-ci 2>&1 | tee target/qualification/setup-ci.log
+      - name: Retain setup controls and partial failure evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pasta-setup-controls
+          path: |
+            target/qualification/setup-ci
+            target/qualification/setup-ci.log
+            target/qualification/fold-algebra-ci.log
+          if-no-files-found: warn
+          retention-days: 7

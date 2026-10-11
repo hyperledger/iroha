@@ -5,6 +5,24 @@ macro_rules! authenticated_application_query {
         catalog_post($handler).authenticated_canonical_account_body($app_state, $max_body_bytes)
     };
 }
+// The owner PRF handlers authenticate the original method, URI and bytes themselves.
+// Keep the bounded body and private response policy without consuming the nonce twice.
+#[cfg(feature = "app_api")]
+macro_rules! identifier_owner_query {
+    ($handler:expr, $max_body_bytes:expr) => {
+        catalog_post($handler)
+            .layer(axum::extract::DefaultBodyLimit::max(
+                $max_body_bytes.min(16_384),
+            ))
+            .layer(axum::middleware::map_response(
+                |mut response: AxResponse| async move {
+                    install_canonical_account_private_cache_headers(&mut response);
+                    response
+                },
+            ))
+            .authenticated_in_handler(HandlerAuthentication::CanonicalAccountSignature)
+    };
+}
 macro_rules! optional_dataspace_application_query {
     ($handler:expr, $app_state:expr, $max_body_bytes:expr) => {
         catalog_post($handler)
@@ -133,8 +151,7 @@ fn add_authenticated_application_compute_routes(
     );
     builder.route(
         &route_catalog::application_api::RAM_LFE_PROGRAMS_BY_PROGRAM_ID_EXECUTE_POST,
-        catalog_post(handler_ram_lfe_execute)
-            .authenticated_canonical_account_body(app_state.clone(), max_body_bytes),
+        identifier_owner_query!(handler_ram_lfe_execute, max_body_bytes),
     );
     builder.route(
         &route_catalog::application_api::RAM_LFE_RECEIPTS_VERIFY_POST,
@@ -143,13 +160,11 @@ fn add_authenticated_application_compute_routes(
     );
     builder.route(
         &route_catalog::application_api::ACCOUNTS_BY_ACCOUNT_ID_IDENTIFIERS_CLAIM_RECEIPT_POST,
-        catalog_post(handler_authenticated_identifier_claim_receipt)
-            .authenticated_canonical_account_body(app_state.clone(), max_body_bytes),
+        identifier_owner_query!(handler_identifier_claim_receipt, max_body_bytes),
     );
     builder.route(
         &route_catalog::application_api::IDENTIFIERS_RESOLVE_POST,
-        catalog_post(handler_identifier_resolve)
-            .authenticated_canonical_account_body(app_state, max_body_bytes),
+        identifier_owner_query!(handler_identifier_resolve, max_body_bytes),
     );
 }
 #[cfg(feature = "app_api")]
@@ -186,37 +201,189 @@ async fn handler_authenticated_space_directory_manifest_revoke(
     )?;
     handler_space_directory_manifest_revoke(State(app), headers, remote, request).await
 }
-#[cfg(feature = "app_api")]
-async fn handler_authenticated_identifier_claim_receipt(
-    State(app): State<SharedAppState>,
-    axum::extract::Extension(verified): axum::extract::Extension<
-        crate::app_auth::VerifiedCanonicalRequest,
-    >,
-    headers: axum::http::HeaderMap,
-    remote: axum::extract::ConnectInfo<std::net::SocketAddr>,
-    AxPath(account_literal): AxPath<String>,
-    request: NoritoJson<routing::IdentifierResolveRequestDto>,
-) -> Result<AxResponse, Error> {
-    let account_id = parse_account_id_for_endpoint(
-        &app,
-        &account_literal,
-        "/v1/accounts/{account_id}/identifiers/claim-receipt",
-    )?;
-    require_runtime_governance_account(&account_id, &verified.account, "identifier claim receipt")?;
-    handler_identifier_claim_receipt(
-        State(app),
-        headers,
-        remote,
-        AxPath(account_literal),
-        request,
-    )
-    .await
-}
 #[cfg(all(test, feature = "app_api"))]
 mod application_account_auth_tests {
-    use super::{Error, require_runtime_governance_account};
+    use super::*;
     use iroha_data_model::ValidationFail;
     use iroha_test_samples::{ALICE_ID, BOB_ID};
+    #[tokio::test]
+    async fn owner_prf_routes_authenticate_original_bytes_once_and_reject_replay() {
+        use axum::{
+            body::Body,
+            http::{Method, Request, StatusCode},
+        };
+        use iroha_torii_shared::route_catalog::{
+            EnabledFeatures, RouteCatalog, application_api::*,
+        };
+        use tower::ServiceExt as _;
+
+        let _guard = crate::tests_runtime_handlers::app_auth_test_guard(
+            crate::app_auth::CanonicalRequestAuthConfig::default(),
+        );
+        let key = crate::tests_runtime_handlers::checked_torii_test_ed25519_keypair(
+            0x72,
+            "owner PRF route authentication regression",
+        );
+        let account = iroha_data_model::account::AccountId::new(key.public_key().clone());
+        let app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world(
+            crate::tests_runtime_handlers::world_with_account(&account),
+        );
+        let router_for_body_limit = |max_body_bytes| {
+            let mut builder = RouterBuilder::new(
+                app.clone(),
+                RouteCatalog::new(&[
+                    SPACE_DIRECTORY_MANIFESTS_POST,
+                    SPACE_DIRECTORY_MANIFESTS_REVOKE_POST,
+                    RAM_LFE_PROGRAMS_BY_PROGRAM_ID_EXECUTE_POST,
+                    RAM_LFE_RECEIPTS_VERIFY_POST,
+                    ACCOUNTS_BY_ACCOUNT_ID_IDENTIFIERS_CLAIM_RECEIPT_POST,
+                    IDENTIFIERS_RESOLVE_POST,
+                ]),
+                EnabledFeatures::new(&["app_api"]),
+            )
+            .expect("owner PRF route catalog");
+            add_authenticated_application_compute_routes(&mut builder, app.clone(), max_body_bytes);
+            let (router, _) = builder
+                .finish()
+                .expect("exact production authentication policies");
+            router.with_state(app.clone())
+        };
+        let router = router_for_body_limit(32_768);
+        let claim_uri = format!("/v1/accounts/{account}/identifiers/claim-receipt");
+        let identifier_body = br#"{ "phase": "prepare", "policy_id": "string#retail", "normalized_input": "alice", "input_nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }"#.to_vec();
+        let execute_body = br#"{ "normalized_input": "alice", "input_nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }"#.to_vec();
+        for (path, body) in [
+            (claim_uri.as_str(), identifier_body.clone()),
+            ("/v1/identifiers/resolve", identifier_body.clone()),
+            ("/v1/ram-lfe/programs/string_retail/execute", execute_body),
+        ] {
+            let uri: axum::http::Uri = path.parse().expect("exact request URI");
+            let headers = crate::tests_runtime_handlers::signed_network_app_headers(
+                app.state.network_id_ref(),
+                &account,
+                &key,
+                &Method::POST,
+                &uri,
+                &body,
+            );
+            let request = || {
+                let mut request = Request::builder()
+                    .method(Method::POST)
+                    .uri(uri.clone())
+                    .extension(crate::loopback_connect_info())
+                    .body(Body::from(body.clone()))
+                    .expect("original signed body");
+                request.headers_mut().extend(headers.clone());
+                request
+            };
+            let response = router
+                .clone()
+                .oneshot(request())
+                .await
+                .expect("first request");
+            assert_eq!(
+                response.status(),
+                StatusCode::NOT_FOUND,
+                "a valid signature must reach the missing policy, without a second nonce admission"
+            );
+            assert_eq!(
+                response.headers()[axum::http::header::CACHE_CONTROL],
+                "private, no-store"
+            );
+            let replay = router
+                .clone()
+                .oneshot(request())
+                .await
+                .expect("replayed request");
+            assert_eq!(replay.status(), StatusCode::FORBIDDEN);
+            assert_eq!(
+                replay.headers()[axum::http::header::CACHE_CONTROL],
+                "private, no-store"
+            );
+        }
+        let wrong_account_uri = format!("/v1/accounts/{}/identifiers/claim-receipt", *BOB_ID);
+        for (signed_path, actual_path, tamper_body, expected) in [
+            (
+                claim_uri.clone(),
+                claim_uri.clone(),
+                true,
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                claim_uri.clone(),
+                format!("{claim_uri}?unexpected=1"),
+                false,
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                claim_uri.clone(),
+                wrong_account_uri,
+                false,
+                StatusCode::FORBIDDEN,
+            ),
+        ] {
+            let signed_uri: axum::http::Uri = signed_path.parse().expect("signed URI");
+            let headers = crate::tests_runtime_handlers::signed_network_app_headers(
+                app.state.network_id_ref(),
+                &account,
+                &key,
+                &Method::POST,
+                &signed_uri,
+                &identifier_body,
+            );
+            let mut body = identifier_body.clone();
+            if tamper_body {
+                body.push(b' ');
+            }
+            let mut request = Request::builder()
+                .method(Method::POST)
+                .uri(actual_path)
+                .extension(crate::loopback_connect_info())
+                .body(Body::from(body))
+                .expect("changed request");
+            request.headers_mut().extend(headers);
+            let response = router
+                .clone()
+                .oneshot(request)
+                .await
+                .expect("refused request");
+            assert_eq!(response.status(), expected);
+            assert_eq!(
+                response.headers()[axum::http::header::CACHE_CONTROL],
+                "private, no-store"
+            );
+        }
+        for (configured_limit, effective_limit) in [(32_768, 16_384), (1_024, 1_024)] {
+            let router = router_for_body_limit(configured_limit);
+            for path in [
+                claim_uri.as_str(),
+                "/v1/identifiers/resolve",
+                "/v1/ram-lfe/programs/string_retail/execute",
+            ] {
+                let response = router
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(Method::POST)
+                            .uri(path)
+                            .extension(crate::loopback_connect_info())
+                            .body(Body::from(vec![b'x'; effective_limit + 1]))
+                            .expect("oversized request"),
+                    )
+                    .await
+                    .expect("bounded body rejection");
+                assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+                assert_eq!(
+                    response.headers()[axum::http::header::CACHE_CONTROL],
+                    "private, no-store"
+                );
+                assert_eq!(
+                    response.headers()[axum::http::header::VARY],
+                    crate::content::CANONICAL_CONTENT_AUTH_VARY
+                );
+            }
+        }
+    }
     #[test]
     fn application_authority_binding_rejects_substitution() {
         require_runtime_governance_account(
@@ -225,13 +392,16 @@ mod application_account_auth_tests {
             "space-directory manifest publication draft",
         )
         .expect("the exact authenticated authority must be accepted");
-        let error =
-            require_runtime_governance_account(&BOB_ID, &ALICE_ID, "identifier claim receipt")
-                .expect_err("another authority must be rejected");
+        let error = require_runtime_governance_account(
+            &BOB_ID,
+            &ALICE_ID,
+            "space-directory manifest revocation draft",
+        )
+        .expect_err("another authority must be rejected");
         assert!(matches!(
             error,
             Error::Query(ValidationFail::NotPermitted(message))
-                if message.contains("identifier claim receipt authority")
+                if message.contains("space-directory manifest revocation draft authority")
         ));
     }
 }

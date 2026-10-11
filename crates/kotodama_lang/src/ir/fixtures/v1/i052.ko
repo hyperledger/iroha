@@ -1,0 +1,20 @@
+
+            seiyaku Demo { permission Entry;
+                kotoage fn run(int count) authorize(Entry) -> int { return count + 1; }
+
+                #[test]
+                fn drive_run() {
+                    let next = test::invoke_kotoage_as(
+                        actor: "issuer",
+                        kotoage: "run",
+                        arguments: {count: 7},
+                    );
+                    test::expect_any_reject_as(
+                        actor: "issuer",
+                        kotoage: "run",
+                        arguments: {count: -1},
+                    );
+                    let _ = next;
+                }
+            }
+        

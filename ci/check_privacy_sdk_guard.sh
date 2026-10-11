@@ -929,10 +929,10 @@ def _check_cargo_workflow(
         ),
     }
     native_lane_job_digests = {
-        "privacy_swift_sdk_parse": "5a14e04031945fc783715bf9bcb80df71f8b7b0d100c27fb54cd0c60d8148fff",
-        "privacy_jvm_sdk_tests": "c13ae0b599d0b239db3e99cb48ce6435b4fc69cde02340a577f38f1cabb5d593",
-        "privacy_csharp_sdk_tests": "47e765abe385d96b004bf5cecb507e2ec10e0c9cfd7edfb11ccdcca4002f1aee",
-        "privacy_javascript_sdk_tests": "dd983bb5147d763b8edecc420e7d02503b6a0095e10be32563c2a63c1381e33c",
+        "privacy_swift_sdk_parse": "4709102a01e03c6a9d990fa425886d2d84eb3f2cf4583f3f94cf523c1cad68aa",
+        "privacy_jvm_sdk_tests": "2e40ab2ac6fc0925845db59008fa887efd526973c0ae5fe01110b3694ff2f4aa",
+        "privacy_csharp_sdk_tests": "409a44665464047fae8e3107e5a83711c5f80010924911cb85c1f6ac99aa4bec",
+        "privacy_javascript_sdk_tests": "110a4eab33e7aa6259e682d42f92a63048f18684dc2f2c017bea4dec31017de1",
     }
 
     require(
@@ -1207,10 +1207,10 @@ def _check_cargo_workflow(
     # complete job digests above. They do not open a general Cargo-policy lane.
     canonical_graph_steps = {
         "privacy_javascript_sdk_tests": ("Authenticate canonical privacy graph snapshot",),
-        "privacy_csharp_sdk_tests": ("Authenticate exact ABI25 C# privacy input",),
+        "privacy_csharp_sdk_tests": ("Authenticate exact ABI29 C# privacy input",),
         "privacy_swift_sdk_parse": (
             "Authenticate canonical privacy graph snapshot",
-            "Revalidate frozen Swift inputs and ABI25 artifacts",
+            "Revalidate frozen Swift inputs and ABI29 artifacts",
         ),
     }
     for job_name, step_names in canonical_graph_steps.items():
@@ -1335,11 +1335,15 @@ JVM_NATIVE_TEST_SELECTIONS = (
     "org.hyperledger.iroha.sdk.privacy.ConfidentialNoteJavaConsumerTest",
     "org.hyperledger.iroha.sdk.privacy.ZkAssetMerklePathJavaConsumerTest",
     "org.hyperledger.iroha.sdk.privacy.PrivacyRetiredWitnessBoundaryJavaConsumerTest",
+    "org.hyperledger.iroha.sdk.core.model.instructions.TransferWirePayloadEncoderParityTest",
+    "org.hyperledger.iroha.sdk.core.model.instructions.RegisterAccountWirePayloadEncoderParityTest",
+    "org.hyperledger.iroha.sdk.core.model.instructions.ClaimIdentifierWirePayloadEncoderParityTest",
+    "org.hyperledger.iroha.sdk.core.model.instructions.ContractLifecycleWirePayloadEncoderParityTest",
 )
 
 
 def _check_jvm_native_test_selection(gate: str, errors: list[str]) -> None:
-    marker = "./gradlew --no-daemon -q :core-jvm:jar :core-jvm:test"
+    marker = "./gradlew --no-daemon -q :core-jvm:jar :core-jvm:test --no-build-cache --rerun-tasks"
     expected = marker + " \\\n" + "\n".join(
         "  --tests " + name + (" \\" if index + 1 < len(JVM_NATIVE_TEST_SELECTIONS) else "")
         for index, name in enumerate(JVM_NATIVE_TEST_SELECTIONS)
@@ -1351,6 +1355,107 @@ def _check_jvm_native_test_selection(gate: str, errors: list[str]) -> None:
         errors,
     )
 
+
+
+def _check_jvm_native_prerequisites(gate: str, errors: list[str]) -> None:
+    """Require actual authenticated bridge and explicit generator before JVM tests."""
+
+    fragments = (
+        (
+            'SOURCE_MANIFEST_BEFORE="$("${PYTHON_BIN}" -I -S "${ROOT_DIR}/scripts/compute_workspace_source_manifest.py" \\\n'
+            '  --root "${ROOT_DIR}" --native-artifact-manifest)"\n'
+            '[[ "${SOURCE_MANIFEST_BEFORE}" =~ ^[0-9a-f]{64}$ ]] \\\n'
+            '  || fail "native JVM source manifest is not canonical"\n'
+            '\n'
+            'if [[ -n "${IROHA_PRIVACY_AUTHENTICATED_CARGO_TARGET_DIR:-}" ]]; then\n'
+            '  BUILD_TARGET_DIR="${IROHA_PRIVACY_AUTHENTICATED_CARGO_TARGET_DIR}"\n'
+            '  "${CARGO_BIN}" build --locked -p connect_norito_bridge --lib \\\n'
+            '    --features privacy-production-enabled \\\n'
+            '    --target-dir "${BUILD_TARGET_DIR}"\n'
+            '  "${CARGO_BIN}" build --locked -p kotlin-fixture-gen \\\n'
+            '    --features dev-tools --bin kotlin-fixture-gen \\\n'
+            '    --target-dir "${BUILD_TARGET_DIR}"\n'
+            '  TARGET_ARTIFACT_DIR="${BUILD_TARGET_DIR}/debug"\n'
+            'else\n'
+            '  BUILD_TARGET_DIR="${NATIVE_BUILD_ROOT}/target"\n'
+            '  "${CARGO_BIN}" build --locked -p connect_norito_bridge --lib \\\n'
+            '    --features privacy-production-enabled \\\n'
+            '    --target "${HOST_TRIPLE}" \\\n'
+            '    --target-dir "${BUILD_TARGET_DIR}"\n'
+            '  "${CARGO_BIN}" build --locked -p kotlin-fixture-gen \\\n'
+            '    --features dev-tools --bin kotlin-fixture-gen \\\n'
+            '    --target "${HOST_TRIPLE}" \\\n'
+            '    --target-dir "${BUILD_TARGET_DIR}"\n'
+            '  TARGET_ARTIFACT_DIR="${BUILD_TARGET_DIR}/${HOST_TRIPLE}/debug"\n'
+            'fi\n'
+            '[[ "$("${PYTHON_BIN}" -I -S "${ROOT_DIR}/scripts/compute_workspace_source_manifest.py" \\\n'
+            '  --root "${ROOT_DIR}" --native-artifact-manifest)" == "${SOURCE_MANIFEST_BEFORE}" ]] \\\n'
+            '  || fail "native JVM source changed while bridge and fixture generator were built"\n'
+        ),
+        (
+            'case "${HOST_TRIPLE}" in\n'
+            '  *-windows-*) FIXTURE_GENERATOR="${TARGET_ARTIFACT_DIR}/kotlin-fixture-gen.exe" ;;\n'
+            '  *) FIXTURE_GENERATOR="${TARGET_ARTIFACT_DIR}/kotlin-fixture-gen" ;;\n'
+            'esac\n'
+            '[[ -f "${FIXTURE_GENERATOR}" && ! -L "${FIXTURE_GENERATOR}" && -x "${FIXTURE_GENERATOR}" ]] \\\n'
+            '  || fail "fresh dev-tools kotlin-fixture-gen is unavailable: ${FIXTURE_GENERATOR}"\n'
+            'FIXTURE_GENERATOR_SHA256="$(sha256_file "${FIXTURE_GENERATOR}")"\n'
+            '\n'
+        ),
+        (
+            '"${PYTHON_BIN}" -I -S "${ABI29_CHECKER}" record \\\n'
+            '  --artifact "${NATIVE_LIBRARY}" \\\n'
+            '  --manifest "${NATIVE_MANIFEST}" \\\n'
+            '  --source-root "${ROOT_DIR}" \\\n'
+            '  --sdk c-jni \\\n'
+            '  --target "${HOST_TRIPLE}"\n'
+            '"${PYTHON_BIN}" -I -S "${ABI29_CHECKER}" verify \\\n'
+            '  --artifact "${NATIVE_LIBRARY}" \\\n'
+            '  --manifest "${NATIVE_MANIFEST}" \\\n'
+            '  --source-root "${ROOT_DIR}"\n'
+            '"${PYTHON_BIN}" -I -S "${ABI29_CHECKER}" record \\\n'
+            '  --artifact "${NATIVE_LIBRARY}" \\\n'
+            '  --manifest "${CSHARP_NATIVE_MANIFEST}" \\\n'
+            '  --source-root "${ROOT_DIR}" \\\n'
+            '  --sdk csharp \\\n'
+            '  --target "${HOST_TRIPLE}"\n'
+            '"${PYTHON_BIN}" -I -S "${ABI29_CHECKER}" verify \\\n'
+            '  --artifact "${NATIVE_LIBRARY}" \\\n'
+            '  --manifest "${CSHARP_NATIVE_MANIFEST}" \\\n'
+            '  --source-root "${ROOT_DIR}"\n'
+            '\n'
+        ),
+        (
+            'export IROHA_NATIVE_LIBRARY_PATH="${NATIVE_LIBRARY_DIR}"\n'
+            'export IROHA_KOTLIN_FIXTURE_GEN_BIN="${FIXTURE_GENERATOR}"\n'
+        ),
+        (
+            '[[ -f "${FIXTURE_GENERATOR}" && ! -L "${FIXTURE_GENERATOR}" && -x "${FIXTURE_GENERATOR}" ]] \\\n'
+            '  || fail "fixture generator was withdrawn during privacy JVM execution"\n'
+            '[[ "$(sha256_file "${FIXTURE_GENERATOR}")" == "${FIXTURE_GENERATOR_SHA256}" ]] \\\n'
+            '  || fail "fixture generator changed during privacy JVM execution"\n'
+            '\n'
+        ),
+    )
+    positions: list[int] = []
+    for fragment in fragments:
+        matches = list(re.finditer("^" + re.escape(fragment), gate, re.MULTILINE))
+        require(
+            len(matches) == 1,
+            "privacy JVM native prerequisites must build and authenticate the exact bridge and dev-tools generator",
+            errors,
+        )
+        if len(matches) == 1:
+            positions.append(matches[0].start())
+    selected = re.search(r"^\./gradlew --no-daemon -q :core-jvm:jar :core-jvm:test --no-build-cache --rerun-tasks \\\n", gate, re.MULTILINE)
+    require(
+        len(positions) == len(fragments)
+        and selected is not None
+        and positions[0] < positions[1] < positions[2] < positions[3] < selected.start() < positions[4]
+        and gate.startswith("#!/usr/bin/env bash\nset -euo pipefail\n"),
+        "privacy JVM native prerequisites must refuse before runtime and recheck generator bytes after runtime",
+        errors,
+    )
 
 
 def _check_jvm_java_owner_and_toolchain(gate: str, consumer: str, errors: list[str]) -> None:
@@ -1718,45 +1823,45 @@ def check(overrides: dict[str, str] | None = None) -> None:
 
     require(
         re.search(
-            r"PRIVACY_REQUIRED_BRIDGE_ABI_VERSION\s*=\s*25\s*;",
+            r"PRIVACY_REQUIRED_BRIDGE_ABI_VERSION\s*=\s*29\s*;",
             js_crypto,
         )
         is not None
         and "abiVersion === PRIVACY_REQUIRED_BRIDGE_ABI_VERSION" in js_crypto
         and "abiVersion >= PRIVACY_REQUIRED_BRIDGE_ABI_VERSION" not in js_crypto,
-        "JavaScript privacy bridge must require exact first-release ABI 25",
+        "JavaScript privacy bridge must require exact first-release ABI 29",
         errors,
     )
     require(
-        literal_assignment(py_crypto, "PRIVACY_REQUIRED_BRIDGE_ABI_VERSION") == 25
+        literal_assignment(py_crypto, "PRIVACY_REQUIRED_BRIDGE_ABI_VERSION") == 29
         and "version == PRIVACY_REQUIRED_BRIDGE_ABI_VERSION" in py_crypto
         and "version >= PRIVACY_REQUIRED_BRIDGE_ABI_VERSION" not in py_crypto,
-        "Python privacy bridge must require exact first-release ABI 25",
+        "Python privacy bridge must require exact first-release ABI 29",
         errors,
     )
     require(
         "fn privacy_bridge_abi_version_py() -> u32" in py_native
         and "PRIVACY_BRIDGE_ABI_VERSION_V1" in py_native,
-        "Python native privacy bridge must report first-release bridge ABI 25",
+        "Python native privacy bridge must report first-release bridge ABI 29",
         errors,
     )
     for relative, marker in (
         (
             "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyNativeBridge.kt",
-            "REQUIRED_BRIDGE_ABI_VERSION: Int = 25",
+            "REQUIRED_BRIDGE_ABI_VERSION: Int = 29",
         ),
         (
             "IrohaSwift/Sources/IrohaSwift/PrivacyNativeBridge.swift",
-            "requiredBridgeABIVersion: UInt32 = 25",
+            "requiredBridgeABIVersion: UInt32 = 29",
         ),
         (
             "csharp/src/Hyperledger.Iroha.Sdk/Privacy/PrivacyNative.cs",
-            "RequiredBridgeAbiVersion = 25",
+            "RequiredBridgeAbiVersion = 29",
         ),
     ):
         require(
             marker in read(relative, overrides),
-            f"{relative} must require exact first-release bridge ABI 25",
+            f"{relative} must require exact first-release bridge ABI 29",
             errors,
         )
 
@@ -2052,7 +2157,7 @@ def check(overrides: dict[str, str] | None = None) -> None:
     require(
         "loadedBridgeAbiVersion == PrivacyNativeBridge.requiredBridgeABIVersion"
         in swift_native_bridge,
-        "Swift privacy availability must require exact first-release ABI 25",
+        "Swift privacy availability must require exact first-release ABI 29",
         errors,
     )
 
@@ -2186,6 +2291,7 @@ def check(overrides: dict[str, str] | None = None) -> None:
     python_native_pyproject_source = read("python/iroha_native/pyproject.toml", overrides)
     workflow = _check_cargo_workflow(workflow_source, errors)
     _check_jvm_native_test_selection(read("ci/check_privacy_jvm_sdk.sh", overrides), errors)
+    _check_jvm_native_prerequisites(read("ci/check_privacy_jvm_sdk.sh", overrides), errors)
     _check_jvm_java_owner_and_toolchain(
         read("ci/check_privacy_jvm_sdk.sh", overrides),
         read("kotlin/core-jvm/src/test/java/org/hyperledger/iroha/sdk/privacy/PrivacyNativeBridgeJavaConsumerTest.java", overrides),
@@ -2279,6 +2385,12 @@ def check(overrides: dict[str, str] | None = None) -> None:
         "scripts/compute_workspace_source_manifest.py",
         "scripts/tests/check_privacy_cargo_materialization_test.py",
         "scripts/tests/check_privacy_jvm_native_gate_test.py",
+        "tools/kotlin-fixture-gen/**",
+        "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/core/model/instructions/FixtureGeneratorRunner.kt",
+        "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/core/model/instructions/TransferWirePayloadEncoderParityTest.kt",
+        "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/core/model/instructions/RegisterAccountWirePayloadEncoderParityTest.kt",
+        "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/core/model/instructions/ClaimIdentifierWirePayloadEncoderParityTest.kt",
+        "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/core/model/instructions/ContractLifecycleWirePayloadEncoderParityTest.kt",
         "kotlin/core-jvm/src/test/java/org/hyperledger/iroha/sdk/privacy/ConfidentialNoteJavaConsumerTest.java",
         "kotlin/core-jvm/src/test/java/org/hyperledger/iroha/sdk/privacy/ZkAssetMerklePathJavaConsumerTest.java",
         "scripts/check_privacy_jvm_class_contract.py",
@@ -2506,7 +2618,7 @@ def check(overrides: dict[str, str] | None = None) -> None:
         and "verify_installed_wheel" in python_sdk_guard_source
         and "verify_privacy_python_wheel.py" in python_sdk_guard_source
         and python_sdk_guard_source.count(
-            '"${VENV_DIR}/bin/python" -I -B \\'
+            '"${SCRIPT_DIR}/verify_privacy_python_wheel.py" \\'
         )
         == 2
         and '"${VENV_DIR}/bin/python" -I -B -m pytest -q \\'
@@ -2822,14 +2934,14 @@ if mode:
     elif mode == "--negative-control-js-privacy-abi-drift":
         path = "javascript/iroha_js/src/crypto.js"
         overrides[path] = read(path, {}).replace(
-            "PRIVACY_REQUIRED_BRIDGE_ABI_VERSION = 25",
+            "PRIVACY_REQUIRED_BRIDGE_ABI_VERSION = 29",
             "PRIVACY_REQUIRED_BRIDGE_ABI_VERSION = 22",
             1,
         )
     elif mode == "--negative-control-python-privacy-abi-drift":
         path = "python/iroha_python/src/iroha_python/crypto.py"
         overrides[path] = read(path, {}).replace(
-            "PRIVACY_REQUIRED_BRIDGE_ABI_VERSION: Final[int] = 25",
+            "PRIVACY_REQUIRED_BRIDGE_ABI_VERSION: Final[int] = 29",
             "PRIVACY_REQUIRED_BRIDGE_ABI_VERSION: Final[int] = 22",
             1,
         )

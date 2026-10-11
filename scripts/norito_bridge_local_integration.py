@@ -1,9 +1,16 @@
-"""Constrain explicitly requested, non-release Apple output to one ignored lane."""
+"""Authenticate explicit local mobile output and private diagnostic configuration.
+
+Requires Python 3.11+ and explicitly prepared paths; no cache or workspace is
+created. Android diagnostic cargo-ndk discovery requires the exact empty
+workspace manifest below in its private invocation directory, without a lock.
+"""
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import os
+import json
 from pathlib import Path
 import stat
 import subprocess
@@ -79,16 +86,142 @@ def cargo_home(root: Path, path: Path, *, local_integration: bool = False) -> Pa
     return path
 
 
+
+ANDROID_CARGO_CONFIGURATION_SCHEMA = "iroha.android-cargo-configuration.v1"
+ANDROID_ARMV7_CONFIGURATION_SCHEMA = "iroha.android-armv7-diagnostic-configuration.v1"
+ANDROID_ARMV7_DISCOVERY_MANIFEST = b"[workspace]\nmembers = []\n"
+
+
+def android_armv7_discovery_workspace(invocation: Path) -> dict[str, object]:
+    """Bind cargo-ndk's empty discovery workspace without admitting build inputs."""
+    manifest = invocation / "Cargo.toml"
+    lock = invocation / "Cargo.lock"
+    try:
+        descriptor = os.open(manifest, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
+    except OSError as error:
+        raise ValueError("Android diagnostic discovery requires its exact non-symbolic Cargo.toml") from error
+    identity = lambda value: (
+        value.st_dev, value.st_ino, value.st_mode, value.st_nlink,
+        value.st_uid, value.st_gid, value.st_size, value.st_mtime_ns, value.st_ctime_ns,
+    )
+    try:
+        before = os.fstat(descriptor)
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                or before.st_uid != os.geteuid() or stat.S_IMODE(before.st_mode) & 0o022
+                or before.st_size != len(ANDROID_ARMV7_DISCOVERY_MANIFEST)):
+            raise ValueError("Android diagnostic discovery manifest must be an owned non-linked bounded regular file")
+        contents = os.read(descriptor, len(ANDROID_ARMV7_DISCOVERY_MANIFEST) + 1)
+        after = os.fstat(descriptor)
+        linked = manifest.lstat()
+        if (identity(before) != identity(after) or identity(after) != identity(linked)
+                or manifest.resolve(strict=True) != manifest):
+            raise ValueError("Android diagnostic discovery manifest changed during authentication")
+        if contents != ANDROID_ARMV7_DISCOVERY_MANIFEST:
+            raise ValueError("Android diagnostic discovery requires the exact empty workspace manifest")
+    finally:
+        os.close(descriptor)
+    try:
+        lock.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        raise ValueError("Android diagnostic discovery Cargo.lock must remain absent")
+    return {
+        "manifest_path": str(manifest),
+        "manifest_identity": list(identity(after)),
+        "manifest_sha256": hashlib.sha256(contents).hexdigest(),
+        "lock_path": str(lock),
+        "lock_identity": None,
+    }
+
+
+def android_cargo_configuration(
+    root: Path, cache: Path, invocation: Path,
+) -> dict[str, object]:
+    """Authenticate explicit Cargo discovery and configuration, granting no release.
+
+    Production and diagnostics share the same owned, disjoint directory, empty
+    discovery workspace and strict effective configuration custody checks.
+    """
+    cache = cargo_home(root, cache)
+    if cache == root or cache in root.parents or root in cache.parents:
+        raise ValueError("Android Cargo home must be disjoint from source")
+    metadata = cache.lstat()
+    if stat.S_IMODE(metadata.st_mode) != 0o700:
+        raise ValueError("Android Cargo home must have mode 0700")
+    if cache == invocation or cache in invocation.parents or invocation in cache.parents:
+        raise ValueError("Android Cargo home and invocation directory must be disjoint")
+    specification = importlib.util.spec_from_file_location(
+        "android_diagnostic_cargo_configuration_owner",
+        Path(__file__).with_name("run_mobile_hermetic_command.py"),
+    )
+    if specification is None or specification.loader is None:
+        raise ValueError("Android Cargo configuration owner is unavailable")
+    owner = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(owner)
+    observation = owner.authenticate_cargo_invocation_directory(root, invocation)
+    discovery = android_armv7_discovery_workspace(invocation)
+    configuration = owner.authenticate_build_cargo_configuration(invocation, cache)
+    owner.recheck_build_cargo_configuration(configuration)
+    owner.recheck_cargo_invocation_directory(root, observation)
+    current = cache.lstat()
+    identity = lambda value: (value.st_dev, value.st_ino, value.st_mode,
+                              value.st_uid, value.st_gid)
+    if cache.resolve(strict=True) != cache or identity(current) != identity(metadata):
+        raise ValueError("Android Cargo home changed during authentication")
+    if android_armv7_discovery_workspace(invocation) != discovery:
+        raise ValueError("Android discovery workspace changed during authentication")
+    return {
+        "schema": ANDROID_CARGO_CONFIGURATION_SCHEMA,
+        "artifact_scope": "android-cargo-configuration",
+        "release_admitted": False,
+        "source_root": str(root),
+        "cargo_home": str(cache),
+        "cargo_home_identity": list(identity(current)),
+        "cargo_invocation_directory": str(invocation),
+        "cargo_invocation_directory_identity": list(observation[1]),
+        "discovery_workspace": discovery,
+        "configuration_inputs": {
+            str(path): None if value is None else list(value)
+            for path, value in sorted(configuration.items())
+        },
+    }
+
+
+def android_armv7_diagnostic_configuration(
+    root: Path, cache: Path, invocation: Path, *, local_integration: bool,
+) -> dict[str, object]:
+    """Retain the diagnostic-only route around the shared configuration guard."""
+    if not local_integration:
+        raise ValueError("Android armv7 diagnostic configuration requires local integration")
+    configuration = android_cargo_configuration(root, cache, invocation)
+    return {**configuration, "schema": ANDROID_ARMV7_CONFIGURATION_SCHEMA,
+            "artifact_scope": "android-local-diagnostic"}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--path", required=True)
-    parser.add_argument("--role", choices=("cargo", "build", "artifact", "projection", "cargo-home", "cargo-invocation"), required=True)
+    parser.add_argument("--role", choices=("cargo", "build", "artifact", "projection", "cargo-home", "cargo-invocation", "android-cargo", "android-armv7-diagnostic"), required=True)
     parser.add_argument("--local-integration", action="store_true")
+    parser.add_argument("--cargo-home")
     arguments = parser.parse_args()
     try:
         path = Path(arguments.path)
-        if arguments.role == "cargo-home":
+        if arguments.role in {"android-cargo", "android-armv7-diagnostic"}:
+            if (arguments.path != str(path) or arguments.cargo_home is None
+                    or arguments.cargo_home != str(Path(arguments.cargo_home))):
+                raise ValueError("Android Cargo configuration requires explicit canonical cache and cwd")
+            configuration = (
+                android_armv7_diagnostic_configuration(
+                    arguments.root, Path(arguments.cargo_home), path,
+                    local_integration=arguments.local_integration,
+                ) if arguments.role == "android-armv7-diagnostic" else
+                android_cargo_configuration(arguments.root, Path(arguments.cargo_home), path)
+            )
+            print(json.dumps(configuration, sort_keys=True, separators=(",", ":")))
+        elif arguments.role == "cargo-home":
             if arguments.path != str(path):
                 raise ValueError("MOBILE_SDK_CARGO_HOME must be an absolute canonical directory")
             print(cargo_home(arguments.root, path, local_integration=arguments.local_integration))

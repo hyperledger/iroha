@@ -26,6 +26,23 @@ assert SPEC is not None and SPEC.loader is not None
 validator = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = validator
 SPEC.loader.exec_module(validator)
+WALLET_JNI_SYMBOLS = [
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_" + method
+    for method in ("revision", "openBegin", "openFinish", "openCancel", "close", "activity", "call", "setup", "enrollment", "enrollmentRefusal", "execute", "snapshot")
+] + [
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_beginInstallation",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_registerInstallation",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_closeInstallation",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_relocateRegistrationSource",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletObservationNativeV1_observe",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_review",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_executeReviewed",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_discardReview",
+]
+LOAD_ORIGINAL_JNI_SYMBOLS = [
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletLoadOriginalNativeV1_validate",
+]
+KAGEMUSHA_JNI_SYMBOLS = [*WALLET_JNI_SYMBOLS, *LOAD_ORIGINAL_JNI_SYMBOLS]
 
 
 class StrictNoritoBridgeValidatorTests(unittest.TestCase):
@@ -118,11 +135,13 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
         rust_commit = "b" * 40
         self.payload = {
             "version": "1.0.0",
-            "native_bridge_abi_version": 25,
+            "native_bridge_abi_version": 29,
             "privacy_production_enabled": True,
             "cargo_features": ["privacy-production-enabled"],
             "build_environment": {
                 "schema": "iroha.mobile-native-build-environment.v1",
+                "wallet_runtime_authority": "cbsi-release-v1",
+                "wallet_runtime_trust_ed25519_hex": "3" * 64,
                 "hermetic_runner_schema": "iroha.mobile-hermetic-command.v1",
                 "hermetic_runner_sha256": hashlib.sha256(
                     (ROOT / "scripts/run_mobile_hermetic_command.py").read_bytes()
@@ -218,11 +237,17 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
         checker = (ROOT / "scripts/check_mobile_sdk_artifacts.sh").read_text(
             encoding="utf-8"
         )
-        # The packaging checker refuses retired KAGEMUSHA exports by namespace; the
-        # exact forbidden inventory is owned by the validator and the builder above.
+        # The packaging checker requires exactly the current wallet ABI and
+        # rejects every other KAGEMUSHA export, including unknown wallet names.
         self.assertNotIn("RETIRED_KAGEMUSHA_C_SYMBOLS", checker)
-        self.assertEqual(re.findall(r"connect_norito_kagemusha_[A-Za-z0-9_]+", checker), [])
-        self.assertEqual(checker.count("grep -Eq '^_?connect_norito_kagemusha_'"), 1)
+        self.assertEqual(
+            re.findall(r"connect_norito_kagemusha_[A-Za-z0-9_]+", checker),
+            [
+                symbol for symbol in validator.EXPECTED_REQUIRED_SYMBOLS
+                if symbol.startswith("connect_norito_kagemusha_")
+            ],
+        )
+        self.assertEqual(checker.count("grep -E '^_?connect_norito_kagemusha_'"), 1)
 
     def test_current_mobile_protocol_inventory_matches_required_bridge_exports(self) -> None:
         checker = (ROOT / "scripts/check_mobile_sdk_artifacts.sh").read_text(
@@ -290,7 +315,11 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
         ]
         for mode in ("apple", "elf"):
             with self.subTest(mode=mode):
-                result = self.check_mobile_binary_symbols(current, mode)
+                exported = (
+                    ["_" + symbol for symbol in current]
+                    if mode == "apple" else [*current, *KAGEMUSHA_JNI_SYMBOLS]
+                )
+                result = self.check_mobile_binary_symbols(exported, mode)
                 self.assertEqual(result.returncode, 0, result.stderr)
         for missing in (
             "connect_norito_bridge_abi_version",
@@ -298,11 +327,25 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
             "connect_norito_validation_fee_current_policy_proof_verify_v1",
             "connect_norito_private_settlement_auditor_capsule_response_verify_with_request_v1",
             "iroha_privacy_validate_exact12_capability_manifest_v1",
+            *(
+                symbol for symbol in current
+                if symbol.startswith("connect_norito_kagemusha_wallet_")
+            ),
         ):
-            with self.subTest(missing=missing):
-                result = self.check_mobile_binary_symbols(
-                    [symbol for symbol in current if symbol != missing]
-                )
+            for mode in ("apple", "elf"):
+                with self.subTest(missing=missing, mode=mode):
+                    exported = [symbol for symbol in current if symbol != missing]
+                    if mode == "apple":
+                        exported = ["_" + symbol for symbol in exported]
+                    else:
+                        exported += KAGEMUSHA_JNI_SYMBOLS
+                    result = self.check_mobile_binary_symbols(exported, mode)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(f"missing {missing}", result.stderr)
+        for missing in KAGEMUSHA_JNI_SYMBOLS:
+            with self.subTest(missing=missing, mode="elf"):
+                exported = [*current, *(symbol for symbol in KAGEMUSHA_JNI_SYMBOLS if symbol != missing)]
+                result = self.check_mobile_binary_symbols(exported, "elf")
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"missing {missing}", result.stderr)
 
@@ -321,12 +364,16 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
         for symbol in (
             *retired_c,
             "connect_norito_kagemusha_unlisted_v1",
+            "connect_norito_kagemusha_wallet_unlisted_v1",
+            "connect_norito_kagemusha_wallet_commit_v2",
+            "connect_norito_kagemusha_wallet_commit_v1",
             "connect_norito_offline_cash_unlisted_v1",
         ):
             for mode in ("apple", "elf"):
                 with self.subTest(symbol=symbol, mode=mode):
                     exported = "_" + symbol if mode == "apple" else symbol
-                    result = self.check_mobile_binary_symbols([*current, exported], mode)
+                    inventory = current if mode == "apple" else [*current, *KAGEMUSHA_JNI_SYMBOLS]
+                    result = self.check_mobile_binary_symbols([*inventory, exported], mode)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn("retired KAGEMUSHA", result.stderr)
         # Former exports of each retired class family; the checker matches namespaces.
@@ -352,7 +399,7 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
             "Java_org_hyperledger_iroha_sdk_offline_probe_Pixel6TestnetDiagnosticSelectionJniV1_nativeUnlistedV1",
         ):
             with self.subTest(symbol=symbol):
-                result = self.check_mobile_binary_symbols([*current, symbol], "elf")
+                result = self.check_mobile_binary_symbols([*current, *KAGEMUSHA_JNI_SYMBOLS, symbol], "elf")
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("retired KAGEMUSHA JNI", result.stderr)
 
@@ -521,6 +568,18 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
                 with self.assertRaisesRegex(validator.ValidationError, "required symbol inventory"):
                     self.validate()
 
+    def test_every_current_review_installation_enrollment_export_is_mandatory(self) -> None:
+        for suffix in ("review", "execute_reviewed", "discard_review", "installation_begin", "installation_register", "installation_close", "enrollment"):
+            symbol = "connect_norito_kagemusha_wallet_" + suffix + "_v1"
+            for replacement in (None, symbol + "_optional"):
+                with self.subTest(symbol=symbol, replacement=replacement):
+                    self.payload["required_symbols"] = [current for current in validator.EXPECTED_REQUIRED_SYMBOLS if current != symbol]
+                    if replacement is not None:
+                        self.payload["required_symbols"].append(replacement)
+                    self.write_manifest()
+                    with self.assertRaisesRegex(validator.ValidationError, "required symbol inventory"):
+                        self.validate()
+
     def test_rejects_manifests_omitting_either_retired_mint_stage_export(self) -> None:
         for missing in (
             "connect_norito_kagemusha_device_mint_stage_command_v1_validate",
@@ -679,6 +738,19 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
         symbolic.symlink_to("Info.plist")
         with self.assertRaisesRegex(validator.ValidationError, "contains a symlink"):
             self.validate()
+
+    def test_application_authority_is_exact_closed_build_data(self):
+        environment = self.payload["build_environment"]
+        for authority in ["bpng-taira-v7", "cbsi-release-v1"]:
+            environment["wallet_runtime_authority"] = authority
+            validator._validate_build_environment(ROOT, environment)
+        for authority in [None, "", "bpng", "bpng-taira-v6", "BPNG-TAIRA-V7", "bpng-taira-v7\n", 1, True, {}, []]:
+            environment["wallet_runtime_authority"] = authority
+            with self.assertRaises(validator.ValidationError):
+                validator._validate_build_environment(ROOT, environment)
+        del environment["wallet_runtime_authority"]
+        with self.assertRaises(validator.ValidationError):
+            validator._validate_build_environment(ROOT, environment)
 
     def test_rejects_fabricated_environment_policy_and_source_identity(self) -> None:
         environment = self.payload["build_environment"]

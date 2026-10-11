@@ -2,7 +2,7 @@
                 seiyaku IntegerContract {
                     struct Shared { int value; }
                     fn make() -> Shared { return Shared { value: 7 }; }
-                    view fn read() -> int {
+                    view fn read() authorize(anyone) -> int {
                         let record = make();
                         return record.value;
                     }

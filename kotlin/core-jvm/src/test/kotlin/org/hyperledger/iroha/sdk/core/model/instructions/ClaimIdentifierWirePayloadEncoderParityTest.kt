@@ -10,6 +10,11 @@ import org.hyperledger.iroha.sdk.client.IdentifierResolutionReceipt
 import org.hyperledger.iroha.sdk.client.RamLfeOutputOpening
 import org.hyperledger.iroha.sdk.client.RamLfeOutputOpeningPayload
 import org.hyperledger.iroha.sdk.core.model.WirePayload
+import org.hyperledger.iroha.sdk.core.model.NetworkId
+import org.hyperledger.iroha.sdk.client.IdentifierOwnerInputV1
+import org.hyperledger.iroha.sdk.client.PhoneRetailCanonicalityPayloadV1
+import org.hyperledger.iroha.sdk.client.PhoneRetailCanonicalityAttestationV1
+import kotlin.test.assertNotNull
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -26,6 +31,7 @@ import kotlin.test.assertTrue
  * - Line 2: account I105
  * - Line 3: signature bytes hex
  * - Line 4: canonical receipt hash hex
+ * - Line 5: exact signed receipt network raw32 hex
  */
 class ClaimIdentifierWirePayloadEncoderParityTest {
 
@@ -36,8 +42,10 @@ class ClaimIdentifierWirePayloadEncoderParityTest {
         val accountId = lines[1]
         val signatureHex = lines[2]
         val fixtureHash = lines[3]
+        val networkId = IdentifierOwnerInputV1.rawNetworkId(lines[4])
 
         val payload = IdentifierResolutionPayload(
+            networkId = networkId,
             policyId = "email#retail",
             execution = IdentifierResolutionExecutionPayload(
                 programId = "parity_test",
@@ -51,7 +59,7 @@ class ClaimIdentifierWirePayloadEncoderParityTest {
                 outputHash = fixtureHash,
                 associatedDataHash = fixtureHash,
                 executedAtMs = 1_735_000_000_000L,
-                expiresAtMs = null,
+                expiresAtMs = 1_735_000_120_000L,
             ),
             opening = RamLfeOutputOpening(
                 payload = RamLfeOutputOpeningPayload(
@@ -62,7 +70,7 @@ class ClaimIdentifierWirePayloadEncoderParityTest {
                     evaluationKeyDigest = fixtureHash,
                     openedOutputHash = fixtureHash,
                     openedAtMs = 1_735_000_000_000L,
-                    expiresAtMs = null,
+                    expiresAtMs = 1_735_000_120_000L,
                 ),
                 signature = signatureHex,
             ),
@@ -102,6 +110,7 @@ class ClaimIdentifierWirePayloadEncoderParityTest {
             decodedClaim.receiptPayloadBytes,
             AccountAddress.DEFAULT_I105_DISCRIMINANT,
         )
+        assertEquals(payload.networkId, decodedReceiptPayload.networkId)
         assertEquals(payload.policyId, decodedReceiptPayload.policyId)
         assertEquals(payload.execution.programId, decodedReceiptPayload.execution.programId)
         assertEquals(payload.execution.backend, decodedReceiptPayload.execution.backend)
@@ -195,7 +204,7 @@ class ClaimIdentifierWirePayloadEncoderParityTest {
     }
 
     @Test
-    fun `claim identifier refuses phone receipt without canonicality encoding`() {
+    fun `claim identifier refuses phone receipt without its original canonicality`() {
         val accountId = sampleAuthority(0x41)
         val receipt = IdentifierResolutionReceipt(
             payload = samplePayload(accountId = accountId),
@@ -210,7 +219,32 @@ class ClaimIdentifierWirePayloadEncoderParityTest {
         val err = assertFailsWith<IllegalArgumentException> {
             ClaimIdentifierWirePayloadEncoder.encode(accountId, receipt)
         }
-        assertTrue(err.message?.contains("canonicality attestation encoder") == true)
+        assertTrue(err.message?.contains("original independent signed canonicality") == true)
+    }
+
+    @Test
+    fun `phone canonicality original survives claim framing without a replacement signature`() {
+        val accountId = sampleAuthority(0x41)
+        val payload = samplePayload(accountId = accountId, programId = "phone_retail", openingProgramId = "phone_retail")
+        val opening = payload.opening.payload
+        val phone = PhoneRetailCanonicalityAttestationV1(
+            PhoneRetailCanonicalityPayloadV1(payload.networkId, "phone#retail", "phone_retail", opening.inputCiphertextHash, opening.outputCiphertextHash, opening.openedOutputHash, opening.openedOutputHash, payload.uaid, accountId, opening.openedAtMs, requireNotNull(opening.expiresAtMs)),
+            "aa".repeat(64),
+        )
+        // UNADMITTED structural DATA; no signature or ledger-admission claim.
+        val receipt = IdentifierResolutionReceipt(payload, IdentifierReceiptAttestation("signed", "bb".repeat(64), null, null), phone)
+        val instruction = ClaimIdentifierWirePayloadEncoder.encode(accountId, receipt)
+        val wire = assertIs<WirePayload>(instruction.payload)
+        val decoded = ClaimIdentifierWirePayloadEncoder.decodePayload(wire.payloadBytes, AccountAddress.DEFAULT_I105_DISCRIMINANT)
+        val expected = IdentifierReceiptCanonicalEncoder.encodePhoneCarrier(phone)
+        assertContentEquals(expected, assertNotNull(decoded.phoneCanonicalityBytes))
+        val exposed = assertNotNull(decoded.phoneCanonicalityBytes)
+        exposed[0] = (exposed[0].toInt() xor 1).toByte()
+        assertContentEquals(expected, assertNotNull(decoded.phoneCanonicalityBytes))
+        val original = IdentifierReceiptCanonicalEncoder.decodePhoneCarrier(expected, AccountAddress.DEFAULT_I105_DISCRIMINANT)
+        assertEquals(phone.signature, original.signature)
+        assertEquals(payload.networkId, original.payload.networkId)
+        assertEquals(accountId, original.payload.accountId)
     }
 
     @Test
@@ -376,31 +410,32 @@ class ClaimIdentifierWirePayloadEncoderParityTest {
         programId: String = "identifier_lookup_retail",
         openingProgramId: String = "identifier_lookup_retail",
         accountId: String? = null,
-        backend: String = "bfv-affine-v1",
+        backend: String = "hkdf-sha3-512-prf-v1",
         verificationMode: String = "signed",
         openingSignature: String = "a1b2c3d4",
-        opaqueId: String = "opaque:" + "44".repeat(32),
+        opaqueId: String = "opaque:" + "44".repeat(31) + "45",
         receiptHash: String = "55".repeat(32),
         uaid: String = "uaid:" + "66".repeat(31) + "67",
         programDigest: String = "11".repeat(32),
-        openingInputCiphertextHash: String = "ee".repeat(32),
+        openingInputCiphertextHash: String = "ee".repeat(31) + "ef",
         executedAtMs: Long = 42L,
         executionExpiresAtMs: Long? = 142L,
         openedAtMs: Long = 84L,
         openingExpiresAtMs: Long? = 184L,
     ): IdentifierResolutionPayload =
         IdentifierResolutionPayload(
+            networkId = NetworkId.parse("hash:32C903E5B3497E34C2B844EBFE8A39C19E6CF8F95D44C1FFB8BA9DCB42F91149#A2F0"),
             policyId = policyId,
             execution = IdentifierResolutionExecutionPayload(
                 programId = programId,
                 programDigest = programDigest,
                 backend = backend,
                 verificationMode = verificationMode,
-                inputCiphertextHash = "aa".repeat(32),
+                inputCiphertextHash = "aa".repeat(31) + "ab",
                 outputCiphertextHash = "bb".repeat(32),
-                parameterDigest = "cc".repeat(32),
+                parameterDigest = "cc".repeat(31) + "cd",
                 evaluationKeyDigest = "dd".repeat(32),
-                outputHash = "22".repeat(32),
+                outputHash = "22".repeat(31) + "23",
                 associatedDataHash = "33".repeat(32),
                 executedAtMs = executedAtMs,
                 expiresAtMs = executionExpiresAtMs,
@@ -409,10 +444,10 @@ class ClaimIdentifierWirePayloadEncoderParityTest {
                 payload = RamLfeOutputOpeningPayload(
                     programId = openingProgramId,
                     inputCiphertextHash = openingInputCiphertextHash,
-                    outputCiphertextHash = "ee".repeat(32),
-                    parameterDigest = "ee".repeat(32),
-                    evaluationKeyDigest = "ee".repeat(32),
-                    openedOutputHash = "ee".repeat(32),
+                    outputCiphertextHash = "ee".repeat(31) + "ef",
+                    parameterDigest = "ee".repeat(31) + "ef",
+                    evaluationKeyDigest = "ee".repeat(31) + "ef",
+                    openedOutputHash = "ee".repeat(31) + "ef",
                     openedAtMs = openedAtMs,
                     expiresAtMs = openingExpiresAtMs,
                 ),

@@ -5889,7 +5889,7 @@
       "note": "Release-evidence tooling: prover self-checks off the admission path. Feature `privacy-release-evidence` only."
      }
     ],
-    "what": "A native verifier of a role (`roles.list[].native_verifiers`) is called in production only inside its engine (`engine_scope`), in the dispatch file and in the recorded tooling."
+    "what": "A native verifier of a role (`roles.list[].native_verifiers`) is called in production only inside its engine (`engine_scope`), exactly once in the dispatch file and in the recorded tooling. A second admission call in the same file is also a second route. The administrative PGC verifier likewise has exactly one call in its recorded handler file."
    },
    "administrative_proof_operations": [
     {

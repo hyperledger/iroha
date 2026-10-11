@@ -30,7 +30,7 @@ final class ConfidentialProverNativeTests: XCTestCase {
         let partial = try await prover.proveUnshield(tree: .paths(root: path.rootAtHeight, paths: [path]),
                                                      inputs: [input], publicAmount: 4, change: change)
         XCTAssertEqual(partial.relation, .redemptionWithChange)
-        XCTAssertEqual(partial.backend, "halo2/ipa")
+        XCTAssertEqual(partial.backend, "pipa-r/pasta")
         XCTAssertFalse(partial.proof.isEmpty)
         XCTAssertEqual(partial.root, path.rootAtHeight)
         XCTAssertEqual(partial.nullifiers.count, 1)
@@ -168,7 +168,7 @@ final class ConfidentialProverNativeTests: XCTestCase {
     private func assertFullProof(_ proof: ConfidentialProof, root: Data,
                                  file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertEqual(proof.relation, .fullRedemption, file: file, line: line)
-        XCTAssertEqual(proof.backend, "halo2/ipa", file: file, line: line)
+        XCTAssertEqual(proof.backend, "pipa-r/pasta", file: file, line: line)
         XCTAssertFalse(proof.proof.isEmpty, file: file, line: line)
         XCTAssertEqual(proof.root, root, file: file, line: line)
         XCTAssertEqual(proof.nullifiers.count, 1, file: file, line: line)
@@ -199,7 +199,7 @@ final class ConfidentialProverNativeTests: XCTestCase {
         let tree = ConfidentialTree.paths(root: path.rootAtHeight, paths: [path])
         let proof = try await prover.proveUnshield(tree: tree, inputs: [input], publicAmount: 7)
         XCTAssertEqual(proof.relation, .fullRedemption)
-        XCTAssertEqual(proof.backend, "halo2/ipa")
+        XCTAssertEqual(proof.backend, "pipa-r/pasta")
         XCTAssertFalse(proof.proof.isEmpty)
         XCTAssertEqual(proof.root, path.rootAtHeight)
         XCTAssertEqual(proof.nullifiers.count, 1)

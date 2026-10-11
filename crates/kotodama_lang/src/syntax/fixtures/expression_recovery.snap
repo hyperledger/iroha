@@ -1,10 +1,10 @@
 Root@0..133
-  SourceUnit@0..131
+  SourceUnit@0..133
     KwSeiyaku="seiyaku"@0..7
     Ident="C"@8..9
     LBrace="{"@10..11
-    ItemList@11..130
-      FunctionItem@12..128
+    ItemList@11..132
+      FunctionItem@12..131
         KwFn="fn"@12..14
         Ident="f"@15..16
         ParamList@16..31
@@ -15,9 +15,9 @@ Root@0..133
           Greater=">"@27..28
           Ident="v"@29..30
           RParen=")"@30..31
-        Block@32..128
+        Block@32..131
           LBrace="{"@32..33
-          StatementList@33..127
+          StatementList@33..130
             LetStmt@34..58
               KwLet="let"@34..37
               Ident="choice"@38..44
@@ -29,7 +29,7 @@ Root@0..133
               Colon=":"@54..55
               Number="2"@56..57
               Semicolon=";"@57..58
-            LetStmt@59..126
+            LetStmt@59..129
               KwLet="let"@59..62
               Ident="payload"@63..70
               Equal="="@71..72
@@ -62,10 +62,9 @@ Root@0..133
                       Number="0"@123..124
                       RBracket="]"@124..125
                     Missing(Some(RBracket))@125
-              ErrorNode@125..126
+              ErrorNode@125..129
                 Semicolon=";"@125..126
-          RBrace="}"@127..128
-      ErrorNode@128..129
-        Semicolon=";"@128..129
-    RBrace="}"@130..131
-  RBrace="}"@132..133
+                RBrace="}"@127..128
+                Semicolon=";"@128..129
+          RBrace="}"@130..131
+    RBrace="}"@132..133

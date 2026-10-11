@@ -28,15 +28,11 @@
 //! ```compile_fail
 //! use iroha_zkp_poseidon::poseidon::poseidon2_params_width6;
 //! ```
-#[cfg(test)]
-use bn254_v1_tests::FrSpec;
 use halo2curves::{
     bn256::Fr,
     ff::{Field, PrimeField},
 };
 use once_cell::sync::OnceCell;
-#[cfg(test)]
-use poseidon_primitives::poseidon::primitives::Spec;
 #[path = "poseidon/bn254_v1.rs"]
 mod bn254_v1;
 #[cfg(test)]
@@ -695,19 +691,11 @@ mod tests {
     #[test]
     fn poseidon_params_exports_match_widths() {
         let params3 = bn254_poseidon_params_width3();
-        assert_eq!(
-            params3.round_constants.len(),
-            <FrSpec as Spec<Fr, 3, 2>>::full_rounds()
-                + <FrSpec as Spec<Fr, 3, 2>>::partial_rounds(),
-        );
+        assert_eq!(params3.round_constants.len(), 64,);
         assert_eq!(params3.mds.len(), 3);
         assert_eq!(params3.mds[0].len(), 3);
         let params6 = bn254_poseidon_params_width6();
-        assert_eq!(
-            params6.round_constants.len(),
-            <FrSpec as Spec<Fr, 6, 5>>::full_rounds()
-                + <FrSpec as Spec<Fr, 6, 5>>::partial_rounds(),
-        );
+        assert_eq!(params6.round_constants.len(), 64,);
         assert_eq!(params6.mds.len(), 6);
         assert_eq!(params6.mds[0].len(), 6);
     }

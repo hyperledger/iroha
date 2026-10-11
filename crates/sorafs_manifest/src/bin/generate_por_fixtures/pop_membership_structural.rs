@@ -1,4 +1,4 @@
-// Shared wire-shape fixtures only: no Halo2 proof or recipient authorization is asserted.
+// Shared wire-shape fixtures only: no cryptographic proof or recipient authorization is asserted.
 
 fn pop_structural_membership_proof() -> sorafs_manifest::PopMembershipProofV1 {
     use sorafs_manifest::pop_credentials::{
@@ -19,9 +19,9 @@ fn pop_structural_membership_proof() -> sorafs_manifest::PopMembershipProofV1 {
         challenge_digest: [0x43; 32],
         verifier_context: "structural-sdk-fixture".to_owned(),
         presentation_binding_digest: [0x46; 32],
-        proof_system: PopMembershipProofSystemV1::Halo2IpaPastaV1,
+        proof_system: PopMembershipProofSystemV1::NativePipaRV1,
         verifier_material: PopMembershipVerifierMaterialV1 {
-            circuit_id: "sorafs-pop-membership-halo2-ipa-pasta-v1".to_owned(),
+            circuit_id: "sorafs-pop-membership-pipa-r-v1".to_owned(),
             circuit_k: 14,
             credential_tree_depth: POP_CREDENTIAL_TREE_DEPTH_V1,
             revocation_tree_depth: POP_REVOCATION_TREE_DEPTH_V1,

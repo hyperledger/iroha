@@ -264,31 +264,8 @@ impl crate::seal::Instruction for EnrollFeeSponsorBeneficiary {}
 impl crate::seal::Instruction for UnenrollFeeSponsorBeneficiary {}
 impl crate::seal::Instruction for FundFeeSponsorProgram {}
 impl crate::seal::Instruction for WithdrawFeeSponsorProgram {}
-fn nexus_decode_flags() -> u8 {
-    norito::core::effective_decode_flags().unwrap_or_else(norito::core::default_encode_flags)
-}
-macro_rules! impl_decode_fields {
-    ($ty:ident { $($field:ident: $field_ty:ty),+ $(,)? }) => {
-        impl<'a> norito::core::DecodeFromSlice<'a> for $ty {
-            fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
-                let flags = nexus_decode_flags();
-                let mut offset = 0usize;
-                $(
-                    let $field = super::decode_aos_canonical_field::<$field_ty>(
-                        super::read_aos_field(bytes, &mut offset, flags)?,
-                        flags,
-                    )?;
-                )+
-                if offset != bytes.len() {
-                    return Err(norito::core::Error::LengthMismatch);
-                }
-                norito::core::note_payload_access(bytes, offset);
-                Ok((Self { $($field),+ }, offset))
-            }
-        }
-    };
-}
-impl_decode_fields!(RegisterVerifiedFeeSponsorVaultAllocation {
+
+impl_aos_decode_from_slice!(RegisterVerifiedFeeSponsorVaultAllocation {
     program_id: FeeSponsorProgramId,
     program_revision: u64,
     asset_definition_id: AssetDefinitionId,
@@ -301,40 +278,40 @@ impl_decode_fields!(RegisterVerifiedFeeSponsorVaultAllocation {
     manifest_root: [u8; 32],
     proof_blob: ProofBlob,
 });
-impl_decode_fields!(CreateFeeSponsorProgram {
+impl_aos_decode_from_slice!(CreateFeeSponsorProgram {
     program: FeeSponsorProgram
 });
-impl_decode_fields!(StageFeeSponsorProgramRevision {
+impl_aos_decode_from_slice!(StageFeeSponsorProgramRevision {
     revision: FeeSponsorProgramRevision
 });
-impl_decode_fields!(ActivateFeeSponsorProgramRevision {
+impl_aos_decode_from_slice!(ActivateFeeSponsorProgramRevision {
     program_id: FeeSponsorProgramId,
     revision: u64,
     activate_at_height: u64,
 });
-impl_decode_fields!(PauseFeeSponsorProgram {
+impl_aos_decode_from_slice!(PauseFeeSponsorProgram {
     program_id: FeeSponsorProgramId
 });
-impl_decode_fields!(BeginCloseFeeSponsorProgram {
+impl_aos_decode_from_slice!(BeginCloseFeeSponsorProgram {
     program_id: FeeSponsorProgramId
 });
-impl_decode_fields!(CloseFeeSponsorProgram {
+impl_aos_decode_from_slice!(CloseFeeSponsorProgram {
     program_id: FeeSponsorProgramId
 });
-impl_decode_fields!(EnrollFeeSponsorBeneficiary {
+impl_aos_decode_from_slice!(EnrollFeeSponsorBeneficiary {
     program_id: FeeSponsorProgramId,
     beneficiary: AccountId,
 });
-impl_decode_fields!(UnenrollFeeSponsorBeneficiary {
+impl_aos_decode_from_slice!(UnenrollFeeSponsorBeneficiary {
     program_id: FeeSponsorProgramId,
     beneficiary: AccountId,
 });
-impl_decode_fields!(FundFeeSponsorProgram {
+impl_aos_decode_from_slice!(FundFeeSponsorProgram {
     program_id: FeeSponsorProgramId,
     asset_definition_id: AssetDefinitionId,
     amount: Quantity,
 });
-impl_decode_fields!(WithdrawFeeSponsorProgram {
+impl_aos_decode_from_slice!(WithdrawFeeSponsorProgram {
     program_id: FeeSponsorProgramId,
     asset_definition_id: AssetDefinitionId,
     amount: Quantity,

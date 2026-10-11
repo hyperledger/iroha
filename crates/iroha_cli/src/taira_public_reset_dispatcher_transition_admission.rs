@@ -126,6 +126,10 @@ pub(super) fn validate_plan(plan: &Plan) -> Result<()> {
     )?;
     let coordination = coordination_root(plan);
     need(
+        !(p.rolled_back && p.unresolved_journal.is_some()),
+        "deployment-proven takeover cannot claim a completed rollback",
+    )?;
+    need(
         p.lease.path == coordination.join("lease.json").to_string_lossy()
             && p.progress.path == coordination.join("progress.json").to_string_lossy()
             && p.completed.path
@@ -133,6 +137,8 @@ pub(super) fn validate_plan(plan: &Plan) -> Result<()> {
                     "{RUNTIME}/journal-v1/{}/{}.json",
                     if p.rolled_back {
                         "rolled-back"
+                    } else if p.unresolved_journal.is_some() {
+                        "deployment-proven"
                     } else {
                         "completed"
                     },
@@ -264,6 +270,16 @@ fn sealed(plan: &Plan) -> Result<()> {
     let terminal = record(&p.completed)?;
     if p.rolled_back {
         validate_rolled_back_records(plan, &lease, &progress, &terminal)?;
+    } else if let Some(unresolved) = &p.unresolved_journal {
+        let operational = record(unresolved)?;
+        validate_deployment_proven_records(plan, &lease, &progress, &terminal, &operational)?;
+        let deployment_id = text(&terminal, "deployment_id")?;
+        super::super::super::validate_slug("deployment ID", deployment_id)?;
+        need(
+            unresolved.path == format!("{RUNTIME}/journal-v1/{deployment_id}.journal.json")
+                && unresolved.mode == 0o600,
+            "unresolved predecessor journal path differs",
+        )?;
     } else {
         validate_sealed_records(plan, &lease, &progress, &terminal)?;
     }
@@ -381,6 +397,61 @@ pub(super) fn validate_sealed_records(
     progress: &HostProgressV1,
     terminal: &Value,
 ) -> Result<()> {
+    need(
+        plan.predecessor.unresolved_journal.is_none(),
+        "unfinished predecessor requires explicit deployment-proven admission",
+    )?;
+    validate_sealed_boundary(plan, lease, progress, terminal, "completed", "completed")
+}
+
+/// Retain an unfinished seal as history while a fresh reset adopts its exact live custody.
+pub(super) fn validate_deployment_proven_records(
+    plan: &Plan,
+    lease: &HostLeaseV1,
+    progress: &HostProgressV1,
+    proof: &Value,
+    operational: &Value,
+) -> Result<()> {
+    need(
+        !plan.predecessor.rolled_back && plan.predecessor.unresolved_journal.is_some(),
+        "deployment-proven takeover must be explicitly selected",
+    )?;
+    validate_sealed_boundary(plan, lease, progress, proof, "sealing", "seal")?;
+    let sealing_step = match text(proof, "qualification_scope")? {
+        "core_testnet" => 11,
+        "full_inrou" => 12,
+        _ => return Err(eyre!("deployment-proven qualification scope differs")),
+    };
+    need(
+        plan.predecessor.completed_next_step == sealing_step,
+        "deployment-proven receipt is not at its sealing boundary",
+    )?;
+    // The coordinator can add only its failed-seal diagnostic after publishing
+    // the immutable proof. Never rewrite either file or assert it completed.
+    let _: super::super::super::executor_model::JournalV1 = json::from_value(operational.clone())?;
+    need(
+        text(operational, "failure_summary")?.len() <= 512,
+        "unresolved predecessor diagnostic exceeds its bound",
+    )?;
+    let mut expected = operational.clone();
+    expected
+        .as_object_mut()
+        .ok_or_else(|| eyre!("unresolved predecessor journal is not an object"))?
+        .insert("failure_summary".into(), Value::String(String::new()));
+    need(
+        expected == *proof,
+        "unresolved predecessor differs from its immutable deployment proof",
+    )
+}
+
+fn validate_sealed_boundary(
+    plan: &Plan,
+    lease: &HostLeaseV1,
+    progress: &HostProgressV1,
+    terminal: &Value,
+    expected_status: &str,
+    expected_phase: &str,
+) -> Result<()> {
     let p = &plan.predecessor;
     need(
         lease.schema == LEASE_SCHEMA_V1
@@ -445,8 +516,8 @@ pub(super) fn validate_sealed_records(
         ("inventory_sha256", p.inventory_sha256.as_str()),
         ("authorization_sha256", p.authorization_sha256.as_str()),
         ("authorization_nonce", p.authorization_nonce.as_str()),
-        ("status", "completed"),
-        ("phase", "completed"),
+        ("status", expected_status),
+        ("phase", expected_phase),
     ] {
         need(
             text(&terminal, name)? == expected,
@@ -638,6 +709,7 @@ pub(super) fn admit(plan: &Plan) -> Result<Held> {
         &native_source_pin,
     ]
     .into_iter()
+    .chain(p.unresolved_journal.iter())
     .chain(p.occupied.iter().flat_map(|r| r.files.iter()))
     .chain(binaries.iter())
     {

@@ -167,7 +167,11 @@ pub const SYSCALL_TLV_LEN: u32 = 0x77;
 /// JSON object field getters.
 ///
 /// All JSON_GET_* syscalls return a compiler-owned `Option<T>` sum handle.
-/// Missing keys, non-object roots, and type mismatches return `Option::none`.
+/// Only a key absent from the JSON object returns `Option::none`. A non-object
+/// root, or a present field whose JSON value is not the getter's exact
+/// canonical type (for example a JSON number where `JSON_GET_INT` requires a
+/// canonical decimal string), traps with `DecodeError`, so malformed input never
+/// reads as absent.
 ///
 /// Args: r10 = &Json, r11 = &Name key
 /// Ret:  r10 = `Option<T>` sum handle whose active payload is one ABI word.
@@ -246,14 +250,14 @@ pub const SYSCALL_GRANT_ROLE: u32 = 0x32;
 pub const SYSCALL_REVOKE_ROLE: u32 = 0x33;
 pub const SYSCALL_GRANT_PERMISSION: u32 = 0x34;
 pub const SYSCALL_REVOKE_PERMISSION: u32 = 0x35;
-/// Grant the current immutable contract address's exact entrypoint capability.
+/// Grant the current immutable contract address's declared instance permission.
 ///
-/// Args: r10 = &AccountId, r11 = &Blob (UTF-8 canonical entrypoint selector).
-pub const SYSCALL_GRANT_CONTRACT_ENTRYPOINT: u32 = 0x36;
-/// Revoke the current immutable contract address's exact entrypoint capability.
+/// Args: r10 = &AccountId, r11 = &Name (declared instance permission).
+pub const SYSCALL_GRANT_CONTRACT_PERMISSION: u32 = 0x36;
+/// Revoke the current immutable contract address's declared instance permission.
 ///
-/// Args: r10 = &AccountId, r11 = &Blob (UTF-8 canonical entrypoint selector).
-pub const SYSCALL_REVOKE_CONTRACT_ENTRYPOINT: u32 = 0x37;
+/// Args: r10 = &AccountId, r11 = &Name (declared instance permission).
+pub const SYSCALL_REVOKE_CONTRACT_PERMISSION: u32 = 0x37;
 /// Triggers.
 pub const SYSCALL_CREATE_TRIGGER: u32 = 0x40;
 pub const SYSCALL_REMOVE_TRIGGER: u32 = 0x41;
@@ -309,10 +313,11 @@ pub const SYSCALL_VRF_VERIFY: u32 = 0x66;
 /// Batch VRF verification: verify multiple tuples and return a Norito-encoded
 /// vector of 32-byte outputs on success.
 pub const SYSCALL_VRF_VERIFY_BATCH: u32 = 0x67;
-/// Read a VRF epoch seed snapshot from world state for governance sortition.
+/// Read the exact committed VRF epoch seed from world state.
 ///
-/// Args: `r10 = &NoritoBytes(VrfEpochSeedRequest)`
-/// Return: `r10 = ptr (&NoritoBytes(VrfEpochSeedResponse)), r11 = status:u64`
+/// Args: `r10 = epoch:u64` (public).
+/// Return: `r10 = &Blob(seed[32])`, or zero when that exact epoch is absent.
+/// `r11` is unchanged. There is no latest-epoch fallback or guest status channel.
 pub const SYSCALL_VRF_EPOCH_SEED: u32 = 0x7E;
 /// Hardware and proof generation helpers.
 /// Return a deterministic, self-reported Norito-encoded execution summary.
@@ -366,8 +371,6 @@ pub const SYSCALL_INPUT_PUBLISH_TLV: u32 = 0xE0;
 pub const SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION: u32 = 0xA0;
 /// `r11` operation tag authorizing a decoded `SubmitBallot` instruction for syscall `0xA0`.
 pub const SMARTCONTRACT_INSTRUCTION_TAG_SUBMIT_BALLOT: u64 = 1;
-/// `r11` operation tag authorizing a decoded `RecordSccpMessage` instruction for syscall `0xA0`.
-pub const SMARTCONTRACT_INSTRUCTION_TAG_RECORD_SCCP_MESSAGE: u64 = 2;
 /// Execute a query from canonical `&NoritoBytes(QueryRequest)`.
 pub const SYSCALL_SMARTCONTRACT_EXECUTE_QUERY: u32 = 0xA1;
 /// Convenience syscall used by samples: create one NFT per known account.
@@ -388,9 +391,16 @@ pub const SYSCALL_RESOLVE_ACCOUNT_ALIAS: u32 = 0xA7;
 /// Production hosts bind this to signed transaction creation time for
 /// transaction contract calls and to block-header time for trigger calls.
 pub const SYSCALL_CURRENT_TIME_MS: u32 = 0xA8;
-/// Call a deployed ABI v1 contract synchronously by contract-address literal.
+/// Call an admitted deployed contract through an immutable typed interface binding.
+/// Args: r10 = &Blob(contract_address), r11 = &NoritoBytes(ContractCallBindingV1),
+/// r12 = argument table base, r13 = exact argument words, r14 = result table base,
+/// r15 = exact result words. The binding commits the full code hash and CNTR ordinal.
+/// The authenticated argument/return schemas own both tables; no raw selector is accepted.
 pub const SYSCALL_CALL_CONTRACT: u32 = 0xA9;
-// IDs 0xAA through 0xAF are intentionally unassigned.
+/// Emit one declared native event: r10 = event ordinal, r11 = public word-table base,
+/// r12 = exact schema word count. The runtime authenticates the declaration and origin.
+pub const SYSCALL_EMIT_CONTRACT_EVENT: u32 = 0xAA;
+// IDs 0xAB through 0xAF are intentionally unassigned.
 /// Begin an atomic cross-transaction (AXT) envelope.
 pub const SYSCALL_AXT_BEGIN: u32 = 0xB0;
 /// Declare a DS touch within an active AXT.
@@ -457,6 +467,9 @@ pub const SYSCALL_QUERY_EXECUTE_NORITO: u32 = 0x01_0000;
 pub const SYSCALL_CORE_QUERY_GET: u32 = 0x01_0001;
 /// Read one bounded page of projected core-ledger entities by stable [`CoreQueryEntityTagV1`].
 ///
+/// `r13` is zero for an unfiltered page or an `AccountId` pointer for asset pages.
+/// A nonzero owner filter is invalid for every other entity tag.
+///
 /// [`CoreQueryEntityTagV1`]: crate::core_query::CoreQueryEntityTagV1
 pub const SYSCALL_CORE_QUERY_PAGE: u32 = 0x01_0002;
 /// Read one runtime/system/custom parameter from `r10=&Name`.
@@ -473,7 +486,7 @@ pub const SYSCALL_SYSVAR_BLOCK_HEIGHT: u32 = 0x01_0021;
 pub const SYSCALL_SYSVAR_BLOCK_TIME_MS: u32 = 0x01_0022;
 /// Return the current authority as an `AccountId` TLV.
 pub const SYSCALL_SYSVAR_AUTHORITY: u32 = 0x01_0023;
-/// Return the current contract address as a NoritoBytes TLV, or zero when not in a contract scope.
+/// Return the canonical contract address literal as a Blob TLV, or zero outside contract scope.
 pub const SYSCALL_SYSVAR_CONTRACT_ADDRESS: u32 = 0x01_0024;
 /// Return the current contract entrypoint name as a `Blob` TLV, or zero when not in a contract scope.
 pub const SYSCALL_SYSVAR_ENTRYPOINT: u32 = 0x01_0025;
@@ -488,16 +501,6 @@ pub const SYSCALL_SYSVAR_CONTRACT_SUBJECT: u32 = 0x01_0027;
 /// Ret: r10 = a fresh host-owned `&NoritoBytes` TLV with the identical payload.
 /// Null, malformed, disallowed, and non-bytes pointer types are rejected.
 pub const SYSCALL_NORMALIZE_NORITO_BYTES: u32 = 0x01_0028;
-/// Invoke a deployed ABI-v1 contract through the first production typed nested-call profile.
-///
-/// This profile is deliberately closed over the exact public schema
-/// `{amount_in: quantity, min_out: quantity} -> quantity`. The compiler owns
-/// the field names and return type; source can select only the dynamic contract
-/// address and a literal entrypoint.
-///
-/// Args: `r10 = &Blob(contract_address)`, `r11 = &Blob(entrypoint)`, `r12 = &Quantity(amount_in)`,
-/// `r13 = &Quantity(min_out)`. Ret: `r10 = &Quantity`.
-pub const SYSCALL_CALL_CONTRACT_QUANTITY2: u32 = 0x01_0029;
 /// Decode a complete schema-bound public argument record.
 ///
 /// Args: r10 = `&NoritoBytes(EntrypointArgumentRecordV1)`;
@@ -546,10 +549,12 @@ pub const SYSCALL_ACCOUNT_RECOVERY_FINALIZE: u32 = 0x01_0213;
 pub const SYSCALL_INT_FROM_I64: u32 = 0x01_0100;
 /// Construct an `int` from a `u64` in `r10`.
 pub const SYSCALL_INT_FROM_U64: u32 = 0x01_0101;
-/// Convert an `int` to `i64`; range failure is returned in `r11`.
-pub const SYSCALL_INT_TRY_TO_I64: u32 = 0x01_0102;
-/// Convert an `int` to `u64`; sign/range failure is returned in `r11`.
-pub const SYSCALL_INT_TRY_TO_U64: u32 = 0x01_0103;
+/// Convert an `int` to `i64`; `r14` selects trap or status on range failure.
+/// `r11`, `r12`, and `r13` must be zero.
+pub const SYSCALL_INT_TO_I64: u32 = 0x01_0102;
+/// Convert an `int` to `u64`; `r14` selects trap or status on sign/range failure.
+/// `r11`, `r12`, and `r13` must be zero.
+pub const SYSCALL_INT_TO_U64: u32 = 0x01_0103;
 /// Checked integer negation.
 pub const SYSCALL_INT_NEG: u32 = 0x01_0104;
 /// Checked integer addition.
@@ -622,8 +627,9 @@ pub const SYSCALL_DECIMAL_LE: u32 = 0x01_012A;
 pub const SYSCALL_DECIMAL_GT: u32 = 0x01_012B;
 /// Numeric decimal greater-or-equal comparison.
 pub const SYSCALL_DECIMAL_GE: u32 = 0x01_012C;
-/// Convert a scale-zero decimal to `int`; inexact conversion returns a status.
-pub const SYSCALL_DECIMAL_TRY_TO_INT_EXACT: u32 = 0x01_012D;
+/// Convert a scale-zero decimal to `int`; `r14` selects trap or status on inexact conversion.
+/// `r11`, `r12`, and `r13` must be zero.
+pub const SYSCALL_DECIMAL_TO_INT_EXACT: u32 = 0x01_012D;
 /// Convert a decimal to `int` by truncating toward zero.
 pub const SYSCALL_DECIMAL_TO_INT_TRUNC: u32 = 0x01_012E;
 /// Convert a decimal to `int` using an explicit rounding mode.
@@ -632,10 +638,12 @@ pub const SYSCALL_DECIMAL_TO_INT_ROUND: u32 = 0x01_012F;
 /// Args: r10=value, r11=multiplier, r12=divisor, r13=int scale,
 /// r14=rounding tag, r15=0. Arithmetic faults trap; r10 returns decimal.
 pub const SYSCALL_DECIMAL_MUL_DIV_ROUND: u32 = 0x01_0130;
-/// Convert a non-negative `int` to nominal `quantity`.
-pub const SYSCALL_QUANTITY_TRY_FROM_INT: u32 = 0x01_0140;
-/// Convert a non-negative canonical `decimal` to nominal `quantity`.
-pub const SYSCALL_QUANTITY_TRY_FROM_DECIMAL: u32 = 0x01_0141;
+/// Convert a non-negative `int` to nominal `quantity`; `r14` selects trap or status.
+/// `r11`, `r12`, and `r13` must be zero.
+pub const SYSCALL_QUANTITY_FROM_INT: u32 = 0x01_0140;
+/// Convert a non-negative canonical `decimal` to nominal `quantity`; `r14` selects trap or status.
+/// `r11`, `r12`, and `r13` must be zero.
+pub const SYSCALL_QUANTITY_FROM_DECIMAL: u32 = 0x01_0141;
 /// Convert a `quantity` to the same-valued `decimal`.
 pub const SYSCALL_QUANTITY_TO_DECIMAL: u32 = 0x01_0142;
 /// Exact quantity addition.
@@ -674,6 +682,14 @@ pub const SYSCALL_JSON_GET_INT: u32 = 0x01_0160;
 pub const SYSCALL_JSON_GET_DECIMAL: u32 = 0x01_0161;
 /// Parse a canonical non-negative base-10 JSON string into a `quantity` pointer.
 pub const SYSCALL_JSON_GET_QUANTITY: u32 = 0x01_0162;
+/// Read a JSON string field as a Kotodama `string`.
+///
+/// Active payload: one `&Blob` pointer holding the string's UTF-8 bytes.
+pub const SYSCALL_JSON_GET_STRING: u32 = 0x01_0166;
+/// Read a JSON boolean field as a Kotodama `bool`.
+///
+/// Active payload: one scalar word, `1` for `true` and `0` for `false`.
+pub const SYSCALL_JSON_GET_BOOL: u32 = 0x01_0167;
 /// Return whether `number` belongs to the exact Kotodama V1 numeric surface.
 #[must_use]
 pub const fn is_numeric_v1_syscall(number: u32) -> bool {
@@ -684,6 +700,17 @@ pub const fn is_numeric_v1_syscall(number: u32) -> bool {
 /// Args: r10 = `&NoritoBytes(JsonConstructionSchemaV1)`, r11 = aligned public word-table address,
 /// r12 = exact word count. Ret: r10 = `&Json`.
 pub const SYSCALL_JSON_BUILD: u32 = 0x01_004E;
+/// Encode a public typed value to a schema-bound canonical Norito record.
+/// Args: r10=&NoritoBytes(EntrypointValueTypeV1), r11=owned public heap table,
+/// r12=exact word count. Ret: r10=&Blob(EntrypointReturnRecordV1).
+pub const SYSCALL_VALUE_ENCODE: u32 = 0x01_0050;
+/// Concatenate two public Blob payloads; r10/r11 inputs, r10 output.
+pub const SYSCALL_BLOB_CONCAT: u32 = 0x01_0051;
+/// Validate Blob UTF-8; r10 returns the same pointer or zero for invalid UTF-8.
+pub const SYSCALL_UTF8_VALIDATE: u32 = 0x01_0052;
+/// Format a public scalar using its canonical textual representation.
+/// Uses the same schema/table arguments as VALUE_ENCODE and returns a UTF-8 Blob.
+pub const SYSCALL_VALUE_TO_STRING: u32 = 0x01_0053;
 /// Return whether `number` is one of the canonical typed JSON getters.
 #[must_use]
 pub const fn is_json_getter_syscall(number: u32) -> bool {
@@ -698,6 +725,8 @@ pub const fn is_json_getter_syscall(number: u32) -> bool {
             | SYSCALL_JSON_GET_INT
             | SYSCALL_JSON_GET_DECIMAL
             | SYSCALL_JSON_GET_QUANTITY
+            | SYSCALL_JSON_GET_STRING
+            | SYSCALL_JSON_GET_BOOL
     )
 }
 /// Kotodama test-runner helper: resolve a fixture actor alias to an `AccountId` TLV.
@@ -719,6 +748,23 @@ pub const SYSCALL_KOTO_TEST_ACTOR_SIGN: u32 = 0x00FE_0003;
 pub const SYSCALL_KOTO_TEST_INVOKE_ENTRYPOINT_AS: u32 = 0x00FE_0004;
 /// Kotodama test-runner helper: assert that an actor entrypoint invocation rejects.
 pub const SYSCALL_KOTO_TEST_EXPECT_REJECT_AS: u32 = 0x00FE_0005;
+/// Kotodama test-runner helper: report a failed `test::assert`/`test::assert_eq` and stop.
+///
+/// `x10` is a `Blob` with the compiler's canonical assertion-site record; `x11`/`x12` are the
+/// actual/expected values as canonical state-value records (or zero), `x13` their schema (or
+/// zero), and `x14` a dynamic message pointer (or zero). The host never returns success.
+pub const SYSCALL_KOTO_TEST_ASSERT_FAILED: u32 = 0x00FE_0006;
+/// Kotodama test-runner helper: set the block height reported to later seiyaku calls (`x10`).
+pub const SYSCALL_KOTO_TEST_SET_BLOCK_HEIGHT: u32 = 0x00FE_0007;
+/// Kotodama test-runner helper: advance the block height by `x10` blocks.
+pub const SYSCALL_KOTO_TEST_ADVANCE_BLOCKS: u32 = 0x00FE_0008;
+/// Kotodama test-runner helper: set the transaction time in milliseconds (`x10`).
+pub const SYSCALL_KOTO_TEST_SET_TRANSACTION_TIME_MS: u32 = 0x00FE_0009;
+/// Kotodama test-runner helper: record the source location of the next test-helper call.
+///
+/// `x10` is a `Blob` with the compiler's canonical call-site record; the host reports a failure of
+/// the following seiyaku call or actor helper at that location.
+pub const SYSCALL_KOTO_TEST_CALL_SITE: u32 = 0x00FE_000A;
 /// Return whether `number` belongs to the host-private Kotodama test surface.
 pub const fn is_koto_test_syscall(number: u32) -> bool {
     matches!(
@@ -728,6 +774,11 @@ pub const fn is_koto_test_syscall(number: u32) -> bool {
             | SYSCALL_KOTO_TEST_ACTOR_SIGN
             | SYSCALL_KOTO_TEST_INVOKE_ENTRYPOINT_AS
             | SYSCALL_KOTO_TEST_EXPECT_REJECT_AS
+            | SYSCALL_KOTO_TEST_ASSERT_FAILED
+            | SYSCALL_KOTO_TEST_SET_BLOCK_HEIGHT
+            | SYSCALL_KOTO_TEST_ADVANCE_BLOCKS
+            | SYSCALL_KOTO_TEST_SET_TRANSACTION_TIME_MS
+            | SYSCALL_KOTO_TEST_CALL_SITE
     )
 }
 /// Returns whether a syscall number is allowed for the given ABI policy.
@@ -746,8 +797,8 @@ pub fn is_syscall_allowed(policy: crate::SyscallPolicy, number: u32) -> bool {
 /// section. Keep this list strictly sorted: it is encoded into the canonical
 /// ABI descriptor and is therefore consensus-visible.
 pub const GENERIC_PROGRAM_DENIED_SYSCALLS_V1: &[u32] = &[
-    SYSCALL_GRANT_CONTRACT_ENTRYPOINT,
-    SYSCALL_REVOKE_CONTRACT_ENTRYPOINT,
+    SYSCALL_GRANT_CONTRACT_PERMISSION,
+    SYSCALL_REVOKE_CONTRACT_PERMISSION,
     SYSCALL_DEACTIVATE_CONTRACT_INSTANCE,
     SYSCALL_REMOVE_SMART_CONTRACT_BYTES,
     SYSCALL_REGISTER_SMART_CONTRACT_CODE,
@@ -758,10 +809,10 @@ pub const GENERIC_PROGRAM_DENIED_SYSCALLS_V1: &[u32] = &[
     SYSCALL_STATE_DEL,
     SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION,
     SYSCALL_CALL_CONTRACT,
+    SYSCALL_EMIT_CONTRACT_EVENT,
     SYSCALL_SYSVAR_CONTRACT_ADDRESS,
     SYSCALL_SYSVAR_ENTRYPOINT,
     SYSCALL_SYSVAR_CONTRACT_SUBJECT,
-    SYSCALL_CALL_CONTRACT_QUANTITY2,
     SYSCALL_STATE_HAS,
     SYSCALL_STATE_LEN,
     SYSCALL_STATE_COUNT,
@@ -814,6 +865,10 @@ pub const fn registered_syscall_access(number: u32) -> Option<SyscallAccess> {
     if matches!(
         number,
         SYSCALL_STATE_MAP_KEY_AT
+            | SYSCALL_VALUE_ENCODE
+            | SYSCALL_BLOB_CONCAT
+            | SYSCALL_UTF8_VALIDATE
+            | SYSCALL_VALUE_TO_STRING
             | SYSCALL_STATE_VALUE_ENCODE
             | SYSCALL_STATE_VALUE_DECODE
             | SYSCALL_STATE_PATH_FROM_NAME
@@ -885,8 +940,8 @@ pub const fn registered_syscall_access(number: u32) -> Option<SyscallAccess> {
             | SYSCALL_REVOKE_ROLE
             | SYSCALL_GRANT_PERMISSION
             | SYSCALL_REVOKE_PERMISSION
-            | SYSCALL_GRANT_CONTRACT_ENTRYPOINT
-            | SYSCALL_REVOKE_CONTRACT_ENTRYPOINT
+            | SYSCALL_GRANT_CONTRACT_PERMISSION
+            | SYSCALL_REVOKE_CONTRACT_PERMISSION
             | SYSCALL_CREATE_TRIGGER
             | SYSCALL_REMOVE_TRIGGER
             | SYSCALL_SET_TRIGGER_ENABLED
@@ -930,7 +985,7 @@ pub const fn registered_syscall_access(number: u32) -> Option<SyscallAccess> {
         number,
         SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION
             | SYSCALL_CALL_CONTRACT
-            | SYSCALL_CALL_CONTRACT_QUANTITY2
+            | SYSCALL_EMIT_CONTRACT_EVENT
             | SYSCALL_CREATE_NFTS_FOR_ALL_USERS
             | SYSCALL_SET_SMARTCONTRACT_EXECUTION_DEPTH
             | SYSCALL_COMMIT_OUTPUT
@@ -979,6 +1034,8 @@ pub const fn registered_syscall_access(number: u32) -> Option<SyscallAccess> {
             | SYSCALL_JSON_GET_INT
             | SYSCALL_JSON_GET_DECIMAL
             | SYSCALL_JSON_GET_QUANTITY
+            | SYSCALL_JSON_GET_STRING
+            | SYSCALL_JSON_GET_BOOL
             | SYSCALL_JSON_OBJECT
             | SYSCALL_JSON_SET_I64
             | SYSCALL_JSON_SET_ACCOUNT_ID
@@ -1066,12 +1123,12 @@ const ABI_V1_SYSCALL_METADATA: &[(u32, &str)] = &[
     (SYSCALL_GRANT_PERMISSION, "GRANT_PERMISSION"),
     (SYSCALL_REVOKE_PERMISSION, "REVOKE_PERMISSION"),
     (
-        SYSCALL_GRANT_CONTRACT_ENTRYPOINT,
-        "GRANT_CONTRACT_ENTRYPOINT",
+        SYSCALL_GRANT_CONTRACT_PERMISSION,
+        "GRANT_CONTRACT_PERMISSION",
     ),
     (
-        SYSCALL_REVOKE_CONTRACT_ENTRYPOINT,
-        "REVOKE_CONTRACT_ENTRYPOINT",
+        SYSCALL_REVOKE_CONTRACT_PERMISSION,
+        "REVOKE_CONTRACT_PERMISSION",
     ),
     (SYSCALL_CREATE_TRIGGER, "CREATE_TRIGGER"),
     (SYSCALL_REMOVE_TRIGGER, "REMOVE_TRIGGER"),
@@ -1166,6 +1223,7 @@ const ABI_V1_SYSCALL_METADATA: &[(u32, &str)] = &[
     (SYSCALL_RESOLVE_ACCOUNT_ALIAS, "RESOLVE_ACCOUNT_ALIAS"),
     (SYSCALL_CURRENT_TIME_MS, "CURRENT_TIME_MS"),
     (SYSCALL_CALL_CONTRACT, "CALL_CONTRACT"),
+    (SYSCALL_EMIT_CONTRACT_EVENT, "EMIT_CONTRACT_EVENT"),
     (SYSCALL_AXT_BEGIN, "AXT_BEGIN"),
     (SYSCALL_AXT_TOUCH, "AXT_TOUCH"),
     (SYSCALL_AXT_COMMIT, "AXT_COMMIT"),
@@ -1238,7 +1296,6 @@ const ABI_V1_SYSCALL_METADATA: &[(u32, &str)] = &[
     (SYSCALL_DECODE_ARGUMENT_RECORD, "DECODE_ARGUMENT_RECORD"),
     (SYSCALL_SYSVAR_CONTRACT_SUBJECT, "SYSVAR_CONTRACT_SUBJECT"),
     (SYSCALL_NORMALIZE_NORITO_BYTES, "NORMALIZE_NORITO_BYTES"),
-    (SYSCALL_CALL_CONTRACT_QUANTITY2, "CALL_CONTRACT_QUANTITY2"),
     (SYSCALL_STATE_HAS, "STATE_HAS"),
     (SYSCALL_STATE_LEN, "STATE_LEN"),
     (SYSCALL_STATE_COUNT, "STATE_COUNT"),
@@ -1248,10 +1305,14 @@ const ABI_V1_SYSCALL_METADATA: &[(u32, &str)] = &[
     (SYSCALL_STATE_PATH_FROM_NAME, "STATE_PATH_FROM_NAME"),
     (SYSCALL_STATE_SCAN, "STATE_SCAN"),
     (SYSCALL_JSON_BUILD, "JSON_BUILD"),
+    (SYSCALL_VALUE_ENCODE, "VALUE_ENCODE"),
+    (SYSCALL_BLOB_CONCAT, "BLOB_CONCAT"),
+    (SYSCALL_UTF8_VALIDATE, "UTF8_VALIDATE"),
+    (SYSCALL_VALUE_TO_STRING, "VALUE_TO_STRING"),
     (SYSCALL_INT_FROM_I64, "INT_FROM_I64"),
     (SYSCALL_INT_FROM_U64, "INT_FROM_U64"),
-    (SYSCALL_INT_TRY_TO_I64, "INT_TRY_TO_I64"),
-    (SYSCALL_INT_TRY_TO_U64, "INT_TRY_TO_U64"),
+    (SYSCALL_INT_TO_I64, "INT_TO_I64"),
+    (SYSCALL_INT_TO_U64, "INT_TO_U64"),
     (SYSCALL_INT_NEG, "INT_NEG"),
     (SYSCALL_INT_ADD, "INT_ADD"),
     (SYSCALL_INT_SUB, "INT_SUB"),
@@ -1288,15 +1349,12 @@ const ABI_V1_SYSCALL_METADATA: &[(u32, &str)] = &[
     (SYSCALL_DECIMAL_LE, "DECIMAL_LE"),
     (SYSCALL_DECIMAL_GT, "DECIMAL_GT"),
     (SYSCALL_DECIMAL_GE, "DECIMAL_GE"),
-    (SYSCALL_DECIMAL_TRY_TO_INT_EXACT, "DECIMAL_TRY_TO_INT_EXACT"),
+    (SYSCALL_DECIMAL_TO_INT_EXACT, "DECIMAL_TO_INT_EXACT"),
     (SYSCALL_DECIMAL_TO_INT_TRUNC, "DECIMAL_TO_INT_TRUNC"),
     (SYSCALL_DECIMAL_TO_INT_ROUND, "DECIMAL_TO_INT_ROUND"),
     (SYSCALL_DECIMAL_MUL_DIV_ROUND, "DECIMAL_MUL_DIV_ROUND"),
-    (SYSCALL_QUANTITY_TRY_FROM_INT, "QUANTITY_TRY_FROM_INT"),
-    (
-        SYSCALL_QUANTITY_TRY_FROM_DECIMAL,
-        "QUANTITY_TRY_FROM_DECIMAL",
-    ),
+    (SYSCALL_QUANTITY_FROM_INT, "QUANTITY_FROM_INT"),
+    (SYSCALL_QUANTITY_FROM_DECIMAL, "QUANTITY_FROM_DECIMAL"),
     (SYSCALL_QUANTITY_TO_DECIMAL, "QUANTITY_TO_DECIMAL"),
     (SYSCALL_QUANTITY_ADD, "QUANTITY_ADD"),
     (SYSCALL_QUANTITY_SUB, "QUANTITY_SUB"),
@@ -1321,6 +1379,8 @@ const ABI_V1_SYSCALL_METADATA: &[(u32, &str)] = &[
     (SYSCALL_JSON_GET_INT, "JSON_GET_INT"),
     (SYSCALL_JSON_GET_DECIMAL, "JSON_GET_DECIMAL"),
     (SYSCALL_JSON_GET_QUANTITY, "JSON_GET_QUANTITY"),
+    (SYSCALL_JSON_GET_STRING, "JSON_GET_STRING"),
+    (SYSCALL_JSON_GET_BOOL, "JSON_GET_BOOL"),
     (
         SYSCALL_SET_ASSET_TRANSFER_AVAILABILITY,
         "SET_ASSET_TRANSFER_AVAILABILITY",
@@ -1452,7 +1512,7 @@ pub fn render_abi_hashes_markdown_table() -> String {
     out
 }
 const ABI_V1_SURFACE_DOMAIN: &[u8] = b"IVM_ABI_V1_FULL_SURFACE\0";
-const ABI_SURFACE_DESCRIPTOR_FORMAT_VERSION: u16 = 8;
+const ABI_SURFACE_DESCRIPTOR_FORMAT_VERSION: u16 = 10;
 const ABI_V1_NORITO_ENCODE_FLAGS: u8 = norito::core::header_flags::COMPACT_LEN;
 const PROGRAM_HEADER_LAYOUT_V1: &str = "49-bytes:magic[4]=IVM\\0;version_major:u8=1;version_minor:u8=1;mode:u8;vector_length:u8;max_cycles:u64le;abi_version:u8;abi_hash[32]=Iroha-Hash-v1(canonical-ABI-descriptor-for-abi_version;Blake2b-256-with-final-byte-LSB-set-to-1);abi-hash-validated-before-prefix-or-instruction-decode";
 const NUMERIC_MANTISSA_BITS_V1: u16 = 512;
@@ -1493,6 +1553,7 @@ struct AbiQueryPageSurface {
     items_capacity: u8,
     next_offset_semantics: &'static str,
     item_ordering: &'static str,
+    account_filter: &'static str,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct AbiEntrypointSurface {
@@ -1500,10 +1561,22 @@ struct AbiEntrypointSurface {
     call_table_layout: &'static str,
     call_frame_checks: &'static str,
     max_call_words: u64,
+    value_utilities: &'static str,
+    context_address: &'static str,
     unit_layout: &'static str,
     struct_identity: &'static str,
+    vrf_epoch_seed: &'static str,
     error_layout: &'static str,
+    enum_layout: &'static str,
     sum_json: &'static str,
+    invocation_outcome: &'static str,
+    fault_schema_hash: [u8; 16],
+    fault_layout: &'static str,
+    fault_semantics: &'static str,
+    event_layout: &'static str,
+    event_semantics: &'static str,
+    authorization: &'static str,
+    lifecycle: &'static str,
     int_kind: &'static str,
     int_pointer_type_id: u16,
     decimal_kind: &'static str,
@@ -2088,7 +2161,8 @@ fn encode_abi_surface(surface: &AbiSurface) -> Result<Vec<u8>, AbiSurfaceError> 
                 "next_offset_semantics",
                 surface.query_page.next_offset_semantics,
             )?;
-            page.text("item_ordering", surface.query_page.item_ordering)
+            page.text("item_ordering", surface.query_page.item_ordering)?;
+            page.text("account_filter", surface.query_page.account_filter)
         })
     })?;
     descriptor.record("durable_state", |state| {
@@ -2310,10 +2384,22 @@ fn encode_abi_surface(surface: &AbiSurface) -> Result<Vec<u8>, AbiSurfaceError> 
         entrypoint.text("call_table_layout", surface.entrypoint.call_table_layout)?;
         entrypoint.text("call_frame_checks", surface.entrypoint.call_frame_checks)?;
         entrypoint.u64("max_call_words", surface.entrypoint.max_call_words)?;
+        entrypoint.text("value_utilities", surface.entrypoint.value_utilities)?;
+        entrypoint.text("context_address", surface.entrypoint.context_address)?;
         entrypoint.text("unit_layout", surface.entrypoint.unit_layout)?;
         entrypoint.text("struct_identity", surface.entrypoint.struct_identity)?;
+        entrypoint.text("vrf_epoch_seed", surface.entrypoint.vrf_epoch_seed)?;
         entrypoint.text("error_layout", surface.entrypoint.error_layout)?;
+        entrypoint.text("enum_layout", surface.entrypoint.enum_layout)?;
         entrypoint.text("sum_json", surface.entrypoint.sum_json)?;
+        entrypoint.text("invocation_outcome", surface.entrypoint.invocation_outcome)?;
+        entrypoint.field("fault_schema_hash", &surface.entrypoint.fault_schema_hash)?;
+        entrypoint.text("fault_layout", surface.entrypoint.fault_layout)?;
+        entrypoint.text("fault_semantics", surface.entrypoint.fault_semantics)?;
+        entrypoint.text("event_layout", surface.entrypoint.event_layout)?;
+        entrypoint.text("event_semantics", surface.entrypoint.event_semantics)?;
+        entrypoint.text("authorization", surface.entrypoint.authorization)?;
+        entrypoint.text("lifecycle", surface.entrypoint.lifecycle)?;
         entrypoint.text("int_kind", surface.entrypoint.int_kind)?;
         entrypoint.u16(
             "int_pointer_type_id",
@@ -2532,7 +2618,7 @@ fn embedded_state_type_surface_v1() -> Result<Vec<AbiEmbeddedStateTypeSurface>, 
         (
             "Struct",
             Type::Struct {
-                name: "Sample".to_owned(),
+                name: "Fixture::Sample".to_owned(),
                 fields: vec![
                     Field {
                         name: "left".to_owned(),
@@ -2583,8 +2669,16 @@ fn embedded_state_type_surface_v1() -> Result<Vec<AbiEmbeddedStateTypeSurface>, 
         ),
         (
             "StateCursor",
-            Type::StateCursor(crate::entrypoint::EntrypointValueKindV1::Int),
-            "u8-tag+EntrypointValueKindV1;one-NoritoBytes-pointer-to-canonical-StateCursorV1-frame",
+            Type::StateCursor(crate::entrypoint::EntrypointValueTypeV1 { nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Leaf(crate::entrypoint::EntrypointValueKindV1::Int)] }),
+            "u8-tag+complete-EntrypointValueTypeV1-key-schema;one-NoritoBytes-pointer-to-canonical-StateCursorV1-frame",
+        ),
+        (
+            "Enum",
+            Type::Enum(iroha_data_model::smart_contract::manifest::ContractEnumTypeDescriptorV1 {
+                identity: "Example::Status".into(),
+                variants: vec![iroha_data_model::smart_contract::manifest::ContractEnumVariantDescriptorV1 { name: "Ready".into(), code: 1 }],
+            }),
+            "u8-tag+canonical-Norito-ContractEnumTypeDescriptorV1;one-nonzero-u32-ordinary-enum-code;no-error-catalog",
         ),
     ];
     samples
@@ -2762,7 +2856,12 @@ fn typed_state_value_surface_v1() -> Result<AbiTypedStateValueSurface, AbiSurfac
         AbiTaggedLayoutSurface {
             name: "StateCursor",
             tag: StateValueNodeV1::STATE_CURSOR_TAG,
-            layout: "u8-tag+EntrypointValueKindV1;opaque-one-word-canonical-NoritoBytes-pointer;frame-key-kind-must-match",
+            layout: "u8-tag+complete-EntrypointValueTypeV1-key-schema;opaque-one-word-canonical-NoritoBytes-pointer;frame-key-schema-hash-must-match",
+        },
+        AbiTaggedLayoutSurface {
+            name: "Enum",
+            tag: StateValueNodeV1::ENUM_TAG,
+            layout: "u8-tag+canonical-Norito-ContractEnumTypeDescriptorV1;nonzero-code-must-belong-to-exact-ordinary-enum-schema",
         },
     ];
     let atoms = vec![
@@ -2795,6 +2894,11 @@ fn typed_state_value_surface_v1() -> Result<AbiTypedStateValueSurface, AbiSurfac
             name: "ErrorCode",
             tag: StateValueAtomV1::ERROR_CODE_TAG,
             layout: "KRV1-u8-tag+u32le(nonzero-variant-code);requires-nominal-schema-membership",
+        },
+        AbiTaggedLayoutSurface {
+            name: "EnumCode",
+            tag: StateValueAtomV1::ENUM_CODE_TAG,
+            layout: "KRV1-u8-tag+u32le(nonzero-variant-code);requires-exact-ordinary-enum-schema-membership;not-an-error-code",
         },
     ];
     Ok(AbiTypedStateValueSurface {
@@ -2886,7 +2990,7 @@ fn collect_abi_surface(policy: crate::SyscallPolicy) -> Result<AbiSurface, AbiSu
     let durable_state = AbiDurableStateSurface {
         semantics_version: 6,
         contract_interface_section_magic: crate::metadata::CONTRACT_INTERFACE_SECTION_MAGIC,
-        contract_interface_section_layout: "ASCII-CNTR+u32le(payload-bytes)+canonical-Norito-frame(EmbeddedContractInterfaceV1 fields in exact order:seiyaku_name,compiler_fingerprint,abi_hash[32],features_bitmap,access_set_hints,kotoba,entrypoints,callables,states,error_types,error_messages);abi_hash=Iroha-Hash-v1(canonical-ABI-descriptor-for-declared-abi_version;Blake2b-256-with-final-byte-LSB-set-to-1)-and-must-equal-runtime-descriptor-before-admission",
+        contract_interface_section_layout: "ASCII-CNTR+u32le(payload-bytes)+canonical-Norito-frame(EmbeddedContractInterfaceV1 fields in exact order:seiyaku_name,compiler_fingerprint,abi_hash[32],features_bitmap,access_set_hints,permissions,events,kotoba,entrypoints,callables,states,error_types,enum_types,error_messages);abi_hash=Iroha-Hash-v1(canonical-ABI-descriptor-for-declared-abi_version;Blake2b-256-with-final-byte-LSB-set-to-1)-and-must-equal-runtime-descriptor-before-admission",
         contract_interface_schema_name: crate::metadata::CONTRACT_INTERFACE_SCHEMA_NAME_V1,
         contract_interface_schema_hash: norito::schema::identity::frame_hash::<
             crate::metadata::EmbeddedContractInterfaceV1,
@@ -2949,7 +3053,7 @@ fn collect_abi_surface(policy: crate::SyscallPolicy) -> Result<AbiSurface, AbiSu
         cursor_max_bytes: iroha_data_model::smart_contract::state_cursor::MAX_STATE_CURSOR_BYTES_V1
             as u64,
         scan_max_candidates: STATE_SCAN_MAX_CANDIDATES_V1 as u64,
-        cursor_layout: "canonical-Norito-StateCursorV1{instance:String<=1024,map:bare-Name-StatePath<=255,schema_hash:[u8;32],key_type:EntrypointValueKindV1,last_key:canonical-map-child-StatePath};schema_hash=Iroha-Hash(domain||canonical-Norito-EmbeddedStateType::StateMap);word=NoritoBytes-pointer;JSON=0x-prefixed-frame-hex",
+        cursor_layout: "canonical-Norito-StateCursorV1{instance:String<=1024,map:bare-Name-StatePath<=255,schema_hash:[u8;32],key_schema_hash:[u8;32],last_key:canonical-map-child-StatePath};schema_hash=Iroha-Hash(domain||canonical-Norito-EmbeddedStateType::StateMap);key_schema_hash=Iroha-Hash(KOTODAMA_STATE_KEY_SCHEMA_V1\0||canonical-Norito-EntrypointValueTypeV1);keys=existing-scalars-or-nonempty-nested-tuples;physical-key=canonical-StateValueRecordV1<=4096-bytes;word=NoritoBytes-pointer;JSON=0x-prefixed-frame-hex",
         scan_semantics: "STATE_SCAN=seek-after-last-examined-canonical-key;instance-and-exact-map-schema-bound;position-never-authorization;current-invocation-backing-plus-overlay;sorted-distinct-candidates-including-tombstones;stop-immediately-at-N-live-values-or-64-candidates;no-total-count-or-extra-lookahead;bounded-page-has-continuation-even-if-next-page-empty;deleted-cursor-key-valid;insertions-before-cursor-not-revisited;gas=request-and-schema-bytes+examined-physical-key-bytes-and-items+response-bytes;conservative-map-prefix-scheduler-read",
         typed_value: typed_state_value_surface_v1()?,
     };
@@ -3068,6 +3172,33 @@ mod tests {
         let descriptor = encode_abi_surface(surface).expect("test surface is canonical");
         *iroha_crypto::Hash::new(descriptor).as_ref()
     }
+    #[test]
+    fn public_value_utility_semantics_are_bound_to_the_abi_hash() {
+        let surface = canonical_surface();
+        assert!(
+            surface
+                .entrypoint
+                .value_utilities
+                .contains("EntrypointReturnRecordV1")
+        );
+        assert!(surface.entrypoint.value_utilities.contains("UTF8-bytes"));
+        assert_surface_mutation_changes_hash(|surface| {
+            surface.entrypoint.value_utilities = "untyped-or-locale-dependent-encoding";
+        });
+    }
+    #[test]
+    fn context_address_bytes_are_bound_to_the_abi_hash() {
+        let surface = canonical_surface();
+        assert!(
+            surface
+                .entrypoint
+                .context_address
+                .contains("UTF8-literal-exactly60bytes")
+        );
+        assert_surface_mutation_changes_hash(|surface| {
+            surface.entrypoint.context_address = "NoritoBytes-encoded-contract-address";
+        });
+    }
     fn assert_surface_mutation_changes_hash(mutator: impl FnOnce(&mut AbiSurface)) {
         let canonical_surface = canonical_surface();
         let canonical_hash = descriptor_hash(&canonical_surface);
@@ -3078,8 +3209,8 @@ mod tests {
     #[test]
     fn removed_syscall_numbers_are_unknown() {
         let removed = [
-            0x85, 0x86, 0x87, 0x88, 0x89, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0xAA, 0xAB, 0xAC, 0xAD,
-            0xAE, 0xAF, 0xBF, 0xD0, 0xD1, 0x01_0163, 0x01_0164, 0x01_0165,
+            0x85, 0x86, 0x87, 0x88, 0x89, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0xAB, 0xAC, 0xAD, 0xAE,
+            0xAF, 0xBF, 0xD0, 0xD1, 0x01_0029, 0x01_0163, 0x01_0164, 0x01_0165,
         ];
         for number in removed {
             assert!(!is_syscall_allowed(crate::SyscallPolicy::AbiV1, number));
@@ -3095,6 +3226,11 @@ mod tests {
             SYSCALL_KOTO_TEST_ACTOR_SIGN,
             SYSCALL_KOTO_TEST_INVOKE_ENTRYPOINT_AS,
             SYSCALL_KOTO_TEST_EXPECT_REJECT_AS,
+            SYSCALL_KOTO_TEST_ASSERT_FAILED,
+            SYSCALL_KOTO_TEST_SET_BLOCK_HEIGHT,
+            SYSCALL_KOTO_TEST_ADVANCE_BLOCKS,
+            SYSCALL_KOTO_TEST_SET_TRANSACTION_TIME_MS,
+            SYSCALL_KOTO_TEST_CALL_SITE,
         ];
         for syscall in private {
             assert!(is_koto_test_syscall(syscall));
@@ -3113,8 +3249,8 @@ mod tests {
         assert_eq!(
             GENERIC_PROGRAM_DENIED_SYSCALLS_V1,
             &[
-                SYSCALL_GRANT_CONTRACT_ENTRYPOINT,
-                SYSCALL_REVOKE_CONTRACT_ENTRYPOINT,
+                SYSCALL_GRANT_CONTRACT_PERMISSION,
+                SYSCALL_REVOKE_CONTRACT_PERMISSION,
                 SYSCALL_DEACTIVATE_CONTRACT_INSTANCE,
                 SYSCALL_REMOVE_SMART_CONTRACT_BYTES,
                 SYSCALL_REGISTER_SMART_CONTRACT_CODE,
@@ -3125,10 +3261,10 @@ mod tests {
                 SYSCALL_STATE_DEL,
                 SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION,
                 SYSCALL_CALL_CONTRACT,
+                SYSCALL_EMIT_CONTRACT_EVENT,
                 SYSCALL_SYSVAR_CONTRACT_ADDRESS,
                 SYSCALL_SYSVAR_ENTRYPOINT,
                 SYSCALL_SYSVAR_CONTRACT_SUBJECT,
-                SYSCALL_CALL_CONTRACT_QUANTITY2,
                 SYSCALL_STATE_HAS,
                 SYSCALL_STATE_LEN,
                 SYSCALL_STATE_COUNT,
@@ -3214,10 +3350,6 @@ mod tests {
             syscall_access(SYSCALL_CALL_CONTRACT),
             SyscallAccess::Dynamic
         );
-        assert_eq!(
-            syscall_access(SYSCALL_CALL_CONTRACT_QUANTITY2),
-            SyscallAccess::Dynamic
-        );
         assert_eq!(syscall_access(SYSCALL_SHA256_HASH), SyscallAccess::None);
         assert_eq!(syscall_access(0x00ff_fffe), SyscallAccess::Dynamic);
         for number in abi_syscall_list() {
@@ -3263,6 +3395,117 @@ mod tests {
         let hash = compute_abi_hash(crate::SyscallPolicy::AbiV1);
         assert_ne!(hash, INVALID_ABI_SURFACE_HASH);
         assert_eq!(hash[hash.len() - 1] & 1, 1, "valid Iroha hash marker");
+    }
+    #[test]
+    fn abi_hash_binds_atomic_invocation_outcomes_and_reentry_rules() {
+        let surface = canonical_surface();
+        for rule in [
+            "outer-Result::err=rollback-frame-and-successful-descendants",
+            "error-return-is-recoverable",
+            "reads-and-consumed-gas-retained",
+            "nested-error-values-are-data",
+            "active-contract-address-reentry-rejected-including-views",
+            "max-nesting32",
+            "immediate-caller=parent-contract-subject",
+        ] {
+            assert!(surface.entrypoint.invocation_outcome.contains(rule));
+        }
+        assert_surface_mutation_changes_hash(|candidate| {
+            candidate.entrypoint.invocation_outcome = "commit-error-returns-and-allow-reentry";
+        });
+    }
+    #[test]
+    fn abi_hash_binds_runtime_fault_identity_layout_and_origin() {
+        let surface = canonical_surface();
+        assert_eq!(
+            surface.entrypoint.fault_schema_hash,
+            norito::schema::identity::frame_hash::<iroha_data_model::executor::fault::IvmFaultV1>()
+        );
+        for rule in [
+            "deepest-origin-survives-nested-unwind",
+            "parent-CALL-never-overwrites-child-origin",
+            "no-source-text-or-local-path-in-consensus",
+            "allocation-and-execution-deferrals-never-consensus-faults",
+            "host-unavailability-and-metering-invariants-never-consensus-faults",
+            "contract-rejection-and-recoverable-Result-remain-distinct",
+        ] {
+            assert!(surface.entrypoint.fault_semantics.contains(rule));
+        }
+        for layout in [
+            "IvmFaultV1={kind:IvmFaultKindV1,site:IvmFaultSiteV1}",
+            "Entrypoint1(u32-CNTR-ordinal)",
+            "Execute1{pc_offset:u64-executable-relative}",
+            "Numeric10(NumericFaultV1)",
+            "PointerAbi11(PointerAbiFaultV1)",
+            "ReentrantCall28",
+            "CallDepthExceeded29",
+        ] {
+            assert!(surface.entrypoint.fault_layout.contains(layout));
+        }
+        assert_surface_mutation_changes_hash(|candidate| {
+            candidate.entrypoint.fault_schema_hash[0] ^= 1;
+        });
+        assert_surface_mutation_changes_hash(|candidate| {
+            candidate.entrypoint.fault_layout = "presentation-text-only";
+        });
+        assert_surface_mutation_changes_hash(|candidate| {
+            candidate.entrypoint.fault_semantics = "overwrite-origin-at-parent-call";
+        });
+    }
+    #[test]
+    fn abi_hash_binds_declared_instance_permissions() {
+        let surface = canonical_surface();
+        for rule in [
+            "required-authenticated-permission-table",
+            "Anyone",
+            "Permission(Name)",
+            "RuntimeLifecycle",
+            "instance-grants=immutable-address+declared-name",
+            "shared-grants=exact-chain-name+canonical-null",
+            "no-implicit-open-or-string-authorization",
+            "effect-authority-is-independent",
+        ] {
+            assert!(surface.entrypoint.authorization.contains(rule));
+        }
+        assert_surface_mutation_changes_hash(|candidate| {
+            candidate.entrypoint.authorization = "chain-global-string-guards";
+        });
+    }
+    #[test]
+    fn abi_hash_binds_upgrade_storage_and_suspension_rules() {
+        let surface = canonical_surface();
+        for rule in [
+            "retained-code-binding-survives-suspension",
+            "pending-transition-survives-suspension",
+            "same-code-resume-never-replays-completed-hook",
+            "prepared-calls-bind-lifecycle-revision",
+            "existing-state-names-and-complete-types-remain-exact",
+            "new-maps-start-empty",
+            "new-scalars-require-kaizen-and-canonical-present-values-before-completion",
+        ] {
+            assert!(surface.entrypoint.lifecycle.contains(rule));
+        }
+        assert_surface_mutation_changes_hash(|candidate| {
+            candidate.entrypoint.lifecycle = "suspension-forgets-storage-and-replays-constructor";
+        });
+    }
+    #[test]
+    fn abi_hash_binds_native_event_qualified_nominal_identity() {
+        let surface = canonical_surface();
+        assert!(
+            surface.entrypoint.event_layout.contains(
+                "root=Struct-qualified-name-final-double-colon-component-equals-event-name"
+            )
+        );
+        assert!(
+            !surface
+                .entrypoint
+                .event_layout
+                .contains("root=Struct-name-equals-event-name")
+        );
+        assert_surface_mutation_changes_hash(|candidate| {
+            candidate.entrypoint.event_layout = "root=Struct-name-equals-event-name";
+        });
     }
     #[test]
     fn abi_hash_descriptor_binds_every_semantic_surface_component() {
@@ -3472,6 +3715,7 @@ mod tests {
                 ("Unit", 20),
                 ("Error", 21),
                 ("StateCursor", 22),
+                ("Enum", 23),
             ]
         );
         for state_type in &state.embedded_state_types {
@@ -3643,8 +3887,8 @@ mod tests {
             norito::schema::identity::frame_hash::<StateValueRecordV1>()
         );
         assert_eq!(typed.kinds.len(), 18);
-        assert_eq!(typed.nodes.len(), 9);
-        assert_eq!(typed.atoms.len(), 6);
+        assert_eq!(typed.nodes.len(), 10);
+        assert_eq!(typed.atoms.len(), 7);
         assert_eq!(typed.max_nodes, MAX_STATE_VALUE_NODES as u64);
         assert_eq!(typed.max_depth, MAX_STATE_VALUE_NODES as u64);
         assert_eq!(typed.max_words, MAX_STATE_VALUE_WORDS as u64);
@@ -4032,12 +4276,15 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 (
-                    "AccountView",
+                    "kotodama::AccountView",
                     vec![("id", "AccountId"), ("metadata", "Json")]
                 ),
-                ("AssetView", vec![("id", "AssetId"), ("amount", "Quantity")]),
                 (
-                    "AssetDefinitionView",
+                    "kotodama::AssetView",
+                    vec![("id", "AssetId"), ("amount", "Quantity")]
+                ),
+                (
+                    "kotodama::AssetDefinitionView",
                     vec![
                         ("id", "AssetDefinitionId"),
                         ("name", "String"),
@@ -4049,7 +4296,7 @@ mod tests {
                     ]
                 ),
                 (
-                    "DomainView",
+                    "kotodama::DomainView",
                     vec![
                         ("id", "DomainId"),
                         ("owned_by", "AccountId"),
@@ -4057,7 +4304,7 @@ mod tests {
                     ]
                 ),
                 (
-                    "NftView",
+                    "kotodama::NftView",
                     vec![
                         ("id", "NftId"),
                         ("owned_by", "AccountId"),
@@ -4129,7 +4376,29 @@ mod tests {
         assert_surface_mutation_changes_hash(|changed| {
             changed.query_page.item_ordering = "host-insertion-order";
         });
+        assert_surface_mutation_changes_hash(|changed| {
+            changed.query_page.account_filter = "filter-after-pagination";
+        });
     }
+
+    #[test]
+    fn abi_hash_binds_distinct_root_argument_and_trigger_event_keys() {
+        let surface = canonical_surface();
+        for clause in [
+            "root-default-input-route=GET_PUBLIC_INPUT-entrypoint_argument_record-NoritoBytes-with-opcode-and-host-gas",
+            "trigger_event_json=actual-firing-Json-independent-of-prepared-root-arguments",
+            "no-argument-record-fallback-to-trigger-event-key",
+        ] {
+            assert!(surface.entrypoint.call_frame_checks.contains(clause));
+        }
+        assert!(!surface.entrypoint.call_frame_checks.contains(
+            "root-default-input-route=GET_PUBLIC_INPUT-trigger_event_json-with-opcode-and-host-gas"
+        ));
+        assert_surface_mutation_changes_hash(|changed| {
+            changed.entrypoint.call_frame_checks = "root-default-input-route=GET_PUBLIC_INPUT-trigger_event_json-with-opcode-and-host-gas";
+        });
+    }
+
     #[test]
     fn abi_hash_binds_table_layout_frame_checks_and_word_limit() {
         let original = collect_abi_surface(crate::SyscallPolicy::AbiV1).expect("ABI surface");
@@ -4150,6 +4419,22 @@ mod tests {
         changed = original;
         changed.entrypoint.call_table_layout = "invalid-layout";
         assert_ne!(encoded, encode_abi_surface(&changed).unwrap());
+    }
+    #[test]
+    fn abi_hash_descriptor_binds_exact_epoch_seed_semantics() {
+        let surface = canonical_surface();
+        for clause in [
+            "r10=public-u64-epoch",
+            "nullable-Blob-exactly32bytes",
+            "no-latest-fallback",
+            "r11-unchanged",
+            "local-allocation-refusal-deferred",
+        ] {
+            assert!(surface.entrypoint.vrf_epoch_seed.contains(clause));
+        }
+        assert_surface_mutation_changes_hash(|changed| {
+            changed.entrypoint.vrf_epoch_seed = "substitute-latest-seed";
+        });
     }
     #[test]
     fn abi_hash_descriptor_binds_entrypoint_numeric_and_recursive_list_semantics() {
@@ -4278,6 +4563,58 @@ mod tests {
         });
     }
     #[test]
+    fn checked_numeric_conversions_bind_failure_mode_and_typed_faults() {
+        let surface = canonical_surface();
+        for (number, name, input) in [
+            (SYSCALL_INT_TO_I64, "INT_TO_I64", "Int"),
+            (SYSCALL_INT_TO_U64, "INT_TO_U64", "Int"),
+            (
+                SYSCALL_DECIMAL_TO_INT_EXACT,
+                "DECIMAL_TO_INT_EXACT",
+                "Decimal",
+            ),
+            (SYSCALL_QUANTITY_FROM_INT, "QUANTITY_FROM_INT", "Int"),
+            (
+                SYSCALL_QUANTITY_FROM_DECIMAL,
+                "QUANTITY_FROM_DECIMAL",
+                "Decimal",
+            ),
+        ] {
+            assert_eq!(syscall_name(number), Some(name));
+            let syscall = surface
+                .syscalls
+                .iter()
+                .find(|row| row.number == number)
+                .unwrap();
+            assert_eq!(
+                syscall.args,
+                format!(
+                    "r10=&{input}, r11=reserved:0, r12=reserved:0, r13=reserved:0, r14=failure_mode:0..1"
+                )
+            );
+            assert!(syscall.ret.contains("r11=NumericFaultV1-or-zero"));
+        }
+        let index = surface
+            .numeric
+            .rules
+            .iter()
+            .position(|rule| rule.name == "conversion_failure_mode")
+            .unwrap();
+        assert!(
+            surface.numeric.rules[index]
+                .specification
+                .contains("Trap-preserves-NumericFaultV1-without-ABORT")
+        );
+        assert!(
+            surface.numeric.rules[index]
+                .specification
+                .contains("malformed-controls-always-trap")
+        );
+        assert_surface_mutation_changes_hash(|changed| {
+            changed.numeric.rules[index].specification = "status-only-conversions";
+        });
+    }
+    #[test]
     fn abi_hash_descriptor_binds_numeric_pointer_rules_and_rounding_tags() {
         use crate::pointer_abi::PointerType;
         let surface = canonical_surface();
@@ -4316,7 +4653,7 @@ mod tests {
         assert_eq!(surface.numeric.mantissa_bits, 512);
         assert_eq!(surface.numeric.max_scale, 28);
         assert_eq!(surface.numeric.semantics_descriptor_version, 4);
-        assert_eq!(surface.numeric.rules.len(), 14);
+        assert_eq!(surface.numeric.rules.len(), 15);
         assert_eq!(surface.numeric.operators.len(), 102);
         assert_eq!(
             surface

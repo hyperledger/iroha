@@ -14,6 +14,7 @@ fn original_generation_head_reloads_only_after_every_original_file_boundary() {
         let (_temporary, root) = root();
         let budget = AllocationBudget::new(16 * 1024 * 1024);
         let (mut original, _writers, inherited) = prepare_restartable(&root, &budget).unwrap();
+        let expiry = original.deadline;
         original.step().unwrap();
         let directory = original.claim.directory().unwrap().path.clone();
         if boundary >= 1 {
@@ -21,7 +22,6 @@ fn original_generation_head_reloads_only_after_every_original_file_boundary() {
         }
         let mut expected_public = Vec::new();
         let mut expected_private = Vec::new();
-        let expiry = original.deadline;
         if boundary >= 2 {
             original.step().unwrap();
             original.step().unwrap();
@@ -41,6 +41,17 @@ fn original_generation_head_reloads_only_after_every_original_file_boundary() {
         if boundary == 4 {
             original.publish_checkpoint_head(1).unwrap();
         }
+        let original_expiry = if boundary == 4 {
+            Some(
+                norito::decode_canonical::<durable::Intent>(
+                    original.durable.intent_bytes(1).unwrap(),
+                )
+                .unwrap()
+                .expiry,
+            )
+        } else {
+            None
+        };
         let identities = original.claim_and_fifo_identity().unwrap();
         drop(original);
         assert_eq!(budget.reserved_bytes(), 0);
@@ -63,6 +74,16 @@ fn original_generation_head_reloads_only_after_every_original_file_boundary() {
             assert_eq!(restored.phase, Phase::PublicationDurable);
             assert!(restored.prepared.is_none());
             assert!(restored.deadline <= expiry);
+            assert_eq!(
+                Some(
+                    norito::decode_canonical::<durable::Intent>(
+                        restored.durable.intent_bytes(1).unwrap()
+                    )
+                    .unwrap()
+                    .expiry
+                ),
+                original_expiry
+            );
             assert_eq!(restored.claim_and_fifo_identity().unwrap(), identities);
             assert_eq!(std::ptr::from_ref(&*restored), receiver);
             assert!(restored.receiver.belongs_to(&budget));
@@ -112,7 +133,13 @@ fn original_generation_head_reloads_only_after_every_original_file_boundary() {
             );
             assert!(!directory.join("attempt-journal.json").exists());
         }
-        assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+        if boundary == 4 {
+            // Canonical publication extraction retires prepared row containers;
+            // all original retained rows, sources and the blocker still live.
+            assert!(budget.reserved_bytes() < budget.limit_bytes());
+        } else {
+            assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+        }
         drop(restored);
         assert_eq!(budget.reserved_bytes(), blocker.remaining_bytes());
         drop(blocker);

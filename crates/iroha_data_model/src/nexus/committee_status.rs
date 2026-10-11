@@ -1,9 +1,9 @@
 //! Public committee preparation observations with explicit finality attachments.
 //!
-//! Finality artifacts require an independently trusted signed-genesis network and configured chain. Candidate,
-//! transcript and readiness fields are progress observations, not standalone finality proofs.
+//! Finality artifacts require an independently trusted signed-genesis network and configured chain.
+//! Transcript and readiness fields are progress observations, not standalone finality proofs.
 
-use super::{ValidatorCandidateKeysV1, ValidatorCommitteeTransitionV1};
+use super::ValidatorCommitteeTransitionV1;
 use crate::{
     NetworkId, consensus::GlobalThresholdBeaconKeySessionV1,
     sumeragi::finality::NativeFinalityArtifact,
@@ -27,7 +27,7 @@ use norito::codec::{Decode, Encode};
 #[norito_schema(name = "iroha_data_model::nexus::ValidatorCommitteeSelectionStatusV1")]
 #[norito(deny_unknown_fields)]
 pub struct ValidatorCommitteeSelectionStatusV1 {
-    /// Observed preparation, credentials, possession proofs and optional terminal body.
+    /// Observed preparation, credentials, readiness proofs and optional terminal body.
     pub transition: ValidatorCommitteeTransitionV1,
     /// Exact selecting boundary; its native result must carry the identical preparation.
     pub selecting_finality: NativeFinalityArtifact,
@@ -58,9 +58,6 @@ pub struct ValidatorCommitteeStatusV1 {
     /// Absence means no frozen attempt exists for the selected target; never readiness.
     #[norito(required)]
     pub selected: Option<ValidatorCommitteeSelectionStatusV1>,
-    /// Published keys for selected target peers in strict peer order; empty without a selection.
-    /// Missing publications stay absent and cannot establish complete credential readiness.
-    pub candidate_keys: Vec<ValidatorCandidateKeysV1>,
     /// Complete public transcript for the attempt's exact session, when finalized.
     #[norito(required)]
     pub pending_beacon_session: Option<GlobalThresholdBeaconKeySessionV1>,

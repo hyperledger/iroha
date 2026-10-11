@@ -12,12 +12,11 @@ use iroha_allocation::{
 };
 use iroha_crypto::{PublicKey, PublicKeyAllocationError};
 use iroha_data_model::{
-    isi::kagemusha_v1::{
-        KagemushaMintFinalityAuthorityGenerationV1, KagemushaMintFinalityValidatorKeysV1,
-    },
+    NetworkId,
     nexus::{ValidatorCommitteePreparationV1, ValidatorElectionPolicyV1},
     sumeragi::epoch::{
         ValidatorCommitteeMemberV1, ValidatorEpochBoundaryV1, ValidatorEpochContextV1,
+        ValidatorGenerationV1,
     },
 };
 use iroha_model_base::peer::PeerId;
@@ -198,18 +197,17 @@ impl Demand {
         }
         Ok(())
     }
-    fn authority(
+    fn generation(
         &mut self,
-        authority: &KagemushaMintFinalityAuthorityGenerationV1,
+        committee: &[ValidatorCommitteeMemberV1],
     ) -> Result<(), BoundaryCaptureError> {
-        self.array::<KagemushaMintFinalityValidatorKeysV1>(authority.validators.len())?;
-        for keys in &authority.validators {
-            self.key(keys.validator.public_key())?;
+        self.array::<PeerId>(committee.len())?;
+        for member in committee {
+            self.key(member.validator.public_key())?;
         }
         Ok(())
     }
     fn context(&mut self, context: &ValidatorEpochContextV1) -> Result<(), BoundaryCaptureError> {
-        self.authority(&context.authority)?;
         self.committee(
             context.committee.len(),
             context
@@ -372,27 +370,22 @@ impl<'a> Construction<'a> {
         }
         self.vector(output)
     }
-    fn authority(
+    fn generation(
         &mut self,
-        source: &KagemushaMintFinalityAuthorityGenerationV1,
-    ) -> Result<KagemushaMintFinalityAuthorityGenerationV1, BoundaryCaptureError> {
-        let mut validators = self.buffer(source.validators.len())?;
-        for keys in &source.validators {
-            let validator = PeerId::new(self.key(keys.validator.public_key())?);
-            validators
-                .try_push(KagemushaMintFinalityValidatorKeysV1 {
-                    validator,
-                    eq_proof_public_key: keys.eq_proof_public_key,
-                    ep_proof_public_key: keys.ep_proof_public_key,
-                })
-                .map_err(|_| {
-                    BoundaryCaptureError::Invalid("boundary authority count changed".into())
-                })?;
+        network_id: NetworkId,
+        generation: u64,
+        committee: &[ValidatorCommitteeMemberV1],
+    ) -> Result<ValidatorGenerationV1, BoundaryCaptureError> {
+        let mut validators = self.buffer(committee.len())?;
+        for member in committee {
+            let validator = PeerId::new(self.key(member.validator.public_key())?);
+            validators.try_push(validator).map_err(|_| {
+                BoundaryCaptureError::Invalid("boundary generation count changed".into())
+            })?;
         }
-        Ok(KagemushaMintFinalityAuthorityGenerationV1 {
-            version: source.version,
-            network_id: source.network_id,
-            generation: source.generation,
+        Ok(ValidatorGenerationV1 {
+            network_id,
+            generation,
             validators: self.vector(validators)?,
         })
     }
@@ -405,7 +398,6 @@ impl<'a> Construction<'a> {
             version: source.version,
             network_id: source.network_id,
             mode: source.mode,
-            authority: self.authority(&source.authority)?,
             authorization: source.authorization,
             committee: self.committee(
                 source.committee.len(),
@@ -433,6 +425,29 @@ impl<'a> Construction<'a> {
     }
 }
 
+/// Derive the canonical commitment of the exact borrowed target roster in its original pool.
+/// The temporary model graph is destroyed before its construction ledger releases; only the
+/// fixed-width identity escapes. No separate generation graph enters the frozen boundary.
+pub(super) fn generation_id(
+    network_id: NetworkId,
+    generation: u64,
+    committee: &[ValidatorCommitteeMemberV1],
+    budget: &AllocationBudget,
+) -> Result<[u8; 32], BoundaryCaptureError> {
+    let mut demand = Demand::default();
+    demand.generation(committee)?;
+    // Declare this before the canonical value so its fields drop before their credits.
+    let mut owner = Construction::new(demand, budget)?;
+    let original = owner.generation(network_id, generation, committee)?;
+    let charges = owner.charges.as_ref().expect("original ledger");
+    if owner.reservation.remaining_bytes() != 0 || charges.as_slice().len() != charges.capacity() {
+        return Err("boundary generation allocation demand changed".into());
+    }
+    original
+        .generation_id()
+        .map_err(|error| BoundaryCaptureError::Invalid(error.to_string()))
+}
+
 /// Materialize one already checked decision with original-pool custody for every retained byte.
 /// This constructor is private to the native election module and admits all demand before
 /// constructing any retained model value. It never consumes a caller-forged raw boundary.
@@ -446,7 +461,6 @@ pub(super) fn materialize(
 ) -> Result<FrozenEpochBoundary, BoundaryCaptureError> {
     let mut demand = Demand::default();
     demand.context(inputs.current)?;
-    demand.authority(inputs.authority)?;
     demand.committee(
         inputs.committee.len(),
         inputs
@@ -455,7 +469,6 @@ pub(super) fn materialize(
             .map(|member| (&member.validator, member.proof_of_possession.as_slice())),
     )?;
     for _ in 0..2 {
-        demand.authority(inputs.authority)?;
         demand.committee(
             inputs.committee.len(),
             inputs
@@ -483,7 +496,6 @@ pub(super) fn materialize(
         version: 1,
         network_id: current.network_id,
         mode: current.mode,
-        authority: owner.authority(inputs.authority)?,
         authorization: inputs.authorization,
         committee: owner.committee(
             inputs.committee.len(),
@@ -494,39 +506,42 @@ pub(super) fn materialize(
         )?,
         leader_seed: inputs.entropy.leader_seed,
     };
-    let preparation =
-        if future_count == 0 {
-            None
-        } else {
-            Some(ValidatorCommitteePreparationV1 {
-                version: 1,
-                network_id: current.network_id,
-                selection_epoch: current.authorization.epoch,
-                selection_height: current.authorization.last_height,
-                selection_anchor: inputs.selection_anchor,
-                target_epoch: next.authorization.epoch.checked_add(1).ok_or_else(|| {
-                    BoundaryCaptureError::Invalid("target epoch overflows".into())
-                })?,
-                first_height: inputs.future_first,
-                last_height: inputs.future_last,
-                authority_generation: next.authority.generation.checked_add(1).ok_or_else(
-                    || BoundaryCaptureError::Invalid("next generation overflows".into()),
-                )?,
-                preparing_authorization_id: next
-                    .authorization
-                    .authorization_id()
-                    .map_err(|error| BoundaryCaptureError::Invalid(error.to_string()))?,
-                election_seed: inputs.entropy.election_seed,
-                eligibility: owner.policy(inputs.policy)?,
-                committee: owner.committee(
-                    future_count,
-                    inputs
-                        .future
-                        .seats()
-                        .map(|seat| (&seat.record.peer_id, seat.proof)),
-                )?,
-            })
-        };
+    let preparation = if future_count == 0 {
+        None
+    } else {
+        Some(ValidatorCommitteePreparationV1 {
+            version: 1,
+            network_id: current.network_id,
+            selection_epoch: current.authorization.epoch,
+            selection_height: current.authorization.last_height,
+            selection_anchor: inputs.selection_anchor,
+            target_epoch: next
+                .authorization
+                .epoch
+                .checked_add(1)
+                .ok_or_else(|| BoundaryCaptureError::Invalid("target epoch overflows".into()))?,
+            first_height: inputs.future_first,
+            last_height: inputs.future_last,
+            authority_generation: next
+                .authorization
+                .authority_generation
+                .checked_add(1)
+                .ok_or_else(|| BoundaryCaptureError::Invalid("next generation overflows".into()))?,
+            preparing_authorization_id: next
+                .authorization
+                .authorization_id()
+                .map_err(|error| BoundaryCaptureError::Invalid(error.to_string()))?,
+            election_seed: inputs.entropy.election_seed,
+            eligibility: owner.policy(inputs.policy)?,
+            committee: owner.committee(
+                future_count,
+                inputs
+                    .future
+                    .seats()
+                    .map(|seat| (&seat.record.peer_id, seat.proof)),
+            )?,
+        })
+    };
     let boundary = ValidatorEpochBoundaryV1 {
         version: 1,
         height: current.authorization.last_height,

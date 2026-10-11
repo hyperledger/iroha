@@ -492,3 +492,227 @@ fn final_export_rejects_foreign_provider_handle_or_revision_without_consuming_or
     drop(public);
     assert_eq!(budget.reserved_bytes(), 0);
 }
+
+#[test]
+fn new_publication_mode_initialization_retains_original_descriptor_before_bytes_across_refusal() {
+    use std::os::fd::AsRawFd as _;
+    let (_temporary, directory) = private_directory();
+    let bytes = b"same original signed public output";
+    let (read, _write) = rustix::pipe::pipe().unwrap();
+    let refusing = File::from(read);
+    let expected = refusing.sync_all().unwrap_err().raw_os_error();
+    let mut progress = FileProgress::default();
+    let error = prepare_file_bytes_with_mode(
+        &directory,
+        "mode-source",
+        false,
+        bytes,
+        &mut progress,
+        |held, mode| {
+            assert_eq!(mode, rustix::fs::Mode::from_raw_mode(0o644));
+            // Reproduce a restrictive creation mode on this one exact descriptor,
+            // without changing the process-wide umask or another test's files.
+            rustix::fs::fchmod(held, rustix::fs::Mode::from_raw_mode(0o600))?;
+            refusing.sync_all()
+        },
+    )
+    .unwrap_err();
+    let ExportError::Io(error) = error else {
+        panic!("original mode-initialization I/O cause must survive")
+    };
+    assert_eq!(error.raw_os_error(), expected);
+    let descriptor = progress.descriptor.as_ref().unwrap();
+    let fd = descriptor.as_raw_fd();
+    let inode = descriptor.metadata().unwrap().ino();
+    assert_eq!(descriptor.metadata().unwrap().mode() & 0o7777, 0o600);
+    assert_eq!(
+        progress.pending_mode,
+        Some(rustix::fs::Mode::from_raw_mode(0o644))
+    );
+    assert_eq!(progress.offset, 0);
+    assert!(!progress.synced);
+    assert!(!progress.complete());
+    assert!(
+        fs::read(directory.path.join("mode-source"))
+            .unwrap()
+            .is_empty()
+    );
+    let mut calls = 0;
+    prepare_file_bytes_with_mode(
+        &directory,
+        "mode-source",
+        false,
+        bytes,
+        &mut progress,
+        |held, mode| {
+            calls += 1;
+            assert_eq!(held.as_raw_fd(), fd);
+            assert_eq!(held.metadata()?.ino(), inode);
+            assert_eq!(held.metadata()?.len(), 0);
+            rustix::fs::fchmod(held, mode).map_err(std::io::Error::from)
+        },
+    )
+    .unwrap();
+    assert_eq!(calls, 1);
+    assert_eq!(progress.pending_mode, None);
+    assert_eq!(progress.descriptor.as_ref().unwrap().as_raw_fd(), fd);
+    assert_eq!(progress.retained_inode().unwrap(), inode);
+    assert_eq!(
+        fs::metadata(directory.path.join("mode-source"))
+            .unwrap()
+            .mode()
+            & 0o7777,
+        0o644
+    );
+    publish_file(&directory, "mode-source", false, bytes, &mut progress).unwrap();
+    assert!(progress.complete());
+    assert_eq!(fs::read(directory.path.join("mode-source")).unwrap(), bytes);
+    fs::set_permissions(
+        directory.path.join("mode-source"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    let result = prepare_file_bytes_with_mode(
+        &directory,
+        "mode-source",
+        false,
+        bytes,
+        &mut progress,
+        |_, _| panic!("published original mode must never be repaired"),
+    );
+    assert!(matches!(result, Err(ExportError::Custody)));
+    assert_eq!(progress.descriptor.as_ref().unwrap().as_raw_fd(), fd);
+    assert_eq!(progress.retained_inode().unwrap(), inode);
+    assert_eq!(
+        fs::metadata(directory.path.join("mode-source"))
+            .unwrap()
+            .mode()
+            & 0o7777,
+        0o600
+    );
+}
+
+#[test]
+fn restored_public_output_requires_exact_mode_without_initializing_existing_file() {
+    use std::os::fd::AsRawFd as _;
+    let (_temporary, directory) = private_directory();
+    let bytes = b"existing original signed public output";
+    let path = directory.path.join("restore-mode-source");
+    fs::write(&path, bytes).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    let inode = fs::metadata(&path).unwrap().ino();
+    let mut progress = FileProgress::default();
+    let result = restore_published_file_with(
+        &directory,
+        "restore-mode-source",
+        false,
+        bytes,
+        &mut progress,
+        |_| panic!("wrong existing mode must refuse before synchronization"),
+    );
+    assert!(matches!(result, Err(ExportError::Custody)));
+    let fd = progress.descriptor.as_ref().unwrap().as_raw_fd();
+    assert_eq!(progress.retained_inode().unwrap(), inode);
+    assert_eq!(progress.pending_mode, None);
+    assert_eq!(progress.offset, 0);
+    assert!(!progress.complete());
+    assert_eq!(fs::metadata(&path).unwrap().mode() & 0o7777, 0o600);
+    // Only an explicit external owner correction enables read-only adoption.
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    restore_published_file(
+        &directory,
+        "restore-mode-source",
+        false,
+        bytes,
+        &mut progress,
+    )
+    .unwrap();
+    assert!(progress.complete());
+    assert_eq!(progress.descriptor.as_ref().unwrap().as_raw_fd(), fd);
+    assert_eq!(progress.retained_inode().unwrap(), inode);
+    assert_eq!(progress.pending_mode, None);
+    prepare_file_bytes_with_mode(
+        &directory,
+        "restore-mode-source",
+        false,
+        bytes,
+        &mut progress,
+        |_, _| panic!("restored original must never enter creation-mode initialization"),
+    )
+    .unwrap();
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    assert_eq!(progress.descriptor.as_ref().unwrap().as_raw_fd(), fd);
+}
+
+#[test]
+fn public_output_initializes_exact_original_creation_mode_before_publication_and_restore() {
+    use std::os::fd::AsRawFd as _;
+    let (_temporary, directory) = private_directory();
+    let bytes = b"canonical public output with its exact original creation descriptor";
+    // The real exclusive creation stage may have a stricter umask. Pin an actual
+    // original empty 0600 descriptor at precisely that retained boundary; do not
+    // change the process-wide umask or construct a restored-file initialization.
+    let descriptor = File::from(
+        rustix::fs::openat(
+            &directory.file,
+            "original-public-mode",
+            rustix::fs::OFlags::RDWR
+                | rustix::fs::OFlags::CREATE
+                | rustix::fs::OFlags::EXCL
+                | rustix::fs::OFlags::NOFOLLOW
+                | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::from_raw_mode(0o600),
+        )
+        .unwrap(),
+    );
+    let fd = descriptor.as_raw_fd();
+    let inode = descriptor.metadata().unwrap().ino();
+    let mut progress = FileProgress {
+        descriptor: Some(descriptor),
+        pending_mode: Some(rustix::fs::Mode::from_raw_mode(0o644)),
+        ..FileProgress::default()
+    };
+    let result = publish_file(
+        &directory,
+        "original-public-mode",
+        false,
+        bytes,
+        &mut progress,
+    );
+    assert!(
+        result.is_ok(),
+        "original public descriptor must initialize its exact mode before publication: {result:?}"
+    );
+    assert_eq!(progress.descriptor.as_ref().unwrap().as_raw_fd(), fd);
+    assert_eq!(progress.retained_inode().unwrap(), inode);
+    assert_eq!(progress.pending_mode, None);
+    assert!(progress.complete());
+    assert_eq!(
+        fs::metadata(directory.path.join("original-public-mode"))
+            .unwrap()
+            .mode()
+            & 0o7777,
+        0o644
+    );
+    assert_eq!(
+        fs::read(directory.path.join("original-public-mode")).unwrap(),
+        bytes
+    );
+    drop(progress);
+    let mut restored = FileProgress::default();
+    restore_published_file(
+        &directory,
+        "original-public-mode",
+        false,
+        bytes,
+        &mut restored,
+    )
+    .unwrap();
+    assert_eq!(restored.retained_inode().unwrap(), inode);
+    assert_eq!(restored.pending_mode, None);
+    assert!(restored.complete());
+    assert_eq!(
+        fs::read(directory.path.join("original-public-mode")).unwrap(),
+        bytes
+    );
+}

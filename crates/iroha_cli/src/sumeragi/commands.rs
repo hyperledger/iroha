@@ -6,6 +6,8 @@ use eyre::Result;
 pub enum Command {
     /// Show the consensus status snapshot (round, leader, proxy tail, lock view, heights)
     Status(StatusArgs),
+    /// Show committed consensus lanes and this node's typed instance status
+    Lanes(LanesArgs),
     /// Show non-authoritative pipeline, queue, election, and lane diagnostics
     Diagnostics(DiagnosticsArgs),
     /// Show on-chain Sumeragi parameters snapshot
@@ -23,6 +25,12 @@ pub enum EvidenceCommand {
 }
 #[derive(clap::Args, Debug)]
 pub struct StatusArgs {}
+#[derive(clap::Args, Debug)]
+pub struct LanesArgs {
+    /// Override the configured gateway with an explicitly approved physical-peer Torii URL
+    #[arg(long, value_name = "URL")]
+    pub torii_url: Option<url::Url>,
+}
 #[derive(clap::Args, Debug)]
 pub struct DiagnosticsArgs {}
 #[derive(clap::Args, Debug)]
@@ -60,6 +68,7 @@ impl Run for Command {
     fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
         match self {
             Command::Status(args) => status::status(context, args),
+            Command::Lanes(args) => status::lanes(context, args),
             Command::Diagnostics(args) => status::diagnostics(context, args),
             Command::Params(args) => status::params(context, args),
             Command::Evidence(cmd) => cmd.run(context),

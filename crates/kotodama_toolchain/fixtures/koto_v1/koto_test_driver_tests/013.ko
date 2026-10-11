@@ -1,12 +1,12 @@
 
             seiyaku Demo {
-                view fn run(int count) -> int { return count + 1; }
+                view fn run(int count) authorize(anyone) -> int { return count + 1; }
 
                 #[test]
                 fn smoke() {
                     let next = test::invoke_kotoage(
                         kotoage: "run",
-                        arguments: Json::parse("{\"count\":\"7\"}")
+                        arguments: {count: 7}
                     );
                     test::assert_eq(actual: next, expected: 8);
                 }

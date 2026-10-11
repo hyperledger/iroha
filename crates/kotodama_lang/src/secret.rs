@@ -142,9 +142,7 @@ pub(crate) fn validate_builtin_call(
         | Builtin::StateLen
         | Builtin::StateCount
         | Builtin::Contains
-        | Builtin::GetOrDefault
-        | Builtin::GetOr
-        | Builtin::Ensure
+        | Builtin::GetOrInsert
         | Builtin::StateMapRemove
         | Builtin::KeysTake2
         | Builtin::ValuesTake2
@@ -430,13 +428,18 @@ fn validate_expr(expr: &TypedExpr, functions: &HashSet<String>) -> Result<(), Se
             }
             Ok(())
         }
-        ExprKind::Call { name, args } | ExprKind::NamedCall { name, args, .. } => {
+        ExprKind::Call { target: name, args }
+        | ExprKind::NamedCall {
+            target: name, args, ..
+        } => {
             for arg in args {
                 validate_expr(arg, functions)?;
             }
-            if let Some(builtin) = Builtin::from_name(name) {
+            if let Some(builtin) = name.builtin() {
                 validate_builtin_call(builtin, args)
-            } else if functions.contains(name)
+            } else if name
+                .user_name()
+                .is_some_and(|name| functions.contains(name))
                 || !args.iter().any(|arg| type_contains_secret(&arg.ty))
             {
                 Ok(())
@@ -493,7 +496,7 @@ fn validate_expr(expr: &TypedExpr, functions: &HashSet<String>) -> Result<(), Se
             reject_secret_key(index)?;
             validate_expr(index, functions)
         }
-        ExprKind::ErrorValue(_)
+        ExprKind::VariantCode(_)
         | ExprKind::IntLiteral(_)
         | ExprKind::DecimalLiteral { .. }
         | ExprKind::OptionNone
@@ -550,8 +553,11 @@ fn expression_contains_secret(expr: &TypedExpr) -> bool {
             expression_contains_secret(value)
                 || arms.iter().any(|arm| block_contains_secret(&arm.body))
         }
-        ExprKind::Call { name, args } | ExprKind::NamedCall { name, args, .. } => {
-            match Builtin::from_name(name) {
+        ExprKind::Call { target: name, args }
+        | ExprKind::NamedCall {
+            target: name, args, ..
+        } => {
+            match name.builtin() {
                 // Approved cryptographic calls explicitly declassify to their
                 // public result type.
                 Some(
@@ -590,7 +596,7 @@ fn expression_contains_secret(expr: &TypedExpr) -> bool {
         ExprKind::Index { target, index } => {
             expression_contains_secret(target) || expression_contains_secret(index)
         }
-        ExprKind::ErrorValue(_)
+        ExprKind::VariantCode(_)
         | ExprKind::IntLiteral(_)
         | ExprKind::DecimalLiteral { .. }
         | ExprKind::OptionNone
@@ -759,6 +765,18 @@ mod tests {
                 .expect("fixture sentinel newline"),
         );
         assert_eq!(error.code, "E_SECRET_MIXED_COMMITMENT");
+    }
+    #[test]
+    fn user_helper_named_like_crypto_builtin_is_not_a_declassifier() {
+        let source = r#"module SecretNames {
+            fn poseidon2(Secret<int> value) -> Secret<int> { value }
+            fn leak() {
+                let Secret<int> value = crypto::private_input(0);
+                debug::info(poseidon2(value));
+            }
+        }"#;
+        let error = analyze_error(source);
+        assert_eq!(error.code, "E_SECRET_LOG");
     }
     #[test]
     fn flat_crypto_spellings_are_rejected() {

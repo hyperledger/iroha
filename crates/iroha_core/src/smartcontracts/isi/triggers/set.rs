@@ -392,6 +392,7 @@ enum DataTriggerFamily {
     Governance,
     GameSession,
     Sccp,
+    KagemushaLoadCommitted,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -609,6 +610,9 @@ fn data_trigger_filter_index_keys(filter: &DataEventFilter) -> Vec<DataTriggerIn
         DataEventFilter::Bridge(_) => family(DataTriggerFamily::Bridge),
         DataEventFilter::Governance(_) => family(DataTriggerFamily::Governance),
         DataEventFilter::Sccp(_) => family(DataTriggerFamily::Sccp),
+        DataEventFilter::KagemushaLoadCommitted(_) => {
+            family(DataTriggerFamily::KagemushaLoadCommitted)
+        }
     }
 }
 
@@ -774,6 +778,11 @@ fn data_event_index_keys(event: &DataEvent) -> BTreeSet<DataTriggerIndexKey> {
         DataEvent::Sccp(_) => {
             keys.insert(DataTriggerIndexKey::Family(DataTriggerFamily::Sccp));
         }
+        DataEvent::KagemushaLoadCommitted(_) => {
+            keys.insert(DataTriggerIndexKey::Family(
+                DataTriggerFamily::KagemushaLoadCommitted,
+            ));
+        }
     }
     keys
 }
@@ -783,6 +792,26 @@ mod data_trigger_index_tests {
     use super::*;
     use iroha_crypto::KeyPair;
     use iroha_model_base::domain::DomainId;
+
+    #[test]
+    fn kagemusha_load_event_filters_have_native_family_postings() {
+        use iroha_data_model::events::data::kagemusha::KagemushaLoadCommittedV1;
+        let all: TriggerId = "all_loads".parse().unwrap();
+        let exact: TriggerId = "exact_load".parse().unwrap();
+        let other: TriggerId = "other_family".parse().unwrap();
+        let digest = [7; 32];
+        let mut index = DataTriggerIndex::default();
+        index.insert(&all, &DataEventFilter::KagemushaLoadCommitted(None));
+        index.insert(
+            &exact,
+            &DataEventFilter::KagemushaLoadCommitted(Some(digest)),
+        );
+        index.insert(&other, &DataEventFilter::Account(AccountEventFilter::new()));
+        let event = DataEvent::KagemushaLoadCommitted(KagemushaLoadCommittedV1 {
+            receipt_digest: digest,
+        });
+        assert_eq!(index.candidates(&event), vec![all, exact]);
+    }
 
     fn account_id() -> AccountId {
         AccountId::new(

@@ -4,7 +4,7 @@ use kotodama_lang::compiler::Compiler as KotodamaCompiler;
 fn kotodama_source_rejects_retired_schema_codec_helpers() {
     let src = r#"
         seiyaku SchemaCodecRoundtrip {
-        view fn main() {
+        view fn main() authorize(anyone) {
             let schema = Name::parse("Order");
             let payload = Json::parse("{\"qty\":7,\"side\":\"buy\"}");
             let bytes = codec::schema::encode(schema, payload);

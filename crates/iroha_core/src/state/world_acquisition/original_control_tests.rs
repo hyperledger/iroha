@@ -210,7 +210,7 @@ fn original_world_partial_placement_releases_both_sides_before_reclaiming_backin
     use std::panic::{AssertUnwindSafe, catch_unwind};
     macro_rules! count_fields {
         (; [$($prefix:ident,)*] [$($privacy:ident,)*] [$($suffix:ident,)*]) => {
-            3 $(+ { let _ = stringify!($prefix); 1 })* $(+ { let _ = stringify!($privacy); 1 })* $(+ { let _ = stringify!($suffix); 1 })*
+            2 $(+ { let _ = stringify!($prefix); 1 })* $(+ { let _ = stringify!($privacy); 1 })* $(+ { let _ = stringify!($suffix); 1 })*
         };
     }
     let fields = with_world_overlay_fields!(count_fields);
@@ -279,25 +279,24 @@ fn borrowed_original_field_initialization_preserves_refusal_and_existing_custody
     let target = Cell::new(String::from("original"));
     let source = AllocationBudget::new(1024 * 1024);
     let foreign = AllocationBudget::new(1024 * 1024);
-    let scope = source.try_owned_refund_scope().unwrap();
     let layout = CellPublicationSuccessor::allocation_layout();
     let mut reservation = source.try_reserve(layout).unwrap();
     let before = source.reserved_bytes();
     let mut slot = None;
     assert!(matches!(
-        initialize_original_field(&mut slot, &target, &scope, &foreign, &mut reservation),
+        initialize_original_field(&mut slot, &target, &foreign, &mut reservation),
         Err(AdmittedStorageError::PolicyIdentity)
     ));
     assert!(slot.is_none());
     assert_eq!(reservation.remaining_bytes(), layout.size());
     assert_eq!(source.reserved_bytes(), before);
     assert_eq!(foreign.reserved_bytes(), 0);
-    initialize_original_field(&mut slot, &target, &scope, &source, &mut reservation).unwrap();
+    initialize_original_field(&mut slot, &target, &source, &mut reservation).unwrap();
     assert_eq!(reservation.remaining_bytes(), 0);
     assert_eq!(source.reserved_bytes(), before);
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
-            initialize_original_field(&mut slot, &target, &scope, &source, &mut reservation)
+            initialize_original_field(&mut slot, &target, &source, &mut reservation)
         }))
         .is_err()
     );

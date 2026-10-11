@@ -632,11 +632,7 @@ fn musubi_restore_keeps_local_scratch_refusal_separate_from_malformed_world() {
     let (world, _, _, _) = seeded_musubi_publication_snapshot();
     let encoded = json::to_json(&world).unwrap();
     let vm = IVM::new(0);
-    let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-    let operation_index_refusal = std::cell::RefCell::new(None);
     let seed = IvmSeed {
-        operation_index_budget: &operation_index_budget,
-        operation_index_refusal: &operation_index_refusal,
         ivm: &vm,
         _marker: PhantomData,
     };

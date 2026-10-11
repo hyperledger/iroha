@@ -25,7 +25,7 @@
 //! quotient that is a polynomial, and on the verifier side to show that the
 //! verifier rejects exactly because of those terms.
 
-use crate::cs::CircuitDescriptorV1;
+use crate::cs::ProtocolDescriptor;
 
 use super::{ProtocolError, Shape};
 
@@ -119,6 +119,11 @@ pub enum CommonInput {
     FrameColumns,
     /// The declared length of one instance column.
     FrameLength {
+        /// The instance column.
+        column: usize,
+    },
+    /// The declared V2 type of one instance column.
+    FrameType {
         /// The instance column.
         column: usize,
     },
@@ -285,6 +290,8 @@ pub enum Challenge {
 pub enum TranscriptStep {
     /// A public input absorbed by both sides.
     Common(CommonInput),
+    /// Native base-field context of a PIPA-R proof.
+    CommonBase(CommonInput),
     /// A proof message, decoded and absorbed.
     Message(ProofMessage),
     /// A challenge squeezed.
@@ -300,6 +307,8 @@ pub enum HashOperation {
     AbsorbPoint,
     /// A scalar is absorbed.
     AbsorbScalar,
+    /// A native base-field context element is absorbed.
+    AbsorbBase,
     /// A challenge is squeezed.
     Squeeze,
 }
@@ -313,6 +322,7 @@ impl TranscriptStep {
                 Some(HashOperation::AbsorbPoint)
             }
             Self::Common(_) => Some(HashOperation::AbsorbScalar),
+            Self::CommonBase(_) => Some(HashOperation::AbsorbBase),
             Self::Message(message) => Some(if message.is_point() {
                 HashOperation::AbsorbPoint
             } else {
@@ -336,7 +346,7 @@ impl TranscriptStep {
 ///
 /// [`ProtocolError::Overflow`] when the gate polynomial count overflows.
 pub(super) fn constraint_terms(
-    descriptor: &CircuitDescriptorV1,
+    descriptor: &ProtocolDescriptor,
     shape: &Shape,
 ) -> Result<Vec<ConstraintTerm>, ProtocolError> {
     let polynomials = descriptor
@@ -371,7 +381,7 @@ pub(super) fn constraint_terms(
 /// The transcript schedule of a production proof (see the module
 /// documentation), for `point_sets` multiopen point sets.
 pub(super) fn transcript_schedule(
-    descriptor: &CircuitDescriptorV1,
+    descriptor: &ProtocolDescriptor,
     shape: &Shape,
     point_sets: usize,
 ) -> Vec<TranscriptStep> {
@@ -382,6 +392,18 @@ pub(super) fn transcript_schedule(
         Common(CommonInput::FrameColumns),
     ];
     steps.extend((0..shape.num_instance).map(|column| Common(CommonInput::FrameLength { column })));
+    if descriptor.instance_types.is_some() {
+        steps.extend(
+            (0..shape.num_instance).map(|column| Common(CommonInput::FrameType { column })),
+        );
+    }
+    if descriptor.transcript == crate::cs::TranscriptV2::KagemushaPoseidonRp57Base {
+        for step in &mut steps {
+            if let Common(input) = *step {
+                *step = TranscriptStep::CommonBase(input);
+            }
+        }
+    }
     if shape.committed_instances {
         steps.extend(
             (0..shape.num_instance)

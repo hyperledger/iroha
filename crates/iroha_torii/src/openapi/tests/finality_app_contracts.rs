@@ -180,7 +180,6 @@ fn native_finality_schema_matches_executed_norito_json_and_rejects_retired_field
     let qc: iroha_sumeragi::message::Qc = norito::decode_canonical(certificate.commit_qc()).unwrap();
     assert_eq!(qc.kind, iroha_sumeragi::message::VoteKind::Commit); assert_eq!(qc.signers.count_ones(), 3);
     assert_eq!(qc.agg_sig.0.len(), 96); assert_eq!(qc.result, verified.result()); assert_eq!(qc.block_hash, verified.core_hash());
-    assert_eq!(verified.execution().kagemusha_top_up_count, 0); assert_eq!(verified.execution().kagemusha_top_up_root, None);
     let wire = verified.canonical_executed_wire().unwrap();
     assert_eq!(verified.execution().executed_block_wire_len, wire.len() as u64);
     assert_eq!(verified.execution().executed_block_wire_hash, iroha_crypto::Hash::new(&wire));
@@ -272,6 +271,40 @@ fn bridge_finality_operations_describe_current_durable_evidence() {
     assert!(parameters.iter().all(|parameter| parameter.get("in").and_then(Value::as_str) != Some("path")), "latest selects the durable tip without a height parameter");
     let height = openapi_operation(&document, "/v1/bridge/finality/attestation/{height}", "get");
     assert_eq!(operation_responses(latest).keys().collect::<BTreeSet<_>>(), operation_responses(height).keys().collect::<BTreeSet<_>>(), "both selectors share one response contract");
+}
+#[test]
+fn finality_interval_openapi_binds_full_proofs_positive_selectors_and_native_count_limit() {
+    use std::num::{NonZeroU64, NonZeroUsize};
+    use iroha_core::sumeragi::finality::NativeFinalityProofIntervalLimits;
+    let document = generate_spec();
+    let path = "/v1/bridge/finality/interval/{from}/{to}";
+    let operation = openapi_operation(&document, path, "get");
+    let single = openapi_operation(&document, "/v1/bridge/finality/{height}", "get");
+    assert_eq!(operation.get("security"), single.get("security"), "the interval preserves original Torii authentication");
+    let auth = contract_object(operation.get(ROUTE_AUTH_EXTENSION), "interval route authority");
+    scalar_contracts! { auth.get("stableRouteId") => Text("bridge.finality_interval.read"); auth.get("authentication") => Text("torii_default"); auth.get("admission") => Text("public"); operation.get(TOOL_EFFECT_EXTENSION) => Text("read"); }
+    assert_eq!(operation_parameters(operation).len(), 2, "only the two exact inclusive selectors are accepted");
+    for selector in ["from", "to"] {
+        let parameter = operation_parameter(operation, selector);
+        scalar_contracts! { parameter.get("in") => Text("path"); parameter.get("required") => Flag(true); }
+        let schema = parameter_schema(parameter);
+        scalar_contracts! { schema.get("type") => Text("integer"); schema.get("format") => Text("uint64"); schema.get("minimum") => Unsigned(1); schema.get("maximum") => Unsigned(u64::MAX); }
+    }
+    let content = response_content(operation, "200");
+    assert_eq!(content.keys().map(String::as_str).collect::<BTreeSet<_>>(), contract_word_set("application/json application/x-norito"));
+    let array = contract_object(content.get("application/json").and_then(|media| media.get("schema")), "complete finality proof interval");
+    scalar_contracts! { array.get("type") => Text("array"); }
+    assert_array_bounds(array, 1, 64, None);
+    assert_item_ref(array, "#/components/schemas/SumeragiFinalityProof");
+    let norito = contract_object(content.get("application/x-norito").and_then(|media| media.get("schema")), "canonical interval Norito frame");
+    scalar_contracts! { norito.get("type") => Text("string"); norito.get("format") => Text("binary"); }
+    let bounds = |last| NativeFinalityProofIntervalLimits::new(NonZeroU64::new(1).unwrap(), NonZeroU64::new(last).unwrap(), NonZeroUsize::new(1).unwrap(), NonZeroUsize::new(1).unwrap(), std::time::Instant::now());
+    assert!(bounds(64).is_ok(), "the advertised full interval must be accepted by the real native bound");
+    assert!(bounds(65).is_err(), "the actual native producer must refuse the first oversized interval");
+    assert_eq!(operation_responses(operation).keys().map(String::as_str).collect::<BTreeSet<_>>(), contract_word_set("200 400 403 404 406 408 429 500 503"));
+    for status in contract_words("400 403 404 406 408 429 500 503") {
+        text_contracts! { operation_response_schema_ref(operation, status, path) => "#/components/schemas/ErrorEnvelope"; }
+    }
 }
 #[test]
 fn signed_status_documents_actual_driver_fields() {
@@ -583,7 +616,7 @@ fn protected_contract_identity_openapi_is_signed_and_exact() {
         assert_eq!(variant.get("properties").and_then(Value::as_object).map(object_field_set), Some(expected));
     }
     for (schema, expected) in contract_rows! {
-        "GovernedContractLifecycleV1", contract_words(concat!("version origin origin_account origin_proposal_content_id_hex ", "origin_governance_attempt_id_hex owner pending_owner parliament_delegated ", "active_code_hash_hex revision emergency_hold")) .into_iter() .collect::<BTreeSet<_>>();
+        "GovernedContractLifecycleV1", contract_words(concat!("version origin origin_account origin_proposal_content_id_hex ", "origin_governance_attempt_id_hex owner pending_owner parliament_delegated ", "active_code_hash_hex retained_code_hash_hex revision emergency_hold")) .into_iter() .collect::<BTreeSet<_>>();
         "GovernedContractEmergencyHoldV1", contract_words(concat!("incident_digest_hex proposal_content_id_hex governance_attempt_id_hex reason ", "imposed_at_height expires_at_height")) .into_iter() .collect::<BTreeSet<_>>();
     } {
         let schema = contract_schema(schemas, schema);

@@ -34,20 +34,6 @@ fn with_parts(
     )
 }
 
-// This intentionally modifies an untrusted candidate to exercise only bounded witness parsing.
-// It is not an attested valid certificate and must still pass the independent verifier to serve.
-fn with_witness(source: &SignedBlock, size: usize) -> iroha_data_model::block::SharedSignedBlock {
-    let c = source.commit_certificate().unwrap();
-    let mut qc: Qc = norito::decode_canonical(c.commit_qc()).unwrap();
-    qc.attestation_witness = Some(ResultWitness::from_untrusted(vec![7; size]).unwrap());
-    with_parts(
-        source,
-        c.consensus_header().to_vec(),
-        norito::encode_canonical(&qc).unwrap(),
-        c.availability().to_vec(),
-    )
-}
-
 #[test]
 fn exact_canonical_artifacts_retain_original_source_and_original_pool() {
     let source = fixture();
@@ -73,7 +59,6 @@ fn exact_canonical_artifacts_retain_original_source_and_original_pool() {
         norito::encode_canonical(&decoded.availability).unwrap(),
         original.availability()
     );
-    assert!(decoded.commit_qc.attestation_witness.is_none());
     drop(decoded);
     assert_eq!(budget.reserved_bytes(), 0);
 }
@@ -91,7 +76,7 @@ fn every_backing_and_shared_control_refusal_retains_exact_original_owners() {
     drop(decoded);
     assert_eq!(measure.reserved_bytes(), 0);
 
-    let source = with_witness(&base, 4096);
+    let source = base;
     let budget = AllocationBudget::new(0);
     let (job, error) = CertificateRead::new(source.clone(), budget.clone())
         .complete(&budget)
@@ -105,7 +90,7 @@ fn every_backing_and_shared_control_refusal_retains_exact_original_owners() {
     assert!(job.table_backing.is_none());
     assert_eq!(
         job.retained_owners_for_test(),
-        (std::ptr::from_ref(source.as_ref()), None, None)
+        (std::ptr::from_ref(source.as_ref()), None)
     );
 
     budget.set_limit_bytes(table_len);
@@ -117,11 +102,7 @@ fn every_backing_and_shared_control_refusal_retains_exact_original_owners() {
     let table_pointer = job.table_backing.as_ref().unwrap().as_slice().as_ptr();
     assert_eq!(
         job.retained_owners_for_test(),
-        (
-            std::ptr::from_ref(source.as_ref()),
-            Some(table_pointer),
-            None
-        )
+        (std::ptr::from_ref(source.as_ref()), Some(table_pointer))
     );
     assert_eq!(budget.reserved_bytes(), table_len);
     let (job, _) = job.complete(&budget).err().expect("same table retained");
@@ -131,54 +112,10 @@ fn every_backing_and_shared_control_refusal_retains_exact_original_owners() {
     );
 
     budget.set_limit_bytes(table_total);
-    let (job, error) = job
-        .complete(&budget)
-        .err()
-        .expect("witness backing refuses");
-    assert!(matches!(error, CertificateReadError::Admission(ref e) if e.is_local_refusal()));
-    assert_eq!(
-        job.table.as_ref().unwrap().as_slice().as_ptr(),
-        table_pointer
-    );
-    assert!(job.witness_backing.is_none());
-    assert_eq!(budget.reserved_bytes(), table_total);
-
-    budget.set_limit_bytes(table_total + 4096);
-    let (job, error) = job
-        .complete(&budget)
-        .err()
-        .expect("witness shared control refuses");
-    assert!(matches!(error, CertificateReadError::Admission(ref e) if e.is_local_refusal()));
-    let witness_pointer = job.witness_backing.as_ref().unwrap().as_slice().as_ptr();
-    assert_eq!(
-        job.retained_owners_for_test(),
-        (
-            std::ptr::from_ref(source.as_ref()),
-            Some(table_pointer),
-            Some(witness_pointer)
-        )
-    );
-    let reserved = budget.reserved_bytes();
-    let (job, _) = job.complete(&budget).err().expect("same witness retained");
-    assert_eq!(
-        job.witness_backing.as_ref().unwrap().as_slice().as_ptr(),
-        witness_pointer
-    );
-    assert_eq!(budget.reserved_bytes(), reserved);
-    assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
-        job.source(),
-        &source
-    ));
-
-    budget.set_limit_bytes(1 << 25);
     let decoded = job
         .complete(&budget)
         .unwrap_or_else(|_| panic!("all original owners complete"));
     assert_eq!(decoded.availability.as_slice().as_ptr(), table_pointer);
-    let witness = decoded.commit_qc.attestation_witness.as_ref().unwrap();
-    assert_eq!(witness.as_slice().as_ptr(), witness_pointer);
-    assert_eq!(witness.as_slice(), &[7; 4096]);
-    assert!(witness.admitted_to(&budget));
     assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
         &decoded.source,
         &source

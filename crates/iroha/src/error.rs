@@ -167,6 +167,16 @@ pub enum Error {
         /// Bounded peer diagnostic.
         reason: String,
     },
+    /// The KAGEMUSHA enrollment service reported a closed non-success outcome: a terminal
+    /// refusal with its reason, withheld delivery of an Issued outcome, or an unknown outcome
+    /// after a possible effect. Identical HTTP statuses carry different outcomes.
+    #[error("{operation} reported enrollment outcome {outcome:?}")]
+    EnrollmentOutcome {
+        /// Canonical operation that reported the outcome.
+        operation: &'static str,
+        /// Exact closed outcome read from the response headers.
+        outcome: iroha_torii_shared::kagemusha_enrollment::EnrollmentServiceOutcomeV1,
+    },
     /// A returned draft or read result does not match the exact request.
     #[error("{operation} response does not bind {field}")]
     ResponseBinding {

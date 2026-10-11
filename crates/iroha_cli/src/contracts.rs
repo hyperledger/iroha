@@ -23,6 +23,7 @@ use iroha_core::{
     smartcontracts::ivm::{cache::ProgramSummary, host::CoreHost},
 };
 use iroha_crypto::{KeyPair, PrivateKey};
+use iroha_data_model::executor::fault::{IvmFaultPositionV1, IvmFaultV1};
 use iroha_model_base::metadata::Metadata;
 use iroha_model_base::state_path::StatePath;
 use ivm::host::IVMHost;
@@ -383,12 +384,12 @@ pub struct ContractTargetArgs {
 }
 #[derive(clap::Args, Debug, Clone)]
 pub struct ContractPayloadArgs {
-    /// Inline Norito JSON payload object or value.
-    #[arg(long, value_name = "JSON", conflicts_with = "payload_file")]
-    pub payload_json: Option<String>,
-    /// File containing a Norito JSON payload object or value.
-    #[arg(long, value_name = "PATH", conflicts_with = "payload_json")]
-    pub payload_file: Option<PathBuf>,
+    /// Inline Norito JSON entrypoint arguments.
+    #[arg(long, value_name = "JSON", conflicts_with = "args_file")]
+    pub args: Option<String>,
+    /// File containing Norito JSON entrypoint arguments.
+    #[arg(long, value_name = "PATH", conflicts_with = "args")]
+    pub args_file: Option<PathBuf>,
 }
 #[derive(Clone, Debug, crate::json_macros::JsonSerialize)]
 struct ContractSubmissionWaitResponse {
@@ -484,8 +485,8 @@ impl Run for CallArgs {
         };
         let target = resolve_contract_target(self.target)?;
         let payload = load_contract_payload_value(
-            self.payload.payload_json.as_deref(),
-            self.payload.payload_file.as_deref(),
+            self.payload.args.as_deref(),
+            self.payload.args_file.as_deref(),
         )?;
         if self.simulate {
             let value = client.client().post_contract_call_simulate_json(
@@ -576,8 +577,8 @@ impl Run for ViewArgs {
         let authority = resolve_contract_authority(context, self.authority.as_deref())?;
         let target = resolve_contract_target(self.target)?;
         let payload = load_contract_payload_value(
-            self.payload.payload_json.as_deref(),
-            self.payload.payload_file.as_deref(),
+            self.payload.args.as_deref(),
+            self.payload.args_file.as_deref(),
         )?;
         let value = client.post_contract_view_json(
             &authority,
@@ -884,13 +885,13 @@ fn load_contract_call_draft_intent(path: &Path) -> Result<ContractCallDraftInten
         .wrap_err_with(|| format!("invalid contract-call draft intent in {}", path.display()))
 }
 fn load_contract_payload_value(
-    payload_json: Option<&str>,
-    payload_file: Option<&std::path::Path>,
+    args: Option<&str>,
+    args_file: Option<&std::path::Path>,
 ) -> Result<Option<norito::json::Value>> {
-    match (payload_json, payload_file) {
+    match (args, args_file) {
         (Some(raw), None) => norito::json::from_str(raw)
             .map(Some)
-            .wrap_err("invalid --payload-json"),
+            .wrap_err("invalid --args"),
         (None, Some(path)) => {
             let contents = std::fs::read_to_string(path)
                 .wrap_err_with(|| format!("read {}", path.display()))?;
@@ -899,9 +900,7 @@ fn load_contract_payload_value(
                 .wrap_err_with(|| format!("invalid JSON in {}", path.display()))
         }
         (None, None) => Ok(None),
-        (Some(_), Some(_)) => Err(eyre!(
-            "--payload-json and --payload-file are mutually exclusive"
-        )),
+        (Some(_), Some(_)) => Err(eyre!("--args and --args-file are mutually exclusive")),
     }
 }
 fn resolve_contract_authority<C: RunContext>(
@@ -963,6 +962,7 @@ struct LocalContractDebugViewResponse {
     syscall_trace: Vec<LocalContractSyscallTrace>,
     result: Option<norito::json::Value>,
     error: Option<String>,
+    fault: Option<IvmFaultV1>,
     vm_diagnostic: Option<LocalContractDebugVmDiagnostic>,
     source_snippet: Option<LocalContractSourceSnippet>,
     queued_instruction_count: usize,
@@ -995,6 +995,7 @@ struct LocalContractDebugBudget {
 }
 #[derive(Clone, Debug, crate::json_macros::JsonSerialize)]
 struct LocalContractDebugVmDiagnostic {
+    fault: Option<IvmFaultV1>,
     trap_kind: String,
     message: String,
     pc: u64,
@@ -1041,6 +1042,7 @@ struct LocalContractDebugCallResponse {
     syscall_trace: Vec<LocalContractSyscallTrace>,
     result: Option<norito::json::Value>,
     error: Option<String>,
+    fault: Option<IvmFaultV1>,
     vm_diagnostic: Option<LocalContractDebugVmDiagnostic>,
     source_snippet: Option<LocalContractSourceSnippet>,
     queued_instruction_count: usize,
@@ -1108,9 +1110,6 @@ where
     fn finish_tx(&mut self) -> Result<ivm::host::AccessLog, ivm::VMError> {
         self.inner.finish_tx()
     }
-    fn set_external_vk_bytes(&mut self, backend: String, bytes: Vec<u8>) {
-        self.inner.set_external_vk_bytes(backend, bytes);
-    }
     fn checkpoint(&self) -> Option<Box<dyn std::any::Any + Send>> {
         self.inner.checkpoint()
     }
@@ -1163,12 +1162,6 @@ fn execute_local_contract_debug_view<C: RunContext>(
     let code = load_code_bytes(args.code_file.clone(), args.code_b64.clone())?;
     let verified = verify_contract_from_bytes(&code)?;
     let summary = program_summary_from_bytes(&code)?;
-    let program_prefix_len = verified
-        .code_offset
-        .checked_sub(verified.header_len)
-        .ok_or_else(|| eyre!("contract program offset precedes its metadata header"))?;
-    let program_prefix_len = u64::try_from(program_prefix_len)
-        .map_err(|_| eyre!("contract program prefix length exceeds u64"))?;
     let executable_len = code
         .len()
         .checked_sub(verified.code_offset)
@@ -1184,8 +1177,8 @@ fn execute_local_contract_debug_view<C: RunContext>(
     let descriptor = resolve_local_view_entrypoint(&verified, &selector)?;
     let entrypoint_pc = resolve_local_contract_entrypoint_pc(&code, descriptor)?;
     let payload = load_contract_payload_value(
-        args.payload.payload_json.as_deref(),
-        args.payload.payload_file.as_deref(),
+        args.payload.args.as_deref(),
+        args.payload.args_file.as_deref(),
     )?;
     let payload = normalize_local_contract_payload(descriptor, payload.as_ref())?;
     let arguments = prepare_local_contract_arguments(descriptor, payload.as_ref(), args.gas_limit)?;
@@ -1217,25 +1210,37 @@ fn execute_local_contract_debug_view<C: RunContext>(
     vm.load_program(&code)
         .map_err(|err| eyre!("failed to load contract debug view bytecode: {err}"))?;
     vm.set_gas_limit(args.gas_limit);
-    if let Some(arguments) = prepared_arguments.as_ref() {
-        arguments
-            .precharge_vm(&mut vm)
-            .map_err(|err| eyre!("failed to precharge contract debug arguments: {err}"))?;
-    }
     vm.set_register(1, vm.memory.code_len());
     vm.set_program_counter(entrypoint_pc)
         .map_err(|err| eyre!("failed to seek to contract debug entrypoint: {err}"))?;
-    let run_result = local_debug_attempt::run(&mut vm, &mut tracing_host)?;
+    let preparation = prepared_arguments
+        .as_ref()
+        .map_or(Ok(()), |arguments| arguments.precharge_vm(&mut vm));
+    let run_result = match preparation {
+        Ok(()) => local_debug_attempt::run(&mut vm, &mut tracing_host)?,
+        Err(error) => {
+            vm.record_boundary_fault(&error, IvmFaultPositionV1::Initialization);
+            local_debug_attempt::completed(Err(error))?
+        }
+    };
     let (mut host, syscall_trace) = tracing_host.into_parts();
+    let run_result = local_debug_attempt::completed(run_result.and_then(|()| {
+        host.finish_local_contract_result(&vm, &descriptor.name)
+            .map(|_| ())
+    }))?;
     let queued = host.drain_instructions();
     let durable_state_overlay = host.drain_durable_state_overlay();
     let budget = build_local_debug_budget(&vm, args.gas_limit, entrypoint_pc);
+    let fault = run_result
+        .as_ref()
+        .err()
+        .and_then(|error| vm.execution_fault(error, IvmFaultPositionV1::ReturnValidation));
     let mut vm_diagnostic = run_result.as_ref().err().and_then(|error| {
         vm.last_diagnostic()
-            .map(|diagnostic| map_local_vm_diagnostic(diagnostic, error))
+            .map(|diagnostic| map_local_vm_diagnostic(diagnostic, error, &summary.code_hash))
     });
     if let (Some(diagnostic), Some(source_map)) = (vm_diagnostic.as_mut(), source_map.as_deref()) {
-        apply_local_contract_source_map(diagnostic, source_map, program_prefix_len);
+        apply_local_contract_source_map(diagnostic, source_map, &summary.code_hash);
     }
     let source_snippet =
         maybe_render_source_snippet(args.source_file.as_deref(), vm_diagnostic.as_ref());
@@ -1250,6 +1255,7 @@ fn execute_local_contract_debug_view<C: RunContext>(
             syscall_trace,
             result: None,
             error: Some(format!("contract debug view execution failed: {err}")),
+            fault,
             vm_diagnostic,
             source_snippet,
             queued_instruction_count: queued.len(),
@@ -1266,6 +1272,7 @@ fn execute_local_contract_debug_view<C: RunContext>(
             syscall_trace,
             result: None,
             error: Some("view entrypoint attempted to emit instructions".to_owned()),
+            fault,
             vm_diagnostic,
             source_snippet,
             queued_instruction_count: queued.len(),
@@ -1282,6 +1289,7 @@ fn execute_local_contract_debug_view<C: RunContext>(
             syscall_trace,
             result: None,
             error: Some("view entrypoint attempted to mutate durable state".to_owned()),
+            fault,
             vm_diagnostic,
             source_snippet,
             queued_instruction_count: queued.len(),
@@ -1307,6 +1315,7 @@ fn execute_local_contract_debug_view<C: RunContext>(
         syscall_trace,
         result: Some(result),
         error: None,
+        fault,
         vm_diagnostic,
         source_snippet,
         queued_instruction_count: 0,
@@ -1321,12 +1330,6 @@ fn execute_local_contract_debug_call<C: RunContext>(
     let code = load_code_bytes(args.code_file.clone(), args.code_b64.clone())?;
     let verified = verify_contract_from_bytes(&code)?;
     let summary = program_summary_from_bytes(&code)?;
-    let program_prefix_len = verified
-        .code_offset
-        .checked_sub(verified.header_len)
-        .ok_or_else(|| eyre!("contract program offset precedes its metadata header"))?;
-    let program_prefix_len = u64::try_from(program_prefix_len)
-        .map_err(|_| eyre!("contract program prefix length exceeds u64"))?;
     let executable_len = code
         .len()
         .checked_sub(verified.code_offset)
@@ -1342,8 +1345,8 @@ fn execute_local_contract_debug_call<C: RunContext>(
     let descriptor = resolve_local_call_entrypoint(&verified, &selector)?;
     let entrypoint_pc = resolve_local_contract_entrypoint_pc(&code, descriptor)?;
     let payload = load_contract_payload_value(
-        args.payload.payload_json.as_deref(),
-        args.payload.payload_file.as_deref(),
+        args.payload.args.as_deref(),
+        args.payload.args_file.as_deref(),
     )?;
     let payload = normalize_local_contract_payload(descriptor, payload.as_ref())?;
     let arguments = prepare_local_contract_arguments(descriptor, payload.as_ref(), args.gas_limit)?;
@@ -1375,16 +1378,24 @@ fn execute_local_contract_debug_call<C: RunContext>(
     vm.load_program(&code)
         .map_err(|err| eyre!("failed to load contract debug call bytecode: {err}"))?;
     vm.set_gas_limit(args.gas_limit);
-    if let Some(arguments) = prepared_arguments.as_ref() {
-        arguments
-            .precharge_vm(&mut vm)
-            .map_err(|err| eyre!("failed to precharge contract debug arguments: {err}"))?;
-    }
     vm.set_register(1, vm.memory.code_len());
     vm.set_program_counter(entrypoint_pc)
         .map_err(|err| eyre!("failed to seek to contract debug entrypoint: {err}"))?;
-    let run_result = local_debug_attempt::run(&mut vm, &mut tracing_host)?;
+    let preparation = prepared_arguments
+        .as_ref()
+        .map_or(Ok(()), |arguments| arguments.precharge_vm(&mut vm));
+    let run_result = match preparation {
+        Ok(()) => local_debug_attempt::run(&mut vm, &mut tracing_host)?,
+        Err(error) => {
+            vm.record_boundary_fault(&error, IvmFaultPositionV1::Initialization);
+            local_debug_attempt::completed(Err(error))?
+        }
+    };
     let (mut host, syscall_trace) = tracing_host.into_parts();
+    let run_result = local_debug_attempt::completed(run_result.and_then(|()| {
+        host.finish_local_contract_result(&vm, &descriptor.name)
+            .map(|_| ())
+    }))?;
     let queued = host.drain_instructions();
     let durable_state_overlay = host.drain_durable_state_overlay();
     let queued_instruction_count = queued.len();
@@ -1392,12 +1403,16 @@ fn execute_local_contract_debug_call<C: RunContext>(
     let queued_instructions = render_queued_instructions(&queued)?;
     let durable_state_overlay_json = render_durable_state_overlay(&durable_state_overlay)?;
     let budget = build_local_debug_budget(&vm, args.gas_limit, entrypoint_pc);
+    let fault = run_result
+        .as_ref()
+        .err()
+        .and_then(|error| vm.execution_fault(error, IvmFaultPositionV1::ReturnValidation));
     let mut vm_diagnostic = run_result.as_ref().err().and_then(|error| {
         vm.last_diagnostic()
-            .map(|diagnostic| map_local_vm_diagnostic(diagnostic, error))
+            .map(|diagnostic| map_local_vm_diagnostic(diagnostic, error, &summary.code_hash))
     });
     if let (Some(diagnostic), Some(source_map)) = (vm_diagnostic.as_mut(), source_map.as_deref()) {
-        apply_local_contract_source_map(diagnostic, source_map, program_prefix_len);
+        apply_local_contract_source_map(diagnostic, source_map, &summary.code_hash);
     }
     let source_snippet =
         maybe_render_source_snippet(args.source_file.as_deref(), vm_diagnostic.as_ref());
@@ -1412,6 +1427,7 @@ fn execute_local_contract_debug_call<C: RunContext>(
             syscall_trace,
             result: None,
             error: Some(format!("contract debug call execution failed: {err}")),
+            fault,
             vm_diagnostic,
             source_snippet,
             queued_instruction_count,
@@ -1440,6 +1456,7 @@ fn execute_local_contract_debug_call<C: RunContext>(
         syscall_trace,
         result,
         error: None,
+        fault,
         vm_diagnostic,
         source_snippet,
         queued_instruction_count,
@@ -1475,21 +1492,23 @@ fn build_local_debug_budget(
 fn map_local_vm_diagnostic(
     diag: ivm::VmExecutionDiagnostic<'_>,
     error: &ivm::VMError,
+    source_hash: &iroha_crypto::Hash,
 ) -> LocalContractDebugVmDiagnostic {
+    let source = diag.source.as_ref().filter(|_| {
+        diag.fault.is_some_and(|fault| {
+            fault.site.code_hash == *source_hash
+                && matches!(fault.site.position, IvmFaultPositionV1::Execute { .. })
+        })
+    });
     LocalContractDebugVmDiagnostic {
+        fault: diag.fault,
         trap_kind: format!("{:?}", diag.trap_kind),
         message: error.to_string(),
         pc: diag.pc,
-        function: diag
-            .source
-            .as_ref()
-            .and_then(|source| source.function.map(str::to_owned)),
-        source_path: diag
-            .source
-            .as_ref()
-            .and_then(|source| source.path.map(str::to_owned)),
-        line: diag.source.as_ref().and_then(|source| source.line),
-        column: diag.source.as_ref().and_then(|source| source.column),
+        function: source.and_then(|source| source.function.map(str::to_owned)),
+        source_path: source.and_then(|source| source.path.map(str::to_owned)),
+        line: source.and_then(|source| source.line),
+        column: source.and_then(|source| source.column),
         gas_limit: diag.budget.gas_limit,
         gas_remaining: diag.budget.gas_remaining,
         gas_used: diag.budget.gas_used,
@@ -1622,9 +1641,18 @@ fn load_local_contract_source_map(
 fn apply_local_contract_source_map(
     diagnostic: &mut LocalContractDebugVmDiagnostic,
     source_map: &[ivm::EmbeddedSourceMapEntryV1],
-    program_prefix_len: u64,
+    source_hash: &iroha_crypto::Hash,
 ) {
-    let Some(relative_pc) = diagnostic.pc.checked_sub(program_prefix_len) else {
+    let Some(fault) = diagnostic
+        .fault
+        .filter(|fault| fault.site.code_hash == *source_hash)
+    else {
+        return;
+    };
+    let IvmFaultPositionV1::Execute {
+        pc_offset: relative_pc,
+    } = fault.site.position
+    else {
         return;
     };
     let Some(entry) = source_map
@@ -1926,6 +1954,39 @@ mod tests {
         }
     }
     #[test]
+    fn contract_argument_flags_use_one_canonical_spelling() {
+        use clap::Parser as _;
+        #[derive(clap::Parser)]
+        struct ArgumentParser {
+            #[command(flatten)]
+            payload: ContractPayloadArgs,
+        }
+        let inline = ArgumentParser::try_parse_from(["contract", "--args", "{}"]).unwrap();
+        assert_eq!(inline.payload.args.as_deref(), Some("{}"));
+        let file =
+            ArgumentParser::try_parse_from(["contract", "--args-file", "args.json"]).unwrap();
+        assert_eq!(
+            file.payload.args_file.as_deref(),
+            Some(Path::new("args.json"))
+        );
+        for retired in ["--payload-json", "--payload-file"] {
+            let error = ArgumentParser::try_parse_from(["contract", retired, "{}"])
+                .err()
+                .unwrap();
+            assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
+        }
+        let error = ArgumentParser::try_parse_from([
+            "contract",
+            "--args",
+            "{}",
+            "--args-file",
+            "args.json",
+        ])
+        .err()
+        .unwrap();
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+    #[test]
     fn package_project_commands_are_owned_by_musubi() {
         use crate::Args;
         use clap::Parser;
@@ -1991,12 +2052,23 @@ mod tests {
         let payload = actual
             .signature_payload_bytes(owner.context(), frame.remaining_bytes())
             .expect("encode output verification payload");
+        let mut expected_owner = manifest_signing::ManifestSigningBudget::new()
+            .expect("fund independent source payload verification");
+        let expected_frame = expected_owner
+            .reserve_frame(&expected)
+            .expect("admit source verification frame");
+        let expected_payload = expected
+            .signature_payload_bytes(expected_owner.context(), expected_frame.remaining_bytes())
+            .expect("encode source verification payload");
+        assert_eq!(payload, expected_payload);
         provenance
             .signature
             .verify(&provenance.signer, &payload)
             .expect("valid emitted manifest signature");
         drop(payload);
         drop(frame);
+        drop(expected_payload);
+        drop(expected_frame);
     }
 
     #[test]
@@ -2482,8 +2554,8 @@ mod tests {
             durable_state_json: None,
             durable_state_file: None,
             payload: ContractPayloadArgs {
-                payload_json: None,
-                payload_file: None,
+                args: None,
+                args_file: None,
             },
         };
         args.run(&mut ctx).expect("debug view");
@@ -2536,8 +2608,8 @@ mod tests {
             durable_state_json: None,
             durable_state_file: None,
             payload: ContractPayloadArgs {
-                payload_json: None,
-                payload_file: None,
+                args: None,
+                args_file: None,
             },
         };
         args.run(&mut ctx).expect("debug view");
@@ -2624,6 +2696,7 @@ mod tests {
         let source_path = dir.path().join("short.ko");
         std::fs::write(&source_path, "one line\n").expect("write source");
         let diagnostic = LocalContractDebugVmDiagnostic {
+            fault: None,
             trap_kind: "OutOfGas".to_owned(),
             message: "fixture".to_owned(),
             pc: 0,
@@ -2648,6 +2721,52 @@ mod tests {
         assert!(
             maybe_render_source_snippet(None, Some(&diagnostic)).is_none(),
             "an invalid sidecar line must not panic or produce an empty snippet"
+        );
+        let parent_hash = iroha_crypto::Hash::new(b"parent artifact");
+        let child_hash = iroha_crypto::Hash::new(b"child artifact");
+        let mut diagnostic = diagnostic;
+        diagnostic.function = None;
+        diagnostic.source_path = None;
+        diagnostic.line = None;
+        diagnostic.column = None;
+        diagnostic.fault = Some(IvmFaultV1 {
+            kind: iroha_data_model::executor::fault::IvmFaultKindV1::OutOfGas,
+            site: iroha_data_model::executor::fault::IvmFaultSiteV1 {
+                code_hash: child_hash,
+                selector: iroha_data_model::executor::fault::IvmInvocationSelectorV1::Entrypoint(0),
+                position: IvmFaultPositionV1::Execute { pc_offset: 4 },
+            },
+        });
+        let source_map = vec![ivm::EmbeddedSourceMapEntryV1 {
+            function_name: "inspect".into(),
+            pc_start: 4,
+            pc_end: 8,
+            source: ivm::EmbeddedSourceLocation {
+                source_path: Some("matching.ko".into()),
+                source_id: 0,
+                byte_start: 0,
+                byte_end: 1,
+                line: 7,
+                column: 2,
+            },
+        }];
+        apply_local_contract_source_map(&mut diagnostic, &source_map, &parent_hash);
+        assert!(
+            diagnostic.source_path.is_none(),
+            "child fault must never use parent sidecar"
+        );
+        apply_local_contract_source_map(&mut diagnostic, &source_map, &child_hash);
+        assert_eq!(
+            diagnostic.line,
+            Some(7),
+            "use authenticated relative PC, not local diagnostic PC"
+        );
+        diagnostic.line = None;
+        diagnostic.fault.as_mut().unwrap().site.position = IvmFaultPositionV1::ReturnValidation;
+        apply_local_contract_source_map(&mut diagnostic, &source_map, &child_hash);
+        assert!(
+            diagnostic.line.is_none(),
+            "return validation has no invented instruction coordinate"
         );
     }
     #[test]
@@ -2689,8 +2808,8 @@ mod tests {
             durable_state_json: None,
             durable_state_file: None,
             payload: ContractPayloadArgs {
-                payload_json: None,
-                payload_file: None,
+                args: None,
+                args_file: None,
             },
         };
         args.run(&mut ctx).expect("debug view");
@@ -2736,8 +2855,8 @@ mod tests {
             durable_state_json: Some(durable_state_json),
             durable_state_file: None,
             payload: ContractPayloadArgs {
-                payload_json: None,
-                payload_file: None,
+                args: None,
+                args_file: None,
             },
         };
         args.run(&mut ctx).expect("debug call");
@@ -2780,16 +2899,69 @@ mod tests {
         );
     }
     #[test]
+    fn debug_result_error_keeps_return_value_and_discards_state_and_ledger_effects() {
+        let authority = fixture_account(0x35);
+        let ctx = TestContext::new(authority.clone());
+        let program = compile_contract_program(
+            r#"
+seiyaku DebugResult { permission Admin;
+    state StateMap<int, int> Values;
+    kotoage fn run(bool succeed) authorize(Admin) -> Result<int, int> {
+        Values[1] = 9;
+        ledger::domain::register(domain: DomainId::parse("debugresult.universal"));
+        if succeed { return Result::ok(9); }
+        return Result::err(7);
+    }
+}"#,
+        );
+        let code_b64 = base64::engine::general_purpose::STANDARD.encode(&program);
+        for succeed in [false, true] {
+            let response = execute_local_contract_debug_call(
+                &ctx,
+                DebugCallArgs {
+                    authority: None,
+                    code_file: None,
+                    code_b64: Some(code_b64.clone()),
+                    entrypoint: "run".to_owned(),
+                    gas_limit: DEFAULT_CONTRACT_GAS_LIMIT,
+                    source_file: None,
+                    source_map_file: None,
+                    accounts_json: None,
+                    accounts_file: None,
+                    durable_state_json: None,
+                    durable_state_file: None,
+                    payload: ContractPayloadArgs {
+                        args: Some(format!("{{\"succeed\":{succeed}}}")),
+                        args_file: None,
+                    },
+                },
+                authority.clone(),
+            )
+            .expect("complete local Result call");
+            assert!(
+                response.ok,
+                "returned Err remains recoverable: {:?}",
+                response.error
+            );
+            assert_eq!(
+                response.result,
+                Some(if succeed {
+                    norito::json!({"ok": "9"})
+                } else {
+                    norito::json!({"err": "7"})
+                })
+            );
+            assert_eq!(response.queued_instruction_count, usize::from(succeed));
+            assert_eq!(response.durable_state_mutation_count, usize::from(succeed));
+        }
+    }
+
+    #[test]
     fn debug_call_executes_lifecycle_and_persists_state_for_readback() {
         let authority = fixture_account(0x34);
         let ctx = TestContext::new(authority.clone());
         let program = compile_contract_program(
-            "seiyaku LifecycleDebug {
-                state int counter;
-                hajimari() { counter = 7; }
-                kaizen() { counter = counter + 1; }
-                view fn value() -> int { return counter; }
-            }",
+            "seiyaku LifecycleDebug {\n                state int counter;\n                hajimari() { counter = 7; }\n                kaizen() { counter = counter + 1; }\n                view fn value() authorize(anyone) -> int { return counter; }\n            }",
         );
         let code_b64 = base64::engine::general_purpose::STANDARD.encode(&program);
         let mut state = None;
@@ -2809,8 +2981,8 @@ mod tests {
                     durable_state_json: state,
                     durable_state_file: None,
                     payload: ContractPayloadArgs {
-                        payload_json: None,
-                        payload_file: None,
+                        args: None,
+                        args_file: None,
                     },
                 },
                 authority.clone(),
@@ -2844,8 +3016,8 @@ mod tests {
                 durable_state_json: state,
                 durable_state_file: None,
                 payload: ContractPayloadArgs {
-                    payload_json: None,
-                    payload_file: None,
+                    args: None,
+                    args_file: None,
                 },
             },
             authority,
@@ -2874,8 +3046,8 @@ mod tests {
             durable_state_json: None,
             durable_state_file: None,
             payload: ContractPayloadArgs {
-                payload_json: None,
-                payload_file: None,
+                args: None,
+                args_file: None,
             },
         };
         let err = args
@@ -2936,7 +3108,7 @@ mod tests {
         );
         let program = compile_contract_program(source);
         let code_b64 = base64::engine::general_purpose::STANDARD.encode(&program);
-        let payload_json = r#"{"amount":"7"}"#.to_owned();
+        let arguments_json = r#"{"amount":"7"}"#.to_owned();
         let args = DebugCallArgs {
             authority: None,
             code_file: None,
@@ -2950,8 +3122,8 @@ mod tests {
             durable_state_json: None,
             durable_state_file: None,
             payload: ContractPayloadArgs {
-                payload_json: Some(payload_json.clone()),
-                payload_file: None,
+                args: Some(arguments_json.clone()),
+                args_file: None,
             },
         };
         ivm::reset_argument_record_decode_count();
@@ -2993,7 +3165,8 @@ mod tests {
         let argument_bytes = ivm_abi::arguments::encode_argument_record_from_json(
             &argument_schema,
             &iroha_primitives::json::Json::from(
-                norito::json::from_str::<norito::json::Value>(&payload_json).expect("payload json"),
+                norito::json::from_str::<norito::json::Value>(&arguments_json)
+                    .expect("payload json"),
             ),
         )
         .expect("encode contract arguments");
@@ -3175,7 +3348,7 @@ mod tests {
         let err = load_contract_payload_value(Some("{"), None)
             .expect_err("malformed inline payload must fail");
         assert!(
-            format!("{err:?}").contains("invalid --payload-json"),
+            format!("{err:?}").contains("invalid --args"),
             "unexpected error: {err:?}"
         );
         let dir = tempfile::tempdir().expect("tempdir");
@@ -3200,7 +3373,7 @@ mod tests {
             .expect_err("dual payload sources must fail");
         assert!(
             err.to_string()
-                .contains("--payload-json and --payload-file are mutually exclusive"),
+                .contains("--args and --args-file are mutually exclusive"),
             "unexpected error: {err}"
         );
     }

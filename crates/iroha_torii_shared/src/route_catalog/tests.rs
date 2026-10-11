@@ -3,6 +3,73 @@
 mod tests {
     use super::*;
     #[test]
+    fn kagemusha_enrollment_is_an_account_authenticated_private_mutation() {
+        let route = contracts_and_verification_keys::KAGEMUSHA_ENROLLMENT_POST;
+        assert_eq!(
+            route.path(),
+            crate::kagemusha_enrollment::ENROLLMENT_SERVICE_ROUTE_V1
+        );
+        assert_eq!(route.method(), HttpMethod::Post);
+        assert_eq!(route.effect(), RouteEffect::Mutation);
+        assert_eq!(route.admission(), AdmissionPolicy::AuthenticatedAccount);
+        assert_eq!(
+            route.authentication(),
+            AuthenticationPolicy::CanonicalAccountSignature
+        );
+        assert!(route.authentication().requires_private_no_store());
+        assert!(CATALOGED_ROUTES.contains(&route));
+    }
+    #[test]
+    fn kagemusha_issuance_is_a_private_authenticated_read() {
+        let route = contracts_and_verification_keys::KAGEMUSHA_LOAD_ISSUANCE_GET;
+        assert_eq!(
+            route.path(),
+            "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}"
+        );
+        assert_eq!(route.method(), HttpMethod::Get);
+        assert_eq!(route.effect(), RouteEffect::ReadOnly);
+        assert_eq!(
+            route.authentication(),
+            AuthenticationPolicy::CanonicalAccountSignature
+        );
+        assert!(route.authentication().requires_private_no_store());
+        assert!(CATALOGED_ROUTES.contains(&route));
+    }
+    #[test]
+    fn kagemusha_load_finality_is_a_private_authenticated_read() {
+        let route = contracts_and_verification_keys::KAGEMUSHA_LOAD_FINALITY_GET;
+        assert_eq!(
+            route.path(),
+            "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/finality"
+        );
+        assert_eq!(route.method(), HttpMethod::Get);
+        assert_eq!(route.effect(), RouteEffect::ReadOnly);
+        assert_eq!(route.admission(), AdmissionPolicy::AuthenticatedAccount);
+        assert_eq!(
+            route.authentication(),
+            AuthenticationPolicy::CanonicalAccountSignature
+        );
+        assert!(route.authentication().requires_private_no_store());
+        assert!(CATALOGED_ROUTES.contains(&route));
+    }
+    #[test]
+    fn kagemusha_load_epoch_is_an_exact_private_authenticated_read() {
+        let route = contracts_and_verification_keys::KAGEMUSHA_LOAD_EPOCH_GET;
+        assert_eq!(
+            route.path(),
+            "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/epochs/{boundary}"
+        );
+        assert_eq!(route.method(), HttpMethod::Get);
+        assert_eq!(route.effect(), RouteEffect::ReadOnly);
+        assert_eq!(route.admission(), AdmissionPolicy::AuthenticatedAccount);
+        assert_eq!(
+            route.authentication(),
+            AuthenticationPolicy::CanonicalAccountSignature
+        );
+        assert!(route.authentication().requires_private_no_store());
+        assert!(CATALOGED_ROUTES.contains(&route));
+    }
+    #[test]
     fn reserve_policy_proof_is_an_account_authenticated_private_read() {
         let route = contracts_and_verification_keys::SORAFS_RESERVE_POLICY_PROOF_GET;
         assert_eq!(route.path(), "/v1/sorafs/reserve/policy/{height}");
@@ -218,12 +285,6 @@ mod tests {
             application_api::CONTRACTS_ROLLUPS_URANAI_MARKETS_HISTORY_GET,
             application_api::CONTRACTS_ROLLUPS_TRADER_ACTIVITY_GET,
             application_api::CONTRACTS_ROLLUPS_TRADER_ACCOUNT_GET,
-            application_api::CONTRACTS_ROLLUPS_INTENTS_GET,
-            application_api::CONTRACTS_ROLLUPS_VAULTS_POSITIONS_GET,
-            application_api::CONTRACTS_ROLLUPS_OPERATORS_STATUS_GET,
-            application_api::CONTRACTS_ROLLUPS_MARGIN_HEALTH_GET,
-            application_api::CONTRACTS_ROLLUPS_RWA_LOTS_GET,
-            application_api::CONTRACTS_ROLLUPS_DLMM_HOOKS_GET,
             application_api::ACCOUNTS_BY_ACCOUNT_ID_GET,
             application_api::ACCOUNTS_BY_ACCOUNT_ID_ASSETS_GET,
             application_api::ACCOUNTS_BY_ACCOUNT_ID_PERMISSIONS_GET,
@@ -315,14 +376,8 @@ mod tests {
             application_api::CONTRACTS_ROLLUPS_URANAI_MARKETS_HISTORY_GET,
             application_api::CONTRACTS_ROLLUPS_TRADER_ACTIVITY_GET,
             application_api::CONTRACTS_ROLLUPS_TRADER_ACCOUNT_GET,
-            application_api::CONTRACTS_ROLLUPS_INTENTS_GET,
-            application_api::CONTRACTS_ROLLUPS_VAULTS_POSITIONS_GET,
-            application_api::CONTRACTS_ROLLUPS_OPERATORS_STATUS_GET,
-            application_api::CONTRACTS_ROLLUPS_MARGIN_HEALTH_GET,
-            application_api::CONTRACTS_ROLLUPS_RWA_LOTS_GET,
-            application_api::CONTRACTS_ROLLUPS_DLMM_HOOKS_GET,
         ];
-        assert_eq!(routes.len(), 11);
+        assert_eq!(routes.len(), 5);
         for route in routes {
             assert_eq!(route.method(), HttpMethod::Get);
             assert_eq!(route.admission(), AdmissionPolicy::DataspaceVisible);
@@ -897,6 +952,7 @@ mod tests {
     fn bridge_finality_routes_are_not_telemetry_gated() {
         for route in [
             sumeragi::BRIDGE_FINALITY,
+            sumeragi::BRIDGE_FINALITY_INTERVAL,
             sumeragi::BRIDGE_FINALITY_ATTESTATION,
             sumeragi::BRIDGE_FINALITY_ATTESTATION_LATEST,
             sumeragi::BRIDGE_FINALITY_BUNDLE,
@@ -1160,6 +1216,7 @@ mod tests {
             aliases::RETAIL_RECIPIENT_ROUTE,
             fees::QUOTE,
             fees::SPONSOR_PROGRAM_BY_ID,
+            fees::SPONSOR_ENROLLMENT_BY_ID,
         ] {
             assert_eq!(
                 route.authentication(),

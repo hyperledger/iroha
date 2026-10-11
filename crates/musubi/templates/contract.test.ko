@@ -1,41 +1,50 @@
-module CoffeeRewardsTests {
-    koto_test {
-        target: "../contracts/coffee-club.ko"
+module ScaffoldTests {
+    koto_test { target: "../contracts/scaffold.ko" }
+
+    // Actors are bound to public keys, so these tests do not depend on a network's
+    // account-address profile.
+    fixture accounts {
+        actor("owner", "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03");
+        actor("stranger", "ed012004FF5B81046DDCCF19E2E451C45DFB6F53759D4EB30FA2EFA807284D1CC33016");
+        grant_seiyaku_permission("owner", "Increment");
+        grant_seiyaku_lifecycle_permission("owner", "hajimari");
     }
 
-    #[test]
-    fn zero_coffees_quote_zero_points() {
-        let quoted_points = test::invoke_kotoage(
-            kotoage: "quote",
-            arguments: Json::parse("{\"coffees\":\"0\"}"),
-        );
-        test::assert_eq(actual: quoted_points, expected: 0);
+    #[test(fixture = "accounts")]
+    fn activation_starts_at_zero() {
+        test::invoke_kotoage_as(actor: "owner", kotoage: "hajimari", arguments: {});
+        let counted = test::invoke_kotoage(kotoage: "current", arguments: {});
+        test::assert_eq(actual: counted, expected: 0);
     }
 
-    #[test]
-    fn one_coffee_quotes_ten_points() {
-        let quoted_points = test::invoke_kotoage(
-            kotoage: "quote",
-            arguments: Json::parse("{\"coffees\":\"1\"}"),
-        );
-        test::assert_eq(actual: quoted_points, expected: 10);
+    #[test(fixture = "accounts")]
+    fn owner_raises_the_count() {
+        test::invoke_kotoage_as(actor: "owner", kotoage: "hajimari", arguments: {});
+        test::invoke_kotoage_as(actor: "owner", kotoage: "increment", arguments: { step: 2 });
+        test::invoke_kotoage_as(actor: "owner", kotoage: "increment", arguments: { step: 3 });
+        let counted = test::invoke_kotoage(kotoage: "current", arguments: {});
+        test::assert_eq(actual: counted, expected: 5);
     }
 
-    #[test]
-    fn three_coffees_quote_thirty_points() {
-        let quoted_points = test::invoke_kotoage(
-            kotoage: "quote",
-            arguments: Json::parse("{\"coffees\":\"3\"}"),
+    #[test(fixture = "accounts")]
+    fn zero_step_is_rejected() {
+        test::invoke_kotoage_as(actor: "owner", kotoage: "hajimari", arguments: {});
+        test::expect_reject_as(
+            actor: "owner",
+            kotoage: "increment",
+            arguments: { step: 0 },
+            expected: ScaffoldError::ZeroStep,
         );
-        test::assert_eq(actual: quoted_points, expected: 30);
     }
 
-    #[test]
-    fn negative_coffees_quote_zero_points() {
-        let quoted_points = test::invoke_kotoage(
-            kotoage: "quote",
-            arguments: Json::parse("{\"coffees\":\"-1\"}"),
+    #[test(fixture = "accounts")]
+    fn callers_without_the_permission_are_rejected() {
+        test::invoke_kotoage_as(actor: "owner", kotoage: "hajimari", arguments: {});
+        test::expect_reject_as(
+            actor: "stranger",
+            kotoage: "increment",
+            arguments: { step: 1 },
+            expected: test::Rejection::PermissionDenied,
         );
-        test::assert_eq(actual: quoted_points, expected: 0);
     }
 }

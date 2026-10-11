@@ -31,7 +31,7 @@ mod tests {
 
     fn artifact() -> Vec<u8> {
         let source = kotodama_lang::compiler::Compiler::new()
-            .compile_source("seiyaku ScalarLiterals { view fn main() {} }")
+            .compile_source("seiyaku ScalarLiterals { view fn main() authorize(anyone) {} }")
             .unwrap();
         let original = crate::prepare_contract(source.into()).unwrap();
         let mut interface = original.contract_interface().clone();

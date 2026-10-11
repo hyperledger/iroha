@@ -129,7 +129,7 @@ def test_ledger_original_carriers_preserve_authentication_and_private_reads(gene
         assert tuple(row[field] for field in (
             "method", "authentication", "admission", "effect", "mcp", "private_no_store")) == policy
     assert not any(route_id.startswith("kagemusha.") for route_id in operations)
-    assert not any(row["path"].startswith("/v1/kagemusha/") for row in operations.values())
+    _assert_current_wallet_load_issuance_route(operations)
 
 
 @pytest.mark.parametrize(
@@ -165,3 +165,87 @@ def test_retired_hijiri_quote_is_absent_from_every_projection(generated: bytes) 
     rows = list(csv.DictReader(generated.decode().splitlines()[1:], delimiter="\t"))
     assert all(row["route_id"] != "validation_fee.hijiri.quote" for row in rows)
     assert all(row["path"] != "/v1/validation-fee/hijiri/quote" for row in rows)
+
+
+def _assert_current_wallet_load_issuance_route(operations: dict[str, dict[str, str]]) -> None:
+    """Allow only the canonical private issuance read within the wallet route family."""
+    route_id = "contracts.kagemusha_load_issuance_get"
+    path = "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}"
+    assert operations[route_id] == {
+        "route_id": route_id,
+        "method": "GET",
+        "path": path,
+        "surface": "public",
+        "authentication": "canonical_account_signature",
+        "admission": "authenticated_account",
+        "effect": "read",
+        "transport": "http",
+        "feature_gate": "feature(app_api)",
+        "sdk": "true",
+        "openapi": "false",
+        "mcp": "false",
+        "private_no_store": "true",
+    }
+    wallet_routes = {row["route_id"]: row["path"] for row in operations.values()
+                     if row["path"].startswith("/v1/kagemusha/")}
+    assert wallet_routes == {route_id: path}
+    assert not any(identifier.startswith("kagemusha.") for identifier in operations)
+    retired_paths = {
+        "/v1/kagemusha/readiness",
+        "/v1/kagemusha/top-up",
+        "/v1/kagemusha/redeem",
+        "/v1/kagemusha/operations/{operation_id}",
+        "/v1/kagemusha/ordinary/current-wallet",
+    }
+    assert retired_paths.isdisjoint(row["path"] for row in operations.values())
+
+
+@pytest.mark.parametrize("field,value", (
+    ("authentication", "torii_default"),
+    ("admission", "public"),
+    ("effect", "mutation"),
+    ("private_no_store", "false"),
+    ("path", "/v1/kagemusha/readiness"),
+    ("openapi", "true"),
+))
+def test_current_wallet_load_route_rejects_relaxed_policy(
+    generated: bytes, field: str, value: str,
+) -> None:
+    """The exact authenticated private read cannot drift into another service contract."""
+    operations = {row["route_id"]: row for row in csv.DictReader(
+        generated.decode().splitlines()[1:], delimiter="\t")}
+    _assert_current_wallet_load_issuance_route(operations)
+    operations["contracts.kagemusha_load_issuance_get"][field] = value
+    with pytest.raises(AssertionError):
+        _assert_current_wallet_load_issuance_route(operations)
+
+
+@pytest.mark.parametrize("route_id,path", (
+    ("kagemusha.readiness", "/v1/kagemusha/readiness"),
+    ("kagemusha.top_up", "/v1/kagemusha/top-up"),
+    ("kagemusha.redeem", "/v1/kagemusha/redeem"),
+    ("kagemusha.operation", "/v1/kagemusha/operations/{operation_id}"),
+    ("contracts.retired_wallet", "/v1/kagemusha/ordinary/current-wallet"),
+))
+def test_current_wallet_family_rejects_retired_route_reintroduction(
+    generated: bytes, route_id: str, path: str,
+) -> None:
+    """The current load read grants no alias for retired readiness or monetary routes."""
+    operations = {row["route_id"]: row for row in csv.DictReader(
+        generated.decode().splitlines()[1:], delimiter="\t")}
+    _assert_current_wallet_load_issuance_route(operations)
+    operations[route_id] = dict(operations["contracts.kagemusha_load_issuance_get"],
+                               route_id=route_id, path=path)
+    with pytest.raises(AssertionError):
+        _assert_current_wallet_load_issuance_route(operations)
+
+
+@pytest.mark.parametrize("relative", (
+    "crates/iroha_torii/src/kagemusha_commands.rs",
+    "crates/iroha_torii/src/kagemusha_state.rs",
+    "crates/iroha_torii_shared/src/kagemusha_ordinary_enrollment_http_v1.rs",
+))
+def test_retired_wallet_service_and_enrollment_type_paths_are_absent(relative: str) -> None:
+    """Current issuance does not restore the retired service or enrollment wire types."""
+    path = inventory.ROOT / relative
+    assert not path.exists() and not path.is_symlink(), relative

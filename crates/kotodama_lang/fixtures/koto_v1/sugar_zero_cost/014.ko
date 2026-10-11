@@ -5,7 +5,7 @@
             fn combine(int left, bool right) -> int {
                 if right { left } else { 0 }
             }
-            view fn main() -> int {
+            view fn main() authorize(anyone) -> int {
                 let bool right_value = second();
                 let int left_value = first();
                 combine(left: left_value, right: right_value)

@@ -1,8 +1,8 @@
 
-seiyaku Test {
+seiyaku Test { permission Entry;
   state StateMap<int, int> Foo;
 
-  kotoage fn main()  authorize("Entry") {
+  kotoage fn main() authorize(Entry) {
     Foo[1] = 2;
     let _x = Foo.get(1);
   }

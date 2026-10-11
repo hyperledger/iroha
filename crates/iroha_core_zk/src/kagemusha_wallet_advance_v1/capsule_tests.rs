@@ -3,6 +3,8 @@
 
 use std::io;
 
+use iroha_data_model::kagemusha::KagemushaWalletRetainedInputRoleV1 as RetainedRole;
+
 use super::*;
 use crate::kagemusha_wallet_advance_v1::{
     KagemushaWalletMarkerPublicationV1, KagemushaWalletMarkerRecordV1, KagemushaWalletSimFaultV1,
@@ -124,6 +126,90 @@ fn wallet_advance_v1_capsule_stage_and_load() {
                 copy: KagemushaWalletCopyV1::Replica,
             },
         ]))
+    );
+}
+
+#[test]
+fn wallet_advance_v1_quota_witness_survives_power_loss_replica_repair_and_replay() {
+    // This exercises the generic frozen-byte store only. No head is selected,
+    // receipt signed or stand-in proof admitted by the simulated storage fixture.
+    let document: norito::json::Value = norito::json::from_str(include_str!(
+        "../../../../fixtures/kagemusha/wallet_v1_vectors.json"
+    ))
+    .unwrap();
+    let row = document["objects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| {
+            row["type"].as_str() == Some("KagemushaWalletRecoveryCapsuleV1")
+                && row["variant"].as_str() == Some("QuotaShare, 64 retained predecessor slots")
+        })
+        .unwrap();
+    let original = hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap();
+    let capsule: Capsule = norito::decode_canonical(&original).unwrap();
+    let witness = capsule.quota_refresh_witness().unwrap().unwrap();
+    assert_eq!(witness.predecessor_usage.iter().flatten().count(), 64);
+    let f = wallet_fixture(0x42);
+    let (fs, store, enrollment) = enrolled(&f);
+    let digest = capsule.capsule_digest().unwrap();
+    let staged = kagemusha_wallet_stage_capsule_v1(
+        &store,
+        &enrollment,
+        &Ok(BOOT_A),
+        &capsule,
+        &capsule.scheme_id,
+    )
+    .unwrap();
+    assert_eq!(staged.capsule_digest, digest);
+    fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+    let names = kagemusha_wallet_capsule_names_v1(1, &digest);
+    store.remove_file(&dir(&f), &names[0]);
+    let mut loaded = kagemusha_wallet_load_capsule_v1::<_, Capsule>(
+        &store,
+        &f.slot,
+        1,
+        &digest,
+        &capsule.scheme_id,
+    )
+    .unwrap();
+    assert_eq!(
+        loaded.value().quota_refresh_witness().unwrap(),
+        Some(witness)
+    );
+    assert_eq!(loaded.frame(), original);
+    kagemusha_wallet_repair_pair_v1(&store, &mut loaded, &Ok(BOOT_B)).unwrap();
+    kagemusha_wallet_settle_pair_v1(&store, &loaded, true).unwrap();
+    fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+    let replay = kagemusha_wallet_load_capsule_v1::<_, Capsule>(
+        &store,
+        &f.slot,
+        1,
+        &digest,
+        &capsule.scheme_id,
+    )
+    .unwrap();
+    assert_eq!(replay.frame(), original);
+    assert_eq!(
+        replay.value().quota_refresh_witness().unwrap(),
+        Some(witness)
+    );
+    for copy in KagemushaWalletCopyV1::BOTH {
+        assert_eq!(replay.state(copy), KagemushaWalletCopyStateV1::Valid);
+    }
+    let mut changed = capsule;
+    let retained = changed
+        .retained_inputs
+        .iter_mut()
+        .find(|input| input.role == RetainedRole::QuotaRefreshWitness)
+        .unwrap();
+    let mut swapped = witness;
+    swapped.predecessor_usage[63].as_mut().unwrap().used += 1;
+    retained.bytes = swapped.to_canonical_bytes().unwrap();
+    assert_ne!(
+        changed.capsule_digest().unwrap(),
+        digest,
+        "every retained usage value is covered by the receipt's capsule digest"
     );
 }
 

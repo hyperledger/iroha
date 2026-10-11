@@ -19,7 +19,7 @@ fn main() {
             struct B { A a }
             struct C { B b }
             struct D { C c }
-            view fn main() -> int {
+            view fn main() authorize(anyone) -> int {
                 let a = A { x: 5 };
                 let b = B { a };
                 let c = C { b };

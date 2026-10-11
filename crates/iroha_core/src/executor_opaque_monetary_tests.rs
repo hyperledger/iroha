@@ -5,20 +5,18 @@ use crate::{
     pipeline::overlay::IvmProvedReplay,
     smartcontracts::{
         isi::triggers::set::SetReadOnly as _,
-        ivm::{cache::IvmCache, host::QueuedInstruction},
+        ivm::{cache::IvmCache, host::QueuedEffect},
     },
     state::{StateBlock, StateTransaction, WorldReadOnly as _},
 };
 use iroha_crypto::{Algorithm, Hash, KeyPair};
 use iroha_data_model::{
-    IntoKeyValue, ValidationFail,
+    ValidationFail,
     account::AccountId,
-    asset::{Asset, AssetId},
+    asset::AssetId,
     events::execute_trigger::ExecuteTriggerEventFilter,
     isi::{InstructionBox, SetKeyValue, staking::ClaimPublicLaneRewards},
-    nexus::{
-        PublicLaneMonetaryScopeV1, PublicLaneRewardClaimPlanV1, PublicLaneRewardClaimSourceV1,
-    },
+    nexus::{PublicLaneMonetaryScopeV1, PublicLaneRewardClaimPlanV1},
     transaction::{
         Executable, FeePaymentIntent, IvmBytecode, IvmProved, SignedTransaction, TransactionBuilder,
     },
@@ -41,62 +39,40 @@ fn signer(seed: u8) -> KeyPair {
 fn with_claim_fixture(
     test: impl FnOnce(&mut StateBlock<'_>, &AccountId, &AssetId, &AssetId, InstructionBox),
 ) {
-    crate::validation_fee::tests::with_validation_fee_payout_block_at_time(
-        2,
-        2_000,
-        |block, authority, _, _| {
-            let owner = AccountId::new(signer(8).public_key().clone());
-            assert_eq!(*authority, AccountId::new(signer(55).public_key().clone()));
-            let xor = iroha_data_model::parameter::system::SumeragiNposParameters::default()
-                .xor_asset_definition_id;
-            let source = AssetId::new(xor.clone(), owner);
-            let destination = AssetId::new(xor, authority.clone());
-            let claim = {
-                let mut tx = block.transaction_for_callback_testing();
-                crate::state::validate_network_xor_asset(&tx.world, source.definition()).unwrap();
-                tx.world.add_account_permission(
-                    authority,
-                    iroha_executor_data_model::permission::trigger::CanRegisterTrigger {
-                        authority: authority.clone(),
-                    }
-                    .into(),
-                );
-                for (asset, amount) in [(&source, 20_u32), (&destination, 0)] {
-                    let (_, value) =
-                        Asset::new(asset.clone(), Quantity::from(amount)).into_key_value();
-                    tx.world.assets.insert(asset.clone(), value);
+    crate::retail_fee_tests::fixture_block(1_793_451_600_000, |block, _policy| {
+        let authority = &AccountId::new(signer(55).public_key().clone());
+        let (source, destination, claim) = {
+            let mut tx = block.transaction_for_callback_testing();
+            tx.world.add_account_permission(
+                authority,
+                iroha_executor_data_model::permission::trigger::CanRegisterTrigger {
+                    authority: authority.clone(),
                 }
-                tx.world
-                    .public_lane_reward_reserves
-                    .insert(source.clone(), Quantity::from(10_u32));
-                tx.world.public_lane_reward_accruals.insert(
-                    (LaneId::SINGLE, authority.clone(), source.clone()),
-                    Quantity::from(10_u32),
-                );
-                let claim = ClaimPublicLaneRewards {
-                    lane_id: LaneId::SINGLE,
-                    account: authority.clone(),
-                    claim_plan: PublicLaneRewardClaimPlanV1 {
-                        network_scope: PublicLaneMonetaryScopeV1::Network(tx.network_id),
-                        valid_until_height: tx.block_height(),
-                        expected_state: None,
-                        records: Vec::new(),
-                        sources: vec![PublicLaneRewardClaimSourceV1 {
-                            source_asset: source.clone(),
-                            destination_asset: destination.clone(),
-                            expected_accrued: Some(Quantity::from(10_u32)),
-                            payout: Quantity::from(10_u32),
-                        }],
-                        fee_claim: None,
-                    },
-                }
-                .into();
-                tx.apply();
-                claim
-            };
-            test(block, authority, &source, &destination, claim);
-        },
-    );
+                .into(),
+            );
+            let fee = crate::validation_fee_rewards::seed_automatic_claim_for_testing(
+                &mut tx,
+                authority,
+                10_000_000_000,
+                20_000_000_000,
+            );
+            let source = fee.source_asset.clone();
+            let destination = fee.destination_asset.clone();
+            let claim = ClaimPublicLaneRewards {
+                lane_id: LaneId::SINGLE,
+                account: authority.clone(),
+                claim_plan: PublicLaneRewardClaimPlanV1 {
+                    network_scope: PublicLaneMonetaryScopeV1::Network(tx.network_id),
+                    valid_until_height: tx.block_height(),
+                    fee_claim: fee,
+                },
+            }
+            .into();
+            tx.apply();
+            (source, destination, claim)
+        };
+        test(block, authority, &source, &destination, claim);
+    });
 }
 
 fn signed(
@@ -128,28 +104,19 @@ fn assert_claim_unchanged(
         tx.world.assets.get(source).unwrap().as_ref(),
         &Quantity::from(20_u32)
     );
-    assert_eq!(
-        tx.world.assets.get(destination).unwrap().as_ref(),
-        &Quantity::zero()
-    );
-    assert_eq!(
-        tx.world.public_lane_reward_reserves.get(source),
-        Some(&Quantity::from(10_u32))
-    );
-    assert_eq!(
-        tx.world.public_lane_reward_accruals.get(&(
-            LaneId::SINGLE,
-            authority.clone(),
-            source.clone()
-        )),
-        Some(&Quantity::from(10_u32))
-    );
-    assert!(
-        tx.world
-            .public_lane_reward_claims
-            .get(&(LaneId::SINGLE, authority.clone()))
-            .is_none()
-    );
+    assert!(tx.world.assets.get(destination).is_none());
+    let claim = crate::validation_fee_rewards::fee_reward_claim_plan(
+        &tx.world,
+        tx.block_height(),
+        authority,
+        LaneId::SINGLE,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(claim.amount, Quantity::from(10_u32));
+    assert_eq!(claim.source_asset, *source);
+    assert_eq!(claim.destination_asset, *destination);
+    assert_eq!(claim.expected_claim_sequence, 0);
 }
 
 fn assert_opaque_rejection(error: ValidationFail) {
@@ -163,7 +130,7 @@ fn assert_opaque_rejection(error: ValidationFail) {
 
 // Real generic VM bytecode uses a canonical literal directory and hashed Json TLV.
 // No pre-populated host queue or VM-register injection supplies the trigger.
-fn create_trigger_program(trigger: &Trigger) -> Vec<u8> {
+pub(super) fn create_trigger_program(trigger: &Trigger) -> Vec<u8> {
     use ivm::{encoding::wide, instruction::wide as opcode, pointer_abi::PointerType};
     let payload = norito::to_bytes(&Json::new(trigger.clone())).unwrap();
     let mut tlv = (PointerType::Json as u16).to_be_bytes().to_vec();
@@ -316,12 +283,15 @@ fn raw_ivm_staking_trigger_requires_signed_monetary_plan() {
             tx.world.assets.get(destination).unwrap().as_ref(),
             &Quantity::from(10_u32)
         );
-        assert!(tx.world.public_lane_reward_reserves.get(source).is_none());
         assert!(
-            tx.world
-                .public_lane_reward_accruals
-                .get(&(LaneId::SINGLE, authority.clone(), source.clone()))
-                .is_none()
+            crate::validation_fee_rewards::fee_reward_claim_plan(
+                &tx.world,
+                tx.block_height(),
+                authority,
+                LaneId::SINGLE
+            )
+            .unwrap()
+            .is_none()
         );
     });
 }
@@ -355,8 +325,10 @@ fn supplied_proved_staking_effects_require_signed_monetary_plan() {
             queued: instructions
                 .iter()
                 .cloned()
-                .map(|instruction| QueuedInstruction {
-                    instruction,
+                .map(|instruction| QueuedEffect {
+                    payload: crate::smartcontracts::ivm::host::QueuedEffectPayload::Instruction(
+                        instruction,
+                    ),
                     authority: authority.clone(),
                     contract_runtime_context: None,
                     entrypoint_authorization: None,

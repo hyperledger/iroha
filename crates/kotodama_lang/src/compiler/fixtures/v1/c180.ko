@@ -2,7 +2,7 @@
 seiyaku UserStructAbi {
     struct Pair { int left; bool right; }
 
-    view fn echo(Pair value) -> Pair {
+    view fn echo(Pair value) authorize(anyone) -> Pair {
         value
     }
 }

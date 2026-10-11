@@ -132,7 +132,7 @@ the independently validated complete-controller fixture.
    - Simple equality constraint between the host-provided digest and the witness value. Signatures remain in their dedicated gadget.
 
 5. **Batch Loop**
-   - Programs call `transfer_v1_batch_begin()` before a loop of `transfer_asset` builders and `transfer_v1_batch_end()` afterwards. While the scope is active the host buffers each transfer and replays them as a single `TransferAssetBatch`, reusing the Poseidon/SMT context once per batch. Each additional delta adds only the arithmetic and two leaf checks. The transcript decoder now accepts multi-delta batches and surfaces them as `TransferGadgetInput::deltas` so the planner can fold witnesses without re-reading Norito. Contracts that already have a Norito payload handy (e.g., CLI/SDKs) can skip the scope entirely by calling `transfer_v1_batch_apply(&NoritoBytes<TransferAssetBatch>)`, which hands the host a fully encoded batch in one syscall.
+   - Kotodama calls `ledger::asset::transfer_batch(transfers: entries)` with a bounded typed list. The compiler evaluates the list once and brackets its active transfers with the internal batch begin/end kernel. The host buffers these transfers and replays them as one `TransferAssetBatch`, reusing the Poseidon/SMT context. Source code cannot open, apply, or close a raw batch. The IVM kernel also accepts canonical pre-encoded `TransferAssetBatch` records for native producers; this wire boundary is not a Kotodama source API.
 
 # Host & Prover Changes
 

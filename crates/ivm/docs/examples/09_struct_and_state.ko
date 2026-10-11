@@ -1,7 +1,9 @@
 // Demonstrates struct declaration and durable state.
 seiyaku StructAndState {
+    permission Entry;
     struct Pair {
-        int first, int second
+        int first,
+        int second,
     }
 
     state Pair stored_pair;
@@ -12,7 +14,7 @@ seiyaku StructAndState {
         };
     }
 
-    kotoage fn set_pair(int a, int b) authorize("Entry") {
+    kotoage fn set_pair(int a, int b) authorize(Entry) {
         stored_pair = Pair {
             first: a,
             second: b,

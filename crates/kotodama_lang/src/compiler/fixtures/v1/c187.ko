@@ -8,7 +8,7 @@
                 return value;
             }
 
-            view fn run() -> bool {
+            view fn run() authorize(anyone) -> bool {
                 let pair = swap(left: false, right: true);
                 let checked = pair.0 && !pair.1;
                 return relay(value: relay(value: checked));

@@ -29,13 +29,17 @@ jobs:
     timeout-minutes: 480
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
           cache-on-failure: "true"
       - name: Run every fault scenario at 10 000 seeds
         env:
           SUMERAGI_SIM_SEEDS: "10000"
-        run: "cargo test --locked -p iroha_sumeragi --release --features sim --lib -- sim::"
+        run: "env -u SUMERAGI_SIM_SEED -u SUMERAGI_SIM_SEED_BASE cargo test --locked -p iroha_sumeragi --release --features sim --lib -- sim::"
 
   mutation_gate:
     name: Mutation gate (§13.4)
@@ -45,6 +49,10 @@ jobs:
     timeout-minutes: 480
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
           cache-on-failure: "true"
@@ -69,13 +77,19 @@ jobs:
     timeout-minutes: 480
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
           cache-on-failure: "true"
       - name: Kill every registered Core rule with its named test
         env:
           CARGO_BUILD_JOBS: "2"
-        run: python3 scripts/sumeragi_mutation_gate.py --core --jobs 1 --strict --fast
+        # Dependency decode counters and debug-only controls require the test profile.
+        # Optimized daemon artifacts receive separate production qualification.
+        run: python3 scripts/sumeragi_mutation_gate.py --core --core-profile test --jobs 1 --strict --fast
       - name: Upload the Core gate report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -87,6 +101,36 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  model_mutation_gate:
+    name: Model AMX allocation custody mutations (§13.4)
+    runs-on: [self-hosted, Linux, iroha2]
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    timeout-minutes: 480
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          cache-on-failure: "true"
+      - name: Kill every registered Model rule with its named test
+        env:
+          CARGO_BUILD_JOBS: "2"
+        run: python3 scripts/sumeragi_mutation_gate.py --model --jobs 1 --strict
+      - name: Upload the Model gate report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sumeragi-model-mutation-gate-${{ github.run_id }}
+          path: |
+            target/sumeragi-model-mutants/report.json
+            target/sumeragi-model-mutants/logs
+          if-no-files-found: warn
+          retention-days: 14
+
   daemon_mutation_gate:
     name: Daemon beacon custody mutations (§13.4)
     runs-on: [self-hosted, Linux, iroha2]
@@ -95,6 +139,10 @@ jobs:
     timeout-minutes: 480
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
           cache-on-failure: "true"
@@ -110,5 +158,125 @@ jobs:
           path: |
             target/sumeragi-daemon-mutants/report.json
             target/sumeragi-daemon-mutants/logs
+          if-no-files-found: warn
+          retention-days: 14
+
+  sdk_mutation_gate:
+    name: SDK public-read mutations (§13.4)
+    runs-on: [self-hosted, Linux, iroha2]
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    timeout-minutes: 480
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          cache-on-failure: "true"
+      - name: Kill every registered SDK public-read rule with its named test
+        env:
+          CARGO_BUILD_JOBS: "2"
+        run: python3 scripts/sumeragi_mutation_gate.py --sdk --jobs 1 --strict
+      - name: Upload the SDK public-read gate report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sumeragi-sdk-mutation-gate-${{ github.run_id }}
+          path: |
+            target/sumeragi-sdk-mutants/report.json
+            target/sumeragi-sdk-mutants/logs
+          if-no-files-found: warn
+          retention-days: 14
+
+  deploy_mutation_gate:
+    name: Deploy managed AMX source-custody mutations (§13.4)
+    runs-on: [self-hosted, Linux, iroha2]
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    timeout-minutes: 480
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          cache-on-failure: "true"
+      - name: Kill every registered Deploy managed AMX source-custody rule with its named test
+        env:
+          CARGO_BUILD_JOBS: "2"
+        run: python3 scripts/sumeragi_mutation_gate.py --deploy --jobs 1 --strict
+      - name: Upload the Deploy managed AMX source-custody gate report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sumeragi-deploy-mutation-gate-${{ github.run_id }}
+          path: |
+            target/sumeragi-deploy-mutants/report.json
+            target/sumeragi-deploy-mutants/logs
+          if-no-files-found: warn
+          retention-days: 14
+
+  torii_mutation_gate:
+    name: Torii canonical-outcome custody mutations (§13.4)
+    runs-on: [self-hosted, Linux, iroha2]
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    timeout-minutes: 480
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          cache-on-failure: "true"
+      - name: Kill every registered Torii canonical-outcome custody rule with its named test
+        env:
+          CARGO_BUILD_JOBS: "2"
+        run: python3 scripts/sumeragi_mutation_gate.py --torii --jobs 1 --strict
+      - name: Upload the Torii canonical-outcome custody gate report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sumeragi-torii-mutation-gate-${{ github.run_id }}
+          path: |
+            target/sumeragi-torii-mutants/report.json
+            target/sumeragi-torii-mutants/logs
+          if-no-files-found: warn
+          retention-days: 14
+
+  norito_mutation_gate:
+    name: Norito canonical decode-origin mutations (§13.4)
+    runs-on: [self-hosted, Linux, iroha2]
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    timeout-minutes: 480
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          cache-on-failure: "true"
+      - name: Kill every registered Norito canonical decode-origin rule with its named test
+        env:
+          CARGO_BUILD_JOBS: "2"
+        run: python3 scripts/sumeragi_mutation_gate.py --norito --jobs 1 --strict
+      - name: Upload the Norito canonical decode-origin gate report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sumeragi-norito-mutation-gate-${{ github.run_id }}
+          path: |
+            target/sumeragi-norito-mutants/report.json
+            target/sumeragi-norito-mutants/logs
           if-no-files-found: warn
           retention-days: 14

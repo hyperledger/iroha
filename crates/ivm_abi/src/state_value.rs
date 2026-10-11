@@ -5,8 +5,13 @@
 //! a canonical Norito record bound to that schema.
 use crate::pointer_abi::PointerType;
 use iroha_crypto::Hash;
-use iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1;
-use iroha_data_model::smart_contract::manifest::ContractErrorTypeDescriptor;
+use iroha_data_model::smart_contract::entrypoint::{
+    EntrypointValueKindV1, EntrypointValueTypeNodeV1, EntrypointValueTypeV1,
+    state_key_schema_depth_v1, state_key_schema_hash_v1, validate_state_key_schema_v1,
+};
+use iroha_data_model::smart_contract::manifest::{
+    ContractEnumTypeDescriptorV1, ContractErrorTypeDescriptor,
+};
 #[cfg(test)]
 use norito::core::serialize_to_buffer;
 use norito::{
@@ -325,9 +330,12 @@ pub enum StateValueNodeV1 {
     /// Finite nominal error schema; values contain only a validated variant code.
     #[codec(index = 7)]
     Error(ContractErrorTypeDescriptor),
+    /// Finite ordinary enum schema, distinct from an error type.
+    #[codec(index = 9)]
+    Enum(ContractEnumTypeDescriptorV1),
     /// Canonical opaque cursor for an exact scalar map-key kind.
     #[codec(index = 8)]
-    StateCursor(EntrypointValueKindV1),
+    StateCursor(EntrypointValueTypeV1),
     /// Named product type. Children immediately follow in field order.
     #[codec(index = 0)]
     Struct {
@@ -365,6 +373,8 @@ impl StateValueNodeV1 {
     pub const UNIT_TAG: u32 = 6;
     /// Stable nominal error schema tag.
     pub const ERROR_TAG: u32 = 7;
+    /// Stable ordinary enum schema tag.
+    pub const ENUM_TAG: u32 = 9;
     /// Stable cursor schema tag.
     pub const STATE_CURSOR_TAG: u32 = 8;
     /// Stable Norito discriminant for [`Self::Struct`].
@@ -385,6 +395,7 @@ impl StateValueNodeV1 {
         match self {
             Self::Unit => Self::UNIT_TAG,
             Self::Error(_) => Self::ERROR_TAG,
+            Self::Enum(_) => Self::ENUM_TAG,
             Self::StateCursor(_) => Self::STATE_CURSOR_TAG,
             Self::Struct { .. } => Self::STRUCT_TAG,
             Self::Tuple { .. } => Self::TUPLE_TAG,
@@ -513,10 +524,16 @@ fn encode_state_value_schema_payload(schema: &StateValueSchemaV1) -> Result<Vec<
                 serialize_to_writer(&node_tag, &mut payload)?;
                 match node {
                     StateValueNodeV1::StateCursor(key) => {
+                        encoded_nodes = encoded_nodes
+                            .checked_add(key.nodes.len())
+                            .ok_or(NoritoError::LengthMismatch)?;
                         serialize_to_writer(key, &mut payload)?;
                     }
                     StateValueNodeV1::Unit => {}
                     StateValueNodeV1::Error(error) => {
+                        serialize_to_writer(error, &mut payload)?;
+                    }
+                    StateValueNodeV1::Enum(error) => {
                         serialize_to_writer(error, &mut payload)?;
                     }
                     StateValueNodeV1::Struct { name, fields } => {
@@ -742,13 +759,23 @@ fn decode_state_value_schema_payload(encoded: &[u8]) -> Result<StateValueSchemaV
                 let child_depth = depth.checked_add(1).ok_or(NoritoError::LengthMismatch)?;
                 let constructor = match u32::from(tag) {
                     StateValueNodeV1::STATE_CURSOR_TAG => {
-                        let key = decode_state_value_schema_field::<EntrypointValueKindV1>(
-                            encoded,
-                            &mut offset,
-                        )?;
-                        if key == EntrypointValueKindV1::Json {
+                        let suffix = encoded.get(offset..).ok_or(NoritoError::LengthMismatch)?;
+                        let (key, consumed) =
+                            norito::core::decode_field_prefix::<EntrypointValueTypeV1>(suffix)?;
+                        offset = offset
+                            .checked_add(consumed)
+                            .ok_or(NoritoError::LengthMismatch)?;
+                        if !validate_state_key_schema_v1(&key) {
                             return Err(state_value_schema_codec_error(
-                                "Json is not a state cursor key kind",
+                                "invalid state cursor key schema",
+                            ));
+                        }
+                        decoded_nodes = decoded_nodes
+                            .checked_add(key.nodes.len())
+                            .ok_or(NoritoError::LengthMismatch)?;
+                        if decoded_nodes > declared_nodes || decoded_nodes > MAX_STATE_VALUE_NODES {
+                            return Err(state_value_schema_codec_error(
+                                "StateValueSchemaV1 contains more nodes than declared",
                             ));
                         }
                         completed.push(StateValueSchemaV1 {
@@ -774,6 +801,21 @@ fn decode_state_value_schema_payload(encoded: &[u8]) -> Result<StateValueSchemaV
                         }
                         completed.push(StateValueSchemaV1 {
                             nodes: vec![StateValueNodeV1::Error(error)],
+                        });
+                        None
+                    }
+                    StateValueNodeV1::ENUM_TAG => {
+                        let error = decode_state_value_schema_field::<ContractEnumTypeDescriptorV1>(
+                            encoded,
+                            &mut offset,
+                        )?;
+                        if !error.validate() {
+                            return Err(state_value_schema_codec_error(
+                                "invalid ordinary enum descriptor",
+                            ));
+                        }
+                        completed.push(StateValueSchemaV1 {
+                            nodes: vec![StateValueNodeV1::Enum(error)],
                         });
                         None
                     }
@@ -932,6 +974,77 @@ impl<'a> DecodeFromSlice<'a> for StateValueSchemaV1 {
         Ok((decode_state_value_schema_payload(encoded)?, used))
     }
 }
+/// Project one embedded scalar or nested tuple into its canonical map-key schema.
+///
+/// Handles, Json, named products, enums and empty/singleton tuples are rejected. The shared
+/// public-key validator owns the complete node/depth budget and the allowed scalar vocabulary.
+///
+/// # Errors
+/// Returns a schema error for an invalid key type or an allocation error without masking a
+/// local allocator refusal as a deterministic invalid schema.
+pub fn state_map_key_schema_v1(
+    ty: &crate::metadata::EmbeddedStateType,
+) -> Result<EntrypointValueTypeV1, NoritoError> {
+    use crate::metadata::EmbeddedStateType as E;
+    use EntrypointValueKindV1 as K;
+    use EntrypointValueTypeNodeV1 as N;
+    const MAX: usize = crate::entrypoint::MAX_ENTRYPOINT_ARGUMENT_TYPE_NODES;
+    let walk = |visit: &mut dyn FnMut(N)| -> Result<usize, NoritoError> {
+        let mut pending = [ty; MAX];
+        let mut pending_len = 1usize;
+        let mut count = 0usize;
+        while pending_len != 0 {
+            pending_len -= 1;
+            let ty = pending[pending_len];
+            count += 1;
+            if count > MAX {
+                return Err(NoritoError::NonCanonicalEncoding);
+            }
+            let kind = match ty {
+                E::Tuple(items) => {
+                    if items.len() < 2 || items.len() > MAX - count - pending_len {
+                        return Err(NoritoError::NonCanonicalEncoding);
+                    }
+                    visit(N::Tuple(items.len() as u16));
+                    for item in items.iter().rev() {
+                        pending[pending_len] = item;
+                        pending_len += 1;
+                    }
+                    continue;
+                }
+                E::Int => K::Int,
+                E::Decimal => K::Decimal,
+                E::Quantity => K::Quantity,
+                E::Bool => K::Bool,
+                E::String => K::String,
+                E::Bytes => K::Blob,
+                E::DataSpaceId => K::DataSpaceId,
+                E::AccountId => K::AccountId,
+                E::AssetDefinitionId => K::AssetDefinitionId,
+                E::AssetId => K::AssetId,
+                E::NftId => K::NftId,
+                E::DomainId => K::DomainId,
+                E::Name => K::Name,
+                _ => return Err(NoritoError::NonCanonicalEncoding),
+            };
+            visit(N::Leaf(kind));
+        }
+        Ok(count)
+    };
+    let count = walk(&mut |_| {})?;
+    let mut nodes = Vec::new();
+    nodes
+        .try_reserve_exact(count)
+        .map_err(|_| NoritoError::AllocationFailed {
+            bytes: (count * core::mem::size_of::<N>()) as u64,
+        })?;
+    walk(&mut |node| nodes.push(node))?;
+    let schema = EntrypointValueTypeV1 { nodes };
+    if !validate_state_key_schema_v1(&schema) {
+        return Err(NoritoError::NonCanonicalEncoding);
+    }
+    Ok(schema)
+}
 /// Reconstruct the exact V1 runtime schema for one non-map CNTR durable-state
 /// type, including the selected value type of a `StateMap`.
 ///
@@ -986,9 +1099,20 @@ pub fn state_value_schema_for_embedded_type_v1(
                 let child_depth = depth.checked_add(1)?;
                 let nodes = node_streams.get_mut(target)?;
                 match ty {
-                    Embedded::StateCursor(key) => nodes.push(StateValueNodeV1::StateCursor(*key)),
+                    Embedded::StateCursor(key) => {
+                        remaining_nodes = remaining_nodes.checked_sub(key.nodes.len())?;
+                        if depth.checked_add(state_key_schema_depth_v1(key)?)?
+                            > MAX_STATE_VALUE_NODES
+                        {
+                            return None;
+                        }
+                        nodes.push(StateValueNodeV1::StateCursor(key.clone()));
+                    }
                     Embedded::Unit => nodes.push(StateValueNodeV1::Unit),
                     Embedded::Error(error) => nodes.push(StateValueNodeV1::Error(error.clone())),
+                    Embedded::Enum(enumeration) => {
+                        nodes.push(StateValueNodeV1::Enum(enumeration.clone()))
+                    }
                     Embedded::Int => nodes.push(StateValueNodeV1::Leaf(Kind::Int)),
                     Embedded::Decimal => nodes.push(StateValueNodeV1::Leaf(Kind::Decimal)),
                     Embedded::Quantity => nodes.push(StateValueNodeV1::Leaf(Kind::Quantity)),
@@ -1081,6 +1205,83 @@ pub fn admissible_state_value_schema_for_embedded_type_v1(
     let encoded = crate::codec::encode_canonical_norito(&schema).ok()?;
     (encoded.len() <= MAX_STATE_VALUE_SCHEMA_BYTES).then_some(schema)
 }
+fn valid_reserved_state_product(
+    nodes: &[StateValueNodeV1],
+    index: usize,
+    name: &str,
+    fields: &[String],
+) -> bool {
+    use StateValueNodeV1 as N;
+    if name == "kotodama::StatePage" {
+        return valid_state_page_shape(nodes, index, fields);
+    }
+    if name == "kotodama::QueryPage" {
+        let Some(N::List {
+            element,
+            capacity: 64,
+        }) = nodes.get(index + 1)
+        else {
+            return false;
+        };
+        return fields == ["items", "next_offset"]
+            && valid_core_state_view(&element.nodes, 0)
+            && nodes.get(index + 2) == Some(&N::Option)
+            && nodes.get(index + 3) == Some(&N::Leaf(StateValueKindV1::Int));
+    }
+    !name.starts_with("kotodama::") || valid_core_state_view(nodes, index)
+}
+fn valid_core_state_view(nodes: &[StateValueNodeV1], start: usize) -> bool {
+    use EntrypointValueKindV1 as E;
+    use StateValueKindV1 as S;
+    use StateValueNodeV1 as N;
+    use iroha_data_model::smart_contract::entrypoint::type_structure::{
+        FlatTypeNodeV1, TypeNodeViewV1, subtree_range_v1, validate_reserved_nominal_shapes_v1,
+    };
+    let Some(N::Struct { name, .. }) = nodes.get(start) else {
+        return false;
+    };
+    if !matches!(
+        name.as_str(),
+        "kotodama::AccountView"
+            | "kotodama::AssetView"
+            | "kotodama::AssetDefinitionView"
+            | "kotodama::DomainView"
+            | "kotodama::NftView"
+    ) {
+        return false;
+    }
+    #[derive(Clone, Copy)]
+    struct View<'a>(TypeNodeViewV1<'a>);
+    impl FlatTypeNodeV1 for View<'_> {
+        fn type_node_view(&self) -> TypeNodeViewV1<'_> {
+            self.0
+        }
+    }
+    // The largest fixed builtin product is AssetDefinitionView (ten nodes).
+    // This adapter borrows fields and leaves, never clones an attacker-sized schema.
+    let mut views = [View(TypeNodeViewV1::Other); 10];
+    for (slot, node) in views.iter_mut().zip(nodes.iter().skip(start)) {
+        slot.0 = match node {
+            N::Struct { name, fields } => TypeNodeViewV1::Struct { name, fields },
+            N::Option => TypeNodeViewV1::Option,
+            N::Leaf(kind) => match kind {
+                S::Int => TypeNodeViewV1::Leaf(E::Int),
+                S::Quantity => TypeNodeViewV1::Leaf(E::Quantity),
+                S::String => TypeNodeViewV1::Leaf(E::String),
+                S::Json => TypeNodeViewV1::Leaf(E::Json),
+                S::AccountId => TypeNodeViewV1::Leaf(E::AccountId),
+                S::AssetId => TypeNodeViewV1::Leaf(E::AssetId),
+                S::AssetDefinitionId => TypeNodeViewV1::Leaf(E::AssetDefinitionId),
+                S::DomainId => TypeNodeViewV1::Leaf(E::DomainId),
+                S::NftId => TypeNodeViewV1::Leaf(E::NftId),
+                _ => TypeNodeViewV1::Other,
+            },
+            _ => TypeNodeViewV1::Other,
+        };
+    }
+    subtree_range_v1(&views, 0)
+        .is_some_and(|range| validate_reserved_nominal_shapes_v1(&views[range]))
+}
 fn valid_state_page_shape(nodes: &[StateValueNodeV1], index: usize, fields: &[String]) -> bool {
     use EntrypointValueKindV1 as E;
     use StateValueKindV1 as S;
@@ -1095,27 +1296,37 @@ fn valid_state_page_shape(nodes: &[StateValueNodeV1], index: usize, fields: &[St
     {
         return false;
     }
-    let (Some(StateValueNodeV1::Leaf(key)), Some(StateValueNodeV1::StateCursor(cursor))) =
-        (element.nodes.get(1), nodes.get(index + 3))
-    else {
+    let Some(StateValueNodeV1::StateCursor(cursor)) = nodes.get(index + 3) else {
         return false;
     };
-    matches!(
-        (key, cursor),
-        (S::Int, E::Int)
-            | (S::Decimal, E::Decimal)
-            | (S::Quantity, E::Quantity)
-            | (S::Bool, E::Bool)
-            | (S::String, E::String)
-            | (S::Bytes, E::Blob)
-            | (S::AccountId, E::AccountId)
-            | (S::AssetDefinitionId, E::AssetDefinitionId)
-            | (S::AssetId, E::AssetId)
-            | (S::DomainId, E::DomainId)
-            | (S::NftId, E::NftId)
-            | (S::Name, E::Name)
-            | (S::DataSpaceId, E::DataSpaceId)
-    )
+    validate_state_key_schema_v1(cursor)
+        && cursor.nodes.iter().enumerate().all(|(offset, key)| {
+            match (element.nodes.get(1 + offset), key) {
+                (
+                    Some(StateValueNodeV1::Tuple { arity }),
+                    EntrypointValueTypeNodeV1::Tuple(expected),
+                ) => arity == expected,
+                (Some(StateValueNodeV1::Leaf(key)), EntrypointValueTypeNodeV1::Leaf(cursor)) => {
+                    matches!(
+                        (key, cursor),
+                        (S::Int, E::Int)
+                            | (S::Decimal, E::Decimal)
+                            | (S::Quantity, E::Quantity)
+                            | (S::Bool, E::Bool)
+                            | (S::String, E::String)
+                            | (S::Bytes, E::Blob)
+                            | (S::AccountId, E::AccountId)
+                            | (S::AssetDefinitionId, E::AssetDefinitionId)
+                            | (S::AssetId, E::AssetId)
+                            | (S::DomainId, E::DomainId)
+                            | (S::NftId, E::NftId)
+                            | (S::Name, E::Name)
+                            | (S::DataSpaceId, E::DataSpaceId)
+                    )
+                }
+                _ => false,
+            }
+        })
 }
 impl StateValueSchemaV1 {
     fn analyze(&self) -> Option<StateValueAnalysisV1> {
@@ -1183,7 +1394,7 @@ impl StateValueSchemaV1 {
                     }
                     let node = nodes.get(index)?;
                     let next_index = index.checked_add(1)?;
-                    let base = StateValueAnalysisV1 {
+                    let mut base = StateValueAnalysisV1 {
                         node_count: 1,
                         max_words: 0,
                         depth,
@@ -1191,14 +1402,24 @@ impl StateValueSchemaV1 {
                     match node {
                         StateValueNodeV1::Unit
                         | StateValueNodeV1::Error(_)
+                        | StateValueNodeV1::Enum(_)
                         | StateValueNodeV1::StateCursor(_) => {
-                            if matches!(
-                                node,
-                                StateValueNodeV1::StateCursor(EntrypointValueKindV1::Json)
-                            ) {
-                                return None;
+                            if let StateValueNodeV1::StateCursor(key) = node {
+                                visited_nodes = visited_nodes.checked_add(key.nodes.len())?;
+                                base.node_count = base.node_count.checked_add(key.nodes.len())?;
+                                base.depth = depth.checked_add(state_key_schema_depth_v1(key)?)?;
+                                if visited_nodes > MAX_STATE_VALUE_NODES
+                                    || base.depth > MAX_STATE_VALUE_NODES
+                                {
+                                    return None;
+                                }
                             }
                             if let StateValueNodeV1::Error(error) = node
+                                && !error.validate()
+                            {
+                                return None;
+                            }
+                            if let StateValueNodeV1::Enum(error) = node
                                 && !error.validate()
                             {
                                 return None;
@@ -1213,8 +1434,7 @@ impl StateValueSchemaV1 {
                         }
                         StateValueNodeV1::Struct { name, fields } => {
                             if !crate::entrypoint::is_canonical_kotodama_struct_name(name)
-                                || (name == "StatePage"
-                                    && !valid_state_page_shape(nodes, index, fields))
+                                || !valid_reserved_state_product(nodes, index, name, fields)
                                 || fields.iter().any(|field| {
                                     !crate::entrypoint::is_canonical_kotodama_identifier(field)
                                 })
@@ -1494,6 +1714,7 @@ fn skip_state_value_node(nodes: &[StateValueNodeV1], node_index: &mut usize) -> 
             | StateValueNodeV1::Leaf(_)
             | StateValueNodeV1::Unit
             | StateValueNodeV1::Error(_)
+            | StateValueNodeV1::Enum(_)
             | StateValueNodeV1::StateCursor(_) => 0,
         };
         let Some(next_remaining) = remaining.checked_add(children) else {
@@ -1515,7 +1736,9 @@ fn max_state_value_word_kinds(
         match node {
             StateValueNodeV1::StateCursor(key) => {
                 if record_kind {
-                    words.push(StateValueWordKindV1::StateCursor(*key));
+                    words.push(StateValueWordKindV1::StateCursor(state_key_schema_hash_v1(
+                        key,
+                    )?));
                 }
             }
             StateValueNodeV1::Unit => {
@@ -1526,6 +1749,11 @@ fn max_state_value_word_kinds(
             StateValueNodeV1::Error(_) => {
                 if record_kind {
                     words.push(StateValueWordKindV1::Error);
+                }
+            }
+            StateValueNodeV1::Enum(_) => {
+                if record_kind {
+                    words.push(StateValueWordKindV1::Enum);
                 }
             }
             StateValueNodeV1::Struct { fields, .. } => {
@@ -1640,7 +1868,9 @@ fn walk_state_value_atoms<'a>(
                         }
                         cursor.atom_index = cursor.atom_index.checked_add(1)?;
                         if record_kind {
-                            kinds.push(StateValueWordKindV1::StateCursor(*key));
+                            kinds.push(StateValueWordKindV1::StateCursor(
+                                state_key_schema_hash_v1(key)?,
+                            ));
                         }
                     }
                     StateValueNodeV1::Unit => {
@@ -1665,6 +1895,18 @@ fn walk_state_value_atoms<'a>(
                         cursor.atom_index = cursor.atom_index.checked_add(1)?;
                         if record_kind {
                             kinds.push(StateValueWordKindV1::Error);
+                        }
+                    }
+                    StateValueNodeV1::Enum(error) => {
+                        let StateValueAtomV1::EnumCode(code) =
+                            cursor.atoms.get(cursor.atom_index)?
+                        else {
+                            return None;
+                        };
+                        error.variant(*code)?;
+                        cursor.atom_index = cursor.atom_index.checked_add(1)?;
+                        if record_kind {
+                            kinds.push(StateValueWordKindV1::Enum);
                         }
                     }
                     StateValueNodeV1::Struct { fields, .. } => {
@@ -1810,7 +2052,7 @@ fn walk_state_value_atoms<'a>(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StateValueWordKindV1 {
     /// Canonical opaque cursor pointer with an exact scalar key kind.
-    StateCursor(EntrypointValueKindV1),
+    StateCursor([u8; 32]),
     /// Canonical zero unit scalar.
     Unit,
     /// Validated enum-local error code scalar.
@@ -1821,6 +2063,8 @@ pub enum StateValueWordKindV1 {
     List,
     /// Scalar or pointer leaf.
     Leaf(StateValueKindV1),
+    /// Validated ordinary enum code scalar.
+    Enum,
 }
 /// Canonical stored representation of one flattened aggregate word.
 ///
@@ -1836,6 +2080,9 @@ pub enum StateValueAtomV1 {
     /// Validated enum-local error code.
     #[codec(index = 5)]
     ErrorCode(u32),
+    /// Validated ordinary enum-local code.
+    #[codec(index = 6)]
+    EnumCode(u32),
     /// Option/Result tag.
     #[codec(index = 0)]
     Tag(bool),
@@ -1854,6 +2101,8 @@ impl StateValueAtomV1 {
     pub const UNIT_TAG: u32 = 4;
     /// Stable error code value tag.
     pub const ERROR_CODE_TAG: u32 = 5;
+    /// Stable ordinary enum code value tag.
+    pub const ENUM_CODE_TAG: u32 = 6;
     /// Stable Norito discriminant for [`Self::Tag`].
     pub const TAG_TAG: u32 = 0;
     /// Stable Norito discriminant for [`Self::Bool`].
@@ -1868,6 +2117,7 @@ impl StateValueAtomV1 {
         match self {
             Self::Unit => Self::UNIT_TAG,
             Self::ErrorCode(_) => Self::ERROR_CODE_TAG,
+            Self::EnumCode(_) => Self::ENUM_CODE_TAG,
             Self::Tag(_) => Self::TAG_TAG,
             Self::Bool(_) => Self::BOOL_TAG,
             Self::Pointer(_) => Self::POINTER_TAG,
@@ -1939,6 +2189,12 @@ fn encode_state_value_record_payload(record: &StateValueRecordV1) -> Result<Vec<
                     StateValueAtomV1::ErrorCode(code) => {
                         if *code == 0 {
                             return Err(state_value_record_codec_error("zero error code"));
+                        }
+                        extend_state_value_record_payload(&mut payload, &code.to_le_bytes())?;
+                    }
+                    StateValueAtomV1::EnumCode(code) => {
+                        if *code == 0 {
+                            return Err(state_value_record_codec_error("zero ordinary enum code"));
                         }
                         extend_state_value_record_payload(&mut payload, &code.to_le_bytes())?;
                     }
@@ -2330,6 +2586,13 @@ fn decode_state_value_record_payload(encoded: &[u8]) -> Result<StateValueRecordV
                 }
                 append_atom(&mut frames, StateValueAtomV1::ErrorCode(code));
             }
+            StateValueAtomV1::ENUM_CODE_TAG => {
+                let code = decode_state_value_record_u32(encoded, &mut offset)?;
+                if code == 0 {
+                    return Err(state_value_record_codec_error("zero ordinary enum code"));
+                }
+                append_atom(&mut frames, StateValueAtomV1::EnumCode(code));
+            }
             StateValueAtomV1::TAG_TAG => {
                 let value = match decode_state_value_record_u8(encoded, &mut offset)? {
                     0 => false,
@@ -2500,11 +2763,87 @@ pub fn decode_canonical_state_value_record_v1(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn durable_builtin_products_keep_exact_shapes_through_lists_and_siblings() {
+        use StateValueNodeV1 as N;
+        let account = || {
+            vec![
+                N::Struct {
+                    name: "kotodama::AccountView".into(),
+                    fields: vec!["id".into(), "metadata".into()],
+                },
+                N::Leaf(StateValueKindV1::AccountId),
+                N::Leaf(StateValueKindV1::Json),
+            ]
+        };
+        let mut pair = vec![N::Tuple { arity: 2 }];
+        pair.extend(account());
+        pair.extend(account());
+        assert!(StateValueSchemaV1 { nodes: pair }.validate());
+        let page = StateValueSchemaV1 {
+            nodes: vec![
+                N::Struct {
+                    name: "kotodama::QueryPage".into(),
+                    fields: vec!["items".into(), "next_offset".into()],
+                },
+                N::List {
+                    element: Box::new(StateValueSchemaV1 { nodes: account() }),
+                    capacity: 64,
+                },
+                N::Option,
+                N::Leaf(StateValueKindV1::Int),
+            ],
+        };
+        assert!(page.validate());
+        for name in [
+            "kotodama::AccountView",
+            "kotodama::AssetView",
+            "kotodama::AssetDefinitionView",
+            "kotodama::DomainView",
+            "kotodama::NftView",
+            "kotodama::QueryPage",
+            "kotodama::StatePage",
+        ] {
+            assert!(
+                !StateValueSchemaV1 {
+                    nodes: vec![N::Struct {
+                        name: name.into(),
+                        fields: vec![]
+                    }]
+                }
+                .validate(),
+                "{name}"
+            );
+        }
+        let mut wrong_leaf = account();
+        wrong_leaf[2] = N::Leaf(StateValueKindV1::Bool);
+        assert!(!StateValueSchemaV1 { nodes: wrong_leaf }.validate());
+        for mutation in 0..3 {
+            let mut forged = page.clone();
+            match mutation {
+                0 => {
+                    if let N::List { capacity, .. } = &mut forged.nodes[1] {
+                        *capacity = 63;
+                    }
+                }
+                1 => {
+                    if let N::List { element, .. } = &mut forged.nodes[1] {
+                        element.nodes = vec![N::Struct {
+                            name: "Unit::Account".into(),
+                            fields: vec![],
+                        }];
+                    }
+                }
+                _ => forged.nodes[3] = N::Leaf(StateValueKindV1::Bool),
+            }
+            assert!(!forged.validate());
+        }
+    }
+    #[test]
     fn empty_nominal_struct_schema_and_record_have_one_runtime_unit() {
         use super::*;
         let empty = StateValueSchemaV1 {
             nodes: vec![StateValueNodeV1::Struct {
-                name: "Empty".into(),
+                name: "Fixture::Empty".into(),
                 fields: Vec::new(),
             }],
         };
@@ -2533,7 +2872,7 @@ mod tests {
         );
         let other = StateValueSchemaV1 {
             nodes: vec![StateValueNodeV1::Struct {
-                name: "Other".into(),
+                name: "Fixture::Other".into(),
                 fields: Vec::new(),
             }],
         };
@@ -2548,7 +2887,7 @@ mod tests {
         let schema = StateValueSchemaV1 {
             nodes: vec![
                 StateValueNodeV1::Struct {
-                    name: "StatePage".into(),
+                    name: "kotodama::StatePage".into(),
                     fields: vec!["items".into(), "next".into()],
                 },
                 StateValueNodeV1::List {
@@ -2562,7 +2901,11 @@ mod tests {
                     capacity: 8,
                 },
                 StateValueNodeV1::Option,
-                StateValueNodeV1::StateCursor(EntrypointValueKindV1::Int),
+                StateValueNodeV1::StateCursor(crate::entrypoint::EntrypointValueTypeV1 {
+                    nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                        EntrypointValueKindV1::Int,
+                    )],
+                }),
             ],
         };
         assert!(schema.validate());
@@ -2579,7 +2922,14 @@ mod tests {
                         fields[0] = "forged".into();
                     }
                 }
-                1 => bad.nodes[3] = StateValueNodeV1::StateCursor(EntrypointValueKindV1::Bool),
+                1 => {
+                    bad.nodes[3] =
+                        StateValueNodeV1::StateCursor(crate::entrypoint::EntrypointValueTypeV1 {
+                            nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                                EntrypointValueKindV1::Bool,
+                            )],
+                        })
+                }
                 _ => {
                     if let StateValueNodeV1::List { capacity, .. } = &mut bad.nodes[1] {
                         *capacity = 0;
@@ -2614,10 +2964,15 @@ mod tests {
             state_value_schema_hash_v1(&bytes),
             state_value_schema_hash_v1(&different)
         );
+        assert!(
+            make("a::b").validate(),
+            "unit-qualified identities are canonical"
+        );
         for name in [
             "std//math@1::Math::Receipt",
             "std/math@1::Math::ListError",
-            "a::b",
+            "Receipt",
+            "kotodama::Receipt",
         ] {
             assert!(!make(name).validate());
             assert!(norito::to_bytes(&make(name)).is_err());
@@ -2626,19 +2981,36 @@ mod tests {
 
     #[test]
     fn cursor_schema_roundtrips_both_embedded_and_durable_codecs() {
-        let embedded = crate::metadata::EmbeddedStateType::StateCursor(EntrypointValueKindV1::Int);
+        let embedded = crate::metadata::EmbeddedStateType::StateCursor(
+            crate::entrypoint::EntrypointValueTypeV1 {
+                nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                    EntrypointValueKindV1::Int,
+                )],
+            },
+        );
         let frame = norito::encode_canonical(&embedded).unwrap();
         assert_eq!(
             norito::decode_canonical::<crate::metadata::EmbeddedStateType>(&frame).unwrap(),
             embedded
         );
         let schema = StateValueSchemaV1 {
-            nodes: vec![StateValueNodeV1::StateCursor(EntrypointValueKindV1::Int)],
+            nodes: vec![StateValueNodeV1::StateCursor(
+                crate::entrypoint::EntrypointValueTypeV1 {
+                    nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                        EntrypointValueKindV1::Int,
+                    )],
+                },
+            )],
         };
         assert_eq!(
             schema.word_kinds(),
             Some(vec![StateValueWordKindV1::StateCursor(
-                EntrypointValueKindV1::Int
+                state_key_schema_hash_v1(&crate::entrypoint::EntrypointValueTypeV1 {
+                    nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                        EntrypointValueKindV1::Int
+                    )]
+                })
+                .unwrap()
             )])
         );
         let frame = norito::encode_canonical(&schema).unwrap();
@@ -2646,12 +3018,134 @@ mod tests {
             norito::decode_canonical::<StateValueSchemaV1>(&frame).unwrap(),
             schema
         );
+        let followed = StateValueSchemaV1 {
+            nodes: vec![
+                StateValueNodeV1::Tuple { arity: 2 },
+                schema.nodes[0].clone(),
+                StateValueNodeV1::Leaf(StateValueKindV1::Bool),
+            ],
+        };
+        let frame = norito::encode_canonical(&followed).unwrap();
+        assert_eq!(
+            norito::decode_canonical::<StateValueSchemaV1>(&frame).unwrap(),
+            followed
+        );
+        let mut trailing = frame;
+        trailing.push(0);
+        assert!(norito::decode_canonical::<StateValueSchemaV1>(&trailing).is_err());
         assert!(
             !StateValueSchemaV1 {
-                nodes: vec![StateValueNodeV1::StateCursor(EntrypointValueKindV1::Json)]
+                nodes: vec![StateValueNodeV1::StateCursor(
+                    crate::entrypoint::EntrypointValueTypeV1 {
+                        nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                            EntrypointValueKindV1::Json
+                        )]
+                    }
+                )]
             }
             .validate()
         );
+    }
+    #[test]
+    fn key_projection_accepts_exact_node_bound_and_rejects_pending_overflow() {
+        use crate::metadata::EmbeddedStateType as E;
+        let maximum = E::Tuple(vec![
+            E::Int;
+            crate::entrypoint::MAX_ENTRYPOINT_ARGUMENT_TYPE_NODES
+                - 1
+        ]);
+        assert_eq!(
+            state_map_key_schema_v1(&maximum).unwrap().nodes.len(),
+            crate::entrypoint::MAX_ENTRYPOINT_ARGUMENT_TYPE_NODES
+        );
+        let overflow = E::Tuple(vec![
+            E::Int;
+            crate::entrypoint::MAX_ENTRYPOINT_ARGUMENT_TYPE_NODES
+        ]);
+        assert!(state_map_key_schema_v1(&overflow).is_err());
+        let nested_overflow = E::Tuple(vec![E::Bool, maximum]);
+        assert!(state_map_key_schema_v1(&nested_overflow).is_err());
+    }
+    #[test]
+    fn tuple_key_projection_cursor_and_state_page_share_exact_schema() {
+        use crate::metadata::EmbeddedStateType as E;
+        use EntrypointValueTypeNodeV1 as N;
+        let key_type = E::Tuple(vec![E::AccountId, E::Tuple(vec![E::Int, E::Name])]);
+        let key = state_map_key_schema_v1(&key_type).unwrap();
+        assert_eq!(
+            key.nodes,
+            vec![
+                N::Tuple(2),
+                N::Leaf(EntrypointValueKindV1::AccountId),
+                N::Tuple(2),
+                N::Leaf(EntrypointValueKindV1::Int),
+                N::Leaf(EntrypointValueKindV1::Name)
+            ]
+        );
+        for invalid in [
+            E::Tuple(vec![]),
+            E::Tuple(vec![E::Int]),
+            E::Tuple(vec![E::Int, E::Json]),
+            E::Option(Box::new(E::Int)),
+        ] {
+            assert!(state_map_key_schema_v1(&invalid).is_err());
+        }
+        let mut page = StateValueSchemaV1 {
+            nodes: vec![
+                StateValueNodeV1::Struct {
+                    name: "kotodama::StatePage".into(),
+                    fields: vec!["items".into(), "next".into()],
+                },
+                StateValueNodeV1::List {
+                    capacity: 8,
+                    element: Box::new(StateValueSchemaV1 {
+                        nodes: vec![
+                            StateValueNodeV1::Tuple { arity: 2 },
+                            StateValueNodeV1::Tuple { arity: 2 },
+                            StateValueNodeV1::Leaf(StateValueKindV1::AccountId),
+                            StateValueNodeV1::Tuple { arity: 2 },
+                            StateValueNodeV1::Leaf(StateValueKindV1::Int),
+                            StateValueNodeV1::Leaf(StateValueKindV1::Name),
+                            StateValueNodeV1::Unit,
+                        ],
+                    }),
+                },
+                StateValueNodeV1::Option,
+                StateValueNodeV1::StateCursor(key.clone()),
+            ],
+        };
+        assert!(page.validate());
+        let encoded = norito::encode_canonical(&page).unwrap();
+        assert_eq!(
+            norito::decode_canonical::<StateValueSchemaV1>(&encoded).unwrap(),
+            page
+        );
+        let mut changed = key.clone();
+        changed.nodes[3] = N::Leaf(EntrypointValueKindV1::Bool);
+        page.nodes[3] = StateValueNodeV1::StateCursor(changed);
+        assert!(!page.validate());
+        let at_limit = StateValueSchemaV1 {
+            nodes: vec![StateValueNodeV1::StateCursor(EntrypointValueTypeV1 {
+                nodes: std::iter::once(N::Tuple(254))
+                    .chain(std::iter::repeat_n(
+                        N::Leaf(EntrypointValueKindV1::Int),
+                        254,
+                    ))
+                    .collect(),
+            })],
+        };
+        assert!(at_limit.validate());
+        let over_limit = StateValueSchemaV1 {
+            nodes: vec![StateValueNodeV1::StateCursor(EntrypointValueTypeV1 {
+                nodes: std::iter::once(N::Tuple(255))
+                    .chain(std::iter::repeat_n(
+                        N::Leaf(EntrypointValueKindV1::Int),
+                        255,
+                    ))
+                    .collect(),
+            })],
+        };
+        assert!(!over_limit.validate());
     }
     #[test]
     fn unit_and_nominal_error_state_codecs_are_schema_bound() {
@@ -2741,7 +3235,7 @@ mod tests {
         StateValueSchemaV1 {
             nodes: vec![
                 StateValueNodeV1::Struct {
-                    name: "Boundary".to_owned(),
+                    name: "Fixture::Boundary".to_owned(),
                     fields: vec!["x".repeat(name_len)],
                 },
                 StateValueNodeV1::Leaf(StateValueKindV1::Bool),
@@ -2756,7 +3250,8 @@ mod tests {
         serialize_to_buffer(&2_u16, &mut payload).expect("serialize schema node count");
         serialize_to_buffer(&(StateValueNodeV1::STRUCT_TAG as u8), &mut payload)
             .expect("serialize Struct tag");
-        serialize_to_buffer(&"Boundary".to_owned(), &mut payload).expect("serialize schema name");
+        serialize_to_buffer(&"Fixture::Boundary".to_owned(), &mut payload)
+            .expect("serialize schema name");
         serialize_to_buffer(&vec!["x".repeat(name_len)], &mut payload)
             .expect("serialize schema fields");
         serialize_to_buffer(&(StateValueNodeV1::LEAF_TAG as u8), &mut payload)
@@ -2805,7 +3300,7 @@ mod tests {
     }
     fn wide_struct_schema(field_count: usize) -> StateValueSchemaV1 {
         let mut nodes = vec![StateValueNodeV1::Struct {
-            name: "Wide".into(),
+            name: "Fixture::Wide".into(),
             fields: (0..field_count)
                 .map(|index| format!("field_{index}"))
                 .collect(),
@@ -2865,7 +3360,7 @@ mod tests {
         };
         let nodes = [
             StateValueNodeV1::Struct {
-                name: "S".into(),
+                name: "Fixture::S".into(),
                 fields: vec!["field".into()],
             },
             StateValueNodeV1::Tuple { arity: 2 },
@@ -2878,7 +3373,12 @@ mod tests {
             StateValueNodeV1::Leaf(StateValueKindV1::Int),
             StateValueNodeV1::Unit,
             StateValueNodeV1::Error(crate::error_types::list_error_type()),
-            StateValueNodeV1::StateCursor(EntrypointValueKindV1::Int),
+            StateValueNodeV1::StateCursor(crate::entrypoint::EntrypointValueTypeV1 {
+                nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                    EntrypointValueKindV1::Int,
+                )],
+            }),
+            StateValueNodeV1::Enum(crate::enum_tests::descriptor()),
         ];
         for (expected, node) in nodes.into_iter().enumerate() {
             assert_eq!(node.tag(), u32::try_from(expected).expect("node tag"));
@@ -2891,6 +3391,7 @@ mod tests {
             StateValueAtomV1::List(Vec::new()),
             StateValueAtomV1::Unit,
             StateValueAtomV1::ErrorCode(1),
+            StateValueAtomV1::EnumCode(1),
         ];
         for (expected, atom) in atoms.into_iter().enumerate() {
             assert_eq!(atom.tag(), u32::try_from(expected).expect("atom tag"));
@@ -2910,7 +3411,7 @@ mod tests {
         let schema = StateValueSchemaV1 {
             nodes: vec![
                 StateValueNodeV1::Struct {
-                    name: "Pair".into(),
+                    name: "Fixture::Pair".into(),
                     fields: vec!["count".into(), "ready".into()],
                 },
                 StateValueNodeV1::Leaf(StateValueKindV1::Int),
@@ -3782,7 +4283,7 @@ mod tests {
         let schema = StateValueSchemaV1 {
             nodes: vec![
                 StateValueNodeV1::Struct {
-                    name: "Mixed".into(),
+                    name: "Fixture::Mixed".into(),
                     fields: vec!["pair".into(), "outcome".into(), "items".into()],
                 },
                 StateValueNodeV1::Tuple { arity: 2 },
@@ -3792,7 +4293,7 @@ mod tests {
                 StateValueNodeV1::Result,
                 StateValueNodeV1::Leaf(StateValueKindV1::Decimal),
                 StateValueNodeV1::Struct {
-                    name: "Failure".into(),
+                    name: "Fixture::Failure".into(),
                     fields: vec!["remaining".into()],
                 },
                 StateValueNodeV1::Leaf(StateValueKindV1::Quantity),

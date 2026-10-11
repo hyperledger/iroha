@@ -100,6 +100,9 @@ mod model {
         /// Matches SCCP v1 cross-chain events.
         #[codec(index = 25)]
         Sccp(SccpEventFilter),
+        /// Ordinary Load execution events, optionally matching one receipt digest.
+        #[codec(index = 26)]
+        KagemushaLoadCommitted(Option<[u8; 32]>),
     }
     /// An event filter for [`crate::sccp::events::SccpEvent`] values (`specs/sccp.md` §4.17).
     #[derive(
@@ -1045,8 +1048,8 @@ impl Default for SccpEventFilter {
 }
 /// Return the external network an SCCP event names, if any.
 ///
-/// Block, roster, attestation, bridge-key and fault events concern Taira itself and name no
-/// external network; the governance event names the subjects it changed instead.
+/// The block commitment event concerns Taira itself and names no external network; the
+/// governance event names the subjects it changed instead.
 #[cfg(feature = "transparent_api")]
 fn sccp_event_network(
     event: &crate::sccp::events::SccpEvent,
@@ -1069,16 +1072,7 @@ fn sccp_event_network(
         SccpEvent::TrustedCheckpointInstalled(ev) => Some(ev.network),
         SccpEvent::RevisionActivationChanged(ev) => Some(ev.network),
         SccpEvent::ControlRecorded(ev) => Some(ev.network),
-        SccpEvent::BlockCommitted(_)
-        | SccpEvent::SubjectCreated(_)
-        | SccpEvent::AttestationSigned(_)
-        | SccpEvent::BlockAttested(_)
-        | SccpEvent::RosterGenerationCreated(_)
-        | SccpEvent::RosterDerivationFailed(_)
-        | SccpEvent::HandoffStalled(_)
-        | SccpEvent::BridgeKeySet(_)
-        | SccpEvent::AttestationFault(_)
-        | SccpEvent::GovernanceEnacted(_) => None,
+        SccpEvent::BlockCommitted(_) | SccpEvent::GovernanceEnacted(_) => None,
     }
 }
 #[cfg(feature = "transparent_api")]
@@ -1899,6 +1893,7 @@ impl DataEventFilter {
                 updated |= replace_selector(&mut filter.buyer_matcher);
             }
             Self::GameSession(_)
+            | Self::KagemushaLoadCommitted(_)
             | Self::Sccp(_)
             | Self::Any
             | Self::Peer(_)
@@ -2008,6 +2003,12 @@ impl EventFilter for DataEventFilter {
             (DataEventFilter::Sccp(filter), DataEvent::Sccp(sccp_event)) => {
                 filter.matches(sccp_event)
             }
+            (
+                DataEventFilter::KagemushaLoadCommitted(digest),
+                DataEvent::KagemushaLoadCommitted(event),
+            ) => digest
+                .as_ref()
+                .is_none_or(|digest| digest == &event.receipt_digest),
             (DataEventFilter::Escrow(filter), DataEvent::Escrow(escrow_event)) => {
                 filter.matches(escrow_event)
             }
@@ -2442,11 +2443,11 @@ mod tests {
             proof::VerifyingKeyRecord,
             zk::BackendTag,
         };
-        let id = crate::proof::VerifyingKeyId::new("halo2/ipa", "vk_test");
+        let id = crate::proof::VerifyingKeyId::new("pipa-r/pasta", "vk_test");
         let mut rec = VerifyingKeyRecord::new(
             1,
             "vk_transfer",
-            BackendTag::Halo2IpaPasta,
+            BackendTag::NativePipaRPasta,
             "pallas",
             [0u8; 32],
             [0u8; 32],
@@ -2460,7 +2461,7 @@ mod tests {
             VerifyingKeyEventFilter::new().for_verifying_key(id.clone()),
         );
         assert!(ok_filter.matches(&ev));
-        let other_id = crate::proof::VerifyingKeyId::new("halo2/ipa", "vk_other");
+        let other_id = crate::proof::VerifyingKeyId::new("pipa-r/pasta", "vk_other");
         let bad_filter = DataEventFilter::VerifyingKey(
             VerifyingKeyEventFilter::new().for_verifying_key(other_id),
         );
@@ -2474,7 +2475,7 @@ mod tests {
         let mut h = [0u8; 32];
         h[0] = 0xAB;
         let pid = crate::proof::ProofId {
-            backend: "halo2/ipa".into(),
+            backend: "pipa-r/pasta".into(),
             proof_hash: h,
         };
         // Event: Verified with this id
@@ -2513,7 +2514,7 @@ mod tests {
         let mut h2 = [0u8; 32];
         h2[0] = 0xCD;
         let other = crate::proof::ProofId {
-            backend: "halo2/ipa".into(),
+            backend: "pipa-r/pasta".into(),
             proof_hash: h2,
         };
         let f_other = DataEventFilter::Proof(

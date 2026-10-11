@@ -4,7 +4,7 @@
 //! Every transition is a pure function of the committed state, the executing height and its
 //! input, so every honest validator records the same writes. The executor (in the node) calls
 //! them from the AMX instructions and, after every block's transactions, [`SumeragiAmxState::expire`];
-//! the records they return are the World writes of the block.
+//! returned or visited records are the World writes of the block.
 
 use iroha_model_base::topology::DataSpaceId;
 use iroha_schema::IntoSchema;
@@ -375,25 +375,40 @@ impl SumeragiAmxState {
     }
 
     /// The deadline step of the block at `height`, after its transactions (§11.5): every known
-    /// transaction whose deadline passed and that has no decision is aborted (the returned
-    /// decisions are records of this block), then every transaction whose deadline passed is
-    /// dropped. A `Begin` must precede its deadline, so a dropped id is never begun again.
-    pub fn expire(&mut self, height: u64) -> Vec<AmxDecisionV1> {
-        let mut decisions = Vec::new();
+    /// transaction whose deadline passed and that has no decision emits its Abort record,
+    /// then every transaction whose deadline passed is dropped. A `Begin` must precede its
+    /// deadline, so a dropped id is never begun again. No temporary decision vector is built.
+    ///
+    /// All records must be accepted before this state changes. On refusal the callback may
+    /// already have observed an earlier record; it must discard that provisional output or
+    /// accept the same keyed record again when retrying this unchanged source.
+    ///
+    /// # Errors
+    /// Returns the callback's original error without pruning or changing any pending entry.
+    pub fn expire<E>(
+        &mut self,
+        height: u64,
+        mut record: impl FnMut(AmxDecisionV1) -> Result<(), E>,
+    ) -> Result<usize, E> {
+        let mut decisions = 0;
         for entry in &mut self.transactions {
             if entry.begin.deadline < height && entry.decided.is_none() {
-                entry.decided = Some(AmxDecidedV1 {
-                    outcome: AmxOutcomeV1::Abort,
-                    height,
-                });
-                decisions.push(AmxDecisionV1 {
+                #[cfg(all(test, sumeragi_model_mutation = "DM8"))]
+                {
+                    entry.decided = Some(AmxDecidedV1 {
+                        outcome: AmxOutcomeV1::Abort,
+                        height,
+                    });
+                }
+                record(AmxDecisionV1 {
                     tx: entry.begin.tx,
                     outcome: AmxOutcomeV1::Abort,
-                });
+                })?;
+                decisions += 1;
             }
         }
         self.transactions
             .retain(|entry| entry.begin.deadline >= height);
-        decisions
+        Ok(decisions)
     }
 }

@@ -31,6 +31,9 @@ use iroha_data_model::nexus::{
 };
 #[cfg(test)]
 use iroha_data_model::prelude::Domain;
+use iroha_data_model::smart_contract::manifest::{
+    ContractPermissionScopeV1, EntrypointAuthorizationV1,
+};
 use iroha_data_model::{
     Identifiable as _, ValidationFail,
     account::AccountId,
@@ -94,10 +97,13 @@ use std::{
 };
 #[path = "executor_execution_fee.rs"]
 mod execution_fee;
+mod fee_sponsor_multisig;
 pub(crate) mod private_fees;
 /// Authenticated root scope for native and contract-generated instruction effects.
 pub(crate) mod root_scope;
-pub(crate) use execution_fee::{ExecutionFeeMeter, ExecutionFeeSettlementError};
+pub(crate) use execution_fee::{
+    ExecutionFeeExemption, ExecutionFeeMeter, ExecutionFeeSettlementError,
+};
 #[path = "executor_execution_effects.rs"]
 mod execution_effects;
 pub(crate) use execution_effects::ExecutionEffects;
@@ -235,6 +241,8 @@ enum NativeQueryAccess {
     Registered,
     /// Private data for one exact account.
     Account(AccountId),
+    /// Exact account identity or direct permissions eligible for scoped DPN enrollment checks.
+    EnrollmentAccount(AccountId),
     /// Ledger-wide state requiring the genesis-issued read root.
     AllLedger,
 }
@@ -250,7 +258,7 @@ where
 fn native_singular_query_access(query: &SingularQueryBox) -> NativeQueryAccess {
     match query {
         SingularQueryBox::FindAccountById(query) => {
-            NativeQueryAccess::Account(query.account_id().clone())
+            NativeQueryAccess::EnrollmentAccount(query.account_id().clone())
         }
         SingularQueryBox::FindAliasesByAccountId(query) => {
             NativeQueryAccess::Account(query.account_id().clone())
@@ -274,6 +282,7 @@ fn native_singular_query_access(query: &SingularQueryBox) -> NativeQueryAccess {
         | SingularQueryBox::FindContractManifestByArtifactId(_)
         | SingularQueryBox::FindAbiVersion(_)
         | SingularQueryBox::FindAssetDefinitionById(_)
+        | SingularQueryBox::FindAssetDefinitionDirectHome(_)
         | SingularQueryBox::FindOracleFeedById(_)
         | SingularQueryBox::FindDomainEndorsementPolicy(_)
         | SingularQueryBox::FindDomainCommittee(_)
@@ -399,7 +408,9 @@ fn native_iterable_query_access(
             data_model_query::permission::prelude::FindPermissionsByAccountId,
         >(payload)
         {
-            return Ok(NativeQueryAccess::Account(query.account_id().clone()));
+            return Ok(NativeQueryAccess::EnrollmentAccount(
+                query.account_id().clone(),
+            ));
         }
         return Err(invalid_native_iterable_query());
     }
@@ -436,7 +447,8 @@ fn native_iterable_query_access(
         AssetDefinition
     ) {
         if any_exact!(payload; data_model_query::asset::prelude::FindAssetDefinitions) {
-            return Ok(NativeQueryAccess::Registered);
+            // Listing every definition would disclose privately homed definitions.
+            return Ok(NativeQueryAccess::AllLedger);
         }
         return Err(invalid_native_iterable_query());
     }
@@ -667,10 +679,37 @@ fn invalid_native_iterable_query() -> ValidationFail {
         "iterable query is malformed or is not part of the native authorization matrix".to_owned(),
     )
 }
+/// Return whether one of the two exact native enrollment observations is permitted by a direct
+/// domain-scoped DPN capability and the target's current UAID/SNS binding.
+///
+/// This narrow predicate is also used by Torii route admission. It never authorizes balances,
+/// roster queries, alias lists, roles, or arbitrary reads from the same restricted dataspace.
+///
+/// # Errors
+/// Returns native state or permission decoding errors without treating malformed state as absent.
+pub fn can_observe_dpn_enrollment_query(
+    world: &impl WorldReadOnly,
+    authority: &AccountId,
+    query: &QueryRequest,
+    now_ms: u64,
+) -> Result<bool, crate::execution_attempt::ExecutionAttemptError<ValidationFail>> {
+    let access = match query {
+        QueryRequest::Singular(query) => native_singular_query_access(query),
+        QueryRequest::Start(query) => native_iterable_query_access(query)?,
+        QueryRequest::Continue(_) => return Ok(false),
+    };
+    match access {
+        NativeQueryAccess::EnrollmentAccount(account) => {
+            authority_can_enroll_dpn_account(world, authority, &account, now_ms)
+        }
+        _ => Ok(false),
+    }
+}
 fn validate_builtin_native_query_permission(
     world: &impl WorldReadOnly,
     authority: &AccountId,
     query: &QueryRequest,
+    now_ms: u64,
 ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ValidationFail>> {
     world.account(authority).map_err(|_| {
         ValidationFail::NotPermitted(format!(
@@ -685,6 +724,7 @@ fn validate_builtin_native_query_permission(
         QueryRequest::Continue(_) => return Ok(()),
     };
     let has_global = || authority_has_native_global_read_permission(world, authority);
+    let enrollment_query = matches!(&access, NativeQueryAccess::EnrollmentAccount(_));
     match access {
         NativeQueryAccess::Registered => Ok(()),
         NativeQueryAccess::AllLedger => has_global()?
@@ -695,8 +735,13 @@ fn validate_builtin_native_query_permission(
                 )
             })
             .map_err(Into::into),
-        NativeQueryAccess::Account(account) => {
+        NativeQueryAccess::Account(account) | NativeQueryAccess::EnrollmentAccount(account) => {
             if account == *authority || has_global()? {
+                return Ok(());
+            }
+            if enrollment_query
+                && authority_can_enroll_dpn_account(world, authority, &account, now_ms)?
+            {
                 return Ok(());
             }
             authority_has_native_account_read_permission(world, authority, &account)?
@@ -754,16 +799,26 @@ fn read_permission_payload<T: norito::json::JsonDeserialize>(
 ) -> Result<Option<T>, crate::execution_attempt::ExecutionAttemptError<ValidationFail>> {
     match norito::json::from_str(permission.payload().get()) {
         Ok(grant) => Ok(Some(grant)),
-        Err(norito::json::Error::DecodeResourceLimit)
-            if !cfg!(all(test, sumeragi_core_mutation = "HC30")) =>
-        {
+        Err(
+            norito::json::Error::DecodeResourceLimit
+            | norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+                | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+                | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+                | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+                | norito::core::DecodeResourceError::TotalAllocationExceeded { .. },
+            ),
+        ) if !cfg!(all(test, sumeragi_core_mutation = "HC30")) => {
             Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
                 ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into(),
             ))
         }
-        Err(norito::json::Error::AllocationFailed)
-            if !cfg!(all(test, sumeragi_core_mutation = "HC30")) =>
-        {
+        Err(
+            norito::json::Error::AllocationFailed
+            | norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::AllocationFailed { .. },
+            ),
+        ) if !cfg!(all(test, sumeragi_core_mutation = "HC30")) => {
             Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
                 ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
             ))
@@ -1514,14 +1569,16 @@ fn fee_exempt_payload(
             || successful_claim_fee_exempt_payload(world, nexus, payload, observation_time_ms)?
             || crate::smartcontracts::isi::sccp::fees::exempt_on_success(world, payload)))
 }
+/// Return whether `transaction` skips the Nexus fee when it succeeds, judged against the
+/// committed `world` the next block executes on (queue admission). Execution uses
+/// [`transaction_fee_exemption`], which also says whether a failure is charged.
 fn fee_exempt_transaction(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
     transaction: &SignedTransaction,
     observation_time_ms: u64,
 ) -> Result<bool, crate::execution_attempt::ExecutionDeferred> {
-    // SCCP exemptions hold on success only (`specs/sccp.md` §4.19).
-    // TODO(ws31): charge the ordinary Nexus fee when an SCCP-exempt transaction fails.
+    // `world` is the committed parent World, the one SCCP eligibility is judged against.
     Ok(private_fees::permits_public_exemption(world)?
         && (nexus_fee_exempt_transaction(transaction)
             || successful_claim_fee_exempt_transaction(
@@ -1534,6 +1591,47 @@ fn fee_exempt_transaction(
                 world,
                 transaction.payload(),
             )))
+}
+/// Return how the Nexus fee applies to `transaction` executing in `state_transaction`, with
+/// its SCCP exempt class when it has one.
+///
+/// Protocol and successful-claim exemptions are judged against the executing World and hold
+/// whatever the outcome. SCCP exemptions are judged against the committed parent World of the
+/// executing block, exactly like queue admission, fee quoting and the per-block exempt cap,
+/// and hold on success only: a failure is charged the ordinary fee (`specs/sccp.md` §4.19).
+fn transaction_fee_exemption(
+    state_transaction: &StateTransaction<'_, '_>,
+    transaction: &SignedTransaction,
+) -> Result<
+    (
+        ExecutionFeeExemption,
+        Option<crate::smartcontracts::isi::sccp::admission::SccpExemptClassV1>,
+    ),
+    crate::execution_attempt::ExecutionDeferred,
+> {
+    let world = &state_transaction.world;
+    if !private_fees::permits_public_exemption(world)? {
+        return Ok((ExecutionFeeExemption::Charged, None));
+    }
+    if nexus_fee_exempt_transaction(transaction)
+        || successful_claim_fee_exempt_transaction(
+            world,
+            &state_transaction.nexus,
+            transaction,
+            state_transaction.block_unix_timestamp_ms(),
+        )?
+    {
+        return Ok((ExecutionFeeExemption::Exempt, None));
+    }
+    Ok(
+        match crate::smartcontracts::isi::sccp::fees::exempt_class_in_block(
+            state_transaction,
+            transaction.payload(),
+        ) {
+            Some(class) => (ExecutionFeeExemption::ExemptOnSuccess, Some(class)),
+            None => (ExecutionFeeExemption::Charged, None),
+        },
+    )
 }
 #[derive(Clone, Copy)]
 enum PermissionOrRoleMutation<'a> {
@@ -1725,16 +1823,27 @@ fn ensure_contract_deployment_permission_mutation_allowed(
 }
 /// Enforce exact entrypoint delegation before any executor can approve a mutation.
 /// This boundary also receives instructions emitted by IVM hosts and triggers.
-fn ensure_contract_entrypoint_permission_mutation_allowed(
+fn ensure_contract_entrypoint_authorization_mutation_allowed(
     state_transaction: &StateTransaction<'_, '_>,
     authority: &AccountId,
     instruction: &InstructionBox,
 ) -> Result<(), ValidationFail> {
     let validate = |permission: &Permission| {
+        if permission.name() == "CanUseContractPermission" {
+            return if contract_permission_delegation_allowed(
+                state_transaction,
+                authority,
+                permission,
+            )? {
+                Ok(())
+            } else {
+                Err(ValidationFail::NotPermitted("only an exact holder or the current account lifecycle owner may grant or revoke a declared instance permission".to_owned()))
+            };
+        }
         if permission.name() != "CanInvokeContractEntrypoint" {
             return Ok(());
         }
-        if contract_entrypoint_permission_delegation_allowed(
+        if contract_entrypoint_authorization_delegation_allowed(
             state_transaction,
             authority,
             permission,
@@ -1795,10 +1904,10 @@ fn ensure_contract_runtime_permission_mutation_allowed(
         return Ok(());
     };
     let scoped =
-        executor_permission::smart_contract::CanInvokeContractEntrypoint::try_from(permission)
+        executor_permission::smart_contract::CanUseContractPermission::try_from(permission)
             .map_err(|_| {
                 ValidationFail::NotPermitted(
-            "deployed contracts may grant or revoke only exact CanInvokeContractEntrypoint tokens"
+            "deployed contracts may grant or revoke only exact CanUseContractPermission tokens"
                 .to_owned(),
         )
             })?;
@@ -1806,11 +1915,9 @@ fn ensure_contract_runtime_permission_mutation_allowed(
         || scoped.contract != context.contract_address
         || scoped.contract.subject_id() != *authority
         || context.contract_address.subject_id() != context.contract_subject
-        || scoped.entrypoint.is_empty()
-        || scoped.entrypoint.trim() != scoped.entrypoint
     {
         return Err(ValidationFail::NotPermitted(
-            "deployed contract permission mutation must be bound to its immutable subject, address, and a canonical selector"
+            "deployed contract permission mutation must be bound to its immutable subject, address, and a declared instance permission"
                 .to_owned(),
         ));
     }
@@ -2163,8 +2270,26 @@ fn fee_sponsor_asset_transfer_definition_id(
 }
 fn fee_sponsor_instruction_operation(
     instruction: &InstructionBox,
-) -> Result<FeeSponsorOperation, NexusFeeAdmissionError> {
-    if let Ok(multisig) = MultisigInstructionBox::try_from(instruction) {
+) -> Result<
+    FeeSponsorOperation,
+    crate::execution_attempt::ExecutionAttemptError<NexusFeeAdmissionError>,
+> {
+    use crate::execution_attempt::ExecutionAttemptError;
+    let multisig = match MultisigInstructionBox::try_from(instruction) {
+        Ok(value) => Some(value),
+        Err(error) => {
+            match crate::smartcontracts::isi::multisig::multisig_instruction_decode_attempt(
+                error,
+                |_| (),
+            ) {
+                ExecutionAttemptError::Deferred(reason) => {
+                    return Err(ExecutionAttemptError::Deferred(reason));
+                }
+                ExecutionAttemptError::Rejected(()) => None,
+            }
+        }
+    };
+    if let Some(multisig) = multisig {
         let (operation, account_id) = match multisig {
             MultisigInstructionBox::Propose(propose) => {
                 (FeeSponsorMultisigOperation::Propose, propose.account)
@@ -2202,7 +2327,10 @@ fn fee_sponsor_instruction_operation(
 }
 fn fee_sponsor_operations(
     executable: &Executable,
-) -> Result<Vec<FeeSponsorOperation>, NexusFeeAdmissionError> {
+) -> Result<
+    Vec<FeeSponsorOperation>,
+    crate::execution_attempt::ExecutionAttemptError<NexusFeeAdmissionError>,
+> {
     match executable {
         Executable::Instructions(instructions) => instructions
             .iter()
@@ -2296,41 +2424,60 @@ fn fee_sponsor_selector_matches_operation(
     }
 }
 fn validate_fee_sponsor_rules(
+    world: &impl WorldReadOnly,
     revision: &FeeSponsorProgramRevision,
-    executable: &Executable,
-) -> Result<(), NexusFeeAdmissionError> {
-    let operations = fee_sponsor_operations(executable)?;
+    beneficiary: &AccountId,
+    payload: &TransactionPayload,
+    context: fee_sponsor_multisig::RuleContext,
+) -> Result<(), crate::execution_attempt::ExecutionAttemptError<NexusFeeAdmissionError>> {
+    let operations = fee_sponsor_operations(&payload.instructions)?;
     if operations.is_empty() {
         return Err(NexusFeeAdmissionError::sponsor(
             FeeRejectionCode::OperationNotAllowed,
             "fee sponsor program cannot authorize an empty executable",
-        ));
+        )
+        .into());
     }
-    for operation in &operations {
-        if revision.rules.iter().any(|rule| {
-            rule.effect == FeeSponsorRuleEffect::Deny
-                && rule
-                    .selectors
-                    .iter()
-                    .any(|selector| fee_sponsor_selector_matches_operation(selector, operation))
-        }) {
-            return Err(NexusFeeAdmissionError::sponsor(
-                FeeRejectionCode::OperationDenied,
-                "signed operation matches an explicit fee sponsor deny rule",
-            ));
+    for (index, operation) in operations.iter().enumerate() {
+        let mut allowed = false;
+        // Evaluate every matching deny before accepting an allow. Typed resource
+        // deferral must never become a non-match that silently skips a deny.
+        for effect in [FeeSponsorRuleEffect::Deny, FeeSponsorRuleEffect::Allow] {
+            for rule in revision.rules.iter().filter(|rule| rule.effect == effect) {
+                for selector in &rule.selectors {
+                    let matches = match selector {
+                        FeeSponsorRuleSelector::EnrolledMultisigContractCall(selector) => {
+                            fee_sponsor_multisig::selector_matches(
+                                world,
+                                &revision.program_id,
+                                beneficiary,
+                                selector,
+                                payload,
+                                index,
+                                context,
+                            )?
+                        }
+                        _ => fee_sponsor_selector_matches_operation(selector, operation),
+                    };
+                    if matches {
+                        if effect == FeeSponsorRuleEffect::Deny {
+                            return Err(NexusFeeAdmissionError::sponsor(
+                                FeeRejectionCode::OperationDenied,
+                                "signed operation matches an explicit fee sponsor deny rule",
+                            )
+                            .into());
+                        }
+                        allowed = true;
+                    }
+                }
+            }
         }
-        let allowed = revision.rules.iter().any(|rule| {
-            rule.effect == FeeSponsorRuleEffect::Allow
-                && rule
-                    .selectors
-                    .iter()
-                    .any(|selector| fee_sponsor_selector_matches_operation(selector, operation))
-        });
         if !allowed {
             return Err(NexusFeeAdmissionError::sponsor(
                 FeeRejectionCode::OperationNotAllowed,
                 "signed operation is not covered by a fee sponsor allow rule",
-            ));
+            )
+            .into());
         }
     }
     Ok(())
@@ -2344,7 +2491,11 @@ fn resolve_fee_sponsor_program(
     payload: &TransactionPayload,
     route_dataspace_id: Option<DataSpaceId>,
     block_height: u64,
-) -> Result<ResolvedSponsorProgram, NexusFeeAdmissionError> {
+    context: fee_sponsor_multisig::RuleContext,
+) -> Result<
+    ResolvedSponsorProgram,
+    crate::execution_attempt::ExecutionAttemptError<NexusFeeAdmissionError>,
+> {
     let program = world
         .fee_sponsor_programs()
         .get(program_id)
@@ -2384,7 +2535,8 @@ fn resolve_fee_sponsor_program(
                 "fee sponsor program `{program_id}` is {:?}",
                 program.lifecycle
             ),
-        ));
+        )
+        .into());
     }
     if effective_revision != Some(signed_revision) {
         return Err(NexusFeeAdmissionError::sponsor(
@@ -2393,7 +2545,7 @@ fn resolve_fee_sponsor_program(
                 "fee sponsor program `{program_id}` active revision is {:?}; transaction selected {signed_revision}",
                 effective_revision
             ),
-        ));
+        ).into());
     }
     let revision = world
         .fee_sponsor_program_revisions()
@@ -2412,7 +2564,8 @@ fn resolve_fee_sponsor_program(
         return Err(NexusFeeAdmissionError::sponsor(
             FeeRejectionCode::InvalidProgramConfiguration,
             "fee sponsor revision key does not match its embedded program id",
-        ));
+        )
+        .into());
     }
     let enrollment_key = FeeSponsorEnrollmentKey {
         program_id: program_id.clone(),
@@ -2434,9 +2587,9 @@ fn resolve_fee_sponsor_program(
             format!(
                 "beneficiary `{beneficiary}` is not enrolled and `{program_id}` is not the eligible exact route default"
             ),
-        ));
+        ).into());
     }
-    validate_fee_sponsor_rules(&revision, &payload.instructions)?;
+    validate_fee_sponsor_rules(world, &revision, beneficiary, payload, context)?;
     Ok(ResolvedSponsorProgram {
         id: program_id.clone(),
         revision,
@@ -2698,7 +2851,7 @@ fn validate_prepared_ivm_execution_policy_with_availability<R: StateReadOnly>(
         .map_err(ValidationFail::IvmAdmission)?;
     if zk_availability == PreparedIvmZkAvailability::RequireLocalBackend
         && metadata.mode & ivm::ivm_mode::ZK != 0
-        && !(state.zk().halo2.enabled || state.zk().stark.enabled)
+        && !(state.zk().pipa_r.enabled || state.zk().stark.enabled)
     {
         return Err(ValidationFail::IvmAdmission(
             iroha_data_model::executor::IvmAdmissionError::UnsupportedFeatureBits(
@@ -2763,9 +2916,10 @@ pub(crate) struct ContractRuntimeExecutionContext {
 /// world state after the VM has queued effects.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ContractEntrypointAuthorizationSnapshot {
+    pub(crate) lifecycle_revision: u64,
     pub(crate) authority: AccountId,
     pub(crate) entrypoint: String,
-    pub(crate) permission: Option<String>,
+    pub(crate) authorization: EntrypointAuthorizationV1,
     pub(crate) contract_address: iroha_data_model::smart_contract::ContractAddress,
     pub(crate) contract_alias: Option<iroha_data_model::smart_contract::ContractAlias>,
     pub(crate) contract_alias_binding: Option<crate::state::ContractAliasBindingRecord>,
@@ -2777,13 +2931,14 @@ impl ContractEntrypointAuthorizationSnapshot {
     pub(crate) fn new(
         authority: AccountId,
         entrypoint: String,
-        permission: Option<String>,
+        authorization: EntrypointAuthorizationV1,
         identity: &code::BoundContractIdentity,
     ) -> Self {
         Self {
+            lifecycle_revision: identity.lifecycle_revision,
             authority,
             entrypoint,
-            permission,
+            authorization,
             contract_address: identity.contract_address.clone(),
             contract_alias: identity.contract_alias.clone(),
             contract_alias_binding: identity.contract_alias_binding.clone(),
@@ -2914,6 +3069,24 @@ impl ContractEntrypointAuthorizationSnapshot {
                 self.contract_address, self.code_hash, live_code_hash
             )).into());
         }
+        let binding = world
+            .contract_subject_bindings()
+            .get(&self.contract_address)
+            .ok_or_else(|| {
+                ValidationFail::NotPermitted(
+                    "contract lifecycle binding disappeared during execution".to_owned(),
+                )
+            })?;
+        binding
+            .validate_for(&self.contract_address)
+            .map_err(ValidationFail::NotPermitted)?;
+        if binding.lifecycle.revision != self.lifecycle_revision {
+            return Err(ValidationFail::NotPermitted(format!(
+                "contract instance `{}` changed lifecycle revision while its call was prepared",
+                self.contract_address
+            ))
+            .into());
+        }
         let live_alias_binding = world
             .contract_alias_bindings()
             .get(&self.contract_address)
@@ -2953,12 +3126,12 @@ impl ContractEntrypointAuthorizationSnapshot {
             ))
             .into());
         }
-        enforce_named_contract_entrypoint_permission(
+        enforce_named_contract_entrypoint_authorization(
             world,
             &self.authority,
             &self.contract_address,
             &self.entrypoint,
-            self.permission.as_deref(),
+            &self.authorization,
         )
         .map_err(Into::into)
     }
@@ -3037,7 +3210,7 @@ pub struct ContractCallExecutionContext {
     pub(crate) contract_alias: Option<iroha_data_model::smart_contract::ContractAlias>,
     pub(crate) entrypoint: Option<String>,
     pub(crate) entrypoint_pc: Option<u64>,
-    pub(crate) entrypoint_permission: Option<String>,
+    pub(crate) entrypoint_authorization: EntrypointAuthorizationV1,
     pub(crate) args: Json,
     pub(crate) argument_record: Option<ivm::PreparedArgumentRecord>,
 }
@@ -3084,8 +3257,8 @@ impl ContractCallExecutionContext {
     pub(crate) fn entrypoint_pc(&self) -> Option<u64> {
         self.entrypoint_pc
     }
-    pub(crate) fn entrypoint_permission(&self) -> Option<&str> {
-        self.entrypoint_permission.as_deref()
+    pub(crate) fn entrypoint_authorization(&self) -> &EntrypointAuthorizationV1 {
+        &self.entrypoint_authorization
     }
     pub(crate) fn args(&self) -> &Json {
         &self.args
@@ -3169,7 +3342,11 @@ fn prepare_validated_contract_argument_record(
         }),
     }
 }
-type ResolvedContractEntrypoint = (u64, Option<String>, Option<ivm::EntrypointArgumentSchemaV1>);
+type ResolvedContractEntrypoint = (
+    u64,
+    EntrypointAuthorizationV1,
+    Option<ivm::EntrypointArgumentSchemaV1>,
+);
 #[cfg(test)]
 fn resolve_callable_contract_entrypoint(
     bytecode: &[u8],
@@ -3193,7 +3370,7 @@ fn resolve_callable_contract_entrypoint(
         .ok_or_else(|| {
             ValidationFail::NotPermitted(format!("unknown contract entrypoint `{selector}`"))
         })?;
-    let permission = callable_contract_entrypoint_permission(descriptor, selector)?;
+    let permission = callable_contract_entrypoint_authorization(descriptor, selector)?;
     Ok((
         prefix_len + descriptor.entry_pc,
         permission,
@@ -3222,7 +3399,7 @@ fn resolve_raw_contract_entrypoint(
         .ok_or_else(|| {
             ValidationFail::NotPermitted(format!("unknown contract entrypoint `{selector}`"))
         })?;
-    let permission = raw_contract_entrypoint_permission(descriptor, selector)?;
+    let permission = raw_contract_entrypoint_authorization(descriptor, selector)?;
     Ok((
         prefix_len + descriptor.entry_pc,
         permission,
@@ -3242,27 +3419,7 @@ fn resolve_prepared_contract_entrypoint(
         ))
     })?;
     reject_unavailable_private_input_entrypoint(contract, selector)?;
-    let permission = callable_contract_entrypoint_permission(descriptor, selector)?;
-    Ok((
-        entrypoint_pc,
-        permission,
-        descriptor.argument_schema.clone(),
-    ))
-}
-fn resolve_prepared_nested_contract_entrypoint(
-    contract: &ivm::PreparedContract,
-    selector: &str,
-) -> Result<ResolvedContractEntrypoint, ValidationFail> {
-    let descriptor = contract.entrypoint_descriptor(selector).ok_or_else(|| {
-        ValidationFail::NotPermitted(format!("unknown contract entrypoint `{selector}`"))
-    })?;
-    let entrypoint_pc = contract.entrypoint_pc(selector).ok_or_else(|| {
-        ValidationFail::NotPermitted(format!(
-            "contract entrypoint `{selector}` has no validated program counter"
-        ))
-    })?;
-    reject_unavailable_private_input_entrypoint(contract, selector)?;
-    let permission = nested_contract_entrypoint_permission(descriptor, selector)?;
+    let permission = callable_contract_entrypoint_authorization(descriptor, selector)?;
     Ok((
         entrypoint_pc,
         permission,
@@ -3290,7 +3447,7 @@ fn resolve_prepared_contract_view_entrypoint(
     reject_unavailable_private_input_entrypoint(contract, selector)?;
     Ok((
         entrypoint_pc,
-        descriptor.permission.clone(),
+        descriptor.authorization.clone(),
         descriptor.argument_schema.clone(),
     ))
 }
@@ -3307,7 +3464,7 @@ fn resolve_prepared_raw_contract_entrypoint(
         ))
     })?;
     reject_unavailable_private_input_entrypoint(contract, selector)?;
-    let permission = raw_contract_entrypoint_permission(descriptor, selector)?;
+    let permission = raw_contract_entrypoint_authorization(descriptor, selector)?;
     Ok((
         entrypoint_pc,
         permission,
@@ -3335,35 +3492,32 @@ fn reject_unavailable_private_input_entrypoint(
     }
 }
 /// Resolve authorization for a top-level deployed-contract transaction entrypoint.
-pub(crate) fn callable_contract_entrypoint_permission(
+pub(crate) fn callable_contract_entrypoint_authorization(
     descriptor: &ivm::EmbeddedEntrypointDescriptor,
     selector: &str,
-) -> Result<Option<String>, ValidationFail> {
+) -> Result<EntrypointAuthorizationV1, ValidationFail> {
     use iroha_data_model::smart_contract::manifest::EntryPointKind;
     match descriptor.kind {
-        EntryPointKind::Kotoage => Ok(descriptor.permission.clone()),
+        EntryPointKind::Kotoage => Ok(descriptor.authorization.clone()),
         EntryPointKind::View => Err(ValidationFail::NotPermitted(format!(
             "contract entrypoint `{selector}` is read-only and cannot be invoked as a transaction"
         ))),
-        EntryPointKind::Hajimari => Ok(Some(
-            iroha_data_model::smart_contract::CONTRACT_HAJIMARI_PERMISSION_NAME.to_owned(),
-        )),
-        EntryPointKind::Kaizen => Ok(Some(
-            iroha_data_model::smart_contract::CONTRACT_KAIZEN_PERMISSION_NAME.to_owned(),
-        )),
+        EntryPointKind::Hajimari | EntryPointKind::Kaizen => {
+            Ok(EntrypointAuthorizationV1::RuntimeLifecycle)
+        }
     }
 }
 /// Resolve authorization for raw-IVM source dispatch.
 ///
 /// Lifecycle hooks require a consensus-bound deployed-instance transition and therefore can only
 /// be selected through `Executable::ContractCall`.
-pub(crate) fn raw_contract_entrypoint_permission(
+pub(crate) fn raw_contract_entrypoint_authorization(
     descriptor: &ivm::EmbeddedEntrypointDescriptor,
     selector: &str,
-) -> Result<Option<String>, ValidationFail> {
+) -> Result<EntrypointAuthorizationV1, ValidationFail> {
     use iroha_data_model::smart_contract::manifest::EntryPointKind;
     match descriptor.kind {
-        EntryPointKind::Kotoage => Ok(descriptor.permission.clone()),
+        EntryPointKind::Kotoage => Ok(descriptor.authorization.clone()),
         EntryPointKind::View => Err(ValidationFail::NotPermitted(format!(
             "contract entrypoint `{selector}` is read-only and cannot be invoked as a transaction"
         ))),
@@ -3378,13 +3532,13 @@ pub(crate) fn raw_contract_entrypoint_permission(
 ///
 /// Nested calls may invoke `kotoage`/`言挙げ` and `view` entrypoints, but lifecycle
 /// hooks remain reserved for the deployment and `kaizen`/`改善` state machine.
-pub(crate) fn nested_contract_entrypoint_permission(
+pub(crate) fn nested_contract_entrypoint_authorization(
     descriptor: &ivm::EmbeddedEntrypointDescriptor,
     selector: &str,
-) -> Result<Option<String>, ValidationFail> {
+) -> Result<EntrypointAuthorizationV1, ValidationFail> {
     use iroha_data_model::smart_contract::manifest::EntryPointKind;
     match descriptor.kind {
-        EntryPointKind::Kotoage | EntryPointKind::View => Ok(descriptor.permission.clone()),
+        EntryPointKind::Kotoage | EntryPointKind::View => Ok(descriptor.authorization.clone()),
         EntryPointKind::Hajimari | EntryPointKind::Kaizen => {
             Err(ValidationFail::NotPermitted(format!(
                 "`{selector}` is a hajimari/始まり or kaizen/改善 entrypoint and cannot be invoked by a nested call"
@@ -3490,14 +3644,21 @@ pub(crate) fn ensure_contract_invocation_code_hash(
 /// Wallets can validate canonical JSON metadata without embedding a Kotodama ABI
 /// encoder. Consensus therefore reconstructs the schema-bound argument record
 /// from that metadata and refuses any executable whose opaque argument bytes
-/// encode a different payload.
+/// encode a different payload. A `contract_alias` entry must name the address's
+/// `live_alias`, so indexers can attribute the call to that alias.
+///
+/// Metadata that carries any of these keys must carry the full identity binding
+/// (address, code hash, entrypoint). Other keys, such as `contract_module` or
+/// `contract_event_*`, are never checked and must not be trusted by readers.
 fn ensure_contract_invocation_metadata_binding(
     invocation: &ContractInvocation,
     metadata: &Metadata,
     contract: &ivm::PreparedContract,
+    live_alias: Option<&iroha_data_model::smart_contract::ContractAlias>,
 ) -> Result<(), ValidationFail> {
     let carries_reviewable_binding = [
         "contract_address",
+        "contract_alias",
         "contract_code_hash",
         "contract_entrypoint",
         "contract_payload",
@@ -3516,6 +3677,14 @@ fn ensure_contract_invocation_metadata_binding(
         return Err(ValidationFail::NotPermitted(
             "top-level ContractCall address differs from contract_address metadata".to_owned(),
         ));
+    }
+    if let Some(metadata_alias) = requested_contract_alias(metadata)?
+        && live_alias != Some(&metadata_alias)
+    {
+        return Err(ValidationFail::NotPermitted(format!(
+            "contract_alias metadata `{metadata_alias}` is not the live alias of `{}`",
+            invocation.contract_address
+        )));
     }
     let code_hash_literal = metadata
         .get("contract_code_hash")
@@ -3694,6 +3863,16 @@ pub(crate) fn resolve_raw_contract_runtime_identity(
         )));
     }
     Ok(Some(code::BoundContractIdentity {
+        lifecycle_revision: world
+            .contract_subject_bindings()
+            .get(&contract_address)
+            .ok_or_else(|| {
+                ValidationFail::NotPermitted(
+                    "contract instance has no lifecycle binding".to_owned(),
+                )
+            })?
+            .lifecycle
+            .revision,
         contract_address,
         contract_alias: live_alias,
         contract_alias_binding: live_alias_binding,
@@ -3747,6 +3926,43 @@ pub(crate) fn parse_prepared_trigger_call_execution_context(
         )
     })
 }
+/// Bind a deployed trigger callback to its firing event using the signed schema.
+///
+/// A registered callback cannot shadow event arguments with a fixed call record.
+/// Zero-argument callbacks still receive the event through `context::trigger_event`.
+pub(crate) fn parse_prepared_trigger_invocation_execution_context(
+    invocation: &ContractInvocation,
+    contract: &ivm::PreparedContract,
+    contract_alias: Option<iroha_data_model::smart_contract::ContractAlias>,
+    contract_subject: AccountId,
+    event_args: &Json,
+    gas_limit: u64,
+) -> Result<ContractCallExecutionContext, ValidationFail> {
+    if invocation.arguments.is_some() {
+        return Err(ValidationFail::NotPermitted(
+            "trigger callbacks must take arguments from the firing event, not a fixed call record"
+                .to_owned(),
+        ));
+    }
+    let selector = invocation.entrypoint.as_str();
+    let (entrypoint_pc, entrypoint_authorization, argument_schema) =
+        resolve_prepared_raw_contract_entrypoint(contract, selector)?;
+    let argument_record = prepare_contract_argument_record_from_json(
+        argument_schema.as_ref(),
+        argument_schema.as_ref().map(|_| event_args),
+        gas_limit,
+    )?;
+    Ok(ContractCallExecutionContext {
+        contract_address: Some(invocation.contract_address.clone()),
+        contract_subject: Some(contract_subject),
+        contract_alias,
+        entrypoint: Some(selector.to_owned()),
+        entrypoint_pc: Some(entrypoint_pc),
+        entrypoint_authorization,
+        args: event_args.clone(),
+        argument_record,
+    })
+}
 /// Validate trigger callback selection at registration without fabricating an
 /// event payload for a parameterized callback.
 pub(crate) fn validate_trigger_call_execution_context(
@@ -3782,16 +3998,16 @@ fn parse_contract_call_execution_context_from_source(
                 .to_owned(),
         ));
     }
-    let (entrypoint, entrypoint_pc, entrypoint_permission, argument_schema) =
+    let (entrypoint, entrypoint_pc, entrypoint_authorization, argument_schema) =
         if let Some(selector) = entrypoint.as_deref() {
-            let (entrypoint_pc, entrypoint_permission, argument_schema) = source.resolve(
+            let (entrypoint_pc, entrypoint_authorization, argument_schema) = source.resolve(
                 selector,
                 "contract call entrypoint metadata requires a self-describing contract artifact",
             )?;
             (
                 Some(selector.to_owned()),
                 Some(entrypoint_pc),
-                entrypoint_permission,
+                entrypoint_authorization,
                 argument_schema,
             )
         } else if source.is_self_describing() {
@@ -3802,7 +4018,7 @@ fn parse_contract_call_execution_context_from_source(
         } else if metadata_payload.is_none() {
             return Ok(None);
         } else {
-            (None, None, None, None)
+            (None, None, EntrypointAuthorizationV1::Anyone, None)
         };
     let payload = match argument_source {
         ContractArgumentSource::Metadata => metadata_payload,
@@ -3832,7 +4048,7 @@ fn parse_contract_call_execution_context_from_source(
         contract_alias,
         entrypoint,
         entrypoint_pc,
-        entrypoint_permission,
+        entrypoint_authorization,
         args,
         argument_record,
     }))
@@ -3850,7 +4066,7 @@ pub(crate) fn parse_contract_invocation_execution_context(
             "contract entrypoint must not be empty".to_owned(),
         ));
     }
-    let (entrypoint_pc, entrypoint_permission, argument_schema) =
+    let (entrypoint_pc, entrypoint_authorization, argument_schema) =
         resolve_callable_contract_entrypoint(
             bytecode,
             selector,
@@ -3868,7 +4084,7 @@ pub(crate) fn parse_contract_invocation_execution_context(
         contract_alias,
         entrypoint: Some(selector.to_owned()),
         entrypoint_pc: Some(entrypoint_pc),
-        entrypoint_permission,
+        entrypoint_authorization,
         args,
         argument_record,
     })
@@ -3880,54 +4096,14 @@ pub(crate) fn parse_prepared_contract_invocation_execution_context(
     contract_subject: AccountId,
     gas_limit: u64,
 ) -> Result<ContractCallExecutionContext, ValidationFail> {
-    parse_prepared_contract_invocation_execution_context_with_resolver(
-        invocation,
-        contract,
-        contract_alias,
-        contract_subject,
-        gas_limit,
-        resolve_prepared_contract_entrypoint,
-    )
-}
-/// Resolve a prepared ordinary nested call using the nested entrypoint policy.
-///
-/// Unlike top-level transaction dispatch, nested calls may enter read-only views. Lifecycle
-/// entrypoints remain reserved for their dedicated state transition machinery.
-pub(crate) fn parse_prepared_nested_contract_invocation_execution_context(
-    invocation: &ContractInvocation,
-    contract: &ivm::PreparedContract,
-    contract_alias: Option<iroha_data_model::smart_contract::ContractAlias>,
-    contract_subject: AccountId,
-    gas_limit: u64,
-) -> Result<ContractCallExecutionContext, ValidationFail> {
-    parse_prepared_contract_invocation_execution_context_with_resolver(
-        invocation,
-        contract,
-        contract_alias,
-        contract_subject,
-        gas_limit,
-        resolve_prepared_nested_contract_entrypoint,
-    )
-}
-fn parse_prepared_contract_invocation_execution_context_with_resolver(
-    invocation: &ContractInvocation,
-    contract: &ivm::PreparedContract,
-    contract_alias: Option<iroha_data_model::smart_contract::ContractAlias>,
-    contract_subject: AccountId,
-    gas_limit: u64,
-    resolve_entrypoint: fn(
-        &ivm::PreparedContract,
-        &str,
-    ) -> Result<ResolvedContractEntrypoint, ValidationFail>,
-) -> Result<ContractCallExecutionContext, ValidationFail> {
     let selector = invocation.entrypoint.trim();
     if selector.is_empty() {
         return Err(ValidationFail::NotPermitted(
             "contract entrypoint must not be empty".to_owned(),
         ));
     }
-    let (entrypoint_pc, entrypoint_permission, argument_schema) =
-        resolve_entrypoint(contract, selector)?;
+    let (entrypoint_pc, entrypoint_authorization, argument_schema) =
+        resolve_prepared_contract_entrypoint(contract, selector)?;
     let args = Json::default();
     let argument_record = prepare_validated_contract_argument_record(
         argument_schema.as_ref(),
@@ -3940,7 +4116,7 @@ fn parse_prepared_contract_invocation_execution_context_with_resolver(
         contract_alias,
         entrypoint: Some(selector.to_owned()),
         entrypoint_pc: Some(entrypoint_pc),
-        entrypoint_permission,
+        entrypoint_authorization,
         args,
         argument_record,
     })
@@ -4334,6 +4510,7 @@ fn evaluate_nexus_fee_admission_payload(
                 payload,
                 route_dataspace_id,
                 next_block_height,
+                fee_sponsor_multisig::RuleContext::admission(observation_time_ms),
             )?;
             let capacities = evaluate_fee_sponsor_capacity(
                 world,
@@ -4460,6 +4637,10 @@ pub fn quote_nexus_fee_admission_draft(
     if fee_exempt_payload(world, nexus, payload, observation_time_ms)
         .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?
     {
+        // TODO(ws31): an SCCP payload is exempt on success only, and a failure is charged
+        // only within its signed limits (`specs/sccp.md` §4.19). Recommend the ordinary
+        // limits for such payloads (without requiring the payer to hold the fee asset now),
+        // so a funded signer of an eligible SCCP transaction makes its failure chargeable.
         return Ok(FeeAdmissionDraftQuote {
             quote: fee_exempt_admission_quote(payload),
             recommended_intent: fee_intent_with_exact_bounds(&payload.fee_payment, &[]),
@@ -4534,6 +4715,40 @@ pub fn quote_nexus_fee_admission(
         route_dataspace_id,
     )
 }
+#[cfg(test)]
+pub(crate) mod sorafs_admission_hash_probe {
+    //! Per-thread observation of the actual initializer helper's outer hash call.
+    use std::cell::Cell;
+
+    thread_local! {
+        static HASHES: Cell<Option<usize>> = const { Cell::new(None) };
+    }
+
+    /// Observe the next original outer hash only while this thread has an active probe.
+    pub(crate) fn note_outer_hash() {
+        HASHES.with(|hashes| {
+            if let Some(count) = hashes.get() {
+                hashes.set(Some(count + 1));
+            }
+        });
+    }
+
+    /// Count actual helper hashes in one lexical call, restoring prior state even on unwind.
+    pub(crate) fn count<R>(body: impl FnOnce() -> R) -> (R, usize) {
+        struct Restore(Option<usize>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                HASHES.with(|hashes| hashes.set(self.0));
+            }
+        }
+        let restore = Restore(HASHES.with(|hashes| hashes.replace(Some(0))));
+        let result = body();
+        let count = HASHES.with(|hashes| hashes.get().expect("active hash observation"));
+        drop(restore);
+        (result, count)
+    }
+}
+
 /// Return whether execution is running inside the chain's initial genesis block.
 ///
 /// The empty committed-block history keeps a genesis-shaped header replayed against live state
@@ -4582,13 +4797,10 @@ pub(crate) fn validate_transaction_fee_admission(
     transaction: &SignedTransaction,
 ) -> Result<(), ValidationFail> {
     if is_initial_genesis_context(state_transaction)
-        || fee_exempt_transaction(
-            &state_transaction.world,
-            &state_transaction.nexus,
-            transaction,
-            state_transaction.block_unix_timestamp_ms(),
-        )
-        .map_err(|reason| state_transaction.defer_execution(reason))?
+        || transaction_fee_exemption(state_transaction, transaction)
+            .map_err(|reason| state_transaction.defer_execution(reason))?
+            .0
+            .skips_fee_on_success()
     {
         return Ok(());
     }
@@ -4628,7 +4840,9 @@ fn applied_overlay_base_gas(
             true,
         ),
         Executable::Instructions(_) => (
-            isi_gas::meter_instructions(overlay.instruction_slice(), zk_gas),
+            overlay.instructions().fold(0_u64, |gas, instruction| {
+                gas.saturating_add(isi_gas::meter_instruction(instruction, zk_gas))
+            }),
             overlay.instruction_count(),
             false,
         ),
@@ -4664,26 +4878,16 @@ fn applied_overlay_base_gas(
 }
 
 #[cfg(test)]
-/// Reference gas and Nexus fee settlement for overlay regression tests.
+/// Reference gas and SORA Nexus fee settlement for overlay regression tests.
 ///
-/// The tests apply overlays directly and use this helper to exercise fee accounting
-/// independently of `Executor::execute_transaction`.
-pub(crate) fn charge_fees_for_applied_overlay(
+/// The caller snapshots metering before consuming the overlay, then settles against
+/// the pre-effect fee policy after applying its owned effects.
+fn charge_fees_for_applied_overlay(
     state_transaction: &mut StateTransaction<'_, '_>,
     authority: &AccountId,
     transaction: &SignedTransaction,
-    overlay: &crate::pipeline::overlay::TxOverlay,
-) -> Result<(), ValidationFail> {
-    charge_fees_for_applied_overlay_inner(state_transaction, authority, transaction, overlay, false)
-}
-
-#[cfg(test)]
-fn charge_fees_for_applied_overlay_inner(
-    state_transaction: &mut StateTransaction<'_, '_>,
-    authority: &AccountId,
-    transaction: &SignedTransaction,
-    overlay: &crate::pipeline::overlay::TxOverlay,
-    gas_was_precharged: bool,
+    gas_used: u64,
+    instruction_count: usize,
 ) -> Result<(), ValidationFail> {
     // Genesis transactions are bootstrap operations and must remain fee-free.
     if is_initial_genesis_context(state_transaction) {
@@ -4698,13 +4902,10 @@ fn charge_fees_for_applied_overlay_inner(
         .fee_payment_intent()
         .sponsor_program()
         .map(|(program_id, _)| program_id.clone());
-    let skip_nexus_fee = fee_exempt_transaction(
-        &state_transaction.world,
-        &state_transaction.nexus,
-        transaction,
-        state_transaction.block_unix_timestamp_ms(),
-    )
-    .map_err(|reason| state_transaction.defer_execution(reason))?;
+    let skip_nexus_fee = transaction_fee_exemption(state_transaction, transaction)
+        .map_err(|reason| state_transaction.defer_execution(reason))?
+        .0
+        .skips_fee_on_success();
     // Admission captured the governed gas policy before business effects were applied.
     // Keep that immutable snapshot for settlement so this transaction cannot alter its
     // own fee asset, rate, or destination account through the overlay.
@@ -4737,18 +4938,8 @@ fn charge_fees_for_applied_overlay_inner(
             )));
         }
     }
-    let (gas_used, instruction_count) =
-        applied_overlay_base_gas(transaction, overlay, &state_transaction.zk.gas)?;
-    if gas_was_precharged {
-        if state_transaction.last_tx_gas_used < gas_used {
-            return Err(ValidationFail::InternalError(
-                "overlay fee settlement lost its reserved base gas".to_owned(),
-            ));
-        }
-    } else {
-        state_transaction.last_tx_gas_used =
-            state_transaction.last_tx_gas_used.saturating_add(gas_used);
-    }
+    state_transaction.last_tx_gas_used =
+        state_transaction.last_tx_gas_used.saturating_add(gas_used);
     Executor::enforce_transaction_gas_fits_block(
         state_transaction,
         state_transaction.last_tx_gas_used,
@@ -4958,6 +5149,29 @@ impl Executor {
                 "sponsor-program debit does not match the signed fee intent".to_owned(),
             ));
         }
+        let entrypoint_hash = transaction.try_hash_as_entrypoint().map_err(|error| {
+            state_transaction.attempt_error_to_validation_fail(
+                crate::smartcontracts::isi::multisig::multisig_instruction_decode_attempt(
+                    error,
+                    |error| {
+                        ValidationFail::InternalError(format!("fee settlement entrypoint: {error}"))
+                    },
+                ),
+            )
+        })?;
+        let authenticated_entrypoint = (state_transaction.tx_call_hash
+            == Some(Hash::from(entrypoint_hash)))
+        .then_some(*entrypoint_hash.as_ref());
+        let observation_time_ms = state_transaction
+            ._curr_block
+            .creation_time()
+            .as_millis()
+            .try_into()
+            .map_err(|_| {
+                ValidationFail::InternalError(
+                    "fee settlement block timestamp exceeds u64".to_owned(),
+                )
+            })?;
         let resolved = resolve_fee_sponsor_program(
             &state_transaction.world,
             &state_transaction.nexus,
@@ -4967,8 +5181,17 @@ impl Executor {
             transaction.payload(),
             state_transaction.current_dataspace_id,
             state_transaction.block_height(),
+            fee_sponsor_multisig::RuleContext::settlement(
+                observation_time_ms,
+                authenticated_entrypoint,
+                state_transaction.block_height(),
+            ),
         )
-        .map_err(nexus_fee_admission_error_to_validation_fail)?;
+        .map_err(|error| {
+            state_transaction.attempt_error_to_validation_fail(
+                error.map_rejection(nexus_fee_admission_error_to_validation_fail),
+            )
+        })?;
         let charge = FeeChargeBound {
             kind,
             asset_definition_id: asset_definition_id.clone(),
@@ -5693,18 +5916,26 @@ impl Executor {
         direct_body: bool,
     ) -> bool {
         use iroha_data_model::isi::sorafs::InitializeSorafsProviderAdmissionV1;
-        if !direct_body || !is_initial_genesis_context(state_transaction) {
+        if !direct_body
+            || !is_initial_genesis_context(state_transaction)
+            || !instruction
+                .as_any()
+                .is::<InitializeSorafsProviderAdmissionV1>()
+        {
             return false;
         }
         let Executable::Instructions(instructions) = transaction.instructions() else {
             return false;
         };
+        if instructions.get(index) != Some(instruction) {
+            return false;
+        }
+        // Authenticate the complete signed intent only for its exact initializer. This helper
+        // is called for every genesis instruction, including unrelated instructions.
+        #[cfg(test)]
+        sorafs_admission_hash_probe::note_outer_hash();
         let outer = transaction.hash_as_entrypoint();
-        instructions.get(index) == Some(instruction)
-            && instruction
-                .as_any()
-                .is::<InitializeSorafsProviderAdmissionV1>()
-            && state_transaction.current_network_entrypoint_hash == Some(outer)
+        state_transaction.current_network_entrypoint_hash == Some(outer)
             && state_transaction.tx_call_hash == Some(iroha_crypto::Hash::from(outer))
             && state_transaction.current_tx_hash == Some(transaction.hash())
             && state_transaction.current_entrypoint_index.is_some()
@@ -5808,6 +6039,8 @@ impl Executor {
         fee_sponsor: Option<FeeSponsorProgramId>,
         skip_nexus_fee: bool,
     ) -> Result<(), ValidationFail> {
+        state_transaction.current_direct_kagemusha_load_instruction_index = None;
+        state_transaction.current_direct_amx_instruction_index = None;
         if require_gas_limit && gas_limit_md.is_none() {
             return Err(ValidationFail::NotPermitted(
                 "missing gas limit in fee payment intent".to_owned(),
@@ -5853,8 +6086,21 @@ impl Executor {
             state_transaction.record_execution_fee_instructions(instructions.len(), used)?;
         }
         if let Some(replay) = ivm_proved_replay.as_ref() {
+            if entrypoint_authorization.is_none()
+                && replay.queued.iter().any(|effect| {
+                    effect.contract_runtime_context.is_some()
+                        || effect.entrypoint_authorization.is_some()
+                })
+            {
+                return Err(ValidationFail::NotPermitted(
+                    "proved contract effects are missing their root authorization snapshot".into(),
+                ));
+            }
             crate::deferred_authority::reject_opaque_instruction_authority(
-                replay.queued.iter().map(|queued| &queued.instruction),
+                replay
+                    .queued
+                    .iter()
+                    .filter_map(|queued| queued.instruction()),
                 state_transaction,
             )
             .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?;
@@ -5984,12 +6230,32 @@ impl Executor {
                         }
                         (None, None) => {}
                     }
-                    self.execute_instruction_with_contract_runtime_context(
-                        state_transaction,
-                        &queued.authority,
-                        queued.instruction,
-                        queued.contract_runtime_context.as_ref(),
-                    )?;
+                    match queued.payload {
+                        crate::smartcontracts::ivm::host::QueuedEffectPayload::Instruction(
+                            instruction,
+                        ) => {
+                            self.execute_instruction_with_contract_runtime_context(
+                                state_transaction,
+                                &queued.authority,
+                                instruction,
+                                queued.contract_runtime_context.as_ref(),
+                            )?;
+                        }
+                        crate::smartcontracts::ivm::host::QueuedEffectPayload::Emission(
+                            emission,
+                        ) => {
+                            crate::smartcontracts::ivm::host::HostExecutionArtifacts::validate_emission_provenance(
+                                &state_transaction.world, &emission.value, queued.contract_runtime_context.as_ref(), queued.entrypoint_authorization.as_ref(),
+                            )?;
+                            state_transaction.record_contract_emission(emission)?;
+                        }
+                    }
+                    if let Some(root) = entrypoint_authorization {
+                        root.validate_for_authority(&state_transaction.world, authority)
+                            .map_err(|error| {
+                                state_transaction.attempt_error_to_validation_fail(error)
+                            })?;
+                    }
                     if let Some(authorization) = queued.entrypoint_authorization.as_ref() {
                         authorization
                             .validate(&state_transaction.world)
@@ -6121,12 +6387,25 @@ impl Executor {
                             contract_runtime_context.is_none()
                                 && entrypoint_authorization.is_none(),
                         )?;
+                    state_transaction.current_direct_kagemusha_load_instruction_index =
+                        (contract_runtime_context.is_none() && entrypoint_authorization.is_none())
+                            .then_some(index);
+                    state_transaction.current_direct_amx_instruction_index =
+                        (contract_runtime_context.is_none()
+                            && entrypoint_authorization.is_none()
+                            && isi
+                                .as_any()
+                                .downcast_ref::<iroha_data_model::isi::sumeragi_amx::PrepareAmxV1>()
+                                .is_some())
+                        .then_some(index);
                     let result = self.execute_instruction_with_contract_runtime_context(
                         state_transaction,
                         authority,
                         isi,
                         contract_runtime_context,
                     );
+                    state_transaction.current_direct_kagemusha_load_instruction_index = None;
+                    state_transaction.current_direct_amx_instruction_index = None;
                     state_transaction.current_direct_stream_token_instruction_index = None;
                     state_transaction.current_direct_stream_token_gateway_instruction_index = None;
                     state_transaction.current_direct_stream_token_reputation_payload = None;
@@ -6269,7 +6548,9 @@ impl Executor {
         logical_time_ms: u64,
         trigger_context: Option<(&TriggerId, u64)>,
     ) -> Result<ContractInvocationOutcome, ValidationFail> {
-        // A contract frame cannot inherit a native gateway instruction's signed ordinal.
+        // A contract frame cannot inherit a native instruction's signed ordinal.
+        state_transaction.current_direct_kagemusha_load_instruction_index = None;
+        state_transaction.current_direct_amx_instruction_index = None;
         state_transaction.current_direct_stream_token_gateway_instruction_index = None;
         state_transaction.current_direct_stream_token_reputation_payload = None;
         state_transaction.current_direct_reputation_policy_origin = None;
@@ -6297,7 +6578,9 @@ impl Executor {
         logical_time_ms: u64,
         trigger_context: Option<(&TriggerId, u64)>,
     ) -> Result<ContractInvocationOutcome, ValidationFail> {
-        // A contract frame cannot inherit a native gateway instruction's signed ordinal.
+        // A contract frame cannot inherit a native instruction's signed ordinal.
+        state_transaction.current_direct_kagemusha_load_instruction_index = None;
+        state_transaction.current_direct_amx_instruction_index = None;
         state_transaction.current_direct_stream_token_gateway_instruction_index = None;
         state_transaction.current_direct_stream_token_reputation_payload = None;
         state_transaction.current_direct_reputation_policy_origin = None;
@@ -6373,11 +6656,6 @@ impl Executor {
             })?;
         runtime.set_max_cycles(effective_cycles.get());
         runtime.set_gas_limit(effective_limit);
-        if let Some(argument_record) = contract_call_context.argument_record.as_ref() {
-            argument_record
-                .precharge_vm(&mut runtime)
-                .map_err(|error| ValidationFail::NotPermitted(error.to_string()))?;
-        }
         if let Some(entrypoint_pc) = contract_call_context.entrypoint_pc {
             let code_len = runtime.memory.code_len();
             runtime.set_register(1, code_len);
@@ -6390,6 +6668,16 @@ impl Executor {
                     "contract entrypoint `{selector}` resolved to invalid pc: {err}"
                 ))
             })?;
+        }
+        let precharge_result = contract_call_context
+            .argument_record
+            .as_ref()
+            .map_or(Ok(()), |record| record.precharge_vm(&mut runtime));
+        if let Err(error) = &precharge_result {
+            runtime.record_boundary_fault(
+                error,
+                iroha_data_model::executor::fault::IvmFaultPositionV1::Initialization,
+            );
         }
         let contract_runtime_context = contract_call_context.runtime_context();
         let accounts = state_transaction.accounts_snapshot();
@@ -6435,10 +6723,13 @@ impl Executor {
             .map_err(|err| {
                 ValidationFail::InternalError(format!("invalid ZK snapshot state: {err}"))
             })?;
-        let run_result = match state_transaction.execution_cycle_budget()? {
-            Some(budget) => runtime.run_with_host_and_cycle_budget(&mut host, budget),
-            None => runtime.run_with_host(&mut host),
-        };
+        let cycle_budget = state_transaction.execution_cycle_budget()?;
+        let run_result = precharge_result
+            .and_then(|()| match cycle_budget {
+                Some(budget) => runtime.run_with_host_and_cycle_budget(&mut host, budget),
+                None => runtime.run_with_host(&mut host),
+            })
+            .and_then(|()| host.finish_contract_result(&runtime));
         let gas_used = effective_limit.saturating_sub(runtime.remaining_gas());
         if let Err(err) = run_result {
             let attempt =
@@ -6459,7 +6750,15 @@ impl Executor {
             }
             return Err(error);
         }
-        let next_nft_sequence = trigger_context.map(|_| host.next_nft_sequence());
+        let returned_error = matches!(run_result, Ok(true));
+        let lifecycle_transition = lifecycle_transition.filter(|_| !returned_error);
+        let next_nft_sequence = trigger_context.map(|(_, initial_sequence)| {
+            if returned_error {
+                initial_sequence
+            } else {
+                host.next_nft_sequence()
+            }
+        });
         let runtime_origin = contract_runtime_context.as_ref().map(|context| {
             crate::validation_fee::OpaqueDeferredRuntimeOrigin::new(
                 context,
@@ -6558,6 +6857,187 @@ impl Executor {
         }
         Ok(())
     }
+    /// Check bounded proof attachments against native registry metadata and block dedup state.
+    ///
+    /// This performs the same preliminary check used by transaction execution. It neither
+    /// verifies a complete operation relation nor grants execution or publication authority.
+    ///
+    /// # Errors
+    /// Returns the original structural, registry, activity, namespace, budget or duplicate error.
+    #[cfg(feature = "zk-preverify")]
+    pub fn preverify_attachments(
+        state_transaction: &mut StateTransaction<'_, '_>,
+        transaction: &SignedTransaction,
+    ) -> Result<(), ValidationFail> {
+        let md = transaction.metadata();
+        use iroha_data_model::proof::ProofAttachment;
+        let namespace_hint = md
+            .get("contract_alias")
+            .and_then(|value| value.try_into_any_norito::<String>().ok())
+            .and_then(|raw| {
+                raw.trim()
+                    .parse::<iroha_data_model::smart_contract::ContractAlias>()
+                    .ok()
+            })
+            .map(|alias| alias.dataspace_segment().to_owned())
+            .or_else(|| {
+                md.get("contract_address")
+                    .and_then(|value| value.try_into_any_norito::<String>().ok())
+                    .and_then(|raw| {
+                        raw.trim()
+                            .parse::<iroha_data_model::smart_contract::ContractAddress>()
+                            .ok()
+                    })
+                    .and_then(|contract_address| contract_address.dataspace_id().ok())
+                    .and_then(|dataspace_id| {
+                        state_transaction
+                            .nexus
+                            .dataspace_catalog
+                            .by_id(dataspace_id)
+                            .map(|entry| entry.alias.clone())
+                    })
+            });
+        // Process the signed transaction's bounded ZK attachments.
+        if let Some(attachments) = transaction.attachments() {
+            // Canonicalize verification order for determinism
+            let mut list_sorted = attachments.as_slice().to_vec();
+            list_sorted.sort_by(|a, b| {
+                let ah = crate::zk::hash_proof(&a.proof);
+                let bh = crate::zk::hash_proof(&b.proof);
+                (a.backend.as_str(), ah).cmp(&(b.backend.as_str(), bh))
+            });
+            for attachment in list_sorted.into_iter() {
+                if let Some((field, message)) = attachment.structural_error() {
+                    return Err(ValidationFail::NotPermitted(format!(
+                        "malformed proof attachment: {field} {message}"
+                    )));
+                }
+                let ProofAttachment {
+                    backend,
+                    proof,
+                    vk_ref,
+                    vk_commitment,
+                    ..
+                } = attachment;
+                // Sanity: proof.backend should match attachment backend
+                if proof.backend != backend {
+                    return Err(ValidationFail::NotPermitted(
+                        "proof backend mismatch".to_owned(),
+                    ));
+                }
+                if vk_ref.backend != backend {
+                    return Err(ValidationFail::NotPermitted(
+                        "verifying key backend mismatch".to_owned(),
+                    ));
+                }
+                if crate::zk::is_production_claim_backend_label(backend.as_str()) {
+                    return Err(ValidationFail::NotPermitted(
+                        "readiness-claim proof backends are not supported".to_owned(),
+                    ));
+                }
+                if crate::zk::is_trusted_setup_backend_label(backend.as_str()) {
+                    return Err(ValidationFail::NotPermitted(
+                        "trusted-setup proof backends are not supported".to_owned(),
+                    ));
+                }
+                if crate::zk::is_developer_only_backend_label(backend.as_str()) {
+                    return Err(ValidationFail::NotPermitted(
+                        "developer-only proof backends are not supported".to_owned(),
+                    ));
+                }
+                if !crate::zk::is_verifier_backend_registry_label_v1(backend.as_str()) {
+                    return Err(ValidationFail::NotPermitted(
+                        "unsupported proof backends are not supported".to_owned(),
+                    ));
+                }
+                // If a VK reference is provided without a commitment, check existence in
+                // WSV. If a commitment is provided, skip the lookup to keep pre-verify
+                // stateless and cheap.
+                if vk_commitment.is_none()
+                    && state_transaction
+                        .world
+                        .verifying_keys
+                        .get(&vk_ref)
+                        .is_none()
+                {
+                    return Err(ValidationFail::NotPermitted(format!(
+                        "referenced verifying key missing: {}::{}",
+                        vk_ref.backend, vk_ref.name
+                    )));
+                }
+                // Perform lightweight pre-verify (dedup + tag sanity).
+                let block_height = state_transaction.block_height();
+                let (expected_commitment, vk_active) =
+                    if let Some(rec) = state_transaction.world.verifying_keys.get(&vk_ref) {
+                        if let Some(ns_hint) = namespace_hint.as_deref() {
+                            if !rec.namespace.is_empty() && rec.namespace != ns_hint {
+                                return Err(ValidationFail::NotPermitted(
+                                    "verifying key namespace/manifest mismatch".to_owned(),
+                                ));
+                            }
+                        }
+                        (Some(rec.commitment), rec.is_active_at(block_height))
+                    } else {
+                        (vk_commitment, false)
+                    };
+                let res = state_transaction.preverify_proof(
+                    &proof,
+                    None,
+                    state_transaction.zk.preverify_budget_bytes,
+                    vk_commitment,
+                    expected_commitment,
+                    vk_active,
+                );
+                match res {
+                    PreverifyResult::Accepted => {}
+                    PreverifyResult::Duplicate => {
+                        return Err(ValidationFail::NotPermitted(
+                            "duplicate proof in block".to_owned(),
+                        ));
+                    }
+                    PreverifyResult::UnsupportedBackend => {
+                        return Err(ValidationFail::NotPermitted(
+                            "unsupported proof backend".to_owned(),
+                        ));
+                    }
+                    PreverifyResult::ProofTooBig => {
+                        return Err(ValidationFail::NotPermitted("proof too big".to_owned()));
+                    }
+                    PreverifyResult::MalformedProof => {
+                        return Err(ValidationFail::NotPermitted("malformed proof".to_owned()));
+                    }
+                    PreverifyResult::PreverifyBudgetExceeded => {
+                        return Err(ValidationFail::NotPermitted(
+                            "pre-verify budget exceeded".to_owned(),
+                        ));
+                    }
+                    PreverifyResult::VerifyingKeyMissing => {
+                        return Err(ValidationFail::NotPermitted(
+                            "verifying key missing".to_owned(),
+                        ));
+                    }
+                    PreverifyResult::VerifyingKeyMismatch => {
+                        return Err(ValidationFail::NotPermitted(
+                            "verifying key mismatch".to_owned(),
+                        ));
+                    }
+                    PreverifyResult::NamespaceMismatch => {
+                        return Err(ValidationFail::NotPermitted(
+                            "verifying key namespace/manifest mismatch".to_owned(),
+                        ));
+                    }
+                    PreverifyResult::VerifyingKeyInactive => {
+                        return Err(ValidationFail::NotPermitted(
+                            "verifying key inactive".to_owned(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Execute [`SignedTransaction`].
     /// # Errors
     /// Returns an error when IVM preparation or execution fails, or the executor denies the operation.
@@ -6568,6 +7048,7 @@ impl Executor {
         transaction: SignedTransaction,
         ivm_cache: &mut IvmCache,
     ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ValidationFail>> {
+        state_transaction.bind_kagemusha_load_entrypoint_v1(None);
         if let Some(reason) = state_transaction.execution_deferral() {
             return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
                 reason,
@@ -6575,6 +7056,9 @@ impl Executor {
         }
         let result =
             self.execute_transaction_body(state_transaction, authority, transaction, ivm_cache);
+        // The self-claim marker belongs to the signed body only, never to later callbacks.
+        state_transaction.sccp_exempt_self_claim = None;
+        state_transaction.bind_kagemusha_load_entrypoint_v1(None);
         // A local refusal has no completed execution, fee, gas, or effect result.
         // The transaction overlay remains poisoned until its owner drops it.
         if let Some(reason) = state_transaction.execution_deferral() {
@@ -6631,14 +7115,17 @@ impl Executor {
             .fee_payment_intent()
             .sponsor_program()
             .map(|(program_id, _)| program_id.clone());
-        let skip_nexus_fee = is_initial_genesis_context(state_transaction)
-            || fee_exempt_transaction(
-                &state_transaction.world,
-                &state_transaction.nexus,
-                &transaction,
-                state_transaction.block_unix_timestamp_ms(),
-            )
-            .map_err(|reason| state_transaction.defer_execution(reason))?;
+        let (fee_exemption, sccp_class) = if is_initial_genesis_context(state_transaction) {
+            (ExecutionFeeExemption::Exempt, None)
+        } else {
+            transaction_fee_exemption(state_transaction, &transaction)
+                .map_err(|reason| state_transaction.defer_execution(reason))?
+        };
+        let skip_nexus_fee = fee_exemption.skips_fee_on_success();
+        // Only an exempt self-claim makes the self-claim fee due at release (§4.12.4).
+        state_transaction.sccp_exempt_self_claim = (sccp_class
+            == Some(crate::smartcontracts::isi::sccp::admission::SccpExemptClassV1::SelfClaim))
+        .then(|| authority.clone());
         // Quote against the exact governed gas snapshot execution will charge.
         Self::refresh_gas_from_parameters(state_transaction)?;
         let fee_quote = if !skip_nexus_fee {
@@ -6670,7 +7157,8 @@ impl Executor {
             governance_ballot_binding.as_ref(),
         )?;
         state_transaction.bind_governance_ballot_entrypoint_v1(governance_ballot_binding);
-        state_transaction.begin_execution_fee_meter(&transaction, tx_bytes_len, skip_nexus_fee)?;
+        state_transaction.bind_kagemusha_load_entrypoint_v1(Some(&transaction));
+        state_transaction.begin_execution_fee_meter(&transaction, tx_bytes_len, fee_exemption)?;
         state_transaction.begin_execution_effect_budget(&transaction)?;
         // Disallow direct signing with multisig accounts; only explicit multisig
         // proposal/approval envelopes with bundled multisig signatures are allowed.
@@ -6756,179 +7244,7 @@ impl Executor {
             )));
         }
         #[cfg(feature = "zk-preverify")]
-        {
-            use iroha_data_model::proof::ProofAttachment;
-            let namespace_hint = md
-                .get("contract_alias")
-                .and_then(|value| value.try_into_any_norito::<String>().ok())
-                .and_then(|raw| {
-                    raw.trim()
-                        .parse::<iroha_data_model::smart_contract::ContractAlias>()
-                        .ok()
-                })
-                .map(|alias| alias.dataspace_segment().to_owned())
-                .or_else(|| {
-                    md.get("contract_address")
-                        .and_then(|value| value.try_into_any_norito::<String>().ok())
-                        .and_then(|raw| {
-                            raw.trim()
-                                .parse::<iroha_data_model::smart_contract::ContractAddress>()
-                                .ok()
-                        })
-                        .and_then(|contract_address| contract_address.dataspace_id().ok())
-                        .and_then(|dataspace_id| {
-                            state_transaction
-                                .nexus
-                                .dataspace_catalog
-                                .by_id(dataspace_id)
-                                .map(|entry| entry.alias.clone())
-                        })
-                });
-            // Preverify the wrapped proof carriers of the signed attachments.
-            if transaction.attachments().is_some() {
-                // Canonicalize verification order for determinism
-                let mut list_sorted = transaction.proof_attachments_v1().map_err(|error| {
-                    ValidationFail::NotPermitted(format!("malformed signed attachments: {error}"))
-                })?;
-                list_sorted.sort_by(|a, b| {
-                    let ah = crate::zk::hash_proof(&a.proof);
-                    let bh = crate::zk::hash_proof(&b.proof);
-                    (a.backend.as_str(), ah).cmp(&(b.backend.as_str(), bh))
-                });
-                for attachment in list_sorted.into_iter() {
-                    if let Some((field, message)) = attachment.structural_error() {
-                        return Err(ValidationFail::NotPermitted(format!(
-                            "malformed proof attachment: {field} {message}"
-                        )));
-                    }
-                    let ProofAttachment {
-                        backend,
-                        proof,
-                        vk_ref,
-                        vk_commitment,
-                        ..
-                    } = attachment;
-                    // Sanity: proof.backend should match attachment backend
-                    if proof.backend != backend {
-                        return Err(ValidationFail::NotPermitted(
-                            "proof backend mismatch".to_owned(),
-                        ));
-                    }
-                    if vk_ref.backend != backend {
-                        return Err(ValidationFail::NotPermitted(
-                            "verifying key backend mismatch".to_owned(),
-                        ));
-                    }
-                    if crate::zk::is_production_claim_backend_label(backend.as_str()) {
-                        return Err(ValidationFail::NotPermitted(
-                            "readiness-claim proof backends are not supported".to_owned(),
-                        ));
-                    }
-                    if crate::zk::is_trusted_setup_backend_label(backend.as_str()) {
-                        return Err(ValidationFail::NotPermitted(
-                            "trusted-setup proof backends are not supported".to_owned(),
-                        ));
-                    }
-                    if crate::zk::is_developer_only_backend_label(backend.as_str()) {
-                        return Err(ValidationFail::NotPermitted(
-                            "developer-only proof backends are not supported".to_owned(),
-                        ));
-                    }
-                    if !crate::zk::is_verifier_backend_registry_label_v1(backend.as_str()) {
-                        return Err(ValidationFail::NotPermitted(
-                            "unsupported proof backends are not supported".to_owned(),
-                        ));
-                    }
-                    // If a VK reference is provided without a commitment, check existence in
-                    // WSV. If a commitment is provided, skip the lookup to keep pre-verify
-                    // stateless and cheap.
-                    if vk_commitment.is_none()
-                        && state_transaction
-                            .world
-                            .verifying_keys
-                            .get(&vk_ref)
-                            .is_none()
-                    {
-                        return Err(ValidationFail::NotPermitted(format!(
-                            "referenced verifying key missing: {}::{}",
-                            vk_ref.backend, vk_ref.name
-                        )));
-                    }
-                    // Perform lightweight pre-verify (dedup + tag sanity).
-                    let block_height = state_transaction.block_height();
-                    let (expected_commitment, vk_active) =
-                        if let Some(rec) = state_transaction.world.verifying_keys.get(&vk_ref) {
-                            if let Some(ns_hint) = namespace_hint.as_deref() {
-                                if !rec.namespace.is_empty() && rec.namespace != ns_hint {
-                                    return Err(ValidationFail::NotPermitted(
-                                        "verifying key namespace/manifest mismatch".to_owned(),
-                                    ));
-                                }
-                            }
-                            (Some(rec.commitment), rec.is_active_at(block_height))
-                        } else {
-                            (vk_commitment, false)
-                        };
-                    let res = state_transaction.preverify_proof(
-                        &proof,
-                        None,
-                        state_transaction.zk.preverify_budget_bytes,
-                        vk_commitment,
-                        expected_commitment,
-                        vk_active,
-                    );
-                    match res {
-                        PreverifyResult::Accepted => {}
-                        PreverifyResult::Duplicate => {
-                            return Err(ValidationFail::NotPermitted(
-                                "duplicate proof in block".to_owned(),
-                            ));
-                        }
-                        PreverifyResult::UnsupportedBackend => {
-                            return Err(ValidationFail::NotPermitted(
-                                "unsupported proof backend".to_owned(),
-                            ));
-                        }
-                        PreverifyResult::CurveNotAllowed => {
-                            return Err(ValidationFail::NotPermitted(
-                                "curve not allowed".to_owned(),
-                            ));
-                        }
-                        PreverifyResult::ProofTooBig => {
-                            return Err(ValidationFail::NotPermitted("proof too big".to_owned()));
-                        }
-                        PreverifyResult::MalformedProof => {
-                            return Err(ValidationFail::NotPermitted("malformed proof".to_owned()));
-                        }
-                        PreverifyResult::PreverifyBudgetExceeded => {
-                            return Err(ValidationFail::NotPermitted(
-                                "pre-verify budget exceeded".to_owned(),
-                            ));
-                        }
-                        PreverifyResult::VerifyingKeyMissing => {
-                            return Err(ValidationFail::NotPermitted(
-                                "verifying key missing".to_owned(),
-                            ));
-                        }
-                        PreverifyResult::VerifyingKeyMismatch => {
-                            return Err(ValidationFail::NotPermitted(
-                                "verifying key mismatch".to_owned(),
-                            ));
-                        }
-                        PreverifyResult::NamespaceMismatch => {
-                            return Err(ValidationFail::NotPermitted(
-                                "verifying key namespace/manifest mismatch".to_owned(),
-                            ));
-                        }
-                        PreverifyResult::VerifyingKeyInactive => {
-                            return Err(ValidationFail::NotPermitted(
-                                "verifying key inactive".to_owned(),
-                            ));
-                        }
-                    }
-                }
-            }
-        }
+        Self::preverify_attachments(state_transaction, &transaction)?;
         let mut proved_contract_runtime_context = None;
         let mut proved_entrypoint_authorization = None;
         // Full verification for proof-carrying IVM executables must run before we move the
@@ -7013,8 +7329,14 @@ impl Executor {
                 state_transaction.last_tx_gas_used =
                     state_transaction.last_tx_gas_used.saturating_add(gas);
                 match &replay_result {
-                    Ok(replay) => state_transaction
-                        .record_execution_fee_instructions(replay.queued.len(), gas)?,
+                    Ok(replay) => state_transaction.record_execution_fee_instructions(
+                        replay
+                            .queued
+                            .iter()
+                            .filter(|effect| effect.instruction().is_some())
+                            .count(),
+                        gas,
+                    )?,
                     Err(_) => state_transaction.record_execution_fee_vm_work(gas)?,
                 }
             }
@@ -7063,7 +7385,7 @@ impl Executor {
                 let instructions = replay
                     .queued
                     .iter()
-                    .map(|queued| queued.instruction.clone())
+                    .filter_map(|queued| queued.instruction().cloned())
                     .collect();
                 self.execute_metered_instructions(
                     state_transaction,
@@ -7211,6 +7533,8 @@ impl Executor {
                             state_transaction.current_direct_musubi_pin_outbox_origin = None;
                             let result =
                                 self.execute_instruction(state_transaction, authority, instruction);
+                            state_transaction.current_direct_kagemusha_load_instruction_index =
+                                None;
                             state_transaction.current_direct_stream_token_instruction_index = None;
                             state_transaction.current_direct_stream_token_reputation_payload = None;
                             state_transaction.current_direct_reputation_policy_origin = None;
@@ -7222,6 +7546,8 @@ impl Executor {
                             result?;
                         }
                         ExecutableBatchItem::ContractCall(call) => {
+                            state_transaction.current_direct_kagemusha_load_instruction_index =
+                                None;
                             state_transaction.current_direct_stream_token_instruction_index = None;
                             state_transaction.current_direct_stream_token_reputation_payload = None;
                             state_transaction.current_direct_reputation_policy_origin = None;
@@ -7406,7 +7732,8 @@ impl Executor {
                 let run_result = match state_transaction.execution_cycle_budget()? {
                     Some(budget) => runtime.run_with_host_and_cycle_budget(&mut host, budget),
                     None => runtime.run_with_host(&mut host),
-                };
+                }
+                .and_then(|()| host.finish_contract_result(&runtime).map(|_| ()));
                 let gas_used = effective_limit.saturating_sub(runtime.remaining_gas());
                 if let Err(err) = run_result {
                     let attempt =
@@ -7529,7 +7856,7 @@ impl Executor {
             context.bind_runtime_identity(runtime_identity, contract_subject);
         }
         if let Some(context) = contract_call_context.as_ref() {
-            enforce_contract_entrypoint_permission(&state_transaction.world, authority, context)
+            enforce_contract_entrypoint_authorization(&state_transaction.world, authority, context)
                 .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?;
         }
         let heap_limit = state_transaction
@@ -7548,14 +7875,6 @@ impl Executor {
             })?;
         runtime.set_max_cycles(effective_cycles.get());
         runtime.set_gas_limit(effective_limit);
-        if let Some(argument_record) = contract_call_context
-            .as_ref()
-            .and_then(ContractCallExecutionContext::prepared_argument_record)
-        {
-            argument_record
-                .precharge_vm(&mut runtime)
-                .map_err(|error| ValidationFail::NotPermitted(error.to_string()))?;
-        }
         if let Some(context) = contract_call_context.as_ref() {
             if let Some(entrypoint_pc) = context.entrypoint_pc {
                 let code_len = runtime.memory.code_len();
@@ -7567,6 +7886,16 @@ impl Executor {
                     ))
                 })?;
             }
+        }
+        let precharge_result = contract_call_context
+            .as_ref()
+            .and_then(ContractCallExecutionContext::prepared_argument_record)
+            .map_or(Ok(()), |record| record.precharge_vm(&mut runtime));
+        if let Err(error) = &precharge_result {
+            runtime.record_boundary_fault(
+                error,
+                iroha_data_model::executor::fault::IvmFaultPositionV1::Initialization,
+            );
         }
         let contract_runtime_context = contract_call_context
             .as_ref()
@@ -7611,10 +7940,13 @@ impl Executor {
             .map_err(|err| {
                 ValidationFail::InternalError(format!("invalid ZK snapshot state: {err}"))
             })?;
-        let run_result = match state_transaction.execution_cycle_budget()? {
-            Some(budget) => runtime.run_with_host_and_cycle_budget(&mut host, budget),
-            None => runtime.run_with_host(&mut host),
-        };
+        let cycle_budget = state_transaction.execution_cycle_budget()?;
+        let run_result = precharge_result
+            .and_then(|()| match cycle_budget {
+                Some(budget) => runtime.run_with_host_and_cycle_budget(&mut host, budget),
+                None => runtime.run_with_host(&mut host),
+            })
+            .and_then(|()| host.finish_contract_result(&runtime).map(|_| ()));
         let gas_used = effective_limit.saturating_sub(runtime.remaining_gas());
         if let Err(err) = run_result {
             let attempt =
@@ -7780,7 +8112,7 @@ impl Executor {
             authority,
             &instruction,
         )?;
-        ensure_contract_entrypoint_permission_mutation_allowed(
+        ensure_contract_entrypoint_authorization_mutation_allowed(
             state_transaction,
             authority,
             &instruction,
@@ -7835,7 +8167,7 @@ impl Executor {
             authority,
             instruction,
         )?;
-        ensure_contract_entrypoint_permission_mutation_allowed(
+        ensure_contract_entrypoint_authorization_mutation_allowed(
             state_transaction,
             authority,
             instruction,
@@ -8043,6 +8375,11 @@ impl Executor {
                     "Can't register trigger owned by another account".to_owned(),
                 ));
             }
+        }
+        if let Some(reg) = extract_register_dataspace_asset_definition(instruction) {
+            crate::smartcontracts::isi::domain::isi::ensure_dataspace_asset_definition_registration_allowed(
+                state_transaction, authority, &reg,
+            ).map_err(ValidationFail::InstructionFailed)?;
         }
         if let Some(reg_asset_definition) = extract_register_asset_definition(instruction) {
             ensure_asset_definition_registration_allowed(
@@ -8273,7 +8610,14 @@ impl Executor {
         trace!("Running query validation");
         // This native boundary is mandatory for Initial and user-provided executors alike.
         // A custom executor may further restrict a query, but can never widen these grants.
-        validate_builtin_native_query_permission(world_ro, authority, query)?;
+        validate_builtin_native_query_permission(
+            world_ro,
+            authority,
+            query,
+            latest_block.as_ref().map_or(0, |header| {
+                u64::try_from(header.creation_time().as_millis()).unwrap_or(u64::MAX)
+            }),
+        )?;
         let query_box = match query {
             QueryRequest::Singular(singular) => AnyQueryBox::Singular(singular.clone()),
             QueryRequest::Start(iterable) => AnyQueryBox::Iterable(iterable.clone()),
@@ -8484,7 +8828,10 @@ where
         ))
         .into());
     }
-    Ok(ExecutorValidationReport { verdict, gas_used })
+    Ok(ExecutorValidationReport {
+        verdict: verdict.map_err(validate_executor_rejection_origin),
+        gas_used,
+    })
 }
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core::executor::MigrationResultPayload")]
@@ -8540,7 +8887,9 @@ fn run_executor_migration(
     {
         return match verdict {
             MigrationResultPayload::Ok(model) => Ok(Some(model)),
-            MigrationResultPayload::Err(fail) => Err(fail.into()),
+            MigrationResultPayload::Err(fail) => {
+                Err(validate_executor_rejection_origin(fail).into())
+            }
         };
     }
     let mut slice_unit = payload;
@@ -8549,13 +8898,23 @@ fn run_executor_migration(
     {
         return match verdict {
             MigrationUnitPayload::Ok(()) => Ok(None),
-            MigrationUnitPayload::Err(fail) => Err(fail.into()),
+            MigrationUnitPayload::Err(fail) => Err(validate_executor_rejection_origin(fail).into()),
         };
     }
     Err(ValidationFail::InternalError(
         "executor migrate entrypoint returned an undecodable or non-canonical result".to_owned(),
     )
     .into())
+}
+/// Only the native execution boundary may certify a runtime fault origin.
+fn validate_executor_rejection_origin(fail: ValidationFail) -> ValidationFail {
+    if matches!(fail, ValidationFail::IvmFault(_)) {
+        ValidationFail::InternalError(
+            "executor verdict cannot supply a runtime fault origin".to_owned(),
+        )
+    } else {
+        fail
+    }
 }
 fn map_migration_fail_to_vm_error(fail: ValidationFail) -> VMError {
     match fail {
@@ -8581,6 +8940,7 @@ fn map_migration_fail_to_vm_error(fail: ValidationFail) -> VMError {
             );
             VMError::DecodeError
         }
+        ValidationFail::IvmFault(_) => VMError::DecodeError,
         ValidationFail::ContractRejected(rejection) => {
             debug!(
                 ?rejection,
@@ -9016,6 +9376,27 @@ pub(crate) fn extract_register_asset_definition(
     .ok()
     .flatten()
 }
+/// Extract only the distinct direct-dataspace registration wire instruction.
+pub(crate) fn extract_register_dataspace_asset_definition(
+    instruction: &InstructionBox,
+) -> Option<iroha_data_model::isi::RegisterDataspaceAssetDefinition> {
+    use iroha_data_model::isi::RegisterDataspaceAssetDefinition;
+    if let Some(reg) = instruction
+        .as_any()
+        .downcast_ref::<RegisterDataspaceAssetDefinition>()
+    {
+        return Some(reg.clone());
+    }
+    if !instruction_has_concrete_type::<RegisterDataspaceAssetDefinition>(instruction) {
+        return None;
+    }
+    let bytes = instruction.dyn_encode();
+    iroha_panic_hook::catch_unwind_suppressed(|| {
+        RegisterDataspaceAssetDefinition::decode(&mut &bytes[..]).ok()
+    })
+    .ok()
+    .flatten()
+}
 /// Authorize registration against the signed owning domain and its current owner.
 /// Domainless definitions are restricted to the authenticated genesis context;
 /// optional aliases never supply registration authority.
@@ -9062,6 +9443,10 @@ mod public_pin_admission_tests;
 #[cfg(test)]
 #[path = "executor_opaque_monetary_tests.rs"]
 mod opaque_monetary_tests;
+
+#[cfg(test)]
+#[path = "executor_opaque_sccp_record_tests.rs"]
+mod opaque_sccp_record_tests;
 
 #[cfg(test)]
 fn executor_test_budget() -> iroha_allocation::AllocationBudget {
@@ -10263,7 +10648,7 @@ mod tests {
         let mut tx = block.transaction();
         let request = QueryRequest::Singular(query);
         assert!(
-            validate_builtin_native_query_permission(tx.world(), &authority, &request).is_err()
+            validate_builtin_native_query_permission(tx.world(), &authority, &request, 0).is_err()
         );
         tx.world.account_permissions.insert(
             authority.clone(),
@@ -10273,17 +10658,17 @@ mod tests {
             .into()]),
         );
         assert!(
-            validate_builtin_native_query_permission(tx.world(), &authority, &request).is_err()
+            validate_builtin_native_query_permission(tx.world(), &authority, &request, 0).is_err()
         );
         tx.world.account_permissions.insert(
             authority.clone(),
             BTreeSet::from([executor_permission::query::CanReadAllLedgerData.into()]),
         );
-        validate_builtin_native_query_permission(tx.world(), &authority, &request)
+        validate_builtin_native_query_permission(tx.world(), &authority, &request, 0)
             .expect("ledger-wide receipt reader");
         tx.world.account_permissions.remove(authority.clone());
         assert!(
-            validate_builtin_native_query_permission(tx.world(), &authority, &request).is_err()
+            validate_builtin_native_query_permission(tx.world(), &authority, &request, 0).is_err()
         );
     }
     #[test]
@@ -10300,6 +10685,40 @@ mod tests {
             assert_eq!(
                 native_singular_query_access(query),
                 NativeQueryAccess::AllLedger
+            );
+        }
+    }
+    #[test]
+    fn asset_definition_listing_requires_all_ledger_access() {
+        use iroha_data_model::query::{
+            asset::prelude::{
+                FindAssetDefinitionById, FindAssetDefinitionDirectHome, FindAssetDefinitions,
+            },
+            parameters::QueryParams,
+        };
+        let envelope = QueryWithParams {
+            query: (),
+            query_payload: FindAssetDefinitions.encode(),
+            item: QueryItemKind::AssetDefinition,
+            predicate_bytes: Vec::new(),
+            selector_bytes: Vec::new(),
+            params: QueryParams::default(),
+        };
+        assert_eq!(
+            native_iterable_query_access(&envelope).expect("authorize definition listing"),
+            NativeQueryAccess::AllLedger
+        );
+        let id = iroha_data_model::asset::AssetDefinitionId::derive_from_components(
+            iroha_model_base::domain::DomainId::try_new("homes", "universal").unwrap(),
+            "coin".parse().unwrap(),
+        );
+        for query in [
+            SingularQueryBox::from(FindAssetDefinitionById::new(id.clone())),
+            SingularQueryBox::from(FindAssetDefinitionDirectHome::new(id)),
+        ] {
+            assert_eq!(
+                native_singular_query_access(&query),
+                NativeQueryAccess::Registered
             );
         }
     }
@@ -10563,6 +10982,7 @@ mod tests {
             &register
         ));
     }
+    include!("executor_dpn_domain_enrollment_tests.rs");
     include!("executor_account_lineage_tests.rs");
     include!("executor_sns_attempt_tests.rs");
     include!("executor_raw_ivm_work_tests.rs");
@@ -10920,183 +11340,869 @@ mod tests {
     #[test]
     fn initial_executor_committee_publication_preserves_owner_proofs_and_parameter_authority() {
         use crate::{
-            sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
-            zk::kagemusha_v1_recursion::{
-                derive_kagemusha_mint_finality_validator_keys_v1,
-                prove_kagemusha_mint_finality_candidate_possession_v1,
+            beacon::{
+                InMemoryGlobalThresholdBeaconPartialSignerV1,
+                ValidatedGlobalThresholdBeaconSessionV1,
+                prepared_session_and_signers_fixture_for_keys_v1,
+                prove_global_threshold_beacon_seat_readiness_v1,
+                seat_readiness::verify_global_threshold_beacon_seat_readiness_v1,
             },
+            sumeragi::test_chain::CertifiedTestChain,
         };
-        use iroha_crypto::{Algorithm, SignatureOf};
+        use iroha_crypto::SignatureOf;
         use iroha_data_model::{
-            isi::{RegisterPublicLaneValidator, SetParameter},
+            consensus::GlobalThresholdBeaconDkgSessionV1,
+            isi::{
+                PublicLaneCandidateAuthorization, RegisterPublicLaneCandidate,
+                RegisterPublicLaneValidator, SetParameter,
+            },
             nexus::{
-                PublicLaneMonetaryPlanV1, ValidatorCandidateKeyAuthorizationV1,
-                ValidatorCandidateKeysV1, ValidatorCommitteeOperationV1,
+                AdmitValidatorCommitteeSeatV1, PrepareValidatorCommitteeCredentialsV1,
+                PublicLaneMonetaryPlanV1, PublicLaneMonetaryPreconditionV1,
+                PublicLaneMonetaryRegistrationV1, PublicLaneMonetaryScopeV1,
+                ValidatorCommitteeCredentialsV1, ValidatorCommitteeOperationV1,
+                ValidatorCommitteeSeatReadinessV1,
             },
             parameter::{Parameter, custom::CustomParameter, system::SumeragiNposParameters},
+            sumeragi::epoch::InstalledBeaconEpochBindingV1,
         };
-        use iroha_model_base::{peer::PeerId, topology::LaneId};
-        let owner_key = checked_keypair();
-        let other_key = checked_keypair();
-        let owner = AccountId::new(owner_key.public_key().clone());
-        let other = AccountId::new(other_key.public_key().clone());
-        let mut validators = (0x51..=0x54)
-            .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
-            .collect::<Vec<_>>();
-        validators.sort_by_key(|key| PeerId::new(key.public_key().clone()));
-        let peer_key = validators[0].clone();
-        let peer = PeerId::new(peer_key.public_key().clone());
-        let staking = iroha_config::parameters::actual::NexusStaking::default();
-        let definition: AssetDefinitionId = staking.stake_asset_id.parse().unwrap();
-        let escrow = AccountId::parse_encoded(&staking.stake_escrow_account_id).unwrap();
-        let amount = Quantity::from(1_000_u32);
-        let source = AssetId::new(definition.clone(), owner.clone());
-        let destination = AssetId::new(definition.clone(), escrow.clone());
-        let world = World::with_assets(
-            [Domain::new(DomainId::try_new("nexus", "universal").unwrap()).build(&owner)],
-            [
-                Account::new(owner.clone()).build(&owner),
-                Account::new(other.clone()).build(&other),
-                Account::new(escrow.clone()).build(&escrow),
-            ],
-            [AssetDefinition::new(
-                definition,
-                "Staked XOR".to_owned(),
-                iroha_primitives::numeric::NumericSpec::fractional(9),
-                iroha_data_model::asset::AssetBalancePolicy::Global,
-                None,
-            )
-            .build(&owner)],
-            [Asset::new(source.clone(), amount.clone())],
-            [],
-        );
-        let mut config = TestChainConfig::new(world, 1_000);
-        config.validator_keys = Some(validators);
-        config.consensus_mode = iroha_data_model::parameter::system::SumeragiConsensusMode::Npos;
-        config.genesis_parameters.push(Parameter::Custom(
-            SumeragiNposParameters::default().into_custom_parameter(),
-        ));
-        config.genesis_instructions.push(
-            RegisterPublicLaneValidator::new(
-                LaneId::SINGLE,
-                owner.clone(),
-                peer.clone(),
-                owner.clone(),
-                amount.clone(),
-                Metadata::default(),
-                PublicLaneMonetaryPlanV1::genesis_registration(source, destination, amount),
-            )
-            .into(),
-        );
-        let mut chain = CertifiedTestChain::start(config).unwrap();
-        let network = chain.network_id();
-        let candidate = |generation| {
-            let keys = derive_kagemusha_mint_finality_validator_keys_v1(
-                &[0xDD; 32],
-                generation,
-                peer.clone(),
-            )
-            .unwrap();
-            let possession = prove_kagemusha_mint_finality_candidate_possession_v1(
-                &[0xDD; 32],
-                network,
-                generation,
-                &keys,
-            )
-            .unwrap();
-            let authorization = ValidatorCandidateKeyAuthorizationV1::new(
-                network,
-                generation,
-                keys.clone(),
-                possession.clone(),
-            );
-            ValidatorCandidateKeysV1 {
-                network_id: network,
-                generation,
-                keys,
-                possession,
-                peer_signature: SignatureOf::new(peer_key.private_key(), &authorization),
-            }
-        };
-        let publish = |value| {
-            InstructionBox::from(SetParameter::new(Parameter::Custom(
-                ValidatorCommitteeOperationV1::PublishCandidate(value).into_custom_parameter(),
-            )))
-        };
-        let submit =
-            |chain: &mut CertifiedTestChain, key: &KeyPair, instruction, expected: Option<&str>| {
-                let time = (chain.height() + 1) * 1_000;
-                let transaction = chain.sign(key, [instruction], time);
-                let outcome = chain.commit_at(time, vec![transaction]);
-                let committed = chain.committed(chain.height());
-                let error = committed.block().output_error(0);
-                if let Some(expected) = expected {
-                    assert_eq!(outcome, [false]);
-                    assert!(format!("{error:?}").contains(expected), "{error:?}");
-                } else {
-                    assert_eq!(outcome, [true], "{error:?}");
-                }
+        use iroha_model_base::topology::LaneId;
+        struct Beacon {
+            session: ValidatedGlobalThresholdBeaconSessionV1,
+            signers: Vec<InMemoryGlobalThresholdBeaconPartialSignerV1>,
+        }
+        #[inline(never)]
+        fn prepared_chain() -> (
+            CertifiedTestChain,
+            Vec<KeyPair>,
+            Vec<KeyPair>,
+            Beacon,
+            PrepareValidatorCommitteeCredentialsV1,
+        ) {
+            use crate::beacon::{
+                FinalizedGlobalThresholdBeaconKeySessionRecordV1,
+                GlobalThresholdBeaconPartialSignerV1, GlobalThresholdBeaconPulseAggregatorV1,
             };
-        submit(
-            &mut chain,
-            &other_key,
-            publish(candidate(1)),
-            Some("exact current owner"),
-        );
-        submit(
-            &mut chain,
-            &owner_key,
-            publish(candidate(0)),
-            Some("invalid candidate generation publication"),
-        );
-        submit(
-            &mut chain,
-            &owner_key,
-            publish(candidate(2)),
-            Some("next generation"),
-        );
-        let mut forged = candidate(1);
-        forged.possession.eq_proof_signature.response[0] ^= 1;
-        let time = (chain.height() + 1) * 1_000;
-        let tx = chain.sign(&owner_key, [publish(forged)], time);
-        assert_eq!(chain.commit_at(time, vec![tx]), [false]);
-        assert!(
-            chain
+            use crate::sumeragi::test_chain::{Signers, TestChainConfig};
+            use iroha_data_model::{
+                consensus::{
+                    GlobalThresholdBeaconChainAnchorV1, GlobalThresholdBeaconPulseContextV1,
+                },
+                isi::{
+                    RegisterPublicLaneValidator,
+                    consensus_keys::{
+                        ApplyThresholdKeyLifecycleCertificateV1, ThresholdKeyLifecycleActionV1,
+                        ThresholdKeyLifecycleCertificateV1, ThresholdKeyLifecycleSignatureV1,
+                    },
+                },
+                nexus::{PrepareValidatorCommitteeCredentialsV1, PublicLaneMonetaryPlanV1},
+                parameter::system::SumeragiParameter,
+            };
+            use std::num::NonZeroU64;
+
+            const EPOCH: u64 = 16;
+            let mut keys = (0x51..=0x54)
+                .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
+                .collect::<Vec<_>>();
+            keys.sort_by_key(|key| PeerId::new(key.public_key().clone()));
+            let owners = (0xD1..=0xD4)
+                .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519))
+                .chain(
+                    [0xE1, 0xE2]
+                        .into_iter()
+                        .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519)),
+                )
+                .collect::<Vec<_>>();
+            let accounts = owners
+                .iter()
+                .map(|key| AccountId::new(key.public_key().clone()))
+                .collect::<Vec<_>>();
+            let staking = iroha_config::parameters::actual::NexusStaking::default();
+            let definition: AssetDefinitionId = staking.stake_asset_id.parse().unwrap();
+            let escrow = AccountId::parse_encoded(&staking.stake_escrow_account_id).unwrap();
+            let world = World::with_assets(
+                [
+                    Domain::new(DomainId::try_new("nexus", "universal").unwrap())
+                        .build(&accounts[0]),
+                ],
+                accounts
+                    .iter()
+                    .map(|account| Account::new(account.clone()).build(account))
+                    .chain([Account::new(escrow.clone()).build(&escrow)]),
+                [AssetDefinition::new(
+                    definition.clone(),
+                    "Staked XOR",
+                    iroha_primitives::numeric::NumericSpec::fractional(9),
+                    iroha_data_model::asset::AssetBalancePolicy::Global,
+                    None,
+                )
+                .build(&accounts[0])],
+                accounts.iter().map(|account| {
+                    Asset::new(
+                        AssetId::new(definition.clone(), account.clone()),
+                        Quantity::from(1_000u64),
+                    )
+                }),
+                [],
+            );
+            let mut config = TestChainConfig::new(world, 1_000);
+            config.validator_keys = Some(keys.clone());
+            config.consensus_mode =
+                iroha_data_model::parameter::system::SumeragiConsensusMode::Npos;
+            config.genesis_parameters.extend([
+                Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(
+                    NonZeroU64::new(EPOCH).unwrap(),
+                )),
+                Parameter::Custom(
+                    SumeragiNposParameters {
+                        epoch_length_blocks: NonZeroU64::new(EPOCH).unwrap(),
+                        max_validators: 4,
+                        evidence_horizon_blocks: EPOCH,
+                        slashing_delay_blocks: 2,
+                        ..SumeragiNposParameters::default()
+                    }
+                    .into_custom_parameter(),
+                ),
+            ]);
+            for (account, key) in accounts.iter().zip(&keys) {
+                let source = AssetId::new(definition.clone(), account.clone());
+                let destination = AssetId::new(definition.clone(), escrow.clone());
+                config.genesis_instructions.push(
+                    RegisterPublicLaneValidator::new(
+                        LaneId::SINGLE,
+                        account.clone(),
+                        PeerId::new(key.public_key().clone()),
+                        account.clone(),
+                        Quantity::from(1_000u64),
+                        Metadata::default(),
+                        PublicLaneMonetaryPlanV1::genesis_registration(
+                            source,
+                            destination,
+                            Quantity::from(1_000u64),
+                        ),
+                    )
+                    .into(),
+                );
+            }
+            let mut chain = CertifiedTestChain::start(config).unwrap();
+
+            fn ceremony(
+                chain: &CertifiedTestChain,
+                keys: &[KeyPair],
+                generation: u64,
+                session_id: [u8; 32],
+                attempt_id: [u8; 32],
+                start: u64,
+            ) -> Beacon {
+                let roster = keys
+                    .iter()
+                    .map(|key| PeerId::new(key.public_key().clone()))
+                    .collect::<Vec<_>>();
+                let (session, signers) = prepared_session_and_signers_fixture_for_keys_v1(
+                    GlobalThresholdBeaconDkgSessionV1 {
+                        version: 1,
+                        network_id: chain.network_id(),
+                        session_id,
+                        attempt_id,
+                        authority_generation: generation,
+                        roster_hash: crate::beacon::global_threshold_beacon_roster_hash_v1(&roster),
+                        committee_size: 4,
+                        threshold: 2,
+                        start_height: start,
+                        commitments_end_height: start + 1,
+                        deliveries_end_height: start + 2,
+                        acceptances_end_height: start + 3,
+                    },
+                    keys,
+                    &chain.state().ivm_execution_budget(),
+                );
+                assert!(session.belongs_to(&chain.state().ivm_execution_budget()));
+                Beacon { session, signers }
+            }
+            fn install(
+                chain: &mut CertifiedTestChain,
+                beacon: &Beacon,
+                keys: &[KeyPair],
+                owner: &KeyPair,
+            ) {
+                let height = chain.height() + 1;
+                let roster = keys
+                    .iter()
+                    .map(|key| PeerId::new(key.public_key().clone()))
+                    .collect::<Vec<_>>();
+                let record = FinalizedGlobalThresholdBeaconKeySessionRecordV1::new(
+                    beacon.session.record().clone(),
+                    &chain.state().ivm_execution_budget(),
+                )
+                .unwrap();
+                let mut certificate = ThresholdKeyLifecycleCertificateV1 {
+                    version: crate::state::THRESHOLD_KEY_LIFECYCLE_CERTIFICATE_VERSION_V1,
+                    action: ThresholdKeyLifecycleActionV1::FinalizeGlobalBeaconKey,
+                    expected_active_session_id: chain
+                        .state()
+                        .view()
+                        .world()
+                        .active_global_beacon_key_session(),
+                    effective_height: height,
+                    network_id: chain.network_id(),
+                    roster_hash: crate::beacon::global_threshold_beacon_roster_hash_v1(&roster),
+                    committee_size: 4,
+                    quorum: 3,
+                    session_id: record.session.session_id,
+                    transcript_hash: record.session.transcript_hash,
+                    public_state: norito::encode_canonical(&record).unwrap(),
+                    signatures: Vec::new(),
+                };
+                let preimage =
+                    crate::state::threshold_key_lifecycle_certificate_preimage_v1(&certificate)
+                        .unwrap();
+                certificate.signatures = keys
+                    .iter()
+                    .take(3)
+                    .enumerate()
+                    .map(|(index, key)| ThresholdKeyLifecycleSignatureV1 {
+                        signer_index: index as u16,
+                        signature: iroha_crypto::Signature::try_new(key.private_key(), &preimage)
+                            .unwrap(),
+                    })
+                    .collect();
+                crate::state::verify_threshold_key_lifecycle_certificate_v1(
+                    &certificate,
+                    &chain.network_id(),
+                    height,
+                    &roster,
+                )
+                .unwrap();
+                let signed = chain.sign(
+                    owner,
+                    [ApplyThresholdKeyLifecycleCertificateV1 { certificate }.into()],
+                    height * 1_000,
+                );
+                assert_eq!(chain.commit_at(height * 1_000, vec![signed]), [true]);
+            }
+            fn advance(chain: &mut CertifiedTestChain, target: u64, beacon: &Beacon) {
+                while chain.height() < target {
+                    let height = chain.height() + 1;
+                    let current = chain
+                        .state()
+                        .view()
+                        .world()
+                        .consensus_schedule()
+                        .ready(height)
+                        .unwrap()
+                        .epoch
+                        .clone();
+                    let control = if height + 1 == current.authorization.last_height {
+                        let parent = chain.committed(chain.height());
+                        let epoch = crate::sumeragi::schedule::core_epoch(&current).unwrap().id;
+                        let mut pulse = GlobalThresholdBeaconPulseAggregatorV1::new(
+                            beacon.session.clone(),
+                            height,
+                            GlobalThresholdBeaconChainAnchorV1 {
+                                height: chain.height(),
+                                block_hash: parent.block_hash(),
+                            },
+                            GlobalThresholdBeaconPulseContextV1 {
+                                instance: chain.instance().0,
+                                epoch: epoch.epoch,
+                                epoch_context_id: epoch.context.0,
+                                parent_consensus_hash: parent.core_hash().0,
+                                parent_result: parent.result().0,
+                            },
+                        )
+                        .unwrap();
+                        for signer in beacon.signers.iter().take(2) {
+                            pulse
+                                .accept_partial(
+                                    signer
+                                        .sign_partial(pulse.session(), pulse.payload())
+                                        .unwrap(),
+                                )
+                                .unwrap();
+                        }
+                        crate::sumeragi::epoch_beacon::control::encode(Some(
+                            pulse.finalize().unwrap(),
+                        ))
+                        .unwrap()
+                    } else {
+                        iroha_sumeragi::types::ControlWitness::empty()
+                    };
+                    chain.commit_with_control(
+                        Some(height * 1_000),
+                        Vec::new(),
+                        Signers::Quorum,
+                        control,
+                    );
+                    assert_eq!(chain.height(), height);
+                }
+            }
+            let bootstrap = ceremony(&chain, &keys, 0, [0x71; 32], [0x71; 32], 1);
+            advance(&mut chain, 3, &bootstrap);
+            install(&mut chain, &bootstrap, &keys, &owners[0]);
+            advance(&mut chain, EPOCH, &bootstrap);
+            let preparation = chain
                 .state()
                 .view()
                 .world()
-                .validator_candidate_keys()
-                .is_empty()
+                .validator_committee_transitions()
+                .get(&2)
+                .unwrap()
+                .preparation
+                .clone();
+            assert_eq!(preparation.selection_height, EPOCH);
+            assert_eq!(
+                preparation.selection_anchor,
+                chain.committed(EPOCH - 1).block_hash()
+            );
+            assert_eq!(
+                preparation.generation().validators,
+                keys.iter()
+                    .map(|key| PeerId::new(key.public_key().clone()))
+                    .collect::<Vec<_>>()
+            );
+            let target = ceremony(
+                &chain,
+                &keys,
+                1,
+                preparation.beacon_session_id().unwrap(),
+                preparation.transition_id().unwrap(),
+                EPOCH + 1,
+            );
+            advance(&mut chain, EPOCH + 4, &bootstrap);
+            install(&mut chain, &target, &keys, &owners[0]);
+            let command = PrepareValidatorCommitteeCredentialsV1 {
+                transition_id: preparation.transition_id().unwrap(),
+                target_epoch: 2,
+                credentials: ValidatorCommitteeCredentialsV1 {
+                    beacon: InstalledBeaconEpochBindingV1 {
+                        session_id: target.session.record().session_id,
+                        transcript_hash: target.session.record().transcript_hash,
+                    },
+                },
+            };
+            assert!(
+                chain
+                    .state()
+                    .view()
+                    .world()
+                    .validator_committee_transitions()
+                    .get(&2)
+                    .unwrap()
+                    .credentials
+                    .is_none()
+            );
+            (chain, owners, keys, target, command)
+        }
+
+        fn operation(command: ValidatorCommitteeOperationV1) -> InstructionBox {
+            SetParameter::new(Parameter::Custom(command.into_custom_parameter())).into()
+        }
+        fn submit(
+            chain: &mut CertifiedTestChain,
+            inputs: Vec<(&KeyPair, InstructionBox, Option<&str>)>,
+        ) {
+            let height = chain.height() + 1;
+            let time = height * 1_000;
+            let transactions = inputs
+                .iter()
+                .map(|(key, instruction, _)| chain.sign(key, [instruction.clone()], time))
+                .collect();
+            let outcomes = chain.commit_at(time, transactions);
+            assert_eq!(chain.height(), height);
+            let committed = chain.committed(height);
+            for (index, (_, _, expected)) in inputs.iter().enumerate() {
+                let error = committed.block().output_error(index);
+                assert_eq!(
+                    outcomes[index],
+                    expected.is_none(),
+                    "input {index}: {error:?}"
+                );
+                if let Some(expected) = expected {
+                    assert!(
+                        format!("{error:?}").contains(expected),
+                        "input {index}: {error:?}"
+                    );
+                } else {
+                    assert!(error.is_none(), "input {index}: {error:?}");
+                }
+            }
+        }
+
+        // This fixture executes the original genesis, H16 selection, and both actual DKG installs.
+        // Commands below are signed account work through Initial; no World preparation is injected.
+        let (mut chain, owners, original_keys, target, credentials) = prepared_chain();
+        assert_eq!(chain.height(), 21);
+        let before = chain
+            .state()
+            .view()
+            .world()
+            .validator_committee_transitions()
+            .get(&2)
+            .unwrap()
+            .clone();
+        let authority_before =
+            crate::state::validator_committee::current_authority(&chain.state().view()).unwrap();
+        let candidate_owner = AccountId::new(owners[4].public_key().clone());
+        let intruder = &owners[5];
+        let candidate_key = KeyPair::from_seed(vec![0x61; 32], Algorithm::BlsNormal);
+        let peer = PeerId::new(candidate_key.public_key().clone());
+        let staking = iroha_config::parameters::actual::NexusStaking::default();
+        let definition: AssetDefinitionId = staking.stake_asset_id.parse().unwrap();
+        let escrow = AccountId::parse_encoded(&staking.stake_escrow_account_id).unwrap();
+        let source = AssetId::new(definition.clone(), candidate_owner.clone());
+        let destination = AssetId::new(definition, escrow);
+        // The H16 boundary already froze epoch 2; this new peer may target only epoch 3.
+        let activation_height = before.preparation.last_height.checked_add(1).unwrap();
+        let registration = RegisterPublicLaneValidator::new(
+            LaneId::SINGLE,
+            candidate_owner.clone(),
+            peer.clone(),
+            candidate_owner.clone(),
+            Quantity::from(1_000u64),
+            Metadata::default(),
+            PublicLaneMonetaryPlanV1 {
+                network_scope: PublicLaneMonetaryScopeV1::Network(chain.network_id()),
+                valid_until_height: 28,
+                source_asset: source.clone(),
+                destination_asset: destination,
+                amount: Quantity::from(1_000u64),
+                precondition: PublicLaneMonetaryPreconditionV1::Registration(
+                    PublicLaneMonetaryRegistrationV1 { activation_height },
+                ),
+            },
         );
-        let valid = candidate(1);
-        submit(&mut chain, &owner_key, publish(valid.clone()), None);
-        let key = ValidatorCandidateKeysV1::key_id(network, 1, &peer);
+        let consent = PublicLaneCandidateAuthorization::new(
+            chain.network_id(),
+            registration.clone(),
+            activation_height,
+        );
+        let candidate = RegisterPublicLaneCandidate {
+            registration,
+            activation_height,
+            proof_of_possession: iroha_crypto::bls_normal_pop_prove(candidate_key.private_key())
+                .unwrap(),
+            peer_signature: SignatureOf::new(candidate_key.private_key(), &consent),
+        };
+        candidate
+            .peer_signature
+            .verify(candidate_key.public_key(), &consent)
+            .unwrap();
+        let mut foreign_consent = consent.clone();
+        foreign_consent.network_id =
+            executor_test_network_id(b"foreign candidate committee publication");
+        let mut foreign = candidate.clone();
+        foreign.peer_signature = SignatureOf::new(candidate_key.private_key(), &foreign_consent);
+        foreign
+            .peer_signature
+            .verify(candidate_key.public_key(), &foreign_consent)
+            .unwrap();
+        let mut later = candidate.clone();
+        later.activation_height = activation_height + 16;
+        let mut bad_pop = candidate.clone();
+        bad_pop.proof_of_possession[0] ^= 1;
+        submit(
+            &mut chain,
+            vec![
+                (
+                    intruder,
+                    candidate.clone().into(),
+                    Some("public validator lifecycle requires the validator account authority"),
+                ),
+                (
+                    &owners[4],
+                    later.into(),
+                    Some("consent targets activation height"),
+                ),
+                (
+                    &owners[4],
+                    foreign.into(),
+                    Some("does not authorize this network and registration"),
+                ),
+                (
+                    &owners[4],
+                    bad_pop.into(),
+                    Some("invalid BLS-normal proof of possession"),
+                ),
+            ],
+        );
+        {
+            let view = chain.state().view();
+            assert!(
+                view.world()
+                    .public_lane_validators()
+                    .get(&(LaneId::SINGLE, candidate_owner.clone()))
+                    .is_none()
+            );
+            assert!(!view.world().peers().iter().any(|value| value == &peer));
+            assert!(
+                view.world()
+                    .consensus_keys_by_pk()
+                    .get(&peer.public_key().to_string())
+                    .is_none()
+            );
+            assert!(
+                view.world()
+                    .public_lane_stake_custody()
+                    .get(&(LaneId::SINGLE, candidate_owner.clone()))
+                    .is_none()
+            );
+            assert_eq!(
+                initial_batch_balance(view.world(), &source),
+                Quantity::from(1_000u64)
+            );
+            assert_eq!(
+                view.world().validator_committee_transitions().get(&2),
+                Some(&before)
+            );
+        }
+        submit(
+            &mut chain,
+            vec![(&owners[4], candidate.clone().into(), None)],
+        );
+        {
+            let view = chain.state().view();
+            let registered = view
+                .world()
+                .public_lane_validators()
+                .get(&(LaneId::SINGLE, candidate_owner.clone()))
+                .unwrap();
+            assert_eq!(registered.peer_id, peer);
+            assert_eq!(registered.activation_height, activation_height);
+            assert_eq!(registered.total_stake, Quantity::from(1_000u64));
+            assert_eq!(
+                initial_batch_balance(view.world(), &source),
+                Quantity::zero()
+            );
+            assert_eq!(
+                view.world().validator_committee_transitions().get(&2),
+                Some(&before)
+            );
+        }
+        let mut absent = credentials;
+        absent.target_epoch = 1;
+        let mut wrong_attempt = credentials;
+        wrong_attempt.transition_id[0] ^= 1;
+        let mut forged_transcript = credentials;
+        forged_transcript.credentials.beacon.transcript_hash[0] ^= 1;
+        submit(
+            &mut chain,
+            vec![
+                (
+                    intruder,
+                    operation(ValidatorCommitteeOperationV1::PrepareCredentials(
+                        credentials,
+                    )),
+                    Some("exact target validator owner"),
+                ),
+                (
+                    &owners[0],
+                    operation(ValidatorCommitteeOperationV1::PrepareCredentials(absent)),
+                    Some("attempt has not been frozen"),
+                ),
+                (
+                    &owners[0],
+                    operation(ValidatorCommitteeOperationV1::PrepareCredentials(
+                        wrong_attempt,
+                    )),
+                    Some("terminal, replayed or outside its preparation cutoff"),
+                ),
+                (
+                    &owners[0],
+                    operation(ValidatorCommitteeOperationV1::PrepareCredentials(
+                        forged_transcript,
+                    )),
+                    Some("outside its exact preparation attempt or cutoff"),
+                ),
+            ],
+        );
         assert_eq!(
             chain
                 .state()
                 .view()
                 .world()
-                .validator_candidate_keys()
-                .get(&key),
-            Some(&valid)
+                .validator_committee_transitions()
+                .get(&2),
+            Some(&before)
         );
         submit(
             &mut chain,
-            &owner_key,
-            publish(valid),
-            Some("replays or duplicates"),
+            vec![(
+                &owners[0],
+                operation(ValidatorCommitteeOperationV1::PrepareCredentials(
+                    credentials,
+                )),
+                None,
+            )],
         );
+        let mut expected = before;
+        expected.credentials = Some(credentials.credentials);
+        assert_eq!(
+            chain
+                .state()
+                .view()
+                .world()
+                .validator_committee_transitions()
+                .get(&2),
+            Some(&expected)
+        );
+        let generation = expected.preparation.generation();
+        let context = expected.readiness_context(0).unwrap();
+        let proof = prove_global_threshold_beacon_seat_readiness_v1(
+            &target.signers[0],
+            &target.session,
+            &generation,
+            &context,
+        )
+        .unwrap();
+        verify_global_threshold_beacon_seat_readiness_v1(
+            &target.session,
+            &generation,
+            &context,
+            &proof,
+        )
+        .unwrap();
+        let ready = AdmitValidatorCommitteeSeatV1 {
+            transition_id: credentials.transition_id,
+            target_epoch: credentials.target_epoch,
+            readiness: ValidatorCommitteeSeatReadinessV1 {
+                validator_index: 0,
+                beacon: proof,
+            },
+        };
+        let proof_for_generation = |number| {
+            let mut foreign_generation = generation.clone();
+            foreign_generation.generation = number;
+            let mut foreign_context = context;
+            foreign_context.authority_generation = number;
+            foreign_context.authority_id = foreign_generation.generation_id().unwrap();
+            // This is a genuine adaptive share proof for a different complete challenge.
+            // It is not authority for the immutable generation selected on this chain.
+            let foreign_proof = prove_global_threshold_beacon_seat_readiness_v1(
+                &target.signers[0],
+                &target.session,
+                &foreign_generation,
+                &foreign_context,
+            )
+            .unwrap();
+            verify_global_threshold_beacon_seat_readiness_v1(
+                &target.session,
+                &foreign_generation,
+                &foreign_context,
+                &foreign_proof,
+            )
+            .unwrap();
+            assert!(
+                verify_global_threshold_beacon_seat_readiness_v1(
+                    &target.session,
+                    &generation,
+                    &context,
+                    &foreign_proof,
+                )
+                .is_err()
+            );
+            let mut command = ready.clone();
+            command.readiness.beacon = foreign_proof;
+            command
+        };
+        let previous_generation = proof_for_generation(0);
+        let next_generation = proof_for_generation(2);
+        let mut corrupted = ready.clone();
+        corrupted.readiness.beacon.proof.z_s[0] ^= 1;
+        submit(
+            &mut chain,
+            vec![
+                (
+                    intruder,
+                    operation(ValidatorCommitteeOperationV1::AdmitSeat(ready.clone())),
+                    Some("exact target validator owner"),
+                ),
+                (
+                    &owners[0],
+                    operation(ValidatorCommitteeOperationV1::AdmitSeat(
+                        previous_generation,
+                    )),
+                    Some("custody proof is invalid"),
+                ),
+                (
+                    &owners[0],
+                    operation(ValidatorCommitteeOperationV1::AdmitSeat(next_generation)),
+                    Some("custody proof is invalid"),
+                ),
+                (
+                    &owners[0],
+                    operation(ValidatorCommitteeOperationV1::AdmitSeat(corrupted)),
+                    Some("custody proof is invalid"),
+                ),
+            ],
+        );
+        assert_eq!(
+            chain
+                .state()
+                .view()
+                .world()
+                .validator_committee_transitions()
+                .get(&2),
+            Some(&expected)
+        );
+        submit(
+            &mut chain,
+            vec![(
+                &owners[0],
+                operation(ValidatorCommitteeOperationV1::AdmitSeat(ready.clone())),
+                None,
+            )],
+        );
+        expected.readiness.push(ready.readiness.clone());
+        assert_eq!(
+            chain
+                .state()
+                .view()
+                .world()
+                .validator_committee_transitions()
+                .get(&2),
+            Some(&expected)
+        );
+        // A peer admitted for a future election is not in the incumbent commit topology.
+        // Its replay reaches that live-key gate before the validator-row duplicate guard.
+        let fresh_peer_refusal = "global validator peer must be present in the commit topology; a prepared epoch key transition is required for a fresh peer";
+        let incumbent_owner = AccountId::new(owners[0].public_key().clone());
+        let incumbent_peer = PeerId::new(original_keys[0].public_key().clone());
+        let incumbent_source = AssetId::new(source.definition().clone(), incumbent_owner.clone());
+        let mut incumbent_registration = candidate.registration.clone();
+        incumbent_registration.validator = incumbent_owner.clone();
+        incumbent_registration.stake_account = incumbent_owner.clone();
+        incumbent_registration.peer_id = incumbent_peer.clone();
+        incumbent_registration.monetary_plan.source_asset = incumbent_source.clone();
+        let incumbent_consent = PublicLaneCandidateAuthorization::new(
+            chain.network_id(),
+            incumbent_registration.clone(),
+            activation_height,
+        );
+        let incumbent_duplicate = RegisterPublicLaneCandidate {
+            registration: incumbent_registration,
+            activation_height,
+            proof_of_possession: iroha_crypto::bls_normal_pop_prove(original_keys[0].private_key())
+                .unwrap(),
+            peer_signature: SignatureOf::new(original_keys[0].private_key(), &incumbent_consent),
+        };
+        iroha_crypto::bls_normal_pop_verify(
+            incumbent_peer.public_key(),
+            &incumbent_duplicate.proof_of_possession,
+        )
+        .unwrap();
+        incumbent_duplicate
+            .peer_signature
+            .verify(incumbent_peer.public_key(), &incumbent_consent)
+            .unwrap();
+        let replay_accounts = [
+            (&candidate_owner, &source),
+            (&incumbent_owner, &incumbent_source),
+        ];
+        let replay_before = {
+            let view = chain.state().view();
+            replay_accounts.map(|(owner, source)| {
+                (
+                    view.world()
+                        .public_lane_validators()
+                        .get(&(LaneId::SINGLE, owner.clone()))
+                        .unwrap()
+                        .clone(),
+                    view.world()
+                        .public_lane_stake_shares()
+                        .get(&(LaneId::SINGLE, owner.clone(), owner.clone()))
+                        .unwrap()
+                        .clone(),
+                    initial_batch_balance(view.world(), source),
+                )
+            })
+        };
+        assert_eq!(replay_before[1].0.peer_id, incumbent_peer);
         let ordinary = SetParameter::new(Parameter::Custom(CustomParameter::new(
             "ordinary_setting".parse().unwrap(),
             Json::new(1_u64),
         )));
         submit(
             &mut chain,
-            &owner_key,
-            ordinary.into(),
-            Some("CanSetParameters"),
+            vec![
+                (&owners[4], candidate.into(), Some(fresh_peer_refusal)),
+                (
+                    &owners[0],
+                    incumbent_duplicate.into(),
+                    Some("validator already registered for lane"),
+                ),
+                (
+                    &owners[0],
+                    operation(ValidatorCommitteeOperationV1::PrepareCredentials(
+                        credentials,
+                    )),
+                    Some("prepared credentials cannot be replaced"),
+                ),
+                (
+                    &owners[0],
+                    operation(ValidatorCommitteeOperationV1::AdmitSeat(ready)),
+                    Some("target seat readiness is already recorded"),
+                ),
+                (&owners[0], ordinary.into(), Some("CanSetParameters")),
+            ],
         );
+        let committed = chain.committed(28);
+        for (index, refusal) in [fresh_peer_refusal, "validator already registered for lane"]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(
+                committed.block().output_error(index),
+                Some(&crate::tx::TransactionRejectionReason::Validation(
+                    ValidationFail::InstructionFailed(
+                        InstructionExecutionError::InvariantViolation(refusal.into())
+                    )
+                )),
+                "each replay must reach its exact native registration guard"
+            );
+        }
         let view = chain.state().view();
+        assert_eq!(chain.height(), 28);
+        for ((owner, source), (record, share, balance)) in
+            replay_accounts.into_iter().zip(replay_before)
+        {
+            assert_eq!(
+                view.world()
+                    .public_lane_validators()
+                    .get(&(LaneId::SINGLE, owner.clone())),
+                Some(&record),
+                "rejected replay must preserve the complete original validator record"
+            );
+            assert_eq!(
+                view.world().public_lane_stake_shares().get(&(
+                    LaneId::SINGLE,
+                    owner.clone(),
+                    owner.clone()
+                )),
+                Some(&share),
+                "rejected replay must preserve the original bonded share"
+            );
+            assert_eq!(
+                initial_batch_balance(view.world(), source),
+                balance,
+                "rejected replay must not transfer a second original stake"
+            );
+        }
+        assert_eq!(
+            view.world().validator_committee_transitions().get(&2),
+            Some(&expected)
+        );
+        assert_eq!(
+            crate::state::validator_committee::current_authority(&view).unwrap(),
+            authority_before
+        );
+        assert_eq!(
+            authority_before.0.validators,
+            original_keys
+                .iter()
+                .map(|key| PeerId::new(key.public_key().clone()))
+                .collect::<Vec<_>>()
+        );
+        assert!(expected.outcome.is_none());
         assert!(
             !view
                 .world()
@@ -11253,7 +12359,7 @@ mod tests {
         let record = VerifyingKeyRecord::new(
             1,
             "genesis-vk-circuit",
-            BackendTag::Halo2IpaPasta,
+            BackendTag::NativePipaRPasta,
             "pallas",
             [0x11; 32],
             [0x22; 32],
@@ -11728,19 +12834,24 @@ mod tests {
                 validator,
                 staker: staker.clone(),
                 request_id,
-                monetary_plan: unbond_plan,
+                monetary_plan: unbond_plan.clone(),
             }
             .into(),
             ClaimPublicLaneRewards {
                 lane_id: iroha_model_base::topology::LaneId::SINGLE,
-                account: staker,
+                account: staker.clone(),
                 claim_plan: PublicLaneRewardClaimPlanV1 {
-                    fee_claim: None,
+                    fee_claim: iroha_data_model::nexus::PublicLaneFeeRewardClaimV1 {
+                        lifecycle_seal: [1; 32],
+                        beneficiary_id: staker.clone(),
+                        beneficiary_revision: 0,
+                        source_asset: unbond_plan.source_asset.clone(),
+                        destination_asset: unbond_plan.destination_asset.clone(),
+                        amount: Quantity::one(),
+                        expected_claim_sequence: 0,
+                    },
                     network_scope,
                     valid_until_height: 2,
-                    expected_state: None,
-                    records: Vec::new(),
-                    sources: Vec::new(),
                 },
             }
             .into(),
@@ -12315,6 +13426,12 @@ mod tests {
             0,
         ));
         let mut state_transaction = block.transaction();
+        seed_owner_permission_contract(
+            &mut state_transaction,
+            &contract,
+            &legitimate_root,
+            Hash::new(b"scoped contract capability fixture"),
+        );
         Register::trigger(Trigger::new(
             trigger_id.clone(),
             Action::new(
@@ -12613,8 +13730,17 @@ mod tests {
             (
                 "CanInvokeContractEntrypoint",
                 executor_permission::smart_contract::CanInvokeContractEntrypoint {
+                    contract: contract.clone(),
+                    entrypoint: "hajimari".to_owned(),
+                }
+                .into(),
+                true,
+            ),
+            (
+                "CanUseContractPermission",
+                executor_permission::smart_contract::CanUseContractPermission {
                     contract,
-                    entrypoint: "main".to_owned(),
+                    permission: "write".parse().unwrap(),
                 }
                 .into(),
                 true,
@@ -12689,7 +13815,7 @@ mod tests {
             ("CanSlashGovernanceLock", slash_permission, false),
             ("CanRestituteGovernanceLock", restitute_permission, false),
         ];
-        assert_eq!(cases.len(), 46, "update this table for every scoped arm");
+        assert_eq!(cases.len(), 47, "update this table for every scoped arm");
         assert_eq!(
             cases
                 .iter()
@@ -13899,9 +15025,15 @@ mod tests {
             !error.to_string().contains("user executor reached"),
             "borrowed role mutation reached the user executor: {error}",
         );
-        let exact: Permission = executor_permission::smart_contract::CanInvokeContractEntrypoint {
+        seed_owner_permission_contract(
+            &mut state_transaction,
+            &contract_address,
+            &deployer,
+            Hash::new(b"contract permission boundary"),
+        );
+        let exact: Permission = executor_permission::smart_contract::CanUseContractPermission {
             contract: contract_address.clone(),
-            entrypoint: "main".to_owned(),
+            permission: "write".parse().unwrap(),
         }
         .into();
         state_transaction
@@ -13926,9 +15058,9 @@ mod tests {
             entrypoint: "main".to_owned(),
         };
         let inconsistent_exact: Permission =
-            executor_permission::smart_contract::CanInvokeContractEntrypoint {
+            executor_permission::smart_contract::CanUseContractPermission {
                 contract: contract_address.clone(),
-                entrypoint: "main".to_owned(),
+                permission: "write".parse().unwrap(),
             }
             .into();
         let error = executor
@@ -13946,12 +15078,11 @@ mod tests {
         let sibling_address =
             ContractAddress::derive(&state.network_id, &deployer, 506, DataSpaceId::UNIVERSAL)
                 .expect("sibling contract address");
-        let sibling: Permission =
-            executor_permission::smart_contract::CanInvokeContractEntrypoint {
-                contract: sibling_address,
-                entrypoint: "main".to_owned(),
-            }
-            .into();
+        let sibling: Permission = executor_permission::smart_contract::CanUseContractPermission {
+            contract: sibling_address,
+            permission: "write".parse().unwrap(),
+        }
+        .into();
         let error = executor
             .execute_instruction_with_contract_runtime_context(
                 &mut state_transaction,
@@ -14010,7 +15141,14 @@ mod tests {
         // Explicit supplied post-verification handoff, not measured VM work.
         transaction.last_tx_gas_used = replay.gas_used;
         transaction
-            .record_execution_fee_instructions(replay.queued.len(), replay.gas_used)
+            .record_execution_fee_instructions(
+                replay
+                    .queued
+                    .iter()
+                    .filter(|effect| effect.instruction().is_some())
+                    .count(),
+                replay.gas_used,
+            )
             .expect("bind supplied replay fee work");
     }
 
@@ -14094,14 +15232,39 @@ mod tests {
         let contract_address =
             ContractAddress::derive(&state.network_id, &authority, 405, DataSpaceId::UNIVERSAL)
                 .expect("contract address");
-        let code_hash = Hash::new(b"proved durable-state contract");
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let (program, manifest) = kotodama_lang::compiler::Compiler::new()
+            .compile_source_with_manifest(
+                "seiyaku ProvedDurable { kotoage fn write() authorize(anyone) {} }",
+            )
+            .expect("compile exact replay authorization");
+        let code_hash = ivm::contract_code_hash(&program);
         bind_executor_test_contract_after_genesis(&state, &contract_address, &authority, code_hash);
+        {
+            let mut world = state.world.block();
+            world.contract_manifests.insert(
+                iroha_data_model::smart_contract::ContractArtifactId::for_address(
+                    &contract_address,
+                    code_hash,
+                )
+                .unwrap(),
+                manifest
+                    .try_signed(
+                        manifest_signing.context(),
+                        manifest_signing.max_frame_bytes(),
+                        &keypair,
+                    )
+                    .expect("sign replay authorization manifest"),
+            );
+            world.commit();
+        }
         let tx = supplied_replay_fixture_source(&state, &authority, &keypair, Vec::new());
         let authorization = ContractEntrypointAuthorizationSnapshot::new(
             authority.clone(),
             "write".to_owned(),
-            None,
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
             &code::BoundContractIdentity {
+                lifecycle_revision: 1,
                 contract_address: contract_address.clone(),
                 contract_alias: None,
                 contract_alias_binding: None,
@@ -14392,8 +15555,11 @@ mod tests {
                     .iter()
                     .cloned()
                     .map(
-                        |instruction| crate::smartcontracts::ivm::host::QueuedInstruction {
-                            instruction,
+                        |instruction| crate::smartcontracts::ivm::host::QueuedEffect {
+                            payload:
+                                crate::smartcontracts::ivm::host::QueuedEffectPayload::Instruction(
+                                    instruction,
+                                ),
                             authority: ALICE_ID.clone(),
                             contract_runtime_context: None,
                             entrypoint_authorization: None,
@@ -14630,7 +15796,7 @@ mod tests {
                 volatility: GasVolatility::Stable,
             }];
     }
-    fn sponsored_pipeline_fee_fixture(
+    pub(super) fn sponsored_pipeline_fee_fixture(
         lease_allocation: Option<Quantity>,
     ) -> (
         State,
@@ -15851,6 +17017,7 @@ mod tests {
             transaction.payload(),
             Some(DataSpaceId::UNIVERSAL),
             10,
+            fee_sponsor_multisig::RuleContext::admission(1),
         )
         .expect("old revision stays effective while its lease is live");
         assert_eq!(current.revision.revision, 1);
@@ -15863,8 +17030,13 @@ mod tests {
             transaction.payload(),
             Some(DataSpaceId::UNIVERSAL),
             10,
+            fee_sponsor_multisig::RuleContext::admission(1),
         )
         .expect_err("scheduled revision must not be predicted before old leases drain");
+        let crate::execution_attempt::ExecutionAttemptError::Rejected(early_error) = early_error
+        else {
+            panic!("revision mismatch must be a completed rejection");
+        };
         assert_eq!(early_error.code(), FeeRejectionCode::RevisionNotActive);
         let drained = resolve_fee_sponsor_program(
             &state_transaction.world,
@@ -15875,6 +17047,7 @@ mod tests {
             transaction.payload(),
             Some(DataSpaceId::UNIVERSAL),
             21,
+            fee_sponsor_multisig::RuleContext::admission(1),
         )
         .expect("scheduled revision becomes effective after the old lease expiry");
         assert_eq!(drained.revision.revision, 2);
@@ -15949,15 +17122,20 @@ mod tests {
         state_transaction.current_tx_hash = Some(transaction.hash());
         validate_transaction_fee_admission(&mut state_transaction, &transaction)
             .expect("pre-effect policy accepts its exact signed limit");
+        let (gas_used, instruction_count) =
+            applied_overlay_base_gas(&transaction, &overlay, &state_transaction.zk.gas)
+                .expect("meter the owned overlay before applying its effects");
         overlay
-            .apply_with_chunk(
-                &mut state_transaction,
-                &authority,
-                overlay.instruction_count(),
-            )
+            .apply_with_chunk(&mut state_transaction, &authority, instruction_count)
             .expect("apply governed gas parameter effects");
-        charge_fees_for_applied_overlay(&mut state_transaction, &authority, &transaction, &overlay)
-            .expect("settle against the pre-effect gas policy snapshot");
+        charge_fees_for_applied_overlay(
+            &mut state_transaction,
+            &authority,
+            &transaction,
+            gas_used,
+            instruction_count,
+        )
+        .expect("settle against the pre-effect gas policy snapshot");
         assert_eq!(
             state_transaction.pipeline.gas.tech_account_id,
             initial_tech.to_string()
@@ -18451,6 +19629,32 @@ mod tests {
         );
     }
     #[test]
+    fn direct_dataspace_registration_extracts_only_its_distinct_instruction() {
+        let id = AssetDefinitionId::derive_from_components(
+            DomainId::try_new("defs", "universal").expect("domain id"),
+            "bond".parse().expect("name"),
+        );
+        let object = AssetDefinition::numeric(
+            id,
+            "Bond".to_owned(),
+            iroha_data_model::asset::AssetBalancePolicy::DataspaceRestricted,
+            None,
+        );
+        let direct = iroha_data_model::isi::RegisterDataspaceAssetDefinition::new(
+            DataSpaceId::new(7),
+            object.clone(),
+        )
+        .expect("direct registration");
+        let instruction = InstructionBox::from(direct.clone());
+        assert_eq!(
+            extract_register_dataspace_asset_definition(&instruction),
+            Some(direct)
+        );
+        assert!(extract_register_asset_definition(&instruction).is_none());
+        let original = InstructionBox::from(Register::asset_definition(object));
+        assert!(extract_register_dataspace_asset_definition(&original).is_none());
+    }
+    #[test]
     fn extract_register_asset_definition_accepts_register_asset_definition_instruction() {
         let asset_definition_id: AssetDefinitionId = AssetDefinitionId::derive_from_components(
             DomainId::try_new("defs", "universal").expect("defs domain id"),
@@ -19400,7 +20604,7 @@ mod tests {
                 result,
                 Err(ValidationFail::NotPermitted(ref message))
                     if message.contains(
-                        "deployed contracts may grant or revoke only exact CanInvokeContractEntrypoint tokens"
+                        "deployed contracts may grant or revoke only exact CanUseContractPermission tokens"
                     )
             ),
             "contract alias must not bypass the common permission boundary: {result:?}"
@@ -20494,7 +21698,9 @@ mod tests {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: permission.map(str::to_owned),
+            authorization: if matches!(kind, iroha_data_model::smart_contract::manifest::EntryPointKind::Hajimari | iroha_data_model::smart_contract::manifest::EntryPointKind::Kaizen) {
+                EntrypointAuthorizationV1::RuntimeLifecycle
+            } else { permission.map_or(EntrypointAuthorizationV1::Anyone, |name| EntrypointAuthorizationV1::Permission(name.parse().unwrap())) },
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -20503,6 +21709,17 @@ mod tests {
             entry_pc: 0,
         };
         let interface = EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: permission
+                .into_iter()
+                .map(|name| {
+                    iroha_data_model::smart_contract::manifest::ContractPermissionDescriptorV1 {
+                        name: name.parse().unwrap(),
+                        scope: ContractPermissionScopeV1::Instance,
+                    }
+                })
+                .collect(),
             callables: vec![crate::ivm_test_support::unit_callable(0)],
             seiyaku_name: "TestContract".to_owned(),
             compiler_fingerprint: "executor-test".to_owned(),
@@ -20545,9 +21762,7 @@ mod tests {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: (kind
-                == iroha_data_model::smart_contract::manifest::EntryPointKind::Kotoage)
-                .then(|| "ExecutePrivate".to_owned()),
+            authorization: if matches!(kind, iroha_data_model::smart_contract::manifest::EntryPointKind::Hajimari | iroha_data_model::smart_contract::manifest::EntryPointKind::Kaizen) { EntrypointAuthorizationV1::RuntimeLifecycle } else { EntrypointAuthorizationV1::Anyone },
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -20556,6 +21771,9 @@ mod tests {
             entry_pc: 0,
         };
         let interface = EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             callables: vec![crate::ivm_test_support::unit_callable(0)],
             seiyaku_name: "PrivateInputContract".to_owned(),
             compiler_fingerprint: "executor-private-input-test".to_owned(),
@@ -20590,8 +21808,8 @@ mod tests {
     }
     fn prepared_parameterized_trigger_contract() -> ivm::PreparedContract {
         let source = r#"
-seiyaku TriggerArguments {
-  kotoage fn run(quantity val) authorize("Admin") {
+seiyaku TriggerArguments { permission Admin;
+  kotoage fn run(quantity val) authorize(Admin) {
     let _val = val;
   }
 }
@@ -20609,9 +21827,9 @@ seiyaku TriggerArguments {
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
                 r#"
-seiyaku GuardedValue {
-  kotoage fn write(int value) authorize("CanInvokeContractEntrypoint") {
-    ledger::account::set_detail(
+seiyaku GuardedValue { permission CanInvokeContractEntrypoint;
+  kotoage fn write(int value) authorize(CanInvokeContractEntrypoint) {
+    ledger::account::set_metadata(
       account: context::authority(),
       key: Name::parse("guarded_value"),
       value: Json::parse("{\"authorized\":true}")
@@ -20778,13 +21996,13 @@ seiyaku GuardedValue {
         );
         drop(state_tx);
         let mut state_tx = block.transaction();
-        let entrypoint_permission: Permission =
-            iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+        let entrypoint_authorization: Permission =
+            iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
                 contract: contract_address.clone(),
-                entrypoint: "write".to_owned(),
+                permission: "CanInvokeContractEntrypoint".parse().unwrap(),
             }
             .into();
-        Grant::account_permission(entrypoint_permission.clone(), authority.clone())
+        Grant::account_permission(entrypoint_authorization.clone(), authority.clone())
             .execute(&authority, &mut state_tx)
             .expect("grant direct-call entrypoint permission");
         state_tx.apply();
@@ -21012,7 +22230,11 @@ seiyaku GuardedValue {
             )
             .map_err(crate::execution_attempt::expect_completed_rejection)
             .expect_err("a warm cache must not substitute for a missing live manifest");
-        assert!(missing_manifest.to_string().contains("has no manifest"));
+        assert!(
+            matches!(&missing_manifest, ValidationFail::NotPermitted(reason)
+                if reason == "contract permission requires the current signed manifest"),
+            "{missing_manifest:?}"
+        );
         assert_eq!(ivm::argument_record_decode_count(), 0);
         assert_eq!(
             state_tx
@@ -21033,7 +22255,7 @@ seiyaku GuardedValue {
             ),
             live_manifest,
         );
-        Revoke::account_permission(entrypoint_permission.clone(), authority.clone())
+        Revoke::account_permission(entrypoint_authorization.clone(), authority.clone())
             .execute(&authority, &mut state_tx)
             .expect("revoke direct-call entrypoint permission");
         state_tx.apply();
@@ -21069,15 +22291,15 @@ seiyaku GuardedValue {
         );
         drop(state_tx);
         let mut state_tx = block.transaction();
-        Grant::account_permission(entrypoint_permission, authority.clone())
+        Grant::account_permission(entrypoint_authorization, authority.clone())
             .execute(&authority, &mut state_tx)
             .expect("restore direct-call entrypoint permission");
         let (rebound_program, rebound_manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
                 r#"
-seiyaku GuardedValueRebound {
-  kotoage fn write(int value) authorize("CanInvokeContractEntrypoint") {
-    ledger::account::set_detail(
+seiyaku GuardedValueRebound { permission CanInvokeContractEntrypoint;
+  kotoage fn write(int value) authorize(CanInvokeContractEntrypoint) {
+    ledger::account::set_metadata(
       account: context::authority(),
       key: Name::parse("guarded_value"),
       value: Json::parse("{\"authorized\":\"rebound\"}")
@@ -21119,6 +22341,7 @@ seiyaku GuardedValueRebound {
                 .get_mut(&contract_address)
                 .expect("rebound contract retains its lifecycle binding");
             binding.lifecycle.active_code_hash = Some(rebound_code_hash);
+            binding.lifecycle.retained_code_hash = Some(rebound_code_hash);
             binding.lifecycle.revision += 1;
         }
         state_tx.apply();
@@ -21171,6 +22394,7 @@ seiyaku GuardedValueRebound {
                 .get_mut(&contract_address)
                 .expect("restored contract retains its lifecycle binding");
             binding.lifecycle.active_code_hash = Some(code_hash);
+            binding.lifecycle.retained_code_hash = Some(code_hash);
             binding.lifecycle.revision += 1;
         }
         state_tx
@@ -21256,9 +22480,9 @@ seiyaku GuardedValueRebound {
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
                 r#"
-seiyaku OrderedBatchGuard {
-  kotoage fn write(int value) authorize("CanInvokeContractEntrypoint") {
-    ledger::account::set_detail(
+seiyaku OrderedBatchGuard { permission CanInvokeContractEntrypoint;
+  kotoage fn write(int value) authorize(CanInvokeContractEntrypoint) {
+    ledger::account::set_metadata(
       account: context::authority(),
       key: Name::parse("mixed_batch_marker"),
       value: Json::parse("{\"written\":true}")
@@ -21328,10 +22552,10 @@ seiyaku OrderedBatchGuard {
         );
         world.commit();
         bind_executor_test_contract_after_genesis(&state, &contract_address, &authority, code_hash);
-        let entrypoint_permission: Permission =
-            iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+        let entrypoint_authorization: Permission =
+            iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
                 contract: contract_address.clone(),
-                entrypoint: "write".to_owned(),
+                permission: "CanInvokeContractEntrypoint".parse().unwrap(),
             }
             .into();
         let invocation = ContractInvocation {
@@ -21342,11 +22566,11 @@ seiyaku OrderedBatchGuard {
         };
         let explicit_instructions = vec![
             InstructionBox::from(Grant::account_permission(
-                entrypoint_permission.clone(),
+                entrypoint_authorization.clone(),
                 authority.clone(),
             )),
             InstructionBox::from(Revoke::account_permission(
-                entrypoint_permission.clone(),
+                entrypoint_authorization.clone(),
                 authority.clone(),
             )),
         ];
@@ -21401,7 +22625,7 @@ seiyaku OrderedBatchGuard {
                 .world
                 .account_permissions_iter(&authority)
                 .expect("authority permissions")
-                .any(|permission| permission == &entrypoint_permission),
+                .any(|permission| permission == &entrypoint_authorization),
             "the trailing revoke must remain visible after the call"
         );
         assert!(
@@ -21483,7 +22707,7 @@ seiyaku OrderedBatchGuard {
                 .world
                 .account_permissions_iter(&authority)
                 .expect("authority permissions")
-                .any(|permission| permission == &entrypoint_permission),
+                .any(|permission| permission == &entrypoint_authorization),
             "dropping a cap-rejected mixed batch must roll back its permission grant"
         );
         drop(cap_verification_tx);
@@ -21540,9 +22764,9 @@ seiyaku OrderedBatchGuard {
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
                 r#"
-seiyaku MeteredFailure {
-  kotoage fn run() authorize("CanInvokeContractEntrypoint") {
-    ledger::account::set_detail(
+seiyaku MeteredFailure { permission CanInvokeContractEntrypoint;
+  kotoage fn run() authorize(CanInvokeContractEntrypoint) {
+    ledger::account::set_metadata(
       account: context::authority(),
       key: Name::parse("must_not_be_written"),
       value: Json::parse("true")
@@ -21598,13 +22822,13 @@ seiyaku MeteredFailure {
             0,
         ));
         let mut state_transaction = block.transaction();
-        let entrypoint_permission: Permission =
-            iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+        let entrypoint_authorization: Permission =
+            iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
                 contract: contract_address.clone(),
-                entrypoint: "run".to_owned(),
+                permission: "CanInvokeContractEntrypoint".parse().unwrap(),
             }
             .into();
-        Grant::account_permission(entrypoint_permission, authority.clone())
+        Grant::account_permission(entrypoint_authorization, authority.clone())
             .execute(&authority, &mut state_transaction)
             .expect("grant metered failure entrypoint permission");
         let invocation = ContractInvocation {
@@ -21651,9 +22875,17 @@ seiyaku MeteredFailure {
             )
             .expect_err("ten units of gas cannot complete the contract");
         state_transaction.finish_execution_effect_budget().unwrap();
-        assert!(
-            error.to_string().contains("gas"),
-            "unexpected VM failure: {error}"
+        let ValidationFail::IvmFault(fault) = error else {
+            panic!("expected a typed gas-exhaustion fault, got {error}");
+        };
+        assert_eq!(
+            fault.kind,
+            iroha_data_model::executor::fault::IvmFaultKindV1::OutOfGas
+        );
+        assert_eq!(fault.site.code_hash, code_hash);
+        assert_eq!(
+            fault.site.selector,
+            iroha_data_model::executor::fault::IvmInvocationSelectorV1::Entrypoint(0)
         );
         assert!(
             (1..=10).contains(&state_transaction.last_tx_gas_used),
@@ -21673,7 +22905,7 @@ seiyaku MeteredFailure {
         .compile_source(
             r#"
 seiyaku IdentityRequired {
-  view fn write(int value) -> int {
+  view fn write(int value) authorize(anyone) -> int {
     return value;
   }
 }
@@ -21781,6 +23013,7 @@ seiyaku IdentityRequired {
     fn contract_permission_context(
         contract_address: ContractAddress,
         entrypoint: &str,
+        permission: &str,
     ) -> ContractCallExecutionContext {
         ContractCallExecutionContext {
             contract_subject: Some(contract_address.subject_id()),
@@ -21788,7 +23021,9 @@ seiyaku IdentityRequired {
             contract_alias: None,
             entrypoint: Some(entrypoint.to_owned()),
             entrypoint_pc: Some(0),
-            entrypoint_permission: Some("CanInvokeContractEntrypoint".to_owned()),
+            entrypoint_authorization: EntrypointAuthorizationV1::Permission(
+                permission.parse().expect("permission name"),
+            ),
             args: Json::new(()),
             argument_record: None,
         }
@@ -21826,8 +23061,8 @@ seiyaku IdentityRequired {
         let (program, _) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
                 r#"
-seiyaku ReviewedValue {
-  kotoage fn write(int value) authorize("CanInvokeContractEntrypoint") {}
+seiyaku ReviewedValue { permission CanInvokeContractEntrypoint;
+  kotoage fn write(int value) authorize(CanInvokeContractEntrypoint) {}
 }
 "#,
             )
@@ -21882,16 +23117,22 @@ seiyaku ReviewedValue {
                 .expect("bounded reviewed arguments"),
             ),
         };
+        let live_alias: iroha_data_model::smart_contract::ContractAlias =
+            "reviewed_value::apps.universal"
+                .parse()
+                .expect("live contract alias");
         super::ensure_contract_invocation_metadata_binding(
-            &invocation(reviewed_arguments),
+            &invocation(reviewed_arguments.clone()),
             &metadata,
             &prepared,
+            Some(&live_alias),
         )
         .expect("matching reviewed metadata and arguments");
         let error = super::ensure_contract_invocation_metadata_binding(
             &invocation(swapped_arguments),
             &metadata,
             &prepared,
+            Some(&live_alias),
         )
         .expect_err("swapped argument bytes must be rejected");
         assert!(
@@ -21899,9 +23140,55 @@ seiyaku ReviewedValue {
                 if message.contains("arguments differ from the canonical contract_payload")),
             "unexpected swapped-arguments error: {error}"
         );
+        // Indexers attribute a call to its `contract_alias`, so the claim must
+        // name the address's live alias.
+        let alias_key: Name = "contract_alias"
+            .parse()
+            .expect("static contract alias metadata key");
+        let mut aliased = metadata.clone();
+        aliased.insert(alias_key.clone(), Json::new(live_alias.to_string()));
+        super::ensure_contract_invocation_metadata_binding(
+            &invocation(reviewed_arguments.clone()),
+            &aliased,
+            &prepared,
+            Some(&live_alias),
+        )
+        .expect("the live alias binds");
+        let other_alias: iroha_data_model::smart_contract::ContractAlias =
+            "forged_router::apps.universal"
+                .parse()
+                .expect("other contract alias");
+        for live in [None, Some(&other_alias)] {
+            let error = super::ensure_contract_invocation_metadata_binding(
+                &invocation(reviewed_arguments.clone()),
+                &aliased,
+                &prepared,
+                live,
+            )
+            .expect_err("an alias claim must name the live alias");
+            assert!(
+                matches!(error, ValidationFail::NotPermitted(ref message)
+                    if message.contains("is not the live alias")),
+                "unexpected alias error: {error}"
+            );
+        }
+        let mut alias_only = Metadata::default();
+        alias_only.insert(alias_key, Json::new(live_alias.to_string()));
+        let error = super::ensure_contract_invocation_metadata_binding(
+            &invocation(reviewed_arguments),
+            &alias_only,
+            &prepared,
+            Some(&live_alias),
+        )
+        .expect_err("an alias claim requires the full identity binding");
+        assert!(
+            matches!(error, ValidationFail::NotPermitted(ref message)
+                if message.contains("requires contract_address metadata")),
+            "unexpected alias-only error: {error}"
+        );
     }
     #[test]
-    fn contract_dispatch_context_carries_entrypoint_permission() {
+    fn contract_dispatch_context_carries_entrypoint_authorization() {
         let (program, expected_entrypoint_pc) =
             contract_program_with_entrypoint("admin", Some("ContractAdmin"));
         let mut metadata = Metadata::default();
@@ -21918,8 +23205,8 @@ seiyaku ReviewedValue {
             Some(expected_entrypoint_pc)
         );
         assert_eq!(
-            metadata_context.entrypoint_permission(),
-            Some("ContractAdmin")
+            metadata_context.entrypoint_authorization(),
+            &EntrypointAuthorizationV1::Permission("ContractAdmin".parse().unwrap())
         );
         let contract_address = ContractAddress::derive(
             &"hash:0000000000000000000000000000000000000000000000000000000000000001#C50E"
@@ -21948,8 +23235,8 @@ seiyaku ReviewedValue {
             Some(expected_entrypoint_pc)
         );
         assert_eq!(
-            invocation_context.entrypoint_permission(),
-            Some("ContractAdmin")
+            invocation_context.entrypoint_authorization(),
+            &EntrypointAuthorizationV1::Permission("ContractAdmin".parse().unwrap())
         );
     }
     #[test]
@@ -21989,19 +23276,16 @@ seiyaku ReviewedValue {
             top_level_err,
             ValidationFail::NotPermitted(message) if message.contains("read-only")
         ));
-        let nested = parse_prepared_nested_contract_invocation_execution_context(
-            &invocation,
-            &prepared,
-            None,
-            contract_address.subject_id(),
-            u64::MAX,
-        )
-        .expect("nested dispatch should accept a declared view");
-        assert_eq!(nested.entrypoint.as_deref(), Some("configuration"));
-        assert_eq!(nested.entrypoint_pc(), Some(expected_entrypoint_pc));
+        let descriptor = prepared.entrypoint_descriptor("configuration").unwrap();
+        let permission = nested_contract_entrypoint_authorization(descriptor, "configuration")
+            .expect("nested dispatch should accept a declared view");
         assert_eq!(
-            nested.entrypoint_permission(),
-            Some("CanInspectConfiguration")
+            prepared.entrypoint_pc("configuration"),
+            Some(expected_entrypoint_pc)
+        );
+        assert_eq!(
+            permission,
+            EntrypointAuthorizationV1::Permission("CanInspectConfiguration".parse().unwrap())
         );
         for (selector, kind) in [
             ("hajimari", EntryPointKind::Hajimari),
@@ -22012,20 +23296,9 @@ seiyaku ReviewedValue {
             let (program, _) = contract_program_with_entrypoint_kind(selector, kind, None);
             let prepared = ivm::prepare_contract(Arc::<[u8]>::from(program))
                 .expect("prepare lifecycle contract");
-            let invocation = ContractInvocation {
-                contract_address: contract_address.clone(),
-                expected_code_hash: iroha_crypto::Hash::new(selector.as_bytes()),
-                entrypoint: selector.to_owned(),
-                arguments: None,
-            };
-            let error = parse_prepared_nested_contract_invocation_execution_context(
-                &invocation,
-                &prepared,
-                None,
-                contract_address.subject_id(),
-                u64::MAX,
-            )
-            .expect_err("nested dispatch must reject lifecycle entrypoints");
+            let descriptor = prepared.entrypoint_descriptor(selector).unwrap();
+            let error = nested_contract_entrypoint_authorization(descriptor, selector)
+                .expect_err("nested dispatch must reject lifecycle entrypoints");
             assert!(
                 matches!(error, ValidationFail::NotPermitted(ref message) if message.contains("cannot be invoked by a nested call")),
                 "unexpected {kind:?} nested-dispatch error: {error}"
@@ -22046,7 +23319,10 @@ seiyaku ReviewedValue {
             resolve_prepared_contract_view_entrypoint(&prepared, "inspect")
                 .expect("declared view resolves");
         assert_eq!(pc, expected_pc);
-        assert_eq!(permission.as_deref(), Some("CanInspectContract"));
+        assert_eq!(
+            permission,
+            EntrypointAuthorizationV1::Permission("CanInspectContract".parse().unwrap())
+        );
         assert!(arguments.is_none());
         assert!(
             resolve_prepared_contract_entrypoint(&prepared, "inspect").is_err(),
@@ -22082,8 +23358,8 @@ seiyaku ReviewedValue {
         for error in [
             resolve_prepared_contract_entrypoint(&transaction_contract, "commit")
                 .expect_err("top-level transaction resolver must reject raw private witnesses"),
-            resolve_prepared_nested_contract_entrypoint(&transaction_contract, "commit")
-                .expect_err("nested resolver must reject raw private witnesses"),
+            reject_unavailable_private_input_entrypoint(&transaction_contract, "commit")
+                .expect_err("prepared contracts must reject raw private witnesses"),
             resolve_prepared_raw_contract_entrypoint(&transaction_contract, "commit")
                 .expect_err("raw contract resolver must reject raw private witnesses"),
         ] {
@@ -22145,12 +23421,12 @@ seiyaku ReviewedValue {
             (
                 "hajimari",
                 EntryPointKind::Hajimari,
-                iroha_data_model::smart_contract::CONTRACT_HAJIMARI_PERMISSION_NAME,
+                EntrypointAuthorizationV1::RuntimeLifecycle,
             ),
             (
                 "kaizen",
                 EntryPointKind::Kaizen,
-                iroha_data_model::smart_contract::CONTRACT_KAIZEN_PERMISSION_NAME,
+                EntrypointAuthorizationV1::RuntimeLifecycle,
             ),
         ] {
             let (program, _) = contract_program_with_entrypoint_kind(selector, kind, None);
@@ -22168,8 +23444,8 @@ seiyaku ReviewedValue {
             )
             .expect("top-level lifecycle invocation resolves");
             assert_eq!(
-                context.entrypoint_permission(),
-                Some(expected_permission),
+                context.entrypoint_authorization(),
+                &expected_permission,
                 "{selector} must use its runtime-defined branded lifecycle permission"
             );
         }
@@ -22291,6 +23567,9 @@ seiyaku ReviewedValue {
                 generic_code_hash,
             ),
             iroha_data_model::smart_contract::manifest::ContractManifest {
+                events: Vec::new(),
+                enum_types: Vec::new(),
+                permissions: Vec::new(),
                 seiyaku_name: None,
                 code_hash: Some(generic_code_hash),
                 abi_hash: Some(Hash::prehashed(ivm::syscalls::compute_abi_hash(
@@ -22349,3 +23628,31 @@ seiyaku ReviewedValue {
 
 #[cfg(test)]
 mod resource_return_tests;
+
+#[cfg(test)]
+mod runtime_fault_origin_tests {
+    //! Executor verdicts cannot forge native execution-fault provenance.
+    use super::*;
+    use iroha_data_model::executor::fault::{
+        IvmFaultKindV1, IvmFaultPositionV1, IvmFaultSiteV1, IvmFaultV1, IvmInvocationSelectorV1,
+    };
+    #[test]
+    fn executor_verdict_rejects_guest_supplied_runtime_origin() {
+        let forged = ValidationFail::IvmFault(IvmFaultV1 {
+            kind: IvmFaultKindV1::PermissionDenied,
+            site: IvmFaultSiteV1 {
+                code_hash: Hash::new(b"unrelated artifact"),
+                selector: IvmInvocationSelectorV1::Entrypoint(3),
+                position: IvmFaultPositionV1::Execute { pc_offset: 16 },
+            },
+        });
+        assert!(
+            matches!(validate_executor_rejection_origin(forged), ValidationFail::InternalError(message) if message.contains("cannot supply a runtime fault origin"))
+        );
+        let native_permission = ValidationFail::NotPermitted("actual executor policy".into());
+        assert_eq!(
+            validate_executor_rejection_origin(native_permission.clone()),
+            native_permission
+        );
+    }
+}

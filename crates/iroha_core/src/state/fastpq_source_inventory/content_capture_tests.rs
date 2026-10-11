@@ -680,7 +680,7 @@ fn interrupted_capture_restores_prior_lane_seal_and_latches_publication_failure(
     for had_lane_seal in [false, true] {
         with_native_capture_source(
             true,
-            |state, mut block, _recording, mut native_source, _source| {
+            |_state, mut block, _recording, mut native_source, _source| {
                 let original = finalized_source(&mut block, &mut native_source);
                 let prior = had_lane_seal.then(|| {
                     iroha_data_model::sumeragi_finality::SumeragiLaneStateCommitment::from_state(

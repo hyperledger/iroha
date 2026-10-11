@@ -80,6 +80,29 @@ pub struct SealedPrivateFile {
 }
 
 impl PrivateDirectory {
+    /// Retain an optional private child, recognizing only its first native open as absence.
+    ///
+    /// This preserves [`Self::open_retained_private`]'s private single-link policy; it does
+    /// not require sealed read-only access. A present native owner remains retained through
+    /// the final directory custody check. Later missing names are errors, never `None`.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe or changing custody and native errors. Returns `None`
+    /// only for initial native absence under unchanged retained directory custody.
+    pub fn open_retained_private_optional(
+        &self,
+        name: impl AsRef<OsStr>,
+    ) -> io::Result<Option<RetainedFile>> {
+        self.inner.revalidate()?;
+        let result = checked_name(name.as_ref()).and_then(|name| {
+            self.inner
+                .open_retained_private_optional(name)
+                .map(|file| file.map(|inner| RetainedFile { inner }))
+        });
+        self.inner.revalidate()?;
+        result
+    }
+
     /// Open an existing private directory with exact absolute spelling and no link redirects.
     ///
     /// Unlike general runtime paths, immutable journal custody rejects even operating-system
@@ -178,6 +201,40 @@ impl PrivateDirectory {
         };
         file.len()?;
         Ok(file)
+    }
+
+    /// Retain an optional sealed original, recognizing only its first native open as absence.
+    ///
+    /// Present files retain the strict access, single-link, ancestry and extent checks of
+    /// [`Self::open_retained_read_only`]. A later missing named file is an error. Directory
+    /// custody closes after every ordinary result, with a present original still retained.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe or changing custody, excessive length and native errors.
+    /// Returns `None` only for initial native absence under unchanged directory custody.
+    pub fn open_retained_read_only_optional(
+        &self,
+        name: impl AsRef<OsStr>,
+        maximum: usize,
+    ) -> io::Result<Option<SealedPrivateFile>> {
+        self.inner.revalidate()?;
+        let result = (|| {
+            let maximum = byte_ceiling(maximum)?;
+            self.inner
+                .open_retained_read_only_optional(checked_name(name.as_ref())?)?
+                .map(|inner| {
+                    let file = SealedPrivateFile {
+                        inner,
+                        maximum,
+                        position: 0,
+                    };
+                    file.len()?;
+                    Ok(file)
+                })
+                .transpose()
+        })();
+        self.inner.revalidate()?;
+        result
     }
 }
 

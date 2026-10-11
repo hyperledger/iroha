@@ -410,8 +410,7 @@ impl StreamControlOwner {
             _permit: permit,
             _owner: self.clone(),
         };
-        let scope = Shared::try_new(scope, reclaim).map_err(|(scope, reclaim, _)| {
-            drop(scope);
+        let scope = Shared::try_new(scope, reclaim).map_err(|(_, reclaim, _)| {
             drop(reclaim);
             capacity()
         })?;

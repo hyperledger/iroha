@@ -1923,40 +1923,17 @@ impl RevokeProviderIngestCompletionAuthority {
         }
     }
 }
-fn sorafs_decode_flags() -> u8 {
-    norito::core::effective_decode_flags().unwrap_or_else(norito::core::default_encode_flags)
-}
-macro_rules! impl_sorafs_decode_from_slice {
-    ($ty:ty { $($field:ident : $field_ty:ty),+ $(,)? }) => {
-        impl<'a> norito::core::DecodeFromSlice<'a> for $ty {
-            fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
-                let flags = sorafs_decode_flags();
-                let mut offset = 0usize;
-                $(
-                    let $field = super::decode_aos_canonical_field::<$field_ty>(
-                        super::read_aos_field(bytes, &mut offset, flags)?,
-                        flags,
-                    )?;
-                )+
-                if offset != bytes.len() {
-                    return Err(norito::core::Error::LengthMismatch);
-                }
-                norito::core::note_payload_access(bytes, offset);
-                Ok((Self { $($field),+ }, offset))
-            }
-        }
-    };
-}
-impl_sorafs_decode_from_slice!(RegisterPinManifest {
+
+impl_aos_decode_from_slice!(RegisterPinManifest {
     manifest_payload: Vec<u8>,
     alias: Option<ManifestAliasBinding>,
     successor_of: Option<ManifestDigest>,
 });
-impl_sorafs_decode_from_slice!(InitializeSorafsProviderAdmissionV1 {
+impl_aos_decode_from_slice!(InitializeSorafsProviderAdmissionV1 {
     council: crate::sorafs::provider_admission::governance::InitialProviderAdmissionCouncilV1,
     providers: Vec<crate::sorafs::provider_admission::governance::InitialProviderAdmissionV1>,
 });
-impl_sorafs_decode_from_slice!(AssertSorafsPublicationV1 {
+impl_aos_decode_from_slice!(AssertSorafsPublicationV1 {
     manifest_digest: ManifestDigest,
     order_id: ReplicationOrderId,
     assignment_revision: u64,
@@ -1966,38 +1943,38 @@ impl_sorafs_decode_from_slice!(AssertSorafsPublicationV1 {
     minimum_height: u64,
     minimum_block_hash: [u8; 32],
 });
-impl_sorafs_decode_from_slice!(ApprovePinManifest {
+impl_aos_decode_from_slice!(ApprovePinManifest {
     digest: ManifestDigest,
     council_envelope: Option<Vec<u8>>,
     council_envelope_digest: Option<[u8; 32]>,
 });
-impl_sorafs_decode_from_slice!(RetirePinManifest {
+impl_aos_decode_from_slice!(RetirePinManifest {
     digest: ManifestDigest,
     reason: Option<String>,
 });
-impl_sorafs_decode_from_slice!(BindManifestAlias {
+impl_aos_decode_from_slice!(BindManifestAlias {
     digest: ManifestDigest,
     binding: ManifestAliasBinding,
     bound_epoch: u64,
     expiry_epoch: u64,
 });
-impl_sorafs_decode_from_slice!(RegisterCapacityDeclaration {
+impl_aos_decode_from_slice!(RegisterCapacityDeclaration {
     declaration: Vec<u8>,
 });
-impl_sorafs_decode_from_slice!(RecordCapacityTelemetry {
+impl_aos_decode_from_slice!(RecordCapacityTelemetry {
     record: CapacityTelemetryRecord,
 });
-impl_sorafs_decode_from_slice!(RegisterCapacityDispute {
+impl_aos_decode_from_slice!(RegisterCapacityDispute {
     record: CapacityDisputeRecord,
 });
-impl_sorafs_decode_from_slice!(IssueReplicationOrder {
+impl_aos_decode_from_slice!(IssueReplicationOrder {
     order_id: ReplicationOrderId,
     order_payload: Vec<u8>,
     issued_epoch: u64,
     deadline_epoch: u64,
     musubi_archive: Option<ArchiveId>,
 });
-impl_sorafs_decode_from_slice!(CompleteReplicationOrder {
+impl_aos_decode_from_slice!(CompleteReplicationOrder {
     order_id: ReplicationOrderId,
     provider_id: ProviderId,
     completion_epoch: u64,
@@ -2005,82 +1982,82 @@ impl_sorafs_decode_from_slice!(CompleteReplicationOrder {
     expected_assignment_revision: u64,
     finalized_anchor: ProviderIngestFinalizedAnchorV1,
 });
-impl_sorafs_decode_from_slice!(ReviseReplicationOrderAssignments {
+impl_aos_decode_from_slice!(ReviseReplicationOrderAssignments {
     order_id: ReplicationOrderId,
     expected_assignment_revision: u64,
     next_assignment_revision: u64,
     assignments: Vec<ReplicationAssignmentV1>,
 });
-impl_sorafs_decode_from_slice!(ExpireReplicationOrder {
+impl_aos_decode_from_slice!(ExpireReplicationOrder {
     order_id: ReplicationOrderId,
     expiration_epoch: u64,
 });
-impl_sorafs_decode_from_slice!(RegisterProviderOwner {
+impl_aos_decode_from_slice!(RegisterProviderOwner {
     provider_id: ProviderId,
     owner: AccountId,
 });
-impl_sorafs_decode_from_slice!(UnregisterProviderOwner {
+impl_aos_decode_from_slice!(UnregisterProviderOwner {
     provider_id: ProviderId,
 });
-impl_sorafs_decode_from_slice!(SetProviderIngestCompletionAuthority {
+impl_aos_decode_from_slice!(SetProviderIngestCompletionAuthority {
     provider_id: ProviderId,
     expected_current: Option<ProviderIngestCompletionAuthorityV1>,
     next: ProviderIngestCompletionAuthorityV1,
 });
-impl_sorafs_decode_from_slice!(RevokeProviderIngestCompletionAuthority {
+impl_aos_decode_from_slice!(RevokeProviderIngestCompletionAuthority {
     provider_id: ProviderId,
     expected_current: ProviderIngestCompletionAuthorityV1,
 });
-impl_sorafs_decode_from_slice!(SetPricingSchedule {
+impl_aos_decode_from_slice!(SetPricingSchedule {
     schedule: PricingScheduleRecord,
 });
-impl_sorafs_decode_from_slice!(UpsertProviderCredit {
+impl_aos_decode_from_slice!(UpsertProviderCredit {
     expected_current: Option<HashOf<ProviderCreditRecord>>,
     record: ProviderCreditRecord,
 });
-impl_sorafs_decode_from_slice!(SetSorafsPopIssuerPolicy {
+impl_aos_decode_from_slice!(SetSorafsPopIssuerPolicy {
     policy: PopIssuerPolicyV1,
 });
-impl_sorafs_decode_from_slice!(CommitSorafsPopCredentialBatch {
+impl_aos_decode_from_slice!(CommitSorafsPopCredentialBatch {
     batch_payload: Vec<u8>,
 });
-impl_sorafs_decode_from_slice!(PublishSorafsPopRevocationList {
+impl_aos_decode_from_slice!(PublishSorafsPopRevocationList {
     revocation_list_payload: Vec<u8>,
     issuer_policy_digest: [u8; 32],
 });
-impl_sorafs_decode_from_slice!(SetSorafsOrderbookPolicy {
+impl_aos_decode_from_slice!(SetSorafsOrderbookPolicy {
     policy: OrderbookAdmissionPolicyV1,
 });
-impl_sorafs_decode_from_slice!(SubmitSorafsOrderbookOrder {
+impl_aos_decode_from_slice!(SubmitSorafsOrderbookOrder {
     order_payload: Vec<u8>,
     policy_digest: [u8; 32],
 });
-impl_sorafs_decode_from_slice!(CancelSorafsOrderbookOrder {
+impl_aos_decode_from_slice!(CancelSorafsOrderbookOrder {
     cancel_payload: Vec<u8>,
     policy_digest: [u8; 32],
 });
-impl_sorafs_decode_from_slice!(MatchSorafsOrderbook {
+impl_aos_decode_from_slice!(MatchSorafsOrderbook {
     policy_digest: [u8; 32],
     expected_book_revision: u64,
     max_fills: u32,
 });
-impl_sorafs_decode_from_slice!(MaintainSorafsOrderbook {
+impl_aos_decode_from_slice!(MaintainSorafsOrderbook {
     policy_digest: [u8; 32],
     expected_book_revision: u64,
     max_items: u32,
 });
-impl_sorafs_decode_from_slice!(RecordSorafsOrderbookSettlementReceipt {
+impl_aos_decode_from_slice!(RecordSorafsOrderbookSettlementReceipt {
     receipt_payload: Vec<u8>,
     policy_digest: [u8; 32],
 });
-impl_sorafs_decode_from_slice!(SetSorafsReservePolicy {
+impl_aos_decode_from_slice!(SetSorafsReservePolicy {
     policy: ReserveAuthorityPolicyV1,
 });
-impl_sorafs_decode_from_slice!(RegisterSorafsReserveAccount {
+impl_aos_decode_from_slice!(RegisterSorafsReserveAccount {
     terms: ReserveProviderTermsV1,
     policy_digest: [u8; 32],
 });
-impl_sorafs_decode_from_slice!(RequestSorafsReserveMovement {
+impl_aos_decode_from_slice!(RequestSorafsReserveMovement {
     movement_id: [u8; 32],
     provider_id: ProviderId,
     kind: ReserveMovementKindV1,
@@ -2088,38 +2065,38 @@ impl_sorafs_decode_from_slice!(RequestSorafsReserveMovement {
     expected_provider_revision: u64,
     policy_digest: [u8; 32],
 });
-impl_sorafs_decode_from_slice!(DecideSorafsReserveMovement {
+impl_aos_decode_from_slice!(DecideSorafsReserveMovement {
     movement_id: [u8; 32],
     expected_provider_revision: u64,
     policy_digest: [u8; 32],
     approve: bool,
     rationale: String,
 });
-impl_sorafs_decode_from_slice!(ChargeSorafsReserveRent {
+impl_aos_decode_from_slice!(ChargeSorafsReserveRent {
     provider_id: ProviderId,
     expected_provider_revision: u64,
     billing_periods: u16,
     policy_digest: [u8; 32],
 });
-impl_sorafs_decode_from_slice!(AdvanceSorafsReserveLifecycle {
+impl_aos_decode_from_slice!(AdvanceSorafsReserveLifecycle {
     provider_id: ProviderId,
     expected_provider_revision: u64,
     days_past_due: u16,
     policy_digest: [u8; 32],
 });
-impl_sorafs_decode_from_slice!(DrawSorafsReserveCredit {
+impl_aos_decode_from_slice!(DrawSorafsReserveCredit {
     provider_id: ProviderId,
     expected_provider_revision: u64,
     amount: XorQuantity,
     policy_digest: [u8; 32],
 });
-impl_sorafs_decode_from_slice!(RepaySorafsReserveCredit {
+impl_aos_decode_from_slice!(RepaySorafsReserveCredit {
     provider_id: ProviderId,
     expected_provider_revision: u64,
     amount: XorQuantity,
     policy_digest: [u8; 32],
 });
-impl_sorafs_decode_from_slice!(SubmitSorafsReserveAppeal {
+impl_aos_decode_from_slice!(SubmitSorafsReserveAppeal {
     appeal_id: [u8; 32],
     provider_id: ProviderId,
     expected_provider_revision: u64,
@@ -2128,63 +2105,63 @@ impl_sorafs_decode_from_slice!(SubmitSorafsReserveAppeal {
     evidence_digest: Option<[u8; 32]>,
     policy_digest: [u8; 32],
 });
-impl_sorafs_decode_from_slice!(DecideSorafsReserveAppeal {
+impl_aos_decode_from_slice!(DecideSorafsReserveAppeal {
     appeal_id: [u8; 32],
     expected_provider_revision: u64,
     policy_digest: [u8; 32],
     accept: bool,
     rationale: String,
 });
-impl_sorafs_decode_from_slice!(SubmitSorafsRepairTask {
+impl_aos_decode_from_slice!(SubmitSorafsRepairTask {
     source_identity: [u8; 32],
     report_payload: Vec<u8>,
 });
-impl_sorafs_decode_from_slice!(ApplySorafsRepairTaskAction {
+impl_aos_decode_from_slice!(ApplySorafsRepairTaskAction {
     ticket_id: String,
     expected_revision: u64,
     action: SorafsRepairTaskActionV1,
 });
-impl_sorafs_decode_from_slice!(SubmitSorafsRepairAppeal {
+impl_aos_decode_from_slice!(SubmitSorafsRepairAppeal {
     ticket_id: String,
     expected_revision: u64,
     evidence_digest: [u8; 32],
     reason: String,
     idempotency_key: String,
 });
-impl_sorafs_decode_from_slice!(SetSorafsProofOutcomeSignerPolicy {
+impl_aos_decode_from_slice!(SetSorafsProofOutcomeSignerPolicy {
     policy: ProofOutcomeSignerPolicyV1,
 });
-impl_sorafs_decode_from_slice!(SubmitSorafsProofOutcome {
+impl_aos_decode_from_slice!(SubmitSorafsProofOutcome {
     submission: SorafsProofOutcomeSubmissionV1,
 });
-impl_sorafs_decode_from_slice!(SetSorafsReputationJournalAuthorityPolicy {
+impl_aos_decode_from_slice!(SetSorafsReputationJournalAuthorityPolicy {
     policy: ReputationJournalAuthorityPolicyV1,
 });
-impl_sorafs_decode_from_slice!(AppendSorafsPorReputationJournalEntry {
+impl_aos_decode_from_slice!(AppendSorafsPorReputationJournalEntry {
     entry: ReputationJournalEntryV1,
 });
-impl_sorafs_decode_from_slice!(AppendSorafsStreamTokenReputationJournalEntry {
+impl_aos_decode_from_slice!(AppendSorafsStreamTokenReputationJournalEntry {
     entry: ReputationJournalEntryV1,
 });
-impl_sorafs_decode_from_slice!(ResolveSorafsCapacityDispute {
+impl_aos_decode_from_slice!(ResolveSorafsCapacityDispute {
     dispute_id: CapacityDisputeId,
     expected_authority_policy_digest: [u8; 32],
     outcome: CapacityDisputeOutcome,
     decision_digest: [u8; 32],
     rationale: Option<String>,
 });
-impl_sorafs_decode_from_slice!(SetSorafsModerationPolicy {
+impl_aos_decode_from_slice!(SetSorafsModerationPolicy {
     policy: ModerationLedgerPolicyV1,
 });
-impl_sorafs_decode_from_slice!(SubmitSorafsModerationAppeal {
+impl_aos_decode_from_slice!(SubmitSorafsModerationAppeal {
     intake: ModerationAppealIntakeV1,
 });
-impl_sorafs_decode_from_slice!(RegisterSorafsModerationJurorEligibility {
+impl_aos_decode_from_slice!(RegisterSorafsModerationJurorEligibility {
     case_id: String,
     round_id: String,
     membership_proof_payload: Vec<u8>,
 });
-impl_sorafs_decode_from_slice!(FinalizeSorafsModerationSortition {
+impl_aos_decode_from_slice!(FinalizeSorafsModerationSortition {
     case_id: String,
     round_id: String,
     citizen_snapshot_digest: [u8; 32],
@@ -2192,20 +2169,20 @@ impl_sorafs_decode_from_slice!(FinalizeSorafsModerationSortition {
     proposed_jurors: Vec<AccountId>,
     proposed_waitlist: Vec<AccountId>,
 });
-impl_sorafs_decode_from_slice!(AcceptSorafsModerationJurorAssignment {
+impl_aos_decode_from_slice!(AcceptSorafsModerationJurorAssignment {
     case_id: String,
     round_id: String,
     sortition_digest: [u8; 32],
 });
-impl_sorafs_decode_from_slice!(ActivateSorafsModerationCase {
+impl_aos_decode_from_slice!(ActivateSorafsModerationCase {
     case_id: String,
     round_id: String,
     sortition_digest: [u8; 32],
 });
-impl_sorafs_decode_from_slice!(SubmitSorafsModerationCommit {
+impl_aos_decode_from_slice!(SubmitSorafsModerationCommit {
     commit_payload: Vec<u8>,
 });
-impl_sorafs_decode_from_slice!(RaiseSorafsModerationChallenge {
+impl_aos_decode_from_slice!(RaiseSorafsModerationChallenge {
     case_id: String,
     round_id: String,
     challenge_id: String,
@@ -2214,21 +2191,21 @@ impl_sorafs_decode_from_slice!(RaiseSorafsModerationChallenge {
     evidence_digest: [u8; 32],
     reason: String,
 });
-impl_sorafs_decode_from_slice!(ResolveSorafsModerationChallenge {
+impl_aos_decode_from_slice!(ResolveSorafsModerationChallenge {
     case_id: String,
     round_id: String,
     challenge_id: String,
     decision: ModerationChallengeDecisionV1,
 });
-impl_sorafs_decode_from_slice!(ExpireSorafsModerationChallenge {
+impl_aos_decode_from_slice!(ExpireSorafsModerationChallenge {
     case_id: String,
     round_id: String,
     challenge_id: String,
 });
-impl_sorafs_decode_from_slice!(SubmitSorafsModerationReveal {
+impl_aos_decode_from_slice!(SubmitSorafsModerationReveal {
     reveal_payload: Vec<u8>,
 });
-impl_sorafs_decode_from_slice!(FinalizeSorafsModerationCase {
+impl_aos_decode_from_slice!(FinalizeSorafsModerationCase {
     case_id: String,
     round_id: String,
 });

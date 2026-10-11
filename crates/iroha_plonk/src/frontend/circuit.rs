@@ -65,7 +65,7 @@ pub fn configure<F: PastaField, C: Circuit<F>>(
 
 /// A configured and synthesized circuit.
 #[derive(Clone, Debug)]
-pub struct Synthesized<F> {
+pub struct Synthesized<F: PastaField> {
     /// The constraint system before selector substitution.
     pub cs: ConstraintSystem<F>,
     /// The recorded tables.
@@ -86,9 +86,28 @@ pub fn synthesize<F: PastaField, C: Circuit<F>>(
     k: u32,
     instances: Option<&[Vec<F>]>,
 ) -> Result<Synthesized<F>, Error> {
+    synthesize_cancellable(circuit, k, instances, None)
+}
+
+/// Synthesizes with cancellation checked at every assignment and region boundary.
+///
+/// # Errors
+/// As [`synthesize`], or [`Error::Cancelled`].
+pub fn synthesize_cancellable<F: PastaField, C: Circuit<F>>(
+    circuit: &C,
+    k: u32,
+    instances: Option<&[Vec<F>]>,
+    cancellation: Option<&iroha_pasta::CancellationToken>,
+) -> Result<Synthesized<F>, Error> {
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
     let (cs, config) = configure(circuit)?;
-    let mut assembly = Assembly::new(&cs, k, instances)?;
-    C::FloorPlanner::synthesize(&mut assembly, circuit, config, cs.constants().to_vec())?;
+    let mut assembly = Assembly::new_cancellable(&cs, k, instances, cancellation)?;
+    let assigned =
+        C::FloorPlanner::synthesize(&mut assembly, circuit, config, cs.constants().to_vec());
+    // This is an explicit operation boundary, including when a chip maps its
+    // assignment error into Synthesis. Cancellation produces no circuit verdict.
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    assigned?;
     let tables = assembly.finish()?;
     Ok(Synthesized { cs, tables })
 }

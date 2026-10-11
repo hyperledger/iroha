@@ -3,8 +3,8 @@
 
 use super::*;
 use crate::kagemusha::kagemusha_wallet_v1::{
-    KagemushaWalletEvidenceKindV1, KagemushaWalletLifecycleV1, KagemushaWalletReceiptBodyV1,
-    KagemushaWalletReceiptSignerV1, KagemushaWalletValidationErrorV1,
+    KagemushaWalletEvidenceKindV1, KagemushaWalletIndexedTreeV1, KagemushaWalletLifecycleV1,
+    KagemushaWalletReceiptBodyV1, KagemushaWalletReceiptSignerV1, KagemushaWalletValidationErrorV1,
     codec_tests::norito_tag,
     identity::identity_tests::{IdentityFixture, identity_fixture, raw_output},
     kagemusha_wallet_unload_nullifier_v1,
@@ -46,6 +46,24 @@ fn retained_for(kind: KagemushaWalletOperationKindV1) -> Vec<KagemushaWalletReta
         .collect()
 }
 
+/// Stand-in map openings of a capsule: the insertion witness of a second key into an indexed
+/// tree, its low-leaf opening (a §3.2 leaf opening, 1,124 bytes) and the written slot's
+/// empty-slot opening (1,028 bytes), each with exactly 32 siblings (owner answer A2).
+fn stand_in_map_openings() -> Vec<Vec<u8>> {
+    let mut tree = KagemushaWalletIndexedTreeV1::new();
+    let _ = tree
+        .insert(field_value(0x61), field_value(0x62))
+        .expect("first insertion");
+    let insert = tree
+        .insert(field_value(0x6d), field_value(0x6e))
+        .expect("second insertion");
+    assert_ne!(insert.low.key, [0; 32], "the low leaf is the first key's");
+    vec![
+        insert.low_opening.leaf_transcript(&insert.low),
+        insert.slot_opening.empty_transcript(),
+    ]
+}
+
 /// Recovery capsule of `statement` with `lineage`, `step_proof` and `payment_digest` under
 /// `credential`, with a successor state that agrees with the statement.
 ///
@@ -82,7 +100,9 @@ fn capsule_with(
         version: KAGEMUSHA_WALLET_VERSION_V1,
         scheme_id: credential.body.scheme_id,
         wallet_id: credential.body.wallet_id,
-        operation_id: statement.operation_id(&credential.body.wallet_id),
+        operation_id: statement
+            .operation_id(&credential.body.wallet_id)
+            .expect("operation id"),
         kind,
         predecessor_capsule_digest,
         successor_state: state,
@@ -90,7 +110,7 @@ fn capsule_with(
         predecessor_lineage: lineage,
         step_proof,
         payment_digest,
-        map_openings: vec![vec![0x01, 0x02, 0x03]],
+        map_openings: stand_in_map_openings(),
         retained_inputs: retained_for(kind),
         output,
     }
@@ -206,6 +226,11 @@ fn kagemusha_wallet_v1_custody_layouts_and_tags() {
     }
     for role in KagemushaWalletRetainedInputRoleV1::ALL {
         assert_eq!(norito_tag(&role), u32::from(role.tag()));
+        let original = norito::encode_canonical(&role).unwrap();
+        assert_eq!(
+            norito::decode_canonical::<KagemushaWalletRetainedInputRoleV1>(&original).unwrap(),
+            role
+        );
     }
     let states = [
         KagemushaWalletMarkerStateV1::Enrollment {
@@ -235,7 +260,13 @@ fn kagemusha_wallet_v1_custody_layouts_and_tags() {
     );
     assert_eq!(
         required_retained_roles_v1(KagemushaWalletOperationKindV1::ArchiveSent),
-        &[R::Request, R::Payment, R::Credited]
+        &[
+            R::Request,
+            R::Payment,
+            R::Credited,
+            R::Credential,
+            R::CertificateSet,
+        ]
     );
     assert_eq!(
         required_retained_roles_v1(KagemushaWalletOperationKindV1::Send),
@@ -243,7 +274,7 @@ fn kagemusha_wallet_v1_custody_layouts_and_tags() {
     );
     assert_eq!(
         required_retained_roles_v1(KagemushaWalletOperationKindV1::Load),
-        &[R::LoadVoucher, R::CertificateSet]
+        &[R::LoadReceipt, R::LoadFinality]
     );
     assert_eq!(
         required_retained_roles_v1(KagemushaWalletOperationKindV1::RefreshPolicy),
@@ -482,7 +513,7 @@ fn kagemusha_wallet_v1_output_descriptors_are_receipt_free() {
     let nullifier = kagemusha_wallet_unload_nullifier_v1(&body.scheme_id, &body.wallet_id, 0);
     let effects = [
         KagemushaWalletEffectV1::Load {
-            voucher: [0x51; 32],
+            receipt_digest: field_value(0x51),
             load_ordinal: 0,
             amount: 10,
             online_charge: 0,
@@ -536,7 +567,7 @@ fn kagemusha_wallet_v1_output_descriptors_are_receipt_free() {
             descriptor.digest,
             kagemusha_wallet_output_digest_v1(
                 kind,
-                &statement.statement_digest(),
+                &statement.statement_digest().expect("statement digest"),
                 &proof_digest,
                 &payment,
             )
@@ -569,7 +600,7 @@ fn kagemusha_wallet_v1_output_descriptors_are_receipt_free() {
         descriptor.digest,
         kagemusha_wallet_output_digest_v1(
             KagemushaWalletOperationKindV1::Send,
-            &statement.statement_digest(),
+            &statement.statement_digest().expect("statement digest"),
             &proof_digest,
             &[0; 32],
         )
@@ -641,7 +672,7 @@ fn kagemusha_wallet_v1_recovery_capsule_rules() {
     );
     bootstrap_capsule(&f).validate().expect("bootstrap capsule");
 
-    let mutations: [(CapsuleMutation, &str); 20] = [
+    let mutations: [(CapsuleMutation, &str); 25] = [
         (
             |capsule| capsule.kind = KagemushaWalletOperationKindV1::Load,
             "capsule.kind",
@@ -659,7 +690,7 @@ fn kagemusha_wallet_v1_recovery_capsule_rules() {
             "capsule.successor_state.wallet_id",
         ),
         (
-            |capsule| capsule.successor_state.core.credential_digest = [0x68; 32],
+            |capsule| capsule.successor_state.core.credential_digest = field_value(0x68),
             "capsule.successor_state.credential_digest",
         ),
         (
@@ -703,15 +734,45 @@ fn kagemusha_wallet_v1_recovery_capsule_rules() {
             "capsule.successor_state.commitment",
         ),
         (
-            |capsule| capsule.successor_state.rest.time_anchor = [0x6e; 32],
+            |capsule| capsule.successor_state.rest.time_anchor = field_value(0x6e),
             "capsule.successor_state.commitment",
         ),
         (
             |capsule| capsule.output.digest = [0x6a; 32],
             "capsule.output.digest",
         ),
+        // Every map opening is a §3.2 leaf-opening or empty-slot opening transcript with exactly
+        // 32 canonical siblings (owner answer A2).
         (
             |capsule| capsule.map_openings.push(Vec::new()),
+            "capsule.map_openings",
+        ),
+        (
+            |capsule| capsule.map_openings.push(vec![0x01, 0x02, 0x03]),
+            "capsule.map_openings",
+        ),
+        (
+            |capsule| {
+                capsule.map_openings[0].pop();
+            },
+            "capsule.map_openings",
+        ),
+        (
+            |capsule| capsule.map_openings[1].extend_from_slice(&[0; 32]),
+            "capsule.map_openings",
+        ),
+        (
+            |capsule| {
+                let last = capsule.map_openings[1].len() - 32;
+                capsule.map_openings[1][last..].fill(0xff);
+            },
+            "capsule.map_openings",
+        ),
+        (
+            |capsule| {
+                let key = capsule.map_openings[0][..32].to_vec();
+                capsule.map_openings[0][64..96].copy_from_slice(&key);
+            },
             "capsule.map_openings",
         ),
         (
@@ -914,7 +975,7 @@ fn kagemusha_wallet_v1_completion_record_rebuilds_the_output() {
         "completion.receipt.capsule_digest",
     );
     let mut other_operation = record.clone();
-    other_operation.receipt.operation_id = [0x74; 32];
+    other_operation.receipt.operation_id = field_value(0x74);
     assert_invalid(
         other_operation.validate(),
         "completion.receipt.operation_id",

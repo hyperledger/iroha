@@ -297,3 +297,45 @@ fn wallet_advance_v1_retained_collect_capsules_keeps_the_current_head() {
     }));
     provider.status(&slot).expect("the current head is intact");
 }
+
+#[test]
+fn wallet_advance_v1_exact_capsule_collection_keeps_head_and_is_idempotent() {
+    let (device, _f, slot, operations) = two_heads(0x74);
+    let mut provider = device.open();
+    let KagemushaWalletLookupV1::Retained(old) = provider.lookup(&slot, &operations[0]).unwrap()
+    else {
+        panic!("old completion")
+    };
+    let head = provider.status(&slot).unwrap();
+    let generation = head.marker().unwrap().selected_generation().unwrap();
+    assert!(
+        provider
+            .collect_capsule(&slot, generation, &old.capsule_digest)
+            .is_err()
+    );
+    provider
+        .collect_capsule(&slot, old.selected_generation, &old.capsule_digest)
+        .unwrap();
+    provider
+        .collect_capsule(&slot, old.selected_generation, &old.capsule_digest)
+        .unwrap();
+    assert_eq!(
+        device
+            .fs
+            .visible_names(&kagemusha_wallet_capsules_dir_v1(&slot))
+            .len(),
+        2
+    );
+    assert!(matches!(
+        provider.lookup(&slot, &operations[0]).unwrap(),
+        KagemushaWalletLookupV1::Retained(_)
+    ));
+    provider.status(&slot).unwrap();
+    device
+        .platform
+        .with(|state| state.storage_lock_after = Some(1));
+    assert!(matches!(
+        provider.collect_capsule(&slot, old.selected_generation, &old.capsule_digest),
+        Err(KagemushaWalletProviderErrorV1::Unavailable(_))
+    ));
+}

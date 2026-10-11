@@ -84,9 +84,9 @@ fn absent_parent_refuses_later_child_material_before_creating_initial_custody() 
         );
     assert!(authorization.unwrap().is_some());
     // The retained empty capacity purpose is reconstructed in each complete census (two opens).
-    // The ordinary first-child reserve-policy probe remains unchanged (one additional open).
+    // The fresh first-reserve absence probe consumes the same parent custody without an open.
     // Every other exact absent census child uses the same authenticated parent.
-    assert_eq!(authority_opens, 3);
+    assert_eq!(authority_opens, 2);
     assert!(peers.requests.lock().unwrap().is_empty());
     peers.finish();
 }

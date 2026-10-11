@@ -189,27 +189,21 @@ fn main() -> Result<(), Box<dyn Error>> {
                         for (j, instr) in instrs.iter().enumerate() {
                             println!("  instr[{j}]: {instr:?}");
                             if let Some(set_param) = instr.as_any().downcast_ref::<SetParameter>() {
-                                println!("    set parameter payload: {:?}", set_param.0);
+                                println!("    set parameter payload: {:?}", set_param.inner());
                             }
                         }
                     }
                     Executable::ContractCall(call) => {
-                        println!(
-                            "  contract call: address={} expected_code_hash={} entrypoint={} arguments={:?}",
-                            call.contract_address,
-                            call.expected_code_hash,
-                            call.entrypoint,
-                            call.arguments
-                        );
+                        println!("  contract call: {call:?}");
                     }
                     Executable::Ivm(bytecode) => {
                         println!("  ivm bytecode: {bytecode:?}");
                     }
-                    Executable::IvmProved(proved) => {
+                    Executable::IvmProved(_) => {
                         println!(
                             "  ivm proved: bytecode {} bytes overlay {} instructions",
-                            proved.bytecode.size_bytes(),
-                            proved.overlay.len()
+                            tx.instructions().ivm_size_bytes(),
+                            tx.instructions().instruction_count()
                         );
                     }
                     Executable::Batch(items) => {
@@ -220,16 +214,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                                     if let Some(set_param) =
                                         instruction.as_any().downcast_ref::<SetParameter>()
                                     {
-                                        println!("    set parameter payload: {:?}", set_param.0);
+                                        println!(
+                                            "    set parameter payload: {:?}",
+                                            set_param.inner()
+                                        );
                                     }
                                 }
-                                ExecutableBatchItem::ContractCall(call) => println!(
-                                    "  batch[{item_index}] contract call: address={} expected_code_hash={} entrypoint={} arguments={:?}",
-                                    call.contract_address,
-                                    call.expected_code_hash,
-                                    call.entrypoint,
-                                    call.arguments
-                                ),
+                                ExecutableBatchItem::ContractCall(call) => {
+                                    println!("  batch[{item_index}] contract call: {call:?}")
+                                }
                             }
                         }
                     }

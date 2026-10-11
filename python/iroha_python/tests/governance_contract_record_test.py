@@ -31,6 +31,7 @@ def active_response() -> dict[str, object]:
             "pending_owner": "parliament",
             "parliament_delegated": True,
             "active_code_hash_hex": "22" * 32,
+            "retained_code_hash_hex": "22" * 32,
             "revision": 7,
             "emergency_hold": None,
         },
@@ -139,4 +140,18 @@ def test_governance_contract_record_rejects_non_wire_hold_heights(value: object)
     }
 
     with pytest.raises((TypeError, ValueError), match="unsigned 64-bit integer"):
+        GovernanceContractRecord.from_payload(payload)
+
+
+def test_suspended_contract_preserves_required_schema_binding() -> None:
+    payload = active_response()
+    payload["active"] = False
+    for field in ("code_hash_hex", "abi_hash_hex", "public_entrypoints"):
+        del payload[field]
+    payload["lifecycle"]["active_code_hash_hex"] = None
+    record = GovernanceContractRecord.from_payload(payload)
+    assert record.lifecycle.active_code_hash_hex is None
+    assert record.lifecycle.retained_code_hash_hex == "22" * 32
+    del payload["lifecycle"]["retained_code_hash_hex"]
+    with pytest.raises(TypeError, match="lifecycle fields"):
         GovernanceContractRecord.from_payload(payload)

@@ -1,0 +1,7 @@
+// Public computation in a contract using the Japanese declaration spelling.
+誓約 PublicIncrement {
+    view fn inc(int n) authorize(anyone) -> int {
+        let one = 1;
+        return n + one;
+    }
+}

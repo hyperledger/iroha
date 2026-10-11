@@ -4,7 +4,6 @@ use crate::execution_attempt::ExecutionAttemptError as Attempt;
 use crate::{
     state::{State, StateReadOnly, WorldReadOnly},
     sumeragi::{
-        attestation::NativePastaVerifier,
         availability_schedule::AvailabilitySchedule,
         crypto::BlsCrypto,
         lanes::{
@@ -96,7 +95,6 @@ impl LaneStoreAuthorities for TestLaneStoreAuthorities {
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         Ok(Some(LaneStoreAuthority {
             schedule: Arc::new(PinnedSchedule { instance, config }),
-            verifier: Arc::new(NativePastaVerifier::new(instance, network)),
         }))
     }
 }

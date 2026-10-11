@@ -8,8 +8,12 @@
 //! |-------------|--------------|---------------------|--------------------------|
 //! | Enrollment  | `Enrollment` | zero                | 0                        |
 //! | Selected    | `Head`       | zero                | Enrollment or Released + 1 |
-//! | Released    | `Head`       | nonzero             | Selected + 1, same head  |
+//! | Released    | `Head`       | nonzero             | previous + 1, same head  |
 //! | Terminal    | `Terminal`   | zero                | previous + 1             |
+//!
+//! Released-to-Released metadata generations bind the durable archive manifest without
+//! changing the monetary head, original Selected generation or completion bytes. The iOS
+//! anchor is raised before the preceding marker is retired.
 //!
 //! A receipt may be signed only while a durable Selected marker is current
 //! ([`KagemushaWalletSelectedCapabilityV1`]); under a Released marker a missing completion is
@@ -73,6 +77,10 @@ pub struct KagemushaWalletMarkerFileV1 {
     pub written_boot_id: [u8; 32],
     /// Completion digest of a Released head; zero for every other phase.
     pub completion_digest: [u8; 32],
+    /// Original Selected generation of this head; zero for non-head markers.
+    pub selected_generation: u128,
+    /// Content digest of the state owner's durable archive checkpoint; zero before the first.
+    pub archive_checkpoint: [u8; 32],
     /// Canonical G1 marker frame.
     pub marker: Vec<u8>,
 }
@@ -98,6 +106,8 @@ pub struct KagemushaWalletMarkerRecordV1 {
     anchor: KagemushaWalletAnchorPolicyV1,
     phase: KagemushaWalletMarkerPhaseV1,
     completion_digest: Option<[u8; 32]>,
+    selected_generation: u128,
+    archive_checkpoint: [u8; 32],
     written_boot_id: [u8; 32],
     marker_digest: [u8; 32],
     marker_file_digest: [u8; 32],
@@ -145,10 +155,49 @@ impl KagemushaWalletMarkerRecordV1 {
         completion_digest: Option<[u8; 32]>,
         written_boot_id: [u8; 32],
     ) -> Result<Self, KagemushaWalletProviderErrorV1> {
+        let phase = phase_of(&marker, completion_digest)?;
+        let selected_generation = match phase {
+            KagemushaWalletMarkerPhaseV1::Selected => marker.generation,
+            KagemushaWalletMarkerPhaseV1::Released => marker
+                .generation
+                .checked_sub(1)
+                .ok_or_else(|| invalid("marker.generation"))?,
+            _ => 0,
+        };
+        Self::new_bound(
+            slot,
+            marker,
+            anchor,
+            completion_digest,
+            written_boot_id,
+            selected_generation,
+            [0; 32],
+        )
+    }
+
+    fn new_bound(
+        slot: KagemushaWalletSlotIdV1,
+        marker: KagemushaWalletMarkerV1,
+        anchor: KagemushaWalletAnchorPolicyV1,
+        completion_digest: Option<[u8; 32]>,
+        written_boot_id: [u8; 32],
+        selected_generation: u128,
+        archive_checkpoint: [u8; 32],
+    ) -> Result<Self, KagemushaWalletProviderErrorV1> {
         if completion_digest == Some([0; 32]) {
             return Err(invalid("marker.completion_digest"));
         }
         let phase = phase_of(&marker, completion_digest)?;
+        let valid_selected = match phase {
+            KagemushaWalletMarkerPhaseV1::Selected => selected_generation == marker.generation,
+            KagemushaWalletMarkerPhaseV1::Released => {
+                selected_generation > 0 && selected_generation < marker.generation
+            }
+            _ => selected_generation == 0 && archive_checkpoint == [0; 32],
+        };
+        if !valid_selected {
+            return Err(invalid("marker.selected_generation"));
+        }
         let frame = marker
             .to_canonical_bytes()
             .map_err(|_| invalid("marker.frame"))?;
@@ -161,6 +210,8 @@ impl KagemushaWalletMarkerRecordV1 {
             anchor_kind: anchor.tag(),
             written_boot_id,
             completion_digest: completion_digest.unwrap_or([0; 32]),
+            selected_generation,
+            archive_checkpoint,
             marker: frame,
         };
         let file_bytes = encode_envelope_v1(&file, KAGEMUSHA_WALLET_MARKER_FILE_MAX_BYTES_V1)?;
@@ -170,6 +221,8 @@ impl KagemushaWalletMarkerRecordV1 {
             anchor,
             phase,
             completion_digest,
+            selected_generation,
+            archive_checkpoint,
             written_boot_id,
             marker_digest,
             marker_file_digest: kagemusha_wallet_provider_digest_v1("marker-file", &file_bytes),
@@ -205,12 +258,14 @@ impl KagemushaWalletMarkerRecordV1 {
             .map_err(|_| invalid("marker.frame"))?;
         let completion_digest =
             (file.completion_digest != [0; 32]).then_some(file.completion_digest);
-        let record = Self::new(
+        let record = Self::new_bound(
             *slot,
             marker,
             anchor,
             completion_digest,
             file.written_boot_id,
+            file.selected_generation,
+            file.archive_checkpoint,
         )?;
         if record.file_bytes != bytes {
             return Err(invalid("marker_file.encoding"));
@@ -241,7 +296,15 @@ impl KagemushaWalletMarkerRecordV1 {
             .marker
             .successor(head)
             .map_err(|_| invalid("marker.state"))?;
-        let next = Self::new(self.slot, marker, self.anchor, None, written_boot_id)?;
+        let next = Self::new_bound(
+            self.slot,
+            marker,
+            self.anchor,
+            None,
+            written_boot_id,
+            marker.generation,
+            self.archive_checkpoint,
+        )?;
         next.validate_successor_of(self)?;
         Ok(next)
     }
@@ -268,12 +331,44 @@ impl KagemushaWalletMarkerRecordV1 {
             generation,
             ..self.marker
         };
-        let next = Self::new(
+        let next = Self::new_bound(
             self.slot,
             marker,
             self.anchor,
             Some(completion_digest),
             written_boot_id,
+            self.selected_generation,
+            self.archive_checkpoint,
+        )?;
+        next.validate_successor_of(self)?;
+        Ok(next)
+    }
+
+    /// New Released generation binding an archive checkpoint without selecting/signing a head.
+    pub(super) fn checkpoint(
+        &self,
+        digest: [u8; 32],
+        written_boot_id: [u8; 32],
+    ) -> Result<Self, KagemushaWalletProviderErrorV1> {
+        if self.phase != KagemushaWalletMarkerPhaseV1::Released || digest == [0; 32] {
+            return Err(invalid("marker.archive_checkpoint"));
+        }
+        let marker = KagemushaWalletMarkerV1 {
+            generation: self
+                .marker
+                .generation
+                .checked_add(1)
+                .ok_or_else(|| invalid("marker.generation"))?,
+            ..self.marker
+        };
+        let next = Self::new_bound(
+            self.slot,
+            marker,
+            self.anchor,
+            self.completion_digest,
+            written_boot_id,
+            self.selected_generation,
+            digest,
         )?;
         next.validate_successor_of(self)?;
         Ok(next)
@@ -309,9 +404,10 @@ impl KagemushaWalletMarkerRecordV1 {
     /// Validate `self` as the direct successor generation of `previous`.
     ///
     /// Enrollment → Selected (Bootstrap) or Terminal; Selected → Released (identical head) or
-    /// Terminal; Released → Selected (next sequence, linked capsule) or Terminal; Terminal →
-    /// nothing. Identity, slot, anchor kind and generation + 1 are always required; the G1
-    /// successor rules apply to every transition except Selected → Released.
+    /// Terminal; Released → Selected (next sequence, linked capsule), Released (same head,
+    /// completion and original selection, new archive metadata), or Terminal; Terminal →
+    /// nothing. Identity, slot, anchor kind and generation + 1 are always required. The G1
+    /// successor rules apply except when preserving the same head for release/metadata.
     ///
     /// # Errors
     ///
@@ -328,7 +424,7 @@ impl KagemushaWalletMarkerRecordV1 {
             return Err(invalid("marker.anchor_kind"));
         }
         match (previous.phase, self.phase) {
-            (Phase::Selected, Phase::Released) => {
+            (Phase::Selected, Phase::Released) | (Phase::Released, Phase::Released) => {
                 let generation = previous
                     .marker
                     .generation
@@ -338,13 +434,31 @@ impl KagemushaWalletMarkerRecordV1 {
                     generation,
                     ..previous.marker
                 };
-                if self.marker != same_head {
+                if self.marker != same_head
+                    || self.selected_generation != previous.selected_generation
+                {
                     return Err(invalid("marker.state"));
+                }
+                if previous.phase == Phase::Released {
+                    if self.completion_digest != previous.completion_digest
+                        || self.archive_checkpoint == [0; 32]
+                    {
+                        return Err(invalid("marker.archive_checkpoint"));
+                    }
+                } else if self.archive_checkpoint != previous.archive_checkpoint {
+                    return Err(invalid("marker.archive_checkpoint"));
                 }
                 Ok(())
             }
-            (Phase::Enrollment | Phase::Released, Phase::Selected)
-            | (Phase::Enrollment | Phase::Selected | Phase::Released, Phase::Terminal) => self
+            (Phase::Enrollment | Phase::Released, Phase::Selected) => {
+                if self.archive_checkpoint != previous.archive_checkpoint {
+                    return Err(invalid("marker.archive_checkpoint"));
+                }
+                self.marker
+                    .validate_successor_of(&previous.marker)
+                    .map_err(|_| invalid("marker.state"))
+            }
+            (Phase::Enrollment | Phase::Selected | Phase::Released, Phase::Terminal) => self
                 .marker
                 .validate_successor_of(&previous.marker)
                 .map_err(|_| invalid("marker.state")),
@@ -408,15 +522,17 @@ impl KagemushaWalletMarkerRecordV1 {
         }
     }
 
-    /// Generation of the Selected marker whose capsule this head binds: its own generation
-    /// when Selected, the previous one when Released.
+    /// Generation of the original Selected marker whose capsule this head binds. Release and
+    /// archive metadata generations preserve it; it is not inferred from the current number.
     #[must_use]
     pub fn selected_generation(&self) -> Option<u128> {
-        match self.phase {
-            KagemushaWalletMarkerPhaseV1::Selected => Some(self.marker.generation),
-            KagemushaWalletMarkerPhaseV1::Released => self.marker.generation.checked_sub(1),
-            _ => None,
-        }
+        self.head().map(|_| self.selected_generation)
+    }
+
+    /// State-owner archive checkpoint authenticated by this exact marker and its iOS anchor.
+    #[must_use]
+    pub fn archive_checkpoint(&self) -> [u8; 32] {
+        self.archive_checkpoint
     }
 
     /// Boot identity stamped when the file was written.

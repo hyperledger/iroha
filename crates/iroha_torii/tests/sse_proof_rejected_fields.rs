@@ -26,7 +26,7 @@ async fn proof_rejected_fields() {
         .unwrap();
     let resp = app.clone().oneshot(req).await.unwrap();
     assert_eq!(resp.status(), http::StatusCode::OK);
-    let ev = ProofEventFixture::new("halo2/ipa", [0x44; 32])
+    let ev = ProofEventFixture::new("pipa-r/pasta", [0x44; 32])
         .with_vk("vk_r", [0x77; 32])
         .with_call_hash(Some([0xBB; 32]))
         .rejected();
@@ -48,14 +48,17 @@ async fn proof_rejected_fields() {
         v.get("event").and_then(|x| x.as_str()),
         Some("ProofRejected")
     );
-    assert_eq!(v.get("backend").and_then(|x| x.as_str()), Some("halo2/ipa"));
+    assert_eq!(
+        v.get("backend").and_then(|x| x.as_str()),
+        Some("pipa-r/pasta")
+    );
     assert_eq!(
         v.get("call_hash").and_then(|x| x.as_str()),
         Some(hex::encode([0xBBu8; 32]).as_str())
     );
     assert_eq!(
         v.get("vk_ref").and_then(|x| x.as_str()),
-        Some("halo2/ipa::vk_r")
+        Some("pipa-r/pasta::vk_r")
     );
     assert_eq!(
         v.get("vk_commitment").and_then(|x| x.as_str()),

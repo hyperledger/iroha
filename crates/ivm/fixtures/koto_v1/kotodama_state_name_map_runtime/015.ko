@@ -1,7 +1,7 @@
 
         seiyaku C {
             state StateMap<Name, int> Foo;
-            view fn main() -> int {
+            view fn main() authorize(anyone) -> int {
                 return Foo.get(Name::parse("alice")).unwrap_or(0);
             }
         }

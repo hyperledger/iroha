@@ -41,6 +41,8 @@ the real three-of-four BLS certificate. Three explicit exporter runs produced
 identical H1 and H2 bytes, checked by canonical roundtrip and contiguous checkpoint
 verification. Current fixture inputs and exact component evidence are recorded in
 `fixtures/sumeragi/native-finality/capture.json`.
+The fee-policy bridge tests read these shared archives and require their exact
+heights and canonical re-encoding, so retired checkpoint layouts fail directly.
 Supplied execution outputs remain synthetic and carry no World execution claim.
 
 ## Account-owned event and block streams

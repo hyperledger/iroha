@@ -7,7 +7,7 @@ state_test! { sync confidential_digest_respects_activation_height
     };
     let mut world = World::new();
     let id = VerifyingKeyId::new("halo2/ipa", "vk_activation");
-    let_row! { mut record = VerifyingKeyRecord::new_with_owner( 1, "circuit_activation", None, "core", BackendTag::Halo2IpaPasta, "pallas", [0x11; 32], [0x22; 32], ) };
+    let_row! { mut record = VerifyingKeyRecord::new_with_owner( 1, "circuit_activation", None, "core", BackendTag::NativePipaRPasta, "pallas", [0x11; 32], [0x22; 32], ) };
     record.status = ConfidentialStatus::Proposed;
     record.activation_height = Some(5);
     record.gas_schedule_id = Some("sched_activation".into());
@@ -34,7 +34,7 @@ state_test! { sync confidential_digest_excludes_active_vk_outside_height_window
     };
     let mut world = World::new();
     let id = VerifyingKeyId::new("halo2/ipa", "vk_windowed_active");
-    let_row! { mut record = VerifyingKeyRecord::new_with_owner( 1, "circuit_windowed_active", None, "core", BackendTag::Halo2IpaPasta, "pallas", [0x21; 32], [0x42; 32], ) };
+    let_row! { mut record = VerifyingKeyRecord::new_with_owner( 1, "circuit_windowed_active", None, "core", BackendTag::NativePipaRPasta, "pallas", [0x21; 32], [0x42; 32], ) };
     record.status = ConfidentialStatus::Active;
     record.activation_height = Some(5);
     record.withdraw_height = Some(8);
@@ -67,7 +67,7 @@ state_test! { sync confidential_registry_delta_cap_limits_transitions
     let mut world = World::new();
     let_row! { ids = [ VerifyingKeyId::new("halo2/ipa", "vk_alpha"), VerifyingKeyId::new("halo2/ipa", "vk_beta"), ] };
     for (idx, id) in ids.iter().enumerate() {
-        let_row! { mut record = VerifyingKeyRecord::new_with_owner( 1, format!("circuit_{idx}"), None, "core", BackendTag::Halo2IpaPasta, "pallas", [0x40 + u8::try_from(idx).expect("vk index fits in u8"); 32], [0x50 + u8::try_from(idx).expect("vk index fits in u8"); 32], ) };
+        let_row! { mut record = VerifyingKeyRecord::new_with_owner( 1, format!("circuit_{idx}"), None, "core", BackendTag::NativePipaRPasta, "pallas", [0x40 + u8::try_from(idx).expect("vk index fits in u8"); 32], [0x50 + u8::try_from(idx).expect("vk index fits in u8"); 32], ) };
         record.status = ConfidentialStatus::Proposed;
         record.activation_height = Some(2);
         record.gas_schedule_id = Some(format!("sched_{idx}"));

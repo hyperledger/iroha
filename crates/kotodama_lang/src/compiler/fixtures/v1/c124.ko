@@ -1,4 +1,4 @@
 
 seiyaku CompilerFixture {
-view fn account() -> AccountId { return AccountId::parse("merchant@bank."); }
+view fn account() authorize(anyone) -> AccountId { return AccountId::parse("merchant@bank."); }
 }

@@ -29,6 +29,8 @@
 // Operator P2 adds `plan`, `converge` and gates G0-G8/G11; P3 adds SSH and edge renderers
 // (specs/network_deployment.md §13).
 
+mod deploy_mutation_guard;
+
 pub mod attachment;
 pub mod bootstrap;
 pub mod definition;
@@ -39,10 +41,6 @@ pub mod provisioning;
 pub mod secret_toml;
 pub mod shell;
 pub mod verify;
-
-// TODO: Remove the temporary custody timing probe after the native interval cost is localized.
-#[cfg(test)]
-mod custody_timing;
 
 #[cfg(test)]
 mod service_checked_writer_test_support;

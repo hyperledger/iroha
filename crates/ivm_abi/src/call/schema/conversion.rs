@@ -80,7 +80,10 @@ impl CallSchemaV1 {
             EntrypointValueTypeNodeV1::Leaf(kind) => CallTypeNodeV1::Leaf(*kind),
             EntrypointValueTypeNodeV1::Unit => CallTypeNodeV1::Unit,
             EntrypointValueTypeNodeV1::Error(error) => CallTypeNodeV1::Error(error.clone()),
-            EntrypointValueTypeNodeV1::StateCursor(key) => CallTypeNodeV1::StateCursor(*key),
+            EntrypointValueTypeNodeV1::Enum(enumeration) => {
+                CallTypeNodeV1::Enum(enumeration.clone())
+            }
+            EntrypointValueTypeNodeV1::StateCursor(key) => CallTypeNodeV1::StateCursor(key.clone()),
         }));
     }
 }
@@ -104,13 +107,18 @@ fn matches_public_nodes(nodes: &[CallTypeNodeV1], public: &[EntrypointValueTypeN
                 (CallTypeNodeV1::List { capacity }, EntrypointValueTypeNodeV1::List(list)) => {
                     *capacity == list.capacity
                 }
-                (CallTypeNodeV1::Leaf(kind), EntrypointValueTypeNodeV1::Leaf(expected))
-                | (
+                (CallTypeNodeV1::Leaf(kind), EntrypointValueTypeNodeV1::Leaf(expected)) => {
+                    kind == expected
+                }
+                (
                     CallTypeNodeV1::StateCursor(kind),
                     EntrypointValueTypeNodeV1::StateCursor(expected),
                 ) => kind == expected,
                 (CallTypeNodeV1::Error(error), EntrypointValueTypeNodeV1::Error(expected)) => {
                     error == expected
+                }
+                (CallTypeNodeV1::Enum(enumeration), EntrypointValueTypeNodeV1::Enum(expected)) => {
+                    enumeration == expected
                 }
                 _ => false,
             })

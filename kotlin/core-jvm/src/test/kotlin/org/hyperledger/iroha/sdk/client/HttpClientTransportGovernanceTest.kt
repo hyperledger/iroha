@@ -54,6 +54,7 @@ class HttpClientTransportGovernanceTest {
                     "pending_owner": "parliament",
                     "parliament_delegated": true,
                     "active_code_hash_hex": "${"77".repeat(32)}",
+                    "retained_code_hash_hex": "${"77".repeat(32)}",
                     "revision": $u64Max,
                     "emergency_hold": {
                       "incident_digest_hex": "${"11".repeat(32)}",
@@ -96,6 +97,7 @@ class HttpClientTransportGovernanceTest {
         assertEquals(u64Max, response.lifecycle?.revision)
         assertEquals("parliament", response.lifecycle?.pendingOwner)
         assertEquals("77".repeat(32), response.lifecycle?.activeCodeHashHex)
+        assertEquals("77".repeat(32), response.lifecycle?.retainedCodeHashHex)
         assertEquals(u64Max - BigInteger.ONE, response.lifecycle?.emergencyHold?.imposedAtHeight)
         assertEquals(u64Max, response.lifecycle?.emergencyHold?.expiresAtHeight)
         assertEquals(listOf("transfer", "view_balance"), response.publicEntrypoints)
@@ -130,6 +132,7 @@ class HttpClientTransportGovernanceTest {
                 "pending_owner": null,
                 "parliament_delegated": false,
                 "active_code_hash_hex": "${"77".repeat(32)}",
+                "retained_code_hash_hex": "${"77".repeat(32)}",
                 "revision": 7,
                 "emergency_hold": null
               },
@@ -140,6 +143,8 @@ class HttpClientTransportGovernanceTest {
             }
         """.trimIndent()
         val invalid = listOf(
+            active.replace("\"retained_code_hash_hex\": \"${"77".repeat(32)}\",", ""),
+            active.replace("\"retained_code_hash_hex\": \"${"77".repeat(32)}\"", "\"retained_code_hash_hex\": null"),
             active.replace(
                 "\"active_code_hash_hex\": \"${"77".repeat(32)}\"",
                 "\"active_code_hash_hex\": \"${"66".repeat(32)}\"",

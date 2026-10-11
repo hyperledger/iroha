@@ -1,10 +1,13 @@
-import { validateManifestDeclarationsV1, validateManifestEntrypointIdentityV1, validateManifestFieldsV1 } from "./contractManifestRules.js";
+import { normalizeContractEmissionV1 } from "./contractEmissions.js";
+import { normalizeContractEventsV1 } from "./contractDeclarations.js";
+import { normalizeIvmFault } from "./ivmFault.js";
+import { normalizeEntrypointAuthorizationV1, normalizeContractPermissionsV1, validateManifestDeclarationsV1, validateManifestEntrypointIdentityV1, validateManifestFieldsV1 } from "./contractManifestRules.js";
 import { normalizeValidationFeePolicy as parseGovernanceValidationFeePolicy, normalizeValidationFeePayoutLifecycle as parseGovernanceValidationFeePayoutLifecycle } from "./governanceProposalV1.js";
 import { normalizeRetailFeeAssessment, rejectUnknownRetailFeeFields } from "./retailFeeAssessment.js";
 import { parseGovernanceReferendumResponseV1, parseGovernanceTallyResponseV1, parseGovernanceLocksResponseV1 } from "./governancePlainV1.js";
 import { parseElectionTallyResponseV1 } from "./electionTallyV1.js";
 import { createSorafsAliasResponseNormalizers } from "./sorafsAliasResponses.js";
-import { normalizeContractErrorMessagesV1, normalizeContractErrorTypeV1, normalizeContractErrorTypesV1, validateManifestErrorTypeBindingsV1 } from "./contractErrorTypes.js";
+import { normalizeContractErrorMessagesV1, normalizeContractErrorTypeV1, normalizeContractEnumTypeV1, normalizeContractEnumTypesV1, normalizeContractErrorTypesV1, validateManifestErrorTypeBindingsV1 } from "./contractErrorTypes.js";
 import { rejectError, rejectRange, rejectType } from "./validationThrow.js";
 import { timingSafeEqual } from "node:crypto";
 import { JS_TYPE_BIGINT, JS_TYPE_FUNCTION, JS_TYPE_NUMBER, JS_TYPE_OBJECT, JS_TYPE_STRING, KAIGI_MAX_PARTICIPANTS_V1 } from "./commonLiterals.js";
@@ -34,6 +37,7 @@ import {
   normalizeAssetId,
   normalizeAssetHoldingId,
   normalizeRwaId,
+  normalizeIdentifierInput,
 } from "./normalizers.js";
 import {
   AccountAddress,
@@ -119,7 +123,7 @@ import { NetworkId, networkIdBytes } from "./networkId.js";
 import { generateConnectSid, validateConnectSessionResponseIdentity } from "./connectSession.js";
 import { isCanonicalGovernanceSelectorV1 } from "./governanceSelector.js";
 import { parseCanonicalContractAddress } from "./contractAddress.js";
-import { contractPayloadDigestHex } from "./contractPayload.js";
+import { canonicalContractArguments, contractPayloadDigestHex } from "./contractPayload.js";
 import {
   createToriiGovernanceNormalizers,
   VERIFYING_KEY_PRIVATE_KEY_FIELDS,
@@ -136,6 +140,11 @@ import {
   requireCanonicalApplicationAuthority,
 } from "./applicationPostAuth.js";
 import { strictDecodeBase64 } from "./toriiClientEncoding.js";
+import {
+  assertOwnerClaimResponse, assertOwnerExecuteConsistency, assertOwnerReceiptNetwork,
+  buildOwnerIdentifierRequest, normalizeOwnerPrepareResponse, normalizeTypedPhoneAttestation,
+  requireOwnerInput, requireOwnerInputNonce, requireOwnerNetwork, requireOwnerProgram,
+} from "./identifierOwnerPrf.js";
 import {
   isExactJsonMediaType,
   maybeBoundedJsonResponse, maybeJsonResponse,
@@ -1994,7 +2003,7 @@ export class ToriiClient {
       return null;
     }
     if (response.status === 503) {
-      rejectError("ISO bridge runtime is disabled on the target node");
+      rejectError("ISO bridge runtime is unavailable on the target node");
     }
     await this._expectStatus(response, [200]);
     const body = await this._maybeJson(response);
@@ -2035,7 +2044,7 @@ export class ToriiClient {
       return null;
     }
     if (response.status === 503) {
-      rejectError("ISO bridge runtime is disabled on the target node");
+      rejectError("ISO bridge runtime is unavailable on the target node");
     }
     await this._expectStatus(response, [200]);
     const body = await this._maybeJson(response);
@@ -2548,12 +2557,13 @@ export class ToriiClient {
   /**
    * Resolve an identifier through a hidden-function policy (`POST /v1/identifiers/resolve`).
    * Returns null when the policy or identifier binding is missing (404).
-   * @param {{policyId: string, encryptedInput: string, outputOpening: Record<string, unknown>, signal?: AbortSignal, canonicalAuth: CanonicalRequestAuth}} options
+   * @param {{policyId: string, normalizedInput: string, inputNonce: string, outputOpening: Record<string, unknown>, phoneRetailCanonicality?: Record<string, unknown>, signal?: AbortSignal, canonicalAuth: CanonicalRequestAuth}} options
    * @returns {Promise<Record<string, unknown> | null>}
    */
   async resolveIdentifier(options) {
     const { signal, canonicalAuth, rest } = normalizeCanonicalApplicationPostOptions(options, "resolveIdentifier", ToriiClient);
-    const payload = buildIdentifierResolveRequest(rest, "resolveIdentifier");
+    const signingContext = requireLocalDraftSigningContext(this._localSigningContext, "resolveIdentifier");
+    const payload = buildIdentifierResolveRequest(rest, "resolveIdentifier", signingContext.networkId);
     const response = await this._request("POST", "/v1/identifiers/resolve", {
       headers: JSON_REQUEST_HEADERS,
       body: JSON.stringify(payload),
@@ -2567,26 +2577,29 @@ export class ToriiClient {
       rejectError("Identifier policy is inactive or the target binding is unavailable");
     }
     if (response.status === 503) {
-      rejectError("Identifier resolver runtime is disabled on the target node");
+      rejectError("Identifier resolver runtime is unavailable on the target node");
     }
     await this._expectStatus(response, [200]);
     const body = await this._maybeJson(response);
     if (!body) {
       rejectError("identifier resolve endpoint returned no payload");
     }
-    return normalizeIdentifierResolveResponse(body, "identifier resolve response");
+    return assertOwnerClaimResponse(
+      normalizeIdentifierResolveResponse(body, "identifier resolve response", signingContext.networkId),
+      payload, "identifier resolve response",
+    );
   }
 
   /**
-   * Execute one RAM-LFE program from BFV-encrypted input
+   * Execute one current native owner RAM-LFE program with a private input nonce
    * (`POST /v1/ram-lfe/programs/{program_id}/execute`).
    * Returns null when the program policy is missing (404).
    * @param {string} programId
-   * @param {{encryptedInput: string, signal?: AbortSignal, canonicalAuth: CanonicalRequestAuth}} options
+   * @param {{normalizedInput: string, inputNonce: string, signal?: AbortSignal, canonicalAuth: CanonicalRequestAuth}} options
    * @returns {Promise<Record<string, unknown> | null>}
    */
   async executeRamLfeProgram(programId, options) {
-    const normalizedProgramId = requireNonEmptyString(
+    const normalizedProgramId = requireOwnerProgram(
       programId,
       "executeRamLfeProgram.programId",
     );
@@ -2609,14 +2622,14 @@ export class ToriiClient {
       rejectError("RAM-LFE program policy is inactive");
     }
     if (response.status === 503) {
-      rejectError("RAM-LFE runtime is disabled on the target node");
+      rejectError("RAM-LFE runtime is unavailable on the target node");
     }
     await this._expectStatus(response, [200]);
     const body = await this._maybeJson(response);
     if (!body) {
       rejectError("ram-lfe execute endpoint returned no payload");
     }
-    return normalizeRamLfeExecuteResponse(body, "ram-lfe execute response");
+    return normalizeRamLfeExecuteResponse(body, "ram-lfe execute response", normalizedProgramId);
   }
 
   /**
@@ -2662,17 +2675,37 @@ export class ToriiClient {
     );
   }
 
+  /** Prepare one unchanged owner opening for a beneficiary and an independent phone attestor. */
+  async prepareIdentifierClaimReceipt(accountId, options) {
+    const { signal, canonicalAuth, rest } = normalizeCanonicalApplicationPostOptions(options, "prepareIdentifierClaimReceipt", ToriiClient);
+    const normalizedAccountId = requireExactAccountId(accountId, "prepareIdentifierClaimReceipt.accountId");
+    const signingContext = requireLocalDraftSigningContext(this._localSigningContext, "prepareIdentifierClaimReceipt");
+    const payload = buildIdentifierResolveRequest(rest, "prepareIdentifierClaimReceipt", signingContext.networkId, "prepare");
+    const response = await this._request("POST", `/v1/accounts/${encodeURIComponent(normalizedAccountId)}/identifiers/claim-receipt`, {
+      headers: JSON_REQUEST_HEADERS, body: JSON.stringify(payload), signal, canonicalAuth,
+    });
+    if (response.status === 404) return null;
+    await this._expectStatus(response, [200]);
+    const body = await this._maybeJson(response);
+    if (!body) rejectError("identifier prepare endpoint returned no payload");
+    return normalizeOwnerPrepareResponse(body, "identifier prepare response", signingContext.networkId, payload.policy_id, normalizedAccountId);
+  }
+
   /**
    * Issue a signed on-chain claim receipt for an account identifier binding.
    * Returns null when the policy or account is missing (404).
    * @param {string} accountId
-   * @param {{policyId: string, encryptedInput: string, outputOpening: Record<string, unknown>, signal?: AbortSignal, canonicalAuth: CanonicalRequestAuth}} options
+   * @param {{policyId: string, normalizedInput: string, inputNonce: string, outputOpening: Record<string, unknown>, phoneRetailCanonicality?: Record<string, unknown>, signal?: AbortSignal, canonicalAuth: CanonicalRequestAuth}} options
    * @returns {Promise<Record<string, unknown> | null>}
    */
   async issueIdentifierClaimReceipt(accountId, options) {
     const { signal, canonicalAuth, rest } = normalizeCanonicalApplicationPostOptions(options, "issueIdentifierClaimReceipt", ToriiClient);
-    const normalizedAccountId = requireCanonicalApplicationAuthority(canonicalAuth, accountId, "issueIdentifierClaimReceipt");
-    const payload = buildIdentifierResolveRequest(rest, "issueIdentifierClaimReceipt");
+    const normalizedAccountId = requireExactAccountId(accountId, "issueIdentifierClaimReceipt.accountId");
+    const signingContext = requireLocalDraftSigningContext(this._localSigningContext, "issueIdentifierClaimReceipt");
+    const payload = buildIdentifierResolveRequest(rest, "issueIdentifierClaimReceipt", signingContext.networkId);
+    if (payload.phone_retail_canonicality !== undefined && payload.phone_retail_canonicality.payload.account_id !== normalizedAccountId) {
+      rejectType("issueIdentifierClaimReceipt phone original differs from the requested beneficiary");
+    }
     const response = await this._request(
       "POST",
       `/v1/accounts/${encodeURIComponent(normalizedAccountId)}/identifiers/claim-receipt`,
@@ -2690,14 +2723,17 @@ export class ToriiClient {
       rejectError("Identifier claim receipt cannot be issued for this account or policy");
     }
     if (response.status === 503) {
-      rejectError("Identifier resolver runtime is disabled on the target node");
+      rejectError("Identifier resolver runtime is unavailable on the target node");
     }
     await this._expectStatus(response, [200]);
     const body = await this._maybeJson(response);
     if (!body) {
       rejectError("identifier claim-receipt endpoint returned no payload");
     }
-    return normalizeIdentifierResolveResponse(body, "identifier claim receipt response");
+    return assertOwnerClaimResponse(
+      normalizeIdentifierResolveResponse(body, "identifier claim receipt response", signingContext.networkId),
+      payload, "identifier claim receipt response", normalizedAccountId,
+    );
   }
 
   /**
@@ -7136,8 +7172,6 @@ export class ToriiClient {
       [
         "authority",
         "contractAddress",
-        "contractAlias",
-        "module",
         "eventKind",
         "participant",
         "assetId",
@@ -7159,12 +7193,6 @@ export class ToriiClient {
           "contractAddress",
         );
       }
-      if (options.contractAlias !== undefined && options.contractAlias !== null) {
-        params.contract_alias = requireExactNonEmptyString(options.contractAlias, "contractAlias");
-      }
-      if (options.module !== undefined && options.module !== null) {
-        params.module = requireNonEmptyString(options.module, "module");
-      }
       if (options.eventKind !== undefined && options.eventKind !== null) {
         params.event_kind = requireNonEmptyString(options.eventKind, "eventKind");
       }
@@ -7175,7 +7203,7 @@ export class ToriiClient {
         params.asset_id = requireExactNonEmptyString(options.assetId, "assetId");
       }
       if (options.provenance !== undefined && options.provenance !== null) {
-        params.provenance = requireNonEmptyString(options.provenance, "provenance");
+        params.provenance = requireContractEventProvenance(options.provenance, "provenance");
       }
       if (options.sinceTimestampMs !== undefined && options.sinceTimestampMs !== null) {
         params.since_timestamp_ms = ToriiClient._normalizeUnsignedInteger(
@@ -16777,6 +16805,9 @@ function assertExactManifestResponseShape(value, context) {
       "compiler_fingerprint",
       "features_bitmap",
       "access_set_hints",
+      "permissions",
+      "events",
+      "enum_types",
       "entrypoints",
       "states",
       "error_types",
@@ -16822,7 +16853,7 @@ function assertExactManifestResponseShape(value, context) {
           "argument_schema",
           "return_type",
           "return_schema",
-          "permission",
+          "authorization",
           "read_keys",
           "write_keys",
           "access_hints_complete",
@@ -16952,6 +16983,9 @@ function normalizeManifestPayload(manifest, context) {
     abi_hash: null,
     compiler_fingerprint: null,
     features_bitmap: null,
+    permissions: normalizeContractPermissionsV1(manifest.permissions, `${context}.permissions`),
+    events: normalizeContractEventsV1(manifest.events, `${context}.events`),
+    enum_types: normalizeContractEnumTypesV1(getField("enum_types", "enumTypes"), `${context}.enum_types`),
     access_set_hints: null,
     entrypoints: null,
     states: null,
@@ -17325,11 +17359,9 @@ function normalizeManifestEntrypointPayload(value, context) {
   const record = ensureRecord(value, context);
   const name = requireCanonicalKotodamaEntrypoint(record.name, `${context}.name`);
   const kind = normalizeManifestEntrypointKind(record.kind, `${context}.kind`);
-  const permission = normalizeOptionalManifestString(
-    record.permission,
-    `${context}.permission`,
-  );
-  validateManifestEntrypointIdentityV1(name, kind.kind, permission, context);
+  if (Object.hasOwn(record, "permission")) rejectType(`${context}.permission is retired; use authorization`);
+  const authorization = normalizeEntrypointAuthorizationV1(record.authorization, `${context}.authorization`);
+  validateManifestEntrypointIdentityV1(name, kind.kind, authorization, context);
   const params = normalizeManifestEntrypointParams(record.params, `${context}.params`);
   const argumentSchema = normalizeManifestArgumentSchema(
     record.argument_schema ?? record.argumentSchema,
@@ -17382,7 +17414,7 @@ function normalizeManifestEntrypointPayload(value, context) {
     argument_schema: argumentSchema,
     return_type: returnType,
     return_schema: returnSchema,
-    permission,
+    authorization,
     read_keys: normalizeManifestStringArray(
       record.read_keys ?? record.readKeys,
       `${context}.read_keys`,
@@ -17550,6 +17582,9 @@ function normalizeManifestValueTypeNode(value, context) {
     }
     case "Error":
       return { kind, value: normalizeContractErrorTypeV1(record.value, `${context}.value`) };
+    case "Enum":
+      return { kind, value: normalizeContractEnumTypeV1(record.value, `${context}.value`) };
+    case "StateCursor":
     case "Leaf":
       return {
         kind,
@@ -18513,7 +18548,11 @@ function normalizeContractCallRequest(input) {
     record.entrypoint,
     "contractCall.entrypoint",
   );
-  if (record.payload !== undefined) {
+  if (record.argumentSchema !== undefined) {
+    normalized.payload = canonicalContractArguments(record.payload, {
+      argumentSchema: record.argumentSchema,
+    });
+  } else if (record.payload !== undefined) {
     normalized.payload = cloneJsonValue(record.payload, "contractCall.payload");
   }
   if (record.metadata !== undefined) {
@@ -18923,6 +18962,7 @@ function normalizeContractCallSimulateResponse(payload) {
         ? null
         : cloneJsonValue(record.result, "contractCall simulation response.result"),
     error,
+    fault: record.fault === null ? null : normalizeIvmFault(record.fault, "contractCall simulation response.fault"),
     vm_diagnostic:
       record.vm_diagnostic === undefined || record.vm_diagnostic === null
         ? null
@@ -18931,6 +18971,7 @@ function normalizeContractCallSimulateResponse(payload) {
             "contractCall simulation response.vm_diagnostic",
           ),
   };
+  if (normalized.ok && normalized.fault !== null) rejectType("successful contractCall simulation response must not contain a fault");
   return normalized;
 }
 
@@ -19964,6 +20005,7 @@ function normalizeGovernanceContractLifecycle(value, context) {
       "pending_owner",
       "parliament_delegated",
       "active_code_hash_hex",
+      "retained_code_hash_hex",
       "revision",
       "emergency_hold",
     ],
@@ -20016,6 +20058,10 @@ function normalizeGovernanceContractLifecycle(value, context) {
             record.active_code_hash_hex,
             `${context}.active_code_hash_hex`,
           ),
+    retained_code_hash_hex:
+      record.retained_code_hash_hex === null
+        ? null
+        : requireExactLowerHex32String(record.retained_code_hash_hex, `${context}.retained_code_hash_hex`),
     revision: normalizeGovernanceUint64Integer(record.revision, `${context}.revision`, {
       allowZero: false,
     }),
@@ -20034,6 +20080,9 @@ function normalizeGovernanceContractLifecycle(value, context) {
   }
   if (origin === "parliament" && (!hasProposalContentId || !hasAttemptId)) {
     rejectType(`${context} Parliament origin requires both governance identifiers`);
+  }
+  if (lifecycle.active_code_hash_hex !== null && lifecycle.active_code_hash_hex !== lifecycle.retained_code_hash_hex) {
+    rejectType(`${context}.retained_code_hash_hex must match active_code_hash_hex for an active binding`);
   }
   return lifecycle;
 }
@@ -20931,74 +20980,18 @@ function requireCanonicalIrohaName(value, context) {
   return name;
 }
 
-function buildIdentifierResolveRequest(options, context) {
+function buildIdentifierResolveRequest(options, context, expectedNetwork, phase = "claim") {
   const record = ensureRecord(options, `${context} options`);
-  assertSupportedOptionKeys(
-    record,
-    new Set(["policyId", "input", "encryptedInput", "outputOpening"]),
-    `${context} options`,
-  );
-  const policyId = requireNonEmptyString(record.policyId, `${context}.policyId`);
-  if (policyId.startsWith("phone#")) {
-    throw createValidationError(
-      ValidationErrorCode.INVALID_OBJECT,
-      `${context} requires signed canonicality attestation support for phone policies`,
-      `${context}.policyId`,
-    );
-  }
-  if (record.input !== undefined && record.input !== null) {
-    throw createValidationError(
-      ValidationErrorCode.INVALID_OBJECT,
-      `${context} options are encrypted-only; use encryptedInput`,
-      `${context}.input`,
-    );
-  }
-  if (record.encryptedInput === undefined || record.encryptedInput === null) {
-    throw createValidationError(
-      ValidationErrorCode.INVALID_OBJECT,
-      `${context} options must supply encryptedInput`,
-      `${context}.encryptedInput`,
-    );
-  }
-  if (record.outputOpening === undefined || record.outputOpening === null) {
-    throw createValidationError(
-      ValidationErrorCode.INVALID_OBJECT,
-      `${context} options must supply outputOpening`,
-      `${context}.outputOpening`,
-    );
-  }
-  return {
-    policy_id: policyId,
-    encrypted_input: requireHexString(
-      record.encryptedInput,
-      `${context}.encryptedInput`,
-    ),
-    output_opening: normalizeRamLfeOutputOpening(
-      record.outputOpening,
-      `${context}.outputOpening`,
-    ),
-  };
+  requireIdentifierPolicyId(record.policyId, `${context}.policyId`);
+  return buildOwnerIdentifierRequest(record, phase, context, expectedNetwork);
 }
 
 function buildRamLfeExecuteRequest(options, context) {
   const record = ensureRecord(options, `${context} options`);
-  assertSupportedOptionKeys(
-    record,
-    new Set(["encryptedInput"]),
-    `${context} options`,
-  );
-  if (record.encryptedInput === undefined || record.encryptedInput === null) {
-    throw createValidationError(
-      ValidationErrorCode.INVALID_OBJECT,
-      `${context} options must supply encryptedInput`,
-      `${context}.encryptedInput`,
-    );
-  }
+  assertSupportedOptionKeys(record, new Set(["normalizedInput", "inputNonce"]), `${context} options`);
   return {
-    encrypted_input: requireHexString(
-      record.encryptedInput,
-      `${context}.encryptedInput`,
-    ),
+    normalized_input: requireOwnerInput(record.normalizedInput, `${context}.normalizedInput`),
+    input_nonce: requireOwnerInputNonce(record.inputNonce, `${context}.inputNonce`),
   };
 }
 
@@ -21458,6 +21451,7 @@ function normalizeIdentifierResolutionPayload(
   assertSupportedOptionKeys(
     record,
     new Set([
+      "network_id",
       "policy_id",
       "execution",
       "opening",
@@ -21469,6 +21463,7 @@ function normalizeIdentifierResolutionPayload(
     context,
   );
   return {
+    network_id: requireExactReceiptNetwork(record.network_id, `${context}.network_id`),
     policy_id: requireIdentifierPolicyId(record.policy_id, `${context}.policy_id`),
     execution: normalizeIdentifierResolutionExecutionPayload(
       record.execution,
@@ -21480,6 +21475,14 @@ function normalizeIdentifierResolutionPayload(
     uaid: requireExactReceiptUaid(record.uaid, `${context}.uaid`),
     account_id: requireExactAccountId(record.account_id, `${context}.account_id`),
   };
+}
+
+function requireExactReceiptNetwork(value, name) {
+  const literal = requireExactLowerHex32String(value, name);
+  if (!/[13579bdf]$/u.test(literal)) {
+    throw createValidationError(ValidationErrorCode.INVALID_HEX, `${name} must be a marked genesis hash`, name);
+  }
+  return literal;
 }
 
 function requireExactReceiptHash(value, name) {
@@ -21525,7 +21528,7 @@ function requireExactAccountId(value, name) {
 
 function requireIdentifierPolicyId(value, name) {
   const literal = requireExactNonEmptyString(value, name);
-  const parts = literal.split("#", 2);
+  const parts = literal.split("#");
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
     throw createValidationError(
       ValidationErrorCode.INVALID_OBJECT,
@@ -21690,6 +21693,9 @@ function normalizeIdentifierReceiptAttestation(attestation, context) {
   if (kind === "signed") {
     assertSupportedOptionKeys(record, new Set(["kind", "signature"]), context);
     const signature = requireExactHexString(record.signature, `${context}.signature`);
+    if (signature.length > 32768 || /^0+$/u.test(signature)) {
+      rejectType(`${context}.signature requires bounded nonzero signature bytes`);
+    }
     if (signature !== signature.toUpperCase()) {
       throw createValidationError(
         ValidationErrorCode.INVALID_HEX,
@@ -21724,19 +21730,18 @@ function normalizeIdentifierReceiptAttestation(attestation, context) {
   );
 }
 
-function normalizeIdentifierResolveResponse(
-  payload,
-  context = "identifier resolve response",
-) {
+function normalizeIdentifierResolveResponse(payload, context = "identifier resolve response", expectedNetwork) {
   const record = ensureRecord(payload ?? {}, context);
-  assertSupportedOptionKeys(record, new Set(["payload", "attestation"]), context);
-  return {
+  assertSupportedOptionKeys(record, new Set(["payload", "attestation", "phone_retail_canonicality"]), context);
+  const normalized = {
     payload: normalizeIdentifierResolutionPayload(record.payload, `${context}.payload`),
-    attestation: normalizeIdentifierReceiptAttestation(
-      record.attestation,
-      `${context}.attestation`,
-    ),
+    attestation: normalizeIdentifierReceiptAttestation(record.attestation, `${context}.attestation`),
   };
+  assertOwnerReceiptNetwork(normalized.payload.network_id, expectedNetwork, `${context}.payload.network_id`);
+  if (record.phone_retail_canonicality !== undefined) {
+    normalized.phone_retail_canonicality = normalizeTypedPhoneAttestation(record.phone_retail_canonicality, `${context}.phone_retail_canonicality`, expectedNetwork);
+  }
+  return normalized;
 }
 
 function normalizeIdentifierClaimLookupResponse(
@@ -21769,6 +21774,7 @@ function normalizeIdentifierClaimLookupResponse(
 function normalizeRamLfeExecuteResponse(
   payload,
   context = "ram-lfe execute response",
+  expectedProgram,
 ) {
   const record = ensureRecord(payload ?? {}, context);
   assertSupportedOptionKeys(
@@ -21777,7 +21783,8 @@ function normalizeRamLfeExecuteResponse(
       "program_id",
       "opaque_hash",
       "receipt_hash",
-      "output_ciphertext",
+      "opaque_output",
+      "program_id_canonical",
       "output_hash",
       "associated_data_hash",
       "executed_at_ms",
@@ -21803,10 +21810,8 @@ function normalizeRamLfeExecuteResponse(
     program_id: requireExactNonEmptyString(record.program_id, `${context}.program_id`),
     opaque_hash: requireExactReceiptHash(record.opaque_hash, `${context}.opaque_hash`),
     receipt_hash: requireExactReceiptHash(record.receipt_hash, `${context}.receipt_hash`),
-    output_ciphertext: requireExactHexString(
-      record.output_ciphertext,
-      `${context}.output_ciphertext`,
-    ),
+    program_id_canonical: record.program_id_canonical,
+    opaque_output: record.opaque_output,
     output_hash: requireExactReceiptHash(record.output_hash, `${context}.output_hash`),
     associated_data_hash: requireExactReceiptHash(
       record.associated_data_hash,
@@ -21857,7 +21862,7 @@ function normalizeRamLfeExecuteResponse(
       );
     }
   }
-  return normalized;
+  return assertOwnerExecuteConsistency(normalized, expectedProgram, context);
 }
 
 function normalizeRamLfeReceiptVerifyResponse(
@@ -27241,128 +27246,39 @@ function normalizeContractActivityListItem(value, context) {
   return normalized;
 }
 
+/** Native event history contains only committed emissions. */
+function requireContractEventProvenance(value, context) {
+  if (value !== "emitted") rejectType(`${context} must be emitted`);
+  return value;
+}
+
 function normalizeContractEventListItem(value, context) {
   const record = ensureRecord(value, context);
-  rejectAliasField(record, context, "eventId", "event_id");
-  rejectAliasField(record, context, "schemaVersion", "schema_version");
-  rejectAliasField(record, context, "timestampMs", "timestamp_ms");
-  rejectAliasField(record, context, "txHashHex", "tx_hash_hex");
-  rejectAliasField(record, context, "blockHeight", "block_height");
-  rejectAliasField(record, context, "blockHashHex", "block_hash_hex");
-  rejectAliasField(record, context, "resultOk", "result_ok");
-  rejectAliasField(record, context, "contractAddress", "contract_address");
-  rejectAliasField(record, context, "contractAlias", "contract_alias");
-  rejectAliasField(record, context, "eventKind", "event_kind");
-  rejectAliasField(record, context, "assetIds", "asset_ids");
-  rejectAliasField(record, context, "numericFields", "numeric_fields");
-  rejectAliasField(record, context, "feePayment", "fee_payment");
   rejectRetiredFeeSelectionFields(record, context);
-  const eventId = requireNonEmptyString(record.event_id, `${context}.event_id`);
-  const schemaVersion = ToriiClient._normalizeUnsignedInteger(
-    record.schema_version,
-    `${context}.schema_version`,
-    { allowZero: false },
-  );
-  const provenance = requireNonEmptyString(record.provenance, `${context}.provenance`);
-  const txHashHex = requireCanonicalTransactionHashString(
-    record.tx_hash_hex,
-    `${context}.tx_hash_hex`,
-  );
-  const blockHeight = ToriiClient._normalizeUnsignedInteger(
-    record.block_height,
-    `${context}.block_height`,
-    { allowZero: false },
-  );
-  const blockHashHex = requireNonEmptyString(
-    record.block_hash_hex,
-    `${context}.block_hash_hex`,
-  );
-  const resultOk = requireBooleanLike(record.result_ok, `${context}.result_ok`);
-  const contractAddress = requireNonEmptyString(
-    record.contract_address,
-    `${context}.contract_address`,
-  );
-  const module = requireNonEmptyString(record.module, `${context}.module`);
-  const eventKind = requireNonEmptyString(record.event_kind, `${context}.event_kind`);
-  let authorityValue = record.authority;
-  if (authorityValue !== undefined && authorityValue !== null) {
-    authorityValue = requireNonEmptyString(authorityValue, `${context}.authority`);
-  }
-  let timestampValue = record.timestamp_ms;
-  if (timestampValue !== undefined && timestampValue !== null) {
-    timestampValue = ToriiClient._normalizeUnsignedInteger(
-      timestampValue,
-      `${context}.timestamp_ms`,
-      { allowZero: true },
-    );
-  } else {
-    timestampValue = undefined;
-  }
-  const contractAlias =
-    record.contract_alias === undefined || record.contract_alias === null
-      ? undefined
-      : requireNonEmptyString(record.contract_alias, `${context}.contract_alias`);
-  const participants =
-    record.participants === undefined
-      ? undefined
-      : requireStringArray(record.participants, `${context}.participants`);
-  const assetIds =
-    record.asset_ids === undefined
-      ? undefined
-      : requireStringArray(record.asset_ids, `${context}.asset_ids`);
-  const numericFields =
-    record.numeric_fields === undefined
-      ? undefined
-      : cloneJsonValue(record.numeric_fields, `${context}.numeric_fields`);
-  const payload =
-    record.payload === undefined
-      ? undefined
-      : cloneJsonValue(record.payload, `${context}.payload`);
-  const feePayment =
-    record.fee_payment === undefined || record.fee_payment === null
-      ? undefined
-      : normalizeFeePaymentIntentValue(record.fee_payment, `${context}.fee_payment`);
+  assertSupportedOptionKeys(record, new Set(["event_id", "schema_version", "provenance", "authority", "timestamp_ms", "execution_hash_hex", "block_height", "block_hash_hex", "output_index", "emission_index", "result_ok", "contract_address", "event_kind", "participants", "asset_ids", "numeric_fields", "payload", "emission", "fee_payment"]), context);
+  const provenance = requireContractEventProvenance(record.provenance, `${context}.provenance`);
+  const outputIndex = ToriiClient._normalizeUnsignedInteger(record.output_index, `${context}.output_index`, { allowZero: true });
+  const emissionIndex = ToriiClient._normalizeUnsignedInteger(record.emission_index, `${context}.emission_index`, { allowZero: true });
+  const blockHash = requireCanonicalTransactionHashString(record.block_hash_hex, `${context}.block_hash_hex`);
+  const eventId = `${blockHash}:${outputIndex}:${emissionIndex}`;
+  if (record.event_id !== eventId) rejectType(`${context}.event_id does not match its committed coordinates`);
+  if (record.result_ok !== true) rejectType(`${context}.result_ok must be true for committed emissions`);
+  const emission = normalizeContractEmissionV1(record.emission, `${context}.emission`);
+  normalizeCanonicalManifestHash(emission.code_hash, `${context}.emission.code_hash`);
+  if (record.contract_address !== emission.contract || record.authority !== emission.caller || record.event_kind !== emission.definition.name) rejectType(`${context} does not match its native emission origin`);
+  if (!Object.hasOwn(record, "payload")) rejectType(`${context}.payload is required`);
   const normalized = {
-    ...record,
-    event_id: eventId,
-    schema_version: schemaVersion,
-    provenance,
-    tx_hash_hex: txHashHex,
-    block_height: blockHeight,
-    block_hash_hex: blockHashHex,
-    result_ok: resultOk,
-    contract_address: contractAddress,
-    module,
-    event_kind: eventKind,
+    event_id: eventId, schema_version: ToriiClient._normalizeUnsignedInteger(record.schema_version, `${context}.schema_version`, { allowZero: false }), provenance,
+    execution_hash_hex: requireCanonicalTransactionHashString(record.execution_hash_hex, `${context}.execution_hash_hex`),
+    block_height: ToriiClient._normalizeUnsignedInteger(record.block_height, `${context}.block_height`, { allowZero: false }),
+    block_hash_hex: blockHash, output_index: outputIndex, emission_index: emissionIndex,
+    result_ok: true, contract_address: emission.contract, authority: emission.caller, event_kind: emission.definition.name,
+    payload: cloneJsonValue(record.payload, `${context}.payload`), emission,
   };
-  if (authorityValue !== undefined) {
-    normalized.authority = authorityValue;
-  }
-  if (timestampValue !== undefined) {
-    normalized.timestamp_ms = timestampValue;
-  } else {
-    delete normalized.timestamp_ms;
-  }
-  if (contractAlias !== undefined) {
-    normalized.contract_alias = contractAlias;
-  }
-  if (participants !== undefined) {
-    normalized.participants = participants;
-  }
-  if (assetIds !== undefined) {
-    normalized.asset_ids = assetIds;
-  }
-  if (numericFields !== undefined) {
-    normalized.numeric_fields = numericFields;
-  }
-  if (payload !== undefined) {
-    normalized.payload = payload;
-  }
-  if (feePayment !== undefined) {
-    normalized.fee_payment = feePayment;
-  } else {
-    delete normalized.fee_payment;
-  }
+  for (const key of ["timestamp_ms"]) if (record[key] !== undefined && record[key] !== null) normalized[key] = ToriiClient._normalizeUnsignedInteger(record[key], `${context}.${key}`, { allowZero: true });
+  for (const key of ["participants", "asset_ids"]) if (record[key] !== undefined) normalized[key] = requireStringArray(record[key], `${context}.${key}`);
+  if (record.numeric_fields !== undefined) normalized.numeric_fields = cloneJsonValue(record.numeric_fields, `${context}.numeric_fields`);
+  if (record.fee_payment !== undefined && record.fee_payment !== null) normalized.fee_payment = normalizeFeePaymentIntentValue(record.fee_payment, `${context}.fee_payment`);
   return normalized;
 }
 
@@ -29166,6 +29082,7 @@ function identifierReceiptAttestationPayload(attestation) {
 
 function identifierReceiptPayload(payload) {
   return Buffer.concat([
+    identifierCanonicalSizedField(Buffer.from(requireExactReceiptNetwork(payload.network_id, "payload.network_id"), "hex")),
     identifierCanonicalSizedField(identifierPolicyIdPayload(payload.policy_id)),
     identifierCanonicalSizedField(identifierExecutionPayload(payload.execution)),
     identifierCanonicalSizedField(identifierOutputOpening(payload.opening)),
@@ -29226,56 +29143,36 @@ export function hashIdentifierEncryptedInput(encryptedInput) {
   return irohaHashBytes([Buffer.from(literal, "hex")]).toString("hex");
 }
 
-export function buildIdentifierRequestForPolicy(policySummary, options = {}) {
-  const normalizedPolicy = normalizeIdentifierPolicySummary(
-    policySummary,
-    "buildIdentifierRequestForPolicy.policy",
-  );
-  // TODO: Carry the attestor statement and independent trust pins for phone requests.
-  if (
-    normalizedPolicy.policy_id.startsWith("phone#") ||
-    normalizedPolicy.normalization === "phone_e164" ||
-    normalizedPolicy.program_id === "phone_retail"
-  ) {
-    throw createValidationError(
-      ValidationErrorCode.INVALID_OBJECT,
-      "buildIdentifierRequestForPolicy requires signed canonicality attestation support for phone policies",
-      "buildIdentifierRequestForPolicy.policy",
-    );
+export function buildIdentifierRequestForPolicy(policySummary, options) {
+  const context = "buildIdentifierRequestForPolicy";
+  const policy = normalizeIdentifierPolicySummary(policySummary, `${context}.policy`);
+  if (policy.backend !== "hkdf-sha3-512-prf-v1" || !policy.active) rejectType(`${context} requires a current active native HKDF identifier policy`);
+  const record = ensureRecord(options, `${context} options`);
+  assertSupportedOptionKeys(record, new Set(["normalizedInput", "inputNonce", "outputOpening", "phoneRetailCanonicality", "networkId"]), `${context} options`);
+  const expectedNetwork = requireOwnerNetwork(record.networkId, `${context}.networkId`);
+  if (normalizeIdentifierInput(record.normalizedInput, policy.normalization, `${context}.normalizedInput`) !== record.normalizedInput) {
+    rejectType(`${context} input differs from the exact policy normalization`);
   }
-  const record = ensureRecord(options, "buildIdentifierRequestForPolicy options");
-  assertSupportedOptionKeys(
-    record,
-    new Set(["encryptedInput", "outputOpening"]),
-    "buildIdentifierRequestForPolicy options",
-  );
-  if (record.outputOpening === undefined || record.outputOpening === null) {
-    throw createValidationError(
-      ValidationErrorCode.INVALID_OBJECT,
-      "buildIdentifierRequestForPolicy options must supply outputOpening",
-      "buildIdentifierRequestForPolicy.outputOpening",
-    );
+  const { networkId: _selected, ...fields } = record;
+  const request = buildOwnerIdentifierRequest({ policyId: policy.policy_id, ...fields }, "claim", context, expectedNetwork);
+  if (request.output_opening.payload.program_id.name !== policy.program_id) rejectType(`${context} original opening differs from the current policy program`);
+  if (policy.normalization === "phone_e164" || policy.program_id === "phone_retail" || policy.policy_id.split("#")[0] === "phone") {
+    if (policy.policy_id !== "phone#retail" || policy.program_id !== "phone_retail" || policy.normalization !== "phone_e164"
+        || policy.phone_retail_attestor_public_key === undefined
+        || policy.phone_retail_attestor_public_key === policy.resolver_public_key
+        || policy.phone_retail_attestor_public_key === policy.output_opening_public_key) rejectType(`${context} requires the exact phone policy and an independent attestor`);
   }
-  if (normalizedPolicy.input_encryption !== "bfv-v1") {
-    rejectError(`buildIdentifierRequestForPolicy: policy ${normalizedPolicy.policy_id} does not publish BFV encrypted-input support`);
-  }
-  return {
-    policyId: normalizedPolicy.policy_id,
-    encryptedInput: requireHexString(
-      record.encryptedInput,
-      "buildIdentifierRequestForPolicy.encryptedInput",
-    ),
-    outputOpening: normalizeRamLfeOutputOpening(
-      record.outputOpening,
-      "buildIdentifierRequestForPolicy.outputOpening",
-    ),
+  return { policyId: request.policy_id, normalizedInput: request.normalized_input, inputNonce: request.input_nonce,
+    outputOpening: request.output_opening,
+    ...(request.phone_retail_canonicality === undefined ? {} : { phoneRetailCanonicality: request.phone_retail_canonicality }),
   };
 }
 
-export function verifyIdentifierResolutionReceipt(receipt, policySummary) {
+export function verifyIdentifierResolutionReceipt(receipt, policySummary, intendedNetwork) {
   const normalizedReceipt = normalizeIdentifierResolveResponse(
     receipt,
     "verifyIdentifierResolutionReceipt.receipt",
+    requireOwnerNetwork(intendedNetwork, "verifyIdentifierResolutionReceipt.intendedNetwork"),
   );
   const normalizedPolicy = normalizeIdentifierPolicySummary(
     policySummary,

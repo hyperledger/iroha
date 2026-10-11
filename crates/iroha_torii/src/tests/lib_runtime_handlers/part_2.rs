@@ -1601,7 +1601,7 @@ fn signed_query_scope_classifies_find_asset_definition_by_id_as_target_domain() 
     let authority =
         checked_torii_test_account_id(0xdb, "derive asset-definition scope authority key");
     let domain_id =
-        iroha_model_base::domain::DomainId::try_new("hbl", "restricted").expect("domain id");
+        iroha_model_base::domain::DomainId::try_new("hbl", "governance").expect("domain id");
     let asset_definition_id = iroha_data_model::asset::AssetDefinitionId::derive_from_components(
         domain_id.clone(),
         "asset-definition".parse().expect("asset definition name"),
@@ -1642,7 +1642,7 @@ async fn signed_query_scope_for_app_keeps_opaque_find_asset_by_id_targeted_to_ac
     let authority =
         checked_torii_test_account_id(0xdd, "derive opaque asset-by-id authority fixture key");
     let domain_id =
-        iroha_model_base::domain::DomainId::try_new("hbl", "restricted").expect("domain id");
+        iroha_model_base::domain::DomainId::try_new("hbl", "governance").expect("domain id");
     let asset_definition_id = iroha_data_model::asset::AssetDefinitionId::derive_from_components(
         domain_id.clone(),
         "asset-definition".parse().expect("asset definition name"),
@@ -1677,7 +1677,7 @@ async fn signed_query_scope_for_app_classifies_opaque_find_asset_definition_by_i
     let authority =
         checked_torii_test_account_id(0xde, "derive opaque asset-definition authority fixture key");
     let domain_id =
-        iroha_model_base::domain::DomainId::try_new("hbl", "restricted").expect("domain id");
+        iroha_model_base::domain::DomainId::try_new("hbl", "governance").expect("domain id");
     let asset_definition_id = iroha_data_model::asset::AssetDefinitionId::derive_from_components(
         domain_id.clone(),
         "asset-definition".parse().expect("asset definition name"),
@@ -1711,7 +1711,7 @@ async fn signed_query_scope_for_app_classifies_opaque_find_accounts_with_asset_a
     let authority =
         checked_torii_test_account_id(0xdf, "derive accounts-with-asset authority fixture key");
     let domain_id =
-        iroha_model_base::domain::DomainId::try_new("hbl", "restricted").expect("domain id");
+        iroha_model_base::domain::DomainId::try_new("hbl", "governance").expect("domain id");
     let asset_definition_id = iroha_data_model::asset::AssetDefinitionId::derive_from_components(
         domain_id.clone(),
         "asset-definition".parse().expect("asset definition name"),
@@ -1779,10 +1779,9 @@ async fn resolve_signed_query_routing_for_app_uses_target_domain_route_for_opaqu
         iroha_core::state::World::default(),
         crate::tests_runtime_handlers::private_ingress_nexus_for_test(),
     );
-    let (restricted_lane, restricted_dataspace) =
-        configure_private_ingress_routes_for_test(&mut app);
+    configure_private_ingress_routes_for_test(&mut app);
     let domain_id =
-        iroha_model_base::domain::DomainId::try_new("hbl", "restricted").expect("domain id");
+        iroha_model_base::domain::DomainId::try_new("hbl", "governance").expect("domain id");
     let asset_definition_id = iroha_data_model::asset::AssetDefinitionId::derive_from_components(
         domain_id.clone(),
         "asset-definition".parse().expect("asset definition name"),
@@ -1802,7 +1801,7 @@ async fn resolve_signed_query_routing_for_app_uses_target_domain_route_for_opaqu
     assert_eq!(
         super::resolve_signed_query_routing_for_app(app.as_ref(), &query)
             .expect("opaque asset-definition signed query should resolve a routed dataspace"),
-        RoutingDecision::new(restricted_lane, restricted_dataspace)
+        RoutingDecision::new(LaneId::new(1), DataSpaceId::new(1))
     );
 }
 #[tokio::test]
@@ -1847,7 +1846,7 @@ fn signed_query_scope_classifies_target_account_queries() {
         DataSpaceId::new(10),
     );
     let domain_id =
-        iroha_model_base::domain::DomainId::try_new("hbl", "restricted").expect("domain id");
+        iroha_model_base::domain::DomainId::try_new("hbl", "governance").expect("domain id");
     let asset_definition_id = iroha_data_model::asset::AssetDefinitionId::derive_from_components(
         domain_id.clone(),
         "asset-definition".parse().expect("asset definition name"),
@@ -2675,6 +2674,9 @@ fn delegated_account_assets_recheck_exact_grant_and_reject_sibling_and_scope_mis
     let sibling = checked_torii_test_account_id(0xa2, "delegated assets sibling");
     let caller = checked_torii_test_account_id(0xa3, "delegated assets caller");
     let uaid = UniversalAccountId::from_hash(Hash::new(b"delegated-account-assets-subject"));
+    let sibling_uaid =
+        UniversalAccountId::from_hash(Hash::new(b"delegated-account-assets-sibling"));
+    assert_ne!(uaid, sibling_uaid);
     let restricted_dataspace = DataSpaceId::new(10);
     let domain =
         Domain::new(DomainId::try_new("wonderland", "universal").expect("domain")).build(&target);
@@ -2685,13 +2687,14 @@ fn delegated_account_assets_recheck_exact_grant_and_reject_sibling_and_scope_mis
                 .with_uaid(Some(uaid))
                 .build(&target),
             Account::new(sibling.clone())
-                .with_uaid(Some(uaid))
+                .with_uaid(Some(sibling_uaid))
                 .build(&sibling),
             Account::new(caller.clone()).build(&caller),
         ],
         [],
     );
     bind_uaid_to_dataspace_manifest_for_test(&mut world, uaid, restricted_dataspace);
+    bind_uaid_to_dataspace_manifest_for_test(&mut world, sibling_uaid, restricted_dataspace);
     let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world_and_nexus(
         world,
         crate::tests_runtime_handlers::private_ingress_nexus_for_test(),
@@ -2715,7 +2718,7 @@ fn delegated_account_assets_recheck_exact_grant_and_reject_sibling_and_scope_mis
         .expect("target has private route");
     assert_eq!(
         super::torii_account_assets_read_routes(app.as_ref(), &sibling, Some(&caller))
-            .expect_err("same-subject sibling requires its own grant")
+            .expect_err("same-dataspace sibling requires its own grant")
             .status(),
         StatusCode::FORBIDDEN,
     );
@@ -2944,22 +2947,34 @@ fn long_lived_dataspace_context_rechecks_permission_revocation() {
 
 #[cfg(feature = "app_api")]
 #[tokio::test]
-async fn handler_account_assets_fanout_reports_merged_route_headers() {
+async fn handler_account_assets_reports_selected_route_and_keeps_restricted_rows_private() {
     let authority = checked_torii_test_account_id(
         0xed,
-        "derive account asset handler fanout authority fixture key",
+        "derive account asset collection authority fixture key",
     );
     let missing =
-        checked_torii_test_account_id(0xee, "derive missing account asset fanout fixture key");
+        checked_torii_test_account_id(0xee, "derive missing account asset collection fixture key");
     let restricted_dataspace = DataSpaceId::new(10);
     let uaid = UniversalAccountId::from_hash(Hash::new(b"torii::assets-known-scope"));
-    let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world_and_nexus(
+    let app = native_ingress_app_with_world_and_nexus_for_test(
         world_with_account_bound_to_dataspace(&authority, uaid, restricted_dataspace),
         crate::tests_runtime_handlers::private_ingress_nexus_for_test(),
     );
-    let (_restricted_lane, configured_restricted_dataspace) =
-        configure_private_ingress_routes_for_test(&mut app);
-    assert_eq!(configured_restricted_dataspace, restricted_dataspace);
+    assert_initial_nexus_catalog_for_test(&app.state, &private_ingress_nexus_for_test());
+    assert!(
+        super::torii_all_dataspace_routes(app.as_ref())
+            .iter()
+            .any(|route| route.dataspace_id == restricted_dataspace)
+    );
+    let routes = super::torii_visible_account_read_routes(app.as_ref(), None);
+    assert!(
+        routes.len() > 1,
+        "the collection scope has multiple public routes"
+    );
+    let selected = super::collection_execution_route(app.as_ref(), &routes)
+        .expect("one visible collection execution route");
+    assert!(routes.contains(&selected));
+    assert!(super::should_execute_route_locally(app.as_ref(), selected));
     let uri: axum::http::Uri = format!("/v1/accounts/{authority}/assets")
         .parse()
         .expect("valid account assets uri");
@@ -2975,16 +2990,25 @@ async fn handler_account_assets_fanout_reports_merged_route_headers() {
     .expect("account assets should execute")
     .into_response();
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(
-        response.headers().get("x-iroha-route-lane-id").is_none(),
-        "account asset fanout should not expose a singular route lane",
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-routed-by"),
+        Some("local")
+    );
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-route-lane-id"),
+        Some(selected.lane_id.to_string().as_str()),
+        "the one chosen route identifies where the complete collection executed",
+    );
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-route-dataspace-id"),
+        Some(selected.dataspace_id.to_string().as_str()),
     );
     assert!(
         response
             .headers()
-            .get("x-iroha-route-dataspace-id")
+            .get("x-iroha-fanout-routes-attempted")
             .is_none(),
-        "account asset fanout should not expose a singular dataspace",
+        "one complete-visibility query must not claim per-dataspace scans",
     );
     let restricted_json =
         decode_torii_json(response, "restricted account assets", "account assets json").await;
@@ -3027,15 +3051,11 @@ async fn torii_account_permissions_read_routes_fan_out_across_all_dataspaces_for
 #[cfg(feature = "app_api")]
 #[tokio::test]
 async fn fanout_routed_by_uses_attempted_routes_even_when_only_local_payloads_survive() {
-    let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world_and_nexus(
-        iroha_core::state::World::default(),
-        crate::tests_runtime_handlers::private_ingress_with_offline_foreign_nexus_for_test(),
-    );
-    let (local_route, foreign_route) =
-        configure_private_ingress_with_offline_foreign_route_for_test(&mut app);
+    let (app, local_route, stale_route) =
+        native_account_read_with_stale_route_for_test(World::default());
     assert_eq!(super::routed_by_for_routes(&app, &[local_route]), "local");
     assert_eq!(
-        super::routed_by_for_routes(&app, &[local_route, foreign_route]),
+        super::routed_by_for_routes(&app, &[local_route, stale_route]),
         "proxy",
         "fanout responses must report proxy routing when any attempted route is non-local"
     );
@@ -3241,11 +3261,39 @@ async fn handler_signed_query_executes_find_active_trigger_ids_locally_with_mult
 #[tokio::test]
 #[cfg(feature = "app_api")]
 async fn anonymous_accounts_list_excludes_restricted_private_ingress_route() {
-    let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world_and_nexus(
-        iroha_core::state::World::default(),
+    let restricted =
+        checked_torii_test_account_id(0xfd, "derive restricted account list fixture key");
+    let public = checked_torii_test_account_id(0xfe, "derive public account list fixture key");
+    let restricted_dataspace = DataSpaceId::new(10);
+    let uaid = UniversalAccountId::from_hash(Hash::new(b"torii::anonymous-account-list"));
+    let app = native_ingress_app_with_world_and_nexus_for_test(
+        world_with_target_and_caller_bound_to_dataspace(
+            &restricted,
+            &public,
+            uaid,
+            restricted_dataspace,
+        ),
         crate::tests_runtime_handlers::private_ingress_nexus_for_test(),
     );
-    configure_private_ingress_routes_for_test(&mut app);
+    let routes = super::torii_visible_account_read_routes(app.as_ref(), None);
+    assert_eq!(
+        routes
+            .iter()
+            .map(|route| route.dataspace_id)
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from([DataSpaceId::UNIVERSAL, DataSpaceId::new(1)]),
+        "anonymous account listings must omit the configured restricted route",
+    );
+    assert!(
+        super::torii_all_dataspace_routes(app.as_ref())
+            .iter()
+            .any(|route| route.dataspace_id == restricted_dataspace),
+        "the negative fixture must contain the restricted route",
+    );
+    let selected = super::collection_execution_route(app.as_ref(), &routes)
+        .expect("one visible collection execution route");
+    assert!(routes.contains(&selected));
+    assert!(super::should_execute_route_locally(app.as_ref(), selected));
     let response = super::handler_accounts_list(
         State(app),
         axum::http::Method::GET,
@@ -3262,24 +3310,51 @@ async fn anonymous_accounts_list_excludes_restricted_private_ingress_route() {
         Some("local"),
         "visible account listings should still execute locally",
     );
-    assert_eq!(
-        torii_response_header(&response, "x-iroha-fanout-routes-attempted"),
-        Some("2"),
-        "anonymous account listings must omit the configured restricted route",
+    // A collection executes once on one route under the complete caller scope;
+    // its response does not claim the old per-dataspace fanout scan.
+    assert!(
+        response
+            .headers()
+            .get("x-iroha-fanout-routes-attempted")
+            .is_none(),
+    );
+    let json = decode_torii_json(response, "anonymous account list", "account list JSON").await;
+    let items = json["items"].as_array().expect("account items");
+    let public_id = public.to_string();
+    let restricted_id = restricted.to_string();
+    assert!(
+        items
+            .iter()
+            .any(|item| item["id"].as_str() == Some(public_id.as_str())),
+        "one visible local execution must return the public account",
+    );
+    assert!(
+        items
+            .iter()
+            .all(|item| item["id"].as_str() != Some(restricted_id.as_str())),
+        "the same global World must not expose the restricted account's row",
     );
 }
 #[tokio::test]
 #[cfg(feature = "app_api")]
-async fn handler_account_assets_fan_outs_across_visible_dataspaces() {
+async fn handler_account_assets_selects_one_route_for_complete_visible_collection() {
     let authority = checked_torii_test_account_id(
         0xf6,
-        "derive visible account assets fanout authority fixture key",
+        "derive visible account assets collection authority fixture key",
     );
-    let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world_and_nexus(
+    let app = native_ingress_app_with_world_and_nexus_for_test(
         world_with_account(&authority),
         crate::tests_runtime_handlers::multiple_dataspace_nexus_for_test(),
     );
-    configure_multiple_dataspace_routes_for_test(&mut app);
+    let routes = super::torii_visible_account_read_routes(app.as_ref(), None);
+    assert!(
+        routes.len() > 1,
+        "the collection scope has multiple public routes"
+    );
+    let selected = super::collection_execution_route(app.as_ref(), &routes)
+        .expect("one visible collection execution route");
+    assert!(routes.contains(&selected));
+    assert!(super::should_execute_route_locally(app.as_ref(), selected));
     let uri: axum::http::Uri = format!("/v1/accounts/{authority}/assets")
         .parse()
         .expect("valid account assets uri");
@@ -3300,30 +3375,42 @@ async fn handler_account_assets_fan_outs_across_visible_dataspaces() {
         Some("local"),
         "account asset reads should still execute locally in unit tests",
     );
-    assert!(
-        response.headers().get("x-iroha-route-lane-id").is_none(),
-        "visible dataspace fanout should not expose a singular route lane",
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-route-lane-id"),
+        Some(selected.lane_id.to_string().as_str()),
+        "the one chosen route identifies where the complete collection executed",
+    );
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-route-dataspace-id"),
+        Some(selected.dataspace_id.to_string().as_str()),
     );
     assert!(
         response
             .headers()
-            .get("x-iroha-route-dataspace-id")
+            .get("x-iroha-fanout-routes-attempted")
             .is_none(),
-        "visible dataspace fanout should not expose a singular dataspace",
+        "one complete-visibility query must not claim per-dataspace scans",
     );
 }
 #[tokio::test]
 #[cfg(feature = "app_api")]
-async fn handler_transactions_query_fan_outs_across_dataspaces() {
-    let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world_and_nexus(
+async fn handler_transactions_query_executes_once_on_selected_visible_route() {
+    let app = native_ingress_app_with_world_and_nexus_for_test(
         iroha_core::state::World::default(),
         crate::tests_runtime_handlers::multiple_dataspace_nexus_for_test(),
     );
-    configure_multiple_dataspace_routes_for_test(&mut app);
     assert!(
         super::torii_all_dataspace_routes(app.as_ref()).len() > 1,
         "test requires multiple dataspace routes"
     );
+    let routes = super::torii_visible_account_read_routes(app.as_ref(), None);
+    assert!(
+        routes.len() > 1,
+        "the transaction scope has multiple public routes"
+    );
+    let selected = super::collection_execution_route(app.as_ref(), &routes)
+        .expect("one visible transaction execution route");
+    assert!(super::should_execute_route_locally(app.as_ref(), selected));
     let response = super::handler_transactions_query(
         State(app),
         Extension(super::ToriiAccountReadVisibility::None),
@@ -3336,18 +3423,35 @@ async fn handler_transactions_query_fan_outs_across_dataspaces() {
     .into_response();
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
-        torii_response_header(&response, "x-iroha-fanout-routes-attempted"),
-        Some("2"),
-        "global transaction queries must enter the read-fanout path",
+        torii_response_header(&response, "x-iroha-routed-by"),
+        Some("local")
+    );
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-route-lane-id"),
+        Some(selected.lane_id.to_string().as_str()),
+        "the one chosen route identifies where the complete collection executed",
+    );
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-route-dataspace-id"),
+        Some(selected.dataspace_id.to_string().as_str()),
     );
     assert!(
-        response.headers().get("x-iroha-route-lane-id").is_none(),
-        "transaction query fanout should not expose a singular route lane",
+        response
+            .headers()
+            .get("x-iroha-fanout-routes-attempted")
+            .is_none(),
+        "one complete-visibility query must not claim per-dataspace scans",
+    );
+    let json = decode_torii_json(response, "transaction collection", "transaction page JSON").await;
+    assert!(
+        json["items"]
+            .as_array()
+            .is_some_and(|items| items.len() <= 10)
     );
 }
 #[cfg(feature = "app_api")]
 #[tokio::test]
-async fn public_dataspace_upstream_serves_routed_account_assets() {
+async fn public_dataspace_upstream_cannot_replace_authoritative_account_assets() {
     let captured = Arc::new(std::sync::Mutex::new(Vec::<(String, String)>::new()));
     let captured_for_route = Arc::clone(&captured);
     let upstream = Router::new().route(
@@ -3383,7 +3487,8 @@ async fn public_dataspace_upstream_serves_routed_account_assets() {
             .expect("serve upstream");
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
-    let mut app = mk_app_state_for_tests();
+    let authority = checked_torii_test_account_id(0xf7, "protected account asset authority");
+    let mut app = native_ingress_app_with_world_for_test(world_with_account(&authority));
     Arc::get_mut(&mut app)
         .expect("unique app state")
         .public_dataspace_upstreams = Arc::new(BTreeMap::from([(
@@ -3391,12 +3496,12 @@ async fn public_dataspace_upstream_serves_routed_account_assets() {
         format!("http://{addr}"),
     )]));
     let route = RoutingDecision::new(LaneId::SINGLE, DataSpaceId::UNIVERSAL);
-    let account_id =
-        checked_torii_test_account_id(0xf7, "derive routed public upstream account fixture key")
-            .to_string();
+    let account_id = authority.to_string();
     let request = torii_read_request(
         ToriiReadEndpointV1::AccountAssetsGet,
-        ToriiFanoutRouteScopeV1::AllDataspaces,
+        ToriiFanoutRouteScopeV1::VisibleAccount {
+            caller_account_id: None,
+        },
         route,
         vec![account_id.clone()],
         Some("limit=500".to_owned()),
@@ -3406,14 +3511,19 @@ async fn public_dataspace_upstream_serves_routed_account_assets() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         torii_response_header(&response, "x-iroha-routed-by"),
-        Some("external"),
+        Some("local"),
     );
     let body = torii_body_bytes(response, "body").await;
     let json: Value = norito::json::from_slice(&body).expect("json response");
-    assert_eq!(json["items"][0]["quantity"].as_str(), Some("74.7664"));
-    assert_eq!(
-        captured.lock().expect("capture lock").as_slice(),
-        &[(account_id, "limit=500".to_owned())],
+    assert!(
+        json["items"]
+            .as_array()
+            .expect("local asset rows")
+            .is_empty()
+    );
+    assert!(
+        captured.lock().expect("capture lock").is_empty(),
+        "a protected account asset read never contacts the unauthenticated upstream"
     );
     upstream_task.abort();
 }
@@ -3575,11 +3685,10 @@ async fn handler_account_get_fan_outs_across_global_dataspaces() {
         0xf8,
         "derive global account get fanout authority fixture key",
     );
-    let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world_and_nexus(
+    let app = native_ingress_app_with_world_and_nexus_for_test(
         world_with_account(&authority),
         crate::tests_runtime_handlers::multiple_dataspace_nexus_for_test(),
     );
-    configure_multiple_dataspace_routes_for_test(&mut app);
     let uri: axum::http::Uri = format!("/v1/accounts/{authority}")
         .parse()
         .expect("valid account uri");
@@ -3623,12 +3732,9 @@ async fn routing_space_directory_manifests_reports_inactive_pending_and_uncatalo
         UniversalAccountId::from_hash(Hash::new(b"torii::space-directory-manifest-inactive"));
     let pending_dataspace = DataSpaceId::new(10);
     let expired_dataspace = DataSpaceId::new(11);
-    let mut world = world_with_account(&authority);
+    let world = world_with_account(&authority);
     let mut bindings = iroha_core::nexus::space_directory::UaidDataspaceBindings::default();
     bindings.bind_account(pending_dataspace, authority.clone());
-    world
-        .uaid_dataspaces_mut_for_testing()
-        .insert(uaid, bindings);
     let pending_manifest = iroha_data_model::nexus::AssetPermissionManifest {
         version: iroha_data_model::nexus::ManifestVersion::V1,
         uaid,
@@ -3656,24 +3762,61 @@ async fn routing_space_directory_manifests_reports_inactive_pending_and_uncatalo
     let mut set = iroha_core::nexus::space_directory::SpaceDirectoryManifestSet::default();
     set.upsert(pending_record);
     set.upsert(expired_record);
-    world
-        .space_directory_manifests_mut_for_testing()
-        .insert(uaid, set);
-    let mut app = mk_app_state_for_tests_with_world(world);
+    let mut app =
+        mk_app_state_for_tests_with_world_and_nexus(world, private_ingress_nexus_for_test());
+    assert_initial_nexus_catalog_for_test(&app.state, &private_ingress_nexus_for_test());
+    // State startup rebuilds derived bindings from authoritative active manifests,
+    // and runtime catalog installation prunes uncataloged manifests. Install this
+    // projection fixture's archived rows and matching binding after both steps.
     {
-        let app_mut = Arc::get_mut(&mut app).expect("unique app state");
-        let state = Arc::get_mut(&mut app_mut.state).expect("unique state");
-        state.nexus.get_mut().dataspace_catalog =
-            iroha_data_model::nexus::DataSpaceCatalog::new(vec![
-                iroha_data_model::nexus::DataSpaceMetadata::default(),
-                iroha_data_model::nexus::DataSpaceMetadata {
-                    id: pending_dataspace,
-                    alias: "restricted".to_owned(),
-                    description: None,
-                    fault_tolerance: 1,
-                },
-            ])
-            .expect("dataspace catalog");
+        let app_mut = Arc::get_mut(&mut app).expect("unique manifest fixture app");
+        let state = Arc::get_mut(&mut app_mut.state).expect("unique manifest fixture state");
+        state
+            .world
+            .space_directory_manifests_mut_for_testing()
+            .insert(uaid, set);
+        state
+            .world
+            .uaid_dataspaces_mut_for_testing()
+            .insert(uaid, bindings);
+    }
+    {
+        let view = app.state.view();
+        let bindings = view
+            .world()
+            .uaid_dataspaces()
+            .get(&uaid)
+            .expect("archived fixture account binding");
+        assert_eq!(bindings.iter().count(), 1);
+        assert!(bindings.is_bound_to(pending_dataspace, &authority));
+        assert!(!bindings.is_bound_to(expired_dataspace, &authority));
+        let manifests = view
+            .world()
+            .space_directory_manifests()
+            .get(&uaid)
+            .expect("both archived fixture manifest rows");
+        assert_eq!(manifests.iter().count(), 2);
+        assert!(
+            !manifests
+                .get(&pending_dataspace)
+                .expect("pending row")
+                .is_active()
+        );
+        assert!(
+            manifests
+                .get(&expired_dataspace)
+                .expect("expired row")
+                .lifecycle
+                .expired_epoch
+                .is_some()
+        );
+        assert!(
+            view.world()
+                .dataspace_catalog()
+                .by_id(expired_dataspace)
+                .is_none(),
+            "the expired archival row must remain genuinely uncataloged"
+        );
     }
     let response = routing::handle_v1_space_directory_manifests(
         app.state.clone(),
@@ -3701,6 +3844,13 @@ async fn routing_space_directory_manifests_reports_inactive_pending_and_uncatalo
         .expect("pending manifest row");
     assert_eq!(pending["status"].as_str(), Some("Pending"));
     assert_eq!(pending["dataspace_alias"].as_str(), Some("restricted"));
+    assert_eq!(
+        pending["accounts"]
+            .as_array()
+            .expect("pending accounts")
+            .len(),
+        1,
+    );
     assert_eq!(
         pending["accounts"][0].as_str(),
         Some(authority.to_string().as_str())
@@ -3810,13 +3960,16 @@ async fn anonymous_space_directory_manifest_selector_hides_restricted_route() {
     world
         .uaid_dataspaces_mut_for_testing()
         .insert(uaid, bindings);
-    let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world_and_nexus(
+    let app = native_ingress_app_with_world_and_nexus_for_test(
         world,
         crate::tests_runtime_handlers::private_ingress_nexus_for_test(),
     );
-    let (_restricted_lane, configured_restricted_dataspace) =
-        configure_private_ingress_routes_for_test(&mut app);
-    assert_eq!(configured_restricted_dataspace, restricted_dataspace);
+    assert_initial_nexus_catalog_for_test(&app.state, &private_ingress_nexus_for_test());
+    assert!(
+        super::torii_all_dataspace_routes(app.as_ref())
+            .iter()
+            .any(|route| route.dataspace_id == restricted_dataspace)
+    );
     let response = super::handler_space_directory_manifests(
         State(app),
         axum::http::Method::GET,
@@ -3990,5 +4143,85 @@ async fn account_assets_reject_invalid_queries_before_routing() {
     assert_eq!(
         torii_response_header(&response, "x-iroha-reject-code"),
         Some("invalid_filter")
+    );
+}
+
+#[tokio::test]
+async fn dpn_domain_enrollment_routes_only_exact_identity_and_permission_queries() {
+    use iroha_data_model::{
+        nexus::UniversalAccountId,
+        query::{QueryRequest, account::prelude::FindAccountById},
+    };
+    use iroha_executor_data_model::permission::dpn::CanGrantDpnUserForAccountDomain;
+    let authority = checked_torii_test_account_id(0x51, "DPN enrollment registrar");
+    let customer = checked_torii_test_account_id(0x52, "DPN enrollment customer");
+    let uaid = UniversalAccountId::from_hash(iroha_crypto::Hash::new(b"dpn-route-enrollment"));
+    let mut world = World::with(
+        [],
+        [
+            Account::new(authority.clone()).build(&authority),
+            Account::new(customer.clone())
+                .with_uaid(Some(uaid))
+                .build(&customer),
+        ],
+        [],
+    );
+    world.account_permissions_mut_for_testing().insert(
+        authority.clone(),
+        std::collections::BTreeSet::from([Permission::from(CanGrantDpnUserForAccountDomain {
+            domain: iroha_model_base::domain::DomainId::try_new("nevo", "universal").unwrap(),
+        })]),
+    );
+    let mut app =
+        mk_app_state_for_tests_with_world_and_nexus(world, private_ingress_nexus_for_test());
+    configure_private_ingress_routes_for_test(&mut app);
+    // Install authoritative binding, reverse index, rekey record and active SNS lease together.
+    bind_account_alias_for_test(&app, &customer, "customer@nevo.universal");
+    let routes = super::torii_all_dataspace_routes(app.as_ref());
+    let scope = super::SignedQueryScope::TargetAccount(customer.clone());
+    for query in [
+        QueryRequest::Singular(FindAccountById::new(customer.clone()).into()),
+        QueryRequest::Start(build_find_permissions_by_account_query_for_test(
+            customer.clone(),
+        )),
+    ] {
+        let request = request_for_test(&authority, query);
+        assert_eq!(
+            super::torii_authorize_signed_query_routes(
+                app.as_ref(),
+                &request,
+                &scope,
+                routes.clone()
+            )
+            .unwrap()
+            .len(),
+            routes.len()
+        );
+    }
+    let role_request = request_for_test(
+        &authority,
+        QueryRequest::Start(build_find_roles_by_account_query_for_test(customer)),
+    );
+    assert!(
+        super::torii_authorize_signed_query_routes(
+            app.as_ref(),
+            &role_request,
+            &scope,
+            routes.clone()
+        )
+        .is_err()
+    );
+    let broad = request_for_test(
+        &authority,
+        QueryRequest::Start(build_find_account_ids_query_for_test()),
+    );
+    assert!(
+        super::torii_authorize_signed_query_routes(
+            app.as_ref(),
+            &broad,
+            &super::SignedQueryScope::CrossDataspaceFanout,
+            routes
+        )
+        .is_err()
     );
 }

@@ -1,4 +1,5 @@
 //! Validate the public finalized-PoR replay-archive binding and worker bounds.
+
 use iroha_config::parameters::{actual::Root as ActualConfig, defaults, user::Root as UserConfig};
 use iroha_config_base::{env::MockEnv, read::ConfigReader, toml::TomlSource};
 use iroha_crypto::{Algorithm, KeyPair};

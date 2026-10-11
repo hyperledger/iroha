@@ -10,6 +10,14 @@ canaries — is owned by the same-revision `iroha taira public-reset preflight` 
 `iroha taira public-reset apply` workflow (`skills/sora-taira-testnet/SKILL.md`). This runbook
 states what that reset must satisfy for consensus; it does not replace it.
 
+The compiled public-reset/build/transfer corridor described here currently requires the
+MacStadium Dublin AArch64 Linux guest and its independently admitted native Mac edge. It does
+not support an OVH x86_64 target. Reconcile the actual serving deployment and operator's
+retained completion records before selecting this corridor or proposing a new reset; an
+already completed reset is not a reason to execute these commands again. A different host or
+architecture requires its own reviewed operator authority and supported current workflow,
+not changed provider labels, target hashes or copied signatures.
+
 ## 1. Deployment policy and optional fault diagnostics
 
 On-chain governance owns deployment policy for Taira and production (§13.5). There is no
@@ -57,23 +65,45 @@ fresh-key assertion of §5.
 ## 4. Fresh genesis
 
 Chain parameters come from genesis and committed state only; every validator uses the same
-ones. Build the genesis from the current tree:
+ones. For the fresh Phase A public reset, use the authenticated same-revision Kagami on the
+approved Linux guest through the maintained native invocation transport:
 
-1. Generate or materialize the manifest:
-   - `kagami genesis generate --profile iroha3-taira --genesis-public-key <multihash> --ivm-dir <dir> --kagemusha-mint-finality-parameters <file> --vrf-seed-hex <hex> --consensus-mode npos [--lane-policy lanes.json] default > genesis.json`,
-     or `kagami genesis materialize --kagemusha-mint-finality-parameters <file> configs/soranexus/taira/genesis.template.json`
-     for the Taira source template.
-   - `--lane-policy <PATH>` sets the JSON `SumeragiLanePolicy` (fixed lanes, routes,
-     autoscale; `specs/sumeragi_lanes.md`); kagami validates the policy and every fixed
-     member's PoP. Without it the chain has lane 0 only until governance sets a policy.
-2. Put the committee into the topology with the proofs of possession:
-   `kagami genesis embed-pop --manifest genesis.json --out genesis.json --peer-pop <public_key=pop_hex> ...`
-   (one `--peer-pop` per validator; the manifest is read whole before the output is written),
-   or pass `--topology <json> --peer-pop <public_key=pop_hex> ...` to `kagami genesis sign` in
-   step 3.
-3. Sign and publish the bundle:
-   `kagami genesis sign genesis.json --private-key-file <owner-only file> --config <validator config> --out-file genesis.signed.nrt --bound-manifest-out genesis.json --expected-hash-out genesis.expected_hash`.
-   Validators select the published identity with `genesis.expected_hash_file`.
+```sh
+kagami localnet --peers 4 \
+  --chain-id fc56984b-2be7-431d-840e-21514d1883f0 \
+  --chain-discriminant 369 --sora-profile nexus --consensus-mode npos \
+  --bind-host 127.0.0.1 --public-host 127.0.0.1 \
+  --base-api-port 8080 --base-p2p-port 1337 \
+  --out-dir /private/runtime/taira-public-reset/REVIEWED_FRESH_RUN/network
+```
+
+This command generates private keys and signs genesis; run it only with the reset owner's
+authorization. Select a fresh owner-private run directory, omit `--seed` and sample/application
+asset options, and keep its private output on that guest. It does not start validators. The
+generator constructs the current bootstrap, exact BLS topology/PoPs and lane policy, executes
+genesis under the staged configuration, and publishes `genesis.json`, `genesis.signed.nrt`,
+the checked identity files and `nexus-amx-context.v1.bin`. Validators select the published
+identity with `genesis.expected_hash_file`.
+
+Review the complete catalog before authorization: lanes 0–2 are universal/Public; lane 3 is
+dpn/Restricted, 4 is is2/Restricted, 5 is bpng/Public, 6 is cbsi/Restricted and 7 is
+is/Restricted. Participant dataspace identities come from the full canonical SNS alias hashes;
+BPNG is `8648377547929788715`. BPNG routes by its target dataspace. The four restricted
+participants retain their explicit account routes and Parliament manifests. No autoscale
+range may consume a participant lane.
+
+Do not substitute `configs/soranexus/taira/genesis.template.json` or old signed captures for
+this generated bundle. The retained template has separate privacy-bootstrap consumers and
+contains old application assets; it is not the Phase A reset input. A separately selected
+privacy/NEVO release needs its own reviewed current template and authority before use. Preserve
+the Phase A restricted-home asset guard: create no assets in restricted participant dataspaces.
+Register fresh BPNG application assets later through their actual owner and retain the resulting
+IDs and finality; neither this runbook nor a past chain supplies those IDs.
+
+Use `iroha taira public-reset prepare-public-inputs` to export the six public artifacts,
+including the exact context preimage, then the maintained configuration, unit, inventory and
+authorization commands in `docs/source/taira_release.md`. The public export authenticates
+the generated bytes; installed-release, reset and current-state admission remain separate.
 
 The Sumeragi chain parameters (`SumeragiParameters` in the data model, defaults of §9.3) are:
 `block_cadence_ms` 1000 (the target block time, frozen at genesis), `payload_retry_interval_ms`

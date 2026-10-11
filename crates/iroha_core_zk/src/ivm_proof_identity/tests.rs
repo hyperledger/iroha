@@ -202,9 +202,9 @@ fn reserved_ivm_valid_public_binding_control_verifies() {
         &proof,
         &vk,
         crate::ZkVerifyGuardrails {
-            halo2_enabled: false,
-            halo2_max_envelope_bytes: 1024 * 1024,
-            halo2_max_proof_bytes: 1024 * 1024,
+            pipa_r_enabled: true,
+            pipa_r_max_envelope_bytes: 8 * 1024 * 1024,
+            pipa_r_max_proof_bytes: 8 * 1024 * 1024,
             stark_enabled: true,
             stark_max_envelope_bytes: 1024 * 1024,
             stark_max_proof_bytes: 1024 * 1024,

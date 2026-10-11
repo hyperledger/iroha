@@ -47,16 +47,16 @@ pub struct Tamper<F> {
     pub delta: F,
 }
 
-/// An [`Assignment`] backend that forwards to `inner` and perturbs one
-/// advice cell.
+/// An [`Assignment`] backend that forwards to `inner` and perturbs selected
+/// advice cells.
 #[derive(Debug)]
-struct Tampering<F, A> {
+struct Tampering<'a, F, A> {
     inner: A,
-    tamper: Option<Tamper<F>>,
-    hits: usize,
+    tampers: &'a [Tamper<F>],
+    hits: Vec<usize>,
 }
 
-impl<F: PastaField, A: Assignment<F>> Assignment<F> for Tampering<F, A> {
+impl<F: PastaField, A: Assignment<F>> Assignment<F> for Tampering<'_, F, A> {
     fn enter_region(&mut self, name: String) -> Result<(), Error> {
         self.inner.enter_region(name)
     }
@@ -83,13 +83,13 @@ impl<F: PastaField, A: Assignment<F>> Assignment<F> for Tampering<F, A> {
         row: usize,
         value: Value<Assigned<F>>,
     ) -> Result<(), Error> {
-        let value = match self.tamper {
-            Some(tamper) if tamper.column == column.index() && tamper.row == row => {
-                self.hits = self.hits.saturating_add(1);
-                value.map(|honest| honest + tamper.delta)
+        let mut value = value;
+        for (index, tamper) in self.tampers.iter().enumerate() {
+            if tamper.column == column.index() && tamper.row == row {
+                self.hits[index] = self.hits[index].saturating_add(1);
+                value = value.map(|honest| honest + tamper.delta);
             }
-            _ => value,
-        };
+        }
         self.inner.assign_advice(column, row, value)
     }
 
@@ -100,6 +100,13 @@ impl<F: PastaField, A: Assignment<F>> Assignment<F> for Tampering<F, A> {
         value: Assigned<F>,
     ) -> Result<(), Error> {
         self.inner.assign_fixed(column, row, value)
+    }
+
+    fn expect_fixed(&mut self, column: Column<Fixed>, row: usize, value: F) -> Result<(), Error> {
+        self.inner.expect_fixed(column, row, value)
+    }
+    fn reserve_advice(&mut self, column: Column<Advice>, row: usize) -> Result<(), Error> {
+        self.inner.reserve_advice(column, row)
     }
 
     fn copy(
@@ -131,20 +138,26 @@ impl<F: PastaField, A: Assignment<F>> Assignment<F> for Tampering<F, A> {
     }
 }
 
-/// Synthesizes `circuit` with `instances` at `k`, applying `tamper` when
-/// given, and returns the witness tables and how often the tampered cell was
-/// assigned.
+/// Constraint program, witness tables and per-request assignment counts.
+type TamperedSynthesis<F> = (
+    iroha_plonk::ConstraintSystem<F>,
+    AssignedTables<F>,
+    Vec<usize>,
+);
+
+/// Synthesizes `circuit` with `instances` at `k`, applying `tampers`, and
+/// returns the witness tables and assignment count for each requested cell.
 fn synthesize_tampered<F: PastaField, C: Circuit<F>>(
     circuit: &C,
     k: u32,
     instances: &[Vec<F>],
-    tamper: Option<Tamper<F>>,
-) -> Result<(iroha_plonk::ConstraintSystem<F>, AssignedTables<F>, usize), Error> {
+    tampers: &[Tamper<F>],
+) -> Result<TamperedSynthesis<F>, Error> {
     let (cs, config) = configure(circuit)?;
     let mut backend = Tampering {
         inner: Assembly::new(&cs, k, Some(instances))?,
-        tamper,
-        hits: 0,
+        tampers,
+        hits: vec![0; tampers.len()],
     };
     C::FloorPlanner::synthesize(&mut backend, circuit, config, cs.constants().to_vec())?;
     let tables = backend.inner.finish()?;
@@ -163,8 +176,35 @@ pub fn check_tampered<F: PastaField, C: Circuit<F>>(
     instances: &[Vec<F>],
     tamper: Option<Tamper<F>>,
 ) -> Result<CheckReport<F>, Error> {
-    let (cs, tables, hits) = synthesize_tampered(circuit, k, instances, tamper)?;
-    if tamper.is_some() && hits == 0 {
+    check_tampers(circuit, k, instances, tamper.as_slice())
+}
+
+/// Checks a coordinated change to several advice assignments strictly.
+///
+/// Unlike the per-cell sweep, this can model a consistent forged witness,
+/// including all copies and derived accumulators. Every requested cell must
+/// exist, and each cell may appear only once. An empty slice checks the honest
+/// circuit.
+///
+/// # Errors
+///
+/// [`Error::BoundsFailure`] for a duplicate or unassigned cell, or [`Error`]
+/// from synthesis or the constraint checker.
+pub fn check_tampers<F: PastaField, C: Circuit<F>>(
+    circuit: &C,
+    k: u32,
+    instances: &[Vec<F>],
+    tampers: &[Tamper<F>],
+) -> Result<CheckReport<F>, Error> {
+    let unique: std::collections::BTreeSet<_> = tampers
+        .iter()
+        .map(|tamper| (tamper.column, tamper.row))
+        .collect();
+    if unique.len() != tampers.len() {
+        return Err(Error::BoundsFailure);
+    }
+    let (cs, tables, hits) = synthesize_tampered(circuit, k, instances, tampers)?;
+    if hits.contains(&0) {
         return Err(Error::BoundsFailure);
     }
     check(&cs, &tables, CheckMode::Strict)
@@ -181,7 +221,7 @@ pub fn assigned_advice_cells<F: PastaField, C: Circuit<F>>(
     k: u32,
     instances: &[Vec<F>],
 ) -> Result<Vec<(usize, usize)>, Error> {
-    let (_, tables, _) = synthesize_tampered(circuit, k, instances, None)?;
+    let (_, tables, _) = synthesize_tampered(circuit, k, instances, &[])?;
     Ok(tables
         .advice_assigned()
         .iter()
@@ -228,6 +268,7 @@ pub fn undetected_tampers<F: PastaField, C: Circuit<F>>(
 
 #[cfg(test)]
 mod tests {
+    use ff::Field;
     use iroha_pasta::Fp;
     use iroha_plonk::{
         cs::{ConstraintSystem, Rotation},
@@ -321,5 +362,41 @@ mod tests {
             ),
             Err(Error::BoundsFailure)
         );
+    }
+
+    #[test]
+    fn coordinated_tampers_distinguish_relation_binding_from_cell_binding() {
+        let circuit = Increment { loose: false };
+        let a = Tamper {
+            column: 0,
+            row: 0,
+            delta: Fp::ONE,
+        };
+        let b = Tamper {
+            column: 1,
+            row: 0,
+            delta: Fp::ONE,
+        };
+        assert!(
+            !check_tampers(&circuit, 4, &[], &[a])
+                .unwrap()
+                .is_satisfied()
+        );
+        // Both inputs are free: the relation permits a consistent replacement.
+        assert!(
+            check_tampers(&circuit, 4, &[], &[a, b])
+                .unwrap()
+                .is_satisfied()
+        );
+        assert_eq!(
+            check_tampers(&circuit, 4, &[], &[a, a]),
+            Err(Error::BoundsFailure)
+        );
+        let absent = Tamper { row: 1, ..b };
+        assert_eq!(
+            check_tampers(&circuit, 4, &[], &[a, absent]),
+            Err(Error::BoundsFailure)
+        );
+        assert!(check_tampers(&circuit, 4, &[], &[]).unwrap().is_satisfied());
     }
 }

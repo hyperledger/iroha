@@ -8,7 +8,7 @@ use iroha_data_model::{
     isi::Log,
     level::Level,
     sumeragi_finality::{
-        SumeragiFinalityProof, SumeragiFinalityVerifier, genesis_epoch,
+        SumeragiFinalityProof, SumeragiFinalityVerifier, authenticated_genesis,
         test_fixtures::NativeFinalityFixture,
     },
     transaction::{FeePaymentIntent, TransactionBuilder},
@@ -68,7 +68,9 @@ fn changed_certificate(
 #[test]
 fn native_descendants_authenticate_beyond_the_retired_short_fixture_window() {
     let mut chain = NativeFinalityFixture::start("sccp-native-descendants");
-    let initial = genesis_epoch(chain.genesis()).unwrap();
+    let initial = authenticated_genesis(chain.genesis())
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
     let mut verifier = restored(&chain);
     for height in 2..=12 {
         let parent = chain.latest().block_header.hash();
@@ -179,32 +181,46 @@ fn portable_native_chain_rejects_forks_skips_and_corrupted_certificates() {
 #[test]
 fn genesis_authority_is_network_bound_and_every_schedule_or_key_change_changes_identity() {
     let chain = NativeFinalityFixture::start("sccp-native-authority");
-    let context = genesis_epoch(chain.genesis()).unwrap();
+    let context = authenticated_genesis(chain.genesis())
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
     context.validate().unwrap();
-    assert_eq!(context.authority.generation, 0);
+    let generation = context.generation();
+    assert_eq!(generation.generation, 0);
+    assert_eq!(context.authorization.authority_generation, 0);
     assert_eq!(context.authorization.epoch, 0);
     assert_eq!(context.authorization.first_height, 1);
     assert_eq!(context.network_id, chain.network_id());
-    assert_eq!(context.authority.network_id, chain.network_id());
-    assert_eq!(context.authority.validators.len(), 4);
-    for (mint, member) in context.authority.validators.iter().zip(&context.committee) {
-        assert_eq!(mint.validator, member.validator);
+    assert_eq!(context.authorization.network_id, chain.network_id());
+    assert_eq!(generation.network_id, chain.network_id());
+    assert_eq!(generation.validators.len(), 4);
+    assert_eq!(
+        generation.generation_id().unwrap(),
+        context.authorization.authority_id
+    );
+    for (validator, member) in generation.validators.iter().zip(&context.committee) {
+        assert_eq!(validator, &member.validator);
     }
     let identity = context.context_id().unwrap();
-    for mutation in 0..8 {
+    for mutation in 0..9 {
         let mut invalid = context.clone();
         match mutation {
-            0 => invalid.authority.generation += 1,
+            0 => invalid.authorization.authority_generation += 1,
             1 => invalid.authorization.authority_id[0] ^= 1,
             2 => invalid.authorization.epoch += 1,
             3 => invalid.authorization.last_height -= 1,
             4 => invalid.authorization.first_height += 1,
             5 => {
-                invalid.authority.network_id = NetworkId::from_genesis_hash(
+                invalid.authorization.network_id = NetworkId::from_genesis_hash(
                     iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(b"foreign genesis")),
                 )
             }
-            6 => invalid.authority.validators.swap(0, 1),
+            6 => invalid.committee.swap(0, 1),
+            7 => {
+                invalid.network_id = NetworkId::from_genesis_hash(
+                    iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(b"foreign genesis")),
+                )
+            }
             _ => invalid.leader_seed[0] ^= 1,
         }
         // A structurally valid schedule edit still has a different authenticated identity.

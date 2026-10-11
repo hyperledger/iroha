@@ -9,7 +9,7 @@ use iroha_sumeragi::availability::recommended_data_availability_layout;
 
 /// Authenticate one exact block through the bounded contiguous native prefix.
 /// Each HTTP proof remains untrusted until the existing verifier admits its committee and result.
-pub(super) async fn certified_block(
+pub(crate) async fn certified_block(
     network: &iroha_test_network::Network,
     client: &Client,
     height: u64,
@@ -18,7 +18,7 @@ pub(super) async fn certified_block(
 }
 
 /// Inspect each independently authenticated decision without retaining a second prefix.
-pub(super) async fn visit_certified_prefix(
+pub(crate) async fn visit_certified_prefix(
     network: &iroha_test_network::Network,
     client: &Client,
     height: u64,
@@ -109,7 +109,7 @@ pub(super) async fn visit_certified_prefix(
 
 /// Bind an observed pulse to the native header and parent admitted from signed genesis.
 /// The pulse's claimed anchor and context never select these verification inputs.
-pub(super) async fn certified_pulse_context(
+pub(crate) async fn certified_pulse_context(
     network: &iroha_test_network::Network,
     client: &Client,
     height: u64,

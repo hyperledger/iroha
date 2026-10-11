@@ -4,6 +4,9 @@
 //! authority and exact original signer attribution from its immutable native execution tip.
 //! Local observations never enter World until a canonical block admits the same proof.
 
+/// Immutable original-pool World evidence values and explicit typed restoration.
+pub(crate) mod record;
+
 use crate::state::{
     EvidencePreparationError, NativeExecutionTip, State, StateReadOnly, StateView, WorldReadOnly,
 };
@@ -63,6 +66,7 @@ impl From<super::evidence_history::NativeEvidenceError> for EvidenceAdmissionErr
         match error {
             NativeEvidenceError::History(error) => Self::History(error),
             NativeEvidenceError::Source(error) => Self::Source(error),
+            NativeEvidenceError::Preparation(error) => Self::Preparation(error),
             other => Self::Invalid(other.to_string()),
         }
     }
@@ -116,16 +120,45 @@ fn horizon(world: &(impl WorldReadOnly + ?Sized)) -> Result<Option<u64>, Evidenc
         .map(|parameters| parameters.evidence_horizon_blocks())
         .filter(|value| *value > 0))
 }
+/// Borrowed lifecycle fields shared by canonical fixture claims and actual World owners.
+/// This observation grants neither funding nor evidence authority.
+pub(crate) trait EvidenceLifecycleRecord {
+    fn attribution(&self) -> &EvidenceAttribution;
+    fn penalty_status(&self) -> EvidencePenaltyStatus;
+    fn recorded_at_height(&self) -> u64;
+}
+impl EvidenceLifecycleRecord for EvidenceRecord {
+    fn attribution(&self) -> &EvidenceAttribution {
+        &self.attribution
+    }
+    fn penalty_status(&self) -> EvidencePenaltyStatus {
+        self.penalty_status
+    }
+    fn recorded_at_height(&self) -> u64 {
+        self.recorded_at_height
+    }
+}
+impl EvidenceLifecycleRecord for crate::state::RetainedEvidenceRecord {
+    fn attribution(&self) -> &EvidenceAttribution {
+        &self.attribution
+    }
+    fn penalty_status(&self) -> EvidencePenaltyStatus {
+        self.penalty_status
+    }
+    fn recorded_at_height(&self) -> u64 {
+        self.recorded_at_height
+    }
+}
 /// Terminal root reports remain replay fences through their signed offence horizon. Lane
 /// reports retain their exact original incarnation until strictly after retirement admission
 /// closes; a native subject height never supplies this root-clock pruning boundary.
 pub(crate) fn committed_evidence_record_is_prunable(
     world: &(impl WorldReadOnly + ?Sized),
-    record: &EvidenceRecord,
+    record: &(impl EvidenceLifecycleRecord + ?Sized),
     height: u64,
 ) -> Result<bool, EvidenceAdmissionError> {
     use iroha_data_model::block::consensus::EvidenceScope;
-    if !record.penalty_status.is_terminal() {
+    if !record.penalty_status().is_terminal() {
         return Ok(false);
     }
     let Some(parameters) = world.sumeragi_npos_parameters()? else {
@@ -134,27 +167,29 @@ pub(crate) fn committed_evidence_record_is_prunable(
     if parameters.evidence_horizon_blocks() == 0 {
         return Ok(false);
     }
-    Ok(match record.attribution.scope {
+    Ok(match record.attribution().scope {
         EvidenceScope::Root => {
-            height.saturating_sub(record.attribution.height) > parameters.evidence_horizon_blocks()
+            height.saturating_sub(record.attribution().height)
+                > parameters.evidence_horizon_blocks()
         }
         EvidenceScope::Lane(_) if cfg!(all(test, sumeragi_core_mutation = "HC1")) => {
-            height.saturating_sub(record.attribution.height) > parameters.evidence_horizon_blocks()
+            height.saturating_sub(record.attribution().height)
+                > parameters.evidence_horizon_blocks()
         }
         EvidenceScope::Lane(scope) => world.sumeragi_lanes().custody.iter().any(|row| {
             row.validate().is_ok()
                 && row.lane == scope.lane
                 && row.incarnation == scope.incarnation
-                && row.instance == record.attribution.instance
+                && row.instance == record.attribution().instance
                 && row.created_at == scope.created_at
-                && scope.admission_parent_height.checked_add(1) == Some(record.recorded_at_height)
+                && scope.admission_parent_height.checked_add(1) == Some(record.recorded_at_height())
                 && row
                     .created_at
                     .checked_add(2)
                     .is_some_and(|active| active <= scope.admission_parent_height)
                 && row.evidence_horizon == parameters.evidence_horizon_blocks()
                 && row.slashing_delay == parameters.slashing_delay_blocks()
-                && row.admits_at(record.recorded_at_height) == Ok(true)
+                && row.admits_at(record.recorded_at_height()) == Ok(true)
                 && row
                     .admission_deadline()
                     .is_ok_and(|deadline| deadline.is_some_and(|deadline| height > deadline))
@@ -231,16 +266,119 @@ fn shares_offender(left: &EvidenceAttribution, right: &EvidenceAttribution) -> b
 
 /// Original independently verified attribution for exactly one proposed evidence frame.
 /// Private fields prevent raw proof or snapshot decoding from manufacturing admission.
+/// The exact original graph follows one immutable body into World; metadata alone copies.
 pub(crate) struct AdmittedEvidence {
     key: Hash,
-    attribution: EvidenceAttribution,
+    attribution: Option<super::evidence_history::FundedEvidenceAttribution>,
+    body: Option<iroha_allocation::ChargedShared<record::EvidenceRecordBody>>,
 }
 impl AdmittedEvidence {
+    fn from_verified(
+        key: Hash,
+        attribution: super::evidence_history::FundedEvidenceAttribution,
+    ) -> Self {
+        Self {
+            key,
+            attribution: Some(attribution),
+            body: None,
+        }
+    }
     pub(crate) fn key(&self) -> Hash {
         self.key
     }
     pub(crate) fn attribution(&self) -> &EvidenceAttribution {
-        &self.attribution
+        self.attribution.as_ref().map_or_else(
+            || {
+                &self
+                    .body
+                    .as_ref()
+                    .expect("completed admitted record")
+                    .canonical()
+                    .attribution
+            },
+            |attribution| attribution.get(),
+        )
+    }
+    fn bind_body(
+        &mut self,
+        frame: &mut Option<ChargedBuffer<u8>>,
+        proof_budget: &AllocationBudget,
+        budget: &AllocationBudget,
+    ) -> Result<(), EvidencePreparationError> {
+        if let Some(body) = &self.body {
+            return if body.belongs_to(budget)
+                && body.attribution_belongs_to(budget)
+                && body.proof_belongs_to(proof_budget)
+            {
+                Ok(())
+            } else {
+                Err(EvidencePreparationError::Invariant)
+            };
+        }
+        let attribution = self
+            .attribution
+            .as_ref()
+            .ok_or(EvidencePreparationError::Invariant)?;
+        let source = frame.as_ref().ok_or(EvidencePreparationError::Invariant)?;
+        if !attribution.belongs_to(budget) || !source.belongs_to(proof_budget) {
+            return Err(EvidencePreparationError::Invariant);
+        }
+        let shell = record::EvidenceRecordBody::reserve(budget)?;
+        // The shell exists before either exact graph leaves the retained candidate.
+        // Refusal preserves the successful attribution and original proof bytes.
+        self.body = Some(record::EvidenceRecordBody::initialize(
+            shell,
+            frame.take().expect("checked original proof"),
+            self.attribution
+                .take()
+                .expect("checked original attribution"),
+            budget,
+        ));
+        Ok(())
+    }
+    #[cfg(test)]
+    fn attribution_belongs_to(&self, budget: &AllocationBudget) -> bool {
+        self.attribution.as_ref().map_or_else(
+            || {
+                self.body.as_ref().is_some_and(|body| {
+                    body.belongs_to(budget) && body.attribution_belongs_to(budget)
+                })
+            },
+            |attribution| attribution.belongs_to(budget),
+        )
+    }
+    #[cfg(test)]
+    fn allocation_bytes(&self) -> Option<usize> {
+        self.attribution.as_ref().map_or_else(
+            || self.body.as_ref()?.execution_allocation_bytes(),
+            |attribution| attribution.allocation_bytes(),
+        )
+    }
+    fn native_frame(&self) -> Option<&[u8]> {
+        self.body
+            .as_ref()
+            .map(|body| body.canonical().evidence.native_frame())
+    }
+    pub(crate) fn record(
+        &self,
+        proof: &Evidence,
+        height: u64,
+        view: u64,
+        timestamp: u64,
+    ) -> Result<crate::state::RetainedEvidenceRecord, EvidencePreparationError> {
+        let body = self
+            .body
+            .as_ref()
+            .ok_or(EvidencePreparationError::Invariant)?;
+        if body.canonical().evidence.native_frame() != proof.native_frame() {
+            return Err(EvidencePreparationError::Invariant);
+        }
+        Ok(crate::state::RetainedEvidenceRecord::from_body(
+            body.clone(),
+            height,
+            view,
+            timestamp,
+        ))
     }
 }
 
@@ -269,7 +407,6 @@ pub(crate) fn validate_persisted_records(state: &State) -> Result<(), EvidenceAd
 
 fn validate_persisted_records_inner(
     view: &StateView<'_>,
-    budget: &AllocationBudget,
     restored: &restoration::RestorationRead,
 ) -> Result<(), EvidenceAdmissionError> {
     let capacity = committed_evidence_capacity(view.world());
@@ -292,7 +429,10 @@ fn validate_persisted_records_inner(
         let root;
         let verified = match record.attribution.scope {
             iroha_data_model::block::consensus::EvidenceScope::Root => {
-                let native = witness_custody::decode(&record.evidence, budget)?;
+                let native = record
+                    .evidence
+                    .decode_native()
+                    .map_err(EvidenceAdmissionError::from)?;
                 root = super::evidence_history::verify_from_state(view, &native, |_, _| Ok(()))?;
                 &root
             }
@@ -887,5 +1027,3 @@ mod codec_tests;
 
 #[cfg(test)]
 mod lifecycle_tests;
-
-mod witness_custody;

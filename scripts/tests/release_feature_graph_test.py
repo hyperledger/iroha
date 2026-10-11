@@ -2051,12 +2051,19 @@ def test_workflow_parser_tracks_continued_package_feature_build() -> None:
     )
 
 
-def test_parity_fixture_generator_is_a_test_consumer_not_a_shipping_root() -> None:
+@pytest.mark.parametrize("relative,export", (
+    (Path(".github/workflows/sorafs-orchestrator-sdk.yml"),
+     'echo "IROHA_KOTLIN_FIXTURE_GEN_BIN=$native_dir/kotlin-fixture-gen" >> "$GITHUB_ENV"'),
+    (Path(".github/workflows/mobile_sdk_artifacts.yml"),
+     'echo "IROHA_KOTLIN_FIXTURE_GEN_BIN=$fixture_generator" >> "$GITHUB_ENV"'),
+))
+def test_parity_fixture_generator_is_a_test_consumer_not_a_shipping_root(
+    relative: Path, export: str,
+) -> None:
     checker = load_checker()
-    relative = Path(".github/workflows/sorafs-orchestrator-sdk.yml")
     catalog = checker.WorkspaceCatalog(
         package_features={
-            "connect_norito_bridge": frozenset(),
+            "connect_norito_bridge": frozenset({"privacy-production-enabled"}),
             "kotlin-fixture-gen": frozenset({"dev-tools"}),
         },
         binaries={
@@ -2072,7 +2079,7 @@ def test_parity_fixture_generator_is_a_test_consumer_not_a_shipping_root() -> No
     assert {target.package for target in targets} == {"connect_norito_bridge"}
     assert "kotlin-fixture-gen" not in checker.SHIPPING_ROOT_FEATURE_ALLOWLIST
     workflow = (REPO / relative).read_text(encoding="utf-8")
-    assert 'echo "IROHA_KOTLIN_FIXTURE_GEN_BIN=$native_dir/kotlin-fixture-gen" >> "$GITHUB_ENV"' in workflow
+    assert export in workflow
     consumer = REPO / "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/core/model/instructions/FixtureGeneratorRunner.kt"
     assert "IROHA_KOTLIN_FIXTURE_GEN_BIN" in consumer.read_text(encoding="utf-8")
     uploads = [step for step in checker._workflow_steps(workflow) if "actions/upload-artifact@" in step]
@@ -2093,6 +2100,37 @@ def test_test_tool_classification_does_not_exempt_other_builds(tmp_path: Path, m
         command[command.index("dev-tools")] = "dev-tools,other"
     else:
         command[command.index("$native_root/cargo-target")] = "$shipping_target"
+    destination = tmp_path / relative
+    destination.parent.mkdir(parents=True)
+    destination.write_text("run: " + " ".join(command) + "\n", encoding="utf-8")
+    catalog = checker.WorkspaceCatalog(
+        package_features={"kotlin-fixture-gen": frozenset({"dev-tools", "other"})},
+        binaries={"kotlin-fixture-gen": (checker.CargoBinary("kotlin-fixture-gen", "kotlin-fixture-gen", ("dev-tools",)),)},
+        native_libraries={},
+        workspace_docker_bins=(),
+    )
+    targets = checker.cargo_shipping_targets(tmp_path, relative, catalog)
+    assert len(targets) == 1
+    with pytest.raises(RuntimeError, match="package has no shipping feature policy"):
+        checker.validate_shipping_profile_policy((checker.ShippingProfile(
+            targets[0].package, targets[0].features, targets[0].default_features,
+        ),))
+
+
+@pytest.mark.parametrize("mutation", ["other_workflow", "extra_feature", "different_target"])
+def test_mobile_test_tool_classification_does_not_exempt_other_builds(
+    tmp_path: Path, mutation: str,
+) -> None:
+    checker = load_checker()
+    relative = Path(".github/workflows/mobile_sdk_artifacts.yml")
+    command, = checker.NONSHIPPING_WORKFLOW_BUILD_COMMANDS[relative]
+    command = list(command)
+    if mutation == "other_workflow":
+        relative = Path(".github/workflows/sorafs-orchestrator-sdk.yml")
+    elif mutation == "extra_feature":
+        command[command.index("dev-tools")] = "dev-tools,other"
+    else:
+        command.extend(("--target-dir", "$shipping_target"))
     destination = tmp_path / relative
     destination.parent.mkdir(parents=True)
     destination.write_text("run: " + " ".join(command) + "\n", encoding="utf-8")

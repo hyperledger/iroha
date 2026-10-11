@@ -36,8 +36,13 @@ pub(super) struct ClosureRecord {
 pub(in crate::managed) struct PendingUnsignedClosure {
     history: History,
 }
+// A consuming read returns the same owner when the exact closure is still pending.
+pub(in crate::managed) enum UnsignedClosureVerification {
+    Pending(History),
+    Closed(VerifiedUnsignedClosure),
+}
 pub(in crate::managed) struct VerifiedUnsignedClosure {
-    history: History,
+    history: std::sync::Arc<History>,
     digest: [u8; 32],
     successor: [u8; 32],
     cumulative_reserved: usize,
@@ -70,16 +75,29 @@ impl VerifiedUnsignedClosure {
     pub(super) fn fees(&self) -> &Fees {
         &self.fees
     }
-    pub(super) fn require_retained(&self) -> Result<()> {
-        self.history.require_current()?;
+    pub(super) fn require_retained_with_pass(
+        &self,
+        pass: Option<&EnrollmentReadPass<'_>>,
+    ) -> Result<()> {
+        self.history.require_current_with_pass(pass)?;
         self.require_receipt()
+    }
+    pub(super) fn shared_history(&self) -> &std::sync::Arc<History> {
+        &self.history
     }
     pub(in crate::managed) fn retained_history(&self) -> &History {
         &self.history
     }
     // The bounded graph owner invokes this only as part of its complete before/after passes.
-    pub(super) fn require_retained_local(&self) -> Result<()> {
-        self.history.require_current_local()?;
+    pub(super) fn require_retained_local(
+        &self,
+        pass: Option<&crate::managed::stream_token_custody::body_history::SnapshotReadPass<'_>>,
+        tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
+        originals: Option<&retained_graph::OriginalReadPass<'_, '_>>,
+        root_read: Option<&mut GraphRootReadPass<'_, '_>>,
+    ) -> Result<()> {
+        self.history
+            .require_current_local_in_tree(pass, tree, originals, root_read)?;
         self.require_receipt()
     }
     pub(super) fn require_receipt(&self) -> Result<()> {
@@ -171,10 +189,18 @@ impl History {
         Ok(())
     }
     fn check_successor(&self, successor: &dyn SemanticSuccessor) -> Result<()> {
-        self.require_current()?;
-        successor.revalidate()?;
+        self.check_successor_with_pass(successor, None)
+    }
+    fn check_successor_with_pass(
+        &self,
+        successor: &dyn SemanticSuccessor,
+        pass: Option<&EnrollmentReadPass<'_>>,
+    ) -> Result<()> {
+        self.require_current_with_pass(pass)?;
+        let snapshot = pass.and_then(EnrollmentReadPass::snapshot);
+        successor.revalidate_with_snapshot_read_pass(snapshot)?;
         let target = successor.target();
-        target.validate_target()?;
+        target.validate_target_with_snapshot_read_pass(snapshot)?;
         let evidence = self.scope.enrollment()?;
         let binding = evidence.binding();
         if target.purpose() != self.purpose
@@ -197,18 +223,28 @@ impl History {
         &self,
         inspect: &mut impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
     ) -> Result<()> {
-        self.verify_wallets(|attempt| {
-            let value = inspect(attempt)?;
-            if matches!(
-                value.phase(),
-                NativePreparationPhase::PayloadRetained | NativePreparationPhase::Signed
-            ) {
-                return Err(invalid(
-                    "body closure cannot replace retained paid material",
-                ));
-            }
-            Ok(value)
-        })?;
+        self.verify_unsigned_wallets_with_pass(inspect, None)
+    }
+    fn verify_unsigned_wallets_with_pass(
+        &self,
+        inspect: &mut impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+        pass: Option<&EnrollmentReadPass<'_>>,
+    ) -> Result<()> {
+        self.verify_wallets_with_pass(
+            |attempt| {
+                let value = inspect(attempt)?;
+                if matches!(
+                    value.phase(),
+                    NativePreparationPhase::PayloadRetained | NativePreparationPhase::Signed
+                ) {
+                    return Err(invalid(
+                        "body closure cannot replace retained paid material",
+                    ));
+                }
+                Ok(value)
+            },
+            pass,
+        )?;
         for attempt in &self.attempts {
             require_no_native_effects(attempt)?;
         }
@@ -328,7 +364,7 @@ impl History {
         inspect: &mut impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
     ) -> Result<()> {
         match &self.closing {
-            Some(plan) => self.verify_wallets_inner(inspect, Some(plan)),
+            Some(plan) => self.verify_wallets_inner(inspect, Some(plan), None),
             None => self.verify_unsigned_wallets(inspect),
         }
     }
@@ -337,23 +373,121 @@ impl History {
     pub(in crate::managed) fn verify_unsigned_closure(
         &self,
         successor: &dyn SemanticSuccessor,
-        mut inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+        inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
     ) -> Result<Option<VerifiedUnsignedClosure>> {
-        self.check_successor(successor)?;
+        self.verify_unsigned_closure_with_pass(successor, inspect, None)
+    }
+    pub(in crate::managed) fn verify_unsigned_closure_with_pass(
+        &self,
+        successor: &dyn SemanticSuccessor,
+        mut inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+        pass: Option<&EnrollmentReadPass<'_>>,
+    ) -> Result<Option<VerifiedUnsignedClosure>> {
+        if !self.verify_unsigned_closure_wallets(successor, &mut inspect, pass)? {
+            return Ok(None);
+        }
+        let plan = self
+            .closing
+            .as_ref()
+            .ok_or_else(|| invalid("verified unsigned closure lost its closing plan"))?;
+        let closed = self
+            .closed
+            .as_ref()
+            .ok_or_else(|| invalid("verified unsigned closure lost its closed record"))?;
+        let evidence = self.scope.enrollment()?;
+        let value = VerifiedUnsignedClosure {
+            history: std::sync::Arc::new(Self::read_retained_with_pass(
+                &self.operation,
+                self.purpose,
+                self.semantic,
+                &self.scope,
+                self,
+                pass,
+            )?),
+            digest: digest(closed)?,
+            successor: plan.successor,
+            cumulative_reserved: usize::from(plan.cumulative_reserved),
+            outer_intent: evidence.binding().outer_intent,
+            root_identity: evidence.root().identity()?,
+            fees: evidence.fees().clone(),
+        };
+        // The borrowed verifier still closes its newly parsed graph at the original
+        // boundary. The consuming verifier below already owns that exact closure census.
+        value.history.require_current_with_pass(pass)?;
+        Self::finish_closure_receipt(value, successor, pass).map(Some)
+    }
+
+    // This path is only for callers that already own the exact parsed History. The active
+    // decoder retains the original borrowed reparse and cumulative physical charge recipe.
+    pub(in crate::managed) fn into_unsigned_closure_with_pass(
+        self,
+        successor: &dyn SemanticSuccessor,
+        mut inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+        pass: Option<&EnrollmentReadPass<'_>>,
+    ) -> Result<UnsignedClosureVerification> {
+        if norito::core::decode_limits_active() {
+            return match self.verify_unsigned_closure_with_pass(successor, inspect, pass)? {
+                Some(value) => Ok(UnsignedClosureVerification::Closed(value)),
+                None => Ok(UnsignedClosureVerification::Pending(self)),
+            };
+        }
+        let checked = self.verify_unsigned_closure_wallets(successor, &mut inspect, pass);
+        if matches!(checked, Ok(false)) {
+            return Ok(UnsignedClosureVerification::Pending(self));
+        }
+        // The final tail inspection is a callback too. Read current canonical material only
+        // after it returns. A sealed pure parser pass owns predecessor entry/exit; the
+        // current local handles still close both sides here. Every other caller retains
+        // the whole-graph fences. Ordinary inspection refusal also closes these checks.
+        self.revalidate_parser_handles(pass)?;
+        let current = self.require_current_with_pass(pass);
+        self.revalidate_parser_handles(pass)?;
+        current?;
+        checked?;
+        let fields = self.closure_fields()?;
+        let value = fields.bind(self);
+        // No callback, wallet inspection, write or authorization action occurs between
+        // the current census above and the exact receipt checks below. They use
+        // the same consumed History and original handles, so close this receipt without
+        // a second identical census (full graph standalone, covered local census in
+        // the sealed parser). All wallet callbacks and the original native
+        // handle checks still precede receipt admission, including on ordinary errors.
+        // This consolidates two adjacent source observations. A change after the remaining
+        // census, including one changed and restored before return, may be unobserved until
+        // another independent native check. No atomic snapshot or retained freshness
+        // verdict is created. A later active decoder keeps the old physical recipe too;
+        // the entry fallback above remains unchanged.
+        let repeat_census = norito::core::decode_limits_active();
+        #[cfg(test)]
+        let repeat_census = repeat_census || original_receipt_census_for_test();
+        if repeat_census {
+            value.history.require_current_with_pass(pass)?;
+        }
+        Self::finish_closure_receipt(value, successor, pass)
+            .map(UnsignedClosureVerification::Closed)
+    }
+
+    fn verify_unsigned_closure_wallets(
+        &self,
+        successor: &dyn SemanticSuccessor,
+        inspect: &mut impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+        pass: Option<&EnrollmentReadPass<'_>>,
+    ) -> Result<bool> {
+        self.check_successor_with_pass(successor, pass)?;
         let Some(plan) = &self.closing else {
             // A reserved outer successor may coexist with an interrupted same-body unsigned
             // retirement. Validate that exact prefix read-only; prepare closes it through the
             // sole canonical retire_predecessor owner before publishing a closing plan.
-            self.verify_unsigned_wallets(&mut inspect)?;
-            return Ok(None);
+            self.verify_unsigned_wallets_with_pass(inspect, pass)?;
+            return Ok(false);
         };
-        self.verify_wallets_inner(&mut inspect, Some(plan))?;
+        self.verify_wallets_inner(&mut *inspect, Some(plan), pass)?;
         for attempt in &self.attempts {
             require_no_native_effects(attempt)?;
         }
-        let Some(closed) = &self.closed else {
-            return Ok(None);
-        };
+        if self.closed.is_none() {
+            return Ok(false);
+        }
         if let (ClosureTail::Request { request_sha256, .. }, Some(last)) =
             (&plan.tail, self.attempts.last())
         {
@@ -366,25 +500,65 @@ impl History {
                 ));
             }
         }
+        Ok(true)
+    }
+
+    fn closure_fields(&self) -> Result<ClosureFields> {
+        let plan = self
+            .closing
+            .as_ref()
+            .ok_or_else(|| invalid("verified unsigned closure lost its closing plan"))?;
+        let closed = self
+            .closed
+            .as_ref()
+            .ok_or_else(|| invalid("verified unsigned closure lost its closed record"))?;
         let evidence = self.scope.enrollment()?;
-        let value = VerifiedUnsignedClosure {
-            history: Self::read_retained(
-                &self.operation,
-                self.purpose,
-                self.semantic,
-                &self.scope,
-                self,
-            )?,
+        Ok(ClosureFields {
             digest: digest(closed)?,
             successor: plan.successor,
             cumulative_reserved: usize::from(plan.cumulative_reserved),
             outer_intent: evidence.binding().outer_intent,
             root_identity: evidence.root().identity()?,
             fees: evidence.fees().clone(),
-        };
-        value.require_retained()?;
-        successor.revalidate()?;
-        Ok(Some(value))
+        })
+    }
+
+    fn finish_closure_receipt(
+        value: VerifiedUnsignedClosure,
+        successor: &dyn SemanticSuccessor,
+        pass: Option<&EnrollmentReadPass<'_>>,
+    ) -> Result<VerifiedUnsignedClosure> {
+        // Both private callers have just checked this exact History under their existing
+        // standalone or sealed-parser scope. Retain every binding,
+        // native root identity, fee, closure-record and successor check at this boundary.
+        value.require_receipt()?;
+        successor
+            .revalidate_with_snapshot_read_pass(pass.and_then(EnrollmentReadPass::snapshot))?;
+        if let Some(pass) = pass {
+            pass.remember(&value)?;
+        }
+        Ok(value)
+    }
+}
+struct ClosureFields {
+    digest: [u8; 32],
+    successor: [u8; 32],
+    cumulative_reserved: usize,
+    outer_intent: [u8; 32],
+    root_identity: iroha_fs::FileIdentity,
+    fees: Fees,
+}
+impl ClosureFields {
+    fn bind(self, history: History) -> VerifiedUnsignedClosure {
+        VerifiedUnsignedClosure {
+            history: std::sync::Arc::new(history),
+            digest: self.digest,
+            successor: self.successor,
+            cumulative_reserved: self.cumulative_reserved,
+            outer_intent: self.outer_intent,
+            root_identity: self.root_identity,
+            fees: self.fees,
+        }
     }
 }
 impl PendingUnsignedClosure {
@@ -399,24 +573,24 @@ impl PendingUnsignedClosure {
         authorization.check(self.history.purpose, deadline)?;
         self.history.require_fees(authorization.fees())?;
         authorization.claim_body_replacement(successor.target(), deadline)?;
-        if let Some(value) = self
-            .history
-            .verify_unsigned_closure(successor, &mut inspect)?
-        {
-            return Ok(value);
-        }
-        let plan = self
-            .history
+        let history =
+            match self
+                .history
+                .into_unsigned_closure_with_pass(successor, &mut inspect, None)?
+            {
+                UnsignedClosureVerification::Closed(value) => return Ok(value),
+                UnsignedClosureVerification::Pending(history) => history,
+            };
+        let plan = history
             .closing
             .as_ref()
             .ok_or_else(|| invalid("unsigned closing plan absent"))?;
         if let ClosureTail::Request { request_sha256, .. } = &plan.tail {
-            let last = self
-                .history
+            let last = history
                 .attempts
                 .last()
                 .ok_or_else(|| invalid("unsigned closing tail absent"))?;
-            authorization.check(self.history.purpose, deadline)?;
+            authorization.check(history.purpose, deadline)?;
             successor.revalidate()?;
             let receipt = retire(last)?;
             if receipt.journal_path() != last.wallet_path()
@@ -433,23 +607,25 @@ impl PendingUnsignedClosure {
                 ));
             }
         }
-        authorization.check(self.history.purpose, deadline)?;
-        self.history.check_successor(successor)?;
-        self.history
-            .verify_wallets_inner(&mut inspect, Some(plan))?;
+        authorization.check(history.purpose, deadline)?;
+        history.check_successor(successor)?;
+        history.verify_wallets_inner(&mut inspect, Some(plan), None)?;
         write_record(
-            &self.history.operation,
+            &history.operation,
             "closed.nrt",
             &ClosureRecord {
                 plan: digest(plan)?,
                 tail: plan.tail.clone(),
             },
         )?;
-        let history = self.history.reread()?;
+        let history = history.reread()?;
         authorization.check(history.purpose, deadline)?;
-        history
-            .verify_unsigned_closure(successor, &mut inspect)?
-            .ok_or_else(|| invalid("unsigned body closure was not retained"))
+        match history.into_unsigned_closure_with_pass(successor, &mut inspect, None)? {
+            UnsignedClosureVerification::Closed(value) => Ok(value),
+            UnsignedClosureVerification::Pending(_) => {
+                Err(invalid("unsigned body closure was not retained"))
+            }
+        }
     }
 }
 impl ClosurePlan {
@@ -520,4 +696,66 @@ fn require_missing_wallet(attempt: &Attempt) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static HISTORY_PARSES: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    // Restore precisely the former second census, using the actual native graph walker.
+    static ORIGINAL_RECEIPT_CENSUS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+#[cfg(test)]
+fn original_receipt_census_for_test() -> bool {
+    ORIGINAL_RECEIPT_CENSUS.with(std::cell::Cell::get)
+}
+#[cfg(test)]
+pub(super) fn record_history_parse_for_test() {
+    HISTORY_PARSES.with(|value| {
+        if let Some(count) = value.get() {
+            value.set(Some(count + 1));
+        }
+    });
+}
+#[cfg(test)]
+impl History {
+    pub(in crate::managed) fn test_original_receipt_census<T>(
+        original: bool,
+        read: impl FnOnce() -> T,
+    ) -> T {
+        struct Restore(bool);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                ORIGINAL_RECEIPT_CENSUS.with(|value| value.set(self.0));
+            }
+        }
+        let _restore = Restore(ORIGINAL_RECEIPT_CENSUS.with(|value| value.replace(original)));
+        read()
+    }
+    pub(in crate::managed) fn test_owned_predecessor_closure_history(&self) -> Result<Self> {
+        self.scope
+            .predecessor()
+            .ok_or_else(|| invalid("genuine test predecessor absent"))?
+            .retained_history()
+            .test_owned_closure_history()
+    }
+    pub(in crate::managed) fn test_owned_closure_history(&self) -> Result<Self> {
+        Self::read_retained(
+            &self.operation,
+            self.purpose,
+            self.semantic,
+            &self.scope,
+            self,
+        )
+    }
+    pub(in crate::managed) fn test_closure_parse_work<T>(read: impl FnOnce() -> T) -> (T, usize) {
+        struct Restore(Option<usize>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                HISTORY_PARSES.with(|value| value.set(self.0));
+            }
+        }
+        let _restore = Restore(HISTORY_PARSES.with(|value| value.replace(Some(0))));
+        let result = read();
+        (result, HISTORY_PARSES.with(|value| value.get().unwrap()))
+    }
 }

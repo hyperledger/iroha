@@ -64,6 +64,7 @@ on:
       - "kotlin/**"
       - "java/iroha_android/**"
       - "crates/connect_norito_bridge/**"
+      - "tools/kotlin-fixture-gen/**"
       - "crates/iroha_cli/**"
       - "crates/iroha_config/**"
       - "crates/iroha_core/**"
@@ -189,7 +190,7 @@ jobs:
         run: python3 -I -S -B scripts/tests/validate_norito_bridge_xcframework_test.py
       - name: Shared output lock fixtures
         run: python3 -I -S -B scripts/tests/exec_with_file_lock_test.py
-      - name: Host native ABI-25 artifact checker fixtures
+      - name: Host native ABI-29 artifact checker fixtures
         run: python3 -B -m pytest -q scripts/tests/check_native_sdk_artifact_test.py
       - name: Android app native archive authenticator fixtures
         run: python3 -I -B scripts/tests/check_android_app_native_archive_test.py
@@ -492,7 +493,7 @@ jobs:
           echo "ANDROID_NDK_HOME=$sdk_root/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
       - name: Install Android Rust targets and cargo-ndk
         run: |
-          rustup target add aarch64-linux-android x86_64-linux-android
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
           cargo install cargo-ndk --version 4.1.2 --locked
           cargo fetch --locked
       - name: Bind the first-release Android Cargo envelope
@@ -527,7 +528,13 @@ jobs:
           echo "MOBILE_SDK_PACKAGE_OUT_DIR=$package_dir" >> "$GITHUB_ENV"
           echo "GRADLE_USER_HOME=$gradle_home" >> "$GITHUB_ENV"
       - name: Build host SoraFS reference native bridge
-        run: cargo build --locked -p connect_norito_bridge
+        run: |
+          set -euo pipefail
+          cargo build --locked -p connect_norito_bridge --lib --features privacy-production-enabled
+          cargo build --locked -p kotlin-fixture-gen --features dev-tools --bin kotlin-fixture-gen
+          fixture_generator="$CARGO_TARGET_DIR/debug/kotlin-fixture-gen"
+          [[ -f "$fixture_generator" && ! -L "$fixture_generator" && -x "$fixture_generator" ]]
+          echo "IROHA_KOTLIN_FIXTURE_GEN_BIN=$fixture_generator" >> "$GITHUB_ENV"
       - name: Make reviewed Iroha source read-only
         run: chmod -R a-w "$GITHUB_WORKSPACE"
       - name: Build Android native bridge libraries
@@ -543,7 +550,7 @@ jobs:
       - name: Test, lint, publish, and build Android SDK artifacts
         working-directory: kotlin
         run: |
-          ./gradlew --no-daemon \
+          ./gradlew --no-daemon --no-build-cache --rerun-tasks \
             --no-configuration-cache \
             --project-cache-dir "$MOBILE_SDK_ANDROID_PROJECT_CACHE_DIR" \
             -Djava.io.tmpdir="$MOBILE_SDK_ANDROID_GRADLE_TMP_DIR" \

@@ -10,6 +10,8 @@ use crate::smartcontracts::isi::triggers::{
     },
     specialized::{LoadedActionTrait, TimeTriggerRetryState},
 };
+use crate::state::StateReadOnly;
+use crate::state::contract_event_journal::DrainedContractEvents;
 use iroha_data_model::{
     ValidationFail,
     block::execution_output::{
@@ -262,6 +264,7 @@ impl ExecutionOutputProducer<'_, '_, '_> {
             // Refused/incomplete journal custody is a local carrier failure, even
             // when execute_trigger reports an InternalError. Never quarantine it.
             tx.callback_journal.discard_rejected(call)?;
+            tx.contract_event_journal.discard_rejected(call)?;
             let actual = rejected_row(&invocation, action.executable(), root, reason, maximum)?;
             actual.validate_structure(height, &self.source)?;
             let row = reservation.finish_internal_rejection(actual)?;
@@ -294,13 +297,25 @@ impl ExecutionOutputProducer<'_, '_, '_> {
         if !receipts.is_empty() {
             return Err("internal receipts belong to a foreign call".into());
         }
-        let (actual, overflow) = match tx.callback_journal.take(call)? {
-            DrainedCallbacks::Complete { steps, completions } => {
+        let callback_capture = tx.callback_journal.take(call)?;
+        let event_capture = if matches!(callback_capture, DrainedCallbacks::OutputLimit) {
+            tx.contract_event_journal.discard_rejected(call)?;
+            DrainedContractEvents::OutputLimit
+        } else {
+            let budget = tx.execution_budget();
+            tx.contract_event_journal.take(call, &budget)?
+        };
+        let (actual, overflow) = match (callback_capture, event_capture) {
+            (
+                DrainedCallbacks::Complete { steps, completions },
+                DrainedContractEvents::Complete(events),
+            ) => {
                 let mut result = TransactionResult::new(Ok(steps));
                 result.set_batch_transfer_outcomes(owned);
+                result.set_contract_events(events);
                 (invocation.row(result, None, completions), false)
             }
-            DrainedCallbacks::OutputLimit => (invocation.terminal(), true),
+            _ => (invocation.terminal(), true),
         };
         actual.validate_structure(height, &self.source)?;
         let (row, apply) = match reservation.finish(actual)? {

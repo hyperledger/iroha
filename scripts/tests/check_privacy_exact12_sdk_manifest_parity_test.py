@@ -705,7 +705,7 @@ def test_csharp_authenticated_network_boundary_cannot_be_removed(
 
 
 def test_live_c_privacy_inventory_matches_its_single_approved_owner() -> None:
-    MODULE._require_exact_abi25(ROOT)
+    MODULE._require_exact_abi29(ROOT)
     assert len(MODULE.APPROVED_PRIVACY_EXPORTS) == 6
 
 
@@ -715,16 +715,16 @@ def test_missing_c_capability_validator_is_rejected(tmp_path: Path) -> None:
     declaration = "void iroha_privacy_validate_exact12_capability_manifest_v1(void);"
     assert declaration in header.read_text()
     header.write_text(header.read_text().replace(declaration, ""), encoding="utf-8")
-    with pytest.raises(MODULE.AuditError, match="C ABI25.*exact approved six"):
-        MODULE._require_exact_abi25(root)
+    with pytest.raises(MODULE.AuditError, match="C ABI29.*exact approved six"):
+        MODULE._require_exact_abi29(root)
 
 
 def test_unapproved_c_privacy_export_is_rejected(tmp_path: Path) -> None:
     root = _minimal_safe_tree(tmp_path)
     header = root / MODULE.C_HEADER
     header.write_text(header.read_text() + "\nvoid iroha_privacy_unapproved_v1(void);\n", encoding="utf-8")
-    with pytest.raises(MODULE.AuditError, match="C ABI25.*exact approved six"):
-        MODULE._require_exact_abi25(root)
+    with pytest.raises(MODULE.AuditError, match="C ABI29.*exact approved six"):
+        MODULE._require_exact_abi29(root)
 
 
 @pytest.mark.parametrize("mutation", ("java-owner", "android-export", "kotlin-validator", "java-transport-owner", "java-id-owner"))

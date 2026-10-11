@@ -1,6 +1,6 @@
 
-seiyaku StableLoop {
-  kotoage fn main() -> int authorize("Entry") {
+seiyaku StableLoop { permission Entry;
+  kotoage fn main() authorize(Entry) -> int {
     var alpha = 1;
     var beta = 2;
     var gamma = 3;

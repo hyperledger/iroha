@@ -633,7 +633,6 @@ mod tests {
             fatal_tx,
             pid: None,
             broker_child: None,
-            mint_seed_lease: None,
         });
         assert!(
             peer.provision_disposable_runtime_provider_broker(

@@ -14,13 +14,13 @@ const artifactHash = path.join(sdk, "src/nativeArtifactHash.js");
 const schema = "iroha.js-native-local-unit.v1";
 const sha256 = (data) => createHash("sha256").update(data).digest("hex");
 
-async function fixture(t, mutate, diagnostic) {
+async function fixture(t, mutate, diagnostic, relativeOutput = "target/qualification/inert-local-records") {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "iroha-local-native-refusal-")));
   const root = path.join(dir, "inert-source-layout");
   const moduleDir = path.join(root, "javascript/iroha_js/src");
-  const output = path.join(dir, "inert-local-records");
+  const output = path.join(root, relativeOutput);
   await fs.mkdir(moduleDir, { recursive: true });
-  await fs.mkdir(output, { mode: 0o700 });
+  await fs.mkdir(output, { recursive: true, mode: 0o700 });
   // An inert loader fixture, never a Cargo build or native artifact. It permits
   // direct refusal checks before any verifier child or native dlopen can occur.
   await fs.writeFile(path.join(root, "Cargo.toml"), "# inert source-layout marker\n");
@@ -89,3 +89,15 @@ for (const [name, mutate, diagnostic] of [
 ]) {
   test(`local native ${name} refuses before verifier or native use`, async (t) => fixture(t, mutate, diagnostic));
 }
+
+for (const relative of ["../external", "target/qualification", "target/qualification-other/artifact"]) {
+  test(`local native artifact path rejects ${relative} before verifier or native use`, async (t) =>
+    fixture(t, () => {}, /canonical target\/qualification child/, relative));
+}
+
+test("local native symbolic artifact directory refuses before verifier or native use", async (t) =>
+  fixture(t, async ({ output }) => {
+    const actual = output + "-original";
+    await fs.rename(output, actual);
+    await fs.symlink(actual, output);
+  }, /canonical target\/qualification child/));

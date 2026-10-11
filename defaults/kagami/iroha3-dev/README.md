@@ -12,13 +12,15 @@
 - peer 4: public_key=ea013089E0110B3F07AB1CEFAC930756E4DBC25E37D606E4D03513BF4C744DA0F6134DE8B7E52749511C823C230672F736C304 address=172.28.0.13:1340 pop_hex=810957f8c36f3db895f02157573187fb4aadc21256c9cb837369697a2d605942ea8b53880c8f7842d4b7e58ac037cc340afbae35f05adbaad21782e9c80a952318f217e197a8ecbb7ddf4af4633bab3e8256663244aa3fc12c2a08cf93436776
 
 Files:
-- genesis.template.json — non-signable source reference which deliberately omits KAGEMUSHA mint-finality authority and carries no consensus fingerprint
+- genesis.template.json — non-signable source reference which carries no consensus fingerprint
 - peer0.toml through peerN.toml — topology/configuration references; they are not runnable until a complete operator-owned bundle replaces their genesis artifacts
-- docker-compose.yml — inert marker; checked-in services stay disabled because no repository-owned Pasta private authority exists
+- docker-compose.yml — inert marker; checked-in services stay disabled until the complete local bundle is generated
 
 Signed genesis, expected NetworkId, verifier output, and public-key artifacts are
-not checked in. The operator generating a disposable dev bundle must provision
-the matching Pasta private seeds runtime-only and supply their public parameters.
+not checked in. The operator generating a disposable dev bundle must generate
+a complete signed genesis and matching validator configuration.
+
+Wallet loads are ordinary transactions authenticated by finalized blocks.
 
 Regenerate:
-- cargo xtask kagami-profiles --profile iroha3-dev --kagemusha-mint-finality-parameters-dir <AUTHORITY_DIR> --out <PRIVATE_OUTPUT_DIR>
+- cargo xtask kagami-profiles --profile iroha3-dev --out <PRIVATE_OUTPUT_DIR>

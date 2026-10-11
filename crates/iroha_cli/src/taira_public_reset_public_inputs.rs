@@ -13,8 +13,9 @@ use iroha_data_model::NetworkId;
 const SCHEMA: &str = "iroha.taira.public-reset.public-inputs.v1";
 const MAX_GENESIS_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_IDENTITY_BYTES: u64 = 1024;
-const OUTPUT_FILES: [&str; 5] = [
+const OUTPUT_FILES: [&str; 6] = [
     "genesis.signed.nrt",
+    "nexus-amx-context.v1.bin",
     "genesis.json",
     "genesis.hash",
     "canary-onboarding-request.json",
@@ -53,6 +54,7 @@ pub(super) struct PublicInputsV1 {
     /// Consensus genesis identity; distinct from the SHA256 of the signed wire file.
     pub(super) genesis_hash: String,
     pub(super) signed_genesis_sha256: String,
+    pub(super) nexus_amx_context_sha256: String,
     pub(super) raw_manifest_sha256: String,
     pub(super) genesis_public_key: PublicKey,
     pub(super) canary_public_key: PublicKey,
@@ -98,6 +100,7 @@ fn derive(
     network_bytes: &[u8],
     genesis_key_bytes: &[u8],
     canary_key_bytes: &[u8],
+    nexus_context: &[u8],
 ) -> Result<PublicInputsV1> {
     let _guard = ChainDiscriminantGuard::enter(CHAIN_DISCRIMINANT);
     require(
@@ -125,6 +128,15 @@ fn derive(
     )?;
     inputs::validate_taira_genesis_mode(metadata.mode)?;
     require(
+        !nexus_context.is_empty()
+            && nexus_context.len() <= iroha_data_model::nexus::MAX_NEXUS_AMX_CONTEXT_BYTES_V1
+            && Hash::new(nexus_context)
+                == Hash::prehashed(metadata.sumeragi_context.nexus_amx_context_hash),
+        "Nexus AMX context differs from signed genesis",
+    )?;
+    iroha_data_model::nexus::decode_nexus_amx_context_v1(nexus_context)
+        .map_err(|error| eyre!("invalid Nexus AMX context: {error:?}"))?;
+    require(
         !manifest_bytes.is_empty() && manifest_bytes.len() as u64 <= MAX_JSON_BYTES,
         "public raw genesis manifest exceeds its bound",
     )?;
@@ -147,6 +159,7 @@ fn derive(
         network_id: network,
         genesis_hash: genesis_hash.to_string(),
         signed_genesis_sha256: sha256_hex(wire),
+        nexus_amx_context_sha256: sha256_hex(nexus_context),
         raw_manifest_sha256: sha256_hex(manifest_bytes),
         genesis_public_key: genesis_key,
         canary_public_key: canary_key,
@@ -201,12 +214,17 @@ pub(super) fn load(directory: &Path) -> Result<PublicInputsV1> {
     let record: PublicInputsV1 = json::from_slice(&record_bytes)?;
     let (wire_pin, wire) = public_file(&directory.join("genesis.signed.nrt"), MAX_GENESIS_BYTES)?;
     let (manifest_pin, manifest) = public_file(&directory.join("genesis.json"), MAX_JSON_BYTES)?;
+    let (context_pin, context) = public_file(
+        &directory.join("nexus-amx-context.v1.bin"),
+        iroha_data_model::nexus::MAX_NEXUS_AMX_CONTEXT_BYTES_V1 as u64,
+    )?;
     let derived = derive(
         &wire,
         &manifest,
         format!("{}\n", record.network_id).as_bytes(),
         format!("{}\n", record.genesis_public_key).as_bytes(),
         format!("{}\n", record.canary_public_key).as_bytes(),
+        &context,
     )?;
     require(
         record == derived && record_bytes == json_line(&derived)?,
@@ -234,7 +252,7 @@ pub(super) fn load(directory: &Path) -> Result<PublicInputsV1> {
         )?;
         revalidate_pinned(&pin, "public input bundle artifact")?;
     }
-    for pin in [&record_pin, &wire_pin, &manifest_pin] {
+    for pin in [&record_pin, &wire_pin, &manifest_pin, &context_pin] {
         #[cfg(unix)]
         require(
             pin.snapshot.mode & 0o7777 == 0o644,
@@ -272,6 +290,10 @@ pub(super) fn prepare(args: &PreparePublicInputs, output: &mut impl Write) -> Re
             MAX_IDENTITY_BYTES,
         ),
         (args.localnet_dir.join("genesis.json"), MAX_JSON_BYTES),
+        (
+            args.localnet_dir.join("nexus-amx-context.v1.bin"),
+            iroha_data_model::nexus::MAX_NEXUS_AMX_CONTEXT_BYTES_V1 as u64,
+        ),
     ] {
         retained.push(public_file(&path, maximum)?);
     }
@@ -315,6 +337,7 @@ pub(super) fn prepare(args: &PreparePublicInputs, output: &mut impl Write) -> Re
         &retained[1].1,
         &retained[2].1,
         &canary_bytes,
+        &retained[4].1,
     )?;
     if draft_request
         .as_ref()
@@ -341,6 +364,7 @@ pub(super) fn prepare(args: &PreparePublicInputs, output: &mut impl Write) -> Re
         for (name, bytes) in [
             ("genesis.signed.nrt", retained[0].1.clone()),
             ("genesis.json", retained[3].1.clone()),
+            ("nexus-amx-context.v1.bin", retained[4].1.clone()),
             (
                 "genesis.hash",
                 format!("{}\n", record.genesis_hash).into_bytes(),

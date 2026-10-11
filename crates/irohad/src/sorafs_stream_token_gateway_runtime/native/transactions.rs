@@ -20,6 +20,8 @@ pub(super) struct NativeTransactions {
     reputation_recorder: AccountId,
     reputation_recorder_key: KeyPair,
     fee_payment: FeePaymentIntent,
+    #[cfg(test)]
+    pub(super) sign_calls: std::sync::atomic::AtomicUsize,
 }
 impl NativeTransactions {
     pub(super) fn new(
@@ -68,6 +70,8 @@ impl NativeTransactions {
             reputation_recorder: config.reputation_recorder.clone(),
             reputation_recorder_key,
             fee_payment: config.fee_payment.clone(),
+            #[cfg(test)]
+            sign_calls: std::sync::atomic::AtomicUsize::new(0),
         })
     }
     pub(super) fn operator(&self) -> &AccountId {
@@ -83,6 +87,9 @@ impl NativeTransactions {
         deadline: Instant,
     ) -> Result<SignedTransaction, Error> {
         remaining(deadline)?;
+        #[cfg(test)]
+        self.sign_calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         instruction.request.validate()?;
         let request = &instruction.request;
         let is_check = matches!(&request.action, Action::Check(_));

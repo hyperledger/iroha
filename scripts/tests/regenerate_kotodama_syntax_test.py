@@ -173,7 +173,7 @@ def test_declaration_reserved_extras_drift_fails_closed(tmp_path: Path) -> None:
     _copy_generator_inputs(tmp_path)
     policy_path = tmp_path / MODULE.DEFAULT_POLICY
     raw = json.loads(policy_path.read_text(encoding="utf-8"))
-    raw["declaration_reserved_extras"].remove("is_some")
+    raw["declaration_reserved_extras"].remove("__kotodama_list_len")
     policy_path.write_text(
         json.dumps(raw, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
@@ -229,7 +229,7 @@ def test_dynamic_access_policy_is_generated_across_consumers_and_docs() -> None:
         "unwrap_err_or",
         "expect",
     ):
-        assert f'"{intrinsic}",' in semantic_policy
+        assert f'"{intrinsic}",' not in semantic_policy
 
     rust_policy = MODULE.render_ivm_abi_access_hint_policy(policy, grammar)
     assert "DYNAMIC_ACCESS_HINT_RESERVED_STATE_IDENTIFIERS_V1" in rust_policy
@@ -245,7 +245,7 @@ def test_dynamic_access_policy_is_generated_across_consumers_and_docs() -> None:
         "unwrap_err_or",
         "expect",
     ):
-        assert f'"{intrinsic}",' in rust_policy
+        assert f'"{intrinsic}",' not in rust_policy
     assert '"__kotodama_link_"' in rust_policy
     assert '"Amount",' not in rust_policy
     assert '"amount",' not in rust_policy
@@ -328,6 +328,44 @@ def test_textmate_policy_marks_only_attached_amt_and_qty_suffixes() -> None:
     assert "amt|qty" in pattern["match"]
     assert "amount" not in pattern["match"]
     assert "Amount" not in grammar["repository"]["types"]["patterns"][0]["match"]
+
+
+def test_textmate_keywords_are_scoped_by_role_with_one_scope_per_branded_pair() -> None:
+    policy = MODULE.load_policy(MODULE.REPOSITORY_ROOT)
+    grammar = MODULE.load_lexical_grammar(MODULE.REPOSITORY_ROOT, policy)
+    scopes = {}
+    for match, scope in MODULE._keyword_patterns(grammar):
+        body = match.split("(?:", 1)[1].rsplit(")(?!", 1)[0]
+        for keyword in body.split("|"):
+            assert keyword not in scopes, keyword
+            scopes[keyword] = scope
+
+    assert sorted(scopes) == sorted(value for value, _ in grammar.keywords)
+    for romaji, kanji in (
+        ("seiyaku", "誓約"),
+        ("kotoage", "言挙げ"),
+        ("hajimari", "始まり"),
+        ("kaizen", "改善"),
+    ):
+        assert scopes[romaji] == scopes[kanji]
+    assert scopes["true"] == scopes["false"] == "constant.language.boolean.kotodama"
+    assert scopes["let"] == "storage.type.kotodama"
+    assert scopes["return"] == "keyword.control.kotodama"
+
+
+def test_textmate_punctuation_is_never_an_operator_and_double_colon_wins() -> None:
+    policy = MODULE.load_policy(MODULE.REPOSITORY_ROOT)
+    grammar = MODULE.load_lexical_grammar(MODULE.REPOSITORY_ROOT, policy)
+    patterns = MODULE._operator_patterns(grammar)
+
+    assert patterns[0][1] == "keyword.operator.kotodama"
+    operators = patterns[0][0]
+    for punctuation in ("\\{", "\\}", "\\(", "\\)", ";", ","):
+        assert f"|{punctuation}|" not in f"|{operators[3:-1]}|"
+    scopes = [scope for _, scope in patterns]
+    assert scopes.index("punctuation.separator.namespace.kotodama") < scopes.index(
+        "punctuation.separator.colon.kotodama"
+    )
 
 
 def test_check_detects_drift_write_repairs_it_and_second_check_is_clean(

@@ -282,7 +282,7 @@ fn input_cursor_refusal_does_not_publish_a_partial_prefix_or_overwrite_preloaded
 #[test]
 fn program_loader_returns_cursor_scan_refusal_and_succeeds_after_resource_retry() {
     let compiled = kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku ReadLoader { view fn main() { () } }")
+        .compile_source("seiyaku ReadLoader { view fn main() authorize(anyone) { () } }")
         .unwrap();
     let contract = crate::prepare_contract(Arc::<[u8]>::from(compiled)).unwrap();
     let mut raw = ProgramMetadata::default().encode();
@@ -370,7 +370,7 @@ fn program_loader_returns_cursor_scan_refusal_and_succeeds_after_resource_retry(
 #[test]
 fn failed_cold_prepared_load_drops_its_original_pool_before_fresh_owner_retry() {
     let compiled = kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku ColdReadLoader { view fn main() { () } }")
+        .compile_source("seiyaku ColdReadLoader { view fn main() authorize(anyone) { () } }")
         .unwrap();
     let contract = crate::prepare_contract(Arc::<[u8]>::from(compiled)).unwrap();
     let program_owners = cold_program_owner_bytes(|vm| vm.load_prepared(&contract));

@@ -1,9 +1,9 @@
 # Kaigi authorization and usage V1
 
-`authorization_v1` defines one fixed Halo2 IPA relation over Pasta Fp. The circuit
-identifier is `halo2/pasta/ipa/kaigi-authorization-v1`, public-input schema is
-`kaigi-authorization-v1`, and domain size is `k = 13`. The pinned Axiom backend
-uses absolute assignment offsets; the circuit reserves 5,774 disjoint rows.
+`authorization_v1` defines one fixed native PIPA-R relation over Pasta Fp. The circuit
+identifier is `pipa-r/pasta/kaigi-authorization-v1`, public-input schema is
+`kaigi-authorization-v1`, and domain size is `k = 13`. The native frontend
+uses checked assignment offsets; the circuit reserves 5,774 disjoint rows.
 
 The sole instance column has exactly 31 rows:
 
@@ -31,6 +31,10 @@ Let `I` be rows 0–22 and `b` the private blinding. The fixed payloads are
 Join and Leave within one participation; N is independent of the blinding.
 Every public context row is absorbed inside the relation.
 
+RP56 round constants and the MDS matrix come from `iroha_pasta::poseidon::grain`;
+all 201 field elements are checked against the dev-only independent generator.
+The parameter bytes and circuit identities are unchanged.
+
 Each sponge uses width three, rate two, x⁵ S-box, eight full rounds and 56
 partial rounds with the crate's pinned Poseidon parameter generator. The initial
 state is `[0, 0, domain]`, with domains `0x4b41494749563143` (C),
@@ -50,17 +54,23 @@ sequence and nullifier capacity for future leaves and host termination.
 Core's verifier registry selects this fixed circuit and `k = 13`, compares the
 packaged verifier key with the compiled constraint system, and requires exactly
 one 31-row instance column. Retired roster circuit identifiers have no admission
-entry. Generic `halo2/ipa` and the exact authorization registry label use the
-same authenticated outer-envelope and canonical-key checks.
+entry. Generic `pipa-r/pasta` and the exact authorization registry label use the
+same authenticated outer-envelope and canonical-key checks. The canonical Norito
+`NativePipaRProofV1` contains one ordered vector of canonical 32-byte field values
+and the exact native transcript. Registered keys use Core’s canonical Norito `CompiledVerifyingKeyV1`, containing
+the complete compiled descriptor and processed key bytes, with curve `vesta`.
+The descriptor binds the transcript, parameter identity and typed public schema;
+processed key bytes alone cannot distinguish those properties and are rejected.
+Verifier initialization constructs only the pinned descriptor and verifying key.
 
 `KaigiAuthorizationWitnessV1::take_blinding` securely clears its caller-owned
 32-byte input on success and failure. Owned witness storage, and named CPU
 sponge state/payload storage, are erased with volatile-write/fence cleanup.
-Debug output redacts the witness. Compiler/register temporaries and Halo2-owned
-assignment/prover buffers are outside this erasure guarantee. Callers must
+Debug output redacts the witness. The native prover consumes witness advice buffers. Compiler/register temporaries
+and transient field-operation storage are outside this erasure guarantee. Callers must
 sample a nonzero scalar using a cryptographically secure full-field sampler.
 
-The implementation has focused MockProver adversarial tests and a real IPA
+The implementation has focused native constraint adversarial tests and a real PIPA-R
 roundtrip with every public row mutated. These are local correctness evidence,
 not independent cryptographic audit or hardware qualification. The reference
 framing is also checked against the dependency's separate Poseidon permutation.
@@ -68,7 +78,7 @@ No GPU proof execution is claimed here.
 
 ## Final usage relation
 
-`usage_v1` uses full canonical circuit ID `halo2/pasta/ipa/kaigi-usage-v1`, schema
+`usage_v1` uses full canonical circuit ID `pipa-r/pasta/kaigi-usage-v1`, schema
 `kaigi-usage-v1`, and `k = 12`. It reserves 4,037 absolute assignment rows and
 accepts one column of exactly 25 public scalars:
 

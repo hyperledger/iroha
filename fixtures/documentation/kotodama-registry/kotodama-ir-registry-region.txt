@@ -160,13 +160,15 @@
         Some(true),
         Some(false)
     );
-    alias_lowering_case!(
-        lower_account_id_invalid_non_alias_literal_keeps_static_account_dataref,
-        AliasSource::Exact(r#"fn main() { let _acct = AccountId::parse("merchant"); }"#),
-        AliasLiteral::DataRef(DataRefKind::Account, "merchant"),
-        Some(false),
-        Some(true)
-    );
+    #[test]
+    fn account_id_invalid_non_alias_literal_is_rejected_before_lowering() {
+        // A literal that is neither canonical I105 nor alias-shaped never
+        // reaches lowering: semantic analysis rejects it with its span.
+        let program = parse(r#"fn main() { let _acct = AccountId::parse("merchant"); }"#)
+            .expect("parse invalid account literal");
+        let error = analyze(&program).expect_err("non-alias invalid AccountId literal");
+        assert_eq!(error.code, "E_INVALID_ID_LITERAL");
+    }
     alias_lowering_case!(
         lower_account_id_canonical_literal_to_static_account_dataref,
         AliasSource::CanonicalAccount,

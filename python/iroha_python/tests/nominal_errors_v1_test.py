@@ -83,7 +83,7 @@ def test_unit_and_cursor_payload_kinds_are_exact(kind, value):
 
 def test_state_page_cannot_forge_its_key_type():
     schema = payload()["entrypoints"][2]["return_schema"]
-    schema["nodes"][-1]["value"]["kind"] = "Bool"
+    schema["nodes"][-1]["value"]["nodes"][0]["value"]["kind"] = "Bool"
     with pytest.raises(TypeError, match="forged"):
         EntrypointValueTypeV1.from_payload(schema)
 
@@ -92,7 +92,7 @@ def test_state_page_cannot_forge_its_key_type():
     "missing/package@1::Vault::Failure",
     "Result<(), missing/package@1::Vault::Failure>",
     "StateMap<int, List<Option<missing/package@1::Vault::Failure>, 8>>",
-    "Record{status: missing/package@1::Vault::Failure}",
+    "Fixture::Record{status: missing/package@1::Vault::Failure}",
 ])
 def test_state_only_nominal_errors_require_catalog_membership(type_name):
     value = payload()
@@ -178,3 +178,26 @@ def test_static_error_messages_bind_declared_variants():
     value["error_messages"] = [entry, entry]
     with pytest.raises(TypeError):
         ContractManifest.from_payload(value)
+
+def test_tuple_cursor_schema_binds_complete_key_and_shared_budget():
+    def leaf(kind):
+        return {"kind": "Leaf", "value": {"kind": kind, "value": None}}
+    key = {"nodes": [{"kind": "Tuple", "value": 2}, leaf("AccountId"), {"kind": "Tuple", "value": 2}, leaf("Int"), leaf("Name")]}
+    cursor = {"kind": "StateCursor", "value": key}
+    assert EntrypointValueTypeV1.from_payload({"nodes": [cursor]}).canonical_type_name == "StateCursor<(AccountId, (int, Name))>"
+    page = {"nodes": [{"kind": "Struct", "value": {"name": "kotodama::StatePage", "fields": ["items", "next"]}}, {"kind": "List", "value": {"capacity": 8}}, {"kind": "Tuple", "value": 2}, *key["nodes"], leaf("Bool"), {"kind": "Option", "value": None}, cursor]}
+    assert EntrypointValueTypeV1.from_payload(page).canonical_type_name == "StatePage<(AccountId, (int, Name)), bool, 8>"
+    wrong = deepcopy(page)
+    wrong["nodes"][-1]["value"]["nodes"][3] = leaf("Bool")
+    with pytest.raises(TypeError):
+        EntrypointValueTypeV1.from_payload(wrong)
+    for invalid in [{"kind": "Int", "value": None}, {"nodes": [{"kind": "StateCursor", "value": key}]}, {"nodes": [leaf("Json")]}]:
+        with pytest.raises(TypeError):
+            EntrypointValueTypeV1.from_payload({"nodes": [{"kind": "StateCursor", "value": invalid}]})
+    for arity in [254, 255]:
+        schema = {"nodes": [{"kind": "StateCursor", "value": {"nodes": [{"kind": "Tuple", "value": arity}, *[leaf("Int") for _ in range(arity)]]}}]}
+        if arity == 254:
+            assert EntrypointValueTypeV1.from_payload(schema).word_count == 1
+        else:
+            with pytest.raises(TypeError):
+                EntrypointValueTypeV1.from_payload(schema)

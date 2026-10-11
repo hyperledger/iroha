@@ -6,8 +6,9 @@ use std::sync::Mutex;
 
 use iroha_data_model::kagemusha::{
     KagemushaDeviceSignatureV1, KagemushaWalletCompletionRecordV1, KagemushaWalletEffectV1,
-    KagemushaWalletLifecycleV1, KagemushaWalletRecoveryCapsuleV1, KagemushaWalletStatementV1,
-    KagemushaWalletTerminalReasonV1,
+    KagemushaWalletLifecycleV1, KagemushaWalletReceiptSignerV1, KagemushaWalletRecoveryCapsuleV1,
+    KagemushaWalletStatementV1, KagemushaWalletTerminalReasonV1,
+    kagemusha_wallet_provider_contract_v1,
 };
 
 use super::*;
@@ -22,7 +23,7 @@ use crate::kagemusha_wallet_advance_v1::{
         BOOT_A, DeviceV1, SimProviderV1, TEST_BALLAST_BYTES, TestOwnerV1, WalletFixtureV1,
         advance_request, bootstrap_capsule, bootstrap_capsule_variant, bootstrapped_device,
         capsule_for, commitment, enrolled_device, field_value, next_capsule, next_capsule_variant,
-        released, wallet_fixture,
+        released, stand_in_map_openings, wallet_fixture,
     },
 };
 
@@ -221,6 +222,29 @@ fn wallet_advance_v1_advance_releases_a_chain_with_identical_retries() {
         retained.frame,
         retained.record.to_canonical_bytes().expect("frame")
     );
+    // The released receipt must verify through the independent model consumer, which
+    // recomputes its canonical 338-byte body and 32-byte Poseidon signing message.
+    let signer = KagemushaWalletReceiptSignerV1 {
+        scheme_id: f.scheme_id(),
+        wallet_id: f.wallet_id(),
+        provider_contract: kagemusha_wallet_provider_contract_v1(),
+        payment_key: f.payment_key,
+    };
+    retained
+        .record
+        .receipt
+        .verify(&signer, &bootstrap.statement, &request.proof_digest)
+        .expect("receipt verifies from the frozen capsule");
+    let mut changed_proof = request.proof_digest;
+    changed_proof[0] ^= 1;
+    assert!(
+        retained
+            .record
+            .receipt
+            .verify(&signer, &bootstrap.statement, &changed_proof)
+            .is_err(),
+        "the receipt binds the exact frozen proof"
+    );
     // Every retry, in this process and after a restart, returns the same bytes.
     let retry = provider
         .advance(&slot, &TestOwnerV1, &request)
@@ -406,7 +430,7 @@ fn wallet_advance_v1_advance_operation_identity_rules() {
     ));
     // Changed inputs under a used identity conflict; the retained operation is untouched.
     let mut changed = request.clone();
-    changed.capsule.map_openings = vec![vec![9]];
+    changed.capsule.map_openings = stand_in_map_openings(9);
     let retained = released(first.clone());
     assert_eq!(
         provider.advance(&slot, &TestOwnerV1, &changed),
@@ -521,7 +545,7 @@ fn wallet_advance_v1_advance_pending_signing_resumes_the_same_operation() {
         ))
     );
     let mut changed = request.clone();
-    changed.capsule.map_openings = vec![vec![8]];
+    changed.capsule.map_openings = stand_in_map_openings(8);
     assert_eq!(
         provider.advance(&slot, &TestOwnerV1, &changed),
         Err(KagemushaWalletProviderErrorV1::OperationIdConflict {
@@ -1194,4 +1218,48 @@ fn wallet_advance_v1_advance_ballast_helpers() {
         provider.reserve_capacity(KagemushaWalletCapacityClassV1::Growth, 100, 0),
         Ok(false)
     );
+}
+
+#[test]
+fn post_bootstrap_marker_loss_never_resurrects_generation_zero() {
+    for policy in [ANDROID, KagemushaWalletAnchorPolicyV1::Keychain] {
+        let (device, _f, slot, _bootstrap) = bootstrapped_device(policy, 0x77);
+        let markers = kagemusha_wallet_markers_dir_v1(&slot);
+        let slot_dir =
+            crate::kagemusha_wallet_advance_v1::layout::kagemusha_wallet_slot_dir_v1(&slot);
+        assert!(!device.fs.visible_names(&markers).is_empty());
+        for name in device.fs.visible_names(&markers) {
+            device.fs.unlink(&markers, &name).unwrap();
+        }
+        for _ in 0..2 {
+            let mut provider = device.open();
+            for _ in 0..2 {
+                let status = provider.status(&slot);
+                assert!(
+                    matches!(
+                        status,
+                        Err(KagemushaWalletProviderErrorV1::LostCustody(_)
+                            | KagemushaWalletProviderErrorV1::UnavailableCustodyData { .. })
+                    ),
+                    "{status:?}"
+                );
+            }
+            assert!(
+                device.fs.visible_names(&markers).is_empty(),
+                "no generation-zero marker is ever republished"
+            );
+            assert!(
+                !device
+                    .fs
+                    .visible_names(&slot_dir)
+                    .contains(&"abandoned.norito".to_owned())
+            );
+            drop(provider);
+            device.fs.restart();
+        }
+        device.platform.with(|state| {
+            assert_eq!(state.generate_calls, 1);
+            assert_eq!(state.delete_calls, 0);
+        });
+    }
 }

@@ -636,6 +636,7 @@ def test_aggregate_model_test_boundary_retains_protocol_ownership_and_denials() 
     assert tests["target"] == "all"
     assert set(tests["forbidden_layers"]) == {
         "node_execution", "node_configuration", "telemetry_runtime", "storage_runtime",
+        "wallet_proof_execution",
     }
     assert tests["forbidden_features"] == {
         "iroha_zkp_halo2": ["full", "parallel", "goldilocks_backend"],
@@ -794,6 +795,32 @@ def _native_policy() -> dict:
     return MODULE.validate_boundary_policy(json.loads(path.read_text()))
 
 
+WALLET_PROOF_OWNERS = ["iroha_plonk_recursion", "iroha_kagemusha_proof"]
+SHARED_NATIVE_PROOF_PRIMITIVES = ["iroha_pasta", "iroha_plonk", "iroha_plonk_gadgets"]
+WALLET_PROOF_DENIAL_CONTEXTS = [
+    "aggregate-model",
+    "aggregate-model-tests",
+    "incentives",
+    "model-base-default",
+    "model-base-transparent",
+    "musubi-service-default",
+    "sccp-rpc-default",
+    "sccp-wallet-default",
+    "sdk-default",
+    "sdk-tls-native",
+    "sdk-tls-native-vendored",
+    "sdk-tls-rustls-native-roots",
+    "sdk-tls-rustls-webpki-roots",
+    "service-model",
+    "storage-client-default",
+    "storage-client-tls-native",
+    "storage-client-tls-native-vendored",
+    "storage-client-tls-rustls-native-roots",
+    "storage-client-tls-rustls-webpki-roots",
+    "torii-wire"
+]
+
+
 SDK_SELECTIONS = [
     "sdk-default", "sdk-tls-native", "sdk-tls-native-vendored",
     "sdk-tls-rustls-native-roots", "sdk-tls-rustls-webpki-roots",
@@ -849,12 +876,41 @@ def test_retired_package_contract_admission_is_rejected(context) -> None:
 def test_native_policy_preserves_every_original_context_and_layer() -> None:
     policy = _native_policy()
     assert len(policy["configurations"]) == 21
+    assert set(WALLET_PROOF_DENIAL_CONTEXTS) == (
+        set(policy["configurations"]) - {"iroha3d-without-sccp-wallet"}
+    )
+    # This test-only invariant projects out exactly the reviewed additions and
+    # keeps every original ownership, denial, feature, target and root-dev choice.
+    original_configurations = copy.deepcopy(policy["configurations"])
+    for context in WALLET_PROOF_DENIAL_CONTEXTS:
+        layers = original_configurations[context]["forbidden_layers"]
+        assert layers.count("wallet_proof_execution") == 1
+        layers.remove("wallet_proof_execution")
+    original_layers = copy.deepcopy(policy["layers"])
+    assert original_layers.pop("wallet_proof_execution") == WALLET_PROOF_OWNERS
+    assert original_layers["proof_primitives"] == [
+        "iroha_zkp_halo2", *SHARED_NATIVE_PROOF_PRIMITIVES,
+    ]
+    for primitive in SHARED_NATIVE_PROOF_PRIMITIVES:
+        original_layers["proof_primitives"].remove(primitive)
+    assert hashlib.sha256(json.dumps(
+        original_configurations, sort_keys=True, separators=(",", ":"),
+    ).encode()).hexdigest() == "b095915d17f2d3e3371b2f8ec46529639d23a509c0341dea8e8ba2bb762d383e"
+    # The retired Kagemusha real-proof harness feature no longer exists to forbid.
+    assert all(
+        "kagemusha-real-proof-harness" not in features
+        for selection in policy["configurations"].values()
+        for features in selection["forbidden_features"].values()
+    )
+    assert hashlib.sha256(json.dumps(
+        original_layers, sort_keys=True, separators=(",", ":"),
+    ).encode()).hexdigest() == "3cca600ca6223358c8889fe065f5d8b2a400b360e04083506dd23d2b007fb880"
     assert hashlib.sha256(json.dumps(
         policy["configurations"], sort_keys=True, separators=(",", ":"),
-    ).encode()).hexdigest() == "2613ea761c6d3ec8f0b62d30523d8f19f8b627d1a85b864bb455f61e9ce6834c"
+    ).encode()).hexdigest() == "a82622b18157e40ba1b0e68633322ba8cac5afbd87d60efb033c3e5c87cf80c8"
     assert hashlib.sha256(json.dumps(
         policy["layers"], sort_keys=True, separators=(",", ":"),
-    ).encode()).hexdigest() == "3cca600ca6223358c8889fe065f5d8b2a400b360e04083506dd23d2b007fb880"
+    ).encode()).hexdigest() == "09a4b45b8c8fb31b19effe8135c6858d98abe3ba66e1b2ad2265074057c801a9"
 
 
 @pytest.mark.parametrize("metric", MODULE.METRIC_KEYS)
@@ -956,6 +1012,124 @@ def test_model_test_selection_keeps_dev_oracle_without_relaxing_shipping_or_laye
         "package": "iroha_zkp_halo2", "forbidden_feature": "full",
         "path": ["iroha_data_model", "iroha_plonk_oracle", "iroha_zkp_halo2"],
     }]
+
+
+@pytest.mark.parametrize("context", [
+    "aggregate-model", "aggregate-model-tests", "sdk-default", "sdk-tls-native",
+    "sdk-tls-native-vendored", "sdk-tls-rustls-native-roots",
+    "sdk-tls-rustls-webpki-roots",
+])
+def test_shared_native_primitives_keep_existing_model_and_sdk_paths(context) -> None:
+    """Model Poseidon and SoraFS PoP use shared Pasta/PLONK primitives."""
+
+    policy = _native_policy()
+    selection = policy["configurations"][context]
+    root = selection["package"]
+    baseline = f"0|{root} v1.0.0|\n"
+    assert MODULE.evaluate_boundary_tree(policy, selection, baseline)["within_boundary"]
+    # Both roots own a normal SoraFS manifest edge; PoP fully verifies with PLONK.
+    tree = baseline + (
+        "1|sorafs_manifest v1.0.0|\n"
+        "2|iroha_plonk v1.0.0|\n"
+        "3|iroha_pasta v1.0.0|\n"
+    )
+    if root == "iroha":
+        tree += "1|iroha_data_model v1.0.0|\n2|iroha_pasta v1.0.0|\n"
+    else:
+        tree += "1|iroha_pasta v1.0.0|\n"
+    report = MODULE.evaluate_boundary_tree(policy, selection, tree)
+    assert report["within_boundary"]
+    assert report["violations"] == []
+    assert {"iroha_pasta", "iroha_plonk"} <= set(report["packages"])
+
+
+@pytest.mark.parametrize("context", WALLET_PROOF_DENIAL_CONTEXTS)
+@pytest.mark.parametrize("owner", WALLET_PROOF_OWNERS)
+def test_non_node_selections_reject_each_wallet_proof_owner(context, owner) -> None:
+    """Ordinary model, SDK, wire and service roots cannot execute wallet proofs."""
+
+    policy = _native_policy()
+    selection = policy["configurations"][context]
+    root = selection["package"]
+    assert selection["forbidden_layers"].count("wallet_proof_execution") == 1
+    assert policy["layers"]["wallet_proof_execution"].count(owner) == 1
+    command = MODULE.boundary_tree_command(Path("Cargo.toml"), selection, offline=True)
+    expected_edges = "normal,build,dev" if context == "aggregate-model-tests" else "normal,build"
+    assert command[command.index("--edges") + 1] == expected_edges
+    baseline = f"0|{root} v1.0.0|\n"
+    assert MODULE.evaluate_boundary_tree(policy, selection, baseline)["within_boundary"]
+    for suffix, path in [
+        (f"1|{owner} v1.0.0|\n", [root, owner]),
+        (f"1|norito v1.0.0|\n2|{owner} v1.0.0|\n", [root, "norito", owner]),
+    ]:
+        tree = baseline + suffix
+        report = MODULE.evaluate_boundary_tree(policy, selection, tree)
+        assert not report["within_boundary"]
+        assert report["violations"] == [{
+            "package": owner, "forbidden_layer": "wallet_proof_execution", "path": path,
+        }]
+        # Each owner and each context denial independently causes this rejection.
+        missing_owner = copy.deepcopy(policy)
+        missing_owner["layers"]["wallet_proof_execution"].remove(owner)
+        assert MODULE.evaluate_boundary_tree(missing_owner, selection, tree)["within_boundary"]
+        missing_denial = copy.deepcopy(selection)
+        missing_denial["forbidden_layers"].remove("wallet_proof_execution")
+        assert MODULE.evaluate_boundary_tree(policy, missing_denial, tree)["within_boundary"]
+
+
+@pytest.mark.parametrize("context", ["model-base-default", "model-base-transparent"])
+@pytest.mark.parametrize("primitive", SHARED_NATIVE_PROOF_PRIMITIVES)
+def test_foundation_model_rejects_shared_native_proof_primitives(context, primitive) -> None:
+    """Shared cryptographic primitives remain above the foundational model."""
+
+    policy = _native_policy()
+    selection = policy["configurations"][context]
+    root = selection["package"]
+    assert root == "iroha_model_base"
+    assert selection["forbidden_layers"].count("proof_primitives") == 1
+    assert policy["layers"]["proof_primitives"].count(primitive) == 1
+    baseline = f"0|{root} v1.0.0|\n"
+    assert MODULE.evaluate_boundary_tree(policy, selection, baseline)["within_boundary"]
+    for suffix, path in [
+        (f"1|{primitive} v1.0.0|\n", [root, primitive]),
+        (f"1|norito v1.0.0|\n2|{primitive} v1.0.0|\n", [root, "norito", primitive]),
+    ]:
+        tree = baseline + suffix
+        report = MODULE.evaluate_boundary_tree(policy, selection, tree)
+        assert not report["within_boundary"]
+        assert report["violations"] == [{
+            "package": primitive, "forbidden_layer": "proof_primitives", "path": path,
+        }]
+        missing_owner = copy.deepcopy(policy)
+        missing_owner["layers"]["proof_primitives"].remove(primitive)
+        assert MODULE.evaluate_boundary_tree(missing_owner, selection, tree)["within_boundary"]
+        missing_denial = copy.deepcopy(selection)
+        missing_denial["forbidden_layers"].remove("proof_primitives")
+        assert MODULE.evaluate_boundary_tree(policy, missing_denial, tree)["within_boundary"]
+
+
+@pytest.mark.parametrize("intermediate", [None, "iroha_core", "iroha_torii"])
+def test_node_consumer_paths_keep_mandatory_wallet_verification(intermediate) -> None:
+    """Daemon, Core and Torii retain their normal native wallet verifier paths."""
+
+    policy = _native_policy()
+    selection = policy["configurations"]["iroha3d-without-sccp-wallet"]
+    assert "wallet_proof_execution" not in selection["forbidden_layers"]
+    baseline = "0|irohad v1.0.0|\n"
+    assert MODULE.evaluate_boundary_tree(policy, selection, baseline)["within_boundary"]
+    prefix = ["irohad"] + ([] if intermediate is None else [intermediate]) + [
+        "iroha_core_zk",
+    ]
+    for proof_owner in [[], ["iroha_kagemusha_proof"]]:
+        path = prefix + proof_owner + [
+            "iroha_plonk_recursion", "iroha_plonk_gadgets",
+            "iroha_plonk", "iroha_pasta",
+        ]
+        tree = "".join(f"{depth}|{package} v1.0.0|\n" for depth, package in enumerate(path))
+        report = MODULE.evaluate_boundary_tree(policy, selection, tree)
+        assert report["within_boundary"]
+        assert report["violations"] == []
+        assert set(path) <= set(report["packages"])
 
 
 # Canonical metadata parsing is pure; feature-boundary Cargo tests above stay separate.

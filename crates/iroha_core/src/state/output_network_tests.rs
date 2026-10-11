@@ -972,3 +972,6 @@ fn local_refusal_after_native_work_restores_direct_transaction_and_witness() {
 
 #[path = "output_network_nexus_receipt_tests.rs"]
 mod nexus_receipts;
+
+#[path = "output_contract_event_tests.rs"]
+mod contract_events;

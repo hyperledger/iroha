@@ -39,6 +39,112 @@ pub(super) fn submit_until<T>(
     Ok(result)
 }
 
+/// Submit once and establish read-after-write visibility on the exact observation peer.
+/// Global finality can be resolved by another coordinator; it does not fence a local read.
+/// Submission and local application consume the same original phase deadline.
+pub(super) fn submit_and_observe_until(
+    client: iroha::blocking::Client,
+    observer: iroha::blocking::Client,
+    deadline: Instant,
+    submit: impl FnOnce(
+        iroha::blocking::Client,
+    ) -> Result<
+        iroha_crypto::HashOf<iroha_data_model::transaction::SignedTransaction>,
+    >,
+) -> Result<iroha_crypto::HashOf<iroha_data_model::transaction::SignedTransaction>> {
+    let hash = submit_until(client, deadline, submit)?;
+    submit_until(observer, deadline, |bounded| {
+        bounded.wait_for_transaction_applied_local(
+            hash,
+            iroha::client::TransactionWaitOptions {
+                timeout: deadline.saturating_duration_since(Instant::now()),
+                poll_interval: RETRY_DELAY,
+            },
+        )
+    })?;
+    Ok(hash)
+}
+
+/// Observe this peer's exact State rejection after a global terminal rejection.
+/// Public status exposes kind/height only; authenticated Network output owns its reason.
+/// Repeat only absence or pending hints. Every read error, including SDK backpressure,
+/// is preserved because its private retry representation is not a public harness API.
+pub(super) async fn observe_rejected_until(
+    observer: iroha::client::Client,
+    hash: iroha_crypto::HashOf<iroha_data_model::transaction::SignedTransaction>,
+    original: &iroha::client::TransactionFinalityFailure,
+    deadline: Instant,
+) -> Result<()> {
+    original.validate_for_hash(hash)?;
+    ensure!(
+        original.response().status.kind == "Rejected",
+        "local rejection observation requires an exact global State Rejected"
+    );
+    let bounded = observer.with_request_deadline(deadline);
+    loop {
+        ensure!(
+            Instant::now() < deadline,
+            "local rejection observation for {hash} exceeded the original deadline"
+        );
+        let local = bounded
+            .fetch_transaction_status_response_local(hash)
+            .await?;
+        ensure!(
+            Instant::now() < deadline,
+            "local rejection observation for {hash} exceeded the original deadline"
+        );
+        if let Some(local) = local
+            && local.resolved_from == "state"
+        {
+            match local.status.kind.as_str() {
+                "Rejected" => {
+                    ensure!(
+                        local.status == original.response().status,
+                        "local State rejection differs from the exact global terminal status for {hash}"
+                    );
+                    return Ok(());
+                }
+                "Applied" | "Expired" => {
+                    return Err(eyre::eyre!(
+                        "local State outcome differs from the exact global rejection for {hash}"
+                    ));
+                }
+                _ => {} // Canonically decoded nonterminal hints grant no completion.
+            }
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        ensure!(
+            RETRY_DELAY < remaining,
+            "local rejection observation for {hash} exceeded the original deadline"
+        );
+        tokio::time::sleep(RETRY_DELAY).await;
+    }
+}
+
+/// Submit once asynchronously under the original phase deadline.
+/// Preserve the SDK's unresolved transaction identity when its finality wait expires.
+pub(super) async fn submit_async_until<T, F, Fut>(
+    client: iroha::client::Client,
+    deadline: Instant,
+    submit: F,
+) -> Result<T>
+where
+    F: FnOnce(iroha::client::Client) -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    ensure!(
+        Instant::now() < deadline,
+        "committee submission deadline elapsed"
+    );
+    let bounded = client.with_request_deadline(deadline);
+    let result = submit(bounded).await?;
+    ensure!(
+        Instant::now() < deadline,
+        "committee submission deadline elapsed"
+    );
+    Ok(result)
+}
+
 /// Read an authoritative applied height without extending the caller's deadline.
 pub(super) async fn height_until(client: &iroha::client::Client, deadline: Instant) -> Result<u64> {
     tokio::time::timeout_at(deadline.into(), async {
@@ -68,6 +174,25 @@ pub(super) async fn height_until(client: &iroha::client::Client, deadline: Insta
     })
     .await
     .wrap_err("committee status exceeded its original deadline")?
+}
+
+/// Observe every voter concurrently within the same original phase deadline.
+/// The exact bounded committee roster determines both concurrency and result order;
+/// one failed or missing seat cannot be replaced by a smaller successful subset.
+pub(super) async fn heights_until(
+    clients: &[iroha::client::Client],
+    deadline: Instant,
+) -> Result<Vec<u64>> {
+    ensure!(
+        iroha_data_model::block::consensus::is_valid_committee_size(clients.len()),
+        "committee status requires an exact bounded voter roster"
+    );
+    ensure!(
+        Instant::now() < deadline,
+        "committee status deadline elapsed"
+    );
+    futures_util::future::try_join_all(clients.iter().map(|client| height_until(client, deadline)))
+        .await
 }
 
 /// Observe from a dedicated blocking worker with the same classified retry policy.
@@ -214,6 +339,322 @@ mod status_observation_tests {
     }
 
     #[derive(Debug)]
+    struct ApplicationTransport {
+        responses: Mutex<VecDeque<(u16, Vec<u8>)>>,
+        requests: Mutex<Vec<(String, Duration)>>,
+        consume_request_deadline: bool,
+    }
+
+    impl HttpTransport for ApplicationTransport {
+        fn send_blocking(&self, _: TransportRequest) -> Result<Response<Vec<u8>>> {
+            panic!("local application uses the blocking client's asynchronous transport")
+        }
+
+        fn send(&self, request: TransportRequest) -> TransportFuture<'_> {
+            Box::pin(async move {
+                assert_eq!(request.method, iroha::http::Method::GET);
+                assert_eq!(request.url.host_str(), Some("committee-observer.invalid"));
+                assert_eq!(request.url.path(), "/v1/pipeline/transactions/status");
+                assert!(
+                    request.body.is_empty(),
+                    "a visibility barrier must never resubmit"
+                );
+                assert!(
+                    request
+                        .url
+                        .query_pairs()
+                        .any(|(k, v)| k == "scope" && v == "local")
+                );
+                self.requests.lock().unwrap().push((
+                    request
+                        .url
+                        .query_pairs()
+                        .find(|(k, _)| k == "hash")
+                        .unwrap()
+                        .1
+                        .into_owned(),
+                    request
+                        .timeout
+                        .expect("local observation must retain the phase deadline"),
+                ));
+                if self.consume_request_deadline {
+                    std::thread::sleep(request.timeout.unwrap() + Duration::from_millis(1));
+                }
+                let (status, body) = self
+                    .responses
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .expect("unexpected visibility poll");
+                Ok(Response::builder()
+                    .status(status)
+                    .header("content-type", "application/json")
+                    .body(body)?)
+            })
+        }
+    }
+
+    fn application_observer(
+        hash: iroha_crypto::HashOf<iroha_data_model::transaction::SignedTransaction>,
+        statuses: &[(&str, &str, &str)],
+    ) -> (iroha::blocking::Client, Arc<ApplicationTransport>) {
+        let (observer, transport) = application_observer_client(hash, statuses);
+        (
+            iroha::blocking::Client::from_client(observer).unwrap(),
+            transport,
+        )
+    }
+
+    fn application_observer_client(
+        hash: iroha_crypto::HashOf<iroha_data_model::transaction::SignedTransaction>,
+        statuses: &[(&str, &str, &str)],
+    ) -> (iroha::client::Client, Arc<ApplicationTransport>) {
+        application_observer_client_with_late_read(hash, statuses, false)
+    }
+
+    fn application_observer_client_with_late_read(
+        hash: iroha_crypto::HashOf<iroha_data_model::transaction::SignedTransaction>,
+        statuses: &[(&str, &str, &str)],
+        consume_request_deadline: bool,
+    ) -> (iroha::client::Client, Arc<ApplicationTransport>) {
+        let transport = Arc::new(ApplicationTransport {
+            responses: Mutex::new(
+                statuses
+                    .iter()
+                    .map(|(kind, scope, source)| {
+                        (
+                            200,
+                            json::to_vec(&json!({
+                                "hash": (hash.to_string()),
+                                "status": {"kind": (*kind), "block_height": 143},
+                                "scope": (*scope),
+                                "resolved_from": (*source),
+                            }))
+                            .unwrap(),
+                        )
+                    })
+                    .collect(),
+            ),
+            requests: Mutex::new(Vec::new()),
+            consume_request_deadline,
+        });
+        let mut builder = client(transport.clone()).to_builder();
+        builder.torii_url = "http://committee-observer.invalid/".parse().unwrap();
+        (builder.build().unwrap(), transport)
+    }
+
+    #[test]
+    fn committee_read_visibility_requires_exact_observer_application_after_global_submit() {
+        use iroha_crypto::{Hash, HashOf};
+        let hash = HashOf::from_untyped_unchecked(Hash::prehashed([0x73; Hash::LENGTH]));
+        let submitter = iroha::blocking::Client::from_client(client(transport([]))).unwrap();
+        let (observer, observations) = application_observer(
+            hash,
+            &[
+                ("Queued", "local", "queue"),
+                ("Applied", "local", "cache"),
+                ("Applied", "local", "state"),
+            ],
+        );
+        let budget = Duration::from_secs(2);
+        let mut submitted = 0;
+        let observed =
+            submit_and_observe_until(submitter, observer, Instant::now() + budget, |client| {
+                submitted += 1;
+                assert_eq!(
+                    client.client().endpoint().host_str(),
+                    Some("status-observation.invalid")
+                );
+                // A successful global submission on the ingress does not publish the read peer's State.
+                Ok(hash)
+            })
+            .unwrap();
+        assert_eq!(
+            submitted, 1,
+            "visibility must not replay the signed submission"
+        );
+        assert_eq!(observed, hash);
+        let requests = observations.requests.lock().unwrap();
+        assert_eq!(
+            requests.len(),
+            3,
+            "committee reads require exact observer State application, not ingress global success"
+        );
+        assert!(
+            requests
+                .iter()
+                .all(|(actual, remaining)| actual == &hash.to_string() && *remaining <= budget)
+        );
+        assert!(requests.windows(2).all(|pair| pair[1].1 < pair[0].1));
+        assert!(observations.responses.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn committee_read_visibility_rejects_global_response_and_preserves_submission_failure() {
+        use iroha_crypto::{Hash, HashOf};
+        let hash = HashOf::from_untyped_unchecked(Hash::prehashed([0x74; Hash::LENGTH]));
+        let submitter = iroha::blocking::Client::from_client(client(transport([]))).unwrap();
+        let (observer, observations) =
+            application_observer(hash, &[("Applied", "global", "state")]);
+        let error = submit_and_observe_until(
+            submitter.clone(),
+            observer,
+            Instant::now() + Duration::from_secs(2),
+            |_| Ok(hash),
+        )
+        .expect_err("global application cannot establish exact observer visibility");
+        assert!(format!("{error:#}").contains("scope"), "{error:#}");
+        assert_eq!(observations.requests.lock().unwrap().len(), 1);
+        let (observer, observations) = application_observer(hash, &[]);
+        let error = submit_and_observe_until(
+            submitter,
+            observer,
+            Instant::now() + Duration::from_secs(2),
+            |_| Err(eyre::eyre!("original unresolved submission {hash}")),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("original unresolved submission {hash}")
+        );
+        assert!(observations.requests.lock().unwrap().is_empty());
+    }
+
+    fn global_failure(
+        hash: iroha_crypto::HashOf<iroha_data_model::transaction::SignedTransaction>,
+        kind: &str,
+    ) -> iroha::client::TransactionFinalityFailure {
+        let response = iroha_torii_shared::PipelineTransactionStatusResponse::new(
+            hash.to_string(),
+            iroha_torii_shared::PipelineTransactionStatus {
+                kind: kind.to_owned(),
+                block_height: Some(143),
+            },
+            "global".to_owned(),
+            "state".to_owned(),
+        );
+        iroha::client::TransactionFinalityFailure::from_response(hash, response)
+            .unwrap()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn monetary_rejection_waits_for_exact_local_state_after_global_completion() {
+        let hash = iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::prehashed(
+            [0x75; iroha_crypto::Hash::LENGTH],
+        ));
+        let (observer, observations) = application_observer_client(
+            hash,
+            &[
+                ("Queued", "local", "queue"),
+                ("Rejected", "local", "cache"),
+                ("Rejected", "local", "state"),
+            ],
+        );
+        let budget = Duration::from_secs(2);
+        observe_rejected_until(
+            observer,
+            hash,
+            &global_failure(hash, "Rejected"),
+            Instant::now() + budget,
+        )
+        .await
+        .unwrap();
+        let requests = observations.requests.lock().unwrap();
+        assert_eq!(
+            requests.len(),
+            3,
+            "monetary readback requires the exact peer State rejection, not global or cached completion"
+        );
+        assert!(
+            requests
+                .iter()
+                .all(|(actual, left)| actual == &hash.to_string() && *left <= budget)
+        );
+        assert!(requests.windows(2).all(|pair| pair[1].1 < pair[0].1));
+        assert!(observations.responses.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn monetary_rejection_refuses_foreign_terminal_or_read_error_without_retry() {
+        let hash = iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::prehashed(
+            [0x77; iroha_crypto::Hash::LENGTH],
+        ));
+        let foreign_hash = iroha_crypto::HashOf::<iroha_data_model::transaction::SignedTransaction>::from_untyped_unchecked(iroha_crypto::Hash::prehashed([0x7b; iroha_crypto::Hash::LENGTH]));
+        for (case, code, body) in [
+            ("applied", 200, json::to_vec(&json!({"hash": (hash.to_string()), "status": {"kind":"Applied", "block_height":143}, "scope":"local", "resolved_from":"state"})).unwrap()),
+            ("height", 200, json::to_vec(&json!({"hash": (hash.to_string()), "status": {"kind":"Rejected", "block_height":142}, "scope":"local", "resolved_from":"state"})).unwrap()),
+            ("scope", 200, json::to_vec(&json!({"hash": (hash.to_string()), "status": {"kind":"Rejected", "block_height":143}, "scope":"global", "resolved_from":"state"})).unwrap()),
+            ("hash", 200, json::to_vec(&json!({"hash": (foreign_hash.to_string()), "status": {"kind":"Rejected", "block_height":143}, "scope":"local", "resolved_from":"state"})).unwrap()),
+            ("malformed", 200, b"{malformed}".to_vec()),
+            ("backpressure", 429, b"original public backpressure".to_vec()),
+            ("read", 503, b"original read failure".to_vec()),
+        ] {
+            let (observer, observations) = application_observer_client(hash, &[]);
+            observations.responses.lock().unwrap().push_back((code, body));
+            let error = observe_rejected_until(observer, hash, &global_failure(hash, "Rejected"), Instant::now() + Duration::from_secs(2)).await.expect_err("a foreign outcome or original read refusal cannot authorize monetary readback");
+            if case == "hash" {
+                assert!(matches!(error.downcast_ref::<iroha::Error>(), Some(iroha::Error::ResponseBinding { operation: "pipeline.transaction_status", field: "hash" })));
+            }
+            if code != 200 {
+                assert!(error.to_string().contains(if code == 429 { "original public backpressure" } else { "original read failure" }), "the original SDK read refusal is preserved");
+            }
+            assert_eq!(observations.requests.lock().unwrap().len(), 1);
+        }
+        let (observer, observations) = application_observer_client(hash, &[]);
+        assert!(
+            observe_rejected_until(
+                observer,
+                hash,
+                &global_failure(hash, "Expired"),
+                Instant::now() + Duration::from_secs(2)
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            observations.requests.lock().unwrap().is_empty(),
+            "global expiry cannot become an executed rejection"
+        );
+    }
+
+    #[tokio::test]
+    async fn monetary_rejection_preserves_original_deadline_before_dispatch_and_late_admission() {
+        let hash = iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::prehashed(
+            [0x79; iroha_crypto::Hash::LENGTH],
+        ));
+        let (observer, observations) = application_observer_client(hash, &[]);
+        assert!(
+            observe_rejected_until(
+                observer,
+                hash,
+                &global_failure(hash, "Rejected"),
+                Instant::now()
+            )
+            .await
+            .is_err()
+        );
+        assert!(observations.requests.lock().unwrap().is_empty());
+        let (observer, observations) = application_observer_client_with_late_read(
+            hash,
+            &[("Rejected", "local", "state")],
+            true,
+        );
+        let error = observe_rejected_until(
+            observer,
+            hash,
+            &global_failure(hash, "Rejected"),
+            Instant::now() + Duration::from_millis(20),
+        )
+        .await;
+        assert!(
+            error.is_err(),
+            "late exact State Rejected cannot extend the original monetary deadline"
+        );
+        assert_eq!(observations.requests.lock().unwrap().len(), 1);
+    }
+
+    #[derive(Debug)]
     struct PhaseTransport {
         requests: Mutex<Vec<(String, Duration)>>,
         budget: Duration,
@@ -310,6 +751,92 @@ mod status_observation_tests {
             original.client().to_builder().transaction_status_timeout,
             Duration::from_secs(600)
         );
+    }
+
+    #[tokio::test]
+    async fn asynchronous_submission_retains_original_deadline_and_unresolved_identity() {
+        use iroha_crypto::{Hash, HashOf};
+        let budget = Duration::from_secs(2);
+        let transport = Arc::new(PhaseTransport {
+            requests: Mutex::new(Vec::new()),
+            budget,
+        });
+        let mut builder = client(transport.clone()).to_builder();
+        builder.transaction_status_timeout = Duration::from_secs(600);
+        let original = builder.build().unwrap();
+        let hash = HashOf::from_untyped_unchecked(Hash::prehashed([0x72; Hash::LENGTH]));
+        let deadline = Instant::now() + budget;
+        let error = submit_async_until(original.clone(), deadline, |bounded| async move {
+            assert_eq!(bounded.status().get().await?.blocks, 69);
+            bounded
+                .wait_until_transaction_applied_local(
+                    hash,
+                    iroha::client::TransactionWaitOptions {
+                        timeout: Duration::from_secs(600),
+                        poll_interval: Duration::from_secs(60),
+                    },
+                )
+                .await
+        })
+        .await
+        .expect_err("original finality deadline must finish the pending read");
+        assert!(
+            format!("{error:#}").contains(&hash.to_string()),
+            "asynchronous progress must retain the original unresolved transaction identity: {error:#}"
+        );
+        assert!(Instant::now().saturating_duration_since(deadline) < Duration::from_secs(2));
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2, "deadline cannot dispatch another read");
+        assert_eq!(requests[0].0, "/status");
+        assert_eq!(requests[1].0, "/v1/pipeline/transactions/status");
+        assert!(requests[1].1 < requests[0].1);
+        assert_eq!(
+            original.to_builder().transaction_status_timeout,
+            Duration::from_secs(600)
+        );
+    }
+
+    #[tokio::test]
+    async fn asynchronous_submission_refuses_expired_and_late_success_without_replacing_error() {
+        let original = client(transport([]));
+        let error = submit_async_until::<(), _, _>(original.clone(), Instant::now(), |_| async {
+            panic!("expired progress cannot invoke submission")
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("committee submission deadline elapsed")
+        );
+        let deadline = Instant::now() + Duration::from_millis(20);
+        let error = submit_async_until(original.clone(), deadline, |_| async move {
+            tokio::time::sleep_until(deadline.into()).await;
+            Ok(69_u64)
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("committee submission deadline elapsed")
+        );
+        #[derive(Debug)]
+        struct OriginalDispatch;
+        impl std::fmt::Display for OriginalDispatch {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("original unresolved asynchronous dispatch")
+            }
+        }
+        impl std::error::Error for OriginalDispatch {}
+        let deadline = Instant::now() + Duration::from_millis(20);
+        let error = submit_async_until(original, deadline, |_| async move {
+            tokio::time::sleep_until(deadline.into()).await;
+            Err::<(), _>(OriginalDispatch.into())
+        })
+        .await
+        .unwrap_err();
+        assert!(error.downcast_ref::<OriginalDispatch>().is_some());
     }
 
     #[test]
@@ -561,5 +1088,167 @@ mod status_observation_tests {
                 assert_eq!(transport.request_budgets.lock().unwrap().len(), 1);
             }
         }
+    }
+    #[derive(Debug)]
+    struct ConcurrentStatusTransport {
+        gate: Arc<tokio::sync::Barrier>,
+        calls: Arc<Vec<std::sync::atomic::AtomicUsize>>,
+        index: usize,
+        budget: Duration,
+        pending: bool,
+        refusal: bool,
+    }
+
+    impl HttpTransport for ConcurrentStatusTransport {
+        fn send_blocking(&self, _: TransportRequest) -> Result<Response<Vec<u8>>> {
+            panic!("committee batch must use asynchronous reads")
+        }
+
+        fn send(&self, request: TransportRequest) -> TransportFuture<'_> {
+            Box::pin(async move {
+                use std::sync::atomic::Ordering::SeqCst;
+                assert_eq!(request.method, iroha::http::Method::GET);
+                assert_eq!(request.url.path(), "/status");
+                assert!(request.body.is_empty());
+                assert!(request.timeout.unwrap() <= self.budget);
+                assert_eq!(self.calls[self.index].fetch_add(1, SeqCst), 0);
+                // A serialized implementation cannot pass this real transport
+                // barrier: all voter requests must enter before any can complete.
+                self.gate.wait().await;
+                if self.pending {
+                    return std::future::pending::<Result<Response<Vec<u8>>>>().await;
+                }
+                if self.refusal {
+                    return Ok(Response::builder()
+                        .status(503)
+                        .header(
+                            "x-iroha-reject-code",
+                            iroha::StatusFailureReason::CheckpointChanged.code(),
+                        )
+                        .body(Vec::new())?);
+                }
+                tokio::time::sleep(Duration::from_millis(
+                    u64::try_from(self.calls.len() - self.index).unwrap() * 2,
+                ))
+                .await;
+                Ok(Response::builder()
+                    .status(200)
+                    .header("content-type", "application/json")
+                    .body(json::to_vec(&iroha_torii_shared::status::Status {
+                        blocks: 10 + u64::try_from(self.index).unwrap(),
+                        ..Default::default()
+                    })?)?)
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_status_batch_reads_every_seat_and_preserves_roster_order() {
+        use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+        for seats in [4, 7] {
+            let budget = Duration::from_secs(2);
+            let gate = Arc::new(tokio::sync::Barrier::new(seats));
+            let calls = Arc::new((0..seats).map(|_| AtomicUsize::new(0)).collect::<Vec<_>>());
+            let clients = (0..seats)
+                .map(|index| {
+                    client(Arc::new(ConcurrentStatusTransport {
+                        gate: Arc::clone(&gate),
+                        calls: Arc::clone(&calls),
+                        index,
+                        budget,
+                        pending: false,
+                        refusal: false,
+                    }))
+                })
+                .collect::<Vec<_>>();
+            let heights = heights_until(&clients, Instant::now() + budget)
+                .await
+                .unwrap();
+            assert_eq!(
+                heights,
+                (0..seats)
+                    .map(|index| 10 + u64::try_from(index).unwrap())
+                    .collect::<Vec<_>>()
+            );
+            assert!(calls.iter().all(|count| count.load(SeqCst) == 1));
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_status_batch_keeps_original_deadline_and_exact_peer_refusal() {
+        use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+        for refuse in [false, true] {
+            let budget = if refuse {
+                Duration::from_secs(2)
+            } else {
+                Duration::from_millis(100)
+            };
+            let gate = Arc::new(tokio::sync::Barrier::new(4));
+            let calls = Arc::new((0..4).map(|_| AtomicUsize::new(0)).collect::<Vec<_>>());
+            let clients = (0..4)
+                .map(|index| {
+                    client(Arc::new(ConcurrentStatusTransport {
+                        gate: Arc::clone(&gate),
+                        calls: Arc::clone(&calls),
+                        index,
+                        budget,
+                        pending: index == 2 && !refuse,
+                        refusal: index == 2 && refuse,
+                    }))
+                })
+                .collect::<Vec<_>>();
+            let deadline = Instant::now() + budget;
+            let error = heights_until(&clients, deadline).await.unwrap_err();
+            assert!(calls.iter().all(|count| count.load(SeqCst) == 1));
+            if refuse {
+                assert!(matches!(
+                    error.downcast_ref::<iroha::Error>(),
+                    Some(iroha::Error::StatusUnavailable {
+                        reason: Some(iroha::StatusFailureReason::CheckpointChanged),
+                        ..
+                    })
+                ));
+            } else {
+                // The SDK dispatch and outer phase timers share this deadline.
+                // Either timer can win; preserve the actual typed timeout rather
+                // than requiring the outer timer's display text.
+                assert!(
+                    matches!(
+                        error.downcast_ref::<iroha::Error>(),
+                        Some(iroha::Error::Timeout {
+                            operation: "diagnostic.status",
+                        })
+                    ) || error
+                        .downcast_ref::<tokio::time::error::Elapsed>()
+                        .is_some(),
+                    "unexpected pending status refusal: {error:#}"
+                );
+                assert!(Instant::now() >= deadline);
+                assert!(Instant::now().duration_since(deadline) < Duration::from_secs(1));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_status_batch_refuses_invalid_rosters_and_expired_deadline_before_dispatch()
+    {
+        let source = transport([]);
+        for seats in [0, 3, 5, 32] {
+            let clients = (0..seats)
+                .map(|_| client(source.clone()))
+                .collect::<Vec<_>>();
+            let error = heights_until(&clients, Instant::now() + Duration::from_secs(1))
+                .await
+                .unwrap_err();
+            assert!(error.to_string().contains("exact bounded voter roster"));
+        }
+        let clients = (0..4).map(|_| client(source.clone())).collect::<Vec<_>>();
+        let error = heights_until(&clients, Instant::now()).await.unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("committee status deadline elapsed")
+        );
+        assert!(source.request_budgets.lock().unwrap().is_empty());
     }
 }

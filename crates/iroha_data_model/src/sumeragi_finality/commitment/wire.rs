@@ -5,9 +5,6 @@ use super::{
     FinalizedGlobalThresholdBeaconPulseV1, NativeLaneStateProof, ScheduleOutcome,
 };
 use crate::{
-    isi::kagemusha_v1::{
-        KagemushaMintFinalityAuthorityGenerationV1, KagemushaMintFinalityValidatorKeysV1,
-    },
     sumeragi::epoch::{
         ValidatorCommitteeMemberV1, ValidatorEpochBoundaryV1, ValidatorEpochContextV1,
     },
@@ -130,37 +127,14 @@ fn epoch_clone_bytes(epoch: &ValidatorEpochContextV1) -> Result<usize, norito::E
         version: _,
         network_id: _,
         mode: _,
-        authority,
         authorization: _,
         committee,
         leader_seed: _,
     } = epoch;
-    let KagemushaMintFinalityAuthorityGenerationV1 {
-        version: _,
-        network_id: _,
-        generation: _,
-        validators,
-    } = authority;
-    let mut bytes = validators
+    let mut bytes = committee
         .len()
-        .checked_mul(core::mem::size_of::<KagemushaMintFinalityValidatorKeysV1>())
-        .and_then(|bytes| {
-            committee
-                .len()
-                .checked_mul(core::mem::size_of::<ValidatorCommitteeMemberV1>())
-                .and_then(|members| bytes.checked_add(members))
-        })
+        .checked_mul(core::mem::size_of::<ValidatorCommitteeMemberV1>())
         .ok_or(norito::Error::LengthMismatch)?;
-    for KagemushaMintFinalityValidatorKeysV1 {
-        validator,
-        eq_proof_public_key: _,
-        ep_proof_public_key: _,
-    } in validators
-    {
-        bytes = bytes
-            .checked_add(validator.public_key().retained_allocation_layout().size())
-            .ok_or(norito::Error::LengthMismatch)?;
-    }
     for ValidatorCommitteeMemberV1 {
         validator,
         proof_of_possession,

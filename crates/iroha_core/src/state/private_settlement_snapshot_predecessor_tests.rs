@@ -33,12 +33,8 @@ fn private_settlement_snapshot_recipient_reservations_follow_replacement() {
         private_settlement_aborts,
     );
     let encoded = json::to_json(&world).unwrap();
-    let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-    let operation_index_refusal = std::cell::RefCell::new(None);
     let ivm = IVM::new(0);
     let seed = IvmSeed {
-                operation_index_budget: &operation_index_budget,
-                operation_index_refusal: &operation_index_refusal,
         ivm: &ivm,
         _marker: PhantomData,
     };
@@ -118,8 +114,6 @@ fn private_settlement_snapshot_rejects_duplicate_recipients_in_prior_outputs() {
     world.private_settlement_outputs =
         Storage::from_snapshot_parts(current, BTreeMap::from([(key, Some(prior))]));
     let encoded = json::to_json(&world).unwrap();
-    let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-    let operation_index_refusal = std::cell::RefCell::new(None);
     let ivm = IVM::new(0);
     let result = parse_world(
         &iroha_allocation::AllocationBudget::new(
@@ -127,8 +121,6 @@ fn private_settlement_snapshot_rejects_duplicate_recipients_in_prior_outputs() {
         ),
         SnapshotJsonMap::parse(&encoded, "world").unwrap(),
         &IvmSeed {
-                operation_index_budget: &operation_index_budget,
-                operation_index_refusal: &operation_index_refusal,
             ivm: &ivm,
             _marker: PhantomData,
         },

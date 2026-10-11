@@ -19,6 +19,10 @@ use std::{
 #[path = "taira_authenticated_height.rs"]
 pub(crate) mod authenticated_height;
 
+#[path = "taira_dataspace_deploy_authority_replay.rs"]
+mod authority_replay;
+pub(super) use authority_replay::OriginalCompletion;
+
 const MAX_NEW_PROOFS: usize = 128;
 const VERIFICATION_PEERS: usize = 4;
 
@@ -70,18 +74,58 @@ fn read_four_peers<T: Sync, R: Send>(
     })
 }
 
-fn peer_clients<C: RunContext>(context: &C, trust: &TrustV1) -> Result<Vec<Client>> {
+/// Select read transport independently of the immutable validator authority and signed plan.
+pub(super) fn verification_origins(trust: &TrustV1, overrides: &[String]) -> Result<Vec<String>> {
+    require(
+        overrides.is_empty() || overrides.len() == VERIFICATION_PEERS,
+        "verification routes require exactly four URLs in trusted peer order",
+    )?;
+    let origins = if overrides.is_empty() {
+        trust
+            .peers
+            .iter()
+            .map(|peer| peer.torii_origin.clone())
+            .collect()
+    } else {
+        overrides.to_vec()
+    };
+    require(
+        origins.len() == VERIFICATION_PEERS,
+        "verification requires four peer routes",
+    )?;
+    let mut unique = BTreeSet::new();
+    for origin in &origins {
+        let url: url::Url = origin.parse()?;
+        require(
+            matches!(url.scheme(), "http" | "https")
+                && url.host_str().is_some()
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.query().is_none()
+                && url.fragment().is_none()
+                && url.as_str() == origin
+                && unique.insert(origin.clone()),
+            "verification requires four distinct canonical credential-free peer URLs",
+        )?;
+    }
+    Ok(origins)
+}
+
+fn peer_clients<C: RunContext>(
+    context: &C,
+    trust: &TrustV1,
+    overrides: &[String],
+) -> Result<Vec<Client>> {
     require(
         context.config().chain == trust.chain
             && context.config().account_chain_discriminant == trust.account_chain_discriminant,
         "runtime chain identity differs from the selected public trust profile",
     )?;
-    trust
-        .peers
+    verification_origins(trust, overrides)?
         .iter()
-        .map(|peer| {
+        .map(|origin| {
             let mut config = context.config().clone();
-            config.torii_api_url = peer.torii_origin.parse()?;
+            config.torii_api_url = origin.parse()?;
             let mut builder = Client::builder(config);
             builder.operator_key_pair = context.operator_key_pair().cloned();
             builder.build().map_err(Into::into)
@@ -184,7 +228,6 @@ fn validate_peer_selection(
         "verification requires exactly four authenticated genesis peers",
     )?;
     let mut peers = BTreeSet::new();
-    let mut origins = BTreeSet::new();
     for peer in selected {
         let origin: url::Url = peer.torii_origin.parse()?;
         require(
@@ -198,11 +241,10 @@ fn validate_peer_selection(
             "validator endpoint must be a canonical credential-free Torii URL",
         )?;
         require(
-            origins.insert(origin.as_str().to_owned())
-                && peers.insert(peer.peer_id.clone())
+            peers.insert(peer.peer_id.clone())
                 && validators.contains_key(&peer.peer_id)
                 && Hash::new(peer.peer_id.encode()) == peer.node_fingerprint,
-            "validator profile must bind four distinct genesis peers and endpoints",
+            "validator profile must bind four distinct genesis peers and their selected endpoints",
         )?;
     }
     Ok(())
@@ -499,7 +541,7 @@ impl<'a> Preflight<'a> {
         self.revalidate(&child)?;
         let challenge: [u8; 32] = rand::random();
         require(challenge != [0; 32], "random finality challenge is zero")?;
-        let clients = peer_clients(context, &self.trust)?
+        let clients = peer_clients(context, &self.trust, &[])?
             .into_iter()
             .map(|client| client.with_request_deadline(self.deadline))
             .collect::<Vec<_>>();
@@ -509,8 +551,9 @@ impl<'a> Preflight<'a> {
             let peer = &self.trust.peers[index];
             let height = NonZeroU64::new(client.get_sumeragi_status()?.committed_height)
                 .ok_or_else(|| eyre!("validator has no durable tip"))?;
-            let attestation =
-                client.get_sumeragi_finality_attestation(height, challenge, &peer.peer_id)?;
+            let attestation = client
+                .get_sumeragi_finality_attestation(height, challenge, &peer.peer_id)?
+                .into_attestation();
             validate_attestation(&self.authority, peer, challenge, &attestation)?;
             Ok(attestation)
         })?;
@@ -682,6 +725,7 @@ struct CompletionV1 {
     network_id: NetworkId,
     challenge: [u8; 32],
     peers: Vec<PeerReceipt>,
+    verification_origins: Vec<String>,
 }
 
 fn verify_native_lane(
@@ -1055,7 +1099,7 @@ fn verify_peer_state(
         challenge,
         &peer.peer_id,
     ))? {
-        PeerRead::Verified(attestation) => attestation,
+        PeerRead::Verified(attestation) => attestation.into_attestation(),
         PeerRead::Pending => {
             require_operation_budget(deadline, "validator finality tip is changing")?;
             return Ok(PeerRead::Pending);
@@ -1207,6 +1251,8 @@ pub(super) struct Completion<'a> {
     authority: Authority,
     prefix: ProofPrefix,
     deadline: std::time::Instant,
+    verification_origins: Vec<String>,
+    runtime_update: Option<&'a runtime_update::Verified>,
 }
 
 impl<'a> Completion<'a> {
@@ -1214,6 +1260,8 @@ impl<'a> Completion<'a> {
         plan: &'a PlanV1,
         journal: &'a Journal,
         deadline: std::time::Instant,
+        origins: &[String],
+        runtime_update: Option<&'a runtime_update::Verified>,
     ) -> Result<Self> {
         require_operation_budget(deadline, "starting finality verification")?;
         let authority = plan.manifest.finality.authority(plan.manifest.network_id)?;
@@ -1225,6 +1273,8 @@ impl<'a> Completion<'a> {
             authority,
             prefix: ProofPrefix::default(),
             deadline,
+            verification_origins: verification_origins(&plan.manifest.finality, origins)?,
+            runtime_update,
         })
     }
 
@@ -1260,10 +1310,16 @@ fn complete<C: RunContext>(
                 .all(|phase| phase.state == "applied_verification_pending"),
         "completion requires all three retained phases to be applied",
     )?;
-    let trust = &plan.manifest.finality;
+    if let Some(update) = completion.runtime_update {
+        update.revalidate()?;
+    }
+    let trust = completion
+        .runtime_update
+        .map(|update| &update.trust)
+        .unwrap_or(&plan.manifest.finality);
     let challenge: [u8; 32] = rand::random();
     require(challenge != [0; 32], "random finality challenge is zero")?;
-    let clients = peer_clients(context, trust)?
+    let clients = peer_clients(context, trust, &completion.verification_origins)?
         .into_iter()
         .map(|client| client.with_request_deadline(deadline))
         .collect::<Vec<_>>();
@@ -1278,7 +1334,7 @@ fn complete<C: RunContext>(
             challenge,
             &peer.peer_id,
         ))? {
-            PeerRead::Verified(attestation) => attestation,
+            PeerRead::Verified(attestation) => attestation.into_attestation(),
             PeerRead::Pending => {
                 require_operation_budget(deadline, "validator finality tip is changing")?;
                 return Ok(PeerRead::Pending);
@@ -1321,6 +1377,13 @@ fn complete<C: RunContext>(
     )? {
         report.state = "verification_sync_pending".into();
         return Ok(());
+    }
+    if let Some(update) = completion.runtime_update {
+        update.retained_tip_claims()?.verify_authenticated_prefix(
+            &completion.prefix.proofs,
+            tips.iter()
+                .map(|tip| tip.body.finality_proof.block_header.height().get()),
+        )?;
     }
     let prepared = PHASES
         .iter()
@@ -1383,6 +1446,7 @@ fn complete<C: RunContext>(
         receipts.len() == VERIFICATION_PEERS,
         "four validator receipts are required",
     )?;
+    let runtime_update = completion.runtime_update;
     let completion = CompletionV1 {
         schema_version: 1,
         operation_id: plan.operation_id.clone(),
@@ -1390,10 +1454,25 @@ fn complete<C: RunContext>(
         network_id: plan.manifest.network_id,
         challenge,
         peers: receipts,
+        verification_origins: completion.verification_origins.clone(),
     };
     let receipt_name = format!("completion-{}.json", hex::encode(challenge));
     require_operation_budget(deadline, "publishing completion receipt")?;
-    journal.install_json(&receipt_name, &completion)?;
+    if let Some(update) = runtime_update {
+        update.revalidate()?;
+        let trust_file = format!("verification-trust-{}.json", hex::encode(challenge));
+        journal.install_json(&trust_file, &update.trust)?;
+        let mut value = json::to_value(&completion)?;
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| eyre!("completion must be an object"))?;
+        object.insert("schema_version".into(), norito::json!(2));
+        object.insert("runtime_update".into(), update.receipt.clone());
+        object.insert("verification_trust_file".into(), norito::json!(trust_file));
+        journal.install_json(&receipt_name, &value)?;
+    } else {
+        journal.install_json(&receipt_name, &completion)?;
+    }
     require_operation_budget(deadline, "published completion receipt")?;
     report.completion_receipt = Some(receipt_name);
     report.deployment_complete = true;

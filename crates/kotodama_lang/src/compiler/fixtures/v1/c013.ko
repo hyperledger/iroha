@@ -1,6 +1,6 @@
 
 seiyaku JsonNumericTest {
-  view fn run(Json ev) {
+  view fn run(Json ev) authorize(anyone) {
     let Option<quantity> value = ev.get_quantity(Name::parse("value"));
   }
 }

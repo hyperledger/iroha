@@ -29,6 +29,42 @@ private final class IrohaPeerQRClockProbeV1: @unchecked Sendable {
 
 final class IrohaPeerQRV1Tests: XCTestCase {
 
+    func testStaticRequestPreservesMandatoryAccountCompanion() throws {
+        let envelope = irohaPeerWalletStructuralEnvelopeV1(kind: .request, payload: Data([0x31]))
+        let account = try irohaPeerWalletRequestAccountOriginalV1()
+        let request = try IrohaPeerKagemushaWalletAdapterV1.wrap(
+            envelope, destinationAccountOriginal: account)
+        let text = try XCTUnwrap(IrohaPeerQRCodecV1.staticCompleteTextCandidate(for: request))
+        let session = IrohaPeerQRScanSessionV1(expectedProfile: .kagemushaWalletV1,
+            expectedKind: .request, expectedSchemaVersion: 1)
+        guard case let .completed(decoded) = try session.ingest(text)
+        else { return XCTFail("expected complete Request carrier") }
+        XCTAssertEqual(decoded, request)
+        XCTAssertEqual(try IrohaPeerKagemushaWalletAdapterV1.decode(decoded), envelope)
+        XCTAssertEqual(try IrohaPeerKagemushaWalletAdapterV1.destinationAccountOriginal(decoded), account)
+    }
+
+    func testAnimatedRequestPreservesMandatoryAccountCompanion() throws {
+        let envelope = irohaPeerWalletStructuralEnvelopeV1(kind: .request,
+            payload: deterministicBytes(count: 2_048, seed: 0x32))
+        let account = try irohaPeerWalletRequestAccountOriginalV1()
+        let request = try IrohaPeerKagemushaWalletAdapterV1.wrap(
+            envelope, destinationAccountOriginal: account)
+        let session = IrohaPeerQRScanSessionV1(expectedProfile: .kagemushaWalletV1,
+            expectedKind: .request, expectedSchemaVersion: 1)
+        var completed: IrohaPeerWireMessageV1?
+        for text in try IrohaPeerQRCodecV1.animatedFrameTexts(for: request) {
+            if case let .completed(decoded) = try session.ingest(text) {
+                completed = decoded
+                break
+            }
+        }
+        let decoded = try XCTUnwrap(completed)
+        XCTAssertEqual(decoded, request)
+        XCTAssertEqual(try IrohaPeerKagemushaWalletAdapterV1.decode(decoded), envelope)
+        XCTAssertEqual(try IrohaPeerKagemushaWalletAdapterV1.destinationAccountOriginal(decoded), account)
+    }
+
     func testScanLimitHardCeilingsRejectConfigurationEscapeHatches() {
         XCTAssertTrue(IrohaPeerQRScanLimitsV1.areValid(
             maximumActiveStreams: 3,
@@ -214,7 +250,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
 
     func testMaximumStreamFrameCountsAndRepeatedHeaderText() throws {
         let message = try makeMessage(
-            count: IrohaPeerWireLimitsV1.maximumWalletProfileBytes - 48,
+            count: IrohaPeerWireKindV1.payment.maximumWalletFrameBytes - 48,
             seed: 6
         )
         XCTAssertEqual(message.encodedBody.count, 10_000)
@@ -229,6 +265,62 @@ final class IrohaPeerQRV1Tests: XCTestCase {
             frame.frameKind == .header ? text : nil
         }
         XCTAssertEqual(Set(headerTexts).count, 1)
+    }
+
+    func testMaximumRequestCompanionRecoversLostShardAndPreservesBothOriginals() throws {
+        let envelope = irohaPeerWalletStructuralEnvelopeV1(
+            kind: .request,
+            frameBytes: KagemushaWalletWireV1.messageMaximumBytes
+        )
+        // Bounded transport DATA; account authentication belongs to Native.
+        let account = deterministicBytes(count: IrohaPeerWalletRequestV1.maximumAccountBytes, seed: 7)
+        let message = try IrohaPeerKagemushaWalletAdapterV1.wrap(
+            envelope, destinationAccountOriginal: account)
+        XCTAssertEqual(message.encodedBody.count, 14_112)
+        XCTAssertNil(try IrohaPeerQRCodecV1.staticCompleteTextCandidate(for: message))
+        let texts = try IrohaPeerQRCodecV1.animatedFrameTexts(for: message)
+        let frames = try texts.map { try IrohaPeerQRCodecV1.decodeFrame($0) }
+        XCTAssertEqual(texts.count, 92)
+        XCTAssertEqual(frames.filter { $0.frameKind == .header }.count, 8)
+        XCTAssertEqual(frames.filter { $0.frameKind == .data }.count, 56)
+        XCTAssertEqual(frames.filter { $0.frameKind == .parity }.count, 28)
+        XCTAssertTrue(frames.allSatisfy { $0.total == 56 })
+        let lost = try XCTUnwrap(frames.firstIndex { $0.frameKind == .data && $0.index == 53 })
+        let session = IrohaPeerQRScanSessionV1(
+            expectedProfile: .kagemushaWalletV1,
+            expectedKind: .request,
+            expectedSchemaVersion: 1
+        )
+        var completed: IrohaPeerWireMessageV1?
+        var recoveredDataShards = 0
+        for (index, text) in texts.enumerated() where index != lost {
+            switch try session.ingest(text, atUptime: 0) {
+            case let .accepted(progress), let .duplicate(progress):
+                recoveredDataShards = max(recoveredDataShards, progress.recoveredDataShards)
+            case let .completed(decoded):
+                completed = decoded
+            }
+            if completed != nil { break }
+        }
+        XCTAssertEqual(recoveredDataShards, 1)
+        let decoded = try XCTUnwrap(completed)
+        XCTAssertEqual(decoded, message)
+        XCTAssertEqual(try IrohaPeerKagemushaWalletAdapterV1.decode(decoded), envelope)
+        XCTAssertEqual(try IrohaPeerKagemushaWalletAdapterV1.destinationAccountOriginal(decoded), account)
+    }
+
+    func testRequestCompanionBoundDoesNotPermitOversizedCompressedPayments() throws {
+        let envelope = irohaPeerWalletStructuralEnvelopeV1(kind: .payment, frameBytes: 10_001)
+        XCTAssertThrowsError(try IrohaPeerWireMessageV1(
+            profile: .kagemushaWalletV1,
+            kind: .payment,
+            schemaVersion: 1,
+            canonicalPayload: envelope,
+            compressionPolicy: .peerOptimized
+        )) { error in
+            XCTAssertEqual(error as? IrohaPeerWireMessageErrorV1,
+                           .canonicalLengthOutOfRange(actual: 10_001, maximum: 10_000))
+        }
     }
 
     func testOutOfOrderPreheaderFramesAndPairParityRecoverMessage() throws {

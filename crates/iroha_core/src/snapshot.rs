@@ -236,7 +236,7 @@ impl CapturedStateSnapshot {
             network_id: *state.network_id_ref(),
             height: view.block_hashes.len(),
             tip: view.block_hashes.last().copied(),
-            sccp_policy_hash: crate::state::sccp_policy_hash_v1(),
+            sccp_policy_hash: crate::state::sccp_genesis_policy_hash_v1(),
         };
         drop(view);
         Ok(Self { json, identity })
@@ -323,22 +323,6 @@ fn serialize_state_snapshot(state: &State, view: &crate::state::StateView<'_>, o
     out.push(':');
     snapshot_storage::serialize(&state.world.public_lane_stake_shares, out);
     out.push(',');
-    json::write_json_string("public_lane_rewards", out);
-    out.push(':');
-    snapshot_storage::serialize(&state.world.public_lane_rewards, out);
-    out.push(',');
-    json::write_json_string("public_lane_reward_claims", out);
-    out.push(':');
-    snapshot_storage::serialize(&state.world.public_lane_reward_claims, out);
-    out.push(',');
-    json::write_json_string("public_lane_reward_accruals", out);
-    out.push(':');
-    snapshot_storage::serialize(&state.world.public_lane_reward_accruals, out);
-    out.push(',');
-    json::write_json_string("public_lane_reward_reserves", out);
-    out.push(':');
-    snapshot_storage::serialize(&state.world.public_lane_reward_reserves, out);
-    out.push(',');
     json::write_json_string("public_lane_stake_custody", out);
     out.push(':');
     snapshot_storage::serialize(&state.world.public_lane_stake_custody, out);
@@ -408,22 +392,6 @@ fn serialize_staged_state_snapshot(state: &StateBlock<'_>, out: &mut String) {
     json::write_json_string("public_lane_stake_shares", out);
     out.push(':');
     snapshot_storage::serialize_block(&world.public_lane_stake_shares, out);
-    out.push(',');
-    json::write_json_string("public_lane_rewards", out);
-    out.push(':');
-    snapshot_storage::serialize_block(&world.public_lane_rewards, out);
-    out.push(',');
-    json::write_json_string("public_lane_reward_claims", out);
-    out.push(':');
-    snapshot_storage::serialize_block(&world.public_lane_reward_claims, out);
-    out.push(',');
-    json::write_json_string("public_lane_reward_accruals", out);
-    out.push(':');
-    snapshot_storage::serialize_block(&world.public_lane_reward_accruals, out);
-    out.push(',');
-    json::write_json_string("public_lane_reward_reserves", out);
-    out.push(':');
-    snapshot_storage::serialize_block(&world.public_lane_reward_reserves, out);
     out.push(',');
     json::write_json_string("public_lane_stake_custody", out);
     out.push(':');
@@ -2824,7 +2792,6 @@ fn try_read_snapshot_bundle<F>(
     initialize_state: &F,
     #[cfg(feature = "telemetry")] telemetry: StateTelemetry,
     read_buffer_budget: &AllocationBudget,
-    operation_index_budget: &AllocationBudget,
 ) -> Result<SnapshotReadOutcome, TryReadError>
 where
     F: Fn(&mut State) -> Result<(), TryReadError>,
@@ -2875,7 +2842,7 @@ where
             expected_chain_id,
             *expected_network_id,
         )?;
-        if fast_manifest.sccp_policy_hash != crate::state::sccp_policy_hash_v1() {
+        if fast_manifest.sccp_policy_hash != crate::state::sccp_genesis_policy_hash_v1() {
             return Err(TryReadError::SnapshotGenerationInvalid {
                 path: generation
                     .generation_dir
@@ -2902,7 +2869,6 @@ where
             kura,
         )?;
         let seed = KuraSeed {
-            operation_index_budget: operation_index_budget.clone(),
             execution_budget: execution_budget.clone(),
             kura: Arc::clone(kura),
             lane_manifests: Arc::clone(lane_manifests),
@@ -2977,7 +2943,6 @@ where
         *expected_network_id,
     )?;
     let seed = KuraSeed {
-        operation_index_budget: operation_index_budget.clone(),
         execution_budget: execution_budget.clone(),
         kura: Arc::clone(kura),
         lane_manifests: Arc::clone(lane_manifests),
@@ -3010,7 +2975,7 @@ where
         || fast_manifest.network_id != *state.network_id_ref()
         || fast_manifest.committed_height != snapshot_height_u64
         || fast_manifest.tip_hash != snapshot_hashes.last().copied()
-        || fast_manifest.sccp_policy_hash != crate::state::sccp_policy_hash_v1()
+        || fast_manifest.sccp_policy_hash != crate::state::sccp_genesis_policy_hash_v1()
     {
         return Err(TryReadError::SnapshotGenerationInvalid {
             path: generation
@@ -3022,6 +2987,19 @@ where
     }
     if snapshot_height > 0 && !summary.has_space_directory_manifests {
         return Err(TryReadError::MissingSpaceDirectoryManifestSection { snapshot_height });
+    }
+    // The snapshot's own light-client profile activations decide how its next block verifies
+    // (`specs/sccp.md` §4.13.2): a release without an active version refuses the snapshot.
+    if let Err(unavailable) =
+        crate::smartcontracts::isi::sccp::light_clients::ensure_profiles_compiled(
+            state.view().world(),
+            snapshot_height_u64.saturating_add(1),
+        )
+    {
+        return Err(TryReadError::SnapshotGenerationInvalid {
+            path: generation.generation_dir.join(SNAPSHOT_FILE_NAME),
+            reason: format!("snapshot state activates a light-client profile: {unavailable}"),
+        });
     }
     // Runtime configuration is a semantic check on the newly decoded, still-isolated state. Canonicality was enforced while each
     // borrowed field was typed-decoded, so no second full payload is built here.
@@ -3072,7 +3050,6 @@ pub fn try_read_snapshot(
     zk: &iroha_config::parameters::actual::Zk,
     #[cfg(feature = "telemetry")] telemetry: StateTelemetry,
     read_buffer_budget: &AllocationBudget,
-    operation_index_budget: &AllocationBudget,
 ) -> Result<Box<State>, TryReadError> {
     try_read_snapshot_with_limits(
         execution_budget,
@@ -3092,7 +3069,6 @@ pub fn try_read_snapshot(
         #[cfg(feature = "telemetry")]
         telemetry,
         read_buffer_budget,
-        operation_index_budget,
     )
 }
 /// Read and verify a signed snapshot with explicit resource limits.
@@ -3120,7 +3096,6 @@ pub fn try_read_snapshot_with_limits(
     zk: &iroha_config::parameters::actual::Zk,
     #[cfg(feature = "telemetry")] telemetry: StateTelemetry,
     read_buffer_budget: &AllocationBudget,
-    operation_index_budget: &AllocationBudget,
 ) -> Result<Box<State>, TryReadError> {
     try_read_snapshot_with_initializer(
         execution_budget,
@@ -3146,7 +3121,6 @@ pub fn try_read_snapshot_with_limits(
         #[cfg(feature = "telemetry")]
         telemetry,
         read_buffer_budget,
-        operation_index_budget,
     )
 }
 #[allow(clippy::too_many_lines)]
@@ -3169,7 +3143,6 @@ fn try_read_snapshot_with_initializer<F>(
     initialize_state: &F,
     #[cfg(feature = "telemetry")] telemetry: StateTelemetry,
     read_buffer_budget: &AllocationBudget,
-    operation_index_budget: &AllocationBudget,
 ) -> Result<Box<State>, TryReadError>
 where
     F: Fn(&mut State) -> Result<(), TryReadError>,
@@ -3216,7 +3189,6 @@ where
             #[cfg(feature = "telemetry")]
             telemetry,
             read_buffer_budget,
-            operation_index_budget,
         )?;
         if !emergency_fast {
             generation.verify_generation_unchanged()?;
@@ -4380,7 +4352,6 @@ fn validate_generated_snapshot_for_restart_with_policy(
         .map_err(|_| TryReadError::Serialization(json::Error::InvalidUtf8))?;
     verify_snapshot_root_identity(input, state.chain_id_ref(), *state.network_id_ref())?;
     let seed = KuraSeed {
-        operation_index_budget: state.world.operation_index_budget().clone(),
         execution_budget: state.ivm_execution_budget(),
         kura: state.kura_handle(),
         lane_manifests: state.lane_manifests.read().clone(),
@@ -4746,7 +4717,7 @@ fn geometry_checkpoint_from_snapshot(
         "native_execution_tip",
     )?)
     .map_err(TryWriteError::Serialization)?;
-    let sccp_policy_hash = crate::state::sccp_policy_hash_v1();
+    let sccp_policy_hash = crate::state::sccp_genesis_policy_hash_v1();
     Ok(DurableSnapshotGeometryCheckpoint {
         chain_id,
         network_id,

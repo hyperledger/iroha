@@ -6,8 +6,12 @@
 
 use super::*;
 use crate::state::authority_registry::leaf::{
-    CanonicalTableLeafSet, CanonicalTablePairedSnapshot, LeafError, LeafLimits,
+    CanonicalTablePairedSnapshot, LeafError, LeafLimits, RetainedSemanticError,
+    RetainedSemanticRows,
 };
+
+#[cfg(test)]
+use crate::state::authority_registry::leaf::CanonicalTableLeafSet;
 
 /// Closed semantic tables whose independently authoritative fields are reviewed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,37 +43,155 @@ impl<W: MusubiObservationCut> ValidatedMusubiSource<'_, W> {
         limits: LeafLimits,
     ) -> Result<CanonicalTablePairedSnapshot, LeafError> {
         match table {
-            MusubiSemanticTable::Availability => {
-                CanonicalTableLeafSet::paired_semantic_table_from_rows(
-                    table.id(),
-                    "iroha:state:musubi-availability-authority:v1",
-                    limits,
-                    self.execution_budget(),
-                    self.world.source_musubi_archive_availability().iter(),
-                    MusubiAvailabilityAuthorityV1::from_record,
-                )
-            }
-            MusubiSemanticTable::Resolver => {
-                CanonicalTableLeafSet::paired_semantic_table_from_rows(
-                    table.id(),
-                    "iroha:state:musubi-resolver-authority:v1",
-                    limits,
-                    self.execution_budget(),
-                    self.world.source_musubi_resolver_index().iter(),
-                    MusubiResolverAuthorityV1::from_record,
-                )
-            }
-            MusubiSemanticTable::Directory => {
-                CanonicalTableLeafSet::paired_semantic_table_from_rows(
-                    table.id(),
-                    "iroha:state:musubi-directory-authority:v1",
-                    limits,
-                    self.execution_budget(),
-                    self.world.source_musubi_public_directory().iter(),
-                    MusubiDirectoryAuthorityV1::from_record,
-                )
-            }
+            MusubiSemanticTable::Availability => RetainedSemanticRows::once(
+                table.id(),
+                "iroha:state:musubi-availability-authority:v1",
+                limits,
+                self.execution_budget(),
+                || self.world.source_musubi_archive_availability().iter(),
+                MusubiAvailabilityAuthorityV1::from_record,
+            )?
+            .finish_once(),
+            MusubiSemanticTable::Resolver => RetainedSemanticRows::once(
+                table.id(),
+                "iroha:state:musubi-resolver-authority:v1",
+                limits,
+                self.execution_budget(),
+                || self.world.source_musubi_resolver_index().iter(),
+                MusubiResolverAuthorityV1::from_record,
+            )?
+            .finish_once(),
+            MusubiSemanticTable::Directory => RetainedSemanticRows::once(
+                table.id(),
+                "iroha:state:musubi-directory-authority:v1",
+                limits,
+                self.execution_budget(),
+                || self.world.source_musubi_public_directory().iter(),
+                MusubiDirectoryAuthorityV1::from_record,
+            )?
+            .finish_once(),
         }
+    }
+
+    /// Retain the exact validated availability iterator and original refund scope.
+    /// Refusal keeps pending canonical rows and completed trees in this operation.
+    /// TODO: the StatePublication semantic-plan producer must supply this actual
+    /// immutable cut and its original scope; this borrows no new State authority.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect retained semantic materializers to the StatePublication semantic-plan producer"
+        )
+    )]
+    pub(in crate::state) fn retain_availability_capture<'capture>(
+        &'capture self,
+        limits: LeafLimits,
+        scope: &iroha_allocation::OwnedAllocationScope,
+        work_limit: usize,
+    ) -> Result<
+        RetainedSemanticRows<
+            'capture,
+            ArchiveId,
+            MusubiArchiveAvailabilityV1,
+            MusubiAvailabilityAuthorityV1,
+            impl ExactSizeIterator<Item = (&'capture ArchiveId, &'capture MusubiArchiveAvailabilityV1)>,
+        >,
+        RetainedSemanticError,
+    > {
+        RetainedSemanticRows::new(
+            MusubiSemanticTable::Availability.id(),
+            "iroha:state:musubi-availability-authority:v1",
+            limits,
+            self.execution_budget(),
+            (scope, work_limit),
+            || self.world.source_musubi_archive_availability().iter(),
+            MusubiAvailabilityAuthorityV1::from_record,
+        )
+    }
+
+    /// Retain the exact validated resolver iterator and original refund scope.
+    /// Refusal keeps pending canonical rows and completed trees in this operation.
+    /// TODO: the StatePublication semantic-plan producer must supply this actual
+    /// immutable cut and its original scope; this borrows no new State authority.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect retained semantic materializers to the StatePublication semantic-plan producer"
+        )
+    )]
+    pub(in crate::state) fn retain_resolver_capture<'capture>(
+        &'capture self,
+        limits: LeafLimits,
+        scope: &iroha_allocation::OwnedAllocationScope,
+        work_limit: usize,
+    ) -> Result<
+        RetainedSemanticRows<
+            'capture,
+            MusubiReleaseIdV1,
+            MusubiResolverReleaseRowV1,
+            MusubiResolverAuthorityV1,
+            impl ExactSizeIterator<
+                Item = (
+                    &'capture MusubiReleaseIdV1,
+                    &'capture MusubiResolverReleaseRowV1,
+                ),
+            >,
+        >,
+        RetainedSemanticError,
+    > {
+        RetainedSemanticRows::new(
+            MusubiSemanticTable::Resolver.id(),
+            "iroha:state:musubi-resolver-authority:v1",
+            limits,
+            self.execution_budget(),
+            (scope, work_limit),
+            || self.world.source_musubi_resolver_index().iter(),
+            MusubiResolverAuthorityV1::from_record,
+        )
+    }
+
+    /// Retain the exact validated directory iterator and original refund scope.
+    /// Refusal keeps pending canonical rows and completed trees in this operation.
+    /// TODO: the StatePublication semantic-plan producer must supply this actual
+    /// immutable cut and its original scope; this borrows no new State authority.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect retained semantic materializers to the StatePublication semantic-plan producer"
+        )
+    )]
+    pub(in crate::state) fn retain_directory_capture<'capture>(
+        &'capture self,
+        limits: LeafLimits,
+        scope: &iroha_allocation::OwnedAllocationScope,
+        work_limit: usize,
+    ) -> Result<
+        RetainedSemanticRows<
+            'capture,
+            MusubiPackageSelectorV1,
+            MusubiOrderedPackageEntryV1,
+            MusubiDirectoryAuthorityV1,
+            impl ExactSizeIterator<
+                Item = (
+                    &'capture MusubiPackageSelectorV1,
+                    &'capture MusubiOrderedPackageEntryV1,
+                ),
+            >,
+        >,
+        RetainedSemanticError,
+    > {
+        RetainedSemanticRows::new(
+            MusubiSemanticTable::Directory.id(),
+            "iroha:state:musubi-directory-authority:v1",
+            limits,
+            self.execution_budget(),
+            (scope, work_limit),
+            || self.world.source_musubi_public_directory().iter(),
+            MusubiDirectoryAuthorityV1::from_record,
+        )
     }
 
     /// Admit output rows before allocating any tree; source validation has its own policy.
@@ -348,3 +470,7 @@ mod tests {
         assert_eq!(budget.reserved_bytes(), 0);
     }
 }
+
+#[cfg(test)]
+#[path = "deserialize_world_musubi_retained_capture_tests.rs"]
+mod retained_tests;

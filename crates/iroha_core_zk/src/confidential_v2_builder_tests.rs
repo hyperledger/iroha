@@ -37,14 +37,12 @@ fn generated_confidential_unshield_v2_proof_verifies_against_cached_canonical_vk
     assert_eq!(proof.nullifiers.len(), 1);
     assert_eq!(proof.root, root_hint);
     assert!(
-        crate::verify_backend(crate::ZK_BACKEND_HALO2_IPA, &proof.proof, Some(&vk_box)),
+        crate::verify_backend(crate::ZK_BACKEND_NATIVE_PIPA_R, &proof.proof, Some(&vk_box)),
         "generated confidential unshield v2 proof should verify against the cached canonical VK"
     );
     {
-        const EXACT_BACKEND: &str =
-            "halo2/pasta/confidential-unshield-full-merkle16-axiom-poseidon-v3";
-        let (exact_proof, exact_vk) =
-            crate::relabel_halo2_ipa_open_verify_fixture(&proof.proof, &vk_box, EXACT_BACKEND);
+        const EXACT_BACKEND: &str = "pipa-r/pasta/confidential-unshield-full-v1";
+        let (exact_proof, exact_vk) = relabel_native_fixture(&proof.proof, &vk_box, EXACT_BACKEND);
         assert!(
             crate::verify_backend(EXACT_BACKEND, &exact_proof, Some(&exact_vk)),
             "exact full-unshield registry label should reach the full-unshield verifier"
@@ -75,7 +73,7 @@ fn generated_confidential_unshield_v2_proof_verifies_against_cached_canonical_vk
     assert_eq!(explicit_path_proof.root, full_root);
     assert!(
         crate::verify_backend(
-            crate::ZK_BACKEND_HALO2_IPA,
+            crate::ZK_BACKEND_NATIVE_PIPA_R,
             &explicit_path_proof.proof,
             Some(&vk_box),
         ),
@@ -109,7 +107,7 @@ fn generated_confidential_unshield_v2_proof_verifies_against_cached_canonical_vk
     envelope.vk_hash[0] ^= 0x80;
     tampered.bytes = norito::to_bytes(&envelope).expect("OpenVerifyEnvelope encode");
     assert!(
-        !crate::verify_backend(crate::ZK_BACKEND_HALO2_IPA, &tampered, Some(&vk_box)),
+        !crate::verify_backend(crate::ZK_BACKEND_NATIVE_PIPA_R, &tampered, Some(&vk_box)),
         "unshield v2 proof must reject verifier-key hash substitution"
     );
 }
@@ -155,7 +153,11 @@ fn generated_confidential_unshield_v3_proof_verifies_and_rejects_bad_change() {
     assert!(terminal.output_commitments.is_empty());
     assert_eq!(terminal.root, root_hint);
     assert!(
-        crate::verify_backend(crate::ZK_BACKEND_HALO2_IPA, &terminal.proof, Some(&vk_box),),
+        crate::verify_backend(
+            crate::ZK_BACKEND_NATIVE_PIPA_R,
+            &terminal.proof,
+            Some(&vk_box),
+        ),
         "terminal full unshield must verify under the deployed V3 verifier",
     );
     let input_path =
@@ -181,7 +183,7 @@ fn generated_confidential_unshield_v3_proof_verifies_and_rejects_bad_change() {
     .expect("build terminal one-note unshield against a full-capacity tree under V3");
     assert!(terminal_with_paths.output_commitments.is_empty());
     assert!(crate::verify_backend(
-        crate::ZK_BACKEND_HALO2_IPA,
+        crate::ZK_BACKEND_NATIVE_PIPA_R,
         &terminal_with_paths.proof,
         Some(&vk_box),
     ));
@@ -330,14 +332,12 @@ fn generated_confidential_unshield_v3_proof_verifies_and_rejects_bad_change() {
     assert_eq!(proof.nullifiers.len(), 1);
     assert_eq!(proof.root, root_hint);
     assert!(
-        crate::verify_backend(crate::ZK_BACKEND_HALO2_IPA, &proof.proof, Some(&vk_box)),
+        crate::verify_backend(crate::ZK_BACKEND_NATIVE_PIPA_R, &proof.proof, Some(&vk_box)),
         "generated confidential unshield v3 proof should verify against the cached canonical VK"
     );
     {
-        const EXACT_BACKEND: &str =
-            "halo2/pasta/confidential-unshield-change-merkle16-axiom-poseidon-v4";
-        let (exact_proof, exact_vk) =
-            crate::relabel_halo2_ipa_open_verify_fixture(&proof.proof, &vk_box, EXACT_BACKEND);
+        const EXACT_BACKEND: &str = "pipa-r/pasta/confidential-unshield-change-v1";
+        let (exact_proof, exact_vk) = relabel_native_fixture(&proof.proof, &vk_box, EXACT_BACKEND);
         assert!(
             crate::verify_backend(EXACT_BACKEND, &exact_proof, Some(&exact_vk)),
             "exact change-unshield registry label should reach the change-unshield verifier"

@@ -4,6 +4,7 @@ use crate::{
     ast::{SourceDirectiveKind, SourceUnit},
     resolved::{ExternalResolutionEnvironment, ResolvedProgram},
     source::SourceRange,
+    spanned_ast::DeclarationKind,
 };
 
 #[derive(Clone)]
@@ -17,6 +18,7 @@ struct ParsedUnit {
     files: Vec<ParsedFile>,
     order: Vec<(SourceId, usize)>,
     imports: BTreeMap<String, String>,
+    contracts: BTreeMap<String, semantic::ImportedContractInterface>,
 }
 pub(super) struct ParsedTestUnit {
     unit: ParsedUnit,
@@ -33,32 +35,130 @@ impl ParsedTestUnit {
         self.external
             .functions
             .extend(target.functions.iter().cloned());
+        self.external.contracts.extend(target.contracts.clone());
         self.external.states.extend(target.states.iter().cloned());
         self.external.structs.extend(target.structs.iter().cloned());
         self.external.consts.extend(target.consts.iter().cloned());
-        self.external.error_codes.extend(
+        self.external.variant_codes.extend(
             target
-                .error_codes
+                .variant_codes
                 .iter()
                 .map(|(name, code)| (name.clone(), *code)),
         );
-        resolve_unit(&self.unit, &self.external)
+        resolve_unit(&self.unit, &self.external, &mut None)
+    }
+}
+/// Source spans whose function bodies resolved cleanly during a diagnostic-only
+/// retry. A reduced graph may supply signatures and imported types, but it must
+/// never become an emitted artifact or produce errors from emptied bodies.
+#[derive(Default)]
+struct ResolutionRecovery {
+    independent: Vec<SourceSpan>,
+}
+impl ResolutionRecovery {
+    fn collect_functions(&mut self, file: &ParsedFile, emptied: &BTreeSet<String>) {
+        for declaration in &file.parsed.facts.declarations {
+            if declaration.kind == DeclarationKind::Function
+                && !emptied.contains(&declaration.name)
+                && let Some(range) = file.parsed.facts.source_map.source_range(declaration.node)
+            {
+                self.independent
+                    .push(SourceSpan::from_range(&file.file, range.range));
+            }
+        }
+    }
+    fn is_independent(&self, diagnostic: &Diagnostic) -> bool {
+        diagnostic.primary_span.as_ref().is_some_and(|span| {
+            self.independent.iter().any(|function| {
+                function.source == span.source
+                    && function.package_identity == span.package_identity
+                    && function
+                        .byte_range
+                        .zip(span.byte_range)
+                        .is_some_and(|(function, span)| function.contains(span))
+            })
+        })
     }
 }
 fn resolve_unit(
     unit: &ParsedUnit,
     external: &ExternalResolutionEnvironment,
+    recovery: &mut Option<ResolutionRecovery>,
 ) -> Result<ModuleUnit, DiagnosticBundle> {
+    let mut external = external.clone();
+    external.contracts.extend(unit.contracts.clone());
+    let directives = unit
+        .files
+        .iter()
+        .flat_map(|file| file.parsed.program.directives.iter().cloned())
+        .collect::<Vec<_>>();
+    let types = semantic::contract_imports::namespace_types(&external.contracts, &directives)
+        .map_err(|error| {
+            DiagnosticBundle::single(Diagnostic::error(
+                error.code,
+                DiagnosticPhase::Resolve,
+                error.message,
+                None,
+            ))
+        })?;
+    for (name, ty) in types {
+        external.structs.insert(name.clone());
+        match ty {
+            Type::Enum(descriptor) => {
+                for variant in &descriptor.variants {
+                    external
+                        .variant_codes
+                        .insert(format!("{name}::{}", variant.name), variant.code);
+                }
+            }
+            Type::ErrorEnum(descriptor) => {
+                for variant in &descriptor.variants {
+                    external
+                        .variant_codes
+                        .insert(format!("{name}::{}", variant.name), variant.code);
+                }
+            }
+            _ => {}
+        }
+    }
+    external.functions.extend(
+        external
+            .contracts
+            .keys()
+            .map(|alias| format!("{alias}::at")),
+    );
+    let external = &external;
     let mut files = Vec::<ResolvedProgram>::new();
     let mut failures = Vec::new();
     for file in &unit.files {
-        match crate::resolved::resolve_with_imports_and_external_environment(
-            file.parsed.clone(),
-            &file.file,
-            external,
-        ) {
-            Ok(resolved) => files.push(resolved),
-            Err(diagnostics) => failures.extend(diagnostics.diagnostics),
+        if let Some(recovery) = recovery {
+            match crate::resolved::resolve_with_imports_recovering(
+                file.parsed.clone(),
+                &file.file,
+                external,
+            ) {
+                Ok(resolved) => {
+                    recovery.collect_functions(file, &BTreeSet::new());
+                    files.push(resolved);
+                }
+                Err(recovered) => {
+                    if let Some(reduced) = recovered.reduced {
+                        recovery.collect_functions(file, &recovered.emptied);
+                        files.push(reduced);
+                    } else {
+                        failures.extend(recovered.diagnostics.diagnostics);
+                    }
+                }
+            }
+        } else {
+            match crate::resolved::resolve_with_imports_and_external_environment(
+                file.parsed.clone(),
+                &file.file,
+                external,
+            ) {
+                Ok(resolved) => files.push(resolved),
+                Err(diagnostics) => failures.extend(diagnostics.diagnostics),
+            }
         }
     }
     if !failures.is_empty() {
@@ -70,6 +170,7 @@ fn resolve_unit(
     }
     let root = files.remove(0);
     Ok(ModuleUnit {
+        contracts: unit.contracts.clone(),
         source_name: unit.path.clone(),
         program: root.with_included_sources(files, &unit.order),
     })
@@ -108,6 +209,8 @@ struct Scope<'a> {
     graph: &'a ModuleBuildGraph,
     package: Option<&'a str>,
     inventory: BTreeMap<String, (&'a SourceModuleUnit, SourceId)>,
+    artifacts: BTreeMap<String, &'a SourceContractArtifact>,
+    admitted_artifacts: BTreeMap<String, semantic::ImportedContractInterface>,
     units: BTreeMap<String, ParsedUnit>,
     active_modules: Vec<String>,
     fragment_owners: BTreeMap<String, String>,
@@ -117,6 +220,13 @@ struct Scope<'a> {
 pub(super) fn resolve_packages(
     graph: &ModuleBuildGraph,
     packages: &[SourcePackageUnit],
+) -> Result<Vec<PackageUnit>, SourceGraphError> {
+    resolve_packages_inner(graph, packages, &mut None)
+}
+fn resolve_packages_inner(
+    graph: &ModuleBuildGraph,
+    packages: &[SourcePackageUnit],
+    recovery: &mut Option<ResolutionRecovery>,
 ) -> Result<Vec<PackageUnit>, SourceGraphError> {
     let keys = packages
         .iter()
@@ -146,7 +256,13 @@ pub(super) fn resolve_packages(
         let mut scope = Scope {
             graph,
             package: Some(&package.identity),
+            artifacts: package
+                .artifacts
+                .iter()
+                .map(|artifact| (artifact.source_name.clone(), artifact))
+                .collect(),
             inventory,
+            admitted_artifacts: BTreeMap::new(),
             units: BTreeMap::new(),
             active_modules: Vec::new(),
             fragment_owners: BTreeMap::new(),
@@ -163,7 +279,7 @@ pub(super) fn resolve_packages(
         if scope_failed {
             continue;
         }
-        match scope.resolve_units() {
+        match scope.resolve_units(recovery) {
             Ok(modules) => resolved.push(PackageUnit {
                 identity: package.identity.clone(),
                 modules,
@@ -190,6 +306,81 @@ pub(super) fn resolve_with_tests(
     graph: &ModuleBuildGraph,
     request: &SourceLinkRequest,
     test_sources: &[SourceModuleUnit],
+) -> Result<(LinkRequest, Vec<ParsedTestUnit>), SourceGraphError> {
+    resolve_with_tests_inner(graph, request, test_sources, &mut None)
+}
+
+/// Enrich strict resolution failures with type errors from independent functions.
+/// The retry uses the original graph and session capabilities and only returns
+/// diagnostics; successful lowering of a reduced graph is discarded.
+pub(super) fn recover_project_diagnostics(
+    graph: &ModuleBuildGraph,
+    request: &SourceLinkRequest,
+    test_sources: &[SourceModuleUnit],
+    options: LinkerOptions,
+    original: SourceGraphError,
+) -> SourceGraphError {
+    if !matches!(original, SourceGraphError::Resolve { .. }) {
+        return original;
+    }
+    let mut recovery = Some(ResolutionRecovery::default());
+    let Ok((resolved, tests)) =
+        resolve_with_tests_inner(graph, request, test_sources, &mut recovery)
+    else {
+        return original;
+    };
+    let recovery = recovery.expect("diagnostic retry state");
+    let mut diagnostics = original.into_diagnostics().diagnostics;
+    if let Err(error) = TypedLinker::new(options).link_with_tests(resolved, tests) {
+        diagnostics.extend(
+            error
+                .into_diagnostics()
+                .diagnostics
+                .into_iter()
+                .filter(|diagnostic| recovery.is_independent(diagnostic)),
+        );
+    }
+    SourceGraphError::Resolve {
+        source: "<project>".into(),
+        diagnostics: DiagnosticBundle::new(diagnostics),
+    }
+}
+/// The package-validation counterpart of the deployable-project recovery pass.
+pub(super) fn recover_package_diagnostics(
+    graph: &ModuleBuildGraph,
+    packages: &[SourcePackageUnit],
+    local_identity: &str,
+    options: LinkerOptions,
+    original: SourceGraphError,
+) -> SourceGraphError {
+    if !matches!(original, SourceGraphError::Resolve { .. }) {
+        return original;
+    }
+    let mut recovery = Some(ResolutionRecovery::default());
+    let Ok(resolved) = resolve_packages_inner(graph, packages, &mut recovery) else {
+        return original;
+    };
+    let recovery = recovery.expect("diagnostic retry state");
+    let mut diagnostics = original.into_diagnostics().diagnostics;
+    if let Err(error) = TypedLinker::new(options).validate_package_graph(resolved, local_identity) {
+        diagnostics.extend(
+            error
+                .into_diagnostics()
+                .diagnostics
+                .into_iter()
+                .filter(|diagnostic| recovery.is_independent(diagnostic)),
+        );
+    }
+    SourceGraphError::Resolve {
+        source: "<project>".into(),
+        diagnostics: DiagnosticBundle::new(diagnostics),
+    }
+}
+fn resolve_with_tests_inner(
+    graph: &ModuleBuildGraph,
+    request: &SourceLinkRequest,
+    test_sources: &[SourceModuleUnit],
+    recovery: &mut Option<ResolutionRecovery>,
 ) -> Result<(LinkRequest, Vec<ParsedTestUnit>), SourceGraphError> {
     let mut scopes = vec![(
         None,
@@ -230,7 +421,16 @@ pub(super) fn resolve_with_tests(
         let mut scope = Scope {
             graph,
             package,
+            artifacts: (if index == 0 {
+                &request.artifacts
+            } else {
+                &request.packages[index - 1].artifacts
+            })
+            .iter()
+            .map(|artifact| (artifact.source_name.clone(), artifact))
+            .collect(),
             inventory,
+            admitted_artifacts: BTreeMap::new(),
             units: BTreeMap::new(),
             active_modules: Vec::new(),
             fragment_owners: BTreeMap::new(),
@@ -291,7 +491,7 @@ pub(super) fn resolve_with_tests(
                 scope.units.remove(&source.source_name);
             }
         }
-        match scope.resolve_units() {
+        match scope.resolve_units(recovery) {
             Ok(modules) => resolved_scopes.push(modules),
             Err(error) => failures.push(error),
         }
@@ -450,6 +650,7 @@ impl Scope<'_> {
             files: Vec::new(),
             order: Vec::new(),
             imports: BTreeMap::new(),
+            contracts: BTreeMap::new(),
         };
         let result = self.visit_file(file, &owner, &mut unit, &mut Vec::new());
         self.active_modules.pop();
@@ -554,12 +755,65 @@ impl Scope<'_> {
                         }
                         self.visit_file(fragment, owner, unit, active)?;
                     }
+                    SourceDirectiveKind::ContractTypeImport { .. } => {}
+                    SourceDirectiveKind::ContractImport {
+                        path: target,
+                        alias,
+                    } => {
+                        let target =
+                            resolve_contract_artifact_path(&path, target).map_err(|error| {
+                                let diagnostic = error.into_diagnostics().diagnostics.remove(0);
+                                self.error(
+                                    &diagnostic.code,
+                                    diagnostic.message,
+                                    Some(directive.source),
+                                )
+                            })?;
+                        if unit.imports.contains_key(alias) || unit.contracts.contains_key(alias) {
+                            return Err(self.error(
+                                "E_DUPLICATE_IMPORT",
+                                format!(
+                                    "unit `{}` imports alias `{alias}` more than once",
+                                    owner.name
+                                ),
+                                Some(directive.source),
+                            ));
+                        }
+                        let artifact = self.artifacts.get(&target).ok_or_else(|| self.error(
+                            "E_CONTRACT_IMPORT_NOT_FOUND", format!("compiled contract `{target}` is absent from this source owner's artifact inventory"), Some(directive.source)))?;
+                        let interface =
+                            if let Some(interface) = self.admitted_artifacts.get(&target) {
+                                interface.clone()
+                            } else {
+                                let admitted = ivm_artifact_admission::verify_contract_artifact(
+                                    &artifact.artifact,
+                                )
+                                .map_err(|error| {
+                                    self.error(
+                                        "E_CONTRACT_IMPORT_INVALID",
+                                        format!(
+                                            "compiled contract `{target}` failed admission: {error}"
+                                        ),
+                                        Some(directive.source),
+                                    )
+                                })?;
+                                let interface = semantic::ImportedContractInterface {
+                                    code_hash: admitted.code_hash,
+                                    interface: std::sync::Arc::new(admitted.contract_interface),
+                                };
+                                self.admitted_artifacts.insert(target, interface.clone());
+                                interface
+                            };
+                        unit.contracts.insert(alias.clone(), interface);
+                    }
                     SourceDirectiveKind::Import {
                         path: target,
                         alias,
                     } => {
                         let target = self.dependency_path(&path, target, directive.source)?;
-                        if unit.imports.insert(alias.clone(), target.clone()).is_some() {
+                        if unit.contracts.contains_key(alias)
+                            || unit.imports.insert(alias.clone(), target.clone()).is_some()
+                        {
                             return Err(self.error(
                                 "E_DUPLICATE_IMPORT",
                                 format!(
@@ -587,6 +841,7 @@ impl Scope<'_> {
         let mut failures = Vec::new();
         let mut external = ExternalResolutionEnvironment {
             consts: self.package_constants.clone(),
+            contracts: unit.contracts.clone(),
             ..ExternalResolutionEnvironment::default()
         };
         let mut declarations = BTreeMap::new();
@@ -620,18 +875,25 @@ impl Scope<'_> {
                     failures.push(diagnostic);
                 }
             }
+            external.permissions.extend(
+                file.parsed
+                    .program
+                    .permissions
+                    .iter()
+                    .map(|permission| permission.name.clone()),
+            );
             for item in &file.parsed.program.items {
                 match item {
                     Item::Function(function) => {
                         external.functions.insert(function.name.clone());
                     }
-                    Item::Struct(definition) => {
+                    Item::Struct(definition) | Item::Event(definition) => {
                         external.structs.insert(definition.name.clone());
                     }
-                    Item::ErrorEnum(definition) => {
+                    Item::Enum(definition) => {
                         external.structs.insert(definition.name.clone());
                         for variant in &definition.variants {
-                            external.error_codes.insert(
+                            external.variant_codes.insert(
                                 format!("{}::{}", definition.name, variant.name),
                                 variant.code,
                             );
@@ -673,13 +935,16 @@ impl Scope<'_> {
             Err(diagnostics)
         }
     }
-    fn resolve_units(self) -> Result<Vec<ModuleUnit>, SourceGraphError> {
+    fn resolve_units(
+        self,
+        recovery: &mut Option<ResolutionRecovery>,
+    ) -> Result<Vec<ModuleUnit>, SourceGraphError> {
         let mut units = Vec::new();
         let mut failures = Vec::new();
         for unit in self.units.values() {
             let result = self
                 .unit_environment(unit)
-                .and_then(|external| resolve_unit(unit, &external));
+                .and_then(|external| resolve_unit(unit, &external, recovery));
             match result {
                 Ok(module) => units.push(module),
                 Err(diagnostics) => failures.push(SourceGraphError::Resolve {

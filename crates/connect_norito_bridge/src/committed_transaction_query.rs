@@ -101,6 +101,10 @@ pub(crate) fn finalize_query(
     Ok(wire)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Mirrors the bounded C pointer/length argument pairs."
+)]
 unsafe fn read_query_args(
     network_id_ptr: *const c_uchar,
     network_id_len: c_ulong,

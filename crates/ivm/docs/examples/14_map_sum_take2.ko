@@ -2,7 +2,7 @@
 // The compiler lowers `for (k,v) in Entries.take(2)` to a fixed two-iteration walk.
 seiyaku MapTakeTwo {
     state StateMap<int, int> Entries;
-    kotoage fn sum_two() -> int authorize("Entry") {
+    view fn sum_two() authorize(anyone) -> int {
         var acc = 0;
         for (k, v) in Entries.take(2) {
             acc = acc + v;

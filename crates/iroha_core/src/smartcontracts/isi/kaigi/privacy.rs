@@ -94,8 +94,15 @@ pub fn verify_authorization(
             "Kaigi authorization requires the full canonical V1 circuit ID",
         ));
     }
-    let columns = zk::extract_pasta_fp_instances(&envelope.proof_bytes)
-        .ok_or_else(|| privacy_error("failed to decode Kaigi authorization instances"))?;
+    let configured_backend = configured
+        .as_ref()
+        .ok_or_else(|| privacy_error("verifier not configured"))?;
+    let columns = zk::native_pipa_r::public_instances(&configured_backend.backend, &envelope)
+        .map_err(|error| {
+            privacy_error(format!(
+                "failed to decode Kaigi authorization instances: {error}"
+            ))
+        })?;
     authorization_v1::verify_public_inputs_v1(
         &columns,
         context,
@@ -122,8 +129,9 @@ pub fn verify_usage_commitment(
     commitment: &KaigiAuthorizationScalarV1,
 ) -> Result<(), Error> {
     use crate::state::StateReadOnly as _;
-    use halo2_proofs::halo2curves::{ff::PrimeField as _, pasta::Fp};
+    use ff::PrimeField as _;
     use iroha_data_model::kaigi::authorization::KaigiAuthorizationIdentitiesV1;
+    use kaigi_zk::Scalar as Fp;
     use kaigi_zk::usage_v1::{
         KAIGI_USAGE_CIRCUIT_ID_V1, KAIGI_USAGE_INSTANCE_ROWS_V1, KaigiUsageContextV1,
         KaigiUsageOutputsV1, KaigiUsagePublicInputsV1,
@@ -162,8 +170,13 @@ pub fn verify_usage_commitment(
             "Kaigi usage requires the full canonical V1 circuit ID",
         ));
     }
-    let columns = zk::extract_pasta_fp_instances(&envelope.proof_bytes)
-        .ok_or_else(|| privacy_error("failed to decode Kaigi usage instances"))?;
+    let configured_backend = configured
+        .as_ref()
+        .ok_or_else(|| privacy_error("verifier not configured"))?;
+    let columns = zk::native_pipa_r::public_instances(&configured_backend.backend, &envelope)
+        .map_err(|error| {
+            privacy_error(format!("failed to decode Kaigi usage instances: {error}"))
+        })?;
     let [column] = columns.as_slice() else {
         return Err(privacy_error("Kaigi usage requires one instance column"));
     };
@@ -372,7 +385,7 @@ mod tests {
         let commitment = Hash::new(b"kaigi-privacy-verifier-key");
         let commitment: [u8; Hash::LENGTH] = commitment.into();
         let mut envelope = OpenVerifyEnvelope {
-            backend: BackendTag::Halo2IpaPasta,
+            backend: BackendTag::NativePipaRPasta,
             circuit_id: KAIGI_AUTHORIZATION_CIRCUIT_ID_V1.to_owned(),
             vk_hash: commitment,
             public_inputs: Vec::new(),
@@ -382,8 +395,8 @@ mod tests {
         assert!(
             validate_privacy_proof_envelope_metadata(
                 &envelope,
-                "halo2/pasta/kaigi-authorization-v1",
-                BackendTag::Halo2IpaPasta,
+                "pipa-r/pasta/kaigi-authorization-v1",
+                BackendTag::NativePipaRPasta,
                 KAIGI_AUTHORIZATION_CIRCUIT_ID_V1,
                 commitment,
             )
@@ -392,7 +405,7 @@ mod tests {
         let err = validate_privacy_proof_envelope_metadata(
             &envelope,
             "halo2/ipa:production-ready",
-            BackendTag::Halo2IpaPasta,
+            BackendTag::NativePipaRPasta,
             KAIGI_AUTHORIZATION_CIRCUIT_ID_V1,
             commitment,
         )
@@ -410,7 +423,7 @@ mod tests {
         let err = validate_privacy_proof_envelope_metadata(
             &envelope,
             "stark/fri/poseidon-x7-goldilocks-6x64-v1",
-            BackendTag::Halo2IpaPasta,
+            BackendTag::NativePipaRPasta,
             KAIGI_AUTHORIZATION_CIRCUIT_ID_V1,
             commitment,
         )
@@ -428,8 +441,8 @@ mod tests {
         envelope.vk_hash = [0u8; Hash::LENGTH];
         let err = validate_privacy_proof_envelope_metadata(
             &envelope,
-            "halo2/pasta/kaigi-authorization-v1",
-            BackendTag::Halo2IpaPasta,
+            "pipa-r/pasta/kaigi-authorization-v1",
+            BackendTag::NativePipaRPasta,
             KAIGI_AUTHORIZATION_CIRCUIT_ID_V1,
             commitment,
         )
@@ -445,7 +458,7 @@ mod tests {
     #[test]
     fn privacy_proof_admission_rejects_alternate_norito_layout() {
         let envelope = OpenVerifyEnvelope {
-            backend: BackendTag::Halo2IpaPasta,
+            backend: BackendTag::NativePipaRPasta,
             circuit_id: KAIGI_AUTHORIZATION_CIRCUIT_ID_V1.to_owned(),
             vk_hash: [0xA5; Hash::LENGTH],
             public_inputs: vec![0x11; 32],

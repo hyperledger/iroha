@@ -90,6 +90,14 @@ fn create_role_grant_and_revoke_affects_permissions() {
     );
     vm.memory.preload_input(0, &ad).expect("preload input");
     vm.set_register(10, Memory::INPUT_START);
+    // r11 = display name, r12 = unconstrained numeric spec, r13 = infinitely mintable.
+    let display_name = make_tlv(PointerType::Blob as u16, b"Rose");
+    vm.memory
+        .preload_input(ad.len() as u64 + 8, &display_name)
+        .expect("preload input");
+    vm.set_register(11, Memory::INPUT_START + ad.len() as u64 + 8);
+    vm.set_register(12, 0);
+    vm.set_register(13, 0);
     let prog_ad = assemble_syscalls(&[syscalls::SYSCALL_REGISTER_ASSET as u8]);
     vm.load_program(&prog_ad).unwrap();
     vm.run().expect("register asset def");
@@ -219,6 +227,14 @@ fn create_role_with_permissions_key_then_mint() {
     );
     vm.memory.preload_input(0, &ad).expect("preload input");
     vm.set_register(10, Memory::INPUT_START);
+    // r11 = display name, r12 = unconstrained numeric spec, r13 = infinitely mintable.
+    let display_name = make_tlv(PointerType::Blob as u16, b"Rose");
+    vm.memory
+        .preload_input(ad.len() as u64 + 8, &display_name)
+        .expect("preload input");
+    vm.set_register(11, Memory::INPUT_START + ad.len() as u64 + 8);
+    vm.set_register(12, 0);
+    vm.set_register(13, 0);
     let prog_ad = assemble_syscalls(&[syscalls::SYSCALL_REGISTER_ASSET as u8]);
     vm.load_program(&prog_ad).unwrap();
     vm.run().expect("register asset def");

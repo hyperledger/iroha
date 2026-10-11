@@ -22,7 +22,7 @@
                 }
             }
 
-            view fn main() -> int {
+            view fn main() authorize(anyone) -> int {
                 let List<Envelope, 2> values = [ok(last: 7, ready: true), err(code: 5)];
 
                 // Every needle below is freshly allocated. Equality must use

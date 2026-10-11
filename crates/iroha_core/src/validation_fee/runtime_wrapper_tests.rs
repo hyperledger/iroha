@@ -1,4 +1,6 @@
 //! Execute the SoraSwap wrapper through the real host and production DLMM bin math.
+#[path = "runtime_rewards_tests.rs"]
+pub(crate) mod reward_tests;
 use super::*;
 use crate::{
     executor::ContractEntrypointAuthorizationSnapshot, smartcontracts::ivm::host::CoreHostImpl,
@@ -90,9 +92,9 @@ fn install_wrapper_fixture(
     // The second uses the entire current production DLMM unchanged. Real nested
     // frames, argument decoding, output validation and transfers run unchanged.
     let pool_source = r#"
-seiyaku FullFillPool {
+seiyaku FullFillPool { permission SwapQuotePublic;
   error enum PoolError { Minimum = 1, }
-  kotoage fn swap_exact_in_quote_public(quantity amount_in, quantity min_out) -> quantity authorize("CanInvokeContractEntrypoint") {
+  kotoage fn swap_exact_in_quote_public(quantity amount_in, quantity min_out) authorize(SwapQuotePublic) -> quantity {
     let quantity output = 20;
     require(output >= min_out, PoolError::Minimum);
     ledger::asset::transfer(source: context::authority(), destination: context::seiyaku_subject(), asset_definition: AssetDefinitionId::parse("@@SBD@@"), amount: amount_in, dataspace: DataSpaceId::parse("0"));
@@ -106,8 +108,9 @@ seiyaku FullFillPool {
     } else {
         pool_source
     };
-    // Exact production SoraSwap template; only its reviewed custody inputs
-    // and the two asset identities are rendered for this isolated ledger.
+    // Production SoraSwap template with the current typed contract import;
+    // its reviewed custody inputs and the two asset identities are rendered
+    // for this isolated ledger. The import binds the exact compiled pool below.
     let wrapper_source = include_str!("fixtures/autonomous_payout.ko.template")
         .replace(
             "@@PAYOUT_VAULT_ACCOUNT_ID@@",
@@ -118,10 +121,42 @@ seiyaku FullFillPool {
         .replace("@@POOL_CONTRACT_ADDRESS@@", &pool.to_string())
         .replace("7ZepsJTHCVLKsrFFNZGSRGZgvBhv", &sbd.to_string())
         .replace("6TEAJqbb8oEPmLncoNiMRbLEK6tw", &xor.to_string());
-    let install = |stx: &mut StateTransaction<'_, '_>, address: &ContractAddress, source: &str| {
-        let (code, _, report) = kotodama_lang::compiler::Compiler::new()
-            .compile_source_with_manifest_and_report(source)
-            .expect("compile real contract frames");
+    let install = |stx: &mut StateTransaction<'_, '_>,
+                   address: &ContractAddress,
+                   source: &str,
+                   imported_pool: Option<&[u8]>| {
+        let (code, report) = if let Some(pool) = imported_pool {
+            use kotodama_lang::linker::{
+                SourceContractArtifact, SourceLinkRequest, SourceModuleUnit,
+            };
+            let output = kotodama_lang::driver::BuildDriver::new(
+                kotodama_lang::session::CompilerSession::default(),
+                "validation-fee-production-wrapper",
+            )
+            .compile_project(
+                SourceLinkRequest {
+                    root: SourceModuleUnit {
+                        source_name: "autonomous_payout.ko".into(),
+                        source: source.into(),
+                    },
+                    artifacts: vec![SourceContractArtifact {
+                        source_name: "dlmm_pool.to".into(),
+                        artifact: pool.to_vec(),
+                    }],
+                    sources: Vec::new(),
+                    imports: Vec::new(),
+                    packages: Vec::new(),
+                },
+                "autonomous_payout.ko",
+            )
+            .expect("compile wrapper against exact production pool interface");
+            (output.artifact, output.report)
+        } else {
+            let (code, _, report) = kotodama_lang::compiler::Compiler::new()
+                .compile_source_with_manifest_and_report(source)
+                .expect("compile real contract frames");
+            (code, report)
+        };
         let metadata = ivm::ProgramMetadata::parse(&code).unwrap();
         let literal_bytes = metadata
             .literal_section
@@ -173,19 +208,20 @@ seiyaku FullFillPool {
             .unwrap();
         (code, hash)
     };
-    let (pool_code, pool_hash) = install(stx, &pool, &pool_source);
-    let (wrapper_code, wrapper_hash) = install(stx, &wrapper, &wrapper_source);
+    let (pool_code, pool_hash) = install(stx, &pool, &pool_source, None);
+    let (wrapper_code, wrapper_hash) = install(stx, &wrapper, &wrapper_source, Some(&pool_code));
     for address in [&pool, &wrapper] {
         stx.world.add_account_permission(
             &wrapper.subject_id(),
-            iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+            iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
                 contract: address.clone(),
-                entrypoint: if address == &pool {
-                    "swap_exact_in_quote_public"
+                permission: if address == &pool {
+                    "SwapQuotePublic"
                 } else {
-                    "autonomous_validation_fee_tick"
+                    "Payout"
                 }
-                .to_owned(),
+                .parse()
+                .unwrap(),
             }
             .into(),
         );
@@ -211,18 +247,17 @@ seiyaku FullFillPool {
         stx.world.assets.insert(id, value);
     }
     if production_pool {
-        stx.world.add_account_permission(
-            deployer,
-            iroha_data_model::permission::Permission::new(
-                iroha_data_model::smart_contract::CONTRACT_HAJIMARI_PERMISSION_NAME.into(),
-                Json::new(()),
-            ),
-        );
         for entrypoint in ["hajimari", "seed_bin"] {
             stx.world.add_account_permission(deployer,
-                iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
-                    contract: pool.clone(), entrypoint: entrypoint.to_owned(),
-                }.into());
+                if entrypoint == "hajimari" {
+                    iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+                        contract: pool.clone(), entrypoint: entrypoint.to_owned(),
+                    }.into()
+                } else {
+                    iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                        contract: pool.clone(), permission: "OperatePool".parse().unwrap(),
+                    }.into()
+                });
         }
         for asset in [&xor, &sbd] {
             stx.world.add_account_permission(
@@ -311,9 +346,7 @@ fn preview_wrapper_effects(
     let scope = hex::encode(Hash::new(wrapper.to_string().as_bytes()).as_ref());
     for (index, amount) in [(0i128, "10"), (1, minimum_output)] {
         let base: Name = "ValidationFeeConversion".parse().unwrap();
-        let encoded =
-            ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(index))
-                .unwrap();
+        let encoded = encode_fixture_int_map_key(index);
         let relative = ivm::host::canonical_state_map_path(&base, &encoded).unwrap();
         stx.world.smart_contract_state.insert(
             format!("sc/{scope}/{relative}").parse().unwrap(),
@@ -335,8 +368,11 @@ fn preview_wrapper_effects(
     host.set_contract_entrypoint_authorization(Some(ContractEntrypointAuthorizationSnapshot::new(
         wrapper.subject_id(),
         context.entrypoint.clone(),
-        Some("CanInvokeContractEntrypoint".to_owned()),
+        iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+            "Payout".parse().unwrap(),
+        ),
         &crate::smartcontracts::code::BoundContractIdentity {
+            lifecycle_revision: 1,
             contract_address: wrapper.clone(),
             contract_alias: None,
             contract_alias_binding: None,

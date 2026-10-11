@@ -355,7 +355,7 @@ extension ConfidentialProof {
                 }
                 return decoded
             }
-            guard value.relation == tag, value.backend == "halo2/ipa",
+            guard value.relation == tag, value.backend == "pipa-r/pasta",
                   value.nullifiers_hex.count == inputs, value.output_commitments_hex.count == outputs,
                   try bytes(value.root_hex, count: 32) == root else {
                 throw ConfidentialProverError.invalidNativeOutput

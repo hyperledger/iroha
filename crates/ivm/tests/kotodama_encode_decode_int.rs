@@ -44,7 +44,7 @@ impl IVMHost for CapturingHost {
 fn kotodama_source_rejects_retired_integer_codec_helpers() {
     let src = r#"
         seiyaku IntegerCodecRoundtrip {
-            view fn main() {
+            view fn main() authorize(anyone) {
                 let encoded = codec::encode_i64(7);
                 let decoded = codec::decode_i64(encoded);
                 let _ = decoded;
@@ -62,7 +62,7 @@ fn kotodama_source_rejects_retired_integer_codec_helpers() {
 fn debug_info_logs_full_width_int_envelope_at_runtime() {
     let source = r#"
         seiyaku WideInfo {
-            view fn main() -> int {
+            view fn main() authorize(anyone) -> int {
                 let value = 1267650600228229401496703205376;
                 debug::info(value);
                 return value;

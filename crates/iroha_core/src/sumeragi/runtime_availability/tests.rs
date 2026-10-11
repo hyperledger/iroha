@@ -206,6 +206,7 @@ pub(in crate::sumeragi) fn fixed_lane_chain_with_config(
 #[test]
 fn historical_lane_authority_retains_original_creation_bytes_and_prepaid_config_until_drop() {
     let (chain, record, _epoch) = fixed_lane_chain();
+    let original = chain.committed(2);
     let budget = chain.state().ivm_execution_budget();
     let before = budget.reserved_bytes();
     let crypto = Arc::new(BlsCrypto::new());
@@ -229,6 +230,57 @@ fn historical_lane_authority_retains_original_creation_bytes_and_prepaid_config_
         super::super::lanes::lane_height_config(&record).unwrap()
     );
     assert_eq!(crypto.admitted_len(), record.committee.len());
+    // The original authority verifies exact BLS quorums and rejects a changed signature
+    // without replacing its retained schedule owner.
+    {
+        use crate::sumeragi::crypto::KeyPairSigner;
+        use iroha_crypto::{Algorithm, KeyPair};
+        use iroha_model_base::peer::PeerId;
+        use iroha_sumeragi::{
+            crypto::{CertError, Crypto, Signer, Verifier},
+            message::{Qc, VoteKind},
+            types::{AggregateSignature, Bitmap, SIGNATURE_LEN},
+        };
+        let retained = budget.reserved_bytes();
+        let original_tip = chain.state().view().native_execution_tip();
+        let config = owner.schedule.height_config(1).unwrap().unwrap();
+        let mut keys = (41..45)
+            .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
+            .collect::<Vec<_>>();
+        keys.sort_by_key(|key| PeerId::new(key.public_key().clone()));
+        for (key, member) in keys.iter().zip(&record.committee) {
+            assert_eq!(key.public_key(), member.peer.public_key());
+        }
+        let mut qc = Qc {
+            kind: VoteKind::Commit,
+            instance,
+            epoch: config.epoch.id,
+            height: 1,
+            view: 0,
+            block_hash: Hash32([0x71; 32]),
+            result: original.result(),
+            signers: Bitmap::from_indices(4, [0, 1, 2]).unwrap(),
+            agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
+        };
+        let sign_qc = |qc: &mut Qc| {
+            qc.agg_sig = crypto.aggregate(
+                &keys[..3]
+                    .iter()
+                    .map(|key| KeyPairSigner::new(key).unwrap().sign(&qc.preimage()))
+                    .collect::<Vec<_>>(),
+            );
+        };
+        let epoch = qc.epoch;
+        let verifier = Verifier::new(&*crypto, &instance, &epoch, &config.committee);
+        sign_qc(&mut qc);
+        verifier.verify_qc(&qc).unwrap();
+        qc.agg_sig.0[0] ^= 1;
+        assert_eq!(verifier.verify_qc(&qc), Err(CertError::BadSignature));
+        assert_eq!(owner.schedule.height_config(1).unwrap(), Some(config));
+        assert_eq!(chain.state().view().native_execution_tip(), original_tip);
+        assert_eq!(budget.reserved_bytes(), retained);
+        assert!(provider.scan.lock().is_none());
+    }
     drop(owner);
     assert_eq!(budget.reserved_bytes(), before);
     assert!(provider.scan.lock().is_none());

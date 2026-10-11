@@ -1,5 +1,5 @@
 
-        seiyaku C {
+        seiyaku C { permission WriteState;
             struct Tranche {
                 int status,
                 quantity remaining,
@@ -8,7 +8,7 @@
             }
             state StateMap<Name, Tranche> Tranches;
 
-            kotoage fn main() authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) {
                 let List<string, 4> aliases = ["merchant@sbp"];
                 let List<AccountId, 4> accounts = [context::authority()];
                 Tranches[Name::parse("t1")] = Tranche {

@@ -9,7 +9,7 @@ use norito::json::{FastJsonWrite, JsonSerialize};
 struct Fixed {
     first_field: u8,
     #[norito(skip)]
-    omitted: (),
+    omitted: String,
     #[norito(rename = "exact_name")]
     last_field: bool,
 }
@@ -22,13 +22,13 @@ fn fixed_order_matches_emitted_keys_and_needs_no_value() {
     );
     let value = Fixed {
         first_field: 7,
-        omitted: (),
+        omitted: "this skipped data must not appear in JSON".into(),
         last_field: true,
     };
     let mut encoded = String::new();
     value.json_serialize(&mut encoded);
     assert_eq!(encoded, r#"{"firstField":7,"exact_name":true}"#);
-    let _ = value.omitted;
+    assert_eq!(value.omitted, "this skipped data must not appear in JSON");
 }
 
 #[derive(norito::derive::JsonSerialize)]

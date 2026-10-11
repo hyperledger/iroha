@@ -1,4 +1,4 @@
-//! Nested-return encoding keeps the original resource owner for rollback and retry.
+//! Shared nested-return capture keeps the original resource owner for rollback and retry.
 
 use super::CoreHost;
 use crate::{
@@ -6,24 +6,25 @@ use crate::{
     smartcontracts::ivm::return_value::resource_tests::{funded_return_vm, leave_read_slots},
 };
 use iroha_data_model::smart_contract::entrypoint::{
-    EntrypointValueTypeNodeV1, EntrypointValueTypeV1, MAX_ENTRYPOINT_RETURN_RECORD_BYTES,
+    EntrypointValueTypeNodeV1, EntrypointValueTypeV1,
 };
 use ivm::VMError;
 
 #[test]
-fn nested_return_encoder_preserves_read_refusal_and_original_pool_retry() {
+fn nested_return_capture_preserves_read_refusal_and_original_pool_retry() {
     let (vm, budget) = funded_return_vm();
     let schema = EntrypointValueTypeV1 {
         nodes: vec![EntrypointValueTypeNodeV1::Unit],
     };
-    let baseline =
-        CoreHost::encode_nested_contract_return(&vm, &schema, MAX_ENTRYPOINT_RETURN_RECORD_BYTES)
-            .unwrap();
+    let baseline = ivm::value_record::capture_completed_return_funded(&vm, &schema, &budget)
+        .unwrap()
+        .get()
+        .clone();
     let gas = vm.remaining_gas();
     let expected = leave_read_slots(&vm, &budget, 0);
-    let error =
-        CoreHost::encode_nested_contract_return(&vm, &schema, MAX_ENTRYPOINT_RETURN_RECORD_BYTES)
-            .unwrap_err();
+    let error = ivm::value_record::capture_completed_return_funded(&vm, &schema, &budget)
+        .err()
+        .expect("the original VM read capacity refuses capture");
     assert_eq!(error, expected);
     assert_eq!(vm.remaining_gas(), gas);
     let attempt = vm_attempt_error(VMError::metered(99, error), |_| {
@@ -35,9 +36,10 @@ fn nested_return_encoder_preserves_read_refusal_and_original_pool_retry() {
     assert_eq!(owner.clone().into_vm_error(), expected);
     budget.set_limit_bytes(128 * 1024 * 1024);
     assert_eq!(
-        CoreHost::encode_nested_contract_return(&vm, &schema, MAX_ENTRYPOINT_RETURN_RECORD_BYTES)
-            .unwrap(),
-        baseline
+        ivm::value_record::capture_completed_return_funded(&vm, &schema, &budget)
+            .unwrap()
+            .get(),
+        &baseline
     );
     assert_eq!(vm.remaining_gas(), gas);
     drop(vm);
@@ -155,35 +157,16 @@ fn fill_input(vm: &mut ivm::IVM) {
 
 #[test]
 fn vrf_seed_syscall_defers_funded_output_without_guest_status_or_gas() {
-    use ivm::{
-        IVMHost, PointerType,
-        codec::{decode_canonical_norito, encode_canonical_norito},
-        syscalls,
-    };
+    use ivm::{IVMHost, PointerType, syscalls};
     let (mut vm, budget) = funded_return_vm();
-    let request = ivm::vrf::VrfEpochSeedRequest {
-        epoch: 7,
-        fallback_to_latest: false,
-    };
-    let envelope = CoreHost::encode_tlv_payload(
-        PointerType::NoritoBytes,
-        &encode_canonical_norito(&request).unwrap(),
-    )
-    .unwrap();
-    let pointer = vm.alloc_host_tlv(&envelope).unwrap();
-    // INPUT preload does not own ordinary funded write rows. Exhaust its
-    // append-only space so this response must exercise the actual HEAP write
-    // owner, while retaining the original request envelope unchanged.
+    // Exhaust INPUT so the seed must use the actual funded HEAP write owner.
     fill_input(&mut vm);
-    // Admit enough read backing for input validation while retaining zero free
-    // pool capacity for the actual output write-log payload.
-    vm.validate_tlv(pointer).unwrap();
     let _read_refusal = leave_read_slots(&vm, &budget, 2);
     let reserved = budget.reserved_bytes();
     let gas = vm.remaining_gas();
     let mut host = CoreHost::new(iroha_test_samples::ALICE_ID.clone());
     host.vrf_epoch_seeds.insert(7, [0x42; 32]);
-    vm.set_register(10, pointer);
+    vm.set_register(10, 7);
     vm.set_register(11, 0xA5);
     let error = host
         .syscall(syscalls::SYSCALL_VRF_EPOCH_SEED, &mut vm)
@@ -192,11 +175,11 @@ fn vrf_seed_syscall_defers_funded_output_without_guest_status_or_gas() {
         &error,
         VMError::AllocationDeferred(iroha_allocation::AllocationRefusal::Capacity { .. })
     ));
-    assert_eq!(vm.register(10), pointer);
+    assert_eq!(vm.register(10), 7);
     assert_eq!(
         vm.register(11),
         0xA5,
-        "local refusal must not publish ERR_OOM"
+        "local refusal must not publish a guest status"
     );
     assert_eq!(vm.remaining_gas(), gas);
     assert_eq!(
@@ -208,40 +191,31 @@ fn vrf_seed_syscall_defers_funded_output_without_guest_status_or_gas() {
     budget.set_limit_bytes(128 * 1024 * 1024);
     host.syscall(syscalls::SYSCALL_VRF_EPOCH_SEED, &mut vm)
         .unwrap();
-    assert_eq!(vm.register(11), 0);
-    let response: ivm::vrf::VrfEpochSeedResponse =
-        decode_canonical_norito(vm.validate_tlv(vm.register(10)).unwrap().payload).unwrap();
-    assert!(response.found);
-    assert_eq!(response.epoch, 7);
-    assert_eq!(response.seed, [0x42; 32]);
+    assert_eq!(vm.register(11), 0xA5);
+    let response = vm.validate_tlv(vm.register(10)).unwrap();
+    assert_eq!(response.type_id, PointerType::Blob);
+    assert_eq!(response.payload, [0x42; 32]);
 }
 
 #[test]
-fn vrf_seed_syscall_keeps_deterministic_guest_oom_status() {
-    use ivm::{IVMHost, PointerType, codec::encode_canonical_norito, syscalls};
+fn vrf_seed_syscall_preserves_deterministic_guest_oom_fault() {
+    use ivm::{IVMHost, syscalls};
     let (mut vm, _budget) = funded_return_vm();
-    let request = ivm::vrf::VrfEpochSeedRequest {
-        epoch: 7,
-        fallback_to_latest: false,
-    };
-    let envelope = CoreHost::encode_tlv_payload(
-        PointerType::NoritoBytes,
-        &encode_canonical_norito(&request).unwrap(),
-    )
-    .unwrap();
-    let pointer = vm.alloc_host_tlv(&envelope).unwrap();
     fill_input(&mut vm);
     let heap_end = vm.alloc_heap(0).unwrap();
     vm.memory
         .set_heap_max_limit(heap_end - ivm::Memory::HEAP_START)
         .unwrap();
-    vm.set_register(10, pointer);
+    vm.set_register(10, 7);
     vm.set_register(11, 0xA5);
     let mut host = CoreHost::new(iroha_test_samples::ALICE_ID.clone());
-    host.syscall(syscalls::SYSCALL_VRF_EPOCH_SEED, &mut vm)
-        .expect("deterministic guest memory exhaustion remains a status");
-    assert_eq!(vm.register(10), 0);
-    assert_eq!(vm.register(11), 3);
+    host.vrf_epoch_seeds.insert(7, [0x42; 32]);
+    assert!(matches!(
+        host.syscall(syscalls::SYSCALL_VRF_EPOCH_SEED, &mut vm),
+        Err(VMError::OutOfMemory)
+    ));
+    assert_eq!(vm.register(10), 7);
+    assert_eq!(vm.register(11), 0xA5);
 }
 
 #[test]

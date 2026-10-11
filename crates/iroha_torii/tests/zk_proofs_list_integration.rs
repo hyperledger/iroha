@@ -20,7 +20,7 @@ async fn proofs_list_and_count_with_filters() {
     let query = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(World::new(), kura, query);
     // Seed proofs through the helper so derived indexes such as proofs_by_status stay consistent.
-    let backend = "halo2/ipa";
+    let backend = "pipa-r/pasta";
     let id1 = ProofId {
         backend: backend.into(),
         proof_hash: [0x01; 32],

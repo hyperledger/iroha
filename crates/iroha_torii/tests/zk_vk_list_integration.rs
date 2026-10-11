@@ -21,7 +21,7 @@ async fn vk_list_filters_by_backend_and_status() {
     let mut world = World::new();
     // Insert 3 records: 2 active + 1 proposed
     // Insert via test helper
-    let backend = "halo2/ipa";
+    let backend = "pipa-r/pasta";
     for (i, status) in [
         ConfidentialStatus::Active,
         ConfidentialStatus::Active,
@@ -36,8 +36,8 @@ async fn vk_list_filters_by_backend_and_status() {
         let mut rec = VerifyingKeyRecord::new(
             1,
             format!("{backend}:{name}"),
-            BackendTag::Halo2IpaPasta,
-            "pallas",
+            BackendTag::NativePipaRPasta,
+            "vesta",
             [u8::try_from(i + 1).unwrap_or(1); 32],
             commitment,
         );

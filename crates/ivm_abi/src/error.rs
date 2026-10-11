@@ -5,6 +5,7 @@ use crate::numeric::{NumericFaultV1, PointerAbiFaultV1};
 /// Original local allocation refusal carried by [`VMError::AllocationDeferred`].
 /// This is the allocation owner's type; re-exporting it does not copy its custody.
 pub use iroha_allocation::AllocationRefusal;
+use iroha_data_model::executor::fault::{IvmFaultKindV1, IvmFaultV1};
 use std::{error::Error as StdError, fmt};
 /// Memory region permissions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,6 +106,8 @@ pub struct VmExecutionContext<'a> {
 /// and cannot outlive or permit replacement of that metadata. Local refusals have no view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VmExecutionDiagnostic<'a> {
+    /// Canonical bounded execution fault, absent for application rejections.
+    pub fault: Option<IvmFaultV1>,
     pub trap_kind: VmTrapKind,
     pub pc: u64,
     pub source: Option<VmSourceLocation<'a>>,
@@ -282,6 +285,10 @@ pub enum VMError {
     ZkExtensionDisabled,
     NullifierAlreadyUsed,
     PermissionDenied,
+    /// A nested invocation targeted an address already active in its ancestry.
+    ReentrantCall,
+    /// A nested invocation exceeded the canonical call-depth bound.
+    CallDepthExceeded,
     PrivacyViolation,
     RegisterOutOfBounds,
     /// Malformed Norito TLV envelope or checksum mismatch.
@@ -339,8 +346,73 @@ impl VMError {
         match self.as_unmetered() {
             Self::ExecutionDeferred(reason) => Some(*reason),
             Self::AllocationDeferred(_) => Some(ExecutionDeferral::ActiveMemoryCapacity),
+            Self::HostUnavailable
+            | Self::SyscallGasQuoteExceeded { .. }
+            | Self::SyscallMeteringModeMismatch { .. } => {
+                Some(ExecutionDeferral::LocalInvariantViolation)
+            }
             _ => None,
         }
+    }
+    /// Project only deterministic failures of a started invocation.
+    ///
+    /// Admission errors, application rejections and local host/resource failures
+    /// deliberately have no runtime fault value. This exhaustive projection does
+    /// not use presentation strings or the coarser diagnostic trap categories.
+    #[must_use]
+    pub fn fault_kind(&self) -> Option<IvmFaultKindV1> {
+        use IvmFaultKindV1 as F;
+        Some(match self.as_unmetered() {
+            Self::OutOfGas | Self::SyscallOutOfGas { .. } => F::OutOfGas,
+            Self::OutOfMemory => F::MemoryLimitExceeded,
+            Self::MemoryAccessViolation { .. } => F::MemoryAccessViolation,
+            Self::MisalignedAccess { .. } => F::MisalignedAccess,
+            Self::MemoryOutOfBounds => F::MemoryOutOfBounds,
+            Self::DecodeError => F::DecodeError,
+            Self::InvalidOpcode(_) => F::InvalidOpcode,
+            Self::UnknownSyscall(_) => F::UnknownSyscall,
+            Self::NotImplemented { .. } => F::UnsupportedSyscall,
+            Self::GasCostOverflow => F::GasCostOverflow,
+            Self::NumericFault(code) => F::Numeric(*code),
+            Self::PointerAbiFault(code) => F::PointerAbi(*code),
+            Self::AssertionFailed => F::AssertionFailed,
+            Self::ExceededMaxCycles => F::ExceededMaxCycles,
+            Self::InvalidMetadata => F::InvalidMetadata,
+            Self::InvalidVectorLength { .. } => F::InvalidVectorLength,
+            Self::MissingHalt => F::MissingHalt,
+            Self::VectorExtensionDisabled => F::VectorExtensionDisabled,
+            Self::ZkExtensionDisabled => F::ZkExtensionDisabled,
+            Self::NullifierAlreadyUsed => F::NullifierAlreadyUsed,
+            Self::PermissionDenied => F::PermissionDenied,
+            Self::ReentrantCall => F::ReentrantCall,
+            Self::CallDepthExceeded => F::CallDepthExceeded,
+            Self::PrivacyViolation => F::PrivacyViolation,
+            Self::RegisterOutOfBounds => F::RegisterOutOfBounds,
+            Self::NoritoInvalid => F::NoritoInvalid,
+            Self::AbiTypeNotAllowed { .. } => F::AbiTypeNotAllowed,
+            Self::HostOutputBudgetExceeded {
+                resource: HostOutputResource::Items,
+                ..
+            } => F::HostOutputItemsExceeded,
+            Self::HostOutputBudgetExceeded {
+                resource: HostOutputResource::Bytes,
+                ..
+            } => F::HostOutputBytesExceeded,
+            Self::AmxBudgetExceeded { .. } => F::AmxBudgetExceeded,
+            Self::ExecutionDeferred(_)
+            | Self::AllocationDeferred(_)
+            | Self::HostUnavailable
+            | Self::SyscallGasQuoteExceeded { .. }
+            | Self::SyscallMeteringModeMismatch { .. }
+            | Self::ContractAbort { .. }
+            | Self::UnsupportedProgramVersion { .. }
+            | Self::UnsupportedProgramFeatureBits { .. }
+            | Self::UnsupportedProgramAbiVersion { .. }
+            | Self::ProgramVectorLengthTooLarge { .. }
+            | Self::ArtifactAbiHashMismatch { .. }
+            | Self::GenericSyscallNotAllowed { .. } => return None,
+            Self::Metered { .. } => unreachable!("as_unmetered removes metering wrappers"),
+        })
     }
     /// Construct a metered `NotImplemented` error for a known syscall.
     #[must_use]
@@ -487,6 +559,8 @@ impl fmt::Display for VMError {
             VMError::ZkExtensionDisabled => write!(f, "zk extension not enabled"),
             VMError::NullifierAlreadyUsed => write!(f, "nullifier already used"),
             VMError::PermissionDenied => write!(f, "permission denied"),
+            VMError::ReentrantCall => write!(f, "contract address is already active"),
+            VMError::CallDepthExceeded => write!(f, "contract call depth exceeded"),
             VMError::PrivacyViolation => write!(f, "privacy tag violation"),
             VMError::RegisterOutOfBounds => write!(f, "register index out of bounds"),
             VMError::NoritoInvalid => write!(f, "invalid Norito TLV envelope"),

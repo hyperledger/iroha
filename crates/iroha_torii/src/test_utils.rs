@@ -30,7 +30,9 @@ use iroha_data_model::{
     smart_contract::{CONTRACT_DEPLOY_NONCE_METADATA_KEY, ContractAddress},
     sorafs::pricing::PricingScheduleRecord,
 };
-use iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint;
+use iroha_executor_data_model::permission::smart_contract::{
+    CanInvokeContractEntrypoint, CanUseContractPermission,
+};
 use iroha_model_base::chain::ChainId;
 use iroha_model_base::domain::DomainId;
 use iroha_model_base::name::Name;
@@ -188,6 +190,9 @@ pub fn minimal_ivm_program(abi_version: u8) -> Vec<u8> {
         abi_version,
     };
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        events: Vec::new(),
+        enum_types: Vec::new(),
+        permissions: Vec::new(),
         callables: Vec::new(),
         seiyaku_name: "TestContract".to_owned(),
         compiler_fingerprint: "torii-test-utils".to_owned(),
@@ -204,7 +209,7 @@ pub fn minimal_ivm_program(abi_version: u8) -> Vec<u8> {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: None,
+            authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -317,6 +322,29 @@ pub fn enqueue_locally_signed_contract_deployment_with_subject_permissions(
     private_key: &ExposedPrivateKey,
     artifact: &[u8],
     subject_permissions: impl IntoIterator<Item = permission::Permission>,
+) -> (ContractAddress, String, String) {
+    enqueue_locally_signed_contract_deployment_with_permissions(
+        state,
+        queue,
+        authority,
+        private_key,
+        artifact,
+        subject_permissions,
+        std::iter::empty(),
+    )
+}
+/// Deploy a fixture and grant explicitly named instance permissions to its caller.
+///
+/// Caller grants follow deployment in the same signed transaction and bind this exact
+/// contract address. Subject permissions separately authorize emitted ledger operations.
+pub fn enqueue_locally_signed_contract_deployment_with_permissions(
+    state: &Arc<State>,
+    queue: &Arc<Queue>,
+    authority: &AccountId,
+    private_key: &ExposedPrivateKey,
+    artifact: &[u8],
+    subject_permissions: impl IntoIterator<Item = permission::Permission>,
+    caller_permissions: impl IntoIterator<Item = Name>,
 ) -> (ContractAddress, String, String) {
     let verified = ivm::verify_contract_artifact(artifact).expect("verify contract artifact");
     let key_pair =
@@ -453,6 +481,15 @@ pub fn enqueue_locally_signed_contract_deployment_with_subject_permissions(
         instructions.push(InstructionBox::from(Grant::account_permission(
             permission,
             contract_address.subject_id(),
+        )));
+    }
+    for permission in caller_permissions {
+        instructions.push(InstructionBox::from(Grant::account_permission(
+            CanUseContractPermission {
+                contract: contract_address.clone(),
+                permission,
+            },
+            authority.clone(),
         )));
     }
     if let Some(entrypoint) = hajimari_entrypoint {
@@ -749,6 +786,7 @@ pub fn mk_minimal_root_cfg() -> iroha_config::parameters::actual::Root {
             faucet: None,
             tx_history: None,
             recipient_lookup: Default::default(),
+            kagemusha_enrollment: None,
             public_dataspace_upstreams: Vec::new(),
             webhooks_enabled: defaults::torii::WEBHOOKS_ENABLED,
             zk_attachments_enabled: defaults::torii::ZK_ATTACHMENTS_ENABLED,
@@ -1203,15 +1241,10 @@ pub fn mk_minimal_root_cfg() -> iroha_config::parameters::actual::Root {
             Vec::new(),
         ),
         zk: A::Zk {
-            halo2: A::Halo2 {
-                enabled: false,
-                curve: A::ZkCurve::Pallas,
-                backend: A::Halo2Backend::Ipa,
-                max_k: 16,
-                verifier_budget_ms: 1000,
-                verifier_max_batch: 8,
-                ..A::Halo2::default()
-            },
+            pipa_r: iroha_config::parameters::actual::PipaR::default(),
+            trace: iroha_config::parameters::actual::DiagnosticTrace::default(),
+        ipa_commitment: iroha_config::parameters::actual::IpaCommitment::default(),
+            max_verify_batch: iroha_config::parameters::defaults::zk::MAX_VERIFY_BATCH,
             fastpq: A::Fastpq {
                 execution_mode: A::FastpqExecutionMode::Cpu,
                 poseidon_mode: A::FastpqPoseidonMode::Cpu,
@@ -1666,34 +1699,23 @@ pub(crate) fn bind_fixture_root(
     world: &mut iroha_core::state::World,
     scope: iroha_data_model::block::consensus::SumeragiRootScope,
 ) {
-    use iroha_data_model::{
-        block::consensus::ValidatorPower,
-        parameter::{
-            Parameter,
-            custom::CustomParameter,
-            system::{
-                ConsensusFingerprint, ConsensusHandshakeMetadata, SumeragiConsensusMode,
-                consensus_metadata,
-            },
+    use iroha_data_model::parameter::{
+        Parameter,
+        custom::CustomParameter,
+        system::{
+            ConsensusFingerprint, ConsensusHandshakeMetadata, SumeragiConsensusMode,
+            consensus_metadata,
         },
     };
     use std::num::NonZeroU64;
-    let validators = iroha_core::sumeragi::test_chain::fixture_validators()
-        .into_iter()
-        .map(|(validator, _)| ValidatorPower {
-            validator,
-            power: 1,
-        })
-        .collect::<Vec<_>>();
-    let mut context = iroha_core_zk::kagemusha_v1_test_fixtures::genesis_context_parameters();
+    let mut context =
+        iroha_data_model::block::consensus::SumeragiGenesisContextParameters::recommended();
     context.root_scope = scope;
     let metadata = ConsensusHandshakeMetadata {
         mode: SumeragiConsensusMode::Permissioned,
         block_cadence_ms: NonZeroU64::new(1_000).unwrap(),
         wire_protocol_version: u32::from(iroha_data_model::sumeragi::PROTOCOL_VERSION),
         consensus_fingerprint: ConsensusFingerprint::new([0xC7; 32]),
-        kagemusha_mint_finality:
-            iroha_core_zk::kagemusha_v1_test_fixtures::mint_finality_genesis_parameters(&validators),
         sumeragi_context: context,
     };
     metadata.validate().unwrap();

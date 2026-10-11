@@ -8,6 +8,9 @@ const FRAME_LIMIT: usize = 1024 * 1024;
 
 fn manifest() -> ContractManifest {
     ContractManifest {
+        events: Vec::new(),
+        enum_types: Vec::new(),
+        permissions: Vec::new(),
         seiyaku_name: Some("borrowed signing content".repeat(4096)),
         code_hash: Some(IrohaHash::new(b"native cache hash artifact")),
         abi_hash: Some(IrohaHash::new(b"native cache hash ABI")),

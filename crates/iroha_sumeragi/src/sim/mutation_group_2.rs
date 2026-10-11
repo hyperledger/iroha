@@ -134,7 +134,6 @@ impl Rig {
             init,
             vec![std::sync::Arc::new(signer)],
             Box::new(v.crypto.clone()),
-            crate::testing::fake_attestation_ext(crate::testing::FakeAttestor::new()),
             budget.clone(),
             0,
         )
@@ -161,7 +160,7 @@ impl Rig {
             match action {
                 Action::Send { to, msg } => self.sent.push((self.now, vec![to], msg)),
                 Action::Broadcast { to, msg } => self.sent.push((self.now, to, msg)),
-                Action::Execute { block, req } => self.pending.push((req, block)),
+                Action::Execute { block, req, .. } => self.pending.push((req, block)),
                 _ => {}
             }
         }
@@ -227,7 +226,6 @@ impl Rig {
             payload_len: u32::try_from(payload.len()).expect("a small payload"),
             proposer: self.topo.leader(view),
             skipped_leaders: self.topo.skipped_leader_keys(&self.v.committee, view),
-            attest: false,
         };
         crate::testing::author_body(
             header,
@@ -607,7 +605,7 @@ fn proxy_tail_answers_retransmitted_prepare() {
             .count()
     };
     let mark = r.sent.len();
-    r.deliver(voter, &WireMessage::Vote(vote.clone()));
+    r.deliver(voter, &WireMessage::Vote(vote));
     assert_eq!(answers(&r, mark), 1, "the PrepareQC answers the voter");
     let mark = r.sent.len();
     r.deliver(voter, &WireMessage::Vote(vote));

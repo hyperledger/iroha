@@ -1,18 +1,18 @@
 
-            seiyaku PresenceAware {
+            seiyaku PresenceAware { permission Write;
                 state StateMap<int, int> values;
 
                 fn get(int value) -> int { return value; }
 
-                kotoage fn set(int key, int value) authorize("Write") {
+                kotoage fn set(int key, int value) authorize(Write) {
                     values[key] = value;
                 }
 
-                view fn read(int key) -> Option<int> {
+                view fn read(int key) authorize(anyone) -> Option<int> {
                     return values.get(key);
                 }
 
-                view fn echo(int value) -> int {
+                view fn echo(int value) authorize(anyone) -> int {
                     return get(value: value);
                 }
             }

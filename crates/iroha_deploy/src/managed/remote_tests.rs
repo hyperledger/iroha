@@ -4,6 +4,41 @@ use super::*;
 use crate::bootstrap::InstalledNetworkProfiles;
 use iroha_crypto::{Algorithm, KeyPair};
 
+#[test]
+fn attachment_deadline_optional_record_preserves_parent_errors_and_original_retry() {
+    let temporary = tempfile::tempdir().unwrap();
+    let directory = PrivateDirectory::open_or_create(temporary.path().join("attachment")).unwrap();
+    attachment_turn_deadline(&directory).unwrap();
+    let original = encode(&Activation { deadline_ms: 0 }).unwrap();
+    directory
+        .write_atomic(ACTIVATION, &original, PublishMode::CreateNew)
+        .unwrap();
+    attachment_turn_deadline(&directory).unwrap();
+    #[cfg(unix)]
+    {
+        let displaced = temporary.path().join("original-attachment");
+        std::fs::rename(directory.path(), &displaced).unwrap();
+        let result = attachment_turn_deadline(&directory);
+        std::fs::rename(displaced, directory.path()).unwrap();
+        assert!(
+            matches!(result, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound)
+        );
+    }
+    attachment_turn_deadline(&directory).unwrap();
+    assert_eq!(
+        directory.read(ACTIVATION, MAX_METADATA).unwrap().as_slice(),
+        original
+    );
+    directory
+        .write_atomic(ACTIVATION, b"invalid activation", PublishMode::Replace)
+        .unwrap();
+    assert!(attachment_turn_deadline(&directory).is_err());
+    directory
+        .write_atomic(ACTIVATION, &original, PublishMode::Replace)
+        .unwrap();
+    attachment_turn_deadline(&directory).unwrap();
+}
+
 fn profile(seed: u8, floor: u64, url: &str) -> InstalledNetworkProfile {
     InstalledNetworkProfile::new(
         "fixture".into(),
@@ -20,13 +55,13 @@ fn profile(seed: u8, floor: u64, url: &str) -> InstalledNetworkProfile {
 fn runtime(root: &Path, profiles: InstalledNetworkProfiles) -> InstalledRuntime {
     let directory = PrivateDirectory::open_or_create(root).unwrap();
     for binary in ["kagami", "iroha3d"] {
-        directory
-            .write_atomic(
-                &format!("{binary}{}", std::env::consts::EXE_SUFFIX),
-                b"fixture executable",
-                PublishMode::CreateNew,
-            )
-            .unwrap();
+        std::fs::copy(
+            std::env::current_exe().unwrap(),
+            directory
+                .path()
+                .join(format!("{binary}{}", std::env::consts::EXE_SUFFIX)),
+        )
+        .unwrap();
     }
     directory
         .write_atomic(
@@ -260,14 +295,8 @@ fn failed_first_private_start_retains_exact_context_and_diagnostics_before_attac
     let _guard = super::super::native_test_guard();
     let temporary = tempfile::tempdir().unwrap();
     let root = PrivateDirectory::open_or_create(temporary.path().join("managed")).unwrap();
-    root.write_atomic(
-        "not-executable",
-        b"not a native worker",
-        PublishMode::CreateNew,
-    )
-    .unwrap();
     let store = ManagedStore::open(root.path()).unwrap();
-    let binary = root.path().join("not-executable");
+    let binary = std::env::current_exe().unwrap();
     let mut request = LocalnetRequest::private_root(binary.clone(), binary);
     request.name = "private".into();
     request.startup_timeout = Duration::from_secs(120);
@@ -378,16 +407,16 @@ fn failed_first_private_start_retains_exact_context_and_diagnostics_before_attac
         );
         assert!(!network.path().join(STATUS).exists());
         assert!(!network.path().join(WORKER).exists());
+        // A Ready-triggered worker reads this same function before its request-lock
+        // acquisition. It must already have the foreground budget, not RELAY_TURN.
+        let worker_deadline = attachment_turn_deadline(&directory).unwrap();
+        assert!(worker_deadline > Instant::now() + RELAY_TURN);
+        assert!(worker_deadline <= original_deadline + Duration::from_millis(2));
         captured = Some(prepared.clone());
         Ok(())
     });
-    assert!(matches!(result, Err(Error::Io(_))));
-    let prepared = captured.expect("binding must precede the native spawn failure");
-    // A Ready-triggered worker reads this same function before its request-lock
-    // acquisition. It must already have the foreground budget, not RELAY_TURN.
-    let worker_deadline = attachment_turn_deadline(&directory).unwrap();
-    assert!(worker_deadline > Instant::now() + RELAY_TURN);
-    assert!(worker_deadline <= original_deadline + Duration::from_millis(2));
+    assert!(matches!(result, Err(Error::Timeout(timeout)) if timeout == request.startup_timeout));
+    let prepared = captured.expect("binding must precede the original-budget worker-start failure");
     drop(request_gate);
     assert_eq!(
         prepared, original,
@@ -807,4 +836,569 @@ fn failed_later_relay_reports_anchoring_and_keeps_original_registration_receipt(
         decode::<ManagedAttachmentStatus>(&encode(&public).unwrap()).unwrap(),
         public
     );
+}
+
+#[test]
+fn attachment_outer_optional_keeps_initial_absence_named_identity_and_invalid_names() {
+    let temporary = tempfile::tempdir().unwrap();
+    let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
+    assert!(existing_outer(&store, "local").unwrap().is_none());
+    assert!(!store.root().join("attachments").exists());
+    assert!(matches!(
+        existing_outer(&store, "../escape"),
+        Err(Error::Invalid(_))
+    ));
+    assert!(!store.root().join("attachments").exists());
+
+    let root = PrivateDirectory::open(store.root()).unwrap();
+    let attachments = root.create_child("attachments").unwrap();
+    assert!(store.attachments_directory().unwrap().is_some());
+    assert!(existing_outer(&store, "local").unwrap().is_none());
+    assert!(attachments.entries(1).unwrap().is_empty());
+    let original = attachments.create_child("local").unwrap();
+    original
+        .write_atomic("evidence", b"original attachment", PublishMode::CreateNew)
+        .unwrap();
+    let found = existing_outer(&store, "local").unwrap().unwrap();
+    assert_eq!(found.identity().unwrap(), original.identity().unwrap());
+    assert_eq!(
+        found.read("evidence", 19).unwrap().as_slice(),
+        b"original attachment"
+    );
+    assert!(existing_outer(&store, "missing").unwrap().is_none());
+    assert_eq!(
+        attachments.entries(1).unwrap(),
+        [std::ffi::OsString::from("local")]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn attachment_outer_optional_refuses_lost_replaced_store_root_and_restores_original() {
+    let temporary = tempfile::tempdir().unwrap();
+    let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
+    let root = store.root().to_path_buf();
+    let attachments = PrivateDirectory::open(&root)
+        .unwrap()
+        .create_child("attachments")
+        .unwrap();
+    let original = attachments.create_child("local").unwrap();
+    original
+        .write_atomic("evidence", b"original attachment", PublishMode::CreateNew)
+        .unwrap();
+    let identity = original.identity().unwrap();
+    let displaced = temporary.path().join("original-root");
+
+    std::fs::rename(&root, &displaced).unwrap();
+    let lost = existing_outer(&store, "missing");
+    let invalid = existing_outer(&store, "../escape");
+    std::fs::rename(&displaced, &root).unwrap();
+    assert!(matches!(lost, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound));
+    assert!(matches!(invalid, Err(Error::Invalid(_))));
+    assert!(existing_outer(&store, "missing").unwrap().is_none());
+    assert_eq!(
+        existing_outer(&store, "local")
+            .unwrap()
+            .unwrap()
+            .identity()
+            .unwrap(),
+        identity
+    );
+
+    std::fs::rename(&root, &displaced).unwrap();
+    let replacement = PrivateDirectory::open_or_create(&root).unwrap();
+    let changed = existing_outer(&store, "missing");
+    assert!(replacement.entries(0).unwrap().is_empty());
+    drop(replacement);
+    std::fs::remove_dir(&root).unwrap();
+    std::fs::rename(&displaced, &root).unwrap();
+    assert!(matches!(changed, Err(Error::Io(_))));
+    let restored = existing_outer(&store, "local").unwrap().unwrap();
+    assert_eq!(restored.identity().unwrap(), identity);
+    assert_eq!(
+        restored.read("evidence", 19).unwrap().as_slice(),
+        b"original attachment"
+    );
+    assert!(existing_outer(&store, "missing").unwrap().is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn attachment_outer_optional_refuses_lost_replaced_admitted_parent_and_restores_original() {
+    let temporary = tempfile::tempdir().unwrap();
+    let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
+    let root = PrivateDirectory::open(store.root()).unwrap();
+    let attachments = root.create_child("attachments").unwrap();
+    let original = attachments.create_child("local").unwrap();
+    original
+        .write_atomic("evidence", b"original attachment", PublishMode::CreateNew)
+        .unwrap();
+    let identity = original.identity().unwrap();
+    let admitted = store.attachments_directory().unwrap().unwrap();
+    let displaced = temporary.path().join("original-attachments");
+
+    std::fs::rename(attachments.path(), &displaced).unwrap();
+    let lost = admitted.open_child_optional("missing");
+    // A fresh first-open absence is still optional; an already admitted parent is not absent.
+    assert!(existing_outer(&store, "missing").unwrap().is_none());
+    std::fs::rename(&displaced, attachments.path()).unwrap();
+    assert!(matches!(lost, Err(error) if error.kind() == std::io::ErrorKind::NotFound));
+    assert!(admitted.open_child_optional("missing").unwrap().is_none());
+
+    std::fs::rename(attachments.path(), &displaced).unwrap();
+    let replacement = root.create_child("attachments").unwrap();
+    let changed = admitted.open_child_optional("missing");
+    assert!(replacement.entries(0).unwrap().is_empty());
+    drop(replacement);
+    std::fs::remove_dir(attachments.path()).unwrap();
+    std::fs::rename(&displaced, attachments.path()).unwrap();
+    assert!(
+        changed.is_err(),
+        "replaced admitted attachments must remain an error"
+    );
+    let restored = existing_outer(&store, "local").unwrap().unwrap();
+    assert_eq!(restored.identity().unwrap(), identity);
+    assert_eq!(
+        restored.read("evidence", 19).unwrap().as_slice(),
+        b"original attachment"
+    );
+    assert!(admitted.open_child_optional("missing").unwrap().is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn attachment_outer_optional_refuses_public_container_permissions_without_repair() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let temporary = tempfile::tempdir().unwrap();
+    let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
+    let attachments = PrivateDirectory::open(store.root())
+        .unwrap()
+        .create_child("attachments")
+        .unwrap();
+    let original = std::fs::metadata(attachments.path()).unwrap().permissions();
+    std::fs::set_permissions(attachments.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let refused = existing_outer(&store, "missing");
+    let unchanged = std::fs::metadata(attachments.path())
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o7777;
+    std::fs::set_permissions(attachments.path(), original).unwrap();
+    assert!(
+        matches!(refused, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::PermissionDenied)
+    );
+    assert_eq!(unchanged, 0o755);
+    assert!(existing_outer(&store, "missing").unwrap().is_none());
+    assert!(attachments.entries(0).unwrap().is_empty());
+}
+
+#[cfg(windows)]
+#[test]
+fn attachment_outer_optional_keeps_native_rename_refusal_and_original_retry() {
+    let temporary = tempfile::tempdir().unwrap();
+    let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
+    let root = PrivateDirectory::open(store.root()).unwrap();
+    let attachments = root.create_child("attachments").unwrap();
+    let original = attachments.create_child("local").unwrap();
+    original
+        .write_atomic("evidence", b"original attachment", PublishMode::CreateNew)
+        .unwrap();
+    let identity = original.identity().unwrap();
+    let admitted = store.attachments_directory().unwrap().unwrap();
+    assert!(std::fs::rename(store.root(), temporary.path().join("moved-root")).is_err());
+    assert!(
+        std::fs::rename(
+            attachments.path(),
+            temporary.path().join("moved-attachments")
+        )
+        .is_err()
+    );
+    assert!(existing_outer(&store, "missing").unwrap().is_none());
+    assert!(admitted.open_child_optional("missing").unwrap().is_none());
+    let found = existing_outer(&store, "local").unwrap().unwrap();
+    assert_eq!(found.identity().unwrap(), identity);
+    assert_eq!(
+        found.read("evidence", 19).unwrap().as_slice(),
+        b"original attachment"
+    );
+    assert_eq!(
+        attachments.entries(1).unwrap(),
+        [std::ffi::OsString::from("local")]
+    );
+}
+
+#[test]
+fn attachment_publication_validates_name_before_creation_and_keeps_exact_files() {
+    let temporary = tempfile::tempdir().unwrap();
+    let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
+    assert!(existing_outer(&store, "private").unwrap().is_none());
+    for name in ["../escape", "", "invalid name"] {
+        let refused = store.publish_attachment(name, &[("request.lock", b"")]);
+        assert!(matches!(refused, Err(Error::Invalid(_))));
+    }
+    assert!(!store.root().join("attachments").exists());
+    let binding = Binding {
+        profile: ProfileBinding::from_profile(&profile(
+            91,
+            1,
+            "https://fixture.example/checkpoint",
+        )),
+        spec: super::super::tests::private_spec(),
+        account_alias: "admin".into(),
+        context: None,
+    };
+    let bytes = encode(&binding).unwrap();
+    let original = store
+        .publish_attachment("private", &[("request.lock", b""), (BINDING, &bytes)])
+        .unwrap();
+    let directory_identity = original.identity().unwrap();
+    let binding_identity =
+        iroha_fs::FileIdentity::of(&original.open_read(BINDING).unwrap()).unwrap();
+    let lock_identity =
+        iroha_fs::FileIdentity::of(&original.open_read("request.lock").unwrap()).unwrap();
+    let found = existing_outer(&store, "private").unwrap().unwrap();
+    assert_eq!(found.identity().unwrap(), directory_identity);
+    assert_eq!(found.read(BINDING, MAX_METADATA).unwrap().as_slice(), bytes);
+    assert_eq!(read_binding(&found).unwrap().spec, binding.spec);
+    let refused = store.publish_attachment("private", &[(BINDING, b"replacement")]);
+    assert!(
+        matches!(refused, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists)
+    );
+    assert_eq!(original.identity().unwrap(), directory_identity);
+    assert_eq!(
+        iroha_fs::FileIdentity::of(&found.open_read(BINDING).unwrap()).unwrap(),
+        binding_identity
+    );
+    assert_eq!(
+        iroha_fs::FileIdentity::of(&found.open_read("request.lock").unwrap()).unwrap(),
+        lock_identity
+    );
+    assert_eq!(found.read(BINDING, MAX_METADATA).unwrap().as_slice(), bytes);
+    assert!(found.read("request.lock", 0).unwrap().is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn attachment_publication_refuses_root_replacement_after_absence_and_restores_original() {
+    let temporary = tempfile::tempdir().unwrap();
+    let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
+    let retained_root = PrivateDirectory::open(store.root()).unwrap();
+    let root_identity = retained_root.identity().unwrap();
+    assert!(existing_outer(&store, "private").unwrap().is_none());
+    let displaced = temporary.path().join("original-root");
+    std::fs::rename(store.root(), &displaced).unwrap();
+    let missing = store.publish_attachment("private", &[("request.lock", b"")]);
+    assert!(
+        matches!(missing, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound)
+    );
+    let replacement = PrivateDirectory::open_or_create(store.root()).unwrap();
+    let invalid = store.publish_attachment("../escape", &[("request.lock", b"")]);
+    assert!(matches!(invalid, Err(Error::Invalid(_))));
+    let refused = store.publish_attachment(
+        "private",
+        &[("request.lock", b""), (BINDING, b"original binding")],
+    );
+    assert!(matches!(refused, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::Other));
+    assert!(replacement.entries(0).unwrap().is_empty());
+    drop(replacement);
+    std::fs::remove_dir(store.root()).unwrap();
+    std::fs::rename(displaced, store.root()).unwrap();
+    assert_eq!(retained_root.identity().unwrap(), root_identity);
+    assert!(existing_outer(&store, "private").unwrap().is_none());
+    let original = store
+        .publish_attachment(
+            "private",
+            &[("request.lock", b""), (BINDING, b"original binding")],
+        )
+        .unwrap();
+    let identity = original.identity().unwrap();
+    let binding_identity =
+        iroha_fs::FileIdentity::of(&original.open_read(BINDING).unwrap()).unwrap();
+    let found = existing_outer(&store, "private").unwrap().unwrap();
+    assert_eq!(found.identity().unwrap(), identity);
+    assert_eq!(
+        iroha_fs::FileIdentity::of(&found.open_read(BINDING).unwrap()).unwrap(),
+        binding_identity
+    );
+    assert_eq!(
+        found.read(BINDING, MAX_METADATA).unwrap().as_slice(),
+        b"original binding"
+    );
+    assert!(found.read("request.lock", 0).unwrap().is_empty());
+    assert!(
+        matches!(store.publish_attachment("private", &[(BINDING, b"replacement")]), Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists)
+    );
+    assert_eq!(found.identity().unwrap(), identity);
+    assert_eq!(
+        found.read(BINDING, MAX_METADATA).unwrap().as_slice(),
+        b"original binding"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn attachment_publication_refuses_public_container_without_repair_and_retries_original() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let temporary = tempfile::tempdir().unwrap();
+    let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
+    let attachments = PrivateDirectory::open(store.root())
+        .unwrap()
+        .create_child("attachments")
+        .unwrap();
+    let identity = attachments.identity().unwrap();
+    let original_permissions = std::fs::metadata(attachments.path()).unwrap().permissions();
+    std::fs::set_permissions(attachments.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let refused = store.publish_attachment(
+        "private",
+        &[("request.lock", b""), (BINDING, b"original binding")],
+    );
+    assert!(
+        matches!(refused, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::PermissionDenied)
+    );
+    assert_eq!(
+        std::fs::metadata(attachments.path())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o7777,
+        0o755
+    );
+    assert_eq!(std::fs::read_dir(attachments.path()).unwrap().count(), 0);
+    std::fs::set_permissions(attachments.path(), original_permissions).unwrap();
+    assert_eq!(attachments.identity().unwrap(), identity);
+    let original = store
+        .publish_attachment(
+            "private",
+            &[("request.lock", b""), (BINDING, b"original binding")],
+        )
+        .unwrap();
+    assert_eq!(
+        existing_outer(&store, "private")
+            .unwrap()
+            .unwrap()
+            .identity()
+            .unwrap(),
+        original.identity().unwrap()
+    );
+    assert_eq!(
+        original.read(BINDING, MAX_METADATA).unwrap().as_slice(),
+        b"original binding"
+    );
+    assert!(original.read("request.lock", 0).unwrap().is_empty());
+}
+
+#[test]
+fn attached_reply_after_foreground_deadline_refuses_without_changing_receipt() {
+    let mut status = connecting("fixture".into());
+    status.stage = ManagedAttachmentPhase::Attached;
+    status.wallet_status = Some(OperationStatus::Applied.as_str().into());
+    status.parent_confirmed = Some(ManagedConfirmedAnchor {
+        parent_height: 13,
+        child: iroha_data_model::private_dataspace::PrivateDataspaceCursor {
+            height: 2,
+            consensus_hash: [1; 32],
+            result: [2; 32],
+        },
+    });
+    let original = status.clone();
+    // This is the production decision after blocking IPC: even exact Attached evidence
+    // cannot turn a reply after the caller's original cutoff into foreground success.
+    let elapsed = Instant::now() - Duration::from_secs(1);
+    assert!(matches!(
+        attachment_complete(&status, elapsed),
+        Err(Error::ParentProgressDeadline {
+            stage: ManagedAttachmentPhase::Attached,
+            failure: ManagedAttachmentFailure::AwaitingCompletion,
+        })
+    ));
+    assert_eq!(status, original);
+    assert!(attachment_complete(&status, Instant::now() + MAX_ATTACH).unwrap());
+    assert_eq!(status, original);
+}
+
+#[test]
+fn attached_reply_preserves_terminal_failure_priority_and_exact_completion_gate() {
+    let mut status = connecting("fixture".into());
+    status.stage = ManagedAttachmentPhase::Attached;
+    status.parent_confirmed = Some(ManagedConfirmedAnchor {
+        parent_height: 13,
+        child: iroha_data_model::private_dataspace::PrivateDataspaceCursor {
+            height: 2,
+            consensus_hash: [1; 32],
+            result: [2; 32],
+        },
+    });
+    let elapsed = Instant::now() - Duration::from_secs(1);
+    for failure in [
+        ManagedAttachmentFailure::OperationExpired,
+        ManagedAttachmentFailure::OperationRejected,
+    ] {
+        status.failure = Some(failure);
+        let expected = terminal_operation_error(&status).unwrap().to_string();
+        let original = status.clone();
+        let error = attachment_complete(&status, elapsed).unwrap_err();
+        assert!(matches!(&error, Error::Invalid(_)));
+        assert_eq!(error.to_string(), expected);
+        assert_eq!(status, original);
+    }
+    status.failure = Some(ManagedAttachmentFailure::ParentUnavailable);
+    assert!(!attachment_complete(&status, elapsed).unwrap());
+    status.failure = None;
+    let confirmed = status.parent_confirmed.take();
+    assert!(!attachment_complete(&status, elapsed).unwrap());
+    status.parent_confirmed = confirmed;
+    status.stage = ManagedAttachmentPhase::Anchoring;
+    assert!(!attachment_complete(&status, elapsed).unwrap());
+    status.stage = ManagedAttachmentPhase::Attached;
+    assert!(attachment_complete(&status, Instant::now() + MAX_ATTACH).unwrap());
+}
+
+#[test]
+fn attachment_join_waits_for_the_original_relay_thread_and_returns_its_panic() {
+    for panic in [false, true] {
+        let (release, held) = std::sync::mpsc::channel();
+        let completed = Arc::new(AtomicBool::new(false));
+        let task_completed = Arc::clone(&completed);
+        let task = AttachmentWorker {
+            status: Arc::new(Mutex::new(connecting("test-parent".into()))),
+            thread: thread::spawn(move || {
+                held.recv_timeout(Duration::from_secs(10)).unwrap();
+                task_completed.store(true, Ordering::Release);
+                assert!(!panic, "controlled relay panic");
+            }),
+        };
+        assert!(!task.is_finished());
+        let joiner = thread::spawn(move || task.join());
+        assert!(!joiner.is_finished());
+        assert!(!completed.load(Ordering::Acquire));
+        release.send(()).unwrap();
+        let result = joiner.join().unwrap();
+        assert!(completed.load(Ordering::Acquire));
+        if panic {
+            assert!(
+                matches!(result, Err(Error::Invalid(message)) if message == "owned parent attachment task panicked")
+            );
+        } else {
+            result.unwrap();
+        }
+    }
+}
+
+#[test]
+fn cancelled_relay_turn_refuses_before_runtime_discovery_or_new_custody() {
+    let _guard = super::super::native_test_guard();
+    let temporary = tempfile::tempdir().unwrap();
+    let (_, directory, prepared) =
+        super::super::tests::fixture(&temporary.path().join("managed"), "local");
+    let binding = Binding {
+        profile: ProfileBinding::from_profile(&profile(
+            87,
+            1,
+            "https://fixture.example/checkpoint",
+        )),
+        spec: super::super::tests::private_spec(),
+        account_alias: "admin".into(),
+        context: None,
+    };
+    let cancelled = Arc::new(AtomicBool::new(true));
+    let status = Mutex::new(connecting("fixture".into()));
+    let mut service = None;
+    assert!(matches!(
+        relay_turn(
+            &directory,
+            &temporary.path().join("missing-release"),
+            &binding,
+            &prepared,
+            &mut service,
+            &status,
+            RelayControl {
+                refresh: false,
+                cancelled: &cancelled
+            }
+        ),
+        Err(ManagedAttachmentFailure::SupervisorStopped)
+    ));
+    assert!(service.is_none());
+    assert!(!directory.path().join("provisioning").exists());
+    assert!(!temporary.path().join("missing-release").exists());
+    assert_eq!(
+        status.lock().unwrap().stage,
+        ManagedAttachmentPhase::Connecting
+    );
+}
+
+#[test]
+fn administrative_amx_managed_busy_is_before_origin_signing_and_source_repair() {
+    let _resources = super::super::native_test_guard();
+    let temporary = tempfile::tempdir().unwrap();
+    let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
+    let selected = profile(81, 4, "https://fixture.example/checkpoint");
+    let runtime = runtime(
+        &temporary.path().join("installed"),
+        InstalledNetworkProfiles::new(vec![selected.clone()]).unwrap(),
+    );
+    let directory = store
+        .publish_attachment(
+            "private",
+            &[("request.lock", b""), ("unchanged", b"original source")],
+        )
+        .unwrap();
+    let network = PrivateDirectory::open(store.root())
+        .unwrap()
+        .open_child("networks")
+        .unwrap()
+        .create_child("private")
+        .unwrap();
+    let key = KeyPair::from_seed(vec![155; 32], Algorithm::Ed25519);
+    let configuration = iroha::config::Config::load_table(
+        "admin-fixture.toml",
+        toml::toml! {
+            chain = "fixture"
+            network_id = (super::super::tests::private_spec().parent_network_id.to_string())
+            torii_url = "https://fixture.example/"
+            [account]
+            chain_discriminant = 753
+            public_key = (key.public_key().to_string())
+            private_key = (iroha_crypto::ExposedPrivateKey(key.private_key().clone()).to_string())
+        },
+    )
+    .unwrap();
+    let options = ManagedAmxRegistrationOptions {
+        fee_asset: iroha_wallet::operations::XOR_ASSET_DEFINITION
+            .parse()
+            .unwrap(),
+        max_fee: iroha_primitives::numeric::Quantity::from(1_u32),
+        deadline_unix_ms: now_ms().unwrap() + 60_000,
+        timeout: Duration::from_secs(1),
+    };
+    // The runtime lease is the existing inactive-generation boundary; it is never bypassed.
+    let lease = store::acquire(&network, "runtime.lock", "private").unwrap();
+    assert!(
+        matches!(store.register_amx_dataspace(&runtime, "private", &configuration, &options), Err(Error::Busy(name)) if name == "private")
+    );
+    assert_eq!(
+        directory
+            .read("unchanged", MAX_METADATA)
+            .unwrap()
+            .as_slice(),
+        b"original source"
+    );
+    assert!(!directory.path().join("provisioning").exists());
+    assert!(!directory.path().join("amx-registration").exists());
+    assert!(!release_path(&store, "private").exists());
+    drop(lease);
+    // Releasing the real runtime lease does not manufacture a missing original binding.
+    assert!(
+        store
+            .register_amx_dataspace(&runtime, "private", &configuration, &options)
+            .is_err()
+    );
+    assert_eq!(
+        directory
+            .read("unchanged", MAX_METADATA)
+            .unwrap()
+            .as_slice(),
+        b"original source"
+    );
+    assert!(!directory.path().join("amx-registration").exists());
 }

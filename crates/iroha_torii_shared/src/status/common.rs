@@ -107,6 +107,7 @@ impl IntoSchema for Uptime {
 /// Cryptography-related status exposed via `/status`.
 #[derive(
     Clone,
+    Copy,
     Debug,
     IntoSchema,
     NoritoSerialize,
@@ -126,13 +127,14 @@ pub struct CryptoStatus {
     /// Indicates whether the OpenSSL-backed SM preview helpers are enabled.
     #[norito(default)]
     pub sm_openssl_preview_enabled: bool,
-    /// Halo2 verifier configuration snapshot.
+    /// Local diagnostic trace configuration snapshot.
     #[norito(default)]
-    pub halo2: Halo2Status,
+    pub trace: DiagnosticTraceStatus,
 }
-/// Snapshot of the active Halo2 verifier configuration.
+/// Snapshot of local diagnostic trace scheduling; it grants no proof authority.
 #[derive(
     Clone,
+    Copy,
     Debug,
     Default,
     IntoSchema,
@@ -142,29 +144,20 @@ pub struct CryptoStatus {
     norito::derive::JsonDeserialize,
     norito::NoritoSchema,
 )]
-#[norito_schema(
-    name = "iroha_torii_shared::status::common::Halo2Status",
-    frame = "iroha_telemetry::metrics::Halo2Status"
-)]
-pub struct Halo2Status {
-    /// Whether Halo2 verification is enabled for the host.
+#[norito_schema(name = "iroha_torii_shared::status::common::DiagnosticTraceStatus")]
+pub struct DiagnosticTraceStatus {
+    /// Whether local trace checking is enabled.
     #[norito(default)]
     pub enabled: bool,
-    /// Selected curve identifier (e.g., `pallas`, `pasta`).
+    /// Maximum diagnostic tasks dispatched per batch.
     #[norito(default)]
-    pub curve: String,
-    /// Proof system backend (`ipa`, `unsupported`, etc.).
+    pub max_batch: u32,
+    /// Effective worker count, or zero when disabled.
     #[norito(default)]
-    pub backend: String,
-    /// Maximum supported circuit size exponent (N = 2^k).
+    pub worker_threads: u64,
+    /// Effective ingress capacity, or zero when disabled.
     #[norito(default)]
-    pub max_k: u32,
-    /// Soft verifier time budget in milliseconds.
-    #[norito(default)]
-    pub verifier_budget_ms: u64,
-    /// Maximum proofs per batch verification.
-    #[norito(default)]
-    pub verifier_max_batch: u32,
+    pub queue_cap: u64,
 }
 #[allow(clippy::derivable_impls)]
 impl Default for CryptoStatus {
@@ -172,7 +165,7 @@ impl Default for CryptoStatus {
         Self {
             sm_helpers_available: false,
             sm_openssl_preview_enabled: false,
-            halo2: Halo2Status::default(),
+            trace: DiagnosticTraceStatus::default(),
         }
     }
 }
@@ -366,8 +359,8 @@ mod captured_frame_identity_tests {
         crate::captured_identity_tests::assert_bidirectional::<super::CryptoStatus>(
             "iroha_torii_shared::status::common::CryptoStatus",
         );
-        crate::captured_identity_tests::assert_bidirectional::<super::Halo2Status>(
-            "iroha_torii_shared::status::common::Halo2Status",
+        crate::captured_identity_tests::assert_bidirectional::<super::DiagnosticTraceStatus>(
+            "iroha_torii_shared::status::common::DiagnosticTraceStatus",
         );
         crate::captured_identity_tests::assert_bidirectional::<super::StackStatus>(
             "iroha_torii_shared::status::common::StackStatus",

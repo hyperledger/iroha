@@ -2,7 +2,7 @@
                     return total;
                 }
 
-                view fn bounded_backedges(bool flag) -> int {
+                view fn bounded_backedges(bool flag) authorize(anyone) -> int {
                     var total = 0;
                     for step in range(64) {
                         if flag && step == 32 { continue; }

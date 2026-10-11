@@ -24,7 +24,7 @@ import org.junit.jupiter.api.Test
 class ConfidentialFullTreeNativeTests {
     @BeforeEach
     fun requireNativeBridge() {
-        assertTrue(PrivacyNativeBridge.isNativeAvailable(), "The same-source ABI-25 native bridge is required")
+        assertTrue(PrivacyNativeBridge.isNativeAvailable(), "The same-source ABI-29 native bridge is required")
     }
 
     @Test
@@ -266,7 +266,7 @@ class ConfidentialFullTreeNativeTests {
 
     private fun assertProof(proof: ConfidentialProof, relation: ConfidentialProof.Relation, root: ByteArray, outputs: Int) {
         assertEquals(relation, proof.relation)
-        assertEquals("halo2/ipa", proof.backend)
+        assertEquals("pipa-r/pasta", proof.backend)
         assertTrue(proof.proof.isNotEmpty(), "A real locally verified proof is required")
         assertArrayEquals(root, proof.root)
         assertEquals(1, proof.nullifiers.size)

@@ -9,20 +9,20 @@ fn fixture() -> &'static Vec<Value> {
         let source = include_str!("../tests/fixtures/frame_owner_identity_observations.json");
         assert_eq!(
             hex::encode(Sha256::digest(source.as_bytes())),
-            "8d13cc2d1f69fe26ed544345faa2293b22d029685d124e574903cbd6dc89f4c5"
+            "53464a17aa48bcdaea70b1692c3d76e546c60d64152f6bee1b11680f84403670"
         );
         let mut rows: Vec<Value> =
             norito::json::from_str(source).expect("original-code observations");
-        assert_eq!(rows.len(), 54);
+        assert_eq!(rows.len(), 52);
         let additional =
             include_str!("../tests/fixtures/additional_frame_owner_identity_observations.json");
         assert_eq!(
             hex::encode(Sha256::digest(additional.as_bytes())),
-            "8c2d12849206a580b07fde3a25a5d78fdfa3a5091cb39a9144e6007787beb21e"
+            "70a60b15402c0a7145adfcb7807f9ed55251b408e44b4b04df53ecdc62b5b19d"
         );
         let additional: Vec<Value> =
             norito::json::from_str(additional).expect("additional original-code observations");
-        assert_eq!(additional.len(), 48);
+        assert_eq!(additional.len(), 46);
         rows.extend(additional);
         let http = include_str!("../tests/fixtures/http_frame_owner_identity_observations.json");
         assert_eq!(
@@ -85,8 +85,8 @@ fn original_observations_are_complete_and_unique() {
         assert_eq!(row["kind"].as_str(), Some("capture"));
         assert_eq!(row["root_matches"].as_bool(), Some(true));
     }
-    assert_eq!(keys.len(), 108);
-    assert_eq!(names.len(), 55);
+    assert_eq!(keys.len(), 104);
+    assert_eq!(names.len(), 53);
 }
 
 #[test]

@@ -4,7 +4,8 @@
 // to represent balances and allowances for illustration purposes.
 module DaiLibrary {
     error enum DaiError {
-        InsufficientBalance = 1, InsufficientAllowance = 2,
+        InsufficientBalance = 1,
+        InsufficientAllowance = 2,
     }
 
     // Transfer tokens between two accounts using the Iroha syscall.
@@ -24,7 +25,6 @@ module DaiLibrary {
             destination: to_account,
             asset_definition: asset,
             amount: wad,
-            dataspace: DataSpaceId::parse("0"),
         );
     }
 
@@ -53,7 +53,6 @@ module DaiLibrary {
             destination: to_account,
             asset_definition: asset,
             amount: wad,
-            dataspace: DataSpaceId::parse("0"),
         );
     }
 

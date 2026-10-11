@@ -3,14 +3,13 @@
 //! Core authenticates network, permanent call, original host, pre-roster root,
 //! segment and metrics. One exact 25-row column binds those facts, host C and U.
 //! Owned blinding and CPU scratch cleanup use the authorization witness and
-//! shared frame owner; Halo2-owned copies remain outside that erasure guarantee.
+//! shared frame owner; native prover-owned copies remain outside that erasure guarantee.
 
 use core::{array, fmt};
-use halo2_proofs::{
-    circuit::{Cell, Layouter, SimpleFloorPlanner, Value},
-    halo2curves::ff::{Field, PrimeField},
-    plonk::{Circuit, ConstraintSystem, Error, Expression, Selector},
-    poly::Rotation,
+use ff::{Field, PrimeField};
+use iroha_plonk::{
+    cs::{ConstraintSystem, Expression, Rotation, Selector},
+    frontend::{Cell, Circuit, Error, Layouter, SimpleFloorPlanner, Value},
 };
 use zeroize::Zeroizing;
 
@@ -31,9 +30,9 @@ pub const KAIGI_USAGE_CIRCUIT_K_V1: u32 = 12;
 /// Exactly one instance column contains this many rows.
 pub const KAIGI_USAGE_INSTANCE_ROWS_V1: usize = 25;
 /// Canonical circuit identity; the previous usage relation has no alternate path.
-pub const KAIGI_USAGE_CIRCUIT_ID_V1: &str = "halo2/pasta/ipa/kaigi-usage-v1";
-/// Exact internal dispatcher key for the final usage relation.
-pub const KAIGI_USAGE_BACKEND_V1: &str = "halo2/pasta/kaigi-usage-v1";
+pub const KAIGI_USAGE_CIRCUIT_ID_V1: &str = "pipa-r/pasta/kaigi-usage-v1";
+/// Exact native registry label for the compiled usage relation.
+pub const KAIGI_USAGE_BACKEND_V1: &str = "pipa-r/pasta/kaigi-usage-v1";
 /// Exact final public-input schema.
 pub const KAIGI_USAGE_PUBLIC_INPUTS_SCHEMA_V1: &[u8] = b"kaigi-usage-v1";
 
@@ -226,7 +225,7 @@ impl Circuit<Scalar> for KaigiUsageCircuitV1 {
         Self::default()
     }
     fn configure(meta: &mut ConstraintSystem<Scalar>) -> Self::Config {
-        let shared = KaigiRelationConfigV1::configure(meta);
+        let shared = KaigiRelationConfigV1::configure(meta, KAIGI_USAGE_INSTANCE_ROWS_V1);
         let q_nonzero = meta.selector();
         meta.create_gate("Kaigi usage nonzero duration and host blinding", |meta| {
             vec![
@@ -253,23 +252,27 @@ impl Circuit<Scalar> for KaigiUsageCircuitV1 {
         let (cells, secret, zero) = layouter.assign_region(
             || "Kaigi usage typed context",
             |mut region| {
-                let cells: [Cell; CONTEXT_WORDS] = array::from_fn(|row| {
-                    region
-                        .assign_advice(config.shared.value, row, words[row])
-                        .cell()
-                });
+                let cells: [Cell; CONTEXT_WORDS] = (0..CONTEXT_WORDS)
+                    .map(|row| {
+                        Ok(region
+                            .assign_advice(config.shared.value, row, words[row])?
+                            .cell())
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?
+                    .try_into()
+                    .map_err(|_| Error::Synthesis)?;
                 let secret = region
-                    .assign_advice(config.shared.value, 23, blinding)
+                    .assign_advice(config.shared.value, 23, blinding)?
                     .cell();
                 let zero = region
-                    .assign_advice(config.shared.value, 24, Value::known(Scalar::ZERO))
+                    .assign_advice(config.shared.value, 24, Value::known(Scalar::ZERO))?
                     .cell();
                 region.constrain_constant(zero, Scalar::ZERO)?;
                 Ok((cells, secret, zero))
             },
         )?;
         for (row, cell) in cells.iter().enumerate() {
-            layouter.constrain_instance(*cell, config.shared.instance, row);
+            layouter.constrain_instance(*cell, config.shared.instance, row)?;
         }
         let mut offset = 25;
         for row in 0..CONTEXT_WORDS {
@@ -298,11 +301,11 @@ impl Circuit<Scalar> for KaigiUsageCircuitV1 {
                     |mut region| {
                         config.shared.q_goldilocks.enable(&mut region, offset)?;
                         let source = region
-                            .assign_advice(config.shared.previous[0], offset, words[row])
+                            .assign_advice(config.shared.previous[0], offset, words[row])?
                             .cell();
-                        region.constrain_equal(source, cells[row]);
+                        region.constrain_equal(source, cells[row])?;
                         Ok(region
-                            .assign_advice(config.shared.previous[1], offset, complement)
+                            .assign_advice(config.shared.previous[1], offset, complement)?
                             .cell())
                     },
                 )?;
@@ -320,14 +323,14 @@ impl Circuit<Scalar> for KaigiUsageCircuitV1 {
                 |mut region| {
                     config.q_nonzero.enable(&mut region, offset)?;
                     let cell = region
-                        .assign_advice(config.shared.previous[0], offset, value)
+                        .assign_advice(config.shared.previous[0], offset, value)?
                         .cell();
-                    region.constrain_equal(cell, source);
+                    region.constrain_equal(cell, source)?;
                     region.assign_advice(
                         config.shared.previous[1],
                         offset,
                         value.map(|v| v.invert().unwrap_or(Scalar::ZERO)),
-                    );
+                    )?;
                     Ok(())
                 },
             )?;
@@ -357,8 +360,8 @@ impl Circuit<Scalar> for KaigiUsageCircuitV1 {
         )?;
         offset += 14 * (POSEIDON_ROUNDS + 1);
         debug_assert_eq!(offset, ASSIGNED_ROWS);
-        layouter.constrain_instance(commitment.0, config.shared.instance, HOST_COMMITMENT_ROW);
-        layouter.constrain_instance(usage.0, config.shared.instance, USAGE_COMMITMENT_ROW);
+        layouter.constrain_instance(commitment.0, config.shared.instance, HOST_COMMITMENT_ROW)?;
+        layouter.constrain_instance(usage.0, config.shared.instance, USAGE_COMMITMENT_ROW)?;
         Ok(())
     }
 }

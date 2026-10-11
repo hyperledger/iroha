@@ -1,6 +1,8 @@
 //! Sole original enrollment signer and historical enrollment extraction.
 
 use super::*;
+use crate::managed::service_authority::CheckpointImports;
+use iroha_data_model::sumeragi_finality::EpochValidationScope;
 
 /// Exact original enrollment with independently authenticated successful wallet inclusion.
 ///
@@ -38,6 +40,77 @@ impl std::fmt::Debug for RetainedCustodyEnrollment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RetainedCustodyEnrollment")
             .finish_non_exhaustive()
+    }
+}
+
+/// One call's fully verified original initial enrollment and its exact Configure policy.
+/// This historical prerequisite grants no current authority and is never cached across calls.
+pub(super) struct RetainedInitialPrerequisite {
+    pub(super) policy: SignerCustodyPolicyV1,
+    pub(super) enrollment: RetainedCustodyEnrollment,
+}
+
+/// One call's authenticated Configure input. The exact original native owners and carrier
+/// bytes stay held until reuse; this is never a current-state or cross-call cache.
+pub(super) struct RetainedConfiguration<'a> {
+    owner: &'a ManagedStreamTokenCustody,
+    original: Selected<Original>,
+    signed: SignedTransaction,
+    carrier: Vec<u8>,
+    policy: SignerCustodyPolicyV1,
+    finalized: ManagedTransactionFinality,
+}
+impl RetainedConfiguration<'_> {
+    pub(super) fn policy(&self) -> &SignerCustodyPolicyV1 {
+        &self.policy
+    }
+    fn require_carrier(&self) -> Result<()> {
+        let directory = self.original.directory();
+        directory.revalidate()?;
+        if read_optional(directory, "carrier.nrt", MAX_CHECKPOINT_BYTES)?.as_deref()
+            != Some(self.carrier.as_slice())
+        {
+            return Err(invalid("retained Configure carrier changed during handoff"));
+        }
+        directory.revalidate()?;
+        Ok(())
+    }
+    pub(super) fn into_initial_prerequisite(
+        self,
+        deadline: Instant,
+    ) -> Result<RetainedInitialPrerequisite> {
+        let owner = self.owner;
+        require_deadline(deadline)?;
+        owner.authority.validate_profile()?;
+        self.require_carrier()?;
+        // The selected graph rechecks original identities, all records and canonical wallets.
+        // Only the immutable native proof import is reused; wallet verification remains fresh.
+        let signed = owner.verify_wallet(self.original.directory(), &self.original, deadline)?;
+        if signed
+            .encode_wire_v1()
+            .map_err(|_| invalid("invalid retained Configure transaction wire"))?
+            != self
+                .signed
+                .encode_wire_v1()
+                .map_err(|_| invalid("invalid retained Configure transaction wire"))?
+        {
+            return Err(invalid("retained Configure wallet changed during handoff"));
+        }
+        self.require_carrier()?;
+        require_deadline(deadline)?;
+        drop(signed);
+        let Self {
+            owner: _,
+            original,
+            signed,
+            carrier,
+            policy,
+            finalized,
+        } = self;
+        drop((original, signed, carrier));
+        // End the Configure graph before the initial BodyHistory opens. The historical result
+        // reaches the same verifier at the same boundary as an ordinary Configure read.
+        owner.initial_prerequisite_after_configuration(policy, finalized, deadline)
     }
 }
 
@@ -367,13 +440,136 @@ impl ManagedStreamTokenCustody {
         require_deadline(deadline)?;
         self.authority.validate_profile()?;
         self.validate_policy(policy)?;
-        let (configured_policy, configured) = self.retained_configuration(deadline)?;
+        // Keep only the existing two pure epoch contexts across these independently read
+        // original phases. Current source custody and active decode admission stay fresh.
+        let mut validation = EpochValidationScope::new();
+        let mut imports = CheckpointImports::new(&self.authority, Some(&mut validation));
+        let (configured_policy, configured) =
+            self.retained_configuration_with_imports(deadline, &mut imports)?;
         if configured_policy != *policy {
             return Err(invalid("retained enrollment policy differs"));
         }
-        let original = self.required_enrollment(purpose)?;
+        let original = self.required_enrollment_with_imports(purpose, &mut imports)?;
+        let result = self.verify_retained_enrollment_with_imports(
+            purpose,
+            policy,
+            interval,
+            &configured,
+            original,
+            deadline,
+            &mut imports,
+        );
+        drop(imports);
+        drop(validation);
+        result
+    }
+
+    /// Consume one canonical initial selection after verifying Configure once. The same owned
+    /// History that supplied its interval reaches wallet verification; no pathname reopen or
+    /// second complete history graph is needed between these read-only stages.
+    pub(super) fn retained_initial_prerequisite(
+        &self,
+        deadline: Instant,
+    ) -> Result<RetainedInitialPrerequisite> {
+        let mut validation = EpochValidationScope::new();
+        let mut imports = CheckpointImports::new(&self.authority, Some(&mut validation));
+        let result = self.retained_initial_prerequisite_with_imports(deadline, &mut imports);
+        drop(imports);
+        drop(validation);
+        result
+    }
+
+    pub(super) fn retained_initial_prerequisite_with_imports(
+        &self,
+        deadline: Instant,
+        imports: &mut CheckpointImports<'_, '_>,
+    ) -> Result<RetainedInitialPrerequisite> {
+        require_deadline(deadline)?;
+        self.authority.validate_profile()?;
+        let (policy, configured) = self.retained_configuration_with_imports(deadline, imports)?;
+        // Each Configure source graph ends at the original phase boundary. Only the caller's
+        // bounded pure epoch workspace may remain live through the initial prerequisite.
+        self.initial_prerequisite_after_configuration_with_imports(
+            policy, configured, deadline, imports,
+        )
+    }
+
+    fn initial_prerequisite_after_configuration(
+        &self,
+        policy: SignerCustodyPolicyV1,
+        configured: ManagedTransactionFinality,
+        deadline: Instant,
+    ) -> Result<RetainedInitialPrerequisite> {
+        // Configure's source graph has already ended at the original handoff boundary.
+        // The initial body and its carrier share pure work only until this call returns.
+        let mut validation = EpochValidationScope::new();
+        let mut imports = CheckpointImports::new(&self.authority, Some(&mut validation));
+        let result = self.initial_prerequisite_after_configuration_with_imports(
+            policy,
+            configured,
+            deadline,
+            &mut imports,
+        );
+        drop(imports);
+        drop(validation);
+        result
+    }
+
+    fn initial_prerequisite_after_configuration_with_imports(
+        &self,
+        policy: SignerCustodyPolicyV1,
+        configured: ManagedTransactionFinality,
+        deadline: Instant,
+        imports: &mut CheckpointImports<'_, '_>,
+    ) -> Result<RetainedInitialPrerequisite> {
+        let (original, interval) = self
+            .inspect_initial_selection_with_imports(&policy, imports)?
+            .ok_or_else(|| invalid("original initial enrollment dispatch is not selected"))?;
+        let enrollment = self.verify_retained_enrollment_with_imports(
+            CustodyPurpose::InitialEnroll,
+            &policy,
+            Some(interval),
+            &configured,
+            original,
+            deadline,
+            imports,
+        )?;
+        Ok(RetainedInitialPrerequisite { policy, enrollment })
+    }
+
+    #[cfg(test)]
+    fn verify_retained_enrollment(
+        &self,
+        purpose: CustodyPurpose,
+        policy: &SignerCustodyPolicyV1,
+        interval: Option<ManagedCustodyEnrollmentInterval>,
+        configured: &ManagedTransactionFinality,
+        original: Selected<Original>,
+        deadline: Instant,
+    ) -> Result<RetainedCustodyEnrollment> {
+        self.verify_retained_enrollment_with_imports(
+            purpose,
+            policy,
+            interval,
+            configured,
+            original,
+            deadline,
+            &mut CheckpointImports::new(&self.authority, None),
+        )
+    }
+
+    fn verify_retained_enrollment_with_imports(
+        &self,
+        purpose: CustodyPurpose,
+        policy: &SignerCustodyPolicyV1,
+        interval: Option<ManagedCustodyEnrollmentInterval>,
+        configured: &ManagedTransactionFinality,
+        original: Selected<Original>,
+        deadline: Instant,
+        imports: &mut CheckpointImports<'_, '_>,
+    ) -> Result<RetainedCustodyEnrollment> {
         let directory = original.directory();
-        self.validate_original(&original, purpose)?;
+        self.validate_original_with_imports(&original, purpose, imports)?;
         let Action::Enroll { enrollment, .. } = &original.action else {
             return Err(invalid("retained enrollment has another purpose"));
         };
@@ -400,8 +596,7 @@ impl ManagedStreamTokenCustody {
             }
         }
         let transaction = self.verify_wallet(&directory, &original, deadline)?;
-        let finalized = self
-            .authority
+        let finalized = imports
             .retained_finality(&directory, &transaction)?
             .ok_or_else(|| invalid("enrollment requires independent original inclusion"))?;
         if finalized.height <= configured.height {
@@ -436,9 +631,33 @@ impl ManagedStreamTokenCustody {
         &self,
         policy: &SignerCustodyPolicyV1,
     ) -> Result<Option<ManagedCustodyEnrollmentInterval>> {
+        Ok(self
+            .inspect_initial_selection(policy)?
+            .map(|(_, interval)| interval))
+    }
+
+    fn inspect_initial_selection(
+        &self,
+        policy: &SignerCustodyPolicyV1,
+    ) -> Result<Option<(Selected<Original>, ManagedCustodyEnrollmentInterval)>> {
+        self.inspect_initial_selection_with_imports(
+            policy,
+            &mut CheckpointImports::new(&self.authority, None),
+        )
+    }
+
+    fn inspect_initial_selection_with_imports(
+        &self,
+        policy: &SignerCustodyPolicyV1,
+        imports: &mut CheckpointImports<'_, '_>,
+    ) -> Result<Option<(Selected<Original>, ManagedCustodyEnrollmentInterval)>> {
         self.authority.validate_profile()?;
         self.validate_policy(policy)?;
-        let Some(history) = body_history::BodyHistory::open(self, CustodyPurpose::InitialEnroll)?
+        let Some(history) = body_history::BodyHistory::open_with_imports(
+            self,
+            CustodyPurpose::InitialEnroll,
+            imports,
+        )?
         else {
             return Ok(None);
         };
@@ -452,27 +671,68 @@ impl ManagedStreamTokenCustody {
         };
         let selected = original.interval()?;
         self.authority.validate_profile()?;
-        Ok(Some(selected))
+        Ok(Some((original, selected)))
     }
 
     pub(super) fn retained_configuration(
         &self,
         deadline: Instant,
     ) -> Result<(SignerCustodyPolicyV1, ManagedTransactionFinality)> {
+        self.retained_configuration_with_imports(
+            deadline,
+            &mut CheckpointImports::new(&self.authority, None),
+        )
+    }
+
+    pub(super) fn retained_configuration_with_imports(
+        &self,
+        deadline: Instant,
+        imports: &mut CheckpointImports<'_, '_>,
+    ) -> Result<(SignerCustodyPolicyV1, ManagedTransactionFinality)> {
+        let retained = self.read_configuration_with_imports(deadline, imports)?;
+        Ok((retained.policy, retained.finalized))
+    }
+
+    pub(super) fn read_configuration(
+        &self,
+        deadline: Instant,
+    ) -> Result<RetainedConfiguration<'_>> {
+        self.read_configuration_with_imports(
+            deadline,
+            &mut CheckpointImports::new(&self.authority, None),
+        )
+    }
+
+    fn read_configuration_with_imports(
+        &self,
+        deadline: Instant,
+        imports: &mut CheckpointImports<'_, '_>,
+    ) -> Result<RetainedConfiguration<'_>> {
+        #[cfg(test)]
+        prerequisite_tests::record_configuration_read();
         require_deadline(deadline)?;
         let operation = self.authority.directory.open_child("configure")?;
         let original = journal::required_original(&operation)?;
         let directory = original.directory();
-        self.validate_original(&original, CustodyPurpose::Configure)?;
+        self.validate_original_with_imports(&original, CustodyPurpose::Configure, imports)?;
         let signed = self.verify_wallet(&directory, &original, deadline)?;
-        let finalized = self
-            .authority
-            .retained_finality(&directory, &signed)?
+        // Retain the same bytes fed to the sole native decoder, never a later path reread.
+        let carrier = read_optional(directory, "carrier.nrt", MAX_CHECKPOINT_BYTES)?
             .ok_or_else(|| invalid("configuration requires independent original inclusion"))?;
+        let verifier = imports.decode(&carrier)?;
+        let finalized = crate::managed::native_operation::verify_carrier(&verifier, &signed)?;
         let Action::Configure(policy) = &original.action else {
             return Err(invalid("configuration journal has another purpose"));
         };
-        Ok((policy.clone(), finalized))
+        let policy = policy.clone();
+        Ok(RetainedConfiguration {
+            owner: self,
+            original,
+            signed,
+            carrier,
+            policy,
+            finalized,
+        })
     }
 
     pub(super) fn unsigned_enrollment(
@@ -598,3 +858,11 @@ mod local_inspection_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "enrollment/prerequisite_tests.rs"]
+mod prerequisite_tests;
+
+#[cfg(test)]
+#[path = "enrollment/route_scope_tests.rs"]
+mod route_scope_tests;

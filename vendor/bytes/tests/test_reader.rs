@@ -1,5 +1,4 @@
 #![warn(rust_2018_idioms)]
-#![cfg(feature = "std")]
 
 use std::io::{BufRead, Read};
 

@@ -24,9 +24,14 @@ use iroha_crypto::{Algorithm, KeyPair, Signature};
 use iroha_data_model::{
     Registrable,
     account::{Account, AccountId},
-    isi::{InstructionBox, sorafs::MutateSorafsStreamTokenCustody},
+    isi::{InstructionBox, Log, sorafs::MutateSorafsStreamTokenCustody},
     permission::{Permission, Permissions},
-    sorafs::{capacity::ProviderId, stream_token_custody::SorafsStreamTokenCustodyActionV1},
+    sorafs::{
+        capacity::ProviderId,
+        stream_token_custody::{
+            SorafsStreamTokenCustodyActionV1, SorafsStreamTokenCustodyRevocationV1,
+        },
+    },
 };
 use iroha_executor_data_model::permission::sorafs::CanManageSorafsStreamTokenCustody;
 use sorafs_manifest::signer::{
@@ -185,9 +190,20 @@ impl NativeCustodyFixture {
         &self,
         current_anchor: SignerCustodyAnchorV1,
     ) -> SignerStreamTokenStateObservationBodyV1 {
+        self.verified_observation_for_phase(
+            current_anchor,
+            SignerStreamTokenObservationPhaseV1::BeforeAdmission,
+        )
+    }
+
+    fn verified_observation_for_phase(
+        &self,
+        current_anchor: SignerCustodyAnchorV1,
+        phase: SignerStreamTokenObservationPhaseV1,
+    ) -> SignerStreamTokenStateObservationBodyV1 {
         let mut expected = SignerStreamTokenObservationExpectedV1::current(
             self.pins.binding(),
-            SignerStreamTokenObservationPhaseV1::BeforeAdmission,
+            phase,
             [0x93; 32],
             self.approval,
             NOW_MS,
@@ -199,7 +215,7 @@ impl NativeCustodyFixture {
                 .request()
                 .digest()
                 .expect("canonical request digest"),
-            phase: SignerStreamTokenObservationPhaseV1::BeforeAdmission,
+            phase,
             subject: SignerStreamTokenStateSubjectV1::CurrentCustody {
                 binding_digest: stream_token_binding_digest_v1(self.pins.binding())
                     .expect("exact binding digest"),
@@ -467,6 +483,218 @@ fn actual_native_custody_retains_history_but_fences_removed_current_provider() {
     ));
     assert!(matches!(
         fixture.validate(&guard, floor, fixture.current.anchor, &observation),
+        Err(StreamTokenIssuerError::SignerFinalityUnavailable)
+    ));
+}
+
+#[test]
+fn startup_custody_accepts_only_certified_unchanged_descendants() {
+    let mut fixture = NativeCustodyFixture::new();
+    let guard = fixture.guard();
+    let floor = guard
+        .capture(fixture.approval)
+        .expect("certified original floor");
+    let startup = fixture.verified_observation_for_phase(
+        fixture.current.anchor,
+        SignerStreamTokenObservationPhaseV1::Startup,
+    );
+    let live = [
+        SignerStreamTokenObservationPhaseV1::BeforeProvider,
+        SignerStreamTokenObservationPhaseV1::BeforeAdmission,
+    ]
+    .map(|phase| fixture.verified_observation_for_phase(fixture.current.anchor, phase));
+    fixture
+        .validate(&guard, floor, fixture.current.anchor, &startup)
+        .unwrap();
+    for observation in &live {
+        fixture
+            .validate(&guard, floor, fixture.current.anchor, observation)
+            .unwrap();
+    }
+    // Ordinary signed nonempty work executes under this fixture's own genesis fee policy.
+    // The fixture is a local certified chain, not a paid generated-localnet qualification.
+    for height in [4, 5] {
+        let at = NOW_MS + height;
+        let transaction = fixture.chain.sign(
+            &fixture_key(0xA1),
+            [InstructionBox::from(Log::new(
+                iroha_data_model::Level::INFO,
+                format!("unrelated work while startup observation is in flight {height}"),
+            ))],
+            at - 1,
+        );
+        assert_eq!(
+            fixture
+                .chain
+                .commit_with(Some(at), vec![transaction], Signers::Quorum),
+            [true]
+        );
+        let latest = read_stream_token_custody_control_at_v1(
+            &fixture.state.view(),
+            fixture.pins.binding(),
+            height,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(latest.state, fixture.current.state);
+        assert_eq!(
+            latest.anchor.state_digest,
+            fixture.current.anchor.state_digest
+        );
+        assert!(startup.current_anchor.height < latest.anchor.height);
+        fixture
+            .validate(&guard, floor, fixture.current.anchor, &startup)
+            .expect(
+                "startup retains the original signed anchor across certified unchanged custody",
+            );
+        // The original floor is never relaxed to accept an older signed observation.
+        let later_floor = guard.capture(fixture.approval).unwrap();
+        assert!(matches!(
+            fixture.validate(&guard, later_floor, fixture.current.anchor, &startup),
+            Err(StreamTokenIssuerError::SignerFinalityUnavailable)
+        ));
+        for observation in &live {
+            assert!(matches!(
+                fixture.validate(&guard, floor, fixture.current.anchor, observation),
+                Err(StreamTokenIssuerError::SignerFinalityUnavailable)
+            ));
+        }
+    }
+    // The added tip is an independent finality target, even when all observed custody is unchanged.
+    fixture
+        .chain
+        .corrupt_local_quorum_for_test(5, Signers::BelowQuorum);
+    assert!(matches!(
+        fixture.validate(&guard, floor, fixture.current.anchor, &startup),
+        Err(StreamTokenIssuerError::SignerFinalityUnavailable)
+    ));
+}
+
+#[test]
+fn startup_custody_rejects_certified_revocation_and_renewal_descendants() {
+    for change in 0..3 {
+        let mut fixture = NativeCustodyFixture::new();
+        let guard = fixture.guard();
+        let floor = guard.capture(fixture.approval).unwrap();
+        let startup = fixture.verified_observation_for_phase(
+            fixture.current.anchor,
+            SignerStreamTokenObservationPhaseV1::Startup,
+        );
+        fixture
+            .validate(&guard, floor, fixture.current.anchor, &startup)
+            .unwrap();
+        let action = if change < 2 {
+            SorafsStreamTokenCustodyActionV1::Revoke(SorafsStreamTokenCustodyRevocationV1 {
+                signer: change == 0,
+                attester: change == 1,
+            })
+        } else {
+            let statement = SignerCustodyStatementV1 {
+                magic: SIGNER_CUSTODY_MAGIC_V1,
+                version: SIGNER_CUSTODY_VERSION_V1,
+                binding: fixture.pins.binding().clone(),
+                authority: fixture.pins.custody_trust().authority.clone(),
+                anchor: fixture.current.anchor,
+                sequence: fixture.current.state.next_sequence,
+                predecessor_digest: fixture.current.state.predecessor_digest,
+                issued_at_unix_ms: NOW_MS + 1,
+                expires_at_unix_ms: NOW_MS + 5_000,
+                evidence_digest: [0x89; 32],
+                revoked: false,
+            };
+            let signature = Signature::try_new(
+                fixture_key(0x44).private_key(),
+                &statement.signing_payload().unwrap(),
+            )
+            .unwrap();
+            let record = SignerCustodyRecordV1 {
+                statement,
+                attestation: signature.payload().try_into().unwrap(),
+            };
+            SorafsStreamTokenCustodyActionV1::Enroll(norito::encode_canonical(&record).unwrap())
+        };
+        let transaction = fixture.chain.sign(
+            &fixture_key(0xA1),
+            [InstructionBox::from(MutateSorafsStreamTokenCustody {
+                provider_id: ProviderId::new(PROVIDER),
+                expected_revision: 2,
+                expected_digest: fixture.current.anchor.state_digest,
+                action,
+            })],
+            NOW_MS,
+        );
+        assert_eq!(
+            fixture
+                .chain
+                .commit_with(Some(NOW_MS + 1), vec![transaction], Signers::Quorum),
+            [true]
+        );
+        let latest = read_stream_token_custody_control_at_v1(
+            &fixture.state.view(),
+            fixture.pins.binding(),
+            4,
+        )
+        .unwrap()
+        .unwrap();
+        assert_ne!(latest.state, fixture.current.state);
+        assert_ne!(
+            latest.anchor.state_digest,
+            fixture.current.anchor.state_digest
+        );
+        let view = fixture.state.view();
+        assert_eq!(
+            CertifiedChain::new(&view)
+                .unwrap()
+                .certified(4)
+                .unwrap()
+                .verification(),
+            QcVerification::Verified
+        );
+        drop(view);
+        assert!(matches!(
+            fixture.validate(&guard, floor, fixture.current.anchor, &startup),
+            Err(StreamTokenIssuerError::SignerFinalityUnavailable)
+        ));
+    }
+}
+
+#[test]
+fn startup_custody_descendant_still_requires_current_provider_registration() {
+    let mut fixture = NativeCustodyFixture::new();
+    let guard = fixture.guard();
+    let floor = guard.capture(fixture.approval).unwrap();
+    let startup = fixture.verified_observation_for_phase(
+        fixture.current.anchor,
+        SignerStreamTokenObservationPhaseV1::Startup,
+    );
+    let transaction = fixture.chain.sign(
+        &fixture_key(0xA1),
+        [InstructionBox::from(Log::new(
+            iroha_data_model::Level::INFO,
+            "unrelated certified startup successor".into(),
+        ))],
+        NOW_MS,
+    );
+    assert_eq!(
+        fixture
+            .chain
+            .commit_with(Some(NOW_MS + 1), vec![transaction], Signers::Quorum),
+        [true]
+    );
+    fixture
+        .validate(&guard, floor, fixture.current.anchor, &startup)
+        .unwrap();
+    // Isolate the existing current-registry predicate; this World-only edit makes no claim
+    // to be a certified provider-removal transaction and does not replace the signed blocks.
+    fixture.chain.setup_world_at(NOW_MS + 2, |tx| {
+        assert!(
+            tx.world_mut_for_testing()
+                .remove_provider_owner_for_testing(ProviderId::new(PROVIDER))
+                .is_some()
+        );
+    });
+    assert!(matches!(
+        fixture.validate(&guard, floor, fixture.current.anchor, &startup),
         Err(StreamTokenIssuerError::SignerFinalityUnavailable)
     ));
 }

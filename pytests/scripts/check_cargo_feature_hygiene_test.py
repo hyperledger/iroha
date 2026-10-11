@@ -86,7 +86,11 @@ def test_model_json_feature_cannot_return_as_an_empty_alias() -> None:
 
 
 def test_retired_kagemusha_switches_cannot_return_as_empty_aliases() -> None:
-    for package, retired in (("iroha", "kagemusha-ordinary-native"), ("iroha_core_zk", "kagemusha-production-prover")):
+    for package, retired in (
+        ("iroha", "kagemusha-ordinary-native"),
+        ("iroha_core_zk", "kagemusha-production-prover"),
+        ("iroha_core_zk", "kagemusha-real-proof-harness"),
+    ):
         document = _guarded_document(package)
         assert retired not in document["features"]
         changed = copy.deepcopy(document)
@@ -99,8 +103,11 @@ def test_production_exports_have_no_feature_opt_out() -> None:
     for source in core.rglob("*.rs"):
         assert 'feature = "kagemusha-production-prover"' not in source.read_text(), source
     core_entry = (core / "lib.rs").read_text()
-    assert 'pub mod kagemusha_v1_recursion;' in core_entry
-    assert 'pub mod kagemusha_v1_state;' in core_entry
+    assert 'pub mod kagemusha_wallet_advance_v1;' in core_entry
+    assert 'pub mod kagemusha_v1_recursion;' not in core_entry
+    assert not (core / "kagemusha_v1_recursion").exists()
+    assert 'mod kagemusha_v1_state;' not in core_entry
+    assert not (core / "kagemusha_v1_state").exists()
 
 
 def test_client_has_no_ordinary_native_surface() -> None:
@@ -114,20 +121,85 @@ def test_client_has_no_ordinary_native_surface() -> None:
     assert "bin" not in document
 
 
-def test_core_backends_reject_optional_owners_and_missing_circuit_params() -> None:
-    document = _guarded_document("iroha_core_zk")
-    assert _guarded_errors("iroha_core_zk", document) == []
-    for owner, mutation in (("kaigi_zk", "remove"), ("kaigi_zk", "optional"),
-                            ("halo2_proofs", "remove"), ("halo2_proofs", "optional"),
-                            ("halo2_proofs", "missing-circuit-params")):
-        changed = copy.deepcopy(document)
-        if mutation == "remove":
-            del changed["dependencies"][owner]
-        elif mutation == "optional":
-            changed["dependencies"][owner]["optional"] = True
-        else:
-            changed["dependencies"][owner]["features"].remove("circuit-params")
-        assert any("mandatory Core backend" in error for error in _guarded_errors("iroha_core_zk", changed)), (owner, mutation)
+NATIVE_CORE_OWNERS = (
+    ("iroha_core", "kaigi_zk"),
+    ("iroha_core_zk", "kaigi_zk"),
+    ("iroha_core_zk", "iroha_plonk"),
+    ("iroha_core_zk", "iroha_plonk_gadgets"),
+    ("iroha_core_zk", "iroha_pasta"),
+)
+
+
+@pytest.mark.parametrize("package,owner", NATIVE_CORE_OWNERS)
+def test_native_core_owner_is_mandatory_with_defaults_disabled(
+    package: str, owner: str
+) -> None:
+    """Native backend ownership is independent of Cargo feature selection."""
+    document = _guarded_document(package)
+    assert _guarded_errors(package, document) == []
+    assert document["dependencies"][owner].get("optional", False) is False
+    changed = copy.deepcopy(document)
+    changed["features"]["default"] = []
+    owners = FEATURE_HYGIENE.MANDATORY_CORE_BACKENDS[package]
+    assert owner in owners
+    assert FEATURE_HYGIENE._check_mandatory_core_backends(
+        changed, _manifest_path(package), owners
+    ) == []
+
+
+@pytest.mark.parametrize("package,owner", NATIVE_CORE_OWNERS)
+@pytest.mark.parametrize(
+    "mutation",
+    ["remove", "optional", "dev-only", "build-only", "foreign-path", "foreign-package"],
+)
+def test_native_core_owner_rejects_optional_or_replaced_dependencies(
+    package: str, owner: str, mutation: str
+) -> None:
+    """Every native backend must retain its canonical normal dependency."""
+    document = _guarded_document(package)
+    changed = copy.deepcopy(document)
+    if mutation == "remove":
+        del changed["dependencies"][owner]
+    elif mutation == "optional":
+        changed["dependencies"][owner]["optional"] = True
+    elif mutation in ("dev-only", "build-only"):
+        section = "dev-dependencies" if mutation == "dev-only" else "build-dependencies"
+        changed.setdefault(section, {})[owner] = changed["dependencies"].pop(owner)
+    elif mutation == "foreign-path":
+        changed["dependencies"][owner]["path"] = "../unreviewed-owner"
+    else:
+        changed["dependencies"][owner]["package"] = "foreign_backend"
+    assert changed != document
+    assert any(
+        f"mandatory Core backend `{owner}` must retain its non-optional local owner"
+        in error
+        for error in _guarded_errors(package, changed)
+    ), (package, owner, mutation)
+
+
+@pytest.mark.parametrize("package,owner", NATIVE_CORE_OWNERS)
+def test_native_core_owner_accepts_explicit_canonical_package(
+    package: str, owner: str
+) -> None:
+    document = copy.deepcopy(_guarded_document(package))
+    document["dependencies"][owner]["package"] = owner
+    assert _guarded_errors(package, document) == []
+
+
+@pytest.mark.parametrize("feature", ["zk-halo2", "zk-halo2-ipa"])
+@pytest.mark.parametrize("members", [[], ["dep:kaigi_zk"], ["zk-ipa-native"]])
+def test_retired_node_backend_features_cannot_return(
+    feature: str, members: list[str]
+) -> None:
+    """Retired backend aliases and dependency forwarders are prohibited."""
+    document = _guarded_document("iroha_core")
+    assert feature not in document["features"]
+    changed = copy.deepcopy(document)
+    changed["features"][feature] = members
+    assert any(
+        f"Cargo feature `{feature}` is unclassified" in error
+        for error in _guarded_errors("iroha_core", changed)
+    )
 
 
 def test_core_backend_switches_cannot_return_or_remove_no_default_symbols() -> None:
@@ -142,16 +214,13 @@ def test_core_backend_switches_cannot_return_or_remove_no_default_symbols() -> N
     for source in core.rglob("*.rs"):
         for name in retired:
             assert f'feature = "{name}"' not in source.read_text(), (source, name)
-    recursion = (core / "kagemusha_v1_recursion/mod.rs").read_text()
-    assert 'KagemushaProductionProverV1' in recursion
-    assert 'register_kagemusha_native_outgoing_witness_source_v1' in recursion
-    state = (core / "kagemusha_v1_state/mod.rs").read_text()
-    assert 'KagemushaNativeOrdinaryBootstrapOwnerV1' in state
-    assert 'KagemushaNativeOrdinaryCashOwnerV1' in state
+    provider = (core / "kagemusha_wallet_advance_v1.rs").read_text()
+    assert "KagemushaWalletProviderV1" in provider
+    assert not (core / "kagemusha_v1_test_fixtures.rs").exists()
 
 
 def test_stark_owns_optional_fastpq_dependency_and_rejects_mutations() -> None:
-    """Halo2-only callers avoid FASTPQ while STARK retains its exact shared field codec."""
+    """Native PIPA-R callers avoid FASTPQ while STARK retains its exact shared field codec."""
 
     package = "iroha_core_zk"
     document = _guarded_document(package)
@@ -319,6 +388,21 @@ def test_rejects_stale_explicit_opt_in_name(monkeypatch) -> None:
 
     assert any(
         "stale explicit opt-in feature `retired-opt-in`" in error for error in errors
+    )
+
+
+@pytest.mark.parametrize("members", [[], ["dep:pprof"], ["dep:bytes"], ["pprof", "dep:bytes"]])
+def test_torii_profiling_retains_both_explicit_dependency_owners(members) -> None:
+    """Profiling owns target pprof and host bytes without exporting a pprof alias."""
+    document = _guarded_document("iroha_torii")
+    assert _guarded_errors("iroha_torii", document) == []
+    visible = FEATURE_HYGIENE.cargo_visible_features(document)
+    assert "pprof" not in visible
+    assert "profiling" not in FEATURE_HYGIENE.local_default_feature_closure(visible)
+    document["features"]["profiling"] = members
+    assert any(
+        "feature `profiling` must be" in error
+        for error in _guarded_errors("iroha_torii", document)
     )
 
 
@@ -753,13 +837,24 @@ def test_contextual_cuda_pins_both_exact_dependency_members() -> None:
         ), members
 
 
-def test_daemon_mutation_testing_is_empty_explicit_and_excluded_from_defaults() -> None:
-    document = _guarded_document("irohad_lib")
-    assert _guarded_errors("irohad_lib", document) == []
-    assert FEATURE_HYGIENE.EXPECTED_FEATURES["irohad_lib"]["mutation-testing"] == ()
+@pytest.mark.parametrize(
+    ("package", "aggregates"),
+    [
+        ("irohad_lib", ("default", "daemon")),
+        ("iroha", ("default",)),
+        ("iroha_data_model", ("default", "application-model")),
+        ("iroha_torii", ("default", "node-api")),
+    ],
+)
+def test_unit_mutation_testing_is_empty_explicit_and_excluded_from_defaults(
+    package: str, aggregates: tuple[str, ...],
+) -> None:
+    document = _guarded_document(package)
+    assert _guarded_errors(package, document) == []
+    assert FEATURE_HYGIENE.EXPECTED_FEATURES[package]["mutation-testing"] == ()
     assert document["features"]["mutation-testing"] == []
-    assert "mutation-testing" in FEATURE_HYGIENE.EXPLICIT_OPT_IN_FEATURES["irohad_lib"]
-    assert "mutation-testing" not in FEATURE_HYGIENE.CONTEXTUAL_SHIPPING_FEATURES["irohad_lib"]
+    assert "mutation-testing" in FEATURE_HYGIENE.EXPLICIT_OPT_IN_FEATURES[package]
+    assert "mutation-testing" not in FEATURE_HYGIENE.CONTEXTUAL_SHIPPING_FEATURES[package]
     assert "mutation-testing" not in FEATURE_HYGIENE.local_default_feature_closure(
         FEATURE_HYGIENE.cargo_visible_features(document)
     )
@@ -767,22 +862,25 @@ def test_daemon_mutation_testing_is_empty_explicit_and_excluded_from_defaults() 
     changed["features"]["mutation-testing"] = ["iroha_core/mutation-testing"]
     assert any(
         "feature `mutation-testing` must be []" in error
-        for error in _guarded_errors("irohad_lib", changed)
+        for error in _guarded_errors(package, changed)
     )
-    for aggregate in ("default", "daemon"):
+    for aggregate in aggregates:
         changed = copy.deepcopy(document)
         changed["features"][aggregate].append("mutation-testing")
         assert any(
             "explicit opt-in feature `mutation-testing` is reachable from `default`" in error
-            for error in _guarded_errors("irohad_lib", changed)
+            for error in _guarded_errors(package, changed)
         ), aggregate
 
 
-def test_daemon_mutation_dependency_is_nonshipping_even_through_an_alias(tmp_path: Path) -> None:
+@pytest.mark.parametrize("package", ["irohad_lib", "iroha", "iroha_data_model", "iroha_torii"])
+def test_unit_mutation_dependency_is_nonshipping_even_through_an_alias(
+    tmp_path: Path, package: str,
+) -> None:
     _write_fixture(tmp_path)
     assert FEATURE_HYGIENE.check_repository(tmp_path) == []
     assert not any(
-        owner == "irohad_lib" and feature == "mutation-testing"
+        owner == package and feature == "mutation-testing"
         for _consumer, owner, feature in
         FEATURE_HYGIENE.NONSHIPPING_EXPLICIT_OPT_IN_DEPENDENCY_ALLOWLIST
     )
@@ -791,7 +889,7 @@ def test_daemon_mutation_dependency_is_nonshipping_even_through_an_alias(tmp_pat
         if section != "dependencies":
             rows.extend(["", f"[{section}]"])
         rows.append(
-            'daemon_owner = { package = "irohad_lib", version = "0.1.0", '
+            f'unit_owner = {{ package = "{package}", version = "0.1.0", '
             'default-features = false, features = ["mutation-testing"] }'
         )
         _write_member(tmp_path, "crates/consumer", rows)
@@ -800,8 +898,8 @@ def test_daemon_mutation_dependency_is_nonshipping_even_through_an_alias(tmp_pat
             assert errors == []
         else:
             assert any(
-                f"package `consumer` [{section}] dependency `daemon_owner` "
-                "(package `irohad_lib`) selects explicit opt-in feature `mutation-testing` "
+                f"package `consumer` [{section}] dependency `unit_owner` "
+                f"(package `{package}`) selects explicit opt-in feature `mutation-testing` "
                 "from a non-dev dependency declaration" in error
                 for error in errors
             ), (section, errors)

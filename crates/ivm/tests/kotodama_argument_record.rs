@@ -157,7 +157,9 @@ fn shared_sdk_fixture_is_generated_and_validated_by_rust() {
     }
     let entry_pc =
         u64::try_from(parsed.prefix_len()).expect("prefix fits u64") + entrypoint.entry_pc;
-    let key: Name = "trigger_event_json".parse().expect("public input key");
+    let key: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+        .parse()
+        .expect("public input key");
     let host = host_with_arguments(BTreeMap::from([(
         key,
         tlv(PointerType::NoritoBytes, &generated),
@@ -176,7 +178,7 @@ fn shared_sdk_fixture_is_generated_and_validated_by_rust() {
 fn compiled_wrapper_decodes_record_and_loads_aligned_words() {
     let source = r#"
 seiyaku ArgumentRecordRuntime {
-  view fn run(int count, Name label) -> int {
+  view fn run(int count, Name label) authorize(anyone) -> int {
     let _label = label;
     return count;
   }
@@ -198,7 +200,9 @@ seiyaku ArgumentRecordRuntime {
     let entry_pc = u64::try_from(parsed.prefix_len()).expect("prefix fits u64") + run.entry_pc;
     let payload =
         Json::from_str_norito(r#"{"count":"41","label":"ready"}"#).expect("valid boundary JSON");
-    let key: Name = "trigger_event_json".parse().expect("public input key");
+    let key: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+        .parse()
+        .expect("public input key");
     let host = host_with_arguments(BTreeMap::from([(key, argument_record_tlv(run, &payload))]));
     let mut vm = IVM::new(u64::MAX);
     vm.load_program(&code).expect("load compiled program");
@@ -212,8 +216,8 @@ seiyaku ArgumentRecordRuntime {
 fn single_json_parameter_is_a_named_record_field_not_the_transport_object() {
     let source = r#"
 seiyaku JsonArgumentRecordRuntime {
-  view fn run(Json event) -> Option<int> {
-    event.get_int(Name::parse("value"))
+  view fn run(Json firing_event) authorize(anyone) -> Option<int> {
+    firing_event.get_int(Name::parse("value"))
   }
 }
 "#;
@@ -230,9 +234,11 @@ seiyaku JsonArgumentRecordRuntime {
         .find(|entrypoint| entrypoint.name == "run")
         .expect("run entrypoint descriptor");
     let entry_pc = u64::try_from(parsed.prefix_len()).expect("prefix fits u64") + run.entry_pc;
-    let payload = Json::from_str_norito(r#"{"event":{"value":"29"}}"#)
+    let payload = Json::from_str_norito(r#"{"firing_event":{"value":"29"}}"#)
         .expect("valid named Json boundary field");
-    let key: Name = "trigger_event_json".parse().expect("public input key");
+    let key: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+        .parse()
+        .expect("public input key");
     let host = host_with_arguments(BTreeMap::from([(key, argument_record_tlv(run, &payload))]));
     let mut vm = IVM::new(u64::MAX);
     vm.load_program(&code).expect("load compiled program");
@@ -253,8 +259,10 @@ seiyaku JsonArgumentRecordRuntime {
     assert_eq!(common::decode_i64_word(&vm, payload[0]), 29);
 
     let numeric_token =
-        Json::from_str_norito(r#"{"event":{"value":29}}"#).expect("number-token JSON field");
-    let key: Name = "trigger_event_json".parse().expect("public input key");
+        Json::from_str_norito(r#"{"firing_event":{"value":29}}"#).expect("number-token JSON field");
+    let key: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+        .parse()
+        .expect("public input key");
     let host = host_with_arguments(BTreeMap::from([(
         key,
         argument_record_tlv(run, &numeric_token),
@@ -264,15 +272,11 @@ seiyaku JsonArgumentRecordRuntime {
     vm.set_program_counter(entry_pc)
         .expect("select run wrapper");
     vm.set_host(host);
-    vm.run().expect("execute numeric-token Json argument");
+    // A present JSON number token is malformed input for the exact int getter:
+    // the call aborts instead of reading the field as absent.
     assert_eq!(
-        ivm::sum::read_words(
-            &vm,
-            vm.public_call_result_word(0)
-                .expect("completed return word"),
-            layout
-        ),
-        Ok((false, vec![])),
+        vm.run(),
+        Err(ivm::VMError::DecodeError),
         "typed int getter must reject a JSON number token",
     );
 }
@@ -287,7 +291,7 @@ seiyaku RecursiveArgumentRecordRuntime {
     (int, bool) pair,
     Option<int> maybe,
     Result<int, bool> outcome
-  ) -> int {
+  ) authorize(anyone) -> int {
     let optional = match maybe { Option::some(value) => value, Option::none => 0 };
     let result = match outcome { Result::ok(value) => value, Result::err(_) => 0 };
     if (!request.ready || !pair.1) { return 0; }
@@ -312,7 +316,9 @@ seiyaku RecursiveArgumentRecordRuntime {
         r#"{"maybe":{"some":"13"},"outcome":{"ok":"17"},"pair":["11",true],"request":{"count":"7","ready":true}}"#,
     )
     .expect("valid recursive boundary JSON");
-    let key: Name = "trigger_event_json".parse().expect("public input key");
+    let key: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+        .parse()
+        .expect("public input key");
     let host = host_with_arguments(BTreeMap::from([(key, argument_record_tlv(run, &payload))]));
     let mut vm = IVM::new(u64::MAX);
     vm.load_program(&code).expect("load compiled program");

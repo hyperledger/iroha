@@ -6,11 +6,11 @@ mod common;
 fn kotodama_register_account_and_unregister_asset() {
     // Program: register domain, then register an account, then register asset and unregister it
     let src = r#"
-        seiyaku RegisterAndUnregisterEntities {
-        kotoage fn main() authorize("ManageEntities") {
+        seiyaku RegisterAndUnregisterEntities { permission ManageEntities;
+        kotoage fn main() authorize(ManageEntities) {
           ledger::domain::register(domain: DomainId::parse("default.universal"));
           ledger::account::register(account: AccountId::parse("sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76"));
-          ledger::asset::register(asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), name: "ROSE", scale: 0, mintable: 1);
+          ledger::asset::register(asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), name: "ROSE", spec: NumericSpec::integer(), mintable: Mintable::Once);
           ledger::asset::unregister(asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"));
           ledger::account::unregister(account: AccountId::parse("sorauﾛ1NfｷgﾉﾓﾉBｦKﾌﾘﾒoﾇﾂﾛrG81ﾋjWﾎﾕVncwﾌSｱ3pﾘﾋﾉhUS9Q76"));
         }

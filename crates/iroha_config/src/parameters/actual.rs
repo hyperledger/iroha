@@ -79,6 +79,10 @@ use std::{
 };
 #[path = "actual_soranet_handshake_debug.rs"]
 mod actual_soranet_handshake_debug;
+mod kagemusha_enrollment;
+pub use kagemusha_enrollment::{
+    KagemushaEnrollmentIssuer, KagemushaEnrollmentProvider, KagemushaEnrollmentWorker,
+};
 mod sccp;
 #[path = "actual_sorafs_reputation.rs"]
 mod sorafs_reputation;
@@ -92,10 +96,10 @@ use norito::{
     streaming::EntropyMode,
 };
 pub use sccp::{
-    SCCP_MAX_SECRET_HEADER_NAME_BYTES, SCCP_RESERVED_SECRET_HEADER_NAMES, SccpAttestor,
-    SccpEndpointError, SccpLightClientKeeper, SccpLightClientKeeperEndpoints, SccpNode,
-    SccpSecretHeader, SccpTonLiteserver, compiled_http_endpoints, compiled_ton_liteservers,
-    derived_bridge_key_dir, parse_sccp_http_endpoint, parse_sccp_secret_header_name,
+    SCCP_MAX_SECRET_HEADER_NAME_BYTES, SCCP_RESERVED_SECRET_HEADER_NAMES, SccpEndpointError,
+    SccpKeeper, SccpLightClientKeeper, SccpLightClientKeeperEndpoints, SccpNode, SccpSecretHeader,
+    SccpTonLiteserver, compiled_http_endpoints, compiled_ton_liteservers, derived_keeper_key_dir,
+    parse_sccp_http_endpoint, parse_sccp_secret_header_name,
 };
 pub use sorafs_reputation::{
     SorafsReputationFinalizedArchiveRetentionAuthority, SorafsReputationRuntime,
@@ -118,7 +122,7 @@ macro_rules! impl_default {
 }
 /// Parsed configuration root used internally by Iroha services.
 #[derive(Debug, Clone)]
-pub struct Root {
+pub struct Root<G = Genesis> {
     /// Common options shared across components.
     pub common: Common,
     /// Authenticated local runtime-provider broker endpoint.
@@ -126,7 +130,7 @@ pub struct Root {
     /// Network configuration.
     pub network: Network,
     /// Genesis configuration.
-    pub genesis: Genesis,
+    pub genesis: G,
     /// Torii API configuration.
     pub torii: Torii,
     /// Embedded Soracloud runtime-manager configuration.
@@ -193,7 +197,7 @@ pub struct Root {
     pub settlement: Settlement,
     /// Streaming configuration (control-plane key material).
     pub streaming: Streaming,
-    /// Node-local SCCP attestor and light-client keeper.
+    /// Node-local SCCP keeper and its light-client duty.
     pub sccp: SccpNode,
     /// Node data directory, when the configuration uses the fixed `data_dir` layout.
     pub data_dir: Option<DataDir>,
@@ -314,8 +318,6 @@ pub enum NodeSecretFile {
     Streaming,
     /// Soracloud runtime mutation-signer private key.
     RuntimeSigner,
-    /// KAGEMUSHA mint-finality seed.
-    MintFinalitySeed,
     /// Global beacon partial-signer credential.
     BeaconCredential,
     /// Faucet authority private key.
@@ -330,12 +332,11 @@ pub enum NodeSecretFile {
 }
 impl NodeSecretFile {
     /// Every fixed secret file, in a stable order.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 8] = [
         Self::Validator,
         Self::Transport,
         Self::Streaming,
         Self::RuntimeSigner,
-        Self::MintFinalitySeed,
         Self::BeaconCredential,
         Self::FaucetAuthority,
         Self::OnboardingAuthority,
@@ -350,7 +351,6 @@ impl NodeSecretFile {
             Self::Transport => names::TRANSPORT_KEY,
             Self::Streaming => names::STREAMING_KEY,
             Self::RuntimeSigner => names::RUNTIME_SIGNER_KEY,
-            Self::MintFinalitySeed => names::MINT_FINALITY_SEED,
             Self::BeaconCredential => names::BEACON_CREDENTIAL,
             Self::FaucetAuthority => names::FAUCET_AUTHORITY_KEY,
             Self::OnboardingAuthority => names::ONBOARDING_AUTHORITY_KEY,
@@ -497,7 +497,6 @@ mod data_dir_tests {
                 "transport.key",
                 "streaming.key",
                 "runtime_signer.key",
-                "mint_finality.seed",
                 "beacon.cred",
                 "authority/faucet.key",
                 "authority/onboarding.key",
@@ -1001,6 +1000,94 @@ impl Root {
             .parse()
             .change_context(FromTomlSourceError)
     }
+}
+impl<G> Root<G> {
+    fn map_genesis<H>(self, transform: impl FnOnce(G) -> H) -> Root<H> {
+        let Self {
+            common,
+            runtime_provider_broker,
+            network,
+            genesis,
+            torii,
+            soracloud_runtime,
+            musubi_publication,
+            kura,
+            sumeragi,
+            block_sync,
+            transaction_gossiper,
+            live_query_store,
+            logger,
+            queue,
+            nexus,
+            snapshot,
+            telemetry_profile,
+            telemetry,
+            telemetry_integrity,
+            dev_telemetry,
+            pipeline,
+            tiered_state,
+            compute,
+            content,
+            oracle,
+            ivm,
+            norito,
+            fraud_monitoring,
+            zk,
+            gov,
+            nts,
+            accel,
+            concurrency,
+            confidential,
+            crypto,
+            settlement,
+            streaming,
+            sccp,
+            data_dir,
+            lifecycle,
+        } = self;
+        Root {
+            common,
+            runtime_provider_broker,
+            network,
+            genesis: transform(genesis),
+            torii,
+            soracloud_runtime,
+            musubi_publication,
+            kura,
+            sumeragi,
+            block_sync,
+            transaction_gossiper,
+            live_query_store,
+            logger,
+            queue,
+            nexus,
+            snapshot,
+            telemetry_profile,
+            telemetry,
+            telemetry_integrity,
+            dev_telemetry,
+            pipeline,
+            tiered_state,
+            compute,
+            content,
+            oracle,
+            ivm,
+            norito,
+            fraud_monitoring,
+            zk,
+            gov,
+            nts,
+            accel,
+            concurrency,
+            confidential,
+            crypto,
+            settlement,
+            streaming,
+            sccp,
+            data_dir,
+            lifecycle,
+        }
+    }
     /// Check whether the configuration already enables Sora/Nexus-only features.
     #[cfg(test)]
     #[must_use]
@@ -1182,7 +1269,7 @@ pub(crate) struct NexusStorageConfiguredComponentCaps {
     sorafs_max_capacity_bytes: Bytes,
 }
 impl NexusStorageConfiguredComponentCaps {
-    fn capture(root: &Root) -> Self {
+    fn capture<G>(root: &Root<G>) -> Self {
         Self {
             kura_max_disk_usage_bytes: root.kura.max_disk_usage_bytes,
             wsv_cold_max_bytes: root.tiered_state.max_cold_bytes,
@@ -1343,6 +1430,7 @@ fn min_nonzero_bytes(current: Bytes, limit: u64) -> Bytes {
 }
 pub(crate) fn sora_lane_catalog() -> LaneCatalog {
     let lane_count = NonZeroU32::new(3).expect("three lanes are non-zero");
+    // LaneCatalog requires one visibility per dataspace; universal lanes must be public.
     let lanes = vec![
         LaneConfigMetadata {
             id: LaneId::new(0),
@@ -1368,7 +1456,7 @@ pub(crate) fn sora_lane_catalog() -> LaneCatalog {
             dataspace_id: DataSpaceId::UNIVERSAL,
             alias: "governance".to_string(),
             description: Some("Governance & parliament traffic".to_string()),
-            visibility: LaneVisibility::Restricted,
+            visibility: LaneVisibility::Public,
             lane_type: Some("governance".to_string()),
             governance: None,
             settlement: None,
@@ -1386,7 +1474,7 @@ pub(crate) fn sora_lane_catalog() -> LaneCatalog {
             dataspace_id: DataSpaceId::UNIVERSAL,
             alias: "zk".to_string(),
             description: Some("Zero-knowledge attachments".to_string()),
-            visibility: LaneVisibility::Restricted,
+            visibility: LaneVisibility::Public,
             lane_type: Some("attachments".to_string()),
             governance: None,
             settlement: None,
@@ -2301,7 +2389,7 @@ pub struct Fastpq {
 pub struct VerifyingKeyRef {
     /// Backend identifier of the verifying key backend.
     ///
-    /// Examples: "halo2/ipa", "groth16/bn254". This string selects the
+    /// Examples: "pipa-r/pasta", "stark/fri/poseidon-x7-goldilocks-6x64-v1". This string selects the
     /// verification scheme and the curve/domain parameters to use when
     /// validating proofs.
     pub backend: String,
@@ -2653,7 +2741,9 @@ pub struct Governance {
     pub min_turnout: u128,
     /// Alternates retained for each attempt-local Parliament body draw.
     pub parliament_alternate_size: usize,
-    /// Exact future-beacon delay frozen into Parliament sortition requests.
+    /// Minimum future-beacon delay frozen into Parliament attempts. A sortition request targets
+    /// the first consensus-native `NPoS` pulse height at or after its request height plus this
+    /// delay.
     pub parliament_sortition_pulse_delay_blocks: u64,
     /// Consensus block-height span for immutable Parliament invitation responses.
     pub parliament_invitation_phase_blocks: u64,
@@ -2848,6 +2938,87 @@ pub struct Genesis {
     /// Configuration normalization requires this value independently of the signed artifact.
     pub expected_hash: HashOf<BlockHeader>,
 }
+/// Complete validated node policy before a genesis identity exists.
+///
+/// This authoring context has no runtime decoder or implicit conversion to [`Root`]. Every
+/// ordinary schema, policy and required private-custody validator still runs. Binding requires
+/// an original signed genesis block; daemon startup independently authenticates its final
+/// expected hash against the prepared bundle.
+#[derive(Debug)]
+pub struct GenesisSigningContext {
+    policy: Root<GenesisForSigning>,
+}
+/// Genesis public identity in an unpublished signing context. No expected hash is fabricated.
+#[derive(Debug)]
+pub(crate) struct GenesisForSigning {
+    pub(crate) public_key: PublicKey,
+    pub(crate) file: Option<WithOrigin<PathBuf>>,
+    pub(crate) manifest_json: Option<WithOrigin<PathBuf>>,
+}
+impl GenesisSigningContext {
+    pub(crate) fn new(policy: Root<GenesisForSigning>) -> Self {
+        Self { policy }
+    }
+    /// Read complete unpublished policy with the canonical validators and native private files.
+    /// Ambient environment variables cannot replace these authoring inputs.
+    /// # Errors
+    /// Refuses a claimed runtime identity, invalid policy, or missing required private custody.
+    pub fn from_toml_source(src: TomlSource) -> Result<Self, FromTomlSourceError> {
+        ConfigReader::new()
+            .without_env()
+            .with_toml_source(src)
+            .read_and_complete::<user::Root>()
+            .change_context(FromTomlSourceError)?
+            .parse_for_genesis_signing()
+            .change_context(FromTomlSourceError)
+    }
+    /// Exact validated Nexus policy used by native genesis execution.
+    pub fn nexus(&self) -> &Nexus {
+        &self.policy.nexus
+    }
+    /// Exact validated confidential-verifier policy used by native genesis execution.
+    pub fn zk(&self) -> &Zk {
+        &self.policy.zk
+    }
+    /// Bind this authoring policy to a genuine signed genesis-header identity.
+    ///
+    /// A provisional block may be used only for local policy execution. The final generator
+    /// must parse every final config against the final network before publication; a
+    /// provisional context is never a deployment admission receipt.
+    /// # Errors
+    /// Refuses a non-genesis block, missing or extra signatures, a wrong signer, or invalid
+    /// original block and transaction signatures.
+    pub fn bind_signed_genesis(
+        self,
+        block: &iroha_data_model::block::SignedBlock,
+    ) -> core::result::Result<Root, &'static str> {
+        if block.header().height().get() != 1 {
+            return Err("signing context requires an original signed genesis block");
+        }
+        let mut signatures = block.signatures();
+        let signature = signatures
+            .next()
+            .ok_or("signing context genesis has no signature")?;
+        if signature.index() != 0 || signatures.next().is_some() {
+            return Err("signing context genesis must have one signature at index zero");
+        }
+        signature
+            .signature()
+            .verify_hash(&self.policy.genesis.public_key, block.hash())
+            .map_err(|_| "signing context genesis signature does not match its public key")?;
+        for transaction in block.external_transactions() {
+            transaction
+                .verify_signature()
+                .map_err(|_| "signing context genesis has an invalid transaction signature")?;
+        }
+        Ok(self.policy.map_genesis(|genesis| Genesis {
+            public_key: genesis.public_key,
+            file: genesis.file,
+            manifest_json: genesis.manifest_json,
+            expected_hash: block.hash(),
+        }))
+    }
+}
 /// Transaction queue settings.
 #[derive(Debug, Clone, Copy)]
 pub struct Queue {
@@ -2883,8 +3054,6 @@ pub struct NexusStaking {
     pub unbonding_delay: Duration,
     /// Maximum slash ratio allowed (basis points, 10_000 = 100%).
     pub max_slash_bps: u16,
-    /// Minimum reward amount paid out; smaller amounts are skipped as dust.
-    pub reward_dust_threshold: Quantity,
     /// Asset definition used for staking bonds (string form).
     pub stake_asset_id: String,
     /// Escrow account that holds bonded stake (string form).
@@ -2904,7 +3073,6 @@ impl_default!(NexusStaking => {
                 defaults::nexus::staking::MAX_PENDING_UNBONDS_PER_SHARE,
             unbonding_delay: defaults::nexus::staking::UNBONDING_DELAY,
             max_slash_bps: defaults::nexus::staking::MAX_SLASH_BPS,
-            reward_dust_threshold: defaults::nexus::staking::reward_dust_threshold(),
             stake_asset_id: defaults::nexus::staking::stake_asset_id(),
             stake_escrow_account_id: defaults::nexus::staking::stake_escrow_account_id(),
             slash_sink_account_id: defaults::nexus::staking::slash_sink_account_id(),
@@ -3291,9 +3459,6 @@ pub struct NexusStorage {
     pub budget_enforce_interval_blocks: u64,
     /// WSV hot-tier deterministic encoded-key plus measured-value budget (bytes).
     pub max_wsv_memory_bytes: Bytes,
-    /// Original allocation pool for the four fixed KAGEMUSHA operation indexes.
-    /// Current/undo versions and overlapping execution retain this same capacity.
-    pub kagemusha_operation_index_bytes: Bytes,
     /// Finite shared pool for retained carrier World shells, effects and service descriptors.
     /// This is not an aggregate RAM or nested execution-payload limit; zero admits none.
     pub retained_carrier_shell_bytes: usize,
@@ -3332,10 +3497,6 @@ impl fmt::Debug for NexusStorage {
             )
             .field("max_wsv_memory_bytes", &self.max_wsv_memory_bytes)
             .field(
-                "kagemusha_operation_index_bytes",
-                &self.kagemusha_operation_index_bytes,
-            )
-            .field(
                 "retained_carrier_shell_bytes",
                 &self.retained_carrier_shell_bytes,
             )
@@ -3358,8 +3519,6 @@ impl_default!(NexusStorage => {
             budget_enforce_interval_blocks:
                 defaults::nexus::storage::BUDGET_ENFORCE_INTERVAL_BLOCKS,
             max_wsv_memory_bytes: defaults::nexus::storage::MAX_WSV_MEMORY_BYTES,
-            kagemusha_operation_index_bytes:
-                defaults::nexus::storage::KAGEMUSHA_OPERATION_INDEX_BYTES,
             retained_carrier_shell_bytes: defaults::nexus::storage::RETAINED_CARRIER_SHELL_BYTES,
             consensus_evidence_preparation_bytes:
                 defaults::nexus::storage::CONSENSUS_EVIDENCE_PREPARATION_BYTES,
@@ -3492,6 +3651,70 @@ impl Nexus {
         );
         !(policy_is_default && catalog_is_default && dataspace_is_default)
     }
+    /// Validate the physical geometry of a single independently authenticated private root.
+    ///
+    /// This checks the actual/configured catalogs, derived storage geometry, routing and
+    /// autoscale state only. The caller must separately authenticate its signed root scope
+    /// and consensus mode; local configuration never supplies either authority.
+    ///
+    /// # Errors
+    /// Rejects any geometry other than the exact restricted, fully replicated lane zero of
+    /// `dataspace_id`, with no foreign physical catalog, route or elastic-lane state.
+    pub fn validate_private_root_geometry(
+        &self,
+        dataspace_id: DataSpaceId,
+    ) -> core::result::Result<(), &'static str> {
+        if self.lane_catalog != self.configured_lane_catalog
+            || self.dataspace_catalog != self.configured_dataspace_catalog
+            || !self.lane_config.matches_catalog(&self.lane_catalog)
+        {
+            return Err("private root requires unchanged configured execution geometry");
+        }
+        if !matches!(self.dataspace_catalog.entries(), [entry] if entry.id == dataspace_id) {
+            return Err(
+                "private root requires exactly its signed dataspace in the physical catalog",
+            );
+        }
+        let [lane] = self.lane_catalog.lanes() else {
+            return Err("private root requires exactly one physical lane zero");
+        };
+        if self.lane_catalog.lane_count().get() != 1
+            || lane.id != LaneId::SINGLE
+            || lane.dataspace_id != dataspace_id
+            || lane.visibility != LaneVisibility::Restricted
+            || lane.storage != LaneStorageProfile::FullReplica
+        {
+            return Err(
+                "private root requires its own restricted, fully replicated physical lane zero",
+            );
+        }
+        let routing = &self.routing_policy;
+        if routing.default_lane != LaneId::SINGLE
+            || routing.default_dataspace != dataspace_id
+            || routing.rules.iter().any(|rule| {
+                rule.lane != LaneId::SINGLE
+                    || rule.dataspace.is_some_and(|target| target != dataspace_id)
+            })
+        {
+            return Err(
+                "private root routing must remain inside its signed dataspace and lane zero",
+            );
+        }
+        if self.autoscale.enabled
+            || self.autoscale.last_transition_height != 0
+            || [
+                iroha_data_model::nexus::AUTOSCALE_META_MANAGED,
+                iroha_data_model::nexus::AUTOSCALE_META_CREATED_HEIGHT,
+                iroha_data_model::nexus::AUTOSCALE_META_DRAIN_STATE,
+                iroha_data_model::nexus::AUTOSCALE_META_COMMITTEE,
+            ]
+            .iter()
+            .any(|key| lane.metadata.contains_key(*key))
+        {
+            return Err("private root cannot contain autoscale or elastic-lane state");
+        }
+        Ok(())
+    }
     /// Returns true when any lane/dataspace/routing overrides are present (even in single-lane mode).
     #[must_use]
     pub fn has_lane_overrides(&self) -> bool {
@@ -3594,7 +3817,6 @@ struct NexusConsensusStakingV1 {
     max_pending_unbonds_per_share: u32,
     unbonding_delay: NexusConsensusDurationV1,
     max_slash_bps: u16,
-    reward_dust_threshold: Quantity,
     stake_asset_id: String,
     stake_escrow_account_id: String,
     slash_sink_account_id: String,
@@ -3912,7 +4134,6 @@ pub fn nexus_consensus_policy_preimage_with_runtime_policies(
             max_pending_unbonds_per_share: nexus.staking.max_pending_unbonds_per_share.get(),
             unbonding_delay: nexus.staking.unbonding_delay.into(),
             max_slash_bps: nexus.staking.max_slash_bps,
-            reward_dust_threshold: nexus.staking.reward_dust_threshold.clone(),
             stake_asset_id: nexus.staking.stake_asset_id.clone(),
             stake_escrow_account_id: nexus.staking.stake_escrow_account_id.clone(),
             slash_sink_account_id: nexus.staking.slash_sink_account_id.clone(),
@@ -4905,6 +5126,25 @@ impl LaneConfig {
         }
         Self { entries, by_id }
     }
+    /// Check the complete derived catalog and its exact lookup index without allocating.
+    ///
+    /// This preserves equality with [`Self::from_catalog`] while borrowing every
+    /// original field. It also rejects missing, extra, reordered or rebound index
+    /// entries, so callers do not reconstruct an unadmitted configuration graph.
+    #[must_use]
+    pub fn matches_catalog(&self, catalog: &LaneCatalog) -> bool {
+        let lanes = catalog.lanes();
+        self.entries.len() == lanes.len()
+            && self.by_id.len() == lanes.len()
+            && self
+                .entries
+                .iter()
+                .zip(lanes)
+                .enumerate()
+                .all(|(index, (entry, metadata))| {
+                    entry.matches_metadata(metadata) && self.by_id.get(&metadata.id) == Some(&index)
+                })
+    }
     /// Iterate over all derived lane entries in catalog order.
     #[must_use]
     pub fn entries(&self) -> &[LaneConfigEntry] {
@@ -5517,10 +5757,10 @@ pub struct SumeragiLaneLifecycleEntry {
     /// Global carrier height that activated this incarnation.
     pub activation_height: u64,
 }
-/// Compute the canonical Sumeragi commitment to the Nexus and AMX inputs
-/// that can change proposal assembly or deterministic validation.
+/// Build the canonical Sumeragi preimage of the Nexus and AMX inputs that can
+/// change proposal assembly or deterministic validation.
 ///
-/// The commitment deliberately excludes local storage paths, worker pool
+/// The projection deliberately excludes local storage paths, worker pool
 /// sizing, caches, and telemetry. It includes the validated lane geometry,
 /// dataspace and routing catalogs, lane election/fee/AXT/DA policy, the five
 /// deterministic AMX budgets, and staged active public-lane validator records.
@@ -5529,52 +5769,22 @@ pub struct SumeragiLaneLifecycleEntry {
 /// so peers with divergent lifecycle histories cannot enter the same height or
 /// later derive the same recreated lane differently. Active validator records
 /// and retained lineage entries are sorted canonically before encoding.
-#[must_use]
-pub fn sumeragi_nexus_amx_context_hash(
-    nexus: &Nexus,
-    pipeline: &Pipeline,
-    active_validators: &[GenesisActiveNexusLaneRecord],
-    retained_lane_lineage: &[SumeragiLaneLifecycleEntry],
-) -> Hash {
-    sumeragi_nexus_amx_context_hash_with_catalog_policy(
-        nexus,
-        pipeline,
-        active_validators,
-        retained_lane_lineage,
-        None,
-    )
-}
-/// Commit effective Nexus/AMX inputs together with an authenticated runtime catalog policy.
 ///
-/// The root commits the complete ledger-owned dataspace and manifest additions. Callers must
-/// derive it from validated committed state, never from a local configuration overlay. Before
-/// any catalog-policy transaction exists, `None` retains the original projection byte for byte.
+/// The framing and tag grammar are owned by [`iroha_data_model::nexus::NexusAmxContextWriterV1`]
+/// and [`iroha_data_model::nexus::decode_nexus_amx_context_v1`]; a field added here must also
+/// be added to that grammar.
 #[must_use]
-pub fn sumeragi_nexus_amx_context_hash_with_catalog_policy(
+pub fn sumeragi_nexus_amx_context_preimage(
     nexus: &Nexus,
     pipeline: &Pipeline,
     active_validators: &[GenesisActiveNexusLaneRecord],
     retained_lane_lineage: &[SumeragiLaneLifecycleEntry],
-    committed_catalog_policy_root: Option<Hash>,
-) -> Hash {
-    const DATASPACE_COUNT_TAG: &str = "nexus.dataspace_catalog.count";
-    fn append<T: Encode>(out: &mut Vec<u8>, tag: &'static str, value: &T) {
-        let bytes = value.encode();
-        let tag_len = u32::try_from(tag.len()).expect("static projection tag fits in u32");
-        let bytes_len = u64::try_from(bytes.len()).expect("projection field fits in u64");
-        out.extend_from_slice(&tag_len.to_le_bytes());
-        out.extend_from_slice(tag.as_bytes());
-        out.extend_from_slice(&bytes_len.to_le_bytes());
-        out.extend_from_slice(&bytes);
-    }
-    let mut preimage = b"sumeragi:nexus-amx-context\0v1".to_vec();
-    append(
-        &mut preimage,
-        "nexus.lane_catalog.lane_count",
-        &nexus.lane_catalog.lane_count().get(),
-    );
+) -> Vec<u8> {
+    use iroha_data_model::nexus::{NexusAmxContextWriterV1, tag};
+    let mut preimage = NexusAmxContextWriterV1::new();
+    preimage.field(tag::LANE_COUNT, &nexus.lane_catalog.lane_count().get());
     let (_, consensus_lanes) = nexus.lane_catalog.consensus_projection();
-    append(&mut preimage, "nexus.lane_catalog.lanes", &consensus_lanes);
+    preimage.field(tag::LANES, &consensus_lanes);
     let mut retained_lane_lineage = retained_lane_lineage.to_vec();
     retained_lane_lineage.sort_unstable_by(|left, right| {
         left.lane_id
@@ -5583,79 +5793,46 @@ pub fn sumeragi_nexus_amx_context_hash_with_catalog_policy(
             .then_with(|| left.incarnation.cmp(&right.incarnation))
             .then_with(|| left.activation_height.cmp(&right.activation_height))
     });
-    append(
-        &mut preimage,
-        "nexus.lane_lifecycle.count",
+    preimage.field(
+        tag::LANE_LIFECYCLE_COUNT,
         &u64::try_from(retained_lane_lineage.len())
             .expect("retained lane lineage length fits in u64"),
     );
     for entry in retained_lane_lineage {
-        append(
-            &mut preimage,
-            "nexus.lane_lifecycle.lane_id",
-            &entry.lane_id,
-        );
-        append(
-            &mut preimage,
-            "nexus.lane_lifecycle.generation",
-            &entry.generation,
-        );
-        append(
-            &mut preimage,
-            "nexus.lane_lifecycle.incarnation",
-            &entry.incarnation,
-        );
-        append(
-            &mut preimage,
-            "nexus.lane_lifecycle.activation_height",
+        preimage.field(tag::LANE_LIFECYCLE_LANE_ID, &entry.lane_id);
+        preimage.field(tag::LANE_LIFECYCLE_GENERATION, &entry.generation);
+        preimage.field(tag::LANE_LIFECYCLE_INCARNATION, &entry.incarnation);
+        preimage.field(
+            tag::LANE_LIFECYCLE_ACTIVATION_HEIGHT,
             &entry.activation_height,
         );
     }
     let mut dataspaces = nexus.dataspace_catalog.entries().iter().collect::<Vec<_>>();
     dataspaces.sort_unstable_by_key(|entry| entry.id);
     let dataspace_count = u64::try_from(dataspaces.len()).expect("dataspace count fits in u64");
-    append(&mut preimage, DATASPACE_COUNT_TAG, &dataspace_count);
+    preimage.field(tag::DATASPACE_COUNT, &dataspace_count);
     for entry in dataspaces {
-        append(&mut preimage, "nexus.dataspace.id", &entry.id);
-        append(&mut preimage, "nexus.dataspace.alias", &entry.alias);
-        append(
-            &mut preimage,
-            "nexus.dataspace.fault_tolerance",
-            &entry.fault_tolerance,
-        );
+        preimage.field(tag::DATASPACE_ID, &entry.id);
+        preimage.field(tag::DATASPACE_ALIAS, &entry.alias);
+        preimage.field(tag::DATASPACE_FAULT_TOLERANCE, &entry.fault_tolerance);
     }
-    append(
-        &mut preimage,
-        "nexus.routing.default_lane",
+    preimage.field(
+        tag::ROUTING_DEFAULT_LANE,
         &nexus.routing_policy.default_lane,
     );
-    append(
-        &mut preimage,
-        "nexus.routing.default_dataspace",
+    preimage.field(
+        tag::ROUTING_DEFAULT_DATASPACE,
         &nexus.routing_policy.default_dataspace,
     );
-    append(
-        &mut preimage,
-        "nexus.routing.rule_count",
+    preimage.field(
+        tag::ROUTING_RULE_COUNT,
         &u64::try_from(nexus.routing_policy.rules.len()).expect("routing rule count fits in u64"),
     );
     for rule in &nexus.routing_policy.rules {
-        append(&mut preimage, "nexus.routing.rule.lane", &rule.lane);
-        append(
-            &mut preimage,
-            "nexus.routing.rule.dataspace",
-            &rule.dataspace,
-        );
-        append(
-            &mut preimage,
-            "nexus.routing.rule.account",
-            &rule.matcher.account,
-        );
-        append(
-            &mut preimage,
-            "nexus.routing.rule.instruction",
-            &rule.matcher.instruction,
-        );
+        preimage.field(tag::ROUTING_RULE_LANE, &rule.lane);
+        preimage.field(tag::ROUTING_RULE_DATASPACE, &rule.dataspace);
+        preimage.field(tag::ROUTING_RULE_ACCOUNT, &rule.matcher.account);
+        preimage.field(tag::ROUTING_RULE_INSTRUCTION, &rule.matcher.instruction);
     }
     let public_validator_mode = match nexus.staking.public_validator_mode {
         LaneValidatorMode::StakeElected => 0_u8,
@@ -5665,102 +5842,56 @@ pub fn sumeragi_nexus_amx_context_hash_with_catalog_policy(
         LaneValidatorMode::StakeElected => 0_u8,
         LaneValidatorMode::AdminManaged => 1,
     };
-    append(
-        &mut preimage,
-        "nexus.staking.public_validator_mode",
-        &public_validator_mode,
-    );
-    append(
-        &mut preimage,
-        "nexus.staking.restricted_validator_mode",
+    preimage.field(tag::STAKING_PUBLIC_VALIDATOR_MODE, &public_validator_mode);
+    preimage.field(
+        tag::STAKING_RESTRICTED_VALIDATOR_MODE,
         &restricted_validator_mode,
     );
-    append(
-        &mut preimage,
-        "nexus.staking.min_validator_stake",
+    preimage.field(
+        tag::STAKING_MIN_VALIDATOR_STAKE,
         &nexus.staking.min_validator_stake,
     );
-    append(
-        &mut preimage,
-        "nexus.staking.max_validators",
+    preimage.field(
+        tag::STAKING_MAX_VALIDATORS,
         &nexus.staking.max_validators.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.staking.max_stake_shares_per_validator",
+    preimage.field(
+        tag::STAKING_MAX_STAKE_SHARES_PER_VALIDATOR,
         &nexus.staking.max_stake_shares_per_validator.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.staking.max_pending_unbonds_per_share",
+    preimage.field(
+        tag::STAKING_MAX_PENDING_UNBONDS_PER_SHARE,
         &nexus.staking.max_pending_unbonds_per_share.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.staking.unbonding_delay_ns",
+    preimage.field(
+        tag::STAKING_UNBONDING_DELAY_NS,
         &nexus.staking.unbonding_delay.as_nanos(),
     );
-    append(
-        &mut preimage,
-        "nexus.staking.max_slash_bps",
-        &nexus.staking.max_slash_bps,
-    );
-    append(
-        &mut preimage,
-        "nexus.staking.reward_dust_threshold",
-        &nexus.staking.reward_dust_threshold,
-    );
-    append(
-        &mut preimage,
-        "nexus.staking.stake_asset_id",
-        &nexus.staking.stake_asset_id,
-    );
-    append(
-        &mut preimage,
-        "nexus.staking.stake_escrow_account_id",
+    preimage.field(tag::STAKING_MAX_SLASH_BPS, &nexus.staking.max_slash_bps);
+    preimage.field(tag::STAKING_STAKE_ASSET_ID, &nexus.staking.stake_asset_id);
+    preimage.field(
+        tag::STAKING_STAKE_ESCROW_ACCOUNT_ID,
         &nexus.staking.stake_escrow_account_id,
     );
-    append(
-        &mut preimage,
-        "nexus.staking.slash_sink_account_id",
+    preimage.field(
+        tag::STAKING_SLASH_SINK_ACCOUNT_ID,
         &nexus.staking.slash_sink_account_id,
     );
-    append(&mut preimage, "nexus.fees.asset", &nexus.fees.fee_asset_id);
-    append(
-        &mut preimage,
-        "nexus.fees.sink",
-        &nexus.fees.fee_sink_account_id,
-    );
-    append(&mut preimage, "nexus.fees.base", &nexus.fees.base_fee);
-    append(
-        &mut preimage,
-        "nexus.fees.per_byte",
-        &nexus.fees.per_byte_fee,
-    );
-    append(
-        &mut preimage,
-        "nexus.fees.per_instruction",
-        &nexus.fees.per_instruction_fee,
-    );
-    append(
-        &mut preimage,
-        "nexus.fees.per_gas_unit",
-        &nexus.fees.per_gas_unit_fee,
-    );
-    append(
-        &mut preimage,
-        "nexus.fees.sponsor_vault_custody_account_id",
+    preimage.field(tag::FEES_ASSET, &nexus.fees.fee_asset_id);
+    preimage.field(tag::FEES_SINK, &nexus.fees.fee_sink_account_id);
+    preimage.field(tag::FEES_BASE, &nexus.fees.base_fee);
+    preimage.field(tag::FEES_PER_BYTE, &nexus.fees.per_byte_fee);
+    preimage.field(tag::FEES_PER_INSTRUCTION, &nexus.fees.per_instruction_fee);
+    preimage.field(tag::FEES_PER_GAS_UNIT, &nexus.fees.per_gas_unit_fee);
+    preimage.field(
+        tag::FEES_SPONSOR_VAULT_CUSTODY_ACCOUNT_ID,
         &nexus.fees.sponsor_vault_custody_account_id,
     );
     let settlement_mode = match nexus.fees.settlement_mode {
         NexusFeeSettlementMode::Direct => 0_u8,
         NexusFeeSettlementMode::LaneRelayBurn => 1,
     };
-    append(
-        &mut preimage,
-        "nexus.fees.settlement_mode",
-        &settlement_mode,
-    );
+    preimage.field(tag::FEES_SETTLEMENT_MODE, &settlement_mode);
     let successful_claim_fee_exempt_authorities = nexus
         .fees
         .successful_claim_fee_exempt_authorities
@@ -5771,219 +5902,169 @@ pub fn sumeragi_nexus_amx_context_hash_with_catalog_policy(
                 .expect("validated Nexus fee-exempt authority must encode as canonical I105")
         })
         .collect::<Vec<_>>();
-    append(
-        &mut preimage,
-        "nexus.fees.successful_claim_exempt_authorities",
+    preimage.field(
+        tag::FEES_SUCCESSFUL_CLAIM_EXEMPT_AUTHORITIES,
         &successful_claim_fee_exempt_authorities,
     );
-    append(
-        &mut preimage,
-        "nexus.dataspace_fee_sponsor_program_ids",
+    preimage.field(
+        tag::DATASPACE_FEE_SPONSOR_PROGRAM_IDS,
         &nexus.dataspace_fee_sponsor_program_ids,
     );
-    append(
-        &mut preimage,
-        "nexus.axt.slot_length_ms",
-        &nexus.axt.slot_length_ms.get(),
-    );
-    append(
-        &mut preimage,
-        "nexus.axt.max_clock_skew_ms",
-        &nexus.axt.max_clock_skew_ms,
-    );
-    append(
-        &mut preimage,
-        "nexus.axt.proof_cache_ttl_slots",
+    preimage.field(tag::AXT_SLOT_LENGTH_MS, &nexus.axt.slot_length_ms.get());
+    preimage.field(tag::AXT_MAX_CLOCK_SKEW_MS, &nexus.axt.max_clock_skew_ms);
+    preimage.field(
+        tag::AXT_PROOF_CACHE_TTL_SLOTS,
         &nexus.axt.proof_cache_ttl_slots.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.axt.replay_retention_slots",
+    preimage.field(
+        tag::AXT_REPLAY_RETENTION_SLOTS,
         &nexus.axt.replay_retention_slots.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.fusion.floor_teu",
-        &nexus.fusion.floor_teu,
-    );
-    append(
-        &mut preimage,
-        "nexus.fusion.exit_teu",
-        &nexus.fusion.exit_teu,
-    );
-    append(
-        &mut preimage,
-        "nexus.fusion.observation_slots",
+    preimage.field(tag::FUSION_FLOOR_TEU, &nexus.fusion.floor_teu);
+    preimage.field(tag::FUSION_EXIT_TEU, &nexus.fusion.exit_teu);
+    preimage.field(
+        tag::FUSION_OBSERVATION_SLOTS,
         &nexus.fusion.observation_slots.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.fusion.max_window_slots",
+    preimage.field(
+        tag::FUSION_MAX_WINDOW_SLOTS,
         &nexus.fusion.max_window_slots.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.autoscale.enabled",
-        &nexus.autoscale.enabled,
-    );
-    append(
-        &mut preimage,
-        "nexus.autoscale.min_lane_id",
+    preimage.field(tag::AUTOSCALE_ENABLED, &nexus.autoscale.enabled);
+    preimage.field(
+        tag::AUTOSCALE_MIN_LANE_ID,
         &nexus.autoscale.min_lane_id.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.autoscale.max_lane_id_exclusive",
+    preimage.field(
+        tag::AUTOSCALE_MAX_LANE_ID_EXCLUSIVE,
         &nexus.autoscale.max_lane_id_exclusive.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.autoscale.target_block_ms",
+    preimage.field(
+        tag::AUTOSCALE_TARGET_BLOCK_MS,
         &nexus.autoscale.target_block_ms.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.autoscale.scale_out_latency_ratio_bits",
+    preimage.field(
+        tag::AUTOSCALE_SCALE_OUT_LATENCY_RATIO_BITS,
         &nexus.autoscale.scale_out_latency_ratio.to_bits(),
     );
-    append(
-        &mut preimage,
-        "nexus.autoscale.scale_in_latency_ratio_bits",
+    preimage.field(
+        tag::AUTOSCALE_SCALE_IN_LATENCY_RATIO_BITS,
         &nexus.autoscale.scale_in_latency_ratio.to_bits(),
     );
-    append(
-        &mut preimage,
-        "nexus.autoscale.scale_out_utilization_ratio_bits",
+    preimage.field(
+        tag::AUTOSCALE_SCALE_OUT_UTILIZATION_RATIO_BITS,
         &nexus.autoscale.scale_out_utilization_ratio.to_bits(),
     );
-    append(
-        &mut preimage,
-        "nexus.autoscale.scale_in_utilization_ratio_bits",
+    preimage.field(
+        tag::AUTOSCALE_SCALE_IN_UTILIZATION_RATIO_BITS,
         &nexus.autoscale.scale_in_utilization_ratio.to_bits(),
     );
-    append(
-        &mut preimage,
-        "nexus.autoscale.scale_out_window_blocks",
+    preimage.field(
+        tag::AUTOSCALE_SCALE_OUT_WINDOW_BLOCKS,
         &nexus.autoscale.scale_out_window_blocks.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.autoscale.scale_in_window_blocks",
+    preimage.field(
+        tag::AUTOSCALE_SCALE_IN_WINDOW_BLOCKS,
         &nexus.autoscale.scale_in_window_blocks.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.autoscale.cooldown_blocks",
+    preimage.field(
+        tag::AUTOSCALE_COOLDOWN_BLOCKS,
         &nexus.autoscale.cooldown_blocks.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.autoscale.per_lane_target_tps",
+    preimage.field(
+        tag::AUTOSCALE_PER_LANE_TARGET_TPS,
         &nexus.autoscale.per_lane_target_tps.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.autoscale.last_transition_height",
+    preimage.field(
+        tag::AUTOSCALE_LAST_TRANSITION_HEIGHT,
         &nexus.autoscale.last_transition_height,
     );
-    append(
-        &mut preimage,
-        "nexus.commit.window_slots",
-        &nexus.commit.window_slots.get(),
-    );
+    preimage.field(tag::COMMIT_WINDOW_SLOTS, &nexus.commit.window_slots.get());
     let da = &nexus.da;
-    macro_rules! append_da_fields {
-        ($($tag:literal => $value:expr),+ $(,)?) => {
-            $(
-                append(
-                    &mut preimage,
-                    $tag,
-                    &$value,
-                );
-            )+
-        };
-    }
-    append_da_fields! {
-        "nexus.da.q_in_slot_total" => da.q_in_slot_total.get(),
-        "nexus.da.q_in_slot_per_ds_min" => da.q_in_slot_per_ds_min.get(),
-        "nexus.da.sample_size_base" => da.sample_size_base.get(),
-        "nexus.da.sample_size_max" => da.sample_size_max.get(),
-        "nexus.da.threshold_base" => da.threshold_base.get(),
-        "nexus.da.per_attester_shards" => da.per_attester_shards.get(),
-        "nexus.da.ingest_quota_window_blocks" => da.ingest_quota_window_blocks.get(),
-        "nexus.da.ingest_quota_max_count_per_account" =>
-            da.ingest_quota_max_count_per_account.get(),
-        "nexus.da.ingest_quota_max_bytes_per_account" =>
-            da.ingest_quota_max_bytes_per_account.get(),
-        "nexus.da.audit.sample_size" => da.audit.sample_size.get(),
-        "nexus.da.audit.window_count" => da.audit.window_count.get(),
-    }
-    append(
-        &mut preimage,
-        "nexus.da.audit.interval_ns",
+    preimage.field(tag::DA_Q_IN_SLOT_TOTAL, &da.q_in_slot_total.get());
+    preimage.field(tag::DA_Q_IN_SLOT_PER_DS_MIN, &da.q_in_slot_per_ds_min.get());
+    preimage.field(tag::DA_SAMPLE_SIZE_BASE, &da.sample_size_base.get());
+    preimage.field(tag::DA_SAMPLE_SIZE_MAX, &da.sample_size_max.get());
+    preimage.field(tag::DA_THRESHOLD_BASE, &da.threshold_base.get());
+    preimage.field(tag::DA_PER_ATTESTER_SHARDS, &da.per_attester_shards.get());
+    preimage.field(
+        tag::DA_INGEST_QUOTA_WINDOW_BLOCKS,
+        &da.ingest_quota_window_blocks.get(),
+    );
+    preimage.field(
+        tag::DA_INGEST_QUOTA_MAX_COUNT_PER_ACCOUNT,
+        &da.ingest_quota_max_count_per_account.get(),
+    );
+    preimage.field(
+        tag::DA_INGEST_QUOTA_MAX_BYTES_PER_ACCOUNT,
+        &da.ingest_quota_max_bytes_per_account.get(),
+    );
+    preimage.field(tag::DA_AUDIT_SAMPLE_SIZE, &da.audit.sample_size.get());
+    preimage.field(tag::DA_AUDIT_WINDOW_COUNT, &da.audit.window_count.get());
+    preimage.field(
+        tag::DA_AUDIT_INTERVAL_NS,
         &nexus.da.audit.interval.as_nanos(),
     );
-    append(
-        &mut preimage,
-        "nexus.da.recovery.request_timeout_ns",
+    preimage.field(
+        tag::DA_RECOVERY_REQUEST_TIMEOUT_NS,
         &nexus.da.recovery.request_timeout.as_nanos(),
     );
-    append(
-        &mut preimage,
-        "nexus.da.rotation.max_hits_per_window",
+    preimage.field(
+        tag::DA_ROTATION_MAX_HITS_PER_WINDOW,
         &nexus.da.rotation.max_hits_per_window.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.da.rotation.window_slots",
+    preimage.field(
+        tag::DA_ROTATION_WINDOW_SLOTS,
         &nexus.da.rotation.window_slots.get(),
     );
-    append(
-        &mut preimage,
-        "nexus.da.rotation.seed_tag",
-        &nexus.da.rotation.seed_tag,
-    );
-    append(
-        &mut preimage,
-        "nexus.da.rotation.latency_decay_bits",
+    preimage.field(tag::DA_ROTATION_SEED_TAG, &nexus.da.rotation.seed_tag);
+    preimage.field(
+        tag::DA_ROTATION_LATENCY_DECAY_BITS,
         &nexus.da.rotation.latency_decay.to_bits(),
     );
-    append(
-        &mut preimage,
-        "pipeline.amx_per_dataspace_budget_ms",
+    preimage.field(
+        tag::PIPELINE_AMX_PER_DATASPACE_BUDGET_MS,
         &pipeline.amx_per_dataspace_budget_ms,
     );
-    append(
-        &mut preimage,
-        "pipeline.amx_group_budget_ms",
+    preimage.field(
+        tag::PIPELINE_AMX_GROUP_BUDGET_MS,
         &pipeline.amx_group_budget_ms,
     );
-    append(
-        &mut preimage,
-        "pipeline.amx_per_instruction_ns",
+    preimage.field(
+        tag::PIPELINE_AMX_PER_INSTRUCTION_NS,
         &pipeline.amx_per_instruction_ns,
     );
-    append(
-        &mut preimage,
-        "pipeline.amx_per_memory_access_ns",
+    preimage.field(
+        tag::PIPELINE_AMX_PER_MEMORY_ACCESS_NS,
         &pipeline.amx_per_memory_access_ns,
     );
-    append(
-        &mut preimage,
-        "pipeline.amx_per_syscall_ns",
+    preimage.field(
+        tag::PIPELINE_AMX_PER_SYSCALL_NS,
         &pipeline.amx_per_syscall_ns,
     );
     let mut active_validators = active_validators.to_vec();
     active_validators.sort_by(|(left, _), (right, _)| left.cmp(right));
-    append(
-        &mut preimage,
-        "staged.active_public_lane_validators",
+    preimage.field(
+        tag::STAGED_ACTIVE_PUBLIC_LANE_VALIDATORS,
         &active_validators,
     );
-    if let Some(root) = committed_catalog_policy_root {
-        append(&mut preimage, "nexus.committed_catalog_policy.v1", &root);
-    }
-    Hash::new(preimage)
+    preimage.finish()
+}
+/// Compute the canonical Sumeragi commitment to the Nexus and AMX inputs: the hash of
+/// [`sumeragi_nexus_amx_context_preimage`].
+#[must_use]
+pub fn sumeragi_nexus_amx_context_hash(
+    nexus: &Nexus,
+    pipeline: &Pipeline,
+    active_validators: &[GenesisActiveNexusLaneRecord],
+    retained_lane_lineage: &[SumeragiLaneLifecycleEntry],
+) -> Hash {
+    Hash::new(sumeragi_nexus_amx_context_preimage(
+        nexus,
+        pipeline,
+        active_validators,
+        retained_lane_lineage,
+    ))
 }
 /// Tiered state backend settings controlling hot/cold storage behaviour.
 #[derive(Debug, Clone)]
@@ -6720,8 +6801,6 @@ mod sumeragi_core_config_tests {
 pub struct Sumeragi {
     /// Node-local participation role.
     pub role: NodeRole,
-    /// Fixed inherited private descriptor for the locally consumed Pasta seed.
-    pub mint_finality_seed_fd: Option<u16>,
     /// Public deployment binding for the runtime-only global beacon share signer.
     pub global_beacon_partial_signer_provider_handle: Option<String>,
     /// Exact non-zero provider contract revision paired with the beacon signer handle.
@@ -6744,7 +6823,6 @@ impl_default!(Sumeragi => {
         let store_dir = PathBuf::from(defaults::kura::STORE_DIR);
         Self {
             role: NodeRole::Validator,
-            mint_finality_seed_fd: None,
             global_beacon_partial_signer_provider_handle: None,
             global_beacon_partial_signer_provider_revision: None,
             global_beacon_partial_signer_provider_policy_digest: None,
@@ -7303,6 +7381,8 @@ pub struct Torii {
     pub tx_history: Option<ToriiTxHistory>,
     /// Retail recipient lookup route configuration.
     pub recipient_lookup: ToriiRecipientLookup,
+    /// Optional current bank-selected KAGEMUSHA issuer dependencies; absent disables serving.
+    pub kagemusha_enrollment: Option<KagemushaEnrollmentIssuer>,
     /// Explicit Torii origins used for public-dataspace routed reads.
     pub public_dataspace_upstreams: Vec<ToriiPublicDataspaceUpstream>,
     /// App-facing query/backpressure limits.
@@ -7361,6 +7441,7 @@ impl fmt::Debug for Torii {
             )
             .field("tx_history", &self.tx_history)
             .field("recipient_lookup", &self.recipient_lookup)
+            .field("kagemusha_enrollment", &self.kagemusha_enrollment)
             .field("da_ingest", &self.da_ingest)
             .field("push", &self.push)
             .finish_non_exhaustive()
@@ -10461,8 +10542,14 @@ impl_default!(IsoReferenceData => {
 /// Zero-knowledge proof configuration namespace.
 #[derive(Debug, Clone)]
 pub struct Zk {
-    /// Halo2 (transparent) verification settings.
-    pub halo2: Halo2,
+    /// Optional local diagnostic trace checking; never proof authority.
+    pub trace: DiagnosticTrace,
+    /// Bounds for the diagnostic native polynomial-opening endpoint.
+    pub ipa_commitment: IpaCommitment,
+    /// Maximum proofs accepted by one host batch-verification syscall.
+    pub max_verify_batch: u32,
+    /// Native PIPA-R verification policy.
+    pub pipa_r: PipaR,
     /// FASTPQ prover settings.
     pub fastpq: Fastpq,
     /// Native STARK/FRI verification settings.
@@ -10562,10 +10649,6 @@ pub struct Sccp {
     pub max_native_header_bytes_per_transaction: NonZeroU64,
     /// Maximum framed native-finality header bytes committed in one block.
     pub max_native_header_bytes_per_block: NonZeroU64,
-    /// Maximum secp256k1 recoveries in one transaction.
-    pub max_secp256k1_recoveries_per_transaction: NonZeroU32,
-    /// Maximum secp256k1 recoveries committed in one block.
-    pub max_secp256k1_recoveries_per_block: NonZeroU32,
     /// Maximum Ed25519 signature checks in one transaction.
     pub max_ed25519_signature_checks_per_transaction: NonZeroU32,
     /// Maximum Ed25519 signature checks committed in one block.
@@ -10595,10 +10678,6 @@ impl_default!(Sccp => {
                 defaults::zk::sccp::MAX_NATIVE_HEADER_BYTES_PER_TRANSACTION,
             max_native_header_bytes_per_block:
                 defaults::zk::sccp::MAX_NATIVE_HEADER_BYTES_PER_BLOCK,
-            max_secp256k1_recoveries_per_transaction:
-                defaults::zk::sccp::MAX_SECP256K1_RECOVERIES_PER_TRANSACTION,
-            max_secp256k1_recoveries_per_block:
-                defaults::zk::sccp::MAX_SECP256K1_RECOVERIES_PER_BLOCK,
             max_ed25519_signature_checks_per_transaction:
                 defaults::zk::sccp::MAX_ED25519_SIGNATURE_CHECKS_PER_TRANSACTION,
             max_ed25519_signature_checks_per_block:
@@ -10747,85 +10826,72 @@ impl_default!(Router => {
             buffer_horizon_hours: defaults::settlement::router::BUFFER_HORIZON_HOURS,
         }
 });
-/// Supported curves for Halo2 verification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ZkCurve {
-    /// Pallas curve from the Pasta cycle.
-    Pallas,
-    /// Pasta (Pallas/Vesta) — reserved for future backends.
-    Pasta,
-    /// Goldilocks multiplicative backend.
-    Goldilocks,
-    /// BN254 — reserved for future backends.
-    Bn254,
-}
-/// Halo2 transparent backend kind.
+/// Native PIPA-R verification policy for the exact compiled circuit registry.
 #[derive(Debug, Clone, Copy)]
-pub enum Halo2Backend {
-    /// Inner-Product Argument (transparent PCS).
-    Ipa,
-}
-/// Halo2 transparent verification settings.
-#[derive(Debug, Clone, Copy)]
-pub struct Halo2 {
-    /// Enable Halo2 verification in hosts.
+pub struct PipaR {
+    /// Enable native PIPA-R verification in hosts.
     pub enabled: bool,
-    /// Selected curve backend.
-    pub curve: ZkCurve,
-    /// Transparent PCS backend.
-    pub backend: Halo2Backend,
-    /// Maximum circuit size exponent (N = 2^k) accepted for verification.
-    pub max_k: u32,
-    /// Soft time budget for a single verification (ms).
-    pub verifier_budget_ms: u64,
-    /// Maximum number of proofs allowed in a batch verification.
-    pub verifier_max_batch: u32,
-    /// Number of worker threads serving ZK lane verification (0 = auto).
-    pub verifier_worker_threads: usize,
-    /// Capacity of the ZK lane verification queue (0 = auto).
-    pub verifier_queue_cap: usize,
-    /// Maximum enqueue wait for ZK lane admission under saturation (ms).
-    pub verifier_enqueue_wait_ms: u64,
-    /// Capacity of the in-memory retry ring used for important ZK lane tasks.
-    pub verifier_retry_ring_cap: usize,
-    /// Maximum retry rounds for a queued task in the ZK lane retry ring.
-    pub verifier_retry_max_attempts: u32,
-    /// Retry scheduler tick interval for the ZK lane (ms).
-    pub verifier_retry_tick_ms: u64,
-    /// Maximum accepted Norito envelope payload length (bytes).
+    /// Maximum canonical outer envelope length in bytes.
     pub max_envelope_bytes: usize,
-    /// Maximum accepted proof payload length (bytes).
+    /// Maximum canonical proof-payload length in bytes.
     pub max_proof_bytes: usize,
-    /// Maximum allowed transcript label length (bytes).
+}
+impl_default!(PipaR => {
+    Self {
+        enabled: defaults::zk::pipa_r::ENABLED,
+        max_envelope_bytes: defaults::zk::pipa_r::MAX_ENVELOPE_BYTES,
+        max_proof_bytes: defaults::zk::pipa_r::MAX_PROOF_BYTES,
+    }
+});
+/// Local diagnostic polynomial-opening bounds; these confer no ledger authority.
+#[derive(Debug, Clone, Copy)]
+pub struct IpaCommitment {
+    /// Maximum domain exponent for diagnostic polynomial openings.
+    pub max_k: u32,
+    /// Maximum diagnostic transcript-label length in bytes.
     pub max_transcript_label_len: usize,
-    /// Require transcript labels to be ASCII.
+    /// Maximum encoded diagnostic polynomial-opening envelope size.
+    pub max_envelope_bytes: usize,
+    /// Require ASCII diagnostic transcript labels.
     pub enforce_transcript_label_ascii: bool,
 }
-impl_default!(Halo2 => {
-        Self {
-            enabled: crate::parameters::defaults::zk::halo2::ENABLED,
-            curve: ZkCurve::Pallas,
-            backend: Halo2Backend::Ipa,
-            max_k: crate::parameters::defaults::zk::halo2::MAX_K,
-            verifier_budget_ms: crate::parameters::defaults::zk::halo2::VERIFIER_BUDGET_MS,
-            verifier_max_batch: crate::parameters::defaults::zk::halo2::VERIFIER_MAX_BATCH,
-            verifier_worker_threads:
-                crate::parameters::defaults::zk::halo2::VERIFIER_WORKER_THREADS,
-            verifier_queue_cap: crate::parameters::defaults::zk::halo2::VERIFIER_QUEUE_CAP,
-            verifier_enqueue_wait_ms:
-                crate::parameters::defaults::zk::halo2::VERIFIER_ENQUEUE_WAIT_MS,
-            verifier_retry_ring_cap:
-                crate::parameters::defaults::zk::halo2::VERIFIER_RETRY_RING_CAP,
-            verifier_retry_max_attempts:
-                crate::parameters::defaults::zk::halo2::VERIFIER_RETRY_MAX_ATTEMPTS,
-            verifier_retry_tick_ms: crate::parameters::defaults::zk::halo2::VERIFIER_RETRY_TICK_MS,
-            max_envelope_bytes: crate::parameters::defaults::zk::halo2::MAX_ENVELOPE_BYTES,
-            max_proof_bytes: crate::parameters::defaults::zk::halo2::MAX_PROOF_BYTES,
-            max_transcript_label_len:
-                crate::parameters::defaults::zk::halo2::MAX_TRANSCRIPT_LABEL_LEN,
-            enforce_transcript_label_ascii:
-                crate::parameters::defaults::zk::halo2::ENFORCE_TRANSCRIPT_LABEL_ASCII,
-        }
+impl_default!(IpaCommitment => { Self {
+    max_k: defaults::zk::ipa_commitment::MAX_K,
+    max_transcript_label_len: defaults::zk::ipa_commitment::MAX_TRANSCRIPT_LABEL_LEN,
+    max_envelope_bytes: defaults::zk::ipa_commitment::MAX_ENVELOPE_BYTES,
+    enforce_transcript_label_ascii: defaults::zk::ipa_commitment::ENFORCE_TRANSCRIPT_LABEL_ASCII,
+} });
+/// Optional local trace-checking policy, independent of monetary proof verification.
+#[derive(Debug, Clone, Copy)]
+pub struct DiagnosticTrace {
+    /// Enable optional local diagnostic trace checking.
+    pub enabled: bool,
+    /// Maximum diagnostic tasks dispatched in one worker batch.
+    pub max_batch: u32,
+    /// Diagnostic worker threads (0 selects the bounded automatic count).
+    pub worker_threads: usize,
+    /// Diagnostic ingress capacity (0 derives a bounded capacity).
+    pub queue_cap: usize,
+    /// Maximum diagnostic enqueue wait in milliseconds.
+    pub enqueue_wait_ms: u64,
+    /// Capacity of the important diagnostic-task retry ring.
+    pub retry_ring_cap: usize,
+    /// Maximum retry rounds for an important diagnostic task.
+    pub retry_max_attempts: u32,
+    /// Diagnostic retry scheduler interval in milliseconds.
+    pub retry_tick_ms: u64,
+}
+impl_default!(DiagnosticTrace => {
+    Self {
+        enabled: defaults::zk::trace::ENABLED,
+        max_batch: defaults::zk::trace::MAX_BATCH,
+        worker_threads: defaults::zk::trace::WORKER_THREADS,
+        queue_cap: defaults::zk::trace::QUEUE_CAP,
+        enqueue_wait_ms: defaults::zk::trace::ENQUEUE_WAIT_MS,
+        retry_ring_cap: defaults::zk::trace::RETRY_RING_CAP,
+        retry_max_attempts: defaults::zk::trace::RETRY_MAX_ATTEMPTS,
+        retry_tick_ms: defaults::zk::trace::RETRY_TICK_MS,
+    }
 });
 /// Native STARK/FRI verification settings.
 #[derive(Debug, Clone, Copy)]

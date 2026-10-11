@@ -52,7 +52,8 @@ ARTIFACT = _load_sibling("check_native_sdk_artifact")
 MODULES = ("core-jvm", "client-android", "kagemusha-wallet-android")
 SDK_PACKAGE = "org/hyperledger/iroha/sdk/"
 MAX_CLASS_FILES = 20_000
-ANDROID_MACHINES = {"arm64-v8a": 183, "x86_64": 62}
+ANDROID_MACHINES = {"arm64-v8a": 183, "armeabi-v7a": 40, "x86_64": 62}
+ANDROID_ELF_CLASSES = {"arm64-v8a": 2, "armeabi-v7a": 1, "x86_64": 2}
 ANDROID_SYMBOL_ENVIRONMENT = {"PATH": "/usr/bin:/bin", "TMPDIR": "/tmp",
                               "LANG": "C", "LC_ALL": "C", "TZ": "UTC"}
 ANDROID_SYMBOL_ARGUMENTS = ("--dynamic", "--defined-only", "--extern-only", "--format=just-symbols")
@@ -201,10 +202,14 @@ def inspect_pinned_android_symbols(library: Path, *, abi: str, tool: Path,
         with _sealed_input(library, label="Android library", maximum=MAX_ANDROID_LIBRARY_BYTES) as library_input:
             tool_record, _, recheck_tool = tool_input
             library_record, header, recheck_library = library_input
-            if (len(header) < 64 or header[:7] != b"\x7fELF\x02\x01\x01"
+            elf_class = ANDROID_ELF_CLASSES[abi]
+            header_size = 52 if elf_class == 1 else 64
+            if (len(header) < header_size
+                    or header[:7] != b"\x7fELF" + bytes((elf_class, 1, 1))
                     or int.from_bytes(header[16:18], "little") != 3
-                    or int.from_bytes(header[18:20], "little") != ANDROID_MACHINES[abi]):
-                raise AuditError("Android library must be an ELF64 little-endian ET_DYN for the exact ABI")
+                    or int.from_bytes(header[18:20], "little") != ANDROID_MACHINES[abi]
+                    or int.from_bytes(header[20:24], "little") != 1):
+                raise AuditError("Android library must be a little-endian ET_DYN with the exact ABI ELF class and machine")
             command = [str(tool), *ANDROID_SYMBOL_ARGUMENTS, str(library)]
             invocation = {"schema": "iroha.android.jni-symbol-inspection.v1", "android_abi": abi,
                           "tool": tool_record, "library": library_record, "argv": command,

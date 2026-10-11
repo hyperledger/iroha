@@ -1,11 +1,21 @@
 //! Confined file loading for source-declared includes and local module imports.
 
 use super::*;
+use crate::linker::SourceContractArtifact;
 use crate::{
     ast::SourceDirectiveKind,
     source::{FrontendBudget, SourceId},
 };
 use std::collections::VecDeque;
+
+/// Confined source companions and complete compiled interfaces belonging to one source owner.
+#[derive(Clone, Debug, Default)]
+pub struct SourceInventory {
+    /// Reachable source fragments and reusable modules, excluding the supplied entry sources.
+    pub sources: Vec<SourceModuleUnit>,
+    /// Complete compiled artifacts referenced by those sources and the supplied entries.
+    pub artifacts: Vec<SourceContractArtifact>,
+}
 
 pub(super) fn canonical_overlay_path(
     path: &Path,
@@ -57,28 +67,28 @@ pub(super) fn canonical_overlay_path(
 /// Paths are relative to their referring source. Only declared dependencies are opened;
 /// unrelated files never participate in compilation. Open editor buffers take precedence
 /// over the matching disk file, including newly created files not yet saved to disk.
-pub fn load_source_companions(
+pub fn load_source_inventory(
     entries: &[SourceModuleUnit],
     source_root: &Path,
     overlays: &BTreeMap<PathBuf, String>,
-) -> Result<Vec<SourceModuleUnit>, BuildError> {
-    load_source_companions_scoped(entries, source_root, overlays, None)
+) -> Result<SourceInventory, BuildError> {
+    load_source_inventory_scoped(entries, source_root, overlays, None)
 }
 /// Load a locked package's companion files while retaining package ownership in diagnostics.
-pub fn load_source_package_companions(
+pub fn load_source_package_inventory(
     entries: &[SourceModuleUnit],
     source_root: &Path,
     overlays: &BTreeMap<PathBuf, String>,
     package_identity: &str,
-) -> Result<Vec<SourceModuleUnit>, BuildError> {
-    load_source_companions_scoped(entries, source_root, overlays, Some(package_identity))
+) -> Result<SourceInventory, BuildError> {
+    load_source_inventory_scoped(entries, source_root, overlays, Some(package_identity))
 }
-fn load_source_companions_scoped(
+fn load_source_inventory_scoped(
     entries: &[SourceModuleUnit],
     source_root: &Path,
     overlays: &BTreeMap<PathBuf, String>,
     package_identity: Option<&str>,
-) -> Result<Vec<SourceModuleUnit>, BuildError> {
+) -> Result<SourceInventory, BuildError> {
     let canonical_root = source_root.canonicalize().map_err(|error| BuildError::Io {
         operation: "canonicalize Kotodama source root",
         path: source_root.to_path_buf(),
@@ -129,6 +139,7 @@ fn load_source_companions_scoped(
         }));
     }
     let mut companions = Vec::new();
+    let mut artifacts = Vec::new();
     while let Some((unit, fragment)) = pending.pop_front() {
         let file = match package_identity {
             Some(identity) => SourceFile::new_in_package(
@@ -145,20 +156,107 @@ fn load_source_companions_scoped(
             crate::parser::parse_source(&file, FrontendBudget::v1())
         }
         .map_err(BuildError::Compile)?;
+        // Both contract imports and upgrade fixtures capture immutable binary dependencies.
+        // Fixture dependencies do not create a language import or a runtime filesystem lookup.
+        let mut dependencies = Vec::new();
         for directive in program.directives {
-            let directive_span = SourceSpan::from_range(&file, directive.source.range);
-            let (relative, fragment) = match directive.kind {
-                SourceDirectiveKind::Include { path } => (path, true),
-                SourceDirectiveKind::Import { path, .. } => (path, false),
+            let span = SourceSpan::from_range(&file, directive.source.range);
+            match directive.kind {
+                SourceDirectiveKind::Include { path } => {
+                    dependencies.push((Some(true), path, span))
+                }
+                SourceDirectiveKind::Import { path, .. } => {
+                    dependencies.push((Some(false), path, span))
+                }
+                SourceDirectiveKind::ContractImport { path, .. } => {
+                    dependencies.push((None, path, span))
+                }
+                SourceDirectiveKind::ContractTypeImport { .. } => {}
+            }
+        }
+        for fixture in program.fixtures {
+            for action in fixture.actions {
+                if action.name != "upgrade_from" {
+                    continue;
+                }
+                fn literal(expr: &crate::ast::Expr) -> Option<&str> {
+                    match expr {
+                        crate::ast::Expr::Source { expression, .. }
+                        | crate::ast::Expr::Resolved { expression, .. } => literal(expression),
+                        crate::ast::Expr::String(value) => Some(value),
+                        _ => None,
+                    }
+                }
+                let span = SourceSpan::from_range(
+                    &file,
+                    crate::source::TextRange::new(0, unit.source.len() as u32),
+                );
+                let path = match action.args.as_slice() {
+                    [argument] => literal(argument),
+                    _ => None,
+                }
+                .ok_or_else(|| {
+                    BuildError::Compile(DiagnosticBundle::single(Diagnostic::error(
+                        "E_TEST_FIXTURE_ARTIFACT",
+                        DiagnosticPhase::Resolve,
+                        "upgrade_from requires one literal relative .to path",
+                        Some(span.clone()),
+                    )))
+                })?;
+                dependencies.push((None, path.to_owned(), span));
+            }
+        }
+        for (fragment, relative, directive_span) in dependencies {
+            let fragment = match fragment {
+                Some(fragment) => fragment,
+                None => {
+                    let name =
+                        crate::linker::resolve_contract_artifact_path(&unit.source_name, &relative)
+                            .map_err(BuildError::SourceGraph)?;
+                    if !known.insert(name.clone()) {
+                        continue;
+                    }
+                    let physical = canonical_root.join(&name);
+                    // Binary interface artifacts are immutable disk inputs, never text overlays.
+                    let canonical = canonical_overlay_path(&physical, &canonical_root, &BTreeMap::new()).map_err(|error| BuildError::Compile(DiagnosticBundle::single(Diagnostic::error(
+            "E_CONTRACT_IMPORT_NOT_FOUND", DiagnosticPhase::Resolve, format!("cannot resolve compiled contract `{name}` within its source owner: {error}"), Some(directive_span.clone())))))?;
+                    if let Some(first) = physical_names.insert(canonical.clone(), name.clone())
+                        && first != name
+                    {
+                        return Err(BuildError::SourceGraph(SourceGraphError::DuplicateSource {
+                            scope: "physical artifact inventory".into(),
+                            source: name,
+                        }));
+                    }
+                    let remaining = MAX_MODULE_GRAPH_SOURCE_BYTES.saturating_sub(total_bytes);
+                    let artifact = read_bounded_file(&canonical, remaining).ok_or_else(|| BuildError::Compile(DiagnosticBundle::single(Diagnostic::error(
+            "E_CONTRACT_IMPORT_INVALID", DiagnosticPhase::Resolve, format!("cannot read complete compiled contract `{name}` within the source graph byte budget"), Some(directive_span.clone())))))?;
+                    total_bytes = total_bytes.saturating_add(artifact.len());
+                    if known.len() > MAX_MODULE_GRAPH_SOURCES {
+                        return Err(BuildError::SourceGraph(SourceGraphError::Budget {
+                            sources: known.len(),
+                            source_bytes: total_bytes,
+                            max_sources: MAX_MODULE_GRAPH_SOURCES,
+                            max_source_bytes: MAX_MODULE_GRAPH_SOURCE_BYTES,
+                        }));
+                    }
+                    artifacts.push(SourceContractArtifact {
+                        source_name: name,
+                        artifact,
+                    });
+                    continue;
+                }
             };
             let name = crate::linker::resolve_source_path(&unit.source_name, &relative).map_err(
                 |error| {
-                    BuildError::Compile(DiagnosticBundle::single(Diagnostic::error(
-                        error.diagnostic_code(),
-                        DiagnosticPhase::Resolve,
-                        error.to_string(),
-                        Some(directive_span.clone()),
-                    )))
+                    let mut diagnostics = error.into_diagnostics();
+                    for diagnostic in &mut diagnostics.diagnostics {
+                        if diagnostic.primary_span.is_none() {
+                            diagnostic.primary_span = Some(directive_span.clone());
+                        }
+                    }
+                    diagnostics.capture_source(&file);
+                    BuildError::Compile(diagnostics)
                 },
             )?;
             if !known.insert(name.clone()) {
@@ -215,7 +313,11 @@ fn load_source_companions_scoped(
         }
     }
     companions.sort_by(|left, right| left.source_name.cmp(&right.source_name));
-    Ok(companions)
+    artifacts.sort_by(|left, right| left.source_name.cmp(&right.source_name));
+    Ok(SourceInventory {
+        sources: companions,
+        artifacts,
+    })
 }
 
 /// Capture a deployable root and its declared local dependencies without package imports.
@@ -252,7 +354,8 @@ pub fn load_source_project(
         source_name,
         source,
     };
-    let sources = load_source_companions(std::slice::from_ref(&root), &canonical_root, overlays)?;
+    let SourceInventory { sources, artifacts } =
+        load_source_inventory(std::slice::from_ref(&root), &canonical_root, overlays)?;
     let source_paths = std::iter::once(&root)
         .chain(&sources)
         .map(|unit| {
@@ -266,14 +369,16 @@ pub fn load_source_project(
         })
         .collect();
     Ok(LoadedSourceProject {
-        graph: SourceLinkRequest {
+        graph: LoadedProjectGraph::Source(SourceLinkRequest {
+            artifacts,
             root,
             sources,
             imports: Vec::new(),
             packages: Vec::new(),
-        },
+        }),
         source_paths,
-        manifest: None,
+        manifests: Vec::new(),
+        lints: crate::session::LintConfig::default(),
     })
 }
 
@@ -306,6 +411,68 @@ mod tests {
     }
 
     #[test]
+    fn compiled_import_inventory_preserves_binary_bytes_and_ignores_text_overlays() {
+        let directory = Directory::new();
+        let root = directory.write(
+            "app.ko",
+            r#"seiyaku App { import seiyaku "interfaces/pool.to" as Pool; }"#,
+        );
+        let artifact = directory.write("interfaces/pool.to", "artifact");
+        fs::write(&artifact, [0, 255, 1, 128]).unwrap();
+        let loaded = load_source_project(
+            &root,
+            &directory.0,
+            &BTreeMap::from([(artifact, "not binary".into())]),
+        )
+        .unwrap();
+        let graph = loaded.graph.as_source().unwrap();
+        assert_eq!(
+            graph.artifacts,
+            vec![SourceContractArtifact {
+                source_name: "interfaces/pool.to".into(),
+                artifact: vec![0, 255, 1, 128]
+            }]
+        );
+        assert!(graph.sources.is_empty());
+    }
+    #[test]
+    fn upgrade_fixture_inventory_captures_one_immutable_confined_artifact() {
+        let directory = Directory::new();
+        let root = directory.write(
+            "contracts/app.ko",
+            r#"seiyaku App {
+            fixture old { upgrade_from("../snapshots/prior.to"); }
+            fixture again { upgrade_from("../snapshots/prior.to"); }
+        }"#,
+        );
+        let path = directory.write("snapshots/prior.to", "old artifact");
+        let loaded = load_source_project(&root, &directory.0, &BTreeMap::new()).unwrap();
+        fs::write(&path, "changed after capture").unwrap();
+        assert_eq!(
+            loaded.graph.as_source().unwrap().artifacts,
+            vec![SourceContractArtifact {
+                source_name: "snapshots/prior.to".into(),
+                artifact: b"old artifact".to_vec(),
+            }]
+        );
+        fs::write(
+            &root,
+            r#"seiyaku App { fixture old { upgrade_from("../../escape.to"); } }"#,
+        )
+        .unwrap();
+        assert!(load_source_project(&root, &directory.0, &BTreeMap::new()).is_err());
+        fs::write(
+            &root,
+            r#"seiyaku App { fixture old { upgrade_from(variable); } }"#,
+        )
+        .unwrap();
+        let error = load_source_project(&root, &directory.0, &BTreeMap::new()).unwrap_err();
+        assert!(
+            error.to_string().contains("literal relative .to path"),
+            "{error}"
+        );
+    }
+    #[test]
     fn captures_only_declared_include_and_import_closure() {
         let directory = Directory::new();
         let root = directory.write(
@@ -323,6 +490,8 @@ mod tests {
         assert_eq!(
             loaded
                 .graph
+                .as_source()
+                .expect("source graph")
                 .sources
                 .iter()
                 .map(|source| source.source_name.as_str())
@@ -340,12 +509,19 @@ mod tests {
             (root.clone(), "seiyaku App { include \"new.ko\"; }".into()),
             (
                 directory.0.join("new.ko"),
-                "view fn value() -> int { 9 }".into(),
+                "view fn value() authorize(anyone) -> int { 9 }".into(),
             ),
         ]);
         let loaded = load_source_project(&root, &directory.0, &overlays).unwrap();
-        assert_eq!(loaded.graph.sources[0].source_name, "new.ko");
-        assert!(loaded.graph.sources[0].source.contains('9'));
+        assert_eq!(
+            loaded.graph.as_source().expect("source graph").sources[0].source_name,
+            "new.ko"
+        );
+        assert!(
+            loaded.graph.as_source().expect("source graph").sources[0]
+                .source
+                .contains('9')
+        );
         assert!(!directory.0.join("new.ko").exists());
     }
 
@@ -355,6 +531,28 @@ mod tests {
         let root = directory.write("app.ko", "seiyaku App { include \"../outside.ko\"; }");
         let error = load_source_project(&root, &directory.0, &BTreeMap::new()).unwrap_err();
         assert!(error.to_string().contains("escape"));
+    }
+
+    #[test]
+    fn invalid_import_paths_preserve_one_structured_diagnostic() {
+        let directory = Directory::new();
+        let root = directory.write("app.ko", "seiyaku App { import \"feemath\" as fees; }");
+        let error = load_source_project(&root, &directory.0, &BTreeMap::new()).unwrap_err();
+        let diagnostics = error.into_diagnostics().expect("compiler diagnostics");
+        let diagnostic = &diagnostics.diagnostics[0];
+        assert_eq!(diagnostic.code, "E_INVALID_SOURCE_PATH");
+        assert!(!diagnostic.message.contains("error["));
+        assert!(diagnostic.help.is_some());
+        assert!(diagnostic.primary_source.is_some());
+        let span = diagnostic.primary_span.as_ref().expect("import span");
+        assert_eq!(span.source.as_deref(), Some("app.ko"));
+        assert_eq!(
+            diagnostics
+                .render_human()
+                .matches("error[E_INVALID_SOURCE_PATH]")
+                .count(),
+            1
+        );
     }
 
     #[cfg(unix)]

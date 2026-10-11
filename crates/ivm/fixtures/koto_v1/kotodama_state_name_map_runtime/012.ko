@@ -4,7 +4,7 @@
             struct WrongState { int version }
             state StateMap<Name, PolicyState> Policies;
 
-            view fn main() -> int {
+            view fn main() authorize(anyone) -> int {
                 let policy = Policies.get(Name::parse("spend")).unwrap_or(
                     WrongState { version: 0 },
                 );

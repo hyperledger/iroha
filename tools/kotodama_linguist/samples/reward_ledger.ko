@@ -1,0 +1,31 @@
+// Representative sample written with the Japanese keyword spellings.
+// 誓約, 言挙げ, 始まり and 改善 are the same keywords as seiyaku, kotoage,
+// hajimari and kaizen; either spelling may be used anywhere.
+誓約 RewardLedger {
+    permission CanAwardPoints;
+    error enum RewardError {
+        #[message("Points must be positive")]
+        NonPositive = 1,
+    }
+
+    state StateMap<AccountId, int> Points;
+    state int SchemaVersion;
+
+    始まり() {
+        SchemaVersion = 1;
+    }
+
+    改善() {
+        SchemaVersion = 2;
+    }
+
+    言挙げ fn award(AccountId member, int points) authorize(CanAwardPoints) {
+        require(points > 0, RewardError::NonPositive);
+        let current = Points.get(member).unwrap_or(0);
+        Points[member] = current + points;
+    }
+
+    view fn balance(AccountId member) authorize(anyone) -> int {
+        Points.get(member).unwrap_or(0)
+    }
+}

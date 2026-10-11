@@ -336,8 +336,8 @@ fn every_shipping_numeric_syscall_executes_with_a_semantic_assertion() {
         covered.insert(syscall);
     }
     for (syscall, input, expected) in [
-        (syscalls::SYSCALL_INT_TRY_TO_I64, -7_i128, (-7_i64) as u64),
-        (syscalls::SYSCALL_INT_TRY_TO_U64, 7_i128, 7_u64),
+        (syscalls::SYSCALL_INT_TO_I64, -7_i128, (-7_i64) as u64),
+        (syscalls::SYSCALL_INT_TO_U64, 7_i128, 7_u64),
     ] {
         let mut vm = vm_for(syscall, u64::MAX);
         let input = install_int(&mut vm, &BigInt::from_i128(input));
@@ -440,12 +440,7 @@ fn every_shipping_numeric_syscall_executes_with_a_semantic_assertion() {
         covered.insert(syscall);
     }
     for (syscall, input, mode, expected_value) in [
-        (
-            syscalls::SYSCALL_DECIMAL_TRY_TO_INT_EXACT,
-            "7",
-            None,
-            7_i128,
-        ),
+        (syscalls::SYSCALL_DECIMAL_TO_INT_EXACT, "7", None, 7_i128),
         (syscalls::SYSCALL_DECIMAL_TO_INT_TRUNC, "7.9", None, 7_i128),
         (
             syscalls::SYSCALL_DECIMAL_TO_INT_ROUND,
@@ -464,13 +459,13 @@ fn every_shipping_numeric_syscall_executes_with_a_semantic_assertion() {
         assert_eq!(result_int(&vm), BigInt::from_i128(expected_value));
         covered.insert(syscall);
     }
-    let mut quantity_from_int = vm_for(syscalls::SYSCALL_QUANTITY_TRY_FROM_INT, u64::MAX);
+    let mut quantity_from_int = vm_for(syscalls::SYSCALL_QUANTITY_FROM_INT, u64::MAX);
     let int = install_int(&mut quantity_from_int, &BigInt::from_i128(7));
     quantity_from_int.set_register(10, int);
     quantity_from_int.run().expect("int to quantity");
     assert_eq!(result_quantity(&quantity_from_int).to_string(), "7");
-    covered.insert(syscalls::SYSCALL_QUANTITY_TRY_FROM_INT);
-    let mut quantity_from_decimal = vm_for(syscalls::SYSCALL_QUANTITY_TRY_FROM_DECIMAL, u64::MAX);
+    covered.insert(syscalls::SYSCALL_QUANTITY_FROM_INT);
+    let mut quantity_from_decimal = vm_for(syscalls::SYSCALL_QUANTITY_FROM_DECIMAL, u64::MAX);
     let decimal = install_decimal(
         &mut quantity_from_decimal,
         &"1.25".parse().expect("decimal"),
@@ -478,7 +473,7 @@ fn every_shipping_numeric_syscall_executes_with_a_semantic_assertion() {
     quantity_from_decimal.set_register(10, decimal);
     quantity_from_decimal.run().expect("decimal to quantity");
     assert_eq!(result_quantity(&quantity_from_decimal).to_string(), "1.25");
-    covered.insert(syscalls::SYSCALL_QUANTITY_TRY_FROM_DECIMAL);
+    covered.insert(syscalls::SYSCALL_QUANTITY_FROM_DECIMAL);
     let mut quantity_to_decimal = vm_for(syscalls::SYSCALL_QUANTITY_TO_DECIMAL, u64::MAX);
     let quantity = install_quantity(&mut quantity_to_decimal, &"1.25".parse().expect("quantity"));
     quantity_to_decimal.set_register(10, quantity);
@@ -1110,9 +1105,10 @@ fn exact_and_rounded_decimal_division_have_distinct_faults_and_signed_public_mod
 }
 #[test]
 fn quantity_is_nominal_and_underflow_is_recoverable_without_output() {
-    let mut convert = vm_for(syscalls::SYSCALL_QUANTITY_TRY_FROM_DECIMAL, u64::MAX);
+    let mut convert = vm_for(syscalls::SYSCALL_QUANTITY_FROM_DECIMAL, u64::MAX);
     let negative = install_decimal(&mut convert, &Numeric::new(-1, 0));
     convert.set_register(10, negative);
+    convert.set_register(14, NUMERIC_FAILURE_STATUS);
     convert.run().expect("recoverable negative quantity");
     assert_eq!(convert.register(10), 0);
     assert_eq!(convert.register(11), NumericFaultV1::NegativeQuantity.tag());
@@ -2401,7 +2397,7 @@ fn borrowed_numeric_outputs_keep_exact_frames_and_both_output_refusal_boundaries
             174,
         ),
         (
-            syscalls::SYSCALL_QUANTITY_TRY_FROM_INT,
+            syscalls::SYSCALL_QUANTITY_FROM_INT,
             PointerType::Quantity,
             vec![],
             Some(0),
@@ -2431,7 +2427,7 @@ fn borrowed_numeric_outputs_keep_exact_frames_and_both_output_refusal_boundaries
             366,
         ),
         (
-            syscalls::SYSCALL_QUANTITY_TRY_FROM_INT,
+            syscalls::SYSCALL_QUANTITY_FROM_INT,
             PointerType::Quantity,
             maximum,
             Some(0),
@@ -2451,7 +2447,7 @@ fn borrowed_numeric_outputs_keep_exact_frames_and_both_output_refusal_boundaries
             177,
         ),
         (
-            syscalls::SYSCALL_QUANTITY_TRY_FROM_DECIMAL,
+            syscalls::SYSCALL_QUANTITY_FROM_DECIMAL,
             PointerType::Quantity,
             vec![1],
             Some(28),
@@ -2488,7 +2484,7 @@ fn borrowed_numeric_outputs_keep_exact_frames_and_both_output_refusal_boundaries
             let mut vm = vm_for(syscall, u64::MAX);
             match syscall {
                 syscalls::SYSCALL_INT_FROM_I64 => vm.set_register(10, 0),
-                syscalls::SYSCALL_DECIMAL_NEG | syscalls::SYSCALL_QUANTITY_TRY_FROM_DECIMAL => {
+                syscalls::SYSCALL_DECIMAL_NEG | syscalls::SYSCALL_QUANTITY_FROM_DECIMAL => {
                     let source = Numeric::try_new(1, 28).unwrap();
                     let pointer = install_decimal(&mut vm, &source);
                     vm.set_register(10, pointer);
@@ -2554,6 +2550,138 @@ fn borrowed_numeric_outputs_keep_exact_frames_and_both_output_refusal_boundaries
                 assert_eq!(stopped.charged(), prior_stages + completed_output);
                 assert_eq!(gas - vm.remaining_gas(), instruction + stopped.charged());
             }
+        }
+    }
+}
+
+#[test]
+fn conversions_preserve_exact_faults_and_output_in_both_failure_modes() {
+    for (syscall, fault) in [
+        (
+            syscalls::SYSCALL_INT_TO_I64,
+            NumericFaultV1::InexactConversion,
+        ),
+        (
+            syscalls::SYSCALL_INT_TO_U64,
+            NumericFaultV1::InexactConversion,
+        ),
+        (
+            syscalls::SYSCALL_DECIMAL_TO_INT_EXACT,
+            NumericFaultV1::InexactConversion,
+        ),
+        (
+            syscalls::SYSCALL_QUANTITY_FROM_INT,
+            NumericFaultV1::NegativeQuantity,
+        ),
+        (
+            syscalls::SYSCALL_QUANTITY_FROM_DECIMAL,
+            NumericFaultV1::NegativeQuantity,
+        ),
+    ] {
+        let mut arithmetic = None;
+        for mode in [NUMERIC_FAILURE_TRAP, NUMERIC_FAILURE_STATUS] {
+            let mut vm = vm_for(syscall, u64::MAX);
+            let input = match syscall {
+                syscalls::SYSCALL_INT_TO_I64 => install_int(&mut vm, &max_int()),
+                syscalls::SYSCALL_INT_TO_U64 | syscalls::SYSCALL_QUANTITY_FROM_INT => {
+                    install_int(&mut vm, &BigInt::from_i128(-1))
+                }
+                syscalls::SYSCALL_DECIMAL_TO_INT_EXACT => {
+                    install_decimal(&mut vm, &Numeric::new(15, 1))
+                }
+                _ => install_decimal(&mut vm, &Numeric::new(-1, 0)),
+            };
+            let output_before = vm.memory.output_used_len();
+            vm.set_register(10, input);
+            vm.set_register(14, mode);
+            if mode == NUMERIC_FAILURE_TRAP {
+                assert_eq!(vm.run(), Err(VMError::NumericFault(fault)), "{syscall:#x}");
+                assert_eq!(vm.register(10), input);
+                assert_eq!(vm.register(11), 0);
+            } else {
+                vm.run().expect("status conversion failure");
+                assert_eq!(vm.register(10), 0);
+                assert_eq!(vm.register(11), fault.tag());
+                assert_eq!(
+                    vm.last_staged_syscall_context().unwrap().completion(),
+                    Some(SyscallCompletion::RecoverableFailure)
+                );
+            }
+            assert_eq!(vm.memory.output_used_len(), output_before);
+            let work = vm
+                .last_staged_syscall_context()
+                .unwrap()
+                .phase_charge(SyscallMeteringPhase::Arithmetic);
+            assert!(work > 0);
+            if let Some(previous) = arithmetic {
+                assert_eq!(work, previous);
+            }
+            arithmetic = Some(work);
+        }
+    }
+}
+
+#[test]
+fn conversion_modes_and_reserved_registers_fail_after_authentication_before_arithmetic() {
+    for syscall in [
+        syscalls::SYSCALL_INT_TO_I64,
+        syscalls::SYSCALL_INT_TO_U64,
+        syscalls::SYSCALL_DECIMAL_TO_INT_EXACT,
+        syscalls::SYSCALL_QUANTITY_FROM_INT,
+        syscalls::SYSCALL_QUANTITY_FROM_DECIMAL,
+    ] {
+        let mut wrong_type = vm_for(syscall, u64::MAX);
+        let wrong_input = if matches!(
+            syscall,
+            syscalls::SYSCALL_INT_TO_I64
+                | syscalls::SYSCALL_INT_TO_U64
+                | syscalls::SYSCALL_QUANTITY_FROM_INT
+        ) {
+            install_decimal(&mut wrong_type, &Numeric::one())
+        } else {
+            install_int(&mut wrong_type, &BigInt::one())
+        };
+        wrong_type.set_register(10, wrong_input);
+        wrong_type.set_register(11, 2);
+        wrong_type.set_register(14, 2);
+        assert_eq!(
+            wrong_type.run(),
+            Err(VMError::PointerAbiFault(PointerAbiFaultV1::WrongType))
+        );
+        assert_eq!(wrong_type.register(10), wrong_input);
+        for invalid_register in [11, 12, 13, 14] {
+            let mut vm = vm_for(syscall, u64::MAX);
+            let input = if matches!(
+                syscall,
+                syscalls::SYSCALL_INT_TO_I64
+                    | syscalls::SYSCALL_INT_TO_U64
+                    | syscalls::SYSCALL_QUANTITY_FROM_INT
+            ) {
+                install_int(&mut vm, &BigInt::one())
+            } else {
+                install_decimal(&mut vm, &Numeric::one())
+            };
+            vm.set_register(10, input);
+            vm.set_register(invalid_register, 2);
+            let before = vm.memory.output_used_len();
+            let expected = if invalid_register == 14 {
+                NumericFaultV1::InvalidFailureMode
+            } else {
+                NumericFaultV1::ReservedRegisterNonZero
+            };
+            assert_eq!(
+                vm.run(),
+                Err(VMError::NumericFault(expected)),
+                "{syscall:#x}"
+            );
+            assert_eq!(vm.register(10), input);
+            assert_eq!(vm.memory.output_used_len(), before);
+            assert_eq!(
+                vm.last_staged_syscall_context()
+                    .unwrap()
+                    .phase_charge(SyscallMeteringPhase::Arithmetic),
+                0
+            );
         }
     }
 }

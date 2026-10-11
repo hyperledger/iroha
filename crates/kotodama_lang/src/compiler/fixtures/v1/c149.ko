@@ -1,6 +1,6 @@
 
-seiyaku Test {
-  kotoage fn set_metadata(NftId nft, Json metadata) authorize("NftAuthority") {
+seiyaku Test { permission NftAuthority;
+  kotoage fn set_metadata(NftId nft, Json metadata) authorize(NftAuthority) {
     ledger::nft::set_metadata(
       nft: nft,
       key: Name::parse("dpn_metadata"),

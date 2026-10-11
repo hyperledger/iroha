@@ -4752,22 +4752,16 @@ mod sorafs_reference_validation_py_tests {
 fn confidential_vk_registration_payload_py(
     py: Python<'_>,
     record: iroha_data_model::proof::VerifyingKeyRecord,
-    backend: &str,
     name: &str,
     label: &str,
 ) -> PyResult<Py<PyAny>> {
-    let key_bytes = record
-        .key
-        .as_ref()
-        .ok_or_else(|| {
-            PyValueError::new_err(format!(
-                "{label} verifying-key record is missing inline key bytes"
-            ))
-        })?
-        .bytes
-        .clone();
+    let key = record.key.as_ref().ok_or_else(|| {
+        PyValueError::new_err(format!(
+            "{label} verifying-key record is missing inline key bytes"
+        ))
+    })?;
     let payload = PyDict::new(py);
-    payload.set_item("backend", backend)?;
+    payload.set_item("backend", key.backend.as_str())?;
     payload.set_item("name", name)?;
     payload.set_item("version", record.version)?;
     payload.set_item("circuit_id", record.circuit_id)?;
@@ -4782,7 +4776,7 @@ fn confidential_vk_registration_payload_py(
     if let Some(gas_schedule_id) = record.gas_schedule_id {
         payload.set_item("gas_schedule_id", gas_schedule_id)?;
     }
-    payload.set_item("vk_bytes", BASE64.encode(&key_bytes))?;
+    payload.set_item("vk_bytes", BASE64.encode(&key.bytes))?;
     payload.set_item("status", "Active")?;
     Ok(payload.into_any().unbind())
 }
@@ -4803,7 +4797,6 @@ fn confidential_transfer_v2_verifying_key_registration_payload_v1_py(
     confidential_vk_registration_payload_py(
         py,
         record,
-        iroha_core_zk::ZK_BACKEND_HALO2_IPA,
         "confidential_transfer_v2",
         "confidential transfer v2",
     )
@@ -4825,7 +4818,6 @@ fn confidential_unshield_v3_verifying_key_registration_payload_v1_py(
     confidential_vk_registration_payload_py(
         py,
         record,
-        iroha_core_zk::ZK_BACKEND_HALO2_IPA,
         "confidential_unshield_v3",
         "confidential unshield v3",
     )
@@ -5106,6 +5098,55 @@ mod tests {
         static INIT: OnceCell<()> = OnceCell::new();
         INIT.get_or_init(|| {
             Python::initialize();
+        });
+    }
+    #[test]
+    fn confidential_registration_uses_exact_key_profile() {
+        ensure_python();
+        Python::attach(|py| {
+            for backend in [
+                "pipa-r/pasta/confidential-transfer-v1",
+                "pipa-r/pasta/confidential-unshield-change-v1",
+            ] {
+                let mut record = iroha_data_model::proof::VerifyingKeyRecord::new(
+                    1,
+                    backend,
+                    iroha_data_model::zk::BackendTag::NativePipaRPasta,
+                    "vesta",
+                    [0x11; 32],
+                    [0x22; 32],
+                );
+                assert!(
+                    confidential_vk_registration_payload_py(py, record.clone(), "key", "fixture")
+                        .is_err()
+                );
+                record.vk_len = 3;
+                record.key = Some(iroha_data_model::proof::VerifyingKeyBox::new(
+                    backend.into(),
+                    vec![1, 2, 3],
+                ));
+                let result = confidential_vk_registration_payload_py(py, record, "key", "fixture")
+                    .expect("native registration payload");
+                let fields = result
+                    .bind(py)
+                    .cast::<PyDict>()
+                    .expect("payload dictionary");
+                for (name, expected) in [
+                    ("backend", backend),
+                    ("circuit_id", backend),
+                    ("vk_bytes", "AQID"),
+                ] {
+                    assert_eq!(
+                        fields
+                            .get_item(name)
+                            .unwrap()
+                            .unwrap()
+                            .extract::<String>()
+                            .unwrap(),
+                        expected
+                    );
+                }
+            }
         });
     }
     fn completion_authority_dict<'py>(
@@ -5521,7 +5562,7 @@ mod tests {
     include!("tests/python_crypto_boundary_tests.rs");
     #[test]
     fn native_sdk_bridge_abi_version_is_exactly_twenty_two() {
-        assert_eq!(connect_norito_bridge_abi_version_py(), 25);
+        assert_eq!(connect_norito_bridge_abi_version_py(), 29);
     }
     #[test]
     fn attachments_json_decodes_versioned_signed_transaction() {
@@ -5725,9 +5766,9 @@ mod tests {
         .expect("builder constructs");
         let attachment = |byte| {
             ProofAttachment::new_ref(
-                "halo2/ipa".into(),
-                ProofBox::new("halo2/ipa".into(), vec![byte]),
-                VerifyingKeyId::new("halo2/ipa", "python-builder-vk"),
+                "pipa-r/pasta".into(),
+                ProofBox::new("pipa-r/pasta".into(), vec![byte]),
+                VerifyingKeyId::new("pipa-r/pasta", "python-builder-vk"),
             )
         };
         for byte in 0..iroha_data_model::proof::PROOF_ATTACHMENT_LIST_MAX_ATTACHMENTS_V1 {
@@ -5799,9 +5840,9 @@ mod tests {
         .expect("builder constructs");
         let attachment = |proof_bytes| {
             ProofAttachment::new_ref(
-                "halo2/ipa".into(),
-                ProofBox::new("halo2/ipa".into(), vec![0_u8; proof_bytes]),
-                VerifyingKeyId::new("halo2/ipa", "python-builder-vk"),
+                "pipa-r/pasta".into(),
+                ProofBox::new("pipa-r/pasta".into(), vec![0_u8; proof_bytes]),
+                VerifyingKeyId::new("pipa-r/pasta", "python-builder-vk"),
             )
         };
         let mut low = 1_usize;
@@ -6111,6 +6152,62 @@ mod tests {
         );
     }
     #[test]
+    fn direct_dataspace_registration_preserves_exact_native_id_and_definition() {
+        ensure_python();
+        Python::attach(|py| {
+            let instruction_type = py.get_type::<Instruction>();
+            for id in [9_007_199_254_740_993, u64::MAX] {
+                let dataspace = pyo3::types::PyInt::new(py, id);
+                for policy in ["Global", "DataspaceRestricted"] {
+                    let instruction = Instruction::register_dataspace_asset_definition(
+                        &instruction_type,
+                        py,
+                        "62Fk4FPcMuLvW5QjDGNF2a4jAmjM",
+                        dataspace.as_any(),
+                        policy,
+                        "coin",
+                        Some("direct namespace"),
+                        None,
+                        Some(2),
+                        Some("Once"),
+                        None,
+                    )
+                    .expect("explicit direct home builds");
+                    let decoded = json::from_str::<InstructionBox>(
+                        &instruction.to_json().expect("native instruction JSON"),
+                    )
+                    .expect("native instruction JSON decodes");
+                    let instruction_ref: &dyn iroha_data_model::isi::Instruction = &*decoded;
+                    let direct = instruction_ref
+                        .as_any()
+                        .downcast_ref::<iroha_data_model::isi::RegisterDataspaceAssetDefinition>()
+                        .expect("standalone direct-dataspace registration");
+                    assert_eq!(direct.dataspace_id.as_u64(), id);
+                    assert_eq!(
+                        direct.object.balance_scope_policy,
+                        parse_balance_scope_policy(policy).expect("policy")
+                    );
+                    assert!(direct.object.owning_domain.is_none());
+                    assert_eq!(direct.object.name, "coin");
+                    assert_eq!(
+                        direct.object.description.as_deref(),
+                        Some("direct namespace")
+                    );
+                    assert_eq!(
+                        direct.object.spec,
+                        numeric_spec_from_optional_scale(Some(2)).unwrap()
+                    );
+                    assert_eq!(direct.object.mintable, Mintable::Once);
+                    assert_eq!(
+                        instruction.to_json().expect("original instruction JSON"),
+                        json::to_json(&decoded).expect("decoded instruction JSON")
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
     fn transfer_rwa_instruction_classmethod_serializes_canonical_quantity_payload() {
         ensure_python();
         Python::attach(|py| {
@@ -6316,17 +6413,19 @@ mod tests {
         Python::attach(|py| {
             let instruction_type = py.get_type::<Instruction>();
             let proof = PyDict::new(py);
-            proof.set_item("backend", "halo2/ipa").expect("backend");
+            proof.set_item("backend", "pipa-r/pasta").expect("backend");
             let proof_box = PyDict::new(py);
             proof_box
-                .set_item("backend", "halo2/ipa")
+                .set_item("backend", "pipa-r/pasta")
                 .expect("proof backend");
             proof_box
                 .set_item("bytes", PyBytes::new(py, b"proof"))
                 .expect("proof bytes");
             proof.set_item("proof", proof_box).expect("proof box");
             let vk_ref = PyDict::new(py);
-            vk_ref.set_item("backend", "halo2/ipa").expect("vk backend");
+            vk_ref
+                .set_item("backend", "pipa-r/pasta")
+                .expect("vk backend");
             vk_ref
                 .set_item("name", "component_verify_v1")
                 .expect("vk name");
@@ -6345,7 +6444,7 @@ mod tests {
                 .as_any()
                 .downcast_ref::<VerifyProof>()
                 .expect("expected VerifyProof");
-            assert_eq!(verify.attachment.backend.to_string(), "halo2/ipa");
+            assert_eq!(verify.attachment.backend.to_string(), "pipa-r/pasta");
             assert_eq!(verify.attachment.proof.bytes, b"proof");
             assert_eq!(verify.attachment.vk_ref.name, "component_verify_v1");
             assert_eq!(verify.attachment.vk_commitment, Some([0x44; 32]));
@@ -6362,18 +6461,20 @@ mod tests {
             let canonical = |proof_bytes: &[u8]| {
                 let attachment = PyDict::new(py);
                 attachment
-                    .set_item("backend", "halo2/ipa")
+                    .set_item("backend", "pipa-r/pasta")
                     .expect("backend");
                 let proof = PyDict::new(py);
                 proof
-                    .set_item("backend", "halo2/ipa")
+                    .set_item("backend", "pipa-r/pasta")
                     .expect("proof backend");
                 proof
                     .set_item("bytes", PyBytes::new(py, proof_bytes))
                     .expect("proof bytes");
                 attachment.set_item("proof", proof).expect("proof");
                 let vk_ref = PyDict::new(py);
-                vk_ref.set_item("backend", "halo2/ipa").expect("vk backend");
+                vk_ref
+                    .set_item("backend", "pipa-r/pasta")
+                    .expect("vk backend");
                 vk_ref.set_item("name", "vk_transfer").expect("vk name");
                 attachment.set_item("vk_ref", vk_ref).expect("vk ref");
                 attachment
@@ -7143,6 +7244,30 @@ mod tests {
                 "message": null,
             }))
         );
+    }
+    #[test]
+    fn ivm_fault_projection_retains_typed_origin_without_presentation() {
+        use iroha_data_model::executor::fault::{
+            IvmFaultKindV1, IvmFaultPositionV1, IvmFaultSiteV1, IvmFaultV1,
+            IvmInvocationSelectorV1, NumericFaultV1,
+        };
+        let fault = IvmFaultV1 {
+            kind: IvmFaultKindV1::Numeric(NumericFaultV1::DivisionByZero),
+            site: IvmFaultSiteV1 {
+                code_hash: Hash::new(b"origin"),
+                selector: IvmInvocationSelectorV1::Entrypoint(3),
+                position: IvmFaultPositionV1::Execute {
+                    pc_offset: u64::MAX,
+                },
+            },
+        };
+        let reason = TransactionRejectionReason::Validation(ValidationFail::IvmFault(fault));
+        assert_eq!(transaction_rejection_code(&reason), "IvmFault");
+        assert_eq!(
+            transaction_ivm_fault_json(&reason),
+            Some(norito::json!(fault))
+        );
+        assert!(transaction_contract_rejection_json(&reason).is_none());
     }
     #[test]
     fn contract_rejection_projection_preserves_boxed_identity_and_message() {
@@ -9561,6 +9686,79 @@ impl Instruction {
             Mintable::Not => new_asset.with_mintable(Mintable::Not),
         };
         let instruction = Register::<AssetDefinition>::asset_definition(new_asset);
+        Ok(Instruction::new(instruction.into()))
+    }
+    #[classmethod]
+    #[pyo3(signature = (definition_id, *, dataspace_id, balance_scope_policy, name, description=None, alias=None, scale=None, mintable=None, metadata=None))]
+    #[allow(clippy::too_many_arguments)] // PyO3 signature mirrors the Python surface and requires explicit keyword params
+    fn register_dataspace_asset_definition<'py>(
+        _cls: &Bound<'py, PyType>,
+        py: Python<'py>,
+        definition_id: &str,
+        dataspace_id: &Bound<'py, PyAny>,
+        balance_scope_policy: &str,
+        name: &str,
+        description: Option<&str>,
+        alias: Option<&str>,
+        scale: Option<u32>,
+        mintable: Option<&str>,
+        metadata: Option<&Bound<'py, PyAny>>,
+    ) -> PyResult<Self> {
+        if dataspace_id.is_instance_of::<PyBool>()
+            || !dataspace_id.is_instance_of::<pyo3::types::PyInt>()
+        {
+            return Err(PyTypeError::new_err(
+                "dataspace_id must be an exact integer",
+            ));
+        }
+        let dataspace_id = dataspace_id
+            .extract::<u64>()
+            .map_err(|_| PyValueError::new_err("dataspace_id must be a nonzero u64"))?;
+        if dataspace_id == 0 {
+            return Err(PyValueError::new_err("dataspace_id must be a nonzero u64"));
+        }
+        let definition_id: AssetDefinitionId = definition_id.parse().map_err(|err| {
+            PyValueError::new_err(format!(
+                "invalid asset definition id `{definition_id}`: {err}"
+            ))
+        })?;
+        let parsed_balance_scope_policy = parse_balance_scope_policy(balance_scope_policy)?;
+        validate_asset_name(name).map_err(|err| {
+            PyValueError::new_err(format!("invalid asset definition name `{name}`: {err}"))
+        })?;
+        let spec = numeric_spec_from_optional_scale(scale)?;
+        let mut new_asset = AssetDefinition::new(
+            definition_id,
+            name.to_owned(),
+            spec,
+            parsed_balance_scope_policy,
+            None,
+        );
+        if let Some(description) = description {
+            new_asset = new_asset.with_description(Some(description.to_owned()));
+        }
+        if let Some(alias) = alias {
+            let alias = alias.parse::<AssetDefinitionAlias>().map_err(|err| {
+                PyValueError::new_err(format!("invalid asset definition alias `{alias}`: {err}"))
+            })?;
+            new_asset = new_asset.with_alias(Some(alias));
+        }
+        if let Some(meta) = metadata {
+            let metadata = py_to_metadata(py, Some(meta))?;
+            new_asset = new_asset.with_metadata(metadata);
+        }
+        let mintable_mode = parse_mintable(mintable)?;
+        new_asset = match mintable_mode {
+            Mintable::Infinitely => new_asset,
+            Mintable::Once => new_asset.mintable_once(),
+            Mintable::Limited(tokens) => new_asset.mintable_limited(tokens),
+            Mintable::Not => new_asset.with_mintable(Mintable::Not),
+        };
+        let instruction = iroha_data_model::isi::RegisterDataspaceAssetDefinition::new(
+            DataSpaceId::new(dataspace_id),
+            new_asset,
+        )
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
         Ok(Instruction::new(instruction.into()))
     }
     #[classmethod]
@@ -12048,6 +12246,7 @@ fn transaction_rejection_code(reason: &TransactionRejectionReason) -> &str {
         TransactionRejectionReason::Validation(validation) => match validation {
             ValidationFail::NotPermitted(_) => "NotPermitted",
             ValidationFail::IvmAdmission(_) => "IvmAdmission",
+            ValidationFail::IvmFault(_) => "IvmFault",
             ValidationFail::InstructionFailed(error) => instruction_execution_rejection_code(error),
             ValidationFail::ContractRejected(rejection) => rejection.name.as_str(),
             ValidationFail::QueryFailed(_) => "QueryFailed",
@@ -12056,9 +12255,14 @@ fn transaction_rejection_code(reason: &TransactionRejectionReason) -> &str {
             ValidationFail::InternalError(_) => "InternalError",
         },
         TransactionRejectionReason::InstructionExecution(_) => "InstructionExecutionFailed",
-        TransactionRejectionReason::IvmExecution(_) => "IvmExecutionFailed",
         TransactionRejectionReason::TriggerExecution(_) => "TriggerExecutionFailed",
     }
+}
+fn transaction_ivm_fault_json(reason: &TransactionRejectionReason) -> Option<json::Value> {
+    let TransactionRejectionReason::Validation(ValidationFail::IvmFault(fault)) = reason else {
+        return None;
+    };
+    Some(norito::json!(fault))
 }
 fn transaction_contract_rejection_json(reason: &TransactionRejectionReason) -> Option<json::Value> {
     let TransactionRejectionReason::Validation(ValidationFail::ContractRejected(rejection)) =
@@ -12228,6 +12432,12 @@ fn verify_committed_transaction_inclusion_py(
                 transaction_contract_rejection_json(reason),
             ),
         };
+    let ivm_fault = committed
+        .result()
+        .0
+        .as_ref()
+        .err()
+        .and_then(transaction_ivm_fault_json);
     let batch_outcomes = committed
         .result()
         .batch_transfer_outcomes()
@@ -12268,16 +12478,6 @@ fn verify_committed_transaction_inclusion_py(
     execution_json.insert(
         "ordinary_writes_root".into(),
         json::to_value(&execution_commitment.ordinary_writes_root)
-            .map_err(|error| PyValueError::new_err(error.to_string()))?,
-    );
-    execution_json.insert(
-        "kagemusha_top_up_root".into(),
-        json::to_value(&execution_commitment.kagemusha_top_up_root)
-            .map_err(|error| PyValueError::new_err(error.to_string()))?,
-    );
-    execution_json.insert(
-        "kagemusha_top_up_count".into(),
-        json::to_value(&execution_commitment.kagemusha_top_up_count)
             .map_err(|error| PyValueError::new_err(error.to_string()))?,
     );
     execution_json.insert(
@@ -12385,6 +12585,10 @@ fn verify_committed_transaction_inclusion_py(
     result.insert(
         "rejection_message".into(),
         rejection_message.map_or(norito::json::Value::Null, norito::json::Value::String),
+    );
+    result.insert(
+        "ivm_fault".into(),
+        ivm_fault.unwrap_or(norito::json::Value::Null),
     );
     result.insert(
         "contract_rejection".into(),

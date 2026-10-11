@@ -56,5 +56,5 @@ mod wsv_host_zk_perm_and_events;
 mod wsv_state_overlay;
 #[path = "../zk_gating.rs"]
 mod zk_gating;
-#[path = "../zk_halo2_backend_toggle.rs"]
-mod zk_halo2_backend_toggle;
+#[path = "../zk_verify_limits.rs"]
+mod zk_verify_limits;

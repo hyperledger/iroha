@@ -27,10 +27,10 @@ fn rounded_decimal_division_supports_every_v1_rounding_mode() {
             "fn rounded(decimal value) -> decimal {{ return value.div_round(\
                     divisor: 8.0, scale: 2, mode: Rounding::{mode}); }}"
         ));
-        let ExprKind::NamedCall { name, args, .. } = expression.expr else {
+        let ExprKind::NamedCall { target: name, args, .. } = expression.expr else {
             panic!("dynamic rounded division must remain an intrinsic for mode={mode}");
         };
-        assert_eq!(name, DECIMAL_DIV_ROUND_INTRINSIC, "mode={mode}");
+        assert_eq!(name, CallTarget::Intrinsic(CompilerIntrinsic::DecimalDivRound), "mode={mode}");
         assert!(
             matches!(
                 args[3].expr,
@@ -47,14 +47,14 @@ fn rounded_decimal_division_supports_every_v1_rounding_mode() {
                     mode: Rounding::nearest_even, divisor: divisor, scale: scale); }",
     );
     let ExprKind::NamedCall {
-        name,
+        target: name,
         args,
         evaluation_order,
     } = expression.expr
     else {
         panic!("dynamic rounded division must remain a typed intrinsic");
     };
-    assert_eq!(name, QUANTITY_DIV_ROUND_INTRINSIC);
+    assert_eq!(name, CallTarget::Intrinsic(CompilerIntrinsic::QuantityDivRound));
     assert_eq!(args.len(), 4);
     assert_eq!(args[0].ty, Type::Quantity);
     assert_eq!(args[1].ty, Type::Decimal);
@@ -71,10 +71,10 @@ fn rounded_decimal_division_supports_every_v1_rounding_mode() {
                 return value.ratio_round( \
                     divisor: divisor, scale: scale, mode: Rounding::floor); }",
     );
-    let ExprKind::NamedCall { name, args, .. } = ratio.expr else {
+    let ExprKind::NamedCall { target: name, args, .. } = ratio.expr else {
         panic!("dynamic rounded ratio must remain a typed intrinsic");
     };
-    assert_eq!(name, QUANTITY_RATIO_ROUND_INTRINSIC);
+    assert_eq!(name, CallTarget::Intrinsic(CompilerIntrinsic::QuantityRatioRound));
     assert_eq!(args[0].ty, Type::Quantity);
     assert_eq!(args[1].ty, Type::Quantity);
     assert_eq!(args[2].ty, Type::Int);

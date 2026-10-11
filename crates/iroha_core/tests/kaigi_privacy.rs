@@ -1,28 +1,9 @@
 //! Integration coverage for final Kaigi authorization and usage instruction execution.
 #![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
-#![cfg(all(
-    feature = "zk-tests",
-    feature = "zk-halo2",
-    feature = "halo2-dev-tests"
-))]
+#![cfg(feature = "zk-tests")]
 
 use core::num::NonZeroU64;
-use halo2_proofs::{
-    SerdeFormat,
-    halo2curves::{
-        ff::PrimeField as _,
-        pasta::{EqAffine as Curve, Fp as Scalar},
-    },
-    plonk::{Circuit, ProvingKey, VerifyingKey, create_proof, keygen_pk, keygen_vk},
-    poly::{
-        commitment::ParamsProver,
-        ipa::{
-            commitment::{IPACommitmentScheme, ParamsIPA},
-            multiopen::ProverIPA,
-        },
-    },
-    transcript::{Blake2bWrite, Challenge255, TranscriptWriterBuffer},
-};
+use ff::PrimeField as _;
 use iroha_config::parameters::actual::VerifyingKeyRef;
 use iroha_core::{
     kura::Kura,
@@ -31,6 +12,7 @@ use iroha_core::{
     state::{State, StateReadOnly, StateTransaction, WorldReadOnly},
 };
 use iroha_core_zk::hash_vk;
+use iroha_core_zk::{ZK_BACKEND_NATIVE_PIPA_R, native_pipa_r};
 use iroha_crypto::Hash;
 use iroha_data_model::{
     block::BlockHeader,
@@ -49,20 +31,18 @@ use iroha_model_base::domain::DomainId;
 use iroha_model_base::name::Name;
 use iroha_primitives::json::Json;
 use iroha_test_samples::{ALICE_ID, gen_account_in};
+use kaigi_zk::{Scalar, native::NativeRelationV1};
 use kaigi_zk::{
     authorization_v1::{
-        KAIGI_AUTHORIZATION_CIRCUIT_ID_V1, KAIGI_AUTHORIZATION_CIRCUIT_K_V1,
-        KAIGI_AUTHORIZATION_INSTANCE_ROWS_V1, KAIGI_AUTHORIZATION_PUBLIC_INPUTS_SCHEMA_V1,
-        KaigiAuthorizationActionV1, KaigiAuthorizationCircuitV1, KaigiAuthorizationContextV1,
-        KaigiAuthorizationPublicInputsV1, KaigiAuthorizationWitnessV1, compute_authorization_v1,
+        KAIGI_AUTHORIZATION_INSTANCE_ROWS_V1, KaigiAuthorizationActionV1,
+        KaigiAuthorizationContextV1, KaigiAuthorizationPublicInputsV1, KaigiAuthorizationWitnessV1,
+        compute_authorization_v1,
     },
     usage_v1::{
-        KAIGI_USAGE_CIRCUIT_ID_V1, KAIGI_USAGE_CIRCUIT_K_V1, KAIGI_USAGE_INSTANCE_ROWS_V1,
-        KAIGI_USAGE_PUBLIC_INPUTS_SCHEMA_V1, KaigiUsageCircuitV1, KaigiUsageContextV1,
-        KaigiUsagePublicInputsV1, compute_usage_v1,
+        KAIGI_USAGE_INSTANCE_ROWS_V1, KaigiUsageContextV1, KaigiUsagePublicInputsV1,
+        compute_usage_v1,
     },
 };
-use rand_core_06::OsRng;
 use std::{str::FromStr, sync::OnceLock, time::Duration};
 #[path = "common/world_fixture.rs"]
 mod test_world;
@@ -74,43 +54,26 @@ const AUTHORIZATION_VK_NAME: &str = "kaigi_authorization_current";
 const USAGE_VK_NAME: &str = "kaigi_usage_current";
 
 struct GovernedKey {
-    params: ParamsIPA<Curve>,
-    pk: ProvingKey<Curve>,
     carrier: VerifyingKeyBox,
     circuit_id: &'static str,
     schema: &'static [u8],
     name: &'static str,
 }
 impl GovernedKey {
-    fn new<C: Circuit<Scalar>>(
-        circuit: C,
-        k: u32,
-        circuit_id: &'static str,
-        schema: &'static [u8],
-        name: &'static str,
-    ) -> Self {
-        let params = ParamsIPA::new(k);
-        let vk = keygen_vk(&params, &circuit).expect("final circuit verifying key");
-        let pk = keygen_pk(&params, vk.clone(), &circuit).expect("final circuit proving key");
-        let mut wire = zk1_envelope_start();
-        zk1_append_ipa_k(&mut wire, k);
-        zk1_append_circuit_id(&mut wire, circuit_id);
-        zk1_append_vk_pasta(&mut wire, &vk);
+    fn new(kind: NativeRelationV1, name: &'static str) -> Self {
         Self {
-            params,
-            pk,
-            carrier: VerifyingKeyBox::new("halo2/ipa".into(), wire),
-            circuit_id,
-            schema,
+            carrier: native_pipa_r::kaigi_verifying_key(kind).expect("compiled native key"),
+            circuit_id: kind.circuit_id(),
+            schema: native_pipa_r::public_schema(kind.into()),
             name,
         }
     }
     fn id(&self) -> VerifyingKeyId {
-        VerifyingKeyId::new("halo2/ipa", self.name)
+        VerifyingKeyId::new(ZK_BACKEND_NATIVE_PIPA_R, self.name)
     }
     fn reference(&self) -> VerifyingKeyRef {
         VerifyingKeyRef {
-            backend: "halo2/ipa".into(),
+            backend: ZK_BACKEND_NATIVE_PIPA_R.into(),
             name: self.name.into(),
         }
     }
@@ -118,8 +81,8 @@ impl GovernedKey {
         let mut record = VerifyingKeyRecord::new(
             1,
             self.circuit_id,
-            BackendTag::Halo2IpaPasta,
-            "pallas",
+            BackendTag::NativePipaRPasta,
+            "vesta",
             Hash::new(self.schema).into(),
             hash_vk(&self.carrier),
         );
@@ -130,61 +93,14 @@ impl GovernedKey {
         record.key = Some(self.carrier.clone());
         record
     }
-    fn proof<C: Circuit<Scalar>>(&self, circuit: C, instance: &[Scalar]) -> Vec<u8> {
-        let mut transcript = Blake2bWrite::<_, Curve, Challenge255<Curve>>::init(Vec::new());
-        create_proof::<
-            IPACommitmentScheme<Curve>,
-            ProverIPA<'_, Curve>,
-            Challenge255<Curve>,
-            _,
-            _,
-            _,
-        >(
-            &self.params,
-            &self.pk,
-            &[circuit],
-            &[&[instance]],
-            OsRng,
-            &mut transcript,
-        )
-        .expect("real final IPA proof");
-        let mut carrier = zk1_envelope_start();
-        zk1_append_proof(&mut carrier, &transcript.finalize());
-        zk1_append_instances_cols(&mut carrier, &[instance]);
-        norito::encode_canonical(&OpenVerifyEnvelope {
-            backend: BackendTag::Halo2IpaPasta,
-            circuit_id: self.circuit_id.into(),
-            vk_hash: hash_vk(&self.carrier),
-            public_inputs: self.schema.to_vec(),
-            proof_bytes: carrier,
-            aux: Vec::new(),
-        })
-        .expect("canonical final proof envelope")
-    }
 }
 fn authorization_key() -> &'static GovernedKey {
     static KEY: OnceLock<GovernedKey> = OnceLock::new();
-    KEY.get_or_init(|| {
-        GovernedKey::new(
-            KaigiAuthorizationCircuitV1::default(),
-            KAIGI_AUTHORIZATION_CIRCUIT_K_V1,
-            KAIGI_AUTHORIZATION_CIRCUIT_ID_V1,
-            KAIGI_AUTHORIZATION_PUBLIC_INPUTS_SCHEMA_V1,
-            AUTHORIZATION_VK_NAME,
-        )
-    })
+    KEY.get_or_init(|| GovernedKey::new(NativeRelationV1::Authorization, AUTHORIZATION_VK_NAME))
 }
 fn usage_key() -> &'static GovernedKey {
     static KEY: OnceLock<GovernedKey> = OnceLock::new();
-    KEY.get_or_init(|| {
-        GovernedKey::new(
-            KaigiUsageCircuitV1::default(),
-            KAIGI_USAGE_CIRCUIT_K_V1,
-            KAIGI_USAGE_CIRCUIT_ID_V1,
-            KAIGI_USAGE_PUBLIC_INPUTS_SCHEMA_V1,
-            USAGE_VK_NAME,
-        )
-    })
+    KEY.get_or_init(|| GovernedKey::new(NativeRelationV1::Usage, USAGE_VK_NAME))
 }
 fn witness(mut bytes: [u8; 32]) -> KaigiAuthorizationWitnessV1 {
     let witness = KaigiAuthorizationWitnessV1::take_blinding(&mut bytes)
@@ -274,10 +190,10 @@ fn authorization_artifacts(
             digest: KaigiAuthorizationScalarV1::from_le_bytes(outputs.nullifier.to_repr()).unwrap(),
         },
         root: record.roster_root(),
-        proof: authorization_key().proof(
-            KaigiAuthorizationCircuitV1::new(context, witness).unwrap(),
-            &instance,
-        ),
+        proof: norito::encode_canonical(
+            &native_pipa_r::prove_kaigi_authorization(context, witness).unwrap(),
+        )
+        .unwrap(),
     }
 }
 fn usage_instruction(tx: &StateTransaction<'_, '_>, record: &KaigiRecord) -> RecordKaigiUsage {
@@ -314,10 +230,10 @@ fn usage_instruction(tx: &StateTransaction<'_, '_>, record: &KaigiRecord) -> Rec
         usage_commitment: Some(
             KaigiAuthorizationScalarV1::from_le_bytes(outputs.usage_commitment.to_repr()).unwrap(),
         ),
-        proof: Some(usage_key().proof(
-            KaigiUsageCircuitV1::new(context, witness).unwrap(),
-            &instance,
-        )),
+        proof: Some(
+            norito::encode_canonical(&native_pipa_r::prove_kaigi_usage(context, witness).unwrap())
+                .unwrap(),
+        ),
     }
 }
 fn new_state() -> State {
@@ -327,7 +243,7 @@ fn new_state() -> State {
         LiveQueryStore::start_test(),
     );
     state
-        .edit_zk_for_testing(|zk| zk.halo2.enabled = true)
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
         .expect("fixture ZK settings install");
     state
         .edit_zk_for_testing(|zk| zk.verify_timeout = Duration::ZERO)
@@ -412,72 +328,14 @@ fn mutate_open_verify_envelope(
 // original proof. Every context/output row must remain bound at admission.
 fn mutate_instance_row(proof: &[u8], row: usize, expected_rows: usize) -> Vec<u8> {
     mutate_open_verify_envelope(proof, |envelope| {
-        let bytes = &mut envelope.proof_bytes;
-        assert_eq!(&bytes[..4], b"ZK1\0");
-        let mut offset = 4;
-        while offset < bytes.len() {
-            let tag: [u8; 4] = bytes[offset..offset + 4].try_into().unwrap();
-            let len =
-                u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap()) as usize;
-            offset += 8;
-            if &tag == b"I10P" {
-                assert_eq!(
-                    u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap()),
-                    1
-                );
-                assert_eq!(
-                    u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap()) as usize,
-                    expected_rows
-                );
-                assert_eq!(len, 8 + 32 * expected_rows);
-                assert!(row < expected_rows);
-                let start = offset + 8 + 32 * row;
-                let value = Option::<Scalar>::from(Scalar::from_repr(
-                    bytes[start..start + 32].try_into().unwrap(),
-                ))
-                .unwrap();
-                bytes[start..start + 32].copy_from_slice(&(value + Scalar::from(1)).to_repr());
-                return;
-            }
-            offset += len;
-        }
-        panic!("fixture lacks final instance carrier");
+        let mut native: iroha_data_model::zk::NativePipaRProofV1 =
+            norito::decode_canonical(&envelope.proof_bytes).unwrap();
+        assert_eq!(native.public_inputs.len(), expected_rows);
+        assert!(row < expected_rows);
+        let value = Option::<Scalar>::from(Scalar::from_repr(native.public_inputs[row])).unwrap();
+        native.public_inputs[row] = (value + Scalar::from(1)).to_repr();
+        envelope.proof_bytes = norito::encode_canonical(&native).unwrap();
     })
-}
-fn zk1_envelope_start() -> Vec<u8> {
-    b"ZK1\0".to_vec()
-}
-fn zk1_append_tlv(buf: &mut Vec<u8>, tag: &[u8; 4], payload: &[u8]) {
-    buf.extend_from_slice(tag);
-    buf.extend_from_slice(&(payload.len() as u32).to_le_bytes());
-    buf.extend_from_slice(payload);
-}
-fn zk1_append_ipa_k(buf: &mut Vec<u8>, k: u32) {
-    zk1_append_tlv(buf, b"IPAK", &k.to_le_bytes());
-}
-fn zk1_append_circuit_id(buf: &mut Vec<u8>, circuit_id: &str) {
-    zk1_append_tlv(buf, b"CID1", circuit_id.as_bytes());
-}
-fn zk1_append_vk_pasta(buf: &mut Vec<u8>, vk: &VerifyingKey<Curve>) {
-    let bytes = vk.to_bytes(SerdeFormat::Processed);
-    zk1_append_tlv(buf, b"H2VK", &bytes);
-}
-fn zk1_append_proof(buf: &mut Vec<u8>, proof: &[u8]) {
-    zk1_append_tlv(buf, b"PROF", proof);
-}
-fn zk1_append_instances_cols(buf: &mut Vec<u8>, columns: &[&[Scalar]]) {
-    assert_eq!(columns.len(), 1, "final Kaigi has one instance column");
-    let rows = columns[0].len();
-    assert!(rows > 0);
-    let mut payload = Vec::with_capacity(8 + rows * columns.len() * core::mem::size_of::<Scalar>());
-    payload.extend_from_slice(&(columns.len() as u32).to_le_bytes());
-    payload.extend_from_slice(&(rows as u32).to_le_bytes());
-    for row in 0..rows {
-        for column in columns {
-            payload.extend_from_slice(column[row].to_repr().as_ref());
-        }
-    }
-    zk1_append_tlv(buf, b"I10P", &payload);
 }
 
 #[test]

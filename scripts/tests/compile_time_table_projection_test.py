@@ -18,7 +18,7 @@ KOTODAMA_MANIFEST = (
 )
 ISO_MANIFEST = ROOT / "crates/ivm/src/assets/iso20022_schema_v1/manifest.json"
 REGISTRY_PROVIDER_SHA256 = (
-    "5250447491e9c0a9ec4401d6555e96e8d0aa4104cf9792e83e6538ce7228b6a6"
+    "271d94e13fd7e983489121d0b1cae601e04ce60dcb2f3a0dd44e5bdb1fc452f2"
 )
 
 
@@ -360,7 +360,7 @@ class CompileTimeTableProjectionTests(unittest.TestCase):
         # These first-release tables evolve with the language. Verify their current
         # closed schemas and ownership instead of claiming an obsolete Rust preimage.
         for filename, width in [
-            ("diagnostic_explanations_v1.tsv", 4),
+            ("diagnostic_explanations_v1.tsv", 6),
             ("compile_fail_cases_v1.tsv", 6),
             ("secret_reject_cases_v1.tsv", 4),
         ]:
@@ -443,10 +443,28 @@ class CompileTimeTableProjectionTests(unittest.TestCase):
         self.assertEqual(
             collections.Counter(row[2] for row in rows),
             {
-                "register_slice": 361,
-                "register": 34,
+                "register_slice": 359,
+                "register": 36,
             },
         )
+        self.assertIn(
+            ("base", "crate::isi::kagemusha_wallet::KagemushaWalletLedgerV1",
+             "register", "iroha.kagemusha.wallet.ledger.v1"),
+            rows,
+        )
+        self.assertIn(
+            ("base", "crate::isi::register_dataspace_asset_definition::RegisterDataspaceAssetDefinition",
+             "register_slice", "iroha.asset_definition.dataspace.register.v1"),
+            rows,
+        )
+        for retired in (
+            "TopUpKagemushaV1", "TopUpKagemushaOrdinaryV1", "RedeemKagemushaV1",
+            "ProposeKagemushaVerifierPolicyInstallV1",
+            "ProposeKagemushaVerifierReleaseInstallV1",
+            "ProposeKagemushaVerifierReleaseActivateV1",
+            "ProposeKagemushaVerifierReleaseRetireV1",
+        ):
+            self.assertFalse(any(retired in row[1] for row in rows), retired)
         canonical = "".join("\t".join(row) + "\n" for row in rows).encode()
         self.assertEqual(hashlib.sha256(canonical).hexdigest(), REGISTRY_PROVIDER_SHA256)
         registry = (

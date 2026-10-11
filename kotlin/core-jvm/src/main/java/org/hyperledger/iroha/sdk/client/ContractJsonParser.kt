@@ -228,7 +228,7 @@ object ContractJsonParser {
             setOf(
                 "version", "origin", "origin_account", "origin_proposal_content_id_hex",
                 "origin_governance_attempt_id_hex", "owner", "pending_owner",
-                "parliament_delegated", "active_code_hash_hex", "revision", "emergency_hold",
+                "parliament_delegated", "active_code_hash_hex", "retained_code_hash_hex", "revision", "emergency_hold",
             ),
             context,
         )
@@ -254,6 +254,11 @@ object ContractJsonParser {
         check(origin != "parliament" || proposalContentId != null && governanceAttemptId != null) {
             "$context Parliament origin requires both governance identifiers"
         }
+        val activeCodeHash = optionalExactHash(record["active_code_hash_hex"], "$context.active_code_hash_hex")
+        val retainedCodeHash = optionalExactHash(record["retained_code_hash_hex"], "$context.retained_code_hash_hex")
+        check(activeCodeHash == null || retainedCodeHash == activeCodeHash) {
+            "$context.retained_code_hash_hex must match active_code_hash_hex for an active binding"
+        }
         return GovernanceContractLifecycle(
             version = version.toInt(),
             origin = origin,
@@ -265,7 +270,8 @@ object ContractJsonParser {
                 governanceContractOwner(it, "$context.pending_owner")
             },
             parliamentDelegated = requiredBoolean(record["parliament_delegated"], "$context.parliament_delegated"),
-            activeCodeHashHex = optionalExactHash(record["active_code_hash_hex"], "$context.active_code_hash_hex"),
+            activeCodeHashHex = activeCodeHash,
+            retainedCodeHashHex = retainedCodeHash,
             revision = revision,
             emergencyHold = record["emergency_hold"]?.let {
                 parseGovernanceContractEmergencyHold(it, "$context.emergency_hold")

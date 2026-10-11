@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign as signRaw } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { ed25519 } from "@noble/curves/ed25519";
 
 import {
   AccountAddress,
@@ -16,26 +17,15 @@ import {
   RamLfeEncryptionUnavailableError,
   getIdentifierBfvPublicParameters,
   hashIdentifierEncryptedInput,
-  verifyIdentifierResolutionReceipt,
+  verifyIdentifierResolutionReceipt as verifyReceiptForNetwork,
 } from "../src/toriiClient.js";
 import { encryptDiagnosticIdentifierInputForPolicy } from "./helpers/diagnosticIdentifierBfv.js";
 import { NetworkId } from "../src/networkId.js";
 import { normalizeIdentifierInput } from "../src/normalizers.js";
 import { blake2b256 } from "../src/blake2b.js";
-import { ValidationError } from "../src/validationError.js";
+import { ValidationError, ValidationErrorCode } from "../src/validationError.js";
 
-function ed25519PublicKeyBytes() {
-  const { publicKey } = generateKeyPairSync("ed25519");
-  const der = publicKey.export({ format: "der", type: "spki" });
-  return new Uint8Array(der.subarray(der.length - 32));
-}
-
-function demoAccountId() {
-  const address = AccountAddress.fromAccount({ publicKey: ed25519PublicKeyBytes() });
-  return address.toI105();
-}
-
-const ACCOUNT_ID = demoAccountId();
+const ACCOUNT_ID = AccountAddress.fromAccount({ publicKey: ed25519.getPublicKey(Buffer.alloc(32, 0x5a)) }).toI105();
 const APPLICATION_SIGNING_CONTEXT = new LocalSigningContext(NetworkId.fromBytes(Buffer.alloc(32, 0xa5)), 753);
 const APPLICATION_AUTH = Object.freeze({ accountId: ACCOUNT_ID, privateKey: Buffer.alloc(32, 0x5a) });
 const RESOLVER_PUBLIC_KEY =
@@ -55,6 +45,64 @@ const EVALUATION_KEY_DIGEST = "88".repeat(32);
 const OUTPUT_HASH = "99".repeat(32);
 const ASSOCIATED_DATA_HASH = "aa".repeat(32);
 const PROOF_SCHEMA_HASH = "bb".repeat(32);
+
+// Independently chosen test audiences. These SOFTWARE DATA controls establish
+// serialization/transport/signature behavior, not Native policy admission.
+const APPLICATION_NETWORK = NetworkId.fromBytes(Buffer.alloc(32, 0xa5));
+const SHARED_NETWORK = NetworkId.fromBytes(Buffer.from("5e60c5da42509f0077c6adf39b7dd708611eb4d6a9f1cbb71769092c26d20bf1", "hex"));
+const INPUT_NONCE = "a1".repeat(32);
+const NORMALIZED_INPUT = "alice@example.test";
+function verifyReceiptInApplicationNetwork(receipt, policy) {
+  return verifyReceiptForNetwork(receipt, policy, APPLICATION_NETWORK);
+}
+function verifyReceiptInSharedNetwork(receipt, policy) {
+  return verifyReceiptForNetwork(receipt, policy, SHARED_NETWORK);
+}
+function dataHashLiteral(raw) {
+  const bytes = Buffer.from(raw, "hex");
+  bytes[31] |= 1;
+  return NetworkId.fromBytes(bytes).literal;
+}
+function ownerOriginalOpening(program = PROGRAM_ID) {
+  return {
+    payload: {
+      program_id: { name: program },
+      input_ciphertext_hash: dataHashLiteral(INPUT_CIPHERTEXT_HASH),
+      output_ciphertext_hash: dataHashLiteral(OUTPUT_HASH),
+      parameter_digest: dataHashLiteral(PARAMETER_DIGEST),
+      evaluation_key_digest: dataHashLiteral(EVALUATION_KEY_DIGEST),
+      opened_output_hash: dataHashLiteral(OUTPUT_HASH),
+      opened_at_ms: 42,
+      expires_at_ms: 142,
+    },
+    signature: "AB".repeat(64),
+  };
+}
+function ownerFlatOpening(original = ownerOriginalOpening()) {
+  const payload = { ...original.payload, program_id: original.payload.program_id.name };
+  for (const field of ["input_ciphertext_hash", "output_ciphertext_hash", "parameter_digest", "evaluation_key_digest", "opened_output_hash"]) {
+    payload[field] = Buffer.from(NetworkId.parse(payload[field]).toBytes()).toString("hex");
+  }
+  return { payload, signature: original.signature.toLowerCase() };
+}
+function ownerRequestFields() {
+  return { policyId: POLICY_ID, normalizedInput: NORMALIZED_INPUT, inputNonce: INPUT_NONCE, outputOpening: ownerOriginalOpening() };
+}
+function ownerSignedReceiptFixture() {
+  const opening = ownerFlatOpening();
+  return signedReceiptFixture({
+    execution: { program_id: PROGRAM_ID, backend: "hkdf-sha3-512-prf-v1", input_ciphertext_hash: opening.payload.input_ciphertext_hash,
+      output_ciphertext_hash: opening.payload.output_ciphertext_hash, output_hash: opening.payload.opened_output_hash,
+      parameter_digest: opening.payload.parameter_digest, evaluation_key_digest: opening.payload.evaluation_key_digest },
+    opening,
+  });
+}
+function ownerPolicyFixture() {
+  return identifierPolicyFixture({ backend: "hkdf-sha3-512-prf-v1", input_encryption: undefined,
+    input_encryption_public_parameters: undefined, input_encryption_public_parameters_decoded: undefined,
+    ram_fhe_profile: undefined, proof_verifier: undefined });
+}
+
 const BFV_SEED_HEX =
   "00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF";
 const BFV_PUBLIC_PARAMETERS = {
@@ -498,6 +546,7 @@ function signedReceiptFixture(overrides = {}) {
   const der = publicKey.export({ format: "der", type: "spki" });
   const rawPublicKey = new Uint8Array(der.subarray(der.length - 32));
   const payload = {
+    network_id: "a5".repeat(32),
     policy_id: POLICY_ID,
     execution: sampleExecution(overrides.execution),
     opening: overrides.opening ?? sampleOutputOpening(),
@@ -640,9 +689,9 @@ test("identifier policy helpers require explicit program and independent opening
   const consumers = [
     (value) => getIdentifierBfvPublicParameters(value),
     (value) => buildIdentifierRequestForPolicy(value, {
-      encryptedInput: "abcd", outputOpening: sampleOutputOpening(),
+      normalizedInput: NORMALIZED_INPUT, inputNonce: INPUT_NONCE, outputOpening: ownerOriginalOpening(), networkId: APPLICATION_NETWORK,
     }),
-    (value) => verifyIdentifierResolutionReceipt(receipt, value),
+    (value) => verifyReceiptInApplicationNetwork(receipt, value),
   ];
   for (const field of ["program_id", "output_opening_public_key"]) {
     const missing = { ...policy };
@@ -824,54 +873,37 @@ test("listIdentifierPolicies rejects non-exact proof-verifier metadata", async (
   }
 });
 
-test("resolveIdentifier posts encrypted input with output opening and normalizes response", async () => {
-  let lastRequest = null;
-  const signedReceipt = signedReceiptFixture();
+test("resolveIdentifier binds current owner inputs and original opening", async () => {
+  const receipt = ownerSignedReceiptFixture();
   const client = new ToriiClient("https://example.test", {
     localSigningContext: APPLICATION_SIGNING_CONTEXT,
     fetchImpl: async (input, init) => {
-      lastRequest = { input, init };
-      assert.equal(init.method, "POST");
-      const payload = JSON.parse(init.body);
-      assert.deepEqual(payload, {
-        policy_id: POLICY_ID,
-        encrypted_input: "ABCD",
-        output_opening: sampleOutputOpening(),
-      });
-      return jsonResponse(200, {
-        payload: signedReceipt.payload,
-        attestation: signedReceipt.attestation,
-      });
+      assert.equal(new URL(input).pathname, "/v1/identifiers/resolve");
+      assert.deepEqual(JSON.parse(init.body), { phase: "claim", policy_id: POLICY_ID,
+        normalized_input: NORMALIZED_INPUT, input_nonce: INPUT_NONCE, output_opening: ownerOriginalOpening() });
+      return jsonResponse(200, { payload: receipt.payload, attestation: receipt.attestation });
     },
   });
-
-  const result = await client.resolveIdentifier({
-    policyId: POLICY_ID,
-    encryptedInput: "ABCD",
-    outputOpening: sampleOutputOpening(),
-    canonicalAuth: APPLICATION_AUTH,
-  });
-  assert.equal(new URL(lastRequest.input).pathname, "/v1/identifiers/resolve");
-  assert.equal(result.payload.policy_id, POLICY_ID);
-  assert.equal(result.payload.opaque_id, OPAQUE_ID);
-  assert.equal(result.payload.receipt_hash, RECEIPT_HASH);
-  assert.equal(result.payload.uaid, UAID);
-  assert.equal(result.payload.account_id, ACCOUNT_ID);
-  assert.equal(result.attestation.signature, signedReceipt.attestation.signature);
-  assert.equal(result.payload.execution.input_ciphertext_hash, INPUT_CIPHERTEXT_HASH);
-  assert.equal(
-    verifyIdentifierResolutionReceipt(result, {
-      program_id: PROGRAM_ID,
-      output_opening_public_key: OUTPUT_OPENING_PUBLIC_KEY,
-      policy_id: POLICY_ID,
-      owner: ACCOUNT_ID,
-      active: true,
-      normalization: "email_address",
-      resolver_public_key: signedReceipt.resolver_public_key,
-      backend: "bfv-programmed-v1",
-    }),
-    true,
-  );
+  const result = await client.resolveIdentifier({ ...ownerRequestFields(), canonicalAuth: APPLICATION_AUTH });
+  assert.deepEqual(result.payload.opening, ownerFlatOpening());
+  assert.equal(result.payload.network_id, "a5".repeat(32));
+  assert.equal(verifyReceiptForNetwork(result, { ...ownerPolicyFixture(), resolver_public_key: receipt.resolver_public_key }, APPLICATION_NETWORK), true);
+});
+test("current identifier responses reject audience, original metadata and opening substitution", async () => {
+  const original = ownerSignedReceiptFixture();
+  for (const mutate of [
+    (r) => { r.payload.network_id = "a7".repeat(32); },
+    (r) => { r.payload.execution.parameter_digest = "97".repeat(32); },
+    (r) => { r.payload.execution.evaluation_key_digest = "97".repeat(32); },
+    (r) => { r.payload.execution.expires_at_ms += 1; },
+    (r) => { r.payload.opening.payload.opened_at_ms += 1; },
+    (r) => { r.payload.opening.signature = "cd".repeat(64); },
+  ]) {
+    const changed = clone(original); mutate(changed);
+    const client = new ToriiClient("https://example.test", { localSigningContext: APPLICATION_SIGNING_CONTEXT,
+      fetchImpl: async () => jsonResponse(200, { payload: changed.payload, attestation: changed.attestation }) });
+    await assert.rejects(() => client.resolveIdentifier({ ...ownerRequestFields(), canonicalAuth: APPLICATION_AUTH }));
+  }
 });
 
 test("resolveIdentifier rejects retired or unknown execution tags during response decoding", async () => {
@@ -894,8 +926,8 @@ test("resolveIdentifier rejects retired or unknown execution tags during respons
     await assert.rejects(
       () => client.resolveIdentifier({
         policyId: POLICY_ID,
-        encryptedInput: "ABCD",
-        outputOpening: sampleOutputOpening(),
+        normalizedInput: NORMALIZED_INPUT, inputNonce: INPUT_NONCE,
+        outputOpening: ownerOriginalOpening(),
         canonicalAuth: APPLICATION_AUTH,
       }),
       new RegExp(`execution\\.${field} must be one of:`),
@@ -903,85 +935,28 @@ test("resolveIdentifier rejects retired or unknown execution tags during respons
   }
 });
 
-test("resolveIdentifier requires encrypted input and output opening", async () => {
-  const client = new ToriiClient("https://example.test", {
-    fetchImpl: async () => jsonResponse(200, {}),
-  });
-
-  await assert.rejects(
-    () => client.resolveIdentifier({ policyId: POLICY_ID, canonicalAuth: APPLICATION_AUTH }),
-    (error) => error instanceof ValidationError,
-  );
-  await assert.rejects(
-    () =>
-      client.resolveIdentifier({
-        policyId: POLICY_ID,
-        input: "alice@example.com",
-        outputOpening: sampleOutputOpening(),
-        canonicalAuth: APPLICATION_AUTH,
-      }),
-    (error) => error instanceof ValidationError,
-  );
-  await assert.rejects(
-    () =>
-      client.resolveIdentifier({
-        policyId: POLICY_ID,
-        encryptedInput: "ABCD",
-        canonicalAuth: APPLICATION_AUTH,
-      }),
-    (error) => error instanceof ValidationError,
-  );
-  await assert.rejects(
-    () =>
-      client.resolveIdentifier({
-        policyId: POLICY_ID,
-        encryptedInput: "ABC",
-        outputOpening: sampleOutputOpening(),
-        canonicalAuth: APPLICATION_AUTH,
-      }),
-    (error) => error instanceof ValidationError,
-  );
-  await assert.rejects(
-    () =>
-      client.resolveIdentifier({
-        policyId: POLICY_ID,
-        encryptedInput: "ABCD",
-        outputOpening: null,
-        canonicalAuth: APPLICATION_AUTH,
-      }),
-    (error) => error instanceof ValidationError,
-  );
+test("resolveIdentifier requires exact current private inputs and original opening", async () => {
+  let calls = 0;
+  const client = new ToriiClient("https://example.test", { localSigningContext: APPLICATION_SIGNING_CONTEXT,
+    fetchImpl: async () => { calls += 1; return jsonResponse(200, {}); } });
+  for (const fields of [
+    { policyId: POLICY_ID },
+    { ...ownerRequestFields(), normalizedInput: undefined },
+    { ...ownerRequestFields(), inputNonce: "00".repeat(32) },
+    { ...ownerRequestFields(), inputNonce: "A1".repeat(32) },
+    { ...ownerRequestFields(), outputOpening: sampleOutputOpening() },
+    { ...ownerRequestFields(), encryptedInput: "ABCD" },
+  ]) await assert.rejects(() => client.resolveIdentifier({ ...fields, canonicalAuth: APPLICATION_AUTH }));
+  assert.equal(calls, 0);
 });
 
-test("identifier request builders fail closed for phone without canonicality support", async () => {
-  let dispatched = false;
-  const client = new ToriiClient("https://example.test", {
-    fetchImpl: async () => {
-      dispatched = true;
-      return jsonResponse(200, {});
-    },
-  });
-  await assert.rejects(
-    () => client.resolveIdentifier({
-      policyId: "phone#retail",
-      encryptedInput: "ABCD",
-      outputOpening: sampleOutputOpening(),
-      canonicalAuth: APPLICATION_AUTH,
-    }),
-    /signed canonicality attestation support/u,
-  );
-  assert.throws(
-    () => buildIdentifierRequestForPolicy(
-      identifierPolicyFixture({
-        policy_id: "phone#retail",
-        program_id: "phone_retail",
-        normalization: "phone_e164",
-      }),
-      { encryptedInput: "ABCD", outputOpening: sampleOutputOpening() },
-    ),
-    /signed canonicality attestation support/u,
-  );
-  assert.equal(dispatched, false);
+test("phone owner claims require the independent typed original attestation", async () => {
+  let calls = 0;
+  const client = new ToriiClient("https://example.test", { localSigningContext: APPLICATION_SIGNING_CONTEXT,
+    fetchImpl: async () => { calls += 1; return jsonResponse(200, {}); } });
+  await assert.rejects(() => client.resolveIdentifier({ policyId: "phone#retail", normalizedInput: "+6771234567",
+    inputNonce: INPUT_NONCE, outputOpening: ownerOriginalOpening("phone_retail"), canonicalAuth: APPLICATION_AUTH }), /phoneRetailCanonicality/u);
+  assert.equal(calls, 0);
 });
 
 test("verifyIdentifierResolutionReceipt rejects adversarial receipt mutations", () => {
@@ -1001,14 +976,14 @@ test("verifyIdentifierResolutionReceipt rejects adversarial receipt mutations", 
     attestation: signedReceipt.attestation,
   };
 
-  assert.equal(verifyIdentifierResolutionReceipt(receipt, policy), true);
+  assert.equal(verifyReceiptInApplicationNetwork(receipt, policy), true);
 
   const tampered = JSON.parse(JSON.stringify(receipt));
   tampered.payload.execution.output_ciphertext_hash = "67".repeat(32);
-  assert.equal(verifyIdentifierResolutionReceipt(tampered, policy), false);
+  assert.equal(verifyReceiptInApplicationNetwork(tampered, policy), false);
 
   assert.equal(
-    verifyIdentifierResolutionReceipt(receipt, {
+    verifyReceiptInApplicationNetwork(receipt, {
       ...policy,
       resolver_public_key: "ed25519:ed0120" + "45".repeat(32),
     }),
@@ -1018,7 +993,7 @@ test("verifyIdentifierResolutionReceipt rejects adversarial receipt mutations", 
   const malformedSignature = JSON.parse(JSON.stringify(receipt));
   malformedSignature.attestation.signature = "GG";
   assert.throws(
-    () => verifyIdentifierResolutionReceipt(malformedSignature, policy),
+    () => verifyReceiptInApplicationNetwork(malformedSignature, policy),
     /attestation\.signature/,
   );
 
@@ -1029,7 +1004,7 @@ test("verifyIdentifierResolutionReceipt rejects adversarial receipt mutations", 
     const paddedSignature = JSON.parse(JSON.stringify(receipt));
     paddedSignature.attestation.signature = signature;
     assert.throws(
-      () => verifyIdentifierResolutionReceipt(paddedSignature, policy),
+      () => verifyReceiptInApplicationNetwork(paddedSignature, policy),
       /attestation\.signature must not contain surrounding whitespace/,
     );
   }
@@ -1041,16 +1016,16 @@ test("verifyIdentifierResolutionReceipt rejects adversarial receipt mutations", 
     const paddedOpeningSignature = JSON.parse(JSON.stringify(receipt));
     paddedOpeningSignature.payload.opening.signature = signature;
     assert.throws(
-      () => verifyIdentifierResolutionReceipt(paddedOpeningSignature, policy),
+      () => verifyReceiptInApplicationNetwork(paddedOpeningSignature, policy),
       /payload\.opening\.signature must not contain surrounding whitespace/,
     );
   }
 
   const signedWithProofFields = JSON.parse(JSON.stringify(receipt));
-  signedWithProofFields.attestation.proof_backend = "halo2/ipa";
+  signedWithProofFields.attestation.proof_backend = "pipa-r/pasta";
   signedWithProofFields.attestation.proof_b64 = "AQID";
   assert.throws(
-    () => verifyIdentifierResolutionReceipt(signedWithProofFields, policy),
+    () => verifyReceiptInApplicationNetwork(signedWithProofFields, policy),
     /attestation contains unsupported fields: proof_backend, proof_b64/,
   );
 
@@ -1058,12 +1033,12 @@ test("verifyIdentifierResolutionReceipt rejects adversarial receipt mutations", 
     payload: signedReceipt.payload,
     attestation: {
       kind: "proof",
-      proof_backend: "halo2/ipa",
+      proof_backend: "pipa-r/pasta",
       proof_b64: "AQID",
     },
   };
   assert.throws(
-    () => verifyIdentifierResolutionReceipt(proofAttestation, policy),
+    () => verifyReceiptInApplicationNetwork(proofAttestation, policy),
     /proof attestations require an external verifier/,
   );
 
@@ -1071,7 +1046,7 @@ test("verifyIdentifierResolutionReceipt rejects adversarial receipt mutations", 
   assert.notEqual(otherPolicyId, signedReceipt.payload.policy_id);
   assert.throws(
     () =>
-      verifyIdentifierResolutionReceipt(receipt, {
+      verifyReceiptInApplicationNetwork(receipt, {
         ...policy,
         policy_id: otherPolicyId,
       }),
@@ -1127,7 +1102,7 @@ test("encodeIdentifierResolutionReceiptAttestation rejects padded proof backend"
       () =>
         encodeIdentifierResolutionReceiptAttestation({
           kind: "proof",
-          proof_backend: "halo2/ipa",
+          proof_backend: "pipa-r/pasta",
           proof_b64: proofB64,
         }),
       /identifier receipt attestation\.proof_b64 must be exact standard-base64/,
@@ -1138,7 +1113,7 @@ test("encodeIdentifierResolutionReceiptAttestation rejects padded proof backend"
     () =>
       encodeIdentifierResolutionReceiptAttestation({
         kind: "proof",
-        proof_backend: "halo2/ipa",
+        proof_backend: "pipa-r/pasta",
         proof_b64: "@@@",
       }),
     /attestation\.proof_b64 must be exact standard-base64/,
@@ -1158,7 +1133,7 @@ test("verifyIdentifierResolutionReceipt matches shared receipt vectors", () => {
     IDENTIFIER_RECEIPT_VECTOR_FIXTURE.canonical_payload_sha256,
   );
   assert.equal(
-    verifyIdentifierResolutionReceipt(
+    verifyReceiptInSharedNetwork(
       IDENTIFIER_RECEIPT_VECTOR_FIXTURE.receipt,
       IDENTIFIER_RECEIPT_POLICY_FIXTURE,
     ),
@@ -1182,7 +1157,7 @@ test("verifyIdentifierResolutionReceipt matches shared receipt vectors", () => {
     if (vector.attestation.kind === "proof") {
       assert.throws(
         () =>
-          verifyIdentifierResolutionReceipt(
+          verifyReceiptInSharedNetwork(
             {
               payload: IDENTIFIER_RECEIPT_VECTOR_FIXTURE.receipt.payload,
               attestation: vector.attestation,
@@ -1200,7 +1175,7 @@ test("verifyIdentifierResolutionReceipt matches shared receipt vectors", () => {
     paddedPolicyId.payload.policy_id = policyId;
     assert.throws(
       () =>
-        verifyIdentifierResolutionReceipt(
+        verifyReceiptInSharedNetwork(
           paddedPolicyId,
           IDENTIFIER_RECEIPT_POLICY_FIXTURE,
         ),
@@ -1214,7 +1189,7 @@ test("verifyIdentifierResolutionReceipt matches shared receipt vectors", () => {
     paddedExecutionProgram.payload.execution.program_id = programId;
     assert.throws(
       () =>
-        verifyIdentifierResolutionReceipt(
+        verifyReceiptInSharedNetwork(
           paddedExecutionProgram,
           IDENTIFIER_RECEIPT_POLICY_FIXTURE,
         ),
@@ -1226,7 +1201,7 @@ test("verifyIdentifierResolutionReceipt matches shared receipt vectors", () => {
     paddedOpeningProgram.payload.opening.payload.program_id = programId;
     assert.throws(
       () =>
-        verifyIdentifierResolutionReceipt(
+        verifyReceiptInSharedNetwork(
           paddedOpeningProgram,
           IDENTIFIER_RECEIPT_POLICY_FIXTURE,
         ),
@@ -1243,7 +1218,7 @@ test("verifyIdentifierResolutionReceipt matches shared receipt vectors", () => {
     paddedAccountId.payload.account_id = accountId;
     assert.throws(
       () =>
-        verifyIdentifierResolutionReceipt(
+        verifyReceiptInSharedNetwork(
           paddedAccountId,
           IDENTIFIER_RECEIPT_POLICY_FIXTURE,
         ),
@@ -1277,7 +1252,7 @@ test("verifyIdentifierResolutionReceipt matches shared receipt vectors", () => {
       target[path.at(-1)] = paddedValue;
       assert.throws(
         () =>
-          verifyIdentifierResolutionReceipt(
+          verifyReceiptInSharedNetwork(
             paddedHash,
             IDENTIFIER_RECEIPT_POLICY_FIXTURE,
           ),
@@ -1319,7 +1294,7 @@ test("verifyIdentifierResolutionReceipt matches shared receipt vectors", () => {
       target[path.at(-1)] = paddedValue;
       assert.throws(
         () =>
-          verifyIdentifierResolutionReceipt(
+          verifyReceiptInSharedNetwork(
             paddedTimestamp,
             IDENTIFIER_RECEIPT_POLICY_FIXTURE,
           ),
@@ -1333,6 +1308,9 @@ test("verifyIdentifierResolutionReceipt matches shared receipt vectors", () => {
     const receipt = JSON.parse(JSON.stringify(IDENTIFIER_RECEIPT_VECTOR_FIXTURE.receipt));
     const policy = JSON.parse(JSON.stringify(IDENTIFIER_RECEIPT_POLICY_FIXTURE));
     switch (negative.mutation) {
+      case "receipt.payload.network_id":
+        receipt.payload.network_id = negative.value;
+        break;
       case "receipt.payload.execution.output_ciphertext_hash":
         receipt.payload.execution.output_ciphertext_hash = negative.value;
         break;
@@ -1352,15 +1330,19 @@ test("verifyIdentifierResolutionReceipt matches shared receipt vectors", () => {
         throw new Error(`unhandled receipt vector mutation ${negative.mutation}`);
     }
 
-    if (negative.expected_error_contains) {
+    if (negative.mutation === "receipt.payload.network_id") {
+      assert.throws(() => verifyReceiptForNetwork(receipt, policy, SHARED_NETWORK), /independently selected network/u);
+      const independentlySelectedTamperedAudience = NetworkId.fromBytes(Buffer.from(negative.value, "hex"));
+      assert.equal(verifyReceiptForNetwork(receipt, policy, independentlySelectedTamperedAudience), false);
+    } else if (negative.expected_error_contains) {
       assert.throws(
-        () => verifyIdentifierResolutionReceipt(receipt, policy),
+        () => verifyReceiptInSharedNetwork(receipt, policy),
         new RegExp(negative.expected_error_contains, "i"),
         negative.name,
       );
     } else {
       assert.equal(
-        verifyIdentifierResolutionReceipt(receipt, policy),
+        verifyReceiptInSharedNetwork(receipt, policy),
         negative.expected_result,
         negative.name,
       );
@@ -1402,17 +1384,9 @@ test("encryptDiagnosticIdentifierInputForPolicy builds deterministic BFV Norito 
     encryptDiagnosticIdentifierInputForPolicy(policy, "ab", { seedHex: BFV_SEED_HEX }),
     BFV_ENCRYPTED_INPUT_HEX,
   );
-  assert.deepEqual(
-    buildIdentifierRequestForPolicy(policy, {
-      encryptedInput: BFV_ENCRYPTED_INPUT_HEX,
-      outputOpening: sampleOutputOpening(),
-    }),
-    {
-      policyId: "string#retail",
-      encryptedInput: BFV_ENCRYPTED_INPUT_HEX,
-      outputOpening: sampleOutputOpening(),
-    },
-  );
+  assert.throws(() => buildIdentifierRequestForPolicy(policy, {
+    encryptedInput: BFV_ENCRYPTED_INPUT_HEX, outputOpening: sampleOutputOpening(),
+  }), /active native HKDF identifier policy/u);
 });
 
 test("encryptDiagnosticIdentifierInputForPolicy matches shared Soracloud BFV vectors", () => {
@@ -1849,63 +1823,41 @@ test("encryptDiagnosticIdentifierInputForPolicy rejects adversarial client encry
   );
 });
 
-test("resolveIdentifier accepts encrypted input and returns null for missing bindings", async () => {
-  let callCount = 0;
-  const client = new ToriiClient("https://example.test", {
-    localSigningContext: APPLICATION_SIGNING_CONTEXT,
-    fetchImpl: async (_input, init) => {
-      callCount += 1;
-      const payload = JSON.parse(init.body);
-      assert.equal(payload.encrypted_input, "ABCD");
-      assert.deepEqual(payload.output_opening, sampleOutputOpening());
-      return jsonResponse(404, {});
-    },
-  });
-
-  const result = await client.resolveIdentifier({
-    policyId: POLICY_ID,
-    encryptedInput: "ABCD",
-    outputOpening: sampleOutputOpening(),
-    canonicalAuth: APPLICATION_AUTH,
-  });
-  assert.equal(callCount, 1);
-  assert.equal(result, null);
+test("resolveIdentifier sends exact owner claim fields and returns null on 404", async () => {
+  let calls = 0;
+  const client = new ToriiClient("https://example.test", { localSigningContext: APPLICATION_SIGNING_CONTEXT,
+    fetchImpl: async (_input, init) => { calls += 1;
+      assert.deepEqual(JSON.parse(init.body), { phase: "claim", policy_id: POLICY_ID, normalized_input: NORMALIZED_INPUT,
+        input_nonce: INPUT_NONCE, output_opening: ownerOriginalOpening() });
+      return jsonResponse(404, {}); } });
+  assert.equal(await client.resolveIdentifier({ ...ownerRequestFields(), canonicalAuth: APPLICATION_AUTH }), null);
+  assert.equal(calls, 1);
 });
 
-test("issueIdentifierClaimReceipt posts account-scoped requests", async () => {
-  const outputOpening = sampleOutputOpening({ payload: { opened_at_ms: 7, expires_at_ms: null } });
-  const signedReceipt = signedReceiptFixture({
-    execution: { executed_at_ms: 7, expires_at_ms: null },
-    opening: outputOpening,
-  });
-  const client = new ToriiClient("https://example.test", {
-    localSigningContext: APPLICATION_SIGNING_CONTEXT,
+test("issueIdentifierClaimReceipt preserves the beneficiary and original owner opening", async () => {
+  const receipt = ownerSignedReceiptFixture();
+  const client = new ToriiClient("https://example.test", { localSigningContext: APPLICATION_SIGNING_CONTEXT,
     fetchImpl: async (input, init) => {
-      assert.equal(
-        new URL(input).pathname,
-        `/v1/accounts/${encodeURIComponent(ACCOUNT_ID)}/identifiers/claim-receipt`,
-      );
-      const payload = JSON.parse(init.body);
-      assert.deepEqual(payload, {
-        policy_id: POLICY_ID,
-        encrypted_input: "ABCD",
-        output_opening: outputOpening,
-      });
-      return jsonResponse(200, {
-        payload: signedReceipt.payload,
-        attestation: signedReceipt.attestation,
-      });
-    },
-  });
-
-  const result = await client.issueIdentifierClaimReceipt(ACCOUNT_ID, {
-    policyId: POLICY_ID,
-    encryptedInput: "ABCD",
-    outputOpening,
-    canonicalAuth: APPLICATION_AUTH,
-  });
-  assert.equal(result.payload.opaque_id, OPAQUE_ID);
+      assert.equal(new URL(input).pathname, `/v1/accounts/${encodeURIComponent(ACCOUNT_ID)}/identifiers/claim-receipt`);
+      assert.deepEqual(JSON.parse(init.body), { phase: "claim", policy_id: POLICY_ID, normalized_input: NORMALIZED_INPUT,
+        input_nonce: INPUT_NONCE, output_opening: ownerOriginalOpening() });
+      return jsonResponse(200, { payload: receipt.payload, attestation: receipt.attestation }); } });
+  const result = await client.issueIdentifierClaimReceipt(ACCOUNT_ID, { ...ownerRequestFields(), canonicalAuth: APPLICATION_AUTH });
   assert.equal(result.payload.account_id, ACCOUNT_ID);
+  assert.deepEqual(result.payload.opening, ownerFlatOpening());
+});
+test("prepareIdentifierClaimReceipt returns an exact original and independent chosen network", async () => {
+  const body = { network_id: "a5".repeat(32), policy_id: POLICY_ID, account_id: ACCOUNT_ID, uaid: UAID,
+    output_opening: ownerOriginalOpening() };
+  const client = new ToriiClient("https://example.test", { localSigningContext: APPLICATION_SIGNING_CONTEXT,
+    fetchImpl: async (_input, init) => {
+      assert.deepEqual(JSON.parse(init.body), { phase: "prepare", policy_id: POLICY_ID, normalized_input: NORMALIZED_INPUT, input_nonce: INPUT_NONCE });
+      return jsonResponse(200, body); } });
+  assert.deepEqual(await client.prepareIdentifierClaimReceipt(ACCOUNT_ID, { policyId: POLICY_ID, normalizedInput: NORMALIZED_INPUT,
+    inputNonce: INPUT_NONCE, canonicalAuth: APPLICATION_AUTH }), body);
+  body.network_id = "a7".repeat(32);
+  await assert.rejects(() => client.prepareIdentifierClaimReceipt(ACCOUNT_ID, { policyId: POLICY_ID, normalizedInput: NORMALIZED_INPUT,
+    inputNonce: INPUT_NONCE, canonicalAuth: APPLICATION_AUTH }), /independently selected network/u);
 });
 
 test("issueIdentifierClaimReceipt rejects account aliases before dispatch", async () => {
@@ -1925,79 +1877,32 @@ test("issueIdentifierClaimReceipt rejects account aliases before dispatch", asyn
       outputOpening,
       canonicalAuth: APPLICATION_AUTH,
     }),
-    /canonical I105/u,
+    {
+      name: "ValidationError",
+      code: ValidationErrorCode.INVALID_ACCOUNT_ID,
+      path: "issueIdentifierClaimReceipt.accountId",
+    },
   );
   assert.equal(dispatched, false);
 });
 
-test("buildIdentifierRequestForPolicy requires declared encryption for ciphertext DTOs", () => {
-  const policy = identifierPolicyFixture();
-  const options = { encryptedInput: "ABCD", outputOpening: sampleOutputOpening() };
-  assert.deepEqual(buildIdentifierRequestForPolicy(policy, options), {
-    policyId: policy.policy_id,
-    encryptedInput: "ABCD",
-    outputOpening: options.outputOpening,
-  });
-  for (const overrides of [
-    { input_encryption: undefined },
-    { input_encryption: null },
-    { backend: "hkdf-sha3-512-prf-v1", input_encryption: undefined },
-  ]) {
-    assert.throws(
-      () => buildIdentifierRequestForPolicy({ ...policy, ...overrides }, options),
-      /does not publish BFV encrypted-input support/u,
-    );
+test("buildIdentifierRequestForPolicy requires an active current HKDF policy and selected network", () => {
+  const options = { normalizedInput: NORMALIZED_INPUT, inputNonce: INPUT_NONCE, outputOpening: ownerOriginalOpening(), networkId: APPLICATION_NETWORK };
+  assert.deepEqual(buildIdentifierRequestForPolicy(ownerPolicyFixture(), options), ownerRequestFields());
+  for (const change of [{ backend: "bfv-programmed-v1" }, { active: false }, { program_id: "other" }]) {
+    assert.throws(() => buildIdentifierRequestForPolicy({ ...ownerPolicyFixture(), ...change }, options));
   }
+  assert.throws(() => buildIdentifierRequestForPolicy(ownerPolicyFixture(), { ...options, networkId: undefined }));
+  assert.throws(() => buildIdentifierRequestForPolicy(ownerPolicyFixture(), { ...options, normalizedInput: " ALICE@EXAMPLE.TEST " }));
 });
 
-test("buildIdentifierRequestForPolicy rejects plaintext request bodies", () => {
-  const policy = {
-    program_id: PROGRAM_ID,
-    output_opening_public_key: OUTPUT_OPENING_PUBLIC_KEY,
-    policy_id: POLICY_ID,
-    owner: ACCOUNT_ID,
-    active: true,
-    normalization: "email_address",
-    resolver_public_key: RESOLVER_PUBLIC_KEY,
-    backend: "bfv-programmed-v1",
-    input_encryption: "bfv-v1",
-  };
-  const opening = sampleOutputOpening();
-  const cases = [
-    {
-      name: "plaintext input without client-side encryption",
-      options: { input: " +1 (555) 123-4567 ", outputOpening: opening },
-    },
-    {
-      name: "both plaintext and encrypted inputs",
-      options: {
-        input: " +1 (555) 123-4567 ",
-        encryptedInput: "ABCD",
-        encrypt: true,
-        outputOpening: opening,
-      },
-    },
-    {
-      name: "seed with pre-encrypted input",
-      options: { encryptedInput: "ABCD", seedHex: BFV_SEED_HEX, outputOpening: opening },
-    },
-    {
-      name: "missing output opening",
-      options: { encryptedInput: "ABCD" },
-    },
-    {
-      name: "legacy plaintext hex alias",
-      options: { encryptedInput: "ABCD", inputHex: "313233", outputOpening: opening },
-    },
-  ];
-
-  for (const { name, options } of cases) {
-    assert.throws(
-      () => buildIdentifierRequestForPolicy(policy, options),
-      ValidationError,
-      name,
-    );
-  }
+test("buildIdentifierRequestForPolicy rejects retired aliases and incomplete owner originals", () => {
+  const options = { normalizedInput: NORMALIZED_INPUT, inputNonce: INPUT_NONCE, outputOpening: ownerOriginalOpening(), networkId: APPLICATION_NETWORK };
+  for (const changed of [
+    { ...options, encryptedInput: "ABCD" }, { ...options, input: NORMALIZED_INPUT },
+    { ...options, seedHex: BFV_SEED_HEX }, { ...options, outputOpening: sampleOutputOpening() },
+    { ...options, outputOpening: undefined }, { ...options, inputNonce: undefined },
+  ]) assert.throws(() => buildIdentifierRequestForPolicy(ownerPolicyFixture(), changed));
 });
 
 test("getIdentifierClaimByReceiptHash returns null on 404", async () => {
@@ -2090,7 +1995,21 @@ test("identifier receipt encodes a valid multisig account with canonical compact
     "3c01dd01d401d901b40120011d019d010b020200",
     "hex",
   );
-  assert.equal(encoded.length, 1021);
-  assert.deepEqual(encoded.subarray(761), expectedAccountField);
-  assert.equal(sha256Hex(encoded), "B43BC15554F610D14AF5AD373F23FA7C14CED568217182231783E14CBB717AB8");
+  assert.equal(encoded.length, 1054);
+  assert.deepEqual(encoded.subarray(794), expectedAccountField);
+  assert.equal(sha256Hex(encoded.subarray(33)), "B43BC15554F610D14AF5AD373F23FA7C14CED568217182231783E14CBB717AB8");
+  assert.equal(encoded[0], 32);
+  assert.equal(encoded.subarray(1, 33).toString("hex"), IDENTIFIER_RECEIPT_VECTOR_FIXTURE.receipt.payload.network_id);
+});
+
+test("current identifier signed payload requires one exact network field first", () => {
+  const payload = { ...IDENTIFIER_RECEIPT_VECTOR_FIXTURE.receipt.payload };
+  const encoded = encodeIdentifierResolutionReceiptPayload(payload);
+  assert.equal(encoded[0], 32);
+  assert.equal(Buffer.from(encoded.subarray(1, 33)).toString("hex"), payload.network_id);
+  for (const network of [undefined, null, "", "0".repeat(64), "A5".repeat(32), `0x${payload.network_id}`, ` ${payload.network_id}`, "a".repeat(63)]) {
+    assert.throws(() => encodeIdentifierResolutionReceiptPayload({ ...payload, network_id: network }));
+  }
+  const other = { ...payload, network_id: "a5".repeat(32) };
+  assert.notDeepEqual(encodeIdentifierResolutionReceiptPayload(other), encoded);
 });

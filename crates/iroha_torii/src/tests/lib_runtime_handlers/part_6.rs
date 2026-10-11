@@ -8,6 +8,9 @@ async fn finality_proof_routes_require_heavy_query_admission() {
         handler_bridge_finality_proof(
             State(app.clone()),
             axum::extract::Path(1),
+            Extension(finality_interval::RouteExecutionDeadline(
+                Instant::now() + route_timeout_for_path("/v1/bridge/finality/1"),
+            )),
             HeaderMap::new(),
             crate::loopback_connect_info(),
         )
@@ -85,12 +88,12 @@ async fn zk_tree_queries_require_heavy_admission_before_state_integrity_work() {
 }
 #[cfg(feature = "zk-verify-batch")]
 #[tokio::test]
-async fn zk_verify_batch_honors_halo2_gate_before_compute_admission() {
+async fn diagnostic_openings_require_compute_admission_when_native_operations_disabled() {
     let mut app = mk_app_state_for_tests();
     let app_mut = Arc::get_mut(&mut app).expect("unique Torii app fixture");
     Arc::get_mut(&mut app_mut.state)
         .expect("unique core state fixture")
-        .edit_zk_for_testing(|zk| zk.halo2.enabled = false)
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = false)
         .expect("fixture ZK settings install");
     app_mut.query_heavy_inflight = Arc::new(tokio::sync::Semaphore::new(0));
     app_mut.query_queue_timeout = Duration::ZERO;
@@ -107,23 +110,24 @@ async fn zk_verify_batch_honors_halo2_gate_before_compute_admission() {
     )
     .await
     {
-        Ok(_) => panic!("disabled Halo2 verifier must fail closed"),
+        Ok(_) => panic!("diagnostic opening verification must acquire heavy admission"),
         Err(error) => error,
     };
     assert!(matches!(
         error,
-        Error::Query(ValidationFail::NotPermitted(message))
-            if message == "halo2 verification is disabled by the committed ZK validity policy"
+        Error::Query(ValidationFail::QueryFailed(
+            iroha_data_model::query::error::QueryExecutionFail::CapacityLimit
+        ))
     ));
 }
 #[cfg(feature = "zk-verify-batch")]
 #[tokio::test]
-async fn enabled_zk_verify_batch_requires_heavy_compute_admission() {
+async fn diagnostic_openings_require_compute_admission_when_native_operations_enabled() {
     let mut app = mk_app_state_for_tests();
     let app_mut = Arc::get_mut(&mut app).expect("unique Torii app fixture");
     Arc::get_mut(&mut app_mut.state)
         .expect("unique core state fixture")
-        .edit_zk_for_testing(|zk| zk.halo2.enabled = true)
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
         .expect("fixture ZK settings install");
     app_mut.query_heavy_inflight = Arc::new(tokio::sync::Semaphore::new(0));
     app_mut.query_queue_timeout = Duration::ZERO;
@@ -205,6 +209,9 @@ async fn heavy_route_auth_errors_for_test(app: SharedAppState, headers: HeaderMa
         handler_bridge_finality_proof(
             State(app.clone()),
             axum::extract::Path(1),
+            Extension(finality_interval::RouteExecutionDeadline(
+                Instant::now() + route_timeout_for_path("/v1/bridge/finality/1"),
+            )),
             headers.clone(),
             crate::loopback_connect_info(),
         )
@@ -273,6 +280,9 @@ async fn heavy_finality_routes_reject_unsupported_accept_before_rate_and_admissi
         handler_bridge_finality_proof(
             State(app.clone()),
             axum::extract::Path(1),
+            Extension(finality_interval::RouteExecutionDeadline(
+                Instant::now() + route_timeout_for_path("/v1/bridge/finality/1"),
+            )),
             headers.clone(),
             crate::loopback_connect_info(),
         )
@@ -688,6 +698,26 @@ fn explorer_heavy_history_routes_are_bound_to_cancellation_safe_worker() {
         ),
     ];
 
+    let details = [
+        (
+            "EXPLORER_BLOCKS_BY_IDENTIFIER_GET",
+            "handler_explorer_block_detail",
+            "handle_v1_explorer_block_detail_admitted",
+            "handle_v1_explorer_block_detail_sync",
+        ),
+        (
+            "EXPLORER_TRANSACTIONS_BY_HASH_GET",
+            "handler_explorer_transaction_detail",
+            "handle_v1_explorer_transaction_detail_admitted",
+            "handle_v1_explorer_transaction_detail_sync",
+        ),
+        (
+            "EXPLORER_INSTRUCTIONS_BY_HASH_BY_INDEX_GET",
+            "handler_explorer_instruction_detail",
+            "handle_v1_explorer_instruction_detail_admitted",
+            "handle_v1_explorer_instruction_detail_sync",
+        ),
+    ];
     let admitted_definition_count = routing_source
         .lines()
         .filter(|line| {
@@ -698,7 +728,7 @@ fn explorer_heavy_history_routes_are_bound_to_cancellation_safe_worker() {
         .count();
     assert_eq!(
         admitted_definition_count,
-        routes.len(),
+        routes.len() + details.len(),
         "every Explorer admitted collection or history wrapper must be inventoried here"
     );
 
@@ -730,6 +760,33 @@ fn explorer_heavy_history_routes_are_bound_to_cancellation_safe_worker() {
             admitted.contains("run_admitted_blocking(admission,")
                 && admitted.contains(&format!("{sync_handler}(")),
             "Explorer wrapper `{admitted_handler}` must retain admission in the blocking worker around `{sync_handler}`"
+        );
+    }
+    for (route, http_handler, admitted_handler, sync_handler) in details {
+        let http = compact(exact_function_source(
+            lib_source,
+            &format!("async fn {http_handler}("),
+        ));
+        assert!(compact(lib_source).contains(&format!(
+            "{route}=>optional_canonical_signature_get({http_handler})"
+        )));
+        assert!(
+            http.contains("acquire_query_admission(&app,true).await?"),
+            "detail `{http_handler}` must acquire heavy admission"
+        );
+        assert!(
+            http.contains(&format!("{admitted_handler}(")),
+            "detail `{http_handler}` must use its admitted worker"
+        );
+        let admitted = compact(exact_function_source(
+            routing_source,
+            &format!("async fn {admitted_handler}("),
+        ));
+        assert!(admitted.contains("admission:crate::QueryAdmissionPermit"));
+        assert!(
+            admitted.contains("run_admitted_blocking(admission,")
+                && admitted.contains(&format!("{sync_handler}(")),
+            "detail `{admitted_handler}` must retain admission in its physical worker"
         );
     }
 }
@@ -1547,7 +1604,6 @@ fn seed_authoritative_hosted_http_revision(
                 activation_height: 1,
                 election_exit_height: None,
                 deactivation_height: None,
-                last_reward_epoch: None,
             },
         );
         {
@@ -1836,7 +1892,6 @@ fn seed_hosted_http_public_lane_validator(
                 activation_height: 1,
                 election_exit_height: None,
                 deactivation_height: None,
-                last_reward_epoch: None,
             },
         );
     tx.world_mut_for_testing()
@@ -3027,7 +3082,7 @@ async fn soracloud_public_split_app_routes_hosted_live_and_local_vault_on_one_no
 
 pub(super) fn app_with_root_scope_for_handler_test(world: World, private: bool) -> SharedAppState {
     use iroha_data_model::{
-        block::consensus::{SumeragiRootScope, ValidatorPower},
+        block::consensus::SumeragiRootScope,
         parameter::{
             custom::CustomParameter,
             system::{
@@ -3036,14 +3091,8 @@ pub(super) fn app_with_root_scope_for_handler_test(world: World, private: bool) 
             },
         },
     };
-    let validators = iroha_core::sumeragi::test_chain::fixture_validators()
-        .into_iter()
-        .map(|(validator, _)| ValidatorPower {
-            validator,
-            power: 1,
-        })
-        .collect::<Vec<_>>();
-    let mut context = iroha_core_zk::kagemusha_v1_test_fixtures::genesis_context_parameters();
+    let mut context =
+        iroha_data_model::block::consensus::SumeragiGenesisContextParameters::recommended();
     if private {
         context.root_scope = SumeragiRootScope::Dataspace {
             parent_network_id: NetworkId::from_genesis_hash(
@@ -3057,8 +3106,6 @@ pub(super) fn app_with_root_scope_for_handler_test(world: World, private: bool) 
         block_cadence_ms: NonZeroU64::new(1_000).unwrap(),
         wire_protocol_version: u32::from(iroha_data_model::sumeragi::PROTOCOL_VERSION),
         consensus_fingerprint: ConsensusFingerprint::new([0xB7; 32]),
-        kagemusha_mint_finality:
-            iroha_core_zk::kagemusha_v1_test_fixtures::mint_finality_genesis_parameters(&validators),
         sumeragi_context: context,
     };
     metadata.validate().unwrap();

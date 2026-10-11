@@ -1,6 +1,7 @@
 seiyaku Demo {
+    permission Admin;
     state StateMap<int, int> Counters;
-    kotoage fn bump(int amount) -> int authorize("Admin") {
+    kotoage fn bump(int amount) authorize(Admin) -> int {
         ledger::domain::register(domain: DomainId::parse("debugparity.universal"));
         Counters[0] = amount;
         return Counters.get(0).unwrap_or(0);

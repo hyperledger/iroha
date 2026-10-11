@@ -20,69 +20,95 @@ impl<B: OriginalPublicationBlock> BlockField<B> {
     }
 }
 
-impl<V: Value, C: Send + Sync + 'static> CellField<'_, V, C> {
+// Cell reads borrow the exact same pair in either immutable phase. Storage's
+// retained structural positions keep their separate fallible read boundary.
+enum CellReadPhase<'read, 'block, V: Value, C: Send + Sync + 'static> {
+    Executing(&'read mv::cell::Block<'block, V, C>),
+    Frozen(&'read mv::cell::Detached<V, (), C>),
+    Reading(&'read mv::cell::FrozenDetached<V, (), C>),
+}
+
+impl<'block, V: Value, C: Send + Sync + 'static> CellField<'block, V, C> {
+    fn cell_read_phase(&self) -> CellReadPhase<'_, 'block, V, C> {
+        assert!(!self.released, "field was terminally released");
+        match self.phase.as_ref() {
+            Some(Phase::Executing(block)) => CellReadPhase::Executing(block),
+            Some(Phase::Frozen(original)) => CellReadPhase::Frozen(original),
+            Some(Phase::Reading(original)) => CellReadPhase::Reading(original),
+            _ => panic!("field is not in a complete readable phase"),
+        }
+    }
+
     /// Borrow exact undo without dereferencing a frozen field as an executing block.
     #[cfg(test)]
     pub(crate) fn original_undo(&self) -> &Option<V> {
-        match self.read_phase() {
-            ReadPhase::Executing(block) => block.original_undo(),
-            ReadPhase::Frozen(original) => original.original_undo(),
+        match self.cell_read_phase() {
+            CellReadPhase::Executing(block) => block.original_undo(),
+            CellReadPhase::Frozen(original) => original.original_undo(),
+            CellReadPhase::Reading(original) => original.original_undo(),
         }
     }
 
     /// Borrow the exact original successor without acquiring a current view.
     pub fn get(&self) -> &V {
-        match self.read_phase() {
-            ReadPhase::Executing(block) => block.get(),
-            ReadPhase::Frozen(original) => original.get(),
+        match self.cell_read_phase() {
+            CellReadPhase::Executing(block) => block.get(),
+            CellReadPhase::Frozen(original) => original.get(),
+            CellReadPhase::Reading(original) => original.get(),
         }
     }
 
     /// Borrow the exact original preimage, including replacement semantics.
     pub fn get_before_block(&self) -> &V {
-        match self.read_phase() {
-            ReadPhase::Executing(block) => block.get_before_block(),
-            ReadPhase::Frozen(original) => original.get_before_block(),
+        match self.cell_read_phase() {
+            CellReadPhase::Executing(block) => block.get_before_block(),
+            CellReadPhase::Frozen(original) => original.get_before_block(),
+            CellReadPhase::Reading(original) => original.get_before_block(),
         }
     }
 
     /// Whether the original execution touched this value, including equal writes.
     pub fn is_dirty(&self) -> bool {
-        match self.read_phase() {
-            ReadPhase::Executing(block) => block.is_dirty(),
-            ReadPhase::Frozen(original) => original.is_dirty(),
+        match self.cell_read_phase() {
+            CellReadPhase::Executing(block) => block.is_dirty(),
+            CellReadPhase::Frozen(original) => original.is_dirty(),
+            CellReadPhase::Reading(original) => original.is_dirty(),
         }
     }
 
     /// Borrow the original touched preimage and successor without copying either.
     pub fn touched_value(&self) -> Option<mv::cell::TouchedValue<'_, V>> {
-        match self.read_phase() {
-            ReadPhase::Executing(block) => block.touched_value(),
-            ReadPhase::Frozen(original) => original.touched_value(),
+        match self.cell_read_phase() {
+            CellReadPhase::Executing(block) => block.touched_value(),
+            CellReadPhase::Frozen(original) => original.touched_value(),
+            CellReadPhase::Reading(original) => original.touched_value(),
         }
     }
 
     /// Compare the exact executing or frozen original owner without reacquiring it.
     pub fn belongs_to(&self, target: &mv::cell::Cell<V, C>) -> bool {
-        match self.read_phase() {
-            ReadPhase::Executing(block) => block.belongs_to(target),
-            ReadPhase::Frozen(original) => original.belongs_to(target),
+        match self.cell_read_phase() {
+            CellReadPhase::Executing(block) => block.belongs_to(target),
+            CellReadPhase::Frozen(original) => original.belongs_to(target),
+            CellReadPhase::Reading(original) => original.belongs_to(target),
         }
     }
 
     /// Actual original acquisition mode; no new source can replace that cut.
     pub fn mode(&self) -> mv::BlockMode {
-        match self.read_phase() {
-            ReadPhase::Executing(block) => block.mode(),
-            ReadPhase::Frozen(original) => original.mode(),
+        match self.cell_read_phase() {
+            CellReadPhase::Executing(block) => block.mode(),
+            CellReadPhase::Frozen(original) => original.mode(),
+            CellReadPhase::Reading(original) => original.mode(),
         }
     }
 
     /// Retain the same opaque source/predecessor identity without new allocation.
     pub fn publication_identity(&self) -> mv::BlockPublicationIdentity {
-        match self.read_phase() {
-            ReadPhase::Executing(block) => block.publication_identity(),
-            ReadPhase::Frozen(original) => original.publication_identity(),
+        match self.cell_read_phase() {
+            CellReadPhase::Executing(block) => block.publication_identity(),
+            CellReadPhase::Frozen(original) => original.publication_identity(),
+            CellReadPhase::Reading(original) => original.publication_identity(),
         }
     }
 }

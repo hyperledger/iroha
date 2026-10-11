@@ -112,7 +112,6 @@ impl Worker<'_> {
         }
         let budget = self.state.ivm_execution_budget();
         require_body_admission(block, &budget)?;
-        require_qc_witness_admission(qc, &budget)?;
         if let Some(completed) = &self.completed_replay
             && completed.tip.height() == block.header().height
         {
@@ -219,8 +218,6 @@ impl Worker<'_> {
         let qc = Hash::new(certificate.commit_qc());
         let availability = Hash::new(certificate.availability());
         let payload = Hash::new(block.payload().as_slice());
-        self.clear_local_attestation()
-            .map_err(PublicationError::RecoveryRequired)?;
         let live = self.live.take().expect("same serialized published owner");
         self.completed_replay = Some(CompletedReplay {
             source: ReplaySource::capture(&live.source),

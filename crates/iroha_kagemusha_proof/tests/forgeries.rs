@@ -21,6 +21,10 @@
 //! - **Credit identifier**: it is `P(kgwcrdt1, Request body)` in circuit, so
 //!   a statement with any other credit is unsatisfiable, and the consumer
 //!   recomputes it from the Request.
+//! - **Request accounts**: substituting either account digest changes the
+//!   credit and statement while keeping the predecessor. The consumer
+//!   rejects it for the signed Request, and the circuit cannot prove the
+//!   original statement using the substituted account.
 //! - **`burned_total`**: the lineage input is checked against the balance
 //!   and bound in the statement, so dropping it to free burned value fails
 //!   the consumer's comparison with the lineage proof.
@@ -253,7 +257,7 @@ fn credit_identifier_is_the_in_circuit_request_digest() {
         assert_eq!(native.digests.credit, credit);
         // The chain entry and the effect carry it as one element.
         assert_eq!(native.chain_entry[1], credit);
-        assert_eq!(native.statement[18], credit);
+        assert_eq!(native.statement[17], credit);
         let statement = honest.statement(relation).expect("statement");
         // Any other credit: one the wallet already used, or a neighbour.
         let used = sample_witness::<Fp>(CHECK_SEED + 1, relation, Mutation::None)
@@ -270,6 +274,44 @@ fn credit_identifier_is_the_in_circuit_request_digest() {
             assert!(
                 !check_claim(&shape, &honest, &claimed(&claim)).is_satisfied(),
                 "{relation:?}"
+            );
+        }
+    }
+}
+
+/// Both account digests are bound to the signed Request through the credit
+/// identifier; consistently substituting one cannot prove the original step.
+#[test]
+fn request_account_substitution_cannot_keep_the_signed_request() {
+    for relation in RELATIONS {
+        let honest = honest(relation);
+        let shape = shape(relation);
+        let request = honest.request_body();
+        let statement = honest.statement(relation).expect("statement");
+        assert_eq!(consume(&honest, &request, &statement), Ok(relation));
+        for (name, payer) in [("payer account", true), ("receiver account", false)] {
+            let mut forged = honest.clone();
+            let account = match &mut forged.inputs {
+                StepInputs::Send(send) if payer => &mut send.payer_account_digest,
+                StepInputs::Send(send) => &mut send.receiver_account_digest,
+                StepInputs::Receive(receive) if payer => &mut receive.payer_account_digest,
+                StepInputs::Receive(receive) => &mut receive.receiver_account_digest,
+            };
+            account[16] ^= 1;
+            let own = forged.statement(relation).expect("forged statement");
+            assert_eq!(own.predecessor, statement.predecessor, "{name}");
+            assert_ne!(own.effect[0], statement.effect[0], "{name}");
+            // A proof of the substituted Request cannot be used for the
+            // signed Request the consumer actually received.
+            assert!(check_witness(&shape, &forged).is_satisfied(), "{name}");
+            assert_eq!(
+                consume(&forged, &request, &own),
+                Err(ConsumerError::Effect),
+                "{name}"
+            );
+            assert!(
+                !check_claim(&shape, &forged, &claimed(&statement)).is_satisfied(),
+                "{name}"
             );
         }
     }

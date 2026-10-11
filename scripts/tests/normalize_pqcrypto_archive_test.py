@@ -256,6 +256,31 @@ def test_cargo_reference_accepts_upstream_static_and_unqualified_link_directives
     assert actual == refs
 
 
+@pytest.mark.parametrize("retained", ["none", "common_only", "backend_only", "all"])
+def test_authentic_upstream_link_directives_never_prove_archive_member_custody(tmp_path, retained):
+    # The current locked build genuinely emits both kinds. Provenance identifies
+    # its reference bytes, but does not prove rustc bundled them in a staticlib.
+    refs, _, objects, output = cargo_fixture(tmp_path)
+    messages, package = cargo_context(tmp_path, output)
+    rows = [json.loads(line) for line in messages.read_text().splitlines()]
+    rows[0]["linked_libs"].extend(["pqclean_common", "keccak2x"])
+    messages.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+    output.write_text(output.read_text()
+                      + "cargo:rustc-link-lib=pqclean_common\ncargo:rustc-link-lib=keccak2x\n")
+    authenticated, _ = NORMALIZER.cargo_references(
+        tmp_path, "aarch64-apple-darwin", messages, package)
+    assert authenticated == refs
+    selected = {"none": [], "common_only": objects[:len(COMMON_NAMES)],
+                "backend_only": objects[len(COMMON_NAMES):], "all": objects}[retained]
+    original = MAGIC + raw_member("rust-only.o", b"original compiler object", bsd=False) + b"".join(selected)
+    if retained == "all":
+        # A complete single copy requires no edit, synthetic injection or duplicate.
+        assert NORMALIZER.normalize_archive_bytes(original, authenticated) == (original, [])
+    else:
+        with pytest.raises(ValueError, match="missing an authenticated reference member"):
+            NORMALIZER.normalize_archive_bytes(original, authenticated)
+
+
 def test_two_matching_cargo_outputs_are_rejected(tmp_path):
     _, _, _, first = cargo_fixture(tmp_path, "0123")
     _, _, _, second = cargo_fixture(tmp_path, "abcd")

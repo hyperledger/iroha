@@ -7,6 +7,9 @@ network policy, process signalling or persistent PID authority.
 - `PrivateDirectory` requires current-user private custody. `OwnerDirectory`
   admits reader-shared project directories while refusing foreign mutation.
   Both retain ancestor authority and create private files/directories.
+  `OwnerDirectory::open_private_child` and its optional form share the original
+  ancestor handles while enforcing private child custody. Optional admission
+  accepts absence only at the first native child open.
 - `read_private` and `read_regular` perform bounded, stable descriptor reads into
   zeroizing allocations. `RetainedFile` supports streaming with explicit custody
   revalidation; `seal` freezes a completed writer's observation without reopening.
@@ -14,6 +17,13 @@ network policy, process signalling or persistent PID authority.
   noncanonical spelling. `visit_private_files` streams bounded metadata, including
   incomplete private tombstones, without collecting names or reading bodies.
   Relative retained files share the existing ancestor handles.
+- `read_tree_scope` shares only an identical retained ancestry prefix. Its
+  `read_scope` callback brackets one directory's ordered reads and bounded
+  inventories with fresh entry and exit checks; persistent exit custody errors
+  take precedence over every ordinary callback result. Each leaf and inventory
+  keeps its native admission and snapshot checks. Directory changes restored
+  before exit can be unobserved: this is a closed read operation, not an atomic
+  filesystem snapshot. Views expose no descriptors, paths or mutation methods.
 - `PendingPrivateFile` permits bounded Write/Seek without exposing its descriptor.
   Consuming `seal_read_only` enforces exact Unix `0400` or a protected owner-read-only
   Windows DACL and returns opaque `SealedPrivateFile` with only Read/Seek. Recovery

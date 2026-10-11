@@ -310,16 +310,11 @@ fn start_and_stop_scripts_are_executable() {
         "start script should detach peers into a new session"
     );
     assert!(
-        start_contents.contains("launch_ordinary_validator_with_mint_seed(cmd, env)")
-            && start_contents.contains("pass_fds=(_MINT_SEED_FD,)")
-            && start_contents.contains("_mint_erase_launch(launch_fd, launch"),
-        "ordinary peers must receive one consumed owner-private FD 199 copy"
+        start_contents.contains("subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env, close_fds=True, start_new_session=True)"),
+        "ordinary peers must launch with their log and fresh process session"
     );
     assert!(!start_contents.contains("nohup env SNAPSHOT_STORE_DIR="));
-    assert!(
-        start_contents
-            .contains("python3 is required to stage the validator's one-shot private FD 199")
-    );
+    assert!(start_contents.contains("python3 is required to launch localnet validators"));
     assert!(
         start_contents.contains("SNAPSHOT_STORE_DIR=\"$DIR/state/peer${i}/snapshot\""),
         "snapshot state must remain outside the pristine Kura root"
@@ -395,185 +390,91 @@ fn start_and_stop_scripts_are_executable() {
 
 #[cfg(unix)]
 #[test]
-fn ordinary_localnet_mint_seed_launcher_consumes_fresh_children_on_two_starts() {
-    use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _};
-
-    let root =
-        crate::localnet::localnet_test_helpers::private_tempdir().expect("private localnet root");
-    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700))
-        .expect("protect localnet root");
-    let signer_dir = root.path().join("runtime/mint-finality-signers");
-    fs::create_dir_all(&signer_dir).expect("create private seed directory");
-    fs::set_permissions(
-        root.path().join("runtime"),
-        fs::Permissions::from_mode(0o700),
+fn ordinary_localnet_launcher_detaches_and_logs_without_private_descriptors() {
+    let root = localnet_test_helpers::private_tempdir().unwrap();
+    let start_path = root.path().join("start.sh");
+    write_start_script(
+        &start_path,
+        1,
+        false,
+        false,
+        &localnet_client_account_literal(None),
+        &localnet_xor_asset_literal(),
     )
-    .expect("protect runtime directory");
-    fs::set_permissions(&signer_dir, fs::Permissions::from_mode(0o700))
-        .expect("protect seed directory");
-    let retained = signer_dir.join("peer0.seed");
-    let mut master = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&retained)
-        .expect("create retained seed");
-    master.write_all(&[0x63; 32]).expect("write retained seed");
-    master.sync_all().expect("sync retained seed");
-    let master_inode = master.metadata().expect("retained metadata").ino();
-    drop(master);
-
-    let mut python = ORDINARY_MINT_FINALITY_LAUNCH_PY.to_owned();
-    python.push_str(
-        r#"
-import sys
-env = os.environ.copy()
-consume = "import os; data=os.read(199,32); assert len(data)==32; print(os.fstat(199).st_ino,flush=True); os.lseek(199,0,0); assert os.write(199,bytes(32))==32; os.fsync(199); os.ftruncate(199,0); os.fsync(199)"
-cmd = [sys.executable, "-c", consume]
-for _ in range(2):
-    process = launch_ordinary_validator_with_mint_seed(cmd, env)
-    if process.wait(timeout=5) != 0:
-        raise RuntimeError("descriptor-consuming child failed")
-    if os.path.exists(os.path.join(env["IROHA_NETWORK_DIR"], "runtime", "mint-finality-signers", "peer0.fd199")):
-        raise RuntimeError("one-shot child path survived startup")
-try:
-    launch_ordinary_validator_with_mint_seed([sys.executable, "-c", "import sys;sys.exit(2)"], env)
-except RuntimeError as error:
-    if "exited before consuming" not in str(error):
-        raise
-else:
-    raise RuntimeError("unconsumed child start unexpectedly succeeded")
-if os.path.exists(os.path.join(env["IROHA_NETWORK_DIR"], "runtime", "mint-finality-signers", "peer0.fd199")):
-    raise RuntimeError("failed child path survived startup")
-source = os.path.join(env["IROHA_NETWORK_DIR"], "runtime", "mint-finality-signers", "peer0.seed")
-os.chmod(source, 0o644)
-try:
-    launch_ordinary_validator_with_mint_seed(cmd, env)
-except RuntimeError as error:
-    if "untrusted localnet mint-finality seed descriptor" not in str(error):
-        raise
-else:
-    raise RuntimeError("world-readable retained seed unexpectedly launched")
-finally:
-    os.chmod(source, 0o600)
+    .unwrap();
+    let start = fs::read_to_string(&start_path).unwrap();
+    let body = start
+        .split("<<'PY'\n")
+        .nth(1)
+        .unwrap()
+        .split("\nPY\n")
+        .next()
+        .unwrap();
+    let python = format!("{body}\nassert process.wait(timeout=10) == 0\n");
+    let daemon = root.path().join("daemon");
+    custody::write(
+        &daemon,
+        br#"#!/usr/bin/env python3
+import errno, os, sys
+assert os.getsid(0) == os.getpid()
+assert os.getpgrp() == os.getpid()
+for descriptor in (198, 199, 200):
+    try:
+        os.fstat(descriptor)
+    except OSError as error:
+        assert error.errno == errno.EBADF
+    else:
+        raise AssertionError("ordinary validator inherited a private descriptor")
+assert sys.argv[1:] == ["--config", os.environ["IROHA_PEER_CONFIG"]]
+print("ordinary stdout")
+print("ordinary stderr", file=sys.stderr)
 "#,
-    );
+    )
+    .unwrap();
+    fs::set_permissions(&daemon, fs::Permissions::from_mode(0o700)).unwrap();
     let log = root.path().join("peer0.log");
-    let output = std::process::Command::new("python3")
-        .arg("-c")
-        .arg(python)
-        .env("IROHA_NETWORK_DIR", root.path())
-        .env("IROHA_PEER_INDEX", "0")
-        .env("IROHA_PEER_LOG", &log)
-        .output()
-        .expect("run stock ordinary descriptor launcher");
-    assert!(
-        output.status.success(),
-        "two one-shot starts failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let child_inodes = fs::read_to_string(&log)
-        .expect("read non-secret child inode log")
-        .lines()
-        .map(|line| line.parse::<u64>().expect("child inode"))
-        .collect::<Vec<_>>();
-    assert_eq!(child_inodes.len(), 2);
-    assert!(child_inodes.iter().all(|inode| *inode != master_inode));
-    assert_eq!(fs::read(&retained).expect("retained seed"), [0x63; 32]);
-}
-
-#[cfg(unix)]
-#[test]
-fn ordinary_localnet_mint_seed_launcher_removes_the_one_shot_path_only_once_it_is_empty() {
-    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
-
-    let root =
-        crate::localnet::localnet_test_helpers::private_tempdir().expect("private localnet root");
-    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700))
-        .expect("protect localnet root");
-    let signer_dir = root.path().join("runtime/mint-finality-signers");
-    fs::create_dir_all(&signer_dir).expect("create private seed directory");
-    for directory in [root.path().join("runtime"), signer_dir.clone()] {
-        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
-            .expect("protect seed directories");
+    for _ in 0..2 {
+        let output = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(&python)
+            .env("IROHAD_BIN", &daemon)
+            .env("IROHA_SORA_MODE", "0")
+            .env("IROHA_PEER_FRESH_KEY", "")
+            .env("IROHA_PEER_CONFIG", root.path().join("peer0.toml"))
+            .env("IROHA_PEER_LOG", &log)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .trim()
+                .parse::<u32>()
+                .unwrap()
+                > 0
+        );
     }
-    let mut retained = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(signer_dir.join("peer0.seed"))
-        .expect("create retained seed");
-    retained
-        .write_all(&[0x65; 32])
-        .expect("write retained seed");
-    retained.sync_all().expect("sync retained seed");
-    drop(retained);
-
-    // The child follows the daemon's consumption order. The one-shot path must keep its single
-    // link until the child empties the file; the launcher then removes it while the child still
-    // holds the descriptor, possibly before the daemon's post-consumption identity check.
-    let mut python = ORDINARY_MINT_FINALITY_LAUNCH_PY.to_owned();
-    python.push_str(
-        r#"
-import sys
-env = os.environ.copy()
-consume = """
-import os, sys, time
-before = os.fstat(199)
-if before.st_nlink != 1 or before.st_size != 32:
-    sys.exit("the launcher changed the one-shot path before consumption")
-if len(os.read(199, 32)) != 32:
-    sys.exit("short one-shot seed")
-os.lseek(199, 0, 0)
-if os.write(199, bytes(32)) != 32:
-    sys.exit("short erasure")
-os.fsync(199)
-if os.fstat(199).st_nlink != 1:
-    sys.exit("the launcher removed the one-shot path before the file was empty")
-os.ftruncate(199, 0)
-os.fsync(199)
-deadline = time.monotonic() + 20.0
-while os.fstat(199).st_nlink != 0:
-    if time.monotonic() >= deadline:
-        sys.exit("the launcher kept the emptied one-shot path")
-    time.sleep(0.01)
-after = os.fstat(199)
-if (after.st_dev, after.st_ino, after.st_size) != (before.st_dev, before.st_ino, 0):
-    sys.exit("the consumed descriptor changed identity")
-print("removed-after-consumption", flush=True)
-"""
-process = launch_ordinary_validator_with_mint_seed([sys.executable, "-c", consume], env)
-if process.wait(timeout=30) != 0:
-    raise RuntimeError("the launcher did not remove the path in consumption order")
-"#,
-    );
-    let log = root.path().join("peer0.log");
-    let output = std::process::Command::new("python3")
-        .arg("-c")
-        .arg(python)
-        .env("IROHA_NETWORK_DIR", root.path())
-        .env("IROHA_PEER_INDEX", "0")
-        .env("IROHA_PEER_LOG", &log)
-        .output()
-        .expect("run stock ordinary descriptor launcher");
-    assert!(
-        output.status.success(),
-        "launcher order check failed: {}\n{}",
-        String::from_utf8_lossy(&output.stderr),
-        fs::read_to_string(&log).unwrap_or_default()
+    let log = fs::read_to_string(log).unwrap();
+    assert_eq!(
+        log.lines()
+            .filter(|line| *line == "ordinary stdout")
+            .count(),
+        2
     );
     assert_eq!(
-        fs::read_to_string(&log).expect("read child log").trim(),
-        "removed-after-consumption"
+        log.lines()
+            .filter(|line| *line == "ordinary stderr")
+            .count(),
+        2
     );
-    assert!(!signer_dir.join("peer0.fd199").exists());
-    assert_eq!(
-        fs::read(signer_dir.join("peer0.seed")).expect("retained seed"),
-        [0x65; 32]
-    );
+    assert!(!root.path().join("runtime/mint-finality-signers").exists());
 }
 
-/// Drives the stock Taira launcher three times with a child that consumes FD 198 and FD 199 in
+/// Drives the stock Taira launcher three times with a child that consumes FD 198 and FD 200 in
 /// the daemon's order, alternating whether the launcher returns before the child's
 /// post-consumption check ("launcher-first") or only after it ("daemon-check-first"). Linux
 /// pidfd identity capture is replaced by a double that only orders the launcher's return.
@@ -589,7 +490,7 @@ def wait_for(path):
             sys.exit("timed out waiting for " + path)
         time.sleep(0.01)
 consumed = []
-for descriptor, size in ((198, 71), (199, 32)):
+for descriptor, size in ((198, 71), (200, 257)):
     before = os.fstat(descriptor)
     if before.st_nlink != 1 or before.st_size != size:
         sys.exit("the launcher changed a one-shot path before consumption")
@@ -633,12 +534,16 @@ os.mkdir(markers, 0o700)
 records = [
     (os.path.join(network, "runtime", "taira-runtime-signers", "peer0.private_key"),
      os.path.join(network, "runtime", "taira-runtime-signers", "peer0.fd198"), 71, 198),
-    (os.path.join(network, "runtime", "mint-finality-signers", "peer0.seed"),
-     os.path.join(network, "runtime", "mint-finality-signers", "peer0.fd199"), 32, 199),
+    (os.path.join(network, "runtime", "beacon-credential"),
+     os.path.join(network, "runtime", "peer0.fd200"), 257, 200),
 ]
+def selection():
+    return {"initial_config": os.path.join(network, "initial.toml"), "initial_identity": _taira_file_identity(os.lstat(os.path.join(network, "initial.toml"))),
+        "beacon_config": os.path.join(network, "beacon.toml"), "beacon_identity": _taira_file_identity(os.lstat(os.path.join(network, "beacon.toml"))),
+        "sources": [{"path": source, "size": size, "descriptor": descriptor, "identity": _taira_file_identity(os.lstat(source))} for source, _launch, size, descriptor in records]}
 for attempt, order in enumerate(("launcher-first", "daemon-check-first", "launcher-first")):
     ORDER, ATTEMPT = order, str(attempt)
-    process = launch_taira_process([sys.executable, "-c", CONSUME, order, markers, ATTEMPT], env, records)
+    process = launch_taira_process([sys.executable, "-c", CONSUME, order, markers, ATTEMPT], env, records, selection())
     open(os.path.join(markers, "returned-" + ATTEMPT), "w").close()
     if process.wait(timeout=30) != 0:
         raise RuntimeError("the consuming child failed in order " + order)
@@ -657,17 +562,16 @@ fn taira_launcher_keeps_consumed_launch_paths_in_either_consumption_order() {
         crate::localnet::localnet_test_helpers::private_tempdir().expect("private localnet root");
     let runtime = root.path().join("runtime");
     let signer_dir = runtime.join(TAIRA_RUNTIME_SIGNER_DIRECTORY);
-    let seed_dir = runtime.join(MINT_FINALITY_SEED_DIRECTORY);
-    for directory in [&signer_dir, &seed_dir] {
+    for directory in [&signer_dir] {
         fs::create_dir_all(directory).expect("create private record directory");
     }
-    for directory in [&runtime, &signer_dir, &seed_dir] {
+    for directory in [&runtime, &signer_dir] {
         fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
             .expect("protect record directories");
     }
     let retained = [
         (signer_dir.join("peer0.private_key"), vec![0x41; 71]),
-        (seed_dir.join("peer0.seed"), vec![0x66; 32]),
+        (runtime.join("beacon-credential"), vec![0x66; 257]),
     ];
     for (path, bytes) in &retained {
         let mut file = fs::OpenOptions::new()
@@ -679,6 +583,9 @@ fn taira_launcher_keeps_consumed_launch_paths_in_either_consumption_order() {
         file.write_all(bytes).expect("write retained record");
         file.sync_all().expect("sync retained record");
     }
+
+    custody::write(root.path().join("initial.toml"), b"initial exact bytes").unwrap();
+    custody::write(root.path().join("beacon.toml"), b"projected exact bytes").unwrap();
 
     // On a successful start the launcher keeps each one-shot path, so the daemon's
     // post-consumption check sees one link in either order and the next start replaces the
@@ -720,7 +627,7 @@ fn taira_launcher_keeps_consumed_launch_paths_in_either_consumption_order() {
         assert_eq!(&fs::read(path).expect("retained record"), bytes);
         assert_eq!(fs::metadata(path).expect("retained metadata").nlink(), 1);
     }
-    for launch in [signer_dir.join("peer0.fd198"), seed_dir.join("peer0.fd199")] {
+    for launch in [signer_dir.join("peer0.fd198"), runtime.join("peer0.fd200")] {
         assert_eq!(fs::metadata(launch).expect("consumed launch path").len(), 0);
     }
 }

@@ -542,28 +542,17 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         }
     }
     #[test]
-    fn mint_finality_seed_accepts_only_validator_private_descriptor_199() {
-        let mut accepted = base_table();
-        provider_table_mut(&mut accepted, "sumeragi")
-            .insert("mint_finality_seed_fd".into(), Value::Integer(199));
-        assert_eq!(
-            load_root(accepted).sumeragi.mint_finality_seed_fd,
-            Some(199)
-        );
-        for fd in [0, 198, 200, 65535] {
-            let mut rejected = base_table();
-            provider_table_mut(&mut rejected, "sumeragi")
-                .insert("mint_finality_seed_fd".into(), Value::Integer(fd));
+    fn retired_mint_finality_seed_descriptor_is_an_unknown_parameter() {
+        for role in ["validator", "observer"] {
+            let mut retired = base_table();
+            let section = provider_table_mut(&mut retired, "sumeragi");
+            section.insert("role".into(), Value::String(role.into()));
+            section.insert("mint_finality_seed_fd".into(), Value::Integer(199));
             assert!(
-                actual::Root::from_toml_source(TomlSource::inline(rejected)).is_err(),
-                "descriptor {fd} must not become a second seed source"
+                actual::Root::from_toml_source(TomlSource::inline(retired)).is_err(),
+                "{role}: the retired seed descriptor must not parse"
             );
         }
-        let mut observer = base_table();
-        let section = provider_table_mut(&mut observer, "sumeragi");
-        section.insert("role".into(), Value::String("observer".into()));
-        section.insert("mint_finality_seed_fd".into(), Value::Integer(199));
-        assert!(actual::Root::from_toml_source(TomlSource::inline(observer)).is_err());
     }
     fn set_parliament_tle_provider_binding(
         table: &mut Table,
@@ -1072,6 +1061,26 @@ policy_digest_hex = "{policy_digest_hex}"
                 .expect_err("retired pre-release settlement keys must be rejected");
             assert!(
                 format!("{error:?}").contains("`settlement.offline`"),
+                "unexpected error: {error:?}"
+            );
+        }
+    }
+    #[test]
+    fn removed_load_publisher_configuration_is_unknown() {
+        for publisher in [
+            Value::Boolean(false),
+            Value::Table(Table::new()),
+            Value::Table(Table::from_iter([
+                ("keyring_file".into(), "absent-authorizer.norito".into()),
+                ("submitter_key_file".into(), "absent-submitter.key".into()),
+            ])),
+        ] {
+            let mut table = base_table();
+            table.insert("kagemusha_load_authorizer".into(), publisher);
+            let error = actual::Root::from_toml_source(TomlSource::inline(table))
+                .expect_err("removed publisher configuration must be rejected");
+            assert!(
+                format!("{error:?}").contains("kagemusha_load_authorizer"),
                 "unexpected error: {error:?}"
             );
         }

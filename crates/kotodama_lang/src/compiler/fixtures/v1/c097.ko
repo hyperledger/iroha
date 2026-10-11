@@ -1,6 +1,6 @@
 
 seiyaku CompilerFixture {
-  view fn rejected() -> int {
+  view fn rejected() authorize(anyone) -> int {
     return crypto::valcom(left: 1, right: 2);
   }
 }

@@ -1,6 +1,7 @@
 //! Loading a node configuration file.
 //!
-//! One entry point, [`open_node_config`], serves both kinds of node file:
+//! One shared loader serves both kinds of node file through [`open_node_config`] or the
+//! retained, self-contained source entry [`open_node_config_source`]:
 //!
 //! - A **custom file** (no `profile` key) supplies its configuration directly, including `extends`.
 //! - A **profile node file** sets `profile` and `validators`, with an optional `role`
@@ -249,7 +250,7 @@ pub fn open_node_config(
     file: NodeFile,
     options: NodeConfigOptions,
 ) -> Result<NodeConfigReader, Report<NodeConfigError>> {
-    let (path, table) = match file {
+    match file {
         NodeFile::Path(path) => {
             let source = TomlSource::from_file(&path)
                 .change_context_lazy(|| NodeConfigError::ReadFile(path.clone()))?;
@@ -264,26 +265,40 @@ pub fn open_node_config(
                     data_dir,
                 });
             }
-            (path, source.table().clone())
+            open_profile_node(source, options)
         }
         NodeFile::Verified { path, table } => {
-            if table.contains_key("extends") {
-                return Err(Report::new(NodeConfigError::Extends(path)));
-            }
-            if !table.contains_key(PROFILE_KEY) {
-                let reader = ConfigReader::new()
-                    .without_env()
-                    .with_toml_source(TomlSource::new(path, table));
-                return complete_data_dir(reader).map(|(reader, data_dir)| NodeConfigReader {
-                    reader,
-                    profile: None,
-                    data_dir,
-                });
-            }
-            (path, table)
+            open_node_config_source(TomlSource::new(path, table), options)
         }
-    };
-    open_profile_node(path, table, options)
+    }
+}
+
+/// Prepare one retained, self-contained node source without replacing its cleanup owner.
+///
+/// Sensitive sources retain their scrubber through profile layering, layout completion and
+/// reading. Relative paths resolve against the original source path; environment overlays and
+/// `extends` remain disabled. The same node-file policy and layout kernel serve every input.
+///
+/// # Errors
+///
+/// [`NodeConfigError`] when the source uses `extends`, violates profile policy or has an
+/// invalid `data_dir` layout.
+pub fn open_node_config_source(
+    source: TomlSource,
+    options: NodeConfigOptions,
+) -> Result<NodeConfigReader, Report<NodeConfigError>> {
+    if source.table().contains_key("extends") {
+        return Err(Report::new(NodeConfigError::Extends(source.path().clone())));
+    }
+    if source.table().contains_key(PROFILE_KEY) {
+        return open_profile_node(source, options);
+    }
+    let reader = ConfigReader::new().without_env().with_toml_source(source);
+    complete_data_dir(reader).map(|(reader, data_dir)| NodeConfigReader {
+        reader,
+        profile: None,
+        data_dir,
+    })
 }
 
 /// [`open_node_config`] followed by [`NodeConfigReader::read`].
@@ -300,10 +315,11 @@ pub fn read_node_config(
 }
 
 fn open_profile_node(
-    path: PathBuf,
-    mut table: toml::Table,
+    mut source: TomlSource,
     options: NodeConfigOptions,
 ) -> Result<NodeConfigReader, Report<NodeConfigError>> {
+    let path = source.path().clone();
+    let table = source.table_mut();
     if options.sora {
         return Err(Report::new(NodeConfigError::SoraWithProfile(path)));
     }
@@ -335,7 +351,7 @@ fn open_profile_node(
             return Err(key_error(key, message.to_owned()));
         }
     }
-    if table_at(&table, &["sumeragi"]).is_some_and(|section| section.contains_key("role")) {
+    if table_at(table, &["sumeragi"]).is_some_and(|section| section.contains_key("role")) {
         return Err(key_error(
             "sumeragi.role",
             "is selected by top-level `role`; remove this key".to_owned(),
@@ -372,7 +388,7 @@ fn open_profile_node(
         }
     };
     let profile = Profile::compiled(profile_id).map_err(profile_error)?;
-    let disallowed: Vec<String> = leaf_keys(&table)
+    let disallowed: Vec<String> = leaf_keys(table)
         .into_iter()
         .filter(|key| !profile.admits_node_key(key))
         .collect();
@@ -400,7 +416,7 @@ fn open_profile_node(
         policy_digest: profile.policy_digest().map_err(profile_error)?,
     };
     let mut sources = profile.layers(&geometry, role);
-    sources.push(TomlSource::new(path, table));
+    sources.push(source);
     merge_value_tables(&mut sources);
     let reader = sources.into_iter().fold(
         ConfigReader::new().without_env(),
@@ -443,7 +459,7 @@ fn merge_value_tables(sources: &mut [TomlSource]) {
         let mut merged = toml::Table::new();
         for &index in earlier.iter().chain(std::iter::once(&last)) {
             let contribution = if index == last {
-                table_at(sources[index].table(), path).cloned()
+                table_at_mut(sources[index].table_mut(), path).map(std::mem::take)
             } else {
                 remove_at(sources[index].table_mut(), path)
             };

@@ -9,7 +9,7 @@ use crate::{
 };
 use ivm_abi::syscalls;
 
-const SOURCE: &str = r#"seiyaku StateOperands {
+const SOURCE: &str = r#"seiyaku StateOperands { permission WriteState;
     state int Counter;
     state StateMap<Name, int> Values;
     hajimari() {
@@ -20,7 +20,7 @@ const SOURCE: &str = r#"seiyaku StateOperands {
         Counter = Counter + amount;
         return Values.get(key).unwrap_or(0) + Counter;
     }
-    kotoage fn run() -> int authorize("WriteState") {
+    kotoage fn run() authorize(WriteState) -> int {
         Counter = 0;
         return update(key: Name::parse("alice"), amount: 3);
     }

@@ -2,43 +2,57 @@
   "name": "kotodama",
   "publisher": "hyperledger-iroha",
   "displayName": "Kotodama Language",
-  "description": "Kotodama syntax, semantic editing, diagnostics, and formatting through the canonical koto toolchain",
+  "description": "Kotodama smart contracts for the Iroha Virtual Machine: highlighting, diagnostics, completion, navigation, outline, tests and formatting through the Musubi and koto toolchain",
   "version": "0.1.0",
+  "license": "Apache-2.0",
+  "homepage": "https://docs.iroha.tech/blockchain/smart-contracts",
+  "bugs": { "url": "https://github.com/hyperledger-iroha/iroha/issues" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hyperledger-iroha/iroha",
+    "directory": "tools/kotodama_linguist/grammar-repo"
+  },
+  "categories": ["Programming Languages", "Linters", "Formatters", "Testing"],
+  "keywords": ["kotodama", "iroha", "ivm", "seiyaku", "誓約", "kotoage", "言挙げ", "smart contracts"],
   "engines": { "vscode": "^1.91.0" },
   "main": "./client/extension.cjs",
   "activationEvents": ["onLanguage:kotodama", "onCommand:kotodama.restart"],
   "capabilities": { "untrustedWorkspaces": { "supported": false } },
   "scripts": {
-    "test": "node --test client/config.test.cjs",
+    "test": "node --test client/config.test.cjs client/extension.test.cjs client/grammar.test.cjs",
     "package": "vsce package --out kotodama.vsix"
   },
   "dependencies": { "vscode-languageclient": "10.1.1" },
-  "devDependencies": { "@vscode/vsce": "3.9.2" },
-  "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/hyperledger-iroha/iroha"
+  "devDependencies": {
+    "@vscode/vsce": "3.9.2",
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2"
   },
   "contributes": {
-    "commands": [{ "command": "kotodama.restart", "title": "Kotodama: Restart Language Server" }],
+    "commands": [
+      { "command": "kotodama.restart", "title": "Kotodama: Restart Language Server" },
+      { "command": "kotodama.runTest", "title": "Kotodama: Run Test" }
+    ],
+    "menus": {
+      "commandPalette": [{ "command": "kotodama.runTest", "when": "false" }]
+    },
     "configuration": {
       "title": "Kotodama",
       "properties": {
-        "kotodama.serverPath": { "type": "string", "default": "koto", "description": "Path to the canonical koto executable.", "scope": "machine-overridable" },
-        "kotodama.project": { "type": "string", "default": "kotodama.project.json", "description": "Exact project graph, relative to the workspace folder. Supports ${workspaceFolder}.", "scope": "resource" },
+        "kotodama.kotoPath": { "type": "string", "default": "koto", "description": "Path to the koto executable for standalone files and tests.", "scope": "machine-overridable" },
+        "kotodama.musubiPath": { "type": "string", "default": "musubi", "description": "Path to the Musubi executable for project diagnostics and tests.", "scope": "machine-overridable" },
+        "kotodama.manifestPath": { "type": "string", "default": "", "description": "Musubi.toml path, relative to the workspace folder. Empty discovers its nearest ancestor manifest. Supports ${workspaceFolder}.", "scope": "resource" },
+        "kotodama.contract": { "type": "string", "default": "", "description": "Contract target used for navigation when a file belongs to several graphs; use a unique target name or namespace/package::target. Empty reports diagnostics for all targets.", "scope": "resource" },
+        "kotodama.chainDiscriminant": { "type": "integer", "default": 753, "minimum": 1, "maximum": 65535, "description": "Account-address chain discriminant for standalone koto sources. Musubi projects resolve their network context from project configuration.", "scope": "resource" },
         "kotodama.zk": { "type": "boolean", "default": false, "description": "Enable the explicit ZK compilation capability for this project's diagnostics.", "scope": "resource" }
       }
     },
     "languages": [
       {
         "id": "kotodama",
-        "aliases": [
-          "Kotodama",
-          "kotodama"
-        ],
-        "extensions": [
-          ".ko"
-        ]
+        "aliases": ["Kotodama", "kotodama"],
+        "extensions": [".ko"],
+        "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
@@ -46,6 +60,22 @@
         "language": "kotodama",
         "scopeName": "source.kotodama",
         "path": "./syntaxes/kotodama.tmLanguage.json"
+      }
+    ],
+    "semanticTokenTypes": [
+      {
+        "id": "brandedKeyword",
+        "superType": "keyword",
+        "description": "A branded Kotodama keyword in either spelling: seiyaku/誓約, kotoage/言挙げ, hajimari/始まり or kaizen/改善."
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "kotodama",
+        "required": ["test"],
+        "properties": {
+          "test": { "type": "string", "description": "Exact name of the Kotodama `#[test]` function to run." }
+        }
       }
     ]
   }

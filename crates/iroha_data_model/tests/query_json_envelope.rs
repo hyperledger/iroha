@@ -115,6 +115,11 @@ mod json_envelope {
         else {
             panic!("expected exact artifact manifest query");
         };
-        assert_eq!(query.artifact_id, artifact_id);
+        assert_eq!(
+            query,
+            &iroha_data_model::query::smart_contract::FindContractManifestByArtifactId::new(
+                artifact_id
+            )
+        );
     }
 }

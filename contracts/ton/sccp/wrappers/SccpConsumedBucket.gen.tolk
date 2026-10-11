@@ -52,6 +52,22 @@ fun SccpConsumedBucket.deploy(self, from: address, config: SendParams = {}): Sen
     return net.send(from, genericMsg);
 }
 
+fun SccpConsumedBucket.sendSccpActivateBucket(
+    self,
+    from: address,
+    queryId: uint64,
+    index: uint64,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: SccpActivateBucket { queryId, index },
+    });
+    return net.send(from, genericMsg);
+}
+
 fun SccpConsumedBucket.sendSccpConsume(
     self,
     from: address,
@@ -148,4 +164,8 @@ fun SccpConsumedBucket.getBits(self): (int, int) {
 
 fun SccpConsumedBucket.isConsumed(self, nonce: int): bool {
     return net.runGetMethod(self.address, "is_consumed", [nonce]);
+}
+
+fun SccpConsumedBucket.isActivated(self): bool {
+    return net.runGetMethod(self.address, "is_activated");
 }

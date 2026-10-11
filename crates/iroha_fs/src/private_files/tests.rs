@@ -1,7 +1,7 @@
 //! Portable strict receipt custody and bounded inventory regressions.
 
 use super::*;
-use std::io::{Seek as _, SeekFrom, Write as _};
+use std::io::{SeekFrom, Write as _};
 
 fn store() -> (tempfile::TempDir, PrivateDirectory) {
     let temporary = tempfile::tempdir().unwrap();
@@ -73,6 +73,222 @@ fn relative_receipt_create_seal_and_read_preserve_identity_and_strict_access() {
     reader.revalidate().unwrap();
     drop(reader);
     drop(sealed);
+}
+
+#[test]
+fn optional_sealed_original_distinguishes_absence_from_admission_refusal() {
+    let (_temporary, directory) = store();
+    assert!(
+        directory
+            .open_retained_read_only_optional("absent", 64)
+            .unwrap()
+            .is_none()
+    );
+    let mut writer = directory
+        .create_retained_private("optional-receipt", 64)
+        .unwrap();
+    writer.write_all(b"exact receipt").unwrap();
+    assert!(
+        directory
+            .open_retained_read_only_optional("optional-receipt", 64)
+            .is_err()
+    );
+    let sealed = writer.seal_read_only().unwrap();
+    assert!(
+        directory
+            .open_retained_read_only_optional("optional-receipt", 12)
+            .is_err()
+    );
+    let mut original = directory
+        .open_retained_read_only_optional("optional-receipt", 64)
+        .unwrap()
+        .unwrap();
+    assert_eq!(original.identity().unwrap(), sealed.identity().unwrap());
+    let mut bytes = Vec::new();
+    original.read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, b"exact receipt");
+    assert!(
+        directory
+            .open_retained_read_only_optional("../missing", 64)
+            .is_err()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn optional_sealed_original_late_disappearance_never_becomes_absence() {
+    let (_temporary, directory) = store();
+    let mut writer = directory
+        .create_retained_private("optional-late", 64)
+        .unwrap();
+    writer.write_all(b"exact receipt").unwrap();
+    let _sealed = writer.seal_read_only().unwrap();
+    let path = directory.path().join("optional-late");
+    let result = crate::platform::with_readonly_named_hook(
+        "optional-late",
+        move || std::fs::remove_file(path).unwrap(),
+        || directory.open_retained_read_only_optional("optional-late", 64),
+    );
+    assert_eq!(result.unwrap_err().kind(), io::ErrorKind::NotFound);
+    assert!(
+        directory
+            .open_retained_read_only_optional("optional-late", 64)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn optional_sealed_original_refuses_replaced_directory_even_for_missing_name() {
+    let (temporary, directory) = store();
+    std::fs::rename(directory.path(), temporary.path().join("old-receipts")).unwrap();
+    std::fs::create_dir(directory.path()).unwrap();
+    assert!(
+        directory
+            .open_retained_read_only_optional("absent", 64)
+            .is_err()
+    );
+}
+
+#[test]
+fn optional_private_original_preserves_initial_absence_and_bounded_prefix_reads() {
+    let (_temporary, directory) = store();
+    assert!(
+        directory
+            .open_retained_private_optional("missing")
+            .unwrap()
+            .is_none()
+    );
+    directory
+        .write_atomic(
+            "optional-private",
+            b"private original",
+            PublishMode::CreateNew,
+        )
+        .unwrap();
+    let original = directory
+        .open_retained_private_optional("optional-private")
+        .unwrap()
+        .unwrap();
+    let mut prefix = Vec::new();
+    original.file().take(7).read_to_end(&mut prefix).unwrap();
+    assert_eq!(prefix, b"private");
+    original.revalidate().unwrap();
+    assert!(
+        directory
+            .open_retained_private_optional("../missing")
+            .is_err()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn optional_private_original_late_disappearance_never_becomes_absence() {
+    let (_temporary, directory) = store();
+    directory
+        .write_atomic("private-late", b"private original", PublishMode::CreateNew)
+        .unwrap();
+    let path = directory.path().join("private-late");
+    let result = crate::platform::with_readonly_named_hook(
+        "private-late",
+        move || std::fs::remove_file(path).unwrap(),
+        || directory.open_retained_private_optional("private-late"),
+    );
+    assert_eq!(result.unwrap_err().kind(), io::ErrorKind::NotFound);
+    assert!(
+        directory
+            .open_retained_private_optional("private-late")
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn optional_private_original_refuses_replaced_parent_for_initially_absent_file() {
+    let (temporary, directory) = store();
+    std::fs::rename(directory.path(), temporary.path().join("old-receipts")).unwrap();
+    std::fs::create_dir(directory.path()).unwrap();
+    assert!(directory.open_retained_private_optional("missing").is_err());
+}
+
+#[cfg(windows)]
+#[test]
+fn optional_private_original_keeps_native_directory_rename_refusal_and_original_retry() {
+    let (temporary, directory) = store();
+    assert!(
+        directory
+            .open_retained_private_optional("absent")
+            .unwrap()
+            .is_none()
+    );
+    directory
+        .write_atomic(
+            "optional-private",
+            b"private original",
+            PublishMode::CreateNew,
+        )
+        .unwrap();
+    let original = directory
+        .open_retained_private_optional("optional-private")
+        .unwrap()
+        .unwrap();
+    let id = original.identity().unwrap();
+    let moved = temporary.path().join("old-receipts");
+    assert!(std::fs::rename(directory.path(), &moved).is_err());
+    assert!(!moved.exists());
+    assert!(
+        directory
+            .open_retained_private_optional("absent")
+            .unwrap()
+            .is_none()
+    );
+    let retry = directory
+        .open_retained_private_optional("optional-private")
+        .unwrap()
+        .unwrap();
+    assert_eq!(retry.identity().unwrap(), id);
+    let mut bytes = Vec::new();
+    retry.file().take(64).read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, b"private original");
+    retry.revalidate().unwrap();
+    assert_eq!(original.identity().unwrap(), id);
+    original.revalidate().unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn optional_sealed_original_keeps_native_directory_rename_refusal_and_original_retry() {
+    let (temporary, directory) = store();
+    let mut writer = directory
+        .create_retained_private("optional-receipt", 64)
+        .unwrap();
+    writer.write_all(b"exact receipt").unwrap();
+    let sealed = writer.seal_read_only().unwrap();
+    assert!(
+        directory
+            .open_retained_read_only_optional("absent", 64)
+            .unwrap()
+            .is_none()
+    );
+    let moved = temporary.path().join("old-receipts");
+    assert!(std::fs::rename(directory.path(), &moved).is_err());
+    assert!(!moved.exists());
+    assert!(
+        directory
+            .open_retained_read_only_optional("absent", 64)
+            .unwrap()
+            .is_none()
+    );
+    let mut original = directory
+        .open_retained_read_only_optional("optional-receipt", 64)
+        .unwrap()
+        .unwrap();
+    assert_eq!(original.identity().unwrap(), sealed.identity().unwrap());
+    let mut bytes = Vec::new();
+    original.read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, b"exact receipt");
 }
 
 #[test]

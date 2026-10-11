@@ -48,7 +48,7 @@ pub(in crate::state) struct SealedExecutionOutputs {
     witness_surface: Option<Box<crate::state::output_publication::FinalizedPublicationSurface>>,
     // Preserve the actual complete invocation owner after inventory derivation;
     // a projection or caller-supplied row list cannot replace these sources.
-    sources: OwnedExecutionSources,
+    _sources: OwnedExecutionSources,
 }
 
 /// Exact durable finality over this owner's complete outputs and actual witness.
@@ -65,23 +65,12 @@ pub(in crate::state) struct FinalizedExecutionOutputs {
     _events_hash: Hash,
 }
 
-impl SealedExecutionOutputs {
-    /// Borrow actual invocation custody retained by the sole output producer.
-    pub(in crate::state) fn sources(&self) -> &OwnedExecutionSources {
-        &self.sources
-    }
-
-    /// Exact proposal whose result-bearing wire and World prefix were sealed.
-    pub(in crate::state) fn proposal(&self) -> HashOf<iroha_data_model::block::BlockHeader> {
-        self.proposal
-    }
-}
-
 /// Owns both the State borrow and its only mutable output budget. It cannot be
 /// moved to another State or used recursively while the continuation is live.
 struct ExecutionOutputProducer<'owner, 'state, 'source> {
     state: &'owner mut StateBlock<'state>,
     source: ExecutionSource<'source>,
+    amx_legs: Option<&'owner mut crate::sumeragi::amx::NativeAmxLegPreparations>,
     budget: Option<ExecutionOutputBudget>,
     unused_time: u32,
     // Allocate the complete row vector before work. Network placeholders are
@@ -103,12 +92,22 @@ struct ExecutionOutputProducer<'owner, 'state, 'source> {
 impl StateBlock<'_> {
     /// Execute each actual ordinary phase exactly once on its reserved State owner.
     /// Complete source/finality/host admission remains the caller's prerequisite.
+    #[cfg(test)]
     pub(crate) fn execute_ordinary_output_plan(
         &mut self,
         source: &SignedBlock,
         genesis: Option<&crate::block::AuthenticatedGenesisOutputSource>,
     ) -> Result<(), ExecutionOutputAttemptError> {
-        self.produce_ordinary_execution_outputs(source, |producer| {
+        self.execute_ordinary_output_plan_with_amx(source, genesis, None)
+    }
+
+    pub(crate) fn execute_ordinary_output_plan_with_amx(
+        &mut self,
+        source: &SignedBlock,
+        genesis: Option<&crate::block::AuthenticatedGenesisOutputSource>,
+        amx_legs: Option<&mut crate::sumeragi::amx::NativeAmxLegPreparations>,
+    ) -> Result<(), ExecutionOutputAttemptError> {
+        self.produce_ordinary_execution_outputs_with_amx(source, amx_legs, |producer| {
             producer.execute_network_sources(genesis)?;
             producer.execute_pipeline_outputs()?;
             producer.execute_scheduled_time_outputs()
@@ -166,6 +165,7 @@ impl StateBlock<'_> {
     /// Move the existing ordinary plan into exactly one borrowing continuation.
     /// The Block driver sequences every ordinary phase through this owner.
     /// TODO: complete source/host admission; every state remains gated.
+    #[cfg(test)]
     fn produce_ordinary_execution_outputs(
         &mut self,
         source: &SignedBlock,
@@ -173,7 +173,23 @@ impl StateBlock<'_> {
             &mut ExecutionOutputProducer<'_, '_, '_>,
         ) -> Result<(), ExecutionOutputAttemptError>,
     ) -> Result<(), ExecutionOutputAttemptError> {
-        let mut producer = ExecutionOutputProducer::new(self, ExecutionSource(source))?;
+        self.produce_ordinary_execution_outputs_with_amx(source, None, execute)
+    }
+
+    fn produce_ordinary_execution_outputs_with_amx(
+        &mut self,
+        source: &SignedBlock,
+        amx_legs: Option<&mut crate::sumeragi::amx::NativeAmxLegPreparations>,
+        execute: impl FnOnce(
+            &mut ExecutionOutputProducer<'_, '_, '_>,
+        ) -> Result<(), ExecutionOutputAttemptError>,
+    ) -> Result<(), ExecutionOutputAttemptError> {
+        let mut producer = match amx_legs {
+            Some(bank) => {
+                ExecutionOutputProducer::new_with_amx(self, ExecutionSource(source), Some(bank))?
+            }
+            None => ExecutionOutputProducer::new(self, ExecutionSource(source))?,
+        };
         execute(&mut producer)?;
         producer
             .finish()
@@ -189,6 +205,14 @@ impl<'owner, 'state, 'source> ExecutionOutputProducer<'owner, 'state, 'source> {
     fn new(
         state: &'owner mut StateBlock<'state>,
         source: ExecutionSource<'source>,
+    ) -> Result<Self, ExecutionAttemptError<String>> {
+        Self::new_with_amx(state, source, None)
+    }
+
+    fn new_with_amx(
+        state: &'owner mut StateBlock<'state>,
+        source: ExecutionSource<'source>,
+        amx_legs: Option<&'owner mut crate::sumeragi::amx::NativeAmxLegPreparations>,
     ) -> Result<Self, ExecutionAttemptError<String>> {
         let Some(ExecutionOutputPlanState::Reserved(plan)) = state.execution_output_plan.as_ref()
         else {
@@ -215,6 +239,7 @@ impl<'owner, 'state, 'source> ExecutionOutputProducer<'owner, 'state, 'source> {
         let mut producer = ExecutionOutputProducer {
             state,
             source,
+            amx_legs,
             budget: Some(plan.budget),
             unused_time: 0,
             rows: Vec::new(),

@@ -95,10 +95,13 @@ mod tests {
             compiler_fingerprint: None,
             features_bitmap: Some(0),
             access_set_hints: None,
+            permissions: Vec::new(),
+            events: Vec::new(),
             entrypoints: None,
             states: None,
             error_messages: None,
             error_types: None,
+            enum_types: Vec::new(),
             kotoba: None,
             provenance: None,
         }

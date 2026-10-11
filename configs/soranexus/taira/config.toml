@@ -311,7 +311,7 @@ allowed_signing = ["ed25519", "secp256k1", "bls_normal"]
 allowed_curve_ids = [1, 3, 4]
 
 [nexus]
-lane_count = 7
+lane_count = 8
 
 [nexus.storage]
 # First-release Taira uses one exact 4 GiB aggregate disk budget per node:
@@ -335,23 +335,7 @@ manifest_directory = "configs/soranexus/taira/manifests"
 cache_directory = "configs/soranexus/taira/manifests"
 poll_interval_ms = 10000
 
-[nexus.autoscale]
-enabled = true
-# Seven routing containers are statically assigned; this half-open range
-# reserves index 7 for deterministic creation.
-min_lane_id = 7
-max_lane_id_exclusive = 8
-# Match the canonical 4 s genesis cadence so healthy blocks do not look four
-# times slower than the autoscale target.
-target_block_ms = 4000
-scale_out_latency_ratio = 1.50
-scale_in_latency_ratio = 1.10
-scale_out_utilization_ratio = 0.75
-scale_in_utilization_ratio = 0.25
-scale_out_window_blocks = 48
-scale_in_window_blocks = 192
-cooldown_blocks = 128
-per_lane_target_tps = 32
+# The first-release catalog is fixed; no autoscale range can consume a participant lane.
 
 [nexus.staking]
 public_validator_mode = "stake_elected"
@@ -374,16 +358,16 @@ alias = "core"
 description = "Primary execution lane"
 dataspace = "universal"
 storage = "full_replica"
+metadata = {}
 visibility = "public"
-scheduler = { teu_capacity = 50000000 }
 
 [[nexus.lane_catalog]]
 index = 1
 alias = "governance"
 description = "Governance & parliament traffic"
 dataspace = "universal"
-governance = "parliament"
 storage = "full_replica"
+metadata = {}
 visibility = "public"
 
 [[nexus.lane_catalog]]
@@ -392,77 +376,95 @@ alias = "zk"
 description = "Zero-knowledge attachments"
 dataspace = "universal"
 storage = "full_replica"
+metadata = {}
 visibility = "public"
 
 [[nexus.lane_catalog]]
 index = 3
 alias = "dpn"
-description = "Digital payments network traffic"
+description = "Digital payments network lane"
 dataspace = "dpn"
 storage = "full_replica"
+metadata = {}
 visibility = "restricted"
-scheduler = { teu_capacity = 25000000 }
+governance = "parliament"
 
 [[nexus.lane_catalog]]
 index = 4
-alias = "external-poc"
-description = "External PoC traffic"
-dataspace = "is"
+alias = "is2"
+description = "Bank of Israel mobile-wallet lane"
+dataspace = "is2"
 storage = "full_replica"
+metadata = {}
 visibility = "restricted"
-scheduler = { teu_capacity = 25000000 }
+governance = "parliament"
 
 [[nexus.lane_catalog]]
 index = 5
-alias = "boi-mobile"
-description = "Bank of Israel mobile-wallet traffic"
-dataspace = "is2"
+alias = "bpng"
+description = "Bank of Papua New Guinea lane"
+dataspace = "bpng"
 storage = "full_replica"
-visibility = "restricted"
-scheduler = { teu_capacity = 25000000 }
+metadata = {}
+visibility = "public"
 
 [[nexus.lane_catalog]]
 index = 6
 alias = "cbsi"
-description = "Central-bank service integration traffic"
+description = "Central-bank service integration lane"
 dataspace = "cbsi"
 storage = "full_replica"
+metadata = {}
 visibility = "restricted"
-scheduler = { teu_capacity = 25000000 }
+governance = "parliament"
 
-# Physical data spaces only. Namespace, governance-module, and workload names
-# must not be promoted into this catalog.
+[[nexus.lane_catalog]]
+index = 7
+alias = "is"
+description = "External proof-of-concept lane"
+dataspace = "is"
+storage = "full_replica"
+metadata = {}
+visibility = "restricted"
+governance = "parliament"
+
+# Physical dataspaces only. Each participant identity derives from the full
+# canonical SNS dataspace-alias hash retained in its genesis catalog.
 [[nexus.dataspace_catalog]]
 alias = "universal"
 id = 0
-description = "Shared public data space for core, governance, and zero-knowledge lanes"
-fee_sponsor_program_id = "testuﾛ1PｵEmｷjMZZﾑﾙeｱﾁﾎﾅﾂﾊmECepdbﾎｳ2uWﾃｸﾊﾘvｵi2ｦP1Y18A/cbsi_web"
+fault_tolerance = 1
+description = "Shared public dataspace for core, governance, and zero-knowledge lanes"
 
 [[nexus.dataspace_catalog]]
 alias = "dpn"
-id = 10
-manifest_hash = "0a00000000000000000000000000000000000000000000000000000000000000"
-description = "Digital payments network data space"
-
-[[nexus.dataspace_catalog]]
-alias = "is"
-id = 6647857470246403404
-manifest_hash = "4cbd76b725ef415c000000000000000000000000000000000000000000000000"
-description = "External PoC data space"
-fee_sponsor_program_id = "testuﾛ1PｵEmｷjMZZﾑﾙeｱﾁﾎﾅﾂﾊmECepdbﾎｳ2uWﾃｸﾊﾘvｵi2ｦP1Y18A/cbsi_web"
+manifest_hash = "b1872b9105f32c896d9b9ca49fa97c9029b090c3905b7a2945260fbc5efc4c87"
+fault_tolerance = 1
+description = "Digital payments network dataspace"
 
 [[nexus.dataspace_catalog]]
 alias = "is2"
-id = 8477022798449861195
-manifest_hash = "4be27d6e526fa47522b2865462b79d228450d02fb3b63b011fb8731932405c2b"
-description = "Bank of Israel mobile-wallet data space"
-fee_sponsor_program_id = "testuﾛ1PｵEmｷjMZZﾑﾙeｱﾁﾎﾅﾂﾊmECepdbﾎｳ2uWﾃｸﾊﾘvｵi2ｦP1Y18A/cbsi_web"
+manifest_hash = "9cb8505d4d519e868cf4be6116f1669bda3008c2a044f2b2fcf08a3000dc3670"
+fault_tolerance = 1
+description = "Bank of Israel mobile-wallet dataspace"
+
+[[nexus.dataspace_catalog]]
+alias = "bpng"
+manifest_hash = "2ba1d10b8f3505785f8fbeab47ff6d701d6134f62cd959a00d401d06e0727192"
+fault_tolerance = 1
+description = "Bank of Papua New Guinea dataspace"
 
 [[nexus.dataspace_catalog]]
 alias = "cbsi"
-id = 20
-manifest_hash = "1400000000000000000000000000000000000000000000000000000000000000"
-description = "Central-bank service integration data space"
+manifest_hash = "fc4918b622c5eb60bf6cb1e3ef0e95425c04ec1d14c5bbd651a93631c8bae08e"
+fault_tolerance = 1
+description = "Central-bank service integration dataspace"
+
+[[nexus.dataspace_catalog]]
+alias = "is"
+manifest_hash = "4cbd76b725ef415ca759b86cc07bfb7e5e383309ab8394a3f77307fd057ff1e7"
+fault_tolerance = 1
+description = "External proof-of-concept dataspace"
 
 [nexus.governance]
 default_module = "parliament"
@@ -478,124 +480,44 @@ approval_flow = "jit"
 default_lane = 0
 default_dataspace = "universal"
 
-# Account matchers use `label@namespace.dataspace` (or a dataspace-root
-# `label@dataspace`). The namespace text is a logical binding and must not be
-# added to `nexus.dataspace_catalog` unless it independently names a physical
-# server/validator boundary.
-
-[[nexus.routing_policy.rules]]
-lane = 3
-dataspace = "dpn"
-matcher.account = "*@dpn"
-matcher.description = "Route DPN authorities to the DPN dataspace"
-
-[[nexus.routing_policy.rules]]
-lane = 4
-dataspace = "is"
-matcher.account = "*@is"
-matcher.description = "Route the PoC authority to the private is dataspace"
-
-[[nexus.routing_policy.rules]]
-lane = 5
-dataspace = "is2"
-matcher.account = "*@boi.is2"
-matcher.description = "Route Bank of Israel mobile-wallet authorities to is2"
-
-[[nexus.routing_policy.rules]]
-lane = 5
-dataspace = "is2"
-matcher.account = "*@leumi.is2"
-matcher.description = "Route Leumi mobile-wallet authorities to is2"
-
-[[nexus.routing_policy.rules]]
-lane = 5
-dataspace = "is2"
-matcher.account = "*@hapoalim.is2"
-matcher.description = "Route Hapoalim mobile-wallet authorities to is2"
-
-[[nexus.routing_policy.rules]]
-lane = 5
-dataspace = "is2"
-matcher.account = "*@discount.is2"
-matcher.description = "Route Discount mobile-wallet authorities to is2"
-
-[[nexus.routing_policy.rules]]
-lane = 5
-dataspace = "is2"
-matcher.account = "*@mizrahi.is2"
-matcher.description = "Route Mizrahi mobile-wallet authorities to is2"
-
-[[nexus.routing_policy.rules]]
-lane = 5
-dataspace = "is2"
-matcher.account = "*@fibi.is2"
-matcher.description = "Route FIBI mobile-wallet authorities to is2"
-
-[[nexus.routing_policy.rules]]
-lane = 5
-dataspace = "is2"
-matcher.account = "*@onezero.is2"
-matcher.description = "Route One Zero mobile-wallet authorities to is2"
-
-[[nexus.routing_policy.rules]]
-lane = 5
-dataspace = "is2"
-matcher.account = "*@jerusalem.is2"
-matcher.description = "Route Jerusalem Bank mobile-wallet authorities to is2"
-
-[[nexus.routing_policy.rules]]
-lane = 6
-dataspace = "cbsi"
-matcher.account = "*@cbsi"
-matcher.description = "Route CBSI root authorities to cbsi"
-
-[[nexus.routing_policy.rules]]
-lane = 6
-dataspace = "cbsi"
-matcher.account = "*@pob.cbsi"
-matcher.description = "Route POB authorities to cbsi"
-
-[[nexus.routing_policy.rules]]
-lane = 6
-dataspace = "cbsi"
-matcher.account = "*@bred.cbsi"
-matcher.description = "Route BRED authorities to cbsi"
-
-[[nexus.routing_policy.rules]]
-lane = 6
-dataspace = "cbsi"
-matcher.account = "*@anz.cbsi"
-matcher.description = "Route ANZ authorities to cbsi"
-
-[[nexus.routing_policy.rules]]
-lane = 6
-dataspace = "cbsi"
-matcher.account = "*@bsp.cbsi"
-matcher.description = "Route BSP authorities to cbsi"
-
-[[nexus.routing_policy.rules]]
-lane = 6
-dataspace = "cbsi"
-matcher.account = "*@m-selen.cbsi"
-matcher.description = "Route M-Selen authorities to cbsi"
-
-[[nexus.routing_policy.rules]]
-lane = 6
-dataspace = "cbsi"
-matcher.account = "*@ezipei.cbsi"
-matcher.description = "Route Ezipei authorities to cbsi"
+# Instruction routes and restricted-participant authority routes match the
+# generated Taira profile. Public BPNG traffic routes by target dataspace.
 
 [[nexus.routing_policy.rules]]
 lane = 1
 dataspace = "universal"
 matcher.instruction = "governance"
-matcher.description = "Route governance instructions to the governance lane in the universal data space"
+matcher.description = "Route governance traffic to its canonical lane"
 
 [[nexus.routing_policy.rules]]
 lane = 2
 dataspace = "universal"
 matcher.instruction = "smartcontract::deploy"
-matcher.description = "Route smart-contract deployments to the zk lane in the universal data space"
+matcher.description = "Route smartcontract::deploy traffic to its canonical lane"
+
+[[nexus.routing_policy.rules]]
+lane = 3
+dataspace = "dpn"
+matcher.account = "*@dpn"
+matcher.description = "Route *@dpn traffic to its canonical lane"
+
+[[nexus.routing_policy.rules]]
+lane = 4
+dataspace = "is2"
+matcher.account = "*@is2"
+matcher.description = "Route *@is2 traffic to its canonical lane"
+
+[[nexus.routing_policy.rules]]
+lane = 6
+dataspace = "cbsi"
+matcher.account = "*@cbsi"
+matcher.description = "Route *@cbsi traffic to its canonical lane"
+
+[[nexus.routing_policy.rules]]
+lane = 7
+dataspace = "is"
+matcher.account = "*@is"
+matcher.description = "Route *@is traffic to its canonical lane"
 
 [nexus.fusion]
 floor_teu = 2500

@@ -195,6 +195,7 @@ impl From<ProvisioningError> for ManagedAttachmentFailure {
             ProvisioningError::NamespaceQuote => Self::QuoteUnavailable,
             ProvisioningError::NamespaceObservation => Self::NamespaceUnverified,
             ProvisioningError::Deadline => Self::AwaitingCompletion,
+            ProvisioningError::Cancelled => Self::SupervisorStopped,
             ProvisioningError::Io(_) => Self::CustodyUnavailable,
             ProvisioningError::Invalid(_) => Self::ContextRejected,
             ProvisioningError::Bootstrap(error) => error.into(),
@@ -221,7 +222,9 @@ impl From<AttachmentError> for ManagedAttachmentFailure {
             AttachmentError::Proof(_) => Self::EvidenceRejected,
             AttachmentError::Finality(error) => error.into(),
             AttachmentError::Bootstrap(error) => error.into(),
+            AttachmentError::NativeOperation(error) => error.into(),
             AttachmentError::Operation(_) => Self::RelayIncomplete,
+            AttachmentError::Cancelled => Self::SupervisorStopped,
         }
     }
 }
@@ -244,14 +247,18 @@ impl From<Error> for ManagedAttachmentFailure {
         match error {
             Error::Bootstrap(reason) => Self::Bootstrap(reason),
             Error::Io(_) | Error::Busy(_) => Self::CustodyUnavailable,
-            Error::ParentDeadline | Error::Timeout(_) => Self::AwaitingCompletion,
+            Error::ParentDeadline | Error::Timeout(_) | Error::NativeDeadline => {
+                Self::AwaitingCompletion
+            }
             Error::ParentProgressDeadline { failure, .. } => failure,
             // A retained service bootstrap that cannot advance under this authorization
             // invalidates the selected context; it is never a parent completion signal.
+            // Worker failure follow-ups neither prove supervision stopped nor expose their
+            // independently retained native sources through this public classification.
             Error::NoSelection
             | Error::Invalid(_)
-            | Error::Bootstrap(_)
-            | Error::ContractCall { .. } => Self::ContextRejected,
+            | Error::ContractCall { .. }
+            | Error::WorkerFailure { .. } => Self::ContextRejected,
         }
     }
 }
@@ -368,5 +375,89 @@ mod bootstrap_failure_tests {
         }
         assert!(ManagedAttachmentFailure::OperationExpired.is_terminal_operation());
         assert!(ManagedAttachmentFailure::OperationRejected.is_terminal_operation());
+    }
+}
+
+#[cfg(test)]
+mod worker_failure_tests {
+    //! Attachment diagnostics exclude both independently retained worker error sources.
+
+    use super::*;
+
+    #[test]
+    fn worker_failure_keeps_original_stage_and_classifies_all_followups_without_source_text() {
+        const STAGE: &str = "startup deadline expired while authenticating current native provider and signer discovery";
+        const PRIVATE: &str =
+            "Authorization: Bearer fixture-secret; /private/owner/key; response-body";
+        for cleanup_failed in [false, true] {
+            for publication_failed in [false, true] {
+                let error = Error::WorkerFailure {
+                    failure: STAGE.into(),
+                    cleanup: cleanup_failed.then(|| {
+                        Box::new(Error::Io(std::io::Error::new(
+                            std::io::ErrorKind::PermissionDenied,
+                            PRIVATE,
+                        )))
+                    }),
+                    publication: publication_failed
+                        .then(|| Box::new(Error::Invalid(PRIVATE.into()))),
+                };
+                assert_eq!(error.to_string().lines().next(), Some(STAGE));
+                match &error {
+                    Error::WorkerFailure {
+                        failure,
+                        cleanup,
+                        publication,
+                    } => {
+                        assert_eq!(failure, STAGE);
+                        assert_eq!(cleanup.is_some(), cleanup_failed);
+                        assert_eq!(publication.is_some(), publication_failed);
+                        if let Some(source) = cleanup {
+                            assert!(matches!(source.as_ref(), Error::Io(error)
+                                if error.kind() == std::io::ErrorKind::PermissionDenied
+                                    && error.to_string() == PRIVATE));
+                        }
+                        if let Some(source) = publication {
+                            assert!(matches!(source.as_ref(), Error::Invalid(message)
+                                if message == PRIVATE));
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+                let failure = ManagedAttachmentFailure::from(error);
+                assert_eq!(failure, ManagedAttachmentFailure::ContextRejected);
+                assert_eq!(
+                    failure,
+                    ManagedAttachmentFailure::from(Error::Invalid(STAGE.into()))
+                );
+                assert_ne!(failure, ManagedAttachmentFailure::SupervisorStopped);
+                assert!(!failure.is_terminal_operation());
+                assert!(std::error::Error::source(&failure).is_none());
+                let encoded = norito::json::to_vec(&failure).unwrap();
+                assert_eq!(encoded.as_slice(), b"\"context_rejected\"");
+                assert_eq!(
+                    norito::json::from_slice::<ManagedAttachmentFailure>(&encoded).unwrap(),
+                    failure
+                );
+                for public in [
+                    format!("{failure:?}"),
+                    failure.to_string(),
+                    String::from_utf8(encoded).unwrap(),
+                ] {
+                    for fragment in [
+                        STAGE,
+                        "Authorization",
+                        "fixture-secret",
+                        "/private",
+                        "response-body",
+                    ] {
+                        assert!(
+                            !public.contains(fragment),
+                            "source details escaped: {public}"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

@@ -218,3 +218,89 @@ fn vec_sequential_exact_len() {
     assert_eq!(bytes.len(), norito::core::Header::SIZE + expected);
     norito::core::reset_decode_state();
 }
+
+#[derive(
+    Clone, Copy, Debug, PartialEq, NoritoSerialize, NoritoDeserialize, norito::NoritoSchema,
+)]
+#[norito_schema(name = "norito.test.encoded_len_exact.ExactRawEnumFields")]
+#[norito(decode_from_slice)]
+enum ExactRawEnumFields {
+    Tuple([u8; 2]),
+    Named { bytes: [u8; 2] },
+}
+
+#[test]
+fn enum_raw_byte_array_fields_keep_exact_wire_and_reject_other_array_layouts_without_allocating() {
+    use norito::core::{
+        DecodeFlagsGuard, DecodeFromSlice, DecodeLimits, Error, header_flags, serialize_to_buffer,
+        with_decode_limits, with_decode_limits_measured, write_len_header_to_vec,
+    };
+    for flags in [0, header_flags::COMPACT_LEN] {
+        let _flags = DecodeFlagsGuard::enter(flags);
+        for (tag, value) in [
+            (0_u32, ExactRawEnumFields::Tuple([1, 5])),
+            (1_u32, ExactRawEnumFields::Named { bytes: [1, 5] }),
+        ] {
+            let mut encoded = Vec::new();
+            serialize_to_buffer(&value, &mut encoded).unwrap();
+            let mut exact = tag.to_le_bytes().to_vec();
+            write_len_header_to_vec(&mut exact, 2);
+            exact.extend_from_slice(&[1, 5]);
+            assert_eq!(encoded, exact);
+            let zero = DecodeLimits::new(0, usize::MAX, 0, 0, 8);
+            let (decoded, usage) = with_decode_limits_measured(zero, || {
+                norito::core::decode_field_canonical::<ExactRawEnumFields>(&encoded)
+            });
+            assert_eq!(decoded.unwrap(), (value, encoded.len()));
+            assert_eq!(usage.total_allocated_bytes(), 0);
+            assert_eq!(usage.total_elements(), 0);
+            let (slice, usage) = with_decode_limits_measured(zero, || {
+                ExactRawEnumFields::decode_from_slice(&encoded)
+            });
+            assert_eq!(slice.unwrap(), (value, encoded.len()));
+            assert_eq!(usage.total_allocated_bytes(), 0);
+            assert_eq!(usage.total_elements(), 0);
+
+            let mut alternate = Vec::new();
+            serialize_to_buffer(&[1_u8, 5], &mut alternate).unwrap();
+            for body in [vec![1], vec![1, 5, 7], alternate] {
+                let mut invalid = tag.to_le_bytes().to_vec();
+                write_len_header_to_vec(&mut invalid, body.len() as u64);
+                invalid.extend_from_slice(&body);
+                for result in [
+                    with_decode_limits(zero, || {
+                        norito::core::decode_field_canonical::<ExactRawEnumFields>(&invalid)
+                    }),
+                    with_decode_limits(zero, || ExactRawEnumFields::decode_from_slice(&invalid)),
+                ] {
+                    assert!(matches!(result, Err(Error::LengthMismatch)));
+                }
+            }
+            let truncated = &encoded[..encoded.len() - 1];
+            assert!(matches!(
+                with_decode_limits(zero, || {
+                    norito::core::decode_field_canonical::<ExactRawEnumFields>(truncated)
+                }),
+                Err(Error::LengthMismatch)
+            ));
+            let mut trailing = encoded.clone();
+            trailing.push(0xaa);
+            assert!(matches!(
+                with_decode_limits(zero, || {
+                    norito::core::decode_field_canonical::<ExactRawEnumFields>(&trailing)
+                }),
+                Err(Error::LengthMismatch)
+            ));
+            let mut oversized = tag.to_le_bytes().to_vec();
+            write_len_header_to_vec(&mut oversized, 3);
+            let narrow = DecodeLimits::new(0, 2, 0, 0, 8);
+            assert!(matches!(
+                with_decode_limits(narrow, || ExactRawEnumFields::decode_from_slice(&oversized)),
+                Err(Error::FieldLengthExceeded {
+                    length: 3,
+                    limit: 2
+                })
+            ));
+        }
+    }
+}

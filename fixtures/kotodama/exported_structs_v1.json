@@ -112,6 +112,10 @@
               }
             }
           ]
+        },
+        "authorization": {
+          "kind": "Anyone",
+          "value": null
         }
       }
     ],
@@ -131,6 +135,9 @@
           }
         ]
       }
-    ]
+    ],
+    "permissions": [],
+    "events": [],
+    "enum_types": []
   }
 }

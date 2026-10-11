@@ -36,6 +36,22 @@ def custody_owns_resolution(relative: Path, line: str, source: str) -> bool:
         return False
     if name in STRICT_CUSTODY_OWNERS:
         return all(arguments.strip() == "strict=True" for arguments in calls)
+    if name == ".github/workflows/sorafs-orchestrator-sdk.yml":
+        # This strict resolution belongs to the authenticated external Apple lock step.
+        # The permissive operator-evidence helper cannot replace its custody boundary.
+        expected = 'lock_dir="$("$MOBILE_SDK_PYTHON_BINARY" -I -S -B -c \'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve(strict=True))\' "$lock_dir")"'
+        step = '      - name: Materialize the authenticated external Apple Cargo lock\n'
+        if source.count(step) != 1 or line.strip() != expected:
+            return False
+        custody = source.split(step, 1)[1].split("\n      - name:", 1)[0]
+        required = ('umask 077', 'source ci/privacy_sdk_cargo_lockfile.sh', 'mkdir -m 0700 "$lock_dir"', 'lock_dir="$("$MOBILE_SDK_PYTHON_BINARY" -I -S -B -c \'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve(strict=True))\' "$lock_dir")"', 'privacy_sdk_materialize_canonical_cargo_lock', 'privacy_sdk_resolve_cargo_lockfile')
+        positions = [custody.find(marker) for marker in required]
+        return (
+            all(arguments.strip() == "strict=True" for arguments in calls)
+            and custody.count(expected) == 1
+            and all(position >= 0 for position in positions)
+            and positions == sorted(positions)
+        )
     if name == "scripts/sorafs_javascript_runtime_inputs.py":
         return (
             line.count("namespace.resolve(") == len(calls)

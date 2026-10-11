@@ -294,7 +294,7 @@ fn stale_header_and_cntr_abi_hashes_are_rejected() {
 #[test]
 fn every_public_entrypoint_requires_an_explicit_unit_return_descriptor() {
     let artifact = kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku UnitBoundary { view fn inspect() { () } }")
+        .compile_source("seiyaku UnitBoundary { view fn inspect() authorize(anyone) { () } }")
         .expect("compile implicit Unit source return");
     verify_contract_artifact(&artifact).expect("explicit Unit descriptor is admitted");
     for (remove_type, remove_schema) in [(true, false), (false, true), (true, true)] {
@@ -329,7 +329,7 @@ fn every_public_entrypoint_requires_an_explicit_unit_return_descriptor() {
 fn cntr_return_type_schema_mismatch_is_rejected() {
     let source = r"
         seiyaku SchemaBound {
-            view fn inspect() -> int { return 1; }
+            view fn inspect() authorize(anyone) -> int { return 1; }
         }
     ";
     let (artifact, _) = kotodama_lang::compiler::Compiler::new()
@@ -416,7 +416,7 @@ fn malformed_numeric_pointer_envelopes_are_rejected() {
 #[test]
 fn canonical_durable_numeric_state_is_admitted() {
     let source = r#"
-        seiyaku DurableNumericState {
+        seiyaku DurableNumericState { permission WriteState;
             state int Whole;
             state decimal Rate;
             state quantity Supply;
@@ -430,7 +430,7 @@ fn canonical_durable_numeric_state_is_admitted() {
                 Supply = zero_supply;
             }
 
-            kotoage fn store() -> int authorize("WriteState") {
+            kotoage fn store() authorize(WriteState) -> int {
                 Whole = 1606938044258990275541962092341162602522202993782792835301376;
                 Rate = -12345678901234567890.125;
                 Supply = 12345678901234567890.0000000000000000000000000001;

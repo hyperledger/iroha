@@ -64,12 +64,15 @@ fn decode_table_field(raw: &str, path: &str, line: usize, column: usize) -> Stri
     }
     decoded
 }
+/// Parse one versioned table whose header is `<table-name>\t<record count>`.
+///
+/// The header's declared count is authoritative and must equal the number of
+/// records, so adding a row only touches the asset itself.
 fn parse_versioned_table(
     path: &str,
     asset: &str,
-    expected_header: &str,
+    table_name: &str,
     expected_schema: &[&str],
-    expected_rows: usize,
 ) -> Vec<Vec<String>> {
     println!("cargo:rerun-if-changed={path}");
     assert!(asset.ends_with('\n'), "{path} must end with a newline");
@@ -78,15 +81,19 @@ fn parse_versioned_table(
         "{path} must use canonical LF line endings"
     );
     let mut lines = asset.split_terminator('\n');
-    assert_eq!(
-        lines.next(),
-        Some(expected_header),
-        "unexpected version/count header in {path}"
-    );
+    let header = lines.next().expect("versioned table header row");
+    let expected_rows = header
+        .strip_prefix(table_name)
+        .and_then(|rest| rest.strip_prefix('\t'))
+        .and_then(|count| count.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            panic!("{path} header must be `{table_name}<TAB><record count>`, found `{header}`")
+        });
     let schema = lines.next().expect("versioned table schema row");
     assert!(
         schema.split('\t').eq(expected_schema.iter().copied()),
-        "unexpected field schema in {path}"
+        "unexpected field schema in {path}: expected `{}`",
+        expected_schema.join("<TAB>")
     );
     let mut rows = Vec::with_capacity(expected_rows);
     for (row_index, record) in lines.enumerate() {
@@ -101,8 +108,11 @@ fn parse_versioned_table(
         assert_eq!(
             columns.len(),
             expected_schema.len(),
-            "{path}:{} has the wrong field count",
-            row_index + 3
+            "{path}:{} has {} fields; expected {} ({}). Use `-` for an optional field with no value",
+            row_index + 3,
+            columns.len(),
+            expected_schema.len(),
+            expected_schema.join(", ")
         );
         assert!(
             columns.iter().all(|column| !column.is_empty()),
@@ -114,9 +124,14 @@ fn parse_versioned_table(
     assert_eq!(
         rows.len(),
         expected_rows,
-        "{path} has the wrong record count"
+        "{path} declares {expected_rows} records in its header but contains {}",
+        rows.len()
     );
     rows
+}
+/// Optional table field: `-` means no value.
+fn optional_field(value: &str) -> Option<&str> {
+    (value != "-").then_some(value)
 }
 fn is_diagnostic_phase(value: &str) -> bool {
     matches!(
@@ -128,9 +143,15 @@ fn write_diagnostic_tables(out_dir: &Path) {
     let explanations = parse_versioned_table(
         DIAGNOSTIC_EXPLANATIONS_SPEC_PATH,
         DIAGNOSTIC_EXPLANATIONS_ASSET,
-        "kotodama-diagnostic-explanations-v1\t253",
-        &["code", "phase", "summary", "help"],
-        253,
+        "kotodama-diagnostic-explanations-v1",
+        &[
+            "code",
+            "phase",
+            "summary",
+            "help",
+            "bad_example",
+            "fixed_example",
+        ],
     );
     let mut seen_codes = BTreeSet::new();
     let mut generated = String::from(
@@ -154,10 +175,18 @@ fn write_diagnostic_tables(out_dir: &Path) {
             seen_codes.insert(row[0].clone()),
             "duplicate diagnostic code"
         );
+        let bad_example = optional_field(&row[4]);
+        let fixed_example = optional_field(&row[5]);
+        assert_eq!(
+            bad_example.is_some(),
+            fixed_example.is_some(),
+            "diagnostic `{}` must give both a bad and a fixed example, or neither",
+            row[0]
+        );
         writeln!(
             &mut generated,
-            "    DiagnosticExplanation {{ code: {:?}, phase: DiagnosticPhase::{}, summary: {:?}, help: {:?} }},",
-            row[0], row[1], row[2], row[3]
+            "    DiagnosticExplanation {{ code: {:?}, phase: DiagnosticPhase::{}, summary: {:?}, help: {:?}, bad_example: {:?}, fixed_example: {:?} }},",
+            row[0], row[1], row[2], row[3], bad_example, fixed_example
         )
         .expect("write diagnostic explanation table");
     }
@@ -171,9 +200,8 @@ fn write_diagnostic_tables(out_dir: &Path) {
     let compile_fail_cases = parse_versioned_table(
         COMPILE_FAIL_CASES_SPEC_PATH,
         COMPILE_FAIL_CASES_ASSET,
-        "kotodama-compile-fail-cases-v1\t59",
+        "kotodama-compile-fail-cases-v1",
         &["name", "source", "phase", "code", "message", "line"],
-        59,
     );
     let mut seen_names = BTreeSet::new();
     let mut generated = String::from(
@@ -208,9 +236,8 @@ fn write_diagnostic_tables(out_dir: &Path) {
     let reject_cases = parse_versioned_table(
         SECRET_REJECT_CASES_SPEC_PATH,
         SECRET_REJECT_CASES_ASSET,
-        "kotodama-secret-reject-cases-v1\t13",
+        "kotodama-secret-reject-cases-v1",
         &["name", "source", "code", "primary"],
-        13,
     );
     let mut seen_names = BTreeSet::new();
     let mut generated = String::from(

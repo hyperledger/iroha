@@ -14,9 +14,28 @@ use iroha_data_model::{
 };
 
 use crate::{
-    execution_attempt::{ExecutionAttemptError, norito_decode_attempt_error},
+    execution_attempt::{ExecutionAttemptError, kura_read_attempt_error},
     kura::{Kura, history_checkpoints::HistoryCheckpoint},
 };
+
+/// Original local capture refusal, separate from execution and canonical history errors.
+/// This non-wire event boundary retains the actual physical State release owner;
+/// a busy publication never becomes a transaction rejection or allocation demand.
+#[derive(Debug, thiserror::Error)]
+pub enum FinalizedEventReadError {
+    /// Exact original State reader/publication custody or malformed source observation.
+    #[error(transparent)]
+    StateView(#[from] super::StateViewError),
+    /// Unchanged deterministic rejection or original local decoder/allocation refusal.
+    #[error(transparent)]
+    Execution(#[from] ExecutionAttemptError<QueryExecutionFail>),
+}
+
+impl From<QueryExecutionFail> for FinalizedEventReadError {
+    fn from(error: QueryExecutionFail) -> Self {
+        Self::Execution(ExecutionAttemptError::Rejected(error))
+    }
+}
 
 fn canonical_source_error(
     error: norito::core::DecodeAttemptError,
@@ -215,6 +234,18 @@ impl<'a> CanonicalHistorySource<'a> {
         mut before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
     ) -> Result<iroha_data_model::block::SharedSignedBlock, ExecutionAttemptError<QueryExecutionFail>>
     {
+        self.block_with_original_admission(height, None, &mut before_read)
+    }
+
+    /// One shared canonical loader, optionally retaining the consumer's actual
+    /// preflight descriptor. A length scalar cannot replace its original slot.
+    fn block_with_original_admission(
+        &self,
+        height: NonZeroUsize,
+        original: Option<&crate::kura::NativeFrameRead<'_>>,
+        mut before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
+    ) -> Result<iroha_data_model::block::SharedSignedBlock, ExecutionAttemptError<QueryExecutionFail>>
+    {
         let expected = self
             .expected_hash(height)
             .map_err(QueryExecutionFail::CanonicalHistory)?;
@@ -230,35 +261,38 @@ impl<'a> CanonicalHistorySource<'a> {
         if self.kura.is_canonical_body_missing(height) {
             return Err(missing());
         }
-        let storage_error = |error: crate::kura::Error| match error {
-            crate::kura::Error::NoritoFrame(error) => norito_decode_attempt_error(error, |error| {
-                QueryExecutionFail::Conversion(error.to_string())
-            }),
-            crate::kura::Error::BlockDecode(error) => canonical_source_error(error),
-            crate::kura::Error::NativeFrameAllocation(error) => {
-                let deferred = match error {
-                    iroha_allocation::ChargedBufferError::Admission(original) => original.into(),
-                    iroha_allocation::ChargedBufferError::Allocator { .. } => {
-                        ivm::error::ExecutionDeferral::AllocationUnavailable.into()
-                    }
+        let storage_error = |error| {
+            kura_read_attempt_error(error, |error| {
+                // Preserve the existing deterministic diagnostics after classification.
+                let reason = match error {
+                    crate::kura::Error::NoritoFrame(error) => error.to_string(),
+                    crate::kura::Error::BlockDecode(error) => error.to_string(),
+                    error => error.to_string(),
                 };
-                ExecutionAttemptError::Deferred(deferred)
-            }
-            error => {
-                ExecutionAttemptError::Rejected(QueryExecutionFail::Conversion(error.to_string()))
-            }
+                QueryExecutionFail::Conversion(reason)
+            })
         };
         let source = self
             .kura
             .native_frame_read(height_u64, expected)
             .map_err(storage_error)?
             .ok_or_else(missing)?;
+        let source = match original {
+            Some(original) if original.same_original_slot(&source) => original,
+            Some(_) => {
+                return Err(QueryExecutionFail::Conversion(
+                    "native event target differs from its original admitted slot".into(),
+                )
+                .into());
+            }
+            None => &source,
+        };
         let wire_len = source.wire_len();
         before_read(1, wire_len)?;
         let shell = SharedSignedBlock::reserve(&self.budget)
             .map_err(|error| ExecutionAttemptError::Deferred(error.into()))?;
         let bytes = source
-            .read(wire_len, &self.budget)
+            .read_original(wire_len, &self.budget)
             .map_err(storage_error)?
             .ok_or_else(missing)?;
         let block = iroha_data_model::block::decode_framed_signed_block(&bytes)
@@ -323,15 +357,60 @@ impl<'a> CanonicalHistorySource<'a> {
         first: NonZeroUsize,
         last: NonZeroUsize,
         before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
-        visit: impl FnMut(
+        mut visit: impl FnMut(
             crate::sumeragi::certified_chain::CommittedBlock,
         ) -> Result<
             core::ops::ControlFlow<()>,
             ExecutionAttemptError<QueryExecutionFail>,
         >,
     ) -> Result<bool, ExecutionAttemptError<QueryExecutionFail>> {
+        self.visit_executed_backwards_admitted_until(first, last, before_read, |receipt| {
+            visit(receipt.into_owned())
+        })
+    }
+
+    /// The same original-tip walk, retaining exact receipt slots from this source's pool.
+    /// Only the selected consumer may retain slots; each skipped ancestor retires in place.
+    /// Source, ancestry, checkpoints and complete result validation use the common kernel.
+    pub(crate) fn visit_executed_backwards_admitted_until(
+        &self,
+        first: NonZeroUsize,
+        last: NonZeroUsize,
+        before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
+        visit: impl FnMut(
+            crate::sumeragi::certified_chain::AdmittedCommittedBlock,
+        ) -> Result<
+            core::ops::ControlFlow<()>,
+            ExecutionAttemptError<QueryExecutionFail>,
+        >,
+    ) -> Result<bool, ExecutionAttemptError<QueryExecutionFail>> {
         let tip = self.walk_tip(first, last)?;
-        self.walk_backwards(WalkStart::tip(tip), first, last, before_read, visit)
+        self.walk_backwards(WalkStart::tip(tip), first, last, None, before_read, visit)
+    }
+
+    /// The same authenticated walk, with the target's original native descriptor.
+    /// The original slot is rechecked before target admission or body I/O; unrelated
+    /// ancestors use the existing loader and exact source/refusal rules unchanged.
+    pub(crate) fn visit_executed_backwards_with_original_target(
+        &self,
+        first: NonZeroUsize,
+        last: NonZeroUsize,
+        original_target: &crate::kura::NativeFrameRead<'_>,
+        before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
+        mut visit: impl FnMut(
+            crate::sumeragi::certified_chain::CommittedBlock,
+        ) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
+    ) -> Result<(), ExecutionAttemptError<QueryExecutionFail>> {
+        let tip = self.walk_tip(first, last)?;
+        self.walk_backwards(
+            WalkStart::tip(tip),
+            first,
+            last,
+            Some(original_target),
+            before_read,
+            |value| visit(value.into_owned()).map(|()| core::ops::ControlFlow::Continue(())),
+        )
+        .map(drop)
     }
 
     /// [`Self::visit_executed_backwards_until`] for off-chain readers: the walk
@@ -345,7 +424,7 @@ impl<'a> CanonicalHistorySource<'a> {
         first: NonZeroUsize,
         last: NonZeroUsize,
         before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
-        visit: impl FnMut(
+        mut visit: impl FnMut(
             crate::sumeragi::certified_chain::CommittedBlock,
         ) -> Result<
             core::ops::ControlFlow<()>,
@@ -358,7 +437,9 @@ impl<'a> CanonicalHistorySource<'a> {
         let start = self
             .checkpoint_start(selected_last, tip.height())
             .unwrap_or_else(|| WalkStart::tip(tip));
-        self.walk_backwards(start, first, last, before_read, visit)
+        self.walk_backwards(start, first, last, None, before_read, |receipt| {
+            visit(receipt.into_owned())
+        })
     }
 
     /// The authenticated tip of this captured history, after checking the interval.
@@ -417,9 +498,10 @@ impl<'a> CanonicalHistorySource<'a> {
         start: WalkStart,
         first: NonZeroUsize,
         last: NonZeroUsize,
+        original_target: Option<&crate::kura::NativeFrameRead<'_>>,
         mut before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
         mut visit: impl FnMut(
-            crate::sumeragi::certified_chain::CommittedBlock,
+            crate::sumeragi::certified_chain::AdmittedCommittedBlock,
         ) -> Result<
             core::ops::ControlFlow<()>,
             ExecutionAttemptError<QueryExecutionFail>,
@@ -459,11 +541,17 @@ impl<'a> CanonicalHistorySource<'a> {
                     "native execution parent contradicts State hash at {source_height}"
                 )));
             }
-            let block = self.block_with_admission(index, &mut before_read)?;
-            let receipt = crate::sumeragi::certified_chain::read_frame_with_validation(
+            let original = if source_height == selected_last {
+                original_target
+            } else {
+                None
+            };
+            let block = self.block_with_original_admission(index, original, &mut before_read)?;
+            let receipt = crate::sumeragi::certified_chain::AdmittedCommittedBlock::read(
                 block,
                 source_height,
                 &mut validation,
+                &self.budget,
             )
             .map_err(|error| {
                 error.map_rejection(|error| QueryExecutionFail::Conversion(error.to_string()))

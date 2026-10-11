@@ -28,34 +28,29 @@ internal fun noncanonicalStandardBase64PadBitAlias(encoded: String): String {
     return String(chars)
 }
 
-internal fun ramLfeExecuteResponseJson(): String =
-    """
-        {
-          "program_id": "identifier_lookup_retail",
-          "opaque_hash": "${"11".repeat(32)}",
-          "receipt_hash": "${"22".repeat(32)}",
-          "output_ciphertext": "abcd",
-          "output_hash": "${"44".repeat(32)}",
-          "associated_data_hash": "${"55".repeat(32)}",
-          "executed_at_ms": 42,
-          "expires_at_ms": 142,
-          "backend": "bfv-programmed-v1",
-          "verification_mode": "signed",
-          "receipt": {
-            "payload": {
-              "program_id": {"name": "identifier_lookup_retail"},
-              "program_digest": "hash:${"11".repeat(32).uppercase()}#ABCD",
-              "backend": "bfv-programmed-v1",
-              "verification_mode": {"mode": "Signed", "value": null},
-              "output_hash": "hash:${"22".repeat(32).uppercase()}#BCDE",
-              "associated_data_hash": "hash:${"33".repeat(32).uppercase()}#CDEF",
-              "executed_at_ms": 42,
-              "expires_at_ms": 142
-            },
-            "signature": "${"aa".repeat(64)}"
-          }
+/** Requires DATA produced by the current genuine Native evaluator/signature fixture command. */
+@Suppress("UNCHECKED_CAST")
+internal fun currentOwnerExecuteFixture(): Map<String, Any?> {
+    var directory: java.nio.file.Path? = java.nio.file.Paths.get("").toAbsolutePath()
+    while (directory != null) {
+        val candidate = directory.resolve("fixtures/soracloud/identifier_owner_execute_v1.json")
+        if (java.nio.file.Files.isRegularFile(candidate)) {
+            val fixture = JsonParser.parse(String(java.nio.file.Files.readAllBytes(candidate), java.nio.charset.StandardCharsets.UTF_8)) as? Map<String, Any?>
+                ?: throw IllegalStateException("Current Native execute DATA fixture must be an object")
+            check(fixture["schema"] == "iroha.identifier.owner-execute.v1" && fixture["classification"] == "PUBLIC_SOFTWARE_DATA_UNADMITTED") { "Current genuine Native DATA fixture required" }
+            return fixture
         }
-    """.trimIndent()
+        directory = directory.parent
+    }
+    throw IllegalStateException("Generate fixtures/soracloud/identifier_owner_execute_v1.json with the current source-bound Rust identifier-owner-execute-v1 command; do not fabricate a positive frame")
+}
+
+internal fun currentOwnerExecuteResponseField(field: String): String =
+    ((currentOwnerExecuteFixture()["response"] as Map<*, *>)[field] as? String)
+        ?: throw IllegalStateException("Missing Native execute DATA field $field")
+
+internal fun ramLfeExecuteResponseJson(): String =
+    JsonEncoder.encode(currentOwnerExecuteFixture()["response"]).replace("\":", "\": ")
 
 internal fun ramLfeReceiptVerifyResponseJson(): String =
     """

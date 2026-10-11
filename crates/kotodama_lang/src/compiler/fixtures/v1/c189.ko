@@ -1,5 +1,5 @@
 
-        seiyaku LifecycleReachability {
+        seiyaku LifecycleReachability { permission Entry;
             state int Counter;
 
             fn initialize() {
@@ -28,7 +28,7 @@
                 improve();
             }
 
-            kotoage fn run() authorize("Entry") {
+            kotoage fn run() authorize(Entry) {
                 handle_trigger();
                 handle_trigger();
             }
@@ -37,7 +37,7 @@
                 on time pre_commit;
             }
 
-            view fn inspect() -> int {
+            view fn inspect() authorize(anyone) -> int {
                 return Counter;
             }
         }

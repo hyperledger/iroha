@@ -6,7 +6,9 @@ use super::*;
 #[test]
 fn signed_genesis_authority_keeps_original_wider_cutoff_and_authenticates_no_h1_result() {
     let (source, authority, clock, _roster, _budget) = authenticated_source(4, 1000);
-    let epoch = crate::sumeragi::epoch::genesis_epoch(source.genesis.block()).unwrap();
+    let epoch = crate::sumeragi::epoch::authenticated_genesis(source.genesis.block())
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
     assert_eq!(authority.cutoff(), epoch.authorization.last_height - 1);
     assert!(authority.cutoff() > authority.session().acceptances_end_height);
     let signer = &source.validator_keys[0];

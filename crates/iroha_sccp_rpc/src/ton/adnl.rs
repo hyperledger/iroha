@@ -38,7 +38,10 @@
 //!
 //! The ephemeral scalar, the shared secret and `params` live in zeroizing
 //! buffers, and the AES key schedules and counters are zeroized when the
-//! session drops. I/O is blocking with a deadline per operation.
+//! session drops. I/O is blocking with one deadline per operation: every read
+//! and write gets only the time left until it, so a peer that trickles bytes
+//! cannot stretch an operation past its deadline. A query may also bound its
+//! answer ([`AdnlConnection::query_bounded`]) below the session's packet bound.
 
 use std::{
     fmt,
@@ -85,6 +88,15 @@ pub const PACKET_OVERHEAD: usize = 64;
 /// 2 MiB TON block size limit plus proofs, small enough that a hostile
 /// liteserver cannot exhaust memory.
 pub const DEFAULT_MAX_PACKET_BYTES: usize = 16 * 1024 * 1024;
+/// What an `adnl.message.answer` packet adds around its answer: the packet
+/// overhead, the constructor, the query id, and the TL length prefix and
+/// padding of the answer bytes.
+pub const ANSWER_ENVELOPE_BYTES: usize = PACKET_OVERHEAD + 4 + 32 + 4 + 3;
+
+/// The packet bound that admits answers of at most `max_answer_bytes`.
+pub const fn answer_packet_bytes(max_answer_bytes: usize) -> usize {
+    max_answer_bytes.saturating_add(ANSWER_ENVELOPE_BYTES)
+}
 
 /// Why an ADNL operation failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -658,12 +670,21 @@ impl AdnlConnection {
     /// # Errors
     /// I/O errors, the deadline, framing errors or an unknown message.
     pub fn receive(&mut self, deadline: Instant) -> Result<AdnlMessage, AdnlError> {
+        self.receive_within(deadline, self.max_packet_bytes)
+    }
+
+    /// Receives one message from a packet of at most `max_packet_bytes`.
+    fn receive_within(
+        &mut self,
+        deadline: Instant,
+        max_packet_bytes: usize,
+    ) -> Result<AdnlMessage, AdnlError> {
         let payload = self.ciphers.open(
             &mut Deadlined {
                 stream: &self.stream,
                 deadline,
             },
-            self.max_packet_bytes,
+            max_packet_bytes,
         )?;
         AdnlMessage::parse(&payload)
     }
@@ -675,11 +696,27 @@ impl AdnlConnection {
     /// # Errors
     /// I/O errors, the deadline, framing errors, or an answer to another query.
     pub fn query(&mut self, query: &[u8], deadline: Instant) -> Result<Vec<u8>, AdnlError> {
+        self.query_bounded(query, deadline, self.max_packet_bytes)
+    }
+
+    /// [`Self::query`] whose answer may be at most `max_answer_bytes` (and
+    /// within the session's packet bound): a packet announcing more is
+    /// refused before it is read, with [`AdnlError::PacketTooLarge`].
+    ///
+    /// # Errors
+    /// As [`Self::query`].
+    pub fn query_bounded(
+        &mut self,
+        query: &[u8],
+        deadline: Instant,
+        max_answer_bytes: usize,
+    ) -> Result<Vec<u8>, AdnlError> {
+        let bound = answer_packet_bytes(max_answer_bytes).min(self.max_packet_bytes);
         let mut query_id = [0_u8; 32];
         rand::rng().fill_bytes(&mut query_id);
         self.send(&encode_query(&query_id, query)?, deadline)?;
         loop {
-            match self.receive(deadline)? {
+            match self.receive_within(deadline, bound)? {
                 AdnlMessage::Answer {
                     query_id: answered,
                     answer,
@@ -902,6 +939,26 @@ mod tests {
             );
         }
         assert!(format!("{client:?}").contains(".."));
+    }
+
+    #[test]
+    fn answer_packet_bounds_cover_the_answer_envelope() {
+        for length in [0, 1, 3, 4, 253, 254, 255, 1_000, 70_000] {
+            let answer = vec![7_u8; length];
+            let mut writer = TlWriter::boxed(ADNL_MESSAGE_ANSWER);
+            writer
+                .int256(&[1; 32])
+                .bytes(&answer)
+                .expect("answer bytes");
+            let frame = frame_plaintext(&[2; 32], &writer.finish(), usize::MAX).expect("frame");
+            let size = frame.len() - 4;
+            assert!(size <= answer_packet_bytes(length), "{length}: {size}");
+            assert!(
+                size + 7 >= answer_packet_bytes(length),
+                "{length}: the bound is tight"
+            );
+        }
+        assert_eq!(answer_packet_bytes(usize::MAX), usize::MAX);
     }
 
     #[test]

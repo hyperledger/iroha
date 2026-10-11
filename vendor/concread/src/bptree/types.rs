@@ -64,6 +64,14 @@ pub(super) type MapOwned<K, V, M> = LinCowCellOwned<
     <M as NodeFunding>::Charge,
 >;
 
+/// Original immutable work/base/root handles; no allocation or payload copy.
+pub(super) type MapRetainedWork<K, V, M> = LinCowCellRetainedWork<
+    SuperBlock<K, V, M>,
+    CursorRead<K, V, M>,
+    CursorWrite<K, V, M>,
+    <M as NodeFunding>::Charge,
+>;
+
 /// Original LinCowCellPreparedCommit specialization; field and destruction order are unchanged.
 pub(super) type MapPreparedCommit<'a, K, V, M> = LinCowCellPreparedCommit<
     'a,

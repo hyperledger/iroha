@@ -39,6 +39,9 @@ fn contract_with_cycle_policy(body: &[u32], max_cycles: u64, mode: u8) -> Prepar
         manifest::EntryPointKind,
     };
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        events: Vec::new(),
+        enum_types: Vec::new(),
+        permissions: Vec::new(),
         callables: vec![crate::ivm_test_support::unit_callable(0)],
         seiyaku_name: "ScalarSegmentFixture".into(),
         compiler_fingerprint: "scalar-segment-test".into(),
@@ -62,7 +65,8 @@ fn contract_with_cycle_policy(body: &[u32], max_cycles: u64, mode: u8) -> Prepar
             return_schema: Some(EntrypointValueTypeV1 {
                 nodes: vec![EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("Execute".into()),
+            authorization:
+                iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),

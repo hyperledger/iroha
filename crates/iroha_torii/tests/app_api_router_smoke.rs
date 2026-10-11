@@ -410,12 +410,6 @@ async fn app_api_router_smoke() {
         "/v1/contracts/rollups/uranai/markets/history?market_id=not-a-real-market",
         "/v1/contracts/rollups/trader/activity",
         "/v1/contracts/rollups/trader/account?authority=not-a-real-authority",
-        "/v1/contracts/rollups/intents",
-        "/v1/contracts/rollups/vaults/positions",
-        "/v1/contracts/rollups/operators/status",
-        "/v1/contracts/rollups/margin/health",
-        "/v1/contracts/rollups/rwa/lots",
-        "/v1/contracts/rollups/dlmm/hooks",
     ] {
         let response = app
             .clone()
@@ -432,6 +426,30 @@ async fn app_api_router_smoke() {
             response.status(),
             StatusCode::UNAUTHORIZED,
             "{path} must reject partial canonical request identity"
+        );
+    }
+    for path in [
+        "/v1/contracts/rollups/intents",
+        "/v1/contracts/rollups/vaults/positions",
+        "/v1/contracts/rollups/operators/status",
+        "/v1/contracts/rollups/margin/health",
+        "/v1/contracts/rollups/rwa/lots",
+        "/v1/contracts/rollups/dlmm/hooks",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "retired synthetic route {path}"
         );
     }
     assert_route_is_not_auth_denied(

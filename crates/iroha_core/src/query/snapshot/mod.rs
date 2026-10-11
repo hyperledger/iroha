@@ -706,7 +706,12 @@ mod tests {
             .insert("rank".parse().unwrap(), Json::from(norito::json!(2)));
         ad2.metadata_mut()
             .insert("rank".parse().unwrap(), Json::from(norito::json!(1)));
-        let world = World::with([domain], [account], [ad1.clone(), ad2.clone(), ad3.clone()]);
+        // Listing every definition requires the ledger-wide read root.
+        let world = canonical_reader_world(World::with(
+            [domain],
+            [account],
+            [ad1.clone(), ad2.clone(), ad3.clone()],
+        ));
         let kura = Kura::blank_kura_for_testing();
         let store = LiveQueryStore::start_test();
         let state = State::new_with_chain(world, kura, store.clone(), ChainId::from("chain"));
@@ -782,7 +787,12 @@ mod tests {
             .insert("rank".parse().unwrap(), Json::from(norito::json!(2)));
         ad2.metadata_mut()
             .insert("rank".parse().unwrap(), Json::from(norito::json!(1)));
-        let world = World::with([domain], [account], [ad1.clone(), ad2.clone(), ad3.clone()]);
+        // Listing every definition requires the ledger-wide read root.
+        let world = canonical_reader_world(World::with(
+            [domain],
+            [account],
+            [ad1.clone(), ad2.clone(), ad3.clone()],
+        ));
         let kura = Kura::blank_kura_for_testing();
         let store = LiveQueryStore::start_test();
         let state = State::new_with_chain(world, kura, store.clone(), ChainId::from("chain"));

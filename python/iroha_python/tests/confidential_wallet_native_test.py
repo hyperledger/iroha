@@ -83,7 +83,7 @@ class InstalledConfidentialWalletTests(unittest.TestCase):
         with ConfidentialProver(network, asset, key) as prover:
             proof = prover.prove_unshield(tree=tree, inputs=[note], public_amount=7)
         self.assertEqual(proof.relation, "full_redemption")
-        self.assertEqual(proof.backend, "halo2/ipa")
+        self.assertEqual(proof.backend, "pipa-r/pasta")
         self.assertTrue(proof.proof)  # Native Core verifies before returning.
         self.assertEqual(proof.root, tree.root)
         self.assertEqual(len(proof.nullifiers), 1)
@@ -150,7 +150,7 @@ class InstalledConfidentialWalletTests(unittest.TestCase):
                 proof = prover.prove_unshield(tree=tree, inputs=[note], public_amount=7)
                 self.assertGreater(len(progress) - before, 1, "proof blocked Python thread progress")
                 self.assertEqual(proof.relation, "full_redemption")
-                self.assertEqual(proof.backend, "halo2/ipa")
+                self.assertEqual(proof.backend, "pipa-r/pasta")
                 self.assertTrue(proof.proof)
                 self.assertEqual(proof.root, tree.root)
                 self.assertEqual(len(proof.nullifiers), 1)

@@ -263,7 +263,7 @@ fn independent_blocked_partial_slots_keep_all_peers_and_original_occurrences() {
     );
     sched.build(44, 1, 3, 1024, 100);
     assert!(matches!(sched.next(0), Some(ExecOp::Build { req: 44, .. })));
-    sched.done(0, ExecDone::Built(Ok((None, false))));
+    sched.done(0, ExecDone::Built(Ok(None)));
     assert!(
         sched
             .take_events()
@@ -334,7 +334,7 @@ fn payload_arrival_survives_source_wait_and_does_not_emit_false_empty() {
     let mut sched = scheduler(&budget);
     sched.build(10, 1, 3, 1024, 100);
     assert!(matches!(sched.next(0), Some(ExecOp::Build { req: 10, .. })));
-    sched.done(0, ExecDone::Built(Ok((None, false))));
+    sched.done(0, ExecDone::Built(Ok(None)));
     sched.take_events();
     // A superseded empty request cannot steal the arrival owed to the next build.
     sched.build(11, 1, 3, 1024, 100);
@@ -346,7 +346,7 @@ fn payload_arrival_survives_source_wait_and_does_not_emit_false_empty() {
     assert!(sched.next(Millis::MAX - 1).is_none());
     drop(held);
     assert!(matches!(sched.next(0), Some(ExecOp::Build { req: 11, .. })));
-    sched.done(0, ExecDone::Built(Ok((None, false))));
+    sched.done(0, ExecDone::Built(Ok(None)));
     let events = sched.take_events();
     assert_eq!(
         events
@@ -457,7 +457,7 @@ fn identical_source_less_requests_keep_backoff_and_full_payload_changes_supersed
             ..
         }
     ));
-    sched.done(0, ExecDone::Built(Ok((None, false))));
+    sched.done(0, ExecDone::Built(Ok(None)));
     assert!(sched.take_events().is_empty());
     assert!(matches!(
         sched.next(0),
@@ -541,9 +541,9 @@ fn stale_success_cannot_emit_control_or_hide_terminal_recovery() {
         let original = sched.next(0).unwrap();
         sched.retain_control_context(None);
         let result = match original {
-            ExecOp::Build { .. } => ExecDone::Built(Ok((None, false))),
+            ExecOp::Build { .. } => ExecDone::Built(Ok(None)),
             ExecOp::BuildControlWitness { .. } => {
-                ExecDone::ControlWitnessBuilt(Ok((ControlWitness::empty(), false)))
+                ExecDone::ControlWitnessBuilt(Ok(ControlWitness::empty()))
             }
             ExecOp::DriveApplicationControl(_) => {
                 ExecDone::ApplicationControlDriven(Ok(Some(message)))
@@ -597,9 +597,9 @@ fn cancellation_stays_final_when_the_identical_context_and_request_return() {
             enqueue(&mut sched, kind, &message);
             if successful {
                 let done = match original {
-                    ExecOp::Build { .. } => ExecDone::Built(Ok((None, false))),
+                    ExecOp::Build { .. } => ExecDone::Built(Ok(None)),
                     ExecOp::BuildControlWitness { .. } => {
-                        ExecDone::ControlWitnessBuilt(Ok((ControlWitness::empty(), false)))
+                        ExecDone::ControlWitnessBuilt(Ok(ControlWitness::empty()))
                     }
                     ExecOp::DriveApplicationControl(_) => {
                         ExecDone::ApplicationControlDriven(Ok(Some(message.clone())))

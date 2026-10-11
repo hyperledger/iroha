@@ -25,7 +25,7 @@ public enum AccountAddressError: Error, Equatable {
     case unsupportedAddressFormat
     case multisigMemberOverflow(Int)
     case invalidMultisigPolicy(String)
-    /// Complete account admission requires the ABI-25 Rust address codec.
+    /// Complete account admission requires the ABI-29 Rust address codec.
     case nativeBridgeUnavailable
 
     /// Stable Norito error code (`ERR_*`) that mirrors the Rust data model.
@@ -131,7 +131,7 @@ public struct AccountAddress {
         return try fromCanonicalBytes(canonical)
     }
 
-    /// Validate the complete controller with the mandatory ABI-25 Rust owner.
+    /// Validate the complete controller with the mandatory ABI-29 Rust owner.
     public static func fromCanonicalBytes(_ bytes: Data) throws -> AccountAddress {
         guard !bytes.isEmpty else { throw AccountAddressError.invalidLength }
         guard let _ = try NoritoNativeBridge.shared.renderAccountAddress(
@@ -1342,6 +1342,18 @@ extension AccountAddress {
             writer.writeField(policyPayload)
         }
         return writer.data
+    }
+
+    // Full AccountId frame callers still perform framing, checksum and byte-for-byte checks.
+    static func fromCanonicalCompactAccountPayload(_ payload: Data) throws -> AccountAddress {
+        let (controller, addressClass) = try decodeCompactNoritoAccountControllerPayload(payload)
+        let address = AccountAddress(header: try AddressHeader.new(version: 0,
+            classId: addressClass, normVersion: 1), controller: controller, rawCanonicalBytes: nil)
+        let validated = try fromCanonicalBytes(address.canonicalBytes())
+        guard try validated.compactNoritoAccountControllerPayload() == payload else {
+            throw AccountAddressError.invalidLength
+        }
+        return validated
     }
 
     /// Returns whether `payload` is one exact compact-Norito `AccountId`

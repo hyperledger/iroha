@@ -706,6 +706,40 @@ impl VerifiedWorldStateSnapshotV1 {
             world_state_value_hash_v1(value)?,
         )
     }
+    /// Authenticate a definition's direct dataspace home at this exact certified World cut.
+    ///
+    /// The definition, its direct-home row and its live incarnation must each match their
+    /// canonical table values. The definition must be domainless and the row must name exactly
+    /// `expected_dataspace`, which is never the universal dataspace. This never derives a home
+    /// from aliases, Parameters or monetary balance scope.
+    /// # Errors
+    /// Refuses absent, changed, conflicting, universal or foreign-incarnation home originals.
+    pub fn verify_asset_definition_direct_home(
+        &self,
+        definition: &crate::asset::AssetDefinition,
+        home: &crate::asset::AssetDefinitionDirectHomeV1,
+        expected_dataspace: iroha_model_base::topology::DataSpaceId,
+    ) -> Result<(), FinalityError> {
+        use crate::{Identifiable, asset::AssetDefinitionHome};
+        if expected_dataspace == iroha_model_base::topology::DataSpaceId::UNIVERSAL
+            || definition.owning_domain.is_some()
+            || home.dataspace_id != expected_dataspace
+            || home.validate().is_err()
+            || AssetDefinitionHome::from_definition(definition, Some(home.dataspace_id))
+                .map_err(|_| fail("direct asset home conflicts with definition"))?
+                != AssetDefinitionHome::Dataspace(expected_dataspace)
+        {
+            return Err(fail("direct asset home row differs from the expected home"));
+        }
+        self.verify_table_value("world.asset_definitions", definition.id(), definition)?;
+        self.verify_table_value("world.asset_definition_direct_homes", definition.id(), home)?;
+        self.verify_table_value(
+            "world.axt_asset_incarnations",
+            definition.id(),
+            &home.incarnation,
+        )
+    }
+
     /// Verify an exact canonical semantic cell value (e.g. the governed release registry).
     /// # Errors
     /// Encoding error, absent cell or changed canonical value.

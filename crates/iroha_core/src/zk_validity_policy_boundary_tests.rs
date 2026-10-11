@@ -31,7 +31,7 @@ fn divergent_node_zk(loose: bool) -> Zk {
     node.max_proof_bytes_block = u64::from(value);
     node.preverify_max_bytes = usize::try_from(value).expect("fits usize");
     node.preverify_budget_bytes = u64::from(value);
-    node.halo2.max_k = if loose { 30 } else { 1 };
+    node.max_verify_batch = if loose { 30 } else { 1 };
     node
 }
 
@@ -189,7 +189,7 @@ fn verify_calls_accept_the_committed_limits_and_reject_one_more() {
 fn preverify_budget_and_size_accept_the_committed_limit_and_reject_one_byte_more() {
     use crate::zk::PreverifyResult;
 
-    let proof = |len: usize| ProofBox::new("halo2/ipa".into(), vec![0x5A; len]);
+    let proof = |len: usize| ProofBox::new("pipa-r/pasta".into(), vec![0x5A; len]);
     let mut policy = ZkValidityPolicyV1::protocol_default();
     policy.proofs.preverify_max_bytes = 512;
     policy.proofs.preverify_budget_bytes = 64;
@@ -228,12 +228,12 @@ fn preverify_budget_and_size_accept_the_committed_limit_and_reject_one_byte_more
 fn every_node_reads_the_committed_limits_exercised_here() {
     let mut policy = ZkValidityPolicyV1::protocol_default();
     policy.confidential.max_nullifiers_per_tx = 5;
-    policy.halo2.max_k = 11;
+    policy.proofs.max_verify_batch = 11;
     for node in nodes() {
         let state = state_with(node, &policy);
         let block = state.block(header());
         assert_eq!(policy_of(&block.zk), policy);
         // The guardrails verification reads are projected from the same value.
-        assert_eq!(block.zk.halo2.max_k, 11);
+        assert_eq!(block.zk.max_verify_batch, 11);
     }
 }

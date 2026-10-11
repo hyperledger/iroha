@@ -96,6 +96,9 @@ mod native_edge_prepare;
 mod native_edge_protocol;
 #[path = "taira_public_reset_validator_config.rs"]
 mod validator_config;
+#[cfg(target_os = "linux")]
+pub(crate) use host::config_retirement::verify_installed_retirement;
+pub(crate) use host::config_retirement::{RetireValidatorConfig, validate_retirement_records};
 pub(crate) use host::maintenance::StoppedOwnerMaintenance;
 #[path = "taira_public_reset_deployment_profile.rs"]
 mod deployment_profile;

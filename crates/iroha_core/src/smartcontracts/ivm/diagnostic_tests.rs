@@ -6,10 +6,10 @@ use crate::{
     test_allocations::allocations_during,
 };
 use iroha_allocation::AllocationBudget;
-use ivm::{
-    VMError, VmBudgetSnapshot, VmExecutionContext, VmExecutionDiagnostic, VmSourceLocation,
-    VmTrapKind, encoding::wide::encode_ri, instruction::wide::arithmetic,
+use iroha_data_model::executor::fault::{
+    IvmFaultKindV1, IvmFaultPositionV1, IvmInvocationSelectorV1,
 };
+use ivm::{VMError, encoding::wide::encode_ri, instruction::wide::arithmetic};
 
 #[test]
 fn direct_local_mapper_keeps_original_nested_owner_without_physical_allocation() {
@@ -45,59 +45,79 @@ fn direct_local_mapper_keeps_original_nested_owner_without_physical_allocation()
 }
 
 #[test]
-fn actual_semantic_trap_retains_exact_error_and_context_display() {
+fn actual_semantic_trap_retains_bounded_fault_without_formatting() {
     let mut vm = ivm::IVM::try_new(0).unwrap();
     vm.load_code(&encode_ri(arithmetic::ADDI, 10, 0, 1).to_le_bytes())
         .unwrap();
     let error = vm.run().unwrap_err();
-    assert_eq!(error, VMError::OutOfGas);
-    let expected = format!("{error} at pc=0x0");
-    let outcome = map_vm_error_with_context_to_validation(&vm, error);
+    let mut outcome = None;
+    let allocations = allocations_during(|| {
+        outcome = Some(map_vm_error_with_context_to_validation(&vm, error));
+    });
+    assert_eq!(allocations, 0);
+    let ValidationFail::IvmFault(fault) = expect_completed_rejection(outcome.unwrap()) else {
+        panic!("VM traps must retain a structured fault");
+    };
+    assert_eq!(fault.kind, IvmFaultKindV1::OutOfGas);
+    assert_eq!(fault.site.code_hash.as_ref(), &vm.code_hash());
+    assert_eq!(fault.site.selector, IvmInvocationSelectorV1::Generic);
     assert_eq!(
-        expect_completed_rejection(outcome),
-        ValidationFail::NotPermitted(expected)
+        fault.site.position,
+        IvmFaultPositionV1::Execute { pc_offset: 0 }
     );
 }
 
 #[test]
-fn borrowed_source_display_preserves_all_semantic_context_fields() {
-    let diagnostic = VmExecutionDiagnostic {
-        trap_kind: VmTrapKind::UnknownSyscall,
-        pc: 0x24,
-        source: Some(VmSourceLocation {
-            function: Some("transfer"),
-            path: Some("contracts/wallet.ko"),
-            line: Some(12),
-            column: Some(4),
-        }),
-        budget: VmBudgetSnapshot {
-            gas_limit: 100,
-            gas_remaining: 41,
-            gas_used: 59,
-            cycles: 7,
-            max_cycles: 64,
-            stack_limit_bytes: 4096,
-            stack_bytes_used: 16,
+fn host_invariants_remain_unfinished_local_attempts() {
+    let vm = ivm::IVM::try_new(100).unwrap();
+    for error in [
+        VMError::HostUnavailable,
+        VMError::SyscallGasQuoteExceeded {
+            quoted: 1,
+            actual: 2,
         },
-        context: VmExecutionContext {
-            entrypoint_pc: Some(8),
-            current_function: Some("transfer"),
-            opcode: Some(0x71),
-            syscall: Some(0x7fff),
-            predecoded_loaded: true,
-            predecoded_hit: Some(true),
-        },
+        VMError::SyscallMeteringModeMismatch { syscall: 3 },
+    ] {
+        let outcome = map_vm_error_with_context_to_validation(&vm, error);
+        assert!(
+            matches!(outcome, ExecutionAttemptError::Deferred(owner) if owner.reason() == ivm::error::ExecutionDeferral::LocalInvariantViolation)
+        );
+    }
+}
+
+#[test]
+fn argument_precharge_fault_retains_selected_entrypoint_and_initialization() {
+    let artifact = kotodama_lang::compiler::Compiler::new()
+        .compile_source(
+            "seiyaku Precharge { kotoage fn run(int value) authorize(anyone) { let _v = value; } }",
+        )
+        .unwrap();
+    let parsed = ivm::ProgramMetadata::parse(&artifact).unwrap();
+    let descriptor = &parsed.contract_interface.as_ref().unwrap().entrypoints[0];
+    let schema = descriptor.argument_schema.as_ref().unwrap();
+    let bytes = ivm_abi::arguments::encode_argument_record_from_json(
+        schema,
+        &iroha_primitives::json::Json::from(norito::json!({"value": "7"})),
+    )
+    .unwrap();
+    let record =
+        ivm::prepare_argument_record_with_gas_limit(schema, std::sync::Arc::from(bytes), u64::MAX)
+            .unwrap();
+    let mut vm = ivm::IVM::try_new(0).unwrap();
+    vm.load_program(&artifact).unwrap();
+    vm.set_program_counter((parsed.code_offset - parsed.header_len) as u64 + descriptor.entry_pc)
+        .unwrap();
+    let error = record.precharge_vm(&mut vm).unwrap_err();
+    vm.record_boundary_fault(&error, IvmFaultPositionV1::Initialization);
+    let ValidationFail::IvmFault(fault) =
+        expect_completed_rejection(map_vm_error_with_context_to_validation(&vm, error))
+    else {
+        panic!("precharge gas exhaustion must retain a deterministic fault");
     };
-    let error = VMError::Metered {
-        gas: 9,
-        source: Box::new(VMError::UnknownSyscall(0x7fff)),
-    };
-    assert_eq!(
-        format_vm_diagnostic(diagnostic, &error),
-        format!(
-            "{error} at pc=0x24 fn=transfer src=contracts/wallet.ko:12:4 opcode=0x71 syscall=0x7fff"
-        ),
-    );
+    assert_eq!(fault.kind, IvmFaultKindV1::OutOfGas);
+    assert_eq!(fault.site.code_hash.as_ref(), &vm.code_hash());
+    assert_eq!(fault.site.selector, IvmInvocationSelectorV1::Entrypoint(0));
+    assert_eq!(fault.site.position, IvmFaultPositionV1::Initialization);
 }
 
 #[test]
@@ -169,7 +189,7 @@ fn declared_rejection_moves_original_backing_without_physical_allocation() {
 }
 
 #[test]
-fn metered_non_declared_mapper_retains_both_display_routes() {
+fn metered_fault_keeps_kind_and_exact_phase() {
     for with_context in [false, true] {
         let mut vm = ivm::IVM::try_new(0).unwrap();
         let source = if with_context {
@@ -186,14 +206,19 @@ fn metered_non_declared_mapper_retains_both_display_routes() {
                 source: Box::new(source),
             }),
         };
-        let expected = if with_context {
-            format!("{error} at pc=0x0")
-        } else {
-            error.to_string()
+        let ValidationFail::IvmFault(fault) =
+            expect_completed_rejection(map_vm_error_with_context_to_validation(&vm, error))
+        else {
+            panic!("missing fault")
         };
+        assert_eq!(fault.kind, IvmFaultKindV1::OutOfGas);
         assert_eq!(
-            expect_completed_rejection(map_vm_error_with_context_to_validation(&vm, error)),
-            ValidationFail::NotPermitted(expected),
+            fault.site.position,
+            if with_context {
+                IvmFaultPositionV1::Execute { pc_offset: 0 }
+            } else {
+                IvmFaultPositionV1::ReturnValidation
+            }
         );
     }
 }

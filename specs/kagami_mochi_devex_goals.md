@@ -26,12 +26,56 @@ roots use the minimal `Standard` profile. Each provider has an original HTTPS li
 build-registry factory selects that exact provider and origin through fresh authenticated native
 discovery. Both control and CAR clients validate its original CA, hostname and leaf, with the
 original loopback address and port. Public remote discovery retains its public-address rules.
+Prepared archive clients retain their exclusive build-registry discovery journal for their full
+lifetime. Startup and Ready maintenance use an independent service-observation journal and lock;
+both authenticate the original profile and fresh native finality. A build holding its archive
+client therefore does not block the worker's bounded freshness observations.
 Generation leaves token services disabled. The startup worker composes one reserve activation,
 three independent funded provider/custody/gateway histories and one reputation policy through
 their native owners. It promotes each signed compliance catalog and restarts all four owned peers
 with the aggregate configuration. Every original transaction remains in the all-peer barrier;
-a maximum-height observation floor never replaces those receipts. This combined path still needs
-native qualification. Reopen preserves each original finite interval, endpoint and profile;
+a maximum-height observation floor never replaces those receipts. For each receipt, inactive
+decode contexts join the four independent validator-local Applied reads before proceeding to
+the next receipt. Every peer must confirm its exact hash and carrier height; all workers close
+on failure, cancellation or expiry. Active caller decode budgets retain serial reads.
+Reserve-policy finality is the common prerequisite. Each provider then retains its own strict custody, registration, funded
+credit/capacity, ingest and gateway dependencies; there is no prerequisite from another provider's
+gateway. Reputation follows all three gateways. Equal-block originals from different providers remain
+distinct required transactions. Fresh histories may use three scoped, joined workers under the same
+finite authorization and deadline, while resumed work and active caller decode budgets use serial
+dispatch. Partial recovery validates each provider's frontier independently and refuses its later
+material without a completed prerequisite. Funding absence checks reuse the held original profile
+while retaining fresh child admission, locks and both parent checks on every ordinary result.
+Active decode budgets and independently owned profiles retain full profile capture.
+One shared epoch retains its original replacement limit;
+parallelism creates no signing authority, budget extension or readiness from partial work.
+Within that initial invocation, each admitted provider worker retries its own incomplete or
+nonterminal operation under the same authorization and deadline, without waiting for another
+provider's full chain. Terminal bootstrap failures stop that worker; every worker is joined.
+Reopening a retained startup still uses serial dispatch. Within one joined advance, a new
+purpose with no retained cursor may start finality verification from an authenticated immutable
+carrier certificate owned by the same original network profile. This avoids replaying genesis
+for every purpose. It still obtains a fresh independent quorum and current-state proofs; original
+certificate custody is checked before and after observation, including error returns. Equal-height
+certificates must identify the same native execution result; alternate valid quorum witnesses are
+accepted. The scope ends after every worker joins and is never retained as current authority.
+After an Applied hint, an operation's fresh native quorum may also supply its exact carrier.
+Only an inactive decoder with no retained replay uses this handoff, and only when the observed
+block is the immediate Global successor of the original certified checkpoint at height two or
+above. The opaque native receipts must agree on network, chain, parent core hash, execution result,
+Iroha parent and authenticated schedule. The actual replay file is still read first. Its absence
+permits retaining the already observed checkpoint; original signed-wire and successful-output
+membership are verified before carrier publication. This consumes the full native proof already
+obtained through the fresh quorum and does not require a redundant second proof response. Missing
+fresh observations still refuse. Existing replay, genesis parents, different heights, larger gaps,
+active caller budgets and renewal keep independent bounded replay and its source failures.
+Original profile custody and the original deadline close the handoff on ordinary failures too.
+Fresh catalog activation also joins the three independent provider head/proof reads and catalog
+promotions. Each phase checks that all catalog purposes are absent; existing purposes and active
+Norito budgets keep ordered serial execution. Full live renderer validation remains exclusive
+because it reopens shared bootstrap and custody owners; its deadline-aware guard closes before
+catalog HTTP calls. Every worker joins before aggregate publication or failure, and renewal
+retains serial execution. This combined path still needs native qualification. Reopen preserves each original finite interval, endpoint and profile;
 it never upgrades a retained generation in place.
 An attached private dataspace has four local validators with owner-only application
 data, works behind NAT, and publishes only authenticated commitments and certificates
@@ -88,6 +132,11 @@ workflow likewise does not claim reference-host latency qualification. See
 - The supervisor owns live process handles and one environment lock. Frontends
   attach using owner-authenticated Unix sockets or Windows named pipes. They do
   not signal processes identified only by stored numeric PIDs.
+  Terminal cleanup cancels new work and joins activation, maintenance and attachment
+  tasks before publishing completion or releasing that lock. Authenticated `down`
+  uses one observation deadline across IPC and ownership release; a timeout never
+  proves cleanup. Cancellation preserves signed operations and ambiguous submission
+  markers for exact read-only recovery without authorizing another paid dispatch.
 - Managed generations and exact operation journals survive `down`; `reset` is
   explicit and local-only. Project context selection lives outside the project.
 - Native dataspace instances have independent World/State, queues, Kura, body and
@@ -270,6 +319,21 @@ component material but cannot select native state or replace missing committed b
 custody renewal withdraws Ready before a finite bounded turn, then reuses the original paid
 readiness receipt across an owned restart. All three providers must remain current; unchanged
 providers keep their original monotonic enrollment timers across another provider's renewal.
+Startup continuation and aggregate construction select immutable provider plans through the
+retained renderer, with fresh whole-profile and operation-lock checks at each selection.
+Current enrollment, discovery, live gateway validation and observation clocks remain independent.
+Active decode owners and independently owned profiles keep standalone capture. Ordinary refresh
+also keeps its standalone capture after releasing its gateway owner.
+Each runtime selection owns one bounded checkpoint-import scope across its three temporary custody
+readers. It shares pure epoch validation, preserves each fresh source and wallet check, and closes
+before the original-profile exit on success or error. No import scope survives in the selection.
+Checkpoint export and canonical encoding bounds checks each share exact immutable epoch work
+within that one producer call. Export still verifies the fresh witness, certificate and retained
+decisions; encoding still checks every bound. The workspace ends before return or serialization,
+and active decode owners retain their original independent validation and allocation charges.
+Current attestation validation also shares pure epoch work across its ordered genesis and tip
+proof checks within one call. Both proofs, certificates and runtime bindings remain mandatory;
+active decode owners retain both independent decodes and their original charges and refusals.
 Catalog startup retains each native-selected predecessor component before renewal and reconciles
 an already-applied original renewal before strict current-use rendering. Initial startup and
 purpose-closed renewal authorization share one finite epoch/claim owner. A later owned turn may
@@ -278,6 +342,46 @@ attester body and original fees. If that body has expired, the sole custody body
 retain a successor before attester signing, using fresh native predecessor evidence and live
 purpose-closed authorization. The history permits at most 64 bodies and 64 aggregate dispatch
 reservations. Paid payloads and signed envelopes remain immutable and retain exact recovery.
+For inactive decode contexts, the read-only renewal parser with at least three original bodies
+retains one bounded epoch source through complete entry and exit checks. Each selected epoch
+and optional claim is freshly read before use; unselected changes may refuse at exit after
+later wallet inspections. Changes restored entirely between observations need not be observed.
+Within the same inactive read, signed Original comparisons borrow the exact owner’s freshly
+authenticated provider plan. A full original-profile check closes every ordinary result, including
+early errors; a persistent profile change supersedes a parse error. A change restored entirely
+between entry and exit may be unobserved. The borrow ends before wallet callbacks, and each
+callback keeps its own checks. No source or authorization verdict escapes the parser. Active
+budgets preserve the original physical validation recipe; signing, retirement and publication
+retain independent complete checks. The same inactive parse reuses a signed Original’s canonical
+length and digest from its freshly decoded record snapshot; later history verification uses
+that immutable Original's already established digest. Before that iteration's wallet callbacks,
+scope and epoch-reference construction reuse the exact selection and reservation hashes already
+produced for its successor. Each use rechecks active admission; absent successors and active
+budgets retain the original hash computations. All native rereads, source exits and wallet
+callbacks remain mandatory. The original deep-history latency gate remains outstanding.
+Within an inactive native tree read, each local operation census groups its adjacent inventory,
+Original hash and metadata reads into one scope, and its reverse checks into a second scope.
+Every mutable record read, decoder and full graph check remains independent of wallet or write operations.
+Both scopes close native ownership on ordinary errors; a directory change restored entirely
+inside a scope may be unobserved. Active decode budgets and reads without a tree retain their
+original scope sequence.
+For the exact immutable snapshot layout, the root inventory and its adjacent Original and
+anchor reads share one native scope. The external selection reference remains independently
+checked, and the enclosing tree still closes on every ordinary result. Active budgets and
+custom layouts keep their independent root checks; root changes restored entirely inside
+the combined scope may be unobserved.
+Within the complete read-only graph traversal, a separate borrowed capability covers only an
+exact body's immutable Original already checked by the enclosing snapshot entry and exit.
+Persistent source failure at exit supersedes any ordinary inner result; a change restored
+entirely between observations may be unseen. Parser-local and wallet callback checks retain
+their fresh Original reads, as do active budgets, unmatched snapshots and standalone bodies.
+The same graph-only borrow shares native ancestry for scope evidence. Root inventory and body
+suffix checks remain fresh, with complete root and immutable snapshot checks at both outer
+boundaries. Exact native handle ownership determines prefix sharing; reopening the same path
+does not qualify. All identity, semantic, predecessor and fee comparisons remain independent.
+Persistent source failures still supersede ordinary inner results; a prefix change restored
+between observations can be unseen. Active budgets and parser-local checks retain their
+independent ancestry checks.
 Completing an already-reserved successor that expired during downtime consumes that turn's one
 replacement claim; attempting another body in the same turn returns `ReplacementLimit`. A later
 fresh invocation may advance that unused body. Missing anchored local material refuses without
@@ -479,13 +583,14 @@ qualify the full native service graph or cold-package fetch. Signed native relea
 reference-host twenty-run p95 measurements remain separate DX6/DX7 outcomes; the 30-second
 admission budget is a configured limit, not measured latency evidence.
 
-This verifier does not supply an official Taira trust key or published release
-artifact. Its HTTP adapter binds explicit SDK contexts to the release-approved
-HTTPS roots, overlaps up to eight independent committee reads, and retains one
-operation deadline plus bounded per-peer tip retries. Every successful read still
-requires independent contiguous-chain and exact-committee verification. Their
-authenticated release installation/publication, actual fresh committee observation
-and dataspace provisioning remain required for the remote command's qualification.
+The committed `defaults/developer/network-profiles.nrt` supplies the Taira installation
+profile selected by both release packagers, and its published checkpoint has passed
+native signature and finality verification. The HTTP adapter binds explicit SDK contexts
+to the release-approved HTTPS roots, overlaps up to eight independent committee reads,
+and retains one operation deadline plus bounded per-peer tip retries. Every successful
+read still requires independent contiguous-chain and exact-committee verification.
+Authenticated bundle distribution, recurring signed checkpoint publication, fresh committee
+observation and combined dataspace provisioning remain required for remote qualification.
 Key rotation requires an authenticated
 migration of retained release custody, not a silent fresh store.
 

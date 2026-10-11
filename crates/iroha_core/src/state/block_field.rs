@@ -26,6 +26,8 @@ pub trait OriginalPublicationBlock: BlockRetirement + sealed::Sealed + Sized {
     type FreezeCapture: BlockCapture<(), Block = Self, Detached = Self::Frozen>;
     /// Original private generations after their physical writers are released.
     type Frozen;
+    /// Same original frozen fields while independent structural readers retain them.
+    type FrozenRead;
     /// Move the original block into its capture slot without allocation.
     fn into_freeze_capture(self) -> Self::FreezeCapture;
     /// Consume execution authority without releasing any physical writer.
@@ -38,6 +40,7 @@ impl<'a, V: Value, C: Send + Sync + 'static> OriginalPublicationBlock
     type Publication = mv::cell::BlockPublicationSlot<'a, V, C>;
     type FreezeCapture = mv::cell::BlockCaptureSlot<'a, V, (), C>;
     type Frozen = mv::cell::Detached<V, (), C>;
+    type FrozenRead = mv::cell::FrozenDetached<V, (), C>;
     fn into_freeze_capture(self) -> Self::FreezeCapture {
         self.capture_slot()
     }
@@ -52,6 +55,7 @@ impl<'a, K: Key, V: Value, M: mv::storage::StorageMode<K, V>> OriginalPublicatio
     type Publication = mv::storage::BlockPublicationSlot<'a, K, V, M>;
     type FreezeCapture = mv::storage::BlockCaptureSlot<'a, K, V, (), M>;
     type Frozen = mv::storage::Detached<K, V, (), M>;
+    type FrozenRead = mv::storage::FrozenDetached<K, V, (), M>;
     fn into_freeze_capture(self) -> Self::FreezeCapture {
         self.capture_slot()
     }
@@ -67,6 +71,7 @@ pub type CellField<'a, V, C = concread::ebrcell::Untracked> = BlockField<
     mv::cell::BlockPublicationSlot<'a, V, C>,
     mv::cell::BlockCaptureSlot<'a, V, (), C>,
     mv::cell::Detached<V, (), C>,
+    mv::cell::FrozenDetached<V, (), C>,
 >;
 
 /// Exact Storage phases retain both original map generations and covariance.
@@ -75,12 +80,15 @@ pub type StorageField<'a, K, V, M = concread::bptree::Untracked> = BlockField<
     mv::storage::BlockPublicationSlot<'a, K, V, M>,
     mv::storage::BlockCaptureSlot<'a, K, V, (), M>,
     mv::storage::Detached<K, V, (), M>,
+    mv::storage::FrozenDetached<K, V, (), M>,
 >;
 
-enum Phase<B, P, C, F> {
+enum Phase<B, P, C, F, R> {
     Executing(B),
     Capturing(C),
     Frozen(F),
+    // Stored in this exact field while the State publisher owns its row positions.
+    Reading(R),
     Publishing(P),
 }
 
@@ -94,12 +102,13 @@ pub struct BlockField<
     P = <B as OriginalPublicationBlock>::Publication,
     C = <B as OriginalPublicationBlock>::FreezeCapture,
     F = <B as OriginalPublicationBlock>::Frozen,
+    R = <B as OriginalPublicationBlock>::FrozenRead,
 > where
-    B: OriginalPublicationBlock<Publication = P, FreezeCapture = C, Frozen = F>,
+    B: OriginalPublicationBlock<Publication = P, FreezeCapture = C, Frozen = F, FrozenRead = R>,
     P: BlockPublication,
     C: BlockCapture<(), Block = B, Detached = F>,
 {
-    phase: Option<Phase<B, P, C, F>>,
+    phase: Option<Phase<B, P, C, F, R>>,
     released: bool,
     // Normal recovery restores Frozen above while retaining the actual attempt
     // cleanup here until every sibling and enclosing fence has unlocked.
@@ -184,9 +193,9 @@ impl<B: OriginalPublicationBlock> DerefMut for BlockField<B> {
         }
     }
 }
-impl<B, P, C, F> BlockRetirement for BlockField<B, P, C, F>
+impl<B, P, C, F, R> BlockRetirement for BlockField<B, P, C, F, R>
 where
-    B: OriginalPublicationBlock<Publication = P, FreezeCapture = C, Frozen = F>,
+    B: OriginalPublicationBlock<Publication = P, FreezeCapture = C, Frozen = F, FrozenRead = R>,
     P: BlockPublication,
     C: BlockCapture<(), Block = B, Detached = F>,
 {
@@ -196,13 +205,13 @@ where
             Some(Phase::Executing(block)) => block.release_writers(),
             Some(Phase::Capturing(slot)) => slot.release(),
             Some(Phase::Publishing(slot)) => slot.release_writers(),
-            Some(Phase::Frozen(_)) | None => {}
+            Some(Phase::Frozen(_) | Phase::Reading(_)) | None => {}
         }
     }
 }
-impl<B, P, C, F> Drop for BlockField<B, P, C, F>
+impl<B, P, C, F, R> Drop for BlockField<B, P, C, F, R>
 where
-    B: OriginalPublicationBlock<Publication = P, FreezeCapture = C, Frozen = F>,
+    B: OriginalPublicationBlock<Publication = P, FreezeCapture = C, Frozen = F, FrozenRead = R>,
     P: BlockPublication,
     C: BlockCapture<(), Block = B, Detached = F>,
 {
@@ -217,6 +226,9 @@ mod frozen;
 mod original_images;
 #[path = "block_field/read.rs"]
 mod read;
+#[path = "block_field/retained_read.rs"]
+mod retained_read;
+pub(super) use retained_read::RetainedReadPhaseError;
 
 #[cfg(test)]
 #[path = "block_field_tests.rs"]

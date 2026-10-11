@@ -79,13 +79,10 @@ fn genesis_key_files_are_canonical_consistent_and_non_overwriting() {
 #[test]
 fn raw_npos_genesis_receives_the_chain_bound_localnet_epoch_seed() {
     let chain_id = ChainId::from("pk3");
-    let peers = build_peers(4, Some(b"raw-npos-genesis-epoch-seed"), 8080, 1337)
-        .expect("derive four fixture validator identities");
     let genesis = generate_raw_genesis(
         REAL_GENESIS_ACCOUNT_KEYPAIR.public_key(),
         SumeragiConsensusMode::Npos,
         chain_id.as_str(),
-        &peers,
     )
     .expect("generate NPoS localnet genesis");
     let parameters = genesis

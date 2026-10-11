@@ -10,15 +10,16 @@
 //!   then one random blind per column, and are committed in evaluation form
 //!   with the secret MSM posture and written to the proof in column order.
 
+use iroha_pasta::CancellationToken;
 use iroha_pasta::{PastaCurve, msm::MemoryBudget};
 use rand_core_06::RngCore;
 use rayon::prelude::*;
 
-use super::{ProverError, Witness, random_values, write_point};
+use super::{ProverError, random_values, write_point};
 use crate::{
     keys::ProvingKey,
     pcs::ipa::{PinnedParams, commit::Secrecy},
-    protocol::{Shape, instance_commitment},
+    protocol::Shape,
     transcript::{Transcript, TranscriptWrite},
 };
 
@@ -42,6 +43,7 @@ impl<F: iroha_pasta::PastaField> InstanceColumns<F> {
     pub(super) fn new<C: PastaCurve<ScalarExt = F>>(
         pk: &ProvingKey<C>,
         instances: &[Vec<F>],
+        cancellation: Option<&CancellationToken>,
     ) -> Result<Self, ProverError> {
         let n = pk.binding().n();
         let values: Vec<Vec<F>> = instances
@@ -56,7 +58,7 @@ impl<F: iroha_pasta::PastaField> InstanceColumns<F> {
             .iter()
             .map(|column| {
                 let mut coeffs = column.clone();
-                pk.domain().ifft(&mut coeffs)?;
+                pk.domain().ifft_cancellable(&mut coeffs, cancellation)?;
                 Ok(coeffs)
             })
             .collect::<Result<Vec<_>, ProverError>>()?;
@@ -79,21 +81,32 @@ impl<F: iroha_pasta::PastaField> InstanceColumns<F> {
         shape: &Shape,
         transcript: &mut T,
         budget: MemoryBudget,
+        cancellation: Option<&CancellationToken>,
     ) -> Result<(), ProverError>
     where
         C: PastaCurve<ScalarExt = F>,
         T: Transcript<C>,
     {
+        CancellationToken::checkpoint(cancellation)?;
         if shape.committed_instances {
             for (column, (values, length)) in self.values.iter().zip(&self.lengths).enumerate() {
-                let commitment = instance_commitment(params, &values[..*length], budget);
+                CancellationToken::checkpoint(cancellation)?;
+                let commitment = crate::protocol::instance_commitment_cancellable(
+                    params,
+                    &values[..*length],
+                    budget,
+                    cancellation,
+                )?;
                 transcript
                     .common_point(&commitment)
                     .map_err(|_| ProverError::IdentityInstanceCommitment { column })?;
             }
         } else {
             for (values, length) in self.values.iter().zip(&self.lengths) {
-                for value in &values[..*length] {
+                for (index, value) in values[..*length].iter().enumerate() {
+                    if index % 1024 == 0 {
+                        CancellationToken::checkpoint(cancellation)?;
+                    }
                     transcript.common_scalar(value);
                 }
             }
@@ -126,20 +139,39 @@ impl<F: iroha_pasta::PastaField> Drop for Advice<F> {
     }
 }
 
+impl<F: iroha_pasta::PastaField> Advice<F> {
+    /// Reuses the evaluation buffers for coefficients once all products
+    /// have consumed the evaluations. The zeroizing owner retains every
+    /// column even if a transform fails partway through.
+    pub(super) fn interpolate_in_place<C: PastaCurve<ScalarExt = F>>(
+        &mut self,
+        pk: &ProvingKey<C>,
+        cancellation: Option<&CancellationToken>,
+    ) -> Result<(), ProverError> {
+        self.polys = core::mem::take(&mut self.values);
+        self.polys
+            .par_iter_mut()
+            .try_for_each(|column| pk.domain().ifft_cancellable(column, cancellation))?;
+        Ok(())
+    }
+}
+
 /// Blinds, commits and writes the advice columns (`BlindingScheduleV1` item
 /// 1).
 ///
 /// # Errors
 ///
-/// [`ProverError::Msm`], [`ProverError::Fft`] or [`ProverError::Transcript`].
+/// [`ProverError::Msm`] or [`ProverError::Transcript`].
+#[allow(clippy::too_many_arguments)]
 pub(super) fn commit<C, T, R>(
     params: &PinnedParams<C>,
     pk: &ProvingKey<C>,
     shape: &Shape,
-    witness: &Witness<C::ScalarExt>,
+    values: Vec<Vec<C::ScalarExt>>,
     rng: &mut R,
     transcript: &mut T,
     budget: MemoryBudget,
+    cancellation: Option<&CancellationToken>,
 ) -> Result<Advice<C::ScalarExt>, ProverError>
 where
     C: PastaCurve,
@@ -147,13 +179,17 @@ where
     R: RngCore,
 {
     let mut advice = Advice {
-        values: witness.advice().to_vec(),
+        values,
         polys: Vec::new(),
         blinds: Vec::new(),
     };
     let blinding_rows = shape.n - shape.usable_rows;
     for column in &mut advice.values {
-        let random: Vec<C::ScalarExt> = random_values(rng, blinding_rows);
+        CancellationToken::checkpoint(cancellation)?;
+        let random = crate::secret::SecretPolynomial::new(random_values::<C::ScalarExt, _>(
+            rng,
+            blinding_rows,
+        ));
         column[shape.usable_rows..].copy_from_slice(&random);
     }
     advice.blinds = random_values(rng, shape.num_advice);
@@ -164,20 +200,19 @@ where
         .zip(advice.blinds.par_iter())
         .map(|(values, blind)| {
             tables
-                .commit_lagrange(params.params(), values, blind, Secrecy::Secret, budget)
+                .commit_lagrange_cancellable(
+                    params.params(),
+                    values,
+                    blind,
+                    Secrecy::Secret,
+                    budget,
+                    cancellation,
+                )
                 .map(|point| point.to_affine())
         })
         .collect::<Result<Vec<_>, _>>()?;
     for commitment in &commitments {
         write_point(transcript, commitment)?;
     }
-    advice.polys = advice
-        .values
-        .par_iter()
-        .map(|values| {
-            let mut coeffs = values.clone();
-            pk.domain().ifft(&mut coeffs).map(|()| coeffs)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
     Ok(advice)
 }

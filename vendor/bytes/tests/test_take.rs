@@ -31,7 +31,6 @@ fn take_copy_to_bytes_panics() {
     abcd.take(2).copy_to_bytes(3);
 }
 
-#[cfg(feature = "std")]
 #[test]
 fn take_chunks_vectored() {
     fn chain() -> impl Buf {

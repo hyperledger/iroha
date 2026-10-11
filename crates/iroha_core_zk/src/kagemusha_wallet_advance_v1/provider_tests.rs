@@ -16,6 +16,65 @@ fn device() -> DeviceV1 {
 }
 
 #[test]
+fn wallet_advance_v1_current_source_reads_preserve_custody_and_tri_state_keys() {
+    let (device, fixture, slot, capsule) =
+        crate::kagemusha_wallet_advance_v1::test_support::bootstrapped_device(
+            KagemushaWalletAnchorPolicyV1::NotRequired,
+            0x31,
+        );
+    let mut provider = device.open();
+    let status = provider.status(&slot).unwrap();
+    let calls = device
+        .platform
+        .with(|state| (state.generate_calls, state.sign_calls, state.delete_calls));
+    assert_eq!(provider.current_capsule(&slot).unwrap(), Some(capsule));
+    assert_eq!(provider.status(&slot).unwrap(), status);
+    assert_eq!(
+        provider.probe_payment_key(&slot).unwrap(),
+        KagemushaWalletProbeV1::Present(fixture.payment_key)
+    );
+    device.platform.with(|state| state.probe_unavailable = true);
+    assert!(matches!(
+        provider.probe_payment_key(&slot),
+        Ok(KagemushaWalletProbeV1::Unavailable(_))
+    ));
+    device.platform.with(|state| {
+        state.probe_unavailable = false;
+        state.storage = Err(KagemushaWalletUnavailableV1::Locked);
+    });
+    assert_eq!(
+        provider.probe_payment_key(&slot),
+        Err(KagemushaWalletProviderErrorV1::Unavailable(
+            KagemushaWalletUnavailableV1::Locked
+        ))
+    );
+    assert_eq!(
+        provider.current_capsule(&slot),
+        Err(KagemushaWalletProviderErrorV1::Unavailable(
+            KagemushaWalletUnavailableV1::Locked
+        ))
+    );
+    assert_eq!(
+        device
+            .platform
+            .with(|state| (state.generate_calls, state.sign_calls, state.delete_calls)),
+        calls
+    );
+}
+
+#[test]
+fn wallet_advance_v1_enrollment_source_has_no_fabricated_capsule() {
+    let (device, fixture, slot) = enrolled_device(KagemushaWalletAnchorPolicyV1::NotRequired, 0x32);
+    let mut provider = device.open();
+    assert_eq!(provider.current_capsule(&slot).unwrap(), None);
+    assert_eq!(
+        provider.probe_payment_key(&slot).unwrap(),
+        KagemushaWalletProbeV1::Present(fixture.payment_key)
+    );
+    assert_eq!(device.platform.with(|state| state.sign_calls), 0);
+}
+
+#[test]
 fn wallet_advance_v1_provider_options_default_to_the_worst_case_ballast() {
     assert_eq!(
         KagemushaWalletProviderOptionsV1::default().ballast_bytes,
@@ -165,10 +224,12 @@ fn wallet_advance_v1_provider_cache_poison_remember_and_guard() {
         provider.cache.contains_key(&slot),
         "a stable status is cached"
     );
-    // The cached path re-lists markers and compares the current marker's bytes only.
+    // The cached path re-lists markers, compares the current marker's bytes, checks that no
+    // abandoned-slot record conflicts with it and re-reads its verified enrollment phase and
+    // the Client, Accepted and Slot originals that phase names.
     let start = device.fs.steps();
     assert_eq!(provider.status(&slot), Ok(status.clone()));
-    assert_eq!(device.fs.steps() - start, 2);
+    assert_eq!(device.fs.steps() - start, 7);
     provider.poison(&slot);
     assert!(!provider.cache.contains_key(&slot));
     let start = device.fs.steps();
@@ -231,9 +292,13 @@ fn wallet_advance_v1_provider_open_after_a_lost_root_writeback_keeps_custody() {
         ));
         let mut provider = device.open();
         let slot = match provider
-            .begin_enrollment(
+            .test_begin_enrollment(
                 &super::super::test_support::enrollment_challenge(0x24),
                 super::super::test_support::PROFILE,
+                crate::kagemusha_wallet_advance_v1::KagemushaWalletEnrollmentDatesV1 {
+                    issued_at_ms: 1,
+                    expires_at_ms: 600_001,
+                },
             )
             .expect("enroll")
         {
@@ -283,5 +348,58 @@ fn wallet_advance_v1_provider_open_accepts_an_empty_skeleton_without_a_sentinel(
         Some(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
             object: "custody root"
         })
+    );
+}
+
+#[test]
+fn wallet_advance_v1_native_clock_preserves_unavailability_and_custody() {
+    let device = device();
+    let provider = device.open();
+    device.platform.with(|state| state.monotonic = Ok(u64::MAX));
+    let reading = provider.monotonic_reading().unwrap();
+    assert_eq!(reading.boot_id, BOOT_A);
+    assert_eq!(reading.monotonic_ms, u64::MAX);
+    for boot in [Ok([0; 32]), Err(KagemushaWalletUnavailableV1::Platform(7))] {
+        device.platform.with(|state| state.boot = boot);
+        assert!(matches!(
+            provider.monotonic_reading(),
+            Err(KagemushaWalletProviderErrorV1::Unavailable(_))
+        ));
+    }
+    device.platform.with(|state| {
+        state.boot = Ok(BOOT_A);
+        state.monotonic = Err(KagemushaWalletUnavailableV1::Platform(8));
+    });
+    assert!(matches!(
+        provider.monotonic_reading(),
+        Err(KagemushaWalletProviderErrorV1::Unavailable(
+            KagemushaWalletUnavailableV1::Platform(8)
+        ))
+    ));
+    device.platform.with(|state| {
+        state.monotonic = Ok(123);
+        state.boot_after_monotonic = Some(Ok([0x42; 32]));
+    });
+    assert!(matches!(
+        provider.monotonic_reading(),
+        Err(KagemushaWalletProviderErrorV1::Unavailable(
+            KagemushaWalletUnavailableV1::Busy
+        ))
+    ));
+    device.platform.with(|state| {
+        state.boot = Ok(BOOT_A);
+        state.storage_lock_after = Some(1);
+    });
+    assert!(matches!(
+        provider.monotonic_reading(),
+        Err(KagemushaWalletProviderErrorV1::Unavailable(
+            KagemushaWalletUnavailableV1::Locked
+        ))
+    ));
+    assert_eq!(
+        device
+            .platform
+            .with(|state| (state.generate_calls, state.sign_calls, state.delete_calls)),
+        (0, 0, 0)
     );
 }

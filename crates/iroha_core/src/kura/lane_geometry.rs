@@ -4328,49 +4328,6 @@ impl Kura {
         Ok(())
     }
 }
-fn bootstrap_validate_path_kind(store_root: &Path, path: &Path, directory: bool) -> Result<bool> {
-    let relative = path.strip_prefix(store_root).map_err(|_| {
-        lane_geometry_journal_structure_error(
-            store_root,
-            ErrorKind::InvalidInput,
-            "bootstrap geometry path escapes the Kura store root",
-        )
-    })?;
-    validate_relative_path(relative)?;
-    bootstrap_validate_existing_ancestors(store_root, path)?;
-    let metadata = match secure_file_metadata::from_path(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(Error::IO(error, path.to_path_buf())),
-    };
-    if metadata.file_type().is_symlink()
-        || (directory && !metadata.is_dir())
-        || (!directory && (!metadata.is_file() || !Kura::sidecar_is_single_link(&metadata)))
-    {
-        return Err(Error::IO(
-            std::io::Error::new(
-                ErrorKind::InvalidData,
-                "bootstrap geometry path is not an authenticated regular path",
-            ),
-            path.to_path_buf(),
-        ));
-    }
-    let canonical_root =
-        fs::canonicalize(store_root).map_err(|error| Error::IO(error, store_root.to_path_buf()))?;
-    let canonical_path =
-        fs::canonicalize(path).map_err(|error| Error::IO(error, path.to_path_buf()))?;
-    if canonical_path != canonical_root.join(relative) {
-        return Err(Error::IO(
-            std::io::Error::new(
-                ErrorKind::InvalidData,
-                "bootstrap geometry path traverses a symlink or escapes the store root",
-            ),
-            path.to_path_buf(),
-        ));
-    }
-    Ok(true)
-}
-include!("lane_geometry/bootstrap_path_safety.rs");
 include!("lane_geometry/catalog_validation.rs");
 #[cfg(test)]
 mod tests {

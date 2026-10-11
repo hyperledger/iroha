@@ -19,14 +19,14 @@ fn join_kaigi_preserves_canonical_raw_commitment() {
         AccountId::parse_encoded("sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE")
             .expect("account id");
     let commitment = KaigiAuthorizationScalarV1::from_le_bytes([0x24; 32]).unwrap();
-    let join = JoinKaigi {
-        call_id: call,
+    let join = JoinKaigi::new(
+        call,
         participant,
-        commitment: Some(KaigiParticipantCommitment { commitment }),
-        nullifier: None,
-        roster_root: None,
-        proof: None,
-    };
+        Some(KaigiParticipantCommitment { commitment }),
+        None,
+        None,
+        None,
+    );
     let instruction =
         iroha_data_model::isi::Instruction::into_instruction_box(Box::new(join.clone()));
     let bytes = norito::core::to_bytes(&instruction).expect("serialize");

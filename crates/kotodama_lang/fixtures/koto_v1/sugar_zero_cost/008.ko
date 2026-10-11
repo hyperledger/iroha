@@ -1,6 +1,6 @@
 
         seiyaku IfExpression {
-            view fn main(bool condition, int yes, int no) -> int {
+            view fn main(bool condition, int yes, int no) authorize(anyone) -> int {
                 condition ? yes : no
             }
         }

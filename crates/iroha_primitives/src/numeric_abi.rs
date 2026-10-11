@@ -1413,7 +1413,7 @@ mod tests {
             for (mantissa, expected_byte) in [(1_i128, 0x01), (-1, 0xff)] {
                 let numeric = Numeric::try_new(BigInt::from_i128(mantissa), scale).unwrap();
                 let value = DecimalValueV1::new(numeric.clone());
-                let expected = [1, 0, 0, 0, expected_byte, scale as u8];
+                let expected = [1, 0, 0, 0, expected_byte, u8::try_from(scale).unwrap()];
                 let mut body = [0xa5; 69];
                 let unused = {
                     let mut output = body.as_mut_slice();
@@ -1487,7 +1487,7 @@ mod tests {
         }
     }
     fn literal_prepared_body(bytes: &[u8], scale: Option<u8>) -> Vec<u8> {
-        let mut body = (bytes.len() as u32).to_le_bytes().to_vec();
+        let mut body = u32::try_from(bytes.len()).unwrap().to_le_bytes().to_vec();
         body.extend_from_slice(bytes);
         if let Some(scale) = scale {
             body.push(scale);
@@ -1508,7 +1508,7 @@ mod tests {
             let before = source.clone();
             let prepared = IntValueV1::prepare_frame(&source).unwrap();
             assert!(
-                matches!(&prepared.source, NumericFrameSourceV1::Int(retained) if core::ptr::eq(*retained, &source))
+                matches!(&prepared.source, NumericFrameSourceV1::Int(retained) if core::ptr::eq(*retained, &raw const source))
             );
             let body = literal_prepared_body(bytes, None);
             let expected = encode_frame::<IntValueV1>(&body).unwrap();
@@ -1529,7 +1529,7 @@ mod tests {
             let before = source.clone();
             let prepared = DecimalValueV1::prepare_frame(&source);
             assert!(
-                matches!(&prepared.source, NumericFrameSourceV1::Decimal(retained) if core::ptr::eq(*retained, &source))
+                matches!(&prepared.source, NumericFrameSourceV1::Decimal(retained) if core::ptr::eq(*retained, &raw const source))
             );
             let body = literal_prepared_body(&[byte], Some(28));
             let expected = encode_frame::<DecimalValueV1>(&body).unwrap();
@@ -1552,7 +1552,7 @@ mod tests {
         let before = source.clone();
         let prepared = QuantityValueV1::prepare_frame(&source);
         assert!(
-            matches!(&prepared.source, NumericFrameSourceV1::Quantity(retained) if core::ptr::eq(*retained, &source))
+            matches!(&prepared.source, NumericFrameSourceV1::Quantity(retained) if core::ptr::eq(*retained, &raw const source))
         );
         let expected =
             encode_frame::<QuantityValueV1>(&literal_prepared_body(&[1], Some(28))).unwrap();
@@ -1589,7 +1589,7 @@ mod tests {
                 for scale in 0..=MAX_DECIMAL_SCALE {
                     let numeric = Numeric::try_new(source.clone(), scale).unwrap();
                     let prepared = DecimalValueV1::prepare_frame(&numeric);
-                    let body = literal_prepared_body(bytes, Some(scale as u8));
+                    let body = literal_prepared_body(bytes, Some(u8::try_from(scale).unwrap()));
                     assert_eq!(prepared.frame_len(), 45 + width);
                     assert_eq!(
                         prepared.encode_frame().unwrap(),

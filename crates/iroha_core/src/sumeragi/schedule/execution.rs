@@ -139,11 +139,20 @@ pub(crate) fn authenticate_successor_context(
     // Canonical committed reads exclude differences in local QC signer subsets.
     let parent = crate::sumeragi::certified_chain::committed_block(state, height - 1)
         .map_err(|error| error.map_rejection(ScheduleError::from))?;
-    let genesis = crate::sumeragi::certified_chain::committed_block(state, 1)
-        .map_err(|error| error.map_rejection(ScheduleError::from))?;
-    let instance =
+    // The executed parent above supplies original current R. Root identity needs
+    // only this cut's independently authenticated durable signed genesis, never
+    // its unsigned result-only preimage or another full historical reverse walk.
+    #[cfg(all(test, sumeragi_core_mutation = "HC139"))]
+    let instance = {
+        let genesis = crate::sumeragi::certified_chain::committed_block(state, 1)
+            .map_err(|error| error.map_rejection(ScheduleError::from))?;
         crate::sumeragi::node::root_instance(genesis.block(), &state.chain_id().to_string())
-            .map_err(|error| error.map_rejection(ScheduleError::Epoch))?;
+            .map_err(|error| error.map_rejection(ScheduleError::Epoch))?
+    };
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC139")))]
+    let instance = crate::sumeragi::certified_chain::CertifiedChain::new(state)
+        .map_err(|error| error.map_rejection(ScheduleError::from))?
+        .instance();
     let current = &state.world().consensus_schedule().ready(height)?.epoch;
     expected
         .validate()
@@ -238,11 +247,13 @@ impl StateBlock<'_> {
                 )
                 .into());
             }
-            let epoch = crate::sumeragi::epoch::genesis_epoch(source).map_err(|error| {
-                crate::execution_attempt::genesis_read_attempt_error(error, |error| {
-                    ScheduleError::Epoch(error.to_string())
-                })
-            })?;
+            let epoch = crate::sumeragi::epoch::authenticated_genesis(source)
+                .map(|genesis| genesis.into_parts().0)
+                .map_err(|error| {
+                    crate::execution_attempt::genesis_read_attempt_error(error, |error| {
+                        ScheduleError::Epoch(error.to_string())
+                    })
+                })?;
             let pulse = epoch_beacon::capture(
                 root_scope,
                 &self.world,
@@ -316,8 +327,9 @@ impl StateBlock<'_> {
             (captured, pulse)
         };
         // All source/proof/custody and complete retained allocation checks preceded any write.
-        // This pulse is a mandatory original block-start effect, usable by Parliament in this
-        // same transaction overlay; failure/drop discards its original journal with the block.
+        // This consensus-native pulse is a mandatory original block-start effect. Stored here, it
+        // is readable by later transactions of this same block (governance consumes it by its
+        // own transition and never demands it); failure/drop discards its journal with the block.
         if let (Some(value), Some(link)) = (pulse.pulse(), pulse.link()) {
             let slot = (
                 iroha_data_model::governance::types::BeaconSessionId::for_network_v1(

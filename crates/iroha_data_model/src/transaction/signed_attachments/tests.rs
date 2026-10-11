@@ -754,6 +754,141 @@ fn decoder_refuses_forged_counts_before_decoding_elements() {
 }
 
 #[test]
+fn action_decoder_roundtrips_every_binding_and_exact_nested_limits() {
+    let mut actions = fixture().actions().to_vec();
+    let mut direct = actions[2].clone();
+    direct.authority = ActionAuthorityBindingV1::Account(account(0x42));
+    direct.invocation = ActionInvocationBindingV1::Direct {
+        instruction_index: 2,
+    };
+    actions.push(direct);
+    let mut execution = actions[0].clone();
+    execution.operation = ActionOperationV1::IvmProvedExecution;
+    execution.role = ActionRoleV1::ProofEffect;
+    execution.attachments[0].role = AttachmentRoleV1::ExecutionProof;
+    actions.push(execution);
+    for action in &actions {
+        let encoded = norito::encode_canonical(action).expect("canonical action");
+        assert_eq!(
+            norito::decode_canonical::<ActionIntentV1>(&encoded).expect("bounded action decode"),
+            *action
+        );
+    }
+    let mut value = with_occurrences(SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1);
+    let action = &mut value.actions[0];
+    action.operation =
+        ActionOperationV1::NativeInstruction("x".repeat(ACTION_OPERATION_MAX_WIRE_ID_BYTES_V1));
+    action.invocation = ActionInvocationBindingV1::Contract {
+        root_index: 0,
+        call_path: vec![0; ACTION_INVOCATION_MAX_CALL_PATH_DEPTH_V1],
+    };
+    value
+        .validate_v1()
+        .expect("all nested limits are inclusive");
+    assert_eq!(
+        norito::decode_canonical::<SignedAttachmentsV1>(&frame(&value))
+            .expect("nested fields at their limits"),
+        value
+    );
+
+    let _flags = ncore::DecodeFlagsGuard::enter(ncore::default_encode_flags());
+    let mut trailing = norito::codec::Encode::encode(&value.actions[0]);
+    trailing.push(0);
+    assert!(ActionIntentV1::decode_from_slice(&trailing).is_err());
+}
+
+#[test]
+fn action_decoder_refuses_nested_counts_before_decoding_elements() {
+    let value = with_occurrences(1);
+    let action = &value.actions[0];
+    let _flags = ncore::DecodeFlagsGuard::enter(ncore::default_encode_flags());
+    let encoded = norito::codec::Encode::encode(action);
+    let replace_field = |position: usize, replacement: &[u8]| {
+        let mut offset = 0;
+        let mut result = Vec::new();
+        for field_index in 0..8 {
+            let field = take_field(&encoded, &mut offset, encoded.len()).expect("field");
+            let field = if field_index == position {
+                replacement
+            } else {
+                field
+            };
+            ncore::write_len_to_vec(
+                &mut result,
+                u64::try_from(field.len()).expect("field length"),
+            );
+            result.extend_from_slice(field);
+        }
+        assert_eq!(offset, encoded.len());
+        result
+    };
+
+    // Supply only a count, with no reference elements. The bounded error must
+    // win over the generic vector's malformed-span error and allocation.
+    let references = u64::try_from(SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1 + 1)
+        .expect("reference count")
+        .to_le_bytes();
+    let error = ActionIntentV1::decode_from_slice(&replace_field(7, &references))
+        .expect_err("references over limit");
+    assert!(
+        error.to_string().contains("17 attachment references"),
+        "{error}"
+    );
+
+    // The same rule applies to a contract path with no encoded ordinals.
+    let mut invocation = 2_u32.to_le_bytes().to_vec();
+    ncore::write_len_to_vec(&mut invocation, 4);
+    invocation.extend_from_slice(&0_u32.to_le_bytes());
+    ncore::write_len_to_vec(&mut invocation, 8);
+    invocation.extend_from_slice(
+        &u64::try_from(ACTION_INVOCATION_MAX_CALL_PATH_DEPTH_V1 + 1)
+            .expect("path depth")
+            .to_le_bytes(),
+    );
+    let error = ActionIntentV1::decode_from_slice(&replace_field(4, &invocation))
+        .expect_err("path over limit");
+    assert!(error.to_string().contains("path of 33 calls"), "{error}");
+
+    // An oversized declared wire identifier is refused before its String is
+    // allocated or its deliberately missing bytes are visited.
+    let mut name = Vec::new();
+    ncore::write_len_to_vec(
+        &mut name,
+        u64::try_from(ACTION_OPERATION_MAX_WIRE_ID_BYTES_V1 + 1).expect("wire id length"),
+    );
+    let mut operation = 0_u32.to_le_bytes().to_vec();
+    ncore::write_len_to_vec(
+        &mut operation,
+        u64::try_from(name.len()).expect("name field"),
+    );
+    operation.extend_from_slice(&name);
+    let error = ActionIntentV1::decode_from_slice(&replace_field(1, &operation))
+        .expect_err("wire identifier over limit");
+    assert!(
+        error
+            .to_string()
+            .contains("malformed instruction wire identifier"),
+        "{error}"
+    );
+}
+
+#[test]
+fn action_reference_count_accepts_the_limit_and_rejects_one_over() {
+    let mut value = with_occurrences(SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1);
+    value.validate_v1().expect("exact reference bound");
+    let duplicate = value.actions[0].attachments[0];
+    value.actions[0].attachments.push(duplicate);
+    assert_eq!(
+        rejected(&value),
+        SignedAttachmentErrorV1::TooManyReferences {
+            action_index: 0,
+            actual: SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1 + 1,
+            maximum: SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1,
+        }
+    );
+}
+
+#[test]
 fn occurrence_decoder_refuses_a_declared_byte_count_over_the_limit_before_allocating() {
     let occurrence = SignedAttachmentOccurrenceV1::new(0, AttachmentKindV1::Proof, vec![5; 24]);
     let _flags = ncore::DecodeFlagsGuard::enter(ncore::default_encode_flags());

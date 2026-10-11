@@ -406,9 +406,9 @@ class CanonicalRequestSignerTest {
     @Test
     fun bodySignatureFieldsCarryVerifiableSignature() {
         val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
-        val uri = URI.create("https://torii.example/v1/kagemusha/top-up?b=2&a=1")
+        val uri = URI.create("https://torii.example/v1/transactions?b=2&a=1")
         val timestampMs = 1_717_171_717_000L
-        val nonce = "kagemusha-body-nonce"
+        val nonce = "body-auth-nonce"
         val body = linkedMapOf<String, Any?>("operation_id" to "operation-1")
 
         val signed = CanonicalRequestSigner.withBodySignature(
@@ -446,7 +446,7 @@ class CanonicalRequestSignerTest {
     @Test
     fun canonicalAuthRejectsPaddedFreshnessAndAccountFields() {
         val keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
-        val uri = URI.create("https://torii.example/v1/kagemusha/top-up")
+        val uri = URI.create("https://torii.example/v1/transactions")
         val bodyBytes = """{"operation_id":"operation-1"}""".toByteArray(StandardCharsets.UTF_8)
         val body = linkedMapOf<String, Any?>("operation_id" to "operation-1")
         val timestampMs = 1_717_171_717_003L

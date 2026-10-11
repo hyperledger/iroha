@@ -8,7 +8,7 @@ use proof_events::ProofEventFixture;
 #[test]
 fn proof_verified_and_rejected_json_mapping() {
     // Verified
-    let v = ProofEventFixture::new("halo2/ipa", [0x12; 32])
+    let v = ProofEventFixture::new("pipa-r/pasta", [0x12; 32])
         .with_vk("vk_name", [0x34; 32])
         .verified();
     let j = event_to_json_value(&v);
@@ -16,7 +16,10 @@ fn proof_verified_and_rejected_json_mapping() {
         j.get("event").and_then(|x| x.as_str()),
         Some("ProofVerified")
     );
-    assert_eq!(j.get("backend").and_then(|x| x.as_str()), Some("halo2/ipa"));
+    assert_eq!(
+        j.get("backend").and_then(|x| x.as_str()),
+        Some("pipa-r/pasta")
+    );
     assert_eq!(
         j.get("proof_hash").and_then(|x| x.as_str()),
         Some(hex::encode([0x12u8; 32]).as_str())
@@ -27,7 +30,7 @@ fn proof_verified_and_rejected_json_mapping() {
     );
     assert_eq!(
         j.get("vk_ref").and_then(|x| x.as_str()),
-        Some("halo2/ipa::vk_name")
+        Some("pipa-r/pasta::vk_name")
     );
     assert_eq!(
         j.get("vk_commitment").and_then(|x| x.as_str()),

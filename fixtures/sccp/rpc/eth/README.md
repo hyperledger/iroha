@@ -5,8 +5,10 @@ Real mainnet public-RPC responses that drive the SCCP v1 Ethereum light client
 sync-committee period change to a finalized receipt (`specs/sccp.md` §4.13.3,
 §7.2 step 3, §11). `crates/iroha_sccp/tests/ethereum_light_client.rs` replays
 them at a controlled Taira time (the finality update's signature slot plus
-60 s); the tests never reach the network. The Ethereum RPC builders (ws37)
-reuse the same responses.
+60 s); the tests never reach the network. The Ethereum builder tests
+(`crates/iroha_sccp_rpc/src/builders/ethereum/evidence_tests.rs`) replay the
+same responses through the advance builder and the ancestry selection
+(`HistoryContract` from the captured `eth_getProof`, `HeaderChain` without it).
 
 Recorded on 2026-09-27 by `capture.py` in this directory:
 
@@ -72,4 +74,6 @@ curl -s -X POST -H 'content-type: application/json' \
 ```
 
 After a recapture, update the block numbers (`EVENT_BLOCK`, `FINALIZED_BLOCK`)
-and period numbers in `crates/iroha_sccp/tests/ethereum_light_client.rs`.
+and period numbers in `crates/iroha_sccp/tests/ethereum_light_client.rs`, and
+`MAINNET_EVENT`, `MAINNET_FINALIZED` and the periods in
+`crates/iroha_sccp_rpc/src/builders/ethereum/evidence_tests.rs`.

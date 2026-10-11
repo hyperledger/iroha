@@ -20,19 +20,6 @@ groups:
             Asset {{ $labels.asset_id }} has commitments recorded but the reported tree depth is zero.
             Inspect the frontier checkpoints and root history gauges before allowing additional
             confidential traffic.
-      - alert: ConfidentialVerifierCacheMissSpike
-        expr: |
-          sum(rate(iroha_zk_verifier_cache_events_total{event="miss"}[5m]))
-            / clamp_min(sum(rate(iroha_zk_verifier_cache_events_total{event=~"hit|miss"}[5m])), 1e-6)
-            > 0.4
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Verifier cache miss ratio above 40%"
-          description: |
-            More than 40% of verifier cache lookups are missing over the last 10 minutes.
-            Validate that Halo2 params and verifying keys are stable before tightening the gas schedule.
       - alert: ConfidentialGasMismatch
         expr: |
           (

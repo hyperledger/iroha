@@ -169,11 +169,6 @@ def validate_source(source: str, owners: dict[Path, str] | None = None) -> None:
         "fn block_effects(",
         "\nfn is_state_identifier(",
     )
-    definite_init_region = _region(
-        production,
-        "fn validate_scalar_state_initialization(",
-        "\nfn enforce_permission_requirements(",
-    )
     fixed_region = _region(
         helper_region,
         "fn fixed_builtin_message(",
@@ -239,7 +234,7 @@ def validate_source(source: str, owners: dict[Path, str] | None = None) -> None:
         "_ => analyze_fixed_builtin_call(builtin, arg_typed)",
         "effects.merge_from(statement_effects(context, statement));",
         "effects.mutates_durable_state |= typed_map_expr_is_state(context, map);",
-        "let mut t1 = analyze_expr_expected(context, then_expr, vars, expected)?;",
+        "let mut t1 = analyze_expr_in_context(context, then_expr, vars, expected, boundary)?;",
         "struct DefiniteInitExprFlow {",
         "fn continue_definite_init_expr(",
         "crate::checked_arithmetic::evaluate(&expression)",

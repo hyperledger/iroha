@@ -10,6 +10,7 @@ use rayon::prelude::*;
 use sha2::{Digest as _, Sha256};
 use std::{collections::VecDeque, format, num::NonZeroU64, string::String, vec, vec::Vec};
 use thiserror::Error;
+mod application_allocation;
 #[cfg(test)]
 mod borrowed_serialization_tests;
 mod proof_siblings;

@@ -86,6 +86,27 @@ def test_checked_in_manifest_exhaustively_maps_locked_workspace() -> None:
     assert len(packages) == sum(len(packages) for packages in manifest.lanes.values())
 
 
+@pytest.mark.parametrize("relative_path", ("src/lib.rs", "Cargo.toml"))
+def test_plonk_recursion_owner_selects_real_proof_consumers(relative_path: str) -> None:
+    """Recursion changes retain the actual proof consumers in execution checks."""
+
+    metadata = rust_ci.load_cargo_metadata(root=ROOT)
+    manifest = rust_ci.load_lane_manifest()
+    assert manifest.package_lane["iroha_plonk_recursion"] == "execution"
+    result = rust_ci.classify_paths(
+        [f"crates/iroha_plonk_recursion/{relative_path}"],
+        metadata=metadata, manifest=manifest, root=ROOT,
+    )
+    assert result.changed_packages == ("iroha_plonk_recursion",)
+    assert not result.foundation_only and not result.full
+    assert {"iroha_plonk_recursion", "iroha_kagemusha_proof"} <= set(
+        result.impacted_packages
+    )
+    assert {"iroha_plonk_recursion", "iroha_kagemusha_proof"} <= set(
+        result.lane_packages["execution"]
+    )
+
+
 @pytest.mark.parametrize("package", ("axum-core", "bytes", "http-body-util"))
 @pytest.mark.parametrize("relative_path", ("src/lib.rs", "Cargo.toml"))
 def test_vendored_foundation_owner_selects_real_http_consumers(
@@ -373,7 +394,8 @@ def test_cargo_commands_are_locked_package_scoped_and_feature_complete() -> None
     """Routed lint and docs retain feature coverage without widening package scope."""
 
     commands = rust_ci.commands_for_checks(
-        ("base", "node"), ("clippy", "build", "test", "doc")
+        ("base", "node"), ("clippy", "build", "test", "doc"),
+        features_by_package={"base": ("json",), "node": ("runtime", "test-fixtures")},
     )
     assert len(commands) == 4
     for command in commands:
@@ -383,10 +405,12 @@ def test_cargo_commands_are_locked_package_scoped_and_feature_complete() -> None
         assert command.count("-p") == 2
     assert commands[0][-3:] == ["--", "-D", "warnings"]
     assert "--all-targets" in commands[0]
-    assert "--all-features" in commands[0]
+    assert "--all-features" not in commands[0]
+    assert commands[0][commands[0].index("--features") + 1] == "base/json,node/runtime,node/test-fixtures"
     assert "--no-fail-fast" in commands[2]
     assert "--no-deps" in commands[3]
-    assert "--all-features" in commands[3]
+    assert "--all-features" not in commands[3]
+    assert commands[3][commands[3].index("--features") + 1] == "base/json,node/runtime,node/test-fixtures"
 
 
 def test_cargo_command_rejects_untrusted_package_text() -> None:
@@ -1015,3 +1039,210 @@ def test_isolated_only_union_does_not_build_shipping_daemon(tmp_path: Path, monk
     assert sorted(path.name for path in output.iterdir()) == ["iroha3d_private_settlement_routes"]
     assert (output / "iroha3d_private_settlement_routes").read_bytes() == b"control only"
     assert not (tmp_path / "target/ci-binaries/shipping").exists()
+
+
+def _feature_workspace(tmp_path: Path, features: str, dependencies: str = "") -> Path:
+    """Construct only manifest inputs; no Cargo or compiler is invoked."""
+
+    (tmp_path / "Cargo.toml").write_text('[workspace]\nmembers = ["model"]\n')
+    package = tmp_path / "model"
+    package.mkdir()
+    (package / "Cargo.toml").write_text(
+        '[package]\nname = "iroha_data_model"\nversion = "0.0.0"\n'
+        + dependencies + '[features]\n' + features
+    )
+    return tmp_path
+
+
+def test_supported_feature_matrix_preserves_all_current_nonmutation_features() -> None:
+    """Governance, fixtures and explicit network diagnostics retain coverage."""
+
+    inventory = rust_ci.workspace_check_features(ROOT)
+    for package in rust_ci.MUTATION_FEATURE_OWNERS:
+        assert "mutation-testing" not in inventory[package]
+    assert {"governance", "application-model", "transparent_api", "test-fixtures",
+            "fault_injection"} <= set(inventory["iroha_data_model"])
+    assert {"iroha-core-tests", "node", "simd", "zk-stark",
+            "test-network-private-settlement-evidence",
+            "test-network-parliament-signers"} <= set(inventory["iroha_core"])
+    assert "sim" in inventory["iroha_sumeragi"]
+    assert "test-network-disposable-broker" in inventory["irohad_lib"]
+    for command in rust_ci.commands_for_checks(tuple(sorted(inventory)), ("clippy", "doc"),
+                                               features_by_package=inventory, workspace=True):
+        assert "--workspace" in command and "-p" not in command
+        selected = set(command[command.index("--features") + 1].split(","))
+        assert selected == {f"{package}/{feature}" for package, names in inventory.items()
+                            for feature in names}
+        assert not any(feature.endswith("/mutation-testing") for feature in selected)
+
+
+def test_feature_matrix_includes_implicit_optional_and_explicit_dep_aliases(tmp_path: Path) -> None:
+    root = _feature_workspace(
+        tmp_path, 'default = ["governance"]\ngovernance = []\n'
+        'private = ["dep:hidden"]\nexplicit = ["dep:explicit"]\nmutation-testing = []\n',
+        '[dependencies]\nimplicit = { version = "1", optional = true }\n'
+        'hidden = { version = "1", optional = true }\n'
+        'explicit = { version = "1", optional = true }\n',
+    )
+    assert rust_ci.workspace_check_features(root) == {
+        "iroha_data_model": ("default", "explicit", "governance", "implicit", "private")
+    }
+
+
+@pytest.mark.parametrize("forward", ('"mutation-testing"', '"iroha_core/mutation-testing"',
+                                      '"iroha_core?/mutation-testing"'))
+def test_supported_feature_forwarding_mutation_refuses_before_spawn(tmp_path: Path, forward: str) -> None:
+    root = _feature_workspace(tmp_path, f'default = []\nmutation-testing = []\nshipping = [{forward}]\n')
+    with pytest.raises(rust_ci.ClassificationError, match="forwards a test-only mutation"):
+        rust_ci.workspace_check_features(root)
+
+
+def test_dependency_mutation_forwarding_refuses_before_spawn(tmp_path: Path) -> None:
+    root = _feature_workspace(tmp_path, 'default = []\n',
+                              '[dependencies]\nmodel = { version = "1", features = ["mutation-testing"] }\n')
+    with pytest.raises(rust_ci.ClassificationError, match="dependency forwards"):
+        rust_ci.workspace_check_features(root)
+
+
+def test_unknown_mutation_feature_owner_requires_review(tmp_path: Path) -> None:
+    root = _feature_workspace(tmp_path, 'mutation-testing = []\n')
+    manifest = root / "model/Cargo.toml"
+    manifest.write_text(manifest.read_text().replace('name = "iroha_data_model"', 'name = "unreviewed"'))
+    with pytest.raises(rust_ci.ClassificationError, match="unreviewed mutation feature owner"):
+        rust_ci.workspace_check_features(root)
+
+
+@pytest.mark.parametrize("inherited", (False, True))
+@pytest.mark.parametrize("target_specific", (False, True))
+def test_mutation_owner_self_dev_dependency_is_rejected(
+    tmp_path: Path, inherited: bool, target_specific: bool,
+) -> None:
+    """Self dev edges force an ordinary library build even for owning libtests."""
+
+    table = "target.'cfg(unix)'.dev-dependencies" if target_specific else "dev-dependencies"
+    dependency = ('{ workspace = true }' if inherited else
+                  '{ package = "iroha_data_model", path = ".", features = ["test-fixtures"] }')
+    root = _feature_workspace(
+        tmp_path, 'default = []\nmutation-testing = []\ntest-fixtures = []\n',
+        f'[{table}]\nfixture_owner = {dependency}\n',
+    )
+    if inherited:
+        manifest = root / "Cargo.toml"
+        manifest.write_text(manifest.read_text() +
+                            '[workspace.dependencies]\nfixture_owner = '
+                            '{ package = "iroha_data_model", path = "model", features = ["test-fixtures"] }\n')
+    with pytest.raises(rust_ci.ClassificationError, match="self dev-dependency"):
+        rust_ci.workspace_check_features(root)
+
+
+@pytest.mark.parametrize("workspace", (False, True))
+def test_torii_test_commands_keep_explicit_integration_fixtures(workspace: bool) -> None:
+    """The complete test route enables fixtures without enabling them in builds."""
+
+    build, test = rust_ci.commands_for_checks(
+        ("iroha_core", "iroha_torii"), ("build", "test"), workspace=workspace,
+    )
+    assert "--features" not in build
+    assert test[test.index("--features") + 1] == "iroha_torii/test-fixtures"
+    assert ("--workspace" in test) is workspace
+    assert "mutation-testing" not in " ".join(test)
+    other, = rust_ci.commands_for_checks(("iroha_core",), ("test",), workspace=workspace)
+    assert "--features" not in other
+
+
+@pytest.mark.parametrize("inventory", ({}, {"iroha_data_model": ("mutation-testing",)},
+                                       {"iroha_data_model": ("governance", "governance")}))
+def test_missing_mutated_or_duplicate_feature_inventory_is_refused(inventory) -> None:
+    with pytest.raises(rust_ci.ClassificationError):
+        rust_ci.commands_for_checks(("iroha_data_model",), ("clippy",), features_by_package=inventory)
+
+
+def test_workspace_and_package_cli_selections_are_exclusive() -> None:
+    parser = rust_ci.build_parser()
+    assert parser.parse_args(["run", "--workspace", "--checks", "doc"]).workspace
+    with pytest.raises(SystemExit):
+        parser.parse_args(["run", "--workspace", "--packages", "iroha_data_model"])
+
+
+def test_run_checks_forwards_exact_workspace_feature_matrix_without_children(tmp_path: Path, monkeypatch) -> None:
+    root = _feature_workspace(tmp_path, 'default = ["governance"]\ngovernance = []\nmutation-testing = []\n')
+    calls = []
+    monkeypatch.setattr(rust_ci, "_run", lambda command, **kwargs: calls.append((command, kwargs)))
+    rust_ci.run_checks((), ("clippy", "doc"), root=root, workspace=True)
+    assert len(calls) == 2
+    for command, kwargs in calls:
+        assert "--workspace" in command and "--all-features" not in command
+        assert command[command.index("--features") + 1] == "iroha_data_model/default,iroha_data_model/governance"
+        assert kwargs["cwd"] == root
+    assert calls[0][0][-3:] == ["--", "-D", "warnings"]
+    assert "--all-targets" in calls[0][0] and "--no-deps" in calls[1][0]
+
+
+def test_feature_matrix_includes_target_optional_edges_and_suppresses_dep_globally(tmp_path: Path) -> None:
+    root = _feature_workspace(tmp_path, 'default = []\nunused = ["dep:hidden"]\n')
+    manifest = root / "model/Cargo.toml"
+    manifest.write_text(manifest.read_text() +
+                        "[target.'cfg(unix)'.dependencies]\n"
+                        'native = { version = "1", optional = true }\n'
+                        'hidden = { version = "1", optional = true }\n')
+    assert rust_ci.workspace_check_features(root) == {
+        "iroha_data_model": ("default", "native", "unused")
+    }
+
+
+def test_inherited_dependency_mutation_is_refused_before_spawn(tmp_path: Path) -> None:
+    root = _feature_workspace(tmp_path, 'default = []\n',
+                              '[dependencies]\nmodel = { workspace = true }\n')
+    (root / "Cargo.toml").write_text((root / "Cargo.toml").read_text() +
+                                    '[workspace.dependencies]\n'
+                                    'model = { version = "1", features = ["mutation-testing"] }\n')
+    with pytest.raises(rust_ci.ClassificationError, match="dependency forwards"):
+        rust_ci.workspace_check_features(root)
+
+
+def test_workspace_version_dependency_keeps_the_local_optional_feature(tmp_path: Path) -> None:
+    root = _feature_workspace(tmp_path, 'default = []\n',
+                              '[dependencies]\nlocal = { workspace = true, optional = true }\n')
+    (root / "Cargo.toml").write_text((root / "Cargo.toml").read_text() +
+                                    '[workspace.dependencies]\nlocal = "1"\n')
+    assert rust_ci.workspace_check_features(root) == {"iroha_data_model": ("default", "local")}
+
+
+@pytest.mark.parametrize("raw", ("", " ", ",", ",,,", " , \t, "))
+def test_explicit_empty_package_selection_refuses_before_checks(raw, monkeypatch, capsys) -> None:
+    """A required explicit package selection cannot be reported as a skipped pass."""
+    calls = []
+    monkeypatch.setattr(rust_ci, "run_checks", lambda *args, **kwargs: calls.append((args, kwargs)))
+    assert rust_ci.main(["run", "--packages", raw, "--checks", "test"]) == 2
+    assert calls == []
+    assert "packages must select at least one Cargo package" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("raw", ("iroha_core", " iroha_core,iroha_data_model,iroha_core "))
+def test_explicit_valid_package_selection_preserves_exact_check_owners(raw, monkeypatch) -> None:
+    """Valid classifier CSVs retain their original unique sorted Cargo owners."""
+    calls = []
+    monkeypatch.setattr(rust_ci, "run_checks", lambda *args, **kwargs: calls.append((args, kwargs)))
+    assert rust_ci.main(["run", "--packages", raw, "--checks", "test"]) == 0
+    expected = tuple(sorted({package.strip() for package in raw.split(",")}))
+    assert calls == [((expected, ("test",)), {"dry_run": False, "workspace": False})]
+
+
+@pytest.mark.parametrize("raw", ("", " ", ","))
+def test_explicit_empty_check_selection_refuses_before_checks(raw, monkeypatch, capsys) -> None:
+    """The existing explicit check-selection refusal stays mandatory."""
+    calls = []
+    monkeypatch.setattr(rust_ci, "run_checks", lambda *args, **kwargs: calls.append((args, kwargs)))
+    assert rust_ci.main(["run", "--packages", "iroha_core", "--checks", raw]) == 2
+    assert calls == []
+    assert "checks must be a non-empty subset" in capsys.readouterr().err
+
+
+def test_inferred_empty_affected_packages_remain_a_legitimate_noop(monkeypatch, capsys) -> None:
+    """An empty classifier result is distinct from malformed explicit CSV input."""
+    monkeypatch.setattr(rust_ci, "workspace_check_features", lambda root: {"iroha_core": ()})
+    def refuse_child(*args, **kwargs):
+        raise AssertionError("an inferred empty affected set must not launch Cargo")
+    monkeypatch.setattr(rust_ci, "_run", refuse_child)
+    rust_ci.run_checks((), ("test",))
+    assert capsys.readouterr().out == "No affected Rust packages; Cargo validation is not required.\n"

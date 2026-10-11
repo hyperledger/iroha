@@ -68,17 +68,12 @@ pub const V1_DECLARATION_RESERVED_EXTRA_NAMES: &[&str] = &[
     "__kotodama_quantity_ratio_round",
     "__kotodama_decimal_to_int_trunc",
     "__kotodama_decimal_to_int_round",
-    "is_some",
-    "is_none",
-    "is_ok",
-    "is_err",
-    "unwrap_or",
-    "unwrap_err_or",
-    "expect",
+    "__kotodama_option_ok_or",
+    "__kotodama_result_or_err",
 ];
 /// Exact identifier spellings forbidden in every source position.
 pub const V1_FORBIDDEN_SOURCE_IDENTIFIERS: &[&str] = &["Amount"];
-/// Exact canonical scalar types permitted as durable StateMap keys.
+/// Exact canonical scalar types permitted as durable `StateMap` keys.
 pub const V1_STATE_MAP_KEY_TYPE_NAMES: &[&str] = &[
     "int",
     "decimal",
@@ -94,15 +89,15 @@ pub const V1_STATE_MAP_KEY_TYPE_NAMES: &[&str] = &[
     "DomainId",
     "Name",
 ];
-/// Canonical bounded StateMap scan provenance in manifest order.
+/// Canonical bounded `StateMap` scan provenance in manifest order.
 pub const V1_DYNAMIC_ACCESS_BOUND_KINDS: &[&str] = &["page", "take"];
 /// Maximum keys advertised by one bounded dynamic-access hint.
 pub const V1_DYNAMIC_ACCESS_MAX_KEYS: u32 = 64;
-/// Canonical prefix for a direct durable StateMap hint base.
+/// Canonical prefix for a direct durable `StateMap` hint base.
 pub const V1_DYNAMIC_ACCESS_BASE_PREFIX: &str = "state:";
-/// Canonical validation policy for the StateMap base identifier.
+/// Canonical validation policy for the `StateMap` base identifier.
 pub const V1_DYNAMIC_ACCESS_BASE_IDENTIFIER_POLICY: &str = "state_declaration_identifier";
-/// Dynamic hints may refer only to a directly declared top-level StateMap.
+/// Dynamic hints may refer only to a directly declared top-level `StateMap`.
 pub const V1_DYNAMIC_ACCESS_REQUIRES_DECLARED_STATE_MAP: bool = true;
 /// Dynamic hints are advisory and never scheduler-authoritative in V1.
 pub const V1_DYNAMIC_ACCESS_SCHEDULER_AUTHORITATIVE: bool = false;
@@ -170,13 +165,28 @@ pub const V1_LIST_MEMBER_NAMES: &[&str] = &[
 /// Prefix reserved for linker-synthesised symbols.
 pub const LINKED_SYMBOL_PREFIX: &str = "__kotodama_link_";
 /// Return whether a source declaration collides with compiler-owned names.
+///
+/// Only names source code can refer to are reserved: types, keywords handled
+/// by the lexer, compiler-owned extras and unnamespaced source builtins such
+/// as `require`. Compiler-internal lowering spellings (`min`, `authority`,
+/// `mint_asset`, ...) are not source names. All source functions may use them:
+/// typed calls retain separate user, builtin and compiler-intrinsic identities.
 pub fn is_reserved_source_declaration(name: &str, is_function: bool) -> bool {
     name.starts_with(LINKED_SYMBOL_PREFIX)
         || V1_SOURCE_TYPE_NAMES.contains(&name)
         || V1_DECLARATION_RESERVED_EXTRA_NAMES.contains(&name)
         || V1_FORBIDDEN_SOURCE_IDENTIFIERS.contains(&name)
-        || (is_function
-            && (Builtin::from_name(name).is_some() || Builtin::from_source_name(name).is_some()))
+        || is_compile_time_nominal_type(name)
+        || (is_function && Builtin::from_source_name(name).is_some())
+}
+/// Return whether `name` is a compiler-owned compile-time value type such as
+/// `Mintable`, whose values (`Mintable::Once`) are builtin arguments.
+///
+/// The set is derived from the builtin registry, so a declaration can never
+/// shadow the namespace of a nominal value the compiler folds.
+pub fn is_compile_time_nominal_type(name: &str) -> bool {
+    Builtin::all()
+        .any(|builtin| builtin.is_compile_time_nominal() && builtin.signature().return_type == name)
 }
 /// Return whether a declared source type collides with an active or retired
 /// compiler-owned type spelling.
@@ -193,28 +203,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtin_names_are_reserved_only_for_functions() {
-        let mut checked = 0;
-        for builtin in Builtin::all() {
-            for name in [builtin.name(), builtin.source_name()] {
-                if Builtin::from_name(name).is_none() && Builtin::from_source_name(name).is_none() {
-                    continue;
-                }
-                assert!(is_reserved_source_declaration(name, true), "{name}");
-                if V1_SOURCE_TYPE_NAMES.contains(&name)
-                    || V1_DECLARATION_RESERVED_EXTRA_NAMES.contains(&name)
-                    || V1_FORBIDDEN_SOURCE_IDENTIFIERS.contains(&name)
-                {
-                    continue;
-                }
-                assert!(!is_reserved_source_declaration(name, false), "{name}");
-                checked += 1;
-            }
+    fn only_source_visible_builtin_names_are_reserved_for_functions() {
+        assert!(is_reserved_source_declaration("require", true));
+        assert!(!is_reserved_source_declaration("require", false));
+        for name in [
+            "min",
+            "max",
+            "authority",
+            "chain_id",
+            "mint_asset",
+            "burn_asset",
+            "grant_role",
+            "register_account",
+            "info",
+            "name",
+            "is_some",
+            "expect",
+        ] {
+            assert!(!is_reserved_source_declaration(name, true), "{name}");
         }
-        assert!(
-            checked > 0,
-            "no builtin name is reserved only for functions"
-        );
+    }
+
+    #[test]
+    fn compile_time_nominal_types_are_reserved() {
+        for name in ["NumericSpec", "Mintable", "SignatureScheme"] {
+            assert!(is_compile_time_nominal_type(name), "{name}");
+            assert!(is_reserved_source_declaration(name, false), "{name}");
+            assert!(is_reserved_source_type_declaration(name), "{name}");
+        }
+        assert!(!is_compile_time_nominal_type("Rounding"));
+        assert!(!is_compile_time_nominal_type("Vault"));
     }
 
     #[test]

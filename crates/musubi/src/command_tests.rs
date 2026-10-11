@@ -145,12 +145,16 @@ fn assert_scaffold_compiler_workflows(root: &Path, cache_root: &Path) {
             std::slice::from_ref(&selector),
             &lock,
             action,
-            753,
+            CompilerSettingsV1 {
+                chain_discriminant: 753,
+                zk_enabled: false,
+                profile: "dev",
+            },
         )
         .expect("canonical scaffold compiler workflow");
         assert_eq!(execution.validated_packages, 1);
         assert_eq!(execution.contract_targets, 0);
-        assert_eq!(execution.warnings, 0);
+        assert!(execution.warnings.is_empty());
         assert!(
             execution.artifacts.is_empty(),
             "a library is not a contract"
@@ -298,9 +302,9 @@ fn init_preserves_existing_type_exports_and_custom_source_directory() {
     let temp = TempDir::new().expect("existing library directory");
     let root = temp.path().join("demo");
     fs::create_dir_all(root.join("library")).expect("custom source directory");
-    let source = "module Existing { export struct Receipt { int value; } export struct assert { int value; } }\n";
-    assert!(kotodama_surface::source_policy::is_reserved_source_declaration("assert", true));
-    assert!(!kotodama_surface::source_policy::is_reserved_source_type_declaration("assert"));
+    let source = "module Existing { export struct Receipt { int value; } export struct require { int value; } }\n";
+    assert!(kotodama_surface::source_policy::is_reserved_source_declaration("require", true));
+    assert!(!kotodama_surface::source_policy::is_reserved_source_type_declaration("require"));
     let library = root.join("library/lib.ko");
     fs::write(&library, source).expect("existing type export");
     for force in [false, true] {
@@ -317,7 +321,7 @@ fn init_preserves_existing_type_exports_and_custom_source_directory() {
             OsString::from("--export"),
             OsString::from("Receipt"),
             OsString::from("--export"),
-            OsString::from("assert"),
+            OsString::from("require"),
         ];
         if force {
             arguments.push(OsString::from("--force"));
@@ -349,7 +353,7 @@ fn new_source_rejects_function_only_reserved_exports_before_writing() {
             OsString::from("--namespace"),
             OsString::from("apps.sora"),
             OsString::from("--export"),
-            OsString::from("assert"),
+            OsString::from("require"),
         ]);
         assert_eq!(invocation.output.exit_code(), ErrorCode::Usage.exit_code());
         if command == "new" {
@@ -1132,9 +1136,10 @@ fn top_level_and_nested_command_inventory_is_exact() {
         command_names(&command),
         BTreeSet::from_iter(
             [
-                "add", "alias", "build", "cache", "call", "check", "deploy", "fetch", "info",
-                "init", "metadata", "network", "new", "owner", "package", "publish", "remove",
-                "search", "test", "tree", "unyank", "update", "versions", "view", "wallet", "yank",
+                "add", "alias", "bindgen", "build", "cache", "call", "check", "deploy", "fetch",
+                "info", "init", "lsp", "metadata", "network", "new", "owner", "package", "publish",
+                "remove", "search", "test", "tree", "unyank", "update", "versions", "view",
+                "wallet", "yank",
             ]
             .map(str::to_owned)
         )
@@ -1396,6 +1401,57 @@ fn workspace_test_failures_keep_their_stable_boundary_codes() {
     assert_eq!(
         test_runner_diagnostic(&WorkspaceTestErrorV1::Runner("failed".to_owned())).code(),
         ErrorCode::Compiler
+    );
+    assert_eq!(
+        test_runner_diagnostic(&WorkspaceTestErrorV1::Execution("fixture".to_owned())).code(),
+        ErrorCode::TestFailed
+    );
+    let bundle = kotodama_lang::diagnostic::DiagnosticBundle::single(
+        kotodama_lang::diagnostic::Diagnostic::error(
+            "K2003",
+            kotodama_lang::diagnostic::DiagnosticPhase::Semantic,
+            "operator `+` is not defined for `bool` and `int`",
+            Some(kotodama_lang::diagnostic::SourceSpan {
+                package_identity: None,
+                source: Some("tests/app.test.ko".to_owned()),
+                start: kotodama_lang::diagnostic::SourcePosition { line: 3, column: 9 },
+                end: kotodama_lang::diagnostic::SourcePosition {
+                    line: 3,
+                    column: 10,
+                },
+                byte_range: None,
+            }),
+        ),
+    );
+    let rendered = bundle.render_human();
+    let compilation = test_runner_diagnostic(&WorkspaceTestErrorV1::Compilation(bundle));
+    assert_eq!(compilation.code(), ErrorCode::Compiler);
+    assert_eq!(
+        compilation.render_human(),
+        format!(
+            "{rendered}\nerror[MUSUBI_E_COMPILER]: Kotodama rejected the selected test sources\n"
+        )
+    );
+    let output = CommandOutput::failure("test", compilation);
+    let json = output.render(OutputFormat::Json).expect("json failure");
+    let json: Value = norito::json::from_str(json.stdout()).expect("json document");
+    assert_eq!(
+        json.pointer("/error/message").and_then(Value::as_str),
+        Some("Kotodama rejected the selected test sources")
+    );
+    assert_eq!(
+        json.pointer("/error/diagnostics/0/code")
+            .and_then(Value::as_str),
+        Some("K2003")
+    );
+    assert!(json.pointer("/error/details/compiler_output").is_none());
+    let sarif = output.render(OutputFormat::Sarif).expect("sarif failure");
+    let sarif: Value = norito::json::from_str(sarif.stdout()).expect("sarif document");
+    assert_eq!(
+        sarif
+            .pointer("/runs/0/results/0/ruleId")
+            .and_then(Value::as_str),
+        Some("K2003")
     );
     assert_eq!(
         package_diagnostic(&PackageError::UnsupportedPlatform).code(),
@@ -2935,7 +2991,10 @@ mod local_workflows {
 #[test]
 fn generated_publication_cache_uses_the_explicit_private_root() {
     let temporary = TempDir::new().expect("private explicit cache fixture");
-    let selected = temporary.path().join("generated-cache");
+    // The cache reports its canonical root; temporary roots may sit behind a symlink.
+    let selected = fs::canonicalize(temporary.path())
+        .expect("canonical temporary root")
+        .join("generated-cache");
     let cache = open_cache_at(&selected).expect("existing canonical cache owner");
     assert_eq!(cache.root(), selected);
     assert!(selected.join("registry-v1").is_dir());
@@ -3025,7 +3084,7 @@ fn runtime_cache_contract_fixture(temp: &TempDir) -> (PathBuf, PathBuf) {
     add_dependency_to_fixture_manifest(&manifest);
     fs::write(
         root.join("contract.ko"),
-        "seiyaku CachedCoffee { view fn quote(int cups) -> int { return cups * 10; } }",
+        "seiyaku CachedCoffee { view fn quote(int cups) authorize(anyone) -> int { return cups * 10; } }",
     )
     .expect("real runtime contract source");
     let mut document = fs::read_to_string(&manifest).expect("runtime fixture manifest");
@@ -3154,10 +3213,12 @@ fn runtime_package_cold_registry_failure_uses_only_selected_cache_root() {
         &selected_cache,
         Some(&config),
         None,
-        &manifest,
-        None,
-        None,
-        false,
+        &RuntimePackageSelection {
+            manifest: &iroha_fs::SelectedRegularFile::capture(&manifest).unwrap(),
+            package: None,
+            contract: None,
+            locked: false,
+        },
         None,
     );
     assert_eq!(
@@ -3199,10 +3260,12 @@ fn runtime_package_recorded_resolver_and_real_archive_reuse_exact_cache_root() {
         &selected_cache,
         Some(&config),
         None,
-        &manifest,
-        None,
-        None,
-        false,
+        &RuntimePackageSelection {
+            manifest: &iroha_fs::SelectedRegularFile::capture(&manifest).unwrap(),
+            package: None,
+            contract: None,
+            locked: false,
+        },
         None,
     );
     assert_eq!(
@@ -3238,10 +3301,12 @@ fn runtime_package_recorded_resolver_and_real_archive_reuse_exact_cache_root() {
         &selected_cache,
         Some(&offline_config),
         None,
-        &manifest,
-        None,
-        None,
-        true,
+        &RuntimePackageSelection {
+            manifest: &iroha_fs::SelectedRegularFile::capture(&manifest).unwrap(),
+            package: None,
+            contract: None,
+            locked: true,
+        },
         None,
     )
     .expect("locked cache reuse without registry or provider HTTP");
@@ -3265,10 +3330,12 @@ fn runtime_package_recorded_resolver_and_real_archive_reuse_exact_cache_root() {
         &other_cache,
         Some(&refusing_config),
         None,
-        &manifest,
-        None,
-        None,
-        true,
+        &RuntimePackageSelection {
+            manifest: &iroha_fs::SelectedRegularFile::capture(&manifest).unwrap(),
+            package: None,
+            contract: None,
+            locked: true,
+        },
         None,
     );
     assert_eq!(
@@ -3299,4 +3366,468 @@ fn runtime_package_recorded_resolver_and_real_archive_reuse_exact_cache_root() {
         resolver_before
     );
     assert!(!temp.path().join("journals").exists());
+}
+
+#[cfg(unix)]
+fn contract_package(temp: &TempDir) -> PathBuf {
+    let root = temp.path().join("hello");
+    let invocation = invoke([
+        OsString::from("musubi"),
+        OsString::from("new"),
+        root.as_os_str().to_owned(),
+    ]);
+    assert_eq!(invocation.output.exit_code(), 0);
+    root.join(MANIFEST_FILE_NAME)
+}
+
+#[cfg(unix)]
+fn run_with_manifest(manifest: &Path, arguments: &[&str]) -> Invocation {
+    let mut argv = vec![
+        OsString::from("musubi"),
+        OsString::from("--manifest-path"),
+        manifest.as_os_str().to_owned(),
+    ];
+    argv.extend(arguments.iter().map(OsString::from));
+    invoke(argv)
+}
+
+#[cfg(unix)]
+#[test]
+fn unbound_local_commands_use_the_data_model_default_address_profile() {
+    let temp = TempDir::new().expect("package directory");
+    let manifest = contract_package(&temp);
+    let check = run_with_manifest(&manifest, &["--format", "json", "check"]);
+    let rendered = check.output.render(check.format).expect("json");
+    assert_eq!(rendered.exit_code(), 0, "{}", rendered.stdout());
+    let document: Value = norito::json::from_str(rendered.stdout()).expect("document");
+    assert_eq!(
+        document
+            .pointer("/data/network/chain_discriminant")
+            .and_then(Value::as_u64),
+        Some(u64::from(
+            iroha_data_model::account::address::chain_discriminant()
+        ))
+    );
+    assert_eq!(
+        document
+            .pointer("/data/network/name")
+            .and_then(Value::as_str),
+        Some("local")
+    );
+    let human = run_with_manifest(&manifest, &["check"])
+        .output
+        .render(OutputFormat::Human)
+        .expect("human");
+    assert!(
+        human
+            .stdout()
+            .starts_with("Local compilation for address profile 753;"),
+        "{}",
+        human.stdout()
+    );
+    let taira = run_with_manifest(
+        &manifest,
+        &["--format", "json", "check", "--network", "taira"],
+    );
+    let taira = taira.output.render(taira.format).expect("taira json");
+    let taira: Value = norito::json::from_str(taira.stdout()).expect("taira document");
+    assert_eq!(
+        taira
+            .pointer("/data/network/chain_discriminant")
+            .and_then(Value::as_u64),
+        Some(369)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn compiler_failures_reach_json_and_sarif_as_canonical_diagnostics() {
+    let temp = TempDir::new().expect("package directory");
+    let manifest = contract_package(&temp);
+    let contract = manifest
+        .parent()
+        .expect("package root")
+        .join("contracts/hello.ko");
+    let source = fs::read_to_string(&contract).expect("contract");
+    fs::write(&contract, source.replace("return count;", "return true;"))
+        .expect("introduce a type error");
+    let human = run_with_manifest(&manifest, &["check"]);
+    let error = match &human.output.render(OutputFormat::Human) {
+        Ok(rendered) => {
+            assert_eq!(rendered.exit_code(), ErrorCode::Compiler.exit_code());
+            rendered.stderr().to_owned()
+        }
+        Err(error) => panic!("render: {error}"),
+    };
+    assert_eq!(
+        error.matches("error[MUSUBI_E_COMPILER]").count(),
+        1,
+        "{error}"
+    );
+    assert!(!error.contains("compiler failed: error["), "{error}");
+    assert!(error.contains("--> contracts/hello.ko:"), "{error}");
+    let json = run_with_manifest(&manifest, &["--format", "json", "check"]);
+    let rendered = json.output.render(json.format).expect("json");
+    let document: Value = norito::json::from_str(rendered.stdout()).expect("document");
+    let diagnostic = document
+        .pointer("/error/diagnostics/0")
+        .expect("canonical diagnostic record");
+    assert!(diagnostic.get("code").and_then(Value::as_str).is_some());
+    assert_eq!(
+        diagnostic
+            .pointer("/primary_span/source")
+            .and_then(Value::as_str),
+        Some("contracts/hello.ko")
+    );
+    assert!(
+        !document
+            .pointer("/error/message")
+            .and_then(Value::as_str)
+            .expect("summary")
+            .contains("error[")
+    );
+    let sarif = run_with_manifest(&manifest, &["--format", "sarif", "build"]);
+    assert_eq!(sarif.format, OutputFormat::Sarif);
+    let rendered = sarif.output.render(sarif.format).expect("sarif");
+    assert_eq!(rendered.exit_code(), ErrorCode::Compiler.exit_code());
+    let document: Value = norito::json::from_str(rendered.stdout()).expect("sarif document");
+    assert!(
+        document
+            .pointer("/runs/0/results/0/ruleId")
+            .and_then(Value::as_str)
+            .is_some()
+    );
+    let other = run_with_manifest(&manifest, &["--format", "sarif", "metadata"]);
+    let rendered = other.output.render(other.format).expect("sarif usage");
+    assert_eq!(rendered.exit_code(), ErrorCode::Usage.exit_code());
+    assert!(rendered.stdout().contains("MUSUBI_E_USAGE"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_source_parse_and_semantic_failures_reach_json_and_sarif() {
+    let temp = TempDir::new().expect("package directory");
+    let manifest = contract_package(&temp);
+    let test_path = manifest
+        .parent()
+        .expect("package root")
+        .join("tests/hello.test.ko");
+    for body in ["let int value = 1", "test::assert(missing());"] {
+        fs::write(
+            &test_path,
+            format!(
+                r#"module Tests {{
+            koto_test {{ target: "../contracts/hello.ko" }}
+            #[test] fn broken() {{ {body} }}
+        }}"#
+            ),
+        )
+        .expect("invalid test source");
+        let invocation = run_with_manifest(&manifest, &["--format", "json", "test"]);
+        let rendered = invocation.output.render(invocation.format).expect("json");
+        assert_eq!(
+            rendered.exit_code(),
+            ErrorCode::Compiler.exit_code(),
+            "{}",
+            rendered.stdout()
+        );
+        let json: Value = norito::json::from_str(rendered.stdout()).expect("json document");
+        assert_eq!(
+            json.pointer("/error/diagnostics/0/primary_span/source")
+                .and_then(Value::as_str),
+            Some("tests/hello.test.ko")
+        );
+        let invocation = run_with_manifest(&manifest, &["--format", "sarif", "test"]);
+        let rendered = invocation.output.render(invocation.format).expect("sarif");
+        assert_eq!(rendered.exit_code(), ErrorCode::Compiler.exit_code());
+        let sarif: Value = norito::json::from_str(rendered.stdout()).expect("sarif document");
+        let rule = sarif
+            .pointer("/runs/0/results/0/ruleId")
+            .and_then(Value::as_str)
+            .expect("canonical compiler code");
+        assert!(!rule.starts_with("MUSUBI_"), "{rule}");
+        assert_eq!(
+            sarif
+                .pointer("/runs/0/results/0/locations/0/physicalLocation/artifactLocation/uri")
+                .and_then(Value::as_str),
+            Some("tests/hello.test.ko")
+        );
+    }
+}
+
+#[test]
+fn usage_errors_have_one_prefix_and_zk_reaches_the_build_options() {
+    let rendered = invoke(["musubi", "new"])
+        .output
+        .render(OutputFormat::Human)
+        .expect("usage failure");
+    assert!(
+        rendered
+            .stderr()
+            .starts_with("error[MUSUBI_E_USAGE]: the following required"),
+        "{}",
+        rendered.stderr()
+    );
+    assert!(!rendered.stderr().contains("error[MUSUBI_E_USAGE]: error:"));
+    for command in ["check", "build", "test"] {
+        let parsed = Cli::try_parse_from(["musubi", command, "--zk"]).expect("zk flag");
+        let args = match parsed.command {
+            Command::Check(args) | Command::Build(args) => args,
+            Command::Test(args) => args.build,
+            _ => panic!("expected compiler command"),
+        };
+        assert!(args.zk);
+    }
+    let sarif = invoke(["musubi", "--format", "sarif", "bogus"]);
+    assert_eq!(sarif.format, OutputFormat::Sarif);
+}
+
+#[test]
+fn escaping_path_dependencies_explain_the_shared_workspace() {
+    let help = shared_workspace_help(Path::new("/projects/app"), Path::new("/projects/feemath"));
+    assert!(help.contains("/projects/Musubi.toml"), "{help}");
+    assert!(help.contains(r#"members = ["app", "feemath"]"#), "{help}");
+    assert!(help.contains("--create-workspace"), "{help}");
+}
+
+#[cfg(unix)]
+fn new_package(parent: &Path, name: &str, template: &str) -> PathBuf {
+    let root = parent.join(name);
+    let invocation = invoke([
+        OsString::from("musubi"),
+        OsString::from("new"),
+        root.as_os_str().to_owned(),
+        OsString::from("--template"),
+        OsString::from(template),
+    ]);
+    let rendered = invocation
+        .output
+        .render(OutputFormat::Human)
+        .expect("scaffold output");
+    assert_eq!(rendered.exit_code(), 0, "{}", rendered.stderr());
+    root.join(MANIFEST_FILE_NAME)
+}
+
+#[cfg(unix)]
+#[test]
+fn sibling_path_dependencies_can_create_their_shared_workspace() {
+    let temp = TempDir::new().expect("project directory");
+    let projects = fs::canonicalize(temp.path()).expect("canonical project directory");
+    let app = new_package(&projects, "app", "contract");
+    let _feemath = new_package(&projects, "feemath", "library");
+    let shared = projects.join(MANIFEST_FILE_NAME);
+    let standalone = run_with_manifest(&app, &["check"]);
+    assert_eq!(standalone.output.exit_code(), 0);
+    assert!(projects.join("app").join(LOCK_FILE_NAME).is_file());
+    let refused = run_with_manifest(&app, &["add", "feemath", "--path", "../feemath"]);
+    let rendered = refused.output.render(OutputFormat::Human).expect("refusal");
+    assert_eq!(
+        rendered.exit_code(),
+        ErrorCode::WorkspaceInvalid.exit_code(),
+        "{}",
+        rendered.stderr()
+    );
+    assert!(
+        rendered.stderr().contains("--create-workspace"),
+        "{}",
+        rendered.stderr()
+    );
+    assert!(!shared.exists());
+    let added = run_with_manifest(
+        &app,
+        &[
+            "add",
+            "feemath",
+            "--path",
+            "../feemath",
+            "--create-workspace",
+        ],
+    );
+    let rendered = added.output.render(OutputFormat::Human).expect("added");
+    assert_eq!(rendered.exit_code(), 0, "{}", rendered.stderr());
+    assert!(
+        rendered.stdout().contains("created workspace"),
+        "{}",
+        rendered.stdout()
+    );
+    assert_eq!(
+        fs::read_to_string(&shared).expect("created workspace"),
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\", \"feemath\"]\n"
+    );
+    let workspace = load_workspace(&app).expect("shared workspace");
+    assert_eq!(workspace.root(), projects);
+    assert_eq!(workspace.members().len(), 2);
+    assert!(
+        fs::read_to_string(&app)
+            .expect("app manifest")
+            .contains("feemath = { path = \"../feemath\" }")
+    );
+    // The app was checked as a standalone package before; its old lock is reported, not deleted.
+    let stale = projects.join("app").join(LOCK_FILE_NAME);
+    assert!(
+        rendered
+            .stdout()
+            .contains(&format!("{} is no longer read; delete it", stale.display())),
+        "{}",
+        rendered.stdout()
+    );
+    assert!(stale.is_file());
+    let checked = run_with_manifest(&app, &["check"]);
+    let rendered = checked.output.render(OutputFormat::Human).expect("check");
+    assert_eq!(rendered.exit_code(), 0, "{}", rendered.stderr());
+    assert!(projects.join(LOCK_FILE_NAME).is_file());
+    let again = run_with_manifest(
+        &app,
+        &["add", "other", "--path", "../feemath", "--create-workspace"],
+    );
+    assert_eq!(again.output.exit_code(), ErrorCode::Usage.exit_code());
+}
+
+#[cfg(unix)]
+#[test]
+fn publishing_refuses_the_scaffold_placeholder_namespace() {
+    let temp = TempDir::new().expect("project directory");
+    let projects = fs::canonicalize(temp.path()).expect("canonical project directory");
+    let app = new_package(&projects, "app", "contract");
+    let refused = run_with_manifest(&app, &["publish"]);
+    let rendered = refused.output.render(OutputFormat::Human).expect("refusal");
+    assert_eq!(
+        rendered.exit_code(),
+        ErrorCode::Usage.exit_code(),
+        "{}",
+        rendered.stderr()
+    );
+    assert!(
+        rendered.stderr().contains("placeholder namespace `local`"),
+        "{}",
+        rendered.stderr()
+    );
+    assert!(!projects.join("app").join(PUBLICATION_LOCK_PATH).exists());
+    assert!(reject_placeholder_namespace(&"local/app".parse().expect("selector")).is_err());
+    assert!(reject_placeholder_namespace(&"demo/app".parse().expect("selector")).is_ok());
+}
+
+#[cfg(unix)]
+#[test]
+fn creating_a_shared_workspace_refuses_root_scoped_state_and_writes_nothing() {
+    let temp = TempDir::new().expect("project directory");
+    let projects = fs::canonicalize(temp.path()).expect("canonical project directory");
+    let app = new_package(&projects, "app", "contract");
+    let _feemath = new_package(&projects, "feemath", "library");
+    fs::write(projects.join("app/Musubi.networks.toml"), "version = 1\n")
+        .expect("network bindings");
+    let refused = run_with_manifest(
+        &app,
+        &[
+            "add",
+            "feemath",
+            "--path",
+            "../feemath",
+            "--create-workspace",
+        ],
+    );
+    let rendered = refused.output.render(OutputFormat::Human).expect("refusal");
+    assert_eq!(
+        rendered.exit_code(),
+        ErrorCode::WorkspaceInvalid.exit_code(),
+        "{}",
+        rendered.stderr()
+    );
+    assert!(
+        rendered.stderr().contains("Musubi.networks.toml"),
+        "{}",
+        rendered.stderr()
+    );
+    assert!(!projects.join(MANIFEST_FILE_NAME).exists());
+    assert!(
+        !fs::read_to_string(&app)
+            .expect("app manifest")
+            .contains("feemath")
+    );
+    assert!(
+        Cli::try_parse_from(["musubi", "add", "feemath", "--create-workspace"]).is_err(),
+        "--create-workspace requires --path"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn workspace_diagnostics_name_member_sources_from_the_workspace_root() {
+    let temp = TempDir::new().expect("project directory");
+    let projects = fs::canonicalize(temp.path()).expect("canonical project directory");
+    let app = new_package(&projects, "app", "contract");
+    let _feemath = new_package(&projects, "feemath", "library");
+    let added = run_with_manifest(
+        &app,
+        &[
+            "add",
+            "feemath",
+            "--path",
+            "../feemath",
+            "--create-workspace",
+        ],
+    );
+    assert_eq!(added.output.exit_code(), 0);
+    let shared = projects.join(MANIFEST_FILE_NAME);
+    let library = projects.join("feemath/src/lib.ko");
+    let library_source = fs::read_to_string(&library).expect("library source");
+    fs::write(
+        &library,
+        "module Feemath {\n    export fn double(int x) -> int {\n        return true;\n    }\n}\n",
+    )
+    .expect("introduce a library type error");
+    let located = |format: &str| {
+        let invocation = run_with_manifest(&shared, &["--format", format, "check", "--workspace"]);
+        let rendered = invocation.output.render(invocation.format).expect("render");
+        assert_eq!(rendered.exit_code(), ErrorCode::Compiler.exit_code());
+        rendered
+    };
+    let json: Value = norito::json::from_str(located("json").stdout()).expect("json document");
+    let span = json
+        .pointer("/error/diagnostics/0/primary_span")
+        .expect("library diagnostic span");
+    assert_eq!(
+        span.get("source").and_then(Value::as_str),
+        Some("feemath/src/lib.ko")
+    );
+    assert_eq!(span.get("package_identity"), Some(&Value::Null));
+    let human = located("human");
+    assert!(
+        human.stderr().contains("--> feemath/src/lib.ko:3:9"),
+        "{}",
+        human.stderr()
+    );
+    assert!(
+        !human.stderr().contains("musubi/local/"),
+        "{}",
+        human.stderr()
+    );
+    fs::write(&library, library_source).expect("restore library");
+    let contract = projects.join("app/contracts/app.ko");
+    let contract_source = fs::read_to_string(&contract).expect("contract source");
+    fs::write(
+        &contract,
+        contract_source.replace("return count;", "return true;"),
+    )
+    .expect("introduce a contract type error");
+    let sarif: Value = norito::json::from_str(located("sarif").stdout()).expect("sarif document");
+    assert_eq!(
+        sarif
+            .pointer("/runs/0/results/0/locations/0/physicalLocation/artifactLocation/uri")
+            .and_then(Value::as_str),
+        Some("app/contracts/app.ko")
+    );
+    let standalone = run_with_manifest(&app, &["--format", "json", "check"]);
+    let rendered = standalone
+        .output
+        .render(standalone.format)
+        .expect("member json");
+    let document: Value = norito::json::from_str(rendered.stdout()).expect("member document");
+    assert_eq!(
+        document
+            .pointer("/error/diagnostics/0/primary_span/source")
+            .and_then(Value::as_str),
+        Some("app/contracts/app.ko"),
+        "member commands report paths from the shared workspace root"
+    );
 }

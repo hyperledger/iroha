@@ -129,6 +129,11 @@ pub struct ResetArgs {
 pub(crate) enum DataspaceCommand {
     /// Create, fund, register, and select four private validators without supplying configuration.
     Up(DataspaceUpArgs),
+    /// Register a retained inactive AMX instance; explicitly run localnet down first.
+    #[command(
+        long_about = "Explicit administrative parent AMX registration of one retained private generation. Requires exclusive inactive custody: use `kagami localnet down NAME` before this action, then `kagami localnet up NAME` to restart that same generation. Signing material is selected only by --admin-config; recovery never renews the original fees or UTC deadline."
+    )]
+    RegisterAmx(DataspaceAmxRegistrationArgs),
     /// Observe local validators and independently verified parent attachment separately.
     Status(ContextShowArgs),
     /// List the independently pinned network profiles supplied by this installation.
@@ -149,6 +154,29 @@ pub(crate) struct DataspaceUpArgs {
     #[arg(long)]
     name: Option<String>,
     /// Complete parent authentication, local startup, and attachment budget in seconds.
+    #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=60))]
+    timeout: u64,
+    #[command(flatten)]
+    store: StoreArgs,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct DataspaceAmxRegistrationArgs {
+    /// Exact retained private managed context; no new child is prepared.
+    name: String,
+    /// Explicit parent administrative client configuration, with runtime-only signing custody.
+    #[arg(long)]
+    admin_config: PathBuf,
+    /// Exact parent fee asset; no asset is inferred from the child or SNS owner.
+    #[arg(long)]
+    fee_asset: AssetDefinitionId,
+    /// Positive aggregate fee ceiling for the original transaction.
+    #[arg(long)]
+    max_fee: Quantity,
+    /// Original exclusive Unix millisecond signing authorization; repeat unchanged on recovery.
+    #[arg(long)]
+    deadline_unix_ms: u64,
+    /// Fresh I/O budget only, bounded by the original authorization and release.
     #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=60))]
     timeout: u64,
     #[command(flatten)]
@@ -331,6 +359,8 @@ pub struct WorkerArgs {
     name: String,
     #[arg(long, value_parser = clap::value_parser!(u64).range(1..=600000))]
     startup_timeout_ms: u64,
+    #[arg(long)]
+    startup_deadline_ns: u128,
 }
 
 impl<T: Write> RunArgs<T> for WorkerArgs {
@@ -340,6 +370,7 @@ impl<T: Write> RunArgs<T> for WorkerArgs {
             &store,
             &self.name,
             Duration::from_millis(self.startup_timeout_ms),
+            self.startup_deadline_ns,
         )?;
         Ok(())
     }
@@ -470,6 +501,43 @@ impl<T: Write> RunArgs<T> for DataspaceCommand {
                     }
                 }
             }
+            Self::RegisterAmx(args) => {
+                let administrator =
+                    iroha::config::Config::load_file(args.store.resolve_path(&args.admin_config)?)
+                        .wrap_err("open explicitly selected parent administrator")?;
+                let options = managed::ManagedAmxRegistrationOptions {
+                    fee_asset: args.fee_asset,
+                    max_fee: args.max_fee,
+                    deadline_unix_ms: args.deadline_unix_ms,
+                    timeout: Duration::from_secs(args.timeout),
+                };
+                let result = args.store.open()?.register_amx_dataspace(
+                    &InstalledRuntime::discover()?, &args.name, &administrator, &options,
+                ).wrap_err("administrative AMX registration failed; retain the exact original source and operation")?;
+                let (finalized, outcome) = match result.finalized {
+                    Some(iroha_deploy::attachment::AmxRegistrationFinality::Registered(
+                        finality,
+                    )) => (Some(finality), "registered"),
+                    Some(iroha_deploy::attachment::AmxRegistrationFinality::Rejected(finality)) => {
+                        (Some(finality), "rejected")
+                    }
+                    None => (None, "pending"),
+                };
+                let receipt = norito::json!({
+                    "context": (args.name), "outcome": outcome,
+                    "transaction_status": (result.transaction_status.map(|status| status.as_str())),
+                    "finality": (finalized.map(|f| norito::json!({
+                        "transaction_hash": (f.transaction_hash.to_string()), "height": (f.height),
+                        "block_hash": (f.block_hash.to_string()), "block_time_ms": (f.block_time_ms),
+                    }))),
+                });
+                write_json(writer, &receipt)?;
+                ensure!(
+                    outcome == "registered",
+                    "AMX registration is {outcome}; retain the original administrative journal"
+                );
+                Ok(())
+            }
             Self::Status(args) => {
                 let store = args.store.open()?;
                 let context = store.context(args.name.as_deref())?;
@@ -523,23 +591,8 @@ impl<T: Write> RunArgs<T> for PackageCommand {
         let manifest = args
             .store
             .resolve_path(args.manifest.as_deref().unwrap_or_else(|| Path::new(".")))?;
-        // Resume observes the retained journal/sidecars and does not reopen source manifests.
-        if !matches!(
-            &action,
-            musubi::generated_publication::GeneratedPublishAction::Resume { .. }
-        ) {
-            let workspace = musubi::workspace::load_workspace(&manifest)?;
-            if let musubi::generated_publication::GeneratedPublishAction::Begin {
-                package, ..
-            } = &action
-            {
-                let packages = package.iter().cloned().collect::<Vec<_>>();
-                ensure!(
-                    workspace.select_members(false, &packages, &[])?.len() == 1,
-                    "package publication requires exactly one selected member"
-                );
-            }
-        }
+        let action =
+            musubi::generated_publication::prepare_generated_publish_action(&manifest, action)?;
         let store = args.store.open()?;
         if !matches!(
             &action,
@@ -707,7 +760,8 @@ impl<T: Write> RunArgs<T> for DeployArgs {
                 &mut progress,
             )?
         };
-        let report = target.finish(&store, deployed.receipt, deployed.journal)?;
+        let mut report = target.finish(&store, deployed.receipt, deployed.journal)?;
+        report.lifecycle = deployed.lifecycle;
         if args.store.json {
             write_json(writer, &report.to_json()?)
         } else {
@@ -720,6 +774,9 @@ impl<T: Write> RunArgs<T> for DeployArgs {
             writeln!(writer, "address: {}", report.receipt.contract_address)?;
             writeln!(writer, "code_hash: {}", report.receipt.code_hash)?;
             writeln!(writer, "journal: {}", report.journal.display())?;
+            if let Some(lifecycle) = &report.lifecycle {
+                writeln!(writer, "{}", lifecycle.summary())?;
+            }
             if let Some(parent) = report.parent_summary() {
                 writeln!(writer, "{parent}")?;
             }
@@ -903,7 +960,9 @@ fn up(store: &ManagedStore, name: &str, timeout: u64) -> Result<ManagedStatus> {
     match store.prepared(name) {
         Ok(prepared) => {
             request.service_profile = prepared.service_profile;
-            store.up_retained(&request).map_err(Into::into)
+            store
+                .up_retained(&request, &prepared.context)
+                .map_err(Into::into)
         }
         Err(iroha_deploy::managed::Error::Io(error))
             if error.kind() == std::io::ErrorKind::NotFound =>
@@ -1154,6 +1213,119 @@ fn write_json(writer: &mut impl Write, value: &impl norito::json::JsonSerialize)
 mod tests {
     use super::*;
     use clap::Parser as _;
+
+    #[test]
+    fn administrative_amx_cli_requires_explicit_parent_signer_and_original_finite_terms() {
+        let common = ["kagami", "dataspace", "register-amx", "private"];
+        let arguments = [
+            "--admin-config",
+            "parent-admin.toml",
+            "--fee-asset",
+            iroha_deploy::genesis::profile::TAIRA_XOR_ASSET_DEFINITION_ID,
+            "--max-fee",
+            "1",
+            "--deadline-unix-ms",
+            "1234567890000",
+        ];
+        let parsed = crate::Cli::try_parse_from(common.into_iter().chain(arguments)).unwrap();
+        let crate::Command::Dataspace(DataspaceCommand::RegisterAmx(args)) = parsed.command else {
+            panic!("wrong administrative action");
+        };
+        assert_eq!(args.name, "private");
+        assert_eq!(args.admin_config, Path::new("parent-admin.toml"));
+        assert_eq!(args.deadline_unix_ms, 1234567890000);
+        assert_eq!(args.timeout, 60);
+        assert_eq!(args.max_fee, Quantity::from(1_u32));
+        assert!(crate::Cli::try_parse_from(common).is_err());
+        let help = crate::Cli::try_parse_from(common.into_iter().chain(["--help"]))
+            .err()
+            .expect("help must exit through Clap's display result")
+            .to_string();
+        assert!(help.contains("localnet down NAME") && help.contains("localnet up NAME"));
+        for index in [0, 2, 4, 6] {
+            assert!(
+                crate::Cli::try_parse_from(
+                    common.into_iter().chain(
+                        arguments
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, a)| (!(index..index + 2).contains(&i)).then_some(*a))
+                    )
+                )
+                .is_err()
+            );
+        }
+        for timeout in ["0", "61"] {
+            assert!(
+                crate::Cli::try_parse_from(
+                    common
+                        .into_iter()
+                        .chain(arguments)
+                        .chain(["--timeout", timeout])
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn internal_worker_requires_the_absolute_deadline_and_keeps_bounded_milliseconds() {
+        let base = [
+            "kagami",
+            "_managed-worker",
+            "--root",
+            "state",
+            "--name",
+            "local",
+        ];
+        assert!(
+            crate::Cli::try_parse_from(base.into_iter().chain(["--startup-timeout-ms", "30000"]))
+                .is_err()
+        );
+        for milliseconds in ["1", "30000", "600000"] {
+            let parsed = crate::Cli::try_parse_from(base.into_iter().chain([
+                "--startup-timeout-ms",
+                milliseconds,
+                "--startup-deadline-ns",
+                "18446744073709551616",
+            ]))
+            .unwrap();
+            let crate::Command::ManagedWorker(worker) = parsed.command else {
+                panic!("wrong command");
+            };
+            assert_eq!(
+                worker.startup_timeout_ms,
+                milliseconds.parse::<u64>().unwrap()
+            );
+            assert_eq!(worker.startup_deadline_ns, 18_446_744_073_709_551_616_u128);
+        }
+        for milliseconds in ["0", "600001", "-1"] {
+            assert!(
+                crate::Cli::try_parse_from(base.into_iter().chain([
+                    "--startup-timeout-ms",
+                    milliseconds,
+                    "--startup-deadline-ns",
+                    "1"
+                ]))
+                .is_err()
+            );
+        }
+        for deadline in [
+            "-1",
+            "not-an-integer",
+            "340282366920938463463374607431768211456",
+        ] {
+            assert!(
+                crate::Cli::try_parse_from(base.into_iter().chain([
+                    "--startup-timeout-ms",
+                    "30000",
+                    "--startup-deadline-ns",
+                    deadline
+                ]))
+                .is_err()
+            );
+        }
+    }
 
     #[test]
     fn relative_inputs_and_journals_use_the_selected_workspace() {
@@ -1523,6 +1695,29 @@ mod tests {
     }
 
     #[test]
+    fn full_length_dataspace_cli_inputs_preserve_alias_and_explicit_context() {
+        for length in [48, 49, 63] {
+            let alias = "a".repeat(length);
+            for explicit in [None, Some("chosen-context")] {
+                let mut argv = vec!["kagami", "dataspace", "up", &alias, "--network", "taira"];
+                if let Some(name) = explicit {
+                    argv.extend(["--name", name]);
+                }
+                let crate::Command::Dataspace(DataspaceCommand::Up(args)) =
+                    crate::Cli::try_parse_from(argv).unwrap().command
+                else {
+                    panic!("expected private dataspace startup");
+                };
+                assert_eq!(args.alias, alias);
+                assert_eq!(args.name.as_deref(), explicit);
+                assert_eq!(args.network, "taira");
+                assert_eq!(args.account_alias, "admin");
+                assert_eq!(args.timeout, 60);
+            }
+        }
+    }
+
+    #[test]
     fn dataspace_up_retains_an_explicit_owner_alias_label() {
         let cli = crate::Cli::try_parse_from([
             "kagami",
@@ -1679,7 +1874,19 @@ mod tests {
         std::fs::write(&unsupported, "unsupported input").unwrap();
         let source = temporary.path().join("contract.ko");
         std::fs::write(&source, "seiyaku Test {}").unwrap();
-        for (path, alias) in [(&unsupported, None), (&source, Some("not an alias"))] {
+        let bytecode = temporary.path().join("invalid.to");
+        std::fs::write(&bytecode, b"not an IVM artifact").unwrap();
+        let package = temporary.path().join("package");
+        std::fs::create_dir(&package).unwrap();
+        let manifest = package.join("Musubi.toml");
+        std::fs::write(&manifest, "[broken").unwrap();
+        for (path, alias) in [
+            (&unsupported, None),
+            (&source, Some("not an alias")),
+            (&bytecode, None),
+            (&manifest, None),
+            (&package, None),
+        ] {
             let mut args = vec![
                 "kagami",
                 "contract",
@@ -1913,5 +2120,43 @@ mod tests {
         );
         assert!(check_fee_budget(std::iter::empty(), Some(&Quantity::zero())).is_ok());
         assert!(check_fee_budget([(&xor, &first)].into_iter(), None).is_ok());
+    }
+
+    #[test]
+    fn member_publication_refuses_another_package_before_creating_managed_state() {
+        let temporary = tempfile::tempdir().unwrap();
+        let project = temporary.path().join("project");
+        let state = temporary.path().join("state");
+        std::fs::create_dir_all(project.join("app")).unwrap();
+        std::fs::create_dir(project.join("other")).unwrap();
+        std::fs::write(project.join("Musubi.toml"), "manifest-version = 1\n[workspace]\nmembers = [\"app\", \"other\"]\ndefault-members = [\"other\"]\n").unwrap();
+        for name in ["app", "other"] {
+            std::fs::write(project.join(name).join("Musubi.toml"), format!("manifest-version = 1\n[package]\nnamespace = \"dev.universal\"\nname = \"{name}\"\nversion = \"1.0.0\"\nedition = \"1\"\nabi-version = 1\n[lib]\nexports = []\n")).unwrap();
+        }
+        for input in ["app", "app/Musubi.toml"] {
+            let cli = crate::Cli::try_parse_from([
+                "kagami",
+                "package",
+                "publish",
+                input,
+                "--workspace",
+                project.to_str().unwrap(),
+                "--package",
+                "dev.universal/other",
+                "--state",
+                state.to_str().unwrap(),
+            ])
+            .unwrap();
+            let mut writer = BufWriter::new(Vec::new());
+            let error = cli.command.run(&mut writer).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "selected member manifest cannot select another package"
+            );
+            assert!(writer.into_inner().unwrap().is_empty());
+            assert!(!state.exists());
+            assert!(!project.join("Musubi.lock").exists());
+            assert!(!project.join("target").exists());
+        }
     }
 }

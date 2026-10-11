@@ -1,23 +1,16 @@
-//! Qc's exact nested payload, decoding finite metadata separately from its funded witness.
-
-use std::ops::Range;
+//! Qc's exact canonical payload with fixed metadata and pre-allocation bitmap bounds.
 
 use iroha_sumeragi::{
-    message::{
-        AttestationSignature, MAX_ATTESTATION_SIGNATURE_BYTES, MAX_BITMAP_BYTES,
-        MAX_RESULT_WITNESS_BYTES, Qc, ResultWitness, VoteKind,
-    },
+    message::{MAX_BITMAP_BYTES, Qc, VoteKind},
     types::{AggregateSignature, Bitmap, EpochId, Hash32, MAX_COMMITTEE_SIZE},
 };
 use norito::core as ncore;
 
-use crate::sumeragi::durable_record_codec::{BytesRef, FieldRef, byte_range, field_range};
+use crate::sumeragi::durable_record_codec::{FieldRef, field_range};
 
-// Scalar fields/lengths fit 1024 bytes, bitmap fits MAX_BITMAP_BYTES plus framing, and each
-// inline attestation uses its advertised bound plus 32 bytes of canonical length framing.
-// This cap is checked before generic metadata decoding and excludes the separately funded witness.
-pub(super) const MAX_QC_METADATA_BYTES: usize =
-    1024 + MAX_BITMAP_BYTES + MAX_COMMITTEE_SIZE * (MAX_ATTESTATION_SIGNATURE_BYTES + 32);
+// Nine fields, including fixed scalar/hash/signature data and the bounded signer bitmap.
+// This cap is checked before generic metadata decoding, independently of any body length.
+pub(super) const MAX_QC_METADATA_BYTES: usize = 1024 + MAX_BITMAP_BYTES;
 
 #[derive(norito::Encode)]
 pub(super) struct QcRef<'a> {
@@ -28,11 +21,8 @@ pub(super) struct QcRef<'a> {
     view: FieldRef<'a, u64>,
     block_hash: FieldRef<'a, Hash32>,
     result: FieldRef<'a, Hash32>,
-    attest: FieldRef<'a, bool>,
     signers: FieldRef<'a, Bitmap>,
     agg_sig: FieldRef<'a, AggregateSignature>,
-    attestations: FieldRef<'a, Vec<AttestationSignature>>,
-    attestation_witness: Option<BytesRef<'a>>,
 }
 impl norito::NoritoSchema for QcRef<'_> {
     fn nominal_name() -> String {
@@ -53,20 +43,14 @@ impl<'a> From<&'a Qc> for QcRef<'a> {
             view: FieldRef(&qc.view),
             block_hash: FieldRef(&qc.block_hash),
             result: FieldRef(&qc.result),
-            attest: FieldRef(&qc.attest),
             signers: FieldRef(&qc.signers),
             agg_sig: FieldRef(&qc.agg_sig),
-            attestations: FieldRef(&qc.attestations),
-            attestation_witness: qc
-                .attestation_witness
-                .as_ref()
-                .map(|w| BytesRef(w.as_slice())),
         }
     }
 }
 
-// This is deliberately only Qc's first eleven fields, with the same payload codec/order.
-// It has no root schema, no witness and no generic Decode path that can allocate bulk bytes.
+// The same nine fields and payload order as Qc, decoded only after the finite byte cap.
+// Borrowed encoding validates the original canonical frame without copying these fields.
 #[derive(norito::Encode, norito::Decode)]
 pub(super) struct QcMetadata {
     kind: VoteKind,
@@ -76,13 +60,11 @@ pub(super) struct QcMetadata {
     view: u64,
     block_hash: Hash32,
     result: Hash32,
-    attest: bool,
     signers: Bitmap,
     agg_sig: AggregateSignature,
-    attestations: Vec<AttestationSignature>,
 }
 impl QcMetadata {
-    pub(super) fn borrowed<'a>(&'a self, witness: Option<&'a [u8]>) -> QcRef<'a> {
+    pub(super) fn borrowed(&self) -> QcRef<'_> {
         QcRef {
             kind: FieldRef(&self.kind),
             instance: FieldRef(&self.instance),
@@ -91,14 +73,11 @@ impl QcMetadata {
             view: FieldRef(&self.view),
             block_hash: FieldRef(&self.block_hash),
             result: FieldRef(&self.result),
-            attest: FieldRef(&self.attest),
             signers: FieldRef(&self.signers),
             agg_sig: FieldRef(&self.agg_sig),
-            attestations: FieldRef(&self.attestations),
-            attestation_witness: witness.map(BytesRef),
         }
     }
-    pub(super) fn finish(self, witness: Option<ResultWitness>) -> Qc {
+    pub(super) fn finish(self) -> Qc {
         Qc {
             kind: self.kind,
             instance: self.instance,
@@ -107,34 +86,27 @@ impl QcMetadata {
             view: self.view,
             block_hash: self.block_hash,
             result: self.result,
-            attest: self.attest,
             signers: self.signers,
             agg_sig: self.agg_sig,
-            attestations: self.attestations,
-            attestation_witness: witness,
         }
     }
 }
 
-/// Parse only the declared canonical Qc field layout; the caller holds the advertised context.
-/// ResultWitness is returned as a range into the original record, never decoded into a Vec.
-pub(super) fn parse(bytes: &[u8]) -> Result<(QcMetadata, Option<Range<usize>>), norito::Error> {
-    let mut offset = 0;
-    for index in 0..11 {
-        let field = field_range(bytes, &mut offset)?;
-        let cap = if index == 10 {
-            MAX_QC_METADATA_BYTES
-        } else {
-            1024
-        };
-        if field.len() > cap || offset > MAX_QC_METADATA_BYTES {
-            return Err(norito::Error::FieldLengthExceeded {
-                length: offset as u64,
-                limit: MAX_QC_METADATA_BYTES as u64,
-            });
-        }
+/// Decode only the declared nine-field layout after checking every finite field range.
+pub(super) fn parse(bytes: &[u8]) -> Result<QcMetadata, norito::Error> {
+    if bytes.len() > MAX_QC_METADATA_BYTES {
+        return Err(norito::Error::FieldLengthExceeded {
+            length: bytes.len() as u64,
+            limit: MAX_QC_METADATA_BYTES as u64,
+        });
     }
-    let metadata_end = offset;
+    let mut offset = 0;
+    for _ in 0..9 {
+        field_range(bytes, &mut offset)?;
+    }
+    if offset != bytes.len() {
+        return Err(norito::Error::LengthMismatch);
+    }
     let metadata: QcMetadata = ncore::with_decode_limits(
         norito::DecodeLimits::new(
             MAX_COMMITTEE_SIZE,
@@ -143,54 +115,32 @@ pub(super) fn parse(bytes: &[u8]) -> Result<(QcMetadata, Option<Range<usize>>), 
             MAX_QC_METADATA_BYTES * 8,
             ncore::MAX_VALUE_NESTING_DEPTH,
         ),
-        || ncore::decode_field_canonical(&bytes[..metadata_end]).map(|(value, _)| value),
+        || ncore::decode_field_canonical(bytes).map(|(value, _)| value),
     )?;
-    if metadata.signers.as_bytes().len() > MAX_BITMAP_BYTES
-        || metadata.attestations.len() > MAX_COMMITTEE_SIZE
-    {
+    if metadata.signers.as_bytes().len() > MAX_BITMAP_BYTES {
         return Err(norito::Error::NonCanonicalEncoding);
     }
-    let witness_field = field_range(bytes, &mut offset)?;
-    if offset != bytes.len() {
-        return Err(norito::Error::LengthMismatch);
-    }
-    let value = &bytes[witness_field.clone()];
-    let witness = match value.first() {
-        Some(0) if value.len() == 1 => None,
-        Some(1) => {
-            let mut at = 1;
-            let field = field_range(value, &mut at)?;
-            if at != value.len() {
-                return Err(norito::Error::LengthMismatch);
-            }
-            let range = byte_range(value, field, 1, MAX_RESULT_WITNESS_BYTES)?;
-            Some((witness_field.start + range.start)..(witness_field.start + range.end))
-        }
-        _ => return Err(norito::Error::NonCanonicalEncoding),
-    };
-    Ok((metadata, witness))
+    Ok(metadata)
 }
 
-/// Validate the standalone canonical Qc frame, leaving its bulk witness in the original source.
-/// Returned witness ranges are relative to `raw`; no destination or admission occurs here.
-pub(super) fn parse_frame(raw: &[u8]) -> Result<(QcMetadata, Option<Range<usize>>), norito::Error> {
+/// Validate the exact standalone canonical Qc frame without accepting a second layout.
+pub(super) fn parse_frame(raw: &[u8]) -> Result<QcMetadata, norito::Error> {
+    if raw.len() > MAX_QC_METADATA_BYTES + ncore::Header::SIZE {
+        return Err(norito::Error::FieldLengthExceeded {
+            length: raw.len() as u64,
+            limit: (MAX_QC_METADATA_BYTES + ncore::Header::SIZE) as u64,
+        });
+    }
     let view = ncore::from_bytes_view(raw)?;
     if view.schema() != norito::schema::identity::frame_hash::<Qc>() {
         return Err(norito::Error::SchemaMismatch);
     }
     let bytes = view.as_bytes();
-    let base = raw
-        .len()
-        .checked_sub(bytes.len())
-        .ok_or(norito::Error::LengthMismatch)?;
-    let (metadata, witness) = {
+    let metadata = {
         let _context =
             ncore::PayloadCtxGuard::enter_with_schema_and_flags(bytes, view.schema(), view.flags());
         parse(bytes)?
     };
-    norito::verify_exact_canonical_frame(
-        &metadata.borrowed(witness.as_ref().map(|r| &bytes[r.clone()])),
-        raw,
-    )?;
-    Ok((metadata, witness.map(|r| (base + r.start)..(base + r.end))))
+    norito::verify_exact_canonical_frame(&metadata.borrowed(), raw)?;
+    Ok(metadata)
 }

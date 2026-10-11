@@ -5,19 +5,19 @@
 //! [`ExecutionResultCommitment`] binds:
 //! - the [`ExecutionCommitment`]: the complete World state roots before and after the block's
 //!   execution and the Merkle commitment of the events it emitted ([`WorldStateTransition`]),
-//!   the witnessed pre- and post-state roots, the ordinary-write root, the KAGEMUSHA top-up root
-//!   and count, the exact result-bearing block wire (length and hash; it carries every
+//!   the witnessed pre- and post-state roots, the ordinary-write root, the exact result-bearing
+//!   block wire (length and hash; it carries every
 //!   transaction result and trigger output) and the network-input and typed-output Merkle
 //!   commitments;
 //! - the exact current native epoch and complete successor schedule, retaining every ordered
-//!   BLS key, original PoP, immutable Pasta generation and epoch authorization;
+//!   BLS key, original PoP, validator generation and epoch authorization;
 //! - the mandatory complete lane-context set proof against the exact ordinary-write root;
 //! - the finalized beacon pulse consumed by execution and the atomic epoch-boundary decision.
 //!   Chain parameters retain lag two; authority beyond a boundary stays unavailable until that
 //!   boundary is certified and applied (§10.1, [`super::schedule`]).
 //!
 //! The canonical preimage is stored as `CommitCertificate.result_preimage` next to the block, so a
-//! proof (§11) or a KAGEMUSHA attestation (§3.7) can disclose it and anyone can re-hash it
+//! proof (§11) can disclose it and anyone can re-hash it
 //! ([`result_of_preimage`]).
 //!
 //! The World state roots are roots of the complete World state accumulator
@@ -25,7 +25,7 @@
 //! multiset hash over every canonical World entry, updated from the block's complete change set,
 //! so divergence in any World state (roles, permissions, peers, parameters, triggers, ...)
 //! changes `R` at the block that causes it. The witnessed roots stay: the ordinary-write root
-//! carries the per-key sparse-Merkle proofs of a block's writes (§11, KAGEMUSHA receipts).
+//! carries the per-key sparse-Merkle proofs of a block's writes (§11).
 //!
 //! Every function here is pure and deterministic: the inputs are the execution witness, the
 //! executed block, the World state transition and the scheduled configuration; no clock, no
@@ -35,16 +35,10 @@
 //! [`iroha_data_model::sumeragi_finality`]; this module produces those canonical values from
 //! Core's execution witnesses and retained schedule without defining a parallel wire layout.
 
-use std::collections::BTreeMap;
-
 use iroha_crypto::{Hash, HashOf, MerkleTree, MerkleTreeCommitment};
 use iroha_data_model::{
     block::{SignedBlock, consensus::ExecWitness},
     events::EventBox,
-    execution_witness::KAGEMUSHA_RESERVE_RECEIPT_WITNESS_KEY_TAG_V1,
-    isi::kagemusha_v1::{
-        KagemushaOperationKindV1, KagemushaReserveReceiptV1, KagemushaReserveReceiptWitnessV1,
-    },
     sumeragi_finality::MAX_EXECUTED_BLOCK_WIRE_BYTES,
 };
 #[cfg(test)]
@@ -141,21 +135,10 @@ pub fn execution_commitment(
         witnessed_root
     };
     let parent_state_root = parent_state_from_witness(witness);
-    let (post_state_root, kagemusha_top_up_root, kagemusha_top_up_count) =
-        match kagemusha_top_ups(witness)? {
-            None => (witnessed_root, None, 0),
-            Some((root, count)) => (
-                ExecutionCommitment::kagemusha_post_state_root(count, ordinary_writes_root, root),
-                Some(root),
-                count,
-            ),
-        };
     Ok(ExecutionCommitment {
         parent_state_root,
-        post_state_root,
+        post_state_root: witnessed_root,
         ordinary_writes_root,
-        kagemusha_top_up_root,
-        kagemusha_top_up_count,
         parent_world_state_root: transition.parent_world_state_root,
         world_state_root: transition.world_state_root,
         event_commitment: transition.event_commitment,
@@ -345,56 +328,6 @@ impl std::io::Write for ResultPreimageWriter<'_> {
     }
 }
 
-/// The KAGEMUSHA top-up root and count of the witness (`None` without top-ups), from the
-/// canonical last-write-wins receipt writes. No sparse-tree path is built: `R` needs the leaves
-/// only. Duplicate receipt writes and receipts whose key does not match their operation fail
-/// closed.
-fn kagemusha_top_ups(witness: &ExecWitness) -> Result<Option<(Hash, u32)>, CommitmentError> {
-    let is_receipt =
-        |key: &[u8]| key.first() == Some(&KAGEMUSHA_RESERVE_RECEIPT_WITNESS_KEY_TAG_V1);
-    let tagged = witness
-        .writes
-        .iter()
-        .filter(|entry| is_receipt(&entry.key))
-        .count();
-    if tagged == 0 {
-        return Ok(None);
-    }
-    let receipts = witness
-        .writes
-        .iter()
-        .filter(|entry| is_receipt(&entry.key))
-        .map(|entry| (entry.key.as_slice(), entry.value.as_slice()))
-        .collect::<BTreeMap<_, _>>();
-    if receipts.len() != tagged {
-        return Err(CommitmentError::KagemushaTopUps(
-            "duplicate receipt writes".to_owned(),
-        ));
-    }
-    let mut leaves = Vec::new();
-    for (key, value) in receipts {
-        let receipt: KagemushaReserveReceiptV1 = norito::decode_canonical(value)
-            .map_err(|error| CommitmentError::KagemushaTopUps(error.to_string()))?;
-        if key != KagemushaReserveReceiptWitnessV1::expected_key(receipt.operation_id).as_slice() {
-            return Err(CommitmentError::KagemushaTopUps(
-                "receipt key does not match its operation".to_owned(),
-            ));
-        }
-        if receipt.kind == KagemushaOperationKindV1::TopUp {
-            leaves.push(
-                crate::zk::kagemusha_v1_recursion::kagemusha_top_up_leaf_from_receipt_v1(&receipt)
-                    .map_err(|error| CommitmentError::KagemushaTopUps(error.to_string()))?,
-            );
-        }
-    }
-    if leaves.is_empty() {
-        return Ok(None);
-    }
-    let tree = crate::zk::kagemusha_v1_recursion::KagemushaMintFinalityTreeV1::new(leaves)
-        .map_err(|error| CommitmentError::KagemushaTopUps(error.to_string()))?;
-    Ok(Some((tree.execution_root(), tree.leaf_count())))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,9 +341,9 @@ mod tests {
     use iroha_crypto::{Algorithm, KeyPair, PublicKey, bls_normal_pop_prove};
     use iroha_data_model::{
         NetworkId,
-        block::{BlockHeader, consensus::ExecKv, consensus::ValidatorPower},
-        sumeragi::epoch::ValidatorEpochAuthorizationV1,
+        block::{BlockHeader, consensus::ExecKv},
         sumeragi::epoch::{ValidatorCommitteeMemberV1, ValidatorEpochContextV1},
+        sumeragi::epoch::{ValidatorEpochAuthorizationV1, ValidatorGenerationV1},
     };
     use iroha_model_base::peer::PeerId;
     use iroha_sumeragi::types::ChainParams;
@@ -521,22 +454,13 @@ mod tests {
                 proof_of_possession: pop,
             })
             .collect::<Vec<_>>();
-        let roster = committee
-            .iter()
-            .map(|member| ValidatorPower {
-                validator: member.validator.clone(),
-                power: 1,
-            })
-            .collect::<Vec<_>>();
-        let authority =
-            crate::kagemusha_v1_test_fixtures::mint_finality_authority(network_id, 0, &roster);
-        let authorization = ValidatorEpochAuthorizationV1::genesis(&authority, u64::MAX).unwrap();
+        let generation = ValidatorGenerationV1::from_committee(network_id, 0, &committee);
+        let authorization = ValidatorEpochAuthorizationV1::genesis(&generation, u64::MAX).unwrap();
         ValidatorEpochContextV1 {
             da_layout: iroha_sumeragi::availability::recommended_data_availability_layout(),
             version: 1,
             network_id,
             mode: ConsensusMode::Permissioned,
-            authority,
             authorization,
             committee,
             leader_seed: [0x31; 32],
@@ -725,7 +649,7 @@ mod tests {
                     invalid.committee[0].proof_of_possession =
                         invalid.committee[1].proof_of_possession.clone()
                 }
-                6 => invalid.authority.validators[0].eq_proof_public_key = [0xff; 32],
+                6 => invalid.authorization.authority_generation += 1,
                 _ => invalid.authorization.authority_id[0] ^= 1,
             }
             let fresh = BlsCrypto::new();
@@ -835,19 +759,24 @@ mod tests {
         current.mode = ConsensusMode::Npos;
         current.authorization.last_height = 6;
         let mut next = current.clone();
-        next.authorization =
-            crate::kagemusha_v1_test_fixtures::mint_finality_successor_authorization(
-                &current.authorization,
-                &current.authority,
-                12,
-                BeaconEpochBindingV1::Installed(InstalledBeaconEpochBindingV1 {
-                    session_id: [0x41; 32],
-                    transcript_hash: [0x42; 32],
-                }),
-                ValidatorEpochDecisionV1::Retain,
-                [0; 32],
-            );
+        next.authorization = ValidatorEpochAuthorizationV1 {
+            version: 1,
+            network_id: current.network_id,
+            epoch: current.authorization.epoch + 1,
+            first_height: current.authorization.last_height + 1,
+            last_height: 12,
+            authority_generation: current.authorization.authority_generation,
+            authority_id: current.generation().generation_id().unwrap(),
+            beacon: BeaconEpochBindingV1::Installed(InstalledBeaconEpochBindingV1 {
+                session_id: [0x41; 32],
+                transcript_hash: [0x42; 32],
+            }),
+            previous_authorization_id: current.authorization.authorization_id().unwrap(),
+            transition_id: [0; 32],
+            decision: ValidatorEpochDecisionV1::Retain,
+        };
         next.leader_seed = [0x32; 32];
+        next.validate_successor(&current).unwrap();
         let mut policy = SumeragiNposParameters::default();
         policy.max_validators = 31;
         policy.epoch_length_blocks = std::num::NonZeroU64::new(6).unwrap();
@@ -918,7 +847,6 @@ mod tests {
     ) -> RetainedPayload<ExecutionResultCommitment> {
         let mut current = epoch(&[1, 2, 3, 4]);
         current.committee = Vec::new();
-        current.authority.validators = Vec::new();
         let witness = with_context_write(sample_witness(), current.network_id, 2);
         let execution =
             execution_commitment(&witness, &executed(&KeyPair::random()), &transition()).unwrap();
@@ -1085,8 +1013,6 @@ mod tests {
             commitment.parent_state_root,
             parent_state_from_witness(&sample_witness())
         );
-        assert_eq!(commitment.kagemusha_top_up_root, None);
-        assert_eq!(commitment.kagemusha_top_up_count, 0);
         assert_eq!(
             commitment.transaction_output_commitment,
             block.output_merkle_commitment()
@@ -1180,8 +1106,6 @@ mod tests {
             assert_eq!(commitment.parent_state_root, Hash::new([]));
             assert_eq!(commitment.post_state_root, Hash::new([]));
             assert_eq!(commitment.ordinary_writes_root, Hash::new([]));
-            assert_eq!(commitment.kagemusha_top_up_root, None);
-            assert_eq!(commitment.kagemusha_top_up_count, 0);
             assert_eq!(
                 commitment.transaction_input_commitment,
                 block.network_input_merkle_commitment()
@@ -1254,26 +1178,52 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_or_malformed_kagemusha_receipts_fail_closed() {
+    fn ordinary_write_commitment_binds_exact_last_write_wins_values() {
+        // This is an ordinary State commitment control. It grants no separate monetary
+        // receipt authenticity and exercises no retired receipt parser or authority policy.
         let block = executed(&KeyPair::random());
-        let tag = KAGEMUSHA_RESERVE_RECEIPT_WITNESS_KEY_TAG_V1;
-        let receipt_write = ExecKv {
-            key: vec![tag, 1, 2, 3],
-            value: vec![9, 9],
+        let r_of = |witness: &ExecWitness, block: &SignedBlock, schedule: ScheduleOutcome| {
+            result_for_test(witness, block, schedule, None).unwrap().2
         };
-        let duplicate = witness(
-            Vec::new(),
-            vec![receipt_write.clone(), receipt_write.clone()],
+        let original = kv("ordinary/balance", "10");
+        let changed = kv("ordinary/balance", "7");
+        let single = witness(Vec::new(), vec![original.clone()]);
+        let duplicate = witness(Vec::new(), vec![original.clone(), original.clone()]);
+        let overwritten = witness(Vec::new(), vec![original, changed.clone()]);
+        let final_value = witness(Vec::new(), vec![changed]);
+        let original_commitment = execution_commitment(&single, &block, &transition()).unwrap();
+        assert_eq!(
+            execution_commitment(&duplicate, &block, &transition()).unwrap(),
+            original_commitment,
+            "an identical repeated write retains its exact canonical commitment"
         );
-        assert!(matches!(
-            execution_commitment(&duplicate, &block, &transition()),
-            Err(CommitmentError::KagemushaTopUps(_))
-        ));
-        let malformed = witness(Vec::new(), vec![receipt_write]);
-        assert!(matches!(
-            execution_commitment(&malformed, &block, &transition()),
-            Err(CommitmentError::KagemushaTopUps(_))
-        ));
+        let changed_commitment = execution_commitment(&overwritten, &block, &transition()).unwrap();
+        assert_eq!(
+            changed_commitment,
+            execution_commitment(&final_value, &block, &transition()).unwrap(),
+            "the exact final value owns the canonical last-write-wins root"
+        );
+        let (reads, writes) = witness_pairs(&overwritten);
+        assert_eq!(
+            changed_commitment.ordinary_writes_root,
+            compute_post_state_root(&reads, &writes)
+        );
+        assert_ne!(
+            changed_commitment.ordinary_writes_root,
+            original_commitment.ordinary_writes_root
+        );
+        assert_eq!(
+            r_of(&duplicate, &block, next()),
+            r_of(&single, &block, next())
+        );
+        assert_ne!(
+            r_of(&overwritten, &block, next()),
+            r_of(&single, &block, next())
+        );
+        assert_eq!(
+            r_of(&overwritten, &block, next()),
+            r_of(&final_value, &block, next())
+        );
     }
 
     #[test]
@@ -1300,7 +1250,6 @@ mod tests {
             proposer: 2,
             skipped_leaders: Vec::new(),
             control_witness: iroha_sumeragi::types::ControlWitness::empty(),
-            attest: true,
         };
         let qc = Qc {
             kind: VoteKind::Commit,
@@ -1310,19 +1259,8 @@ mod tests {
             view: 5,
             block_hash: Hash32([5; 32]),
             result: Hash32([6; 32]),
-            attest: true,
             signers: Bitmap::from_indices(4, [0, 2, 3]).unwrap(),
             agg_sig: AggregateSignature([7; SIGNATURE_LEN]),
-            attestations: vec![
-                iroha_sumeragi::message::AttestationSignature::try_from_slice(
-                    &[8; 200]
-                )
-                .unwrap();
-                3
-            ],
-            attestation_witness: Some(
-                iroha_sumeragi::message::ResultWitness::from_untrusted(vec![9; 4096]).unwrap(),
-            ),
         };
         let expected_header = norito::encode_canonical(&header).unwrap();
         let expected_qc = norito::encode_canonical(&qc).unwrap();

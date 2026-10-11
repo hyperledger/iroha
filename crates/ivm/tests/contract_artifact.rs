@@ -43,7 +43,11 @@ fn entrypoint(
         return_schema: Some(ivm_abi::entrypoint::EntrypointValueTypeV1 {
             nodes: vec![ivm_abi::entrypoint::EntrypointValueTypeNodeV1::Unit],
         }),
-        permission: (kind == EntryPointKind::Kotoage).then(|| "Execute".to_owned()),
+        authorization: if matches!(kind, EntryPointKind::Hajimari | EntryPointKind::Kaizen) {
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::RuntimeLifecycle
+        } else {
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone
+        },
         read_keys: Vec::new(),
         write_keys: Vec::new(),
         access_hints_complete: Some(true),
@@ -181,6 +185,8 @@ fn contract_artifact_with_mode_and_code(
         abi_version,
     };
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        permissions: Vec::new(),
+        events: Vec::new(),
         callables: callable_descriptors(&entrypoints, code),
         seiyaku_name: "TestContract".to_owned(),
         compiler_fingerprint: "ivm-tests".to_owned(),
@@ -191,6 +197,7 @@ fn contract_artifact_with_mode_and_code(
         entrypoints,
         error_messages: Vec::new(),
         error_types: Vec::new(),
+        enum_types: Vec::new(),
         states: Vec::new(),
     };
     let mut bytes = meta.encode();
@@ -216,6 +223,8 @@ fn contract_artifact_with_error_messages(
         abi_version: 1,
     };
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        permissions: Vec::new(),
+        events: Vec::new(),
         callables: vec![common::unit_callable(0)],
         seiyaku_name: "TestContract".to_owned(),
         compiler_fingerprint: "ivm-tests".to_owned(),
@@ -226,6 +235,7 @@ fn contract_artifact_with_error_messages(
         entrypoints: vec![entrypoint("main", EntryPointKind::Kotoage, 0)],
         error_messages,
         error_types,
+        enum_types: Vec::new(),
         states: Vec::new(),
     };
     let mut bytes = meta.encode();
@@ -251,6 +261,8 @@ fn contract_artifact_with_access_hints_and_states(
         abi_version: 1,
     };
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        permissions: Vec::new(),
+        events: Vec::new(),
         callables: vec![common::unit_callable(0)],
         seiyaku_name: "TestContract".to_owned(),
         compiler_fingerprint: "ivm-tests".to_owned(),
@@ -261,6 +273,7 @@ fn contract_artifact_with_access_hints_and_states(
         entrypoints: vec![entrypoint("main", EntryPointKind::Kotoage, 0)],
         error_messages: Vec::new(),
         error_types: Vec::new(),
+        enum_types: Vec::new(),
         states,
     };
     let mut bytes = meta.encode();
@@ -280,6 +293,8 @@ fn contract_artifact_with_seiyaku_name(seiyaku_name: &str) -> Vec<u8> {
         abi_version: 1,
     };
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        permissions: Vec::new(),
+        events: Vec::new(),
         callables: vec![common::unit_callable(0)],
         seiyaku_name: seiyaku_name.to_owned(),
         compiler_fingerprint: "ivm-tests".to_owned(),
@@ -290,6 +305,7 @@ fn contract_artifact_with_seiyaku_name(seiyaku_name: &str) -> Vec<u8> {
         entrypoints: vec![entrypoint("run", EntryPointKind::Kotoage, 0)],
         error_messages: Vec::new(),
         error_types: Vec::new(),
+        enum_types: Vec::new(),
         states: Vec::new(),
     };
     let mut bytes = meta.encode();
@@ -309,6 +325,8 @@ fn contract_artifact_with_execution_features(mode: u8, features_bitmap: u64) -> 
         abi_version: 1,
     };
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        permissions: Vec::new(),
+        events: Vec::new(),
         callables: vec![common::unit_callable(0)],
         seiyaku_name: "FeatureBinding".to_owned(),
         compiler_fingerprint: "ivm-tests".to_owned(),
@@ -319,6 +337,7 @@ fn contract_artifact_with_execution_features(mode: u8, features_bitmap: u64) -> 
         entrypoints: vec![entrypoint("inspect", EntryPointKind::View, 0)],
         error_messages: Vec::new(),
         error_types: Vec::new(),
+        enum_types: Vec::new(),
         states: Vec::new(),
     };
     let mut bytes = metadata.encode();
@@ -414,12 +433,12 @@ fn verifier_rejects_forged_reserved_query_page_schemas() {
         EntrypointValueTypeV1 {
             nodes: vec![
                 EntrypointValueTypeNodeV1::Struct(EntrypointStructTypeNodeV1 {
-                    name: "QueryPage".to_owned(),
+                    name: "kotodama::QueryPage".to_owned(),
                     fields: vec!["items".to_owned(), "next_offset".to_owned()],
                 }),
                 EntrypointValueTypeNodeV1::List(EntrypointListTypeNodeV1 { capacity: 64 }),
                 EntrypointValueTypeNodeV1::Struct(EntrypointStructTypeNodeV1 {
-                    name: "AccountView".to_owned(),
+                    name: "kotodama::AccountView".to_owned(),
                     fields: vec!["id".to_owned(), "metadata".to_owned()],
                 }),
                 EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::AccountId),
@@ -511,7 +530,7 @@ fn compiler_embeds_exact_nested_return_schema_in_cntr_and_manifest() {
         seiyaku ExactReturn {
             struct Pair { int count, bool ready }
 
-            view fn inspect() -> Result<Option<Pair>, (string, bool)> {
+            view fn inspect() authorize(anyone) -> Result<Option<Pair>, (string, bool)> {
                 return Result::ok(Option::some(Pair { count: 7, ready: true }));
             }
         }
@@ -535,7 +554,7 @@ fn compiler_embeds_exact_nested_return_schema_in_cntr_and_manifest() {
             EntrypointValueTypeNodeV1::Result,
             EntrypointValueTypeNodeV1::Option,
             EntrypointValueTypeNodeV1::Struct(EntrypointStructTypeNodeV1 {
-                name: "Pair".to_owned(),
+                name: "ExactReturn::Pair".to_owned(),
                 fields: vec!["count".to_owned(), "ready".to_owned()],
             }),
             EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int),
@@ -599,14 +618,14 @@ fn verify_nominal_error_catalog_allows_local_codes_and_rejects_schema_ambiguity(
 #[test]
 fn compiler_emits_self_describing_contract_artifact() {
     let src = r#"
-        seiyaku Demo {
+        seiyaku Demo { permission Admin;
             state int counter;
 
             hajimari() {
                 counter = 0;
             }
 
-            kotoage fn run() authorize("Admin") {
+            kotoage fn run() authorize(Admin) {
                 debug::info("ready");
             }
         }
@@ -668,8 +687,8 @@ fn verifier_binds_feature_bitmap_to_execution_capabilities_not_host_hardware() {
 #[test]
 fn contract_code_hash_binds_every_byte_of_compiled_deployable_image() {
     let source = r#"
-        seiyaku FullImageBinding {
-            kotoage fn run() -> Name authorize("ReadLiteral") {
+        seiyaku FullImageBinding { permission ReadLiteral;
+            kotoage fn run() authorize(ReadLiteral) -> Name {
                 return Name::parse("indexed_literal");
             }
         }
@@ -719,9 +738,14 @@ fn sdk_code_readback_fixture_is_reproducible_and_admitted() {
         admitted.code_hash,
         iroha_data_model::smart_contract::contract_code_hash(artifact)
     );
+    let manifest: iroha_data_model::smart_contract::manifest::ContractManifest =
+        norito::json::from_str(include_str!(
+            "../../iroha/tests/fixtures/contract_code_readback/code_readback.manifest.json"
+        ))
+        .expect("decode the compiler-owned SDK contract manifest");
     assert_eq!(
-        hex::encode(admitted.code_hash.as_ref()),
-        "8ea032a639a92b0c46b366b93a8207699e3253bf4c14fd159c6f1f5261b928a9"
+        admitted.manifest, manifest,
+        "the shared fixture identity must match the independently admitted artifact"
     );
 }
 #[test]
@@ -886,10 +910,10 @@ fn signed_manifest_rejects_every_execution_header_mutation() {
 #[test]
 fn public_entrypoint_descriptor_targets_authenticated_callable() {
     let src = r#"
-        seiyaku Demo {
-            kotoage fn main()  authorize("Entry") {}
+        seiyaku Demo { permission Entry;
+            kotoage fn main() authorize(Entry) {}
 
-            kotoage fn run() -> int  authorize("Entry") {
+            kotoage fn run() authorize(Entry) -> int {
                 return 42;
             }
         }
@@ -917,9 +941,9 @@ fn public_entrypoint_descriptor_targets_authenticated_callable() {
 #[test]
 fn contract_artifact_with_cntr_requires_explicit_entrypoint_selection() {
     let src = r#"
-seiyaku ContractArtifactFixture {
+seiyaku ContractArtifactFixture { permission Entry;
 
-        kotoage fn main() -> int authorize("Entry") {
+        kotoage fn main() authorize(Entry) -> int {
             debug::info("alpha");
             return 7;
         }
@@ -1340,7 +1364,7 @@ fn verify_allows_read_only_helper_beside_a_mutating_entrypoint() {
 #[test]
 fn strict_return_integrity_allows_nested_direct_calls_for_raw_and_prepared_loads() {
     let bytes = kotodama_lang::compiler::Compiler::new().compile_source(
-        "seiyaku Calls { fn leaf() -> bool { true } fn middle() -> bool { leaf() } view fn main() -> bool { middle() } }"
+        "seiyaku Calls { fn leaf() -> bool { true } fn middle() -> bool { leaf() } view fn main() authorize(anyone) -> bool { middle() } }"
     ).expect("compile nested table calls");
     let prepared =
         ivm::prepare_contract(std::sync::Arc::from(bytes.clone())).expect("prepare nested calls");
@@ -1599,7 +1623,7 @@ fn verify_rejects_duplicate_entrypoints() {
     assert!(err.to_string().contains("duplicate entrypoint `main`"));
 }
 #[test]
-fn verify_rejects_entrypoint_pc_aliases_and_missing_authorization() {
+fn verify_rejects_entrypoint_pc_aliases_and_undeclared_authorization() {
     let bytes = contract_artifact(
         1,
         vec![
@@ -1610,11 +1634,18 @@ fn verify_rejects_entrypoint_pc_aliases_and_missing_authorization() {
     let err = ivm::verify_contract_artifact(&bytes).expect_err("entrypoint PC alias must fail");
     assert!(err.to_string().contains("reuses entry_pc"));
     let mut public = entrypoint("main", EntryPointKind::Kotoage, 0);
-    public.permission = None;
+    public.authorization =
+        iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+            "Undeclared".parse().unwrap(),
+        );
     let bytes = contract_artifact(1, vec![public]);
     let err = ivm::verify_contract_artifact(&bytes)
-        .expect_err("public entrypoint without authorization must fail");
-    assert!(err.to_string().contains("missing caller authorization"));
+        .expect_err("public entrypoint with undeclared authorization must fail");
+    assert!(
+        err.to_string()
+            .contains("must use explicit declared authorization"),
+        "{err}"
+    );
 }
 #[test]
 fn verify_rejects_noncanonical_or_reserved_entrypoint_names() {
@@ -1627,7 +1658,11 @@ fn verify_rejects_noncanonical_or_reserved_entrypoint_names() {
         "言挙げ",
         "始まり_",
         "fn",
-        "account_id",
+        // Unnamespaced source builtins and compile-time value types stay
+        // reserved; compiler-internal lowering spellings such as `account_id`
+        // are ordinary public selector names.
+        "require",
+        "Mintable",
         "Amount",
         "__kotodama_link_private",
     ] {
@@ -1771,13 +1806,14 @@ fn verify_rejects_source_controlled_lifecycle_authorization() {
         ("改善", EntryPointKind::Kaizen),
     ] {
         let mut lifecycle = entrypoint(name, kind, 0);
-        lifecycle.permission = Some("SourceCannotControlLifecycle".to_owned());
+        lifecycle.authorization =
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone;
         let artifact = contract_artifact(1, vec![lifecycle]);
         let err = ivm::verify_contract_artifact(&artifact)
             .expect_err("lifecycle authorization must be runtime-defined");
         assert!(
             err.to_string()
-                .contains("must use runtime-defined authorization"),
+                .contains("lifecycle hooks require RuntimeLifecycle"),
             "unexpected error for branded selector `{name}`: {err}"
         );
     }

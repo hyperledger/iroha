@@ -2200,7 +2200,9 @@ mod tests {
         });
         assert!(matches!(
             decoded,
-            Err(norito::json::Error::DecodeResourceLimit)
+            Err(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
         ));
         assert!(usage.total_allocated_bytes() < exact);
     }
@@ -2328,13 +2330,23 @@ mod tests {
         let (from_value, usage) = norito::core::with_decode_limits_measured(zero_budget(), || {
             PublicKey::json_from_value(&value)
         });
-        assert!(matches!(from_value, Err(json::Error::DecodeResourceLimit)));
+        assert!(matches!(
+            from_value,
+            Err(json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
+        ));
         assert_eq!(usage.total_allocated_bytes(), 0);
 
         let (from_key, usage) = norito::core::with_decode_limits_measured(zero_budget(), || {
             PublicKey::from_json_key_text(literal)
         });
-        assert!(matches!(from_key, Err(json::Error::DecodeResourceLimit)));
+        assert!(matches!(
+            from_key,
+            Err(json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
+        ));
         assert_eq!(usage.total_allocated_bytes(), 0);
 
         let public_key: PublicKey = literal.parse().expect("canonical public key fixture");

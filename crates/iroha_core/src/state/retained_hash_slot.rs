@@ -202,7 +202,9 @@ impl<'a, I> RetainedHashSlot<'a, I> {
         self.complete = false;
         self.released = true;
         PreparedBlockHashes {
-            owner: NativeLaneStateOwner(self.target.map().expect("original map").family()),
+            owner: NativeLaneStateOwner {
+                _family: self.target.map().expect("original map").family(),
+            },
             prepared: slot.map_preserving_release(|slot| slot.into_prepared()),
             mode: self.mode,
             visible_len: self.visible_len,

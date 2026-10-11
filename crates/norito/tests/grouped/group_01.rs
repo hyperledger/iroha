@@ -1,5 +1,4 @@
 //! Grouped Norito integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #[path = "../adaptive_combo.rs"]
 mod adaptive_combo;
 #[path = "../adaptive_compress.rs"]

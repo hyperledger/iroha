@@ -508,33 +508,9 @@ final class IrohaPeerNfcStartupRecoveryV1Tests: XCTestCase {
             IrohaPeerNfcStatusWordV1.notFound,
             .conditionsNotSatisfied,
         ] {
-            let request = try IrohaPeerWireMessageV1(
-                profile: .kagemushaWalletV1,
-                kind: .request,
-                schemaVersion: 1,
-                canonicalPayload: irohaPeerWalletStructuralEnvelopeV1(
-                    kind: .request,
-                    payload: Data(repeating: 0x31, count: 96)
-                )
-            )
-            let payment = try IrohaPeerWireMessageV1(
-                profile: .kagemushaWalletV1,
-                kind: .payment,
-                schemaVersion: 1,
-                canonicalPayload: irohaPeerWalletStructuralEnvelopeV1(
-                    kind: .payment,
-                    payload: Data(repeating: 0x32, count: 192)
-                )
-            )
-            let acknowledgement = try IrohaPeerWireMessageV1(
-                profile: .kagemushaWalletV1,
-                kind: .credited,
-                schemaVersion: 1,
-                canonicalPayload: irohaPeerWalletStructuralEnvelopeV1(
-                    kind: .credited,
-                    payload: Data(repeating: 0x33, count: 80)
-                )
-            )
+            let request = try irohaPeerWalletExchangeMessageV1(kind: .request, payload: Data(repeating: 0x31, count: 96))
+            let payment = try irohaPeerWalletExchangeMessageV1(kind: .payment, payload: Data(repeating: 0x32, count: 192))
+            let acknowledgement = try irohaPeerWalletExchangeMessageV1(kind: .credited, payload: Data(repeating: 0x33, count: 80))
             let limits = IrohaPeerNfcLimitsV1(
                 maximumReadChunkBytes: 240,
                 maximumWriteChunkBytes: 203

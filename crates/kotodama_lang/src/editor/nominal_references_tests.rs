@@ -49,20 +49,20 @@ fn local_enum_references_cover_values_and_patterns_without_merging_equal_codes()
 
 #[test]
 fn imported_enum_references_rename_only_the_exact_locked_owner_and_enum_segment() {
-    let request = SourceLinkRequest { sources: Vec::new(),
+    let request = SourceLinkRequest { artifacts: Vec::new(), sources: Vec::new(),
         root: SourceModuleUnit {
             source_name: "app.ko".into(),
             source: r#"seiyaku App {
-                view fn run() -> errors::Failure { errors /* alias */ :: Failure :: Missing }
-                view fn describe(errors::Failure value) -> int { match value { errors::Failure::Missing => 1 } }
-                view fn other() -> alternate::Failure { alternate::Failure::Missing }
+                view fn run() authorize(anyone) -> errors::Failure { errors /* alias */ :: Failure :: Missing }
+                view fn describe(errors::Failure value) authorize(anyone) -> int { match value { errors::Failure::Missing => 1 } }
+                view fn other() authorize(anyone) -> alternate::Failure { alternate::Failure::Missing }
             }"#.into(),
         },
         imports: vec![
             ImportBinding { alias: "errors".into(), package: "local/errors@1".into() },
             ImportBinding { alias: "alternate".into(), package: "local/alternate@1".into() },
         ],
-        packages: ["local/errors@1", "local/alternate@1"].into_iter().map(|identity| SourcePackageUnit { sources: Vec::new(),
+        packages: ["local/errors@1", "local/alternate@1"].into_iter().map(|identity| SourcePackageUnit { artifacts: Vec::new(), sources: Vec::new(),
             identity: identity.into(),
             modules: vec![SourceModuleUnit {
                 source_name: "errors.ko".into(),

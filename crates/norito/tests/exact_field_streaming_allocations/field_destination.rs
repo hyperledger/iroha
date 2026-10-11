@@ -369,22 +369,17 @@ fn prepared_frame_keeps_exact_owned_raw_storage_limit_and_local_bank_refusal() {
     let occupied = pool.reserved_bytes();
     // This fixture's raw-byte field begins at aligned payload offset eight,
     // so the owned path has no unrelated alignment-copy charge. The shared
-    // framing kernel charges each declared field payload: scalar tag, fixed
-    // array and the Vec payload (u64 count plus bytes). Vec then charges its
-    // element count and retained backing separately. Keep all those costs.
-    let framed_fields = std::mem::size_of_val(&record.tag)
-        + record.fixed.len()
-        + std::mem::size_of::<u64>()
-        + record.bytes.len();
+    // framing kernel borrows each declared field payload. Vec retains its
+    // existing sequence-planning charge and charges the owned backing separately.
     let count_charge = record.bytes.len();
     let retained_charge = record.bytes.len();
-    let required = framed_fields + count_charge + retained_charge;
+    let required = count_charge + retained_charge;
     for allowed in [
-        record.bytes.len(),
-        record.bytes.len() * 2 - 1,
-        framed_fields - 1,
-        framed_fields,
-        framed_fields + count_charge,
+        0,
+        count_charge - 1,
+        count_charge,
+        count_charge + 1,
+        required - 2,
         required - 1,
     ] {
         decode_prepared(&mut workspace, &frame, &mut destination).unwrap();

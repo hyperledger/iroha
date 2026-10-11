@@ -89,6 +89,24 @@ fn native_activation() {
         )]),
         deadline: Instant::now() + Duration::from_secs(600),
     };
+    // Release the empty Reserve owner while the actual startup graph admits its own child.
+    // Reopening must retain both original native identities; no paid transaction is added.
+    let reserve_directory_identity = coordinator.authority.directory.identity().unwrap();
+    let reserve_lock_identity = iroha_fs::FileIdentity::of(&coordinator.authority._lock).unwrap();
+    drop(coordinator);
+    let mut bootstrap =
+        crate::managed::service_bootstrap::ManagedServiceBootstrap::open(&prepared).unwrap();
+    let authorization = bootstrap.authorize_test_startup(&options).unwrap().unwrap();
+    let child = authorization.test_child(Purpose::ReservePolicy).unwrap();
+    coordinator = ManagedInitialReservePolicy::open(&prepared).unwrap();
+    assert_eq!(
+        coordinator.authority.directory.identity().unwrap(),
+        reserve_directory_identity
+    );
+    assert_eq!(
+        iroha_fs::FileIdentity::of(&coordinator.authority._lock).unwrap(),
+        reserve_lock_identity
+    );
     let original = Original {
         selection: coordinator.selection(&policy).unwrap(),
         policy: policy.clone(),
@@ -219,9 +237,13 @@ fn native_activation() {
             &path,
         )
         .unwrap();
-    let signed = coordinator
-        .verify_wallet(original.directory(), &original, options.deadline)
-        .unwrap();
+    let signed = ManagedInitialReservePolicy::verify_wallet(
+        &account,
+        original.directory(),
+        &original,
+        options.deadline,
+    )
+    .unwrap();
     let wire = signed.encode_wire_v1().unwrap();
     let operation_bytes = std::fs::read(path.join("operation.json")).unwrap();
     assert!(
@@ -229,6 +251,63 @@ fn native_activation() {
         "component fixture has not submitted through a node"
     );
     http.finish();
+    // The supplied prepared account must reach the existing mode binding, rather than be
+    // discarded for a new client. A foreign cancellation signal refuses before any HTTP.
+    let mut refused_http = UnavailablePeers::start(&prepared);
+    let journal = iroha_fs::PrivateDirectory::open_exact(&path).unwrap();
+    let journal_names = journal.entries(8).unwrap();
+    let preparation_bytes = journal.read("preparation.json", 4 * 1024 * 1024).unwrap();
+    let payload_bytes = journal.read("payload.json", 4 * 1024 * 1024).unwrap();
+    let supplied = account
+        .with_deadline(options.deadline)
+        .unwrap()
+        .with_cancellation(Arc::new(std::sync::atomic::AtomicBool::new(true)))
+        .unwrap();
+    let error = coordinator
+        .advance_original(
+            options.deadline,
+            Advance::SubmitAuthorized(&child),
+            false,
+            Some(supplied),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        crate::managed::Error::Invalid(ref reason)
+            if reason == "generated wallet cancellation binding changed"
+    ));
+    assert!(refused_http.requests.lock().unwrap().is_empty());
+    assert_eq!(journal.entries(8).unwrap(), journal_names);
+    assert_eq!(
+        journal.read("preparation.json", 4 * 1024 * 1024).unwrap(),
+        preparation_bytes
+    );
+    assert_eq!(
+        journal.read("payload.json", 4 * 1024 * 1024).unwrap(),
+        payload_bytes
+    );
+    assert_eq!(
+        journal
+            .read("operation.json", 4 * 1024 * 1024)
+            .unwrap()
+            .as_slice(),
+        operation_bytes.as_slice()
+    );
+    assert_eq!(
+        ManagedInitialReservePolicy::verify_wallet(
+            &account,
+            original.directory(),
+            &original,
+            options.deadline
+        )
+        .unwrap()
+        .encode_wire_v1()
+        .unwrap(),
+        wire,
+    );
+    assert!(!path.join("submission.json").exists());
+    refused_http.finish();
+    drop(journal);
     crate::managed::native_operation::test_support::preparation::payload_retained(
         &prepared,
         &path,
@@ -247,6 +326,7 @@ fn native_activation() {
                         Advance::ObserveOnly
                     },
                     false,
+                    None,
                 )
                 .map(|value| {
                     assert!(
@@ -391,11 +471,66 @@ fn native_activation() {
     .unwrap()
     .unwrap();
     assert_eq!(retained, finalized);
+    // The same-bound deadline view can be handed into the actual advance boundary. Its
+    // exact signed journal and genuine retained carrier remain recoverable without HTTP.
+    let mut handoff_http = UnavailablePeers::start(&prepared);
+    let supplied = child
+        .bind_account(account.with_deadline(options.deadline).unwrap())
+        .unwrap();
+    let handoff = coordinator
+        .advance_original(
+            options.deadline,
+            Advance::SubmitAuthorized(&child),
+            false,
+            Some(supplied),
+        )
+        .unwrap();
+    assert_eq!(handoff.transaction_status, OperationStatus::Applied);
+    assert_eq!(handoff.finalized, Some(finalized));
+    assert!(handoff.current.is_none() && handoff.activation().is_none());
+    assert!(handoff_http.requests.lock().unwrap().is_empty());
+    assert_eq!(
+        std::fs::read(path.join("preparation.json"))
+            .unwrap()
+            .as_slice(),
+        preparation_bytes.as_slice()
+    );
+    assert_eq!(
+        std::fs::read(path.join("payload.json")).unwrap().as_slice(),
+        payload_bytes.as_slice()
+    );
+    assert_eq!(
+        std::fs::read(path.join("operation.json")).unwrap(),
+        operation_bytes
+    );
+    assert_eq!(
+        ManagedInitialReservePolicy::verify_wallet(
+            &account,
+            original.directory(),
+            &original,
+            options.deadline
+        )
+        .unwrap()
+        .encode_wire_v1()
+        .unwrap(),
+        wire,
+    );
+    assert!(!path.join("submission.json").exists());
+    handoff_http.finish();
+    drop(authorization);
+    drop(bootstrap);
     drop(account);
     drop(directory);
     drop(coordinator);
     coordinator = ManagedInitialReservePolicy::open(&prepared).unwrap();
     let mut unavailable = UnavailablePeers::start(&prepared);
+    crate::managed::native_operation::test_support::assert_optional_current(
+        &unavailable,
+        &current_verifier,
+        |verifier| {
+            coordinator.read_current(&policy, verifier, Instant::now() + Duration::from_secs(30))
+        },
+    );
     let selected_options = original
         .terms
         .options(Instant::now() + Duration::from_secs(30));
@@ -468,15 +603,15 @@ fn native_activation() {
         original_bytes.as_slice()
     );
     assert_eq!(
-        coordinator
-            .verify_wallet(
-                original.directory(),
-                &original,
-                Instant::now() + Duration::from_secs(30)
-            )
-            .unwrap()
-            .encode_wire_v1()
-            .unwrap(),
+        ManagedInitialReservePolicy::verify_wallet(
+            &AccountService::new(coordinator.authority.config.clone()).unwrap(),
+            original.directory(),
+            &original,
+            Instant::now() + Duration::from_secs(30),
+        )
+        .unwrap()
+        .encode_wire_v1()
+        .unwrap(),
         wire
     );
     assert!(

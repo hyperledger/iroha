@@ -135,12 +135,12 @@ fn intake_rule3_status_reply_to_members_behind() {
         &h.bh(&old),
         &result_of(&old),
     );
-    let out = h.deliver(behind, WireMessage::Vote(vote.clone()));
+    let out = h.deliver(behind, WireMessage::Vote(vote));
     assert_eq!(status_to(&out), vec![vec![h.key_at(behind)]]);
-    let out = h.deliver(behind, WireMessage::Vote(vote.clone()));
+    let out = h.deliver(behind, WireMessage::Vote(vote));
     assert!(status_to(&out).is_empty(), "rate-limited per peer");
     h.now += h.local.rebroadcast_interval;
-    let out = h.deliver(behind, WireMessage::Vote(vote.clone()));
+    let out = h.deliver(behind, WireMessage::Vote(vote));
     assert_eq!(status_to(&out).len(), 1);
     // Not from a non-member.
     let stranger = PublicKey::new(vec![0x77; 32]).unwrap();
@@ -287,7 +287,7 @@ fn votes_window_equivocation_and_formation_broadcast() {
     let v1 = h.vote(VoteKind::Prepare, o[1], 0, &b);
     let v2 = h.vote(VoteKind::Prepare, o[1], 0, &h.block(0, b"B2"));
     h.deliver(o[1], WireMessage::Vote(v1));
-    let out = h.deliver(o[1], WireMessage::Vote(v2.clone()));
+    let out = h.deliver(o[1], WireMessage::Vote(v2));
     assert!(matches!(
         evidence(&out)[..],
         [Evidence::VoteEquivocation(..)]
@@ -573,7 +573,6 @@ fn idle_payload_wait_and_payload_ready() {
     let out = h.fire(Event::PayloadBuilt {
         req: first,
         payload: h.payload(b"stale"),
-        attest: false,
     });
     assert!(proposals(&out).is_empty());
     let out = h.built(b"tx");
@@ -848,7 +847,6 @@ fn startup_rejects_bad_input() {
             init,
             signers,
             Box::new(h.v.crypto.clone()),
-            crate::testing::fake_attestation_ext(crate::testing::FakeAttestor::new()),
             h.budget.clone(),
             0,
         )
@@ -925,7 +923,6 @@ fn startup_rejects_foreign_tip_epoch_and_height_overflow() {
             init,
             signers,
             Box::new(h.v.crypto.clone()),
-            crate::testing::fake_attestation_ext(crate::testing::FakeAttestor::new()),
             h.budget.clone(),
             0,
         )

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for exact ABI-25 byte authentication in Android app archives."""
+"""Tests for exact ABI-29 byte authentication in Android app archives."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import zipfile
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "check_android_app_native_archive.py"
-ABIS = ("arm64-v8a", "x86_64")
+ABIS = ("arm64-v8a", "armeabi-v7a", "x86_64")
 LIBRARY_NAME = "libconnect_norito_bridge.so"
 PROVENANCE_ENTRY = "assets/iroha/native-build-provenance-v1.json"
 ANDROID_NDK_BASE_REVISION = "28.0.12674087"
@@ -45,7 +45,7 @@ class AndroidAppNativeArchiveTest(unittest.TestCase):
         self.source_seal = {
             "schema": "iroha.norito-bridge-source-seal.v1",
             "platform": "android",
-            "targets": ["aarch64-linux-android", "x86_64-linux-android"],
+            "targets": ["aarch64-linux-android", "armv7-linux-androideabi", "x86_64-linux-android"],
             "source_commit": "1" * 40,
             "source_tree_dirty": False,
             "source_status": "",
@@ -87,7 +87,7 @@ class AndroidAppNativeArchiveTest(unittest.TestCase):
 
         provenance = {
             "schema": "iroha.android-native-build-provenance.v1",
-            "native_bridge_abi_version": 25,
+            "native_bridge_abi_version": 29,
             "build_profile": "release",
             "cargo_locked": True,
             "privacy_production_enabled": True,
@@ -266,7 +266,7 @@ class AndroidAppNativeArchiveTest(unittest.TestCase):
         archive = self.write_app_archive(
             "apk",
             extra_entries={
-                f"lib/armeabi-v7a/{LIBRARY_NAME}": b"\x7fELF-extra\n",
+                f"lib/x86/{LIBRARY_NAME}": b"\x7fELF-extra\n",
             },
         )
         result = self.verify(archive, "apk")
@@ -280,7 +280,7 @@ class AndroidAppNativeArchiveTest(unittest.TestCase):
                 archive = self.write_app_archive(
                     kind,
                     extra_entries={
-                        f"{prefix}lib/armeabi-v7a/libunrelated.so": b"\x7fELF\n",
+                        f"{prefix}lib/x86/libunrelated.so": b"\x7fELF\n",
                     },
                 )
                 result = self.verify(archive, kind)
@@ -290,7 +290,7 @@ class AndroidAppNativeArchiveTest(unittest.TestCase):
         with self.subTest(archive="aar"):
             self.write_aar(
                 extra_entries={
-                    "jni/armeabi-v7a/libunrelated.so": b"\x7fELF\n",
+                    "jni/x86/libunrelated.so": b"\x7fELF\n",
                 },
             )
             result = self.verify(self.write_app_archive("aab"), "aab")
@@ -556,13 +556,32 @@ class AndroidAppNativeArchiveTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("source seal disagrees", result.stderr)
 
-    def test_armv7_diagnostic_inventory_cannot_widen_release_abis(self) -> None:
+    def test_armv7_diagnostic_bytes_cannot_replace_production_original(self) -> None:
         archive = self.write_app_archive("apk")
-        with zipfile.ZipFile(archive, "a") as output:
-            output.writestr("lib/armeabi-v7a/" + LIBRARY_NAME, b"diagnostic ELF32")
+        with zipfile.ZipFile(archive) as source:
+            entries = {entry.filename: source.read(entry) for entry in source.infolist()}
+        entries["lib/armeabi-v7a/" + LIBRARY_NAME] = b"TEST ONLY diagnostic ELF32"
+        with zipfile.ZipFile(archive, "w") as output:
+            for name, data in entries.items():
+                output.writestr(name, data)
         result = self.verify(archive, "apk")
         self.assertNotEqual(0, result.returncode)
-        self.assertIn("ABI directory inventory is not exact", result.stderr)
+        self.assertIn("differs", result.stderr)
+
+    def test_prior_two_abi_source_seal_is_not_an_admitted_release(self) -> None:
+        self.source_seal["targets"] = ["aarch64-linux-android", "x86_64-linux-android"]
+        self.source_seal_path.write_bytes(self.seal_bytes())
+        result = self.verify(self.write_app_archive("apk"), "apk")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("source seal disagrees", result.stderr)
+
+    def test_prior_two_abi_native_manifest_is_not_an_admitted_release(self) -> None:
+        provenance = json.loads(json.dumps(self.provenance))
+        del provenance["libraries"]["armeabi-v7a"]
+        self.replace_provenance(provenance)
+        result = self.verify(self.write_app_archive("apk"), "apk")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("native provenance ABI inventory is not exact", result.stderr)
 
     def test_rejects_stale_cargo_lock_or_live_source_verification(self) -> None:
         self.cargo_lock.write_bytes(b"# changed Cargo.lock\n")

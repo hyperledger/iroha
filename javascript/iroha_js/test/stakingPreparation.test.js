@@ -80,19 +80,17 @@ test("preparation response cannot change intent, network, XOR, scope, expiry or 
   assert.throws(() => validate(f.response, f.request, f.network, "invalid-xor"));
 });
 
-test("reward preparation preserves requested records, selected accruals and recipient", () => {
+test("reward preparation binds the automatic entitlement and current recipient", () => {
   const f = fixture("claim"), plan = f.response.plan.value;
   const reject = (value) => assert.throws(() => validate({ ...f.response, plan: { kind: "claim", value } }, f.request, f.network, f.xor));
-  reject({ ...plan, records: [...plan.records, plan.records[0]] });
-  reject({ ...plan, records: [{ ...plan.records[0], epoch: 202n }] });
-  reject({ ...plan, expected_state: { through_epoch: 202n } });
-  reject({ ...plan, sources: [] });
-  reject({ ...plan, sources: [{ ...plan.sources[0], expected_accrued: null }] });
+  reject({ ...plan, fee_claim: null });
+  reject({ ...plan, fee_claim: { ...plan.fee_claim, amount: "0" } });
+  reject({ ...plan, fee_claim: { ...plan.fee_claim, lifecycle_seal: Buffer.alloc(32) } });
   reject({ ...plan, fee_claim: { ...plan.fee_claim, destination_asset: plan.fee_claim.source_asset } });
-  const request = { ...f.request, operation: { ...f.request.operation, value: { ...f.request.operation.value, max_records: 65 } } };
-  assert.throws(() => encode("PreparationRequest", request), /64/);
-  const duplicate = { ...f.request, operation: { ...f.request.operation, value: { ...f.request.operation.value, accrued_sources: [plan.sources[0].source_asset, plan.sources[0].source_asset] } } };
-  assert.throws(() => encode("PreparationRequest", duplicate), /ordered/);
+  for (const retired of ["max_records", "upto_epoch", "accrued_sources"]) {
+    const request = { ...f.request, operation: { ...f.request.operation, value: { ...f.request.operation.value, [retired]: null } } };
+    assert.throws(() => encode("PreparationRequest", request), /exact native fields/);
+  }
 });
 
 test("staking preparation sends one exact unsigned POST and retains request against callback mutation", async () => {

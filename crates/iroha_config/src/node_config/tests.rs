@@ -838,6 +838,40 @@ fn completed_value(reader: &NodeConfigReader, key: &[&str]) -> String {
         .unwrap_or_else(|| panic!("{key:?} was not completed"))
 }
 
+#[test]
+fn profile_nodes_reject_removed_publisher_configuration() {
+    for id in ProfileId::ALL {
+        for (key, value) in [
+            ("keyring_file", "\"authorizer.norito\""),
+            ("submitter_key_file", "\"submitter.key\""),
+            ("enabled", "false"),
+            ("enabled", "true"),
+            ("keyring", "\"inline-custody\""),
+            ("submitter_key", "\"inline-custody\""),
+            ("page_size", "1"),
+            ("keyring_file.inline", "\"inline-custody\""),
+        ] {
+            let table = toml::from_str(&format!(
+                "profile = \"{id}\"\nvalidators = 4\ndata_dir = \"data\"\n[kagemusha_load_authorizer]\n{key} = {value}\n"
+            ))
+            .unwrap();
+            let error = open_node_config(
+                NodeFile::Verified {
+                    path: PathBuf::from("publisher-refusal.toml"),
+                    table,
+                },
+                NodeConfigOptions::default(),
+            )
+            .unwrap_err();
+            assert!(matches!(
+                error.current_context(),
+                NodeConfigError::KeysNotAllowed { keys, .. }
+                    if keys == &vec![format!("kagemusha_load_authorizer.{key}")]
+            ));
+        }
+    }
+}
+
 /// `iroha3d --config cfg/node.toml` with `data_dir = "data"`: the configuration path is relative
 /// to the working directory and `data_dir` to the file. Every completed state and secret path,
 /// and `data_dir` itself, must be the same absolute path however the file was named.
@@ -974,4 +1008,253 @@ fn resolve_data_dir_uses_the_last_source_that_sets_it() {
     let reader = ConfigReader::new().without_env();
     assert!(resolve_data_dir(&reader).is_none());
     let _ = reader.into_result();
+}
+
+thread_local! {
+    static SENSITIVE_NODE_SOURCE_SCRUBS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+fn scrub_sensitive_node_test_table(table: &mut toml::Table) {
+    fn scrub_value(value: &mut toml::Value) {
+        use zeroize::Zeroize as _;
+
+        match value {
+            toml::Value::String(value) => value.zeroize(),
+            toml::Value::Array(values) => values.iter_mut().for_each(scrub_value),
+            toml::Value::Table(table) => {
+                for (_, value) in table.iter_mut() {
+                    scrub_value(value);
+                }
+            }
+            toml::Value::Integer(_)
+            | toml::Value::Float(_)
+            | toml::Value::Boolean(_)
+            | toml::Value::Datetime(_) => {}
+        }
+    }
+
+    SENSITIVE_NODE_SOURCE_SCRUBS.with(|count| count.set(count.get().saturating_add(1)));
+    for (_, value) in table.iter_mut() {
+        scrub_value(value);
+    }
+}
+
+fn sensitive_node_scrubs() -> u32 {
+    SENSITIVE_NODE_SOURCE_SCRUBS.with(std::cell::Cell::get)
+}
+
+fn sensitive_flat_node() -> toml::Table {
+    toml::from_str(&format!(
+        "chain = \"0\"\n\
+         data_dir = \"data\"\n\
+         public_key = \"{VALIDATOR_PUBLIC}\"\n\
+         private_key = \"{VALIDATOR_PRIVATE}\"\n\
+         soranet_transport_public_key = \"{TRANSPORT_PUBLIC}\"\n\
+         soranet_transport_private_key = \"{TRANSPORT_PRIVATE}\"\n\
+         trusted_peers_pop = [{{ public_key = \"{VALIDATOR_PUBLIC}\", pop_hex = \"{VALIDATOR_POP}\" }}]\n\
+         [streaming]\nidentity_public_key = \"{STREAMING_PUBLIC}\"\nidentity_private_key = \"{STREAMING_PRIVATE}\"\n\
+         [network]\naddress = \"addr:127.0.0.1:1337#8F78\"\npublic_address = \"addr:127.0.0.1:1337#8F78\"\n\
+         [torii]\naddress = \"addr:127.0.0.1:8080#8942\"\n\
+         [genesis]\npublic_key = \"{GENESIS_PUBLIC}\"\nexpected_hash = \"{EXPECTED_HASH}\"\n"
+    ))
+    .unwrap()
+}
+
+#[test]
+fn retained_sensitive_flat_source_keeps_scrubber_and_absolute_layout() {
+    SENSITIVE_NODE_SOURCE_SCRUBS.with(|count| count.set(0));
+    let dir = NodeDir::new("sensitive_flat");
+    let path = dir.root.join("node.toml");
+    let source = TomlSource::new_sensitive(
+        path.clone(),
+        sensitive_flat_node(),
+        scrub_sensitive_node_test_table,
+    );
+    assert!(!format!("{source:?}").contains(VALIDATOR_PRIVATE));
+    let clone = source.clone();
+    drop(clone);
+    assert_eq!(sensitive_node_scrubs(), 1);
+    let reader = open_node_config_source(source, NodeConfigOptions::default()).unwrap();
+    assert!(reader.profile().is_none());
+    assert_eq!(reader.data_dir(), Some(dir.data_dir().as_path()));
+    assert!(!format!("{reader:?}").contains(VALIDATOR_PRIVATE));
+    assert!(
+        reader
+            .reader()
+            .toml_sources()
+            .iter()
+            .any(|source| source.path() == &path)
+    );
+    assert_eq!(sensitive_node_scrubs(), 1);
+    let (user, binding) = reader.read().unwrap();
+    assert_eq!(sensitive_node_scrubs(), 2);
+    assert!(binding.is_none());
+    let config = user.parse().unwrap();
+    assert_eq!(
+        config.common.key_pair.public_key().to_string(),
+        VALIDATOR_PUBLIC
+    );
+    assert_eq!(config.data_dir.as_ref().unwrap().root(), dir.data_dir());
+    assert_eq!(config.torii.data_dir, dir.data_dir().join("state/torii"));
+    assert_eq!(
+        iroha_data_model::NetworkId::from_genesis_hash(config.genesis.expected_hash),
+        EXPECTED_HASH
+            .parse::<iroha_data_model::NetworkId>()
+            .unwrap()
+    );
+}
+
+#[test]
+fn retained_sensitive_profile_source_keeps_scrubber_and_original_layer() {
+    SENSITIVE_NODE_SOURCE_SCRUBS.with(|count| count.set(0));
+    let dir = NodeDir::new("sensitive_profile");
+    let path = dir.root.join("profile.toml");
+    let table = toml::from_str(&profile_node(&dir, "validator", "")).unwrap();
+    let source = TomlSource::new_sensitive(path.clone(), table, scrub_sensitive_node_test_table);
+    let reader = open_node_config_source(source, NodeConfigOptions::default()).unwrap();
+    assert_eq!(reader.profile().unwrap().profile, ProfileId::SoraNexusV1);
+    assert_eq!(reader.data_dir(), Some(dir.data_dir().as_path()));
+    let retained = reader
+        .reader()
+        .toml_sources()
+        .iter()
+        .find(|source| source.path() == &path)
+        .unwrap();
+    assert!(retained.table().get(PROFILE_KEY).is_none());
+    assert!(retained.table().get(ROLE_KEY).is_none());
+    assert!(retained.table().get(VALIDATORS_KEY).is_none());
+    assert!(
+        retained
+            .fetch(&ParameterId::from([
+                "soracloud_runtime",
+                "submission",
+                "signer",
+                "handle"
+            ]))
+            .is_some()
+    );
+    let clone = retained.clone();
+    assert!(!format!("{clone:?}").contains("software://taira/inrou/"));
+    drop(clone);
+    assert_eq!(sensitive_node_scrubs(), 1);
+    let (user, binding) = reader.read().unwrap();
+    assert_eq!(sensitive_node_scrubs(), 2);
+    assert_eq!(binding.unwrap().roster_size, 4);
+    let config = user.parse().unwrap();
+    assert_eq!(
+        config.common.key_pair.public_key().to_string(),
+        VALIDATOR_PUBLIC
+    );
+    assert_eq!(config.nexus.lane_catalog.lane_count().get(), 4);
+    assert!(config.soracloud_runtime.submission.signer.is_some());
+    assert_eq!(
+        iroha_data_model::NetworkId::from_genesis_hash(config.genesis.expected_hash),
+        EXPECTED_HASH
+            .parse::<iroha_data_model::NetworkId>()
+            .unwrap()
+    );
+}
+
+#[test]
+fn retained_sensitive_source_scrubs_on_layout_and_profile_refusals() {
+    let cases = [
+        ("extends = \"original.toml\"", NodeConfigOptions::default()),
+        (
+            "profile = \"sora-nexus-v1\"\nextends = \"original.toml\"",
+            NodeConfigOptions::default(),
+        ),
+        ("data_dir = \"\"", NodeConfigOptions::default()),
+        (
+            "profile = \"sora-nexus-v1\"",
+            NodeConfigOptions { sora: true },
+        ),
+        (
+            "profile = \"sora-nexus-v1\"\nvalidators = 4\ndata_dir = \"data\"\n[private_forbidden]\nkey = \"do-not-log\"",
+            NodeConfigOptions::default(),
+        ),
+    ];
+    for (input, options) in cases {
+        SENSITIVE_NODE_SOURCE_SCRUBS.with(|count| count.set(0));
+        let source = TomlSource::new_sensitive(
+            PathBuf::from("sensitive-refusal.toml"),
+            toml::from_str(input).unwrap(),
+            scrub_sensitive_node_test_table,
+        );
+        let error = open_node_config_source(source, options).unwrap_err();
+        assert_eq!(sensitive_node_scrubs(), 1);
+        assert!(matches!(
+            error.current_context(),
+            NodeConfigError::Extends(_)
+                | NodeConfigError::InvalidDataDir(_)
+                | NodeConfigError::SoraWithProfile(_)
+                | NodeConfigError::KeysNotAllowed { .. }
+        ));
+        assert!(!format!("{error:?}").contains("do-not-log"));
+    }
+}
+
+#[test]
+fn retained_sensitive_source_scrubs_when_layered_read_is_refused() {
+    SENSITIVE_NODE_SOURCE_SCRUBS.with(|count| count.set(0));
+    let source = TomlSource::new_sensitive(
+        PathBuf::from("missing-fields.toml"),
+        toml::from_str("private_key = \"do-not-log\"").unwrap(),
+        scrub_sensitive_node_test_table,
+    );
+    let reader = open_node_config_source(source, NodeConfigOptions::default()).unwrap();
+    assert_eq!(sensitive_node_scrubs(), 0);
+    let error = reader.read().unwrap_err();
+    assert!(matches!(error.current_context(), NodeConfigError::Read));
+    assert_eq!(sensitive_node_scrubs(), 1);
+}
+
+#[test]
+fn merged_sensitive_node_table_moves_original_string_backing() {
+    SENSITIVE_NODE_SOURCE_SCRUBS.with(|count| count.set(0));
+    let mut sources = vec![
+        TomlSource::inline(
+            toml::from_str("[soracloud_runtime.submission]\nworker_threads = 1").unwrap(),
+        ),
+        TomlSource::new_sensitive(
+            PathBuf::from("sensitive-node.toml"),
+            toml::from_str(
+                "[soracloud_runtime.submission.signer]\nhandle = \"software://owner/do-not-log\"",
+            )
+            .unwrap(),
+            scrub_sensitive_node_test_table,
+        ),
+    ];
+    let handle = ParameterId::from(["soracloud_runtime", "submission", "signer", "handle"]);
+    let original = sources[1]
+        .fetch(&handle)
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .as_ptr();
+    merge_value_tables(&mut sources);
+    assert_eq!(
+        sources[1]
+            .fetch(&handle)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .as_ptr(),
+        original
+    );
+    assert!(sources[0].fetch(&handle).is_none());
+    assert_eq!(
+        sources[1]
+            .fetch(&ParameterId::from([
+                "soracloud_runtime",
+                "submission",
+                "worker_threads"
+            ]))
+            .unwrap()
+            .as_integer(),
+        Some(1)
+    );
+    assert_eq!(sensitive_node_scrubs(), 0);
+    assert!(!format!("{:?}", sources[1]).contains("software://owner/do-not-log"));
+    drop(sources);
+    assert_eq!(sensitive_node_scrubs(), 1);
 }

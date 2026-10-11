@@ -42,16 +42,19 @@ public sealed class KotodamaCallTableTests
     [Fact]
     public void EmptyNamedProductsKeepNominalIdentityAndOneWord()
     {
-        (string TypeName, object[] Nodes) empty = ("struct Empty",
-            [new { kind = "Struct", value = new { name = "Empty", fields = Array.Empty<string>() } }]);
-        (string TypeName, object[] Nodes) list = ("List<struct Empty, 2>",
+        (string TypeName, object[] Nodes) empty = ("struct Fixture::Empty",
+            [new { kind = "Struct", value = new { name = "Fixture::Empty", fields = Array.Empty<string>() } }]);
+        (string TypeName, object[] Nodes) list = ("List<struct Fixture::Empty, 2>",
             new object[] { new { kind = "List", value = new { capacity = 2 } } }.Concat(empty.Nodes).ToArray());
         var value = Parse([empty], list);
         Assert.Equal(1, value.ArgumentSchema!.WordCount);
         Assert.Equal(1, value.ReturnSchema!.WordCount);
-        Assert.Equal("struct Empty", value.ArgumentSchema.Fields.Single().ValueType.CanonicalTypeName);
-        var encoded = JsonSerializer.Serialize(value);
-        Assert.Equal(1, JsonSerializer.Deserialize<ToriiContractEntrypointDescriptor>(encoded)!.ArgumentSchema!.WordCount);
+        Assert.Equal("struct Fixture::Empty", value.ArgumentSchema.Fields.Single().ValueType.CanonicalTypeName);
+        var encoded = JsonSerializer.Serialize(new ToriiContractManifest
+        {
+            Permissions = [], Events = [], EnumTypes = [], Entrypoints = [value],
+        });
+        Assert.Equal(1, JsonSerializer.Deserialize<ToriiContractManifest>(encoded)!.Entrypoints!.Single().ArgumentSchema!.WordCount);
     }
 
     private static (string TypeName, object[] Nodes) Tuple(int width) => (
@@ -70,8 +73,10 @@ public sealed class KotodamaCallTableTests
             }),
         };
         var payload = JsonSerializer.Serialize(new {
+            permissions = Array.Empty<object>(), events = Array.Empty<object>(), enum_types = Array.Empty<object>(),
             entrypoints = new[] { new {
                 name = "inspect", kind = new { kind = "View", value = (object?)null },
+                authorization = new { kind = "Anyone", value = (object?)null },
                 @params = fields.Select((ty, index) => new { name = $"arg_{index}", type_name = ty.TypeName }),
                 argument_schema = arguments,
                 return_type = result.Item1, return_schema = new { nodes = result.Item2 },

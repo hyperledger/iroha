@@ -140,7 +140,7 @@ fn custody_namespace_vm(paths: &[StatePath]) -> IVM {
     for path in paths {
         source.push_str(&format!("{path} = b\"\";\n"));
     }
-    source.push_str("}\nkotoage fn main() -> int authorize(\"WriteState\") { return 1; }\n}");
+    source.push_str("}\npermission WriteState;\nkotoage fn main() authorize(WriteState) -> int { return 1; }\n}");
     let (program, _) = kotodama_lang::compiler::Compiler::new()
         .compile_source_with_manifest(&source)
         .expect("compile every declarable native-key shadow and user control");
@@ -154,10 +154,10 @@ fn custody_namespace_vm(paths: &[StatePath]) -> IVM {
 fn custody_namespace_bytes_record() -> Vec<u8> {
     let (program, _) = kotodama_lang::compiler::Compiler::new()
         .compile_source_with_manifest(
-            r#"seiyaku CustodyNamespaceControl {
+            r#"seiyaku CustodyNamespaceControl { permission WriteState;
                 state bytes sorafs_stream_token_custody_v1x;
                 hajimari() { sorafs_stream_token_custody_v1x = b""; }
-                kotoage fn main() -> int authorize("WriteState") {
+                kotoage fn main() authorize(WriteState) -> int {
                     sorafs_stream_token_custody_v1x = b"ordinary user bytes";
                     return 1;
                 }

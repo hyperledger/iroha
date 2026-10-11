@@ -1,11 +1,14 @@
 path	marker
 IrohaSwift/Sources/IrohaSwift/ToriiGovernanceProposalKinds.swift	// TODO: decode each action `payload` into its typed `SccpGovernanceActionV1` body and
 crates/iroha_config/src/parameters/actual.rs	/// TODO(P2): reserved for the deploy engine's network-authority keys (spec §7.2); no
+crates/iroha_config/src/parameters/defaults.rs	// TODO(F.4): the proof-size, circuit-size and SCCP limits below decide validity but are read
 crates/iroha_config/src/parameters/defaults.rs	// TODO(S4): re-derive the 16,844,237-byte sizing from the current Sumeragi full-body
+crates/iroha_config/src/parameters/defaults.rs	// TODO(X.2): a transaction above this frame is not gossiped, so a maximum-proof
 crates/iroha_config/src/parameters/defaults.rs	// TODO(ws70): re-check these entries against the live global config before release;
 crates/iroha_config/src/parameters/defaults.rs	// TODO(ws70): verify terms of use and route coverage of every compiled endpoint (spec §13 item 10).
 crates/iroha_config/src/parameters/defaults.rs	/// TODO(S8): decoded native proof/history graphs need original funded owners.
 crates/iroha_config/src/parameters/defaults.rs	/// TODO: the SoraFS provider sub-states (`sorafs.storage.pop_credentials.*`,
+crates/iroha_config/src/parameters/user.rs	// TODO(R.12): the canonical policy declares its class; check the tape
 crates/iroha_core/src/smartcontracts/isi/sorafs_release_manifest_authority.rs	//! TODO: Implement the purpose-owned State transition and Kura-backed Check proof as one
 crates/iroha_core/src/smartcontracts/isi/sorafs_topology_authority.rs	// TODO: retain and authenticate role-16 topology State, execution source, and finality
 crates/iroha_data_model/src/isi/sorafs/topology_authority.rs	/// TODO: connect the purpose-owned Core adapter and finalized Check proof before admission.
@@ -32,7 +35,6 @@ crates/sorafs_manifest/src/signer/topology.rs	//! a permitted operation. TODO: a
 crates/sorafs_node/src/provider_ingest_runtime/completed_musubi_capture.rs	// TODO: compile outside tests once the opaque attestation driver is
 javascript/iroha_js/src/toriiClient.js	// TODO: Carry the attestor statement and independent trust pins for phone requests.
 javascript/iroha_js/src/toriiClient.js	// TODO: validate each SccpGovernanceBaseRevisionV1 and SccpGovernanceActionV1
-python/iroha_python/src/iroha_python/client.py	# TODO: qualify an absolute operation deadline in the canonical Requests
 python/iroha_torii_client/governance_proposals.py	# TODO: decode SccpGovernanceProposalV1 base revisions and actions into typed
 scripts/check_sorafs_production_promotion_bundle.py	# TODO: Connect purpose-owned native completed-operation/current-state verification for
 scripts/check_sorafs_production_promotion_bundle.py	# TODO: Replace this with a purpose-owned native custody/operation Check verifier, never

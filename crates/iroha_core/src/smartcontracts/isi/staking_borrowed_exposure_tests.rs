@@ -20,7 +20,6 @@ fn indexed_exposure_borrows_ordered_rows_and_skips_consumed_share() {
         activation_height: 1,
         election_exit_height: None,
         deactivation_height: None,
-        last_reward_epoch: None,
     };
     let self_key = (lane_id, validator.clone(), validator.clone());
     let delegated_key = (lane_id, validator.clone(), delegator.clone());

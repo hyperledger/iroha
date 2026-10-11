@@ -1,5 +1,5 @@
-//! Signer, crypto and commit-attestation traits (spec §12.1, §3.7) and pure verification and
-//! formation functions for votes, timeouts, proposals and certificates (§3.4, §3.7, §6.2 step 1,
+//! Signer and crypto traits (spec §12.1) and pure verification and
+//! formation functions for votes, timeouts, proposals and certificates (§3.4, §6.2 step 1,
 //! §6.4, §6.7, §11).
 //!
 //! Certificates are verified only against the committee of their own height (`C_{cert.height}`);
@@ -8,10 +8,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    message::{
-        BlockHeader, CommitAttestation, Proposal, Qc, ResultWitness, TcEntry, TimeoutCert,
-        TimeoutVote, Vote, VoteKind,
-    },
+    message::{BlockHeader, Proposal, Qc, TcEntry, TimeoutCert, TimeoutVote, Vote, VoteKind},
     preimage,
     types::{AggregateSignature, Bitmap, Committee, Hash32, PublicKey, Signature, ValidatorIndex},
 };
@@ -49,105 +46,6 @@ pub trait Crypto {
     ) -> bool;
 }
 
-/// An [`Attestor`]'s answer for one statement (§3.7 A2).
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[allow(clippy::large_enum_variant, reason = "transient `Attestor` result")]
-pub enum AttestOutcome {
-    /// The attestation bytes: the same for the same inputs.
-    Attested(CommitAttestation),
-    /// Not yet: the authority lacks application data the attestation binds that only this
-    /// node's own execution of the block provides (in KAGEMUSHA, `R`'s preimage). No Commit
-    /// vote and no fault; the core asks again after each `Valid` execution of the current
-    /// proposal's block and at each stage raise.
-    Pending,
-    /// This node holds no authority for member `key` at `height`: it does not Commit-vote on
-    /// flagged blocks there (`LocalFault(AttestationUnavailable)` once per view).
-    NoAuthority,
-}
-
-/// A node's application authority for commit attestations (§3.7), e.g. its KAGEMUSHA
-/// mint-finality authority. Like [`Signer::sign`], `attest` runs inside `handle` and MUST be
-/// local, non-blocking and deterministic (the same inputs give the same bytes).
-pub trait Attestor {
-    /// Attest `statement` (`att_preimage(height, bh, R)`, §3.3) as the authority of member `key`
-    /// at `height` (§3.7 A2): [`AttestOutcome::NoAuthority`] iff this node holds no authority for
-    /// `(height, key)`, [`AttestOutcome::Pending`] while it still needs its own execution of `bh`.
-    fn attest(&self, height: u64, key: &PublicKey, statement: &[u8]) -> AttestOutcome;
-}
-
-/// Verifies commit attestations (§3.7). `verify` MUST be a pure function of its arguments and of
-/// committed application state known wherever `C_height` is known, never of local execution
-/// (sync, `Status` and `parent_qc` verify certificates of blocks this node has not executed). It
-/// MUST accept only an attestation that the authority of member `key` (canonical index `signer`
-/// of `C_height`) produced over exactly `statement`, and whatever else the attestation binds (its
-/// application message) MUST be determined by `statement` and that state: all attestations it
-/// accepts for one statement at one height bind one message. An attestation therefore carries
-/// the preimage of every statement digest it binds (e.g. `R`'s), which `verify` re-hashes.
-pub trait AttestationVerifier {
-    /// Whether `attestation` is member `key`'s valid attestation of `statement` at `height`.
-    fn verify(
-        &self,
-        height: u64,
-        signer: ValidatorIndex,
-        key: &PublicKey,
-        statement: &[u8],
-        witness: &ResultWitness,
-        attestation: &[u8],
-    ) -> bool;
-}
-
-/// The attestor of a node without attestation authority, and the verifier that accepts no
-/// attestation: through it no flagged block ever commits (fail closed, §3.7 A5).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct NoAttestation;
-
-impl Attestor for NoAttestation {
-    fn attest(&self, _height: u64, _key: &PublicKey, _statement: &[u8]) -> AttestOutcome {
-        AttestOutcome::NoAuthority
-    }
-}
-
-impl AttestationVerifier for NoAttestation {
-    fn verify(
-        &self,
-        _height: u64,
-        _signer: ValidatorIndex,
-        _key: &PublicKey,
-        _statement: &[u8],
-        _witness: &ResultWitness,
-        _attestation: &[u8],
-    ) -> bool {
-        false
-    }
-}
-
-/// A node's commit-attestation extension (§3.7), passed to `Core::new`: its attestor and the
-/// verifier of every attestation it receives.
-pub struct Attestation {
-    /// The node's authority (may attest nothing).
-    pub attestor: Box<dyn Attestor>,
-    /// The verifier of every node's attestations.
-    pub verifier: Box<dyn AttestationVerifier>,
-}
-
-impl Attestation {
-    /// An extension from its two parts.
-    pub fn new(attestor: Box<dyn Attestor>, verifier: Box<dyn AttestationVerifier>) -> Self {
-        Self { attestor, verifier }
-    }
-
-    /// No attestation support ([`NoAttestation`]): for an application that never flags a block.
-    pub fn none() -> Self {
-        Self::new(Box::new(NoAttestation), Box::new(NoAttestation))
-    }
-}
-
-impl core::fmt::Debug for Attestation {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("Attestation")
-    }
-}
-
 /// Why a vote, timeout, proposal or certificate failed verification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CertError {
@@ -175,11 +73,6 @@ pub enum CertError {
     HighQcInvalid,
     /// Signature or aggregate signature does not verify.
     BadSignature,
-    /// Attestations present where none belong, not exactly one per signer where they are
-    /// required, or a flagged `CommitQC` without exactly `q` signers (§3.7 A3, A4).
-    AttestationShape,
-    /// An attestation does not verify (§3.7).
-    BadAttestation,
 }
 
 /// Consensus signature verification bound to one independently authenticated authority.
@@ -222,30 +115,12 @@ impl<'a> Verifier<'a> {
             .ok_or(CertError::SignerOutOfRange)
     }
 
-    /// Verify a `PrepareQC` or `CommitQC` under `committee = C_{qc.height}` (§3.4 `verify_qc`):
-    /// instance, exact bitmap, `popcount == q`, aggregate signature over the vote preimage, and the
-    /// attestation rule A4 of §3.7 with `verifier`. Every certificate has exactly `q` signers,
-    /// including unflagged Prepare and Commit certificates.
+    /// Verify a `PrepareQC` or `CommitQC` under the authenticated committee of its height.
+    /// The instance, epoch, exact bitmap, `popcount == q` and aggregate signature must match.
     ///
     /// # Errors
-    /// The first failed check.
-    pub fn verify_qc(&self, verifier: &dyn AttestationVerifier, qc: &Qc) -> Result<(), CertError> {
-        self.verify_qc_signatures(qc)?;
-        // MA2: the attestation check of a flagged CommitQC is skipped.
-        #[cfg(not(sumeragi_mutation = "MA2"))]
-        verify_attestations(verifier, self.committee, qc)?;
-        #[cfg(sumeragi_mutation = "MA2")]
-        let _ = verifier;
-        Ok(())
-    }
-
-    /// [`Verifier::verify_qc`] without the attestation rule: instance, exact bitmap, `popcount == q` and the
-    /// aggregate signature. Only the safety monitor (§7.6) uses it alone: `q` signatures on another
-    /// value already prove an agreement violation.
-    ///
-    /// # Errors
-    /// The first failed check.
-    pub fn verify_qc_signatures(&self, qc: &Qc) -> Result<(), CertError> {
+    /// Returns the first failed signature, context or signer-shape check.
+    pub fn verify_qc(&self, qc: &Qc) -> Result<(), CertError> {
         reject_if(&qc.instance != self.instance, CertError::WrongInstance)?;
         reject_if(&qc.epoch != self.epoch, CertError::WrongEpoch)?;
         let pks = self
@@ -269,22 +144,16 @@ impl<'a> Verifier<'a> {
         .ok_or(CertError::BadSignature)
     }
 
-    /// Light-client check of a `CommitQC` (§11, §3.7): `kind == Commit`, [`Verifier::verify_qc`] under the
+    /// Light-client check of a `CommitQC` (§11): `kind == Commit`, [`Verifier::verify_qc`] under the
     /// committee of the certificate's height and, when the caller holds the certified header, that
-    /// the header is the certified block and carries the certificate's flag.
-    pub fn verify_commit_qc(
-        &self,
-        verifier: &dyn AttestationVerifier,
-        qc: &Qc,
-        header: Option<&BlockHeader>,
-    ) -> bool {
+    /// the header is the certified block.
+    pub fn verify_commit_qc(&self, qc: &Qc, header: Option<&BlockHeader>) -> bool {
         let header_ok = header.is_none_or(|header| {
-            header.attest == qc.attest
-                && header.epoch == *self.epoch
+            header.epoch == *self.epoch
                 && header.height == qc.height
                 && header.hash(self.crypto) == qc.block_hash
         });
-        qc.kind == VoteKind::Commit && header_ok && self.verify_qc(verifier, qc).is_ok()
+        qc.kind == VoteKind::Commit && header_ok && self.verify_qc(qc).is_ok()
     }
 
     /// Verify a TC under `committee = C_{tc.height}` (§3.4 `verify_tc`), including the recomputation
@@ -349,7 +218,7 @@ impl<'a> Verifier<'a> {
                     CertError::HighQcMismatch,
                 )?;
                 reject_if(
-                    check_high_qc && self.verify_qc(&NoAttestation, qc).is_err(),
+                    check_high_qc && self.verify_qc(qc).is_err(),
                     CertError::HighQcInvalid,
                 )?;
             }
@@ -370,8 +239,7 @@ impl<'a> Verifier<'a> {
     }
 
     /// Verify an individual vote under `committee = C_{vote.height}` (§6.4 step 3): instance,
-    /// signer range and signature (the unsigned attestation is checked by
-    /// [`verify_vote_attestation`]).
+    /// epoch, signer range and signature.
     ///
     /// # Errors
     /// The first failed check.
@@ -412,8 +280,7 @@ impl<'a> Verifier<'a> {
     pub fn verify_timeout(&self, timeout: &TimeoutVote) -> Result<(), CertError> {
         self.verify_timeout_signature(timeout)?;
         timeout.high_pqc.as_ref().map_or(Ok(()), |qc| {
-            self.verify_qc(&NoAttestation, qc)
-                .map_err(|_| CertError::HighQcInvalid)
+            self.verify_qc(qc).map_err(|_| CertError::HighQcInvalid)
         })
     }
 
@@ -445,90 +312,6 @@ impl<'a> Verifier<'a> {
     }
 }
 
-/// The attestation rule A4 of §3.7 for a certificate under `committee = C_{qc.height}`: a
-/// flagged `CommitQC` has exactly `q` signers (formation uses exactly `q`, §3.4, so the
-/// application's bundle always has `q` attestations) and carries one attestation per signer, in
-/// ascending signer order, each verifying for its signer over
-/// `att_preimage(qc.height, qc.block_hash, qc.result)`; any other certificate carries none.
-///
-/// # Errors
-/// [`CertError::AttestationShape`], [`CertError::SignerOutOfRange`] or
-/// [`CertError::BadAttestation`].
-pub fn verify_attestations(
-    verifier: &dyn AttestationVerifier,
-    committee: &Committee,
-    qc: &Qc,
-) -> Result<(), CertError> {
-    if !qc.needs_attestations() {
-        return reject_if(
-            !qc.attestations.is_empty() || qc.attestation_witness.is_some(),
-            CertError::AttestationShape,
-        );
-    }
-    let signers = qc.signers.count_ones();
-    // MA11: a flagged CommitQC with more than `q` signers is accepted.
-    let quorum =
-        signers == committee.q() || (cfg!(sumeragi_mutation = "MA11") && signers > committee.q());
-    reject_if(
-        !quorum || signers != qc.attestations.len(),
-        CertError::AttestationShape,
-    )?;
-    let witness = qc
-        .attestation_witness
-        .as_ref()
-        .ok_or(CertError::AttestationShape)?;
-    let statement = qc.statement();
-    for (signer, attestation) in qc.signers.ones().zip(&qc.attestations) {
-        let key = committee.get(signer).ok_or(CertError::SignerOutOfRange)?;
-        reject_if(
-            !verifier.verify(
-                qc.height,
-                signer,
-                key,
-                &statement,
-                witness,
-                attestation.as_slice(),
-            ),
-            CertError::BadAttestation,
-        )?;
-    }
-    Ok(())
-}
-
-/// The attestation rule A3 of §3.7 for a vote under `committee = C_{vote.height}`: an
-/// attestation is present exactly on a flagged Commit vote, and it verifies for the vote's
-/// signer over `att_preimage(height, block_hash, result)`.
-///
-/// # Errors
-/// [`CertError::AttestationShape`], [`CertError::SignerOutOfRange`] or
-/// [`CertError::BadAttestation`].
-pub fn verify_vote_attestation(
-    verifier: &dyn AttestationVerifier,
-    committee: &Committee,
-    vote: &Vote,
-) -> Result<(), CertError> {
-    if !vote.needs_attestation() {
-        return reject_if(vote.attestation.is_some(), CertError::AttestationShape);
-    }
-    let attestation = vote
-        .attestation
-        .as_ref()
-        .ok_or(CertError::AttestationShape)?;
-    let key = committee
-        .get(vote.signer)
-        .ok_or(CertError::SignerOutOfRange)?;
-    (verifier.verify(
-        vote.height,
-        vote.signer,
-        key,
-        &vote.statement(),
-        &attestation.witness,
-        attestation.signature.as_slice(),
-    ))
-    .then_some(())
-    .ok_or(CertError::BadAttestation)
-}
-
 /// Why a certificate could not be formed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FormError {
@@ -543,10 +326,9 @@ pub enum FormError {
 }
 
 /// Form a QC from `votes` (§3.4 formation): every vote must have identical
-/// `(kind, instance, height, view, block_hash, result, attest)` and a distinct signer `< n`.
-/// There must be exactly `q(n)` votes. All given votes are used; a
-/// flagged `CommitQC` carries their attestations in signer order (§3.7 A4). The inputs must
-/// already be verified (SR38, SR41): formation never verifies.
+/// `(kind, instance, epoch, height, view, block_hash, result)` and a distinct signer `< n`.
+/// There must be exactly `q(n)` votes. All given votes are used. The inputs must
+/// already be verified (SR38): formation never verifies.
 ///
 /// # Errors
 /// [`FormError`] when the inputs cannot form a certificate.
@@ -570,8 +352,7 @@ pub fn form_qc(crypto: &dyn Crypto, n: usize, votes: &[&Vote]) -> Result<Qc, For
                 || vote.height != first.height
                 || vote.view != first.view
                 || vote.block_hash != first.block_hash
-                || vote.result != first.result
-                || vote.attest != first.attest,
+                || vote.result != first.result,
             FormError::Mismatch,
         )?;
         reject_if(
@@ -580,30 +361,6 @@ pub fn form_qc(crypto: &dyn Crypto, n: usize, votes: &[&Vote]) -> Result<Qc, For
         )?;
     }
     let sigs: Vec<Signature> = sorted.iter().map(|vote| vote.sig).collect();
-    let (attestation_witness, attestations) = if first.needs_attestation() {
-        let witness = &first
-            .attestation
-            .as_ref()
-            .ok_or(FormError::Mismatch)?
-            .witness;
-        let mut signatures = Vec::with_capacity(sorted.len());
-        for vote in &sorted {
-            let share = vote.attestation.as_ref().ok_or(FormError::Mismatch)?;
-            // MA13: aggregation silently accepts distinct result preimages for one certificate.
-            reject_if(
-                !cfg!(sumeragi_mutation = "MA13") && share.witness != *witness,
-                FormError::Mismatch,
-            )?;
-            signatures.push(share.signature);
-        }
-        (Some(witness.clone()), signatures)
-    } else {
-        reject_if(
-            sorted.iter().any(|vote| vote.attestation.is_some()),
-            FormError::Mismatch,
-        )?;
-        (None, Vec::new())
-    };
     Ok(Qc {
         kind: first.kind,
         instance: first.instance,
@@ -612,11 +369,8 @@ pub fn form_qc(crypto: &dyn Crypto, n: usize, votes: &[&Vote]) -> Result<Qc, For
         view: first.view,
         block_hash: first.block_hash,
         result: first.result,
-        attest: first.attest,
         signers,
         agg_sig: crypto.aggregate(&sigs),
-        attestations,
-        attestation_witness,
     })
 }
 
@@ -688,7 +442,7 @@ fn reject_if<E>(failed: bool, error: E) -> Result<(), E> {
 mod tests {
     use super::*;
     use crate::{
-        testing::{FakeAttestor, FakeValidators, FakeVerifier, SignLog, fake_attestation},
+        testing::{FakeValidators, SignLog},
         types::SIGNATURE_LEN,
     };
 
@@ -718,7 +472,7 @@ mod tests {
                     &crate::testing::TEST_EPOCH.id,
                     &v.committee
                 )
-                .verify_qc(&FakeVerifier, &qc),
+                .verify_qc(&qc),
                 Ok(()),
                 "n={n}"
             );
@@ -729,7 +483,7 @@ mod tests {
                     &crate::testing::TEST_EPOCH.id,
                     &v.committee
                 )
-                .verify_commit_qc(&FakeVerifier, &qc, None)
+                .verify_commit_qc(&qc, None)
             );
             let prepare = v.qc(VoteKind::Prepare, &I, 5, 1, &h(2), &h(3), &signers);
             assert!(
@@ -739,7 +493,7 @@ mod tests {
                     &crate::testing::TEST_EPOCH.id,
                     &v.committee
                 )
-                .verify_commit_qc(&FakeVerifier, &prepare, None)
+                .verify_commit_qc(&prepare, None)
             );
             assert!(
                 !crate::crypto::Verifier::new(
@@ -748,7 +502,7 @@ mod tests {
                     &crate::testing::TEST_EPOCH.id,
                     &v.committee
                 )
-                .verify_commit_qc(&FakeVerifier, &qc, None)
+                .verify_commit_qc(&qc, None)
             );
             // Every signed field is bound (tampering breaks the aggregate).
             for bad in [
@@ -784,7 +538,7 @@ mod tests {
                         &crate::testing::TEST_EPOCH.id,
                         &v.committee
                     )
-                    .verify_qc(&FakeVerifier, &bad),
+                    .verify_qc(&bad),
                     Err(CertError::BadSignature),
                     "n={n}"
                 );
@@ -797,7 +551,7 @@ mod tests {
                     &crate::testing::TEST_EPOCH.id,
                     &v.committee
                 )
-                .verify_qc(&FakeVerifier, &qc),
+                .verify_qc(&qc),
                 Err(CertError::WrongInstance)
             );
             // Malformed bitmaps.
@@ -810,13 +564,10 @@ mod tests {
                     &crate::testing::TEST_EPOCH.id,
                     &v.committee
                 )
-                .verify_qc(
-                    &FakeVerifier,
-                    &Qc {
-                        signers: Bitmap::from_bytes(long),
-                        ..qc.clone()
-                    }
-                ),
+                .verify_qc(&Qc {
+                    signers: Bitmap::from_bytes(long),
+                    ..qc.clone()
+                }),
                 Err(CertError::MalformedBitmap)
             );
             if n % 8 != 0 {
@@ -829,13 +580,10 @@ mod tests {
                         &crate::testing::TEST_EPOCH.id,
                         &v.committee
                     )
-                    .verify_qc(
-                        &FakeVerifier,
-                        &Qc {
-                            signers: spare,
-                            ..qc.clone()
-                        }
-                    ),
+                    .verify_qc(&Qc {
+                        signers: spare,
+                        ..qc.clone()
+                    }),
                     Err(CertError::MalformedBitmap)
                 );
             }
@@ -857,7 +605,7 @@ mod tests {
                     &crate::testing::TEST_EPOCH.id,
                     &v.committee
                 )
-                .verify_qc(&FakeVerifier, &qc),
+                .verify_qc(&qc),
                 Err(CertError::TooFewSigners),
                 "n={n}"
             );
@@ -871,71 +619,65 @@ mod tests {
                     &crate::testing::TEST_EPOCH.id,
                     &v.committee
                 )
-                .verify_qc(&FakeVerifier, &qc),
+                .verify_qc(&qc),
                 Err(CertError::TooManySigners)
             );
         }
     }
 
-    /// The signer cardinality is checked independently of the aggregate and attestation flag.
+    /// The signer cardinality is checked independently of the aggregate.
     #[test]
     fn det_s39_qc_exact_signer_count() {
         for n in [4usize, 5, 7, 10, 22, 31] {
             let v = validators(n);
             let q = v.committee.q();
             for kind in [VoteKind::Prepare, VoteKind::Commit] {
-                for attest in [false, true] {
-                    for (count, expected) in [
-                        (q - 1, Err(CertError::TooFewSigners)),
-                        (q, Ok(())),
-                        (q + 1, Err(CertError::TooManySigners)),
-                    ] {
-                        for offset in [0, n - count] {
-                            let signers: Vec<_> = (offset..offset + count)
-                                .map(crate::types::index_of)
-                                .collect();
-                            let qc = v.qc_flagged(kind, &I, 5, 1, &h(2), &h(3), &signers, attest);
-                            let keys = v.committee.keys_of(&qc.signers).unwrap();
-                            assert!(
-                                v.crypto
-                                    .verify_aggregate(&keys, &qc.preimage(), &qc.agg_sig)
-                            );
-                            assert_eq!(
-                                crate::crypto::Verifier::new(
-                                    &v.crypto,
-                                    &I,
-                                    &crate::testing::TEST_EPOCH.id,
-                                    &v.committee
-                                )
-                                .verify_qc_signatures(&qc),
-                                expected,
-                                "n={n}, count={count}, offset={offset}, kind={kind:?}, attest={attest}"
-                            );
-                            assert_eq!(
-                                crate::crypto::Verifier::new(
-                                    &v.crypto,
-                                    &I,
-                                    &crate::testing::TEST_EPOCH.id,
-                                    &v.committee
-                                )
-                                .verify_qc(&FakeVerifier, &qc),
-                                expected
-                            );
-                            assert_eq!(
-                                crate::crypto::Verifier::new(
-                                    &v.crypto,
-                                    &I,
-                                    &crate::testing::TEST_EPOCH.id,
-                                    &v.committee
-                                )
-                                .verify_commit_qc(
-                                    &FakeVerifier,
-                                    &qc,
-                                    None
-                                ),
-                                kind == VoteKind::Commit && count == q
-                            );
-                        }
+                for (count, expected) in [
+                    (q - 1, Err(CertError::TooFewSigners)),
+                    (q, Ok(())),
+                    (q + 1, Err(CertError::TooManySigners)),
+                ] {
+                    for offset in [0, n - count] {
+                        let signers: Vec<_> = (offset..offset + count)
+                            .map(crate::types::index_of)
+                            .collect();
+                        let qc = v.qc(kind, &I, 5, 1, &h(2), &h(3), &signers);
+                        let keys = v.committee.keys_of(&qc.signers).unwrap();
+                        assert!(
+                            v.crypto
+                                .verify_aggregate(&keys, &qc.preimage(), &qc.agg_sig)
+                        );
+                        assert_eq!(
+                            crate::crypto::Verifier::new(
+                                &v.crypto,
+                                &I,
+                                &crate::testing::TEST_EPOCH.id,
+                                &v.committee
+                            )
+                            .verify_qc(&qc),
+                            expected,
+                            "n={n}, count={count}, offset={offset}, kind={kind:?}"
+                        );
+                        assert_eq!(
+                            crate::crypto::Verifier::new(
+                                &v.crypto,
+                                &I,
+                                &crate::testing::TEST_EPOCH.id,
+                                &v.committee
+                            )
+                            .verify_qc(&qc),
+                            expected
+                        );
+                        assert_eq!(
+                            crate::crypto::Verifier::new(
+                                &v.crypto,
+                                &I,
+                                &crate::testing::TEST_EPOCH.id,
+                                &v.committee
+                            )
+                            .verify_commit_qc(&qc, None),
+                            kind == VoteKind::Commit && count == q
+                        );
                     }
                 }
             }
@@ -1017,66 +759,47 @@ mod tests {
         }
     }
 
-    /// Formation uses the caller's exact quorum and preserves its ordered attestations.
+    /// Formation uses the caller's exact quorum and preserves ordered signer identity.
     #[test]
     fn det_s41_form_qc_exact_signer_count() {
         for n in [4usize, 5, 7, 10, 22, 31] {
             let v = validators(n);
             let q = v.committee.q();
             for kind in [VoteKind::Prepare, VoteKind::Commit] {
-                for attest in [false, true] {
-                    for count in [q - 1, q, q + 1] {
-                        let votes: Vec<_> = (n - count..n)
-                            .rev()
-                            .map(|index| {
-                                v.vote_flagged(
-                                    kind,
-                                    crate::types::index_of(index),
-                                    &I,
-                                    5,
-                                    1,
-                                    &h(2),
-                                    &h(3),
-                                    attest,
-                                )
+                for count in [q - 1, q, q + 1] {
+                    let votes: Vec<_> = (n - count..n)
+                        .rev()
+                        .map(|index| {
+                            v.vote(kind, crate::types::index_of(index), &I, 5, 1, &h(2), &h(3))
+                        })
+                        .collect();
+                    let formed = form_qc(&v.crypto, n, &votes.iter().collect::<Vec<_>>());
+                    if count != q {
+                        assert_eq!(
+                            formed,
+                            Err(if count < q {
+                                FormError::TooFew
+                            } else {
+                                FormError::TooMany
                             })
-                            .collect();
-                        let formed = form_qc(&v.crypto, n, &votes.iter().collect::<Vec<_>>());
-                        if count != q {
-                            assert_eq!(
-                                formed,
-                                Err(if count < q {
-                                    FormError::TooFew
-                                } else {
-                                    FormError::TooMany
-                                })
-                            );
-                            continue;
-                        }
-                        let qc = formed.unwrap();
-                        assert_eq!(
-                            qc.signers.ones().collect::<Vec<_>>(),
-                            (n - q..n).map(crate::types::index_of).collect::<Vec<_>>()
                         );
-                        assert_eq!(
-                            qc.attestations,
-                            votes
-                                .iter()
-                                .rev()
-                                .filter_map(|vote| vote.attestation.as_ref().map(|a| a.signature))
-                                .collect::<Vec<_>>()
-                        );
-                        assert_eq!(
-                            crate::crypto::Verifier::new(
-                                &v.crypto,
-                                &I,
-                                &crate::testing::TEST_EPOCH.id,
-                                &v.committee
-                            )
-                            .verify_qc(&FakeVerifier, &qc),
-                            Ok(())
-                        );
+                        continue;
                     }
+                    let qc = formed.unwrap();
+                    assert_eq!(
+                        qc.signers.ones().collect::<Vec<_>>(),
+                        (n - q..n).map(crate::types::index_of).collect::<Vec<_>>()
+                    );
+                    assert_eq!(
+                        crate::crypto::Verifier::new(
+                            &v.crypto,
+                            &I,
+                            &crate::testing::TEST_EPOCH.id,
+                            &v.committee
+                        )
+                        .verify_qc(&qc),
+                        Ok(())
+                    );
                 }
             }
         }
@@ -1093,7 +816,7 @@ mod tests {
                 &crate::testing::TEST_EPOCH.id,
                 &v.committee
             )
-            .verify_qc(&FakeVerifier, &qc),
+            .verify_qc(&qc),
             Err(CertError::TooFewSigners)
         );
         let qc = v.qc(VoteKind::Commit, &I, 3, 0, &h(2), &h(3), &[0, 1, 2, 4]);
@@ -1104,7 +827,7 @@ mod tests {
                 &crate::testing::TEST_EPOCH.id,
                 &v.committee
             )
-            .verify_qc(&FakeVerifier, &qc),
+            .verify_qc(&qc),
             Ok(())
         );
     }
@@ -1123,7 +846,7 @@ mod tests {
                 &crate::testing::TEST_EPOCH.id,
                 &old.committee
             )
-            .verify_qc(&FakeVerifier, &qc),
+            .verify_qc(&qc),
             Ok(())
         );
         assert_eq!(
@@ -1133,7 +856,7 @@ mod tests {
                 &crate::testing::TEST_EPOCH.id,
                 &new.committee
             )
-            .verify_qc(&FakeVerifier, &qc),
+            .verify_qc(&qc),
             Err(CertError::BadSignature)
         );
         assert!(
@@ -1143,7 +866,7 @@ mod tests {
                 &crate::testing::TEST_EPOCH.id,
                 &new.committee
             )
-            .verify_commit_qc(&FakeVerifier, &qc, None)
+            .verify_commit_qc(&qc, None)
         );
         // Larger committee: the bitmap length no longer matches.
         let bigger = FakeValidators::new(9, 1, None);
@@ -1154,7 +877,7 @@ mod tests {
                 &crate::testing::TEST_EPOCH.id,
                 &bigger.committee
             )
-            .verify_qc(&FakeVerifier, &qc),
+            .verify_qc(&qc),
             Err(CertError::MalformedBitmap)
         );
     }
@@ -1175,13 +898,13 @@ mod tests {
                 &crate::testing::TEST_EPOCH.id,
                 &v.committee
             )
-            .verify_qc(&FakeVerifier, &replay),
+            .verify_qc(&replay),
             Err(CertError::BadSignature)
         );
         let vote = v.vote(VoteKind::Prepare, 1, &I, 9, 0, &h(2), &h(3));
         let replay = Vote {
             instance: J,
-            ..vote.clone()
+            ..vote
         };
         assert_eq!(
             crate::crypto::Verifier::new(
@@ -1258,7 +981,7 @@ mod tests {
                 &crate::testing::TEST_EPOCH.id,
                 &v.committee
             )
-            .verify_qc(&FakeVerifier, &rewritten),
+            .verify_qc(&rewritten),
             Err(CertError::BadSignature)
         );
         let vote = v.vote(VoteKind::Commit, 0, &I, 9, 0, &h(2), &h(3));
@@ -1299,10 +1022,7 @@ mod tests {
                 &crate::testing::TEST_EPOCH.id,
                 &v.committee
             )
-            .verify_vote(&Vote {
-                signer: 2,
-                ..vote.clone()
-            }),
+            .verify_vote(&Vote { signer: 2, ..vote }),
             Err(CertError::BadSignature)
         );
         assert_eq!(
@@ -1312,10 +1032,7 @@ mod tests {
                 &crate::testing::TEST_EPOCH.id,
                 &v.committee
             )
-            .verify_vote(&Vote {
-                signer: 4,
-                ..vote.clone()
-            }),
+            .verify_vote(&Vote { signer: 4, ..vote }),
             Err(CertError::SignerOutOfRange)
         );
         assert_eq!(
@@ -1400,7 +1117,6 @@ mod tests {
             payload_len: 0,
             proposer: 2,
             skipped_leaders: vec![],
-            attest: false,
         };
         let parent = v.qc(VoteKind::Commit, &I, 8, 0, &h(1), &h(2), &[0, 1, 2]);
         let p = v.proposal(2, &I, 9, 0, header, None, Some(parent));
@@ -1703,7 +1419,7 @@ mod tests {
                 &crate::testing::TEST_EPOCH.id,
                 &v.committee
             )
-            .verify_qc(&FakeVerifier, &qc),
+            .verify_qc(&qc),
             Ok(())
         );
         assert_eq!(form_qc(&v.crypto, 4, &refs[..2]), Err(FormError::TooFew));
@@ -1719,7 +1435,7 @@ mod tests {
         );
         let out_of_range = Vote {
             signer: 8,
-            ..votes[0].clone()
+            ..votes[0]
         };
         assert_eq!(
             form_qc(&v.crypto, 4, &[refs[0], refs[1], &out_of_range]),
@@ -1727,7 +1443,7 @@ mod tests {
         );
         let spare = Vote {
             signer: 5,
-            ..votes[0].clone()
+            ..votes[0]
         };
         assert_eq!(
             form_qc(&v.crypto, 4, &[refs[0], refs[1], &spare]),
@@ -1833,259 +1549,8 @@ mod tests {
         );
     }
 
-    /// §3.7 A4 (MA2): a flagged `CommitQC` verifies only with one genuine attestation per signer
-    /// over `att_preimage(h, bh, R)`, in signer order; every other certificate carries none.
-    #[test]
-    #[allow(clippy::too_many_lines)]
-    fn det_a4_commitqc_attestations_checked() {
-        let v = validators(4);
-        let good = v.qc_flagged(VoteKind::Commit, &I, 9, 1, &h(2), &h(3), &[0, 1, 3], true);
-        assert_eq!(good.attestations.len(), 3);
-        assert_eq!(
-            crate::crypto::Verifier::new(
-                &v.crypto,
-                &I,
-                &crate::testing::TEST_EPOCH.id,
-                &v.committee
-            )
-            .verify_qc(&FakeVerifier, &good),
-            Ok(())
-        );
-        assert_eq!(
-            verify_attestations(&FakeVerifier, &v.committee, &good),
-            Ok(())
-        );
-        let other_height = |signer: ValidatorIndex| {
-            let statement =
-                preimage::att_preimage(&I, &crate::testing::TEST_EPOCH.id, 10, &h(2), &h(3));
-            fake_attestation(&v.key(signer), 10, &statement).signature
-        };
-        let mut swapped = good.attestations.clone();
-        swapped.swap(0, 1);
-        let mut forged = good.attestations.clone();
-        let mut changed = forged[2].as_slice().to_vec();
-        changed[0] ^= 1;
-        forged[2] = crate::message::AttestationSignature::try_from_slice(&changed).unwrap();
-        let mut replayed = good.attestations.clone();
-        replayed[1] = other_height(1);
-        let cases = [
-            (Vec::new(), CertError::AttestationShape),
-            (good.attestations[..2].to_vec(), CertError::AttestationShape),
-            (
-                [
-                    good.attestations.clone(),
-                    vec![crate::message::AttestationSignature::try_from_slice(&[1]).unwrap()],
-                ]
-                .concat(),
-                CertError::AttestationShape,
-            ),
-            (forged, CertError::BadAttestation),
-            (swapped, CertError::BadAttestation),
-            (replayed, CertError::BadAttestation),
-        ];
-        for (attestations, expected) in cases {
-            let bad = Qc {
-                attestations,
-                ..good.clone()
-            };
-            assert_eq!(
-                crate::crypto::Verifier::new(
-                    &v.crypto,
-                    &I,
-                    &crate::testing::TEST_EPOCH.id,
-                    &v.committee
-                )
-                .verify_qc(&FakeVerifier, &bad),
-                Err(expected)
-            );
-            assert!(
-                !crate::crypto::Verifier::new(
-                    &v.crypto,
-                    &I,
-                    &crate::testing::TEST_EPOCH.id,
-                    &v.committee
-                )
-                .verify_commit_qc(&FakeVerifier, &bad, None)
-            );
-            // The Commit signatures alone still verify (the safety monitor's check, §7.6).
-            assert_eq!(
-                crate::crypto::Verifier::new(
-                    &v.crypto,
-                    &I,
-                    &crate::testing::TEST_EPOCH.id,
-                    &v.committee
-                )
-                .verify_qc_signatures(&bad),
-                Ok(())
-            );
-        }
-        // Fail closed without a verifier that knows the keys.
-        assert_eq!(
-            crate::crypto::Verifier::new(
-                &v.crypto,
-                &I,
-                &crate::testing::TEST_EPOCH.id,
-                &v.committee
-            )
-            .verify_qc(&NoAttestation, &good),
-            Err(CertError::BadAttestation)
-        );
-        // Unflagged certificates and PrepareQCs carry none.
-        let plain = v.qc(VoteKind::Commit, &I, 9, 1, &h(2), &h(3), &[0, 1, 3]);
-        assert_eq!(
-            crate::crypto::Verifier::new(
-                &v.crypto,
-                &I,
-                &crate::testing::TEST_EPOCH.id,
-                &v.committee
-            )
-            .verify_qc(&NoAttestation, &plain),
-            Ok(())
-        );
-        let prepare = v.qc_flagged(VoteKind::Prepare, &I, 9, 1, &h(2), &h(3), &[0, 1, 3], true);
-        assert!(prepare.attestations.is_empty());
-        assert_eq!(
-            crate::crypto::Verifier::new(
-                &v.crypto,
-                &I,
-                &crate::testing::TEST_EPOCH.id,
-                &v.committee
-            )
-            .verify_qc(&NoAttestation, &prepare),
-            Ok(())
-        );
-        for bad in [
-            Qc {
-                attestations: good.attestations.clone(),
-                ..plain.clone()
-            },
-            Qc {
-                attestations: good.attestations.clone(),
-                ..prepare
-            },
-        ] {
-            assert_eq!(
-                crate::crypto::Verifier::new(
-                    &v.crypto,
-                    &I,
-                    &crate::testing::TEST_EPOCH.id,
-                    &v.committee
-                )
-                .verify_qc(&FakeVerifier, &bad),
-                Err(CertError::AttestationShape)
-            );
-        }
-        // The flag is signed (SR39): clearing it, with or without the attestations, breaks the
-        // aggregate.
-        for flipped in [
-            Qc {
-                attest: false,
-                attestations: Vec::new(),
-                ..good.clone()
-            },
-            Qc {
-                attest: false,
-                ..good.clone()
-            },
-        ] {
-            assert!(
-                crate::crypto::Verifier::new(
-                    &v.crypto,
-                    &I,
-                    &crate::testing::TEST_EPOCH.id,
-                    &v.committee
-                )
-                .verify_qc(&FakeVerifier, &flipped)
-                .is_err()
-            );
-        }
-        assert_eq!(
-            crate::crypto::Verifier::new(
-                &v.crypto,
-                &I,
-                &crate::testing::TEST_EPOCH.id,
-                &v.committee
-            )
-            .verify_qc(
-                &FakeVerifier,
-                &Qc {
-                    attest: true,
-                    ..plain
-                }
-            ),
-            Err(CertError::BadSignature)
-        );
-    }
-
-    /// §3.7 A4 (MA11): a flagged `CommitQC` has exactly `q` signers. An over-aggregated one
-    /// (`q + 1` genuine signatures and attestations, which only a Byzantine aggregator forms) is
-    /// rejected by the generic signature path as well as the independent attestation-shape
-    /// check. Unflagged certificates must carry the same exact quorum (§3.4).
-    #[test]
-    fn det_a4_flagged_commitqc_has_exactly_q_signers() {
-        let v = validators(4);
-        let all = [0, 1, 2, 3];
-        let over = v.qc_flagged(VoteKind::Commit, &I, 9, 1, &h(2), &h(3), &all, true);
-        assert_eq!(over.attestations.len(), 4);
-        assert_eq!(
-            verify_attestations(&FakeVerifier, &v.committee, &over),
-            Err(CertError::AttestationShape)
-        );
-        assert_eq!(
-            crate::crypto::Verifier::new(
-                &v.crypto,
-                &I,
-                &crate::testing::TEST_EPOCH.id,
-                &v.committee
-            )
-            .verify_qc(&FakeVerifier, &over),
-            Err(CertError::TooManySigners)
-        );
-        assert!(
-            !crate::crypto::Verifier::new(
-                &v.crypto,
-                &I,
-                &crate::testing::TEST_EPOCH.id,
-                &v.committee
-            )
-            .verify_commit_qc(&FakeVerifier, &over, None)
-        );
-        assert_eq!(
-            crate::crypto::Verifier::new(
-                &v.crypto,
-                &I,
-                &crate::testing::TEST_EPOCH.id,
-                &v.committee
-            )
-            .verify_qc_signatures(&over),
-            Err(CertError::TooManySigners)
-        );
-        let plain = v.qc(VoteKind::Commit, &I, 9, 1, &h(2), &h(3), &all);
-        assert_eq!(
-            crate::crypto::Verifier::new(
-                &v.crypto,
-                &I,
-                &crate::testing::TEST_EPOCH.id,
-                &v.committee
-            )
-            .verify_qc(&NoAttestation, &plain),
-            Err(CertError::TooManySigners)
-        );
-        let prepare = v.qc_flagged(VoteKind::Prepare, &I, 9, 1, &h(2), &h(3), &all, true);
-        assert_eq!(
-            crate::crypto::Verifier::new(
-                &v.crypto,
-                &I,
-                &crate::testing::TEST_EPOCH.id,
-                &v.committee
-            )
-            .verify_qc(&NoAttestation, &prepare),
-            Err(CertError::TooManySigners)
-        );
-    }
-
-    /// `verify_commit_qc` (§11, §3.7 A4): a caller that holds the header also checks that it is
-    /// the certified block and carries the certificate's flag.
+    /// `verify_commit_qc` (§11): a caller that holds the header also checks that it is
+    /// the certified block with the exact signed header fields.
     #[test]
     fn commit_qc_with_header() {
         let v = validators(4);
@@ -2102,10 +1567,9 @@ mod tests {
             payload_len: 1,
             proposer: 0,
             skipped_leaders: vec![],
-            attest: true,
         };
         let bh = header.hash(&v.crypto);
-        let qc = v.qc_flagged(VoteKind::Commit, &I, 9, 0, &bh, &h(3), &[0, 1, 2], true);
+        let qc = v.qc(VoteKind::Commit, &I, 9, 0, &bh, &h(3), &[0, 1, 2]);
         let check = |header: &crate::message::BlockHeader, qc: &Qc| {
             crate::crypto::Verifier::new(
                 &v.crypto,
@@ -2113,346 +1577,25 @@ mod tests {
                 &crate::testing::TEST_EPOCH.id,
                 &v.committee,
             )
-            .verify_commit_qc(&FakeVerifier, qc, Some(header))
+            .verify_commit_qc(qc, Some(header))
         };
         assert!(check(&header, &qc));
-        let unflagged = crate::message::BlockHeader {
-            attest: false,
+        let changed_header = crate::message::BlockHeader {
+            payload_len: header.payload_len + 1,
             ..header.clone()
         };
-        assert!(!check(&unflagged, &qc), "another header (and flag)");
+        assert!(!check(&changed_header, &qc), "another signed header");
         let other = crate::message::BlockHeader {
             height: 10,
             ..header.clone()
         };
         assert!(!check(&other, &qc));
-        let plain_bh = unflagged.hash(&v.crypto);
-        let plain = v.qc(VoteKind::Commit, &I, 9, 0, &plain_bh, &h(3), &[0, 1, 2]);
-        assert!(check(&unflagged, &plain));
+        let changed_hash = changed_header.hash(&v.crypto);
+        let changed_qc = v.qc(VoteKind::Commit, &I, 9, 0, &changed_hash, &h(3), &[0, 1, 2]);
+        assert!(check(&changed_header, &changed_qc));
         assert!(
-            !check(&header, &plain),
-            "a flagged header needs a flagged certificate"
-        );
-    }
-
-    /// §3.7 A3: an attestation is present exactly on a flagged Commit vote, and it verifies for
-    /// its signer over the vote's own statement.
-    #[test]
-    fn vote_attestation_rules() {
-        let v = validators(4);
-        let commit = v.vote_flagged(VoteKind::Commit, 1, &I, 9, 2, &h(2), &h(3), true);
-        assert!(commit.attestation.is_some());
-        assert_eq!(
-            crate::crypto::Verifier::new(
-                &v.crypto,
-                &I,
-                &crate::testing::TEST_EPOCH.id,
-                &v.committee
-            )
-            .verify_vote(&commit),
-            Ok(())
-        );
-        assert_eq!(
-            verify_vote_attestation(&FakeVerifier, &v.committee, &commit),
-            Ok(())
-        );
-        let stripped = Vote {
-            attestation: None,
-            ..commit.clone()
-        };
-        assert_eq!(
-            crate::crypto::Verifier::new(
-                &v.crypto,
-                &I,
-                &crate::testing::TEST_EPOCH.id,
-                &v.committee
-            )
-            .verify_vote(&stripped),
-            Ok(()),
-            "the attestation is not signed"
-        );
-        assert_eq!(
-            verify_vote_attestation(&FakeVerifier, &v.committee, &stripped),
-            Err(CertError::AttestationShape)
-        );
-        let prepare = v.vote_flagged(VoteKind::Prepare, 1, &I, 9, 2, &h(2), &h(3), true);
-        assert!(prepare.attestation.is_none());
-        assert_eq!(
-            crate::crypto::Verifier::new(
-                &v.crypto,
-                &I,
-                &crate::testing::TEST_EPOCH.id,
-                &v.committee
-            )
-            .verify_vote(&prepare),
-            Ok(())
-        );
-        assert_eq!(
-            verify_vote_attestation(&NoAttestation, &v.committee, &prepare),
-            Ok(())
-        );
-        let junk = Vote {
-            attestation: Some(fake_attestation(&v.key(1), 9, b"junk")),
-            ..prepare
-        };
-        assert_eq!(
-            verify_vote_attestation(&FakeVerifier, &v.committee, &junk),
-            Err(CertError::AttestationShape)
-        );
-        // Another signer's, another result's or another height's attestation does not verify.
-        let other = v.vote_flagged(VoteKind::Commit, 2, &I, 9, 2, &h(2), &h(3), true);
-        let other_result = v.vote_flagged(VoteKind::Commit, 1, &I, 9, 2, &h(2), &h(4), true);
-        let other_height = v.vote_flagged(VoteKind::Commit, 1, &I, 10, 2, &h(2), &h(3), true);
-        for attestation in [
-            other.attestation,
-            other_result.attestation,
-            other_height.attestation,
-        ] {
-            let bad = Vote {
-                attestation,
-                ..commit.clone()
-            };
-            assert_eq!(
-                crate::crypto::Verifier::new(
-                    &v.crypto,
-                    &I,
-                    &crate::testing::TEST_EPOCH.id,
-                    &v.committee
-                )
-                .verify_vote(&bad),
-                Ok(())
-            );
-            assert_eq!(
-                verify_vote_attestation(&FakeVerifier, &v.committee, &bad),
-                Err(CertError::BadAttestation)
-            );
-        }
-        let out_of_range = Vote {
-            signer: 7,
-            ..commit.clone()
-        };
-        assert_eq!(
-            verify_vote_attestation(&FakeVerifier, &v.committee, &out_of_range),
-            Err(CertError::SignerOutOfRange)
-        );
-        assert_eq!(
-            verify_vote_attestation(&NoAttestation, &v.committee, &commit),
-            Err(CertError::BadAttestation)
-        );
-    }
-
-    /// Formation (§3.4, §3.7 A4): flagged Commit votes form a certificate carrying their
-    /// attestations in signer order; votes differing only in the flag never aggregate.
-    #[test]
-    fn form_qc_carries_attestations() {
-        let v = validators(4);
-        let votes: Vec<Vote> = [3u32, 0, 1]
-            .iter()
-            .map(|i| v.vote_flagged(VoteKind::Commit, *i, &I, 9, 1, &h(2), &h(3), true))
-            .collect();
-        let refs: Vec<&Vote> = votes.iter().collect();
-        let qc = form_qc(&v.crypto, 4, &refs).unwrap();
-        assert!(qc.attest);
-        let by_signer = |i: u32| {
-            votes
-                .iter()
-                .find(|x| x.signer == i)
-                .unwrap()
-                .attestation
-                .clone()
-        };
-        assert_eq!(
-            qc.attestations,
-            [0, 1, 3]
-                .iter()
-                .filter_map(|i| by_signer(*i).map(|a| a.signature))
-                .collect::<Vec<_>>()
-        );
-        assert_eq!(
-            crate::crypto::Verifier::new(
-                &v.crypto,
-                &I,
-                &crate::testing::TEST_EPOCH.id,
-                &v.committee
-            )
-            .verify_qc(&FakeVerifier, &qc),
-            Ok(())
-        );
-        assert_eq!(
-            qc.attestation_witness.as_ref(),
-            votes[0].attestation.as_ref().map(|share| &share.witness)
-        );
-        let mut changed = votes.clone();
-        changed[0].attestation.as_mut().unwrap().witness =
-            crate::message::ResultWitness::from_untrusted(vec![9]).unwrap();
-        assert_eq!(
-            form_qc(&v.crypto, 4, &changed.iter().collect::<Vec<_>>()),
-            Err(FormError::Mismatch)
-        );
-        let without_source = Qc {
-            attestation_witness: None,
-            ..qc.clone()
-        };
-        assert_eq!(
-            verify_attestations(&FakeVerifier, &v.committee, &without_source),
-            Err(CertError::AttestationShape)
-        );
-        let unflagged = v.vote(VoteKind::Commit, 2, &I, 9, 1, &h(2), &h(3));
-        assert_eq!(
-            form_qc(&v.crypto, 4, &[refs[0], refs[1], &unflagged]),
-            Err(FormError::Mismatch)
-        );
-        let prepares: Vec<Vote> = [0u32, 1, 2]
-            .iter()
-            .map(|i| v.vote_flagged(VoteKind::Prepare, *i, &I, 9, 1, &h(2), &h(3), true))
-            .collect();
-        let prepare_qc = form_qc(&v.crypto, 4, &prepares.iter().collect::<Vec<_>>()).unwrap();
-        assert!(prepare_qc.attest && prepare_qc.attestations.is_empty());
-        assert_eq!(
-            crate::crypto::Verifier::new(
-                &v.crypto,
-                &I,
-                &crate::testing::TEST_EPOCH.id,
-                &v.committee
-            )
-            .verify_qc(&NoAttestation, &prepare_qc),
-            Ok(())
-        );
-    }
-
-    /// The fail-closed extension and the fake authority (§3.7).
-    #[test]
-    fn attestation_extension_parts() {
-        let v = validators(4);
-        let key = v.key(0);
-        assert_eq!(
-            NoAttestation.attest(1, &key, b"s"),
-            AttestOutcome::NoAuthority
-        );
-        assert!(!NoAttestation.verify(
-            1,
-            0,
-            &key,
-            b"s",
-            &fake_attestation(&key, 1, b"s").witness,
-            b"a"
-        ));
-        let none = Attestation::none();
-        assert_eq!(
-            none.attestor.attest(1, &key, b"s"),
-            AttestOutcome::NoAuthority
-        );
-        assert_eq!(format!("{none:?}"), "Attestation");
-        let fake = Attestation::new(Box::new(FakeAttestor::new()), Box::new(FakeVerifier));
-        let AttestOutcome::Attested(attestation) = fake.attestor.attest(1, &key, b"s") else {
-            panic!("the fake authority attests every key");
-        };
-        assert!(fake.verifier.verify(
-            1,
-            0,
-            &key,
-            b"s",
-            &attestation.witness,
-            attestation.signature.as_slice()
-        ));
-        assert!(
-            !fake.verifier.verify(
-                2,
-                0,
-                &key,
-                b"s",
-                &attestation.witness,
-                attestation.signature.as_slice()
-            ),
-            "height bound"
-        );
-        assert!(
-            !fake.verifier.verify(
-                1,
-                0,
-                &v.key(1),
-                b"s",
-                &attestation.witness,
-                attestation.signature.as_slice()
-            ),
-            "key bound"
-        );
-        assert!(
-            !fake.verifier.verify(
-                1,
-                0,
-                &key,
-                b"t",
-                &attestation.witness,
-                attestation.signature.as_slice()
-            ),
-            "statement bound"
-        );
-        assert_eq!(
-            FakeAttestor::without_authority([key.clone()]).attest(1, &key, b"s"),
-            AttestOutcome::NoAuthority
-        );
-        let AttestOutcome::Attested(forged) = FakeAttestor::forging().attest(1, &key, b"s") else {
-            panic!("a forging authority attests");
-        };
-        assert!(!FakeVerifier.verify(
-            1,
-            0,
-            &key,
-            b"s",
-            &forged.witness,
-            forged.signature.as_slice()
-        ));
-    }
-
-    /// An execution-gated fake authority (§3.7 A2): `Pending` until its node executed the
-    /// block to the statement's `R`, then the genuine attestation; `Executed` records,
-    /// prunes applied heights and clears on a crash.
-    #[test]
-    fn execution_gated_attestor_waits_for_execution() {
-        let v = validators(4);
-        let key = v.key(0);
-        let executed = crate::testing::Executed::new();
-        assert!(executed.is_empty());
-        let attestor = FakeAttestor::new().after_execution(executed.clone());
-        let statement = preimage::att_preimage(&I, &crate::testing::TEST_EPOCH.id, 5, &h(2), &h(3));
-        assert_eq!(attestor.attest(5, &key, &statement), AttestOutcome::Pending);
-        executed.record(&I, &crate::testing::TEST_EPOCH.id, 5, &h(2), &h(4));
-        assert_eq!(
-            attestor.attest(5, &key, &statement),
-            AttestOutcome::Pending,
-            "another result"
-        );
-        let successor = crate::testing::scheduled_epoch(1, 5, 9).id;
-        executed.record(&I, &successor, 5, &h(2), &h(3));
-        assert_eq!(
-            attestor.attest(5, &key, &statement),
-            AttestOutcome::Pending,
-            "another authenticated epoch"
-        );
-        let successor_statement = preimage::att_preimage(&I, &successor, 5, &h(2), &h(3));
-        assert_eq!(
-            attestor.attest(5, &key, &successor_statement),
-            AttestOutcome::Attested(fake_attestation(&key, 5, &successor_statement))
-        );
-        executed.record(&I, &crate::testing::TEST_EPOCH.id, 5, &h(2), &h(3));
-        assert!(executed.contains(5, &statement) && !executed.contains(6, &statement));
-        assert_eq!(
-            attestor.attest(5, &key, &statement),
-            AttestOutcome::Attested(fake_attestation(&key, 5, &statement))
-        );
-        executed.record(&I, &crate::testing::TEST_EPOCH.id, 7, &h(2), &h(3));
-        assert_eq!(executed.len(), 4);
-        executed.prune_through(5);
-        assert_eq!(executed.len(), 1);
-        assert_eq!(attestor.attest(5, &key, &statement), AttestOutcome::Pending);
-        executed.clear();
-        assert!(executed.is_empty());
-        // Authority still decides first.
-        let gated = FakeAttestor::without_authority([key.clone()]).after_execution(executed);
-        assert_eq!(
-            gated.attest(5, &key, &statement),
-            AttestOutcome::NoAuthority
+            !check(&header, &changed_qc),
+            "a different header requires its own certificate"
         );
     }
 

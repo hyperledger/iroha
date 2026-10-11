@@ -1,4 +1,6 @@
 //! Structures, traits and impls related to *runtime* `Executor`s.
+/// Bounded deterministic VM fault values and authenticated execution coordinates.
+pub mod fault;
 #[cfg(feature = "transparent_api")]
 pub use self::model::*;
 #[cfg(not(feature = "transparent_api"))]
@@ -127,6 +129,8 @@ mod model {
         InstructionFailed(#[source] isi::error::InstructionExecutionError),
         /// Contract rejected the operation: {0}
         ContractRejected(ContractRejection),
+        /// IVM execution fault: {0}
+        IvmFault(crate::executor::fault::IvmFaultV1),
         /// Query execution failed
         QueryFailed(#[source] query::error::QueryExecutionFail),
         /// Atomic cross-transaction policy rejected the request.

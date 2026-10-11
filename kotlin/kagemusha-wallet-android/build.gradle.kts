@@ -1,3 +1,4 @@
+import java.io.File
 import java.net.URI
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -20,7 +21,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        minSdk = 24
+        minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
     }
@@ -104,7 +105,11 @@ dependencies {
 }
 
 tasks.withType<Test>().configureEach {
-    useJUnitPlatform()
+    enableAssertions = true
+    val hostNativeTask = name == "testDebugHostNative"
+    useJUnitPlatform {
+        if (!hostNativeTask) excludeTags("host-native")
+    }
     // The wallet custody backup test asserts the processed library manifest, not only its source.
     if (name == "testDebugUnitTest") {
         dependsOn("processDebugManifest")
@@ -118,6 +123,37 @@ tasks.withType<Test>().configureEach {
 }
 
 afterEvaluate {
+    // Actual host JNI is an explicit component gate, separate from managed adapters and phones.
+    tasks.register<Test>("testDebugHostNative") {
+        description = "Run wallet consumers against an explicitly supplied current host JNI bridge."
+        group = "verification"
+        val managed = tasks.named<Test>("testDebugUnitTest").get()
+        testClassesDirs = managed.testClassesDirs
+        classpath = managed.classpath
+        dependsOn(provider { managed.taskDependencies.getDependencies(managed) })
+        useJUnitPlatform { includeTags("host-native") }
+        filter {
+            includeTestsMatching("org.hyperledger.iroha.sdk.offline.wallet.*")
+            isFailOnNoMatchingTests = true
+        }
+        outputs.upToDateWhen { false }
+        outputs.doNotCacheIf("Host JNI qualification must execute against the supplied artifact") { true }
+        val nativeDirectory = providers.environmentVariable("IROHA_NATIVE_LIBRARY_PATH")
+        doFirst {
+            val configured = nativeDirectory.orNull
+            require(!configured.isNullOrBlank()) {
+                "testDebugHostNative requires IROHA_NATIVE_LIBRARY_PATH for the rebuilt host bridge"
+            }
+            val directory = File(configured)
+            require(directory.isAbsolute && directory.isDirectory) {
+                "IROHA_NATIVE_LIBRARY_PATH must be an absolute existing directory"
+            }
+            require(directory.resolve(System.mapLibraryName("connect_norito_bridge")).isFile) {
+                "The configured host JNI bridge is missing"
+            }
+            systemProperty("java.library.path", directory.absolutePath)
+        }
+    }
     publishing {
         publications {
             create<MavenPublication>("release") {

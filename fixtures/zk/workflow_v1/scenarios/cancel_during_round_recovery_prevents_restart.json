@@ -1,0 +1,107 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "cancel_during_round_recovery_prevents_restart",
+  "category": "cancellation",
+  "rules": [
+    "rounds_recover_under_one_identity",
+    "persist_before_effect",
+    "cancellation_is_sticky_and_never_rolls_back"
+  ],
+  "description": "Cancellation wins while a previously started round is being recovered as never started. The stale runner loses its restart-intent compare-and-swap, recovers read-only, and starts no round or later transaction.",
+  "plan": {
+    "kind": "threshold_opening",
+    "instance": "cancel-during-round-recovery",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "collect",
+        "kind": "offchain_round",
+        "irreversible": true,
+        "participants_required": 2,
+        "custody_handles_required": 0
+      },
+      {
+        "label": "open",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "round_starts": [
+          "interrupt"
+        ]
+      },
+      "expect": {
+        "result": "interrupted",
+        "effects": [
+          "round_start:0"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "round_started",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "round_recoveries": [
+          "not_started",
+          "not_started"
+        ]
+      },
+      "concurrent": {
+        "when": "effect:round_recover:0",
+        "action": "cancel"
+      },
+      "expect": {
+        "result": {
+          "error": "CancelledBeforeSubmission",
+          "stage": "cancel",
+          "step": 0,
+          "resumable": false
+        },
+        "effects": [
+          "round_recover:0",
+          "concurrent:cancel:cancelling",
+          "round_recover:0"
+        ],
+        "status": "cancelled",
+        "steps": [
+          "planned",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0,
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

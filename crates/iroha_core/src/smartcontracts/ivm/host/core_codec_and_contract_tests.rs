@@ -86,27 +86,6 @@ fn exact_return_type(
         ],
     }
 }
-fn decode_nested_return(
-    payload: &[u8],
-    kind: iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1,
-) -> norito::json::Value {
-    let schema = exact_return_type(kind);
-    let record =
-        crate::smartcontracts::ivm::return_value::decode_entrypoint_return_record(&schema, payload)
-            .expect("decode canonical schema-bound nested return record");
-    crate::smartcontracts::ivm::return_value::render_entrypoint_return_record(&schema, &record)
-        .expect("render typed nested return record")
-}
-fn decode_nested_int(payload: &[u8]) -> i64 {
-    decode_nested_return(
-        payload,
-        iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1::Int,
-    )
-    .as_str()
-    .expect("nested int renders as a canonical string")
-    .parse()
-    .expect("fixture nested int fits i64")
-}
 pub(super) fn store_tlv(vm: &mut IVM, ty: PointerType, payload: &[u8]) -> u64 {
     let tlv = make_tlv(ty as u16, payload);
     vm.alloc_host_tlv(&tlv)
@@ -231,6 +210,9 @@ fn build_authenticated_test_contract_program_with_states(
                 != ivm::encoding::wide::encode_halt())
     );
     let contract_interface = ivm::EmbeddedContractInterfaceV1 {
+        events: Vec::new(),
+        enum_types: Vec::new(),
+        permissions: Vec::new(),
         callables: vec![ivm::call::EmbeddedCallableV1 {
             entry_pc: 0,
             frame_bytes: 16,
@@ -256,7 +238,7 @@ fn build_authenticated_test_contract_program_with_states(
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("CanRunCoreHostHarness".to_owned()),
+            authorization: EntrypointAuthorizationV1::Anyone,
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: None,
@@ -714,7 +696,7 @@ fn deployed_host_fixture_retains_original_genesis_and_artifact_scope() {
     let address = install_contract(
         &state,
         &authority,
-        "seiyaku OriginalHostFixture { view fn inspect() -> int { return 8; } }",
+        "seiyaku OriginalHostFixture { view fn inspect() authorize(anyone) -> int { return 8; } }",
         73,
     );
     assert_eq!(
@@ -754,13 +736,13 @@ fn deployed_host_fixture_entrypoint_grants_keep_exact_caller_contract_and_select
     let caller = install_contract(
         &state,
         &authority,
-        "seiyaku ScopedFixtureCaller { view fn main() -> int { return 0; } }",
+        "seiyaku ScopedFixtureCaller { view fn main() authorize(anyone) -> int { return 0; } }",
         90,
     );
     let source = r#"
-seiyaku ScopedFixtureCallee {
-  view fn inspect() -> int authorize("CanInvokeContractEntrypoint") { return 8; }
-  view fn inspect_other() -> int authorize("CanInvokeContractEntrypoint") { return 9; }
+seiyaku ScopedFixtureCallee { permission Inspect; permission InspectOther;
+  view fn inspect() authorize(Inspect) -> int { return 8; }
+  view fn inspect_other() authorize(InspectOther) -> int { return 9; }
 }
 "#;
     let callee = install_contract(&state, &authority, source, 91);
@@ -768,12 +750,20 @@ seiyaku ScopedFixtureCallee {
     let caller_subject = caller.subject_id();
     let check = |holder: &AccountId, contract: &ContractAddress, selector: &str| {
         let view = state.view();
-        crate::executor::enforce_named_contract_entrypoint_permission(
+        crate::executor::enforce_named_contract_entrypoint_authorization(
             view.world(),
             holder,
             contract,
             selector,
-            Some("CanInvokeContractEntrypoint"),
+            &EntrypointAuthorizationV1::Permission(
+                match selector {
+                    "inspect" => "Inspect",
+                    "inspect_other" => "InspectOther",
+                    _ => panic!("fixture selector"),
+                }
+                .parse()
+                .unwrap(),
+            ),
         )
         .map_err(crate::execution_attempt::expect_completed_rejection)
     };
@@ -821,7 +811,7 @@ seiyaku ScopedFixtureCallee {
             .get(&caller_subject)
             .expect("exact entrypoint permission holder")
             .iter()
-            .filter(|permission| permission.name() == "CanInvokeContractEntrypoint")
+            .filter(|permission| permission.name() == "CanUseContractPermission")
             .count(),
         2,
         "distinct selectors coexist and identical grants remain idempotent"
@@ -851,9 +841,9 @@ seiyaku ScopedFixtureCallee {
     ));
     let mut tx = block.transaction();
     Revoke::account_permission(
-        CanInvokeContractEntrypoint {
+        CanUseContractPermission {
             contract: callee.clone(),
-            entrypoint: "inspect".to_owned(),
+            permission: "Inspect".parse().unwrap(),
         },
         caller_subject.clone(),
     )
@@ -926,17 +916,33 @@ fn install_contract_with_interface_and_lifecycle(
     leave_lifecycle_pending: bool,
     customize_interface: impl FnOnce(&mut ivm::EmbeddedContractInterfaceV1),
 ) -> ContractAddress {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
     let compiler = kotodama_lang::compiler::Compiler::new_with_options(
         kotodama_lang::compiler::CompilerOptions {
             mode: kotodama_lang::compiler::CompilerMode::Production,
             ..kotodama_lang::compiler::CompilerOptions::default()
         },
     );
-    let (mut code, _manifest) = compiler
+    let (code, _manifest) = compiler
         .compile_source_with_manifest(source)
         .expect("compile contract with manifest");
+    install_contract_artifact_with_interface_and_lifecycle(
+        state,
+        authority,
+        code,
+        nonce,
+        leave_lifecycle_pending,
+        customize_interface,
+    )
+}
+fn install_contract_artifact_with_interface_and_lifecycle(
+    state: &State,
+    authority: &AccountId,
+    mut code: Vec<u8>,
+    nonce: u64,
+    leave_lifecycle_pending: bool,
+    customize_interface: impl FnOnce(&mut ivm::EmbeddedContractInterfaceV1),
+) -> ContractAddress {
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     sanitize_test_contract_artifact_wildcards(&mut code);
     rewrite_test_contract_interface(&mut code, customize_interface);
     let mut manifest = ivm::verify_contract_artifact(&code)
@@ -961,7 +967,13 @@ fn install_contract_with_interface_and_lifecycle(
     let code_hash = register_code_bytes(authority, DataSpaceId::UNIVERSAL, code, &mut tx)
         .expect("register contract bytecode");
     manifest.code_hash = Some(code_hash);
-    manifest = manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &fixture_signing_keypair(authority)).expect("sign bounded fixture manifest");
+    manifest = manifest
+        .try_signed(
+            manifest_signing.context(),
+            manifest_signing.max_frame_bytes(),
+            &fixture_signing_keypair(authority),
+        )
+        .expect("sign bounded fixture manifest");
     register_manifest(authority, DataSpaceId::UNIVERSAL, manifest, &mut tx)
         .expect("register contract manifest");
     let contract_address = ContractAddress::derive(
@@ -999,27 +1011,28 @@ fn call_contract_syscall_cursor_cannot_authorize_other_or_revoked_caller() {
 
     let authority: AccountId = fixture_account("alice");
     let state = contract_test_state(&authority);
-    let caller_source = "seiyaku CursorCaller { view fn main() -> int { return 0; } }";
+    let caller_source =
+        "seiyaku CursorCaller { view fn main() authorize(anyone) -> int { return 0; } }";
     let reader = install_contract(&state, &authority, caller_source, 0);
     let other = install_contract(&state, &authority, caller_source, 1);
     let callee = install_contract(
         &state,
         &authority,
         r#"
-seiyaku ProtectedPages {
+seiyaku ProtectedPages { permission ReadState; permission WriteState;
   state StateMap<int, int> Entries;
 
-  kotoage fn seed() authorize("WriteState") {
+  kotoage fn seed() authorize(WriteState) {
     Entries[1] = 10;
     Entries[2] = 20;
   }
 
-  view fn first() -> Option<StateCursor<int>> authorize("ReadState") {
+  view fn first() authorize(ReadState) -> Option<StateCursor<int>> {
     let page = Entries.page(after: Option::none, limit: 1);
     return page.next;
   }
 
-  view fn resume(Option<StateCursor<int>> after) -> int authorize("ReadState") {
+  view fn resume(Option<StateCursor<int>> after) authorize(ReadState) -> int {
     let page = Entries.page(after: after, limit: 1);
     return page.items.len();
   }
@@ -1056,20 +1069,15 @@ seiyaku ProtectedPages {
         overlay.is_empty(),
         "reading the first page must not write state"
     );
-    let returned = vm
-        .memory
-        .validate_tlv(authenticated_test_probe_result(&vm))
-        .expect("cursor return record");
-    assert_eq!(returned.type_id, PointerType::NoritoBytes);
     let schema = EntrypointValueTypeV1 {
         nodes: vec![
             EntrypointValueTypeNodeV1::Option,
-            EntrypointValueTypeNodeV1::StateCursor(EntrypointValueKindV1::Int),
+            EntrypointValueTypeNodeV1::StateCursor(EntrypointValueTypeV1 {
+                nodes: vec![EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)],
+            }),
         ],
     };
-    let record =
-        super::super::return_value::decode_entrypoint_return_record(&schema, returned.payload)
-            .expect("canonical optional cursor return");
+    let record = captured_nested_result(&vm, &schema);
     let after = super::super::return_value::render_entrypoint_return_record(&schema, &record)
         .expect("render actual cursor for public arguments");
     let cursor_hex = after
@@ -1082,7 +1090,15 @@ seiyaku ProtectedPages {
         iroha_data_model::smart_contract::state_cursor::StateCursorV1::decode_frame(&cursor_frame)
             .expect("cursor came from the production page implementation");
     assert_eq!(cursor.map.as_ref(), "Entries");
-    assert_eq!(cursor.key_type, EntrypointValueKindV1::Int);
+    assert_eq!(
+        cursor.key_schema_hash,
+        iroha_data_model::smart_contract::entrypoint::state_key_schema_hash_v1(
+            &EntrypointValueTypeV1 {
+                nodes: vec![EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)]
+            },
+        )
+        .expect("scalar key schema")
+    );
     let payload = Json::from(
         norito::json::object([("after", after)]).expect("unchanged continuation argument"),
     );
@@ -1100,12 +1116,10 @@ seiyaku ProtectedPages {
         result
             .expect("same cursor, instance, map and schema must remain valid with read permission");
         assert!(overlay.is_empty(), "resuming a page must not write state");
-        let returned = vm
-            .memory
-            .validate_tlv(authenticated_test_probe_result(&vm))
-            .expect("page length return");
-        assert_eq!(returned.type_id, PointerType::NoritoBytes);
-        assert_eq!(decode_nested_int(returned.payload), 1);
+        assert_eq!(
+            render_nested_result(&vm, EntrypointValueKindV1::Int),
+            norito::json!("1")
+        );
     };
     let assert_cannot_resume = |caller: &ContractAddress| {
         let (result, vm, overlay, target_ptr) = dispatch_call_contract_syscall(
@@ -1140,10 +1154,16 @@ seiyaku ProtectedPages {
         .expect("next permission block height");
     let mut block = state.block(BlockHeader::new(next_height, None, None, 0, 0));
     let mut tx = block.transaction();
-    assert!(tx.world.remove_account_permission(
-        &other.subject_id(),
-        &Permission::new("ReadState".to_owned(), Json::new(())),
-    ));
+    assert!(
+        tx.world.remove_account_permission(
+            &other.subject_id(),
+            &CanUseContractPermission {
+                contract: callee.clone(),
+                permission: "ReadState".parse().unwrap()
+            }
+            .into(),
+        )
+    );
     tx.apply();
     block
         .commit_world_overlay_for_testing()
@@ -1152,4 +1172,65 @@ seiyaku ProtectedPages {
     assert_can_resume(&reader);
     grant_named_permission_to_account(&state, &authority, other.subject_id(), "ReadState");
     assert_can_resume(&other);
+}
+
+#[test]
+fn contract_permission_syscalls_use_declared_instance_names_and_exact_address() {
+    let (artifact, _) = kotodama_lang::compiler::Compiler::new()
+        .compile_source_with_manifest(
+            r#"
+seiyaku GrantPolicy {
+  permission Admin;
+  import permission "GlobalAdmin" as Shared;
+  kotoage fn main() authorize(anyone) {}
+}
+"#,
+        )
+        .expect("compile syscall permission catalog");
+    for syscall in [
+        ivm::syscalls::SYSCALL_GRANT_CONTRACT_PERMISSION,
+        ivm::syscalls::SYSCALL_REVOKE_CONTRACT_PERMISSION,
+    ] {
+        for declaration in ["Admin", "Shared", "Typo"] {
+            let mut vm = ivm::IVM::new(1_000_000);
+            vm.load_program(&artifact).unwrap();
+            let mut host = CoreHost::new(ALICE_ID.clone());
+            bind_test_contract_runtime(&mut host, 911);
+            let address = host
+                .current_contract_runtime_context
+                .as_ref()
+                .unwrap()
+                .contract_address
+                .clone();
+            let account_ptr = store_tlv(&mut vm, PointerType::AccountId, &norito_blob(&*BOB_ID));
+            let name: Name = declaration.parse().unwrap();
+            let name_ptr = store_tlv(&mut vm, PointerType::Name, &norito_blob(&name));
+            vm.set_register(10, account_ptr);
+            vm.set_register(11, name_ptr);
+            let result = host.syscall(syscall, &mut vm);
+            if declaration != "Admin" {
+                assert_eq!(result, Err(ivm::VMError::PermissionDenied));
+                assert!(host.queued.is_empty());
+                continue;
+            }
+            result.expect("declared instance role queues an exact token mutation");
+            let permission: Permission = CanUseContractPermission {
+                contract: address,
+                permission: name,
+            }
+            .into();
+            let expected = if syscall == ivm::syscalls::SYSCALL_GRANT_CONTRACT_PERMISSION {
+                InstructionBox::from(Grant::account_permission(permission, BOB_ID.clone()))
+            } else {
+                InstructionBox::from(Revoke::account_permission(permission, BOB_ID.clone()))
+            };
+            assert_eq!(
+                host.queued
+                    .iter()
+                    .filter_map(QueuedEffect::instruction)
+                    .collect::<Vec<_>>(),
+                vec![&expected]
+            );
+        }
+    }
 }

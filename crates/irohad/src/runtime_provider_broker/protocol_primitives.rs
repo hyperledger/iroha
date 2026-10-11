@@ -137,8 +137,8 @@ define_broker_wire_struct!(owned frame "irohad::runtime_provider_broker::protoco
 });
 define_broker_wire_struct!(owned frame "irohad::runtime_provider_broker::protocol::primitives::GlobalBeaconSeatReadinessRequestWireV1"; pub(super) GlobalBeaconSeatReadinessRequestWireV1 {
     pub(super) session: iroha_data_model::consensus::GlobalThresholdBeaconKeySessionV1,
-    pub(super) authority: iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1,
-    pub(super) context: iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalitySeatReadinessContextV1,
+    pub(super) authority: iroha_data_model::sumeragi::epoch::ValidatorGenerationV1,
+    pub(super) context: iroha_data_model::nexus::ValidatorSeatReadinessContextV1,
 });
 define_broker_wire_struct!(copy frame "irohad::runtime_provider_broker::protocol::primitives::GlobalBeaconPartialSignResultWireV1"; pub(super) GlobalBeaconPartialSignResultWireV1 {
     pub(super) partial: iroha_data_model::consensus::GlobalThresholdBeaconPartialSignatureV1,
@@ -197,10 +197,10 @@ pub(super) struct GlobalBeaconSeatReadinessRequestRefV1<'a> {
     >,
     pub(super) authority: norito::core::PayloadRef<
         'a,
-        iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1,
+        iroha_data_model::sumeragi::epoch::ValidatorGenerationV1,
     >,
     pub(super) context:
-        iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalitySeatReadinessContextV1,
+        iroha_data_model::nexus::ValidatorSeatReadinessContextV1,
 }
 
 // Borrowed serialization view of the sole canonical request frame.

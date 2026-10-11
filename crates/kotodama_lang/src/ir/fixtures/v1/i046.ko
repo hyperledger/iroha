@@ -1,5 +1,5 @@
 
-            seiyaku C {
+            seiyaku C { permission WriteState;
                 state StateMap<int, int> Observations;
 
                 fn observed_pair() -> (int, int) {
@@ -8,7 +8,7 @@
                     return (1, 2);
                 }
 
-                kotoage fn main() -> int authorize("WriteState") {
+                kotoage fn main() authorize(WriteState) -> int {
                     let pair = observed_pair();
                     return pair.0 + pair.1;
                 }

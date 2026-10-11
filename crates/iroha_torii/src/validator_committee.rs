@@ -13,9 +13,7 @@ use iroha_core::{
 #[cfg(test)]
 use iroha_data_model::Registrable as _;
 use iroha_data_model::{
-    nexus::{
-        ValidatorCandidateKeysV1, ValidatorCommitteeSelectionStatusV1, ValidatorCommitteeStatusV1,
-    },
+    nexus::{ValidatorCommitteeSelectionStatusV1, ValidatorCommitteeStatusV1},
     sumeragi::finality::{
         NATIVE_FINALITY_MAX_BLOCK_BYTES, NATIVE_FINALITY_MAX_BLOCK_COUNT,
         NATIVE_FINALITY_MAX_JOURNAL_BYTES, NativeFinalityArtifact, NativeFinalityArtifactError,
@@ -208,36 +206,6 @@ fn load(
         ));
     }
     let network_id = *state.network_id();
-    // A status read reports only the frozen attempt's bounded set of candidates.
-    // Before an election exists there is no selected roster to enumerate.
-    let mut candidate_keys = Vec::new();
-    if let Some(selection) = &selected {
-        let generation = selection.transition.preparation.authority_generation;
-        let seats = selection.transition.preparation.committee.len();
-        norito::core::reserve_decode_allocation(
-            seats
-                .checked_mul(size_of::<ValidatorCandidateKeysV1>())
-                .ok_or_else(capacity)?,
-        )
-        .map_err(codec_error)?;
-        candidate_keys
-            .try_reserve_exact(seats)
-            .map_err(|_| capacity())?;
-        for seat in &selection.transition.preparation.committee {
-            let key = ValidatorCandidateKeysV1::key_id(network_id, generation, &seat.validator);
-            let Some(candidate) = state.world().validator_candidate_keys().get(&key) else {
-                continue;
-            };
-            if candidate.network_id != network_id
-                || candidate.generation != generation
-                || candidate.keys.validator != seat.validator
-            {
-                return Err(invalid("candidate publication storage binding differs"));
-            }
-            candidate.validate().map_err(invalid)?;
-            candidate_keys.push(admitted_copy(candidate, limits.block_bytes)?);
-        }
-    }
     let pending_beacon_session =
         selected
             .as_ref()
@@ -302,7 +270,6 @@ fn load(
         target_epoch,
         latest_finality,
         selected,
-        candidate_keys,
         pending_beacon_session,
     })
 }

@@ -434,3 +434,53 @@ fn incomplete_funding_refuses_later_material_without_http_or_custody_mutation() 
     assert!(peers.requests.lock().unwrap().is_empty());
     peers.finish();
 }
+
+#[test]
+fn unfinished_parent_refuses_held_later_purpose_and_preserves_same_source_retry() {
+    let _guard = crate::managed::native_test_guard();
+    let (_root, prepared, owner) = fixture();
+    let funding = owner.authority.directory.ensure_child("funding").unwrap();
+    let original_names = funding.entries(3).unwrap();
+    // Retain the genuine named lock itself while dropping the other original authority fields
+    // before a fresh authority is opened by the refusal gate.
+    let (held_lock, install) = {
+        let later = ServiceAuthority::open_provider(
+            &prepared,
+            owner.authority.provider_id().unwrap(),
+            ProviderPurpose::InitialProviderCredit,
+        )
+        .unwrap();
+        let install = later.directory.ensure_child("install").unwrap();
+        (later._lock, install)
+    };
+    for step in [FundingStep::Request, FundingStep::Approval] {
+        assert_eq!(
+            owner.unprepared(step).unwrap_err().to_string(),
+            "another managed native operation holds this generation"
+        );
+    }
+    assert_eq!(funding.entries(3).unwrap(), original_names);
+    require_empty(&install).unwrap();
+    drop(held_lock);
+    for step in [FundingStep::Request, FundingStep::Approval] {
+        let ProviderFundingProgress::Unprepared {
+            step: returned,
+            status,
+        } = owner.unprepared(step).unwrap()
+        else {
+            panic!("original incomplete funding report")
+        };
+        assert_eq!(returned, step);
+        assert_eq!(status, OperationStatus::Absent);
+    }
+    assert_eq!(funding.entries(3).unwrap(), original_names);
+    install
+        .write_atomic("original.nrt", &[0xA5], iroha_fs::PublishMode::CreateNew)
+        .unwrap();
+    for step in [FundingStep::Request, FundingStep::Approval] {
+        assert!(owner.unprepared(step).is_err());
+    }
+    assert_eq!(install.read("original.nrt", 1).unwrap().as_slice(), &[0xA5]);
+    assert!(!install.path().join("attempts").exists());
+    assert_eq!(funding.entries(3).unwrap(), original_names);
+}

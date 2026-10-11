@@ -155,13 +155,12 @@ fn local_attempt_claim_follows_complete_original_pool_preparation() {
         Ok(_) => panic!("occupied pool cannot prepare private work"),
         Err(error) => error,
     };
-    let AttemptError::Local(LocalGlobalThresholdBeaconDkgErrorV1::Session(
-        GlobalThresholdBeaconSessionError::Admission(AllocationRefusal::Capacity {
-            release, ..
-        }),
-    )) = error
+    // Current preparation funds the original claim path before private DKG
+    // banks. Saturation must preserve that first owning layer's exact refusal.
+    let AttemptError::Claim(ClaimError::Admission(AllocationRefusal::Capacity { release, .. })) =
+        error
     else {
-        panic!("original capacity source")
+        panic!("original claim-path capacity source: {error}")
     };
     assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
     assert_eq!(budget.reserved_bytes(), budget.limit_bytes());

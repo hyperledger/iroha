@@ -1761,13 +1761,13 @@ pub trait GlobalThresholdBeaconPartialSignerV1: Send + Sync {
     fn prove_seat_readiness(
         &self,
         session: &ValidatedGlobalThresholdBeaconSessionV1,
-        authority: &iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1,
-        context: &iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalitySeatReadinessContextV1,
+        generation: &iroha_data_model::sumeragi::epoch::ValidatorGenerationV1,
+        context: &iroha_data_model::nexus::ValidatorSeatReadinessContextV1,
     ) -> Result<
         GlobalThresholdBeaconPartialSignatureV1,
         seat_readiness::GlobalThresholdBeaconSeatReadinessErrorV1,
     > {
-        seat_readiness::prove_with_partial_signer(self, session, authority, context)
+        seat_readiness::prove_with_partial_signer(self, session, generation, context)
     }
 
     /// Return whether the feature-isolated test daemon must corrupt this

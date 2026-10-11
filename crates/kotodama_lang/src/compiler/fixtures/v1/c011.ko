@@ -1,11 +1,11 @@
 
 seiyaku CompilerFixture {
 
-view fn less(int a, int b) -> bool { return a < b; }
-view fn less_equal(int a, int b) -> bool { return a <= b; }
-view fn greater(int a, int b) -> bool { return a > b; }
-view fn greater_equal(int a, int b) -> bool { return a >= b; }
-view fn branch(int a, int b) -> int {
+view fn less(int a, int b) authorize(anyone) -> bool { return a < b; }
+view fn less_equal(int a, int b) authorize(anyone) -> bool { return a <= b; }
+view fn greater(int a, int b) authorize(anyone) -> bool { return a > b; }
+view fn greater_equal(int a, int b) authorize(anyone) -> bool { return a >= b; }
+view fn branch(int a, int b) authorize(anyone) -> int {
   if a < b { return 1; }
   if a >= b { return 2; }
   return 3;

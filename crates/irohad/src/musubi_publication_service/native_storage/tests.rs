@@ -269,8 +269,10 @@ fn operation_identity_charges_one_canonical_publisher_frame_without_renewal() {
     norito::with_decode_limits_scope(limits, || {
         assert_eq!(operation_id(&original).unwrap(), expected);
         let error = operation_id(&original).unwrap_err();
-        assert!(matches!(error.downcast_ref::<norito::Error>(),
-            Some(norito::Error::TotalAllocationExceeded { .. })));
+        assert!(matches!(
+            error.downcast_ref::<norito::Error>(),
+            Some(norito::Error::TotalAllocationExceeded { .. })
+        ));
     });
 }
 
@@ -284,13 +286,18 @@ fn storage_copy_charges_one_frame_and_its_independently_measured_decoded_graph()
         assert_eq!(norito::decode_canonical::<Vec<u8>>(&frame).unwrap(), source);
         let norito::Error::TotalAllocationExceeded { attempted, .. } =
             norito::core::reserve_decode_allocation(budget + 1).unwrap_err()
-        else { panic!("allocation usage probe must refuse without charging"); };
+        else {
+            panic!("allocation usage probe must refuse without charging");
+        };
         attempted as usize - budget - 1
     });
     let exact = frame.len() + decoded_bytes;
     let limits = norito::DecodeLimits::new(65536, 65536, 65536, exact, 128);
     norito::with_decode_limits_scope(limits, || {
         assert_eq!(bounded_copy(&source).unwrap(), source);
-        assert!(bounded_copy(&source).is_err(), "copy cannot renew inherited allowance");
+        assert!(
+            bounded_copy(&source).is_err(),
+            "copy cannot renew inherited allowance"
+        );
     });
 }

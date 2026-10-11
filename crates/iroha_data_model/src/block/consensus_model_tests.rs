@@ -290,3 +290,17 @@ fn lane_settlement_receipt_decode_from_slice_requires_canonical_bare_prefix() {
 }
 include!("consensus/runtime_diagnostics_tests.rs");
 include!("consensus/npos_diagnostics_tests.rs");
+
+#[test]
+fn borrowed_native_evidence_frame_preserves_original_parser_refusal() {
+    use super::Evidence;
+    for bytes in [Vec::new(), vec![1], vec![0; 32]] {
+        let original = Evidence { native: bytes };
+        let owned = original
+            .decode_native()
+            .expect_err("malformed native proof");
+        let borrowed = Evidence::decode_native_frame(original.native_frame())
+            .expect_err("the original borrowed frame has the same malformed proof");
+        assert_eq!(borrowed.to_string(), owned.to_string());
+    }
+}

@@ -21,11 +21,6 @@ pub struct IrohaRuntimeDeps {
     sumeragi_assert_fresh_key: bool,
     sumeragi_global_beacon_partial_signer:
         Option<Arc<dyn iroha_core::beacon::GlobalThresholdBeaconPartialSignerV1>>,
-    kagemusha_mint_finality_authority: Option<
-        Arc<
-            iroha_core_zk::kagemusha_v1_recursion::KagemushaMintFinalityLocalAuthorityV1,
-        >,
-    >,
     parliament_tle_partial_release_signer:
         Option<Arc<dyn iroha_core::tle_release::TlePartialReleaseSignerV1>>,
     bootle_lantern_issuance_provider_registry: Option<
@@ -193,80 +188,11 @@ fn require_global_beacon_capability_for_local_seat_v1(
     Ok(())
 }
 
-fn require_parliament_tle_signer_for_local_seat_v1(
-    local_has_committee_seat: bool,
-    signer_is_resolved: bool,
-) -> Result<(), &'static str> {
-    if local_has_committee_seat && !signer_is_resolved {
-        return Err("local Parliament TLE committee seat has no resolved partial-release signer");
-    }
-    Ok(())
-}
-
-fn require_parliament_tle_session_startup_binding_v1(
-    session_network_id: [u8; 32],
-    session_roster_hash: [u8; 32],
-    session_committee_size: u16,
-    startup_network_id: [u8; 32],
-    startup_roster_hash: [u8; 32],
-    startup_committee_size: usize,
-) -> Result<(), &'static str> {
-    if session_network_id != startup_network_id {
-        return Err("active Parliament TLE key session belongs to another network");
-    }
-    if session_roster_hash != startup_roster_hash
-        || usize::from(session_committee_size) != startup_committee_size
-    {
-        return Err("active Parliament TLE key session is not bound to the startup roster");
-    }
-    Ok(())
-}
-
-fn parliament_tle_local_participant_index_v1(
-    frozen_roster: &[PeerId],
-    local_peer: &PeerId,
-) -> Result<Option<u16>, &'static str> {
-    let mut local_index = None;
-    for (index, peer) in frozen_roster.iter().enumerate() {
-        if frozen_roster[..index].contains(peer) {
-            return Err("Parliament TLE key-session roster contains a duplicate peer");
-        }
-        if peer == local_peer {
-            let index = u16::try_from(index + 1)
-                .map_err(|_| "Parliament TLE key-session participant index exceeds u16")?;
-            local_index = Some(index);
-        }
-    }
-    Ok(local_index)
-}
-
-fn require_parliament_tle_capability_for_local_seat_v1(
-    local_participant_index: Option<u16>,
-    signer: Option<&dyn iroha_core::tle_release::TlePartialReleaseSignerV1>,
-    session: &iroha_core_timed_ovn::tle::ValidatedTleKeySessionV1,
-) -> Result<(), &'static str> {
-    require_parliament_tle_signer_for_local_seat_v1(
-        local_participant_index.is_some(),
-        signer.is_some(),
-    )?;
-    let (Some(participant_index), Some(signer)) = (local_participant_index, signer) else {
-        return Ok(());
-    };
-    let attestation = signer
-        .attest_partial_release_capability(session, participant_index)
-        .map_err(
-            |_| "local Parliament TLE committee seat has no exact runtime custody attestation",
-        )?;
-    if !attestation.matches(session, participant_index) {
-        return Err(
-            "local Parliament TLE committee seat returned a mismatched runtime custody attestation",
-        );
-    }
-    Ok(())
-}
-
-/// Await synchronous custody inspection on a blocking worker before consensus starts.
-/// The exact State and runtime provider handles stay owned until all checks finish.
+/// Await the synchronous global-beacon custody inspection on a blocking worker before consensus
+/// starts. The exact State and runtime provider handles stay owned until the check finishes.
+///
+/// Parliament state never gates startup: no Parliament TLE key session, roster or signer is read
+/// here.
 async fn preflight_threshold_signer_startup_readiness_v1(
     state: Arc<iroha_core::state::State>,
     local_peer: PeerId,
@@ -279,12 +205,16 @@ async fn preflight_threshold_signer_startup_readiness_v1(
     .map_err(|_| "threshold-signer startup worker failed")?
 }
 
-/// Validate runtime custody for every active or deadline-retained threshold session assigned to
-/// the local peer.
+/// Validate runtime custody of the active global-beacon key session when the startup topology
+/// seats the local peer in it.
 ///
 /// A local seat is operational only after an exact live capability lookup in
 /// the provider that owns its session and signer index. Presence of a provider
 /// alone does not establish custody after committee or key rotation.
+///
+/// This check is consensus-native only. Parliament state never gates startup: committed
+/// Parliament TLE key sessions, their frozen rosters and the Parliament TLE partial-release
+/// signer are neither read nor queried, whatever seat they assign to the local peer.
 fn validate_threshold_signer_startup_readiness_v1(
     state: &iroha_core::state::State,
     local_peer: &PeerId,
@@ -341,59 +271,6 @@ fn validate_threshold_signer_startup_readiness_v1(
         )?;
     }
 
-    let next_height = committed_height.checked_add(1).unwrap_or(committed_height);
-    let active_tle_key_session_id =
-        world.selectable_tle_key_session_for_fresh_ballot_at(next_height);
-    let required_tle_key_sessions = world
-        .tle_key_sessions_required_for_runtime_custody_v1(committed_height)
-        .map_err(|_| "committed Parliament state is invalid for TLE custody readiness")?;
-    for tle_key_session_id in required_tle_key_sessions {
-        let public_session = world
-            .tle_key_sessions()
-            .get(&tle_key_session_id)
-            .ok_or("required Parliament TLE key session is absent")?;
-        let session = public_session
-            .clone()
-            .validate()
-            .map_err(|_| "required Parliament TLE key session is invalid")?;
-        if public_session.network_id != *state.network_id_ref().as_bytes() {
-            return Err("required Parliament TLE key session belongs to another network");
-        }
-        let frozen_roster = world
-            .tle_key_session_rosters()
-            .get(&tle_key_session_id)
-            .ok_or("required Parliament TLE key session has no frozen roster binding")?;
-        if usize::from(public_session.committee_size) != frozen_roster.len()
-            || public_session.roster_hash
-                != iroha_core::beacon::global_threshold_beacon_roster_hash_v1(frozen_roster)
-        {
-            return Err("required Parliament TLE key session has an invalid frozen roster binding");
-        }
-        if active_tle_key_session_id == Some(tle_key_session_id) {
-            require_parliament_tle_session_startup_binding_v1(
-                public_session.network_id,
-                public_session.roster_hash,
-                public_session.committee_size,
-                *state.network_id_ref().as_bytes(),
-                topology_roster_hash,
-                topology.len(),
-            )?;
-            if frozen_roster.as_slice() != topology.as_slice() {
-                return Err(
-                    "active Parliament TLE key session frozen roster differs from the startup topology",
-                );
-            }
-        }
-        let local_participant_index =
-            parliament_tle_local_participant_index_v1(frozen_roster, local_peer)?;
-        require_parliament_tle_capability_for_local_seat_v1(
-            local_participant_index,
-            runtime_deps
-                .parliament_tle_partial_release_signer
-                .as_deref(),
-            &session,
-        )?;
-    }
     Ok(())
 }
 macro_rules! define_runtime_dep_setters_v1 {
@@ -422,7 +299,6 @@ impl IrohaRuntimeDeps {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.sumeragi_global_beacon_partial_signer.is_none()
-            && self.kagemusha_mint_finality_authority.is_none()
             && self.parliament_tle_partial_release_signer.is_none()
             && self.bootle_lantern_issuance_provider_registry.is_none()
             && self.moderation_quarantine_key_wrapper.is_none()
@@ -491,9 +367,10 @@ impl IrohaRuntimeDeps {
     /// Build the opaque Core coordinator used by Torii's authenticated local
     /// Parliament partial-release route.
     ///
-    /// Ordinary startup rejects a missing provider when the committed active
-    /// TLE roster assigns this node a seat. A non-seated node still receives a
-    /// fail-closed coordinator. The provider trait object is cloned only as an
+    /// Startup never inspects this provider or any Parliament state. A node
+    /// without a provider, seated or not, receives a fail-closed coordinator:
+    /// the route refuses the release and the node keeps running. The provider
+    /// trait object is cloned only as an
     /// `Arc`; secret-share material remains inside the runtime implementation
     /// and is never projected into daemon configuration or route state.
     pub(crate) fn parliament_tle_release_coordinator(
@@ -513,13 +390,6 @@ impl IrohaRuntimeDeps {
         with_sumeragi_global_beacon_partial_signer(
             signer: Arc<dyn iroha_core::beacon::GlobalThresholdBeaconPartialSignerV1>,
         ) => sumeragi_global_beacon_partial_signer;
-        /// Attach the separately provisioned Pasta authority for KAGEMUSHA
-        /// V1 top-up finality. The seed remains inside this runtime-owned object.
-        with_kagemusha_mint_finality_authority(
-            authority: Arc<
-                iroha_core_zk::kagemusha_v1_recursion::KagemushaMintFinalityLocalAuthorityV1,
-            >,
-        ) => kagemusha_mint_finality_authority;
         /// Attach the runtime-only adaptive Parliament TLE signing-share owner.
         ///
         /// Private DKG components remain inside this provider. They are never
@@ -914,6 +784,7 @@ mod parliament_tle_release_tests {
         Rejected,
     }
 
+    /// Parliament TLE probe: startup must never reach it, whatever it would answer.
     struct CapabilityProbeSigner {
         mode: CapabilityMode,
         attestation_calls: Mutex<Vec<(TleKeySessionId, u16)>>,
@@ -924,6 +795,23 @@ mod parliament_tle_release_tests {
         mode: CapabilityMode,
         attestation_calls: Mutex<Vec<([u8; 32], u16)>>,
         sign_calls: AtomicUsize,
+    }
+
+    impl BeaconCapabilityProbeSigner {
+        fn new(mode: CapabilityMode) -> Self {
+            Self {
+                mode,
+                attestation_calls: Mutex::new(Vec::new()),
+                sign_calls: AtomicUsize::new(0),
+            }
+        }
+
+        fn attestation_calls(&self) -> Vec<([u8; 32], u16)> {
+            self.attestation_calls
+                .lock()
+                .expect("beacon capability call journal lock")
+                .clone()
+        }
     }
 
     impl iroha_core::beacon::GlobalThresholdBeaconPartialSignerV1 for BeaconCapabilityProbeSigner {
@@ -940,7 +828,17 @@ mod parliament_tle_release_tests {
                 .expect("beacon capability call journal lock")
                 .push((session.record().session_id, expected_signer_index));
             let signer_index = match self.mode {
-                CapabilityMode::Exact | CapabilityMode::BlockingRuntime => expected_signer_index,
+                CapabilityMode::Exact => expected_signer_index,
+                CapabilityMode::BlockingRuntime => {
+                    // A broker reconnect owns this same synchronous runtime boundary.
+                    // Running it on an async executor must reproduce Tokio's nested-runtime panic.
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .expect("provider runtime");
+                    runtime.block_on(std::future::ready(()));
+                    expected_signer_index
+                }
                 CapabilityMode::MismatchedSeat => {
                     if expected_signer_index == 1 {
                         2
@@ -1006,15 +904,6 @@ mod parliament_tle_release_tests {
                 ));
             match self.mode {
                 CapabilityMode::Exact | CapabilityMode::BlockingRuntime => {
-                    if matches!(self.mode, CapabilityMode::BlockingRuntime) {
-                        // A broker reconnect owns this same synchronous runtime boundary.
-                        // Running it on an async executor must reproduce Tokio's nested-runtime panic.
-                        let runtime = tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                            .expect("provider runtime");
-                        runtime.block_on(std::future::ready(()));
-                    }
                     iroha_core::tle_release::TlePartialReleaseCapabilityAttestationV1::for_validated_session(
                         session,
                         expected_participant_index,
@@ -1075,9 +964,15 @@ mod parliament_tle_release_tests {
             .clone()
     }
 
+    /// Committed startup state: an active global-beacon key session bound to the startup
+    /// topology, plus an active and a deadline-retained Parliament TLE key session. The local
+    /// peer holds a seat in all three.
     struct ThresholdSignerReadinessFixture {
         state: State,
         local_peer: PeerId,
+        observer_peer: PeerId,
+        beacon_session_id: [u8; 32],
+        beacon_signer_index: u16,
         retained_key_session_id: TleKeySessionId,
         active_key_session_id: TleKeySessionId,
         retained_participant_index: u16,
@@ -1091,25 +986,38 @@ mod parliament_tle_release_tests {
         const ACTIVE_SESSION_BYTE: u8 = 0xE1;
         const RETENTION_DEADLINE_HEIGHT: u64 = 13;
 
-        let validator_keys = (0_u8..4)
-            .map(|index| {
-                KeyPair::try_from_seed(vec![0x41_u8.saturating_add(index); 32], Algorithm::Ed25519)
+        // The exact committee of `signed_persisted_pulse_fixture_for_world`: four BLS validators
+        // from seeds 1..=4 in canonical public-key order. It is the startup topology and the
+        // deadline-retained TLE roster; the active TLE roster is the same committee reversed.
+        let mut validator_keys = (1_u8..=4)
+            .map(|seed| {
+                KeyPair::try_from_seed(vec![seed; 32], Algorithm::BlsNormal)
                     .expect("derive deterministic validator key")
             })
             .collect::<Vec<_>>();
+        validator_keys.sort_by(|left, right| left.public_key().cmp(right.public_key()));
         let retained_roster = validator_keys
             .iter()
             .map(|key| PeerId::new(key.public_key().clone()))
             .collect::<Vec<_>>();
+        let startup_topology = retained_roster.clone();
         let local_peer = retained_roster[1].clone();
-        let mut active_validator_keys = validator_keys.clone();
-        active_validator_keys.reverse();
-        let active_roster = active_validator_keys
-            .iter()
-            .map(|key| PeerId::new(key.public_key().clone()))
-            .collect::<Vec<_>>();
+        let observer_peer = PeerId::new(
+            KeyPair::try_from_seed(vec![0x51; 32], Algorithm::BlsNormal)
+                .expect("derive deterministic observer key")
+                .public_key()
+                .clone(),
+        );
+        assert!(!startup_topology.contains(&observer_peer));
+        let mut active_roster = retained_roster.clone();
+        active_roster.reverse();
+        let beacon_signer_index = 2;
         let retained_participant_index = 2;
         let active_participant_index = 3;
+        assert_eq!(
+            startup_topology[usize::from(beacon_signer_index - 1)],
+            local_peer
+        );
         assert_eq!(
             retained_roster[usize::from(retained_participant_index - 1)],
             local_peer
@@ -1177,7 +1085,12 @@ mod parliament_tle_release_tests {
             .expect("install active TLE snapshot fixture");
 
         let proposal = ProposalKind::DeployContract(DeployContractProposal {
-            proposal_operator: AccountId::new(validator_keys[0].public_key().clone()),
+            proposal_operator: AccountId::new(
+                KeyPair::try_from_seed(vec![0x41; 32], Algorithm::Ed25519)
+                    .expect("derive deterministic proposal operator key")
+                    .public_key()
+                    .clone(),
+            ),
             contract_address: "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw"
                 .parse()
                 .expect("canonical contract address"),
@@ -1208,13 +1121,34 @@ mod parliament_tle_release_tests {
             .put_parliament_attempt_for_testing(attempt_id, attempt)
             .expect("persist deadline-retaining Parliament attempt");
         state_transaction.apply();
+        // A proof-valid consensus-native key session, active from its DKG finalization height.
+        let (beacon_key_record, beacon_pulse) =
+            iroha_core::beacon::signed_persisted_pulse_fixture_for_world(
+                network_id,
+                5,
+                &state.ivm_execution_budget(),
+            );
+        let beacon_session_id = beacon_key_record.session.record().session_id;
+        assert_eq!(
+            beacon_key_record.session.record().roster_hash,
+            iroha_core::beacon::global_threshold_beacon_roster_hash_v1(&startup_topology),
+            "the beacon fixture committee is the startup topology"
+        );
+        block
+            .world
+            .install_global_beacon_fixture_for_testing(
+                beacon_key_record,
+                beacon_pulse,
+                &iroha_core::beacon::pulse_context_fixture_v1(),
+            )
+            .expect("install active global-beacon key session fixture");
         block
             .commit_world_overlay_for_testing()
             .expect("commit startup-readiness fixture");
 
         {
             let mut topology = state.commit_topology.block();
-            *topology.get_mut() = active_roster.clone();
+            *topology.get_mut() = startup_topology.clone();
             topology.commit();
         }
 
@@ -1229,8 +1163,8 @@ mod parliament_tle_release_tests {
 
         assert_eq!(
             state.commit_topology_snapshot(),
-            active_roster,
-            "startup topology must match the active TLE frozen roster in this fixture",
+            startup_topology,
+            "startup topology must be the active global-beacon committee in this fixture",
         );
 
         assert_eq!(
@@ -1241,6 +1175,9 @@ mod parliament_tle_release_tests {
         ThresholdSignerReadinessFixture {
             state,
             local_peer,
+            observer_peer,
+            beacon_session_id,
+            beacon_signer_index,
             retained_key_session_id,
             active_key_session_id,
             retained_participant_index,
@@ -1251,7 +1188,8 @@ mod parliament_tle_release_tests {
     #[test]
     fn threshold_readiness_snapshot_fixture_rejects_wrong_roster_and_overlapping_activation() {
         let fixture = threshold_signer_readiness_fixture_v1(13);
-        let active_roster = fixture.state.commit_topology_snapshot();
+        let mut active_roster = fixture.state.commit_topology_snapshot();
+        active_roster.reverse();
         let retained_public = fixture
             .state
             .view()
@@ -1313,7 +1251,7 @@ mod parliament_tle_release_tests {
     }
 
     #[test]
-    fn local_threshold_committee_seats_fail_closed_without_runtime_signers() {
+    fn local_global_beacon_committee_seat_fails_closed_without_runtime_signer() {
         assert_eq!(
             require_global_beacon_signer_for_local_seat_v1(true, false),
             Err("local global-beacon committee seat has no resolved partial signer")
@@ -1325,69 +1263,6 @@ mod parliament_tle_release_tests {
         assert_eq!(
             require_global_beacon_signer_for_local_seat_v1(false, false),
             Ok(())
-        );
-
-        assert_eq!(
-            require_parliament_tle_signer_for_local_seat_v1(true, false),
-            Err("local Parliament TLE committee seat has no resolved partial-release signer")
-        );
-        assert_eq!(
-            require_parliament_tle_signer_for_local_seat_v1(true, true),
-            Ok(())
-        );
-        assert_eq!(
-            require_parliament_tle_signer_for_local_seat_v1(false, false),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn active_parliament_tle_session_must_match_the_exact_startup_context() {
-        let network_id = [0x11; 32];
-        let roster_hash = [0x22; 32];
-        assert_eq!(
-            require_parliament_tle_session_startup_binding_v1(
-                network_id,
-                roster_hash,
-                4,
-                network_id,
-                roster_hash,
-                4,
-            ),
-            Ok(())
-        );
-        assert_eq!(
-            require_parliament_tle_session_startup_binding_v1(
-                network_id,
-                roster_hash,
-                4,
-                [0x33; 32],
-                roster_hash,
-                4,
-            ),
-            Err("active Parliament TLE key session belongs to another network")
-        );
-        assert_eq!(
-            require_parliament_tle_session_startup_binding_v1(
-                network_id,
-                roster_hash,
-                4,
-                network_id,
-                [0x44; 32],
-                4,
-            ),
-            Err("active Parliament TLE key session is not bound to the startup roster")
-        );
-        assert_eq!(
-            require_parliament_tle_session_startup_binding_v1(
-                network_id,
-                roster_hash,
-                4,
-                network_id,
-                roster_hash,
-                7,
-            ),
-            Err("active Parliament TLE key session is not bound to the startup roster")
         );
     }
 
@@ -1410,11 +1285,7 @@ mod parliament_tle_release_tests {
                 Err("local global-beacon committee seat has no exact runtime custody attestation"),
             ),
         ] {
-            let signer = BeaconCapabilityProbeSigner {
-                mode,
-                attestation_calls: Mutex::new(Vec::new()),
-                sign_calls: AtomicUsize::new(0),
-            };
+            let signer = BeaconCapabilityProbeSigner::new(mode);
             assert_eq!(
                 require_global_beacon_capability_for_local_seat_v1(
                     Some(3),
@@ -1452,165 +1323,209 @@ mod parliament_tle_release_tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
-    fn parliament_tle_startup_requires_exact_non_signing_custody_attestation() {
-        let fixture =
-            crate::external_software_signer::consensus_threshold_tle_broker_test_fixture_v1();
-        let session = fixture.session;
-
-        let exact = CapabilityProbeSigner::new(CapabilityMode::Exact);
-        assert_eq!(
-            require_parliament_tle_capability_for_local_seat_v1(Some(1), Some(&exact), &session,),
-            Ok(())
-        );
-        assert_eq!(exact.attestation_calls().len(), 1);
-        assert_eq!(exact.sign_calls.load(Ordering::Acquire), 0);
-
-        let mismatched = CapabilityProbeSigner::new(CapabilityMode::MismatchedSeat);
-        assert_eq!(
-            require_parliament_tle_capability_for_local_seat_v1(
-                Some(1),
-                Some(&mismatched),
-                &session,
-            ),
-            Err(
-                "local Parliament TLE committee seat returned a mismatched runtime custody attestation"
-            )
-        );
-        assert_eq!(mismatched.sign_calls.load(Ordering::Acquire), 0);
-
-        let rejected = CapabilityProbeSigner::new(CapabilityMode::Rejected);
-        assert_eq!(
-            require_parliament_tle_capability_for_local_seat_v1(Some(1), Some(&rejected), &session,),
-            Err("local Parliament TLE committee seat has no exact runtime custody attestation")
-        );
-        assert_eq!(rejected.sign_calls.load(Ordering::Acquire), 0);
-
-        assert_eq!(
-            require_parliament_tle_capability_for_local_seat_v1(
-                Some(1),
-                Some(&UnavailableSigner),
-                &session,
-            ),
-            Err("local Parliament TLE committee seat has no exact runtime custody attestation")
-        );
-        assert_eq!(
-            require_parliament_tle_capability_for_local_seat_v1(None, None, &session),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn frozen_parliament_tle_roster_derives_one_exact_local_seat() {
-        fn peer(tag: u8) -> PeerId {
-            let key = iroha_crypto::KeyPair::try_from_seed(
-                vec![tag; 32],
-                iroha_crypto::Algorithm::Ed25519,
-            )
-            .expect("derive deterministic peer key");
-            PeerId::new(key.public_key().clone())
-        }
-
-        let first = peer(0x41);
-        let second = peer(0x42);
-        assert_eq!(
-            parliament_tle_local_participant_index_v1(&[first.clone(), second.clone()], &second),
-            Ok(Some(2))
-        );
-        assert_eq!(
-            parliament_tle_local_participant_index_v1(&[first.clone()], &second),
-            Ok(None)
-        );
-        assert_eq!(
-            parliament_tle_local_participant_index_v1(&[first.clone(), first], &second),
-            Err("Parliament TLE key-session roster contains a duplicate peer")
-        );
-    }
-
-    #[test]
-    fn threshold_signer_startup_readiness_scans_active_and_deadline_retained_frozen_rosters() {
+    fn threshold_signer_startup_readiness_never_consults_parliament_tle_custody() {
         let fixture = threshold_signer_readiness_fixture_v1(13);
-        let signer = Arc::new(CapabilityProbeSigner::new(CapabilityMode::Exact));
-        let runtime_deps =
-            IrohaRuntimeDeps::default().with_parliament_tle_partial_release_signer(signer.clone());
+        {
+            // The retired Parliament gate refused this committed state on two counts: the active
+            // TLE roster differs from the startup topology, and the local peer is seated in both
+            // the active and the deadline-retained TLE key session with no exact custody.
+            let view = fixture.state.view();
+            let world = view.world();
+            let demanded = world
+                .tle_key_sessions_required_for_runtime_custody_v1(13)
+                .expect("canonical committed Parliament state");
+            assert_eq!(
+                demanded.into_iter().collect::<Vec<_>>(),
+                {
+                    let mut expected = vec![
+                        fixture.retained_key_session_id,
+                        fixture.active_key_session_id,
+                    ];
+                    expected.sort_unstable();
+                    expected
+                },
+                "both the active and the deadline-retained TLE key session are live"
+            );
+            assert_eq!(
+                world.selectable_tle_key_session_for_fresh_ballot_at(14),
+                Some(fixture.active_key_session_id)
+            );
+            for (key_session_id, participant_index) in [
+                (
+                    fixture.retained_key_session_id,
+                    fixture.retained_participant_index,
+                ),
+                (
+                    fixture.active_key_session_id,
+                    fixture.active_participant_index,
+                ),
+            ] {
+                let frozen_roster = world
+                    .tle_key_session_rosters()
+                    .get(&key_session_id)
+                    .expect("frozen TLE roster");
+                assert_eq!(
+                    frozen_roster[usize::from(participant_index - 1)],
+                    fixture.local_peer,
+                    "the local peer owns a release-share seat in every live TLE key session"
+                );
+            }
+        }
+        let beacon_deps = |beacon_signer: &Arc<BeaconCapabilityProbeSigner>| {
+            IrohaRuntimeDeps::default()
+                .with_sumeragi_global_beacon_partial_signer(beacon_signer.clone())
+        };
 
-        validate_threshold_signer_startup_readiness_v1(
-            &fixture.state,
-            &fixture.local_peer,
-            &runtime_deps,
-        )
-        .expect("active and deadline-retained frozen seats have exact runtime custody");
-
-        let mut calls = signer.attestation_calls();
-        calls.sort_unstable();
-        let mut expected = vec![
-            (
-                fixture.retained_key_session_id,
-                fixture.retained_participant_index,
-            ),
-            (
-                fixture.active_key_session_id,
-                fixture.active_participant_index,
-            ),
-        ];
-        expected.sort_unstable();
-        assert_eq!(calls, expected);
-        assert_eq!(signer.sign_calls.load(Ordering::Acquire), 0);
-    }
-
-    #[test]
-    fn threshold_signer_startup_readiness_skips_expired_history_and_rejects_mismatch() {
-        let fixture = threshold_signer_readiness_fixture_v1(14);
-        let exact_signer = Arc::new(CapabilityProbeSigner::new(CapabilityMode::Exact));
-        let exact_runtime_deps = IrohaRuntimeDeps::default()
-            .with_parliament_tle_partial_release_signer(exact_signer.clone());
-
-        validate_threshold_signer_startup_readiness_v1(
-            &fixture.state,
-            &fixture.local_peer,
-            &exact_runtime_deps,
-        )
-        .expect("expired historical custody is skipped while the active seat remains ready");
-        assert_eq!(
-            exact_signer.attestation_calls(),
-            vec![(
-                fixture.active_key_session_id,
-                fixture.active_participant_index,
-            )]
-        );
-        assert_eq!(exact_signer.sign_calls.load(Ordering::Acquire), 0);
-
-        let mismatched_signer =
-            Arc::new(CapabilityProbeSigner::new(CapabilityMode::MismatchedSeat));
-        let mismatched_runtime_deps = IrohaRuntimeDeps::default()
-            .with_parliament_tle_partial_release_signer(mismatched_signer.clone());
+        // (a) No Parliament TLE signer at all.
+        let beacon_signer = Arc::new(BeaconCapabilityProbeSigner::new(CapabilityMode::Exact));
         assert_eq!(
             validate_threshold_signer_startup_readiness_v1(
                 &fixture.state,
                 &fixture.local_peer,
-                &mismatched_runtime_deps,
+                &beacon_deps(&beacon_signer),
             ),
-            Err(
-                "local Parliament TLE committee seat returned a mismatched runtime custody attestation"
-            )
+            Ok(()),
+            "a seated validator without any Parliament TLE signer starts"
         );
         assert_eq!(
-            mismatched_signer.attestation_calls(),
-            vec![(
-                fixture.active_key_session_id,
-                fixture.active_participant_index,
-            )]
+            beacon_signer.attestation_calls(),
+            vec![(fixture.beacon_session_id, fixture.beacon_signer_index)],
+            "the consensus-native custody check still ran"
         );
-        assert_eq!(mismatched_signer.sign_calls.load(Ordering::Acquire), 0);
+
+        // (b) A Parliament TLE signer that would refuse or mismatch is never asked.
+        for mode in [CapabilityMode::Rejected, CapabilityMode::MismatchedSeat] {
+            let beacon_signer = Arc::new(BeaconCapabilityProbeSigner::new(CapabilityMode::Exact));
+            let tle_signer = Arc::new(CapabilityProbeSigner::new(mode));
+            let runtime_deps = beacon_deps(&beacon_signer)
+                .with_parliament_tle_partial_release_signer(tle_signer.clone());
+            assert_eq!(
+                validate_threshold_signer_startup_readiness_v1(
+                    &fixture.state,
+                    &fixture.local_peer,
+                    &runtime_deps,
+                ),
+                Ok(())
+            );
+            assert!(
+                tle_signer.attestation_calls().is_empty(),
+                "startup makes zero Parliament TLE attestation calls"
+            );
+            assert_eq!(tle_signer.sign_calls.load(Ordering::Acquire), 0);
+            assert_eq!(
+                beacon_signer.attestation_calls(),
+                vec![(fixture.beacon_session_id, fixture.beacon_signer_index)]
+            );
+            assert_eq!(beacon_signer.sign_calls.load(Ordering::Acquire), 0);
+        }
+        let unavailable = beacon_deps(&Arc::new(BeaconCapabilityProbeSigner::new(
+            CapabilityMode::Exact,
+        )))
+        .with_parliament_tle_partial_release_signer(Arc::new(UnavailableSigner));
+        assert_eq!(
+            validate_threshold_signer_startup_readiness_v1(
+                &fixture.state,
+                &fixture.local_peer,
+                &unavailable,
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn threshold_signer_startup_readiness_requires_global_beacon_custody_for_local_seat() {
+        let fixture = threshold_signer_readiness_fixture_v1(13);
+
+        assert_eq!(
+            validate_threshold_signer_startup_readiness_v1(
+                &fixture.state,
+                &fixture.local_peer,
+                &IrohaRuntimeDeps::default(),
+            ),
+            Err("local global-beacon committee seat has no resolved partial signer")
+        );
+        for (mode, expected) in [
+            (CapabilityMode::Exact, Ok(())),
+            (
+                CapabilityMode::Rejected,
+                Err("local global-beacon committee seat has no exact runtime custody attestation"),
+            ),
+            (
+                CapabilityMode::MismatchedSeat,
+                Err(
+                    "local global-beacon committee seat returned a mismatched runtime custody attestation",
+                ),
+            ),
+        ] {
+            let signer = Arc::new(BeaconCapabilityProbeSigner::new(mode));
+            let runtime_deps = IrohaRuntimeDeps::default()
+                .with_sumeragi_global_beacon_partial_signer(signer.clone());
+            assert_eq!(
+                validate_threshold_signer_startup_readiness_v1(
+                    &fixture.state,
+                    &fixture.local_peer,
+                    &runtime_deps,
+                ),
+                expected
+            );
+            assert_eq!(
+                signer.attestation_calls(),
+                vec![(fixture.beacon_session_id, fixture.beacon_signer_index)]
+            );
+            assert_eq!(signer.sign_calls.load(Ordering::Acquire), 0);
+        }
+
+        // An observer owns no seat: it starts without a signer and never queries one.
+        assert_eq!(
+            validate_threshold_signer_startup_readiness_v1(
+                &fixture.state,
+                &fixture.observer_peer,
+                &IrohaRuntimeDeps::default(),
+            ),
+            Ok(())
+        );
+        let observer_signer = Arc::new(BeaconCapabilityProbeSigner::new(CapabilityMode::Rejected));
+        assert_eq!(
+            validate_threshold_signer_startup_readiness_v1(
+                &fixture.state,
+                &fixture.observer_peer,
+                &IrohaRuntimeDeps::default()
+                    .with_sumeragi_global_beacon_partial_signer(observer_signer.clone()),
+            ),
+            Ok(())
+        );
+        assert!(observer_signer.attestation_calls().is_empty());
+
+        // The active session must be bound to the exact startup roster.
+        {
+            let mut topology = fixture.state.commit_topology.block();
+            topology.get_mut().reverse();
+            topology.commit();
+        }
+        let exact_signer = Arc::new(BeaconCapabilityProbeSigner::new(CapabilityMode::Exact));
+        assert_eq!(
+            validate_threshold_signer_startup_readiness_v1(
+                &fixture.state,
+                &fixture.local_peer,
+                &IrohaRuntimeDeps::default()
+                    .with_sumeragi_global_beacon_partial_signer(exact_signer.clone()),
+            ),
+            Err("active global-beacon key session is not bound to the startup roster")
+        );
+        assert!(exact_signer.attestation_calls().is_empty());
     }
 
     #[tokio::test]
     async fn threshold_signer_startup_preflight_runs_synchronous_provider_on_blocking_worker() {
         let fixture = threshold_signer_readiness_fixture_v1(13);
-        let signer = Arc::new(CapabilityProbeSigner::new(CapabilityMode::BlockingRuntime));
-        let runtime_deps =
-            IrohaRuntimeDeps::default().with_parliament_tle_partial_release_signer(signer.clone());
+        let signer = Arc::new(BeaconCapabilityProbeSigner::new(
+            CapabilityMode::BlockingRuntime,
+        ));
+        let tle_signer = Arc::new(CapabilityProbeSigner::new(CapabilityMode::Rejected));
+        let runtime_deps = IrohaRuntimeDeps::default()
+            .with_sumeragi_global_beacon_partial_signer(signer.clone())
+            .with_parliament_tle_partial_release_signer(tle_signer.clone());
         let state = Arc::new(fixture.state);
         preflight_threshold_signer_startup_readiness_v1(
             Arc::clone(&state),
@@ -1618,22 +1533,13 @@ mod parliament_tle_release_tests {
             runtime_deps,
         )
         .await
-        .expect("active and retained custody complete outside the async runtime");
-        let mut calls = signer.attestation_calls();
-        calls.sort_unstable();
-        let mut expected = vec![
-            (
-                fixture.retained_key_session_id,
-                fixture.retained_participant_index,
-            ),
-            (
-                fixture.active_key_session_id,
-                fixture.active_participant_index,
-            ),
-        ];
-        expected.sort_unstable();
-        assert_eq!(calls, expected);
+        .expect("global-beacon custody completes outside the async runtime");
+        assert_eq!(
+            signer.attestation_calls(),
+            vec![(fixture.beacon_session_id, fixture.beacon_signer_index)]
+        );
         assert_eq!(signer.sign_calls.load(Ordering::Acquire), 0);
+        assert!(tle_signer.attestation_calls().is_empty());
         assert_eq!(
             Arc::strong_count(&state),
             1,
@@ -1644,9 +1550,11 @@ mod parliament_tle_release_tests {
     #[tokio::test]
     async fn threshold_signer_startup_preflight_preserves_worker_custody_refusal() {
         let fixture = threshold_signer_readiness_fixture_v1(14);
-        let signer = Arc::new(CapabilityProbeSigner::new(CapabilityMode::MismatchedSeat));
+        let signer = Arc::new(BeaconCapabilityProbeSigner::new(
+            CapabilityMode::MismatchedSeat,
+        ));
         let runtime_deps =
-            IrohaRuntimeDeps::default().with_parliament_tle_partial_release_signer(signer.clone());
+            IrohaRuntimeDeps::default().with_sumeragi_global_beacon_partial_signer(signer.clone());
         assert_eq!(
             preflight_threshold_signer_startup_readiness_v1(
                 Arc::new(fixture.state),
@@ -1655,15 +1563,12 @@ mod parliament_tle_release_tests {
             )
             .await,
             Err(
-                "local Parliament TLE committee seat returned a mismatched runtime custody attestation"
+                "local global-beacon committee seat returned a mismatched runtime custody attestation"
             )
         );
         assert_eq!(
             signer.attestation_calls(),
-            vec![(
-                fixture.active_key_session_id,
-                fixture.active_participant_index
-            )]
+            vec![(fixture.beacon_session_id, fixture.beacon_signer_index)]
         );
         assert_eq!(signer.sign_calls.load(Ordering::Acquire), 0);
     }
@@ -1693,6 +1598,22 @@ mod parliament_tle_release_tests {
         );
         assert!(!startup.contains("ParliamentTleShareUnavailable"));
         assert!(!startup.contains("local Parliament TLE committee seat is not operational"));
+        // Startup custody is consensus-native: the branch names no Parliament TLE custody.
+        // This guards the wording of the branch only; the behavioural proof is
+        // `threshold_signer_startup_readiness_never_consults_parliament_tle_custody`.
+        let startup_lowercase = startup.to_lowercase();
+        for retired in [
+            "parliament",
+            "tle custody",
+            "parliament_tle",
+            "tle_key_session",
+            "timed-ovn",
+        ] {
+            assert!(
+                !startup_lowercase.contains(retired),
+                "consensus startup must not mention {retired:?}"
+            );
+        }
     }
 }
 

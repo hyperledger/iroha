@@ -34,6 +34,9 @@ impl Register<Account> {
 }
 impl Register<AssetDefinition> {
     /// Constructs a new [`Register`] for an [`AssetDefinition`].
+    ///
+    /// Direct-dataspace registration uses [`super::RegisterDataspaceAssetDefinition`], keeping
+    /// this instruction and its existing domain/global payload unchanged.
     pub fn asset_definition(new_asset_definition: NewAssetDefinition) -> Self {
         Self {
             object: new_asset_definition,
@@ -672,6 +675,33 @@ mod tests {
         assert_exact_json(&Register::account(Account::new(account(0x64))));
         assert_exact_json(&Unregister::domain(domain_id()));
         assert_exact_json(&Unregister::account(account(0x65)));
+    }
+
+    #[test]
+    fn original_asset_registration_frame_survives_direct_dataspace_extension() {
+        // Actual original Global/None registration frame retained in
+        // tests/fixtures/instruction_box_generated_identity_frames.json.
+        let frame = hex::decode(concat!(
+            "4e52543000002e9fa44b44ac5295a0b34e05edcb4133004a00000000000000127e26b22609240c02",
+            "0300000045442001a10158016b019b01e10164014b01040188019a018801c0018e014001150144",
+            "0504726f73650100010001000400000000010008000000000000000004000000000100"
+        ))
+        .expect("captured original asset registration");
+        let decoded: RegisterBox =
+            norito::decode_from_bytes(&frame).expect("decode original frame");
+        let RegisterBox::AssetDefinition(registration) = &decoded else {
+            panic!("capture must remain the original asset registration variant")
+        };
+        assert_eq!(registration.object.owning_domain, None);
+        assert_eq!(
+            registration.object.balance_scope_policy,
+            crate::asset::AssetBalancePolicy::Global
+        );
+        assert_eq!(
+            norito::to_bytes(&decoded).expect("reencode original frame"),
+            frame
+        );
+        assert_eq!(RegisterBox::WIRE_ID, "iroha.register");
     }
     fn register_peer_with_pop() -> RegisterPeerWithPop {
         RegisterPeerWithPop {

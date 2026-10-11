@@ -255,7 +255,14 @@ fn network_binding_uses_wallet_and_defaults_to_fee_payment() {
     let text = fs::read_to_string(package.join("Musubi.networks.toml")).unwrap();
     assert!(text.contains("payer = \"authority\""));
     assert!(!text.contains("private_key"));
-    let selected = network::select_network(&package, None, None, None).unwrap();
+    let selected = network::select_network(
+        &package,
+        None,
+        None,
+        None,
+        network::NetworkPurpose::Deployment,
+    )
+    .unwrap();
     assert_eq!(
         selected.load_client().unwrap().account,
         store.load_config("alice").unwrap().account

@@ -1,11 +1,11 @@
 
-        seiyaku C {
+        seiyaku C { permission WriteState;
             state StateMap<Name, bytes> Foo;
 
-            kotoage fn main() -> bool authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) -> bool {
                 let ev = Json::parse("{\"value_hex\":\"0x68656c6c6f\"}");
                 let key = Name::parse("alice");
-                if let Option::some(value) = ev.get_blob_hex(Name::parse("value_hex")) {
+                if let Option::some(value) = ev.get_bytes_hex(Name::parse("value_hex")) {
                     Foo[key] = value;
                 } else {
                     return false;

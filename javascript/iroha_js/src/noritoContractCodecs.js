@@ -1,4 +1,6 @@
-import { normalizeContractErrorTypeV1, normalizeContractErrorMessagesV1 } from "./contractErrorTypes.js";
+import { normalizeContractEventsV1 } from "./contractDeclarations.js";
+import { normalizeEntrypointAuthorizationV1, normalizeContractPermissionsV1, validateManifestEntrypointIdentityV1, validateManifestDeclarationsV1 } from "./contractManifestRules.js";
+import { normalizeContractErrorTypeV1, normalizeContractErrorMessagesV1, normalizeContractEnumTypeV1, normalizeContractEnumTypesV1, validateManifestErrorTypeBindingsV1 } from "./contractErrorTypes.js";
 import { createNoritoRecordDecoder, createNoritoRecordEncoder } from "./noritoRecordDecoder.js";
 import { rejectError, rejectRange, rejectType } from "./validationThrow.js";
 import { Buffer } from "buffer";
@@ -285,63 +287,47 @@ export function createNoritoConfidentialMemoCodecs(
  * @returns {Function[]}
  */
 export function createNoritoContractCodecs(
-  BufferReader,
+  contractDeclarationCodecsV1,
   assertNonEmptyString,
   assertOnlyObjectKeys,
-  decodeAccountIdValue,
-  decodeBoolValue,
   decodeConstVecU8Value,
-  decodeEventFilterBoxFramePayload,
   decodeHashValue,
-  decodeMetadataValue,
-  decodeNameValue,
   decodeNoritoVec,
-  decodeOptionValue,
   decodePublicKeyValue,
   decodeStringValue,
   decodeStructFields,
-  decodeU16Value,
   decodeU32Value,
   decodeU64NumberValue,
-  decodeU8Value,
-  encodeAccountIdValue,
-  encodeBoolValue,
   encodeConstVecU8Value,
-  encodeEnumTagValue,
-  encodeEventFilterBoxFramePayload,
   encodeHashValue,
-  encodeMetadataValue,
-  encodeNameValue,
   encodeNoritoStringValue,
   encodeNoritoVec,
   encodeOptionValue,
   encodePublicKeyValue,
   encodeStringValue,
   encodeStructValue,
-  encodeU16Value,
   encodeU32Value,
   encodeU64NumberValue,
-  encodeU8Value,
-  isPlainObject,
   parsePublicKeyLiteral,
   publicKeyLiteralFromParts,
-  readNoritoField,
 ) {
-  const decodeRecordFields = /* @__PURE__ */ createNoritoRecordDecoder(
-    decodeStructFields, decodeOptionValue, decodeNoritoVec,
-  );
-
-  function assertPlainObjectValue(value, context) {
-    if (!isPlainObject(value)) {
-      rejectType(`${context} must be an object`);
-    }
-  }
-
-  function assertArrayValue(value, context) {
-    if (!Array.isArray(value)) {
-      rejectType(`${context} must be an array`);
-    }
-  }
+  const {
+    decodeRecordFields,
+    assertPlainObjectValue,
+    assertArrayValue,
+    encodeEntrypointDescriptorValue,
+    decodeEntrypointDescriptorValue,
+    encodeContractPermissionsValue,
+    decodeContractPermissionsValue,
+    encodeContractErrorTypeDescriptorsValue,
+    decodeContractErrorTypeDescriptorsValue,
+    encodeContractEnumTypeDescriptorsValue,
+    decodeContractEnumTypeDescriptorsValue,
+    encodeContractEventsValue,
+    decodeContractEventsValue,
+    encodeRequiredRecordString,
+    encodeCanonicalRecordFields,
+  } = contractDeclarationCodecsV1;
 
   const CONTRACT_MANIFEST_KEYS = Object.freeze([
     "seiyaku_name",
@@ -350,9 +336,12 @@ export function createNoritoContractCodecs(
     "compiler_fingerprint",
     "features_bitmap",
     "access_set_hints",
+    "permissions",
+    "events",
     "entrypoints",
     "states",
     "error_types",
+    "enum_types",
     "error_messages",
     "kotoba",
     "provenance",
@@ -361,6 +350,8 @@ export function createNoritoContractCodecs(
   function contractManifestSignatureFields(value, context) {
     assertPlainObjectValue(value, context);
     assertOnlyObjectKeys(value, CONTRACT_MANIFEST_KEYS, context);
+    validateManifestDeclarationsV1(value, context);
+    validateManifestErrorTypeBindingsV1(value, context);
     normalizeContractErrorMessagesV1(value.error_messages, value.error_types, `${context}.error_messages`);
     return [
       [encodeOptionValue(value.seiyaku_name, encodeNoritoStringValue, `${context}.seiyaku_name`)],
@@ -369,6 +360,8 @@ export function createNoritoContractCodecs(
       [encodeOptionValue(value.compiler_fingerprint, encodeNoritoStringValue, `${context}.compiler_fingerprint`)],
       [encodeOptionValue(value.features_bitmap, encodeU64NumberValue, `${context}.features_bitmap`)],
       [encodeOptionValue(value.access_set_hints, encodeAccessSetHintsValue, `${context}.access_set_hints`)],
+      [encodeContractPermissionsValue(value.permissions, `${context}.permissions`)],
+      [encodeContractEventsValue(value.events, `${context}.events`)],
       [
         encodeOptionValue(
           value.entrypoints ?? null,
@@ -390,6 +383,7 @@ export function createNoritoContractCodecs(
           `${context}.error_types`,
         ),
       ],
+      [encodeContractEnumTypeDescriptorsValue(value.enum_types, `${context}.enum_types`)],
       [
         encodeOptionValue(
           value.error_messages ?? null,
@@ -431,9 +425,12 @@ export function createNoritoContractCodecs(
     ["compiler_fingerprint", decodeStringValue, 1],
     ["features_bitmap", decodeU64NumberValue, 1],
     ["access_set_hints", decodeAccessSetHintsValue, 1],
+    ["permissions", decodeContractPermissionsValue, 0],
+    ["events", decodeContractEventsValue, 0],
     ["entrypoints", decodeEntrypointDescriptorsValue, 1],
     ["states", decodeStateDescriptorsValue, 1],
     ["error_types", decodeContractErrorTypeDescriptorsValue, 1],
+    ["enum_types", decodeContractEnumTypeDescriptorsValue, 0],
     ["error_messages", decodeContractErrorMessagesValue, 1],
     ["kotoba", decodeKotobaTranslationEntriesValue, 1],
     ["provenance", decodeManifestProvenanceValue, 1],
@@ -441,6 +438,8 @@ export function createNoritoContractCodecs(
 
   function decodeContractManifestValue(payload, context) {
     const value = decodeRecordFields(payload, context, ContractManifestValueFields);
+    validateManifestDeclarationsV1(value, context);
+    validateManifestErrorTypeBindingsV1(value, context);
     normalizeContractErrorMessagesV1(value.error_messages, value.error_types, `${context}.error_messages`);
     return value;
   }
@@ -499,414 +498,6 @@ export function createNoritoContractCodecs(
     );
   }
 
-  function validateEntrypointReturnDescriptor(value, context) {
-    if (typeof value.return_type !== "string" || value.return_schema == null) {
-      throw new TypeError(`${context} requires return_type and return_schema, including () and Unit`);
-    }
-    const analysis = analyzeEntrypointValueTypeV1(value.return_schema, `${context}.return_schema`);
-    if (analysis.canonicalName !== value.return_type || analysis.wordCount > MAX_ENTRYPOINT_CALL_TABLE_WORDS_V1) {
-      throw new TypeError(`${context}.return_schema must match return_type within the 8192-word result table`);
-    }
-  }
-
-  function encodeEntrypointDescriptorValue(value, context) {
-    assertPlainObjectValue(value, context);
-    validateEntrypointReturnDescriptor(value, context);
-    assertOnlyObjectKeys(value, [
-      "name",
-      "kind",
-      "params",
-      "argument_schema",
-      "return_type",
-      "return_schema",
-      "permission",
-      "read_keys",
-      "write_keys",
-      "access_hints_complete",
-      "access_hints_skipped",
-      "triggers",
-    ], context);
-    const triggers = value.triggers ?? [];
-    assertArrayValue(triggers, `${context}.triggers`);
-    return encodeStructValue([
-      [encodeNoritoStringValue(assertNonEmptyString(value.name, `${context}.name`))],
-      [encodeEntryPointKindValue(value.kind, `${context}.kind`)],
-      [
-        encodeNoritoVec(value.params ?? [], (param, index) =>
-          encodeEntrypointParamDescriptorValue(param, `${context}.params[${index}]`),
-        ),
-      ],
-      [
-        encodeOptionValue(
-          value.argument_schema ?? null,
-          encodeEntrypointArgumentSchemaValue,
-          `${context}.argument_schema`,
-        ),
-      ],
-      [
-        encodeOptionValue(
-          value.return_type ?? null,
-          encodeNoritoStringValue,
-          `${context}.return_type`,
-        ),
-      ],
-      [
-        encodeOptionValue(
-          value.return_schema ?? null,
-          encodeEntrypointValueTypeValue,
-          `${context}.return_schema`,
-        ),
-      ],
-      [
-        encodeOptionValue(
-          value.permission ?? null,
-          encodeNoritoStringValue,
-          `${context}.permission`,
-        ),
-      ],
-      [
-        encodeNoritoVec(value.read_keys ?? [], (entry, index) =>
-          encodeNoritoStringValue(
-            assertNonEmptyString(entry, `${context}.read_keys[${index}]`),
-          ),
-        ),
-      ],
-      [
-        encodeNoritoVec(value.write_keys ?? [], (entry, index) =>
-          encodeNoritoStringValue(
-            assertNonEmptyString(entry, `${context}.write_keys[${index}]`),
-          ),
-        ),
-      ],
-      [
-        encodeOptionValue(
-          value.access_hints_complete ?? null,
-          encodeBoolValue,
-          `${context}.access_hints_complete`,
-        ),
-      ],
-      [
-        encodeNoritoVec(
-          value.access_hints_skipped ?? [],
-          (entry, index) =>
-            encodeNoritoStringValue(
-              assertNonEmptyString(entry, `${context}.access_hints_skipped[${index}]`),
-            ),
-        ),
-      ],
-      [
-        encodeNoritoVec(triggers, (entry, index) =>
-          encodeManifestTriggerDescriptorValue(entry, `${context}.triggers[${index}]`),
-        ),
-      ],
-    ]);
-  }
-
-  const EntrypointDescriptorValueFields = [
-    ["name", decodeStringValue, 0],
-    ["kind", decodeEntryPointKindValue, 0],
-    ["params", decodeEntrypointParamDescriptorValue, 2],
-    ["argument_schema", decodeEntrypointArgumentSchemaValue, 1],
-    ["return_type", decodeStringValue, 1],
-    ["return_schema", decodeEntrypointValueTypeValue, 1],
-    ["permission", decodeStringValue, 1],
-    ["read_keys", decodeStringValue, 2],
-    ["write_keys", decodeStringValue, 2],
-    ["access_hints_complete", decodeBoolValue, 1],
-    ["access_hints_skipped", decodeStringValue, 2],
-    ["triggers", decodeManifestTriggerDescriptorValue, 2],
-  ];
-
-  function decodeEntrypointDescriptorValue(payload, context) {
-    const value = decodeRecordFields(payload, context, EntrypointDescriptorValueFields);
-    validateEntrypointReturnDescriptor(value, context);
-    return value;
-  }
-
-  function encodeEntryPointKindValue(value, context) {
-    const kind = typeof value === JS_TYPE_STRING ? value : value?.kind;
-    const normalized = assertNonEmptyString(kind, context).toLowerCase();
-    switch (normalized) {
-      case "kotoage":
-        return encodeEnumTagValue(0);
-      case "view":
-        return encodeEnumTagValue(1);
-      case "hajimari":
-        return encodeEnumTagValue(2);
-      case "kaizen":
-        return encodeEnumTagValue(3);
-      default:
-        rejectError(`${context} must be Kotoage, View, Hajimari, or Kaizen`);
-    }
-  }
-
-  function decodeEntryPointKindValue(payload, context) {
-    const reader = new BufferReader(payload, context);
-    const tag = reader.readU32LE("tag");
-    reader.assertEof();
-    switch (tag) {
-      case 0:
-        return { kind: "Kotoage", value: null };
-      case 1:
-        return { kind: "View", value: null };
-      case 2:
-        return { kind: "Hajimari", value: null };
-      case 3:
-        return { kind: "Kaizen", value: null };
-      default:
-        rejectError(`${context} uses unsupported entrypoint kind ${tag}`);
-    }
-  }
-
-  function encodeEntrypointParamDescriptorValue(value, context) {
-    assertPlainObjectValue(value, context);
-    assertOnlyObjectKeys(value, ["name", "type_name"], context);
-    return encodeCanonicalRecordFields(value, context, EntrypointParamDescriptorValueFields);
-  }
-
-  const EntrypointParamDescriptorValueFields = [
-    ["name", decodeStringValue, 0, encodeRequiredRecordString, 0],
-    ["type_name", decodeStringValue, 0, encodeRequiredRecordString, 0],
-  ];
-
-  function decodeEntrypointParamDescriptorValue(payload, context) {
-    return decodeRecordFields(payload, context, EntrypointParamDescriptorValueFields);
-  }
-
-  function encodeEntrypointArgumentSchemaValue(value, context) {
-    if (!isPlainObject(value) || !Array.isArray(value.fields)) {
-      rejectType(`${context} must contain a fields array`);
-    }
-    assertOnlyObjectKeys(value, ["fields"], context);
-    return encodeCanonicalRecordFields(value, context, EntrypointArgumentSchemaValueFields);
-  }
-
-  const EntrypointArgumentSchemaValueFields = [
-    ["fields", decodeEntrypointArgumentFieldValue, 2, encodeEntrypointArgumentFieldValue, 2],
-  ];
-
-  function decodeEntrypointArgumentSchemaValue(payload, context) {
-    return decodeRecordFields(payload, context, EntrypointArgumentSchemaValueFields);
-  }
-
-  function encodeEntrypointArgumentFieldValue(value, context) {
-    assertPlainObjectValue(value, context);
-    assertOnlyObjectKeys(value, ["name", "ty"], context);
-    return encodeCanonicalRecordFields(value, context, EntrypointArgumentFieldValueFields);
-  }
-
-  const EntrypointArgumentFieldValueFields = [
-    ["name", decodeStringValue, 0, encodeRequiredRecordString, 0],
-    ["ty", decodeEntrypointValueTypeValue, 0, encodeEntrypointValueTypeValue, 0],
-  ];
-
-  function decodeEntrypointArgumentFieldValue(payload, context) {
-    return decodeRecordFields(payload, context, EntrypointArgumentFieldValueFields);
-  }
-
-  function encodeEntrypointValueTypeValue(value, context) {
-    if (!isPlainObject(value) || !Array.isArray(value.nodes)) {
-      rejectType(`${context} must contain a nodes array`);
-    }
-    assertOnlyObjectKeys(value, ["nodes"], context);
-    analyzeEntrypointValueTypeV1(value, context);
-    return encodeCanonicalRecordFields(value, context, CanonicalEncodingFields5);
-  }
-
-  function decodeEntrypointValueTypeValue(payload, context) {
-    const fields = decodeStructFields(payload, context, ["nodes"]);
-    const value = {
-      nodes: decodeNoritoVec(
-        fields.nodes,
-        (node, index) =>
-          decodeEntrypointValueTypeNodeValue(node, `${context}.nodes[${index}]`),
-        `${context}.nodes`,
-      ),
-    };
-    analyzeEntrypointValueTypeV1(value, context);
-    return value;
-  }
-
-  function taggedEnumParts(value, context) {
-    if (!isPlainObject(value)) {
-      rejectType(`${context} must be a tagged object`);
-    }
-    assertOnlyObjectKeys(value, ["kind", "value"], context);
-    return {
-      kind: assertNonEmptyString(value.kind, `${context}.kind`),
-      value: value.value ?? null,
-    };
-  }
-
-  function encodeEntrypointValueTypeNodeValue(value, context) {
-    const tagged = taggedEnumParts(value, context);
-    switch (tagged.kind) {
-      case "Struct":
-        return encodeEnumTagValue(0, () =>
-          encodeEntrypointStructTypeNodeValue(tagged.value, `${context}.value`),
-        );
-      case "Tuple":
-        return encodeEnumTagValue(1, () =>
-          encodeU16Value(tagged.value, `${context}.value`),
-        );
-      case "Option":
-        requireNullEnumPayload(tagged.value, context);
-        return encodeEnumTagValue(2);
-      case "Result":
-        requireNullEnumPayload(tagged.value, context);
-        return encodeEnumTagValue(3);
-      case "List":
-        return encodeEnumTagValue(4, () =>
-          encodeEntrypointListTypeNodeValue(tagged.value, `${context}.value`),
-        );
-      case "Leaf":
-        return encodeEnumTagValue(5, () =>
-          encodeEntrypointValueKindValue(tagged.value, `${context}.value`),
-        );
-      case "Unit":
-        requireNullEnumPayload(tagged.value, context);
-        return encodeEnumTagValue(6);
-      case "StateCursor":
-        return encodeEnumTagValue(8, () => encodeEntrypointValueKindValue(tagged.value, `${context}.value`));
-      case "Error":
-        return encodeEnumTagValue(7, () => encodeContractErrorTypeDescriptorValue(tagged.value, `${context}.value`));
-      default:
-        rejectError(`${context}.kind uses unsupported value-type node ${tagged.kind}`);
-    }
-  }
-
-  function decodeEntrypointValueTypeNodeValue(payload, context) {
-    const reader = new BufferReader(payload, context);
-    const tag = reader.readU32LE("tag");
-    switch (tag) {
-      case 0:
-        return {
-          kind: "Struct",
-          value: decodeEntrypointStructTypeNodeValue(
-            readSingleEnumPayload(reader, context),
-            `${context}.value`,
-          ),
-        };
-      case 1:
-        return {
-          kind: "Tuple",
-          value: decodeU16Value(readSingleEnumPayload(reader, context), `${context}.value`),
-        };
-      case 2:
-        reader.assertEof();
-        return { kind: "Option", value: null };
-      case 3:
-        reader.assertEof();
-        return { kind: "Result", value: null };
-      case 4:
-        return {
-          kind: "List",
-          value: decodeEntrypointListTypeNodeValue(
-            readSingleEnumPayload(reader, context),
-            `${context}.value`,
-          ),
-        };
-      case 5:
-        return {
-          kind: "Leaf",
-          value: decodeEntrypointValueKindValue(
-            readSingleEnumPayload(reader, context),
-            `${context}.value`,
-          ),
-        };
-      case 6:
-        reader.assertEof();
-        return { kind: "Unit", value: null };
-      case 7:
-        return { kind: "Error", value: decodeContractErrorTypeDescriptorValue(readSingleEnumPayload(reader, context), `${context}.value`) };
-      case 8:
-        return { kind: "StateCursor", value: decodeEntrypointValueKindValue(readSingleEnumPayload(reader, context), `${context}.value`) };
-      default:
-        rejectError(`${context} uses unsupported value-type node tag ${tag}`);
-    }
-  }
-
-  function readSingleEnumPayload(reader, _context) {
-    const value = readNoritoField(reader, "value");
-    reader.assertEof();
-    return value;
-  }
-
-  function requireNullEnumPayload(value, context) {
-    if (value !== null && value !== undefined) {
-      rejectType(`${context}.value must be null for a unit variant`);
-    }
-  }
-
-  function encodeEntrypointStructTypeNodeValue(value, context) {
-    if (!isPlainObject(value) || !Array.isArray(value.fields)) {
-      rejectType(`${context} must contain a fields array`);
-    }
-    assertOnlyObjectKeys(value, ["name", "fields"], context);
-    return encodeCanonicalRecordFields(value, context, EntrypointStructTypeNodeValueFields);
-  }
-
-  const EntrypointStructTypeNodeValueFields = [
-    ["name", decodeStringValue, 0, encodeRequiredRecordString, 0],
-    ["fields", decodeStringValue, 2, encodeRequiredRecordString, 2],
-  ];
-
-  function decodeEntrypointStructTypeNodeValue(payload, context) {
-    return decodeRecordFields(payload, context, EntrypointStructTypeNodeValueFields);
-  }
-
-  function encodeEntrypointListTypeNodeValue(value, context) {
-    assertPlainObjectValue(value, context);
-    assertOnlyObjectKeys(value, ["capacity"], context);
-    return encodeCanonicalRecordFields(value, context, EntrypointListTypeNodeValueFields);
-  }
-
-  const EntrypointListTypeNodeValueFields = [
-    ["capacity", decodeU8Value, 0, encodeU8Value, 0],
-  ];
-
-  function decodeEntrypointListTypeNodeValue(payload, context) {
-    return decodeRecordFields(payload, context, EntrypointListTypeNodeValueFields);
-  }
-
-  const ENTRYPOINT_VALUE_KIND_NAMES = Object.freeze([
-    "Int",
-    "Decimal",
-    "Quantity",
-    "Bool",
-    "String",
-    "Json",
-    "Name",
-    "AccountId",
-    "AssetDefinitionId",
-    "AssetId",
-    "DomainId",
-    "NftId",
-    "DataSpaceId",
-    "Blob",
-  ]);
-
-  function encodeEntrypointValueKindValue(value, context) {
-    const tagged = taggedEnumParts(value, context);
-    requireNullEnumPayload(tagged.value, context);
-    const tag = ENTRYPOINT_VALUE_KIND_NAMES.indexOf(tagged.kind);
-    if (tag < 0) {
-      rejectError(`${context}.kind uses unsupported value kind ${tagged.kind}`);
-    }
-    return encodeEnumTagValue(tag);
-  }
-
-  function decodeEntrypointValueKindValue(payload, context) {
-    const reader = new BufferReader(payload, context);
-    const tag = reader.readU32LE("tag");
-    reader.assertEof();
-    const kind = ENTRYPOINT_VALUE_KIND_NAMES[tag];
-    if (kind === undefined) {
-      rejectError(`${context} uses unsupported value-kind tag ${tag}`);
-    }
-    return { kind, value: null };
-  }
-
   function encodeStateDescriptorsValue(value, context) {
     assertArrayValue(value, context);
     return encodeNoritoVec(value, (entry, index) =>
@@ -935,45 +526,6 @@ export function createNoritoContractCodecs(
 
   function decodeStateDescriptorValue(payload, context) {
     return decodeRecordFields(payload, context, StateDescriptorValueFields);
-  }
-
-  function encodeContractErrorTypeDescriptorsValue(value, context) {
-    assertArrayValue(value, context);
-    return encodeNoritoVec(value, (entry, index) =>
-      encodeContractErrorTypeDescriptorValue(entry, `${context}[${index}]`),
-    );
-  }
-
-  function decodeContractErrorTypeDescriptorsValue(payload, context) {
-    return decodeNoritoVec(
-      payload,
-      (entry, index) =>
-        decodeContractErrorTypeDescriptorValue(entry, `${context}[${index}]`),
-      context,
-    );
-  }
-
-  function encodeContractErrorTypeDescriptorValue(value, context) {
-    const descriptor = normalizeContractErrorTypeV1(value, context);
-    return encodeStructValue([
-      [encodeNoritoStringValue(descriptor.identity)],
-      [encodeNoritoVec(descriptor.variants, (variant, index) => encodeStructValue([
-        [encodeNoritoStringValue(variant.name)],
-        [encodeU32Value(variant.code, `${context}.variants[${index}].code`)],
-      ]))],
-    ]);
-  }
-
-  function decodeContractErrorTypeDescriptorValue(payload, context) {
-    const fields = decodeStructFields(payload, context, ["identity", "variants"]);
-    return normalizeContractErrorTypeV1({
-      identity: decodeStringValue(fields.identity, `${context}.identity`),
-      variants: decodeNoritoVec(fields.variants, (payload, index) => {
-        const label = `${context}.variants[${index}]`;
-        const variant = decodeStructFields(payload, label, ["name", "code"]);
-        return { name: decodeStringValue(variant.name, `${label}.name`), code: decodeU32Value(variant.code, `${label}.code`) };
-      }, `${context}.variants`),
-    }, context);
   }
 
   function encodeContractErrorMessagesValue(value, context) {
@@ -1084,6 +636,622 @@ export function createNoritoContractCodecs(
     if (signature.every((byte) => byte === 0)) {
       rejectError(`${context} must not be all zero`);
     }
+  }
+
+return [
+    encodeContractManifestSignaturePayloadValue,
+    encodeContractManifestValue,
+    decodeContractManifestValue,
+    encodeManifestProvenanceValue,
+    decodeManifestProvenanceValue,
+
+  ];
+}
+
+/** Bind authenticated contract declaration codecs independently of manifest provenance. */
+export function createNoritoContractMetadataCodecs(
+  BufferReader,
+  assertNonEmptyString,
+  assertOnlyObjectKeys,
+  decodeAccountIdValue,
+  decodeBoolValue,
+  decodeEventFilterBoxFramePayload,
+  decodeMetadataValue,
+  decodeNameValue,
+  decodeNoritoVec,
+  decodeOptionValue,
+  decodeStringValue,
+  decodeStructFields,
+  decodeU16Value,
+  decodeU32Value,
+  decodeU8Value,
+  encodeAccountIdValue,
+  encodeBoolValue,
+  encodeEnumTagValue,
+  encodeEventFilterBoxFramePayload,
+  encodeMetadataValue,
+  encodeNameValue,
+  encodeNoritoStringValue,
+  encodeNoritoVec,
+  encodeOptionValue,
+  encodeStructValue,
+  encodeU16Value,
+  encodeU32Value,
+  encodeU8Value,
+  isPlainObject,
+  readNoritoField,
+) {
+  const decodeRecordFields = /* @__PURE__ */ createNoritoRecordDecoder(
+    decodeStructFields, decodeOptionValue, decodeNoritoVec,
+  );
+
+  function assertPlainObjectValue(value, context) {
+    if (!isPlainObject(value)) {
+      rejectType(`${context} must be an object`);
+    }
+  }
+
+  function assertArrayValue(value, context) {
+    if (!Array.isArray(value)) {
+      rejectType(`${context} must be an array`);
+    }
+  }
+
+  function validateEntrypointReturnDescriptor(value, context) {
+    if (typeof value.return_type !== "string" || value.return_schema == null) {
+      throw new TypeError(`${context} requires return_type and return_schema, including () and Unit`);
+    }
+    const analysis = analyzeEntrypointValueTypeV1(value.return_schema, `${context}.return_schema`);
+    if (analysis.canonicalName !== value.return_type || analysis.wordCount > MAX_ENTRYPOINT_CALL_TABLE_WORDS_V1) {
+      throw new TypeError(`${context}.return_schema must match return_type within the 8192-word result table`);
+    }
+  }
+
+  function encodeEntrypointDescriptorValue(value, context) {
+    assertPlainObjectValue(value, context);
+    validateEntrypointReturnDescriptor(value, context);
+    validateManifestEntrypointIdentityV1(value.name, typeof value.kind === "string" ? value.kind : value.kind.kind, normalizeEntrypointAuthorizationV1(value.authorization, `${context}.authorization`), context);
+    assertOnlyObjectKeys(value, [
+      "name",
+      "kind",
+      "params",
+      "argument_schema",
+      "return_type",
+      "return_schema",
+      "authorization",
+      "read_keys",
+      "write_keys",
+      "access_hints_complete",
+      "access_hints_skipped",
+      "triggers",
+    ], context);
+    const triggers = value.triggers ?? [];
+    assertArrayValue(triggers, `${context}.triggers`);
+    return encodeStructValue([
+      [encodeNoritoStringValue(assertNonEmptyString(value.name, `${context}.name`))],
+      [encodeEntryPointKindValue(value.kind, `${context}.kind`)],
+      [
+        encodeNoritoVec(value.params ?? [], (param, index) =>
+          encodeEntrypointParamDescriptorValue(param, `${context}.params[${index}]`),
+        ),
+      ],
+      [
+        encodeOptionValue(
+          value.argument_schema ?? null,
+          encodeEntrypointArgumentSchemaValue,
+          `${context}.argument_schema`,
+        ),
+      ],
+      [
+        encodeOptionValue(
+          value.return_type ?? null,
+          encodeNoritoStringValue,
+          `${context}.return_type`,
+        ),
+      ],
+      [
+        encodeOptionValue(
+          value.return_schema ?? null,
+          encodeEntrypointValueTypeValue,
+          `${context}.return_schema`,
+        ),
+      ],
+      [encodeEntrypointAuthorizationValue(value.authorization, `${context}.authorization`)],
+      [
+        encodeNoritoVec(value.read_keys ?? [], (entry, index) =>
+          encodeNoritoStringValue(
+            assertNonEmptyString(entry, `${context}.read_keys[${index}]`),
+          ),
+        ),
+      ],
+      [
+        encodeNoritoVec(value.write_keys ?? [], (entry, index) =>
+          encodeNoritoStringValue(
+            assertNonEmptyString(entry, `${context}.write_keys[${index}]`),
+          ),
+        ),
+      ],
+      [
+        encodeOptionValue(
+          value.access_hints_complete ?? null,
+          encodeBoolValue,
+          `${context}.access_hints_complete`,
+        ),
+      ],
+      [
+        encodeNoritoVec(
+          value.access_hints_skipped ?? [],
+          (entry, index) =>
+            encodeNoritoStringValue(
+              assertNonEmptyString(entry, `${context}.access_hints_skipped[${index}]`),
+            ),
+        ),
+      ],
+      [
+        encodeNoritoVec(triggers, (entry, index) =>
+          encodeManifestTriggerDescriptorValue(entry, `${context}.triggers[${index}]`),
+        ),
+      ],
+    ]);
+  }
+
+  const EntrypointDescriptorValueFields = [
+    ["name", decodeStringValue, 0],
+    ["kind", decodeEntryPointKindValue, 0],
+    ["params", decodeEntrypointParamDescriptorValue, 2],
+    ["argument_schema", decodeEntrypointArgumentSchemaValue, 1],
+    ["return_type", decodeStringValue, 1],
+    ["return_schema", decodeEntrypointValueTypeValue, 1],
+    ["authorization", decodeEntrypointAuthorizationValue, 0],
+    ["read_keys", decodeStringValue, 2],
+    ["write_keys", decodeStringValue, 2],
+    ["access_hints_complete", decodeBoolValue, 1],
+    ["access_hints_skipped", decodeStringValue, 2],
+    ["triggers", decodeManifestTriggerDescriptorValue, 2],
+  ];
+
+  function decodeEntrypointDescriptorValue(payload, context) {
+    const value = decodeRecordFields(payload, context, EntrypointDescriptorValueFields);
+    validateEntrypointReturnDescriptor(value, context);
+    validateManifestEntrypointIdentityV1(value.name, typeof value.kind === "string" ? value.kind : value.kind.kind, normalizeEntrypointAuthorizationV1(value.authorization, `${context}.authorization`), context);
+    return value;
+  }
+
+  function encodeEntrypointAuthorizationValue(value, context) {
+    const authorization = normalizeEntrypointAuthorizationV1(value, context);
+    switch (authorization.kind) {
+      case "Anyone": return encodeEnumTagValue(0);
+      case "Permission": return encodeEnumTagValue(1, () => encodeNameValue(authorization.value, `${context}.value`));
+      case "RuntimeLifecycle": return encodeEnumTagValue(2);
+    }
+  }
+
+  function decodeEntrypointAuthorizationValue(payload, context) {
+    const reader = new BufferReader(payload, context);
+    const tag = reader.readU32LE("tag");
+    if (tag === 1) return { kind: "Permission", value: decodeStringValue(readSingleEnumPayload(reader, context), `${context}.value`) };
+    reader.assertEof();
+    if (tag === 0) return { kind: "Anyone", value: null };
+    if (tag === 2) return { kind: "RuntimeLifecycle", value: null };
+    rejectError(`${context} uses unsupported authorization tag ${tag}`);
+  }
+
+  function encodeContractPermissionsValue(value, context) {
+    return encodeNoritoVec(normalizeContractPermissionsV1(value, context), (entry, index) => {
+      const path = `${context}[${index}]`;
+      const scope = entry.scope.kind === "Instance"
+        ? encodeEnumTagValue(0)
+        : encodeEnumTagValue(1, () => encodeNameValue(entry.scope.value.permission_name, `${path}.scope.value.permission_name`));
+      return encodeStructValue([[encodeNameValue(entry.name, `${path}.name`)], [scope]]);
+    });
+  }
+
+  function decodeContractPermissionsValue(payload, context) {
+    const values = decodeNoritoVec(payload, (entry, index) => decodeRecordFields(entry, `${context}[${index}]`, [
+      ["name", decodeStringValue, 0], ["scope", decodeContractPermissionScopeValue, 0],
+    ]), context);
+    return normalizeContractPermissionsV1(values, context);
+  }
+
+  function decodeContractPermissionScopeValue(payload, context) {
+    const reader = new BufferReader(payload, context);
+    const tag = reader.readU32LE("tag");
+    if (tag === 1) return { kind: "Chain", value: { permission_name: decodeStringValue(readSingleEnumPayload(reader, context), `${context}.value.permission_name`) } };
+    reader.assertEof();
+    if (tag === 0) return { kind: "Instance", value: null };
+    rejectError(`${context} uses unsupported permission scope tag ${tag}`);
+  }
+
+  function encodeEntryPointKindValue(value, context) {
+    const kind = typeof value === JS_TYPE_STRING ? value : value?.kind;
+    const normalized = assertNonEmptyString(kind, context).toLowerCase();
+    switch (normalized) {
+      case "kotoage":
+        return encodeEnumTagValue(0);
+      case "view":
+        return encodeEnumTagValue(1);
+      case "hajimari":
+        return encodeEnumTagValue(2);
+      case "kaizen":
+        return encodeEnumTagValue(3);
+      default:
+        rejectError(`${context} must be Kotoage, View, Hajimari, or Kaizen`);
+    }
+  }
+
+  function decodeEntryPointKindValue(payload, context) {
+    const reader = new BufferReader(payload, context);
+    const tag = reader.readU32LE("tag");
+    reader.assertEof();
+    switch (tag) {
+      case 0:
+        return { kind: "Kotoage", value: null };
+      case 1:
+        return { kind: "View", value: null };
+      case 2:
+        return { kind: "Hajimari", value: null };
+      case 3:
+        return { kind: "Kaizen", value: null };
+      default:
+        rejectError(`${context} uses unsupported entrypoint kind ${tag}`);
+    }
+  }
+
+  function encodeEntrypointParamDescriptorValue(value, context) {
+    assertPlainObjectValue(value, context);
+    assertOnlyObjectKeys(value, ["name", "type_name"], context);
+    return encodeCanonicalRecordFields(value, context, EntrypointParamDescriptorValueFields);
+  }
+
+  const EntrypointParamDescriptorValueFields = [
+    ["name", decodeStringValue, 0, encodeRequiredRecordString, 0],
+    ["type_name", decodeStringValue, 0, encodeRequiredRecordString, 0],
+  ];
+
+  function decodeEntrypointParamDescriptorValue(payload, context) {
+    return decodeRecordFields(payload, context, EntrypointParamDescriptorValueFields);
+  }
+
+  function encodeEntrypointArgumentSchemaValue(value, context) {
+    if (!isPlainObject(value) || !Array.isArray(value.fields)) {
+      rejectType(`${context} must contain a fields array`);
+    }
+    assertOnlyObjectKeys(value, ["fields"], context);
+    return encodeCanonicalRecordFields(value, context, EntrypointArgumentSchemaValueFields);
+  }
+
+  const EntrypointArgumentSchemaValueFields = [
+    ["fields", decodeEntrypointArgumentFieldValue, 2, encodeEntrypointArgumentFieldValue, 2],
+  ];
+
+  function decodeEntrypointArgumentSchemaValue(payload, context) {
+    return decodeRecordFields(payload, context, EntrypointArgumentSchemaValueFields);
+  }
+
+  function encodeEntrypointArgumentFieldValue(value, context) {
+    assertPlainObjectValue(value, context);
+    assertOnlyObjectKeys(value, ["name", "ty"], context);
+    return encodeCanonicalRecordFields(value, context, EntrypointArgumentFieldValueFields);
+  }
+
+  const EntrypointArgumentFieldValueFields = [
+    ["name", decodeStringValue, 0, encodeRequiredRecordString, 0],
+    ["ty", decodeEntrypointValueTypeValue, 0, encodeEntrypointValueTypeValue, 0],
+  ];
+
+  function decodeEntrypointArgumentFieldValue(payload, context) {
+    return decodeRecordFields(payload, context, EntrypointArgumentFieldValueFields);
+  }
+
+  function encodeEntrypointValueTypeValue(value, context) {
+    if (!isPlainObject(value) || !Array.isArray(value.nodes)) {
+      rejectType(`${context} must contain a nodes array`);
+    }
+    assertOnlyObjectKeys(value, ["nodes"], context);
+    analyzeEntrypointValueTypeV1(value, context);
+    return encodeCanonicalRecordFields(value, context, CanonicalEncodingFields5);
+  }
+
+  function decodeEntrypointValueTypeValue(payload, context, keyOnly = false) {
+    const fields = decodeStructFields(payload, context, ["nodes"]);
+    const value = {
+      nodes: decodeNoritoVec(
+        fields.nodes,
+        (node, index) =>
+          decodeEntrypointValueTypeNodeValue(node, `${context}.nodes[${index}]`, keyOnly),
+        `${context}.nodes`,
+      ),
+    };
+    analyzeEntrypointValueTypeV1(value, context);
+    return value;
+  }
+
+  function taggedEnumParts(value, context) {
+    if (!isPlainObject(value)) {
+      rejectType(`${context} must be a tagged object`);
+    }
+    assertOnlyObjectKeys(value, ["kind", "value"], context);
+    return {
+      kind: assertNonEmptyString(value.kind, `${context}.kind`),
+      value: value.value ?? null,
+    };
+  }
+
+  function encodeEntrypointValueTypeNodeValue(value, context) {
+    const tagged = taggedEnumParts(value, context);
+    switch (tagged.kind) {
+      case "Struct":
+        return encodeEnumTagValue(0, () =>
+          encodeEntrypointStructTypeNodeValue(tagged.value, `${context}.value`),
+        );
+      case "Tuple":
+        return encodeEnumTagValue(1, () =>
+          encodeU16Value(tagged.value, `${context}.value`),
+        );
+      case "Option":
+        requireNullEnumPayload(tagged.value, context);
+        return encodeEnumTagValue(2);
+      case "Result":
+        requireNullEnumPayload(tagged.value, context);
+        return encodeEnumTagValue(3);
+      case "List":
+        return encodeEnumTagValue(4, () =>
+          encodeEntrypointListTypeNodeValue(tagged.value, `${context}.value`),
+        );
+      case "Leaf":
+        return encodeEnumTagValue(5, () =>
+          encodeEntrypointValueKindValue(tagged.value, `${context}.value`),
+        );
+      case "Unit":
+        requireNullEnumPayload(tagged.value, context);
+        return encodeEnumTagValue(6);
+      case "StateCursor":
+        return encodeEnumTagValue(8, () => encodeEntrypointValueTypeValue(tagged.value, `${context}.value`));
+      case "Error":
+        return encodeEnumTagValue(7, () => encodeContractErrorTypeDescriptorValue(tagged.value, `${context}.value`));
+      case "Enum":
+        return encodeEnumTagValue(9, () => encodeContractEnumTypeDescriptorValue(tagged.value, `${context}.value`));
+      default:
+        rejectError(`${context}.kind uses unsupported value-type node ${tagged.kind}`);
+    }
+  }
+
+  function decodeEntrypointValueTypeNodeValue(payload, context, keyOnly = false) {
+    const reader = new BufferReader(payload, context);
+    const tag = reader.readU32LE("tag");
+    if (keyOnly && tag !== 1 && tag !== 5) rejectError(`${context} requires scalar or tuple key nodes`);
+    switch (tag) {
+      case 0:
+        return {
+          kind: "Struct",
+          value: decodeEntrypointStructTypeNodeValue(
+            readSingleEnumPayload(reader, context),
+            `${context}.value`,
+          ),
+        };
+      case 1:
+        return {
+          kind: "Tuple",
+          value: decodeU16Value(readSingleEnumPayload(reader, context), `${context}.value`),
+        };
+      case 2:
+        reader.assertEof();
+        return { kind: "Option", value: null };
+      case 3:
+        reader.assertEof();
+        return { kind: "Result", value: null };
+      case 4:
+        return {
+          kind: "List",
+          value: decodeEntrypointListTypeNodeValue(
+            readSingleEnumPayload(reader, context),
+            `${context}.value`,
+          ),
+        };
+      case 5:
+        return {
+          kind: "Leaf",
+          value: decodeEntrypointValueKindValue(
+            readSingleEnumPayload(reader, context),
+            `${context}.value`,
+          ),
+        };
+      case 6:
+        reader.assertEof();
+        return { kind: "Unit", value: null };
+      case 7:
+        return { kind: "Error", value: decodeContractErrorTypeDescriptorValue(readSingleEnumPayload(reader, context), `${context}.value`) };
+      case 8:
+        return { kind: "StateCursor", value: decodeEntrypointValueTypeValue(readSingleEnumPayload(reader, context), `${context}.value`, true) };
+      case 9:
+        return { kind: "Enum", value: decodeContractEnumTypeDescriptorValue(readSingleEnumPayload(reader, context), `${context}.value`) };
+      default:
+        rejectError(`${context} uses unsupported value-type node tag ${tag}`);
+    }
+  }
+
+  function readSingleEnumPayload(reader, _context) {
+    const value = readNoritoField(reader, "value");
+    reader.assertEof();
+    return value;
+  }
+
+  function requireNullEnumPayload(value, context) {
+    if (value !== null && value !== undefined) {
+      rejectType(`${context}.value must be null for a unit variant`);
+    }
+  }
+
+  function encodeEntrypointStructTypeNodeValue(value, context) {
+    if (!isPlainObject(value) || !Array.isArray(value.fields)) {
+      rejectType(`${context} must contain a fields array`);
+    }
+    assertOnlyObjectKeys(value, ["name", "fields"], context);
+    return encodeCanonicalRecordFields(value, context, EntrypointStructTypeNodeValueFields);
+  }
+
+  const EntrypointStructTypeNodeValueFields = [
+    ["name", decodeStringValue, 0, encodeRequiredRecordString, 0],
+    ["fields", decodeStringValue, 2, encodeRequiredRecordString, 2],
+  ];
+
+  function decodeEntrypointStructTypeNodeValue(payload, context) {
+    return decodeRecordFields(payload, context, EntrypointStructTypeNodeValueFields);
+  }
+
+  function encodeEntrypointListTypeNodeValue(value, context) {
+    assertPlainObjectValue(value, context);
+    assertOnlyObjectKeys(value, ["capacity"], context);
+    return encodeCanonicalRecordFields(value, context, EntrypointListTypeNodeValueFields);
+  }
+
+  const EntrypointListTypeNodeValueFields = [
+    ["capacity", decodeU8Value, 0, encodeU8Value, 0],
+  ];
+
+  function decodeEntrypointListTypeNodeValue(payload, context) {
+    return decodeRecordFields(payload, context, EntrypointListTypeNodeValueFields);
+  }
+
+  const ENTRYPOINT_VALUE_KIND_NAMES = Object.freeze([
+    "Int",
+    "Decimal",
+    "Quantity",
+    "Bool",
+    "String",
+    "Json",
+    "Name",
+    "AccountId",
+    "AssetDefinitionId",
+    "AssetId",
+    "DomainId",
+    "NftId",
+    "DataSpaceId",
+    "Blob",
+  ]);
+
+  function encodeEntrypointValueKindValue(value, context) {
+    const tagged = taggedEnumParts(value, context);
+    requireNullEnumPayload(tagged.value, context);
+    const tag = ENTRYPOINT_VALUE_KIND_NAMES.indexOf(tagged.kind);
+    if (tag < 0) {
+      rejectError(`${context}.kind uses unsupported value kind ${tagged.kind}`);
+    }
+    return encodeEnumTagValue(tag);
+  }
+
+  function decodeEntrypointValueKindValue(payload, context) {
+    const reader = new BufferReader(payload, context);
+    const tag = reader.readU32LE("tag");
+    reader.assertEof();
+    const kind = ENTRYPOINT_VALUE_KIND_NAMES[tag];
+    if (kind === undefined) {
+      rejectError(`${context} uses unsupported value-kind tag ${tag}`);
+    }
+    return { kind, value: null };
+  }
+
+  function encodeContractErrorTypeDescriptorsValue(value, context) {
+    assertArrayValue(value, context);
+    return encodeNoritoVec(value, (entry, index) =>
+      encodeContractErrorTypeDescriptorValue(entry, `${context}[${index}]`),
+    );
+  }
+
+  function decodeContractErrorTypeDescriptorsValue(payload, context) {
+    return decodeNoritoVec(
+      payload,
+      (entry, index) =>
+        decodeContractErrorTypeDescriptorValue(entry, `${context}[${index}]`),
+      context,
+    );
+  }
+
+  function encodeContractErrorTypeDescriptorValue(value, context) {
+    const descriptor = normalizeContractErrorTypeV1(value, context);
+    return encodeStructValue([
+      [encodeNoritoStringValue(descriptor.identity)],
+      [encodeNoritoVec(descriptor.variants, (variant, index) => encodeStructValue([
+        [encodeNoritoStringValue(variant.name)],
+        [encodeU32Value(variant.code, `${context}.variants[${index}].code`)],
+      ]))],
+    ]);
+  }
+
+  function decodeContractErrorTypeDescriptorValue(payload, context) {
+    const fields = decodeStructFields(payload, context, ["identity", "variants"]);
+    return normalizeContractErrorTypeV1({
+      identity: decodeStringValue(fields.identity, `${context}.identity`),
+      variants: decodeNoritoVec(fields.variants, (payload, index) => {
+        const label = `${context}.variants[${index}]`;
+        const variant = decodeStructFields(payload, label, ["name", "code"]);
+        return { name: decodeStringValue(variant.name, `${label}.name`), code: decodeU32Value(variant.code, `${label}.code`) };
+      }, `${context}.variants`),
+    }, context);
+  }
+
+  function encodeContractEnumTypeDescriptorsValue(value, context) {
+    const catalog = normalizeContractEnumTypesV1(value, context);
+    return boundedDeclarationTable(encodeNoritoVec(catalog, (entry, index) =>
+      encodeContractEnumTypeDescriptorValue(entry, `${context}[${index}]`),
+    ), context);
+  }
+
+  function decodeContractEnumTypeDescriptorsValue(payload, context) {
+    boundedDeclarationTable(payload, context);
+    return normalizeContractEnumTypesV1(decodeNoritoVec(
+      payload,
+      (entry, index) =>
+        decodeContractEnumTypeDescriptorValue(entry, `${context}[${index}]`),
+      context,
+    ), context);
+  }
+
+  function encodeContractEnumTypeDescriptorValue(value, context) {
+    const descriptor = normalizeContractEnumTypeV1(value, context);
+    return encodeStructValue([
+      [encodeNoritoStringValue(descriptor.identity)],
+      [encodeNoritoVec(descriptor.variants, (variant, index) => encodeStructValue([
+        [encodeNoritoStringValue(variant.name)],
+        [encodeU32Value(variant.code, `${context}.variants[${index}].code`)],
+      ]))],
+    ]);
+  }
+
+  function decodeContractEnumTypeDescriptorValue(payload, context) {
+    const fields = decodeStructFields(payload, context, ["identity", "variants"]);
+    return normalizeContractEnumTypeV1({
+      identity: decodeStringValue(fields.identity, `${context}.identity`),
+      variants: decodeNoritoVec(fields.variants, (payload, index) => {
+        const label = `${context}.variants[${index}]`;
+        const variant = decodeStructFields(payload, label, ["name", "code"]);
+        return { name: decodeStringValue(variant.name, `${label}.name`), code: decodeU32Value(variant.code, `${label}.code`) };
+      }, `${context}.variants`),
+    }, context);
+  }
+
+  function boundedDeclarationTable(payload, context) {
+    // Canonical V1 uncompressed frames have the fixed 40-byte header and no padding.
+    if (payload.length + 40 > 64 * 1024) rejectRange(`${context} exceeds the canonical 64-KiB declaration frame`);
+    return payload;
+  }
+
+  function encodeContractEventsValue(value, context) {
+    const declarations = normalizeContractEventsV1(value, context);
+    return boundedDeclarationTable(encodeNoritoVec(declarations, (event, index) => encodeStructValue([
+      [encodeNameValue(event.name, `${context}[${index}].name`)],
+      [encodeEntrypointValueTypeValue(event.payload_type, `${context}[${index}].payload_type`)],
+    ])), context);
+  }
+
+  function decodeContractEventsValue(payload, context) {
+    boundedDeclarationTable(payload, context);
+    const declarations = decodeNoritoVec(payload, (item, index) => {
+      const label = `${context}[${index}]`;
+      const fields = decodeStructFields(item, label, ["name", "payload_type"]);
+      return { name: decodeNameValue(fields.name, `${label}.name`), payload_type: decodeEntrypointValueTypeValue(fields.payload_type, `${label}.payload_type`) };
+    }, context);
+    return normalizeContractEventsV1(declarations, context);
   }
 
   function encodeManifestTriggerDescriptorValue(value, context) {
@@ -1202,20 +1370,41 @@ export function createNoritoContractCodecs(
     return decodeRecordFields(payload, context, TriggerCallbackValueFields);
   }
 
+  function encodeRequiredRecordString(value, context) { return encodeNoritoStringValue(assertNonEmptyString(value, context)); }
 
-
-function encodeRequiredRecordString(value, context) { return encodeNoritoStringValue(assertNonEmptyString(value, context)); }
-const encodeCanonicalRecordFields = /* @__PURE__ */ createNoritoRecordEncoder(
+  const encodeCanonicalRecordFields = /* @__PURE__ */ createNoritoRecordEncoder(
   encodeStructValue, encodeOptionValue, encodeNoritoVec,
 );
-const CanonicalEncodingFields5 = [
+
+  const CanonicalEncodingFields5 = [
   ["nodes", , , encodeEntrypointValueTypeNodeValue, 2],
 ];
-return [
-    encodeContractManifestSignaturePayloadValue,
-    encodeContractManifestValue,
-    decodeContractManifestValue,
-    encodeManifestProvenanceValue,
-    decodeManifestProvenanceValue,
-  ];
+
+  return {
+    decodeRecordFields,
+    assertPlainObjectValue,
+    assertArrayValue,
+    encodeEntrypointDescriptorValue,
+    decodeEntrypointDescriptorValue,
+    encodeContractPermissionsValue,
+    decodeContractPermissionsValue,
+    encodeContractErrorTypeDescriptorsValue,
+    decodeContractErrorTypeDescriptorsValue,
+    encodeContractEnumTypeDescriptorsValue,
+    decodeContractEnumTypeDescriptorsValue,
+    encodeContractEventsValue,
+    decodeContractEventsValue,
+    encodeRequiredRecordString,
+    encodeCanonicalRecordFields,
+    values: Object.freeze({
+      entrypoint: [encodeEntrypointDescriptorValue, decodeEntrypointDescriptorValue],
+      value_type: [encodeEntrypointValueTypeValue, decodeEntrypointValueTypeValue],
+      enum_type: [encodeContractEnumTypeDescriptorValue, decodeContractEnumTypeDescriptorValue],
+      error_type: [encodeContractErrorTypeDescriptorValue, decodeContractErrorTypeDescriptorValue],
+      permissions: [encodeContractPermissionsValue, decodeContractPermissionsValue],
+      events: [encodeContractEventsValue, decodeContractEventsValue],
+      enum_types: [encodeContractEnumTypeDescriptorsValue, decodeContractEnumTypeDescriptorsValue],
+      error_types: [encodeContractErrorTypeDescriptorsValue, decodeContractErrorTypeDescriptorsValue],
+    }),
+  };
 }

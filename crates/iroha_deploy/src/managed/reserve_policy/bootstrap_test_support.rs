@@ -71,9 +71,8 @@ impl ManagedInitialReservePolicy {
                 &path,
             )
             .unwrap();
-        let signed = self
-            .verify_wallet(original.directory(), original, options.deadline)
-            .unwrap();
+        let signed =
+            Self::verify_wallet(wallet, original.directory(), original, options.deadline).unwrap();
         http.finish();
         assert_eq!(
             std::fs::read(path.join("preparation.json")).unwrap(),

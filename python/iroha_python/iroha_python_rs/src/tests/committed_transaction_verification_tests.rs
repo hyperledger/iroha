@@ -202,7 +202,7 @@ fn native_selected_output_authenticates_real_bls_chain_and_exact_projection() {
     );
     let execution = tip.execution();
     let execution_json = &result["execution_commitment"];
-    assert_eq!(execution_json.as_object().unwrap().len(), 9);
+    assert_eq!(execution_json.as_object().unwrap().len(), 7);
     for (field, expected) in [
         (
             "parent_state_root",
@@ -215,14 +215,6 @@ fn native_selected_output_authenticates_real_bls_chain_and_exact_projection() {
         (
             "ordinary_writes_root",
             json::to_value(&execution.ordinary_writes_root).unwrap(),
-        ),
-        (
-            "kagemusha_top_up_root",
-            json::to_value(&execution.kagemusha_top_up_root).unwrap(),
-        ),
-        (
-            "kagemusha_top_up_count",
-            json::to_value(&execution.kagemusha_top_up_count).unwrap(),
         ),
         (
             "executed_block_wire_len",

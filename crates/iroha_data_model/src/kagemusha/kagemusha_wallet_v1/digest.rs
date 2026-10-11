@@ -1,5 +1,5 @@
-//! Domain-separated SHA-256 digests, Poseidon signing messages and signature freezing (§§3, 8,
-//! design §1; owner answers A1 and A3 of 2026-10-05).
+//! Domain-separated SHA-256 digests, Poseidon signing messages, object digests and signature
+//! freezing (§§3, 8, design §1; owner answers A1 and A3, and B1 of the third set, 2026-10-05).
 
 use p256::ecdsa::Signature as P256Signature;
 use sha2::{Digest as _, Sha256};
@@ -7,7 +7,7 @@ use sha2::{Digest as _, Sha256};
 use super::{
     KagemushaWalletValidationErrorV1, WalletResult,
     keys::{KagemushaDevicePublicKeyV1, KagemushaDeviceSignatureV1},
-    poseidon::kagemusha_wallet_poseidon_bytes_v1,
+    poseidon::{kagemusha_wallet_poseidon_bytes_v1, poseidon_items_v1},
 };
 
 #[cfg(test)]
@@ -16,20 +16,20 @@ mod digest_tests;
 
 /// Prefix of every KAGEMUSHA wallet V1 digest preimage.
 pub const KAGEMUSHA_WALLET_DIGEST_PREFIX_V1: &[u8] = b"iroha:kagemusha:wallet:v1:";
-/// Exact body bytes hashed by a signed-object digest: `m (32) || signature (64)`.
+/// Exact body bytes hashed by the artifact-manifest digest: `m (32) || signature (64)`.
 pub const KAGEMUSHA_WALLET_SIGNED_OBJECT_TRANSCRIPT_BYTES_V1: usize = 96;
 
 /// Exact role label of one domain-separated SHA-256 KAGEMUSHA wallet V1 digest.
 ///
-/// `H` remains only for small fixed bodies that no relation recomputes over a large input and
-/// at ledger, HTTP, platform-attestation and artifact boundaries (wire record §1). A signed
-/// object's role names its object digest `H(role, m || signature)`, where `m` is the 32-byte
-/// Poseidon signing message of its body ([`KagemushaWalletSigningDomainV1`]). Every value a
-/// step relation computes or opens is a Poseidon value of the σ field instead (§3): `credit_id`,
-/// map leaves and roots, chains, the state commitment, the blacklist and quota-window trees, the
-/// credit-digest tree, every signing message, and the large-input digests `proof_digest`, the
-/// Payment digest and the lineage, credit-opening, credit-status and credited digests
-/// (`P_bytes`, [`super::poseidon`]).
+/// `H` remains only where no relation recomputes the value (wire record §1, owner answer B1 of
+/// the third set): `scheme_id`, the identities fixed at enrollment (asset scope, wallet,
+/// enrollment), the enrollment and renewal transcripts given to platform attestation, the
+/// `account` digest, the artifact digests, the evidence digest, the output descriptor and the
+/// local custody records. Every digest a relation recomputes is a Poseidon value of the σ field
+/// instead (§3): `credit_id`, map leaves and roots, chains, the state commitment, the statement,
+/// object, certificate-set, package, operation and nullifier digests, the blacklist,
+/// quota-window, quota-usage and credit-digest trees, every signing message, and the
+/// large-input digests (`P_bytes`, [`super::poseidon`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KagemushaWalletDigestRoleV1 {
     /// `scheme`: scheme identity (§§2.2, 3.3).
@@ -44,102 +44,60 @@ pub enum KagemushaWalletDigestRoleV1 {
     Account,
     /// `enrollment-challenge`: issuer enrollment challenge (§2.2).
     EnrollmentChallenge,
+    /// NEW first-release `app-policy`: explicit app identity selection.
+    AppPolicy,
+    /// NEW first-release `enrollment-policy`: exact verifier/regulatory selection.
+    EnrollmentPolicy,
     /// `enrollment-id`: enrollment incarnation identity (§2.2).
     EnrollmentId,
     /// `enrollment-key-binding`: App Attest enrollment assertion client data (§2.2).
     EnrollmentKeyBinding,
     /// `wallet-id`: wallet incarnation identity (§2.2).
     WalletId,
-    /// `certificate`: signer certificate digest.
-    Certificate,
-    /// `certificate-set`: count-prefixed ordered certificate digests (design C3).
-    CertificateSet,
-    /// `credential`: credential digest.
-    Credential,
-    /// `scheme-policy`: scheme policy digest.
-    SchemePolicy,
-    /// `fee-schedule`: fee schedule digest.
-    FeeSchedule,
-    /// `blacklist`: blacklist digest.
-    Blacklist,
-    /// `quota-share`: quota share digest.
-    QuotaShare,
-    /// `time-anchor`: time anchor digest.
-    TimeAnchor,
-    /// `request`: Request digest.
-    Request,
-    /// `statement`: transition statement (§3.1).
-    Statement,
-    /// `receipt`: provider commit receipt digest.
-    Receipt,
-    /// `package`: complete state package (§3.1).
-    Package,
-    /// `operation-id`: provider operation identity (§4.1).
-    OperationId,
+    /// `artifact-manifest`: artifact manifest digest `H(m || signature)`.
+    ArtifactManifest,
+    /// `evidence`: original platform evidence bytes (design C3).
+    Evidence,
+    /// `renewal-assertion`: App Attest renewal assertion client data (design C3).
+    RenewalAssertion,
+    /// `verifying-key-set`: the σ verifying-key allowlist whose digest is the manifest's
+    /// `verifying_key_set_digest` (§3.2, owner answer Q11).
+    VerifyingKeySet,
     /// `output`: receipt-free output descriptor (§4.1).
     Output,
-    /// `capsule`: local recovery capsule frame (§4.1).
-    Capsule,
     /// `marker`: local provider marker frame (§4.2).
     Marker,
+    /// `capsule`: local recovery capsule frame (§4.1).
+    Capsule,
     /// `completion`: local completion record frame (§4.1).
     Completion,
     /// `fold`: durable fold record of one self-verified Ω (§3.1 step 5).
     Fold,
-    /// `voucher`: load voucher digest.
-    Voucher,
-    /// `unload-nullifier`: unload claim nullifier (§6.1).
-    UnloadNullifier,
-    /// `renewal-assertion`: App Attest renewal assertion client data (design C3).
-    RenewalAssertion,
-    /// `artifact-manifest`: artifact manifest digest.
-    ArtifactManifest,
-    /// `verifying-key-set`: the σ verifying-key allowlist whose digest is the manifest's
-    /// `verifying_key_set_digest` (§3.2, owner answer Q11).
-    VerifyingKeySet,
-    /// `charge-quote`: charge quote digest.
-    ChargeQuote,
-    /// `evidence`: original platform evidence bytes (design C3).
-    Evidence,
 }
 
 impl KagemushaWalletDigestRoleV1 {
     /// Every role, in declaration order.
-    pub const ALL: [Self; 34] = [
+    pub const ALL: [Self; 20] = [
         Self::Scheme,
         Self::Relation,
         Self::ProviderContract,
         Self::AssetScope,
         Self::Account,
         Self::EnrollmentChallenge,
+        Self::AppPolicy,
+        Self::EnrollmentPolicy,
         Self::EnrollmentId,
         Self::EnrollmentKeyBinding,
         Self::WalletId,
-        Self::Certificate,
-        Self::CertificateSet,
-        Self::Credential,
-        Self::SchemePolicy,
-        Self::FeeSchedule,
-        Self::Blacklist,
-        Self::QuotaShare,
-        Self::TimeAnchor,
-        Self::Request,
-        Self::Statement,
-        Self::Receipt,
-        Self::Package,
-        Self::OperationId,
+        Self::ArtifactManifest,
+        Self::Evidence,
+        Self::RenewalAssertion,
+        Self::VerifyingKeySet,
         Self::Output,
-        Self::Capsule,
         Self::Marker,
+        Self::Capsule,
         Self::Completion,
         Self::Fold,
-        Self::Voucher,
-        Self::UnloadNullifier,
-        Self::RenewalAssertion,
-        Self::ArtifactManifest,
-        Self::VerifyingKeySet,
-        Self::ChargeQuote,
-        Self::Evidence,
     ];
 
     /// Exact ASCII role label hashed after [`KAGEMUSHA_WALLET_DIGEST_PREFIX_V1`].
@@ -152,34 +110,20 @@ impl KagemushaWalletDigestRoleV1 {
             Self::AssetScope => "asset-scope",
             Self::Account => "account",
             Self::EnrollmentChallenge => "enrollment-challenge",
+            Self::AppPolicy => "app-policy",
+            Self::EnrollmentPolicy => "enrollment-policy",
             Self::EnrollmentId => "enrollment-id",
             Self::EnrollmentKeyBinding => "enrollment-key-binding",
             Self::WalletId => "wallet-id",
-            Self::Certificate => "certificate",
-            Self::CertificateSet => "certificate-set",
-            Self::Credential => "credential",
-            Self::SchemePolicy => "scheme-policy",
-            Self::FeeSchedule => "fee-schedule",
-            Self::Blacklist => "blacklist",
-            Self::QuotaShare => "quota-share",
-            Self::TimeAnchor => "time-anchor",
-            Self::Request => "request",
-            Self::Statement => "statement",
-            Self::Receipt => "receipt",
-            Self::Package => "package",
-            Self::OperationId => "operation-id",
+            Self::ArtifactManifest => "artifact-manifest",
+            Self::Evidence => "evidence",
+            Self::RenewalAssertion => "renewal-assertion",
+            Self::VerifyingKeySet => "verifying-key-set",
             Self::Output => "output",
-            Self::Capsule => "capsule",
             Self::Marker => "marker",
+            Self::Capsule => "capsule",
             Self::Completion => "completion",
             Self::Fold => "fold",
-            Self::Voucher => "voucher",
-            Self::UnloadNullifier => "unload-nullifier",
-            Self::RenewalAssertion => "renewal-assertion",
-            Self::ArtifactManifest => "artifact-manifest",
-            Self::VerifyingKeySet => "verifying-key-set",
-            Self::ChargeQuote => "charge-quote",
-            Self::Evidence => "evidence",
         }
     }
 }
@@ -241,15 +185,13 @@ pub enum KagemushaWalletSigningDomainV1 {
     SessionControl,
     /// `kgwrqst1`: Request body, signed by the receiver payment key.
     Request,
-    /// `kgwvchr1`: load voucher body, signed by a LoadAuthorization-role key.
-    Voucher,
     /// `kgwlctl1`: ledger control body, signed by the payment key.
     LedgerControl,
 }
 
 impl KagemushaWalletSigningDomainV1 {
     /// Every signing domain, in declaration order.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 16] = [
         Self::Certificate,
         Self::Credential,
         Self::RenewalChallenge,
@@ -265,7 +207,6 @@ impl KagemushaWalletSigningDomainV1 {
         Self::Offer,
         Self::SessionControl,
         Self::Request,
-        Self::Voucher,
         Self::LedgerControl,
     ];
 
@@ -288,7 +229,6 @@ impl KagemushaWalletSigningDomainV1 {
             Self::Offer => *b"kgwoffr1",
             Self::SessionControl => *b"kgwsctl1",
             Self::Request => *b"kgwrqst1",
-            Self::Voucher => *b"kgwvchr1",
             Self::LedgerControl => *b"kgwlctl1",
         }
     }
@@ -312,7 +252,6 @@ impl KagemushaWalletSigningDomainV1 {
             Self::Offer => "kgwoffr1",
             Self::SessionControl => "kgwsctl1",
             Self::Request => "kgwrqst1",
-            Self::Voucher => "kgwvchr1",
             Self::LedgerControl => "kgwlctl1",
         }
     }
@@ -341,8 +280,7 @@ impl KagemushaWalletSigningDomainV1 {
             Self::ChargeQuote => 219,
             Self::Offer => 194,
             Self::SessionControl => 197,
-            Self::Request => 418,
-            Self::Voucher => 250,
+            Self::Request => 458,
             Self::LedgerControl => 211,
         }
     }
@@ -360,10 +298,141 @@ pub fn kagemusha_wallet_signing_message_v1(
     kagemusha_wallet_poseidon_bytes_v1(domain.domain(), transcript)
 }
 
-/// Digest of one signed object: `H(role, m || signature)`, where `m` is its signing message.
+/// Object-digest domain of one signed body whose digest a relation recomputes (wire record §1,
+/// owner answer B1 of the third set).
+///
+/// The object digest is `P(d_obj, [m, r_lo, r_hi, s_lo, s_hi])`
+/// ([`kagemusha_wallet_signed_object_digest_v1`]). The artifact manifest alone keeps the SHA-256
+/// digest `H("artifact-manifest", m || signature)`, an artifact digest no relation recomputes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum KagemushaWalletObjectDigestDomainV1 {
+    /// `kgwocrt1`: signer certificate.
+    Certificate,
+    /// `kgwocrd1`: credential.
+    Credential,
+    /// `kgworcp1`: provider receipt τ.
+    Receipt,
+    /// `kgwopol1`: scheme policy.
+    SchemePolicy,
+    /// `kgwofee1`: fee schedule.
+    FeeSchedule,
+    /// `kgwoblk1`: blacklist.
+    Blacklist,
+    /// `kgwoqsh1`: quota share.
+    QuotaShare,
+    /// `kgwotim1`: time anchor.
+    TimeAnchor,
+    /// `kgwochg1`: charge quote.
+    ChargeQuote,
+    /// `kgworeq1`: Request.
+    Request,
+}
+
+impl KagemushaWalletObjectDigestDomainV1 {
+    /// Every object-digest domain, in declaration order.
+    pub const ALL: [Self; 10] = [
+        Self::Certificate,
+        Self::Credential,
+        Self::Receipt,
+        Self::SchemePolicy,
+        Self::FeeSchedule,
+        Self::Blacklist,
+        Self::QuotaShare,
+        Self::TimeAnchor,
+        Self::ChargeQuote,
+        Self::Request,
+    ];
+
+    /// Domain label as text, for example `kgwocrt1`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Certificate => "kgwocrt1",
+            Self::Credential => "kgwocrd1",
+            Self::Receipt => "kgworcp1",
+            Self::SchemePolicy => "kgwopol1",
+            Self::FeeSchedule => "kgwofee1",
+            Self::Blacklist => "kgwoblk1",
+            Self::QuotaShare => "kgwoqsh1",
+            Self::TimeAnchor => "kgwotim1",
+            Self::ChargeQuote => "kgwochg1",
+            Self::Request => "kgworeq1",
+        }
+    }
+
+    /// Poseidon domain word: the `u64` of the 8 little-endian ASCII bytes.
+    #[must_use]
+    pub const fn domain(self) -> u64 {
+        let bytes = self.as_str().as_bytes();
+        u64::from_le_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ])
+    }
+
+    /// Signing domain of the body this object digest names.
+    #[must_use]
+    pub const fn signing_domain(self) -> KagemushaWalletSigningDomainV1 {
+        match self {
+            Self::Certificate => KagemushaWalletSigningDomainV1::Certificate,
+            Self::Credential => KagemushaWalletSigningDomainV1::Credential,
+            Self::Receipt => KagemushaWalletSigningDomainV1::Receipt,
+            Self::SchemePolicy => KagemushaWalletSigningDomainV1::SchemePolicy,
+            Self::FeeSchedule => KagemushaWalletSigningDomainV1::FeeSchedule,
+            Self::Blacklist => KagemushaWalletSigningDomainV1::Blacklist,
+            Self::QuotaShare => KagemushaWalletSigningDomainV1::QuotaShare,
+            Self::TimeAnchor => KagemushaWalletSigningDomainV1::TimeAnchor,
+            Self::ChargeQuote => KagemushaWalletSigningDomainV1::ChargeQuote,
+            Self::Request => KagemushaWalletSigningDomainV1::Request,
+        }
+    }
+}
+
+/// The 5 σ-field elements of one object digest: `[m, r_lo, r_hi, s_lo, s_hi]`.
+///
+/// `m` is the signing message (one canonical element) and `r_lo = r mod 2^128`,
+/// `r_hi = floor(r / 2^128)` and likewise `s_lo`, `s_hi` are the numeric 128-bit halves of the
+/// big-endian `r` and `s` of the 64-byte signature. No P-256 scalar is reduced modulo `p`; in
+/// circuit the limbs are range-checked and linked to the raw big-endian signature bytes.
+#[must_use]
+pub fn kagemusha_wallet_signed_object_items_v1(
+    message: &[u8; 32],
+    signature: &KagemushaDeviceSignatureV1,
+) -> Vec<[u8; 32]> {
+    let raw = signature.as_raw_bytes();
+    let half = |offset: usize| {
+        let mut bytes = [0_u8; 16];
+        bytes.copy_from_slice(&raw[offset..offset + 16]);
+        u128::from_be_bytes(bytes)
+    };
+    WalletFieldItemsV1::with_capacity(5)
+        .field(message)
+        .integer(half(16))
+        .integer(half(0))
+        .integer(half(48))
+        .integer(half(32))
+        .finish()
+}
+
+/// Object digest of one signed object: `P(d_obj, [m, r_lo, r_hi, s_lo, s_hi])` (wire record §1,
+/// owner answer B1), one canonical σ-field value.
+///
+/// `message` is the body's signing message, a canonical σ-field value by construction.
 #[must_use]
 pub fn kagemusha_wallet_signed_object_digest_v1(
-    role: KagemushaWalletDigestRoleV1,
+    domain: KagemushaWalletObjectDigestDomainV1,
+    message: &[u8; 32],
+    signature: &KagemushaDeviceSignatureV1,
+) -> [u8; 32] {
+    poseidon_items_v1(
+        domain.domain(),
+        &kagemusha_wallet_signed_object_items_v1(message, signature),
+    )
+}
+
+/// SHA-256 digest of the signed artifact manifest: `H("artifact-manifest", m || signature)`,
+/// an artifact digest no relation recomputes (wire record §1).
+#[must_use]
+pub fn kagemusha_wallet_artifact_manifest_digest_v1(
     message: &[u8; 32],
     signature: &KagemushaDeviceSignatureV1,
 ) -> [u8; 32] {
@@ -372,7 +441,7 @@ pub fn kagemusha_wallet_signed_object_digest_v1(
             .digest(message)
             .signature(signature)
             .finish();
-    kagemusha_wallet_digest_v1(role, &body)
+    kagemusha_wallet_digest_v1(KagemushaWalletDigestRoleV1::ArtifactManifest, &body)
 }
 
 /// Raw output of a platform P-256 signer, before it is frozen into a canonical object.

@@ -1,14 +1,9 @@
 //! Native final V1 Kaigi billing proof bound to the stored host commitment.
 
-use std::sync::OnceLock;
-
 use iroha_data_model::{kaigi::scalar::KaigiAuthorizationScalarV1, proof::VerifyingKeyBox};
 use kaigi_zk::{
     authorization_v1::KaigiAuthorizationWitnessV1,
-    usage_v1::{
-        KAIGI_USAGE_CIRCUIT_ID_V1, KAIGI_USAGE_CIRCUIT_K_V1, KAIGI_USAGE_PUBLIC_INPUTS_SCHEMA_V1,
-        KaigiUsageCircuitV1, KaigiUsageContextV1, KaigiUsagePublicInputsV1, compute_usage_v1,
-    },
+    usage_v1::{KaigiUsageContextV1, compute_usage_v1},
 };
 use napi::{
     Env,
@@ -16,22 +11,7 @@ use napi::{
 };
 use napi_derive::napi;
 
-use super::kaigi_proof_v1::{KaigiProvingMaterialV1, consume_blinding, failure, invalid, prove};
-
-static PROVING_MATERIAL: OnceLock<Result<KaigiProvingMaterialV1, String>> = OnceLock::new();
-
-fn proving_material() -> napi::Result<&'static KaigiProvingMaterialV1> {
-    PROVING_MATERIAL
-        .get_or_init(|| {
-            KaigiProvingMaterialV1::new(
-                KAIGI_USAGE_CIRCUIT_K_V1,
-                &KaigiUsageCircuitV1::default(),
-                KAIGI_USAGE_CIRCUIT_ID_V1,
-            )
-        })
-        .as_ref()
-        .map_err(failure)
-}
+use super::kaigi_proof_v1::{consume_blinding, encode_verified_envelope, failure, invalid};
 
 /// Canonical proof of one host-authorized final V1 usage segment.
 #[napi(object)]
@@ -120,16 +100,13 @@ fn produce(
             "blinding does not open the stored hostCommitment for this network, call and original host",
         ));
     }
-    let instance = KaigiUsagePublicInputsV1 { context, outputs }.instance();
-    let circuit = KaigiUsageCircuitV1::new(context, witness).map_err(invalid)?;
-    let material = proving_material()?;
-    let proof = prove(
-        material,
-        circuit,
-        &instance,
-        KAIGI_USAGE_CIRCUIT_ID_V1,
-        KAIGI_USAGE_PUBLIC_INPUTS_SCHEMA_V1,
-    )?;
+    let key = iroha_core_zk::native_pipa_r::kaigi_verifying_key(
+        kaigi_zk::native::NativeRelationV1::Usage,
+    )
+    .map_err(failure)?;
+    let envelope =
+        iroha_core_zk::native_pipa_r::prove_kaigi_usage(context, witness).map_err(failure)?;
+    let proof = encode_verified_envelope(&envelope, &key)?;
     Ok((
         JsKaigiUsageProofV1 {
             host_commitment: host.to_vec().into(),
@@ -137,7 +114,7 @@ fn produce(
             pre_roster_root: context.pre_roster_root.to_vec().into(),
             proof: proof.into(),
         },
-        material.key.clone(),
+        key,
     ))
 }
 
@@ -188,6 +165,7 @@ mod tests {
     use crate::kaigi_proof_v1::{VK_BACKEND, take_witness};
     use iroha_crypto::{Algorithm, KeyPair};
     use iroha_data_model::{account::AccountId, proof::ProofBox, zk::OpenVerifyEnvelope};
+    use kaigi_zk::usage_v1::{KAIGI_USAGE_CIRCUIT_ID_V1, KAIGI_USAGE_PUBLIC_INPUTS_SCHEMA_V1};
 
     fn host() -> String {
         AccountId::new(
@@ -300,8 +278,8 @@ mod tests {
             .canonical_bytes();
         let (artifacts, key) = produce(context, expected_host, witness).unwrap();
         assert!(std::ptr::eq(
-            proving_material().unwrap(),
-            proving_material().unwrap()
+            kaigi_zk::native::NativeRelationV1::Usage.prover().unwrap(),
+            kaigi_zk::native::NativeRelationV1::Usage.prover().unwrap()
         ));
         assert_eq!(secret, [0; 32]);
         assert_eq!(artifacts.host_commitment.as_ref(), expected_host);
@@ -313,15 +291,18 @@ mod tests {
         assert_eq!(envelope.public_inputs, KAIGI_USAGE_PUBLIC_INPUTS_SCHEMA_V1);
         assert_eq!(envelope.vk_hash, iroha_core_zk::hash_vk(&key));
         assert!(envelope.aux.is_empty());
-        let offset = envelope.proof_bytes.len() - 25 * 32;
         for row in 0..25 {
             let mut changed = envelope.clone();
-            let bytes = &mut changed.proof_bytes[offset + row * 32..offset + (row + 1) * 32];
+            let mut inner: iroha_data_model::zk::NativePipaRProofV1 =
+                norito::decode_canonical(&changed.proof_bytes).unwrap();
+            assert_eq!(inner.public_inputs.len(), 25);
+            let bytes = &mut inner.public_inputs[row];
             let zero = bytes.iter().all(|byte| *byte == 0);
             bytes.fill(0);
             if zero {
                 bytes[0] = 1;
             }
+            changed.proof_bytes = norito::encode_canonical(&inner).unwrap();
             let proof = ProofBox::new(
                 VK_BACKEND.to_owned(),
                 norito::encode_canonical(&changed).unwrap(),

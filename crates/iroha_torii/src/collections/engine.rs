@@ -1408,15 +1408,15 @@ impl Prepared<'_> {
             .map(|position| (position[0], position[1]))
     }
 
-    /// Movement coordinates a multi-row transaction read resumes strictly before.
-    pub(crate) fn resume_movement_position(&self) -> Option<(u64, u64, u64)> {
+    /// Three coordinates a multi-row history read resumes strictly before.
+    pub(crate) fn resume_subrow_position(&self) -> Option<(u64, u64, u64)> {
         self.after_position
             .as_ref()
             .map(|position| (position[0], position[1], position[2]))
     }
 
-    /// Encode the last examined account movement without skipping its transaction's remaining rows.
-    pub(crate) fn movement_page(
+    /// Encode the last examined subrow without skipping remaining rows in its output.
+    pub(crate) fn subrow_page(
         &self,
         items: Vec<Map>,
         resume: Option<(u64, u64, u64)>,
@@ -2786,6 +2786,39 @@ mod tests {
     }
 
     #[test]
+    fn native_emission_cursors_keep_output_and_emission_coordinates() {
+        let spec = &super::super::specs::CONTRACT_EVENTS;
+        let query = ListQuery::new()
+            .limit(1)
+            .filter(FilterExpr::parse("block_height >= 1").unwrap());
+        let prepared = prepare(spec, "", &query, &LIMITS).unwrap();
+        let first = prepared.subrow_page(Vec::new(), Some((70, 4, 2))).unwrap();
+        let next = query.clone().cursor(first.next_cursor.unwrap());
+        let resumed = prepare(spec, "", &next, &LIMITS).unwrap();
+        assert_eq!(resumed.resume_subrow_position(), Some((70, 4, 2)));
+        // A previous emission in this same output must remain reachable.
+        let tail = resumed.subrow_page(Vec::new(), Some((70, 4, 1))).unwrap();
+        let after_tail = query.clone().cursor(tail.next_cursor.unwrap());
+        assert_eq!(
+            prepare(spec, "", &after_tail, &LIMITS)
+                .unwrap()
+                .resume_subrow_position(),
+            Some((70, 4, 1))
+        );
+        assert!(prepare(&super::super::specs::ACCOUNT_HISTORY, "", &next, &LIMITS).is_err());
+        for retired in ["module", "contract_alias", "tx_hash_hex", "block_index"] {
+            let query = ListQuery::new().filter(FilterExpr::Eq(
+                FieldPath(retired.into()),
+                Value::from("forged"),
+            ));
+            assert!(
+                prepare(spec, "", &query, &LIMITS).is_err(),
+                "retired event field {retired}"
+            );
+        }
+    }
+
+    #[test]
     fn movement_cursors_keep_the_intra_transaction_position_and_scope() {
         // Both collections accept the filter, so cross-collection replay reaches
         // cursor validation instead of stopping at an unknown field.
@@ -2797,9 +2830,7 @@ mod tests {
             &LIMITS,
         )
         .unwrap();
-        let page = prepared
-            .movement_page(Vec::new(), Some((70, 2, 8)))
-            .unwrap();
+        let page = prepared.subrow_page(Vec::new(), Some((70, 2, 8))).unwrap();
         let next = query.clone().cursor(page.next_cursor.unwrap());
         let resumed = prepare(
             &super::super::specs::ACCOUNT_HISTORY,
@@ -2809,9 +2840,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resumed.resume_position(), Some((70, 2)));
-        assert_eq!(resumed.resume_movement_position(), Some((70, 2, 8)));
+        assert_eq!(resumed.resume_subrow_position(), Some((70, 2, 8)));
         assert_eq!(
-            resumed.movement_page(Vec::new(), None).unwrap().next_cursor,
+            resumed.subrow_page(Vec::new(), None).unwrap().next_cursor,
             None
         );
         assert_eq!(
@@ -2830,7 +2861,7 @@ mod tests {
         );
         let zero_height = query.clone().cursor(
             prepared
-                .movement_page(Vec::new(), Some((0, 2, 8)))
+                .subrow_page(Vec::new(), Some((0, 2, 8)))
                 .unwrap()
                 .next_cursor
                 .unwrap(),

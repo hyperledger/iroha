@@ -12,8 +12,8 @@ use iroha_primitives::numeric::Quantity;
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 
-/// Maximum records and exact custody sources in one preparation request.
-pub const PUBLIC_LANE_PREPARATION_LIMIT: usize = 64;
+/// Maximum exact source and destination assets in one preparation response.
+pub const PUBLIC_LANE_PREPARATION_BALANCE_LIMIT: usize = 2;
 /// Maximum canonical request body accepted by the preparation endpoint.
 pub const PUBLIC_LANE_PREPARATION_REQUEST_MAX_BYTES: usize = 64 * 1024;
 /// Maximum canonical response body accepted by operator clients.
@@ -94,7 +94,7 @@ pub struct PublicLanePrepareUnbondV1 {
     pub request_id: Hash,
 }
 
-/// Prepare a consecutive bounded reward prefix and selected retained accruals.
+/// Prepare the current exact positive funded reward entitlement.
 #[derive(
     Debug,
     Clone,
@@ -112,13 +112,6 @@ pub struct PublicLanePrepareUnbondV1 {
 pub struct PublicLanePrepareClaimV1 {
     /// Canonical reward recipient.
     pub recipient: AccountId,
-    /// Optional inclusive upper epoch cut; never earlier than the processed cursor.
-    #[norito(required)]
-    pub upto_epoch: Option<u64>,
-    /// Maximum consecutive records to process, from zero through 64.
-    pub max_records: u16,
-    /// Strictly ordered additional exact sources of existing positive accrual; at most 64.
-    pub accrued_sources: Vec<AssetId>,
 }
 
 /// Exact operator intent; preparation never chooses an amount or recipient.
@@ -257,7 +250,7 @@ pub struct PublicLanePreparationV1 {
     pub xor_asset_definition_id: AssetDefinitionId,
     /// Exact canonical signing input; execution recomputes all monetary preconditions.
     pub plan: PublicLanePreparedPlanV1,
-    /// Strictly ordered unique exact assets mentioned by the plan, at most 128.
+    /// Strictly ordered unique exact source and destination assets, at most two.
     pub balances: Vec<PublicLanePreparationBalanceV1>,
 }
 #[cfg(test)]
@@ -276,10 +269,7 @@ mod tests {
             lane_id: LaneId::SINGLE,
             valid_for_blocks: 10,
             operation: PublicLanePreparationOperationV1::ClaimRewards(PublicLanePrepareClaimV1 {
-                recipient,
-                upto_epoch: Some(0),
-                max_records: 1,
-                accrued_sources: vec![],
+                recipient: recipient.clone(),
             }),
         };
         let network_id =
@@ -295,10 +285,21 @@ mod tests {
             plan: PublicLanePreparedPlanV1::Claim(PublicLaneRewardClaimPlanV1 {
                 network_scope: super::super::PublicLaneMonetaryScopeV1::Network(network_id),
                 valid_until_height: 11,
-                expected_state: None,
-                records: vec![],
-                sources: vec![],
-                fee_claim: None,
+                fee_claim: super::super::PublicLaneFeeRewardClaimV1 {
+                    lifecycle_seal: [7; 32],
+                    beneficiary_id: recipient.clone(),
+                    beneficiary_revision: 0,
+                    source_asset: AssetId::new(
+                        "6TEAJqbb8oEPmLncoNiMRbLEK6tw".parse().unwrap(),
+                        recipient.clone(),
+                    ),
+                    destination_asset: AssetId::new(
+                        "6TEAJqbb8oEPmLncoNiMRbLEK6tw".parse().unwrap(),
+                        recipient.clone(),
+                    ),
+                    amount: Quantity::one(),
+                    expected_claim_sequence: 0,
+                },
             }),
             balances: vec![],
         };
@@ -312,7 +313,12 @@ mod tests {
             norito::json::from_str::<PublicLanePreparationRequestV1>(&json).unwrap(),
             request
         );
-        let absent = json.replace("\"upto_epoch\":0,", "");
+        let recipient_field = format!(
+            "\"recipient\":{}",
+            norito::json::to_json(&recipient).expect("recipient JSON")
+        );
+        let absent = json.replace(&recipient_field, "");
+        assert_ne!(absent, json, "remove the required recipient field");
         assert!(norito::json::from_str::<PublicLanePreparationRequestV1>(&absent).is_err());
         let unknown = json.replacen('{', "{\"unexpected\":true,", 1);
         assert!(norito::json::from_str::<PublicLanePreparationRequestV1>(&unknown).is_err());

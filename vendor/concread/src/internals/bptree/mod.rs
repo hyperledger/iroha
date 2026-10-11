@@ -7,5 +7,6 @@ pub(crate) mod cursor;
 pub mod iter;
 pub mod mutiter;
 pub(crate) mod node;
+pub(crate) mod positions;
 pub(crate) mod states;
 pub(crate) mod tracking;

@@ -20,7 +20,7 @@ fun validateLocalAndroidArtifactDirectory(root: Path, artifacts: Path) {
         "MOBILE_SDK_PYTHON_BINARY must be one canonical regular executable"
     }
     val process = ProcessBuilder(
-        python.toString(), "-I", "-S",
+        python.toString(), "-I", "-S", "-B",
         root.resolve("scripts/mobile_sdk_android_artifacts.py").toString(),
         "--root", root.toString(), "--artifact-dir", artifacts.toString(),
         "--validate-local-root",
@@ -107,6 +107,11 @@ if (mobileSdkAndroidArtifactDirectory != null) {
         .resolve("gradle-build")
         .resolve(buildNamespace)
     gradle.beforeProject {
+        // Kotlin also keeps persistent state outside layout.buildDirectory.
+        extensions.extraProperties.set(
+            "kotlin.project.persistent.dir",
+            externalProjectRoot.resolve("kotlin-persistent").toString(),
+        )
         val relativeProjectPath = if (path == ":") {
             "root"
         } else {

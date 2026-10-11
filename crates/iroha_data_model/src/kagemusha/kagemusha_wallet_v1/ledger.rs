@@ -1,4 +1,4 @@
-//! Ledger boundary objects: load vouchers, unload and fee claims, and wallet-key ledger
+//! Ledger boundary objects: ordinary Load receipts, unload and fee claims, and wallet-key ledger
 //! controls (§§3.2, 6; design §7 with C7 and C10).
 //!
 //! The ledger enables loads only after verifying and recording the complete Bootstrap package
@@ -15,25 +15,22 @@ use norito::codec::{Decode, Encode};
 use super::{
     KAGEMUSHA_WALLET_ABANDONMENT_MAX_BYTES_V1, KAGEMUSHA_WALLET_ACTIVATION_MAX_BYTES_V1,
     KAGEMUSHA_WALLET_CLOSE_LOADS_MAX_BYTES_V1, KAGEMUSHA_WALLET_FEE_CLAIM_MAX_BYTES_V1,
-    KAGEMUSHA_WALLET_LEDGER_CONTROL_MAX_BYTES_V1, KAGEMUSHA_WALLET_LOAD_VOUCHER_MAX_BYTES_V1,
-    KAGEMUSHA_WALLET_UNLOAD_CLAIM_MAX_BYTES_V1, KAGEMUSHA_WALLET_VERSION_V1, WalletResult,
-    WalletVersionsV1,
+    KAGEMUSHA_WALLET_LEDGER_CONTROL_MAX_BYTES_V1, KAGEMUSHA_WALLET_UNLOAD_CLAIM_MAX_BYTES_V1,
+    KAGEMUSHA_WALLET_VERSION_V1, WalletResult, WalletVersionsV1,
     custody::{
         KagemushaWalletMarkerStateV1, KagemushaWalletMarkerV1, KagemushaWalletTerminalReasonV1,
     },
     decode_frame_v1,
     digest::{
-        KagemushaWalletDigestRoleV1 as Role, KagemushaWalletSignerOutputV1,
-        KagemushaWalletSigningDomainV1 as Domain, WalletTranscriptV1,
-        kagemusha_wallet_freeze_signature_v1, kagemusha_wallet_signed_object_digest_v1,
+        KagemushaWalletSignerOutputV1, KagemushaWalletSigningDomainV1 as Domain,
+        WalletTranscriptV1, kagemusha_wallet_freeze_signature_v1,
         kagemusha_wallet_signing_message_v1, kagemusha_wallet_verify_signature_v1,
     },
     encode_frame_v1,
     identity::{
         KagemushaWalletAssetScopeV1, KagemushaWalletCertificateSetV1, KagemushaWalletCredentialV1,
-        KagemushaWalletSchemeV1, KagemushaWalletSignerCertificateV1, KagemushaWalletSignerRoleV1,
-        kagemusha_wallet_account_digest_v1, kagemusha_wallet_enrollment_id_v1,
-        kagemusha_wallet_id_v1,
+        KagemushaWalletSchemeV1, KagemushaWalletSignerRoleV1, kagemusha_wallet_account_digest_v1,
+        kagemusha_wallet_enrollment_id_v1, kagemusha_wallet_id_v1,
     },
     invalid_v1, is_zero_v1,
     keys::{KagemushaDevicePublicKeyV1, KagemushaDeviceSignatureV1},
@@ -42,15 +39,11 @@ use super::{
         verify_credential_with_set_v1,
     },
     policy::{
-        KagemushaWalletChargeKindV1, KagemushaWalletChargeQuoteV1, KagemushaWalletFeeScheduleV1,
-        SignerBindingV1, kagemusha_wallet_load_ledger_debit_v1,
+        KagemushaWalletChargeQuoteV1, KagemushaWalletFeeScheduleV1,
         kagemusha_wallet_unload_account_payout_v1,
     },
-    require_nonzero_v1, require_scheme_v1, require_version_v1,
-    state::{
-        KagemushaWalletEffectV1, KagemushaWalletLifecycleV1, KagemushaWalletPackageV1,
-        KagemushaWalletStateV1,
-    },
+    require_nonzero_field_v1, require_nonzero_v1, require_scheme_v1, require_version_v1,
+    state::{KagemushaWalletEffectV1, KagemushaWalletLifecycleV1, KagemushaWalletPackageV1},
 };
 use crate::account::AccountId;
 
@@ -59,12 +52,7 @@ use crate::account::AccountId;
 mod ledger_tests;
 
 const DIGEST_BYTES: usize = 32;
-const U64_BYTES: usize = 8;
 const U128_BYTES: usize = 16;
-
-/// Exact `voucher-body` transcript bytes.
-pub const KAGEMUSHA_WALLET_LOAD_VOUCHER_BODY_TRANSCRIPT_BYTES_V1: usize =
-    2 + 3 * DIGEST_BYTES + 3 * U128_BYTES + 2 * DIGEST_BYTES + U64_BYTES + DIGEST_BYTES;
 
 const ACTIVATE_FIELDS_BYTES: usize = DIGEST_BYTES;
 const CLOSE_LOADS_FIELDS_BYTES: usize = DIGEST_BYTES + U128_BYTES;
@@ -96,306 +84,12 @@ pub const KAGEMUSHA_WALLET_LEDGER_CONTROL_BODY_TRANSCRIPT_BYTES_V1: usize =
     2 + 3 * DIGEST_BYTES + 1 + KAGEMUSHA_WALLET_LEDGER_CONTROL_UNION_BYTES_V1 + DIGEST_BYTES;
 
 // ---------------------------------------------------------------------------------------
-// Load voucher (§6.1, design §7.1 and C7)
-// ---------------------------------------------------------------------------------------
-
-/// Body of a load voucher, signed by a `LoadAuthorization`-role key under `kgwvchr1` after
-/// ledger finality.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
-#[norito_schema(
-    name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletLoadVoucherBodyV1"
-)]
-pub struct KagemushaWalletLoadVoucherBodyV1 {
-    /// Wire version; exactly [`KAGEMUSHA_WALLET_VERSION_V1`].
-    pub version: u16,
-    /// Scheme.
-    pub scheme_id: [u8; 32],
-    /// Asset scope digest.
-    pub asset_digest: [u8; 32],
-    /// Loaded wallet.
-    pub wallet_id: [u8; 32],
-    /// Load ordinal assigned by the ledger.
-    pub ordinal: u128,
-    /// Net offline value added to the balance; positive.
-    pub amount: u128,
-    /// Separate online charge debited on the ledger; zero without a charge quote.
-    pub online_charge: u128,
-    /// Charge quote digest; zero exactly when `online_charge` is zero.
-    pub charge_quote: [u8; 32],
-    /// Finalized load transaction hash.
-    pub transaction_hash: [u8; 32],
-    /// Height of the block that finalized it.
-    pub block_height: u64,
-    /// Certificate digest of the `LoadAuthorization`-role signer.
-    pub authorizer_certificate: [u8; 32],
-}
-
-impl KagemushaWalletLoadVoucherBodyV1 {
-    /// Exact `voucher-body` transcript.
-    #[must_use]
-    pub fn transcript(&self) -> Vec<u8> {
-        WalletTranscriptV1::with_capacity(KAGEMUSHA_WALLET_LOAD_VOUCHER_BODY_TRANSCRIPT_BYTES_V1)
-            .u16(self.version)
-            .digest(&self.scheme_id)
-            .digest(&self.asset_digest)
-            .digest(&self.wallet_id)
-            .u128(self.ordinal)
-            .u128(self.amount)
-            .u128(self.online_charge)
-            .digest(&self.charge_quote)
-            .digest(&self.transaction_hash)
-            .u64(self.block_height)
-            .digest(&self.authorizer_certificate)
-            .finish()
-    }
-
-    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
-    #[must_use]
-    pub fn signing_message(&self) -> [u8; 32] {
-        kagemusha_wallet_signing_message_v1(Domain::Voucher, &self.transcript())
-    }
-
-    /// Validate the body's fields.
-    ///
-    /// # Errors
-    ///
-    /// Rejects another version, zero bindings, block height zero, a zero amount, an online
-    /// charge that disagrees with its charge quote, and an overflowing ledger debit.
-    pub fn validate(&self) -> WalletResult<()> {
-        require_version_v1("voucher.version", self.version)?;
-        for (field, digest) in [
-            ("voucher.scheme_id", &self.scheme_id),
-            ("voucher.asset_digest", &self.asset_digest),
-            ("voucher.wallet_id", &self.wallet_id),
-            ("voucher.transaction_hash", &self.transaction_hash),
-            (
-                "voucher.authorizer_certificate",
-                &self.authorizer_certificate,
-            ),
-        ] {
-            require_nonzero_v1(field, digest)?;
-        }
-        if self.block_height == 0 {
-            return Err(invalid_v1("voucher.block_height"));
-        }
-        if self.amount == 0 {
-            return Err(invalid_v1("voucher.amount"));
-        }
-        if (self.online_charge > 0) == is_zero_v1(&self.charge_quote) {
-            return Err(invalid_v1("voucher.charge_quote"));
-        }
-        kagemusha_wallet_load_ledger_debit_v1(self.amount, self.online_charge)?;
-        Ok(())
-    }
-
-    fn binding(&self) -> SignerBindingV1<'_> {
-        SignerBindingV1 {
-            scheme_field: "voucher.scheme_id",
-            certificate_field: "voucher.authorizer_certificate",
-            scheme_id: &self.scheme_id,
-            certificate: &self.authorizer_certificate,
-            role: KagemushaWalletSignerRoleV1::LoadAuthorization,
-            signing_domain: Domain::Voucher,
-        }
-    }
-}
-
-/// Unique finalized load voucher bound to `(wallet_id, ordinal, asset, amount)` (§6.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
-#[norito_schema(
-    name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletLoadVoucherV1"
-)]
-pub struct KagemushaWalletLoadVoucherV1 {
-    /// Signed body.
-    pub body: KagemushaWalletLoadVoucherBodyV1,
-    /// `LoadAuthorization`-role signature over the `kgwvchr1` signing message.
-    pub signature: KagemushaDeviceSignatureV1,
-}
-
-impl KagemushaWalletLoadVoucherV1 {
-    /// Freeze a `LoadAuthorization`-role signature over `body`.
-    ///
-    /// # Errors
-    ///
-    /// Rejects an invalid body, a certificate that is not the body's `LoadAuthorization`-role
-    /// signer for its scheme, or a signature that does not verify under it.
-    pub fn sign(
-        body: KagemushaWalletLoadVoucherBodyV1,
-        authorizer_certificate: &KagemushaWalletSignerCertificateV1,
-        signer_output: KagemushaWalletSignerOutputV1<'_>,
-    ) -> WalletResult<Self> {
-        body.validate()?;
-        let signature =
-            body.binding()
-                .freeze(authorizer_certificate, &body.transcript(), signer_output)?;
-        Ok(Self { body, signature })
-    }
-
-    /// Voucher digest `H("voucher", m || signature)`.
-    #[must_use]
-    pub fn voucher_digest(&self) -> [u8; 32] {
-        kagemusha_wallet_signed_object_digest_v1(
-            Role::Voucher,
-            &self.body.signing_message(),
-            &self.signature,
-        )
-    }
-
-    /// Validate the voucher's self-contained rules.
-    ///
-    /// # Errors
-    ///
-    /// Rejects an invalid body or a non-canonical signature encoding.
-    pub fn validate(&self) -> WalletResult<()> {
-        self.body.validate()?;
-        self.signature.validate()?;
-        Ok(())
-    }
-
-    /// Verify the voucher under `scheme` and its `LoadAuthorization`-role certificate.
-    ///
-    /// # Errors
-    ///
-    /// Rejects an invalid voucher, another scheme, a certificate that is not its
-    /// `LoadAuthorization`-role signer, or a signature that does not verify.
-    pub fn verify(
-        &self,
-        scheme: &KagemushaWalletSchemeV1,
-        authorizer_certificate: &KagemushaWalletSignerCertificateV1,
-    ) -> WalletResult<()> {
-        self.validate()?;
-        self.body.binding().verify(
-            scheme,
-            authorizer_certificate,
-            &self.body.transcript(),
-            &self.signature,
-        )
-    }
-
-    /// Require the voucher's charge quote: none when the voucher names none, otherwise the
-    /// named quote pricing exactly this load (design C7).
-    ///
-    /// # Errors
-    ///
-    /// Rejects an invalid voucher or quote, a missing or unexpected quote, a quote with another
-    /// digest, scheme or asset, and a quote for another kind, wallet, ordinal, net amount or
-    /// online charge.
-    pub fn require_charge_quote(
-        &self,
-        quote: Option<&KagemushaWalletChargeQuoteV1>,
-    ) -> WalletResult<()> {
-        self.validate()?;
-        let body = &self.body;
-        match (is_zero_v1(&body.charge_quote), quote) {
-            (true, None) => Ok(()),
-            (true, Some(_)) | (false, None) => Err(invalid_v1("voucher.charge_quote")),
-            (false, Some(quote)) => {
-                quote.validate()?;
-                if quote.charge_quote_digest() != body.charge_quote {
-                    return Err(invalid_v1("voucher.charge_quote"));
-                }
-                require_scheme_v1(
-                    "charge_quote.scheme_id",
-                    &quote.body.scheme_id,
-                    &body.scheme_id,
-                )?;
-                if quote.body.asset_digest != body.asset_digest {
-                    return Err(invalid_v1("charge_quote.asset_digest"));
-                }
-                quote.require_terms(
-                    KagemushaWalletChargeKindV1::Load,
-                    &body.wallet_id,
-                    body.ordinal,
-                    body.amount,
-                    body.online_charge,
-                )
-            }
-        }
-    }
-
-    /// Require that `state` absorbs exactly this voucher next (§6.1).
-    ///
-    /// # Errors
-    ///
-    /// Rejects an invalid voucher or state, another scheme, asset or wallet, and an ordinal
-    /// other than the state's `next_load` (out-of-order vouchers wait).
-    pub fn require_next_for(&self, state: &KagemushaWalletStateV1) -> WalletResult<()> {
-        self.validate()?;
-        state.validate()?;
-        let body = &self.body;
-        require_scheme_v1("voucher.scheme_id", &body.scheme_id, &state.core.scheme_id)?;
-        if body.asset_digest != state.core.asset_digest {
-            return Err(invalid_v1("voucher.asset_digest"));
-        }
-        if body.wallet_id != state.core.wallet_id {
-            return Err(invalid_v1("voucher.wallet_id"));
-        }
-        if body.ordinal != state.core.next_load {
-            return Err(invalid_v1("voucher.ordinal"));
-        }
-        Ok(())
-    }
-
-    /// Load effect absorbing this voucher.
-    ///
-    /// # Errors
-    ///
-    /// Rejects an invalid voucher.
-    pub fn load_effect(&self) -> WalletResult<KagemushaWalletEffectV1> {
-        self.validate()?;
-        Ok(KagemushaWalletEffectV1::Load {
-            voucher: self.voucher_digest(),
-            load_ordinal: self.body.ordinal,
-            amount: self.body.amount,
-            online_charge: self.body.online_charge,
-        })
-    }
-
-    /// Ledger debit of this load: `amount + online_charge` (design C7).
-    ///
-    /// # Errors
-    ///
-    /// Rejects an invalid voucher.
-    pub fn ledger_debit(&self) -> WalletResult<u128> {
-        self.validate()?;
-        kagemusha_wallet_load_ledger_debit_v1(self.body.amount, self.body.online_charge)
-    }
-
-    /// Validate and encode the bounded canonical frame.
-    ///
-    /// # Errors
-    ///
-    /// Rejects an invalid voucher or an oversized frame.
-    pub fn to_canonical_bytes(&self) -> WalletResult<Vec<u8>> {
-        self.validate()?;
-        encode_frame_v1(self, KAGEMUSHA_WALLET_LOAD_VOUCHER_MAX_BYTES_V1)
-    }
-
-    /// Decode one canonical voucher frame for `expected_scheme_id`.
-    ///
-    /// # Errors
-    ///
-    /// Rejects, in order, an oversized frame, a noncanonical frame, another version, another
-    /// scheme, and invalid fields.
-    pub fn decode_canonical(bytes: &[u8], expected_scheme_id: &[u8; 32]) -> WalletResult<Self> {
-        let voucher: Self = decode_frame_v1(bytes, KAGEMUSHA_WALLET_LOAD_VOUCHER_MAX_BYTES_V1)?;
-        voucher.require_versions()?;
-        require_scheme_v1(
-            "voucher.scheme_id",
-            &voucher.body.scheme_id,
-            expected_scheme_id,
-        )?;
-        voucher.validate()?;
-        Ok(voucher)
-    }
-}
-
-// ---------------------------------------------------------------------------------------
 // Unload claim and fee claim (§§6.1, 6.2, design §7.2 and C7)
 // ---------------------------------------------------------------------------------------
 
 /// Payout of one verified unload claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(align(16))]
 pub struct KagemushaWalletUnloadPayoutV1 {
     /// Unload nullifier; the ledger pays it exactly once.
     pub nullifier: [u8; 32],
@@ -643,6 +337,7 @@ impl KagemushaWalletUnloadClaimV1 {
 
 /// Payout of one verified fee claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(align(16))]
 pub struct KagemushaWalletFeePayoutV1 {
     /// Credit identity; the ledger pays one fee per credit.
     pub credit_id: [u8; 32],
@@ -802,6 +497,7 @@ impl KagemushaWalletFeeClaimV1 {
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletLedgerControlActionV1"
 )]
+#[repr(align(16))]
 pub enum KagemushaWalletLedgerControlActionV1 {
     /// Record the complete Bootstrap package and enable load issuance (§3.2).
     #[codec(index = 1)]
@@ -880,7 +576,7 @@ impl KagemushaWalletLedgerControlActionV1 {
     pub fn validate(&self) -> WalletResult<()> {
         match self {
             Self::Activate { package_digest } | Self::CloseLoads { package_digest, .. } => {
-                require_nonzero_v1("ledger_control.package_digest", package_digest)
+                require_nonzero_field_v1("ledger_control.package_digest", package_digest)
             }
             Self::Abandon {
                 enrollment_id,
@@ -901,7 +597,7 @@ impl KagemushaWalletLedgerControlActionV1 {
     }
 }
 
-/// Body of a ledger control, signed by the wallet payment key under `kgwlctl1`.
+/// Body of a ledger control, signed by the wallet payment key under `ledger-control-body`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletLedgerControlBodyV1"
@@ -935,7 +631,8 @@ impl KagemushaWalletLedgerControlBodyV1 {
         self.action.write(transcript).digest(&self.nonce).finish()
     }
 
-    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
+    /// Signing message `m = P_bytes(kgwlctl1, transcript)`: the 32 bytes the wallet payment key signs with
+    /// ECDSA-P256-SHA256 (owner answer A1).
     #[must_use]
     pub fn signing_message(&self) -> [u8; 32] {
         kagemusha_wallet_signing_message_v1(Domain::LedgerControl, &self.transcript())
@@ -964,7 +661,7 @@ impl KagemushaWalletLedgerControlBodyV1 {
 pub struct KagemushaWalletLedgerControlV1 {
     /// Signed body.
     pub body: KagemushaWalletLedgerControlBodyV1,
-    /// Payment-key signature over the `kgwlctl1` signing message.
+    /// Payment-key signature over `ledger-control-body`.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -1172,7 +869,7 @@ impl KagemushaWalletActivationV1 {
 /// proving the Retiring lifecycle and its `next_load` from a folded head with its predecessor
 /// Ω (§6.3).
 ///
-/// In one transaction the ledger checks that no voucher at or above `next_load` exists and
+/// In one transaction the ledger checks that no successful Load at or above `next_load` exists and
 /// permanently disables further loads. Repeating closure is idempotent.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
@@ -1468,12 +1165,6 @@ impl KagemushaWalletAbandonmentV1 {
 // ---------------------------------------------------------------------------------------
 // Version fields (design §0 decode order)
 // ---------------------------------------------------------------------------------------
-
-impl WalletVersionsV1 for KagemushaWalletLoadVoucherV1 {
-    fn require_versions(&self) -> WalletResult<()> {
-        require_version_v1("voucher.version", self.body.version)
-    }
-}
 
 impl WalletVersionsV1 for KagemushaWalletUnloadChargeV1 {
     fn require_versions(&self) -> WalletResult<()> {

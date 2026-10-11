@@ -281,6 +281,7 @@ internal static class ToriiContractCallJson
         ToriiSseEventJson.RequireExactSizedHex(response.AbiHashHex, $"{context}.abi_hash_hex", 32);
         ToriiSseEventJson.RequireExactTokenText(response.Entrypoint, $"{context}.entrypoint");
         RequireExactNonEmptyText(response.Error, $"{context}.error");
+        if (response.Fault is not null) ToriiIvmFaultJsonConverter.Validate(response.Fault);
         ValidateOptionalContractViewVmDiagnostic(response.VmDiagnostic, $"{context}.vm_diagnostic");
     }
 
@@ -377,6 +378,8 @@ internal static class ToriiContractCallJson
         writer.WriteString("abi_hash_hex", response.AbiHashHex);
         writer.WriteString("entrypoint", response.Entrypoint);
         writer.WriteString("error", response.Error);
+        writer.WritePropertyName("fault");
+        if (response.Fault is null) writer.WriteNullValue(); else ToriiIvmFaultJsonConverter.Write(writer, response.Fault);
         if (response.VmDiagnostic is null)
         {
             writer.WriteNull("vm_diagnostic");
@@ -766,6 +769,7 @@ internal static class ToriiContractCallJson
         string? entrypoint = null;
         string? error = null;
         ToriiContractViewVmDiagnostic? vmDiagnostic = null;
+        ToriiIvmFault? fault = null;
 
         while (reader.Read())
         {
@@ -773,6 +777,7 @@ internal static class ToriiContractCallJson
             {
                 try
                 {
+                    if (!seen.Contains("fault")) throw new JsonException($"{context}.fault is required.");
                     var response = new ToriiContractViewErrorResponse
                     {
                         Ok = RequireBool(ok, context, "ok"),
@@ -784,6 +789,7 @@ internal static class ToriiContractCallJson
                         Entrypoint = RequireString(entrypoint, context, "entrypoint"),
                         Error = RequireString(error, context, "error"),
                         VmDiagnostic = vmDiagnostic,
+                        Fault = fault,
                     };
                     ValidateContractViewErrorResponse(response, context);
                     return response;
@@ -831,6 +837,13 @@ internal static class ToriiContractCallJson
                     break;
                 case "error":
                     error = ToriiAccountFaucetJson.ReadOptionalString(ref reader, $"{context}.error");
+                    break;
+                case "fault":
+                    if (reader.TokenType != JsonTokenType.Null)
+                    {
+                        using var document = JsonDocument.ParseValue(ref reader);
+                        fault = ToriiIvmFaultJsonConverter.Read(document.RootElement);
+                    }
                     break;
                 case "vm_diagnostic":
                     vmDiagnostic = reader.TokenType == JsonTokenType.Null

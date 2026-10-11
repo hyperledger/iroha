@@ -1,8 +1,8 @@
 
-seiyaku HelperAccess {
+seiyaku HelperAccess { permission Entry;
   fn leaf(bytes path) { let value = state::get(path); }
-  kotoage fn dynamic(bytes path) authorize("Entry") { leaf(path: path); }
-  kotoage fn literal() authorize("Entry") {
+  kotoage fn dynamic(bytes path) authorize(Entry) { leaf(path: path); }
+  kotoage fn literal() authorize(Entry) {
     leaf(path: Name::parse("Counters").path(1));
   }
 }

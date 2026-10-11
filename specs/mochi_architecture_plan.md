@@ -35,7 +35,8 @@ chooses a trust key from a response nor writes parent wallets or journals itself
 Contract package resolution requests the authenticated parent registry lazily;
 local source and complete cached package graphs require no parent request.
 
-An official Taira profile, native platform qualification and whole-network privacy
-and latency checks remain outstanding in
+The approved Taira installation profile is present. Recurring signed checkpoint
+publication, native platform qualification and whole-network privacy and latency
+checks remain outstanding in
 [the shared implementation goals](kagami_mochi_devex_goals.md). Implemented desktop
 actions do not establish those release results.

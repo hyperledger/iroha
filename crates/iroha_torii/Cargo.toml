@@ -20,6 +20,8 @@ categories.workspace = true
 workspace = true
 
 [features]
+# Owning unit-test mutations only; never enable this in a shipping dependency.
+mutation-testing = []
 default = ["node-api"]
 # Shipping HTTP/WebSocket surface. The integration-test marker is deliberately
 # excluded; tests can request `ws_integration_tests` explicitly.
@@ -32,16 +34,14 @@ node-api = [
     "push",
     "telemetry",
     "schema",
-    "circuit-params",
     "proofs-full",
     "ipa-commitment",
     "zk-verify-batch",
     "gost",
     "sm",
 ]
-proofs-halo2 = ["zk-halo2", "zk-halo2-ipa"]
 proofs-stark = ["zk-stark"]
-proofs-full = ["proofs-halo2", "proofs-stark"]
+proofs-full = ["proofs-stark"]
 # Enables Telemetry (i.e. Status, Metrics, and API Version) endpoints
 telemetry = [
     "iroha_telemetry",
@@ -50,7 +50,7 @@ telemetry = [
     "dep:prometheus",
 ]
 # Enables profiling endpoint
-profiling = ["pprof"]
+profiling = ["dep:pprof", "dep:bytes"]
 # Enables Data Model Schema endpoint
 schema = ["iroha_schema", "iroha_schema_gen"]
 # App-facing JSON API (convenience endpoints, JSON DSL).
@@ -95,13 +95,9 @@ push = ["app_api"]
 ws_integration_tests = ["app_api_wss"]
 ## Prototype: read-only debug endpoints for proof tag index; forwards to `iroha_core/zk-proof-tags`.
 zk-proof-tags = ["iroha_core/zk-proof-tags"]
-zk-halo2 = ["iroha_core/zk-halo2"]
-zk-halo2-ipa = ["iroha_core/zk-halo2-ipa"]
 zk-stark = ["iroha_core/zk-stark"]
 ipa-commitment = ["dep:iroha_zkp_halo2"]
-circuit-params = ["iroha_core/circuit-params"]
 zk-tests = ["iroha_core/zk-tests"]
-halo2-dev-tests = ["iroha_core/halo2-dev-tests"]
 # Exposes in-process handlers that deliberately omit network admission so the
 # registered benchmarks can measure the execution hot path. Never enable this
 # feature on a shipping node.
@@ -113,6 +109,7 @@ path = "src/bin/attachment_sanitizer.rs"
 required-features = ["app_api"]
 
 [dependencies]
+zeroize = { workspace = true }
 iroha_allocation = { workspace = true }
 iroha_core_privacy = { workspace = true, default-features = false }
 iroha_core_timed_ovn = { workspace = true }
@@ -197,11 +194,15 @@ jsonwebtoken = { version = "9", default-features = false, features = ["use_pem"]
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.4", features = ["fs", "process"] }
 
+[build-dependencies]
+# Cargo resolves host features separately: pprof's prost-build dependency must
+# also use the workspace's std-only bytes implementation.
+bytes = { workspace = true, optional = true, features = ["std"] }
+
 [dev-dependencies]
 iroha_p2p = { workspace = true, features = ["test-fixtures"] }
 fastpq_prover = { workspace = true }
 humantime = { workspace = true }
-iroha_torii = { workspace = true, default-features = false, features = ["test-fixtures"] }
 tokio = { workspace = true, features = ["test-util"] }
 iroha_service_model = { workspace = true }
 criterion = { workspace = true }
@@ -229,39 +230,39 @@ required-features = ["app_api", "bench"]
 [[test]]
 name = "taira_app_contracts"
 path = "tests/grouped/taira_app_contracts.rs"
-required-features = ["node-api"]
+required-features = ["node-api", "test-fixtures"]
 
 [[test]]
 name = "torii_core_routes"
 path = "tests/grouped/core_routes.rs"
-required-features = ["app_api"]
+required-features = ["app_api", "test-fixtures"]
 
 [[test]]
 name = "torii_governance"
 path = "tests/grouped/governance.rs"
-required-features = ["app_api"]
+required-features = ["app_api", "test-fixtures"]
 
 [[test]]
 name = "torii_nexus_sorafs"
 path = "tests/grouped/nexus_sorafs.rs"
-required-features = ["app_api"]
+required-features = ["app_api", "test-fixtures"]
 
 [[test]]
 name = "torii_protocols"
 path = "tests/grouped/protocols.rs"
-required-features = ["app_api"]
+required-features = ["app_api", "test-fixtures"]
 
 [[test]]
 name = "torii_sumeragi_telemetry"
 path = "tests/grouped/sumeragi_telemetry.rs"
-required-features = ["app_api"]
+required-features = ["app_api", "test-fixtures"]
 
 [[test]]
 name = "torii_zk"
 path = "tests/grouped/zk.rs"
-required-features = ["app_api"]
+required-features = ["app_api", "test-fixtures"]
 
 [[test]]
 name = "account_capabilities_contract"
 path = "tests/account_capabilities_contract.rs"
-required-features = ["node-api"]
+required-features = ["node-api", "test-fixtures"]

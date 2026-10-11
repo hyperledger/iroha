@@ -1,255 +1,308 @@
-kotodama-diagnostic-explanations-v1	253
-code	phase	summary	help
-E_ACCESS_INCOMPLETE	Semantic	the compiler could not prove a complete access set	The runtime must serialize conservatively; remove dynamic or opaque access if parallel execution is required.
-E_AMBIGUOUS_EXPORT	Resolve	multiple modules define the same declared package export	Keep exactly one module definition for each exported function.
-E_BRANCH_TYPE_MISMATCH	Semantic	expression branches have different types	Make every if or match branch tail produce exactly the same type.
-E_BREAK_OUTSIDE_LOOP	Semantic	break appeared outside an accepted bounded loop	Move break into the body of a compiler-proven bounded for loop.
-E_CONFLICTING_ERROR_TYPE	Resolve	one nominal error identity has conflicting variant schemas	Use the same exact error descriptor for a locked package identity; different schemas require distinct declared identities.
-E_CONST_CAPACITY_CONTEXT	Semantic	a compile-time integer appeared outside a bounded List capacity	Use the compile-time integer only as the second argument of List<T, N>.
-E_CONST_INITIALIZER	Semantic	a const initializer depended on runtime evaluation	Initialize the const from literals and previously declared constants only.
-E_CONTINUE_OUTSIDE_LOOP	Semantic	continue appeared outside an accepted bounded loop	Move continue into the body of a compiler-proven bounded for loop.
-E_CONTRACT_ENTRYPOINT_LITERAL	Semantic	a typed contract invocation has a dynamic or invalid entrypoint selector	Pass a string literal containing one canonical Kotodama identifier as the named entrypoint argument.
-E_CONTRACT_RETURN_SCHEMA	Semantic	a typed contract invocation has a dynamic or unsupported return schema	Use the exact literal returns: "quantity" for the V1 quantity invocation profile.
-E_DECIMAL_EXPONENT	Lex	an exact decimal exponent has invalid spelling	Write at least one base-10 digit after `e` or `E`; a leading exponent sign is allowed.
-E_DECIMAL_MALFORMED	Lex	an exact decimal literal has invalid spelling	Use base-10 digits, at most one decimal point, an optional decimal exponent, and underscores only between digits.
-E_DECIMAL_MANTISSA_OVERFLOW	Semantic	an exact decimal value exceeds the signed 512-bit mantissa limit	Reduce the magnitude so the unscaled canonical mantissa fits the signed 512-bit domain.
-E_DECIMAL_SCALE_OVERFLOW	Semantic	an exact decimal value exceeds the 28-digit canonical scale limit	Reduce the significant fractional precision to at most 28 digits. Trailing fractional zeros are canonicalized away before this limit is checked.
-E_DEPENDENCY_MUST_BE_MODULE	Resolve	a reusable dependency is not a module source unit	Change the dependency to exactly one module declaration; only the package root may be deployable.
-E_DIVERGING_EXPRESSION_CONTEXT	Semantic	an expression whose branches all diverge lacks an exact result type	Provide an exact contextual type, or use the construct as a statement when every branch returns from the enclosing function.
-E_DIVISION_BY_ZERO	Semantic	a numeric divisor is zero	Use a nonzero divisor or validate it before the operation.
-E_DUPLICATE_DECLARATION	Resolve	a source-unit declaration name was repeated	Rename or remove the repeated declaration; V1 has one unambiguous namespace per source unit.
-E_DUPLICATE_HIR_ID	Resolve	linked typed modules reused a compiler-owned HIR identity	Report this compiler defect with the complete source graph; source cannot assign HIR identities.
-E_DUPLICATE_IMPORT	Resolve	an import alias is repeated in one scope	Keep one explicit package binding for each import alias.
-E_DUPLICATE_MESSAGE	Resolve	linked modules define the same localization message key more than once	Keep one canonical message for each localization key in the linked graph.
-E_DUPLICATE_MODULE	Resolve	one package declares the same module name more than once	Give every module in the package a unique canonical name.
-E_DUPLICATE_NAMED_ARGUMENT	Parse	a named call argument is repeated	Supply each declared parameter exactly once.
-E_DUPLICATE_PACKAGE	Resolve	the locked graph contains the same package identity more than once	Keep one canonical record for each package identity in the locked dependency graph.
-E_DUPLICATE_SOURCE	Resolve	a package graph contains duplicate normalized logical source paths	Remove the duplicate or give each source a unique normalized logical path.
-E_DUPLICATE_SOURCE_ID	Resolve	different logical sources received the same compiler-owned source identity	Report this compiler defect with the complete normalized source graph.
-E_DUPLICATE_STRUCT_FIELD	Parse	a struct literal field is repeated	Supply each declared struct field exactly once.
-E_DUPLICATE_STRUCT_PATTERN_FIELD	Parse	a struct pattern names the same field more than once	Bind each struct field once; aliases must also use distinct local names.
-E_EMPTY_PACKAGE	Resolve	a locked package contains no Kotodama modules	Add at least one module source or remove the empty package from the locked graph.
-E_EMPTY_PACKAGE_GRAPH	Resolve	typed linking produced no root or reusable module program	Provide one seiyaku root and every explicitly imported non-empty module package.
-E_ERROR_MESSAGE	Semantic	an error message violates the static message contract	Use one nonblank static UTF-8 message between 1 and 4096 bytes on each annotated error variant.
-E_ERROR_SCHEMA	Semantic	an error type has an invalid nominal schema	Declare one error enum identity with unique names and nonzero u32 variant codes.
-E_EXACT_DIVISION_SCALE_OVERFLOW	Semantic	an exact terminating quotient needs more than 28 fractional digits	Use `div_round` with an explicit representable scale, or change the operands.
-E_FORBIDDEN_SOURCE_IDENTIFIER	Parse	source uses an identifier spelling forbidden in every Kotodama V1 context	Choose a domain-specific identifier; lowercase `amount` remains an ordinary business identifier.
-E_FOR_INITIALIZER	Semantic	a bounded for-loop initializer lowered to more than one operation	Use one simple let binding or expression as the for-loop initializer.
-E_FOR_STEP	Semantic	a bounded for-loop step lowered to more than one operation	Use one simple let binding or expression as the for-loop step.
-E_IF_EXPRESSION_ELSE	Semantic	an expression-valued if omits its else branch	Add an else block whose tail has exactly the same type as the then block tail.
-E_IF_LET_EXPRESSION_ELSE	Semantic	an expression-valued if let omits its else branch	Add an else block, or use if let as a statement when no value is needed.
-E_IMMUTABLE_ASSIGNMENT	Semantic	an immutable binding was assigned after declaration	Declare a mutable local with `var`, or compute the final immutable value before binding it.
-E_IMPLICIT_NUMERIC_CONVERSION	Semantic	runtime int and decimal values were mixed without a named conversion	Convert the int with decimal::from_int(value) before decimal arithmetic or comparison. Exact numeric literals may still infer their type contextually at compile time.
-E_INCLUDE_CYCLE	Resolve	source includes form a cycle	Remove an include edge so every fragment expands through an acyclic include graph.
-E_INEXACT_CONVERSION	Semantic	an exact numeric conversion would discard a fractional part	Use an explicitly truncating or rounded conversion when loss of precision is intentional.
-E_INTERNAL_BUILTIN	Semantic	source attempted to call a compiler-internal raw capability	Use the typed namespaced source API; allocation, pointers, raw syscalls, and opaque instructions are unavailable.
-E_INTERNAL_NUMERIC_MATRIX	Semantic	typed numeric operands violated the compiler's canonical operator matrix	Report this compiler defect with a minimal source reproducer; no artifact is emitted from inconsistent typed HIR.
-E_INTERNAL_RESOLUTION	Resolve	typed analysis received inconsistent or incomplete resolved-HIR metadata	Report this compiler defect with the source; resolution must assign stable identities and targets before typed analysis.
-E_INTRINSIC_CONTEXT	Semantic	a compiler intrinsic was used outside its declared operation context	Use the public namespaced operation that owns the intrinsic instead of referring to the compiler-owned value.
-E_INT_LITERAL_OVERFLOW	Parse	an integer literal is outside the signed 512-bit domain	Use a value from -2^511 through 2^511 - 1.
-E_INT_OVERFLOW	Semantic	checked integer arithmetic overflowed	Change the inputs or use an explicit wrapping operation when modular arithmetic is intentional.
-E_INVALID_ASSIGNMENT_TARGET	Semantic	an assignment targeted a non-assignable expression	Assign only to a mutable var binding or through the typed StateMap mutation API.
-E_INVALID_IDENTIFIER	Resolve	a package, module, alias, or symbol name is not a strict V1 identifier	Use a valid unambiguous Kotodama V1 identifier in the reported graph location.
-E_INVALID_MODULE_ITEM	Resolve	a reusable module contains a deployable-only declaration	Move state, triggers, `kotoage`/`言挙げ`, `view fn`, `hajimari`/`始まり`, or `kaizen`/`改善` declarations into the seiyaku root.
-E_INVALID_SCALE	Semantic	an exact numeric operation received a scale outside zero through 28	Choose an int scale from 0 through 28.
-E_INVALID_SOURCE_PATH	Resolve	a logical module source path is non-canonical or escapes its package	Use a normalized relative logical path contained by the package source root.
-E_ITERATION_LIMIT	Semantic	a bounded collection operation exceeded the 64-item V1 limit	Reduce the collection or split the operation into deterministic calls of at most 64 items.
-E_JSON_CAPACITY	Semantic	a native JSON object or array exceeds the per-node V1 bound	Use at most 64 object entries or array elements at each JSON node; split larger data into bounded nested nodes.
-E_JSON_DUPLICATE_KEY	Semantic	a native JSON object repeats a decoded key	Keep each decoded key exactly once; identifier and quoted spellings of the same key still collide.
-E_JSON_LITERAL_INVALID	Semantic	a Json::parse string literal is not valid JSON	Provide one valid JSON value and keep every decoded object key unique.
-E_JSON_LITERAL_REQUIRED	Semantic	Json::parse requires a direct string literal	Use a direct JSON string literal so it is validated at compile time, or construct dynamic typed values with native `json { ... }` and `json [ ... ]` syntax.
-E_JSON_SCHEMA_LIMIT	Semantic	a native JSON construction exceeds a recursive V1 ABI bound	Reduce recursive object, array, Option, or List structure so the canonical construction schema fits its node, word, depth, and encoded-byte limits.
-E_JSON_VALUE_TYPE	Semantic	a value cannot be converted by native JSON construction	Handle Result and arbitrary structs explicitly, and keep StateMap, Secret, and other resource handles outside JSON.
-E_LEGACY_JSON_GETTER	Parse	source uses a retired name for the quantity JSON getter	Use value.get_quantity(key) or json::get_quantity(value, key); every typed JSON getter returns Option<T>.
-E_LEGACY_SUM_CONSTRUCTOR	Parse	source uses a retired placeholder-based Option or Result constructor	Use Option::some(value), contextual Option::none, Result::ok(value), or Result::err(value).
-E_LIFECYCLE_AUTHORIZATION	Semantic	a hajimari or kaizen declaration attempted to set caller authorization	Remove authorize from hajimari and kaizen; lifecycle authorization is defined by the runtime.
-E_LIST_CAPACITY	Semantic	a List capacity is outside 1 through 64	Choose a compile-time capacity from 1 through 64.
-E_LIST_CAPACITY_CONST	Semantic	a List capacity is not a compile-time integer	Use an integer capacity constant from 1 through 64.
-E_LIST_COMPREHENSION_CAPACITY	Semantic	a list comprehension may exceed its contextual or V1 capacity	Reduce the source capacity or use a context large enough for the full proven maximum, up to 64.
-E_LIST_COMPREHENSION_FILTER	Semantic	a list comprehension filter is not boolean	Use a bool expression after if; filters do not reduce the proven capacity.
-E_LIST_COMPREHENSION_SOURCE	Semantic	a list comprehension source is not a bounded List	Iterate a List<T, N> so the compiler can prove the maximum result size.
-E_LIST_CONTAINS_COMPARABILITY	Semantic	List.contains requires canonically comparable elements	Use an element type with deterministic structural equality; resource handles and other non-comparable values cannot be searched with contains.
-E_LIST_CONTEXT_TYPE	Semantic	a list expression conflicts with its contextual type	Use a matching List<T, N> context and exactly assignable element values.
-E_LIST_EMPTY_CONTEXT	Semantic	an empty list literal has no element or capacity context	Add a List<T, N> annotation to the binding, argument, or return position.
-E_LIST_INDEX_TYPE	Semantic	a List index has the wrong type	Use an int index with get or try_set.
-E_LIST_LITERAL_CAPACITY	Semantic	a list literal exceeds its contextual capacity	Increase the declared capacity up to 64 or reduce the literal element count.
-E_LIST_METHOD_ARITY	Semantic	a bounded List method has the wrong argument count	Use the declared method signature and account for the implicit receiver.
-E_LIST_MUTABLE_RECEIVER	Semantic	a mutating List method was called on a non-mutable receiver	Bind the List with var before calling try_set, try_push, or pop.
-E_LIST_RESOURCE_ELEMENT	Semantic	a List element contains a resource handle	Keep StateMap, Secret, and other resource handles outside List elements.
-E_LIST_TAKE_CONST	Semantic	List.take received a dynamic limit	Pass a compile-time integer limit so the result capacity remains proven.
-E_LIST_TAKE_LIMIT	Semantic	List.take received a limit outside its source capacity	Use a constant limit from 0 through the source List capacity.
-E_LIST_TYPE_ARITY	Semantic	List has an invalid number of type arguments	Declare List<T, N> with one element type and one capacity constant.
-E_LIST_UNSAFE_INDEX	Semantic	source attempted an unchecked List index operation	Use get(index) for reads and try_set(index, value) for writes.
-E_LOCAL_IMPORT_CYCLE	Resolve	local module imports form a cycle	Remove an import edge so local modules have an acyclic dependency graph.
-E_LOCAL_SHADOWING	Resolve	a local binding duplicates or shadows another visible symbol	Rename the binding so every local and source-unit declaration remains unambiguous.
-E_MALFORMED_CALL	Semantic	resolved call metadata was internally inconsistent	Report this compiler defect with a minimal source reproducer; malformed resolved calls never produce artifacts.
-E_MAP_BOUNDS	Semantic	a StateMap operation lacked a compiler-proven deterministic bound	Use direct keyed access or canonical StateMap iteration with the fixed 64-item cap.
-E_MATCH_DUPLICATE_PATTERN	Semantic	a match expression repeats a variant pattern	Keep exactly one arm for each variant in the matched sum family.
-E_MATCH_EMPTY	Semantic	a match expression has no arms	Add the complete namespaced pattern set for the matched Option or Result.
-E_MATCH_NON_EXHAUSTIVE	Semantic	a sum match omits an active or inactive variant	Cover both Option variants or both Result variants explicitly.
-E_MATCH_TYPE_CONTEXT	Semantic	match arm types cannot be inferred consistently	Add a result type context or make every arm tail have exactly the same type.
-E_MISSING_EXPORT	Resolve	a package export names no module function	Define the exported function in exactly one module or remove the stale export.
-E_MISSING_NAMED_ARGUMENT	Semantic	a named call omits a required parameter	Supply every required parameter by its declared name.
-E_MISSING_RETURN	Semantic	a value-returning function does not return on every path	Return the declared type on every reachable path or use one final block-tail expression.
-E_MISSING_STRUCT_FIELD	Semantic	a struct literal omits a declared field	Supply every declared field; field order in source is unrestricted.
-E_MISSING_STRUCT_PATTERN_FIELD	Semantic	a struct pattern does not account for every field	Bind or explicitly discard each field, or add a final `..` marker.
-E_MULTIPLE_SEIYAKU_ROOTS	Resolve	one diagnostics request contains more than one deployable seiyaku root	Keep one project root; check unrelated seiyaku roots in separate requests.
-E_NAMED_ARGUMENTS_REQUIRED	Semantic	a named parameter was supplied positionally	Supply the declared parameter name, or explicitly declare a positional prefix with `Type _ name`.
-E_NAMED_ARGUMENT_HOLE	Semantic	a named call supplies a later optional parameter after omitting an earlier optional ABI slot	Supply the earlier optional parameter too, or omit the complete trailing optional suffix.
-E_NEGATIVE_QUANTITY	Semantic	a value converted to quantity is negative	Use decimal when the value may be negative, or prove the value non-negative before an explicit quantity conversion.
-E_NEGATIVE_SQUARE_ROOT	Semantic	integer square root requires a nonnegative operand	Pass a nonnegative int to math::isqrt; negative inputs fault instead of narrowing or changing sign.
-E_NON_CANONICAL_BUILTIN	Semantic	source used a retired, flat, or compiler-internal builtin spelling	Use the canonical V1 namespaced builtin shown by the diagnostic.
-E_NON_CANONICAL_NUMERIC	Semantic	a numeric value was not in canonical int, decimal, or quantity form	Construct the value with the exact canonical numeric type and representation.
-E_NUMERIC_ROUNDING_MODE	Semantic	an explicitly rounded numeric operation received an unknown rounding mode	Use one of the seven V1 modes: toward_zero, away_from_zero, floor, ceil, nearest_even, nearest_away, or nearest_toward_zero.
-E_NUMERIC_ROUND_ARITY	Semantic	an explicitly rounded numeric operation has the wrong number of arguments	Pass every declared argument with its canonical name; rounded division requires divisor, scale, and mode.
-E_NUMERIC_ROUND_RECEIVER	Semantic	an explicitly rounded numeric method was called on an unsupported receiver	Use decimal.div_round, quantity.div_round, or quantity.ratio_round with the operand types declared by the V1 numeric matrix.
-E_PACKAGE_BUDGET	Parse	a typed-module package graph exceeds a fixed V1 frontend budget	Reduce the package source count or aggregate source bytes before linking.
-E_PACKAGE_IMPORT_CYCLE	Resolve	locked package imports form a dependency cycle	Break the cycle and keep the typed-module package graph acyclic.
-E_PATTERN_FAMILY	Semantic	a namespaced pattern belongs to the wrong sum family	Match Option values with Option::some/none and Result values with Result::ok/err.
-E_PATTERN_PAYLOAD	Semantic	a sum pattern binds a payload on an inactive variant or omits an active payload binding	Bind or explicitly ignore active payloads; write Option::none without a payload.
-E_PATTERN_TYPE	Semantic	a sum pattern was applied to a non-Option/non-Result value	Use namespaced sum patterns only with Option<T> or Result<T, E>.
-E_PATTERN_VARIANT	Semantic	the pattern variant does not belong to the expected type	Match a variant from the exact nominal enum or sum type of the scrutinee.
-E_POSITIONAL_ARGUMENT_ORDER	Parse	a positional argument follows a named argument	Supply the positional prefix first, then named arguments in any order.
-E_POSITIONAL_ARGUMENT_REQUIRED	Semantic	a positional-only parameter was supplied by name	Omit the label for parameters declared as `Type _ name`.
-E_POSITIONAL_PARAMETER_ORDER	Parse	a positional parameter follows a named parameter	Place every `Type _ name` parameter before the named `Type name` parameters.
-E_POSITIONAL_STRUCT	Semantic	a struct uses retired positional construction	Use `Type { field: value, shorthand_field }`; apply the diagnostic fix when one is available.
-E_POSITIONAL_STRUCT_PATTERN	Semantic	a struct is destructured by position	Use `let Type { field, other: alias, .. } = value;`; positional patterns are for tuples.
-E_PROJECT_MANIFEST	Resolve	an explicit Kotodama project manifest is malformed or unsafe	Use version 1 canonical Norito JSON with relative in-project source paths and complete explicit graph fields.
-E_PROJECT_MANIFEST_REQUIRED	Resolve	positional source paths cannot grant module linking authority	Pass --project with a versioned manifest that declares exact imports, locked packages, modules, and exports.
-E_PROPAGATE_CONTEXT	Semantic	postfix propagation is used outside a matching sum-returning function	Return the same Option or Result family from the enclosing function, or handle the value explicitly.
-E_PROPAGATE_ERROR_TYPE	Semantic	Result propagation would require implicit error conversion	Use the exact enclosing Result error type or convert the error explicitly before propagation.
-E_PROPAGATE_TYPE	Semantic	postfix propagation was applied to a non-sum value	Apply ? only to Option<T> or Result<T, E>.
-E_QUANTITY_NEGATION	Semantic	the nominal `quantity` type cannot be negated	Use `int` or `decimal` for signed values.
-E_QUANTITY_REMAINDER	Semantic	quantity does not define a remainder operation	Use exact division, quantity.div_round, or quantity.ratio_round with an explicit scale and rounding mode.
-E_QUANTITY_UNDERFLOW	Semantic	quantity subtraction would produce a negative result	Change the operands, or convert to decimal explicitly when a negative result is part of the domain.
-E_QUERY_KEY_TYPE	Semantic	a typed core query received bytes or the wrong identifier type	Pass the exact AccountId, AssetId, AssetDefinitionId, DomainId, or NftId required by the query.
-E_QUERY_LIMIT	Semantic	a typed query page limit is outside 1 through 64	Choose a page limit from 1 through 64.
-E_QUERY_OFFSET	Semantic	a typed query page window is outside the non-negative signed 64-bit range	Use an offset in 0..=i64::MAX and ensure offset plus limit fits i64.
-E_QUERY_PAGE_ARGUMENTS	Semantic	a typed query page has invalid offset or limit arguments	Pass named offset: int and limit: int arguments.
-E_QUERY_PAGE_VIEW	Semantic	QueryPage was instantiated with a view outside the declared core query set	Use QueryPage only with a canonical core query view supported by ABI V1.
-E_QUERY_RESULT_TYPE	Semantic	a typed core-query projection was assigned to an incompatible result type	Receive singular queries as Option<View> and plural queries as QueryPage<View>; raw byte compatibility is not part of the five V1 core-query families.
-E_QUORUM_RANGE	Semantic	an account quorum is outside the protocol's nonzero 16-bit domain	Use an int from 1 through 65535. This is a protocol-field bound, not the range of Kotodama int.
-E_REPEATING_DECIMAL	Semantic	exact decimal division has a nonterminating result	Choose decimal.div_round, quantity.div_round or ratio_round, or mul_div_round for a fused product, with an explicit scale and rounding mode.
-E_RESERVED_DECLARATION	Resolve	a declaration collided with a reserved language or builtin name	Choose an ASCII identifier that is not a V1 keyword, type, namespace, or builtin.
-E_RESERVED_IMPORT	Resolve	an import alias collides with a compiler-owned capability namespace	Choose a non-reserved explicit alias for the imported package.
-E_RESULT_MUST_USE	Semantic	a fallible Result value was left unhandled	Handle the Result with match, return, or propagation using ?, or explicitly discard it with let _ = expression;.
-E_RETIRED_DECLARATION_ORDER	Parse	a typed declaration uses the retired name-colon-type order	Place the type before the name, for example `const int limit`, `state int value`, `let int count`, or `fn add(int lhs)`.
-E_RETIRED_NUMERIC_HELPER	Parse	source calls a retired width-specific or generic numeric helper	Use exact operators, named int/decimal/quantity conversions, or native `json { ... }` construction.
-E_RETIRED_NUMERIC_SUFFIX	Lex	a numeric literal uses a retired suffix	Use an unsuffixed literal in an explicit int, decimal, or quantity context; Kotodama V1 has no numeric literal suffixes.
-E_RETIRED_NUMERIC_TYPE	Parse	a declaration uses a retired numeric type name	Use `int`, `decimal`, or the nominal non-negative `quantity` type.
-E_RETIRED_TRIGGER_ALIAS	Parse	source calls a non-canonical trigger lifecycle operation	Use ledger::trigger::register or ledger::trigger::unregister; the diagnostic provides an exact replacement.
-E_RETIRED_VRF_VERIFY_ARGS	Semantic	source used the retired multi-argument VRF verification form	Encode one VrfVerifyRequest as bytes and pass it through the named request argument.
-E_RETURN_TYPE_MISMATCH	Semantic	a returned value does not exactly match the declared return type	Return the exact declared type; use an explicit conversion where the V1 API provides one.
-E_ROOT_MUST_BE_SEIYAKU	Resolve	the deployable package root is not a seiyaku/誓約 source unit	Declare exactly one seiyaku/誓約 in the root and keep reusable dependencies as modules.
-E_SECRET_ARITHMETIC	Semantic	secret data was used by an ordinary arithmetic operation	Use only an approved proof or commitment operation whose secret-flow contract is explicit.
-E_SECRET_CONTROL_FLOW	Semantic	a secret value influenced public control flow	Remove the secret-dependent branch or loop.
-E_SECRET_FULL_WIDTH_CRYPTO_REQUIRED	Semantic	a scalar-register crypto operation attempted to consume Secret<T>	Use crypto::valcom or another approved full-width proof operation that declares a Secret<T> flow.
-E_SECRET_HOST_SINK	Semantic	secret data reached a public host operation	Pass only approved public proof or commitment outputs to ledger, context, state, and debug APIs.
-E_SECRET_LOG	Semantic	a secret value flowed into a log	Remove the log or log only a public value independent of the secret.
-E_SECRET_MIXED_COMMITMENT	Semantic	a commitment mixed secret data with an unapproved public value	Use the exact approved commitment signature and explicitly public domain-separation inputs.
-E_SECRET_NULLIFIER_DISCLOSURE	Semantic	secret nullifier material would be disclosed to a public sink	Publish only the approved derived nullifier output, never its secret input material.
-E_SECRET_PAYLOAD_TYPE	Semantic	a private input used a type outside the approved Secret<T> payload set	Choose a supported fixed-layout secret payload type accepted by the ZK proof interface.
-E_SECRET_PRIVATE_INPUT_AMBIGUOUS	Semantic	a private input had no inferable Secret<T> payload type	Use a type-first binding such as `let Secret<int> value = crypto::private_input(0);`.
-E_SECRET_PRIVATE_INPUT_CONTEXT	Semantic	a private-input operation did not initialize an approved Secret<T> binding	Initialize an explicit Secret<int>, Secret<decimal>, or Secret<quantity> binding.
-E_SECRET_PRIVATE_INPUT_INDEX	Semantic	a private-input index depended on secret or unbounded data	Use a public compile-time-bounded private-input index.
-E_SECRET_PUBLIC_PARAMETER	Semantic	a kotoage/view/hajimari/kaizen parameter was declared as Secret<T>	Read private inputs through the ZK-only private-input API; public ABI records cannot contain secrets.
-E_SECRET_PUBLIC_RETURN	Semantic	a secret value flowed into a public return	Return only an approved proof, commitment, or public value independent of the secret.
-E_SECRET_REQUIRES_ZK	Semantic	Secret<T> was used outside a ZK seiyaku build	Compile through a ZK-enabled project policy and keep the value inside approved proof or commitment operations.
-E_SECRET_STATE_KEY	Semantic	a secret value flowed into a durable-state key	Use a public canonical key independent of all private inputs.
-E_SECRET_STATE_SINK	Semantic	secret-tainted data reached durable state	Persist only an approved public commitment or proof result independent of raw secret material.
-E_SECRET_STATE_TYPE	Semantic	durable state was declared with a secret-bearing type	Keep Secret<T> ephemeral and store only approved public commitments or proof outputs.
-E_SECRET_STATE_WRITE	Semantic	a secret value flowed directly into durable state	Persist only an approved commitment or proof output.
-E_SECRET_UNAPPROVED_OPERATION	Semantic	secret data reached an operation without an approved flow specification	Use an operation explicitly listed by the V1 secret-flow policy.
-E_SECRET_UNKNOWN_CALL	Semantic	secret data was passed through a call whose flow behavior is unknown	Pass secrets only to compiler-known proof and commitment functions with declared flow behavior.
-E_SOURCE_NOT_FOUND	Resolve	a declared source dependency is absent	Supply the referenced file inside the explicit source bundle and use its canonical relative path.
-E_SOURCE_OWNERSHIP	Resolve	one fragment is assigned to multiple source units	Give each fragment a single owning contract or module; use exported module declarations for shared dependencies.
-E_SOURCE_UNIT_KIND	Resolve	a source dependency has the wrong unit kind	Use a bare declaration fragment for include, a module for import, and a seiyaku as the contract entry file.
-E_STATE_HAJIMARI_INCOMPLETE	Semantic	scalar durable state is not initialized on every normal `hajimari`/`始まり` path	Assign every reported scalar state on all branches and before every early return; loop-only and short-circuited writes are not definite.
-E_STATE_HAJIMARI_REQUIRED	Semantic	scalar durable state was declared without a hajimari/始まり hook	Declare hajimari/始まり and initialize every scalar state value before any normal return or fallthrough.
-E_STATE_MAP_ALIAS	Semantic	a StateMap was treated as an in-memory first-class value	Access the declared StateMap directly through get, set, remove, or bounded iteration.
-E_STATE_MAP_KEY_TYPE	Semantic	a StateMap key lacks a canonical deterministic Norito representation	Choose a supported scalar canonical-Norito key type.
-E_STATE_MAP_OPTIONAL_READ	Semantic	a StateMap read discarded the possibility that its key is absent	Use map.get(key), handle the returned Option<V>, and use map[key] = value only for writes.
-E_STATE_SHADOWED	Semantic	a local declaration shadowed durable state	Rename the local declaration; V1 rejects all shadowing.
-E_STRUCT_PATTERN_REST	Parse	a struct pattern places its rest marker before another field	Place one `..` marker at the end to explicitly discard unspecified fields.
-E_STRUCT_PATTERN_TYPE	Semantic	a named struct pattern has a different nominal type from its initializer	Use the initializer's declared struct type and bind its fields by name.
-E_SUM_CONSTRUCTOR_ARITY	Parse	an active-only sum constructor has the wrong payload count	Supply exactly one active payload to Option::some, Result::ok, or Result::err.
-E_SUM_CONSTRUCTOR_FORM	Parse	an active-only sum constructor has invalid source form	Write Option::none without parentheses and give active constructors exactly one positional payload.
-E_SUM_CONTEXT_TYPE	Semantic	a sum constructor conflicts with its contextual type	Use the matching Option or Result constructor and an exactly assignable active payload.
-E_SUM_MISSING_CONTEXT	Semantic	an inactive or partially inferred sum value lacks an exact type context	Add an Option<T> or Result<T, E> annotation so every generic payload type is known.
-E_TAIL_TYPE_MISMATCH	Semantic	a block-tail expression does not exactly match its required type	Make the final expression the exact required type or terminate it with a semicolon when the block returns unit.
-E_TEST_ACTOR_LITERAL	Semantic	a Kotodama test actor was not a static literal alias	Pass a string literal or Name::parse literal actor alias to the test helper.
-E_TEST_BUILTIN_CONTEXT	Semantic	a test-only builtin was called outside a #[test] function	Move the call into a local #[test] fn in a standalone Kotodama test module.
-E_TEST_ENTRYPOINT_KIND	Semantic	a runtime test helper targeted a private function	Target a kotoage, view, hajimari, or kaizen declaration.
-E_TEST_ENTRYPOINT_LITERAL	Semantic	a runtime test helper target was not a static literal	Pass the kotoage, view, hajimari, or kaizen name as a string or Name::parse literal.
-E_TEST_FUNCTION_SIGNATURE	Semantic	a #[test] function has a public, parameterized, or value-returning signature	Declare each test as a local parameterless `#[test] fn` returning unit.
-E_TEST_MODULE_ITEM	Semantic	a standalone Kotodama test module contains a deployable-only item	Keep standalone test modules limited to their target, fixtures, helpers, and #[test] functions.
-E_TEST_MODULE_KIND	Semantic	a standalone Kotodama test file did not declare a module	Declare a module source unit and identify the tested seiyaku with koto_test.
-E_TEST_ONLY_PRODUCTION	Semantic	local test syntax or capabilities reached a production compilation	Run the source through `koto test` or explicit CompilerMode::Test; keep deployable production sources free of #[test], fixture, koto_test, and test-only builtin calls.
-E_TEST_REJECTION_EXPECTATION	Semantic	the exact rejection helper requires a typed error variant or rejection selector	Pass an ErrorEnum::Variant value or a test::Rejection selector to expected.
-E_TEST_TARGET_MISMATCH	Resolve	a standalone test module resolves to a different target source	Correct koto_test.target so its normalized path names the graph's exact seiyaku target.
-E_TEST_TARGET_REQUIRED	Semantic	a standalone Kotodama test module omitted its tested seiyaku	Add one koto_test declaration naming the seiyaku under test.
-E_TRIGGER_FILTER_DUPLICATE_MATCHER	Semantic	a trigger data filter repeats one matcher key	Keep at most one matcher for each supported key in the trigger filter.
-E_TRIGGER_FILTER_INVALID_LITERAL	Semantic	a trigger data-filter matcher contains an invalid typed identifier literal	Replace the matcher value with a canonical literal of the identifier type named by the diagnostic.
-E_TRIGGER_FILTER_UNSUPPORTED_EVENT	Semantic	a trigger data family does not support the requested event kind	Choose one event kind supported by that data family or omit the event restriction.
-E_TRIGGER_FILTER_UNSUPPORTED_MATCHER	Semantic	a trigger data family does not support the requested matcher	Remove the matcher or use a matcher supported by the selected data family.
-E_TRIGGER_INVALID_AUTHORITY	Semantic	a trigger authority is not a canonical AccountId	Use a canonical domainless AccountId for trigger authority.
-E_TRIGGER_INVALID_ID	Semantic	an execute-trigger target is not a canonical TriggerId name	Use a valid canonical Name for the referenced trigger id.
-E_TRIGGER_INVALID_METADATA_KEY	Semantic	a trigger metadata key is not a canonical Name	Replace the metadata key with a valid canonical Name.
-E_TRIGGER_INVALID_NAME	Semantic	a trigger declaration name is not canonical	Rename the trigger using a valid canonical Name.
-E_TRIGGER_METADATA_VALUE	Semantic	a trigger metadata expression cannot be represented as canonical JSON	Use an exactly representable literal or explicit native Json construction.
-E_TRIGGER_SCHEDULE_PERIOD	Semantic	a scheduled trigger declares a zero repeat period	Use a non-zero deterministic period_ms value.
-E_TRIGGER_TARGET_KIND	Semantic	a trigger callback does not target a kotoage/言挙げ function	Point the trigger at a declared kotoage/言挙げ function.
-E_TRIGGER_VIEW_TARGET	Semantic	a trigger callback targets a read-only view function	Point the trigger at a declared kotoage/言挙げ function instead.
-E_TUPLE_INDEX	Semantic	a tuple member index is outside the tuple's declared fields	Use a zero-based tuple index smaller than the tuple length.
-E_TYPE_ANNOTATION_MISMATCH	Semantic	an explicitly typed binding received a value of another type	Keep type-first annotations exact and use only explicit V1 conversions.
-E_UNBOUNDED_ITERATION	Semantic	collection iteration is not compiler-proven bounded	Iterate a List with capacity at most 64; use map.page(after: cursor, limit: N) or map.take(N) with a compile-time integer expression in 1..=64.
-E_UNBOUNDED_LOOP	Semantic	a loop bound is not compiler-proven	Use a static range or a collection operation whose 64-item cap is proven by the compiler.
-E_UNEXPORTED_SYMBOL	Resolve	a qualified call targets a function absent from the package export table	Export the exact function from one module or call a declared exported symbol.
-E_UNEXPORTED_TYPE	Resolve	a named type is absent from the explicit package exports	Export the struct or error declaration from its locked package and use the configured import alias.
-E_UNKNOWN_ERROR_VARIANT	Semantic	the named variant is absent from the error enum	Use a variant declared by this exact error enum; variant names are case-sensitive.
-E_UNKNOWN_IMPORT_ALIAS	Resolve	a qualified call uses an alias not imported by its source package	Add one explicit import binding for the alias or correct the qualified call.
-E_UNKNOWN_NAMED_ARGUMENT	Semantic	a named argument does not match a declared parameter	Use one of the callee's declared parameter names.
-E_UNKNOWN_PACKAGE	Resolve	an import names a package absent from the locked graph	Add the exact package identity to the lock graph or correct the import.
-E_UNKNOWN_STRUCT	Semantic	a struct literal refers to an unknown type	Declare the struct in this source unit or import its typed module declaration.
-E_UNKNOWN_STRUCT_FIELD	Semantic	a struct literal names an undeclared field	Use only fields declared by the struct type.
-E_WILDCARD_IMPORT	Resolve	a module graph requests a wildcard import	Replace the wildcard with explicit package aliases and exported function names.
-E_ZK_MODE_REQUIRED	Semantic	a ZK-only operation was retained without ZK compilation policy	Build the seiyaku with explicit ZK project policy or remove the ZK-only operation.
-K0000	Lex	the requested source could not be read	Check that the path exists, is a regular readable file, and contains valid UTF-8.
-K0001	Lex	source exceeds the 1 MiB V1 limit	Split the source into typed modules and compile one deployable seiyaku per file.
-K0002	Lex	source exceeds the 250,000-token V1 limit	Reduce generated source or move reusable declarations into typed modules.
-K0003	Parse	source exceeds the 256-level nesting limit	Flatten nested expressions, types, or blocks.
-K0004	Parse	the diagnostic fanout limit was reached	Fix the reported errors, then rerun the compiler to reveal any remaining failures.
-K0100	Lex	the source contains an invalid token or character	Use ASCII identifiers except for the exact 誓約, 言挙げ, 始まり, and 改善 keywords; the romanized forms are seiyaku, kotoage, hajimari, and kaizen.
-K1001	Parse	the source does not match the V1 grammar	Use the primary span and labels to repair the declaration or expression.
-K1004	Parse	a source package or test graph exceeds a fixed V1 frontend budget	Reduce the number or aggregate byte size of the source files in the graph.
-K1099	Parse	the parser could not bind its internal source-origin table	Report this compiler bug with the source file; compilation stops without producing typed HIR or bytecode.
-K2001	Semantic	a declaration duplicates or shadows another symbol	Give every declaration and binding a unique, non-reserved name.
-K2002	Resolve	a name, type, function, or import could not be resolved	Correct the spelling or add an explicit typed-module import/export.
-K2003	Semantic	an expression violates the strict type rules	Use the exact declared type and an explicit conversion operation where one exists.
-K2004	Semantic	authorization or view-effect policy was violated	Authorize every kotoage function and keep view call graphs read-only.
-K2005	Semantic	durable-state rules were violated	Initialize scalar state in hajimari and access StateMap values through its typed API.
-K2006	Semantic	a recursive call graph or recursive value type was found	Refactor the cycle into an iterative, compiler-proven bounded design.
-K2007	Semantic	a function exceeds a V1 argument or result table bound	Reduce the recursively flattened argument or result representation to at most 8192 words per table.
-K2008	Semantic	a named value type exceeds a fixed V1 resolution budget	Shorten deeply nested value types or replace repeatedly branching product fields with a flatter bounded schema.
-K2098	Semantic	an accepted parameter type retained no bounded ABI representation	Report this compiler defect with the source; semantic analysis must assign every parameter an exact bounded V1 ABI representation.
-K2099	Resolve	resolved-HIR construction or integrity validation failed	Report this compiler defect with the source; resolution stopped before typed/effect analysis.
-K2100	Semantic	the program violates the deterministic on-chain profile	Remove test-only or non-deterministic behavior from the deployable seiyaku.
-K3001	Lowering	a typed construct has no V1 code-generation form	Use a supported V1 type or operation; this is a compiler defect if the grammar promises the construct.
-K3003	Lowering	typed HIR could not be lowered to SSA MIR	Simplify the reported construct and report a compiler defect if valid V1 source triggered it.
-K3004	Lowering	SSA optimization failed to preserve a valid deterministic control-flow graph	Report this compiler defect with a minimal source reproducer; no artifact is emitted after an optimizer failure.
-K3005	Lowering	lowered IR could not be converted into validated SSA form	Report this compiler defect with a minimal source reproducer; valid typed HIR must always produce validated SSA.
-K3006	Lowering	optimized SSA could not be converted back into validated lowering IR	Report this compiler defect with a minimal source reproducer; no bytecode is emitted from an invalid optimized program.
-K3099	Lowering	bytecode generation or assembly failed	Report the diagnostic with a minimal source reproducer; valid V1 programs must assemble deterministically.
-K4001	Artifact	compiler-owned artifact preparation failed	Report a compiler defect; source cannot override ABI or execution-header policy.
-K4002	Artifact	manifest or deployable artifact construction failed	Report a compiler defect and do not deploy a partial output.
-K4003	Artifact	a reusable module was requested as a deployable artifact	Link the module into exactly one seiyaku root and build that seiyaku.
-K5001	Semantic	durable state is declared but never used	Remove the declaration or read/write it from a reachable function.
-K5002	Semantic	a declaration shadows durable state	Rename the declaration; strict V1 source should keep every binding unambiguous.
-K5003	Semantic	a function parameter is never used	Remove the parameter or use it in the function body.
-K5004	Semantic	a statement is unreachable after return	Delete the unreachable statement or move it before the terminating return.
-K5005	Semantic	a pointer literal duplicates another literal	Reuse one typed value instead of embedding duplicate pointer payloads.
-K5006	Semantic	a constructed pointer value is never used	Remove the constructor call or consume its typed result.
-K5007	Semantic	a trigger specification is not statically transparent	Use a canonical literal trigger specification so admission can derive its behavior.
-K5008	Semantic	a state path is dynamic without complete access metadata	Use a canonical StateMap operation or a literal state path when scheduler precision matters.
-K5009	Semantic	an opaque operation prevents precise access derivation	Prefer typed namespaced operations with derivable access; otherwise execution is serialized conservatively.
-K5099	Semantic	a linter finding lacked a dedicated unified diagnostic code	Report the finding so it can receive a stable K5000-series code and remediation.
+kotodama-diagnostic-explanations-v1	306
+code	phase	summary	help	bad_example	fixed_example
+E_ACCESS_INCOMPLETE	Semantic	the compiler could not prove a complete access set	The runtime must serialize conservatively; remove dynamic or opaque access if parallel execution is required.	-	-
+E_AMBIGUOUS_EXPORT	Resolve	multiple modules define the same declared package export	Keep exactly one module definition for each exported function.	-	-
+E_ASSET_NAME_INVALID	Semantic	an asset display name literal is not a valid asset name	Use a non-blank name of at most 128 characters without `#`, `@`, or control characters.	-	-
+E_AUTHORIZATION_STRING	Parse	authorization was written as an arbitrary string	Declare `permission Admin;` and use `authorize(Admin)`, or explicitly choose `authorize(anyone)`.	-	-
+E_AUTHORIZE_POSITION	Parse	an authorization clause follows the return type	Write authorization before the return type: `kotoage fn name(params) authorize(Admin) -> Type { ... }`.	kotoage fn bump(int delta) -> int authorize(anyone) {\n    return delta;\n}	kotoage fn bump(int delta) authorize(anyone) -> int {\n    return delta;\n}
+E_BIDI_CONTROL_CHARACTER	Lex	the source contains an invisible bidirectional control character	Delete the character; inside a string literal that genuinely needs it, write it as a `\\u{...}` escape. Bidirectional controls make reviewed text read differently from what compiles.	// owner check <U+202E> disabled	// owner check disabled
+E_BRANCH_TYPE_MISMATCH	Semantic	expression branches have different types	Make every if or match branch tail produce exactly the same type.	-	-
+E_BREAK_OUTSIDE_LOOP	Semantic	break appeared outside an accepted bounded loop	Move break into the body of a compiler-proven bounded for loop.	-	-
+E_CONFLICTING_ENUM_TYPE	Resolve	linked modules disagree on one ordinary enum identity	Use one exact declaration schema for each locked package, source unit and enum name.	-	-
+E_CONFLICTING_ERROR_TYPE	Resolve	one nominal error identity has conflicting variant schemas	Use the same exact error descriptor for a locked package identity; different schemas require distinct declared identities.	-	-
+E_CONFUSABLE_KEYWORD	Lex	a Japanese word resembles a branded keyword but is not one	Write the keyword exactly: 誓約/seiyaku, 言挙げ/kotoage, 始まり/hajimari or 改善/kaizen. Both spellings of each keyword are the same token and may be mixed freely.	契約 Counter {\n}	誓約 Counter {\n}
+E_CONST_CAPACITY_CONTEXT	Semantic	a compile-time integer appeared outside a bounded List capacity	Use the compile-time integer only as the second argument of List<T, N>.	-	-
+E_CONST_INITIALIZER	Semantic	a const initializer depended on runtime evaluation	Initialize the const from literals and previously declared constants only.	-	-
+E_CONTINUE_OUTSIDE_LOOP	Semantic	continue appeared outside an accepted bounded loop	Move continue into the body of a compiler-proven bounded for loop.	-	-
+E_CONTRACT_IMPORT_INVALID	Resolve	The imported compiled contract failed canonical artifact admission.	Build the contract with the current compiler and supply its complete authenticated .to artifact in the owning source inventory.	-	-
+E_CONTRACT_IMPORT_NOT_FOUND	Resolve	The declared compiled contract is absent from its source owner inventory.	Supply the referenced .to artifact through the owning project inventory and use its exact relative path in import seiyaku.	-	-
+E_CONTRACT_METHOD	Semantic	the imported contract reference has no callable public method with this signature	Use the admitted interface method with its declared parameter labels. Lifecycle hooks are unavailable through imported references.	-	-
+E_DECIMAL_EXPONENT	Lex	an exact decimal exponent has invalid spelling	Write at least one base-10 digit after `e` or `E`; a leading exponent sign is allowed.	-	-
+E_DECIMAL_MALFORMED	Lex	an exact decimal literal has invalid spelling	Use base-10 digits, at most one decimal point, an optional decimal exponent, and underscores only between digits.	-	-
+E_DECIMAL_MANTISSA_OVERFLOW	Semantic	an exact decimal value exceeds the signed 512-bit mantissa limit	Reduce the magnitude so the unscaled canonical mantissa fits the signed 512-bit domain.	-	-
+E_DECIMAL_SCALE_OVERFLOW	Semantic	an exact decimal value exceeds the 28-digit canonical scale limit	Reduce the significant fractional precision to at most 28 digits. Trailing fractional zeros are canonicalized away before this limit is checked.	-	-
+E_DECLARATION_SHAPE	Parse	a function, kotoage, view or lifecycle hook declaration has the wrong shape	Public functions are `kotoage fn name(...)` (also `言挙げ fn`) or `view fn name(...)`; the lifecycle hooks are written `hajimari() { ... }` and `kaizen() { ... }` with no `fn` and no name.	fn hajimari() {\n    total = 0;\n}	hajimari() {\n    total = 0;\n}
+E_DEPENDENCY_MUST_BE_MODULE	Resolve	a reusable dependency is not a module source unit	Change the dependency to exactly one module declaration; only the package root may be deployable.	-	-
+E_DIVERGING_EXPRESSION_CONTEXT	Semantic	an expression whose branches all diverge lacks an exact result type	Provide an exact contextual type, or use the construct as a statement when every branch returns from the enclosing function.	-	-
+E_DIVISION_BY_ZERO	Semantic	a numeric divisor is zero	Use a nonzero divisor or validate it before the operation.	-	-
+E_DUPLICATE_DECLARATION	Resolve	a source-unit declaration name was repeated	Rename or remove the repeated declaration; V1 has one unambiguous namespace per source unit.	-	-
+E_DUPLICATE_HIR_ID	Resolve	linked typed modules reused a compiler-owned HIR identity	Report this compiler defect with the complete source graph; source cannot assign HIR identities.	-	-
+E_DUPLICATE_IMPORT	Resolve	an import alias is repeated in one scope	Keep one explicit package binding for each import alias.	-	-
+E_DUPLICATE_MESSAGE	Resolve	linked modules define the same localization message key more than once	Keep one canonical message for each localization key in the linked graph.	-	-
+E_DUPLICATE_MODULE	Resolve	one package declares the same module name more than once	Give every module in the package a unique canonical name.	-	-
+E_DUPLICATE_NAMED_ARGUMENT	Parse	a named call argument is repeated	Supply each declared parameter exactly once.	-	-
+E_DUPLICATE_PACKAGE	Resolve	the locked graph contains the same package identity more than once	Keep one canonical record for each package identity in the locked dependency graph.	-	-
+E_DUPLICATE_SOURCE	Resolve	a package graph contains duplicate normalized logical source paths	Remove the duplicate or give each source a unique normalized logical path.	-	-
+E_DUPLICATE_SOURCE_ID	Resolve	different logical sources received the same compiler-owned source identity	Report this compiler defect with the complete normalized source graph.	-	-
+E_DUPLICATE_STRUCT_FIELD	Parse	a struct literal field is repeated	Supply each declared struct field exactly once.	-	-
+E_DUPLICATE_STRUCT_PATTERN_FIELD	Parse	a struct pattern names the same field more than once	Bind each struct field once; aliases must also use distinct local names.	-	-
+E_EMPTY_PACKAGE	Resolve	a locked package contains no Kotodama modules	Add at least one module source or remove the empty package from the locked graph.	-	-
+E_EMPTY_PACKAGE_GRAPH	Resolve	typed linking produced no root or reusable module program	Provide one seiyaku root and every explicitly imported non-empty module package.	-	-
+E_ENGLISH_DECLARATION_WORD	Parse	an English concept word is written where a branded keyword declares the concept	Use the branded keyword in either spelling: a deployable unit is `seiyaku`/`誓約`, an authorized state-changing function `kotoage fn`/`言挙げ fn`, the activation hook `hajimari`/`始まり` and the in-place replacement hook `kaizen`/`改善`.	contract Counter {\n    init() {\n    }\n}	seiyaku Counter {\n    hajimari() {\n    }\n}
+E_ENUM_MESSAGE	Parse	ordinary enum variants cannot declare rejection messages	Use explicit named codes in an ordinary enum; use error enum only for raisable failures.	-	-
+E_ENUM_SCHEMA	Semantic	the ordinary enum descriptor is not canonical	Declare between 1 and 256 uniquely named variants with distinct nonzero u32 codes.	-	-
+E_ERROR_MESSAGE	Semantic	an error message violates the static message contract	Use one nonblank static UTF-8 message between 1 and 4096 bytes on each annotated error variant.	-	-
+E_ERROR_SCHEMA	Semantic	an error type has an invalid nominal schema	Declare one error enum identity with unique names and nonzero u32 variant codes.	-	-
+E_EVENT_DECLARATION	Semantic	native events belong to their declaring seiyaku	Declare the event and emitting helpers in the seiyaku; modules export reusable value types and pure or explicit ledger helpers.	-	-
+E_EVENT_PAYLOAD	Parse	emit requires a declared native event record	Write `emit Event { field: value };` with every declared field exactly once.	-	-
+E_EVENT_SCHEMA	Semantic	the native event payload or declaration inventory is invalid	Use canonical public value fields, excluding Json, StateCursor and private values recursively; declare at most 256 events within 65536 encoded bytes.	-	-
+E_EVENT_VALUE	Semantic	an event declaration is not an ordinary value type	Use `emit Event { field: value };`; declare a struct for reusable values and use it as an event field.	-	-
+E_EXACT_DIVISION_SCALE_OVERFLOW	Semantic	an exact terminating quotient needs more than 28 fractional digits	Use `div_round` with an explicit representable scale, or change the operands.	-	-
+E_FORBIDDEN_SOURCE_IDENTIFIER	Parse	source uses an identifier spelling forbidden in every Kotodama V1 context	Choose a domain-specific identifier; lowercase `amount` remains an ordinary business identifier.	-	-
+E_FOR_INITIALIZER	Semantic	a bounded for-loop initializer lowered to more than one operation	Use one simple let binding or expression as the for-loop initializer.	-	-
+E_FOR_STEP	Semantic	a bounded for-loop step lowered to more than one operation	Use one simple let binding or expression as the for-loop step.	-	-
+E_FULLWIDTH_ASCII	Lex	a full-width form of an ASCII character appears outside a string or comment	Replace it with the ASCII character; switch the input method to half-width (direct input) for code. The ideographic space U+3000 is accepted between tokens.	始まり（） {\n}	始まり() {\n}
+E_IF_EXPRESSION_ELSE	Semantic	an expression-valued if omits its else branch	Add an else block whose tail has exactly the same type as the then block tail.	-	-
+E_IF_LET_EXPRESSION_ELSE	Semantic	an expression-valued if let omits its else branch	Add an else block, or use if let as a statement when no value is needed.	-	-
+E_IMMUTABLE_ASSIGNMENT	Semantic	an immutable binding was assigned after declaration	Declare a mutable local with `var`, or compute the final immutable value before binding it.	-	-
+E_IMPLICIT_NUMERIC_CONVERSION	Semantic	runtime int and decimal values were mixed without a named conversion	Convert the int with decimal::from_int(value) before decimal arithmetic or comparison. Exact numeric literals may still infer their type contextually at compile time.	-	-
+E_INCLUDE_CYCLE	Resolve	source includes form a cycle	Remove an include edge so every fragment expands through an acyclic include graph.	-	-
+E_INEXACT_CONVERSION	Semantic	an exact numeric conversion would discard a fractional part	Use an explicitly truncating or rounded conversion when loss of precision is intentional.	-	-
+E_INTERNAL_BUILTIN	Semantic	source attempted to call a compiler-internal raw capability	Use the typed namespaced source API; allocation, pointers, raw syscalls, and opaque instructions are unavailable.	-	-
+E_INTERNAL_NUMERIC_MATRIX	Semantic	typed numeric operands violated the compiler's canonical operator matrix	Report this compiler defect with a minimal source reproducer; no artifact is emitted from inconsistent typed HIR.	-	-
+E_INTERNAL_RESOLUTION	Resolve	typed analysis received inconsistent or incomplete resolved-HIR metadata	Report this compiler defect with the source; resolution must assign stable identities and targets before typed analysis.	-	-
+E_INTRINSIC_CONTEXT	Semantic	a compiler intrinsic was used outside its declared operation context	Use the public namespaced operation that owns the intrinsic instead of referring to the compiler-owned value.	-	-
+E_INT_LITERAL_OVERFLOW	Parse	an integer literal is outside the signed 512-bit domain	Use a value from -2^511 through 2^511 - 1.	-	-
+E_INT_OVERFLOW	Semantic	checked integer arithmetic overflowed	Change the inputs or use an explicit wrapping operation when modular arithmetic is intentional.	-	-
+E_INVALID_ASSIGNMENT_TARGET	Semantic	an assignment targeted a non-assignable expression	Assign only to a `var` binding, a field of one, or `map[key] = value`. To change a StateMap entry, copy it with `var entry = Map.get(key).expect(Error::Missing);`, change `entry`, and store it back with `Map[key] = entry;`.	Positions[who].x = 3;	var position = Positions.get(who).expect(E::Missing);\nposition.x = 3;\nPositions[who] = position;
+E_INVALID_IDENTIFIER	Resolve	a package, module, alias, or symbol name is not a strict V1 identifier	Use a valid unambiguous Kotodama V1 identifier in the reported graph location.	-	-
+E_INVALID_ID_LITERAL	Semantic	a typed identifier literal is malformed or encoded for another network	Copy the identifier exactly as printed, or re-encode an account for this network with `iroha tools address convert`. Canonical account literals write katakana half-width, except ヰ and ヱ.	let ds = DataSpaceId::parse("zero");	let ds = DataSpaceId::parse("0");
+E_INVALID_MODULE_ITEM	Resolve	a reusable module contains a deployable-only declaration	Move state, triggers, `kotoage`/`言挙げ`, `view fn`, `hajimari`/`始まり`, or `kaizen`/`改善` declarations into the seiyaku root.	-	-
+E_INVALID_SCALE	Semantic	an exact numeric operation received a scale outside zero through 28	Choose an int scale from 0 through 28.	-	-
+E_INVALID_SOURCE_PATH	Resolve	a logical module source path is non-canonical or escapes its package	Use a normalized relative logical path contained by the package source root.	-	-
+E_ITERATION_LIMIT	Semantic	a bounded collection operation exceeded the 64-item V1 limit	Reduce the collection or split the operation into deterministic calls of at most 64 items.	-	-
+E_JSON_CAPACITY	Semantic	a native JSON object or array exceeds the per-node V1 bound	Use at most 64 object entries or array elements at each JSON node; split larger data into bounded nested nodes.	-	-
+E_JSON_DUPLICATE_KEY	Semantic	a native JSON object repeats a decoded key	Keep each decoded key exactly once; identifier and quoted spellings of the same key still collide.	-	-
+E_JSON_LITERAL_INVALID	Semantic	a Json::parse string literal is not valid JSON	Provide one valid JSON value and keep every decoded object key unique.	-	-
+E_JSON_LITERAL_REQUIRED	Semantic	Json::parse requires a direct string literal	Use a direct JSON string literal so it is validated at compile time, or construct dynamic typed values with native `json { ... }` and `json [ ... ]` syntax.	-	-
+E_JSON_SCHEMA_LIMIT	Semantic	a native JSON construction exceeds a recursive V1 ABI bound	Reduce recursive object, array, Option, or List structure so the canonical construction schema fits its node, word, depth, and encoded-byte limits.	-	-
+E_JSON_VALUE_TYPE	Semantic	a value cannot be converted by native JSON construction	Handle Result and arbitrary structs explicitly, and keep StateMap, Secret, and other resource handles outside JSON.	-	-
+E_KEYWORD_SPACING	Lex	a kanji keyword is joined to the following word without a space	Insert a space after the keyword, for example `言挙げ fn`.	言挙げfn bump() authorize(anyone) {\n}	言挙げ fn bump() authorize(anyone) {\n}
+E_KEYWORD_TYPO	Parse	an identifier is a near-miss spelling of a keyword	Correct the spelling; the suggestion is the closest keyword, and branded keywords are offered in both spellings.	kaizan() {\n}	kaizen() {\n}
+E_KOTOAGE_AUTHORIZATION_MISSING	Parse	a kotoage function does not name the permission its caller needs	Choose a declared permission with `authorize(Admin)` or explicitly allow every caller with `authorize(anyone)` before the return type.	kotoage fn bump() {\n    total += 1;\n}	kotoage fn bump() authorize(anyone) {\n    total += 1;\n}
+E_LEGACY_JSON_GETTER	Parse	source uses a retired name for the quantity JSON getter	Use value.get_quantity(key); typed JSON getters are receiver methods that return Option<T>.	-	-
+E_LEGACY_SUM_CONSTRUCTOR	Parse	an Option or Result constructor or pattern is not spelled canonically	Use Option::some(value), contextual Option::none, Result::ok(value), or Result::err(value) in expressions and match patterns.	return Some(total);	return Option::some(total);
+E_LET_MUT	Parse	a mutable local is written `let mut`	Declare mutable locals with `var`; `let` bindings are immutable.	let mut count = 0;	var count = 0;
+E_LIFECYCLE_AUTHORIZATION	Parse	a hajimari or kaizen declaration declares caller authorization	Remove `authorize(...)`; activation and in-place replacement are authorized by the runtime, not by the hook.	hajimari() authorize("Admin") {\n}	hajimari() {\n}
+E_LIST_CAPACITY	Semantic	a List capacity is outside 1 through 64	Choose a compile-time capacity from 1 through 64.	-	-
+E_LIST_CAPACITY_CONST	Semantic	a List capacity is not a compile-time integer	Use an integer capacity constant from 1 through 64.	-	-
+E_LIST_COMPREHENSION_CAPACITY	Semantic	a list comprehension may exceed its contextual or V1 capacity	Reduce the source capacity or use a context large enough for the full proven maximum, up to 64.	-	-
+E_LIST_COMPREHENSION_FILTER	Semantic	a list comprehension filter is not boolean	Use a bool expression after if; filters do not reduce the proven capacity.	-	-
+E_LIST_COMPREHENSION_SOURCE	Semantic	a list comprehension source is not a bounded List	Iterate a List<T, N> so the compiler can prove the maximum result size.	-	-
+E_LIST_CONTAINS_COMPARABILITY	Semantic	List.contains requires canonically comparable elements	Use an element type with deterministic structural equality; resource handles and other non-comparable values cannot be searched with contains.	-	-
+E_LIST_CONTEXT_TYPE	Semantic	a list expression conflicts with its contextual type	Use a matching List<T, N> context and exactly assignable element values.	-	-
+E_LIST_EMPTY_CONTEXT	Semantic	an empty list literal has no element or capacity context	Add a List<T, N> annotation to the binding, argument, or return position.	-	-
+E_LIST_INDEX_TYPE	Semantic	a List index has the wrong type	Use an int index with get or try_set.	-	-
+E_LIST_LITERAL_CAPACITY	Semantic	a list literal exceeds its contextual capacity	Increase the declared capacity up to 64 or reduce the literal element count.	-	-
+E_LIST_METHOD_ARITY	Semantic	a bounded List method has the wrong argument count	Use the declared method signature and account for the implicit receiver.	-	-
+E_LIST_MUTABLE_RECEIVER	Semantic	a mutating List method was called on a non-mutable receiver	Bind the List with var before calling try_set, try_push, or pop.	-	-
+E_LIST_PROVABLY_FULL	Semantic	push follows initialization of a provably full List	Declare an explicit larger capacity at initialization, remove an element first, or handle the Result from try_push. Unknown lengths and escaped aliases retain their runtime bounds checks.	-	-
+E_LIST_RESOURCE_ELEMENT	Semantic	a List element contains a resource handle	Keep StateMap, Secret, and other resource handles outside List elements.	-	-
+E_LIST_TAKE_CONST	Semantic	List.take received a dynamic limit	Pass a compile-time integer limit so the result capacity remains proven.	-	-
+E_LIST_TAKE_LIMIT	Semantic	List.take received a limit outside its source capacity	Use a constant limit from 0 through the source List capacity.	-	-
+E_LIST_TYPE_ARITY	Semantic	List has an invalid number of type arguments	Declare List<T, N> with one element type and one capacity constant.	-	-
+E_LIST_UNSAFE_INDEX	Semantic	source attempted an unchecked List index operation	Use get(index) for reads and try_set(index, value) for writes.	-	-
+E_LOCAL_IMPORT_CYCLE	Resolve	local module imports form a cycle	Remove an import edge so local modules have an acyclic dependency graph.	-	-
+E_LOCAL_SHADOWING	Resolve	a local binding duplicates or shadows another visible symbol	Rename the binding so every local and source-unit declaration remains unambiguous.	-	-
+E_MALFORMED_CALL	Semantic	resolved call metadata was internally inconsistent	Report this compiler defect with a minimal source reproducer; malformed resolved calls never produce artifacts.	-	-
+E_MATCH_DUPLICATE_PATTERN	Semantic	a match expression repeats a variant pattern	Keep exactly one arm for each variant in the matched sum family.	-	-
+E_MATCH_EMPTY	Semantic	a match expression has no arms	Add the complete namespaced pattern set for the matched Option or Result.	-	-
+E_MATCH_NON_EXHAUSTIVE	Semantic	a sum match omits an active or inactive variant	Cover both Option variants or both Result variants explicitly.	-	-
+E_MATCH_WILDCARD	Parse	a match arm uses a `_` wildcard pattern	Name every variant: `Option::some(value)` and `Option::none`, or `Result::ok(value)` and `Result::err(error)`; bind an unused payload as `_`.	match maybe {\n    Option::some(v) => v,\n    _ => 0,\n}	match maybe {\n    Option::some(v) => v,\n    Option::none => 0,\n}
+E_MISSING_DECLARATION_TYPE	Parse	a parameter, state, constant or field declaration names no type	Write the type before the name, for example `fn run(int value)` or `state int count;`.	fn run(value) {\n}	fn run(int value) {\n}
+E_MISSING_EXPORT	Resolve	a package export names no module function	Define the exported function in exactly one module or remove the stale export.	-	-
+E_MISSING_NAMED_ARGUMENT	Semantic	a named call omits a required parameter	Supply every required argument, positionally where the call accepts it or as `label: value`.	-	-
+E_MISSING_RETURN	Semantic	a value-returning function does not return on every path	Return the declared type on every reachable path or use one final block-tail expression.	-	-
+E_MISSING_STRUCT_FIELD	Semantic	a struct literal omits a declared field	Supply every declared field; field order in source is unrestricted.	-	-
+E_MISSING_STRUCT_PATTERN_FIELD	Semantic	a struct pattern does not account for every field	Bind or explicitly discard each field, or add a final `..` marker.	-	-
+E_MULTIPLE_SEIYAKU_ROOTS	Resolve	one diagnostics request contains more than one deployable seiyaku root	Keep one project root; check unrelated seiyaku roots in separate requests.	-	-
+E_NAMED_ARGUMENTS_REQUIRED	Semantic	a named parameter was supplied positionally	This builtin takes labelled arguments: write each one as `label: value`, or pass a variable spelled exactly like the label. Single-argument calls, receiver methods, and pure helpers accept positional arguments.	-	-
+E_NAMED_ARGUMENT_HOLE	Semantic	a named call supplies a later optional parameter after omitting an earlier optional ABI slot	Supply the earlier optional parameter too, or omit the complete trailing optional suffix.	-	-
+E_NEGATIVE_QUANTITY	Semantic	a value converted to quantity is negative	Use decimal when the value may be negative, or prove the value non-negative before an explicit quantity conversion.	-	-
+E_NEGATIVE_SQUARE_ROOT	Semantic	integer square root requires a nonnegative operand	Pass a nonnegative int to math::isqrt; negative inputs fault instead of narrowing or changing sign.	-	-
+E_NOMINAL_ARGUMENT	Semantic	a NumericSpec, Mintable, or SignatureScheme argument is not a compile-time value	Write the value directly as the argument: `NumericSpec::unconstrained()`, `NumericSpec::integer()`, or `NumericSpec::fractional(scale)`; `Mintable::Infinitely`, `Mintable::Once`, `Mintable::Not`, or `Mintable::Limited(tokens)`; `SignatureScheme::Ed25519`, `SignatureScheme::Secp256k1`, or `SignatureScheme::MlDsa`.	-	-
+E_NON_ASCII_WHITESPACE	Lex	a Unicode space other than U+3000 separates tokens	Replace it with an ASCII space; tokens are separated by ASCII whitespace or the ideographic space U+3000.	state<U+00A0>int total;	state int total;
+E_NON_CANONICAL_BUILTIN	Semantic	source used a retired, flat, or compiler-internal builtin spelling	Use the canonical V1 namespaced builtin shown by the diagnostic.	-	-
+E_NON_CANONICAL_NUMERIC	Semantic	a numeric value was not in canonical int, decimal, or quantity form	Construct the value with the exact canonical numeric type and representation.	-	-
+E_NUMERIC_ROUNDING_MODE	Semantic	an explicitly rounded numeric operation received an unknown rounding mode	Use one of the seven V1 modes: toward_zero, away_from_zero, floor, ceil, nearest_even, nearest_away, or nearest_toward_zero.	-	-
+E_NUMERIC_ROUND_ARITY	Semantic	an explicitly rounded numeric operation has the wrong number of arguments	Pass every declared argument, positionally or by its declared label; rounded division requires divisor, scale, and mode.	-	-
+E_NUMERIC_ROUND_RECEIVER	Semantic	an explicitly rounded numeric method was called on an unsupported receiver	Use decimal.div_round, quantity.div_round, or quantity.ratio_round with the operand types declared by the V1 numeric matrix.	-	-
+E_PACKAGE_BUDGET	Parse	a typed-module package graph exceeds a fixed V1 frontend budget	Reduce the package source count or aggregate source bytes before linking.	-	-
+E_PACKAGE_IMPORT_CYCLE	Resolve	locked package imports form a dependency cycle	Break the cycle and keep the typed-module package graph acyclic.	-	-
+E_PATTERN_FAMILY	Semantic	a namespaced pattern belongs to the wrong sum family	Match Option values with Option::some/none and Result values with Result::ok/err.	-	-
+E_PATTERN_PAYLOAD	Semantic	a sum pattern binds a payload on an inactive variant or omits an active payload binding	Bind or explicitly ignore active payloads; write Option::none without a payload.	-	-
+E_PATTERN_TYPE	Semantic	a sum pattern was applied to a non-Option/non-Result value	Use namespaced sum patterns only with Option<T> or Result<T, E>.	-	-
+E_PATTERN_VARIANT	Semantic	the pattern variant does not belong to the expected type	Match a variant from the exact nominal enum or sum type of the scrutinee.	-	-
+E_PERMISSION_ARGUMENT	Semantic	a grant or revocation did not name an instance permission declaration	Pass a declared instance permission identifier as `permission:`. Chain imports, strings and dynamic Name values cannot be used for scoped grants.	-	-
+E_PERMISSION_DECLARATION	Parse	a permission declaration is invalid or outside a seiyaku	Declare an instance permission with `permission Admin;` or import a chain token explicitly; modules cannot declare permissions and `anyone` cannot be a permission name.	-	-
+E_POSITIONAL_ARGUMENT_ORDER	Parse	a positional argument follows a named argument	Supply the positional prefix first, then named arguments in any order.	-	-
+E_POSITIONAL_ARGUMENT_REQUIRED	Semantic	a positional-only parameter was supplied by name	Omit the label for parameters declared as `Type _ name`.	-	-
+E_POSITIONAL_PARAMETER_ORDER	Parse	a positional parameter follows a named parameter	Place every `Type _ name` parameter before the named `Type name` parameters.	-	-
+E_POSITIONAL_STRUCT	Semantic	a struct uses retired positional construction	Use `Type { field: value, shorthand_field }`; apply the diagnostic fix when one is available.	-	-
+E_POSITIONAL_STRUCT_PATTERN	Semantic	a struct is destructured by position	Use `let Type { field, other: alias, .. } = value;`; positional patterns are for tuples.	-	-
+E_PROJECT_MANIFEST	Resolve	a Musubi project manifest is malformed or unsafe	Use Musubi.toml with relative in-project source paths and a matching Musubi.lock.	-	-
+E_PROJECT_MANIFEST_REQUIRED	Resolve	positional source paths cannot grant module linking authority	Use musubi check --manifest-path Musubi.toml with declared imports, modules, exports, and packages locked by Musubi.lock.	-	-
+E_PROJECT_RELOAD	Resolve	the Musubi project or locked dependency graph could not be reloaded	Fix and save Musubi.toml, then resolve dependency changes with musubi check before continuing project analysis.	-	-
+E_PROJECT_TARGET_AMBIGUOUS	Resolve	a source module belongs to more than one contract target	Select the intended target with musubi lsp --manifest-path Musubi.toml --contract <target>.	-	-
+E_PROPAGATE_CONTEXT	Semantic	postfix propagation is used outside a matching sum-returning function	Return the same Option or Result family from the enclosing function, or handle the value explicitly.	-	-
+E_PROPAGATE_ERROR_TYPE	Semantic	Result propagation would require implicit error conversion	Use the exact enclosing Result error type or convert the error explicitly before propagation.	-	-
+E_PROPAGATE_TYPE	Semantic	postfix propagation was applied to a non-sum value	Apply ? only to Option<T> or Result<T, E>.	-	-
+E_PUBLIC_PARAMETER_IDENTIFIER	Semantic	a public parameter name cannot be represented in the canonical call schema	Use an ordinary canonical identifier such as permission_token; keyword spellings are not valid ABI field names.	-	-
+E_QUANTITY_NEGATION	Semantic	the nominal `quantity` type cannot be negated	Use `int` or `decimal` for signed values.	-	-
+E_QUANTITY_REMAINDER	Semantic	quantity does not define a remainder operation	Use exact division, quantity.div_round, or quantity.ratio_round with an explicit scale and rounding mode.	-	-
+E_QUANTITY_UNDERFLOW	Semantic	quantity subtraction would produce a negative result	Change the operands, or convert to decimal explicitly when a negative result is part of the domain.	-	-
+E_QUERY_KEY_TYPE	Semantic	a typed core query received bytes or the wrong identifier type	Pass the exact AccountId, AssetId, AssetDefinitionId, DomainId, or NftId required by the query.	-	-
+E_QUERY_LIMIT	Semantic	a typed query page limit is outside 1 through 64	Choose a page limit from 1 through 64.	-	-
+E_QUERY_OFFSET	Semantic	a typed query page window is outside the non-negative signed 64-bit range	Use an offset in 0..=i64::MAX and ensure offset plus limit fits i64.	-	-
+E_QUERY_PAGE_ARGUMENTS	Semantic	a typed query page has invalid offset or limit arguments	Pass named offset: int and limit: int arguments.	-	-
+E_QUERY_PAGE_VIEW	Semantic	QueryPage was instantiated with a view outside the declared core query set	Use QueryPage only with a canonical core query view supported by ABI V1.	-	-
+E_QUERY_RESULT_TYPE	Semantic	a typed core-query projection was assigned to an incompatible result type	Receive singular queries as Option<View> and plural queries as QueryPage<View>; raw byte compatibility is not part of the five V1 core-query families.	-	-
+E_QUORUM_RANGE	Semantic	an account quorum is outside the protocol's nonzero 16-bit domain	Use an int from 1 through 65535. This is a protocol-field bound, not the range of Kotodama int.	-	-
+E_RANGE_SYNTAX	Parse	a loop uses an `a..b` range operator	Count with `range(N)`, which iterates 0 up to N - 1 with a compile-time bound; offset the index for other starting points.	for i in 0..10 {\n}	for i in range(10) {\n}
+E_REPEATING_DECIMAL	Semantic	exact decimal division has a nonterminating result	Choose decimal.div_round, quantity.div_round or ratio_round, or mul_div_round for a fused product, with an explicit scale and rounding mode.	-	-
+E_RESERVED_DECLARATION	Resolve	a declaration collided with a reserved language or builtin name	Choose an ASCII identifier that is not a V1 keyword, type, namespace, or builtin.	-	-
+E_RESERVED_IMPORT	Resolve	an import alias collides with a compiler-owned capability namespace	Choose a non-reserved explicit alias for the imported package.	-	-
+E_RESULT_MUST_USE	Semantic	a fallible Result value was left unhandled	Handle the Result with match, return, or propagation using ?, or explicitly discard it with let _ = expression;.	-	-
+E_RETIRED_DECLARATION_ORDER	Parse	a typed declaration is written `name: Type` instead of the type-first `Type name`	Place the type before the name, for example `fn add(int lhs)`, `state int value;`, `const int limit = 1;` or `let int count = 0;`.	fn add(amount: int) {\n}	fn add(int amount) {\n}
+E_RETIRED_NUMERIC_HELPER	Parse	source calls a retired width-specific or generic numeric helper	Use exact operators, named int/decimal/quantity conversions, or native `json { ... }` construction.	-	-
+E_RETIRED_NUMERIC_SUFFIX	Lex	a numeric literal uses a retired suffix	Use an unsuffixed literal in an explicit int, decimal, or quantity context; Kotodama V1 has no numeric literal suffixes.	-	-
+E_RETIRED_NUMERIC_TYPE	Parse	a declaration uses a retired numeric type name	Use `int`, `decimal`, or the nominal non-negative `quantity` type.	-	-
+E_RETIRED_TRIGGER_ALIAS	Parse	source calls a non-canonical trigger lifecycle operation	Use ledger::trigger::register or ledger::trigger::unregister; the diagnostic provides an exact replacement.	-	-
+E_RETIRED_VRF_VERIFY_ARGS	Semantic	source used the retired multi-argument VRF verification form	Encode one VrfVerifyRequest as bytes and pass it through the named request argument.	-	-
+E_RETURN_TYPE_MISMATCH	Semantic	a returned value does not exactly match the declared return type	Return the exact declared type; use an explicit conversion where the V1 API provides one.	-	-
+E_ROOT_MUST_BE_SEIYAKU	Resolve	the deployable package root is not a seiyaku/誓約 source unit	Declare exactly one seiyaku/誓約 in the root and keep reusable dependencies as modules.	-	-
+E_SECRET_ARITHMETIC	Semantic	secret data was used by an ordinary arithmetic operation	Use only an approved proof or commitment operation whose secret-flow contract is explicit.	-	-
+E_SECRET_CONTROL_FLOW	Semantic	a secret value influenced public control flow	Remove the secret-dependent branch or loop.	-	-
+E_SECRET_FULL_WIDTH_CRYPTO_REQUIRED	Semantic	a scalar-register crypto operation attempted to consume Secret<T>	Use crypto::valcom or another approved full-width proof operation that declares a Secret<T> flow.	-	-
+E_SECRET_HOST_SINK	Semantic	secret data reached a public host operation	Pass only approved public proof or commitment outputs to ledger, context, state, and debug APIs.	-	-
+E_SECRET_LOG	Semantic	a secret value flowed into a log	Remove the log or log only a public value independent of the secret.	-	-
+E_SECRET_MIXED_COMMITMENT	Semantic	a commitment mixed secret data with an unapproved public value	Use the exact approved commitment signature and explicitly public domain-separation inputs.	-	-
+E_SECRET_PAYLOAD_TYPE	Semantic	a private input used a type outside the approved Secret<T> payload set	Choose a supported fixed-layout secret payload type accepted by the ZK proof interface.	-	-
+E_SECRET_PRIVATE_INPUT_AMBIGUOUS	Semantic	a private input had no inferable Secret<T> payload type	Use a type-first binding such as `let Secret<int> value = crypto::private_input(0);`.	-	-
+E_SECRET_PRIVATE_INPUT_CONTEXT	Semantic	a private-input operation did not initialize an approved Secret<T> binding	Initialize an explicit Secret<int>, Secret<decimal>, or Secret<quantity> binding.	-	-
+E_SECRET_PRIVATE_INPUT_INDEX	Semantic	a private-input index depended on secret or unbounded data	Use a public compile-time-bounded private-input index.	-	-
+E_SECRET_PUBLIC_PARAMETER	Semantic	a kotoage/view/hajimari/kaizen parameter was declared as Secret<T>	Read private inputs through the ZK-only private-input API; public ABI records cannot contain secrets.	-	-
+E_SECRET_PUBLIC_RETURN	Semantic	a secret value flowed into a public return	Return only an approved proof, commitment, or public value independent of the secret.	-	-
+E_SECRET_REQUIRES_ZK	Semantic	Secret<T> was used outside a ZK seiyaku build	Compile through a ZK-enabled project policy and keep the value inside approved proof or commitment operations.	-	-
+E_SECRET_STATE_KEY	Semantic	a secret value flowed into a durable-state key	Use a public canonical key independent of all private inputs.	-	-
+E_SECRET_STATE_SINK	Semantic	secret-tainted data reached durable state	Persist only an approved public commitment or proof result independent of raw secret material.	-	-
+E_SECRET_STATE_TYPE	Semantic	durable state was declared with a secret-bearing type	Keep Secret<T> ephemeral and store only approved public commitments or proof outputs.	-	-
+E_SECRET_STATE_WRITE	Semantic	a secret value flowed directly into durable state	Persist only an approved commitment or proof output.	-	-
+E_SECRET_UNAPPROVED_OPERATION	Semantic	secret data reached an operation without an approved flow specification	Use an operation explicitly listed by the V1 secret-flow policy.	-	-
+E_SECRET_UNKNOWN_CALL	Semantic	secret data was passed through a call whose flow behavior is unknown	Pass secrets only to compiler-known proof and commitment functions with declared flow behavior.	-	-
+E_SOURCE_NOT_FOUND	Resolve	a declared source dependency is absent	Supply the referenced file inside the explicit source bundle and use its canonical relative path.	-	-
+E_SOURCE_OWNERSHIP	Resolve	one fragment is assigned to multiple source units	Give each fragment a single owning contract or module; use exported module declarations for shared dependencies.	-	-
+E_SOURCE_UNIT_KIND	Resolve	a source dependency has the wrong unit kind	Use a bare declaration fragment for include, a module for import, and a seiyaku as the contract entry file.	-	-
+E_STATE_HAJIMARI_INCOMPLETE	Semantic	scalar durable state is not initialized on every normal `hajimari`/`始まり` path	Assign every reported scalar state on all branches and before every early return; loop-only and short-circuited writes are not definite.	-	-
+E_STATE_HAJIMARI_REQUIRED	Semantic	scalar durable state was declared without a hajimari/始まり hook	Declare hajimari/始まり and initialize every scalar state value before any normal return or fallthrough.	-	-
+E_STATE_MAP_ALIAS	Semantic	a StateMap was treated as an in-memory first-class value	Access the declared StateMap directly through get, set, remove, or bounded iteration.	-	-
+E_STATE_MAP_KEY_TYPE	Semantic	a StateMap key lacks a canonical deterministic Norito representation	Choose a supported scalar canonical-Norito key type.	-	-
+E_STATE_MAP_OPTIONAL_READ	Semantic	a StateMap read discarded the possibility that its key is absent	Use map.get(key), handle the returned Option<V>, and use map[key] = value only for writes.	-	-
+E_STATE_SHADOWED	Semantic	a local declaration shadowed durable state	Rename the local declaration; V1 rejects all shadowing.	-	-
+E_STRUCT_PATTERN_REST	Parse	a struct pattern places its rest marker before another field	Place one `..` marker at the end to explicitly discard unspecified fields.	-	-
+E_STRUCT_PATTERN_TYPE	Semantic	a named struct pattern has a different nominal type from its initializer	Use the initializer's declared struct type and bind its fields by name.	-	-
+E_SUM_CONSTRUCTOR_ARITY	Parse	an active-only sum constructor has the wrong payload count	Supply exactly one active payload to Option::some, Result::ok, or Result::err.	-	-
+E_SUM_CONSTRUCTOR_FORM	Parse	an active-only sum constructor has invalid source form	Write Option::none without parentheses and give active constructors exactly one positional payload.	-	-
+E_SUM_CONTEXT_TYPE	Semantic	a sum constructor conflicts with its contextual type	Use the matching Option or Result constructor and an exactly assignable active payload.	-	-
+E_SUM_MISSING_CONTEXT	Semantic	an inactive or partially inferred sum value lacks an exact type context	Add an Option<T> or Result<T, E> annotation so every generic payload type is known.	-	-
+E_TAIL_TYPE_MISMATCH	Semantic	a block-tail expression does not exactly match its required type	Make the final expression the exact required type or terminate it with a semicolon when the block returns unit.	-	-
+E_TEST_ACTOR_LITERAL	Semantic	a Kotodama test actor was not a static literal alias	Pass a string literal or Name::parse literal actor alias to the test helper.	-	-
+E_TEST_ARGUMENT_RECORD	Semantic	test invocation arguments do not match the target parameters	Pass a closed typed record, for example `arguments: { count: 7 }`, with exactly the target parameter names and types. Use `{}` for a target with no parameters. JSON values are not accepted.	-	-
+E_TEST_BUILTIN_CONTEXT	Semantic	a `test::` builtin was called outside a test function or a test-module helper	Call `test::` builtins from a `#[test] fn` or from a private helper of a `*.test.ko` module that declares `koto_test { target: "..." }`; seiyaku code, including its private helpers, cannot call them.	-	-
+E_TEST_ENTRYPOINT_KIND	Semantic	a runtime test helper targeted a private function	Target a kotoage, view, hajimari, or kaizen declaration.	-	-
+E_TEST_ENTRYPOINT_LITERAL	Semantic	a runtime test helper target was not a static literal	Pass the kotoage, view, hajimari, or kaizen name as a string or Name::parse literal.	-	-
+E_TEST_FUNCTION_SIGNATURE	Semantic	a #[test] function has a public, parameterized, or value-returning signature	Declare each test as a local parameterless `#[test] fn` returning unit.	-	-
+E_TEST_MODULE_ITEM	Semantic	a standalone Kotodama test module contains a deployable-only item	Keep standalone test modules limited to their target, fixtures, helpers, and #[test] functions.	-	-
+E_TEST_MODULE_KIND	Semantic	a standalone Kotodama test file did not declare a module	Declare a module source unit and identify the tested seiyaku with koto_test.	-	-
+E_TEST_ONLY_PRODUCTION	Semantic	test code reached a production check or build	Move #[test] functions, fixtures, and `test::` calls into a `<name>.test.ko` module that declares `koto_test { target: "..." }`, and run it with `koto test`; production checks and builds reject test code instead of stripping it, so the artifact always matches the reviewed source.	seiyaku Fees {\n    view fn fee(int amount) authorize(anyone) -> int {\n        return amount * 2;\n    }\n\n    #[test]\n    fn doubles() {\n        test::assert_eq(actual: fee(amount: 500), expected: 1000);\n    }\n}	// tests/fees.test.ko; contracts/fees.ko keeps only the seiyaku\nmodule FeesTests {\n    koto_test { target: "../contracts/fees.ko" }\n\n    #[test]\n    fn doubles() {\n        let charged = test::invoke_kotoage(\n            kotoage: "fee",\n            arguments: { amount: 500 },\n        );\n        test::assert_eq(actual: charged, expected: 1000);\n    }\n}
+E_TEST_REJECTION_EXPECTATION	Semantic	the exact rejection helper requires a typed error variant or rejection selector	Pass an ErrorEnum::Variant value or a test::Rejection selector to expected.	-	-
+E_TEST_TARGET_MISMATCH	Resolve	a standalone test module resolves to a different target source	Correct koto_test.target so its normalized path names the graph's exact seiyaku target.	-	-
+E_TEST_TARGET_REQUIRED	Semantic	a standalone Kotodama test module omitted its tested seiyaku	Add one koto_test declaration naming the seiyaku under test.	-	-
+E_TRIGGER_CALLBACK_PARAMETERS	Semantic	a trigger event cannot supply the callback parameter record	Time, data, and pipeline callbacks take no parameters; read dynamic event data with `context::trigger_event()`. Execute-trigger callbacks may declare typed parameters validated against the explicit event arguments.	-	-
+E_TRIGGER_FILTER_DUPLICATE_MATCHER	Semantic	a trigger data filter repeats one matcher key	Keep at most one matcher for each supported key in the trigger filter.	-	-
+E_TRIGGER_FILTER_INVALID_LITERAL	Semantic	a trigger data-filter matcher contains an invalid typed identifier literal	Replace the matcher value with a canonical literal of the identifier type named by the diagnostic.	-	-
+E_TRIGGER_FILTER_UNSUPPORTED_EVENT	Semantic	a trigger data family does not support the requested event kind	Choose one event kind supported by that data family or omit the event restriction.	-	-
+E_TRIGGER_FILTER_UNSUPPORTED_MATCHER	Semantic	a trigger data family does not support the requested matcher	Remove the matcher or use a matcher supported by the selected data family.	-	-
+E_TRIGGER_INVALID_AUTHORITY	Semantic	a trigger authority is not a canonical AccountId	Use a canonical domainless AccountId for trigger authority.	-	-
+E_TRIGGER_INVALID_ID	Semantic	an execute-trigger target is not a canonical TriggerId name	Use a valid canonical Name for the referenced trigger id.	-	-
+E_TRIGGER_INVALID_METADATA_KEY	Semantic	a trigger metadata key is not a canonical Name	Replace the metadata key with a valid canonical Name.	-	-
+E_TRIGGER_INVALID_NAME	Semantic	a trigger declaration name is not canonical	Rename the trigger using a valid canonical Name.	-	-
+E_TRIGGER_METADATA_VALUE	Semantic	a trigger metadata expression cannot be represented as canonical JSON	Use an exactly representable literal or explicit native Json construction.	-	-
+E_TRIGGER_SCHEDULE_ARGUMENT	Parse	a schedule argument is positional, mislabelled, or out of order	Write `schedule(start_ms: START, period_ms: PERIOD)` using compile-time integer expressions in milliseconds; the period may be omitted for a one-shot schedule.	-	-
+E_TRIGGER_SCHEDULE_CONSTANT	Semantic	a schedule time is not a compile-time integer expression	Use integer constants and checked integer arithmetic for start_ms and period_ms; dynamic function calls are not schedule constants.	-	-
+E_TRIGGER_SCHEDULE_PERIOD	Semantic	a schedule period is zero, negative, or out of range	Use period_ms in 1..=18446744073709551615 milliseconds; omit period_ms for a one-shot schedule.	-	-
+E_TRIGGER_SCHEDULE_START	Semantic	a schedule start does not fit unsigned 64-bit milliseconds	Use start_ms in 0..=18446744073709551615 milliseconds since the Unix epoch.	-	-
+E_TRIGGER_TARGET_KIND	Semantic	a trigger callback does not target a kotoage/言挙げ function	Point the trigger at a declared kotoage/言挙げ function.	-	-
+E_TRIGGER_TARGET_NAMESPACE	Parse	a trigger callback names an unauthenticated remote namespace	Use a local kotoage/言挙げ function. A module import does not authenticate a deployed seiyaku interface.	-	-
+E_TRIGGER_VIEW_TARGET	Semantic	a trigger callback targets a read-only view function	Point the trigger at a declared kotoage/言挙げ function instead.	-	-
+E_TUPLE_INDEX	Semantic	a tuple member index is outside the tuple's declared fields	Use a zero-based tuple index smaller than the tuple length.	-	-
+E_TYPE_ANNOTATION_MISMATCH	Semantic	an explicitly typed binding received a value of another type	Keep type-first annotations exact and use only explicit V1 conversions.	-	-
+E_UNBOUNDED_ITERATION	Semantic	collection iteration is not compiler-proven bounded	Iterate a List with capacity at most 64; use map.page(after: cursor, limit: N) or map.take(N) with a compile-time integer expression in 1..=64.	-	-
+E_UNBOUNDED_LOOP	Semantic	a loop bound is not compiler-proven	Use a static range or a collection operation whose 64-item cap is proven by the compiler.	-	-
+E_UNEXPORTED_SYMBOL	Resolve	a qualified call targets a function absent from the package export table	Export the exact function from one module or call a declared exported symbol.	-	-
+E_UNEXPORTED_TYPE	Resolve	a named type is absent from the explicit package exports	Export the struct or error declaration from its locked package and use the configured import alias.	-	-
+E_UNICODE_LINE_SEPARATOR	Lex	the source contains U+2028, U+2029 or U+0085	Delete the character or use a normal line break; inside a string literal, write it as a `\\u{...}` escape. These characters end a line in many viewers but not in Kotodama.	total = 0; // reset<U+2028>total = 1;	total = 0; // reset\ntotal = 1;
+E_UNKNOWN_BUILTIN	Resolve	a call through a compiler-owned namespace names no builtin	Use a builtin of that namespace; the diagnostic suggests the closest spelling, including the branded spelling of English concept words such as `entrypoint` (kotoage/言挙げ).	let who = context::caller();	let who = context::authority();
+E_UNKNOWN_ENUM_VARIANT	Resolve	the named variant is absent from the nominal enum	Use a variant declared by this exact enum; variant names are case-sensitive.	-	-
+E_UNKNOWN_EVENT	Semantic	emit names no declared native event	Declare the event in this seiyaku or an included declaration fragment, then supply its exact record fields.	-	-
+E_UNKNOWN_IMPORT_ALIAS	Resolve	a qualified call uses an alias not imported by its source package	Add one explicit import binding for the alias or correct the qualified call.	-	-
+E_UNKNOWN_NAMED_ARGUMENT	Semantic	a named argument does not match a declared parameter	Use one of the callee's declared parameter names.	-	-
+E_UNKNOWN_PACKAGE	Resolve	an import names a package absent from the locked graph	Add the exact package identity to the lock graph or correct the import.	-	-
+E_UNKNOWN_PERMISSION	Resolve	authorization or a grant references an undeclared permission	Use a permission declared by this seiyaku or one of its included files. Chain tokens require an explicit `import permission` declaration.	-	-
+E_UNKNOWN_STRUCT	Semantic	a struct literal refers to an unknown type	Declare the struct in this source unit or import its typed module declaration.	-	-
+E_UNKNOWN_STRUCT_FIELD	Semantic	a struct literal names an undeclared field	Use only fields declared by the struct type.	-	-
+E_UNSUPPORTED_LOOP	Parse	a `while`, `loop` or three-clause `for (init; condition; step)` loop is used	Every loop is a `for` loop whose bound the compiler proves: iterate `range(N)` with a compile-time `N` or a bounded collection, and exit early with `break`.	while i < 10 {\n    i += 1;\n}	for i in range(10) {\n}
+E_UNSUPPORTED_OPERATOR	Lex	`&`, `|`, `++` or a closure is used; Kotodama has no such operator	Boolean AND and OR are `&&` and `||`; increment with `+= 1`. Kotodama has no references, bitwise operators or closures; call a named `fn` instead of a closure.	count++;	count += 1;
+E_UPGRADE_BASE_INVALID	Artifact	the prior upgrade artifact failed canonical admission	Use the previously deployed complete .to artifact as the upgrade base.	-	-
+E_UPGRADE_INCOMPATIBLE	Artifact	the replacement does not preserve the deployed durable state schema	Preserve every existing state name and complete type; new scalar state requires kaizen and initialized runtime values.	-	-
+E_VIEW_AUTHORIZATION_MISSING	Parse	a public view has no explicit caller policy	Choose a declared permission or `authorize(anyone)` before the return type.	-	-
+E_WILDCARD_IMPORT	Resolve	a module graph requests a wildcard import	Replace the wildcard with explicit package aliases and exported function names.	-	-
+E_ZK_MODE_REQUIRED	Semantic	a ZK-only operation was retained without ZK compilation policy	Build the seiyaku with explicit ZK project policy or remove the ZK-only operation.	-	-
+K0000	Lex	the requested source could not be read	Check that the path exists, is a regular readable file, and contains valid UTF-8.	-	-
+K0001	Lex	source exceeds the 1 MiB V1 limit	Split the source into typed modules and compile one deployable seiyaku per file.	-	-
+K0002	Lex	source exceeds the 250,000-token V1 limit	Reduce generated source or move reusable declarations into typed modules.	-	-
+K0003	Parse	source exceeds the 256-level nesting limit	Flatten nested expressions, types, or blocks.	-	-
+K0004	Parse	the diagnostic fanout limit was reached	Fix the reported errors, then rerun the compiler to reveal any remaining failures.	-	-
+K0100	Lex	the source contains an invalid token or character	Remove or replace the highlighted text; the message names what the lexer found.	-	-
+K1001	Parse	the source does not match the V1 grammar	Compare the highlighted code with the shape the message names; each declaration and statement form is listed in the V1 grammar.	-	-
+K1004	Parse	a source package or test graph exceeds a fixed V1 frontend budget	Reduce the number or aggregate byte size of the source files in the graph.	-	-
+K2001	Semantic	a declaration duplicates or shadows another symbol	Give every declaration and binding a unique, non-reserved name.	-	-
+K2002	Resolve	a name, type, function, or import could not be resolved	Correct the spelling or add an explicit typed-module import/export.	-	-
+K2003	Semantic	an expression violates the strict type rules	Use the exact declared type and an explicit conversion operation where one exists.	-	-
+K2004	Semantic	authorization or view-effect policy was violated	Give every kotoage (言挙げ) an `authorize(Admin)` clause, and keep every function a `view fn` calls free of state writes, ledger instructions, and host effects.	view fn bump() authorize(anyone) -> int {\n    count += 1;\n    return count;\n}	permission CanBump; kotoage fn bump() authorize(CanBump) -> int {\n    count += 1;\n    return count;\n}
+K2005	Semantic	durable-state rules were violated	Initialize scalar state in hajimari and access StateMap values through its typed API.	-	-
+K2006	Semantic	a recursive call graph or recursive value type was found	Refactor the cycle into an iterative, compiler-proven bounded design.	-	-
+K2007	Semantic	a function exceeds a V1 argument or result table bound	Reduce the recursively flattened argument or result representation to at most 8192 words per table.	-	-
+K2008	Semantic	a named value type exceeds a fixed V1 resolution budget	Shorten deeply nested value types or replace repeatedly branching product fields with a flatter bounded schema.	-	-
+K2098	Semantic	an accepted parameter type retained no bounded ABI representation	Report this compiler defect with the source; semantic analysis must assign every parameter an exact bounded V1 ABI representation.	-	-
+K2099	Resolve	resolved-HIR construction or integrity validation failed	Report this compiler defect with the source; resolution stopped before typed/effect analysis.	-	-
+K2100	Semantic	the program violates the deterministic on-chain profile	Remove test-only or non-deterministic behavior from the deployable seiyaku.	-	-
+K3001	Lowering	a typed construct has no V1 code-generation form	Use a supported V1 type or operation; this is a compiler defect if the grammar promises the construct.	-	-
+K3003	Lowering	typed HIR could not be lowered to SSA MIR	Simplify the reported construct and report a compiler defect if valid V1 source triggered it.	-	-
+K3004	Lowering	SSA optimization failed to preserve a valid deterministic control-flow graph	Report this compiler defect with a minimal source reproducer; no artifact is emitted after an optimizer failure.	-	-
+K3005	Lowering	lowered IR could not be converted into validated SSA form	Report this compiler defect with a minimal source reproducer; valid typed HIR must always produce validated SSA.	-	-
+K3006	Lowering	optimized SSA could not be converted back into validated lowering IR	Report this compiler defect with a minimal source reproducer; no bytecode is emitted from an invalid optimized program.	-	-
+K3099	Lowering	bytecode generation failed	When the message names a source construct (for example an argument that must be a literal), fix that construct. Any other message describes a compiler defect, not a problem in the source: report it with a minimal source reproducer. Valid V1 programs always assemble deterministically.	-	-
+K4001	Artifact	compiler-owned artifact preparation failed	Report a compiler defect; source cannot override ABI or execution-header policy.	-	-
+K4002	Artifact	manifest or deployable artifact construction failed	Report a compiler defect and do not deploy a partial output.	-	-
+K4003	Artifact	a reusable module was requested as a deployable artifact	Link the module into exactly one seiyaku root and build that seiyaku.	-	-
+K5001	Semantic	durable state is declared but never used	Remove the declaration or read/write it from a reachable function.	-	-
+K5002	Semantic	a declaration shadows durable state	Rename the declaration; strict V1 source should keep every binding unambiguous.	-	-
+K5003	Semantic	a private function parameter is never used	Remove the parameter or use it in the function body; prefix its name with `_` to keep it deliberately. Parameters of kotoage, view, and lifecycle declarations are argument keys of the public interface and are not reported.	fn fee(int amount, int unused) -> int {\n    return amount;\n}	fn fee(int amount) -> int {\n    return amount;\n}
+K5004	Semantic	a statement is unreachable after return	Delete the unreachable statement or move it before the terminating return.	-	-
+K5005	Semantic	the same typed literal is repeated in one seiyaku	Declare the value once as a named `const` and refer to it by name, so every use is identical and reviewers can see what the literal stands for.	ledger::asset::mint(account: AccountId::parse("sorau…"), ...);\nledger::asset::burn(account: AccountId::parse("sorau…"), ...);	const AccountId TREASURY = AccountId::parse("sorau…");\nledger::asset::mint(account: TREASURY, ...);\nledger::asset::burn(account: TREASURY, ...);
+K5006	Semantic	a constructed typed value is never used	Remove the constructor call or use its result.	-	-
+K5007	Semantic	a trigger specification is not statically transparent	Use a canonical literal trigger specification so admission can derive its behavior.	-	-
+K5008	Semantic	a state path is dynamic without complete access metadata	Use a canonical StateMap operation or a literal state path when scheduler precision matters.	-	-
+K5009	Semantic	an opaque operation prevents precise access derivation	Prefer typed namespaced operations with derivable access; otherwise execution is serialized conservatively.	-	-
+K5010	Semantic	a copy of durable state is changed but never written back	Reading a StateMap entry or a whole state value returns a copy. Store the changed copy with `Map[key] = value;` (or `state = value;`) after the last change, or the change is lost when the call ends.	var c = Configs.get(1).expect(E::Missing);\nc.paused = true;	var c = Configs.get(1).expect(E::Missing);\nc.paused = true;\nConfigs[1] = c;
+K5011	Semantic	a kotoage performs no state, ledger, or host effects	Declare it `view fn` so callers can query it without a transaction or fee. A view may keep `authorize(Admin)` to restrict who may call it.	permission Entry; kotoage fn add(int a, int b) authorize(Entry) -> int {\n    return a + b;\n}	view fn add(int a, int b) authorize(anyone) -> int {\n    return a + b;\n}
+K5012	Semantic	exact decimal or quantity division by a runtime value can revert	Exact `/` rejects quotients that do not terminate within 28 fractional digits, such as 1/3. Divide with an explicit rounding mode through `div_round`, `ratio_round`, or `mul_div_round`, choosing the scale and mode the seiyaku requires.	return total / parts;	return total.div_round(divisor: parts, scale: 6, mode: Rounding::floor);
+K5013	Semantic	a local binding is never read	Remove the binding or use it; bind to `_` to evaluate an expression only for its effects.	let unused = compute();	let _ = compute();
+K5014	Semantic	a stored value is overwritten before it is read	Remove the earlier store, or read the value before assigning the binding again.	var total = 0;\ntotal = 5;	var total = 5;
+K5015	Semantic	a public parameter name starts with an underscore	Public parameter names are the argument keys callers send, so a leading `_` becomes part of the interface. Rename the parameter; public parameters are never reported as unused, so the prefix silences nothing.	kaizen(int _new_impl) {\n}	kaizen(int new_impl) {\n}
+K5016	Semantic	a `var` binding is never reassigned or mutated	Declare the binding with `let`; `var` marks a binding that a later assignment, compound assignment, field write, or mutating method changes.	var total = amount + fee;\nreturn total;	let total = amount + fee;\nreturn total;
+K5017	Semantic	a private function is never called	Remove the function, call it, or prefix its name with `_` to keep it deliberately. In a module, declare it `export fn` when other units need it.	fn helper() -> int {\n    return 1;\n}\nview fn value() authorize(anyone) -> int {\n    return 7;\n}	fn helper() -> int {\n    return 1;\n}\nview fn value() authorize(anyone) -> int {\n    return helper();\n}
+K5018	Semantic	a seiyaku declares no kotoage, view, or lifecycle function	Private `fn` helpers run only when a public function calls them, so nothing can call this seiyaku. Add a kotoage/言挙げ function with `authorize(Admin)` for state changes, or a `view fn` for queries.	seiyaku Quiet {\n    fn helper() -> int { return 1; }\n}	seiyaku Quiet {\n    view fn value() authorize(anyone) -> int { return 1; }\n}
+K5099	Semantic	a linter finding lacked a dedicated unified diagnostic code	Report the finding so it can receive a stable K5000-series code and remediation.	-	-
+W_PROVER_PRIVATE_INPUT	Artifact	reachable private inputs require local prover witness transport unavailable in production	Separate local proof generation from the deployable contract; production hosts cannot supply private test witnesses.	-	-

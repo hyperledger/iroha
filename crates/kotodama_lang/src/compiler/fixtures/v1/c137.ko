@@ -2,7 +2,7 @@
 seiyaku ExpressionHintIf {
   state StateMap<Name, int> Entries;
 
-  view fn scan(bool flag) -> int {
+  view fn scan(bool flag) authorize(anyone) -> int {
     if flag {
       var int total = 0;
       for (key, value) in Entries.take(3) {

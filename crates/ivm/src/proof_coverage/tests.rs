@@ -6,6 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::traps::VM_ERROR_COUNT;
 use super::{source_scan as scan, *};
 use crate::{
     ExecutionDeferral, HostOutputResource, IVM, Perm, SyscallPolicy, VMError, VmTrapKind,
@@ -19,7 +20,7 @@ use crate::{
 const ABI_INSTRUCTION: &str = "crates/ivm_abi/src/instruction.rs";
 const ABI_SYSCALLS: &str = "crates/ivm_abi/src/syscalls.rs";
 const ABI_ERROR: &str = "crates/ivm_abi/src/error.rs";
-const ABI_NUMERIC: &str = "crates/ivm_abi/src/numeric.rs";
+const ABI_NUMERIC: &str = "crates/iroha_data_model/src/executor/fault.rs";
 const INTERPRETER: &str = "crates/ivm/src/ivm.rs";
 const CALL_RUNTIME: &str = "crates/ivm/src/call_runtime.rs";
 const PROOF_ROOT: &str = "crates/iroha_core_privacy/src/execution_proofs/ivm_step_air.rs";
@@ -147,6 +148,8 @@ fn vm_error_samples() -> Vec<VMError> {
         VMError::ZkExtensionDisabled,
         VMError::NullifierAlreadyUsed,
         VMError::PermissionDenied,
+        VMError::ReentrantCall,
+        VMError::CallDepthExceeded,
         VMError::PrivacyViolation,
         VMError::RegisterOutOfBounds,
         VMError::NoritoInvalid,
@@ -257,7 +260,7 @@ const TERMINAL_CALLS: [&str; 32] = [
     "as_deref_mut",
     "as_ref",
     "call_result_word_count",
-    "capture_trap",
+    "capture_trap_at",
     "checked_sub",
     "clear",
     "clone",
@@ -883,12 +886,10 @@ fn syscall_relations_agree_with_the_access_and_metering_registries() {
         relation(syscalls::SYSCALL_VRF_EPOCH_SEED),
         Some(SyscallRelation::VrfEpochSeed)
     );
-    for number in [
-        syscalls::SYSCALL_CALL_CONTRACT,
-        syscalls::SYSCALL_CALL_CONTRACT_QUANTITY2,
-    ] {
-        assert_eq!(relation(number), Some(SyscallRelation::NestedInvocation));
-    }
+    assert_eq!(
+        relation(syscalls::SYSCALL_CALL_CONTRACT),
+        Some(SyscallRelation::NestedInvocation)
+    );
     for number in [
         syscalls::SYSCALL_VERIFY_PROOF,
         syscalls::SYSCALL_ZK_VERIFY_BATCH,
@@ -911,6 +912,33 @@ fn syscall_relations_agree_with_the_access_and_metering_registries() {
             .obligations()
             .contains(&Obligation::VmRecursion)
     );
+}
+
+#[test]
+fn typed_nested_invocation_requires_initialized_ordered_argument_and_return_tables() {
+    let entry = syscall_entry(syscalls::SYSCALL_CALL_CONTRACT).expect("A9 is inventoried");
+    assert_eq!(entry.relation, SyscallRelation::NestedInvocation);
+    for obligation in [
+        Obligation::TypedValues,
+        Obligation::Initialization,
+        Obligation::MemoryOrdering,
+        Obligation::Pointers,
+        Obligation::Calls,
+        Obligation::Copyback,
+        Obligation::VmRecursion,
+        Obligation::ProofComposition,
+        Obligation::Gas,
+        Obligation::Faults,
+        Obligation::HostResult,
+        Obligation::StateRead,
+        Obligation::StateEffect,
+        Obligation::StatementBinding,
+    ] {
+        assert!(
+            entry.relation.obligations().contains(&obligation),
+            "typed A9 omits {obligation:?}"
+        );
+    }
 }
 
 #[test]
@@ -1216,13 +1244,71 @@ fn vm_errors_match_the_enum_source_and_trap_classification() {
         .collect();
     let local: Vec<_> = VM_ERRORS
         .iter()
-        .filter(|entry| entry.origins() == [TrapOrigin::LocalDeferral])
+        .filter(|entry| {
+            entry.origins() == [TrapOrigin::LocalDeferral]
+                || entry.origins() == [TrapOrigin::HostInvariant]
+        })
         .map(|entry| entry.variant)
         .collect();
     assert_eq!(
         deferred, local,
-        "exactly the node-local deferrals are classified as local, never as provable outcomes"
+        "node-local deferrals and host-only invariants are never provable outcomes"
     );
+}
+
+#[test]
+fn every_vm_error_projects_only_completed_deterministic_faults() {
+    let excluded = [
+        "ExecutionDeferred",
+        "AllocationDeferred",
+        "HostUnavailable",
+        "SyscallGasQuoteExceeded",
+        "SyscallMeteringModeMismatch",
+        "ContractAbort",
+        "UnsupportedProgramVersion",
+        "UnsupportedProgramFeatureBits",
+        "UnsupportedProgramAbiVersion",
+        "ProgramVectorLengthTooLarge",
+        "ArtifactAbiHashMismatch",
+        "GenericSyscallNotAllowed",
+    ];
+    let samples = vm_error_samples();
+    assert_eq!(samples.len(), VM_ERROR_COUNT);
+    for error in samples {
+        let name = vm_error_variant_name(&error);
+        assert_eq!(
+            error.fault_kind().is_some(),
+            !excluded.contains(&name),
+            "{name}"
+        );
+        if error.execution_deferral().is_some() {
+            assert!(
+                error.fault_kind().is_none(),
+                "local refusal {name} cannot be a fault"
+            );
+        }
+        let kind = error.fault_kind();
+        let wrapped = VMError::Metered {
+            gas: 17,
+            source: Box::new(error),
+        };
+        assert_eq!(wrapped.fault_kind(), kind, "metering must preserve {name}");
+    }
+    use iroha_data_model::executor::fault::IvmFaultKindV1;
+    for tag in 1..=13 {
+        let code = NumericFaultV1::from_tag(tag).unwrap();
+        assert_eq!(
+            VMError::NumericFault(code).fault_kind(),
+            Some(IvmFaultKindV1::Numeric(code))
+        );
+    }
+    for tag in 1..=11 {
+        let code = PointerAbiFaultV1::from_tag(tag).unwrap();
+        assert_eq!(
+            VMError::PointerAbiFault(code).fault_kind(),
+            Some(IvmFaultKindV1::PointerAbi(code))
+        );
+    }
 }
 
 /// Every non-test source file in the producer scope, sorted.
@@ -1289,6 +1375,30 @@ fn check_vm_error_producers(files: &[String], read: &dyn Fn(&str) -> String) -> 
 }
 
 #[test]
+fn diagnostic_nested_call_faults_and_local_refusals_have_distinct_origins() {
+    let file = VM_ERROR_PRODUCERS
+        .iter()
+        .find(|file| file.path == "crates/ivm/src/mock_wsv/contract_calls.rs")
+        .expect("typed diagnostic calls have an explicit producer owner");
+    for variant in ["CallDepthExceeded", "ReentrantCall"] {
+        let origins: Vec<_> = file
+            .groups
+            .iter()
+            .filter(|group| group.variants.contains(&variant))
+            .map(|group| group.origin)
+            .collect();
+        assert_eq!(origins, vec![TrapOrigin::SyscallTrap]);
+    }
+    let origins: Vec<_> = file
+        .groups
+        .iter()
+        .filter(|group| group.variants.contains(&"ExecutionDeferred"))
+        .map(|group| group.origin)
+        .collect();
+    assert_eq!(origins, vec![TrapOrigin::LocalDeferral]);
+}
+
+#[test]
 fn vm_error_producers_match_every_constructing_source_file() {
     let files = producer_scope_files();
     assert!(
@@ -1305,10 +1415,18 @@ fn vm_error_producers_match_every_constructing_source_file() {
     );
     let known = names(vm_error_names());
     let samples = vm_error_samples();
-    let deferrals: BTreeSet<&str> = samples
+    let deferrals: BTreeMap<&str, TrapOrigin> = samples
         .iter()
         .filter(|sample| sample.execution_deferral().is_some())
-        .map(vm_error_variant_name)
+        .map(|sample| {
+            let origin = match sample.as_unmetered() {
+                VMError::HostUnavailable
+                | VMError::SyscallGasQuoteExceeded { .. }
+                | VMError::SyscallMeteringModeMismatch { .. } => TrapOrigin::HostInvariant,
+                _ => TrapOrigin::LocalDeferral,
+            };
+            (vm_error_variant_name(sample), origin)
+        })
         .collect();
     let mut origins = BTreeSet::new();
     for file in VM_ERROR_PRODUCERS {
@@ -1335,15 +1453,26 @@ fn vm_error_producers_match_every_constructing_source_file() {
                     "{}: unknown variant {variant}",
                     file.path
                 );
-                // A node-local deferral is never any other outcome, and no
-                // other variant is ever a deferral.
-                assert_eq!(
-                    deferrals.contains(variant),
-                    group.origin == TrapOrigin::LocalDeferral,
-                    "{}: {variant} under {:?}",
-                    file.path,
-                    group.origin
-                );
+                // Host-only invariant failures are transported as local
+                // refusals too, but retain their distinct unreachable-host
+                // proof obligations. Other refusal variants must have the
+                // ordinary local-deferral origin. A deterministic variant
+                // such as DecodeError can also arise from a host invariant;
+                // it must never acquire the local-deferral classification.
+                if let Some(expected) = deferrals.get(variant) {
+                    assert_eq!(
+                        group.origin, *expected,
+                        "{}: {variant} has the exact reviewed refusal origin",
+                        file.path
+                    );
+                } else {
+                    assert_ne!(
+                        group.origin,
+                        TrapOrigin::LocalDeferral,
+                        "{}: {variant} is not a local refusal",
+                        file.path
+                    );
+                }
             }
         }
         assert_eq!(
@@ -1851,12 +1980,12 @@ fn mutated_sources_fail_every_completeness_check() {
 
     // Root-call initialization: a new trap or helper inside `begin_root_call`.
     let call_runtime = scan::read_non_test(CALL_RUNTIME);
-    let root_anchor = "        let index = self.callable_index(self.pc)?;\n";
+    let root_anchor = "    pub(super) fn begin_root_call(&mut self, host: &mut dyn IVMHost) -> Result<(), VMError> {\n";
     rejects(
         check_root_call_initialization(&insert_after(
             &call_runtime,
             root_anchor,
-            "        if index > 9 { return Err(VMError::OutOfMemory); }\n",
+            "        if self.pc > 9 { return Err(VMError::OutOfMemory); }\n",
         )),
         "direct traps of run phase `root_call_initialization` changed",
     );

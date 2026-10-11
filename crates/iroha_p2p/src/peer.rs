@@ -11676,6 +11676,7 @@ mod state {
     use iroha_data_model::peer::Peer;
     use iroha_primitives::addr::SocketAddr;
     #[derive(Clone, Debug, Encode, Decode)]
+    #[norito(decode_from_slice)]
     pub(super) struct HandshakeConfidentialDigest {
         vk_set_hash: Option<[u8; 32]>,
         poseidon_params_id: Option<u32>,
@@ -11703,44 +11704,6 @@ mod state {
                 conf_rules_version: digest.conf_rules_version,
                 zk_policy_hash: digest.zk_policy_hash,
             }
-        }
-    }
-    impl<'a> norito::core::DecodeFromSlice<'a> for HandshakeConfidentialDigest {
-        fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
-            let mut offset = 0;
-            let (vk_set_hash, used) =
-                <Option<[u8; 32]> as norito::core::DecodeFromSlice>::decode_from_slice(bytes)?;
-            offset += used;
-            let (poseidon_params_id, used) =
-                <Option<u32> as norito::core::DecodeFromSlice>::decode_from_slice(
-                    &bytes[offset..],
-                )?;
-            offset += used;
-            let (pedersen_params_id, used) =
-                <Option<u32> as norito::core::DecodeFromSlice>::decode_from_slice(
-                    &bytes[offset..],
-                )?;
-            offset += used;
-            let (conf_rules_version, used) =
-                <Option<u32> as norito::core::DecodeFromSlice>::decode_from_slice(
-                    &bytes[offset..],
-                )?;
-            offset += used;
-            let (zk_policy_hash, used) =
-                <Option<[u8; 32]> as norito::core::DecodeFromSlice>::decode_from_slice(
-                    &bytes[offset..],
-                )?;
-            offset += used;
-            Ok((
-                HandshakeConfidentialDigest {
-                    vk_set_hash,
-                    poseidon_params_id,
-                    pedersen_params_id,
-                    conf_rules_version,
-                    zk_policy_hash,
-                },
-                offset,
-            ))
         }
     }
     #[derive(Clone, Copy, Debug, Encode, Decode)]
@@ -13210,6 +13173,119 @@ mod state {
         // Keep handshake-state tests at their stable libtest paths outside this production file.
         include!("peer_state_tests.rs");
         include!("peer_consensus_mode_test.rs");
+
+        #[test]
+        fn handshake_confidential_digest_slice_decoder_preserves_framed_options() {
+            use norito::core::{DecodeFlagsGuard, DecodeFromSlice, header_flags};
+
+            for flags in [0, header_flags::COMPACT_LEN] {
+                let _flags = DecodeFlagsGuard::enter(flags);
+                let frame = |body: &[u8]| {
+                    let mut bytes = Vec::new();
+                    norito::core::write_len_to_vec_with_flags(&mut bytes, body.len() as u64, flags);
+                    bytes.extend_from_slice(body);
+                    bytes
+                };
+                for digest in [
+                    HandshakeConfidentialDigest {
+                        vk_set_hash: None,
+                        poseidon_params_id: None,
+                        pedersen_params_id: None,
+                        conf_rules_version: None,
+                        zk_policy_hash: None,
+                    },
+                    HandshakeConfidentialDigest {
+                        vk_set_hash: Some([0x51; 32]),
+                        poseidon_params_id: Some(3),
+                        pedersen_params_id: Some(5),
+                        conf_rules_version: Some(7),
+                        zk_policy_hash: Some([0x72; 32]),
+                    },
+                    HandshakeConfidentialDigest {
+                        vk_set_hash: Some([0x63; 32]),
+                        poseidon_params_id: None,
+                        pedersen_params_id: Some(11),
+                        conf_rules_version: None,
+                        zk_policy_hash: None,
+                    },
+                ] {
+                    let fields = (
+                        digest.vk_set_hash,
+                        digest.poseidon_params_id,
+                        digest.pedersen_params_id,
+                        digest.conf_rules_version,
+                        digest.zk_policy_hash,
+                    );
+                    let mut wire = Vec::new();
+                    norito::core::serialize_to_buffer(&digest, &mut wire).unwrap();
+                    let mut expected = Vec::new();
+                    let field_payloads: [&dyn norito::SerializePayload; 5] = [
+                        &digest.vk_set_hash,
+                        &digest.poseidon_params_id,
+                        &digest.pedersen_params_id,
+                        &digest.conf_rules_version,
+                        &digest.zk_policy_hash,
+                    ];
+                    for value in field_payloads {
+                        let mut payload = Vec::new();
+                        norito::core::serialize_to_buffer(value, &mut payload).unwrap();
+                        expected.extend_from_slice(&frame(&payload));
+                    }
+                    assert_eq!(wire, expected);
+                    let (decoded, used) =
+                        HandshakeConfidentialDigest::decode_from_slice(&wire).unwrap();
+                    assert_eq!(used, wire.len());
+                    assert_eq!(
+                        (
+                            decoded.vk_set_hash,
+                            decoded.poseidon_params_id,
+                            decoded.pedersen_params_id,
+                            decoded.conf_rules_version,
+                            decoded.zk_policy_hash
+                        ),
+                        fields
+                    );
+                    for end in 0..wire.len() {
+                        assert!(
+                            HandshakeConfidentialDigest::decode_from_slice(&wire[..end]).is_err()
+                        );
+                    }
+                    let mut trailing = wire.clone();
+                    trailing.push(9);
+                    let (decoded, used) =
+                        HandshakeConfidentialDigest::decode_from_slice(&trailing).unwrap();
+                    assert_eq!(used, wire.len());
+                    assert_eq!(
+                        (
+                            decoded.vk_set_hash,
+                            decoded.poseidon_params_id,
+                            decoded.pedersen_params_id,
+                            decoded.conf_rules_version,
+                            decoded.zk_policy_hash
+                        ),
+                        fields
+                    );
+                    assert!(
+                        norito::core::decode_field_canonical::<HandshakeConfidentialDigest>(
+                            &trailing
+                        )
+                        .is_err()
+                    );
+                    let (first_len, first_prefix) =
+                        norito::core::read_len_from_slice_with_flags(&wire, flags).unwrap();
+                    let rest = &wire[first_prefix + first_len..];
+                    let mut raw_option = vec![1];
+                    raw_option.extend_from_slice(&frame(&[0x51; 32]));
+                    for malformed_option in [Vec::new(), vec![0, 0], raw_option] {
+                        let mut malformed = frame(&malformed_option);
+                        malformed.extend_from_slice(rest);
+                        assert!(
+                            HandshakeConfidentialDigest::decode_from_slice(&malformed).is_err()
+                        );
+                    }
+                }
+            }
+        }
     }
 }
 include!("peer_tests.rs");

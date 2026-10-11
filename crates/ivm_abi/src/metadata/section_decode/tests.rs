@@ -10,6 +10,8 @@ fn allocation_limit(bytes: usize) -> DecodeLimits {
 
 fn interface() -> EmbeddedContractInterfaceV1 {
     EmbeddedContractInterfaceV1 {
+        permissions: Vec::new(),
+        events: Vec::new(),
         callables: Vec::new(),
         seiyaku_name: "DecodeRetry".to_owned(),
         compiler_fingerprint: "section-decode-tests".to_owned(),
@@ -23,6 +25,7 @@ fn interface() -> EmbeddedContractInterfaceV1 {
             ty: EmbeddedStateType::Bool,
         }],
         error_messages: Vec::new(),
+        enum_types: Vec::new(),
         error_types: Vec::new(),
     }
 }
@@ -170,7 +173,8 @@ fn trigger_json_metadata_preserves_each_cumulative_refusal_then_retries() {
         argument_schema: None,
         return_type: None,
         return_schema: None,
-        permission: None,
+        authorization:
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
         read_keys: Vec::new(),
         write_keys: Vec::new(),
         access_hints_complete: None,

@@ -1,6 +1,6 @@
 
-seiyaku CompilerFixture {
-kotoage fn apply(AccountId account, AssetDefinitionId asset, Option<quantity> cap, quantity replacement_cap, string alias, AccountId replacement, Option<string> reason, int request_generation) authorize("ControlAdmin") {
+seiyaku CompilerFixture { permission ControlAdmin;
+kotoage fn apply(AccountId account, AssetDefinitionId asset, Option<quantity> cap, quantity replacement_cap, string alias, AccountId replacement, Option<string> reason, int request_generation) authorize(ControlAdmin) {
   let Option<quantity> no_cap = Option::none;
   ledger::asset::set_transfer_availability(account: account, asset_definition: asset, expected_revision: 0, incoming: false, outgoing: false, reason: reason);
   ledger::asset::set_transfer_daily_limit(account: account, asset_definition: asset, cap: cap);

@@ -18,13 +18,14 @@ internal object ParliamentProposalValidatorV1 {
     private val FIRST_RELEASE_MAX_EXACT_JSON_U64 = BigInteger("9007199254740991")
     private const val SCCP_GOVERNANCE_MAX_ENTRIES = 16
     private val SCCP_EXTERNAL_NETWORKS = setOf(
-        "ethereum_mainnet", "bsc_mainnet", "ton_mainnet", "tron_mainnet",
+        "ethereum_mainnet", "bsc_mainnet", "ton_mainnet",
     )
     private val SCCP_GOVERNANCE_ACTIONS = setOf(
         "register_route", "activate_revision", "switch_revision", "deactivate_outbound",
         "retire_revision", "remove_staged", "release_stranded", "set_taira_paused",
         "set_destination_paused", "initialize_light_client", "install_trusted_checkpoint",
         "freeze_light_client", "set_parameters", "clear_bridge_key_fault",
+        "activate_light_client_profile",
     )
     private val BLS_VALIDATOR_ID = Regex("ea0130[0-9A-F]{96}")
     private val KEBAB = Regex("[a-z0-9]+(?:-[a-z0-9]+)*")

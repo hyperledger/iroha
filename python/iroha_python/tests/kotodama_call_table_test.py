@@ -19,6 +19,7 @@ def _parse(fields, returns=_UNIT):
     return ContractEntrypointDescriptor.from_payload({
         "name": "inspect",
         "kind": {"kind": "View", "value": None},
+        "authorization": {"kind": "Anyone", "value": None},
         "params": [{"name": f"arg_{index}", "type_name": ty[0]} for index, ty in enumerate(fields)],
         "argument_schema": {"fields": [
             {"name": f"arg_{index}", "ty": {"nodes": ty[1]}} for index, ty in enumerate(fields)
@@ -54,9 +55,9 @@ def test_table_calling_preserves_type_schema_node_bound():
 
 
 def test_empty_named_products_keep_nominal_identity_and_one_word():
-    empty = ("struct Empty", [{"kind": "Struct", "value": {"name": "Empty", "fields": []}}])
-    listed = ("List<struct Empty, 2>", [{"kind": "List", "value": {"capacity": 2}}] + empty[1])
+    empty = ("struct CallTable::Empty", [{"kind": "Struct", "value": {"name": "CallTable::Empty", "fields": []}}])
+    listed = ("List<struct CallTable::Empty, 2>", [{"kind": "List", "value": {"capacity": 2}}] + empty[1])
     value = _parse([empty], listed)
     assert value.argument_schema.fields[0].type.word_count == 1
     assert value.return_schema.word_count == 1
-    assert value.argument_schema.fields[0].type.canonical_type_name == "struct Empty"
+    assert value.argument_schema.fields[0].type.canonical_type_name == "struct CallTable::Empty"

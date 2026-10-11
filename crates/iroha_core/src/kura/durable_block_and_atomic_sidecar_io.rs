@@ -493,9 +493,6 @@ impl Kura {
             file.read_exact(dest_buffer)
         })
     }
-    fn write_atomic_synced_replace(&self, path: &Path, bytes: &[u8]) -> Result<()> {
-        self.write_atomic_synced_impl(path, bytes, true).map(|_| ())
-    }
     fn write_atomic_synced_noclobber(&self, path: &Path, bytes: &[u8]) -> Result<bool> {
         self.write_atomic_synced_impl(path, bytes, false)
     }

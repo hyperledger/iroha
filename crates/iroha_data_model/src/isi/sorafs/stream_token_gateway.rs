@@ -10,6 +10,6 @@ isi! {
     }
 }
 impl crate::seal::Instruction for MutateSorafsStreamTokenGateway {}
-impl_sorafs_decode_from_slice!(MutateSorafsStreamTokenGateway {
+impl_aos_decode_from_slice!(MutateSorafsStreamTokenGateway {
     request: StreamTokenGatewayRequestV1,
 });

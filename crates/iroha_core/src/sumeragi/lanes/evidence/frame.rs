@@ -10,7 +10,7 @@ use std::{borrow::Borrow, io, path::PathBuf};
 use iroha_allocation::{AllocationBudget, RetainedPayload};
 use iroha_sumeragi::{
     availability::{AvailabilitySource, AvailableBody, BodyRestoration},
-    crypto::{Crypto, NoAttestation, Verifier},
+    crypto::{Crypto, Verifier},
     message::{BlockHeader, Qc},
     types::{Hash32, HeightConfig},
 };
@@ -148,7 +148,6 @@ impl FundedLaneFrameRead {
                     let expected = source.borrow();
                     let header = record.header();
                     let valid = record.check_context(expected, crypto).is_ok()
-                        && !header.attest
                         && header.control_witness.is_empty()
                         && Verifier::new(
                             crypto,
@@ -156,11 +155,7 @@ impl FundedLaneFrameRead {
                             &expected.config().epoch.id,
                             &expected.config().committee,
                         )
-                        .verify_commit_qc(
-                            &NoAttestation,
-                            record.commit_qc(),
-                            Some(header),
-                        );
+                        .verify_commit_qc(record.commit_qc(), Some(header));
                     if !valid {
                         self.stage = Stage::Decoded(record);
                         return Err(std::io::Error::from(std::io::ErrorKind::InvalidData).into());

@@ -49,7 +49,7 @@ fn quantity(record: &[u8]) -> String {
 }
 fn source(amount: u64) -> String {
     format!(
-        r#"seiyaku BorrowedState {{
+        r#"seiyaku BorrowedState {{ permission WriteState;
         state StateMap<Name, quantity> Balances;
         state quantity Total;
         fn move_amount(Name source, Name destination, quantity amount) {{
@@ -60,7 +60,7 @@ fn source(amount: u64) -> String {
             Balances[source] = remainder;
             Balances[destination] = received + amount;
         }}
-        kotoage fn main() -> bool authorize("WriteState") {{
+        kotoage fn main() authorize(WriteState) -> bool {{
             let left = Name::parse("left");
             let right = Name::parse("right");
             let quantity zero = 0;
@@ -193,9 +193,9 @@ fn borrowed_state_operands_keep_underflow_before_any_transfer_write() {
 #[test]
 fn borrowed_heap_state_payload_is_copied_and_invalid_envelopes_cannot_mutate_it() {
     let program = compile(
-        r#"seiyaku OwnedState {
+        r#"seiyaku OwnedState { permission WriteState;
         state int Counter;
-        kotoage fn main() authorize("WriteState") { Counter = 1; }
+        kotoage fn main() authorize(WriteState) { Counter = 1; }
     }"#,
     );
     let mut vm = IVM::new(1_000_000);

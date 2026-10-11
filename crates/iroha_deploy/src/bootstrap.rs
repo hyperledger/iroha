@@ -8,8 +8,8 @@
 //! A running verifier retains its own advancing checkpoint; a release must never replace that
 //! checkpoint with an older tip. Changing the installed authority fails closed against retained
 //! releases and requires an independently authenticated key-rotation migration.
-// TODO(DX5): publish release-signed Taira checkpoints and install the independently selected
-// release key/floor in native runtime bundles, then qualify the connected dataspace provisioning flow.
+// TODO(DX5): qualify recurring signed Taira checkpoint publication and the connected dataspace
+// provisioning flow using the approved installation profile's independently selected key/floor.
 
 use std::{fs::File, path::Path, sync::Mutex};
 
@@ -25,6 +25,8 @@ use crate::verify::finality::FinalityVerifier;
 
 mod runtime;
 pub use runtime::ParentFinalityStore;
+mod amx_sources;
+pub(crate) use amx_sources::{AmxSourceSelection, ParentBootstrapSources};
 mod profile;
 mod transport;
 pub use profile::{
@@ -610,11 +612,7 @@ fn verify_checkpoint(release: &NetworkRelease, bytes: &[u8]) -> Result<FinalityV
             &release.chain_id,
         )
         .map_err(crate::verify::finality::FinalityError::from)?;
-    if native
-        .root_scope()
-        .map_err(crate::verify::finality::FinalityError::from)?
-        != iroha_data_model::block::consensus::SumeragiRootScope::Global
-    {
+    if native.root_scope() != iroha_data_model::block::consensus::SumeragiRootScope::Global {
         return Err(BootstrapError::Invalid(
             "public parent release requires a committed global root",
         ));

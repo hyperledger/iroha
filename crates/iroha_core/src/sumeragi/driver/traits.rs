@@ -263,9 +263,6 @@ pub enum PublicationDeferral {
     /// Original reputation archive index reader or writer must release.
     #[error("original reputation archive index is busy")]
     ReputationArchiveBusy(iroha_allocation::release::ReleaseWait),
-    /// Original native receipt mailbox reader or writer must release.
-    #[error("original native attestation mailbox is busy")]
-    AttestationBusy(iroha_allocation::release::ReleaseWait),
 }
 impl PublicationDeferral {
     /// Borrow the original execution refusal; lock contention has no VM allocation category.
@@ -314,8 +311,7 @@ impl PublicationDeferral {
             | Self::PublicationBusy(wait)
             | Self::MembershipBusy(wait)
             | Self::ProviderArchiveBusy(wait)
-            | Self::ReputationArchiveBusy(wait)
-            | Self::AttestationBusy(wait) => Some(wait),
+            | Self::ReputationArchiveBusy(wait) => Some(wait),
         }
     }
 }
@@ -426,7 +422,7 @@ pub trait Executor: Send {
     fn build_control_witness(
         &mut self,
         context: &iroha_sumeragi::api::ControlWitnessContext,
-    ) -> Result<(iroha_sumeragi::types::ControlWitness, bool), PublicationError>;
+    ) -> Result<iroha_sumeragi::types::ControlWitness, PublicationError>;
     /// Drive the single process-lived partial producer from this exact applied parent. Called
     /// on every current member and bounded periodic retry, regardless of proposal leadership.
     ///
@@ -446,8 +442,8 @@ pub trait Executor: Send {
         message: &iroha_sumeragi::message::ApplicationControl,
     ) -> Result<(), PublicationError>;
     /// Build a payload of at most `max_bytes` for `(height, view)` by peeking at the queue
-    /// (never removing transactions), admitted to the original instance pool, with its
-    /// commit-attestation flag (§3.7 A1). `None` means genuinely absent work.
+    /// (never removing transactions), admitted to the original instance pool.
+    /// `None` means genuinely absent work.
     ///
     /// # Errors
     /// A local refusal retains the exact source and completed encoding for retry.
@@ -457,7 +453,7 @@ pub trait Executor: Send {
         view: u64,
         max_bytes: u32,
         exec_budget_ms: u32,
-    ) -> Result<(Option<PayloadBytes>, bool), PublicationError>;
+    ) -> Result<Option<PayloadBytes>, PublicationError>;
     /// The payload of `block_hash` executed `Invalid`: quarantine the transactions that make a
     /// block invalid on their own.
     fn reject(&mut self, height: u64, view: u64, block_hash: &Hash32);

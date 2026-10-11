@@ -172,7 +172,7 @@ mod tests {
         let struct_schema = EntrypointValueTypeV1 {
             nodes: vec![
                 EntrypointValueTypeNodeV1::Struct(EntrypointStructTypeNodeV1 {
-                    name: "Receipt".to_owned(),
+                    name: "Fixture::Receipt".to_owned(),
                     fields: vec!["value".to_owned()],
                 }),
                 EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int),

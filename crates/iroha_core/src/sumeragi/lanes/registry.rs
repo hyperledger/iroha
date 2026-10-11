@@ -17,7 +17,7 @@ use std::{
 use iroha_allocation::AllocationBudget;
 use iroha_data_model::{NetworkId, sumeragi_lanes::SumeragiLaneState};
 use iroha_model_base::topology::LaneId;
-use iroha_sumeragi::{crypto::AttestationVerifier, types::Hash32};
+use iroha_sumeragi::types::Hash32;
 use parking_lot::Mutex;
 
 use super::{
@@ -32,15 +32,13 @@ use crate::sumeragi::{
 
 /// Independently pinned authority owners for one native lane incarnation.
 /// Returned by the node's authenticated State/archive provider, never derived from the artifact
-/// being read. The application verifier is additionally pinned to the signed-genesis network.
+/// being read. The schedule is pinned to the signed-genesis network and exact lane instance.
 pub struct LaneStoreAuthority {
     /// Immutable historical schedule for this exact instance.
     pub schedule: Arc<dyn AvailabilitySchedule>,
-    /// Full native application verifier pinned to this instance and authenticated network.
-    pub verifier: Arc<dyn AttestationVerifier + Send + Sync>,
 }
 
-/// Resolve original authenticated schedule and attestation authority for a lane incarnation.
+/// Resolve original authenticated schedule and BLS committee authority for a lane incarnation.
 /// Production implementations use signed genesis and certified activation/archive state. They
 /// must check the independent requested instance against that authority before returning it.
 pub trait LaneStoreAuthorities: Send + Sync {
@@ -206,7 +204,6 @@ impl LaneStores {
             Arc::clone(&self.crypto),
             self.budget.clone(),
             authority.schedule,
-            authority.verifier,
         )?;
         Self::complete_store_opening(stores, key, opening, !runtime_owner)
     }

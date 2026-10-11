@@ -1,7 +1,7 @@
 
-            seiyaku Demo {
+            seiyaku Demo { permission Run;
                 hajimari() {}
-                kotoage fn run() authorize("Run") {}
+                kotoage fn run() authorize(Run) {}
                 fn helper() {}
             }
             

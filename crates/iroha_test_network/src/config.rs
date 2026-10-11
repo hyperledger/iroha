@@ -28,12 +28,7 @@ use iroha_data_model::{
     domain::Domain,
     hijiri::HijiriParametersV1,
     isi::{
-        Grant, InstructionBox, Mint, Revoke, SetParameter,
-        consensus_keys::RegisterConsensusKey,
-        kagemusha_v1::{
-            KAGEMUSHA_CHAIN_VERSION_V1, KagemushaMintFinalityAuthorityGenerationTemplateV1,
-            KagemushaMintFinalityGenesisParametersV1,
-        },
+        Grant, InstructionBox, Mint, Revoke, SetParameter, consensus_keys::RegisterConsensusKey,
         register::Register,
     },
     parameter::{
@@ -274,7 +269,6 @@ pub(crate) fn genesis_unexecuted_with_keypair_and_post_topology(
         None,
         None,
         Some(iroha_core::state::default_genesis_confidential_policy_hash()),
-        None,
     )
     .0
 }
@@ -311,7 +305,6 @@ pub(crate) fn genesis_with_keypair_and_post_topology_with_policies(
         consensus_handshake_meta,
         consensus_mode_override,
         confidential_policy_hash,
-        None,
     )
     .0
 }
@@ -331,7 +324,6 @@ pub(crate) fn genesis_with_keypair_and_post_topology_with_policies_and_staged_ha
     consensus_handshake_meta: Option<Parameter>,
     consensus_mode_override: Option<SumeragiConsensusMode>,
     confidential_policy_hash: Option<[u8; 32]>,
-    mint_finality_override: Option<KagemushaMintFinalityGenesisParametersV1>,
 ) -> (
     GenesisBlock,
     StagedGenesisPolicyHashes,
@@ -354,7 +346,6 @@ pub(crate) fn genesis_with_keypair_and_post_topology_with_policies_and_staged_ha
         consensus_handshake_meta,
         consensus_mode_override,
         confidential_policy_hash,
-        mint_finality_override,
     )
 }
 fn strip_handshake_metadata_transactions(transactions: &mut [Vec<InstructionBox>]) {
@@ -395,39 +386,6 @@ fn decode_consensus_handshake_metadata(
     Ok(metadata)
 }
 
-fn test_kagemusha_mint_finality_genesis_parameters(
-    topology: &UniqueVec<PeerId>,
-) -> KagemushaMintFinalityGenesisParametersV1 {
-    let mut voters = topology.iter().cloned().collect::<Vec<_>>();
-    voters.sort();
-    let validators = voters
-        .into_iter()
-        .enumerate()
-        .map(|(index, validator)| {
-            let seed_byte = 0xA0_u8.wrapping_add(
-                u8::try_from(index).expect("test-network validator index fits in one byte"),
-            );
-            iroha_core_zk::kagemusha_v1_recursion::derive_kagemusha_mint_finality_validator_keys_v1(
-                &[seed_byte; 32],
-                0,
-                validator,
-            )
-            .expect("derive independent test-only paired-Pasta validator keys")
-        })
-        .collect();
-    let authority_generation = KagemushaMintFinalityAuthorityGenerationTemplateV1 {
-        version: KAGEMUSHA_CHAIN_VERSION_V1,
-        generation: 0,
-        validators,
-    };
-    let parameters = KagemushaMintFinalityGenesisParametersV1 {
-        authority_generation,
-    };
-    parameters
-        .validate()
-        .expect("test-network topology must form a canonical mint-finality template");
-    parameters
-}
 fn signed_genesis_consensus_mode(block: &GenesisBlock) -> Result<WireConsensusMode, Report> {
     let mut metadata_entries = Vec::new();
     for transaction in block.0.external_transactions() {
@@ -513,7 +471,6 @@ fn build_minimal_genesis_with_post_topology(
         consensus_handshake_meta,
         consensus_mode_override,
         confidential_policy_hash,
-        None,
     )
     .0
 }
@@ -533,7 +490,6 @@ fn build_minimal_genesis_with_post_topology_and_staged_hash(
     consensus_handshake_meta: Option<Parameter>,
     consensus_mode_override: Option<SumeragiConsensusMode>,
     confidential_policy_hash: Option<[u8; 32]>,
-    mint_finality_override: Option<KagemushaMintFinalityGenesisParametersV1>,
 ) -> (
     GenesisBlock,
     StagedGenesisPolicyHashes,
@@ -566,7 +522,6 @@ fn build_minimal_genesis_with_post_topology_and_staged_hash(
             consensus_handshake_meta,
             consensus_mode_override,
             confidential_policy_hash,
-            mint_finality_override,
         );
     genesis_policy::execute_generated_genesis(
         block,
@@ -609,7 +564,6 @@ fn build_minimal_genesis_unexecuted(
         None,
         None,
         Some(iroha_core::state::default_genesis_confidential_policy_hash()),
-        None,
     );
     (block, account, peers, key_pair)
 }
@@ -627,7 +581,6 @@ fn build_minimal_genesis_unexecuted_with_post_topology(
     consensus_handshake_meta: Option<Parameter>,
     consensus_mode_override: Option<SumeragiConsensusMode>,
     confidential_policy_hash: Option<[u8; 32]>,
-    mint_finality_override: Option<KagemushaMintFinalityGenesisParametersV1>,
 ) -> (
     GenesisBlock,
     AccountId,
@@ -706,10 +659,6 @@ fn build_minimal_genesis_unexecuted_with_post_topology(
         .map(decode_consensus_handshake_metadata)
         .transpose()
         .expect("test-network consensus handshake metadata must be canonical");
-    assert!(
-        consensus_handshake_metadata.is_none() || mint_finality_override.is_none(),
-        "signed consensus metadata and a disposable Pasta override cannot both specify authority"
-    );
     if let (Some(metadata), Some(mode_override)) = (
         consensus_handshake_metadata.as_ref(),
         consensus_mode_override,
@@ -723,30 +672,11 @@ fn build_minimal_genesis_unexecuted_with_post_topology(
         || consensus_mode_override.unwrap_or(SumeragiConsensusMode::Permissioned),
         |metadata| metadata.mode,
     );
-    let (block_cadence_ms, sumeragi_context, kagemusha_mint_finality) =
-        consensus_handshake_metadata.map_or_else(
-            || {
-                (
-                    None,
-                    SumeragiGenesisContextParameters::recommended(),
-                    test_kagemusha_mint_finality_genesis_parameters(&topology),
-                )
-            },
-            |metadata| {
-                (
-                    Some(metadata.block_cadence_ms),
-                    metadata.sumeragi_context,
-                    metadata.kagemusha_mint_finality,
-                )
-            },
-        );
-    let kagemusha_mint_finality = mint_finality_override.unwrap_or(kagemusha_mint_finality);
-    kagemusha_mint_finality
-        .validate()
-        .expect("override must be a canonical generation-zero mint-finality authority");
-    builder = builder
-        .with_sumeragi_context_parameters(sumeragi_context)
-        .with_kagemusha_mint_finality_genesis_parameters(kagemusha_mint_finality);
+    let (block_cadence_ms, sumeragi_context) = consensus_handshake_metadata.map_or_else(
+        || (None, SumeragiGenesisContextParameters::recommended()),
+        |metadata| (Some(metadata.block_cadence_ms), metadata.sumeragi_context),
+    );
+    builder = builder.with_sumeragi_context_parameters(sumeragi_context);
     if let Some(block_cadence_ms) = block_cadence_ms {
         builder = builder.with_block_cadence_ms(block_cadence_ms);
     }
@@ -1007,9 +937,8 @@ fn build_minimal_genesis_unexecuted_with_post_topology(
             })
             .collect();
         // Keep the proof-bearing topology in the raw manifest until signing. The
-        // signer validates that this exact validator set matches the independently
-        // derived KAGEMUSHA mint-finality authority before lowering the entries
-        // into `RegisterPeerWithPop` instructions.
+        // signer validates the exact validator set and its proofs of possession
+        // before lowering the entries into `RegisterPeerWithPop` instructions.
         let mut manifest_topology = Vec::with_capacity(topology_vec.len());
         for peer_id in &topology_vec {
             let pop_bytes = pop_map
@@ -1307,7 +1236,7 @@ fn preexecute_genesis_on_current_thread(
         state.set_fraud_monitoring(config.fraud_monitoring.clone());
         state.set_gov(config.gov.clone());
         state.content = config.content.clone();
-        state.set_settlement(config.settlement.clone());
+        state.set_settlement(config.settlement);
     }
     if let Some(zk_config) = runtime_config.map(|config| &config.zk).or(zk_config) {
         // As on a node: the configuration supplies local ZK resources only; validity
@@ -1688,7 +1617,8 @@ mod tests {
             }
             let layers = vec![base];
             assert_eq!(crate::config_requires_sora_profile(&layers), sora_enabled);
-            let merged = crate::merged_sora_profile_detection_config(&layers);
+            let (_peer_directory, _peer, merged) =
+                crate::sora_profile_runtime_config_fixture(&layers);
             let actual = crate::parse_actual_config_for_genesis_result(merged, &layers)
                 .expect("test network storage config must parse");
             assert!(!actual.torii.sorafs_storage.enabled);
@@ -1731,7 +1661,7 @@ mod tests {
                 )
                 .write(["kura", "max_disk_usage_bytes"], 4_096_i64),
         ];
-        let merged = crate::merged_sora_profile_detection_config(&layers);
+        let (_peer_directory, _peer, merged) = crate::sora_profile_runtime_config_fixture(&layers);
         let actual = crate::parse_actual_config_for_genesis_result(merged, &layers)
             .expect("caller storage overrides must parse");
         assert_eq!(
@@ -1873,7 +1803,6 @@ mod tests {
             None,
             None,
             Some(iroha_core::state::default_genesis_confidential_policy_hash()),
-            None,
         );
         let grant_phases = raw
             .transactions()
@@ -1975,7 +1904,6 @@ mod tests {
             None,
             None,
             Some(iroha_core::state::default_genesis_confidential_policy_hash()),
-            None,
         );
         assert_eq!(
             block.0.external_transactions().count(),
@@ -2041,7 +1969,6 @@ mod tests {
                 None,
                 None,
                 Some(iroha_core::state::default_genesis_confidential_policy_hash()),
-                None,
             )
         }))
         .expect_err("the generator must refuse a twelfth caller-authored input");
@@ -2405,9 +2332,9 @@ mod tests {
         divergent_zk.max_verify_calls_per_block = 1;
         divergent_zk.gas.proof_base = 1;
         divergent_zk.gas.per_proof_byte = 1_000;
-        divergent_zk.halo2.max_k = 5;
+        divergent_zk.pipa_r.max_proof_bytes = 1;
         // A local resource, which a node may set.
-        divergent_zk.halo2.verifier_worker_threads = 1;
+        divergent_zk.trace.verifier_worker_threads = 1;
         let mut divergent_pipeline = default_pipeline.clone();
         divergent_pipeline.overlay_max_instructions = 1;
         divergent_pipeline.query_max_fetch_size = 1;
@@ -2468,8 +2395,11 @@ mod tests {
             default_zk.max_proof_size_bytes
         );
         assert_eq!(view.zk.gas.proof_base, default_zk.gas.proof_base);
-        assert_eq!(view.zk.halo2.max_k, default_zk.halo2.max_k);
-        assert_eq!(view.zk.halo2.verifier_worker_threads, 1);
+        assert_eq!(
+            view.zk.pipa_r.max_proof_bytes,
+            default_zk.pipa_r.max_proof_bytes
+        );
+        assert_eq!(view.zk.trace.verifier_worker_threads, 1);
         assert_eq!(
             view.pipeline.overlay_max_instructions,
             default_pipeline.overlay_max_instructions
@@ -2522,7 +2452,6 @@ mod tests {
                 None,
                 None,
                 Some(iroha_core::state::default_genesis_confidential_policy_hash()),
-                None,
             );
         let (block, _) = super::genesis_fixture_policy::bind_proposal(
             block,
@@ -2660,7 +2589,6 @@ mod tests {
                 None,
                 Some(SumeragiConsensusMode::Npos),
                 Some(iroha_core::state::default_genesis_confidential_policy_hash()),
-                None,
             );
         let expected_rejection_index = block
             .0
@@ -3168,17 +3096,17 @@ mod tests {
     fn genesis_confidential_digest_tracks_registered_verifying_keys() {
         let bls = KeyPair::random_with_algorithm(Algorithm::BlsNormal);
         let (topology, entries) = genesis_committee_with_key(&bls);
-        let vk_id = iroha_data_model::proof::VerifyingKeyId::new("halo2/ipa", "offline-test");
+        let vk_id = iroha_data_model::proof::VerifyingKeyId::new("pipa-r/pasta", "offline-test");
         let mut record = iroha_data_model::proof::VerifyingKeyRecord::new(
             1,
             "offline-test",
-            iroha_data_model::zk::BackendTag::Halo2IpaPasta,
+            iroha_data_model::zk::BackendTag::NativePipaRPasta,
             "pallas",
             [0xAA; 32],
             [0xBB; 32],
         );
         record.status = iroha_data_model::confidential::ConfidentialStatus::Active;
-        record.gas_schedule_id = Some("halo2_default".into());
+        record.gas_schedule_id = Some("native_pipa_r_default".into());
         let register = InstructionBox::from(
             iroha_data_model::isi::verifying_keys::RegisterVerifyingKey { id: vk_id, record },
         );
@@ -3199,7 +3127,6 @@ mod tests {
             None,
             None,
             Some(iroha_core::state::default_genesis_confidential_policy_hash()),
-            None,
         );
         let declared_hash = block
             .0

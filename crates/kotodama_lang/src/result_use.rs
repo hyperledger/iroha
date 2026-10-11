@@ -3,14 +3,20 @@
 //! A result obligation follows a local binding until the value is read, passed,
 //! matched, propagated, returned, or explicitly discarded. Branch joins retain
 //! obligations from every reachable path; a read on only one path is insufficient.
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+    rc::Rc,
+};
+
+use crate::{
+    semantic_diagnostics::{SemanticDiagnostic, SemanticFix},
+    source::SourceRange,
+};
 
 use crate::semantic::{
-    ExprKind, LIST_CONTAINS_INTRINSIC, LIST_ENUMERATE_INTRINSIC, LIST_GET_INTRINSIC,
-    LIST_LEN_INTRINSIC, LIST_POP_INTRINSIC, LIST_PUSH_INTRINSIC, LIST_SET_INTRINSIC,
-    LIST_TAKE_INTRINSIC, LIST_TRY_PUSH_INTRINSIC, LIST_TRY_SET_INTRINSIC, SemanticError, Type,
-    TypedBlock, TypedExpr, TypedParam, TypedStatement, TypedSumPattern, aggregate_binding_origin,
-    resolve_struct_type,
+    CallTarget, CompilerIntrinsic, ExprKind, SemanticError, Type, TypedBlock, TypedExpr,
+    TypedParam, TypedStatement, TypedSumPattern, aggregate_binding_origin, resolve_struct_type,
 };
 
 /// A fixed product field or a compact set of possible bounded-list slots.
@@ -237,6 +243,22 @@ struct Flow {
     durable: BTreeSet<String>,
     returned: bool,
     exits: Vec<LoopExit>,
+    /// Diagnostic-only source sites shared by every fork of one check.
+    sites: Rc<RefCell<MustUseSites>>,
+}
+/// Source locations observed while checking one function body.
+#[derive(Default)]
+struct MustUseSites {
+    /// Innermost statement currently being checked.
+    current: Option<SourceRange>,
+    /// Innermost statement that observed the first failure.
+    failure: Option<SourceRange>,
+    /// Whether that statement discarded the value of an expression statement.
+    expression_statement: bool,
+    /// Statement that declared each tracked Result binding.
+    bindings: BTreeMap<String, SourceRange>,
+    /// Binding named by the first failure, when it names one.
+    failed_binding: Option<String>,
 }
 struct LoopExit {
     pending: BTreeSet<Place>,
@@ -244,7 +266,7 @@ struct LoopExit {
     list_epoch: u64,
     continuing: bool,
 }
-fn failure(name: &str, reason: &str) -> SemanticError {
+fn failure_message(name: &str, reason: &str) -> SemanticError {
     SemanticError {
         code: "E_RESULT_MUST_USE",
         message: format!(
@@ -321,7 +343,16 @@ impl Flow {
             durable: self.durable.clone(),
             returned: self.returned,
             exits: Vec::new(),
+            sites: Rc::clone(&self.sites),
         }
+    }
+    /// Report that the obligation of binding `name` was not met.
+    fn failure(&self, name: &str, reason: &str) -> SemanticError {
+        let mut sites = self.sites.borrow_mut();
+        if sites.failed_binding.is_none() && sites.failure.is_none() {
+            sites.failed_binding = Some(name.to_owned());
+        }
+        failure_message(name, reason)
     }
     fn bind(&mut self, name: &str, shape: Shape) -> Result<(), SemanticError> {
         let (_, path, capture) = aggregate_binding_origin(name);
@@ -332,7 +363,13 @@ impl Flow {
         // correspond to explicit `_` or `..`; selected fields get source Lets.
         if !capture {
             if let Some(old) = self.pending.iter().find(|old| old.name == name) {
-                return Err(failure(&old.name, "overwritten before being consumed"));
+                return Err(self.failure(&old.name, "overwritten before being consumed"));
+            }
+            if !shape.results.is_empty() {
+                let mut sites = self.sites.borrow_mut();
+                if let Some(current) = sites.current {
+                    sites.bindings.entry(name.to_owned()).or_insert(current);
+                }
             }
             self.names.insert(name.to_owned());
             self.pending
@@ -453,28 +490,45 @@ impl Flow {
     }
     fn call(
         &mut self,
-        name: &str,
+        target: &CallTarget,
         args: &[TypedExpr],
         order: &[usize],
         result_ty: &Type,
     ) -> Result<Shape, SemanticError> {
+        if target.is_lazy_sum_error() {
+            self.expression(&args[0])?;
+            let success = self.fork();
+            let mut failure = self.fork();
+            failure.expression(&args[1])?;
+            if target.intrinsic() == Some(CompilerIntrinsic::Expect) {
+                // The failing branch ends in a contract rejection, not a
+                // recoverable return. Only the success path continues.
+                failure.returned = true;
+            }
+            self.join([success, failure]);
+            return Ok(Shape::typed(result_ty));
+        }
+        let intrinsic = target.intrinsic();
         let receiver_observed = matches!(
-            name,
-            "is_some"
-                | "is_none"
-                | "is_ok"
-                | "is_err"
-                | "unwrap_err_or"
-                | LIST_LEN_INTRINSIC
-                | LIST_GET_INTRINSIC
-                | LIST_CONTAINS_INTRINSIC
-                | LIST_TAKE_INTRINSIC
-                | LIST_ENUMERATE_INTRINSIC
-                | LIST_SET_INTRINSIC
-                | LIST_TRY_SET_INTRINSIC
-                | LIST_PUSH_INTRINSIC
-                | LIST_TRY_PUSH_INTRINSIC
-                | LIST_POP_INTRINSIC
+            intrinsic,
+            Some(
+                CompilerIntrinsic::IsSome
+                    | CompilerIntrinsic::IsNone
+                    | CompilerIntrinsic::IsOk
+                    | CompilerIntrinsic::IsErr
+                    | CompilerIntrinsic::UnwrapErrOr
+                    | CompilerIntrinsic::ListLen
+                    | CompilerIntrinsic::ListGet
+                    | CompilerIntrinsic::ListContains
+                    | CompilerIntrinsic::ListTake
+                    | CompilerIntrinsic::ListWiden
+                    | CompilerIntrinsic::ListEnumerate
+                    | CompilerIntrinsic::ListSet
+                    | CompilerIntrinsic::ListTrySet
+                    | CompilerIntrinsic::ListPush
+                    | CompilerIntrinsic::ListTryPush
+                    | CompilerIntrinsic::ListPop
+            )
         );
         let mut evaluated = vec![Shape::default(); args.len()];
         for index in order {
@@ -487,6 +541,7 @@ impl Flow {
         if !receiver_observed {
             return Ok(Shape::typed(result_ty));
         }
+        let name = intrinsic.expect("observed compiler intrinsic");
         // Lists are mutable pointer values. Later argument evaluation can mutate
         // the same receiver; runtime loads its length only after all arguments.
         let source = if place(&args[0]).is_some() {
@@ -496,24 +551,24 @@ impl Flow {
         };
         let mut result = Shape::typed(result_ty);
         match name {
-            "is_ok" | "is_err" | "unwrap_err_or" => {
+            CompilerIntrinsic::IsOk | CompilerIntrinsic::IsErr | CompilerIntrinsic::UnwrapErrOr => {
                 if let Some(selected) = place(&args[0]) {
                     self.consume_tag(&selected); // Only the outer Result tag.
                 } else if source.results.iter().any(|path| !path.is_empty()) {
                     return Err(discarded());
                 }
             }
-            LIST_CONTAINS_INTRINSIC => {
+            CompilerIntrinsic::ListContains => {
                 // Canonical equality observes complete structured values, like
                 // comparing or passing the aggregate as a whole.
                 self.select_evaluated(&args[0], &source, &[])?;
             }
-            "is_some" | "is_none" | LIST_LEN_INTRINSIC => {
+            CompilerIntrinsic::IsSome | CompilerIntrinsic::IsNone | CompilerIntrinsic::ListLen => {
                 if place(&args[0]).is_none() && !source.results.is_empty() {
                     return Err(discarded());
                 }
             }
-            LIST_GET_INTRINSIC => {
+            CompilerIntrinsic::ListGet => {
                 if let Some(index) = constant_index(&args[1]) {
                     self.select_evaluated(&args[0], &source, &[Part::slot(index)])?;
                     result = Shape::product([source.project(&[Part::slot(index)])]);
@@ -521,7 +576,11 @@ impl Flow {
                     return Err(discarded());
                 }
             }
-            LIST_TAKE_INTRINSIC => {
+            CompilerIntrinsic::ListWiden => {
+                self.select_evaluated(&args[0], &source, &[])?;
+                result = source.clone();
+            }
+            CompilerIntrinsic::ListTake => {
                 let length = constant_index(&args[1]).expect("typed take bound");
                 let mask = if length == 64 {
                     u64::MAX
@@ -537,7 +596,7 @@ impl Flow {
                     result.lengths.insert(Vec::new(), 0);
                 }
             }
-            LIST_ENUMERATE_INTRINSIC => {
+            CompilerIntrinsic::ListEnumerate => {
                 self.select_evaluated(&args[0], &source, &[])?;
                 result = Shape::default();
                 result.results = source
@@ -561,7 +620,7 @@ impl Flow {
                     })
                     .collect();
             }
-            LIST_POP_INTRINSIC => {
+            CompilerIntrinsic::ListPop => {
                 if let Some(length) = source.lengths.get(&Vec::new()) {
                     if let Some(index) = length.checked_sub(1) {
                         self.select_evaluated(&args[0], &source, &[Part::slot(index)])?;
@@ -572,10 +631,10 @@ impl Flow {
                 }
                 self.mutate_list(name, args, source, Shape::default())?;
             }
-            LIST_SET_INTRINSIC
-            | LIST_TRY_SET_INTRINSIC
-            | LIST_PUSH_INTRINSIC
-            | LIST_TRY_PUSH_INTRINSIC => {
+            CompilerIntrinsic::ListSet
+            | CompilerIntrinsic::ListTrySet
+            | CompilerIntrinsic::ListPush
+            | CompilerIntrinsic::ListTryPush => {
                 self.mutate_list(
                     name,
                     args,
@@ -592,7 +651,10 @@ impl Flow {
         if shares_elements
             && matches!(
                 name,
-                LIST_GET_INTRINSIC | LIST_TAKE_INTRINSIC | LIST_ENUMERATE_INTRINSIC
+                CompilerIntrinsic::ListGet
+                    | CompilerIntrinsic::ListTake
+                    | CompilerIntrinsic::ListWiden
+                    | CompilerIntrinsic::ListEnumerate
             )
         {
             self.escape_lists(&args[0]);
@@ -602,7 +664,7 @@ impl Flow {
     }
     fn mutate_list(
         &mut self,
-        name: &str,
+        name: CompilerIntrinsic,
         args: &[TypedExpr],
         mut shape: Shape,
         replacement: Shape,
@@ -614,7 +676,7 @@ impl Flow {
             unreachable!("typed list receiver")
         };
         let length = shape.lengths.get(&Vec::new()).copied();
-        if name == LIST_POP_INTRINSIC {
+        if name == CompilerIntrinsic::ListPop {
             if let Some(length) = length {
                 if let Some(index) = length.checked_sub(1) {
                     shape.remove(&[Part::slot(index)]);
@@ -624,7 +686,10 @@ impl Flow {
                 shape.lengths.clear();
             }
         } else {
-            let setting = matches!(name, LIST_SET_INTRINSIC | LIST_TRY_SET_INTRINSIC);
+            let setting = matches!(
+                name,
+                CompilerIntrinsic::ListSet | CompilerIntrinsic::ListTrySet
+            );
             let known_index = if setting {
                 constant_index(&args[1])
             } else {
@@ -648,7 +713,7 @@ impl Flow {
                         .iter()
                         .find(|old| old.path.iter().any(|part| matches!(part, Part::Slots(_))))
                 {
-                    return Err(failure(
+                    return Err(self.failure(
                         &old.name,
                         "possibly overwritten through a shared List handle before being consumed",
                     ));
@@ -661,7 +726,7 @@ impl Flow {
                         .iter()
                         .find(|old| old.name == selected.name && under(&old.path, &selected.path))
                     {
-                        return Err(failure(&old.name, "overwritten before being consumed"));
+                        return Err(self.failure(&old.name, "overwritten before being consumed"));
                     }
                 }
             }
@@ -687,15 +752,29 @@ impl Flow {
                     .insert(Vec::new(), (length + 1).min(usize::from(capacity)));
             }
         }
-        // Mutable list receivers are plain local identifiers in typed lowering.
-        debug_assert!(base.path.is_empty());
-        self.shapes.insert(base.name, shape);
+        // Replace only the selected list subtree. Sibling product fields retain
+        // their lengths and Result obligations; nested receiver paths are fixed
+        // struct/tuple projections validated by semantic analysis.
+        let root = self.shapes.entry(base.name).or_default();
+        root.remove(&base.path);
+        root.escaped_lists |= shape.escaped_lists;
+        root.results.extend(shape.results.into_iter().map(|path| {
+            let mut selected = base.path.clone();
+            selected.extend(path);
+            selected
+        }));
+        root.lengths
+            .extend(shape.lengths.into_iter().map(|(path, length)| {
+                let mut selected = base.path.clone();
+                selected.extend(path);
+                (selected, length)
+            }));
         self.list_epoch = self.list_epoch.saturating_add(1);
         Ok(())
     }
     fn check_exit(&self) -> Result<(), SemanticError> {
         if let Some(name) = self.pending.first() {
-            return Err(failure(&name.name, "unread when this path exits"));
+            return Err(self.failure(&name.name, "unread when this path exits"));
         }
         Ok(())
     }
@@ -740,26 +819,40 @@ impl Flow {
     fn block(&mut self, block: &TypedBlock, tail_used: bool) -> Result<Shape, SemanticError> {
         let outer = self.names.clone();
         let mut tail_shape = Shape::default();
-        for statement in &block.statements {
+        for (index, statement) in block.statements.iter().enumerate() {
             if self.returned {
                 break;
             }
-            self.statement(statement)?;
+            let source = block.statement_source(index);
+            let enclosing = std::mem::replace(&mut self.sites.borrow_mut().current, source);
+            let result = self.statement(statement);
+            let mut sites = self.sites.borrow_mut();
+            sites.current = enclosing;
+            if result.is_err() && sites.failure.is_none() {
+                sites.failure = source;
+                sites.expression_statement = matches!(statement, TypedStatement::Expr(_));
+            }
+            drop(sites);
+            result?;
         }
         if !self.returned {
             if let Some(tail) = &block.tail {
                 tail_shape = self.expression(tail)?;
                 if !tail_used && !tail_shape.results.is_empty() {
+                    let mut sites = self.sites.borrow_mut();
+                    if sites.failure.is_none() {
+                        sites.failure = block.tail_source();
+                    }
                     return Err(discarded());
                 }
             }
             if let Some(name) = self.pending.iter().find(|name| !outer.contains(&name.name)) {
-                return Err(failure(&name.name, "unread at the end of its scope"));
+                return Err(self.failure(&name.name, "unread at the end of its scope"));
             }
         }
         for exit in &self.exits {
             if let Some(name) = exit.pending.iter().find(|name| !outer.contains(&name.name)) {
-                return Err(failure(&name.name, "unread before leaving its scope"));
+                return Err(self.failure(&name.name, "unread before leaving its scope"));
             }
         }
         self.names = outer;
@@ -781,6 +874,7 @@ impl Flow {
                 durable: self.durable.clone(),
                 returned: false,
                 exits: Vec::new(),
+                sites: Rc::clone(&self.sites),
             };
             if exit.continuing {
                 let mut repeated = path.fork();
@@ -809,7 +903,7 @@ impl Flow {
             if !a.returned
                 && let Some(name) = a.pending.iter().find(|name| !outer.contains(&name.name))
             {
-                return Err(failure(&name.name, "unread in this pattern arm"));
+                return Err(self.failure(&name.name, "unread in this pattern arm"));
             }
             a.names = outer;
         } else {
@@ -992,6 +1086,7 @@ impl Flow {
                         durable: self.durable.clone(),
                         returned: false,
                         exits: Vec::new(),
+                        sites: Rc::clone(&self.sites),
                     };
                     if exit.continuing {
                         let mut repeat = path.fork();
@@ -1134,7 +1229,7 @@ impl Flow {
                             .iter()
                             .find(|name| !self.names.contains(&name.name))
                         {
-                            return Err(failure(&name.name, "unread in this match arm"));
+                            return Err(self.failure(&name.name, "unread in this match arm"));
                         }
                     }
                     paths.push(path);
@@ -1142,11 +1237,11 @@ impl Flow {
                 self.join(paths);
                 return Ok(output.unwrap_or_default());
             }
-            ExprKind::Call { name, args } => {
+            ExprKind::Call { target: name, args } => {
                 return self.call(name, args, &(0..args.len()).collect::<Vec<_>>(), &value.ty);
             }
             ExprKind::NamedCall {
-                name,
+                target: name,
                 args,
                 evaluation_order,
             } => return self.call(name, args, evaluation_order, &value.ty),
@@ -1222,7 +1317,7 @@ impl Flow {
                     item.expression(condition)?;
                     if let Some(pending) = item.pending.iter().find(|pending| pending.name == *name)
                     {
-                        return Err(failure(
+                        return Err(self.failure(
                             &pending.name,
                             "unread when the comprehension filter excludes it",
                         ));
@@ -1230,7 +1325,7 @@ impl Flow {
                 }
                 item.expression(expression)?;
                 if let Some(pending) = item.pending.iter().find(|pending| pending.name == *name) {
-                    return Err(failure(&pending.name, "unread by the comprehension"));
+                    return Err(self.failure(&pending.name, "unread by the comprehension"));
                 }
                 if item.list_epoch == entry_epoch {
                     item.consume(&selected);
@@ -1278,7 +1373,7 @@ impl Flow {
                 }
             }
             ExprKind::OptionNone => return Ok(Shape::default()),
-            ExprKind::ErrorValue(_)
+            ExprKind::VariantCode(_)
             | ExprKind::IntLiteral(_)
             | ExprKind::DecimalLiteral { .. }
             | ExprKind::Bool(_)
@@ -1288,26 +1383,87 @@ impl Flow {
         Ok(Shape::typed(&value.ty))
     }
 }
-pub(crate) fn check(
+/// Check result obligations and locate the first failure in source.
+///
+/// A failure that names a binding points at the statement that declared the
+/// binding. A discarded value points at the innermost statement that dropped
+/// it; a discarded expression statement also receives a `let _ = ...;` fix.
+pub(crate) fn check_with_diagnostic(
     parameters: &[TypedParam],
     body: &TypedBlock,
     durable: BTreeSet<String>,
-) -> Result<(), SemanticError> {
+) -> Result<(), Box<(SemanticError, Option<SemanticDiagnostic>)>> {
     // Publishing a Result to durable state consumes the local value. State
     // names cannot be shadowed, so these resolver-owned names are unambiguous.
     let mut flow = Flow {
         durable,
         ..Flow::default()
     };
-    for parameter in parameters {
-        flow.bind(&parameter.name, Shape::typed(&parameter.ty))?;
-    }
-    flow.block(body, true)?;
-    flow.check_exit()
+    let result = (|| {
+        for parameter in parameters {
+            flow.bind(&parameter.name, Shape::typed(&parameter.ty))?;
+        }
+        flow.block(body, true)?;
+        flow.check_exit()
+    })();
+    result.map_err(|error| {
+        let sites = flow.sites.borrow();
+        let diagnostic = if let Some(name) = &sites.failed_binding {
+            sites.bindings.get(name).map(|binding| {
+                SemanticDiagnostic::at(*binding, None)
+                    .with_label(
+                        sites.failure.filter(|failure| failure != binding),
+                        format!("`{name}` is still unhandled here"),
+                    )
+                    .with_help(format!(
+                        "Read `{name}` with `match`, `if let`, or `?`, pass or return it, or discard it explicitly with `let _ = {name};`."
+                    ))
+            })
+        } else {
+            sites.failure.map(|failure| {
+                SemanticDiagnostic::at(
+                    failure,
+                    sites
+                        .expression_statement
+                        .then_some(SemanticFix::DiscardStatement),
+                )
+                .with_help(
+                    "This expression produces a Result whose failure would be silently lost. \
+                     Handle it with `match`, `if let`, or `?`, or discard it explicitly with `let _ = ...;`.",
+                )
+            })
+        };
+        Box::new((error, diagnostic))
+    })
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn lazy_sum_errors_do_not_consume_results_on_the_success_path() {
+        for bridge in [
+            "value.ok_or(fallback(pending))",
+            "value.expect(fallback(pending))",
+        ] {
+            let source = format!(
+                "error enum Failure {{ Missing = 1 }} \
+                 fn fallback(Result<int, Failure> input) -> Failure {{ let _ = input; Failure::Missing }} \
+                 fn run(Option<int> value) {{ let Result<int, Failure> pending = Result::err(Failure::Missing); \
+                 let _ = {bridge}; }}"
+            );
+            assert_eq!(
+                analyze(&source)
+                    .expect_err("success never consumes pending")
+                    .code(),
+                "E_RESULT_MUST_USE"
+            );
+            let repaired = source.replace(
+                &format!("let _ = {bridge};"),
+                &format!("let _ = {bridge}; let _ = pending;"),
+            );
+            analyze(&repaired).expect("explicit discard handles the continuing success path");
+        }
+    }
     use super::*;
     fn analyze(source: &str) -> Result<crate::semantic::TypedProgram, SemanticError> {
         crate::semantic::analyze(&crate::parser::parse_test_fragment(source).expect("valid source"))
@@ -1388,7 +1544,7 @@ mod tests {
         analyze("fn accept((Result<quantity, NumericError>, int) pair) { let _ = pair; } fn f() { let pair = (quantity::try_from_int(-1), 0); accept(pair: pair); }").unwrap();
         analyze("fn f() -> (Result<quantity, NumericError>, int) { let pair = (quantity::try_from_int(-1), 0); return pair; }").unwrap();
         analyze("fn f() -> Option<Result<quantity, NumericError>> { Option::some(quantity::try_from_int(-1)) }").unwrap();
-        analyze("seiyaku Publish { state (Result<quantity, NumericError>, int) saved; state StateMap<int, Option<Result<quantity, NumericError>>> entries; hajimari() { saved = (quantity::try_from_int(0), 0); } kotoage fn save() authorize(\"Writer\") { let pair = (quantity::try_from_int(-1), 0); saved = pair; let optional = Option::some(quantity::try_from_int(-1)); entries[0] = optional; } }").unwrap();
+        analyze("seiyaku Publish { permission Writer;  state (Result<quantity, NumericError>, int) saved; state StateMap<int, Option<Result<quantity, NumericError>>> entries; hajimari() { saved = (quantity::try_from_int(0), 0); } kotoage fn save() authorize(Writer) { let pair = (quantity::try_from_int(-1), 0); saved = pair; let optional = Option::some(quantity::try_from_int(-1)); entries[0] = optional; } }").unwrap();
     }
     #[test]
     fn container_observation_does_not_handle_nested_results() {
@@ -1418,6 +1574,19 @@ mod tests {
         reject(
             "fn f() { let values = [quantity::try_from_int(1), quantity::try_from_int(-1)]; let length = values.len(); }",
         );
+    }
+    #[test]
+    fn mutable_product_list_fields_preserve_sibling_and_slot_obligations() {
+        let declarations =
+            "struct Holder { Result<int, bool> sibling; List<Result<int, bool>, 2> items; }";
+        for body in [
+            "var holder = Holder { sibling: Result::ok(9), items: [] }; holder.items.push(Result::ok(1)); let _ = holder.items.pop();",
+            "var holder = Holder { sibling: Result::ok(9), items: [] }; let _ = holder.sibling; holder.items.push(Result::ok(1));",
+            "var holder = Holder { sibling: Result::ok(9), items: [] }; holder.items.push(Result::ok(1)); holder.items.set(0, Result::ok(2)); let _ = holder;",
+        ] {
+            reject(&format!("{declarations} fn f() {{ {body} }}"));
+        }
+        analyze(&format!("{declarations} fn f() {{ var pair = (0, Holder {{ sibling: Result::ok(9), items: [] }}); pair.1.items.push(Result::ok(1)); let _ = pair.1.items.pop(); let _ = pair.1.sibling; }}")).unwrap();
     }
     #[test]
     fn list_mutation_retains_new_and_untouched_result_elements() {
@@ -1501,10 +1670,7 @@ mod tests {
         }
     }
     fn statements(statements: Vec<TypedStatement>) -> TypedBlock {
-        TypedBlock {
-            statements,
-            tail: None,
-        }
+        TypedBlock::new(statements, None)
     }
     #[test]
     fn sequential_forks_retain_each_loop_exit_once() {
@@ -1522,7 +1688,7 @@ mod tests {
                 variant: crate::ast::SumVariant::OptionNone,
                 binding: None,
             },
-            error_code: None,
+            variant_code: None,
             payload_type: None,
         };
         let empty = statements(Vec::new());
@@ -1564,7 +1730,7 @@ mod tests {
                                     variant: crate::ast::SumVariant::OptionSome,
                                     binding: Some(crate::ast::PatternBinding::Wildcard),
                                 },
-                                error_code: None,
+                                variant_code: None,
                                 payload_type: Some(Type::Bool),
                             },
                             body: empty.clone(),

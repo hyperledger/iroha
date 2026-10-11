@@ -35,10 +35,8 @@ pub(super) fn make_phase_vote_evidence(height: u64, seed: u8) -> Evidence {
             view: 0,
             block_hash: Hash32([subject; 32]),
             result: Hash32([seed.wrapping_add(3); 32]),
-            attest: false,
             signer: 0,
             sig: NativeSignature([0; SIGNATURE_LEN]),
-            attestation: None,
         };
         vote.sig = NativeSignature(
             Signature::new(keys[0].private_key(), &vote.preimage())

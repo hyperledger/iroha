@@ -1,7 +1,7 @@
 
-seiyaku CompilerFixture {
+seiyaku CompilerFixture { permission NftAdmin;
 
-kotoage fn main() authorize("NftAdmin") {
+kotoage fn main() authorize(NftAdmin) {
   ledger::nft::set_metadata(
     nft: NftId::parse("n0$wonderland.universal"),
     key: Name::parse("dpn_metadata"),

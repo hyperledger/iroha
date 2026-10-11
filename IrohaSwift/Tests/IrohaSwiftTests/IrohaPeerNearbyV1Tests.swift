@@ -4,6 +4,22 @@ import XCTest
 @testable import IrohaSwift
 
 final class IrohaPeerNearbyV1Tests: XCTestCase {
+    func testEncryptedRequestPreservesCompanionAndRejectsRecordReplay() throws {
+        // Local transport signing keys authenticate this test channel, not wallet monetary DATA.
+        let envelope = irohaPeerWalletStructuralEnvelopeV1(kind: .request, payload: Data([0x31]))
+        let account = try irohaPeerWalletRequestAccountOriginalV1()
+        let request = try IrohaPeerKagemushaWalletAdapterV1.wrap(
+            envelope, destinationAccountOriginal: account)
+        let pair = try makeAuthenticatedPair(requestHash: request.canonicalHash)
+        let record = try pair.receiver.seal(request.encoded)
+        let plaintext = try pair.sender.open(record)
+        let decoded = try IrohaPeerWireMessageV1.decode(plaintext)
+        XCTAssertEqual(decoded, request)
+        XCTAssertEqual(try IrohaPeerKagemushaWalletAdapterV1.decode(decoded), envelope)
+        XCTAssertEqual(try IrohaPeerKagemushaWalletAdapterV1.destinationAccountOriginal(decoded), account)
+        XCTAssertThrowsError(try pair.sender.open(record))
+    }
+
     func testAuthenticationSignatureFitsCommonRadioRecordCeiling() throws {
         let maximum = IrohaPeerNearbyV1.maximumAuthenticationSignatureBytes
         let authentication = try IrohaPeerNearbyAuthenticationV1(
@@ -679,7 +695,9 @@ final class IrohaPeerNearbyV1Tests: XCTestCase {
         XCTAssertEqual(try tampered.receiver.open(original), Data("payment".utf8))
     }
 
-    private func makeAuthenticatedPair() throws -> (
+    private func makeAuthenticatedPair(
+        requestHash: Data = Data(repeating: 0x72, count: 32)
+    ) throws -> (
         sender: IrohaPeerNearbySessionV1,
         receiver: IrohaPeerNearbySessionV1,
         receiverAuthentication: IrohaPeerNearbyAuthenticationV1,
@@ -688,7 +706,6 @@ final class IrohaPeerNearbyV1Tests: XCTestCase {
         let senderSigningKey = Curve25519.Signing.PrivateKey()
         let receiverSigningKey = Curve25519.Signing.PrivateKey()
         let sessionID = Data(repeating: 0x71, count: 16)
-        let requestHash = Data(repeating: 0x72, count: 32)
         let sender = try IrohaPeerNearbySessionV1(
             profile: .kagemushaWalletV1,
             localRole: .sender,

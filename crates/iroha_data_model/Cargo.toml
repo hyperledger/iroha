@@ -13,6 +13,8 @@ license.workspace = true
 workspace = true
 
 [features]
+# Model-owned spec §13.4 switches; rejected in every non-test library build.
+mutation-testing = []
 default = ["application-model"]
 dev-tools = ["dep:tempfile", "dep:rustix"]
 # Public application model; node-only additions are requested by node crates.
@@ -39,6 +41,7 @@ governance = []
 pqc = ["iroha_crypto/pqc", "sorafs_manifest/pqc"]
 
 [dependencies]
+zeroize = { workspace = true }
 iroha_allocation = { workspace = true }
 # Protocol JSON is mandatory: custom parameters and retained ledger metadata use it.
 iroha_data_model_derive = { path = "../iroha_data_model_derive" }
@@ -89,7 +92,6 @@ mv = { workspace = true }
 criterion = { workspace = true }
 iroha_crypto = { workspace = true, default-features = false, features = ["consensus", "gost", "sm", "bfv-test-fixtures"] }
 hex-literal = { workspace = true }
-ivm_abi = { path = "../ivm_abi" }
 
 tempfile = { workspace = true }
 
@@ -130,32 +132,21 @@ name = "privacy_exact12_fixtures"
 path = "src/bin/privacy_exact12_fixtures.rs"
 required-features = ["dev-tools", "privacy-exact12-conformance"]
 
-[[bin]]
-name = "kagemusha_verified_receipt_v1"
-path = "src/bin/kagemusha_verified_receipt_v1.rs"
-required-features = ["dev-tools"]
-
-[[bin]]
-name = "kagemusha_app_certificate_encoder_v1"
-path = "src/bin/kagemusha_app_certificate_encoder_v1.rs"
-required-features = ["dev-tools"]
-
-[[bin]]
-name = "kagemusha_raw_app_attestation_encoder_v1"
-path = "src/bin/kagemusha_raw_app_attestation_encoder_v1.rs"
-required-features = ["dev-tools"]
-
-[[bin]]
-name = "kagemusha_ordinary_installed_context_codec_v1"
-path = "src/bin/kagemusha_ordinary_installed_context_codec_v1.rs"
-required-features = ["dev-tools"]
-
-[[bin]]
-name = "kagemusha_ordinary_preparation_encoder_v1"
-path = "src/bin/kagemusha_ordinary_preparation_encoder_v1.rs"
-required-features = ["dev-tools"]
-
 # Grouped integration-test harnesses keep `cargo test` from linking one binary per tests/*.rs file.
+
+[[test]]
+name = "automatic_validator_rewards"
+path = "tests/automatic_validator_rewards.rs"
+
+[[test]]
+name = "automatic_reward_evidence"
+path = "tests/automatic_reward_evidence.rs"
+required-features = ["test-fixtures", "transparent_api"]
+
+[[test]]
+name = "staking_reward_identity_capture"
+path = "tests/staking_reward_identity_capture.rs"
+required-features = ["transparent_api"]
 
 [[test]]
 name = "iroha_data_model_group_01"
@@ -172,10 +163,6 @@ path = "tests/query_serialization_allocations.rs"
 [[test]]
 name = "block_signature_serialization_allocations"
 path = "tests/block_signature_serialization_allocations.rs"
-
-[[test]]
-name = "kagemusha_governed_registry_allocation"
-path = "tests/kagemusha_governed_registry_allocation.rs"
 
 [[test]]
 name = "musubi_text_validation_allocations"
@@ -200,6 +187,16 @@ path = "tests/sccp_v1_governance.rs"
 [[test]]
 name = "sccp_v1_roundtrip"
 path = "tests/sccp_v1_roundtrip.rs"
+
+# Public Activate SDK wire parity, separate from the large internal unit harness.
+[[test]]
+name = "kagemusha_activate_sdk"
+path = "tests/kagemusha_activate_sdk.rs"
+
+# Public IssueLoad SDK wire parity, separate from the large internal unit harness.
+[[test]]
+name = "kagemusha_issue_load_sdk"
+path = "tests/kagemusha_issue_load_sdk.rs"
 
 # Public manual frame contracts compile separately from the large internal unit suite.
 [[test]]
@@ -234,3 +231,8 @@ path = "tests/resource_contract_v1.rs"
 [[test]]
 name = "fastpq_quantity_units_allocations"
 path = "tests/fastpq_quantity_units_allocations.rs"
+
+# Observe canonical AMX identity, borrowed Begin matching and monetary-effects allocations.
+[[test]]
+name = "amx_prepare_streaming_allocations"
+path = "tests/amx_prepare_streaming_allocations.rs"

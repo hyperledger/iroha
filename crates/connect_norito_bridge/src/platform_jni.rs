@@ -19,8 +19,14 @@ mod account_address;
 mod committed_transaction_inclusion;
 mod confidential_prover;
 mod gpu;
+mod kagemusha_wallet_advance;
+mod kagemusha_wallet_observation;
+mod kagemusha_wallet_review;
 
 include!("platform_jni/part_1.rs");
 include!("platform_jni/part_2.rs");
 include!("platform_jni/part_3.rs");
 include!("platform_jni/private_settlement.rs");
+
+#[cfg(test)]
+mod privacy_capability_network_tests;

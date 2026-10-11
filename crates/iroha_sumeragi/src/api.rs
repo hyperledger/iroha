@@ -233,10 +233,6 @@ pub enum Event {
         req: u64,
         /// Original funded nonempty payload, or no includable work.
         payload: Option<PayloadBytes>,
-        /// The application flag of a block with this payload (§3.7 A1): its Commit votes need
-        /// attestations. The core adds no flag of its own, not even at an epoch boundary.
-        /// Empty builder responses are never proposed.
-        attest: bool,
     },
     /// Exact original-author worker completion; stale request/source completions are ignored.
     PayloadAuthored {
@@ -253,8 +249,6 @@ pub enum Event {
         context: ControlWitnessContext,
         /// Bounded canonical control bytes.
         witness: crate::types::ControlWitness,
-        /// Whether this control input requires application attestation.
-        attest: bool,
     },
     /// The sole application owner has one own partial to retransmit for this source.
     ApplicationControlBuilt {
@@ -409,6 +403,11 @@ pub enum Action {
         block: AvailableBody,
         /// Request id (never reused).
         req: u64,
+        /// The node holds a `PrepareQC` at the block's height for this block (a re-proposal's
+        /// `Q`, or its own lock), evaluated at every emission (§4.2, §6.2 step 9). It never
+        /// changes the verdict: it only exempts the block from the application's local-clock
+        /// guards (§4.5 CT1, CT5), whose honest first Prepare voters already passed them.
+        certified: bool,
     },
     /// Cancel and drop executions of blocks at `height` other than `keep`.
     DiscardExecution {
@@ -532,15 +531,6 @@ pub enum LocalFault {
     ConfigTooTight {
         /// The new `T_req(nominal)`.
         t_req: Millis,
-    },
-    /// The lock of the round is a flagged block and the node's `Attestor` holds no authority
-    /// (`AttestOutcome::NoAuthority`, or an attestation its own verifier rejects): no Commit vote
-    /// (§3.7 A2); reported once per view. A `Pending` answer is no fault.
-    AttestationUnavailable {
-        /// Height.
-        height: u64,
-        /// View.
-        view: u64,
     },
 }
 

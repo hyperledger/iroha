@@ -1,20 +1,17 @@
 ---
-title: KAGEMUSHA QR Stream Transport
+title: QR Stream Transport
 ---
 
-This document defines the QR stream framing used to move KAGEMUSHA payloads (receipts, bundles,
-and envelopes) between devices using animated QR codes. The format is deterministic, simple,
-and designed to be implemented across Swift, Android, and JavaScript with consistent results.
+This document defines the QR stream framing used to move opaque binary payloads between
+devices using animated QR codes. The format is deterministic, simple, and designed to be
+implemented across Swift, Android, and JavaScript with consistent results.
 
 ## 1. Overview
 
 QR stream splits a binary payload into fixed-size chunks, adds optional XOR parity frames, and
 wraps each chunk in a CRC32-protected frame. A header frame carries the envelope metadata
-needed to reassemble the payload and verify its hash. Payloads are canonical
-`KagemushaPaymentRequestV1`, `KagemushaPaymentV1`, or
-`KagemushaAcknowledgementV1` values; the `payload_kind` tag binds the schema
-used to interpret the bytes. KAGEMUSHA V1 has no acceptance-intent or
-acceptance-ticket payload.
+needed to reassemble the payload and verify its hash. The payload bytes are opaque to the
+stream; the `payload_kind` tag is reserved for a future typed payload registry.
 
 Key properties:
 
@@ -47,18 +44,11 @@ The envelope is encoded as a fixed 47-byte structure and is carried inside the h
 | Value | Meaning |
 |-------|---------|
 | `0` | `unspecified` |
-| `1` | `kagemusha_payment_request_v1` |
-| `2` | `kagemusha_payment_v1` |
-| `3` | `kagemusha_acknowledgement_v1` |
 
-This is the `IQ` envelope's little-endian `u16` registry. The numeric meanings
-mirror the KAGEMUSHA V1 peer protocol, but this outer QR tag is distinct from
-the one-byte kind field inside an `IPM1` message.
-
-> **Superseded KAGEMUSHA kinds (2026-10-03).** Kinds 1 to 3 name the retired
-> exchange. The [single implementation draft](kagemusha_single_design_proposal.md)
-> §§5 and 8 define the messages this carrier moves; the kind table is replaced
-> together with the implementing change. The frame format below is unchanged.
+This is the `IQ` envelope's little-endian `u16` registry. Encoders emit `0`; decoders read
+every other value as `unspecified`. The retired KAGEMUSHA V1 peer-message tags `1` to `3`
+are not assigned. The tag is distinct from the one-byte kind field inside an `IPM1` message,
+which the [wallet wire](kagemusha_wallet_wire_v1.md) carriers own.
 
 ## 3. Frame (`QrStreamFrame`)
 

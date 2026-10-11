@@ -41,7 +41,7 @@ fn structural_equality_compares_recursive_values_with_nominal_errors_and_unit() 
         error enum Failure { Missing = 1; Denied = 2 }
         struct Record { () marker; (int, bool) pair; Option<List<Result<quantity, Failure>, 2>> values; }
         fn same(Record left, Record right) -> bool { left == right }
-        view fn main() -> bool {
+        view fn main() authorize(anyone) -> bool {
             let Record first = Record { marker: (), pair: (3, true), values: Option::some([Result::ok(4), Result::err(Failure::Missing)]) };
             let Record second = Record { values: Option::some([Result::ok(4), Result::err(Failure::Missing)]), pair: (3, true), marker: () };
             let Record third = Record { marker: (), pair: (3, true), values: Option::some([Result::ok(4), Result::err(Failure::Denied)]) };
@@ -72,7 +72,7 @@ fn structural_equality_compares_recursive_values_with_nominal_errors_and_unit() 
 #[test]
 fn structural_equality_uses_active_list_length_after_mutation() {
     let source = r#"seiyaku Equality {
-        view fn main() -> bool {
+        view fn main() authorize(anyone) -> bool {
             var List<int, 4> changed = [1, 2, 999];
             let _ = changed.pop();
             let List<int, 4> original = [1, 2];
@@ -102,7 +102,7 @@ fn structural_equality_evaluates_operands_once_in_source_order() {
             alias.set(index: 0, value: 9);
             [9]
         }
-        view fn main() -> bool {
+        view fn main() authorize(anyone) -> bool {
             let List<int, 1> trace = [0];
             let equal = left(trace: trace) == right(trace: trace);
             let List<int, 1> aliased = [1];

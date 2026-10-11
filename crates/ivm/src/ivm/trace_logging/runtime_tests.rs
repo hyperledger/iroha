@@ -61,7 +61,7 @@ fn first_runtime_row_refuses_before_strict_default_argument_metadata_or_effects(
         max_cycles: 64,
         ..CompilerOptions::default()
     })
-    .compile_source("seiyaku TraceRoot { view fn main(bool ready) -> bool { return ready; } }")
+    .compile_source("seiyaku TraceRoot { view fn main(bool ready) authorize(anyone) -> bool { return ready; } }")
     .unwrap();
     let contract = crate::prepare_contract(Arc::<[u8]>::from(bytes)).unwrap();
     for mode in [TraceMode::PcOnly, TraceMode::DeltaRegisters] {
@@ -112,7 +112,7 @@ fn strict_root_keeps_the_post_clear_epoch_and_initial_argument_observation() {
         max_cycles: 64,
         ..CompilerOptions::default()
     })
-    .compile_source("seiyaku TraceRoot { view fn main() {} }")
+    .compile_source("seiyaku TraceRoot { view fn main() authorize(anyone) {} }")
     .unwrap();
     let contract = crate::prepare_contract(Arc::<[u8]>::from(bytes)).unwrap();
     let original = AllocationBudget::new(LIMIT);
@@ -322,7 +322,7 @@ fn actual_non_zk_host_mode_replacement_is_local_refusal_not_unfunded_append() {
 }
 
 #[test]
-fn actual_zk_host_custody_violation_keeps_its_existing_privacy_precedence() {
+fn actual_zk_host_custody_violation_is_a_local_invariant_deferral() {
     let original = AllocationBudget::new(LIMIT);
     let mut vm = generic(
         &original,
@@ -334,8 +334,14 @@ fn actual_zk_host_custody_violation_keeps_its_existing_privacy_precedence() {
         64,
     );
     let error = vm.run_with_host(&mut TraceMutatingHost).unwrap_err();
-    assert_eq!(error.as_unmetered(), &VMError::PrivacyViolation);
-    assert_eq!(error.execution_deferral(), None);
+    assert_eq!(
+        error,
+        VMError::ExecutionDeferred(crate::error::ExecutionDeferral::LocalInvariantViolation,)
+    );
+    assert_eq!(
+        error.execution_deferral(),
+        Some(crate::error::ExecutionDeferral::LocalInvariantViolation,)
+    );
     assert!(vm.trace_pcs().is_empty());
     assert!(vm.delta_register_trace().is_empty());
     assert!(vm.step_log().is_empty());

@@ -80,7 +80,6 @@ pub mod iso20022;
 mod ivm;
 pub mod ivm_cache;
 pub mod json;
-pub mod koto_test_return;
 pub mod limits;
 pub mod list;
 mod memory;
@@ -139,6 +138,9 @@ pub use crate::core_host::CoreHost;
 pub use crate::field_dispatch::{clear_field_impl_for_tests, set_field_impl_for_tests};
 pub use crate::stack_policy::IvmStackPolicy;
 // Publicly expose gas schedule helper for tests and tooling.
+/// Shared canonical public value capture and rendering for returns, calls, and events.
+pub mod value_record;
+pub mod value_utilities;
 pub use crate::argument_record::{
     PreparedArgumentRecord, argument_record_decode_count, prepare_argument_record_with_gas_limit,
     reset_argument_record_decode_count, validate_argument_record,

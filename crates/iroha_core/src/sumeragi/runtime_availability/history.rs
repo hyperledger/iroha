@@ -3,7 +3,9 @@
 #[cfg(test)]
 mod source_refusal_tests;
 
-use crate::execution_attempt::{ExecutionAttemptError as Attempt, norito_decode_attempt_error};
+use crate::execution_attempt::{
+    ExecutionAttemptError as Attempt, canonical_decode_attempt_error, norito_decode_attempt_error,
+};
 use crate::sumeragi::{
     block_store::certificate_read::CertificateReadError,
     certified_chain::{PrefixArtifactsError, PrefixArtifactsRead},
@@ -666,11 +668,21 @@ fn original_history_attempt(error: Attempt<io::Error>) -> Attempt<io::Error> {
 
 /// Retain the original local attempt before either history consumer constructs a diagnostic.
 pub(in crate::sumeragi) fn payload_error(error: LanePayloadError) -> Attempt<io::Error> {
-    if let LanePayloadError::Codec(error) = error {
-        return norito_decode_attempt_error(error, |error| {
-            io::Error::new(io::ErrorKind::InvalidData, error)
-        });
-    }
+    let error = match error {
+        LanePayloadError::Codec(error) => {
+            return norito_decode_attempt_error(error, |error| {
+                io::Error::new(io::ErrorKind::InvalidData, error)
+            });
+        }
+        LanePayloadError::Proof(
+            iroha_data_model::sumeragi_finality::NativeLaneStateProofError::Decode(original),
+        ) => {
+            return canonical_decode_attempt_error(original, |error| {
+                io::Error::new(io::ErrorKind::InvalidData, error)
+            });
+        }
+        error => error,
+    };
     if !error.is_local_refusal() {
         return io::Error::new(io::ErrorKind::InvalidData, error).into();
     }
@@ -692,6 +704,14 @@ fn archive_error(error: NativeContextArchiveError) -> Attempt<io::Error> {
         NativeContextArchiveError::Allocation(error) if local => {
             crate::sumeragi::storage_attempt::buffer(error)
         }
+        NativeContextArchiveError::Proof(
+            iroha_data_model::sumeragi_finality::NativeLaneStateProofError::Decode(original),
+        ) => canonical_decode_attempt_error(original, |error| {
+            io::Error::new(io::ErrorKind::InvalidData, error)
+        }),
+        NativeContextArchiveError::Proof(
+            iroha_data_model::sumeragi_finality::NativeLaneStateProofError::Scratch(original),
+        ) if local => crate::sumeragi::storage_attempt::buffer(original),
         NativeContextArchiveError::Codec(error) => norito_decode_attempt_error(error, |error| {
             io::Error::new(io::ErrorKind::InvalidData, error)
         }),

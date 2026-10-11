@@ -36,17 +36,7 @@ fn wide_arguments_results_and_nested_loop_calls_reuse_caller_tables() {
         .collect::<Vec<_>>()
         .join(", ");
     let source = format!(
-        "seiyaku Wide {{
-        struct Record {{ {fields} }}
-        fn echo(Record value) -> Record {{ value }}
-        fn relay(Record value) -> Record {{ echo(value: value) }}
-        view fn main() -> bool {{
-            let expected = Record {{ {values} }};
-            var value = expected;
-            for index in range(4) {{ value = relay(value: value); }}
-            value == expected && value.f0 && !value.f31
-        }}
-    }}"
+        "seiyaku Wide {{\n        struct Record {{ {fields} }}\n        fn echo(Record value) -> Record {{ value }}\n        fn relay(Record value) -> Record {{ echo(value: value) }}\n        view fn main() authorize(anyone) -> bool {{\n            let expected = Record {{ {values} }};\n            var value = expected;\n            for index in range(4) {{ value = relay(value: value); }}\n            value == expected && value.f0 && !value.f31\n        }}\n    }}"
     );
     let vm = run_table_function(&source);
     assert_eq!(vm.public_call_result_word(0).unwrap(), 1);
@@ -54,7 +44,7 @@ fn wide_arguments_results_and_nested_loop_calls_reuse_caller_tables() {
 
 #[test]
 fn unit_calls_initialize_exactly_one_result_slot() {
-    let source = "seiyaku UnitCalls { fn unit() { () } fn pair(bool value) -> ((), bool, ()) { (unit(), value, unit()) } view fn main() -> bool { pair(value: true) == ((), true, ()) } }";
+    let source = "seiyaku UnitCalls { fn unit() { () } fn pair(bool value) -> ((), bool, ()) { (unit(), value, unit()) } view fn main() authorize(anyone) -> bool { pair(value: true) == ((), true, ()) } }";
     let vm = run_table_function(source);
     assert_eq!(vm.public_call_result_word(0).unwrap(), 1);
 }
@@ -68,7 +58,7 @@ seiyaku EmptyProducts {
     struct Pair { Empty first; Empty second; }
     fn echo(Empty value) -> Empty { value }
     fn pair(Pair value) -> Pair { value }
-    view fn main() -> bool {
+    view fn main() authorize(anyone) -> bool {
         let value = echo(value: Empty {});
         let expected = Pair { first: Empty {}, second: Empty {} };
         let List<Empty, 2> items = [value, Empty {}];
@@ -81,7 +71,7 @@ seiyaku EmptyProducts {
     );
     assert_eq!(vm.public_call_result_word(0), Ok(1));
     let vm = run_table_function(
-        "seiyaku EmptyRoot { struct Empty {} view fn main() -> Empty { Empty {} } }",
+        "seiyaku EmptyRoot { struct Empty {} view fn main() authorize(anyone) -> Empty { Empty {} } }",
     );
     assert_eq!(vm.public_call_result_word(0), Ok(0));
 }
@@ -120,7 +110,7 @@ fn wide_sum_payloads_cross_the_signed_immediate_boundary() {
                 option(last: true, trace: trace, digit: 1) ==
                     option(last: last, trace: trace, digit: 2)
             }}
-            view fn main() -> bool {{
+            view fn main() authorize(anyone) -> bool {{
                 let List<int, 1> trace = [0];
                 let same = equal(last: true, trace: trace);
                 let different = !equal(last: false, trace: trace);
@@ -141,7 +131,7 @@ fn wide_sum_payloads_cross_the_signed_immediate_boundary() {
                 let value = Wide {{ {values} }};
                 if success {{ Result::ok(value) }} else {{ Result::err(value) }}
             }}
-            view fn main() -> bool {{
+            view fn main() authorize(anyone) -> bool {{
                 let success = result(last: true, success: true);
                 let failure = result(last: false, success: false);
                 let success_selected = match success {{
@@ -315,7 +305,7 @@ fn maximum_argument_table_initializes_every_word_across_nested_calls() {
         r#"seiyaku MaximumArguments {{
             fn consume({ty} value) -> bool {{ {checks} }}
             fn relay(bool value) -> bool {{ consume(value: {values}) }}
-            view fn main() -> bool {{
+            view fn main() authorize(anyone) -> bool {{
                 let populated = relay(value: true);
                 let cleared = relay(value: false);
                 populated && !cleared
@@ -344,7 +334,7 @@ fn maximum_result_table_initializes_every_word_across_nested_returns() {
                 let second = relay(value: first);
                 {values}
             }}
-            view fn main() -> bool {{
+            view fn main() authorize(anyone) -> bool {{
                 let populated = produce(value: true);
                 let populated_ok = {populated_checks};
                 let cleared = produce(value: false);
@@ -369,13 +359,13 @@ fn one_word_beyond_maximum_call_tables_is_rejected_before_lowering() {
         (
             "argument-bound.ko",
             format!(
-                "seiyaku ArgumentBound {{ fn too_wide({ty} value) -> bool {{ false }} view fn main() -> bool {{ true }} }}"
+                "seiyaku ArgumentBound {{ fn too_wide({ty} value) -> bool {{ false }} view fn main() authorize(anyone) -> bool {{ true }} }}"
             ),
         ),
         (
             "result-bound.ko",
             format!(
-                "seiyaku ResultBound {{ fn too_wide() -> {ty} {{ {values} }} view fn main() -> bool {{ true }} }}"
+                "seiyaku ResultBound {{ fn too_wide() -> {ty} {{ {values} }} view fn main() authorize(anyone) -> bool {{ true }} }}"
             ),
         ),
     ] {

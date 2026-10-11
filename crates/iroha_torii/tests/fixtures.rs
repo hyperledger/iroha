@@ -119,6 +119,72 @@ pub fn commit_genesis_fixture(
     iroha_core::sumeragi::test_chain::CertifiedTestChain::start(config)
         .expect("original signed fixture genesis")
 }
+/// Keep an applied signed genesis alive until the router finishes its final request.
+/// This owner supplies no routing authority; the existing native genesis execution does.
+#[allow(dead_code)]
+pub struct CommittedToriiRouterRuntime {
+    runtime: TestApiRouterRuntime,
+    chain: iroha_core::sumeragi::test_chain::CertifiedTestChain,
+}
+#[allow(dead_code)]
+impl CommittedToriiRouterRuntime {
+    /// Retain the same native chain whose State and Kura were passed to Torii.
+    pub fn new(
+        runtime: TestApiRouterRuntime,
+        chain: iroha_core::sumeragi::test_chain::CertifiedTestChain,
+    ) -> Self {
+        assert_eq!(
+            chain.height(),
+            1,
+            "routing fixture retains its original applied genesis"
+        );
+        assert_eq!(
+            chain.validators().len(),
+            4,
+            "routing fixture retains its signed committee"
+        );
+        assert_eq!(*chain.state().network_id_ref(), chain.network_id());
+        Self { runtime, chain }
+    }
+    /// Return the exact original signed-genesis network used by the retained router State.
+    pub fn network_id(&self) -> NetworkId {
+        self.chain.network_id()
+    }
+    /// Borrow the original committed State for fixture invariants.
+    pub fn state(&self) -> &Arc<State> {
+        self.chain.state()
+    }
+    /// Authenticate an operator request against this actual genesis-derived network.
+    pub fn operator_signed_request(
+        &self,
+        key_pair: &KeyPair,
+        mut request: Request<Body>,
+        body_bytes: &[u8],
+    ) -> Request<Body> {
+        let headers = iroha_torii::operator_signed_request_headers(
+            key_pair,
+            &self.chain.network_id(),
+            request.method(),
+            request.uri(),
+            body_bytes,
+        )
+        .expect("operator signature bound to the original routing fixture genesis");
+        request.headers_mut().extend(headers);
+        request
+    }
+    /// Join router workers before releasing their original committed chain.
+    pub async fn shutdown(self) {
+        let Self { runtime, chain } = self;
+        runtime.shutdown().await;
+        drop(chain);
+    }
+}
+impl std::ops::Deref for CommittedToriiRouterRuntime {
+    type Target = axum::Router;
+    fn deref(&self) -> &Self::Target {
+        &self.runtime
+    }
+}
 /// Own a Torii test instance together with the Kiso task that backs its configuration handle.
 #[allow(dead_code)]
 pub struct ToriiHarness {

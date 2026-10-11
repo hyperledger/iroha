@@ -5,7 +5,7 @@
 # - default: non-contract generic IVM 1.1 executor with the current ABI hash
 kotodama-standard	crates/iroha/tests/fixtures/contract_code_readback/code_readback.ko	crates/iroha/tests/fixtures/contract_code_readback/code_readback.to
 kotodama-standard	crates/ivm/docs/examples/01_hajimari.ko	crates/ivm/docs/examples/01_hajimari.to
-kotodama-standard	crates/ivm/docs/examples/02_kotoage_public_fn.ko	crates/ivm/docs/examples/02_kotoage_public_fn.to
+kotodama-standard	crates/ivm/docs/examples/02_view_public_fn.ko	crates/ivm/docs/examples/02_view_public_fn.to
 kotodama-standard	crates/ivm/docs/examples/03_kaizen_permission.ko	crates/ivm/docs/examples/03_kaizen_permission.to
 kotodama-standard	crates/ivm/docs/examples/04_foreach_map.ko	crates/ivm/docs/examples/04_foreach_map.to
 kotodama-standard	crates/ivm/docs/examples/05_range_for.ko	crates/ivm/docs/examples/05_range_for.to
@@ -22,6 +22,7 @@ kotodama-standard	crates/ivm/docs/examples/15_modulo.ko	crates/ivm/docs/examples
 kotodama-standard	crates/ivm/docs/examples/16_register_domain.ko	crates/ivm/docs/examples/16_register_domain.to
 kotodama-standard	crates/ivm/docs/examples/18_ternary.ko	crates/ivm/docs/examples/18_ternary.to
 kotodama-standard	crates/ivm/docs/examples/19_contract_flow_test.ko	crates/ivm/docs/examples/19_contract_flow_test.to
+kotodama-standard	crates/ivm/docs/examples/20_commit_reveal.ko	crates/ivm/docs/examples/20_commit_reveal.to
 kotodama-standard	crates/ivm/tests/data/add.ko	crates/ivm/tests/data/add.to
 kotodama-standard	crates/ivm/tests/data/amm.ko	crates/ivm/tests/data/amm.to
 kotodama-zk	crates/ivm/tests/data/complex.ko	crates/ivm/tests/data/complex.to

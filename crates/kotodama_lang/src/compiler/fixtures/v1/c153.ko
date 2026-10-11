@@ -1,6 +1,6 @@
 
-seiyaku Test {
-  kotoage fn consume() authorize("Admin") {
+seiyaku Test { permission Admin;
+  kotoage fn consume() authorize(Admin) {
     crypto::use_nullifier(42);
   }
 }

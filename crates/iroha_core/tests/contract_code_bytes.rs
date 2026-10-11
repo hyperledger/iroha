@@ -32,6 +32,9 @@ fn minimal_ivm_program(abi_version: u8) -> Vec<u8> {
         abi_version,
     };
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        events: Vec::new(),
+        enum_types: Vec::new(),
+        permissions: Vec::new(),
         callables: vec![ivm::call::EmbeddedCallableV1 {
                 entry_pc: 0,
                 frame_bytes: 0,
@@ -53,7 +56,7 @@ fn minimal_ivm_program(abi_version: u8) -> Vec<u8> {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: None,
+            authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: None,

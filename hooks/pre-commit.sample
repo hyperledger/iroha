@@ -33,7 +33,7 @@ make guards
 # spurious failures when building outside CI.
 NORITO_SKIP_BINDINGS_SYNC=1 cargo clippy --workspace --benches --tests --examples --no-default-features
 # Validate the checked-in non-signable genesis source. Complete manifests require
-# operator-provisioned mint-finality authority and are never generated into the repository.
+# an exact validator topology with BLS proofs of possession and stay outside the repository.
 bash scripts/tests/consistency.sh genesis-template
 # update schema
 bash scripts/tests/consistency.sh --update schema

@@ -3,15 +3,11 @@
 use super::*;
 
 fn session_for_generation(
-    authority: &KagemushaMintFinalityAuthorityGenerationV1,
+    authority: &ValidatorGenerationV1,
     generation: u64,
 ) -> (RetainedFinalizedGlobalThresholdBeaconSessionV1, Vec<PeerId>) {
     let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
-    let peers = authority
-        .validators
-        .iter()
-        .map(|keys| keys.validator.clone())
-        .collect::<Vec<_>>();
+    let peers = authority.validators.iter().cloned().collect::<Vec<_>>();
     let session_id = *Hash::new_from_chunks(&[
         b"committee-generation-binding-test",
         &generation.to_le_bytes(),
@@ -45,7 +41,7 @@ fn session_for_generation(
 #[test]
 fn committee_bootstrap_rejects_genuine_dkg_from_another_generation() {
     let fixture = fixture(4);
-    let genesis = mint_finality_genesis_for_authority(&fixture.incumbent, 10);
+    let genesis = ValidatorEpochAuthorizationV1::genesis(&fixture.incumbent, 10).unwrap();
     let world = World::new();
     for generation in [0, 1] {
         let (record, peers) = session_for_generation(&fixture.incumbent, generation);
@@ -81,7 +77,7 @@ fn committee_bootstrap_rejects_genuine_dkg_from_another_generation() {
 #[test]
 fn committee_restore_rejects_genuine_dkg_from_another_generation() {
     let fixture = fixture(4);
-    let genesis = mint_finality_genesis_for_authority(&fixture.incumbent, 10);
+    let genesis = ValidatorEpochAuthorizationV1::genesis(&fixture.incumbent, 10).unwrap();
     for generation in [0, 1] {
         let (mut record, _) = session_for_generation(&fixture.incumbent, generation);
         record.activate(5).unwrap();
@@ -96,7 +92,7 @@ fn committee_restore_rejects_genuine_dkg_from_another_generation() {
         world
             .global_beacon_active_session
             .insert(GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, binding.session_id);
-        let retained = mint_finality_successor_authorization(
+        let retained = successor_authorization(
             &genesis,
             &fixture.incumbent,
             20,

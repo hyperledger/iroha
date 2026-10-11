@@ -682,7 +682,13 @@ pub struct AcceptedTransaction<'tx> {
 impl Clone for AcceptedTransaction<'_> {
     fn clone(&self) -> Self {
         Self {
-            entrypoint: Cow::Owned(self.entrypoint().clone()),
+            // A borrowed accepted source keeps its original owner and lifetime.
+            // TODO: replace owned graph copies at their complete physical custody boundary.
+            entrypoint: if cfg!(all(test, sumeragi_core_mutation = "HC135")) {
+                Cow::Owned(self.entrypoint().clone())
+            } else {
+                self.entrypoint.clone()
+            },
             validation_time: self.validation_time,
             entrypoint_hash: clone_once_lock(&self.entrypoint_hash),
             signed_hash: clone_once_lock(&self.signed_hash),
@@ -6235,6 +6241,13 @@ pub mod tests {
             .active_code_hash = Some(contract_code_hash);
         state_tx
             .world
+            .contract_subject_bindings
+            .get_mut(&contract_address)
+            .unwrap()
+            .lifecycle
+            .retained_code_hash = Some(contract_code_hash);
+        state_tx
+            .world
             .contract_instances
             .insert(contract_address.clone(), contract_code_hash);
         DeactivateContractInstance {
@@ -9444,6 +9457,9 @@ pub mod tests {
         }
         .encode();
         let interface = ivm::EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             callables: vec![crate::ivm_test_support::unit_callable(0)],
             seiyaku_name: "TxManifestFixture".to_owned(),
             compiler_fingerprint: "iroha-core-tx-tests".to_owned(),
@@ -9460,7 +9476,7 @@ pub mod tests {
                 return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: None,
+                authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: Some(true),
@@ -9704,7 +9720,7 @@ pub mod tests {
     fn validate_ivm_rejects_stale_authenticated_cntr_abi_hash() {
         let (artifact, _) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
-                "seiyaku StaleAbi { view fn inspect() -> int { return 1; } }",
+                "seiyaku StaleAbi { view fn inspect() authorize(anyone) -> int { return 1; } }",
             )
             .expect("compile self-describing contract");
         let parsed = ivm::ProgramMetadata::parse(&artifact).expect("parse compiled contract");
@@ -9759,6 +9775,9 @@ pub mod tests {
         tx1.world.contract_manifests.insert(
             ContractArtifactId::new(DataSpaceId::UNIVERSAL, code_hash),
             ContractManifest {
+                events: Vec::new(),
+                enum_types: Vec::new(),
+                permissions: Vec::new(),
                 seiyaku_name: None,
                 code_hash: Some(code_hash),
                 abi_hash: Some(iroha_crypto::Hash::prehashed(abi_hash)),
@@ -9792,6 +9811,9 @@ pub mod tests {
         let mut wrong_abi = abi_hash;
         wrong_abi[0] ^= 0x55;
         let manifest = ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(code_hash),
             abi_hash: Some(iroha_crypto::Hash::prehashed(wrong_abi)),
@@ -9859,6 +9881,9 @@ pub mod tests {
         let abi_hash = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
         // Attach manifest in metadata
         let manifest = ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(code_hash),
             abi_hash: Some(iroha_crypto::Hash::prehashed(abi_hash)),
@@ -9908,6 +9933,9 @@ pub mod tests {
         let mut wrong_abi = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
         wrong_abi[0] ^= 0xAA;
         let manifest = ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(code_hash),
             abi_hash: Some(iroha_crypto::Hash::prehashed(wrong_abi)),
@@ -9954,6 +9982,9 @@ pub mod tests {
         let wrong_code_hash = iroha_crypto::Hash::prehashed(wrong_bytes);
         let abi_hash = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
         let manifest = ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(wrong_code_hash),
             abi_hash: Some(iroha_crypto::Hash::prehashed(abi_hash)),
@@ -10016,6 +10047,9 @@ pub mod tests {
         tx1.world.contract_manifests.insert(
             ContractArtifactId::new(DataSpaceId::UNIVERSAL, code_hash),
             ContractManifest {
+                events: Vec::new(),
+                enum_types: Vec::new(),
+                permissions: Vec::new(),
                 seiyaku_name: None,
                 code_hash: Some(code_hash),
                 abi_hash: Some(iroha_crypto::Hash::prehashed(wrong_abi)),
@@ -10047,6 +10081,9 @@ pub mod tests {
             Some(iroha_data_model::block::consensus::SumeragiRootScope::Global),
         );
         let manifest = ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(code_hash),
             abi_hash: Some(iroha_crypto::Hash::prehashed(abi_hash)),
@@ -10252,6 +10289,9 @@ pub mod tests {
         let code_hash = ivm::contract_code_hash(&prog);
         let abi_hash = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
         let manifest = ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(code_hash),
             abi_hash: Some(iroha_crypto::Hash::prehashed(abi_hash)),
@@ -12597,7 +12637,7 @@ pub mod tests {
         }
         let (code, _) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
-                "seiyaku NativeUploadGovernance { view fn inspect() -> int { return 1; } }",
+                "seiyaku NativeUploadGovernance { view fn inspect() authorize(anyone) -> int { return 1; } }",
             )
             .expect("compile self-describing contract fixture");
         assert!(
@@ -13086,7 +13126,7 @@ pub mod tests {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::start_test();
         let mut state = State::new_with_chain(world, kura, query_handle, chain.clone());
-        let elastic_lane = {
+        let mut elastic_lane = {
             let mut elastic_lane = LaneConfig {
                 id: TestLaneId::new(1),
                 alias: "elastic-lane-1".to_string(),
@@ -13142,6 +13182,21 @@ pub mod tests {
             .map(|key| PeerId::new(key.public_key().clone()))
             .collect::<Vec<_>>();
         assert_eq!(peers.len(), 4);
+        crate::state::attach_autoscale_committee_for_test(&mut elastic_lane, &validators);
+        let pinned = crate::state::autoscale_lane_pinned_committee_with_pops(&elastic_lane)
+            .expect("canonical pin of the exact original four holders");
+        assert_eq!(
+            pinned
+                .iter()
+                .map(|(peer, _)| peer.clone())
+                .collect::<Vec<_>>(),
+            peers,
+        );
+        for ((peer, pop), holder) in pinned.iter().zip(&validators) {
+            assert_eq!(peer.public_key(), holder.public_key());
+            assert_eq!(pop, &bls_normal_pop_prove(holder.private_key()).unwrap());
+            assert!(iroha_crypto::bls_normal_pop_verify(peer.public_key(), pop).is_ok());
+        }
         for key in &validators {
             let id = AccountId::new(key.public_key().clone());
             let (id, account) = Account::new(id.clone()).build(&id).into_key_value();
@@ -13957,7 +14012,6 @@ pub mod tests {
             norito::json::to_value(state.as_ref()).expect("serialize marker-bearing state");
         assert!(matches!(
             crate::state::deserialize::KuraSeed {
-                operation_index_budget: crate::state::kagemusha_operation_indexes::default_budget(),
                 execution_budget: iroha_allocation::AllocationBudget::new(
                     iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
                 ),

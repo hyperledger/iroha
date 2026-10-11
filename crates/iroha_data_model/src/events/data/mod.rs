@@ -14,6 +14,7 @@ mod filters;
 pub mod game;
 #[cfg(feature = "governance")]
 pub mod governance;
+pub mod kagemusha;
 pub mod musubi;
 pub mod oracle;
 pub mod proof;
@@ -30,6 +31,7 @@ pub mod prelude {
         escrow::prelude::*,
         events::prelude::*,
         filters::prelude::*,
+        kagemusha::KagemushaLoadCommittedV1,
         musubi::prelude::*,
         oracle::prelude::*,
         social::prelude::*,

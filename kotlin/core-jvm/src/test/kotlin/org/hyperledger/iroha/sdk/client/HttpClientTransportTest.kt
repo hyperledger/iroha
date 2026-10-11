@@ -95,7 +95,7 @@ class HttpClientTransportTest {
 
         transport.issueIdentifierClaimReceipt(
             accountId,
-            IdentifierResolveRequest.encrypted("email#retail", "abcd", sampleOpening()),
+            IdentifierResolveRequest.claim("email#retail", "private@example.org", "12".repeat(32), sampleOpening()),
             applicationAuth(accountId),
         ).join()
 
@@ -111,12 +111,15 @@ class HttpClientTransportTest {
         @Suppress("UNCHECKED_CAST")
         val body = JsonParser.parse(readBody(executor.lastRequest)) as Map<String, Any?>
         assertEquals("email#retail", body["policy_id"])
-        assertEquals("abcd", body["encrypted_input"])
+        assertEquals("claim", body["phase"])
+        assertEquals("private@example.org", body["normalized_input"])
+        assertEquals("12".repeat(32), body["input_nonce"])
+        assertFalse(body.containsKey("encrypted_input"))
         assertTrue(body["output_opening"] is Map<*, *>)
     }
 
     @Test
-    fun applicationPostsRejectPathSubstitutionAndPrecomputedAuthBeforeDispatch() {
+    fun identifierOwnerMayDifferFromBeneficiaryAndPrecomputedAuthIsRejected() {
         val executor = CapturingExecutor()
         val accountId = testAccountId(0x33)
         val transport = HttpClientTransport(
@@ -124,13 +127,12 @@ class HttpClientTransportTest {
             config = signedClientConfig("https://torii.example"),
         )
 
-        assertFailsWith<IllegalArgumentException> {
-            transport.issueIdentifierClaimReceipt(
-                accountId,
-                IdentifierResolveRequest.encrypted("email#retail", "abcd", sampleOpening()),
-                applicationAuth(testAccountId(0x34)),
-            )
-        }
+        transport.issueIdentifierClaimReceipt(
+            accountId,
+            IdentifierResolveRequest.claim("email#retail", "private@example.org", "12".repeat(32), sampleOpening()),
+            applicationAuth(testAccountId(0x34)),
+        ).join()
+        assertEquals(AccountAddress.parseEncoded(testAccountId(0x34), null).canonicalHex(), executor.lastRequest.headers[CanonicalRequestSigner.HEADER_ACCOUNT]?.single())
         val injected = HttpClientTransport(
             executor = executor,
             config = signedClientConfig("https://torii.example").toBuilder()
@@ -139,12 +141,12 @@ class HttpClientTransportTest {
         )
         assertFailsWith<IllegalArgumentException> {
             injected.resolveIdentifier(
-                IdentifierResolveRequest.encrypted("email#retail", "abcd", sampleOpening()),
+                IdentifierResolveRequest.claim("email#retail", "private@example.org", "12".repeat(32), sampleOpening()),
                 applicationAuth(),
             )
         }
 
-        assertEquals(0, executor.requestCount)
+        assertEquals(1, executor.requestCount)
     }
 
     @Test
@@ -223,37 +225,24 @@ class HttpClientTransportTest {
     @Test
     fun identifierHiddenFunctionRequestsCarryOutputOpening() {
         val opening = sampleOpening()
-        val request = IdentifierResolveRequest.encrypted("email#retail", "abcd", opening)
+        val request = IdentifierResolveRequest.claim("email#retail", "private@example.org", "12".repeat(32), opening)
 
         assertEquals(opening, request.outputOpening)
     }
 
     @Test
-    fun identifierHiddenFunctionRequestsRejectMalformedCiphertextEnvelopeFields() {
-        assertFailsWith<IllegalArgumentException> {
-            IdentifierResolveRequest.encrypted("email#retail", "abc", sampleOpening())
+    fun identifierOwnerRequestsRejectMalformedInputAndRetiredPolicies() {
+        for (nonce in listOf("abc", "zz".repeat(32), "00".repeat(32), "AB".repeat(32), "12".repeat(33))) {
+            assertFailsWith<IllegalArgumentException> { IdentifierResolveRequest.prepare("email#retail", "private@example.org", nonce) }
+            assertFailsWith<IllegalArgumentException> { RamLfeExecuteRequest.ownerInput("private@example.org", nonce) }
         }
-        assertFailsWith<IllegalArgumentException> {
-            IdentifierResolveRequest.encrypted(" ", "abcd", sampleOpening())
+        assertFailsWith<IllegalArgumentException> { IdentifierResolveRequest.prepare(" ", "private@example.org", "12".repeat(32)) }
+        for (input in listOf("", "x".repeat(513), "\uD800")) {
+            assertFailsWith<IllegalArgumentException> { RamLfeExecuteRequest.ownerInput(input, "12".repeat(32)) }
         }
-        assertFailsWith<IllegalArgumentException> {
-            RamLfeExecuteRequest.encrypted("abc")
-        }
-        assertFailsWith<IllegalArgumentException> {
-            RamLfeExecuteRequest.encrypted("zz")
-        }
-        assertFailsWith<IllegalArgumentException> {
-            IdentifierResolveRequest.encrypted(samplePlaintextOnlyPolicy(), "abcd", sampleOpening())
-        }
-        assertFailsWith<IllegalArgumentException> {
-            HttpClientTransport.buildIdentifierResolvePayload("email#retail", "abc", sampleOpening())
-        }
-        assertFailsWith<IllegalArgumentException> {
-            IdentifierResolveRequest.encrypted("phone#retail", "abcd", sampleOpening())
-        }
-        assertFailsWith<IllegalArgumentException> {
-            HttpClientTransport.buildIdentifierResolvePayload("phone#retail", "abcd", sampleOpening())
-        }
+        assertEquals("prepare", sampleHkdfOwnerPolicy().prepareRequest("private@example.org", "12".repeat(32)).phase)
+        assertFailsWith<IllegalArgumentException> { sampleBfvPolicy(sampleBfvParameters()).prepareRequest("private@example.org", "12".repeat(32)) }
+        assertFailsWith<IllegalArgumentException> { IdentifierResolveRequest.claim("phone#retail", "+819012345678", "12".repeat(32), sampleOpening()) }
     }
 
     @Test
@@ -266,36 +255,43 @@ class HttpClientTransportTest {
             IdentifierReceiptAttestation("signed", fixture.signatureHex, null, null),
         )
 
-        assertTrue(receipt.verifyAttestation(policy))
+        assertTrue(receipt.verifyResolverAttestation(policy, verifyingKeyNetworkId))
+        assertTrue(IdentifierResolutionReceipt(
+            payload,
+            IdentifierReceiptAttestation("signed", fixture.signatureHex.uppercase(), null, null),
+        ).verifyResolverAttestation(policy, verifyingKeyNetworkId))
+        assertFailsWith<IllegalArgumentException> { receipt.verifyResolverAttestation(policy, otherNetworkId) }
 
         val tamperedReceipt = IdentifierResolutionReceipt(
             sampleIdentifierResolutionPayload(outputCiphertextHash = "67".repeat(32)),
             receipt.attestation,
         )
-        assertFalse(tamperedReceipt.verifyAttestation(policy))
+        assertFalse(tamperedReceipt.verifyResolverAttestation(policy, verifyingKeyNetworkId))
 
         assertFailsWith<IllegalArgumentException> {
-            receipt.verifyAttestation(
-                sampleIdentifierVerifierPolicy("ed25519:ed0120${"11".repeat(32)}"),
-            )
+            receipt.verifyResolverAttestation(
+                sampleIdentifierVerifierPolicy("ed25519:ed0120${"11".repeat(32)}"), verifyingKeyNetworkId)
         }
 
         assertFailsWith<IllegalArgumentException> {
             IdentifierResolutionReceipt(
                 payload,
-                IdentifierReceiptAttestation("proof", null, "halo2/ipa", "AQID"),
-            ).verifyAttestation(policy)
+                IdentifierReceiptAttestation("proof", null, "pipa-r/pasta", "AQID"),
+            ).verifyResolverAttestation(policy, verifyingKeyNetworkId)
         }
 
         assertFailsWith<IllegalArgumentException> {
-            receipt.verifyAttestation(sampleIdentifierVerifierPolicy(fixture.resolverPublicKey, policyId = "email#retail"))
+            receipt.verifyResolverAttestation(sampleIdentifierVerifierPolicy(fixture.resolverPublicKey, policyId = "phone#retail"), verifyingKeyNetworkId)
         }
 
-        assertFailsWith<IllegalArgumentException> {
-            IdentifierResolutionReceipt(
-                payload,
-                IdentifierReceiptAttestation("signed", "abc", null, null),
-            ).verifyAttestation(policy)
+        for (signature in listOf("", "abc", "zz", "ＦＦ", " ${fixture.signatureHex}", "${fixture.signatureHex} ",
+            "00".repeat(CanonicalRequestSigner.CANONICAL_REQUEST_MAX_SIGNATURE_BYTES_V1 + 1))) {
+            assertFailsWith<IllegalArgumentException> {
+                IdentifierResolutionReceipt(
+                    payload,
+                    IdentifierReceiptAttestation("signed", signature, null, null),
+                ).verifyResolverAttestation(policy, verifyingKeyNetworkId)
+            }
         }
     }
 
@@ -345,14 +341,15 @@ class HttpClientTransportTest {
             openingSignature: String = payload.opening.signature,
             attestationJson: String = "{"
                 + "\"kind\":\"signed\","
-                + "\"signature\":" + jsonString(fixture.signatureHex)
+                + "\"signature\":" + jsonString(fixture.signatureHex.uppercase())
                 + "}",
         ): String {
             val execution = payload.execution
             val expires = executionExpiresAtMsJson?.let { ",\"expires_at_ms\":$it" } ?: ""
             return ("{"
                 + "\"payload\":{"
-                + "\"policy_id\":" + jsonString(payload.policyId)
+                + "\"network_id\":" + jsonString(IdentifierOwnerInputV1.rawNetworkHex(payload.networkId))
+                + ",\"policy_id\":" + jsonString(payload.policyId)
                 + ",\"execution\":{"
                 + "\"program_id\":" + jsonString(execution.programId)
                 + ",\"program_digest\":" + jsonString(programDigest)
@@ -385,7 +382,7 @@ class HttpClientTransportTest {
             json: String,
             message: String = "identifier receipt parser must reject malformed input",
         ) {
-            assertFailsWith<IllegalStateException>(message) {
+            assertFailsWith<RuntimeException>(message) {
                 IdentifierJsonParser.parseResolutionReceipt(json.toByteArray(StandardCharsets.UTF_8))
             }
         }
@@ -638,6 +635,7 @@ class HttpClientTransportTest {
     fun identifierReceiptVerifierMatchesSharedReceiptVectors() {
         val fixture = loadSharedReceiptFixture()
         assertEquals("identifier-receipt-attestation-v1", fixture["vector_set"])
+        val intendedNetworkId = IdentifierOwnerInputV1.rawNetworkId("5e60c5da42509f0077c6adf39b7dd708611eb4d6a9f1cbb71769092c26d20bf1")
         val policy = identifierPolicyFromReceiptFixture(obj(fixture, "policy"))
         val receipt = identifierReceiptFromFixture(obj(fixture, "receipt"))
 
@@ -645,7 +643,7 @@ class HttpClientTransportTest {
             string(fixture, "canonical_payload_sha256"),
             sha256Hex(IdentifierReceiptCanonicalEncoder.encodePayload(receipt.payload)),
         )
-        assertTrue(receipt.verifyAttestation(policy))
+        assertTrue(receipt.verifyResolverAttestation(policy, intendedNetworkId))
 
         for (policyId in listOf(" phone#retail", "phone#retail ", "phone #retail", "phone# retail")) {
             val mutatedReceipt = identifierReceiptFromFixture(
@@ -653,7 +651,7 @@ class HttpClientTransportTest {
                 policyIdOverride = policyId,
             )
             assertFailsWith<IllegalArgumentException>("policy_id exactness $policyId") {
-                mutatedReceipt.verifyAttestation(policy)
+                mutatedReceipt.verifyResolverAttestation(policy, intendedNetworkId)
             }
         }
 
@@ -663,7 +661,7 @@ class HttpClientTransportTest {
                 executionProgramIdOverride = programId,
             )
             assertFailsWith<IllegalArgumentException>("execution program_id exactness $programId") {
-                mutatedExecutionProgram.verifyAttestation(policy)
+                mutatedExecutionProgram.verifyResolverAttestation(policy, intendedNetworkId)
             }
 
             val mutatedOpeningProgram = identifierReceiptFromFixture(
@@ -671,7 +669,7 @@ class HttpClientTransportTest {
                 openingProgramIdOverride = programId,
             )
             assertFailsWith<IllegalArgumentException>("opening program_id exactness $programId") {
-                mutatedOpeningProgram.verifyAttestation(policy)
+                mutatedOpeningProgram.verifyResolverAttestation(policy, intendedNetworkId)
             }
         }
 
@@ -682,7 +680,7 @@ class HttpClientTransportTest {
                 accountIdOverride = paddedAccountId,
             )
             assertFailsWith<IllegalArgumentException>("account_id exactness $paddedAccountId") {
-                mutatedAccount.verifyAttestation(policy)
+                mutatedAccount.verifyResolverAttestation(policy, intendedNetworkId)
             }
         }
 
@@ -712,7 +710,7 @@ class HttpClientTransportTest {
                     assertEquals(attestation.proofBackend, decoded.proofBackend, "$name proof backend")
                     assertEquals(attestation.proofB64, decoded.proofB64, "$name proof payload")
                     assertFailsWith<IllegalArgumentException>("$name proof verifier gate") {
-                        IdentifierResolutionReceipt(receipt.payload, attestation).verifyAttestation(policy)
+                        IdentifierResolutionReceipt(receipt.payload, attestation).verifyResolverAttestation(policy, intendedNetworkId)
                     }
                 }
                 else -> error("Unhandled attestation kind ${attestation.kind}")
@@ -734,7 +732,9 @@ class HttpClientTransportTest {
                     else -> policy
                 }
             }
+            val independentlySelectedNetwork = if (mutation == "receipt.payload.network_id") IdentifierOwnerInputV1.rawNetworkId(string(negative, "value")) else intendedNetworkId
             val mutatedReceipt = when (mutation) {
+                "receipt.payload.network_id" -> identifierReceiptFromFixture(obj(fixture, "receipt"), networkIdOverride = independentlySelectedNetwork)
                 "receipt.payload.execution.output_ciphertext_hash" -> identifierReceiptFromFixture(
                     obj(fixture, "receipt"),
                     outputCiphertextHashOverride = string(negative, "value"),
@@ -752,12 +752,12 @@ class HttpClientTransportTest {
 
             if (negative["expected_error_contains"] is String) {
                 assertFailsWith<IllegalArgumentException>(string(negative, "name")) {
-                    mutatedReceipt.verifyAttestation(mutatedPolicy())
+                    mutatedReceipt.verifyResolverAttestation(mutatedPolicy(), independentlySelectedNetwork)
                 }
             } else {
                 assertEquals(
                     negative["expected_result"],
-                    mutatedReceipt.verifyAttestation(mutatedPolicy()),
+                    mutatedReceipt.verifyResolverAttestation(mutatedPolicy(), independentlySelectedNetwork),
                     string(negative, "name"),
                 )
             }
@@ -765,30 +765,12 @@ class HttpClientTransportTest {
     }
 
     @Test
-    fun identifierEncryptionPublicHelpersRefuseBeforeProcessingInput() {
+    fun identifierOwnerFactoriesRefuseRetiredBfvPolicies() {
         val policy = sampleBfvPolicy(sampleBfvParameters())
-        val opening = sampleOpening()
         for (input in listOf("", "private@example.org", "x".repeat(1_000))) {
-            val failures = listOf(
-                assertFailsWith<RamLfeEncryptionUnavailableException> { policy.encryptInput(input) },
-                assertFailsWith<RamLfeEncryptionUnavailableException> {
-                    policy.encryptedRequestFromInput(input, opening)
-                },
-                assertFailsWith<RamLfeEncryptionUnavailableException> {
-                    IdentifierResolveRequest.encryptedFromInput(policy, input, opening)
-                },
-            )
-            for (error in failures) {
-                assertEquals("ram_lfe_encryption_unavailable", error.code)
-                assertEquals(
-                    "RAM-LFE encryption is unavailable: the insecure exact-lift BFV profile must be replaced",
-                    error.message,
-                )
-            }
+            assertFailsWith<IllegalArgumentException> { policy.prepareRequest(input, "12".repeat(32)) }
+            assertFailsWith<IllegalArgumentException> { policy.claimRequest(input, "12".repeat(32), sampleOpening()) }
         }
-        val encrypted = policy.encryptedRequest("abcd", opening)
-        assertEquals("abcd", encrypted.encryptedInputHex)
-        assertEquals(opening, encrypted.outputOpening)
     }
 
     @Test
@@ -2375,7 +2357,7 @@ class HttpClientTransportTest {
         """.trimIndent()
 
     @Test
-    fun executeRamLfeProgramParsesResponseAndPostsEncryptedHex() {
+    fun executeRamLfeProgramParsesResponseAndPostsExactOwnerInput() {
         val executor = StubResponseExecutor(
             statusCode = 200,
             body = ramLfeExecuteResponseJson().toByteArray(StandardCharsets.UTF_8),
@@ -2388,16 +2370,15 @@ class HttpClientTransportTest {
         val response = transport
             .executeRamLfeProgram(
                 "identifier_lookup_retail",
-                RamLfeExecuteRequest.encrypted("0xABCD"),
+                RamLfeExecuteRequest.ownerInput("private@example.org", "12".repeat(32)),
                 applicationAuth(),
             )
             .join()
 
-        assertTrue(response.isPresent)
-        val execute = response.get()
+        val execute = assertNotNull(response)
         assertEquals("identifier_lookup_retail", execute.programId)
-        assertEquals("44".repeat(32), execute.outputHash)
-        assertEquals("abcd", execute.outputCiphertext)
+        assertEquals(currentOwnerExecuteResponseField("output_hash"), execute.outputHash)
+        assertEquals(currentOwnerExecuteResponseField("opaque_output"), execute.opaqueOutputHex)
         assertEquals("signed", execute.verificationMode)
         assertTrue(execute.receipt.containsKey("payload"))
 
@@ -2408,11 +2389,11 @@ class HttpClientTransportTest {
             "https://torii.example/v1/ram-lfe/programs/identifier_lookup_retail/execute",
             request.uri.toString(),
         )
-        assertEquals("""{"encrypted_input":"abcd"}""", readBody(request))
+        assertEquals("""{"input_nonce":"${"12".repeat(32)}","normalized_input":"private@example.org"}""", readBody(request))
     }
 
     @Test
-    fun executeRamLfeProgramReturnsEmptyOnNotFoundAndPostsEncryptedHex() {
+    fun executeRamLfeProgramReturnsNullOnNotFoundAndPostsExactOwnerInput() {
         val executor = StubResponseExecutor(
             statusCode = 404,
             body = byteArrayOf(),
@@ -2425,15 +2406,15 @@ class HttpClientTransportTest {
         val response = transport
             .executeRamLfeProgram(
                 "identifier_lookup_retail",
-                RamLfeExecuteRequest.encrypted("ABCD"),
+                RamLfeExecuteRequest.ownerInput("private@example.org", "12".repeat(32)),
                 applicationAuth(),
             )
             .join()
 
-        assertFalse(response.isPresent)
+        assertNull(response)
         val request = executor.lastRequest
         assertNotNull(request)
-        assertEquals("""{"encrypted_input":"abcd"}""", readBody(request))
+        assertEquals("""{"input_nonce":"${"12".repeat(32)}","normalized_input":"private@example.org"}""", readBody(request))
     }
 
     @Test
@@ -2479,8 +2460,8 @@ class HttpClientTransportTest {
     fun ramLfeResponseParsersRejectNonExactFields() {
         val canonicalExecute = ramLfeExecuteResponseJson()
         val executeCases = listOf(
-            "output_ciphertext" to canonicalExecute.replace(
-                "\"output_ciphertext\": \"abcd\",",
+            "opaque_output" to canonicalExecute.replace(
+                "\"opaque_output\": \"${currentOwnerExecuteResponseField("opaque_output")}\",",
                 "",
             ),
             "output_opening" to canonicalExecute.replaceFirst("{", "{\"output_opening\":{},"),
@@ -2489,24 +2470,24 @@ class HttpClientTransportTest {
                 "\"program_id\": \" identifier_lookup_retail\"",
             ),
             "opaque_hash" to canonicalExecute.replace(
-                "\"opaque_hash\": \"${"11".repeat(32)}\"",
-                "\"opaque_hash\": \" ${"11".repeat(32)}\"",
+                "\"opaque_hash\": \"${currentOwnerExecuteResponseField("opaque_hash")}\"",
+                "\"opaque_hash\": \" ${currentOwnerExecuteResponseField("opaque_hash")}\"",
             ),
             "receipt_hash" to canonicalExecute.replace(
-                "\"receipt_hash\": \"${"22".repeat(32)}\"",
-                "\"receipt_hash\": \"${"22".repeat(32)} \"",
+                "\"receipt_hash\": \"${currentOwnerExecuteResponseField("receipt_hash")}\"",
+                "\"receipt_hash\": \"${currentOwnerExecuteResponseField("receipt_hash")} \"",
             ),
             "output_hash" to canonicalExecute.replace(
-                "\"output_hash\": \"${"44".repeat(32)}\"",
-                "\"output_hash\": \" ${"44".repeat(32)}\"",
+                "\"output_hash\": \"${currentOwnerExecuteResponseField("output_hash")}\"",
+                "\"output_hash\": \" ${currentOwnerExecuteResponseField("output_hash")}\"",
             ),
             "associated_data_hash" to canonicalExecute.replace(
-                "\"associated_data_hash\": \"${"55".repeat(32)}\"",
-                "\"associated_data_hash\": \"${"55".repeat(32)} \"",
+                "\"associated_data_hash\": \"${currentOwnerExecuteResponseField("associated_data_hash")}\"",
+                "\"associated_data_hash\": \"${currentOwnerExecuteResponseField("associated_data_hash")} \"",
             ),
             "backend" to canonicalExecute.replace(
-                "\"backend\": \"bfv-programmed-v1\"",
-                "\"backend\": \" bfv-programmed-v1\"",
+                "\"backend\": \"hkdf-sha3-512-prf-v1\"",
+                "\"backend\": \" hkdf-sha3-512-prf-v1\"",
             ),
             "verification_mode" to canonicalExecute.replace(
                 "\"verification_mode\": \"signed\"",
@@ -2514,6 +2495,7 @@ class HttpClientTransportTest {
             ),
         )
         for ((field, body) in executeCases) {
+            assertTrue(body != canonicalExecute, "execute response.$field mutation must change the fixture")
             val error = assertFailsWith<RuntimeException> {
                 RamLfeJsonParser.parseExecuteResponse(body.toByteArray(StandardCharsets.UTF_8))
             }
@@ -2530,6 +2512,9 @@ class HttpClientTransportTest {
         assertContains(openingError.message.orEmpty(), "ram-lfe execute response.output_opening")
 
         val canonicalVerify = ramLfeReceiptVerifyResponseJson()
+        val verifyFields = JsonParser.parse(canonicalVerify) as Map<*, *>
+        val verifyOutputHash = verifyFields["output_hash"] as String
+        val verifyAssociatedDataHash = verifyFields["associated_data_hash"] as String
         val verifyCases = listOf(
             "program_id" to canonicalVerify.replace(
                 "\"program_id\": \"identifier_lookup_retail\"",
@@ -2544,15 +2529,16 @@ class HttpClientTransportTest {
                 "\"verification_mode\": \" signed\"",
             ),
             "output_hash" to canonicalVerify.replace(
-                "\"output_hash\": \"${"44".repeat(32)}\"",
-                "\"output_hash\": \"${"44".repeat(32)} \"",
+                "\"output_hash\": \"${verifyOutputHash}\"",
+                "\"output_hash\": \"${verifyOutputHash} \"",
             ),
             "associated_data_hash" to canonicalVerify.replace(
-                "\"associated_data_hash\": \"${"55".repeat(32)}\"",
-                "\"associated_data_hash\": \" ${"55".repeat(32)}\"",
+                "\"associated_data_hash\": \"${verifyAssociatedDataHash}\"",
+                "\"associated_data_hash\": \" ${verifyAssociatedDataHash}\"",
             ),
         )
         for ((field, body) in verifyCases) {
+            assertTrue(body != canonicalVerify, "verify response.$field mutation must change the fixture")
             val error = assertFailsWith<RuntimeException> {
                 RamLfeJsonParser.parseReceiptVerifyResponse(body.toByteArray(StandardCharsets.UTF_8))
             }
@@ -2577,7 +2563,7 @@ class HttpClientTransportTest {
                 "verification_mode" to listOf("unknown", "ivm-proved"),
             )
             for ((field, values) in invalid) {
-                val original = if (field == "backend") "bfv-programmed-v1" else "signed"
+                val original = if (field == "backend") (if (path == "ram-lfe execute response") IdentifierOwnerInputV1.BACKEND else "bfv-programmed-v1") else "signed"
                 for (value in values) {
                     val changed = canonical.replace("\"$field\": \"$original\"", "\"$field\": \"$value\"")
                     assertTrue(changed != canonical, "$path.$field mutation must change the fixture")
@@ -3430,7 +3416,7 @@ class HttpClientTransportTest {
 
     @Test
     fun verifierKeyRegisterAndUpdateReturnUnsignedDrafts() {
-        val backend = "halo2/ipa"
+        val backend = "pipa-r/pasta"
         val registerBytes = byteArrayOf(1, 2, 3)
         val updateBytes = byteArrayOf(10)
         val authority = testMultisigAccountId()
@@ -3536,7 +3522,7 @@ class HttpClientTransportTest {
 
     @Test
     fun verifierKeyRequestsRejectMalformedInputsBeforeRequest() {
-        val backend = "halo2/ipa"
+        val backend = "pipa-r/pasta"
         val bytes = byteArrayOf(1, 2, 3)
         val commitment = verifierKeyCommitment(backend, bytes)
         val executor = CapturingExecutor()
@@ -3601,7 +3587,7 @@ class HttpClientTransportTest {
     }
 
     @Test
-    fun verifierKeyDraftCanonicalInstructionUsesU8StatusDiscriminant() {
+    fun verifierKeyDraftCanonicalInstructionUsesU32StatusDiscriminant() {
         val fixture = loadSharedFixture("fixtures/zk/verifying_key_record_v1.json")
         @Suppress("UNCHECKED_CAST")
         val request = obj(fixture, "request") as Map<String, Any>
@@ -3632,7 +3618,7 @@ class HttpClientTransportTest {
         assertEquals(
             statusHex,
             hex(payload.copyOfRange(statusOffset, statusOffset + statusHex.length / 2)),
-            "absent inline key must end immediately before the one-byte status field",
+            "absent inline key must end immediately before the four-byte status field",
         )
     }
 
@@ -3704,7 +3690,7 @@ class HttpClientTransportTest {
             wrongStatusTransport.registerVerifyingKey(
                 verifierKeyRegisterRequest(
                     verifyingKeyBytes = verifyingKeyBytes,
-                    commitmentHex = verifierKeyCommitment("halo2/ipa", verifyingKeyBytes),
+                    commitmentHex = verifierKeyCommitment("pipa-r/pasta", verifyingKeyBytes),
                 ),
             ).join()
         }
@@ -5063,7 +5049,7 @@ class HttpClientTransportTest {
 
     private fun verifierKeyRegisterRequest(
         authority: String = testMultisigAccountId(),
-        backend: String = "halo2/ipa",
+        backend: String = "pipa-r/pasta",
         name: String = "transfer_vk",
         version: Long = 1,
         circuitId: String = "transfer-v1",
@@ -5102,7 +5088,7 @@ class HttpClientTransportTest {
 
     private fun verifierKeyUpdateRequest(
         authority: String = testMultisigAccountId(),
-        backend: String = "halo2/ipa",
+        backend: String = "pipa-r/pasta",
         name: String = "transfer_vk",
         version: Long = 1,
         circuitId: String = "transfer-v1",
@@ -5348,9 +5334,9 @@ class HttpClientTransportTest {
             RamLfeOutputOpeningPayload(
                 programId = "identifier_lookup_retail",
                 inputCiphertextHash = "11".repeat(32),
-                outputCiphertextHash = "22".repeat(32),
+                outputCiphertextHash = "22".repeat(31) + "23",
                 parameterDigest = "33".repeat(32),
-                evaluationKeyDigest = "44".repeat(32),
+                evaluationKeyDigest = "44".repeat(31) + "45",
                 openedOutputHash = "55".repeat(32),
                 openedAtMs = 42L,
                 expiresAtMs = 142L,
@@ -5374,7 +5360,7 @@ class HttpClientTransportTest {
         signer.update(message)
         return IdentifierReceiptFixture(
             resolverPublicKey = "ed25519:" + encodePublicKeyMultihash(0x01, rawPublicKey),
-            signatureHex = hex(signer.sign()),
+            signatureHex = hex(signer.sign()).lowercase(),
         )
     }
 
@@ -5384,34 +5370,35 @@ class HttpClientTransportTest {
     }
 
     private fun sampleIdentifierResolutionPayload(
-        outputCiphertextHash: String = "66".repeat(32),
+        outputCiphertextHash: String = "66".repeat(31) + "67",
     ): IdentifierResolutionPayload =
         IdentifierResolutionPayload(
-            policyId = "phone#retail",
+            networkId = verifyingKeyNetworkId,
+            policyId = "email#retail",
             execution = IdentifierResolutionExecutionPayload(
                 programId = "identifier_lookup_retail",
-                programDigest = "44".repeat(32),
-                backend = "bfv-programmed-v1",
+                programDigest = "44".repeat(31) + "45",
+                backend = "hkdf-sha3-512-prf-v1",
                 verificationMode = "signed",
                 inputCiphertextHash = "55".repeat(32),
                 outputCiphertextHash = outputCiphertextHash,
                 parameterDigest = "77".repeat(32),
-                evaluationKeyDigest = "88".repeat(32),
+                evaluationKeyDigest = "88".repeat(31) + "89",
                 outputHash = "99".repeat(32),
-                associatedDataHash = "aa".repeat(32),
+                associatedDataHash = "aa".repeat(31) + "ab",
                 executedAtMs = 42L,
                 expiresAtMs = 142L,
             ),
             opening = sampleOpening(),
             opaqueId = "opaque:" + "11".repeat(32),
-            receiptHash = "22".repeat(32),
+            receiptHash = "22".repeat(31) + "23",
             uaid = "uaid:" + "33".repeat(31) + "35",
             accountId = "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
         )
 
     private fun sampleIdentifierVerifierPolicy(
         resolverPublicKey: String,
-        policyId: String = "phone#retail",
+        policyId: String = "email#retail",
     ): IdentifierPolicySummary =
         IdentifierPolicySummary(
             policyId = policyId,
@@ -5420,7 +5407,7 @@ class HttpClientTransportTest {
             active = true,
             normalization = IdentifierNormalization.PHONE_E164,
             resolverPublicKey = resolverPublicKey,
-            backend = "bfv-programmed-v1",
+            backend = "hkdf-sha3-512-prf-v1",
             inputEncryption = "bfv-v1",
             inputEncryptionPublicParameters = null,
             inputEncryptionPublicParametersDecoded = null,
@@ -5897,6 +5884,7 @@ class HttpClientTransportTest {
         executionProgramIdOverride: String? = null,
         openingProgramIdOverride: String? = null,
         accountIdOverride: String? = null,
+        networkIdOverride: NetworkId? = null,
     ): IdentifierResolutionReceipt =
         IdentifierResolutionReceipt(
             identifierPayloadFromFixture(
@@ -5906,6 +5894,7 @@ class HttpClientTransportTest {
                 executionProgramIdOverride,
                 openingProgramIdOverride,
                 accountIdOverride,
+                networkIdOverride,
             ),
             identifierAttestationFromFixture(
                 attestationOverride ?: obj(receipt, "attestation"),
@@ -5920,8 +5909,10 @@ class HttpClientTransportTest {
         executionProgramIdOverride: String? = null,
         openingProgramIdOverride: String? = null,
         accountIdOverride: String? = null,
+        networkIdOverride: NetworkId? = null,
     ): IdentifierResolutionPayload =
         IdentifierResolutionPayload(
+            networkId = networkIdOverride ?: IdentifierOwnerInputV1.rawNetworkId(string(payload, "network_id")),
             policyId = policyIdOverride ?: string(payload, "policy_id"),
             execution = identifierExecutionFromFixture(
                 obj(payload, "execution"),
@@ -6079,7 +6070,7 @@ class HttpClientTransportTest {
             note = null,
             outputOpeningPublicKey = "ed25519:ed01203B6A27BCCEB6A42D62A3A8D02A6F0D73653215771DE243A63AC048A18B59DA29",
         )
-    private fun samplePlaintextOnlyPolicy(): IdentifierPolicySummary =
+    private fun sampleHkdfOwnerPolicy(): IdentifierPolicySummary =
         IdentifierPolicySummary(
             policyId = "string#retail",
             programId = "string-retail-fixture",

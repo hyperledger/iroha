@@ -771,40 +771,17 @@ impl AssertMusubiReleaseDigestV1 {
     }
 }
 impl crate::seal::Instruction for AssertMusubiReleaseDigestV1 {}
-fn musubi_decode_flags() -> u8 {
-    norito::core::effective_decode_flags().unwrap_or_else(norito::core::default_encode_flags)
-}
-macro_rules! impl_decode_musubi_instruction {
-    ($type:ident { $($field:ident: $field_type:ty),+ $(,)? }) => {
-        impl<'a> norito::core::DecodeFromSlice<'a> for $type {
-            fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
-                let flags = musubi_decode_flags();
-                let mut offset = 0usize;
-                $(
-                    let $field = super::decode_aos_canonical_field::<$field_type>(
-                        super::read_aos_field(bytes, &mut offset, flags)?,
-                        flags,
-                    )?;
-                )+
-                if offset != bytes.len() {
-                    return Err(norito::core::Error::LengthMismatch);
-                }
-                norito::core::note_payload_access(bytes, offset);
-                Ok((Self { $($field),+ }, offset))
-            }
-        }
-    };
-}
-impl_decode_musubi_instruction!(RegisterMusubiNamespaceBindingV1 {
+
+impl_aos_decode_from_slice!(RegisterMusubiNamespaceBindingV1 {
     binding: MusubiNamespaceBindingV1,
     expected_policy_revision: u64,
 });
-impl_decode_musubi_instruction!(RegisterMusubiArchiveV1 {
+impl_aos_decode_from_slice!(RegisterMusubiArchiveV1 {
     commitment: MusubiArchiveCommitmentV1,
     staging_receipt: MusubiSeedIngressReceiptV1,
     expected_policy_revision: u64,
 });
-impl_decode_musubi_instruction!(AdvanceMusubiPinOutboxV1 {
+impl_aos_decode_from_slice!(AdvanceMusubiPinOutboxV1 {
     network_id: crate::NetworkId,
     pin_authority: AccountId,
     session_id: [u8; 32],
@@ -812,7 +789,7 @@ impl_decode_musubi_instruction!(AdvanceMusubiPinOutboxV1 {
     expected_inventory_digest: [u8; 32],
     inventory_digest: [u8; 32],
 });
-impl_decode_musubi_instruction!(CheckMusubiPinOutboxV1 {
+impl_aos_decode_from_slice!(CheckMusubiPinOutboxV1 {
     network_id: crate::NetworkId,
     pin_authority: AccountId,
     session_id: [u8; 32],
@@ -821,11 +798,11 @@ impl_decode_musubi_instruction!(CheckMusubiPinOutboxV1 {
     floor: MusubiPinOutboxCheckFloorV1,
     expected: MusubiPinOutboxCheckExpectationV1,
 });
-impl_decode_musubi_instruction!(RegisterMusubiProviderBundleAttestationV1 {
+impl_aos_decode_from_slice!(RegisterMusubiProviderBundleAttestationV1 {
     attestation: MusubiProviderBundleVerificationAttestationV1,
     expected_location_revision: u64,
 });
-impl_decode_musubi_instruction!(AddMusubiArchiveLocationV1 {
+impl_aos_decode_from_slice!(AddMusubiArchiveLocationV1 {
     archive_id: ArchiveId,
     location_id: MusubiArchiveLocationIdV1,
     pin_manifest: ManifestDigest,
@@ -835,31 +812,31 @@ impl_decode_musubi_instruction!(AddMusubiArchiveLocationV1 {
     expires_at_epoch: u64,
     expected_location_revision: u64,
 });
-impl_decode_musubi_instruction!(RetireMusubiArchiveLocationV1 {
+impl_aos_decode_from_slice!(RetireMusubiArchiveLocationV1 {
     archive_id: ArchiveId,
     location_id: MusubiArchiveLocationIdV1,
     expected_location_revision: u64,
     reason: MusubiReasonV1,
 });
-impl_decode_musubi_instruction!(PublishMusubiReleaseV1 {
+impl_aos_decode_from_slice!(PublishMusubiReleaseV1 {
     namespace: MusubiNamespaceV1,
     publication: MusubiPublicationV1,
     namespace_delegation: Option<MusubiNamespaceDelegationV1>,
     expected_policy_revision: u64,
     expected_governance_revision: Option<u64>,
 });
-impl_decode_musubi_instruction!(SetMusubiReleaseYankV1 {
+impl_aos_decode_from_slice!(SetMusubiReleaseYankV1 {
     release: MusubiReleaseIdV1,
     yanked: bool,
     reason: MusubiReasonV1,
     expected_yank_revision: u64,
 });
-impl_decode_musubi_instruction!(SetMusubiPackageMetadataV1 {
+impl_aos_decode_from_slice!(SetMusubiPackageMetadataV1 {
     package: MusubiPackageIdV1,
     metadata: MusubiReleaseMetadataV1,
     expected_metadata_revision: u64,
 });
-impl_decode_musubi_instruction!(InviteMusubiPackageMaintainerV1 {
+impl_aos_decode_from_slice!(InviteMusubiPackageMaintainerV1 {
     package: MusubiPackageIdV1,
     invite_id: crate::musubi::MusubiInviteIdV1,
     invited_account: AccountId,
@@ -867,56 +844,56 @@ impl_decode_musubi_instruction!(InviteMusubiPackageMaintainerV1 {
     expires_at_height: u64,
     expected_governance_revision: u64,
 });
-impl_decode_musubi_instruction!(AcceptMusubiPackageMaintainerV1 {
+impl_aos_decode_from_slice!(AcceptMusubiPackageMaintainerV1 {
     package: MusubiPackageIdV1,
     invite_id: crate::musubi::MusubiInviteIdV1,
     expected_governance_revision: u64,
 });
-impl_decode_musubi_instruction!(RevokeMusubiPackageMaintainerInvitationV1 {
+impl_aos_decode_from_slice!(RevokeMusubiPackageMaintainerInvitationV1 {
     package: MusubiPackageIdV1,
     invite_id: crate::musubi::MusubiInviteIdV1,
     expected_governance_revision: u64,
 });
-impl_decode_musubi_instruction!(SetMusubiPackageMaintainerRoleV1 {
+impl_aos_decode_from_slice!(SetMusubiPackageMaintainerRoleV1 {
     package: MusubiPackageIdV1,
     account: AccountId,
     role: MusubiPackageRoleV1,
     expected_governance_revision: u64,
 });
-impl_decode_musubi_instruction!(RemoveMusubiPackageMaintainerV1 {
+impl_aos_decode_from_slice!(RemoveMusubiPackageMaintainerV1 {
     package: MusubiPackageIdV1,
     account: AccountId,
     expected_governance_revision: u64,
 });
-impl_decode_musubi_instruction!(RegisterMusubiAliasV1 {
+impl_aos_decode_from_slice!(RegisterMusubiAliasV1 {
     alias: MusubiAliasNameV1,
     target: MusubiPackageIdV1,
     expected_pricing_revision: u64,
 });
-impl_decode_musubi_instruction!(RecoverMusubiPackageV1 {
+impl_aos_decode_from_slice!(RecoverMusubiPackageV1 {
     decision: MusubiGovernanceDecisionV1,
     package: MusubiPackageIdV1,
     owners: Vec<AccountId>,
     expected_governance_revision: u64,
 });
-impl_decode_musubi_instruction!(RetargetMusubiAliasV1 {
+impl_aos_decode_from_slice!(RetargetMusubiAliasV1 {
     decision: MusubiGovernanceDecisionV1,
     alias: MusubiAliasNameV1,
     target: MusubiPackageIdV1,
     expected_history_revision: u64,
 });
-impl_decode_musubi_instruction!(SetMusubiArtifactTakedownV1 {
+impl_aos_decode_from_slice!(SetMusubiArtifactTakedownV1 {
     decision: MusubiGovernanceDecisionV1,
     release: MusubiReleaseIdV1,
     reason: MusubiReasonV1,
     expected_artifact_governance_revision: u64,
 });
-impl_decode_musubi_instruction!(SetMusubiRegistryPolicyV1 {
+impl_aos_decode_from_slice!(SetMusubiRegistryPolicyV1 {
     decision: MusubiGovernanceDecisionV1,
     policy: MusubiRegistryPolicyV1,
     expected_policy_revision: u64,
 });
-impl_decode_musubi_instruction!(AssertMusubiReleaseDigestV1 {
+impl_aos_decode_from_slice!(AssertMusubiReleaseDigestV1 {
     release: MusubiReleaseIdV1,
     expected_digest: MusubiReleaseDigestV1,
 });

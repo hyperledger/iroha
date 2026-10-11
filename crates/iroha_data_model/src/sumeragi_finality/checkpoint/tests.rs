@@ -180,6 +180,15 @@ fn checkpoint_rejects_substituted_roots_schedule_tip_and_noncanonical_material()
                 .is_err(),
             "mutation {mutation}"
         );
+        assert!(
+            SumeragiFinalityVerifier::from_trusted_checkpoint_with_tip(
+                &bad,
+                &fixture.network,
+                CHAIN,
+            )
+            .is_err(),
+            "tip handoff mutation {mutation}"
+        );
     }
     let mut trailing = good.encode_canonical().unwrap();
     trailing.push(0);
@@ -568,4 +577,249 @@ fn decoded_decision_equality_never_labels_different_execution_as_native() {
         [1; 32],
         genuine.commitment()
     ));
+}
+
+#[test]
+fn checkpoint_single_witness_rechecks_certificate_and_preserves_distinct_witness_refusal() {
+    let fixture = Fixture::new();
+    let mut verifier = fixture.verifier();
+    verifier.verify(&fixture.first).unwrap();
+    verifier.verify(&fixture.second).unwrap();
+    let good = verifier.export_checkpoint(&fixture.second).unwrap();
+
+    // Preserve the authenticated height, executed result and block header while corrupting
+    // only the current quorum signature. A retained decision cannot authenticate these bytes.
+    let mut bad = fixture.second.clone();
+    let mut block = decode_framed_signed_block(&bad.block_wire).unwrap();
+    let certificate = block.commit_certificate().unwrap();
+    let consensus_header = certificate.consensus_header().to_vec();
+    let result_preimage = certificate.result_preimage().to_vec();
+    let availability = certificate.availability().to_vec();
+    let mut qc: Qc = norito::decode_canonical(certificate.commit_qc()).unwrap();
+    qc.agg_sig.0[0] ^= 1;
+    block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
+        consensus_header.clone(),
+        norito::encode_canonical(&qc).unwrap(),
+        result_preimage.clone(),
+        availability.clone(),
+    )));
+    let changed = block.commit_certificate().unwrap();
+    assert_eq!(changed.consensus_header(), consensus_header);
+    assert_eq!(changed.result_preimage(), result_preimage);
+    assert_eq!(changed.availability(), availability);
+    assert_eq!(
+        norito::decode_canonical::<Qc>(changed.commit_qc()).unwrap(),
+        qc
+    );
+    bad.block_wire = block.encode_wire().unwrap();
+    assert_eq!(bad.block_header, fixture.second.block_header);
+    assert_ne!(bad.block_wire, fixture.second.block_wire);
+    assert!(verifier.export_checkpoint(&bad).is_err());
+    let mut substituted = good.clone();
+    substituted.tip = bad.clone();
+    assert!(matches!(
+        SumeragiFinalityVerifier::from_trusted_checkpoint(&substituted, &fixture.network, CHAIN),
+        Err(FinalityReadError::Invalid(_))
+    ));
+    assert!(matches!(
+        SumeragiFinalityVerifier::from_trusted_checkpoint_with_tip(
+            &substituted,
+            &fixture.network,
+            CHAIN,
+        ),
+        Err(FinalityReadError::Invalid(_))
+    ));
+    assert_eq!(verifier.export_checkpoint(&fixture.second).unwrap(), good);
+
+    let calls = std::cell::Cell::new(0_u32);
+    let bad_bytes = substituted.encode_canonical().unwrap();
+    let refusal = SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
+        &substituted,
+        &fixture.network,
+        CHAIN,
+        |_, _, _| calls.set(calls.get() + 1),
+    )
+    .unwrap_err();
+    assert!(matches!(refusal, FinalityReadError::Invalid(_)));
+    assert_eq!(calls.get(), 0);
+    assert_eq!(substituted.encode_canonical().unwrap(), bad_bytes);
+    let retried = SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
+        &good,
+        &fixture.network,
+        CHAIN,
+        |source, imported, tip| {
+            calls.set(calls.get() + 1);
+            assert!(std::ptr::eq(source, &raw const good));
+            assert_eq!(imported.export_checkpoint(&source.tip).unwrap(), good);
+            assert_eq!(tip.block().encode_wire().unwrap(), good.tip.block_wire);
+            tip.context_id()
+        },
+    )
+    .unwrap();
+    assert_eq!(calls.get(), 1);
+    assert_eq!(
+        retried,
+        verifier
+            .verify_retained_decision(&fixture.second)
+            .unwrap()
+            .context_id()
+    );
+
+    let resumed =
+        SumeragiFinalityVerifier::from_trusted_checkpoint(&good, &fixture.network, CHAIN).unwrap();
+    // Two distinct offered witnesses still both undergo the original verification API.
+    assert!(resumed.verify_same_decision(&good.tip, &bad).is_err());
+    assert!(resumed.verify_same_decision(&bad, &good.tip).is_err());
+    let alternate = fixture.alternate();
+    assert_ne!(alternate.block_wire, good.tip.block_wire);
+    assert!(resumed.verify_same_decision(&good.tip, &alternate).is_ok());
+    let alternate_checkpoint = resumed.export_checkpoint(&alternate).unwrap();
+    assert!(
+        SumeragiFinalityVerifier::from_trusted_checkpoint(
+            &alternate_checkpoint,
+            &fixture.network,
+            CHAIN,
+        )
+        .is_ok()
+    );
+    assert_eq!(resumed.export_checkpoint(&good.tip).unwrap(), good);
+}
+
+#[test]
+fn checkpoint_import_handoff_preserves_exact_witness_scope_and_resource_errors() {
+    let fixture = Fixture::new();
+    let mut verifier = fixture.verifier();
+    verifier.verify(&fixture.first).unwrap();
+    verifier.verify(&fixture.second).unwrap();
+    let alternate = fixture.alternate();
+    assert_ne!(alternate.block_wire, fixture.second.block_wire);
+    for proof in [&fixture.second, &alternate] {
+        let selected = verifier.export_checkpoint(proof).unwrap();
+        let original = selected.encode_canonical().unwrap();
+        let (imported, tip) = SumeragiFinalityVerifier::from_trusted_checkpoint_with_tip(
+            &selected,
+            &fixture.network,
+            CHAIN,
+        )
+        .unwrap();
+        let ordinary =
+            SumeragiFinalityVerifier::from_trusted_checkpoint(&selected, &fixture.network, CHAIN)
+                .unwrap();
+        assert_eq!(tip.block().encode_wire().unwrap(), proof.block_wire);
+        assert_eq!(tip.height(), selected.height());
+        assert_eq!(tip.header().hash(), selected.block_hash());
+        assert_eq!(imported.export_checkpoint(proof).unwrap(), selected);
+        assert_eq!(ordinary.export_checkpoint(proof).unwrap(), selected);
+
+        let calls = std::cell::Cell::new(0_u32);
+        let owned_source = selected.clone();
+        let owned_wire = owned_source.tip.block_wire.as_ptr();
+        let projected = SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
+            owned_source,
+            &fixture.network,
+            CHAIN,
+            |source, imported, tip| {
+                calls.set(calls.get() + 1);
+                assert_eq!(source.tip.block_wire.as_ptr(), owned_wire);
+                assert_eq!(source, selected);
+                assert_eq!(imported.export_checkpoint(proof).unwrap(), selected);
+                assert_eq!(tip.block().encode_wire().unwrap(), proof.block_wire);
+                (tip.height(), tip.context_id())
+            },
+        )
+        .unwrap();
+        assert_eq!(calls.get(), 1);
+        assert_eq!(projected, (tip.height(), tip.context_id()));
+
+        let foreign =
+            NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(b"foreign")));
+        for (network, chain) in [(foreign, CHAIN), (fixture.network, "wrong chain")] {
+            let handoff = SumeragiFinalityVerifier::from_trusted_checkpoint_with_tip(
+                &selected, &network, chain,
+            )
+            .unwrap_err();
+            let ordinary =
+                SumeragiFinalityVerifier::from_trusted_checkpoint(&selected, &network, chain)
+                    .unwrap_err();
+            assert_eq!(format!("{handoff:?}"), format!("{ordinary:?}"));
+            let refused = std::cell::Cell::new(false);
+            let consumer = SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
+                &selected,
+                &network,
+                chain,
+                |_, _, _| refused.set(true),
+            )
+            .unwrap_err();
+            assert_eq!(format!("{consumer:?}"), format!("{ordinary:?}"));
+            assert!(!refused.get());
+        }
+        let no_allocation = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+        let handoff = norito::with_decode_limits_scope(no_allocation, || {
+            SumeragiFinalityVerifier::from_trusted_checkpoint_with_tip(
+                &selected,
+                &fixture.network,
+                CHAIN,
+            )
+        })
+        .unwrap_err();
+        let ordinary = norito::with_decode_limits_scope(no_allocation, || {
+            SumeragiFinalityVerifier::from_trusted_checkpoint(&selected, &fixture.network, CHAIN)
+        })
+        .unwrap_err();
+        assert!(matches!(handoff, FinalityReadError::DecodeResource(_)));
+        assert_eq!(format!("{handoff:?}"), format!("{ordinary:?}"));
+        let refused = std::cell::Cell::new(0_u32);
+        let consumer = norito::with_decode_limits_scope(no_allocation, || {
+            SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
+                &selected,
+                &fixture.network,
+                CHAIN,
+                |_, _, _| refused.set(refused.get() + 1),
+            )
+        })
+        .unwrap_err();
+        assert!(matches!(consumer, FinalityReadError::DecodeResource(_)));
+        assert_eq!(format!("{consumer:?}"), format!("{ordinary:?}"));
+        let owned_source = selected.clone();
+        let owned_refusal = norito::with_decode_limits_scope(no_allocation, || {
+            SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
+                owned_source,
+                &fixture.network,
+                CHAIN,
+                |_, _, _| refused.set(refused.get() + 1),
+            )
+        })
+        .unwrap_err();
+        assert!(matches!(
+            owned_refusal,
+            FinalityReadError::DecodeResource(_)
+        ));
+        assert_eq!(format!("{owned_refusal:?}"), format!("{ordinary:?}"));
+        assert_eq!(refused.get(), 0);
+        assert_eq!(selected.encode_canonical().unwrap(), original);
+        let retried = SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
+            &selected,
+            &fixture.network,
+            CHAIN,
+            |source, imported, tip| {
+                refused.set(refused.get() + 1);
+                assert!(std::ptr::eq(source, &raw const selected));
+                assert_eq!(imported.export_checkpoint(proof).unwrap(), selected);
+                assert_eq!(tip.block().encode_wire().unwrap(), proof.block_wire);
+                tip.height()
+            },
+        )
+        .unwrap();
+        assert_eq!(refused.get(), 1);
+        assert_eq!(retried, selected.height());
+        assert_eq!(selected.encode_canonical().unwrap(), original);
+        assert!(
+            SumeragiFinalityVerifier::from_trusted_checkpoint_with_tip(
+                &selected,
+                &fixture.network,
+                CHAIN,
+            )
+            .is_ok()
+        );
+    }
 }

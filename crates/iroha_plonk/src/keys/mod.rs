@@ -20,27 +20,38 @@ use core::fmt;
 use iroha_pasta::{fft::FftError, msm::MsmError};
 
 use crate::{
-    cs::{CircuitDescriptorV1, CsError, DescriptorError, PermutationError, descriptor_digest},
+    cs::{
+        CircuitDescriptorV1, CircuitDescriptorV2, CsError, DescriptorError, PermutationError,
+        ProtocolDescriptor, descriptor_digest,
+    },
     frontend,
 };
 
 pub mod keygen;
 pub mod pk;
+mod source_fingerprint;
 #[cfg(test)]
 mod tests;
 pub mod vk;
 
-pub use keygen::{KeygenConfig, keygen_from_tables, keygen_pk, keygen_vk, permutation_values};
+pub use keygen::{
+    KeygenConfig, KeygenConfigV2, RebuildError, SourceAdmissionSealV2, SourceBoundVerifyingKeyV2,
+    SourceBoundViewV2, keygen_from_tables, keygen_from_tables_v2, keygen_pk, keygen_pk_from_vk_v2,
+    keygen_pk_from_vk_v2_cancellable, keygen_pk_v2, keygen_pk_v2_cancellable, keygen_vk,
+    keygen_vk_v2, keygen_vk_with_binding_v2, keygen_vk_with_binding_v2_cancellable,
+    permutation_values, source_fingerprint_v2,
+};
 pub use pk::{
     CosetCachePolicy, CosetMasks, CosetPolynomial, KeyConstraintSystem, ProvingKey, QuotientDomain,
 };
+pub use source_fingerprint::SourceFingerprintV2;
 pub use vk::{VK_VERSION, VerifyingKey, VkError};
 
 /// A validated descriptor, its canonical Norito frame `D` and
 /// `descriptor_digest = BLAKE2b(32, "PIPA-v1-CircDesc", D)`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DescriptorBinding {
-    descriptor: CircuitDescriptorV1,
+    descriptor: ProtocolDescriptor,
     encoded: Vec<u8>,
     digest: [u8; 32],
 }
@@ -56,7 +67,7 @@ impl DescriptorBinding {
         let encoded = descriptor.encode()?;
         let digest = descriptor_digest(&encoded);
         Ok(Self {
-            descriptor,
+            descriptor: descriptor.into(),
             encoded,
             digest,
         })
@@ -70,15 +81,44 @@ impl DescriptorBinding {
     pub fn decode(bytes: &[u8]) -> Result<Self, DescriptorError> {
         let descriptor = CircuitDescriptorV1::decode(bytes)?;
         Ok(Self {
-            descriptor,
+            descriptor: descriptor.into(),
             encoded: bytes.to_vec(),
             digest: descriptor_digest(bytes),
         })
     }
 
+    /// Validates and binds an explicit V2 descriptor.
+    ///
+    /// # Errors
+    /// An arithmetic, instance-type or transcript-profile rule fails.
+    pub fn new_v2(descriptor: CircuitDescriptorV2) -> Result<Self, DescriptorError> {
+        descriptor.validate()?;
+        let encoded = descriptor.encode()?;
+        let digest = crate::cs::descriptor_v2::descriptor_digest_v2(&encoded);
+        Ok(Self {
+            descriptor: descriptor.into(),
+            encoded,
+            digest,
+        })
+    }
+
+    /// Admits V2 only; it never attempts V1 decoding.
+    ///
+    /// # Errors
+    /// The bytes are not exactly one valid canonical V2 descriptor.
+    pub fn decode_v2(bytes: &[u8]) -> Result<Self, DescriptorError> {
+        Self::new_v2(CircuitDescriptorV2::decode(bytes)?)
+    }
+
+    /// Whether this binding is from the explicit V2 schema.
+    #[must_use]
+    pub fn is_v2(&self) -> bool {
+        self.descriptor.instance_types.is_some()
+    }
+
     /// The descriptor.
     #[must_use]
-    pub fn descriptor(&self) -> &CircuitDescriptorV1 {
+    pub fn descriptor(&self) -> &ProtocolDescriptor {
         &self.descriptor
     }
 
@@ -104,6 +144,8 @@ impl DescriptorBinding {
 /// Key generation or proving-key construction failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyError {
+    /// The caller cancelled key arithmetic before completion.
+    Cancelled,
     /// The circuit failed to configure or synthesize.
     Synthesis(frontend::Error),
     /// The constraint system is unusable.
@@ -153,9 +195,25 @@ pub enum KeyError {
     },
 }
 
+impl KeyError {
+    /// Whether this failure is cooperative cancellation, never an invalid proof.
+    pub fn is_cancelled(&self) -> bool {
+        match self {
+            Self::Cancelled | Self::ConstraintSystem(CsError::Cancelled) => true,
+            Self::Descriptor(error) => error.is_cancelled(),
+            Self::VerifyingKey(error) => error.is_cancelled(),
+            Self::Synthesis(error) => matches!(error, frontend::Error::Cancelled),
+            Self::Msm(error) => matches!(error, MsmError::Cancelled),
+            Self::Fft(error) => matches!(error, FftError::Cancelled),
+            _ => false,
+        }
+    }
+}
+
 impl fmt::Display for KeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Cancelled => f.write_str("operation cancelled"),
             Self::Synthesis(error) => write!(f, "synthesis: {error}"),
             Self::ConstraintSystem(error) => write!(f, "constraint system: {error}"),
             Self::Descriptor(error) => write!(f, "descriptor: {error}"),
@@ -184,22 +242,39 @@ impl fmt::Display for KeyError {
 }
 
 impl std::error::Error for KeyError {}
+impl From<iroha_pasta::Cancelled> for KeyError {
+    fn from(_: iroha_pasta::Cancelled) -> Self {
+        Self::Cancelled
+    }
+}
 
 impl From<frontend::Error> for KeyError {
     fn from(error: frontend::Error) -> Self {
-        Self::Synthesis(error)
+        if matches!(error, frontend::Error::Cancelled) {
+            Self::Cancelled
+        } else {
+            Self::Synthesis(error)
+        }
     }
 }
 
 impl From<CsError> for KeyError {
     fn from(error: CsError) -> Self {
-        Self::ConstraintSystem(error)
+        if matches!(error, CsError::Cancelled) {
+            Self::Cancelled
+        } else {
+            Self::ConstraintSystem(error)
+        }
     }
 }
 
 impl From<DescriptorError> for KeyError {
     fn from(error: DescriptorError) -> Self {
-        Self::Descriptor(error)
+        if error.is_cancelled() {
+            Self::Cancelled
+        } else {
+            Self::Descriptor(error)
+        }
     }
 }
 
@@ -212,6 +287,7 @@ impl From<PermutationError> for KeyError {
 impl From<VkError> for KeyError {
     fn from(error: VkError) -> Self {
         match error {
+            VkError::Cancelled => Self::Cancelled,
             VkError::Point {
                 index,
                 error: crate::transcript::TranscriptError::IdentityPoint,
@@ -223,13 +299,21 @@ impl From<VkError> for KeyError {
 
 impl From<FftError> for KeyError {
     fn from(error: FftError) -> Self {
-        Self::Fft(error)
+        if matches!(error, FftError::Cancelled) {
+            Self::Cancelled
+        } else {
+            Self::Fft(error)
+        }
     }
 }
 
 impl From<MsmError> for KeyError {
     fn from(error: MsmError) -> Self {
-        Self::Msm(error)
+        if matches!(error, MsmError::Cancelled) {
+            Self::Cancelled
+        } else {
+            Self::Msm(error)
+        }
     }
 }
 

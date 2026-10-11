@@ -5,7 +5,7 @@
                 [value * 2 for value in source if value > 1]
             }
 
-            view fn main() -> int {
+            view fn main() authorize(anyone) -> int {
                 let doubled = build();
                 let List<int, 2> head = doubled.take(2);
                 head.get(1).unwrap_or(0)

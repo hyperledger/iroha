@@ -28,7 +28,7 @@ use iroha_model_base::{
 };
 use iroha_sumeragi::{
     availability::{AvailabilitySource, PayloadAuthoring},
-    crypto::{NoAttestation, Signer},
+    crypto::Signer,
     message::{BlockHeader as NativeHeader, VoteKind},
     types::Bitmap,
 };
@@ -197,7 +197,6 @@ impl Fixture {
             proposer: 0,
             skipped_leaders: Vec::new(),
             control_witness: Default::default(),
-            attest: false,
         };
         let authored = PayloadAuthoring::new(header, payload)
             .complete(instance, &config, &budget, &*crypto, &signers[0])
@@ -212,13 +211,10 @@ impl Fixture {
             view: 0,
             block_hash: body.hash(&*crypto),
             result,
-            attest: false,
             signers: Bitmap::from_indices(4, [0, 1, 2]).unwrap(),
             agg_sig: iroha_sumeragi::types::AggregateSignature(
                 [0; iroha_sumeragi::types::SIGNATURE_LEN],
             ),
-            attestations: Vec::new(),
-            attestation_witness: None,
         };
         qc.agg_sig = crypto.aggregate(
             &signers[..3]
@@ -233,7 +229,6 @@ impl Fixture {
             crypto.clone(),
             budget.clone(),
             Arc::new(Schedule(body.source().clone())),
-            Arc::new(NoAttestation),
         )
         .unwrap()
         .complete()

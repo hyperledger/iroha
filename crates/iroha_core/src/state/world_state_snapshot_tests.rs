@@ -6,10 +6,7 @@ use crate::{
     sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
 use iroha_data_model::{
-    Identifiable, Registrable,
-    asset::{AssetBalancePolicy, AssetDefinition},
-    domain::Domain,
-    isi::Register,
+    Identifiable, Registrable, asset::AssetBalancePolicy, domain::Domain, isi::Register,
     nexus::AxtAssetIncarnationV1,
 };
 use iroha_model_base::domain::DomainId;
@@ -258,14 +255,18 @@ fn complete_cold_snapshot_matches_original_accumulator_and_registry() {
             .contains(&entry.field_id.as_str())
             && (entry.kind == WorldStateElementKindV1::Table) == entry.key_hash.is_some()
     }));
-    // Untouched canonical cells must be present even when every table is empty.
+    // Untouched canonical cells retain their exact original preimage even when
+    // every table is empty; parameters is a live canonical Cell<Parameters>.
+    let original_parameters_hash = hash_value(overlay.parameters.get()).unwrap();
     assert!(
         captured
             .snapshot
             .entries
             .iter()
             .any(|entry| entry.field_id == "world.parameters"
-                && entry.kind == WorldStateElementKindV1::Cell)
+                && entry.kind == WorldStateElementKindV1::Cell
+                && entry.key_hash.is_none()
+                && entry.value_hash == original_parameters_hash)
     );
     assert!(
         budget.reserved_bytes() > 0,
@@ -429,6 +430,200 @@ fn asset_chain() -> (CertifiedTestChain, AssetDefinitionId) {
 }
 
 #[test]
+fn certified_world_cut_survives_equivalent_and_refused_manifest_refresh() {
+    use crate::governance::manifest::LaneManifestRegistry;
+    use iroha_config::parameters::actual::LaneRegistry;
+    use std::sync::Arc;
+
+    let (mut chain, asset) = asset_chain();
+    let tip = chain.committed(chain.height());
+    let budget = AllocationBudget::new(32 * 1024 * 1024);
+    {
+        let state = chain.state();
+        let nexus = state.nexus_snapshot();
+        let original = state.lane_manifests.read().clone();
+        let privacy = state.lane_privacy_registry.read().clone();
+        let generation = state.state_view_generation();
+        let assert_proof = || {
+            with_asset_snapshot(state, &tip, &asset, &budget, |snapshot, _, _| {
+                assert_eq!(
+                    snapshot.root().unwrap(),
+                    tip.commitment().execution.world_state_root
+                );
+                Ok(())
+            })
+            .expect("manifest refresh must preserve the original certified World proof");
+            assert_eq!(budget.reserved_bytes(), 0);
+        };
+        assert_proof();
+        // A new materialization of the exact source is what each watcher tick supplies.
+        let equivalent = Arc::new(original.rebind(&nexus.lane_catalog, &nexus.governance));
+        assert!(!Arc::ptr_eq(&original, &equivalent));
+        assert!(state.install_lane_manifests_if_consensus_compatible(&equivalent));
+        assert_proof();
+        assert_eq!(state.state_view_generation(), generation);
+        assert!(Arc::ptr_eq(&state.lane_manifests.read(), &original));
+        assert!(Arc::ptr_eq(&state.lane_privacy_registry.read(), &privacy));
+
+        let directory = tempfile::tempdir().unwrap();
+        let alias = &nexus.lane_catalog.lanes()[0].alias;
+        std::fs::write(
+            directory.path().join(format!("{alias}.manifest.json")),
+            norito::json::to_vec(&norito::json!({ "lane": alias })).unwrap(),
+        )
+        .unwrap();
+        let changed = Arc::new(LaneManifestRegistry::from_config(
+            &nexus.lane_catalog,
+            &nexus.governance,
+            &LaneRegistry {
+                manifest_directory: Some(directory.path().to_path_buf()),
+                ..LaneRegistry::default()
+            },
+        ));
+        assert_ne!(
+            changed
+                .canonical_materialized_authority_preimage(&nexus.lane_catalog, &nexus.governance)
+                .unwrap(),
+            original
+                .canonical_materialized_authority_preimage(&nexus.lane_catalog, &nexus.governance)
+                .unwrap(),
+        );
+        for rejected in [changed, Arc::new(LaneManifestRegistry::default())] {
+            assert!(!state.install_lane_manifests_if_consensus_compatible(&rejected));
+            assert_proof();
+            assert_eq!(state.state_view_generation(), generation);
+            assert!(Arc::ptr_eq(&state.lane_manifests.read(), &original));
+            assert!(Arc::ptr_eq(&state.lane_privacy_registry.read(), &privacy));
+        }
+    }
+    // A real native successor still retires the former cut. No generation check is relaxed.
+    chain.commit_at(3_000, Vec::new());
+    let called = Cell::new(false);
+    assert!(
+        with_asset_snapshot(chain.state(), &tip, &asset, &budget, |_, _, _| {
+            called.set(true);
+            Ok(())
+        })
+        .is_err()
+    );
+    assert!(!called.get());
+    let successor = chain.committed(chain.height());
+    with_asset_snapshot(
+        chain.state(),
+        &successor,
+        &asset,
+        &budget,
+        |snapshot, _, _| {
+            assert_eq!(
+                snapshot.root().unwrap(),
+                successor.commitment().execution.world_state_root
+            );
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn replayed_world_cut_survives_exact_startup_queue_handoff_without_another_block() {
+    use crate::queue::Queue;
+    use iroha_primitives::time::TimeSource;
+    use std::sync::Arc;
+
+    let config = || {
+        let nexus = iroha_config::parameters::actual::Nexus::default();
+        let baseline = crate::governance::manifest::LaneManifestRegistry::from_config(
+            &nexus.lane_catalog,
+            &nexus.governance,
+            &nexus.registry,
+        );
+        let mut config = TestChainConfig::new(World::new(), 1_000);
+        // Startup installs the retained baseline before native genesis/replay begins.
+        config.lane_manifests = Some(Arc::new(
+            baseline
+                .with_runtime_additions(
+                    &[],
+                    &nexus.lane_catalog,
+                    &nexus.dataspace_catalog,
+                    &nexus.governance,
+                )
+                .unwrap(),
+        ));
+        config
+    };
+    let mut source = CertifiedTestChain::start(config()).unwrap();
+    source.commit_at(2_000, Vec::new());
+    let mut replay = CertifiedTestChain::start(config()).unwrap();
+    replay.replay_from(&source).unwrap();
+    assert_eq!(replay.height(), 2);
+    let tip = replay.committed(2);
+    assert_eq!(
+        tip.block().encode_wire().unwrap(),
+        source.committed(2).block().encode_wire().unwrap()
+    );
+    let state = replay.state();
+    let budget = AllocationBudget::new(32 * 1024 * 1024);
+    let assert_proof = || {
+        state
+            .with_native_world_state_snapshot_cut_v1(&tip, None, &budget, |snapshot, _| {
+                assert_eq!(
+                    snapshot.root().unwrap(),
+                    tip.commitment().execution.world_state_root
+                );
+                Ok(())
+            })
+            .expect(
+                "post-replay Queue handoff must preserve the native replay's certified World cut",
+            );
+        assert_eq!(budget.reserved_bytes(), 0);
+    };
+    assert_proof();
+    let nexus = state.nexus_snapshot();
+    let original = state.lane_manifests.read().clone();
+    let privacy = state.lane_privacy_registry.read().clone();
+    let generation = state.state_view_generation();
+    // This is the daemon's original post-replay rebind and public Queue handoff recipe.
+    let handoff = state
+        .lane_manifests_with_committed_catalog(&original, &nexus)
+        .unwrap();
+    assert!(!Arc::ptr_eq(&handoff, &original));
+    let queue = Queue::test(Default::default(), &TimeSource::new_system());
+    queue
+        .install_materialized_lane_manifests_with_state(
+            &handoff,
+            state,
+            &nexus.lane_catalog,
+            &nexus.governance,
+        )
+        .unwrap();
+    assert_proof();
+    assert_eq!(state.state_view_generation(), generation);
+    assert!(Arc::ptr_eq(&state.lane_manifests.read(), &original));
+    assert!(Arc::ptr_eq(&state.lane_privacy_registry.read(), &privacy));
+    assert_eq!(
+        replay.height(),
+        2,
+        "no new block repairs an invalidated proof in this regression"
+    );
+
+    // An invalid later handoff does not damage the original publication either.
+    let unbound = Arc::new(crate::governance::manifest::LaneManifestRegistry::default());
+    assert!(
+        queue
+            .install_materialized_lane_manifests_with_state(
+                &unbound,
+                state,
+                &nexus.lane_catalog,
+                &nexus.governance,
+            )
+            .is_err()
+    );
+    assert_proof();
+    assert_eq!(state.state_view_generation(), generation);
+}
+
+#[test]
 fn sns_lease_snapshot_authenticates_native_record_and_refuses_changed_or_unfunded_cut() {
     use iroha_data_model::{
         sns::lease::{SnsLeaseProofRefV1, SnsLeaseProofV1},
@@ -540,6 +735,23 @@ fn publisher_authenticates_original_native_cut_and_borrows_exact_targets() {
     let budget = AllocationBudget::new(16 * 1024 * 1024);
     let state = chain.state();
     let generation = state.state_view_generation();
+    let (
+        original_definition,
+        original_incarnation_pointer,
+        original_incarnation,
+        original_parameters_hash,
+    ) = {
+        let view = state.view();
+        let world = view.world();
+        let definition = world.asset_definitions().get(&asset).unwrap();
+        let incarnation = world.axt_asset_incarnations().get(&asset).unwrap();
+        (
+            std::ptr::from_ref(definition),
+            std::ptr::from_ref(incarnation),
+            *incarnation,
+            hash_value(world.parameters()).unwrap(),
+        )
+    };
     with_asset_snapshot(
         state,
         &original_tip,
@@ -555,6 +767,9 @@ fn publisher_authenticates_original_native_cut_and_borrows_exact_targets() {
                 original_tip.commitment().execution.world_state_root
             );
             assert_eq!(definition.id(), &asset);
+            assert!(std::ptr::eq(definition, original_definition));
+            assert!(std::ptr::eq(incarnation, original_incarnation_pointer));
+            assert_eq!(*incarnation, original_incarnation);
             for (field, kind, key, value) in [
                 (
                     "world.asset_definitions",
@@ -567,6 +782,12 @@ fn publisher_authenticates_original_native_cut_and_borrows_exact_targets() {
                     WorldStateElementKindV1::Table,
                     Some(hash_value(&asset).unwrap()),
                     hash_value(incarnation).unwrap(),
+                ),
+                (
+                    "world.parameters",
+                    WorldStateElementKindV1::Cell,
+                    None,
+                    original_parameters_hash,
                 ),
             ] {
                 assert!(

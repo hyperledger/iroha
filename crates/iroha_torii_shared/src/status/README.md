@@ -12,8 +12,11 @@ contains empty values; it cannot discover the capabilities of the serving node.
 
 `fixtures/torii/status_wire_golden.v1.json` records fully populated JSON values,
 complete Norito frames, and serialization/deserialization schema identifiers for
-all 32 named payloads, captured from the original telemetry implementation before
-extraction. `tests/status_wire.rs` verifies these frames and roundtrips without
+all named payloads. Historical owners were captured before extraction; current
+first-release DTO changes use scoped recaptures from the compiled Rust codec.
+`examples/capture_diagnostic_status_wire.rs` captures `DiagnosticTraceStatus`,
+`CryptoStatus`, and the enclosing `Status` after local trace settings replaced
+the retired proof-engine status. The identity fixture records capture hashes. `tests/status_wire.rs` verifies these frames and roundtrips without
 regenerating them. The explicit schema identifier strings are wire identities,
 independent of the Rust modules containing the records. Field order and existing
 Norito attributes remain part of that contract.

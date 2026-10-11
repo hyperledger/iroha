@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -266,6 +267,9 @@ def test_render_edge_nginx_conf_includes_all_public_routes() -> None:
     public_server = rendered.split("server_name taira.sora.org;", 1)[1].split(
         "server_name mon.taira.sora.net;", 1
     )[0]
+    # Applies before every location, including the exact signed fee-quote POST.
+    assert "proxy_request_buffering off;" in public_server.split("location ", 1)[0]
+    assert "proxy_request_buffering on;" not in public_server
     explorer_server = rendered.split("server_name taira-explorer.sora.org;", 1)[1].split(
         "server_name taira-validator-1.sora.org;", 1
     )[0]
@@ -948,6 +952,88 @@ def test_scoped_validator_listeners_bind_explicit_interfaces_and_preserve_paths(
         assert "proxy_set_header X-Forwarded-For $remote_addr;" in block
         assert "location = /v1/mcp {" in block
         assert "location = /v1/connect/ws {" in block
+
+
+def test_verification_request_allowlist_covers_native_reads_and_rejects_writes() -> None:
+    patterns = [re.compile(line.strip().split(" ", 1)[0][1:])
+                for line in MODULE._render_verification_request_map()
+                if line.strip().startswith("~")]
+    reads = [
+        "GET:/health", "GET:/readyz", "GET:/livez",
+        "GET:/status", "GET:/v1/node/capabilities",
+        "GET:/v1/sumeragi/status", "GET:/v1/sumeragi/lanes",
+        "GET:/v1/sumeragi/consensus-keys", "GET:/v1/parameters",
+        "GET:/v1/nexus/lifecycle",
+        "GET:/v1/pipeline/transactions/status?hash=abc&scope=local",
+        "GET:/v1/pipeline/transactions/status?hash=abc&scope=global",
+        "GET:/v1/bridge/finality/1",
+        "GET:/v1/bridge/finality/attestation/31?challenge=abc&node_id=def",
+        "GET:/v1/sns/names/dataspace/bpng",
+        "GET:/v1/sns/names/account-alias/owner@bpng",
+        "POST:/v1/pipeline/transactions/details",
+        "POST:/v1/aliases/resolve", "POST:/v1/aliases/by-account",
+    ]
+    denied = [
+        "POST:/transaction", "POST:/v1/pipeline/transactions",
+        "POST:/v1/parameters", "POST:/v1/sumeragi/status",
+        "DELETE:/v1/aliases/resolve", "GET:/v1/aliases/resolve",
+        "GET:/v1/sumeragi/status/", "GET://v1/sumeragi/status",
+        "GET:/v1/sumeragi/../parameters", "GET:/v1/%73umeragi/status",
+        "GET:/native-peer-2/v1/sumeragi/status", "GET:/v1/mcp",
+        "POST:/query", "GET:/v1/bridge/finality/0",
+        "GET:/v1/bridge/finality/01", "GET:/v1/bridge/finality/1/extra",
+        "GET:/v1/sns/names/dataspace/..",
+        "GET:/v1/sns/names/domain/unsupported", "POST:/v1/sns/names/dataspace/bpng",
+    ]
+    for request in reads:
+        assert sum(bool(pattern.fullmatch(request)) for pattern in patterns) == 1, request
+    for request in denied:
+        assert not any(pattern.fullmatch(request) for pattern in patterns), request
+
+
+def test_verification_listeners_keep_each_signed_request_on_exact_peer(tmp_path: Path) -> None:
+    roster = tmp_path / "roster.toml"
+    output = tmp_path / "verification.conf"
+    _shared_host_roster(roster)
+    assert MODULE.main([
+        "--roster", str(roster), "--output", str(output),
+        "--validator-verification-listeners-only",
+        "--validator-listen-address", "203.0.113.10",
+        "--tls-certificate", "/tls/fullchain.pem",
+        "--tls-certificate-key", "/tls/privkey.pem",
+    ]) == 0
+    rendered = output.read_text(encoding="utf-8")
+    assert rendered.count('map "$request_method:$request_uri"') == 1
+    assert "rewrite " not in rendered and "native-peer-" not in rendered
+    assert "location = /v1/mcp" not in rendered and "location = /v1/connect/ws" not in rendered
+    for index, port in enumerate(range(8443, 8447), start=1):
+        block = rendered.split(f"listen 203.0.113.10:{port} ssl;", 1)[1].split("\n}", 1)[0]
+        assert "if ($taira_peer_verification_read = 0) { return 404; }" in block
+        assert f"proxy_pass http://taira_validator_{index}_upstream;" in block
+        assert f"proxy_pass http://taira_validator_{index}_upstream/" not in block
+        assert "proxy_pass_request_headers on;" in block
+        assert "proxy_request_buffering off;" in block
+        assert "proxy_next_upstream off;" in block
+        assert "proxy_cache off;" in block
+        assert "proxy_intercept_errors off;" in block
+        assert "proxy_set_body" not in block
+
+
+def test_verification_scope_rejects_incomplete_or_combined_listener_inputs(tmp_path: Path) -> None:
+    roster = tmp_path / "roster.toml"
+    output = tmp_path / "verification.conf"
+    _shared_host_roster(roster)
+    base = ["--roster", str(roster), "--output", str(output),
+            "--validator-verification-listeners-only"]
+    for extra in ([], ["--validator-listeners-only"], ["--private-backend-listeners-only"],
+                  ["--backend-listen-address", "192.168.1.2"]):
+        try:
+            MODULE.main(base + extra)
+        except SystemExit as error:
+            assert error.code == 2
+        else:
+            raise AssertionError("accepted incomplete or conflicting verification scope")
+        assert not output.exists()
 
 
 def test_scoped_listener_rejects_ambiguous_bindings_and_tls_directive_injection(tmp_path: Path) -> None:

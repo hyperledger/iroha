@@ -1,4 +1,5 @@
 //! Validate Nexus autoscale configuration parsing and guardrails.
+
 use iroha_config::parameters::{
     actual::Root as ActualConfig,
     user::{Autoscale as UserAutoscale, Root as UserConfig},

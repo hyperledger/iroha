@@ -214,7 +214,6 @@ fn review_init_configs_beyond_t_plus_2_are_refused() {
             init,
             signers,
             Box::new(h.v.crypto.clone()),
-            crate::testing::fake_attestation_ext(crate::testing::FakeAttestor::new()),
             h.budget.clone(),
             0,
         )
@@ -422,7 +421,6 @@ fn review_zero_payload_retry_refused_at_start() {
         init,
         signers,
         Box::new(h.v.crypto.clone()),
-        crate::testing::fake_attestation_ext(crate::testing::FakeAttestor::new()),
         h.budget.clone(),
         0,
     );
@@ -469,7 +467,6 @@ fn review_zero_build_timeout_refused() {
         h.init(records),
         signers,
         Box::new(h.v.crypto.clone()),
-        crate::testing::fake_attestation_ext(crate::testing::FakeAttestor::new()),
         h.budget.clone(),
         0,
     );

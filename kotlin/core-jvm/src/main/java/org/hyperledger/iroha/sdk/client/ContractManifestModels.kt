@@ -46,6 +46,7 @@ enum class EntrypointValueTypeNodeKindV1 {
     UNIT,
     ERROR,
     STATE_CURSOR,
+    ENUM,
 }
 
 /** Named product metadata for one exact boundary-schema node. */
@@ -69,6 +70,8 @@ class EntrypointValueTypeNodeV1(
     @JvmField val listValue: EntrypointListTypeNodeV1? = null,
     @JvmField val leafKind: EntrypointValueKindV1? = null,
     @JvmField val errorType: ContractErrorTypeDescriptor? = null,
+    @JvmField val enumType: ContractEnumTypeDescriptor? = null,
+    @JvmField val cursorKeySchema: EntrypointValueTypeV1? = null,
 )
 
 /** Exact flat preorder value schema used at a Kotodama V1 public boundary. */
@@ -155,6 +158,30 @@ class ContractTriggerDescriptor(
     @JvmField val metadata: Map<String, Any?> = immutableJsonObject(metadata)
 }
 
+/** Closed caller authorization carried by every entrypoint. */
+sealed class EntrypointAuthorizationV1 {
+    /** Any caller may invoke this entrypoint. */
+    object Anyone : EntrypointAuthorizationV1()
+    /** The caller must hold this declared permission. */
+    class Permission(@JvmField val name: String) : EntrypointAuthorizationV1()
+    /** The exact runtime lifecycle token authorizes this hook. */
+    object RuntimeLifecycle : EntrypointAuthorizationV1()
+}
+
+/** Scope of a declared contract permission. */
+sealed class ContractPermissionScopeV1 {
+    /** The grant binds one contract address and declaration name. */
+    object Instance : ContractPermissionScopeV1()
+    /** An explicit import of an exact chain-wide null-payload permission. */
+    class Chain(@JvmField val permissionName: String) : ContractPermissionScopeV1()
+}
+
+/** One signed permission declaration in canonical name order. */
+class ContractPermissionDescriptorV1(
+    @JvmField val name: String,
+    @JvmField val scope: ContractPermissionScopeV1,
+)
+
 /** Exact public interface metadata for one Kotodama entrypoint. */
 class ContractEntrypointDescriptor(
     @JvmField val name: String,
@@ -163,7 +190,7 @@ class ContractEntrypointDescriptor(
     @JvmField val argumentSchema: EntrypointArgumentSchemaV1?,
     @JvmField val returnType: String?,
     @JvmField val returnSchema: EntrypointValueTypeV1?,
-    @JvmField val permission: String?,
+    @JvmField val authorization: EntrypointAuthorizationV1,
     readKeys: List<String>,
     writeKeys: List<String>,
     @JvmField val accessHintsComplete: Boolean?,
@@ -201,6 +228,27 @@ class ContractErrorTypeDescriptor(
         Collections.unmodifiableList(ArrayList(variants))
 }
 
+/** One nonzero enum-local variant in a finite nominal ordinary enum type. */
+class ContractEnumVariantDescriptor(
+    @JvmField val name: String,
+    @JvmField val code: Long,
+)
+
+/** Stable package/unit/enum identity and exact ordered variant schema. */
+class ContractEnumTypeDescriptor(
+    @JvmField val identity: String,
+    variants: List<ContractEnumVariantDescriptor>,
+) {
+    @JvmField val variants: List<ContractEnumVariantDescriptor> =
+        Collections.unmodifiableList(ArrayList(variants))
+}
+
+/** Authenticated source event with its complete durable public payload schema. */
+class ContractEventDescriptor(
+    @JvmField val name: String,
+    @JvmField val payloadType: EntrypointValueTypeV1,
+)
+
 /** Authenticated static presentation text for a declared nominal error variant. */
 class ContractErrorMessage(
     @JvmField val errorType: String,
@@ -237,13 +285,19 @@ class ContractManifest(
     @JvmField val compilerFingerprint: String?,
     @JvmField val featuresBitmap: BigInteger?,
     @JvmField val accessSetHints: ContractAccessSetHints?,
+    permissions: List<ContractPermissionDescriptorV1>,
+    events: List<ContractEventDescriptor>,
     entrypoints: List<ContractEntrypointDescriptor>?,
     states: List<ContractStateDescriptor>?,
     errorTypes: List<ContractErrorTypeDescriptor>?,
+    enumTypes: List<ContractEnumTypeDescriptor>,
     errorMessages: List<ContractErrorMessage>?,
     kotoba: List<ContractKotobaTranslationEntry>?,
     @JvmField val provenance: ContractManifestProvenance?,
 ) {
+    @JvmField val permissions: List<ContractPermissionDescriptorV1> = Collections.unmodifiableList(ArrayList(permissions))
+    @JvmField val events: List<ContractEventDescriptor> = Collections.unmodifiableList(ArrayList(events))
+    @JvmField val enumTypes: List<ContractEnumTypeDescriptor> = Collections.unmodifiableList(ArrayList(enumTypes))
     @JvmField val entrypoints: List<ContractEntrypointDescriptor>? = entrypoints?.let {
         Collections.unmodifiableList(ArrayList(it))
     }
@@ -301,6 +355,7 @@ object ContractManifestJsonParser {
     // BEGIN GENERATED: kotodama-v1-validator-policy
     private val reservedIdentifiers = setOf(
         "as",
+        "permission",
         "authorize",
         "break",
         "const",
@@ -330,6 +385,8 @@ object ContractManifestJsonParser {
         "誓約",
         "state",
         "struct",
+        "event",
+        "emit",
         "trigger",
         "true",
         "var",
@@ -391,13 +448,8 @@ object ContractManifestJsonParser {
         "__kotodama_quantity_ratio_round",
         "__kotodama_decimal_to_int_trunc",
         "__kotodama_decimal_to_int_round",
-        "is_some",
-        "is_none",
-        "is_ok",
-        "is_err",
-        "unwrap_or",
-        "unwrap_err_or",
-        "expect",
+        "__kotodama_option_ok_or",
+        "__kotodama_result_or_err",
     )
     private val retiredNumericTypeNames = setOf(
         "i8",
@@ -522,7 +574,7 @@ object ContractManifestJsonParser {
             root,
             setOf(
                 "seiyaku_name", "code_hash", "abi_hash", "compiler_fingerprint",
-                "features_bitmap", "access_set_hints", "entrypoints", "states", "error_types",
+                "features_bitmap", "access_set_hints", "permissions", "events", "entrypoints", "states", "error_types", "enum_types",
                 "error_messages", "kotoba", "provenance",
             ),
             "manifest",
@@ -550,14 +602,31 @@ object ContractManifestJsonParser {
         }
         val accessSetHints = optionalObject(root, "access_set_hints", "manifest.access_set_hints")
             ?.let(::parseAccessSetHints)
+        val permissions = objectList(required(root, "permissions", "manifest"), "manifest.permissions", ::parsePermissionDeclaration)
+        requireUnique(permissions.map { it.name }, "manifest.permissions")
+        check(permissions.zipWithNext().all { (left, right) -> compareUtf8(left.name, right.name) < 0 }) {
+            "manifest.permissions must be sorted and unique by name"
+        }
         val entrypoints = optionalObjectList(root, "entrypoints", "manifest.entrypoints", ::parseEntrypoint)
         val states = optionalObjectList(root, "states", "manifest.states", ::parseState)
         val errorTypes = optionalObjectList(root, "error_types", "manifest.error_types", ::parseErrorType)
+        val enumTypes = objectList(required(root, "enum_types", "manifest"), "manifest.enum_types", ::parseEnumType)
+        val events = objectList(required(root, "events", "manifest"), "manifest.events", ::parseEvent)
+        for ((label, names) in listOf("enum_types" to enumTypes.map { it.identity }, "events" to events.map { it.name })) {
+            check(names.size <= 256 && names.zipWithNext().all { (left, right) -> compareUtf8(left, right) < 0 }) {
+                "manifest.$label must contain at most 256 sorted unique declarations"
+            }
+        }
         val errorMessages = optionalObjectList(root, "error_messages", "manifest.error_messages", ::parseErrorMessage)
         val kotoba = optionalObjectList(root, "kotoba", "manifest.kotoba", ::parseKotobaEntry)
         val provenance = optionalObject(root, "provenance", "manifest.provenance")?.let(::parseProvenance)
 
         entrypoints?.let {
+            val declaredPermissions = permissions.map { permission -> permission.name }.toSet()
+            check(it.all { descriptor ->
+                val authorization = descriptor.authorization
+                authorization !is EntrypointAuthorizationV1.Permission || authorization.name in declaredPermissions
+            }) { "entrypoint authorization refers to an undeclared permission" }
             val names = it.map { descriptor -> descriptor.name }
             requireUnique(names, "manifest.entrypoints")
             check(it.count { descriptor -> descriptor.kind == ContractEntrypointKind.HAJIMARI } <= 1) {
@@ -585,18 +654,29 @@ object ContractManifestJsonParser {
             requireUnique(it.map { descriptor -> descriptor.identity }, "manifest.error_types")
         }
         val errorCatalog = errorTypes.orEmpty().associateBy { it.identity }
+        val enumCatalog = enumTypes.associateBy { it.identity }
+        check(errorCatalog.keys.intersect(enumCatalog.keys).isEmpty()) { "enum_types and error_types identities must not overlap" }
         states.orEmpty().forEach { state ->
-            check(StateTypeNameParser(state.typeName, errorCatalog.keys).parse()) {
-                "manifest state nominal error identity is not declared in its error_types catalog"
+            check(StateTypeNameParser(state.typeName, errorCatalog.keys + enumCatalog.keys).parse()) {
+                "manifest state nominal identity is not declared in an enum or error catalog"
             }
         }
-        entrypoints.orEmpty().forEach { entrypoint ->
-            val schemas = entrypoint.argumentSchema?.fields.orEmpty().map { it.valueType } + listOfNotNull(entrypoint.returnSchema)
-            schemas.flatMap { it.nodes }.filter { it.kind == EntrypointValueTypeNodeKindV1.ERROR }.forEach { node ->
-                val error = checkNotNull(node.errorType)
-                val declared = errorCatalog[error.identity]
-                check(declared != null && declared.variants.map { it.name to it.code } == error.variants.map { it.name to it.code }) {
+        val schemas = events.map { it.payloadType } + entrypoints.orEmpty().flatMap { entrypoint ->
+            entrypoint.argumentSchema?.fields.orEmpty().map { it.valueType } + listOfNotNull(entrypoint.returnSchema)
+        }
+        for (node in schemas.flatMap { it.nodes }) {
+            if (node.kind == EntrypointValueTypeNodeKindV1.ERROR) {
+                val descriptor = checkNotNull(node.errorType)
+                val declared = errorCatalog[descriptor.identity]
+                check(declared != null && declared.variants.map { it.name to it.code } == descriptor.variants.map { it.name to it.code }) {
                     "manifest boundary error schema does not match its error_types catalog"
+                }
+            }
+            if (node.kind == EntrypointValueTypeNodeKindV1.ENUM) {
+                val descriptor = checkNotNull(node.enumType)
+                val declared = enumCatalog[descriptor.identity]
+                check(declared != null && declared.variants.map { it.name to it.code } == descriptor.variants.map { it.name to it.code }) {
+                    "manifest boundary enum schema does not match its enum_types catalog"
                 }
             }
         }
@@ -630,9 +710,12 @@ object ContractManifestJsonParser {
             compilerFingerprint,
             featuresBitmap,
             accessSetHints,
+            permissions,
+            events,
             entrypoints,
             states,
             errorTypes,
+            enumTypes,
             errorMessages,
             kotoba,
             provenance,
@@ -660,7 +743,7 @@ object ContractManifestJsonParser {
             required(root, "key_type", "dynamic access hint"),
             "dynamic access hint.key_type",
         )
-        check(keyType in stateMapKeyTypeNames) {
+        check(canonicalKeyTypeName(keyType)) {
             "dynamic access hint.key_type must be an exact canonical StateMap key type"
         }
         val boundKind = exactString(
@@ -715,13 +798,37 @@ object ContractManifestJsonParser {
         }
     }
 
+    private class KeyTypeNameParser(private val value: String, start: Int = 0) {
+        var cursor = start; private set
+        var nodes = 0; private set
+        var maxDepth = 0; private set
+        fun parse(depth: Int = 1): Boolean {
+            nodes += 1; maxDepth = maxOf(maxDepth, depth)
+            if (nodes > 256 || depth > 256) return false
+            if (value.startsWith("(", cursor)) {
+                cursor += 1
+                if (!parse(depth + 1) || !consume(", ") || !parse(depth + 1)) return false
+                while (consume(", ")) if (!parse(depth + 1)) return false
+                return consume(")")
+            }
+            val start = cursor
+            while (cursor < value.length && (value[cursor].isLetterOrDigit() || value[cursor] == '_')) cursor += 1
+            return value.substring(start, cursor) in stateMapKeyTypeNames
+        }
+        private fun consume(text: String): Boolean {
+            if (!value.startsWith(text, cursor)) return false
+            cursor += text.length; return true
+        }
+    }
+    private fun canonicalKeyTypeName(value: String): Boolean {
+        val parser = KeyTypeNameParser(value)
+        return parser.parse() && parser.cursor == value.length
+    }
     private fun topLevelStateMapKeyType(typeName: String): String? {
         val prefix = "StateMap<"
         if (!typeName.startsWith(prefix)) return null
-        val separator = typeName.indexOf(", ", prefix.length)
-        if (separator < 0) return null
-        return typeName.substring(prefix.length, separator)
-            .takeIf { it in stateMapKeyTypeNames }
+        val parser = KeyTypeNameParser(typeName, prefix.length)
+        return if (parser.parse() && typeName.startsWith(", ", parser.cursor)) typeName.substring(prefix.length, parser.cursor) else null
     }
 
     private fun parseEntrypoint(root: Map<String, Any?>): ContractEntrypointDescriptor {
@@ -729,7 +836,7 @@ object ContractManifestJsonParser {
             root,
             setOf(
                 "name", "kind", "params", "argument_schema", "return_type", "return_schema",
-                "permission", "read_keys", "write_keys", "access_hints_complete",
+                "authorization", "read_keys", "write_keys", "access_hints_complete",
                 "access_hints_skipped", "triggers",
             ),
             "entrypoint descriptor",
@@ -771,12 +878,10 @@ object ContractManifestJsonParser {
         check(returnSchema.wordCount <= CALL_TABLE_WORD_LIMIT_V1 && returnSchema.canonicalTypeName == returnType) {
             "entrypoint descriptor return schema does not exactly match return_type"
         }
-        val permission = optionalExactString(root, "permission", "entrypoint descriptor.permission")
-        check(kind != ContractEntrypointKind.KOTOAGE || permission != null) {
-            "kotoage entrypoint descriptor must declare permission"
-        }
-        check((kind != ContractEntrypointKind.HAJIMARI && kind != ContractEntrypointKind.KAIZEN) || permission == null) {
-            "hajimari and kaizen entrypoints use runtime-defined authorization"
+        val authorization = parseAuthorization(objectValue(required(root, "authorization", "entrypoint descriptor"), "entrypoint authorization"))
+        val lifecycle = kind == ContractEntrypointKind.HAJIMARI || kind == ContractEntrypointKind.KAIZEN
+        check(lifecycle == (authorization === EntrypointAuthorizationV1.RuntimeLifecycle)) {
+            "entrypoint authorization must use RuntimeLifecycle exactly for lifecycle hooks"
         }
         val readKeys = stringList(root["read_keys"] ?: emptyList<Any?>(), "entrypoint descriptor.read_keys")
         val writeKeys = stringList(root["write_keys"] ?: emptyList<Any?>(), "entrypoint descriptor.write_keys")
@@ -796,13 +901,59 @@ object ContractManifestJsonParser {
             argumentSchema,
             returnType,
             returnSchema,
-            permission,
+            authorization,
             readKeys,
             writeKeys,
             complete,
             skipped,
             triggers,
         )
+    }
+
+    private fun compareUtf8(left: String, right: String): Int {
+        val a = left.toByteArray(StandardCharsets.UTF_8)
+        val b = right.toByteArray(StandardCharsets.UTF_8)
+        for (index in 0 until minOf(a.size, b.size)) {
+            val order = (a[index].toInt() and 255) - (b[index].toInt() and 255)
+            if (order != 0) return order
+        }
+        return a.size - b.size
+    }
+
+    private fun parseAuthorization(root: Map<String, Any?>): EntrypointAuthorizationV1 {
+        exactKeys(root, setOf("kind", "value"), "entrypoint authorization")
+        check(root.containsKey("value")) { "entrypoint authorization.value is required" }
+        return when (exactString(required(root, "kind", "entrypoint authorization"), "entrypoint authorization.kind")) {
+            "Anyone" -> { check(root["value"] == null); EntrypointAuthorizationV1.Anyone }
+            "RuntimeLifecycle" -> { check(root["value"] == null); EntrypointAuthorizationV1.RuntimeLifecycle }
+            "Permission" -> {
+                val name = exactString(required(root, "value", "entrypoint authorization"), "entrypoint authorization.value")
+                check(canonicalSourceIdentifier(name)) { "permission alias must be a canonical identifier" }
+                EntrypointAuthorizationV1.Permission(name)
+            }
+            else -> error("unsupported entrypoint authorization")
+        }
+    }
+
+    private fun parsePermissionDeclaration(root: Map<String, Any?>): ContractPermissionDescriptorV1 {
+        exactKeys(root, setOf("name", "scope"), "permission declaration")
+        val name = exactString(required(root, "name", "permission declaration"), "permission declaration.name")
+        check(canonicalSourceIdentifier(name)) { "permission alias must be a canonical identifier" }
+        val scope = objectValue(required(root, "scope", "permission declaration"), "permission declaration.scope")
+        exactKeys(scope, setOf("kind", "value"), "permission declaration.scope")
+        check(scope.containsKey("value")) { "permission scope.value is required" }
+        val parsed = when (exactString(required(scope, "kind", "permission scope"), "permission scope.kind")) {
+            "Instance" -> { check(scope["value"] == null); ContractPermissionScopeV1.Instance }
+            "Chain" -> {
+                val value = objectValue(scope["value"], "chain permission")
+                exactKeys(value, setOf("permission_name"), "chain permission")
+                val chainName = exactString(required(value, "permission_name", "chain permission"), "chain permission.permission_name")
+                check(chainName.none { it.isWhitespace() }) { "chain permission must be an exact name" }
+                ContractPermissionScopeV1.Chain(chainName)
+            }
+            else -> error("unsupported permission scope")
+        }
+        return ContractPermissionDescriptorV1(name, parsed)
     }
 
     private fun parseEntrypointKind(root: Map<String, Any?>): ContractEntrypointKind {
@@ -902,10 +1053,10 @@ object ContractManifestJsonParser {
                 EntrypointValueTypeNodeKindV1.ERROR,
                 errorType = parseErrorType(objectValue(root["value"], "entrypoint error type")),
             )
+            "Enum" -> EntrypointValueTypeNodeV1(EntrypointValueTypeNodeKindV1.ENUM, enumType = parseEnumType(objectValue(root["value"], "entrypoint enum type")))
             "StateCursor" -> {
-                val key = parseLeafKind(objectValue(root["value"], "state cursor key kind"))
-                check(key != EntrypointValueKindV1.JSON) { "Json is not a state cursor key kind" }
-                EntrypointValueTypeNodeV1(EntrypointValueTypeNodeKindV1.STATE_CURSOR, leafKind = key)
+                val key = parseKeySchema(objectValue(root["value"], "state cursor key schema"))
+                EntrypointValueTypeNodeV1(EntrypointValueTypeNodeKindV1.STATE_CURSOR, cursorKeySchema = key)
             }
             "Leaf" -> EntrypointValueTypeNodeV1(
                 EntrypointValueTypeNodeKindV1.LEAF,
@@ -915,6 +1066,18 @@ object ContractManifestJsonParser {
         }
     }
 
+    private fun parseKeySchema(root: Map<String, Any?>): EntrypointValueTypeV1 {
+        val raw = listValue(required(root, "nodes", "state key schema"), "state key schema.nodes")
+        check(raw.isNotEmpty() && raw.size <= 256) { "state key schema exceeds its node budget" }
+        raw.forEach { value ->
+            val node = objectValue(value, "state key node")
+            check(node["kind"] == "Leaf" || node["kind"] == "Tuple") { "state keys permit only scalar leaves and tuples" }
+        }
+        val key = parseValueType(root)
+        check(key.nodes.none { it.leafKind == EntrypointValueKindV1.JSON }) { "Json is not a state key leaf" }
+        return key
+    }
+
     private fun parseStructNode(root: Map<String, Any?>): EntrypointStructTypeNodeV1 {
         exactKeys(root, setOf("name", "fields"), "entrypoint struct node")
         val name = exactString(required(root, "name", "entrypoint struct node"), "entrypoint struct node.name")
@@ -922,7 +1085,7 @@ object ContractManifestJsonParser {
         check(
             (
                 canonicalUserStructIdentifier(name) ||
-                    name == "QueryPage" || name == "StatePage" ||
+                    name == "kotodama::QueryPage" || name == "kotodama::StatePage" ||
                     isCoreQueryViewName(name)
             ) &&
                 fields.all(::canonicalSourceIdentifier),
@@ -976,6 +1139,7 @@ object ContractManifestJsonParser {
         val frames = ArrayList<TraversalFrame>()
         var words = 0
         var maxDepth = 0
+        var totalNodes = nodes.size
         nodes.forEachIndexed { index, node ->
             while (frames.lastOrNull()?.remaining == 0) {
                 frames.removeAt(frames.lastIndex)
@@ -993,6 +1157,13 @@ object ContractManifestJsonParser {
             val depth = frames.size + 1
             check(depth <= 256) { "entrypoint value type exceeds the V1 nesting depth" }
             maxDepth = maxOf(maxDepth, depth)
+            node.cursorKeySchema?.let { key ->
+                check(node.kind == EntrypointValueTypeNodeKindV1.STATE_CURSOR) { "cursor schema on a non-cursor node" }
+                val analysis = analyzeValueType(key.nodes)
+                totalNodes += analysis.nodeCount
+                maxDepth = maxOf(maxDepth, depth + analysis.maxDepth)
+                check(totalNodes <= 256 && maxDepth <= 256) { "cursor key exceeds enclosing schema budget" }
+            }
 
             val handle = node.kind == EntrypointValueTypeNodeKindV1.OPTION ||
                 node.kind == EntrypointValueTypeNodeKindV1.RESULT ||
@@ -1022,17 +1193,17 @@ object ContractManifestJsonParser {
                 EntrypointValueTypeNodeKindV1.STRUCT -> {
                     val struct = checkNotNull(node.structValue) { "missing struct node metadata" }
                     when {
-                        struct.name == "StatePage" -> {
+                        struct.name == "kotodama::StatePage" -> {
                             val body = children[0].typeName.removePrefix("List<(").removeSuffix(">")
                             val split = body.lastIndexOf("), ")
                             check(split >= 0) { "invalid StatePage items" }
                             RenderedType("StatePage<${body.substring(0, split)}, ${body.substring(split + 3)}>")
                         }
-                        struct.name == "QueryPage" -> children.firstOrNull()?.listElementCoreViewName
+                        struct.name == "kotodama::QueryPage" -> children.firstOrNull()?.listElementCoreViewName
                             ?.let { RenderedType("QueryPage<$it>") }
                             ?: RenderedType("struct QueryPage")
                         isCoreQueryViewName(struct.name) ->
-                            RenderedType(struct.name, coreViewName = struct.name)
+                            RenderedType(struct.name.removePrefix("kotodama::"), coreViewName = struct.name.removePrefix("kotodama::"))
                         else -> RenderedType("struct ${struct.name}")
                     }
                 }
@@ -1050,24 +1221,25 @@ object ContractManifestJsonParser {
                         listElementCoreViewName = child.coreViewName,
                     )
                 }
-                EntrypointValueTypeNodeKindV1.STATE_CURSOR -> RenderedType("StateCursor<${canonicalLeafName(checkNotNull(node.leafKind))}>")
+                EntrypointValueTypeNodeKindV1.STATE_CURSOR -> RenderedType("StateCursor<${checkNotNull(node.cursorKeySchema).canonicalTypeName}>")
                 EntrypointValueTypeNodeKindV1.UNIT -> RenderedType("()")
                 EntrypointValueTypeNodeKindV1.ERROR -> RenderedType(checkNotNull(node.errorType).identity)
+                EntrypointValueTypeNodeKindV1.ENUM -> RenderedType(checkNotNull(node.enumType).identity)
                 EntrypointValueTypeNodeKindV1.LEAF ->
                     RenderedType(canonicalLeafName(checkNotNull(node.leafKind) { "missing leaf kind" }))
             }
             rendered.add(value)
         }
         check(rendered.size == 1) { "entrypoint value type is not one canonical preorder tree" }
-        return TypeAnalysis(nodes.size, nodes.size, words, maxDepth, rendered.single().typeName)
+        return TypeAnalysis(nodes.size, totalNodes, words, maxDepth, rendered.single().typeName)
     }
 
     private fun isCoreQueryViewName(name: String): Boolean = name in setOf(
-        "AccountView",
-        "AssetView",
-        "AssetDefinitionView",
-        "DomainView",
-        "NftView",
+        "kotodama::AccountView",
+        "kotodama::AssetView",
+        "kotodama::AssetDefinitionView",
+        "kotodama::DomainView",
+        "kotodama::NftView",
     )
 
     private fun nodeChildCount(node: EntrypointValueTypeNodeV1): Int = when (node.kind) {
@@ -1075,7 +1247,7 @@ object ContractManifestJsonParser {
         EntrypointValueTypeNodeKindV1.TUPLE -> checkNotNull(node.tupleArity)
         EntrypointValueTypeNodeKindV1.OPTION, EntrypointValueTypeNodeKindV1.LIST -> 1
         EntrypointValueTypeNodeKindV1.RESULT -> 2
-        EntrypointValueTypeNodeKindV1.LEAF, EntrypointValueTypeNodeKindV1.UNIT, EntrypointValueTypeNodeKindV1.ERROR, EntrypointValueTypeNodeKindV1.STATE_CURSOR -> 0
+        EntrypointValueTypeNodeKindV1.LEAF, EntrypointValueTypeNodeKindV1.UNIT, EntrypointValueTypeNodeKindV1.ERROR, EntrypointValueTypeNodeKindV1.ENUM, EntrypointValueTypeNodeKindV1.STATE_CURSOR -> 0
     }
 
     private fun subtreeEnd(nodes: List<EntrypointValueTypeNodeV1>, start: Int): Int? {
@@ -1091,68 +1263,44 @@ object ContractManifestJsonParser {
 
     private data class CoreViewRange(val end: Int)
 
-    private fun coreQueryViewRange(
-        nodes: List<EntrypointValueTypeNodeV1>,
-        start: Int,
-    ): CoreViewRange? {
+    private fun coreQueryViewShape(name: String): List<Pair<String, String>>? = when (name) {
+        "kotodama::AccountView" -> listOf("id" to "AccountId", "metadata" to "Json")
+        "kotodama::AssetView" -> listOf("id" to "AssetId", "amount" to "quantity")
+        "kotodama::DomainView" -> listOf("id" to "DomainId", "owned_by" to "AccountId", "metadata" to "Json")
+        "kotodama::NftView" -> listOf("id" to "NftId", "owned_by" to "AccountId", "content" to "Json")
+        "kotodama::AssetDefinitionView" -> listOf(
+            "id" to "AssetDefinitionId", "name" to "string", "description" to "Option<string>",
+            "owned_by" to "AccountId", "total_quantity" to "quantity", "numeric_scale" to "Option<int>", "metadata" to "Json",
+        )
+        else -> null
+    }
+
+    private fun coreQueryViewRange(nodes: List<EntrypointValueTypeNodeV1>, start: Int): CoreViewRange? {
         val root = nodes.getOrNull(start)
         if (root?.kind != EntrypointValueTypeNodeKindV1.STRUCT) return null
         val struct = root.structValue ?: return null
-        val expected = when (struct.name) {
-            "AccountView" -> listOf(
-                "id" to EntrypointValueKindV1.ACCOUNT_ID,
-                "metadata" to EntrypointValueKindV1.JSON,
-            )
-            "AssetView" -> listOf(
-                "id" to EntrypointValueKindV1.ASSET_ID,
-                "amount" to EntrypointValueKindV1.QUANTITY,
-            )
-            "DomainView" -> listOf(
-                "id" to EntrypointValueKindV1.DOMAIN_ID,
-                "owned_by" to EntrypointValueKindV1.ACCOUNT_ID,
-                "metadata" to EntrypointValueKindV1.JSON,
-            )
-            "NftView" -> listOf(
-                "id" to EntrypointValueKindV1.NFT_ID,
-                "owned_by" to EntrypointValueKindV1.ACCOUNT_ID,
-                "content" to EntrypointValueKindV1.JSON,
-            )
-            "AssetDefinitionView" -> null
-            else -> return null
+        val expected = coreQueryViewShape(struct.name) ?: return null
+        if (struct.fields != expected.map { it.first }) return null
+        var cursor = start + 1
+        for ((_, type) in expected) {
+            val leaf = if (type.startsWith("Option<")) {
+                if (nodes.getOrNull(cursor++)?.kind != EntrypointValueTypeNodeKindV1.OPTION) return null
+                type.substring(7, type.length - 1)
+            } else type
+            val node = nodes.getOrNull(cursor++) ?: return null
+            if (node.kind != EntrypointValueTypeNodeKindV1.LEAF || node.leafKind?.let(::canonicalLeafName) != leaf) return null
         }
-        if (struct.name == "AssetDefinitionView") {
-            if (
-                struct.fields != listOf(
-                    "id",
-                    "name",
-                    "description",
-                    "owned_by",
-                    "total_quantity",
-                    "numeric_scale",
-                    "metadata",
-                ) ||
-                !leafAt(nodes, start + 1, EntrypointValueKindV1.ASSET_DEFINITION_ID) ||
-                !leafAt(nodes, start + 2, EntrypointValueKindV1.STRING) ||
-                nodes.getOrNull(start + 3)?.kind != EntrypointValueTypeNodeKindV1.OPTION ||
-                !leafAt(nodes, start + 4, EntrypointValueKindV1.STRING) ||
-                !leafAt(nodes, start + 5, EntrypointValueKindV1.ACCOUNT_ID) ||
-                !leafAt(nodes, start + 6, EntrypointValueKindV1.QUANTITY) ||
-                nodes.getOrNull(start + 7)?.kind != EntrypointValueTypeNodeKindV1.OPTION ||
-                !leafAt(nodes, start + 8, EntrypointValueKindV1.INT) ||
-                !leafAt(nodes, start + 9, EntrypointValueKindV1.JSON) ||
-                subtreeEnd(nodes, start) != start + 10
-            ) {
-                return null
-            }
-            return CoreViewRange(start + 10)
-        }
-        val fields = checkNotNull(expected)
-        if (struct.fields != fields.map { it.first }) return null
-        fields.forEachIndexed { offset, (_, kind) ->
-            if (!leafAt(nodes, start + 1 + offset, kind)) return null
-        }
-        val end = start + 1 + fields.size
-        return if (subtreeEnd(nodes, start) == end) CoreViewRange(end) else null
+        return if (subtreeEnd(nodes, start) == cursor) CoreViewRange(cursor) else null
+    }
+
+    private fun exactDurableBuiltinProduct(name: String, fields: List<String>, types: List<String>): Boolean {
+        coreQueryViewShape(name)?.let { return fields == it.map { item -> item.first } && types == it.map { item -> item.second } }
+        if (name != "kotodama::QueryPage") return !name.startsWith("kotodama::")
+        if (fields != listOf("items", "next_offset") || types.size != 2 || types[1] != "Option<int>") return false
+        // Recursive parsing has already validated the exact nested view shape.
+        val item = types[0]
+        val brace = item.indexOf('{')
+        return item.startsWith("List<") && brace > 5 && coreQueryViewShape(item.substring(5, brace)) != null && item.endsWith("}, 64>")
     }
 
     private fun leafAt(
@@ -1171,19 +1319,23 @@ object ContractManifestJsonParser {
                 if (coreQueryViewRange(nodes, start) == null) return false
                 return@forEachIndexed
             }
-            if (struct.name == "StatePage") {
+            if (struct.name == "kotodama::StatePage") {
                 if (struct.fields != listOf("items", "next")) return false
                 val list = nodes.getOrNull(start + 1) ?: return false
                 if (list.kind != EntrypointValueTypeNodeKindV1.LIST || list.listValue?.capacity !in 1..64) return false
                 if (nodes.getOrNull(start + 2)?.kind != EntrypointValueTypeNodeKindV1.TUPLE || nodes[start + 2].tupleArity != 2) return false
-                val key = nodes.getOrNull(start + 3) ?: return false
-                if (key.kind != EntrypointValueTypeNodeKindV1.LEAF || key.leafKind == EntrypointValueKindV1.JSON) return false
-                val end = subtreeEnd(nodes, start + 4) ?: return false
+                val keyEnd = subtreeEnd(nodes, start + 3) ?: return false
+                val end = subtreeEnd(nodes, keyEnd) ?: return false
                 val cursor = nodes.getOrNull(end + 1) ?: return false
-                if (nodes.getOrNull(end)?.kind != EntrypointValueTypeNodeKindV1.OPTION || cursor.kind != EntrypointValueTypeNodeKindV1.STATE_CURSOR || cursor.leafKind != key.leafKind || subtreeEnd(nodes, start) != end + 2) return false
+                val key = cursor.cursorKeySchema ?: return false
+                val actual = nodes.subList(start + 3, keyEnd)
+                if (actual.size != key.nodes.size || actual.zip(key.nodes).any { (left, right) ->
+                    left.kind != right.kind || left.tupleArity != right.tupleArity || left.leafKind != right.leafKind
+                }) return false
+                if (nodes.getOrNull(end)?.kind != EntrypointValueTypeNodeKindV1.OPTION || cursor.kind != EntrypointValueTypeNodeKindV1.STATE_CURSOR || subtreeEnd(nodes, start) != end + 2) return false
                 return@forEachIndexed
             }
-            if (struct.name != "QueryPage") return@forEachIndexed
+            if (struct.name != "kotodama::QueryPage") return@forEachIndexed
             if (struct.fields != listOf("items", "next_offset")) return false
             val rootEnd = subtreeEnd(nodes, start) ?: return false
             val listStart = start + 1
@@ -1304,6 +1456,49 @@ object ContractManifestJsonParser {
         requireUnique(variants.map { it.name }, "error variant names")
         check(variants.zipWithNext().all { (left, right) -> left.code < right.code }) { "error variant codes must be strictly increasing" }
         return ContractErrorTypeDescriptor(identity, variants)
+    }
+
+    private fun parseEnumType(root: Map<String, Any?>): ContractEnumTypeDescriptor {
+        exactKeys(root, setOf("identity", "variants"), "enum type descriptor")
+        val identity = exactString(required(root, "identity", "enum type descriptor"), "enum type descriptor.identity")
+        check(identity.toByteArray(StandardCharsets.UTF_8).size <= 1024 &&
+            identity.matches(Regex("[\\p{L}\\p{N}_:/@.-]+")) && !identity.contains("__kotodama_link_")) {
+            "enum type identity must be a stable package/unit/enum identity"
+        }
+        val variants = objectList(required(root, "variants", "enum type descriptor"), "enum type descriptor.variants") { variant ->
+            exactKeys(variant, setOf("name", "code"), "enum variant")
+            val name = exactString(required(variant, "name", "enum variant"), "enum variant.name")
+            check(canonicalSourceIdentifier(name) || (name.any { it.code > 127 } && name.matches(Regex("[\\p{L}_][\\p{L}\\p{N}_]*")))) {
+                "enum variant name must be a canonical identifier"
+            }
+            val code = unsignedInteger(required(variant, "code", "enum variant"), BigInteger.valueOf(0xffff_ffffL), "enum variant.code").longValueExact()
+            check(code > 0) { "enum variant.code must be a non-zero u32" }
+            ContractEnumVariantDescriptor(name, code)
+        }
+        check(variants.size in 1..256) { "enum type must contain 1..256 variants" }
+        requireUnique(variants.map { it.name }, "enum variant names")
+        check(variants.zipWithNext().all { (left, right) -> left.code < right.code }) { "enum variant codes must be strictly increasing" }
+        return ContractEnumTypeDescriptor(identity, variants)
+    }
+
+    /** Decode one closed native event definition with the same schema policy as a manifest. */
+    @JvmStatic
+    fun parseEventDescriptor(payload: ByteArray): ContractEventDescriptor =
+        parseEvent(objectValue(parse(payload, "event declaration"), "event declaration"))
+
+    private fun parseEvent(root: Map<String, Any?>): ContractEventDescriptor {
+        exactKeys(root, setOf("name", "payload_type"), "event declaration")
+        val name = exactString(required(root, "name", "event declaration"), "event declaration.name")
+        check(canonicalSourceIdentifier(name)) { "event name must be a canonical identifier" }
+        val schema = parseValueType(objectValue(required(root, "payload_type", "event declaration"), "event payload type"))
+        val first = schema.nodes.first()
+        check(first.kind == EntrypointValueTypeNodeKindV1.STRUCT && first.structValue?.name?.substringAfterLast("::") == name) {
+            "event payload must be a named struct matching the event name"
+        }
+        check(schema.nodes.none { it.kind == EntrypointValueTypeNodeKindV1.STATE_CURSOR || (it.kind == EntrypointValueTypeNodeKindV1.LEAF && it.leafKind == EntrypointValueKindV1.JSON) }) {
+            "event payload cannot contain Json or StateCursor"
+        }
+        return ContractEventDescriptor(name, schema)
     }
 
     // Unicode White_Space, matching Rust str::trim rather than JVM isWhitespace.
@@ -1513,6 +1708,10 @@ object ContractManifestJsonParser {
     private fun canonicalQualifiedStructIdentifier(value: String): Boolean {
         if (value.length > 1024 || value.any { it.code > 127 } || value.contains("__kotodama_link_")) return false
         val parts = value.split("::")
+        if (parts.size == 2) {
+            if (parts[0] == "kotodama") return isCoreQueryViewName(value) || value == "kotodama::QueryPage" || value == "kotodama::StatePage"
+            return parts.all(::canonicalTypeDeclarationIdentifier)
+        }
         if (parts.size == 4 && parts[0] == "local") {
             return parts[1].length == 64 && parts[1].all { it in '0'..'9' || it in 'a'..'f' } &&
                 canonicalTypeDeclarationIdentifier(parts[2]) && canonicalTypeDeclarationIdentifier(parts[3])
@@ -1527,7 +1726,7 @@ object ContractManifestJsonParser {
     }
 
     private fun canonicalUserStructIdentifier(value: String): Boolean =
-        value.length <= 1024 && (canonicalTypeDeclarationIdentifier(value) || canonicalQualifiedStructIdentifier(value))
+        value.length <= 1024 && canonicalQualifiedStructIdentifier(value)
 
     private class StateTypeNameParser(private val value: String, private val errorIdentities: Set<String>? = null) {
         private var cursor = 0
@@ -1593,51 +1792,57 @@ object ContractManifestJsonParser {
                 }
                 "StateCursor" -> {
                     if (!consume("<")) return null
-                    val key = identifier() ?: return null
-                    return if (key in stateMapKeyTypeNames && consume(">")) aggregateType else null
+                    return if (parseKey(depth + 1) != null && consume(">")) aggregateType else null
                 }
                 "StateMap" -> {
                     if (!allowStateMap || !consume("<")) return null
-                    // The map wrapper and scalar key are outside the stored
-                    // value schema node budget, but the wrapper counts in CNTR depth.
-                    nodes -= 1
-                    val keyType = identifier()
-                    if (
-                        keyType == null ||
-                        keyType !in stateMapKeyTypeNames ||
-                        !consume(", ") ||
-                        parseType(false, depth + 1) == null ||
-                        !consume(">")
-                    ) return null
+                    // Keys have their own schema budget; both schemas share the CNTR depth bound.
+                    val valueNodes = nodes - 1
+                    nodes = 0
+                    if (parseKey(depth + 1) == null) return null
+                    nodes = valueNodes
+                    if (!consume(", ") || parseType(false, depth + 1) == null || !consume(">")) return null
                     return aggregateType
                 }
             }
 
-            if (name == "StatePage") {
-                nodes += 5 // List, Tuple, scalar key, Option, StateCursor.
+            if (name == "kotodama::StatePage") {
+                nodes += 4 // List, Tuple, Option, StateCursor; both key occurrences count separately.
                 if (nodes > maxStateTypeNodes || depth + 3 > maxStateTypeDepth || !consume("{items: List<(")) return null
-                val key = identifier() ?: return null
-                if (key !in stateMapKeyTypeNames || !consume(", ") || parseType(false, depth + 3) == null ||
+                val key = parseKey(depth + 3) ?: return null
+                if (!consume(", ") || parseType(false, depth + 3) == null ||
                     !consume("), ") || !listCapacity() || !consume(">, next: Option<StateCursor<")) return null
-                return if (consume(key) && consume(">>}")) aggregateType else null
+                return if (parseKey(depth + 3) == key && consume(">>}")) aggregateType else null
             }
             if (!canonicalUserStructIdentifier(name) || !consume("{")) return null
             // Empty products retain their validated nominal name and have no fields.
-            if (consume("}")) return aggregateType
-            val fields = HashSet<String>()
+            if (consume("}")) return if (exactDurableBuiltinProduct(name, emptyList(), emptyList())) aggregateType else null
+            val fields = mutableListOf<String>()
+            val types = mutableListOf<String>()
             while (true) {
                 val field = identifier()
                 if (
                     field == null ||
                     !canonicalSourceIdentifier(field) ||
                     field.startsWith("__kotodama_link_") ||
-                    !fields.add(field) ||
+                    field in fields ||
                     !consume(": ")
                 ) return null
+                fields.add(field)
+                val childStart = cursor
                 if (parseType(false, depth + 1) == null) return null
-                if (consume("}")) return aggregateType
+                types.add(value.substring(childStart, cursor))
+                if (consume("}")) return if (exactDurableBuiltinProduct(name, fields, types)) aggregateType else null
                 if (!consume(", ")) return null
             }
+        }
+
+        private fun parseKey(depth: Int): String? {
+            val start = cursor
+            val key = KeyTypeNameParser(value, start)
+            if (!key.parse() || depth + key.maxDepth - 1 > maxStateTypeDepth || nodes + key.nodes > maxStateTypeNodes) return null
+            nodes += key.nodes; cursor = key.cursor
+            return value.substring(start, cursor)
         }
 
         private fun consume(literal: String): Boolean {

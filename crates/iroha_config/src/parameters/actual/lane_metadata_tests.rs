@@ -105,3 +105,62 @@ fn borrowed_metadata_check_rejects_every_representable_field_drift() {
         );
     }
 }
+
+#[test]
+fn borrowed_catalog_check_preserves_exact_derived_entries_and_lookup_index() {
+    let catalog = LaneCatalog::new(
+        NonZeroU32::new(2).unwrap(),
+        vec![
+            LaneConfigMetadata::default(),
+            LaneConfigMetadata {
+                id: LaneId::new(1),
+                alias: " _Second 東京 Lane_ ".into(),
+                ..LaneConfigMetadata::default()
+            },
+        ],
+    )
+    .unwrap();
+    let original = LaneConfig::from_catalog(&catalog);
+    assert!(original.matches_catalog(&catalog));
+    let mutations: [fn(&mut LaneConfig); 9] = [
+        |config| {
+            config.entries.pop();
+        },
+        |config| config.entries.push(config.entries[0].clone()),
+        |config| config.entries.swap(0, 1),
+        |config| {
+            config.by_id.remove(&LaneId::new(1));
+        },
+        |config| {
+            config.by_id.insert(LaneId::new(99), 1);
+        },
+        |config| {
+            config.by_id.insert(LaneId::new(1), 0);
+        },
+        |config| {
+            config.by_id.insert(LaneId::new(1), usize::MAX);
+        },
+        |config| config.entries[1].merge_segment.push('x'),
+        |config| config.entries[1].manifest_policy = DaManifestPolicy::Audit,
+    ];
+    for (index, mutate) in mutations.into_iter().enumerate() {
+        let mut changed = original.clone();
+        mutate(&mut changed);
+        assert_ne!(
+            changed, original,
+            "fixture mutation {index} must change the derived graph"
+        );
+        assert_eq!(
+            changed.matches_catalog(&catalog),
+            changed == LaneConfig::from_catalog(&catalog),
+            "borrowed equality for mutation {index}"
+        );
+        assert!(
+            !changed.matches_catalog(&catalog),
+            "derived graph mutation {index}"
+        );
+    }
+    let one = LaneCatalog::default();
+    assert!(!original.matches_catalog(&one));
+    assert!(!LaneConfig::from_catalog(&one).matches_catalog(&catalog));
+}

@@ -118,6 +118,7 @@ mod model {
         crate :: DeriveJsonDeserialize,
     )]
     #[norito(no_fast_from_json)]
+    #[derive(derive_more::Constructor)]
     pub struct ContractInvocation {
         /// Canonical deployed contract address.
         pub contract_address: ContractAddress,

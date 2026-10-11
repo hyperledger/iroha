@@ -217,7 +217,7 @@ impl BuildIdentity {
 /// [`wire_schema_hash_of`](iroha_data_model::wire_schema::wire_schema_hash_of). Each
 /// root is rendered against its own types because the wires describe different
 /// types under the same schema identifiers (both define a `BlockHeader`). Opaque
-/// consensus byte domains (attestation signatures, control
+/// consensus byte domains (control
 /// witnesses, availability tables, rows) are described as length-prefixed byte
 /// sequences named with the lengths their decoders admit; the formats inside them are
 /// not part of the schema. The value is independent of the compilation target but not
@@ -700,10 +700,6 @@ mod tests {
             availability::{
                 AvailabilityFrame, MAX_AVAILABILITY_FRAME_BYTES, MAX_DA_CHUNK_SIZE_BYTES, RowBytes,
             },
-            message::{
-                AttestationSignature, MAX_ATTESTATION_SIGNATURE_BYTES, MAX_RESULT_WITNESS_BYTES,
-                ResultWitness,
-            },
             types::{ControlWitness, MAX_CONTROL_WITNESS_BYTES},
         };
         use norito::codec::Encode as _;
@@ -724,15 +720,11 @@ mod tests {
         };
         let max_row = usize::try_from(MAX_DA_CHUNK_SIZE_BYTES).expect("row bound fits usize");
         let actual = [
-            described::<ResultWitness>(&consensus),
-            described::<AttestationSignature>(&consensus),
             described::<ControlWitness>(&consensus),
             described::<AvailabilityFrame>(&consensus),
             described::<RowBytes>(&consensus),
         ];
         let expected = [
-            domain("ResultWitness", 1, MAX_RESULT_WITNESS_BYTES),
-            domain("AttestationSignature", 0, MAX_ATTESTATION_SIGNATURE_BYTES),
             domain("ControlWitness", 0, MAX_CONTROL_WITNESS_BYTES),
             domain(
                 "availability::AvailabilityFrame",
@@ -745,8 +737,6 @@ mod tests {
 
         let raw = vec![1_u8, 2, 3];
         for encoded in [
-            ResultWitness::from_untrusted(raw.clone()).unwrap().encode(),
-            AttestationSignature::try_from_slice(&raw).unwrap().encode(),
             ControlWitness::try_from_slice(&raw).unwrap().encode(),
             AvailabilityFrame::from_untrusted(raw.clone())
                 .unwrap()

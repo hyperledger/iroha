@@ -51,11 +51,11 @@ pub enum LaneStep {
     Done(Result<(), LaneStepError>),
 }
 
-/// Why a lane step failed; local allocation refusal is retryable, semantic failures are invalid.
+/// Why a lane step failed; local custody remains typed and semantic failures are invalid.
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub enum LaneStepError {
-    /// Original committed policy decoding did not finish locally.
-    #[error("lane policy deferred: {0}")]
+    /// Original policy or custody work did not finish; a local owner invariant requires recovery.
+    #[error("lane step deferred: {0}")]
     Deferred(#[from] crate::execution_attempt::ExecutionDeferred),
     /// A merge names a lane the state no longer has.
     #[error("merged lane {0} has no record")]
@@ -63,12 +63,22 @@ pub enum LaneStepError {
     /// Original pinned stake custody or its global lifetime is invalid.
     #[error("lane custody: {0}")]
     Custody(CustodyViolation),
-    /// Local bounded-table allocation refused; this is retried, never a block-invalid verdict.
-    #[error("local lane custody allocation refused")]
-    CustodyAllocation,
     /// The step never ran.
     #[error("the lane step did not run")]
     NotAdvanced,
+}
+
+impl From<crate::execution_attempt::ExecutionAttemptError<CustodyViolation>> for LaneStepError {
+    fn from(error: crate::execution_attempt::ExecutionAttemptError<CustodyViolation>) -> Self {
+        match error {
+            crate::execution_attempt::ExecutionAttemptError::Rejected(reason) => {
+                Self::Custody(reason)
+            }
+            crate::execution_attempt::ExecutionAttemptError::Deferred(original) => {
+                Self::Deferred(original)
+            }
+        }
+    }
 }
 
 impl StateBlock<'_> {
@@ -77,10 +87,19 @@ impl StateBlock<'_> {
         self.sumeragi_lanes_step = LaneStep::Requested(input);
     }
 
-    /// Run a requested lane step (the output seal's finalizer).
-    pub(crate) fn advance_requested_sumeragi_lanes(&mut self) {
-        if let LaneStep::Requested(input) = std::mem::take(&mut self.sumeragi_lanes_step) {
-            self.sumeragi_lanes_step = LaneStep::Done(advance(self, &input));
+    /// Run a requested lane step before the output seal completes.
+    ///
+    /// # Errors
+    /// Retains and returns the real lane outcome; an unfinished transition cannot be sealed.
+    pub(crate) fn advance_requested_sumeragi_lanes(&mut self) -> Result<(), LaneStepError> {
+        self.sumeragi_lanes_step = match std::mem::take(&mut self.sumeragi_lanes_step) {
+            LaneStep::Requested(input) => LaneStep::Done(advance(self, &input)),
+            original => original,
+        };
+        match &self.sumeragi_lanes_step {
+            LaneStep::Done(outcome) => outcome.clone(),
+            LaneStep::Off => Ok(()),
+            LaneStep::Requested(_) => unreachable!("original requested lane step ran"),
         }
     }
 
@@ -106,40 +125,19 @@ pub fn advance(block: &mut StateBlock<'_>, input: &LaneStepInput) -> Result<(), 
     let policy = lane_policy(&block.world)?;
     let network = *block.network_id();
     let budget = block.pipeline_ivm_prepared_cache.execution_budget();
-    let mut state =
-        super::custody::admit_state(block.world.sumeragi_lanes.get(), budget).map_err(|error| {
-            match error {
-                iroha_data_model::sumeragi_lanes::LaneStateAdmissionError::Signers(
-                    iroha_data_model::sumeragi_lanes::CustodySignersAdmissionError::Invalid,
-                ) => LaneStepError::Custody(CustodyViolation::Signers),
-                _ => LaneStepError::CustodyAllocation,
-            }
-        })?;
+    let mut state = super::custody::admit_state(block.world.sumeragi_lanes.get(), budget)
+        .map_err(super::custody::state_admission_attempt_error)
+        .map_err(LaneStepError::from)?;
     apply_merges(&mut state, input, height)?;
     record_sample(&mut state, policy.as_ref(), input, height, time_ms, budget)?;
-    super::custody::prepare_retirement(&mut state, &block.world, height).map_err(|error| {
-        match error {
-            crate::execution_attempt::ExecutionAttemptError::Rejected(reason) => {
-                LaneStepError::Custody(reason)
-            }
-            crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
-                LaneStepError::Deferred(reason)
-            }
-        }
-    })?;
+    super::custody::prepare_retirement(&mut state, &block.world, height)
+        .map_err(LaneStepError::from)?;
     retire(&mut state, height);
     let pool = |incarnation: &[u8; 32], size: u32| {
         elastic_committee(&block.world, height, incarnation, size)
     };
     let creation_capacity =
-        super::custody::creation_capacity(&state, &block.world).map_err(|error| match error {
-            crate::execution_attempt::ExecutionAttemptError::Rejected(reason) => {
-                LaneStepError::Custody(reason)
-            }
-            crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
-                LaneStepError::Deferred(reason)
-            }
-        })?;
+        super::custody::creation_capacity(&state, &block.world).map_err(LaneStepError::from)?;
     reconcile(
         &mut state,
         policy.as_ref(),
@@ -158,17 +156,7 @@ pub fn advance(block: &mut StateBlock<'_>, input: &LaneStepInput) -> Result<(), 
         height,
         budget,
     )
-    .map_err(|error| match error {
-        crate::execution_attempt::ExecutionAttemptError::Rejected(
-            super::custody::CustodyError::Invalid(reason),
-        ) => LaneStepError::Custody(reason),
-        crate::execution_attempt::ExecutionAttemptError::Rejected(
-            super::custody::CustodyError::Allocation,
-        ) => LaneStepError::CustodyAllocation,
-        crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
-            LaneStepError::Deferred(reason)
-        }
-    })?;
+    .map_err(LaneStepError::from)?;
     *block.world.sumeragi_lanes.get_mut() = state;
     Ok(())
 }
@@ -240,7 +228,9 @@ fn record_sample(
         .unwrap_or(usize::MAX)
         .saturating_add(1);
     let samples = super::custody::retain_samples(&state.samples, Some((sample, keep)), budget)
-        .map_err(|_| LaneStepError::CustodyAllocation)?;
+        .map_err(|error| {
+            LaneStepError::Deferred(super::custody::samples_admission_deferred(error))
+        })?;
     state.samples = samples;
     Ok(())
 }

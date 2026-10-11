@@ -5,28 +5,22 @@
 //! World authority. Prover device choice, worker queues and wall-clock budgets
 //! are local resources and are not independent consensus policy.
 
-use iroha_config::parameters::actual::{Halo2Backend, Sccp, Zk, ZkCurve};
+use iroha_config::parameters::actual::{Sccp, Zk};
 use norito::{Decode, Encode, NoritoSchema};
-
-#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, NoritoSchema)]
-#[norito(deny_unknown_fields)]
-#[norito_schema(name = "iroha:state:zk-halo2:v1")]
-struct ZkHalo2PolicyV1 {
-    enabled: bool,
-    curve: String,
-    backend: String,
-    max_k: u32,
-    verifier_max_batch: u32,
-    max_envelope_bytes: u64,
-    max_proof_bytes: u64,
-    max_transcript_label_len: u64,
-    enforce_transcript_label_ascii: bool,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, NoritoSchema)]
 #[norito(deny_unknown_fields)]
 #[norito_schema(name = "iroha:state:zk-stark:v1")]
 struct ZkStarkPolicyV1 {
+    enabled: bool,
+    max_envelope_bytes: u64,
+    max_proof_bytes: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, NoritoSchema)]
+#[norito(deny_unknown_fields)]
+#[norito_schema(name = "iroha:state:zk-pipa-r:v1")]
+struct ZkPipaRPolicyV1 {
     enabled: bool,
     max_envelope_bytes: u64,
     max_proof_bytes: u64,
@@ -84,8 +78,6 @@ sccp_policy! {
     max_ethereum_light_client_updates_per_block: u32,
     max_native_header_bytes_per_transaction: u64,
     max_native_header_bytes_per_block: u64,
-    max_secp256k1_recoveries_per_transaction: u32,
-    max_secp256k1_recoveries_per_block: u32,
     max_ed25519_signature_checks_per_transaction: u32,
     max_ed25519_signature_checks_per_block: u32,
     max_bls_vote_attestations_per_transaction: u32,
@@ -159,7 +151,8 @@ struct ZkVerificationGasPolicyV1 {
 #[norito(deny_unknown_fields)]
 #[norito_schema(name = "iroha:state:zk:v1")]
 pub(super) struct ZkConsensusPolicyV1 {
-    halo2: ZkHalo2PolicyV1,
+    max_verify_batch: u32,
+    pipa_r: ZkPipaRPolicyV1,
     stark: ZkStarkPolicyV1,
     sccp: ZkSccpPolicyV1,
     retention: ZkProofRetentionPolicyV1,
@@ -169,21 +162,6 @@ pub(super) struct ZkConsensusPolicyV1 {
 
 fn count(value: usize) -> u64 {
     u64::try_from(value).expect("ZK policy usize field must fit into u64")
-}
-
-fn curve_tag(curve: ZkCurve) -> &'static str {
-    match curve {
-        ZkCurve::Pallas => "pallas",
-        ZkCurve::Pasta => "pasta",
-        ZkCurve::Goldilocks => "goldilocks",
-        ZkCurve::Bn254 => "bn254",
-    }
-}
-
-fn backend_tag(backend: Halo2Backend) -> &'static str {
-    match backend {
-        Halo2Backend::Ipa => "ipa",
-    }
 }
 
 fn key_ref(
@@ -199,16 +177,11 @@ impl ZkConsensusPolicyV1 {
     /// Project every value used by the current ZK consensus-policy hash.
     pub(super) fn from_actual(config: &Zk) -> Self {
         Self {
-            halo2: ZkHalo2PolicyV1 {
-                enabled: config.halo2.enabled,
-                curve: curve_tag(config.halo2.curve).to_owned(),
-                backend: backend_tag(config.halo2.backend).to_owned(),
-                max_k: config.halo2.max_k,
-                verifier_max_batch: config.halo2.verifier_max_batch,
-                max_envelope_bytes: count(config.halo2.max_envelope_bytes),
-                max_proof_bytes: count(config.halo2.max_proof_bytes),
-                max_transcript_label_len: count(config.halo2.max_transcript_label_len),
-                enforce_transcript_label_ascii: config.halo2.enforce_transcript_label_ascii,
+            max_verify_batch: config.max_verify_batch,
+            pipa_r: ZkPipaRPolicyV1 {
+                enabled: config.pipa_r.enabled,
+                max_envelope_bytes: count(config.pipa_r.max_envelope_bytes),
+                max_proof_bytes: count(config.pipa_r.max_proof_bytes),
             },
             stark: ZkStarkPolicyV1 {
                 enabled: config.stark.enabled,
@@ -323,23 +296,21 @@ mod tests {
     }
 
     #[test]
-    fn halo2_and_stark_admission_inputs_bind_projection() {
+    fn pipa_r_admission_inputs_bind_projection() {
         let baseline = policy();
         let mut changed = baseline.clone();
-        changed.halo2.enabled = !changed.halo2.enabled;
-        assert_changed(&baseline, &changed, "halo2.enabled");
+        changed.pipa_r.enabled = !changed.pipa_r.enabled;
+        assert_changed(&baseline, &changed, "pipa_r.enabled");
+        check_nested_number!(baseline, pipa_r.max_envelope_bytes);
+        check_nested_number!(baseline, pipa_r.max_proof_bytes);
+    }
+
+    #[test]
+    fn batch_and_stark_admission_inputs_bind_projection() {
+        let baseline = policy();
         let mut changed = baseline.clone();
-        changed.halo2.curve = ZkCurve::Bn254;
-        assert_changed(&baseline, &changed, "halo2.curve");
-        check_nested_number!(baseline, halo2.max_k);
-        check_nested_number!(baseline, halo2.verifier_max_batch);
-        check_nested_number!(baseline, halo2.max_envelope_bytes);
-        check_nested_number!(baseline, halo2.max_proof_bytes);
-        check_nested_number!(baseline, halo2.max_transcript_label_len);
-        let mut changed = baseline.clone();
-        changed.halo2.enforce_transcript_label_ascii =
-            !changed.halo2.enforce_transcript_label_ascii;
-        assert_changed(&baseline, &changed, "halo2.enforce_transcript_label_ascii");
+        changed.max_verify_batch += 1;
+        assert_changed(&baseline, &changed, "max_verify_batch");
         let mut changed = baseline.clone();
         changed.stark.enabled = !changed.stark.enabled;
         assert_changed(&baseline, &changed, "stark.enabled");
@@ -377,7 +348,7 @@ mod tests {
         });
         assert_changed(&baseline, &changed, "pedersen_params_id");
         let alternate_key = |existing: &Option<VerifyingKeyRef>| VerifyingKeyRef {
-            backend: "halo2/ipa".to_owned(),
+            backend: "pipa-r/pasta".to_owned(),
             name: format!(
                 "{}-alternate",
                 existing.as_ref().map_or("test", |key| &key.name)
@@ -425,13 +396,19 @@ mod tests {
         let expected = frame(&baseline);
         let expected_hash = crate::state::compute_zk_consensus_policy_hash(&baseline);
         let mut local = baseline;
-        local.halo2.verifier_budget_ms += 1;
-        local.halo2.verifier_worker_threads += 1;
-        local.halo2.verifier_queue_cap += 1;
-        local.halo2.verifier_enqueue_wait_ms += 1;
-        local.halo2.verifier_retry_ring_cap += 1;
-        local.halo2.verifier_retry_max_attempts += 1;
-        local.halo2.verifier_retry_tick_ms += 1;
+        local.ipa_commitment.max_k += 1;
+        local.ipa_commitment.max_transcript_label_len += 1;
+        local.ipa_commitment.max_envelope_bytes += 1;
+        local.ipa_commitment.enforce_transcript_label_ascii =
+            !local.ipa_commitment.enforce_transcript_label_ascii;
+        local.trace.enabled = !local.trace.enabled;
+        local.trace.max_batch += 1;
+        local.trace.worker_threads += 1;
+        local.trace.queue_cap += 1;
+        local.trace.enqueue_wait_ms += 1;
+        local.trace.retry_ring_cap += 1;
+        local.trace.retry_max_attempts += 1;
+        local.trace.retry_tick_ms += 1;
         local.fastpq.metal_trace = !local.fastpq.metal_trace;
         local.verify_timeout += std::time::Duration::from_millis(1);
         assert_eq!(frame(&local), expected);

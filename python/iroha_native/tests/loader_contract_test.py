@@ -75,7 +75,7 @@ fake = types.ModuleType(spec.name)
 fake.__spec__ = spec
 fake.__loader__ = spec.loader
 fake.__file__ = spec.origin
-fake.connect_norito_bridge_abi_version = lambda: 25
+fake.connect_norito_bridge_abi_version = lambda: 29
 for name in ("_validate_account_address_v1", "_parse_account_address_v1", "_render_account_address_v1"):
     setattr(fake, name, lambda *args: b"not-an-address")
 sys.modules[spec.name] = fake

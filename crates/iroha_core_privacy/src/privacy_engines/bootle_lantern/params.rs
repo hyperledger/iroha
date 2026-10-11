@@ -181,10 +181,16 @@ pub const SOURCE_PROFILE_V1: &[u8] = b"BLNS-specialization-no-main-construction-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use p256::elliptic_curve::bigint::{U512, U1024};
+    use p256::elliptic_curve::bigint::{Encoding as _, U512, U1024};
     fn rejection_m_q256(index: usize) -> U512 {
-        let [a, b, c, d, e] = REJECTION_M_Q256_LIMBS_V1[index];
-        U512::from_words([a, b, c, d, e, 0, 0, 0])
+        let mut bytes = [0_u8; 64];
+        for (chunk, limb) in bytes
+            .chunks_exact_mut(8)
+            .zip(REJECTION_M_Q256_LIMBS_V1[index])
+        {
+            chunk.copy_from_slice(&limb.to_le_bytes());
+        }
+        U512::from_le_bytes(bytes)
     }
     fn joint_acceptance_exceeds(
         first: usize,

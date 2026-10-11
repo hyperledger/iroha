@@ -295,15 +295,7 @@ final class IrohaPeerNfcV1AdversarialTests: XCTestCase {
         byte: UInt8,
         count: Int
     ) throws -> IrohaPeerWireMessageV1 {
-        try IrohaPeerWireMessageV1(
-            profile: .kagemushaWalletV1,
-            kind: kind,
-            schemaVersion: 1,
-            canonicalPayload: irohaPeerWalletStructuralEnvelopeV1(
-                kind: kind,
-                payload: Data(repeating: byte, count: count)
-            )
-        )
+        try irohaPeerWalletExchangeMessageV1(kind: kind, payload: Data(repeating: byte, count: count))
     }
 
     private func assertInvalidAPDU(

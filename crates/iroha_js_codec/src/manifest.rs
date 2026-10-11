@@ -7,7 +7,7 @@ use iroha_data_model::smart_contract::{
         EntrypointValueTypeNodeV1, EntrypointValueTypeV1, MAX_ENTRYPOINT_RETURN_WORDS,
         is_canonical_kotodama_identifier,
     },
-    manifest::{ContractErrorTypeDescriptor, ContractManifest},
+    manifest::{ContractErrorTypeDescriptor, ContractManifest, validate_contract_permission_table},
 };
 
 use crate::{CodecError, CodecErrorKind, CodecResult};
@@ -18,6 +18,11 @@ fn invalid(reason: impl Into<String>) -> CodecError {
 
 /// Check the schema semantics that canonical Norito serialization alone cannot establish.
 pub fn validate_manifest_schemas(manifest: &ContractManifest) -> CodecResult<()> {
+    if !validate_contract_permission_table(&manifest.permissions) {
+        return Err(invalid(
+            "manifest.permissions must contain canonical permission names in sorted unique order",
+        ));
+    }
     if manifest
         .seiyaku_name
         .as_deref()
@@ -64,6 +69,14 @@ pub fn validate_manifest_schemas(manifest: &ContractManifest) -> CodecResult<()>
         .enumerate()
     {
         let context = format!("manifest.entrypoints[{index}]");
+        if !entrypoint
+            .authorization
+            .is_valid_for(entrypoint.kind, &manifest.permissions)
+        {
+            return Err(invalid(format!(
+                "{context}.authorization must reference a declared permission or allow anyone; lifecycle hooks require RuntimeLifecycle"
+            )));
+        }
         match (
             entrypoint.params.as_slice(),
             entrypoint.argument_schema.as_ref(),
@@ -280,6 +293,51 @@ mod tests {
         manifest
     }
 
+    #[test]
+    fn declared_permissions_roundtrip_and_invalid_authority_is_rejected_at_every_boundary() {
+        use iroha_data_model::smart_contract::manifest::{
+            ContractPermissionDescriptorV1, ContractPermissionScopeV1, EntryPointKind,
+            EntrypointAuthorizationV1,
+        };
+
+        let mut manifest = fixture_manifest(None);
+        manifest.permissions = vec![
+            ContractPermissionDescriptorV1 {
+                name: "Admin".parse().unwrap(),
+                scope: ContractPermissionScopeV1::Instance,
+            },
+            ContractPermissionDescriptorV1 {
+                name: "Treasury".parse().unwrap(),
+                scope: ContractPermissionScopeV1::Chain {
+                    permission_name: "CanManageTreasury".parse().unwrap(),
+                },
+            },
+        ];
+        let entrypoint = &mut manifest.entrypoints.as_mut().unwrap()[0];
+        entrypoint.kind = EntryPointKind::Kotoage;
+        entrypoint.authorization = EntrypointAuthorizationV1::Permission("Admin".parse().unwrap());
+        assert_roundtrip(&manifest);
+        for mutation in 0..6 {
+            let mut invalid = manifest.clone();
+            match mutation {
+                0 => invalid.permissions.clear(),
+                1 => invalid.permissions.reverse(),
+                2 => invalid.permissions.push(invalid.permissions[0].clone()),
+                3 => invalid.permissions[0].name = "anyone".parse().unwrap(),
+                4 => {
+                    invalid.entrypoints.as_mut().unwrap()[0].authorization =
+                        EntrypointAuthorizationV1::Permission("Admn".parse().unwrap())
+                }
+                5 => {
+                    invalid.entrypoints.as_mut().unwrap()[0].authorization =
+                        EntrypointAuthorizationV1::RuntimeLifecycle
+                }
+                _ => unreachable!(),
+            }
+            assert_rejected_everywhere(&invalid);
+        }
+    }
+
     fn query_view() -> EntrypointValueTypeV1 {
         json::from_value(norito::json!({ "nodes": [
             { "kind": "Struct", "value": { "name": "AccountView", "fields": ["id", "metadata"] } },
@@ -412,7 +470,9 @@ mod tests {
             .return_schema
             .as_mut()
             .unwrap()
-            .nodes[1] = Node::StateCursor(EntrypointValueKindV1::Json);
+            .nodes[1] = Node::StateCursor(EntrypointValueTypeV1 {
+            nodes: vec![Node::Leaf(EntrypointValueKindV1::Json)],
+        });
         assert_rejected_everywhere(&cursor);
         let mut wrong_name = fixture_manifest(None);
         wrong_name.entrypoints.as_mut().unwrap()[0].return_type = Some("bool".to_owned());

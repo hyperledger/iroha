@@ -24,6 +24,7 @@ isi! {
 isi! {
     /// Add a participant to an active Kaigi.
     #[norito_schema(name = "iroha_data_model::isi::kaigi::JoinKaigi")]
+    #[derive(derive_more::Constructor)]
     pub struct JoinKaigi {
         /// Identifier of the call to join.
         pub call_id: KaigiId,

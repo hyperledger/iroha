@@ -516,7 +516,6 @@ fn insert_validator_record_for_key(
             activation_height,
             election_exit_height: None,
             deactivation_height: None,
-            last_reward_epoch: None,
         },
     );
 }

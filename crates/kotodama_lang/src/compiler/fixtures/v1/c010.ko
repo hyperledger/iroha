@@ -1,6 +1,6 @@
 
-seiyaku NegTest {
-  kotoage fn neg(int x) -> int authorize("Entry") {
+seiyaku NegTest { permission Entry;
+  kotoage fn neg(int x) authorize(Entry) -> int {
     return -x;
   }
 }

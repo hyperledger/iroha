@@ -12,10 +12,11 @@ internal static class ToriiContractSourceBundle
         bool requireRootName = true)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Artifacts);
         ArgumentNullException.ThrowIfNull(request.Sources);
         ArgumentNullException.ThrowIfNull(request.Imports);
         ArgumentNullException.ThrowIfNull(request.Packages);
-        var hasBundle = request.Sources.Count != 0 || request.Imports.Count != 0 || request.Packages.Count != 0;
+        var hasBundle = request.Artifacts.Count != 0 || request.Sources.Count != 0 || request.Imports.Count != 0 || request.Packages.Count != 0;
         if (requireRootName && hasBundle && request.SourceName is null)
             throw new ArgumentException("SourceName is required with a source bundle.", nameof(request));
         if (request.Packages.Count > 512)
@@ -46,6 +47,27 @@ internal static class ToriiContractSourceBundle
             return normalized;
         }
 
+        IReadOnlyList<ToriiContractSourceArtifact> Artifacts(IReadOnlyList<ToriiContractSourceArtifact> artifacts, HashSet<string> names)
+        {
+            ArgumentNullException.ThrowIfNull(artifacts);
+            if (artifacts.Count > 512 - count) throw new ArgumentException("Source set exceeds 512 files.", nameof(request));
+            var normalized = new List<ToriiContractSourceArtifact>(artifacts.Count);
+            foreach (var artifact in artifacts)
+            {
+                ArgumentNullException.ThrowIfNull(artifact);
+                var name = NormalizePath(artifact.SourceName);
+                if (!name.EndsWith(".to", StringComparison.Ordinal)) throw new ArgumentException("Compiled interface requires a .to path.", nameof(request));
+                if (!names.Add(name)) throw new ArgumentException("Duplicate source or artifact path in an owner.", nameof(request));
+                var payload = artifact.Artifact;
+                if (payload.Count == 0) throw new ArgumentException("Compiled interface bytes must not be empty.", nameof(request));
+                bytes += payload.Count;
+                if (bytes > 16 * 1024 * 1024) throw new ArgumentException("Source set exceeds 16 MiB.", nameof(request));
+                count++;
+                normalized.Add(artifact with { SourceName = name });
+            }
+            return normalized;
+        }
+
         var identities = new HashSet<string>(StringComparer.Ordinal);
         foreach (var package in request.Packages)
         {
@@ -70,6 +92,7 @@ internal static class ToriiContractSourceBundle
         }
 
         var sources = Files(request.Sources, rootNames);
+        var artifacts = Artifacts(request.Artifacts, rootNames);
         var imports = Imports(request.Imports);
         var packages = new List<ToriiContractSourcePackage>(request.Packages.Count);
         foreach (var package in request.Packages)
@@ -77,6 +100,7 @@ internal static class ToriiContractSourceBundle
             var names = new HashSet<string>(StringComparer.Ordinal);
             var modules = Files(package.Modules, names);
             var companions = Files(package.Sources, names);
+            var interfaces = Artifacts(package.Artifacts, names);
             ArgumentNullException.ThrowIfNull(package.Exports);
             var exports = new HashSet<string>(StringComparer.Ordinal);
             foreach (var export in package.Exports)
@@ -84,9 +108,9 @@ internal static class ToriiContractSourceBundle
                 RequireExactToken(export, "package export");
                 if (!exports.Add(export)) throw new ArgumentException("Duplicate package export.", nameof(request));
             }
-            packages.Add(package with { Modules = modules, Sources = companions, Imports = Imports(package.Imports) });
+            packages.Add(package with { Modules = modules, Sources = companions, Artifacts = interfaces, Imports = Imports(package.Imports) });
         }
-        return request with { SourceName = rootName, Sources = sources, Imports = imports, Packages = packages };
+        return request with { SourceName = rootName, Sources = sources, Artifacts = artifacts, Imports = imports, Packages = packages };
     }
 
     private static int SourceByteCount(string value)

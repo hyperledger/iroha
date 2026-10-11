@@ -564,7 +564,7 @@ fn create_election_rejects_generic_stark_vote_role_labels() {
         .edit_zk_for_testing(|zk| zk.stark.enabled = true)
         .expect("fixture ZK settings install");
     state
-        .edit_zk_for_testing(|zk| zk.halo2.enabled = false)
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = false)
         .expect("fixture ZK settings install");
     state
         .edit_zk_for_testing(|zk| zk.verify_timeout = std::time::Duration::ZERO)
@@ -689,7 +689,7 @@ fn create_election_rejects_stark_vk_with_wrong_vote_circuit_role() {
         .edit_zk_for_testing(|zk| zk.stark.enabled = true)
         .expect("fixture ZK settings install");
     state
-        .edit_zk_for_testing(|zk| zk.halo2.enabled = false)
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = false)
         .expect("fixture ZK settings install");
     state
         .edit_zk_for_testing(|zk| zk.verify_timeout = std::time::Duration::ZERO)
@@ -805,7 +805,7 @@ fn create_election_rejects_generic_stark_ballot_before_tally_resolution() {
         .edit_zk_for_testing(|zk| zk.stark.enabled = true)
         .expect("fixture ZK settings install");
     state
-        .edit_zk_for_testing(|zk| zk.halo2.enabled = false)
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = false)
         .expect("fixture ZK settings install");
     state
         .edit_zk_for_testing(|zk| zk.verify_timeout = std::time::Duration::ZERO)
@@ -882,8 +882,7 @@ fn create_election_rejects_generic_stark_ballot_before_tally_resolution() {
     );
 }
 #[test]
-#[cfg(any(feature = "zk-halo2", feature = "zk-halo2-ipa"))]
-fn governance_rejects_development_halo2_and_generic_stark_ballot_roles() {
+fn governance_rejects_development_native_and_generic_stark_ballot_roles() {
     use core::num::NonZeroU64;
     use iroha_core::{
         kura::Kura,
@@ -894,7 +893,7 @@ fn governance_rejects_development_halo2_and_generic_stark_ballot_roles() {
             GovernanceLocksForReferendum, State, World, WorldReadOnly,
         },
     };
-    use iroha_core_zk::test_utils::halo2_fixture_envelope;
+    use iroha_core_zk::test_utils::native_confidential_fixture_envelope;
     use iroha_data_model::{
         Registrable,
         account::Account,
@@ -929,7 +928,7 @@ fn governance_rejects_development_halo2_and_generic_stark_ballot_roles() {
         .edit_zk_for_testing(|zk| zk.stark.enabled = true)
         .expect("fixture ZK settings install");
     state
-        .edit_zk_for_testing(|zk| zk.halo2.enabled = true)
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
         .expect("fixture ZK settings install");
     state
         .edit_zk_for_testing(|zk| zk.verify_timeout = std::time::Duration::ZERO)
@@ -947,15 +946,15 @@ fn governance_rejects_development_halo2_and_generic_stark_ballot_roles() {
     Grant::account_permission(perm_parliament, ALICE_ID.clone())
         .execute(&ALICE_ID, &mut stx)
         .expect("grant CanManageParliament");
-    let halo2_election_id = "mixed-backend-halo2".to_string();
+    let native_election_id = "mixed-backend-native".to_string();
     let stark_election_id = "mixed-backend-stark".to_string();
-    let perm_halo2_ballot: Permission = CanSubmitGovernanceBallot {
-        referendum_id: halo2_election_id.clone(),
+    let perm_native_ballot: Permission = CanSubmitGovernanceBallot {
+        referendum_id: native_election_id.clone(),
     }
     .into();
-    Grant::account_permission(perm_halo2_ballot, ALICE_ID.clone())
+    Grant::account_permission(perm_native_ballot, ALICE_ID.clone())
         .execute(&ALICE_ID, &mut stx)
-        .expect("grant halo2 ballot permission");
+        .expect("grant native ballot permission");
     let perm_stark_ballot: Permission = CanSubmitGovernanceBallot {
         referendum_id: stark_election_id.clone(),
     }
@@ -963,65 +962,63 @@ fn governance_rejects_development_halo2_and_generic_stark_ballot_roles() {
     Grant::account_permission(perm_stark_ballot, ALICE_ID.clone())
         .execute(&ALICE_ID, &mut stx)
         .expect("grant stark ballot permission");
-    // Construct a real tiny-add development proof, never a production ballot.
-    let halo2_backend = "halo2/ipa";
-    let halo2_circuit_id = "halo2/ipa:tiny-add2inst-public";
-    let halo2_vk_id = VerifyingKeyId::new(halo2_backend, "mixed_halo2_ballot");
-    let halo2_fixture = halo2_fixture_envelope(halo2_circuit_id, [0u8; 32]);
-    let halo2_vk_box = halo2_fixture
-        .vk_box(halo2_backend)
-        .expect("halo2 fixture must include vk bytes");
-    let halo2_vk_hash = halo2_fixture
-        .vk_hash(halo2_backend)
-        .expect("halo2 fixture must include vk hash");
-    let mut halo2_vk_record = VerifyingKeyRecord::new(
+    // A genuine native transfer proof cannot be relabelled as an unadmitted ballot relation.
+    let native_backend = "pipa-r/pasta";
+    let native_circuit_id = "pipa-r/pasta/vote-bool-commit-merkle8-v1";
+    let native_vk_id = VerifyingKeyId::new(native_backend, "mixed_native_ballot");
+    let native_fixture = native_confidential_fixture_envelope();
+    let native_vk_box = native_fixture
+        .vk_box(native_backend)
+        .expect("native fixture must include vk bytes");
+    let native_vk_hash = native_fixture
+        .vk_hash(native_backend)
+        .expect("native fixture must include vk hash");
+    let mut native_vk_record = VerifyingKeyRecord::new(
         1,
-        halo2_circuit_id,
-        BackendTag::Halo2IpaPasta,
-        "pallas",
-        halo2_fixture.schema_hash,
-        halo2_vk_hash,
+        native_circuit_id,
+        BackendTag::NativePipaRPasta,
+        "vesta",
+        native_fixture.schema_hash,
+        native_vk_hash,
     );
-    halo2_vk_record.status = ConfidentialStatus::Active;
-    halo2_vk_record.gas_schedule_id = Some("sched_halo2_ballot".to_string());
-    halo2_vk_record.vk_len =
-        u32::try_from(halo2_vk_box.bytes.len()).expect("fixture VK length fits");
-    halo2_vk_record.key = Some(halo2_vk_box);
+    native_vk_record.status = ConfidentialStatus::Active;
+    native_vk_record.gas_schedule_id = Some("sched_native_ballot".to_string());
+    native_vk_record.vk_len =
+        u32::try_from(native_vk_box.bytes.len()).expect("fixture VK length fits");
+    native_vk_record.key = Some(native_vk_box);
     let registration_error = verifying_keys::RegisterVerifyingKey {
-        id: halo2_vk_id.clone(),
-        record: halo2_vk_record.clone(),
+        id: native_vk_id.clone(),
+        record: native_vk_record.clone(),
     }
     .execute(&ALICE_ID, &mut stx)
-    .expect_err("development Halo2 relation must stay outside the production registry");
+    .expect_err("development native PIPA-R relation must stay outside the production registry");
     assert_eq!(
         registration_error,
         InstructionExecutionError::InvalidParameter(InvalidParameterError::SmartContract(
-            "Halo2 OpenVerify circuit_id is not in the production circuit registry".into(),
+            "native PIPA-R circuit_id is not in the compiled circuit registry".into(),
         )),
     );
-    assert!(stx.world.verifying_keys().get(&halo2_vk_id).is_none());
-    assert!(stx.world.elections().get(&halo2_election_id).is_none());
+    assert!(stx.world.verifying_keys().get(&native_vk_id).is_none());
+    assert!(stx.world.elections().get(&native_election_id).is_none());
     // This is explicitly corrupt retained registry state, not an admitted key.
     // The consumer must reject its development role independently of registration.
     stx.world
         .verifying_keys_mut_for_testing()
-        .insert(halo2_vk_id.clone(), halo2_vk_record);
-    let mut halo2_commit = [0u8; 32];
-    halo2_commit.copy_from_slice(&halo2_fixture.public_inputs[..32]);
-    let mut halo2_root = [0u8; 32];
-    halo2_root.copy_from_slice(&halo2_fixture.public_inputs[32..64]);
-    let mut halo2_envelope: OpenVerifyEnvelope =
-        norito::decode_from_bytes(&halo2_fixture.proof_bytes)
-            .expect("decode genuine development proof");
-    halo2_envelope.vk_hash = halo2_vk_hash;
-    let halo2_ballot_attachment = ProofAttachment::new_ref(
-        halo2_backend.to_string(),
+        .insert(native_vk_id.clone(), native_vk_record);
+    let native_commit = [0x31; 32];
+    let native_root = [0x32; 32];
+    let mut native_envelope: OpenVerifyEnvelope =
+        norito::decode_from_bytes(&native_fixture.proof_bytes)
+            .expect("decode genuine native transfer proof");
+    native_envelope.vk_hash = native_vk_hash;
+    let native_ballot_attachment = ProofAttachment::new_ref(
+        native_backend.to_string(),
         ProofBox::new(
-            halo2_backend.to_string(),
-            norito::encode_canonical(&halo2_envelope)
+            native_backend.to_string(),
+            norito::encode_canonical(&native_envelope)
                 .expect("bind development envelope to its actual VK"),
         ),
-        halo2_vk_id.clone(),
+        native_vk_id.clone(),
     );
     // Generic STARK key registration is allowed; its semantic ballot role is not.
     let stark_backend = "stark/fri/poseidon-x7-goldilocks-6x64-v1";
@@ -1102,13 +1099,13 @@ fn governance_rejects_development_halo2_and_generic_stark_ballot_roles() {
         attachment,
     ) in [
         (
-            halo2_election_id,
-            halo2_commit,
-            halo2_root,
-            halo2_vk_id.clone(),
-            halo2_vk_id,
-            halo2_vk_hash,
-            halo2_ballot_attachment,
+            native_election_id,
+            native_commit,
+            native_root,
+            native_vk_id.clone(),
+            native_vk_id,
+            native_vk_hash,
+            native_ballot_attachment,
         ),
         (
             stark_election_id,

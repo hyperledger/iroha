@@ -62,9 +62,9 @@ fn encoded_order_inversion(quantity: bool) -> (String, String) {
 fn state_map_set_get_roundtrip() {
     // Declare state map and perform set/get within a single run.
     let src = r#"
-        seiyaku C {
+        seiyaku C { permission WriteState;
             state StateMap<int, int> M;
-            kotoage fn main() -> int authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) -> int {
                 M[1] = 7;
                 let x = M.get(1).unwrap_or(0);
                 return x;
@@ -84,10 +84,10 @@ fn state_map_set_get_roundtrip() {
 fn state_map_with_struct_value_roundtrip() {
     // Store and load a struct through a durable state map.
     let src = r#"
-        seiyaku C {
+        seiyaku C { permission WriteState;
             struct S { int value }
             state StateMap<int, S> values;
-            kotoage fn main() -> int authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) -> int {
                 values[3] = S { value: 9 };
                 let y = values.get(3).unwrap_or(S { value: 0 }).value;
                 return y;
@@ -110,9 +110,9 @@ fn decimal_and_quantity_keys_collapse_equivalent_literal_spellings() {
     for numeric_type in ["decimal", "quantity"] {
         let source = format!(
             r#"
-            seiyaku CanonicalKeys {{
+            seiyaku CanonicalKeys {{ permission WriteState;
                 state StateMap<{numeric_type}, int> Values;
-                kotoage fn main() -> int authorize("WriteState") {{
+                kotoage fn main() authorize(WriteState) -> int {{
                     Values[7.0] = 11;
                     Values[7.00] = 22;
                     var int count = 0;
@@ -140,9 +140,9 @@ fn decimal_and_quantity_iteration_follow_encoded_key_bytes_not_numeric_magnitude
         let (numerically_lower, numerically_higher) = encoded_order_inversion(quantity);
         let source = format!(
             r#"
-            seiyaku EncodedOrder {{
+            seiyaku EncodedOrder {{ permission WriteState;
                 state StateMap<{numeric_type}, int> Values;
-                kotoage fn main() -> int authorize("WriteState") {{
+                kotoage fn main() authorize(WriteState) -> int {{
                     Values[{numerically_lower}] = 11;
                     Values[{numerically_higher}] = 22;
                     var int first = 0;

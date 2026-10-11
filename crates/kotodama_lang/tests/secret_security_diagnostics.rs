@@ -98,10 +98,10 @@ fn compiler_session_rejects_every_public_secret_flow_with_exact_diagnostics() {
 }
 #[test]
 fn approved_all_secret_commitment_checks_and_builds() {
-    let source = r#"seiyaku Privacy {
+    let source = r#"seiyaku Privacy { permission UsePrivacy;
     hajimari() {}
     kaizen() {}
-    kotoage fn commitment() -> int authorize("UsePrivacy") {
+    kotoage fn commitment() authorize(UsePrivacy) -> int {
         let Secret<int> value = crypto::private_input(0);
         let Secret<int> blinding = crypto::private_input(1);
         return crypto::valcom(left: value, right: blinding);
@@ -137,10 +137,16 @@ fn human_json_and_sarif_preserve_the_same_secret_security_record() {
     assert!(human.contains(&format!("error[{}] semantic", diagnostic.code)));
     assert!(human.contains(&diagnostic.message));
     assert!(human.contains(SOURCE_NAME));
-    let range = diagnostic
+    let span = diagnostic
         .primary_span
         .as_ref()
-        .and_then(|span| span.byte_range)
-        .expect("representative diagnostic has bytes");
-    assert!(human.contains(&format!("[bytes {}..{}]", range.start, range.end)));
+        .expect("representative diagnostic has a location");
+    assert!(
+        span.byte_range.is_some(),
+        "structured records keep exact bytes"
+    );
+    assert!(human.contains(&format!(
+        "{SOURCE_NAME}:{}:{}",
+        span.start.line, span.start.column
+    )));
 }

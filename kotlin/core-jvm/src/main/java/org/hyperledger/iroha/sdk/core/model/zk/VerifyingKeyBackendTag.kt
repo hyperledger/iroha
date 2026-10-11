@@ -9,7 +9,7 @@ import java.util.Collections
  * never become Norito enum variants.
  */
 enum class VerifyingKeyBackendTag(@JvmField val noritoValue: String) {
-    HALO2_IPA_PASTA("halo2-ipa-pasta"),
+    NATIVE_PIPA_R_PASTA("native-pipa-r-pasta"),
     STARK("stark");
 
     companion object {
@@ -17,24 +17,28 @@ enum class VerifyingKeyBackendTag(@JvmField val noritoValue: String) {
         @JvmField
         val VERIFIER_BACKEND_REGISTRY_LABELS_V1: Set<String> = Collections.unmodifiableSet(
             linkedSetOf(
-                "halo2/ipa",
-                "halo2/pasta/kaigi-authorization-v1",
-                "halo2/pasta/kaigi-usage-v1",
-                "halo2/pasta/confidential-transfer-2x2-merkle16-axiom-poseidon-v3",
-                "halo2/pasta/confidential-unshield-full-merkle16-axiom-poseidon-v3",
-                "halo2/pasta/confidential-unshield-change-merkle16-axiom-poseidon-v4",
+                "pipa-r/pasta",
+                "pipa-r/pasta/kaigi-authorization-v1",
+                "pipa-r/pasta/kaigi-usage-v1",
+                "pipa-r/pasta/confidential-transfer-v1",
+                "pipa-r/pasta/confidential-unshield-full-v1",
+                "pipa-r/pasta/confidential-unshield-change-v1",
                 "stark/fri/poseidon-x7-goldilocks-6x64-v1",
             ),
+        )
+
+        private val productionNativePipaRPastaBackends = setOf(
+            "pipa-r/pasta",
+            "pipa-r/pasta/kaigi-authorization-v1",
+            "pipa-r/pasta/kaigi-usage-v1",
+            "pipa-r/pasta/confidential-transfer-v1",
+            "pipa-r/pasta/confidential-unshield-full-v1",
+            "pipa-r/pasta/confidential-unshield-change-v1",
         )
 
         private val starkFriProductionBackends = setOf(
             "stark/fri/poseidon-x7-goldilocks-6x64-v1",
         )
-
-        private val productionNativeHalo2PastaBackends =
-            VERIFIER_BACKEND_REGISTRY_LABELS_V1.filterTo(linkedSetOf()) {
-                it.startsWith("halo2/pasta/")
-            }
 
         private val productionClaimBackendFragments = listOf(
             "productionready", "productionhardened", "productionenabled",
@@ -63,16 +67,16 @@ enum class VerifyingKeyBackendTag(@JvmField val noritoValue: String) {
         /** Parses one exact canonical Norito engine label. */
         @JvmStatic
         fun parse(value: String): VerifyingKeyBackendTag = when (value) {
-            HALO2_IPA_PASTA.noritoValue -> HALO2_IPA_PASTA
             STARK.noritoValue -> STARK
+            NATIVE_PIPA_R_PASTA.noritoValue -> NATIVE_PIPA_R_PASTA
             else -> throw IllegalArgumentException("unsupported backend tag: $value")
         }
 
         /** Resolves one exact registry label to its low-level proof engine. */
         @JvmStatic
         fun verifierBackendRegistryTagV1(label: String?): VerifyingKeyBackendTag? = when (label) {
-            in productionNativeHalo2PastaBackends, "halo2/ipa" -> HALO2_IPA_PASTA
             in starkFriProductionBackends -> STARK
+            in productionNativePipaRPastaBackends -> NATIVE_PIPA_R_PASTA
             else -> null
         }
 
@@ -121,9 +125,8 @@ enum class VerifyingKeyBackendTag(@JvmField val noritoValue: String) {
             ) {
                 return false
             }
-            return backend == "halo2/ipa" ||
-                starkFriProductionBackends.contains(backend) ||
-                productionNativeHalo2PastaBackends.contains(backend)
+            return starkFriProductionBackends.contains(backend) ||
+                productionNativePipaRPastaBackends.contains(backend)
         }
 
         /** Requires an exact production verifier label and returns it unchanged. */
@@ -142,8 +145,8 @@ enum class VerifyingKeyBackendTag(@JvmField val noritoValue: String) {
         }
 
         private fun parseOrNull(value: String): VerifyingKeyBackendTag? = when (value) {
-            HALO2_IPA_PASTA.noritoValue -> HALO2_IPA_PASTA
             STARK.noritoValue -> STARK
+            NATIVE_PIPA_R_PASTA.noritoValue -> NATIVE_PIPA_R_PASTA
             else -> null
         }
 

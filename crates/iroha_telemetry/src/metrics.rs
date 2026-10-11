@@ -966,7 +966,7 @@ mod serde_tests {
                 version: "2.0.0-rc.test".to_owned(),
                 git_commit_sha: "deadbeef".to_owned(),
                 dpn_validator_release_commit: "feedface".to_owned(),
-                cargo_features: "telemetry,zk-halo2".to_owned(),
+                cargo_features: "telemetry,zk-ipa-native".to_owned(),
                 target_triple: "aarch64-apple-darwin".to_owned(),
                 wire_schema_hash: "ab".repeat(32),
             },
@@ -991,7 +991,7 @@ mod serde_tests {
             crypto: CryptoStatus {
                 sm_helpers_available: true,
                 sm_openssl_preview_enabled: false,
-                halo2: Halo2Status::default(),
+                trace: DiagnosticTraceStatus::default(),
             },
             stack: StackStatus::default(),
             sumeragi: Some(SumeragiConsensusStatus::default()),
@@ -1413,10 +1413,10 @@ impl Metrics {
             crypto: CryptoStatus {
                 sm_helpers_available: cfg!(feature = "sm"),
                 sm_openssl_preview_enabled: value.sm_openssl_preview.get() != 0,
-                halo2: value
-                    .halo2_status
+                trace: value
+                    .trace_status
                     .read()
-                    .expect("halo2 status lock poisoned")
+                    .expect("trace status lock poisoned")
                     .clone(),
             },
             stack: stack_settings_snapshot().into(),
@@ -1613,22 +1613,14 @@ fields {
     pub sm_syscall_failures_total: int_counter_vec(&["kind", "mode", "reason"]);
     /// Toggle state for the OpenSSL-backed SM preview helpers (0/1).
     pub sm_openssl_preview: gauge();
-    /// Toggle state for Halo2 verifier availability (0/1).
-    pub zk_halo2_enabled: gauge();
-    /// Active Halo2 curve identifier (as a numeric label).
-    pub zk_halo2_curve_id: gauge();
-    /// Active Halo2 backend identifier (as a numeric label).
-    pub zk_halo2_backend_id: gauge();
-    /// Maximum supported Halo2 circuit exponent (k).
-    pub zk_halo2_max_k: gauge();
-    /// Halo2 verifier soft budget in milliseconds.
-    pub zk_halo2_verifier_budget_ms: gauge();
-    /// Maximum proofs allowed in a Halo2 batch verification.
-    pub zk_halo2_verifier_max_batch: gauge();
-    /// Number of worker threads serving ZK lane verification.
-    pub zk_halo2_verifier_worker_threads: gauge();
-    /// Effective ZK lane queue capacity.
-    pub zk_halo2_verifier_queue_cap: gauge();
+    /// Toggle state for local diagnostic trace checking (0/1).
+    pub zk_trace_enabled: gauge();
+    /// Maximum diagnostic tasks dispatched per batch.
+    pub zk_trace_max_batch: gauge();
+    /// Effective diagnostic worker count.
+    pub zk_trace_worker_threads: gauge();
+    /// Effective diagnostic ingress queue capacity.
+    pub zk_trace_queue_cap: gauge();
     /// Count of ZK lane admissions that required a bounded wait.
     pub zk_lane_enqueue_wait_total: int_counter();
     /// Count of ZK lane admissions that timed out under saturation.
@@ -1645,8 +1637,6 @@ fields {
     pub zk_lane_pending_depth: gauge();
     /// Current number of tasks buffered in the ZK lane retry ring.
     pub zk_lane_retry_ring_depth: gauge();
-    /// Events emitted when verifier cache hits/misses occur (labels: cache,event).
-    pub zk_verifier_cache_events_total: int_counter_vec(&["cache", "event"]);
     /// Base gas charged when verifying a confidential proof.
     pub confidential_gas_base_verify: gauge();
     /// Gas charged per public input exposed by a confidential proof.
@@ -2119,8 +2109,8 @@ fields {
     pub kaigi_relay_health_reports_by_domain_total: int_counter_vec(&["domain"]);
     /// Kaigi: current relay health state labelled by domain and relay.
     pub kaigi_relay_health_state: int_gauge_vec(&["domain", "relay"]);
-    /// Snapshot of Halo2 verifier configuration for status endpoints.
-    pub halo2_status: raw(Arc<RwLock<Halo2Status>>);
+    /// Snapshot of local diagnostic trace scheduling for status endpoints.
+    pub trace_status: raw(Arc<RwLock<DiagnosticTraceStatus>>);
     /// Sumeragi: frozen runtime mode tag; empty until the reducer owns a context.
     pub sumeragi_mode_tag: raw(Arc<RwLock<String>>);
     /// State commit: state_write_lock wait duration (ms) during block commit.
@@ -2391,8 +2381,6 @@ fields {
     pub nexus_public_lane_stake_bonded: float_gauge_vec(&["lane"]);
     /// Nexus public-lane pending-unbond amount per lane.
     pub nexus_public_lane_unbond_pending: float_gauge_vec(&["lane"]);
-    /// Nexus public-lane cumulative rewards recorded per lane.
-    pub nexus_public_lane_reward_total: float_gauge_vec(&["lane"]);
     /// Nexus public-lane slash event counter per lane.
     pub nexus_public_lane_slash_total: int_counter_vec(&["lane"]);
     /// Number of scheduler layers in the latest validated block
@@ -3277,12 +3265,10 @@ construct {
             let _ = sm_syscall_total.with_label_values(&[kind, mode]);
         }
     }
-    [sm_openssl_preview zk_halo2_enabled zk_halo2_curve_id zk_halo2_backend_id zk_halo2_max_k
-        zk_halo2_verifier_budget_ms zk_halo2_verifier_max_batch zk_halo2_verifier_worker_threads
-        zk_halo2_verifier_queue_cap zk_lane_enqueue_wait_total zk_lane_enqueue_timeout_total
+    [sm_openssl_preview zk_trace_enabled zk_trace_max_batch zk_trace_worker_threads zk_trace_queue_cap zk_lane_enqueue_wait_total zk_lane_enqueue_timeout_total
         zk_lane_drop_total zk_lane_retry_enqueued_total zk_lane_retry_replayed_total
         zk_lane_retry_exhausted_total zk_lane_pending_depth zk_lane_retry_ring_depth
-        zk_verifier_cache_events_total confidential_gas_base_verify
+        confidential_gas_base_verify
         confidential_gas_per_public_input confidential_gas_per_proof_byte
         confidential_gas_per_nullifier confidential_gas_per_commitment ivm_gas_schedule_hash_lo
         ivm_gas_schedule_hash_hi confidential_tree_commitments confidential_tree_depth
@@ -3676,7 +3662,7 @@ construct {
     {
         let sumeragi_mode_tag: Arc<RwLock<String>> =
             Arc::new(RwLock::new(String::new()));
-        let halo2_status: Arc<RwLock<Halo2Status>> = Arc::new(RwLock::new(Halo2Status::default()));
+        let trace_status: Arc<RwLock<DiagnosticTraceStatus>> = Arc::new(RwLock::new(DiagnosticTraceStatus::default()));
     }
     [ivm_cache_hits ivm_cache_misses
         ivm_cache_evictions ivm_cache_decoded_streams ivm_cache_decoded_ops_total
@@ -3701,7 +3687,7 @@ construct {
     [nexus_lane_block_height nexus_lane_finality_lag_slots nexus_lane_settlement_backlog_xor
         nexus_public_lane_validator_total nexus_public_lane_validator_activation_total
         nexus_public_lane_validator_reject_total nexus_public_lane_stake_bonded
-        nexus_public_lane_unbond_pending nexus_public_lane_reward_total
+        nexus_public_lane_unbond_pending
         nexus_public_lane_slash_total nexus_scheduler_lane_teu_capacity
         nexus_scheduler_lane_teu_slot_committed nexus_scheduler_lane_trigger_level
         nexus_scheduler_starvation_bound_slots nexus_scheduler_lane_teu_slot_breakdown
@@ -3933,12 +3919,10 @@ initialize (metrics) {
         uptime_since_genesis_ms domains accounts tx_amounts isi isi_times view_changes queue_size
         queue_queued queue_inflight kura_fsync_enabled kura_fsync_failures_total
         kura_fsync_latency_ms sm_syscall_total sm_syscall_failures_total sm_openssl_preview
-        zk_halo2_enabled zk_halo2_curve_id zk_halo2_backend_id zk_halo2_max_k
-        zk_halo2_verifier_budget_ms zk_halo2_verifier_max_batch zk_halo2_verifier_worker_threads
-        zk_halo2_verifier_queue_cap zk_lane_enqueue_wait_total zk_lane_enqueue_timeout_total
+        zk_trace_enabled zk_trace_max_batch zk_trace_worker_threads zk_trace_queue_cap zk_lane_enqueue_wait_total zk_lane_enqueue_timeout_total
         zk_lane_drop_total zk_lane_retry_enqueued_total zk_lane_retry_replayed_total
         zk_lane_retry_exhausted_total zk_lane_pending_depth zk_lane_retry_ring_depth
-        zk_verifier_cache_events_total confidential_gas_base_verify
+        confidential_gas_base_verify
         confidential_gas_per_public_input confidential_gas_per_proof_byte
         confidential_gas_per_nullifier confidential_gas_per_commitment ivm_gas_schedule_hash_lo
         ivm_gas_schedule_hash_hi ivm_stack_bytes ivm_stack_clamped ivm_stack_gas_multiplier
@@ -4030,7 +4014,7 @@ initialize (metrics) {
         p2p_queue_dropped_total p2p_handshake_ms_bucket p2p_handshake_ms_sum p2p_handshake_ms_count
         p2p_handshake_error_total p2p_frame_cap_violations_total runtime_upgrade_events_total
         runtime_upgrade_provenance_rejections_total runtime_abi_version
-        halo2_status sumeragi_mode_tag state_commit_write_lock_wait_ms state_commit_write_lock_hold_ms
+        trace_status sumeragi_mode_tag state_commit_write_lock_wait_ms state_commit_write_lock_hold_ms
         ivm_cache_hits ivm_cache_misses ivm_cache_evictions ivm_cache_decoded_streams
         ivm_cache_decoded_ops_total ivm_cache_decode_failures ivm_cache_decode_time_ns_total
         ivm_cache_memory_resident_bytes ivm_cache_memory_active_bytes
@@ -4050,7 +4034,7 @@ initialize (metrics) {
         nexus_lane_block_height nexus_lane_finality_lag_slots nexus_lane_settlement_backlog_xor
         nexus_public_lane_validator_total nexus_public_lane_validator_activation_total
         nexus_public_lane_validator_reject_total nexus_public_lane_stake_bonded
-        nexus_public_lane_unbond_pending nexus_public_lane_reward_total
+        nexus_public_lane_unbond_pending
         nexus_public_lane_slash_total nexus_scheduler_lane_teu_capacity
         nexus_scheduler_lane_teu_slot_committed nexus_scheduler_lane_trigger_level
         nexus_scheduler_starvation_bound_slots nexus_scheduler_lane_teu_slot_breakdown
@@ -4223,12 +4207,12 @@ epilogue {
 }
 const METRIC_CATALOG_V2: &str = include_str!("metrics/catalog_v2.tsv");
 const METRIC_CATALOG_V2_HEADER: &str = "# iroha-telemetry-metric-catalog-v2";
-const METRIC_CATALOG_V2_ROWS: usize = 662;
-const METRIC_CATALOG_V2_REGISTERED: usize = 629;
-const METRIC_CATALOG_V2_BYTES: usize = 90_041;
+const METRIC_CATALOG_V2_ROWS: usize = 656;
+const METRIC_CATALOG_V2_REGISTERED: usize = 623;
+const METRIC_CATALOG_V2_BYTES: usize = 89_244;
 #[cfg(test)]
 const METRIC_CATALOG_V2_BLAKE3: &str =
-    "0674ea0e841f745004f871396111a7076f6307582992487c1089f1f26bd933aa";
+    "cb8a2c06089ea22def6b728133db214199cf4adf07640b0bbbb2ff63d9d2e264";
 
 #[derive(Clone, Copy)]
 struct MetricSpec {
@@ -4509,6 +4493,36 @@ mod metric_catalog_tests {
             METRIC_CATALOG_V2_BLAKE3
         );
         let _ = Metrics::default();
+    }
+
+    #[test]
+    fn diagnostic_trace_gauges_are_registered_and_retired_halo2_settings_are_absent() {
+        let metrics = Metrics::default();
+        metrics.zk_trace_enabled.set(1);
+        metrics.zk_trace_max_batch.set(7);
+        metrics.zk_trace_worker_threads.set(2);
+        metrics.zk_trace_queue_cap.set(11);
+        let exported = metrics.try_to_string().expect("render diagnostic gauges");
+        for (name, value) in [
+            ("iroha_zk_trace_enabled", 1),
+            ("iroha_zk_trace_max_batch", 7),
+            ("iroha_zk_trace_worker_threads", 2),
+            ("iroha_zk_trace_queue_cap", 11),
+        ] {
+            let sample = format!("{name} {value}");
+            assert!(
+                exported.lines().any(|line| line == sample),
+                "missing registered diagnostic gauge `{sample}`"
+            );
+        }
+        assert!(
+            !exported.contains("iroha_zk_halo2_"),
+            "retired Halo2 configuration gauges must not be exported"
+        );
+        assert!(
+            !METRIC_CATALOG_V2.contains("zk_halo2_"),
+            "retired Halo2 configuration gauges must not remain in the catalog"
+        );
     }
 }
 

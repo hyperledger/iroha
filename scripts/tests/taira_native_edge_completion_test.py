@@ -30,6 +30,45 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
+def test_retained_private_file_accepts_inherited_group_and_pins_it(tmp_path, monkeypatch):
+    path = tmp_path.resolve() / "published.conf"
+    path.write_bytes(b"owner-private public include\n")
+    path.chmod(0o600)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        observed = MODULE.identity(os.fstat(fd))
+        monkeypatch.setattr(MODULE.os, "getegid", lambda: observed["gid"] + 1)
+        reference = dict(file=dict(path=str(path), identity=observed),
+            sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        assert MODULE.retained_public(dict(fd=fd, reference=reference)) == path.read_bytes()
+        changed = copy.deepcopy(reference)
+        changed["file"]["identity"]["gid"] += 1
+        with pytest.raises(RuntimeError, match="retained_identity_changed"):
+            MODULE.retained_public(dict(fd=fd, reference=changed))
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.parametrize("field,value", [("uid", "foreign"), ("mode", 0o640), ("links", 2)])
+def test_inherited_group_retains_private_file_custody_checks(tmp_path, field, value):
+    path = tmp_path.resolve() / "published.conf"
+    path.write_bytes(b"owner-private public include\n")
+    path.chmod(0o600)
+    observed = MODULE.identity(path.stat())
+    observed["gid"] = os.getegid() + 1
+    observed[field] = os.geteuid() + 1 if value == "foreign" else value
+    with pytest.raises(RuntimeError, match="unsafe_retained_owner"):
+        MODULE.validate_observed(dict(path=str(path), identity=observed))
+
+
+def test_retained_directory_still_requires_process_group(tmp_path):
+    path = tmp_path.resolve()
+    observed = MODULE.identity(path.stat())
+    observed.update(mode=0o700, gid=os.getegid() + 1)
+    with pytest.raises(RuntimeError, match="unsafe_retained_owner"):
+        MODULE.validate_observed(dict(path=str(path), identity=observed), directory=True)
+
+
 def _write_public(path, value):
     body = value if isinstance(value, bytes) else json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     path.write_bytes(body)

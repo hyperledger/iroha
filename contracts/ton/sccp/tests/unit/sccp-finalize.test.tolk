@@ -1,8 +1,10 @@
 // Taira→TON finalization (§5.1.3, §5.3.4 steps 1–7): direct and historical
-// proofs, deadline and cap edges, bucket dispatch and the non-redeploy rule,
-// duplicate and parallel finalizes, signature and proof negatives, and every
-// bounce path (consume, sccp_consumed, internal_transfer then unconsume).
+// proofs, deadline and cap edges, bucket dispatch and activation (the minter
+// never recreates a bucket), duplicate and parallel finalizes, signature and
+// proof negatives, and every bounce path (consume, sccp_consumed,
+// internal_transfer then unconsume).
 
+import "@acton/io"
 import "@acton/emulation/config"
 import "@acton/emulation/network"
 import "@acton/emulation/testing"
@@ -12,6 +14,7 @@ import "@contracts/sccp-addresses"
 import "@contracts/sccp-cells"
 import "@contracts/sccp-constants"
 import "@contracts/sccp-errors"
+import "@contracts/sccp-fees"
 import "@contracts/sccp-messages"
 import "@contracts/sccp-storage"
 import "@contracts/sccp-verify"
@@ -28,7 +31,8 @@ get fun `test finalize mints, emits and consumes the nonce`() {
     val d = deliverDefault(env, 0, amount, alice);
     val res = sendFinalize(env, env.deployer, d, finalizeValue(env, 0));
     expect(res).toHaveSuccessfulTx<SccpFinalize>({ to: env.minter.address });
-    expect(res).toHaveSuccessfulDeploy<SccpConsume>({ to: env.minter.getBucketAddress(0) });
+    expect(res).toHaveSuccessfulDeploy<SccpActivateBucket>({ to: env.minter.getBucketAddress(0) });
+    expect(res).toHaveSuccessfulTx<SccpConsume>({ to: env.minter.getBucketAddress(0) });
     expect(res).toHaveSuccessfulTx<SccpConsumed>({ from: env.minter.getBucketAddress(0), to: env
             .minter
             .address });
@@ -50,6 +54,7 @@ get fun `test finalize mints, emits and consumes the nonce`() {
     expect(state.deployedBuckets).toEqual(1);
     expect(isConsumedAt(env, 0)).toBeTrue();
     expect(isConsumedAt(env, 1)).toBeFalse();
+    expect(bucketOf(env, 0).isActivated()).toBeTrue();
     val wallet = walletOf(env, alice).getWalletData();
     expect(wallet.ownerAddress).toEqual(alice);
     expect(wallet.minterAddress).toEqual(env.minter.address);
@@ -175,8 +180,9 @@ get fun `test parallel duplicate finalizes reserve pending supply until the buck
     expect(second).toHaveFailedTx<SccpFinalize>({ to: env
             .minter
             .address, exitCode: SccpErrors.SupplyCapExceeded as int });
-    // deliver the first consume; the mint completes
+    // deliver the first activation and consume; the mint completes
     net.send(env.minter.address, forwardOut(first, 0));
+    net.send(env.minter.address, forwardOut(first, 1));
     val state = env.minter.getSccpState();
     expect(state.pendingSupply).toEqual(0);
     expect(state.totalSupply).toEqual(1000);
@@ -201,10 +207,11 @@ get fun `test two pending duplicates both reserve and only one mints`() {
         },
     });
     val first = testing.processSingleTraceStep(env.deployer, msg);
-    // the first entry deployed bucket 0, so the duplicate goes without StateInit
+    // the first entry activates bucket 0, so the duplicate only consumes
     val second = testing.processSingleTraceStep(env.deployer, msg);
     expect(env.minter.getSccpState().pendingSupply).toEqual(800);
     net.send(env.minter.address, forwardOut(first, 0));
+    net.send(env.minter.address, forwardOut(first, 1));
     net.send(env.minter.address, forwardOut(second, 0));
     val state = env.minter.getSccpState();
     expect(state.pendingSupply).toEqual(0);
@@ -325,8 +332,9 @@ get fun `test bucket boundaries and the four-ahead deploy rule`() {
     // bucket 5 = deployed (2) + 3: deploys buckets 2..=5 in one finalize
     val nonce = 5 * 512 + 17;
     val res = finalizeOk(env, nonce, 1, alice);
-    expect(res).toHaveSuccessfulDeploy<TopUpTons>({ to: env.minter.getBucketAddress(2) });
-    expect(res).toHaveSuccessfulDeploy<TopUpTons>({ to: env.minter.getBucketAddress(4) });
+    expect(res).toHaveSuccessfulDeploy<SccpActivateBucket>({ to: env.minter.getBucketAddress(2) });
+    expect(res).toHaveSuccessfulDeploy<SccpActivateBucket>({ to: env.minter.getBucketAddress(5) });
+    expect(bucketOf(env, 4).isActivated()).toBeTrue();
     expect(env.minter.getSccpState().deployedBuckets).toEqual(6);
     // bucket 10 = deployed (6) + 4 is too far ahead
     val far = deliverDefault(env, 10 * 512, 1, alice);
@@ -345,12 +353,14 @@ get fun `test bucket boundaries and the four-ahead deploy rule`() {
             { value: env.minter.deployBucketsRequiredValue(2), bounce: true },
         );
     expect(deploy).toHaveSuccessfulTx<SccpDeployBuckets>({ to: env.minter.address });
-    expect(deploy).toHaveSuccessfulDeploy<TopUpTons>({ to: env.minter.getBucketAddress(7) });
+    expect(deploy).toHaveSuccessfulDeploy<SccpActivateBucket>({ to: env
+            .minter
+            .getBucketAddress(7) });
     expect(env.minter.getSccpState().deployedBuckets).toEqual(8);
     finalizeOk(env, 10 * 512, 1, alice);
 }
 
-get fun `test a deployed bucket is never redeployed`() {
+get fun `test the minter never recreates a deleted bucket`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     finalizeOk(env, 0, 10, alice);
@@ -390,7 +400,8 @@ get fun `test bounced sccp_consume releases pending supply`() {
         }),
     );
     expect(env.minter.getSccpState().pendingSupply).toEqual(300);
-    val consume = step.outMessages.at<SccpConsume>(0).loadBody();
+    // out message 0 activates bucket 0, out message 1 is the consume
+    val consume = step.outMessages.at<SccpConsume>(1).loadBody();
     expect(consume.nonce).toEqual(0);
     expect(consume.amount).toEqual(300);
     // a bounce from anyone but the bucket is refused
@@ -426,10 +437,10 @@ get fun `test bounced internal_transfer unconsumes and the message finalizes aga
             },
         }),
     );
-    // finalize, consume (bucket deploy) and sccp_consumed at the minter
-    val steps = cursor.executeN(3);
+    // finalize, bucket activation, consume and sccp_consumed at the minter
+    val steps = cursor.executeN(4);
     cursor.close();
-    val consumedStep = steps.at(2);
+    val consumedStep = steps.at(3);
     // out message 0 is the sccp_finalized external event
     val transfer = consumedStep.outMessages.at<InternalTransferStep>(1).loadBody();
     expect(transfer.queryId).toEqual(0);
@@ -442,6 +453,14 @@ get fun `test bounced internal_transfer unconsumes and the message finalizes aga
         bouncedMessage(transfer, env.minter.address, grams("0.05")),
     );
     expect(bounce).toHaveSuccessfulTx<SccpUnconsume>({ to: env.minter.getBucketAddress(0) });
+    // the handler's gas bound is part of its balance check (§5.3.4 step 7)
+    val handlerGas = bounce.getUsedGas({ to: env.minter.address, bounced: true });
+    println(
+        "gas minter bounced internal_transfer: {} (limit {})",
+        handlerGas,
+        SCCP_GAS_MINTER_BOUNCE,
+    );
+    expect(handlerGas <= SCCP_GAS_MINTER_BOUNCE).toBeTrue();
     expect(env.minter.getSccpState().totalSupply).toEqual(0);
     expect(isConsumedAt(env, 0)).toBeFalse();
     // the same message finalizes again
@@ -468,10 +487,11 @@ get fun `test bounced sccp_consumed makes the bucket clear the flag`() {
             },
         }),
     );
-    val steps = cursor.executeN(2);
+    val steps = cursor.executeN(3);
     cursor.close();
-    val consumed = steps.at(1).outMessages.at<SccpConsumed>(0).loadBody();
+    val consumed = steps.at(2).outMessages.at<SccpConsumed>(0).loadBody();
     expect(isConsumedAt(env, 0)).toBeTrue();
+    expect(env.minter.getSccpState().pendingSupply).toEqual(50);
     // bounces from anyone but the minter are ignored
     val stranger = testing.treasury("stranger").address;
     testing.processSingleTraceStep(
@@ -479,11 +499,21 @@ get fun `test bounced sccp_consumed makes the bucket clear the flag`() {
         bouncedMessage(consumed, env.minter.getBucketAddress(0), grams("0.05")),
     );
     expect(isConsumedAt(env, 0)).toBeTrue();
-    testing.processSingleTraceStep(
+    // a bounce with little value: the bucket pays the rest of the handler and
+    // the report from its own balance
+    val bounced = testing.processSingleTraceStep(
         env.minter.address,
-        bouncedMessage(consumed, env.minter.getBucketAddress(0), grams("0.05")),
+        bouncedMessage(consumed, env.minter.getBucketAddress(0), sccpGasFee(2000)),
     );
     expect(isConsumedAt(env, 0)).toBeFalse();
+    val report = bounced.outMessages.at<SccpConsumeReverted>(0).loadBody();
+    expect(report.nonce).toEqual(0);
+    expect(report.amount).toEqual(50);
+    // the report releases the pending supply, and the message finalizes again
+    net.send(env.minter.getBucketAddress(0), forwardOut(bounced, 0));
+    expect(env.minter.getSccpState().pendingSupply).toEqual(0);
+    finalizeOk(env, 0, 50, alice);
+    expect(env.minter.getSccpState().totalSupply).toEqual(50);
 }
 
 get fun `test consume replies are accepted only from the canonical bucket`() {
@@ -559,6 +589,7 @@ get fun `test buckets accept consume only from the minter`() {
     val data = bucket.getBucketData();
     expect(data.minterAddress).toEqual(env.minter.address);
     expect(data.index).toEqual(0);
+    expect(data.activated).toBeTrue();
     expect(data.bitsLo).toEqual(1);
     expect(data.bitsHi).toEqual(0);
 }
@@ -567,12 +598,15 @@ get fun `test finalize requires the required value`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     val d = deliverDefault(env, 0, 1, alice);
+    // the minter is above its floor: the entry minimum is the quote minus the grace
     val required = finalizeValue(env, 0);
-    expect(sendFinalize(env, env.deployer, d, required - 1)).toHaveFailedTx<SccpFinalize>({
+    expect(required).toEqual(sccpFinalizeRequiredValue(1) + sccpMinterStorageGrace());
+    val minimum = required - sccpMinterStorageGrace();
+    expect(sendFinalize(env, env.deployer, d, minimum - 1)).toHaveFailedTx<SccpFinalize>({
         to: env.minter.address,
         exitCode: SccpErrors.NotEnoughValue as int,
     });
-    expect(sendFinalize(env, env.deployer, d, required)).toHaveSuccessfulTx<SccpFinalize>({ to: env
+    expect(sendFinalize(env, env.deployer, d, minimum)).toHaveSuccessfulTx<SccpFinalize>({ to: env
             .minter
             .address });
     expect(jettonBalanceOf(env, alice)).toEqual(1);

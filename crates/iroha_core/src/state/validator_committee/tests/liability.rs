@@ -25,7 +25,6 @@ fn liability_fixture() -> (World, AccountId, PeerId) {
             activation_height: 1,
             election_exit_height: Some(21),
             deactivation_height: None,
-            last_reward_epoch: None,
         },
     );
     let request_id = Hash::new(b"restored pending stake");

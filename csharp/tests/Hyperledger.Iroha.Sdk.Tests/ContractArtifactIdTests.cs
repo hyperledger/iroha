@@ -186,7 +186,13 @@ public sealed class ContractArtifactIdTests
         if (route == "bytes") response["code_b64"] = "AQIDBA==";
         else if (route == "manifest")
         {
-            response["manifest"] = new JsonObject { ["code_hash"] = JsonSerializer.SerializeToNode(artifact)!["code_hash"]!.DeepClone() };
+            response["manifest"] = new JsonObject
+            {
+                ["code_hash"] = JsonSerializer.SerializeToNode(artifact)!["code_hash"]!.DeepClone(),
+                ["permissions"] = new JsonArray(),
+                ["events"] = new JsonArray(),
+                ["enum_types"] = new JsonArray(),
+            };
             response["code_hash"] = artifact.CodeHashHex;
         }
         else
@@ -196,6 +202,7 @@ public sealed class ContractArtifactIdTests
             {
                 response["rendered_source_kind"] = "pseudo_source"; response["rendered_source_text"] = "seiyaku App {}";
                 response["permissions"] = new JsonArray(); response["entrypoints"] = new JsonArray(); response["warnings"] = new JsonArray();
+                response["source_artifacts"] = new JsonArray();
             }
             else
             {

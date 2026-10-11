@@ -1,6 +1,6 @@
 
-            seiyaku Demo {
-                kotoage fn arm() authorize("ArmTrigger") {}
+            seiyaku Demo { permission ArmTrigger;
+                kotoage fn arm() authorize(ArmTrigger) {}
 
                 trigger wake -> callee::run {
                     on time pre_commit;

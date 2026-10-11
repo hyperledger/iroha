@@ -20,11 +20,13 @@ fun sccpWalletAddress(owner: address, minter: address, walletCode: cell): addres
     return sccpWalletDeployment(owner, minter, walletCode).calculateAddress();
 }
 
-/// StateInit destination of bucket `index` with all 512 flags clear.
+/// Canonical StateInit destination of bucket `index`: not activated, all 512
+/// flags clear. Anyone can deploy it, but only the minter activates it.
 fun sccpBucketDeployment(minter: address, index: int, bucketCode: cell): AutoDeployAddress {
     val data: BucketStorage = {
         minterAddress: minter,
         index,
+        activated: false,
         bitsHi: 0,
         bitsLo: 0,
     };

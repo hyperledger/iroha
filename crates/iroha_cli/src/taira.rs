@@ -170,6 +170,8 @@ pub enum Command {
     PublicReset(crate::taira_public_reset::PublicReset),
     /// Reconcile empty stopped Inrou owners under the active routine updater lock.
     StoppedOwnerMaintenance(crate::taira_public_reset::StoppedOwnerMaintenance),
+    /// Remove only retired validator configuration under the routine updater owner.
+    RetireValidatorConfig(crate::taira_public_reset::RetireValidatorConfig),
     /// Prepare, submit, or recover exactly one authorized public-reset child.
     WriteCanary(WriteCanary),
     /// Generate the canonical deploy-mode Inrou canary workspace from AArch64 guest assets.
@@ -192,6 +194,9 @@ impl Run for Command {
             ),
             Self::StoppedOwnerMaintenance(_) => eyre::bail!(
                 "`taira stopped-owner-maintenance` must run before client configuration is loaded"
+            ),
+            Self::RetireValidatorConfig(_) => eyre::bail!(
+                "`taira retire-validator-config` must run before client configuration is loaded"
             ),
             Self::WriteCanary(cmd) => cmd.run(context),
             Self::InrouWorkspace(cmd) => cmd.run(context),

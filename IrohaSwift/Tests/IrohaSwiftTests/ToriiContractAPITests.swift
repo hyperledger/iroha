@@ -520,36 +520,44 @@ final class ToriiContractAPITests: XCTestCase {
         XCTAssertEqual(calls, 2)
     }
 
-    func testDetachedPreparationBindsCallerTrustedEventMetadata() async throws {
+    /// Torii binds only the consensus-checked call keys into contract-call
+    /// metadata; the contract-events feed derives kind, payload and
+    /// provenance from the call itself. A draft intent that also claims
+    /// `contract_module`/`contract_event_*` entries (such as a self-asserted
+    /// `"emitted"` provenance) therefore never matches Torii's prepared bytes.
+    func testDetachedPreparationRejectsDraftIntentClaimingEventMetadata() async throws {
         var request = detachedRequest()
-        let eventMetadata: [String: ToriiJSONValue] = [
+        let eventClaims: [String: ToriiJSONValue] = [
             "contract_module": .string("intents"),
             "contract_event_kind": .string("intent_opened"),
             "contract_event_schema_version": .number(1),
             "contract_event_provenance": .string("emitted"),
         ]
-        var exactMetadata = try XCTUnwrap(request.draftIntent).metadata
-        exactMetadata.merge(eventMetadata) { _, expected in expected }
+        var claimedMetadata = try XCTUnwrap(request.draftIntent).metadata
+        claimedMetadata.merge(eventClaims) { _, claimed in claimed }
         request.draftIntent = try ToriiContractCallDraftIntent(
             invocation: try XCTUnwrap(request.draftIntent).invocation,
-            metadata: exactMetadata
+            metadata: claimedMetadata
         )
-        let eventPayload = try CanonicalUnsignedTransactionTestSupport.contractPayload(
+        let toriiPayload = try CanonicalUnsignedTransactionTestSupport.contractPayload(
             request: request,
             contractAddress: contractAddress,
             codeHashHex: codeHash,
-            networkId: TestNetworkIds.canonical,
-            additionalMetadata: eventMetadata
+            networkId: TestNetworkIds.canonical
         )
         StubURLProtocol.handler = { urlRequest in
             var json = self.contractCallResponse(submitted: false)
-            json["transaction_payload_b64"] = eventPayload.base64EncodedString()
-            json["signing_message_b64"] = IrohaHash.hash(eventPayload).base64EncodedString()
+            json["transaction_payload_b64"] = toriiPayload.base64EncodedString()
+            json["signing_message_b64"] = IrohaHash.hash(toriiPayload).base64EncodedString()
             return try self.response(for: urlRequest, json: json)
         }
 
-        let draft = try await makeClient().prepareDetachedContractCall(request)
-        XCTAssertEqual(draft.transactionPayload, eventPayload)
+        do {
+            _ = try await makeClient().prepareDetachedContractCall(request)
+            XCTFail("a draft intent claiming event metadata matched Torii's prepared bytes")
+        } catch let ToriiClientError.invalidPayload(message) {
+            XCTAssertTrue(message.contains("canonical transaction payload"), message)
+        }
     }
 
     func testDetachedContractCallPayloadDigestMatchesToriiCanonicalJSON() throws {

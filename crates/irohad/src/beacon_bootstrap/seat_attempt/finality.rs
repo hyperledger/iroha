@@ -136,7 +136,7 @@ impl FinalityInput {
     }
     /// Rebuild actual native ancestry from the unchanged durable proof source.
     /// Raw recorded hashes never initialize the clock. Full canonical verification
-    /// and the original chain/network/Pasta verifier run before its tip advances.
+    /// and the original chain/network certificate verifier run before its tip advances.
     /// TODO: decoded nested native block/result graphs still need retained funding.
     pub(super) fn restore_target_from_original_frame(
         &mut self,
@@ -152,6 +152,9 @@ impl FinalityInput {
         }
         if self.committed {
             return Err(AttemptError::Phase);
+        }
+        if target >= cutoff {
+            return Err(AttemptError::Height);
         }
         if let Some(original) = &self.restored_source {
             if original.target == target {
@@ -169,8 +172,15 @@ impl FinalityInput {
                 return Err(AttemptError::Binding);
             }
         }
+        // A restart can begin at genesis with an original H3 accepted checkpoint.
+        // The complete journal below authenticates every intermediate block; only
+        // the live FIFO path requires each submitted phase to be adjacent.
+        #[cfg(all(test, sumeragi_daemon_mutation = "HC200"))]
         check_rotation_phase_height(self.height, target, cutoff)
             .map_err(|_| AttemptError::Height)?;
+        if target <= self.height {
+            return Err(AttemptError::Height);
+        }
         if self.clock.tip().map(|tip| tip.height()).unwrap_or(1) != self.height {
             return Err(AttemptError::Height);
         }

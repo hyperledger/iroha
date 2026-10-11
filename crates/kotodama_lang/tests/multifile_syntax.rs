@@ -28,7 +28,7 @@ fn directives_retain_declaration_order_and_original_ranges() {
 
 #[test]
 fn bare_fragments_have_no_synthetic_wrapper_offsets() {
-    let text = "// shared declarations\nstate int balance;\ninclude \"./errors.ko\";\nkotoage fn credit() authorize(\"CanCredit\") {}";
+    let text = "permission CanCredit; // shared declarations\nstate int balance;\ninclude \"./errors.ko\";\nkotoage fn credit() authorize(CanCredit) {}";
     let file = SourceFile::new(SourceId(23), "state.ko", text);
     let parsed = parse_fragment_program(&file, FrontendBudget::v1());
     assert!(parsed.is_ok(), "{}", parsed.diagnostics.render_human());
@@ -71,7 +71,7 @@ fn exports_are_explicit_and_independent_of_function_kind() {
         "seiyaku Wallet { export fn hidden() {} }",
         "module Math { export state int balance; }",
         "module Math { export import \"./value.ko\" as value; }",
-        "module Math { export view fn read() {} }",
+        "module Math { export view fn read() authorize(anyone) {} }",
     ] {
         assert!(parse(text).is_err(), "invalid exported declaration: {text}");
     }
@@ -80,7 +80,7 @@ fn exports_are_explicit_and_independent_of_function_kind() {
 #[test]
 fn error_messages_accept_static_utf8_and_enforce_the_byte_limit() {
     let program = parse("module Errors { error enum Fault { #[message(\"残高が不足しています\")] Insufficient = 7; Plain = 8; } }").expect("static message");
-    let Item::ErrorEnum(errors) = &program.items[0] else {
+    let Item::Enum(errors) = &program.items[0] else {
         panic!("error enum")
     };
     assert_eq!(

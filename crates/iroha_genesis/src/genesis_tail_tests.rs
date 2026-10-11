@@ -1,29 +1,12 @@
 fn complete_test_builder(builder: GenesisBuilder) -> GenesisBuilder {
-    builder
-        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-        .with_kagemusha_mint_finality_genesis_parameters(
-            deterministic_test_kagemusha_mint_finality_genesis_parameters(),
-        )
-}
-
-fn complete_test_builder_for_peers(
-    builder: GenesisBuilder,
-    peers: Vec<iroha_model_base::peer::PeerId>,
-) -> GenesisBuilder {
-    builder
-        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-        .with_kagemusha_mint_finality_genesis_parameters(
-            deterministic_test_kagemusha_mint_finality_genesis_parameters_for(peers),
-        )
+    builder.with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
 }
 
 fn load_default_genesis_source_template_for_test() -> Result<RawGenesisTransaction> {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../defaults/genesis.template.json");
-    GenesisSourceTemplate::from_path(path)?.materialize(
-        &deterministic_test_kagemusha_mint_finality_genesis_parameters(),
-        Some(SumeragiNposParameters::default().xor_asset_definition_id),
-    )
+    GenesisSourceTemplate::from_path(path)?
+        .materialize(Some(SumeragiNposParameters::default().xor_asset_definition_id))
 }
 
 #[test]
@@ -103,12 +86,30 @@ fn build_raw_coalesces_parameters_into_one_authoritative_snapshot() -> Result<()
     Ok(())
 }
 #[test]
-fn default_genesis_source_template_is_not_a_raw_manifest() {
+fn default_genesis_source_template_requires_explicit_xor_materialization() {
     init_instruction_registry();
     let genesis_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../defaults/genesis.template.json");
-    let result = RawGenesisTransaction::from_path(&genesis_path);
-    assert!(result.is_err());
+    let unbound = RawGenesisTransaction::from_path(&genesis_path)
+        .expect("bounded source JSON must remain parseable before materialization");
+    assert_eq!(unbound.consensus_fingerprint(), None);
+    assert!(
+        unbound
+            .validate_mode_specific_consensus_parameters()
+            .is_err()
+    );
+    assert!(
+        GenesisSourceTemplate::from_path(&genesis_path)
+            .expect("read the original unbound source template")
+            .materialize(None)
+            .is_err()
+    );
+    let materialized = load_default_genesis_source_template_for_test()
+        .expect("materialize the original source with its explicit canonical XOR selection");
+    assert!(materialized.consensus_fingerprint().is_some());
+    materialized
+        .validate_mode_specific_consensus_parameters()
+        .expect("the explicit-XOR manifest must satisfy its original NPoS parameters");
 }
 #[test]
 fn completed_default_genesis_source_template_proposal_roundtrips() -> Result<()> {
@@ -258,11 +259,9 @@ fn prepared_proposal_fixture() -> (RawGenesisTransaction, KeyPair, SignedBlock, 
             GenesisTopologyEntry::new(PeerId::new(key_pair.public_key().clone()), pop)
         })
         .collect::<Vec<_>>();
-    let mint_finality_peers = topology.iter().map(|entry| entry.peer.clone()).collect();
-    let manifest = complete_test_builder_for_peers(
+    let manifest = complete_test_builder(
         GenesisBuilder::new_without_executor(ChainId::from("prepared-verifier-fixture"), ".")
             .set_topology(topology),
-        mint_finality_peers,
     )
     .build_raw()
     .expect("complete prepared-verifier fixture genesis")
@@ -539,11 +538,9 @@ fn prepared_bundle_verifier_rejects_manifest_semantics_and_validator_pops() {
         })
         .collect::<Vec<_>>();
     bad_entries[0].pop_hex = Some(hex::encode([0_u8; 8]));
-    let mint_finality_peers = bad_entries.iter().map(|entry| entry.peer.clone()).collect();
-    let bad_manifest = complete_test_builder_for_peers(
+    let bad_manifest = complete_test_builder(
         GenesisBuilder::new_without_executor(ChainId::from("prepared-verifier-bad-pop"), ".")
             .set_topology(bad_entries),
-        mint_finality_peers,
     )
     .build_raw()
     .expect("complete bad-PoP verifier fixture genesis")

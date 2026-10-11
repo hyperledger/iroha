@@ -1070,7 +1070,7 @@ fn execute_local_read_runs_query_handler_from_admitted_ivm_bundle() -> Result<()
     let query_entrypoint = bundle_handler(&bundle, "query").entrypoint;
     let query_json = Json::from_norito_value_ref(&norito::json!({ "ok": true }))?;
     let query_body = make_pointer_tlv(PointerType::Json, &norito::to_bytes(&query_json)?);
-    let bundle_bytes = simple_soracloud_contract_artifact(&[query_entrypoint.as_str()]);
+    let bundle_bytes = soracloud_query_echo_artifact(query_entrypoint.as_str(), false);
     bundle.container.bundle_hash = Hash::new(&bundle_bytes);
     bundle.service.container.manifest_hash = bundle.container_manifest_hash();
     let deployment = sample_deployment_state(&bundle);
@@ -1175,16 +1175,11 @@ fn execute_local_read_runs_query_handler_from_admitted_ivm_bundle() -> Result<()
     Ok(())
 }
 #[test]
-fn execute_local_read_passes_query_metadata_in_r11() -> Result<()> {
+fn execute_local_read_passes_query_metadata_in_canonical_argument_table() -> Result<()> {
     let mut state = test_state()?;
     let mut bundle = load_deployment_bundle_fixture()?;
     let query_entrypoint = bundle_handler(&bundle, "query").entrypoint;
-    let copy_metadata_to_r10 =
-        ivm::encoding::wide::encode_ri(ivm::instruction::wide::arithmetic::ADDI, 10, 11, 0);
-    let bundle_bytes = soracloud_contract_artifact_with_words(
-        &[query_entrypoint.as_str()],
-        &[copy_metadata_to_r10, ivm::encoding::wide::encode_halt()],
-    );
+    let bundle_bytes = soracloud_query_echo_artifact(query_entrypoint.as_str(), true);
     bundle.container.bundle_hash = Hash::new(&bundle_bytes);
     bundle.service.container.manifest_hash = bundle.container_manifest_hash();
     let deployment = sample_deployment_state(&bundle);
@@ -1222,7 +1217,7 @@ fn execute_local_read_passes_query_metadata_in_r11() -> Result<()> {
             request_query: Some("verbose=1".to_owned()),
             request_headers: BTreeMap::from([("accept".to_owned(), "application/json".to_owned())]),
             request_body: br#"{"hello":"world"}"#.to_vec(),
-            request_commitment: Hash::new(b"query-request-r11"),
+            request_commitment: Hash::new(b"query-request-argument-table"),
         })
         .map_err(|error| eyre::eyre!("{error:?}"))?;
     assert_eq!(response.content_type.as_deref(), Some("application/json"));
@@ -1294,8 +1289,7 @@ fn execute_ordered_mailbox_requires_matching_authoritative_runtime_state() -> Re
 fn execute_ordered_mailbox_runs_update_handler_from_admitted_ivm_bundle() -> Result<()> {
     let state = test_state()?;
     let mut bundle = load_deployment_bundle_fixture()?;
-    let artifact_bytes =
-        simple_soracloud_contract_artifact(&["apply_update", "apply_ciphertext_update"]);
+    let artifact_bytes = soracloud_update_artifact(&["apply_update", "apply_ciphertext_update"]);
     bundle.container.bundle_hash = Hash::new(&artifact_bytes);
     bundle.service.container.manifest_hash = bundle.container_manifest_hash();
     let temp_dir = canonical_runtime_fixture_tempdir()?;
@@ -1376,14 +1370,15 @@ fn execute_ordered_mailbox_runs_update_handler_from_admitted_ivm_bundle() -> Res
 fn failed_ordered_mailbox_execution_returns_the_warmed_runtime() -> Result<()> {
     let state = test_state()?;
     let mut bundle = load_deployment_bundle_fixture()?;
-    let artifact_bytes = soracloud_contract_artifact_with_words(
-        &["apply_update"],
-        &[
-            // A valid V1 instruction must load successfully before trapping.
-            ivm::encoding::wide::encode_rr(ivm::instruction::wide::arithmetic::DIVU, 3, 0, 0),
-            ivm::encoding::wide::encode_halt(),
-        ],
-    );
+    let mut body = vec![
+        // Admission succeeds before the deterministic guest trap.
+        ivm::encoding::wide::encode_rr(ivm::instruction::wide::arithmetic::DIVU, 3, 0, 0),
+    ];
+    body.extend(soracloud_unit_return_words());
+    let artifact_bytes = soracloud_contract_artifact_with_functions(vec![(
+        soracloud_entrypoint("apply_update", 0),
+        body,
+    )]);
     bundle.container.bundle_hash = Hash::new(&artifact_bytes);
     bundle.service.container.manifest_hash = bundle.container_manifest_hash();
     let temp_dir = canonical_runtime_fixture_tempdir()?;
@@ -1600,20 +1595,13 @@ fn soracloud_json_pointer_abi_rejects_unframed_json_payloads() {
         json_value_from_tlv(&input_tlv),
         Err(VMError::DecodeError)
     ));
-    let mut vm = IVM::new(u64::MAX);
-    let response_ptr = vm
-        .alloc_host_tlv(&input_tlv)
-        .expect("allocate raw JSON pointer");
-    vm.set_register(10, response_ptr);
-    let error = decode_vm_output(&vm, "query", "read", "service", "v1")
-        .expect_err("raw JSON bytes must not satisfy the JSON pointer ABI");
-    assert_eq!(error.kind, SoracloudRuntimeExecutionErrorKind::Internal);
+    assert!(matches!(
+        json_pointer_response_payload(raw_json),
+        Err(VMError::DecodeError)
+    ));
     assert!(
-        error
-            .message
-            .contains("without canonical Norito JSON framing"),
-        "unexpected error: {}",
-        error.message
+        soracloud_echo_vm(&input_tlv, EntrypointValueKindV1::Json).is_err(),
+        "a Json call leaf must reject unframed bytes before guest execution or result publication"
     );
 }
 #[test]
@@ -2867,5 +2855,302 @@ fn durable_inrou_egress_gc_retains_current_and_ahead_reporters() -> Result<()> {
             .join(format!("{}.bin", hex::encode(old_epoch)))
             .exists()
     );
+    Ok(())
+}
+
+#[test]
+fn soracloud_canonical_argument_tables_preserve_full_width_context_and_reject_unknown_fields()
+-> Result<()> {
+    let artifact = soracloud_update_artifact(&["update"]);
+    let contract = prepare_contract(Arc::from(artifact))?;
+    let body = ivm::pointer_abi::encode_tlv(PointerType::Blob, b"exact request body")?;
+    let mut vm = IVM::new(u64::MAX);
+    vm.load_prepared(&contract)?;
+    let (arguments, output_kind) = prepare_soracloud_invocation(
+        &mut vm,
+        &contract,
+        "update",
+        SoracloudInvocationInput {
+            body_tlv: &body,
+            metadata_tlv: None,
+            execution_sequence: Some(u64::MAX),
+            observed_height: u64::MAX - 1,
+        },
+    )?;
+    assert!(matches!(output_kind, SoracloudOutputKind::Unit));
+    let arguments = arguments.expect("three authenticated template fields");
+    let record: EntrypointArgumentRecordV1 = norito::decode_canonical(arguments.canonical_bytes())?;
+    assert_eq!(record.atoms.len(), 3);
+    let ivm::EntrypointValueAtomV1::Pointer(body_copy) = &record.atoms[0] else {
+        panic!("template body is a Blob pointer");
+    };
+    assert_eq!(body_copy, &body);
+    for (atom, expected) in record.atoms[1..].iter().zip([u64::MAX, u64::MAX - 1]) {
+        let ivm::EntrypointValueAtomV1::Pointer(bytes) = atom else {
+            panic!("full-width context is an Int pointer");
+        };
+        assert_eq!(
+            ivm::numeric_tlv::decode_int_bytes(bytes)?,
+            iroha_primitives::bigint::BigInt::from(expected)
+        );
+    }
+    for value in [0, i64::MAX as u64, i64::MAX as u64 + 1, u64::MAX] {
+        assert_eq!(
+            ivm::numeric_tlv::decode_int_bytes(&public_input_int_tlv(value)?)?,
+            iroha_primitives::bigint::BigInt::from(value)
+        );
+    }
+    let unknown = soracloud_contract_artifact_with_functions(vec![(
+        soracloud_typed_entrypoint(
+            "unknown",
+            &[("invented", EntrypointValueKindV1::Blob)],
+            ivm::EntrypointValueTypeV1 {
+                nodes: vec![EntrypointValueTypeNodeV1::Unit],
+            },
+        ),
+        soracloud_unit_return_words(),
+    )]);
+    let unknown = prepare_contract(Arc::from(unknown))?;
+    let mut denied = IVM::new(u64::MAX);
+    denied.load_prepared(&unknown)?;
+    assert!(matches!(
+        prepare_soracloud_invocation(
+            &mut denied,
+            &unknown,
+            "unknown",
+            SoracloudInvocationInput {
+                body_tlv: &body,
+                metadata_tlv: None,
+                execution_sequence: Some(7),
+                observed_height: 11
+            }
+        ),
+        Err(VMError::DecodeError)
+    ));
+    assert!(denied.call_result_word_count().is_err());
+    Ok(())
+}
+
+#[test]
+fn soracloud_completed_result_tables_reject_raw_registers_and_corrupt_unit_words() -> Result<()> {
+    let mut raw = IVM::new(u64::MAX);
+    let body = ivm::pointer_abi::encode_tlv(PointerType::Blob, b"old register response")?;
+    let pointer = raw.alloc_input_tlv(&body)?;
+    raw.set_register(10, pointer);
+    let error = decode_vm_output(&raw, SoracloudOutputKind::Blob, "query", "raw", "svc", "v1")
+        .expect_err("raw r10 without protected completion is not a response");
+    assert_eq!(error.kind, SoracloudRuntimeExecutionErrorKind::Internal);
+    let artifact = simple_soracloud_contract_artifact(&["unit"]);
+    let contract = prepare_contract(Arc::from(artifact))?;
+    let mut vm = IVM::new(u64::MAX);
+    vm.load_prepared(&contract)?;
+    vm.select_entrypoint("unit")?;
+    vm.run()?;
+    assert_eq!(vm.call_result_word_count()?, 1);
+    assert_eq!(vm.public_call_result_word(0)?, 0);
+    assert_eq!(
+        decode_vm_output(
+            &vm,
+            SoracloudOutputKind::Unit,
+            "update",
+            "unit",
+            "svc",
+            "v1"
+        )?
+        .0,
+        Vec::<u8>::new()
+    );
+    vm.memory.store_u64(vm.register(10), 1)?;
+    assert!(
+        decode_vm_output(
+            &vm,
+            SoracloudOutputKind::Unit,
+            "update",
+            "unit",
+            "svc",
+            "v1"
+        )
+        .is_err(),
+        "completed unit words must stay canonical zero"
+    );
+    vm.memory.store_u64(vm.register(10), 0)?;
+    assert!(
+        decode_vm_output(
+            &vm,
+            SoracloudOutputKind::Unit,
+            "update",
+            "unit",
+            "svc",
+            "v1"
+        )
+        .is_ok()
+    );
+    Ok(())
+}
+
+#[test]
+fn soracloud_completed_json_decode_refusal_stays_unavailable_without_mailbox_failure_receipt()
+-> Result<()> {
+    let json = Json::from(norito::json!({"exact": "original response"}));
+    let frame = norito::encode_canonical(&json)?;
+    let body = ivm::pointer_abi::encode_tlv(PointerType::Json, &frame)?;
+    let (vm, output_kind) = soracloud_echo_vm(&body, EntrypointValueKindV1::Json)?;
+    let bundle = load_deployment_bundle_fixture()?;
+    let request = sample_ordered_mailbox_request(
+        &bundle,
+        "query",
+        sample_mailbox_message(&bundle, "query", b"original".to_vec()),
+    );
+    let pool = iroha_allocation::AllocationBudget::new(32 * 1024 * 1024);
+    let context = norito::core::DecodeBudgetContext::try_new_owned(
+        norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX),
+        &pool,
+    )?;
+    let baseline = pool.reserved_bytes();
+    let result = context.with(|| {
+        let error = norito::core::with_decode_limits_scope(
+            norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+            || decode_ordered_mailbox_vm_output(&vm, output_kind, &request),
+        )
+        .expect_err("actual completed JSON output decoder must honor enclosing quota");
+        assert_eq!(error.kind, SoracloudRuntimeExecutionErrorKind::Unavailable);
+        let error = ordered_mailbox_output_failure(request.clone(), error)
+            .expect_err("local decoder refusal must never create a deterministic mailbox receipt");
+        assert_eq!(error.kind, SoracloudRuntimeExecutionErrorKind::Unavailable);
+        assert_eq!(pool.reserved_bytes(), baseline);
+        let (output, content_type) = decode_ordered_mailbox_vm_output(&vm, output_kind, &request)?;
+        assert_eq!(output, json.get().as_bytes());
+        assert_eq!(content_type.as_deref(), Some("application/json"));
+        Ok::<_, SoracloudRuntimeExecutionError>(())
+    });
+    result?;
+    drop(context);
+    assert_eq!(pool.reserved_bytes(), 0);
+    let mut corrupt = frame;
+    corrupt[0] ^= 1;
+    assert!(matches!(
+        json_pointer_response_payload(&corrupt),
+        Err(VMError::DecodeError)
+    ));
+    Ok(())
+}
+
+// Original Soracloud public-input JSON refusal and same-source retry controls.
+
+#[test]
+fn soracloud_public_input_json_refusal_is_local_and_retryable() -> Result<()> {
+    let bundle = load_deployment_bundle_fixture()?;
+    let request = sample_ordered_mailbox_request(
+        &bundle,
+        "query",
+        sample_mailbox_message(&bundle, "query", b"original".to_vec()),
+    );
+    let body = ivm::pointer_abi::encode_tlv(PointerType::Blob, b"original request")?;
+    let expected = ordered_mailbox_public_inputs(&body, u64::MAX, 17)?;
+    let value = norito::json!({"original": "metadata", "height": 17});
+    let json = Json::from_norito_value_ref(&value)?;
+    let frame = norito::encode_canonical(&json)?;
+    let metadata = ivm::pointer_abi::encode_tlv(PointerType::Json, &frame)?;
+    let pool = iroha_allocation::AllocationBudget::new(32 * 1024 * 1024);
+    let unlimited =
+        norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX);
+    // Calibrate only the genuine frame decoder outside the tested attempt.
+    // The oracle owns its counter backing in the same original physical pool.
+    let oracle = norito::core::DecodeBudgetContext::try_new_owned(unlimited, &pool)?;
+    let decoded =
+        oracle.with(|| soracloud_codec_attempt(|| norito::decode_canonical::<Json>(&frame)))?;
+    assert_eq!(decoded, json);
+    let frame_demand = usize::try_from(oracle.consumed_allocated_bytes())?;
+    assert!(frame_demand > 0);
+    drop(decoded);
+    drop(oracle);
+    assert_eq!(pool.reserved_bytes(), 0);
+    let context = norito::core::DecodeBudgetContext::try_new_owned(unlimited, &pool)?;
+    let baseline = pool.reserved_bytes();
+    context.with(|| {
+        let error = norito::core::with_decode_limits_scope(
+            norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+            || ordered_mailbox_public_inputs(&body, u64::MAX, 17),
+        )
+        .expect_err("original trigger JSON destination honors the enclosing quota");
+        assert!(matches!(
+            error,
+            VMError::ExecutionDeferred(ivm::ExecutionDeferral::ActiveMemoryCapacity)
+        ));
+        let error = ordered_mailbox_vm_failure(request.clone(), &error)
+            .expect_err("public-input refusal cannot create a deterministic mailbox receipt");
+        assert_eq!(error.kind, SoracloudRuntimeExecutionErrorKind::Unavailable);
+        assert_eq!(pool.reserved_bytes(), baseline);
+        let error = norito::core::with_decode_limits_scope(
+            norito::core::DecodeLimits::new(
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                frame_demand,
+                usize::MAX,
+            ),
+            || json_value_from_tlv(&metadata),
+        )
+        .expect_err("exact frame debit leaves no credit for its subsequent Value parse");
+        assert!(matches!(
+            error,
+            VMError::ExecutionDeferred(ivm::ExecutionDeferral::ActiveMemoryCapacity)
+        ));
+        assert_eq!(pool.reserved_bytes(), baseline);
+        assert_eq!(json_value_from_tlv(&metadata)?, value);
+        assert_eq!(
+            ordered_mailbox_public_inputs(&body, u64::MAX, 17)?,
+            expected
+        );
+        let mut invalid_frame = frame.clone();
+        invalid_frame[0] ^= 1;
+        let invalid = ivm::pointer_abi::encode_tlv(PointerType::Json, &invalid_frame)?;
+        let invalid = json_value_from_tlv(&invalid).expect_err("corrupt framing stays terminal");
+        assert!(matches!(invalid, VMError::DecodeError));
+        assert!(ordered_mailbox_vm_failure(request.clone(), &invalid).is_ok());
+        Ok::<_, eyre::Report>(())
+    })?;
+    drop(context);
+    assert_eq!(pool.reserved_bytes(), 0);
+    Ok(())
+}
+
+#[test]
+fn soracloud_query_metadata_json_refusal_is_local_and_retryable() -> Result<()> {
+    let request = SoracloudLocalReadRequest {
+        observed_height: u64::MAX,
+        observed_block_hash: None,
+        service_name: "original-service".to_owned(),
+        service_version: "original-version".to_owned(),
+        handler_name: "query".to_owned(),
+        handler_class: iroha_core::soracloud_runtime::SoracloudLocalReadKind::Query,
+        request_method: "GET".to_owned(),
+        request_path: "/query".to_owned(),
+        handler_path: "/".to_owned(),
+        request_query: Some("original=1".to_owned()),
+        request_headers: BTreeMap::from([("original".to_owned(), "header".to_owned())]),
+        request_body: b"original body".to_vec(),
+        request_commitment: Hash::new(b"original request"),
+    };
+    let expected = local_read_request_metadata_tlv_bytes(&request)?;
+    let pool = iroha_allocation::AllocationBudget::new(32 * 1024 * 1024);
+    let context = norito::core::DecodeBudgetContext::try_new_owned(
+        norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX),
+        &pool,
+    )?;
+    let baseline = pool.reserved_bytes();
+    context.with(|| {
+        let error = norito::core::with_decode_limits_scope(
+            norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+            || local_read_request_metadata_tlv_bytes(&request),
+        )
+        .expect_err("original query metadata destination honors the enclosing quota");
+        assert_eq!(error.kind, SoracloudRuntimeExecutionErrorKind::Unavailable);
+        assert_eq!(pool.reserved_bytes(), baseline);
+        assert_eq!(local_read_request_metadata_tlv_bytes(&request)?, expected);
+        Ok::<_, eyre::Report>(())
+    })?;
+    drop(context);
+    assert_eq!(pool.reserved_bytes(), 0);
     Ok(())
 }

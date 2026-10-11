@@ -35,12 +35,12 @@ pub const CONFIDENTIAL_TREE_POSEIDON_PASTA_V1_EMPTY_ROOT: [u8; 32] = [
 /// Callers must compare these labels byte-for-byte: aliases, normalization,
 /// case folding, and surrounding whitespace are never accepted.
 pub const ZK_VERIFIER_BACKEND_REGISTRY_LABELS_V1: &[&str] = &[
-    "halo2/ipa",
-    "halo2/pasta/kaigi-authorization-v1",
-    "halo2/pasta/kaigi-usage-v1",
-    "halo2/pasta/confidential-transfer-2x2-merkle16-axiom-poseidon-v3",
-    "halo2/pasta/confidential-unshield-full-merkle16-axiom-poseidon-v3",
-    "halo2/pasta/confidential-unshield-change-merkle16-axiom-poseidon-v4",
+    "pipa-r/pasta",
+    "pipa-r/pasta/kaigi-authorization-v1",
+    "pipa-r/pasta/kaigi-usage-v1",
+    "pipa-r/pasta/confidential-transfer-v1",
+    "pipa-r/pasta/confidential-unshield-full-v1",
+    "pipa-r/pasta/confidential-unshield-change-v1",
     "stark/fri/poseidon-x7-goldilocks-6x64-v1",
 ];
 /// Return true only for the admitted STARK/FRI verifier profile.
@@ -106,20 +106,20 @@ pub const OPEN_VERIFY_DEFAULT_MAX_AUX_BYTES: usize = 64 * 1024;
 )]
 #[norito_schema(name = "iroha_data_model::zk::BackendTag")]
 pub enum BackendTag {
-    /// Halo2 IPA over Pasta curves.
-    Halo2IpaPasta,
+    /// Native PIPA-R transcript and IPA over the Pasta cycle.
+    NativePipaRPasta,
     /// Native transparent STARK/FRI.
     Stark,
 }
 impl BackendTag {
     /// All generic `OpenVerify` engines, in canonical Norito order.
-    pub const ALL: [Self; 2] = [Self::Halo2IpaPasta, Self::Stark];
+    pub const ALL: [Self; 2] = [Self::NativePipaRPasta, Self::Stark];
     /// Return the canonical JSON label for this engine.
     #[must_use]
     pub const fn canonical_label(self) -> &'static str {
         match self {
-            BackendTag::Halo2IpaPasta => "halo2-ipa-pasta",
             BackendTag::Stark => "stark",
+            BackendTag::NativePipaRPasta => "native-pipa-r-pasta",
         }
     }
     /// Parse an exact canonical JSON label.
@@ -129,8 +129,8 @@ impl BackendTag {
     #[must_use]
     pub const fn from_canonical_label(label: &str) -> Option<Self> {
         match label.as_bytes() {
-            b"halo2-ipa-pasta" => Some(Self::Halo2IpaPasta),
             b"stark" => Some(Self::Stark),
+            b"native-pipa-r-pasta" => Some(Self::NativePipaRPasta),
             _ => None,
         }
     }
@@ -144,15 +144,13 @@ impl BackendTag {
 #[must_use]
 pub fn verifier_backend_registry_tag_v1(label: &str) -> Option<BackendTag> {
     match label {
-        "halo2/ipa"
-        | "halo2/pasta/kaigi-authorization-v1"
-        | "halo2/pasta/kaigi-usage-v1"
-        | "halo2/pasta/confidential-transfer-2x2-merkle16-axiom-poseidon-v3"
-        | "halo2/pasta/confidential-unshield-full-merkle16-axiom-poseidon-v3"
-        | "halo2/pasta/confidential-unshield-change-merkle16-axiom-poseidon-v4" => {
-            Some(BackendTag::Halo2IpaPasta)
-        }
         "stark/fri/poseidon-x7-goldilocks-6x64-v1" => Some(BackendTag::Stark),
+        "pipa-r/pasta"
+        | "pipa-r/pasta/kaigi-authorization-v1"
+        | "pipa-r/pasta/kaigi-usage-v1"
+        | "pipa-r/pasta/confidential-transfer-v1"
+        | "pipa-r/pasta/confidential-unshield-full-v1"
+        | "pipa-r/pasta/confidential-unshield-change-v1" => Some(BackendTag::NativePipaRPasta),
         _ => None,
     }
 }
@@ -186,6 +184,21 @@ impl norito::json::JsonDeserialize for BackendTag {
         })
     }
 }
+/// Canonical native PIPA-R proof payload with exactly one public-input column.
+///
+/// Each field element uses its canonical little-endian 32-byte representation.
+/// The exact compiled circuit identifier determines the column arity. The
+/// verifier checks field canonicality, arity and proof bytes; decoding this
+/// payload alone does not establish proof validity.
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, IntoSchema, norito::NoritoSchema)]
+#[norito_schema(name = "iroha_data_model::zk::NativePipaRProofV1")]
+pub struct NativePipaRProofV1 {
+    /// Ordered public inputs for the circuit's sole public column.
+    pub public_inputs: Vec<[u8; 32]>,
+    /// Exact native PIPA-R transcript bytes.
+    pub proof: Vec<u8>,
+}
+
 /// Size and policy bounds for validating an [`OpenVerifyEnvelope`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OpenVerifyEnvelopeBounds {
@@ -321,7 +334,7 @@ impl std::error::Error for OpenVerifyEnvelopeValidationError {}
 #[derive(crate :: DeriveJsonSerialize, crate :: DeriveJsonDeserialize, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_data_model::zk::OpenVerifyEnvelope")]
 pub struct OpenVerifyEnvelope {
-    /// Backend tag string (e.g., `halo2-ipa-pasta`).
+    /// Exact native proof engine (for example, `native-pipa-r-pasta`).
     pub backend: BackendTag,
     /// Circuit identifier string (backend-specific; opaque to host).
     pub circuit_id: String,
@@ -516,7 +529,7 @@ pub fn open_verify_circuit_id_uses_reserved_privacy_protocol_namespace_v1(
 ///
 /// This wrapper carries:
 /// - `public_inputs`: public inputs expressed as 32-byte words, column-major (matching
-///   the instance-column layout used by Halo2 envelopes), and
+///   the ordered public-column layout used by native proof envelopes), and
 /// - `envelope_bytes`: backend-native proof bytes (typically a Norito-encoded STARK/FRI
 ///   envelope such as `StarkVerifyEnvelopeV1`).
 ///
@@ -934,8 +947,26 @@ mod tests {
         assert_eq!(&decoded, value);
     }
     #[test]
+    fn native_pipa_r_proof_has_canonical_single_column_roundtrip() {
+        let proof = NativePipaRProofV1 {
+            public_inputs: vec![[1; 32], [2; 32]],
+            proof: vec![3, 4, 5],
+        };
+        let bytes = norito::encode_canonical(&proof).expect("encode proof payload");
+        assert_eq!(
+            norito::decode_canonical::<NativePipaRProofV1>(&bytes).unwrap(),
+            proof
+        );
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        assert!(norito::decode_canonical::<NativePipaRProofV1>(&trailing).is_err());
+        assert!(norito::decode_canonical::<NativePipaRProofV1>(&bytes[..bytes.len() - 1]).is_err());
+    }
+    #[test]
     fn backend_tag_norito_discriminants_are_exhaustive_and_canonical() {
-        for (backend, expected_tag) in [(BackendTag::Halo2IpaPasta, 0u32), (BackendTag::Stark, 1)] {
+        for (backend, expected_tag) in
+            [(BackendTag::Stark, 1), (BackendTag::NativePipaRPasta, 0u32)]
+        {
             let encoded = backend.encode();
             assert_eq!(
                 encoded.as_slice(),
@@ -953,7 +984,7 @@ mod tests {
     }
     #[test]
     fn backend_tag_norito_rejects_unknown_discriminants() {
-        for tag in [2_u32, 3, u32::MAX] {
+        for tag in [2_u32, 3, 4, u32::MAX] {
             let encoded = tag.to_le_bytes();
             assert!(
                 BackendTag::decode(&mut encoded.as_slice()).is_err(),
@@ -964,8 +995,8 @@ mod tests {
     #[test]
     fn backend_tag_parser_accepts_only_canonical_engine_labels() {
         for (label, expected) in [
-            ("halo2-ipa-pasta", BackendTag::Halo2IpaPasta),
             ("stark", BackendTag::Stark),
+            ("native-pipa-r-pasta", BackendTag::NativePipaRPasta),
         ] {
             assert_eq!(
                 BackendTag::from_canonical_label(label),
@@ -983,8 +1014,8 @@ mod tests {
             let tag = verifier_backend_registry_tag_v1(label)
                 .unwrap_or_else(|| panic!("listed registry label must resolve: {label}"));
             assert!(is_verifier_backend_registry_label_v1(label));
-            if label.starts_with("halo2/") {
-                assert_eq!(tag, BackendTag::Halo2IpaPasta, "{label}");
+            if label.starts_with("pipa-r/") {
+                assert_eq!(tag, BackendTag::NativePipaRPasta, "{label}");
             } else {
                 assert!(label.starts_with("stark/fri"), "{label}");
                 assert_eq!(tag, BackendTag::Stark, "{label}");
@@ -992,6 +1023,12 @@ mod tests {
         }
         for rejected in [
             "",
+            "halo2/ipa",
+            "halo2-ipa-pasta",
+            "halo2/pasta/kaigi-authorization-v1",
+            "halo2/pasta/kaigi-usage-v1",
+            "pipa-r/ipa/pasta/kaigi-authorization-v1",
+            "pipa-r/pasta/kaigi-usage-v1/",
             "halo2/pasta/ivm-execution-v1",
             " halo2/ipa",
             "halo2/ipa ",
@@ -1139,8 +1176,8 @@ mod tests {
     fn open_verify_envelope_admission_validation_accepts_portable_circuit_ids() {
         for circuit_id in [
             "stark/fri/poseidon-x7-goldilocks-6x64-v1:generic_binding_v1",
-            "halo2/ipa::transfer_v1",
-            "halo2/pasta/kaigi-usage-v1",
+            "pipa-r/pasta::transfer_v1",
+            "pipa-r/pasta/kaigi-usage-v1",
             "stark/fri/poseidon-x7-goldilocks-6x64-v1:public_relation_v1",
         ] {
             let mut envelope = valid_open_verify_admission_envelope();
@@ -1471,6 +1508,7 @@ mod tests {
         }
         for alias in [
             "",
+            "halo2-ipa-pasta",
             "halo2/ipa",
             "HALO2-IPA-PASTA",
             " halo2-ipa-pasta",

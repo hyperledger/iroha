@@ -209,8 +209,19 @@ impl CompileArgs {
                 }
             }
             driver.build_project(LinkedSourceBuildRequest {
-                source_name: loaded.graph.root.source_name.clone(),
-                graph: loaded.graph,
+                source_name: loaded
+                    .graph
+                    .as_source()
+                    .expect("source loader returns a source graph")
+                    .root
+                    .source_name
+                    .clone(),
+                graph: match loaded.graph {
+                    kotodama_lang::driver::LoadedProjectGraph::Source(graph) => graph,
+                    kotodama_lang::driver::LoadedProjectGraph::Package(_) => {
+                        unreachable!("source loader returns a source graph")
+                    }
+                },
                 profile: "sorafs".into(),
                 layout,
                 mode: PublishMode::Write,

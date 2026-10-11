@@ -2,10 +2,7 @@
 mod tests {
     use crate::{
         compiler::{Compiler, CompilerOptions},
-        lexer::{
-            V1_KEYWORD_DOC_TABLE, V1_KEYWORD_EDITOR_PATTERN, V1_KEYWORDS, V1_OPERATOR_DOC_TABLE,
-            V1_OPERATOR_EDITOR_PATTERN,
-        },
+        lexer::{V1_KEYWORD_DOC_TABLE, V1_KEYWORDS, V1_OPERATOR_DOC_TABLE, V1_OPERATORS},
         session::{CompileRequest, CompilerSession},
     };
     use kotodama_surface::builtins::{Builtin, BuiltinSurface};
@@ -104,6 +101,50 @@ mod tests {
             .get("match")
             .and_then(norito::json::Value::as_str)
             .unwrap_or_else(|| panic!("TextMate grammar omitted {section} match pattern"))
+    }
+    /// Every `(match, scope)` pattern of a generated section.
+    fn textmate_patterns<'a>(
+        grammar: &'a norito::json::Value,
+        section: &str,
+    ) -> Vec<(&'a str, &'a str)> {
+        grammar
+            .pointer(&format!("/repository/{section}/patterns"))
+            .and_then(norito::json::Value::as_array)
+            .unwrap_or_else(|| panic!("TextMate grammar omitted {section} patterns"))
+            .iter()
+            .map(|pattern| {
+                (
+                    pattern
+                        .get("match")
+                        .and_then(norito::json::Value::as_str)
+                        .unwrap_or_else(|| panic!("{section} pattern without a match")),
+                    pattern
+                        .get("name")
+                        .and_then(norito::json::Value::as_str)
+                        .unwrap_or_else(|| panic!("{section} pattern without a scope")),
+                )
+            })
+            .collect()
+    }
+    /// The literal alternatives of a generated `(?:a|b|c)` matcher, with regex escapes removed.
+    fn alternatives(pattern: &str, prefix: &str, suffix: &str) -> Vec<String> {
+        let body = pattern
+            .strip_prefix(prefix)
+            .and_then(|rest| rest.strip_suffix(suffix))
+            .unwrap_or_else(|| panic!("unexpected generated matcher shape `{pattern}`"));
+        let mut values = vec![String::new()];
+        let mut characters = body.chars();
+        while let Some(character) = characters.next() {
+            match character {
+                '\\' => values
+                    .last_mut()
+                    .expect("alternative")
+                    .push(characters.next().expect("escaped character")),
+                '|' => values.push(String::new()),
+                other => values.last_mut().expect("alternative").push(other),
+            }
+        }
+        values
     }
     fn textmate_attribute_match(grammar: &norito::json::Value) -> &str {
         let patterns = grammar
@@ -228,25 +269,142 @@ mod tests {
             V1_OPERATOR_DOC_TABLE,
             "the normative operator table must be regenerated from grammar/v1.lex"
         );
+        // Keywords are split by role; together they are exactly grammar/v1.lex, each keyword
+        // appears once, and both spellings of a branded keyword share one scope.
+        let mut keyword_scopes = std::collections::BTreeMap::new();
+        for (pattern, scope) in textmate_patterns(&textmate_value, "keywords") {
+            for keyword in alternatives(pattern, r"(?<![\p{L}\p{N}_])(?:", r")(?![\p{L}\p{N}_])") {
+                assert!(
+                    keyword_scopes.insert(keyword.clone(), scope).is_none(),
+                    "TextMate keyword `{keyword}` is scoped twice"
+                );
+            }
+        }
         assert_eq!(
-            textmate_match(&textmate_value, "keywords"),
-            V1_KEYWORD_EDITOR_PATTERN,
-            "TextMate keyword matcher must be generated from grammar/v1.lex"
+            keyword_scopes
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            {
+                let mut keywords = V1_KEYWORDS.to_vec();
+                keywords.sort_unstable();
+                keywords
+            },
+            "TextMate keyword matchers must be generated from grammar/v1.lex"
         );
+        for keyword in &crate::glossary::BRANDED_KEYWORDS {
+            assert_eq!(
+                keyword_scopes[keyword.romaji], keyword_scopes[keyword.kanji],
+                "both spellings of `{}` must share one TextMate scope",
+                keyword.romaji
+            );
+        }
+        for spelling in ["true", "false"] {
+            assert_eq!(
+                keyword_scopes[spelling], "constant.language.boolean.kotodama",
+                "booleans are constants, not control flow"
+            );
+        }
+        // Operators and punctuation together are exactly grammar/v1.lex; delimiters and
+        // separators are punctuation, and operators are matched before the `.` accessor.
+        let operator_patterns = textmate_patterns(&textmate_value, "operators");
+        assert_eq!(operator_patterns[0].1, "keyword.operator.kotodama");
+        let mut symbols = std::collections::BTreeMap::new();
+        for (pattern, scope) in &operator_patterns {
+            for symbol in alternatives(pattern, "(?:", ")") {
+                assert!(
+                    symbols.insert(symbol.clone(), *scope).is_none(),
+                    "TextMate symbol `{symbol}` is scoped twice"
+                );
+            }
+        }
         assert_eq!(
-            textmate_match(&textmate_value, "operators"),
-            V1_OPERATOR_EDITOR_PATTERN,
-            "TextMate operator matcher must be generated from grammar/v1.lex"
+            symbols
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>(),
+            V1_OPERATORS.iter().copied().collect(),
+            "TextMate operator matchers must be generated from grammar/v1.lex"
         );
+        for punctuation in ["{", "}", "(", ")", "[", "]", ";", ",", ":", "::", ".", "#"] {
+            assert!(
+                symbols[punctuation].starts_with("punctuation."),
+                "`{punctuation}` must be punctuation, not an operator"
+            );
+        }
         assert_eq!(
             textmate_match(&textmate_value, "builtins"),
             r"(?:\brequire\b|(?<=::)[A-Za-z_][A-Za-z0-9_]*)(?=\s*\()",
             "TextMate builtin highlighting must remain structural and namespaced"
         );
+        // The attribute matcher names exactly the attribute words the parser accepts:
+        // `#[test]`, its `fixture` option, and `#[message(...)]` on error variants.
+        let attribute_words =
+            alternatives(textmate_attribute_match(&textmate_value), r"\b(?:", r")\b");
+        assert_eq!(attribute_words, ["fixture", "message", "test"]);
+        for accepted in [
+            "module M { #[test] fn checks() {} }",
+            "module M { #[test(fixture = alice)] fn checks() {} }",
+            "module M { error enum Failure { #[message(\"Too large\")] TooLarge = 1 } }",
+        ] {
+            assert!(
+                crate::parser::parse(accepted).is_ok(),
+                "TextMate highlights an attribute the parser rejects: {accepted}"
+            );
+        }
+        for rejected in [
+            "module M { #[inline] fn checks() {} }",
+            "module M { #[access(read)] fn checks() {} }",
+            "module M { error enum Failure { #[doc(\"x\")] TooLarge = 1 } }",
+        ] {
+            assert!(
+                crate::parser::parse(rejected).is_err(),
+                "the parser accepts an attribute TextMate does not highlight: {rejected}"
+            );
+        }
+        // Trigger bodies highlight exactly the contextual words of the normative trigger
+        // productions, from `trigger` through `pipeline-filter`.
+        let trigger_productions = specification
+            .lines()
+            .skip_while(|line| !line.starts_with("trigger "))
+            .take_while(|line| !line.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            trigger_productions.contains("pipeline-filter ="),
+            "the normative trigger productions moved"
+        );
+        let mut spec_trigger_words = trigger_productions
+            .split('"')
+            .skip(1)
+            .step_by(2)
+            .filter(|word| word.chars().all(|c| c.is_ascii_lowercase() || c == '_'))
+            .filter(|word| !word.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        spec_trigger_words.sort_unstable();
+        spec_trigger_words.dedup();
+        let trigger_body = textmate_value
+            .pointer("/repository/triggerBody/patterns")
+            .and_then(norito::json::Value::as_array)
+            .expect("TextMate grammar omitted triggerBody patterns")
+            .iter()
+            .find(|pattern| {
+                pattern.get("name").and_then(norito::json::Value::as_str)
+                    == Some("keyword.other.trigger.kotodama")
+            })
+            .and_then(|pattern| pattern.get("match"))
+            .and_then(norito::json::Value::as_str)
+            .expect("TextMate trigger contextual words");
+        let mut textmate_trigger_words = alternatives(
+            trigger_body,
+            r"(?<![\p{L}\p{N}_])(?:",
+            r")(?![\p{L}\p{N}_])",
+        );
+        textmate_trigger_words.sort_unstable();
         assert_eq!(
-            textmate_attribute_match(&textmate_value),
-            r"\b(?:fixture|test)\b",
-            "TextMate attributes must expose only the supported test annotation surface"
+            textmate_trigger_words, spec_trigger_words,
+            "TextMate trigger words must match the normative trigger productions"
         );
         let top_level_includes = textmate_top_level_includes(&textmate_value);
         for section in [
@@ -268,8 +426,30 @@ mod tests {
         }
         assert_eq!(
             textmate_match(&textmate_value, "namedFields"),
-            r"\b[A-Za-z_][A-Za-z0-9_]*\b(?=\s*:)",
-            "TextMate named-field highlighting drifted from named calls/struct literals"
+            r"(?<![\p{L}\p{N}_])(?<!\?)(?<!\?\s)[\p{L}_][\p{L}\p{N}_]*(?=\s*:(?!:))",
+            "TextMate named labels must stop before `::` so `Type::` and `namespace::` path heads keep their own scopes, and must not capture the `? value :` branch of a conditional"
+        );
+        let position = |include: &str| {
+            top_level_includes
+                .iter()
+                .position(|candidate| *candidate == include)
+                .unwrap_or_else(|| panic!("TextMate grammar omitted {include}"))
+        };
+        for (earlier, later) in [
+            ("#sumVariants", "#namedFields"),
+            ("#roundingVariants", "#namedFields"),
+            ("#namedFields", "#types"),
+            ("#types", "#keywords"),
+            ("#keywords", "#operators"),
+        ] {
+            assert!(
+                position(earlier) < position(later),
+                "TextMate {earlier} must be tried before {later}"
+            );
+        }
+        assert!(
+            !top_level_includes.contains(&"#constants"),
+            "booleans are generated with the keyword roles"
         );
         assert_eq!(
             textmate_match(&textmate_value, "sumVariants"),
@@ -286,7 +466,18 @@ mod tests {
             r"\bjson\b(?=\s*[\{\[])",
             "TextMate must treat `json` as contextual object/array construction syntax"
         );
-        let mut member_names = vec!["page"];
+        let mut member_names = vec![
+            "is_some",
+            "is_none",
+            "is_ok",
+            "is_err",
+            "unwrap_or",
+            "unwrap_err_or",
+            "expect",
+            "ok_or",
+            "or_err",
+            "page",
+        ];
         member_names.extend_from_slice(V1_LIST_MEMBER_NAMES);
         member_names.push("div_round");
         member_names.push("mul_div_round");

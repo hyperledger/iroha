@@ -8,6 +8,12 @@ use crate::{
 use iroha_crypto::{Hash, HashOf};
 use iroha_sumeragi::types::ChainParams;
 
+fn fixture_other_network() -> crate::NetworkId {
+    crate::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+        b"another epoch-scope network",
+    )))
+}
+
 fn params() -> ChainParamsRecord {
     ChainParamsRecord::from_core(&ChainParams::default())
 }
@@ -39,8 +45,6 @@ fn commitment(epoch: &ValidatorEpochContextV1) -> ExecutionResultCommitment {
             parent_state_root: Hash::new(b"scope parent"),
             post_state_root: ordinary_root,
             ordinary_writes_root: ordinary_root,
-            kagemusha_top_up_root: None,
-            kagemusha_top_up_count: 0,
             parent_world_state_root: Hash::new(b"scope parent world"),
             world_state_root: Hash::new(b"scope world"),
             event_commitment: None,
@@ -141,8 +145,8 @@ fn warm_epoch_scope_rejects_substituted_credentials_and_authority_bindings() {
         match mutation {
             0 => invalid.committee[0].proof_of_possession[0] ^= 1,
             1 => invalid.committee[0].proof_of_possession.clear(),
-            2 => invalid.authority.validators[0].eq_proof_public_key = [0xff; 32],
-            3 => invalid.authority.validators[0].ep_proof_public_key = [0xff; 32],
+            2 => invalid.committee[1] = invalid.committee[0].clone(),
+            3 => invalid.authorization.network_id = fixture_other_network(),
             4 => invalid.authorization.authority_id[0] ^= 1,
             5 => invalid.authorization.authority_generation += 1,
             6 => invalid.committee.swap(0, 1),
@@ -152,9 +156,11 @@ fn warm_epoch_scope_rejects_substituted_credentials_and_authority_bindings() {
                 invalid.committee.pop();
             }
         }
-        if matches!(mutation, 2 | 3) {
-            // Preserve the declared authority hash so real point decoding must reject this.
-            invalid.authorization.authority_id = invalid.authority.authority_id().unwrap();
+        if mutation == 2 {
+            // Rebind the declared generation so the repeated roster seat itself must reject.
+            if let Ok(id) = invalid.generation().generation_id() {
+                invalid.authorization.authority_id = id;
+            }
         }
         assert!(
             invalid.validate().is_err(),
@@ -345,4 +351,62 @@ fn scoped_decode_keeps_inherited_resource_refusal_and_reuses_epoch_work_after_re
     }
     assert_eq!(validation.validations, 1);
     assert_eq!(validation.entries.iter().flatten().count(), 1);
+}
+
+#[test]
+fn validation_only_lookup_never_admits_or_retains_a_missed_context() {
+    use crate::sumeragi::epoch::validation_counts;
+    use norito::core::DecodeBudgetContext;
+
+    let epoch = fixture(4);
+    let mut validation = EpochValidationScope::new();
+    let original = validation.core_epoch(&epoch).unwrap();
+    assert_eq!(validation.entries.iter().flatten().count(), 1);
+    let before = validation_counts::calls();
+    validation.validate_known_or_fresh(&epoch).unwrap();
+    assert_eq!(validation_counts::calls() - before, 0);
+    let mut changed = epoch.clone();
+    changed.leader_seed[0] ^= 1;
+    let limits =
+        norito::DecodeLimits::new(1024 * 1024, 1024 * 1024, 1024 * 1024, 16 * 1024 * 1024, 64);
+    let independent = DecodeBudgetContext::new(limits);
+    independent.with(|| changed.validate()).unwrap();
+    let original_charge = independent.consumed_allocated_bytes();
+    for _ in 0..2 {
+        let current = DecodeBudgetContext::new(limits);
+        let before = validation_counts::calls();
+        current
+            .with(|| validation.validate_known_or_fresh(&changed))
+            .unwrap();
+        assert_eq!(
+            validation_counts::calls() - before,
+            1,
+            "a valid miss is never inserted by the validation-only gate"
+        );
+        assert_eq!(current.consumed_allocated_bytes(), original_charge);
+        assert_eq!(validation.entries.iter().flatten().count(), 1);
+        assert_eq!(validation.validations, 1);
+    }
+    changed.committee[0].proof_of_possession[0] ^= 1;
+    let independent = DecodeBudgetContext::new(limits);
+    let expected = independent.with(|| changed.validate()).unwrap_err();
+    let current = DecodeBudgetContext::new(limits);
+    let before = validation_counts::calls();
+    assert_eq!(
+        current
+            .with(|| validation.validate_known_or_fresh(&changed))
+            .unwrap_err(),
+        expected
+    );
+    assert_eq!(validation_counts::calls() - before, 1);
+    assert_eq!(
+        current.consumed_allocated_bytes(),
+        independent.consumed_allocated_bytes()
+    );
+    assert_eq!(validation.entries.iter().flatten().count(), 1);
+    let before = validation_counts::calls();
+    validation.validate_known_or_fresh(&epoch).unwrap();
+    assert_eq!(validation_counts::calls() - before, 0);
+    assert_eq!(validation.core_epoch(&epoch).unwrap(), original);
+    assert_eq!(validation.validations, 1);
 }

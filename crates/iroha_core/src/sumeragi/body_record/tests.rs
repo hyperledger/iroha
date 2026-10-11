@@ -63,7 +63,6 @@ pub(crate) fn fixture(size: usize) -> (AvailableBody, AvailabilitySource, Alloca
         proposer: 0,
         skipped_leaders: vec![],
         control_witness: ControlWitness::empty(),
-        attest: false,
     };
     let authored = PayloadAuthoring::new(header, payload)
         .complete(instance, &config, &budget, &crypto, &signers[0])

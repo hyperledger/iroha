@@ -351,7 +351,8 @@ fn invalid_enrollment_interval_cannot_reserve_or_replace_original_journal() {
             .as_slice(),
         saved.as_slice()
     );
-    let restored = journal::read_body_intent(&directory).unwrap().unwrap();
+    let (restored, restored_bytes) = journal::read_body_intent(&directory).unwrap().unwrap();
+    assert_eq!(restored_bytes, saved);
     let Action::Enroll { validity, .. } = restored.action else {
         panic!("enroll");
     };
@@ -519,4 +520,33 @@ fn original_custody_codec_preserves_checkpoint_larger_than_small_collection_limi
         encode(&restored, 256 * 1024).unwrap(),
         encode(&original, 256 * 1024).unwrap()
     );
+}
+
+std::thread_local! {
+    static WALLET_CONSTRUCTIONS: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+pub(super) fn record_wallet_construction() {
+    WALLET_CONSTRUCTIONS.with(|value| {
+        if let Some(count) = value.get() {
+            value.set(Some(
+                count
+                    .checked_add(1)
+                    .expect("test wallet construction count"),
+            ));
+        }
+    });
+}
+
+pub(super) fn count_wallet_constructions<T>(action: impl FnOnce() -> T) -> (T, usize) {
+    struct Restore(Option<usize>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            WALLET_CONSTRUCTIONS.with(|value| value.set(self.0));
+        }
+    }
+    let _restore = Restore(WALLET_CONSTRUCTIONS.with(|value| value.replace(Some(0))));
+    let result = action();
+    let count = WALLET_CONSTRUCTIONS.with(|value| value.get().expect("test counter active"));
+    (result, count)
 }

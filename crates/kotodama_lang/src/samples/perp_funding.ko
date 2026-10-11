@@ -1,8 +1,13 @@
 // Perpetual swap funding and simple liquidation check utilities.
 seiyaku PerpFunding {
+    permission Admin;
     // Compute an unsigned funding-payment magnitude. Direction is selected by
     // comparing mark and index prices before any checked subtraction.
-    fn funding_payment(quantity position_size_magnitude, decimal price_delta, decimal funding_bps) -> quantity {
+    fn funding_payment(
+        quantity position_size_magnitude,
+        decimal price_delta,
+        decimal funding_bps,
+    ) -> quantity {
         let numerator = position_size_magnitude * price_delta * funding_bps;
         let decimal bps_scale = 10_000;
         let pay = numerator / bps_scale;
@@ -20,7 +25,7 @@ seiyaku PerpFunding {
         decimal mark_price,
         decimal index_price,
         decimal funding_bps,
-    ) authorize("Admin") {
+    ) authorize(Admin) {
         if mark_price >= index_price {
             let premium_delta = mark_price - index_price;
             let premium_payment = funding_payment(
@@ -33,7 +38,6 @@ seiyaku PerpFunding {
                 destination: insurance_fund,
                 asset_definition: stable_asset,
                 amount: premium_payment,
-                dataspace: DataSpaceId::parse("0"),
             );
         } else {
             let discount_delta = index_price - mark_price;
@@ -47,13 +51,16 @@ seiyaku PerpFunding {
                 destination: trader,
                 asset_definition: stable_asset,
                 amount: discount_payment,
-                dataspace: DataSpaceId::parse("0"),
             );
         }
     }
 
     // Basic liquidation check: equity_bps = (equity * 10_000) / notional
-    view fn is_liquidatable(quantity equity, quantity notional, decimal maintenance_bps) -> bool {
+    view fn is_liquidatable(
+        quantity equity,
+        quantity notional,
+        decimal maintenance_bps,
+    ) authorize(anyone) -> bool {
         if notional == 0 {
             return false;
         }

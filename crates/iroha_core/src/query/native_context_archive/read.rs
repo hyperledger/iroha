@@ -18,9 +18,13 @@ impl NativeContextRead {
         height: u64,
         carrier_hash: HashOf<BlockHeader>,
     ) -> Self {
+        Self::new_named(archive, RecordName::new(height, carrier_hash, false))
+    }
+
+    pub(super) fn new_named(archive: NativeContextArchive, name: RecordName) -> Self {
         Self {
             archive,
-            read: RecordRead::new(height, carrier_hash),
+            read: RecordRead::new_named(name),
         }
     }
 
@@ -34,6 +38,20 @@ impl NativeContextRead {
     /// the selected descriptor and all acquired bytes; retry cannot select another inode.
     pub fn poll(&mut self) -> Result<Option<ChargedBuffer<u8>>, NativeContextArchiveError> {
         self.read.poll(&self.archive)
+    }
+
+    // Observes actual selection only; it authenticates neither bytes nor their carrier.
+    // The issuer uses this after a genuine refused poll to move the same retained job.
+    // No file is opened, buffer acquired or source identity manufactured by this check.
+    pub(crate) fn has_pinned_source(&self) -> bool {
+        self.read.file.is_some() && self.read.length.is_some()
+    }
+
+    // Borrow the actual pending buffer for custody controls only; no descriptor or source
+    // replacement is possible through this observation.
+    #[cfg(test)]
+    pub(crate) fn acquired_prefix(&self) -> Option<&[u8]> {
+        self.read.bytes.as_ref().map(ChargedBuffer::as_slice)
     }
 
     /// Return the same pinned namespace for the next exact carrier read. Consuming a pending
@@ -72,8 +90,7 @@ pub(super) fn to_completion(
 
 /// Shared one-shot and retained-read implementation. The selection cannot change between polls.
 pub(super) struct RecordRead {
-    height: u64,
-    carrier_hash: HashOf<BlockHeader>,
+    name: RecordName,
     file: Option<File>,
     length: Option<usize>,
     bytes: Option<ChargedBuffer<u8>>,
@@ -81,9 +98,11 @@ pub(super) struct RecordRead {
 }
 impl RecordRead {
     pub(super) fn new(height: u64, carrier_hash: HashOf<BlockHeader>) -> Self {
+        Self::new_named(RecordName::new(height, carrier_hash, false))
+    }
+    fn new_named(name: RecordName) -> Self {
         Self {
-            height,
-            carrier_hash,
+            name,
             file: None,
             length: None,
             bytes: None,
@@ -101,11 +120,7 @@ impl RecordRead {
         }
         archive.recheck_namespace()?;
         if self.file.is_none() {
-            self.file = Some(open_record(
-                &archive.directory,
-                self.height,
-                self.carrier_hash,
-            )?);
+            self.file = Some(open_named_record(&archive.directory, &self.name)?);
         }
         let file = self.file.as_mut().expect("selected original descriptor");
         let length = match self.length {

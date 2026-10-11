@@ -2,7 +2,8 @@
 // Given token reserves and an input amount, it computes the output amount
 // based on the constant product formula.
 seiyaku Example {
-    kotoage fn swap(int x_reserve, int y_reserve, int dx) authorize("Entry") {
+    permission Entry;
+    kotoage fn swap(int x_reserve, int y_reserve, int dx) authorize(Entry) {
         // constant product k = x * y
         let k = x_reserve * y_reserve;
         // new x reserve after adding input

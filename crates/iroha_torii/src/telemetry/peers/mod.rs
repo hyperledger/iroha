@@ -1,4 +1,6 @@
 mod monitor;
+#[cfg(test)]
+mod shared_client_tests;
 use crate::{
     explorer::ExplorerDurationDto,
     json_macros::{JsonDeserialize, JsonSerialize},
@@ -254,23 +256,54 @@ impl PeerTelemetryService {
     /// Start the configured peer monitors under the supplied shutdown signal.
     ///
     /// Returns `None` when no peer telemetry URLs were configured. The returned
-    /// task owns every per-peer worker and only exits normally after shutdown;
-    /// callers should keep and supervise its [`JoinHandle`].
+    /// task owns HTTP pool initialization and every per-peer worker. One pool is shared
+    /// across configured URLs and reconnects; normal shutdown awaits its initializer
+    /// and workers. Callers should keep and supervise its [`JoinHandle`].
     pub(crate) fn start(
         self: &Arc<Self>,
         shutdown_signal: ShutdownSignal,
     ) -> Option<JoinHandle<crate::ToriiCriticalWorkerExit>> {
+        self.start_with_http_factory(shutdown_signal, monitor::peer_monitor_http_client)
+    }
+
+    // One start owns its successful pool and the blocking initialization task. The factory
+    // seam keeps native construction, retry and shutdown controls on this shipping path.
+    fn start_with_http_factory<F>(
+        self: &Arc<Self>,
+        shutdown_signal: ShutdownSignal,
+        factory: F,
+    ) -> Option<JoinHandle<crate::ToriiCriticalWorkerExit>>
+    where
+        F: FnMut() -> Result<reqwest::Client, reqwest::Error> + Send + 'static,
+    {
         if self.peer_urls.is_empty() {
             return None;
         }
 
         let service = Arc::clone(self);
         Some(tokio::spawn(async move {
+            let (client, initial_config_interval) =
+                match monitor::initialize_http_client(&shutdown_signal, factory).await {
+                    Ok(Some(initialized)) => initialized,
+                    Ok(None) => return crate::ToriiCriticalWorkerExit::StoppedByShutdown,
+                    Err(error) => {
+                        iroha_logger::error!(
+                            ?error,
+                            "peer telemetry HTTP initialization task failed"
+                        );
+                        return crate::ToriiCriticalWorkerExit::UnexpectedExit;
+                    }
+                };
             let mut workers = JoinSet::new();
             for url in service.peer_urls.iter().cloned() {
                 let service = Arc::clone(&service);
                 let worker_shutdown = shutdown_signal.clone();
-                workers.spawn(async move { service.monitor_peer(url, worker_shutdown).await });
+                let client = client.clone();
+                workers.spawn(async move {
+                    service
+                        .monitor_peer(url, client, initial_config_interval, worker_shutdown)
+                        .await
+                });
             }
 
             supervise_peer_monitor_workers(&shutdown_signal, workers).await
@@ -279,10 +312,14 @@ impl PeerTelemetryService {
     async fn monitor_peer(
         self: &Arc<Self>,
         url: ToriiUrl,
+        client: reqwest::Client,
+        initial_config_interval: std::time::Duration,
         shutdown_signal: ShutdownSignal,
     ) -> crate::ToriiCriticalWorkerExit {
         let (mut rx, monitor) = monitor::run(
             url.clone(),
+            client,
+            initial_config_interval,
             self.geo_config.clone(),
             self.network_id,
             self.operator_signer.clone(),

@@ -26,6 +26,8 @@ impl ManagedStore {
     ///
     /// The returned configuration belongs to the registry network. Its prepared transport owns
     /// the exclusive, separately advancing discovery journal through every derived archive client.
+    /// Managed readiness observations use a distinct purpose and finality journal, so keeping an
+    /// archive client alive cannot prevent the local runtime from refreshing its native evidence.
     /// Generated local TLS roots and addresses come only from the validated original profile;
     /// fresh native admission, advert and signer custody remain mandatory before provider I/O.
     /// Standard localnets and private environments without a signed parent registry return `None`.

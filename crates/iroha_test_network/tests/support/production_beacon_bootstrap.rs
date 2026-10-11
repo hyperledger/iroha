@@ -1,5 +1,5 @@
 //! Fresh four-seat custody through the real native provisioning and provider boundary.
-//! Every running daemon uses its stock runtime-provider broker and held authority seed.
+//! Every running daemon uses its stock runtime-provider broker.
 use super::*;
 use iroha_config::base::read::ConfigReader;
 use iroha_core::beacon::credential::global_beacon_partial_signer_public_inventory_digest_v1;
@@ -19,7 +19,6 @@ use iroha_data_model::{
         ApplyThresholdKeyLifecycleCertificateV1, ThresholdKeyLifecycleActionV1,
         ThresholdKeyLifecycleCertificateV1,
     },
-    parameter::system::SumeragiNposParameters,
     sumeragi::finality::{NativeFinalityArtifact, NativeFinalityJournal, NativeFinalityLimits},
     transaction::TransactionEntrypoint,
 };
@@ -326,7 +325,7 @@ fn config(path: &Path) -> Result<iroha_config::parameters::actual::Root> {
     let _profile = iroha_data_model::account::address::ChainDiscriminantGuard::enter(369);
     let parsed: iroha_config::parameters::actual::Root = ConfigReader::new()
         .without_env()
-        .read_toml_with_extends(path.to_owned())
+        .read_toml_with_extends(path)
         .map_err(|_| eyre!("cannot read native fixture config"))?
         .read_and_complete::<iroha_config::parameters::user::Root>()
         .map_err(|_| eyre!("cannot decode native fixture config"))?
@@ -514,7 +513,6 @@ async fn listeners_started(peers: &mut Peers, api: u16, deadline: Instant) -> Re
 }
 struct Peers {
     children: Vec<Child>,
-    private_copies: Vec<ConsumedCopy>,
 }
 impl Peers {
     async fn stop(&mut self, deadline: Instant) -> Result<()> {
@@ -532,7 +530,6 @@ impl Peers {
                 .wrap_err("fixture-owned validator did not stop")??;
         }
         self.children.clear();
-        self.private_copies.clear();
         Ok(())
     }
 }
@@ -587,7 +584,6 @@ fn spawn_peers(
 ) -> Result<Peers> {
     let mut peers = Peers {
         children: Vec::new(),
-        private_copies: Vec::new(),
     };
     for index in 0..4 {
         let path = directory.join(format!("peer{index}.toml"));
@@ -597,11 +593,6 @@ fn spawn_peers(
             .position(|peer| peer == &native.common.peer.id)
             .ok_or_else(|| eyre!("peer is outside signed genesis roster"))?
             + 1;
-        let mint = consumed_copy(
-            &directory.join(format!("runtime/mint-finality-signers/peer{index}.seed")),
-            &directory.join(format!("runtime/peer{index}-run{run_number}.fd199")),
-            32,
-        )?;
         let mut child = command(daemon, directory);
         child
             .arg("--sora")
@@ -621,10 +612,7 @@ fn spawn_peers(
             &native.sumeragi.installation_log,
             run_number == 1,
         )?;
-        let descriptors = vec![(mint.file.as_raw_fd(), 199)];
-        inherit(&mut child, &descriptors)?;
         peers.children.push(child.spawn()?);
-        peers.private_copies.push(mint);
     }
     Ok(peers)
 }
@@ -917,11 +905,10 @@ impl ProviderBroker {
 }
 
 fn configure_stock_broker(table: &mut toml::Table, endpoint: &Path) -> Result<()> {
-    let sumeragi = table
+    table
         .get_mut("sumeragi")
         .and_then(toml::Value::as_table_mut)
         .ok_or_else(|| eyre!("native Sumeragi config absent"))?;
-    sumeragi.insert("mint_finality_seed_fd".into(), toml::Value::Integer(199));
     let broker = table
         .entry("runtime_provider_broker")
         .or_insert_with(|| toml::Value::Table(toml::Table::new()))
@@ -935,14 +922,11 @@ fn configure_stock_broker(table: &mut toml::Table, endpoint: &Path) -> Result<()
 }
 
 #[test]
-fn production_beacon_stock_config_preserves_providers_and_configures_seed_custody() -> Result<()> {
+fn production_beacon_stock_config_preserves_providers_and_binds_the_broker() -> Result<()> {
     let mut table: toml::Table = "[sumeragi]\nrole = 'validator'\n[soracloud_runtime.mutation_signer]\nhandle = 'original-signer'\n".parse()?;
     let original = table["soracloud_runtime"].clone();
     configure_stock_broker(&mut table, Path::new("/owner/initial/broker.sock"))?;
-    assert_eq!(
-        table["sumeragi"]["mint_finality_seed_fd"].as_integer(),
-        Some(199)
-    );
+    assert!(table["sumeragi"].get("mint_finality_seed_fd").is_none());
     assert_eq!(table["soracloud_runtime"], original);
     table["sumeragi"].as_table_mut().unwrap().insert(
         "global_beacon_partial_signer_provider_handle".into(),
@@ -1410,7 +1394,6 @@ fn verify_pulse(
             &native.common.chain,
             &record.session.network_id,
             native_finality_limits(),
-            cursor.attestations(),
             cursor.allocation_budget(),
             |reader| {
                 reader
@@ -1437,13 +1420,13 @@ fn verify_pulse(
                 && context.external[0].dataspace_id == DataSpaceId::UNIVERSAL,
             "mandatory pulse carrier is not the exact one-transaction catalog execution"
         );
-        let initial_authority = &certified[0].commitment().schedule.current.authority;
+        let initial_authority = certified[0].commitment().schedule.current.generation();
         let mut prior_authorization = None;
         for proof in certified.iter().skip(1) {
             let height = proof.height();
             let context = &proof.commitment().schedule.current;
             ensure!(
-                &context.authority == initial_authority,
+                context.generation() == initial_authority,
                 "unchanged committee must retain the same immutable authority generation"
             );
             if height == epoch_length {
@@ -1512,7 +1495,7 @@ fn verify_pulse(
                 }
             },
         )?;
-        let proof = (block.hash(), pulse.clone());
+        let proof = (block.hash(), *pulse);
         if let Some(expected) = &common {
             ensure!(
                 expected == &proof,
@@ -1605,19 +1588,19 @@ impl Runtime<'_> {
             heights.iter().all(|height| *height >= applied_height),
             "shutdown snapshot regressed"
         );
-        // Restart consumes a new FD199 seed copy and reconnects to each peer's
-        // still-running stock broker, which retains its original runtime signer.
+        // Restart reconnects to each peer's still-running stock broker, which
+        // retains its original runtime signer.
         self.restart(restart).await?;
         timeout_at(restart, async {
             loop {
                 let mut complete = true;
-                for peer in 0..4 {
+                for (peer, &height) in heights.iter().enumerate() {
                     let status = validator_status_until(&self.clients[peer], restart).await?;
-                    complete &= status.blocks >= heights[peer]
+                    complete &= status.blocks >= height
                         && public_sequence::snapshot_log_contains_height(
                             &peer_logs(self.directory, peer, self.run),
                             "Successfully loaded the state from a snapshot",
-                            heights[peer],
+                            height,
                         )?;
                 }
                 if complete {

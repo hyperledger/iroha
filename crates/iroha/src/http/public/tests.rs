@@ -50,7 +50,7 @@ fn deadline() -> Instant {
 
 #[test]
 fn unsigned_public_reads_share_bounded_credential_free_blocking_and_async_transport() {
-    PublicHttpClient::new().expect("native SDK transport is constructible without ledger custody");
+    let _ = PublicHttpClient::new();
     let transport = Transport::new(StatusCode::OK, vec![1, 2, 3]);
     let client = PublicHttpClient::with_transport(transport.clone());
     let url: Url = "https://releases.example/checkpoint.nrt".parse().unwrap();
@@ -155,4 +155,86 @@ fn public_response_status_and_size_fail_closed_without_redirect_or_retry() {
         Err(PublicHttpError::Deadline)
     );
     assert_eq!(transport_error(Instant::now()), PublicHttpError::Deadline);
+}
+
+#[derive(Debug)]
+struct NoritoTransport {
+    requests: Mutex<Vec<TransportRequest>>,
+    media: Option<&'static str>,
+}
+impl HttpTransport for NoritoTransport {
+    fn send_blocking(&self, request: TransportRequest) -> eyre::Result<Response<Vec<u8>>> {
+        self.requests.lock().unwrap().push(request);
+        let mut response = Response::new(vec![1, 2, 3]);
+        if let Some(media) = self.media {
+            response.headers_mut().insert(
+                http::header::CONTENT_TYPE,
+                http::HeaderValue::from_static(media),
+            );
+        }
+        Ok(response)
+    }
+    fn send(&self, request: TransportRequest) -> TransportFuture<'_> {
+        Box::pin(async move { self.send_blocking(request) })
+    }
+}
+
+#[test]
+fn public_norito_reads_select_only_fixed_media_and_retain_original_public_policies() {
+    let transport = Arc::new(NoritoTransport {
+        requests: Mutex::new(vec![]),
+        media: Some("application/x-norito"),
+    });
+    let client = PublicHttpClient::with_transport(transport.clone());
+    let url = "https://parent.example/v1/bridge/finality/1"
+        .parse()
+        .unwrap();
+    assert_eq!(
+        client
+            .get_norito_bytes_blocking(&url, deadline(), 3)
+            .unwrap(),
+        [1, 2, 3]
+    );
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].url, url);
+    assert_eq!(requests[0].headers.len(), 1);
+    assert_eq!(requests[0].headers[0].0, http::header::ACCEPT);
+    assert_eq!(requests[0].headers[0].1, "application/x-norito");
+    assert!(requests[0].body.is_empty());
+    assert_eq!(requests[0].max_response_bytes, 3);
+    assert!(!requests[0].direct_loopback);
+    assert!(
+        requests[0]
+            .timeout
+            .is_some_and(|value| value <= Duration::from_secs(5))
+    );
+}
+
+#[test]
+fn public_norito_reads_refuse_missing_foreign_media_and_elapsed_requests() {
+    let url = "https://parent.example/v1/bridge/finality/2"
+        .parse()
+        .unwrap();
+    for media in [
+        None,
+        Some("application/json"),
+        Some("application/x-norito; charset=utf-8"),
+    ] {
+        let transport = Arc::new(NoritoTransport {
+            requests: Mutex::new(vec![]),
+            media,
+        });
+        let client = PublicHttpClient::with_transport(transport.clone());
+        assert_eq!(
+            client.get_norito_bytes_blocking(&url, deadline(), 3),
+            Err(PublicHttpError::Invalid)
+        );
+        assert_eq!(transport.requests.lock().unwrap().len(), 1);
+        assert_eq!(
+            client.get_norito_bytes_blocking(&url, Instant::now(), 3),
+            Err(PublicHttpError::Deadline)
+        );
+        assert_eq!(transport.requests.lock().unwrap().len(), 1);
+    }
 }

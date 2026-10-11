@@ -37,10 +37,10 @@ class ValidatorUnitTests(unittest.TestCase):
             path.write_bytes(b"fixture-private-config")
             path.chmod(0o600)
         old_hash, new_hash = "a" * 64, "b" * 64
-        code = unit.launcher("taira-validator-1", "/absent/runtime", "/absent/mint", "/absent/beacon")
+        code = unit.launcher("taira-validator-1", "/absent/runtime", "/absent/beacon")
         code = code.replace("cmd = ['/srv/taira/taira-validator-1/current/bin/iroha3d_taira', '--config', '/srv/taira/taira-validator-1/current/config/config.toml', '--sora']",
                             f"cmd = {['/private/runtime/current/bin/iroha3d_taira', '--sora', '--config', str(config), '--config-blake3', old_hash]!r}")
-        text = unit.render("taira-validator-1", "/absent/runtime", "/absent/mint", "/absent/beacon")
+        text = unit.render("taira-validator-1", "/absent/runtime", "/absent/beacon")
         lines = ["ExecStart=/usr/bin/python3 -c " + unit.systemd_argument(code) if line.startswith("ExecStart=") else line for line in text.splitlines()]
         source.write_text("\n".join(lines) + "\n")
         source.chmod(0o644)
@@ -167,7 +167,6 @@ class ValidatorUnitTests(unittest.TestCase):
     def inputs(self, directory):
         return (
             self.fixture(directory, "runtime", 71),
-            self.fixture(directory, "mint", 32),
             self.fixture(directory, "beacon.norito", 257),
         )
 
@@ -188,10 +187,10 @@ class ValidatorUnitTests(unittest.TestCase):
 
     def execute(self, paths, *, beacon=True, reached_exec=True, occupy=False, config_file="config.toml",
                 fresh_key=False, exec_outcome="fail", during_staging=None):
-        runtime, mint, credential = paths
+        runtime, credential = paths
         state_root = self.state(paths)
         code = unit.launcher(
-            "taira-validator-1", str(runtime), str(mint),
+            "taira-validator-1", str(runtime),
             str(credential) if beacon else None, config_file=config_file, state_root=str(state_root),
         )
         # Execute the actual generated custody body in an isolated process.
@@ -235,9 +234,9 @@ def observe_exec(executable, argv):
     assert argv == expected_argv, argv
     # A first-boot token never survives into the daemon's lifetime.
     assert not os.path.lexists(request["token"])
-    expected = [(198, request["paths"][0]), (199, request["paths"][1])]
+    expected = [(198, request["paths"][0])]
     if request["beacon"]:
-        expected.append((200, request["paths"][2]))
+        expected.append((200, request["paths"][1]))
     else:
         try: os.fstat(200)
         except OSError: pass
@@ -281,7 +280,7 @@ sys.stdout.write(json.dumps({"failure": failure}))
         return json.loads(result.stdout)
 
     def assert_no_launch_copies(self, paths):
-        for descriptor, path in zip((198, 199, 200), paths):
+        for descriptor, path in zip((198, 200), paths):
             self.assertFalse(Path(str(path) + f".fd{descriptor}").exists())
 
     def assert_token(self, token):
@@ -303,7 +302,7 @@ sys.stdout.write(json.dumps({"failure": failure}))
     def test_initial_bootstrap_never_opens_or_fabricates_a_beacon_credential(self):
         with tempfile.TemporaryDirectory() as directory:
             paths = self.inputs(directory)
-            paths[2].unlink()
+            paths[1].unlink()
             self.execute(paths, beacon=False)
             self.assert_no_launch_copies(paths)
 
@@ -311,8 +310,8 @@ sys.stdout.write(json.dumps({"failure": failure}))
         for mutation in ("missing", "mode", "hardlink", "symlink", "empty", "oversized"):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
                 paths = self.inputs(directory)
-                credential = paths[2]
-                originals = [path.read_bytes() for path in paths[:2]]
+                credential = paths[1]
+                originals = [path.read_bytes() for path in paths[:1]]
                 if mutation == "missing":
                     credential.unlink()
                 elif mutation == "mode":
@@ -330,7 +329,7 @@ sys.stdout.write(json.dumps({"failure": failure}))
                         file.truncate(16 * 1024 * 1024 + 1)
                 self.execute(paths, reached_exec=False)
                 self.assert_no_launch_copies(paths)
-                self.assertEqual([path.read_bytes() for path in paths[:2]], originals)
+                self.assertEqual([path.read_bytes() for path in paths[:1]], originals)
 
     def test_occupied_beacon_descriptor_is_never_replaced_or_closed(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -343,31 +342,31 @@ sys.stdout.write(json.dumps({"failure": failure}))
             paths = self.inputs(directory)
             target = self.fixture(directory, "other-owner-file", 19)
             original = target.read_bytes()
-            launch = Path(str(paths[2]) + ".fd200")
+            launch = Path(str(paths[1]) + ".fd200")
             launch.symlink_to(target)
             self.execute(paths, reached_exec=False)
             self.assertTrue(launch.is_symlink())
             self.assertEqual(target.read_bytes(), original)
-            for descriptor, path in zip((198, 199), paths):
+            for descriptor, path in zip((198,), paths):
                 self.assertFalse(Path(str(path) + f".fd{descriptor}").exists())
 
     def test_render_only_uses_paths_and_rejects_cross_role_collisions(self):
         with patch.object(os, "open", side_effect=AssertionError("render must not read keys")):
-            rendered = unit.render("taira-validator-2", "/private/runtime/a", "/private/runtime/b", "/private/runtime/c")
+            rendered = unit.render("taira-validator-2", "/private/runtime/a", "/private/runtime/c")
         self.assertIn("Type=exec", rendered)
         self.assertIn(".fd", unit.CUSTODY)
-        for credential in ("relative", "/private/runtime/a", "/private/runtime/b.fd199",
+        for credential in ("relative", "/private/runtime/a", "/private/runtime/a.fd198",
                            "/var/lib/taira/taira-validator-2/sumeragi-first-boot"):
             with self.subTest(credential=credential), self.assertRaises(ValueError):
-                unit.render("taira-validator-2", "/private/runtime/a", "/private/runtime/b", credential)
+                unit.render("taira-validator-2", "/private/runtime/a", credential)
         for config_file in ("", "/etc/other.toml", "../beacon.toml", "config.toml/../beacon.toml",
                             "beacon.toml\nExecStart=/bin/false", "$(touch nope)", "%n.toml", "other.toml"):
             with self.subTest(config_file=config_file), self.assertRaises(ValueError):
-                unit.render("taira-validator-2", "/private/runtime/a", "/private/runtime/b",
+                unit.render("taira-validator-2", "/private/runtime/a",
                             "/private/runtime/c", config_file=config_file)
         self.assertEqual(
-            unit.render("taira-validator-2", "/private/runtime/a", "/private/runtime/b"),
-            unit.render("taira-validator-2", "/private/runtime/a", "/private/runtime/b", config_file="config.toml"),
+            unit.render("taira-validator-2", "/private/runtime/a"),
+            unit.render("taira-validator-2", "/private/runtime/a", config_file="config.toml"),
         )
 
     def test_cli_publishes_exact_public_unit_without_opening_credentials(self):
@@ -375,7 +374,7 @@ sys.stdout.write(json.dumps({"failure": failure}))
             with self.subTest(config_file=config_file), tempfile.TemporaryDirectory() as directory:
                 output = Path(directory) / "iroha3d-taira-validator-3.service"
                 command = [sys.executable, str(SCRIPT), "--role", "taira-validator-3",
-                           "--runtime-key", "/absent/runtime", "--mint-finality-seed", "/absent/mint",
+                           "--runtime-key", "/absent/runtime",
                            "--global-beacon-credential", "/absent/beacon", "--output", str(output)]
                 if config_file is not None:
                     command += ["--config-file", config_file]
@@ -384,7 +383,7 @@ sys.stdout.write(json.dumps({"failure": failure}))
                 self.assertEqual(output.stat().st_mode & 0o777, 0o644)
                 original = output.read_bytes()
                 self.assertEqual(original.decode(), unit.render(
-                    "taira-validator-3", "/absent/runtime", "/absent/mint", "/absent/beacon",
+                    "taira-validator-3", "/absent/runtime", "/absent/beacon",
                     config_file=config_file or "config.toml"))
                 second = subprocess.run(command, capture_output=True, text=True, timeout=10)
                 self.assertNotEqual(second.returncode, 0)
@@ -568,7 +567,7 @@ sys.stdout.write(json.dumps({"failure": failure}))
         base = [sys.executable, str(SCRIPT), "--arm-first-boot"]
         self.assertEqual(subprocess.run(base, capture_output=True, text=True, timeout=10).returncode, 2)
         for extra in (["--output", "/absent/iroha3d-taira-validator-1.service"], ["--runtime-key", "/absent/runtime"],
-                      ["--mint-finality-seed", "/absent/mint"], ["--global-beacon-credential", "/absent/beacon"],
+                      ["--global-beacon-credential", "/absent/beacon"],
                       ["--config-file", "config.toml"]):
             with self.subTest(extra=extra):
                 rejected = subprocess.run(base + ["--role", "taira-validator-1", *extra],
@@ -579,7 +578,7 @@ sys.stdout.write(json.dumps({"failure": failure}))
             [sys.executable, str(SCRIPT), "--role", "taira-validator-1", "--output", "/absent/iroha3d-taira-validator-1.service"],
             capture_output=True, text=True, timeout=10)
         self.assertEqual(render_without_inputs.returncode, 2)
-        self.assertIn("--runtime-key, --mint-finality-seed", render_without_inputs.stderr)
+        self.assertIn("--runtime-key", render_without_inputs.stderr)
 
     @unittest.skipIf(os.path.lexists("/var/lib/taira/taira-validator-4"), "host has a real Taira validator state root")
     def test_cli_arming_refuses_without_the_canonical_state_root(self):
@@ -594,7 +593,7 @@ sys.stdout.write(json.dumps({"failure": failure}))
         for role in unit.ROLES:
             for config_file in unit.CONFIG_FILES:
                 with self.subTest(role=role, config_file=config_file):
-                    arguments = (role, "/private/runtime/a", "/private/runtime/b", "/private/runtime/c")
+                    arguments = (role, "/private/runtime/a", "/private/runtime/c")
                     code = unit.launcher(*arguments, config_file=config_file)
                     rendered = unit.render(*arguments, config_file=config_file)
                     bindings = {}
@@ -603,7 +602,7 @@ sys.stdout.write(json.dumps({"failure": failure}))
                                 and isinstance(node.targets[0], ast.Name)):
                             bindings.setdefault(node.targets[0].id, []).append(node.value)
                     literal = {name: [ast.literal_eval(value) for value in bindings[name]]
-                               for name in ("runtime_key", "mint_finality_seed", "cmd", "state_root",
+                               for name in ("runtime_key", "cmd", "state_root",
                                             "first_boot_token", "sumeragi_history")}
                     root = "/var/lib/taira/" + role
                     current = "/srv/taira/" + role + "/current"
@@ -611,7 +610,6 @@ sys.stdout.write(json.dumps({"failure": failure}))
                     self.assertEqual(literal["cmd"], [[current + "/bin/iroha3d_taira", "--config",
                                                        current + "/config/" + config_file, "--sora"]])
                     self.assertEqual(literal["runtime_key"], ["/private/runtime/a"])
-                    self.assertEqual(literal["mint_finality_seed"], ["/private/runtime/b"])
                     self.assertEqual(literal["state_root"], [root])
                     self.assertEqual(literal["first_boot_token"], [root + "/sumeragi-first-boot"])
                     self.assertEqual(literal["sumeragi_history"],

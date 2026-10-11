@@ -8,26 +8,15 @@ use iroha_core::{
     query::store::LiveQueryStore,
     state::{State, World},
 };
-use iroha_core_zk::ZK_BACKEND_HALO2_IPA;
-use iroha_data_model::{
-    block::BlockHeader,
-    proof::ProofBox,
-    zk::{BackendTag, OpenVerifyEnvelope},
-};
+use iroha_core_zk::native_pipa_r::BACKEND as NATIVE_BACKEND;
+use iroha_data_model::{block::BlockHeader, proof::ProofBox};
 use nonzero_ext::nonzero;
 fn open_verify_proof(vk_hash: [u8; 32]) -> ProofBox {
-    let envelope = OpenVerifyEnvelope {
-        backend: BackendTag::Halo2IpaPasta,
-        circuit_id: "halo2/ipa:dedup-state-wrapper".to_owned(),
+    iroha_core_zk::test_utils::native_framing_fixture_envelope(
+        iroha_core_zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
         vk_hash,
-        public_inputs: vec![1],
-        proof_bytes: vec![2, 3],
-        aux: Vec::new(),
-    };
-    ProofBox::new(
-        ZK_BACKEND_HALO2_IPA.to_owned(),
-        norito::to_bytes(&envelope).expect("encode OpenVerifyEnvelope"),
     )
+    .proof_box(NATIVE_BACKEND)
 }
 #[test]
 fn preverify_state_wrapper_requires_bound_commitments_and_dedups() {

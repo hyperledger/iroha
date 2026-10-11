@@ -1,8 +1,8 @@
 
-seiyaku Test {
+seiyaku Test { permission Entry;
   state StateMap<int, int> Foo;
 
-  kotoage fn sum(int n) -> int  authorize("Entry") {
+  kotoage fn sum(int n) authorize(Entry) -> int {
     var int acc = 0;
     for (k, v) in Foo.take(n) {
       acc = acc + v;

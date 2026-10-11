@@ -55,20 +55,25 @@ object RamLfeJsonParser {
     fun parseExecuteResponse(payload: ByteArray): RamLfeExecuteResponse {
         val root = expectObject(parse(payload, "ram-lfe execute response"), "ram-lfe execute response")
         val fields = setOf(
-            "program_id", "opaque_hash", "receipt_hash", "output_ciphertext", "output_hash",
+            "program_id", "program_id_canonical", "opaque_hash", "receipt_hash", "opaque_output", "output_hash",
             "associated_data_hash", "executed_at_ms", "expires_at_ms", "backend",
             "verification_mode", "receipt",
         )
         root.keys.forEach { field ->
             check(field in fields) { "ram-lfe execute response.$field is not supported" }
         }
+        fields.forEach { field -> check(root.containsKey(field) && root[field] != null) { "ram-lfe execute response.$field is required" } }
+        check(root["backend"] == IdentifierOwnerInputV1.BACKEND) { "ram-lfe execute response.backend requires the current HKDF backend" }
+        check(root["verification_mode"] == "signed") { "ram-lfe execute response.verification_mode requires signed metadata" }
+        IdentifierOwnerInputV1.originalLease(asLong(root["executed_at_ms"], "execute.executed_at_ms"), asLong(root["expires_at_ms"], "execute.expires_at_ms"))
         return RamLfeExecuteResponse(
             requiredExactString(root["program_id"], "ram-lfe execute response.program_id"),
-            canonicalizeExactHash32(root["opaque_hash"], "ram-lfe execute response.opaque_hash"),
-            canonicalizeExactHash32(root["receipt_hash"], "ram-lfe execute response.receipt_hash"),
-            canonicalizeExactHex(root["output_ciphertext"], "ram-lfe execute response.output_ciphertext"),
-            canonicalizeExactHash32(root["output_hash"], "ram-lfe execute response.output_hash"),
-            canonicalizeExactHash32(root["associated_data_hash"], "ram-lfe execute response.associated_data_hash"),
+            requiredExactString(root["program_id_canonical"], "ram-lfe execute response.program_id_canonical"),
+            IdentifierOwnerInputV1.rawHash32(requiredExactString(root["opaque_hash"], "ram-lfe execute response.opaque_hash"), "ram-lfe execute response.opaque_hash"),
+            IdentifierOwnerInputV1.rawHash32(requiredExactString(root["receipt_hash"], "ram-lfe execute response.receipt_hash"), "ram-lfe execute response.receipt_hash"),
+            exactOpaque32(root["opaque_output"]),
+            IdentifierOwnerInputV1.rawHash32(requiredExactString(root["output_hash"], "ram-lfe execute response.output_hash"), "ram-lfe execute response.output_hash"),
+            IdentifierOwnerInputV1.rawHash32(requiredExactString(root["associated_data_hash"], "ram-lfe execute response.associated_data_hash"), "ram-lfe execute response.associated_data_hash"),
             asLong(root["executed_at_ms"], "ram-lfe execute response.executed_at_ms"),
             if (root.containsKey("expires_at_ms")) asOptionalLong(root["expires_at_ms"], "ram-lfe execute response.expires_at_ms") else null,
             RamLfeWireTags.parseBackend(root["backend"], "ram-lfe execute response.backend"),
@@ -92,6 +97,12 @@ object RamLfeJsonParser {
             else null,
             optionalString(root["error"], "ram-lfe receipt verify response.error")
         )
+    }
+
+    private fun exactOpaque32(value: Any?): String {
+        check(value is String) { "ram-lfe execute response.opaque_output must be exact uppercase raw32 hex" }
+        RamLfeExecuteConsistencyV1.upperHex(value, 32, "ram-lfe execute response.opaque_output")
+        return value
     }
 
     private fun parse(payload: ByteArray?, context: String): Any? {

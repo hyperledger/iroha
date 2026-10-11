@@ -2,15 +2,19 @@
 #![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "zk-tests")]
 //! Verifying-key registry indexing by `(circuit_id, version)`.
-use iroha_core::{
-    executor::Executor,
-    kura::Kura,
-    query::store::LiveQueryStore,
-    smartcontracts::Execute,
-    state::{State, WorldReadOnly},
-};
+#[path = "common/native_genesis.rs"]
+mod native_genesis;
+#[path = "common/zk_components.rs"]
+mod zk_components;
+use iroha_core::{smartcontracts::Execute, state::WorldReadOnly};
 use iroha_core_zk::hash_vk;
-use iroha_crypto::Hash as CryptoHash;
+use iroha_core_zk::{
+    confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID as TRANSFER,
+    native_pipa_r::{self, NativeRelationV1},
+    test_utils::native_confidential_fixture_envelope,
+};
+use zk_components::execute_isi_component;
+const FULL: &str = "pipa-r/pasta/confidential-unshield-full-v1";
 use iroha_data_model::{
     ValidationFail,
     confidential::ConfidentialStatus,
@@ -21,7 +25,7 @@ use iroha_data_model::{
     },
     permission::Permission,
     prelude::InstructionBox,
-    proof::{VerifyingKeyBox, VerifyingKeyId, VerifyingKeyRecord},
+    proof::{VerifyingKeyId, VerifyingKeyRecord},
     zk::{BackendTag, OpenVerifyEnvelope},
 };
 use iroha_primitives::json::Json;
@@ -42,7 +46,6 @@ fn grant_manage_vk(block: &mut iroha_core::state::StateBlock<'_>) {
     stx.apply();
 }
 fn register_vk(
-    exec: &Executor,
     block: &mut iroha_core::state::StateBlock<'_>,
     id: &VerifyingKeyId,
     record: &VerifyingKeyRecord,
@@ -53,47 +56,51 @@ fn register_vk(
         record: record.clone(),
     }
     .into();
-    exec.execute_instruction(&mut stx, &ALICE_ID.clone(), instr)
-        .expect("register vk");
+    execute_isi_component(&mut stx, &ALICE_ID.clone(), instr).expect("register vk");
     stx.apply();
 }
 fn base_record(circuit: &str, version: u32) -> VerifyingKeyRecord {
     let mut rec = VerifyingKeyRecord::new(
         version,
         circuit.to_string(),
-        BackendTag::Halo2IpaPasta,
-        "pallas",
-        [0xAA; 32],
+        BackendTag::NativePipaRPasta,
+        "vesta",
+        iroha_crypto::Hash::new(native_pipa_r::public_schema(
+            native_pipa_r::relation("pipa-r/pasta", circuit).unwrap(),
+        ))
+        .into(),
         [0xBB; 32],
     );
     rec.status = ConfidentialStatus::Active;
-    rec.gas_schedule_id = Some("halo2_default".into());
+    rec.gas_schedule_id = Some("native_pipa_r_default".into());
     rec.max_proof_bytes = 4096;
     rec
 }
 #[test]
 fn duplicate_circuit_version_registration_rejected() {
     let world = test_world::world_with_test_accounts();
-    let kura = Kura::blank_kura_for_testing();
-    let query_handle = LiveQueryStore::start_test();
-    let state = State::new_for_testing(world, kura, query_handle);
-    let header = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
+    let state = native_genesis::certified_state(world);
+    let header = iroha_data_model::block::BlockHeader::new(
+        nonzero!(2_u64),
+        state.view().latest_block_hash(),
+        None,
+        1,
+        0,
+    );
     let mut block = state.block(header);
     grant_manage_vk(&mut block);
-    let exec = Executor::default();
-    let id_primary = VerifyingKeyId::new("halo2/ipa", "vk_primary");
-    let rec_primary = base_record("circuit_alpha", 1);
-    register_vk(&exec, &mut block, &id_primary, &rec_primary);
+    let id_primary = VerifyingKeyId::new("pipa-r/pasta", "vk_primary");
+    let rec_primary = base_record(TRANSFER, 1);
+    register_vk(&mut block, &id_primary, &rec_primary);
     let mut stx = block.transaction();
-    let id_secondary = VerifyingKeyId::new("halo2/ipa", "vk_secondary");
-    let rec_secondary = base_record("circuit_alpha", 1);
+    let id_secondary = VerifyingKeyId::new("pipa-r/pasta", "vk_secondary");
+    let rec_secondary = base_record(TRANSFER, 1);
     let instr: InstructionBox = verifying_keys::RegisterVerifyingKey {
         id: id_secondary.clone(),
         record: rec_secondary,
     }
     .into();
-    let err = exec
-        .execute_instruction(&mut stx, &ALICE_ID.clone(), instr)
+    let err = execute_isi_component(&mut stx, &ALICE_ID.clone(), instr)
         .expect_err("duplicate circuit/version must be rejected");
     match err {
         ValidationFail::InstructionFailed(InstructionExecutionError::InvariantViolation(msg)) => {
@@ -105,55 +112,52 @@ fn duplicate_circuit_version_registration_rejected() {
 #[test]
 fn update_rotates_circuit_version_index() {
     let world = test_world::world_with_test_accounts();
-    let kura = Kura::blank_kura_for_testing();
-    let query_handle = LiveQueryStore::start_test();
-    let state = State::new_for_testing(world, kura, query_handle);
-    let header = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
+    let state = native_genesis::certified_state(world);
+    let header = iroha_data_model::block::BlockHeader::new(
+        nonzero!(2_u64),
+        state.view().latest_block_hash(),
+        None,
+        1,
+        0,
+    );
     let mut block = state.block(header);
     grant_manage_vk(&mut block);
-    let exec = Executor::default();
-    let id = VerifyingKeyId::new("halo2/ipa", "vk_upgrade");
-    let rec_current = base_record("circuit_beta", 1);
-    register_vk(&exec, &mut block, &id, &rec_current);
+    let id = VerifyingKeyId::new("pipa-r/pasta", "vk_upgrade");
+    let rec_current = base_record(FULL, 1);
+    register_vk(&mut block, &id, &rec_current);
     // Upgrade to version 2
     let mut stx = block.transaction();
-    let rec_v2 = base_record("circuit_beta", 2);
+    let rec_v2 = base_record(FULL, 2);
     let update: InstructionBox = verifying_keys::UpdateVerifyingKey {
         id: id.clone(),
         record: rec_v2,
     }
     .into();
-    exec.execute_instruction(&mut stx, &ALICE_ID.clone(), update)
-        .expect("update vk");
+    execute_isi_component(&mut stx, &ALICE_ID.clone(), update).expect("update vk");
     stx.apply();
     let map = block.world.verifying_keys_by_circuit();
-    let key_old = (String::from("circuit_beta"), 1);
-    let key_new = (String::from("circuit_beta"), 2);
+    let key_old = (String::from(FULL), 1);
+    let key_new = (String::from(FULL), 2);
     assert!(
         map.get(&key_new).is_some(),
         "new version missing from index"
     );
     assert!(map.get(&key_old).is_none(), "old version still indexed");
 }
-fn register_halo2_vk(
+fn register_native_vk(
     block: &mut iroha_core::state::StateBlock<'_>,
-    exec: &Executor,
     name: &str,
-    circuit: &str,
-    version: u32,
-    vk_bytes: Vec<u8>,
-    public_inputs_hash: [u8; 32],
-) -> VerifyingKeyId {
-    let id = VerifyingKeyId::new("halo2/ipa", name);
-    let mut record = base_record(circuit, version);
-    let vk_box = VerifyingKeyBox::new("halo2/ipa".into(), vk_bytes);
+) -> (VerifyingKeyId, [u8; 32]) {
+    let id = VerifyingKeyId::new("pipa-r/pasta", name);
+    let mut record = base_record(TRANSFER, 1);
+    let vk_box = native_confidential_fixture_envelope()
+        .vk_box("pipa-r/pasta")
+        .unwrap();
     record.key = Some(vk_box.clone());
     record.commitment = hash_vk(&vk_box);
-    record.public_inputs_schema_hash = public_inputs_hash;
-    record.vk_len =
-        u32::try_from(vk_box.bytes.len()).expect("verifying key length must fit into u32");
-    register_vk(exec, block, &id, &record);
-    id
+    record.vk_len = u32::try_from(vk_box.bytes.len()).expect("bounded native key");
+    register_vk(block, &id, &record);
+    (id, record.commitment)
 }
 fn execute_verify_proof(
     block: &mut iroha_core::state::StateBlock<'_>,
@@ -174,37 +178,31 @@ fn execute_verify_proof(
 #[test]
 fn verify_proof_rejects_circuit_mismatch() {
     let world = test_world::world_with_test_accounts();
-    let kura = Kura::blank_kura_for_testing();
-    let query_handle = LiveQueryStore::start_test();
-    let state = State::new_for_testing(world, kura, query_handle);
-    let header = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
+    let state = native_genesis::certified_state(world);
+    let header = iroha_data_model::block::BlockHeader::new(
+        nonzero!(2_u64),
+        state.view().latest_block_hash(),
+        None,
+        1,
+        0,
+    );
     let mut block = state.block(header);
     grant_manage_vk(&mut block);
-    let exec = Executor::default();
-    let public_inputs = vec![1u8, 2, 3];
-    let expected_hash: [u8; 32] = CryptoHash::new(&public_inputs).into();
-    let vk_id = register_halo2_vk(
-        &mut block,
-        &exec,
-        "vk_main",
-        "circuit_alpha",
-        1,
-        vec![7, 7, 7],
-        expected_hash,
-    );
-    let vk_commitment = hash_vk(&VerifyingKeyBox::new("halo2/ipa".into(), vec![7, 7, 7]));
+    let public_inputs =
+        native_pipa_r::public_schema(NativeRelationV1::ConfidentialTransfer).to_vec();
+    let (vk_id, vk_commitment) = register_native_vk(&mut block, "vk_main");
     let envelope = OpenVerifyEnvelope {
-        backend: BackendTag::Halo2IpaPasta,
-        circuit_id: "circuit_beta".into(),
+        backend: BackendTag::NativePipaRPasta,
+        circuit_id: FULL.into(),
         vk_hash: vk_commitment,
         public_inputs: public_inputs.clone(),
         proof_bytes: vec![9, 9, 9],
         aux: Vec::new(),
     };
     let proof_bytes = norito::to_bytes(&envelope).expect("serialize envelope");
-    let proof_box = iroha_data_model::proof::ProofBox::new("halo2/ipa".into(), proof_bytes);
+    let proof_box = iroha_data_model::proof::ProofBox::new("pipa-r/pasta".into(), proof_bytes);
     let attachment =
-        iroha_data_model::proof::ProofAttachment::new_ref("halo2/ipa".into(), proof_box, vk_id);
+        iroha_data_model::proof::ProofAttachment::new_ref("pipa-r/pasta".into(), proof_box, vk_id);
     let err = execute_verify_proof(&mut block, attachment, vk_commitment).expect_err("must fail");
     match err {
         ValidationFail::InstructionFailed(InstructionExecutionError::InvariantViolation(msg)) => {
@@ -216,36 +214,32 @@ fn verify_proof_rejects_circuit_mismatch() {
 #[test]
 fn verify_proof_rejects_schema_hash_mismatch() {
     let world = test_world::world_with_test_accounts();
-    let kura = Kura::blank_kura_for_testing();
-    let query_handle = LiveQueryStore::start_test();
-    let state = State::new_for_testing(world, kura, query_handle);
-    let header = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
+    let state = native_genesis::certified_state(world);
+    let header = iroha_data_model::block::BlockHeader::new(
+        nonzero!(2_u64),
+        state.view().latest_block_hash(),
+        None,
+        1,
+        0,
+    );
     let mut block = state.block(header);
     grant_manage_vk(&mut block);
-    let exec = Executor::default();
-    let public_inputs = vec![4u8, 5, 6];
-    let vk_id = register_halo2_vk(
-        &mut block,
-        &exec,
-        "vk_main",
-        "circuit_alpha",
-        1,
-        vec![8, 8, 8],
-        [0xFF; 32],
-    );
-    let vk_commitment = hash_vk(&VerifyingKeyBox::new("halo2/ipa".into(), vec![8, 8, 8]));
+    let mut public_inputs =
+        native_pipa_r::public_schema(NativeRelationV1::ConfidentialTransfer).to_vec();
+    public_inputs[0] ^= 1;
+    let (vk_id, vk_commitment) = register_native_vk(&mut block, "vk_main");
     let envelope = OpenVerifyEnvelope {
-        backend: BackendTag::Halo2IpaPasta,
-        circuit_id: "circuit_alpha".into(),
+        backend: BackendTag::NativePipaRPasta,
+        circuit_id: TRANSFER.into(),
         vk_hash: vk_commitment,
         public_inputs: public_inputs.clone(),
         proof_bytes: vec![10, 10, 10],
         aux: Vec::new(),
     };
     let proof_bytes = norito::to_bytes(&envelope).expect("serialize envelope");
-    let proof_box = iroha_data_model::proof::ProofBox::new("halo2/ipa".into(), proof_bytes);
+    let proof_box = iroha_data_model::proof::ProofBox::new("pipa-r/pasta".into(), proof_bytes);
     let attachment =
-        iroha_data_model::proof::ProofAttachment::new_ref("halo2/ipa".into(), proof_box, vk_id);
+        iroha_data_model::proof::ProofAttachment::new_ref("pipa-r/pasta".into(), proof_box, vk_id);
     let err = execute_verify_proof(&mut block, attachment, vk_commitment).expect_err("must fail");
     match err {
         ValidationFail::InstructionFailed(InstructionExecutionError::InvariantViolation(msg)) => {
@@ -257,38 +251,31 @@ fn verify_proof_rejects_schema_hash_mismatch() {
 #[test]
 fn verify_proof_records_matching_metadata_with_invalid_proof_as_rejected() {
     let world = test_world::world_with_test_accounts();
-    let kura = Kura::blank_kura_for_testing();
-    let query_handle = LiveQueryStore::start_test();
-    let state = State::new_for_testing(world, kura, query_handle);
-    let header = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
+    let state = native_genesis::certified_state(world);
+    let header = iroha_data_model::block::BlockHeader::new(
+        nonzero!(2_u64),
+        state.view().latest_block_hash(),
+        None,
+        1,
+        0,
+    );
     let mut block = state.block(header);
     grant_manage_vk(&mut block);
-    let exec = Executor::default();
-    let public_inputs = vec![11u8, 12, 13];
-    let hash: [u8; 32] = CryptoHash::new(&public_inputs).into();
-    let vk_bytes = vec![9, 9, 9];
-    let vk_id = register_halo2_vk(
-        &mut block,
-        &exec,
-        "vk_main",
-        "circuit_alpha",
-        1,
-        vk_bytes.clone(),
-        hash,
-    );
-    let commitment = hash_vk(&VerifyingKeyBox::new("halo2/ipa".into(), vk_bytes));
+    let public_inputs =
+        native_pipa_r::public_schema(NativeRelationV1::ConfidentialTransfer).to_vec();
+    let (vk_id, commitment) = register_native_vk(&mut block, "vk_main");
     let envelope = OpenVerifyEnvelope {
-        backend: BackendTag::Halo2IpaPasta,
-        circuit_id: "circuit_alpha".into(),
+        backend: BackendTag::NativePipaRPasta,
+        circuit_id: TRANSFER.into(),
         vk_hash: commitment,
         public_inputs: public_inputs.clone(),
         proof_bytes: vec![1, 2, 3, 4],
         aux: Vec::new(),
     };
     let proof_bytes = norito::to_bytes(&envelope).expect("serialize envelope");
-    let proof_box = iroha_data_model::proof::ProofBox::new("halo2/ipa".into(), proof_bytes);
+    let proof_box = iroha_data_model::proof::ProofBox::new("pipa-r/pasta".into(), proof_bytes);
     let attachment =
-        iroha_data_model::proof::ProofAttachment::new_ref("halo2/ipa".into(), proof_box, vk_id);
+        iroha_data_model::proof::ProofAttachment::new_ref("pipa-r/pasta".into(), proof_box, vk_id);
     let proof_id = iroha_data_model::proof::ProofId {
         backend: attachment.backend.clone(),
         proof_hash: iroha_core_zk::hash_proof(&attachment.proof),
@@ -309,24 +296,26 @@ fn verify_proof_records_matching_metadata_with_invalid_proof_as_rejected() {
 #[test]
 fn register_requires_circuit_and_schema_hash() {
     let world = test_world::world_with_test_accounts();
-    let kura = Kura::blank_kura_for_testing();
-    let query_handle = LiveQueryStore::start_test();
-    let state = State::new_for_testing(world, kura, query_handle);
-    let header = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
+    let state = native_genesis::certified_state(world);
+    let header = iroha_data_model::block::BlockHeader::new(
+        nonzero!(2_u64),
+        state.view().latest_block_hash(),
+        None,
+        1,
+        0,
+    );
     let mut block = state.block(header);
     grant_manage_vk(&mut block);
-    let exec = Executor::default();
-    let mut rec = base_record("", 1);
+    let mut rec = base_record(TRANSFER, 1);
     rec.circuit_id.clear();
-    let id = VerifyingKeyId::new("halo2/ipa", "vk_bad");
+    let id = VerifyingKeyId::new("pipa-r/pasta", "vk_bad");
     let mut stx = block.transaction();
     let instr: InstructionBox = verifying_keys::RegisterVerifyingKey {
         id: id.clone(),
         record: rec.clone(),
     }
     .into();
-    let err = exec
-        .execute_instruction(&mut stx, &ALICE_ID.clone(), instr)
+    let err = execute_isi_component(&mut stx, &ALICE_ID.clone(), instr)
         .expect_err("empty circuit_id must be rejected");
     match err {
         ValidationFail::InstructionFailed(InstructionExecutionError::InvalidParameter(
@@ -340,12 +329,11 @@ fn register_requires_circuit_and_schema_hash() {
         other => panic!("unexpected error: {other:?}"),
     }
     drop(stx);
-    rec.circuit_id = "circuit_alpha".into();
+    rec.circuit_id = TRANSFER.into();
     rec.public_inputs_schema_hash = [0u8; 32];
     let mut stx2 = block.transaction();
     let instr2: InstructionBox = verifying_keys::RegisterVerifyingKey { id, record: rec }.into();
-    let err2 = exec
-        .execute_instruction(&mut stx2, &ALICE_ID.clone(), instr2)
+    let err2 = execute_isi_component(&mut stx2, &ALICE_ID.clone(), instr2)
         .expect_err("zero schema hash must be rejected");
     match err2 {
         ValidationFail::InstructionFailed(InstructionExecutionError::InvalidParameter(

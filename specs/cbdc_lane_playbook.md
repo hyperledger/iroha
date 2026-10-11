@@ -254,7 +254,7 @@ directory so auditors and regulators can replay the exact bytes later.
   `authority`. Torii returns a canonical unsigned transaction draft for local
   validation, signing, and submission; `CanPublishSpaceDirectoryManifest`
   remains enforced on-chain.
-- Rotate whitelist membership: edit `cbdc.manifest.json`, bump `activation_epoch`, and redeploy via secure copy to all validators; `LaneManifestRegistry` hot-reloads on the configured poll interval.
+- Whitelist changes require an authorized policy transition or coordinated configuration rollout. The manifest poller accepts only unchanged consensus and materialized authority; it refreshes local diagnostics without installing policy changes.
 
 ## 3. Compliance Evidence Bundle
 

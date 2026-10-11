@@ -36,6 +36,7 @@
     <None Include="../../../fixtures/norito_rpc/transaction_fixtures.manifest.json" Link="Fixtures/norito_rpc/transaction_fixtures.manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../../fixtures/norito_rpc/transaction_payloads.json" Link="Fixtures/norito_rpc/transaction_payloads.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../../fixtures/norito_rpc/*.norito" Link="Fixtures/norito_rpc/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../fixtures/kotodama/durable_builtin_shapes_v1.json" Link="Fixtures/kotodama/durable_builtin_shapes_v1.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../../fixtures/kotodama/entrypoint_argument_record_v1.json" Link="Fixtures/kotodama/entrypoint_argument_record_v1.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../../fixtures/kotodama/nominal_errors_v1.json" Link="Fixtures/kotodama/nominal_errors_v1.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../../fixtures/kotodama/exported_structs_v1.json" Link="Fixtures/kotodama/exported_structs_v1.json" CopyToOutputDirectory="PreserveNewest" />

@@ -1,4 +1,4 @@
-//! Circuit shapes: [`SigmaShape`] (parameters and `k`), the proof format,
+//! Circuit shapes: [`SigmaShape`] (parameters and `k`), the fixed PIPA-R profile,
 //! and the shape selector [`select_shape`].
 //!
 //! A shape *fits* when a key-generation synthesis at its `k` succeeds: every
@@ -16,7 +16,8 @@ use iroha_pasta::{PastaCurve, poseidon::PoseidonField};
 use iroha_plonk::{
     Protocol,
     cs::{
-        CircuitDescriptorV1, CsError, DescriptorConfig, InstanceModeV1, ProofSuffixV1, TranscriptV1,
+        CircuitDescriptorV1, CircuitDescriptorV2, CsError, DescriptorConfig, InstanceModeV1,
+        InstanceType, ProofSuffixV1, TranscriptV1, TranscriptV2,
     },
     frontend::{Assembly, Error, SingleChipLayouter, configure, synthesize},
     pcs::curve_v1,
@@ -30,34 +31,6 @@ use crate::{
 /// The proof-size gate of the split-lineage recommendation (3.5 KB, from
 /// M7).
 pub const PROOF_BYTES_GATE: usize = 3_500;
-
-/// The proof format of a step proof.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ProofFormat {
-    /// The Fiat-Shamir transcript.
-    pub transcript: TranscriptV1,
-    /// How the public outputs enter the proof.
-    pub instance_mode: InstanceModeV1,
-    /// What follows the IPA messages.
-    pub proof_suffix: ProofSuffixV1,
-}
-
-impl ProofFormat {
-    /// The KAGEMUSHA step format measured in M7: the RP57 Poseidon
-    /// transcript, Direct instances and the folded-generator suffix (the
-    /// +32-byte augmentation that lets an accumulator take the proof).
-    pub const KAGEMUSHA_STEP: Self = Self {
-        transcript: TranscriptV1::KagemushaPoseidonRp57,
-        instance_mode: InstanceModeV1::Direct,
-        proof_suffix: ProofSuffixV1::FoldedGenerator,
-    };
-}
-
-impl Default for ProofFormat {
-    fn default() -> Self {
-        Self::KAGEMUSHA_STEP
-    }
-}
 
 /// A complete circuit shape: the parameters and `k`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -114,16 +87,13 @@ impl SigmaShape {
     }
 
     /// The descriptor keys for this shape are generated against (selector
-    /// compression on, as `KeygenConfig::new`).
+    /// compression on) with the PIPA-R transcript and one Bounded instance column.
     ///
     /// # Errors
     ///
     /// [`SigmaError`] when the shape does not fit or the descriptor is
     /// invalid.
-    pub fn descriptor<C: PastaCurve>(
-        &self,
-        format: ProofFormat,
-    ) -> Result<CircuitDescriptorV1, SigmaError>
+    pub fn descriptor<C: PastaCurve>(&self) -> Result<CircuitDescriptorV2, SigmaError>
     where
         C::ScalarExt: PoseidonField,
     {
@@ -140,15 +110,21 @@ impl SigmaShape {
             .finalize(synthesized.tables.selectors(), true)
             .map_err(SigmaError::ConstraintSystem)?;
         let curve = curve_v1::<C>().ok_or(SigmaError::UnknownCurve)?;
-        CircuitDescriptorV1::from_constraint_system(
+        let layout = CircuitDescriptorV1::from_constraint_system(
             &finalized,
             DescriptorConfig {
                 curve,
                 k: self.k,
-                transcript: format.transcript,
-                instance_mode: format.instance_mode,
-                proof_suffix: format.proof_suffix,
+                transcript: TranscriptV1::Blake2bChallenge255,
+                instance_mode: InstanceModeV1::Direct,
+                proof_suffix: ProofSuffixV1::FoldedGenerator,
             },
+        )
+        .map_err(SigmaError::Descriptor)?;
+        CircuitDescriptorV2::from_layout(
+            layout,
+            TranscriptV2::KagemushaPoseidonRp57Base,
+            vec![InstanceType::Bounded],
         )
         .map_err(SigmaError::Descriptor)
     }
@@ -158,11 +134,11 @@ impl SigmaShape {
     /// # Errors
     ///
     /// As [`Self::descriptor`], and [`SigmaError::Protocol`].
-    pub fn proof_length<C: PastaCurve>(&self, format: ProofFormat) -> Result<usize, SigmaError>
+    pub fn proof_length<C: PastaCurve>(&self) -> Result<usize, SigmaError>
     where
         C::ScalarExt: PoseidonField,
     {
-        let descriptor = self.descriptor::<C>(format)?;
+        let descriptor = self.descriptor::<C>()?;
         Ok(Protocol::new(&descriptor)
             .map_err(SigmaError::Protocol)?
             .proof_length())
@@ -176,6 +152,29 @@ pub fn limb_bits_for(k: u32) -> usize {
     usize::try_from(k.saturating_sub(1)).map_or(24, |bits| bits.clamp(1, 24))
 }
 
+/// The fixed one-lane monetary source admitted by the native wallet profile.
+/// Quota-enabled Send uses k14; the other Send masks and both Receive selectors
+/// use k12. Every source uses folded prefixes and `k - 1`-bit range limbs.
+/// This selects a compiled recipe; it does not generate or qualify a key.
+///
+/// # Errors
+/// Rejects an undefined control mask.
+pub fn wallet_monetary_shape(
+    relation: crate::witness::SigmaRelation,
+) -> Result<SigmaShape, crate::circuit::ParamsError> {
+    let k = if relation.enforces(crate::witness::CONTROL_QUOTAS) {
+        14
+    } else {
+        12
+    };
+    let params = SigmaParams::new(
+        RelationShape::new(relation, crate::circuit::PrefixMode::Folded),
+        1,
+        limb_bits_for(k),
+    )?;
+    Ok(SigmaShape::new(params, k))
+}
+
 /// What [`select_shape`] searches.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ShapePolicy {
@@ -187,8 +186,6 @@ pub struct ShapePolicy {
     pub max_lanes: usize,
     /// The proof byte budget, if any.
     pub max_proof_bytes: Option<usize>,
-    /// The proof format.
-    pub format: ProofFormat,
 }
 
 impl Default for ShapePolicy {
@@ -200,7 +197,6 @@ impl Default for ShapePolicy {
             max_k: 16,
             max_lanes: MAX_LANES,
             max_proof_bytes: Some(PROOF_BYTES_GATE),
-            format: ProofFormat::KAGEMUSHA_STEP,
         }
     }
 }
@@ -214,7 +210,6 @@ impl ShapePolicy {
             max_k: 16,
             max_lanes: MAX_LANES,
             max_proof_bytes: None,
-            format: ProofFormat::KAGEMUSHA_STEP,
         }
     }
 }
@@ -254,7 +249,7 @@ where
                 Err(SigmaError::DoesNotFit { .. }) => continue,
                 Err(error) => return Err(error),
             };
-            let proof_bytes = shape.proof_length::<C>(policy.format)?;
+            let proof_bytes = shape.proof_length::<C>()?;
             if policy
                 .max_proof_bytes
                 .is_none_or(|budget| proof_bytes <= budget)
@@ -278,12 +273,45 @@ mod tests {
     use crate::{circuit::PrefixMode, witness::SigmaRelation};
 
     #[test]
+    fn wallet_recipe_covers_exactly_the_ten_monetary_selectors() {
+        for relation in (0..8)
+            .map(SigmaRelation::send)
+            .chain((0..2).map(SigmaRelation::receive))
+        {
+            let shape = wallet_monetary_shape(relation).unwrap();
+            assert_eq!(
+                shape.k,
+                if relation.enforces(crate::witness::CONTROL_QUOTAS) {
+                    14
+                } else {
+                    12
+                }
+            );
+            assert_eq!(shape.params.lanes(), 1);
+            assert_eq!(shape.params.limb_bits(), limb_bits_for(shape.k));
+            assert_eq!(
+                shape.params.relation(),
+                RelationShape::new(relation, PrefixMode::Folded)
+            );
+        }
+        for relation in [
+            SigmaRelation::send(8),
+            SigmaRelation::receive(2),
+            SigmaRelation::receive(7),
+        ] {
+            assert_eq!(
+                wallet_monetary_shape(relation),
+                Err(crate::circuit::ParamsError::Relation(relation))
+            );
+        }
+    }
+
+    #[test]
     fn limb_widths_follow_k() {
         assert_eq!(limb_bits_for(11), 10);
         assert_eq!(limb_bits_for(1), 1);
         assert_eq!(limb_bits_for(0), 1);
         assert_eq!(limb_bits_for(40), 24);
-        assert_eq!(ProofFormat::default(), ProofFormat::KAGEMUSHA_STEP);
         assert_eq!(
             ShapePolicy::default().max_proof_bytes,
             Some(PROOF_BYTES_GATE)
@@ -311,7 +339,7 @@ mod tests {
 
     #[test]
     fn a_receive_needs_four_lanes_at_k10() {
-        // 65 folded permutations (2,405 lane rows) and the glue rows do not
+        // 67 folded permutations (2,479 lane rows) and the glue rows do not
         // fit three lanes of 1,024 rows.
         let relation = RelationShape::new(SigmaRelation::RECEIVE, PrefixMode::Folded);
         for lanes in [1, 2, 3] {
@@ -327,7 +355,7 @@ mod tests {
         assert_eq!(inventory.permutations(), relation.permutations());
         assert!(inventory.rows() < 1 << 10);
         let bytes = SigmaShape::new(four, 10)
-            .proof_length::<Eq>(ProofFormat::KAGEMUSHA_STEP)
+            .proof_length::<Eq>()
             .expect("length");
         assert!(bytes > 0 && bytes.is_multiple_of(32), "{bytes}");
     }

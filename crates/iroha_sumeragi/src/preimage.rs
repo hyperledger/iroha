@@ -1,12 +1,11 @@
 //! Signing and hash preimages (spec §2.1, §3.1–§3.3, §1.8): fixed byte layouts built by hand,
 //! independent of any codec. Every layout starts with a domain tag; instance, scheduling epoch/context, height and view are
-//! in every consensus signing preimage, block hash, result and the block's attestation flag in
-//! every vote. The probe echo (kind `0x05`, §7.4 R2) is the only other signed object; the commit
-//! statement (kind `0x06`, §3.7) is attested by the application, not signed by consensus keys.
+//! in every consensus signing preimage; block hash and result are bound in every vote.
+//! The probe echo (kind `0x05`, §7.4 R2) independently binds restart anchoring.
 
 use crate::{
     crypto::Crypto,
-    message::{AttestationSignature, BlockHeader, Qc, TimeoutCert, VoteKind},
+    message::{BlockHeader, Qc, TimeoutCert, VoteKind},
     types::{Committee, EpochConfig, EpochId, Hash32, PublicKey},
 };
 
@@ -38,8 +37,6 @@ pub const KIND_COMMIT: u8 = 0x03;
 pub const KIND_TIMEOUT: u8 = 0x04;
 /// Kind byte of a probe echo (§3.3, §7.4 R2).
 pub const KIND_ECHO: u8 = 0x05;
-/// Kind byte of the commit statement an application attests (§3.3, §3.7).
-pub const KIND_ATTEST: u8 = 0x06;
 
 /// Append the canonical length-prefixed public key.
 pub(crate) fn put_kb(out: &mut Vec<u8>, pk: &PublicKey) {
@@ -61,15 +58,6 @@ fn put_keys(out: &mut Vec<u8>, list: &[PublicKey]) {
 fn put_len32(out: &mut Vec<u8>, len: usize) {
     // Every list reaching a preimage is bounded far below 2^32 by the intake limits.
     out.extend_from_slice(&u32::try_from(len).unwrap_or(u32::MAX).to_be_bytes());
-}
-
-/// `blobs(l) = be32(len(l)) ‖ [be32(len(x)) ‖ x] for x in l` (§3.1).
-fn put_blobs(out: &mut Vec<u8>, list: impl ExactSizeIterator<Item = impl AsRef<[u8]>>) {
-    put_len32(out, list.len());
-    for blob in list {
-        put_len32(out, blob.as_ref().len());
-        out.extend_from_slice(blob.as_ref());
-    }
 }
 
 /// `enc(None) = 0x00 ; enc(Some(w)) = 0x01 ‖ be64(w)` (optional view).
@@ -126,7 +114,7 @@ fn signing_prefix(kind: u8, instance: &Hash32, epoch: &EpochId) -> Vec<u8> {
 
 /// Preimage of `block_hash` (§3.2):
 /// `TAG_BLOCK ‖ I ‖ E ‖ be64(h) ‖ be64(origin_view) ‖ parent_hash ‖ parent_result ‖ payload_hash ‖
-/// availability_digest ‖ be32(payload_len) ‖ be32(proposer) ‖ keys(skipped_leaders) ‖ be32(control_len) ‖ control ‖ bit(attest)`.
+/// availability_digest ‖ be32(payload_len) ‖ be32(proposer) ‖ keys(skipped_leaders) ‖ be32(control_len) ‖ control`.
 pub fn block_hash_preimage(header: &BlockHeader) -> Vec<u8> {
     let mut out = Vec::with_capacity(200);
     out.extend_from_slice(TAG_BLOCK);
@@ -149,7 +137,6 @@ pub fn block_hash_preimage(header: &BlockHeader) -> Vec<u8> {
         put_len32(&mut out, header.control_witness.len());
         out.extend_from_slice(header.control_witness.as_slice());
     }
-    out.push(u8::from(header.attest));
     out
 }
 
@@ -180,8 +167,7 @@ pub fn prop_preimage(
     out
 }
 
-/// `vote_preimage(kind, h, v, bh, R, a) = TAG_SIG ‖ kind ‖ I ‖ E ‖ be64(h) ‖ be64(v) ‖ bh ‖ R ‖
-/// bit(a)` (§3.3), with `a` the block's attestation flag (§3.7).
+/// `vote_preimage(kind, h, v, bh, R) = TAG_SIG ‖ kind ‖ I ‖ E ‖ be64(h) ‖ be64(v) ‖ bh ‖ R` (§3.3).
 #[allow(clippy::too_many_arguments, reason = "one per §3.3 layout field")]
 pub fn vote_preimage(
     kind: VoteKind,
@@ -191,7 +177,6 @@ pub fn vote_preimage(
     view: u64,
     bh: &Hash32,
     result: &Hash32,
-    attest: bool,
 ) -> Vec<u8> {
     let mut out = signing_prefix(kind.byte(), instance, epoch);
     out.extend_from_slice(&height.to_be_bytes());
@@ -199,77 +184,7 @@ pub fn vote_preimage(
     out.extend_from_slice(bh.as_bytes());
     #[cfg(not(sumeragi_mutation = "MS17"))]
     out.extend_from_slice(result.as_bytes());
-    // MA6: the flag is not signed.
-    #[cfg(not(sumeragi_mutation = "MA6"))]
-    out.push(u8::from(attest));
-    #[cfg(sumeragi_mutation = "MA6")]
-    let _ = attest;
     out
-}
-
-/// `att_preimage(h, bh, R) = TAG_SIG ‖ 0x06 ‖ I ‖ E ‖ be64(h) ‖ bh ‖ R` (§3.3): the commit statement
-/// an application attests (§3.7). It binds the instance, scheduling epoch/context, height, block hash and result, not the
-/// view, so an attestation stays valid in every view of its block.
-pub fn att_preimage(
-    instance: &Hash32,
-    epoch: &EpochId,
-    height: u64,
-    bh: &Hash32,
-    result: &Hash32,
-) -> Vec<u8> {
-    let mut out = signing_prefix(KIND_ATTEST, instance, epoch);
-    #[cfg(not(sumeragi_mutation = "MA4"))]
-    out.extend_from_slice(&height.to_be_bytes());
-    #[cfg(sumeragi_mutation = "MA4")]
-    let _ = height;
-    out.extend_from_slice(bh.as_bytes());
-    #[cfg(not(sumeragi_mutation = "MA3"))]
-    out.extend_from_slice(result.as_bytes());
-    #[cfg(sumeragi_mutation = "MA3")]
-    let _ = result;
-    out
-}
-
-/// Exact parsed source of an application commit statement. The parser accepts only the
-/// fixed signing layout emitted by [`att_preimage`], without allocation or trailing bytes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AttestationStatement {
-    /// Network and lane instance.
-    pub instance: Hash32,
-    /// Scheduling epoch and complete authenticated context identity.
-    pub epoch: EpochId,
-    /// Exact block height.
-    pub height: u64,
-    /// Hash of the complete signed native header.
-    pub block_hash: Hash32,
-    /// Exact application execution result.
-    pub result: Hash32,
-}
-impl AttestationStatement {
-    /// Parse the sole fixed signing format, rejecting alternate domains, truncation and suffixes.
-    #[must_use]
-    pub fn parse(bytes: &[u8]) -> Option<Self> {
-        const TAIL: usize = 32 + 8 + 32 + 8 + 32 + 32;
-        fn take<const N: usize>(rest: &mut &[u8]) -> Option<[u8; N]> {
-            let (value, tail) = rest.split_at_checked(N)?;
-            *rest = tail;
-            value.try_into().ok()
-        }
-        let mut rest = bytes.strip_prefix(TAG_SIG)?.strip_prefix(&[KIND_ATTEST])?;
-        if rest.len() != TAIL {
-            return None;
-        }
-        Some(Self {
-            instance: Hash32(take(&mut rest)?),
-            epoch: EpochId {
-                epoch: u64::from_be_bytes(take(&mut rest)?),
-                context: Hash32(take(&mut rest)?),
-            },
-            height: u64::from_be_bytes(take(&mut rest)?),
-            block_hash: Hash32(take(&mut rest)?),
-            result: Hash32(take(&mut rest)?),
-        })
-    }
 }
 
 /// `tmo_preimage(h, v, hq) = TAG_SIG ‖ 0x04 ‖ I ‖ E ‖ be64(h) ‖ be64(v) ‖ enc(hq)` (§3.3).
@@ -298,8 +213,7 @@ pub fn echo_preimage(instance: &Hash32, epoch: &EpochId, nonce: u64, height: u64
 }
 
 /// Preimage of `qc_digest(c)` (§3.3): `TAG_QC ‖ c.kind ‖ I ‖ E ‖ be64(c.height) ‖ be64(c.view) ‖
-/// c.block_hash ‖ c.result ‖ be32(len(c.signers)) ‖ c.signers ‖ c.agg_sig ‖ bit(c.attest) ‖
-/// blobs(c.attestations)`.
+/// c.block_hash ‖ c.result ‖ be32(len(c.signers)) ‖ c.signers ‖ c.agg_sig`.
 // SPEC: `I` in qc_digest / tc_digest is taken from the certificate's own `instance` field (every
 // verified certificate has `instance == I`) (Appendix E, E13).
 pub fn qc_digest_preimage(qc: &Qc) -> Vec<u8> {
@@ -312,19 +226,6 @@ pub fn qc_digest_preimage(qc: &Qc) -> Vec<u8> {
     put_len32(&mut out, qc.signers.as_bytes().len());
     out.extend_from_slice(qc.signers.as_bytes());
     out.extend_from_slice(&qc.agg_sig.0);
-    out.push(u8::from(qc.attest));
-    match &qc.attestation_witness {
-        Some(witness) => {
-            out.push(1);
-            put_len32(&mut out, witness.as_slice().len());
-            out.extend_from_slice(witness.as_slice());
-        }
-        None => out.push(0),
-    }
-    put_blobs(
-        &mut out,
-        qc.attestations.iter().map(AttestationSignature::as_slice),
-    );
     out
 }
 
@@ -479,7 +380,6 @@ mod tests {
 
     fn golden_qc() -> Qc {
         Qc {
-            attestation_witness: None,
             epoch: crate::testing::TEST_EPOCH.id,
             kind: VoteKind::Prepare,
             instance: h(0x11),
@@ -489,8 +389,6 @@ mod tests {
             result: h(0x33),
             signers: Bitmap::from_indices(4, [0, 1, 3]).unwrap(),
             agg_sig: AggregateSignature([0x55; SIGNATURE_LEN]),
-            attest: false,
-            attestations: Vec::new(),
         }
     }
 
@@ -533,7 +431,6 @@ mod tests {
             payload_len: 3,
             proposer: 2,
             skipped_leaders: vec![key(0xa1, 32), key(0xa2, 48)],
-            attest: false,
         }
     }
 
@@ -558,10 +455,9 @@ mod tests {
                 KIND_PREPARE,
                 KIND_COMMIT,
                 KIND_TIMEOUT,
-                KIND_ECHO,
-                KIND_ATTEST
+                KIND_ECHO
             ],
-            [1, 2, 3, 4, 5, 6]
+            [1, 2, 3, 4, 5]
         );
     }
 
@@ -587,9 +483,6 @@ mod tests {
         assert_eq!(out[..2], [0, 1]);
         assert!(out[2..].iter().all(|b| *b == 0xee));
         assert_eq!((u8::from(false), u8::from(true)), (0, 1));
-        let mut out = vec![];
-        put_blobs(&mut out, [vec![0xaa; 3], vec![]].iter().map(Vec::as_slice));
-        assert_eq!(hex(&out), "0000000200000003aaaaaa00000000");
     }
 
     #[test]
@@ -608,11 +501,9 @@ mod tests {
                 "44".repeat(32)
             )
         );
-        let vote =
-            |kind, attest| vote_preimage(kind, &h(0x11), epoch, 7, 2, &h(0x22), &h(0x33), attest);
-        let prepare = vote(VoteKind::Prepare, false);
-        let commit = vote(VoteKind::Commit, false);
-        let flagged = vote(VoteKind::Commit, true);
+        let vote = |kind| vote_preimage(kind, &h(0x11), epoch, 7, 2, &h(0x22), &h(0x33));
+        let prepare = vote(VoteKind::Prepare);
+        let commit = vote(VoteKind::Commit);
         let expected_tail = format!(
             "{ie}{:016x}{:016x}{}{}",
             7,
@@ -620,15 +511,8 @@ mod tests {
             "22".repeat(32),
             "33".repeat(32)
         );
-        assert_eq!(
-            hex(&prepare),
-            format!("{}02{expected_tail}00", hex(TAG_SIG))
-        );
-        assert_eq!(hex(&commit), format!("{}03{expected_tail}00", hex(TAG_SIG)));
-        assert_eq!(
-            hex(&flagged),
-            format!("{}03{expected_tail}01", hex(TAG_SIG))
-        );
+        assert_eq!(hex(&prepare), format!("{}02{expected_tail}", hex(TAG_SIG)));
+        assert_eq!(hex(&commit), format!("{}03{expected_tail}", hex(TAG_SIG)));
         let tmo = |hq| tmo_preimage(&h(0x11), epoch, 7, 2, hq);
         assert_eq!(
             hex(&tmo(None)),
@@ -646,15 +530,11 @@ mod tests {
         );
         assert_eq!(
             crypto.hash(&prepare).to_string(),
-            "dc21a6f4d17467ab1c009ecf93cd074ed3857c3d22980d40a80e145c6d206c27"
+            "dc2d9dc63e8fdbf90bc3611ec77e88ab60e16fc7d20c6269444c6ed93b2259b8"
         );
         assert_eq!(
             crypto.hash(&commit).to_string(),
-            "7c955480b0110f9eaa247962f7ceee9dd3e0b49c58685734bdd9aa02c7c132f8"
-        );
-        assert_eq!(
-            crypto.hash(&flagged).to_string(),
-            "81933fd9209a684f2a70dd1f419e041a0269260a443c54d6fc861094d6ddbc70"
+            "e137a977b2eb4238a69de4550bee4710f19ba7a6ab29aad424c2fb09ce4adeae"
         );
         assert_eq!(
             crypto.hash(&tmo(Some(1))).to_string(),
@@ -702,84 +582,6 @@ mod tests {
         );
     }
 
-    /// MA4, MA3: the commit statement of §3.3 binds `I`, `h`, `bh` and `R` (and no view) in a
-    /// fixed layout that an application verifier may parse; digest from an independent Python
-    /// implementation (SHA-256).
-    #[test]
-    fn golden_attestation_preimage() {
-        let statement = att_preimage(
-            &h(0x11),
-            &crate::testing::TEST_EPOCH.id,
-            7,
-            &h(0x22),
-            &h(0x33),
-        );
-        assert_eq!(
-            hex(&statement),
-            format!(
-                "{}06{}{:016x}{}{}",
-                hex(TAG_SIG),
-                instance_epoch_hex(),
-                7,
-                "22".repeat(32),
-                "33".repeat(32)
-            )
-        );
-        assert_eq!(
-            FakeCrypto::new().hash(&statement).to_string(),
-            "faff2b12f49fd1e37e9b82e33e230c5594c763956bf7c0735872eedd28c61af1"
-        );
-        for other in [
-            att_preimage(
-                &h(0x12),
-                &crate::testing::TEST_EPOCH.id,
-                7,
-                &h(0x22),
-                &h(0x33),
-            ),
-            att_preimage(
-                &h(0x11),
-                &crate::testing::TEST_EPOCH.id,
-                8,
-                &h(0x22),
-                &h(0x33),
-            ),
-            att_preimage(
-                &h(0x11),
-                &crate::testing::TEST_EPOCH.id,
-                7,
-                &h(0x23),
-                &h(0x33),
-            ),
-            att_preimage(
-                &h(0x11),
-                &crate::testing::TEST_EPOCH.id,
-                7,
-                &h(0x22),
-                &h(0x34),
-            ),
-        ] {
-            assert_ne!(
-                other, statement,
-                "instance, height, block and result are bound"
-            );
-        }
-        // Never a vote preimage (kind byte), whatever the numbers.
-        assert_ne!(
-            statement[..13],
-            vote_preimage(
-                VoteKind::Commit,
-                &h(0x11),
-                &crate::testing::TEST_EPOCH.id,
-                7,
-                2,
-                &h(0x22),
-                &h(0x33),
-                true
-            )[..13]
-        );
-    }
-
     #[test]
     #[allow(clippy::too_many_lines)]
     fn golden_block_hash_and_body() {
@@ -787,7 +589,7 @@ mod tests {
         let header = golden_header();
         let preimage = block_hash_preimage(&header);
         let expected = format!(
-            "{}{}{:016x}{:016x}{}{}{}{}{:08x}{:08x}00000002{}{}{}{}0000000000",
+            "{}{}{:016x}{:016x}{}{}{}{}{:08x}{:08x}00000002{}{}{}{}00000000",
             hex(TAG_BLOCK),
             instance_epoch_hex(),
             7,
@@ -806,18 +608,7 @@ mod tests {
         assert_eq!(hex(&preimage), expected);
         assert_eq!(
             block_hash(&crypto, &header).to_string(),
-            "220e89cc46946d2ea16efb204fb9ad8037e0b31a067b94179d6be12f7de2fcd8"
-        );
-        assert_eq!(
-            block_hash(
-                &crypto,
-                &BlockHeader {
-                    attest: true,
-                    ..header.clone()
-                }
-            )
-            .to_string(),
-            "f4073a2e8fcb0553d61500e198fdb5f22e4a221693ec6e663ec66974660464e3"
+            "6f63676aa20ade34ff0f8f9c899e2009d5c8ba03f2a1d9aa4c905e9b26c1fffd"
         );
         assert_eq!(
             payload_hash(&crypto, &[1, 2, 3]).to_string(),
@@ -877,7 +668,7 @@ mod tests {
                 ..golden_header()
             },
             BlockHeader {
-                attest: true,
+                control_witness: crate::types::ControlWitness::try_from_slice(&[1]).unwrap(),
                 ..golden_header()
             },
         ];
@@ -895,27 +686,14 @@ mod tests {
         assert_eq!(hex(&qc_pre), GOLDEN_QC_PREIMAGE);
         assert_eq!(
             qc_digest(&crypto, &qc).to_string(),
-            "9f167dc4fae6a2f5754af5ec6a2fa40391f31a15006e3d0ca7a993a7b9134def"
+            "3829668bed13775ef7e2e7420bc08ad3cbe755ad39a2296086a081dc0ac39f38"
         );
-        let flagged = Qc {
-            kind: VoteKind::Commit,
-            attest: true,
-            attestations: [&[0xaa; 3][..], &[0xbb; 2][..], &[][..]]
-                .map(|b| crate::message::AttestationSignature::try_from_slice(b).unwrap())
-                .to_vec(),
-            ..golden_qc()
-        };
-        assert_eq!(
-            qc_digest(&crypto, &flagged).to_string(),
-            "a23c431cc30a432dbe17959ec135d8348a46b6f168ff244ee57c6b8d76dc89fa"
-        );
-
         let tc = golden_tc();
         let tc_pre = tc_digest_preimage(&crypto, &tc);
         assert_eq!(hex(&tc_pre), GOLDEN_TC_PREIMAGE);
         assert_eq!(
             tc_digest(&crypto, &tc).to_string(),
-            "3ead8d746b846639424db413cdef71dad86a3ec636ba4040d17d5590a63146f1"
+            "8ec0784d9af32fb1f4d8da411972f008227c31fe01107e987452ff9313464df6"
         );
         let tc_none = TimeoutCert {
             high_pqc: None,
@@ -939,7 +717,7 @@ mod tests {
         );
         assert_eq!(
             att_digest(&crypto, Some(&tc), Some(&qc)).to_string(),
-            "5b2b29cdd4281dc4200e5e38bbefd3d578919e3d16202d4aae7da0a1a6781b85"
+            "e4052eae246a84845a0effee595f8b4e30f6b139992463a8cc86afa049183260"
         );
         assert_eq!(
             att_digest(&crypto, None, None).to_string(),
@@ -980,38 +758,9 @@ mod tests {
                 agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
                 ..golden_qc()
             },
-            Qc {
-                attest: true,
-                ..golden_qc()
-            },
-            Qc {
-                attestations: vec![crate::message::AttestationSignature::empty()],
-                ..golden_qc()
-            },
         ] {
             assert_ne!(qc_digest(&crypto, &variant), base);
         }
-        // Attestations are delimited: moving a byte between two of them changes the digest.
-        assert_ne!(
-            qc_digest(
-                &crypto,
-                &Qc {
-                    attestations: [&[1, 2][..], &[3][..]]
-                        .map(|b| crate::message::AttestationSignature::try_from_slice(b).unwrap())
-                        .to_vec(),
-                    ..flagged.clone()
-                }
-            ),
-            qc_digest(
-                &crypto,
-                &Qc {
-                    attestations: [&[1][..], &[2, 3][..]]
-                        .map(|b| crate::message::AttestationSignature::try_from_slice(b).unwrap())
-                        .to_vec(),
-                    ..flagged
-                }
-            )
-        );
         let base = tc_digest(&crypto, &tc);
         for variant in [
             TimeoutCert {
@@ -1084,29 +833,15 @@ mod tests {
         // SR16/SR17: instance, height, view, kind and result change every signing preimage.
         let epoch = &crate::testing::TEST_EPOCH.id;
         // A Prepare/Commit preimage of block `h(2)`; the other fields vary per case.
-        let vote = |kind, instance: u8, height, view, result: u8, attest| {
-            vote_preimage(
-                kind,
-                &h(instance),
-                epoch,
-                height,
-                view,
-                &h(2),
-                &h(result),
-                attest,
-            )
+        let vote = |kind, instance: u8, height, view, result: u8| {
+            vote_preimage(kind, &h(instance), epoch, height, view, &h(2), &h(result))
         };
-        let base = vote(VoteKind::Prepare, 1, 1, 1, 3, false);
-        assert_ne!(base, vote(VoteKind::Prepare, 9, 1, 1, 3, false));
-        assert_ne!(base, vote(VoteKind::Prepare, 1, 2, 1, 3, false));
-        assert_ne!(base, vote(VoteKind::Prepare, 1, 1, 2, 3, false));
-        assert_ne!(base, vote(VoteKind::Commit, 1, 1, 1, 3, false));
-        assert_ne!(base, vote(VoteKind::Prepare, 1, 1, 1, 4, false));
-        assert_ne!(
-            base,
-            vote(VoteKind::Prepare, 1, 1, 1, 3, true),
-            "the attestation flag is signed (SR39)"
-        );
+        let base = vote(VoteKind::Prepare, 1, 1, 1, 3);
+        assert_ne!(base, vote(VoteKind::Prepare, 9, 1, 1, 3));
+        assert_ne!(base, vote(VoteKind::Prepare, 1, 2, 1, 3));
+        assert_ne!(base, vote(VoteKind::Prepare, 1, 1, 2, 3));
+        assert_ne!(base, vote(VoteKind::Commit, 1, 1, 1, 3));
+        assert_ne!(base, vote(VoteKind::Prepare, 1, 1, 1, 4));
         assert_ne!(
             tmo_preimage(&h(1), epoch, 1, 1, None),
             tmo_preimage(&h(9), epoch, 1, 1, None)
@@ -1118,42 +853,10 @@ mod tests {
         // Kind bytes keep proposals, votes and timeouts apart.
         assert_ne!(
             prop_preimage(&h(1), epoch, 1, 1, &h(2), &h(3))[..13],
-            vote(VoteKind::Prepare, 1, 1, 1, 3, false)[..13]
+            vote(VoteKind::Prepare, 1, 1, 1, 3)[..13]
         );
     }
 
-    const GOLDEN_QC_PREIMAGE: &str = "73756d65726167692f71630211111111111111111111111111111111111111111111111111111111111111110000000000000000e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e00000000000000007000000000000000122222222222222222222222222222222222222222222222222222222222222223333333333333333333333333333333333333333333333333333333333333333000000010b555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555000000000000";
-    const GOLDEN_TC_PREIMAGE: &str = "73756d65726167692f746311111111111111111111111111111111111111111111111111111111111111110000000000000000e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0000000000000000700000000000000020000000300000000000000000101000000000000000100000003010000000000000001666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666019f167dc4fae6a2f5754af5ec6a2fa40391f31a15006e3d0ca7a993a7b9134def";
-}
-
-#[cfg(test)]
-mod attestation_statement_tests {
-    use super::*;
-    #[test]
-    fn exact_source_parser_consumes_domain_epoch_height_and_both_digests() {
-        let source = AttestationStatement {
-            instance: Hash32([1; 32]),
-            epoch: crate::testing::TEST_EPOCH.id,
-            height: 19,
-            block_hash: Hash32([2; 32]),
-            result: Hash32([3; 32]),
-        };
-        let bytes = att_preimage(
-            &source.instance,
-            &source.epoch,
-            source.height,
-            &source.block_hash,
-            &source.result,
-        );
-        assert_eq!(AttestationStatement::parse(&bytes), Some(source));
-        for length in 0..bytes.len() {
-            assert!(AttestationStatement::parse(&bytes[..length]).is_none());
-        }
-        let mut suffix = bytes.clone();
-        suffix.push(0);
-        assert!(AttestationStatement::parse(&suffix).is_none());
-        let mut domain = bytes;
-        domain[0] ^= 1;
-        assert!(AttestationStatement::parse(&domain).is_none());
-    }
+    const GOLDEN_QC_PREIMAGE: &str = "73756d65726167692f71630211111111111111111111111111111111111111111111111111111111111111110000000000000000e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e00000000000000007000000000000000122222222222222222222222222222222222222222222222222222222222222223333333333333333333333333333333333333333333333333333333333333333000000010b555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555";
+    const GOLDEN_TC_PREIMAGE: &str = "73756d65726167692f746311111111111111111111111111111111111111111111111111111111111111110000000000000000e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0000000000000000700000000000000020000000300000000000000000101000000000000000100000003010000000000000001666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666013829668bed13775ef7e2e7420bc08ad3cbe755ad39a2296086a081dc0ac39f38";
 }

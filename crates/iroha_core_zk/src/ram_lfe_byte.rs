@@ -5,12 +5,11 @@
 //! enter arithmetic. This is a capacity experiment, with no proof admission.
 //! TODO: Qualify a complete private relation and all retained witness clearing.
 
-use super::halo2_backend::Scalar;
 use ff::Field;
-use halo2_proofs::{
-    circuit::{Cell, Layouter, Region, Value},
-    plonk::{Advice, Column, ConstraintSystem, Error, Expression, Fixed, Selector, TableColumn},
-    poly::Rotation,
+use iroha_pasta::Fp as Scalar;
+use iroha_plonk::{
+    cs::{Advice, Column, ConstraintSystem, Expression, Fixed, Rotation, Selector, TableColumn},
+    frontend::{Cell, Error, Layouter, Region, Value},
 };
 use zeroize::{Zeroize, Zeroizing};
 
@@ -199,7 +198,7 @@ struct ByteRegion<'a, 'r> {
 impl ByteRegion<'_, '_> {
     fn tuple(&mut self, row: usize, tag: u64, values: [u64; 6]) -> Result<[Cell; 6], Error> {
         self.region
-            .assign_fixed(self.config.operation, row, Scalar::from(tag));
+            .assign_fixed(self.config.operation, row, Scalar::from(tag))?;
         let selector = match tag {
             LOAD => 0,
             XOR => 1,
@@ -207,18 +206,21 @@ impl ByteRegion<'_, '_> {
             _ => 3,
         };
         self.config.selectors[selector].enable(self.region, row)?;
-        Ok(std::array::from_fn(|column| {
-            let value = self
-                .faults
-                .iter()
-                .find(|fault| fault.row == row && fault.column == column)
-                .map_or(Scalar::from(values[column]), |fault| fault.value);
-            self.region.assign_advice_discarding_value(
-                self.config.advice[column],
-                row,
-                Value::known(value),
-            )
-        }))
+        let cells: Vec<_> = values
+            .into_iter()
+            .enumerate()
+            .map(|(column, value)| {
+                let value = self
+                    .faults
+                    .iter()
+                    .find(|fault| fault.row == row && fault.column == column)
+                    .map_or(Scalar::from(value), |fault| fault.value);
+                self.region
+                    .assign_advice(self.config.advice[column], row, Value::known(value))
+                    .map(|cell| cell.cell())
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(cells.try_into().expect("six byte cells"))
     }
 
     fn load<const N: usize>(&mut self, value: u64, constant: bool) -> Result<ByteWord<N>, Error> {
@@ -264,10 +266,10 @@ impl ByteRegion<'_, '_> {
                 [terms[0], terms[1], terms[2], *sum & 255, *carry, *sum >> 8],
             )?;
             for (j, word) in [a, b, c].into_iter().enumerate() {
-                self.region.constrain_equal(assigned[j], word.cells[i]);
+                self.region.constrain_equal(assigned[j], word.cells[i])?;
             }
             if let Some(previous) = previous {
-                self.region.constrain_equal(assigned[4], previous);
+                self.region.constrain_equal(assigned[4], previous)?;
             } else {
                 self.region.constrain_constant(assigned[4], Scalar::ZERO)?;
             }
@@ -299,8 +301,8 @@ impl ByteRegion<'_, '_> {
                 XOR,
                 [av, bv, out, av >> 4, bv >> 4, out >> 4],
             )?;
-            self.region.constrain_equal(assigned[0], a.cells[i]);
-            self.region.constrain_equal(assigned[1], b.cells[i]);
+            self.region.constrain_equal(assigned[0], a.cells[i])?;
+            self.region.constrain_equal(assigned[1], b.cells[i])?;
             cells.push(assigned[2]);
         }
         self.offset += N;
@@ -352,14 +354,15 @@ impl ByteRegion<'_, '_> {
                     0,
                 ],
             )?;
-            self.region.constrain_equal(assigned[0], word.cells[source]);
+            self.region
+                .constrain_equal(assigned[0], word.cells[source])?;
             low_cells.push(assigned[1]);
             next_cells.push(assigned[4]);
             cells.push(assigned[3]);
         }
         for i in 0..N {
             self.region
-                .constrain_equal(next_cells[i], low_cells[(i + 1) % N]);
+                .constrain_equal(next_cells[i], low_cells[(i + 1) % N])?;
         }
         self.offset += N;
         Ok(ByteWord {

@@ -5326,7 +5326,7 @@ public sealed partial class ToriiClientTests
                   "abi_hash": "{{ContractAbiHashHex}}",
                   "compiler_fingerprint": "kotodama-1",
                   "byte_len": 64,
-                  "permissions": ["CanTransferUserAssets"],
+                  "permissions": [{"name":"CanTransferUserAssets","scope":{"kind":"Instance","value":null} }],
                   "access_hints": {
                     "read_keys": ["balances"],
                     "write_keys": ["ledger"]
@@ -5339,7 +5339,7 @@ public sealed partial class ToriiClientTests
                         { "name": "amount", "type_name": "int" }
                       ],
                       "return_type": "bool",
-                      "permission": "CanTransferUserAssets",
+                      "authorization": {"kind":"Permission","value":"CanTransferUserAssets"},
                       "read_keys": ["balances"],
                       "write_keys": ["ledger"],
                       "access_hints_complete": true,
@@ -5360,7 +5360,7 @@ public sealed partial class ToriiClientTests
                     ]
                   },
                   "warnings": ["historical bytes"],
-                  "rendered_source_kind": "pseudo_source",
+                  "source_artifacts":[],"rendered_source_kind": "pseudo_source",
                   "rendered_source_text": "seiyaku Demo { kotoage fn main(int amount) -> bool authorize(\"CanTransferUserAssets\") {} }",
                   "verified_source_ref": {
                     "language": "kotodama",
@@ -9117,7 +9117,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
         {
             Content = new StringContent(IdentifierResolveEnvelopeJson(
                 IdentifierResolvePayloadJson(),
-                """{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":"AQID"}""")),
+                """{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":"AQID"}""")),
         });
 
         using var client = CreateRuntimeAuthenticatedClient(handler);
@@ -9140,10 +9140,10 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
     [InlineData("phone#retail", null, """{"kind":"signed","signature":" ABCD"}""", "attestation.signature", "whitespace")]
     [InlineData("phone#retail", null, """{"kind":"signed","signature":"ABCD","proof_b64":"AQID"}""", "signed attestations", "proof fields")]
     [InlineData("phone#retail", null, """{"kind":"proof","proof_b64":"AQID"}""", "attestation.proof_backend", "required")]
-    [InlineData("phone#retail", null, """{"kind":"proof","proof_backend":"halo2/ipa"}""", "attestation.proof_b64", "required")]
-    [InlineData("phone#retail", null, """{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":"@@@"}""", "attestation.proof_b64", "valid base64")]
-    [InlineData("phone#retail", null, """{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":"AR=="}""", "attestation.proof_b64", "canonical base64")]
-    [InlineData("phone#retail", null, """{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":"AQID","signature":"ABCD"}""", "proof attestations", "must not include signature")]
+    [InlineData("phone#retail", null, """{"kind":"proof","proof_backend":"pipa-r/pasta"}""", "attestation.proof_b64", "required")]
+    [InlineData("phone#retail", null, """{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":"@@@"}""", "attestation.proof_b64", "valid base64")]
+    [InlineData("phone#retail", null, """{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":"AR=="}""", "attestation.proof_b64", "canonical base64")]
+    [InlineData("phone#retail", null, """{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":"AQID","signature":"ABCD"}""", "proof attestations", "must not include signature")]
     public async Task ResolveIdentifierAsyncRejectsMalformedNestedReceiptEnvelope(
         string policyId,
         string? backend,
@@ -9405,7 +9405,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
         {
             Content = new StringContent(IdentifierResolveEnvelopeJson(
                 IdentifierResolvePayloadJson(),
-                """{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":"AQID"}""")),
+                """{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":"AQID"}""")),
         });
 
         using var client = CreateRuntimeAuthenticatedClient(handler);
@@ -9426,12 +9426,12 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
     [InlineData("""{"attestation":{"kind":"Signed","signature":"ABCD"}}""", "identifier resolve response.attestation.kind", "signed or proof")]
     [InlineData("""{"attestation":{"kind":"signed","signature":"ABCD","proof_b64":"AQID"}}""", "identifier resolve response.attestation signed attestations", "proof fields")]
     [InlineData("""{"attestation":{"proof_b64":"AQID"}}""", "identifier resolve response.attestation.kind", "required")]
-    [InlineData("""{"attestation":{"kind":"proof","proof_backend":" halo2/ipa","proof_b64":"AQID"}}""", "identifier resolve response.attestation.proof_backend", "whitespace")]
-    [InlineData("""{"attestation":{"kind":"proof","proof_backend":"halo2/ ipa","proof_b64":"AQID"}}""", "identifier resolve response.attestation.proof_backend", "whitespace")]
-    [InlineData("""{"attestation":{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":" AQID"}}""", "identifier resolve response.attestation.proof_b64", "whitespace")]
-    [InlineData("""{"attestation":{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":"AQID "}}""", "identifier resolve response.attestation.proof_b64", "whitespace")]
-    [InlineData("""{"attestation":{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":"@@@"}}""", "identifier resolve response.attestation.proof_b64", "valid base64")]
-    [InlineData("""{"attestation":{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":"AR=="}}""", "identifier resolve response.attestation.proof_b64", "canonical base64")]
+    [InlineData("""{"attestation":{"kind":"proof","proof_backend":" pipa-r/pasta","proof_b64":"AQID"}}""", "identifier resolve response.attestation.proof_backend", "whitespace")]
+    [InlineData("""{"attestation":{"kind":"proof","proof_backend":"pipa-r/ pasta","proof_b64":"AQID"}}""", "identifier resolve response.attestation.proof_backend", "whitespace")]
+    [InlineData("""{"attestation":{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":" AQID"}}""", "identifier resolve response.attestation.proof_b64", "whitespace")]
+    [InlineData("""{"attestation":{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":"AQID "}}""", "identifier resolve response.attestation.proof_b64", "whitespace")]
+    [InlineData("""{"attestation":{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":"@@@"}}""", "identifier resolve response.attestation.proof_b64", "valid base64")]
+    [InlineData("""{"attestation":{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":"AR=="}}""", "identifier resolve response.attestation.proof_b64", "canonical base64")]
     public async Task ResolveIdentifierAsyncRejectsNonExactAttestationSelectors(
         string patchJson,
         string expectedField,
@@ -12715,6 +12715,8 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
                   "network_id": "{{CanonicalNetworkId}}",
                   "artifact_id": {"dataspace_id":0,"code_hash":"{{ArtifactHashLiteral(manifestCodeHash)}}"},
                   "manifest": {
+                    "permissions": [],
+                    "events": [],
                     "seiyaku_name": null,
                     "code_hash": "hash:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB#ABA2",
                     "abi_hash": "hash:DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD#F071",
@@ -12724,6 +12726,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
                     "entrypoints": null,
                     "states": null,
                     "error_types": null,
+                    "enum_types": [],
                     "kotoba": null,
                     "provenance": null
                   },
@@ -12986,6 +12989,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
                     "pending_owner": "parliament",
                     "parliament_delegated": true,
                     "active_code_hash_hex": "{{GovernedContractCodeHashHex}}",
+                    "retained_code_hash_hex": "{{GovernedContractCodeHashHex}}",
                     "revision": 7,
                     "emergency_hold": {
                       "incident_digest_hex": "{{new string('1', 64)}}",
@@ -13063,6 +13067,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
               "pending_owner": null,
               "parliament_delegated": false,
               "active_code_hash_hex": null,
+              "retained_code_hash_hex": null,
               "revision": {{(mutation == 0 ? 0 : 1)}},
               "emergency_hold": null
             }
@@ -13200,7 +13205,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
     public static IEnumerable<object?[]> InvalidContractCodeViewShapeResponses()
     {
         yield return new object?[] { "contract-code-view", "permissions", null, "is required" };
-        yield return new object?[] { "contract-code-view", "permissions[0]", "Can Transfer", "whitespace" };
+        yield return new object?[] { "contract-code-view", "permissions[0]", "Can Transfer", "object" };
         yield return new object?[] { "contract-code-view", "access_hints.read_keys", null, "is required" };
         yield return new object?[] { "contract-code-view", "access_hints.read_keys[0]", "balances alice", "whitespace" };
         yield return new object?[] { "contract-code-view", "entrypoints", null, "is required" };
@@ -13261,7 +13266,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
 
         yield return new object[] { "contract-code-view", "code_hash", ContractCodeViewDuplicatePropertyJson("code_hash"), "must not appear more than once" };
         yield return new object[] { "contract-code-view", "permissions", ContractCodeViewShapeResponseJson("permissions", 1), "array" };
-        yield return new object[] { "contract-code-view", "permissions[0]", ContractCodeViewShapeResponseJson("permissions[0]", 1), "string" };
+        yield return new object[] { "contract-code-view", "permissions[0]", ContractCodeViewShapeResponseJson("permissions[0]", 1), "object" };
         yield return new object[] { "contract-code-view", "entrypoints[0].params[0].name", ContractCodeViewEntrypointParamDuplicatePropertyJson("name"), "must not appear more than once" };
         yield return new object[] { "contract-code-view", "entrypoints[0].access_hints_complete", ContractCodeViewShapeResponseJson("entrypoints[0].access_hints_complete", "true"), "boolean" };
         yield return new object[] { "contract-code-view", "analysis.instruction_count", ContractCodeViewShapeResponseJson("analysis.instruction_count", "42"), "unsigned integer" };
@@ -13299,7 +13304,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
     public void RawContractCodeViewWriteRejectsMalformedEntrypointToken()
     {
         var entrypoint = new ToriiContractViewEntrypoint
-        {
+        { Authorization = new ToriiEntrypointAuthorizationV1.Anyone(),
             Name = "main",
             Kind = "view",
             Parameters = new[] { new ToriiContractViewEntrypointParam { Name = "amount", TypeName = "u128" } },
@@ -13317,7 +13322,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
             CodeHash = ContractCodeHashHex,
             DeclaredCodeHash = ContractCodeHashHex,
             AbiHash = ContractAbiHashHex,
-            Permissions = new[] { "can_execute_contract" },
+            Permissions = new[] { ContractPermission("can_execute_contract") },
             Entrypoints = new[] { entrypoint },
             Warnings = Array.Empty<string>(),
             RenderedSourceKind = "verified_source",
@@ -13354,7 +13359,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
         yield return new object?[] { "entrypoint", "Kind", "view mode" };
         yield return new object?[] { "entrypoint", "Parameters[0]", null };
         yield return new object?[] { "entrypoint", "ReturnType", "" };
-        yield return new object?[] { "entrypoint", "Permission", "can execute" };
+        yield return new object?[] { "entrypoint", "Authorization", "can execute" };
         yield return new object?[] { "entrypoint", "ReadKeys[0]", "balances bob" };
         yield return new object?[] { "entrypoint", "WriteKeys[0]", "\u0001bad" };
         yield return new object?[] { "entrypoint", "AccessHintsSkipped[0]", "" };
@@ -15100,6 +15105,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
     {
         var response = new ToriiContractViewErrorResponse
         {
+            Fault = null,
             Ok = false,
             Dataspace = "universal",
             ContractId = "router::dex.universal",
@@ -15207,7 +15213,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
                   "entrypoints": [],
                   "analysis": null,
                   "warnings": ["verified source record loaded"],
-                  "rendered_source_kind": "verified_source",
+                  "source_artifacts":[],"rendered_source_kind": "verified_source",
                   "rendered_source_text": "seiyaku Demo { view fn main() {} }",
                   "verified_source_ref": {
                     "language": "kotodama",
@@ -15250,10 +15256,10 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
         var entrypoint = new ToriiContractViewEntrypoint
         {
             Name = "main",
-            Kind = "call",
+            Kind = "kotoage",
             Parameters = parameters,
             ReturnType = "bool",
-            Permission = "can_execute_contract",
+            Authorization = new ToriiEntrypointAuthorizationV1.Permission("can_execute_contract"),
             ReadKeys = entryReadKeys,
             WriteKeys = entryWriteKeys,
             AccessHintsComplete = true,
@@ -15268,7 +15274,8 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
             Memory = new ToriiContractViewMemory { Load64 = 1, Store64 = 2, Load128 = 3, Store128 = 4 },
             Syscalls = syscalls,
         };
-        string[] permissions = ["can_execute_contract"];
+        var permission = ContractPermission("can_execute_contract");
+        ToriiContractPermissionDescriptorV1[] permissions = [permission];
         ToriiContractViewEntrypoint[] entrypoints = [entrypoint];
         string[] warnings = ["verified source record loaded"];
         var view = new ToriiContractCodeView
@@ -15295,8 +15302,8 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
         skipped[0] = "mutated";
         triggers[0] = "mutated";
         syscalls[0] = new ToriiContractViewSyscall { Number = 8, Name = "mutated", Count = 2 };
-        permissions[0] = "mutated";
-        entrypoints[0] = new ToriiContractViewEntrypoint { Name = "mutated", Kind = "call" };
+        permissions[0] = ContractPermission("mutated");
+        entrypoints[0] = new ToriiContractViewEntrypoint { Authorization = new ToriiEntrypointAuthorizationV1.Anyone(), Name = "mutated", Kind = "kotoage" };
         warnings[0] = "mutated";
 
         AssertDetachedStringList(() => accessHints.ReadKeys, "contract:state/balance", "mutated-getter");
@@ -15313,11 +15320,11 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
             () => analysis.Syscalls,
             syscall,
             new ToriiContractViewSyscall { Number = 8, Name = "mutated", Count = 2 });
-        AssertDetachedStringList(() => view.Permissions, "can_execute_contract", "mutated-getter");
+        AssertDetachedObjectList(() => view.Permissions, permission, ContractPermission("mutated_getter"));
         AssertDetachedObjectList(
             () => view.Entrypoints,
             entrypoint,
-            new ToriiContractViewEntrypoint { Name = "mutated", Kind = "call" });
+            new ToriiContractViewEntrypoint { Authorization = new ToriiEntrypointAuthorizationV1.Anyone(), Name = "mutated", Kind = "kotoage" });
         AssertDetachedStringList(() => view.Warnings, "verified source record loaded", "mutated-getter");
 
         var deserialized = Assert.IsType<ToriiContractCodeView>(JsonSerializer.Deserialize<ToriiContractCodeView>(
@@ -15325,20 +15332,20 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
         var deserializedAccessHints = Assert.IsType<ToriiContractViewAccessHints>(deserialized.AccessHints);
         var deserializedEntrypoints = Assert.IsType<ToriiContractViewEntrypoint[]>(deserialized.Entrypoints);
         var deserializedAnalysis = Assert.IsType<ToriiContractViewAnalysis>(deserialized.Analysis);
-        var deserializedPermissions = Assert.IsType<string[]>(deserialized.Permissions);
+        var deserializedPermissions = Assert.IsType<ToriiContractPermissionDescriptorV1[]>(deserialized.Permissions);
         var deserializedWarnings = Assert.IsType<string[]>(deserialized.Warnings);
         var deserializedAccessReadKeys = Assert.IsType<string[]>(deserializedAccessHints.ReadKeys);
         var deserializedParameters = Assert.IsType<ToriiContractViewEntrypointParam[]>(deserializedEntrypoints[0].Parameters);
         var deserializedSyscalls = Assert.IsType<ToriiContractViewSyscall[]>(deserializedAnalysis.Syscalls);
 
-        deserializedPermissions[0] = "mutated";
+        deserializedPermissions[0] = ContractPermission("mutated");
         deserializedWarnings[0] = "mutated";
         deserializedAccessReadKeys[0] = "mutated";
-        deserializedEntrypoints[0] = new ToriiContractViewEntrypoint { Name = "mutated", Kind = "call" };
+        deserializedEntrypoints[0] = new ToriiContractViewEntrypoint { Authorization = new ToriiEntrypointAuthorizationV1.Anyone(), Name = "mutated", Kind = "kotoage" };
         deserializedParameters[0] = new ToriiContractViewEntrypointParam { Name = "mutated", TypeName = "u64" };
         deserializedSyscalls[0] = new ToriiContractViewSyscall { Number = 8, Name = "mutated", Count = 2 };
 
-        Assert.Equal("can_execute_contract", deserialized.Permissions[0]);
+        Assert.Equal("can_execute_contract", deserialized.Permissions[0].Name);
         Assert.Equal("verified source record loaded", deserialized.Warnings[0]);
         Assert.Equal("contract:state/balance", deserializedAccessHints.ReadKeys[0]);
         Assert.Equal("main", deserialized.Entrypoints[0].Name);
@@ -15428,7 +15435,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
                   "abi_hash_hex": "{{ContractAbiHashHex}}",
                   "entrypoint": "main",
                   "error": "view entrypoint rejected payload",
-                  "vm_diagnostic": {
+                  "fault": null, "vm_diagnostic": {
                     "trap_kind": "Validation",
                     "message": "missing field `amount`",
                     "pc": 12,
@@ -18137,9 +18144,9 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
             {
                 ReturnType = RequiredStringValue(value),
             },
-            ("entrypoint", "Permission") => ValidContractViewEntrypoint() with
+            ("entrypoint", "Authorization") => ValidContractViewEntrypoint() with
             {
-                Permission = RequiredStringValue(value),
+                Authorization = new ToriiEntrypointAuthorizationV1.Permission(RequiredStringValue(value)),
             },
             ("entrypoint", "ReadKeys[0]") => ValidContractViewEntrypoint() with
             {
@@ -18187,7 +18194,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
             },
             ("code-view", "Permissions[0]") => ValidContractCodeView() with
             {
-                Permissions = [RequiredStringValue(value)],
+                Permissions = [ContractPermission(RequiredStringValue(value))],
             },
             ("code-view", "Entrypoints[0]") => ValidContractCodeView() with
             {
@@ -18289,6 +18296,9 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
     {
         return new ToriiContractManifest
         {
+            Permissions = Array.Empty<ToriiContractPermissionDescriptorV1>(),
+            Events = [],
+            EnumTypes = [],
             CodeHash = new string('b', 64),
             AbiHash = new string('d', 64),
         };
@@ -18304,6 +18314,9 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
             ArtifactId = new ContractArtifactId(0, new string('b', 64)),
             Manifest = new ToriiContractManifest
             {
+            Permissions = Array.Empty<ToriiContractPermissionDescriptorV1>(),
+            Events = [],
+            EnumTypes = [],
                 CodeHash = codeHash,
                 AbiHash = abiHash,
             },
@@ -18330,6 +18343,9 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
         };
     }
 
+    private static ToriiContractPermissionDescriptorV1 ContractPermission(string name) =>
+        new(name, new ToriiContractPermissionScopeV1.Instance());
+
     private static ToriiContractViewEntrypoint ValidContractViewEntrypoint()
     {
         return new ToriiContractViewEntrypoint
@@ -18338,7 +18354,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
             Kind = "view",
             Parameters = [ValidContractViewEntrypointParam()],
             ReturnType = "Balance",
-            Permission = "can_view_balance",
+            Authorization = new ToriiEntrypointAuthorizationV1.Permission("can_execute_contract"),
             ReadKeys = ["balances"],
             WriteKeys = ["audit"],
             AccessHintsComplete = true,
@@ -18389,7 +18405,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
             AbiHash = ContractAbiHashHex,
             CompilerFingerprint = "kotodama-1.0.0",
             ByteLength = 123,
-            Permissions = ["can_execute_contract"],
+            Permissions = [ContractPermission("can_execute_contract")],
             AccessHints = ValidContractViewAccessHints(),
             Entrypoints = [ValidContractViewEntrypoint()],
             Analysis = ValidContractViewAnalysis(),
@@ -18632,6 +18648,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
     {
         return new ToriiContractViewErrorResponse
         {
+            Fault = null,
             Ok = false,
             Dataspace = "universal",
             ContractId = "router::dex.universal",
@@ -24490,6 +24507,9 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
             {
                 ["manifest"] = new JsonObject
                 {
+                    ["permissions"] = new JsonArray(),
+                    ["events"] = new JsonArray(),
+                    ["enum_types"] = new JsonArray(),
                     ["code_hash"] = manifestCodeHash,
                     ["abi_hash"] = manifestAbiHash,
                 },
@@ -24544,6 +24564,9 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
             ["artifact_id"] = JsonSerializer.SerializeToNode(new ContractArtifactId(0, ContractCodeHashHex)),
             ["manifest"] = new JsonObject
             {
+                ["permissions"] = new JsonArray(),
+                ["events"] = new JsonArray(),
+                ["enum_types"] = new JsonArray(),
                 ["code_hash"] = ContractCodeHashHex,
                 ["abi_hash"] = ContractAbiHashHex,
             },
@@ -24758,6 +24781,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
             ["abi_hash_hex"] = ContractAbiHashHex,
             ["entrypoint"] = "main",
             ["error"] = "view entrypoint rejected payload",
+            ["fault"] = null,
             ["vm_diagnostic"] = null,
         };
 
@@ -24817,7 +24841,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
               "abi_hash_hex": "{{ContractAbiHashHex}}",
               "entrypoint": "main",
               "error": "view entrypoint rejected payload",
-              "vm_diagnostic": {
+              "fault": null, "vm_diagnostic": {
                 "{{propertyName}}": "Validation",
                 "{{propertyName}}": "Validation",
                 "message": "missing field `amount`",
@@ -24938,7 +24962,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
             ["abi_hash"] = abiHash,
             ["compiler_fingerprint"] = "torii-tests",
             ["byte_len"] = 256,
-            ["permissions"] = new JsonArray(JsonValue.Create("can_execute_contract")),
+            ["permissions"] = new JsonArray(JsonSerializer.SerializeToNode(new { name = "can_execute_contract", scope = new { kind = "Instance", value = (object?)null } })),
             ["access_hints"] = new JsonObject
             {
                 ["read_keys"] = new JsonArray(JsonValue.Create("contract:state/balance")),
@@ -24947,14 +24971,14 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
             ["entrypoints"] = new JsonArray(new JsonObject
             {
                 ["name"] = "main",
-                ["kind"] = "call",
+                ["kind"] = "kotoage",
                 ["params"] = new JsonArray(new JsonObject
                 {
                     ["name"] = "amount",
                     ["type_name"] = "int",
                 }),
                 ["return_type"] = "bool",
-                ["permission"] = "can_execute_contract",
+                ["authorization"] = new JsonObject { ["kind"] = "Permission", ["value"] = "can_execute_contract" },
                 ["read_keys"] = new JsonArray(JsonValue.Create("contract:state/balance")),
                 ["write_keys"] = new JsonArray(JsonValue.Create("contract:state/ledger")),
                 ["access_hints_complete"] = true,
@@ -24979,6 +25003,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
                 }),
             },
             ["warnings"] = new JsonArray(JsonValue.Create("verified source record loaded")),
+            ["source_artifacts"] = new JsonArray(),
             ["rendered_source_kind"] = "verified_source",
             ["rendered_source_text"] = "seiyaku Demo { view fn main() {} }",
             ["verified_source_ref"] = ContractVerifiedSourceReferenceJson(
@@ -25241,14 +25266,14 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
         return new JsonObject
         {
             ["name"] = "main",
-            ["kind"] = "call",
+            ["kind"] = "kotoage",
             ["params"] = new JsonArray(new JsonObject
             {
                 ["name"] = "amount",
                 ["type_name"] = "int",
             }),
             ["return_type"] = "bool",
-            ["permission"] = "can_execute_contract",
+            ["authorization"] = new JsonObject { ["kind"] = "Permission", ["value"] = "can_execute_contract" },
             ["read_keys"] = new JsonArray(JsonValue.Create("contract:state/balance")),
             ["write_keys"] = new JsonArray(JsonValue.Create("contract:state/ledger")),
             ["access_hints_complete"] = true,
@@ -25341,6 +25366,7 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
             ["abi_hash_hex"] = abiHashHex,
             ["entrypoint"] = "main",
             ["error"] = "view entrypoint rejected payload",
+            ["fault"] = null,
             ["vm_diagnostic"] = null,
         }.ToJsonString();
     }
@@ -27259,25 +27285,25 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
     {
         var id = new JsonObject
         {
-            ["backend"] = "halo2/ipa",
+            ["backend"] = "pipa-r/pasta",
             ["name"] = "vk_main",
         };
         var inlineKey = new JsonObject
         {
-            ["backend"] = "halo2/ipa",
+            ["backend"] = "pipa-r/pasta",
             ["bytes_b64"] = "AQID",
         };
         var record = new JsonObject
         {
             ["version"] = 2,
-            ["circuit_id"] = "halo2/ipa::transfer_v2",
-            ["backend"] = "halo2/ipa",
+            ["circuit_id"] = "pipa-r/pasta/confidential-transfer-v1",
+            ["backend"] = "pipa-r/pasta",
             ["curve"] = "pallas",
             ["public_inputs_schema_hash"] = new string('a', 64),
-            ["commitment"] = VerifyingKeyCommitmentHex("halo2/ipa", "abc"u8.ToArray()),
+            ["commitment"] = VerifyingKeyCommitmentHex("pipa-r/pasta", "abc"u8.ToArray()),
             ["vk_len"] = 3,
             ["max_proof_bytes"] = 8192,
-            ["gas_schedule_id"] = "halo2_default",
+            ["gas_schedule_id"] = "native_default",
             ["metadata_uri_cid"] = "ipfs://vk-meta",
             ["vk_bytes_cid"] = "ipfs://vk-bundle",
             ["activation_height"] = 1024,
@@ -27544,14 +27570,14 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
         return new ToriiVerifyingKeyRegisterRequest
         {
             Authority = VerifyingKeyAuthorityAccountId,
-            Backend = "halo2/ipa",
+            Backend = "pipa-r/pasta",
             Name = "vk_main",
             Version = 1,
-            CircuitId = "halo2/ipa::transfer_v1",
+            CircuitId = "pipa-r/pasta/confidential-transfer-v1",
             PublicInputsSchemaHashHex = new string('a', 64),
-            GasScheduleId = "halo2_default",
+            GasScheduleId = "native_default",
             VerifyingKeyBytes = vkBytes,
-            CommitmentHex = VerifyingKeyCommitmentHex("halo2/ipa", vkBytes),
+            CommitmentHex = VerifyingKeyCommitmentHex("pipa-r/pasta", vkBytes),
             Status = "Active",
         };
     }
@@ -27562,14 +27588,14 @@ data: {"authority":"{{{ExplorerInstructionAuthorityAccountId}}}","created_at":"2
         return new ToriiVerifyingKeyUpdateRequest
         {
             Authority = VerifyingKeyAuthorityAccountId,
-            Backend = "halo2/ipa",
+            Backend = "pipa-r/pasta",
             Name = "vk_main",
             Version = 2,
-            CircuitId = "halo2/ipa::transfer_v2",
+            CircuitId = "pipa-r/pasta/confidential-transfer-v1",
             PublicInputsSchemaHashHex = new string('b', 64),
-            GasScheduleId = "halo2_default",
+            GasScheduleId = "native_default",
             VerifyingKeyBytes = vkBytes,
-            CommitmentHex = VerifyingKeyCommitmentHex("halo2/ipa", vkBytes),
+            CommitmentHex = VerifyingKeyCommitmentHex("pipa-r/pasta", vkBytes),
             Status = "Active",
         };
     }

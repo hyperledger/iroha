@@ -29,6 +29,7 @@ fn network_config(replay_root: &std::path::Path) -> iroha_config::parameters::ac
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../iroha_config/iroha_test_config.toml");
     let user = ConfigReader::new()
+        .without_env()
         .read_toml_with_extends(&path)
         .unwrap()
         .read_and_complete::<user::Root>()
@@ -110,18 +111,6 @@ fn inputs(
         )),
         key_pair: chain.keys[0].clone(),
         beacon_signer: None,
-        mint_finality_authority: Some(Arc::new(
-            crate::zk::kagemusha_v1_recursion::KagemushaMintFinalityLocalAuthorityV1::new(
-                Arc::new(
-                    super::super::super::epoch::genesis_epoch(&chain.genesis)
-                        .unwrap()
-                        .authority,
-                ),
-                zeroize::Zeroizing::new([0xA0; 32]),
-                0,
-            )
-            .unwrap(),
-        )),
         config: NodeConfig {
             records_dir: dir.join("records"),
             installation_log: dir.join("keys/installation.log"),
@@ -202,10 +191,8 @@ fn retained_live_actor_delivers_signed_native_ingress() {
         view: 0,
         block_hash: Hash32([0xAB; 32]),
         result: Hash32([0xBC; 32]),
-        attest: false,
         signer: config.committee.index_of(remote.public_key()).unwrap(),
         sig: Signature([0; 96]),
-        attestation: None,
     };
     vote.sig = remote.sign(&vote.preimage());
     assert!(

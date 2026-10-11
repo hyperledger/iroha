@@ -56,22 +56,13 @@ impl<T: Write> RunArgs<T> for Args {
 }
 fn validate_consensus_manifest(manifest: &RawGenesisTransaction) -> color_eyre::Result<()> {
     super::require_native_wire_protocol(manifest)?;
-    super::ensure_kagemusha_mint_finality_schedule_matches_consensus(manifest)?;
-    let topology = manifest
+    super::ensure_genesis_schedule_matches_consensus(manifest)?;
+    let has_topology = manifest
         .transactions()
         .iter()
-        .flat_map(iroha_genesis::RawGenesisTx::topology)
-        .map(|entry| entry.peer.clone())
-        .collect::<Vec<_>>();
-    if topology.is_empty() {
-        iroha_core_zk::kagemusha_v1_recursion::validate_kagemusha_mint_finality_genesis_parameter_keys_v1(
-            manifest.kagemusha_mint_finality_genesis_parameters(),
-        )
-        .map_err(|error| eyre!("invalid KAGEMUSHA mint-finality public parameters: {error}"))?;
-    } else {
-        super::ensure_kagemusha_mint_finality_generation_zero_authority_matches_topology(
-            manifest, &topology,
-        )?;
+        .any(|transaction| !transaction.topology().is_empty());
+    if has_topology {
+        super::ensure_genesis_topology_is_generation_zero(manifest)?;
     }
     Ok(())
 }

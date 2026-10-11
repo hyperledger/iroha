@@ -1,6 +1,6 @@
 
         seiyaku RawQuery {
-          view fn query(bytes payload) -> bytes {
+          view fn query(bytes payload) authorize(anyone) -> bytes {
             return query_execute_norito(payload);
           }
         }

@@ -1,14 +1,16 @@
 //! Public SCCP v1 reads on the client's reusable blocking runtime (`specs/sccp.md` §6).
 
 use super::{Client, RuntimeOwner};
-use crate::{Result, client::sccp::SccpAttestation};
-use iroha_data_model::{
-    bridge::SccpNetworkV1,
-    sccp::{outbound::SccpOutboundMessageRecordV1, registry::SccpRouteV1},
+use crate::{
+    Result,
+    client::sccp::{SccpAttestation, SccpDirection},
 };
+use iroha_data_model::{bridge::SccpNetworkV1, sccp::registry::SccpRouteV1};
 use iroha_sccp::api::{
-    SccpCapabilitiesV1, SccpControlProofBundleV1, SccpMessageProofBundleV1, SccpRosterViewV1,
-    SccpRotationChainV1,
+    SccpCapabilitiesV1, SccpControlPageV1, SccpControlProofBundleV1,
+    SccpGovernanceProposalDetailV1, SccpHistoryPathViewV1, SccpLcCheckpointCoverV1,
+    SccpLightClientDetailV1, SccpMessageProofBundleV1, SccpMessageStatusV1, SccpOutboundPageV1,
+    SccpRecentMessagesV1, SccpRosterViewV1, SccpRotationChainV1,
 };
 
 /// Blocking SCCP reads backed by the asynchronous SCCP capability.
@@ -88,12 +90,100 @@ impl Sccp<'_> {
         self.runtime.block_on(self.inner.registry())?
     }
 
-    /// Read one outbound message record.
+    /// Read the status union of one message id (outbound, inbound or unknown).
     ///
     /// # Errors
     /// Returns the asynchronous operation error or a typed runtime rejection.
-    pub fn message(&self, message_id: &[u8; 32]) -> Result<SccpOutboundMessageRecordV1> {
+    pub fn message(&self, message_id: &[u8; 32]) -> Result<SccpMessageStatusV1> {
         self.runtime.block_on(self.inner.message(message_id))?
+    }
+
+    /// Read the newest records of one direction.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn recent_messages(
+        &self,
+        direction: SccpDirection,
+        network: Option<SccpNetworkV1>,
+        before: Option<&str>,
+        limit: usize,
+    ) -> Result<SccpRecentMessagesV1> {
+        self.runtime.block_on(
+            self.inner
+                .recent_messages(direction, network, before, limit),
+        )?
+    }
+
+    /// Read the outbound records of one route revision by nonce.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn outbound(
+        &self,
+        network: SccpNetworkV1,
+        revision: u32,
+        from_nonce: u64,
+        limit: usize,
+    ) -> Result<SccpOutboundPageV1> {
+        self.runtime
+            .block_on(self.inner.outbound(network, revision, from_nonce, limit))?
+    }
+
+    /// Read the destination controls of one route revision.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn controls(
+        &self,
+        network: SccpNetworkV1,
+        revision: u32,
+        after_nonce: u64,
+        limit: usize,
+    ) -> Result<SccpControlPageV1> {
+        self.runtime
+            .block_on(self.inner.controls(network, revision, after_nonce, limit))?
+    }
+
+    /// Read the history path of one SCCP block.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn history(&self, height: u64, size: Option<u64>) -> Result<SccpHistoryPathViewV1> {
+        self.runtime.block_on(self.inner.history(height, size))?
+    }
+
+    /// Read one inbound light client with its freshness and stored data.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn light_client(&self, network: SccpNetworkV1) -> Result<SccpLightClientDetailV1> {
+        self.runtime.block_on(self.inner.light_client(network))?
+    }
+
+    /// Read the stored checkpoints anchoring a proof of source height `covering`.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn light_client_checkpoints(
+        &self,
+        network: SccpNetworkV1,
+        covering: u64,
+    ) -> Result<SccpLcCheckpointCoverV1> {
+        self.runtime
+            .block_on(self.inner.light_client_checkpoints(network, covering))?
+    }
+
+    /// Read one SCCP governance proposal in any phase.
+    ///
+    /// # Errors
+    /// Returns the asynchronous operation error or a typed runtime rejection.
+    pub fn governance_proposal(
+        &self,
+        content_id: &[u8; 32],
+    ) -> Result<SccpGovernanceProposalDetailV1> {
+        self.runtime
+            .block_on(self.inner.governance_proposal(content_id))?
     }
 
     /// Read the proof bundle of one outbound message.

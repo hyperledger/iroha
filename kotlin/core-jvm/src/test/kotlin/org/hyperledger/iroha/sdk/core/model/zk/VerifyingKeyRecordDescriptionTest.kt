@@ -10,7 +10,7 @@ class VerifyingKeyRecordDescriptionTest {
 
     private val validSchemaHash = "a".repeat(64)
     private val validCommitment = "b".repeat(64)
-    private val backend = "halo2/ipa"
+    private val backend = "pipa-r/pasta"
     private val inlineBytes = byteArrayOf(1, 2, 3, 4)
 
     private fun createWithInlineBytes(
@@ -25,7 +25,7 @@ class VerifyingKeyRecordDescriptionTest {
         circuitId = circuitId,
         schemaHashHex = schemaHashHex,
         gasScheduleId = gasScheduleId,
-        backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+        backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
         inlineKeyBytes = inlineKeyBytes,
     )
 
@@ -42,7 +42,7 @@ class VerifyingKeyRecordDescriptionTest {
         circuitId = circuitId,
         schemaHashHex = schemaHashHex,
         gasScheduleId = gasScheduleId,
-        backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+        backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
         commitmentHex = commitmentHex,
         vkLength = vkLength,
     )
@@ -130,7 +130,7 @@ class VerifyingKeyRecordDescriptionTest {
                     circuitId = "c",
                     schemaHashHex = validSchemaHash,
                     gasScheduleId = "g",
-                    backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                    backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                     inlineKeyBytes = inlineBytes,
                 )
             }
@@ -142,7 +142,7 @@ class VerifyingKeyRecordDescriptionTest {
                 circuitId = "c",
                 schemaHashHex = validSchemaHash,
                 gasScheduleId = "g",
-                backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                 inlineKeyBytes = inlineBytes,
             )
         }
@@ -157,7 +157,7 @@ class VerifyingKeyRecordDescriptionTest {
                 circuitId = "c",
                 schemaHashHex = validSchemaHash,
                 gasScheduleId = "g",
-                backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                 commitmentHex = validCommitment,
                 vkLength = 0,
             )
@@ -173,7 +173,7 @@ class VerifyingKeyRecordDescriptionTest {
                 circuitId = "c",
                 schemaHashHex = validSchemaHash,
                 gasScheduleId = "g",
-                backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                 commitmentHex = validCommitment,
                 vkLength = -1,
             )
@@ -189,7 +189,7 @@ class VerifyingKeyRecordDescriptionTest {
                 circuitId = "c",
                 schemaHashHex = validSchemaHash,
                 gasScheduleId = "g",
-                backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                 inlineKeyBytes = inlineBytes,
                 maxProofBytes = -1,
             )
@@ -205,7 +205,7 @@ class VerifyingKeyRecordDescriptionTest {
                 circuitId = "c",
                 schemaHashHex = validSchemaHash,
                 gasScheduleId = "g",
-                backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                 inlineKeyBytes = inlineBytes,
                 activationHeight = -1,
             )
@@ -221,7 +221,7 @@ class VerifyingKeyRecordDescriptionTest {
                 circuitId = "c",
                 schemaHashHex = validSchemaHash,
                 gasScheduleId = "g",
-                backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                 inlineKeyBytes = inlineBytes,
                 withdrawHeight = -1,
             )
@@ -237,7 +237,7 @@ class VerifyingKeyRecordDescriptionTest {
                 circuitId = "c",
                 schemaHashHex = validSchemaHash,
                 gasScheduleId = "g",
-                backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                 inlineKeyBytes = inlineBytes,
                 activationHeight = 100,
                 withdrawHeight = 50,
@@ -255,7 +255,7 @@ class VerifyingKeyRecordDescriptionTest {
                     circuitId = "c",
                     schemaHashHex = validSchemaHash,
                     gasScheduleId = "g",
-                    backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                    backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                     inlineKeyBytes = inlineBytes,
                     curve = " pallas",
                 )
@@ -267,7 +267,7 @@ class VerifyingKeyRecordDescriptionTest {
                     circuitId = "c",
                     schemaHashHex = validSchemaHash,
                     gasScheduleId = "g",
-                    backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                    backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                     inlineKeyBytes = inlineBytes,
                     curve = "pallas ",
                 )
@@ -279,7 +279,7 @@ class VerifyingKeyRecordDescriptionTest {
                     circuitId = "c",
                     schemaHashHex = validSchemaHash,
                     gasScheduleId = "g",
-                    backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                    backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                     inlineKeyBytes = inlineBytes,
                     metadataUriCid = " bafy-metadata",
                 )
@@ -291,7 +291,7 @@ class VerifyingKeyRecordDescriptionTest {
                     circuitId = "c",
                     schemaHashHex = validSchemaHash,
                     gasScheduleId = "g",
-                    backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                    backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                     inlineKeyBytes = inlineBytes,
                     metadataUriCid = "bafy-metadata ",
                 )
@@ -303,7 +303,7 @@ class VerifyingKeyRecordDescriptionTest {
                     circuitId = "c",
                     schemaHashHex = validSchemaHash,
                     gasScheduleId = "g",
-                    backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                    backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                     inlineKeyBytes = inlineBytes,
                     vkBytesCid = " bafy-vk",
                 )
@@ -315,7 +315,7 @@ class VerifyingKeyRecordDescriptionTest {
                     circuitId = "c",
                     schemaHashHex = validSchemaHash,
                     gasScheduleId = "g",
-                    backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                    backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                     inlineKeyBytes = inlineBytes,
                     vkBytesCid = "bafy-vk ",
                 )
@@ -340,7 +340,7 @@ class VerifyingKeyRecordDescriptionTest {
                 circuitId = "c",
                 schemaHashHex = validSchemaHash,
                 gasScheduleId = "g",
-                backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                 vkLength = 128,
             )
         }
@@ -355,7 +355,7 @@ class VerifyingKeyRecordDescriptionTest {
                 circuitId = "c",
                 schemaHashHex = validSchemaHash,
                 gasScheduleId = "g",
-                backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                 commitmentHex = validCommitment,
             )
         }
@@ -370,7 +370,7 @@ class VerifyingKeyRecordDescriptionTest {
                 circuitId = "c",
                 schemaHashHex = validSchemaHash,
                 gasScheduleId = "g",
-                backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+                backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
                 inlineKeyBytes = inlineBytes,
                 vkLength = 999,
             )
@@ -434,7 +434,7 @@ class VerifyingKeyRecordDescriptionTest {
     @Test
     fun `explicit backendTag is retained`() {
         val desc = createWithInlineBytes()
-        assertEquals(VerifyingKeyBackendTag.HALO2_IPA_PASTA, desc.backendTag)
+        assertEquals(VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA, desc.backendTag)
     }
 
     @Test
@@ -457,7 +457,7 @@ class VerifyingKeyRecordDescriptionTest {
         val args = desc.toArguments(backend)
         assertEquals("1", args["record.version"])
         assertEquals("circuit-1", args["record.circuit_id"])
-        assertEquals(VerifyingKeyBackendTag.HALO2_IPA_PASTA.noritoValue, args["record.backend_tag"])
+        assertEquals(VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA.noritoValue, args["record.backend_tag"])
         assertEquals("gas-1", args["record.gas_schedule_id"])
         assertEquals(VerifyingKeyStatus.ACTIVE.wireName, args["record.status"])
     }
@@ -489,7 +489,7 @@ class VerifyingKeyRecordDescriptionTest {
             circuitId = "c",
             schemaHashHex = validSchemaHash,
             gasScheduleId = "g",
-            backendTag = VerifyingKeyBackendTag.HALO2_IPA_PASTA,
+            backendTag = VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA,
             commitmentHex = validCommitment,
             vkLength = 128,
             metadataUriCid = "meta-cid",

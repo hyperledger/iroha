@@ -96,7 +96,9 @@ pub struct SccpVoidStatusV1 {
     pub kind: SccpVoidKindV1,
     /// Taira height at which the void was proven.
     pub proven_at_height: u64,
-    /// Whether the refund waits for `SettleSccpV1::Refund` (SCCP disabled or revision paused).
+    /// Whether the refund waits for `SettleSccpV1::Refund` (SCCP disabled, the revision
+    /// paused, the credit refused by the release movement now, or the void's inline release
+    /// budget spent, §4.16).
     pub refund_pending: bool,
 }
 
@@ -135,7 +137,7 @@ pub enum SccpOutboundStatusV1 {
     #[codec(index = 2)]
     #[norito(rename = "refunded")]
     Refunded(SccpStatusHeightV1),
-    /// Moved to the route's `stranded` balance (sender is the escrow or cannot be credited).
+    /// Moved to the route's `stranded` balance (sender is the escrow or can never be credited).
     #[codec(index = 3)]
     #[norito(rename = "stranded")]
     Stranded(SccpStatusHeightV1),

@@ -102,7 +102,7 @@ def _native_account_codec():
         from iroha_native import require_account_codec_v1
     except ImportError as error:
         raise RuntimeError(
-            "account identities require the installed ABI-25 iroha-native wheel"
+            "account identities require the installed ABI-29 iroha-native wheel"
         ) from error
     return require_account_codec_v1()
 

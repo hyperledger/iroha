@@ -7,6 +7,60 @@ use iroha_model_base::{domain::DomainId, metadata::Metadata, state_path::StatePa
 use mv::storage::StorageReadOnly;
 
 const START: u64 = 1_793_451_600_000;
+
+#[test]
+fn native_conversion_exemption_consumes_only_the_exact_leg_before_customer_pricing() {
+    for now in [START - 1, START] {
+        fixture(now, |stx, policy| {
+            let source = AssetId::new(
+                policy.ds_asset_id.clone(),
+                policy.treasury_account_id.clone(),
+            );
+            let destination = account(3);
+            let amount = Quantity::from(10_u32);
+            stx.world.retail_fee_exempt_payments.push((
+                source.clone(),
+                destination.clone(),
+                amount.clone(),
+            ));
+            let changed_legs = [
+                (
+                    AssetId::new(policy.ds_asset_id.clone(), account(4)),
+                    destination.clone(),
+                    amount.clone(),
+                ),
+                (
+                    AssetId::new(
+                        policy.reward_custody.xor_asset_id.clone(),
+                        source.account().clone(),
+                    ),
+                    destination.clone(),
+                    amount.clone(),
+                ),
+                (source.clone(), account(4), amount.clone()),
+                (source.clone(), destination.clone(), Quantity::from(11_u32)),
+            ];
+            for (changed_source, changed_destination, changed_amount) in changed_legs {
+                let _ = record_payment(stx, &changed_source, &changed_destination, &changed_amount);
+                assert_eq!(stx.world.retail_fee_exempt_payments.len(), 1);
+                assert!(
+                    finalize(stx).is_err(),
+                    "a mismatched leg cannot consume the exemption"
+                );
+            }
+            record_payment(stx, &source, &destination, &amount).unwrap();
+            assert!(stx.world.retail_fee_exempt_payments.is_empty());
+            finalize(stx).unwrap();
+            if now == START {
+                assert!(
+                    record_payment(stx, &source, &destination, &amount).is_err(),
+                    "the consumed exemption cannot authorize a second retail payment"
+                );
+            }
+        });
+    }
+}
+
 fn account(seed: u8) -> AccountId {
     AccountId::new(
         KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
@@ -112,15 +166,7 @@ fn seed(
     let id = AssetId::new(policy.ds_asset_id.clone(), owner.clone());
     let mut record = RetailFeeAccountStateV1::enroll(owner.clone(), opened, value).unwrap();
     record.payments_used = used;
-    let path: StatePath = format!(
-        "retail_fee_v1/{}",
-        hex::encode(Hash::new(owner.to_string().as_bytes()).as_ref())
-    )
-    .parse()
-    .unwrap();
-    stx.world
-        .smart_contract_state
-        .insert(path, norito::to_bytes(&record).unwrap());
+    crate::retail_fee::write_account(&mut stx.world, &record).unwrap();
     **stx
         .world
         .asset_or_insert_exact(&id, Quantity::zero())

@@ -268,10 +268,6 @@ impl SourceQuotaTransaction<'_> {
         self.native_purpose == Some(hash)
     }
 
-    pub(crate) fn has_native_purpose(&self) -> bool {
-        self.native_purpose.is_some()
-    }
-
     /// Allow the private block-start governance sweep's retained-purpose entries.
     pub(crate) fn authorize_governance_purposes(&mut self) {
         if self.native_purpose.is_some() {

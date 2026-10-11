@@ -125,12 +125,9 @@ pub(super) fn has_unrequested_dependency(
     bindings: &IrohaRuntimeProviderBindingsV1,
     dependencies: &IrohaRuntimeDeps,
 ) -> bool {
-    // Pasta seed custody is deliberately not a catalog provider slot: only the
-    // consumed private descriptor or exact deployment launcher may install it.
-    dependencies.kagemusha_mint_finality_authority.is_some()
-        // Gateway admission authority is constructed from local Core; no broker catalog
-        // binding may install an externally asserted admission provider.
-        || dependencies.sorafs_stream_token_gateway_admission.is_some()
+    // Gateway admission authority is constructed from local Core; no broker catalog
+    // binding may install an externally asserted admission provider.
+    dependencies.sorafs_stream_token_gateway_admission.is_some()
         || dependency_is_unrequested(
             bindings,
             IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner,

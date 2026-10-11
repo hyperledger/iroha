@@ -9,7 +9,10 @@ import re
 import unittest
 from pathlib import Path
 
-from zk_source_tokens import token_hash
+if __package__:
+    from .zk_source_tokens import token_hash
+else:
+    from zk_source_tokens import token_hash
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -17,10 +20,10 @@ IVM_SOURCE = Path("crates/ivm/tests/kotodama.rs")
 IR_SOURCE = Path("crates/kotodama_lang/src/ir.rs")
 FIXTURE_MANIFEST = Path("crates/kotodama_lang/kotodama_fixtures_v1.manifest.json")
 
-IVM_REGION_SHA256 = "27c39d9fc502a22f13ebce08831547ee1898114f0791cec44892708c75fbca10"
-IR_REGION_SHA256 = "d361b6a6d5bacf917729bee90898e2a17cb23c4d6c4ad0a746bb5c325e11d17f"
-IVM_CODE_SHA256 = "75a857b41d94d0b890bd7aa3f79c04d50fb7b6027c1ec8c97d32738e5502c3f7"
-IR_CODE_SHA256 = "f1669b72eb08c6e27e2e7ae5c61235d630ace8a773e8cf595b81fa5fe67a3685"
+IVM_REGION_SHA256 = "81e841a583ba2ac9e7968aed426b6b09e65bb80a699342b40225943fa37ddfdf"
+IR_REGION_SHA256 = "41562e7743c639e665fb3674538986ac99ab1d91691c41c7966e596d91b7aadc"
+IVM_CODE_SHA256 = "d6e75fc454eed1e51a73c77bbf840ad9e4a6d78419324db8b7f5616f40353bf1"
+IR_CODE_SHA256 = "7b089765de4004f3e2634ee9807324377348e7aec831d401bf7c3e927ee5ad5a"
 REGISTRY_FIXTURES = ROOT / "fixtures/documentation/kotodama-registry"
 IVM_CASE_IDS_SHA256 = "9c2a8f00d546b43ea86589639998900a540961bdc6b4b4b9b4a6e2b4ce1c92cc"
 
@@ -48,7 +51,7 @@ IR_TEST_NAMES = (
     "lower_resolve_account_alias_invalid_domain_qualified_literal_uses_string_literal",
     "lower_account_id_alias_literal_to_resolve_account_alias",
     "lower_account_id_domain_qualified_alias_literal_to_resolve_account_alias",
-    "lower_account_id_invalid_non_alias_literal_keeps_static_account_dataref",
+    "account_id_invalid_non_alias_literal_is_rejected_before_lowering",
     "lower_account_id_canonical_literal_to_static_account_dataref",
     "lower_account_id_invalid_alias_shaped_literal_to_resolve_account_alias",
     "lower_account_id_invalid_domain_qualified_alias_literal_to_resolve_account_alias",
@@ -80,7 +83,7 @@ class KotodamaTypedCaseRegistrySourceTest(unittest.TestCase):
         ivm_region = _region(
             ivm_source,
             "#[derive(Clone, Copy)]\nenum CaseSource",
-            "#[test]\nfn assert_builtin_obeys_truthiness",
+            "#[test]\nfn many_string_literals_load_under_wide_guard",
         )
         ir_region = _region(
             ir_source,
@@ -131,10 +134,12 @@ class KotodamaTypedCaseRegistrySourceTest(unittest.TestCase):
         emitted_names = tuple(
             re.findall(r"(?m)^    alias_lowering_case!\(\n        ([a-z0-9_]+),", ir_region)
         )
-        self.assertEqual(emitted_names, IR_TEST_NAMES)
-        self.assertEqual(len(set(emitted_names)), len(IR_TEST_NAMES))
+        self.assertEqual(emitted_names, tuple(name for name in IR_TEST_NAMES if name != "account_id_invalid_non_alias_literal_is_rejected_before_lowering"))
+        self.assertEqual(len(set(emitted_names)), len(IR_TEST_NAMES) - 1)
         self.assertEqual(ir_region.count("macro_rules! alias_lowering_case"), 1)
-        self.assertEqual(ir_region.count("#[test]"), 1)
+        self.assertEqual(ir_region.count("#[test]"), 2)
+        self.assertIn("fn account_id_invalid_non_alias_literal_is_rejected_before_lowering()", ir_region)
+        self.assertIn('assert_eq!(error.code, "E_INVALID_ID_LITERAL");', ir_region)
 
         manifest = json.loads(_read_source(FIXTURE_MANIFEST))
         source_entry = next(
@@ -162,7 +167,7 @@ class KotodamaTypedCaseRegistrySourceTest(unittest.TestCase):
     def test_registry_whitespace_growth_preserves_semantic_contract(self) -> None:
         ivm_source = _read_source(IVM_SOURCE)
         ir_source = _read_source(IR_SOURCE)
-        ivm_end = "#[test]\nfn assert_builtin_obeys_truthiness"
+        ivm_end = "#[test]\nfn many_string_literals_load_under_wide_guard"
         ir_end = "    #[test]\n    fn lower_get_quantity_builtin"
         self.assertEqual(ivm_source.count(ivm_end), 1)
         self.assertEqual(ir_source.count(ir_end), 1)

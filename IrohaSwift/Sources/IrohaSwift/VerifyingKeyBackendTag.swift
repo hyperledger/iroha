@@ -6,17 +6,17 @@ import Foundation
 /// Privacy protocols and verifier profiles are deliberately represented by
 /// separate catalog labels and never become wire-enum variants.
 public enum VerifyingKeyBackendTag: UInt32, CaseIterable, Sendable, Equatable {
-    case halo2IpaPasta = 0
+    case nativePipaRPasta = 0
     case stark = 1
 
     public var noritoDiscriminant: UInt32 { rawValue }
 
     public var canonicalLabel: String {
         switch self {
-        case .halo2IpaPasta:
-            return "halo2-ipa-pasta"
         case .stark:
             return "stark"
+        case .nativePipaRPasta:
+            return "native-pipa-r-pasta"
         }
     }
 
@@ -25,10 +25,10 @@ public enum VerifyingKeyBackendTag: UInt32, CaseIterable, Sendable, Equatable {
     /// No whitespace, case, punctuation, or historical aliases are accepted.
     public init?(canonicalLabel: String) {
         switch canonicalLabel {
-        case "halo2-ipa-pasta":
-            self = .halo2IpaPasta
         case "stark":
             self = .stark
+        case "native-pipa-r-pasta":
+            self = .nativePipaRPasta
         default:
             return nil
         }
@@ -49,9 +49,15 @@ public enum VerifyingKeyBackendTag: UInt32, CaseIterable, Sendable, Equatable {
         {
             return false
         }
-        return backend == "halo2/ipa"
-            || starkFriProductionBackends.contains(backend)
-            || productionNativeHalo2PastaBackends.contains(backend)
+        return starkFriProductionBackends.contains(backend)
+            || productionNativePipaRPastaBackends.contains(backend)
+    }
+
+    /// Resolve an exact registry profile to its canonical wire engine.
+    public static func registryTag(_ label: String) -> Self? {
+        if starkFriProductionBackends.contains(label) { return .stark }
+        if productionNativePipaRPastaBackends.contains(label) { return .nativePipaRPasta }
+        return nil
     }
 
     /// Requires an exact production verifier label and returns it unchanged.
@@ -80,12 +86,13 @@ public enum VerifyingKeyBackendTag: UInt32, CaseIterable, Sendable, Equatable {
         "stark/fri/poseidon-x7-goldilocks-6x64-v1"
     ]
 
-    private static let productionNativeHalo2PastaBackends: Set<String> = [
-        "halo2/pasta/kaigi-authorization-v1",
-        "halo2/pasta/kaigi-usage-v1",
-        "halo2/pasta/confidential-transfer-2x2-merkle16-axiom-poseidon-v3",
-        "halo2/pasta/confidential-unshield-full-merkle16-axiom-poseidon-v3",
-        "halo2/pasta/confidential-unshield-change-merkle16-axiom-poseidon-v4"
+    private static let productionNativePipaRPastaBackends: Set<String> = [
+        "pipa-r/pasta",
+        "pipa-r/pasta/kaigi-authorization-v1",
+        "pipa-r/pasta/kaigi-usage-v1",
+        "pipa-r/pasta/confidential-transfer-v1",
+        "pipa-r/pasta/confidential-unshield-full-v1",
+        "pipa-r/pasta/confidential-unshield-change-v1"
     ]
 
     private static let trustedSetupBackendSegments: Set<String> = [
@@ -205,7 +212,7 @@ public enum VerifyingKeyBackendTag: UInt32, CaseIterable, Sendable, Equatable {
 }
 
 /// Classification of a human-facing verifier catalog label. This type is
-/// deliberately separate from the two-case Norito engine enum.
+/// deliberately separate from the Norito engine enum.
 public enum VerifierBackendCatalogTag: Sendable, Equatable {
     case production
     case unsupported
@@ -223,12 +230,12 @@ public enum VerifierBackendCatalogTag: Sendable, Equatable {
     }
 
     private static let productionLabels: Set<String> = [
-        "halo2/ipa",
-        "halo2/pasta/kaigi-authorization-v1",
-        "halo2/pasta/kaigi-usage-v1",
-        "halo2/pasta/confidential-transfer-2x2-merkle16-axiom-poseidon-v3",
-        "halo2/pasta/confidential-unshield-full-merkle16-axiom-poseidon-v3",
-        "halo2/pasta/confidential-unshield-change-merkle16-axiom-poseidon-v4",
+        "pipa-r/pasta",
+        "pipa-r/pasta/kaigi-authorization-v1",
+        "pipa-r/pasta/kaigi-usage-v1",
+        "pipa-r/pasta/confidential-transfer-v1",
+        "pipa-r/pasta/confidential-unshield-full-v1",
+        "pipa-r/pasta/confidential-unshield-change-v1",
         "stark/fri/poseidon-x7-goldilocks-6x64-v1"
     ]
 }

@@ -13,7 +13,7 @@
 //!   `s mod p`;
 //! - a word of the circuit's own field decomposes only into its canonical
 //!   limbs (the halves of its canonical encoding);
-//! - the tamper suites and the inventory (15 folded blocks; 4 range checks
+//! - the tamper suites and the inventory (14 folded blocks; 4 range checks
 //!   per canonical value).
 
 mod common;
@@ -43,8 +43,8 @@ use iroha_plonk_gadgets::{
 /// Plain statement fields before the lineage inputs and the effect:
 /// relation identity (2), scheme (2), asset (2), credential (2), lifecycle,
 /// sequence, `next_load`, predecessor, successor, enabled-controls mask.
-const PLAIN: usize = 14;
-/// `k` of the statement circuits (15 folded blocks, 9-bit limbs).
+const PLAIN: usize = 13;
+/// `k` of the statement circuits (14 folded blocks, 9-bit limbs).
 const K: u32 = 10;
 /// The relation identity of the sample statements.
 const RELATION_ID: [u8; 32] = *b"gadget-test-relation-identity-01";
@@ -84,13 +84,13 @@ fn statement_program<F: PoseidonField>(
         relation_id: [&words[0], &words[1]],
         scheme_id: [&words[2], &words[3]],
         asset_digest: [&words[4], &words[5]],
-        credential_digest: [&words[6], &words[7]],
-        lifecycle: &words[8],
-        sequence: &words[9],
-        next_load: &words[10],
-        predecessor: &words[11],
-        successor: &words[12],
-        enabled_controls: &words[13],
+        credential_digest: &words[6],
+        lifecycle: &words[7],
+        sequence: &words[8],
+        next_load: &words[9],
+        predecessor: &words[10],
+        successor: &words[11],
+        enabled_controls: &words[12],
         lineage_burned_total: (lineage > 0).then(|| &words[PLAIN]),
         lineage_pending_outgoing_root: (lineage > 0).then(|| &words[PLAIN + 1]),
         effect: &words[PLAIN + lineage..],
@@ -117,7 +117,11 @@ fn sample_statement<F: PoseidonField>(step: StepRelation, effect: usize) -> Stat
         step,
         scheme_id: bytes(1),
         asset_digest: bytes(3),
-        credential_digest: bytes(2),
+        credential_digest: {
+            let mut bytes = bytes(2);
+            bytes[31] &= 0x3f;
+            bytes
+        },
         lifecycle: 1,
         sequence: (1 << 70) + 3,
         next_load: (1 << 90) + 5,
@@ -137,10 +141,13 @@ fn circuit<F: PoseidonField>(statement: &StatementV1<F>) -> (GadgetCircuit<F>, V
         &statement.relation_id,
         &statement.scheme_id,
         &statement.asset_digest,
-        &statement.credential_digest,
     ] {
         inputs.extend(digest_fields::<F>(bytes));
     }
+    inputs.push(
+        iroha_plonk_gadgets::statement::canonical_field::<F>(&statement.credential_digest)
+            .expect("canonical digest"),
+    );
     inputs.extend([
         F::from(u64::from(statement.lifecycle)),
         F::from_u128(statement.sequence),
@@ -161,7 +168,7 @@ fn circuit<F: PoseidonField>(statement: &StatementV1<F>) -> (GadgetCircuit<F>, V
     let shape = Shape::new(1, 9, 1)
         .with_args(&[step, effect])
         .folding(&[(STATEMENT_DOMAIN, STATEMENT_FIELDS)]);
-    let digest = statement.digest().expect("at most 10 effect fields");
+    let digest = statement.digest().expect("at most 9 effect fields");
     (
         GadgetCircuit::new(shape, statement_program::<F>, inputs),
         vec![digest],
@@ -169,7 +176,7 @@ fn circuit<F: PoseidonField>(statement: &StatementV1<F>) -> (GadgetCircuit<F>, V
 }
 
 fn digests_match<F: PoseidonField>() {
-    for (step, effect) in [(StepRelation::Send, 10), (StepRelation::Receive, 4)] {
+    for (step, effect) in [(StepRelation::Send, 9), (StepRelation::Receive, 4)] {
         let statement = sample_statement::<F>(step, effect);
         let (honest, public) = circuit::<F>(&statement);
         assert!(
@@ -324,12 +331,12 @@ fn own_field_words_decompose_into_their_canonical_limbs() {
 }
 
 #[test]
-fn an_effect_longer_than_10_fields_is_an_error() {
+fn an_effect_longer_than_9_fields_is_an_error() {
     let statement = sample_statement::<Fp>(StepRelation::Send, EFFECT_UNION_FIELDS + 1);
     assert_eq!(statement.digest(), None);
     let short = sample_statement::<Fp>(StepRelation::Send, EFFECT_UNION_FIELDS);
     let (mut circuit, public) = circuit::<Fp>(&short);
-    circuit.shape.args[1] = 11;
+    circuit.shape.args[1] = 10;
     circuit.inputs.push(Fp::ONE);
     assert_eq!(
         synthesize(&circuit, K, Some(&[public][..])).map(|_| ()),
@@ -338,14 +345,14 @@ fn an_effect_longer_than_10_fields_is_an_error() {
 }
 
 #[test]
-fn inventory_15_blocks_and_the_s6_checks() {
+fn inventory_14_blocks_and_the_s6_checks() {
     let statement = sample_statement::<Fp>(StepRelation::Receive, 4);
     let (circuit, public) = circuit::<Fp>(&statement);
     let flags = assigned(&circuit, K, &public);
-    // The folded statement digest: 15 blocks.
+    // The folded statement digest: 14 blocks.
     assert_eq!(
         extent(&flags[lane_columns(0)[0]]),
-        15 * ROWS_PER_PERMUTATION
+        14 * ROWS_PER_PERMUTATION
     );
     assert_eq!(extent(&flags[RANGE_COLUMN]), 0);
     // A canonical value: four range checks (lo 128, hi 127, the bound of
@@ -390,7 +397,7 @@ fn undetected<F: PoseidonField>(
 fn glue_and_boundary_lane_cells_are_pinned() {
     // Every glue cell, and every lane cell of the first and last blocks (the
     // lane suites tamper every block of smaller sponges).
-    let statement = sample_statement::<Fq>(StepRelation::Send, 10);
+    let statement = sample_statement::<Fq>(StepRelation::Send, 9);
     let (circuit, public) = circuit::<Fq>(&statement);
     let lane = lane_columns(0);
     let cells = assigned_advice_cells(&circuit, K, std::slice::from_ref(&public))
@@ -399,7 +406,7 @@ fn glue_and_boundary_lane_cells_are_pinned() {
         .filter(|(column, row)| {
             !lane.contains(column)
                 || *row < ROWS_PER_PERMUTATION
-                || *row >= 14 * ROWS_PER_PERMUTATION
+                || *row >= 13 * ROWS_PER_PERMUTATION
         })
         .collect::<Vec<_>>();
     assert_eq!(undetected(&circuit, &public, &cells), Vec::new());
@@ -416,7 +423,7 @@ fn every_canonical_limb_cell_is_pinned() {
 }
 
 #[test]
-#[ignore = "every cell of the 15-block statement circuit; run in release"]
+#[ignore = "every cell of the 14-block statement circuit; run in release"]
 fn every_statement_cell_is_pinned() {
     let statement = sample_statement::<Fp>(StepRelation::Receive, 4);
     let (circuit, public) = circuit::<Fp>(&statement);
@@ -432,11 +439,6 @@ fn le_u128(bytes: &[u8]) -> u128 {
         .fold(0_u128, |value, byte| (value << 8) | u128::from(*byte))
 }
 
-/// 32 bytes at `offset` of `bytes`.
-fn bytes32(bytes: &[u8], offset: usize) -> [u8; 32] {
-    bytes[offset..offset + 32].try_into().expect("32 bytes")
-}
-
 /// Bytes of a lowercase hex string.
 fn hex_bytes(text: &str) -> Vec<u8> {
     assert_eq!(text.len() % 2, 0, "even hex length");
@@ -450,52 +452,41 @@ fn field_of(bytes: [u8; 32]) -> Fp {
     Option::from(Fp::from_repr(bytes)).expect("canonical field value")
 }
 
-/// The native statement of one G1 `statement` transcript (wire record section
-/// 3.2, 440 bytes): the header fields at their transcript offsets and the
-/// effect elements of a Send or Receive in the G1 element order (`credit_id`
-/// one element, every other digest two limbs).
-fn statement_of_transcript(transcript: &[u8]) -> StatementV1<Fp> {
-    assert_eq!(transcript.len(), 440, "statement transcript length");
-    assert_eq!(le_u128(&transcript[0..2]), 1, "statement version");
-    let limbs = |offset: usize| digest_fields::<Fp>(&bytes32(transcript, offset));
-    let element = |offset: usize| field_of(bytes32(transcript, offset));
-    let integer = |range: core::ops::Range<usize>| Fp::from_u128(le_u128(&transcript[range]));
-    let (step, effect) = match transcript[279] {
-        // credit, receiver (2), ordinal, amount, fee, request (2), lower, upper.
-        3 => (
-            StepRelation::Send,
-            core::iter::once(element(280))
-                .chain(limbs(312))
-                .chain([integer(344..360), integer(360..376), integer(376..392)])
-                .chain(limbs(392))
-                .chain([integer(424..432), integer(432..440)])
-                .collect::<Vec<_>>(),
-        ),
-        // credit, payer (2), amount.
-        4 => (
-            StepRelation::Receive,
-            core::iter::once(element(280))
-                .chain(limbs(312))
-                .chain([integer(344..360)])
-                .collect::<Vec<_>>(),
-        ),
-        tag => panic!("no step relation for effect tag {tag}"),
+/// Decode the current G1 field-only statement vector without a retired byte transcript.
+fn statement_of_items(items: &[[u8; 32]]) -> StatementV1<Fp> {
+    assert_eq!(items.len(), STATEMENT_FIELDS);
+    let integer = |i: usize| le_u128(&items[i][..16]);
+    let digest = |i: usize| {
+        let mut value = [0; 32];
+        value[..16].copy_from_slice(&items[i][..16]);
+        value[16..].copy_from_slice(&items[i + 1][..16]);
+        value
     };
+    let step = match integer(16) {
+        3 => StepRelation::Send,
+        4 => StepRelation::Receive,
+        tag => panic!("step {tag}"),
+    };
+    let effect_len = if step == StepRelation::Send { 9 } else { 4 };
     StatementV1 {
-        relation_id: bytes32(transcript, 34),
+        relation_id: digest(1),
         step,
-        scheme_id: bytes32(transcript, 2),
-        asset_digest: bytes32(transcript, 98),
-        credential_digest: bytes32(transcript, 66),
-        lifecycle: transcript[130],
-        sequence: le_u128(&transcript[131..147]),
-        next_load: le_u128(&transcript[147..163]),
-        enabled_controls: u32::try_from(le_u128(&transcript[163..167])).expect("u32 mask"),
-        lineage_burned_total: le_u128(&transcript[167..183]),
-        lineage_pending_outgoing_root: element(183),
-        predecessor: element(215),
-        successor: element(247),
-        effect,
+        scheme_id: digest(3),
+        asset_digest: digest(5),
+        credential_digest: items[7],
+        lifecycle: u8::try_from(integer(8)).expect("lifecycle"),
+        sequence: integer(9),
+        next_load: integer(10),
+        enabled_controls: u32::try_from(integer(11)).expect("mask"),
+        lineage_burned_total: integer(12),
+        lineage_pending_outgoing_root: field_of(items[13]),
+        predecessor: field_of(items[14]),
+        successor: field_of(items[15]),
+        effect: items[17..17 + effect_len]
+            .iter()
+            .copied()
+            .map(field_of)
+            .collect(),
     }
 }
 
@@ -530,7 +521,6 @@ fn the_native_and_in_circuit_encodings_reproduce_the_g1_statement_vectors() {
     ] {
         let vector = encodings.get(name).expect(name);
         let text = |key: &str| vector.get(key).and_then(Value::as_str).expect(key);
-        let transcript = hex_bytes(text("statement_hex"));
         let items = vector
             .get("items")
             .and_then(Value::as_array)
@@ -543,9 +533,9 @@ fn the_native_and_in_circuit_encodings_reproduce_the_g1_statement_vectors() {
             })
             .collect::<Vec<[u8; 32]>>();
         assert_eq!(items.len(), STATEMENT_FIELDS, "{name}");
-        let statement = statement_of_transcript(&transcript);
+        let statement = statement_of_items(&items);
         assert_eq!(statement.step, step, "{name}");
-        let encoded = statement.encode().expect("at most 10 effect fields");
+        let encoded = statement.encode().expect("at most 9 effect fields");
         let encoded = encoded
             .iter()
             .map(PrimeField::to_repr)

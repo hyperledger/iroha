@@ -3,7 +3,12 @@
 use super::*;
 use crate::execution_attempt::{ExecutionAttemptError, ExecutionDeferred, vm_attempt_error};
 use iroha_allocation::{AllocationBudget, AllocationRefusal};
-use ivm::{VMError, error::ExecutionDeferral};
+use iroha_data_model::smart_contract::entrypoint::{
+    EntrypointValueKindV1, EntrypointValueTypeNodeV1, EntrypointValueTypeV1,
+    MAX_ENTRYPOINT_RETURN_RECORD_BYTES,
+};
+use iroha_primitives::bigint::BigInt;
+use ivm::{IVM, VMError, error::ExecutionDeferral};
 
 const FUNDED_BYTES: usize = 128 * 1024 * 1024;
 
@@ -12,7 +17,7 @@ pub(crate) fn funded_return_vm() -> (IVM, AllocationBudget) {
     let budget = AllocationBudget::new(FUNDED_BYTES);
     let mut vm = IVM::try_new_with_memory_budget(100_000, &budget).expect("fund root VM");
     let program = kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku ResourceReturn { view fn main() { () } }")
+        .compile_source("seiyaku ResourceReturn { view fn main() authorize(anyone) { () } }")
         .expect("compile authenticated root call");
     vm.load_program(&program)
         .expect("load authenticated root call");
@@ -155,10 +160,11 @@ fn return_error_mapping_retains_all_local_variants_and_metered_owners() {
         },
     ];
     for expected in errors {
-        let error = handle_decode_error(0, "result table", expected.clone());
+        let error = EntrypointReturnDecodeError::from_vm_error(0, "result table", expected.clone());
         expect_deferred(error, &expected);
         let nested =
-            handle_decode_error(0, "result table", expected.clone()).into_nested_vm_error();
+            EntrypointReturnDecodeError::from_vm_error(0, "result table", expected.clone())
+                .into_nested_vm_error();
         assert_eq!(nested, expected);
         // This is the same meter and attempt classifier used by the nested
         // host/executor boundary. Local refusal must never reach rejection.
@@ -176,7 +182,7 @@ fn return_error_mapping_retains_all_local_variants_and_metered_owners() {
 #[test]
 fn return_error_mapping_preserves_privacy_malformed_and_gas_boundaries() {
     assert!(matches!(
-        handle_decode_error(2, "Int", VMError::NoritoInvalid),
+        EntrypointReturnDecodeError::from_vm_error(2, "Int", VMError::NoritoInvalid),
         EntrypointReturnDecodeError::InvalidValue {
             word_index: 2,
             kind: "Int",
@@ -184,11 +190,13 @@ fn return_error_mapping_preserves_privacy_malformed_and_gas_boundaries() {
         }
     ));
     assert_eq!(
-        handle_decode_error(2, "Int", VMError::NoritoInvalid).into_nested_vm_error(),
+        EntrypointReturnDecodeError::from_vm_error(2, "Int", VMError::NoritoInvalid)
+            .into_nested_vm_error(),
         VMError::DecodeError
     );
     assert_eq!(
-        handle_decode_error(2, "Int", VMError::PrivacyViolation).into_nested_vm_error(),
+        EntrypointReturnDecodeError::from_vm_error(2, "Int", VMError::PrivacyViolation)
+            .into_nested_vm_error(),
         VMError::PrivacyViolation
     );
     for (max_bytes, expected) in [

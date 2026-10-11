@@ -19,7 +19,7 @@ pub(super) fn decode_return(
         .wrap_err(context)
 }
 
-fn completed(outcome: Result<(), VMError>) -> eyre::Result<Result<(), VMError>> {
+pub(super) fn completed(outcome: Result<(), VMError>) -> eyre::Result<Result<(), VMError>> {
     match outcome {
         Err(error) if error.execution_deferral().is_some() => {
             // Move the original typed error, including any allocation release

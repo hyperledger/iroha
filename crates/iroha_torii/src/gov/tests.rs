@@ -690,6 +690,9 @@ fn mk_manifest_provenance(
     abi_hash: [u8; 32],
 ) -> ManifestProvenance {
     let manifest = ContractManifest {
+        events: Vec::new(),
+        enum_types: Vec::new(),
+        permissions: Vec::new(),
         seiyaku_name: None,
         code_hash: Some(iroha_crypto::Hash::prehashed(code_hash)),
         abi_hash: Some(iroha_crypto::Hash::prehashed(abi_hash)),
@@ -723,9 +726,9 @@ fn install_governed_contract_for_test(
     let (artifact, manifest) = kotodama_lang::compiler::Compiler::new()
         .compile_source_with_manifest(
             r#"
-seiyaku GovernedReadFixture {
-    view fn balance() -> bool { return true; }
-    kotoage fn transfer() authorize("CanTransferGovernedFixture") {}
+seiyaku GovernedReadFixture { permission CanTransferGovernedFixture;
+    view fn balance() authorize(anyone) -> bool { return true; }
+    kotoage fn transfer() authorize(CanTransferGovernedFixture) {}
 }
 "#,
         )
@@ -2413,6 +2416,9 @@ fn signed_governed_manifest_for_verification(
 ) -> ContractManifest {
     let key = KeyPair::try_from_seed(vec![75; 32], Algorithm::Ed25519).unwrap();
     ContractManifest {
+        events: Vec::new(),
+        enum_types: Vec::new(),
+        permissions: Vec::new(),
         seiyaku_name: Some("GovernedVerificationFixture".into()),
         code_hash: Some(iroha_crypto::Hash::new(b"governed fixture code")),
         abi_hash: Some(iroha_crypto::Hash::new(b"governed fixture ABI")),
@@ -2743,6 +2749,7 @@ async fn governed_contract_read_retains_inactive_lifecycle_projection() {
     assert!(lifecycle.contains_key("pending_owner"));
     assert!(lifecycle.contains_key("parliament_delegated"));
     assert!(lifecycle.contains_key("active_code_hash_hex"));
+    assert!(lifecycle.contains_key("retained_code_hash_hex"));
     assert!(lifecycle.contains_key("emergency_hold"));
     assert!(!object.contains_key("code_hash_hex"));
     assert!(!object.contains_key("abi_hash_hex"));

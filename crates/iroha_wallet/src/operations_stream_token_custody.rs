@@ -383,6 +383,28 @@ impl AccountService {
             ))),
         )
     }
+
+    /// Inspect the exact preparation under an already retained private parent without signing or network I/O.
+    ///
+    /// Fresh child, lock, native ancestry and record checks remain mandatory. Only the original
+    /// parent ancestry owners are shared; initial child absence creates no journal.
+    /// # Errors
+    /// Rejects invalid names, changed parent custody, unsafe journals or changed request and fee terms.
+    pub fn inspect_stream_token_custody_enroll_preparation_in_parent(
+        &self,
+        parent: &iroha_fs::PrivateDirectory,
+        name: &std::ffi::OsStr,
+        expected: &StreamTokenCustodyEnrollRequest,
+    ) -> Result<VerifiedNativePreparation> {
+        self.inspect_preparation_in_parent(
+            parent,
+            name,
+            NativeOperationKind::StreamTokenCustodyEnroll,
+            Some(OperationExpectation::Custody(CustodyExpectation::Enroll(
+                expected,
+            ))),
+        )
+    }
     /// Retire only this exact retained request before any payload or dispatch evidence exists.
     /// # Errors
     /// Refuses missing, changed, malformed, payload-retained or signed histories and unsafe custody.
@@ -408,6 +430,28 @@ impl AccountService {
     ) -> Result<VerifiedNativePreparation> {
         self.inspect_preparation(
             journal,
+            NativeOperationKind::StreamTokenCustodyConfigure,
+            Some(OperationExpectation::Custody(
+                CustodyExpectation::Configure(expected),
+            )),
+        )
+    }
+
+    /// Inspect the exact preparation under an already retained private parent without signing or network I/O.
+    ///
+    /// Fresh child, lock, native ancestry and record checks remain mandatory. Only the original
+    /// parent ancestry owners are shared; initial child absence creates no journal.
+    /// # Errors
+    /// Rejects invalid names, changed parent custody, unsafe journals or changed request and fee terms.
+    pub fn inspect_stream_token_custody_configure_preparation_in_parent(
+        &self,
+        parent: &iroha_fs::PrivateDirectory,
+        name: &std::ffi::OsStr,
+        expected: &StreamTokenCustodyConfigureRequest,
+    ) -> Result<VerifiedNativePreparation> {
+        self.inspect_preparation_in_parent(
+            parent,
+            name,
             NativeOperationKind::StreamTokenCustodyConfigure,
             Some(OperationExpectation::Custody(
                 CustodyExpectation::Configure(expected),

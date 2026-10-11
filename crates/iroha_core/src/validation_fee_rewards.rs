@@ -1,9 +1,15 @@
-//! Native fee-credit provenance, reference-price guards and funded Nexus rewards.
+//! Native fee-credit provenance, reference-price guards and funded SORA Nexus rewards.
 //!
 //! Only consensus fee collection, authenticated native oracle admission and the
 //! exact Parliament-enacted conversion effect plan can write this state.
 mod beneficiary;
+mod exposure;
 mod head_tree;
+mod history;
+mod pending;
+mod reconciliation;
+pub use pending::pending_fee_reward;
+mod settlement;
 use crate::execution_attempt::{
     ExecutionAttemptError, json_decode_attempt_error, norito_decode_attempt_error,
 };
@@ -13,6 +19,10 @@ use crate::{
     tx::TransactionRejectionReason,
 };
 pub(crate) use beneficiary::rekey_beneficiary;
+#[cfg(test)]
+pub(crate) use exposure::before_block as reward_exposure_before_block_for_testing;
+pub(crate) use exposure::ensure_validator_capacity as ensure_reward_validator_capacity;
+pub(crate) use exposure::{ensure_existing_reward_identities, ensure_reward_identity};
 pub use head_tree::receipt_head_membership;
 pub(crate) use head_tree::update_receipt_head_tree;
 use iroha_crypto::Hash;
@@ -27,17 +37,37 @@ use iroha_data_model::{
     validation_fee_rewards::{
         ValidationFeeConversionAttempt, ValidationFeeReferenceObservation,
         ValidationFeeRewardAllocation, ValidationFeeRewardClaim, ValidationFeeRewardsState,
+        ValidationFeeServiceSnapshot,
     },
 };
 use iroha_model_base::{state_path::StatePath, topology::LaneId};
 use iroha_primitives::numeric::{Numeric, Quantity};
 use mv::storage::StorageReadOnly;
 use norito::{NoritoDeserialize, NoritoSerialize};
+pub(crate) use settlement::process_reward_entitlements;
 use std::collections::{BTreeMap, BTreeSet};
 
 const PREFIX: &str = "ValidationFeeRewards";
 const HONIARA_OFFSET_MS: u64 = 11 * 60 * 60 * 1000;
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+fn conversion_projection_map_key(index: i128) -> Result<Vec<u8>, Error> {
+    use ivm_abi::state_value::{
+        StateValueAtomV1, StateValueKindV1, StateValueNodeV1, StateValueRecordV1,
+        StateValueSchemaV1, state_value_schema_hash_v1,
+    };
+    let schema = StateValueSchemaV1 {
+        nodes: vec![StateValueNodeV1::Leaf(StateValueKindV1::Int)],
+    };
+    let encoded_schema = norito::to_bytes(&schema).map_err(|error| fail(error.to_string()))?;
+    let envelope =
+        ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(index))
+            .map_err(|error| fail(error.to_string()))?;
+    norito::to_bytes(&StateValueRecordV1 {
+        schema_hash: state_value_schema_hash_v1(&encoded_schema),
+        atoms: vec![StateValueAtomV1::Pointer(envelope)],
+    })
+    .map_err(|error| fail(error.to_string()))
+}
 fn fail(message: impl Into<String>) -> Error {
     Error::InvariantViolation(message.into().into())
 }
@@ -118,6 +148,7 @@ fn write<T: NoritoSerialize>(
     let bytes = norito::to_bytes(value)
         .map_err(|error| norito_decode_attempt_error(error, |error| fail(error.to_string())))
         .map_err(|error| stx.world.attempt_error_to_instruction_error(error))?;
+    history::journal_write(stx, &key, &bytes)?;
     stx.world.smart_contract_state.insert(key, bytes);
     Ok(())
 }
@@ -158,12 +189,27 @@ fn claimable_key(
         ),
     )
 }
+fn service_snapshot(
+    stx: &StateTransaction<'_, '_>,
+    binding: &ValidationFeeTreasuryPayoutBindingV1,
+    period: u64,
+) -> Result<ValidationFeeServiceSnapshot, Error> {
+    let snapshot: ValidationFeeServiceSnapshot = read(stx, &service_key(binding, period)?)?
+        .unwrap_or_else(|| ValidationFeeServiceSnapshot {
+            earning_period_start_ms: period,
+            service_blocks: BTreeMap::new(),
+        });
+    if snapshot.earning_period_start_ms != period {
+        return Err(fail("reward exposure source has mismatched earning period"));
+    }
+    Ok(snapshot)
+}
 fn service_weights(
     stx: &StateTransaction<'_, '_>,
     binding: &ValidationFeeTreasuryPayoutBindingV1,
     period: u64,
 ) -> Result<BTreeMap<AccountId, u64>, Error> {
-    Ok(read(stx, &service_key(binding, period)?)?.unwrap_or_default())
+    Ok(service_snapshot(stx, binding, period)?.service_blocks)
 }
 /// Only the first pending month is examined. Native positive-credit records are
 /// ordered by their fixed-width original ID; no lifetime map or account scan.
@@ -209,7 +255,7 @@ fn active_bindings(
     active_bindings_at_height(stx, stx.block_height())
 }
 /// Derive the exact pending block corpus from applied and still-open native state.
-fn pending_fee_evidence_records(
+fn collect_pending_fee_evidence_records(
     stx: &StateTransaction<'_, '_>,
 ) -> Result<Vec<iroha_data_model::fee_evidence::FeeEvidenceRecordV1>, ExecutionAttemptError<String>>
 {
@@ -217,60 +263,63 @@ fn pending_fee_evidence_records(
         FeeEvidencePayloadV1, FeeEvidenceRecordV1, FeeRewardCustodySnapshotV1,
     };
     let height = stx.block_height();
-    let mut custody =
-        crate::validation_fee::active_payout_binding_at_height(stx, stx.block_height())
+    let custody_binding = match crate::validation_fee::active_payout_binding_at_height(stx, height)
+        .map_err(|error| error.map_rejection(|error| error.to_string()))?
+    {
+        Some(binding) => Some(binding),
+        None => crate::validation_fee::retained_payout_custody_binding(&stx.world)?,
+    };
+    let mut custody = custody_binding
+        .into_iter()
+        .map(|binding| {
+            let key = state_key(&binding, "State").map_err(|e| e.to_string())?;
+            let state: ValidationFeeRewardsState = read_attempt(
+                stx,
+                &state_key(&binding, "State").map_err(|error| error.to_string())?,
+            )
             .map_err(|error| error.map_rejection(|error| error.to_string()))?
-            .into_iter()
-            .map(|binding| {
-                let key = state_key(&binding, "State").map_err(|e| e.to_string())?;
-                let state: ValidationFeeRewardsState = read_attempt(
-                    stx,
-                    &state_key(&binding, "State").map_err(|error| error.to_string())?,
-                )
-                .map_err(|error| error.map_rejection(|error| error.to_string()))?
-                .unwrap_or_default();
-                let balance = |definition: &iroha_data_model::asset::AssetDefinitionId,
-                               account: &AccountId|
-                 -> Result<u128, ExecutionAttemptError<String>> {
-                    let scale = stx
-                        .world
-                        .asset_definition(definition)
-                        .map_err(|e| e.to_string())?
-                        .spec()
-                        .scale()
-                        .ok_or_else(|| "custody asset has no fixed scale".to_owned())?;
-                    stx.world
-                        .assets
-                        .get(&AssetId::new(definition.clone(), account.clone()))
-                        .map(|a| minor_units(a.as_ref(), scale).map_err(|e| e.to_string()))
-                        .transpose()
-                        .map(|v| v.unwrap_or(0))
-                        .map_err(Into::into)
-                };
-                let treasury_sbd_minor =
-                    balance(&binding.ds_asset_id, &binding.treasury_account_id)?;
-                let reward_pool_xor_minor =
-                    balance(&binding.xor_asset_id, &binding.reward_pool_account_id)?;
-                let xor_scale = stx
+            .unwrap_or_default();
+            let balance = |definition: &iroha_data_model::asset::AssetDefinitionId,
+                           account: &AccountId|
+             -> Result<u128, ExecutionAttemptError<String>> {
+                let scale = stx
                     .world
-                    .asset_definition(&binding.xor_asset_id)
+                    .asset_definition(definition)
                     .map_err(|e| e.to_string())?
                     .spec()
                     .scale()
-                    .ok_or_else(|| "XOR custody asset has no fixed scale".to_owned())?;
-                Ok(FeeEvidenceRecordV1 {
-                    key,
-                    recorded_at_height: height,
-                    payload: FeeEvidencePayloadV1::RewardCustody(FeeRewardCustodySnapshotV1 {
-                        binding,
-                        state,
-                        treasury_sbd_minor,
-                        reward_pool_xor_minor,
-                        xor_scale,
-                    }),
-                })
+                    .ok_or_else(|| "custody asset has no fixed scale".to_owned())?;
+                stx.world
+                    .assets
+                    .get(&AssetId::new(definition.clone(), account.clone()))
+                    .map(|a| minor_units(a.as_ref(), scale).map_err(|e| e.to_string()))
+                    .transpose()
+                    .map(|v| v.unwrap_or(0))
+                    .map_err(Into::into)
+            };
+            let treasury_sbd_minor = balance(&binding.ds_asset_id, &binding.treasury_account_id)?;
+            let reward_pool_xor_minor =
+                balance(&binding.xor_asset_id, &binding.reward_pool_account_id)?;
+            let xor_scale = stx
+                .world
+                .asset_definition(&binding.xor_asset_id)
+                .map_err(|e| e.to_string())?
+                .spec()
+                .scale()
+                .ok_or_else(|| "XOR custody asset has no fixed scale".to_owned())?;
+            Ok(FeeEvidenceRecordV1 {
+                key,
+                recorded_at_height: height,
+                payload: FeeEvidencePayloadV1::RewardCustody(FeeRewardCustodySnapshotV1 {
+                    binding,
+                    state,
+                    treasury_sbd_minor,
+                    reward_pool_xor_minor,
+                    xor_scale,
+                }),
             })
-            .collect::<Result<Vec<_>, ExecutionAttemptError<String>>>()?;
+        })
+        .collect::<Result<Vec<_>, ExecutionAttemptError<String>>>()?;
     let registry_id =
         iroha_data_model::validation_fee::ValidationFeePolicyRegistryV1::parameter_id();
     if let Some(custom) = stx.world.parameters().custom().get(&registry_id) {
@@ -307,6 +356,7 @@ fn pending_fee_evidence_records(
         let head = text.starts_with("retail_fee_heads_v1/");
         let allocation = is_reserved_state_key(key) && text.contains("/Allocation/");
         let claim = is_reserved_state_key(key) && text.contains("/Claim/");
+        let entitlement = is_reserved_state_key(key) && text.contains("/Entitlement/");
         let attempt = is_reserved_state_key(key) && text.contains("/Attempt/");
         let beneficiary_alias = is_reserved_state_key(key) && text.contains("/BeneficiaryAlias/");
         let beneficiary_revision =
@@ -315,9 +365,15 @@ fn pending_fee_evidence_records(
             && !head
             && !allocation
             && !claim
+            && !entitlement
             && !attempt
             && !beneficiary_alias
             && !beneficiary_revision
+        {
+            continue;
+        }
+        if stx.world.smart_contract_state.get(key).is_none()
+            && history::permits_retirement(stx, key)?
         {
             continue;
         }
@@ -348,6 +404,10 @@ fn pending_fee_evidence_records(
                 )?)
             } else if allocation {
                 FeeEvidencePayloadV1::RewardAllocation(norito::decode_canonical(bytes).map_err(
+                    |error| norito_decode_attempt_error(error, |error| error.to_string()),
+                )?)
+            } else if entitlement {
+                FeeEvidencePayloadV1::RewardEntitlement(norito::decode_canonical(bytes).map_err(
                     |error| norito_decode_attempt_error(error, |error| error.to_string()),
                 )?)
             } else if beneficiary_alias {
@@ -386,34 +446,98 @@ fn pending_fee_evidence_records(
             _ => None,
         })
         .collect::<BTreeSet<_>>();
-    if let Some(binding) =
-        crate::validation_fee::active_payout_binding_at_height(stx, stx.block_height())
+    let entitlement_binding =
+        match crate::validation_fee::active_payout_binding_at_height(stx, stx.block_height())
             .map_err(|error| error.map_rejection(|error| error.to_string()))?
-    {
+        {
+            Some(binding) => Some(binding),
+            None => crate::validation_fee::retained_payout_custody_binding(&stx.world)?,
+        };
+    if let Some(binding) = entitlement_binding {
+        let entitlements = records
+            .iter()
+            .filter_map(|record| match &record.payload {
+                FeeEvidencePayloadV1::RewardEntitlement(value) => Some(value.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let mut included = records
+            .iter()
+            .map(|record| record.key.clone())
+            .collect::<BTreeSet<_>>();
+        for entitlement in entitlements {
+            let allocation_key = state_key(
+                &binding,
+                &format!("Allocation/{}", entitlement.allocation_sequence),
+            )
+            .map_err(|error| error.to_string())?;
+            let allocation = read_attempt::<ValidationFeeRewardAllocation>(stx, &allocation_key)
+                .map_err(|error| error.map_rejection(|error| error.to_string()))?
+                .ok_or_else(|| {
+                    ExecutionAttemptError::Rejected(
+                        "entitlement allocation source is absent".to_owned(),
+                    )
+                })?;
+            let page_key = exposure::page_key(
+                &binding,
+                allocation.earning_period_start_ms,
+                &entitlement.validator,
+                entitlement.page_index,
+            )
+            .map_err(|error| error.to_string())?;
+            if included.insert(page_key.clone()) {
+                let source_key = exposure::source_key(
+                    &binding,
+                    height,
+                    &entitlement.validator,
+                    entitlement.page_index,
+                )
+                .map_err(|error| error.to_string())?;
+                let page = read_attempt(stx, &source_key)
+                    .map_err(|error| error.map_rejection(|error| error.to_string()))?
+                    .ok_or_else(|| {
+                        ExecutionAttemptError::Rejected(
+                            "entitlement exposure source is absent".to_owned(),
+                        )
+                    })?;
+                records.push(FeeEvidenceRecordV1 {
+                    key: page_key,
+                    recorded_at_height: height,
+                    payload: FeeEvidencePayloadV1::RewardExposure(page),
+                });
+            }
+            if included.insert(allocation_key.clone()) {
+                records.push(FeeEvidenceRecordV1 {
+                    key: allocation_key,
+                    recorded_at_height: height,
+                    payload: FeeEvidencePayloadV1::RewardAllocationSource(allocation),
+                });
+            }
+        }
         for period in &allocated_periods {
             records.push(FeeEvidenceRecordV1 {
                 key: service_key(&binding, *period).map_err(|e| e.to_string())?,
                 recorded_at_height: height,
                 payload: FeeEvidencePayloadV1::RewardService(
-                    iroha_data_model::validation_fee_rewards::ValidationFeeServiceSnapshot {
-                        earning_period_start_ms: *period,
-                        service_blocks: read_attempt(
-                            stx,
-                            &service_key(&binding, *period).map_err(|error| error.to_string())?,
+                    read_attempt::<ValidationFeeServiceSnapshot>(
+                        stx,
+                        &service_key(&binding, *period).map_err(|error| error.to_string())?,
+                    )
+                    .map_err(|error| error.map_rejection(|error| error.to_string()))?
+                    .ok_or_else(|| {
+                        ExecutionAttemptError::Rejected(
+                            "allocated historical reward exposure is absent".to_owned(),
                         )
-                        .map_err(|error| error.map_rejection(|error| error.to_string()))?
-                        .unwrap_or_default(),
-                    },
+                    })?,
                 ),
             });
         }
     }
     beneficiary::append_evidence_sources(stx, &mut records)?;
     records.sort_by(|a, b| a.key.cmp(&b.key));
-    if records.len() > iroha_data_model::fee_evidence::MAX_FEE_EVIDENCE_RECORDS_V1 as usize
-        || records
-            .iter()
-            .any(|r| r.recorded_at_height != height || !r.is_valid())
+    if records
+        .iter()
+        .any(|r| r.recorded_at_height != height || !r.is_valid())
         || records.windows(2).any(|w| w[0].key >= w[1].key)
     {
         return Err(ExecutionAttemptError::Rejected(
@@ -422,16 +546,49 @@ fn pending_fee_evidence_records(
     }
     Ok(records)
 }
+
+fn pending_fee_evidence_records(
+    stx: &StateTransaction<'_, '_>,
+) -> Result<Vec<iroha_data_model::fee_evidence::FeeEvidenceRecordV1>, ExecutionAttemptError<String>>
+{
+    let records = collect_pending_fee_evidence_records(stx)?;
+    if records.len() > iroha_data_model::fee_evidence::MAX_FEE_EVIDENCE_RECORDS_V1 as usize {
+        return Err(
+            "candidate fee accounting exceeds the durable per-block record budget"
+                .to_owned()
+                .into(),
+        );
+    }
+    Ok(records)
+}
 /// Reject oversized candidate accounting effects before accepting their transaction.
 /// Size includes the actual current registry/custody snapshots and the fixed SMT path.
 pub(crate) fn validate_pending_fee_evidence_budget(
     stx: &StateTransaction<'_, '_>,
 ) -> Result<(), ExecutionAttemptError<String>> {
+    if !pending_fee_evidence_fits(stx)? {
+        return Err(
+            "candidate fee accounting exceeds the durable per-block evidence budget"
+                .to_owned()
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+/// Separate deterministic capacity backpressure from malformed state and original
+/// local read refusals. Only optional conversion offers may wait for more room.
+fn pending_fee_evidence_fits(
+    stx: &StateTransaction<'_, '_>,
+) -> Result<bool, ExecutionAttemptError<String>> {
     use iroha_data_model::fee_evidence::{
         FEE_EVIDENCE_WITNESS_KEY_V1, FeeEvidenceBlockProofV1, FeeEvidenceSnapshotV1,
         FeeEvidenceWitnessProofV1, MAX_FEE_EVIDENCE_BLOCK_BYTES_V1,
     };
-    let records = pending_fee_evidence_records(stx)?;
+    let records = collect_pending_fee_evidence_records(stx)?;
+    if records.len() > iroha_data_model::fee_evidence::MAX_FEE_EVIDENCE_RECORDS_V1 as usize {
+        return Ok(false);
+    }
     // The commitment hash has fixed wire length. Budgeting must not rebuild a
     // Merkle tree for every candidate; the real root is computed once at capture.
     let snapshot = FeeEvidenceSnapshotV1 {
@@ -455,11 +612,9 @@ pub(crate) fn validate_pending_fee_evidence_budget(
         .len()
         > MAX_FEE_EVIDENCE_BLOCK_BYTES_V1
     {
-        return Err(ExecutionAttemptError::Rejected(
-            "candidate fee accounting exceeds the durable per-block byte budget".into(),
-        ));
+        return Ok(false);
     }
-    Ok(())
+    Ok(true)
 }
 /// Capture complete block-owned native fee records after successful application.
 pub(crate) fn capture_fee_evidence(
@@ -478,6 +633,7 @@ pub(crate) fn capture_fee_evidence(
         validate_pending_fee_evidence_budget(&stx)?;
         (stx.block_height(), pending_fee_evidence_records(&stx)?)
     };
+    exposure::capture_archive(block, witness)?;
     let mut snapshot = FeeEvidenceSnapshotV1::from_records(height, &records)?;
     snapshot.account_heads_root = head_tree::receipt_head_root(&block.world)?;
     // Reserved synthetic writes are always derived here from native post-block state.
@@ -528,8 +684,16 @@ pub(crate) fn credit_collected_fee(
     if collected_minor == 0 {
         return Ok(());
     }
+    crate::retail_fee::ensure_reward_history_open(&stx.world, earning_period_start_ms)
+        .map_err(|error| string_attempt_instruction_error(stx, error))
+        .map_err(rejection)?;
     let binding = crate::validation_fee::active_payout_binding_at_height(stx, stx.block_height())
-        .map_err(|error| error_attempt_transaction_error(stx, error))?
+        .map_err(|error| {
+            error_attempt_transaction_error(
+                stx,
+                error.map_rejection(crate::validation_fee::admission_rejection),
+            )
+        })?
         .ok_or_else(|| {
             rejection(fail(
                 "collected fee has no finalized Parliament conversion policy",
@@ -584,6 +748,8 @@ pub(crate) fn retain_authenticated_observation(
             admitted_height: stx.block_height(),
             admitted_at_ms: now,
         };
+        iroha_data_model::validation_fee_rewards::validate_reference_observation_bytes(&record)
+            .map_err(fail)?;
         let leaf = format!(
             "Oracle/{}",
             hex::encode(Hash::new(observation.body.provider_id.to_string().as_bytes()).as_ref())
@@ -625,6 +791,11 @@ pub(crate) fn conversion_offer(
         return Err(fail(reason));
     }
     let state = read_state(stx, binding)?;
+    if read::<settlement::RewardAllocationCursor>(stx, &state_key(binding, "AllocationCursor")?)?
+        .is_some()
+    {
+        return Ok(None);
+    }
     let now = stx.block_unix_timestamp_ms();
     if state.service_height != stx.block_height().saturating_sub(1) {
         return Ok(None);
@@ -690,6 +861,7 @@ pub(crate) fn conversion_offer(
 }
 /// Divide every XOR minor unit using historical service counts. Largest
 /// fractional remainders win, with canonical account order breaking ties.
+#[cfg(test)]
 fn allocate(
     amount: u128,
     weights: &BTreeMap<AccountId, u64>,
@@ -727,6 +899,32 @@ pub(crate) fn reserve_conversion(
             "stale conversion allocation or insufficient XOR output",
         ));
     }
+    if read::<settlement::RewardAllocationCursor>(stx, &state_key(binding, "AllocationCursor")?)?
+        .is_some()
+    {
+        return Err(fail("previous funded reward allocation is still accruing"));
+    }
+    let source = service_snapshot(stx, binding, offer.earning_period_start_ms)?;
+    let gross_shares =
+        iroha_data_model::validation_fee_rewards::allocate(xor_minor, &source.service_blocks)
+            .map_err(fail)?;
+    let now = stx.block_unix_timestamp_ms();
+    let receipt = ValidationFeeRewardAllocation {
+        sequence: offer.sequence,
+        lifecycle_seal: binding.lifecycle_seal().map_err(|e| fail(e.to_string()))?,
+        earning_period_start_ms: offer.earning_period_start_ms,
+        sbd_minor: offer.sbd_minor,
+        xor_minor,
+        converted_at_height: stx.block_height(),
+        converted_at_ms: now,
+        min_xor_minor: offer.min_xor_minor,
+        reference_observations: reference_observations(stx, binding)?,
+        service_blocks: source.service_blocks,
+        gross_shares,
+    };
+    // A funded source is copied into every mandatory page proof. Refuse an
+    // oversized optional conversion before changing credits, reserves or cursors.
+    iroha_data_model::validation_fee_rewards::validate_allocation_bytes(&receipt).map_err(fail)?;
     let key = pending_key(binding, offer.earning_period_start_ms)?;
     let pending = read::<u64>(stx, &key)?
         .ok_or_else(|| fail("missing conversion credit"))?
@@ -741,22 +939,6 @@ pub(crate) fn reserve_conversion(
         .pending_sbd_total
         .checked_sub(u128::from(offer.sbd_minor))
         .ok_or_else(|| fail("total conversion credit underflow"))?;
-    let weights = service_weights(stx, binding, offer.earning_period_start_ms)?;
-    let shares = allocate(xor_minor, &weights)?;
-    let mut beneficiaries = BTreeMap::new();
-    for (account, amount) in &shares {
-        let original = beneficiary::ensure(stx, binding, account)?;
-        beneficiaries.insert(account.clone(), original.clone());
-        if *amount == 0 {
-            continue;
-        }
-        let key = claimable_key(binding, &original)?;
-        let accrued = read::<u128>(stx, &key)?
-            .unwrap_or(0)
-            .checked_add(*amount)
-            .ok_or_else(|| fail("claim balance overflow"))?;
-        write(stx, key, &accrued)?;
-    }
     state.reserved_xor = state
         .reserved_xor
         .checked_add(xor_minor)
@@ -765,7 +947,6 @@ pub(crate) fn reserve_conversion(
         .next_allocation
         .checked_add(1)
         .ok_or_else(|| fail("allocation sequence exhausted"))?;
-    let now = stx.block_unix_timestamp_ms();
     let day = now.saturating_add(HONIARA_OFFSET_MS) / DAY_MS;
     if state.conversion_day != day {
         state.conversion_day = day;
@@ -776,25 +957,23 @@ pub(crate) fn reserve_conversion(
         .checked_add(offer.sbd_minor)
         .ok_or_else(|| fail("daily conversion counter overflow"))?;
     state.last_conversion_ms = Some(now);
-    let receipt = ValidationFeeRewardAllocation {
-        sequence: offer.sequence,
-        lifecycle_seal: binding.lifecycle_seal().map_err(|e| fail(e.to_string()))?,
-        earning_period_start_ms: offer.earning_period_start_ms,
-        sbd_minor: offer.sbd_minor,
-        xor_minor,
-        converted_at_height: stx.block_height(),
-        converted_at_ms: now,
-        min_xor_minor: offer.min_xor_minor,
-        reference_observations: reference_observations(stx, binding)?,
-        service_blocks: weights,
-        shares,
-        beneficiaries,
-    };
     let key = state_key(binding, &format!("Allocation/{}", offer.sequence))?;
     if stx.world.smart_contract_state.get(&key).is_some() {
         return Err(fail("duplicate allocation identity"));
     }
     write(stx, key, &receipt)?;
+    write(
+        stx,
+        state_key(binding, "AllocationCursor")?,
+        &settlement::RewardAllocationCursor {
+            allocation_sequence: offer.sequence,
+            validator_index: 0,
+            page_index: 0,
+            service_offset: 0,
+            credited_xor: 0,
+            next_archive: None,
+        },
+    )?;
     save_state(stx, binding, &state)
 }
 /// Convert exact asset minor units without rounding.
@@ -859,7 +1038,22 @@ pub(crate) fn reserved_fee_custody(
     quantity(reserved, scale).map_err(Into::into)
 }
 
-/// Check fee-only and shared custody during current/predecessor restoration.
+/// Reconcile historical reward and retail frontier sources only during restoration.
+pub(crate) fn validate_fee_reward_history(
+    world: &impl WorldReadOnly,
+) -> Result<(), ExecutionAttemptError<Error>> {
+    crate::retail_fee::validate_reward_history_frontier(world)
+        .map_err(|error| error.map_rejection(fail))?;
+    if let Some(binding) = crate::validation_fee::retained_payout_custody_binding(world)
+        .map_err(|error| error.map_rejection(fail))?
+    {
+        reconciliation::validate(world, &binding)?;
+    }
+    Ok(())
+}
+
+/// Check the two current custody balances against their additive indexed reserves.
+/// Election uses this bounded check without rescanning historical reward receipts.
 pub(crate) fn validate_fee_custody_backing(
     world: &impl WorldReadOnly,
 ) -> Result<(), ExecutionAttemptError<Error>> {
@@ -883,7 +1077,34 @@ pub(crate) fn validate_fee_custody_backing(
     Ok(())
 }
 
-/// Preserve the sum of fee proceeds, fee rewards, public rewards and stake before any debit.
+/// Keep a reward lane available while funded claims or historical earnings remain.
+pub(crate) fn unsettled_reward_lane(
+    world: &impl WorldReadOnly,
+    lanes: &BTreeSet<LaneId>,
+) -> Result<Option<LaneId>, ExecutionAttemptError<String>> {
+    let Some(binding) = crate::validation_fee::retained_payout_custody_binding(world)? else {
+        return Ok(None);
+    };
+    if !lanes.contains(&binding.validator_lane_id) {
+        return Ok(None);
+    }
+    let key = state_key(&binding, "State").map_err(|error| error.to_string())?;
+    let state = read_from_world::<ValidationFeeRewardsState>(world, &key)
+        .map_err(|error| error.map_rejection(|error| error.to_string()))?
+        .unwrap_or_default();
+    let exposure = state_key(&binding, "Exposure/").map_err(|error| error.to_string())?;
+    let has_history = world
+        .smart_contract_state()
+        .range(exposure.clone()..)
+        .next()
+        .is_some_and(|(key, _)| key.as_ref().starts_with(exposure.as_ref()));
+    Ok(
+        (state.pending_sbd_total != 0 || state.reserved_xor != 0 || has_history)
+            .then_some(binding.validator_lane_id),
+    )
+}
+
+/// Preserve the sum of fee proceeds, funded rewards and stake before any debit.
 pub(crate) fn ensure_reward_custody_debit(
     stx: &StateTransaction<'_, '_>,
     asset: &AssetId,
@@ -1005,17 +1226,13 @@ fn observed_fee_reward_claim(
     }))
 }
 
-/// Authenticate every signed fee claim field before changing any reward or reserve state.
-/// An explicit absence does not inspect or mutate fee reward state.
+/// Authenticate every signed claim field before changing any reward or reserve state.
 pub(crate) fn prepare_fee_reward_claim(
     stx: &StateTransaction<'_, '_>,
     account: &AccountId,
     lane: LaneId,
-    signed: Option<&PublicLaneFeeRewardClaimV1>,
-) -> Result<Option<PreparedFeeRewardClaim>, Error> {
-    let Some(signed) = signed else {
-        return Ok(None);
-    };
+    signed: &PublicLaneFeeRewardClaimV1,
+) -> Result<PreparedFeeRewardClaim, Error> {
     let claim = observed_fee_reward_claim(&stx.world, stx.block_height(), account, lane)
         .map_err(|error| stx.world.attempt_error_to_instruction_error(error))?
         .ok_or_else(|| fail("signed fee reward claim has no eligible reserved credit"))?;
@@ -1024,7 +1241,7 @@ pub(crate) fn prepare_fee_reward_claim(
             "fee reward claim differs from its exact current signed monetary plan",
         ));
     }
-    Ok(Some(claim))
+    Ok(claim)
 }
 
 /// Apply only the independently verified exact fee reward claim in the caller's transaction.
@@ -1095,10 +1312,33 @@ pub(crate) fn process_finalized_service(
                 .world
                 .public_lane_validators
                 .get_before_block(&key)
+                .filter(|record| {
+                    parent.is_some_and(|service| {
+                        record.validator == key.1
+                            && record.lane_id == key.0
+                            && service.signers().contains(&record.peer_id)
+                            && record.activation_height <= service.height()
+                            && record
+                                .deactivation_height
+                                .is_none_or(|end| service.height() < end)
+                    })
+                })
                 .cloned()
                 .map(|record| (key, record))
         })
         .collect();
+    let mut serviced_validators = BTreeMap::<LaneId, BTreeSet<AccountId>>::new();
+    for ((lane, account), _) in &prior_validators {
+        serviced_validators
+            .entry(*lane)
+            .or_default()
+            .insert(account.clone());
+    }
+    let prior_stakes = exposure::before_block(block, &serviced_validators).map_err(|error| {
+        crate::state::ExecutionOutputAttemptError::Owner(format!(
+            "validation fee reward exposure capture failed: {error}"
+        ))
+    })?;
     let mut stx = block.try_transaction()?;
     let result = (|| -> Result<(), Error> {
         let height = stx.block_height().saturating_sub(1);
@@ -1150,14 +1390,20 @@ pub(crate) fn process_finalized_service(
                     }
                 }
             }
-            let mut services = service_weights(&stx, &binding, period)?;
+            let mut snapshot = service_snapshot(&stx, &binding, period)?;
             for account in accounts {
-                let count = services.entry(account).or_default();
+                let stakes = prior_stakes
+                    .get(&(owner_lane, account.clone()))
+                    .cloned()
+                    .unwrap_or_default();
+                let original = beneficiary::root(&stx, &binding, &account)?;
+                exposure::record_service(&mut stx, &binding, period, &original, stakes)?;
+                let count = snapshot.service_blocks.entry(original).or_default();
                 *count = count
                     .checked_add(1)
                     .ok_or_else(|| fail("validator service counter overflow"))?;
             }
-            write(&mut stx, service_key(&binding, period)?, &services)?;
+            write(&mut stx, service_key(&binding, period)?, &snapshot)?;
             state.service_height = height;
             save_state(&mut stx, &binding, &state)?;
         }
@@ -1194,57 +1440,88 @@ pub(crate) fn publish_conversion_offers(
     block: &mut StateBlock<'_>,
 ) -> Result<(), crate::state::ExecutionOutputAttemptError> {
     let mut stx = block.try_transaction()?;
-    let result = (|| -> Result<(), Error> {
-        for binding in active_bindings(&stx)? {
-            let scale = 9;
-            let offer = conversion_offer(&stx, &binding)?;
-            if let Some(offer) = &offer {
-                let key = state_key(&binding, &format!("Attempt/{}", stx.block_height()))?;
-                if stx.world.smart_contract_state.get(&key).is_some() {
-                    return Err(fail("duplicate native conversion attempt"));
-                }
-                let attempt = ValidationFeeConversionAttempt {
-                    attempted_at_height: stx.block_height(),
-                    attempted_at_ms: stx.block_unix_timestamp_ms(),
-                    earning_period_start_ms: offer.earning_period_start_ms,
-                    sbd_minor: offer.sbd_minor,
-                    min_xor_minor: offer.min_xor_minor,
-                    lifecycle_seal: binding.lifecycle_seal().map_err(|e| fail(e.to_string()))?,
-                    reference_observations: reference_observations(&stx, &binding)?,
-                };
-                write(&mut stx, key, &attempt)?;
-                let mut state = read_state(&stx, &binding)?;
-                state.last_attempt_ms = Some(stx.block_unix_timestamp_ms());
-                state.last_attempt_height = stx.block_height();
-                save_state(&mut stx, &binding, &state)?;
-            }
-            let sbd = quantity(offer.as_ref().map_or(0, |o| u128::from(o.sbd_minor)), 2)?;
-            let xor = quantity(offer.as_ref().map_or(0, |o| o.min_xor_minor), scale)?;
-            let digest =
-                hex::encode(Hash::new(binding.contract_address.to_string().as_bytes()).as_ref());
-            for (index, amount) in [(0_i128, sbd), (1_i128, xor)] {
-                let base = "ValidationFeeConversion"
-                    .parse()
-                    .map_err(|e| fail(format!("invalid conversion base: {e}")))?;
-                let encoded_key = ivm_abi::numeric_tlv::encode_int(
-                    &iroha_primitives::bigint::BigInt::from_i128(index),
-                )
-                .map_err(|e| fail(e.to_string()))?;
-                let path = ivm::host::canonical_state_map_path(&base, &encoded_key)
-                    .map_err(|e| fail(e.to_string()))?;
-                let key = format!("sc/{digest}/{path}")
-                    .parse()
-                    .map_err(|e| fail(format!("invalid conversion projection key: {e}")))?;
-                let bytes = crate::validation_fee::encode_conversion_quantity_state_value(&amount)
-                    .map_err(|e| fail(e.to_string()))?;
-                stx.world.smart_contract_state.insert(key, bytes);
-            }
+    let result = prepare_conversion_projections(&mut stx, true);
+    if result.is_err() {
+        return finish_reward_maintenance(stx, result);
+    }
+    let fits = pending_fee_evidence_fits(&stx);
+    stx.require_storage_admission()?;
+    if let Some(reason) = stx.execution_deferral() {
+        return Err(crate::state::ExecutionOutputAttemptError::Deferred(reason));
+    }
+    match fits {
+        Ok(true) => finish_reward_maintenance(stx, Ok(())),
+        Err(error) => {
+            let error = string_attempt_instruction_error(&stx, error);
+            finish_reward_maintenance(stx, Err(error))
         }
-        validate_pending_fee_evidence_budget(&stx)
-            .map_err(|error| string_attempt_instruction_error(&stx, error))?;
-        Ok(())
-    })();
-    finish_reward_maintenance(stx, result)
+        Ok(false) => {
+            // A full valid block postpones this optional attempt. Discard its
+            // receipt and rate-limit mutations, then clear any stale projection
+            // atomically. Malformed state or original local refusals never use
+            // this capacity-only path.
+            drop(stx);
+            let mut stx = block.try_transaction()?;
+            let result = prepare_conversion_projections(&mut stx, false).and_then(|()| {
+                validate_pending_fee_evidence_budget(&stx)
+                    .map_err(|error| string_attempt_instruction_error(&stx, error))
+            });
+            finish_reward_maintenance(stx, result)
+        }
+    }
+}
+
+fn prepare_conversion_projections(
+    stx: &mut StateTransaction<'_, '_>,
+    allow_offers: bool,
+) -> Result<(), Error> {
+    for binding in active_bindings(stx)? {
+        let scale = 9;
+        let offer = if allow_offers {
+            conversion_offer(stx, &binding)?
+        } else {
+            None
+        };
+        if let Some(offer) = &offer {
+            let key = state_key(&binding, &format!("Attempt/{}", stx.block_height()))?;
+            if stx.world.smart_contract_state.get(&key).is_some() {
+                return Err(fail("duplicate native conversion attempt"));
+            }
+            let attempt = ValidationFeeConversionAttempt {
+                attempted_at_height: stx.block_height(),
+                attempted_at_ms: stx.block_unix_timestamp_ms(),
+                earning_period_start_ms: offer.earning_period_start_ms,
+                sbd_minor: offer.sbd_minor,
+                min_xor_minor: offer.min_xor_minor,
+                lifecycle_seal: binding.lifecycle_seal().map_err(|e| fail(e.to_string()))?,
+                reference_observations: reference_observations(stx, &binding)?,
+            };
+            write(stx, key, &attempt)?;
+            let mut state = read_state(stx, &binding)?;
+            state.last_attempt_ms = Some(stx.block_unix_timestamp_ms());
+            state.last_attempt_height = stx.block_height();
+            save_state(stx, &binding, &state)?;
+        }
+        let sbd = quantity(offer.as_ref().map_or(0, |o| u128::from(o.sbd_minor)), 2)?;
+        let xor = quantity(offer.as_ref().map_or(0, |o| o.min_xor_minor), scale)?;
+        let digest =
+            hex::encode(Hash::new(binding.contract_address.to_string().as_bytes()).as_ref());
+        for (index, amount) in [(0_i128, sbd), (1_i128, xor)] {
+            let base = "ValidationFeeConversion"
+                .parse()
+                .map_err(|e| fail(format!("invalid conversion base: {e}")))?;
+            let encoded_key = conversion_projection_map_key(index)?;
+            let path = ivm::host::canonical_state_map_path(&base, &encoded_key)
+                .map_err(|e| fail(e.to_string()))?;
+            let key = format!("sc/{digest}/{path}")
+                .parse()
+                .map_err(|e| fail(format!("invalid conversion projection key: {e}")))?;
+            let bytes = crate::validation_fee::encode_conversion_quantity_state_value(&amount)
+                .map_err(|e| fail(e.to_string()))?;
+            stx.world.smart_contract_state.insert(key, bytes);
+        }
+    }
+    Ok(())
 }
 
 /// Observe the actual disposable journal before its sole successful apply.
@@ -1272,10 +1549,31 @@ fn finish_reward_maintenance(
 }
 
 #[cfg(test)]
+pub(crate) fn seed_automatic_claim_for_testing(
+    stx: &mut StateTransaction<'_, '_>,
+    claimant: &AccountId,
+    amount: u128,
+    custody_balance: u128,
+) -> PublicLaneFeeRewardClaimV1 {
+    let binding = active_bindings(stx).unwrap().remove(0);
+    tests::seed_claim_credit(stx, &binding, claimant, amount, custody_balance);
+    fee_reward_claim_plan(
+        &stx.world,
+        stx.block_height(),
+        claimant,
+        binding.validator_lane_id,
+    )
+    .unwrap()
+    .unwrap()
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     include!("validation_fee_rewards/signed_claim_tests.rs");
     include!("validation_fee_rewards/credit_refusal_tests.rs");
+    include!("validation_fee_rewards/automatic_tests.rs");
+    include!("validation_fee_rewards/offers_capacity_tests.rs");
     use iroha_crypto::{Algorithm, HashOf, KeyPair, SignatureOf};
     use iroha_data_model::{
         asset::AssetDefinitionId,
@@ -1284,6 +1582,62 @@ mod tests {
         smart_contract::ContractAddress,
     };
     use iroha_model_base::{domain::DomainId, name::Name, topology::DataSpaceId};
+    #[test]
+    fn conversion_projection_keys_match_compiler_declared_map_storage() {
+        let artifact = kotodama_lang::compiler::Compiler::new().compile_source(
+            "seiyaku ConversionKeys { state StateMap<int, quantity> ValidationFeeConversion; view fn amount(int index) authorize(anyone) -> quantity { ValidationFeeConversion.get(key: index).unwrap_or(default: 0) } }",
+        ).expect("compile conversion map schema");
+        let mut vm = ivm::IVM::new(1_000_000);
+        vm.load_program(&artifact).expect("load conversion schema");
+        let base = "ValidationFeeConversion".parse().unwrap();
+        let mut paths = BTreeSet::new();
+        for index in [0, 1] {
+            let encoded = conversion_projection_map_key(index).expect("canonical key");
+            let path = ivm::host::canonical_state_map_path(&base, &encoded).unwrap();
+            ivm::host::validate_declared_state_path(&vm, &path)
+                .expect("native projection matches the contract's complete key schema");
+            assert!(paths.insert(path));
+            let retired = ivm_abi::numeric_tlv::encode_int(
+                &iroha_primitives::bigint::BigInt::from_i128(index),
+            )
+            .unwrap();
+            let retired_path = ivm::host::canonical_state_map_path(&base, &retired).unwrap();
+            assert!(ivm::host::validate_declared_state_path(&vm, &retired_path).is_err());
+        }
+    }
+    pub(super) fn accrue_all(
+        stx: &mut StateTransaction<'_, '_>,
+        binding: &ValidationFeeTreasuryPayoutBindingV1,
+    ) {
+        while settlement::accrue_next_page(stx, binding).unwrap() {}
+    }
+    /// Seed a complete validator-only historical source for existing custody tests.
+    pub(super) fn seed_service(
+        stx: &mut StateTransaction<'_, '_>,
+        binding: &ValidationFeeTreasuryPayoutBindingV1,
+        period: u64,
+        weights: &BTreeMap<AccountId, u64>,
+    ) {
+        for (account, count) in weights {
+            exposure::seed_page_for_testing(
+                stx,
+                binding,
+                period,
+                account,
+                *count,
+                BTreeMap::from([(account.clone(), Quantity::from(1u32))]),
+            );
+        }
+        write(
+            stx,
+            service_key(binding, period).unwrap(),
+            &ValidationFeeServiceSnapshot {
+                earning_period_start_ms: period,
+                service_blocks: weights.clone(),
+            },
+        )
+        .unwrap();
+    }
     fn key(seed: u8) -> KeyPair {
         KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519).expect("key")
     }
@@ -1451,12 +1805,12 @@ mod tests {
         };
         save_state(&mut stx, &b, &initial).expect("credit fixture");
         write(&mut stx, pending_key(&b, period).unwrap(), &2000u64).unwrap();
-        write(
+        seed_service(
             &mut stx,
-            service_key(&b, period).unwrap(),
+            &b,
+            period,
             &BTreeMap::from([(account(1), 1u64), (account(2), 3u64)]),
-        )
-        .unwrap();
+        );
         for seed in 10..13 {
             let record = observation(seed, now - 1, now - 1, 9);
             let leaf = format!(
@@ -1475,6 +1829,7 @@ mod tests {
         assert_eq!(offer.sbd_minor, 1000);
         assert_eq!(offer.min_xor_minor, 19_800_000_000);
         reserve_conversion(&mut stx, &b, &offer, 20_010_000_000).expect("reserve actual output");
+        accrue_all(&mut stx, &b);
         let after = read_state(&stx, &b).expect("state");
         assert_eq!(after.pending_sbd_total, 1000);
         assert_eq!(
@@ -1742,6 +2097,7 @@ mod tests {
         }
         validate_pending_fee_evidence_budget(&candidate)
             .expect("exactly maximum applied and pending records");
+        assert!(pending_fee_evidence_fits(&candidate).unwrap());
         let r = receipt(MAX_FEE_EVIDENCE_RECORDS_V1 + 1);
         write(
             &mut candidate,
@@ -1753,6 +2109,7 @@ mod tests {
             validate_pending_fee_evidence_budget(&candidate).is_err(),
             "oversized candidate is rejected before apply"
         );
+        assert!(!pending_fee_evidence_fits(&candidate).unwrap());
         drop(candidate);
         let check = block.transaction();
         assert_eq!(
@@ -1795,17 +2152,17 @@ mod tests {
             .clone();
         write(&mut stx, pending_key(&b, original).unwrap(), &7u64).unwrap();
         let historical = BTreeMap::from([(account(2), 17u64)]);
-        write(&mut stx, service_key(&b, original).unwrap(), &historical).unwrap();
+        seed_service(&mut stx, &b, original, &historical);
         write(&mut stx, claimable_key(&b, &account(2)).unwrap(), &1u128).unwrap();
         // Cold history and unrelated future pending keys never become fields of
         // the required custody snapshot or force a claim-time account scan.
         for period in 1..=1000 {
-            write(
+            seed_service(
                 &mut stx,
-                service_key(&b, period).unwrap(),
+                &b,
+                period,
                 &BTreeMap::from([(account(1), period)]),
-            )
-            .unwrap();
+            );
         }
         assert_eq!(
             stx.world.smart_contract_state.get(&state_key),
@@ -1831,7 +2188,7 @@ mod tests {
             credit_collected_fee(stx, &policy, period, 70).unwrap();
             let owner = account(2);
             let services = BTreeMap::from([(owner.clone(), 7u64)]);
-            write(stx, service_key(&original, period).unwrap(), &services).unwrap();
+            seed_service(stx, &original, period, &services);
             write(stx, claimable_key(&original, &owner).unwrap(), &3u128).unwrap();
             let mut funded = read_state(stx, &original).unwrap();
             funded.reserved_xor = 3;
@@ -1996,7 +2353,7 @@ mod tests {
             let claimant = account(2);
             let dust_owner = account(3);
             let weights = BTreeMap::from([(claimant.clone(), 100u64), (dust_owner.clone(), 1u64)]);
-            write(stx, service_key(b, period).unwrap(), &weights).unwrap();
+            seed_service(stx, b, period, &weights);
             write(stx, pending_key(b, period).unwrap(), &100u64).unwrap();
             save_state(
                 stx,
@@ -2015,6 +2372,7 @@ mod tests {
                 sequence: 0,
             };
             reserve_conversion(stx, b, &offer, 101).unwrap();
+            accrue_all(stx, b);
             // Seed the exact received XOR as the integration fixture's pool effect.
             // Native wrapper tests independently enforce all three atomic transfers.
             let pool_id = AssetId::new(b.xor_asset_id.clone(), b.reward_pool_account_id.clone());

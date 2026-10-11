@@ -1980,7 +1980,7 @@ pub fn metal_keccak_f1600(state: &mut [u64; 25]) -> bool {
 #[cfg(all(target_os = "macos", feature = "metal"))]
 #[path = "vector/metal_aes.rs"]
 mod metal_aes;
-#[cfg(all(target_os = "macos", feature = "metal", test))]
+#[cfg(all(target_os = "macos", feature = "metal-hardware-tests", test))]
 pub(crate) use metal_aes::metal_aes_batch_in_place;
 #[cfg(all(target_os = "macos", feature = "metal", test))]
 pub use metal_aes::{

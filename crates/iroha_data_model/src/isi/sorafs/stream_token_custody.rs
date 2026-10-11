@@ -16,7 +16,7 @@ isi! {
     }
 }
 impl crate::seal::Instruction for MutateSorafsStreamTokenCustody {}
-impl_sorafs_decode_from_slice!(MutateSorafsStreamTokenCustody {
+impl_aos_decode_from_slice!(MutateSorafsStreamTokenCustody {
     provider_id: ProviderId,
     expected_revision: u64,
     expected_digest: [u8; 32],

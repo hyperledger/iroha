@@ -3,18 +3,17 @@
 //! Five advice columns constrain every round (paired partial rounds), length capacity,
 //! copied absorption inputs and exact zero padding. Constants come exclusively
 //! from the shared leaf tables. No host hash callback supplies the relation.
-//! Owned input bytes and working field cells clear on drop; Halo2 assignments,
+//! Owned input bytes and working field cells clear on drop; native prover assignments,
 //! arithmetic temporaries and compiler copies remain outside that claim.
 //! TODO: Qualify a bounded multi-lane layout and complete semantic execution
 //! relation before any production caller, relation identifier or admission.
 //! The insecure diagnostic BFV encryption profile requires separate replacement.
 
-use ff::{Field, FromUniformBytes, PrimeField};
-use halo2_proofs::{
-    circuit::{Cell, Layouter, Region, Value},
-    halo2curves::pasta::{Fp, Fq},
-    plonk::{Advice, Column, ConstraintSystem, Error, Expression, Fixed, Selector},
-    poly::Rotation,
+use ff::Field;
+use iroha_pasta::{Fp, Fq, PastaField as NativePastaField};
+use iroha_plonk::{
+    cs::{Advice, Column, ConstraintSystem, Expression, Fixed, Rotation, Selector},
+    frontend::{Cell, Error, Layouter, Region, Value},
 };
 use iroha_zkp_poseidon::pasta;
 use zeroize::{DefaultIsZeroes, Zeroize};
@@ -24,7 +23,7 @@ const ROUNDS: usize = 64;
 const ROUND_ROWS: usize = 8 + 56 / 2;
 const MAX_FIELDS: usize = 2054;
 
-trait PastaField: PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord {
+trait PastaField: NativePastaField<Repr = [u8; 32]> + Ord {
     const PARAMETERS: &'static [u8; PARAMETER_BYTES];
     fn native_hash<const L: usize>(input: &[[u8; 32]; L]) -> [u8; 32];
 }
@@ -255,7 +254,7 @@ fn assign_state<F: PastaField>(
     row: usize,
     work: &mut Working<F>,
     faults: &[Fault<F>],
-) -> [Cell; 3] {
+) -> Result<[Cell; 3], Error> {
     for fault in faults {
         if let Fault::State {
             row: at,
@@ -267,15 +266,19 @@ fn assign_state<F: PastaField>(
             work.0.state[column] = value;
         }
     }
-    std::array::from_fn(|column| {
-        region
-            .assign_advice(
-                config.state[column],
-                row,
-                Value::known(work.0.state[column]),
-            )
-            .cell()
-    })
+    let mut cells = Vec::with_capacity(3);
+    for column in 0..3 {
+        cells.push(
+            region
+                .assign_advice(
+                    config.state[column],
+                    row,
+                    Value::known(work.0.state[column]),
+                )?
+                .cell(),
+        );
+    }
+    Ok(cells.try_into().expect("three state cells"))
 }
 
 fn hash<F: PastaField, const L: usize>(
@@ -295,9 +298,9 @@ fn hash<F: PastaField, const L: usize>(
             let mut work = Working(WorkingValues::<F>::default());
             work.0.state[2] = F::from_u128((L as u128) << 64);
             config.initial.enable(&mut region, 0)?;
-            region.assign_fixed(config.constants[0], 0, work.0.state[2]);
+            region.assign_fixed(config.constants[0], 0, work.0.state[2])?;
             let mut row = 0;
-            let mut cells = assign_state(&mut region, config, row, &mut work, faults);
+            let mut cells = assign_state(&mut region, config, row, &mut work, faults)?;
             for block in 0..L.div_ceil(2) {
                 config.absorb.enable(&mut region, row)?;
                 for column in 0..2 {
@@ -323,10 +326,10 @@ fn hash<F: PastaField, const L: usize>(
                             config.input[column],
                             row,
                             Value::known(work.0.input[column]),
-                        )
+                        )?
                         .cell();
                     if index < L {
-                        region.constrain_equal(source[from], input);
+                        region.constrain_equal(source[from], input)?;
                     } else {
                         config.padding.enable(&mut region, row)?;
                     }
@@ -335,7 +338,7 @@ fn hash<F: PastaField, const L: usize>(
                     work.0.state[column] += work.0.input[column];
                 }
                 row += 1;
-                cells = assign_state(&mut region, config, row, &mut work, faults);
+                cells = assign_state(&mut region, config, row, &mut work, faults)?;
                 if matches!(stop, Stop::ErrorAfterAbsorb) {
                     return Err(Error::Synthesis);
                 }
@@ -352,7 +355,7 @@ fn hash<F: PastaField, const L: usize>(
                             config.constants[column],
                             row,
                             config.parameters.rounds[round][column],
-                        );
+                        )?;
                         work.0.powered[column] =
                             work.0.state[column] + config.parameters.rounds[round][column];
                         if full || column == 0 {
@@ -370,7 +373,11 @@ fn hash<F: PastaField, const L: usize>(
                                 work.0.powered[0] = value;
                             }
                         }
-                        region.assign_advice(config.input[0], row, Value::known(work.0.powered[0]));
+                        region.assign_advice(
+                            config.input[0],
+                            row,
+                            Value::known(work.0.powered[0]),
+                        )?;
                         if matches!(stop, Stop::ErrorAfterPartialSbox) {
                             return Err(Error::Synthesis);
                         }
@@ -390,7 +397,7 @@ fn hash<F: PastaField, const L: usize>(
                                 config.constants[column + 3],
                                 row,
                                 config.parameters.rounds[round + 1][column],
-                            );
+                            )?;
                             work.0.powered[column] =
                                 work.0.state[column] + config.parameters.rounds[round + 1][column];
                             if column == 0 {
@@ -406,7 +413,7 @@ fn hash<F: PastaField, const L: usize>(
                     }
                     round += if full { 1 } else { 2 };
                     row += 1;
-                    cells = assign_state(&mut region, config, row, &mut work, faults);
+                    cells = assign_state(&mut region, config, row, &mut work, faults)?;
                 }
             }
             assert_eq!(row + 1, hash_rows(L));

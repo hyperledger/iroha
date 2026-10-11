@@ -7,7 +7,7 @@ use crate::sumeragi::lanes::record::tests::fixture;
 #[test]
 fn retirement_pending_work_probe_retains_each_held_mutex_without_waiting() {
     let dir = tempfile::tempdir().unwrap();
-    let (_body, _qc, source, budget, crypto) = fixture(1025, None);
+    let (_body, _qc, source, budget, crypto) = fixture(1025);
     let store = open(
         dir.path(),
         &source,

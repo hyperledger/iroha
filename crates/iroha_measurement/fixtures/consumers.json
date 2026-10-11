@@ -33,6 +33,17 @@
           "use": "Integration test: measures the equal RNS-BGV workload over the F257 sparse encoding and a fully splitting modulus phase by phase. Records static labels, sizes, operation counts, model work units and bit lengths of public noise bounds; no key, plaintext or coin."
         }
       ]
+    },
+    {
+      "dependency": "dev-dependencies",
+      "manifest": "crates/iroha_plonk_gadgets/Cargo.toml",
+      "package": "iroha_plonk_gadgets",
+      "sites": [
+        {
+          "path": "crates/iroha_plonk_gadgets/tests/m3_gates.rs",
+          "use": "M3 qualification only: fallible process CPU and kernel lifetime peak RSS probes, never protocol validation."
+        }
+      ]
     }
   ],
   "rule": "A workspace member may depend on iroha_measurement only as listed here, and may name it only in the listed source files. The dependency is a dev-dependency, so code compiled into a node, a validator or an SDK cannot reach the recorder; an entry of another kind must state its production_use. Validation code must never read a measurement, a target or a local limit.",

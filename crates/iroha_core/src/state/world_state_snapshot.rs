@@ -7,8 +7,6 @@
 //! complete reconstructed root/count must match certified R; current typed targets
 //! that changed in the tail are refused. Decoded restoration requires native replay.
 
-#[path = "world_state_snapshot/ordinary_wallet.rs"]
-mod ordinary_wallet;
 #[path = "world_state_snapshot/reserve_account.rs"]
 mod reserve_account;
 #[path = "world_state_snapshot/reserve_policy.rs"]
@@ -25,7 +23,7 @@ use crate::{
 use iroha_allocation::{AllocationBudget, AllocationCharge, ChargedBuffer};
 use iroha_data_model::{
     account::AccountId,
-    asset::AssetDefinitionId,
+    asset::{AssetDefinition, AssetDefinitionId},
     sumeragi_finality::{
         MAX_WORLD_STATE_SNAPSHOT_BYTES_V1, MAX_WORLD_STATE_SNAPSHOT_ENTRIES_V1,
         WorldStateSnapshotEntryV1, WorldStateSnapshotV1,

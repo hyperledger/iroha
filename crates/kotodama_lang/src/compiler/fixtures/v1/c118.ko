@@ -1,7 +1,7 @@
 
-seiyaku CompilerFixture {
+seiyaku CompilerFixture { permission NftAdmin;
 
-kotoage fn main() authorize("NftAdmin") {
+kotoage fn main() authorize(NftAdmin) {
   ledger::nft::create_for_all_users();
 }
 

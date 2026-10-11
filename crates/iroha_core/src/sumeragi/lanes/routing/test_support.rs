@@ -13,24 +13,14 @@ use iroha_primitives::json::Json;
 
 /// Valid genesis metadata carrying one explicit root scope.
 pub(crate) fn metadata(scope: SumeragiRootScope) -> Parameter {
-    let roster = crate::sumeragi::test_chain::fixture_validators()
-        .into_iter()
-        .map(
-            |(validator, _)| iroha_data_model::block::consensus::ValidatorPower {
-                validator,
-                power: 1,
-            },
-        )
-        .collect::<Vec<_>>();
-    let mut context = crate::kagemusha_v1_test_fixtures::genesis_context_parameters();
+    let mut context =
+        iroha_data_model::block::consensus::SumeragiGenesisContextParameters::recommended();
     context.root_scope = scope;
     let metadata = ConsensusHandshakeMetadata {
         mode: SumeragiConsensusMode::Permissioned,
         block_cadence_ms: std::num::NonZeroU64::new(1_000).unwrap(),
         wire_protocol_version: u32::from(iroha_data_model::sumeragi::PROTOCOL_VERSION),
         consensus_fingerprint: ConsensusFingerprint::new([0xA5; 32]),
-        kagemusha_mint_finality:
-            crate::kagemusha_v1_test_fixtures::mint_finality_genesis_parameters(&roster),
         sumeragi_context: context,
     };
     metadata.validate().unwrap();
@@ -70,7 +60,6 @@ pub(crate) fn signed_genesis(scope: SumeragiRootScope) -> iroha_data_model::bloc
             .collect::<Vec<_>>(),
     )
     .with_sumeragi_context_parameters(metadata.sumeragi_context)
-    .with_kagemusha_mint_finality_genesis_parameters(metadata.kagemusha_mint_finality)
     .build_raw()
     .unwrap()
     .with_consensus_meta()

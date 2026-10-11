@@ -4,7 +4,7 @@ use super::*;
 use crate::{
     crypto::Signer,
     message::{Qc, Vote},
-    testing::{FakeValidators, FakeVerifier, TEST_EPOCH},
+    testing::{FakeValidators, TEST_EPOCH},
     types::{ChainParams, ControlWitness, EpochId, ValidatorIndex},
 };
 
@@ -51,12 +51,7 @@ impl Fixture {
         }
     }
     fn verify(&self, evidence: &Evidence) -> Result<EvidenceAttribution, EvidenceError> {
-        verify_evidence(
-            &self.validators.crypto,
-            &FakeVerifier,
-            &self.context(),
-            evidence,
-        )
+        verify_evidence(&self.validators.crypto, &self.context(), evidence)
     }
     fn header(&self, view: u64) -> BlockHeader {
         let topology = self.context().topology(&self.validators.crypto).unwrap();
@@ -72,7 +67,7 @@ impl Fixture {
             payload_len: 1,
             proposer: topology.leader(view),
             skipped_leaders: topology.skipped_leader_keys(&self.config.committee, view),
-            attest: false,
+
             control_witness: ControlWitness::empty(),
         }
     }
@@ -111,39 +106,25 @@ fn vote_conflicts_bind_all_signed_values_and_original_signer() {
     let fixture = Fixture::new();
     let first = fixture.vote(3);
     let second = fixture.vote(4);
-    let proof = Evidence::VoteEquivocation(first.clone(), second.clone());
+    let proof = Evidence::VoteEquivocation(first, second);
     let result = fixture.verify(&proof).unwrap();
     assert_eq!(result.offenders.ones().collect::<Vec<_>>(), [1]);
     assert!(!result.safety_violation());
     assert_eq!(result.height(), 2);
     assert_eq!(result.offenders().count_ones(), 1);
-    let mut forged = second.clone();
+    let mut forged = second;
     forged.sig.0[0] ^= 1;
     assert!(matches!(
-        fixture.verify(&Evidence::VoteEquivocation(first.clone(), forged)),
+        fixture.verify(&Evidence::VoteEquivocation(first, forged)),
         Err(EvidenceError::Signature(_))
     ));
-    let mut other_signer = second.clone();
+    let mut other_signer = second;
     other_signer.signer = 2;
     assert_eq!(
-        fixture.verify(&Evidence::VoteEquivocation(first.clone(), other_signer)),
+        fixture.verify(&Evidence::VoteEquivocation(first, other_signer)),
         Err(EvidenceError::NotConflicting)
     );
-    let flagged =
-        fixture
-            .validators
-            .vote_flagged(VoteKind::Prepare, 1, &I, 2, 0, &h(3), &h(9), true);
-    assert_eq!(
-        fixture
-            .verify(&Evidence::VoteEquivocation(first.clone(), flagged))
-            .unwrap()
-            .offenders
-            .ones()
-            .collect::<Vec<_>>(),
-        [1]
-    );
-    let mut unsigned = first.clone();
-    unsigned.attestation = second.attestation;
+    let unsigned = first;
     assert_eq!(
         fixture.verify(&Evidence::VoteEquivocation(first, unsigned)),
         Err(EvidenceError::NotConflicting)
@@ -157,7 +138,7 @@ fn instance_epoch_context_and_height_replay_do_not_attribute() {
     let mut context = fixture.context();
     context.instance = h(99);
     assert_eq!(
-        verify_evidence(&fixture.validators.crypto, &FakeVerifier, &context, &proof),
+        verify_evidence(&fixture.validators.crypto, &context, &proof),
         Err(EvidenceError::Signature(CertError::WrongInstance))
     );
     let mut config = fixture.config.clone();
@@ -168,7 +149,7 @@ fn instance_epoch_context_and_height_replay_do_not_attribute() {
     context = fixture.context();
     context.config = &config;
     assert_eq!(
-        verify_evidence(&fixture.validators.crypto, &FakeVerifier, &context, &proof),
+        verify_evidence(&fixture.validators.crypto, &context, &proof),
         Err(EvidenceError::Signature(CertError::WrongEpoch))
     );
     let mut different_context = fixture.config.clone();
@@ -178,13 +159,13 @@ fn instance_epoch_context_and_height_replay_do_not_attribute() {
     };
     context.config = &different_context;
     assert_eq!(
-        verify_evidence(&fixture.validators.crypto, &FakeVerifier, &context, &proof),
+        verify_evidence(&fixture.validators.crypto, &context, &proof),
         Err(EvidenceError::Signature(CertError::WrongEpoch))
     );
     context = fixture.context();
     context.height = 3;
     assert_eq!(
-        verify_evidence(&fixture.validators.crypto, &FakeVerifier, &context, &proof),
+        verify_evidence(&fixture.validators.crypto, &context, &proof),
         Err(EvidenceError::Context)
     );
 }
@@ -198,7 +179,7 @@ fn noncommittee_geometry_and_missing_demotion_history_fail_closed() {
     let mut context = fixture.context();
     context.config = &config;
     assert_eq!(
-        verify_evidence(&fixture.validators.crypto, &FakeVerifier, &context, &proof),
+        verify_evidence(&fixture.validators.crypto, &context, &proof),
         Err(EvidenceError::Context)
     );
     let parent = CommittedTip {
@@ -554,7 +535,6 @@ fn parent_defects_use_the_authenticated_parent_configuration() {
     assert!(
         verify_evidence(
             &fixture.validators.crypto,
-            &FakeVerifier,
             &context,
             &Evidence::InvalidProposal {
                 proposal: Box::new(missing),
@@ -575,7 +555,6 @@ fn parent_defects_use_the_authenticated_parent_configuration() {
     assert!(
         verify_evidence(
             &fixture.validators.crypto,
-            &FakeVerifier,
             &context,
             &Evidence::InvalidProposal {
                 proposal: Box::new(wrong),
@@ -596,7 +575,6 @@ fn parent_defects_use_the_authenticated_parent_configuration() {
     assert_eq!(
         verify_evidence(
             &fixture.validators.crypto,
-            &FakeVerifier,
             &context,
             &Evidence::InvalidProposal {
                 proposal: Box::new(valid),
@@ -620,52 +598,48 @@ fn parent_defects_use_the_authenticated_parent_configuration() {
     );
 }
 
-/// An epoch boundary carries only its application's flag (§3.7 A1): a well-formed boundary
-/// proposal, flagged or not, reproduces no signed defect, so no claimed defect attributes it.
+/// A well-formed epoch boundary reproduces no signed defect under its authenticated context.
 #[test]
-fn epoch_boundary_flag_is_no_signed_defect() {
+fn epoch_boundary_is_no_signed_defect() {
     let fixture = Fixture::new();
     let mut config = fixture.config.clone();
     config.epoch.last_height = 2;
     let mut context = fixture.context();
     context.config = &config;
-    for attest in [false, true] {
-        let mut header = fixture.header(0);
-        header.attest = attest;
-        let proposal = fixture.proposal(header, 0);
-        for defect in [
-            Defect::UnexpectedJustify,
-            Defect::MissingJustify,
-            Defect::InvalidJustify,
-            Defect::MissingParentQc,
-            Defect::UnexpectedParentQc,
-            Defect::InvalidParentQc,
-            Defect::HeaderInstance,
-            Defect::HeaderHeight,
-            Defect::EpochContext,
-            Defect::ParentHash,
-            Defect::ParentResult,
-            Defect::PayloadTooLarge,
-            Defect::TcRule,
-            Defect::OriginView,
-            Defect::Proposer,
-            Defect::SkippedLeaders,
-            Defect::EmptyPayload,
-        ] {
-            assert_eq!(
-                verify_evidence(
-                    &fixture.validators.crypto,
-                    &FakeVerifier,
-                    &context,
-                    &Evidence::InvalidProposal {
-                        proposal: Box::new(proposal.clone()),
-                        defect,
-                    }
-                ),
-                Err(EvidenceError::DefectMismatch),
-                "attest = {attest}, claimed {defect:?}"
-            );
-        }
+
+    let header = fixture.header(0);
+    let proposal = fixture.proposal(header, 0);
+    for defect in [
+        Defect::UnexpectedJustify,
+        Defect::MissingJustify,
+        Defect::InvalidJustify,
+        Defect::MissingParentQc,
+        Defect::UnexpectedParentQc,
+        Defect::InvalidParentQc,
+        Defect::HeaderInstance,
+        Defect::HeaderHeight,
+        Defect::EpochContext,
+        Defect::ParentHash,
+        Defect::ParentResult,
+        Defect::PayloadTooLarge,
+        Defect::TcRule,
+        Defect::OriginView,
+        Defect::Proposer,
+        Defect::SkippedLeaders,
+        Defect::EmptyPayload,
+    ] {
+        assert_eq!(
+            verify_evidence(
+                &fixture.validators.crypto,
+                &context,
+                &Evidence::InvalidProposal {
+                    proposal: Box::new(proposal.clone()),
+                    defect,
+                }
+            ),
+            Err(EvidenceError::DefectMismatch),
+            "claimed {defect:?}"
+        );
     }
 }
 

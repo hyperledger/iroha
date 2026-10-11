@@ -1,6 +1,7 @@
-seiyaku LocalChainValues {
+seiyaku LocalChainValues { permission WriteState;
     error enum Failure {
-        Low = 3, High = 9
+        Low = 3,
+        High = 9,
     }
 
     state int trace;
@@ -13,7 +14,7 @@ seiyaku LocalChainValues {
         return trace;
     }
 
-    kotoage fn main() -> (int, int, int) authorize("WriteState") {
+    kotoage fn main() authorize(WriteState) -> (int, int, int) {
         require(trace >= 0, Failure::Low);
         let left = (trace + 3) * (trace + 4);
         let noise = touch(1);

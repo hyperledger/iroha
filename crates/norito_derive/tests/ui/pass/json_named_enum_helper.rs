@@ -28,12 +28,7 @@ mod helper {
 }
 
 #[derive(norito::derive::JsonSerialize, norito::derive::JsonDeserialize)]
-#[norito(
-    tag = "kind",
-    content = "payload",
-    deny_unknown_fields,
-    no_fast_from_json
-)]
+#[norito(tag = "kind", content = "payload", deny_unknown_fields)]
 enum Generic<T> {
     Combined {
         #[norito(json = "helper")]
@@ -57,5 +52,10 @@ fn main() {
         let text = json::to_json(&value).unwrap();
         let _: Generic<NoJson> = json::from_str(&text).unwrap();
         assert_eq!(json::to_json_bounded(&value, text.len()).unwrap(), text);
+        let mut walker = json::TapeWalker::new(&text);
+        let mut arena = json::Arena::new();
+        let decoded = <Generic<NoJson> as json::FastFromJson>::parse(&mut walker, &mut arena)
+            .expect("helper-owned generic type needs no default JSON trait bound");
+        assert_eq!(json::to_json(&decoded).unwrap(), text);
     }
 }

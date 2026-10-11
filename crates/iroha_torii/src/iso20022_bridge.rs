@@ -2955,15 +2955,13 @@ impl Iso20022BridgeRuntime {
                     }
                     (format!("PRTRY:{}", ctx.reason.code()), detail)
                 }
+                ValidationFail::IvmFault(fault) => ("PRTRY:IVM_EXEC".to_owned(), fault.to_string()),
                 other => ("BE01".to_owned(), format!("Validation failed: {other}")),
             },
             TransactionRejectionReason::InstructionExecution(fail) => (
                 "PRTRY:INSTRUCTION_EXEC".to_owned(),
                 format!("Instruction execution failed: {}", fail.reason),
             ),
-            TransactionRejectionReason::IvmExecution(fail) => {
-                ("PRTRY:IVM_EXEC".to_owned(), fail.reason.clone())
-            }
             TransactionRejectionReason::TriggerExecution(fail) => (
                 "PRTRY:TRIGGER_EXEC".to_owned(),
                 format!("Trigger execution failed: {fail}"),

@@ -554,3 +554,54 @@ fn signature_json_streams_the_canonical_sequence_with_exact_bounded_output() {
         );
     }
 }
+
+#[test]
+fn stored_original_pool_must_match_actual_signature_backing_custody() {
+    let pool = AllocationBudget::new(65536);
+    let foreign = AllocationBudget::new(65536);
+    let original = sample(4);
+    let (source, span) = source_for(&original, &pool);
+    let floor = pool.reserved_bytes();
+    for (stored_budget, matches_original) in [(pool.clone(), true), (foreign.clone(), false)] {
+        let mut prepared = plan(&source, span, &pool);
+        prepared.prepare(&source).unwrap();
+        let funded = Funded {
+            values: prepared.values.take().unwrap(),
+            charges: prepared.charges.take().unwrap(),
+            budget: stored_budget,
+        };
+        assert_eq!(funded.values.as_slice(), original.as_slice());
+        assert!(funded.values.belongs_to(&pool));
+        assert!(funded.charges.belongs_to(&pool));
+        assert_eq!(funded.charges.as_slice().len(), original.len());
+        let mut signature_bytes = 0;
+        for (value, charge) in funded
+            .values
+            .as_slice()
+            .iter()
+            .zip(funded.charges.as_slice())
+        {
+            let actual = Layout::array::<u8>(value.signature().payload().len()).unwrap();
+            assert_eq!(charge.layout(), actual);
+            assert!(charge.belongs_to(&pool));
+            signature_bytes += actual.size();
+        }
+        let actual = Layout::array::<BlockSignature>(funded.values.capacity())
+            .unwrap()
+            .size()
+            + Layout::array::<AllocationCharge>(funded.charges.capacity())
+                .unwrap()
+                .size()
+            + signature_bytes;
+        assert_eq!(pool.reserved_bytes(), floor + actual);
+        assert_eq!(funded.belongs_to(&pool), matches_original);
+        assert!(!funded.belongs_to(&foreign));
+        assert_eq!(pool.reserved_bytes(), floor + actual);
+        drop(funded);
+        drop(prepared);
+        assert_eq!(pool.reserved_bytes(), floor);
+        assert_eq!(foreign.reserved_bytes(), 0);
+    }
+    drop(source);
+    assert_eq!(pool.reserved_bytes(), 0);
+}

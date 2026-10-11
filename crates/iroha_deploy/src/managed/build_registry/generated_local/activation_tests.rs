@@ -220,3 +220,117 @@ fn unavailable_current_proof_preserves_exact_original_enrollment_and_parent() {
     assert_eq!(replay.finalized(), enrollment.finalized());
     assert_eq!(replay.record_digest(), enrollment.record_digest());
 }
+
+#[test]
+fn generated_service_observation_keeps_independent_custody_from_live_archive_clients() {
+    use iroha_fs::{PrivateDirectory, PublishMode};
+
+    let _resources = crate::managed::native_test_guard();
+    let (_temporary, prepared, enrollment) = enrolled(2);
+    let provider = prepared
+        .stream_token_authorities()
+        .unwrap()
+        .unwrap()
+        .providers[2]
+        .provider_id;
+    let required = *enrollment.finalized();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut peers = UnavailablePeers::start(&prepared);
+    let (config, transport) = prepare(prepared.clone(), deadline).unwrap().unwrap();
+    let client = transport.build_client().unwrap();
+    drop(transport);
+    // A materialized archive client still pins its original exclusive discovery journal.
+    assert!(ServiceAuthority::open_network(&prepared, NetworkPurpose::BuildRegistry).is_err());
+    assert!(peers.requests.lock().unwrap().is_empty());
+    let observer =
+        ServiceAuthority::open_network(&prepared, NetworkPurpose::ServiceObservation).unwrap();
+    assert_eq!(observer.config.network_id, config.network_id);
+    assert_eq!(observer.config.chain, config.chain);
+    assert_eq!(observer.config.account, config.account);
+    observer.validate_profile().unwrap();
+    let observation_path = observer.directory.path().to_path_buf();
+    let observation_identity = observer.directory.identity().unwrap();
+    let observation_lock = iroha_fs::FileIdentity::of(&observer._lock).unwrap();
+    assert_eq!(observation_path.file_name().unwrap(), "service-observation");
+    let registry =
+        PrivateDirectory::open_exact(observation_path.parent().unwrap().join("build-registry"))
+            .unwrap();
+    assert_ne!(registry.identity().unwrap(), observation_identity);
+    assert_ne!(
+        iroha_fs::FileIdentity::of(&registry.open_read("operation.lock").unwrap()).unwrap(),
+        observation_lock,
+    );
+    let registry_names = registry.entries(8).unwrap();
+    // Ownership remains exclusive within the observation purpose; this cannot be treated as
+    // current proof or a reentrant lock merely because an unrelated archive client exists.
+    assert!(matches!(
+        observe_generated_service(&prepared, provider, &enrollment, required, deadline),
+        Err(Error::Invalid(message))
+            if message == "another managed native operation holds this generation"
+    ));
+    assert!(peers.requests.lock().unwrap().is_empty());
+    drop(observer);
+
+    // The actual production observation can now contact its native peers while the archive
+    // client remains alive. Unavailable finality still refuses readiness; lock separation
+    // supplies no substitute proof, enrollment, or current-service result.
+    assert!(matches!(
+        observe_generated_service(
+            &prepared,
+            provider,
+            &enrollment,
+            required,
+            Instant::now() + Duration::from_secs(5),
+        ),
+        Err(Error::Invalid(message))
+            if message == "fresh native generated provider discovery is unavailable"
+    ));
+    let requests = peers.requests.lock().unwrap();
+    assert!(!requests.is_empty());
+    assert!(requests.iter().all(|request| request.method == "GET"));
+    let requests_before_change = requests.len();
+    drop(requests);
+    assert_eq!(registry.entries(8).unwrap(), registry_names);
+    assert!(ServiceAuthority::open_network(&prepared, NetworkPurpose::BuildRegistry).is_err());
+    // The bounded observation dropped its lock even on native-source refusal, while retaining
+    // the same original private journal identity for the following observation.
+    let observer =
+        ServiceAuthority::open_network(&prepared, NetworkPurpose::ServiceObservation).unwrap();
+    assert_eq!(observer.directory.identity().unwrap(), observation_identity);
+    assert_eq!(
+        iroha_fs::FileIdentity::of(&observer._lock).unwrap(),
+        observation_lock
+    );
+    let generation =
+        PrivateDirectory::open_exact(prepared.context.client_config.parent().unwrap()).unwrap();
+    let original = generation.read("peer0.toml", 1024 * 1024).unwrap();
+    generation
+        .write_atomic(
+            "peer0.toml",
+            b"changed original profile",
+            PublishMode::Replace,
+        )
+        .unwrap();
+    assert!(observer.validate_profile().is_err());
+    assert!(
+        observe_generated_service(&prepared, provider, &enrollment, required, deadline).is_err()
+    );
+    assert_eq!(peers.requests.lock().unwrap().len(), requests_before_change);
+    generation
+        .write_atomic("peer0.toml", &original, PublishMode::Replace)
+        .unwrap();
+    observer.validate_profile().unwrap();
+    drop(observer);
+    drop(client);
+    let registry_owner =
+        ServiceAuthority::open_network(&prepared, NetworkPurpose::BuildRegistry).unwrap();
+    let observer =
+        ServiceAuthority::open_network(&prepared, NetworkPurpose::ServiceObservation).unwrap();
+    registry_owner.validate_profile().unwrap();
+    observer.validate_profile().unwrap();
+    assert_ne!(
+        registry_owner.directory.identity().unwrap(),
+        observer.directory.identity().unwrap()
+    );
+    peers.finish();
+}

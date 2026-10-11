@@ -36,6 +36,10 @@
               }
             }
           ]
+        },
+        "authorization": {
+          "kind": "Anyone",
+          "value": null
         }
       },
       {
@@ -55,11 +59,22 @@
             {
               "kind": "StateCursor",
               "value": {
-                "kind": "Int",
-                "value": null
+                "nodes": [
+                  {
+                    "kind": "Leaf",
+                    "value": {
+                      "kind": "Int",
+                      "value": null
+                    }
+                  }
+                ]
               }
             }
           ]
+        },
+        "authorization": {
+          "kind": "Anyone",
+          "value": null
         }
       },
       {
@@ -75,7 +90,7 @@
             {
               "kind": "Struct",
               "value": {
-                "name": "StatePage",
+                "name": "kotodama::StatePage",
                 "fields": [
                   "items",
                   "next"
@@ -113,11 +128,22 @@
             {
               "kind": "StateCursor",
               "value": {
-                "kind": "Int",
-                "value": null
+                "nodes": [
+                  {
+                    "kind": "Leaf",
+                    "value": {
+                      "kind": "Int",
+                      "value": null
+                    }
+                  }
+                ]
               }
             }
           ]
+        },
+        "authorization": {
+          "kind": "Anyone",
+          "value": null
         }
       }
     ],
@@ -132,7 +158,7 @@
       },
       {
         "name": "batch",
-        "type_name": "StatePage{items: List<(int, bool), 8>, next: Option<StateCursor<int>>}"
+        "type_name": "kotodama::StatePage{items: List<(int, bool), 8>, next: Option<StateCursor<int>>}"
       }
     ],
     "error_types": [
@@ -158,6 +184,9 @@
           }
         ]
       }
-    ]
+    ],
+    "permissions": [],
+    "events": [],
+    "enum_types": []
   }
 }

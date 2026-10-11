@@ -1,0 +1,92 @@
+seiyaku CommitReveal {
+    error enum CommitmentError {
+        InvalidWindow = 1,
+        CommitClosed = 2,
+        RevealClosed = 3,
+        InvalidDigest = 4,
+        Duplicate = 5,
+        Missing = 6,
+        InvalidNonce = 7,
+        Mismatch = 8,
+    }
+
+    struct Commitment {
+        string domain,
+        bytes contract,
+        AccountId player,
+        int choice,
+        bytes nonce,
+    }
+
+    event Revealed {
+        AccountId player,
+        int choice,
+    }
+
+    state int commit_deadline;
+    state int reveal_deadline;
+    state StateMap<AccountId, bytes> Commitments;
+
+    hajimari(int commit_until, int reveal_until) {
+        require(context::block_height() < commit_until, CommitmentError::InvalidWindow);
+        require(commit_until < reveal_until, CommitmentError::InvalidWindow);
+        commit_deadline = commit_until;
+        reveal_deadline = reveal_until;
+    }
+
+    fn commitment_digest(bytes contract, AccountId player, int choice, bytes nonce) -> bytes {
+        require(bytes::len(value: nonce) >= 32, CommitmentError::InvalidNonce);
+        require(bytes::len(value: nonce) <= 256, CommitmentError::InvalidNonce);
+        return crypto::blake2b256(
+            value: codec::encode(
+                value: Commitment {
+                    domain: "KotodamaCommitRevealV1",
+                    contract: contract,
+                    player: player,
+                    choice: choice,
+                    nonce: nonce,
+                },
+            ),
+        );
+    }
+
+    view fn address() authorize(anyone) -> bytes {
+        return context::seiyaku_address();
+    }
+
+    view fn digest_for(
+        bytes contract,
+        AccountId player,
+        int choice,
+        bytes nonce,
+    ) authorize(anyone) -> bytes {
+        return commitment_digest(contract: contract, player: player, choice: choice, nonce: nonce);
+    }
+
+    kotoage fn commit(bytes digest) authorize(anyone) {
+        require(context::block_height() <= commit_deadline, CommitmentError::CommitClosed);
+        require(bytes::len(value: digest) == 32, CommitmentError::InvalidDigest);
+        let player = context::authority();
+        require(!Commitments.contains(key: player), CommitmentError::Duplicate);
+        Commitments[player] = digest;
+    }
+
+    kotoage fn reveal(int choice, bytes nonce) authorize(anyone) {
+        require(context::block_height() > commit_deadline, CommitmentError::RevealClosed);
+        require(context::block_height() <= reveal_deadline, CommitmentError::RevealClosed);
+        let player = context::authority();
+        let expected = Commitments.get(key: player).expect(CommitmentError::Missing);
+        let actual = commitment_digest(
+            contract: context::seiyaku_address(),
+            player: player,
+            choice: choice,
+            nonce: nonce,
+        );
+        require(actual == expected, CommitmentError::Mismatch);
+        let _ = Commitments.remove(key: player);
+        emit Revealed {
+            player: player,
+            choice: choice,
+        };
+    }
+}

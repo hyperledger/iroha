@@ -43,6 +43,8 @@ pub const MAX_K: u32 = 28;
 /// A constraint-system configuration or finalization error.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CsError {
+    /// The caller cancelled constraint-system finalization.
+    Cancelled,
     /// A simple selector was used outside the allowed positions.
     SimpleSelector {
         /// The gate or lookup name.
@@ -95,6 +97,7 @@ pub enum CsError {
 impl fmt::Display for CsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Cancelled => f.write_str("constraint-system finalization cancelled"),
             Self::SimpleSelector { context, misuse } => write!(f, "{context}: {misuse}"),
             Self::EmptyGate { gate } => write!(f, "gate `{gate}` has no constraint"),
             Self::EmptyLookup { lookup } => write!(f, "lookup `{lookup}` has no input"),
@@ -122,10 +125,19 @@ impl fmt::Display for CsError {
 }
 
 impl std::error::Error for CsError {}
+impl From<iroha_pasta::Cancelled> for CsError {
+    fn from(_: iroha_pasta::Cancelled) -> Self {
+        Self::Cancelled
+    }
+}
 
 impl From<CompressionError> for CsError {
     fn from(error: CompressionError) -> Self {
-        Self::Compression(error)
+        if matches!(error, CompressionError::Cancelled) {
+            Self::Cancelled
+        } else {
+            Self::Compression(error)
+        }
     }
 }
 
@@ -652,9 +664,18 @@ impl<F: PastaField> ConstraintSystem<F> {
     /// The recorded configuration error, a wrong activation count or a
     /// compression error.
     pub fn compress_selectors(
-        mut self,
+        self,
         activations: &[Vec<bool>],
     ) -> Result<FinalizedConstraintSystem<F>, CsError> {
+        self.compress_selectors_cancellable(activations, None)
+    }
+
+    fn compress_selectors_cancellable(
+        mut self,
+        activations: &[Vec<bool>],
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<FinalizedConstraintSystem<F>, CsError> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         self.check()?;
         self.check_activation_count(activations)?;
         let degrees = self.selector_degrees();
@@ -671,8 +692,10 @@ impl<F: PastaField> ConstraintSystem<F> {
             })
             .collect();
         let mut new_columns = Vec::new();
-        let (columns, assignments) =
-            selector_compression::process(&descriptions, max_degree, || {
+        let (columns, assignments) = selector_compression::process_cancellable(
+            &descriptions,
+            max_degree,
+            || {
                 let column = self.fixed_column();
                 new_columns.push(column);
                 self.query_fixed_index(column, Rotation::cur());
@@ -680,7 +703,9 @@ impl<F: PastaField> ConstraintSystem<F> {
                     column_index: column.index(),
                     rotation: Rotation::cur(),
                 })
-            })?;
+            },
+            cancellation,
+        )?;
         let mut replacements = vec![Expression::Constant(F::ZERO); self.selectors.len()];
         let mut entries = vec![
             SelectorPlanEntry {
@@ -691,6 +716,7 @@ impl<F: PastaField> ConstraintSystem<F> {
             self.selectors.len()
         ];
         for assignment in assignments {
+            iroha_pasta::CancellationToken::checkpoint(cancellation)?;
             let Some(slot) = entries.get_mut(assignment.selector) else {
                 return Err(CsError::Overflow);
             };
@@ -710,7 +736,7 @@ impl<F: PastaField> ConstraintSystem<F> {
                     .ok_or(CsError::Overflow)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        self.replace_selectors(&replacements)?;
+        self.replace_selectors(&replacements, cancellation)?;
         Ok(FinalizedConstraintSystem {
             cs: self,
             selector_columns: columns,
@@ -732,9 +758,18 @@ impl<F: PastaField> ConstraintSystem<F> {
     ///
     /// The recorded configuration error or a wrong activation count.
     pub fn directly_convert_selectors_to_fixed(
-        mut self,
+        self,
         activations: &[Vec<bool>],
     ) -> Result<FinalizedConstraintSystem<F>, CsError> {
+        self.directly_convert_selectors_to_fixed_cancellable(activations, None)
+    }
+
+    fn directly_convert_selectors_to_fixed_cancellable(
+        mut self,
+        activations: &[Vec<bool>],
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<FinalizedConstraintSystem<F>, CsError> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         self.check()?;
         self.check_activation_count(activations)?;
         let degrees = self.selector_degrees();
@@ -744,10 +779,17 @@ impl<F: PastaField> ConstraintSystem<F> {
         let mut selector_map = Vec::with_capacity(activations.len());
         let mut entries = Vec::with_capacity(activations.len());
         for (selector, rows) in activations.iter().enumerate() {
+            iroha_pasta::CancellationToken::checkpoint(cancellation)?;
             columns.push(
                 rows.iter()
-                    .map(|active| if *active { F::ONE } else { F::ZERO })
-                    .collect(),
+                    .enumerate()
+                    .map(|(index, active)| {
+                        if index % 1024 == 0 {
+                            iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+                        }
+                        Ok(if *active { F::ONE } else { F::ZERO })
+                    })
+                    .collect::<Result<Vec<_>, CsError>>()?,
             );
             let column = self.fixed_column();
             self.query_fixed_index(column, Rotation::cur());
@@ -762,8 +804,9 @@ impl<F: PastaField> ConstraintSystem<F> {
                 root: 1,
             });
         }
-        self.replace_selectors(&replacements)?;
+        self.replace_selectors(&replacements, cancellation)?;
         self.selectors.clear();
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         Ok(FinalizedConstraintSystem {
             cs: self,
             selector_columns: columns,
@@ -786,10 +829,23 @@ impl<F: PastaField> ConstraintSystem<F> {
         activations: &[Vec<bool>],
         compress: bool,
     ) -> Result<FinalizedConstraintSystem<F>, CsError> {
+        self.finalize_cancellable(activations, compress, None)
+    }
+
+    /// Finalize exact selector columns with bounded cancellation checkpoints.
+    ///
+    /// # Errors
+    /// As [`Self::finalize`], or [`CsError::Cancelled`].
+    pub fn finalize_cancellable(
+        self,
+        activations: &[Vec<bool>],
+        compress: bool,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<FinalizedConstraintSystem<F>, CsError> {
         if compress {
-            self.compress_selectors(activations)
+            self.compress_selectors_cancellable(activations, cancellation)
         } else {
-            self.directly_convert_selectors_to_fixed(activations)
+            self.directly_convert_selectors_to_fixed_cancellable(activations, cancellation)
         }
     }
 
@@ -806,18 +862,27 @@ impl<F: PastaField> ConstraintSystem<F> {
     }
 
     /// Substitutes selectors in every gate and lookup expression.
-    fn replace_selectors(&mut self, replacements: &[Expression<F>]) -> Result<(), CsError> {
+    fn replace_selectors(
+        &mut self,
+        replacements: &[Expression<F>],
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(), CsError> {
         for gate in &mut self.gates {
+            iroha_pasta::CancellationToken::checkpoint(cancellation)?;
             let polys = gate
                 .polynomials()
                 .iter()
-                .map(|poly| poly.replace_selectors(replacements))
-                .collect::<Result<Vec<_>, _>>()?;
+                .map(|poly| {
+                    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+                    Ok(poly.replace_selectors(replacements)?)
+                })
+                .collect::<Result<Vec<_>, CsError>>()?;
             gate.set_polynomials(polys);
         }
         for lookup in &mut self.lookups {
             let (inputs, tables) = lookup.expressions_mut();
             for expression in inputs.iter_mut().chain(tables.iter_mut()) {
+                iroha_pasta::CancellationToken::checkpoint(cancellation)?;
                 *expression = expression.replace_selectors(replacements)?;
             }
         }

@@ -10,7 +10,7 @@ use super::super::{
 };
 use super::{Error, privacy_error};
 use crate::state::StateTransaction;
-use halo2_proofs::halo2curves::{ff::PrimeField as _, pasta::Fp};
+use ff::PrimeField as _;
 use iroha_crypto::Hash;
 use iroha_data_model::{
     NetworkId,
@@ -20,6 +20,7 @@ use iroha_data_model::{
     },
     prelude::AccountId,
 };
+use kaigi_zk::Scalar as Fp;
 use std::collections::BTreeSet;
 
 /// Resolve the immutable participation owner through authenticated rekey state.

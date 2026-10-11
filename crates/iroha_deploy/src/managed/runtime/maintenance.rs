@@ -7,6 +7,7 @@ use super::{
     progress::{Failure, Phase, Progress},
     renewal,
 };
+use crate::localnet::service_authorities::RetainedProviderServicePlan;
 use crate::managed::{
     ManagedProviderAdvertisement, PreparedLocalnet, Result,
     build_registry::{self, DISCOVERY_FRESHNESS, GeneratedServiceObservation},
@@ -169,6 +170,7 @@ impl ProviderObservation {
             Budget {
                 started,
                 timeout,
+                startup_deadline_ns: None,
                 utc_ceiling_unix_ms: Some(self.timing.expiry.utc_ceiling()),
                 cancelled,
                 progress: Arc::new(Progress::default()),
@@ -257,13 +259,12 @@ impl RefreshSelection {
     }
 }
 impl Observation {
+    /// Combine observations only after the caller freshly selects the original provider order.
+    /// The plans carry no current provider eligibility or replacement observation clocks.
     pub(super) fn new(
-        prepared: &PreparedLocalnet,
+        plans: &[RetainedProviderServicePlan; 3],
         providers: [ProviderObservation; 3],
     ) -> Result<Self> {
-        let plans = prepared
-            .provider_service_plans()?
-            .ok_or_else(|| invalid("original provider plans absent"))?;
         for (plan, observed) in plans.iter().zip(&providers) {
             if plan.provider_id() != observed.selection.continuation.provider() {
                 return Err(invalid(
@@ -377,7 +378,13 @@ pub(super) fn refresh(
         return Err(Failure::ObservationExpired);
     }
     original.providers[slot] = next;
-    budget.call(|_| Observation::new(prepared, original.providers))
+    budget.call(|_| {
+        // Refresh keeps its original standalone capture after the owned gateway has dropped.
+        let plans = prepared
+            .provider_service_plans()?
+            .ok_or_else(|| invalid("original provider plans absent"))?;
+        Observation::new(&plans, original.providers)
+    })
 }
 
 #[cfg(test)]

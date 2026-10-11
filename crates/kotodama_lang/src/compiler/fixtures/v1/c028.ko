@@ -2,7 +2,7 @@
 seiyaku CompilerFixture {
 
 fn main(AccountId account) {
-  ledger::account::set_detail(account: account, key: 1, value: Json::parse("{}"));
+  ledger::account::set_metadata(account: account, key: 1, value: Json::parse("{}"));
 }
 
 }

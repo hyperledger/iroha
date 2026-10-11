@@ -2,7 +2,7 @@
             seiyaku MultiwordMutationFailures {
                 struct Pair { int first, int second }
 
-                view fn main(int operation, int index) -> List<Pair, 2> {
+                view fn main(int operation, int index) authorize(anyone) -> List<Pair, 2> {
                     if operation < 2 {
                         var List<Pair, 2> values = [
                             Pair { first: 10, second: 20 },

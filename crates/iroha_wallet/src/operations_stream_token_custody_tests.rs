@@ -1185,3 +1185,356 @@ fn custody_decoders_reject_another_root_schema() {
     assert!(decode_bounded::<StreamTokenCustodySelection>(&action_bytes, MAX_PLAN_BYTES).is_err());
     assert!(decode_bounded::<Action>(&plan_bytes, MAX_PLAN_BYTES).is_err());
 }
+
+#[test]
+fn retained_parent_stream_token_custody_configure_inspection_keeps_exact_phases_lock_and_offline_request_checks()
+ {
+    let (service, transport) = service();
+    let request = configure(&service.config, current_unix_ms().unwrap());
+    let root = tempfile::tempdir().unwrap();
+    let owner = iroha_fs::OwnerDirectory::open(root.path()).unwrap();
+    let parent = owner.create_private_child("parent").unwrap();
+    let name = std::ffi::OsStr::new("transaction");
+    let path = parent.path().join(name);
+    assert_eq!(
+        service
+            .inspect_stream_token_custody_configure_preparation_in_parent(&parent, name, &request)
+            .unwrap()
+            .phase(),
+        NativePreparationPhase::Missing
+    );
+    assert!(!path.exists());
+    assert!(
+        service
+            .inspect_stream_token_custody_configure_preparation_in_parent(
+                &parent,
+                std::ffi::OsStr::new("../transaction"),
+                &request
+            )
+            .is_err()
+    );
+    assert_eq!(transport.requests.load(Ordering::SeqCst), 0);
+
+    let first = service
+        .retain_stream_token_custody_configure_request(&request, &path)
+        .unwrap();
+    let original = std::fs::read(path.join("preparation.json")).unwrap();
+    let borrowed = service
+        .inspect_stream_token_custody_configure_preparation_in_parent(&parent, name, &request)
+        .unwrap();
+    let absolute = service
+        .inspect_stream_token_custody_configure_preparation(&path, &request)
+        .unwrap();
+    assert_eq!(borrowed.phase(), NativePreparationPhase::RequestOnly);
+    assert_eq!(borrowed.phase(), absolute.phase());
+    assert_eq!(borrowed.request_sha256(), first.request_sha256());
+    assert_eq!(borrowed.request_sha256(), absolute.request_sha256());
+    assert_eq!(borrowed.unprepared_status(), absolute.unprepared_status());
+    assert!(borrowed.signed_transaction().is_none());
+    let mut changed = request.clone();
+    changed.deadline_unix_ms += 1;
+    assert!(
+        service
+            .inspect_stream_token_custody_configure_preparation_in_parent(&parent, name, &changed)
+            .is_err()
+    );
+    assert!(
+        service
+            .inspect_stream_token_custody_configure_preparation(&path, &changed)
+            .is_err()
+    );
+    let held_lock = Journal::open(&path).unwrap();
+    assert!(
+        service
+            .inspect_stream_token_custody_configure_preparation_in_parent(&parent, name, &request)
+            .is_err()
+    );
+    drop(held_lock);
+    assert_eq!(
+        service
+            .inspect_stream_token_custody_configure_preparation_in_parent(&parent, name, &request)
+            .unwrap()
+            .request_sha256(),
+        first.request_sha256()
+    );
+    assert_eq!(transport.requests.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        std::fs::read(path.join("preparation.json")).unwrap(),
+        original
+    );
+
+    service
+        .prepare_stream_token_custody_configure(&request, &path)
+        .unwrap();
+    let calls = transport.requests.load(Ordering::SeqCst);
+    let absolute = service
+        .inspect_stream_token_custody_configure_preparation(&path, &request)
+        .unwrap();
+    let borrowed = service
+        .inspect_stream_token_custody_configure_preparation_in_parent(&parent, name, &request)
+        .unwrap();
+    assert_eq!(borrowed.phase(), NativePreparationPhase::Signed);
+    assert_eq!(borrowed.request_sha256(), absolute.request_sha256());
+    assert_eq!(
+        borrowed.signed_transaction().unwrap().encode_versioned(),
+        absolute.signed_transaction().unwrap().encode_versioned()
+    );
+    std::fs::remove_file(path.join("operation.json")).unwrap();
+    let absolute = service
+        .inspect_stream_token_custody_configure_preparation(&path, &request)
+        .unwrap();
+    let borrowed = service
+        .inspect_stream_token_custody_configure_preparation_in_parent(&parent, name, &request)
+        .unwrap();
+    assert_eq!(borrowed.phase(), NativePreparationPhase::PayloadRetained);
+    assert_eq!(borrowed.phase(), absolute.phase());
+    assert_eq!(borrowed.request_sha256(), absolute.request_sha256());
+    assert_eq!(borrowed.unprepared_status(), absolute.unprepared_status());
+    assert!(borrowed.signed_transaction().is_none());
+    assert!(!path.join("operation.json").exists());
+    assert!(!path.join("submission.json").exists());
+    assert_eq!(
+        std::fs::read(path.join("preparation.json")).unwrap(),
+        original
+    );
+    assert_eq!(transport.requests.load(Ordering::SeqCst), calls);
+}
+
+#[test]
+fn retained_parent_stream_token_custody_enroll_inspection_keeps_exact_phases_lock_and_offline_request_checks()
+ {
+    let (service, transport) = service();
+    let request = enroll(&service.config, current_unix_ms().unwrap());
+    let root = tempfile::tempdir().unwrap();
+    let owner = iroha_fs::OwnerDirectory::open(root.path()).unwrap();
+    let parent = owner.create_private_child("parent").unwrap();
+    let name = std::ffi::OsStr::new("transaction");
+    let path = parent.path().join(name);
+    assert_eq!(
+        service
+            .inspect_stream_token_custody_enroll_preparation_in_parent(&parent, name, &request)
+            .unwrap()
+            .phase(),
+        NativePreparationPhase::Missing
+    );
+    assert!(!path.exists());
+    assert!(
+        service
+            .inspect_stream_token_custody_enroll_preparation_in_parent(
+                &parent,
+                std::ffi::OsStr::new("../transaction"),
+                &request
+            )
+            .is_err()
+    );
+    assert_eq!(transport.requests.load(Ordering::SeqCst), 0);
+
+    let first = service
+        .retain_stream_token_custody_enroll_request(&request, &path)
+        .unwrap();
+    let original = std::fs::read(path.join("preparation.json")).unwrap();
+    let borrowed = service
+        .inspect_stream_token_custody_enroll_preparation_in_parent(&parent, name, &request)
+        .unwrap();
+    let absolute = service
+        .inspect_stream_token_custody_enroll_preparation(&path, &request)
+        .unwrap();
+    assert_eq!(borrowed.phase(), NativePreparationPhase::RequestOnly);
+    assert_eq!(borrowed.phase(), absolute.phase());
+    assert_eq!(borrowed.request_sha256(), first.request_sha256());
+    assert_eq!(borrowed.request_sha256(), absolute.request_sha256());
+    assert_eq!(borrowed.unprepared_status(), absolute.unprepared_status());
+    assert!(borrowed.signed_transaction().is_none());
+    let mut changed = request.clone();
+    changed.deadline_unix_ms += 1;
+    assert!(
+        service
+            .inspect_stream_token_custody_enroll_preparation_in_parent(&parent, name, &changed)
+            .is_err()
+    );
+    assert!(
+        service
+            .inspect_stream_token_custody_enroll_preparation(&path, &changed)
+            .is_err()
+    );
+    let held_lock = Journal::open(&path).unwrap();
+    assert!(
+        service
+            .inspect_stream_token_custody_enroll_preparation_in_parent(&parent, name, &request)
+            .is_err()
+    );
+    drop(held_lock);
+    assert_eq!(
+        service
+            .inspect_stream_token_custody_enroll_preparation_in_parent(&parent, name, &request)
+            .unwrap()
+            .request_sha256(),
+        first.request_sha256()
+    );
+    assert_eq!(transport.requests.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        std::fs::read(path.join("preparation.json")).unwrap(),
+        original
+    );
+
+    service
+        .prepare_stream_token_custody_enroll(&request, &path)
+        .unwrap();
+    let calls = transport.requests.load(Ordering::SeqCst);
+    let absolute = service
+        .inspect_stream_token_custody_enroll_preparation(&path, &request)
+        .unwrap();
+    let borrowed = service
+        .inspect_stream_token_custody_enroll_preparation_in_parent(&parent, name, &request)
+        .unwrap();
+    assert_eq!(borrowed.phase(), NativePreparationPhase::Signed);
+    assert_eq!(borrowed.request_sha256(), absolute.request_sha256());
+    assert_eq!(
+        borrowed.signed_transaction().unwrap().encode_versioned(),
+        absolute.signed_transaction().unwrap().encode_versioned()
+    );
+    std::fs::remove_file(path.join("operation.json")).unwrap();
+    let absolute = service
+        .inspect_stream_token_custody_enroll_preparation(&path, &request)
+        .unwrap();
+    let borrowed = service
+        .inspect_stream_token_custody_enroll_preparation_in_parent(&parent, name, &request)
+        .unwrap();
+    assert_eq!(borrowed.phase(), NativePreparationPhase::PayloadRetained);
+    assert_eq!(borrowed.phase(), absolute.phase());
+    assert_eq!(borrowed.request_sha256(), absolute.request_sha256());
+    assert_eq!(borrowed.unprepared_status(), absolute.unprepared_status());
+    assert!(borrowed.signed_transaction().is_none());
+    assert!(!path.join("operation.json").exists());
+    assert!(!path.join("submission.json").exists());
+    assert_eq!(
+        std::fs::read(path.join("preparation.json")).unwrap(),
+        original
+    );
+    assert_eq!(transport.requests.load(Ordering::SeqCst), calls);
+}
+
+#[cfg(unix)]
+#[test]
+fn retained_parent_custody_inspection_refuses_lost_and_same_bytes_replaced_parent_and_retries_original()
+ {
+    let (service, transport) = service();
+    let request = configure(&service.config, current_unix_ms().unwrap());
+    let root = tempfile::tempdir().unwrap();
+    let ancestor = iroha_fs::OwnerDirectory::open(root.path()).unwrap();
+    let parent = ancestor.create_private_child("parent").unwrap();
+    let name = std::ffi::OsStr::new("transaction");
+    let path = parent.path().join(name);
+    let first = service
+        .retain_stream_token_custody_configure_request(&request, &path)
+        .unwrap();
+    let original = parent.open_child(name).unwrap();
+    let parent_id = parent.identity().unwrap();
+    let journal_id = original.identity().unwrap();
+    let request_id =
+        iroha_fs::FileIdentity::of(&original.open_read("preparation.json").unwrap()).unwrap();
+    let bytes = std::fs::read(path.join("preparation.json")).unwrap();
+    let displaced = root.path().join("displaced-parent");
+    std::fs::rename(parent.path(), &displaced).unwrap();
+    for name in ["transaction", "absent"] {
+        assert!(
+            service
+                .inspect_stream_token_custody_configure_preparation_in_parent(
+                    &parent,
+                    std::ffi::OsStr::new(name),
+                    &request
+                )
+                .is_err()
+        );
+    }
+    let replacement = ancestor.create_private_child("parent").unwrap();
+    let copied = replacement.create_child("transaction").unwrap();
+    for name in ["lock", "preparation.json"] {
+        std::fs::copy(
+            displaced.join("transaction").join(name),
+            copied.path().join(name),
+        )
+        .unwrap();
+    }
+    assert_ne!(replacement.identity().unwrap(), parent_id);
+    assert_ne!(copied.identity().unwrap(), journal_id);
+    // Fresh path admission accepts the genuine copy; original retained custody refuses it.
+    let fresh = service
+        .inspect_stream_token_custody_configure_preparation(&path, &request)
+        .unwrap();
+    assert_eq!(fresh.phase(), NativePreparationPhase::RequestOnly);
+    assert_eq!(fresh.request_sha256(), first.request_sha256());
+    for name in ["transaction", "absent"] {
+        assert!(
+            service
+                .inspect_stream_token_custody_configure_preparation_in_parent(
+                    &parent,
+                    std::ffi::OsStr::new(name),
+                    &request
+                )
+                .is_err()
+        );
+    }
+    drop(copied);
+    drop(replacement);
+    std::fs::remove_dir_all(parent.path()).unwrap();
+    std::fs::rename(&displaced, parent.path()).unwrap();
+    assert_eq!(parent.identity().unwrap(), parent_id);
+    assert_eq!(original.identity().unwrap(), journal_id);
+    assert_eq!(
+        iroha_fs::FileIdentity::of(&original.open_read("preparation.json").unwrap()).unwrap(),
+        request_id
+    );
+    let retry = service
+        .inspect_stream_token_custody_configure_preparation_in_parent(&parent, name, &request)
+        .unwrap();
+    assert_eq!(retry.phase(), NativePreparationPhase::RequestOnly);
+    assert_eq!(retry.request_sha256(), first.request_sha256());
+    assert_eq!(std::fs::read(path.join("preparation.json")).unwrap(), bytes);
+    assert!(!path.join("payload.json").exists());
+    assert!(!path.join("submission.json").exists());
+    assert_eq!(transport.requests.load(Ordering::SeqCst), 0);
+}
+
+#[cfg(windows)]
+#[test]
+fn retained_parent_custody_inspection_keeps_native_rename_refusal_and_original_retry() {
+    let (service, transport) = service();
+    let request = configure(&service.config, current_unix_ms().unwrap());
+    let root = tempfile::tempdir().unwrap();
+    let ancestor = iroha_fs::OwnerDirectory::open(root.path()).unwrap();
+    let parent = ancestor.create_private_child("parent").unwrap();
+    let name = std::ffi::OsStr::new("transaction");
+    let path = parent.path().join(name);
+    let first = service
+        .retain_stream_token_custody_configure_request(&request, &path)
+        .unwrap();
+    let original = parent.open_child(name).unwrap();
+    let parent_id = parent.identity().unwrap();
+    let journal_id = original.identity().unwrap();
+    let bytes = std::fs::read(path.join("preparation.json")).unwrap();
+    assert!(std::fs::rename(parent.path(), root.path().join("displaced-parent")).is_err());
+    assert_eq!(
+        service
+            .inspect_stream_token_custody_configure_preparation_in_parent(
+                &parent,
+                std::ffi::OsStr::new("absent"),
+                &request
+            )
+            .unwrap()
+            .phase(),
+        NativePreparationPhase::Missing
+    );
+    assert!(!parent.path().join("absent").exists());
+    let retry = service
+        .inspect_stream_token_custody_configure_preparation_in_parent(&parent, name, &request)
+        .unwrap();
+    assert_eq!(retry.phase(), NativePreparationPhase::RequestOnly);
+    assert_eq!(retry.request_sha256(), first.request_sha256());
+    assert_eq!(parent.identity().unwrap(), parent_id);
+    assert_eq!(original.identity().unwrap(), journal_id);
+    assert_eq!(std::fs::read(path.join("preparation.json")).unwrap(), bytes);
+    assert!(!path.join("payload.json").exists());
+    assert!(!path.join("submission.json").exists());
+    assert_eq!(transport.requests.load(Ordering::SeqCst), 0);
+}

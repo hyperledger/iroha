@@ -1,0 +1,27 @@
+{
+  "files": {
+    "README.md": "fab6c14f3f81aebd9beab3e805721b83ff52d2a272c6ddcb9521b3e84004ed6d",
+    "test_transcript.py": "2ce6a48b6e36541b6caa964fdb53f0fd78ab76f60fc4b1c7af79d3a2b5430787",
+    "transcript.py": "8b8dbc83d4f63824e34107719b9af6b64ecf94f8b93ef9f110185925c9239b44"
+  },
+  "schema": "kagemusha.fold.transcript-controls.v1",
+  "sources": {
+    "crates/iroha_pasta/src/curve/mod.rs": "f521a9e28a32ad7cb22479a922d68e89edc849649d662e4a4cec89a8076f7b11",
+    "crates/iroha_pasta/src/poseidon/mod.rs": "d8ca4d62bada0cc5f1ca35948a2501933d835543934a9796833b4555f8865937",
+    "crates/iroha_pasta/src/poseidon/rp57_fp.bin": "9193ac5da831ecf38647ad4050ce4c557d688c4aabc12fe75e3b1e090c454a20",
+    "crates/iroha_pasta/src/poseidon/rp57_fq.bin": "1adf5ad0fabbd99fedfeebd70a2a374c896cf47c9d7e92dfe04f1146cdab5830",
+    "crates/iroha_plonk/src/transcript/mod.rs": "04755abebf2af2dd23a42f5d238ab96ce7f266166ce693392e4dcd7c0ac0d63a",
+    "crates/iroha_plonk/src/transcript/pipa_r.rs": "84dc14cc3c312d51dc4938de25ce9a461f56199192caa1e4d712411ccf1dddf3",
+    "crates/iroha_plonk_gadgets/src/poseidon/sponge.rs": "3eef0319e0dce23a63b6e9844714cb2ef3faf82fc52c637ece9b29de878a19ea",
+    "crates/iroha_plonk_gadgets/src/pow5_fq/duplex.rs": "c70eb25daa1645048260559d4a437df3a26661a7160aa8248af0c73ea5c5baa9",
+    "crates/iroha_plonk_recursion/src/accumulation.rs": "291a41a0a9252bfbfb9feceaeea4a599e9da17f0ae83d642bb4c6ad154edff2f",
+    "crates/iroha_plonk_recursion/src/accumulation_circuit.rs": "40a9171fdb712dd0fce91dde284492d344713022d528b22eb66ef58b35b0899a",
+    "crates/iroha_plonk_recursion/src/claim.rs": "adc984e272be5bfdca8df1565c71cd252654d00bb2969a8d696caa317e1f3519",
+    "crates/iroha_plonk_recursion/src/tests.rs": "8b68018c1045e5a46ba72632ff6e0fa4eeeb3707477b5c78109b4fc6bc1352c0",
+    "crates/iroha_plonk_recursion/src/transcript.rs": "20cfd7c3ee5a33a2bf37d9018bab64ff539879b495d829c811030bc133f4502c",
+    "fixtures/native_prover/kats_v1.json": "46740d5ac90ac9262338e92f858bd76f04272372f8e8e17ed5476b26a3a3eefd",
+    "fixtures/native_prover/reference_verifier/__init__.py": "4d7954f1862555d77708c4bcea582199efbdeb900587b99e439dd7c958f1e724",
+    "fixtures/native_prover/reference_verifier/curve.py": "02da44c102b3efa2be2760dec12dfb2142e2711dc129e1d1eeb06711fb56e4c1",
+    "fixtures/native_prover/reference_verifier/transcript.py": "ed99e82f82a21a50b122d4079efaec9a3e4f99566968e18f400681213110a764"
+  }
+}

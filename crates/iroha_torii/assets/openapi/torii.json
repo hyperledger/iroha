@@ -3865,6 +3865,108 @@
         ],
         "type": "object"
       },
+      "AssetDefinition": {
+        "additionalProperties": false,
+        "description": "Complete original native AssetDefinition, including scale, ownership, total quantity and confidential policy; this is not an explorer/list projection.",
+        "properties": {
+          "alias": {
+            "oneOf": [
+              {
+                "description": "Canonical native AssetDefinitionAlias.",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "balance_scope_policy": {
+            "enum": [
+              "Global",
+              "DataspaceRestricted"
+            ],
+            "type": "string"
+          },
+          "confidential_policy": {
+            "$ref": "#/components/schemas/AssetConfidentialPolicy"
+          },
+          "description": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "description": "Exact canonical immutable AssetDefinitionId address; aliases are separate fields.",
+            "type": "string"
+          },
+          "logo": {
+            "oneOf": [
+              {
+                "description": "Canonical SoraFS URI.",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metadata": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "description": "Actual native Metadata map from canonical Name keys to arbitrary JSON values; this map is the sole open metadata field.",
+            "type": "object"
+          },
+          "mintable": {
+            "$ref": "#/components/schemas/AssetMintable"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owned_by": {
+            "description": "Canonical I105 AccountId of the definition owner.",
+            "type": "string"
+          },
+          "owning_domain": {
+            "oneOf": [
+              {
+                "description": "Canonical native DomainId.",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spec": {
+            "$ref": "#/components/schemas/NumericSpec"
+          },
+          "total_quantity": {
+            "$ref": "#/components/schemas/Quantity"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "alias",
+          "spec",
+          "mintable",
+          "logo",
+          "metadata",
+          "balance_scope_policy",
+          "owning_domain",
+          "owned_by",
+          "total_quantity",
+          "confidential_policy"
+        ],
+        "type": "object"
+      },
       "AssetDefinitionPage": {
         "additionalProperties": false,
         "properties": {
@@ -6462,7 +6564,7 @@
       },
       "ContractActivityRow": {
         "additionalProperties": false,
-        "description": "Committed contract calls; select may omit any field.",
+        "description": "Call-derived contract activity rows; select may omit any field.",
         "properties": {
           "authority": {
             "type": "string"
@@ -7685,7 +7787,7 @@
       },
       "ContractEventRow": {
         "additionalProperties": false,
-        "description": "Committed contract events; select may omit any field.",
+        "description": "Call-derived contract event rows; select may omit any field.",
         "properties": {
           "asset_ids": {
             "items": {
@@ -7730,6 +7832,8 @@
           },
           "payload": {},
           "provenance": {
+            "const": "derived",
+            "description": "Always `derived`: Torii projects the row from a committed call; contracts do not emit it.",
             "type": "string"
           },
           "result_ok": {
@@ -11016,6 +11120,48 @@
           "components",
           "capacities",
           "decision"
+        ],
+        "type": "object"
+      },
+      "FeeSponsorEnrollmentByIdRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "beneficiary": {
+            "$ref": "#/components/schemas/CanonicalAccountId"
+          },
+          "program_id": {
+            "description": "Canonical sponsor/program literal.",
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": [
+          "program_id",
+          "beneficiary"
+        ],
+        "type": "object"
+      },
+      "FeeSponsorEnrollmentByIdResponse": {
+        "additionalProperties": false,
+        "description": "The enrollment field is mandatory; only explicit null proves current absence for the exact key in an existing program.",
+        "properties": {
+          "enrollment": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NativeFeeSponsorEnrollmentV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "key": {
+            "$ref": "#/components/schemas/NativeFeeSponsorEnrollmentKeyV1"
+          }
+        },
+        "required": [
+          "key",
+          "enrollment"
         ],
         "type": "object"
       },
@@ -19063,6 +19209,17 @@
               }
             ]
           },
+          "retained_code_hash_hex": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "revision": {
             "format": "uint64",
             "minimum": 1,
@@ -19084,6 +19241,7 @@
           "pending_owner",
           "parliament_delegated",
           "active_code_hash_hex",
+          "retained_code_hash_hex",
           "revision",
           "emergency_hold"
         ],
@@ -20368,6 +20526,81 @@
         ],
         "type": "object"
       },
+      "IdentifierNormalization": {
+        "additionalProperties": false,
+        "properties": {
+          "normalization": {
+            "enum": [
+              "exact",
+              "lowercase_trimmed",
+              "phone_e164",
+              "email_address",
+              "account_number"
+            ],
+            "type": "string"
+          },
+          "value": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "normalization",
+          "value"
+        ],
+        "type": "object"
+      },
+      "IdentifierPolicy": {
+        "additionalProperties": false,
+        "description": "Complete original world.identifier_policies row. None-valued phone_retail_attestor_public_key and note are omitted by native JSON serialization. Presence does not establish active-policy authority or World membership.",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "id": {
+            "$ref": "#/components/schemas/IdentifierPolicyId"
+          },
+          "normalization": {
+            "$ref": "#/components/schemas/IdentifierNormalization"
+          },
+          "note": {
+            "type": "string"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/CanonicalAccountId"
+          },
+          "phone_retail_attestor_public_key": {
+            "$ref": "#/components/schemas/NativePublicKeyV1"
+          },
+          "program_id": {
+            "$ref": "#/components/schemas/RamLfeProgramId"
+          }
+        },
+        "required": [
+          "id",
+          "owner",
+          "normalization",
+          "program_id",
+          "active"
+        ],
+        "type": "object"
+      },
+      "IdentifierPolicyId": {
+        "additionalProperties": false,
+        "description": "Exact native identifier policy key object. The kind#business_rule display literal is not its Norito JSON representation.",
+        "properties": {
+          "business_rule": {
+            "$ref": "#/components/schemas/NativeNameV1"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/NativeNameV1"
+          }
+        },
+        "required": [
+          "kind",
+          "business_rule"
+        ],
+        "type": "object"
+      },
       "IdentifierPolicyListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -21103,326 +21336,6 @@
           "boolean",
           "null"
         ]
-      },
-      "KagemushaAuthorityAssetDefinitionV1": {
-        "additionalProperties": false,
-        "description": "Complete original native AssetDefinition, including scale, ownership, total quantity and confidential policy; this is not an explorer/list projection.",
-        "properties": {
-          "alias": {
-            "oneOf": [
-              {
-                "description": "Canonical native AssetDefinitionAlias.",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "balance_scope_policy": {
-            "enum": [
-              "Global",
-              "DataspaceRestricted"
-            ],
-            "type": "string"
-          },
-          "confidential_policy": {
-            "$ref": "#/components/schemas/AssetConfidentialPolicy"
-          },
-          "description": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "id": {
-            "description": "Exact canonical immutable AssetDefinitionId address; aliases are separate fields.",
-            "type": "string"
-          },
-          "logo": {
-            "oneOf": [
-              {
-                "description": "Canonical SoraFS URI.",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "metadata": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
-            },
-            "description": "Actual native Metadata map from canonical Name keys to arbitrary JSON values; this map is the sole open metadata field.",
-            "type": "object"
-          },
-          "mintable": {
-            "$ref": "#/components/schemas/AssetMintable"
-          },
-          "name": {
-            "type": "string"
-          },
-          "owned_by": {
-            "description": "Canonical I105 AccountId of the definition owner.",
-            "type": "string"
-          },
-          "owning_domain": {
-            "oneOf": [
-              {
-                "description": "Canonical native DomainId.",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "spec": {
-            "$ref": "#/components/schemas/NumericSpec"
-          },
-          "total_quantity": {
-            "$ref": "#/components/schemas/Quantity"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "description",
-          "alias",
-          "spec",
-          "mintable",
-          "logo",
-          "metadata",
-          "balance_scope_policy",
-          "owning_domain",
-          "owned_by",
-          "total_quantity",
-          "confidential_policy"
-        ],
-        "type": "object"
-      },
-      "KagemushaMintFinalityAuthorityGenerationV1": {
-        "additionalProperties": false,
-        "properties": {
-          "generation": {
-            "description": "Monotonic key generation, changed only by an authorized activation.",
-            "format": "uint64",
-            "maximum": 18446744073709551615,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "network_id": {
-            "$ref": "#/components/schemas/Hash",
-            "description": "Network whose certified epoch authorizations may use these keys."
-          },
-          "validators": {
-            "description": "Strictly ordered exact `3f + 1` consensus/Pasta key roster.",
-            "items": {
-              "$ref": "#/components/schemas/KagemushaMintFinalityValidatorKeysV1"
-            },
-            "maxItems": 31,
-            "minItems": 4,
-            "type": "array"
-          },
-          "version": {
-            "description": "Sole first-release layout version.",
-            "enum": [
-              1
-            ],
-            "format": "uint16",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "version",
-          "network_id",
-          "generation",
-          "validators"
-        ],
-        "type": "object"
-      },
-      "KagemushaMintFinalityPairedPossessionProofV1": {
-        "additionalProperties": false,
-        "properties": {
-          "ep_proof_signature": {
-            "$ref": "#/components/schemas/KagemushaPastaSchnorrSignatureV1",
-            "description": "Ep/Fq proof under the exact Vesta public key."
-          },
-          "eq_proof_signature": {
-            "$ref": "#/components/schemas/KagemushaPastaSchnorrSignatureV1",
-            "description": "Eq/Fp proof under the exact Pallas public key."
-          }
-        },
-        "required": [
-          "eq_proof_signature",
-          "ep_proof_signature"
-        ],
-        "type": "object"
-      },
-      "KagemushaMintFinalitySeatReadinessContextV1": {
-        "additionalProperties": false,
-        "properties": {
-          "authority_generation": {
-            "description": "Immutable generation whose keys this seat proves it possesses.",
-            "format": "uint64",
-            "maximum": 18446744073709551615,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "authority_id": {
-            "description": "Exact ordered target committee and paired-public-key commitment.",
-            "items": {
-              "maximum": 255,
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 32,
-            "minItems": 32,
-            "type": "array"
-          },
-          "beacon": {
-            "$ref": "#/components/schemas/BeaconEpochBindingV1",
-            "description": "Exact installed target beacon session and complete transcript."
-          },
-          "first_height": {
-            "description": "First target height, inclusive.",
-            "format": "uint64",
-            "maximum": 18446744073709551615,
-            "minimum": 1,
-            "type": "integer"
-          },
-          "last_height": {
-            "description": "Last target height, inclusive.",
-            "format": "uint64",
-            "maximum": 18446744073709551615,
-            "minimum": 1,
-            "type": "integer"
-          },
-          "network_id": {
-            "$ref": "#/components/schemas/Hash",
-            "description": "Exact genesis-derived network identity."
-          },
-          "target_epoch": {
-            "description": "Scheduling epoch in which the prepared authority may first activate.",
-            "format": "uint64",
-            "maximum": 18446744073709551615,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "transition_id": {
-            "description": "Unique frozen preparation attempt, including its finalized election context.",
-            "items": {
-              "maximum": 255,
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 32,
-            "minItems": 32,
-            "type": "array"
-          },
-          "validator_index": {
-            "description": "Exact zero-based position in the target generation.",
-            "format": "uint32",
-            "maximum": 4294967295,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "version": {
-            "description": "Sole first-release layout version.",
-            "enum": [
-              1
-            ],
-            "format": "uint16",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "version",
-          "network_id",
-          "transition_id",
-          "target_epoch",
-          "authority_generation",
-          "authority_id",
-          "first_height",
-          "last_height",
-          "validator_index",
-          "beacon"
-        ],
-        "type": "object"
-      },
-      "KagemushaMintFinalityValidatorKeysV1": {
-        "additionalProperties": false,
-        "properties": {
-          "ep_proof_public_key": {
-            "description": "Canonical compressed Vesta key verified by the Ep/Fq helper.",
-            "items": {
-              "maximum": 255,
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 32,
-            "minItems": 32,
-            "type": "array"
-          },
-          "eq_proof_public_key": {
-            "description": "Canonical compressed Pallas key verified by the Eq/Fp helper.",
-            "items": {
-              "maximum": 255,
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 32,
-            "minItems": 32,
-            "type": "array"
-          },
-          "validator": {
-            "$ref": "#/components/schemas/BlsValidatorId",
-            "description": "Exact consensus identity occupying this roster position."
-          }
-        },
-        "required": [
-          "validator",
-          "eq_proof_public_key",
-          "ep_proof_public_key"
-        ],
-        "type": "object"
-      },
-      "KagemushaPastaSchnorrSignatureV1": {
-        "additionalProperties": false,
-        "properties": {
-          "nonce_commitment": {
-            "description": "Canonical compressed non-identity nonce point.",
-            "items": {
-              "maximum": 255,
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 32,
-            "minItems": 32,
-            "type": "array"
-          },
-          "response": {
-            "description": "Canonical non-zero response scalar.",
-            "items": {
-              "maximum": 255,
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 32,
-            "minItems": 32,
-            "type": "array"
-          }
-        },
-        "required": [
-          "nonce_commitment",
-          "response"
-        ],
-        "type": "object"
       },
       "KaigiId": {
         "additionalProperties": false,
@@ -27986,6 +27899,23 @@
               "payload"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "IdentifierPolicy",
+                "type": "string"
+              },
+              "payload": {
+                "$ref": "#/components/schemas/NativeIdentifierPolicyStateV1"
+              }
+            },
+            "required": [
+              "kind",
+              "payload"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -28053,6 +27983,23 @@
                   "fee_asset"
                 ],
                 "type": "object"
+              }
+            },
+            "required": [
+              "kind",
+              "payload"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "IdentifierPolicy",
+                "type": "string"
+              },
+              "payload": {
+                "$ref": "#/components/schemas/IdentifierPolicyId"
               }
             },
             "required": [
@@ -28695,6 +28642,23 @@
               "value"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "enrolled_multisig_contract_call",
+                "type": "string"
+              },
+              "value": {
+                "$ref": "#/components/schemas/NativeFeeSponsorContractSelectorV1"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -28804,7 +28768,7 @@
             "$ref": "#/components/schemas/RetailFeeCanonicalAssetDefinitionIdV1"
           },
           "fee_asset_definition": {
-            "$ref": "#/components/schemas/KagemushaAuthorityAssetDefinitionV1"
+            "$ref": "#/components/schemas/AssetDefinition"
           },
           "program": {
             "oneOf": [
@@ -28877,6 +28841,23 @@
           "revisions",
           "enrollments",
           "vaults"
+        ],
+        "type": "object"
+      },
+      "NativeIdentifierPolicyStateV1": {
+        "additionalProperties": false,
+        "description": "Exact selected identifier policy and only its referenced original RAM-LFE program from the same certified World cut. Each original row has a 1048576-byte native ceiling. Consumers independently verify World membership, selector/program identity and active-policy authority; this carrier grants none.",
+        "properties": {
+          "policy": {
+            "$ref": "#/components/schemas/IdentifierPolicy"
+          },
+          "program": {
+            "$ref": "#/components/schemas/RamLfeProgramPolicy"
+          }
+        },
+        "required": [
+          "policy",
+          "program"
         ],
         "type": "object"
       },
@@ -30551,6 +30532,27 @@
           "status",
           "scope",
           "resolved_from"
+        ],
+        "type": "object"
+      },
+      "PolicyCommitment": {
+        "additionalProperties": false,
+        "description": "Complete native commitment original. public_parameters is emitted even when empty.",
+        "properties": {
+          "backend": {
+            "$ref": "#/components/schemas/RamLfeBackend"
+          },
+          "policy_hash": {
+            "$ref": "#/components/schemas/Hash"
+          },
+          "public_parameters": {
+            "$ref": "#/components/schemas/NativeByteVectorV1"
+          }
+        },
+        "required": [
+          "backend",
+          "policy_hash",
+          "public_parameters"
         ],
         "type": "object"
       },
@@ -34997,10 +34999,6 @@
             "format": "uint64",
             "type": "integer"
           },
-          "last_reward_epoch": {
-            "description": "Manifest authority has no staking reward epoch.",
-            "type": "null"
-          },
           "metadata": {
             "description": "Empty metadata projected for manifest authority.",
             "type": "object"
@@ -35053,7 +35051,6 @@
           "activation_height",
           "deactivation_height",
           "metadata",
-          "last_reward_epoch",
           "authority_source",
           "election_exit_height"
         ],
@@ -35220,6 +35217,7 @@
       },
       "PublicLanePendingReward": {
         "additionalProperties": false,
+        "description": "Automatically accrued funded XOR entitlement, including dust below the minimum claim threshold. Beneficiary recovery preserves the original entitlement identity.",
         "properties": {
           "account": {
             "description": "Account literal for the reward recipient.",
@@ -35233,35 +35231,46 @@
             "description": "Exact custody source asset identifier for the unpaid reward.",
             "type": "string"
           },
+          "beneficiary_id": {
+            "type": "string"
+          },
+          "beneficiary_revision": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "claimable": {
+            "type": "boolean"
+          },
+          "expected_claim_sequence": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
           "lane_id": {
             "description": "Lane identifier echoed from the request.",
             "format": "uint64",
             "type": "integer"
           },
-          "latest_unprocessed_epoch": {
-            "description": "Latest unprocessed reward epoch for this exact asset included in amount; null when the obligation contains only retained dust.",
-            "format": "uint64",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "processed_through_epoch": {
-            "description": "Last reward epoch processed for this lane and recipient; null includes epoch zero.",
-            "format": "uint64",
-            "type": [
-              "integer",
-              "null"
-            ]
+          "lifecycle_seal": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "type": "string"
           }
         },
         "required": [
           "lane_id",
           "account",
           "asset",
-          "processed_through_epoch",
-          "latest_unprocessed_epoch",
-          "amount"
+          "amount",
+          "beneficiary_id",
+          "beneficiary_revision",
+          "expected_claim_sequence",
+          "lifecycle_seal",
+          "claimable"
         ],
         "type": "object"
       },
@@ -35439,7 +35448,7 @@
             "items": {
               "$ref": "#/components/schemas/PublicLanePreparationBalanceV1"
             },
-            "maxItems": 128,
+            "maxItems": 2,
             "type": "array"
           },
           "network_id": {
@@ -35506,40 +35515,12 @@
       "PublicLanePrepareClaimV1": {
         "additionalProperties": false,
         "properties": {
-          "accrued_sources": {
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 64,
-            "type": "array"
-          },
-          "max_records": {
-            "maximum": 64,
-            "minimum": 0,
-            "type": "integer"
-          },
           "recipient": {
             "type": "string"
-          },
-          "upto_epoch": {
-            "anyOf": [
-              {
-                "format": "uint64",
-                "maximum": 18446744073709551615,
-                "minimum": 0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "required": [
-          "recipient",
-          "upto_epoch",
-          "max_records",
-          "accrued_sources"
+          "recipient"
         ],
         "type": "object"
       },
@@ -35650,43 +35631,11 @@
       "PublicLaneRewardClaimPlanV1": {
         "additionalProperties": false,
         "properties": {
-          "expected_state": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PublicLaneRewardClaimStateV1"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "fee_claim": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PublicLaneFeeRewardClaimV1"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Exact independently accrued fee reward payment, or explicit null for no fee reward effects. This field must be present before signing."
+            "$ref": "#/components/schemas/PublicLaneFeeRewardClaimV1"
           },
           "network_scope": {
             "$ref": "#/components/schemas/PublicLaneMonetaryScopeV1"
-          },
-          "records": {
-            "items": {
-              "$ref": "#/components/schemas/PublicLaneRewardRecordRefV1"
-            },
-            "maxItems": 64,
-            "type": "array"
-          },
-          "sources": {
-            "items": {
-              "$ref": "#/components/schemas/PublicLaneRewardClaimSourceV1"
-            },
-            "maxItems": 64,
-            "type": "array"
           },
           "valid_until_height": {
             "format": "uint64",
@@ -35698,82 +35647,7 @@
         "required": [
           "network_scope",
           "valid_until_height",
-          "expected_state",
-          "records",
-          "sources",
           "fee_claim"
-        ],
-        "type": "object"
-      },
-      "PublicLaneRewardClaimSourceV1": {
-        "additionalProperties": false,
-        "properties": {
-          "destination_asset": {
-            "type": "string"
-          },
-          "expected_accrued": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Quantity"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "payout": {
-            "$ref": "#/components/schemas/Quantity"
-          },
-          "source_asset": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "source_asset",
-          "destination_asset",
-          "expected_accrued",
-          "payout"
-        ],
-        "type": "object"
-      },
-      "PublicLaneRewardClaimStateV1": {
-        "additionalProperties": false,
-        "properties": {
-          "through_epoch": {
-            "anyOf": [
-              {
-                "format": "uint64",
-                "maximum": 18446744073709551615,
-                "minimum": 0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "through_epoch"
-        ],
-        "type": "object"
-      },
-      "PublicLaneRewardRecordRefV1": {
-        "additionalProperties": false,
-        "properties": {
-          "epoch": {
-            "format": "uint64",
-            "maximum": 18446744073709551615,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "record_hash": {
-            "$ref": "#/components/schemas/Hash"
-          }
-        },
-        "required": [
-          "epoch",
-          "record_hash"
         ],
         "type": "object"
       },
@@ -36001,16 +35875,8 @@
             "format": "uint64",
             "type": "integer"
           },
-          "last_reward_epoch": {
-            "description": "Epoch that last produced a reward payout.",
-            "format": "uint64",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
           "metadata": {
-            "description": "Optional metadata (commission, endpoints, jurisdiction flags, etc.).",
+            "description": "Descriptive metadata (endpoints, jurisdiction flags, etc.); commission is zero and metadata cannot change rewards.",
             "type": "object"
           },
           "peer_id": {
@@ -36048,7 +35914,6 @@
           "activation_height",
           "deactivation_height",
           "metadata",
-          "last_reward_epoch",
           "authority_source",
           "election_exit_height"
         ],
@@ -36256,6 +36121,15 @@
         ],
         "type": "object"
       },
+      "RamLfeBackend": {
+        "description": "Exact stored native backend tag. Carrying this original does not establish production support or authorize program execution.",
+        "enum": [
+          "hkdf-sha3-512-prf-v1",
+          "bfv-affine-v1",
+          "bfv-programmed-v1"
+        ],
+        "type": "string"
+      },
       "RamLfeExecuteRequest": {
         "additionalProperties": false,
         "properties": {
@@ -36294,8 +36168,9 @@
             "description": "Opaque evaluator hash returned by the RAM-LFE backend.",
             "type": "string"
           },
-          "output_ciphertext": {
-            "description": "Hex-encoded Norito BFV ciphertext envelope produced by the RAM-LFE evaluator.",
+          "opaque_output": {
+            "description": "Uppercase hex-encoded opaque encrypted output bytes produced by the RAM-LFE evaluator.",
+            "pattern": "^(?:[0-9A-F]{2})*$",
             "type": "string"
           },
           "output_hash": {
@@ -36304,6 +36179,13 @@
           },
           "program_id": {
             "description": "RAM-LFE program identifier.",
+            "type": "string"
+          },
+          "program_id_canonical": {
+            "description": "Original native canonical ProgramId frame in uppercase hex, at most 4096 bytes. This is data bound by the signed receipt associated_data_hash, not a new authority.",
+            "maxLength": 8192,
+            "minLength": 2,
+            "pattern": "^(?:[0-9A-F]{2})+$",
             "type": "string"
           },
           "receipt": {
@@ -36320,9 +36202,10 @@
         },
         "required": [
           "program_id",
+          "program_id_canonical",
           "opaque_hash",
           "receipt_hash",
-          "output_ciphertext",
+          "opaque_output",
           "output_hash",
           "associated_data_hash",
           "executed_at_ms",
@@ -36480,6 +36363,63 @@
           "evaluation_key_digest",
           "opened_output_hash",
           "opened_at_ms"
+        ],
+        "type": "object"
+      },
+      "RamLfeProgramId": {
+        "additionalProperties": false,
+        "description": "Exact native RAM-LFE program key object, not its display-name string.",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/NativeNameV1"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "RamLfeProgramPolicy": {
+        "additionalProperties": false,
+        "description": "Complete original world.ram_lfe_program_policies row selected by the identifier policy. A None-valued note is omitted. Backend and verification-mode originals grant no execution permission.",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "backend": {
+            "$ref": "#/components/schemas/RamLfeBackend"
+          },
+          "commitment": {
+            "$ref": "#/components/schemas/PolicyCommitment"
+          },
+          "note": {
+            "type": "string"
+          },
+          "output_opening_public_key": {
+            "$ref": "#/components/schemas/NativePublicKeyV1"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/CanonicalAccountId"
+          },
+          "program_id": {
+            "$ref": "#/components/schemas/RamLfeProgramId"
+          },
+          "resolver_public_key": {
+            "$ref": "#/components/schemas/NativePublicKeyV1"
+          },
+          "verification_mode": {
+            "$ref": "#/components/schemas/RamLfeVerificationMode"
+          }
+        },
+        "required": [
+          "program_id",
+          "owner",
+          "backend",
+          "verification_mode",
+          "commitment",
+          "resolver_public_key",
+          "output_opening_public_key",
+          "active"
         ],
         "type": "object"
       },
@@ -36711,6 +36651,26 @@
         "required": [
           "kind",
           "signature"
+        ],
+        "type": "object"
+      },
+      "RamLfeVerificationMode": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "enum": [
+              "signed",
+              "proof"
+            ],
+            "type": "string"
+          },
+          "value": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "mode",
+          "value"
         ],
         "type": "object"
       },
@@ -38331,6 +38291,30 @@
         ],
         "type": "object"
       },
+      "SccpActivateLightClientProfileActionV1": {
+        "additionalProperties": false,
+        "description": "Activate a compiled light-client profile version of one external network from the block after enactment; version 1 is active from genesis.",
+        "properties": {
+          "network": {
+            "$ref": "#/components/schemas/SccpExternalNetworkV1"
+          },
+          "profile_hash": {
+            "$ref": "#/components/schemas/SccpNonzeroUpperHex32"
+          },
+          "version": {
+            "format": "uint32",
+            "maximum": 4294967295,
+            "minimum": 2,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "network",
+          "version",
+          "profile_hash"
+        ],
+        "type": "object"
+      },
       "SccpCanonicalBase64": {
         "description": "Nonempty canonical RFC 4648 standard base64 with required padding and no whitespace.",
         "minLength": 4,
@@ -38365,22 +38349,6 @@
               },
               "family": {
                 "const": "evm"
-              }
-            },
-            "required": [
-              "family",
-              "deployment"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "deployment": {
-                "$ref": "#/components/schemas/SccpTronDeploymentV1"
-              },
-              "family": {
-                "const": "tron"
               }
             },
             "required": [
@@ -38431,8 +38399,7 @@
             "enum": [
               "ethereum_mainnet",
               "bsc_mainnet",
-              "ton_mainnet",
-              "tron_mainnet"
+              "ton_mainnet"
             ],
             "type": "string"
           },
@@ -38695,6 +38662,22 @@
               },
               "payload": {
                 "$ref": "#/components/schemas/SccpClearBridgeKeyFaultActionV1"
+              }
+            },
+            "required": [
+              "action",
+              "payload"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "const": "activate_light_client_profile"
+              },
+              "payload": {
+                "$ref": "#/components/schemas/SccpActivateLightClientProfileActionV1"
               }
             },
             "required": [
@@ -39395,33 +39378,6 @@
           "minter_code",
           "wallet_code",
           "bucket_code"
-        ],
-        "type": "object"
-      },
-      "SccpTronAddressHex21V1": {
-        "description": "Canonical uppercase 21-byte TRON address without a prefix; the first byte is 0x41 and the remainder is nonzero.",
-        "maxLength": 42,
-        "minLength": 42,
-        "not": {
-          "pattern": "^410{40}$"
-        },
-        "pattern": "^41[0-9A-F]{40}$",
-        "type": "string"
-      },
-      "SccpTronDeploymentV1": {
-        "additionalProperties": false,
-        "description": "TRON bridge-token contract and the Keccak-256 of its runtime bytecode.",
-        "properties": {
-          "address": {
-            "$ref": "#/components/schemas/SccpTronAddressHex21V1"
-          },
-          "runtime_code_hash": {
-            "$ref": "#/components/schemas/SccpUpperHex32"
-          }
-        },
-        "required": [
-          "address",
-          "runtime_code_hash"
         ],
         "type": "object"
       },
@@ -52504,59 +52460,15 @@
         ],
         "type": "string"
       },
-      "ValidatorCandidateKeysV1": {
-        "additionalProperties": false,
-        "properties": {
-          "generation": {
-            "description": "Generation to which both public keys belong.",
-            "format": "uint64",
-            "maximum": 18446744073709551615,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "keys": {
-            "$ref": "#/components/schemas/KagemushaMintFinalityValidatorKeysV1",
-            "description": "Consensus peer and both generation-derived Pasta public keys."
-          },
-          "network_id": {
-            "$ref": "#/components/schemas/Hash",
-            "description": "Exact genesis-derived network identity."
-          },
-          "peer_signature": {
-            "description": "Consent signed by the exact consensus peer over the complete publication challenge.",
-            "maxLength": 192,
-            "minLength": 192,
-            "pattern": "^[0-9A-F]{192}$",
-            "type": "string"
-          },
-          "possession": {
-            "$ref": "#/components/schemas/KagemushaMintFinalityPairedPossessionProofV1",
-            "description": "Proof of actual possession under the candidate-publication challenge."
-          }
-        },
-        "required": [
-          "network_id",
-          "generation",
-          "keys",
-          "possession",
-          "peer_signature"
-        ],
-        "type": "object"
-      },
       "ValidatorCommitteeCredentialsV1": {
         "additionalProperties": false,
         "properties": {
-          "authority": {
-            "$ref": "#/components/schemas/KagemushaMintFinalityAuthorityGenerationV1",
-            "description": "Complete generation, built only from authenticated candidate key publications."
-          },
           "beacon": {
             "$ref": "#/components/schemas/InstalledBeaconEpochBindingV1",
             "description": "Exact finalized target DKG transcript, retained separately from the incumbent session."
           }
         },
         "required": [
-          "authority",
           "beacon"
         ],
         "type": "object"
@@ -52701,10 +52613,6 @@
             "$ref": "#/components/schemas/GlobalThresholdBeaconPartialSignatureV1",
             "description": "Adaptive threshold proof of the exact beacon share under a separate readiness domain."
           },
-          "pasta": {
-            "$ref": "#/components/schemas/KagemushaMintFinalityPairedPossessionProofV1",
-            "description": "Possession of both Pasta generation keys under the exact attempt context."
-          },
           "validator_index": {
             "description": "Zero-based index in the immutable ordered target roster.",
             "format": "uint32",
@@ -52715,7 +52623,6 @@
         },
         "required": [
           "validator_index",
-          "pasta",
           "beacon"
         ],
         "type": "object"
@@ -52741,14 +52648,6 @@
       "ValidatorCommitteeStatusV1": {
         "additionalProperties": false,
         "properties": {
-          "candidate_keys": {
-            "description": "Published keys for the selected target peers in strict peer order; empty without a selection. Missing publications remain absent.",
-            "items": {
-              "$ref": "#/components/schemas/ValidatorCandidateKeysV1"
-            },
-            "maxItems": 31,
-            "type": "array"
-          },
           "latest_finality": {
             "$ref": "#/components/schemas/NativeFinalityArtifact",
             "description": "Original canonical native H2-or-later block authenticated by the server against its committed source; clients must verify the full native journal independently."
@@ -52792,7 +52691,6 @@
           "target_epoch",
           "latest_finality",
           "selected",
-          "candidate_keys",
           "pending_beacon_session"
         ],
         "type": "object"
@@ -52923,14 +52821,14 @@
         "additionalProperties": false,
         "properties": {
           "authority_generation": {
-            "description": "Generation whose paired-Pasta keys are authorized.",
+            "description": "Exact ordered validator generation authorized for this scheduling epoch.",
             "format": "uint64",
             "maximum": 18446744073709551615,
             "minimum": 0,
             "type": "integer"
           },
           "authority_id": {
-            "description": "Exact immutable ordered authority commitment.",
+            "description": "Exact immutable ordered ValidatorGenerationV1 commitment.",
             "items": {
               "maximum": 255,
               "minimum": 0,
@@ -53038,6 +52936,132 @@
         "required": [
           "kind",
           "value"
+        ],
+        "type": "object"
+      },
+      "ValidatorGenerationV1": {
+        "additionalProperties": false,
+        "properties": {
+          "generation": {
+            "description": "Monotonic signing generation; genesis uses zero and each activation adds one.",
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "network_id": {
+            "$ref": "#/components/schemas/Hash",
+            "description": "Exact genesis-derived network identity."
+          },
+          "validators": {
+            "description": "Exact `3f + 1` BLS-normal roster in strictly ascending public-key order.",
+            "items": {
+              "description": "Canonical bare multihash string for a 48-byte BLS12-381 G1 (BLS-normal) validator public key.",
+              "maxLength": 102,
+              "minLength": 102,
+              "pattern": "^ea0130[0-9A-F]{96}$",
+              "type": "string"
+            },
+            "maxItems": 31,
+            "minItems": 4,
+            "type": "array"
+          }
+        },
+        "required": [
+          "network_id",
+          "generation",
+          "validators"
+        ],
+        "type": "object"
+      },
+      "ValidatorSeatReadinessContextV1": {
+        "additionalProperties": false,
+        "properties": {
+          "authority_generation": {
+            "description": "Successor validator generation whose seat this readiness acknowledges.",
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "authority_id": {
+            "description": "Exact ValidatorGenerationV1 identity of the ordered target roster.",
+            "items": {
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 32,
+            "minItems": 32,
+            "type": "array"
+          },
+          "beacon": {
+            "$ref": "#/components/schemas/InstalledBeaconEpochBindingV1",
+            "description": "Exact installed target beacon session and complete transcript."
+          },
+          "first_height": {
+            "description": "First target height, inclusive.",
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "last_height": {
+            "description": "Last target height, inclusive.",
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "network_id": {
+            "$ref": "#/components/schemas/Hash",
+            "description": "Exact genesis-derived network identity."
+          },
+          "target_epoch": {
+            "description": "Scheduling epoch in which the prepared generation may first activate.",
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "transition_id": {
+            "description": "Unique frozen preparation attempt, including its finalized election context.",
+            "items": {
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 32,
+            "minItems": 32,
+            "type": "array"
+          },
+          "validator_index": {
+            "description": "Exact zero-based position in the target generation.",
+            "format": "uint32",
+            "maximum": 30,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version": {
+            "description": "Sole first-release layout version.",
+            "enum": [
+              1
+            ],
+            "format": "uint16",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "network_id",
+          "transition_id",
+          "target_epoch",
+          "authority_generation",
+          "authority_id",
+          "first_height",
+          "last_height",
+          "validator_index",
+          "beacon"
         ],
         "type": "object"
       },
@@ -61414,6 +61438,215 @@
         "x-iroha-tool-effect": "read"
       }
     },
+    "/v1/bridge/finality/interval/{from}/{to}": {
+      "get": {
+        "description": "Returns 1 to 64 consecutive durable current consensus proofs in ascending inclusive height order. Each item is the complete canonical SumeragiFinalityProof, including its executed block frame, embedded CommitCertificate and authenticated committee with BLS proofs of possession. Select positive from and to with from <= to and to - from + 1 <= 64. Verifiers independently select signed genesis or an independently authenticated checkpoint and authenticate every required predecessor and lag-2 committee transition; neither this interval nor a proof-supplied committee selects a trust root. The existing 65-second route deadline and configured response byte cap include the complete outer JSON array or canonical Norito Vec frame. There is no per-height fallback or partial success response.",
+        "operationId": "bridgeFinalityProofInterval",
+        "parameters": [
+          {
+            "description": "First block height, inclusive (1-indexed).",
+            "in": "path",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "uint64",
+              "maximum": 18446744073709551615,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Final block height, inclusive; at most 63 greater than from.",
+            "in": "path",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "uint64",
+              "maximum": 18446744073709551615,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SumeragiFinalityProof"
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito Vec<SumeragiFinalityProof> frame, including its outer header and sequence framing.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "All requested complete proofs in exact ascending height order; the array has to - from + 1 items."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Invalid positive selectors, reversed interval, or interval longer than 64 heights."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The existing Torii API-token policy rejected the request."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A requested canonical committed block or its certificate is unavailable."
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Requested content type is not acceptable; supported: application/json, application/x-norito."
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The original 65-second route execution deadline elapsed; no partial success is returned."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The original query, allocation, decode, rate or proof-egress admission refused the request."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Canonical history, source identity, proof verification or response construction failed."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The original State publication or canonical history resource is temporarily unavailable."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "Return a bounded interval of complete Sumeragi finality proofs.",
+        "tags": [
+          "Bridge"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "bridge.finality_interval.read"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
     "/v1/bridge/finality/{height}": {
       "get": {
         "description": "Returns a durable current consensus proof: canonical executed block frame with embedded CommitCertificate and authenticated committee with BLS proofs of possession. Verifiers independently select signed genesis, then authenticate the contiguous chain and lag-2 committee schedule; a proof-supplied committee alone does not establish authority.",
@@ -62237,7 +62470,7 @@
     },
     "/v1/contracts/activity": {
       "get": {
-        "description": "Committed contract calls in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
+        "description": "Call-derived contract activity: one row per committed top-level `ContractCall`, with `contract_address` and `contract_entrypoint` from the signed invocation; `contract_alias` and `contract_payload` appear only when the call committed successfully, because only then has consensus bound that metadata to the invocation. Rows are in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
             "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
@@ -62313,7 +62546,7 @@
             "IrohaCanonicalWitness": []
           }
         ],
-        "summary": "List committed contract calls.",
+        "summary": "List call-derived contract activity.",
         "tags": [
           "Contracts"
         ],
@@ -62328,7 +62561,7 @@
     },
     "/v1/contracts/activity/query": {
       "post": {
-        "description": "Committed contract calls in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
+        "description": "Call-derived contract activity: one row per committed top-level `ContractCall`, with `contract_address` and `contract_entrypoint` from the signed invocation; `contract_alias` and `contract_payload` appear only when the call committed successfully, because only then has consensus bound that metadata to the invocation. Rows are in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -62374,7 +62607,7 @@
             "IrohaCanonicalWitness": []
           }
         ],
-        "summary": "Query committed contract calls.",
+        "summary": "Query call-derived contract activity.",
         "tags": [
           "Contracts"
         ],
@@ -63952,7 +64185,7 @@
     },
     "/v1/contracts/events": {
       "get": {
-        "description": "Committed contract events in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
+        "description": "Call-derived contract events: one row per committed top-level `ContractCall`, projected from the signed invocation and the metadata consensus bound to it; contracts do not emit these rows, `provenance` is always `derived`, and `contract_module`/`contract_event_*` transaction metadata is ignored. Rows are in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
             "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
@@ -64028,7 +64261,7 @@
             "IrohaCanonicalWitness": []
           }
         ],
-        "summary": "List committed contract events.",
+        "summary": "List call-derived contract events.",
         "tags": [
           "Contracts"
         ],
@@ -64043,7 +64276,7 @@
     },
     "/v1/contracts/events/query": {
       "post": {
-        "description": "Committed contract events in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
+        "description": "Call-derived contract events: one row per committed top-level `ContractCall`, projected from the signed invocation and the metadata consensus bound to it; contracts do not emit these rows, `provenance` is always `derived`, and `contract_module`/`contract_event_*` transaction metadata is ignored. Rows are in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -64089,7 +64322,7 @@
             "IrohaCanonicalWitness": []
           }
         ],
-        "summary": "Query committed contract events.",
+        "summary": "Query call-derived contract events.",
         "tags": [
           "Contracts"
         ],
@@ -64104,7 +64337,7 @@
     },
     "/v1/contracts/events/sse": {
       "get": {
-        "description": "Stream live generic contract events via Server-Sent Events. Payload `event_id` values support deduplication only and are not replay cursors; `Last-Event-ID` is rejected. Lag emits one terminal `stream_error` event.",
+        "description": "Stream live call-derived contract events via Server-Sent Events: the same rows as `/v1/contracts/events`, projected from committed top-level `ContractCall` transactions, with `provenance` always `derived`. Payload `event_id` values support deduplication only and are not replay cursors; `Last-Event-ID` is rejected. Lag emits one terminal `stream_error` event.",
         "operationId": "streamContractEventsSse",
         "responses": {
           "200": {
@@ -64160,7 +64393,7 @@
             "IrohaCanonicalWitness": []
           }
         ],
-        "summary": "Subscribe to contract event stream.",
+        "summary": "Subscribe to call-derived contract event stream.",
         "tags": [
           "Streams"
         ],
@@ -70509,6 +70742,210 @@
         "x-iroha-tool-effect": "read"
       }
     },
+    "/v1/fee-sponsor-enrollments/by-id": {
+      "post": {
+        "description": "Account-signed exact enrollment lookup. The caller must be the sponsor or hold the exact program enrollment permission. Authorization, program existence and the native row are read from one World view. A successful response always contains the exact key and enrollment: explicit null means absent in an existing program. Missing programs, malformed keys and authentication failures never mean absence.",
+        "operationId": "feeSponsorEnrollmentById",
+        "parameters": [
+          {
+            "description": "Authorizing canonical account. Required with the signature/timestamp/nonce proof set; optional when X-Iroha-Witness identifies the subject account.",
+            "in": "header",
+            "name": "X-Iroha-Account",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64 signature over the canonical method, path, sorted query, body hash, timestamp, and nonce. Must be supplied together with X-Iroha-Account, X-Iroha-Timestamp-Ms, and X-Iroha-Nonce; mutually exclusive with X-Iroha-Witness.",
+            "in": "header",
+            "name": "X-Iroha-Signature",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Unix timestamp in milliseconds bound into X-Iroha-Signature. Required for signature authentication and mutually exclusive with X-Iroha-Witness.",
+            "in": "header",
+            "name": "X-Iroha-Timestamp-Ms",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Fresh caller-chosen nonce bound into X-Iroha-Signature. Required for signature authentication and mutually exclusive with X-Iroha-Witness.",
+            "in": "header",
+            "name": "X-Iroha-Nonce",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Base64 canonical Norito multisig witness. This is an alternative to the signature/timestamp/nonce proof set and may identify its subject when X-Iroha-Account is omitted.",
+            "in": "header",
+            "name": "X-Iroha-Witness",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeeSponsorEnrollmentByIdRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeeSponsorEnrollmentByIdResponse"
+                }
+              }
+            },
+            "description": "The exact enrollment row, or explicit null for this key in an existing program.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Malformed, duplicate, unknown or noncanonical enrollment selector fields.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Canonical authentication is absent, invalid, expired or replayed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "Canonical request-signature authentication challenge.",
+                "schema": {
+                  "const": "Signature",
+                  "type": "string"
+                }
+              },
+              "x-iroha-reject-code": {
+                "description": "Stable challenge code when the exact enrollment read lacks canonical authentication.",
+                "schema": {
+                  "enum": [
+                    "fee_sponsor_enrollment_signature_required"
+                  ],
+                  "example": "fee_sponsor_enrollment_signature_required",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The signer is neither the program sponsor nor its exact authorized registrar.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The exact sponsor program is absent.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "IrohaCanonicalAccount": [],
+            "IrohaCanonicalNonce": [],
+            "IrohaCanonicalSignature": [],
+            "IrohaCanonicalTimestampMs": []
+          },
+          {
+            "IrohaCanonicalWitness": []
+          }
+        ],
+        "summary": "Read one exact on-chain sponsor-program enrollment.",
+        "tags": [
+          "Nexus"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "authenticated_account",
+          "authentication": "canonical_account_signature",
+          "schemaVersion": 1,
+          "stableRouteId": "fee_sponsor_enrollment.by_id"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
     "/v1/fee-sponsor-programs/by-id": {
       "post": {
         "description": "Account-signed lookup for one canonical sponsor/program identifier. The response exposes the program lifecycle and revision pointers without compatibility policy fields.",
@@ -76764,6 +77201,132 @@
         "x-iroha-tool-effect": "operator"
       }
     },
+    "/v1/kagemusha/enrollment": {
+      "post": {
+        "description": "Account-authenticated private mutation using the current canonical EnrollmentServiceRequestV1 Norito frame (version 1). PreKey, Evidence, Issue, and Deliver bind the complete method, exact path and body to the dispatch account. dispatch_original is required and bounded to 16384 bytes; evidence_original is required only for Evidence and bounded to 524288 bytes. The complete frame is bounded to 557056 bytes. No query string, trailing slash, caller-selected signer/worker, or plaintext platform verdict is accepted. The configured private issuer retains the original attempt and rechecks current eligibility. Responses are private, no-store.",
+        "requestBody": {
+          "content": {
+            "application/x-norito": {
+              "schema": {
+                "format": "binary",
+                "maxLength": 557056,
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-norito": {
+                "schema": {
+                  "format": "binary",
+                  "maxLength": 270336,
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Canonical EnrollmentServiceResponseV1 frame: Permit, EvidenceReady, Pending, CredentialReady, or Credential. Pending preserves the exact consumed attempt; recovery never creates another platform verification attempt.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "const": "enrollment operation unavailable or rejected",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Invalid method, path or query, noncanonical or oversized Norito envelope, content type, or native account authentication.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "const": "enrollment operation unavailable or rejected",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Enrollment eligibility, configured provider selection, or journal policy rejected the operation.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "const": "enrollment operation unavailable or rejected",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Enrollment issuer is disabled or unavailable, admission capacity is exhausted, or the retained owner/worker operation could not complete. Recover the same exact operation and retained attempt.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "IrohaCanonicalAccount": [],
+            "IrohaCanonicalNonce": [],
+            "IrohaCanonicalSignature": [],
+            "IrohaCanonicalTimestampMs": []
+          },
+          {
+            "IrohaCanonicalWitness": []
+          }
+        ],
+        "summary": "Execute or recover a Kagemusha enrollment operation.",
+        "tags": [
+          "Contracts"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "authenticated_account",
+          "authentication": "canonical_account_signature",
+          "schemaVersion": 1,
+          "stableRouteId": "contracts.kagemusha_enrollment_post"
+        },
+        "x-iroha-tool-effect": "write"
+      }
+    },
     "/v1/kaigi/relays": {
       "get": {
         "description": "Returns relay identifiers, domains, bandwidth classes, HPKE fingerprints, and the freshest health report (if available).",
@@ -77249,7 +77812,7 @@
     },
     "/v1/ledger/authority-originals": {
       "post": {
-        "description": "The current account signature covers the entire exact method, canonical URI and request body. Queries and alternate target spellings are rejected. API-token possession alone is insufficient. Finite heavy-query admission and complete aggregate memory/egress reservations remain in force. Decoding provides data only: consumers independently authenticate the installed native roots, current clock/controller and complete certified World preimages before accepting any effect. The holder must currently possess CanReadAllLedgerData. The body selects only AccountAlias or GlobalFeeProgram. Its fresh entropy is included in the exact canonical signed body. The attestation challenge is SHA256(domain || exact body); an optional X-Iroha-Finality-Challenge must equal that derived digest. Complete keys and selected values come from one certified applied cut. Requests are at most 65536 bytes, responses at most 134217728 bytes and the smaller configured content ceiling.",
+        "description": "The current account signature covers the entire exact method, canonical URI and request body. Queries and alternate target spellings are rejected. API-token possession alone is insufficient. Finite heavy-query admission and complete aggregate memory/egress reservations remain in force. Decoding provides data only: consumers independently authenticate the installed native roots, current clock/controller and complete certified World preimages before accepting any effect. The holder must currently possess CanReadAllLedgerData. The body selects only AccountAlias, GlobalFeeProgram or IdentifierPolicy. Its fresh entropy is included in the exact canonical signed body. The attestation challenge is SHA256(domain || exact body); an optional X-Iroha-Finality-Challenge must equal that derived digest. Complete keys and selected values come from one certified applied cut. Requests are at most 65536 bytes, responses at most 134217728 bytes and the smaller configured content ceiling.",
         "operationId": "ledger_authority_originals",
         "requestBody": {
           "content": {
@@ -77290,6 +77853,7 @@
             "description": "Complete canonical native data at the selected certified cut. Independent authentication and proof admission remain mandatory.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -77330,6 +77894,7 @@
             "description": "Exact target, query absence, canonical Content-Type, native framing, network or selected coordinates were rejected.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -77370,6 +77935,7 @@
             "description": "Current canonical account authentication or the selected current signer/account scope was rejected.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -77410,6 +77976,7 @@
             "description": "Deployment-configured Torii API authentication or required native read authority was rejected.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -77443,6 +78010,7 @@
             "description": "Accept does not permit application/json or application/x-norito.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -77483,6 +78051,7 @@
             "description": "Heavy-query rate, memory/admission capacity or exact response-egress budget was exhausted.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -77523,6 +78092,7 @@
             "description": "The admitted native worker or current error/response representation failed.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -77563,6 +78133,7 @@
             "description": "The exact qualified current cut, bounded native source or installed publication is unavailable. No authority is granted.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -78068,6 +78639,7 @@
             "description": "Complete canonical native data at the selected certified cut. Independent authentication and proof admission remain mandatory.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -78108,6 +78680,7 @@
             "description": "Exact target, query absence, canonical Content-Type, native framing, network or selected coordinates were rejected.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -78148,6 +78721,7 @@
             "description": "Current canonical account authentication or the selected current signer/account scope was rejected.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -78188,6 +78762,7 @@
             "description": "Deployment-configured Torii API authentication or required native read authority was rejected.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -78221,6 +78796,7 @@
             "description": "Accept does not permit application/json or application/x-norito.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -78261,6 +78837,7 @@
             "description": "Heavy-query rate, memory/admission capacity or exact response-egress budget was exhausted.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -78301,6 +78878,7 @@
             "description": "The admitted native worker or current error/response representation failed.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -78341,6 +78919,7 @@
             "description": "The exact qualified current cut, bounded native source or installed publication is unavailable. No authority is granted.",
             "headers": {
               "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
                 "required": true,
                 "schema": {
                   "const": "private, no-store",
@@ -83476,7 +84055,7 @@
     },
     "/v1/nexus/public-lanes/{lane_id}/rewards/pending": {
       "get": {
-        "description": "Returns the unclaimed reward amount per asset for the requested account in the given public lane. Requires an `account` query parameter (canonical I105 or on-chain alias `name@domain.dataspace` / `name@dataspace`) and accepts optional `asset_id` and `upto_epoch` filters.",
+        "description": "Returns the automatically accrued funded XOR entitlement for the current beneficiary in the requested public lane, including dust below the claim threshold. Requires an account query parameter and accepts an optional exact custody asset_id filter.",
         "operationId": "nexusPublicLaneRewards",
         "parameters": [
           {
@@ -83505,16 +84084,6 @@
             "required": false,
             "schema": {
               "type": "string"
-            }
-          },
-          {
-            "description": "Inclusive cap on new, unprocessed reward records; retained dust remains visible even when its processing cursor exceeds this value.",
-            "in": "query",
-            "name": "upto_epoch",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "type": "integer"
             }
           }
         ],
@@ -86370,7 +86939,7 @@
                 }
               }
             },
-            "description": "The admission worker or authoritative Torii route is unavailable, or transaction dispatch ended without a conclusive admission response. transaction_dispatch_outcome_unknown means admission may already have occurred: reconcile the exact hashes before retrying and do not create a replacement transaction until resolved. Only that response carries a singleton x-iroha-entrypoint-hash matching ErrorEnvelope.details.entrypoint_hash. For External or SealedReveal entrypoints it also carries a singleton x-iroha-signed-transaction-hash matching ErrorEnvelope.details.tx_hash; for entrypoints without an inner SignedTransaction, both signed-transaction identity fields are absent. It does not fabricate queue-pressure details or headers.",
+            "description": "The admission worker or authoritative Torii route is unavailable, or transaction dispatch ended without a conclusive admission response. transaction_dispatch_outcome_unknown means admission may already have occurred: reconcile the exact hashes before retrying and do not create a replacement transaction until resolved. Only that response carries a singleton x-iroha-entrypoint-hash matching ErrorEnvelope.details.entrypoint_hash. For External or SealedReveal entrypoints it also carries a singleton x-iroha-signed-transaction-hash matching ErrorEnvelope.details.tx_hash; for entrypoints without an inner SignedTransaction, both signed-transaction identity fields are absent. An outcome-unknown response does not fabricate queue-pressure or Retry-After; reconcile its exact transaction identity.",
             "headers": {
               "x-iroha-entrypoint-hash": {
                 "description": "Present exactly once only for transaction_dispatch_outcome_unknown; the exact transaction-entrypoint hash also carried in ErrorEnvelope.details.entrypoint_hash.",
@@ -86474,7 +87043,6 @@
                     "PRTRY:TX_SIGNATURE_UNKNOWN_SIGNER",
                     "PRTRY:TX_SIGNATURE_INSUFFICIENT",
                     "ED07",
-                    "PRTRY:KAGEMUSHA_V1_OPERATION_CARRIER_REJECTED",
                     "PRTRY:ROUTE_UNRESOLVED"
                   ],
                   "example": "invalid_transaction_payload",
@@ -86541,15 +87109,14 @@
                 }
               }
             },
-            "description": "The exact transaction is already committed or already present in the queue, or the same authority and KAGEMUSHA V1 operation id already belong to another pending carrier.",
+            "description": "The exact transaction is already committed or already present in the queue.",
             "headers": {
               "x-iroha-reject-code": {
                 "description": "Exact duplicate-transaction state. This response does not prove non-admission; clients must reconcile the existing transaction.",
                 "schema": {
                   "enum": [
                     "PRTRY:ALREADY_COMMITTED",
-                    "PRTRY:ALREADY_ENQUEUED",
-                    "PRTRY:KAGEMUSHA_V1_OPERATION_ID_CONFLICT"
+                    "PRTRY:ALREADY_ENQUEUED"
                   ],
                   "example": "PRTRY:ALREADY_COMMITTED",
                   "type": "string"
@@ -86666,7 +87233,7 @@
                 }
               }
             },
-            "description": "The admission worker or authoritative Torii route is unavailable, or transaction dispatch ended without a conclusive admission response. transaction_dispatch_outcome_unknown means admission may already have occurred: reconcile the exact hashes before retrying and do not create a replacement transaction until resolved. Only that response carries a singleton x-iroha-entrypoint-hash matching ErrorEnvelope.details.entrypoint_hash. It also carries a singleton x-iroha-signed-transaction-hash matching ErrorEnvelope.details.tx_hash. PRTRY:KAGEMUSHA_V1_OPERATION_INDEX_INCONSISTENT means the pending-operation ownership index requires recovery before another KAGEMUSHA V1 carrier can be admitted. It does not fabricate queue-pressure details or headers.",
+            "description": "The admission worker or authoritative Torii route is unavailable, or transaction dispatch ended without a conclusive admission response. transaction_dispatch_outcome_unknown means admission may already have occurred: reconcile the exact hashes before retrying and do not create a replacement transaction until resolved. Only that response carries a singleton x-iroha-entrypoint-hash matching ErrorEnvelope.details.entrypoint_hash. It also carries a singleton x-iroha-signed-transaction-hash matching ErrorEnvelope.details.tx_hash. An outcome-unknown response does not fabricate queue-pressure or Retry-After; reconcile its exact transaction identity.",
             "headers": {
               "Retry-After": {
                 "description": "Whole-second retry delay when authoritative backpressure supplies one; dispatch outcome-unknown responses omit it.",
@@ -86688,8 +87255,7 @@
                   "enum": [
                     "transaction_admission_worker_failed",
                     "route_unavailable",
-                    "transaction_dispatch_outcome_unknown",
-                    "PRTRY:KAGEMUSHA_V1_OPERATION_INDEX_INCONSISTENT"
+                    "transaction_dispatch_outcome_unknown"
                   ],
                   "example": "transaction_admission_worker_failed",
                   "type": "string"
@@ -89275,7 +89841,7 @@
     },
     "/v1/sccp/capabilities": {
       "get": {
-        "description": "Returns the live Taira network id and EIP-712 domain separator, the SCCP parameters, the committed and highest attested heights, the current roster generation with member liveness, and unattested rotation subjects.",
+        "description": "Returns the live Taira network id, chain id and EIP-712 domain separator, the SCCP parameters, the committed and highest attested heights, the current roster generation with member liveness, unattested rotation subjects, the newest compiled light-client profiles, the light-client profile versions active at the next block with their policy hash, the read-route page limits and the SCCP path templates.",
         "operationId": "sccpCapabilitiesV1",
         "responses": {
           "200": {
@@ -89325,13 +89891,13 @@
         "x-iroha-tool-effect": "read"
       }
     },
-    "/v1/sccp/controls/{network}/{revision}/{control_nonce}/proof": {
+    "/v1/sccp/controls/{network}/{revision}": {
       "get": {
-        "description": "Assembles the attestation proof bundle of one Parliament destination control.",
-        "operationId": "sccpControlProofV1",
+        "description": "Returns at most 64 control records of the revision with nonce above `after_nonce`, ascending, each with its pause state, height, commitment index, enacting proposal id and the attestation progress of its block, plus the revision's next control nonce.",
+        "operationId": "sccpControlsV1",
         "parameters": [
           {
-            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`, `ton-mainnet`).",
+            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).",
             "in": "path",
             "name": "network",
             "required": true,
@@ -89339,7 +89905,125 @@
               "enum": [
                 "ethereum-mainnet",
                 "bsc-mainnet",
-                "tron-mainnet",
+                "ton-mainnet"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Deployment revision.",
+            "in": "path",
+            "name": "revision",
+            "required": true,
+            "schema": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Decimal nonce to list after (default 0: every control).",
+            "in": "query",
+            "name": "after_nonce",
+            "required": false,
+            "schema": {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Decimal page size, at most 64.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SccpReadDocumentV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of the JSON schema's typed payload.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "`iroha_sccp::api::SccpControlPageV1`."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A path or query parameter is malformed."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested record does not exist."
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Requested content type is not acceptable; supported: application/json, application/x-norito."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "List the Parliament destination controls of one route revision.",
+        "tags": [
+          "SCCP"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "sccp.controls.list"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/sccp/controls/{network}/{revision}/{control_nonce}/proof": {
+      "get": {
+        "description": "Assembles the attestation proof bundle of one Parliament destination control.",
+        "operationId": "sccpControlProofV1",
+        "parameters": [
+          {
+            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).",
+            "in": "path",
+            "name": "network",
+            "required": true,
+            "schema": {
+              "enum": [
+                "ethereum-mainnet",
+                "bsc-mainnet",
                 "ton-mainnet"
               ],
               "type": "string"
@@ -89393,7 +90077,25 @@
                 }
               }
             },
-            "description": "`iroha_sccp::api::SccpControlProofBundleV1`."
+            "description": "`iroha_sccp::api::SccpControlProofBundleV1`.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Immutable records revalidate with their entity tag.",
+                "schema": {
+                  "const": "public, no-cache",
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Strong entity tag of the negotiated representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified: the `If-None-Match` validator matches the current representation."
           },
           "400": {
             "content": {
@@ -89434,6 +90136,16 @@
               }
             },
             "description": "The subject is not attested yet."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The subject's signatures were pruned by retention (`sccp_pruned`); request a later attestation."
           }
         },
         "security": [
@@ -89559,6 +90271,203 @@
         "x-iroha-tool-effect": "read"
       }
     },
+    "/v1/sccp/governance/proposals/{proposal_id}": {
+      "get": {
+        "description": "Returns one SCCP Parliament proposal in any phase with its proposer, full body, phase, whether a new attempt would pass the SCCP preflight, and its newest Parliament attempt.",
+        "operationId": "sccpGovernanceProposalV1",
+        "parameters": [
+          {
+            "description": "Proposal content id as 64 lowercase hexadecimal characters.",
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "pattern": "^(0x)?[0-9a-f]{64}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SccpReadDocumentV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of the JSON schema's typed payload.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "`iroha_sccp::api::SccpGovernanceProposalDetailV1`."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A path or query parameter is malformed."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested record does not exist."
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Requested content type is not acceptable; supported: application/json, application/x-norito."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "Read one SCCP governance proposal.",
+        "tags": [
+          "SCCP"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "sccp.governance.proposal"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/sccp/history/{height}": {
+      "get": {
+        "description": "Returns the history leaf index of the SCCP-bearing block at `height`, `history_root(size)` and the leaf's path within it (`size` defaults to the current history size). Responses for an explicit `size` are immutable and carry an `ETag`.",
+        "operationId": "sccpHistoryProofV1",
+        "parameters": [
+          {
+            "description": "Taira height of an SCCP-bearing block.",
+            "in": "path",
+            "name": "height",
+            "required": true,
+            "schema": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Decimal history size (default: the current size).",
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SccpReadDocumentV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of the JSON schema's typed payload.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "`iroha_sccp::api::SccpHistoryPathViewV1`.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Immutable records revalidate with their entity tag.",
+                "schema": {
+                  "const": "public, no-cache",
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Strong entity tag of the negotiated representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified: the `If-None-Match` validator matches the current representation."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A path or query parameter is malformed."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested record does not exist."
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Requested content type is not acceptable; supported: application/json, application/x-norito."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "Read the history path of one SCCP block.",
+        "tags": [
+          "SCCP"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "sccp.history.proof"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
     "/v1/sccp/light-clients": {
       "get": {
         "description": "Returns every installed inbound light client with its parameters, head, state hash and freeze state.",
@@ -89611,13 +90520,13 @@
         "x-iroha-tool-effect": "read"
       }
     },
-    "/v1/sccp/light-clients/{network}/sets": {
+    "/v1/sccp/light-clients/{network}": {
       "get": {
-        "description": "Returns the stored consensus sets of one inbound light client, ascending by set id. Wallets pick the set covering a proof and its successor from them.",
-        "operationId": "sccpLightClientSetsV1",
+        "description": "Returns the stored light client (params, head, freeze state, state hash), whether it is usable at the committed block time, its weak-subjectivity deadline, the `supported_until` of the running release's compiled chain profile, and summaries of its stored sets and checkpoints.",
+        "operationId": "sccpLightClientV1",
         "parameters": [
           {
-            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`, `ton-mainnet`).",
+            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).",
             "in": "path",
             "name": "network",
             "required": true,
@@ -89625,7 +90534,202 @@
               "enum": [
                 "ethereum-mainnet",
                 "bsc-mainnet",
-                "tron-mainnet",
+                "ton-mainnet"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SccpReadDocumentV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of the JSON schema's typed payload.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "`iroha_sccp::api::SccpLightClientDetailV1`."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A path or query parameter is malformed."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested record does not exist."
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Requested content type is not acceptable; supported: application/json, application/x-norito."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "Read one SCCP inbound light client.",
+        "tags": [
+          "SCCP"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "sccp.light_client.read"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/sccp/light-clients/{network}/checkpoints": {
+      "get": {
+        "description": "Returns the lowest retained checkpoint at or above `covering` (the anchor of an ancestry proof), the lowest permanent one, and the light client head. 404 while the head is below `covering`; 410 when the head covers it but no checkpoint at or above it is retained.",
+        "operationId": "sccpLightClientCheckpointsV1",
+        "parameters": [
+          {
+            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).",
+            "in": "path",
+            "name": "network",
+            "required": true,
+            "schema": {
+              "enum": [
+                "ethereum-mainnet",
+                "bsc-mainnet",
+                "ton-mainnet"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Decimal source height to anchor.",
+            "in": "query",
+            "name": "covering",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SccpReadDocumentV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of the JSON schema's typed payload.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "`iroha_sccp::api::SccpLcCheckpointCoverV1`."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A path or query parameter is malformed."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested record does not exist."
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Requested content type is not acceptable; supported: application/json, application/x-norito."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The data existed but was pruned by retention (`sccp_pruned`)."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "Read the checkpoints that anchor a proof of one source height.",
+        "tags": [
+          "SCCP"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "sccp.light_client.checkpoints"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/sccp/light-clients/{network}/sets": {
+      "get": {
+        "description": "Returns the stored consensus sets of one inbound light client, ascending by set id. Wallets pick the set covering a proof and its successor from them.",
+        "operationId": "sccpLightClientSetsV1",
+        "parameters": [
+          {
+            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).",
+            "in": "path",
+            "name": "network",
+            "required": true,
+            "schema": {
+              "enum": [
+                "ethereum-mainnet",
+                "bsc-mainnet",
                 "ton-mainnet"
               ],
               "type": "string"
@@ -89690,13 +90794,123 @@
         "x-iroha-tool-effect": "read"
       }
     },
+    "/v1/sccp/messages/recent": {
+      "get": {
+        "description": "Returns at most 50 records of one direction, newest first: outbound records by `(height, commitment_index)` with their wallet-facing state, inbound records by `(proven_at_height, message_id)`. `next_before` is the cursor of the next, older page.",
+        "operationId": "sccpMessagesRecentV1",
+        "parameters": [
+          {
+            "description": "`outbound` (default) or `inbound`.",
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "enum": [
+                "outbound",
+                "inbound"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only records of this external network profile key.",
+            "in": "query",
+            "name": "network",
+            "required": false,
+            "schema": {
+              "enum": [
+                "ethereum-mainnet",
+                "bsc-mainnet",
+                "ton-mainnet"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "`next_before` cursor of the previous page: `<height>:<commitment_index>` (outbound) or `<height>:<message id hex>` (inbound).",
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Decimal page size, at most 50.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SccpReadDocumentV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of the JSON schema's typed payload.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "`iroha_sccp::api::SccpRecentMessagesV1`."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A path or query parameter is malformed."
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Requested content type is not acceptable; supported: application/json, application/x-norito."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "List the newest SCCP outbound or inbound records.",
+        "tags": [
+          "SCCP"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "sccp.messages.recent"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
     "/v1/sccp/messages/{message_id}": {
       "get": {
-        "description": "Returns one outbound message record.",
+        "description": "Returns the status union of one message id: an outbound record with its state (`recorded{deadline_ms}`, `attested{subject_height, signers, threshold}`, `voided`, `refunded`, `stranded`), an inbound record with its status (`pending{reason}`, `released`, `bounced{bounce_message_id}`), or `unknown`. Final states carry an `ETag`.",
         "operationId": "sccpMessageV1",
         "parameters": [
           {
-            "description": "Outbound message id as 64 lowercase hexadecimal characters.",
+            "description": "Message id as 64 lowercase hexadecimal characters.",
             "in": "path",
             "name": "message_id",
             "required": true,
@@ -89722,7 +90936,25 @@
                 }
               }
             },
-            "description": "`iroha_data_model::sccp::outbound::SccpOutboundMessageRecordV1`."
+            "description": "`iroha_sccp::api::SccpMessageStatusV1`.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Immutable records revalidate with their entity tag.",
+                "schema": {
+                  "const": "public, no-cache",
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Strong entity tag of the negotiated representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified: the `If-None-Match` validator matches the current representation."
           },
           "400": {
             "content": {
@@ -89733,16 +90965,6 @@
               }
             },
             "description": "A path or query parameter is malformed."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "The requested record does not exist."
           },
           "406": {
             "content": {
@@ -89761,7 +90983,7 @@
             "IrohaApiToken": []
           }
         ],
-        "summary": "Read one SCCP outbound message.",
+        "summary": "Read the status of one SCCP message id.",
         "tags": [
           "SCCP"
         ],
@@ -89815,7 +91037,25 @@
                 }
               }
             },
-            "description": "`iroha_sccp::api::SccpMessageProofBundleV1`."
+            "description": "`iroha_sccp::api::SccpMessageProofBundleV1`.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Immutable records revalidate with their entity tag.",
+                "schema": {
+                  "const": "public, no-cache",
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Strong entity tag of the negotiated representation.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified: the `If-None-Match` validator matches the current representation."
           },
           "400": {
             "content": {
@@ -89856,6 +91096,16 @@
               }
             },
             "description": "The subject is not attested yet."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The subject's signatures were pruned by retention (`sccp_pruned`); request a later attestation."
           }
         },
         "security": [
@@ -89873,6 +91123,125 @@
           "authentication": "torii_default",
           "schemaVersion": 1,
           "stableRouteId": "sccp.message.proof"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/sccp/outbound/{network}/{revision}": {
+      "get": {
+        "description": "Returns at most 256 outbound records of the revision with nonce at or above `from_nonce`, ascending, each with its wallet-facing state and deadline, plus the revision's next nonce. Wallets use it to find a just-recorded transfer and to plan voids and refunds.",
+        "operationId": "sccpOutboundByNonceV1",
+        "parameters": [
+          {
+            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).",
+            "in": "path",
+            "name": "network",
+            "required": true,
+            "schema": {
+              "enum": [
+                "ethereum-mainnet",
+                "bsc-mainnet",
+                "ton-mainnet"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Deployment revision.",
+            "in": "path",
+            "name": "revision",
+            "required": true,
+            "schema": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Decimal first nonce (default 0).",
+            "in": "query",
+            "name": "from_nonce",
+            "required": false,
+            "schema": {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Decimal page size, at most 256.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SccpReadDocumentV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of the JSON schema's typed payload.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "`iroha_sccp::api::SccpOutboundPageV1`."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A path or query parameter is malformed."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested record does not exist."
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Requested content type is not acceptable; supported: application/json, application/x-norito."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "List the SCCP outbound records of one route revision by nonce.",
+        "tags": [
+          "SCCP"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "sccp.outbound.by_nonce"
         },
         "x-iroha-tool-effect": "read"
       }

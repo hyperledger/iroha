@@ -3,7 +3,11 @@
 //! Only real State-pinned signed genesis starts this cursor. Neither callers nor disk DTOs
 //! can import a checkpoint. Partial progress is historical and never returned as current.
 
-use std::{alloc::Layout, io::Write as _, num::NonZeroU16, time::Instant};
+use std::{
+    alloc::Layout,
+    num::{NonZeroU16, NonZeroU64},
+    time::Instant,
+};
 
 use super::ProofError;
 use crate::{
@@ -19,12 +23,10 @@ use iroha_data_model::{
     NetworkId,
     block::{BlockHeader, SharedSignedBlock, consensus::SumeragiRootScope},
     sumeragi_finality::{
-        FinalityValidator, MAX_FINALITY_BLOCK_BYTES, MAX_FINALITY_CHECKPOINT_BYTES,
-        SumeragiFinalityCheckpoint, SumeragiFinalityProof, SumeragiFinalityVerifier,
-        VerifiedSumeragiBlock,
+        MAX_FINALITY_BLOCK_BYTES, MAX_FINALITY_CHECKPOINT_BYTES, SumeragiFinalityCheckpoint,
+        SumeragiFinalityVerifier, VerifiedSumeragiBlock,
     },
 };
-use iroha_version::Version as _;
 
 /// Closed local failure of bounded native-to-portable observation.
 #[derive(Debug, thiserror::Error)]
@@ -55,14 +57,15 @@ pub struct NativeFinalityCursorV1 {
     original: Option<Original>,
 }
 
-/// One actual portable verification result retaining its complete local allocation envelope.
+/// One historical portable verification result retaining its original allocation envelope.
+/// It authenticates the selected height, without claiming that height is the current tip.
 /// No constructor, clone or unaccounted move-out is exposed.
-pub struct NativeCurrentFinalityV1 {
+pub struct NativeFinalityAtHeightV1 {
     block: ChargedBuffer<VerifiedSumeragiBlock>,
     native: ChargedBuffer<CommittedBlock>,
     _decode: DecodeCustody,
 }
-impl NativeCurrentFinalityV1 {
+impl NativeFinalityAtHeightV1 {
     /// Borrow the sole verifier output while its original allocation custody remains held.
     #[must_use]
     pub fn block(&self) -> &VerifiedSumeragiBlock {
@@ -73,6 +76,24 @@ impl NativeCurrentFinalityV1 {
     #[must_use]
     pub fn native_block(&self) -> &CommittedBlock {
         &self.native.as_slice()[0]
+    }
+}
+
+/// One verified result additionally bound to the exact current State and durable cut.
+/// No constructor, clone or unaccounted move-out is exposed.
+pub struct NativeCurrentFinalityV1 {
+    at: NativeFinalityAtHeightV1,
+}
+impl NativeCurrentFinalityV1 {
+    /// Borrow the sole verifier output under its original allocation custody.
+    #[must_use]
+    pub fn block(&self) -> &VerifiedSumeragiBlock {
+        self.at.block()
+    }
+    /// Borrow the same durable receipt authenticated by this current decision.
+    #[must_use]
+    pub fn native_block(&self) -> &CommittedBlock {
+        self.at.native_block()
     }
 }
 
@@ -114,11 +135,51 @@ impl NativeFinalityCursorV1 {
         deadline: Instant,
         maximum_steps: NonZeroU16,
     ) -> Result<Option<NativeCurrentFinalityV1>> {
+        Ok(self
+            .advance_at(view, budget, deadline, maximum_steps, None)?
+            .map(|at| NativeCurrentFinalityV1 { at }))
+    }
+
+    /// Advance the same original prefix toward one historical committed height.
+    ///
+    /// At most 64 steps execute per call; `None` retains incomplete local progress.
+    /// Targets must be non-genesis and within the current durable State cut. A
+    /// caller cannot rewind an existing prefix, import trust or bypass a pending
+    /// native step. The returned owner authenticates only this selected height.
+    /// # Errors
+    /// The same source, certificate, deadline and allocation failures as
+    /// [`Self::advance_current`], plus a genesis, future or regressed target.
+    pub fn advance_to_height(
+        &mut self,
+        view: &impl StateReadOnly,
+        height: NonZeroU64,
+        budget: &AllocationBudget,
+        deadline: Instant,
+        maximum_steps: NonZeroU16,
+    ) -> Result<Option<NativeFinalityAtHeightV1>> {
+        if height.get() < 2 {
+            return Err(Error::Source);
+        }
+        self.advance_at(view, budget, deadline, maximum_steps, Some(height.get()))
+    }
+
+    fn advance_at(
+        &mut self,
+        view: &impl StateReadOnly,
+        budget: &AllocationBudget,
+        deadline: Instant,
+        maximum_steps: NonZeroU16,
+        requested: Option<u64>,
+    ) -> Result<Option<NativeFinalityAtHeightV1>> {
         check(deadline)?;
         if maximum_steps.get() > 64 {
             return Err(Error::Source);
         }
-        let target = coherent_height(view)?;
+        let current = coherent_height(view)?;
+        let target = requested.unwrap_or(current);
+        if target > current {
+            return Err(Error::Source);
+        }
         if target == 0 {
             return Ok(None);
         }
@@ -246,26 +307,26 @@ impl NativeFinalityCursorV1 {
             )
             .map_err(ProofError::from)?;
             check(deadline)?;
-            let current = verifier
+            let verified = verifier
                 .verify_retained_decision(checkpoint.tip())
                 .map_err(ProofError::from)?;
             check(deadline)?;
             let receipt = read_frame(durable, target).map_err(ProofError::from)?;
-            if coherent_height(view)? != target
-                || current.height() != target
-                || current.block().hash() != original.native_hash
-                || receipt.block_hash() != current.block().hash()
-                || receipt.core_hash() != current.core_hash()
-                || receipt.result() != current.result()
-                || receipt.id().0.as_ref() != current.context_id().as_ref()
+            if coherent_height(view)? != current
+                || verified.height() != target
+                || verified.block().hash() != original.native_hash
+                || receipt.block_hash() != verified.block().hash()
+                || receipt.core_hash() != verified.core_hash()
+                || receipt.result() != verified.result()
+                || receipt.id().0.as_ref() != verified.context_id().as_ref()
             {
                 return Err(Error::Source);
             }
             native.push_reserved(receipt);
-            output.push_reserved(current);
+            output.push_reserved(verified);
             Ok(())
         })?;
-        Ok(Some(NativeCurrentFinalityV1 {
+        Ok(Some(NativeFinalityAtHeightV1 {
             block: output,
             native,
             _decode: custody,
@@ -289,7 +350,14 @@ impl Original {
                 )
             }
         };
-        let owned = OwnedProof::new(block, members, budget, deadline)?;
+        let owned = super::proof_destination::OwnedProof::new(block, members, budget, deadline)
+            .map_err(|error| match error {
+                super::ProofDestinationError::Deadline => Error::Deadline,
+                super::ProofDestinationError::Source => Error::Source,
+                super::ProofDestinationError::Admission(_)
+                | super::ProofDestinationError::Buffer(_)
+                | super::ProofDestinationError::Key(_) => Error::Allocation,
+            })?;
         let checkpoint_bytes = self
             .checkpoint
             .as_ref()
@@ -331,105 +399,6 @@ impl Original {
     }
 }
 
-// Field drop order reclaims the proof's actual Vec allocations before refunding their charges.
-struct OwnedProof {
-    proof: SumeragiFinalityProof,
-    _charges: ChargedBuffer<AllocationCharge>,
-}
-impl OwnedProof {
-    fn new(
-        block: &SharedSignedBlock,
-        members: &[iroha_data_model::sumeragi::epoch::ValidatorCommitteeMemberV1],
-        budget: &AllocationBudget,
-        deadline: Instant,
-    ) -> Result<Self> {
-        check(deadline)?;
-        let _flags = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
-        let length = norito::canonical_frame_len(block.as_ref())
-            .map_err(|_| Error::Source)?
-            .checked_add(1)
-            .ok_or(Error::Source)?;
-        if length > MAX_FINALITY_BLOCK_BYTES
-            || members.is_empty()
-            || members.len() > iroha_sumeragi::types::MAX_COMMITTEE_SIZE
-        {
-            return Err(Error::Source);
-        }
-        let mut charges =
-            ChargedBuffer::new(2 + members.len(), budget).map_err(|_| Error::Allocation)?;
-        let mut wire = charged_vec::<u8>(length, budget, &mut charges)?;
-        check(deadline)?;
-        {
-            let mut writer = FixedVecWriter {
-                bytes: &mut wire,
-                maximum: length,
-            };
-            writer
-                .write_all(&[block.version()])
-                .map_err(|_| Error::Source)?;
-            norito::core::write_canonical_to_writer(block.as_ref(), &mut writer)
-                .map_err(|_| Error::Source)?;
-        }
-        if wire.len() != length {
-            return Err(Error::Source);
-        }
-        check(deadline)?;
-        let mut committee = charged_vec::<FinalityValidator>(members.len(), budget, &mut charges)?;
-        for member in members {
-            check(deadline)?;
-            let mut pop =
-                charged_vec::<u8>(member.proof_of_possession.len(), budget, &mut charges)?;
-            pop.extend_from_slice(&member.proof_of_possession);
-            committee.push(FinalityValidator {
-                public_key: member.validator.public_key().clone(),
-                proof_of_possession: pop,
-            });
-        }
-        Ok(Self {
-            proof: SumeragiFinalityProof {
-                block_header: block.header(),
-                block_wire: wire,
-                committee,
-            },
-            _charges: charges,
-        })
-    }
-}
-
-fn charged_vec<T>(
-    capacity: usize,
-    budget: &AllocationBudget,
-    charges: &mut ChargedBuffer<AllocationCharge>,
-) -> Result<Vec<T>> {
-    let layout = Layout::array::<T>(capacity).map_err(|_| Error::Allocation)?;
-    let charge = budget
-        .try_reserve(layout)
-        .map_err(|_| Error::Allocation)?
-        .try_split(layout)
-        .map_err(|_| Error::Allocation)?;
-    let mut values = Vec::new();
-    values
-        .try_reserve_exact(capacity)
-        .map_err(|_| Error::Allocation)?;
-    charges.push_reserved(charge);
-    Ok(values)
-}
-struct FixedVecWriter<'a> {
-    bytes: &'a mut Vec<u8>,
-    maximum: usize,
-}
-impl std::io::Write for FixedVecWriter<'_> {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        if bytes.len() > self.maximum.saturating_sub(self.bytes.len()) {
-            return Err(std::io::Error::other("native proof exceeds counted extent"));
-        }
-        self.bytes.extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
 struct BufferWriter<'a>(&'a mut ChargedBuffer<u8>);
 impl std::io::Write for BufferWriter<'_> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -489,7 +458,7 @@ fn check(deadline: Instant) -> Result<()> {
 
 // A real original-pool charge accompanies the canonical decoder allowance and bounded clone
 // workspace. Values constructed in run are destroyed before this custody, except the single
-// verified output which is physically coupled to it in NativeCurrentFinalityV1 above.
+// verified output which is physically coupled to it in NativeFinalityAtHeightV1 above.
 struct DecodeCustody {
     limits: norito::DecodeLimits,
     _charge: AllocationCharge,
@@ -662,6 +631,81 @@ mod tests {
             .unwrap();
         assert_eq!(again.block().height(), 3);
         drop(again);
+        drop(cursor);
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn historical_cursor_authenticates_exact_target_without_rewinding_or_claiming_current() {
+        let mut chain =
+            CertifiedTestChain::start(TestChainConfig::new(World::default(), 10_000)).unwrap();
+        chain.commit(Vec::new());
+        chain.commit(Vec::new());
+        let budget = AllocationBudget::new(2 * 1024 * 1024 * 1024);
+        let mut cursor = NativeFinalityCursorV1::new();
+        for height in [1, 4] {
+            assert!(matches!(
+                cursor.advance_to_height(
+                    &chain.state().view(),
+                    NonZeroU64::new(height).unwrap(),
+                    &budget,
+                    deadline(),
+                    one(),
+                ),
+                Err(Error::Source)
+            ));
+            assert!(cursor.original.is_none());
+        }
+        assert!(
+            cursor
+                .advance_to_height(
+                    &chain.state().view(),
+                    NonZeroU64::new(2).unwrap(),
+                    &budget,
+                    deadline(),
+                    one(),
+                )
+                .unwrap()
+                .is_none()
+        );
+        let old = cursor
+            .advance_to_height(
+                &chain.state().view(),
+                NonZeroU64::new(2).unwrap(),
+                &budget,
+                deadline(),
+                one(),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(old.block().height(), 2);
+        assert_eq!(
+            old.block().block().hash(),
+            *chain.state().view().block_hashes().get(1).unwrap()
+        );
+        assert_eq!(old.native_block().result(), old.block().result());
+        assert_ne!(
+            old.block().block().hash(),
+            *chain.state().view().block_hashes().last().unwrap()
+        );
+        drop(old);
+        let current = cursor
+            .advance_current(&chain.state().view(), &budget, deadline(), one())
+            .unwrap()
+            .unwrap();
+        assert_eq!(current.block().height(), 3);
+        drop(current);
+        assert!(matches!(
+            cursor.advance_to_height(
+                &chain.state().view(),
+                NonZeroU64::new(2).unwrap(),
+                &budget,
+                deadline(),
+                one(),
+            ),
+            Err(Error::Source)
+        ));
+        assert_eq!(cursor.original.as_ref().unwrap().native_height, 3);
         drop(cursor);
         assert_eq!(budget.reserved_bytes(), 0);
     }

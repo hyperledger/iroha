@@ -24,7 +24,7 @@ use thiserror::Error;
 /// overhead. It is a protocol constant, not node configuration, so validation is deterministic;
 /// it is the driver's default frame limit.
 // TODO(X.2): a payload limit above `CHAIN_TRANSPORT_FRAME_LIMIT - 2 * FRAME_OVERHEAD`
-// (16,185,312 bytes) passes this validation but leaves no `sync_max_bytes` that both serves
+// (16,512,992 bytes) passes this validation but leaves no `sync_max_bytes` that both serves
 // the block and fits this frame limit, so no node can start. Raise the frame limits for the
 // 16 MiB payload default and reject such parameters here
 // (`specs/zk_resource_contract.json`, `committed_payload_has_a_feasible_sync_setting`).
@@ -138,15 +138,10 @@ pub fn result_of_preimage(preimage: &[u8]) -> Hash32 {
 pub struct ExecutionCommitment {
     /// Root of the witnessed pre-state values of the keys the block changed.
     pub parent_state_root: Hash,
-    /// Post-state root of the witnessed writes (combined with the KAGEMUSHA top-up root when
-    /// the block carries top-ups).
+    /// Post-state root of the witnessed writes (of the reads for a read-only block).
     pub post_state_root: Hash,
     /// Root of the canonical last-write-wins witnessed writes.
     pub ordinary_writes_root: Hash,
-    /// Root of the KAGEMUSHA top-up tree, when the block carries top-ups.
-    pub kagemusha_top_up_root: Option<Hash>,
-    /// Number of KAGEMUSHA top-ups.
-    pub kagemusha_top_up_count: u32,
     /// Complete World state root the block executed on: every canonical World entry after the
     /// parent block's publication (the empty World for genesis, which absorbs everything).
     pub parent_world_state_root: Hash,
@@ -170,12 +165,11 @@ pub struct ExecutionCommitment {
 pub const MAX_EXECUTED_BLOCK_WIRE_BYTES: u64 = 256 * 1024 * 1024;
 
 impl ExecutionCommitment {
-    /// Validate exact output geometry and the monetary top-up root/count binding.
+    /// Validate exact executed-wire and output geometry.
     /// This checks shape only; authority requires the complete authenticated native result.
     ///
     /// # Errors
-    /// Rejects invalid wire lengths, an output count below the input count, or an inconsistent
-    /// top-up count, root or combined post-state root.
+    /// Rejects invalid wire lengths or an output count below the input count.
     pub fn validate(&self) -> Result<(), CommitmentError> {
         if self.executed_block_wire_len == 0
             || self.executed_block_wire_len > MAX_EXECUTED_BLOCK_WIRE_BYTES
@@ -190,35 +184,7 @@ impl ExecutionCommitment {
                 "output count is below input count".into(),
             ));
         }
-        match (self.kagemusha_top_up_count, self.kagemusha_top_up_root) {
-            (0, None) => Ok(()),
-            (0, Some(_)) | (_, None) => Err(CommitmentError::KagemushaTopUps(
-                "top-up root and count disagree".into(),
-            )),
-            (count, Some(root)) => {
-                if self.post_state_root
-                    != Self::kagemusha_post_state_root(count, self.ordinary_writes_root, root)
-                {
-                    return Err(CommitmentError::KagemushaTopUps(
-                        "combined post-state root differs".into(),
-                    ));
-                }
-                Ok(())
-            }
-        }
-    }
-
-    /// Derive the existing canonical combined post-state root for a nonempty top-up tree.
-    /// A caller must still authenticate the tree and enforce the offline monetary policy.
-    #[must_use]
-    pub fn kagemusha_post_state_root(count: u32, ordinary: Hash, top_ups: Hash) -> Hash {
-        Hash::new_from_chunks(&[
-            b"iroha:kagemusha:v1:post-state-root",
-            &[0],
-            &count.to_le_bytes(),
-            ordinary.as_ref(),
-            top_ups.as_ref(),
-        ])
+        Ok(())
     }
 }
 
@@ -452,9 +418,6 @@ pub enum CommitmentError {
     /// The result-bearing block wire is empty or above the protocol bound.
     #[error("the executed block wire length {0} is out of range")]
     WireLength(u64),
-    /// The witness carries malformed or duplicate KAGEMUSHA receipts.
-    #[error("invalid KAGEMUSHA top-ups: {0}")]
-    KagemushaTopUps(String),
     /// The complete native epoch schedule is invalid.
     #[error("invalid epoch schedule: {0}")]
     Schedule(String),
@@ -485,8 +448,6 @@ mod execution_validation_tests {
             parent_state_root: Hash::new(b"parent"),
             post_state_root: Hash::new(b"post"),
             ordinary_writes_root: Hash::new(b"writes"),
-            kagemusha_top_up_root: None,
-            kagemusha_top_up_count: 0,
             parent_world_state_root: Hash::new(b"parent world"),
             world_state_root: Hash::new(b"world"),
             event_commitment: None,
@@ -497,38 +458,13 @@ mod execution_validation_tests {
         }
     }
     #[test]
-    fn monetary_root_count_and_combined_root_are_exact() {
+    fn independent_roots_are_shape_only() {
         let valid = execution();
         valid.validate().unwrap();
-        let root = Hash::new(b"top-up tree");
-        for (count, root) in [(0, Some(root)), (1, None)] {
-            let mut bad = valid;
-            bad.kagemusha_top_up_count = count;
-            bad.kagemusha_top_up_root = root;
-            assert!(bad.validate().is_err());
-        }
-        let mut funded = valid;
-        funded.kagemusha_top_up_root = Some(root);
-        funded.kagemusha_top_up_count = 2;
-        assert!(funded.validate().is_err());
-        funded.post_state_root =
-            ExecutionCommitment::kagemusha_post_state_root(2, funded.ordinary_writes_root, root);
-        funded.validate().unwrap();
-        let mut changed = funded;
-        changed.kagemusha_top_up_count = 3;
-        assert!(changed.validate().is_err());
-        changed = funded;
-        changed.ordinary_writes_root = Hash::new(b"substituted writes");
-        assert!(changed.validate().is_err());
-        changed = funded;
-        changed.kagemusha_top_up_root = Some(Hash::new(b"substituted top-ups"));
-        assert!(changed.validate().is_err());
-        let mut bytes = b"iroha:kagemusha:v1:post-state-root".to_vec();
-        bytes.push(0);
-        bytes.extend_from_slice(&2u32.to_le_bytes());
-        bytes.extend_from_slice(funded.ordinary_writes_root.as_ref());
-        bytes.extend_from_slice(root.as_ref());
-        assert_eq!(funded.post_state_root, Hash::new(bytes));
+        // Roots are authenticated by the complete native result, not by this shape check.
+        let mut read_only = valid;
+        read_only.post_state_root = Hash::new(b"witnessed reads");
+        read_only.validate().unwrap();
     }
     #[test]
     fn executed_wire_and_output_geometry_are_bounded() {
@@ -554,15 +490,15 @@ mod execution_validation_tests {
     }
     #[cfg(feature = "transparent_api")]
     #[test]
-    fn complete_native_result_decode_rejects_inconsistent_monetary_roots() {
+    fn complete_native_result_decode_rejects_invalid_execution_geometry() {
         let fixture = super::super::tests::Fixture::new();
         let mut commitment = fixture.second.decode_checked().unwrap().commitment;
-        commitment.execution.kagemusha_top_up_count = 1;
+        commitment.execution.executed_block_wire_len = 0;
         assert!(commitment.validate().is_err());
         let frame = norito::encode_canonical(&commitment).unwrap();
         assert!(matches!(
             ExecutionResultCommitment::decode(&frame),
-            Err(CommitmentError::KagemushaTopUps(_))
+            Err(CommitmentError::WireLength(0))
         ));
     }
 }

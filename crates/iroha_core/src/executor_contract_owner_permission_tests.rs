@@ -1,7 +1,7 @@
 fn owner_entrypoint_permission(address: &ContractAddress, selector: &str) -> Permission {
-    executor_permission::smart_contract::CanInvokeContractEntrypoint {
+    executor_permission::smart_contract::CanUseContractPermission {
         contract: address.clone(),
-        entrypoint: selector.to_owned(),
+        permission: selector.parse().expect("declared permission name"),
     }
     .into()
 }
@@ -11,6 +11,36 @@ fn seed_owner_permission_contract(
     owner: &AccountId,
     code_hash: Hash,
 ) {
+    let artifact =
+        iroha_data_model::smart_contract::ContractArtifactId::for_address(address, code_hash)
+            .unwrap();
+    if transaction
+        .world
+        .contract_manifests
+        .get(&artifact)
+        .is_none()
+    {
+        let (_, mut manifest) = kotodama_lang::compiler::Compiler::new()
+            .compile_source_with_manifest(
+                r#"
+seiyaku OwnerGrantFixture {
+  hajimari() {}
+  permission read;
+  permission touch_caller;
+  permission unused;
+  permission write;
+  kotoage fn write_value() authorize(write) {}
+  view fn read_value() authorize(read) -> int { return 1; }
+}
+"#,
+            )
+            .expect("compile declared permission fixture");
+        manifest.code_hash = Some(code_hash);
+        transaction
+            .world
+            .contract_manifests
+            .insert(artifact, manifest);
+    }
     transaction.world.accounts.insert(
         address.subject_id(),
         iroha_data_model::account::AccountValue::new(
@@ -112,14 +142,116 @@ fn current_contract_owner_originates_and_revokes_exact_tokens_without_code_manag
 }
 
 #[test]
+fn suspended_contract_permissions_can_be_repaired_without_authorizing_invocation() {
+    for executor in [
+        super::Executor::Initial,
+        bundled_default_user_provided_executor(),
+    ] {
+        let owner = checked_account_id();
+        let holder = checked_account_id();
+        let (state, address) = owner_permission_state(&owner, &holder);
+        let mut block = state.block(BlockHeader::new(
+            nonzero!(2_u64),
+            state.view().latest_block_hash(),
+            None,
+            0,
+            0,
+        ));
+        let mut tx = block.transaction();
+        let retained = tx.world.contract_instances.get(&address).copied().unwrap();
+        let revision = tx
+            .world
+            .contract_subject_bindings
+            .get(&address)
+            .unwrap()
+            .lifecycle
+            .revision;
+        iroha_data_model::isi::smart_contract_code::DeactivateContractInstance {
+            contract_address: address.clone(),
+            expected_revision: revision,
+            reason: None,
+        }
+        .execute(&owner, &mut tx)
+        .expect("owner suspends the contract before repairing its grants");
+        assert!(tx.world.contract_instances.get(&address).is_none());
+        assert_eq!(
+            tx.world
+                .contract_subject_bindings
+                .get(&address)
+                .unwrap()
+                .lifecycle
+                .retained_code_hash,
+            Some(retained)
+        );
+        let permission = owner_entrypoint_permission(&address, "write");
+        executor
+            .execute_instruction(
+                &mut tx,
+                &owner,
+                Grant::account_permission(permission.clone(), holder.clone()).into(),
+            )
+            .expect("owner grants a retained declaration while suspended");
+        executor
+            .execute_instruction(
+                &mut tx,
+                &holder,
+                Grant::account_permission(permission.clone(), owner.clone()).into(),
+            )
+            .expect("exact holder delegates a retained declaration while suspended");
+        for authority in [&owner, &holder] {
+            let denied = enforce_named_contract_entrypoint_authorization(
+                &tx.world,
+                authority,
+                &address,
+                "write_value",
+                &iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                    "write".parse().unwrap(),
+                ),
+            )
+            .expect_err("even an exact grant cannot invoke a suspended instance");
+            assert!(denied.to_string().contains("live instance"));
+        }
+        executor
+            .execute_instruction(
+                &mut tx,
+                &holder,
+                Revoke::account_permission(permission.clone(), owner.clone()).into(),
+            )
+            .expect("exact holder revokes a retained declaration while suspended");
+        executor
+            .execute_instruction(
+                &mut tx,
+                &owner,
+                Revoke::account_permission(permission.clone(), holder.clone()).into(),
+            )
+            .expect("owner revokes a retained declaration while suspended");
+        assert!(!authority_has_permission(&tx.world, &owner, &permission).unwrap());
+        assert!(!authority_has_permission(&tx.world, &holder, &permission).unwrap());
+        let typo = owner_entrypoint_permission(&address, "writeTypo");
+        for instruction in [
+            Grant::account_permission(typo.clone(), holder.clone()).into(),
+            Revoke::account_permission(typo, holder.clone()).into(),
+        ] {
+            assert!(
+                executor
+                    .execute_instruction(&mut tx, &owner, instruction)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Instance permission declared by the current code")
+            );
+        }
+    }
+}
+
+#[test]
 fn contract_owner_delegation_rejects_foreign_transferred_pending_and_parliament_authority() {
     use iroha_data_model::smart_contract::ContractLifecycleOwnerV1;
-    for scenario in 0..7 {
+    for scenario in 0..8 {
         let owner = checked_account_id();
         let foreign = checked_account_id();
         let (state, address) = owner_permission_state(&owner, &foreign);
         let authority = match scenario {
-            0 | 2 | 6 => foreign.clone(),
+            0 | 2 | 6 | 7 => foreign.clone(),
             _ => owner.clone(),
         };
         let mut block = state.block(BlockHeader::new(
@@ -152,12 +284,20 @@ fn contract_owner_delegation_rejects_foreign_transferred_pending_and_parliament_
         tx.world
             .contract_subject_bindings
             .insert(address.clone(), binding);
-        let selector = if scenario == 5 { " write" } else { "write" };
+        let selector = if scenario == 5 { "writeTypo" } else { "write" };
         let permission = owner_entrypoint_permission(&address, selector);
         if scenario == 6 {
             tx.world.account_permissions.insert(
                 foreign.clone(),
                 BTreeSet::from([owner_entrypoint_permission(&address, "read")]),
+            );
+        }
+        if scenario == 7 {
+            tx.world.account_permissions.insert(
+                foreign.clone(),
+                BTreeSet::from([
+                    executor_permission::smart_contract::CanManageSmartContractCode.into(),
+                ]),
             );
         }
         let role_id: RoleId = "owner_scope_test".parse().unwrap();
@@ -225,20 +365,19 @@ fn contract_owner_delegation_rejects_foreign_transferred_pending_and_parliament_
 
 #[test]
 fn ordinary_owner_self_grant_enables_guarded_call_and_revocation_closes_it() {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     let authority = ALICE_ID.clone();
     let (program, manifest) = kotodama_lang::compiler::Compiler::new()
         .compile_source_with_manifest(
             r#"
-seiyaku OwnerPermission {
+seiyaku OwnerPermission { permission write; permission touch_caller;
   state int owner_authorized;
   hajimari() { owner_authorized = 0; }
-  kotoage fn write() authorize("CanInvokeContractEntrypoint") {
+  kotoage fn write_value() authorize(write) {
     owner_authorized = 1;
   }
-  kotoage fn touch_caller() authorize("CanInvokeContractEntrypoint") {
-    ledger::account::set_detail(
+  kotoage fn touch_account() authorize(anyone) {
+    ledger::account::set_metadata(
       account: context::authority(),
       key: Name::parse("owner_authorized"),
       value: Json::parse("{\"written\":true}")
@@ -276,7 +415,13 @@ seiyaku OwnerPermission {
             address.dataspace_id().unwrap(),
             code_hash,
         ),
-        manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &ALICE_KEYPAIR).expect("sign bounded fixture manifest"),
+        manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &ALICE_KEYPAIR,
+            )
+            .expect("sign bounded fixture manifest"),
     );
     seed_owner_permission_contract(&mut setup, &address, &authority, code_hash);
     setup.apply();
@@ -289,7 +434,7 @@ seiyaku OwnerPermission {
     .with_executable(Executable::ContractCall(ContractInvocation {
         contract_address: address.clone(),
         expected_code_hash: code_hash,
-        entrypoint: "write".to_owned(),
+        entrypoint: "write_value".to_owned(),
         arguments: None,
     }))
     .sign(ALICE_KEYPAIR.private_key());
@@ -304,7 +449,11 @@ seiyaku OwnerPermission {
     let denied = super::Executor::Initial
         .execute_transaction(&mut tx, &authority, call.clone(), &mut cache)
         .expect_err("ownership alone must not authorize invocation");
-    assert!(denied.to_string().contains("requires an exact"));
+    assert!(
+        denied
+            .to_string()
+            .contains("requires its declared exact authorization")
+    );
     drop(tx);
     let grant = TransactionBuilder::new(
         state.network_id,
@@ -368,7 +517,7 @@ seiyaku OwnerPermission {
         .with_executable(Executable::ContractCall(ContractInvocation {
             contract_address: address.clone(),
             expected_code_hash: code_hash,
-            entrypoint: "touch_caller".to_owned(),
+            entrypoint: "touch_account".to_owned(),
             arguments: None,
         }))
         .sign(ALICE_KEYPAIR.private_key());
@@ -405,5 +554,66 @@ seiyaku OwnerPermission {
     assert!(
         !authority_has_permission(&tx.world, &authority, &contract_deployment_permission())
             .unwrap()
+    );
+}
+
+#[test]
+fn scoped_permission_delegation_requires_current_declaration_and_exact_instance() {
+    let owner = checked_account_id();
+    let holder = checked_account_id();
+    let (state, address) = owner_permission_state(&owner, &holder);
+    let mut block = state.block(BlockHeader::new(
+        nonzero!(2_u64),
+        state.view().latest_block_hash(),
+        None,
+        0,
+        0,
+    ));
+    let mut tx = block.transaction();
+    let unused = owner_entrypoint_permission(&address, "unused");
+    assert!(
+        contract_permission_delegation_allowed(&tx, &owner, &unused).unwrap(),
+        "declared but unused permissions are legitimate capabilities"
+    );
+    tx.world.add_account_permission(&holder, unused.clone());
+    assert!(
+        contract_permission_delegation_allowed(&tx, &holder, &unused).unwrap(),
+        "an exact holder may delegate a live declared permission"
+    );
+    let second =
+        ContractAddress::derive(&state.network_id, &owner, 42, DataSpaceId::UNIVERSAL).unwrap();
+    seed_owner_permission_contract(
+        &mut tx,
+        &second,
+        &owner,
+        Hash::new(b"second permission declaration"),
+    );
+    assert!(
+        !contract_permission_delegation_allowed(
+            &tx,
+            &holder,
+            &owner_entrypoint_permission(&second, "unused")
+        )
+        .unwrap(),
+        "a holder cannot cross instances with the same declaration name"
+    );
+    let artifact = iroha_data_model::smart_contract::ContractArtifactId::for_address(
+        &address,
+        *tx.world.contract_instances.get(&address).unwrap(),
+    )
+    .unwrap();
+    tx.world
+        .contract_manifests
+        .get_mut(&artifact)
+        .unwrap()
+        .permissions
+        .retain(|declaration| declaration.name.as_ref() != "unused");
+    assert!(
+        contract_permission_delegation_allowed(&tx, &holder, &unused).is_err(),
+        "a retained token does not revive a declaration removed by current code"
+    );
+    assert!(
+        contract_permission_delegation_allowed(&tx, &owner, &unused).is_err(),
+        "ownership does not permit misspelled or retired declarations"
     );
 }

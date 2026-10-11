@@ -17,12 +17,121 @@ import org.hyperledger.iroha.sdk.client.transport.TransportResponse
 
 class ContractManifestTest {
     @Test
+    fun durableBuiltinProductsRequireExactShapes() {
+        val directory = generateSequence(java.io.File(System.getProperty("user.dir"))) { it.parentFile }
+            .map { java.io.File(it, "fixtures/kotodama") }.first { it.isDirectory }
+        val vectors = JsonParser.parse(java.io.File(directory, "durable_builtin_shapes_v1.json").readText()) as Map<*, *>
+        fun decode(type: String) = parseManifestFixture("""{"manifest":{"permissions":[],"events":[],"enum_types":[],"states":[{"name":"stored","type_name":"$type"}]}}""".toByteArray(StandardCharsets.UTF_8)).manifest
+        for (item in vectors["valid"] as List<*>) assertEquals(item, decode(item as String).states!!.single().typeName)
+        for (item in vectors["invalid"] as List<*>) assertFailsWith<IllegalStateException>(item as String) { decode(item) }
+    }
+
+    @Test
+    fun tupleCursorSchemasBindCompleteKeysAndShareOuterBounds() {
+        fun node(kind: String, value: Any? = null) = mapOf("kind" to kind, "value" to value)
+        fun leaf(kind: String) = node("Leaf", node(kind))
+        fun cursor(keys: List<Map<String, Any?>>) = node("StateCursor", mapOf("nodes" to keys))
+        val keys = listOf(node("Tuple", 2), leaf("Int"), node("Tuple", 2), leaf("Name"), leaf("Bool"))
+        val keyName = "(int, (Name, bool))"
+        fun parse(nodes: List<Map<String, Any?>>, type: String) = ContractManifestJsonParser.parseManifest(mapOf(
+            "permissions" to emptyList<Any>(), "events" to emptyList<Any>(), "enum_types" to emptyList<Any>(),
+            "entrypoints" to listOf(mapOf("name" to "page", "kind" to node("View"),
+                "authorization" to node("Anyone"), "return_type" to type, "return_schema" to mapOf("nodes" to nodes))),
+        )).entrypoints!!.single().returnSchema!!
+        fun parseMap(hintKey: String) = ContractManifestJsonParser.parseManifest(mapOf(
+            "permissions" to emptyList<Any>(), "events" to emptyList<Any>(), "enum_types" to emptyList<Any>(),
+            "states" to listOf(mapOf("name" to "stored", "type_name" to "StateMap<$keyName, bool>")),
+            "access_set_hints" to mapOf("read_keys" to emptyList<Any>(), "write_keys" to emptyList<Any>(),
+                "dynamic_reads" to listOf(mapOf("base_key" to "state:stored", "key_type" to hintKey, "bound_kind" to "page", "max_keys" to 8)),
+                "dynamic_writes" to emptyList<Any>()),
+        ))
+        assertEquals(keyName, parseMap(keyName).accessSetHints!!.dynamicReads.single().keyType)
+        assertFailsWith<IllegalStateException> { parseMap("(int, (Name, int))") }
+        val decoded = parse(listOf(cursor(keys)), "StateCursor<$keyName>")
+        assertEquals(keyName, decoded.nodes.single().cursorKeySchema!!.canonicalTypeName)
+        assertEquals(1, decoded.wordCount)
+        val page = listOf(node("Struct", mapOf("name" to "kotodama::StatePage", "fields" to listOf("items", "next"))),
+            node("List", mapOf("capacity" to 8)), node("Tuple", 2)) + keys + listOf(leaf("Bool"), node("Option"), cursor(keys))
+        assertEquals(2, parse(page, "StatePage<$keyName, bool, 8>").wordCount)
+        assertFailsWith<IllegalStateException> {
+            parse(page.dropLast(1) + cursor(keys.dropLast(1) + leaf("Int")), "StatePage<$keyName, bool, 8>")
+        }
+        for (invalid in listOf(listOf(leaf("Json")), listOf(cursor(keys)), listOf(node("Tuple", 1), leaf("Int")))) {
+            assertFailsWith<IllegalStateException> { parse(listOf(cursor(invalid)), "StateCursor<int>") }
+        }
+        assertFailsWith<IllegalStateException> { parse(listOf(node("StateCursor", node("Int"))), "StateCursor<int>") }
+        val smallKey = listOf(node("Tuple", 2), leaf("Int"), leaf("Bool"))
+        for (count in listOf(63, 64)) {
+            val nodes = listOf(node("Tuple", count)) + List(count) { cursor(smallKey) }
+            val name = List(count) { "StateCursor<(int, bool)>" }.joinToString(", ", "(", ")")
+            if (count == 63) assertEquals(count, parse(nodes, name).wordCount)
+            else assertFailsWith<IllegalStateException> { parse(nodes, name) }
+        }
+        for (count in listOf(254, 255)) {
+            val nodes = List(count) { node("Option") } + cursor(listOf(leaf("Int")))
+            val name = "Option<".repeat(count) + "StateCursor<int>" + ">".repeat(count)
+            if (count == 254) assertEquals(1, parse(nodes, name).wordCount)
+            else assertFailsWith<IllegalStateException> { parse(nodes, name) }
+        }
+    }
+
+    @Test
+    fun ordinaryEnumsAndEventsBindExactNominalSchemas() {
+        val text = """{"permissions":[],"enum_types":[{"identity":"Demo::Status","variants":[{"name":"Pending","code":1},{"name":"Done","code":7}]}],"events":[{"name":"Changed","payload_type":{"nodes":[{"kind":"Struct","value":{"name":"Demo::Changed","fields":["status"]}},{"kind":"Enum","value":{"identity":"Demo::Status","variants":[{"name":"Pending","code":1},{"name":"Done","code":7}]}}]}}],"states":[{"name":"status","type_name":"Demo::Status"}]}"""
+        @Suppress("UNCHECKED_CAST")
+        fun parse(value: String) = ContractManifestJsonParser.parseManifest(JsonParser.parse(value) as Map<String, Any?>)
+        val parsed = parse(text)
+        assertEquals(7L, parsed.enumTypes.single().variants[1].code)
+        assertEquals(EntrypointValueTypeNodeKindV1.ENUM, parsed.events.single().payloadType.nodes[1].kind)
+        assertEquals("Demo::Status", parsed.events.single().payloadType.nodes[1].enumType!!.identity)
+        assertEquals(1, parsed.events.single().payloadType.wordCount)
+        for (invalid in listOf(
+            text.replace("\"enum_types\":", "\"retired_enum_types\":"),
+            text.replace("\"events\":", "\"retired_events\":"),
+            text.replace("\"code\":1", "\"code\":0"),
+            text.replace("\"kind\":\"Enum\"", "\"kind\":\"Error\""),
+            text.replaceFirst("\"code\":7", "\"code\":8"),
+            text.replaceFirst("\"name\":\"Changed\"", "\"name\":\"Other\""),
+            text.replace("\"kind\":\"Enum\",\"value\":{\"identity\":\"Demo::Status\",\"variants\":[{\"name\":\"Pending\",\"code\":1},{\"name\":\"Done\",\"code\":7}]}", "\"kind\":\"Leaf\",\"value\":{\"kind\":\"Json\",\"value\":null}"),
+        )) assertFailsWith<IllegalStateException> { parse(invalid) }
+    }
+
+    @Test
+    fun authorizationRequiresDeclaredCanonicalPermissionScopes() {
+        val instance = mapOf("kind" to "Instance", "value" to null)
+        val shared = mapOf("kind" to "Chain", "value" to mapOf("permission_name" to "SharedOperators"))
+        val declarations = listOf(mapOf("name" to "Admin", "scope" to instance), mapOf("name" to "Operator", "scope" to shared))
+        fun descriptor(authorization: Any?) = mapOf(
+            "name" to "inspect", "kind" to mapOf("kind" to "View", "value" to null),
+            "return_type" to "()", "return_schema" to mapOf("nodes" to listOf(mapOf("kind" to "Unit", "value" to null))),
+            "authorization" to authorization,
+        )
+        fun parse(permissions: Any?, authorization: Any?) = ContractManifestJsonParser.parseManifest(mapOf(
+            "events" to emptyList<Any>(), "enum_types" to emptyList<Any>(), "permissions" to permissions, "entrypoints" to listOf(descriptor(authorization)),
+        ))
+        val role = mapOf("kind" to "Permission", "value" to "Admin")
+        val parsed = parse(declarations, role)
+        assertTrue(parsed.permissions[0].scope === ContractPermissionScopeV1.Instance)
+        assertEquals("SharedOperators", (parsed.permissions[1].scope as ContractPermissionScopeV1.Chain).permissionName)
+        assertEquals("Admin", (parsed.entrypoints!!.single().authorization as EntrypointAuthorizationV1.Permission).name)
+        parse(emptyList<Any?>(), mapOf("kind" to "Anyone", "value" to null))
+        assertFails { parse(null, role) }
+        assertFails { parse(emptyList<Any?>(), role) }
+        assertFails { parse(declarations.reversed(), role) }
+        assertFails { parse(declarations + declarations[0], role) }
+        assertFails { parse(declarations, null) }
+        assertFails { parse(declarations, "Admin") }
+        assertFails { parse(declarations, mapOf("kind" to "RuntimeLifecycle", "value" to null)) }
+        assertFails { ContractManifestJsonParser.parseManifest(mapOf("events" to emptyList<Any>(), "enum_types" to emptyList<Any>(), "permissions" to declarations, "entrypoints" to listOf(descriptor(role) + ("permission" to "Admin")))) }
+    }
+
+    @Test
     fun staticErrorMessagesBindDeclaredVariants() {
         fun decode(code: Int = 1, message: String = "残高が不足しています", duplicate: Boolean = false): ContractManifest {
             val entry = """{"error_type":"Vault::Failure","code":$code,"message":"$message"}"""
             val messages = if (duplicate) "$entry,$entry" else entry
             return parseManifestFixture(
-                """{"manifest":{"error_types":[{"identity":"Vault::Failure","variants":[{"name":"Missing","code":1}]}],"error_messages":[$messages]}}""".toByteArray(StandardCharsets.UTF_8),
+                """{"manifest":{"events":[],"enum_types":[],"permissions":[],"error_types":[{"identity":"Vault::Failure","variants":[{"name":"Missing","code":1}]}],"error_messages":[$messages]}}""".toByteArray(StandardCharsets.UTF_8),
             ).manifest
         }
         assertEquals("残高が不足しています", decode().errorMessages!!.single().message)
@@ -39,18 +148,18 @@ class ContractManifestTest {
     @Test
     fun durableEmptyProductsPreserveNominalNamesAndExactGrammar() {
         fun decode(typeName: String) = parseManifestFixture(
-            """{"manifest":{"states":[{"name":"Stored","type_name":"$typeName"}]}}"""
+            """{"manifest":{"events":[],"enum_types":[],"permissions":[],"states":[{"name":"Stored","type_name":"$typeName"}]}}"""
                 .toByteArray(StandardCharsets.UTF_8),
         ).manifest
         for (typeName in listOf(
-            "Empty{}", "Other{}", "Transfer{}", "List<Empty{}, 2>", "List<List<Empty{}, 2>, 2>",
-            "Envelope{empty: Empty{}}", "StateMap<int, Empty{}>",
+            "Fixture::Empty{}", "Fixture::Other{}", "Fixture::Transfer{}", "List<Fixture::Empty{}, 2>", "List<List<Fixture::Empty{}, 2>, 2>",
+            "Fixture::Envelope{empty: Fixture::Empty{}}", "StateMap<int, Fixture::Empty{}>",
             "std/math@1.0.0::Math::Empty{}",
         )) assertEquals(typeName, decode(typeName).states!!.single().typeName)
         for (typeName in listOf(
-            "{}", "Empty{", "Empty{ }", "Empty{,}", "Empty{: int}",
-            "Empty{field: int, }", "Empty{}trailing", "List<Empty{},2>",
-            "List<Empty{}, 0>", "Envelope{empty: Empty{}, empty: Empty{}}",
+            "{}", "Fixture::Empty{", "Fixture::Empty{ }", "Fixture::Empty{,}", "Fixture::Empty{: int}",
+            "Fixture::Empty{field: int, }", "Fixture::Empty{}trailing", "List<Fixture::Empty{},2>",
+            "List<Fixture::Empty{}, 0>", "Fixture::Envelope{empty: Fixture::Empty{}, empty: Fixture::Empty{}}",
             "StatePage{}", "Option{}", "int{}",
         )) assertFailsWith<IllegalStateException>(typeName) { decode(typeName) }
     }
@@ -84,7 +193,7 @@ class ContractManifestTest {
 
     @Test
     fun everyPublicEntrypointRequiresAnExplicitReturnSchema() {
-        fun response(returns: String) = """{"manifest":{"entrypoints":[{"name":"done","kind":{"kind":"View","value":null},"params":[]$returns}]}}"""
+        fun response(returns: String) = """{"manifest":{"events":[],"enum_types":[],"permissions":[],"entrypoints":[{"name":"done","kind":{"kind":"View","value":null},"authorization":{"kind":"Anyone","value":null},"params":[]$returns}]}}"""
         for (returns in listOf(
             "",
             ""","return_type":null,"return_schema":null""",
@@ -113,7 +222,7 @@ class ContractManifestTest {
         val returnNodes = (listOf("""{"kind":"Tuple","value":14}""") +
             List(14) { leafNode("Int") }).joinToString(",")
         val payload =
-            """{"manifest":{"entrypoints":[{"name":"wide","kind":{"kind":"View","value":null},"params":[$parameters],"argument_schema":{"fields":[$fields]},"return_type":"${wideTupleType(14)}","return_schema":{"nodes":[$returnNodes]}}]}}"""
+            """{"manifest":{"events":[],"enum_types":[],"permissions":[],"entrypoints":[{"name":"wide","kind":{"kind":"View","value":null},"authorization":{"kind":"Anyone","value":null},"params":[$parameters],"argument_schema":{"fields":[$fields]},"return_type":"${wideTupleType(14)}","return_schema":{"nodes":[$returnNodes]}}]}}"""
         val entrypoint = parseManifestFixture(payload.toByteArray(StandardCharsets.UTF_8))
             .manifest.entrypoints!!.single()
         assertEquals(14, entrypoint.parameters.size)
@@ -124,7 +233,7 @@ class ContractManifestTest {
             """{"name":"p$index","type_name":"int"}"""
         }
         val overLimit =
-            """{"manifest":{"entrypoints":[{"name":"wide","kind":{"kind":"View","value":null},"params":[$overLimitParameters],"return_type":"()","return_schema":{"nodes":[{"kind":"Unit","value":null}]}}]}}"""
+            """{"manifest":{"events":[],"enum_types":[],"permissions":[],"entrypoints":[{"name":"wide","kind":{"kind":"View","value":null},"authorization":{"kind":"Anyone","value":null},"params":[$overLimitParameters],"return_type":"()","return_schema":{"nodes":[{"kind":"Unit","value":null}]}}]}}"""
         val error = assertFailsWith<IllegalStateException> {
             parseManifestFixture(overLimit.toByteArray(StandardCharsets.UTF_8))
         }
@@ -146,7 +255,7 @@ class ContractManifestTest {
         val cursor = manifest.entrypoints[1].returnSchema!!
         assertEquals("Option<StateCursor<int>>", cursor.canonicalTypeName)
         assertEquals(EntrypointValueTypeNodeKindV1.STATE_CURSOR, cursor.nodes[1].kind)
-        assertEquals(EntrypointValueKindV1.INT, cursor.nodes[1].leafKind)
+        assertEquals(EntrypointValueKindV1.INT, cursor.nodes[1].cursorKeySchema!!.nodes[0].leafKind)
         assertEquals(1, cursor.wordCount)
         assertEquals("StatePage<int, bool, 8>", manifest.entrypoints[2].returnSchema!!.canonicalTypeName)
         assertEquals(2, manifest.entrypoints[2].returnSchema!!.wordCount)
@@ -163,11 +272,11 @@ class ContractManifestTest {
         val stateError = assertFailsWith<IllegalStateException> {
             parseManifestFixture(stateOnlyUnknown.toByteArray(StandardCharsets.UTF_8))
         }
-        assertTrue(stateError.message!!.contains("error_types catalog"))
-        for (forged in listOf("StatePage{anything: int}", "StatePage{items: List<(int, bool), 8>, next: Option<StateCursor<bool>>}")) {
+        assertTrue(stateError.message!!.contains("enum or error catalog"))
+        for (forged in listOf("kotodama::StatePage{anything: int}", "kotodama::StatePage{items: List<(int, bool), 8>, next: Option<StateCursor<bool>>}")) {
             assertFailsWith<IllegalStateException> {
                 parseManifestFixture(payload.replace(
-                    "StatePage{items: List<(int, bool), 8>, next: Option<StateCursor<int>>}", forged,
+                    "kotodama::StatePage{items: List<(int, bool), 8>, next: Option<StateCursor<int>>}", forged,
                 ).toByteArray(StandardCharsets.UTF_8))
             }
         }
@@ -189,7 +298,7 @@ class ContractManifestTest {
         val argumentSchema = entrypoint.argumentSchema ?: error("missing argument schema")
         val returnSchema = entrypoint.returnSchema ?: error("missing return schema")
         assertEquals(2, argumentSchema.fields.first().valueType.wordCount)
-        assertEquals("struct Transfer", argumentSchema.fields.first().valueType.canonicalTypeName)
+        assertEquals("struct Fixture::Transfer", argumentSchema.fields.first().valueType.canonicalTypeName)
         val tagsType = argumentSchema.fields.last().valueType
         assertEquals(2, tagsType.nodes.size)
         assertEquals(64, tagsType.nodes.first().listValue!!.capacity)
@@ -283,7 +392,7 @@ class ContractManifestTest {
     @Test
     fun retiredNumericTypeNamesAreRejectedOnlyInTypePositions() {
         fun statePayload(typeName: String): String =
-            """{"manifest":{"states":[{"name":"Balances","type_name":"$typeName"}]},"code_hash":null,"abi_hash":null}"""
+            """{"manifest":{"events":[],"enum_types":[],"permissions":[],"states":[{"name":"Balances","type_name":"$typeName"}]},"code_hash":null,"abi_hash":null}"""
 
         val maximumDepth = "Option<".repeat(255) + "int" + ">".repeat(255)
         val maximumMapDepth = "Option<".repeat(254) + "int" + ">".repeat(254)
@@ -291,9 +400,9 @@ class ContractManifestTest {
             "quantity",
             "(int, decimal)",
             "Option<Result<quantity, string>>",
-            "List<Transfer{amount: quantity}, 64>",
-            "StateMap<AccountId, Transfer{amount: quantity, memo: Option<string>}>",
-            "List<Envelope{items: List<Transfer{amount: quantity}, 64>}, 1>",
+            "List<Fixture::Transfer{amount: quantity}, 64>",
+            "StateMap<AccountId, Fixture::Transfer{amount: quantity, memo: Option<string>}>",
+            "List<Fixture::Envelope{items: List<Fixture::Transfer{amount: quantity}, 64>}, 1>",
             maximumDepth,
             wideTupleType(255),
             "StateMap<AccountId, ${wideTupleType(255)}>",
@@ -332,12 +441,12 @@ class ContractManifestTest {
             "List<amount, 1>",
             "StateMap<AccountId, Amount>",
             "StateMap<AccountId, Amount: quantity>",
-            "Transfer{amount: amount}",
-            "Transfer{amount:: quantity}",
-            "Transfer{Amount: quantity}",
+            "Fixture::Transfer{amount: amount}",
+            "Fixture::Transfer{amount:: quantity}",
+            "Fixture::Transfer{Amount: quantity}",
             "Amount{amount: quantity}",
-            "Transfer{amount: quantity, amount: int}",
-            "Transfer{ }",
+            "Fixture::Transfer{amount: quantity, amount: int}",
+            "Fixture::Transfer{ }",
             "Option<StateMap<AccountId, quantity>>",
             "StateMap<Json, quantity>",
             "(int)",
@@ -346,10 +455,10 @@ class ContractManifestTest {
             "List<quantity, 65>",
             "List<quantity, 01>",
             "Transfer {amount: quantity}",
-            "Transfer{amount: quantity, memo:string}",
-            "Transfer{amøunt: quantity}",
+            "Fixture::Transfer{amount: quantity, memo:string}",
+            "Fixture::Transfer{amøunt: quantity}",
             "Tránsfer{amount: quantity}",
-            "Transfer{__kotodama_link_private: quantity}",
+            "Fixture::Transfer{__kotodama_link_private: quantity}",
             "Option<".repeat(256) + "int" + ">".repeat(256),
             wideTupleType(256),
             "StateMap<AccountId, ${wideTupleType(256)}>",
@@ -512,7 +621,7 @@ class ContractManifestTest {
         ): String =
             """
             {
-              "manifest":{
+              "manifest":{"events":[],"enum_types":[],"permissions":[],
                 "access_set_hints":{
                   "read_keys":[],
                   "write_keys":[],
@@ -673,9 +782,9 @@ class ContractManifestTest {
     @Test
     fun reservedQueryNominalsRequireTheirExactFlatShape() {
         val nodes =
-            """{"kind":"Struct","value":{"name":"QueryPage","fields":["items","next_offset"]}},""" +
+            """{"kind":"Struct","value":{"name":"kotodama::QueryPage","fields":["items","next_offset"]}},""" +
                 """{"kind":"List","value":{"capacity":64}},""" +
-                """{"kind":"Struct","value":{"name":"AccountView","fields":["id","metadata"]}},""" +
+                """{"kind":"Struct","value":{"name":"kotodama::AccountView","fields":["id","metadata"]}},""" +
                 """{"kind":"Leaf","value":{"kind":"AccountId","value":null}},""" +
                 """{"kind":"Leaf","value":{"kind":"Json","value":null}},""" +
                 """{"kind":"Option","value":null},""" +
@@ -697,13 +806,13 @@ class ContractManifestTest {
     @Test
     fun everyReservedProjectionAndPageHasAnExactNominalName() {
         val pair = listOf(
-            structNode("Pair", "left", "right"),
+            structNode("Fixture::Pair", "left", "right"),
             leafNode("Int"),
             leafNode("Bool"),
         )
         assertEquals(
-            "struct Pair",
-            parseBoundarySchema(pair.joinToString(","), "struct Pair").canonicalTypeName,
+            "struct Fixture::Pair",
+            parseBoundarySchema(pair.joinToString(","), "struct Fixture::Pair").canonicalTypeName,
         )
 
         coreViewNames.forEach { viewName ->
@@ -792,7 +901,7 @@ class ContractManifestTest {
             listOf(
                 structNode("QueryPage", "items", "next_offset"),
                 listNode(64),
-                structNode("Pair", "left", "right"),
+                structNode("Fixture::Pair", "left", "right"),
                 leafNode("Int"),
                 leafNode("Bool"),
                 optionNode,
@@ -854,7 +963,7 @@ class ContractManifestTest {
             typeName: String,
         ): EntrypointValueTypeV1 {
             val payload =
-                """{"manifest":{"entrypoints":[{"name":"inspect","kind":{"kind":"View","value":null},"params":[{"name":"value","type_name":"$typeName"}],"argument_schema":{"fields":[{"name":"value","ty":{"nodes":[$nodes]}}]},"return_type":"()","return_schema":{"nodes":[{"kind":"Unit","value":null}]}}]}}"""
+                """{"manifest":{"events":[],"enum_types":[],"permissions":[],"entrypoints":[{"name":"inspect","kind":{"kind":"View","value":null},"authorization":{"kind":"Anyone","value":null},"params":[{"name":"value","type_name":"$typeName"}],"argument_schema":{"fields":[{"name":"value","ty":{"nodes":[$nodes]}}]},"return_type":"()","return_schema":{"nodes":[{"kind":"Unit","value":null}]}}]}}"""
             return parseManifestFixture(payload.toByteArray(StandardCharsets.UTF_8))
                 .manifest.entrypoints!!.single().argumentSchema!!.fields.single().valueType
         }
@@ -875,7 +984,8 @@ class ContractManifestTest {
         private fun leafNode(kind: String): String =
             """{"kind":"Leaf","value":{"kind":"$kind","value":null}}"""
 
-        private fun structNode(name: String, vararg fields: String): String {
+        private fun structNode(sourceName: String, vararg fields: String): String {
+            val name = if (sourceName in setOf("AccountView", "AssetView", "AssetDefinitionView", "DomainView", "NftView", "QueryPage", "StatePage")) "kotodama::$sourceName" else sourceName
             val fieldJson = fields.joinToString(",") { "\"$it\"" }
             return """{"kind":"Struct","value":{"name":"$name","fields":[$fieldJson]}}"""
         }
@@ -936,6 +1046,7 @@ class ContractManifestTest {
               "network_id":"${TestNetworkIds.canonical()}",
               "artifact_id":{"dataspace_id":18446744073709551615,"code_hash":"hash:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB#ABA2"},
               "manifest":{
+                "events":[],"enum_types":[],"permissions":[{"name":"TransferAsset","scope":{"kind":"Instance","value":null}}],
                 "seiyaku_name":"Ledger",
                 "code_hash":"hash:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB#ABA2",
                 "abi_hash":"hash:DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD#F071",
@@ -956,12 +1067,12 @@ class ContractManifestTest {
                   "name":"transfer",
                   "kind":{"kind":"Kotoage","value":null},
                   "params":[
-                    {"name":"request","type_name":"struct Transfer"},
+                    {"name":"request","type_name":"struct Fixture::Transfer"},
                     {"name":"tags","type_name":"List<Name, 64>"}
                   ],
                   "argument_schema":{"fields":[
                     {"name":"request","ty":{"nodes":[
-                      {"kind":"Struct","value":{"name":"Transfer","fields":["amount","memo"]}},
+                      {"kind":"Struct","value":{"name":"Fixture::Transfer","fields":["amount","memo"]}},
                       {"kind":"Leaf","value":{"kind":"Quantity","value":null}},
                       {"kind":"Option","value":null},
                       {"kind":"Leaf","value":{"kind":"String","value":null}}
@@ -979,7 +1090,7 @@ class ContractManifestTest {
                     {"kind":"Leaf","value":{"kind":"Decimal","value":null}},
                     {"kind":"Leaf","value":{"kind":"String","value":null}}
                   ]},
-                  "permission":"TransferAsset",
+                  "authorization":{"kind":"Permission","value":"TransferAsset"},
                   "read_keys":["state:Balances"],
                   "write_keys":["state:Balances"],
                   "access_hints_complete":true,

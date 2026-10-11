@@ -1,6 +1,6 @@
 
         seiyaku MethodCallSugar {
         fn add(int x, int y) -> int { return x + y; }
-        view fn main() -> int { return (5).add(y: 7); }
+        view fn main() authorize(anyone) -> int { return (5).add(y: 7); }
         }
     

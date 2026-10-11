@@ -66,9 +66,6 @@ fn native_capture(lane_count: u32) -> BTreeMap<String, Vec<u8>> {
             &fixture.manifest,
             &fixture.config,
             keys,
-            (0..4)
-                .map(|seat| zeroize::Zeroizing::new([0xA0 + seat; 32]))
-                .collect(),
             KeyPair::from_seed(vec![0x7D; 32], Algorithm::Ed25519),
             Arc::new(iroha_core::sumeragi::lanes::merge::NoLanes),
         )

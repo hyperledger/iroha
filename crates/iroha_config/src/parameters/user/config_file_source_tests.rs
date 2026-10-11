@@ -272,6 +272,7 @@ fn complete_node_parser_reads_every_reference_from_supplied_bytes_and_preserves_
         parsed.streaming.codec.rans_tables_path,
         path.with_file_name("tables.toml")
     );
+    assert_eq!(files.values.len(), 7);
     assert!(parsed.torii.account_onboarding.is_some());
     assert!(parsed.torii.faucet.is_some());
     assert!(!path.parent().unwrap().exists());
@@ -571,4 +572,22 @@ fn vpn_operator_key_reference_uses_supplied_bytes_and_native_defaults_without_fa
     assert!(diagnostic.contains("network.soranet_vpn.operator_private_key_file"));
     assert!(diagnostic.contains("vpn-operator.key"));
     assert!(files.reads.borrow().contains(&operator_path));
+}
+
+#[test]
+fn supplied_source_reads_only_original_node_inputs() {
+    let path = Path::new("ABSENT-original-node-inputs/peer.toml");
+    let (table, files) = fixture(path);
+    user(table, path).parse_with_file_source(&files).unwrap();
+    assert_eq!(files.values.len(), 7);
+    assert_eq!(
+        files
+            .reads
+            .borrow()
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>(),
+        files.values.keys().cloned().collect::<BTreeSet<_>>()
+    );
+    assert!(!path.parent().unwrap().exists());
 }

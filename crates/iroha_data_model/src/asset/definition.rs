@@ -193,10 +193,12 @@ mod model {
         /// Balance partition policy for concrete ownership buckets.
         #[getset(get_copy = "pub")]
         pub balance_scope_policy: AssetBalancePolicy,
-        /// Immutable owning domain for a dataspace-restricted definition.
+        /// Immutable owning domain when the definition is domain-owned.
         ///
         /// Global definitions may also be domain-owned. Alias bindings are routing labels and
-        /// are deliberately independent from this ownership relationship.
+        /// are deliberately independent from this ownership relationship. Definitions registered
+        /// with [`crate::isi::RegisterDataspaceAssetDefinition`] keep this field absent and store
+        /// their exact immutable dataspace home in a separate authoritative ledger binding.
         #[getset(get = "pub")]
         pub owning_domain: Option<DomainId>,
         /// The account that owns this asset. Usually the [`Account`] that registered it.
@@ -532,6 +534,230 @@ impl NewAssetDefinition {
         Ok(self)
     }
 }
+/// Register-word encoding of asset-definition registration parameters carried
+/// by the IVM `REGISTER_ASSET` syscall.
+///
+/// The Kotodama compiler encodes `NumericSpec::*` and `Mintable::*` source
+/// values with these functions and every contract host decodes them with the
+/// same functions, so a contract registers exactly the numeric spec and
+/// mintability it names.
+pub mod ivm_registration {
+    use super::{Mintable, NumericSpec};
+    use core::fmt;
+
+    /// Largest scale an encoded [`NumericSpec`] may bound.
+    pub const MAX_SCALE: u32 = iroha_primitives::numeric::MAX_DECIMAL_SCALE;
+    /// Low two bits of a mintability word select the [`Mintable`] variant.
+    const MINTABLE_TAG_MASK: u64 = 0b11;
+    const MINTABLE_TAG_INFINITELY: u64 = 0;
+    const MINTABLE_TAG_ONCE: u64 = 1;
+    const MINTABLE_TAG_NOT: u64 = 2;
+    const MINTABLE_TAG_LIMITED: u64 = 3;
+
+    /// A `REGISTER_ASSET` argument that does not encode a valid registration parameter.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum RegistrationWordError {
+        /// The display name is not UTF-8 or fails [`super::validate_asset_name`].
+        DisplayName,
+        /// The numeric-spec word is neither `0` nor `scale + 1` for a scale up to 28.
+        NumericSpec(u64),
+        /// The mintability word has an unknown tag, stray bits, or a zero/oversized
+        /// limited token budget.
+        Mintable(u64),
+    }
+
+    impl fmt::Display for RegistrationWordError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::DisplayName => f.write_str("invalid REGISTER_ASSET display name"),
+                Self::NumericSpec(word) => {
+                    write!(f, "invalid REGISTER_ASSET numeric spec word {word:#x}")
+                }
+                Self::Mintable(word) => {
+                    write!(f, "invalid REGISTER_ASSET mintability word {word:#x}")
+                }
+            }
+        }
+    }
+
+    /// The display name, numeric spec and mintability of one `REGISTER_ASSET` call.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Registration {
+        /// Validated display name.
+        pub name: String,
+        /// Numeric spec every quantity of the definition must satisfy.
+        pub spec: NumericSpec,
+        /// Mintability of the definition.
+        pub mintable: Mintable,
+    }
+
+    /// Decode the registration arguments every contract host reads for
+    /// `REGISTER_ASSET`: the UTF-8 display-name payload of `r11`, the
+    /// numeric-spec word in `r12` and the mintability word in `r13`.
+    ///
+    /// This is the single decoder shared by every host, so a name, spec or
+    /// mintability is either registered exactly as written or rejected
+    /// identically everywhere.
+    ///
+    /// # Errors
+    /// Returns [`RegistrationWordError::DisplayName`] for a non-UTF-8 or invalid
+    /// display name, and the word errors of [`numeric_spec_from_word`] and
+    /// [`mintable_from_word`].
+    pub fn decode_registration(
+        name: &[u8],
+        spec_word: u64,
+        mintable_word: u64,
+    ) -> Result<Registration, RegistrationWordError> {
+        let name = core::str::from_utf8(name)
+            .ok()
+            .filter(|name| super::validate_asset_name(name).is_ok())
+            .ok_or(RegistrationWordError::DisplayName)?
+            .to_owned();
+        Ok(Registration {
+            name,
+            spec: numeric_spec_from_word(spec_word)?,
+            mintable: mintable_from_word(mintable_word)?,
+        })
+    }
+
+    impl std::error::Error for RegistrationWordError {}
+
+    /// Encode a [`NumericSpec`]: `0` is unconstrained and `scale + 1` bounds the scale.
+    #[must_use]
+    pub const fn numeric_spec_word(spec: NumericSpec) -> u64 {
+        match spec.scale() {
+            None => 0,
+            Some(scale) => scale as u64 + 1,
+        }
+    }
+
+    /// Decode a numeric-spec word produced by [`numeric_spec_word`].
+    ///
+    /// # Errors
+    /// Returns [`RegistrationWordError::NumericSpec`] for a scale above [`MAX_SCALE`].
+    pub fn numeric_spec_from_word(word: u64) -> Result<NumericSpec, RegistrationWordError> {
+        if word == 0 {
+            return Ok(NumericSpec::unconstrained());
+        }
+        u32::try_from(word - 1)
+            .ok()
+            .and_then(|scale| NumericSpec::try_fractional(scale).ok())
+            .ok_or(RegistrationWordError::NumericSpec(word))
+    }
+
+    /// Encode a [`Mintable`]: the low two bits select `Infinitely`, `Once`, `Not` or
+    /// `Limited`, and the remaining bits carry the limited token budget.
+    #[must_use]
+    pub fn mintable_word(mintable: Mintable) -> u64 {
+        match mintable {
+            Mintable::Infinitely => MINTABLE_TAG_INFINITELY,
+            Mintable::Once => MINTABLE_TAG_ONCE,
+            Mintable::Not => MINTABLE_TAG_NOT,
+            Mintable::Limited(tokens) => (u64::from(u32::from(tokens)) << 2) | MINTABLE_TAG_LIMITED,
+        }
+    }
+
+    /// Decode a mintability word produced by [`mintable_word`].
+    ///
+    /// # Errors
+    /// Returns [`RegistrationWordError::Mintable`] when a non-limited tag carries
+    /// payload bits or a limited budget is zero or does not fit `u32`.
+    pub fn mintable_from_word(word: u64) -> Result<Mintable, RegistrationWordError> {
+        let payload = word >> 2;
+        match word & MINTABLE_TAG_MASK {
+            MINTABLE_TAG_INFINITELY if payload == 0 => Ok(Mintable::Infinitely),
+            MINTABLE_TAG_ONCE if payload == 0 => Ok(Mintable::Once),
+            MINTABLE_TAG_NOT if payload == 0 => Ok(Mintable::Not),
+            MINTABLE_TAG_LIMITED => u32::try_from(payload)
+                .ok()
+                .and_then(|tokens| Mintable::limited_from_u32(tokens).ok())
+                .ok_or(RegistrationWordError::Mintable(word)),
+            _ => Err(RegistrationWordError::Mintable(word)),
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn numeric_spec_words_round_trip_and_reject_oversized_scales() {
+            for spec in [
+                NumericSpec::unconstrained(),
+                NumericSpec::integer(),
+                NumericSpec::fractional(2),
+                NumericSpec::fractional(MAX_SCALE),
+            ] {
+                assert_eq!(numeric_spec_from_word(numeric_spec_word(spec)), Ok(spec));
+            }
+            assert_eq!(numeric_spec_word(NumericSpec::unconstrained()), 0);
+            assert_eq!(numeric_spec_word(NumericSpec::integer()), 1);
+            let oversized = u64::from(MAX_SCALE) + 2;
+            assert_eq!(
+                numeric_spec_from_word(oversized),
+                Err(RegistrationWordError::NumericSpec(oversized))
+            );
+            assert!(numeric_spec_from_word(u64::MAX).is_err());
+        }
+
+        #[test]
+        fn mintable_words_round_trip_and_reject_malformed_words() {
+            for mintable in [
+                Mintable::Infinitely,
+                Mintable::Once,
+                Mintable::Not,
+                Mintable::limited_from_u32(1).expect("one token"),
+                Mintable::limited_from_u32(u32::MAX).expect("max tokens"),
+            ] {
+                assert_eq!(mintable_from_word(mintable_word(mintable)), Ok(mintable));
+            }
+            assert_eq!(mintable_word(Mintable::Infinitely), 0);
+            assert_eq!(mintable_word(Mintable::Once), 1);
+            assert_eq!(mintable_word(Mintable::Not), 2);
+            for malformed in [
+                0b100,
+                0b101,
+                0b110,
+                MINTABLE_TAG_LIMITED,
+                ((u64::from(u32::MAX) + 1) << 2) | MINTABLE_TAG_LIMITED,
+            ] {
+                assert_eq!(
+                    mintable_from_word(malformed),
+                    Err(RegistrationWordError::Mintable(malformed))
+                );
+            }
+        }
+
+        #[test]
+        fn registration_decodes_name_spec_and_mintability_together() {
+            let spec = NumericSpec::fractional(2);
+            let mintable = Mintable::limited_from_u32(3).expect("token budget");
+            assert_eq!(
+                decode_registration(b"Rose", numeric_spec_word(spec), mintable_word(mintable)),
+                Ok(Registration {
+                    name: "Rose".to_owned(),
+                    spec,
+                    mintable,
+                })
+            );
+            for name in [&b""[..], b"   ", b"ro#se", b"ro@se", b"\xff\xfe"] {
+                assert_eq!(
+                    decode_registration(name, 0, 0),
+                    Err(RegistrationWordError::DisplayName),
+                    "{name:?}"
+                );
+            }
+            assert_eq!(
+                decode_registration(b"Rose", 30, 0),
+                Err(RegistrationWordError::NumericSpec(30))
+            );
+            assert_eq!(
+                decode_registration(b"Rose", 0, 0b100),
+                Err(RegistrationWordError::Mintable(0b100))
+            );
+        }
+    }
+}
 impl Default for AssetConfidentialPolicy {
     fn default() -> Self {
         Self {
@@ -823,6 +1049,21 @@ mod validation_tests {
     use iroha_model_base::domain::DomainId;
     use iroha_primitives::numeric::Numeric;
     use norito::codec::DecodeAll as _;
+    // Exact pre-direct-dataspace field order, kept separate from the production builder so a
+    // future accidental field append or reorder changes this comparison.
+    #[derive(Encode)]
+    struct OriginalNewAssetDefinitionV1 {
+        id: AssetDefinitionId,
+        name: String,
+        description: Option<String>,
+        alias: Option<AssetDefinitionAlias>,
+        spec: NumericSpec,
+        mintable: Mintable,
+        logo: Option<SorafsUri>,
+        metadata: Metadata,
+        balance_scope_policy: AssetBalancePolicy,
+        owning_domain: Option<DomainId>,
+    }
     #[derive(Encode)]
     struct ForgedAssetDefinition {
         id: AssetDefinitionId,
@@ -1032,6 +1273,41 @@ mod validation_tests {
         assert_eq!(decoded.id, explicit.id);
         assert_eq!(decoded.alias, None);
         assert_eq!(decoded.owning_domain, Some(domain));
+    }
+    #[test]
+    fn existing_global_and_domain_definition_payloads_keep_original_field_order() {
+        let domain = DomainId::try_new("wonderland", "universal").expect("domain");
+        for (policy, owning_domain) in [
+            (AssetBalancePolicy::Global, None),
+            (AssetBalancePolicy::Global, Some(domain.clone())),
+            (
+                AssetBalancePolicy::DataspaceRestricted,
+                Some(domain.clone()),
+            ),
+        ] {
+            let id = AssetDefinitionId::derive_from_components(
+                domain.clone(),
+                "rose".parse().expect("asset name"),
+            );
+            let object = AssetDefinition::numeric(id, "Rose", policy, owning_domain);
+            let original = OriginalNewAssetDefinitionV1 {
+                id: object.id.clone(),
+                name: object.name.clone(),
+                description: object.description.clone(),
+                alias: object.alias.clone(),
+                spec: object.spec,
+                mintable: object.mintable,
+                logo: object.logo.clone(),
+                metadata: object.metadata.clone(),
+                balance_scope_policy: object.balance_scope_policy,
+                owning_domain: object.owning_domain.clone(),
+            };
+            assert_eq!(object.encode(), original.encode());
+            let original_payload = original.encode();
+            let restored = NewAssetDefinition::decode_all(&mut original_payload.as_slice())
+                .expect("decode original field layout");
+            assert_eq!(restored.encode(), original_payload);
+        }
     }
     #[test]
     fn new_asset_definition_binary_rejects_custom_confidential_policy() {

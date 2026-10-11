@@ -4,6 +4,18 @@ use super::*;
 use common::*;
 
 macro_rules! inline_field {
+    ($owner:ty, $index:literal, $field:ident, [u8; $length:expr]) => {
+        impl DecodeField<$index, [u8; $length]> for $owner {
+            type Value = ();
+            fn decode_field(
+                &mut self,
+                field: CanonicalField<'_, [u8; $length]>,
+            ) -> DecodeResult<()> {
+                self.$field = field.decode_owned()?;
+                Ok(())
+            }
+        }
+    };
     ($owner:ty, $index:literal, $field:ident, $ty:ty) => {
         impl DecodeField<$index, $ty> for $owner {
             type Value = ();

@@ -475,8 +475,8 @@ fn retryable_mixed_list_reuses_successful_proof_results() {
     );
     let attempts_before_reconfigure = proof_verification_attempt_count();
     let changed_state = fixture_state_with_vk_window_and_zk(None, None, |zk| {
-        zk.halo2.enabled = true;
-        zk.halo2.max_k = zk.halo2.max_k.saturating_add(1);
+        zk.pipa_r.enabled = true;
+        zk.max_verify_batch = zk.max_verify_batch.saturating_add(1);
     });
     configure_test_cfg_with_state_and_scan_bytes(Vec::new(), changed_state, max_scan_bytes);
     set_proof_verification_attempt_count(attempts_before_reconfigure);

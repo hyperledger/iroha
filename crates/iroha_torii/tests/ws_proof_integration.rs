@@ -60,7 +60,7 @@ async fn ws_proof_json_integration() {
         filters: vec![iroha_data_model::events::EventFilterBox::Data(
             iroha_data_model::prelude::DataEventFilter::Any,
         )],
-        proof_backend: Some(vec!["halo2/ipa".into()]),
+        proof_backend: Some(vec!["pipa-r/pasta".into()]),
         proof_call_hash: None,
         proof_envelope_hash: None,
     };
@@ -78,7 +78,7 @@ async fn ws_proof_json_integration() {
     events
         .send(ev_bad)
         .expect("events stream subscriber to be ready for non-matching backend");
-    let ev_ok = ProofEventFixture::new("halo2/ipa", [0x21; 32])
+    let ev_ok = ProofEventFixture::new("pipa-r/pasta", [0x21; 32])
         .with_vk("vk", [0x55; 32])
         .with_envelope_hash(Some([0x20; 32]))
         .verified();
@@ -92,7 +92,7 @@ async fn ws_proof_json_integration() {
             Message::Text(s) => {
                 let v: norito::json::Value = norito::json::from_str(&s).expect("json parse");
                 if v.get("event").and_then(|x| x.as_str()) == Some("ProofVerified")
-                    && v.get("backend").and_then(|x| x.as_str()) == Some("halo2/ipa")
+                    && v.get("backend").and_then(|x| x.as_str()) == Some("pipa-r/pasta")
                 {
                     matched = true;
                     break;
@@ -103,7 +103,7 @@ async fn ws_proof_json_integration() {
                 if let EventBox::Data(data) = event
                     && let DataEvent::Proof(ProofEvent::Verified(verified)) = data.as_ref()
                 {
-                    assert_eq!(verified.id.backend, "halo2/ipa");
+                    assert_eq!(verified.id.backend, "pipa-r/pasta");
                     matched = true;
                     break;
                 }

@@ -15,7 +15,8 @@
 //!   hash-to-curve and batch kernels, implementing the `group` 0.13 traits.
 //! - [`msm`]: batch-affine signed-digit Pippenger ([`msm::msm_public`],
 //!   [`msm::msm_secret`]) and fixed-base commitment-key tables, planned against
-//!   an explicit [`msm::MemoryBudget`].
+//!   an explicit [`msm::MemoryBudget`] and a process-wide 64 MiB shared scratch
+//!   ceiling ([`msm::SharedMemoryBudget`]).
 //! - [`fold`]: the lockstep batch-affine GLV generator fold of the IPA prover.
 //! - [`fft`]: radix-4 (fused radix-2) transforms with cached twiddles and coset
 //!   transforms.
@@ -49,6 +50,9 @@
 //! `tests/cross_impl_encoding.rs` holds the `halo2curves` 0.9 encoding KATs.
 #![forbid(unsafe_code)]
 
+pub mod cancellation;
+pub use cancellation::{CancellationToken, Cancelled};
+
 pub mod curve;
 pub mod fft;
 pub mod field;
@@ -76,3 +80,6 @@ impl core::fmt::Display for LengthMismatch {
 }
 
 impl std::error::Error for LengthMismatch {}
+
+#[cfg(test)]
+mod cancellation_tests;

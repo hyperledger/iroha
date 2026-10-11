@@ -211,10 +211,7 @@ impl ClientBuilder {
             default_anonymity_policy: self.default_anonymity_policy,
             rollout_phase: self.rollout_phase,
             wire_format_preference: self.wire_format_preference,
-            http_transport: match self.http_transport {
-                Some(transport) => transport,
-                None => DefaultHttpTransport::new()?,
-            },
+            http_transport: self.http_transport.unwrap_or_default(),
             stream_transport: self
                 .stream_transport
                 .unwrap_or_else(|| Arc::new(crate::stream::DefaultStreamTransport)),

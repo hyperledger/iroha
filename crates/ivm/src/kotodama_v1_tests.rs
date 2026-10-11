@@ -73,12 +73,13 @@ fn checked_list_errors_revert_prior_state_effects_with_exact_identity() {
         ("values.set(index: 1, value: 9)", 1, "IndexOutOfBounds"),
     ] {
         let source = format!(
-            r#"seiyaku Checked {{
+            r#"seiyaku Checked {{ permission Writer;
             state int changed;
             hajimari() {{ changed = 0; }}
-            kotoage fn main() authorize("Writer") {{
+            fn full() -> List<int, 1> {{ [3] }}
+            kotoage fn main() authorize(Writer) {{
                 changed = 7;
-                var List<int, 1> values = [3];
+                var List<int, 1> values = full();
                 {operation};
             }}
         }}"#
@@ -147,7 +148,7 @@ fn fallible_list_errors_preserve_values_and_length() {
     let mut vm = compiled_main(
         r#"seiyaku Fallible {
         error enum Check { Failed = 1 }
-        view fn main() -> int {
+        view fn main() authorize(anyone) -> int {
             var List<int, 2> values = [3, 4];
             match values.try_set(index: -1, value: 9) {
                 Result::ok(_) => { require(false, Check::Failed); },
@@ -171,7 +172,7 @@ fn fallible_list_errors_preserve_values_and_length() {
 #[test]
 fn named_call_arguments_and_struct_patterns_evaluate_once_in_source_order() {
     let mut vm = compiled_main(
-        r#"seiyaku Named {
+        r#"seiyaku Named { permission Writer;
         struct Receipt { int second; int first; () memo; }
         state int trace;
         hajimari() { trace = 0; }
@@ -179,7 +180,7 @@ fn named_call_arguments_and_struct_patterns_evaluate_once_in_source_order() {
         fn pack(int first, int second) -> Receipt {
             Receipt { first: first, second: second, memo: () }
         }
-        kotoage fn main() -> int authorize("Writer") {
+        kotoage fn main() authorize(Writer) -> int {
             trace = 0;
             let Receipt { first, second: renamed, memo: _ } = pack(second: mark(2), first: mark(1));
             trace * 100 + first * 10 + renamed
@@ -209,9 +210,9 @@ fn named_call_arguments_and_struct_patterns_evaluate_once_in_source_order() {
 #[test]
 fn generated_pages_materialize_pairs_and_resume_across_large_overlays() {
     let mut vm = compiled_main(
-        r#"seiyaku Pages {
+        r#"seiyaku Pages { permission Writer;
         state StateMap<int, int> orders;
-        kotoage fn main() -> int authorize("Writer") {
+        kotoage fn main() authorize(Writer) -> int {
             for index in range(200) { orders[index] = index; }
             var Option<StateCursor<int>> cursor = Option::none;
             var sum = 0;
@@ -253,7 +254,7 @@ fn fused_rounding_matches_constant_folding_through_generated_code_in_every_mode(
             fn amount(quantity _ value) -> quantity {{
                 value.mul_div_round(multiplier: 1.17, divisor: 7.0, scale: 2, mode: Rounding::{mode})
             }}
-            view fn main() {{
+            view fn main() authorize(anyone) {{
                 require(repeated(7.13) == 7.13.mul_div_round(multiplier: 1.17, divisor: 7.0, scale: 2, mode: Rounding::{mode}), Check::Mismatch);
                 require(repeated(-7.13) == (-7.13).mul_div_round(multiplier: 1.17, divisor: 7.0, scale: 2, mode: Rounding::{mode}), Check::Mismatch);
                 require(tie(2.345) == 2.345.mul_div_round(multiplier: 1.0, divisor: 1.0, scale: 2, mode: Rounding::{mode}), Check::Mismatch);
@@ -274,7 +275,7 @@ fn fused_rounding_matches_constant_folding_through_generated_code_in_every_mode(
 #[test]
 fn unit_and_nominal_errors_round_trip_through_durable_values() {
     let mut vm = compiled_main(
-        r#"seiyaku Values {
+        r#"seiyaku Values { permission Writer;
         error enum Check { Failed = 1 }
         state () marker;
         state List<(), 2> markers;
@@ -299,7 +300,7 @@ fn unit_and_nominal_errors_round_trip_through_durable_values() {
             };
             ()
         }
-        kotoage fn main() -> () authorize("Writer") {
+        kotoage fn main() authorize(Writer) -> () {
             marker = ();
             markers = [(), ()];
             optional = Option::some(());
@@ -349,11 +350,11 @@ fn bounded_transfer_lists_evaluate_before_begin_and_skip_empty_batches() {
             self
         }
     }
-    let source = r#"seiyaku BatchOrder {
+    let source = r#"seiyaku BatchOrder { permission Writer;
         state int seen;
         hajimari() { seen = 0; }
         fn amount(int digit) -> quantity { seen = seen * 10 + digit; 1 }
-        kotoage fn main() -> int authorize("Writer") {
+        kotoage fn main() authorize(Writer) -> int {
             seen = 0;
             let account = context::authority();
             let asset = AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM");
@@ -431,8 +432,8 @@ fn saved_transfer_lists_apply_in_order_and_roll_back_on_failure() {
     );
     for (second_amount, success, balances) in [(5, true, [40, 5, 5]), (11, false, [50, 0, 0])] {
         let source = format!(
-            r#"seiyaku BatchAtomic {{
-            kotoage fn main() authorize("Writer") {{
+            r#"seiyaku BatchAtomic {{ permission Writer;
+            kotoage fn main() authorize(Writer) {{
                 let alice = AccountId::parse("{alice}");
                 let bob = AccountId::parse("{bob}");
                 let carol = AccountId::parse("{carol}");
@@ -475,7 +476,7 @@ fn static_error_messages_preserve_nominal_schema_and_reach_rejections() {
         format!(
             r#"seiyaku Explained {{
             error enum Failure {{ #[message("{message}")] Rejected = 7 }}
-            view fn main() {{ require(false, Failure::Rejected); }}
+            view fn main() authorize(anyone) {{ require(false, Failure::Rejected); }}
         }}"#
         )
     }

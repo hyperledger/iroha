@@ -49,8 +49,6 @@ use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal, spawn_os_thre
 use iroha_logger::prelude::*;
 use iroha_model_base::domain::DomainId;
 use iroha_model_base::name::Name;
-#[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
-use iroha_model_base::peer::PeerId;
 use iroha_model_base::{topology::DataSpaceId, topology::LaneId};
 pub use lane_geometry::RawGeometryWait;
 pub(crate) use lane_geometry::{GeometryBindingRequest, RawGeometryAttempt, RawGeometryPhase};
@@ -61,9 +59,11 @@ pub use membership_storage::{
     MembershipAppendCleanup, MembershipAppendRange, MembershipStorageError,
 };
 #[cfg(test)]
+use norito::codec::DecodeAll;
+#[cfg(test)]
 use norito::core::{Header, MAGIC};
 use norito::{
-    codec::{Decode, DecodeAll, Encode},
+    codec::{Decode, Encode},
     json::Value as JsonValue,
 };
 use parking_lot::{Condvar, Mutex};
@@ -191,10 +191,6 @@ fn checked_keypair_with_algorithm(algorithm: Algorithm) -> KeyPair {
     KeyPair::try_random_with_algorithm(algorithm)
         .expect("kura algorithm-specific fixture key generation should succeed")
 }
-#[cfg(any(test, feature = "bench", feature = "iroha-core-tests"))]
-fn checked_peer_id() -> PeerId {
-    PeerId::new(checked_keypair().public_key().clone())
-}
 fn default_fastpq_proof_sidecar_queue_cap() -> usize {
     FASTPQ_DEFAULTS::PROOF_SIDECAR_QUEUE_CAP.get()
 }
@@ -296,7 +292,7 @@ pub struct Kura {
     /// Serialize sidecar writes to avoid index/data races.
     sidecar_lock: PublicationMutex,
     /// Opaque permission for audited immutable reads of this exact sidecar fence.
-    sidecar_read_permit: crate::publication_lock::PublicationReadPermit,
+    _sidecar_read_permit: crate::publication_lock::PublicationReadPermit,
     /// Queue of pipeline sidecar writes flushed by the Kura writer thread.
     pipeline_sidecar_queue: ResidentMutex<VecDeque<PipelineRecoverySidecar>>,
     /// Maximum queued pipeline sidecar writes.
@@ -379,22 +375,6 @@ pub struct Kura {
     /// Test hook for failing catalog publication after its journal target was replaced.
     #[cfg(test)]
     fail_next_lane_geometry_publication_after_write: AtomicBool,
-    /// Test hook selecting a crash boundary in lane-geometry archive garbage collection.
-    #[cfg(test)]
-    fail_lane_geometry_gc_stage: AtomicUsize,
-    /// Test hook selecting a crash boundary in canonical prune recovery.
-    #[cfg(test)]
-    fail_prune_after_stage: AtomicUsize,
-    /// Test hook forcing a fallible indexed-sidecar prune promotion to stop before rename.
-    #[cfg(test)]
-    fail_prune_sidecar_promotion_stage: AtomicUsize,
-    /// Test hook that pauses a canonical prune after all mutable read locks are held but before
-    /// its durable intent is published.
-    #[cfg(test)]
-    pause_prune_before_intent: AtomicBool,
-    /// Indicates that the prune-before-intent test hook is currently paused.
-    #[cfg(test)]
-    prune_paused_before_intent: AtomicBool,
     /// Enables observation of canonical readers after their initial prune-poison check.
     #[cfg(test)]
     observe_canonical_reads_after_prune_check: AtomicBool,
@@ -410,18 +390,6 @@ pub struct Kura {
     /// Counts raw durable-budget metadata reads for focused cache tests.
     #[cfg(test)]
     durable_budget_metadata_reads: AtomicUsize,
-    /// Test hook that pauses eviction after the block-store snapshot is captured.
-    #[cfg(test)]
-    pause_eviction_after_snapshot: AtomicBool,
-    /// Test hook indicating eviction is paused after releasing the block-store lock.
-    #[cfg(test)]
-    eviction_paused_after_snapshot: AtomicBool,
-    /// Test hook that pauses eviction immediately before the final keeper-freshness check.
-    #[cfg(test)]
-    pause_eviction_before_stage_publication: AtomicBool,
-    /// Test hook indicating eviction reached its last pre-publication freshness boundary.
-    #[cfg(test)]
-    eviction_paused_before_stage_publication: AtomicBool,
     /// Test hook that pauses an inline read immediately before its cache publication recheck.
     #[cfg(test)]
     pause_block_read_before_cache_recheck: AtomicBool,
@@ -458,10 +426,6 @@ impl KuraInstanceIdentity {
     /// Return whether this seal came from the exact supplied Kura instance.
     pub(crate) fn matches(&self, kura: &Kura) -> bool {
         Arc::ptr_eq(&self.0, &kura.instance_identity)
-    }
-    /// Return whether two seals name the same live Kura instance.
-    pub(crate) fn same_instance(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
     }
 }
 #[path = "kura/resident_inventory.rs"]
@@ -549,18 +513,7 @@ impl Kura {
                 .fetch_or(reader_kind, Ordering::AcqRel);
         }
     }
-    #[cfg(test)]
-    fn maybe_pause_prune_before_intent(&self) {
-        if self.pause_prune_before_intent.load(Ordering::Acquire) {
-            self.prune_paused_before_intent
-                .store(true, Ordering::Release);
-            while self.pause_prune_before_intent.load(Ordering::Acquire) {
-                std::thread::yield_now();
-            }
-            self.prune_paused_before_intent
-                .store(false, Ordering::Release);
-        }
-    }
+
     fn build_block_height_index(block_data: &BlockData) -> BlockHeightIndex {
         let Some(entries) = block_data.dense_entries() else {
             return HashMap::new();
@@ -1552,7 +1505,7 @@ impl Kura {
             block_notify_rx: Mutex::new(Some(block_notify_rx)),
             block_plain_text_path: Mutex::new(block_plain_text_path),
             sidecar_lock,
-            sidecar_read_permit,
+            _sidecar_read_permit: sidecar_read_permit,
             pipeline_sidecar_queue: ResidentMutex::new(VecDeque::new(), &resource_inventory),
             pipeline_sidecar_queue_cap: AtomicUsize::new(blocks_in_memory.get()),
             fastpq_proof_queue: ResidentMutex::new(VecDeque::new(), &resource_inventory),
@@ -1613,16 +1566,6 @@ impl Kura {
             #[cfg(test)]
             fail_next_lane_geometry_publication_after_write: AtomicBool::new(false),
             #[cfg(test)]
-            fail_lane_geometry_gc_stage: AtomicUsize::new(0),
-            #[cfg(test)]
-            fail_prune_after_stage: AtomicUsize::new(0),
-            #[cfg(test)]
-            fail_prune_sidecar_promotion_stage: AtomicUsize::new(0),
-            #[cfg(test)]
-            pause_prune_before_intent: AtomicBool::new(false),
-            #[cfg(test)]
-            prune_paused_before_intent: AtomicBool::new(false),
-            #[cfg(test)]
             observe_canonical_reads_after_prune_check: AtomicBool::new(false),
             #[cfg(test)]
             canonical_read_kinds_after_prune_check: AtomicUsize::new(0),
@@ -1632,14 +1575,6 @@ impl Kura {
             geometry_reference_publication_paused: AtomicBool::new(false),
             #[cfg(test)]
             durable_budget_metadata_reads: AtomicUsize::new(0),
-            #[cfg(test)]
-            pause_eviction_after_snapshot: AtomicBool::new(false),
-            #[cfg(test)]
-            eviction_paused_after_snapshot: AtomicBool::new(false),
-            #[cfg(test)]
-            pause_eviction_before_stage_publication: AtomicBool::new(false),
-            #[cfg(test)]
-            eviction_paused_before_stage_publication: AtomicBool::new(false),
             #[cfg(test)]
             pause_block_read_before_cache_recheck: AtomicBool::new(false),
             #[cfg(test)]
@@ -1793,7 +1728,7 @@ impl Kura {
             block_notify_rx: Mutex::new(Some(block_notify_rx)),
             block_plain_text_path: Mutex::new(None),
             sidecar_lock,
-            sidecar_read_permit,
+            _sidecar_read_permit: sidecar_read_permit,
             pipeline_sidecar_queue: ResidentMutex::new(VecDeque::new(), &resource_inventory),
             pipeline_sidecar_queue_cap: AtomicUsize::new(default_pipeline_sidecar_queue_cap()),
             fastpq_proof_queue: ResidentMutex::new(VecDeque::new(), &resource_inventory),
@@ -1849,16 +1784,6 @@ impl Kura {
             #[cfg(test)]
             fail_next_lane_geometry_publication_after_write: AtomicBool::new(false),
             #[cfg(test)]
-            fail_lane_geometry_gc_stage: AtomicUsize::new(0),
-            #[cfg(test)]
-            fail_prune_after_stage: AtomicUsize::new(0),
-            #[cfg(test)]
-            fail_prune_sidecar_promotion_stage: AtomicUsize::new(0),
-            #[cfg(test)]
-            pause_prune_before_intent: AtomicBool::new(false),
-            #[cfg(test)]
-            prune_paused_before_intent: AtomicBool::new(false),
-            #[cfg(test)]
             observe_canonical_reads_after_prune_check: AtomicBool::new(false),
             #[cfg(test)]
             canonical_read_kinds_after_prune_check: AtomicUsize::new(0),
@@ -1868,14 +1793,6 @@ impl Kura {
             geometry_reference_publication_paused: AtomicBool::new(false),
             #[cfg(test)]
             durable_budget_metadata_reads: AtomicUsize::new(0),
-            #[cfg(test)]
-            pause_eviction_after_snapshot: AtomicBool::new(false),
-            #[cfg(test)]
-            eviction_paused_after_snapshot: AtomicBool::new(false),
-            #[cfg(test)]
-            pause_eviction_before_stage_publication: AtomicBool::new(false),
-            #[cfg(test)]
-            eviction_paused_before_stage_publication: AtomicBool::new(false),
             #[cfg(test)]
             pause_block_read_before_cache_recheck: AtomicBool::new(false),
             #[cfg(test)]
@@ -2284,35 +2201,7 @@ impl Kura {
     fn lock_block_store_for_write(&self) -> parking_lot::MutexGuard<'_, ()> {
         self.block_store_write_lock.lock()
     }
-    #[cfg(test)]
-    fn maybe_pause_eviction_after_snapshot_for_tests(&self) {
-        if self
-            .pause_eviction_after_snapshot
-            .swap(false, Ordering::AcqRel)
-        {
-            self.eviction_paused_after_snapshot
-                .store(true, Ordering::Release);
-            while self.eviction_paused_after_snapshot.load(Ordering::Acquire) {
-                std::thread::yield_now();
-            }
-        }
-    }
-    #[cfg(test)]
-    fn maybe_pause_eviction_before_stage_publication_for_tests(&self) {
-        if self
-            .pause_eviction_before_stage_publication
-            .swap(false, Ordering::AcqRel)
-        {
-            self.eviction_paused_before_stage_publication
-                .store(true, Ordering::Release);
-            while self
-                .eviction_paused_before_stage_publication
-                .load(Ordering::Acquire)
-            {
-                std::thread::yield_now();
-            }
-        }
-    }
+
     #[cfg(test)]
     fn maybe_pause_block_read_before_cache_recheck_for_tests(&self) {
         if self
@@ -4843,7 +4732,6 @@ impl Kura {
             ));
         }
         Ok(Some(StableSidecarRead {
-            bytes_hash: Hash::new(bytes.as_ref()),
             bytes,
             metadata: path_after.expect("validated stable sidecar metadata exists"),
         }))
@@ -7300,12 +7188,6 @@ impl Kura {
     }
 }
 impl Kura {
-    fn hash_path_component(hash: &Hash) -> String {
-        Self::fixed_bytes_path_component(hash.as_ref())
-    }
-    fn network_id_path_component(network_id: &iroha_data_model::NetworkId) -> String {
-        Self::fixed_bytes_path_component(network_id.as_bytes())
-    }
     fn fixed_bytes_path_component(bytes: &[u8]) -> String {
         const HEX: &[u8; 16] = b"0123456789abcdef";
         let mut encoded = String::with_capacity(bytes.len().saturating_mul(2));
@@ -10232,7 +10114,7 @@ impl BlockStore {
     ///
     /// # Errors
     /// IO Error.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn write_block_data(
         &mut self,
         start_location_in_data_file: u64,

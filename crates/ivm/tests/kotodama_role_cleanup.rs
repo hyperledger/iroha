@@ -12,7 +12,7 @@ fn load(vm: &mut IVM, program: &[u8], context: &str) {
 }
 fn compile(body: &str) -> Vec<u8> {
     let src = format!(
-        "seiyaku RoleOperation {{ kotoage fn main() authorize(\"ManageRoles\") {{\n{body}\n}} }}"
+        "seiyaku RoleOperation {{ permission ManageRoles;  kotoage fn main() authorize(ManageRoles) {{\n{body}\n}} }}"
     );
     let c = KotodamaCompiler::new();
     c.compile_source(&src).expect("compile")
@@ -45,8 +45,8 @@ fn kotodama_revoke_role_denies_mint() {
     // 1) Bootstrap + create+grant role + initial mint (should succeed)
     let prog_ok = compile(
         r#"
-          ledger::asset::register(asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), name: "ROSE", scale: 0, mintable: 1);
-          ledger::role::create(role: Name::parse("minter"), permissions: Json::parse("{\"perms\":[\"mint_asset:62Fk4FPcMuLvW5QjDGNF2a4jAmjM\"]}"));
+          ledger::asset::register(asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), name: "ROSE", spec: NumericSpec::integer(), mintable: Mintable::Once);
+          ledger::role::register(role: Name::parse("minter"), permissions: Json::parse("{\"perms\":[\"mint_asset:62Fk4FPcMuLvW5QjDGNF2a4jAmjM\"]}"));
           ledger::role::grant(account: context::authority(), role: Name::parse("minter"));
           ledger::asset::mint(account: context::authority(), asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), amount: 1);
     "#,
@@ -80,8 +80,8 @@ fn kotodama_delete_role_prevents_grant() {
     let prog_boot = compile(
         r#"
           ledger::domain::register(domain: DomainId::parse("default.universal"));
-          ledger::asset::register(asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), name: "ROSE", scale: 0, mintable: 1);
-          ledger::role::create(role: Name::parse("minter"), permissions: Json::parse("{\"perms\":[\"mint_asset:62Fk4FPcMuLvW5QjDGNF2a4jAmjM\"]}"));
+          ledger::asset::register(asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), name: "ROSE", spec: NumericSpec::integer(), mintable: Mintable::Once);
+          ledger::role::register(role: Name::parse("minter"), permissions: Json::parse("{\"perms\":[\"mint_asset:62Fk4FPcMuLvW5QjDGNF2a4jAmjM\"]}"));
     "#,
     );
     load(&mut vm, &prog_boot, "bootstrap role program");
@@ -89,7 +89,7 @@ fn kotodama_delete_role_prevents_grant() {
     // Delete role then try to grant it (should fail)
     let prog_delete_then_grant = compile(
         r#"
-          ledger::role::delete(role: Name::parse("minter"));
+          ledger::role::unregister(role: Name::parse("minter"));
           ledger::role::grant(account: AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"), role: Name::parse("minter"));
     "#,
     );
@@ -117,8 +117,8 @@ fn kotodama_delete_role_denied_while_assigned_then_succeeds_after_revoke() {
     let boot = compile(
         r#"
           ledger::domain::register(domain: DomainId::parse("default.universal"));
-          ledger::asset::register(asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), name: "ROSE", scale: 0, mintable: 1);
-          ledger::role::create(role: Name::parse("minter"), permissions: Json::parse("{\"perms\":[\"mint_asset:62Fk4FPcMuLvW5QjDGNF2a4jAmjM\"]}"));
+          ledger::asset::register(asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), name: "ROSE", spec: NumericSpec::integer(), mintable: Mintable::Once);
+          ledger::role::register(role: Name::parse("minter"), permissions: Json::parse("{\"perms\":[\"mint_asset:62Fk4FPcMuLvW5QjDGNF2a4jAmjM\"]}"));
           ledger::role::grant(account: AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"), role: Name::parse("minter"));
     "#,
     );
@@ -126,7 +126,7 @@ fn kotodama_delete_role_denied_while_assigned_then_succeeds_after_revoke() {
     vm.run().expect("boot ok");
     // Attempt to delete role while still assigned -> should be denied
     let del = compile(
-        r#" ledger::role::delete(role: Name::parse("minter"));
+        r#" ledger::role::unregister(role: Name::parse("minter"));
     "#,
     );
     load(&mut vm, &del, "delete assigned role program");
@@ -136,7 +136,7 @@ fn kotodama_delete_role_denied_while_assigned_then_succeeds_after_revoke() {
     let revoke_delete = compile(
         r#"
           ledger::role::revoke(account: AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"), role: Name::parse("minter"));
-          ledger::role::delete(role: Name::parse("minter"));
+          ledger::role::unregister(role: Name::parse("minter"));
     "#,
     );
     load(&mut vm, &revoke_delete, "revoke and delete role program");
@@ -158,8 +158,8 @@ fn kotodama_combined_revoke_then_delete_blocks_grant_and_mint() {
     let boot = compile(
         r#"
           ledger::domain::register(domain: DomainId::parse("default.universal"));
-          ledger::asset::register(asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), name: "ROSE", scale: 0, mintable: 1);
-          ledger::role::create(role: Name::parse("minter"), permissions: Json::parse("{\"perms\":[\"mint_asset:62Fk4FPcMuLvW5QjDGNF2a4jAmjM\"]}"));
+          ledger::asset::register(asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), name: "ROSE", spec: NumericSpec::integer(), mintable: Mintable::Once);
+          ledger::role::register(role: Name::parse("minter"), permissions: Json::parse("{\"perms\":[\"mint_asset:62Fk4FPcMuLvW5QjDGNF2a4jAmjM\"]}"));
           ledger::role::grant(account: AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"), role: Name::parse("minter"));
     "#,
     );
@@ -169,7 +169,7 @@ fn kotodama_combined_revoke_then_delete_blocks_grant_and_mint() {
     let revoke_delete = compile(
         r#"
           ledger::role::revoke(account: AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"), role: Name::parse("minter"));
-          ledger::role::delete(role: Name::parse("minter"));
+          ledger::role::unregister(role: Name::parse("minter"));
     "#,
     );
     load(&mut vm, &revoke_delete, "revoke and delete role program");

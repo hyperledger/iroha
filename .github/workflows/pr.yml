@@ -143,7 +143,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
         with:
           cache: "false"
-          toolchain: "nightly-2025-05-08"
+          toolchain: 1.93.1
           components: "rustfmt"
       - name: Format
         run: cargo fmt --all -- --check
@@ -156,13 +156,17 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
           cache-on-failure: "true"
       - name: Core, simulator, specification traceability and quorums (default seeds)
-        run: cargo test --locked -p iroha_sumeragi --features sim
+        run: env -u SUMERAGI_SIM_SEED -u SUMERAGI_SIM_SEED_BASE -u SUMERAGI_SIM_SEEDS cargo test --locked -p iroha_sumeragi --features sim
       - name: Node driver, lanes and four-validator node tests
-        run: cargo test --locked -p iroha_core --lib -- sumeragi::lanes sumeragi::node sumeragi::driver sumeragi::executor
+        run: env -u SUMERAGI_SIM_SEED -u SUMERAGI_SIM_SEED_BASE -u SUMERAGI_SIM_SEEDS cargo test --locked -p iroha_core --lib -- sumeragi::lanes sumeragi::node sumeragi::driver sumeragi::executor
 
   # The Rust lanes test default features only; this target needs the opt-in
   # `fastpq-replay-measurement` feature. `iroha_measurement` itself is tested by
@@ -228,6 +232,8 @@ jobs:
           cargo test --locked -p ivm --test ivm_group_03 gas_schedule_hash
           cargo run --locked -p ivm --features dev-tools --bin gen_abi_hash_doc -- --check
           cargo test --locked -p ivm --test ivm_group_05 kotodama_checked_arithmetic::
+          cargo run --locked -p ivm --example entrypoint_argument_record_v1_fixture -- --check fixtures/kotodama/entrypoint_argument_record_v1.json
+          cargo test --locked -p ivm --test ivm_group_05 kotodama_argument_record::
           cargo test --locked -p iroha_primitives randomized_decimal_arithmetic_matches_independent_rational_reference
 
   android_fixture_compat:
@@ -306,6 +312,7 @@ jobs:
             scripts/tests/sdk_operation_inventory_test.py \
             scripts/tests/check_compile_unit_budget_test.py \
             scripts/tests/check_generated_artifacts_test.py \
+            scripts/tests/regenerate_kotodama_goldens_test.py \
             scripts/tests/check_nexus_provisioning_templates_test.py \
             scripts/tests/check_zk_delivery_plan_test.py \
             scripts/tests/check_fhe_ownership_map_test.py \
@@ -315,6 +322,7 @@ jobs:
             scripts/tests/check_zk_runtime_validity_test.py \
             scripts/tests/check_zk_feature_parity_test.py \
             scripts/tests/check_zk_operation_inventory_test.py \
+            scripts/tests/check_durable_workflow_contract_test.py \
             scripts/tests/check_zk_economic_invariants_test.py \
             scripts/tests/check_zk_primitive_workloads_test.py \
             scripts/tests/check_state_commitment_candidates_test.py \
@@ -324,6 +332,7 @@ jobs:
           python3 scripts/check_cargo_feature_hygiene.py
           python3 -I -S scripts/check_panic_recovery_boundaries.py
           python3 -I -S scripts/check_release_feature_graph.py
+          python3 -I -S scripts/check_no_vendored_halo2.py
           python3 scripts/check_workspace_target_inventory.py
           python3 scripts/check_compile_time_table_assets.py
           python3 -I -S scripts/check_jni_sdk_android_pairs.py
@@ -335,8 +344,8 @@ jobs:
           python3 -m unittest \
             scripts.tests.connect_gating_fixture_compaction_source_test \
             scripts.tests.developer_executable_retirement_source_test \
-            scripts.tests.halo2_backend_02_compaction_source_test \
-            scripts.tests.halo2_backend_shared_circuit_source_test \
+            scripts.tests.native_prover_retirement_source_test \
+            scripts.tests.check_no_vendored_halo2_test \
             scripts.tests.integration_target_consolidation_source_test \
             scripts.tests.isi_instruction_box_macro_source_test \
             scripts.tests.ivm_vector_metal_compaction_source_test \
@@ -353,6 +362,7 @@ jobs:
           python3 -I -S scripts/check_zk_resource_contract.py
           python3 -I -S scripts/check_zk_runtime_validity.py
           python3 -I -S scripts/check_zk_operation_inventory.py
+          python3 -I -S scripts/check_durable_workflow_contract.py
           python3 -I -S scripts/check_zk_economic_invariants.py
           python3 -I -S scripts/check_zk_primitive_workloads.py
           python3 -I -S scripts/check_state_commitment_candidates.py

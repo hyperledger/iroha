@@ -1,0 +1,161 @@
+module CommitRevealTests {
+    koto_test { target: "20_commit_reveal.ko" }
+
+    fixture players {
+        actor("alice");
+        actor("bob");
+        grant_seiyaku_lifecycle_permission("alice", "hajimari");
+    }
+
+    #[test(fixture = "players")]
+    fn commitment_binds_the_player_and_closes_after_reveal() {
+        test::invoke_kotoage_as(
+            actor: "alice",
+            kotoage: "hajimari",
+            arguments: {
+                commit_until: 10,
+                reveal_until: 20,
+            },
+        );
+        let nonce = b"0123456789abcdef0123456789abcdef";
+        let player = test::actor_account(actor: "alice");
+        let target = test::invoke_kotoage(kotoage: "address", arguments: {});
+        let digest = test::invoke_kotoage(
+            kotoage: "digest_for",
+            arguments: {
+                contract: target,
+                player: player,
+                choice: 7,
+                nonce: nonce,
+            },
+        );
+        let other_a = test::invoke_kotoage(
+            kotoage: "digest_for",
+            arguments: {
+                contract: b"irohac1qyqqqqqqqqqqqq8y2pcrtkxvkrn5nt74kjjkjcst6kc56qcqa2dqp",
+                player: player,
+                choice: 7,
+                nonce: nonce,
+            },
+        );
+        let other_b = test::invoke_kotoage(
+            kotoage: "digest_for",
+            arguments: {
+                contract: b"irohac1qyqqqqqqqqqqqqpze5aq5vfxha4qlvu4q80e0ff4yesw50c37z96q",
+                player: player,
+                choice: 7,
+                nonce: nonce,
+            },
+        );
+        test::assert(other_a != other_b);
+        test::invoke_kotoage_as(actor: "alice", kotoage: "commit", arguments: { digest: digest });
+        test::expect_reject_as(
+            actor: "alice",
+            kotoage: "commit",
+            arguments: { digest: digest },
+            expected: CommitmentError::Duplicate,
+        );
+        test::expect_reject_as(
+            actor: "alice",
+            kotoage: "reveal",
+            arguments: {
+                choice: 7,
+                nonce: nonce,
+            },
+            expected: CommitmentError::RevealClosed,
+        );
+        test::invoke_kotoage_as(actor: "bob", kotoage: "commit", arguments: { digest: digest });
+        test::set_block_height(height: 11);
+        test::expect_reject_as(
+            actor: "bob",
+            kotoage: "reveal",
+            arguments: {
+                choice: 7,
+                nonce: nonce,
+            },
+            expected: CommitmentError::Mismatch,
+        );
+        test::expect_reject_as(
+            actor: "alice",
+            kotoage: "reveal",
+            arguments: {
+                choice: 8,
+                nonce: nonce,
+            },
+            expected: CommitmentError::Mismatch,
+        );
+        test::invoke_kotoage_as(
+            actor: "alice",
+            kotoage: "reveal",
+            arguments: {
+                choice: 7,
+                nonce: nonce,
+            },
+        );
+        test::expect_reject_as(
+            actor: "alice",
+            kotoage: "reveal",
+            arguments: {
+                choice: 7,
+                nonce: nonce,
+            },
+            expected: CommitmentError::Missing,
+        );
+    }
+
+    #[test(fixture = "players")]
+    fn deadlines_and_nonce_bounds_are_enforced() {
+        test::expect_reject_as(
+            actor: "alice",
+            kotoage: "hajimari",
+            arguments: {
+                commit_until: 0,
+                reveal_until: 20,
+            },
+            expected: CommitmentError::InvalidWindow,
+        );
+        test::invoke_kotoage_as(
+            actor: "alice",
+            kotoage: "hajimari",
+            arguments: {
+                commit_until: 10,
+                reveal_until: 20,
+            },
+        );
+        test::expect_reject_as(
+            actor: "alice",
+            kotoage: "commit",
+            arguments: { digest: b"short" },
+            expected: CommitmentError::InvalidDigest,
+        );
+        let player = test::actor_account(actor: "alice");
+        let target = test::invoke_kotoage(kotoage: "address", arguments: {});
+        test::expect_reject_as(
+            actor: "alice",
+            kotoage: "digest_for",
+            arguments: {
+                contract: target,
+                player: player,
+                choice: 7,
+                nonce: b"short",
+            },
+            expected: CommitmentError::InvalidNonce,
+        );
+        test::set_block_height(height: 21);
+        test::expect_reject_as(
+            actor: "alice",
+            kotoage: "commit",
+            arguments: { digest: b"0123456789abcdef0123456789abcdef" },
+            expected: CommitmentError::CommitClosed,
+        );
+        test::expect_reject_as(
+            actor: "alice",
+            kotoage: "reveal",
+            arguments: {
+                choice: 7,
+                nonce: b"0123456789abcdef0123456789abcdef",
+            },
+            expected: CommitmentError::RevealClosed,
+        );
+    }
+}

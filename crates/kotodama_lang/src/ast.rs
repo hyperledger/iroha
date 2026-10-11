@@ -32,6 +32,8 @@ pub struct Program {
     /// The single named source unit declared by this file.
     pub unit: SourceUnit,
     pub items: Vec<Item>,
+    /// Explicit instance permissions and named chain-permission imports.
+    pub permissions: Vec<PermissionDecl>,
     /// Explicit source dependencies in declaration order.
     pub directives: Vec<SourceDirective>,
     /// Declarations explicitly exposed to module consumers.
@@ -40,6 +42,14 @@ pub struct Program {
     pub test_target: Option<TestTargetDecl>,
     /// Optional local test fixtures available to `#[test(...)]` functions.
     pub fixtures: Vec<FixtureDecl>,
+}
+/// A permission name bound explicitly by this seiyaku's source.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct PermissionDecl {
+    /// Local source identifier referenced by authorization and grant operations.
+    pub name: String,
+    /// Explicit chain-global token import; absent for an instance permission.
+    pub chain_permission: Option<String>,
 }
 /// Whether a source file declares a deployable `seiyaku` or a library module.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -68,6 +78,22 @@ pub enum SourceDirectiveKind {
     Include {
         /// Literal path relative to the file containing the directive.
         path: String,
+    },
+    /// Bind a namespace to an authenticated compiled contract interface.
+    ContractImport {
+        /// Literal artifact path resolved only from the owning source inventory.
+        path: String,
+        /// Explicit source namespace for this contract interface.
+        alias: String,
+    },
+    /// Bind one exact public nominal identity from an authenticated contract namespace.
+    ContractTypeImport {
+        /// Complete immutable identity, including package/revision when present.
+        identity: String,
+        /// Previously declared contract namespace.
+        contract: String,
+        /// Local source spelling of this exact type.
+        alias: String,
     },
     /// Import an independently scoped local module.
     Import {
@@ -117,8 +143,8 @@ pub enum FunctionKind {
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct FunctionModifiers {
     pub kind: FunctionKind,
-    /// Optional caller authorization declared with `authorize("Permission")`.
-    pub permission: Option<String>,
+    /// Caller authorization identifier, or the explicit open policy `anyone`.
+    pub authorization: Option<String>,
     /// Marks a function as a local-only Kotodama test.
     pub is_test: bool,
     /// Optional fixture bound to a Kotodama test function.
@@ -129,8 +155,10 @@ pub enum Item {
     Function(Function),
     /// User-defined product type with named fields.
     Struct(StructDef),
-    /// Stable seiyaku error codes used by `require`.
-    ErrorEnum(ErrorEnumDef),
+    /// Contract-owned typed native event payload declaration.
+    Event(StructDef),
+    /// An ordinary data enum or a raisable error enum.
+    Enum(EnumDef),
     /// Seiyaku-level constant declaration.
     Const(ConstDecl),
     /// Seiyaku-level durable state declaration lowered to host-backed state
@@ -251,15 +279,25 @@ pub struct StructDef {
     pub name: String,
     pub fields: Vec<(String, TypeExpr)>,
 }
-/// Declared stable error-code namespace.
+/// One closed, explicitly numbered nominal enum.
 #[derive(Debug, PartialEq, Clone)]
-pub struct ErrorEnumDef {
+pub struct EnumDef {
     pub name: String,
-    pub variants: Vec<ErrorVariant>,
+    /// Whether the variants are data values or raisable failures.
+    pub kind: EnumKind,
+    pub variants: Vec<EnumVariant>,
 }
-/// One explicitly numbered seiyaku error.
+/// The semantic purpose of a nominal enum declaration.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum EnumKind {
+    /// An ordinary data value; never a raisable rejection.
+    Data,
+    /// A raisable failure with optional human-readable variant messages.
+    Error,
+}
+/// One explicitly numbered nominal variant.
 #[derive(Debug, PartialEq, Clone)]
-pub struct ErrorVariant {
+pub struct EnumVariant {
     pub name: String,
     pub code: u32,
     /// Optional bounded static text displayed for this nominal rejection.
@@ -315,7 +353,6 @@ pub struct TriggerDecl {
 /// Trigger callback target.
 #[derive(Debug, PartialEq, Clone)]
 pub struct TriggerCall {
-    pub namespace: Option<String>,
     pub entrypoint: String,
 }
 /// Trigger filter definition.
@@ -377,8 +414,8 @@ pub enum TriggerPipelineFilter {
 pub enum TriggerTimeFilter {
     PreCommit,
     Schedule {
-        start_ms: u64,
-        period_ms: Option<u64>,
+        start_ms: Box<Expr>,
+        period_ms: Option<Box<Expr>>,
     },
 }
 /// Trigger repeat policy.
@@ -437,8 +474,8 @@ pub enum SumVariant {
     OptionNone,
     ResultOk,
     ResultErr,
-    /// A payloadless variant in a nominal error type.
-    Error {
+    /// A payloadless variant in a nominal data or error enum.
+    Nominal {
         namespace: String,
         variant: String,
     },
@@ -529,6 +566,8 @@ pub enum Statement {
         value: Expr,
     },
     Expr(Expr),
+    /// Emit exactly one declared event payload.
+    Emit(Expr),
     Return(Option<Expr>),
     Break,
     Continue,
@@ -571,6 +610,7 @@ impl std::fmt::Debug for Statement {
             Self::Assign { .. } => "Assign(..)",
             Self::AssignExpr { .. } => "AssignExpr(..)",
             Self::Expr(_) => "Expr(..)",
+            Self::Emit(_) => "Emit(..)",
             Self::Return(_) => "Return(..)",
             Self::Break => "Break",
             Self::Continue => "Continue",
@@ -670,6 +710,10 @@ pub enum Expr {
         name: String,
         fields: Vec<StructLiteralField>,
     },
+    /// Closed typed argument record accepted only by test invocation helpers.
+    ArgumentRecord {
+        fields: Vec<StructLiteralField>,
+    },
     /// Field access: `expr.field`
     Member {
         object: Box<Expr>,
@@ -732,6 +776,7 @@ impl std::fmt::Debug for Expr {
                 Self::ResultErr(_) => "ResultErr(..)",
                 Self::Propagate(_) => "Propagate(..)",
                 Self::Call { .. } => "Call(..)",
+                Self::ArgumentRecord { .. } => "ArgumentRecord(..)",
                 Self::StructLiteral { .. } => "StructLiteral(..)",
                 Self::Member { .. } => "Member(..)",
                 Self::Index { .. } => "Index(..)",
@@ -834,7 +879,7 @@ enum CloneExpr<'a> {
         argument_count: usize,
     },
     StructLiteral {
-        name: &'a str,
+        name: Option<&'a str>,
         fields: &'a [StructLiteralField],
     },
     Member(&'a str),
@@ -858,6 +903,7 @@ enum CloneStatement<'a> {
     Assign(&'a str),
     AssignExpr(AssignOp),
     Expr,
+    Emit,
     Return,
     If {
         has_else: bool,
@@ -1121,7 +1167,19 @@ fn clone_ast_node(root: CloneNode<'_>) -> CloneValue {
                 }
                 Expr::StructLiteral { name, fields } => {
                     tasks.push(CloneTask::BuildExpr(CloneExpr::StructLiteral {
-                        name,
+                        name: Some(name),
+                        fields,
+                    }));
+                    tasks.extend(
+                        fields
+                            .iter()
+                            .rev()
+                            .map(|field| CloneTask::Visit(CloneNode::Expr(&field.value))),
+                    );
+                }
+                Expr::ArgumentRecord { fields } => {
+                    tasks.push(CloneTask::BuildExpr(CloneExpr::StructLiteral {
+                        name: None,
                         fields,
                     }));
                     tasks.extend(
@@ -1243,6 +1301,10 @@ fn clone_ast_node(root: CloneNode<'_>) -> CloneValue {
                     tasks.push(CloneTask::BuildStatement(CloneStatement::AssignExpr(*op)));
                     tasks.push(CloneTask::Visit(CloneNode::Expr(value)));
                     tasks.push(CloneTask::Visit(CloneNode::Expr(target)));
+                }
+                Statement::Emit(expression) => {
+                    tasks.push(CloneTask::BuildStatement(CloneStatement::Emit));
+                    tasks.push(CloneTask::Visit(CloneNode::Expr(expression)));
                 }
                 Statement::Expr(expression) => {
                     tasks.push(CloneTask::BuildStatement(CloneStatement::Expr));
@@ -1428,17 +1490,23 @@ fn clone_ast_node(root: CloneNode<'_>) -> CloneValue {
                         argument_names: argument_names.clone(),
                         implicit_receiver,
                     },
-                    CloneExpr::StructLiteral { name, fields } => Expr::StructLiteral {
-                        name: name.to_owned(),
-                        fields: fields
+                    CloneExpr::StructLiteral { name, fields } => {
+                        let fields = fields
                             .iter()
                             .map(|field| StructLiteralField {
                                 name: field.name.clone(),
                                 value: children.next().unwrap().into_expr(),
                                 shorthand: field.shorthand,
                             })
-                            .collect(),
-                    },
+                            .collect();
+                        match name {
+                            Some(name) => Expr::StructLiteral {
+                                name: name.to_owned(),
+                                fields,
+                            },
+                            None => Expr::ArgumentRecord { fields },
+                        }
+                    }
                     CloneExpr::Member(field) => Expr::Member {
                         object: Box::new(children.next().unwrap().into_expr()),
                         field: field.to_owned(),
@@ -1486,6 +1554,7 @@ fn clone_ast_node(root: CloneNode<'_>) -> CloneValue {
                     | CloneStatement::Resolved(..)
                     | CloneStatement::Assign(..)
                     | CloneStatement::Expr
+                    | CloneStatement::Emit
                     | CloneStatement::Return => 1,
                     CloneStatement::Let { has_type, .. } => 1 + usize::from(*has_type),
                     CloneStatement::AssignExpr(..) | CloneStatement::While => 2,
@@ -1534,6 +1603,7 @@ fn clone_ast_node(root: CloneNode<'_>) -> CloneValue {
                         value: children.next().unwrap().into_expr(),
                     },
                     CloneStatement::Expr => Statement::Expr(children.next().unwrap().into_expr()),
+                    CloneStatement::Emit => Statement::Emit(children.next().unwrap().into_expr()),
                     CloneStatement::Return => {
                         Statement::Return(Some(children.next().unwrap().into_expr()))
                     }
@@ -1819,7 +1889,8 @@ fn ast_nodes_equal(root: CompareNode<'_>) -> bool {
                     pending.push(CompareNode::Expr(left_value, right_value));
                     pending.push(CompareNode::Expr(left_target, right_target));
                 }
-                (Statement::Expr(left), Statement::Expr(right)) => {
+                (Statement::Expr(left), Statement::Expr(right))
+                | (Statement::Emit(left), Statement::Emit(right)) => {
                     pending.push(CompareNode::Expr(left, right));
                 }
                 (Statement::Return(left), Statement::Return(right)) => match (left, right) {
@@ -2145,6 +2216,29 @@ fn ast_nodes_equal(root: CompareNode<'_>) -> bool {
                 ) => {
                     if left_name != right_name
                         || left_fields.len() != right_fields.len()
+                        || left_fields.iter().zip(right_fields).any(|(left, right)| {
+                            left.name != right.name || left.shorthand != right.shorthand
+                        })
+                    {
+                        return false;
+                    }
+                    pending.extend(
+                        left_fields
+                            .iter()
+                            .zip(right_fields)
+                            .rev()
+                            .map(|(left, right)| CompareNode::Expr(&left.value, &right.value)),
+                    );
+                }
+                (
+                    Expr::ArgumentRecord {
+                        fields: left_fields,
+                    },
+                    Expr::ArgumentRecord {
+                        fields: right_fields,
+                    },
+                ) => {
+                    if left_fields.len() != right_fields.len()
                         || left_fields.iter().zip(right_fields).any(|(left, right)| {
                             left.name != right.name || left.shorthand != right.shorthand
                         })
@@ -2652,7 +2746,7 @@ fn transform_program_provenance(program: &mut Program, action: ProvenanceAction)
                 }
                 push_block(&mut function.body, &mut pending);
             }
-            Item::Struct(definition) => {
+            Item::Struct(definition) | Item::Event(definition) => {
                 pending.extend(
                     definition
                         .fields
@@ -2667,13 +2761,23 @@ fn transform_program_provenance(program: &mut Program, action: ProvenanceAction)
                 pending.push(Pending::Expr(&mut declaration.value));
             }
             Item::State(declaration) => pending.push(Pending::Type(&mut declaration.ty)),
-            Item::Trigger(declaration) => pending.extend(
-                declaration
-                    .metadata
-                    .iter_mut()
-                    .map(|entry| Pending::Expr(&mut entry.value)),
-            ),
-            Item::ErrorEnum(_) => {}
+            Item::Trigger(declaration) => {
+                pending.extend(
+                    declaration
+                        .metadata
+                        .iter_mut()
+                        .map(|entry| Pending::Expr(&mut entry.value)),
+                );
+                if let TriggerFilter::Time(TriggerTimeFilter::Schedule {
+                    start_ms,
+                    period_ms,
+                }) = &mut declaration.filter
+                {
+                    pending.push(Pending::Expr(start_ms));
+                    pending.extend(period_ms.iter_mut().map(|value| Pending::Expr(value)));
+                }
+            }
+            Item::Enum(_) => {}
         }
     }
     for fixture in &mut program.fixtures {
@@ -2713,7 +2817,9 @@ fn transform_program_provenance(program: &mut Program, action: ProvenanceAction)
                         }
                         pending.push(Pending::Expr(value));
                     }
-                    Statement::Assign { value, .. } | Statement::Expr(value) => {
+                    Statement::Assign { value, .. }
+                    | Statement::Expr(value)
+                    | Statement::Emit(value) => {
                         pending.push(Pending::Expr(value));
                     }
                     Statement::AssignExpr { target, value, .. } => {
@@ -2851,11 +2957,12 @@ fn transform_program_provenance(program: &mut Program, action: ProvenanceAction)
                         pending.push(Pending::Expr(condition));
                     }
                 }
-                Expr::StructLiteral { fields, .. } => pending.extend(
-                    fields
-                        .iter_mut()
-                        .map(|field| Pending::Expr(&mut field.value)),
-                ),
+                Expr::StructLiteral { fields, .. } | Expr::ArgumentRecord { fields } => pending
+                    .extend(
+                        fields
+                            .iter_mut()
+                            .map(|field| Pending::Expr(&mut field.value)),
+                    ),
                 Expr::JsonObject(entries) => pending.extend(
                     entries
                         .iter_mut()
@@ -2945,13 +3052,26 @@ fn expression_depth_violation_impl(
                     push_expression(&declaration.value, source_unit_depth, &mut pending)
                 }
                 Item::Trigger(declaration) => {
+                    if let TriggerFilter::Time(TriggerTimeFilter::Schedule {
+                        start_ms,
+                        period_ms,
+                    }) = &declaration.filter
+                    {
+                        for value in std::iter::once(start_ms).chain(period_ms) {
+                            push_expression(
+                                value,
+                                source_unit_depth.saturating_add(2),
+                                &mut pending,
+                            );
+                        }
+                    }
                     // Metadata values sit inside both the trigger and metadata braces.
                     let metadata_depth = source_unit_depth.saturating_add(2);
                     for entry in &declaration.metadata {
                         push_expression(&entry.value, metadata_depth, &mut pending);
                     }
                 }
-                Item::Struct(_) | Item::ErrorEnum(_) | Item::State(_) => {}
+                Item::Struct(_) | Item::Event(_) | Item::Enum(_) | Item::State(_) => {}
             }
         }
         // Fixture arguments sit inside the fixture braces and action parentheses.
@@ -3006,7 +3126,8 @@ fn expression_depth_violation_impl(
                 }
                 Statement::Let { value, .. }
                 | Statement::Assign { value, .. }
-                | Statement::Expr(value) => {
+                | Statement::Expr(value)
+                | Statement::Emit(value) => {
                     push_expression(value, block_depth, &mut pending);
                 }
                 Statement::AssignExpr { target, value, .. } => {
@@ -3196,7 +3317,7 @@ fn expression_depth_violation_impl(
                         push_expression(condition, child_depth, &mut pending);
                     }
                 }
-                Expr::StructLiteral { fields, .. } => {
+                Expr::StructLiteral { fields, .. } | Expr::ArgumentRecord { fields } => {
                     let child_depth = depth.saturating_add(1);
                     for field in fields {
                         push_expression(&field.value, child_depth, &mut pending);
@@ -3261,6 +3382,7 @@ pub(crate) fn drop_program_iterative(program: Program) {
     let Program {
         unit: _,
         items,
+        permissions: _,
         test_target: _,
         fixtures,
         directives: _,
@@ -3280,7 +3402,7 @@ pub(crate) fn drop_program_iterative(program: Program) {
                 pending.extend(function.ret_ty.into_iter().map(Pending::Type));
                 push_block(function.body, &mut pending);
             }
-            Item::Struct(definition) => pending.extend(
+            Item::Struct(definition) | Item::Event(definition) => pending.extend(
                 definition
                     .fields
                     .into_iter()
@@ -3291,13 +3413,23 @@ pub(crate) fn drop_program_iterative(program: Program) {
                 pending.push(Pending::Expr(declaration.value));
             }
             Item::State(declaration) => pending.push(Pending::Type(declaration.ty)),
-            Item::Trigger(declaration) => pending.extend(
-                declaration
-                    .metadata
-                    .into_iter()
-                    .map(|entry| Pending::Expr(entry.value)),
-            ),
-            Item::ErrorEnum(_) => {}
+            Item::Trigger(declaration) => {
+                pending.extend(
+                    declaration
+                        .metadata
+                        .into_iter()
+                        .map(|entry| Pending::Expr(entry.value)),
+                );
+                if let TriggerFilter::Time(TriggerTimeFilter::Schedule {
+                    start_ms,
+                    period_ms,
+                }) = declaration.filter
+                {
+                    pending.push(Pending::Expr(*start_ms));
+                    pending.extend(period_ms.into_iter().map(|value| Pending::Expr(*value)));
+                }
+            }
+            Item::Enum(_) => {}
         }
     }
     for fixture in fixtures {
@@ -3324,7 +3456,9 @@ pub(crate) fn drop_program_iterative(program: Program) {
                     pending.extend(ty.into_iter().map(Pending::Type));
                     pending.push(Pending::Expr(value));
                 }
-                Statement::Assign { value, .. } | Statement::Expr(value) => {
+                Statement::Assign { value, .. }
+                | Statement::Expr(value)
+                | Statement::Emit(value) => {
                     pending.push(Pending::Expr(value));
                 }
                 Statement::AssignExpr { target, value, .. } => {
@@ -3462,7 +3596,7 @@ pub(crate) fn drop_program_iterative(program: Program) {
                     pending.push(Pending::Expr(*source));
                     pending.extend(condition.map(|condition| Pending::Expr(*condition)));
                 }
-                Expr::StructLiteral { fields, .. } => {
+                Expr::StructLiteral { fields, .. } | Expr::ArgumentRecord { fields } => {
                     pending.extend(fields.into_iter().map(|field| Pending::Expr(field.value)))
                 }
                 Expr::Bool(_)
@@ -3493,6 +3627,7 @@ pub(crate) fn drop_expression_iterative(expression: Expr) {
         })],
         directives: Vec::new(),
         exports: Vec::new(),
+        permissions: Vec::new(),
         test_target: None,
         fixtures: Vec::new(),
     });
@@ -3537,6 +3672,7 @@ pub(crate) fn drop_block_iterative(block: Block) {
         })],
         directives: Vec::new(),
         exports: Vec::new(),
+        permissions: Vec::new(),
         test_target: None,
         fixtures: Vec::new(),
     });
@@ -3616,6 +3752,7 @@ mod provenance_tests {
             items,
             directives: Vec::new(),
             exports: Vec::new(),
+            permissions: Vec::new(),
             test_target: None,
             fixtures: Vec::new(),
         };
@@ -3724,6 +3861,7 @@ mod provenance_tests {
                         ],
                         directives: Vec::new(),
                         exports: Vec::new(),
+                        permissions: Vec::new(),
                         test_target: None,
                         fixtures: Vec::new(),
                     });
@@ -3778,6 +3916,7 @@ mod provenance_tests {
             })],
             directives: Vec::new(),
             exports: Vec::new(),
+            permissions: Vec::new(),
             test_target: None,
             fixtures: Vec::new(),
         }

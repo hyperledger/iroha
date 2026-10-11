@@ -64,16 +64,16 @@ mod tests {
         let lane_bindings: Vec<_> = lanes
             .lanes()
             .iter()
-            .map(|lane| (lane.alias.as_str(), lane.dataspace_id))
+            .map(|lane| (lane.alias.as_str(), lane.dataspace_id, lane.visibility))
             .collect();
         assert_eq!(
             lane_bindings,
             [
-                ("core", DataSpaceId::UNIVERSAL),
-                ("governance", DataSpaceId::UNIVERSAL),
-                ("zk", DataSpaceId::UNIVERSAL),
+                ("core", DataSpaceId::UNIVERSAL, LaneVisibility::Public),
+                ("governance", DataSpaceId::UNIVERSAL, LaneVisibility::Public),
+                ("zk", DataSpaceId::UNIVERSAL, LaneVisibility::Public),
             ],
-            "logical governance and zk lanes must not manufacture physical dataspaces"
+            "logical governance and zk lanes must keep universal's public disclosure class"
         );
 
         let dataspaces = sora_dataspace_catalog();
@@ -778,64 +778,6 @@ mod tests {
             iroha_data_model::block::consensus::RECOMMENDED_NEXUS_AMX_CONTEXT_HASH,
             "data-model genesis defaults must track the canonical config projection",
         );
-        assert_eq!(
-            sumeragi_nexus_amx_context_hash_with_catalog_policy(
-                &Nexus::default(),
-                &Pipeline::default(),
-                &[],
-                &[],
-                None,
-            ),
-            hash,
-            "absence of a committed catalog policy preserves the original context projection"
-        );
-    }
-    #[test]
-    fn sumeragi_nexus_amx_hash_binds_committed_catalog_policy() {
-        let nexus = Nexus::default();
-        let pipeline = Pipeline::default();
-        let baseline = sumeragi_nexus_amx_context_hash(&nexus, &pipeline, &[], &[]);
-        let root = Hash::new(b"first committed catalog with exact four-validator manifest");
-        let changed_root = Hash::new(b"changed committed manifest authority");
-        let committed = sumeragi_nexus_amx_context_hash_with_catalog_policy(
-            &nexus,
-            &pipeline,
-            &[],
-            &[],
-            Some(root),
-        );
-        assert_ne!(
-            committed, baseline,
-            "the authorization root is consensus-relevant"
-        );
-        assert_ne!(
-            committed,
-            sumeragi_nexus_amx_context_hash_with_catalog_policy(
-                &nexus,
-                &pipeline,
-                &[],
-                &[],
-                Some(changed_root),
-            ),
-            "same geometry with different manifest policy cannot share a height context"
-        );
-        let mut changed_geometry = nexus.clone();
-        changed_geometry.dataspace_catalog = DataSpaceCatalog::new(vec![DataSpaceMetadata {
-            fault_tolerance: 2,
-            ..DataSpaceMetadata::default()
-        }])
-        .expect("valid changed geometry");
-        assert_ne!(
-            committed,
-            sumeragi_nexus_amx_context_hash_with_catalog_policy(
-                &changed_geometry,
-                &pipeline,
-                &[],
-                &[],
-                Some(root),
-            ),
-            "the committed root supplements the complete effective geometry projection"
-        );
     }
     #[test]
     fn sumeragi_nexus_amx_hash_canonicalizes_dataspace_catalog_order() {
@@ -978,7 +920,6 @@ mod tests {
             activation_height: 1,
             election_exit_height: None,
             deactivation_height: None,
-            last_reward_epoch: None,
         };
         ((lane, validator), record)
     }
@@ -1152,6 +1093,269 @@ mod tests {
                 &[second_lifecycle, first_lifecycle],
             ),
             "retained lane-lineage input order must not affect the context commitment"
+        );
+    }
+    /// SNS-derived identity of a fresh Taira participant dataspace.
+    fn taira_dataspace_id(alias: &str) -> DataSpaceId {
+        DataSpaceId::from_hash(
+            &iroha_data_model::sns::NameSelectorV1::new(
+                iroha_data_model::sns::DATASPACE_ALIAS_SUFFIX_ID,
+                alias,
+            )
+            .expect("static Taira dataspace alias")
+            .name_hash(),
+        )
+    }
+    fn taira_lane(
+        id: u32,
+        alias: &str,
+        dataspace: DataSpaceId,
+        visibility: LaneVisibility,
+    ) -> LaneConfigMetadata {
+        LaneConfigMetadata {
+            id: LaneId::new(id),
+            dataspace_id: dataspace,
+            alias: alias.to_owned(),
+            description: Some(format!("{alias} lane")),
+            visibility,
+            governance: (visibility == LaneVisibility::Restricted).then(|| "parliament".to_owned()),
+            storage: LaneStorageProfile::FullReplica,
+            ..LaneConfigMetadata::default()
+        }
+    }
+    /// The fresh eight-lane Taira catalog shape: universal core/governance/zk lanes, Restricted
+    /// participant lanes and the Public `bpng` lane 5 with no account route.
+    pub(super) fn taira_eight_lane_nexus() -> Nexus {
+        let participants = [
+            (3, "dpn", LaneVisibility::Restricted),
+            (4, "is2", LaneVisibility::Restricted),
+            (5, "bpng", LaneVisibility::Public),
+            (6, "cbsi", LaneVisibility::Restricted),
+            (7, "is", LaneVisibility::Restricted),
+        ];
+        let mut lanes = vec![
+            taira_lane(0, "core", DataSpaceId::UNIVERSAL, LaneVisibility::Public),
+            taira_lane(
+                1,
+                "governance",
+                DataSpaceId::UNIVERSAL,
+                LaneVisibility::Public,
+            ),
+            taira_lane(2, "zk", DataSpaceId::UNIVERSAL, LaneVisibility::Public),
+        ];
+        let mut dataspaces = vec![DataSpaceMetadata {
+            fault_tolerance: 1,
+            ..DataSpaceMetadata::default()
+        }];
+        let mut rules = vec![
+            LaneRoutingRule {
+                lane: LaneId::new(1),
+                dataspace: Some(DataSpaceId::UNIVERSAL),
+                matcher: LaneRoutingMatcher {
+                    instruction: Some("governance".to_owned()),
+                    ..LaneRoutingMatcher::default()
+                },
+            },
+            LaneRoutingRule {
+                lane: LaneId::new(2),
+                dataspace: Some(DataSpaceId::UNIVERSAL),
+                matcher: LaneRoutingMatcher {
+                    instruction: Some("smartcontract::deploy".to_owned()),
+                    ..LaneRoutingMatcher::default()
+                },
+            },
+        ];
+        for (index, alias, visibility) in participants {
+            let id = taira_dataspace_id(alias);
+            lanes.push(taira_lane(index, alias, id, visibility));
+            dataspaces.push(DataSpaceMetadata {
+                id,
+                alias: alias.to_owned(),
+                description: Some(format!("{alias} dataspace")),
+                fault_tolerance: 1,
+            });
+            if visibility == LaneVisibility::Restricted {
+                rules.push(LaneRoutingRule {
+                    lane: LaneId::new(index),
+                    dataspace: Some(id),
+                    matcher: LaneRoutingMatcher {
+                        account: Some(format!("*@{alias}")),
+                        ..LaneRoutingMatcher::default()
+                    },
+                });
+            }
+        }
+        let lane_catalog =
+            LaneCatalog::new(NonZeroU32::new(8).expect("eight lanes"), lanes).expect("lanes");
+        Nexus {
+            lane_catalog: lane_catalog.clone(),
+            configured_lane_catalog: lane_catalog,
+            dataspace_catalog: DataSpaceCatalog::new(dataspaces.clone()).expect("dataspaces"),
+            configured_dataspace_catalog: DataSpaceCatalog::new(dataspaces).expect("dataspaces"),
+            routing_policy: LaneRoutingPolicy {
+                default_lane: LaneId::SINGLE,
+                default_dataspace: DataSpaceId::UNIVERSAL,
+                rules,
+            },
+            ..Nexus::default()
+        }
+    }
+    /// The universal three-lane Sora shape (core, governance, zk).
+    pub(super) fn sora_three_lane_nexus() -> Nexus {
+        let lanes = ["core", "governance", "zk"]
+            .into_iter()
+            .zip(0..)
+            .map(|(alias, id)| {
+                taira_lane(id, alias, DataSpaceId::UNIVERSAL, LaneVisibility::Public)
+            })
+            .collect();
+        let lane_catalog =
+            LaneCatalog::new(NonZeroU32::new(3).expect("three lanes"), lanes).expect("lanes");
+        Nexus {
+            lane_catalog: lane_catalog.clone(),
+            configured_lane_catalog: lane_catalog,
+            ..Nexus::default()
+        }
+    }
+    pub(super) fn golden_validators() -> Vec<GenesisActiveNexusLaneRecord> {
+        vec![
+            test_active_validator(0xB1, LaneId::new(5)),
+            test_active_validator(0xB2, LaneId::SINGLE),
+        ]
+    }
+    pub(super) fn golden_lineage() -> Vec<SumeragiLaneLifecycleEntry> {
+        (0..8_u8)
+            .map(|lane| SumeragiLaneLifecycleEntry {
+                lane_id: LaneId::new(u32::from(lane)),
+                generation: u64::from(lane % 2),
+                incarnation: Hash::new([lane; 4]),
+                activation_height: 1,
+            })
+            .collect()
+    }
+    #[test]
+    fn sumeragi_nexus_amx_context_golden_hashes_are_stable() {
+        let pipeline = Pipeline::default();
+        let taira = taira_eight_lane_nexus();
+        assert_eq!(
+            taira_dataspace_id("bpng"),
+            DataSpaceId::new(8_648_377_547_929_788_715),
+            "the fresh BPNG identity is the SNS dataspace-alias name hash"
+        );
+        let cases = [
+            (
+                "default",
+                sumeragi_nexus_amx_context_hash(&Nexus::default(), &pipeline, &[], &[]),
+                "b8c9897f84a0fd3162c821e06afdd659466c3ca3193d7853b76e819e840d2a4b",
+            ),
+            (
+                "sora",
+                sumeragi_nexus_amx_context_hash(
+                    &sora_three_lane_nexus(),
+                    &pipeline,
+                    &golden_validators(),
+                    &golden_lineage()[..3],
+                ),
+                "526e7486a0a927e0776af575a5576d73adaf0cae23b0f6f0289a35816971ee99",
+            ),
+            (
+                "taira",
+                sumeragi_nexus_amx_context_hash(
+                    &taira,
+                    &pipeline,
+                    &golden_validators(),
+                    &golden_lineage(),
+                ),
+                "626765bc4d99624cbf703f4ef7fb00eec983cf111d8e65f77dda41a8898f446b",
+            ),
+        ];
+        let mut failures = Vec::new();
+        for (label, hash, expected) in cases {
+            let actual = hex::encode(hash.as_ref());
+            if actual != expected {
+                failures.push(format!("{label}={actual}"));
+            }
+        }
+        assert!(failures.is_empty(), "golden hashes differ: {failures:?}");
+    }
+    #[test]
+    fn sumeragi_nexus_amx_context_preimage_decodes_to_the_projected_catalog() {
+        use iroha_data_model::nexus::decode_nexus_amx_context_v1;
+        let pipeline = Pipeline::default();
+        for (label, nexus, validators, lineage) in [
+            ("default", Nexus::default(), Vec::new(), Vec::new()),
+            (
+                "sora",
+                sora_three_lane_nexus(),
+                golden_validators(),
+                golden_lineage()[..3].to_vec(),
+            ),
+            (
+                "taira",
+                taira_eight_lane_nexus(),
+                golden_validators(),
+                golden_lineage(),
+            ),
+        ] {
+            let preimage =
+                sumeragi_nexus_amx_context_preimage(&nexus, &pipeline, &validators, &lineage);
+            assert_eq!(
+                Hash::new(&preimage),
+                sumeragi_nexus_amx_context_hash(&nexus, &pipeline, &validators, &lineage),
+                "{label}: the hash is the hash of the preimage"
+            );
+            let catalog = decode_nexus_amx_context_v1(&preimage)
+                .unwrap_or_else(|error| panic!("{label}: {error}"));
+            let (lane_count, lanes) = nexus.lane_catalog.consensus_projection();
+            assert_eq!(catalog.lane_count(), lane_count, "{label}");
+            assert_eq!(catalog.lanes(), lanes.as_slice(), "{label}");
+            assert_eq!(
+                catalog.dataspaces().len(),
+                nexus.dataspace_catalog.entries().len(),
+                "{label}"
+            );
+            assert_eq!(
+                catalog.rules().len(),
+                nexus.routing_policy.rules.len(),
+                "{label}"
+            );
+            assert_eq!(
+                (
+                    catalog.autoscale().enabled(),
+                    catalog.autoscale().min_lane_id(),
+                    catalog.autoscale().max_lane_id_exclusive()
+                ),
+                (
+                    nexus.autoscale.enabled,
+                    nexus.autoscale.min_lane_id.get(),
+                    nexus.autoscale.max_lane_id_exclusive.get()
+                ),
+                "{label}"
+            );
+        }
+        let taira = taira_eight_lane_nexus();
+        let catalog = decode_nexus_amx_context_v1(&sumeragi_nexus_amx_context_preimage(
+            &taira,
+            &pipeline,
+            &[],
+            &[],
+        ))
+        .expect("taira catalog");
+        let bpng = catalog.lane(LaneId::new(5)).expect("bpng lane");
+        assert_eq!(
+            (bpng.alias(), bpng.dataspace_id(), bpng.visibility()),
+            (
+                "bpng",
+                DataSpaceId::new(8_648_377_547_929_788_715),
+                LaneVisibility::Public
+            )
+        );
+        assert!(
+            catalog
+                .rules()
+                .iter()
+                .all(|rule| rule.lane() != LaneId::new(5)),
+            "the fresh Taira catalog routes bpng by target dataspace only"
         );
     }
 }

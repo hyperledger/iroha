@@ -38,7 +38,7 @@ path = "tests/integration.rs"
 [features]
 default = []
 dev-tools = ["iroha_torii/test-fixtures"]
-dev-vote-fixture = ["dep:halo2_proofs", "iroha_core/zk-halo2-ipa"]
+dev-vote-fixture = ["dep:iroha_pasta", "dep:iroha_plonk", "dep:ff"]
 
 [dependencies]
 iroha_model_base = { workspace = true }
@@ -75,7 +75,9 @@ fastpq_isi = { path = "../crates/fastpq_isi" }
 arrow-array = { version = "53.4.1", default-features = false }
 arrow-schema = { version = "53.4.1", default-features = false }
 parquet = { version = "53.4.1", default-features = false, features = ["arrow"] }
-halo2_proofs = { version = "0.5.1", package = "halo2-axiom", features = ["batch", "multicore"], optional = true }
+iroha_pasta = { workspace = true, optional = true }
+iroha_plonk = { workspace = true, optional = true }
+ff = { version = "0.13.1", optional = true }
 rand_chacha = "0.9.0"
 rand = { version = "0.9.2", features = ["std", "std_rng"] }
 rand_distr = "0.5.1"

@@ -1474,14 +1474,15 @@ fn remote_spend_claim_rejects_alias_account_text() {
     ));
 }
 #[test]
-fn canonical_remote_account_returns_error_when_rendering_exceeds_inherited_budget() {
+fn canonical_remote_account_preserves_enclosing_parse_allocation_budget() {
     let literal = iroha_test_samples::ALICE_ID.canonical_i105().unwrap();
     let unrestricted =
         norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 32);
     let (parsed, usage) = norito::core::with_decode_limits_measured(unrestricted, || {
         AccountId::parse_encoded(&literal)
     });
-    assert!(parsed.is_ok());
+    let expected = parsed.expect("canonical account parses");
+    assert!(usage.total_allocated_bytes() > 0);
     let exact_parse = norito::DecodeLimits::new(
         usize::MAX,
         usize::MAX,
@@ -1496,10 +1497,21 @@ fn canonical_remote_account_returns_error_when_rendering_exceeds_inherited_budge
     let result = norito::core::with_decode_limits_scope(exact_parse, || {
         canonical_remote_account(&literal, "from")
     });
-    assert!(
-        matches!(result, Err(Error::InvalidAxtBinding { details }) if details == "remote-spend from account canonicalization failed")
+    assert_eq!(
+        result.expect("exact inbound parse budget is sufficient"),
+        expected
     );
-    assert!(canonical_remote_account(&literal, "from").is_ok());
+    let exhausted = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 32);
+    let rejected = norito::core::with_decode_limits_scope(exhausted, || {
+        canonical_remote_account(&literal, "from")
+    });
+    assert!(
+        matches!(rejected, Err(Error::InvalidAxtBinding { details }) if details.contains("is not canonical I105"))
+    );
+    assert_eq!(
+        canonical_remote_account(&literal, "from").unwrap(),
+        expected
+    );
 }
 
 #[test]

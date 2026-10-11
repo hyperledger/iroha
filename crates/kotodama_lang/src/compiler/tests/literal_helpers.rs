@@ -6,10 +6,10 @@ use super::{Compiler, CompilerOptions};
 fn private_literal_helpers_emit_the_exact_direct_literal_artifact() {
     for (kind, value) in [("int", "-19"), ("decimal", "12.5"), ("quantity", "0")] {
         let helper = format!(
-            "seiyaku LiteralFold {{ fn literal() -> {kind} {{ let {kind} value = {value}; return value; }} view fn read() -> {kind} {{ return literal(); }} }}"
+            "seiyaku LiteralFold {{ fn literal() -> {kind} {{ let {kind} value = {value}; return value; }} view fn read() authorize(anyone) -> {kind} {{ return literal(); }} }}"
         );
         let direct = format!(
-            "seiyaku LiteralFold {{ view fn read() -> {kind} {{ let {kind} value = {value}; return value; }} }}"
+            "seiyaku LiteralFold {{ view fn read() authorize(anyone) -> {kind} {{ let {kind} value = {value}; return value; }} }}"
         );
         let (artifact, manifest, report) = Compiler::new()
             .compile_source_with_manifest_and_report(&helper)
@@ -41,9 +41,9 @@ fn private_literal_helpers_emit_the_exact_direct_literal_artifact() {
 fn literal_folding_retains_public_roots_and_context_reading_helpers() {
     let source = r#"
 seiyaku LiteralRoots {
-    view fn public_zero() -> quantity { let quantity zero = 0; return zero; }
+    view fn public_zero() authorize(anyone) -> quantity { let quantity zero = 0; return zero; }
     fn private_authority() -> AccountId { return context::authority(); }
-    view fn owner() -> AccountId { return private_authority(); }
+    view fn owner() authorize(anyone) -> AccountId { return private_authority(); }
 }
 "#;
     // Compare the exact same source through both forms of the current compiler.
@@ -103,7 +103,7 @@ fn literal_candidates_exclude_attributes_parameters_and_secret_types() {
         ir::DataRefKind,
         semantic::{Type, TypedItem},
     };
-    let parsed = crate::parser::parse("seiyaku Candidates { fn literal() -> quantity { let quantity value = 0; return value; } view fn read() -> quantity { return literal(); } }").expect("parse");
+    let parsed = crate::parser::parse("seiyaku Candidates { fn literal() -> quantity { let quantity value = 0; return value; } view fn read() authorize(anyone) -> quantity { return literal(); } }").expect("parse");
     let typed = crate::semantic::analyze(&parsed).expect("analyze");
     let expected =
         std::collections::BTreeMap::from([("literal".to_owned(), DataRefKind::Quantity)]);
@@ -121,7 +121,7 @@ fn literal_candidates_exclude_attributes_parameters_and_secret_types() {
             .unwrap();
         match exclude {
             0 => function.modifiers.kind = FunctionKind::View,
-            1 => function.modifiers.permission = Some("CanInspect".to_owned()),
+            1 => function.modifiers.authorization = Some("CanInspect".to_owned()),
             2 => function.modifiers.is_test = true,
             3 => function.modifiers.test_fixture = Some("fixture".to_owned()),
             4 => function.params.push("argument".to_owned()),
@@ -143,15 +143,14 @@ fn literal_candidates_exclude_attributes_parameters_and_secret_types() {
     }
     // Source validation is still authoritative; the conservative metadata guard
     // is not a new way to admit private authorization or public direct calls.
-    let error = Compiler::new().compile_source("seiyaku Invalid { fn value() -> int authorize(\"CanInspect\") { return 0; } view fn read() -> int { return value(); } }").expect_err("private authorization rejected before optimization");
+    let error = Compiler::new().compile_source("seiyaku Invalid { permission CanInspect;  fn value() -> int authorize(CanInspect) { return 0; } view fn read() authorize(anyone) -> int { return value(); } }").expect_err("private authorization rejected before optimization");
     assert!(error.contains("only valid on"), "{error}");
 }
 
 #[test]
 fn literal_folding_preserves_forced_zk_and_cycle_metadata() {
-    let helper = "seiyaku Forced { fn zero() -> quantity { let quantity value = 0; return value; } view fn read() -> quantity { return zero(); } }";
-    let direct =
-        "seiyaku Forced { view fn read() -> quantity { let quantity value = 0; return value; } }";
+    let helper = "seiyaku Forced { fn zero() -> quantity { let quantity value = 0; return value; } view fn read() authorize(anyone) -> quantity { return zero(); } }";
+    let direct = "seiyaku Forced { view fn read() authorize(anyone) -> quantity { let quantity value = 0; return value; } }";
     let compiler = Compiler::new_with_options(CompilerOptions {
         force_zk: true,
         max_cycles: 100_000,
@@ -172,7 +171,7 @@ fn literal_folding_preserves_forced_zk_and_cycle_metadata() {
 #[test]
 fn unused_folded_numeric_literal_preserves_the_codegen_rejection() {
     use crate::{ir::DataRefKind, semantic::TypedItem};
-    let source = "seiyaku Malformed { fn literal() -> quantity { let quantity value = 0; return value; } view fn read() -> quantity { let quantity ignored = literal(); return 1; } }";
+    let source = "seiyaku Malformed { fn literal() -> quantity { let quantity value = 0; return value; } view fn read() authorize(anyone) -> quantity { let quantity ignored = literal(); return 1; } }";
     let compile_invalid = |fold| {
         let parsed = crate::parser::parse(source).expect("parse");
         let typed = crate::semantic::analyze(&parsed).expect("analyze");

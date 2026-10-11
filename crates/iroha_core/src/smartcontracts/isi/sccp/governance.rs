@@ -219,6 +219,9 @@ fn apply_action(
         SccpGovernanceActionV1::ClearBridgeKeyFault(action) => {
             clear_bridge_key_fault(state_transaction, action)
         }
+        SccpGovernanceActionV1::ActivateLightClientProfile(action) => {
+            light_clients::activate_profile(state_transaction, action, proposal_id)
+        }
     }
 }
 
@@ -369,11 +372,10 @@ fn activate_revision(
             action.revision
         )));
     }
-    if !light_clients::is_usable(
-        world,
-        action.network,
-        state_transaction.block_unix_timestamp_ms(),
-    ) {
+    let now_ms = state_transaction.block_unix_timestamp_ms();
+    let profiles = light_clients::executing_profiles(state_transaction)?;
+    let world = &*state_transaction.world;
+    if !light_clients::is_usable(world, &profiles, action.network, now_ms) {
         return Err(refuse(format_args!(
             "the {} light client is not usable",
             action.network.profile_key()
@@ -483,11 +485,8 @@ fn release_stranded(
         .stranded
         .checked_sub(action.amount)
         .ok_or_else(|| refuse(format_args!("only {} is stranded", route.stranded)))?;
-    let registered = match recipients::classify_account(
-        state_transaction,
-        action.recipient.clone(),
-        action.amount,
-    ) {
+    let registered = match recipients::classify_account(state_transaction, action.recipient.clone())
+    {
         SccpRecipientClassV1::Creditable { registered, .. } => registered,
         SccpRecipientClassV1::Uncreditable { .. } | SccpRecipientClassV1::Undecodable => {
             return Err(refuse("the recipient cannot be credited"));
@@ -879,6 +878,58 @@ mod tests {
                 .barred,
             None
         );
+    }
+
+    #[test]
+    fn profile_activation_is_enacted_under_the_light_client_subject() {
+        use iroha_data_model::sccp::governance::SccpActivateLightClientProfileActionV1;
+        let state = blank_state();
+        let mut block = state.block(header(5));
+        let subject = SccpGovernanceSubjectV1::LightClient(NETWORK);
+        let activate = |version: u32| {
+            SccpGovernanceActionV1::ActivateLightClientProfile(
+                SccpActivateLightClientProfileActionV1 {
+                    network: NETWORK,
+                    version,
+                    profile_hash: [3; 32],
+                },
+            )
+        };
+        {
+            let mut stx = block.transaction();
+            let id = stx.network_id;
+            setup(&mut stx);
+            let heads = subject_heads(&*stx.world, &proposal(id, vec![], vec![activate(2)]))
+                .expect("heads")
+                .1;
+            assert_eq!(heads, vec![(subject.clone(), 0)]);
+            // Version 1 is active from genesis: re-activating it is refused at enactment and
+            // the light-client head does not move.
+            let error = enact(
+                &mut stx,
+                &proposal(id, vec![(subject.clone(), 0)], vec![activate(1)]),
+                [1; 32],
+            )
+            .expect_err("not above version 1");
+            assert!(error.to_string().contains("does not exceed"), "{error}");
+            assert!(stx.execution_deferral().is_none());
+            assert_eq!(store::governance_revision(&*stx.world, &subject), 0);
+        }
+        {
+            // This release compiles only version 1, so enacting version 2 fails closed: the
+            // node refuses the block instead of recording what it cannot verify.
+            let mut stx = block.transaction();
+            let id = stx.network_id;
+            setup(&mut stx);
+            enact(
+                &mut stx,
+                &proposal(id, vec![(subject.clone(), 0)], vec![activate(2)]),
+                [2; 32],
+            )
+            .expect_err("version 2 is not compiled");
+            assert!(stx.execution_deferral().is_some());
+            assert!(store::light_client_profiles::is_empty(&*stx.world));
+        }
     }
 
     #[test]

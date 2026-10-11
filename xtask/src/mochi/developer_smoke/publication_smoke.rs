@@ -34,8 +34,7 @@ const PUBLICATION_BUDGET: Duration = Duration::from_secs(600);
 const MAX_RESUMES: usize = 16;
 const LIBRARY_NAME: &str = "installed-library";
 const LIBRARY_SOURCE: &str = "module InstalledLibrary { export fn value() -> int { return 37; } }";
-const CONSUMER_SOURCE: &str =
-    "seiyaku InstalledConsumer { view fn quote(int cups) -> int { return published::value(); } }";
+const CONSUMER_SOURCE: &str = "seiyaku InstalledConsumer { view fn quote(int cups) authorize(anyone) -> int { return published::value(); } }";
 const PROGRESS_MESSAGE: &str = "publication did not reach exact finalized release verification";
 
 pub(super) fn run(harness: &mut Harness) -> Result<(), Box<dyn Error>> {

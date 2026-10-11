@@ -2,7 +2,7 @@
 seiyaku CompilerFixture {
 
 fn main() {
-  ledger::trigger::register(trigger: Name::parse("bad"));
+  ledger::trigger::register(trigger_spec: Name::parse("bad"));
 }
 
 }

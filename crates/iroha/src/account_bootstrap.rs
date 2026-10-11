@@ -46,7 +46,7 @@ impl Client {
         Ok(Self {
             endpoint,
             timeout,
-            transport: DefaultHttpTransport::new()?,
+            transport: DefaultHttpTransport::new(),
         })
     }
 

@@ -177,6 +177,39 @@ async fn committed_retry_fails_closed_when_original_history_is_unavailable() {
 }
 
 #[tokio::test]
+async fn committed_retry_preserves_original_history_capacity_refusal_and_retry() {
+    let (app, transaction, _chain, _) = committed_retry_fixture(true, true);
+    let budget = app.state.ivm_execution_budget();
+    let limit = budget.limit_bytes();
+    let baseline = budget.reserved_bytes();
+    budget.set_limit_bytes(baseline);
+    let result = super::ordinary_transaction_ingress::contains_exact_committed_input(
+        &app.state,
+        &TransactionEntrypoint::External(transaction.clone()),
+    );
+    budget.set_limit_bytes(limit);
+    assert!(
+        matches!(
+            result,
+            Err(Error::Query(ValidationFail::QueryFailed(
+                iroha_data_model::query::error::QueryExecutionFail::CapacityLimit
+            )))
+        ),
+        "local history pressure must remain retryable capacity: {result:?}"
+    );
+    assert_eq!(budget.reserved_bytes(), baseline);
+    assert!(
+        super::ordinary_transaction_ingress::contains_exact_committed_input(
+            &app.state,
+            &TransactionEntrypoint::External(transaction)
+        )
+        .unwrap()
+    );
+    assert_eq!(budget.reserved_bytes(), baseline);
+    assert_eq!(app.queue.active_len(), 0);
+}
+
+#[tokio::test]
 async fn committed_retry_rejects_membership_rebound_to_another_genuine_block() {
     let (app, transaction, mut chain, _) = committed_retry_fixture(true, true);
     let anchor = canonical_transaction_anchor(&app.state, &transaction.hash())

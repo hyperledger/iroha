@@ -1525,7 +1525,7 @@ fn fhe_input_admission_proof_validate_rejects_open_verify_envelope_drift() {
     ));
     let mut wrong_backend = sample.clone();
     let mut wrong_backend_envelope = envelope.clone();
-    wrong_backend_envelope.backend = BackendTag::Halo2IpaPasta;
+    wrong_backend_envelope.backend = BackendTag::NativePipaRPasta;
     replace_fhe_input_admission_open_verify_envelope(&mut wrong_backend, &wrong_backend_envelope);
     let err = wrong_backend
         .validate()

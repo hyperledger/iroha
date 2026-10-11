@@ -157,7 +157,6 @@ Tip: These keys map to the `iroha_config::parameters::user::Torii` section and a
   do not establish execution soundness. Generic proof verification and
   unrelated circuits retain their own verifier-key policy.
 - Halo2/Pasta uses transparent IPA parameters. Each admitted circuit checks its fixed compiled domain exponent against the canonical verifier-key envelope before constructing deterministic parameters.
-- KAGEMUSHA V1 release archives authenticate each paired Pasta parameter payload by signed length and SHA-256 commitment; locally derived transparent parameters must match that commitment.
 - Generic STARK/FRI parameters are authenticated by the registered verifier key and validated against consensus floors and ceilings.
 
 ## Examples

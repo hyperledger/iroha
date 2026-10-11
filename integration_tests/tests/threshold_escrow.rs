@@ -116,17 +116,26 @@ async fn deploy_threshold_escrow(
         let address = contract_address.clone();
         move || {
             client.submit_all(
-                [Grant::account_permission(
-                    iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
-                        contract: address,
-                        entrypoint: "hajimari".to_owned(),
-                    },
-                    client.client().account().clone(),
-                )],
+                [
+                    Grant::account_permission(
+                        Permission::from(iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+                            contract: address.clone(),
+                            entrypoint: "hajimari".to_owned(),
+                        }),
+                        client.client().account().clone(),
+                    ),
+                    Grant::account_permission(
+                        Permission::from(iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                            contract: address,
+                            permission: "Admin".parse().expect("declared escrow role"),
+                        }),
+                        client.client().account().clone(),
+                    ),
+                ],
                 FeePaymentIntent::authority(Vec::new(), None),
             )
         }
-    }).await.wrap_err("grant exact constructor invocation task")?;
+    }).await.wrap_err("grant exact constructor and scoped escrow role task")?;
     call_contract_expect_status(
         client,
         client.client().account(),
@@ -517,16 +526,11 @@ fn threshold_state_paths() -> [&'static str; 9] {
 #[tokio::test]
 async fn threshold_escrow_releases_when_fully_funded() -> Result<()> {
     let register_permission: Permission = CanManageSmartContractCode.into();
-    let admin_permission = Permission::new("Admin".to_owned(), Json::new(()));
     let builder = NetworkBuilder::new()
         .with_min_peers(4)
         .with_block_cadence(Duration::from_secs(4))
         .with_genesis_instruction(Grant::account_permission(
             register_permission,
-            ALICE_ID.clone(),
-        ))
-        .with_genesis_instruction(Grant::account_permission(
-            admin_permission,
             ALICE_ID.clone(),
         ));
     let Some(network) = sandbox::start_network_async_or_skip(
@@ -811,16 +815,11 @@ async fn threshold_escrow_releases_when_fully_funded() -> Result<()> {
 #[tokio::test]
 async fn threshold_escrow_refunds_when_unresolved() -> Result<()> {
     let register_permission: Permission = CanManageSmartContractCode.into();
-    let admin_permission = Permission::new("Admin".to_owned(), Json::new(()));
     let builder = NetworkBuilder::new()
         .with_min_peers(4)
         .with_block_cadence(Duration::from_secs(4))
         .with_genesis_instruction(Grant::account_permission(
             register_permission,
-            ALICE_ID.clone(),
-        ))
-        .with_genesis_instruction(Grant::account_permission(
-            admin_permission,
             ALICE_ID.clone(),
         ));
     let Some(network) = sandbox::start_network_async_or_skip(

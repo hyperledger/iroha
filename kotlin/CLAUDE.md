@@ -96,8 +96,11 @@ All mutable collections and byte arrays are copied on construction and access. U
 - **Two instruction representations**: typed (structured fields) vs wire (opaque `ByteArray` + wire name); `InstructionBox` unifies both
 - **Source layout**: main sources under `src/main/java/` (Kotlin files, retained path from Java migration), tests under `src/test/kotlin/`
 - **Native libraries**: `.so` files built from Rust via
-  `./gradlew :client-android:buildNativeLibs`, not tracked in git. Raw cargo-ndk
-  output is isolated below
+  `./gradlew :client-android:buildNativeLibs`, not tracked in git. The maintained
+  production inventory requires `arm64-v8a`, `armeabi-v7a` and `x86_64` originals
+  throughout source seals, build, packaging and signed provenance; source
+  configuration alone grants no Native artifact or release qualification.
+  Raw cargo-ndk output is isolated below
   `$MOBILE_SDK_ANDROID_ARTIFACT_DIR/gradle-build/iroha_kotlin_sdk/client-android/native/cargo-ndk/<mode>/`;
   compiler state is separately isolated in the sibling
   `native/cargo-target/<mode>/` via `CARGO_TARGET_DIR`; canonically stripped
@@ -115,9 +118,49 @@ All mutable collections and byte arrays are copied on construction and access. U
   and consumes the authenticated repository-root `Cargo.lock`. Bootstrap,
   alternate locks, and compiler or profile configuration overrides are rejected;
   the root lock and effective Cargo configuration are rechecked after execution.
+  Production builds may explicitly select both `MOBILE_SDK_CARGO_HOME` and
+  `MOBILE_SDK_CARGO_INVOCATION_DIR`. They must be existing owned canonical
+  non-symbolic mode-0700 directories disjoint from source and each other.
+  The invocation directory must contain only the exact discovery manifest
+  `[workspace]\nmembers = []\n` for Cargo discovery, with `Cargo.lock` absent;
+  the actual build still selects the authenticated root manifest and lock.
+  Every effective Cargo configuration, including absent candidates, is held
+  through before/after checks. The source seal retains `cargo_configuration`
+  and the producer joins it to the actual selected configuration before build
+  and promotion. With neither variable set, the existing default cache/source
+  working directory and strict configuration refusals remain in force. Setting
+  only one variable fails. This selection never changes the production profile,
+  ABI inventory, release admission, artifact directory or warm target.
+- **Canonical wallet framing**: the reviewed wallet-local fixed-alignment source
+  pins direct `u128` records/enums to 16-byte archived alignment and preserves all
+  26 existing padding values through shipping compile-time assertions. Norito
+  primitives, decoders and frozen vectors were preserved by that alignment
+  change. Nine host codec cases passed in three runs with the same 3,435 inputs
+  and 33 local packages unchanged. These results describe the recorded source
+  cuts; subsequent source changes require fresh validation.
+  Qualify ARMv7 compilation and identical canonical originals/exact decoding on
+  32/64-bit Native targets. Packaging and ELF checks do not prove
+  runtime parity; all required Android targets remain in scope.
 - **ARMv7 diagnostic**: from `kotlin`, use the existing owner-only local artifact
-  root, set `MOBILE_SDK_PYTHON_BINARY` to the canonical executable of Python 3.12
-  (symbolic links are rejected), and run
+  root and set `MOBILE_SDK_PYTHON_BINARY` to the canonical executable of Python
+  3.12 (symbolic links are rejected). Explicitly set and export both
+  `MOBILE_SDK_CARGO_HOME` and `MOBILE_SDK_CARGO_INVOCATION_DIR` before running the
+  task. Each must select an existing owned writable absolute canonical,
+  non-symbolic mode-0700 directory. The cache and invocation trees must be
+  disjoint from the source tree and each other in both directions. Prepare an
+  owned regular `Cargo.toml` in the invocation directory with exactly
+  `[workspace]\nmembers = []\n` bytes and keep `Cargo.lock` absent. The manifest
+  must have one hard link and no group/other write permissions; symbolic links
+  are rejected. Pinned cargo-ndk 4.1.2 first discovers metadata from its cwd,
+  so this empty workspace supplies no packages or sources. The actual build
+  still selects the authenticated repository-root manifest and lock explicitly
+  and uses the existing warm target. The diagnostic configuration receipt binds
+  the discovery manifest bytes and identity plus lock absence, and rechecks them
+  around metadata, source sealing and the child build. Authenticate
+  every effective Cargo configuration from the chosen invocation directory,
+  its ancestors and Cargo home, including absent candidates; keep global
+  configuration unmodified, strict refusals intact and production routing
+  unchanged. Reuse the same warm diagnostic target, then run
   `MOBILE_SDK_ANDROID_ARTIFACT_DIR=/Users/takemiyamakoto/dev/iroha/dist/norito-bridge-android-local ./gradlew :client-android:compileArmv7Diagnostic -PirohaAndroidLocalIntegration=true --console=plain`.
   This task uses the same pinned Rust, NDK, Python, locked offline Cargo and
   source-seal gates, with one `armv7-linux-androideabi` target and the fixed
@@ -126,8 +169,9 @@ All mutable collections and byte arrays are copied on construction and access. U
   `native/armv7-diagnostic/diagnostic-manifest.json` under that root's SDK module
   build directory. The report records ARM machine 40, actual native exports and
   LOAD alignment; it grants no release admission. The task supplies no
-  generated JNI or AAR outputs and leaves the admitted `arm64-v8a`/`x86_64`
-  inventory unchanged. Configure the pinned
+  generated JNI, AAR or production-inventory outputs. The maintained production
+  contract independently requires `arm64-v8a`, `armeabi-v7a` and `x86_64`; diagnostic
+  bytes cannot satisfy it. Configure the pinned
   toolchain and install its ARMv7 standard library before compiling. Run
   `:client-android:verifyArmv7DiagnosticContract` to check routing without a
   native build.
@@ -142,9 +186,16 @@ It runs the tagged Java software-key-manager and explicit-chain-context cases,
 plus the shared SoraFS reference-validator cases. Missing native artifacts or
 capabilities fail; host JNI execution is separate from Android/device qualification.
 
-The current wallet module declares managed platform, payment-key and backup-rule
-unit tests. Its Rust `KagemushaWalletPlatformV1` JNI adapter and provider-open call
-remain TODO; there is no wallet host-JNI test task or native execution claim.
+The current wallet module declares managed platform, payment-key, backup-rule,
+setup and admission-contract unit tests. Its Rust `KagemushaWalletPlatformV1`
+JNI adapter provides platform custody. Native startup authenticates installed
+artifacts and retains custody; wallet opening requires original issuer/account
+frames and the existing account's signature over a fresh native challenge. An
+unavailable native runtime returns `ARTIFACTS_UNAVAILABLE` (`-4`). The separate
+`:kagemusha-wallet-android:testDebugHostNative` task uses the explicit rebuilt
+host library to check native failure results, malformed intake, closed handles
+and unavailable runtime admission. It cannot qualify successful monetary
+operations, Android artifacts or physical devices.
 
 ## Version Catalog
 

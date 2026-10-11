@@ -202,12 +202,12 @@ impl<D: SharedDomain> ByteStorage for SharedBytes<D> {
 #[cfg(test)]
 mod original_source_tests {
     use super::*;
-    use crate::message::ResultWitness;
+    use crate::availability::RowBytes;
     #[test]
     fn charged_source_accessor_preserves_original_backing_and_rejects_foreign_or_untrusted() {
         let pool = AllocationBudget::new(4096);
         let foreign = AllocationBudget::new(4096);
-        let mut value = ResultWitness::from_untrusted(vec![7; 64]).unwrap();
+        let mut value = RowBytes::from_untrusted(vec![7; 64]).unwrap();
         assert!(value.charged_source(&pool).is_none());
         value.admit(&pool).unwrap();
         let source = value.charged_source(&pool).unwrap();
@@ -224,3 +224,6 @@ mod original_source_tests {
         assert_eq!(pool.reserved_bytes(), 0);
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,5 +1,5 @@
 
-            seiyaku Demo {
+            seiyaku Demo { permission Test;
                 error enum DemoError {
                     Rejected = 1,
                 }
@@ -12,19 +12,19 @@
                     last_actor = context::authority();
                 }
 
-                kotoage fn increment() authorize("Test") {
+                kotoage fn increment() authorize(Test) {
                     counter = counter + 4;
                 }
 
-                kotoage fn remember_caller() authorize("Test") {
+                kotoage fn remember_caller() authorize(Test) {
                     last_actor = context::authority();
                 }
 
-                view fn pair() -> (int, int) {
+                view fn pair() authorize(anyone) -> (int, int) {
                     return (2, 3);
                 }
 
-                kotoage fn reject_me() authorize("Test") {
+                kotoage fn reject_me() authorize(Test) {
                     require(false, DemoError::Rejected);
                 }
 

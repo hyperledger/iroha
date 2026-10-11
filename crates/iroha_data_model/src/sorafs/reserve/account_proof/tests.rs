@@ -121,17 +121,14 @@ fn sort(proof: &mut ReserveAccountProofV1) {
 fn rebuild(proof: &mut ReserveAccountProofV1, policy: &ReserveAuthorityPolicyV1) {
     let mut entries = Vec::new();
     let owner = account(6);
-    for id in [
+    for id in std::collections::BTreeSet::from([
         account(1),
         owner.clone(),
         policy.custody_account.clone(),
         policy.treasury_account.clone(),
         policy.operations_authority.clone(),
         policy.decision_authority.clone(),
-    ]
-    .into_iter()
-    .collect::<std::collections::BTreeSet<_>>()
-    {
+    ]) {
         let (_, value) = Account::new(id.clone()).build(&owner).into_key_value();
         entries.push(row("world.accounts", &id, &value));
     }
@@ -679,8 +676,8 @@ fn canonical_component_and_cumulative_decode_budgets_are_finite() {
         usage.total_allocated_bytes() - 1,
         64,
     );
-    assert!(norito::core::with_decode_limits_scope(just_short, || decode_and_verify()).is_err());
-    norito::core::with_decode_limits_scope(RESERVE_ACCOUNT_PROOF_LIMITS_V1, || decode_and_verify())
+    assert!(norito::core::with_decode_limits_scope(just_short, decode_and_verify).is_err());
+    norito::core::with_decode_limits_scope(RESERVE_ACCOUNT_PROOF_LIMITS_V1, decode_and_verify)
         .unwrap();
     let mut too_large = proof;
     too_large.current = Some(vec![0; STATE_MAX_BYTES + 1]);

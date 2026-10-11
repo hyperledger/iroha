@@ -32,9 +32,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "activation/catalog.rs"]
+mod catalog;
+
 pub(super) struct Budget {
     pub(super) started: Instant,
     pub(super) timeout: Duration,
+    pub(super) startup_deadline_ns: Option<u128>,
     pub(super) utc_ceiling_unix_ms: Option<u64>,
     pub(super) cancelled: Arc<AtomicBool>,
     pub(super) progress: Arc<Progress>,
@@ -49,6 +53,15 @@ impl Budget {
             .checked_sub(self.started.elapsed())
             .filter(|value| !value.is_zero())
             .ok_or_else(|| self.progress.deadline())?;
+        let remaining = if let Some(deadline) = self.startup_deadline_ns {
+            remaining.min(
+                super::continuous_remaining(deadline)
+                    .map_err(|_| self.progress.unconfirmed())?
+                    .ok_or_else(|| self.progress.deadline())?,
+            )
+        } else {
+            remaining
+        };
         let Some(ceiling) = self.utc_ceiling_unix_ms else {
             return Ok(remaining);
         };
@@ -62,12 +75,13 @@ impl Budget {
         Ok(remaining.min(utc_remaining))
     }
     pub(super) fn deadline(&self) -> std::result::Result<Instant, Failure> {
+        let observed = Instant::now();
         let remaining = self.check()?;
         let original = self
             .started
             .checked_add(self.timeout)
             .ok_or_else(|| self.progress.unconfirmed())?;
-        Ok(Instant::now()
+        Ok(observed
             .checked_add(remaining)
             .ok_or_else(|| self.progress.unconfirmed())?
             .min(original))
@@ -192,7 +206,11 @@ pub(super) fn initial(
     let receipt = Arc::new(readiness::prove(
         prepared,
         budget.started,
-        budget.timeout,
+        budget
+            .deadline()?
+            .checked_duration_since(budget.started)
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or_else(|| budget.progress.deadline())?,
         &budget.cancelled,
         &budget.progress.readiness,
     )?);
@@ -204,7 +222,7 @@ pub(super) fn initial(
     let bootstrap = loop {
         validate_gateways(prepared, &mut live, budget)?;
         let result = {
-            let mut parent = budget.call(|_| ManagedServiceBootstrap::open(prepared))?;
+            let mut parent = budget.call(|_| owner.open_original_bootstrap(prepared))?;
             match &authorization {
                 Some(authorization) => parent.advance(authorization, budget.deadline()?),
                 None => parent.recover(budget.deadline()?),
@@ -229,6 +247,7 @@ pub(super) fn initial(
         .last()
         .copied()
         .ok_or_else(|| budget.progress.unconfirmed())?;
+    budget.progress.enter(Phase::CustodyMaterial);
     loop {
         validate_gateways(prepared, &mut live, budget)?;
         let material = owner.retain_current_custody_material(budget.deadline()?);
@@ -242,9 +261,11 @@ pub(super) fn initial(
             Err(_) => budget.wait()?,
         }
     }
+    budget.progress.enter(Phase::CustodyRenewal);
     for gateway in &mut live {
         renewal::reconcile(prepared, budget, gateway, terminal, None)?;
     }
+    budget.progress.enter(Phase::StreamTokenRevision);
     let revision = budget.call(|deadline| owner.prepare_current_stream_tokens(deadline))?;
     budget.call(|_| {
         require_carriers(&revision)?;
@@ -253,31 +274,15 @@ pub(super) fn initial(
     let required = revision.required_transactions().to_vec();
     confirm_carriers(prepared, &required, budget)?;
     budget.progress.enter(Phase::Catalog);
-    let mut catalogs = Vec::with_capacity(3);
-    for gateway in &mut live {
-        let publisher =
-            budget.call(|_| ManagedGatewayCompliance::open(prepared, gateway.provider()))?;
-        let catalog = loop {
-            validate_live(prepared, gateway, budget)?;
-            let result = publisher.advance(gateway, budget.deadline()?);
-            budget.check()?;
-            validate_live(prepared, gateway, budget)?;
-            if let Ok(catalog) = result {
-                break catalog;
-            }
-            budget.wait()?;
-        };
-        catalogs.push(catalog);
-    }
+    let parallel = budget.call(|_| owner.fresh_catalog_round())?;
+    let catalogs = catalog::promote(prepared, &mut live, budget, parallel)?;
     validate_gateways(prepared, &mut live, budget)?;
     Ok(Outcome::Restart(Restart {
         receipt,
         owner,
         revision,
         required,
-        catalogs: catalogs
-            .try_into()
-            .map_err(|_| budget.progress.unconfirmed())?,
+        catalogs,
         retained: None,
     }))
 }
@@ -361,7 +366,11 @@ impl Recheck {
             prepared,
             &self.receipt,
             budget.started,
-            budget.timeout,
+            budget
+                .deadline()?
+                .checked_duration_since(budget.started)
+                .filter(|remaining| !remaining.is_zero())
+                .ok_or_else(|| budget.progress.deadline())?,
             &budget.cancelled,
             &budget.progress.readiness,
         )?;
@@ -412,14 +421,18 @@ impl Recheck {
                         original.revalidate(provider, enrollment, &self.receipt)?;
                         Ok(original.clone())
                     }
-                    _ => renewal::Continuation::new(
-                        prepared,
-                        provider,
-                        Arc::clone(&self.receipt),
-                        enrollment,
-                        observed_at,
-                        observed_utc,
-                    ),
+                    _ => {
+                        let plan = gateway
+                            .original_provider_plan(prepared)?
+                            .ok_or_else(|| invalid("renewal requires original provider plan"))?;
+                        renewal::Continuation::new(
+                            &plan,
+                            Arc::clone(&self.receipt),
+                            enrollment,
+                            observed_at,
+                            observed_utc,
+                        )
+                    }
                 }
             })?;
             observations.push(budget.call(|_| {
@@ -437,21 +450,29 @@ impl Recheck {
         let observations = observations
             .try_into()
             .map_err(|_| budget.progress.unconfirmed())?;
-        let observation = budget.call(|_| maintenance::Observation::new(prepared, observations))?;
+        let observation = budget.call(|_| {
+            let plans = live[0]
+                .original_provider_plans(prepared)?
+                .ok_or_else(|| invalid("original provider plans absent"))?;
+            maintenance::Observation::new(&plans, observations)
+        })?;
         validate_gateways(prepared, &mut live, budget)?;
         budget.check()?;
         Ok(Outcome::Complete(Some(observation)))
     }
 }
 
-fn validate_gateways(
+pub(super) fn validate_gateways(
     prepared: &PreparedLocalnet,
     live: &mut [OwnedGateway; 3],
     budget: &Budget,
 ) -> std::result::Result<(), Failure> {
+    if !norito::core::decode_limits_active() {
+        return OwnedGateway::validate_shared_round(prepared, live, budget);
+    }
     let plans = budget.call(|_| {
-        prepared
-            .provider_service_plans()?
+        live[0]
+            .original_provider_plans(prepared)?
             .ok_or_else(|| invalid("original provider plans absent"))
     })?;
     for (plan, gateway) in plans.iter().zip(live) {
@@ -535,8 +556,8 @@ pub(super) fn validate_live(
     budget: &Budget,
 ) -> std::result::Result<(), Failure> {
     budget.call(|_| {
-        let plan = prepared
-            .gateway_compliance_plan(live.provider())?
+        let plan = live
+            .original_gateway_compliance_plan(prepared)?
             .ok_or_else(|| invalid("generated gateway plan absent"))?;
         live.validate(prepared, &plan)
     })
@@ -591,66 +612,191 @@ pub(super) fn confirm_carriers(
     if required.is_empty() || required.len() > 32 {
         return Err(budget.progress.unconfirmed());
     }
-    for original in required {
-        confirm_carrier(prepared, *original, budget)?;
-    }
-    budget.check()?;
-    Ok(())
-}
-
-pub(super) fn confirm_carrier(
-    prepared: &PreparedLocalnet,
-    terminal: ManagedTransactionFinality,
-    budget: &Budget,
-) -> std::result::Result<(), Failure> {
     budget.call(|_| {
         if prepared.peers.len() != 4 {
             return Err(invalid("original generated committee differs"));
         }
         Ok(())
     })?;
-    let config = budget.call(|_| prepared.context.load_client_config())?;
-    for (peer, phase) in prepared.peers.iter().zip([
-        Phase::Carrier0,
-        Phase::Carrier1,
-        Phase::Carrier2,
-        Phase::Carrier3,
-    ]) {
-        budget.progress.enter(phase);
-        let remaining = budget.check()?;
-        budget.call(|deadline| {
-            let mut selected = config.clone();
-            selected.torii_api_url = peer
-                .torii_url
-                .parse()
-                .map_err(|_| invalid("invalid original peer endpoint"))?;
-            let client = iroha::client::Client::builder(selected)
-                .build()
-                .map_err(|_| invalid("cannot construct original carrier client"))?
-                .with_request_deadline(deadline);
-            let client = iroha::blocking::Client::from_client(client)
-                .map_err(|_| invalid("cannot construct original carrier client"))?;
-            let applied = client
-                .wait_for_transaction_applied_local(
-                    terminal.transaction_hash,
-                    iroha::client::TransactionWaitOptions {
-                        timeout: remaining,
-                        poll_interval: POLL,
-                    },
-                )
-                .map_err(|_| invalid("original bootstrap transaction is not locally Applied"))?;
-            // SDK verifies exact hash, local scope and state-resolved Applied. Its optional
-            // carrier hint must also agree with the independently authenticated original.
-            if applied.block_height != Some(terminal.height) {
-                return Err(invalid(
-                    "local bootstrap carrier height differs from original",
-                ));
+    confirm_carriers_with(prepared, required, budget, |builder| builder)?;
+    budget.check()?;
+    Ok(())
+}
+
+// Bind each peer once and retain all four blocking runtimes until the entire barrier returns:
+// a shared pool connection may have been initialized on any earlier peer's runtime. Deadline
+// views share those owners; no context or observation is reused across separate barriers.
+fn confirm_carriers_with(
+    prepared: &PreparedLocalnet,
+    required: &[ManagedTransactionFinality],
+    budget: &Budget,
+    configure: impl Fn(iroha::client::ClientBuilder) -> iroha::client::ClientBuilder,
+) -> std::result::Result<(), Failure> {
+    let (original_file, snapshot, original_bytes) = budget.call(|_| {
+        let original_file = iroha_fs::RetainedFile::open_private(&prepared.context.client_config)?;
+        let snapshot = original_file.snapshot()?;
+        let bytes = iroha_fs::read_private(
+            &prepared.context.client_config,
+            crate::managed::MAX_METADATA,
+        )?;
+        Ok((original_file, snapshot, bytes))
+    })?;
+    let mut original = None;
+    let mut clients: Vec<iroha::blocking::Client> = Vec::with_capacity(4);
+    for terminal in required {
+        // Preserve the prior per-receipt private-file and retained identity admission. Context
+        // reuse also requires the exact original bytes and object, so replacement or edited
+        // settings cannot silently continue through an already-bound transport.
+        let config = budget.call(|_| {
+            let config = prepared.context.load_client_config()?;
+            let current = iroha_fs::read_private(
+                &prepared.context.client_config,
+                crate::managed::MAX_METADATA,
+            )?;
+            if current.as_slice() != original_bytes.as_slice()
+                || original_file.snapshot()? != snapshot
+            {
+                return Err(invalid("original carrier client configuration changed"));
             }
-            Ok(())
+            Ok(config)
         })?;
+        let original =
+            original.get_or_insert_with(|| configure(iroha::client::Client::builder(config)));
+        // Keep the caller's original sequential decode/admission recipe under active limits.
+        // Otherwise the four exact local reads for this one carrier are independent. The next
+        // carrier's private-file admission cannot begin until all four workers have closed.
+        let parallel = !norito::core::decode_limits_active();
+        for (index, (peer, phase)) in prepared.peers.iter().zip(CARRIER_PHASES).enumerate() {
+            budget.progress.enter(phase);
+            let remaining = budget.check()?;
+            budget.call(|deadline| {
+                if clients.len() == index {
+                    let mut selected = clients
+                        .first()
+                        .map_or_else(|| original.clone(), |client| client.client().to_builder());
+                    selected.torii_url = peer
+                        .torii_url
+                        .parse()
+                        .map_err(|_| invalid("invalid original peer endpoint"))?;
+                    let client = selected
+                        .build()
+                        .map_err(|_| invalid("cannot construct original carrier client"))?
+                        .with_request_deadline(deadline);
+                    clients.push(
+                        iroha::blocking::Client::from_client(client)
+                            .map_err(|_| invalid("cannot construct original carrier client"))?,
+                    );
+                }
+                if !parallel {
+                    read_carrier_peer(&clients[index], terminal, remaining, deadline)?;
+                }
+                Ok(())
+            })?;
+        }
+        if parallel {
+            budget.progress.enter(Phase::CarrierPeers);
+            let result = join_carrier_peer_reads(|index| {
+                confirm_carrier_peer(&clients[index], terminal, budget, CARRIER_PHASES[index])
+            });
+            // A cancellation or late ordinary response must not succeed just because one peer
+            // returned earlier. All original transport runtimes remain alive through this join.
+            budget.check()?;
+            result?;
+        }
     }
     Ok(())
 }
 
+const CARRIER_PHASES: [Phase; 4] = [
+    Phase::Carrier0,
+    Phase::Carrier1,
+    Phase::Carrier2,
+    Phase::Carrier3,
+];
+
+fn confirm_carrier_peer(
+    client: &iroha::blocking::Client,
+    terminal: &ManagedTransactionFinality,
+    budget: &Budget,
+    phase: Phase,
+) -> std::result::Result<(), Failure> {
+    let result = (|| {
+        let remaining = budget.check()?;
+        budget.call(|deadline| read_carrier_peer(client, terminal, remaining, deadline))
+    })();
+    result.map_err(|failure| match failure {
+        Failure::Activation { cause, .. } => Failure::Activation { phase, cause },
+        other => other,
+    })
+}
+
+fn read_carrier_peer(
+    client: &iroha::blocking::Client,
+    terminal: &ManagedTransactionFinality,
+    remaining: Duration,
+    deadline: Instant,
+) -> Result<()> {
+    let client = client
+        .with_request_deadline(deadline)
+        .map_err(|_| invalid("cannot bound original carrier client"))?;
+    let applied = client
+        .wait_for_transaction_applied_local(
+            terminal.transaction_hash,
+            iroha::client::TransactionWaitOptions {
+                timeout: remaining,
+                poll_interval: POLL,
+            },
+        )
+        .map_err(|_| invalid("original bootstrap transaction is not locally Applied"))?;
+    // SDK verifies exact hash, local scope and state-resolved Applied. Its optional
+    // carrier hint must also agree with the independently authenticated original.
+    if applied.block_height != Some(terminal.height) {
+        return Err(invalid(
+            "local bootstrap carrier height differs from original",
+        ));
+    }
+    Ok(())
+}
+
+// Scheduling only: all four exact owners are borrowed and the first error is selected in
+// validator order after every started worker has exited. Nothing here creates finality.
+fn join_carrier_peer_reads(
+    read: impl Fn(usize) -> std::result::Result<(), Failure> + Sync,
+) -> std::result::Result<(), Failure> {
+    thread::scope(|scope| {
+        let read = &read;
+        let handles = std::array::from_fn::<_, 4, _>(|index| {
+            thread::Builder::new().spawn_scoped(scope, move || read(index))
+        });
+        let results = handles
+            .into_iter()
+            .enumerate()
+            .map(|(index, handle)| {
+                let failed = || Failure::Activation {
+                    phase: CARRIER_PHASES[index],
+                    cause: super::progress::Cause::Unconfirmed,
+                };
+                match handle {
+                    Ok(handle) => handle.join().unwrap_or_else(|_| Err(failed())),
+                    Err(_) => Err(failed()),
+                }
+            })
+            .collect::<Vec<_>>();
+        // Collecting consumes every handle even after an ordinary error, panic or spawn error.
+        for result in results {
+            result?;
+        }
+        Ok(())
+    })
+}
+
+#[cfg(test)]
+#[path = "activation/peer_round_tests.rs"]
+mod peer_round_tests;
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "activation/transport_tests.rs"]
+mod transport_tests;

@@ -174,7 +174,7 @@ impl Core {
             bh,
             |defect| match defect {
                 Defect::ParentHash | Defect::ParentResult => !cfg!(sumeragi_mutation = "MS19"),
-                Defect::EmptyPayload => !cfg!(sumeragi_mutation = "MA8"),
+                Defect::EmptyPayload => !cfg!(sumeragi_mutation = "MS53"),
                 Defect::TcRule => !NO_TC_RULE,
                 _ => true,
             },
@@ -278,7 +278,9 @@ impl Core {
         }
     }
 
-    /// `request_exec(bh)` (§6.2): a fresh request id per request, never reused.
+    /// `request_exec(bh)` (§6.2): a fresh request id per request, never reused. The
+    /// `certified` flag is evaluated at every emission, so a due `RetryAt` re-evaluates it
+    /// (§4.5 "Certified re-proposals").
     pub(super) fn request_exec(&mut self, bh: Hash32, attempt: u32) {
         let Some(block) = self.blocks.get(&bh).cloned() else {
             self.exec.remove(&bh);
@@ -294,7 +296,13 @@ impl Core {
                 attempt,
             },
         );
-        self.out.push(Action::Execute { block, req });
+        // MS51: the machine always emits `certified = false`.
+        let certified = !self.certified_results(bh).is_empty() && !cfg!(sumeragi_mutation = "MS51");
+        self.out.push(Action::Execute {
+            block,
+            req,
+            certified,
+        });
     }
 
     /// `discard_exec(keep)` (§6.2): the only source of `DiscardExecution`. Every `Pending`
@@ -435,14 +443,7 @@ impl Core {
                 self.local_fault(fault);
             }
             Some(ExecState::Valid(_)) => {
-                let h0 = self.height;
                 self.try_prepare();
-                // §3.7 A2: an attestor that answered `Pending` for a flagged lock needed this
-                // execution; ask it again (MA12: only a stage raise does).
-                let flagged = self.high_pqc.as_ref().is_some_and(|q| q.attest);
-                if flagged && self.same_height(h0) && !cfg!(sumeragi_mutation = "MA12") {
-                    self.try_commit();
-                }
             }
             _ => {}
         }
@@ -478,11 +479,11 @@ impl Core {
             return;
         }
         // Conditions 3–4: the held proposal of this view, its body, its valid result.
-        let Some((bh, attest)) = self
+        let Some(bh) = self
             .proposal
             .as_ref()
             .filter(|held| held.p.view == view || cfg!(sumeragi_mutation = "MS3"))
-            .map(|held| (held.bh, held.p.header.attest))
+            .map(|held| held.bh)
         else {
             return;
         };
@@ -508,12 +509,11 @@ impl Core {
                 view,
                 block_hash: bh,
                 result,
-                attest,
             });
         }
         #[cfg(not(sumeragi_mutation = "MS23"))]
         self.persist();
-        self.cast_vote(me, VoteKind::Prepare, (bh, result, attest), None);
+        self.cast_vote(me, VoteKind::Prepare, (bh, result));
         #[cfg(sumeragi_mutation = "MS23")]
         self.persist();
     }

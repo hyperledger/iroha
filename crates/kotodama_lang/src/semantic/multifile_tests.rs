@@ -25,12 +25,12 @@ fn shared_program(root: &str, fragment: &str) -> ResolvedProgram {
             Item::Const(value) => {
                 environment.consts.insert(value.name.clone());
             }
-            Item::Struct(value) => {
+            Item::Struct(value) | Item::Event(value) => {
                 environment.structs.insert(value.name.clone());
             }
-            Item::ErrorEnum(value) => {
+            Item::Enum(value) => {
                 environment.structs.insert(value.name.clone());
-                environment.error_codes.extend(
+                environment.variant_codes.extend(
                     value
                         .variants
                         .iter()
@@ -54,7 +54,7 @@ fn shared_program(root: &str, fragment: &str) -> ResolvedProgram {
 #[test]
 fn sibling_bindings_and_hir_nodes_keep_distinct_source_authority() {
     let program = shared_program(
-        "seiyaku Shared { view fn answer(bool ready) -> int { if ready { twice(21) } else { 0 } } }",
+        "seiyaku Shared { view fn answer(bool ready) authorize(anyone) -> int { if ready { twice(21) } else { 0 } } }",
         "fn twice(int _ value) -> int { value + value }",
     );
     let typed = SemanticContext::new()
@@ -100,7 +100,7 @@ fn sibling_bindings_and_hir_nodes_keep_distinct_source_authority() {
 #[test]
 fn included_types_constants_and_error_messages_share_the_root_identity() {
     let program = shared_program(
-        "seiyaku Shared { view fn size(Receipt receipt) -> int { receipt.amount + SIZE } fn failure() -> Fault { Fault::Denied } }",
+        "seiyaku Shared { view fn size(Receipt receipt) authorize(anyone) -> int { receipt.amount + SIZE } fn failure() -> Fault { Fault::Denied } }",
         "const int SIZE = 7; struct Receipt { int amount; } error enum Fault { #[message(\"Permission required\")] Denied = 3; }",
     );
     let typed = SemanticContext::new()
@@ -118,7 +118,7 @@ fn included_types_constants_and_error_messages_share_the_root_identity() {
 #[test]
 fn sibling_arena_cannot_authorize_forged_source_identity() {
     let program = shared_program(
-        "seiyaku Shared { view fn answer() -> int { value() } }",
+        "seiyaku Shared { view fn answer() authorize(anyone) -> int { value() } }",
         "fn value() -> int { 42 }",
     );
     let context = SemanticContext::new();
@@ -202,7 +202,7 @@ fn exported_constant_interfaces_keep_declaration_before_use() {
 fn included_semantic_diagnostics_keep_native_ranges_and_source_text() {
     for fragment in ["fn value() -> int { true }", "fn value() -> int {}"] {
         let program = shared_program(
-            "seiyaku Shared { view fn answer() -> int { value() } }",
+            "seiyaku Shared { view fn answer() authorize(anyone) -> int { value() } }",
             fragment,
         );
         let failures = SemanticContext::new()

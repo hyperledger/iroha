@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed verifier for the ABI-25 bridge embedded in an APK or AAB."""
+"""Fail-closed verifier for the ABI-29 bridge embedded in an APK or AAB."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from typing import NoReturn
 import zipfile
 
 
-ABIS = ("arm64-v8a", "x86_64")
+ABIS = ("arm64-v8a", "armeabi-v7a", "x86_64")
 LIBRARY_NAME = "libconnect_norito_bridge.so"
 PROVENANCE_NAME = "native-build-provenance-v1.json"
 PROVENANCE_RELATIVE_PATH = Path("iroha") / PROVENANCE_NAME
@@ -248,13 +248,13 @@ def strict_provenance(payload: bytes) -> dict[str, object]:
     if (
         decoded["schema"] != "iroha.android-native-build-provenance.v1"
         or type(decoded["native_bridge_abi_version"]) is not int
-        or decoded["native_bridge_abi_version"] != 25
+        or decoded["native_bridge_abi_version"] != 29
         or decoded["build_profile"] != "release"
         or decoded["cargo_locked"] is not True
         or decoded["privacy_production_enabled"] is not True
         or decoded["cargo_features"] != ["privacy-production-enabled"]
     ):
-        fail("native provenance does not bind the production ABI-25 release")
+        fail("native provenance does not bind the production ABI-29 release")
     if decoded["android_ndk_revision"] != ANDROID_NDK_BASE_REVISION:
         fail("native provenance Android NDK base revision is not exact")
     if decoded["source_tree_dirty"] is not False:
@@ -321,7 +321,7 @@ def authenticate_source_seal(
     if (
         seal["schema"] != SOURCE_SEAL_SCHEMA
         or seal["platform"] != "android"
-        or seal["targets"] != ["aarch64-linux-android", "x86_64-linux-android"]
+        or seal["targets"] != ["aarch64-linux-android", "armv7-linux-androideabi", "x86_64-linux-android"]
         or seal["source_tree_dirty"] is not False
         or seal["source_status"] != ""
         or seal["source_commit"] != provenance["source_commit"]
@@ -601,7 +601,7 @@ def main(argv: list[str]) -> int:
     except VerificationError as error:
         print(f"[android-native-archive] ERROR: {error}", file=sys.stderr)
         return 1
-    print("[android-native-archive] authenticated ABI-25 bridge bytes match SDK AAR and app archive")
+    print("[android-native-archive] authenticated ABI-29 bridge bytes match SDK AAR and app archive")
     return 0
 
 

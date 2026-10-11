@@ -95,7 +95,7 @@ fn audit(value: &impl JsonSerialize, label: &str, defects: &mut Vec<String>) {
         defects.push(format!("{label}: {changed:?}"));
     }
 }
-fn complete(defects: Vec<String>) {
+fn complete(defects: &[String]) {
     assert!(defects.is_empty(), "{ASSERTION}: {defects:?}");
 }
 #[derive(PartialEq)]
@@ -118,7 +118,7 @@ fn original_const_vec_refusal_preserves_inherited_depth() {
         "ConstVec empty",
         &mut defects,
     );
-    complete(defects);
+    complete(&defects);
 }
 #[test]
 fn original_unique_vec_refusal_preserves_inherited_depth() {
@@ -129,7 +129,7 @@ fn original_unique_vec_refusal_preserves_inherited_depth() {
         &mut defects,
     );
     audit(&UniqueVec::<u64>::new(), "UniqueVec empty", &mut defects);
-    complete(defects);
+    complete(&defects);
 }
 #[test]
 fn original_small_vec_refusal_preserves_inherited_depth() {
@@ -149,7 +149,7 @@ fn original_small_vec_refusal_preserves_inherited_depth() {
         "SmallVec empty",
         &mut defects,
     );
-    complete(defects);
+    complete(&defects);
 }
 #[test]
 fn original_numeric_spec_refusal_preserves_inherited_depth() {
@@ -161,11 +161,10 @@ fn original_numeric_spec_refusal_preserves_inherited_depth() {
     ] {
         audit(&value, "NumericSpec", &mut defects);
     }
-    complete(defects);
+    complete(&defects);
 }
 #[test]
 fn original_manual_containers_keep_exact_unsupported_leaf_error_and_depth() {
-    let mut defects = Vec::new();
     fn refused(value: &impl JsonSerialize, label: &str, defects: &mut Vec<String>) {
         let mut sink = TrackingSink::new(usize::MAX);
         assert_eq!(
@@ -176,6 +175,7 @@ fn original_manual_containers_keep_exact_unsupported_leaf_error_and_depth() {
             defects.push(format!("{label}: {}", sink.depth));
         }
     }
+    let mut defects = Vec::new();
     refused(
         &ConstVec::from(vec![UnsupportedLeaf]),
         "ConstVec",
@@ -191,7 +191,7 @@ fn original_manual_containers_keep_exact_unsupported_leaf_error_and_depth() {
         "SmallVec",
         &mut defects,
     );
-    complete(defects);
+    complete(&defects);
 }
 #[test]
 fn original_numeric_and_quantity_scalar_writers_preserve_depth_and_bytes() {
@@ -256,7 +256,7 @@ fn nested_primitive_containers_clean_only_their_original_levels() {
         "SmallVec<ConstVec>",
         &mut defects,
     );
-    complete(defects);
+    complete(&defects);
 }
 #[test]
 fn primitive_cap_refusal_happens_before_manual_leaf_observation() {

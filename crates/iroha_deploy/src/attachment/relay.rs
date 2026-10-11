@@ -146,6 +146,9 @@ impl AttachmentStore {
     ) -> Result<RelayProgress> {
         self.revalidate()?;
         require_time(parent.options.deadline)?;
+        if self.record.pending.is_none() {
+            self.require_active()?;
+        }
         let next = self.next_child_anchor(child)?;
         let local_successor = next.as_ref().map(|(_, cursor)| *cursor);
         let progress = self.advance_parent(

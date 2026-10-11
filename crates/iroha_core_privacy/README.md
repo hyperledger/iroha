@@ -43,6 +43,12 @@ material without node storage. Neither evidence nor fixture features belong
 in production shipping graphs. These features do not introduce runtime
 switches for IVM syscalls or opcodes.
 
+Bootle/Lantern interprets its five fixed `u64` rejection-constant limbs through
+an explicit 64-byte little-endian integer encoding on both 32-bit and 64-bit
+hosts. The constants, Q256 thresholds, random draw order and sampling-profile
+identity remain unchanged. Known-answer tests pin all four integer constants,
+exact reciprocal floor bounds, standard/bimodal thresholds and the profile digest.
+
 Focused validation uses the checkout's persistent Cargo lane and native
 jobserver:
 

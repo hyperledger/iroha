@@ -202,10 +202,16 @@ def test_account_value_required_nulls_tuple_identifiers_and_full_stored_label(do
         assert not check.is_valid(invalid)
 
 
-@pytest.mark.parametrize('kind', ['AccountAlias', 'GlobalFeeProgram'])
+@pytest.mark.parametrize('kind', ['AccountAlias', 'GlobalFeeProgram', 'IdentifierPolicy'])
 def test_authority_selector_requires_exact_case_and_payload_members(document, shape_data, kind):
-    payload = {'label': 'merchant', 'domain': None, 'dataspace': 'retail'} if kind == 'AccountAlias' else {
-        'program_id': {'sponsor': shape_data['signatory'], 'name': 'fees'}, 'fee_asset': shape_data['asset_definition']['id']}
+    payload = {
+        'AccountAlias': {'label': 'merchant', 'domain': None, 'dataspace': 'retail'},
+        'GlobalFeeProgram': {
+            'program_id': {'sponsor': shape_data['signatory'], 'name': 'fees'},
+            'fee_asset': shape_data['asset_definition']['id'],
+        },
+        'IdentifierPolicy': {'kind': 'email', 'business_rule': 'retail'},
+    }[kind]
     selector = {'kind': kind, 'payload': payload}
     check = validator(document, 'NativeAuthorityOriginalsSelectorV1')
     check.validate(selector)
@@ -244,6 +250,7 @@ def test_rekey_history_preserves_required_signatory_and_unit_provenance(document
     ('NativeAccountAliasStateV1', 'crates/iroha_torii_shared/src/authority_originals.rs'),
     ('NativeAccountAliasOriginalV1', 'crates/iroha_torii_shared/src/authority_originals.rs'),
     ('NativeGlobalFeeProgramStateV1', 'crates/iroha_torii_shared/src/authority_originals.rs'),
+    ('NativeIdentifierPolicyStateV1', 'crates/iroha_torii_shared/src/authority_originals.rs'),
 ])
 def test_complete_native_struct_fields_are_required_and_not_query_projections(document, schema, path):
     source = (ROOT / path).read_text()
@@ -309,13 +316,13 @@ def test_fee_budget_windows_keep_exact_tagged_payload(document, shape_data, kind
         assert not check.is_valid(invalid)
 
 
-@pytest.mark.parametrize('kind', ['native_instruction', 'multisig', 'contract_call', 'ivm', 'ivm_proved'])
+@pytest.mark.parametrize('kind', ['native_instruction', 'multisig', 'contract_call', 'ivm', 'ivm_proved', 'enrolled_multisig_contract_call'])
 def test_native_fee_rule_selectors_preserve_all_actual_families(document, shape_data, kind):
     if kind == 'native_instruction':
         payload = {'wire_id': 'public_shape_instruction'}
     elif kind == 'multisig':
         payload = {'operations': [{'operation': 'approve', 'value': None}], 'account_ids': [shape_data['wallet']]}
-    elif kind == 'contract_call':
+    elif kind in ('contract_call', 'enrolled_multisig_contract_call'):
         # A shape string, not a native contract-admission or checksum fixture.
         payload = {'contract_address': 'public_contract_shape', 'code_hash': shape_data['network_id'], 'entrypoints': ['main']}
     else:
@@ -529,3 +536,194 @@ def test_native_shapes_reject_unknown_nested_members_and_missing_fields(document
             missing = copy.deepcopy(original)
             del descend(missing, path)[field]
             assert not check.is_valid(missing), (root, path, field)
+
+
+def test_exact_enrollment_read_has_signed_scoped_absence_contract(document, shape_data):
+    operation = document['paths']['/v1/fee-sponsor-enrollments/by-id']['post']
+    assert operation['security'] == SECURITY
+    assert operation['x-iroha-tool-effect'] == 'read'
+    assert operation['x-iroha-route-auth'] == {
+        'admission': 'authenticated_account',
+        'authentication': 'canonical_account_signature',
+        'schemaVersion': 1,
+        'stableRouteId': 'fee_sponsor_enrollment.by_id',
+    }
+    assert set(operation['responses']) == {'200', '400', '401', '403', '404'}
+    assert 'expired' in operation['responses']['401']['description']
+    assert 'sponsor' in operation['responses']['403']['description']
+    assert 'program' in operation['responses']['404']['description']
+    assert operation['requestBody']['content']['application/json']['schema']['$ref'] == '#/components/schemas/FeeSponsorEnrollmentByIdRequest'
+    assert operation['responses']['200']['content']['application/json']['schema']['$ref'] == '#/components/schemas/FeeSponsorEnrollmentByIdResponse'
+    key = {'program_id': {'sponsor': shape_data['signatory'], 'name': 'fees'}, 'beneficiary': shape_data['wallet']}
+    check = validator(document, 'FeeSponsorEnrollmentByIdResponse')
+    for row in [None, {'key': key, 'enrolled_at_height': 7}]:
+        check.validate({'key': key, 'enrollment': row})
+    for malformed in [{}, {'key': key}, {'enrollment': None}, {'key': key, 'enrollment': None, 'extra': True}, {'key': key, 'enrollment': {}}]:
+        assert not check.is_valid(malformed)
+    request = validator(document, 'FeeSponsorEnrollmentByIdRequest')
+    good = {'program_id': shape_data['signatory'] + '/fees', 'beneficiary': shape_data['wallet']}
+    request.validate(good)
+    for malformed in [{}, {'program_id': good['program_id']}, {**good, 'extra': True}]:
+        assert not request.is_valid(malformed)
+
+
+@pytest.fixture
+def identifier_originals(shape_data):
+    """Synthetic original shapes only; these confer no ledger or policy authority."""
+    program_id = {'name': 'email-retail'}
+    public_key = shape_data['attestation']['body']['node_id']
+    return {
+        'policy': {
+            'id': {'kind': 'email', 'business_rule': 'retail'},
+            'owner': shape_data['signatory'],
+            'normalization': {'normalization': 'email_address', 'value': None},
+            'program_id': program_id,
+            'active': False,
+        },
+        'program': {
+            'program_id': program_id,
+            'owner': shape_data['signatory'],
+            'backend': 'hkdf-sha3-512-prf-v1',
+            'verification_mode': {'mode': 'signed', 'value': None},
+            'commitment': {
+                'backend': 'hkdf-sha3-512-prf-v1',
+                'policy_hash': shape_data['network_id'],
+                'public_parameters': [0, 255],
+            },
+            'resolver_public_key': public_key,
+            'output_opening_public_key': public_key,
+            'active': False,
+        },
+    }
+
+
+def test_identifier_policy_family_is_complete_in_the_shared_authority_carrier(document, shape_data, identifier_originals):
+    selector = {'kind': 'IdentifierPolicy', 'payload': identifier_originals['policy']['id']}
+    originals = {'kind': 'IdentifierPolicy', 'payload': identifier_originals}
+    value = {
+        'attestation': shape_data['attestation'],
+        'world_snapshot': shape_data['world_snapshot'],
+        'request_sha256': 'AB' * 32,
+        'selector': selector,
+        'originals': originals,
+    }
+    validator(document, 'NativeAuthorityOriginalsV1').validate(value)
+    check = validator(document, 'NativeAuthorityOriginalsFamilyV1')
+    check.validate(originals)
+    for malformed in (
+        {'kind': 'identifier_policy', 'payload': identifier_originals},
+        {'kind': 'IdentifierPolicy', 'value': identifier_originals},
+        {'kind': 'IdentifierPolicy'},
+        {**originals, 'authority_granted': True},
+        {'kind': 'IdentifierPolicy', 'payload': None},
+    ):
+        assert not check.is_valid(malformed)
+
+
+@pytest.mark.parametrize('path', [
+    (), ('policy',), ('program',), ('policy', 'id'), ('policy', 'normalization'),
+    ('policy', 'program_id'), ('program', 'program_id'),
+    ('program', 'verification_mode'), ('program', 'commitment'),
+])
+def test_identifier_originals_require_complete_rows_and_reject_unknown_fields(document, identifier_originals, path):
+    check = validator(document, 'NativeIdentifierPolicyStateV1')
+    check.validate(identifier_originals)
+    original = descend(identifier_originals, path)
+    for field in original:
+        missing = copy.deepcopy(identifier_originals)
+        del descend(missing, path)[field]
+        assert not check.is_valid(missing), (path, field)
+    changed = copy.deepcopy(identifier_originals)
+    descend(changed, path)['trusted_root'] = 'caller-selected'
+    assert not check.is_valid(changed)
+
+
+@pytest.mark.parametrize('path,replacement', [
+    (('policy', 'id'), 'email#retail'),
+    (('policy', 'program_id'), 'email-retail'),
+    (('program', 'program_id'), 'email-retail'),
+    (('policy', 'normalization'), 'email_address'),
+    (('program', 'verification_mode'), 'signed'),
+    (('program', 'backend'), 'hash-prf-v1'),
+    (('program', 'commitment', 'public_parameters'), '00FF'),
+    (('program', 'commitment', 'public_parameters'), [256]),
+    (('program', 'commitment', 'public_parameters'), [-1]),
+    (('program', 'commitment', 'public_parameters'), [True]),
+    (('program', 'commitment', 'policy_hash'), 'AB' * 32),
+    (('policy', 'active'), 'false'),
+])
+def test_identifier_originals_do_not_accept_summary_or_coerced_scalar_shapes(document, identifier_originals, path, replacement):
+    changed = copy.deepcopy(identifier_originals)
+    descend(changed, path[:-1])[path[-1]] = replacement
+    assert not validator(document, 'NativeIdentifierPolicyStateV1').is_valid(changed)
+
+
+def test_identifier_selector_uses_the_exact_typed_policy_key(document):
+    check = validator(document, 'NativeAuthorityOriginalsSelectorV1')
+    for payload in (
+        'email#retail', {'kind': 'email'}, {'business_rule': 'retail'},
+        {'kind': 'email', 'business_rule': 'retail', 'owner': 'caller-selected'},
+        {'kind': 'email#retail', 'business_rule': 'retail'},
+        {'kind': 'email', 'business_rule': ''},
+    ):
+        assert not check.is_valid({'kind': 'IdentifierPolicy', 'payload': payload})
+
+
+@pytest.mark.parametrize('schema,tag,variants', [
+    ('IdentifierNormalization', 'normalization', ['exact', 'lowercase_trimmed', 'phone_e164', 'email_address', 'account_number']),
+    ('RamLfeVerificationMode', 'mode', ['signed', 'proof']),
+])
+def test_identifier_native_unit_enums_require_explicit_null_content(document, schema, tag, variants):
+    check = validator(document, schema)
+    for variant in variants:
+        check.validate({tag: variant, 'value': None})
+        for malformed in (
+            variant, {tag: variant}, {tag: variant, 'value': 0},
+            {tag: variant.upper(), 'value': None}, {tag: variant, 'value': None, 'extra': True},
+        ):
+            assert not check.is_valid(malformed)
+
+
+@pytest.mark.parametrize('backend', ['hkdf-sha3-512-prf-v1', 'bfv-affine-v1', 'bfv-programmed-v1'])
+def test_original_backend_tags_are_native_data_without_execution_authority(document, identifier_originals, backend):
+    value = copy.deepcopy(identifier_originals)
+    value['program']['backend'] = backend
+    value['program']['commitment']['backend'] = backend
+    validator(document, 'NativeIdentifierPolicyStateV1').validate(value)
+    assert not validator(document, 'RamLfeBackend').is_valid(backend.upper())
+    assert not validator(document, 'RamLfeBackend').is_valid({'backend': backend})
+
+
+def test_identifier_original_optional_fields_follow_native_omission(document, identifier_originals, shape_data):
+    check = validator(document, 'NativeIdentifierPolicyStateV1')
+    check.validate(identifier_originals)
+    value = copy.deepcopy(identifier_originals)
+    value['policy']['phone_retail_attestor_public_key'] = shape_data['attestation']['body']['node_id']
+    value['policy']['note'] = 'Synthetic note'
+    value['program']['note'] = ''
+    value['program']['commitment']['public_parameters'] = []
+    check.validate(value)
+    for row, field in [('policy', 'phone_retail_attestor_public_key'), ('policy', 'note'), ('program', 'note')]:
+        changed = copy.deepcopy(value)
+        changed[row][field] = None
+        assert not check.is_valid(changed)
+
+
+@pytest.mark.parametrize('schema,path,optional', [
+    ('IdentifierPolicyId', 'crates/iroha_data_model/src/identifier.rs', set()),
+    ('IdentifierPolicy', 'crates/iroha_data_model/src/identifier.rs', {'phone_retail_attestor_public_key', 'note'}),
+    ('RamLfeProgramId', 'crates/iroha_data_model/src/ram_lfe.rs', set()),
+    ('RamLfeProgramPolicy', 'crates/iroha_data_model/src/ram_lfe.rs', {'note'}),
+    ('PolicyCommitment', 'crates/iroha_crypto/src/ram_lfe.rs', set()),
+])
+def test_identifier_original_schemas_keep_actual_fields_and_native_omissions(document, schema, path, optional):
+    source = (ROOT / path).read_text()
+    body = source.split('pub struct ' + schema + ' {', 1)[1].split('\n}', 1)[0]
+    fields = set(re.findall(r'(?m)^    pub ([a-z_][a-z_0-9]*):', body))
+    omitted = set(re.findall(r'#\[norito\(skip_serializing_if = "Option::is_none"\)\]\s*#\[norito\(default\)\]\s*pub ([a-z_][a-z_0-9]*):', body))
+    assert omitted == optional
+    actual = document['components']['schemas'][schema]
+    Draft202012Validator.check_schema(actual)
+    assert set(actual['properties']) == fields
+    assert set(actual['required']) == fields - optional
+    assert actual['additionalProperties'] is False

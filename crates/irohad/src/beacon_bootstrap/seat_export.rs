@@ -79,6 +79,9 @@ struct ProviderRef<'a> {
 #[derive(Default)]
 pub(super) struct FileProgress {
     descriptor: Option<File>,
+    // Only an exclusively created descriptor may initialize its exact mode.
+    // Refusal retains this stage; restored descriptors never enter it.
+    pending_mode: Option<rustix::fs::Mode>,
     offset: usize,
     synced: bool,
     complete: bool,
@@ -459,7 +462,7 @@ fn validate_output(
     if !m.is_file()
         || m.uid() != rustix::process::geteuid().as_raw()
         || m.nlink() != 1
-        || (private && m.mode() & 0o7777 != 0o600)
+        || m.mode() & 0o7777 != if private { 0o600 } else { 0o644 }
         || m.len() != u64::try_from(expected_length).map_err(|_| ExportError::Phase)?
     {
         return Err(ExportError::Custody);
@@ -473,25 +476,64 @@ pub(super) fn prepare_file_bytes(
     bytes: &[u8],
     progress: &mut FileProgress,
 ) -> std::result::Result<(), ExportError> {
+    prepare_file_bytes_with_mode(directory, name, private, bytes, progress, |file, mode| {
+        rustix::fs::fchmod(file, mode).map_err(std::io::Error::from)
+    })
+}
+fn prepare_file_bytes_with_mode(
+    directory: &Directory,
+    name: &str,
+    private: bool,
+    bytes: &[u8],
+    progress: &mut FileProgress,
+    mut initialize_mode: impl FnMut(&File, rustix::fs::Mode) -> std::io::Result<()>,
+) -> std::result::Result<(), ExportError> {
     use rustix::fs::{Mode, OFlags};
     revalidate_directory(directory)?;
+    let mode = Mode::from_raw_mode(if private { 0o600 } else { 0o644 });
     if progress.descriptor.is_none() {
         let file = File::from(
             rustix::fs::openat(
                 &directory.file,
                 name,
                 OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-                Mode::from_raw_mode(if private { 0o600 } else { 0o644 }),
+                mode,
             )
             .map_err(|e| ExportError::Io(e.into()))?,
         );
         // Install custody before metadata/fsync/write can refuse: never recreate this file.
         progress.descriptor = Some(file);
+        progress.pending_mode = Some(mode);
     }
     let file = progress
         .descriptor
         .as_mut()
         .expect("original file retained");
+    if let Some(original_mode) = progress.pending_mode {
+        // openat's mode is filtered by the caller's umask. Normalize only this
+        // newly created, still-empty original file. Do not repair existing or
+        // published files, or overwrite their exact custody checks on retry.
+        let metadata = file.metadata().map_err(ExportError::Io)?;
+        if original_mode != mode
+            || progress.offset != 0
+            || progress.synced
+            || progress.complete
+            || !metadata.is_file()
+            || metadata.uid() != rustix::process::geteuid().as_raw()
+            || metadata.nlink() != 1
+            || metadata.len() != 0
+            || metadata.mode() & 0o7777 & !(if private { 0o600 } else { 0o644 }) != 0
+        {
+            return Err(ExportError::Custody);
+        }
+        validate_named_output(directory, name, file)?;
+        #[cfg(not(all(test, sumeragi_daemon_mutation = "HC198")))]
+        initialize_mode(file, mode).map_err(ExportError::Io)?;
+        #[cfg(all(test, sumeragi_daemon_mutation = "HC198"))]
+        let _ = &mut initialize_mode;
+        validate_output(file, private, 0)?;
+        progress.pending_mode = None;
+    }
     validate_output(file, private, progress.offset)?;
     verify_prefix(file, &bytes[..progress.offset])?;
     write_remaining(file, bytes, &mut progress.offset, |file, bytes, offset| {

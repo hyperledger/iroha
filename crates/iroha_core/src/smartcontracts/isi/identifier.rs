@@ -1,8 +1,7 @@
 //! Hidden-function-backed identifier policy instruction handlers.
 use super::prelude::*;
 use iroha_crypto::{
-    Hash, RamLfeBackend, RamLfeVerificationMode, decode_bfv_programmed_public_parameters,
-    identifier_hashes_from_output_hash,
+    Hash, RamLfeBackend, RamLfeVerificationMode, identifier_hashes_from_output_hash,
 };
 use iroha_data_model::{
     identifier::{
@@ -178,7 +177,7 @@ pub mod isi {
 
     // Constructed only after policy, authority and execution validation above.
     // Keeping the private binding transition separate allows index/lifetime
-    // invariants to remain testable while encrypted execution is unavailable.
+    // invariants to remain testable independently of the native owner evaluator.
     struct VerifiedIdentifierClaim {
         receipt: IdentifierResolutionReceipt,
         policy: IdentifierPolicy,
@@ -407,6 +406,19 @@ pub mod isi {
         policy: &IdentifierPolicy,
         state_transaction: &StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
+        validate_phone_retail_policy(
+            policy,
+            state_transaction
+                .world
+                .ram_lfe_program_policies
+                .get(&policy.program_id),
+        )
+    }
+    /// Enforce the same phone policy contract on registration, claims and restored state.
+    pub(crate) fn validate_phone_retail_policy(
+        policy: &IdentifierPolicy,
+        program: Option<&RamLfeProgramPolicy>,
+    ) -> Result<(), Error> {
         let is_phone = policy.id.kind.as_ref() == "phone"
             || policy.normalization == IdentifierNormalization::PhoneE164
             || policy.program_id.to_string() == "phone_retail";
@@ -436,33 +448,55 @@ pub mod isi {
                     .into(),
             ));
         }
-        let program = state_transaction
-            .world
-            .ram_lfe_program_policies
-            .get(&policy.program_id)
-            .ok_or_else(|| {
-                Error::InvariantViolation(
-                    "phone#retail requires its pinned RAM-LFE program to be registered first"
-                        .to_owned()
-                        .into(),
-                )
-            })?;
-        if program.owner != policy.owner
-            || program.backend != RamLfeBackend::BfvProgrammedV1
-            || program.commitment.backend != program.backend
-            || program.verification_mode != RamLfeVerificationMode::Signed
-        {
-            return Err(Error::InvariantViolation(
-                "phone#retail requires one owner-pinned signed programmed BFV policy"
+        let program = program.ok_or_else(|| {
+            Error::InvariantViolation(
+                "phone#retail requires its pinned RAM-LFE program to be registered first"
                     .to_owned()
                     .into(),
-            ));
-        }
+            )
+        })?;
+        // Preserve early rejection of diagnostic backends before HKDF metadata.
         program
             .backend
             .require_production_support()
             .map_err(|error| Error::InvariantViolation(error.to_string().into()))?;
-        Ok(())
+        program
+            .commitment
+            .backend
+            .require_production_support()
+            .map_err(|error| Error::InvariantViolation(error.to_string().into()))?;
+        if program.program_id != policy.program_id
+            || program.owner != policy.owner
+            || program.backend != RamLfeBackend::HkdfSha3_512PrfV1
+            || program.commitment.backend != program.backend
+            || program.verification_mode != RamLfeVerificationMode::Signed
+        {
+            return Err(Error::InvariantViolation(
+                "phone#retail requires one owner-pinned signed native HKDF policy"
+                    .to_owned()
+                    .into(),
+            ));
+        }
+        let attestor = policy
+            .phone_retail_attestor_public_key
+            .as_ref()
+            .ok_or_else(|| {
+                Error::InvariantViolation(
+                    "phone#retail requires its pinned attestor"
+                        .to_owned()
+                        .into(),
+                )
+            })?;
+        if attestor == &program.resolver_public_key
+            || attestor == &program.output_opening_public_key
+        {
+            return Err(Error::InvariantViolation(
+                "phone attestor must be independent of the resolver and opener"
+                    .to_owned()
+                    .into(),
+            ));
+        }
+        crate::smartcontracts::isi::ram_lfe::validate_program_policy(program)
     }
     fn evict_expired_identifier_binding(
         state_transaction: &mut StateTransaction<'_, '_>,
@@ -513,8 +547,9 @@ pub mod isi {
         program_policy: &RamLfeProgramPolicy,
         network_id: &iroha_data_model::NetworkId,
         now_ms: u64,
-        guardrails: crate::zk::ZkVerifyGuardrails,
+        _guardrails: crate::zk::ZkVerifyGuardrails,
     ) -> Result<(), Error> {
+        // Refuse insecure diagnostic backends before any metadata/private decoding.
         program_policy
             .backend
             .require_production_support()
@@ -524,114 +559,64 @@ pub mod isi {
             .backend
             .require_production_support()
             .map_err(|error| Error::InvariantViolation(error.to_string().into()))?;
+        crate::smartcontracts::isi::ram_lfe::validate_program_policy(program_policy)?;
         let execution = &receipt.payload.execution;
-        if execution.program_id != policy.program_id
-            || execution.program_id != program_policy.program_id
+        if receipt.payload.network_id != *network_id
+            || receipt.payload.policy_id != policy.id
+            || policy.owner != program_policy.owner
+            || policy.program_id != program_policy.program_id
+            || execution.program_id != policy.program_id
+            || execution.backend != RamLfeBackend::HkdfSha3_512PrfV1
+            || execution.backend != program_policy.backend
+            || execution.verification_mode != RamLfeVerificationMode::Signed
         {
             return Err(Error::InvariantViolation(
-                format!(
-                    "Identifier receipt program {} does not match identifier policy {} program {}",
-                    execution.program_id, policy.id, policy.program_id
-                )
-                .into(),
+                "Identifier receipt differs from the current network, policy, owner or signed HKDF program".to_owned().into(),
             ));
         }
-        if execution.backend != program_policy.backend {
+        let expected = iroha_data_model::identifier::hkdf_identifier_execution_metadata_v1(
+            &program_policy.commitment,
+        )
+        .map_err(|error| Error::InvariantViolation(error.to_string().into()))?;
+        let program_bytes = norito::encode_canonical(&program_policy.program_id)
+            .map_err(|error| Error::InvariantViolation(error.to_string().into()))?;
+        if (
+            execution.program_digest,
+            execution.parameter_digest,
+            execution.evaluation_key_digest,
+        ) != expected
+            || execution.associated_data_hash != Hash::new(&program_bytes)
+            || execution.input_ciphertext_hash == Hash::prehashed([0; Hash::LENGTH])
+            || execution.output_hash == Hash::prehashed([0; Hash::LENGTH])
+            || execution.output_hash != execution.output_ciphertext_hash
+        {
             return Err(Error::InvariantViolation(
-                format!(
-                    "Identifier receipt backend {} does not match program policy {} backend {}",
-                    execution.backend.as_str(),
-                    program_policy.program_id,
-                    program_policy.backend.as_str()
-                )
-                .into(),
+                "Identifier receipt metadata differs from its current pinned HKDF policy and opaque output".to_owned().into(),
             ));
         }
-        if execution.verification_mode != program_policy.verification_mode {
-            return Err(Error::InvariantViolation(
-                format!(
-                    "Identifier receipt verification mode does not match program policy {}",
-                    program_policy.program_id
-                )
-                .into(),
-            ));
-        }
-        if program_policy.commitment.backend != program_policy.backend {
-            return Err(Error::InvariantViolation(
-                format!(
-                    "RAM-LFE program policy {} backend does not match its commitment backend",
-                    program_policy.program_id
-                )
-                .into(),
-            ));
-        }
-        let public_parameters = match program_policy.backend {
-            RamLfeBackend::BfvProgrammedV1 => decode_bfv_programmed_public_parameters(
-                &program_policy.commitment.public_parameters,
+        let original = &receipt.payload.opening.payload;
+        let expires = original.expires_at_ms.ok_or_else(|| {
+            Error::InvariantViolation(
+                "Identifier owner opening requires its original bounded expiry"
+                    .to_owned()
+                    .into(),
             )
-            .map_err(|err| {
-                Error::InvariantViolation(
-                    format!(
-                        "RAM-LFE program policy {} has invalid programmed public parameters: {err}",
-                        program_policy.program_id
-                    )
+        })?;
+        // Consensus validation samples only the deterministic block clock.
+        if now_ms == 0
+            || original.opened_at_ms == 0
+            || original.opened_at_ms > now_ms
+            || expires <= now_ms
+            || expires <= original.opened_at_ms
+            || expires - original.opened_at_ms > 120_000
+            || execution.executed_at_ms != original.opened_at_ms
+            || execution.expires_at_ms != Some(expires)
+            || original.opened_output_hash != execution.output_hash
+        {
+            return Err(Error::InvariantViolation(
+                "Identifier receipt changed its original opening, opaque output or bounded lease"
+                    .to_owned()
                     .into(),
-                )
-            })?,
-            _ => {
-                return Err(Error::InvariantViolation(
-                    format!(
-                        "RAM-LFE program policy {} uses unsupported backend {} for identifier claims",
-                        program_policy.program_id,
-                        program_policy.backend.as_str()
-                    )
-                    .into(),
-                ));
-            }
-        };
-        if public_parameters.hidden_program_digest != execution.program_digest {
-            return Err(Error::InvariantViolation(
-                format!(
-                    "Identifier receipt program digest does not match program policy {}",
-                    program_policy.program_id
-                )
-                .into(),
-            ));
-        }
-        if public_parameters.parameter_digest != execution.parameter_digest {
-            return Err(Error::InvariantViolation(
-                format!(
-                    "Identifier receipt parameter digest does not match program policy {}",
-                    program_policy.program_id
-                )
-                .into(),
-            ));
-        }
-        if public_parameters.evaluation_key_digest != execution.evaluation_key_digest {
-            return Err(Error::InvariantViolation(
-                format!(
-                    "Identifier receipt evaluation-key digest does not match program policy {}",
-                    program_policy.program_id
-                )
-                .into(),
-            ));
-        }
-        if execution.output_hash != execution.output_ciphertext_hash {
-            return Err(Error::InvariantViolation(
-                format!(
-                    "Identifier receipt output hash does not match output ciphertext hash for policy {}",
-                    policy.id
-                )
-                .into(),
-            ));
-        }
-        if public_parameters.verification_mode != program_policy.verification_mode {
-            return Err(Error::InvariantViolation(
-                format!(
-                    "RAM-LFE program policy {} verification metadata is inconsistent",
-                    program_policy.program_id
-                )
-                .into(),
             ));
         }
         validate_output_opening(&receipt.payload.opening, execution, program_policy)?;
@@ -643,56 +628,20 @@ pub mod isi {
             now_ms,
         )?;
         validate_identifier_output_binding(receipt, policy, phone_nullifier.as_ref())?;
-        match program_policy.verification_mode {
-            RamLfeVerificationMode::Signed => {
-                if !matches!(&receipt.attestation, RamLfeReceiptAttestation::Signed(_)) {
-                    return Err(Error::InvariantViolation(
-                        format!(
-                            "Identifier receipt for policy {} must carry a signed attestation",
-                            policy.id
-                        )
-                        .into(),
-                    ));
-                }
-                receipt
-                    .verify(&program_policy.resolver_public_key)
-                    .map_err(|err| {
-                        Error::InvariantViolation(
-                            format!(
-                                "Identifier receipt signature is invalid for policy {}: {err}",
-                                policy.id
-                            )
-                            .into(),
-                        )
-                    })?;
-            }
-            RamLfeVerificationMode::Proof => {
-                let RamLfeReceiptAttestation::Proof(proof) = &receipt.attestation else {
-                    return Err(Error::InvariantViolation(
-                        format!(
-                            "Identifier receipt for policy {} must carry a proof attestation",
-                            policy.id
-                        )
-                        .into(),
-                    ));
-                };
-                verify_execution_proof(
-                    proof,
-                    execution,
-                    public_parameters.proof_verifier.as_ref().ok_or_else(|| {
-                        Error::InvariantViolation(
-                            format!(
-                                "RAM-LFE program policy {} is missing proof verifier metadata",
-                                program_policy.program_id
-                            )
-                            .into(),
-                        )
-                    })?,
-                    guardrails,
-                )?;
-            }
+        if !matches!(&receipt.attestation, RamLfeReceiptAttestation::Signed(_)) {
+            return Err(Error::InvariantViolation(
+                "Identifier receipt requires the pinned resolver signature"
+                    .to_owned()
+                    .into(),
+            ));
         }
-        Ok(())
+        receipt
+            .verify(&program_policy.resolver_public_key)
+            .map_err(|error| {
+                Error::InvariantViolation(
+                    format!("Identifier receipt signature is invalid: {error}").into(),
+                )
+            })
     }
     fn validate_identifier_output_binding(
         receipt: &IdentifierResolutionReceipt,
@@ -791,7 +740,12 @@ pub mod isi {
                     .to_owned().into(),
             ));
         }
-        if statement.canonical_phone_nullifier == Hash::prehashed([0; Hash::LENGTH])
+        if pinned_key == &program_policy.resolver_public_key
+            || pinned_key == &program_policy.output_opening_public_key
+            || statement.canonical_phone_nullifier != opening.opened_output_hash
+            || statement.issued_at_ms != opening.opened_at_ms
+            || Some(statement.expires_at_ms) != opening.expires_at_ms
+            || statement.canonical_phone_nullifier == Hash::prehashed([0; Hash::LENGTH])
             || statement.issued_at_ms > now_ms
             || statement.expires_at_ms <= now_ms
             || statement.expires_at_ms <= statement.issued_at_ms
@@ -921,8 +875,9 @@ pub mod isi {
         }
         fn sample_proof_verifier() -> RamLfeProofVerifierMetadata {
             RamLfeProofVerifierMetadata {
-                proof_backend: crate::zk::ZK_BACKEND_HALO2_IPA.to_owned(),
-                circuit_id: "halo2/pasta/ipa/tiny-add".to_owned(),
+                proof_backend: crate::zk::ZK_BACKEND_NATIVE_PIPA_R.to_owned(),
+                circuit_id: crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID
+                    .to_owned(),
                 public_inputs_schema_hash: Hash::new(b"identifier-ram-lfe-proof-schema"),
                 verifying_key_bytes: b"identifier-ram-lfe-proof-vk".to_vec(),
             }
@@ -964,9 +919,10 @@ pub mod isi {
         }
         fn test_guardrails() -> crate::zk::ZkVerifyGuardrails {
             crate::zk::ZkVerifyGuardrails {
-                halo2_enabled: true,
-                halo2_max_envelope_bytes: usize::MAX,
-                halo2_max_proof_bytes: usize::MAX,
+                pipa_r_enabled: true,
+                pipa_r_max_envelope_bytes: usize::MAX,
+                pipa_r_max_proof_bytes: usize::MAX,
+
                 stark_enabled: true,
                 stark_max_envelope_bytes: usize::MAX,
                 stark_max_proof_bytes: usize::MAX,
@@ -981,7 +937,7 @@ pub mod isi {
                 verifier.verifying_key_bytes.clone(),
             );
             let mut envelope = OpenVerifyEnvelope {
-                backend: BackendTag::Halo2IpaPasta,
+                backend: BackendTag::NativePipaRPasta,
                 circuit_id: verifier.circuit_id.clone(),
                 vk_hash: crate::zk::hash_vk(&vk),
                 public_inputs: b"identifier-ram-lfe-proof-schema".to_vec(),
@@ -1109,9 +1065,9 @@ pub mod isi {
             let execution = sample_proof_payload();
             let proof = sample_proof_box(&verifier, |_| {});
             let mut guardrails = test_guardrails();
-            guardrails.halo2_enabled = false;
+            guardrails.pipa_r_enabled = false;
             let err = verify_execution_proof(&proof, &execution, &verifier, guardrails)
-                .expect_err("identifier claim verification must honor disabled Halo2");
+                .expect_err("identifier claim verification must honor disabled native PIPA-R");
             assert!(
                 err.to_string()
                     .contains("no compiled program-execution proof relation"),

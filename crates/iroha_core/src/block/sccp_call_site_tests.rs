@@ -47,7 +47,7 @@ fn sccp_exempt_cap_is_judged_against_the_committed_parent_world() {
             "block-start writes are invisible to the parent view the cap is judged against"
         );
         ValidBlock::validate_sccp_exempt_cap(signed, &state_block)
-            .expect("no transaction of the block is exempt-shaped");
+            .expect("no transaction of the block is fee-exempt");
     }
     sccp_call_site_parameters_committed(&state);
     let state_block = state.block(signed.header());
@@ -55,17 +55,15 @@ fn sccp_exempt_cap_is_judged_against_the_committed_parent_world() {
         &state_block.sccp_parent_world_view()
     ));
     ValidBlock::validate_sccp_exempt_cap(signed, &state_block)
-        .expect("no transaction of the block is exempt-shaped");
+        .expect("no transaction of the block is fee-exempt");
 }
 
 #[test]
-fn sccp_exempt_cap_counts_exempt_shapes_of_the_block_entry_points() {
+fn sccp_exempt_cap_counts_eligible_entry_points_of_the_block() {
     use crate::smartcontracts::isi::sccp::test_support::SampleInstructions;
     let key_pair = KeyPair::try_from_seed(vec![0x54; 32], Algorithm::Ed25519)
         .expect("deterministic authority key");
-    let attestation = |height| {
-        let mut submit = SampleInstructions::attestations();
-        submit.entries[0].height = height;
+    let signed = |instruction: InstructionBox| {
         TransactionBuilder::new(
             iroha_data_model::NetworkId::from_genesis_hash(
                 iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new([0x54; 32])),
@@ -73,20 +71,29 @@ fn sccp_exempt_cap_counts_exempt_shapes_of_the_block_entry_points() {
             AccountId::new(key_pair.public_key().clone()),
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
-        .with_instructions([InstructionBox::from(submit)])
+        .with_instructions([instruction])
         .sign(key_pair.private_key())
+    };
+    // Fault evidence is eligible whenever SCCP exists.
+    let fault = |height| {
+        let mut submit = SampleInstructions::fault();
+        submit.statement.height = height;
+        signed(submit.into())
     };
     let block = SignedBlock::genesis(
         vec![
-            attestation(9),
-            attestation(10),
+            fault(9),
+            fault(10),
+            // An attestation shape from an ordinary account is not eligible: it pays the
+            // ordinary fee and is not counted.
+            signed(SampleInstructions::attestations().into()),
             crate::smartcontracts::isi::sccp::test_support::sample_signed_transaction(),
         ],
         key_pair.private_key(),
         None,
         None,
     );
-    assert_eq!(block.network_entrypoints().count(), 3);
+    assert_eq!(block.network_entrypoints().count(), 4);
     let with_cap = |cap| {
         let state = crate::smartcontracts::isi::sccp::test_support::blank_state();
         let mut parameters = iroha_data_model::sccp::params::SccpParametersV1::taira_default();
@@ -96,9 +103,9 @@ fn sccp_exempt_cap_counts_exempt_shapes_of_the_block_entry_points() {
         world.commit();
         ValidBlock::validate_sccp_exempt_cap_against(&block, &state.world.view())
     };
-    with_cap(2).expect("two exempt-shaped transactions fit a cap of two");
-    let error = with_cap(1).expect_err("the second exempt-shaped transaction exceeds the cap");
-    assert!(error.to_string().contains("exempt-shaped"), "{error}");
+    with_cap(2).expect("two eligible transactions fit a cap of two");
+    let error = with_cap(1).expect_err("the second eligible transaction exceeds the cap");
+    assert!(error.to_string().contains("fee-exempt"), "{error}");
 }
 
 #[test]

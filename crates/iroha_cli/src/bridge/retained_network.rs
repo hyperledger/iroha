@@ -810,7 +810,6 @@ mod tests {
     #[test]
     fn genesis_discriminant_must_match_the_independent_request() {
         let fixture = NativeFinalityFixture::new();
-        let metadata = iroha_genesis::signed_genesis_consensus_metadata(fixture.genesis()).unwrap();
         let manifest = iroha_genesis::GenesisBuilder::new_without_executor(
             fixture.chain_id().parse().unwrap(),
             ".",
@@ -818,7 +817,6 @@ mod tests {
         .with_sumeragi_context_parameters(
             iroha_data_model::block::consensus::SumeragiGenesisContextParameters::recommended(),
         )
-        .with_kagemusha_mint_finality_genesis_parameters(metadata.kagemusha_mint_finality)
         .build_raw()
         .unwrap()
         .with_chain_discriminant(369);

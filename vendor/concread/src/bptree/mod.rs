@@ -16,12 +16,18 @@ pub use crate::internals::lincowcell::OwnedWriteError;
 use crate::internals::lincowcell::{
     LinCowCell, LinCowCellCommitRetirement, LinCowCellCommitSlot, LinCowCellFamily,
     LinCowCellOwned, LinCowCellOwnedAcquisition, LinCowCellPredecessor, LinCowCellPreparedCommit,
-    LinCowCellPublished, LinCowCellReadTxn, LinCowCellRetainedPredecessor, LinCowCellWriteTxn,
-    LinCowCellWriterAcquisition,
+    LinCowCellPublished, LinCowCellReadTxn, LinCowCellRetainedPredecessor, LinCowCellRetainedWork,
+    LinCowCellWriteTxn, LinCowCellWriterAcquisition,
 };
 
 mod admission;
 mod mode;
+mod row_positions;
+
+pub use row_positions::{
+    BptreeMapFrozenOwned, BptreeMapFrozenReader, BptreeMapRowPosition, BptreeMapRowPositions,
+    RowPositionError,
+};
 
 pub use crate::internals::bptree::allocation::{NodeCloning, NodeFunding};
 pub use crate::internals::bptree::tracking::{FixedTrackingBuffer, TrackingBuffer};

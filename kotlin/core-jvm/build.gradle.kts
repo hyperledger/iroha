@@ -65,6 +65,17 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 tasks.test {
+    // Complete Kotlin-produced IssueLoad frames are independently compared by the Rust
+    // canonical registry test. Track both the external frozen identity and emitted output.
+    inputs.file(rootProject.layout.projectDirectory.dir("..").file(
+        "crates/iroha_data_model/tests/fixtures/instruction_record_generated_identity_frames.json",
+    ))
+    val issueLoadParityOutput = layout.buildDirectory.file("kagemusha-issue-load-parity.properties")
+    outputs.file(issueLoadParityOutput)
+    systemProperty("kagemusha.issueLoad.parityOutput", issueLoadParityOutput.get().asFile.absolutePath)
+    val activateParityOutput = layout.buildDirectory.file("kagemusha-activate-parity.properties")
+    outputs.file(activateParityOutput)
+    systemProperty("kagemusha.activate.parityOutput", activateParityOutput.get().asFile.absolutePath)
     enableAssertions = true
     useJUnitPlatform {
         excludeTags("cuda-hardware")
@@ -89,6 +100,10 @@ tasks.test {
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/numeric_v1_golden.json"))
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/torii/list_query/vectors.json"))
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/kagemusha/wallet_v1_vectors.json"))
+    inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/kagemusha/enrollment_service_v1_vectors.json"))
+    // Current identifier contracts consume the genuine Native DATA frame/signature fixtures.
+    inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/soracloud/identifier_owner_execute_v1.json"))
+    inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/soracloud/identifier_receipt_vectors_v1.json"))
     inputs.dir(rootProject.layout.projectDirectory.dir("..").dir("fixtures/petal"))
     inputs.file(
         rootProject.layout.projectDirectory
@@ -125,7 +140,7 @@ tasks.test {
         ).withPropertyName("packageSurface-$module").ignoreEmptyDirectories()
     }
 
-    // Release CI supplies a freshly built, isolated ABI-25 bridge. Local
+    // Release CI supplies a freshly built, isolated ABI-29 bridge. Local
     // development retains the conventional root target/debug fallback.
     val configuredNativeDir = System.getenv("IROHA_NATIVE_LIBRARY_PATH")
     val hostNativeDir = if (configuredNativeDir.isNullOrBlank()) {

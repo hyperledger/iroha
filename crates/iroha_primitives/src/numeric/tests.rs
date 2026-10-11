@@ -1601,7 +1601,12 @@ fn borrowed_quantity_json_decode_has_an_exact_allocation_boundary() {
         quantity_json_allocation_limits(expected_allocation - 1),
         || <Quantity as JsonDeserialize>::json_from_value(&value),
     );
-    assert!(matches!(rejected, Err(json::Error::DecodeResourceLimit)));
+    assert!(matches!(
+        rejected,
+        Err(json::Error::DecodeResource(
+            norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+        ))
+    ));
     assert_eq!(usage.total_allocated_bytes(), 0);
 }
 #[test]
@@ -1635,7 +1640,7 @@ fn quantity_native_digit_decode_rejects_before_allocation_and_reports_allocator_
                 // SAFETY: this callback panics if called, and validation
                 // must reject before it can supply any pointer.
                 unsafe {
-                    quantity_mantissa_from_canonical_le_bytes_with(invalid, |_| {
+                    quantity_mantissa_from_canonical_le_bytes_with::<json::Error>(invalid, |_| {
                         panic!("invalid magnitude must not allocate")
                     })
                 }
@@ -1651,13 +1656,18 @@ fn quantity_native_digit_decode_rejects_before_allocation_and_reports_allocator_
             // SAFETY: this callback panics if called, and the budget
             // must reject before it can supply any pointer.
             unsafe {
-                quantity_mantissa_from_canonical_le_bytes_with(&[1], |_| {
+                quantity_mantissa_from_canonical_le_bytes_with::<json::Error>(&[1], |_| {
                     panic!("budget refusal must precede allocation")
                 })
             }
         },
     );
-    assert!(matches!(rejected, Err(json::Error::DecodeResourceLimit)));
+    assert!(matches!(
+        rejected,
+        Err(json::Error::DecodeResource(
+            norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+        ))
+    ));
     assert_eq!(usage.total_allocated_bytes(), 0);
 
     let (rejected, usage) = norito::core::with_decode_limits_measured(
@@ -1665,7 +1675,9 @@ fn quantity_native_digit_decode_rejects_before_allocation_and_reports_allocator_
         || {
             // SAFETY: null is an explicitly permitted allocation refusal.
             unsafe {
-                quantity_mantissa_from_canonical_le_bytes_with(&[1], |_| core::ptr::null_mut())
+                quantity_mantissa_from_canonical_le_bytes_with(&[1], |_| {
+                    Ok::<_, json::Error>(core::ptr::null_mut())
+                })
             }
         },
     );
@@ -1690,7 +1702,12 @@ fn owned_quantity_json_decode_charges_text_and_final_storage_exactly() {
         quantity_json_allocation_limits(exact - 1),
         || norito::json::from_str::<Quantity>(&source),
     );
-    assert!(matches!(rejected, Err(json::Error::DecodeResourceLimit)));
+    assert!(matches!(
+        rejected,
+        Err(json::Error::DecodeResource(
+            norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+        ))
+    ));
     assert_eq!(usage.total_allocated_bytes(), quantity.len());
 }
 #[test]

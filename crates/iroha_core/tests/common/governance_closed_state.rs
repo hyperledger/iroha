@@ -29,7 +29,7 @@ pub(super) fn state() -> State {
     state.gov.citizenship_bond_amount = 0_u64.into();
     state.gov.min_bond_amount = 0_u64.into();
     state
-        .edit_zk_for_testing(|zk| zk.halo2.enabled = true)
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
         .expect("fixture ZK settings install");
     state
 }

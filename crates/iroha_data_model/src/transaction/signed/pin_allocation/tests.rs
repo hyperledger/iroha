@@ -5,10 +5,9 @@ use iroha_crypto::KeyPair;
 use iroha_primitives::{numeric::Quantity, time::TimeSource};
 use std::time::Duration;
 
-#[path = "../wire_v1_test_support.rs"]
-mod support;
+use super::super::wire_v1_test_support as support;
 
-fn paid(signed: SignedTransaction) -> SignedTransaction {
+fn paid(signed: &SignedTransaction) -> SignedTransaction {
     let key = KeyPair::from_seed(vec![0x91; 32], Algorithm::Ed25519);
     let mut payload = signed.payload().clone();
     let mut uuid = [7; 16];
@@ -39,15 +38,15 @@ fn pin(bytes: usize) -> SignedTransaction {
     )
     .with_instructions([RegisterPinManifest::new(vec![0x6b; bytes], None, None)])
     .sign(key.private_key());
-    paid(value)
+    paid(&value)
 }
 
 #[test]
 fn every_closed_profile_keeps_full_wire_and_exact_physical_charge_until_graph_drop() {
     for signed in [
-        paid(support::signed("advance")),
-        paid(support::signed("check")),
-        paid(support::signed("check-present")),
+        paid(&support::signed("advance")),
+        paid(&support::signed("check")),
+        paid(&support::signed("check-present")),
         pin(16 * 1024),
     ] {
         let original = signed.encode_wire_v1().unwrap();
@@ -80,7 +79,7 @@ fn every_closed_profile_keeps_full_wire_and_exact_physical_charge_until_graph_dr
 
 #[test]
 fn pool_and_inherited_cumulative_refusals_keep_source_and_refund_partial_backings() {
-    let signed = paid(support::signed("check-present"));
+    let signed = paid(&support::signed("check-present"));
     let original = signed.encode_wire_v1().unwrap();
     let demand = Source::new(&signed).unwrap().demand().unwrap().bytes;
     let short = AllocationBudget::new(demand - 1);
@@ -140,7 +139,7 @@ fn unsupported_graphs_refuse_before_any_pool_allocation_without_reencoding_autho
         ));
         assert_eq!(budget.reserved_bytes(), 0);
     }
-    let mut signed = paid(support::signed("advance"));
+    let mut signed = paid(&support::signed("advance"));
     let FeePaymentIntent::Authority(fees) = &mut signed.payload.fee_payment else {
         unreachable!()
     };

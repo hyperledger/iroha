@@ -2,7 +2,9 @@
 
 use super::*;
 use iroha_crypto::Algorithm;
-use iroha_data_model::sumeragi_finality::{genesis_epoch, test_fixtures::NativeFinalityFixture};
+use iroha_data_model::sumeragi_finality::{
+    authenticated_genesis, test_fixtures::NativeFinalityFixture,
+};
 
 fn signer() -> KeyPair {
     KeyPair::from_seed(vec![113; 32], Algorithm::Ed25519)
@@ -37,7 +39,8 @@ fn anchor(fixture: &NativeFinalityFixture) -> GenesisAnchor {
         network_id: fixture.network_id(),
         chain_id: fixture.chain_id().into(),
         genesis: fixture.genesis().clone(),
-        validators: genesis_epoch(fixture.genesis())
+        validators: authenticated_genesis(fixture.genesis())
+            .map(|genesis| genesis.into_parts().0)
             .unwrap()
             .committee
             .into_iter()
@@ -196,7 +199,6 @@ fn operator_preparation_refuses_unpinned_genesis_key_and_network_before_signing(
         ".",
     )
     .with_sumeragi_context_parameters(metadata.sumeragi_context)
-    .with_kagemusha_mint_finality_genesis_parameters(metadata.kagemusha_mint_finality)
     .build_raw()
     .unwrap();
     let wire = fixture.genesis().encode_wire().unwrap();

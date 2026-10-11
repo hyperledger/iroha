@@ -6,6 +6,33 @@
 
 use super::*;
 
+/// How the Nexus fee applies to one admitted signed body.
+#[derive(core::fmt::Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExecutionFeeExemption {
+    /// The ordinary fee applies whether the body succeeds or fails.
+    Charged,
+    /// No fee applies, whether the body succeeds or fails: the initial genesis bootstrap and
+    /// the protocol and successful-claim exemptions.
+    Exempt,
+    /// No fee applies when the body succeeds. When it fails, the ordinary Nexus fee is charged
+    /// within the signed fee intent, when that intent covers it and the payer can pay it;
+    /// otherwise the failure is uncharged and keeps its own rejection reason. SCCP exemptions
+    /// work this way (`specs/sccp.md` §4.19).
+    ExemptOnSuccess,
+}
+
+impl ExecutionFeeExemption {
+    /// Return whether a successful body skips the fee.
+    pub(crate) const fn skips_fee_on_success(self) -> bool {
+        !matches!(self, Self::Charged)
+    }
+
+    /// Return whether a failed body with actual work owes a rejection fee.
+    pub(crate) const fn charges_on_failure(self) -> bool {
+        !matches!(self, Self::Exempt)
+    }
+}
+
 /// Private meter for one admitted signed execution, never caller-supplied costs.
 pub(crate) struct ExecutionFeeMeter {
     source: iroha_crypto::HashOf<SignedTransaction>,
@@ -17,7 +44,7 @@ pub(crate) struct ExecutionFeeMeter {
     gas_policy: iroha_config::parameters::actual::Gas,
     nexus_fees: iroha_config::parameters::actual::NexusFees,
     tx_bytes_len: usize,
-    exempt: bool,
+    exemption: ExecutionFeeExemption,
     work: Option<ExecutionFeeWork>,
     closed: bool,
 }
@@ -47,7 +74,7 @@ impl StateTransaction<'_, '_> {
         &mut self,
         transaction: &SignedTransaction,
         tx_bytes_len: usize,
-        exempt: bool,
+        exemption: ExecutionFeeExemption,
     ) -> Result<(), ValidationFail> {
         if self.execution_fee_meter.is_some() {
             return Err(ValidationFail::InternalError(
@@ -64,7 +91,7 @@ impl StateTransaction<'_, '_> {
             gas_policy: self.pipeline.gas.clone(),
             nexus_fees: self.nexus.fees.clone(),
             tx_bytes_len,
-            exempt,
+            exemption,
             work: None,
             closed: false,
         });
@@ -123,7 +150,8 @@ impl StateTransaction<'_, '_> {
     }
 
     /// Transfer the sole fee record before dropping the failed business overlay.
-    /// Admission-only failures and fee-exempt roots have no chargeable record.
+    /// Admission-only failures and always-exempt roots have no chargeable record; a root
+    /// exempt on success only (SCCP) keeps its record (`specs/sccp.md` §4.19).
     pub(crate) fn take_execution_fee_settlement(
         &mut self,
     ) -> Result<Option<ExecutionFeeSettlement>, String> {
@@ -133,7 +161,10 @@ impl StateTransaction<'_, '_> {
         if !meter.closed {
             return Err("execution fee meter was not closed by its actual root".into());
         }
-        Ok((meter.work.is_some() && !meter.exempt).then_some(ExecutionFeeSettlement { meter }))
+        Ok(
+            (meter.work.is_some() && meter.exemption.charges_on_failure())
+                .then_some(ExecutionFeeSettlement { meter }),
+        )
     }
 }
 
@@ -169,12 +200,16 @@ impl ExecutionFeeSettlement {
         })?;
         state.pipeline.gas = meter.gas_policy;
         state.nexus.fees = meter.nexus_fees;
+        let on_success_only = meter.exemption == ExecutionFeeExemption::ExemptOnSuccess;
+        // A root exempt on success was admitted without a fee quote, so its rejection tail
+        // reserved no PipelineGas transfer: its failure is charged the Nexus fee only.
         let gas_asset = transaction
             .fee_payment_intent()
             .charge_limits()
             .iter()
             .find(|limit| limit.kind == FeeChargeKind::PipelineGas)
-            .map(|limit| limit.asset_definition_id.canonical_address());
+            .map(|limit| limit.asset_definition_id.canonical_address())
+            .filter(|_| !on_success_only);
         let pipeline_charge =
             should_charge_pipeline_gas_asset(false, &state.nexus.fees, &gas_asset)
                 && gas_asset.is_some()
@@ -206,7 +241,7 @@ impl ExecutionFeeSettlement {
             )
             .map_err(ExecutionFeeSettlementError::Charge)?;
         }
-        Executor::charge_nexus_fees(
+        match Executor::charge_nexus_fees(
             state,
             transaction.authority(),
             transaction,
@@ -214,8 +249,29 @@ impl ExecutionFeeSettlement {
             meter.tx_bytes_len,
             work.instructions,
             work.gas,
-        )
-        .map_err(ExecutionFeeSettlementError::Charge)?;
-        Ok(true)
+        ) {
+            Ok(()) => Ok(true),
+            // A fee its signed intent does not cover, or its payer cannot pay, is not charged
+            // to a root exempt on success; the failure keeps its own rejection reason and the
+            // caller drops this fee-only overlay. A local deferral is never absorbed.
+            Err(_) if on_success_only && state.execution_deferral().is_none() => Ok(false),
+            Err(error) => Err(ExecutionFeeSettlementError::Charge(error)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExecutionFeeExemption;
+
+    #[test]
+    fn exemptions_split_success_and_failure_charging() {
+        use ExecutionFeeExemption::{Charged, Exempt, ExemptOnSuccess};
+        assert!(!Charged.skips_fee_on_success());
+        assert!(Charged.charges_on_failure());
+        assert!(Exempt.skips_fee_on_success());
+        assert!(!Exempt.charges_on_failure());
+        assert!(ExemptOnSuccess.skips_fee_on_success());
+        assert!(ExemptOnSuccess.charges_on_failure());
     }
 }

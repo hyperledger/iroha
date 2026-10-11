@@ -1,11 +1,16 @@
+import type { EntrypointAuthorizationV1, ContractPermissionDescriptorV1 } from "./index.js";
+
 /** One immutable source file; paths are relative to their owning source root. */
 export interface KotodamaCompilerSourceFile { sourceName: string; source: string }
+/** A complete immutable compiled interface; the compiler admits every used artifact. */
+export interface KotodamaCompilerContractArtifact { sourceName: string; artifact: ReadonlyArray<number> }
 /** An already locked package alias, resolved without network access. */
 export interface KotodamaCompilerSourceImport { alias: string; package: string }
 /** Complete immutable inventory for one locked dependency package. */
 export interface KotodamaCompilerSourcePackage {
   identity: string;
   modules: ReadonlyArray<KotodamaCompilerSourceFile>;
+  artifacts?: ReadonlyArray<KotodamaCompilerContractArtifact>;
   sources?: ReadonlyArray<KotodamaCompilerSourceFile>;
   exports: ReadonlyArray<string>;
   imports?: ReadonlyArray<KotodamaCompilerSourceImport>;
@@ -25,6 +30,8 @@ export interface KotodamaCompilerSourcePosition {
 }
 
 export interface KotodamaCompilerSourceSpan {
+  /** Exact locked package identity, or null for the owning source root. */
+  package_identity: string | null;
   source: string | null;
   start: KotodamaCompilerSourcePosition;
   end: KotodamaCompilerSourcePosition;
@@ -42,6 +49,13 @@ export interface KotodamaCompilerDiagnosticFix {
   replacement: string;
 }
 
+/** Optional human presentation; canonical diagnostic message and help remain unchanged. */
+export interface KotodamaCompilerLocalizedText {
+  language: string;
+  message: string;
+  help: string | null;
+}
+
 /** Exact semantic record emitted by `Diagnostic::to_json_value` in Rust. */
 export interface KotodamaCompilerDiagnostic {
   code: string;
@@ -53,6 +67,8 @@ export interface KotodamaCompilerDiagnostic {
   notes: string[];
   help: string | null;
   fix: KotodamaCompilerDiagnosticFix | null;
+  alternative_fixes: KotodamaCompilerDiagnosticFix[];
+  localized: KotodamaCompilerLocalizedText | null;
 }
 
 export interface KotodamaCompiledTriggerDescriptor {
@@ -123,7 +139,8 @@ export type KotodamaCompiledEntrypointValueTypeNode =
   | { kind: "Leaf"; value: KotodamaCompiledEntrypointValueKind }
   | { kind: "Unit"; value: null }
   | { kind: "StateCursor"; value: KotodamaCompiledEntrypointValueKind }
-  | { kind: "Error"; value: KotodamaCompiledErrorTypeDescriptor };
+  | { kind: "Error"; value: KotodamaCompiledErrorTypeDescriptor }
+  | { kind: "Enum"; value: KotodamaCompiledEnumTypeDescriptor };
 
 export interface KotodamaCompiledEntrypointArgumentSchema {
   fields: Array<{
@@ -142,7 +159,7 @@ export interface KotodamaCompiledEntrypoint {
   argument_schema: KotodamaCompiledEntrypointArgumentSchema | null;
   return_type: string;
   return_schema: KotodamaCompiledEntrypointValueType;
-  permission: string | null;
+  authorization: EntrypointAuthorizationV1;
   read_keys: string[];
   write_keys: string[];
   access_hints_complete: boolean | null;
@@ -151,6 +168,8 @@ export interface KotodamaCompiledEntrypoint {
 }
 
 export interface KotodamaCompiledSourceMapEntry {
+  /** Statement locations include inlined helpers; function locations describe generated gaps. */
+  source_kind: "function" | "statement";
   function_name: string;
   pc_start: number;
   pc_end: number;
@@ -208,6 +227,16 @@ export interface KotodamaCompiledStateDescriptor {
   type_name: string;
 }
 
+export interface KotodamaCompiledEnumVariantDescriptor { name: string; code: number; }
+export interface KotodamaCompiledEnumTypeDescriptor {
+  identity: string;
+  variants: KotodamaCompiledEnumVariantDescriptor[];
+}
+export interface KotodamaCompiledEventDescriptor {
+  name: string;
+  payload_type: KotodamaCompiledEntrypointValueType;
+}
+
 export interface KotodamaCompiledErrorVariantDescriptor { name: string; code: number; }
 export interface KotodamaCompiledErrorTypeDescriptor {
   identity: string;
@@ -225,6 +254,9 @@ export interface KotodamaCompiledManifestMetadata {
   abi_hash: string;
   compiler_fingerprint: string;
   features_bitmap: number;
+  permissions: ContractPermissionDescriptorV1[];
+  events: KotodamaCompiledEventDescriptor[];
+  enum_types: KotodamaCompiledEnumTypeDescriptor[];
   entrypoints: KotodamaCompiledEntrypoint[];
   access_set_hints: {
     read_keys: string[];
@@ -241,6 +273,7 @@ export interface KotodamaCompiledManifestMetadata {
 }
 
 export interface KotodamaCompilerRequestOptions {
+  artifacts?: ReadonlyArray<KotodamaCompilerContractArtifact>;
   /** Logical UTF-8 source path preserved in diagnostics and hash-keyed sidecars. */
   sourceName?: string;
   /** Explicit companion files for include/import; paths are relative to the source-set root. */
@@ -253,6 +286,7 @@ export interface KotodamaCompilerRequestOptions {
 
 /** Exact bounded request sent to `iroha_js_host` or the compiler service. */
 export interface KotodamaCompilerRequest {
+  artifacts: ReadonlyArray<KotodamaCompilerContractArtifact>;
   source: string;
   sourceName?: string;
   sources?: ReadonlyArray<KotodamaCompilerSourceFile>;

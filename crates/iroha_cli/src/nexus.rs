@@ -64,7 +64,7 @@ pub enum PublicLaneCommand {
     Stake(PublicLaneStakeArgs),
     /// Observe the current finality source and one target's frozen preparation and custody progress
     CommitteeStatus(PublicLaneCommitteeStatusArgs),
-    /// Submit one reviewed candidate publication, credential preparation or seat admission
+    /// Submit one reviewed credential preparation or seat admission
     CommitteeSubmit(PublicLaneCommitteeSubmitArgs),
 }
 
@@ -100,23 +100,10 @@ impl Run for PublicLaneCommitteeSubmitArgs {
     fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
         use iroha::data_model::{isi::SetParameter, parameter::Parameter};
 
+        // Both operations bind their exact frozen transition. Core reconstructs the
+        // network-bound target generation and readiness challenge from that preparation.
         let operation: ValidatorCommitteeOperationV1 =
             crate::staking::load_committee_json(&self.file, "--file")?;
-        let network = match &operation {
-            ValidatorCommitteeOperationV1::PublishCandidate(candidate) => {
-                Some(candidate.network_id)
-            }
-            ValidatorCommitteeOperationV1::PrepareCredentials(preparation) => {
-                Some(preparation.credentials.authority.network_id)
-            }
-            // Seat evidence binds its exact transition. Core reconstructs the
-            // network-bound challenge from that committed preparation.
-            ValidatorCommitteeOperationV1::AdmitSeat(_) => None,
-        };
-        eyre::ensure!(
-            network.is_none_or(|network| network == context.config().network_id),
-            "--file must bind the configured submission network"
-        );
         let instruction = SetParameter::new(Parameter::Custom(operation.into_custom_parameter()));
         context.finish(vec![iroha::data_model::isi::InstructionBox::from(
             instruction,
@@ -759,19 +746,18 @@ fn format_validator_summary(payload: &Value) -> Result<String> {
     let mut output = String::new();
     writeln!(
         &mut output,
-        "{:<36}  {:<24}  {:<status_width$}  {:<tenure_width$}  {:<20}  {:<11}",
-        "VALIDATOR", "PEER_ID", "STATUS", "TENURE", "STAKE", "LAST_REWARD"
+        "{:<36}  {:<24}  {:<status_width$}  {:<tenure_width$}  {:<20}",
+        "VALIDATOR", "PEER_ID", "STATUS", "TENURE", "STAKE"
     )?;
     for row in rows {
         writeln!(
             &mut output,
-            "{:<36}  {:<24}  {:<status_width$}  {:<tenure_width$}  {:<20}  {:<11}",
+            "{:<36}  {:<24}  {:<status_width$}  {:<tenure_width$}  {:<20}",
             truncate_field(&row.validator, 36),
             truncate_field(&row.peer_id, 24),
             row.status,
             row.tenure,
             truncate_field(&row.stake, 20),
-            truncate_field(&row.last_reward, 11),
         )?;
     }
     Ok(output.trim_end().to_string())
@@ -830,7 +816,6 @@ struct ValidatorRow {
     status: String,
     tenure: String,
     stake: String,
-    last_reward: String,
 }
 fn build_validator_row(entry: &Map) -> ValidatorRow {
     let validator = entry
@@ -852,17 +837,12 @@ fn build_validator_row(entry: &Map) -> ValidatorRow {
         .get("self_stake")
         .map_or_else(|| "-".to_string(), stringify_value);
     let stake = format!("{total_stake} (self {self_stake})");
-    let last_reward = entry
-        .get("last_reward_epoch")
-        .and_then(Value::as_u64)
-        .map_or_else(|| "-".to_string(), |value| value.to_string());
     ValidatorRow {
         validator,
         peer_id,
         status,
         tenure,
         stake,
-        last_reward,
     }
 }
 fn validator_status_label(status: Option<&Value>) -> String {
@@ -1141,7 +1121,6 @@ mod tests {
             ),
             ("activation_height".into(), Value::from(3601u64)),
             ("deactivation_height".into(), Value::from(7201u64)),
-            ("last_reward_epoch".into(), Value::Null),
         ]);
         let payload = Value::Object(Map::from_iter([
             ("lane_id".into(), Value::from(0u64)),

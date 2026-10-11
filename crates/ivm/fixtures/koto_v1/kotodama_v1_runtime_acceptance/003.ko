@@ -12,7 +12,7 @@ seiyaku ResultIfLetRuntime {
     }
   }
 
-  view fn run() -> int {
+  view fn run() authorize(anyone) -> int {
     via_ok(value: Result::ok(4)) * 1000
       + via_ok(value: Result::err(true)) * 100
       + via_err(value: Result::err(true)) * 10

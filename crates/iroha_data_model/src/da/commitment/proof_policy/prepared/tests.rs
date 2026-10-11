@@ -122,9 +122,9 @@ fn da_policy_generated_scalar_fields_reject_truncated_scheme_and_invalid_utf8_wi
             source.append(&wire[..end]).unwrap();
             let span = SequenceSpan { start: 0, end };
             let floor = pool.reserved_bytes();
-            match PreparedDaProofPolicyBundle::from_source(&source, span, &pool) {
-                Ok(mut pending) => assert!(pending.prepare(&source).is_err()),
-                Err(_) => {}
+            if let Ok(mut pending) = PreparedDaProofPolicyBundle::from_source(&source, span, &pool)
+            {
+                assert!(pending.prepare(&source).is_err());
             }
             assert_eq!(pool.reserved_bytes(), floor);
             drop(source);
@@ -149,8 +149,8 @@ fn da_policy_generated_scalar_fields_reject_truncated_scheme_and_invalid_utf8_wi
         drop(pending);
         drop(source);
         assert_eq!(pool.reserved_bytes(), 0);
-        assert!(inline_lane(&bytes(&LaneId::new(0x11223344))).is_ok());
-        assert!(inline_dataspace(&bytes(&DataSpaceId::new(0x1122334455667788))).is_ok());
+        assert!(inline_lane(&bytes(&LaneId::new(0x1122_3344))).is_ok());
+        assert!(inline_dataspace(&bytes(&DataSpaceId::new(0x1122_3344_5566_7788))).is_ok());
         assert!(inline_lane(&[0]).is_err());
         assert!(inline_dataspace(&[0]).is_err());
     }

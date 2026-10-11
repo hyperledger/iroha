@@ -11,7 +11,7 @@ use iroha_data_model::{
 };
 use iroha_model_base::topology::DataSpaceId;
 use iroha_test_samples::{ALICE_ID, BOB_ID, CARPENTER_ID};
-use mv::storage::{Storage, StorageReadOnly};
+use mv::storage::Storage;
 fn check_work(world: &World, work: u64) -> Result<(), GroupedOwnershipError> {
     let mut result = None;
     assert_eq!(

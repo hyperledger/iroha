@@ -8514,6 +8514,21 @@ def test_custody_resolution_owners_reject_relaxed_or_substituted_resolution() ->
     assert custody_owns_resolution(child, line, source)
     assert not custody_owns_resolution(child, line, source.replace("demand(url === pathToFileURL", "demand(true || pathToFileURL"))
 
+    workflow = Path(".github/workflows/sorafs-orchestrator-sdk.yml")
+    source = read(REPO_ROOT / workflow)
+    line = next(line for line in source.splitlines()
+                if "pathlib.Path(sys.argv[1]).resolve(strict=True)" in line)
+    assert custody_owns_resolution(workflow, line, source)
+    for replacement in ("resolve()", "resolve(strict=False)", "resolve(strict=flag)"):
+        changed = line.replace("resolve(strict=True)", replacement)
+        assert not custody_owns_resolution(workflow, changed, source.replace(line, changed))
+    assert not custody_owns_resolution(Path(".github/workflows/unreviewed.yml"), line, source)
+    for marker in ('umask 077', 'source ci/privacy_sdk_cargo_lockfile.sh', 'mkdir -m 0700 "$lock_dir"', 'privacy_sdk_materialize_canonical_cargo_lock', 'privacy_sdk_resolve_cargo_lockfile'):
+        assert marker in source
+        assert not custody_owns_resolution(workflow, line, source.replace(marker, "dropped_custody", 1))
+    altered = line.replace("-I -S -B", "-B")
+    assert not custody_owns_resolution(workflow, altered, source.replace(line, altered))
+
 
 def test_rollout_runners_preflight_verifier_and_output_targets() -> None:
     missing = []
@@ -15969,15 +15984,30 @@ def test_unshipped_pop_credentials_cli_surface_is_not_exposed() -> None:
     assert exposed == {}
 
 
-def test_pop_membership_production_verifier_uses_private_halo2_membership() -> None:
+def test_pop_membership_production_verifier_uses_private_native_pipa_r_membership() -> None:
     source = read(POP_CREDENTIALS_RS)
     start = source.index("pub fn verify_pop_membership_proof_v1")
     end = source.index("/// Errors returned by SFM-4b1", start)
     production_verifier = source[start:end]
 
-    assert "Halo2IpaPastaV1," in source
+    assert "NativePipaRV1," in source
+    assert "Halo2IpaPastaV1" not in source
     assert "mod zk;" in source
     assert "zk::verify_v1(proof)" in production_verifier
+    backend = read(POP_CREDENTIALS_RS.parent / "pop_credentials/zk.rs")
+    verifier_start = backend.index("pub(super) fn verify_v1(")
+    verifier_end = backend.index("pub(super) fn validate_prover_paths(", verifier_start)
+    native_verifier = backend[verifier_start:verifier_end]
+    assert "proof.validate()?" in native_verifier
+    assert "proof.verifier_material != material.public" in native_verifier
+    assert "proof_public_inputs(proof)?" in native_verifier
+    assert "verify_proof_bytes(material, &proof.proof_bytes, &public_inputs)" in native_verifier
+    proof_start = backend.index("fn verify_proof_bytes(")
+    proof_end = backend.index("pub(super) fn prove_v1(", proof_start)
+    native_proof = backend[proof_start:proof_end]
+    for binding in ("verify_full(", "&material.params", "&material.binding",
+                    "&material.verifying_key", "&[public_inputs.to_vec()]", "proof_bytes,"):
+        assert binding in native_proof
     assert "expected_challenge_digest" in production_verifier
     assert "expected_verifier_context" in production_verifier
     assert "verify_pop_commitment_root_signature_v1" in production_verifier
@@ -15991,6 +16021,28 @@ def test_pop_membership_production_verifier_uses_private_halo2_membership() -> N
     assert "pub credential_id" not in public_proof
     assert "pub holder_commitment" not in public_proof
     assert "pub revocation_nonce" not in public_proof
+
+
+@pytest.mark.parametrize("relative,old,new", (
+    ("pop_credentials.rs", "NativePipaRV1,", "UnreviewedProofV1,"),
+    ("pop_credentials.rs", "zk::verify_v1(proof)", "skip_proof(proof)"),
+    ("pop_credentials.rs", "seen_nullifiers.contains", "ignored_nullifiers.contains"),
+    ("pop_credentials/zk.rs", "proof.verifier_material != material.public", "false"),
+    ("pop_credentials/zk.rs", "verify_proof_bytes(material, &proof.proof_bytes, &public_inputs)", "skip_proof_bytes(material, &proof.proof_bytes, &public_inputs)"),
+    ("pop_credentials/zk.rs", "verify_full(\n", "skip_full(\n"),
+))
+def test_pop_membership_native_verification_contract_rejects_mutations(monkeypatch, relative, old, new):
+    """The guard requires the current cryptographic verifier and every replay/material fence."""
+    test_pop_membership_production_verifier_uses_private_native_pipa_r_membership()
+    original_read = read
+    path = POP_CREDENTIALS_RS.parent / relative
+    source = original_read(path)
+    assert old in source
+    changed = source.replace(old, new, 1)
+    monkeypatch.setattr(__import__(__name__, fromlist=["read"]), "read",
+                        lambda candidate: changed if candidate == path else original_read(candidate))
+    with pytest.raises(AssertionError):
+        test_pop_membership_production_verifier_uses_private_native_pipa_r_membership()
 
 
 UNSHIPPED_SORAFS_OPERATOR_DOC_COMMANDS = (
@@ -20111,7 +20163,7 @@ def test_reference_sdk_release_distribution_work_stays_open_in_docs() -> None:
     normalized = re.sub(r"\s+", " ", source)
 
     required_open = (
-        "Remaining SF-11 work is native qualification, release evidence, and SDK distribution: clean five-target ABI-25 rebuilds, skip-free parity replay, published archives and bindings, signed manifests, and live operator smokes.",
+        "Remaining SF-11 work is native qualification, release evidence, and SDK distribution: clean five-target ABI-29 rebuilds, skip-free parity replay, published archives and bindings, signed manifests, and live operator smokes.",
         "Remaining downstream work is signed release packaging, publication, and live SDK smoke evidence for those bindings.",
         "Cross-target release evidence is still a production gate; archive published checksums and smoke outputs for each supported release target and require the SF-11 release evidence gate to pass before declaring those artifacts production-ready.",
         "Final release-specific URLs, signatures, and package versions remain SF-11 release evidence.",

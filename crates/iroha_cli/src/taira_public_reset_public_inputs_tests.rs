@@ -4,10 +4,6 @@ use super::*;
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{
     block::{SignedBlock, consensus::SumeragiGenesisContextParameters},
-    isi::kagemusha_v1::{
-        KAGEMUSHA_CHAIN_VERSION_V1, KagemushaMintFinalityAuthorityGenerationTemplateV1,
-        KagemushaMintFinalityGenesisParametersV1,
-    },
     parameter::{Parameter, system::SumeragiConsensusMode},
 };
 use std::num::NonZeroU64;
@@ -26,6 +22,7 @@ struct Fixture {
     manifest: iroha_genesis::RawGenesisTransaction,
     genesis: KeyPair,
     canary: KeyPair,
+    nexus_context: Vec<u8>,
 }
 
 impl Fixture {
@@ -74,22 +71,6 @@ impl Fixture {
         let _profile = ChainDiscriminantGuard::enter(CHAIN_DISCRIMINANT);
         let genesis = key(101, Algorithm::Ed25519);
         let canary = key(102, Algorithm::Ed25519);
-        let mut validators: Vec<_> = (110..114)
-            .map(|seed| {
-                let peer = PeerId::new(key(seed, Algorithm::BlsNormal).public_key().clone());
-                iroha_core_zk::kagemusha_v1_recursion::derive_kagemusha_mint_finality_validator_keys_v1(
-                    &[seed; 32], 0, peer,
-                ).expect("native public mint-finality fixture keys")
-            })
-            .collect();
-        validators.sort_by(|a, b| a.validator.cmp(&b.validator));
-        let mint = KagemushaMintFinalityGenesisParametersV1 {
-            authority_generation: KagemushaMintFinalityAuthorityGenerationTemplateV1 {
-                version: KAGEMUSHA_CHAIN_VERSION_V1,
-                generation: 0,
-                validators,
-            },
-        };
         let topology = (110..114)
             .map(|seed| {
                 let validator = key(seed, Algorithm::BlsNormal);
@@ -107,7 +88,6 @@ impl Fixture {
         npos.validate().unwrap();
         let mut builder = iroha_genesis::GenesisBuilder::new_without_executor(CHAIN_ID.into(), ".")
             .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-            .with_kagemusha_mint_finality_genesis_parameters(mint)
             .set_topology(topology)
             .append_parameter(Parameter::Sumeragi(
                 iroha_data_model::parameter::system::SumeragiParameter::EpochLengthBlocks(
@@ -136,7 +116,7 @@ impl Fixture {
         // their actual values; the newly signed final fixture must pass unchanged.
         let (nexus_hash, execution_hash) =
             execute_fixture_genesis(&manifest, &genesis, citizenship_escrow.as_ref())
-                .map(|(_, nexus, execution)| (nexus, execution))
+                .map(|(_, nexus, execution, _)| (nexus, execution))
                 .unwrap_or_else(|derived_policies| derived_policies);
         let mut context = manifest.sumeragi_context_parameters();
         context.nexus_amx_context_hash = nexus_hash.into();
@@ -145,7 +125,7 @@ impl Fixture {
             .with_sumeragi_context_parameters(context)
             .with_consensus_meta()
             .expect("valid fixture consensus parameters");
-        let (mut block, final_nexus_hash, final_execution_hash) =
+        let (mut block, final_nexus_hash, final_execution_hash, nexus_context) =
             execute_fixture_genesis(&manifest, &genesis, citizenship_escrow.as_ref())
                 .expect("newly signed fixture must reproduce both exact native policies");
         assert_eq!(nexus_hash, final_nexus_hash);
@@ -183,6 +163,7 @@ impl Fixture {
             manifest,
             genesis,
             canary,
+            nexus_context,
         }
     }
 
@@ -203,6 +184,7 @@ impl Fixture {
             &line(self.network()),
             &line(self.genesis.public_key()),
             &line(self.canary.public_key()),
+            &self.nexus_context,
         )
     }
 
@@ -214,6 +196,7 @@ impl Fixture {
         for (name, bytes) in [
             ("genesis.signed.nrt", self.block.encode_wire().unwrap()),
             ("genesis.json", self.manifest_json()),
+            ("nexus-amx-context.v1.bin", self.nexus_context.clone()),
             ("genesis.expected_hash", line(self.network())),
             ("genesis.public_key", line(self.genesis.public_key())),
             (
@@ -292,7 +275,7 @@ fn execute_fixture_genesis(
     manifest: &iroha_genesis::RawGenesisTransaction,
     key: &KeyPair,
     citizenship_escrow: Option<&AccountId>,
-) -> std::result::Result<(SignedBlock, Hash, Hash), (Hash, Hash)> {
+) -> std::result::Result<(SignedBlock, Hash, Hash, Vec<u8>), (Hash, Hash)> {
     use iroha_config::{
         kura::InitMode,
         parameters::{actual, defaults},
@@ -306,7 +289,15 @@ fn execute_fixture_genesis(
         sumeragi::network_topology::Topology,
     };
     use iroha_data_model::{account::Account, domain::Domain};
-    let provisional = manifest.clone().build_and_sign(key).unwrap();
+    // Sign the same computed native policy as Kagami; the data-model fallback
+    // constant is not the configured Core policy used by this execution fixture.
+    let provisional = manifest
+        .clone()
+        .build_and_sign_with_confidential_policy_hash(
+            key,
+            Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+        )
+        .unwrap();
     let authority = AccountId::new(key.public_key().clone());
     let world = World::with(
         [Domain::new(iroha_genesis::GENESIS_DOMAIN_ID.clone()).build(&authority)],
@@ -430,16 +421,17 @@ fn execute_fixture_genesis(
                 .map(|(index, reason)| format!("output[{index}]: {reason:?}"))
                 .collect::<Vec<_>>();
             panic!(
-                "native fixture genesis execution failed: {error}; {}",
+                "native fixture genesis execution failed: {error:?}; {}",
                 output_errors.join("; ")
             )
         }
     };
-    let nexus_hash = iroha_core::sumeragi::staged_genesis_nexus_amx_context_hash(&staged);
+    let nexus_context = iroha_core::sumeragi::staged_genesis_nexus_amx_context_preimage(&staged);
+    let nexus_hash = Hash::new(&nexus_context);
     let execution_hash =
         iroha_core::sumeragi::staged_genesis_execution_policy_hash(&staged).unwrap();
     drop(staged);
-    Ok((valid.into(), nexus_hash, execution_hash))
+    Ok((valid.into(), nexus_hash, execution_hash, nexus_context))
 }
 
 pub(crate) fn deployment_genesis_fixture() -> (SignedBlock, KeyPair) {
@@ -494,7 +486,7 @@ pub(crate) fn deployment_lane_genesis_fixture() -> (SignedBlock, KeyPair) {
             Register::asset_definition(AssetDefinition::new(
                 stake_asset.clone(),
                 "Fixture stake",
-                NumericSpec::default(),
+                NumericSpec::fractional(9),
                 AssetBalancePolicy::Global,
                 None,
             ))
@@ -594,7 +586,8 @@ fn rejects_wrong_network_key_and_resultless_genesis() {
             &json_line(&fixture.manifest).unwrap(),
             &line(wrong),
             &line(fixture.genesis.public_key()),
-            &line(fixture.canary.public_key())
+            &line(fixture.canary.public_key()),
+            &fixture.nexus_context,
         )
         .unwrap_err()
         .to_string()
@@ -606,7 +599,8 @@ fn rejects_wrong_network_key_and_resultless_genesis() {
             &json_line(&fixture.manifest).unwrap(),
             &line(fixture.network()),
             &line(fixture.canary.public_key()),
-            &line(fixture.canary.public_key())
+            &line(fixture.canary.public_key()),
+            &fixture.nexus_context,
         )
         .is_err()
     );
@@ -622,7 +616,8 @@ fn rejects_wrong_network_key_and_resultless_genesis() {
             &json_line(&fixture.manifest).unwrap(),
             &line(fixture.network()),
             &line(fixture.genesis.public_key()),
-            &line(fixture.canary.public_key())
+            &line(fixture.canary.public_key()),
+            &fixture.nexus_context,
         )
         .is_err()
     );
@@ -643,7 +638,8 @@ fn rejects_noncanonical_identity_and_non_ed25519_canary() {
                 &json_line(&fixture.manifest).unwrap(),
                 &text,
                 &line(fixture.genesis.public_key()),
-                &line(fixture.canary.public_key())
+                &line(fixture.canary.public_key()),
+                &fixture.nexus_context,
             )
             .is_err()
         );
@@ -655,7 +651,8 @@ fn rejects_noncanonical_identity_and_non_ed25519_canary() {
             &json_line(&fixture.manifest).unwrap(),
             &line(fixture.network()),
             &line(fixture.genesis.public_key()),
-            &line(unsupported.public_key())
+            &line(unsupported.public_key()),
+            &fixture.nexus_context,
         )
         .unwrap_err()
         .to_string()

@@ -33,7 +33,7 @@ The check fails when
   file has no classification, a function that instantiates HKDF in a backend or
   plaintext-PRF file is unaccounted for, or the plaintext PRF shares a symbol
   with the backend;
-* a required current-state claim, reference kind, preserved oracle, no-effect
+* a required current-state claim, reference kind, preserved oracle, consumer
   anchor or plaintext PRF entry is missing;
 * a generated consumer or current-state claim loses its evidence;
 * the planned destination crate exists while the inventory still records it as
@@ -1612,7 +1612,7 @@ EXECUTING_OPERATIONS = (
 )
 SCOPE_ASSIGNMENTS = ("every_function", "kernel_names")
 HKDF_USER_KINDS = (
-    "definition", "evaluator", "policy_branch", "consumer_rejection", "wire_tag", "generator", "test",
+    "definition", "evaluator", "policy_branch", "consumer_execution", "consumer_rejection", "wire_tag", "generator", "test",
     "source_anchor", "documentation",
 )
 # The REQ-032 facts every revision of the inventory must anchor to source.
@@ -1668,7 +1668,7 @@ def symbol_records(document: dict[str, Any]) -> list[tuple[str, Any, dict[str, A
     for user in _list(backend.get("users")):
         for record in _list(_dict(user).get("symbols")):
             add("hkdf", _dict(user).get("path"), record)
-    for record in _list(backend.get("no_effect_evidence")):
+    for record in _list(backend.get("consumer_evidence")):
         add("hkdf", _dict(record).get("path"), record)
     for entry in _list(_dict(hkdf.get("plaintext_prf")).get("entries")):
         for record in _list(_dict(entry).get("symbols")):
@@ -2269,7 +2269,7 @@ class MapChecker:
                     self.check_callers(f"hkdf plaintext PRF {path}", path, symbol, False)
                     account(path, symbol["symbol"], "the plaintext PRF")
                     if (path, symbol["symbol"]) in backend_symbols:
-                        self.error(f"{path}::{symbol['symbol']} is recorded as both plaintext PRF and encrypted-evaluation backend")
+                        self.error(f"{path}::{symbol['symbol']} is recorded as both plaintext PRF and RAM-LFE backend")
         for record in _list(hkdf.get("other_derivations")):
             path = record.get("path") if isinstance(record, dict) else None
             if not isinstance(record, dict) or not isinstance(record.get("purpose"), str) or not record["purpose"].strip():
@@ -2292,13 +2292,15 @@ class MapChecker:
                 evidence = record.get("evidence")
                 if not isinstance(evidence, str) or not evidence or evidence not in (self.tree.text(path) or ""):
                     self.error(f"unrelated HKDF {path} also names RAM-LFE and needs evidence text found in the file")
-        evidence = backend.get("no_effect_evidence")
+        if "no_effect_evidence" in backend:
+            self.error("hkdf.ram_lfe_backend.no_effect_evidence is retired; record current consumer_evidence")
+        evidence = backend.get("consumer_evidence")
         if not isinstance(evidence, list) or not evidence:
-            self.error("hkdf.ram_lfe_backend.no_effect_evidence must anchor the consumers that reject the backend")
+            self.error("hkdf.ram_lfe_backend.consumer_evidence must anchor the current backend consumers")
             evidence = []
         for record in evidence:
             path = record.get("path") if isinstance(record, dict) else None
-            self.check_symbol("hkdf no-effect evidence", path, record, expect_test_only=False)
+            self.check_symbol("hkdf consumer evidence", path, record, expect_test_only=False)
         for path in sorted(user_paths | derivation_paths):
             if not path.endswith(".rs") or path not in self.tree.file_set:
                 continue

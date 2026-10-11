@@ -606,6 +606,7 @@ def test_verified_committed_transaction_joins_signed_query_to_required_finality_
             "rejection_code": None,
             "rejection_message": None,
             "contract_rejection": None,
+            "ivm_fault": None,
             "batch_outcomes": [],
             "committed_transaction": {
                 "entrypoint_hash": transaction_hash,
@@ -684,6 +685,7 @@ def test_verified_contract_rejection_is_manifest_typed_and_fail_closed() -> None
         "result_ok": False,
         "rejection_code": "BelowMinimum",
         "rejection_message": "contract rejection",
+        "ivm_fault": None,
         "contract_rejection": {
             "contract": "BoiFiLiquidity",
             "error_type": "example/boifi@1::BoiFiLiquidity::FiLiquidityError",
@@ -715,6 +717,7 @@ def test_verified_contract_rejection_is_manifest_typed_and_fail_closed() -> None
 
     digit_hash_payload = {
         **payload,
+        "ivm_fault": None,
         "contract_rejection": {**payload["contract_rejection"], "schema_hash": "07" * 32},
     }
     assert VerifiedCommittedTransaction.from_payload(

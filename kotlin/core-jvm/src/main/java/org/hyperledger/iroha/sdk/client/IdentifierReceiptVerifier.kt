@@ -1,5 +1,6 @@
 package org.hyperledger.iroha.sdk.client
 
+import org.hyperledger.iroha.sdk.core.model.NetworkId
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import org.hyperledger.iroha.sdk.address.decodePublicKeyLiteral
@@ -11,7 +12,8 @@ import org.hyperledger.iroha.sdk.crypto.SigningAlgorithm
 /** Client-side verification helper for identifier-resolution receipts. */
 object IdentifierReceiptVerifier {
     @JvmStatic
-    fun verify(receipt: IdentifierResolutionReceipt, policy: IdentifierPolicySummary): Boolean {
+    fun verifyResolverSignature(receipt: IdentifierResolutionReceipt, policy: IdentifierPolicySummary, intendedNetworkId: NetworkId): Boolean {
+        require(receipt.payload.networkId == intendedNetworkId) { "receipt network differs from the independently intended network" }
         requireExactPolicyId(policy.policyId)
         require(receipt.policyId == policy.policyId) {
             "receipt policyId does not match the supplied policy"
@@ -32,6 +34,21 @@ object IdentifierReceiptVerifier {
         return when (keyPayload.curveId) {
             0x01 -> verifyEd25519(keyPayload.keyBytes, message, signatureBytes)
             else -> verifyNativeBacked(keyPayload.curveId, keyPayload.keyBytes, message, signatureBytes)
+        }
+    }
+
+    internal fun verifyExecutionResolverSignature(response: RamLfeExecuteResponse, policy: RamLfeProgramPolicySummary): Boolean {
+        require(policy.active && policy.programId == response.programId && policy.backend == IdentifierOwnerInputV1.BACKEND && policy.verificationMode == "signed") { "Execute receipt differs from the independently selected current program policy" }
+        val key = requireNotNull(decodePublicKeyLiteral(requireExactResolverPublicKey(policy.resolverPublicKey))) { "resolverPublicKey is not its current canonical multihash" }
+        val message = IrohaHash.prehash(IdentifierReceiptCanonicalEncoder.encodeExecution(response.execution))
+        val signature = hexToBytes(
+            IdentifierOwnerInputV1.rawSignature(requireNotNull(response.attestation.signature), "attestation.signature"),
+            "attestation.signature",
+        )
+        return when (key.curveId) {
+            0x01 -> signature.size == 64 && verifyEd25519(key.keyBytes, message, signature)
+            0x02 -> signature.size == 3309 && verifyNativeBacked(key.curveId, key.keyBytes, message, signature)
+            else -> false
         }
     }
 
@@ -89,20 +106,14 @@ object IdentifierReceiptVerifier {
     }
 
     private fun hexToBytes(hex: String, field: String): ByteArray {
-        var trimmed = hex.trim()
-        require(trimmed.isNotEmpty()) { "$field must not be blank" }
-        require(trimmed == hex) { "$field must not contain surrounding whitespace" }
-        if (trimmed.startsWith("0x") || trimmed.startsWith("0X")) {
-            trimmed = trimmed.substring(2)
+        // Model Signature JSON and the shared Rust receipt vectors use uppercase
+        // hex. Owner execution carriers retain their separate lowercase grammar.
+        require(hex.isNotEmpty() &&
+            hex.length <= 2 * CanonicalRequestSigner.CANONICAL_REQUEST_MAX_SIGNATURE_BYTES_V1 &&
+            hex.length % 2 == 0 &&
+            hex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) {
+            "$field must be exact signature hex"
         }
-        require(trimmed.length % 2 == 0) { "$field must contain an even number of characters" }
-        val out = ByteArray(trimmed.length / 2)
-        for (i in trimmed.indices step 2) {
-            val high = Character.digit(trimmed[i], 16)
-            val low = Character.digit(trimmed[i + 1], 16)
-            require(high >= 0 && low >= 0) { "$field contains non-hex characters" }
-            out[i / 2] = ((high shl 4) or low).toByte()
-        }
-        return out
+        return ByteArray(hex.length / 2) { index -> hex.substring(index * 2, index * 2 + 2).toInt(16).toByte() }
     }
 }

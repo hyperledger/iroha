@@ -80,9 +80,10 @@ impl<'de> norito::core::DeserializePayload<'de> for KaigiAuthorizationScalarV1 {
     fn try_deserialize(
         archived: &'de norito::core::Archived<Self>,
     ) -> Result<Self, norito::core::Error> {
-        let bytes = <[u8; Self::BYTES] as norito::core::DeserializePayload>::try_deserialize(
-            archived.cast(),
-        )?;
+        let ptr = core::ptr::from_ref(archived).cast::<u8>();
+        let mut offset = 0;
+        let bytes = norito::core::decode_context_byte_array::<{ Self::BYTES }>(ptr, &mut offset)?;
+        norito::core::finish_context_fields(ptr, offset)?;
         Self::from_le_bytes(bytes).ok_or_else(|| {
             norito::core::Error::Message("noncanonical Kaigi authorization Pasta Fp scalar".into())
         })
@@ -248,5 +249,55 @@ mod tests {
         assert!(
             norito::json::from_str::<KaigiAuthorizationScalarV1>(&format!("{expected} 0")).is_err()
         );
+    }
+}
+
+#[cfg(test)]
+mod kaigi_authorization_scalar_raw_wire_tests {
+    use super::*;
+
+    #[test]
+    fn kaigi_authorization_scalar_keeps_sole_raw_wire_and_zero_storage_charge() {
+        #[repr(align(16))]
+        struct Aligned([u8; 512]);
+        let value = KaigiAuthorizationScalarV1::from_le_bytes([0x24; 32]).unwrap();
+        let raw = value.to_le_bytes();
+        for flags in [0, norito::core::header_flags::COMPACT_LEN] {
+            let _flags = norito::core::DecodeFlagsGuard::enter(flags);
+            let mut encoded = Vec::new();
+            norito::core::serialize_to_buffer(&value, &mut encoded).unwrap();
+            assert_eq!(encoded, raw);
+            let mut aligned = Aligned([0; 512]);
+            aligned.0[..encoded.len()].copy_from_slice(&encoded);
+            let bytes = &aligned.0[..encoded.len()];
+            let zero = norito::DecodeLimits::new(0, usize::MAX, 0, 0, 8);
+            let (decoded, usage) = norito::core::with_decode_limits_measured(zero, || {
+                let _context = norito::core::PayloadCtxGuard::enter(bytes);
+                let decoded =
+                    norito::core::decode_field_canonical::<KaigiAuthorizationScalarV1>(bytes)?;
+                assert_eq!(
+                    norito::core::payload_ctx(),
+                    Some((bytes.as_ptr() as usize, bytes.len()))
+                );
+                Ok::<_, norito::Error>(decoded)
+            });
+            assert_eq!(decoded.unwrap(), (value, bytes.len()));
+            assert_eq!(usage.total_allocated_bytes(), 0);
+            assert_eq!(usage.total_elements(), 0);
+            let mut alternate = Vec::new();
+            norito::core::serialize_to_buffer(&raw, &mut alternate).unwrap();
+            let mut extra = raw.to_vec();
+            extra.push(0);
+            for invalid in [&raw[..raw.len() - 1], &extra[..], &alternate[..]] {
+                aligned.0[..invalid.len()].copy_from_slice(invalid);
+                let bytes = &aligned.0[..invalid.len()];
+                let (decoded, usage) = norito::core::with_decode_limits_measured(zero, || {
+                    norito::core::decode_field_canonical::<KaigiAuthorizationScalarV1>(bytes)
+                });
+                assert!(matches!(decoded, Err(norito::Error::LengthMismatch)));
+                assert_eq!(usage.total_allocated_bytes(), 0);
+                assert_eq!(usage.total_elements(), 0);
+            }
+        }
     }
 }

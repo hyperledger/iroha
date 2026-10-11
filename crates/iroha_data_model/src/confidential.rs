@@ -896,6 +896,7 @@ impl<'a> norito_core::DecodeFromSlice<'a> for ConfidentialMemoEnvelopeV1 {
 /// `Active` at the scheduled height and transition to `Withdrawn` once retired, at which point they
 /// must not be used by validators or wallets. The lifecycle applies uniformly to verifier keys and
 /// parameter sets.
+/// Norito encodes the enum discriminant as a four-byte little-endian integer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, IntoSchema)]
 #[repr(u8)]
 #[norito(reuse_archived)]
@@ -915,7 +916,7 @@ impl ConfidentialStatus {
     pub const fn is_active(self) -> bool {
         matches!(self, ConfidentialStatus::Active)
     }
-    fn from_u8(value: u8) -> Result<Self, NoritoError> {
+    fn from_discriminant(value: u32) -> Result<Self, NoritoError> {
         match value {
             0 => Ok(Self::Proposed),
             1 => Ok(Self::Active),
@@ -937,8 +938,8 @@ impl From<ConfidentialStatus> for u8 {
 }
 impl<'a> DecodeFromSlice<'a> for ConfidentialStatus {
     fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), NoritoError> {
-        let (raw, used) = u8::decode_from_slice(bytes)?;
-        ConfidentialStatus::from_u8(raw).map(|status| (status, used))
+        let (raw, used) = u32::decode_from_slice(bytes)?;
+        ConfidentialStatus::from_discriminant(raw).map(|status| (status, used))
     }
 }
 
@@ -1027,13 +1028,15 @@ impl ConfidentialFeatureDigest {
 }
 /// Ruleset version embedded into [`ConfidentialFeatureDigest::conf_rules_version`] for v1 networks.
 pub const CONFIDENTIAL_RULES_VERSION: u32 = 1;
-/// Default genesis confidential-policy hash for bundled ZK defaults and compiled SCCP profiles.
+/// Default genesis confidential-policy hash for bundled ZK defaults and the version-1 (genesis)
+/// SCCP light-client profiles.
 ///
 /// Core's `default_genesis_confidential_policy_hash_uses_default_zk_and_sccp_v1_policy` test
 /// requires this pin to match the current consensus inputs; regenerate it when those change.
+/// Appending a light-client profile version that is not yet activated leaves it unchanged.
 pub const DEFAULT_GENESIS_CONFIDENTIAL_POLICY_HASH: [u8; 32] = [
-    0xc7, 0x36, 0xb6, 0x94, 0xd3, 0x98, 0x31, 0x82, 0x92, 0x6e, 0xe2, 0xbd, 0x49, 0x44, 0xbc, 0x87,
-    0xb4, 0x7c, 0xab, 0xbe, 0xea, 0x4f, 0x1e, 0xea, 0x87, 0x4b, 0xab, 0xcb, 0x37, 0xaf, 0xaf, 0x54,
+    0x91, 0xd3, 0xb1, 0xb1, 0x08, 0x63, 0x40, 0x51, 0x90, 0xa4, 0xab, 0x2d, 0x78, 0x38, 0xbc, 0xa2,
+    0x2b, 0xd9, 0x84, 0x08, 0xa0, 0x3f, 0xe0, 0xf8, 0xde, 0xff, 0xdc, 0x35, 0xc2, 0x4d, 0xdf, 0x7a,
 ];
 /// Default digest advertising the v1 ruleset and canonical genesis confidential policy.
 pub const DEFAULT_CONFIDENTIAL_FEATURE_DIGEST: ConfidentialFeatureDigest =
@@ -1193,6 +1196,34 @@ pub mod prelude {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn confidential_status_slice_matches_canonical_enum_discriminant() {
+        for (tag, status) in [
+            (0_u32, ConfidentialStatus::Proposed),
+            (1, ConfidentialStatus::Active),
+            (2, ConfidentialStatus::Withdrawn),
+        ] {
+            let bytes = tag.to_le_bytes();
+            let frame = norito::to_bytes(&status).expect("canonical status frame");
+            assert_eq!(&frame[norito::core::Header::SIZE..], &bytes);
+            assert_eq!(
+                ConfidentialStatus::decode_from_slice(&bytes).expect("status slice"),
+                (status, bytes.len())
+            );
+            assert_eq!(
+                norito::decode_from_bytes::<ConfidentialStatus>(&frame)
+                    .expect("canonical status roundtrip"),
+                status
+            );
+            for end in 0..bytes.len() {
+                assert!(ConfidentialStatus::decode_from_slice(&bytes[..end]).is_err());
+            }
+        }
+        for tag in [3_u32, 255, 256, u32::MAX] {
+            assert!(ConfidentialStatus::decode_from_slice(&tag.to_le_bytes()).is_err());
+        }
+    }
+
     #[test]
     fn canonical_registry_schema_identity_roundtrips() {
         let value = ConfidentialParamsId::new(17);

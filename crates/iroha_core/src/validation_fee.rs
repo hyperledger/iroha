@@ -20,18 +20,17 @@ use iroha_data_model::{
         ValidationFeePolicyRegistryV1, ValidationFeePolicyV1, ValidationFeeTreasuryPayoutBindingV1,
     },
 };
-use iroha_model_base::state_path::StatePath;
+use iroha_model_base::{name::Name, state_path::StatePath};
 use iroha_primitives::numeric::{Numeric, Quantity};
 use ivm::state_value::{
     StateValueAtomV1, StateValueKindV1, StateValueNodeV1, StateValueRecordV1, StateValueSchemaV1,
     state_value_schema_hash_v1,
 };
 use mv::storage::StorageReadOnly;
-pub(crate) const VALIDATION_FEE_PAYOUT_WRAPPER_ENTRYPOINT_PERMISSION: &str =
-    "CanInvokeContractEntrypoint";
 pub(crate) const VALIDATION_FEE_POOL_SWAP_ENTRYPOINT: &str = "swap_exact_in_quote_public";
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-enum ValidationFeeAdmissionError {
+/// Deterministic protected fee-policy rejection retained until the caller boundary.
+pub(crate) enum ValidationFeeAdmissionError {
     #[error("malformed protected policy registry")]
     MalformedPolicyRegistryParameter,
     #[error("invalid protected policy registry: {0}")]
@@ -339,37 +338,128 @@ pub(crate) fn permission_targets_enacted_validation_fee_payout_trigger(
     }))
 }
 
+/// Resolve a dedicated instance permission without broadening a payout selector grant.
+/// A grouped role, shared chain marker, open policy or lifecycle policy cannot protect a payout.
+pub(crate) fn dedicated_payout_permission(
+    manifest: &iroha_data_model::smart_contract::manifest::ContractManifest,
+    selector: &str,
+) -> Option<Name> {
+    use iroha_data_model::smart_contract::manifest::{
+        ContractPermissionScopeV1, EntryPointKind, EntrypointAuthorizationV1,
+    };
+    let entries = manifest.entrypoints.as_ref()?;
+    let mut selected = entries.iter().filter(|entry| entry.name == selector);
+    let entry = selected.next()?;
+    if selected.next().is_some() || entry.kind != EntryPointKind::Kotoage {
+        return None;
+    }
+    let EntrypointAuthorizationV1::Permission(name) = &entry.authorization else {
+        return None;
+    };
+    let mut declarations = manifest
+        .permissions
+        .iter()
+        .filter(|role| role.name == *name);
+    let declaration = declarations.next()?;
+    if declarations.next().is_some()
+        || !matches!(declaration.scope, ContractPermissionScopeV1::Instance)
+        || entries
+            .iter()
+            .filter(|candidate| candidate.authorization == entry.authorization)
+            .count()
+            != 1
+    {
+        return None;
+    }
+    Some(name.clone())
+}
+
+/// Recover the exact role from the immutable artifact named by a payout policy.
+/// Historical policies use their original manifest when their derived grants are revoked.
+pub(crate) fn payout_contract_permission(
+    state_transaction: &StateTransaction<'_, '_>,
+    address: &iroha_data_model::smart_contract::ContractAddress,
+    code_hash: &[u8; 32],
+    selector: &str,
+) -> Result<
+    iroha_data_model::permission::Permission,
+    iroha_data_model::isi::error::InstructionExecutionError,
+> {
+    use iroha_data_model::isi::error::InstructionExecutionError;
+    let invalid = || {
+        InstructionExecutionError::InvariantViolation(
+        "validation-fee payout requires a declared instance permission dedicated to its selector".into(),
+    )
+    };
+    let artifact = iroha_data_model::smart_contract::ContractArtifactId::for_address(
+        address,
+        iroha_crypto::Hash::prehashed(*code_hash),
+    )
+    .map_err(|_| invalid())?;
+    let manifest = crate::smartcontracts::code::fetch_manifest(state_transaction, &artifact)
+        .map_err(|error| {
+            state_transaction
+                .world
+                .attempt_error_to_instruction_error(error.map_rejection(|error| {
+                    InstructionExecutionError::InvariantViolation(error.to_string().into())
+                }))
+        })?
+        .ok_or_else(invalid)?;
+    let permission = dedicated_payout_permission(&manifest, selector).ok_or_else(invalid)?;
+    Ok(
+        iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+            contract: address.clone(),
+            permission,
+        }
+        .into(),
+    )
+}
+
 pub(crate) fn enacted_validation_fee_payout_runtime_permission_owner(
     state_transaction: &StateTransaction<'_, '_>,
     permission: &iroha_data_model::permission::Permission,
 ) -> Result<Option<AccountId>, iroha_data_model::isi::error::InstructionExecutionError> {
     use iroha_executor_data_model::permission::{
-        Permission as _, asset::CanTransferAsset, smart_contract::CanInvokeContractEntrypoint,
+        Permission as _, asset::CanTransferAsset, smart_contract::CanUseContractPermission,
     };
-    if permission.name() == CanInvokeContractEntrypoint::name() {
-        let scoped: CanInvokeContractEntrypoint =
+    if permission.name() == CanUseContractPermission::name() {
+        let scoped: CanUseContractPermission =
             decode_payout_runtime_permission(state_transaction, permission)?;
-        return Ok(state_transaction
-            .world
-            .governance_proposals
-            .iter()
-            .filter(|(_, proposal)| {
-                proposal.status == crate::state::GovernanceProposalStatus::Enacted
-            })
-            .find_map(|(_, proposal)| {
-                let iroha_data_model::governance::types::ProposalKind::ValidationFeePayoutLifecycle(
-                    lifecycle,
-                ) = &proposal.kind
-                else {
-                    return None;
-                };
-                let binding = &lifecycle.payout_binding;
-                let wrapper_selector = scoped.contract == binding.contract_address
-                    && scoped.entrypoint == binding.entrypoint.as_ref();
-                let pool_selector = scoped.contract.subject_id() == binding.pool_vault_account_id
-                    && scoped.entrypoint == VALIDATION_FEE_POOL_SWAP_ENTRYPOINT;
-                (wrapper_selector || pool_selector).then(|| binding.treasury_account_id.clone())
-            }));
+        // Enacted payout artifacts remain immutable historical authorities. Their dedicated
+        // role identities stay reserved after policy replacement, even after the old grants
+        // are revoked; a later ordinary grant must not revive a retired autonomous payout.
+        for (_, proposal) in state_transaction.world.governance_proposals.iter() {
+            if proposal.status != crate::state::GovernanceProposalStatus::Enacted {
+                continue;
+            }
+            let ProposalKind::ValidationFeePayoutLifecycle(lifecycle) = &proposal.kind else {
+                continue;
+            };
+            let binding = &lifecycle.payout_binding;
+            let selected = if scoped.contract == binding.contract_address {
+                Some((
+                    &binding.contract_address,
+                    &binding.code_hash,
+                    binding.entrypoint.as_ref(),
+                ))
+            } else if scoped.contract == binding.pool_contract_address {
+                Some((
+                    &binding.pool_contract_address,
+                    &binding.pool_code_hash,
+                    VALIDATION_FEE_POOL_SWAP_ENTRYPOINT,
+                ))
+            } else {
+                None
+            };
+            if let Some((address, code_hash, selector)) = selected {
+                let expected =
+                    payout_contract_permission(state_transaction, address, code_hash, selector)?;
+                if expected == *permission {
+                    return Ok(Some(binding.treasury_account_id.clone()));
+                }
+            }
+        }
+        return Ok(None);
     }
     if permission.name() != CanTransferAsset::name() {
         return Ok(None);
@@ -563,7 +653,7 @@ pub(crate) fn active_payout_binding_at_height(
     height: u64,
 ) -> Result<
     Option<ValidationFeeTreasuryPayoutBindingV1>,
-    ExecutionAttemptError<TransactionRejectionReason>,
+    ExecutionAttemptError<ValidationFeeAdmissionError>,
 > {
     active_payout_binding_in_world_at_height(&state_transaction.world, height)
 }
@@ -574,16 +664,16 @@ pub(crate) fn active_payout_binding_in_world_at_height(
     height: u64,
 ) -> Result<
     Option<ValidationFeeTreasuryPayoutBindingV1>,
-    ExecutionAttemptError<TransactionRejectionReason>,
+    ExecutionAttemptError<ValidationFeeAdmissionError>,
 > {
-    Ok(validated_policy_registry_in_world(world)
-        .map_err(|error| error.map_rejection(admission_rejection))?
-        .and_then(|registry| {
+    Ok(
+        validated_policy_registry_in_world(world)?.and_then(|registry| {
             registry
                 .payout_policies
                 .effective_entry_at_height(height)
                 .map(|entry| entry.payout_binding.clone())
-        }))
+        }),
+    )
 }
 
 /// Return the authenticated immutable custody coordinates retained by every lifecycle revision.
@@ -619,26 +709,22 @@ fn validated_policy_registry_in_world<W: WorldReadOnly + ?Sized>(
     if custom.id() != &parameter_id {
         return Err(ValidationFeeAdmissionError::MalformedPolicyRegistryParameter.into());
     }
-    let registry: ValidationFeePolicyRegistryV1 = norito::json::from_str(custom.payload().get())
-        .map_err(|error| match error {
-            norito::json::Error::DecodeResourceLimit
-                if !cfg!(all(test, sumeragi_core_mutation = "HC30")) =>
-            {
-                ExecutionAttemptError::Deferred(
-                    ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into(),
-                )
-            }
-            norito::json::Error::AllocationFailed
-                if !cfg!(all(test, sumeragi_core_mutation = "HC30")) =>
-            {
-                ExecutionAttemptError::Deferred(
-                    ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
-                )
-            }
-            _ => ExecutionAttemptError::Rejected(
+    let registry: ValidationFeePolicyRegistryV1 = norito::core::classify_decode_attempt(|| {
+        norito::json::from_str(custom.payload().get()).map_err(norito::json::Error::into_core_error)
+    })
+    .map_err(|error| {
+        #[cfg(all(test, sumeragi_core_mutation = "HC30"))]
+        {
+            let _ = error;
+            ExecutionAttemptError::Rejected(
                 ValidationFeeAdmissionError::MalformedPolicyRegistryParameter,
-            ),
-        })?;
+            )
+        }
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC30")))]
+        crate::execution_attempt::canonical_decode_attempt_error(error, |_| {
+            ValidationFeeAdmissionError::MalformedPolicyRegistryParameter
+        })
+    })?;
     registry
         .validate()
         .map_err(|err| ValidationFeeAdmissionError::InvalidPolicyRegistry(err.to_string()))?;
@@ -1186,7 +1272,10 @@ fn validate_policy_network_id(
     Ok(())
 }
 
-fn admission_rejection(error: ValidationFeeAdmissionError) -> TransactionRejectionReason {
+/// Wrap a retained policy rejection only at the transaction admission boundary.
+pub(crate) fn admission_rejection(
+    error: ValidationFeeAdmissionError,
+) -> TransactionRejectionReason {
     TransactionRejectionReason::Validation(ValidationFail::NotPermitted(format!(
         "validation-fee admission rejected transaction: {error}"
     )))

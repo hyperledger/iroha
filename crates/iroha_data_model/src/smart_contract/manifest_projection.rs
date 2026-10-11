@@ -14,9 +14,11 @@ use super::{
         MAX_ENTRYPOINT_ARGUMENT_TYPE_DEPTH,
     },
     manifest::{
-        AccessSetHints, ContractErrorMessage, ContractErrorTypeDescriptor, ContractManifest,
-        ContractManifestSignaturePayload, EntryPointKind, EntrypointDescriptor,
-        EntrypointParamDescriptor, KotobaTranslationEntry, StateDescriptor, TriggerDescriptor,
+        AccessSetHints, ContractEnumTypeDescriptorV1, ContractErrorMessage,
+        ContractErrorTypeDescriptor, ContractEventDescriptorV1, ContractManifest,
+        ContractManifestSignaturePayload, ContractPermissionDescriptorV1, EntryPointKind,
+        EntrypointAuthorizationV1, EntrypointDescriptor, EntrypointParamDescriptor,
+        KotobaTranslationEntry, StateDescriptor, TriggerDescriptor,
     },
 };
 use iroha_crypto::Hash;
@@ -56,8 +58,8 @@ pub struct EntrypointDescriptorView<'a> {
     pub return_type: Option<&'a str>,
     /// Original return schema, preserving absence.
     pub return_schema: BorrowedManifestValue<'a, Option<EntrypointValueTypeV1>>,
-    /// Original dispatcher permission.
-    pub permission: Option<&'a str>,
+    /// Original explicit dispatcher authorization.
+    pub authorization: BorrowedManifestValue<'a, EntrypointAuthorizationV1>,
     /// Original ordered read hints.
     pub read_keys: BorrowedManifestValue<'a, Vec<String>>,
     /// Original ordered write hints.
@@ -79,7 +81,7 @@ impl<'a> From<&'a EntrypointDescriptor> for EntrypointDescriptorView<'a> {
             argument_schema,
             return_type,
             return_schema,
-            permission,
+            authorization,
             read_keys,
             write_keys,
             access_hints_complete,
@@ -93,7 +95,7 @@ impl<'a> From<&'a EntrypointDescriptor> for EntrypointDescriptorView<'a> {
             argument_schema: BorrowedManifestValue(argument_schema),
             return_type: return_type.as_deref(),
             return_schema: BorrowedManifestValue(return_schema),
-            permission: permission.as_deref(),
+            authorization: BorrowedManifestValue(authorization),
             read_keys: BorrowedManifestValue(read_keys),
             write_keys: BorrowedManifestValue(write_keys),
             access_hints_complete: *access_hints_complete,
@@ -112,7 +114,7 @@ impl EntrypointDescriptorView<'_> {
             && self.argument_schema.0 == &other.argument_schema
             && self.return_type == other.return_type.as_deref()
             && self.return_schema.0 == &other.return_schema
-            && self.permission == other.permission.as_deref()
+            && self.authorization.0 == &other.authorization
             && self.read_keys.0 == &other.read_keys
             && self.write_keys.0 == &other.write_keys
             && self.access_hints_complete == other.access_hints_complete
@@ -190,6 +192,8 @@ pub enum ManifestStateTypeNodeV1<'a> {
     Unit,
     /// Nominal error identity.
     Error(&'a str),
+    /// Ordinary nominal enum identity, independent of the error catalog.
+    Enum(&'a str),
     /// Canonical scalar state.
     Scalar(EntrypointValueKindV1),
     /// Ordered tuple children.
@@ -209,8 +213,8 @@ pub enum ManifestStateTypeNodeV1<'a> {
     Result,
     /// One element child and fixed V1 capacity.
     List(u8),
-    /// Supported scalar cursor key.
-    StateCursor(EntrypointValueKindV1),
+    /// Exact scalar or tuple cursor key schema.
+    StateCursor(&'a super::entrypoint::EntrypointValueTypeV1),
 }
 
 /// Minimal borrowed adapter for a native durable-state type tree.
@@ -333,7 +337,8 @@ impl<'a> ManifestStateTypeNameV1<'a> {
                     emit("()")?;
                     0
                 }
-                ManifestStateTypeNodeV1::Error(identity) => {
+                ManifestStateTypeNodeV1::Error(identity)
+                | ManifestStateTypeNodeV1::Enum(identity) => {
                     emit(identity)?;
                     0
                 }
@@ -342,11 +347,8 @@ impl<'a> ManifestStateTypeNameV1<'a> {
                     0
                 }
                 ManifestStateTypeNodeV1::StateCursor(key) => {
-                    if !key.is_state_cursor_key() {
-                        return Err(Error::NonCanonicalEncoding);
-                    }
                     emit("StateCursor<")?;
-                    emit(key.canonical_type_name())?;
+                    super::entrypoint::visit_state_key_type_v1(key, &mut emit)?;
                     emit(">")?;
                     0
                 }
@@ -611,12 +613,18 @@ pub struct ContractManifestSignaturePayloadView<'a> {
     pub features_bitmap: Option<u64>,
     /// Original access hints and exact presence.
     pub access_set_hints: Option<BorrowedManifestValue<'a, AccessSetHints>>,
+    /// Original authenticated permission declarations.
+    pub permissions: BorrowedManifestValue<'a, Vec<ContractPermissionDescriptorV1>>,
+    /// Original authenticated native event declarations.
+    pub events: BorrowedManifestValue<'a, Vec<ContractEventDescriptorV1>>,
     /// Original projected entrypoints and exact presence.
     pub entrypoints: Option<BorrowedEntrypoints<'a>>,
     /// Original projected states and exact presence.
     pub states: Option<BorrowedStates<'a>>,
     /// Original nominal error types and exact presence.
     pub error_types: Option<BorrowedManifestValue<'a, Vec<ContractErrorTypeDescriptor>>>,
+    /// Complete signed ordinary enum declaration inventory.
+    pub enum_types: BorrowedManifestValue<'a, Vec<ContractEnumTypeDescriptorV1>>,
     /// Original static presentation messages and exact presence.
     pub error_messages: Option<BorrowedManifestValue<'a, Vec<ContractErrorMessage>>>,
     /// Original localization tables and exact presence.
@@ -632,9 +640,12 @@ impl<'a> From<&'a ContractManifest> for ContractManifestSignaturePayloadView<'a>
             compiler_fingerprint,
             features_bitmap,
             access_set_hints,
+            permissions,
+            events,
             entrypoints,
             states,
             error_types,
+            enum_types,
             error_messages,
             kotoba,
             provenance: _,
@@ -646,9 +657,12 @@ impl<'a> From<&'a ContractManifest> for ContractManifestSignaturePayloadView<'a>
             compiler_fingerprint: compiler_fingerprint.as_deref(),
             features_bitmap: *features_bitmap,
             access_set_hints: access_set_hints.as_ref().map(BorrowedManifestValue),
+            permissions: BorrowedManifestValue(permissions),
+            events: BorrowedManifestValue(events),
             entrypoints: entrypoints.as_ref().map(|rows| BorrowedEntrypoints(rows)),
             states: states.as_ref().map(|rows| BorrowedStates(rows)),
             error_types: error_types.as_ref().map(BorrowedManifestValue),
+            enum_types: BorrowedManifestValue(enum_types),
             error_messages: error_messages.as_ref().map(BorrowedManifestValue),
             kotoba: kotoba.as_ref().map(BorrowedManifestValue),
         }

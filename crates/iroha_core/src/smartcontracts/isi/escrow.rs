@@ -3091,7 +3091,7 @@ mod tests {
         );
     }
     #[test]
-    fn asset_lock_uses_restricted_definition_home_dataspace_from_universal_route() {
+    fn asset_lock_requires_restricted_definition_home_route_and_bucket() {
         let source = fixture_account("lock-home-source");
         let destination = fixture_account("lock-home-destination");
         let observer = fixture_account("lock-home-observer");
@@ -3166,7 +3166,21 @@ mod tests {
             Quantity::from(40_u32),
         )
         .execute(&source, &mut tx)
-        .expect("open restricted asset lock through universal route");
+        .expect_err("a confined asset cannot open escrow through the universal route");
+        assert_eq!(
+            tx.world.asset(&source_asset_id).unwrap().value().as_ref(),
+            &Quantity::from(100_u32),
+        );
+        tx.current_dataspace_id = Some(home_dataspace);
+        tx.world.current_dataspace_id = Some(home_dataspace);
+        OpenAssetLock::new(
+            escrow_id,
+            asset_definition.clone(),
+            destination.clone(),
+            Quantity::from(40_u32),
+        )
+        .execute(&source, &mut tx)
+        .expect("open restricted asset lock through its definition home route");
         let record = escrow_record(&tx, &escrow_id);
         let custody_asset_id = AssetId::with_scope(
             asset_definition.clone(),

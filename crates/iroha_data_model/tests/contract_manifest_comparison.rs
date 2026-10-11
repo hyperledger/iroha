@@ -4,9 +4,10 @@
 
 use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::smart_contract::manifest::{
-    AccessSetHints, ContractErrorMessage, ContractErrorTypeDescriptor,
-    ContractErrorVariantDescriptor, ContractManifest, EntryPointKind, EntrypointDescriptor,
-    EntrypointParamDescriptor, KotobaTranslation, KotobaTranslationEntry, StateDescriptor,
+    AccessSetHints, ContractEnumTypeDescriptorV1, ContractEnumVariantDescriptorV1,
+    ContractErrorMessage, ContractErrorTypeDescriptor, ContractErrorVariantDescriptor,
+    ContractManifest, EntryPointKind, EntrypointDescriptor, EntrypointParamDescriptor,
+    KotobaTranslation, KotobaTranslationEntry, StateDescriptor,
 };
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -65,7 +66,7 @@ fn record() {
 }
 
 fn refuse(layout: Layout) -> bool {
-    ENABLED.try_with(|enabled| enabled.get()).unwrap_or(false)
+    ENABLED.try_with(Cell::get).unwrap_or(false)
         && FAIL_SIZE
             .try_with(|size| {
                 if size.get() == Some(layout.size()) {
@@ -125,6 +126,8 @@ fn measured<T>(operation: impl FnOnce() -> T) -> (T, usize) {
 
 fn empty_manifest() -> ContractManifest {
     ContractManifest {
+        permissions: Vec::new(),
+        events: Vec::new(),
         seiyaku_name: None,
         code_hash: None,
         abi_hash: None,
@@ -134,6 +137,7 @@ fn empty_manifest() -> ContractManifest {
         entrypoints: None,
         states: None,
         error_types: None,
+        enum_types: Vec::new(),
         error_messages: None,
         kotoba: None,
         provenance: None,
@@ -153,6 +157,37 @@ fn populated_manifest() -> ContractManifest {
         dynamic_reads: Vec::new(),
         dynamic_writes: Vec::new(),
     });
+    manifest.permissions = vec![
+        iroha_data_model::smart_contract::manifest::ContractPermissionDescriptorV1 {
+            name: "CanPay".parse().unwrap(),
+            scope: iroha_data_model::smart_contract::manifest::ContractPermissionScopeV1::Instance,
+        },
+    ];
+    manifest.events = vec![
+        iroha_data_model::smart_contract::event::ContractEventDescriptorV1 {
+            name: "Paid".parse().unwrap(),
+            payload_type: iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
+                nodes: vec![
+                iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Struct(
+                    iroha_data_model::smart_contract::entrypoint::EntrypointStructTypeNodeV1 {
+                        name: "app/payments@1.0.0::Payment::Paid".into(),
+                        fields: vec!["amount".into()],
+                    },
+                ),
+                iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                    iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1::Quantity,
+                ),
+            ],
+            },
+        },
+    ];
+    manifest.enum_types = vec![ContractEnumTypeDescriptorV1 {
+        identity: "app/payments@1.0.0::Payment::Status".into(),
+        variants: vec![ContractEnumVariantDescriptorV1 {
+            name: "Settled".into(),
+            code: 1,
+        }],
+    }];
     manifest.entrypoints = Some(vec![EntrypointDescriptor {
         name: "pay".into(),
         kind: EntryPointKind::Kotoage,
@@ -163,7 +198,10 @@ fn populated_manifest() -> ContractManifest {
         argument_schema: None,
         return_type: Some("()".into()),
         return_schema: None,
-        permission: Some("CanPay".into()),
+        authorization:
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "CanPay".parse().unwrap(),
+            ),
         read_keys: vec!["state:balance".into()],
         write_keys: vec!["state:balance".into()],
         access_hints_complete: Some(true),
@@ -199,7 +237,10 @@ fn populated_manifest() -> ContractManifest {
 #[test]
 fn borrowed_comparison_observes_every_signed_field_and_optional_presence() {
     let original = empty_manifest();
-    let changes: [fn(&mut ContractManifest); 11] = [
+    let changes: [fn(&mut ContractManifest); 14] = [
+        |m| m.permissions = populated_manifest().permissions,
+        |m| m.events = populated_manifest().events,
+        |m| m.enum_types = populated_manifest().enum_types,
         |m| m.seiyaku_name = Some(String::new()),
         |m| m.code_hash = Some(Hash::new(b"code")),
         |m| m.abi_hash = Some(Hash::new(b"abi")),
@@ -242,7 +283,15 @@ fn borrowed_comparison_preserves_nested_values_order_and_provenance_exclusion() 
         canonical_signing_frame(&signed)
     );
 
-    let changes: [fn(&mut ContractManifest); 5] = [
+    let changes: [fn(&mut ContractManifest); 8] = [
+        |m| m.permissions[0].name = "CanRefund".parse().unwrap(),
+        |m| {
+            m.events[0].payload_type.nodes[1] =
+                iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                    iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1::Int,
+                )
+        },
+        |m| m.enum_types[0].variants[0].code = 2,
         |m| m.access_set_hints.as_mut().unwrap().read_keys.swap(0, 1),
         |m| m.entrypoints.as_mut().unwrap()[0].params[0].type_name = "int".into(),
         |m| m.states.as_mut().unwrap()[0].type_name = "int".into(),

@@ -4,7 +4,7 @@ seiyaku ExpressionHintMatch {
 
   fn identity(int value) -> int { value }
 
-  view fn scan(Option<int> maybe) -> int {
+  view fn scan(Option<int> maybe) authorize(anyone) -> int {
     return identity(value: match maybe {
       Option::some(seed) => {
         var int total = seed;

@@ -542,7 +542,6 @@ fn runtime_private_dataspace_executes_concrete_work_after_certified_activation()
         proposer: 0,
         skipped_leaders: Vec::new(),
         control_witness: ControlWitness::empty(),
-        attest: false,
     };
     let budget = chain.execution_budget();
     let mut original = iroha_allocation::ChargedBuffer::new(payload.len(), &budget).unwrap();
@@ -572,13 +571,11 @@ fn runtime_private_dataspace_executes_concrete_work_after_certified_activation()
                 view: 0,
                 block_hash: block.hash(&*crypto),
                 result: result.hash(),
-                attest: false,
                 signer: height_config
                     .committee
                     .index_of(signer.public_key())
                     .expect("lane member"),
                 sig: Signature([0; SIGNATURE_LEN]),
-                attestation: None,
             };
             vote.sig = signer.sign(&vote.preimage());
             vote

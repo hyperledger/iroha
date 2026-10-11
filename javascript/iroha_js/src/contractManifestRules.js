@@ -1,5 +1,6 @@
 import { rejectType } from "./validationThrow.js";
-import { isCanonicalKotodamaEntrypoint } from "./kotodamaIdentifiers.js";
+import { Buffer } from "buffer";
+import { isCanonicalKotodamaEntrypoint, isCanonicalKotodamaIdentifier } from "./kotodamaIdentifiers.js";
 
 /** Validate the current field set before reading values; preserve the caller's error boundary. */
 export function validateManifestFieldsV1(manifest, context, reject = rejectType) {
@@ -7,7 +8,7 @@ export function validateManifestFieldsV1(manifest, context, reject = rejectType)
     ["seiyaku_name", "seiyakuName"], ["code_hash", "codeHash"],
     ["abi_hash", "abiHash"], ["compiler_fingerprint", "compilerFingerprint"],
     ["features_bitmap", "featuresBitmap"], ["access_set_hints", "accessSetHints"],
-    ["entrypoints", "entryPoints"], ["error_types", "errorTypes"],
+    ["permissions"], ["events"], ["enum_types", "enumTypes"], ["entrypoints", "entryPoints"], ["error_types", "errorTypes"],
     ["error_messages", "errorMessages"], ["states"], ["kotoba"], ["provenance"],
   ];
   const allowed = new Set(fields.flat());
@@ -23,8 +24,58 @@ export function validateManifestFieldsV1(manifest, context, reject = rejectType)
   }
 }
 
-/** Require the declared entrypoint kind and permission to match its canonical selector. */
-export function validateManifestEntrypointIdentityV1(name, kind, permission, context) {
+function exactRecord(value, keys, context) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)
+      || Object.keys(value).length !== keys.length || keys.some((key) => !Object.hasOwn(value, key))) {
+    rejectType(`${context} requires exactly ${keys.join(", ")}`);
+  }
+}
+
+/** Parse the closed, required authorization declaration without legacy string fallbacks. */
+export function normalizeEntrypointAuthorizationV1(value, context) {
+  exactRecord(value, ["kind", "value"], context);
+  if (value.kind === "Anyone" || value.kind === "RuntimeLifecycle") {
+    if (value.value !== null) rejectType(`${context}.value must be null`);
+    return { kind: value.kind, value: null };
+  }
+  if (value.kind === "Permission" && isCanonicalKotodamaIdentifier(value.value)) {
+    return { kind: "Permission", value: value.value };
+  }
+  rejectType(`${context} must be Anyone, Permission(name), or RuntimeLifecycle`);
+}
+
+/** Parse the required sorted declaration table authenticated by the manifest. */
+export function normalizeContractPermissionsV1(value, context) {
+  if (!Array.isArray(value)) rejectType(`${context} must be a required permission declaration array`);
+  let previous = null;
+  return value.map((entry, index) => {
+    const path = `${context}[${index}]`;
+    exactRecord(entry, ["name", "scope"], path);
+    if (!isCanonicalKotodamaIdentifier(entry.name)) rejectType(`${path}.name must be a canonical identifier`);
+    if (previous !== null && Buffer.compare(Buffer.from(previous), Buffer.from(entry.name)) >= 0) {
+      rejectType(`${context} must be sorted and unique by name`);
+    }
+    previous = entry.name;
+    exactRecord(entry.scope, ["kind", "value"], `${path}.scope`);
+    let scope;
+    if (entry.scope.kind === "Instance" && entry.scope.value === null) {
+      scope = { kind: "Instance", value: null };
+    } else if (entry.scope.kind === "Chain") {
+      exactRecord(entry.scope.value, ["permission_name"], `${path}.scope.value`);
+      const name = entry.scope.value.permission_name;
+      if (typeof name !== "string" || name.length === 0 || name.trim() !== name || /\s/u.test(name)) {
+        rejectType(`${path}.scope.value.permission_name must be an exact permission name`);
+      }
+      scope = { kind: "Chain", value: { permission_name: name } };
+    } else {
+      rejectType(`${path}.scope must be Instance or Chain`);
+    }
+    return { name: entry.name, scope };
+  });
+}
+
+/** Require the declared entrypoint kind and authorization to match its canonical selector. */
+export function validateManifestEntrypointIdentityV1(name, kind, authorization, context) {
   if (!isCanonicalKotodamaEntrypoint(name)) {
     rejectType(`${context}.name must be a canonical Kotodama V1 identifier or branded lifecycle selector`);
   }
@@ -40,21 +91,23 @@ export function validateManifestEntrypointIdentityV1(name, kind, permission, con
   ) {
     rejectType(`${context}.kind does not match its branded lifecycle selector`);
   }
-  if (kind === "Kotoage" && permission === null) {
-    rejectType(`${context}.permission is required for kotoage/言挙げ`);
-  }
-  if ((kind === "Hajimari" || kind === "Kaizen") && permission !== null) {
-    rejectType(`${context}.permission must be null for hajimari/始まり and kaizen/改善`);
+  const isLifecycle = kind === "Hajimari" || kind === "Kaizen";
+  if (isLifecycle !== (authorization.kind === "RuntimeLifecycle")) {
+    rejectType(`${context}.authorization must use RuntimeLifecycle exactly for lifecycle hooks`);
   }
 }
 
 /** Validate cross-declaration names, callbacks and access-hint completeness after normalization. */
 export function validateManifestDeclarationsV1(manifest, context) {
+  const permissions = new Set(normalizeContractPermissionsV1(manifest.permissions, `${context}.permissions`).map((entry) => entry.name));
   const entrypointKinds = new Map();
   const entrypointNames = new Set();
   const lifecycleKinds = new Set();
   const triggerIds = new Set();
   for (const [index, entrypoint] of (manifest.entrypoints ?? []).entries()) {
+    if (entrypoint.authorization.kind === "Permission" && !permissions.has(entrypoint.authorization.value)) {
+      rejectType(`${context}.entrypoints[${index}].authorization refers to an undeclared permission`);
+    }
     if (entrypointNames.has(entrypoint.name)) {
       rejectType(`${context}.entrypoints contains duplicate name ${entrypoint.name}`);
     }

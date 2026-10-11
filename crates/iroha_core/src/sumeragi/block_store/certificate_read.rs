@@ -7,7 +7,7 @@ use iroha_allocation::{AllocationBudget, ChargedBuffer};
 use iroha_data_model::block::SignedBlock;
 use iroha_sumeragi::{
     availability::{AvailabilityFrame, MAX_AVAILABILITY_FRAME_BYTES},
-    message::{BlockHeader, ByteAdmissionError, Qc, ResultWitness},
+    message::{BlockHeader, ByteAdmissionError, Qc},
 };
 use norito::core as ncore;
 
@@ -48,7 +48,6 @@ struct Layout {
     header: BlockHeader,
     availability: Range<usize>,
     qc: QcMetadata,
-    witness: Option<Range<usize>>,
 }
 
 /// Exact source and decoded artifacts; decoding alone does not authorize a historical body.
@@ -61,15 +60,13 @@ pub(in crate::sumeragi) struct DecodedCertificate {
 }
 
 /// One bounded read owner retains its immutable source and every partial funded destination.
-/// No generic witness or availability decoding allocates a temporary bulk Vec.
+/// No generic availability decoding allocates a temporary bulk Vec.
 pub(in crate::sumeragi) struct CertificateRead {
     source: iroha_data_model::block::SharedSignedBlock,
     budget: AllocationBudget,
     layout: Option<Layout>,
     table_backing: Option<ChargedBuffer<u8>>,
-    witness_backing: Option<ChargedBuffer<u8>>,
     table: Option<AvailabilityFrame>,
-    witness: Option<ResultWitness>,
 }
 impl CertificateRead {
     pub(in crate::sumeragi) fn new(
@@ -81,9 +78,7 @@ impl CertificateRead {
             budget,
             layout: None,
             table_backing: None,
-            witness_backing: None,
             table: None,
-            witness: None,
         }
     }
 
@@ -96,7 +91,7 @@ impl CertificateRead {
     #[cfg(test)]
     pub(in crate::sumeragi) fn retained_owners_for_test(
         &self,
-    ) -> (*const SignedBlock, Option<*const u8>, Option<*const u8>) {
+    ) -> (*const SignedBlock, Option<*const u8>) {
         let table = self
             .table
             .as_ref()
@@ -106,16 +101,7 @@ impl CertificateRead {
                     .as_ref()
                     .map(|bytes| bytes.as_slice().as_ptr())
             });
-        let witness = self
-            .witness
-            .as_ref()
-            .map(|witness| witness.as_slice().as_ptr())
-            .or_else(|| {
-                self.witness_backing
-                    .as_ref()
-                    .map(|bytes| bytes.as_slice().as_ptr())
-            });
-        (std::ptr::from_ref(self.source.as_ref()), table, witness)
+        (std::ptr::from_ref(self.source.as_ref()), table)
     }
 
     #[allow(
@@ -134,7 +120,7 @@ impl CertificateRead {
             source: self.source,
             header: layout.header,
             availability: self.table.take().expect("original-funded availability"),
-            commit_qc: layout.qc.finish(self.witness.take()),
+            commit_qc: layout.qc.finish(),
         })
     }
 
@@ -151,13 +137,12 @@ impl CertificateRead {
                 header(certificate.consensus_header()).map_err(CertificateReadError::Decode)?;
             let availability =
                 table_range(certificate.availability()).map_err(CertificateReadError::Decode)?;
-            let (qc, witness) = durable_qc_codec::parse_frame(certificate.commit_qc())
+            let qc = durable_qc_codec::parse_frame(certificate.commit_qc())
                 .map_err(CertificateReadError::Decode)?;
             self.layout = Some(Layout {
                 header,
                 availability,
                 qc,
-                witness,
             });
         }
         let layout = self.layout.as_ref().expect("retained canonical ranges");
@@ -173,26 +158,6 @@ impl CertificateRead {
                 Err((backing, error)) => {
                     self.table_backing = Some(backing);
                     return Err(CertificateReadError::Admission(error));
-                }
-            }
-        }
-        if let Some(range) = &layout.witness {
-            if self.witness.is_none() {
-                fill(
-                    &mut self.witness_backing,
-                    &certificate.commit_qc()[range.clone()],
-                    budget,
-                )?;
-                let backing = self
-                    .witness_backing
-                    .take()
-                    .expect("original witness backing");
-                match ResultWitness::from_charged(backing, budget) {
-                    Ok(witness) => self.witness = Some(witness),
-                    Err((backing, error)) => {
-                        self.witness_backing = Some(backing);
-                        return Err(CertificateReadError::Admission(error));
-                    }
                 }
             }
         }

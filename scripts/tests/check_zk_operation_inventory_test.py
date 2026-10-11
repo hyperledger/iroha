@@ -2204,6 +2204,19 @@ class Exact12SingleRoute(Base):
             inventory["exact12"]["single_route"]["administrative_proof_operations"][0]["id"] = "privacy::NotListedV1"
         self.assert_fails(run(self.METHOD, edited(edit)), "administrative operation privacy::NotListedV1: not a listed operation")
 
+    def test_second_native_verifier_call_in_the_dispatch_file_fails(self) -> None:
+        shortcut = "fn shortcut() { let _ = crate::privacy_engines::orchard::verify_orchard_bundle_v1(a, b, c); }"
+        self.assert_fails(run(self.METHOD, overrides=appended(VERIFIER, shortcut)),
+                          f"role OrchardActions: {VERIFIER} calls native verifier `verify_orchard_bundle_v1` "
+                          "2 time(s); its one admission caller must call it exactly once")
+
+    def test_second_pgc_bootstrap_call_in_the_handler_file_fails(self) -> None:
+        shortcut = "fn bootstrap_shortcut() { let _ = verify_bootstrap_encoded(a, b, c); }"
+        self.assert_fails(run(self.METHOD, overrides=appended(PRIVACY_HANDLERS, shortcut)),
+                          f"administrative operation privacy::BootstrapPrivacyPgcAccountsV1: {PRIVACY_HANDLERS} "
+                          "calls native verifier `verify_bootstrap_encoded` 2 time(s); "
+                          "its one admission caller must call it exactly once")
+
     def test_second_effect_consumer_matcher_or_executor_arm_fails(self) -> None:
         consumer = "fn apply_elsewhere(e: VerifiedPrivacyEffectsV1) { let _ = e.into_ledger(); }"
         self.assert_fails(run(self.METHOD, overrides=appended(CORE_PRIVACY, consumer)),

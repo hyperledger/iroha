@@ -19,7 +19,6 @@ fn fixture() -> (PublicLaneValidatorRecord, AssetId) {
         activation_height: 2,
         election_exit_height: None,
         deactivation_height: None,
-        last_reward_epoch: None,
     };
     let definition = crate::asset::AssetDefinitionId::derive_from_components(
         iroha_model_base::domain::DomainId::try_new("custody", "test").unwrap(),

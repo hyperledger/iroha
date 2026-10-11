@@ -9,7 +9,7 @@ use super::{
         MAX_CHECKPOINT_BYTES, ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid,
         now_ms, read_optional, require_deadline, require_empty, verify_carrier,
     },
-    service_authority::{ProviderPurpose, ServiceAuthority},
+    service_authority::{CheckpointImportScope, ProviderPurpose, ServiceAuthority},
 };
 use crate::{
     localnet::service_authorities::StreamTokenAuthorityRole, verify::finality::FinalityVerifier,
@@ -176,6 +176,21 @@ impl ManagedReserveTopUpRequest {
         })
     }
 
+    /// Borrow the immutable original profile while admitting this provider's own purpose lock.
+    /// Active decode admission and owned parents retain the full standalone capture recipe.
+    pub(super) fn open_from_original(
+        parent: &ServiceAuthority,
+        provider: iroha_data_model::sorafs::capacity::ProviderId,
+    ) -> Result<Self> {
+        Ok(Self {
+            authority: ServiceAuthority::open_provider_from_original(
+                parent,
+                provider,
+                ProviderPurpose::ReserveTopUpRequest,
+            )?,
+        })
+    }
+
     /// Retain one exact request after fresh predecessor verification, then advance once-only work.
     /// # Errors
     /// Changed original intent/UTC/fees, invalid generated bindings, unavailable/stale predecessor
@@ -227,6 +242,7 @@ impl ManagedReserveTopUpRequest {
         Ok(original)
     }
 
+    #[cfg(test)]
     pub(super) fn open_existing(
         prepared: &PreparedLocalnet,
         provider: iroha_data_model::sorafs::capacity::ProviderId,
@@ -235,6 +251,22 @@ impl ManagedReserveTopUpRequest {
             prepared,
             provider,
             ProviderPurpose::ReserveTopUpRequest,
+        )
+        .map(|authority| authority.map(|authority| Self { authority }))
+    }
+
+    /// Retain fresh purpose custody using the immutable original read-only parent profile.
+    /// Optional lexical import work supplies no source, transaction or current-state verdict.
+    pub(super) fn open_existing_from_original(
+        parent: &ServiceAuthority,
+        provider: iroha_data_model::sorafs::capacity::ProviderId,
+        scope: Option<&CheckpointImportScope>,
+    ) -> Result<Option<Self>> {
+        ServiceAuthority::open_provider_existing_from_original(
+            parent,
+            provider,
+            ProviderPurpose::ReserveTopUpRequest,
+            scope,
         )
         .map(|authority| authority.map(|authority| Self { authority }))
     }
@@ -266,8 +298,9 @@ impl ManagedReserveTopUpRequest {
             None,
             |attempt| {
                 account
-                    .inspect_reserve_top_up_preparation(
-                        &attempt.wallet_path(),
+                    .inspect_reserve_top_up_preparation_in_parent(
+                        attempt.directory(),
+                        std::ffi::OsStr::new("transaction"),
                         &original.request(attempt.terms(), deadline),
                     )
                     .map_err(|_| invalid("funding attempt differs from exact wallet request"))
@@ -347,10 +380,8 @@ impl ManagedReserveTopUpRequest {
         require_deadline(deadline)?;
         self.authority.validate_profile()?;
         self.validate_intent(intent)?;
-        let directory = match self.authority.directory.open_child("request") {
-            Ok(directory) => directory,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
+        let Some(directory) = self.authority.directory.open_child_optional("request")? else {
+            return Ok(None);
         };
         let Some(original) = journal::read_intent(&directory)? else {
             require_empty(&directory)?;
@@ -387,16 +418,34 @@ impl ManagedReserveTopUpRequest {
         let verify_custody = || {
             original.verify_wallets(|intent, attempt| {
                 account
-                    .inspect_reserve_top_up_preparation(
-                        &attempt.wallet_path(),
+                    .inspect_reserve_top_up_preparation_in_parent(
+                        attempt.directory(),
+                        std::ffi::OsStr::new("transaction"),
                         &intent.request(attempt.terms(), deadline),
                     )
-                    .map_err(|_| invalid("retained funding attempt history changed"))
+                    .map_err(|_error| {
+                        #[cfg(test)]
+                        {
+                            use std::io::Write as _;
+                            let mut output = std::io::stderr().lock();
+                            for (index, cause) in _error.chain().enumerate() {
+                                let _ = writeln!(
+                                    output,
+                                    "retained funding wallet inspection: purpose=FundingRequest; cause[{index}]={cause}",
+                                );
+                            }
+                        }
+                        invalid("retained funding attempt history changed")
+                    })
             })
         };
         verify_custody()?;
         let preparation = account
-            .inspect_reserve_top_up_preparation(&path, &original.request(deadline))
+            .inspect_reserve_top_up_preparation_in_parent(
+                directory,
+                std::ffi::OsStr::new("transaction"),
+                &original.request(deadline),
+            )
             .map_err(|_| invalid("wallet preparation differs from the exact original request"))?;
         let unprepared_expired = preparation.unprepared_status() == Some(OperationStatus::Expired);
         let retained = match preparation.phase() {
@@ -529,16 +578,18 @@ impl ManagedReserveTopUpRequest {
                 &original.checkpoint,
                 &transaction,
                 &report,
-                observed.checkpoint().height(),
+                observed,
                 deadline,
             )?;
         }
         // A public status/finality report never mints historical authority. Reopen the retained
         // independently authenticated carrier and bind its exact single signed instruction.
         let historical = self.retained_historical(&directory, &original, &transaction)?;
-        let current = observed
-            .as_ref()
-            .and_then(|verifier| self.read_current(&original.policy, verifier, deadline).ok());
+        let current = super::native_operation::optional_current(
+            observe_current,
+            observed.as_ref(),
+            |verifier| self.read_current(&original.policy, verifier, deadline),
+        );
         verify_custody()?;
         Ok(progress(report.status, historical, current))
     }
@@ -591,6 +642,24 @@ impl ManagedReserveTopUpRequest {
 
     fn validate_original(&self, original: &Original) -> Result<()> {
         original.validate()?;
+        self.validate_original_selection(original)?;
+        self.authority
+            .decode_checkpoint(&original.checkpoint)?
+            .verified_tip_ref()
+            .map_err(|_| invalid("invalid original reserve top-up checkpoint"))?
+            .verify_global_scope(
+                self.authority.config.network_id,
+                &self.authority.config.chain.to_string(),
+            )
+            .map_err(|_| invalid("original reserve checkpoint is not the selected Global root"))?;
+        Ok(())
+    }
+
+    // Complete the original canonical claim comparison in its own lexical frame. The
+    // policy/partition/amount clone and both selection encodes drop before native import;
+    // the authenticated original and its directory remain held by the caller unchanged.
+    #[inline(never)]
+    fn validate_original_selection(&self, original: &Original) -> Result<()> {
         let intent = original.intent();
         if encode(&original.selection, journal::MAX_SELECTION_BYTES)?
             != encode(&self.selection(&intent)?, journal::MAX_SELECTION_BYTES)?
@@ -599,15 +668,6 @@ impl ManagedReserveTopUpRequest {
                 "original reserve top-up differs from authenticated generation",
             ));
         }
-        self.authority
-            .decode_checkpoint(&original.checkpoint)?
-            .verified_tip()
-            .map_err(|_| invalid("invalid original reserve top-up checkpoint"))?
-            .verify_global_scope(
-                self.authority.config.network_id,
-                &self.authority.config.chain.to_string(),
-            )
-            .map_err(|_| invalid("original reserve checkpoint is not the selected Global root"))?;
         Ok(())
     }
 
@@ -619,7 +679,7 @@ impl ManagedReserveTopUpRequest {
     ) -> Result<ManagedHistoricalReserveTopUp> {
         self.validate_original(original)?;
         let block = verifier
-            .verified_tip()
+            .verified_tip_ref()
             .map_err(|_| invalid("invalid original top-up carrier"))?;
         block
             .verify_global_scope(

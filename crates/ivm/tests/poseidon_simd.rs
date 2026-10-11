@@ -1,39 +1,20 @@
+//! SIMD and scalar parity against the captured independent RP56 banks.
 #![cfg(feature = "ivm_zk_tests")]
 use halo2curves::{
     bn256::Fr,
     ff::{Field, PrimeField},
 };
 use ivm::{poseidon2, poseidon2_simd, poseidon6, poseidon6_simd, simd_bits};
-use poseidon_primitives::poseidon::primitives::Spec;
-#[derive(Debug)]
-struct TestSpec;
-impl poseidon_primitives::poseidon::primitives::Spec<Fr, 6, 5> for TestSpec {
-    fn full_rounds() -> usize {
-        8
-    }
-    fn partial_rounds() -> usize {
-        56
-    }
-    fn sbox(val: Fr) -> Fr {
-        val.pow_vartime([5])
-    }
-    fn secure_mds() -> usize {
-        0
-    }
-}
-impl poseidon_primitives::poseidon::primitives::Spec<Fr, 3, 2> for TestSpec {
-    fn full_rounds() -> usize {
-        8
-    }
-    fn partial_rounds() -> usize {
-        56
-    }
-    fn sbox(val: Fr) -> Fr {
-        val.pow_vartime([5])
-    }
-    fn secure_mds() -> usize {
-        0
-    }
+#[path = "../../../fixtures/poseidon/reader.rs"]
+mod reference;
+
+fn captured<const W: usize>(text: &str) -> ([[Fr; W]; 64], [[Fr; W]; W]) {
+    let (rounds, mds) = reference::parameters::<W>(text);
+    let field = |bytes: [u8; 32]| Fr::from_repr(bytes.into()).expect("canonical reference field");
+    (
+        rounds.map(|row| row.map(field)),
+        mds.map(|row| row.map(field)),
+    )
 }
 fn fr_to_u64(f: Fr) -> u64 {
     let repr = f.to_repr();
@@ -79,7 +60,7 @@ fn test_poseidon6_simd_matches_scalar() {
 fn test_poseidon6_first_round() {
     use ivm::bn254_vec::{self as field_vec, FieldElem};
     let inputs = [1u64, 2, 3, 4, 5, 6];
-    let (rc, mds, _) = <TestSpec as Spec<Fr, 6, 5>>::constants();
+    let (rc, mds) = captured::<6>(include_str!("../../../fixtures/poseidon/bn254-w6-rp56.hex"));
     let mut st = [
         FieldElem::from_fr(Fr::from(1u64)),
         FieldElem::from_fr(Fr::from(2u64)),
@@ -109,7 +90,7 @@ fn test_poseidon6_first_round() {
     st = ns;
     let mut scalar = inputs.map(Fr::from);
     for i in 0..6 {
-        scalar[i] = <TestSpec as Spec<Fr, 6, 5>>::sbox(scalar[i] + rc[0][i]);
+        scalar[i] = (scalar[i] + rc[0][i]).pow_vartime([5]);
     }
     let mut ns2 = [Fr::ZERO; 6];
     for i in 0..6 {
@@ -125,10 +106,10 @@ fn test_poseidon6_first_round() {
 #[test]
 fn test_poseidon6_full_permutation() {
     let inputs = [1u64, 2, 3, 4, 5, 6];
-    let (rc, mds, _) = <TestSpec as Spec<Fr, 6, 5>>::constants();
+    let (rc, mds) = captured::<6>(include_str!("../../../fixtures/poseidon/bn254-w6-rp56.hex"));
     let mut state = inputs.map(Fr::from);
-    let rf_half = <TestSpec as Spec<Fr, 6, 5>>::full_rounds() / 2;
-    let rp = <TestSpec as Spec<Fr, 6, 5>>::partial_rounds();
+    let rf_half = 8 / 2;
+    let rp = 56;
     let apply_mds = |s: &mut [Fr; 6]| {
         let mut out = [Fr::ZERO; 6];
         for i in 0..6 {
@@ -140,7 +121,7 @@ fn test_poseidon6_full_permutation() {
     };
     for r in 0..rf_half {
         for i in 0..6 {
-            state[i] = <TestSpec as Spec<Fr, 6, 5>>::sbox(state[i] + rc[r][i]);
+            state[i] = (state[i] + rc[r][i]).pow_vartime([5]);
         }
         apply_mds(&mut state);
     }
@@ -149,13 +130,13 @@ fn test_poseidon6_full_permutation() {
         for i in 0..6 {
             state[i] += rc[idx][i];
         }
-        state[0] = <TestSpec as Spec<Fr, 6, 5>>::sbox(state[0]);
+        state[0] = (state[0]).pow_vartime([5]);
         apply_mds(&mut state);
     }
     for r in 0..rf_half {
         let idx = rf_half + rp + r;
         for i in 0..6 {
-            state[i] = <TestSpec as Spec<Fr, 6, 5>>::sbox(state[i] + rc[idx][i]);
+            state[i] = (state[i] + rc[idx][i]).pow_vartime([5]);
         }
         apply_mds(&mut state);
     }
@@ -217,7 +198,7 @@ fn test_poseidon2_first_round() {
     use ivm::bn254_vec::{self as field_vec, FieldElem};
     let a = 1u64;
     let b = 2u64;
-    let (rc, mds, _) = <TestSpec as Spec<Fr, 3, 2>>::constants();
+    let (rc, mds) = captured::<3>(include_str!("../../../fixtures/poseidon/bn254-w3-rp56.hex"));
     let mut st = [
         FieldElem::from_fr(Fr::from(a)),
         FieldElem::from_fr(Fr::from(b)),
@@ -244,7 +225,7 @@ fn test_poseidon2_first_round() {
     st = ns;
     let mut scalar = [Fr::from(a), Fr::from(b), Fr::ZERO];
     for i in 0..3 {
-        scalar[i] = <TestSpec as Spec<Fr, 3, 2>>::sbox(scalar[i] + rc[0][i]);
+        scalar[i] = (scalar[i] + rc[0][i]).pow_vartime([5]);
     }
     let mut ns2 = [Fr::ZERO; 3];
     for i in 0..3 {

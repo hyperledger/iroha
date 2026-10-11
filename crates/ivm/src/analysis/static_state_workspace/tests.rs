@@ -214,7 +214,7 @@ fn scratch_is_funded_with_zero_retention_and_reclaimed_on_error_or_unwind() {
 #[test]
 fn roots_borrow_exact_original_descriptors_for_selection_and_whole_contract() {
     let bytes = kotodama_lang::compiler::Compiler::new().compile_source(
-        "seiyaku WorkspaceRoots { view fn first() -> bool { true } view fn second() -> bool { false } }",
+        "seiyaku WorkspaceRoots { view fn first() authorize(anyone) -> bool { true } view fn second() authorize(anyone) -> bool { false } }",
     ).unwrap();
     let prepared = crate::prepare_contract(std::sync::Arc::from(bytes.as_slice())).unwrap();
     let all = Roots::new(&prepared, None).unwrap();

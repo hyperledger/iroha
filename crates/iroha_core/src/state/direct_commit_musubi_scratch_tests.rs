@@ -782,3 +782,421 @@ fn collect_original_ebr_until(budget: &iroha_allocation::AllocationBudget, expec
         std::thread::yield_now();
     }
 }
+
+#[path = "publication/retained_musubi/tests.rs"]
+mod retained_package_read_tests;
+
+#[path = "publication/retained_musubi_group/tests.rs"]
+mod retained_musubi_group_tests;
+
+#[test]
+fn retained_state_successful_musubi_validation_survives_late_writer_refusal() {
+    use crate::state::{StatePublicationOutcome, world_commit::validation_observer};
+    let (state, proposal) = fixture();
+    let budget = state.ivm_execution_budget();
+    let mut original = Box::new(staged_block(&state, proposal.header(), false, true));
+    let owner = std::ptr::from_ref(&*original);
+    let row = std::ptr::from_ref(
+        original
+            .world
+            .musubi_public_directory
+            .iter()
+            .next()
+            .unwrap()
+            .1,
+    );
+    validation_observer::observe(|| {
+        let occupied = budget
+            .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+            .unwrap();
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::Deferred(
+                storage_transactions::TransactionsBlockError::ExecutionDeferred(reason)
+            ) if matches!(reason.allocation_refusal(),
+                Some(iroha_allocation::AllocationRefusal::Capacity { .. }))
+        ));
+        let refused_prefix = validation_observer::counts();
+        drop(occupied);
+        // This actual last World writer refuses only after both pure validators
+        // complete. Earlier writers must be recovered on every attempt return.
+        let blocker = state.world.merge_global_state_root.block();
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::Deferred(
+                storage_transactions::TransactionsBlockError::PublicationBusy(_)
+            )
+        ));
+        let completed = validation_observer::counts();
+        assert_eq!(completed, [refused_prefix[0] + 1, refused_prefix[1] + 1]);
+        let prepared = original.publication_identity_for_test();
+        assert_ne!(prepared.0, 0);
+        assert!(prepared.2);
+        for _ in 0..3 {
+            assert!(matches!(
+                original.try_publish(),
+                StatePublicationOutcome::Deferred(
+                    storage_transactions::TransactionsBlockError::PublicationBusy(_)
+                )
+            ));
+            assert_eq!(
+                validation_observer::counts(),
+                completed,
+                "successful Musubi validation must survive a later original writer refusal",
+            );
+            assert_eq!(std::ptr::from_ref(&*original), owner);
+            assert_eq!(original.publication_identity_for_test(), prepared);
+            assert_eq!(
+                std::ptr::from_ref(
+                    original
+                        .world
+                        .musubi_public_directory
+                        .iter()
+                        .next()
+                        .unwrap()
+                        .1,
+                ),
+                row,
+                "retry must retain the original staged canonical row",
+            );
+            assert!(budget.same_pool(&state.ivm_execution_budget()));
+            assert!(state.state_write_lock.try_lock().is_some());
+            assert!(state.state_commit_lock.try_lock().is_some());
+            assert!(state.world.musubi_public_directory.view().is_empty());
+            assert_eq!(state.transactions.latest_height(), 0);
+            drop(state.world.parameters.block());
+            drop(state.canonical_runtime.block());
+            drop(state.transactions.block());
+        }
+        drop(blocker);
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::Published
+        ));
+        assert_eq!(validation_observer::counts(), completed);
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::Published
+        ));
+        assert_eq!(validation_observer::counts(), completed);
+    });
+    drop(original);
+    assert_eq!(state.world.musubi_public_directory.view().len(), 1);
+    assert_eq!(
+        state.latest_block_hash_fast(),
+        Some(proposal.header().hash())
+    );
+}
+
+#[test]
+fn retained_state_validated_musubi_refuses_changed_visibility_before_retry() {
+    use crate::state::{StatePublicationOutcome, world_commit::validation_observer};
+    let (state, proposal) = fixture();
+    let budget = state.ivm_execution_budget();
+    let mut original = Box::new(staged_block(&state, proposal.header(), false, true));
+    let owner = std::ptr::from_ref(&*original);
+    validation_observer::observe(|| {
+        let occupied = budget
+            .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+            .unwrap();
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::Deferred(_)
+        ));
+        drop(occupied);
+        let blocker = state.world.merge_global_state_root.block();
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::Deferred(
+                storage_transactions::TransactionsBlockError::PublicationBusy(_)
+            )
+        ));
+        let completed = validation_observer::counts();
+        assert!(completed.iter().all(|calls| *calls > 0));
+        let generation = state.state_view_generation();
+        let mut notice = state.state_view_publication();
+        let writer = state.state_write_lock.lock();
+        drop(notice.begin());
+        drop(writer);
+        drop(notice);
+        assert_eq!(state.state_view_generation(), generation + 2);
+        drop(blocker);
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::RecoveryRequired(
+                storage_transactions::TransactionsBlockError::SnapshotObservationChanged
+            )
+        ));
+        assert_eq!(validation_observer::counts(), completed);
+        assert_eq!(std::ptr::from_ref(&*original), owner);
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::RecoveryRequired(
+                storage_transactions::TransactionsBlockError::PublicationRecoveryRequired
+            )
+        ));
+        assert_eq!(validation_observer::counts(), completed);
+    });
+    drop(original);
+    assert!(state.world.musubi_public_directory.view().is_empty());
+    assert_eq!(state.transactions.latest_height(), 0);
+}
+
+#[test]
+fn retained_state_validated_musubi_refuses_equal_predecessor_advance() {
+    use crate::state::{StatePublicationOutcome, world_commit::validation_observer};
+    let (state, proposal) = fixture();
+    let budget = state.ivm_execution_budget();
+    let mut original = Box::new(staged_block(&state, proposal.header(), false, true));
+    let owner = std::ptr::from_ref(&*original);
+    validation_observer::observe(|| {
+        let occupied = budget
+            .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+            .unwrap();
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::Deferred(_)
+        ));
+        drop(occupied);
+        let blocker = state.world.merge_global_state_root.block();
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::Deferred(
+                storage_transactions::TransactionsBlockError::PublicationBusy(_)
+            )
+        ));
+        let completed = validation_observer::counts();
+        assert!(completed.iter().all(|calls| *calls > 0));
+        drop(blocker);
+        let generation = state.state_view_generation();
+        // The component-only publication changes the actual original Musubi
+        // predecessor even though its values and State visibility remain equal.
+        assert!(state.world.musubi_packages.view().is_empty());
+        let other = state.world.musubi_packages.block();
+        other.commit();
+        assert!(state.world.musubi_packages.view().is_empty());
+        assert_eq!(state.state_view_generation(), generation);
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::RecoveryRequired(
+                storage_transactions::TransactionsBlockError::SnapshotObservationChanged
+            )
+        ));
+        assert_eq!(validation_observer::counts(), completed);
+        assert_eq!(std::ptr::from_ref(&*original), owner);
+    });
+    drop(original);
+    assert!(state.world.musubi_public_directory.view().is_empty());
+    assert_eq!(state.transactions.latest_height(), 0);
+}
+
+#[test]
+fn retained_state_unchanged_musubi_skips_both_validators() {
+    use crate::state::{StatePublicationOutcome, world_commit::validation_observer};
+    let (state, proposal) = fixture();
+    let mut original = Box::new(staged_block(&state, proposal.header(), false, false));
+    validation_observer::observe(|| {
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::Published
+        ));
+        assert_eq!(validation_observer::counts(), [0, 0]);
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::Published
+        ));
+        assert_eq!(validation_observer::counts(), [0, 0]);
+    });
+    drop(original);
+    assert!(state.world.musubi_public_directory.view().is_empty());
+    assert_eq!(
+        state.latest_block_hash_fast(),
+        Some(proposal.header().hash())
+    );
+}
+
+#[test]
+fn retained_state_live_musubi_success_survives_universal_capacity_refusal() {
+    use crate::state::{StatePublicationOutcome, world_commit::validation_observer};
+    let (state, proposal) = fixture();
+    let budget = state.ivm_execution_budget();
+    let mut original = Box::new(staged_block(&state, proposal.header(), false, true));
+    let owner = std::ptr::from_ref(&*original);
+    let row = std::ptr::from_ref(
+        original
+            .world
+            .musubi_public_directory
+            .iter()
+            .next()
+            .unwrap()
+            .1,
+    );
+    validation_observer::observe(|| {
+        // Freeze and release the original writers through the existing actual
+        // scratch-capacity seam before constraining only the later validator.
+        let occupied = budget
+            .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+            .unwrap();
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::Deferred(_)
+        ));
+        drop(occupied);
+        let refused_prefix = validation_observer::counts();
+        let live_bytes = original.world.musubi_public_directory.len()
+            * std::mem::size_of::<&MusubiOrderedPackageEntryV1>();
+        assert!(live_bytes > 0);
+        let remaining = budget.limit_bytes() - budget.reserved_bytes();
+        assert!(remaining > live_bytes);
+        // This same physical pool fits the live directory-reference array but
+        // cannot fit the universal per-package accumulator. No limit is changed.
+        let held = budget.try_reserve_bytes(remaining - live_bytes).unwrap();
+        let StatePublicationOutcome::Deferred(
+            storage_transactions::TransactionsBlockError::ExecutionDeferred(reason),
+        ) = original.try_publish()
+        else {
+            panic!("original universal scratch must refuse after the live pass succeeds");
+        };
+        let Some(iroha_allocation::AllocationRefusal::Capacity {
+            requested_bytes,
+            limit_bytes,
+            ..
+        }) = reason.allocation_refusal()
+        else {
+            panic!("universal refusal must retain the actual original pool cause: {reason:?}");
+        };
+        let universal_bytes = *requested_bytes;
+        assert!(universal_bytes > live_bytes);
+        assert_eq!(*limit_bytes, budget.limit_bytes());
+        drop(reason);
+        let completed_live = validation_observer::counts();
+        assert_eq!(
+            completed_live,
+            [refused_prefix[0] + 1, refused_prefix[1] + 1]
+        );
+        let prepared = original.publication_identity_for_test();
+        assert_ne!(prepared.0, 0);
+        assert_eq!(
+            prepared.1, 0,
+            "snapshot still follows both completed validators"
+        );
+        assert!(!prepared.2);
+        let original_reserved = budget.reserved_bytes();
+        for retry in 1..=3 {
+            let StatePublicationOutcome::Deferred(
+                storage_transactions::TransactionsBlockError::ExecutionDeferred(reason),
+            ) = original.try_publish()
+            else {
+                panic!("same original universal accumulator still has no capacity");
+            };
+            assert!(matches!(reason.allocation_refusal(),
+                Some(iroha_allocation::AllocationRefusal::Capacity { requested_bytes, limit_bytes, .. })
+                if *requested_bytes == universal_bytes && *limit_bytes == budget.limit_bytes()
+            ));
+            drop(reason);
+            assert_eq!(
+                validation_observer::counts(),
+                [completed_live[0], completed_live[1] + retry],
+                "successful live Musubi pass must survive original universal capacity refusal",
+            );
+            assert_eq!(budget.reserved_bytes(), original_reserved);
+            assert!(budget.same_pool(&state.ivm_execution_budget()));
+            assert_eq!(std::ptr::from_ref(&*original), owner);
+            assert_eq!(original.publication_identity_for_test(), prepared);
+            assert_eq!(
+                std::ptr::from_ref(
+                    original
+                        .world
+                        .musubi_public_directory
+                        .iter()
+                        .next()
+                        .unwrap()
+                        .1,
+                ),
+                row
+            );
+            assert!(state.world.musubi_public_directory.view().is_empty());
+            assert_eq!(state.transactions.latest_height(), 0);
+            assert!(state.state_write_lock.try_lock().is_some());
+            assert!(state.state_commit_lock.try_lock().is_some());
+        }
+        drop(held);
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::Published
+        ));
+        let completed = validation_observer::counts();
+        assert_eq!(completed, [completed_live[0], completed_live[1] + 4]);
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::Published
+        ));
+        assert_eq!(validation_observer::counts(), completed);
+    });
+    drop(original);
+    assert_eq!(state.world.musubi_public_directory.view().len(), 1);
+    assert_eq!(
+        state.latest_block_hash_fast(),
+        Some(proposal.header().hash())
+    );
+}
+
+#[test]
+fn retained_state_partial_musubi_validation_refuses_changed_visibility() {
+    use crate::state::{StatePublicationOutcome, world_commit::validation_observer};
+    let (state, proposal) = fixture();
+    let budget = state.ivm_execution_budget();
+    let mut original = Box::new(staged_block(&state, proposal.header(), false, true));
+    let owner = std::ptr::from_ref(&*original);
+    validation_observer::observe(|| {
+        let occupied = budget
+            .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+            .unwrap();
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::Deferred(_)
+        ));
+        drop(occupied);
+        let before = validation_observer::counts();
+        let live_bytes = original.world.musubi_public_directory.len()
+            * std::mem::size_of::<&MusubiOrderedPackageEntryV1>();
+        assert!(live_bytes > 0);
+        let remaining = budget.limit_bytes() - budget.reserved_bytes();
+        let held = budget.try_reserve_bytes(remaining - live_bytes).unwrap();
+        assert!(matches!(original.try_publish(),
+            StatePublicationOutcome::Deferred(
+                storage_transactions::TransactionsBlockError::ExecutionDeferred(reason)
+            ) if matches!(reason.allocation_refusal(),
+                Some(iroha_allocation::AllocationRefusal::Capacity { requested_bytes, .. })
+                if *requested_bytes > live_bytes)
+        ));
+        let partial = validation_observer::counts();
+        assert_eq!(partial, [before[0] + 1, before[1] + 1]);
+        let generation = state.state_view_generation();
+        let mut notice = state.state_view_publication();
+        let writer = state.state_write_lock.lock();
+        drop(notice.begin());
+        drop(writer);
+        drop(notice);
+        assert_eq!(state.state_view_generation(), generation + 2);
+        drop(held);
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::RecoveryRequired(
+                storage_transactions::TransactionsBlockError::SnapshotObservationChanged
+            )
+        ));
+        assert_eq!(validation_observer::counts(), partial);
+        assert_eq!(std::ptr::from_ref(&*original), owner);
+        assert!(matches!(
+            original.try_publish(),
+            StatePublicationOutcome::RecoveryRequired(
+                storage_transactions::TransactionsBlockError::PublicationRecoveryRequired
+            )
+        ));
+        assert_eq!(validation_observer::counts(), partial);
+    });
+    drop(original);
+    assert!(state.world.musubi_public_directory.view().is_empty());
+    assert_eq!(state.transactions.latest_height(), 0);
+}

@@ -10,6 +10,7 @@
 
 pub mod constraint_system;
 pub mod descriptor;
+pub mod descriptor_v2;
 pub mod expression;
 pub mod gate;
 pub mod lookup;
@@ -31,3 +32,7 @@ pub use expression::{
 pub use gate::{Constraint, Constraints, Gate, VirtualCell};
 pub use lookup::LookupArgument;
 pub use permutation::{PermutationArgument, PermutationAssembly, PermutationError};
+
+pub use descriptor_v2::{
+    CircuitDescriptorV2, DescriptorSource, InstanceType, ProtocolDescriptor, TranscriptV2,
+};

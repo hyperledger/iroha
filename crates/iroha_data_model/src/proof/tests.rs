@@ -53,9 +53,9 @@ struct ReferenceProofAttachmentList(Vec<ProofAttachment>);
 #[test]
 fn proof_attachment_list_roundtrip_bare() {
     let mut attachment = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        ProofBox::new("halo2/ipa".into(), vec![1, 2]),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        "pipa-r/pasta".into(),
+        ProofBox::new("pipa-r/pasta".into(), vec![1, 2]),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     attachment.lane_privacy = Some(crate::nexus::LanePrivacyProof {
         commitment_id: LaneCommitmentId::new(5),
@@ -85,9 +85,9 @@ fn proof_attachment_list_roundtrip_bare() {
 #[test]
 fn proof_attachment_list_custom_wire_matches_independent_derived_tuple_codec() {
     let first = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        "pipa-r/pasta".into(),
+        ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     let second = ProofAttachment::new_ref(
         "stark/fri".into(),
@@ -121,9 +121,9 @@ fn proof_attachment_list_custom_wire_matches_independent_derived_tuple_codec() {
 #[test]
 fn proof_attachment_list_constructor_enforces_first_release_cardinality() {
     let attachment = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        ProofBox::new("halo2/ipa".into(), vec![1]),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        "pipa-r/pasta".into(),
+        ProofBox::new("pipa-r/pasta".into(), vec![1]),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     assert!(matches!(
         ProofAttachmentList::try_from(Vec::new()),
@@ -156,9 +156,9 @@ fn proof_attachment_list_constructor_enforces_first_release_cardinality() {
 fn proof_attachment_list_try_push_preserves_order_and_rolls_back_cardinality_failure() {
     let attachment = |byte| {
         ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            ProofBox::new("halo2/ipa".into(), vec![byte]),
-            VerifyingKeyId::new("halo2/ipa", "vk_1"),
+            "pipa-r/pasta".into(),
+            ProofBox::new("pipa-r/pasta".into(), vec![byte]),
+            VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
         )
     };
     let first = attachment(1);
@@ -190,9 +190,9 @@ fn proof_attachment_list_try_push_preserves_order_and_rolls_back_cardinality_fai
 fn proof_attachment_list_exact_frame_boundary_and_try_push_rollback() {
     let attachment = |proof_bytes| {
         ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            ProofBox::new("halo2/ipa".into(), vec![0_u8; proof_bytes]),
-            VerifyingKeyId::new("halo2/ipa", "vk_1"),
+            "pipa-r/pasta".into(),
+            ProofBox::new("pipa-r/pasta".into(), vec![0_u8; proof_bytes]),
+            VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
         )
     };
     let mut low = 1_usize;
@@ -274,12 +274,12 @@ fn proof_attachment_list_exact_frame_boundary_and_try_push_rollback() {
 #[test]
 fn proof_attachment_list_constructor_rejects_frame_above_byte_cap() {
     let attachment = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
+        "pipa-r/pasta".into(),
         ProofBox::new(
-            "halo2/ipa".into(),
+            "pipa-r/pasta".into(),
             vec![0_u8; PROOF_ATTACHMENT_LIST_MAX_CANONICAL_FRAME_BYTES_V1],
         ),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     let error = ProofAttachmentList::try_from(vec![attachment])
         .expect_err("payload alone at the frame ceiling leaves no framing headroom");
@@ -294,12 +294,12 @@ fn proof_attachment_list_constructor_rejects_frame_above_byte_cap() {
 #[test]
 fn proof_attachment_list_gross_oversize_rejects_before_authoritative_serialization() {
     let mut attachment = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
+        "pipa-r/pasta".into(),
         ProofBox::new(
-            "halo2/ipa".into(),
+            "pipa-r/pasta".into(),
             vec![0_u8; PROOF_ATTACHMENT_LIST_MAX_CANONICAL_FRAME_BYTES_V1],
         ),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     attachment.lane_privacy = Some(lane_privacy_with_path(
         1,
@@ -323,9 +323,9 @@ fn proof_attachment_list_gross_oversize_rejects_before_authoritative_serializati
 #[test]
 fn proof_attachment_list_decode_rejects_forged_count_before_vec_decode() {
     let attachment = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        ProofBox::new("halo2/ipa".into(), vec![1]),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        "pipa-r/pasta".into(),
+        ProofBox::new("pipa-r/pasta".into(), vec![1]),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     let list = bounded_attachment_list(vec![attachment]);
     let mut bare = Vec::new();
@@ -369,19 +369,19 @@ fn proof_attachment_list_decode_rejects_frame_cap_plus_one_before_field_parsing(
 }
 #[test]
 fn proofbox_norito_roundtrip() {
-    let backend: iroha_schema::Ident = "halo2/ipa".into();
+    let backend: iroha_schema::Ident = "pipa-r/pasta".into();
     let bytes = vec![0xde, 0xad, 0xbe, 0xef, 0x01, 0x02];
     let p = ProofBox::new(backend, bytes.clone());
     let enc = norito::to_bytes(&p).expect("encode");
     let arch = norito::from_bytes::<ProofBox>(&enc).expect("archived");
     let dec: ProofBox = norito::core::DeserializePayload::deserialize(arch);
-    assert_eq!(dec.backend, "halo2/ipa".to_owned());
+    assert_eq!(dec.backend, "pipa-r/pasta".to_owned());
     assert_eq!(dec.bytes, bytes);
 }
 #[test]
 fn bounded_byte_boxes_decode_every_v1_layout() {
-    let proof = ProofBox::new("halo2/ipa".into(), vec![1, 2, 3, 5, 8]);
-    let verifying_key = VerifyingKeyBox::new("halo2/ipa".into(), vec![13, 21, 34]);
+    let proof = ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3, 5, 8]);
+    let verifying_key = VerifyingKeyBox::new("pipa-r/pasta".into(), vec![13, 21, 34]);
     for flags in [0, ncore::header_flags::COMPACT_LEN] {
         let proof_payload = encode_payload_with_flags(&proof, flags);
         let key_payload = encode_payload_with_flags(&verifying_key, flags);
@@ -417,7 +417,7 @@ fn bounded_byte_boxes_decode_every_v1_layout() {
 }
 #[test]
 fn proof_box_decode_enforces_complete_canonical_cap_in_every_layout() {
-    let backend: iroha_schema::Ident = "halo2/ipa".into();
+    let backend: iroha_schema::Ident = "pipa-r/pasta".into();
     let maximum_payload = proof_box_max_proof_bytes_v1(backend.as_str())
         .expect("bounded backend leaves room for proof bytes");
     let proof = ProofBox::new(backend, vec![0xA5; maximum_payload]);
@@ -453,17 +453,17 @@ fn proof_box_decode_enforces_complete_canonical_cap_in_every_layout() {
 }
 #[test]
 fn verifying_key_roundtrip() {
-    let backend: iroha_schema::Ident = "halo2/ipa".into();
+    let backend: iroha_schema::Ident = "pipa-r/pasta".into();
     let vk = VerifyingKeyBox::new(backend, vec![7, 7, 7]);
     let enc = norito::to_bytes(&vk).expect("encode");
     let arch = norito::from_bytes::<VerifyingKeyBox>(&enc).expect("archived");
     let dec: VerifyingKeyBox = norito::core::DeserializePayload::deserialize(arch);
-    assert_eq!(dec.backend, "halo2/ipa".to_owned());
+    assert_eq!(dec.backend, "pipa-r/pasta".to_owned());
     assert_eq!(dec.bytes, vec![7, 7, 7]);
 }
 #[test]
 fn verifying_key_id_decode_from_slice_roundtrip() {
-    let id = VerifyingKeyId::new("halo2/ipa", "vk_transfer");
+    let id = VerifyingKeyId::new("pipa-r/pasta", "vk_transfer");
     let encoded = id.encode();
     let (decoded, used) = <VerifyingKeyId as ncore::DecodeFromSlice>::decode_from_slice(&encoded)
         .expect("decode verifying key id from exact slice");
@@ -473,8 +473,8 @@ fn verifying_key_id_decode_from_slice_roundtrip() {
 #[test]
 fn verifying_key_id_portable_registry_id_predicate_is_fail_closed() {
     for (backend, name) in [
-        ("halo2/ipa", "vk_transfer"),
-        ("halo2/ipa", "halo2/ipa::transfer_v1"),
+        ("pipa-r/pasta", "vk_transfer"),
+        ("pipa-r/pasta", "halo2/ipa::transfer_v1"),
         ("stark/fri/poseidon-x7-goldilocks-6x64-v1", "zk_ace.v1"),
         (
             "stark/fri/poseidon-x7-goldilocks-6x64-v1",
@@ -489,25 +489,25 @@ fn verifying_key_id_portable_registry_id_predicate_is_fail_closed() {
     }
     for (label, backend, name) in [
         ("blank-backend", " ", "vk_transfer"),
-        ("blank-name", "halo2/ipa", " "),
+        ("blank-name", "pipa-r/pasta", " "),
         ("uppercase-backend", "Halo2/ipa", "vk_transfer"),
-        ("uppercase-name", "halo2/ipa", "VkTransfer"),
+        ("uppercase-name", "pipa-r/pasta", "VkTransfer"),
         ("control-backend", "halo2/ipa\nforged", "vk_transfer"),
-        ("control-name", "halo2/ipa", "vk\nforged"),
+        ("control-name", "pipa-r/pasta", "vk\nforged"),
         ("zero-width-backend", "halo2/ipa\u{200B}", "vk_transfer"),
-        ("zero-width-name", "halo2/ipa", "vk\u{200B}transfer"),
+        ("zero-width-name", "pipa-r/pasta", "vk\u{200B}transfer"),
         ("path-traversal-backend", "halo2/ipa/../vk", "vk_transfer"),
-        ("path-traversal-name", "halo2/ipa", "vk/../transfer"),
+        ("path-traversal-name", "pipa-r/pasta", "vk/../transfer"),
         ("dot-segment-backend", "halo2/ipa/./vk", "vk_transfer"),
-        ("dot-segment-name", "halo2/ipa", "vk/./transfer"),
+        ("dot-segment-name", "pipa-r/pasta", "vk/./transfer"),
         ("hidden-backend", "halo2/.ipa", "vk_transfer"),
-        ("hidden-name", "halo2/ipa", ".vk_transfer"),
+        ("hidden-name", "pipa-r/pasta", ".vk_transfer"),
         ("slash-colon-backend", "halo2/ipa/:vk", "vk_transfer"),
-        ("colon-slash-name", "halo2/ipa", "vk:/transfer"),
+        ("colon-slash-name", "pipa-r/pasta", "vk:/transfer"),
         ("backslash-backend", "halo2\\ipa", "vk_transfer"),
-        ("backslash-name", "halo2/ipa", "vk\\transfer"),
-        ("leading-delimiter-name", "halo2/ipa", "-vk_transfer"),
-        ("trailing-delimiter-name", "halo2/ipa", "vk_transfer_"),
+        ("backslash-name", "pipa-r/pasta", "vk\\transfer"),
+        ("leading-delimiter-name", "pipa-r/pasta", "-vk_transfer"),
+        ("trailing-delimiter-name", "pipa-r/pasta", "vk_transfer_"),
     ] {
         let id = VerifyingKeyId::new(backend, name);
         assert!(
@@ -516,7 +516,7 @@ fn verifying_key_id_portable_registry_id_predicate_is_fail_closed() {
         );
     }
     let oversized = "a".repeat(VERIFYING_KEY_ID_MAX_FIELD_BYTES + 1);
-    assert!(!VerifyingKeyId::new("halo2/ipa", oversized.as_str()).is_portable_registry_id());
+    assert!(!VerifyingKeyId::new("pipa-r/pasta", oversized.as_str()).is_portable_registry_id());
     assert!(!VerifyingKeyId::new(oversized.as_str(), "vk_transfer").is_portable_registry_id());
 }
 #[test]
@@ -526,7 +526,7 @@ fn vk_record_roundtrip() {
         circuit_id: "transfer_v1".into(),
         owner_manifest_id: Some("core".into()),
         namespace: "core".into(),
-        backend: BackendTag::Halo2IpaPasta,
+        backend: BackendTag::NativePipaRPasta,
         curve: "pallas".into(),
         public_inputs_schema_hash: [0xAA; 32],
         commitment: [0x11; 32],
@@ -538,7 +538,7 @@ fn vk_record_roundtrip() {
         activation_height: Some(10),
         withdraw_height: Some(30),
         key: Some(VerifyingKeyBox {
-            backend: "halo2/ipa".into(),
+            backend: "pipa-r/pasta".into(),
             bytes: vec![1, 2, 3],
         }),
         status: ConfidentialStatus::Active,
@@ -555,7 +555,7 @@ fn vk_record_new_defaults() {
     let rec = VerifyingKeyRecord::new(
         2,
         "shield_v2",
-        BackendTag::Halo2IpaPasta,
+        BackendTag::NativePipaRPasta,
         "pallas",
         [0xCC; 32],
         [0xDD; 32],
@@ -571,7 +571,7 @@ fn verifying_key_record_active_at_respects_height_window() {
     let mut rec = VerifyingKeyRecord::new(
         1,
         "halo2/ipa:height-window",
-        BackendTag::Halo2IpaPasta,
+        BackendTag::NativePipaRPasta,
         "pasta",
         [0xAA; 32],
         [0xBB; 32],
@@ -589,22 +589,22 @@ fn verifying_key_record_active_at_respects_height_window() {
 }
 #[test]
 fn proof_attachment_roundtrip() {
-    let p = ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]);
-    let id = VerifyingKeyId::new("halo2/ipa", "vk_1");
-    let a = ProofAttachment::new_ref("halo2/ipa".into(), p.clone(), id);
+    let p = ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]);
+    let id = VerifyingKeyId::new("pipa-r/pasta", "vk_1");
+    let a = ProofAttachment::new_ref("pipa-r/pasta".into(), p.clone(), id);
     let enc = norito::to_bytes(&a).expect("encode");
     let arch = norito::from_bytes::<ProofAttachment>(&enc).expect("archived");
     let dec: ProofAttachment = norito::core::DeserializePayload::deserialize(arch);
-    assert_eq!(dec.backend, "halo2/ipa".to_owned());
+    assert_eq!(dec.backend, "pipa-r/pasta".to_owned());
     assert_eq!(dec.vk_ref.name.as_str(), "vk_1");
 }
 #[test]
 fn proof_attachment_decode_accepts_matching_envelope_hash() {
-    let proof = ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]);
+    let proof = ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]);
     let mut attachment = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
+        "pipa-r/pasta".into(),
         proof.clone(),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     attachment.envelope_hash = Some(proof_bytes_hash(&proof.bytes));
     let encoded = norito::to_bytes(&attachment).expect("encode attachment");
@@ -614,8 +614,8 @@ fn proof_attachment_decode_accepts_matching_envelope_hash() {
 }
 #[test]
 fn proof_attachment_decode_rejects_missing_vk_ref_field() {
-    let backend: iroha_schema::Ident = "halo2/ipa".into();
-    let proof = ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]);
+    let backend: iroha_schema::Ident = "pipa-r/pasta".into();
+    let proof = ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]);
     let mut encoded = Vec::new();
     write_test_field(&mut encoded, &backend);
     write_test_field(&mut encoded, &proof);
@@ -624,10 +624,10 @@ fn proof_attachment_decode_rejects_missing_vk_ref_field() {
 }
 #[test]
 fn proof_attachment_decode_rejects_legacy_optional_vk_ref_slot() {
-    let backend: iroha_schema::Ident = "halo2/ipa".into();
-    let proof = ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]);
+    let backend: iroha_schema::Ident = "pipa-r/pasta".into();
+    let proof = ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]);
     let legacy_vk_ref: Option<VerifyingKeyId> = None;
-    let legacy_vk_inline = Some(VerifyingKeyBox::new("halo2/ipa".into(), vec![4, 5, 6]));
+    let legacy_vk_inline = Some(VerifyingKeyBox::new("pipa-r/pasta".into(), vec![4, 5, 6]));
     let mut encoded = Vec::new();
     write_test_field(&mut encoded, &backend);
     write_test_field(&mut encoded, &proof);
@@ -641,10 +641,10 @@ fn proof_attachment_decode_rejects_legacy_optional_vk_ref_slot() {
 }
 #[test]
 fn proof_attachment_decode_rejects_legacy_some_vk_ref_inline_slots() {
-    let backend: iroha_schema::Ident = "halo2/ipa".into();
-    let proof = ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]);
-    let legacy_vk_ref = Some(VerifyingKeyId::new("halo2/ipa", "legacy_vk"));
-    let legacy_vk_inline = Some(VerifyingKeyBox::new("halo2/ipa".into(), vec![4, 5, 6]));
+    let backend: iroha_schema::Ident = "pipa-r/pasta".into();
+    let proof = ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]);
+    let legacy_vk_ref = Some(VerifyingKeyId::new("pipa-r/pasta", "legacy_vk"));
+    let legacy_vk_inline = Some(VerifyingKeyBox::new("pipa-r/pasta".into(), vec![4, 5, 6]));
     let mut encoded = Vec::new();
     write_test_field(&mut encoded, &backend);
     write_test_field(&mut encoded, &proof);
@@ -658,10 +658,10 @@ fn proof_attachment_decode_rejects_legacy_some_vk_ref_inline_slots() {
 }
 #[test]
 fn proof_attachment_decode_rejects_inline_vk_tail_after_vk_ref() {
-    let backend: iroha_schema::Ident = "halo2/ipa".into();
-    let proof = ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]);
-    let vk_ref = VerifyingKeyId::new("halo2/ipa", "vk_1");
-    let legacy_vk_inline = Some(VerifyingKeyBox::new("halo2/ipa".into(), vec![4, 5, 6]));
+    let backend: iroha_schema::Ident = "pipa-r/pasta".into();
+    let proof = ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]);
+    let vk_ref = VerifyingKeyId::new("pipa-r/pasta", "vk_1");
+    let legacy_vk_inline = Some(VerifyingKeyBox::new("pipa-r/pasta".into(), vec![4, 5, 6]));
     let mut encoded = Vec::new();
     write_test_field(&mut encoded, &backend);
     write_test_field(&mut encoded, &proof);
@@ -675,9 +675,9 @@ fn proof_attachment_decode_rejects_inline_vk_tail_after_vk_ref() {
 }
 #[test]
 fn proof_attachment_decode_rejects_extra_tail_after_allowed_fields() {
-    let backend: iroha_schema::Ident = "halo2/ipa".into();
-    let proof = ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]);
-    let vk_ref = VerifyingKeyId::new("halo2/ipa", "vk_1");
+    let backend: iroha_schema::Ident = "pipa-r/pasta".into();
+    let proof = ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]);
+    let vk_ref = VerifyingKeyId::new("pipa-r/pasta", "vk_1");
     let vk_commitment = Some([0x11; 32]);
     let envelope_hash = Some([0x22; 32]);
     let lane_privacy: Option<crate::nexus::LanePrivacyProof> = None;
@@ -698,9 +698,9 @@ fn proof_attachment_decode_rejects_extra_tail_after_allowed_fields() {
 }
 #[test]
 fn proof_attachment_decode_rejects_redundant_none_tail_fields() {
-    let backend: iroha_schema::Ident = "halo2/ipa".into();
-    let proof = ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]);
-    let vk_ref = VerifyingKeyId::new("halo2/ipa", "vk_1");
+    let backend: iroha_schema::Ident = "pipa-r/pasta".into();
+    let proof = ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]);
+    let vk_ref = VerifyingKeyId::new("pipa-r/pasta", "vk_1");
     let required_prefix = || {
         let mut encoded = Vec::new();
         write_test_field(&mut encoded, &backend);
@@ -742,17 +742,17 @@ fn proof_attachment_decode_rejects_redundant_none_tail_fields() {
 }
 #[test]
 fn proof_attachment_decode_accepts_none_placeholders_before_later_some_fields() {
-    let proof = ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]);
+    let proof = ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]);
     let mut envelope_only = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
+        "pipa-r/pasta".into(),
         proof.clone(),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     envelope_only.envelope_hash = Some(proof_bytes_hash(&proof.bytes));
     let mut lane_only = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
+        "pipa-r/pasta".into(),
         proof,
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     lane_only.lane_privacy = Some(lane_privacy_with_path(
         0,
@@ -779,9 +779,9 @@ fn proof_attachment_decode_rejects_malformed_lane_privacy_paths() {
     ];
     for lane_privacy in malformed {
         let mut attachment = ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-            VerifyingKeyId::new("halo2/ipa", "vk_1"),
+            "pipa-r/pasta".into(),
+            ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]),
+            VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
         );
         attachment.lane_privacy = Some(lane_privacy);
         let encoded = norito::to_bytes(&attachment).expect("encode malformed lane witness");
@@ -793,9 +793,9 @@ fn proof_attachment_decode_rejects_malformed_lane_privacy_paths() {
 #[test]
 fn proof_attachment_decode_rejects_blank_verifying_key_name() {
     let attachment = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-        VerifyingKeyId::new("halo2/ipa", "   "),
+        "pipa-r/pasta".into(),
+        ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]),
+        VerifyingKeyId::new("pipa-r/pasta", "   "),
     );
     let encoded = norito::to_bytes(&attachment).expect("encode blank vk name attachment");
     let err = norito::decode_from_bytes::<ProofAttachment>(&encoded)
@@ -815,16 +815,16 @@ fn proof_attachment_decode_rejects_blank_backend_fields() {
         ),
         (
             ProofAttachment::new_ref(
-                "halo2/ipa".into(),
+                "pipa-r/pasta".into(),
                 ProofBox::new("   ".into(), vec![1, 2, 3]),
-                VerifyingKeyId::new("halo2/ipa", "vk_1"),
+                VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
             ),
             "proof.backend",
         ),
         (
             ProofAttachment::new_ref(
-                "halo2/ipa".into(),
-                ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
+                "pipa-r/pasta".into(),
+                ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]),
                 VerifyingKeyId::new("   ", "vk_1"),
             ),
             "vk_ref.backend",
@@ -843,21 +843,21 @@ fn proof_attachment_decode_rejects_blank_backend_fields() {
 #[test]
 fn proof_attachment_decode_rejects_nonportable_refs_empty_proofs_and_zero_hashes() {
     let mut zero_vk_commitment = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        "pipa-r/pasta".into(),
+        ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     zero_vk_commitment.vk_commitment = Some([0u8; 32]);
     let mut zero_envelope_hash = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        "pipa-r/pasta".into(),
+        ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     zero_envelope_hash.envelope_hash = Some([0u8; 32]);
     let mut forged_envelope_hash = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        "pipa-r/pasta".into(),
+        ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     let mut forged_hash = proof_bytes_hash(&forged_envelope_hash.proof.bytes);
     forged_hash[0] ^= 0x80;
@@ -873,25 +873,25 @@ fn proof_attachment_decode_rejects_nonportable_refs_empty_proofs_and_zero_hashes
         ),
         (
             ProofAttachment::new_ref(
-                "halo2/ipa".into(),
-                ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-                VerifyingKeyId::new("halo2/ipa", "Vk_1"),
+                "pipa-r/pasta".into(),
+                ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]),
+                VerifyingKeyId::new("pipa-r/pasta", "Vk_1"),
             ),
             "vk_ref",
         ),
         (
             ProofAttachment::new_ref(
-                "halo2/ipa".into(),
-                ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-                VerifyingKeyId::new("halo2/ipa", "vk_1\u{200B}"),
+                "pipa-r/pasta".into(),
+                ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]),
+                VerifyingKeyId::new("pipa-r/pasta", "vk_1\u{200B}"),
             ),
             "vk_ref",
         ),
         (
             ProofAttachment::new_ref(
-                "halo2/ipa".into(),
-                ProofBox::new("halo2/ipa".into(), Vec::new()),
-                VerifyingKeyId::new("halo2/ipa", "vk_1"),
+                "pipa-r/pasta".into(),
+                ProofBox::new("pipa-r/pasta".into(), Vec::new()),
+                VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
             ),
             "proof.bytes",
         ),
@@ -1008,11 +1008,11 @@ fn proof_box_size_accounting_matches_norito_at_compact_prefix_transitions() {
 #[test]
 fn proof_attachment_decode_rejects_backend_mismatches() {
     for (proof_backend, vk_backend, expected_field) in [
-        ("stark/fri", "halo2/ipa", "proof.backend"),
-        ("halo2/ipa", "stark/fri", "vk_ref.backend"),
+        ("stark/fri", "pipa-r/pasta", "proof.backend"),
+        ("pipa-r/pasta", "stark/fri", "vk_ref.backend"),
     ] {
         let attachment = ProofAttachment::new_ref(
-            "halo2/ipa".into(),
+            "pipa-r/pasta".into(),
             ProofBox::new(proof_backend.into(), vec![1, 2, 3]),
             VerifyingKeyId::new(vk_backend, "vk_1"),
         );
@@ -1030,8 +1030,8 @@ fn proof_attachment_decode_rejects_backend_mismatches() {
 fn proof_attachment_list_json_rejects_backend_mismatch_inside_wire_payload() {
     use base64::Engine as _;
     let list = bounded_attachment_list(vec![ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
+        "pipa-r/pasta".into(),
+        ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]),
         VerifyingKeyId::new("stark/fri", "vk_1"),
     )]);
     let encoded = norito::to_bytes(&list).expect("encode mismatched attachment list");
@@ -1045,9 +1045,9 @@ fn proof_attachment_list_json_rejects_backend_mismatch_inside_wire_payload() {
 fn proof_attachment_list_json_rejects_single_attachment_wire_payload() {
     use base64::Engine as _;
     let attachment = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        "pipa-r/pasta".into(),
+        ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     let encoded = norito::to_bytes(&attachment).expect("encode single attachment");
     let json = format!("\"{}\"", STANDARD.encode(encoded));
@@ -1059,9 +1059,9 @@ fn proof_attachment_list_json_rejects_single_attachment_wire_payload() {
 fn proof_attachment_list_json_is_canonical_and_ambient_independent() {
     use base64::Engine as _;
     let list = bounded_attachment_list(vec![ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        "pipa-r/pasta".into(),
+        ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     )]);
     let canonical_json =
         norito::json::to_json(&list).expect("encode canonical proof-attachment list JSON");
@@ -1128,9 +1128,9 @@ fn proof_manual_json_writers_preserve_bytes_and_closed_limits() {
         );
     }
     let mut attachment = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        "pipa-r/pasta".into(),
+        ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     attachment.vk_commitment = Some([0xBC; 32]);
     assert_bounded(&attachment);
@@ -1231,9 +1231,9 @@ fn proof_attachment_list_json_rejects_noncanonical_base64_before_decode() {
 fn proof_attachment_list_json_rejects_over_limit_attachment_count() {
     use base64::Engine as _;
     let attachment = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        ProofBox::new("halo2/ipa".into(), vec![1]),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        "pipa-r/pasta".into(),
+        ProofBox::new("pipa-r/pasta".into(), vec![1]),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     let list = ProofAttachmentList(vec![
         attachment;
@@ -1268,7 +1268,7 @@ fn proof_attachment_list_json_rejects_forged_empty_frame() {
 #[test]
 fn proof_primitives_json_reject_unknown_first_release_fields() {
     let proof = r#"{
-            "backend": "halo2/ipa",
+            "backend": "pipa-r/pasta",
             "bytes": [1, 2, 3],
             "future_proof_metadata": true
         }"#;
@@ -1277,7 +1277,7 @@ fn proof_primitives_json_reject_unknown_first_release_fields() {
     assert!(error.to_string().contains("unknown"));
 
     let verifying_key = r#"{
-            "backend": "halo2/ipa",
+            "backend": "pipa-r/pasta",
             "name": "vk_1",
             "future_registry_metadata": true
         }"#;
@@ -1289,15 +1289,15 @@ fn proof_primitives_json_reject_unknown_first_release_fields() {
 #[test]
 fn proof_attachment_json_accepts_reference_only_payload() {
     let json = r#"{
-            "backend": "halo2/ipa",
-            "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3] },
-            "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" },
+            "backend": "pipa-r/pasta",
+            "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3] },
+            "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" },
             "vk_commitment": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7],
             "envelope_hash": null,
             "lane_privacy": null
         }"#;
     let attachment: ProofAttachment = norito::json::from_str(json).expect("reference JSON");
-    assert_eq!(attachment.backend.as_str(), "halo2/ipa");
+    assert_eq!(attachment.backend.as_str(), "pipa-r/pasta");
     assert_eq!(attachment.proof.bytes, vec![1, 2, 3]);
     assert_eq!(attachment.vk_ref.name.as_str(), "vk_1");
     assert_eq!(
@@ -1314,9 +1314,9 @@ fn proof_attachment_json_accepts_reference_only_payload() {
 #[test]
 fn proof_attachment_json_uses_canonical_proof_byte_array() {
     let json = r#"{
-            "backend": "halo2/ipa",
-            "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3] },
-            "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" },
+            "backend": "pipa-r/pasta",
+            "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3] },
+            "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" },
             "vk_commitment": null,
             "envelope_hash": null,
             "lane_privacy": null
@@ -1342,15 +1342,15 @@ fn proof_attachment_json_uses_canonical_proof_byte_array() {
 fn proof_attachment_json_streaming_decoder_is_field_order_independent() {
     let json = r#"{
             "lane_privacy": null,
-            "vk_ref": { "name": "vk_1", "backend": "halo2/ipa" },
+            "vk_ref": { "name": "vk_1", "backend": "pipa-r/pasta" },
             "envelope_hash": null,
-            "proof": { "bytes": [1, 2, 3], "backend": "halo2/ipa" },
-            "backend": "halo2/ipa",
+            "proof": { "bytes": [1, 2, 3], "backend": "pipa-r/pasta" },
+            "backend": "pipa-r/pasta",
             "vk_commitment": null
         }"#;
     let attachment: ProofAttachment =
         norito::json::from_str(json).expect("reordered canonical attachment JSON");
-    assert_eq!(attachment.backend, "halo2/ipa");
+    assert_eq!(attachment.backend, "pipa-r/pasta");
     assert_eq!(attachment.proof.bytes, [1, 2, 3]);
     assert_eq!(attachment.vk_ref.name, "vk_1");
 }
@@ -1360,30 +1360,32 @@ fn proof_attachment_json_proof_bytes_are_bounded_while_streaming() {
     // The production decoder uses the multi-million-byte V1 ceiling. A
     // small const-generic limit exercises the identical boundary without
     // constructing an adversarial 64 MiB fixture in a unit test.
-    assert!(proof_box_max_proof_bytes_v1("halo2/ipa").is_some_and(|maximum| maximum > 1_000_000));
+    assert!(
+        proof_box_max_proof_bytes_v1("pipa-r/pasta").is_some_and(|maximum| maximum > 1_000_000)
+    );
     let at_limit = norito::json::from_str::<ProofAttachmentJsonProofBoxV1<4>>(
-        r#"{ "backend": "halo2/ipa", "bytes": [0, 1, 2, 3] }"#,
+        r#"{ "backend": "pipa-r/pasta", "bytes": [0, 1, 2, 3] }"#,
     )
     .expect("stream exactly at the test limit through the production proof decoder");
-    assert_eq!(at_limit.backend, "halo2/ipa");
+    assert_eq!(at_limit.backend, "pipa-r/pasta");
     assert_eq!(at_limit.bytes, [0, 1, 2, 3]);
     let error = norito::json::from_str::<ProofAttachmentJsonProofBoxV1<4>>(
-        r#"{ "backend": "halo2/ipa", "bytes": [0, 1, 2, 3, 4] }"#,
+        r#"{ "backend": "pipa-r/pasta", "bytes": [0, 1, 2, 3, 4] }"#,
     )
     .err()
     .expect("the fifth byte must be rejected before output growth");
     assert!(error.to_string().contains("4-byte streaming limit"));
     let error = norito::json::from_str::<ProofAttachmentJsonProofBoxV1<4>>(
-        r#"{ "bytes": [0, 1, 2, 3, 4], "backend": "halo2/ipa" }"#,
+        r#"{ "bytes": [0, 1, 2, 3, 4], "backend": "pipa-r/pasta" }"#,
     )
     .err()
     .expect("backend discovered after bytes must still bound the byte stream");
     assert!(error.to_string().contains("4-byte streaming limit"));
     let value = norito::json::parse_value(
         r#"{
-                "backend": "halo2/ipa",
-                "proof": { "bytes": [0, 1, 2, 3, 4], "backend": "halo2/ipa" },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" }
+                "backend": "pipa-r/pasta",
+                "proof": { "bytes": [0, 1, 2, 3, 4], "backend": "pipa-r/pasta" },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" }
             }"#,
     )
     .expect("generic over-limit proof fixture");
@@ -1410,9 +1412,9 @@ fn proof_attachment_json_lane_path_is_bounded_while_streaming() {
 #[test]
 fn proof_attachment_json_requires_explicit_nullable_fields() {
     let canonical = r#"{
-            "backend": "halo2/ipa",
-            "proof": { "backend": "halo2/ipa", "bytes": [1] },
-            "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" },
+            "backend": "pipa-r/pasta",
+            "proof": { "backend": "pipa-r/pasta", "bytes": [1] },
+            "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" },
             "vk_commitment": null,
             "envelope_hash": null,
             "lane_privacy": null
@@ -1430,23 +1432,23 @@ fn proof_attachment_json_requires_explicit_nullable_fields() {
     for json in [
         r#"{
                 "backend": null,
-                "proof": { "backend": "halo2/ipa", "bytes": [1] },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" },
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1] },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" },
                 "vk_commitment": null,
                 "envelope_hash": null,
                 "lane_privacy": null
             }"#,
         r#"{
-                "backend": "halo2/ipa",
+                "backend": "pipa-r/pasta",
                 "proof": null,
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" },
                 "vk_commitment": null,
                 "envelope_hash": null,
                 "lane_privacy": null
             }"#,
         r#"{
-                "backend": "halo2/ipa",
-                "proof": { "backend": "halo2/ipa", "bytes": [1] },
+                "backend": "pipa-r/pasta",
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1] },
                 "vk_ref": null,
                 "vk_commitment": null,
                 "envelope_hash": null,
@@ -1486,34 +1488,34 @@ fn proof_attachment_json_value_preflight_rejects_wrong_shapes() {
         "[]",
         r#"{
                 "backend": 7,
-                "proof": { "backend": "halo2/ipa", "bytes": [1] },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" }
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1] },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" }
             }"#,
         r#"{
-                "backend": "halo2/ipa",
+                "backend": "pipa-r/pasta",
                 "proof": [],
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" }
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" }
             }"#,
         r#"{
-                "backend": "halo2/ipa",
-                "proof": { "backend": "halo2/ipa", "bytes": "AQ==" },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" }
+                "backend": "pipa-r/pasta",
+                "proof": { "backend": "pipa-r/pasta", "bytes": "AQ==" },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" }
             }"#,
         r#"{
-                "backend": "halo2/ipa",
-                "proof": { "backend": "halo2/ipa", "bytes": [1] },
+                "backend": "pipa-r/pasta",
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1] },
                 "vk_ref": []
             }"#,
         r#"{
-                "backend": "halo2/ipa",
-                "proof": { "backend": "halo2/ipa", "bytes": [1] },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" },
+                "backend": "pipa-r/pasta",
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1] },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" },
                 "vk_commitment": "not-a-byte-array"
             }"#,
         r#"{
-                "backend": "halo2/ipa",
-                "proof": { "backend": "halo2/ipa", "bytes": [1] },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" },
+                "backend": "pipa-r/pasta",
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1] },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" },
                 "lane_privacy": []
             }"#,
     ] {
@@ -1536,9 +1538,9 @@ fn proof_attachment_json_rejects_oversized_identifier_fields() {
         ),
         format!(
             r#"{{
-                    "backend": "halo2/ipa",
-                    "proof": {{ "backend": "halo2/ipa", "bytes": [1] }},
-                    "vk_ref": {{ "backend": "halo2/ipa", "name": "{oversized}" }}
+                    "backend": "pipa-r/pasta",
+                    "proof": {{ "backend": "pipa-r/pasta", "bytes": [1] }},
+                    "vk_ref": {{ "backend": "pipa-r/pasta", "name": "{oversized}" }}
                 }}"#
         ),
     ] {
@@ -1555,24 +1557,24 @@ fn proof_attachment_json_rejects_oversized_identifier_fields() {
 fn proof_attachment_json_rejects_trailing_commas() {
     for json in [
         r#"{
-                "backend": "halo2/ipa",
-                "proof": { "backend": "halo2/ipa", "bytes": [1] },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" },
+                "backend": "pipa-r/pasta",
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1] },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" },
             }"#,
         r#"{
-                "backend": "halo2/ipa",
-                "proof": { "backend": "halo2/ipa", "bytes": [1], },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" }
+                "backend": "pipa-r/pasta",
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1], },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" }
             }"#,
         r#"{
-                "backend": "halo2/ipa",
-                "proof": { "backend": "halo2/ipa", "bytes": [1,] },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" }
+                "backend": "pipa-r/pasta",
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1,] },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" }
             }"#,
         r#"{
-                "backend": "halo2/ipa",
-                "proof": { "backend": "halo2/ipa", "bytes": [1] },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1", }
+                "backend": "pipa-r/pasta",
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1] },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1", }
             }"#,
     ] {
         assert!(
@@ -1585,14 +1587,14 @@ fn proof_attachment_json_rejects_trailing_commas() {
 #[test]
 fn proof_attachment_json_rejects_noncanonical_proof_byte_encodings() {
     for proof_json in [
-        r#"{"backend":"halo2/ipa"}"#,
-        r#"{"backend":"halo2/ipa","bytes_b64":"AQID"}"#,
-        r#"{"backend":"halo2/ipa","bytes":[1,2,3],"bytes_b64":"AQID"}"#,
-        r#"{"backend":"halo2/ipa","bytes":"AQID"}"#,
-        r#"{"backend":"halo2/ipa","bytes":[1,256,3]}"#,
+        r#"{"backend":"pipa-r/pasta"}"#,
+        r#"{"backend":"pipa-r/pasta","bytes_b64":"AQID"}"#,
+        r#"{"backend":"pipa-r/pasta","bytes":[1,2,3],"bytes_b64":"AQID"}"#,
+        r#"{"backend":"pipa-r/pasta","bytes":"AQID"}"#,
+        r#"{"backend":"pipa-r/pasta","bytes":[1,256,3]}"#,
     ] {
         let json = format!(
-            r#"{{"backend":"halo2/ipa","proof":{proof_json},"vk_ref":{{"backend":"halo2/ipa","name":"vk_1"}}}}"#
+            r#"{{"backend":"pipa-r/pasta","proof":{proof_json},"vk_ref":{{"backend":"pipa-r/pasta","name":"vk_1"}}}}"#
         );
         norito::json::from_str::<ProofAttachment>(&json)
             .expect_err("noncanonical proof bytes must fail");
@@ -1609,9 +1611,9 @@ fn proof_attachment_json_accepts_matching_envelope_hash() {
     let envelope_hash_json = hash_json(&envelope_hash);
     let json = format!(
         r#"{{
-                "backend": "halo2/ipa",
-                "proof": {{ "backend": "halo2/ipa", "bytes": [1, 2, 3] }},
-                "vk_ref": {{ "backend": "halo2/ipa", "name": "vk_1" }},
+                "backend": "pipa-r/pasta",
+                "proof": {{ "backend": "pipa-r/pasta", "bytes": [1, 2, 3] }},
+                "vk_ref": {{ "backend": "pipa-r/pasta", "name": "vk_1" }},
                 "vk_commitment": null,
                 "envelope_hash": {envelope_hash_json},
                 "lane_privacy": null
@@ -1632,10 +1634,10 @@ fn proof_attachment_json_rejects_retired_inline_vk_fields() {
     ] {
         let json = format!(
             r#"{{
-                    "backend": "halo2/ipa",
-                    "proof": {{ "backend": "halo2/ipa", "bytes": [1, 2, 3] }},
-                    "vk_ref": {{ "backend": "halo2/ipa", "name": "vk_1" }},
-                    "{field}": {{ "backend": "halo2/ipa", "bytes": [9, 9, 9] }}
+                    "backend": "pipa-r/pasta",
+                    "proof": {{ "backend": "pipa-r/pasta", "bytes": [1, 2, 3] }},
+                    "vk_ref": {{ "backend": "pipa-r/pasta", "name": "vk_1" }},
+                    "{field}": {{ "backend": "pipa-r/pasta", "bytes": [9, 9, 9] }}
                 }}"#
         );
         let err = norito::json::from_str::<ProofAttachment>(&json)
@@ -1651,20 +1653,20 @@ fn proof_attachment_json_rejects_retired_inline_vk_fields() {
 fn proof_attachment_json_rejects_unknown_members_at_every_declared_layer() {
     for json in [
         r#"{
-                "backend": "halo2/ipa",
-                "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3] },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" },
+                "backend": "pipa-r/pasta",
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3] },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" },
                 "future_attachment_metadata": true
             }"#,
         r#"{
-                "backend": "halo2/ipa",
-                "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3], "future_proof_metadata": 7 },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" }
+                "backend": "pipa-r/pasta",
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3], "future_proof_metadata": 7 },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" }
             }"#,
         r#"{
-                "backend": "halo2/ipa",
-                "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3] },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1", "future_registry_metadata": 7 }
+                "backend": "pipa-r/pasta",
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3] },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1", "future_registry_metadata": 7 }
             }"#,
     ] {
         let error = norito::json::from_str::<ProofAttachment>(json)
@@ -1681,9 +1683,9 @@ fn proof_attachment_json_rejects_unknown_members_at_every_declared_layer() {
 fn proof_attachment_json_requires_exact_structural_lane_privacy() {
     let sibling = canonical_lane_sibling(0x22);
     let mut attachment = ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-        VerifyingKeyId::new("halo2/ipa", "vk_1"),
+        "pipa-r/pasta".into(),
+        ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3]),
+        VerifyingKeyId::new("pipa-r/pasta", "vk_1"),
     );
     attachment.lane_privacy = Some(lane_privacy_with_path(1, vec![Some(sibling)]));
     let canonical = norito::json::to_json(&attachment).expect("canonical lane attachment JSON");
@@ -1733,20 +1735,20 @@ fn proof_attachment_json_requires_exact_structural_lane_privacy() {
 fn proof_attachment_json_rejects_duplicate_declared_members() {
     for json in [
         r#"{
-                "backend": "halo2/ipa",
-                "backend": "halo2/ipa",
-                "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3] },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" }
+                "backend": "pipa-r/pasta",
+                "backend": "pipa-r/pasta",
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3] },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" }
             }"#,
         r#"{
-                "backend": "halo2/ipa",
-                "proof": { "backend": "halo2/ipa", "bytes": [1], "bytes": [2] },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" }
+                "backend": "pipa-r/pasta",
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1], "bytes": [2] },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" }
             }"#,
         r#"{
-                "backend": "halo2/ipa",
-                "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3] },
-                "vk_ref": { "backend": "halo2/ipa", "name": "vk_1", "name": "vk_2" }
+                "backend": "pipa-r/pasta",
+                "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3] },
+                "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1", "name": "vk_2" }
             }"#,
     ] {
         let err = norito::json::from_str::<ProofAttachment>(json)
@@ -1760,18 +1762,18 @@ fn proof_attachment_json_rejects_malformed_fixed_hashes() {
     for (json, expected) in [
         (
             r#"{
-                    "backend": "halo2/ipa",
-                    "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3] },
-                    "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" },
+                    "backend": "pipa-r/pasta",
+                    "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3] },
+                    "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" },
                     "vk_commitment": [0, 1, 2]
                 }"#,
             "expected 32 bytes",
         ),
         (
             r#"{
-                    "backend": "halo2/ipa",
-                    "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3] },
-                    "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" },
+                    "backend": "pipa-r/pasta",
+                    "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3] },
+                    "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" },
                     "vk_commitment": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
                 }"#,
             "exactly 32 bytes",
@@ -1789,9 +1791,9 @@ fn proof_attachment_json_rejects_malformed_fixed_hashes() {
 #[test]
 fn proof_attachment_json_rejects_invalid_fixed_hash_byte() {
     let json = r#"{
-            "backend": "halo2/ipa",
-            "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3] },
-            "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" },
+            "backend": "pipa-r/pasta",
+            "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3] },
+            "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" },
             "envelope_hash": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 300]
         }"#;
     let err = norito::json::from_str::<ProofAttachment>(json)
@@ -1802,9 +1804,9 @@ fn proof_attachment_json_rejects_invalid_fixed_hash_byte() {
 #[test]
 fn proof_attachment_json_rejects_backend_mismatches() {
     let proof_backend_json = r#"{
-            "backend": "halo2/ipa",
+            "backend": "pipa-r/pasta",
             "proof": { "backend": "stark/fri", "bytes": [1, 2, 3] },
-            "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" },
+            "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" },
             "vk_commitment": null,
             "envelope_hash": null,
             "lane_privacy": null
@@ -1813,8 +1815,8 @@ fn proof_attachment_json_rejects_backend_mismatches() {
         .expect_err("proof backend mismatch must be rejected");
     assert!(err.to_string().contains("proof.backend"));
     let vk_backend_json = r#"{
-            "backend": "halo2/ipa",
-            "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3] },
+            "backend": "pipa-r/pasta",
+            "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3] },
             "vk_ref": { "backend": "stark/fri", "name": "vk_1" },
             "vk_commitment": null,
             "envelope_hash": null,
@@ -1828,17 +1830,17 @@ fn proof_attachment_json_rejects_backend_mismatches() {
 #[test]
 fn proof_attachment_json_rejects_nested_retired_inline_vk_fields() {
     let proof_shadow_json = r#"{
-            "backend": "halo2/ipa",
-            "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3], "vk_inline": { "backend": "halo2/ipa", "bytes": [9] } },
-            "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" }
+            "backend": "pipa-r/pasta",
+            "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3], "vk_inline": { "backend": "pipa-r/pasta", "bytes": [9] } },
+            "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" }
         }"#;
     let err = norito::json::from_str::<ProofAttachment>(proof_shadow_json)
         .expect_err("retired proof inline key must be rejected");
     assert!(err.to_string().contains("proof.vk_inline"));
     let vk_ref_shadow_json = r#"{
-            "backend": "halo2/ipa",
-            "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3] },
-            "vk_ref": { "backend": "halo2/ipa", "name": "vk_1", "verifying_key_inline": "shadow" }
+            "backend": "pipa-r/pasta",
+            "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3] },
+            "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1", "verifying_key_inline": "shadow" }
         }"#;
     let err = norito::json::from_str::<ProofAttachment>(vk_ref_shadow_json)
         .expect_err("retired vk_ref inline key must be rejected");
@@ -1848,9 +1850,9 @@ fn proof_attachment_json_rejects_nested_retired_inline_vk_fields() {
 #[test]
 fn proof_attachment_json_rejects_blank_verifying_key_name() {
     let json = r#"{
-            "backend": "halo2/ipa",
-            "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3] },
-            "vk_ref": { "backend": "halo2/ipa", "name": "   " },
+            "backend": "pipa-r/pasta",
+            "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3] },
+            "vk_ref": { "backend": "pipa-r/pasta", "name": "   " },
             "vk_commitment": null,
             "envelope_hash": null,
             "lane_privacy": null
@@ -1876,9 +1878,9 @@ fn proof_attachment_json_rejects_blank_backend_fields() {
         ),
         (
             r#"{
-                    "backend": "halo2/ipa",
+                    "backend": "pipa-r/pasta",
                     "proof": { "backend": "   ", "bytes": [1, 2, 3] },
-                    "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" },
+                    "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" },
                     "vk_commitment": null,
                     "envelope_hash": null,
                     "lane_privacy": null
@@ -1887,8 +1889,8 @@ fn proof_attachment_json_rejects_blank_backend_fields() {
         ),
         (
             r#"{
-                    "backend": "halo2/ipa",
-                    "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3] },
+                    "backend": "pipa-r/pasta",
+                    "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3] },
                     "vk_ref": { "backend": "   ", "name": "vk_1" },
                     "vk_commitment": null,
                     "envelope_hash": null,
@@ -1928,9 +1930,9 @@ fn proof_attachment_json_rejects_nonportable_refs_empty_proofs_and_zero_hashes()
         ),
         (
             r#"{
-                    "backend": "halo2/ipa",
-                    "proof": { "backend": "halo2/ipa", "bytes": [1, 2, 3] },
-                    "vk_ref": { "backend": "halo2/ipa", "name": "Vk_1" },
+                    "backend": "pipa-r/pasta",
+                    "proof": { "backend": "pipa-r/pasta", "bytes": [1, 2, 3] },
+                    "vk_ref": { "backend": "pipa-r/pasta", "name": "Vk_1" },
                     "vk_commitment": null,
                     "envelope_hash": null,
                     "lane_privacy": null
@@ -1940,9 +1942,9 @@ fn proof_attachment_json_rejects_nonportable_refs_empty_proofs_and_zero_hashes()
         ),
         (
             r#"{
-                    "backend": "halo2/ipa",
-                    "proof": { "backend": "halo2/ipa", "bytes": [] },
-                    "vk_ref": { "backend": "halo2/ipa", "name": "vk_1" },
+                    "backend": "pipa-r/pasta",
+                    "proof": { "backend": "pipa-r/pasta", "bytes": [] },
+                    "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_1" },
                     "vk_commitment": null,
                     "envelope_hash": null,
                     "lane_privacy": null
@@ -1953,9 +1955,9 @@ fn proof_attachment_json_rejects_nonportable_refs_empty_proofs_and_zero_hashes()
         (
             format!(
                 r#"{{
-                        "backend": "halo2/ipa",
-                        "proof": {{ "backend": "halo2/ipa", "bytes": [1, 2, 3] }},
-                        "vk_ref": {{ "backend": "halo2/ipa", "name": "vk_1" }},
+                        "backend": "pipa-r/pasta",
+                        "proof": {{ "backend": "pipa-r/pasta", "bytes": [1, 2, 3] }},
+                        "vk_ref": {{ "backend": "pipa-r/pasta", "name": "vk_1" }},
                         "vk_commitment": {zero_hash},
                         "envelope_hash": null,
                         "lane_privacy": null
@@ -1966,9 +1968,9 @@ fn proof_attachment_json_rejects_nonportable_refs_empty_proofs_and_zero_hashes()
         (
             format!(
                 r#"{{
-                        "backend": "halo2/ipa",
-                        "proof": {{ "backend": "halo2/ipa", "bytes": [1, 2, 3] }},
-                        "vk_ref": {{ "backend": "halo2/ipa", "name": "vk_1" }},
+                        "backend": "pipa-r/pasta",
+                        "proof": {{ "backend": "pipa-r/pasta", "bytes": [1, 2, 3] }},
+                        "vk_ref": {{ "backend": "pipa-r/pasta", "name": "vk_1" }},
                         "vk_commitment": null,
                         "envelope_hash": {zero_hash},
                         "lane_privacy": null
@@ -1979,9 +1981,9 @@ fn proof_attachment_json_rejects_nonportable_refs_empty_proofs_and_zero_hashes()
         (
             format!(
                 r#"{{
-                        "backend": "halo2/ipa",
-                        "proof": {{ "backend": "halo2/ipa", "bytes": [1, 2, 3] }},
-                        "vk_ref": {{ "backend": "halo2/ipa", "name": "vk_1" }},
+                        "backend": "pipa-r/pasta",
+                        "proof": {{ "backend": "pipa-r/pasta", "bytes": [1, 2, 3] }},
+                        "vk_ref": {{ "backend": "pipa-r/pasta", "name": "vk_1" }},
                         "vk_commitment": null,
                         "envelope_hash": {forged_hash},
                         "lane_privacy": null
@@ -2032,7 +2034,7 @@ fn proofed_committed_tx_roundtrip() {
     };
     let pct = ProofedCommittedTransaction::new(
         base,
-        Some(ProofBox::new("halo2/ipa".into(), vec![1, 2, 3, 4])),
+        Some(ProofBox::new("pipa-r/pasta".into(), vec![1, 2, 3, 4])),
     );
     let enc = norito::to_bytes(&pct).unwrap();
     let dec: ProofedCommittedTransaction = norito::decode_from_bytes(&enc).unwrap();
@@ -2042,12 +2044,12 @@ fn proofed_committed_tx_roundtrip() {
 #[test]
 fn proof_record_roundtrip() {
     let id = ProofId {
-        backend: "halo2/ipa".into(),
+        backend: "pipa-r/pasta".into(),
         proof_hash: [0xAA; 32],
     };
     let rec = ProofRecord {
         id,
-        vk_ref: Some(VerifyingKeyId::new("halo2/ipa", "vk")),
+        vk_ref: Some(VerifyingKeyId::new("pipa-r/pasta", "vk")),
         vk_commitment: Some([0x55; 32]),
         status: ProofStatus::Verified,
         verified_at_height: Some(42),
@@ -2129,7 +2131,7 @@ fn verifying_key_reference_fields_accept_the_limit_and_reject_one_over() {
 }
 #[test]
 fn proofbox_decode_rejects_oversized_len_prefixed_payloads() {
-    let backend: iroha_schema::Ident = "halo2/ipa".into();
+    let backend: iroha_schema::Ident = "pipa-r/pasta".into();
     let backend_bytes = norito::to_bytes(&backend).expect("encode backend");
     let mut encoded = Vec::new();
     ncore::write_len_header_to_vec(&mut encoded, backend_bytes.len() as u64);
@@ -2140,7 +2142,7 @@ fn proofbox_decode_rejects_oversized_len_prefixed_payloads() {
 }
 #[test]
 fn verifying_key_box_decode_rejects_oversized_outer_field_before_decode() {
-    let backend: iroha_schema::Ident = "halo2/ipa".into();
+    let backend: iroha_schema::Ident = "pipa-r/pasta".into();
     let backend_bytes = norito::to_bytes(&backend).expect("encode backend");
     let mut encoded = Vec::new();
     ncore::write_len_header_to_vec(&mut encoded, backend_bytes.len() as u64);
@@ -2154,7 +2156,7 @@ fn verifying_key_box_decode_rejects_oversized_outer_field_before_decode() {
 }
 #[test]
 fn verifying_key_box_decode_rejects_oversized_declared_vector_before_allocation() {
-    let backend: iroha_schema::Ident = "halo2/ipa".into();
+    let backend: iroha_schema::Ident = "pipa-r/pasta".into();
     let backend_bytes = norito::to_bytes(&backend).expect("encode backend");
     let mut vk_field = Vec::new();
     ncore::write_seq_len(

@@ -105,6 +105,11 @@ fn canonical_cases() -> Vec<(&'static str, u32, DataEventFilter)> {
         ),
         ("GameSession", 24, DataEventFilter::GameSession(None)),
         ("Sccp", 25, DataEventFilter::Sccp(SccpEventFilter::new())),
+        (
+            "KagemushaLoadCommitted",
+            26,
+            DataEventFilter::KagemushaLoadCommitted(None),
+        ),
     ]
 }
 
@@ -200,7 +205,7 @@ fn sccp_filter_preserves_tag_network_and_event_set() {
 
 #[test]
 fn data_event_filter_rejects_unassigned_tags() {
-    for tag in [26_u32, u32::MAX] {
+    for tag in [27_u32, u32::MAX] {
         for flags in layouts() {
             assert!(matches!(
                 decode(&tag.to_le_bytes(), flags),

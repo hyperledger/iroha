@@ -6,7 +6,7 @@ use ivm_abi::{call::EmbeddedCallableV1, entrypoint::EntrypointValueKindV1 as Kin
 
 fn root(nodes: Vec<CallTypeNodeV1>) -> (IVM, u64) {
     let bytes = kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku Schema { view fn main() -> bool { true } }")
+        .compile_source("seiyaku Schema { view fn main() authorize(anyone) -> bool { true } }")
         .unwrap();
     let mut interface = crate::ProgramMetadata::parse(&bytes)
         .unwrap()
@@ -266,7 +266,7 @@ fn result_binds_nominal_error_codes_and_success_branch_without_reading_slack() {
 #[test]
 fn empty_product_requires_initialized_zero_word_and_node_work_is_prepaid() {
     let (mut vm, table) = root(vec![CallTypeNodeV1::Struct {
-        name: "Empty".into(),
+        name: "Fixture::Empty".into(),
         fields: vec![],
     }]);
     assert_eq!(vm.finish_call(), Err(VMError::AssertionFailed));

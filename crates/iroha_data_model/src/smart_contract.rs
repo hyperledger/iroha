@@ -151,16 +151,6 @@ pub mod payloads {
 }
 /// Metadata key tracking the next public contract deploy nonce for an account.
 pub const CONTRACT_DEPLOY_NONCE_METADATA_KEY: &str = "contract_deploy_nonce";
-/// Runtime permission marker required for a contract's `hajimari`/`始まり` lifecycle entrypoint.
-///
-/// The host materializes this marker as an exact `CanInvokeContractEntrypoint`
-/// token bound to the deployed address and lifecycle selector.
-pub const CONTRACT_HAJIMARI_PERMISSION_NAME: &str = "CanInvokeContractEntrypoint";
-/// Runtime permission required to invoke a contract's `kaizen`/`改善` lifecycle entrypoint.
-///
-/// ABI V1 uses the same address-and-selector scoped invocation permission for
-/// lifecycle operations as it does for permissioned public entrypoints.
-pub const CONTRACT_KAIZEN_PERMISSION_NAME: &str = "CanInvokeContractEntrypoint";
 /// Maximum duration of a certified Parliament emergency hold, in blocks.
 pub const MAX_CONTRACT_EMERGENCY_HOLD_BLOCKS_V1: u64 = 3_600;
 /// Exact first-release contract lifecycle schema version.
@@ -175,6 +165,11 @@ const CONTRACT_ADDRESS_TAG_V1: &[u8] = b"iroha:contract-address:v1";
 const CONTRACT_SUBJECT_HASH_TO_POINT_TAG_V1: &[u8] = b"iroha:contract-subject:hash-to-point:v1:";
 const CONTRACT_ADDRESS_HASH_LEN: usize = 20;
 const CONTRACT_ADDRESS_PAYLOAD_LEN_V1: usize = 1 + 8 + CONTRACT_ADDRESS_HASH_LEN;
+/// Exact ASCII byte length of a canonical V1 Bech32m contract address.
+/// The layout is the fixed HRP, separator, five-bit payload, and six checksum characters.
+pub const CONTRACT_ADDRESS_LITERAL_LEN_V1: usize =
+    CONTRACT_ADDRESS_HRP.len() + 1 + (CONTRACT_ADDRESS_PAYLOAD_LEN_V1 * 8).div_ceil(5) + 6;
+
 pub use self::model::*;
 #[model]
 mod model {
@@ -383,6 +378,10 @@ mod model {
         pub parliament_delegation: ContractParliamentDelegationV1,
         /// Code hash currently active at this address, or `None` while suspended.
         pub active_code_hash: Option<iroha_crypto::Hash>,
+        /// Last artifact bound at this address, retained across suspension, including pending hooks.
+        /// An active code hash must equal this value. Retention is not proof that a pending hook ran.
+        #[norito(required)]
+        pub retained_code_hash: Option<iroha_crypto::Hash>,
         /// Non-zero compare-and-swap revision.
         pub revision: u64,
         /// Optional time-bounded emergency containment.
@@ -403,6 +402,7 @@ impl ContractLifecycleControlV1 {
             pending_owner: None,
             parliament_delegation: ContractParliamentDelegationV1::None,
             active_code_hash: None,
+            retained_code_hash: None,
             revision: 1,
             emergency_hold: None,
         }
@@ -426,6 +426,7 @@ impl ContractLifecycleControlV1 {
             pending_owner: None,
             parliament_delegation: ContractParliamentDelegationV1::None,
             active_code_hash: None,
+            retained_code_hash: None,
             revision: 1,
             emergency_hold: None,
         }
@@ -443,6 +444,9 @@ impl ContractLifecycleControlV1 {
         }
         if self.revision == 0 {
             return Err("contract lifecycle revision must be non-zero");
+        }
+        if self.active_code_hash.is_some() && self.active_code_hash != self.retained_code_hash {
+            return Err("active contract code must equal its retained artifact identity");
         }
         if self.pending_owner.as_ref() == Some(&self.owner) {
             return Err("pending contract owner must differ from current owner");
@@ -741,6 +745,24 @@ pub enum ContractAddressError {
     InvalidDeployer(String),
 }
 impl ContractAddress {
+    /// Exact optional string allocation made by [`Self::try_clone_for_admission`].
+    #[must_use]
+    pub fn admission_clone_layout(&self) -> Option<std::alloc::Layout> {
+        (!self.0.is_inlined()).then(|| {
+            std::alloc::Layout::array::<u8>(self.as_ref().len())
+                .expect("existing canonical address layout")
+        })
+    }
+    /// Clone an authenticated address fallibly into independently prepaid storage.
+    ///
+    /// The caller retains the exact charge reported by [`Self::admission_clone_layout`]
+    /// until the returned immutable address is destroyed.
+    ///
+    /// # Errors
+    /// Preserves the exact codec resource or allocator refusal.
+    pub fn try_clone_for_admission(&self) -> Result<Self, norito::Error> {
+        ConstString::try_from_str_for_decode(self.as_ref()).map(Self)
+    }
     /// Derive a deterministic contract address from deployer identity, nonce, and dataspace.
     ///
     /// The address payload is versioned and encoded as:
@@ -1055,6 +1077,8 @@ mod contract_address_tests {
             DataSpaceId::UNIVERSAL
         );
         assert!(first.as_str().starts_with(CONTRACT_ADDRESS_HRP));
+        assert_eq!(first.as_str().len(), CONTRACT_ADDRESS_LITERAL_LEN_V1);
+        assert_eq!(CONTRACT_ADDRESS_LITERAL_LEN_V1, 60);
     }
     #[test]
     fn contract_address_derivation_matches_cross_sdk_vector() {
@@ -1255,7 +1279,9 @@ mod contract_address_tests {
         });
         assert!(matches!(
             decoded,
-            Err(norito::json::Error::DecodeResourceLimit)
+            Err(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
         ));
         assert!(usage.total_allocated_bytes() < exact);
     }
@@ -1356,8 +1382,11 @@ mod contract_address_tests {
         assert!(err.to_string().contains("invalid contract address"));
     }
 }
+mod declaration_table;
 /// Exact recursive schemas for public Kotodama entrypoint boundaries.
 pub mod entrypoint;
+/// Authenticated native event declarations and committed emissions.
+pub mod event;
 #[path = "smart_contract/manifest_projection.rs"]
 mod manifest_projection;
 /// Canonical bounded continuation positions for live durable-map pagination.
@@ -1398,6 +1427,7 @@ mod lifecycle_tests {
         );
         lifecycle.revision = 1;
         lifecycle.active_code_hash = Some(iroha_crypto::Hash::new(b"active lifecycle code"));
+        lifecycle.retained_code_hash = Some(iroha_crypto::Hash::new(b"active lifecycle code"));
         lifecycle.emergency_hold = Some(ContractEmergencyHoldV1 {
             incident_digest: [1; 32],
             proposal_content_id: [2; 32],
@@ -1422,6 +1452,7 @@ mod lifecycle_tests {
     fn lifecycle_control_norito_roundtrip_preserves_active_code_and_authority() {
         let mut lifecycle = ContractLifecycleControlV1::direct(account());
         lifecycle.active_code_hash = Some(iroha_crypto::Hash::new(b"lifecycle roundtrip"));
+        lifecycle.retained_code_hash = Some(iroha_crypto::Hash::new(b"lifecycle roundtrip"));
         lifecycle.pending_owner = Some(ContractLifecycleOwnerV1::Parliament);
         lifecycle.parliament_delegation = ContractParliamentDelegationV1::Lifecycle;
         lifecycle.revision = 9;
@@ -1431,6 +1462,31 @@ mod lifecycle_tests {
         assert_eq!(decoded, lifecycle);
         assert!(decoded.validate().is_ok());
     }
+    #[test]
+    fn lifecycle_retains_artifact_identity_while_suspended() {
+        let mut lifecycle = ContractLifecycleControlV1::direct(account());
+        let code_hash = iroha_crypto::Hash::new(b"retained schema artifact");
+        lifecycle.active_code_hash = Some(code_hash);
+        assert!(lifecycle.validate().is_err());
+        lifecycle.retained_code_hash = Some(code_hash);
+        assert!(lifecycle.validate().is_ok());
+        lifecycle.active_code_hash = None;
+        assert!(lifecycle.validate().is_ok());
+        let encoded = norito::to_bytes(&lifecycle).unwrap();
+        let decoded: ContractLifecycleControlV1 = norito::decode_from_bytes(&encoded).unwrap();
+        assert_eq!(decoded, lifecycle);
+        let json = norito::json::to_value(&lifecycle).unwrap();
+        let mut missing = json.clone();
+        missing
+            .as_object_mut()
+            .unwrap()
+            .remove("retained_code_hash");
+        assert!(norito::json::from_value::<ContractLifecycleControlV1>(missing).is_err());
+        assert_eq!(
+            norito::json::from_value::<ContractLifecycleControlV1>(json).unwrap(),
+            lifecycle
+        );
+    }
 }
 
 pub mod manifest {
@@ -1438,6 +1494,7 @@ pub mod manifest {
     //! under a well-known key for admission-time checks. When attached or registered, a V1 manifest
     //! must carry both consensus-binding hashes.
 
+    pub use super::event::{ContractEventDescriptorV1, validate_contract_event_table};
     pub use super::manifest_projection::{
         BorrowedEntrypoints, BorrowedManifestValue, BorrowedStates,
         ContractManifestSignaturePayloadView, EntrypointDescriptorView,
@@ -1457,7 +1514,7 @@ pub mod manifest {
         trigger::{TriggerId, action::Repeats},
     };
     use iroha_crypto::{Hash, KeyPair, PublicKey, Signature};
-    use iroha_model_base::metadata::Metadata;
+    use iroha_model_base::{metadata::Metadata, name::Name};
     use iroha_schema::IntoSchema;
     use norito::codec::{Decode, Encode};
 
@@ -1468,8 +1525,8 @@ pub mod manifest {
     ///
     /// `code_hash` and `abi_hash` remain represented as options so malformed external payloads can
     /// be decoded into a stable, structured admission error. Every V1 registration and every
-    /// admission path that observes a manifest rejects either field when absent; the remaining
-    /// fields are optional metadata.
+    /// admission path that observes a manifest rejects either field when absent. The permission
+    /// declaration table is also required, including an explicit empty table when no roles exist.
     #[derive(Debug, Clone, Encode, Decode, IntoSchema, PartialEq, Eq, PartialOrd, Ord)]
     #[norito(reuse_archived)]
     #[derive(DeriveFast, DeriveJsonSer, DeriveJsonDe)]
@@ -1502,7 +1559,11 @@ pub mod manifest {
         /// the internal pipeline access-key format.
         #[norito(default)]
         pub access_set_hints: Option<AccessSetHints>,
-        /// Optional entrypoint descriptors (name, kind, permission) advertised by the compiler.
+        /// Sorted, unique permission declarations authenticated by the artifact.
+        pub permissions: Vec<ContractPermissionDescriptorV1>,
+        /// Sorted, unique source event declarations authenticated by the artifact.
+        pub events: Vec<ContractEventDescriptorV1>,
+        /// Optional entrypoint descriptors advertised by the compiler.
         #[norito(default)]
         pub entrypoints: Option<Vec<EntrypointDescriptor>>,
         /// Optional durable state schema advertised by the compiler.
@@ -1511,6 +1572,8 @@ pub mod manifest {
         /// Exact nominal error type identities and variant schemas advertised by the compiler.
         #[norito(default)]
         pub error_types: Option<Vec<ContractErrorTypeDescriptor>>,
+        /// Complete ordinary enum declaration inventory, sorted by nominal identity.
+        pub enum_types: Vec<ContractEnumTypeDescriptorV1>,
         /// Authenticated presentation text, separate from nominal error schemas.
         #[norito(default)]
         pub error_messages: Option<Vec<ContractErrorMessage>>,
@@ -1689,6 +1752,119 @@ pub mod manifest {
         /// Signature over the manifest payload (see [`ContractManifestSignaturePayload`]).
         pub signature: Signature,
     }
+    /// Explicit invocation policy; permission aliases resolve through the signed declaration table.
+    #[derive(
+        Debug,
+        Clone,
+        Encode,
+        Decode,
+        IntoSchema,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        DeriveFast,
+        DeriveJsonSer,
+        DeriveJsonDe,
+    )]
+    #[norito(no_fast_from_json)]
+    #[norito(tag = "kind", content = "value", deny_unknown_fields)]
+    pub enum EntrypointAuthorizationV1 {
+        /// Any caller may enter; ledger operations still require their own authority.
+        Anyone,
+        /// The caller must hold the permission declared under this source-level name.
+        Permission(Name),
+        /// Runtime-managed lifecycle invocation, unavailable as a source-selected policy.
+        RuntimeLifecycle,
+    }
+    /// Identity scope of a declared permission.
+    #[derive(
+        Debug,
+        Clone,
+        Encode,
+        Decode,
+        IntoSchema,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        DeriveFast,
+        DeriveJsonSer,
+        DeriveJsonDe,
+    )]
+    #[norito(no_fast_from_json)]
+    #[norito(tag = "kind", content = "value", deny_unknown_fields)]
+    pub enum ContractPermissionScopeV1 {
+        /// An instance-local token bound to the canonical deployed contract address.
+        Instance,
+        /// An explicitly imported chain-global token with an exact JSON-null payload.
+        Chain {
+            /// Canonical name of the imported chain permission.
+            permission_name: Name,
+        },
+    }
+    /// Authenticated declaration of an instance permission or explicit chain import.
+    #[derive(
+        Debug,
+        Clone,
+        Encode,
+        Decode,
+        IntoSchema,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        DeriveFast,
+        DeriveJsonSer,
+        DeriveJsonDe,
+    )]
+    #[norito(no_fast_from_json)]
+    #[norito(deny_unknown_fields)]
+    pub struct ContractPermissionDescriptorV1 {
+        /// Unique source-level name used by entrypoint authorization.
+        pub name: Name,
+        /// Token identity scope.
+        pub scope: ContractPermissionScopeV1,
+    }
+
+    /// Check the canonical source names and strict ordering of the signed permission table.
+    ///
+    /// Chain token names are already validated by [`Name`]; only the local alias is a
+    /// Kotodama identifier. Unused declarations remain part of the authenticated table.
+    pub fn validate_contract_permission_table(
+        permissions: &[ContractPermissionDescriptorV1],
+    ) -> bool {
+        permissions.iter().all(|declaration| {
+            declaration.name.as_ref() != "anyone"
+                && super::entrypoint::is_canonical_kotodama_identifier(declaration.name.as_ref())
+        }) && permissions
+            .windows(2)
+            .all(|pair| pair[0].name < pair[1].name)
+    }
+
+    impl EntrypointAuthorizationV1 {
+        /// Check a declaration's invocation policy against a validated signed permission table.
+        ///
+        /// Call [`validate_contract_permission_table`] before this method. Lifecycle hooks
+        /// cannot opt into public or role-based access, and public functions cannot request
+        /// runtime lifecycle authority.
+        pub fn is_valid_for(
+            &self,
+            kind: EntryPointKind,
+            permissions: &[ContractPermissionDescriptorV1],
+        ) -> bool {
+            match (kind, self) {
+                (EntryPointKind::Hajimari | EntryPointKind::Kaizen, Self::RuntimeLifecycle)
+                | (EntryPointKind::Kotoage | EntryPointKind::View, Self::Anyone) => true,
+                (EntryPointKind::Kotoage | EntryPointKind::View, Self::Permission(name)) => {
+                    permissions
+                        .binary_search_by(|declaration| declaration.name.cmp(name))
+                        .is_ok()
+                }
+                _ => false,
+            }
+        }
+    }
     /// Declarative metadata for a compiled entrypoint.
     #[derive(
         Debug,
@@ -1705,6 +1881,7 @@ pub mod manifest {
         DeriveJsonDe,
     )]
     #[norito(no_fast_from_json)]
+    #[norito(deny_unknown_fields)]
     pub struct EntrypointDescriptor {
         /// Symbol name as declared in the Kotodama source file.
         pub name: String,
@@ -1727,9 +1904,8 @@ pub mod manifest {
         /// Public entrypoint admission rejects an absent schema.
         #[norito(default)]
         pub return_schema: Option<EntrypointValueTypeV1>,
-        /// Permission required by the dispatcher before invoking this entrypoint.
-        #[norito(default)]
-        pub permission: Option<String>,
+        /// Explicit dispatcher authorization authenticated by the artifact.
+        pub authorization: EntrypointAuthorizationV1,
         /// Advisory read keys for this entrypoint (flattened `state:...` strings).
         #[norito(default)]
         pub read_keys: Vec<String>,
@@ -1877,42 +2053,12 @@ pub mod manifest {
         /// Validate the bounded canonical identity and enum-local variant namespace.
         #[must_use]
         pub fn validate(&self) -> bool {
-            !self.identity.is_empty()
-                && self.identity.len() <= 1024
-                && self
-                    .identity
-                    .chars()
-                    .all(|character| character.is_alphanumeric() || "_:/@.-".contains(character))
-                && !self.identity.contains("__kotodama_link_")
-                && (1..=256).contains(&self.variants.len())
-                && self.variants.iter().all(|variant| {
-                    variant.code != 0
-                        && (super::entrypoint::is_canonical_kotodama_identifier(&variant.name)
-                            || (!variant.name.is_ascii()
-                                && variant
-                                    .name
-                                    .chars()
-                                    .next()
-                                    .is_some_and(|first| first.is_alphabetic() || first == '_')
-                                && variant.name.chars().all(|character| {
-                                    character.is_alphanumeric() || character == '_'
-                                })))
-                })
-                && self
-                    .variants
-                    .windows(2)
-                    .all(|pair| pair[0].code < pair[1].code)
-                && {
-                    // Variant count is bounded above before this expression.
-                    // Keep metadata validation independent of allocator pressure.
-                    let mut names = [""; 256];
-                    for (slot, variant) in names.iter_mut().zip(&self.variants) {
-                        *slot = &variant.name;
-                    }
-                    let names = &mut names[..self.variants.len()];
-                    names.sort_unstable();
-                    names.windows(2).all(|pair| pair[0] != pair[1])
-                }
+            validate_nominal_enum_schema(
+                &self.identity,
+                self.variants
+                    .iter()
+                    .map(|variant| (variant.name.as_str(), variant.code)),
+            )
         }
         /// Hash the canonical variant schema independently of the separately bound nominal identity.
         #[must_use]
@@ -1926,6 +2072,130 @@ pub mod manifest {
             self.variants.iter().find(|variant| variant.code == code)
         }
     }
+    /// One explicitly numbered variant of an ordinary nominal enum.
+    #[derive(
+        Debug,
+        Clone,
+        Encode,
+        Decode,
+        IntoSchema,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        DeriveFast,
+        DeriveJsonSer,
+        DeriveJsonDe,
+    )]
+    #[norito(no_fast_from_json, deny_unknown_fields)]
+    pub struct ContractEnumVariantDescriptorV1 {
+        /// Exact source variant name within its enum.
+        pub name: String,
+        /// Explicit nonzero enum-local code, independent of declaration order.
+        pub code: u32,
+    }
+
+    /// Exact source identity and finite schema of an ordinary Kotodama enum.
+    ///
+    /// Ordinary enum values are distinct from application errors even when all
+    /// names and codes happen to match. They never enter an error catalog.
+    #[derive(Debug, Clone, Encode, Decode, IntoSchema, PartialEq, Eq, PartialOrd, Ord)]
+    #[norito(decode_from_slice)]
+    #[derive(DeriveFast, DeriveJsonSer, DeriveJsonDe)]
+    #[norito(no_fast_from_json, deny_unknown_fields)]
+    #[derive(norito::NoritoSchema)]
+    #[norito_schema(
+        name = "iroha_data_model::smart_contract::manifest::ContractEnumTypeDescriptorV1"
+    )]
+    pub struct ContractEnumTypeDescriptorV1 {
+        /// Stable locked-package, source-unit and enum identity; never a linker ordinal.
+        pub identity: String,
+        /// Unique variant names and nonzero codes in increasing code order.
+        pub variants: Vec<ContractEnumVariantDescriptorV1>,
+    }
+
+    impl ContractEnumTypeDescriptorV1 {
+        /// Validate the bounded canonical identity and variant namespace.
+        #[must_use]
+        pub fn validate(&self) -> bool {
+            validate_nominal_enum_schema(
+                &self.identity,
+                self.variants
+                    .iter()
+                    .map(|variant| (variant.name.as_str(), variant.code)),
+            )
+        }
+
+        /// Hash the finite schema in the ordinary-enum domain, excluding nominal identity.
+        #[must_use]
+        pub fn schema_hash(&self) -> [u8; 32] {
+            Hash::new_from_chunks(&[b"iroha:kotodama:enum-schema:v1\0", &self.variants.encode()])
+                .into()
+        }
+
+        /// Resolve one enum-local code against this exact descriptor.
+        #[must_use]
+        pub fn variant(&self, code: u32) -> Option<&ContractEnumVariantDescriptorV1> {
+            self.variants.iter().find(|variant| variant.code == code)
+        }
+    }
+
+    /// Maximum number of ordinary nominal enum declarations in one interface.
+    pub const MAX_CONTRACT_ENUM_TYPES_V1: usize = 256;
+    /// Maximum canonical framed bytes in the ordinary enum declaration inventory.
+    pub const MAX_CONTRACT_ENUM_TABLE_BYTES_V1: usize = 64 * 1024;
+
+    /// Validate the bounded sorted ordinary enum table, independent of application errors.
+    #[must_use]
+    pub fn validate_contract_enum_table(types: &[ContractEnumTypeDescriptorV1]) -> bool {
+        types.len() <= MAX_CONTRACT_ENUM_TYPES_V1
+            && types.iter().all(ContractEnumTypeDescriptorV1::validate)
+            && types
+                .windows(2)
+                .all(|pair| pair[0].identity < pair[1].identity)
+            && super::declaration_table::canonical_len(types)
+                .is_ok_and(|bytes| bytes <= MAX_CONTRACT_ENUM_TABLE_BYTES_V1)
+    }
+
+    fn validate_nominal_enum_schema<'a>(
+        identity: &'a str,
+        variants: impl ExactSizeIterator<Item = (&'a str, u32)>,
+    ) -> bool {
+        if identity.is_empty()
+            || identity.len() > 1024
+            || !identity
+                .chars()
+                .all(|character| character.is_alphanumeric() || "_:/@.-".contains(character))
+            || identity.contains("__kotodama_link_")
+            || !(1..=256).contains(&variants.len())
+        {
+            return false;
+        }
+        // Both enum kinds use the same allocation-free namespace policy.
+        let count = variants.len();
+        let mut names = [""; 256];
+        let mut previous_code = 0;
+        for (index, (name, code)) in variants.enumerate() {
+            let valid_name = super::entrypoint::is_canonical_kotodama_identifier(name)
+                || (!name.is_ascii()
+                    && name
+                        .chars()
+                        .next()
+                        .is_some_and(|first| first.is_alphabetic() || first == '_')
+                    && name
+                        .chars()
+                        .all(|character| character.is_alphanumeric() || character == '_'));
+            if code <= previous_code || !valid_name {
+                return false;
+            }
+            previous_code = code;
+            names[index] = name;
+        }
+        let names = &mut names[..count];
+        names.sort_unstable();
+        names.windows(2).all(|pair| pair[0] != pair[1])
+    }
+
     /// Localized message text for a specific language tag.
     #[derive(
         Debug,
@@ -2091,7 +2361,11 @@ pub mod manifest {
         /// Optional advisory access-set hints for scheduler.
         #[norito(default)]
         pub access_set_hints: Option<AccessSetHints>,
-        /// Optional entrypoint descriptors (name, kind, permission) advertised by the compiler.
+        /// Sorted, unique permission declarations authenticated by the artifact.
+        pub permissions: Vec<ContractPermissionDescriptorV1>,
+        /// Sorted, unique source event declarations authenticated by the artifact.
+        pub events: Vec<ContractEventDescriptorV1>,
+        /// Optional entrypoint descriptors advertised by the compiler.
         #[norito(default)]
         pub entrypoints: Option<Vec<EntrypointDescriptor>>,
         /// Optional durable state schema advertised by the compiler.
@@ -2100,6 +2374,8 @@ pub mod manifest {
         /// Exact nominal error type identities and variant schemas advertised by the compiler.
         #[norito(default)]
         pub error_types: Option<Vec<ContractErrorTypeDescriptor>>,
+        /// Complete ordinary enum declaration inventory, sorted by nominal identity.
+        pub enum_types: Vec<ContractEnumTypeDescriptorV1>,
         /// Authenticated presentation text, separate from nominal error schemas.
         #[norito(default)]
         pub error_messages: Option<Vec<ContractErrorMessage>>,
@@ -2124,9 +2400,12 @@ pub mod manifest {
                 compiler_fingerprint,
                 features_bitmap,
                 access_set_hints,
+                permissions,
+                events,
                 entrypoints,
                 states,
                 error_types,
+                enum_types,
                 error_messages,
                 kotoba,
                 provenance: _,
@@ -2137,9 +2416,12 @@ pub mod manifest {
                 && compiler_fingerprint == &other.compiler_fingerprint
                 && features_bitmap == &other.features_bitmap
                 && access_set_hints == &other.access_set_hints
+                && permissions == &other.permissions
+                && events == &other.events
                 && entrypoints == &other.entrypoints
                 && states == &other.states
                 && error_types == &other.error_types
+                && enum_types == &other.enum_types
                 && error_messages == &other.error_messages
                 && kotoba == &other.kotoba
         }
@@ -2186,6 +2468,124 @@ pub mod manifest {
     #[cfg(test)]
     mod tests {
         use super::*;
+        #[test]
+        fn ordinary_enum_descriptor_is_bounded_nominal_and_separate_from_errors() {
+            let descriptor = ContractEnumTypeDescriptorV1 {
+                identity: "example/vault@1::Vault::Phase".into(),
+                variants: vec![
+                    ContractEnumVariantDescriptorV1 {
+                        name: "Open".into(),
+                        code: 1,
+                    },
+                    ContractEnumVariantDescriptorV1 {
+                        name: "Closed".into(),
+                        code: 7,
+                    },
+                ],
+            };
+            assert!(descriptor.validate());
+            assert_eq!(descriptor.variant(7).unwrap().name, "Closed");
+            assert!(descriptor.variant(0).is_none());
+            assert!(descriptor.variant(2).is_none());
+            let frame = norito::to_bytes(&descriptor).unwrap();
+            assert_eq!(
+                norito::decode_canonical::<ContractEnumTypeDescriptorV1>(&frame).unwrap(),
+                descriptor
+            );
+            let json = norito::json::to_json(&descriptor).unwrap();
+            assert_eq!(
+                norito::json::from_str::<ContractEnumTypeDescriptorV1>(&json).unwrap(),
+                descriptor
+            );
+            let unknown = json.replacen('{', "{\"unknown\":true,", 1);
+            assert!(norito::json::from_str::<ContractEnumTypeDescriptorV1>(&unknown).is_err());
+            let error = ContractErrorTypeDescriptor {
+                identity: descriptor.identity.clone(),
+                variants: descriptor
+                    .variants
+                    .iter()
+                    .map(|variant| ContractErrorVariantDescriptor {
+                        name: variant.name.clone(),
+                        code: variant.code,
+                    })
+                    .collect(),
+            };
+            assert!(error.validate());
+            assert_ne!(descriptor.schema_hash(), error.schema_hash());
+            let mut other = descriptor.clone();
+            other.identity = "example/other@1::Vault::Phase".into();
+            assert_eq!(descriptor.schema_hash(), other.schema_hash());
+            assert_ne!(descriptor, other);
+            for identity in ["", "__kotodama_link_0", "invalid identity"] {
+                let mut invalid = descriptor.clone();
+                invalid.identity = identity.into();
+                assert!(!invalid.validate());
+            }
+            let mut invalid = descriptor.clone();
+            invalid.variants[0].code = 0;
+            assert!(!invalid.validate());
+            invalid = descriptor.clone();
+            invalid.variants.reverse();
+            assert!(!invalid.validate());
+            invalid = descriptor.clone();
+            invalid.variants[1].name = "Open".into();
+            assert!(!invalid.validate());
+            invalid = descriptor.clone();
+            invalid.variants[1].name = "not a variant".into();
+            assert!(!invalid.validate());
+            invalid = descriptor.clone();
+            invalid.variants.clear();
+            assert!(!invalid.validate());
+            invalid.variants = (1..=257)
+                .map(|code| ContractEnumVariantDescriptorV1 {
+                    name: format!("Case{code}"),
+                    code,
+                })
+                .collect();
+            assert!(!invalid.validate());
+            invalid.variants.pop();
+            assert!(invalid.validate());
+        }
+        #[test]
+        fn ordinary_enum_table_binds_order_identity_and_total_size() {
+            let mut descriptor = ContractEnumTypeDescriptorV1 {
+                identity: "local::Status".into(),
+                variants: vec![ContractEnumVariantDescriptorV1 {
+                    name: "Open".into(),
+                    code: 1,
+                }],
+            };
+            assert!(validate_contract_enum_table(&[]));
+            assert!(validate_contract_enum_table(&[descriptor.clone()]));
+            assert!(!validate_contract_enum_table(&[
+                descriptor.clone(),
+                descriptor.clone()
+            ]));
+            let table: Vec<_> = (0..=256)
+                .map(|index| ContractEnumTypeDescriptorV1 {
+                    identity: format!("local::Status{index:03}"),
+                    ..descriptor.clone()
+                })
+                .collect();
+            assert!(!validate_contract_enum_table(&table));
+            assert!(validate_contract_enum_table(&table[..256]));
+            let reversed: Vec<_> = table[..2].iter().rev().cloned().collect();
+            assert!(!validate_contract_enum_table(&reversed));
+            descriptor.variants = (1..=256)
+                .map(|code| ContractEnumVariantDescriptorV1 {
+                    name: format!("Variant{}_{code}", "a".repeat(64)),
+                    code,
+                })
+                .collect();
+            let oversized: Vec<_> = (0..8)
+                .map(|index| ContractEnumTypeDescriptorV1 {
+                    identity: format!("local::Status{index}"),
+                    ..descriptor.clone()
+                })
+                .collect();
+            assert!(oversized.iter().all(ContractEnumTypeDescriptorV1::validate));
+            assert!(!validate_contract_enum_table(&oversized));
+        }
         #[test]
         fn error_message_catalog_is_bounded_and_separate_from_nominal_schema() {
             let descriptor = ContractErrorTypeDescriptor {
@@ -2430,7 +2830,7 @@ pub mod manifest {
                         crate::smart_contract::entrypoint::EntrypointValueKindV1::Int,
                     )],
                 }),
-                permission: Some("ExecuteContract".to_owned()),
+                authorization: EntrypointAuthorizationV1::Permission("ExecuteContract".parse().unwrap()),
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: Some(true),
@@ -2456,6 +2856,109 @@ pub mod manifest {
                     assert!(msg.contains("read_keys"), "unexpected error: {msg}");
                 }
                 other => panic!("unexpected error: {other}"),
+            }
+        }
+        #[test]
+        fn authorization_and_permission_scopes_roundtrip_without_legacy_defaults() {
+            for authorization in [
+                EntrypointAuthorizationV1::Anyone,
+                EntrypointAuthorizationV1::Permission("Admin".parse().unwrap()),
+                EntrypointAuthorizationV1::RuntimeLifecycle,
+            ] {
+                let frame = authorization.encode();
+                assert_eq!(
+                    EntrypointAuthorizationV1::decode(&mut &frame[..]).unwrap(),
+                    authorization
+                );
+                let json = norito::json::to_json(&authorization).unwrap();
+                assert_eq!(
+                    norito::json::from_str::<EntrypointAuthorizationV1>(&json).unwrap(),
+                    authorization
+                );
+            }
+            for scope in [
+                ContractPermissionScopeV1::Instance,
+                ContractPermissionScopeV1::Chain {
+                    permission_name: "Treasury".parse().unwrap(),
+                },
+            ] {
+                let declaration = ContractPermissionDescriptorV1 {
+                    name: "Admin".parse().unwrap(),
+                    scope,
+                };
+                let frame = declaration.encode();
+                assert_eq!(
+                    ContractPermissionDescriptorV1::decode(&mut &frame[..]).unwrap(),
+                    declaration
+                );
+                let json = norito::json::to_json(&declaration).unwrap();
+                assert_eq!(
+                    norito::json::from_str::<ContractPermissionDescriptorV1>(&json).unwrap(),
+                    declaration
+                );
+            }
+            for retired in [
+                "null",
+                "\"Admin\"",
+                "{}",
+                "{\"kind\":\"Scoped\",\"value\":\"Admin\"}",
+            ] {
+                assert!(norito::json::from_str::<EntrypointAuthorizationV1>(retired).is_err());
+            }
+        }
+
+        #[test]
+        fn permission_tables_and_authorization_enforce_declarations_and_kind() {
+            let instance = ContractPermissionDescriptorV1 {
+                name: "Admin".parse().unwrap(),
+                scope: ContractPermissionScopeV1::Instance,
+            };
+            let shared = ContractPermissionDescriptorV1 {
+                name: "Treasury".parse().unwrap(),
+                scope: ContractPermissionScopeV1::Chain {
+                    permission_name: "CanManageTreasury".parse().unwrap(),
+                },
+            };
+            let table = [instance.clone(), shared.clone()];
+            assert!(validate_contract_permission_table(&[]));
+            assert!(validate_contract_permission_table(&table));
+            assert!(!validate_contract_permission_table(&[
+                shared,
+                instance.clone()
+            ]));
+            assert!(!validate_contract_permission_table(&[
+                instance.clone(),
+                instance
+            ]));
+            for name in ["anyone", "permission", "a-b"] {
+                assert!(!validate_contract_permission_table(&[
+                    ContractPermissionDescriptorV1 {
+                        name: name.parse().unwrap(),
+                        scope: ContractPermissionScopeV1::Instance,
+                    }
+                ]));
+            }
+            for kind in [EntryPointKind::Kotoage, EntryPointKind::View] {
+                assert!(EntrypointAuthorizationV1::Anyone.is_valid_for(kind, &table));
+                for name in ["Admin", "Treasury"] {
+                    assert!(
+                        EntrypointAuthorizationV1::Permission(name.parse().unwrap())
+                            .is_valid_for(kind, &table)
+                    );
+                }
+                assert!(
+                    !EntrypointAuthorizationV1::Permission("Admn".parse().unwrap())
+                        .is_valid_for(kind, &table)
+                );
+                assert!(!EntrypointAuthorizationV1::RuntimeLifecycle.is_valid_for(kind, &table));
+            }
+            for kind in [EntryPointKind::Hajimari, EntryPointKind::Kaizen] {
+                assert!(EntrypointAuthorizationV1::RuntimeLifecycle.is_valid_for(kind, &table));
+                assert!(!EntrypointAuthorizationV1::Anyone.is_valid_for(kind, &table));
+                assert!(
+                    !EntrypointAuthorizationV1::Permission("Admin".parse().unwrap())
+                        .is_valid_for(kind, &table)
+                );
             }
         }
     }
@@ -2489,6 +2992,9 @@ pub mod manifest {
             let (_owner, _grant, context) = signing_context();
             let kp = checked_random_keypair();
             let mut manifest = ContractManifest {
+                permissions: Vec::new(),
+                events: Vec::new(),
+                enum_types: Vec::new(),
                 seiyaku_name: None,
                 code_hash: Some(Hash::new(b"code-bytes")),
                 abi_hash: Some(Hash::new(b"abi-bytes")),
@@ -2594,12 +3100,37 @@ pub mod manifest {
                     .is_err(),
                 "manifest provenance must bind nominal error variant codes"
             );
+            manifest.error_types.as_mut().unwrap()[0].variants[0].code = 1001;
+            manifest.permissions.push(ContractPermissionDescriptorV1 {
+                name: "UnusedRole".parse().unwrap(),
+                scope: ContractPermissionScopeV1::Instance,
+            });
+            assert!(
+                signature
+                    .verify(
+                        kp.public_key(),
+                        &manifest
+                            .signature_payload_bytes(&context, TEST_FRAME_MAX)
+                            .unwrap()
+                    )
+                    .is_err(),
+                "a declared role must be signed even when no entrypoint references it"
+            );
+            let mut json = norito::json::to_value(&manifest).unwrap();
+            json.as_object_mut().unwrap().remove("permissions");
+            assert!(
+                norito::json::from_value::<ContractManifest>(json).is_err(),
+                "a missing declaration table must not decode as an empty table"
+            );
         }
         #[test]
         fn try_signed_attaches_verifiable_provenance() {
             let (_owner, _grant, context) = signing_context();
             let kp = checked_random_keypair();
             let manifest = ContractManifest {
+                permissions: Vec::new(),
+                events: Vec::new(),
+                enum_types: Vec::new(),
                 seiyaku_name: None,
                 code_hash: Some(Hash::new(b"contract-code")),
                 abi_hash: Some(Hash::new(b"contract-abi")),

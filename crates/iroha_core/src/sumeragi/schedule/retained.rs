@@ -48,7 +48,6 @@ impl RetainedConsensusSchedule {
     /// readers can use this invariant without repeating cryptographic validation;
     /// an absent owner, different applied cut, overflow or pending boundary has
     /// no next configuration. Decoded DTO admission still validates independently.
-    #[cfg(any(feature = "telemetry", test))]
     pub(crate) fn ready_after_tip(&self, applied_height: u64) -> Option<&super::ScheduledConfig> {
         self.owner.as_ref()?;
         let canonical = self.canonical();

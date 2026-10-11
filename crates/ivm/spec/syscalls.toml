@@ -90,7 +90,7 @@ gas = "G_set_detail + bytes(val)"
 
 [[syscall]]
 number = "0x20"
-args = "r10=&AssetDefinitionId"
+args = "r10=&AssetDefinitionId, r11=&Blob(name), r12=numeric_spec:u64, r13=mintability:u64"
 ret = "u64=0"
 gas = "G_reg_asset"
 
@@ -162,7 +162,7 @@ gas = "G_transfer per entry"
 
 [[syscall]]
 number = "0x2C"
-args = "r10=&AccountId(from), r11=&AccountId(to), r12=&AssetDefinitionId, r13=&Quantity, r14=&DataSpaceId"
+args = "r10=&AccountId(from), r11=&AccountId(to), r12=&AssetDefinitionId, r13=&Quantity, r14=&DataSpaceId or 0"
 ret = "u64=0"
 gas = "G_transfer"
 
@@ -204,13 +204,13 @@ gas = "G_revoke_perm"
 
 [[syscall]]
 number = "0x36"
-args = "r10=&AccountId, r11=&Blob(entrypoint)"
+args = "r10=&AccountId, r11=&Name(permission)"
 ret = "u64=0"
 gas = "G_grant_perm"
 
 [[syscall]]
 number = "0x37"
-args = "r10=&AccountId, r11=&Blob(entrypoint)"
+args = "r10=&AccountId, r11=&Name(permission)"
 ret = "u64=0"
 gas = "G_revoke_perm"
 
@@ -470,9 +470,9 @@ gas = "G_json_get + input bytes + active payload + sum allocation"
 
 [[syscall]]
 number = "0x7E"
-args = "r10=&NoritoBytes(VrfEpochSeedRequest)"
-ret = "r10=ptr (&NoritoBytes(VrfEpochSeedResponse)), r11=status:u64"
-gas = "G_vote_get + bytes"
+args = "r10=epoch:u64"
+ret = "r10=&Blob(seed[32]) or 0 if absent"
+gas = "G_state_query + 8 + 32 if found, otherwise G_state_query + 8"
 
 [[syscall]]
 number = "0x80"
@@ -566,7 +566,7 @@ gas = "G_hash + bytes"
 
 [[syscall]]
 number = "0xA0"
-args = "r10=&NoritoBytes(InstructionBox), r11=operation_tag(1=SubmitBallot,2=RecordSccpMessage)"
+args = "r10=&NoritoBytes(InstructionBox), r11=operation_tag(1=SubmitBallot)"
 ret = "u64=0"
 gas = "G_sci"
 
@@ -620,9 +620,15 @@ gas = "G_sysvar"
 
 [[syscall]]
 number = "0xA9"
-args = "r10=&Blob(contract_address), r11=&Blob(entrypoint), r12=&NoritoBytes(EntrypointArgumentRecordV1) or 0"
-ret = "r10=ptr (&NoritoBytes(EntrypointReturnRecordV1)) or 0"
+args = "r10=&Blob(contract_address), r11=&NoritoBytes(ContractCallBindingV1), r12=argument-table-base, r13=exact-argument-words, r14=result-table-base, r15=exact-result-words"
+ret = "caller-owned typed result table; Unit uses one zero word"
 gas = "G_call_contract + request bytes + return bytes + child gas"
+
+[[syscall]]
+number = "0xAA"
+args = "r10=authenticated event ordinal, r11=owned public heap word table, r12=exact schema word count"
+ret = "-"
+gas = "32 + 1 per canonical schema byte + 32 per active schema node + 1 per retained full TLV byte"
 
 [[syscall]]
 number = "0xB0"
@@ -830,9 +836,9 @@ gas = "G_scq + query items + encoded bytes"
 
 [[syscall]]
 number = "0x010002"
-args = "r10=CoreQueryEntityTagV1:u64, r11=offset:i64 bits, r12=limit:1..=64"
+args = "r10=CoreQueryEntityTagV1:u64, r11=offset:i64 bits, r12=limit:1..=64, r13=nullable AccountId pointer (Asset only; zero for every other tag)"
 ret = "r10=List<View,64> handle, r11=Option<int> sum handle"
-gas = "G_scq + offset + query items + encoded bytes"
+gas = "G_scq + offset + query items + encoded bytes + (32 + AccountId payload bytes when filtered)"
 
 [[syscall]]
 number = "0x010006"
@@ -842,7 +848,7 @@ gas = "G_scq"
 
 [[syscall]]
 number = "0x010007"
-args = "r10=&NoritoBytes(ContractAddress | Hash)"
+args = "r10=&NoritoBytes(ContractArtifactId)"
 ret = "r10=ptr (&NoritoBytes(ContractManifest))"
 gas = "G_scq"
 
@@ -879,7 +885,7 @@ gas = "G_get_auth + bytes"
 [[syscall]]
 number = "0x010024"
 args = "-"
-ret = "r10=ptr (&NoritoBytes(ContractAddress)) or 0"
+ret = "r10=&Blob(canonical ContractAddress UTF-8 literal, exactly 60 bytes) or 0 without contract context"
 gas = "G_sysvar + bytes"
 
 [[syscall]]
@@ -907,12 +913,6 @@ ret = "r10=&NoritoBytes(same payload)"
 gas = "G_pointer + bytes"
 
 [[syscall]]
-number = "0x010029"
-args = "r10=&Blob(contract_address), r11=&Blob(literal entrypoint), r12=&Quantity(amount_in), r13=&Quantity(min_out)"
-ret = "r10=ptr (&Quantity)"
-gas = "G_call_contract + request bytes + return bytes + child gas"
-
-[[syscall]]
 number = "0x010200"
 args = "r10=&AccountId, r11=&AssetDefinitionId, r12=expected_revision:u64, r13=availability_flags:u64 (bit 0 incoming, bit 1 outgoing; reserved bits zero), r14=&Option<string>"
 ret = "u64=0"
@@ -932,25 +932,25 @@ gas = "G_sci + bytes"
 
 [[syscall]]
 number = "0x010210"
-args = "r10=&Blob(alias), r11=&AccountId(replacement)"
+args = "r10=&Blob(alias), r11=&AccountId(replacement), r12=request_generation"
 ret = "u64=0"
 gas = "G_sci + bytes"
 
 [[syscall]]
 number = "0x010211"
-args = "r10=&Blob(alias)"
+args = "r10=&Blob(alias), r11=request_generation"
 ret = "u64=0"
 gas = "G_sci + bytes"
 
 [[syscall]]
 number = "0x010212"
-args = "r10=&Blob(alias)"
+args = "r10=&Blob(alias), r11=request_generation"
 ret = "u64=0"
 gas = "G_sci + bytes"
 
 [[syscall]]
 number = "0x010213"
-args = "r10=&Blob(alias)"
+args = "r10=&Blob(alias), r11=request_generation"
 ret = "u64=0"
 gas = "G_sci + bytes"
 
@@ -976,13 +976,13 @@ gas = "G_numeric_staged"
 
 [[syscall]]
 number = "0x010102"
-args = "r10=&Int"
+args = "r10=&Int, r11=reserved:0, r12=reserved:0, r13=reserved:0, r14=failure_mode:0..1"
 ret = "r10=value:i64-or-zero, r11=NumericFaultV1-or-zero"
 gas = "G_numeric_staged"
 
 [[syscall]]
 number = "0x010103"
-args = "r10=&Int"
+args = "r10=&Int, r11=reserved:0, r12=reserved:0, r13=reserved:0, r14=failure_mode:0..1"
 ret = "r10=value:u64-or-zero, r11=NumericFaultV1-or-zero"
 gas = "G_numeric_staged"
 
@@ -1205,7 +1205,7 @@ gas = "G_numeric_staged"
 
 [[syscall]]
 number = "0x01012D"
-args = "r10=&Decimal"
+args = "r10=&Decimal, r11=reserved:0, r12=reserved:0, r13=reserved:0, r14=failure_mode:0..1"
 ret = "r10=&Int-or-zero, r11=NumericFaultV1-or-zero"
 gas = "G_numeric_staged"
 
@@ -1230,13 +1230,13 @@ gas = "G_numeric_staged"
 
 [[syscall]]
 number = "0x010140"
-args = "r10=&Int"
+args = "r10=&Int, r11=reserved:0, r12=reserved:0, r13=reserved:0, r14=failure_mode:0..1"
 ret = "r10=&Quantity-or-zero, r11=NumericFaultV1-or-zero"
 gas = "G_numeric_staged"
 
 [[syscall]]
 number = "0x010141"
-args = "r10=&Decimal"
+args = "r10=&Decimal, r11=reserved:0, r12=reserved:0, r13=reserved:0, r14=failure_mode:0..1"
 ret = "r10=&Quantity-or-zero, r11=NumericFaultV1-or-zero"
 gas = "G_numeric_staged"
 
@@ -1350,6 +1350,18 @@ ret = "r10=Option<&Quantity> sum handle"
 gas = "G_json_get + input bytes + active payload + sum allocation"
 
 [[syscall]]
+number = "0x010166"
+args = "r10=&Json(object), r11=&Name(key)"
+ret = "r10=Option<&Blob(UTF-8)> sum handle"
+gas = "G_json_get + input bytes + active payload + sum allocation"
+
+[[syscall]]
+number = "0x010167"
+args = "r10=&Json(object), r11=&Name(key)"
+ret = "r10=Option<bool> sum handle"
+gas = "G_json_get + input bytes + active payload + sum allocation"
+
+[[syscall]]
 number = "0x01004E"
 args = "r10=&NoritoBytes(JsonConstructionSchemaV1), r11=word_table, r12=word_count"
 ret = "r10=&Json"
@@ -1360,3 +1372,27 @@ number = "0x00"
 args = "r10=value:u64"
 ret = "-"
 gas = "G_debug"
+
+[[syscall]]
+number = "0x010050"
+args = "r10=&NoritoBytes(EntrypointValueTypeV1), r11=owned public heap table, r12=exact word count"
+ret = "r10=&Blob(EntrypointReturnRecordV1)"
+gas = "32 + 1 per schema byte + value quote + 1 per encoded output byte"
+
+[[syscall]]
+number = "0x010051"
+args = "r10=&Blob(left), r11=&Blob(right)"
+ret = "r10=&Blob(left || right)"
+gas = "32 + 2 per combined payload byte"
+
+[[syscall]]
+number = "0x010052"
+args = "r10=&Blob"
+ret = "r10=same pointer for valid UTF-8, otherwise zero"
+gas = "32 + 1 per payload byte"
+
+[[syscall]]
+number = "0x010053"
+args = "r10=&NoritoBytes(scalar EntrypointValueTypeV1), r11=owned public heap table, r12=1"
+ret = "r10=&Blob(canonical scalar text)"
+gas = "32 + 1 per schema byte + value quote + 1 per UTF-8 output byte"

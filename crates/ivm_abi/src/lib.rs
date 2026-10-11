@@ -7,6 +7,7 @@ pub mod arguments;
 pub mod axt;
 pub mod call;
 pub mod codec;
+pub mod contract_call;
 pub mod core_query;
 pub mod dev_env;
 pub mod encoding;
@@ -26,6 +27,7 @@ pub mod state_cursor;
 pub mod state_value;
 pub mod sum;
 pub mod syscalls;
+pub mod upgrade;
 pub use error::{HostOutputResource, Perm, VMError};
 /// Syscall policy determined by `ProgramMetadata.abi_version`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,3 +38,6 @@ pub enum SyscallPolicy {
 
 #[cfg(test)]
 mod captured_identity_tests;
+
+#[cfg(test)]
+mod enum_tests;

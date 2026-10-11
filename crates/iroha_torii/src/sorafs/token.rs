@@ -34,7 +34,7 @@ const MAX_STREAM_TOKEN_WIRE_BYTES: usize = STREAM_TOKEN_MAX_WIRE_BYTES_V1;
 pub(crate) const MAX_CLIENT_ID_BYTES: usize = 128;
 /// Maximum echoed issuance nonce bytes.
 pub(crate) const MAX_NONCE_BYTES: usize = 128;
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(test, feature = "test-fixtures"))]
 #[path = "token/native_issuer_test_fixture.rs"]
 pub mod native_issuer_test_fixture;
 mod signer_binding;

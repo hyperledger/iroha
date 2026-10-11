@@ -1,5 +1,5 @@
 seiyaku CodeReadbackFixture {
-    view fn inspect() -> int {
+    view fn inspect() authorize(anyone) -> int {
         return 7;
     }
 }

@@ -554,7 +554,7 @@ impl crate::verify::finality::FinalitySource for RuntimeSource {
         &self,
         _: &iroha_model_base::peer::PeerId,
         _: &[u8; 32],
-    ) -> std::io::Result<iroha_data_model::sumeragi_finality::SumeragiFinalityAttestation> {
+    ) -> std::io::Result<crate::verify::finality::FinalityAttestation> {
         Err(std::io::Error::other("fixture peer offline"))
     }
 }

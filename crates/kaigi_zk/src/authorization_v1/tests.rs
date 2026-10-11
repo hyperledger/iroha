@@ -1,20 +1,14 @@
 //! Adversarial witnesses and real proof coverage for the complete V1 relation.
 use super::*;
-use halo2_proofs::poly::{VerificationStrategy, commitment::ParamsProver};
-use halo2_proofs::{
-    dev::MockProver,
-    halo2curves::pasta::EqAffine,
-    plonk::{create_proof, keygen_pk, keygen_vk, verify_proof},
-    poly::ipa::{
-        commitment::{IPACommitmentScheme, ParamsIPA},
-        multiopen::{ProverIPA, VerifierIPA},
-        strategy::SingleStrategy,
-    },
-    transcript::{
-        Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
-    },
+use iroha_pasta::{Eq, msm::MemoryBudget};
+use iroha_plonk::{
+    check::{CheckMode, check_circuit},
+    cs::InstanceType,
+    keys::{KeygenConfigV2, keygen_pk_v2},
+    pcs::ipa::PinnedParams,
+    prover::{ProverConfig, ProverRandomness, Witness, create_proof_owned},
+    verifier::verify_full,
 };
-use rand_core_06::OsRng;
 
 fn context(action: KaigiAuthorizationActionV1) -> KaigiAuthorizationContextV1 {
     let host_id = [11, 12, 13, 14, 15, 16];
@@ -60,14 +54,14 @@ fn raw_circuit(words: [Scalar; CONTEXT_WORDS], secret: Scalar) -> KaigiAuthoriza
     }
 }
 fn check(circuit: &KaigiAuthorizationCircuitV1, instance: [Scalar; 31]) -> bool {
-    MockProver::run(
-        KAIGI_AUTHORIZATION_CIRCUIT_K_V1,
+    check_circuit(
         circuit,
-        vec![instance.to_vec()],
+        KAIGI_AUTHORIZATION_CIRCUIT_K_V1,
+        &[instance.to_vec()],
+        CheckMode::Strict,
     )
     .expect("fixed domain fits")
-    .verify()
-    .is_ok()
+    .is_satisfied()
 }
 fn reject_words(words: [Scalar; CONTEXT_WORDS]) {
     assert!(!check(
@@ -78,15 +72,14 @@ fn reject_words(words: [Scalar; CONTEXT_WORDS]) {
 
 #[test]
 fn framed_sponge_matches_independent_poseidon_primitive() {
-    use poseidon_primitives::poseidon::primitives::{ConstantLength, Hash};
-    let primitive = Hash::<Scalar, crate::KaigiPoseidonSpec, ConstantLength<2>, 3, 2>::init();
+    let mut captured = include_str!("../../../../fixtures/poseidon/kaigi-framed-rp56.hex").lines();
     for domain in [DOMAIN_COMMITMENT, DOMAIN_NULLIFIER, DOMAIN_AUTHORIZATION] {
         for length in 0..=33 {
             let payload: Vec<_> = (0..length)
                 .map(|i| blinding() + Scalar::from(i as u64))
                 .collect();
-            // Separate complete-frame construction and the dependency's own
-            // permutation implementation, rather than the circuit round helper.
+            // Separate complete-frame construction and the independent test
+            // permutation over captured constants, rather than the circuit round helper.
             let mut frame = vec![Scalar::from(length as u64)];
             frame.extend_from_slice(&payload);
             frame.push(Scalar::ONE);
@@ -97,8 +90,18 @@ fn framed_sponge_matches_independent_poseidon_primitive() {
             for pair in frame.chunks_exact(2) {
                 state[0] += pair[0];
                 state[1] += pair[1];
-                primitive.permute(&mut state);
+                crate::tests::reference_permute(&mut state);
             }
+            let row: Vec<_> = captured
+                .next()
+                .expect("captured frame")
+                .split_whitespace()
+                .collect();
+            assert_eq!(row.len(), 3);
+            assert_eq!(u64::from_str_radix(row[0], 16).unwrap(), domain);
+            assert_eq!(row[1].parse::<usize>().unwrap(), length);
+            let expected = Scalar::from_repr(crate::tests::reference::field_bytes(row[2])).unwrap();
+            assert_eq!(state[0], expected, "independent reference frame");
             assert_eq!(
                 sponge(domain, &payload),
                 state[0],
@@ -106,6 +109,7 @@ fn framed_sponge_matches_independent_poseidon_primitive() {
             );
         }
     }
+    assert!(captured.next().is_none(), "all 102 frames covered");
     let context = context(KaigiAuthorizationActionV1::Join);
     let outputs = compute_authorization_v1(&context, &witness(blinding())).unwrap();
     let hex = outputs.canonical_bytes().map(|bytes| {
@@ -115,7 +119,7 @@ fn framed_sponge_matches_independent_poseidon_primitive() {
             .collect::<String>()
     });
     // Derived only after the complete-frame implementation above matched the
-    // dependency's independently implemented permutation for all frame lengths.
+    // captured independent permutation for all frame lengths.
     assert_eq!(
         hex,
         [
@@ -137,17 +141,10 @@ fn all_four_roles_satisfy_the_same_fixed_circuit() {
         let context = context(action);
         let witness = witness(blinding());
         let outputs = compute_authorization_v1(&context, &witness).unwrap();
-        MockProver::run(
-            KAIGI_AUTHORIZATION_CIRCUIT_K_V1,
+        assert!(check(
             &KaigiAuthorizationCircuitV1::new(context, witness).unwrap(),
-            vec![
-                KaigiAuthorizationPublicInputsV1 { context, outputs }
-                    .instance()
-                    .to_vec(),
-            ],
-        )
-        .unwrap()
-        .assert_satisfied();
+            KaigiAuthorizationPublicInputsV1 { context, outputs }.instance()
+        ));
         assert_eq!(
             outputs.canonical_bytes(),
             [
@@ -401,45 +398,34 @@ fn malicious_actions_roles_and_zero_blinding_fail_inside_constraints() {
 }
 
 #[test]
-fn real_ipa_proof_roundtrip_rejects_every_changed_public_row() {
-    let params: ParamsIPA<EqAffine> = ParamsIPA::new(KAIGI_AUTHORIZATION_CIRCUIT_K_V1);
-    let empty = KaigiAuthorizationCircuitV1::default();
-    let vk = keygen_vk(&params, &empty).unwrap();
-    let pk = keygen_pk(&params, vk.clone(), &empty).unwrap();
-    let words = context(KaigiAuthorizationActionV1::Join).words();
-    let instance = raw_instance(words, blinding());
-    let mut writer = Blake2bWrite::<_, EqAffine, Challenge255<EqAffine>>::init(Vec::new());
-    create_proof::<
-        IPACommitmentScheme<EqAffine>,
-        ProverIPA<'_, EqAffine>,
-        Challenge255<EqAffine>,
-        _,
-        _,
-        _,
-    >(
+fn real_pipa_r_proof_roundtrip_rejects_every_changed_public_row() {
+    let params = PinnedParams::<Eq>::derive(KAIGI_AUTHORIZATION_CIRCUIT_K_V1).unwrap();
+    let pk = keygen_pk_v2(
         &params,
-        &pk,
-        &[raw_circuit(words, blinding())],
-        &[&[&instance]],
-        OsRng,
-        &mut writer,
+        &KaigiAuthorizationCircuitV1::default(),
+        &KeygenConfigV2::pipa_r(vec![InstanceType::Field]),
     )
     .unwrap();
-    let proof = writer.finalize();
+    let words = context(KaigiAuthorizationActionV1::Join).words();
+    let instance = raw_instance(words, blinding());
+    let witness =
+        Witness::from_circuit(&pk, &raw_circuit(words, blinding()), &[instance.to_vec()]).unwrap();
+    let proof = create_proof_owned(
+        &params,
+        &pk,
+        witness,
+        ProverRandomness::hedged(),
+        ProverConfig::default(),
+    )
+    .unwrap();
     let verify = |statement: &[Scalar]| {
-        let mut reader = Blake2bRead::<_, EqAffine, Challenge255<EqAffine>>::init(proof.as_slice());
-        verify_proof::<
-            IPACommitmentScheme<EqAffine>,
-            VerifierIPA<'_, EqAffine>,
-            Challenge255<EqAffine>,
-            _,
-            _,
-        >(
+        verify_full(
             &params,
-            &vk,
-            SingleStrategy::new(&params),
-            &[&[statement]],
-            &mut reader,
+            pk.binding(),
+            pk.vk(),
+            &[statement.to_vec()],
+            &proof,
+            MemoryBudget::DEFAULT,
         )
         .is_ok()
     };

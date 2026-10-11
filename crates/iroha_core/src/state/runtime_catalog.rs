@@ -523,6 +523,7 @@ impl StateTransaction<'_, '_> {
         lifecycle_update.updated_dataspace_catalog = updated_dataspaces;
         prospective_nexus.lane_catalog = lifecycle_update.updated_catalog.clone();
         prospective_nexus.lane_config = lifecycle_update.updated_lane_config.clone();
+        ensure_homed_dataspaces_keep_lanes(&self.world, &lifecycle_update.updated_catalog)?;
         ensure_live_shared_dataspace_staking_owner_is_not_reset(
             &self.world,
             &self.nexus,

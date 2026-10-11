@@ -1,6 +1,7 @@
-seiyaku CompactUnitLoop {
+seiyaku CompactUnitLoop { permission WriteState;
     error enum Failure {
-        Low = 3, High = 9
+        Low = 3,
+        High = 9,
     }
 
     state int trace;
@@ -19,7 +20,7 @@ seiyaku CompactUnitLoop {
         return;
     }
 
-    kotoage fn main() -> ((), (), int) authorize("WriteState") {
+    kotoage fn main() authorize(WriteState) -> ((), (), int) {
         let first = guarded(0);
         for count in range(3) {
             guarded(count);

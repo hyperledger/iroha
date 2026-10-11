@@ -4,7 +4,7 @@
 
                 #[test]
                 fn drive_run() {
-                    let _next = test::invoke_kotoage(kotoage: "helper", arguments: Json::parse("{}"));
+                    let _next = test::invoke_kotoage(kotoage: "helper", arguments: {});
                 }
             }
             

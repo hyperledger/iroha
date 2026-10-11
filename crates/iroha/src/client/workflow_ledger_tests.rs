@@ -101,9 +101,7 @@ fn rejection(
 async fn dispatch_one(response: Scripted) -> (DispatchOutcome, Vec<RequestSnapshot>, Vec<u8>) {
     let (account, snapshots) = scripted(vec![response], true);
     let (_, bytes, identity) = signed(&account);
-    let outcome = context_of(account)
-        .dispatch(&bytes, &identity)
-        .await;
+    let outcome = context_of(account).dispatch(&bytes, &identity).await;
     let snapshots = std::mem::take(&mut *snapshots.lock().expect("snapshots"));
     (outcome, snapshots, bytes)
 }
@@ -304,9 +302,7 @@ async fn a_dispatch_that_never_left_the_client_is_reported_by_its_cause() {
         false,
     );
     let (_, bytes, identity) = signed(&account);
-    let outcome = context_of(account)
-        .dispatch(&bytes, &identity)
-        .await;
+    let outcome = context_of(account).dispatch(&bytes, &identity).await;
     assert!(
         matches!(
             outcome,
@@ -326,9 +322,7 @@ async fn a_dispatch_that_never_left_the_client_is_reported_by_its_cause() {
     // A probe that cannot be completed is a local resource failure, and nothing is posted.
     let (account, snapshots) = scripted(vec![Err("probe connection refused")], false);
     let (_, bytes, identity) = signed(&account);
-    let outcome = context_of(account)
-        .dispatch(&bytes, &identity)
-        .await;
+    let outcome = context_of(account).dispatch(&bytes, &identity).await;
     assert!(
         matches!(
             outcome,
@@ -360,9 +354,7 @@ async fn a_dispatch_that_never_left_the_client_is_reported_by_its_cause() {
     );
     let (_, bytes, identity) = signed(&account);
     assert_eq!(
-        context_of(account)
-            .dispatch(&bytes, &identity)
-            .await,
+        context_of(account).dispatch(&bytes, &identity).await,
         DispatchOutcome::Accepted
     );
     let methods = snapshots
@@ -455,9 +447,7 @@ async fn committed_outcome_requires_a_state_resolved_global_status() {
     ];
     for (name, response, expected) in cases {
         let (account, snapshots) = scripted(vec![response], true);
-        let outcome = context_of(account)
-            .committed_outcome(&identity)
-            .await;
+        let outcome = context_of(account).committed_outcome(&identity).await;
         assert_eq!(outcome, expected, "{name}");
         // Reconciliation is one exact global read of the original identity. It never posts.
         let snapshots = snapshots.lock().expect("snapshots");
@@ -478,9 +468,7 @@ async fn committed_outcome_requires_a_state_resolved_global_status() {
     }
     let (account, _) = scripted(vec![Ok(status(&text, "Rejected", "state", "global"))], true);
     assert!(matches!(
-        context_of(account)
-            .committed_outcome(&identity)
-            .await,
+        context_of(account).committed_outcome(&identity).await,
         CommittedOutcome::Rejected { .. }
     ));
 
@@ -523,9 +511,7 @@ async fn committed_outcome_requires_a_state_resolved_global_status() {
     ];
     for (name, response) in failed {
         let (account, snapshots) = scripted(vec![response], true);
-        let outcome = context_of(account)
-            .committed_outcome(&identity)
-            .await;
+        let outcome = context_of(account).committed_outcome(&identity).await;
         assert!(
             matches!(outcome, CommittedOutcome::ReadFailed { .. }),
             "{name}: {outcome:?}"

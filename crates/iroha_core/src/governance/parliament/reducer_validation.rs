@@ -120,9 +120,14 @@ impl ParliamentAttemptStateV1 {
         }
         let proposal_redraw_budget_exhausted =
             self.randomness_redraws_used_v1()? == MAX_PARLIAMENT_RANDOMNESS_REDRAWS_V1;
-        if self.sortition_pulse_delay_blocks == 0 {
+        if self.sortition_pulse_delay_blocks == 0
+            || self.sortition_pulse_epoch_length_blocks
+                < MIN_PARLIAMENT_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS_V1
+        {
             return Err(ParliamentReducerErrorV1::InvalidSortitionPulseSchedule);
         }
+        // Exact recheck of every generation slot from frozen attempt fields only.
+        let invalid_sortition_generation_slots = self.invalid_sortition_generation_slots_v1();
         if !persisted_pipeline_is_canonical(&self.required_bodies) {
             return Err(ParliamentReducerErrorV1::InvalidRequiredBodyPipeline);
         }
@@ -230,10 +235,6 @@ impl ParliamentAttemptStateV1 {
                 || (requirement.decision_mode == ParliamentDecisionModeV1::HiddenBindingBallot
                     && failure.target_seats < MIN_PARLIAMENT_HIDDEN_BALLOT_ANONYMITY_V1)
                 || failure
-                    .request_height
-                    .checked_add(self.sortition_pulse_delay_blocks)
-                    != Some(failure.pulse_height)
-                || failure
                     .beacon_session_id
                     .as_bytes()
                     .iter()
@@ -246,6 +247,12 @@ impl ParliamentAttemptStateV1 {
                 || !request_ids.insert(failure.request_intent_id)
             {
                 return Err(ParliamentReducerErrorV1::InvalidCandidateSnapshot);
+            }
+            if invalid_sortition_generation_slots.contains(&ParliamentPulseSlotV1::new(
+                failure.beacon_session_id,
+                failure.pulse_height,
+            )) {
+                return Err(ParliamentReducerErrorV1::InvalidSortitionPulseSchedule);
             }
             if failure.body == ParliamentBody::ConfirmationJury {
                 let policy_result_height = self
@@ -322,11 +329,10 @@ impl ParliamentAttemptStateV1 {
             request
                 .validate(None)
                 .map_err(|_| ParliamentReducerErrorV1::ImmutableBindingMismatch)?;
-            if request
-                .request_height
-                .checked_add(self.sortition_pulse_delay_blocks)
-                != Some(request.pulse_height)
-            {
+            if invalid_sortition_generation_slots.contains(&ParliamentPulseSlotV1::new(
+                request.beacon_session_id,
+                request.pulse_height,
+            )) {
                 return Err(ParliamentReducerErrorV1::InvalidSortitionPulseSchedule);
             }
             let requirement = self.requirement_for_body(request.body)?;
@@ -459,7 +465,8 @@ impl ParliamentAttemptStateV1 {
                     }
                 }
                 BodyElectionAttemptStatusV1::NoRoster | BodyElectionAttemptStatusV1::Superseded => {
-                    let pulse_missing_terminal = election_awaiting_pulse_shape_is_empty(election);
+                    // A terminal election always consumed the pulse of its exact slot and
+                    // closed its invitation window: no missing-pulse terminal shape exists.
                     let accepted_roster_len = accepted_roster(election)?.len();
                     let drawn_empty_terminal = election.pulse_id.is_some()
                         && election.pulse_output.is_some()
@@ -475,9 +482,6 @@ impl ParliamentAttemptStateV1 {
                         && accepted_roster_len > 0
                         && !hidden_ballot_population_meets_anonymity_floor_v1(accepted_roster_len);
                     let failure_is_valid = match (election.failure_kind, election.failure_height) {
-                        (Some(ParliamentElectionFailureKindV1::PulseUnavailable), Some(height)) => {
-                            pulse_missing_terminal && height > request.pulse_height
-                        }
                         (
                             Some(ParliamentElectionFailureKindV1::EmptyAcceptedRoster),
                             Some(height),

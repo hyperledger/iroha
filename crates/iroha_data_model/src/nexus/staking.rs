@@ -8,11 +8,6 @@ use iroha_primitives::numeric::Quantity;
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 use std::collections::BTreeMap;
-/// Maximum reward records processed by one signed claim.
-pub const MAX_PUBLIC_LANE_REWARD_CLAIM_RECORDS: usize = 64;
-/// Maximum exact custody sources read or changed by one signed reward claim.
-pub const MAX_PUBLIC_LANE_REWARD_CLAIM_SOURCES: usize = 64;
-
 /// Signature scope for exact staking effects, including network-independent genesis templates.
 #[derive(
     Debug,
@@ -242,88 +237,6 @@ impl PublicLaneMonetaryPlanV1 {
     }
 }
 
-/// Per-recipient chronological processing progress through a lane's reward records.
-///
-/// Unpaid quantities live in separate exact-source accrual rows, so historical
-/// dust across many custody sources never requires an unbounded claim operation.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Encode,
-    Decode,
-    IntoSchema,
-    norito::NoritoSchema,
-    crate::DeriveJsonSerialize,
-    crate::DeriveJsonDeserialize,
-)]
-#[norito_schema(name = "iroha_data_model::nexus::staking::PublicLaneRewardClaimStateV1")]
-#[norito(deny_unknown_fields)]
-pub struct PublicLaneRewardClaimStateV1 {
-    /// Last processed reward epoch, including epochs with no recipient entitlement.
-    #[norito(required)]
-    pub through_epoch: Option<u64>,
-}
-
-/// Immutable reward record covered by the recipient's signed processing plan.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Encode,
-    Decode,
-    IntoSchema,
-    norito::NoritoSchema,
-    crate::DeriveJsonSerialize,
-    crate::DeriveJsonDeserialize,
-)]
-#[norito_schema(name = "iroha_data_model::nexus::staking::PublicLaneRewardRecordRefV1")]
-#[norito(deny_unknown_fields)]
-pub struct PublicLaneRewardRecordRefV1 {
-    /// Reward epoch within the instruction's lane.
-    pub epoch: u64,
-    /// Domain-separated commitment to the complete canonical reward record.
-    pub record_hash: Hash,
-}
-
-/// Exact prior accrual and payment from one retained reward custody source.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Encode,
-    Decode,
-    IntoSchema,
-    norito::NoritoSchema,
-    crate::DeriveJsonSerialize,
-    crate::DeriveJsonDeserialize,
-)]
-#[norito_schema(name = "iroha_data_model::nexus::staking::PublicLaneRewardClaimSourceV1")]
-#[norito(deny_unknown_fields)]
-pub struct PublicLaneRewardClaimSourceV1 {
-    /// Immutable custody asset retained by reward records and accrual rows.
-    pub source_asset: AssetId,
-    /// Recipient asset with the identical definition and dataspace scope.
-    pub destination_asset: AssetId,
-    /// Exact previous unpaid accrual; absence denotes no retained source row.
-    #[norito(required)]
-    pub expected_accrued: Option<Quantity>,
-    /// Exact payment and reserve release; zero retains all accrued funds as dust.
-    pub payout: Quantity,
-}
-
 /// Exact funded validation-fee reward payment authorized by the current beneficiary.
 #[derive(
     Debug,
@@ -396,64 +309,15 @@ pub struct PublicLaneRewardClaimPlanV1 {
     pub network_scope: PublicLaneMonetaryScopeV1,
     /// Last block height at which this plan may execute, inclusive.
     pub valid_until_height: u64,
-    /// Exact retained chronological processing cursor observed by the recipient.
-    #[norito(required)]
-    pub expected_state: Option<PublicLaneRewardClaimStateV1>,
-    /// At most 64 consecutive reward records after the retained processing cursor.
-    pub records: Vec<PublicLaneRewardRecordRefV1>,
-    /// At most 64 touched or previously accrued sources, in exact asset order.
-    pub sources: Vec<PublicLaneRewardClaimSourceV1>,
-    /// Exactly one independently enacted fee reward payment, or no fee reward effects.
-    #[norito(required)]
-    pub fee_claim: Option<PublicLaneFeeRewardClaimV1>,
+    /// Exact positive funded reward payment; absence and no-op claims are rejected.
+    pub fee_claim: PublicLaneFeeRewardClaimV1,
 }
 impl PublicLaneRewardClaimPlanV1 {
-    /// Check bounded canonical ordering and exact payment invariants.
+    /// Check the exact funded global-XOR payment and nonzero expiry.
     #[must_use]
     pub fn has_canonical_shape(&self, recipient: &AccountId) -> bool {
-        self.valid_until_height > 0
-            && self
-                .fee_claim
-                .as_ref()
-                .is_none_or(|claim| claim.has_canonical_shape(recipient))
-            && self.records.len() <= MAX_PUBLIC_LANE_REWARD_CLAIM_RECORDS
-            && self.sources.len() <= MAX_PUBLIC_LANE_REWARD_CLAIM_SOURCES
-            && self
-                .records
-                .windows(2)
-                .all(|pair| pair[0].epoch < pair[1].epoch)
-            && self.records.first().is_none_or(|record| {
-                self.expected_state
-                    .as_ref()
-                    .and_then(|state| state.through_epoch)
-                    .is_none_or(|epoch| epoch < record.epoch)
-            })
-            && self
-                .sources
-                .windows(2)
-                .all(|pair| pair[0].source_asset < pair[1].source_asset)
-            && self.sources.iter().all(|source| {
-                source.source_asset.definition() == source.destination_asset.definition()
-                    && source.source_asset.scope() == source.destination_asset.scope()
-                    && source.destination_asset.account() == recipient
-                    && source
-                        .expected_accrued
-                        .as_ref()
-                        .is_none_or(|amount| !amount.is_zero())
-            })
+        self.valid_until_height > 0 && self.fee_claim.has_canonical_shape(recipient)
     }
-}
-
-/// Commit to an immutable reward record in a distinct staking protocol domain.
-///
-/// # Errors
-/// Returns an error if canonical Norito encoding cannot be produced.
-pub fn public_lane_reward_record_commitment(
-    record: &PublicLaneRewardRecord,
-) -> Result<Hash, norito::Error> {
-    let mut bytes = b"iroha.staking.reward_record.v1\0".to_vec();
-    bytes.extend_from_slice(&norito::encode_canonical(record)?);
-    Ok(Hash::new(bytes))
 }
 
 /// Commit to every field of a retained withdrawal request in a distinct protocol domain.
@@ -484,7 +348,8 @@ pub struct PublicLaneValidatorRecord {
     pub total_stake: Quantity,
     /// Portion of stake supplied by the validator.
     pub self_stake: Quantity,
-    /// Optional slot for metadata (commission, endpoints, jurisdiction flags, etc.).
+    /// Descriptive metadata such as endpoints and jurisdiction flags.
+    /// Commission is zero; metadata cannot change reward allocation.
     pub metadata: Metadata,
     /// Current lifecycle state of the validator.
     pub status: PublicLaneValidatorStatus,
@@ -504,8 +369,6 @@ pub struct PublicLaneValidatorRecord {
     /// Retained custody records preserve this boundary after exit or slash so
     /// evidence can be matched to the exact historical tenure.
     pub deactivation_height: Option<u64>,
-    /// Epoch identifier that last produced a reward payout.
-    pub last_reward_epoch: Option<u64>,
 }
 /// Lifecycle state for a validator entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, IntoSchema, norito::NoritoSchema)]
@@ -562,101 +425,6 @@ pub struct PublicLaneUnbonding {
     /// configured horizon still has its complete slashing-delay window.
     pub liability_release_height: u64,
 }
-/// Aggregated reward share emitted for a validator or delegator.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Encode,
-    Decode,
-    IntoSchema,
-    norito::NoritoSchema,
-    crate::DeriveJsonSerialize,
-    crate::DeriveJsonDeserialize,
-)]
-#[norito_schema(name = "iroha_data_model::nexus::staking::PublicLaneRewardShare")]
-pub struct PublicLaneRewardShare {
-    /// Account that receives the payout.
-    pub account: AccountId,
-    /// Role applied when allocating the reward (validator vs nominee).
-    pub role: PublicLaneRewardRole,
-    /// Amount of rewards allocated to the account.
-    pub amount: Quantity,
-}
-/// Role marker for a reward share.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Encode,
-    Decode,
-    IntoSchema,
-    norito::NoritoSchema,
-)]
-#[norito_schema(name = "iroha_data_model::nexus::staking::PublicLaneRewardRole")]
-pub enum PublicLaneRewardRole {
-    /// Validator portion of the reward.
-    Validator,
-    /// Nominator/delegator portion of the reward.
-    Nominator,
-}
-impl PublicLaneRewardRole {
-    fn json_name(self) -> &'static str {
-        match self {
-            Self::Validator => "Validator",
-            Self::Nominator => "Nominator",
-        }
-    }
-}
-impl norito::json::FastJsonWrite for PublicLaneRewardRole {
-    fn write_json(&self, out: &mut String) {
-        norito::json::write_json_string(self.json_name(), out);
-    }
-
-    fn write_json_to(
-        &self,
-        out: &mut dyn norito::json::JsonWriteSink,
-    ) -> Result<(), norito::json::BoundedJsonError> {
-        norito::json::write_json_string_to(self.json_name(), out)
-    }
-}
-impl norito::json::JsonDeserialize for PublicLaneRewardRole {
-    fn json_deserialize(
-        parser: &mut norito::json::Parser<'_>,
-    ) -> Result<Self, norito::json::Error> {
-        match parser.parse_string()?.as_str() {
-            "Validator" => Ok(Self::Validator),
-            "Nominator" => Ok(Self::Nominator),
-            _ => Err(norito::json::Error::Message(
-                "reward role must be Validator or Nominator".to_owned(),
-            )),
-        }
-    }
-}
-/// Ledger entry capturing the outcome of a reward distribution for auditing.
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, IntoSchema, norito::NoritoSchema)]
-#[norito_schema(name = "iroha_data_model::nexus::staking::PublicLaneRewardRecord")]
-pub struct PublicLaneRewardRecord {
-    /// Lane that produced the reward.
-    pub lane_id: LaneId,
-    /// Epoch or slot identifier recorded by consensus.
-    pub epoch: u64,
-    /// Asset identifier used for payouts.
-    pub asset: AssetId,
-    /// Total explicit entitlement reserved from the already funded treasury asset.
-    pub total_reward: Quantity,
-    /// Individual reward shares emitted in this payout.
-    pub shares: Vec<PublicLaneRewardShare>,
-    /// Optional metadata for auditors (tx hashes, ceremony notes, etc.).
-    pub metadata: Metadata,
-}
 /// Pending reward summary for an account and lane.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_data_model::nexus::staking::PublicLanePendingReward")]
@@ -665,15 +433,20 @@ pub struct PublicLanePendingReward {
     pub lane_id: LaneId,
     /// Account that will receive the payout.
     pub account: AccountId,
-    /// Exact custody source asset for both retained accrual and new reward shares.
+    /// Exact funded XOR custody source asset.
     pub asset: AssetId,
-    /// Last reward epoch processed for this lane and recipient; `None` includes epoch zero.
-    pub processed_through_epoch: Option<u64>,
-    /// Latest unprocessed reward epoch for this exact asset included in `amount`.
-    /// `None` means the obligation consists only of retained, previously processed dust.
-    pub latest_unprocessed_epoch: Option<u64>,
-    /// Unpaid obligation, including retained dust that may be below the payout threshold.
+    /// Unpaid funded XOR, including dust below the payout threshold.
     pub amount: Quantity,
+    /// Immutable reward identity retained through beneficiary recovery.
+    pub beneficiary_id: AccountId,
+    /// Authenticated recovery revision of the current owner.
+    pub beneficiary_revision: u64,
+    /// Exact next claim receipt sequence.
+    pub expected_claim_sequence: u64,
+    /// Commitment to the governed funding and custody lifecycle.
+    pub lifecycle_seal: [u8; 32],
+    /// Whether this amount reaches the governed minimum claim threshold.
+    pub claimable: bool,
 }
 #[cfg(test)]
 mod tests {
@@ -689,61 +462,10 @@ mod tests {
         pending_unbonds: BTreeMap<Hash, PublicLaneUnbonding>,
         metadata: Metadata,
     }
-    #[derive(Encode)]
-    struct ForgedPublicLaneRewardShare {
-        account: AccountId,
-        role: PublicLaneRewardRole,
-        amount: Numeric,
-    }
     fn account(seed: u8) -> AccountId {
         let key_pair = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
             .expect("derive checked durable staking fixture account keypair");
         AccountId::new(key_pair.public_key().clone())
-    }
-    #[test]
-    fn reward_shares_roundtrip_norito_json_with_exact_quantities_and_roles() {
-        for (role, literal) in [
-            (PublicLaneRewardRole::Validator, "\"Validator\""),
-            (PublicLaneRewardRole::Nominator, "\"Nominator\""),
-        ] {
-            let role_json = norito::json::to_json(&role).expect("serialize reward role");
-            assert_eq!(role_json, literal);
-            assert_eq!(
-                norito::json::from_str::<PublicLaneRewardRole>(&role_json)
-                    .expect("deserialize reward role"),
-                role
-            );
-            let share = PublicLaneRewardShare {
-                account: account(0x44),
-                role,
-                amount: "9007199254740993.000000001".parse().expect("exact reward"),
-            };
-            let json = norito::json::to_json(&share).expect("serialize reward share");
-            let decoded: PublicLaneRewardShare =
-                norito::json::from_str(&json).expect("deserialize reward share");
-            assert_eq!(decoded, share);
-            assert_eq!(decoded.encode(), share.encode());
-        }
-    }
-    #[test]
-    fn reward_share_json_rejects_negative_quantities() {
-        let share = PublicLaneRewardShare {
-            account: account(0x45),
-            role: PublicLaneRewardRole::Validator,
-            amount: Quantity::from(17_u64),
-        };
-        let mut value = norito::json::to_value(&share).expect("serialize reward share");
-        value
-            .as_object_mut()
-            .expect("reward share object")
-            .insert("amount".into(), norito::json::Value::String("-1".into()));
-        assert!(norito::json::from_value::<PublicLaneRewardShare>(value).is_err());
-    }
-    #[test]
-    fn reward_role_json_rejects_unknown_and_non_string_values() {
-        for value in ["\"validator\"", "\"Delegator\"", "null", "0", "{}"] {
-            assert!(norito::json::from_str::<PublicLaneRewardRole>(value).is_err());
-        }
     }
     #[test]
     fn negative_numeric_payloads_cannot_decode_as_durable_staking_quantities() {
@@ -759,16 +481,6 @@ mod tests {
         assert!(
             PublicLaneStakeShare::decode(&mut encoded.as_slice()).is_err(),
             "a negative signed payload must not decode as durable bonded stake"
-        );
-        let reward = ForgedPublicLaneRewardShare {
-            account: account(0x43),
-            role: PublicLaneRewardRole::Validator,
-            amount: Numeric::new(-1_i32, 0),
-        };
-        let encoded = reward.encode();
-        assert!(
-            PublicLaneRewardShare::decode(&mut encoded.as_slice()).is_err(),
-            "a negative signed payload must not decode as a durable staking reward"
         );
     }
 }

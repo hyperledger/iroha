@@ -184,6 +184,8 @@ fn assemble_schema_contract_with_states(
     write_keys: Vec<String>,
 ) -> Vec<u8> {
     let interface = EmbeddedContractInterfaceV1 {
+        permissions: Vec::new(),
+        events: Vec::new(),
         callables: vec![unit_callable(0)],
         seiyaku_name: "SyscallFixture".to_owned(),
         compiler_fingerprint: "ivm-integration-tests".to_owned(),
@@ -200,7 +202,8 @@ fn assemble_schema_contract_with_states(
             return_schema: Some(ivm_abi::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![ivm_abi::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("Execute".to_owned()),
+            authorization:
+                iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
             read_keys: Vec::new(),
             write_keys,
             access_hints_complete: Some(true),
@@ -211,6 +214,7 @@ fn assemble_schema_contract_with_states(
         states,
         error_messages: Vec::new(),
         error_types: Vec::new(),
+        enum_types: Vec::new(),
     };
     let mut program = ProgramMetadata::default().encode();
     program.extend_from_slice(&interface.encode_section());

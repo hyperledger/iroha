@@ -121,36 +121,6 @@ pub struct VrfVerifyBatchRequest {
     /// Items to verify in order.
     pub items: Vec<VrfVerifyRequest>,
 }
-/// Request for a persisted VRF epoch-seed snapshot.
-#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
-#[norito(deny_unknown_fields)]
-#[derive(norito::NoritoSchema)]
-#[norito_schema(
-    name = "ivm_abi::host_payload::VrfEpochSeedRequest",
-    frame = "iroha.ivm.v1.VrfEpochSeedRequest"
-)]
-pub struct VrfEpochSeedRequest {
-    /// Epoch to fetch from world-state storage.
-    pub epoch: u64,
-    /// If true and `epoch` is absent, return the latest known epoch seed.
-    pub fallback_to_latest: bool,
-}
-/// Persisted VRF epoch-seed response.
-#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
-#[norito(deny_unknown_fields)]
-#[derive(norito::NoritoSchema)]
-#[norito_schema(
-    name = "ivm_abi::host_payload::VrfEpochSeedResponse",
-    frame = "iroha.ivm.v1.VrfEpochSeedResponse"
-)]
-pub struct VrfEpochSeedResponse {
-    /// Whether a seed snapshot was found.
-    pub found: bool,
-    /// Epoch associated with `seed`.
-    pub epoch: u64,
-    /// Seed bytes, all zero when `found` is false.
-    pub seed: [u8; 32],
-}
 #[cfg(test)]
 mod tests {
     use super::{VoteGetTallyRequest, VoteGetTallyResponse};
@@ -219,12 +189,6 @@ mod captured_frame_identity_tests {
         );
         crate::captured_identity_tests::assert_bidirectional::<super::VrfVerifyBatchRequest>(
             "ivm_abi::host_payload::VrfVerifyBatchRequest",
-        );
-        crate::captured_identity_tests::assert_bidirectional::<super::VrfEpochSeedRequest>(
-            "ivm_abi::host_payload::VrfEpochSeedRequest",
-        );
-        crate::captured_identity_tests::assert_bidirectional::<super::VrfEpochSeedResponse>(
-            "ivm_abi::host_payload::VrfEpochSeedResponse",
         );
     }
 }

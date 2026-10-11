@@ -3,7 +3,7 @@ use ivm::{encoding, instruction::wide};
 use kotodama_lang::compiler::{Compiler, CompilerMode, CompilerOptions};
 #[test]
 fn debug_create_nfts_and_set_detail_words() {
-    let src = "seiyaku DebugHostCalls { kotoage fn main() authorize(\"Admin\") { ledger::nft::create_for_all_users(); ledger::account::set_detail(account: context::authority(), key: Name::parse(\"cursor\"), value: Json::parse(\"{\\\"cursor\\\":1,\\\"query\\\":\\\"sc_dummy\\\"}\")); } }";
+    let src = "seiyaku DebugHostCalls { permission Admin;  kotoage fn main() authorize(Admin) { ledger::nft::create_for_all_users(); ledger::account::set_metadata(account: context::authority(), key: Name::parse(\"cursor\"), value: Json::parse(\"{\\\"cursor\\\":1,\\\"query\\\":\\\"sc_dummy\\\"}\")); } }";
     let compiler = Compiler::new_with_options(CompilerOptions {
         mode: CompilerMode::Test,
         ..CompilerOptions::default()

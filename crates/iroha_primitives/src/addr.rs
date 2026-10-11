@@ -53,6 +53,7 @@ pub enum ParseError {
 #[repr(transparent)]
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_primitives::addr::Ipv4Addr")]
+#[norito(decode_from_slice)]
 pub struct Ipv4Addr([u8; 4]);
 impl Ipv4Addr {
     /// Construct new [`Ipv4Addr`] from given octets
@@ -60,7 +61,6 @@ impl Ipv4Addr {
         Self(octets)
     }
 }
-// Norito slice-based decoding via the derived codec implementation
 impl core::ops::Index<usize> for Ipv4Addr {
     type Output = u8;
     #[inline]
@@ -139,6 +139,7 @@ impl Ipv4Addr {
 #[repr(transparent)]
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_primitives::addr::Ipv6Addr")]
+#[norito(decode_from_slice)]
 pub struct Ipv6Addr([u16; 8]);
 impl Ipv6Addr {
     /// The analogue of [`std::net::Ipv4Addr::LOCALHOST`], an address associated
@@ -382,17 +383,6 @@ impl From<([u8; 4], u16)> for SocketAddrV4 {
         }
     }
 }
-impl<'a> norito::core::DecodeFromSlice<'a> for Ipv4Addr {
-    fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
-        if bytes.len() < 4 {
-            return Err(norito::core::Error::LengthMismatch);
-        }
-        let mut buf = [0u8; 4];
-        buf.copy_from_slice(&bytes[..4]);
-        Ok((Self::from(buf), 4))
-    }
-}
-// `DecodeFromSlice` is provided by derives for this type.
 impl core::str::FromStr for SocketAddrV4 {
     type Err = ParseError;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
@@ -452,22 +442,6 @@ impl From<([u16; 8], u16)> for SocketAddrV6 {
         }
     }
 }
-impl<'a> norito::core::DecodeFromSlice<'a> for Ipv6Addr {
-    fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
-        if bytes.len() < 16 {
-            return Err(norito::core::Error::LengthMismatch);
-        }
-        let mut segments = [0u16; 8];
-        for (i, seg) in segments.iter_mut().enumerate() {
-            let start = i * 2;
-            let mut buf = [0u8; 2];
-            buf.copy_from_slice(&bytes[start..start + 2]);
-            *seg = u16::from_le_bytes(buf);
-        }
-        Ok((Self::from(segments), 16))
-    }
-}
-// `DecodeFromSlice` is provided by derives for this type.
 impl core::str::FromStr for SocketAddrV6 {
     type Err = ParseError;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
@@ -973,6 +947,95 @@ mod std_compat {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    fn canonical_address_field(body: &[u8], flags: u8) -> Vec<u8> {
+        let mut wire = Vec::new();
+        norito::core::write_len_to_vec_with_flags(&mut wire, body.len() as u64, flags);
+        wire.extend_from_slice(body);
+        wire
+    }
+
+    #[test]
+    fn ipv4_slice_decoder_preserves_declared_raw_field_framing() {
+        use norito::core::{DecodeFlagsGuard, DecodeFromSlice, header_flags};
+
+        let octets = [192, 168, 1, 7];
+        let value = Ipv4Addr::new(octets);
+        for flags in [0, header_flags::COMPACT_LEN] {
+            let _flags = DecodeFlagsGuard::enter(flags);
+            let mut wire = Vec::new();
+            norito::core::serialize_to_buffer(&value, &mut wire).unwrap();
+            assert_eq!(wire, canonical_address_field(&octets, flags));
+            assert_eq!(
+                Ipv4Addr::decode_from_slice(&wire).unwrap(),
+                (value, wire.len())
+            );
+            for end in 0..wire.len() {
+                assert!(Ipv4Addr::decode_from_slice(&wire[..end]).is_err());
+            }
+            let mut trailing = wire.clone();
+            trailing.push(9);
+            assert!(Ipv4Addr::decode_from_slice(&trailing).is_err());
+            for body in [vec![192, 168, 1], vec![192, 168, 1, 7, 9]] {
+                assert!(
+                    Ipv4Addr::decode_from_slice(&canonical_address_field(&body, flags)).is_err()
+                );
+            }
+            let mut generic_array = Vec::new();
+            norito::core::serialize_to_buffer(&octets, &mut generic_array).unwrap();
+            assert!(
+                Ipv4Addr::decode_from_slice(&canonical_address_field(&generic_array, flags))
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn ipv6_slice_decoder_preserves_generic_array_field_framing() {
+        use norito::core::{DecodeFlagsGuard, DecodeFromSlice, header_flags};
+
+        let segments = [0x2001_u16, 0x0db8, 0x1234, 0x5678, 0, 1, 2, 3];
+        let value = Ipv6Addr::new(segments);
+        for flags in [0, header_flags::COMPACT_LEN] {
+            let _flags = DecodeFlagsGuard::enter(flags);
+            let mut wire = Vec::new();
+            norito::core::serialize_to_buffer(&value, &mut wire).unwrap();
+            let mut array_payload = Vec::new();
+            for segment in segments {
+                array_payload
+                    .extend_from_slice(&canonical_address_field(&segment.to_le_bytes(), flags));
+            }
+            assert_eq!(wire, canonical_address_field(&array_payload, flags));
+            assert_eq!(
+                Ipv6Addr::decode_from_slice(&wire).unwrap(),
+                (value, wire.len())
+            );
+            for end in 0..wire.len() {
+                assert!(Ipv6Addr::decode_from_slice(&wire[..end]).is_err());
+            }
+            let mut trailing = wire.clone();
+            trailing.push(9);
+            assert!(Ipv6Addr::decode_from_slice(&trailing).is_err());
+            let mut short_array = array_payload.clone();
+            short_array.pop();
+            let mut long_array = array_payload.clone();
+            long_array.extend_from_slice(&canonical_address_field(&4_u16.to_le_bytes(), flags));
+            let raw_segments: Vec<_> = segments.into_iter().flat_map(u16::to_le_bytes).collect();
+            for body in [short_array, long_array, raw_segments] {
+                assert!(
+                    Ipv6Addr::decode_from_slice(&canonical_address_field(&body, flags)).is_err()
+                );
+            }
+            let mut wrong_element_width = canonical_address_field(&[1], flags);
+            wrong_element_width.extend_from_slice(
+                &array_payload[canonical_address_field(&segments[0].to_le_bytes(), flags).len()..],
+            );
+            assert!(
+                Ipv6Addr::decode_from_slice(&canonical_address_field(&wrong_element_width, flags))
+                    .is_err()
+            );
+        }
+    }
     // Parsing IPv4 strings should yield the correct address or errors for invalid input.
     #[test]
     fn ipv4() {

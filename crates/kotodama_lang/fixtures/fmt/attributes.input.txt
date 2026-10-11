@@ -1,0 +1,16 @@
+module Points {
+    error enum PointsError {
+        #[message("caller is not the owner")]
+        NotOwner = 1,
+        #[message("insufficient balance")]
+        InsufficientBalance = 2,
+        #[message("insufficient allowance")] InsufficientAllowance = 3
+    }
+    error enum Compact { First = 1, Second = 2, #[message("third")] Third = 3, }
+    #[test] fn owner_is_rejected() { assert(true); }
+    #[test(fixture = actors)]
+
+    fn transfer_moves_points() {
+        assert(true);
+    }
+}

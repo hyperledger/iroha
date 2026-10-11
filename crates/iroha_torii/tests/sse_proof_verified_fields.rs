@@ -22,7 +22,7 @@ fn proof_verified_filter_uri() -> String {
                         "args",
                         iroha_torii::json_array(vec![
                             json::Value::from("proof_backend"),
-                            json::Value::from("halo2/ipa"),
+                            json::Value::from("pipa-r/pasta"),
                         ]),
                     ),
                 ]),
@@ -52,7 +52,7 @@ fn emit_sample_proof_events(events: &iroha_core::EventsSender) {
         .without_vk()
         .verified();
     let _ = events.send(ev_bad);
-    let ev_ok = ProofEventFixture::new("halo2/ipa", [0x33; 32])
+    let ev_ok = ProofEventFixture::new("pipa-r/pasta", [0x33; 32])
         .with_vk("vk_name", [0x55; 32])
         .with_envelope_hash(Some([0x10; 32]))
         .verified();
@@ -96,14 +96,17 @@ async fn proof_verified_fields_and_filtering() {
         v.get("event").and_then(|x| x.as_str()),
         Some("ProofVerified")
     );
-    assert_eq!(v.get("backend").and_then(|x| x.as_str()), Some("halo2/ipa"));
+    assert_eq!(
+        v.get("backend").and_then(|x| x.as_str()),
+        Some("pipa-r/pasta")
+    );
     assert_eq!(
         v.get("call_hash").and_then(|x| x.as_str()),
         Some(hex::encode([0xAAu8; 32]).as_str())
     );
     assert_eq!(
         v.get("vk_ref").and_then(|x| x.as_str()),
-        Some("halo2/ipa::vk_name")
+        Some("pipa-r/pasta::vk_name")
     );
     assert_eq!(
         v.get("vk_commitment").and_then(|x| x.as_str()),

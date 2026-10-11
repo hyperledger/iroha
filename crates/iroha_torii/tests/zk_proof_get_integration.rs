@@ -23,7 +23,7 @@ fn proof_app_with_record(backend: &str, proof_hash: [u8; 32]) -> (Router, String
     };
     let record = ProofRecord {
         id: id.clone(),
-        vk_ref: Some(VerifyingKeyId::new("halo2/ipa", "vk_test")),
+        vk_ref: Some(VerifyingKeyId::new("pipa-r/pasta", "vk_test")),
         vk_commitment: Some([0x11; 32]),
         status: ProofStatus::Verified,
         verified_at_height: Some(1),
@@ -70,7 +70,7 @@ async fn conditional_proof_response(
 }
 #[tokio::test]
 async fn zk_proof_get_returns_record() {
-    let backend = "halo2/ipa";
+    let backend = "pipa-r/pasta";
     let proof_hash = [0xAB; 32];
     let (app, uri, hash_hex) = proof_app_with_record(backend, proof_hash);
     let req = http::Request::builder()
@@ -110,7 +110,7 @@ async fn zk_proof_get_returns_record() {
         .expect("vk_ref obj");
     assert_eq!(
         vk.get("backend").and_then(|x| x.as_str()),
-        Some("halo2/ipa")
+        Some("pipa-r/pasta")
     );
     assert_eq!(vk.get("name").and_then(|x| x.as_str()), Some("vk_test"));
     let cache_control = parts.headers.get(http::header::CACHE_CONTROL);
@@ -203,7 +203,7 @@ async fn zk_proof_get_not_found() {
                 }
             }),
         );
-    let backend_enc = urlencoding::encode("halo2/ipa");
+    let backend_enc = urlencoding::encode("pipa-r/pasta");
     let uri = format!(
         "/v1/zk/proof/{backend_enc}/{hash}",
         hash = hex::encode([0u8; 32])

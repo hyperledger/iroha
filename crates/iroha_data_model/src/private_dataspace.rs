@@ -364,25 +364,13 @@ impl PrivateDataspaceAnchor {
             part_limits(MAX_AMX_HEADER_BYTES),
         )
         .map_err(failure)?;
-        let qc: Qc =
+        let _: Qc =
             norito::decode_canonical_with_limits(&block.commit_qc, part_limits(MAX_AMX_QC_BYTES))
                 .map_err(failure)?;
         let result = ExecutionResultCommitment::decode(&block.result_preimage).map_err(failure)?;
         require(
             header.control_witness.is_empty() && result.beacon.is_none(),
             "private developer anchors cannot export application control witnesses",
-        )?;
-        require(
-            if qc.attest {
-                qc.attestations.len() == 3
-                    && qc
-                        .attestation_witness
-                        .as_ref()
-                        .is_some_and(|witness| witness.as_slice() == block.result_preimage)
-            } else {
-                qc.attestation_witness.is_none() && qc.attestations.is_empty()
-            },
-            "certificate witness must be exactly its public result preimage",
         )?;
         Ok((header, result))
     }

@@ -59,9 +59,9 @@ class JniSdkAndroidPairGuardTests(unittest.TestCase):
 
     def test_multisig_pairs_keep_network_fee_and_signature_binding(self) -> None:
         for method, old, new in (
-            ("payload", "&mut env, network_id, authority, reporting_account, change, creation_time_ms,",
-             "&mut env, authority, network_id, reporting_account, change, creation_time_ms,"),
-            ("finalize", "fee_payment_json, signature,", "signature, fee_payment_json,"),
+            ("payload", "&mut env,\n        network_id,\n        authority,\n        reporting_account,\n        change,\n        creation_time_ms,",
+             "&mut env,\n        authority,\n        network_id,\n        reporting_account,\n        change,\n        creation_time_ms,"),
+            ("finalize", "fee_payment_json,\n        signature,", "signature,\n        fee_payment_json,"),
         ):
             with self.subTest(method=method):
                 mutated = SOURCE.replace(old, new, 1)

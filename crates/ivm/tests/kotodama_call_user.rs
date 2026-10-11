@@ -8,7 +8,7 @@ fn user_defined_call_returns_42() {
     let src = r#"
         seiyaku UserCalls {
             fn add(int a, int b) -> int { return a + b; }
-            view fn main() -> int { let z = add(a: 20, b: 22); return z; }
+            view fn main() authorize(anyone) -> int { let z = add(a: 20, b: 22); return z; }
         }
     "#;
     let compiler = KotodamaCompiler::new();

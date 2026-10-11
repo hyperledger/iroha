@@ -27,7 +27,6 @@ fn record() -> PublicLaneValidatorRecord {
         activation_height: 1,
         election_exit_height: None,
         deactivation_height: None,
-        last_reward_epoch: None,
     }
 }
 fn obligation(record: &PublicLaneValidatorRecord, incarnation: u8) -> SumeragiLaneCustody {
@@ -327,23 +326,27 @@ fn pending_original_evidence_delays_reclamation_without_native_height_arithmetic
     let key = Hash::new(b"original pending custody fixture");
     world.consensus_evidence.insert(
         key,
-        EvidenceRecord {
-            evidence: Evidence { native: vec![] },
-            attribution: EvidenceAttribution {
-                scope: iroha_data_model::block::consensus::EvidenceScope::Root,
-                instance: row.instance,
-                height: u64::MAX,
-                epoch: 0,
-                context_id: [3; 32],
-                authority_generation: [3; 32],
-                offenders: vec![],
-                safety_violation: false,
+        crate::state::RetainedEvidenceRecord::from_fixture(
+            EvidenceRecord {
+                evidence: Evidence { native: vec![] },
+                attribution: EvidenceAttribution {
+                    scope: iroha_data_model::block::consensus::EvidenceScope::Root,
+                    instance: row.instance,
+                    height: u64::MAX,
+                    epoch: 0,
+                    context_id: [3; 32],
+                    authority_generation: [3; 32],
+                    offenders: vec![],
+                    safety_violation: false,
+                },
+                recorded_at_height: 27,
+                recorded_at_view: 0,
+                recorded_at_ms: 0,
+                penalty_status: EvidencePenaltyStatus::Pending,
             },
-            recorded_at_height: 27,
-            recorded_at_view: 0,
-            recorded_at_ms: 0,
-            penalty_status: EvidencePenaltyStatus::Pending,
-        },
+            &iroha_allocation::AllocationBudget::new(1 << 20),
+        )
+        .unwrap(),
     );
     world.sumeragi_lanes.get_mut().custody = state.custody.clone();
     assert!(retains_registration(&world, &original, 30).unwrap());
@@ -462,9 +465,38 @@ fn original_signer_pinning_refuses_then_retries_the_same_pool_and_stake_cut() {
     fund(&mut world, &original);
     let demand = signer_demand(1);
     let pool = AllocationBudget::new(demand - 1);
+    let Attempt::Deferred(original_refusal) =
+        pin_signers(&world, &Nexus::default(), &lane, true, &pool).unwrap_err()
+    else {
+        panic!("native signer resource refusal is unfinished, never a custody rejection");
+    };
+    let Some(iroha_allocation::AllocationRefusal::Capacity {
+        requested_bytes,
+        reserved_bytes,
+        limit_bytes,
+        release,
+    }) = original_refusal.allocation_refusal()
+    else {
+        panic!("native shared-control refusal retains its original finite-pool owner");
+    };
     assert_eq!(
-        pin_signers(&world, &Nexus::default(), &lane, true, &pool).unwrap_err(),
-        CustodyError::Allocation
+        *requested_bytes,
+        SumeragiLaneCustodySigners::control_layout().size()
+    );
+    assert_eq!(
+        *reserved_bytes,
+        std::mem::size_of::<SumeragiLaneSignerCustody>()
+    );
+    assert_eq!(*limit_bytes, demand - 1);
+    let wait_pool = AllocationBudget::new(1 << 10);
+    let mut registration = crate::unit_test_support::release_registration(&wait_pool);
+    assert_eq!(
+        registration.poll_wait(
+            release,
+            &mut std::task::Context::from_waker(std::task::Waker::noop())
+        ),
+        std::task::Poll::Ready(()),
+        "partial native signer backing actually refunded after the refused control probe"
     );
     assert_eq!(pool.reserved_bytes(), 0, "partial backing refunds");
     assert_eq!(world.public_lane_validators().len(), 1);
@@ -799,4 +831,368 @@ fn original_sample_world_handoff_admits_both_generations_before_replacing_either
         world.sumeragi_lanes.view().samples.as_ptr(),
         retained_pointer
     );
+}
+
+/// Actual admission owners cross every native adapter without losing their pool observation.
+#[test]
+fn lane_pool_refusal_adapters_preserve_exact_original_release_and_nonwaiting_demands() {
+    use iroha_allocation::{AllocationRefusal, PrepaidBufferError};
+    use iroha_data_model::sumeragi_lanes::LaneSamplesAdmissionError;
+    use std::task::{Context, Poll, Waker};
+    let pool = AllocationBudget::new(64);
+    let occupied = pool.try_reserve_bytes(64).unwrap();
+    let huge =
+        std::alloc::Layout::from_size_align(usize::try_from(isize::MAX).unwrap(), 1).unwrap();
+    let refusals = [
+        pool.try_reserve_bytes(1).unwrap_err(),
+        pool.try_reserve_bytes(65).unwrap_err(),
+        pool.try_reserve_layouts([huge, huge, huge]).unwrap_err(),
+    ];
+    assert!(matches!(refusals[0], AllocationRefusal::Capacity { .. }));
+    assert!(matches!(
+        refusals[1],
+        AllocationRefusal::ExceedsLimit { .. }
+    ));
+    assert_eq!(refusals[2], AllocationRefusal::DemandOverflow);
+    for original in &refusals {
+        for error in [
+            LaneStateAdmissionError::Signers(CustodySignersAdmissionError::Backing(
+                ChargedBufferError::Admission(original.clone()),
+            )),
+            LaneStateAdmissionError::Signers(CustodySignersAdmissionError::ControlAdmission(
+                original.clone(),
+            )),
+            LaneStateAdmissionError::Samples(LaneSamplesAdmissionError::Admission(
+                original.clone(),
+            )),
+            LaneStateAdmissionError::Samples(LaneSamplesAdmissionError::Backing(
+                PrepaidBufferError::Allocation(ChargedBufferError::Admission(original.clone())),
+            )),
+        ] {
+            let Attempt::Deferred(retained) = state_admission_attempt_error(error) else {
+                panic!("original native admission cannot manufacture a completed verdict");
+            };
+            assert_eq!(retained.reason(), ExecutionDeferral::ActiveMemoryCapacity);
+            assert_eq!(retained.allocation_refusal(), Some(original));
+        }
+    }
+    let AllocationRefusal::Capacity { release, .. } = &refusals[0] else {
+        unreachable!()
+    };
+    let wait_pool = AllocationBudget::new(1 << 10);
+    let mut registration = crate::unit_test_support::release_registration(&wait_pool);
+    let mut context = Context::from_waker(Waker::noop());
+    assert_eq!(registration.poll_wait(release, &mut context), Poll::Pending);
+    let foreign = AllocationBudget::new(1);
+    drop(foreign.try_reserve_bytes(1).unwrap());
+    assert_eq!(registration.poll_wait(release, &mut context), Poll::Pending);
+    assert_eq!(pool.reserved_bytes(), 64);
+    drop(occupied);
+    assert_eq!(
+        registration.poll_wait(release, &mut context),
+        Poll::Ready(())
+    );
+    assert_eq!(pool.reserved_bytes(), 0);
+    drop(registration);
+    assert_eq!(wait_pool.reserved_bytes(), 0);
+}
+
+/// Category controls use genuine prepaid-shortage errors; allocator variants are adapter
+/// controls only and do not claim a forced physical-allocation or successful-admission test.
+#[test]
+fn lane_admission_invariants_never_masquerade_as_allocator_or_semantic_failures() {
+    use iroha_allocation::{ChargedShared, PrepaidBufferError};
+    use iroha_data_model::sumeragi_lanes::{LaneSamplesAdmissionError, SumeragiLaneSample};
+    let pool = AllocationBudget::new(0);
+    let mut empty = pool.try_reserve_bytes(0).unwrap();
+    let backing_shortage = ChargedBuffer::<SumeragiLaneSample>::from_reservation(1, &mut empty)
+        .err()
+        .expect("original zero remainder cannot fund a native sample");
+    assert!(matches!(
+        backing_shortage,
+        PrepaidBufferError::Reservation(_)
+    ));
+    assert_eq!(empty.remaining_bytes(), 0);
+    let original_rows = ChargedBuffer::<SumeragiLaneSignerCustody>::new(0, &pool).unwrap();
+    let (returned_rows, control_shortage) =
+        ChargedShared::from_reservation(original_rows, &mut empty)
+            .err()
+            .expect("original zero remainder cannot fund the native control");
+    assert!(returned_rows.belongs_to(&pool));
+    assert!(returned_rows.as_slice().is_empty());
+    assert!(matches!(
+        control_shortage,
+        PrepaidSharedError::Reservation(_)
+    ));
+    assert_eq!(empty.remaining_bytes(), 0);
+    for error in [
+        LaneStateAdmissionError::Signers(CustodySignersAdmissionError::ForeignBudget),
+        LaneStateAdmissionError::Signers(CustodySignersAdmissionError::ControlAllocation(
+            control_shortage,
+        )),
+        LaneStateAdmissionError::Samples(LaneSamplesAdmissionError::ForeignBudget),
+        LaneStateAdmissionError::Samples(LaneSamplesAdmissionError::Backing(backing_shortage)),
+        LaneStateAdmissionError::Samples(LaneSamplesAdmissionError::Control(control_shortage)),
+    ] {
+        let Attempt::Deferred(original) = state_admission_attempt_error(error) else {
+            panic!("local native owner defect cannot become a protocol rejection");
+        };
+        assert_eq!(
+            original.reason(),
+            ExecutionDeferral::LocalInvariantViolation
+        );
+        assert!(original.allocation_refusal().is_none());
+        let step = super::super::step::LaneStepError::from(Attempt::Deferred(original.clone()));
+        assert_eq!(step, super::super::step::LaneStepError::Deferred(original));
+    }
+    for error in [
+        LaneStateAdmissionError::Signers(CustodySignersAdmissionError::Backing(
+            ChargedBufferError::Allocator {
+                requested_bytes: 64,
+            },
+        )),
+        LaneStateAdmissionError::Signers(CustodySignersAdmissionError::ControlAllocation(
+            PrepaidSharedError::Allocator {
+                requested_bytes: 64,
+            },
+        )),
+        LaneStateAdmissionError::Samples(LaneSamplesAdmissionError::Backing(
+            PrepaidBufferError::Allocation(ChargedBufferError::Allocator {
+                requested_bytes: 64,
+            }),
+        )),
+        LaneStateAdmissionError::Samples(LaneSamplesAdmissionError::Control(
+            PrepaidSharedError::Allocator {
+                requested_bytes: 64,
+            },
+        )),
+    ] {
+        let Attempt::Deferred(original) = state_admission_attempt_error(error) else {
+            panic!("physical native allocation failure cannot be a semantic verdict");
+        };
+        assert_eq!(original.reason(), ExecutionDeferral::AllocationUnavailable);
+        assert!(original.allocation_refusal().is_none());
+    }
+    assert_eq!(
+        state_admission_attempt_error(LaneStateAdmissionError::Signers(
+            CustodySignersAdmissionError::Invalid
+        )),
+        Attempt::Rejected(CustodyViolation::Signers)
+    );
+    assert_eq!(
+        super::super::step::LaneStepError::from(Attempt::Rejected(CustodyViolation::Signers)),
+        super::super::step::LaneStepError::Custody(CustodyViolation::Signers)
+    );
+    drop(returned_rows);
+    drop(empty);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn original_lane_state_admission_refusal_keeps_sample_and_signer_cut() {
+    use iroha_data_model::sumeragi_lanes::{SumeragiLaneSample, SumeragiLaneSamples};
+    for signer_source in [true, false] {
+        let mut source = SumeragiLaneState::default();
+        let demand = if signer_source {
+            source.custody.push(obligation(&record(), 1));
+            signer_demand(1)
+        } else {
+            source.samples = vec![SumeragiLaneSample {
+                height: 1,
+                time_ms: 10,
+                transactions: 3,
+                lanes: 1,
+            }]
+            .try_into()
+            .unwrap();
+            std::mem::size_of::<SumeragiLaneSample>() + SumeragiLaneSamples::control_layout().size()
+        };
+        let original = source.clone();
+        let source_pointer = if signer_source {
+            source.custody[0].signers.as_slice().as_ptr().cast::<u8>()
+        } else {
+            source.samples.as_ptr().cast::<u8>()
+        };
+        let pool = AllocationBudget::new(0);
+        let Attempt::Deferred(refusal) =
+            state_admission_attempt_error(admit_state(&source, &pool).unwrap_err())
+        else {
+            panic!("actual native State source returns the exact local admission");
+        };
+        let Some(iroha_allocation::AllocationRefusal::ExceedsLimit {
+            requested_bytes,
+            limit_bytes: 0,
+        }) = refusal.allocation_refusal()
+        else {
+            panic!(
+                "a source demand exceeding the real finite ceiling cannot invent a release wait"
+            );
+        };
+        assert_eq!(
+            *requested_bytes,
+            if signer_source {
+                std::mem::size_of::<SumeragiLaneSignerCustody>()
+            } else {
+                demand
+            }
+        );
+        assert_eq!(source, original);
+        assert_eq!(pool.reserved_bytes(), 0);
+        pool.set_limit_bytes(demand);
+        let admitted = admit_state(&source, &pool).unwrap();
+        assert_eq!(admitted, source);
+        assert_eq!(pool.reserved_bytes(), demand);
+        let pointer = if signer_source {
+            admitted.custody[0].signers.as_slice().as_ptr().cast::<u8>()
+        } else {
+            admitted.samples.as_ptr().cast::<u8>()
+        };
+        let same = admit_state(&admitted, &pool).unwrap();
+        assert_eq!(
+            if signer_source {
+                same.custody[0].signers.as_slice().as_ptr().cast::<u8>()
+            } else {
+                same.samples.as_ptr().cast::<u8>()
+            },
+            pointer
+        );
+        let foreign = AllocationBudget::new(demand);
+        let Attempt::Deferred(defect) =
+            state_admission_attempt_error(admit_state(&admitted, &foreign).unwrap_err())
+        else {
+            panic!("a foreign native pool is a local ownership defect");
+        };
+        assert_eq!(defect.reason(), ExecutionDeferral::LocalInvariantViolation);
+        assert!(defect.allocation_refusal().is_none());
+        assert_eq!(foreign.reserved_bytes(), 0);
+        assert_eq!(pool.reserved_bytes(), demand);
+        assert_eq!(
+            if signer_source {
+                source.custody[0].signers.as_slice().as_ptr().cast::<u8>()
+            } else {
+                source.samples.as_ptr().cast::<u8>()
+            },
+            source_pointer
+        );
+        drop(admitted);
+        assert_eq!(pool.reserved_bytes(), demand);
+        drop(same);
+        assert_eq!(pool.reserved_bytes(), 0);
+        assert_eq!(source, original);
+    }
+}
+
+#[test]
+fn original_signer_creation_refusal_preserves_exact_stake_cut_and_last_owner_charge() {
+    use iroha_data_model::sumeragi_lanes::{SumeragiLaneAutoscale, SumeragiLaneMember};
+    let original_world = World::default();
+    let mut world = original_world.block();
+    parameters(&mut world, 7, 3);
+    let mut selected = lane(&record());
+    selected.lane = LaneId::new(16);
+    selected.committee.clear();
+    for seed in 11..15 {
+        let key = KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal);
+        let mut original = record();
+        original.validator = AccountId::new(key.public_key().clone());
+        original.stake_account = original.validator.clone();
+        original.peer_id = PeerId::new(key.public_key().clone());
+        fund(&mut world, &original);
+        selected.committee.push(SumeragiLaneMember {
+            peer: original.peer_id,
+            pop: iroha_crypto::bls_normal_pop_prove(key.private_key()).unwrap(),
+        });
+    }
+    let mut policy = SumeragiLanePolicy::for_chain(
+        iroha_data_model::parameter::system::SumeragiParameters::default(),
+        iroha_sumeragi::availability::recommended_data_availability_layout(),
+    );
+    policy.autoscale = Some(SumeragiLaneAutoscale {
+        min_lane: LaneId::new(16),
+        max_lane_exclusive: LaneId::new(20),
+        dataspace: iroha_model_base::topology::DataSpaceId::UNIVERSAL,
+        committee_size: 4,
+        per_lane_target_tps: 10,
+        window: 8,
+        scale_out_permille: 800,
+        scale_in_permille: 200,
+        cooldown: 3,
+    });
+    assert!(policy.validate().is_ok());
+    let network = iroha_data_model::NetworkId::from_genesis_hash(
+        iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::prehashed([3; 32])),
+    );
+    let mut state = SumeragiLaneState {
+        lanes: vec![selected],
+        ..SumeragiLaneState::default()
+    };
+    let original = state.clone();
+    let demand = signer_demand(4);
+    let pool = AllocationBudget::new(demand - 1);
+    let Attempt::Deferred(refusal) = pin_created(
+        &mut state,
+        &world,
+        &Nexus::default(),
+        &network,
+        "custody-test",
+        Some(&policy),
+        10,
+        &pool,
+    )
+    .unwrap_err() else {
+        panic!("actual created lane keeps the native signer refusal local");
+    };
+    let Some(iroha_allocation::AllocationRefusal::Capacity {
+        requested_bytes,
+        reserved_bytes,
+        limit_bytes,
+        ..
+    }) = refusal.allocation_refusal()
+    else {
+        panic!("actual created lane retains the original refused shared-control demand");
+    };
+    assert_eq!(
+        *requested_bytes,
+        SumeragiLaneCustodySigners::control_layout().size()
+    );
+    assert_eq!(
+        *reserved_bytes,
+        4 * std::mem::size_of::<SumeragiLaneSignerCustody>()
+    );
+    assert_eq!(*limit_bytes, demand - 1);
+    assert_eq!(state, original);
+    assert_eq!(pool.reserved_bytes(), 0);
+    assert_eq!(world.public_lane_validators().len(), 4);
+    assert!(
+        world
+            .public_lane_stake_custody()
+            .iter()
+            .all(|(_, (_, amount))| *amount == 100_u32.into())
+    );
+    pool.set_limit_bytes(demand);
+    pin_created(
+        &mut state,
+        &world,
+        &Nexus::default(),
+        &network,
+        "custody-test",
+        Some(&policy),
+        10,
+        &pool,
+    )
+    .unwrap();
+    assert_eq!(state.custody.len(), 1);
+    assert_eq!(state.custody[0].signer_count, 4);
+    assert_eq!(state.custody[0].signers.as_slice().len(), 4);
+    assert!(state.custody[0].validate().is_ok());
+    assert!(state.custody[0].signers.admitted_to(&pool));
+    let retained = state.custody[0].signers.clone();
+    let pointer = retained.as_slice().as_ptr();
+    assert_eq!(state.custody[0].signers.as_slice().as_ptr(), pointer);
+    assert_eq!(pool.reserved_bytes(), demand);
+    drop(state);
+    assert_eq!(retained.as_slice().as_ptr(), pointer);
+    assert_eq!(pool.reserved_bytes(), demand);
+    drop(retained);
+    assert_eq!(pool.reserved_bytes(), 0);
 }

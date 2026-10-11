@@ -280,7 +280,7 @@ fn failures_in_either_image_leave_every_derived_index_and_source_unchanged() {
         assert!(error.contains(if missing_definition {
             "missing asset definition"
         } else if restricted {
-            "no authoritative owning domain"
+            "requires an immutable home"
         } else {
             "missing owning domain"
         }));

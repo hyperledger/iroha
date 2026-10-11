@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record and verify fail-closed ABI-25 native SDK artifact evidence.
+"""Record and verify fail-closed ABI-29 native SDK artifact evidence.
 
 This checker is intentionally host-only.  It authenticates the exact native
 artifact exercised by a Node, Python, C/JNI, or C# test lane, calls that
@@ -55,8 +55,8 @@ else:
     )
 
 
-SCHEMA = "iroha.native-sdk-abi25-artifact.v1"
-REQUIRED_BRIDGE_ABI_VERSION = 25
+SCHEMA = "iroha.native-sdk-abi29-artifact.v1"
+REQUIRED_BRIDGE_ABI_VERSION = 29
 MAX_MANIFEST_BYTES = 64 * 1024
 MAX_SYMBOL_TOOL_OUTPUT_BYTES = 16 * 1024 * 1024
 MAX_ABI_PROBE_OUTPUT_BYTES = 4096
@@ -79,6 +79,65 @@ APPROVED_PRIVACY_C_EXPORTS = (
     "iroha_privacy_validate_exact12_capability_manifest_v1",
     "iroha_privacy_free_buffer",
 )
+KAGEMUSHA_WALLET_C_EXPORTS = (
+    "connect_norito_kagemusha_wallet_revision_v1",
+    "connect_norito_kagemusha_wallet_open_begin_v1",
+    "connect_norito_kagemusha_wallet_open_finish_v1",
+    "connect_norito_kagemusha_wallet_open_cancel_v1",
+    "connect_norito_kagemusha_wallet_close_v1",
+    "connect_norito_kagemusha_wallet_activity_v1",
+    "connect_norito_kagemusha_wallet_setup_v1",
+    "connect_norito_kagemusha_wallet_execute_v1",
+    "connect_norito_kagemusha_wallet_load_original_validate_v1",
+    "connect_norito_kagemusha_wallet_request_status_v1",
+    "connect_norito_kagemusha_wallet_retry_v1",
+    "connect_norito_kagemusha_wallet_resume_v1",
+    "connect_norito_kagemusha_wallet_fold_v1",
+    "connect_norito_kagemusha_wallet_credit_status_v1",
+    "connect_norito_kagemusha_wallet_snapshot_v1",
+    "connect_norito_kagemusha_wallet_review_v1",
+    "connect_norito_kagemusha_wallet_execute_reviewed_v1",
+    "connect_norito_kagemusha_wallet_discard_review_v1",
+    "connect_norito_kagemusha_wallet_installation_begin_v1",
+    "connect_norito_kagemusha_wallet_installation_register_v1",
+    "connect_norito_kagemusha_wallet_installation_close_v1",
+    "connect_norito_kagemusha_wallet_registration_source_relocate_v1",
+    "connect_norito_kagemusha_wallet_observe_v1",
+    "connect_norito_kagemusha_wallet_account_original_v1",
+    "connect_norito_kagemusha_wallet_account_display_v1",
+    "connect_norito_kagemusha_wallet_enrollment_v1",
+    "connect_norito_kagemusha_wallet_enrollment_refusal_v1",
+)
+KAGEMUSHA_WALLET_JNI_EXPORTS = (
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_revision",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_openBegin",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_openFinish",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_openCancel",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_close",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_activity",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_call",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_setup",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_enrollment",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_enrollmentRefusal",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_execute",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_snapshot",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_beginInstallation",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_registerInstallation",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_closeInstallation",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_relocateRegistrationSource",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletObservationNativeV1_observe",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_review",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_executeReviewed",
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_discardReview",
+)
+KAGEMUSHA_LOAD_ORIGINAL_JNI_EXPORTS = (
+    "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletLoadOriginalNativeV1_validate",
+)
+# Retired with the Google first-device sign-up key at bridge ABI 29; never re-exported.
+RETIRED_FIRST_DEVICE_AUTH_JNI_EXPORTS = (
+    "Java_org_hyperledger_iroha_sdk_crypto_keystore_NativeFirstDeviceAuthKeyJniV1_reserve",
+    "Java_org_hyperledger_iroha_sdk_crypto_keystore_NativeFirstDeviceAuthKeyJniV1_restore",
+)
 RETIRED_KAGEMUSHA_C_PREFIX = (
     "connect_norito_" + "_".join(reversed(("cash", "offline"))) + "_"
 )
@@ -91,7 +150,7 @@ RETIRED_KAGEMUSHA_EXPORT_PREFIXES = (
     "Java_org_hyperledger_iroha_sdk_offline_probe_Pixel6TestnetDiagnosticSelectionJniV1_",
 )
 STALE_PRIVACY_ABI_MARKER_RE = re.compile(
-    r"(?:abi[_-]?(?:21|22|23|24)|(?:^|_)v(?:21|22|23|24)(?:$|_))",
+    r"(?:abi[_-]?(?:21|22|23|24|25|26)|(?:^|_)v(?:21|22|23|24|25|26)(?:$|_))",
     re.IGNORECASE,
 )
 DUMPBIN_EXPORT_RE = re.compile(
@@ -117,7 +176,10 @@ CONFIDENTIAL_PROVER_JNI_EXPORTS = tuple(
 REQUIRED_SYMBOLS: Mapping[str, tuple[str, ...]] = {
     "c-jni": (
         *CONFIDENTIAL_PROVER_C_EXPORTS,
+        *KAGEMUSHA_WALLET_C_EXPORTS,
         *CONFIDENTIAL_PROVER_JNI_EXPORTS,
+        *KAGEMUSHA_WALLET_JNI_EXPORTS,
+        *KAGEMUSHA_LOAD_ORIGINAL_JNI_EXPORTS,
         "connect_norito_bridge_abi_version",
         "connect_norito_domain_id_validate_v1",
         "connect_norito_free",
@@ -141,6 +203,7 @@ REQUIRED_SYMBOLS: Mapping[str, tuple[str, ...]] = {
     ),
     "csharp": (
         *CONFIDENTIAL_PROVER_C_EXPORTS,
+        *KAGEMUSHA_WALLET_C_EXPORTS,
         "connect_norito_confidential_note_derivation_revision_v3",
         "connect_norito_confidential_default_diversifier_v3",
         "connect_norito_confidential_diversifier_derive_v3",
@@ -192,6 +255,7 @@ RETIRED_PROTOCOL_SYMBOLS: Mapping[str, tuple[str, ...]] = {
         "connect_norito_private_settlement_auditor_capsule_response_verify_v1",
         "Java_org_hyperledger_iroha_sdk_client_AtomicPrivateSettlementNativeResponseVerifierV1_nativeVerifyAuditorCapsuleResponseV1",
         "Java_org_hyperledger_iroha_android_client_AtomicPrivateSettlementNativeResponseVerifierV1_nativeVerifyAuditorCapsuleResponseV1",
+        *RETIRED_FIRST_DEVICE_AUTH_JNI_EXPORTS,
     ),
     "csharp": (
         "connect_norito_validation_fee_hijiri_quote_request_v1",
@@ -721,6 +785,16 @@ def validate_privacy_c_exports(
     return tuple(symbol for symbol in APPROVED_PRIVACY_C_EXPORTS if symbol in observed)
 
 
+def is_retired_kagemusha_export(symbol: str) -> bool:
+    """Reject all retired or unknown KAGEMUSHA exports outside the current API."""
+    return (
+        symbol.startswith(RETIRED_KAGEMUSHA_EXPORT_PREFIXES)
+        and symbol not in KAGEMUSHA_WALLET_C_EXPORTS
+        and symbol not in KAGEMUSHA_WALLET_JNI_EXPORTS
+        and symbol not in KAGEMUSHA_LOAD_ORIGINAL_JNI_EXPORTS
+    )
+
+
 def validate_retired_protocol_symbols(symbols: Sequence[str], *, sdk: str) -> None:
     """Reject first-release artifacts that expose retired protocol entrypoints."""
 
@@ -731,7 +805,7 @@ def validate_retired_protocol_symbols(symbols: Sequence[str], *, sdk: str) -> No
             for symbol in symbols
             if symbol in explicitly_retired
             or (sdk == "c-jni" and symbol.startswith("Java_org_hyperledger_iroha_android_"))
-            or symbol.startswith(RETIRED_KAGEMUSHA_EXPORT_PREFIXES)
+            or is_retired_kagemusha_export(symbol)
         }
     )
     if retired:
@@ -792,7 +866,7 @@ def probe_node_abi(
     forbidden_symbols: Sequence[str] = (),
     node: str = "node",
 ) -> int:
-    """Load one Node addon and call its exact ABI-25 probe."""
+    """Load one Node addon and call its exact ABI-29 probe."""
 
     source = r"""
 const artifact = process.argv[1];
@@ -846,7 +920,7 @@ def probe_python_abi(
     forbidden_symbols: Sequence[str] = (),
     python: str = sys.executable,
 ) -> int:
-    """Load one Python extension directly and call its exact ABI-25 probe."""
+    """Load one Python extension directly and call its exact ABI-29 probe."""
 
     source = r"""
 import importlib.machinery
@@ -859,7 +933,7 @@ path = pathlib.Path(sys.argv[1])
 required = json.loads(sys.argv[2])
 forbidden = json.loads(sys.argv[3])
 if path.suffix == ".py":
-    name = "_iroha_native_abi25_fixture"
+    name = "_iroha_native_abi29_fixture"
     loader = importlib.machinery.SourceFileLoader(name, str(path))
 else:
     name = "iroha_native._crypto"
@@ -1012,7 +1086,7 @@ def canonical_manifest_bytes(manifest: Mapping[str, object]) -> bytes:
 
 
 def validate_manifest(value: object) -> dict[str, object]:
-    """Validate the exact ABI-25 artifact evidence schema."""
+    """Validate the exact ABI-29 artifact evidence schema."""
 
     manifest = _plain_object(value, "native artifact manifest")
     expected_keys = {
@@ -1589,7 +1663,7 @@ def retain_verified_manifest(
             or (created.st_dev, created.st_ino) != (current.st_dev, current.st_ino)
         ):
             fail("native artifact evidence directory changed while it was created")
-        output_name = f"{validated['sdk']}-native-abi25.json"
+        output_name = f"{validated['sdk']}-native-abi29.json"
         _exclusive_write_at(
             directory_descriptor,
             output_name,
@@ -1607,7 +1681,7 @@ def retain_verified_manifest(
             os.close(directory_descriptor)
         os.close(parent_descriptor)
 
-    retained_path = canonical_output / f"{validated['sdk']}-native-abi25.json"
+    retained_path = canonical_output / f"{validated['sdk']}-native-abi29.json"
     if load_manifest(retained_path) != validated:
         fail("retained native artifact manifest does not match verified evidence")
     return retained_path
@@ -1717,5 +1791,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except ArtifactContractError as error:
-        print(f"native SDK ABI-25 artifact check failed: {error}", file=sys.stderr)
+        print(f"native SDK ABI-29 artifact check failed: {error}", file=sys.stderr)
         raise SystemExit(1) from error

@@ -9,7 +9,7 @@
 //! 3.2): native and in-circuit encodings share those vectors (spec section
 //! 3.2).
 //!
-//! # Encoding (28 elements of the Pasta `Fp` σ field)
+//! # Encoding (26 elements of the Pasta `Fp` σ field)
 //!
 //! | index | field |
 //! | --- | --- |
@@ -17,17 +17,17 @@
 //! | 1-2 | relation id, two little-endian 128-bit limbs |
 //! | 3-4 | scheme id limbs |
 //! | 5-6 | asset digest limbs |
-//! | 7-8 | credential digest limbs |
-//! | 9 | successor lifecycle (Active 1, Retiring 2) |
-//! | 10 | successor sequence |
-//! | 11 | successor `next_load` |
-//! | 12 | enabled-controls mask |
-//! | 13 | lineage `burned_total` taken from Ω(pred) (Send; 0 for Receive) |
-//! | 14 | lineage pending-outgoing root taken from Ω(pred) (Send; 0 for Receive) |
-//! | 15 | predecessor state commitment |
-//! | 16 | successor state commitment |
-//! | 17 | effect tag (the operation tag: Send 3, Receive 4) |
-//! | 18-27 | the effect elements, zero filled to 10 |
+//! | 7 | credential Poseidon digest |
+//! | 8 | successor lifecycle (Active 1, Retiring 2) |
+//! | 9 | successor sequence |
+//! | 10 | successor `next_load` |
+//! | 11 | enabled-controls mask |
+//! | 12 | lineage `burned_total` taken from Ω(pred) (Send; 0 for Receive) |
+//! | 13 | lineage pending-outgoing root taken from Ω(pred) (Send; 0 for Receive) |
+//! | 14 | predecessor state commitment |
+//! | 15 | successor state commitment |
+//! | 16 | effect tag (the operation tag: Send 3, Receive 4) |
+//! | 17-25 | the effect elements, zero filled to 9 |
 //!
 //! A `P` value (commitment, root, `credit_id`) is one element; a 32-byte
 //! SHA-256 digest or identifier is two limbs, low half first.
@@ -40,7 +40,7 @@
 //! the canonical statement.
 //!
 //! The digest is the KAGEMUSHA sponge `hash_with_domain(kgwstmt1, fields)`,
-//! 16 permutations, or 15 with the folded prefix. A verifier recomputes it
+//! 15 permutations, or 14 with the folded prefix. A verifier recomputes it
 //! natively from the canonical statement, so every field in it is bound by
 //! the public digest.
 //!
@@ -66,11 +66,11 @@ use crate::{
 };
 
 /// Fields of the statement encoding.
-pub const STATEMENT_FIELDS: usize = 28;
+pub const STATEMENT_FIELDS: usize = 26;
 /// Fields before the effect.
-pub const STATEMENT_HEADER_FIELDS: usize = 18;
+pub const STATEMENT_HEADER_FIELDS: usize = 17;
 /// Fields of the effect union (the Send effect, the largest).
-pub const EFFECT_UNION_FIELDS: usize = 10;
+pub const EFFECT_UNION_FIELDS: usize = 9;
 /// The statement domain (G1 `KAGEMUSHA_WALLET_STATEMENT_DOMAIN_V1`).
 pub const STATEMENT_DOMAIN: u64 = u64::from_le_bytes(*b"kgwstmt1");
 /// The statement version (G1 `KAGEMUSHA_WALLET_VERSION_V1`).
@@ -120,6 +120,12 @@ pub fn digest_fields<F: PastaField>(bytes: &[u8; 32]) -> [F; 2] {
     limb_fields(bytes_to_limbs(bytes))
 }
 
+/// Decode a canonical little-endian field encoding without reduction.
+#[must_use]
+pub fn canonical_field<F: PastaField>(bytes: &[u8; 32]) -> Option<F> {
+    foreign_value_native::<F>(bytes_to_limbs(bytes))
+}
+
 /// The native statement (over the σ field `F`; G1 field names).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StatementV1<F> {
@@ -156,8 +162,8 @@ pub struct StatementV1<F> {
 }
 
 impl<F: PoseidonField> StatementV1<F> {
-    /// The 28-element encoding, or `None` for more than
-    /// [`EFFECT_UNION_FIELDS`] effect elements.
+    /// The 26-element encoding, or `None` for more than
+    /// [`EFFECT_UNION_FIELDS`] effect elements or a noncanonical credential digest.
     #[must_use]
     pub fn encode(&self) -> Option<[F; STATEMENT_FIELDS]> {
         if self.effect.len() > EFFECT_UNION_FIELDS {
@@ -166,7 +172,7 @@ impl<F: PoseidonField> StatementV1<F> {
         let [relation_lo, relation_hi] = digest_fields::<F>(&self.relation_id);
         let [scheme_lo, scheme_hi] = digest_fields::<F>(&self.scheme_id);
         let [asset_lo, asset_hi] = digest_fields::<F>(&self.asset_digest);
-        let [credential_lo, credential_hi] = digest_fields::<F>(&self.credential_digest);
+        let credential = canonical_field::<F>(&self.credential_digest)?;
         let mut fields = vec![
             F::from(STATEMENT_VERSION),
             relation_lo,
@@ -175,8 +181,7 @@ impl<F: PoseidonField> StatementV1<F> {
             scheme_hi,
             asset_lo,
             asset_hi,
-            credential_lo,
-            credential_hi,
+            credential,
             F::from(u64::from(self.lifecycle)),
             F::from_u128(self.sequence),
             F::from_u128(self.next_load),
@@ -193,7 +198,7 @@ impl<F: PoseidonField> StatementV1<F> {
     }
 
     /// The statement digest `P(kgwstmt1, encoding)`, or `None` for more than
-    /// [`EFFECT_UNION_FIELDS`] effect elements.
+    /// [`EFFECT_UNION_FIELDS`] effect elements or a noncanonical credential digest.
     #[must_use]
     pub fn digest(&self) -> Option<F> {
         self.encode()
@@ -212,8 +217,8 @@ pub struct StatementCells<'a, F: PastaField> {
     pub scheme_id: [&'a Word<F>; 2],
     /// The asset digest limbs.
     pub asset_digest: [&'a Word<F>; 2],
-    /// The credential digest limbs.
-    pub credential_digest: [&'a Word<F>; 2],
+    /// The canonical credential Poseidon digest.
+    pub credential_digest: &'a Word<F>,
     /// The successor lifecycle.
     pub lifecycle: &'a Word<F>,
     /// The successor sequence number.
@@ -268,8 +273,7 @@ pub fn statement_digest<F: PoseidonField>(
         word(cells.scheme_id[1]),
         word(cells.asset_digest[0]),
         word(cells.asset_digest[1]),
-        word(cells.credential_digest[0]),
-        word(cells.credential_digest[1]),
+        word(cells.credential_digest),
         word(cells.lifecycle),
         word(cells.sequence),
         word(cells.next_load),
@@ -451,6 +455,18 @@ mod tests {
         let limbs = foreign_limbs(&max);
         assert_eq!(limbs[1], 1 << 126);
         assert_eq!(foreign_value_native::<G>(limbs), Some(max));
+        assert_eq!(canonical_field::<G>(&max.to_repr()), Some(max));
+        assert_eq!(canonical_field::<G>(&G::ZERO.to_repr()), Some(G::ZERO));
+        let mut modulus = max.to_repr();
+        for byte in &mut modulus {
+            let (next, carry) = byte.overflowing_add(1);
+            *byte = next;
+            if !carry {
+                break;
+            }
+        }
+        assert_eq!(canonical_field::<G>(&modulus), None);
+        assert_eq!(canonical_field::<G>(&[0xff; 32]), None);
         assert_eq!(foreign_value_native::<G>([limbs[0] + 1, limbs[1]]), None);
         assert_eq!(foreign_value_native::<G>([0, 1 << 127]), None);
         let seven = G::from(7u64);
@@ -503,17 +519,20 @@ mod tests {
         assert_eq!(fields[2], Fq::from(0x56u64));
         assert_eq!([fields[3], fields[4]], digest_fields(&[1; 32]));
         assert_eq!([fields[5], fields[6]], digest_fields(&[3; 32]));
-        assert_eq!([fields[7], fields[8]], digest_fields(&[2; 32]));
-        assert_eq!(fields[9], Fq::from(2u64));
-        assert_eq!(fields[10], Fq::from(9u64));
-        assert_eq!(fields[11], Fq::from(6u64));
-        assert_eq!(fields[12], Fq::ONE);
-        assert_eq!(fields[13], Fq::from(40u64));
-        assert_eq!(fields[14], Fq::from(11u64));
-        assert_eq!(fields[15], Fq::from(5u64));
-        assert_eq!(fields[16], Fq::from(7u64));
-        assert_eq!(fields[17], Fq::from(3u64));
-        assert_eq!(fields[27], Fq::from(10u64));
+        assert_eq!(
+            fields[7],
+            canonical_field::<Fq>(&[2; 32]).expect("canonical")
+        );
+        assert_eq!(fields[8], Fq::from(2u64));
+        assert_eq!(fields[9], Fq::from(9u64));
+        assert_eq!(fields[10], Fq::from(6u64));
+        assert_eq!(fields[11], Fq::ONE);
+        assert_eq!(fields[12], Fq::from(40u64));
+        assert_eq!(fields[13], Fq::from(11u64));
+        assert_eq!(fields[14], Fq::from(5u64));
+        assert_eq!(fields[15], Fq::from(7u64));
+        assert_eq!(fields[16], Fq::from(3u64));
+        assert_eq!(fields[25], Fq::from(10u64));
         assert_eq!(
             statement.digest(),
             Some(iroha_pasta::poseidon::hash_with_domain(
@@ -523,7 +542,11 @@ mod tests {
         );
         let mut short = statement.clone();
         short.effect.truncate(4);
-        assert_eq!(short.encode().expect("encoding")[22], Fq::ZERO);
+        assert_eq!(short.encode().expect("encoding")[21], Fq::ZERO);
+        let mut malformed = statement.clone();
+        malformed.credential_digest = [0xff; 32];
+        assert_eq!(malformed.encode(), None);
+        assert_eq!(malformed.digest(), None);
         let mut long = statement;
         long.effect = vec![Fq::ONE; EFFECT_UNION_FIELDS + 1];
         assert_eq!(long.encode(), None);

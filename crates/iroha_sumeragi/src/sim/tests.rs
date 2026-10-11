@@ -569,6 +569,24 @@ fn f31_amx_two_phase_commit() {
     });
 }
 
+/// F39: the application clock guard under skewed honest wall clocks (§4.5): O-TIME at every
+/// commit, and no block a Byzantine builder post-dated beyond the guard ever commits.
+#[test]
+fn f39_clock_guard() {
+    sweep("F39", scenarios::f39, |world| {
+        let guard = world
+            .clock_guard
+            .as_ref()
+            .expect("F39 runs the clock guard");
+        let bound = i64::try_from(2 * guard.max_clock_drift_ms).unwrap_or(i64::MAX);
+        assert!(
+            guard.certified.iter().all(|c| c.excess <= bound),
+            "O-TIME holds at every commit"
+        );
+        assert!(guard.certified.len() >= 5, "the chain progressed");
+    });
+}
+
 /// F38: a lane instance next to the global one, followed by every machine.
 #[test]
 fn f38_lane_next_to_global() {
@@ -723,114 +741,6 @@ fn report() {
             );
         }
     }
-}
-
-/// F37 (§3.7): flagged blocks commit under forging, withholding and stripping members, and
-/// each committed flagged block's `CommitQC` carries exactly `q` valid attestations (the O-ATT
-/// oracle checks every honest commit; this counts that flagged blocks were committed at all).
-#[test]
-fn f37_commit_attestation() {
-    let mut flagged = 0;
-    let mut total = 0;
-    sweep_observations(
-        "F37",
-        scenarios::f37,
-        |world| {
-            let flagged = world.oracle.refs[0]
-                .values()
-                .filter(|b| b.header.attest)
-                .count();
-            (flagged, world.oracle.refs[0].len())
-        },
-        |(seed_flagged, seed_total)| {
-            flagged += seed_flagged;
-            total += seed_total;
-        },
-    );
-    eprintln!("F37: {flagged} of {total} committed blocks flagged");
-    assert!(
-        flagged * 10 >= total,
-        "a share of the committed blocks is flagged"
-    );
-}
-
-/// O-ATT counts the signers of a flagged `CommitQC` itself (independently of
-/// `verify_attestations`, which MA11 mutates): exactly `q`, one genuine attestation each, and
-/// the block's flag; `q + 1` genuine ones, a missing one or a cleared flag fail.
-#[test]
-fn o_att_requires_exactly_q_attested_signers() {
-    use crate::{
-        message::{BlockHeader, Qc, VoteKind},
-        preimage,
-        testing::fake_attestation,
-        types::{AggregateSignature, Bitmap, Hash32, SIGNATURE_LEN},
-    };
-    let world = World::new(scenarios::f37(0));
-    let inst = &world.instances[0];
-    let committee = inst.committee(1).clone();
-    let (n, q) = (committee.n(), committee.q());
-    let header = BlockHeader {
-        epoch: inst.config(1).epoch.id,
-        control_witness: crate::types::ControlWitness::empty(),
-        instance: inst.id,
-        height: 1,
-        origin_view: 0,
-        parent_hash: inst.genesis_hash,
-        parent_result: inst.genesis_result,
-        payload_hash: preimage::payload_hash(&world.hasher, &[0]),
-        availability_digest: crate::types::Hash32::ZERO,
-        payload_len: 1,
-        proposer: 0,
-        skipped_leaders: Vec::new(),
-        attest: true,
-    };
-    let signer = super::crypto::SimSigner::new(
-        committee.get(0).unwrap().clone(),
-        None,
-        std::sync::Arc::clone(&world.log),
-    );
-    let block = crate::testing::author_body(
-        header,
-        &[0],
-        &inst.config(1),
-        &world.replicas[0].budget,
-        &world.hasher,
-        &signer,
-    );
-    let (bh, result) = (Hash32([2; 32]), Hash32([3; 32]));
-    let statement = preimage::att_preimage(&inst.id, &inst.config(1).epoch.id, 1, &bh, &result);
-    let qc_of = |count: usize| {
-        let signers: Vec<u32> = (0..u32::try_from(count).unwrap()).collect();
-        Qc {
-            attestation_witness: Some(
-                crate::message::ResultWitness::from_untrusted(statement.clone()).unwrap(),
-            ),
-            kind: VoteKind::Commit,
-            epoch: inst.config(1).epoch.id,
-            instance: inst.id,
-            height: 1,
-            view: 0,
-            block_hash: bh,
-            result,
-            attest: true,
-            signers: Bitmap::from_indices(n, signers.iter().copied()).unwrap(),
-            agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
-            attestations: (signers.iter())
-                .map(|i| fake_attestation(committee.get(*i).unwrap(), 1, &statement).signature)
-                .collect(),
-        }
-    };
-    assert_eq!(world.attested(0, &block, &qc_of(q)), Ok(()));
-    assert!(world.attested(0, &block, &qc_of(q + 1)).is_err(), "q + 1");
-    let mut missing = qc_of(q);
-    missing.attestations.pop();
-    assert!(world.attested(0, &block, &missing).is_err(), "missing");
-    let cleared = Qc {
-        attest: false,
-        attestations: Vec::new(),
-        ..qc_of(q)
-    };
-    assert!(world.attested(0, &block, &cleared).is_err(), "flag");
 }
 
 std::thread_local! {
@@ -988,7 +898,7 @@ fn o_cert_requires_exactly_q_signers() {
         testing::FakeCrypto,
         types::{AggregateSignature, Bitmap, Hash32, SIGNATURE_LEN},
     };
-    let world = World::new(scenarios::f37(0));
+    let world = World::new(scenarios::exact_quorum_adversary(0));
     let instance = &world.instances[0];
     let committee = instance.committee(1);
     let (n, q) = (committee.n(), committee.q());
@@ -997,7 +907,6 @@ fn o_cert_requires_exactly_q_signers() {
         let indices: Vec<_> = (n - count..n).map(crate::types::index_of).collect();
         for kind in [VoteKind::Prepare, VoteKind::Commit] {
             let mut qc = Qc {
-                attestation_witness: None,
                 kind,
                 epoch: instance.config(1).epoch.id,
                 instance: instance.id,
@@ -1005,10 +914,8 @@ fn o_cert_requires_exactly_q_signers() {
                 view: 0,
                 block_hash: Hash32([2; 32]),
                 result: Hash32([3; 32]),
-                attest: false,
                 signers: Bitmap::from_indices(n, indices.iter().copied()).unwrap(),
                 agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
-                attestations: Vec::new(),
             };
             let signatures: Vec<_> = indices
                 .iter()
@@ -1058,4 +965,10 @@ fn o_cert_requires_exactly_q_signers() {
         };
         assert_eq!(world.cert_tc(0, &tc).is_ok(), count == q, "count={count}");
     }
+}
+
+/// Exact-quorum admission rejects genuine signer supersets without stalling honest progress.
+#[test]
+fn exact_quorum_under_genuine_superset_attack() {
+    sweep("exact-quorum", scenarios::exact_quorum_adversary, |_| {});
 }

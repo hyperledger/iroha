@@ -108,8 +108,6 @@ expected_hash_file = "genesis.expected_hash"
 [sumeragi]
 # role = "validator"
 # role = "observer" # sync-only; omit to use the validator default
-## Validator mint-finality seed descriptor (only descriptor 199; observers must not set it).
-# mint_finality_seed_fd = 199
 ## Credential-free global beacon share signer binding.
 # global_beacon_partial_signer_provider_handle = "signer://..."
 # global_beacon_partial_signer_provider_revision = 1
@@ -224,16 +222,16 @@ expected_hash_file = "genesis.expected_hash"
 # capacity_per_user = 16384
 # transaction_time_to_live_ms = 86_400_000 # 1 day
 
-# Local verifier resources only. Proof limits, the curve and the backend are
-# chain policy (the committed `zk_validity_policy_v1` parameter).
-[zk.halo2]
-# verifier_budget_ms = 20
-# verifier_worker_threads = 0        # 0 = auto by available parallelism
-# verifier_queue_cap = 0             # 0 = auto-derived from worker count
-# verifier_enqueue_wait_ms = 25      # bounded enqueue wait before timeout under saturation
-# verifier_retry_ring_cap = 2048     # in-memory retry ring capacity for important tasks
-# verifier_retry_max_attempts = 3    # retry rounds before final drop
-# verifier_retry_tick_ms = 5         # retry scheduler tick interval
+# Local diagnostic resources only. Native proof limits are chain policy
+# (the committed `zk_validity_policy_v1` parameter).
+[zk.trace]
+# enabled = true
+# worker_threads = 0
+# queue_cap = 0
+# enqueue_wait_ms = 25
+# retry_ring_cap = 2048
+# retry_max_attempts = 3
+# retry_tick_ms = 5
 
 [governance]
 # Allowed JDG attestation signature schemes.

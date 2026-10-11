@@ -1,11 +1,10 @@
 //! Positive, direct-witness and native-proof controls for compact ARX words.
 
 use super::*;
-use crate::halo2_backend;
-use halo2_proofs::{
-    circuit::SimpleFloorPlanner,
-    dev::MockProver,
-    plonk::{Circuit, Instance},
+use crate::ram_lfe_test_support::{NativeProof, check};
+use iroha_plonk::{
+    cs::Instance,
+    frontend::{Circuit, SimpleFloorPlanner},
 };
 use std::{sync::Arc, time::Instant};
 
@@ -58,7 +57,7 @@ impl<const N: usize, const ROT: u32, const FUSED: bool> Circuit<Scalar>
 
     fn configure(meta: &mut ConstraintSystem<Scalar>) -> Self::Config {
         let config = WordConfig::configure(meta);
-        let instance = meta.instance_column();
+        let instance = meta.instance_column(N);
         meta.enable_equality(instance);
         (config, instance)
     }
@@ -101,7 +100,7 @@ impl<const N: usize, const ROT: u32, const FUSED: bool> Circuit<Scalar>
             },
         )?;
         for (row, &cell) in output.cells.iter().enumerate() {
-            layouter.constrain_instance(cell, instance, row);
+            layouter.constrain_instance(cell, instance, row)?;
         }
         Ok(())
     }
@@ -109,9 +108,10 @@ impl<const N: usize, const ROT: u32, const FUSED: bool> Circuit<Scalar>
 
 fn assert_valid<const N: usize, const ROT: u32>(values: [u64; 3]) {
     let circuit = Arithmetic::<N, ROT>::new(values);
-    MockProver::run(12, &circuit, vec![circuit.expected()])
+    check(12, &circuit, vec![circuit.expected()])
         .expect("bounded layout")
-        .assert_satisfied();
+        .into_result()
+        .expect("all constraints hold");
 }
 
 #[test]
@@ -143,9 +143,10 @@ fn compact_words_match_native_overflow_and_all_hash_rotations() {
 
 fn assert_fused<const N: usize, const ROT: u32>(values: [u64; 3]) {
     let circuit = Arithmetic::<N, ROT, true>::new(values);
-    MockProver::run(12, &circuit, vec![circuit.expected()])
+    check(12, &circuit, vec![circuit.expected()])
         .expect("layout")
-        .assert_satisfied();
+        .into_result()
+        .expect("all constraints hold");
 }
 
 #[test]
@@ -174,9 +175,9 @@ fn fused_xor_rotation_matches_every_hash_rotation() {
             value: Scalar::from(value),
         }];
         assert!(
-            MockProver::run(12, &circuit, vec![original.expected()])
+            check(12, &circuit, vec![original.expected()])
                 .expect("layout")
-                .verify()
+                .into_result()
                 .is_err()
         );
     }
@@ -210,23 +211,23 @@ fn compact_words_reject_direct_assignment_mutations() {
             column,
             value: Scalar::from(value),
         }];
-        let prover = MockProver::run(12, &circuit, vec![original.expected()]).expect("layout");
-        assert!(prover.verify().is_err(), "mutation survived: {label}");
+        let prover = check(12, &circuit, vec![original.expected()]).expect("layout");
+        assert!(prover.into_result().is_err(), "mutation survived: {label}");
     }
     let mut circuit = original.clone();
     circuit.forge_source = true;
     assert!(
-        MockProver::run(12, &circuit, vec![original.expected()])
+        check(12, &circuit, vec![original.expected()])
             .expect("layout")
-            .verify()
+            .into_result()
             .is_err()
     );
     let mut wrong_public = original.expected();
     wrong_public[0] += Scalar::ONE;
     assert!(
-        MockProver::run(12, &original, vec![wrong_public])
+        check(12, &original, vec![wrong_public])
             .expect("layout")
-            .verify()
+            .into_result()
             .is_err()
     );
 }
@@ -234,7 +235,7 @@ fn compact_words_reject_direct_assignment_mutations() {
 #[test]
 fn compact_words_reject_32_bit_input_overflow_before_assignment() {
     let circuit = Arithmetic::<8, 7>::new([u64::from(u32::MAX) + 1, 0, 0]);
-    assert!(MockProver::run(12, &circuit, vec![vec![Scalar::ZERO; 8]]).is_err());
+    assert!(check(12, &circuit, vec![vec![Scalar::ZERO; 8]]).is_err());
 }
 
 #[derive(Clone)]
@@ -288,9 +289,10 @@ fn compact_rotation_rejects_fractional_split_without_downstream_checks() {
         faults: Vec::new(),
         constant: false,
     };
-    MockProver::run(12, &valid, vec![])
+    check(12, &valid, vec![])
         .expect("layout")
-        .assert_satisfied();
+        .into_result()
+        .expect("all constraints hold");
     let half = Scalar::from(2).invert().expect("nonzero field denominator");
     // Scaled-only bounds admit input=1, lo=0, hi=1/2, output=1/2.
     // Coordinate the wraparound next-low and terminal output as well, so all
@@ -326,15 +328,14 @@ fn compact_rotation_rejects_fractional_split_without_downstream_checks() {
         ],
         constant: false,
     };
-    let failures = MockProver::run(12, &circuit, vec![])
+    let failures = check(12, &circuit, vec![])
         .expect("layout")
-        .verify()
+        .into_result()
         .expect_err("fractional split cannot become a word token");
-    assert!(
-        failures
-            .iter()
-            .all(|failure| matches!(failure, halo2_proofs::dev::VerifyFailure::Lookup { .. }))
-    );
+    assert!(failures.iter().all(|failure| matches!(
+        failure,
+        iroha_plonk::check::CheckFailure::LookupInputMissing { .. }
+    )));
 }
 
 #[test]
@@ -343,9 +344,10 @@ fn compact_constant_words_are_bound_to_their_cells() {
         faults: Vec::new(),
         constant: true,
     };
-    MockProver::run(12, &circuit, vec![])
+    check(12, &circuit, vec![])
         .expect("layout")
-        .assert_satisfied();
+        .into_result()
+        .expect("all constraints hold");
     let circuit = RotationOnly {
         faults: vec![Fault {
             row: 0,
@@ -355,9 +357,9 @@ fn compact_constant_words_are_bound_to_their_cells() {
         constant: true,
     };
     assert!(
-        MockProver::run(12, &circuit, vec![])
+        check(12, &circuit, vec![])
             .expect("layout")
-            .verify()
+            .into_result()
             .is_err()
     );
 }
@@ -370,7 +372,7 @@ fn compact_owned_words_clear_on_success_error_and_unwind() {
         circuit.fail_after_load = fail;
         circuit.panic_after_load = panic;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            MockProver::run(12, &circuit, vec![circuit.expected()])
+            check(12, &circuit, vec![circuit.expected()])
         }));
         if panic {
             assert!(result.is_err());
@@ -380,7 +382,8 @@ fn compact_owned_words_clear_on_success_error_and_unwind() {
             result
                 .expect("no unwind")
                 .expect("layout")
-                .assert_satisfied();
+                .into_result()
+                .expect("all constraints hold");
         }
         assert!(CLEARED_WORDS.with(std::cell::Cell::get) >= before + 3);
     }
@@ -396,10 +399,10 @@ fn compact_word_geometry_pins_capacity_inputs() {
     assert!(
         meta.advice_queries()
             .iter()
-            .all(|(_, at)| *at == halo2_proofs::poly::Rotation::cur())
+            .all(|(_, rotation)| *rotation == Rotation::cur())
     );
     assert_eq!(meta.lookups().len(), 1);
-    assert_eq!(meta.permutation().get_columns().len(), 8);
+    assert_eq!(meta.permutation().columns().len(), 8);
     assert_eq!(meta.blinding_factors(), 5);
     assert_eq!(meta.minimum_rows(), 8);
     println!(
@@ -410,7 +413,7 @@ fn compact_word_geometry_pins_capacity_inputs() {
         meta.num_fixed_columns(),
         meta.fixed_queries().len(),
         meta.lookups().len(),
-        meta.permutation().get_columns().len(),
+        meta.permutation().columns().len(),
         meta.degree() - 2,
         meta.blinding_factors(),
         meta.minimum_rows(),
@@ -421,21 +424,15 @@ fn compact_word_geometry_pins_capacity_inputs() {
 fn compact_word_native_ipa_proof_metrics_and_rejection_controls() {
     let circuit = Arithmetic::<16, 63, true>::new([u64::MAX, 0x1234_5678_9abc_def0, 42]);
     let params_started = Instant::now();
-    let params = halo2_backend::params_new(12);
-    let vk = halo2_backend::keygen_vk(&params, &circuit.without_witnesses()).expect("word VK");
-    let vk_bytes = halo2_backend::verifying_key_to_processed_bytes(&vk).len();
-    let pk = halo2_backend::keygen_pk(&params, vk.clone(), &circuit.without_witnesses())
-        .expect("word PK");
+    let setup = NativeProof::new(12, &circuit);
+    let vk_bytes = setup.key_bytes();
     let keygen_ms = params_started.elapsed().as_secs_f64() * 1000.0;
     let public = circuit.expected();
-    let columns: [&[Scalar]; 1] = [&public];
-    let instances: [&[&[Scalar]]; 1] = [&columns];
     let prove_started = Instant::now();
-    let proof =
-        halo2_backend::create_ipa_proof(&params, &pk, &[circuit], &instances).expect("word proof");
+    let proof = setup.prove(circuit, &public);
     let prove_ms = prove_started.elapsed().as_secs_f64() * 1000.0;
     let verify_started = Instant::now();
-    halo2_backend::verify_ipa_proof(&params, &vk, &proof, &instances).expect("word verification");
+    setup.verify(&public, &proof).expect("word verification");
     let verify_ms = verify_started.elapsed().as_secs_f64() * 1000.0;
     assert!(proof.len() < 192 * 1024);
     println!(
@@ -444,14 +441,13 @@ fn compact_word_native_ipa_proof_metrics_and_rejection_controls() {
     );
     let mut wrong_public = public.clone();
     wrong_public[0] += Scalar::ONE;
-    let wrong_columns: [&[Scalar]; 1] = [&wrong_public];
-    assert!(halo2_backend::verify_ipa_proof(&params, &vk, &proof, &[&wrong_columns]).is_err());
+    assert!(setup.verify(&wrong_public, &proof).is_err());
     let mut suffixed = proof.clone();
     suffixed.push(0);
-    assert!(halo2_backend::verify_ipa_proof(&params, &vk, &suffixed, &instances).is_err());
+    assert!(setup.verify(&public, &suffixed).is_err());
     let mut changed = proof;
     changed[0] ^= 1;
-    assert!(halo2_backend::verify_ipa_proof(&params, &vk, &changed, &instances).is_err());
+    assert!(setup.verify(&public, &changed).is_err());
 }
 
 // First64 output bytes from the official BLAKE3 1.8.5 test vectors at
@@ -536,7 +532,7 @@ impl Circuit<Scalar> for Compression {
 
     fn configure(meta: &mut ConstraintSystem<Scalar>) -> Self::Config {
         let config = WordConfig::configure(meta);
-        let instance = meta.instance_column();
+        let instance = meta.instance_column(128);
         meta.enable_equality(instance);
         (config, instance)
     }
@@ -577,7 +573,7 @@ impl Circuit<Scalar> for Compression {
         )?;
         for (i, word) in output.iter().enumerate() {
             for (nibble, &cell) in word.cells.iter().enumerate() {
-                layouter.constrain_instance(cell, instance, 8 * i + nibble);
+                layouter.constrain_instance(cell, instance, 8 * i + nibble)?;
             }
         }
         Ok(())
@@ -588,9 +584,10 @@ impl Circuit<Scalar> for Compression {
 fn blake3_compression_matches_official_single_block_vectors() {
     for (length, expected) in COMPRESSION_KATS {
         let circuit = Compression::vector(length);
-        MockProver::run(12, &circuit, vec![Compression::public(&expected)])
+        check(12, &circuit, vec![Compression::public(&expected)])
             .expect("compression layout")
-            .assert_satisfied();
+            .into_result()
+            .expect("all constraints hold");
     }
 }
 
@@ -606,9 +603,9 @@ fn blake3_compression_rejects_changed_inputs_and_internal_field_assignments() {
             faults: Vec::new(),
         };
         assert!(
-            MockProver::run(12, &circuit, vec![public.clone()])
+            check(12, &circuit, vec![public.clone()])
                 .expect("layout")
-                .verify()
+                .into_result()
                 .is_err(),
             "unbound input word {index}"
         );
@@ -624,9 +621,9 @@ fn blake3_compression_rejects_changed_inputs_and_internal_field_assignments() {
         let mut circuit = original.clone();
         circuit.faults = vec![Fault { row, column, value }];
         assert!(
-            MockProver::run(12, &circuit, vec![public.clone()])
+            check(12, &circuit, vec![public.clone()])
                 .expect("layout")
-                .verify()
+                .into_result()
                 .is_err(),
             "mutation survived: {label}"
         );
@@ -637,22 +634,16 @@ fn blake3_compression_rejects_changed_inputs_and_internal_field_assignments() {
 fn blake3_compression_native_ipa_proof_and_metrics() {
     let circuit = Compression::vector(3);
     let params_started = Instant::now();
-    let params = halo2_backend::params_new(12);
-    let vk =
-        halo2_backend::keygen_vk(&params, &circuit.without_witnesses()).expect("compression VK");
-    let vk_bytes = halo2_backend::verifying_key_to_processed_bytes(&vk).len();
-    let pk = halo2_backend::keygen_pk(&params, vk.clone(), &circuit.without_witnesses())
-        .expect("compression PK");
+    let setup = NativeProof::new(12, &circuit);
+    let vk_bytes = setup.key_bytes();
     let keygen_ms = params_started.elapsed().as_secs_f64() * 1000.0;
     let public = Compression::public(&COMPRESSION_KATS[1].1);
-    let columns: [&[Scalar]; 1] = [&public];
-    let instances: [&[&[Scalar]]; 1] = [&columns];
     let prove_started = Instant::now();
-    let proof = halo2_backend::create_ipa_proof(&params, &pk, &[circuit], &instances)
-        .expect("compression proof");
+    let proof = setup.prove(circuit, &public);
     let prove_ms = prove_started.elapsed().as_secs_f64() * 1000.0;
     let verify_started = Instant::now();
-    halo2_backend::verify_ipa_proof(&params, &vk, &proof, &instances)
+    setup
+        .verify(&public, &proof)
         .expect("compression verification");
     let verify_ms = verify_started.elapsed().as_secs_f64() * 1000.0;
     assert!(proof.len() < 192 * 1024);
@@ -662,12 +653,11 @@ fn blake3_compression_native_ipa_proof_and_metrics() {
     );
     let mut wrong_public = public.clone();
     wrong_public[0] += Scalar::ONE;
-    let wrong_columns: [&[Scalar]; 1] = [&wrong_public];
-    assert!(halo2_backend::verify_ipa_proof(&params, &vk, &proof, &[&wrong_columns]).is_err());
+    assert!(setup.verify(&wrong_public, &proof).is_err());
     let mut changed = proof.clone();
     changed[0] ^= 1;
-    assert!(halo2_backend::verify_ipa_proof(&params, &vk, &changed, &instances).is_err());
+    assert!(setup.verify(&public, &changed).is_err());
     changed = proof;
     changed.push(0);
-    assert!(halo2_backend::verify_ipa_proof(&params, &vk, &changed, &instances).is_err());
+    assert!(setup.verify(&public, &changed).is_err());
 }

@@ -33,6 +33,8 @@ fn alloc_heap_tlv(vm: &mut IVM, bytes: &[u8]) -> u64 {
 }
 fn state_map_interface(name: &str, key: EmbeddedStateType) -> EmbeddedContractInterfaceV1 {
     EmbeddedContractInterfaceV1 {
+        permissions: Vec::new(),
+        events: Vec::new(),
         callables: vec![common::unit_callable(0)],
         seiyaku_name: "DirectMapKeyFixture".to_owned(),
         compiler_fingerprint: "ivm-integration-tests".to_owned(),
@@ -49,7 +51,8 @@ fn state_map_interface(name: &str, key: EmbeddedStateType) -> EmbeddedContractIn
             return_schema: Some(ivm_abi::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![ivm_abi::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: None,
+            authorization:
+                iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -66,6 +69,7 @@ fn state_map_interface(name: &str, key: EmbeddedStateType) -> EmbeddedContractIn
         }],
         error_messages: Vec::new(),
         error_types: Vec::new(),
+        enum_types: Vec::new(),
     }
 }
 fn assemble_state_map_schema(name: &str, key: EmbeddedStateType) -> Vec<u8> {
@@ -269,12 +273,11 @@ fn json_get_blob_hex_rejects_noncanonical_and_malformed_spellings() {
         vm.set_register(10, p_json);
         vm.set_register(11, p_key);
         vm.load_program(&program).expect("load blob getter");
-        vm.run().expect("noncanonical values return Option::none");
-        let layout = ivm::sum::SumLayoutV1::option(1).expect("Option layout");
-        let (is_some, words) =
-            ivm::sum::read_words(&vm, vm.register(10), layout).expect("read blob getter Option");
-        assert!(!is_some, "`{invalid}` must not decode as canonical bytes");
-        assert!(words.is_empty());
+        assert_eq!(
+            vm.run(),
+            Err(ivm::VMError::DecodeError),
+            "`{invalid}` must not decode as canonical bytes or read as absent"
+        );
     }
 }
 #[test]
@@ -853,13 +856,7 @@ fn json_get_account_id_rejects_noncanonical_contract_address_literal() {
     vm.set_register(10, p_json);
     vm.set_register(11, p_key);
     vm.load_program(&prog).unwrap();
-    vm.run().unwrap();
-    assert_eq!(
-        ivm::sum::read_words(
-            &vm,
-            vm.register(10),
-            ivm::sum::SumLayoutV1::option(1).expect("AccountId Option layout"),
-        ),
-        Ok((false, vec![]))
-    );
+    // A present field that is not a canonical AccountId literal traps instead
+    // of reading as an absent field.
+    assert_eq!(vm.run(), Err(ivm::VMError::DecodeError));
 }

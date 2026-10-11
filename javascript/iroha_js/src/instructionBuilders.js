@@ -3586,6 +3586,46 @@ export function buildRegisterAccountInstruction({
  * @returns {{Register: {AssetDefinition: object}}}
  */
 export function buildRegisterAssetDefinitionInstruction(options = {}) {
+  return { Register: { AssetDefinition: buildAssetDefinitionRegistrationPayload(options, false) } };
+}
+
+/** Build the distinct Native direct-dataspace instruction, preserving exact u64 namespace identity. */
+export function buildRegisterDataspaceAssetDefinitionInstruction(options = {}) {
+  const source = assertPlainObject(options, "registerDataspaceAssetDefinition");
+  for (const key of ["owningDomain", "owning_domain"]) {
+    if (source[key] !== undefined && source[key] !== null) {
+      throw new TypeError("direct-dataspace registration cannot also specify owning_domain");
+    }
+  }
+  const exactId = (value, label) => {
+    if (typeof value === "string" && value.length > 20) {
+      throw new RangeError(`${label} must fit in u64`);
+    }
+    const normalized = normalizeCanonicalU64(value, label);
+    if (typeof value === "string" && normalized !== value) {
+      throw new TypeError(`${label} must be a canonical u64 decimal string`);
+    }
+    return normalized;
+  };
+  const rawId = source.dataspaceId ?? source.dataspace_id;
+  const id = exactId(rawId, "registerDataspaceAssetDefinition.dataspaceId");
+  if (id === "0") throw new RangeError("direct dataspaceId must be nonzero");
+  if (source.dataspaceId !== undefined && source.dataspace_id !== undefined &&
+      (exactId(source.dataspaceId, "dataspaceId") !== id ||
+       exactId(source.dataspace_id, "dataspace_id") !== id)) {
+    throw new TypeError("dataspace ID aliases disagree");
+  }
+  return {
+    RegisterDataspaceAssetDefinition: {
+      dataspace_id: BigInt(id),
+      object: buildAssetDefinitionRegistrationPayload(
+        { ...source, owningDomain: null, owning_domain: null }, true,
+      ),
+    },
+  };
+}
+
+function buildAssetDefinitionRegistrationPayload(options, directDataspace) {
   const source = assertPlainObject(options, "registerAssetDefinition");
   if (
     Object.prototype.hasOwnProperty.call(source, "confidentialPolicy") ||
@@ -3652,14 +3692,12 @@ export function buildRegisterAssetDefinitionInstruction(options = {}) {
       (TEXT_REGISTER_ASSET_DEFINITION + "balanceScopePolicy" + TEXT_MUST_BE + "Global or DataspaceRestricted"),
     );
   }
-  if (balanceScopePolicy === "DataspaceRestricted" && owningDomain === null) {
+  if (!directDataspace && balanceScopePolicy === "DataspaceRestricted" && owningDomain === null) {
     throw new TypeError(
       (TEXT_REGISTER_ASSET_DEFINITION + "owningDomain is required for DataspaceRestricted balances"),
     );
   }
   return {
-    Register: {
-      AssetDefinition: {
         id: assertString(
           source.assetDefinitionId ?? source.asset_definition_id ?? source.id,
           (TEXT_REGISTER_ASSET_DEFINITION + TEXT_ASSET_DEFINITION_ID_2),
@@ -3675,11 +3713,9 @@ export function buildRegisterAssetDefinitionInstruction(options = {}) {
         metadata: normalizeMetadata(source.metadata),
         balance_scope_policy: balanceScopePolicy,
         owning_domain: owningDomain,
-      },
-    },
+
   };
 }
-
 /**
  * Build a `Grant::Permission` instruction payload for an account.
  * @param {{ accountId?: string, destinationAccountId?: string, permission?: object, name?: string, payload?: any }} options
@@ -3904,7 +3940,7 @@ export function buildMultisigExecuteTriggerNorito(options, networkPrefix) {
 /**
  * Build a multisig registration instruction payload.
  * @param {{ accountId: string, spec: MultisigSpec | object }} options
- * @returns {{Custom: {payload: {Register: {account: string, spec: object}}}}}
+ * @returns {{Custom: {payload: {Register: {account: string, spec: object, uaid: null}}}}}
  */
 export function buildRegisterMultisigInstruction({ accountId, spec }) {
   const controller = normalizeAccountId(accountId, TEXT_ACCOUNT_ID);
@@ -3915,6 +3951,7 @@ export function buildRegisterMultisigInstruction({ accountId, spec }) {
         Register: {
           account: controller,
           spec: normalizedSpec,
+          uaid: null,
         },
       },
     },

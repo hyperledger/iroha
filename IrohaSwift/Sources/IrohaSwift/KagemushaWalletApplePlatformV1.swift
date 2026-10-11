@@ -15,12 +15,12 @@ import Security
 // `errSecItemNotFound` observed while protected data was available before and after the
 // query; every other error is unavailable and never read as absence.
 //
-// TODO(G2-bridge): connect_norito_bridge registers this adapter as the C vtable behind the
-// Rust `KagemushaWalletPlatformV1` (kagemusha_wallet_advance_v1/platform.rs). The
+// KagemushaWalletV1 supplies the retained C vtable to Rust. Foreign open remains gated
+// on the authenticated operation/Λ/Ω artifact loader. The
 // vtable-facing methods stay internal so app code reaches the payment key and the anchor only
-// through the Rust provider: `keySign` with arbitrary bytes would bypass the role-checked
-// receipt signer. The bridge obtains the custody root path (which verifies the canary) before
-// any storage answer.
+// through the Rust provider: `keySign` with an arbitrary 32-byte message would bypass the
+// domain-checked signers that compute it. The bridge obtains the custody root path (which
+// verifies the canary) before any storage answer.
 //
 // TODO(G2-iOS): device tests: Secure Enclave key generation and signing under
 // kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly (the error domain and code of a signature
@@ -77,6 +77,8 @@ public enum KagemushaWalletAppleStatusV1 {
   public static let dataProtectionUnavailable: Int32 = 0x4B47_000A
   /// The custody root has not been prepared and its canary verified in this process.
   public static let custodyRootNotPrepared: Int32 = 0x4B47_000B
+  /// A signing message is not exactly 32 bytes; nothing was signed.
+  public static let invalidSigningMessage: Int32 = 0x4B47_000C
 }
 
 /// Why the adapter's keychain access group could not be derived.
@@ -118,13 +120,13 @@ public struct KagemushaWalletAppleSlotV1: Equatable, Hashable, Sendable {
   var applicationTag: Data { Data(keychainName.utf8) }
 }
 
-/// Hardware key policy of one enrollment (Rust `KagemushaWalletKeyProfileV1`). On iPhone both
-/// profiles generate a Secure Enclave key; the tag is recorded with the key.
+/// Hardware key profile of one enrollment (Rust `KagemushaWalletKeyProfileV1`); the tag is
+/// recorded with the key. Each platform has exactly one profile and Native never selects
+/// another on iPhone: Android's StrongBox-or-TEE tag 2, the retired TEE-only tag 3 and every
+/// other tag fail closed here.
 public enum KagemushaWalletAppleKeyProfileV1: UInt8, Equatable, Hashable, Sendable {
-  /// The dedicated secure element only.
+  /// The Secure Enclave, the Apple platform's only profile.
   case secureElement = 1
-  /// The secure element or, on Android, the TEE.
-  case secureElementOrTee = 2
 }
 
 /// What a payment-key generation binds (Rust `KagemushaWalletKeyGenerationRequestV1`): the
@@ -184,7 +186,7 @@ enum KagemushaWalletAppleKeyGenerationV1: Equatable {
   case generated(publicKey: Data)
   /// A key already exists; it is never replaced.
   case alreadyPresent
-  /// Unknown; the provider probes again before acting.
+  /// Unknown; original-return recovery and the independent key probe remain fallible.
   case unavailable(KagemushaWalletAppleUnavailableV1)
 }
 
@@ -214,9 +216,11 @@ enum KagemushaWalletAppleRemoveOutcomeV1: Equatable {
 ///
 /// - The payment key is a Secure Enclave P-256 key (`kSecAttrTokenIDSecureEnclave`) stored
 ///   permanently under the slot's tag with `.privateKeyUsage` only. It is never bound to user
-///   presence or biometry (spec §2.3), never replaced, and signs only as DER through
-///   `SecKeyCreateSignature(.ecdsaSignatureMessageX962SHA256)`; Rust normalizes to low S and
-///   verifies before any byte is written.
+///   presence or biometry (spec §2.3), never replaced, and signs only the exact 32-byte Poseidon
+///   signing message as DER through
+///   `SecKeyCreateSignature(.ecdsaSignatureMessageX962SHA256)` (owner answer A1: the Secure
+///   Enclave hashes the message once with SHA-256; the digest variants are never used); Rust
+///   normalizes to low S and verifies before any byte is written.
 /// - The rollback anchor is one generic-password item per slot, created add-only and read
 ///   inside protected-data brackets. Its value is the Rust-encoded
 ///   `{generation, marker_file_digest}`.
@@ -232,6 +236,9 @@ public final class KagemushaWalletApplePlatformV1: @unchecked Sendable {
   public static let anchorService = "org.hyperledger.iroha.kagemusha.wallet.v1.marker-anchor"
   /// Rust `KAGEMUSHA_WALLET_ANCHOR_MAX_BYTES_V1`.
   static let anchorMaxBytes = 256
+  /// Complete enumeration resource bound, shared with Native. Overflow refuses the inventory;
+  /// it never hides a surviving key or permits a replacement incarnation.
+  static let keyEnumerationMaxSlots = 4096
   /// Rust `KagemushaWalletAnchorPolicyV1::Keychain` tag: this platform keeps an anchor.
   static let anchorPolicyTag: UInt8 = 1
   /// Accessibility of both custody keychain items, the payment key and the rollback anchor:
@@ -247,6 +254,12 @@ public final class KagemushaWalletApplePlatformV1: @unchecked Sendable {
   /// Access-control flags of the payment key: Secure Enclave private-key use only, with no
   /// user-presence, biometry or passcode-entry constraint (spec §2.3).
   static let paymentKeyAccessFlags: SecAccessControlCreateFlags = [.privateKeyUsage]
+  /// The only signing algorithm of the payment key: ECDSA-P256 over SHA-256 of the 32-byte
+  /// signing message (`kSecKeyAlgorithmECDSASignatureMessageX962SHA256`, owner answer A1).
+  static let signingAlgorithm = SecKeyAlgorithm.ecdsaSignatureMessageX962SHA256
+  /// Exact length of every signing message: the canonical encoding of one σ-field value, the
+  /// Rust `KagemushaWalletSignMessageV1` bytes.
+  static let signingMessageBytes = KagemushaWalletWireV1.signingMessageBytes
 
   /// Keychain access group of every item the adapter adds or queries: the app's own
   /// application identifier `<App ID prefix>.<bundle id>`, so no extension or other app of the
@@ -255,6 +268,19 @@ public final class KagemushaWalletApplePlatformV1: @unchecked Sendable {
   let system: KagemushaWalletAppleSystemV1
   let appAttest: any KagemushaWalletAppAttestServiceV1
   private let generationLock = NSLock()
+  // Only actual successful SecKeyCreateRandomKey returns enter this map. A Keychain
+  // lookup never reconstructs an original, and this same platform object owns its lifetime.
+  private final class GeneratedOriginal {
+    let key: SecKey
+    let request: KagemushaWalletAppleKeyGenerationRequestV1
+    var publicKey: Data?
+
+    init(key: SecKey, request: KagemushaWalletAppleKeyGenerationRequestV1) {
+      self.key = key
+      self.request = request
+    }
+  }
+  private var generationReplies: [KagemushaWalletAppleSlotV1: GeneratedOriginal] = [:]
   private let rootStateLock = NSLock()
   private var rootVerified = false
 
@@ -263,7 +289,7 @@ public final class KagemushaWalletApplePlatformV1: @unchecked Sendable {
   ///
   /// - Parameters:
   ///   - appAttest: App Attest service of enrollment step E5
-  ///     (``attestEnrollment(slot:paymentPublicKey:challengeDigest:)``); key generation is
+  ///     (``KagemushaWalletEnrollmentV1/collectAppleEvidence(platform:target:requireCurrent:)``); key generation is
   ///     refused where it is unsupported.
   ///   - applicationIdentifierPrefix: the app's App ID prefix (normally its Team ID); with the
   ///     main bundle identifier it names the app's own keychain access group.
@@ -490,12 +516,15 @@ public final class KagemushaWalletApplePlatformV1: @unchecked Sendable {
   /// Generate the slot's payment key (Rust `key_generate`). The provider calls it only after a
   /// definitive absent probe; the adapter probes again under its lock and never replaces a
   /// key. Generation is refused without a Secure Enclave, App Attest support or a device
-  /// passcode. Any unknown outcome is unavailable, so the provider probes again before acting.
+  /// passcode. Unknown readback remains unavailable; recovery never replaces a returned key.
   func keyGenerate(
     _ slot: KagemushaWalletAppleSlotV1, _ request: KagemushaWalletAppleKeyGenerationRequestV1
   ) -> KagemushaWalletAppleKeyGenerationV1 {
     generationLock.lock()
     defer { generationLock.unlock() }
+    // A successful vendor return consumes this slot even if later readback is unknown.
+    // Only the readback-only recovery operation can finish its original result.
+    if generationReplies[slot] != nil { return .alreadyPresent }
     switch keyProbe(slot) {
     case .present: return .alreadyPresent
     case .unavailable(let reason): return .unavailable(reason)
@@ -522,12 +551,41 @@ public final class KagemushaWalletApplePlatformV1: @unchecked Sendable {
       if failure.osStatus == errSecDuplicateItem { return .alreadyPresent }
       return .unavailable(securityFailure("payment key generation failed", slot: slot, failure))
     }
-    guard let publicKey = Self.x963PublicKey(of: created) else {
-      diagnose("generated payment key public key cannot be exported", slot: slot)
-      return .unavailable(.keyUnusable)
+    // Retain the actual SecKey before public export, protected-data or Keychain reads.
+    let original = GeneratedOriginal(key: created, request: request)
+    generationReplies[slot] = original
+    return readBackGenerated(slot, original)
+  }
+
+  /// Retry readback of this platform object's actual successful generation return.
+  /// Nil means no successful return was retained, not that a key is absent. This method
+  /// never creates, signs with, deletes, replaces or reconstructs a key.
+  func recoverGenerationReply(
+    _ slot: KagemushaWalletAppleSlotV1, _ request: KagemushaWalletAppleKeyGenerationRequestV1
+  ) -> KagemushaWalletAppleKeyGenerationV1? {
+    generationLock.lock()
+    defer { generationLock.unlock() }
+    guard let original = generationReplies[slot] else { return nil }
+    guard original.request == request else { return .some(.unavailable(.keyUnusable)) }
+    return readBackGenerated(slot, original)
+  }
+
+  /// Called only while holding generationLock, from a retained actual SecKey return.
+  private func readBackGenerated(
+    _ slot: KagemushaWalletAppleSlotV1, _ original: GeneratedOriginal
+  ) -> KagemushaWalletAppleKeyGenerationV1 {
+    if case .failure(let reason) = storageState() { return .unavailable(reason) }
+    if original.publicKey == nil {
+      guard let publicKey = Self.x963PublicKey(of: original.key) else {
+        diagnose("generated payment key public key cannot be exported", slot: slot)
+        return .unavailable(.keyUnusable)
+      }
+      // Keep the original public bytes before the subsequent Keychain read can fail.
+      original.publicKey = publicKey
     }
-    switch keyProbe(slot) {
-    case .present(let stored) where stored == publicKey:
+    guard let publicKey = original.publicKey else { return .unavailable(.keyUnusable) }
+    switch bracketed({ lookupPaymentKey(slot) }) {
+    case .present(let stored) where stored.publicKey == publicKey && stored.label == original.request.label:
       return .generated(publicKey: publicKey)
     case .present:
       diagnose("generated payment key differs from the stored key", slot: slot)
@@ -540,14 +598,19 @@ public final class KagemushaWalletApplePlatformV1: @unchecked Sendable {
     }
   }
 
-  /// Sign the exact 32-byte canonical message with the slot's payment key (Rust `key_sign`).
-  /// The Secure Enclave signs `SHA-256(message)` and returns strict DER. Only the Rust
-  /// role-checked signers construct messages; this method stays internal for that reason. It is
-  /// not bracketed, so a locked keychain is told apart from one not yet unlocked since boot.
+  /// Sign the exact 32-byte signing `message` with the slot's payment key (Rust `key_sign`): the
+  /// Secure Enclave signs it with ``signingAlgorithm``, so the ECDSA hash is `SHA-256(message)`,
+  /// and returns strict DER. Nothing here prefixes, hashes or truncates the message. Only the
+  /// Rust domain-checked signers construct messages; this method stays internal for that reason.
+  /// A message of another length is refused
+  /// (``KagemushaWalletAppleStatusV1/invalidSigningMessage``) before the keychain is queried. It
+  /// is not bracketed, so a locked keychain is told apart from one not yet unlocked since boot.
   func keySign(_ slot: KagemushaWalletAppleSlotV1, message: Data)
     -> Result<Data, KagemushaWalletAppleUnavailableV1>
   {
-    guard message.count == 32 else { return .failure(.keyUnusable) }
+    guard message.count == Self.signingMessageBytes else {
+      return .failure(.platform(KagemushaWalletAppleStatusV1.invalidSigningMessage))
+    }
     let signed: Result<Data, KagemushaWalletAppleUnavailableV1>
     switch lookupPaymentKey(slot) {
     case .present(let item): signed = sign(item.key, slot: slot, message: message)
@@ -558,12 +621,14 @@ public final class KagemushaWalletApplePlatformV1: @unchecked Sendable {
     return signed
   }
 
-  /// DER ECDSA P-256 / SHA-256 over `message` with `key`.
+  /// DER ECDSA P-256 / SHA-256 over the 32-byte `message` with `key`.
   func sign(_ key: SecKey, slot: KagemushaWalletAppleSlotV1, message: Data)
     -> Result<Data, KagemushaWalletAppleUnavailableV1>
   {
-    guard message.count == 32 else { return .failure(.keyUnusable) }
-    let algorithm = SecKeyAlgorithm.ecdsaSignatureMessageX962SHA256
+    guard message.count == Self.signingMessageBytes else {
+      return .failure(.platform(KagemushaWalletAppleStatusV1.invalidSigningMessage))
+    }
+    let algorithm = Self.signingAlgorithm
     guard SecKeyIsAlgorithmSupported(key, .sign, algorithm) else {
       diagnose("payment key does not support ECDSA P-256 SHA-256 signing", slot: slot)
       return .failure(.keyUnusable)
@@ -597,11 +662,11 @@ public final class KagemushaWalletApplePlatformV1: @unchecked Sendable {
 
   /// Slots of every payment key in the adapter's access group, sorted by slot bytes (design
   /// R10: a payment-key item whose slot has no files is `LostCustody(KeyWithoutMarker)` after
-  /// delete and reinstall). Empty only for `errSecItemNotFound` inside protected-data
-  /// brackets. Tags are parsed strictly; a key with another tag is not a wallet key, and a
-  /// malformed `kgm-w1-` tag is reported and never read as a slot.
-  // TODO(G2-bridge): expose as a vtable entry once the Rust trait gains the key enumeration
-  // that reconcile.rs `TODO(G2-iOS)` (R10, KeyWithoutMarker) asks for.
+  /// delete and reinstall). Every successful inventory, including an empty class query or
+  /// `errSecItemNotFound`, requires protected storage before and after querying.
+  /// Tags are parsed strictly; a key with another tag is not a wallet key, and a
+  /// malformed `kgm-w1-` tag refuses the complete inventory: it may name surviving custody
+  /// and must never be silently omitted. Native consumes this through callback operation10.
   func keyEnumerate() -> Result<[KagemushaWalletAppleSlotV1], KagemushaWalletAppleUnavailableV1> {
     let answer = bracketed { () -> KagemushaWalletAppleProbeV1<[KagemushaWalletAppleSlotV1]> in
       var query = paymentKeyClassQuery()
@@ -623,14 +688,23 @@ public final class KagemushaWalletApplePlatformV1: @unchecked Sendable {
         guard let tag = item[kSecAttrApplicationTag as String] as? Data else { continue }
         if let slot = KagemushaWalletAppleSlotV1(applicationTag: tag) {
           slots.insert(slot)
+          guard slots.count <= Self.keyEnumerationMaxSlots else {
+            diagnose("payment-key enumeration exceeds resource bound")
+            return .unavailable(.platform(KagemushaWalletAppleStatusV1.malformedKeychainResult))
+          }
         } else if tag.starts(with: walletPrefix) {
           diagnose("malformed wallet payment-key tag", detail: "\(tag.count) bytes")
+          return .unavailable(.platform(KagemushaWalletAppleStatusV1.malformedKeychainResult))
         }
       }
       return .present(slots.sorted { $0.bytes.lexicographicallyPrecedes($1.bytes) })
     }
     switch answer {
-    case .present(let slots): return .success(slots)
+    case .present(let slots):
+      // `bracketed` postchecks only `.absent`; a successful class query can also produce
+      // an empty wallet inventory. Every complete inventory requires the final bracket.
+      if case .failure(let reason) = storageState() { return .failure(reason) }
+      return .success(slots)
     case .absent: return .success([])
     case .unavailable(let reason): return .failure(reason)
     }

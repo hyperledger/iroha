@@ -40,6 +40,9 @@ fn contract_artifact_with_frame_at(
         roots.insert(target);
     }
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        events: Vec::new(),
+        enum_types: Vec::new(),
+        permissions: Vec::new(),
         callables: roots
             .into_iter()
             .map(|pc| {
@@ -70,7 +73,8 @@ fn contract_artifact_with_frame_at(
             return_schema: Some(EntrypointValueTypeV1 {
                 nodes: vec![EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("Execute".into()),
+            authorization:
+                iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),

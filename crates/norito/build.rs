@@ -1,5 +1,8 @@
+//! Norito build configuration, binding checks and test-only origin mutations.
+
 use std::{env, path::PathBuf, process::Command};
 fn main() {
+    emit_mutation_cfg();
     emit_build_cfgs();
     if env::var_os("DOCS_RS").is_some() {
         return;
@@ -114,4 +117,63 @@ fn env_flag_enabled(name: &str) -> bool {
         }
         Err(_) => false,
     }
+}
+
+// Each selector belongs only to this crate's libtest build. Never inject a
+// dependency mutation through compiler flags or a shipping feature.
+const CFG: &str = "sumeragi_norito_mutation";
+const ENV: &str = "SUMERAGI_NORITO_MUTATION";
+const IDS: &[&str] = &["NC1", "NC2", "NC3", "NC4", "NC5"];
+
+fn emit_mutation_cfg() {
+    let values = IDS
+        .iter()
+        .map(|id| format!("{id:?}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    println!("cargo:rustc-check-cfg=cfg({CFG}, values({values}))");
+    println!("cargo:rerun-if-env-changed={ENV}");
+    println!("cargo:rerun-if-changed=build.rs");
+    let rustflags = env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default();
+    assert!(
+        !rustflags.contains(CFG),
+        "Norito mutation cfg cannot be injected through compiler flags; use the owning test selector"
+    );
+    let requested = env::var(ENV).ok().filter(|id| !id.is_empty());
+    if env::var_os("CARGO_FEATURE_MUTATION_TESTING").is_none() {
+        if let Some(id) = requested {
+            println!("cargo:warning={ENV}={id} ignored: Norito mutation-testing is off");
+        }
+        return;
+    }
+    let Some(id) = requested else {
+        return;
+    };
+    assert!(
+        IDS.contains(&id.as_str()),
+        "{ENV}={id:?}: unknown Norito mutation id"
+    );
+    println!("cargo:rerun-if-changed=src");
+    let needle = format!("{CFG} = \"{id}\"");
+    assert!(
+        mentions_mutation(std::path::Path::new("src"), &needle),
+        "{ENV}={id}: missing registered source switch"
+    );
+    println!("cargo:rustc-cfg={CFG}=\"{id}\"");
+    println!("cargo:warning=norito is built with mutation {id} (spec §13.4)");
+}
+
+fn mentions_mutation(directory: &std::path::Path, needle: &str) -> bool {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        if path.is_dir() {
+            mentions_mutation(&path, needle)
+        } else {
+            path.extension().is_some_and(|extension| extension == "rs")
+                && std::fs::read_to_string(&path).is_ok_and(|source| source.contains(needle))
+        }
+    })
 }

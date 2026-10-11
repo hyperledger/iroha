@@ -41,11 +41,8 @@ struct NposGenesisFingerprintInput {
 ///
 /// Only first-release frozen inputs are representable in the encoded
 /// projection: mode, cadence, block bound, signed DA/Nexus context, and `NPoS`
-/// election parameters. The separately signed, network-independent KAGEMUSHA
-/// mint-finality genesis templates are intentionally excluded from this
-/// secondary fingerprint; they remain authenticated by the genesis metadata
-/// that carries both this digest and the templates. Exact network identity is
-/// likewise not part of this genesis-embedded value: runtime handshakes
+/// election parameters. Exact network identity is not part of this
+/// genesis-embedded value: runtime handshakes
 /// authenticate a separate required `NetworkId`, avoiding a self-reference
 /// through the genesis block hash.
 ///

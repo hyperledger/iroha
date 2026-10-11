@@ -72,6 +72,44 @@ pub(in crate::state) struct JournalCapture {
     entries: u64,
 }
 
+/// Completed canonical tail whose final control shell has not been allocated.
+/// Only the same immutable State publisher retains this move-only local owner.
+/// Its rows retire before the original budget control; no source can be rebound.
+pub(in crate::state) struct PendingCutCapsule {
+    capsule: CutCapsule,
+    budget: AllocationBudget,
+}
+
+impl PendingCutCapsule {
+    /// Admit and allocate only the final shell using this same original pool.
+    pub(in crate::state) fn try_share(self) -> Result<ChargedShared<CutCapsule>, (Self, CutError)> {
+        let mut reservation = match self
+            .budget
+            .try_reserve(ChargedShared::<CutCapsule>::allocation_layout())
+        {
+            Ok(reservation) => reservation,
+            Err(error) => return Err((self, error.into())),
+        };
+        let Self { capsule, budget } = self;
+        ChargedShared::from_reservation(capsule, &mut reservation).map_err(|(capsule, error)| {
+            let error = match error {
+                iroha_allocation::PrepaidSharedError::Allocator { .. } => {
+                    CutError::Deferred(ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into())
+                }
+                iroha_allocation::PrepaidSharedError::Reservation(error) => CutError::Invalid(
+                    format!("World cut original control layout differs: {error}"),
+                ),
+            };
+            (Self { capsule, budget }, error)
+        })
+    }
+
+    #[cfg(test)]
+    pub(in crate::state) fn identity_for_test(&self) -> CutIdentityForTest {
+        self.capsule.identity_for_test()
+    }
+}
+
 /// Exact native preimages of only post-result changes, bound to original publication.
 pub(in crate::state) struct CutCapsule {
     pub(in crate::state) tip: NativeExecutionTip,
@@ -358,6 +396,8 @@ impl JournalCapture {
             entries,
         })
     }
+    /// Standalone component convenience retains the original one-attempt contract.
+    #[cfg(test)]
     pub(in crate::state) fn prepare(
         &self,
         world: &WorldBlock<'_>,
@@ -365,92 +405,114 @@ impl JournalCapture {
         generation: u64,
         budget: &AllocationBudget,
     ) -> Result<ChargedShared<CutCapsule>, CutError> {
-        let mut final_rows = journal(world, budget, true)?;
-        let mut old = 0;
-        let mut changed = 0;
-        for row in final_rows.as_mut_slice() {
-            if let Some(original) = self.rows.as_slice().get(old) {
-                if original.identity() < row.identity() {
-                    return Err("World cut lost an original touched identity"
-                        .to_owned()
-                        .into());
+        self.prepare_retained(world, tip, generation, budget)
+            .map_err(|(_pending, error)| error)
+    }
+
+    /// Return a completed original capsule only when its final shell locally refuses.
+    /// Earlier journal/verification errors retain their original order and no success.
+    pub(in crate::state) fn prepare_retained(
+        &self,
+        world: &WorldBlock<'_>,
+        tip: NativeExecutionTip,
+        generation: u64,
+        budget: &AllocationBudget,
+    ) -> Result<ChargedShared<CutCapsule>, (Option<PendingCutCapsule>, CutError)> {
+        let mut completed = None;
+        let result = (|| -> Result<ChargedShared<CutCapsule>, CutError> {
+            let mut final_rows = journal(world, budget, true)?;
+            let mut old = 0;
+            let mut changed = 0;
+            for row in final_rows.as_mut_slice() {
+                if let Some(original) = self.rows.as_slice().get(old) {
+                    if original.identity() < row.identity() {
+                        return Err("World cut lost an original touched identity"
+                            .to_owned()
+                            .into());
+                    }
+                    if original.identity() == row.identity() {
+                        row.before = original.after;
+                        old += 1;
+                    }
+                    // Otherwise this identity was first touched after R, so native
+                    // journal.before is exactly its at-R preimage (including absence).
                 }
-                if original.identity() == row.identity() {
-                    row.before = original.after;
-                    old += 1;
+                if row.before != row.after {
+                    changed += 1;
                 }
-                // Otherwise this identity was first touched after R, so native
-                // journal.before is exactly its at-R preimage (including absence).
             }
-            if row.before != row.after {
-                changed += 1;
-            }
-        }
-        if old != self.rows.as_slice().len() {
-            return Err("World cut omits original execution touches"
-                .to_owned()
-                .into());
-        }
-        let mut rows = ChargedBuffer::new(changed, budget)?;
-        for row in final_rows.as_slice() {
-            if row.before != row.after {
-                rows.push_reserved(*row);
-            }
-        }
-        drop(final_rows);
-        // Admit the accumulator's sole heap allocation before cloning its lanes.
-        let layout = Layout::new::<[u16; LANES]>();
-        let _scratch = budget
-            .try_reserve(layout)?
-            .try_split(layout)
-            .map_err(|e| CutError::Invalid(e.to_string()))?;
-        let applied = world.state_accumulator.get();
-        let mut reconstructed = applied.clone();
-        let index = field_index().as_ref().map_err(Clone::clone)?;
-        for row in rows.as_slice() {
-            let path = match index.by_name.get(
-                index.ids[row.slot]
-                    .strip_prefix("world.")
-                    .unwrap_or(index.ids[row.slot]),
-            ) {
-                Some(Classified::Canonical { path, .. }) => path,
-                _ => return Err("World cut canonical path missing".to_owned().into()),
-            };
-            if let Some(after) = row.after {
-                reconstructed.remove(&element(path, row.key.as_ref(), &after));
-            }
-            if let Some(before) = row.before {
-                reconstructed.add(&element(path, row.key.as_ref(), &before));
-            }
-        }
-        if reconstructed.entries() != self.entries || reconstructed.root()? != self.root {
-            return Err(
-                "World cut exact frozen tail does not reconstruct original R/count"
+            if old != self.rows.as_slice().len() {
+                return Err("World cut omits original execution touches"
                     .to_owned()
-                    .into(),
-            );
-        }
-        let capsule = CutCapsule {
-            tip,
-            generation,
-            root: self.root,
-            entries: self.entries,
-            applied_root: applied.root()?,
-            applied_entries: applied.entries(),
-            rows,
-        };
-        let mut reservation =
-            budget.try_reserve(ChargedShared::<CutCapsule>::allocation_layout())?;
-        ChargedShared::from_reservation(capsule, &mut reservation).map_err(|(_owner, error)| {
-            match error {
-                iroha_allocation::PrepaidSharedError::Allocator { .. } => {
-                    CutError::Deferred(ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into())
-                }
-                iroha_allocation::PrepaidSharedError::Reservation(error) => CutError::Invalid(
-                    format!("World cut original control layout differs: {error}"),
-                ),
+                    .into());
             }
-        })
+            let mut rows = ChargedBuffer::new(changed, budget)?;
+            for row in final_rows.as_slice() {
+                if row.before != row.after {
+                    rows.push_reserved(*row);
+                }
+            }
+            drop(final_rows);
+            // Admit the accumulator's sole heap allocation before cloning its lanes.
+            let layout = Layout::new::<[u16; LANES]>();
+            let _scratch = budget
+                .try_reserve(layout)?
+                .try_split(layout)
+                .map_err(|e| CutError::Invalid(e.to_string()))?;
+            let applied = world.state_accumulator.get();
+            let mut reconstructed = applied.clone();
+            let index = field_index().as_ref().map_err(Clone::clone)?;
+            for row in rows.as_slice() {
+                let path = match index.by_name.get(
+                    index.ids[row.slot]
+                        .strip_prefix("world.")
+                        .unwrap_or(index.ids[row.slot]),
+                ) {
+                    Some(Classified::Canonical { path, .. }) => path,
+                    _ => return Err("World cut canonical path missing".to_owned().into()),
+                };
+                if let Some(after) = row.after {
+                    reconstructed.remove(&element(path, row.key.as_ref(), &after));
+                }
+                if let Some(before) = row.before {
+                    reconstructed.add(&element(path, row.key.as_ref(), &before));
+                }
+            }
+            if reconstructed.entries() != self.entries || reconstructed.root()? != self.root {
+                return Err(
+                    "World cut exact frozen tail does not reconstruct original R/count"
+                        .to_owned()
+                        .into(),
+                );
+            }
+            let capsule = CutCapsule {
+                tip,
+                generation,
+                root: self.root,
+                entries: self.entries,
+                applied_root: applied.root()?,
+                applied_entries: applied.entries(),
+                rows,
+            };
+            #[cfg(test)]
+            completion_observer::completed(&capsule);
+            // Keep the original reconstruction and scratch alive through this first
+            // shell attempt, preserving its exact earlier resource/error priority.
+            let pending = PendingCutCapsule {
+                capsule,
+                budget: budget.clone(),
+            };
+            match pending.try_share() {
+                Ok(shared) => Ok(shared),
+                Err((pending, error)) => {
+                    if matches!(&error, CutError::Deferred(_)) {
+                        completed = Some(pending);
+                    }
+                    Err(error)
+                }
+            }
+        })();
+        result.map_err(|error| (completed, error))
     }
 }
 
@@ -483,3 +545,123 @@ impl StateBlock<'_> {
 #[cfg(test)]
 #[path = "world_state_cut_tests.rs"]
 mod tests;
+
+/// Observe actual completed tail backing without giving it publication authority.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CutIdentityForTest {
+    rows: usize,
+    count: usize,
+    tip: NativeExecutionTip,
+    generation: u64,
+    root: Hash,
+    entries: u64,
+    applied_root: Hash,
+    applied_entries: u64,
+}
+
+#[cfg(test)]
+impl CutCapsule {
+    pub(crate) fn identity_for_test(&self) -> CutIdentityForTest {
+        CutIdentityForTest {
+            rows: self.rows.as_slice().as_ptr() as usize,
+            count: self.rows.as_slice().len(),
+            tip: self.tip,
+            generation: self.generation,
+            root: self.root,
+            entries: self.entries,
+            applied_root: self.applied_root,
+            applied_entries: self.applied_entries,
+        }
+    }
+}
+
+/// Thread-local real-pool refusal only after actual tail reconstruction succeeds.
+#[cfg(test)]
+pub(crate) mod completion_observer {
+    use super::*;
+    use std::cell::RefCell;
+
+    struct Original {
+        budget: AllocationBudget,
+        held: Option<iroha_allocation::AllocationReservation>,
+        completed: usize,
+        first: Option<CutIdentityForTest>,
+    }
+    thread_local! {
+        static ORIGINAL: RefCell<Option<Original>> = const { RefCell::new(None) };
+    }
+
+    /// Exact native shell size without exposing the private capsule type.
+    pub(crate) fn control_bytes() -> usize {
+        ChargedShared::<CutCapsule>::allocation_layout().size()
+    }
+
+    /// Borrow the observation on the actual synchronous Worker fixture thread.
+    pub(crate) struct Observation;
+    impl Observation {
+        pub(crate) fn snapshot(&self) -> (usize, Option<CutIdentityForTest>) {
+            ORIGINAL.with(|slot| {
+                let slot = slot.borrow();
+                let original = slot.as_ref().expect("original cut observation");
+                (original.completed, original.first)
+            })
+        }
+        pub(crate) fn release_original_blocker(&self) {
+            let held = ORIGINAL.with(|slot| {
+                slot.borrow_mut()
+                    .as_mut()
+                    .expect("original cut observation")
+                    .held
+                    .take()
+            });
+            // Physical publication guards have returned before this actual release.
+            drop(held);
+        }
+    }
+
+    pub(crate) fn observe<R>(
+        budget: &AllocationBudget,
+        action: impl FnOnce(&Observation) -> R,
+    ) -> R {
+        struct Restore(Option<Original>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                let original = ORIGINAL.with(|slot| slot.replace(self.0.take()));
+                drop(original);
+            }
+        }
+        let previous = ORIGINAL.with(|slot| {
+            slot.replace(Some(Original {
+                budget: budget.clone(),
+                held: None,
+                completed: 0,
+                first: None,
+            }))
+        });
+        let restore = Restore(previous);
+        let result = action(&Observation);
+        drop(restore);
+        result
+    }
+
+    pub(super) fn completed(capsule: &CutCapsule) {
+        ORIGINAL.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            let Some(original) = slot.as_mut() else {
+                return;
+            };
+            original.completed += 1;
+            if original.first.is_none() {
+                original.first = Some(capsule.identity_for_test());
+                let remaining = original.budget.limit_bytes() - original.budget.reserved_bytes();
+                let leave = ChargedShared::<CutCapsule>::allocation_layout().size() - 1;
+                assert!(remaining > leave);
+                original.held =
+                    Some(original.budget.try_reserve_bytes(remaining - leave).expect(
+                        "occupy the actual original pool only at completed tail admission",
+                    ));
+            }
+        });
+    }
+}

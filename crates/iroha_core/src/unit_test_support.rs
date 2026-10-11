@@ -48,7 +48,9 @@ pub(crate) fn run_in_isolated_harness(exact: &str) -> bool {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "{exact} failed in its isolated harness\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        "{exact} failed in its isolated harness\nstdout:\n{}\nstderr:\n{}",
+        isolated_harness_diagnostic(&stdout),
+        isolated_harness_diagnostic(&stderr),
     );
     assert!(
         stdout.contains(&format!("test {exact} ... ok"))
@@ -56,6 +58,17 @@ pub(crate) fn run_in_isolated_harness(exact: &str) -> bool {
         "{exact} did not complete exactly once\nstdout:\n{stdout}\nstderr:\n{stderr}",
     );
     true
+}
+
+// Child diagnostics cannot introduce another top-level libtest inventory into
+// the parent's report. Keep every original message under a visible line prefix.
+fn isolated_harness_diagnostic(output: &str) -> String {
+    use std::fmt::Write as _;
+    let mut diagnostic = String::new();
+    for line in output.lines() {
+        writeln!(diagnostic, "  | {line}").expect("write child diagnostics to String");
+    }
+    diagnostic
 }
 
 /// Produce the complete original AXT fixture after transient local contention.
@@ -95,6 +108,33 @@ pub(crate) fn prove_axt_bound_batch_when_available(
 
 mod tests {
     use super::synthetic_network_id;
+
+    #[test]
+    fn isolated_child_failure_preserves_cause_without_duplicate_libtest_records() {
+        const EXACT: &str = "unit_test_support::tests::isolated_child_failure_preserves_cause_without_duplicate_libtest_records";
+        const CAUSE: &str = "original isolated diagnostic failure";
+        if std::env::var_os("IROHA_CORE_ISOLATED_UNIT_TEST_CHILD").as_deref()
+            == Some(std::ffi::OsStr::new(EXACT))
+        {
+            panic!("{CAUSE}");
+        }
+        let failure = std::panic::catch_unwind(|| super::run_in_isolated_harness(EXACT))
+            .expect_err("the real failing child must fail its parent boundary");
+        let message = failure
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| failure.downcast_ref::<&str>().copied())
+            .expect("the original harness failure has a textual diagnostic");
+        assert!(message.contains(CAUSE));
+        assert!(message.contains(&format!("  | test {EXACT} ...")));
+        assert!(message.contains("  | test result: FAILED. 0 passed; 1 failed;"));
+        assert!(message.contains("  | running 1 test"));
+        assert!(message.lines().all(|line| {
+            !line.starts_with("running ")
+                && !line.starts_with("test ")
+                && !line.starts_with("test result:")
+        }));
+    }
 
     #[test]
     fn synthetic_network_id_is_deterministic_per_seed() {

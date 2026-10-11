@@ -32,7 +32,7 @@ use iroha_data_model::{
     sumeragi_lanes::{SumeragiLaneRecord, SumeragiLaneStatus},
 };
 use iroha_model_base::topology::LaneId;
-use iroha_sumeragi::{crypto::NoAttestation, types::Hash32};
+use iroha_sumeragi::types::Hash32;
 use parking_lot::Mutex;
 
 use super::{
@@ -123,6 +123,7 @@ struct Inner {
     running: Mutex<BTreeMap<(LaneId, [u8; 32]), RunningLane>>,
     recovering: Mutex<BTreeMap<(LaneId, [u8; 32]), PendingRecovery>>,
     stop: AtomicBool,
+    transactions_pending: AtomicBool,
 }
 
 /// The node's lane instances and the thread that keeps them in step with the global chain.
@@ -166,11 +167,9 @@ impl core::fmt::Debug for LaneRunnerHandle {
 }
 
 impl LaneRunnerHandle {
-    /// Tell every lane driver that the queue has new transactions.
+    /// Notify the owned runner without taking any live lane or recovery lock.
     pub fn transactions_available(&self) {
-        for lane in self.inner.running.lock().values() {
-            lane.driver.handle().transactions_available();
-        }
+        self.inner.notify_transactions();
     }
 
     /// Every lane of the committed state with the status of the node's instance of it.
@@ -204,7 +203,37 @@ impl LaneRunnerHandle {
     }
 }
 
+/// Weak queue admission binding; it cannot keep State/Queue/lane drivers alive.
+#[derive(Clone)]
+pub(crate) struct QueueWake {
+    inner: std::sync::Weak<Inner>,
+    budget: iroha_allocation::AllocationBudget,
+}
+
+impl QueueWake {
+    pub(crate) fn belongs_to(&self, budget: &iroha_allocation::AllocationBudget) -> bool {
+        self.budget.same_pool(budget)
+    }
+
+    pub(crate) fn notify(&self) {
+        self.budget.with_deferred_refund_notifications(|_| {
+            if let Some(inner) = self.inner.upgrade() {
+                inner.notify_transactions();
+                // Concurrent shutdown can leave only this temporary original owner.
+                drop(inner);
+            }
+        });
+    }
+}
+
 impl LaneRunner {
+    pub(crate) fn queue_wake(&self) -> QueueWake {
+        QueueWake {
+            inner: Arc::downgrade(&self.inner),
+            budget: self.inner.inputs.state.ivm_execution_budget(),
+        }
+    }
+
     /// A handle of the lane instances.
     #[must_use]
     pub fn handle(&self) -> LaneRunnerHandle {
@@ -225,6 +254,7 @@ impl LaneRunner {
             running: Mutex::new(BTreeMap::new()),
             recovering: Mutex::new(BTreeMap::new()),
             stop: AtomicBool::new(false),
+            transactions_pending: AtomicBool::new(false),
         });
         inner.reconcile();
         let thread = {
@@ -232,12 +262,20 @@ impl LaneRunner {
             crate::sumeragi::threads::sumeragi_thread_builder("sumeragi-lanes").spawn(
                 move || {
                     while !inner.stop.load(Ordering::Acquire) {
+                        inner.drain_transactions();
                         let height = inner.inputs.watch.height();
-                        let _ = inner
-                            .inputs
-                            .watch
-                            .wait_for(height.saturating_add(1), IDLE_CHECK);
+                        inner.inputs.watch.wait_for_runner(
+                            height.saturating_add(1),
+                            IDLE_CHECK,
+                            &inner.transactions_pending,
+                            &inner.stop,
+                        );
+                        if inner.stop.load(Ordering::Acquire) {
+                            break;
+                        }
                         inner.reconcile();
+                        // Arrivals during reconciliation include every newly started lane.
+                        inner.drain_transactions();
                     }
                 },
             )?
@@ -263,6 +301,25 @@ impl LaneRunner {
             .collect()
     }
 
+    /// Hold the real map only in the native nonblocking admission control.
+    #[cfg(test)]
+    pub(crate) fn with_live_lane_map_for_test(&self, observe: impl FnOnce()) {
+        let lanes = self.inner.running.lock();
+        assert!(!lanes.is_empty(), "an original live lane must exist");
+        observe();
+        drop(lanes);
+    }
+
+    /// Observe actual live lane EMPTY completion consumed by its Core; never a wake hint.
+    #[cfg(test)]
+    pub(crate) fn waiting_after_empty_for_test(&self) -> bool {
+        self.inner
+            .running
+            .lock()
+            .values()
+            .any(|lane| lane.driver.handle().waiting_after_empty_for_test())
+    }
+
     /// Stop every lane instance and the runner thread.
     pub fn shutdown(mut self) {
         self.stop();
@@ -270,6 +327,7 @@ impl LaneRunner {
 
     fn stop(&mut self) {
         self.inner.stop.store(true, Ordering::Release);
+        self.inner.inputs.watch.wake_runner();
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -287,6 +345,24 @@ impl Drop for LaneRunner {
 }
 
 impl Inner {
+    fn notify_transactions(&self) {
+        if !self.stop.load(Ordering::Acquire)
+            && !self.transactions_pending.swap(true, Ordering::AcqRel)
+        {
+            self.inputs.watch.wake_runner();
+        }
+    }
+
+    fn drain_transactions(&self) {
+        if !self.stop.load(Ordering::Acquire)
+            && self.transactions_pending.swap(false, Ordering::AcqRel)
+        {
+            for lane in self.running.lock().values() {
+                lane.driver.handle().transactions_available();
+            }
+        }
+    }
+
     /// Stop retired incarnations and start the activated ones.
     fn reconcile(&self) {
         if self
@@ -382,6 +458,9 @@ impl Inner {
             .stores
             .runtime_store(record.lane, &record.incarnation)
             .map_err(|error| error.map_rejection(|error| error.to_string()))?;
+        store
+            .bind_global_queue(&inputs.queue)
+            .map_err(|error| error.to_string())?;
         let key = core_key(inputs.key_pair.public_key()).map_err(|error| error.to_string())?;
         let custody = inputs
             .records
@@ -503,8 +582,6 @@ impl Inner {
                     init,
                     signers: vec![Arc::new(signer)],
                     crypto: shared,
-                    attestor: Box::new(NoAttestation),
-                    verifier: Box::new(NoAttestation),
                 },
             )
             .map_err(|error| {

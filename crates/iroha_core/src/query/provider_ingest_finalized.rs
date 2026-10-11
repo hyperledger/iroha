@@ -1354,6 +1354,184 @@ struct ArchiveIndexV1 {
     total_bytes: u64,
     generation: u64,
 }
+// A short-lived source inventory, not an authenticated archive or cached result.
+// Paths are copied fallibly; variable provider/order/retention DTOs are never cloned.
+struct QualificationRecordIdentity {
+    subject: (NetworkId, u64),
+    key: ProviderIngestFinalizedArchiveKeyV1,
+    digest: [u8; 32],
+    canonical_bytes: u64,
+    path: PathBuf,
+}
+struct QualificationBaseIdentity {
+    network_id: NetworkId,
+    key: ProviderIngestFinalizedArchiveKeyV1,
+    digest: [u8; 32],
+    certified_block_id: [u8; 32],
+    canonical_bytes: u64,
+    path: PathBuf,
+}
+struct QualificationInventory {
+    records: Vec<QualificationRecordIdentity>,
+    bases: Vec<QualificationBaseIdentity>,
+    generation: u64,
+    total_bytes: u64,
+}
+impl QualificationInventory {
+    fn capture(
+        index: &ArchiveIndexV1,
+        bounds: ProviderIngestFinalizedArchiveBoundsV1,
+    ) -> Result<Self, ProviderIngestFinalizedArchiveErrorV1> {
+        let observed = retained_archive_entries(index);
+        if observed > bounds.max_archive_entries() {
+            return Err(
+                ProviderIngestFinalizedArchiveErrorV1::ArchiveCapacityExceeded {
+                    observed,
+                    maximum: bounds.max_archive_entries(),
+                },
+            );
+        }
+        if index.total_bytes > bounds.max_total_bytes() {
+            return Err(
+                ProviderIngestFinalizedArchiveErrorV1::ArchiveBytesExceeded {
+                    observed: index.total_bytes,
+                    maximum: bounds.max_total_bytes(),
+                },
+            );
+        }
+        let mut records = Vec::new();
+        records
+            .try_reserve_exact(index.by_height.len())
+            .map_err(|_| qualification_allocation_error())?;
+        let mut bases = Vec::new();
+        bases
+            .try_reserve_exact(index.virtual_bases.len())
+            .map_err(|_| qualification_allocation_error())?;
+        for (subject, entry) in &index.by_height {
+            records.push(QualificationRecordIdentity {
+                subject: *subject,
+                key: entry.record.material.key,
+                digest: entry.record.record_digest,
+                canonical_bytes: entry.canonical_bytes,
+                path: qualification_path(&entry.path)?,
+            });
+        }
+        for (network_id, entry) in &index.virtual_bases {
+            bases.push(QualificationBaseIdentity {
+                network_id: *network_id,
+                key: entry.checkpoint.material.retention_floor,
+                digest: entry.checkpoint.checkpoint_digest,
+                certified_block_id: entry.checkpoint.material.certified_block_id,
+                canonical_bytes: entry.canonical_bytes,
+                path: qualification_path(&entry.path)?,
+            });
+        }
+        Ok(Self {
+            records,
+            bases,
+            generation: index.generation,
+            total_bytes: index.total_bytes,
+        })
+    }
+
+    fn authenticate<V: StateReadOnly + ?Sized>(
+        &self,
+        network_id: &NetworkId,
+        certified: &CertifiedArchiveView<'_, V>,
+    ) -> Result<(), ProviderIngestFinalizedArchiveErrorV1> {
+        if let Some(base) = self
+            .bases
+            .iter()
+            .find(|base| &base.network_id == network_id)
+        {
+            authenticate_qualification_base(
+                &base.key,
+                base.certified_block_id,
+                network_id,
+                certified,
+            )?;
+        }
+        for entry in self
+            .records
+            .iter()
+            .filter(|entry| &entry.subject.0 == network_id)
+        {
+            authenticate_archive_anchor(&entry.key, network_id, certified)?;
+        }
+        Ok(())
+    }
+
+    fn require_same(
+        &self,
+        current: &ArchiveIndexV1,
+    ) -> Result<(), ProviderIngestFinalizedArchiveErrorV1> {
+        let records_match = self.records.len() == current.by_height.len()
+            && self
+                .records
+                .iter()
+                .zip(&current.by_height)
+                .all(|(before, (subject, after))| {
+                    &before.subject == subject
+                        && before.key == after.record.material.key
+                        && before.digest == after.record.record_digest
+                        && before.canonical_bytes == after.canonical_bytes
+                        && before.path == after.path
+                });
+        let bases_match = self.bases.len() == current.virtual_bases.len()
+            && self.bases.iter().zip(&current.virtual_bases).all(
+                |(before, (network_id, after))| {
+                    &before.network_id == network_id
+                        && before.key == after.checkpoint.material.retention_floor
+                        && before.digest == after.checkpoint.checkpoint_digest
+                        && before.certified_block_id == after.checkpoint.material.certified_block_id
+                        && before.canonical_bytes == after.canonical_bytes
+                        && before.path == after.path
+                },
+            );
+        if self.generation != current.generation
+            || self.total_bytes != current.total_bytes
+            || !records_match
+            || !bases_match
+        {
+            return Err(
+                ProviderIngestFinalizedArchiveErrorV1::QualificationBoundaryChanged {
+                    boundary: "archive",
+                },
+            );
+        }
+        Ok(())
+    }
+}
+fn qualification_allocation_error() -> ProviderIngestFinalizedArchiveErrorV1 {
+    ProviderIngestFinalizedArchiveErrorV1::ProjectionAllocation {
+        resource: "qualification source inventory",
+    }
+}
+fn qualification_path(path: &Path) -> Result<PathBuf, ProviderIngestFinalizedArchiveErrorV1> {
+    let mut copy = PathBuf::new();
+    copy.try_reserve_exact(path.as_os_str().len())
+        .map_err(|_| qualification_allocation_error())?;
+    copy.push(path);
+    Ok(copy)
+}
+fn authenticate_qualification_base<V: StateReadOnly + ?Sized>(
+    key: &ProviderIngestFinalizedArchiveKeyV1,
+    certified_block_id: [u8; 32],
+    network_id: &NetworkId,
+    certified: &CertifiedArchiveView<'_, V>,
+) -> Result<(), ProviderIngestFinalizedArchiveErrorV1> {
+    let block = authenticate_archive_anchor(key, network_id, certified)?;
+    if *block.id().0.as_ref() != certified_block_id {
+        return Err(
+            ProviderIngestFinalizedArchiveErrorV1::ArchiveKuraAnchorMismatch {
+                network_id: *network_id,
+                height: key.height,
+                reason: "virtual-base certified block identity differs from Kura",
+            },
+        );
+    }
+    Ok(())
+}
 /// Durable, immutable, provider-indexed finalized replication-order archive.
 #[derive(Debug)]
 pub struct ProviderIngestFinalizedArchiveV1 {
@@ -1831,7 +2009,9 @@ impl ProviderIngestFinalizedArchiveV1 {
     ///
     /// Every represented anchor is reauthenticated against its result-bearing
     /// block and current commit certificate. The archive and Kura generations are
-    /// reread after validation so concurrent boundary changes fail closed.
+    /// reread after validation so concurrent boundary changes fail closed. Without an active
+    /// Norito budget, only certified ancestry verification releases the physical index reader;
+    /// a bounded all-network source inventory also detects same-tip retention changes.
     ///
     /// # Errors
     ///
@@ -1844,6 +2024,53 @@ impl ProviderIngestFinalizedArchiveV1 {
         maximum_kura_tip_lag_blocks: u64,
     ) -> Result<ProviderIngestFinalizedArchiveQualificationV1, ProviderIngestFinalizedArchiveErrorV1>
     {
+        self.qualify_against_certified_tip_observed(
+            state_ro,
+            kura,
+            maximum_kura_tip_lag_blocks,
+            #[cfg(any(test, feature = "iroha-core-tests"))]
+            |_| Ok(()),
+        )
+    }
+
+    /// Exercise the original qualification with one component-test interleaving.
+    ///
+    /// The callback receives whether the actual reader was released. Every native
+    /// certificate and source fence remains mandatory; no qualification can be injected.
+    ///
+    /// # Errors
+    /// Returns the ordinary qualification or interleaving error, with original
+    /// archive/Kura exit refusals taking precedence after an unlocked observation.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
+    pub fn qualify_against_certified_tip_with_interleaving_for_testing(
+        &self,
+        state_ro: &impl StateReadOnly,
+        kura: &Kura,
+        maximum_kura_tip_lag_blocks: u64,
+        interleave: impl FnOnce(bool) -> Result<(), ProviderIngestFinalizedArchiveErrorV1>,
+    ) -> Result<ProviderIngestFinalizedArchiveQualificationV1, ProviderIngestFinalizedArchiveErrorV1>
+    {
+        self.qualify_against_certified_tip_observed(
+            state_ro,
+            kura,
+            maximum_kura_tip_lag_blocks,
+            interleave,
+        )
+    }
+
+    fn qualify_against_certified_tip_observed(
+        &self,
+        state_ro: &impl StateReadOnly,
+        kura: &Kura,
+        maximum_kura_tip_lag_blocks: u64,
+        #[cfg(any(test, feature = "iroha-core-tests"))] after_selection: impl FnOnce(
+            bool,
+        ) -> Result<
+            (),
+            ProviderIngestFinalizedArchiveErrorV1,
+        >,
+    ) -> Result<ProviderIngestFinalizedArchiveQualificationV1, ProviderIngestFinalizedArchiveErrorV1>
+    {
         let network_id = state_ro.network_id();
         let certified =
             CertifiedArchiveView::new(state_ro, kura).map_err(certified_authentication_error)?;
@@ -1854,13 +2081,105 @@ impl ProviderIngestFinalizedArchiveV1 {
         }
         let generation = self.health_generation()?;
         let index = self.read_index()?;
+        if norito::core::decode_limits_active() {
+            // Preserve the caller's physical read/decode order and early refusals.
+            #[cfg(any(test, feature = "iroha-core-tests"))]
+            after_selection(false)?;
+            let qualification = self.qualify_index(
+                &index,
+                network_id,
+                &certified,
+                maximum_kura_tip_lag_blocks,
+                generation,
+                true,
+            )?;
+            certified
+                .verify_unchanged()
+                .map_err(certified_authentication_error)?;
+            drop(index);
+            if self.health_generation()? != generation {
+                return Err(
+                    ProviderIngestFinalizedArchiveErrorV1::QualificationBoundaryChanged {
+                        boundary: "archive",
+                    },
+                );
+            }
+            return Ok(qualification);
+        }
+
+        // This is only a bounded inventory of the exact original source identities. It
+        // contains no decoded projections or validation verdict. All canonical physical
+        // reads and complete cross-network coverage checks still run under this reader.
+        let prepared = QualificationInventory::capture(&index, self.bounds).map(|inventory| {
+            let selection = self.qualify_index(
+                &index,
+                network_id,
+                &certified,
+                maximum_kura_tip_lag_blocks,
+                generation,
+                false,
+            );
+            (inventory, selection)
+        });
+        drop(index);
+        let (inventory, result) = match prepared {
+            Ok((inventory, selection)) => {
+                #[cfg(any(test, feature = "iroha-core-tests"))]
+                let observed = after_selection(true);
+                #[cfg(not(any(test, feature = "iroha-core-tests")))]
+                let observed: Result<(), ProviderIngestFinalizedArchiveErrorV1> = Ok(());
+                let result = observed.and(selection).and_then(|qualification| {
+                    inventory.authenticate(network_id, &certified)?;
+                    Ok(qualification)
+                });
+                (Some(inventory), result)
+            }
+            Err(error) => (None, Err(error)),
+        };
+        // Close both original sources even on an ordinary validation/observer error.
+        // Compaction can preserve generation, so compare the complete retained inventory.
+        let archive_exit = (|| {
+            let current = self.read_index()?;
+            self.verify_storage_boundaries()?;
+            if let Some(inventory) = &inventory {
+                inventory.require_same(&current)?;
+            }
+            if current.generation != generation {
+                return Err(
+                    ProviderIngestFinalizedArchiveErrorV1::QualificationBoundaryChanged {
+                        boundary: "archive",
+                    },
+                );
+            }
+            Ok::<(), ProviderIngestFinalizedArchiveErrorV1>(())
+        })();
+        let certified_exit = certified
+            .verify_unchanged()
+            .map_err(certified_authentication_error);
+        archive_exit?;
+        certified_exit?;
+        result
+    }
+
+    // One canonical physical/coverage recipe. Only certificate placement changes;
+    // caller-active Norito scopes retain the original interleaving under the reader.
+    fn qualify_index<V: StateReadOnly + ?Sized>(
+        &self,
+        index: &ArchiveIndexV1,
+        network_id: &NetworkId,
+        certified: &CertifiedArchiveView<'_, V>,
+        maximum_kura_tip_lag_blocks: u64,
+        generation: u64,
+        authenticate_in_place: bool,
+    ) -> Result<ProviderIngestFinalizedArchiveQualificationV1, ProviderIngestFinalizedArchiveErrorV1>
+    {
         self.verify_storage_boundaries()?;
-        validate_index_coverage(&index, self.bounds)?;
+        validate_index_coverage(index, self.bounds)?;
         let network_range = (
             std::ops::Bound::Included((*network_id, 0)),
             std::ops::Bound::Included((*network_id, u64::MAX)),
         );
-        let activation_floor = activation_floor_from_index(&index, network_id)?.ok_or(
+        let activation_floor = activation_floor_from_index(index, network_id)?.ok_or(
             ProviderIngestFinalizedArchiveErrorV1::ArchiveUnavailable {
                 reason: "no exact anchor exists for the requested network",
             },
@@ -1890,39 +2209,20 @@ impl ProviderIngestFinalizedArchiveV1 {
         }
         if let Some(base) = index.virtual_bases.get(network_id) {
             verify_checkpoint_entry(base, self.bounds)?;
-            let block = authenticate_archive_anchor(
-                &base.checkpoint.material.retention_floor,
-                state_ro.network_id(),
-                &certified,
-            )?;
-            if *block.id().0.as_ref() != base.checkpoint.material.certified_block_id {
-                return Err(
-                    ProviderIngestFinalizedArchiveErrorV1::ArchiveKuraAnchorMismatch {
-                        network_id: *network_id,
-                        height: base.checkpoint.material.retention_floor.height,
-                        reason: "virtual-base certified block identity differs from Kura",
-                    },
-                );
+            if authenticate_in_place {
+                authenticate_qualification_base(
+                    &base.checkpoint.material.retention_floor,
+                    base.checkpoint.material.certified_block_id,
+                    network_id,
+                    certified,
+                )?;
             }
         }
         for (_, entry) in index.by_height.range(network_range) {
             verify_record_entry(entry, self.bounds)?;
-            authenticate_archive_anchor(
-                &entry.record.material.key,
-                state_ro.network_id(),
-                &certified,
-            )?;
-        }
-        certified
-            .verify_unchanged()
-            .map_err(certified_authentication_error)?;
-        drop(index);
-        if self.health_generation()? != generation {
-            return Err(
-                ProviderIngestFinalizedArchiveErrorV1::QualificationBoundaryChanged {
-                    boundary: "archive",
-                },
-            );
+            if authenticate_in_place {
+                authenticate_archive_anchor(&entry.record.material.key, network_id, certified)?;
+            }
         }
         Ok(ProviderIngestFinalizedArchiveQualificationV1 {
             activation_floor,

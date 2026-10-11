@@ -511,10 +511,7 @@ const ROOTS: &[Root] = &[
         owner: "A.1",
         disposition: "kept in its E51 role as per-block witness roots; ordinary_writes_root stays the new_root of ordinary effects",
         defect: None,
-        domains: &[
-            r"iroha:kagemusha:v1:post-state-root",
-            r"iroha:sumeragi:invalid-exec-witness",
-        ],
+        domains: &[r"iroha:sumeragi:invalid-exec-witness"],
         evidence: &[
             (
                 "crates/iroha_data_model/src/sumeragi_finality/commitment.rs",
@@ -603,8 +600,8 @@ const ROOTS: &[Root] = &[
         class: RootClass::ProtocolFingerprint,
         carrier: "BlockHeader.confidential_features of every block, and the confidential capabilities of the peer handshake",
         keyed: false,
-        scope: "the effective verifying-key projection, selected parameter identifiers and their registry-effectiveness checks, and ZK policy. Source fields: world.verifying_keys, world.poseidon_params, world.pedersen_params and state.zk",
-        construction: "composite summary: an undomained flat hash of the sorted effective entries of the complete verifying-key table, the Poseidon and Pedersen parameter identifiers that state.zk selects while their registry rows are effective, the confidential rules version, and a SHA-256 digest of the ZK consensus policy combined with the constant SCCP policy hash",
+        scope: "the effective verifying-key projection, selected parameter identifiers and their registry-effectiveness checks, ZK policy, and the SCCP light-client profile versions and hashes active at the block height. Source fields: world.verifying_keys, world.poseidon_params, world.pedersen_params, world.sccp_light_client_profiles and state.zk",
+        construction: "composite summary: an undomained flat hash of the sorted effective entries of the complete verifying-key table, the Poseidon and Pedersen parameter identifiers that state.zk selects while their registry rows are effective, the confidential rules version, and a SHA-256 digest of the ZK consensus policy combined with the SCCP policy hash of the active profile selection; absent profile activations select the compiled version-1 genesis profiles",
         witnesses: "none",
         owner: "G.3",
         disposition: "Removed, or retained solely as an inventoried comparison value recomputed at the specified height from committed registry entries and committed policy. All canonical source entries are committed under the keyed State root. It authenticates no State read; consumers requiring State reads use keyed State witnesses. Policy hashes, parameter selectors and transition limits follow G1-D3/F.4",
@@ -656,7 +653,7 @@ const ROOTS: &[Root] = &[
             ),
             (
                 "crates/iroha_config/src/parameters/actual.rs",
-                "let mut preimage = b\"sumeragi:nexus-amx-context\\0v1\".to_vec();",
+                "let mut preimage = NexusAmxContextWriterV1::new();",
             ),
             (
                 "crates/iroha_data_model/src/block/consensus.rs",
@@ -743,17 +740,34 @@ const ROOTS: &[Root] = &[
         class: RootClass::ConsensusBinding,
         carrier: "EpochId.context in every Sumeragi core header, vote, QC, timeout vote and timeout certificate; ExecutionResultCommitment.schedule and ExecutionResultCommitment.beacon in the preimage of R; the epoch context identifiers inside the schedule and the beacon pulse",
         keyed: false,
-        scope: "three members. (1) The epoch context identity: the digest of one complete ValidatorEpochContextV1 (committee, authority generation, epoch bounds, leader seed). (2) The schedule of R: the current epoch context, the boundary and the two successor slots, embedded as records. (3) The finalized beacon pulse of R, embedded as a record. Canonical State sources: world.consensus_schedule for (1) and (2), world.global_beacon_pulses for (3)",
-        construction: "(1) flat domain-separated hash of the canonical context; (2) and (3) are not digests of their own: the records are part of the preimage that R hashes",
+        scope: "three members. (1) The epoch context and its exact validator-generation and scheduling-authorization identities: the complete ordered BLS roster, scalar generation, epoch bounds, beacon binding and predecessor. (2) The schedule of R: the current epoch context, the boundary with its immutable E+2 preparation and the two successor slots, embedded as records; the preparation identity binds every frozen election input. (3) The finalized beacon pulse of R, embedded as a record. Canonical State sources: world.consensus_schedule for (1) and (2), world.validator_committee_transitions for the frozen preparation, world.global_beacon_pulses for (3)",
+        construction: "(1) domain-separated identities of the canonical context, exact ordered BLS generation and scheduling authorization; (2) the complete frozen preparation has its own domain-separated identity, while the schedule and (3) pulse records are part of the preimage that R hashes",
         witnesses: "none over State: votes and certificates bind the epoch context, and R binds the schedule and the pulse. Authority follows signed genesis and authenticated predecessor transitions; it does not depend on a State opening authenticated by the certificate being verified",
         owner: "Sumeragi (specs/sumeragi.md §§3, 4.1, 10)",
         disposition: "kept in its specified role under §§3, 4.1 and 10: the binding authenticates no State read, and its canonical State source entries are also committed by the keyed State root",
         defect: None,
-        domains: &[r"iroha:native-validator-epoch:v1"],
+        domains: &[
+            r"iroha:native-validator-epoch:v1",
+            r"iroha:validator-committee-preparation:v1",
+            r"iroha:validator-epoch-authorization:v1",
+            r"iroha:validator-generation:v1",
+        ],
         evidence: &[
             (
                 "crates/iroha_data_model/src/sumeragi/epoch.rs",
                 "const EPOCH_DOMAIN: &[u8] = b\"iroha:native-validator-epoch:v1\";",
+            ),
+            (
+                "crates/iroha_data_model/src/sumeragi/epoch/generation.rs",
+                "const GENERATION_DOMAIN_V1: &[u8] = b\"iroha:validator-generation:v1\";",
+            ),
+            (
+                "crates/iroha_data_model/src/sumeragi/epoch/authorization.rs",
+                "const AUTHORIZATION_DOMAIN_V1: &[u8] = b\"iroha:validator-epoch-authorization:v1\";",
+            ),
+            (
+                "crates/iroha_data_model/src/nexus/committee.rs",
+                "let mut bytes = b\"iroha:validator-committee-preparation:v1\".to_vec();",
             ),
             ("crates/iroha_sumeragi/src/types.rs", "pub context: Hash32,"),
             (
@@ -767,6 +781,10 @@ const ROOTS: &[Root] = &[
             (
                 "crates/iroha_core/src/state/authority_registry/world.rs",
                 "consensus_schedule: Cell<crate::sumeragi::schedule::RetainedConsensusSchedule> => (\"world.consensus_schedule\",",
+            ),
+            (
+                "crates/iroha_core/src/state/authority_registry/world.rs",
+                "validator_committee_transitions: Storage<u64, iroha_data_model::nexus::ValidatorCommitteeTransitionV1> => (\"world.validator_committee_transitions\",",
             ),
         ],
     },
@@ -1606,6 +1624,14 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         owner: UseOwner::Roots(&["execution_witness_roots"]),
     },
     ConstructionUse {
+        path: "crates/iroha_core/src/kagemusha_wallet_v1/event_evidence.rs",
+        uses: &[("MerkleTree", 7)],
+        owner: UseOwner::Other(
+            Use::BlockContent,
+            "Counted Merkle paths of the original pre-seal block event stream, retained by receipt identity and authenticated against R's event commitment; not a State-content root or independent finality authority",
+        ),
+    },
+    ConstructionUse {
         path: "crates/iroha_core/src/pipeline/zk_lane.rs",
         uses: &[("MerkleTree", 1)],
         owner: UseOwner::Other(Use::Test, "Root-typed fixture of the inline ZK-lane tests"),
@@ -1624,6 +1650,14 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         path: "crates/iroha_core/src/smartcontracts/isi/sccp/commitment.rs",
         uses: &[("HistoryAccumulator", 3)],
         owner: UseOwner::Accumulator("sccp_message_accumulator"),
+    },
+    ConstructionUse {
+        path: "crates/iroha_core/src/smartcontracts/isi/sccp/read/history.rs",
+        uses: &[("HistoryAccumulator", 2)],
+        owner: UseOwner::Other(
+            Use::Test,
+            "Reference history accumulator for the inline cached-history root and path parity tests",
+        ),
     },
     ConstructionUse {
         path: "crates/iroha_core/src/smartcontracts/isi/sccp/witness.rs",
@@ -1823,6 +1857,14 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         owner: UseOwner::Roots(&["fee_evidence_record_root"]),
     },
     ConstructionUse {
+        path: "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/load_finality.rs",
+        uses: &[("MerkleTree", 1)],
+        owner: UseOwner::Other(
+            Use::Test,
+            "Shape-only native Load finality roundtrip fixture; its single event tree supplies a test proof and grants no State or finality authority",
+        ),
+    },
+    ConstructionUse {
         path: "crates/iroha_data_model/src/kaigi.rs",
         uses: &[("MerkleTree", 2)],
         owner: UseOwner::Accumulator("kaigi_roster_root"),
@@ -1852,7 +1894,7 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         uses: &[("MerkleTree", 6)],
         owner: UseOwner::Other(
             Use::BlockContent,
-            "Merkle commitments of the block's events, network inputs and typed outputs carried in R, and the KAGEMUSHA top-up tree of one block",
+            "Merkle commitments of the block's events, network inputs and typed outputs carried in R",
         ),
     },
     ConstructionUse {
@@ -2121,56 +2163,77 @@ impl SourceScan {
     /// Panic with every unlisted or stale item: the completeness check of the inventory.
     fn require_complete(&self) {
         assert!(
-            self.unlisted_domains.is_empty(),
-            "domain literals that the inventory does not classify. List each exactly: under \
-             `domains` of a ROOTS entry (with owner task and disposition) when it belongs to a \
-             commitment over State content, under an application accumulator, or under \
-             OTHER_DOMAINS (state_table_inventory_domains.rs) with its reviewed use:\n{}",
-            self.unlisted_domains
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-        assert!(
-            self.unlisted_uses.is_empty(),
-            "uses of a Merkle, multiset or accumulator construction that the inventory does \
-             not list with this count. Review each and update CONSTRUCTION_USES:\n{}",
-            self.unlisted_uses
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-        assert!(
-            self.stale_domains.is_empty(),
-            "listed domain literals that no scanned source holds: {:?}",
-            self.stale_domains
-        );
-        assert!(
-            self.stale_uses.is_empty(),
-            "listed construction uses that the sources do not have: {:?}",
-            self.stale_uses
-        );
-        assert!(
-            self.unlisted_functions.is_empty(),
-            "functions that take a State or World reader and return a hash-bearing value, and \
-             that the inventory does not list with this count. Review what each digests and \
-             list it in STATE_HASH_FUNCTIONS (state_table_inventory_functions.rs): under the \
-             ROOTS entry it computes or serves, under an application accumulator, or with its \
-             reviewed use:\n{}",
-            self.unlisted_functions
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-        assert!(
-            self.stale_functions.is_empty(),
-            "listed State-reading hash functions that the sources do not have: {:?}",
-            self.stale_functions
+            self.unlisted_domains.is_empty()
+                && self.unlisted_uses.is_empty()
+                && self.stale_domains.is_empty()
+                && self.stale_uses.is_empty()
+                && self.unlisted_functions.is_empty()
+                && self.stale_functions.is_empty(),
+            "State inventory source discrepancies (review every category):\n\
+             Unclassified domains: {:?}\n\
+             Unlisted or changed construction uses: {:?}\n\
+             Stale domains: {:?}\n\
+             Stale construction uses: {:?}\n\
+             Unlisted or changed State-reading hash functions: {:?}\n\
+             Stale State-reading hash functions: {:?}\n\
+             Classify exact domains under ROOTS, an application accumulator or OTHER_DOMAINS; \
+             review construction uses in CONSTRUCTION_USES and State-reading hash functions \
+             in STATE_HASH_FUNCTIONS. Remove entries only after confirming their source retired.",
+            self.unlisted_domains,
+            self.unlisted_uses,
+            self.stale_domains,
+            self.stale_uses,
+            self.unlisted_functions,
+            self.stale_functions,
         );
     }
+}
+
+#[test]
+fn source_scan_reports_all_discrepancies_and_refuses_each_category() {
+    let mut combined = SourceScan::default();
+    for category in 0..6 {
+        let mut isolated = SourceScan::default();
+        for scan in [&mut combined, &mut isolated] {
+            match category {
+                0 => {
+                    scan.unlisted_domains.insert("unlisted-domain".into());
+                }
+                1 => {
+                    scan.unlisted_uses.insert("unlisted-construction".into());
+                }
+                2 => {
+                    scan.stale_domains.insert("stale-domain");
+                }
+                3 => {
+                    scan.stale_uses.insert("stale-construction".into());
+                }
+                4 => {
+                    scan.unlisted_functions.insert("unlisted-function".into());
+                }
+                5 => {
+                    scan.stale_functions.insert("stale-function".into());
+                }
+                _ => unreachable!(),
+            }
+        }
+        assert!(std::panic::catch_unwind(|| isolated.require_complete()).is_err());
+    }
+    let error = std::panic::catch_unwind(|| combined.require_complete()).unwrap_err();
+    let message = error
+        .downcast_ref::<String>()
+        .expect("formatted inventory diagnostic");
+    for item in [
+        "unlisted-domain",
+        "unlisted-construction",
+        "stale-domain",
+        "stale-construction",
+        "unlisted-function",
+        "stale-function",
+    ] {
+        assert!(message.contains(item), "missing {item}: {message}");
+    }
+    SourceScan::default().require_complete();
 }
 
 /// Classify the domain literals and construction uses of `sources` (path and text).
@@ -2315,6 +2378,7 @@ const STATE_READER_TYPES: &[&str] = &[
     "CellBlock",
     "CellTransaction",
     "CellView",
+    "CommittedLoadReceipts",
     "DetachedBlockHashes",
     "DetachedSet",
     "DetachedStateTransactionDelta",
@@ -2362,6 +2426,7 @@ const STATE_READER_TYPES: &[&str] = &[
     "WorldStateSnapshot",
     "WorldTransaction",
     "WorldView",
+    "WsvLedger",
 ];
 
 /// Endings of a type name (before an optional `V<digits>` version) that mark a
@@ -2531,8 +2596,168 @@ fn item_end(code: &[u8], from: usize) -> usize {
     }
 }
 
-/// The ranges of the items that are compiled for tests only: every item under
-/// `#[cfg(test)]` or `#[test]`, with its further attributes.
+/// The end of a literal braced control expression, including the original `else` chain.
+/// Balanced call/index groups belong to its header. A header operand that is itself a
+/// block is consumed before the final body, rather than mistaken for that body.
+fn test_only_control_end(code: &[u8], from: usize) -> Option<usize> {
+    let mut at = from;
+    // Labels on loops are part of the attributed expression, not its enclosing owner.
+    if code.get(at) == Some(&b'\'') {
+        at += 1;
+        while at < code.len()
+            && (code[at].is_ascii_alphanumeric() || code[at] == b'_' || !code[at].is_ascii())
+        {
+            at += 1;
+        }
+        if code.get(at) != Some(&b':') {
+            return None;
+        }
+        at += 1;
+        while at < code.len() && code[at].is_ascii_whitespace() {
+            at += 1;
+        }
+        if code.get(at) == Some(&b'{') {
+            return Some(closing(code, at));
+        }
+    }
+    let word = [b"if".as_slice(), b"while", b"for", b"match", b"loop"]
+        .into_iter()
+        .find(|word| keyword_at(code, at, word))?;
+    let has_else = word == b"if";
+    let loop_body = word == b"loop";
+    let for_header = word == b"for";
+    at += word.len();
+    loop {
+        let mut operand_block_seen = false;
+        let body_end = loop {
+            let open = header_end(code, at);
+            if code.get(open) != Some(&b'{') {
+                return Some(open);
+            }
+            let header = &code[at..open];
+            let last = header.iter().rposition(|byte| !byte.is_ascii_whitespace());
+            let needs_operand = last.is_some_and(|index| {
+                matches!(
+                    header[index],
+                    b'=' | b'!'
+                        | b'&'
+                        | b'|'
+                        | b'+'
+                        | b'-'
+                        | b'*'
+                        | b'/'
+                        | b'%'
+                        | b'^'
+                        | b'<'
+                        | b'>'
+                ) || (for_header
+                    && index >= 1
+                    && keyword_at(header, index - 1, b"in")
+                    && index.checked_sub(2).and_then(|before| header.get(before)) != Some(&b'#'))
+            });
+            let end = closing(code, open);
+            if !loop_body && ((!operand_block_seen && last.is_none()) || needs_operand) {
+                // The condition/iterator/matched value owns this block; the control
+                // expression still requires its own body after it.
+                operand_block_seen = true;
+                at = end;
+            } else {
+                break end;
+            }
+        };
+        at = body_end;
+        while at < code.len() && code[at].is_ascii_whitespace() {
+            at += 1;
+        }
+        if !has_else || !keyword_at(code, at, b"else") {
+            return Some(body_end);
+        }
+        at += 4;
+        while at < code.len() && code[at].is_ascii_whitespace() {
+            at += 1;
+        }
+        if keyword_at(code, at, b"if") {
+            at += 2;
+        } else {
+            return Some(if code.get(at) == Some(&b'{') {
+                closing(code, at)
+            } else {
+                body_end
+            });
+        }
+    }
+}
+
+/// The end of an attributed item, argument, field, statement or expression. Only a
+/// literal item keyword uses the item-header scan: non-items stop at their own separator
+/// or enclosing close, so an attribute on a call argument cannot consume a later item.
+fn test_only_target_end(code: &[u8], from: usize) -> usize {
+    let mut at = from;
+    loop {
+        while at < code.len() && code[at].is_ascii_whitespace() {
+            at += 1;
+        }
+        if keyword_at(code, at, b"pub") {
+            at += 3;
+            while at < code.len() && code[at].is_ascii_whitespace() {
+                at += 1;
+            }
+            if code.get(at) == Some(&b'(') {
+                at = closing(code, at);
+            }
+        } else if let Some(modifier) = [b"async".as_slice(), b"unsafe", b"default", b"move"]
+            .into_iter()
+            .find(|word| keyword_at(code, at, word))
+        {
+            at += modifier.len();
+        } else {
+            break;
+        }
+    }
+    if [
+        b"fn".as_slice(),
+        b"mod",
+        b"impl",
+        b"trait",
+        b"struct",
+        b"enum",
+        b"union",
+        b"type",
+        b"const",
+        b"static",
+        b"use",
+        b"extern",
+        b"macro_rules",
+    ]
+    .into_iter()
+    .any(|word| keyword_at(code, at, word))
+    {
+        return item_end(code, from);
+    }
+    if let Some(end) = test_only_control_end(code, at) {
+        return end;
+    }
+    // A bare, async or unsafe block is itself the attributed expression/statement;
+    // Rust permits a following local item without a semicolon after this block.
+    if code.get(at) == Some(&b'{') {
+        return closing(code, at);
+    }
+    // Keep nested groups inside the same target. At this level a close belongs to its
+    // enclosing owner; it must never be crossed in search of the next item's body.
+    at = from;
+    while at < code.len() {
+        match code[at] {
+            b'(' | b'[' | b'{' => at = closing(code, at),
+            b',' | b';' => return at + 1,
+            b')' | b']' | b'}' => return at,
+            _ => at += 1,
+        }
+    }
+    at
+}
+
+/// The ranges compiled for tests only under `#[cfg(test)]` or `#[test]`,
+/// including attributed local targets without crossing into later items.
 fn test_only_ranges(code: &str) -> Vec<(usize, usize)> {
     let bytes = code.as_bytes();
     let mut ranges = Vec::new();
@@ -2551,7 +2776,7 @@ fn test_only_ranges(code: &str) -> Vec<(usize, usize)> {
                     break;
                 }
             }
-            ranges.push((start, item_end(bytes, at)));
+            ranges.push((start, test_only_target_end(bytes, at)));
             from = start + marker.len();
         }
     }
@@ -2841,6 +3066,8 @@ struct WitnessFamily {
 const SCCP_FAMILY: &str = "sccp_state_delta";
 
 const FEE_REWARDS: &str = "crates/iroha_core/src/validation_fee_rewards.rs";
+const REWARD_EXPOSURE: &str = "crates/iroha_core/src/validation_fee_rewards/exposure.rs";
+const REWARD_EXPOSURE_MODEL: &str = "crates/iroha_data_model/src/validation_fee_rewards.rs";
 const CASTING: &str = "crates/iroha_core/src/tle_release/casting.rs";
 const FINALIZED_SOURCE: &str =
     "crates/iroha_core/src/state/fastpq_quantity_capture/commitment_journal/finalized_source.rs";
@@ -2948,35 +3175,6 @@ const WITNESS_FAMILIES: &[WitnessFamily] = &[
             "crates/iroha_core/src/state.rs",
             "iroha_data_model::parliament_casting::PARLIAMENT_TIMED_OVN_CASTING_WITNESS_KEY_V1;",
         )],
-    },
-    WitnessFamily {
-        id: "kagemusha_reserve_receipt",
-        tags: &["KagemushaReserveReceipt"],
-        key: "tag byte and the 32-byte operation identifier",
-        value: "canonical KagemushaReserveReceiptV1 of the operation",
-        reads: false,
-        fields: &[],
-        source: "canonical receipt writes in the supplied execution witness, consumed by the Sumeragi top-up commitment; no State table or production receipt recorder currently produces this family",
-        derivation: &[],
-        accessors: &[],
-        digests: &[],
-        value_types: &[],
-        hashes: &[],
-        opaque: &[],
-        evidence: &[
-            (
-                "crates/iroha_data_model/src/execution_witness.rs",
-                "pub const fn kagemusha_reserve_receipt_witness_key_v1(",
-            ),
-            (
-                "crates/iroha_data_model/src/isi/kagemusha_v1.rs",
-                "pub struct KagemushaReserveReceiptV1 {",
-            ),
-            (
-                "crates/iroha_core/src/sumeragi/commitment.rs",
-                "fn kagemusha_top_ups(witness: &ExecWitness) -> Result<Option<(Hash, u32)>, CommitmentError> {",
-            ),
-        ],
     },
     WitnessFamily {
         id: "fastpq_ordinary_source_statements",
@@ -3134,6 +3332,7 @@ const WITNESS_FAMILIES: &[WitnessFamily] = &[
         derivation: &[
             (FEE_REWARDS, "pub(crate) fn capture_fee_evidence("),
             (FEE_REWARDS, "fn pending_fee_evidence_records("),
+            (FEE_REWARDS, "fn collect_pending_fee_evidence_records("),
             (
                 "crates/iroha_core/src/validation_fee_rewards/head_tree.rs",
                 "fn read_root(world: &impl WorldReadOnly) -> Result<Option<NodeRef>, ExecutionAttemptError<String>> {",
@@ -3176,6 +3375,41 @@ const WITNESS_FAMILIES: &[WitnessFamily] = &[
             (
                 FEE_REWARDS,
                 "let mut key = vec![FEE_EVIDENCE_RECORD_TAG_V1];",
+            ),
+        ],
+    },
+    WitnessFamily {
+        id: "reward_exposure_archive",
+        tags: &["RewardExposureArchive"],
+        key: "tag byte 0xDC followed by the hash of the protected ExposureArchive StatePath UTF-8 bytes",
+        value: "canonical ValidationFeeExposureArchive row as written, including the chronological stake page and its predecessor reference",
+        reads: false,
+        fields: &[],
+        source: "changed resident reward tails, excluding deleted rows; the reference archive_hash hashes the entire canonical wrapper including its predecessor, and cold reads authenticate the original ordinary_writes_root before following that content hash; no independent table root",
+        derivation: &[(REWARD_EXPOSURE, "pub(super) fn capture_archive(")],
+        accessors: &[(
+            "smart_contract_state",
+            Access::Field("world.smart_contract_state"),
+        )],
+        digests: &[],
+        // Capture copies an existing protected row verbatim. As for AMX and
+        // fee records, its nested row fields are not separately walked here.
+        value_types: &[],
+        hashes: &[],
+        opaque: &[],
+        evidence: &[
+            (FEE_REWARDS, "exposure::capture_archive(block, witness)?;"),
+            (
+                REWARD_EXPOSURE_MODEL,
+                "witness[1..].copy_from_slice(Hash::new(key.as_ref().as_bytes()).as_ref());",
+            ),
+            (
+                REWARD_EXPOSURE,
+                "Some(bytes) if Hash::new(bytes) == reference.archive_hash => {",
+            ),
+            (
+                "crates/iroha_core/src/query/native_receipts/reward_history.rs",
+                "if value.len() > MAX_REWARD_EXPOSURE_ARCHIVE_BYTES || Hash::new(value) != expected_hash {",
             ),
         ],
     },
@@ -3967,13 +4201,6 @@ const CARRIERS: &[Carrier] = &[
             (BLOCK_MODEL, "pub struct SignedBlock {"),
             (PAYLOAD_MODEL, "pub(crate) struct BlockPayload {"),
             (PAYLOAD_MODEL, "pub struct BlockResult {"),
-            // The commitment bundle holds its wire fields the way the proof-policy bundle
-            // does: `Storage` and `CanonicalParts` are declared once in each of the two
-            // sources and are walked from both, so a field of either is classified.
-            (DA_BUNDLE_MODEL, "pub struct DaCommitmentBundle {"),
-            (DA_BUNDLE_MODEL, "enum Storage {"),
-            (DA_BUNDLE_MODEL, "struct CanonicalParts {"),
-            (DA_COMMITMENT_MODEL, "pub struct DaCommitmentRecord {"),
             (DA_POLICY_MODEL, "pub struct DaProofPolicyBundle {"),
             (DA_POLICY_MODEL, "enum Storage {"),
             (DA_POLICY_MODEL, "struct CanonicalParts {"),
@@ -4012,22 +4239,6 @@ const CARRIERS: &[Carrier] = &[
                 HashUse::Block(
                     "key of each transcript group: the execution-call hash of the call that emitted the transcripts",
                 ),
-            ),
-            (
-                "DaCommitmentRecord.client_blob_id",
-                HashUse::Block("client-declared identifier of the DA blob"),
-            ),
-            (
-                "DaCommitmentRecord.manifest_hash",
-                HashUse::Block("digest of the DA manifest of the blob"),
-            ),
-            (
-                "DaCommitmentRecord.chunk_root",
-                HashUse::Block("Merkle root over the chunk digests of the blob"),
-            ),
-            (
-                "DaCommitmentRecord.proof_digest",
-                HashUse::Block("digest of the proof scheduling metadata of the blob"),
             ),
             (
                 "CanonicalParts.policy_hash",
@@ -4184,6 +4395,10 @@ const CARRIERS: &[Carrier] = &[
                 "the block header: walked under the block_header carrier",
             ),
             (
+                "DaCommitmentBundle",
+                "the immutable DA commitment bundle: its exact custody wrapper, canonical contents and record hashes are walked under the da_commitment_bundle carrier",
+            ),
+            (
                 "BlockSignatures",
                 "validator signatures over the block header",
             ),
@@ -4211,14 +4426,9 @@ const CARRIERS: &[Carrier] = &[
             ("DataSpaceId", "dataspace identifier"),
             ("DaProofScheme", "enumeration without a hash payload"),
             (
-                "RetentionClass",
-                "retention class of the blob: no hash payload",
-            ),
-            (
                 "StorageTicketId",
                 "identifier of the storage ticket of the blob",
             ),
-            ("Signature", "signature"),
             (
                 "DaIngestAuthorizationV1",
                 "account authorization and quota charge identity of the DA ingest, signed by the account: proposal input",
@@ -4347,10 +4557,6 @@ const CARRIERS: &[Carrier] = &[
                 "SumeragiConsensusMode",
                 "enumeration without a hash payload",
             ),
-            (
-                "KagemushaMintFinalityGenesisParametersV1",
-                "signed KAGEMUSHA mint-finality authority template: validator keys fixed by genesis, no digest of State",
-            ),
         ],
     },
     Carrier {
@@ -4364,6 +4570,27 @@ const CARRIERS: &[Carrier] = &[
             (EPOCH_GRAPH_MODEL, "pub struct ScheduledConfig {"),
             (EPOCH_MODEL, "pub struct ValidatorEpochContextV1 {"),
             (EPOCH_MODEL, "pub struct ValidatorEpochBoundaryV1 {"),
+            (EPOCH_MODEL, "pub struct ValidatorCommitteeMemberV1 {"),
+            (
+                "crates/iroha_data_model/src/sumeragi/epoch/authorization.rs",
+                "pub struct ValidatorEpochAuthorizationV1 {",
+            ),
+            (
+                "crates/iroha_data_model/src/sumeragi/epoch/authorization.rs",
+                "pub enum BeaconEpochBindingV1 {",
+            ),
+            (
+                "crates/iroha_data_model/src/sumeragi/epoch/authorization.rs",
+                "pub struct InstalledBeaconEpochBindingV1 {",
+            ),
+            (
+                "crates/iroha_data_model/src/nexus/committee.rs",
+                "pub struct ValidatorCommitteePreparationV1 {",
+            ),
+            (
+                "crates/iroha_data_model/src/nexus/committee.rs",
+                "pub struct ValidatorElectionPolicyV1 {",
+            ),
             (
                 BEACON_MODEL,
                 "pub struct FinalizedGlobalThresholdBeaconPulseV1 {",
@@ -4399,10 +4626,6 @@ const CARRIERS: &[Carrier] = &[
                 HashUse::State("execution_witness_roots"),
             ),
             (
-                "ExecutionCommitment.kagemusha_top_up_root",
-                HashUse::Block("root of the KAGEMUSHA top-up tree of the block"),
-            ),
-            (
                 "ExecutionCommitment.parent_world_state_root",
                 HashUse::State("world_state_root"),
             ),
@@ -4429,6 +4652,40 @@ const CARRIERS: &[Carrier] = &[
             (
                 "ScheduledSlot.predecessor_context_id",
                 HashUse::State("consensus_authority_binding"),
+            ),
+            (
+                "ValidatorEpochAuthorizationV1.authority_id",
+                HashUse::State("consensus_authority_binding"),
+            ),
+            (
+                "ValidatorEpochAuthorizationV1.previous_authorization_id",
+                HashUse::State("consensus_authority_binding"),
+            ),
+            (
+                "ValidatorEpochAuthorizationV1.transition_id",
+                HashUse::State("consensus_authority_binding"),
+            ),
+            (
+                "InstalledBeaconEpochBindingV1.session_id",
+                HashUse::Block("identifier of the exact installed threshold-beacon session"),
+            ),
+            (
+                "InstalledBeaconEpochBindingV1.transcript_hash",
+                HashUse::Block("commitment to the complete original target DKG transcript"),
+            ),
+            (
+                "ValidatorCommitteePreparationV1.selection_anchor",
+                HashUse::Block(
+                    "hash of the committed parent that supplied the frozen election inputs",
+                ),
+            ),
+            (
+                "ValidatorCommitteePreparationV1.preparing_authorization_id",
+                HashUse::State("consensus_authority_binding"),
+            ),
+            (
+                "ValidatorCommitteePreparationV1.election_seed",
+                HashUse::Block("election randomness derived from the authenticated boundary pulse"),
             ),
             (
                 "ValidatorEpochContextV1.leader_seed",
@@ -4517,38 +4774,160 @@ const CARRIERS: &[Carrier] = &[
                 "the execution commitment: walked as ExecutionCommitment",
             ),
             (
-                "ExecutionCommitment.kagemusha_top_up_count",
-                "number of leaves of the KAGEMUSHA top-up tree of the block",
-            ),
-            (
                 "ExecutionCommitment.executed_block_wire_len",
                 "byte length of the result-bearing block wire",
             ),
+            (
+                "ValidatorCommitteeMemberV1.validator",
+                "exact canonical BLS-normal peer identity",
+            ),
+            (
+                "ValidatorCommitteeMemberV1.proof_of_possession",
+                "original BLS proof of possession for this exact peer",
+            ),
+            (
+                "ValidatorEpochAuthorizationV1.version",
+                "sole first-release authorization layout version",
+            ),
+            (
+                "ValidatorEpochAuthorizationV1.network_id",
+                "genesis-derived network of the authorized generation",
+            ),
+            (
+                "ValidatorEpochAuthorizationV1.epoch",
+                "monotonic scheduling epoch",
+            ),
+            (
+                "ValidatorEpochAuthorizationV1.first_height",
+                "inclusive first height of this authorization",
+            ),
+            (
+                "ValidatorEpochAuthorizationV1.last_height",
+                "inclusive last height of this authorization",
+            ),
+            (
+                "ValidatorEpochAuthorizationV1.authority_generation",
+                "scalar generation of the exact ordered BLS committee",
+            ),
+            (
+                "ValidatorEpochAuthorizationV1.beacon",
+                "exact beacon authority, walked as BeaconEpochBindingV1",
+            ),
+            (
+                "ValidatorEpochAuthorizationV1.decision",
+                "incumbent-certified scheduling disposition",
+            ),
+            (
+                "BeaconEpochBindingV1.Bootstrap",
+                "explicit signed-genesis bootstrap state",
+            ),
+            (
+                "BeaconEpochBindingV1.Installed",
+                "exact installed beacon binding, walked as InstalledBeaconEpochBindingV1",
+            ),
+            (
+                "ValidatorCommitteePreparationV1.version",
+                "sole first-release preparation layout version",
+            ),
+            (
+                "ValidatorCommitteePreparationV1.network_id",
+                "genesis-derived network of the frozen election",
+            ),
+            (
+                "ValidatorCommitteePreparationV1.selection_epoch",
+                "epoch whose final prestate supplied the election",
+            ),
+            (
+                "ValidatorCommitteePreparationV1.selection_height",
+                "boundary height whose incumbent quorum froze the election",
+            ),
+            (
+                "ValidatorCommitteePreparationV1.target_epoch",
+                "immutable target scheduling epoch",
+            ),
+            (
+                "ValidatorCommitteePreparationV1.first_height",
+                "inclusive target activation height",
+            ),
+            (
+                "ValidatorCommitteePreparationV1.last_height",
+                "inclusive end of the target scheduling interval",
+            ),
+            (
+                "ValidatorCommitteePreparationV1.authority_generation",
+                "successor scalar generation for the exact frozen committee",
+            ),
+            (
+                "ValidatorCommitteePreparationV1.eligibility",
+                "exact signed eligibility policy, walked as ValidatorElectionPolicyV1",
+            ),
+            (
+                "ValidatorCommitteePreparationV1.committee",
+                "complete ordered target BLS roster and original proofs of possession",
+            ),
+            (
+                "ValidatorElectionPolicyV1.xor_asset_definition_id",
+                "canonical XOR asset identity authenticated by the selecting network",
+            ),
+            (
+                "ValidatorElectionPolicyV1.asset_scope",
+                "frozen global custody bucket",
+            ),
+            (
+                "ValidatorElectionPolicyV1.asset_scale",
+                "frozen canonical XOR precision",
+            ),
+            (
+                "ValidatorElectionPolicyV1.min_self_bond",
+                "exact frozen minimum self-bond quantity",
+            ),
+            (
+                "ValidatorElectionPolicyV1.min_nomination_bond",
+                "exact frozen minimum nomination quantity",
+            ),
+            (
+                "ValidatorElectionPolicyV1.max_validators",
+                "bounded equal-vote committee selection ceiling",
+            ),
+            (
+                "ValidatorElectionPolicyV1.epoch_length_blocks",
+                "complete target scheduling interval length",
+            ),
         ],
-        exhaustive: &["ExecutionResultCommitment", "ExecutionCommitment"],
+        exhaustive: &[
+            "ExecutionResultCommitment",
+            "ExecutionCommitment",
+            "ValidatorCommitteeMemberV1",
+            "ValidatorEpochAuthorizationV1",
+            "BeaconEpochBindingV1",
+            "InstalledBeaconEpochBindingV1",
+            "ValidatorCommitteePreparationV1",
+            "ValidatorElectionPolicyV1",
+        ],
         opaque: &[
             ("ChainParamsRecord", "chain parameters: numbers"),
             ("NetworkId", "network identity fixed at genesis"),
             ("ConsensusMode", "enumeration without a hash payload"),
             (
+                "PeerId",
+                "exact BLS public-key identity of one ordered validator seat",
+            ),
+            (
+                "ValidatorEpochDecisionV1",
+                "closed scalar scheduling-disposition enumeration without a hash payload",
+            ),
+            (
+                "AssetDefinitionId",
+                "canonical identity of the frozen XOR definition, not a State digest",
+            ),
+            (
+                "AssetBalanceScope",
+                "global or dataspace custody identifier, not a State digest",
+            ),
+            ("Quantity", "canonical fixed-scale stake quantity"),
+            (
                 "DataAvailabilityLayout",
                 "payload availability geometry: numbers",
-            ),
-            (
-                "KagemushaMintFinalityAuthorityGenerationV1",
-                "authority generation of the epoch context: validator keys and the generation identifier, part of the embedded context",
-            ),
-            (
-                "ValidatorEpochAuthorizationV1",
-                "epoch authorization of the epoch context: bounds and the identifiers of the authority, the previous authorization and the transition, part of the embedded context",
-            ),
-            (
-                "ValidatorCommitteeMemberV1",
-                "committee member: peer identity and proof of possession",
-            ),
-            (
-                "ValidatorCommitteePreparationV1",
-                "preparation of the next committee: its selection anchor and election seed, part of the embedded boundary",
             ),
         ],
     },
@@ -4699,14 +5078,8 @@ const CARRIERS: &[Carrier] = &[
             ),
             ("VoteKind", "enumeration without a hash payload"),
             ("Signature", "signature"),
-            (
-                "CommitAttestation",
-                "commit attestation: the canonical preimage of R and an application signature over it",
-            ),
             ("Bitmap", "signer bitmap"),
             ("AggregateSignature", "aggregate signature"),
-            ("AttestationSignature", "application signature bytes"),
-            ("ResultWitness", "the canonical preimage of R"),
             (
                 "AvailabilityFrame",
                 "signed availability metadata of the payload rows; the header binds it through availability_digest",
@@ -5090,6 +5463,104 @@ const CARRIERS: &[Carrier] = &[
             ("ControlFrame", "Norito Streaming control-plane frame"),
         ],
     },
+    Carrier {
+        id: "da_commitment_bundle",
+        object: "the immutable DA commitment bundle in BlockPayload.da_commitments, committed by BlockHeader.da_commitments_hash. Only its version and ordered commitment records are serialized; its storage variants retain local allocation custody",
+        types: &[
+            (DA_BUNDLE_MODEL, "pub struct DaCommitmentBundle {"),
+            (DA_BUNDLE_MODEL, "enum Storage {"),
+            (DA_BUNDLE_MODEL, "struct CanonicalParts {"),
+            (DA_COMMITMENT_MODEL, "pub struct DaCommitmentRecord {"),
+        ],
+        hashes: &[
+            (
+                "DaCommitmentRecord.client_blob_id",
+                HashUse::Block("client-declared identifier of the DA blob"),
+            ),
+            (
+                "DaCommitmentRecord.manifest_hash",
+                HashUse::Block("digest of the DA manifest of the blob"),
+            ),
+            (
+                "DaCommitmentRecord.chunk_root",
+                HashUse::Block("Merkle root over the chunk digests of the blob"),
+            ),
+            (
+                "DaCommitmentRecord.proof_digest",
+                HashUse::Block("digest of the proof scheduling metadata of the blob"),
+            ),
+        ],
+        embeds: &[],
+        reviewed: &[],
+        content: &[
+            (
+                "DaCommitmentBundle.storage",
+                "the immutable canonical parts and their local custody: walked as Storage",
+            ),
+            (
+                "Storage.Untrusted",
+                "untrusted transport canonical parts: walked as CanonicalParts",
+            ),
+            (
+                "Storage.Admitted",
+                "the same original canonical parts retained with their allocation custody: walked as CanonicalParts",
+            ),
+            (
+                "CanonicalParts.version",
+                "sole first-release bundle version",
+            ),
+            (
+                "CanonicalParts.commitments",
+                "ordered original commitment records whose Merkle commitment the block header binds: walked as DaCommitmentRecord",
+            ),
+            ("DaCommitmentRecord.lane_id", "lane of the DA blob"),
+            (
+                "DaCommitmentRecord.epoch",
+                "scheduling epoch of the DA blob",
+            ),
+            (
+                "DaCommitmentRecord.sequence",
+                "monotonic sequence within the lane and epoch",
+            ),
+            (
+                "DaCommitmentRecord.proof_scheme",
+                "proof scheme required for the target lane",
+            ),
+            (
+                "DaCommitmentRecord.retention_class",
+                "retention policy of the DA blob",
+            ),
+            (
+                "DaCommitmentRecord.storage_ticket",
+                "storage ticket binding the DA blob to replication state",
+            ),
+            (
+                "DaCommitmentRecord.acknowledgement_sig",
+                "signature of the Torii DA service over its commitment acknowledgement",
+            ),
+        ],
+        exhaustive: &[
+            "DaCommitmentBundle",
+            "Storage",
+            "CanonicalParts",
+            "DaCommitmentRecord",
+        ],
+        opaque: &[
+            (
+                "ChargedShared",
+                "shared immutable allocation custody of the original canonical parts",
+            ),
+            (
+                "RetainedPayload",
+                "the original canonical parts and their allocation ledger",
+            ),
+            ("LaneId", "lane identifier"),
+            ("DaProofScheme", "enumeration without a hash payload"),
+            ("RetentionClass", "retention policy without a hash payload"),
+            ("StorageTicketId", "storage ticket identifier"),
+            ("Signature", "signature"),
+        ],
+    },
 ];
 
 /// The types of one carrier, read from their sources.
@@ -5194,6 +5665,15 @@ fn check_carriers() {
         assert!(ids.insert(carrier.id), "{} is listed twice", carrier.id);
         assert!(!carrier.object.is_empty(), "{}", carrier.id);
         let types = carrier_types(carrier);
+        let mut type_names = BTreeSet::new();
+        for (name, _) in &types {
+            assert!(
+                type_names.insert(*name),
+                "protocol carrier {} walks duplicate type name {name}: give identically named \
+                 declarations from different modules their own carriers",
+                carrier.id
+            );
+        }
         let unclassified = unclassified_value_fields(&types, carrier.hashes, carrier.opaque);
         assert!(
             unclassified.is_empty(),
@@ -5566,7 +6046,7 @@ const DEFECTS: &[Defect] = &[
         title: "Root-valued canonical World cells have no writer",
         assigned: "G.3",
         related: &[],
-        required: "Either give world.merge_hint_roots and world.merge_global_state_root a committed writer and a defined relation to the keyed State root, or remove the cells. They have no production writer, so they would enter the keyed schema as permanently default root-named values.",
+        required: "Either give world.merge_hint_roots and world.merge_global_state_root a committed writer and a defined relation to the keyed State root, or remove the cells. Their unused writer was removed; without a committed writer they remain permanently default root-named values in the keyed schema.",
         evidence: &[
             (
                 "crates/iroha_core/src/state/authority_registry/world.rs",
@@ -5604,7 +6084,7 @@ const DEFECTS: &[Defect] = &[
         title: "Confidential-feature registry comparisons are not backed by the keyed State commitment",
         assigned: "G.3",
         related: &["F.4", "G1-D3"],
-        required: "Every block header carries a flat, undomained digest of the effective verifying-key registry and the selected parameter identifiers, and block validation rejects a block whose digest differs from the value recomputed from State. Remove the digest, or retain it solely as an inventoried comparison value recomputed at the specified height from committed registry entries and committed policy. The registry rows are committed under the keyed State root, the digest authenticates no State read, and consumers requiring State reads use keyed State witnesses. The policy hashes, parameter selectors and transition limits that enter the digest follow G1-D3 and F.4.",
+        required: "Every block header carries a confidential-feature summary of the effective verifying-key registry, selected parameter identifiers, ZK policy, and SCCP light-client profile versions and hashes active at its height; block validation rejects a summary that differs from the value recomputed from State. Remove the summary, or retain it solely as an inventoried comparison value recomputed at the specified height from committed registry entries and committed policy. The registry rows, including active SCCP profile activations, are committed under the keyed State root, the summary authenticates no State read, and consumers requiring State reads use keyed State witnesses. Node-configured policy hashes, parameter selectors and transition limits that enter the summary follow G1-D3 and F.4.",
         evidence: &[
             (
                 "crates/iroha_core/src/state.rs",
@@ -5649,7 +6129,7 @@ const DEFECTS: &[Defect] = &[
             ),
             (
                 "crates/iroha_core/src/state/authority_registry/world.rs",
-                "Role::Derived { sources: &[\"world.space_directory_manifests\", \"world.axt_handle_counters\", \"runtime.lanes\", \"runtime.lane_incarnation_lineage\", \"state.nexus\", \"state.block_hashes\"], check: DerivationCheck::Rebuild(\"World::rebuild_axt_policies_from_space_directory; exact authenticated slot and lane policy\") });",
+                "Role::Derived { sources: &[\"world.space_directory_manifests\", \"world.axt_handle_counters\", \"runtime.lanes\", \"runtime.lane_incarnation_lineage\", \"state.nexus\", \"state.block_hashes\"], check: DerivationCheck::Rebuild(\"World::rebuild_axt_policies_from_space_directory; exact authenticated slot and lane policy\") }), release = axt_policies;",
             ),
         ],
     },
@@ -5683,6 +6163,7 @@ fn defect_fields(id: &str, rows: &[Row]) -> Vec<String> {
             "world.verifying_keys",
             "world.poseidon_params",
             "world.pedersen_params",
+            "world.sccp_light_client_profiles",
         ]),
         "G1-D11" => named(&["world.axt_policies", "world.axt_handle_counters"]),
         other => panic!("defect {other} has no field rule"),
@@ -6475,8 +6956,13 @@ fn regenerate_state_table_inventory() {
         cfg!(feature = "telemetry"),
         "regenerate with the node feature set: the tracked inventory lists state.telemetry"
     );
-    std::fs::write(repository().join(INVENTORY_PATH), generate())
-        .expect("write the tracked inventory");
+    let path = repository().join(INVENTORY_PATH);
+    let generated = generate();
+    // A canonical no-op must preserve the fixture timestamp and Cargo's input
+    // identity; only an actual inventory change needs to rewrite the fixture.
+    if std::fs::read(&path).ok().as_deref() != Some(generated.as_bytes()) {
+        std::fs::write(path, generated).expect("write the tracked inventory");
+    }
 }
 
 /// The registry is the completeness guard: it destructures every owner without `..`, so a
@@ -7093,6 +7579,20 @@ fn source_scan_classifies_every_domain_literal_and_construction_use() {
             .contains(&"fastpq:v1:permission-table:blake2b-256")
     );
 
+    // The exact prospective-seat statement has a record digest, not a State-opening root.
+    // Its sole model producer remains visible to the ordinary occurrence/source inventory.
+    assert_eq!(
+        owners.get("iroha:validator-seat-readiness:v1"),
+        Some(&DomainOwner::Other(Use::Record))
+    );
+    assert_eq!(
+        scan.literal_uses["iroha:validator-seat-readiness:v1"],
+        BTreeMap::from([(
+            "crates/iroha_data_model/src/nexus/committee.rs".to_owned(),
+            1_usize
+        )])
+    );
+
     // Negative controls. Each probe is a source text at a path outside the State owner.
     let unlisted = |path: &str, text: &str| -> Vec<String> {
         scan_sources([(path, text)])
@@ -7113,7 +7613,8 @@ fn source_scan_classifies_every_domain_literal_and_construction_use() {
     for literal in [
         "iroha:world-state:shadow:v1\\0",
         "iroha:state:shadow-codec:v1",
-        "iroha:kagemusha:v1:shadow-record",
+        "iroha:kagemusha:wallet:v1:shadow-record",
+        "iroha:validator-seat-readiness:shadow:v1",
         "fastpq:v2:permission-table:blake2b-256",
     ] {
         assert_eq!(
@@ -7257,6 +7758,9 @@ fn source_scan_classifies_every_domain_literal_and_construction_use() {
         "iroha.toml",
         "iroha.mint",
         "iroha::logger",
+        // Norito Rust schema identities name layouts, not scanned hash domains.
+        "iroha_core::amx::PreparedIntentCoordinatesV1",
+        "iroha_core::amx::PreparedIntentRowV1",
         "plain text v1 here",
         "retail_fee_head_tree_v1",
         "../fixtures/a/b_v1.json",
@@ -7875,6 +8379,331 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
     assert!(names_state_reader("x: &crate::state::State") && !names_state_reader("LaneState"));
 }
 
+/// A test-only argument cannot hide the next original AMX State-reader method.
+#[test]
+fn state_hash_scan_cfg_arguments_preserve_original_amx_complete() {
+    let text = r#"
+        impl<V: StateReadOnly> NativeAmxRecordProofReadV1<'_, V> {
+            pub fn poll(&mut self) -> Result<NativeAmxRecordProofPollV1, Error> {
+                self.source.as_mut().expect("source").poll(
+                    #[cfg(test)]
+                    &mut self.portable_probe,
+                )
+            }
+            pub fn complete(&mut self) -> Result<Option<AllocatedAmxRecordProofV1>, Error> {
+                loop { match self.poll()? { Poll::Pending => {}, Poll::Complete(p) => return Ok(p) } }
+            }
+        }
+    "#;
+    let (_, code) = split_source(text);
+    assert_eq!(
+        fn_signatures(&code),
+        [
+            FnSignature {
+                name: "poll".to_owned(),
+                reads_state: true,
+                returns_hash: false
+            },
+            FnSignature {
+                name: "complete".to_owned(),
+                reads_state: true,
+                returns_hash: true
+            },
+        ],
+        "test-only AMX call argument must not hide original complete State-reader"
+    );
+}
+
+/// Local attributes end at their original field, argument, statement or block boundary.
+#[test]
+fn state_hash_scan_cfg_nonitems_preserve_later_production_functions() {
+    for text in [
+        "struct Holder { #[cfg(test)] pub(crate) probe: Option<(A, B)>, other: A } fn visible(s: &State) -> Hash { todo!() }",
+        "enum Holder { #[cfg(test)] Probe(A, B), Other } fn visible(s: &State) -> Hash { todo!() }",
+        "fn outer() { call(#[cfg(test)] nested([a, b], (c, d)), { fn visible(s: &State) -> Hash { todo!() } }); }",
+        "fn outer() { #[cfg(test)] let probe = { fn hidden(s: &State) -> Hash { todo!() } (a, b) }; fn visible(s: &State) -> Hash { todo!() } }",
+        "fn outer() { call(#[cfg(test)] { fn hidden(s: &State) -> Hash { todo!() } [a, b] }); fn visible(s: &State) -> Hash { todo!() } }",
+        "fn outer() { #[cfg(test)] { fn hidden(s: &State) -> Hash { todo!() } } } fn visible(s: &State) -> Hash { todo!() }",
+        "fn outer() { #[cfg(test)] { fn hidden(s: &State) -> Hash { todo!() } } fn visible(s: &State) -> Hash { todo!() } }",
+        "fn outer() { #[cfg(test)] async { fn hidden(s: &State) -> Hash { todo!() } } fn visible(s: &State) -> Hash { todo!() } }",
+        "fn outer() { #[cfg(test)] unsafe { fn hidden(s: &State) -> Hash { todo!() } } fn visible(s: &State) -> Hash { todo!() } }",
+        "fn outer() { #[cfg(test)] if flag { fn hidden(s: &State) -> Hash { todo!() } } else { fn hidden_else(s: &State) -> Hash { todo!() } } fn visible(s: &State) -> Hash { todo!() } }",
+        "fn outer() { #[cfg(test)] loop { fn hidden(s: &State) -> Hash { todo!() } } impl World { fn visible(&self) -> Hash { todo!() } } }",
+        "struct Holder { #[cfg(test)] callback: fn() -> [u8; { fn hidden(s: &State) -> Hash { todo!() } 1 }], other: [u8; { fn visible(s: &State) -> Hash { todo!() } 1 }] }",
+        "struct Holder { #[cfg(test)] probe: [u8; { fn hidden(s: &State) -> Hash { todo!() } 1 }], other: [u8; { fn visible(s: &State) -> Hash { todo!() } 1 }] }",
+        "fn outer() { call(#[cfg(test)] (a, [b, c], { fn hidden(s: &State) -> Hash { todo!() } 0 }), { fn visible(s: &State) -> Hash { todo!() } }); }",
+    ] {
+        let (_, code) = split_source(text);
+        let matched: Vec<_> = fn_signatures(&code)
+            .into_iter()
+            .filter(|signature| signature.reads_state && signature.returns_hash)
+            .map(|signature| signature.name)
+            .collect();
+        assert_eq!(
+            matched,
+            ["visible"],
+            "local cfg target swallowed another owner: {text}"
+        );
+    }
+    assert_eq!(
+        test_only_ranges("#[cfg(test)] probe) fn visible() {}"),
+        [(0, 18)]
+    );
+    assert_eq!(
+        test_only_ranges("#[cfg(test)] probe] fn visible() {}"),
+        [(0, 18)]
+    );
+    assert_eq!(
+        test_only_ranges("#[cfg(test)] probe} fn visible() {}"),
+        [(0, 18)]
+    );
+}
+
+/// Real test-only items remain excluded, including associated items and generic headers.
+#[test]
+fn state_hash_scan_cfg_items_preserve_exact_item_exclusion() {
+    for item in [
+        "#[cfg(test)] #[inline] pub(in crate::state) async unsafe fn hidden<T: Trait<A, B>, U>(s: &State, f: fn(A, B)) -> Hash where T: Other<U, A> { fn nested(s: &State) -> Hash { todo!() } todo!() }",
+        "#[cfg(test)] pub(crate) const fn hidden(s: &State) -> Hash { todo!() }",
+        "#[cfg(test)] pub unsafe extern \"C\" fn hidden(s: &State) -> Hash { todo!() }",
+        "#[test] #[ignore] fn hidden() { fn nested(s: &State) -> Hash { todo!() } }",
+        "#[cfg(test)] pub mod test_module { fn hidden(s: &State) -> Hash { todo!() } }",
+        "#[cfg(test)] unsafe impl<T: Trait<A, B>> WorldReadOnly for Holder<T> { fn hidden(&self) -> Hash { todo!() } }",
+        "#[cfg(test)] pub trait TestTrait: StateReadOnly { fn hidden(&self) -> Hash; }",
+        "impl World { #[cfg(test)] pub(crate) fn hidden<T: Trait<A, B>>(&self) -> Hash { todo!() } }",
+        "impl World { #[cfg(test)] const HIDDEN: Hash = { fn nested(s: &State) -> Hash { todo!() } todo!() }; }",
+        "#[cfg(test)] macro_rules! hidden { () => { fn nested(s: &State) -> Hash { todo!() } }; }",
+    ] {
+        let text = format!("{item}\nfn visible(s: &State) -> Hash {{ todo!() }}");
+        let (_, code) = split_source(&text);
+        let matched: Vec<_> = fn_signatures(&code)
+            .into_iter()
+            .filter(|signature| signature.reads_state && signature.returns_hash)
+            .map(|signature| signature.name)
+            .collect();
+        assert_eq!(
+            matched,
+            ["visible"],
+            "test-only item boundary changed: {item}"
+        );
+    }
+    assert_eq!(
+        test_only_ranges("#[cfg(test)] mod tests; fn visible() {}"),
+        [(0, 23)]
+    );
+}
+
+/// Existing delimiter and generic signature rules remain unchanged by local cfg ranges.
+#[test]
+fn state_hash_scan_cfg_boundary_helpers_preserve_existing_rules() {
+    assert_eq!(closing(b"<A<B>, fn() -> C>x", 0), 17);
+    assert_eq!(closing(b"(a(b)", 0), 5);
+    assert_eq!(header_end(b"-> [u8; 32] where T: X { }", 0), 23);
+    assert_eq!(item_end(b"fn f() { { } } x", 0), 14);
+    assert_eq!(item_end(b"use a::b; x", 0), 9);
+    assert_eq!(
+        test_only_ranges("#[cfg(test)] #[allow(x)] fn t() -> [u8; 2] { {} } fn u() {}"),
+        [(0, 49)]
+    );
+    assert!(keyword_at(b"x fn y", 2, b"fn") && !keyword_at(b"x fnord", 2, b"fn"));
+    assert!(!keyword_at(b"xfn y", 1, b"fn"));
+    let signatures = fn_signatures(
+        "impl World { pub(crate) fn raw<T: Trait<A, B>>(&self, pair: (A, B)) -> Result<[u8; 32], E> where E: Other<A, B> { todo!() } }",
+    );
+    assert_eq!(
+        signatures,
+        [FnSignature {
+            name: "raw".to_owned(),
+            reads_state: true,
+            returns_hash: true
+        }]
+    );
+}
+
+/// The actual AMX source still supplies its exact listed production State-hash method.
+#[test]
+fn state_hash_scan_actual_amx_complete_keeps_its_original_listing() {
+    let path = "crates/iroha_core/src/query/native_receipts/amx_read.rs";
+    let text = source(path);
+    let (_, code) = split_source(&text);
+    let matched: Vec<_> = fn_signatures(&code)
+        .into_iter()
+        .filter(|signature| {
+            signature.name == "complete" && signature.reads_state && signature.returns_hash
+        })
+        .collect();
+    assert_eq!(
+        matched.len(),
+        1,
+        "original AMX complete State-reader must remain scanned"
+    );
+    let listed: Vec<_> = STATE_HASH_FUNCTIONS
+        .iter()
+        .filter(|listed| listed.path == path && listed.name == "complete")
+        .collect();
+    assert_eq!(
+        listed.len(),
+        1,
+        "original AMX complete must retain its exact registry entry"
+    );
+}
+
+/// Current execution proofs serve an existing certified identity and result.
+#[test]
+fn state_hash_scan_current_execution_proof_classifies_certified_identity() {
+    let path = "crates/iroha_core/src/sumeragi/finality.rs";
+    let (_, code) = split_source(&source(path));
+    let name = "current_execution_proof";
+    assert_eq!(
+        fn_signatures(&code)
+            .iter()
+            .filter(|entry| entry.name == name && entry.reads_state && entry.returns_hash)
+            .count(),
+        1,
+        "the actual current execution proof producer must remain scanned"
+    );
+    let listed: Vec<_> = STATE_HASH_FUNCTIONS
+        .iter()
+        .filter(|entry| entry.path == path && entry.name == name)
+        .collect();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].count, 1);
+    assert!(matches!(
+        listed[0].owner,
+        UseOwner::Other(Use::ResultBinding, _)
+    ));
+}
+
+/// A test-only enum variant cannot hide the production World-root producers after it.
+#[test]
+fn state_hash_scan_cfg_variant_preserves_world_accumulator_owners() {
+    let path = "crates/iroha_core/src/state/world_state_accumulator.rs";
+    let (_, code) = split_source(&source(path));
+    let signatures = fn_signatures(&code);
+    for name in ["apply_block", "capture"] {
+        assert_eq!(
+            signatures
+                .iter()
+                .filter(|entry| entry.name == name && entry.reads_state && entry.returns_hash)
+                .count(),
+            1,
+            "test-only Direction variant must not hide World-root producer {name}"
+        );
+        let listed: Vec<_> = STATE_HASH_FUNCTIONS
+            .iter()
+            .filter(|entry| entry.path == path && entry.name == name)
+            .collect();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].count, 1);
+        assert!(matches!(
+            listed[0].owner,
+            UseOwner::Roots(["world_state_root"])
+        ));
+    }
+    assert!(
+        !signatures
+            .iter()
+            .any(|entry| entry.name == "capture_predecessor"),
+        "the actual test-only reverse capture must remain excluded"
+    );
+}
+
+/// An attributed control statement cannot consume a following production struct.
+#[test]
+fn state_hash_scan_cfg_controls_preserve_next_struct() {
+    for text in [
+        "fn outer() { #[cfg(test)] if flag {} struct Holder { x: [u8; { fn visible(s: &State) -> Hash { todo!() } 1 }] } }",
+        "fn outer() { #[cfg(test)] while flag {} struct Holder { x: [u8; { fn visible(s: &State) -> Hash { todo!() } 1 }] } }",
+        "fn outer() { #[cfg(test)] match flag { _ => {} } struct Holder { x: [u8; { fn visible(s: &State) -> Hash { todo!() } 1 }] } }",
+        "fn outer() { #[cfg(test)] for value in r#in {} struct Holder { x: [u8; { fn visible(s: &State) -> Hash { todo!() } 1 }] } }",
+    ] {
+        let (_, code) = split_source(text);
+        let matched: Vec<_> = fn_signatures(&code)
+            .into_iter()
+            .filter(|signature| signature.reads_state && signature.returns_hash)
+            .map(|signature| signature.name)
+            .collect();
+        assert_eq!(
+            matched,
+            ["visible"],
+            "cfg control must end before the next production statement: {text}"
+        );
+    }
+}
+
+/// An attributed control statement cannot consume a following production let initializer.
+#[test]
+fn state_hash_scan_cfg_controls_preserve_next_let() {
+    for text in [
+        "fn outer() { #[cfg(test)] if flag {} let value = { fn visible(s: &State) -> Hash { todo!() } 1 }; }",
+        "fn outer() { #[cfg(test)] for value in values {} let value = { fn visible(s: &State) -> Hash { todo!() } 1 }; }",
+        "fn outer() { #[cfg(test)] 'retry: loop {} let value = { fn visible(s: &State) -> Hash { todo!() } 1 }; }",
+        "fn outer() { #[cfg(test)] 'rétry: loop {} let value = { fn visible(s: &State) -> Hash { todo!() } 1 }; }",
+        "fn outer() { #[cfg(test)] 'local: { fn hidden(s: &State) -> Hash { todo!() } } let value = { fn visible(s: &State) -> Hash { todo!() } 1 }; }",
+        "fn outer() { #[cfg(test)] async move { fn hidden(s: &State) -> Hash { todo!() } } let value = { fn visible(s: &State) -> Hash { todo!() } 1 }; }",
+    ] {
+        let (_, code) = split_source(text);
+        let matched: Vec<_> = fn_signatures(&code)
+            .into_iter()
+            .filter(|signature| signature.reads_state && signature.returns_hash)
+            .map(|signature| signature.name)
+            .collect();
+        assert_eq!(
+            matched,
+            ["visible"],
+            "cfg control must end before the next production let: {text}"
+        );
+    }
+}
+
+/// The original if/else chain is excluded, while the following independent block remains.
+#[test]
+fn state_hash_scan_cfg_else_chains_end_at_their_original_final_block() {
+    for text in [
+        "fn outer() { #[cfg(test)] if flag { fn hidden(s: &State) -> Hash { todo!() } } else if other([a, b], (c, d)) { fn hidden_else_if(s: &State) -> Hash { todo!() } } else { fn hidden_else(s: &State) -> Hash { todo!() } } { fn visible(s: &State) -> Hash { todo!() } } }",
+        "fn outer() { #[cfg(test)] if flag {} else if other {} else if last {} struct Holder { x: [u8; { fn visible(s: &State) -> Hash { todo!() } 1 }] } }",
+        "fn outer() { #[cfg(test)] if flag {} { fn visible(s: &State) -> Hash { todo!() } } }",
+        "fn outer() { #[cfg(test)] if flag { if inner {} else {} } else { if inner {} else {} } let value = { fn visible(s: &State) -> Hash { todo!() } 1 }; }",
+    ] {
+        let (_, code) = split_source(text);
+        let matched: Vec<_> = fn_signatures(&code)
+            .into_iter()
+            .filter(|signature| signature.reads_state && signature.returns_hash)
+            .map(|signature| signature.name)
+            .collect();
+        assert_eq!(
+            matched,
+            ["visible"],
+            "cfg else chain crossed its original final block: {text}"
+        );
+    }
+}
+
+/// Original header operand blocks precede the final body; balanced nested groups stay owned.
+#[test]
+fn state_hash_scan_cfg_control_headers_keep_original_operand_and_body_blocks() {
+    for text in [
+        "fn outer() { #[cfg(test)] if { fn hidden_operand(s: &State) -> Hash { todo!() } true } { fn hidden_body(s: &State) -> Hash { todo!() } } else { fn hidden_else(s: &State) -> Hash { todo!() } } let value = { fn visible(s: &State) -> Hash { todo!() } 1 }; }",
+        "fn outer() { #[cfg(test)] if flag && { fn hidden_operand(s: &State) -> Hash { todo!() } true } { fn hidden_body(s: &State) -> Hash { todo!() } } struct Holder { x: [u8; { fn visible(s: &State) -> Hash { todo!() } 1 }] } }",
+        "fn outer() { #[cfg(test)] if let Some(value) = { fn hidden_operand(s: &State) -> Hash { todo!() } input } { fn hidden_body(s: &State) -> Hash { todo!() } } let value = { fn visible(s: &State) -> Hash { todo!() } 1 }; }",
+        "fn outer() { #[cfg(test)] for value in { fn hidden_operand(s: &State) -> Hash { todo!() } values } { fn hidden_body(s: &State) -> Hash { todo!() } } let value = { fn visible(s: &State) -> Hash { todo!() } 1 }; }",
+        "fn outer() { #[cfg(test)] match { fn hidden_operand(s: &State) -> Hash { todo!() } value } { _ => { fn hidden_body(s: &State) -> Hash { todo!() } } } let value = { fn visible(s: &State) -> Hash { todo!() } 1 }; }",
+        "fn outer() { #[cfg(test)] if ({ fn hidden_operand(s: &State) -> Hash { todo!() } true }) { fn hidden_body(s: &State) -> Hash { todo!() } } else if ({ true }) { fn hidden_else(s: &State) -> Hash { todo!() } } let value = { fn visible(s: &State) -> Hash { todo!() } 1 }; }",
+    ] {
+        let (_, code) = split_source(text);
+        let matched: Vec<_> = fn_signatures(&code)
+            .into_iter()
+            .filter(|signature| signature.reads_state && signature.returns_hash)
+            .map(|signature| signature.name)
+            .collect();
+        assert_eq!(
+            matched,
+            ["visible"],
+            "cfg header lost its original operand/body boundary: {text}"
+        );
+    }
+}
+
 /// The exact tables are well formed: every exemption has a reviewed reason, every
 /// application accumulator names existing canonical State fields, and every construction
 /// owner exists.
@@ -8222,10 +9051,14 @@ fn every_listed_commitment_has_one_owner_and_disposition() {
         defect_fields("G1-D11", &rows()),
         ["world.axt_policies", "world.axt_handle_counters"]
     );
-    assert!(listed("confidential_feature_digest").scope.starts_with(
+    assert_eq!(
+        listed("confidential_feature_digest").scope,
         "the effective verifying-key projection, selected parameter identifiers and their \
-             registry-effectiveness checks, and ZK policy."
-    ));
+         registry-effectiveness checks, ZK policy, and the SCCP light-client profile versions \
+         and hashes active at the block height. Source fields: world.verifying_keys, \
+         world.poseidon_params, world.pedersen_params, world.sccp_light_client_profiles and \
+         state.zk"
+    );
     assert!(listed("execution_policy_digest").scope.ends_with(
         "The Nexus policy digest also incorporates `state.lane_manifests` and \
          `state.lane_compliance` through their policy digests"
@@ -8336,7 +9169,12 @@ fn every_listed_commitment_has_one_owner_and_disposition() {
 fn witness_families_cover_every_witness_key_tag() {
     let witnessed = witnessed_fields();
     let tags = witness_key_tags();
-    for tag in ["AmxRecord", "AssetBalance", "FeeRecord"] {
+    for tag in [
+        "AmxRecord",
+        "AssetBalance",
+        "FeeRecord",
+        "RewardExposureArchive",
+    ] {
         assert!(tags.iter().any(|known| known == tag), "{tag}");
     }
     let rows = rows();
@@ -8384,6 +9222,10 @@ fn witness_families_cover_every_witness_key_tag() {
             "world.parameters",
             "world.smart_contract_state"
         ]
+    );
+    assert_eq!(
+        fields_of("reward_exposure_archive"),
+        ["world.smart_contract_state"]
     );
     let sccp = sccp_write_set_fields();
     assert!(sccp.len() > 1 && sccp.iter().all(|field| field.starts_with("world.sccp_")));
@@ -8717,6 +9559,50 @@ fn protocol_carriers_classify_every_hash_bearing_field() {
             ),
         ]
     );
+    // The current authority graph is walked from its actual wire fields. A new hash,
+    // scalar or nested type in either original authorization or frozen preparation cannot
+    // hide behind an opaque authority-generation record.
+    let authority = carrier("execution_result");
+    let mut authority_types = carrier_types(authority);
+    for (name, field, kind) in [
+        (
+            "ValidatorEpochAuthorizationV1",
+            "shadow_generation",
+            "[u8; 32]",
+        ),
+        ("ValidatorCommitteePreparationV1", "shadow_selection", "u64"),
+        (
+            "ValidatorElectionPolicyV1",
+            "shadow_policy",
+            "UnknownPolicy",
+        ),
+    ] {
+        let at = authority_types
+            .iter()
+            .position(|(known, _)| *known == name)
+            .unwrap();
+        authority_types[at]
+            .1
+            .push((field.to_owned(), kind.to_owned()));
+        assert_eq!(
+            unlisted_carrier_fields(authority, &authority_types),
+            [format!("unclassified field {name}.{field}: {kind}")]
+        );
+        let unclassified =
+            unclassified_value_fields(&authority_types, authority.hashes, authority.opaque);
+        match kind {
+            "[u8; 32]" => assert_eq!(
+                unclassified,
+                [format!("unclassified hash field {name}.{field}: {kind}")]
+            ),
+            "UnknownPolicy" => assert_eq!(
+                unclassified,
+                [format!("unclassified nested type {kind} in {name}.{field}")]
+            ),
+            _ => assert!(unclassified.is_empty()),
+        }
+        authority_types[at].1.pop();
+    }
     // Sources outside the two scanned crates are read: the core messages and the
     // handshake capabilities.
     for (id, crate_path) in [
@@ -8912,15 +9798,43 @@ fn protocol_carriers_classify_every_hash_bearing_field() {
         ["unclassified field BlockPayload.shadow_epoch: u64"]
     );
     body_types[payload_at].1.pop();
-    let bundle = position(&body_types, "DaCommitmentBundle");
-    body_types[bundle]
+    // The commitment bundle has its own carrier so its private Storage/CanonicalParts
+    // declarations cannot alias the proof-policy wrapper's identically named types.
+    let da = carrier("da_commitment_bundle");
+    let mut da_types = carrier_types(da);
+    let bundle = position(&da_types, "DaCommitmentBundle");
+    da_types[bundle]
         .1
         .push(("shadow_root".to_owned(), "Option<Hash>".to_owned()));
     assert_eq!(
-        unclassified_value_fields(&body_types, body.hashes, body.opaque),
+        unclassified_value_fields(&da_types, da.hashes, da.opaque),
         ["unclassified hash field DaCommitmentBundle.shadow_root: Option<Hash>"]
     );
-    body_types[bundle].1.pop();
+    assert_eq!(
+        unlisted_carrier_fields(da, &da_types),
+        ["unclassified field DaCommitmentBundle.shadow_root: Option<Hash>"]
+    );
+    da_types[bundle].1.pop();
+    let parts = position(&da_types, "CanonicalParts");
+    da_types[parts]
+        .1
+        .push(("policy_hash".to_owned(), "Hash".to_owned()));
+    assert_eq!(
+        unclassified_value_fields(&da_types, da.hashes, da.opaque),
+        ["unclassified hash field CanonicalParts.policy_hash: Hash"]
+    );
+    assert_eq!(
+        unlisted_carrier_fields(da, &da_types),
+        ["unclassified field CanonicalParts.policy_hash: Hash"]
+    );
+    da_types[parts].1.pop();
+    da_types[parts]
+        .1
+        .push(("shadow_epoch".to_owned(), "u64".to_owned()));
+    assert_eq!(
+        unlisted_carrier_fields(da, &da_types),
+        ["unclassified field CanonicalParts.shadow_epoch: u64"]
+    );
     let effects = position(&body_types, "NposConsensusEffects");
     body_types[effects]
         .1
@@ -9829,7 +10743,8 @@ fn inventory_text_helpers_escape_and_cite_exactly() {
         [
             "world.verifying_keys",
             "world.poseidon_params",
-            "world.pedersen_params"
+            "world.pedersen_params",
+            "world.sccp_light_client_profiles"
         ]
     );
     assert_eq!(DEFECTS.last().map(|defect| defect.id), Some("G1-D11"));

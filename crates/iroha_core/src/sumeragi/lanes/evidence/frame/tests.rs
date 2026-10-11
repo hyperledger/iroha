@@ -89,7 +89,6 @@ fn frame(
         proposer: 0,
         skipped_leaders: Vec::new(),
         control_witness: ControlWitness::empty(),
-        attest: false,
     };
     let authored = PayloadAuthoring::new(header, payload)
         .complete(
@@ -109,11 +108,8 @@ fn frame(
         view: 0,
         block_hash: hash,
         result: Hash32([73; 32]),
-        attest: false,
         signers: Bitmap::from_indices(4, [0, 1, 2]).unwrap(),
         agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
-        attestations: Vec::new(),
-        attestation_witness: None,
     };
     let signatures: Vec<_> = signers[..3]
         .iter()

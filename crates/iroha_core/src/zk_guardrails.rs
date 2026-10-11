@@ -16,9 +16,10 @@ use crate::zk::{VerifyReport, ZkVerifyGuardrails, verify_backend_with_timing_gua
 #[must_use]
 pub fn guardrails_from_config(cfg: &Zk) -> ZkVerifyGuardrails {
     ZkVerifyGuardrails {
-        halo2_enabled: cfg.halo2.enabled,
-        halo2_max_envelope_bytes: cfg.halo2.max_envelope_bytes,
-        halo2_max_proof_bytes: cfg.halo2.max_proof_bytes,
+        pipa_r_enabled: cfg.pipa_r.enabled,
+        pipa_r_max_envelope_bytes: cfg.pipa_r.max_envelope_bytes,
+        pipa_r_max_proof_bytes: cfg.pipa_r.max_proof_bytes,
+
         stark_enabled: cfg.stark.enabled,
         stark_max_envelope_bytes: cfg.stark.max_envelope_bytes,
         stark_max_proof_bytes: cfg.stark.max_proof_bytes,
@@ -50,18 +51,20 @@ mod tests {
     #[test]
     fn guardrails_from_config_copies_every_cap() {
         let mut cfg = default_zk_config();
-        cfg.halo2.enabled = true;
-        cfg.halo2.max_envelope_bytes = 11;
-        cfg.halo2.max_proof_bytes = 12;
+
+        cfg.pipa_r.enabled = false;
+        cfg.pipa_r.max_envelope_bytes = 15;
+        cfg.pipa_r.max_proof_bytes = 16;
         cfg.stark.enabled = false;
         cfg.stark.max_envelope_bytes = 13;
         cfg.stark.max_proof_bytes = 14;
         assert_eq!(
             guardrails_from_config(&cfg),
             ZkVerifyGuardrails {
-                halo2_enabled: true,
-                halo2_max_envelope_bytes: 11,
-                halo2_max_proof_bytes: 12,
+                pipa_r_enabled: false,
+                pipa_r_max_envelope_bytes: 15,
+                pipa_r_max_proof_bytes: 16,
+
                 stark_enabled: false,
                 stark_max_envelope_bytes: 13,
                 stark_max_proof_bytes: 14,
@@ -70,9 +73,19 @@ mod tests {
     }
 
     #[test]
-    fn checked_verification_rejects_disabled_backend() {
+    fn checked_verification_rejects_disabled_native_backend() {
         let mut cfg = default_zk_config();
-        cfg.halo2.enabled = false;
+        cfg.pipa_r.enabled = false;
+        let proof = ProofBox::new("pipa-r/pasta".into(), vec![0xAA; 8]);
+        let report = verify_backend_with_timing_checked("pipa-r/pasta", &proof, None, &cfg);
+        assert!(!report.ok);
+        assert_eq!(report.elapsed, Duration::ZERO);
+    }
+
+    #[test]
+    fn checked_verification_rejects_retired_backend() {
+        let cfg = default_zk_config();
+
         let proof = ProofBox::new("halo2/ipa".into(), vec![0xAA; 8]);
         let report = verify_backend_with_timing_checked("halo2/ipa", &proof, None, &cfg);
         assert!(!report.ok);

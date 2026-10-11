@@ -602,11 +602,13 @@ fn provider_ingest_retains_exact_roles_owner_wallet_and_full_original_claims() {
 }
 
 // The sole wallet owner retains the real request before the epoch commit; this does not sign.
+// Expiry fixtures select their original interval after semantic publication and wallet setup.
+// Callers with an existing absolute authorization return that unchanged value from the callback.
 pub(super) fn retain_explicit_request(
     owner: &Setup,
     directory: &PrivateDirectory,
     original: &Original,
-    utc: u64,
+    select_utc: impl FnOnce() -> u64,
     options: &BoundedTransactionOptions,
 ) -> Selected<Original> {
     journal::publish_intent(directory, original).unwrap();
@@ -619,6 +621,8 @@ pub(super) fn retain_explicit_request(
         "semantic bytes alone are not a committed dispatch"
     );
     let wallet = owner.wallet().unwrap();
+    let utc = select_utc();
+    let selected_at = Instant::now();
     journal::explicit(
         directory,
         owner.purpose().unwrap(),
@@ -627,7 +631,14 @@ pub(super) fn retain_explicit_request(
         options,
         &wallet,
     )
-    .unwrap();
+    .unwrap_or_else(|error| {
+        panic!(
+            "retain original setup request: {error}; requested_utc={utc} current_utc={:?} retention_elapsed_ms={} io_remaining_ms={}",
+            now_ms(),
+            selected_at.elapsed().as_millis(),
+            options.deadline.saturating_duration_since(Instant::now()).as_millis(),
+        )
+    });
     let selected = journal::required_original(directory, owner.purpose().unwrap()).unwrap();
     assert_eq!(
         selected

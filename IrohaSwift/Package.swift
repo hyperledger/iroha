@@ -10,12 +10,19 @@ import Darwin
 import Glibc
 #endif
 
-let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+// Foundation standardization can rewrite /private/tmp to its /tmp symlink alias.
+// Use the same physical filesystem identity as the artifact and custody guards.
+guard let packageManifestPath = canonicalExistingFilesystemPath(#filePath) else {
+    fatalError("error: the Swift package manifest must have an existing canonical filesystem path.")
+}
+let packageDirectory = URL(fileURLWithPath: packageManifestPath).deletingLastPathComponent()
 let bridgeRelativePath = "../dist/NoritoBridge.xcframework"
-let requiredBridgeAbiVersion = 25
-let repositoryDirectory = packageDirectory.deletingLastPathComponent().standardizedFileURL
+let requiredBridgeAbiVersion = 29
+let repositoryDirectory = packageDirectory.deletingLastPathComponent()
 let localIntegrationArtifactDirectory = repositoryDirectory
     .appendingPathComponent("target/norito-bridge-local/artifacts", isDirectory: true).path
+let localUnitArtifactParent = repositoryDirectory
+    .appendingPathComponent("target/qualification", isDirectory: true).path
 let configuredArtifactDirectory = ProcessInfo.processInfo.environment[
     "MOBILE_SDK_APPLE_ARTIFACT_DIR"
 ]
@@ -105,24 +112,24 @@ if let configuredArtifactDirectory = selectedArtifactDirectory {
         fileURLWithPath: canonicalArtifactDirectory,
         isDirectory: true
     )
-    guard
-        resolvedURL.path != repositoryDirectory.path,
-        !resolvedURL.path.hasPrefix(repositoryDirectory.path + "/")
-            || (!requireExternalArtifact && resolvedURL.path == localIntegrationArtifactDirectory)
-    else {
-        fatalError(
-            "error: MOBILE_SDK_APPLE_ARTIFACT_DIR must be outside the reviewed Iroha source tree."
-        )
-    }
     if configuredLocalUnitArtifactDirectory != nil {
-        guard resolvedURL.path != repositoryDirectory.path,
-            !resolvedURL.path.hasPrefix(repositoryDirectory.path + "/"),
+        guard resolvedURL.path.hasPrefix(localUnitArtifactParent + "/"),
             let attributes = try? FileManager.default.attributesOfItem(atPath: resolvedURL.path),
             attributes[.type] as? FileAttributeType == .typeDirectory,
             (attributes[.ownerAccountID] as? NSNumber)?.intValue == Int(geteuid()),
             (attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700
         else {
-            fatalError("error: local-unit artifact directory must be external, owned, canonical and mode 0700.")
+            fatalError("error: local-unit artifact directory must be below target/qualification, owned, canonical and mode 0700.")
+        }
+    } else {
+        guard
+            resolvedURL.path != repositoryDirectory.path,
+            !resolvedURL.path.hasPrefix(repositoryDirectory.path + "/")
+                || (!requireExternalArtifact && resolvedURL.path == localIntegrationArtifactDirectory)
+        else {
+            fatalError(
+                "error: MOBILE_SDK_APPLE_ARTIFACT_DIR must be outside the reviewed Iroha source tree."
+            )
         }
     }
     bridgeAbsolutePath = resolvedURL
@@ -132,9 +139,8 @@ if let configuredArtifactDirectory = selectedArtifactDirectory {
         to: bridgeAbsolutePath
     )
 } else {
-    bridgeAbsolutePath = packageDirectory
-        .appendingPathComponent(bridgeRelativePath)
-        .standardizedFileURL
+    bridgeAbsolutePath = repositoryDirectory
+        .appendingPathComponent("dist/NoritoBridge.xcframework", isDirectory: true)
     bridgeTargetPath = bridgeRelativePath
 }
 

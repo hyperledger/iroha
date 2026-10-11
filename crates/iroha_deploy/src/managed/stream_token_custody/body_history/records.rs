@@ -1,8 +1,10 @@
 //! Sole bounded outer enrollment selection and immutable unsigned body records.
 
 use super::*;
+use crate::localnet::service_authorities::RetainedProviderServicePlan;
 use iroha_data_model::NetworkId;
 use norito::{Decode, Encode};
+use std::borrow::Borrow;
 
 pub(super) const MAX_BODIES: u8 = 64;
 pub(super) const MAX_SELECTION_BYTES: usize = 128 * 1024;
@@ -29,9 +31,9 @@ impl Selection {
         unsigned: &UnsignedEnrollment,
         fees: &Fees,
     ) -> Result<Self> {
-        unsigned.validate(owner, purpose)?;
-        fees.validate()?;
         let plan = owner.authority.provider_plan()?;
+        unsigned.validate(owner, purpose, || Ok(&plan))?;
+        fees.validate()?;
         let material = plan.admission_material();
         let value = Self {
             network: owner.authority.config.network_id,
@@ -56,10 +58,10 @@ impl Selection {
         &self,
         owner: &ManagedStreamTokenCustody,
         purpose: CustodyPurpose,
+        plan: &RetainedProviderServicePlan,
     ) -> Result<()> {
         encode(self, MAX_SELECTION_BYTES)?;
         self.fees.validate()?;
-        let plan = owner.authority.provider_plan()?;
         let material = plan.admission_material();
         if self.network != owner.authority.config.network_id
             || self.genesis != *owner.authority.genesis.genesis.hash().as_ref()
@@ -137,26 +139,102 @@ pub(in crate::managed::stream_token_custody) struct UnsignedEnrollment {
     pub checkpoint: Vec<u8>,
 }
 impl UnsignedEnrollment {
-    pub(in crate::managed::stream_token_custody) fn validate(
+    pub(in crate::managed::stream_token_custody) fn validate_with_imports<
+        P: Borrow<RetainedProviderServicePlan>,
+    >(
         &self,
         owner: &ManagedStreamTokenCustody,
         purpose: CustodyPurpose,
+        provider_plan: impl FnOnce() -> Result<P>,
+        imports: &mut crate::managed::service_authority::CheckpointImports<'_, '_>,
     ) -> Result<()> {
-        #[cfg(test)]
-        let _timing = crate::custody_timing::Span::enter(crate::custody_timing::Category::Unsigned);
+        self.validate_using(owner, purpose, provider_plan, || {
+            imports.decode(&self.checkpoint)
+        })
+    }
+
+    pub(in crate::managed::stream_token_custody) fn validate<
+        P: Borrow<RetainedProviderServicePlan>,
+    >(
+        &self,
+        owner: &ManagedStreamTokenCustody,
+        purpose: CustodyPurpose,
+        provider_plan: impl FnOnce() -> Result<P>,
+    ) -> Result<()> {
+        self.validate_using(owner, purpose, provider_plan, || {
+            owner.authority.decode_checkpoint(&self.checkpoint)
+        })
+    }
+    pub(in crate::managed::stream_token_custody) fn validate_with_checkpoint<
+        P: Borrow<RetainedProviderServicePlan>,
+    >(
+        &self,
+        owner: &ManagedStreamTokenCustody,
+        purpose: CustodyPurpose,
+        verifier: &FinalityVerifier,
+        provider_plan: impl FnOnce() -> Result<P>,
+    ) -> Result<()> {
+        self.validate_using(owner, purpose, provider_plan, || {
+            self.matching_checkpoint(owner, verifier)
+        })
+    }
+    // The caller retains a canonically authenticated verifier. Reuse is bound to this entire
+    // immutable frame and the original authority, not merely a height, hash or parsed shape.
+    pub(in crate::managed::stream_token_custody) fn matching_checkpoint<'a>(
+        &self,
+        owner: &ManagedStreamTokenCustody,
+        verifier: &'a FinalityVerifier,
+    ) -> Result<&'a FinalityVerifier> {
+        if checkpoint_bytes(verifier)? != self.checkpoint
+            || verifier.checkpoint().network_id() != owner.authority.config.network_id
+            || verifier.checkpoint().chain_id() != owner.authority.config.chain.as_str()
+        {
+            return Err(invalid(
+                "unsigned enrollment differs from retained checkpoint",
+            ));
+        }
+        Ok(verifier)
+    }
+    fn validate_using<P: Borrow<RetainedProviderServicePlan>, V: Borrow<FinalityVerifier>>(
+        &self,
+        owner: &ManagedStreamTokenCustody,
+        purpose: CustodyPurpose,
+        provider_plan: impl FnOnce() -> Result<P>,
+        checkpoint: impl FnOnce() -> Result<V>,
+    ) -> Result<()> {
         encode(self, MAX_BODY_BYTES)?;
         if self.checkpoint.is_empty() || self.checkpoint.len() > MAX_CHECKPOINT_BYTES {
             return Err(invalid("unsigned enrollment checkpoint exceeds bound"));
         }
-        let verifier = owner.authority.decode_checkpoint(&self.checkpoint)?;
+        let verifier = checkpoint()?;
+        Self::validate_checkpoint_scope(owner, verifier.borrow())?;
+        self.validate_selection_against_checkpoint(owner, purpose, provider_plan, verifier.borrow())
+    }
+
+    // Cold checkpoint authentication finishes before statement validation owns its working values.
+    #[inline(never)]
+    fn validate_checkpoint_scope(
+        owner: &ManagedStreamTokenCustody,
+        verifier: &FinalityVerifier,
+    ) -> Result<()> {
         verifier
-            .verified_tip()
+            .verified_tip_ref()
             .map_err(|_| invalid("unsigned enrollment checkpoint invalid"))?
             .verify_global_scope(
                 owner.authority.config.network_id,
                 &owner.authority.config.chain.to_string(),
             )
-            .map_err(|_| invalid("unsigned enrollment checkpoint changed Global scope"))?;
+            .map_err(|_| invalid("unsigned enrollment checkpoint changed Global scope"))
+    }
+
+    #[inline(never)]
+    fn validate_selection_against_checkpoint<P: Borrow<RetainedProviderServicePlan>>(
+        &self,
+        owner: &ManagedStreamTokenCustody,
+        purpose: CustodyPurpose,
+        provider_plan: impl FnOnce() -> Result<P>,
+        verifier: &FinalityVerifier,
+    ) -> Result<()> {
         let governed = control(&self.selection)?;
         owner.validate_policy(&governed.policy)?;
         let record = self
@@ -210,8 +288,13 @@ impl UnsignedEnrollment {
                 ));
             }
             CustodyPurpose::Renewal(next) => {
-                let expected =
-                    owner.renewal_validity(record, &governed, next, self.selected_at_unix_ms)?;
+                let expected = renewal::validate_renewal_validity(
+                    record,
+                    &governed,
+                    next,
+                    self.selected_at_unix_ms,
+                    provider_plan,
+                )?;
                 if expected.issued_at_unix_ms != self.statement.issued_at_unix_ms
                     || expected.expires_at_unix_ms != self.statement.expires_at_unix_ms
                 {
@@ -339,3 +422,7 @@ pub(super) fn control(
     .map_err(|_| invalid("invalid original enrollment control"))?;
     Ok(value)
 }
+
+#[cfg(test)]
+#[path = "records/borrowed_tip_tests.rs"]
+mod borrowed_tip_tests;

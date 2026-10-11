@@ -11,9 +11,9 @@ use std::{
 fn fixture() -> PreparedContract {
     let artifact = kotodama_lang::compiler::Compiler::new()
         .compile_source(
-            r#"seiyaku PreparedOwners {
-            kotoage fn zebra() authorize("Run") {}
-            kotoage fn alpha() authorize("Run") {}
+            r#"seiyaku PreparedOwners { permission Run;
+            kotoage fn zebra() authorize(Run) {}
+            kotoage fn alpha() authorize(Run) {}
         }"#,
         )
         .expect("compile actual artifact");

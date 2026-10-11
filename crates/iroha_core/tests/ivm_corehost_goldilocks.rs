@@ -1,7 +1,6 @@
 //! Core host rejection of polynomial-opening payloads and registered IPA curve policy.
 #![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 mod goldilocks {
-    use iroha_config::parameters::defaults;
     use iroha_core::smartcontracts::ivm::host::CoreHost;
     use iroha_data_model::prelude::AccountId;
     use iroha_test_samples::ALICE_ID;
@@ -45,26 +44,6 @@ mod goldilocks {
         tlv.extend_from_slice(&hash);
         tlv
     }
-    fn base_config() -> iroha_config::parameters::actual::Halo2 {
-        iroha_config::parameters::actual::Halo2 {
-            enabled: true,
-            curve: iroha_config::parameters::actual::ZkCurve::Goldilocks,
-            backend: iroha_config::parameters::actual::Halo2Backend::Ipa,
-            max_k: 18,
-            verifier_budget_ms: 200,
-            verifier_max_batch: 8,
-            verifier_worker_threads: defaults::zk::halo2::VERIFIER_WORKER_THREADS,
-            verifier_queue_cap: defaults::zk::halo2::VERIFIER_QUEUE_CAP,
-            verifier_enqueue_wait_ms: defaults::zk::halo2::VERIFIER_ENQUEUE_WAIT_MS,
-            verifier_retry_ring_cap: defaults::zk::halo2::VERIFIER_RETRY_RING_CAP,
-            verifier_retry_max_attempts: defaults::zk::halo2::VERIFIER_RETRY_MAX_ATTEMPTS,
-            verifier_retry_tick_ms: defaults::zk::halo2::VERIFIER_RETRY_TICK_MS,
-            max_envelope_bytes: defaults::zk::halo2::MAX_ENVELOPE_BYTES,
-            max_proof_bytes: defaults::zk::halo2::MAX_PROOF_BYTES,
-            max_transcript_label_len: defaults::zk::halo2::MAX_TRANSCRIPT_LABEL_LEN,
-            enforce_transcript_label_ascii: defaults::zk::halo2::ENFORCE_TRANSCRIPT_LABEL_ASCII,
-        }
-    }
     #[test]
     fn core_host_rejects_non_binding_goldilocks_commitments() {
         let env = make_goldilocks_envelope();
@@ -76,15 +55,12 @@ mod goldilocks {
             })
         ));
         let tlv = envelope_tlv(&raw);
-        for curve in [
-            iroha_config::parameters::actual::ZkCurve::Pallas,
-            iroha_config::parameters::actual::ZkCurve::Goldilocks,
-        ] {
+        for native_enabled in [true, false] {
             let authority: AccountId = ALICE_ID.clone();
             let mut host = CoreHost::with_accounts(authority.clone(), Arc::new(vec![authority]));
-            let mut cfg = base_config();
-            cfg.curve = curve;
-            host.set_halo2_config(&cfg);
+            let mut cfg = iroha_core::state::default_zk_config();
+            cfg.pipa_r.enabled = native_enabled;
+            host.set_zk_config(&cfg);
             let mut vm = ivm::IVM::new(1_000_000);
             let ptr = vm.alloc_input_tlv(&tlv).expect("alloc tlv");
             vm.set_register(10, ptr);
@@ -98,7 +74,6 @@ mod goldilocks {
             assert_eq!(vm.register(11), ivm::host::ERR_DECODE);
         }
     }
-    #[cfg(feature = "zk-halo2-ipa")]
     #[test]
     fn core_host_rejects_retired_ivm_ipa_registry_key() {
         use iroha_core_zk as zk;
@@ -110,14 +85,14 @@ mod goldilocks {
 
         let authority: AccountId = ALICE_ID.clone();
         let mut host = CoreHost::with_accounts(authority.clone(), Arc::new(vec![authority]));
-        let id = VerifyingKeyId::new(zk::ZK_BACKEND_HALO2_IPA, "curve_policy");
-        let key = VerifyingKeyBox::new(zk::ZK_BACKEND_HALO2_IPA.into(), vec![0x11; 3]);
+        let id = VerifyingKeyId::new("halo2/ipa", "curve_policy");
+        let key = VerifyingKeyBox::new("halo2/ipa".into(), vec![0x11; 3]);
         let mut record = VerifyingKeyRecord::new_with_owner(
             1,
             "ivm-execution-v1",
             None,
             "test",
-            BackendTag::Halo2IpaPasta,
+            BackendTag::NativePipaRPasta,
             "pallas",
             iroha_crypto::Hash::new(b"retired-ivm-schema").into(),
             zk::hash_vk(&key),

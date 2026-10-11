@@ -124,6 +124,10 @@ struct Predecessor {
     native_edge_capture: super::super::host_pair::SignedNativeEdgeCaptureV1,
     /// The selected host session ended with a complete native rollback.
     rolled_back: bool,
+    /// Explicit fresh-reset takeover retains the unresolved original journal verbatim.
+    /// When present, `completed` pins the genuine deployment-proven boundary instead.
+    #[norito(required)]
+    unresolved_journal: Option<Pin>,
     completed_next_step: u16,
     sealed_forward_ordinal: u16,
     completed: Pin,

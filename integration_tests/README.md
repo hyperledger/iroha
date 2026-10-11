@@ -19,6 +19,19 @@ This crate hosts cross-component tests for Iroha.
   behavior are covered by the deterministic simulator
   (`cargo test -p iroha_sumeragi --features sim`, `specs/sumeragi.md` §13).
 - Target a harness directly with `cargo test -p integration_tests --test <harness>`.
+- The explicit KAGEMUSHA network setup exporter is
+  `cargo test --locked -p integration_tests --test sumeragi kagemusha_network_setup::export_four_validator_kagemusha_setup -- --exact --ignored --nocapture --test-threads=1`.
+  Select same-candidate daemon and CLI binaries with `TEST_NETWORK_BIN_IROHAD`
+  and `TEST_NETWORK_BIN_IROHA`, require `IROHA_TEST_REQUIRE_NETWORK=1`, and set
+  `IROHA_TEST_SKIP_BUILD=1`. Supply a fresh `KAGEMUSHA_REAL_NETWORK_SETUP_OUTPUT`
+  under checkout-local `target/qualification`, with test-network and temporary
+  directories also under `target`. The exporter verifies each of four live
+  validators' native H1/H2 prefix, exact three-vote successor certificate,
+  registered supply, balances and reserve permission. The ordinary H2 transaction
+  transfers 1,000 whole fee-asset units from ALICE to each wallet/reserve role;
+  every validator must report those exact funded balances. It retains the original
+  signed genesis and setup inputs for that network's catalog. Its source-only
+  result does not establish genuine Load, offline exchange or Unload completion.
 - The focused `taira_consensus_contracts` target in `iroha_test_network` requires four real validators, three public routable lanes, and the exact signed Ordinary transaction to become state-resolved Applied while all four peers advance beyond genesis. It shares the existing multi-route NPoS/DA genesis fixture, keeps production proof defaults, and fails sandbox skips. Prebuild the native `iroha3d` daemon and `iroha` CLI and select them with `TEST_NETWORK_BIN_IROHAD` and `TEST_NETWORK_BIN_IROHA`; set `IROHA_TEST_SKIP_BUILD=1` and run `cargo test --locked -p iroha_test_network --test taira_consensus_contracts four_peer_multiroute_ordinary_transaction_reaches_applied -- --exact --nocapture`. The maintained Taira release gate supplies these binaries from the same warm native build before the Linux build.
 - Target a single test with `cargo test -p integration_tests --test <harness> <filter> -- --nocapture`.
 - Global candidate admission: `cargo test -p integration_tests --test consensus_and_da sumeragi_npos_candidate::fresh_global_candidate_bonds_before_authenticated_committee_activation -- --exact --nocapture`. This required-network scenario starts four NPoS validators and a separate signed observer, transfers canonical XOR from funded Alice to its ordinary account, rejects foreign peer consent without custody changes, and admits the operator's valid self-bonded candidacy for the E+2 boundary. All five replicas must agree on registration, exact liquid/escrow balances and pending eligibility, while authenticated current finality remains exactly four equal voters and three commit signatures. It fails a sandbox skip. This fee-policy-disabled admission fixture does not qualify fee-enabled quoting, subsequent election, runtime credential installation, observer-to-voter promotion or withdrawal.
@@ -259,6 +272,21 @@ expiry, elapsed rent collection, and hardware signing remain separate coverage.
   required; source presence does not qualify authenticated state-root
   convergence or proof-backed payouts.
 
+### Parliament availability-isolation corridor
+
+The feature-isolated `sora_parliament_lifecycle_smoke` target includes
+`four_validator_pending_parliament_request_never_blocks_unrelated_work_or_restart`.
+Four NPoS validators run with fail-closed beacon signers and a Parliament
+sortition request frozen on the far pre-boundary pulse height. Unrelated
+carrier transactions keep committing on every peer past the retired
+`request_height + delay` height, no global pulse appears, a restarted peer
+rejoins, and the request stays pending on exactly its original slot
+([ballot design](../specs/parliament_private_ballot_design.md) section 9).
+It does not install a below-threshold key session and does not replace the
+mandatory-NPoS corridors, which need the `test-network-parliament-signers`
+beacon fixture. Sortition corridors run on a signed 128-block NPoS epoch and
+compute each slot from the certified epoch length.
+
 ### Parliament timed-OVN deadline/retry corridor
 
 The feature-isolated `sora_parliament_lifecycle_smoke` target includes
@@ -267,8 +295,11 @@ It registers actual private-ballot sessions, rejects premature failure and old-T
 reuse, derives registration-deadline NoResult, admits one fresh retry, exhausts
 the frozen limit, checks four-peer finality and restores a validator.
 It does not replace the sibling proof-valid timed-OVN aggregate-opening test or
-provide deployment/audit qualification. Later-phase private deadline retries and
-partial-write rollback still need separate four-validator coverage.
+provide deployment/audit qualification. Timed-OVN is retired by the
+[ballot decision](../specs/parliament_private_ballot_design.md); no further
+timed-OVN coverage is planned. The anonymous ballot needs its own
+four-validator corridor, and the shared Parliament corridor support (with the
+gates that reuse it) must move to that ballot.
 
 Prebuild the same-source native `iroha3d` with `test-network-parliament-signers`
 and the ordinary `iroha` CLI; point `TEST_NETWORK_BIN_IROHAD_PARLIAMENT_SIGNERS`
@@ -307,16 +338,19 @@ The explicit `sorafs_publication_governance` target requires
 `four_peer_native_publication_repair_and_parliament_revocation` test adds the
 shared real seven-body Parliament corridor, then requires a specific admission
 denial across provider restart while an unaffected replica still serves bytes.
+It is `#[ignore]`d, with the three hidden-ballot Parliament corridors, until the
+anonymous ballot replaces timed-OVN: a timed-OVN release slot is no longer
+consensus demand, so the hidden ballot these corridors enact through cannot
+open.
 The reusable corridor lives in `sora_parliament_lifecycle_support.rs`; it funds
 registered citizens with signed transfers of the signed-genesis NPoS fee asset.
 Its current finality reader validates the independently constructed genesis bundle
 and every contiguous embedded certificate, preserving exact four-validator,
 three-vote roster authority and per-peer enacted execution comparisons. The
 publication target does not collect unrelated mandatory-beacon scenarios.
-Those broader Parliament scenarios retain their existing epoch/KAGEMUSHA
-assertions and still require migration from retired V2 finality APIs before that
-entire separate target can be qualified; the current proof does not expose an
-equivalent epoch-authorization projection.
+The broader Parliament scenarios exercise epoch authorization and mandatory
+beacon custody separately; the complete target requires its own current-source
+qualification.
 Use the same-source Parliament daemon and ordinary CLI artifacts described above,
 `IROHA_TEST_REQUIRE_NETWORK=1`, and exact test filters. Native stream-token quota,
 sequencer and reputation deployment adapters remain separate qualification.

@@ -61,75 +61,98 @@ impl TypedLinker {
         )?;
         let environment = base.with_local_imports(&request.root, &local_modules)?;
         let mut facts = BTreeMap::new();
-        let mut analyze = |module: &ModuleUnit,
-                           environment: &ModuleEnvironment,
-                           owner: Option<&str>| {
-            let semantic = SemanticContext::with_capabilities(
-                self.options.zk_enabled,
-                self.options.test_builtins_enabled,
-            );
-            if let Some(owner) = owner {
-                semantic.set_package_identity(owner.to_owned());
-            }
-            let signatures = semantic
-                .resolve_resolved_function_signatures_with_environment(
-                    &module.program,
-                    &environment.typed,
-                )
-                .unwrap_or_default();
-            let (_, bindings, nodes) =
-                semantic.analyze_editor_with_environment(&module.program, &environment.typed);
-            for native in module.program.source_programs() {
-                let id = native.source_file().id();
-                let mut local_bindings = if id == module.program.source_file().id() {
-                    bindings.clone()
-                } else {
-                    BTreeMap::new()
-                };
-                let local_nodes = nodes
-                    .iter()
-                    .filter(|node| node.id.source == id)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                for node in &local_nodes {
-                    if let Some(crate::resolved::ResolvedTarget::Value(
-                        crate::resolved::ResolvedValueTarget::Binding(binding),
-                    )) = node.target
-                    {
-                        local_bindings.insert(binding, node.ty.clone());
-                    }
-                }
-                let names = native
-                    .symbols()
-                    .filter(|symbol| symbol.kind == crate::resolved::ResolvedSymbolKind::Function)
-                    .map(|symbol| symbol.name.as_str())
-                    .collect::<BTreeSet<_>>();
-                facts.insert(
-                    id,
-                    EditorModuleFacts {
-                        signatures: signatures
-                            .iter()
-                            .filter(|(name, _)| names.contains(name.as_str()))
-                            .map(|(name, signature)| (name.clone(), signature.clone()))
-                            .collect(),
-                        bindings: local_bindings,
-                        nodes: local_nodes,
-                    },
-                );
-            }
-        };
-        analyze(&request.root, &environment, None);
+        self.collect_editor_module_facts(&request.root, &environment, None, &mut facts);
         for module in packages
             .iter()
             .flat_map(|package| &package.modules)
             .chain(&local_modules)
         {
-            analyze(
+            self.collect_editor_module_facts(
                 module.source,
                 &module.environment,
                 Some(&module.nominal_owner),
+                &mut facts,
             );
         }
         Ok(facts)
+    }
+    /// Analyze a library graph with its original package ownership and locked imports.
+    pub(crate) fn analyze_editor_package_graph(
+        &self,
+        mut packages: Vec<PackageUnit>,
+    ) -> Result<BTreeMap<SourceId, EditorModuleFacts>, LinkError> {
+        validate_linker_options(self.options)?;
+        let packages = resolve_packages(self.options, &mut packages)?;
+        let mut facts = BTreeMap::new();
+        for module in packages.iter().flat_map(|package| &package.modules) {
+            self.collect_editor_module_facts(
+                module.source,
+                &module.environment,
+                Some(&module.nominal_owner),
+                &mut facts,
+            );
+        }
+        Ok(facts)
+    }
+    fn collect_editor_module_facts(
+        &self,
+        module: &ModuleUnit,
+        environment: &ModuleEnvironment,
+        owner: Option<&str>,
+        facts: &mut BTreeMap<SourceId, EditorModuleFacts>,
+    ) {
+        let semantic = SemanticContext::with_capabilities(
+            self.options.zk_enabled,
+            self.options.test_builtins_enabled,
+        );
+        if let Some(owner) = owner {
+            semantic.set_package_identity(owner.to_owned());
+        }
+        let signatures = semantic
+            .resolve_resolved_function_signatures_with_environment(
+                &module.program,
+                &environment.typed,
+            )
+            .unwrap_or_default();
+        let (_, bindings, nodes) =
+            semantic.analyze_editor_with_environment(&module.program, &environment.typed);
+        for native in module.program.source_programs() {
+            let id = native.source_file().id();
+            let mut local_bindings = if id == module.program.source_file().id() {
+                bindings.clone()
+            } else {
+                BTreeMap::new()
+            };
+            let local_nodes = nodes
+                .iter()
+                .filter(|node| node.id.source == id)
+                .cloned()
+                .collect::<Vec<_>>();
+            for node in &local_nodes {
+                if let Some(crate::resolved::ResolvedTarget::Value(
+                    crate::resolved::ResolvedValueTarget::Binding(binding),
+                )) = node.target
+                {
+                    local_bindings.insert(binding, node.ty.clone());
+                }
+            }
+            let names = native
+                .symbols()
+                .filter(|symbol| symbol.kind == crate::resolved::ResolvedSymbolKind::Function)
+                .map(|symbol| symbol.name.as_str())
+                .collect::<BTreeSet<_>>();
+            facts.insert(
+                id,
+                EditorModuleFacts {
+                    signatures: signatures
+                        .iter()
+                        .filter(|(name, _)| names.contains(name.as_str()))
+                        .map(|(name, signature)| (name.clone(), signature.clone()))
+                        .collect(),
+                    bindings: local_bindings,
+                    nodes: local_nodes,
+                },
+            );
+        }
     }
 }

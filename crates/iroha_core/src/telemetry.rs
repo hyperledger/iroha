@@ -1,5 +1,9 @@
 //! Metrics and status reporting.
 //!
+//! Full status uses one nonblocking original State read for each World sample.
+//! Busy publication refuses locally instead of spinning on the async telemetry actor;
+//! the existing 500 ms service deadline and verified journal catch-up remain unchanged.
+//!
 //! Aggregate TEU gauges and per-lane/dataspace instruments are updated together for the mandatory
 //! Nexus scheduler so operators can inspect both network-wide and routed scheduler activity.
 mod manifest_status;
@@ -80,10 +84,9 @@ use iroha_telemetry::privacy::{
     PrivacyBucketConfig, PrivacyEventError, PrivacyShareError, SoranetSecureAggregator,
 };
 use iroha_torii_shared::status::{
-    GovernanceManifestActivation, Halo2Status, NexusDataspaceTeuStatus, NexusLaneTeuBuckets,
-    NexusLaneTeuStatus, TxGossipCaps, TxGossipStatus,
+    GovernanceManifestActivation, NexusDataspaceTeuStatus, NexusLaneTeuBuckets, NexusLaneTeuStatus,
+    TxGossipCaps, TxGossipStatus,
 };
-use ivm::host::{ZkCurve, ZkHalo2Backend, ZkHalo2Config};
 use mv::storage::StorageReadOnly;
 #[cfg(feature = "telemetry")]
 use norito::streaming::{
@@ -1335,16 +1338,6 @@ impl StateTelemetry {
             false,
         );
     }
-    /// Record a reward distribution for a public lane.
-    #[cfg(feature = "telemetry")]
-    pub fn record_public_lane_reward(&self, lane_id: LaneId, amount: &Quantity) {
-        self.adjust_public_lane_amount(
-            &self.metrics.nexus_public_lane_reward_total,
-            lane_id,
-            amount,
-            true,
-        );
-    }
     /// Increment the slash counter for a public lane.
     #[cfg(feature = "telemetry")]
     pub fn record_public_lane_slash(&self, lane_id: LaneId) {
@@ -1994,52 +1987,6 @@ impl StateTelemetry {
     /// Record the OpenSSL SM preview toggle state (0/1 gauge).
     pub fn set_sm_openssl_preview(&self, enabled: bool) {
         self.metrics.sm_openssl_preview.set(u64::from(enabled));
-    }
-    /// Publish the active Halo2 verifier configuration (gauges + status snapshot).
-    pub fn set_halo2_runtime_config(&self, cfg: ZkHalo2Config) {
-        let curve_id = match cfg.curve {
-            ZkCurve::Pallas => 0,
-            ZkCurve::Pasta => 1,
-            ZkCurve::Goldilocks => 2,
-            ZkCurve::Bn254 => 3,
-        };
-        let backend_id = match cfg.backend {
-            ZkHalo2Backend::Ipa => 0,
-            ZkHalo2Backend::Unsupported => 1,
-        };
-        self.metrics.zk_halo2_enabled.set(u64::from(cfg.enabled));
-        self.metrics.zk_halo2_curve_id.set(curve_id);
-        self.metrics.zk_halo2_backend_id.set(backend_id);
-        self.metrics.zk_halo2_max_k.set(u64::from(cfg.max_k));
-        self.metrics
-            .zk_halo2_verifier_budget_ms
-            .set(cfg.verifier_budget_ms);
-        self.metrics
-            .zk_halo2_verifier_max_batch
-            .set(u64::from(cfg.verifier_max_batch));
-        let curve_label = match cfg.curve {
-            ZkCurve::Pallas => "pallas",
-            ZkCurve::Pasta => "pasta",
-            ZkCurve::Goldilocks => "goldilocks",
-            ZkCurve::Bn254 => "bn254",
-        };
-        let backend_label = match cfg.backend {
-            ZkHalo2Backend::Ipa => "ipa",
-            ZkHalo2Backend::Unsupported => "unsupported",
-        };
-        let mut guard = self
-            .metrics
-            .halo2_status
-            .write()
-            .expect("halo2 status lock poisoned");
-        *guard = Halo2Status {
-            enabled: cfg.enabled,
-            curve: curve_label.to_string(),
-            backend: backend_label.to_string(),
-            max_k: cfg.max_k,
-            verifier_budget_ms: cfg.verifier_budget_ms,
-            verifier_max_batch: cfg.verifier_max_batch,
-        };
     }
     #[cfg(feature = "telemetry")]
     fn on_governance_event(&self, event: &GovernanceEvent) {
@@ -5618,11 +5565,16 @@ impl Actor {
         if !self.enabled {
             return Err(StatusSnapshotError::Disabled);
         }
-        refresh_sumeragi_mode(&self.metrics, &self.state);
-        refresh_ivm_execution_budget_metrics(&self.metrics, &self.state.ivm_execution_budget());
         let local_removed = {
-            let world = self.state.world_view();
-            !world.peers().iter().any(|peer| peer == &self.local_peer_id)
+            // Release this exact view before any actor await or history read.
+            let view = status_state_view(&self.state)?;
+            refresh_sumeragi_mode(&self.metrics, &view);
+            refresh_ivm_execution_budget_metrics(&self.metrics, &self.state.ivm_execution_budget());
+            !view
+                .world()
+                .peers()
+                .iter()
+                .any(|peer| peer == &self.local_peer_id)
         };
         if crate::status::local_peer_removed() != local_removed {
             crate::status::set_local_removed_from_world(local_removed);
@@ -6024,7 +5976,8 @@ impl Actor {
                 iroha_logger::error!("Failed to get genesis block from Kura.");
             }
         }
-        let world_view = self.state.world_view();
+        let view = status_state_view(&self.state)?;
+        let world_view = view.world();
         // These metrics may briefly lead "latest block" when the world snapshot is ahead;
         // that observation window should remain very narrow.
         self.metrics.domains.set(world_view.domains().len() as u64);
@@ -6222,12 +6175,23 @@ pub fn start(
         ),
     ))
 }
-/// Project the next height's authenticated native scheduling mode from this State.
-/// Missing, pending or malformed authority clears a stale mode instead of using configuration.
-fn refresh_sumeragi_mode(metrics: &Metrics, state: &State) {
-    use iroha_data_model::parameter::system::ConsensusMode;
+/// Capture one original State view without waiting on its publishing writer.
+fn status_state_view(state: &State) -> Result<crate::state::StateView<'_>, StatusSnapshotError> {
+    #[cfg(all(test, sumeragi_core_mutation = "HC203"))]
+    {
+        // Deliberate mutant: restore the actor's unbounded publication wait.
+        Ok(state.view())
+    }
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC203")))]
+    {
+        state.try_view_once().map_err(StatusSnapshotError::from)
+    }
+}
 
-    let view = state.view();
+/// Project the next height's authenticated mode from the status sample's admitted view.
+/// Missing, pending or malformed authority clears a stale mode instead of using configuration.
+fn refresh_sumeragi_mode(metrics: &Metrics, view: &impl crate::state::StateReadOnly) {
+    use iroha_data_model::parameter::system::ConsensusMode;
     let schedule = view.world().consensus_schedule();
     let mode_tag = u64::try_from(view.height())
         .ok()
@@ -6320,14 +6284,14 @@ mod tests {
         let metrics = Arc::new(Metrics::default());
         let telemetry = Telemetry::new(Arc::clone(&metrics), true);
         telemetry.observe_torii_http_request(
-            "kagemusha.operation",
-            "/v1/kagemusha/operations/{operation_id}",
+            "ledger.executed_block_wire",
+            "/v1/ledger/block/{height}",
             "public",
             "GET",
             StatusCode::NOT_FOUND,
             "application/json",
             "json",
-            "kagemusha_operation_not_found",
+            "block_not_found",
             Duration::from_millis(3),
             Some(0),
             Some(96),
@@ -6336,11 +6300,11 @@ mod tests {
             metrics
                 .torii_http_requests_total
                 .with_label_values(&[
-                    "kagemusha.operation",
-                    "/v1/kagemusha/operations/{operation_id}",
+                    "ledger.executed_block_wire",
+                    "/v1/ledger/block/{height}",
                     "public",
                     "json",
-                    "kagemusha_operation_not_found",
+                    "block_not_found",
                     "application/json",
                     "GET",
                     "404",
@@ -6352,8 +6316,8 @@ mod tests {
             metrics
                 .torii_http_request_bytes_total
                 .with_label_values(&[
-                    "kagemusha.operation",
-                    "/v1/kagemusha/operations/{operation_id}",
+                    "ledger.executed_block_wire",
+                    "/v1/ledger/block/{height}",
                     "public",
                     "json",
                     "application/json",
@@ -6366,11 +6330,11 @@ mod tests {
             metrics
                 .torii_http_response_bytes_total
                 .with_label_values(&[
-                    "kagemusha.operation",
-                    "/v1/kagemusha/operations/{operation_id}",
+                    "ledger.executed_block_wire",
+                    "/v1/ledger/block/{height}",
                     "public",
                     "json",
-                    "kagemusha_operation_not_found",
+                    "block_not_found",
                     "application/json",
                     "GET",
                     "404",
@@ -6379,8 +6343,8 @@ mod tests {
             96
         );
         let exposition = metrics.try_to_string().expect("encode metrics");
-        assert!(exposition.contains("route_id=\"kagemusha.operation\""));
-        assert!(exposition.contains("route_template=\"/v1/kagemusha/operations/{operation_id}\""));
+        assert!(exposition.contains("route_id=\"ledger.executed_block_wire\""));
+        assert!(exposition.contains("route_template=\"/v1/ledger/block/{height}\""));
         assert!(!exposition.contains("op_8f61d9a9"));
         assert!(!exposition.contains("cursor=eyJzbmFwc2hvdCI6"));
     }
@@ -8478,7 +8442,7 @@ mod tests {
             Kura::blank_kura_for_testing(),
             LiveQueryStore::start_test(),
         );
-        refresh_sumeragi_mode(&metrics, &unstarted);
+        refresh_sumeragi_mode(&metrics, &unstarted.view());
         assert_eq!(exported_mode(), "", "pre-genesis state has no authority");
         for (mode, expected) in [
             (SumeragiConsensusMode::Npos, "npos"),
@@ -8498,10 +8462,10 @@ mod tests {
                     ));
             }
             let chain = CertifiedTestChain::start(config).expect("authenticated signed genesis");
-            refresh_sumeragi_mode(&metrics, chain.state());
+            refresh_sumeragi_mode(&metrics, &chain.state().view());
             assert_eq!(exported_mode(), expected);
         }
-        refresh_sumeragi_mode(&metrics, &unstarted);
+        refresh_sumeragi_mode(&metrics, &unstarted.view());
         assert_eq!(
             exported_mode(),
             "",
@@ -10671,16 +10635,6 @@ mod tests {
         assert!(
             (pending - 250.0).abs() < f64::EPSILON,
             "pending unbond gauge should track deltas"
-        );
-        telemetry.record_public_lane_reward(lane, &Quantity::from(100_u32));
-        telemetry.record_public_lane_reward(lane, &Quantity::from(50_u32));
-        let rewards = metrics
-            .nexus_public_lane_reward_total
-            .with_label_values(&["5"])
-            .get();
-        assert!(
-            (rewards - 150.0).abs() < f64::EPSILON,
-            "reward gauge should accumulate"
         );
         telemetry.record_public_lane_slash(lane);
         assert_eq!(

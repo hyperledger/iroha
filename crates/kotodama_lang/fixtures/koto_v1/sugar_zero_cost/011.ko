@@ -1,6 +1,6 @@
 
         seiyaku ResultIfLetExpression {
-            view fn main(Result<int, bool> value, int fallback) -> int {
+            view fn main(Result<int, bool> value, int fallback) authorize(anyone) -> int {
                 if let Result::ok(payload) = value { payload } else { fallback }
             }
         }

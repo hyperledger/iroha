@@ -2377,6 +2377,11 @@ class Checker:
             for path in required:
                 if path not in callers:
                     self.error(f"{label}: {path} no longer calls native verifier `{name}`")
+                elif callers[path] != 1:
+                    self.error(
+                        f"{label}: {path} calls native verifier `{name}` {callers[path]} time(s); "
+                        "its one admission caller must call it exactly once"
+                    )
 
         for row in rows:
             for verifier in row.get("native_verifiers", []):

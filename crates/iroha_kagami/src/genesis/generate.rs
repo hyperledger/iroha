@@ -17,7 +17,6 @@ use iroha_data_model::{
     account::address::ChainDiscriminantGuard,
     asset::AssetDefinitionAlias,
     block::consensus::SumeragiGenesisContextParameters,
-    isi::kagemusha_v1::KagemushaMintFinalityGenesisParametersV1,
     parameter::{
         Parameter,
         system::{SumeragiConsensusMode, SumeragiNposParameters, SumeragiParameters},
@@ -47,7 +46,6 @@ use std::{
     path::PathBuf,
 };
 
-const KAGEMUSHA_MINT_FINALITY_PARAMETERS_MAX_BYTES: u64 = 1024 * 1024;
 const LANE_POLICY_MAX_BYTES: u64 = 1024 * 1024;
 
 /// Load and validate a Sumeragi lane policy (`specs/sumeragi_lanes.md`) from a JSON file: its
@@ -81,37 +79,6 @@ fn append_lane_policy(
         .with_consensus_meta()?)
 }
 
-pub(super) fn load_kagemusha_mint_finality_parameters(
-    path: &std::path::Path,
-) -> color_eyre::Result<KagemushaMintFinalityGenesisParametersV1> {
-    let metadata = fs::metadata(path).wrap_err_with(|| {
-        format!(
-            "read KAGEMUSHA mint-finality parameter metadata from {}",
-            path.display()
-        )
-    })?;
-    if !metadata.is_file() || metadata.len() > KAGEMUSHA_MINT_FINALITY_PARAMETERS_MAX_BYTES {
-        return Err(color_eyre::eyre::eyre!(
-            "KAGEMUSHA mint-finality parameters must be a regular file no larger than {} bytes",
-            KAGEMUSHA_MINT_FINALITY_PARAMETERS_MAX_BYTES
-        ));
-    }
-    let bytes = fs::read(path).wrap_err_with(|| {
-        format!(
-            "read KAGEMUSHA mint-finality parameters from {}",
-            path.display()
-        )
-    })?;
-    let parameters: KagemushaMintFinalityGenesisParametersV1 =
-        norito::json::from_slice(&bytes).wrap_err("decode KAGEMUSHA mint-finality parameters")?;
-    iroha_core_zk::kagemusha_v1_recursion::validate_kagemusha_mint_finality_genesis_parameter_keys_v1(
-        &parameters,
-    )
-    .map_err(|error| {
-        color_eyre::eyre::eyre!("invalid KAGEMUSHA mint-finality public parameters: {error}")
-    })?;
-    Ok(parameters)
-}
 /// Generate a genesis configuration and standard-output in JSON format
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -138,9 +105,6 @@ pub struct Args {
     ivm_dir: PathBuf,
     #[clap(long, value_name = "MULTI_HASH")]
     genesis_public_key: PublicKey,
-    /// Path to the explicitly provisioned public KAGEMUSHA mint-finality genesis parameters.
-    #[clap(long, value_name = "PATH")]
-    kagemusha_mint_finality_parameters: PathBuf,
     #[clap(subcommand)]
     mode: Option<Mode>,
     /// Optional: set the custom parameter `ivm_gas_limit_per_block` (u64) in genesis so all peers agree on the block gas budget.
@@ -601,7 +565,6 @@ impl<T: Write> RunArgs<T> for Args {
             executor,
             ivm_dir,
             genesis_public_key,
-            kagemusha_mint_finality_parameters,
             mode,
             ivm_gas_limit_per_block,
             consensus_mode,
@@ -645,14 +608,11 @@ impl<T: Write> RunArgs<T> for Args {
             _ => ConsensusPolicy::Any,
         };
         validate_consensus_mode(consensus_mode, consensus_policy)?;
-        let kagemusha_mint_finality =
-            load_kagemusha_mint_finality_parameters(&kagemusha_mint_finality_parameters)?;
         let builder = match executor {
             Some(path) => GenesisBuilder::new(chain, path, ivm_dir),
             None => GenesisBuilder::new_without_executor(chain, ivm_dir),
         }
         .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-        .with_kagemusha_mint_finality_genesis_parameters(kagemusha_mint_finality)
         .with_crypto(crypto);
         let mut genesis = build_genesis_for_mode(
             mode,
@@ -795,15 +755,6 @@ mod consensus_manifest_tests {
         relative_path: &str,
     ) -> RawGenesisTransaction {
         let path = repository_root.join(relative_path);
-        let parameters = GenesisBuilder::new_without_executor(
-            ChainId::from("source-template-test"),
-            PathBuf::from("."),
-        )
-        .complete_for_test()
-        .build_raw()
-        .expect("build source-template test authority")
-        .kagemusha_mint_finality_genesis_parameters()
-        .clone();
         // Public Nexus forbids the Taira XOR definition; match whole directory names so public
         // Taira under `configs/soranexus/` keeps the canonical Taira definition it requires.
         let nexus = std::path::Path::new(relative_path)
@@ -816,18 +767,15 @@ mod consensus_manifest_tests {
             });
         iroha_genesis::GenesisSourceTemplate::from_path(&path)
             .and_then(|template| {
-                template.materialize(
-                    &parameters,
-                    Some(if nexus {
-                        AssetDefinitionId::derive_from_components(
-                            DomainId::parse_fully_qualified("mainnet-fixture.universal")
-                                .expect("fixture domain"),
-                            "xor".parse().expect("fixture asset"),
-                        )
-                    } else {
-                        SumeragiNposParameters::default().xor_asset_definition_id
-                    }),
-                )
+                template.materialize(Some(if nexus {
+                    AssetDefinitionId::derive_from_components(
+                        DomainId::parse_fully_qualified("mainnet-fixture.universal")
+                            .expect("fixture domain"),
+                        "xor".parse().expect("fixture asset"),
+                    )
+                } else {
+                    SumeragiNposParameters::default().xor_asset_definition_id
+                }))
             })
             .unwrap_or_else(|error| panic!("complete {} for test: {error}", path.display()))
     }
@@ -889,44 +837,6 @@ mod consensus_manifest_tests {
         )
         .expect_err("unprofiled genesis generation must name its display chain");
         assert!(error.to_string().contains("--chain-id"));
-    }
-
-    #[test]
-    fn operator_parameters_loader_rejects_a_noncanonical_pasta_point() {
-        let manifest = GenesisBuilder::new_without_executor(
-            ChainId::from("invalid-operator-pasta-point"),
-            PathBuf::from("."),
-        )
-        .complete_for_test()
-        .build_raw()
-        .expect("build complete test genesis");
-        let mut parameters = manifest
-            .kagemusha_mint_finality_genesis_parameters()
-            .clone();
-        let directory = tempfile::tempdir().expect("create operator parameter tempdir");
-        let path = directory.path().join("mint-finality.json");
-        std::fs::write(
-            &path,
-            norito::json::to_vec_pretty(&parameters).expect("serialize valid parameters"),
-        )
-        .expect("write valid parameters");
-        load_kagemusha_mint_finality_parameters(&path)
-            .expect("canonical operator parameters must load");
-
-        parameters.authority_generation.validators[0].eq_proof_public_key = [0xFF; 32];
-        std::fs::write(
-            &path,
-            norito::json::to_vec_pretty(&parameters).expect("serialize invalid parameters"),
-        )
-        .expect("write invalid parameters");
-
-        let error = load_kagemusha_mint_finality_parameters(&path)
-            .expect_err("non-canonical Pasta point must fail closed");
-        assert!(
-            error
-                .to_string()
-                .contains("canonical non-identity Pallas point")
-        );
     }
 
     #[test]
@@ -1232,9 +1142,22 @@ mod consensus_manifest_tests {
             "configs/soranexus/taira/genesis.template.json",
             "crates/iroha_kagami/tests/fixtures/taira_nevo_v2/unsigned-genesis.template.json",
         ] {
+            let path = repository_root.join(relative_path);
+            let unbound = RawGenesisTransaction::from_path(&path)
+                .expect("bounded source JSON must remain parseable before materialization");
+            assert_eq!(unbound.consensus_fingerprint(), None);
             assert!(
-                RawGenesisTransaction::from_path(repository_root.join(relative_path)).is_err(),
-                "{relative_path} must not deserialize as complete RawGenesisTransaction"
+                unbound
+                    .validate_mode_specific_consensus_parameters()
+                    .is_err(),
+                "{relative_path} must require its explicit NPoS XOR selection"
+            );
+            assert!(
+                iroha_genesis::GenesisSourceTemplate::from_path(&path)
+                    .expect("read the original unbound source template")
+                    .materialize(None)
+                    .is_err(),
+                "{relative_path} must not materialize without its NPoS XOR selection"
             );
             let manifest = load_genesis_source_template_for_test(&repository_root, relative_path);
             assert_first_release_hijiri_bootstrap(&manifest, relative_path);

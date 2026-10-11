@@ -30,7 +30,7 @@ fn completed_replay_rejects_altered_certificate_and_source_without_losing_exact_
                 3 => changed.height += 1,
                 4 => changed.view += 1,
                 5 => changed.kind = VoteKind::Prepare,
-                _ => changed.attest = !changed.attest,
+                _ => changed.kind = iroha_sumeragi::message::VoteKind::Prepare,
             }
             assert!(
                 worker.replay(&block, &changed).is_err(),
@@ -276,7 +276,7 @@ fn completed_replay_is_invalidated_by_the_next_original_forward_commit() {
             2,
             "the original replay published its actual parent"
         );
-        let next_qc = chain.commit_qc(3, hash, result, false, Signers::Quorum);
+        let next_qc = chain.commit_qc(3, hash, result, Signers::Quorum);
         worker.prepare(&next, &next_qc).unwrap();
         blocks.append(&next, &next_qc).unwrap();
         worker.commit(&next, &next_qc).unwrap();

@@ -64,7 +64,7 @@ fn contract_artifact(entrypoints: Vec<EntrypointDescriptor>) -> (Vec<u8>, Contra
             argument_schema: entrypoint.argument_schema.clone(),
             return_type: entrypoint.return_type.clone(),
             return_schema: entrypoint.return_schema.clone(),
-            permission: entrypoint.permission.clone(),
+            authorization: entrypoint.authorization.clone(),
             read_keys: entrypoint.read_keys.clone(),
             write_keys: entrypoint.write_keys.clone(),
             access_hints_complete: entrypoint.access_hints_complete,
@@ -74,6 +74,13 @@ fn contract_artifact(entrypoints: Vec<EntrypointDescriptor>) -> (Vec<u8>, Contra
         })
         .collect();
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        events: Vec::new(),
+        enum_types: Vec::new(),
+        permissions: entrypoints.iter().filter_map(|entry| match &entry.authorization {
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(name) => Some(name.clone()), _ => None,
+        }).collect::<std::collections::BTreeSet<_>>().into_iter().map(|name| iroha_data_model::smart_contract::manifest::ContractPermissionDescriptorV1 {
+            scope: if name.as_ref() == "CanEnactGovernance" { iroha_data_model::smart_contract::manifest::ContractPermissionScopeV1::Chain { permission_name: name.clone() } } else { iroha_data_model::smart_contract::manifest::ContractPermissionScopeV1::Instance }, name,
+        }).collect(),
         callables: entrypoints
             .iter()
             .enumerate()
@@ -120,7 +127,7 @@ fn contract_artifact(entrypoints: Vec<EntrypointDescriptor>) -> (Vec<u8>, Contra
 fn trigger_fixture_authenticates_each_distinct_unit_return_entrypoint() {
     let (_, manifest) = kotodama_lang::compiler::Compiler::new()
         .compile_source_with_manifest(
-            "seiyaku TriggerFixture { view fn run() { () } view fn arm() { () } }",
+            "seiyaku TriggerFixture { view fn run() authorize(anyone) { () } view fn arm() authorize(anyone) { () } }",
         )
         .unwrap();
     let (program, _) = contract_artifact(manifest.entrypoints.unwrap());
@@ -268,7 +275,10 @@ fn activate_registers_manifest_triggers_and_deactivate_removes() {
                 ],
             },
         ),
-        permission: Some("CanEnactGovernance".to_owned()),
+        authorization:
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "CanEnactGovernance".parse().unwrap(),
+            ),
         read_keys: Vec::new(),
         write_keys: Vec::new(),
         access_hints_complete: None,
@@ -438,7 +448,10 @@ fn activate_rejects_manifest_trigger_with_unauthorized_foreign_authority() {
                 ],
             },
         ),
-        permission: Some("ExecuteForeignAuthorityProbe".to_owned()),
+        authorization:
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "ExecuteForeignAuthorityProbe".parse().unwrap(),
+            ),
         read_keys: Vec::new(),
         write_keys: Vec::new(),
         access_hints_complete: None,
@@ -576,7 +589,10 @@ fn activate_registers_manifest_data_and_pipeline_triggers_and_deactivate_removes
                 ],
             },
         ),
-        permission: Some("CanEnactGovernance".to_owned()),
+        authorization:
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "CanEnactGovernance".parse().unwrap(),
+            ),
         read_keys: Vec::new(),
         write_keys: Vec::new(),
         access_hints_complete: None,
@@ -784,7 +800,10 @@ fn activate_registers_cross_contract_manifest_trigger_callback() {
                 ],
             },
         ),
-        permission: Some("CanEnactGovernance".to_owned()),
+        authorization:
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "CanEnactGovernance".parse().unwrap(),
+            ),
         read_keys: Vec::new(),
         write_keys: Vec::new(),
         access_hints_complete: None,
@@ -866,7 +885,10 @@ fn activate_registers_cross_contract_manifest_trigger_callback() {
                 ],
             },
         ),
-        permission: Some("CanEnactGovernance".to_owned()),
+        authorization:
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "CanEnactGovernance".parse().unwrap(),
+            ),
         read_keys: Vec::new(),
         write_keys: Vec::new(),
         access_hints_complete: None,
@@ -909,6 +931,49 @@ fn activate_registers_cross_contract_manifest_trigger_callback() {
         .expect("register the non-signable source contract-subject account");
     stx.world
         .bind_inactive_contract_subject_for_testing(source_address.clone(), authority.clone());
+    // This direct lifecycle component fixture does not apply signed genesis.
+    // The target registry lookup still requires explicit structurally valid
+    // immutable root metadata; an empty World must never acquire Global scope.
+    let denied =
+        iroha_core::smartcontracts::code::fetch_bound_contract_record(&stx, &target_address)
+            .expect_err("missing immutable root scope cannot access the callback artifact");
+    assert!(matches!(denied,
+        iroha_core::execution_attempt::ExecutionAttemptError::Rejected(
+            iroha_data_model::ValidationFail::NotPermitted(message),
+        ) if message == "artifact access requires immutable root scope"
+    ));
+    {
+        use iroha_data_model::parameter::{
+            Parameter,
+            custom::CustomParameter,
+            system::{
+                ConsensusFingerprint, ConsensusHandshakeMetadata, SumeragiConsensusMode,
+                consensus_metadata,
+            },
+        };
+        let metadata = ConsensusHandshakeMetadata {
+            mode: SumeragiConsensusMode::Permissioned,
+            block_cadence_ms: nonzero!(1_000_u64),
+            wire_protocol_version: u32::from(iroha_data_model::sumeragi::PROTOCOL_VERSION),
+            consensus_fingerprint: ConsensusFingerprint::new([0xA5; 32]),
+            sumeragi_context:
+                iroha_data_model::block::consensus::SumeragiGenesisContextParameters::recommended(),
+        };
+        metadata
+            .validate()
+            .expect("valid explicit component root metadata");
+        stx.world
+            .parameters_mut_for_testing()
+            .get_mut()
+            .set_parameter(Parameter::Custom(CustomParameter::new(
+                consensus_metadata::handshake_meta_id(),
+                Json::new(metadata),
+            )));
+        assert_eq!(
+            iroha_core::sumeragi::lanes::routing::committed_root_scope(&*stx.world),
+            Some(iroha_data_model::block::consensus::SumeragiRootScope::Global),
+        );
+    }
     ActivateContractInstance {
         contract_address: source_address.clone(),
         expected_revision: 1,
@@ -995,7 +1060,10 @@ fn activate_rejects_unresolved_cross_contract_manifest_trigger_callback() {
                 ],
             },
         ),
-        permission: Some("CanEnactGovernance".to_owned()),
+        authorization:
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "CanEnactGovernance".parse().unwrap(),
+            ),
         read_keys: Vec::new(),
         write_keys: Vec::new(),
         access_hints_complete: None,
@@ -1068,8 +1136,8 @@ fn activate_registers_kotodama_compiled_manifest_triggers_from_source() {
     let asset_definition = opaque_asset_definition_id();
     let source = format!(
         r#"
-seiyaku Test {{
-  kotoage fn run() authorize("CanEnactGovernance") {{}}
+seiyaku Test {{ permission CanEnactGovernance;
+  kotoage fn run() authorize(CanEnactGovernance) {{}}
   trigger asset_added -> run {{
     on data asset added {{
       asset_definition "{asset_definition}";

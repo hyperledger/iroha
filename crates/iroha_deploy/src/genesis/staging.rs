@@ -35,6 +35,9 @@ struct StagedGenesisProjection<T> {
 pub struct StagedGenesisExecution {
     /// Nexus and atomic-execution policy commitment derived by Core.
     pub nexus_amx_context_hash: Hash,
+    /// Exact canonical preimage of [`Self::nexus_amx_context_hash`], published beside the
+    /// signed genesis so light clients can decode the genesis-declared Nexus catalog.
+    pub nexus_amx_context_preimage: Vec<u8>,
     /// Execution-policy commitment derived by Core.
     pub execution_policy_hash: Hash,
     /// Executed signed genesis with its authentic output commitments.
@@ -216,6 +219,26 @@ pub fn bind_and_sign_staged_sumeragi_context(
     confidential_policy_hash: [u8; 32],
     creation_time_ms: Option<u64>,
 ) -> Result<(RawGenesisTransaction, GenesisBlock), color_eyre::eyre::Error> {
+    bind_and_sign_staged_sumeragi_context_with_preimage(
+        genesis,
+        genesis_key_pair,
+        config,
+        da_proof_policies,
+        confidential_policy_hash,
+        creation_time_ms,
+    )
+    .map(|(manifest, block, _)| (manifest, block))
+}
+/// [`bind_and_sign_staged_sumeragi_context`], also returning the exact Nexus/AMX context
+/// preimage whose hash the final signed genesis commits.
+pub fn bind_and_sign_staged_sumeragi_context_with_preimage(
+    genesis: RawGenesisTransaction,
+    genesis_key_pair: &KeyPair,
+    config: Option<&actual::Root>,
+    da_proof_policies: Option<DaProofPolicyBundle>,
+    confidential_policy_hash: [u8; 32],
+    creation_time_ms: Option<u64>,
+) -> Result<(RawGenesisTransaction, GenesisBlock, Vec<u8>), color_eyre::eyre::Error> {
     let mut parameters = genesis.sumeragi_context_parameters();
     let (nexus_amx_context_hash, execution_policy_hash) = staged_sumeragi_context_hashes(
         &genesis,
@@ -237,7 +260,11 @@ pub fn bind_and_sign_staged_sumeragi_context(
         confidential_policy_hash,
         creation_time_ms,
     )?;
-    let mut executed_block = verify_final_signed_sumeragi_context(
+    let StagedGenesisExecution {
+        executed_block: mut executed_block,
+        nexus_amx_context_preimage,
+        ..
+    } = verify_final_signed_sumeragi_context(
         &bound_manifest,
         config,
         &proposal.0,
@@ -257,7 +284,11 @@ pub fn bind_and_sign_staged_sumeragi_context(
             signature,
         ])?)
         .wrap_err("replace provisional genesis signature after execution")?;
-    Ok((bound_manifest, GenesisBlock(executed_block)))
+    Ok((
+        bound_manifest,
+        GenesisBlock(executed_block),
+        nexus_amx_context_preimage,
+    ))
 }
 /// Reexecute the final signed identity and require the exact expected consensus policy hashes.
 ///
@@ -269,7 +300,7 @@ pub fn verify_final_signed_sumeragi_context(
     signed: &SignedBlock,
     signed_nexus_amx_context_hash: Hash,
     signed_execution_policy_hash: Hash,
-) -> Result<SignedBlock, color_eyre::eyre::Error> {
+) -> Result<StagedGenesisExecution, color_eyre::eyre::Error> {
     let staged = restage_signed_sumeragi_context_hashes(bound_manifest, config, signed)?;
     if staged.nexus_amx_context_hash != signed_nexus_amx_context_hash {
         return Err(eyre!(
@@ -283,7 +314,7 @@ pub fn verify_final_signed_sumeragi_context(
             staged.execution_policy_hash,
         ));
     }
-    Ok(staged.executed_block)
+    Ok(staged)
 }
 /// Stage a raw genesis transaction and return its exact Nexus/AMX consensus and execution-policy
 /// commitments without committing state or touching persistent node storage.
@@ -402,9 +433,11 @@ pub fn staged_signed_native_genesis_with_projection<T: Send>(
                     Some(config),
                     GenesisBlock(authenticated.0.clone()),
                     |staged| {
-                        let epoch =
-                            iroha_data_model::sumeragi_finality::genesis_epoch(&authenticated.0)
-                                .map_err(|error| eyre!(error))?;
+                        let epoch = iroha_data_model::sumeragi_finality::authenticated_genesis(
+                            &authenticated.0,
+                        )
+                        .map(|genesis| genesis.into_parts().0)
+                        .map_err(|error| eyre!(error))?;
                         let authority = StagedNativeGenesis {
                             genesis: authenticated.0.clone(),
                             epoch,
@@ -562,8 +595,9 @@ fn staged_genesis_with_projection_on_bounded_stack<T>(
             ))
         }
     })?;
-    let nexus_amx_context_hash =
-        iroha_core::sumeragi::staged_genesis_nexus_amx_context_hash(&staged);
+    let nexus_amx_context_preimage =
+        iroha_core::sumeragi::staged_genesis_nexus_amx_context_preimage(&staged);
+    let nexus_amx_context_hash = Hash::new(&nexus_amx_context_preimage);
     let execution_policy_hash = iroha_core::sumeragi::staged_genesis_execution_policy_hash(&staged)
         .map_err(|error| eyre!("derive staged genesis execution policy: {error}"))?;
     let projection = project(&staged)?;
@@ -571,6 +605,7 @@ fn staged_genesis_with_projection_on_bounded_stack<T>(
     Ok(StagedGenesisProjection {
         execution: StagedGenesisExecution {
             nexus_amx_context_hash,
+            nexus_amx_context_preimage,
             execution_policy_hash,
             executed_block: valid.into(),
         },
@@ -782,7 +817,7 @@ fn configure_staged_genesis_state(
         state.set_fraud_monitoring(config.fraud_monitoring.clone());
         state.set_gov(config.gov.clone());
         state.content = config.content.clone();
-        state.set_settlement(config.settlement.clone());
+        state.set_settlement(config.settlement);
         // ZK validity values are committed chain policy: a genesis that needs
         // non-default ones carries the `zk_validity_policy_v1` parameter. The
         // staging configuration supplies local resource settings only.
@@ -842,13 +877,7 @@ fn install_staged_nexus_policies(
 mod tests {
     use super::*;
     use iroha_crypto::{Algorithm, bls_normal_pop_prove};
-    use iroha_data_model::{
-        block::consensus::SumeragiGenesisContextParameters,
-        isi::kagemusha_v1::{
-            KAGEMUSHA_CHAIN_VERSION_V1, KagemushaMintFinalityAuthorityGenerationTemplateV1,
-            KagemushaMintFinalityGenesisParametersV1,
-        },
-    };
+    use iroha_data_model::block::consensus::SumeragiGenesisContextParameters;
     use iroha_genesis::{GenesisBuilder, GenesisTopologyEntry};
     use iroha_model_base::{chain::ChainId, peer::PeerId};
 
@@ -870,31 +899,10 @@ mod tests {
         let genesis_key_pair = KeyPair::try_from_seed(vec![0x6E; 32], Algorithm::Ed25519)
             .expect("derive deterministic default staging key");
         let topology = default_test_topology();
-        let validators = topology
-            .iter()
-            .enumerate()
-            .map(|(index, entry)| {
-                iroha_core_zk::kagemusha_v1_recursion::derive_kagemusha_mint_finality_validator_keys_v1(
-                    &[0xA0_u8.wrapping_add(u8::try_from(index).expect("four-validator roster")); 32],
-                    0,
-                    entry.peer.clone(),
-                )
-                .expect("derive exact deterministic staging Pasta authority")
-            })
-            .collect();
         let raw =
             GenesisBuilder::new_without_executor(ChainId::from("default-genesis-staging"), ".")
-                .set_topology(topology)
+                .set_topology(topology.clone())
                 .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-                .with_kagemusha_mint_finality_genesis_parameters(
-                    KagemushaMintFinalityGenesisParametersV1 {
-                        authority_generation: KagemushaMintFinalityAuthorityGenerationTemplateV1 {
-                            version: KAGEMUSHA_CHAIN_VERSION_V1,
-                            generation: 0,
-                            validators,
-                        },
-                    },
-                )
                 .build_raw()
                 .expect("complete generic four-validator genesis")
                 .with_consensus_mode(SumeragiConsensusMode::Permissioned)
@@ -909,6 +917,21 @@ mod tests {
             Some(1_700_000_000_000),
         )
         .expect("no-config signing must authenticate default storage before executing genesis");
+        let epoch = iroha_data_model::sumeragi_finality::authenticated_genesis(&signed.0)
+            .map(|genesis| genesis.into_parts().0)
+            .expect("signed topology establishes the exact BLS generation zero");
+        assert_eq!(epoch.authorization.authority_generation, 0);
+        assert_eq!(
+            epoch.generation().validators,
+            topology
+                .iter()
+                .map(|entry| entry.peer.clone())
+                .collect::<Vec<_>>()
+        );
+        epoch
+            .authorization
+            .validate_against_generation(&epoch.generation())
+            .expect("original genesis authorization");
         assert!(signed.0.network_entrypoint_count() > 0);
         assert!(signed.0.has_results());
         assert!(
@@ -946,5 +969,12 @@ mod tests {
             Hash::prehashed(parameters.execution_policy_hash)
         );
         assert_eq!(restaged.executed_block.hash(), signed.0.hash());
+        assert_eq!(
+            Hash::new(&restaged.nexus_amx_context_preimage),
+            restaged.nexus_amx_context_hash,
+            "the published preimage hashes to the signed Nexus/AMX context"
+        );
+        iroha_data_model::nexus::decode_nexus_amx_context_v1(&restaged.nexus_amx_context_preimage)
+            .expect("the staged preimage is a canonical Nexus/AMX context");
     }
 }

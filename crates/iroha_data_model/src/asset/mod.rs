@@ -2,6 +2,7 @@
 use iroha_primitives::numeric::Quantity;
 use std::collections::btree_map;
 pub mod alias;
+pub mod dataspace_definition;
 pub mod definition;
 pub mod id;
 pub mod instructions;
@@ -10,6 +11,7 @@ pub mod retail_daily_limit;
 pub mod transfer_control;
 pub mod value;
 pub use alias::{AssetDefinitionAlias, ResolvedAssetDefinitionAliasV1};
+pub use dataspace_definition::{AssetDefinitionDirectHomeV1, AssetDefinitionHome};
 pub use definition::{AssetBalancePolicy, AssetDefinition, Mintable, NewAssetDefinition};
 pub use id::{AssetBalanceScope, AssetDefinitionId, AssetId};
 pub use policy::{
@@ -35,6 +37,7 @@ pub type AssetTotalQuantityMap = btree_map::BTreeMap<AssetDefinitionId, Quantity
 pub mod prelude {
     pub use super::{
         alias::{AssetDefinitionAlias, ResolvedAssetDefinitionAliasV1},
+        dataspace_definition::{AssetDefinitionDirectHomeV1, AssetDefinitionHome},
         definition::{AssetBalancePolicy, AssetDefinition, Mintable, NewAssetDefinition},
         id::{AssetBalanceScope, AssetDefinitionId, AssetId},
         policy::{

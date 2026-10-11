@@ -3,7 +3,7 @@
 use super::*;
 use std::{
     fs,
-    io::{Seek as _, SeekFrom, Write as _},
+    io::{SeekFrom, Write as _},
 };
 
 fn store() -> (tempfile::TempDir, PrivateDirectory) {
@@ -227,6 +227,27 @@ fn atomic_staging_cleanup_refuses_links_modes_and_replaced_ancestors() {
 fn complete_private_directory_publication_never_exposes_partial_destination() {
     let (temporary, _) = store();
     let parent = OwnerDirectory::open(temporary.path()).unwrap();
+    let single = parent
+        .publish_private_child("single", &[("record", b"complete")])
+        .unwrap();
+    let single_identity = single.identity().unwrap();
+    assert_eq!(
+        single.entries(1).unwrap(),
+        vec![std::ffi::OsString::from("record")]
+    );
+    assert_eq!(single.read("record", 16).unwrap().as_slice(), b"complete");
+    // The published owner supplies canonical spelling even when the OS temporary root
+    // uses an alias such as macOS /var. Exact reopen must use that retained native path.
+    let reopened = PrivateDirectory::open_exact(single.path()).unwrap();
+    assert_eq!(reopened.identity().unwrap(), single_identity);
+    assert_eq!(reopened.read("record", 16).unwrap().as_slice(), b"complete");
+    assert!(
+        parent
+            .publish_private_child("single", &[("record", b"replacement")])
+            .is_err()
+    );
+    assert_eq!(single.identity().unwrap(), single_identity);
+    assert_eq!(single.read("record", 16).unwrap().as_slice(), b"complete");
     // A crash before rename leaves only an unpublished private sibling. A retry can still
     // publish the complete destination; no caller has to delete ambiguous operation evidence.
     let interrupted = parent.create_private_child("unpublished").unwrap();
@@ -236,6 +257,14 @@ fn complete_private_directory_publication_never_exposes_partial_destination() {
     let published = parent
         .publish_private_child("ready", &[("lock", b""), ("record", b"original")])
         .unwrap();
+    assert_eq!(
+        published.entries(2).unwrap(),
+        vec![
+            std::ffi::OsString::from("lock"),
+            std::ffi::OsString::from("record")
+        ]
+    );
+    assert!(published.read("lock", 1).unwrap().is_empty());
     assert_eq!(
         published.read("record", 16).unwrap().as_slice(),
         b"original"
@@ -251,10 +280,16 @@ fn complete_private_directory_publication_never_exposes_partial_destination() {
         published.read("record", 16).unwrap().as_slice(),
         b"original"
     );
+    let oversized_names: Vec<_> = (0..129).map(|index| format!("entry-{index}")).collect();
+    let oversized_files: Vec<_> = oversized_names
+        .iter()
+        .map(|name| (name.as_str(), b"x".as_slice()))
+        .collect();
     for files in [
         vec![],
         vec![("same", b"a".as_slice()), ("same", b"b".as_slice())],
         vec![("../escape", b"a".as_slice())],
+        oversized_files,
     ] {
         assert!(parent.publish_private_child("absent", &files).is_err());
         assert!(!temporary.path().join("absent").exists());
@@ -551,6 +586,40 @@ fn directory_publication_preserves_exact_tree_and_never_replaces() {
             .rename_to_sibling("src", PublishMode::Replace)
             .is_err()
     );
+}
+
+#[test]
+fn published_directory_keeps_original_identity_and_allows_independent_readers() {
+    let (_temporary, parent) = store();
+    let staging = parent.create_child("staged-readers").unwrap();
+    staging
+        .write_atomic("original", b"complete", PublishMode::CreateNew)
+        .unwrap();
+    let identity = staging.identity().unwrap();
+    let published = staging
+        .rename_to_sibling("published-readers", PublishMode::CreateNew)
+        .unwrap();
+    // Keep the returned publication owner alive while unrelated reader owners traverse it.
+    // A Windows DELETE publication handle must not escape into this ordinary read phase.
+    let reopened = PrivateDirectory::open_exact(published.path()).unwrap();
+    assert_eq!(reopened.identity().unwrap(), identity);
+    // Publication returns a normal owner: metadata durability and later writes remain usable.
+    // On Windows that requires WRITE_ATTRIBUTES without retaining DELETE authority.
+    published.sync().unwrap();
+    published
+        .write_atomic("later", b"retained", PublishMode::CreateNew)
+        .unwrap();
+    assert_eq!(reopened.read("later", 8).unwrap().as_slice(), b"retained");
+    let namespace = ReaderDirectory::open(published.path()).unwrap();
+    let before = namespace.snapshot().unwrap();
+    let mut original = RetainedFile::open_private(published.path().join("original")).unwrap();
+    let mut bytes = Vec::new();
+    original.file_mut().read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, b"complete");
+    original.revalidate().unwrap();
+    assert_eq!(namespace.snapshot().unwrap(), before);
+    assert_eq!(published.identity().unwrap(), identity);
+    published.revalidate().unwrap();
 }
 
 #[test]
@@ -1075,4 +1144,436 @@ fn retained_child_readers_refuse_replaced_ancestor_and_foreign_child() {
     assert!(reader.open_retained_private("record").is_err());
     assert!(child.open_retained_private("record").is_err());
     assert_eq!(fs::read(child.path().join("record")).unwrap(), b"foreign");
+}
+
+#[test]
+fn reader_children_share_native_ancestors_and_preserve_exact_original_files() {
+    let (_temporary, store) = store();
+    for index in 0..32 {
+        let child = store.create_child(format!("child-{index}")).unwrap();
+        child
+            .write_atomic("source", b"original", PublishMode::CreateNew)
+            .unwrap();
+    }
+    let reader = ReaderDirectory::open(store.path()).unwrap();
+    let mut children = Vec::new();
+    let mut sources = Vec::new();
+    for index in 0..32 {
+        let child = reader.open_child(format!("child-{index}")).unwrap();
+        let source = child.open_retained_regular("source").unwrap();
+        let mut bytes = [0_u8; 8];
+        assert_eq!(read_at(source.file(), &mut bytes, 0).unwrap(), 8);
+        assert_eq!(&bytes, b"original");
+        sources.push((source, child.snapshot().unwrap()));
+        children.push(child);
+    }
+    for (child, (source, snapshot)) in children.iter().zip(&sources) {
+        child.revalidate().unwrap();
+        assert_eq!(child.snapshot().unwrap(), *snapshot);
+        source.revalidate().unwrap();
+    }
+    for invalid in ["", ".", "..", "child-0/source"] {
+        assert!(reader.open_child(invalid).is_err());
+    }
+    assert!(reader.open_child("absent").is_err());
+    assert!(!reader.path().join("absent").exists());
+    reader.revalidate().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn shared_reader_children_refuse_link_substitution_and_changed_ancestors() {
+    let (temporary, store) = store();
+    let original = store.create_child("original").unwrap();
+    original
+        .write_atomic("source", b"original", PublishMode::CreateNew)
+        .unwrap();
+    let reader = ReaderDirectory::open(store.path()).unwrap();
+    std::os::unix::fs::symlink("original", store.path().join("indirect")).unwrap();
+    assert!(reader.open_child("indirect").is_err());
+    assert!(reader.open_child("original/source").is_err());
+    let child = reader.open_child("original").unwrap();
+    let source = child.open_retained_regular("source").unwrap();
+    let saved = temporary.path().join("original-child");
+    fs::rename(original.path(), &saved).unwrap();
+    store
+        .create_child("original")
+        .unwrap()
+        .write_atomic("source", b"original", PublishMode::CreateNew)
+        .unwrap();
+    assert!(child.revalidate().is_err());
+    assert!(source.revalidate().is_err());
+    let renamed_store = temporary.path().join("renamed-store");
+    fs::rename(store.path(), &renamed_store).unwrap();
+    assert!(reader.open_child("original").is_err());
+}
+
+#[test]
+fn selected_regular_file_keeps_native_identity_bounds_and_independent_read_offsets() {
+    let temporary = tempfile::tempdir().unwrap();
+    let parent = temporary.path().join("nested");
+    fs::create_dir(&parent).unwrap();
+    let path = temporary.path().join("source");
+    fs::write(&path, b"original bytes").unwrap();
+    let selected = SelectedRegularFile::capture(parent.join("../source")).unwrap();
+    assert_eq!(
+        selected.path(),
+        temporary.path().canonicalize().unwrap().join("source")
+    );
+    assert_eq!(selected.len().unwrap(), 14);
+    assert!(!selected.is_empty().unwrap());
+    assert_eq!(selected.read(14).unwrap(), b"original bytes");
+    assert_eq!(selected.read(14).unwrap(), b"original bytes");
+    assert_eq!(
+        selected.read(13).unwrap_err().kind(),
+        io::ErrorKind::InvalidInput
+    );
+    std::thread::scope(|scope| {
+        let first = scope.spawn(|| selected.read(14).unwrap());
+        let second = scope.spawn(|| selected.read(14).unwrap());
+        assert_eq!(first.join().unwrap(), b"original bytes");
+        assert_eq!(second.join().unwrap(), b"original bytes");
+    });
+    selected.revalidate().unwrap();
+    let empty = temporary.path().join("empty");
+    fs::write(&empty, []).unwrap();
+    let empty = SelectedRegularFile::capture(&empty).unwrap();
+    assert!(empty.is_empty().unwrap());
+    assert!(empty.read(0).unwrap().is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn selected_regular_file_refuses_original_mutation_replacement_and_link_substitution() {
+    use std::os::unix::fs::symlink;
+    let temporary = tempfile::tempdir().unwrap();
+    for mutation in ["edit", "replace", "link"] {
+        let path = temporary.path().join(mutation);
+        fs::write(&path, b"original bytes").unwrap();
+        let selected = SelectedRegularFile::capture(&path).unwrap();
+        match mutation {
+            "edit" => fs::write(&path, b"changed bytes").unwrap(),
+            "replace" => {
+                fs::rename(&path, temporary.path().join("retired-replace")).unwrap();
+                fs::write(&path, b"original bytes").unwrap();
+            }
+            "link" => {
+                fs::rename(&path, temporary.path().join("retired-link")).unwrap();
+                let target = temporary.path().join("link-target");
+                fs::write(&target, b"original bytes").unwrap();
+                symlink(&target, &path).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        assert!(selected.revalidate().is_err(), "{mutation}");
+        assert!(selected.read(14).is_err(), "{mutation}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn retained_directory_edges_retry_original_after_native_refusal_and_restoration() {
+    use std::os::unix::fs::{PermissionsExt as _, symlink};
+
+    for ancestor in [false, true] {
+        let (temporary, store) = store();
+        let child = store.create_child("retained").unwrap();
+        child
+            .write_atomic("record", b"original", PublishMode::CreateNew)
+            .unwrap();
+        let retained = child.retain().unwrap();
+        let original_identity = child.identity().unwrap();
+        let target = if ancestor { store.path() } else { child.path() }.to_owned();
+        child.revalidate().unwrap();
+        retained.revalidate().unwrap();
+
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            child.revalidate().unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        assert_eq!(
+            retained.revalidate().unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o700)).unwrap();
+        child.revalidate().unwrap();
+        retained.revalidate().unwrap();
+        assert_eq!(retained.identity().unwrap(), original_identity);
+        assert_eq!(retained.read("record", 8).unwrap().as_slice(), b"original");
+
+        let displaced = temporary.path().join("original-directory");
+        fs::rename(&target, &displaced).unwrap();
+        fs::create_dir(&target).unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o700)).unwrap();
+        let replacement_child = if ancestor {
+            let replacement_child = target.join("retained");
+            fs::create_dir(&replacement_child).unwrap();
+            fs::set_permissions(&replacement_child, fs::Permissions::from_mode(0o700)).unwrap();
+            replacement_child
+        } else {
+            target.clone()
+        };
+        fs::write(replacement_child.join("record"), b"original").unwrap();
+        fs::set_permissions(
+            replacement_child.join("record"),
+            fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        // Safe permissions and equal bytes do not make a new native directory
+        // the original retained directory, whether it is the child or parent.
+        assert_eq!(
+            child.revalidate().unwrap_err().to_string(),
+            changed().to_string()
+        );
+        assert_eq!(
+            retained.revalidate().unwrap_err().to_string(),
+            changed().to_string()
+        );
+        assert!(
+            retained
+                .write_atomic("effect", b"refused", PublishMode::CreateNew)
+                .is_err()
+        );
+        assert!(!replacement_child.join("effect").exists());
+        let original_child = if ancestor {
+            displaced.join("retained")
+        } else {
+            displaced.clone()
+        };
+        assert!(!original_child.join("effect").exists());
+        assert_eq!(
+            fs::read(original_child.join("record")).unwrap(),
+            b"original"
+        );
+        assert_eq!(
+            fs::read(replacement_child.join("record")).unwrap(),
+            b"original"
+        );
+
+        fs::remove_dir_all(&target).unwrap();
+        symlink(&displaced, &target).unwrap();
+        assert!(child.revalidate().is_err());
+        assert!(retained.revalidate().is_err());
+        fs::remove_file(&target).unwrap();
+        fs::rename(&displaced, &target).unwrap();
+        // Restore the actual original inode and retry the same owners. A prior
+        // refusal neither poisons them nor authorizes the substituted name.
+        child.revalidate().unwrap();
+        retained.revalidate().unwrap();
+        assert_eq!(child.identity().unwrap(), original_identity);
+        assert_eq!(retained.identity().unwrap(), original_identity);
+        assert_eq!(retained.read("record", 8).unwrap().as_slice(), b"original");
+    }
+}
+
+#[test]
+fn retained_private_publication_keeps_complete_identity_bounds_and_no_replace() {
+    let (_temporary, parent) = store();
+    let published = parent
+        .publish_private_child("ready", &[("lock", b""), ("record", b"original")])
+        .unwrap();
+    let directory_identity = published.identity().unwrap();
+    let record_identity = FileIdentity::of(&published.open_read("record").unwrap()).unwrap();
+    let reopened = parent.open_child("ready").unwrap();
+    assert_eq!(reopened.identity().unwrap(), directory_identity);
+    assert_eq!(
+        FileIdentity::of(&reopened.open_read("record").unwrap()).unwrap(),
+        record_identity
+    );
+    assert_eq!(reopened.read("record", 8).unwrap().as_slice(), b"original");
+    assert!(reopened.read("lock", 0).unwrap().is_empty());
+    let refused = parent.publish_private_child("ready", &[("record", b"replacement")]);
+    assert!(matches!(refused, Err(error) if error.kind() == io::ErrorKind::AlreadyExists));
+    assert_eq!(published.identity().unwrap(), directory_identity);
+    assert_eq!(
+        FileIdentity::of(&published.open_read("record").unwrap()).unwrap(),
+        record_identity
+    );
+    assert_eq!(published.read("record", 8).unwrap().as_slice(), b"original");
+    for (name, files) in [
+        ("../escape", vec![("record", b"bad".as_slice())]),
+        ("empty", vec![]),
+        (
+            "duplicate",
+            vec![("record", b"a".as_slice()), ("record", b"b".as_slice())],
+        ),
+        ("invalid-file", vec![("../record", b"bad".as_slice())]),
+    ] {
+        let refused = parent.publish_private_child(name, &files);
+        assert!(matches!(refused, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
+    }
+    assert_eq!(
+        parent.entries(1).unwrap(),
+        [std::ffi::OsString::from("ready")]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn retained_private_publication_refuses_replaced_parent_and_restores_original_retry() {
+    let (temporary, parent) = store();
+    let retained_identity = parent.identity().unwrap();
+    let original = parent
+        .publish_private_child("original", &[("record", b"original bytes")])
+        .unwrap();
+    let original_identity = original.identity().unwrap();
+    let file_identity = FileIdentity::of(&original.open_read("record").unwrap()).unwrap();
+    let displaced = temporary.path().join("original-parent");
+    fs::rename(parent.path(), &displaced).unwrap();
+    let missing = parent.publish_private_child("new", &[("record", b"new bytes")]);
+    assert!(matches!(missing, Err(error) if error.kind() == io::ErrorKind::NotFound));
+    let replacement = PrivateDirectory::open_or_create(parent.path()).unwrap();
+    let refused = parent.publish_private_child("new", &[("record", b"new bytes")]);
+    assert!(matches!(refused, Err(error) if error.kind() == io::ErrorKind::Other));
+    assert!(replacement.entries(0).unwrap().is_empty());
+    drop(replacement);
+    fs::remove_dir(parent.path()).unwrap();
+    fs::rename(displaced, parent.path()).unwrap();
+    assert_eq!(parent.identity().unwrap(), retained_identity);
+    assert_eq!(original.identity().unwrap(), original_identity);
+    assert_eq!(
+        FileIdentity::of(&original.open_read("record").unwrap()).unwrap(),
+        file_identity
+    );
+    assert_eq!(
+        original.read("record", 14).unwrap().as_slice(),
+        b"original bytes"
+    );
+    let published = parent
+        .publish_private_child("new", &[("record", b"new bytes")])
+        .unwrap();
+    assert_eq!(
+        parent.open_child("new").unwrap().identity().unwrap(),
+        published.identity().unwrap()
+    );
+    assert_eq!(
+        published.read("record", 9).unwrap().as_slice(),
+        b"new bytes"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn retained_private_publication_keeps_private_permissions_without_repair() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let (_temporary, parent) = store();
+    let permissions = fs::metadata(parent.path()).unwrap().permissions();
+    fs::set_permissions(parent.path(), fs::Permissions::from_mode(0o755)).unwrap();
+    let refused = parent.publish_private_child("new", &[("record", b"original")]);
+    assert!(matches!(refused, Err(error) if error.kind() == io::ErrorKind::PermissionDenied));
+    assert_eq!(
+        fs::metadata(parent.path()).unwrap().permissions().mode() & 0o7777,
+        0o755
+    );
+    assert_eq!(fs::read_dir(parent.path()).unwrap().count(), 0);
+    fs::set_permissions(parent.path(), permissions).unwrap();
+    let published = parent
+        .publish_private_child("new", &[("record", b"original")])
+        .unwrap();
+    assert_eq!(published.read("record", 8).unwrap().as_slice(), b"original");
+}
+
+#[cfg(windows)]
+#[test]
+fn retained_private_publication_keeps_native_rename_refusal_and_original_retry() {
+    let (temporary, parent) = store();
+    let identity = parent.identity().unwrap();
+    assert!(fs::rename(parent.path(), temporary.path().join("original-parent")).is_err());
+    let published = parent
+        .publish_private_child("new", &[("record", b"original")])
+        .unwrap();
+    assert_eq!(parent.identity().unwrap(), identity);
+    assert_eq!(
+        parent.open_child("new").unwrap().identity().unwrap(),
+        published.identity().unwrap()
+    );
+    assert_eq!(published.read("record", 8).unwrap().as_slice(), b"original");
+    assert!(
+        matches!(parent.publish_private_child("new", &[("record", b"replacement")]), Err(error) if error.kind() == io::ErrorKind::AlreadyExists)
+    );
+    assert_eq!(published.read("record", 8).unwrap().as_slice(), b"original");
+}
+
+#[test]
+fn local_identity_projection_preserves_original_file_and_directory_through_publication() {
+    let (_temporary, parent) = store();
+    let staged = parent.create_child("staged").unwrap();
+    staged
+        .write_atomic("source", b"original", PublishMode::CreateNew)
+        .unwrap();
+    let directory_identity = staged.identity().unwrap().local_parts();
+    let file_identity = FileIdentity::of(&staged.open_read("source").unwrap())
+        .unwrap()
+        .local_parts();
+    let snapshot = FileSnapshot::of(&staged.open_read("source").unwrap(), true).unwrap();
+    let snapshot_parts = snapshot.local_parts();
+    assert_eq!(snapshot_parts.0, file_identity.0);
+    assert_eq!(snapshot_parts.1, (file_identity.1, file_identity.2));
+    assert_eq!(snapshot_parts.2, 8);
+    staged.sync().unwrap();
+    let published = staged
+        .rename_to_sibling("published", PublishMode::CreateNew)
+        .unwrap();
+    assert_eq!(
+        published.identity().unwrap().local_parts(),
+        directory_identity
+    );
+    assert_eq!(
+        FileIdentity::of(&published.open_read("source").unwrap())
+            .unwrap()
+            .local_parts(),
+        file_identity
+    );
+    assert_eq!(
+        FileSnapshot::of(&published.open_read("source").unwrap(), true).unwrap(),
+        snapshot
+    );
+    assert_eq!(
+        FileSnapshot::of(&published.open_read("source").unwrap(), true)
+            .unwrap()
+            .local_parts(),
+        snapshot_parts
+    );
+    drop(published);
+    let reopened = parent.open_child("published").unwrap();
+    assert_eq!(
+        reopened.identity().unwrap().local_parts(),
+        directory_identity
+    );
+    assert_eq!(
+        FileIdentity::of(&reopened.open_read("source").unwrap())
+            .unwrap()
+            .local_parts(),
+        file_identity
+    );
+    assert_eq!(
+        FileSnapshot::of(&reopened.open_read("source").unwrap(), true).unwrap(),
+        snapshot
+    );
+    assert_eq!(
+        FileSnapshot::of(&reopened.open_read("source").unwrap(), true)
+            .unwrap()
+            .local_parts(),
+        snapshot_parts
+    );
+    reopened
+        .write_atomic("source", b"original", PublishMode::Replace)
+        .unwrap();
+    assert_ne!(
+        FileIdentity::of(&reopened.open_read("source").unwrap())
+            .unwrap()
+            .local_parts(),
+        file_identity
+    );
+    assert_ne!(
+        FileSnapshot::of(&reopened.open_read("source").unwrap(), true)
+            .unwrap()
+            .local_parts(),
+        snapshot_parts
+    );
+    assert_eq!(
+        reopened.identity().unwrap().local_parts(),
+        directory_identity
+    );
 }

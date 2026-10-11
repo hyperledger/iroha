@@ -13,9 +13,6 @@ use std::convert::Infallible;
 pub enum CommittedCellReadError {
     /// Preserve the actual publication contention, poison or changed-source reason.
     Publication(PublicationPreparationError<Infallible>),
-    /// A zero-sized backing allocation has no unique protected pointer identity.
-    /// This is a permanent unsupported shape, never a wait for publication.
-    ZeroSizedBacking,
 }
 
 impl From<PublicationPreparationError<Infallible>> for CommittedCellReadError {
@@ -72,14 +69,7 @@ impl<V: Value, C: Send + Sync + 'static> Cell<V, C> {
     /// # Errors
     /// Returns the original publication release source on contention, poison on
     /// a failed owner, or `Changed` when either allocation changed during capture.
-    /// Zero-sized backing is a distinct permanent refusal before collector pinning.
     pub fn try_committed_view(&self) -> Result<CommittedCellView<'_, V>, CommittedCellReadError> {
-        if Self::allocation_layouts()
-            .iter()
-            .any(|layout| layout.size() == 0)
-        {
-            return Err(CommittedCellReadError::ZeroSizedBacking);
-        }
         let current = self.blocks.read();
         let undo = self.revert.read();
         self.capture_committed_reads(current, undo)

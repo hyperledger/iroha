@@ -18,7 +18,7 @@ pub mod layouter;
 pub mod value;
 
 pub use assignment::{Assembly, AssignedTables, Assignment, Error, RegionRecord, TableError};
-pub use circuit::{Circuit, Synthesized, configure, synthesize};
+pub use circuit::{Circuit, Synthesized, configure, synthesize, synthesize_cancellable};
 pub use layouter::{
     AssignedCell, Cell, FloorPlanner, Layouter, NamespacedLayouter, Region, RegionLayouter,
     SimpleFloorPlanner, SingleChipLayouter, Table, TableLayouter,

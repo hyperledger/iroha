@@ -1,7 +1,7 @@
 {
   "artifact_retained_path": "/Users/takemiyamakoto/dev/iroha/target/architecture-redesign/norito-identity-cutover/torii-shared-reference-capture/executables/capture-build-1/iroha_torii_shared-f6b4d0aeef0b621e",
   "artifact_sha256": "3b898185b144dc7dc36d03e86f557cc0ee6200e8249ef7591c2c095891039cc2",
-  "automatic_directions": 318,
+  "automatic_directions": 316,
   "build_report_sha256": "59eba87ce5e6758e8ecfc2c1e53f6e6de09f0d41b65e34cbeabc94db7a63c95c",
   "build_warnings": 0,
   "current_recaptures": [
@@ -12,6 +12,15 @@
       "qualification_report_sha256": "09a4e00904221b60417dee8e03d195c0a852177738356113a9faf2fd73121bd7",
       "scope": "Only the two named owner directions were recaptured for the current first-release DTO; preceding top-level capture provenance describes the unchanged historical owners. Standalone and enclosing Status wire frames were regenerated with the actual compiled codec.",
       "source_sha256": "dfbe6c44b5fb2b661e92c2968f41f5ac02d1cd24f0daf57c37ce9af6bc0e2b6f"
+    },
+    {
+      "capture_log_sha256": "ed0d32c4a95ec74b4d9768cace684d4fac1e88a7bcc2557c0c057e393483b559",
+      "capture_source_sha256": "3a59ae057245bf6c6f3aba8b45a9a8bcd66c39e829b2ec98fb40e332df124d50",
+      "codec_fixture_sha256": "3cfc3bde0818275fd8b7e92bc4f2f7fddaff24985ac96034be762a6e19bc38b3",
+      "compiled_capture_binary_sha256": "6f31f0ec522037a47cc25785f960b69bc729384cd9d27aa50c2724f2c558e895",
+      "owner": "iroha_torii_shared::status::common::DiagnosticTraceStatus",
+      "scope": "The two DiagnosticTraceStatus directions replace the retired Halo2Status owner. Actual compiled Rust codecs regenerated DiagnosticTraceStatus, CryptoStatus and the enclosing Status frames; earlier capture provenance remains historical for unchanged owners. This is codec evidence, not SDK artifact or protocol qualification.",
+      "source_sha256": "dfecabfe48ee5dd15229cc39d6929142432d99b3aefff9d2690d28e7bac1606d"
     }
   ],
   "features": [
@@ -287,7 +296,7 @@
       "wire_hex": "4e525430000070dc2d72af2b1c7616f4915c08a0630f00380000000000000072749145f70daa5c0201010100160114136d657461646174615f6b65792d73616d706c651c01000000000000001312616c6c6f7765645f6964732d73616d706c65"
     }
   ],
-  "production_owners": 171,
+  "production_owners": 170,
   "records": [
     {
       "column": 37,
@@ -2112,44 +2121,6 @@
       "root_matches": true,
       "schema_hash": "260c9e58e2e8f18d11b438fc069aee11",
       "source_sha256": "9d2deed9fa9fbaa965c9f3892a6c4512fdc510622e05f3c30c411bf74f6155b2"
-    },
-    {
-      "column": 66,
-      "direction": "deserialize",
-      "explicit_root": true,
-      "file": "crates/iroha_torii_shared/src/kagemusha_api.rs",
-      "identifier": "KagemushaReadinessV1",
-      "item_end": 6019,
-      "item_sha256": "bb9c703f8a76685f1e9839ada0264b5e027856d9691e5dd50780b92d082c5f21",
-      "item_start": 5411,
-      "kind": "capture",
-      "line": 93,
-      "module": "iroha_torii_shared::kagemusha_api",
-      "nominal": "iroha_torii_shared::kagemusha_api::KagemushaReadinessV1",
-      "original_source_sha256": "c5c2056b029621fadfe31bc1c8ac422a39b5acdbf586436a9d7cc1bb3b3e1302",
-      "root_hint": "iroha.torii.v1.kagemusha.readiness.response",
-      "root_matches": true,
-      "schema_hash": "0cd4da41fc89f5c0f2ef82e7cc593e6d",
-      "source_sha256": "c5c2056b029621fadfe31bc1c8ac422a39b5acdbf586436a9d7cc1bb3b3e1302"
-    },
-    {
-      "column": 85,
-      "direction": "serialize",
-      "explicit_root": true,
-      "file": "crates/iroha_torii_shared/src/kagemusha_api.rs",
-      "identifier": "KagemushaReadinessV1",
-      "item_end": 6019,
-      "item_sha256": "bb9c703f8a76685f1e9839ada0264b5e027856d9691e5dd50780b92d082c5f21",
-      "item_start": 5411,
-      "kind": "capture",
-      "line": 93,
-      "module": "iroha_torii_shared::kagemusha_api",
-      "nominal": "iroha_torii_shared::kagemusha_api::KagemushaReadinessV1",
-      "original_source_sha256": "c5c2056b029621fadfe31bc1c8ac422a39b5acdbf586436a9d7cc1bb3b3e1302",
-      "root_hint": "iroha.torii.v1.kagemusha.readiness.response",
-      "root_matches": true,
-      "schema_hash": "0cd4da41fc89f5c0f2ef82e7cc593e6d",
-      "source_sha256": "c5c2056b029621fadfe31bc1c8ac422a39b5acdbf586436a9d7cc1bb3b3e1302"
     },
     {
       "column": 66,
@@ -4090,23 +4061,22 @@
       "source_sha256": "ab3725698dd4483ac123dc2395625c0bf806ffd7503b8a409e5e889b9d48542d"
     },
     {
-      "column": 5,
+      "column": 1,
       "direction": "deserialize",
-      "explicit_root": true,
+      "explicit_root": false,
       "file": "crates/iroha_torii_shared/src/status/common.rs",
-      "identifier": "Halo2Status",
-      "item_end": 5672,
-      "item_sha256": "d00ae8c27f76a32afb4c2f6e14fd9e96fc27ee8fe3c06a0a5fbec359520607e4",
-      "item_start": 5014,
+      "identifier": "DiagnosticTraceStatus",
+      "item_end": 5466,
+      "item_sha256": "c378edd2cdeb58c5dd6cfc7b1e1a10e629faedfde5258d10471c04615e47eb17",
+      "item_start": 4638,
       "kind": "capture",
-      "line": 140,
+      "line": 134,
       "module": "iroha_torii_shared::status::common",
-      "nominal": "iroha_torii_shared::status::common::Halo2Status",
-      "original_source_sha256": "7a943b8a31061c82eb595ac899a32112e1d1f11b0ec69f033f80fa58db6a0c83",
-      "root_hint": "iroha_telemetry::metrics::Halo2Status",
+      "nominal": "iroha_torii_shared::status::common::DiagnosticTraceStatus",
+      "root_hint": "iroha_torii_shared::status::common::DiagnosticTraceStatus",
       "root_matches": true,
-      "schema_hash": "66918794eeb3ec94f242e94f41254c2b",
-      "source_sha256": "ab3725698dd4483ac123dc2395625c0bf806ffd7503b8a409e5e889b9d48542d"
+      "schema_hash": "1669aa172867ee304aecf5730f74786a",
+      "source_sha256": "dfecabfe48ee5dd15229cc39d6929142432d99b3aefff9d2690d28e7bac1606d"
     },
     {
       "column": 5,
@@ -4185,23 +4155,22 @@
       "source_sha256": "ab3725698dd4483ac123dc2395625c0bf806ffd7503b8a409e5e889b9d48542d"
     },
     {
-      "column": 5,
+      "column": 1,
       "direction": "serialize",
-      "explicit_root": true,
+      "explicit_root": false,
       "file": "crates/iroha_torii_shared/src/status/common.rs",
-      "identifier": "Halo2Status",
-      "item_end": 5672,
-      "item_sha256": "d00ae8c27f76a32afb4c2f6e14fd9e96fc27ee8fe3c06a0a5fbec359520607e4",
-      "item_start": 5014,
+      "identifier": "DiagnosticTraceStatus",
+      "item_end": 5466,
+      "item_sha256": "c378edd2cdeb58c5dd6cfc7b1e1a10e629faedfde5258d10471c04615e47eb17",
+      "item_start": 4638,
       "kind": "capture",
-      "line": 139,
+      "line": 134,
       "module": "iroha_torii_shared::status::common",
-      "nominal": "iroha_torii_shared::status::common::Halo2Status",
-      "original_source_sha256": "7a943b8a31061c82eb595ac899a32112e1d1f11b0ec69f033f80fa58db6a0c83",
-      "root_hint": "iroha_telemetry::metrics::Halo2Status",
+      "nominal": "iroha_torii_shared::status::common::DiagnosticTraceStatus",
+      "root_hint": "iroha_torii_shared::status::common::DiagnosticTraceStatus",
       "root_matches": true,
-      "schema_hash": "66918794eeb3ec94f242e94f41254c2b",
-      "source_sha256": "ab3725698dd4483ac123dc2395625c0bf806ffd7503b8a409e5e889b9d48542d"
+      "schema_hash": "1669aa172867ee304aecf5730f74786a",
+      "source_sha256": "dfecabfe48ee5dd15229cc39d6929142432d99b3aefff9d2690d28e7bac1606d"
     },
     {
       "column": 5,
@@ -6320,9 +6289,15 @@
       "source_sha256": "e1012ceed776658761ebbe9474af5ca8b4e5935cd7f32f59e54918fd9fca6e90"
     }
   ],
+  "retired_owners": [
+    {
+      "owner": "iroha_torii_shared::kagemusha_api::KagemushaReadinessV1",
+      "scope": "Both directions were removed with the retired KAGEMUSHA V1 Torii API; the preceding top-level capture provenance still describes the original capture of the remaining owners."
+    }
+  ],
   "runtime_log_sha256": "ba866bbfe1f42932e5368215f94a0555e33a1792f606205d6b45116c4316b96c",
   "runtime_report_sha256": "01a2dc6b402f8c8a4accf6529f8aad799308ae529d226abfaa3b8fadf12f5c18",
-  "scope": "Actual compiler identities for 171 production Torii owners, with existing golden root frames and Option/Vec observations for 12 handwritten wrappers. Migration evidence only; no release or workspace closure claim.",
+  "scope": "Actual compiler identities for 170 production Torii owners, with existing golden root frames and Option/Vec observations for 12 handwritten wrappers. Migration evidence only; no release or workspace closure claim.",
   "selected_tests": 321,
   "source_fingerprint": {
     "bytes": 493489824,

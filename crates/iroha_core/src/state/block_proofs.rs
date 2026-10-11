@@ -147,10 +147,18 @@ fn read_finalized_body(
             actual,
         });
     }
-    let storage_error = |error: crate::kura::Error| BlockProofError::Storage {
-        block_height,
-        reason: error.to_string(),
-    };
+    let storage_error =
+        |error| match crate::execution_attempt::kura_read_attempt_error(error, |error| {
+            BlockProofError::Storage {
+                block_height,
+                reason: error.to_string(),
+            }
+        }) {
+            crate::execution_attempt::ExecutionAttemptError::Rejected(error) => error,
+            crate::execution_attempt::ExecutionAttemptError::Deferred(original) => {
+                BlockProofError::Deferred(original)
+            }
+        };
     let target = kura
         .native_frame_read(block_height.get(), expected_hash)
         .map_err(storage_error)?
@@ -379,6 +387,74 @@ mod native_proof_reader_tests {
         state::World,
         sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
     };
+
+    #[test]
+    fn native_block_proof_preserves_original_cumulative_metadata_refusal() {
+        use ivm::error::ExecutionDeferral;
+        let mut chain =
+            CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+        chain.commit(Vec::new());
+        let target = chain.committed(2);
+        let entry = target.block().network_entrypoint_at(0).unwrap().hash();
+        let height = NonZeroU64::new(2).unwrap();
+        let bound = |allocation| {
+            norito::DecodeLimits::new(1_000_000, 48 * 1024 * 1024, 1_000_000, allocation, 64)
+        };
+        let probe = norito::core::DecodeBudgetContext::new(bound(48 * 1024 * 1024));
+        probe.with(|| {
+            chain
+                .kura()
+                .native_frame_read(2, target.block_hash())
+                .unwrap()
+                .unwrap();
+        });
+        let marker_work = probe.consumed_allocated_bytes();
+        assert!(marker_work > 0);
+        let context =
+            norito::core::DecodeBudgetContext::new(bound(usize::try_from(marker_work).unwrap()));
+        context.with(|| {
+            chain
+                .kura()
+                .native_frame_read(2, target.block_hash())
+                .unwrap()
+                .unwrap();
+        });
+        let pool = chain.state().ivm_execution_budget();
+        let charge = pool.reserved_bytes();
+        chain.kura().reset_canonical_query_reads_for_test();
+        for _ in 0..2 {
+            let error = context
+                .with(|| {
+                    chain
+                        .state()
+                        .block_proofs_for_entry(height, entry, limits())
+                })
+                .expect_err("the original metadata context cannot admit proof body I/O");
+            let BlockProofError::Deferred(ref original) = error else {
+                panic!("original native block proof metadata refusal must remain local: {error:?}");
+            };
+            assert_eq!(original.reason(), ExecutionDeferral::ActiveMemoryCapacity);
+            assert!(original.allocation_refusal().is_none());
+            assert_eq!(context.consumed_allocated_bytes(), marker_work);
+            assert_eq!(chain.kura().canonical_query_reads_for_test(), (0, 0));
+            assert_eq!(pool.reserved_bytes(), charge);
+        }
+        let proof = chain
+            .state()
+            .block_proofs_for_entry(height, entry, limits())
+            .unwrap();
+        let anchor =
+            iroha_data_model::block::proofs::TrustedBlockProofAnchor::from_committed_execution(
+                target.block(),
+                target.commitment().execution.executed_block_wire_len,
+                target.commitment().execution.executed_block_wire_hash,
+                &entry,
+            )
+            .unwrap();
+        assert!(proof.verify(&anchor));
+        assert_eq!(context.consumed_allocated_bytes(), marker_work);
+        assert_eq!(pool.reserved_bytes(), charge);
+    }
 
     fn limits() -> BlockProofLimits {
         BlockProofLimits {

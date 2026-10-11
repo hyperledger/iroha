@@ -42,6 +42,7 @@ test("multisig register builder accepts encoded-only controller/signatory ids", 
         Register: {
           account: CONTROLLER_ID,
           spec: spec.toPayload(),
+          uaid: null,
         },
       },
     },

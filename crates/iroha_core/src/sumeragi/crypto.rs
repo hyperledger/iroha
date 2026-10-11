@@ -317,7 +317,7 @@ impl Signer for KeyPairSigner {
 mod tests {
     use iroha_crypto::bls_normal_pop_prove;
     use iroha_sumeragi::{
-        crypto::{NoAttestation, form_qc, form_tc},
+        crypto::{form_qc, form_tc},
         message::{Qc, TimeoutVote, Vote, VoteKind},
         types::{Committee, EpochId, ValidatorIndex},
     };
@@ -373,10 +373,8 @@ mod tests {
             view,
             block_hash: Hash32([1; 32]),
             result: Hash32([2; 32]),
-            attest: false,
             signer: index(committee, signer),
             sig: Signature([0; SIGNATURE_LEN]),
-            attestation: None,
         };
         vote.sig = signer.sign(&vote.preimage());
         vote
@@ -685,7 +683,7 @@ mod tests {
             let qc = qc(VoteKind::Commit, 3, &chosen, &committee);
             assert_eq!(
                 iroha_sumeragi::crypto::Verifier::new(&crypto, &I, &EPOCH, &committee)
-                    .verify_qc(&NoAttestation, &qc),
+                    .verify_qc(&qc),
                 Ok(())
             );
             let other_epoch = EpochId {
@@ -694,7 +692,7 @@ mod tests {
             };
             assert!(
                 iroha_sumeragi::crypto::Verifier::new(&crypto, &I, &other_epoch, &committee)
-                    .verify_qc(&NoAttestation, &qc)
+                    .verify_qc(&qc)
                     .is_err()
             );
             let other_context = EpochId {
@@ -703,27 +701,27 @@ mod tests {
             };
             assert!(
                 iroha_sumeragi::crypto::Verifier::new(&crypto, &I, &other_context, &committee)
-                    .verify_qc(&NoAttestation, &qc)
+                    .verify_qc(&qc)
                     .is_err()
             );
             let mut rebound = qc.clone();
             rebound.epoch = other_context;
             assert!(
                 iroha_sumeragi::crypto::Verifier::new(&crypto, &I, &other_context, &committee)
-                    .verify_qc(&NoAttestation, &rebound)
+                    .verify_qc(&rebound)
                     .is_err()
             );
             let mut tampered = qc.clone();
             tampered.result = Hash32([9; 32]);
             assert!(
                 iroha_sumeragi::crypto::Verifier::new(&crypto, &I, &EPOCH, &committee)
-                    .verify_qc(&NoAttestation, &tampered)
+                    .verify_qc(&tampered)
                     .is_err()
             );
             let unadmitted = BlsCrypto::new();
             assert!(
                 iroha_sumeragi::crypto::Verifier::new(&unadmitted, &I, &EPOCH, &committee)
-                    .verify_qc(&NoAttestation, &qc)
+                    .verify_qc(&qc)
                     .is_err()
             );
         }

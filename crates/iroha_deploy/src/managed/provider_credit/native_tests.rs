@@ -542,6 +542,17 @@ fn generated_native_initial_credit_preserves_funding_and_original_carrier_during
         crate::managed::native_operation::test_support::provider_id(&prepared, 0),
     )
     .unwrap();
+    crate::managed::native_operation::test_support::assert_optional_current(
+        &outage,
+        &committed,
+        |verifier| {
+            reopened.read_current(
+                &intent.policy,
+                verifier,
+                Instant::now() + Duration::from_secs(30),
+            )
+        },
+    );
     let recovered = reopened
         .recover(Instant::now() + Duration::from_secs(30))
         .unwrap();

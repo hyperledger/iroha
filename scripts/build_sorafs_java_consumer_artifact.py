@@ -280,7 +280,7 @@ def produce(args: argparse.Namespace) -> dict[str, object]:
     fixtures = capture_tree(root / "fixtures/sorafs_manifest", MAX_FIXTURE_BYTES)
     for relative, raw in fixtures.items():
         write_fresh(work / "snapshot/fixtures/sorafs_manifest" / relative, raw)
-    manifest_raw = capture(args.native_manifest, "inputs/native-abi25.json", native.MAX_MANIFEST_BYTES)
+    manifest_raw = capture(args.native_manifest, "inputs/native-abi29.json", native.MAX_MANIFEST_BYTES)
     manifest = parse_native_manifest(manifest_raw)
     if manifest["sdk"] != "c-jni":
         raise ArtifactError("native evidence must authenticate the actual C/JNI owner")

@@ -11,7 +11,7 @@ gadget or recursion code.
 | --- | --- |
 | `field` | `Fp`, `Fq`: 4x64-bit Montgomery arithmetic specialised to the Pasta moduli (no-carry CIOS multiplication and squaring), `ff` 0.13 `PrimeField`, `PrimeFieldBits`, `FromUniformBytes<64>`, `WithSmallOrderMulGroup<3>`; constant-time Fermat `invert`, safegcd `invert_vartime`, `batch_invert`, table-based `sqrt` |
 | `curve` | Pallas `Ep`/`EpAffine`, Vesta `Eq`/`EqAffine`: complete Renes-Costello-Batina formulas, compressed encodings, GLV decomposition and endomorphism, hash-to-curve (simplified SWU + 3-isogeny), batch normalisation and lockstep batch multiplication; `group` 0.13 traits |
-| `msm` | `msm_public`, `msm_secret` (batch-affine signed-digit Pippenger on the caller's Rayon pool), `FixedBaseTable`, `MemoryBudget` |
+| `msm` | `msm_public`, `msm_secret` (batch-affine signed-digit Pippenger on the caller's Rayon pool), `FixedBaseTable`, per-kernel `MemoryBudget`, process-wide `SharedMemoryBudget` |
 | `fold` | lockstep batch-affine GLV generator fold (`G[i] + u * G[i + h]`): `fold_generators_vartime`, `fold_generators_with` (precomputed `FoldChallenge`), `fold_generators_reference` (complete formulas) |
 | `fft` | `FftDomain`: radix-4 (fused radix-2) DIF transforms, cached twiddles, coset transforms (a zero coset shift is an error) |
 | `params` | `ParamsIpa`: transparent `Halo2-Parameters` generator derivation, group IFFT for `g_lagrange`, codec byte-identical to the vendored `ParamsIPA::write`; derivation and decoding both reject identity points and report the first invalid index |
@@ -27,6 +27,10 @@ gadget or recursion code.
   x86_64 and at any thread count. Behaviour never depends on environment
   variables; kernels take explicit memory budgets.
 - Field elements are always fully reduced; no lazily reduced value is stored.
+  `PrimeFieldBits` uses `[u64; 4]` on 64-bit targets and `[u32; 8]` on other
+  targets, following `bitvec`'s supported storage widths. Both views expose the
+  same 256 canonical little-endian bits, including the modulus bits; the
+  four-u64 Montgomery arithmetic and 32-byte field encoding are unchanged.
   The Montgomery limbs are crate-private. Outside the crate, affine points
   come only from checked constructors (`PastaAffine::from_xy`, decoding) and
   the group law; the unchecked constructor needs a crate-private token.
@@ -37,9 +41,25 @@ gadget or recursion code.
   keeps the bucket-selection posture of the vendored MSM and zeroises its
   digit and bucket scratch (all digit-dependent buffers, including spare
   capacity) on drop, also when unwinding.
+- MSM bucket selection and reduction are explicitly variable-time. Sparse
+  reduction weights each running sum by the exact following gap using complete
+  curve formulas; dense windows retain linear summation. Occupancy includes
+  affine and overflow contributions, including cancellation. Ordinary secret
+  MSMs plan for 255-bit scalars. `BoundedSecretScalars` validates every canonical
+  integer against a caller-selected public bound before the same secret kernel
+  can use fewer windows. Bounds must come from public protocol data, never a
+  witness maximum. Constant-time secret inversion and scratch clearing remain
+  unchanged; this does not make bucket access constant-time.
 - Memory budgets are charged for everything a kernel holds at once (fixed-base
   tables include their construction scratch), and whether a kernel fits a
   budget never depends on the Rayon pool size.
+- MSM heap scratch also shares one process-wide 64 MiB ceiling. Explicit
+  `SharedMemoryBudget::new(bytes)` values add a ceiling shared by their clones;
+  independent values still charge the process cap. Admission is nonblocking:
+  smaller plans or stack-only multiplication handle contention without blocking
+  nested Rayon workers. The shared cap covers digits, bucket queues and inversion
+  buffers, wave results and table-construction scratch; retained tables, caller
+  inputs, allocator metadata and worker stacks are outside this scratch limit.
 - Hash-to-curve fails closed: an off-curve result is an error, never a
   substitute point.
 - The portable implementation is the reference. Any later accelerated path
@@ -74,3 +94,11 @@ Integration tests:
 - `poseidon_kat`: sponge outputs, the 256-level empty replay root and table
   digests exported from the vendored `halo2-base`/snark-verifier
   implementation.
+
+`CancellationToken` is a caller-owned permanent signal for one operation. The
+cancellable MSM, FFT, generator fold, and batch-inversion entry points check
+this signal between bounded batches and Rayon tasks, then join all work before
+returning `Cancelled`. Cancellation introduces no global control flag and does
+not change the process-wide scratch budget. Existing variable-time MSM timing
+behavior is unchanged; the token is an explicit caller signal, not a branch on
+secret witness contents.

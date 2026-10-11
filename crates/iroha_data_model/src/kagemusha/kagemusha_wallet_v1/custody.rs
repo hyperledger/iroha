@@ -11,7 +11,7 @@
 //! typed Norito enum whose wire tag equals the listed value, so an undefined value fails
 //! canonical decoding instead of reaching validation; the `output` transcript carries the
 //! one-byte tag. Their frames therefore carry Norito's four-byte enum tag, which the marker
-//! and capsule digests cover. The retained-input role table (tags 1 to 8) is fixed here; the
+//! and capsule digests cover. The retained-input role table (tags 1 to 10) is fixed here; the
 //! vectors file pins every tag.
 
 use iroha_schema::IntoSchema;
@@ -20,7 +20,8 @@ use norito::codec::{Decode, Encode};
 use super::{
     KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1, KAGEMUSHA_WALLET_COMPLETION_RECORD_MAX_BYTES_V1,
     KAGEMUSHA_WALLET_FOLD_RECORD_MAX_BYTES_V1, KAGEMUSHA_WALLET_MARKER_MAX_BYTES_V1,
-    KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1, KAGEMUSHA_WALLET_VERSION_V1, WalletResult,
+    KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1, KAGEMUSHA_WALLET_VERSION_V1,
+    KagemushaWalletPolicyUpdateKindV1, KagemushaWalletQuotaRefreshWitnessV1, WalletResult,
     WalletVersionsV1, decode_frame_v1,
     digest::{KagemushaWalletDigestRoleV1 as Role, WalletTranscriptV1, kagemusha_wallet_digest_v1},
     encode_frame_v1,
@@ -31,8 +32,10 @@ use super::{
     invalid_v1, is_zero_v1,
     keys::KagemushaDevicePublicKeyV1,
     messages::KagemushaWalletPaymentV1,
-    overflow_v1, require_canonical_field_v1, require_nonzero_field_v1, require_nonzero_v1,
-    require_scheme_v1, require_version_v1,
+    overflow_v1,
+    poseidon::KagemushaWalletIndexedOpeningV1,
+    require_canonical_field_v1, require_nonzero_field_v1, require_nonzero_v1, require_scheme_v1,
+    require_version_v1,
     state::{
         KagemushaWalletEffectV1, KagemushaWalletLineageSlotV1, KagemushaWalletLineageV1,
         KagemushaWalletOperationKindV1, KagemushaWalletPackageDigestsV1, KagemushaWalletPackageV1,
@@ -101,6 +104,7 @@ impl KagemushaWalletTerminalReasonV1 {
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletMarkerStateV1"
 )]
+#[repr(align(16))]
 pub enum KagemushaWalletMarkerStateV1 {
     /// Generation-0 enrollment marker, written before the credential request.
     #[codec(index = 1)]
@@ -152,6 +156,7 @@ impl KagemushaWalletMarkerStateV1 {
 /// generation-0 enrollment marker (design C3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletMarkerV1")]
+#[repr(align(16))]
 pub struct KagemushaWalletMarkerV1 {
     /// Wire version; exactly [`KAGEMUSHA_WALLET_VERSION_V1`].
     pub version: u16,
@@ -469,7 +474,7 @@ pub fn kagemusha_wallet_output_digest_v1(
 ///
 /// A Send releases its canonical Payment; every other kind releases its package. The digest
 /// covers the statement, the operation-dependent `proof_digest` and, for Receive, the Payment
-/// digest the receipt binds; every other kind input (the Send Request, the Load voucher, the
+/// digest the receipt binds; every other kind input (the Send Request, the original Load receipt and finality evidence, the
 /// Unload nullifier, the `ArchiveSent` Credited digest, the payer credential) is already bound
 /// by the statement. It can therefore be frozen in the capsule before the receipt exists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
@@ -508,7 +513,7 @@ impl KagemushaWalletOutputDescriptorV1 {
             kind,
             digest: kagemusha_wallet_output_digest_v1(
                 kind,
-                &statement.statement_digest(),
+                &statement.statement_digest()?,
                 proof_digest,
                 payment_digest,
             ),
@@ -557,13 +562,16 @@ pub enum KagemushaWalletRetainedInputRoleV1 {
     /// Canonical Credited evidence consumed by `ArchiveSent`.
     #[codec(index = 3)]
     Credited,
-    /// Canonical load voucher consumed by Load.
+    /// Canonical ordinary Load receipt consumed by Load.
     #[codec(index = 4)]
-    LoadVoucher,
+    LoadReceipt,
     /// Canonical charge quote consumed by Load or Unload.
     #[codec(index = 5)]
     ChargeQuote,
-    /// Canonical signed update consumed by `RefreshPolicy`.
+    /// Exact update custody consumed by `RefreshPolicy`: Blacklist carries the
+    /// bounded native complete-original archive reference; other fixed kinds
+    /// carry the complete inline signed update. Native restores and authenticates
+    /// the full blacklist before using it; the reference is not an issuer verdict.
     #[codec(index = 6)]
     PolicyUpdate,
     /// Canonical certificate set the operation needed.
@@ -572,19 +580,27 @@ pub enum KagemushaWalletRetainedInputRoleV1 {
     /// Canonical credential the operation consumed.
     #[codec(index = 8)]
     Credential,
+    /// Canonical compact ordinary-transaction finality evidence consumed by Load.
+    #[codec(index = 9)]
+    LoadFinality,
+    /// Canonical typed predecessor quota-usage array consumed by a quota refresh.
+    #[codec(index = 10)]
+    QuotaRefreshWitness,
 }
 
 impl KagemushaWalletRetainedInputRoleV1 {
     /// Every role, in tag order.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 10] = [
         Self::Request,
         Self::Payment,
         Self::Credited,
-        Self::LoadVoucher,
+        Self::LoadReceipt,
         Self::ChargeQuote,
         Self::PolicyUpdate,
         Self::CertificateSet,
         Self::Credential,
+        Self::LoadFinality,
+        Self::QuotaRefreshWitness,
     ];
 
     /// Tag; equal to the Norito wire tag.
@@ -594,11 +610,13 @@ impl KagemushaWalletRetainedInputRoleV1 {
             Self::Request => 1,
             Self::Payment => 2,
             Self::Credited => 3,
-            Self::LoadVoucher => 4,
+            Self::LoadReceipt => 4,
             Self::ChargeQuote => 5,
             Self::PolicyUpdate => 6,
             Self::CertificateSet => 7,
             Self::Credential => 8,
+            Self::LoadFinality => 9,
+            Self::QuotaRefreshWitness => 10,
         }
     }
 }
@@ -633,9 +651,11 @@ impl KagemushaWalletRetainedInputV1 {
 /// every consumed input that Λ verifies for the step and the step itself cannot rebuild.
 ///
 /// Send retains the Request it consumed: the compact Payment binds the receiver's fee schedule
-/// only by digest, and `Λ_send` checks the fee terms against it (§§3.2, 6.2). Load retains the
-/// voucher's `LoadAuthorization` certificate with the voucher, because `Λ_load` verifies the
-/// voucher signature under it (§3.2) and the voucher names it only by digest.
+/// only by digest, and `Λ_send` checks the fee terms against it (§§3.2, 6.2). Load retains
+/// the original receipt and compact finality evidence so restoration verifies the same
+/// ordinary transaction under the independently installed history anchor and source key.
+/// Archive retains the historical payer credential and its certificate set because
+/// a later credential renewal must not replace the exact Send credential.
 // TODO(owner): interim choices kept as is until the owner decides: a Send capsule retains the
 // whole Request message, and no Load or Unload capsule retains a ChargeQuote because `Λ_load`
 // and `Λ_unload` do not verify ChargeQuote signatures (wire record §7).
@@ -647,9 +667,15 @@ const fn required_retained_roles_v1(
         KagemushaWalletOperationKindV1::Receive => {
             &[R::Request, R::Payment, R::CertificateSet, R::Credential]
         }
-        KagemushaWalletOperationKindV1::ArchiveSent => &[R::Request, R::Payment, R::Credited],
+        KagemushaWalletOperationKindV1::ArchiveSent => &[
+            R::Request,
+            R::Payment,
+            R::Credited,
+            R::Credential,
+            R::CertificateSet,
+        ],
         KagemushaWalletOperationKindV1::Send => &[R::Request],
-        KagemushaWalletOperationKindV1::Load => &[R::LoadVoucher, R::CertificateSet],
+        KagemushaWalletOperationKindV1::Load => &[R::LoadReceipt, R::LoadFinality],
         KagemushaWalletOperationKindV1::RefreshPolicy => &[R::PolicyUpdate, R::CertificateSet],
         KagemushaWalletOperationKindV1::Bootstrap
         | KagemushaWalletOperationKindV1::Unload
@@ -663,8 +689,11 @@ const fn required_retained_roles_v1(
 /// step proof σ, the Payment digest a Receive receipt binds, the required map nodes, the
 /// retained input bytes (the fold witnesses, §4.1) and the receipt-free output descriptor;
 /// the receipt signs its digest `H("capsule", frame)`.
-// TODO(G3): the map-opening layout is fixed by the iroha_core_zk map owner with the artifact
-// set; G1 bounds each opening only through the capsule frame cap.
+///
+/// Each map opening is one depth-32 indexed-tree opening transcript of §3.2 (owner answer A2):
+/// a leaf opening or an empty-slot opening, each with exactly 32 siblings.
+// TODO(G3): which openings each operation kind retains is fixed with the artifact set; G1
+// checks only each opening's layout.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletRecoveryCapsuleV1"
@@ -692,7 +721,8 @@ pub struct KagemushaWalletRecoveryCapsuleV1 {
     pub step_proof: KagemushaWalletStepProofV1,
     /// Full canonical Payment digest of a Receive; zero otherwise.
     pub payment_digest: [u8; 32],
-    /// Required authenticated map nodes and openings.
+    /// Required map openings: each one §3.2 leaf-opening (1,124 bytes) or empty-slot opening
+    /// (1,028 bytes) transcript with exactly 32 siblings.
     pub map_openings: Vec<Vec<u8>>,
     /// Exact input bytes needed to resume and to fold the step.
     pub retained_inputs: Vec<KagemushaWalletRetainedInputV1>,
@@ -701,6 +731,37 @@ pub struct KagemushaWalletRecoveryCapsuleV1 {
 }
 
 impl KagemushaWalletRecoveryCapsuleV1 {
+    /// Decode the one mandatory quota-refresh witness, absent for every other effect.
+    /// Its original frame remains covered by the capsule and signed receipt digest.
+    /// This checks canonical shape; the transition owner must authenticate its root
+    /// against the actual predecessor state before accepting the quota update.
+    ///
+    /// # Errors
+    /// Missing, duplicate, malformed or oversized quota witness, or a witness retained
+    /// for an operation other than a quota-share refresh.
+    pub fn quota_refresh_witness(
+        &self,
+    ) -> WalletResult<Option<KagemushaWalletQuotaRefreshWitnessV1>> {
+        let required = matches!(
+            self.statement.effect,
+            KagemushaWalletEffectV1::RefreshPolicy {
+                update_kind: KagemushaWalletPolicyUpdateKindV1::QuotaShare,
+                ..
+            }
+        );
+        let mut originals = self
+            .retained_inputs
+            .iter()
+            .filter(|input| input.role == KagemushaWalletRetainedInputRoleV1::QuotaRefreshWitness);
+        match (required, originals.next(), originals.next()) {
+            (false, None, None) => Ok(None),
+            (true, Some(original), None) => {
+                KagemushaWalletQuotaRefreshWitnessV1::decode_canonical(&original.bytes).map(Some)
+            }
+            _ => Err(invalid_v1("capsule.quota_refresh_witness")),
+        }
+    }
+
     /// Operation-dependent `proof_digest` the receipt and Advance bind (§4.1).
     ///
     /// # Errors
@@ -734,8 +795,9 @@ impl KagemushaWalletRecoveryCapsuleV1 {
     /// predecessor capsule present exactly at Bootstrap, an Ω(pred) present or absent against
     /// the kind or failing the §3.2 consumer equalities or naming another wallet, a successor
     /// `burned_total` other than Ω(pred)'s, a Payment digest present or absent against the
-    /// kind, an output descriptor that does not rebuild, empty openings or retained inputs,
-    /// and a missing fold-witness role.
+    /// kind, an output descriptor that does not rebuild, a map opening that is not a §3.2
+    /// leaf-opening or empty-slot opening transcript with 32 canonical siblings, an empty
+    /// retained input, and a missing fold-witness role.
     pub fn validate(&self) -> WalletResult<()> {
         require_version_v1("capsule.version", self.version)?;
         require_nonzero_v1("capsule.scheme_id", &self.scheme_id)?;
@@ -784,7 +846,7 @@ impl KagemushaWalletRecoveryCapsuleV1 {
             ("capsule.output.kind", self.output.kind == self.kind),
             (
                 "capsule.operation_id",
-                self.operation_id == statement.operation_id(&self.wallet_id),
+                self.operation_id == statement.operation_id(&self.wallet_id)?,
             ),
             (
                 "capsule.predecessor_capsule_digest",
@@ -824,12 +886,14 @@ impl KagemushaWalletRecoveryCapsuleV1 {
         if rebuilt != self.output {
             return Err(invalid_v1("capsule.output.digest"));
         }
-        if self.map_openings.iter().any(Vec::is_empty) {
-            return Err(invalid_v1("capsule.map_openings"));
+        for opening in &self.map_openings {
+            KagemushaWalletIndexedOpeningV1::from_transcript(opening)
+                .map_err(|_| invalid_v1("capsule.map_openings"))?;
         }
         for input in &self.retained_inputs {
             input.validate()?;
         }
+        let _ = self.quota_refresh_witness()?;
         for role in required_retained_roles_v1(self.kind) {
             if !self.retained_inputs.iter().any(|input| input.role == *role) {
                 return Err(invalid_v1("capsule.retained_inputs"));
@@ -1089,6 +1153,7 @@ impl KagemushaWalletCompletionRecordV1 {
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletFoldRecordV1"
 )]
+#[repr(align(16))]
 pub struct KagemushaWalletFoldRecordV1 {
     /// Wire version; exactly [`KAGEMUSHA_WALLET_VERSION_V1`].
     pub version: u16,

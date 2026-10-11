@@ -39,6 +39,8 @@
 //!   supplied layout flags. `norito::codec::encode_with_header_flags(value)`
 //!   returns both the bare payload and the recorded flags so callers can persist
 //!   the metadata alongside the bytes without relying on thread-local state.
+mod norito_mutation_guard;
+
 extern crate self as norito;
 use std::{
     alloc::{Layout, alloc, dealloc},
@@ -893,18 +895,15 @@ pub mod json {
             limit: usize,
             context: &'static str,
         },
-        /// An active decode scope rejected allocation or structural work.
+        /// A checked bound or resource owner refused work without recorded decoder fields.
         #[error("JSON decode resource limit exceeded")]
         DecodeResourceLimit,
+        /// Exact unscoped binary decoder resource fields, without observer provenance.
+        #[error(transparent)]
+        DecodeResource(crate::core::DecodeResourceError),
         /// Original resource refusal retained across a canonical binary/JSON boundary.
         #[error(transparent)]
         ScopedDecodeResource(crate::core::ScopedDecodeResourceError),
-        /// An original binary decoder allocation failed with its recorded request size.
-        #[error("JSON decode allocation of {bytes} bytes failed")]
-        DecodeAllocationFailed {
-            /// Exact requested allocation size from the binary decoder.
-            bytes: u64,
-        },
         /// A fallible allocation needed by the JSON decoder failed without a recorded size.
         #[error("JSON decode allocation failed")]
         AllocationFailed,
@@ -940,24 +939,31 @@ pub mod json {
                 self,
                 Self::DecodeResourceLimit
                     | Self::ScopedDecodeResource(_)
-                    | Self::DecodeAllocationFailed { .. }
+                    | Self::DecodeResource(_)
                     | Self::AllocationFailed
                     | Self::NestingDepthExceeded { .. }
             )
         }
-        /// Convert a core decode-budget failure without copying its diagnostics.
+        /// Preserve exact resource fields and any original private scope identity.
+        ///
+        /// Non-resource errors keep their terminal diagnostic; they never become allocator
+        /// refusals. Field-only errors do not acquire a canonical observer identity.
         #[doc(hidden)]
         pub fn from_decode_resource(error: crate::core::Error) -> Self {
-            if let crate::core::Error::ScopedDecodeResource(origin) = error {
-                return Self::ScopedDecodeResource(origin);
-            }
-            if let crate::core::Error::AllocationFailed { bytes } = error {
-                return Self::DecodeAllocationFailed { bytes };
-            }
-            if error.is_decode_resource_limit() {
-                Self::DecodeResourceLimit
-            } else {
-                Self::AllocationFailed
+            match error {
+                crate::core::Error::ScopedDecodeResource(origin) => {
+                    Self::ScopedDecodeResource(origin)
+                }
+                error => match error.decode_resource_error() {
+                    Some(_) if cfg!(all(test, sumeragi_norito_mutation = "NC4")) => {
+                        Self::DecodeResourceLimit
+                    }
+                    Some(resource) => Self::DecodeResource(resource),
+                    None if cfg!(all(test, sumeragi_norito_mutation = "NC5")) => {
+                        Self::AllocationFailed
+                    }
+                    None => Self::Message(error.to_string()),
+                },
             }
         }
         /// Preserve an original scoped refusal when returning to binary decoding.
@@ -970,9 +976,7 @@ pub mod json {
                 Self::ScopedDecodeResource(origin) => {
                     crate::core::Error::ScopedDecodeResource(origin)
                 }
-                Self::DecodeAllocationFailed { bytes } => {
-                    crate::core::Error::AllocationFailed { bytes }
-                }
+                Self::DecodeResource(resource) => resource.into(),
                 Self::AllocationFailed => crate::core::Error::AllocationFailed { bytes: 0 },
                 error => crate::core::Error::Json(error),
             }
@@ -1013,7 +1017,7 @@ pub mod json {
     }
     impl From<super::Error> for Error {
         fn from(e: super::Error) -> Self {
-            Error::Message(e.to_string())
+            Self::from_decode_resource(e)
         }
     }
     pub mod value {
@@ -2410,6 +2414,162 @@ pub mod json {
         use super::*;
         use crate::json;
         #[test]
+        fn core_resource_errors_roundtrip_exact_fields_without_fresh_scope() {
+            use crate::core::{
+                DecodeAttemptErrorKind, DecodeResourceError, classify_decode_attempt,
+            };
+            let originals = [
+                DecodeResourceError::ArchiveLengthExceeded {
+                    length: 29,
+                    limit: 23,
+                },
+                DecodeResourceError::SequenceLengthExceeded {
+                    length: 7,
+                    limit: 5,
+                },
+                DecodeResourceError::FieldLengthExceeded {
+                    length: 19,
+                    limit: 17,
+                },
+                DecodeResourceError::TotalElementsExceeded {
+                    attempted: 13,
+                    limit: 11,
+                },
+                DecodeResourceError::TotalAllocationExceeded {
+                    attempted: 137,
+                    limit: 131,
+                },
+                DecodeResourceError::AllocationFailed { bytes: 149 },
+                DecodeResourceError::NestingDepthExceeded {
+                    depth: 3,
+                    limit: 2,
+                    context: "typed JSON fixture",
+                },
+            ];
+            for original in originals {
+                let implicit = Error::from(crate::Error::from(original));
+                assert!(
+                    implicit.is_decode_resource_limit(),
+                    "JSON must retain every actual resource refusal field without a scope"
+                );
+                assert_eq!(
+                    implicit.into_core_error().decode_resource_error(),
+                    Some(original),
+                    "JSON must retain every actual resource refusal field without a scope"
+                );
+                let error = Error::from_decode_resource(original.into());
+                assert!(error.is_decode_resource_limit());
+                let restored = error.into_core_error();
+                assert_eq!(
+                    restored.decode_resource_error(),
+                    Some(original),
+                    "JSON must retain every actual resource refusal field without a scope"
+                );
+                let expected = if matches!(original, DecodeResourceError::AllocationFailed { .. }) {
+                    DecodeAttemptErrorKind::Allocator
+                } else {
+                    DecodeAttemptErrorKind::Invalid
+                };
+                assert_eq!(
+                    classify_decode_attempt(|| Err::<(), _>(restored))
+                        .unwrap_err()
+                        .kind(),
+                    expected,
+                    "copied resource fields cannot establish an enclosing observer origin"
+                );
+            }
+        }
+        #[test]
+        fn non_resource_core_errors_cannot_become_json_allocator_refusals() {
+            use crate::core::{DecodeAttemptErrorKind, classify_decode_attempt};
+            for original in [crate::Error::InvalidMagic, crate::Error::LengthMismatch] {
+                let diagnostic = original.to_string();
+                let error = Error::from_decode_resource(original);
+                assert!(
+                    !error.is_decode_resource_limit(),
+                    "malformed input is not allocation pressure"
+                );
+                assert_eq!(error.to_string(), diagnostic);
+                let error = error.into_core_error();
+                assert!(error.decode_resource_error().is_none());
+                assert_eq!(
+                    classify_decode_attempt(|| Err::<(), _>(error))
+                        .unwrap_err()
+                        .kind(),
+                    DecodeAttemptErrorKind::Invalid
+                );
+            }
+        }
+        #[test]
+        fn direct_json_parser_retains_unscoped_fields_and_same_input_retry() {
+            let pool = iroha_allocation::AllocationBudget::new(65_536);
+            let limits =
+                crate::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+            let original = crate::core::DecodeBudgetContext::try_new_owned(limits, &pool).unwrap();
+            let baseline = pool.reserved_bytes();
+            let input = r#""retained""#;
+            let refusal = original
+                .with(|| Parser::new(input).parse_string())
+                .unwrap_err();
+            assert_eq!(
+                refusal.into_core_error().decode_resource_error(),
+                Some(crate::core::DecodeResourceError::TotalAllocationExceeded {
+                    attempted: 8,
+                    limit: 0
+                }),
+                "the actual direct parser must preserve its exact unobserved allocation refusal"
+            );
+            assert_eq!(pool.reserved_bytes(), baseline);
+            assert_eq!(Parser::new(input).parse_string().unwrap(), "retained");
+            drop(original);
+            assert_eq!(pool.reserved_bytes(), 0);
+        }
+        #[test]
+        fn json_resource_conversion_keeps_scoped_identity_and_rejects_saved_origin() {
+            use crate::core::{DecodeAttemptErrorKind, classify_decode_attempt};
+            let pool = iroha_allocation::AllocationBudget::new(65_536);
+            let limits =
+                crate::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+            let original = crate::core::DecodeBudgetContext::try_new_owned(limits, &pool).unwrap();
+            let baseline = pool.reserved_bytes();
+            let mut saved = None;
+            let refusal = original
+                .with(|| {
+                    classify_decode_attempt(|| {
+                        let error = crate::core::reserve_decode_allocation(1).unwrap_err();
+                        let crate::Error::ScopedDecodeResource(origin) = &error else {
+                            panic!("genuine original observer error");
+                        };
+                        saved = Some(origin.clone());
+                        Err::<(), _>(Error::from_decode_resource(error).into_core_error())
+                    })
+                })
+                .unwrap_err();
+            assert_eq!(refusal.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+            let crate::Error::ScopedDecodeResource(restored) = refusal.into_error() else {
+                panic!("JSON conversion must retain its original private scope");
+            };
+            let saved = saved.unwrap();
+            assert_eq!(restored, saved);
+            let replay = original
+                .with(|| {
+                    classify_decode_attempt(|| {
+                        drop(crate::core::reserve_decode_allocation(1).unwrap_err());
+                        Err::<(), _>(
+                            Error::from_decode_resource(crate::Error::ScopedDecodeResource(saved))
+                                .into_core_error(),
+                        )
+                    })
+                })
+                .unwrap_err();
+            assert_eq!(replay.kind(), DecodeAttemptErrorKind::Invalid);
+            drop(replay);
+            drop(restored);
+            assert_eq!(pool.reserved_bytes(), baseline);
+            drop(original);
+            assert_eq!(pool.reserved_bytes(), 0);
+        }
+        #[test]
         fn owned_value_decode_depth_guard_is_bounded_and_restores() {
             let guards = (0..crate::core::MAX_VALUE_NESTING_DEPTH)
                 .map(|_| OwnedValueDecodeDepthGuard::enter().expect("depth within JSON limit"))
@@ -3745,6 +3905,33 @@ pub mod json {
     }
     impl<'a> Parser<'a> {
         const LEADING_ZERO_MSG: &'static str = "leading zeros are not allowed in JSON numbers";
+        /// Apply the original complete-document depth preflight before a typed field walk.
+        ///
+        /// This shares the allocation-free depth helper used by [`from_json`]. It
+        /// neither parses fields nor changes the cursor or inherited decode context.
+        ///
+        /// # Errors
+        /// Returns the original document nesting refusal before invoking a field decoder.
+        pub fn preflight_document(&self) -> Result<(), Error> {
+            ensure_json_value_depth(document_json_value_depth(self.input()))
+        }
+        /// Finish the original document with the exact ordinary trailing-position error.
+        ///
+        /// Whitespace is consumed. No trailing token is parsed or discarded, and no
+        /// cursor, source or decoder budget is replaced. Callers retire their typed
+        /// result on failure using its existing owner/drop contract.
+        ///
+        /// # Errors
+        /// Returns the same trailing-character byte/line/column as [`from_json`].
+        pub fn finish_document(&mut self) -> Result<(), Error> {
+            self.skip_ws();
+            if !self.eof() {
+                let (byte, line, col) = pos_from_offset(self.input(), self.position());
+                return Err(Error::TrailingCharacters { byte, line, col });
+            }
+            Ok(())
+        }
+
         #[inline]
         fn pos_meta(&self, pos: usize) -> (usize, usize, usize) {
             let bytes = self.s;
@@ -3968,10 +4155,68 @@ pub mod json {
         }
         /// Parse a JSON string with escaping support.
         pub fn parse_string(&mut self) -> Result<String, Error> {
+            let bytes =
+                self.parse_string_with_output(exact_string::allocate, |bytes, _, chunk| {
+                    bytes.extend_from_slice(chunk);
+                    Ok(())
+                })?;
+            // SAFETY: the shared parser consumes UTF-8 input and validates every escape.
+            Ok(unsafe { String::from_utf8_unchecked(bytes) })
+        }
+        /// Decode a string into an exact caller-owned initialized byte destination.
+        ///
+        /// The ordinary string's exact length and active logical allocation charge are
+        /// determined in the same order before `allocate` runs. The callback may refuse
+        /// with its original typed local cause. Every byte is initialized through the
+        /// shared string decoder; the destination must expose exactly `length` bytes.
+        /// This funds no enclosing source, control, key or diagnostic allocation.
+        ///
+        /// # Errors
+        /// Preserves original JSON syntax/resource errors and callback refusals. A caller
+        /// destination with a different length is rejected before any copied byte.
+        pub fn parse_string_with_buffer<B, E>(
+            &mut self,
+            allocate: impl FnOnce(usize) -> Result<B, E>,
+        ) -> Result<B, E>
+        where
+            B: AsMut<[u8]>,
+            E: From<Error>,
+        {
+            self.parse_string_with_output(
+                |length| {
+                    let mut buffer = allocate(length)?;
+                    if buffer.as_mut().len() != length {
+                        return Err(Error::Message(
+                            "JSON string destination length differs".into(),
+                        )
+                        .into());
+                    }
+                    Ok(buffer)
+                },
+                |buffer: &mut B, start, chunk| {
+                    let end = start.checked_add(chunk.len()).ok_or_else(|| {
+                        E::from(Error::Message(
+                            "JSON string destination length overflow".into(),
+                        ))
+                    })?;
+                    let destination = buffer.as_mut().get_mut(start..end).ok_or_else(|| {
+                        E::from(Error::Message(
+                            "JSON string destination length differs".into(),
+                        ))
+                    })?;
+                    destination.copy_from_slice(chunk);
+                    Ok(())
+                },
+            )
+        }
+        fn parse_string_with_output<B, E: From<Error>>(
+            &mut self,
+            allocate: impl FnOnce(usize) -> Result<B, E>,
+            mut write: impl FnMut(&mut B, usize, &[u8]) -> Result<(), E>,
+        ) -> Result<B, E> {
             self.skip_ws();
             let token_start = self.i;
             self.expect(b'"')?;
-            // Fast path: scan for closing quote without encountering escapes or controls.
             let start = self.i;
             let bytes = self.s;
             let mut i = start;
@@ -3980,29 +4225,68 @@ pub mod json {
                 if b == b'"' {
                     let slice = &bytes[start..i];
                     self.i = i + 1;
-                    let st = std::str::from_utf8(slice)
+                    let text = std::str::from_utf8(slice)
                         .map_err(|_| self.err_at(start, "invalid utf8"))?;
-                    crate::core::reserve_decode_allocation(st.len())
+                    crate::core::reserve_decode_allocation(text.len())
                         .map_err(Error::from_decode_resource)?;
-                    let mut value = exact_string::allocate(st.len())?;
-                    value.extend_from_slice(st.as_bytes());
-                    // SAFETY: `st` was validated as UTF-8 and copied exactly.
-                    return Ok(unsafe { String::from_utf8_unchecked(value) });
+                    let mut buffer = allocate(text.len())?;
+                    write(&mut buffer, 0, text.as_bytes())?;
+                    return Ok(buffer);
                 }
                 if b == b'\\' || b < 0x20 {
                     break;
                 }
                 i += 1;
             }
-            // Slow path: first determine the exact decoded length without
-            // allocating, then reserve and decode into that admitted buffer.
             let decoded_bytes = {
                 let mut preflight = Parser::new_at(self.input(), token_start);
                 preflight.skip_string_bounded(usize::MAX)?
             };
             crate::core::reserve_decode_allocation(decoded_bytes)
                 .map_err(Error::from_decode_resource)?;
-            let mut out = exact_string::allocate(decoded_bytes)?;
+            let mut buffer = allocate(decoded_bytes)?;
+            self.decode_string_with_output(&mut buffer, write, decoded_bytes)?;
+            Ok(buffer)
+        }
+        fn decode_string_with_output<B, E: From<Error>>(
+            &mut self,
+            buffer: &mut B,
+            write: impl FnMut(&mut B, usize, &[u8]) -> Result<(), E>,
+            expected: usize,
+        ) -> Result<(), E> {
+            struct Output<'a, B, W, E> {
+                buffer: &'a mut B,
+                write: W,
+                written: usize,
+                expected: usize,
+                error: std::marker::PhantomData<E>,
+            }
+            impl<B, E: From<Error>, W: FnMut(&mut B, usize, &[u8]) -> Result<(), E>> Output<'_, B, W, E> {
+                fn push(&mut self, byte: u8) -> Result<(), E> {
+                    self.extend_from_slice(&[byte])
+                }
+                fn extend_from_slice(&mut self, bytes: &[u8]) -> Result<(), E> {
+                    let end = self
+                        .written
+                        .checked_add(bytes.len())
+                        .filter(|end| *end <= self.expected)
+                        .ok_or_else(|| {
+                            E::from(Error::Message(
+                                "JSON string preflight length differs".into(),
+                            ))
+                        })?;
+                    (self.write)(self.buffer, self.written, bytes)?;
+                    self.written = end;
+                    Ok(())
+                }
+            }
+            let mut output = Output {
+                buffer,
+                write,
+                written: 0,
+                expected,
+                error: std::marker::PhantomData,
+            };
             loop {
                 let b = self.bump().ok_or_else(|| {
                     let (byte, line, col) = self.pos_meta(self.i);
@@ -4016,14 +4300,14 @@ pub mod json {
                             Error::EofEscape { byte, line, col }
                         })?;
                         match esc {
-                            b'"' => out.push(b'"'),
-                            b'\\' => out.push(b'\\'),
-                            b'/' => out.push(b'/'),
-                            b'b' => out.push(0x08),
-                            b'f' => out.push(0x0C),
-                            b'n' => out.push(b'\n'),
-                            b'r' => out.push(b'\r'),
-                            b't' => out.push(b'\t'),
+                            b'"' => output.push(b'"')?,
+                            b'\\' => output.push(b'\\')?,
+                            b'/' => output.push(b'/')?,
+                            b'b' => output.push(0x08)?,
+                            b'f' => output.push(0x0C)?,
+                            b'n' => output.push(b'\n')?,
+                            b'r' => output.push(b'\r')?,
+                            b't' => output.push(b'\t')?,
                             b'u' => {
                                 let mut hi: u32 = 0;
                                 for _ in 0..4 {
@@ -4038,7 +4322,12 @@ pub mod json {
                                             b'A'..=b'F' => (h - b'A' + 10) as u32,
                                             _ => {
                                                 let (byte, line, col) = self.pos_meta(self.i - 1);
-                                                return Err(Error::InvalidHex { byte, line, col });
+                                                return Err((Error::InvalidHex {
+                                                    byte,
+                                                    line,
+                                                    col,
+                                                })
+                                                .into());
                                             }
                                         };
                                 }
@@ -4046,22 +4335,24 @@ pub mod json {
                                     // Expect a following \uDC00..\uDFFF low surrogate
                                     if self.peek() != Some(b'\\') {
                                         let (byte, line, col) = self.pos_meta(self.i);
-                                        return Err(Error::WithPos {
+                                        return Err((Error::WithPos {
                                             msg: "expected low surrogate",
                                             byte,
                                             line,
                                             col,
-                                        });
+                                        })
+                                        .into());
                                     }
                                     self.bump();
                                     if self.bump() != Some(b'u') {
                                         let (byte, line, col) = self.pos_meta(self.i);
-                                        return Err(Error::WithPos {
+                                        return Err((Error::WithPos {
                                             msg: "expected \\u for low surrogate",
                                             byte,
                                             line,
                                             col,
-                                        });
+                                        })
+                                        .into());
                                     }
                                     let mut lo: u32 = 0;
                                     for _ in 0..4 {
@@ -4077,78 +4368,87 @@ pub mod json {
                                                 _ => {
                                                     let (byte, line, col) =
                                                         self.pos_meta(self.i - 1);
-                                                    return Err(Error::InvalidHex {
+                                                    return Err((Error::InvalidHex {
                                                         byte,
                                                         line,
                                                         col,
-                                                    });
+                                                    })
+                                                    .into());
                                                 }
                                             };
                                     }
                                     if !(0xDC00..=0xDFFF).contains(&lo) {
                                         let (byte, line, col) = self.pos_meta(self.i - 1);
-                                        return Err(Error::WithPos {
+                                        return Err((Error::WithPos {
                                             msg: "invalid low surrogate",
                                             byte,
                                             line,
                                             col,
-                                        });
+                                        })
+                                        .into());
                                     }
                                     let cp: u32 = 0x10000 + (((hi - 0xD800) << 10) | (lo - 0xDC00));
                                     if let Some(ch) = char::from_u32(cp) {
                                         let mut buf = [0u8; 4];
                                         let n = ch.encode_utf8(&mut buf).len();
-                                        out.extend_from_slice(&buf[..n]);
+                                        output.extend_from_slice(&buf[..n])?;
                                     } else {
                                         let (byte, line, col) = self.pos_meta(self.i - 1);
-                                        return Err(Error::WithPos {
+                                        return Err((Error::WithPos {
                                             msg: "invalid codepoint",
                                             byte,
                                             line,
                                             col,
-                                        });
+                                        })
+                                        .into());
                                     }
                                 } else if (0xDC00..=0xDFFF).contains(&hi) {
                                     let (byte, line, col) = self.pos_meta(self.i - 1);
-                                    return Err(Error::WithPos {
+                                    return Err((Error::WithPos {
                                         msg: "unexpected low surrogate",
                                         byte,
                                         line,
                                         col,
-                                    });
+                                    })
+                                    .into());
                                 } else if let Some(ch) = char::from_u32(hi) {
                                     let mut buf = [0u8; 4];
                                     let n = ch.encode_utf8(&mut buf).len();
-                                    out.extend_from_slice(&buf[..n]);
+                                    output.extend_from_slice(&buf[..n])?;
                                 } else {
                                     let (byte, line, col) = self.pos_meta(self.i - 1);
-                                    return Err(Error::WithPos {
+                                    return Err((Error::WithPos {
                                         msg: "invalid codepoint",
                                         byte,
                                         line,
                                         col,
-                                    });
+                                    })
+                                    .into());
                                 }
                             }
                             _ => {
                                 let (byte, line, col) = self.pos_meta(self.i - 1);
-                                return Err(Error::WithPos {
+                                return Err((Error::WithPos {
                                     msg: "bad escape",
                                     byte,
                                     line,
                                     col,
-                                });
+                                })
+                                .into());
                             }
                         }
                     }
                     b if b < 0x20 => {
                         let (byte, line, col) = self.pos_meta(self.i - 1);
-                        return Err(Error::ControlInString { byte, line, col });
+                        return Err((Error::ControlInString { byte, line, col }).into());
                     }
-                    b => out.push(b),
+                    b => output.push(b)?,
                 }
             }
-            String::from_utf8(out).map_err(|_| self.err_here("invalid utf8"))
+            if output.written != expected {
+                return Err(Error::Message("JSON string preflight length differs".into()).into());
+            }
+            Ok(())
         }
         /// Parse a JSON array into `Vec<T>` using `JsonDeserialize` for elements.
         pub fn parse_array<T: JsonDeserialize>(&mut self) -> Result<Vec<T>, Error> {
@@ -4604,6 +4904,35 @@ pub mod json {
         /// delimiter (with optional surrounding whitespace), positioning the parser at the start of
         /// the value. This matches the typical caller contract used across tests and benches.
         pub fn parse_key(&mut self) -> Result<KeyRef<'a>, Error> {
+            self.parse_key_with_owned(|parser| parser.parse_string())
+        }
+        /// Read a key with an exact caller-owned destination for its escaped text.
+        ///
+        /// Unescaped keys remain original input borrows and never invoke `allocate`.
+        /// Escaped keys use the sole string/escape decoder and its logical charge
+        /// before the typed allocation callback. The same key/colon kernel preserves
+        /// syntax order; no ordinary String or intermediate Value is constructed.
+        /// The caller funds and retains its original destination and decoder context,
+        /// and scopes any refunds beyond enclosing State or storage guards.
+        ///
+        /// # Errors
+        /// Preserves original JSON errors and the callback's exact typed refusal.
+        /// The destination must expose exactly the decoded length. Refusal retains
+        /// no key progress across calls; the enclosing record/source owner controls retry.
+        pub fn parse_key_with_buffer<B, E>(
+            &mut self,
+            allocate: impl FnOnce(usize) -> Result<B, E>,
+        ) -> Result<KeyRef<'a, B>, E>
+        where
+            B: AsMut<[u8]>,
+            E: From<Error>,
+        {
+            self.parse_key_with_owned(|parser| parser.parse_string_with_buffer(allocate))
+        }
+        fn parse_key_with_owned<B, E: From<Error>>(
+            &mut self,
+            parse_owned: impl FnOnce(&mut Parser<'a>) -> Result<B, E>,
+        ) -> Result<KeyRef<'a, B>, E> {
             self.skip_ws();
             let pre = self.i;
             self.expect(b'"')?;
@@ -4627,7 +4956,8 @@ pub mod json {
                                 byte,
                                 line,
                                 col,
-                            });
+                            }
+                            .into());
                         }
                     }
                     let st = std::str::from_utf8(slice).map_err(|_| Error::InvalidUtf8)?;
@@ -4644,7 +4974,7 @@ pub mod json {
                 unsafe { std::str::from_utf8_unchecked(self.s) },
                 pre,
             );
-            let s = tmp.parse_string()?;
+            let s = parse_owned(&mut tmp)?;
             self.i = tmp.i;
             // Consume the mandatory colon after the key
             self.skip_ws();
@@ -4657,7 +4987,8 @@ pub mod json {
                         byte,
                         line,
                         col,
-                    });
+                    }
+                    .into());
                 }
             }
             Ok(KeyRef::Owned(s))
@@ -8047,15 +8378,13 @@ pub mod json {
         // Preflight the complete document once, before a generated typed
         // decoder can recurse or skip a subtree with a locally rooted Parser.
         // Internal Parser::new_at calls deliberately do not repeat this scan.
-        ensure_json_value_depth(document_json_value_depth(s))?;
         let mut p = Parser::new(s);
+        p.preflight_document()?;
         p.skip_ws();
         let v = T::json_deserialize(&mut p)?;
-        p.skip_ws();
-        if !p.eof() {
-            let (byte, line, col) = pos_from_offset(s, p.position());
+        if let Err(error) = p.finish_document() {
             v.json_drop_after_error();
-            return Err(Error::TrailingCharacters { byte, line, col });
+            return Err(error);
         }
         Ok(v)
     }
@@ -8563,10 +8892,15 @@ pub mod json {
             visitor(self.as_str())
         }
     }
-    /// Borrowed-or-owned key reference returned by `Parser::parse_key`.
-    pub enum KeyRef<'a> {
+    /// Original borrowed key text or the caller's exact decoded key destination.
+    ///
+    /// Ordinary parsing retains a String. Seeded parsing may retain move-only
+    /// admitted backing instead; this is lexical storage, not authenticated authority.
+    pub enum KeyRef<'a, B = String> {
+        /// Unescaped UTF-8 key text borrowed directly from the original input.
         Borrowed(&'a str),
-        Owned(String),
+        /// Escaped key text decoded into the caller's original destination.
+        Owned(B),
     }
     impl<'a> KeyRef<'a> {
         #[inline]

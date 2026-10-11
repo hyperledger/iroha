@@ -1,6 +1,6 @@
 
         seiyaku DomainLiteral {
-            view fn get() -> DomainId {
+            view fn get() authorize(anyone) -> DomainId {
                 return DomainId::parse("wonderland.universal");
             }
         }

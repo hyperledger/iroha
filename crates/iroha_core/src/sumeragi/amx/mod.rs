@@ -37,13 +37,21 @@
 //! Inherited decoder limits remain typed local refusals through anchors, records and certified
 //! proofs. An executing instruction retains that refusal outside its canonical result, including
 //! when contract code catches the inner error; a refused attempt cannot publish World effects.
-//! The node driver can run independent signed dataspace roots, but the daemon does not yet
-//! supervise their participant State owners (lane instances still share `G`'s State,
-//! `specs/sumeragi_lanes.md` §0). TODO(S6): qualify the native monetary participant, supervise
-//! each independent State/archive owner in the daemon and add validator payload relayers for
-//! pending proofs (§11.4), then qualify whole-network commit/abort/deadline/restart behavior.
-//! The existing historical reader
-//! still shares the native receipt proof-graph and tree-scratch resource qualification gap.
+//! Each daemon supervises its signed root with an independent State and mandatory native
+//! context archive. Lane instances still share `G`'s State (`specs/sumeragi_lanes.md` §0).
+//! Managed bootstrap retains the authenticated G1/H2 source; explicit administrative parent
+//! registration retains its original transaction and independently verified native outcome.
+//! TODO(S6): qualify that managed lifecycle, complete outbound proof custody and durable
+//! validator relaying for pending proofs (§11.4), then qualify native monetary and
+//! whole-network commit/abort/deadline/restart behavior across independent root daemons.
+//! The resumable AMX reader retains its original carrier, archive descriptor and acquired bytes
+//! through local refusal. Its move-only source can outlive the original StateView after the
+//! same reader certifies the carrier and pins the archive descriptor. It prepays the complete
+//! portable proof graph and tree scratch from
+//! the same finite pool; its canonical InstructionBox successor retains those charges through
+//! local signed admission, Queue and payload clones. Receiving decoder/envelope custody, other
+//! native receipt proof graphs, historical reader internals and durable outbound relay remain
+//! distinct open resource and whole-network qualification boundaries.
 
 pub use crate::query::native_receipts::amx_record_proof;
 #[cfg(test)]
@@ -57,7 +65,7 @@ use iroha_data_model::{
     },
     permission::Permission,
     sumeragi::epoch::ValidatorEpochContextV1,
-    sumeragi_amx::{AmxDecisionV1, AmxError, AmxForeignInstanceV1, AmxRecordV1, AmxRelayOutcome},
+    sumeragi_amx::{AmxError, AmxForeignInstanceV1, AmxRecordV1, AmxRelayOutcome},
     sumeragi_finality::MAX_RESULT_PREIMAGE_BYTES,
 };
 use mv::storage::StorageReadOnly;
@@ -179,28 +187,37 @@ impl Execute for RelayAmxPreparedV1 {
         _authority: &AccountId,
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        let height = state_transaction._curr_block.height().get();
-        // Proofs of unknown or decided transactions are ignored without touching the cell.
-        let known = state_transaction
-            .world
-            .sumeragi_amx()
-            .transaction(&self.proof.record.tx())
-            .is_some_and(|entry| entry.decided.is_none());
-        if !known {
-            return Ok(());
-        }
-        let outcome = state_transaction
-            .world
-            .sumeragi_amx
-            .get_mut()
-            .relay_prepared(height, &self.proof)
-            .map_err(|error| amx_error(error, state_transaction))?;
-        if let AmxRelayOutcome::Decided(decision) = outcome {
-            write(&AmxRecordV1::Decision(decision))
-                .map_err(|error| amx_error(error, state_transaction))?;
-        }
-        Ok(())
+        execute_relay_prepared_original(&self, _authority, state_transaction)
     }
+}
+
+/// Execute the actual registered AMX fields without cloning their retained proof graph.
+pub(crate) fn execute_relay_prepared_original(
+    instruction: &RelayAmxPreparedV1,
+    _authority: &AccountId,
+    state_transaction: &mut StateTransaction<'_, '_>,
+) -> Result<(), Error> {
+    let height = state_transaction._curr_block.height().get();
+    // Proofs of unknown or decided transactions are ignored without touching the cell.
+    let known = state_transaction
+        .world
+        .sumeragi_amx()
+        .transaction(&instruction.proof.record.tx())
+        .is_some_and(|entry| entry.decided.is_none());
+    if !known {
+        return Ok(());
+    }
+    let outcome = state_transaction
+        .world
+        .sumeragi_amx
+        .get_mut()
+        .relay_prepared(height, &instruction.proof)
+        .map_err(|error| amx_error(error, state_transaction))?;
+    if let AmxRelayOutcome::Decided(decision) = outcome {
+        write(&AmxRecordV1::Decision(decision))
+            .map_err(|error| amx_error(error, state_transaction))?;
+    }
+    Ok(())
 }
 
 impl Execute for RelayAmxHandoffV1 {
@@ -227,8 +244,18 @@ impl StateBlock<'_> {
     /// cell untouched.
     ///
     /// # Errors
-    /// A decision record does not encode (a local bug).
-    pub(crate) fn advance_sumeragi_amx(&mut self) -> Result<Vec<AmxDecisionV1>, String> {
+    /// Preserve the original record/allocator refusal. No pending entry is removed before
+    /// every decision write completes; provisional witness writes retry under the same keys.
+    pub(crate) fn advance_sumeragi_amx(&mut self) -> Result<usize, AmxError> {
+        self.advance_sumeragi_amx_with(write)
+    }
+
+    /// The same deadline owner accepts an injected record writer in unit controls.
+    /// TODO: fund the existing global cell graph and witness encoding/storage independently.
+    fn advance_sumeragi_amx_with(
+        &mut self,
+        mut record: impl FnMut(&AmxRecordV1) -> Result<(), AmxError>,
+    ) -> Result<usize, AmxError> {
         let height = self._curr_block.height().get();
         if !self
             .world
@@ -238,13 +265,21 @@ impl StateBlock<'_> {
             .iter()
             .any(|entry| entry.begin.deadline < height)
         {
-            return Ok(Vec::new());
+            return Ok(0);
         }
-        let decisions = self.world.sumeragi_amx.get_mut().expire(height);
-        for decision in &decisions {
-            write(&AmxRecordV1::Decision(*decision)).map_err(|error| error.to_string())?;
+        let outcome = self
+            .world
+            .sumeragi_amx
+            .get_mut()
+            .expire(height, |decision| record(&AmxRecordV1::Decision(decision)));
+        #[cfg(all(test, sumeragi_core_mutation = "HC161"))]
+        {
+            outcome.map_err(|error| AmxError::Encoding(error.to_string()))
         }
-        Ok(decisions)
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC161")))]
+        {
+            outcome
+        }
     }
 }
 
@@ -258,4 +293,12 @@ pub(crate) use native::VerifiedAmxMovement;
 pub(crate) use native::admit_world_state;
 pub(crate) use native::empty_participant_cell;
 pub use native::{NativeAmxAdmissionError, RetainedNativeAmx};
+pub(crate) use native::{NativeAmxLegExecution, NativeAmxLegPreparations};
 pub(crate) use native::{ensure_retained_definitions, retained_account};
+pub(crate) use native::{execute_prepare_original, execute_settle_original};
+
+#[cfg(test)]
+pub(crate) use native::{
+    NativeLegExecutionError, NativeLegRetryObservation, with_paid_multisig_prepare_retry_fixture,
+    with_paid_prepare_pruning_fixture, with_paid_prepare_retry_fixture,
+};

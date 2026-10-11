@@ -120,30 +120,112 @@ def _workspace_package_names() -> set[str]:
     return set(_workspace_packages())
 
 
-# No leading `\b`: a literal prefix keeps this fast over large crates, and
-# `_module_names` checks the word boundary itself.
-MODULE_DECLARATION = re.compile(r"mod\s+(?:r#)?([A-Za-z_][A-Za-z0-9_]*)\s*[;{]")
-
-
 @functools.cache
-def _module_names(directory: Path) -> frozenset[str]:
-    """Return every module name a package's `src/` and `tests/` sources declare.
+def _rust_module_source(source: Path):
+    """Reuse the existing structural Rust scanner, which excludes literal/comment decoys."""
 
-    Names come from `mod` declarations (inline, file or `#[path]`) and module file
-    names. Nesting and target kind are not resolved: the release-gate check only
-    needs to see that each module it names still exists in the package.
+    helper = ROOT / "scripts" / "check_fhe_ownership_map.py"
+    spec = importlib.util.spec_from_file_location("_release_gate_rust_structure", helper)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.RustSource(source.read_text(encoding="utf-8"))
+
+
+def _module_target_roots(directory: Path, kinds: tuple[str, ...]) -> tuple[Path, ...]:
+    """Return declared and Cargo-auto-discovered roots of the selected target kinds."""
+
+    manifest = tomllib.loads((directory / "Cargo.toml").read_text(encoding="utf-8"))
+    package = manifest["package"]
+    roots: set[Path] = set()
+    selected = set(kinds) if kinds else {"lib", "bin", "test", "bench", "example"}
+    if "lib" in selected and ("lib" in manifest or package.get("autolib", True)):
+        roots.add(directory / manifest.get("lib", {}).get("path", "src/lib.rs"))
+    for kind, folder, auto in (
+        ("bin", "src/bin", "autobins"), ("test", "tests", "autotests"),
+        ("bench", "benches", "autobenches"), ("example", "examples", "autoexamples"),
+    ):
+        if kind not in selected:
+            continue
+        for target in manifest.get(kind, []):
+            name = target["name"]
+            if "path" in target:
+                roots.add(directory / target["path"])
+            else:
+                roots.update((directory / folder / (name + ".rs"), directory / folder / name / "main.rs"))
+        if package.get(auto, True):
+            roots.update((directory / folder).glob("*.rs"))
+            roots.update((directory / folder).glob("*/main.rs"))
+            if kind == "bin":
+                roots.add(directory / "src/main.rs")
+    return tuple(sorted(source for source in roots if source.is_file()))
+
+
+def _module_path_matches(directory: Path, kinds: tuple[str, ...], path: str) -> bool:
+    """Resolve the complete declared path, including inline, `#[path]` and included modules.
+
+    This remains a source guard, not executable discovery: conditional branches
+    are unioned and macro-generated modules require actual nextest discovery.
+    Unregistered physical files cannot establish a module path.
     """
 
-    names = set()
-    for sources in (directory / "src", directory / "tests"):
-        for source in sorted(sources.rglob("*.rs")):
-            names.add(source.parent.name if source.stem == "mod" else source.stem)
-            text = source.read_text(encoding="utf-8", errors="replace")
-            for match in MODULE_DECLARATION.finditer(text):
-                before = text[match.start() - 1:match.start()]
-                if not (before.isalnum() or before == "_"):
-                    names.add(match.group(1))
-    return frozenset(names)
+    components = path.split("::")
+
+    def matches(prefix: tuple[str, ...]) -> bool:
+        return len(prefix) <= len(components) and all(
+            re.fullmatch(pattern, name)
+            for pattern, name in zip(components, prefix, strict=False)
+        )
+
+    def visit(source: Path, prefix: tuple[str, ...], owns_directory: bool,
+              active: frozenset[Path]) -> bool:
+        source = source.resolve()
+        if source in active or not source.is_file():
+            return False
+        active = active | {source}
+        parsed = _rust_module_source(source)
+        own_directory = source.parent if owns_directory or source.name == "mod.rs" else source.parent / source.stem
+        for item in parsed.items:
+            ancestors = list(reversed(item.ancestors()))
+            if item.kind != "mod" or any(parent.kind != "mod" for parent in ancestors):
+                continue
+            relative = tuple(parent.name for parent in ancestors)
+            declared = prefix + relative + (item.name,)
+            if not matches(declared):
+                continue
+            if item.body_start is not None:
+                if len(declared) == len(components):
+                    return True
+                continue  # Its descendants are indexed in the same source.
+            if item.path_attribute is not None:
+                base = own_directory.joinpath(*relative) if relative else source.parent
+                candidates = (base / item.path_attribute,)
+            else:
+                base = own_directory.joinpath(*relative)
+                candidates = (base / (item.name + ".rs"), base / item.name / "mod.rs")
+            for candidate in candidates:
+                if candidate.is_file() and (
+                    len(declared) == len(components)
+                    or visit(candidate, declared, item.path_attribute is not None, active)
+                ):
+                    return True
+        for include in re.finditer(r'\binclude\s*!\s*\(\s*"([^"\n]+\.rs)"\s*\)', parsed.source):
+            if parsed.masked[include.start():include.start() + 7] != "include":
+                continue
+            enclosing = sorted(
+                (item for item in parsed.items if item.body_start is not None
+                 and item.body_start < include.start() < item.end), key=lambda item: item.start,
+            )
+            if any(item.kind != "mod" for item in enclosing):
+                continue
+            included_prefix = prefix + tuple(item.name for item in enclosing)
+            if matches(included_prefix) and visit(
+                source.parent / include.group(1), included_prefix, True, active,
+            ):
+                return True
+        return False
+
+    return any(visit(source, (), True, frozenset()) for source in _module_target_roots(directory, kinds))
 
 
 FILTER_TOKEN = re.compile(
@@ -451,7 +533,8 @@ def _validate_release_gate_profile(config: str) -> list[str]:
     except ValueError as error:
         return [*errors, f"release-gate default-filter must parse: {error}"]
     packages = _workspace_packages()
-    for group_packages, tests in _filter_groups(tree):
+    for term, (group_packages, tests) in zip(_flatten(tree, "or"), _filter_groups(tree), strict=True):
+        kinds = tuple(factor[1] for factor in _flatten(term, "and") if factor[0] == "kind")
         if len(group_packages) != 1:
             errors.append(
                 f"each release-gate group must name exactly one package: {group_packages}"
@@ -459,14 +542,10 @@ def _validate_release_gate_profile(config: str) -> list[str]:
             continue
         # Nextest accepts a module path that selects nothing; require each named
         # module to exist so a rename cannot silently drop a group from the gate.
-        names = _module_names(packages[group_packages[0]])
         for pattern in tests:
             if pattern.startswith("/^") and pattern.endswith("::/"):
                 for path in _module_path_alternatives(pattern):
-                    if not all(
-                        any(re.fullmatch(component, name) for name in names)
-                        for component in path.split("::")
-                    ):
+                    if not _module_path_matches(packages[group_packages[0]], kinds, path):
                         errors.append(
                             f"release-gate module path matches no module in "
                             f"{group_packages[0]}: {path}"
@@ -601,23 +680,23 @@ def _validate_release_workflow(workflow: str, nextest_config: str | None = None)
             RELEASE_GATE_FETCH,
             RELEASE_GATE_COMMAND,
         ),
-        "doc": ("cargo doc --locked --workspace --no-deps --all-features",),
+        "doc": ("python3 scripts/rust_ci.py run --workspace --checks doc",),
         "test": (
             COMPILE_UNIT_GUARD_COMMAND,
             "name: workspace-release-compile-units",
             f"path: {COMPILE_UNIT_REPORT}",
             "if-no-files-found: error",
-            "cargo test --locked --workspace --no-fail-fast",
+            "cargo test --locked --workspace --no-fail-fast --features iroha_torii/test-fixtures",
         ),
         "coverage": (
-            "mold --run cargo llvm-cov nextest --workspace --locked --branch --no-report",
+            "mold --run cargo llvm-cov nextest --workspace --locked --features iroha_torii/test-fixtures --branch --no-report",
             "mold --run cargo llvm-cov --doc --branch --no-report",
             "cargo llvm-cov report --doctests --ignore-filename-regex "
             "'iroha_cli|iroha_torii' --lcov --output-path lcov.info",
             "uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b",
         ),
         "clippy": (
-            "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+            "python3 scripts/rust_ci.py run --workspace --checks clippy",
         ),
     }
     exact_source_markers = (
@@ -650,6 +729,18 @@ def _validate_release_workflow(workflow: str, nextest_config: str | None = None)
         if f"toolchain: {PINNED_RUST}" not in job:
             errors.append(f"{job_name} must pin Rust {PINNED_RUST}")
 
+        if job_name in ("doc", "clippy"):
+            python_setup = (
+                "      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065\n"
+                "        with:\n"
+                '          python-version: "3.11"\n'
+            )
+            if python_setup not in job:
+                errors.append(f"{job_name} must pin Python 3.11 for the supported feature reader")
+            elif ("python3 scripts/rust_ci.py" in job
+                  and job.index(python_setup) > job.index("python3 scripts/rust_ci.py")):
+                errors.append(f"{job_name} must select Python before the supported feature check")
+
         if job_name == "release-diagnostics":
             errors.extend(_validate_release_gate_job(job, nextest_config))
 
@@ -667,6 +758,24 @@ def _validate_pr_parity(workflow: str) -> list[str]:
     errors: list[str] = []
     if "paths-ignore:" in workflow or "paths_ignore:" in workflow:
         errors.append("PR workflow must classify every change before selectively skipping jobs")
+    format_job = _job_block(workflow, "fmt")
+    channel = tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
+    format_setup = (
+        "      - uses: actions-rust-lang/setup-rust-toolchain@"
+        f"{SETUP_RUST_TOOLCHAIN_COMMIT}\n"
+        "        with:\n"
+        '          cache: "false"\n'
+        f"          toolchain: {channel}\n"
+        '          components: "rustfmt"\n'
+    )
+    format_check = "        run: cargo fmt --all -- --check\n"
+    if format_setup not in format_job:
+        errors.append("PR formatting must install rustfmt with the repository-pinned compiler")
+    if format_check not in format_job:
+        errors.append("PR formatting must check the complete workspace without rewriting it")
+    if format_setup in format_job and format_check in format_job:
+        if format_job.index(format_setup) > format_job.index(format_check):
+            errors.append("PR formatting must select the compiler before checking sources")
     docs_job = _job_block(workflow, "kotodama_docs")
     if (
         "python3 -m pytest -q pytests/scripts/workspace_release_gate_test.py"
@@ -1063,6 +1172,16 @@ GATE_SETTINGS = (
         "release-gate module path matches no module in iroha_torii: nexus_lifecycle_endpoints",
     ),
     (
+        "governance::manifest",
+        "manifest::governance",
+        "release-gate module path matches no module in iroha_core: manifest::governance",
+    ),
+    (
+        "governance::manifest",
+        "governance::kura",
+        "release-gate module path matches no module in iroha_core: governance::kura",
+    ),
+    (
         "smartcontracts::isi::(domain|",
         "smartcontracts::isi::(unreviewed_domain|",
         "release-gate module path matches no module in iroha_core: smartcontracts::isi::unreviewed_domain",
@@ -1136,7 +1255,61 @@ def test_release_gate_module_paths_expand_every_alternative() -> None:
     assert "iroha_core" in packages and "concread" in packages
     assert "iroha_sumeragi_core" not in packages
     assert "halo2-axiom" not in packages
-    assert {"sumeragi", "tests", "world"} <= _module_names(packages["iroha_core"])
+    assert all(_module_path_matches(packages["iroha_core"], ("lib",), path)
+               for path in ("sumeragi", "tests", "smartcontracts::isi::world"))
+
+
+@pytest.mark.parametrize("path, kinds, expected", (
+    ("outer::inline::leaf", ("lib",), True),
+    ("outer::placed::child", ("lib",), True),
+    ("outer::included::leaf", ("lib",), True),
+    ("outer::inline::placed::child", ("lib",), True),
+    ("outer::inline::normal::child", ("lib",), True),
+    ("placed::outer", ("lib",), False),
+    ("outer::inline::unregistered", ("lib",), False),
+    ("outer::inline::decoy", ("lib",), False),
+    ("outer::inline::function_local", ("lib",), False),
+    ("outer::inline::macro_only", ("lib",), False),
+    ("outer::placed::child", ("bin",), False),
+    ("binary::leaf", ("bin",), True),
+    ("binary::leaf", ("lib",), False),
+    ("integration::leaf", ("test",), True),
+    ("absent::leaf", ("test",), False),
+))
+def test_release_gate_module_paths_resolve_actual_hierarchy(
+    tmp_path: Path, path: str, kinds: tuple[str, ...], expected: bool,
+) -> None:
+    """Inline/file/path/include ownership cannot be replaced by unrelated name matches."""
+
+    sources = {
+        "Cargo.toml": '[package]\nname = "hierarchy"\nversion = "0.1.0"\nautotests = false\n'
+                      '[[test]]\nname = "declared"\npath = "tests/declared.rs"\n',
+        "src/lib.rs": 'mod outer;\n',
+        "src/main.rs": 'mod binary { mod leaf {} }\n',
+        "src/outer.rs": 'mod inline {\n'
+                        '    mod leaf {}\n'
+                        '    // mod decoy {}\n'
+                        '    const TEXT: &str = r###"mod decoy {}"###;\n'
+                        '    fn local() { mod function_local {} }\n'
+                        '    macro_rules! generate { () => { mod macro_only {} } }\n'
+                        '    #[path = "renamed.rs"] mod placed;\n'
+                        '    mod normal;\n'
+                        '}\n'
+                        '#[path = "renamed.rs"] mod placed;\n'
+                        'include!("included.rs");\n',
+        "src/renamed.rs": 'mod child {}\n',
+        "src/outer/inline/renamed.rs": 'mod child {}\n',
+        "src/outer/inline/normal.rs": 'mod child {}\n',
+        "src/included.rs": 'mod included { mod leaf {} }\n',
+        "src/outer/inline/unregistered.rs": 'mod leaf {}\n',
+        "tests/declared.rs": 'mod integration { mod leaf {} }\n',
+        "tests/undeclared.rs": 'mod absent { mod leaf {} }\n',
+    }
+    for relative, text in sources.items():
+        destination = tmp_path / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(text, encoding="utf-8")
+    assert _module_path_matches(tmp_path, kinds, path) is expected
 
 
 def _load_census():
@@ -1171,6 +1344,91 @@ def test_release_gate_selects_every_basic_census_test_except_the_four_peer_fixtu
     assert total > 1000
     # The live four-peer fixture moves to the engine self-test (TODO(P4)).
     assert missing == {("iroha_test_network", census.BEACON_NETWORK_TEST)}
+
+
+@pytest.mark.parametrize(("package", "parent", "module", "source", "prefix"), (
+    ("iroha_data_model", "src/lib.rs", "amx_prepare_streaming_allocations",
+     "tests/amx_prepare_streaming_allocations.rs", "amx_prepare_streaming_allocations"),
+    ("iroha_data_model", "src/isi/mod.rs", "amx_owner", "src/isi/amx_owner.rs",
+     "isi::amx_owner::tests"),
+    ("iroha_data_model", "src/sumeragi_amx.rs", "tests", "src/sumeragi_amx/tests.rs",
+     "sumeragi_amx::tests"),
+    ("iroha_data_model", "src/sumeragi_amx.rs", "allocation", "src/sumeragi_amx/allocation.rs",
+     "sumeragi_amx::allocation::tests"),
+    ("iroha_data_model", "src/sumeragi_amx.rs", "native", "src/sumeragi_amx/native.rs",
+     "sumeragi_amx::native::tests"),
+    ("iroha_data_model", "src/events/data/kagemusha.rs", "tests", "src/events/data/kagemusha/tests.rs",
+     "events::data::kagemusha::tests"),
+    ("iroha_data_model", "src/lib.rs", "concrete_identity_tests", "src/concrete_identity_tests.rs",
+     "concrete_identity_tests"),
+    ("iroha_core", "src/query/native_context_archive/read.rs", "tests",
+     "src/query/native_context_archive/read/tests.rs", "query::native_context_archive::read::tests"),
+    ("iroha_core", "src/query/native_context_archive.rs", "prepared_intents",
+     "src/query/native_context_archive/prepared_intents.rs", "query::native_context_archive::prepared_intents::tests"),
+    ("iroha_core", "src/query/mod.rs", "native_receipts",
+     "src/query/native_receipts.rs", "query::native_receipts::tests"),
+    ("iroha_core", "src/query/native_receipts/amx_read.rs", "issuer_tests",
+     "src/query/native_receipts/amx_read/issuer_tests.rs", "query::native_receipts::amx_read::issuer_tests"),
+    ("iroha_core", "src/query/native_receipts/amx_read.rs", "certification_tests",
+     "src/query/native_receipts/amx_read/certification_tests.rs", "query::native_receipts::amx_read::certification_tests"),
+    ("iroha_core", "src/query/native_receipts/amx_read.rs", "certification_retry_tests",
+     "src/query/native_receipts/amx_read/certification_retry_tests.rs", "query::native_receipts::amx_read::certification_retry_tests"),
+    ("iroha_core", "src/query/native_receipts/lane_payload.rs", "tests",
+     "src/query/native_receipts/lane_payload/tests.rs", "query::native_receipts::lane_payload::tests"),
+    ("iroha_core", "src/query/native_receipts/ordinary_writes.rs", "tests",
+     "src/query/native_receipts/ordinary_writes/tests.rs", "query::native_receipts::ordinary_writes::tests"),
+    ("iroha_torii", "src/finality_interval.rs", "tests",
+     "src/finality_interval/tests.rs", "finality_interval::tests"),
+    ("iroha_torii", "src/lib.rs", "history_producer",
+     "src/history_producer.rs", "history_producer::tests"),
+    ("iroha_torii", "src/lib.rs", "response_memory_custody",
+     "src/response_memory_custody.rs", "response_memory_custody::tests"),
+    ("iroha_torii", "src/lib.rs", "native_projection_response",
+     "src/native_projection_response.rs", "native_projection_response::tests"),
+))
+def test_release_gate_selects_current_amx_load_and_identity_owner_controls(
+    package: str, parent: str, module: str, source: str, prefix: str
+) -> None:
+    """Select current AMX, archive, finality transport and identity owners, including async tests."""
+
+    directory = _workspace_packages()[package]
+    assert re.search(rf"\bmod\s+{re.escape(module)}\s*[;{{]",
+                     (directory / parent).read_text(encoding="utf-8"))
+    declarations = re.findall(
+        r"#\[(?:tokio::)?test(?:\([^\]]*\))?\]\s*(?:async\s+)?fn\s+([A-Za-z_]\w*)\s*\(",
+        (directory / source).read_text(encoding="utf-8"),
+    )
+    assert declarations, (package, source)
+    assert len(declarations) == len(set(declarations)), (package, source)
+    assert _module_path_matches(directory, ("lib",), prefix)
+    config = tomllib.loads(NEXTEST_CONFIG.read_text(encoding="utf-8"))
+    tree = _parse_filter(config["profile"]["release-gate"]["default-filter"])
+    missing = {
+        f"{prefix}::{name}" for name in declarations
+        if not _filter_matches(tree, package, "lib", f"{prefix}::{name}")
+    }
+    assert not missing, (package, missing)
+
+
+def test_test_network_ordinary_load_has_no_retired_publisher_owner() -> None:
+    """Ordinary Load must not acquire a superseded keyring or publisher dependency."""
+
+    directory = _workspace_packages()["iroha_test_network"]
+    source = (directory / "src/lib.rs").read_text(encoding="utf-8")
+    assert "mod kagemusha_load_authorizer_fixture;" not in source
+    assert "prepare_load_authorizer" not in source
+    assert "load_authorizer: Arc" not in source
+    assert not (directory / "src/kagemusha_load_authorizer_fixture.rs").exists()
+    package = tomllib.loads((directory / "Cargo.toml").read_text(encoding="utf-8"))
+    assert "p256" not in package["dependencies"]
+    filter_text = tomllib.loads(NEXTEST_CONFIG.read_text(encoding="utf-8"))["profile"]["release-gate"]["default-filter"]
+    assert "kagemusha_load_authorizer_fixture" not in filter_text
+    for name in (
+        "ordinary_load_peers_keep_exact_signed_genesis_identity_without_publisher_custody",
+        "ordinary_load_peer_configuration_rejects_retired_publisher_overrides",
+    ):
+        assert re.search(rf"\bfn\s+{name}\s*\(", source)
+        assert _filter_matches(_parse_filter(filter_text), "iroha_test_network", "lib", f"tests::{name}")
 
 
 def test_pr_workflow_retains_locked_workspace_and_numeric_parity() -> None:
@@ -1270,18 +1528,18 @@ ReleaseMutation = Callable[[str], str]
         (
             lambda workflow: _replace_once(
                 workflow,
-                "cargo doc --locked --workspace --no-deps --all-features",
-                "cargo doc --locked --workspace --no-deps",
+                "python3 scripts/rust_ci.py run --workspace --checks doc",
+                "python3 scripts/rust_ci.py run --packages iroha_data_model --checks doc",
             ),
-            "doc is missing required command: cargo doc --locked --workspace --no-deps --all-features",
+            "doc is missing required command: python3 scripts/rust_ci.py run --workspace --checks doc",
         ),
         (
             lambda workflow: _replace_once(
                 workflow,
-                "cargo test --locked --workspace --no-fail-fast",
-                "cargo test --workspace --no-fail-fast",
+                "cargo test --locked --workspace --no-fail-fast --features iroha_torii/test-fixtures",
+                "cargo test --workspace --no-fail-fast --features iroha_torii/test-fixtures",
             ),
-            "test is missing required command: cargo test --locked --workspace --no-fail-fast",
+            "test is missing required command: cargo test --locked --workspace --no-fail-fast --features iroha_torii/test-fixtures",
         ),
         (
             lambda workflow: _replace_once_in_job(
@@ -1312,10 +1570,10 @@ ReleaseMutation = Callable[[str], str]
         (
             lambda workflow: _replace_once(
                 workflow,
-                "cargo clippy --locked --workspace --all-targets --all-features",
-                "cargo clippy --locked --workspace --all-targets",
+                "python3 scripts/rust_ci.py run --workspace --checks clippy",
+                "python3 scripts/rust_ci.py run --packages iroha_core --checks clippy",
             ),
-            "clippy is missing required command: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+            "clippy is missing required command: python3 scripts/rust_ci.py run --workspace --checks clippy",
         ),
     ),
 )
@@ -1493,4 +1751,122 @@ def test_pr_workflow_guard_rejects_parity_weakening(
     workflow = PR_WORKFLOW.read_text(encoding="utf-8")
     assert any(
         expected_error in error for error in _validate_pr_parity(mutation(workflow))
+    )
+
+
+@pytest.mark.parametrize("change", ("stale", "missing", "component", "late", "rewrite"))
+def test_pr_formatter_rejects_stale_or_ineffective_validation(change: str) -> None:
+    """PR formatting uses the current compiler and an actual workspace check."""
+    workflow = PR_WORKFLOW.read_text(encoding="utf-8")
+    job = _job_block(workflow, "fmt")
+    setup = re.search(
+        r"(?m)^      - uses: actions-rust-lang/setup-rust-toolchain@[^\n]+\n"
+        r"        with:\n          cache: [^\n]+\n          toolchain: [^\n]+\n"
+        r"          components: [^\n]+\n", job,
+    )
+    assert setup is not None
+    if change == "stale":
+        altered = job.replace(setup.group(), re.sub(
+            r"toolchain: [^\n]+", 'toolchain: "nightly-2025-05-08"', setup.group(),
+        ))
+    elif change == "missing":
+        altered = job.replace(setup.group(), "")
+    elif change == "component":
+        altered = job.replace('components: "rustfmt"', 'components: "clippy"')
+    elif change == "late":
+        altered = job.replace(setup.group(), "") + setup.group()
+    else:
+        altered = job.replace("cargo fmt --all -- --check", "cargo fmt --all")
+    changed = workflow.replace(job, altered, 1)
+    assert any(error.startswith("PR formatting") for error in _validate_pr_parity(changed))
+
+
+def _model_reverse_abi_dependency_errors(
+    manifest_text: str, workspace_dependencies: dict[str, object]
+) -> list[str]:
+    """Reject a Model-to-consumer edge in every normal, build or root-dev table."""
+    manifest = tomllib.loads(manifest_text)
+    scopes = [("root", manifest)] + [
+        (f"target.{target}", table)
+        for target, table in manifest.get("target", {}).items()
+    ]
+    errors = []
+    for scope, tables in scopes:
+        for kind in ("dependencies", "build-dependencies", "dev-dependencies"):
+            for alias, value in tables.get(kind, {}).items():
+                specification = value if isinstance(value, dict) else {}
+                if specification.get("workspace") is True:
+                    inherited = workspace_dependencies[alias]
+                    specification = inherited if isinstance(inherited, dict) else {}
+                package = specification.get("package", alias)
+                if package == "ivm_abi":
+                    errors.append(f"{scope}.{kind}.{alias}: reverse ABI consumer dependency")
+    return errors
+
+
+def test_model_tests_do_not_restore_the_reverse_ivm_abi_dependency() -> None:
+    """Model tests cannot silently unify governance or compile Model as a dependency."""
+    workspace_dependencies = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"][
+        "dependencies"
+    ]
+    manifest = (ROOT / "crates/iroha_data_model/Cargo.toml").read_text()
+    assert _model_reverse_abi_dependency_errors(manifest, workspace_dependencies) == []
+
+
+@pytest.mark.parametrize(
+    ("scope", "kind", "dependency", "workspace"),
+    (
+        ("root", "dev-dependencies", 'ivm_abi = { path = "../ivm_abi" }', {}),
+        ("root", "dependencies", 'ivm_abi = { path = "../ivm_abi" }', {}),
+        ("root", "build-dependencies", 'ivm_abi = { path = "../ivm_abi" }', {}),
+        ("root", "dev-dependencies", 'abi = { package = "ivm_abi", path = "../ivm_abi" }', {}),
+        ("root", "dev-dependencies", 'abi = { workspace = true }', {"abi": {"package": "ivm_abi"}}),
+        ("target.'cfg(unix)'", "dev-dependencies", 'ivm_abi = { path = "../ivm_abi" }', {}),
+        ("target.'cfg(unix)'", "build-dependencies", 'abi = { package = "ivm_abi", path = "../ivm_abi" }', {}),
+    ),
+)
+def test_reverse_abi_dependency_guard_rejects_direct_renamed_and_target_edges(
+    scope: str, kind: str, dependency: str, workspace: dict[str, object]
+) -> None:
+    """All actual manifest edge kinds refuse, including package renames and inheritance."""
+    header = f"[{kind}]" if scope == "root" else f"[{scope}.{kind}]"
+    manifest = f'{header}\n{dependency}\n'
+    assert len(_model_reverse_abi_dependency_errors(manifest, workspace)) == 1
+
+
+def test_reverse_abi_dependency_guard_allows_the_owned_nonconsumer_test_edges() -> None:
+    """Ordinary Model allocation/codec test helpers retain their original ownership."""
+    manifest = '[dev-dependencies]\nhex-literal = "1.1.0"\nmv = { path = "../../vendor/mv" }\n'
+    assert _model_reverse_abi_dependency_errors(manifest, {}) == []
+
+
+@pytest.mark.parametrize("job", ("doc", "clippy"))
+def test_supported_feature_workflows_pin_python_before_the_reader(job: str) -> None:
+    workflow = RELEASE_WORKFLOW.read_text()
+    body = _job_block(workflow, job)
+    assert "python-version: \"3.11\"" in body
+    assert body.index("uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065") < body.index("python3 scripts/rust_ci.py")
+    replaced = _replace_once_in_job(workflow, job, 'python-version: "3.11"', 'python-version: "3.10"')
+    assert f"{job} must pin Python 3.11 for the supported feature reader" in _validate_release_workflow(replaced)
+
+
+@pytest.mark.parametrize("job", ("doc", "clippy"))
+def test_supported_feature_reader_command_cannot_be_removed(job: str) -> None:
+    workflow = RELEASE_WORKFLOW.read_text()
+    old = f"python3 scripts/rust_ci.py run --workspace --checks {job}"
+    changed = _replace_once_in_job(workflow, job, old, "true # removed supported feature owner")
+    assert f"{job} is missing required command: {old}" in _validate_release_workflow(changed)
+
+
+@pytest.mark.parametrize("job", ("test", "coverage"))
+def test_full_workspace_routes_cannot_omit_torii_integration_fixture_owner(job: str) -> None:
+    """Raw full-test and coverage commands must admit all required Torii targets."""
+    workflow = RELEASE_WORKFLOW.read_text()
+    changed = _replace_once_in_job(
+        workflow, job, "--features iroha_torii/test-fixtures", "",
+    )
+    assert any(
+        error.startswith(f"{job} is missing required command:")
+        and "iroha_torii/test-fixtures" in error
+        for error in _validate_release_workflow(changed)
     )

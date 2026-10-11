@@ -238,6 +238,7 @@ pub(crate) static ASSET_DEFINITIONS: CollectionSpec = CollectionSpec {
         text("alias"),
         account("owned_by"),
         text("owning_domain"),
+        text("owning_dataspace"),
         json("mintable"),
         unsorted_text("alias_binding.alias"),
         unsorted_text("alias_binding.status"),
@@ -530,29 +531,29 @@ pub(crate) static CONTRACT_EVENTS: CollectionSpec = CollectionSpec {
     tag: 17,
     fields: &[
         number("block_height"),
-        number("block_index"),
+        number("output_index"),
+        number("emission_index"),
         text("event_id"),
         number("schema_version"),
         text("provenance"),
         account("authority"),
         number("timestamp_ms"),
-        text("tx_hash_hex"),
+        text("execution_hash_hex"),
         text("block_hash_hex"),
         boolean("result_ok"),
         text("contract_address"),
-        text("contract_alias"),
-        text("module"),
         text("event_kind"),
         text_list("participants"),
         text_list("asset_ids"),
         json("numeric_fields"),
         json("payload"),
+        json("emission"),
         json("fee_payment"),
     ],
     metadata: false,
     default_sort: &[],
-    identity: &[],
-    positioned: 2,
+    identity: &["block_height", "output_index", "emission_index"],
+    positioned: 3,
     ordered: false,
 };
 
@@ -621,6 +622,16 @@ mod tests {
                 assert!(spec.field(field).is_some(), "{}: identity {field}", spec.id);
             }
         }
+    }
+
+    #[test]
+    fn asset_definition_direct_home_is_exact_text() {
+        let field = ASSET_DEFINITIONS
+            .field("owning_dataspace")
+            .expect("direct home field");
+        assert_eq!(field.ty, FieldType::String);
+        assert!(field.sortable);
+        assert!(!field.account);
     }
 
     #[test]

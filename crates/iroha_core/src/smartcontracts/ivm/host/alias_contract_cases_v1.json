@@ -8,7 +8,7 @@
         "value": null
       },
       "recipient_expression": "AccountId::parse(\"merchant@paynet\")",
-      "direct_source": "\nseiyaku AliasPayout {\n  state AssetDefinitionId SettlementAsset;\n\n  hajimari(AssetDefinitionId settlement_asset) {\n    SettlementAsset = settlement_asset;\n  }\n\n  kotoage fn bind(AssetDefinitionId settlement_asset) authorize(\"AssetOps\") {\n    SettlementAsset = settlement_asset;\n  }\n\n  kotoage fn pay(quantity amount) -> quantity authorize(\"AssetOps\") {\n    ledger::asset::transfer(source: context::authority(), destination: AccountId::parse(\"merchant@paynet\"), asset_definition: SettlementAsset, amount: amount, dataspace: DataSpaceId::parse(\"0\"));\n    return amount;\n  }\n}\n",
+      "direct_source": "\nseiyaku AliasPayout {\n  permission AssetOps;\n  state AssetDefinitionId SettlementAsset;\n\n  hajimari(AssetDefinitionId settlement_asset) {\n    SettlementAsset = settlement_asset;\n  }\n\n  kotoage fn bind(AssetDefinitionId settlement_asset) authorize(AssetOps) {\n    SettlementAsset = settlement_asset;\n  }\n\n  kotoage fn pay(quantity amount) authorize(AssetOps) -> quantity {\n    ledger::asset::transfer(source: context::authority(), destination: AccountId::parse(\"merchant@paynet\"), asset_definition: SettlementAsset, amount: amount, dataspace: DataSpaceId::parse(\"0\"));\n    return amount;\n  }\n}\n",
       "setup_seed": null,
       "transaction_hash_byte": null,
       "rebind_seed": 178,
@@ -21,7 +21,7 @@
         "value": null
       },
       "recipient_expression": "ledger::account::resolve_alias(alias: \"merchant@paynet\")",
-      "direct_source": "\nseiyaku AliasPayout {\n  state AssetDefinitionId SettlementAsset;\n\n  hajimari(AssetDefinitionId settlement_asset) {\n    SettlementAsset = settlement_asset;\n  }\n\n  kotoage fn bind(AssetDefinitionId settlement_asset) authorize(\"AssetOps\") {\n    SettlementAsset = settlement_asset;\n  }\n\n  kotoage fn pay(quantity amount) -> quantity authorize(\"AssetOps\") {\n    let merchant = ledger::account::resolve_alias(alias: \"merchant@paynet\");\n    ledger::asset::transfer(source: context::authority(), destination: merchant, asset_definition: SettlementAsset, amount: amount, dataspace: DataSpaceId::parse(\"0\"));\n    return amount;\n  }\n}\n",
+      "direct_source": "\nseiyaku AliasPayout {\n  permission AssetOps;\n  state AssetDefinitionId SettlementAsset;\n\n  hajimari(AssetDefinitionId settlement_asset) {\n    SettlementAsset = settlement_asset;\n  }\n\n  kotoage fn bind(AssetDefinitionId settlement_asset) authorize(AssetOps) {\n    SettlementAsset = settlement_asset;\n  }\n\n  kotoage fn pay(quantity amount) authorize(AssetOps) -> quantity {\n    let merchant = ledger::account::resolve_alias(alias: \"merchant@paynet\");\n    ledger::asset::transfer(source: context::authority(), destination: merchant, asset_definition: SettlementAsset, amount: amount, dataspace: DataSpaceId::parse(\"0\"));\n    return amount;\n  }\n}\n",
       "setup_seed": 179,
       "transaction_hash_byte": null,
       "rebind_seed": null,
@@ -251,7 +251,7 @@
         "value": null
       },
       "recipient_expression": "AccountId::parse(\"merchant@bank.paynet\")",
-      "direct_source": "\nseiyaku AliasPayout {\n  state AssetDefinitionId SettlementAsset;\n\n  hajimari(AssetDefinitionId settlement_asset) {\n    SettlementAsset = settlement_asset;\n  }\n\n  kotoage fn bind(AssetDefinitionId settlement_asset) authorize(\"AssetOps\") {\n    SettlementAsset = settlement_asset;\n  }\n\n  kotoage fn pay(quantity amount) -> quantity authorize(\"AssetOps\") {\n    ledger::asset::transfer(source: context::authority(), destination: AccountId::parse(\"merchant@bank.paynet\"), asset_definition: SettlementAsset, amount: amount, dataspace: DataSpaceId::parse(\"0\"));\n    return amount;\n  }\n}\n",
+      "direct_source": "\nseiyaku AliasPayout {\n  permission AssetOps;\n  state AssetDefinitionId SettlementAsset;\n\n  hajimari(AssetDefinitionId settlement_asset) {\n    SettlementAsset = settlement_asset;\n  }\n\n  kotoage fn bind(AssetDefinitionId settlement_asset) authorize(AssetOps) {\n    SettlementAsset = settlement_asset;\n  }\n\n  kotoage fn pay(quantity amount) authorize(AssetOps) -> quantity {\n    ledger::asset::transfer(source: context::authority(), destination: AccountId::parse(\"merchant@bank.paynet\"), asset_definition: SettlementAsset, amount: amount, dataspace: DataSpaceId::parse(\"0\"));\n    return amount;\n  }\n}\n",
       "setup_seed": 215,
       "transaction_hash_byte": 251,
       "rebind_seed": null,

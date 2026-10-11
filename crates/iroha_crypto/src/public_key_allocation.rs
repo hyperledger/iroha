@@ -103,6 +103,12 @@ impl PublicKey {
 }
 
 impl ChargedPublicKey {
+    /// Whether this exact compact allocation retains the original finite pool.
+    #[must_use]
+    pub fn belongs_to(&self, budget: &AllocationBudget) -> bool {
+        self.charge.belongs_to(budget)
+    }
+
     /// Borrow the exact original key without moving its allocation or charge.
     pub fn get(&self) -> &PublicKey {
         &self.key

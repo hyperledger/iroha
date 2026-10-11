@@ -1,5 +1,4 @@
 //! Grouped Norito integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #[path = "../decode_sequence_limits.rs"]
 mod decode_sequence_limits;
 #[path = "../proptest_roundtrip.rs"]

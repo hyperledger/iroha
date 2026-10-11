@@ -873,9 +873,9 @@ test("proved-IVM quote draft preserves the proof attachment through signing", ()
   };
   const proved = { bytecode: "TlJUMAAAAA==", overlay: [] };
   const attachment = {
-    backend: "halo2/ipa",
-    proof: { backend: "halo2/ipa", bytes: [1, 2, 3] },
-    vk_ref: { backend: "halo2/ipa", name: "ivm-exec-v1" },
+    backend: "pipa-r/pasta",
+    proof: { backend: "pipa-r/pasta", bytes: [1, 2, 3] },
+    vk_ref: { backend: "pipa-r/pasta", name: "ivm-exec-v1" },
   };
   const calls = [];
   withTransactionApi(
@@ -1070,13 +1070,13 @@ test("buildTransaction rejects empty instruction arrays", () => {
     gas_policy_commitment: normalizedHashHex(Buffer.alloc(32, 0x02)),
   };
   const attachment = {
-    backend: "halo2/ipa",
+    backend: "pipa-r/pasta",
     proof: {
-      backend: "halo2/ipa",
+      backend: "pipa-r/pasta",
       bytes: [1, 2, 3],
     },
     vk_ref: {
-      backend: "halo2/ipa",
+      backend: "pipa-r/pasta",
       name: "ivm-exec-v1",
     },
   };
@@ -2183,6 +2183,7 @@ test("buildRegisterSmartContractCodeTransaction wraps manifest instruction", () 
         feePayment: AUTHORITY_FEE_PAYMENT,
         artifactId: { dataspaceId: "18446744073709551615", codeHash: Buffer.alloc(32, 0xab) },
         manifest: {
+          permissions: [], events: [], enum_types: [],
           codeHash: Buffer.alloc(32, 0xab),
           compilerFingerprint: "rustc",
         },
@@ -2294,9 +2295,9 @@ baseTest("retired generic confidential transaction builders are not exported", (
 
 test("supported confidential transaction builders wrap expected instruction payloads", () => {
   const proof = {
-    backend: "halo2/ipa",
+    backend: "pipa-r/pasta",
     proof: Buffer.from("proof"),
-    verifyingKeyRef: { backend: "halo2/ipa", name: "vk_governance" },
+    verifyingKeyRef: { backend: "pipa-r/pasta", name: "vk_governance" },
   };
   const register = captureInstructionObject((transaction) =>
     transaction.buildRegisterZkAssetTransaction({
@@ -2352,8 +2353,8 @@ test("supported confidential transaction builders wrap expected instruction payl
         eligibleRoot: Buffer.alloc(32, 0x05),
         startTs: 1,
         endTs: 2,
-        ballotVerifyingKey: "halo2/ipa:vk_ballot",
-        tallyVerifyingKey: { backend: "halo2/ipa", name: "vk_tally" },
+        ballotVerifyingKey: "pipa-r/pasta:vk_ballot",
+        tallyVerifyingKey: { backend: "pipa-r/pasta", name: "vk_tally" },
       },
       privateKey: PRIVATE_KEY,
     }),

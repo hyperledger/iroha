@@ -1,100 +1,407 @@
 //! Unified Kotodama V1 developer command.
-#[path = "koto/editor_lsp.rs"]
-mod editor_lsp;
-#[path = "koto/lsp_transport.rs"]
-mod lsp_transport;
+//!
+//! Kotodama compiles to IVM bytecode (`.to`). `koto` checks, builds, tests, formats, documents and
+//! explains Kotodama sources, and serves the language server.
+#[path = "koto/doc_builtins.rs"]
+mod doc_builtins;
+#[path = "koto/explain.rs"]
+mod explain;
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use kotodama_lang::{
     compiler::CompilerOptions,
-    diagnostic::{
-        Diagnostic, DiagnosticBundle, DiagnosticPhase, Severity, SourcePosition, SourceSpan,
-    },
+    diagnostic::{Diagnostic, DiagnosticBundle, DiagnosticPhase, Severity},
     driver::{
-        BuildDriver, BuildError, BuildStatus, LinkedSourceBuildRequest, LoadedSourceProject,
-        ProjectSourceKey, PublishLayout, PublishMode, atomic_write_if_changed,
-        discover_source_link_request, load_source_project, load_source_project_manifest,
-        logical_source_name, project_root_for_source, read_source_file,
+        BuildDriver, BuildError, BuildStatus, LinkedSourceBuildRequest, LoadedProjectGraph,
+        LoadedSourceProject, ProjectSourceKey, PublishLayout, PublishMode, atomic_write_if_changed,
+        discover_source_link_request, load_source_project, logical_source_name,
+        project_root_for_source, read_source_file,
     },
     formatter::format_source,
     linker::SourceModuleUnit,
-    session::CompilerSession,
-    source::{FrontendBudget, MAX_SOURCE_BYTES, SourceFile, SourceId},
+    lint::LintLevel,
+    session::{CompilerSession, LintConfig},
+    source::{FrontendBudget, SourceFile, SourceId},
 };
 #[cfg(test)]
 use kotodama_lang::{
-    diagnostic::{DiagnosticFix, DiagnosticLabel},
-    lexer::{V1_KEYWORDS, V1_OPERATORS},
+    diagnostic::{DiagnosticFix, DiagnosticLabel, SourcePosition, SourceSpan},
     session::{CompileOutput, CompileRequest},
     source::TextRange,
 };
-#[cfg(test)]
-use kotodama_surface::{
-    builtins::{Builtin, BuiltinSurface},
-    source_policy::{V1_LIST_MEMBER_NAMES, V1_ROUNDING_PATHS, V1_SOURCE_TYPE_NAMES, V1_SUM_PATHS},
+use kotodama_toolchain::diagnostics::{
+    leveled_lint, remap_locked_project_diagnostic_sources, remap_project_diagnostic_sources,
+    remap_rooted_diagnostic_sources,
 };
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     env,
-    io::{BufRead, Write},
     path::{Path, PathBuf},
 };
-const USAGE: &str = "\
-Kotodama V1 toolchain
-
-Usage:
-  koto check [--format human|json|sarif] [--chain-discriminant <1..65535>] [--zk]
-             [--project <kotodama.project.json> | --source-root <path>] <source.ko>...
-  koto build [--format human|json|sarif] [--profile <name>] [--target-dir <path>] [--out <file.to>]
-             [--manifest-out <file.json>] [--max-cycles <count>]
-             [--chain-discriminant <1..65535>] [--zk] [--verify]
-             [--project <kotodama.project.json> | --source-root <path>] <source.ko>...
-  koto test [run|coverage|profile|list] [--chain-discriminant <1..65535>] [--zk]
-            [--project <kotodama.project.json> | --source-root <path>] <options> <source.ko>
-  koto fmt [--check] <source.ko>...
-  koto doc [--format markdown|json] [--zk]
-           [--project <kotodama.project.json> | --source-root <path>] <source.ko>
-  koto explain <diagnostic-code>
-  koto lsp [--zk] [--project <kotodama.project.json> | --source-root <path>]
-";
+/// Process exit statuses shared with `musubi` (see `crates/musubi/src/output.rs`).
+///
+/// Scripts can distinguish a misused command line from failing code: usage errors never reuse
+/// the status reserved for diagnostics and failing tests.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExitStatus {
+    /// The command completed and every requested check passed.
+    Success,
+    /// The command line was malformed: unknown option, missing or conflicting arguments.
+    Usage,
+    /// Compiler diagnostics, formatting drift, or a `--verify` mismatch.
+    Failed,
+    /// The tests compiled and ran, and at least one failed.
+    TestsFailed,
+    /// A source, manifest, or output file could not be read or written.
+    Io,
+    /// The toolchain itself failed; report it with a minimal reproducer.
+    Internal,
+}
+impl ExitStatus {
+    /// Stable numeric process exit code.
+    const fn code(self) -> i32 {
+        match self {
+            Self::Success => 0,
+            Self::Usage => 2,
+            Self::Failed => 8,
+            Self::Io => 10,
+            Self::TestsFailed => 11,
+            Self::Internal => 70,
+        }
+    }
+}
+/// Exit-status table appended to `koto --help`.
+const EXIT_STATUS_HELP: &str = "\
+Exit status:
+  0   success
+  2   usage error (unknown option, missing or conflicting arguments)
+  8   compiler diagnostics, formatting drift, or --verify mismatch
+  10  a source, manifest, or output file could not be read or written
+  11  the tests ran and at least one failed
+  70  internal toolchain error";
+/// Short version printed by `koto -V`.
+const KOTO_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Long version printed by `koto --version`: compiler identity, bytecode target, and ABI hash.
+fn koto_long_version() -> &'static str {
+    static LONG_VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    LONG_VERSION.get_or_init(|| {
+        let abi_hash = ivm_abi::syscalls::compute_abi_hash(ivm_abi::SyscallPolicy::AbiV1);
+        format!(
+            "{KOTO_VERSION}\ncompiler: kotodama_lang/{KOTO_VERSION}\ntarget: IVM 1.1 bytecode (.to), ABI v1\nabi_hash: {}",
+            hex_lower(&abi_hash)
+        )
+    })
+}
+fn hex_lower(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    bytes.iter().fold(String::new(), |mut out, byte| {
+        let _ = write!(out, "{byte:02x}");
+        out
+    })
+}
+/// Kotodama V1 toolchain: check, build, test, format, document, and explain seiyaku compiled to
+/// IVM bytecode.
+#[derive(Parser, Debug)]
+#[command(
+    name = "koto",
+    version = KOTO_VERSION,
+    about = "Kotodama V1 toolchain: check, build, test, format, and document seiyaku compiled to IVM bytecode",
+    after_help = EXIT_STATUS_HELP,
+    propagate_version = true
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: KotoCommand,
+}
+#[derive(Subcommand, Debug)]
 enum KotoCommand {
-    Check,
-    Build,
-    Test,
-    Fmt,
-    Doc,
-    Explain,
-    Lsp,
+    /// Type-check sources and report diagnostics without writing artifacts.
+    Check(CheckArgs),
+    /// Compile seiyaku into IVM `.to` artifacts and their interface manifests.
+    Build(BuildArgs),
+    /// Discover and run `#[test]` functions against the seiyaku under test.
+    Test(TestArgs),
+    /// Format sources in place, or report unformatted files with --check.
+    Fmt(FmtArgs),
+    /// Render the public interface of a seiyaku as Markdown or JSON.
+    Doc(DocArgs),
+    /// Explain a diagnostic code, lint name, or branded keyword.
+    Explain(ExplainArgs),
+    /// Serve the Kotodama language server over stdio.
+    Lsp(LspArgs),
 }
-const KOTO_COMMAND_INVENTORY: [(&str, KotoCommand); 7] = [
-    ("check", KotoCommand::Check),
-    ("build", KotoCommand::Build),
-    ("test", KotoCommand::Test),
-    ("fmt", KotoCommand::Fmt),
-    ("doc", KotoCommand::Doc),
-    ("explain", KotoCommand::Explain),
-    ("lsp", KotoCommand::Lsp),
-];
-fn koto_command(raw: &str) -> Option<KotoCommand> {
-    KOTO_COMMAND_INVENTORY
-        .iter()
-        .find_map(|(name, command)| (*name == raw).then_some(*command))
+/// Explicit source-graph selection shared by every compiling subcommand.
+#[derive(Args, Debug, Default, Clone)]
+struct SourceSelection {
+    /// Directory that logical source names are relative to (default: the source's directory;
+    /// for a `koto_test` module, the nearest directory containing both it and its target).
+    #[arg(long, value_name = "DIR")]
+    source_root: Option<PathBuf>,
 }
-// JSON can escape one source byte into as many as six ASCII bytes. The wire
-// budget admits every canonical 1 MiB source while remaining strictly bounded.
-const MAX_LSP_MESSAGE_BYTES: usize = MAX_SOURCE_BYTES * 6 + 256 * 1024;
-const MAX_LSP_HEADER_LINE_BYTES: usize = 8 * 1024;
-const MAX_LSP_HEADERS: usize = 32;
-const MAX_LSP_URI_BYTES: usize = 8 * 1024;
-const MAX_LSP_OPEN_DOCUMENTS: usize = 256;
-const MAX_LSP_DOCUMENT_BYTES: usize = 64 * MAX_SOURCE_BYTES;
-// Contextual syntax and compiler intrinsics do not appear in the lexical
-// keyword or public builtin registries, but they are still source-visible V1
-// completions. Registered builtins (including receiver methods), sum paths,
-// rounding paths, types, and bounded-list members are sourced from their
-// canonical compiler tables below.
-#[cfg(test)]
-const V1_CONTEXTUAL_COMPLETIONS: &[(&str, u64)] = &[("json", 14), ("div_round", 2)];
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Compiler capabilities shared by every compiling subcommand.
+#[derive(Args, Debug, Clone, Copy)]
+struct CompileCapabilities {
+    /// Account-address chain discriminant (1..=65535) of the network the sources target:
+    /// `AccountId` literals must be encoded for it, and `koto test` derives fixture actor
+    /// accounts from it. Pass the target network's value when its literals use another prefix.
+    #[arg(
+        long,
+        value_name = "N",
+        value_parser = parse_chain_discriminant,
+        default_value_t = iroha_data_model::account::address::chain_discriminant()
+    )]
+    chain_discriminant: u16,
+    /// Enable ZK seiyaku compilation (`Secret<T>` and proof/commitment operations).
+    #[arg(long)]
+    zk: bool,
+}
+impl CompileCapabilities {
+    fn chain_discriminant(self) -> u16 {
+        self.chain_discriminant
+    }
+}
+#[derive(Args, Debug)]
+struct CheckArgs {
+    /// Diagnostic output format.
+    #[arg(long, value_enum, default_value_t)]
+    format: DiagnosticFormat,
+    #[command(flatten)]
+    lints: LintArgs,
+    #[command(flatten)]
+    capabilities: CompileCapabilities,
+    #[command(flatten)]
+    selection: SourceSelection,
+    /// One seiyaku source, reusable modules, or test modules. A `koto_test` module
+    /// is checked in test mode against its target.
+    #[arg(value_name = "SOURCE", required = true)]
+    sources: Vec<PathBuf>,
+}
+/// Lint levels selected on the command line.
+#[derive(Args, Debug, Default, Clone)]
+struct LintArgs {
+    /// Fail the check when any lint would warn (every `warn` lint becomes `deny`).
+    #[arg(long)]
+    deny_warnings: bool,
+    /// Do not report the lint with this name, such as `unused-local` (repeatable).
+    #[arg(long = "allow", value_name = "LINT")]
+    allow: Vec<String>,
+    /// Report the lint with this name as a warning (repeatable).
+    #[arg(long = "warn", value_name = "LINT")]
+    warn: Vec<String>,
+    /// Report the lint with this name as an error that fails the check (repeatable).
+    #[arg(long = "deny", value_name = "LINT")]
+    deny: Vec<String>,
+}
+impl LintArgs {
+    /// Validate the flags: every name must be a registered lint, and one lint gets one level.
+    fn config(&self) -> Result<LintConfig, KotoError> {
+        let mut config = LintConfig::new();
+        let mut selected = BTreeMap::<&str, LintLevel>::new();
+        for (names, level) in [
+            (&self.allow, LintLevel::Allow),
+            (&self.warn, LintLevel::Warn),
+            (&self.deny, LintLevel::Deny),
+        ] {
+            for name in names {
+                if let Some(previous) = selected.insert(name, level)
+                    && previous != level
+                {
+                    return Err(KotoError::Usage(format!(
+                        "lint `{name}` is given both `--{}` and `--{}`",
+                        previous.as_str(),
+                        level.as_str()
+                    )));
+                }
+                config
+                    .set_level(name, level)
+                    .map_err(|unknown| KotoError::Usage(unknown.to_string()))?;
+            }
+        }
+        config.set_deny_warnings(self.deny_warnings);
+        Ok(config)
+    }
+}
+#[derive(Args, Debug)]
+struct BuildArgs {
+    /// Diagnostic output format.
+    #[arg(long, value_enum, default_value_t)]
+    format: DiagnosticFormat,
+    /// Build profile; selects the output directory `<target-dir>/<profile>`.
+    #[arg(long, value_name = "NAME", default_value = "dev")]
+    profile: String,
+    /// Root directory for build outputs.
+    #[arg(long, value_name = "DIR", default_value = "target/kotodama")]
+    target_dir: PathBuf,
+    /// Write the `.to` artifact to this exact path (one source only).
+    #[arg(long, value_name = "FILE.to")]
+    out: Option<PathBuf>,
+    /// Write the manifest to this path, or `-` for stdout (one source only).
+    #[arg(long, value_name = "FILE.json")]
+    manifest_out: Option<PathBuf>,
+    /// Cycle ceiling recorded in the artifact header; must not exceed node admission policy.
+    #[arg(long, value_name = "COUNT", value_parser = clap::value_parser!(u64).range(1..))]
+    max_cycles: Option<u64>,
+    /// Check durable-state compatibility with the previous complete `.to` artifact before
+    /// publishing one replacement. Runtime migration must still initialize newly added scalars.
+    #[arg(long, value_name = "PREVIOUS.to")]
+    upgrade_from: Option<PathBuf>,
+    /// Verify that existing outputs match a fresh build without writing anything.
+    #[arg(long)]
+    verify: bool,
+    #[command(flatten)]
+    capabilities: CompileCapabilities,
+    #[command(flatten)]
+    selection: SourceSelection,
+    /// Seiyaku sources to build. Each produces its own artifact.
+    #[arg(value_name = "SOURCE", required = true)]
+    sources: Vec<PathBuf>,
+}
+/// `koto test` with an optional action; a bare `koto test <SOURCE>` runs the suite.
+#[derive(Args, Debug)]
+#[command(args_conflicts_with_subcommands = true, subcommand_negates_reqs = true)]
+struct TestArgs {
+    #[command(subcommand)]
+    action: Option<TestAction>,
+    #[command(flatten)]
+    run: TestRunArgs,
+}
+#[derive(Subcommand, Debug)]
+enum TestAction {
+    /// Compile and run the selected tests (the default action).
+    Run(TestRunArgs),
+    /// List the discovered tests without compiling them.
+    List(TestListArgs),
+    /// Run the selected tests and report which seiyaku functions executed.
+    Coverage(TestCoverageArgs),
+    /// Run the selected tests and print a per-instruction execution trace.
+    Trace(TestTraceArgs),
+}
+/// Suite discovery and selection shared by every `koto test` action.
+#[derive(Args, Debug, Clone)]
+struct TestSuiteArgs {
+    /// Run only tests whose name contains this text (or equals it with --exact).
+    #[arg(long, value_name = "TEXT")]
+    filter: Option<String>,
+    /// Require --filter to match the complete test name.
+    #[arg(long, requires = "filter")]
+    exact: bool,
+    /// Deterministic ordering seed; 0 runs tests in name order.
+    #[arg(long, value_name = "N", default_value_t = 0)]
+    seed: u64,
+    #[command(flatten)]
+    capabilities: CompileCapabilities,
+    #[command(flatten)]
+    selection: SourceSelection,
+    /// A seiyaku with inline tests, or a `*.test.ko` module declaring `koto_test { target: ... }`.
+    #[arg(value_name = "SOURCE", required = true)]
+    source: Option<PathBuf>,
+}
+#[derive(Args, Debug, Clone)]
+struct TestRunArgs {
+    /// Report format written to stdout.
+    #[arg(long, value_enum, default_value_t)]
+    format: TestRunFormat,
+    /// Also write a JUnit XML report to this file.
+    #[arg(long, value_name = "FILE.xml")]
+    junit: Option<PathBuf>,
+    /// Print a per-kotoage gas table (calls, min, mean, max) after the results.
+    #[arg(long)]
+    gas_report: bool,
+    /// Number of tests executed in parallel.
+    #[arg(long, short = 'j', value_name = "N", default_value_t = 1, value_parser = clap::value_parser!(u64).range(1..=256))]
+    jobs: u64,
+    #[command(flatten)]
+    suite: TestSuiteArgs,
+}
+#[derive(Args, Debug, Clone)]
+struct TestListArgs {
+    /// Listing format.
+    #[arg(long, value_enum, default_value_t)]
+    format: TestListFormat,
+    #[command(flatten)]
+    suite: TestSuiteArgs,
+}
+#[derive(Args, Debug, Clone)]
+struct TestCoverageArgs {
+    /// Number of tests executed in parallel.
+    #[arg(long, short = 'j', value_name = "N", default_value_t = 1, value_parser = clap::value_parser!(u64).range(1..=256))]
+    jobs: u64,
+    #[command(flatten)]
+    suite: TestSuiteArgs,
+}
+#[derive(Args, Debug, Clone)]
+struct TestTraceArgs {
+    /// Trace format: readable steps, or one JSON object per executed instruction.
+    #[arg(long, value_enum, default_value_t)]
+    format: TestListFormat,
+    #[command(flatten)]
+    suite: TestSuiteArgs,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+enum TestRunFormat {
+    #[default]
+    Human,
+    Json,
+    Junit,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+enum TestListFormat {
+    #[default]
+    Human,
+    Json,
+}
+#[derive(Args, Debug)]
+struct FmtArgs {
+    /// Report files that need formatting without rewriting them (exit status 8 if any).
+    #[arg(long)]
+    check: bool,
+    /// Files or directories; directories are searched recursively for `*.ko` files, skipping
+    /// hidden and `target` directories. Defaults to the current directory.
+    #[arg(value_name = "PATH")]
+    paths: Vec<PathBuf>,
+}
+#[derive(Args, Debug)]
+struct DocArgs {
+    /// Generate the complete source-visible builtin reference without compiling a source.
+    #[arg(long, conflicts_with_all = ["source", "source_root", "zk", "chain_discriminant"])]
+    builtins: bool,
+    /// Documentation format.
+    #[arg(long, value_enum, default_value_t)]
+    format: DocFormat,
+    #[command(flatten)]
+    capabilities: CompileCapabilities,
+    #[command(flatten)]
+    selection: SourceSelection,
+    /// Seiyaku source to document.
+    #[arg(value_name = "SOURCE", required_unless_present = "builtins")]
+    source: Option<PathBuf>,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+enum DocFormat {
+    #[default]
+    Markdown,
+    Json,
+}
+#[derive(Args, Debug)]
+struct ExplainArgs {
+    /// Diagnostic code (`K2003`, `E_TEST_ONLY_PRODUCTION`), lint name (`unused-parameter`), or
+    /// branded keyword in either spelling (`kotoage`, `言挙げ`).
+    #[arg(value_name = "TOPIC", required_unless_present = "list")]
+    topic: Option<String>,
+    /// List every diagnostic code, lint name, and branded keyword.
+    #[arg(long, conflicts_with = "topic")]
+    list: bool,
+    /// Output format; `markdown` renders a reference page with one anchor per code.
+    #[arg(long, value_enum, default_value_t)]
+    format: explain::ExplainFormat,
+}
+#[derive(Args, Debug)]
+struct LspArgs {
+    #[command(flatten)]
+    capabilities: CompileCapabilities,
+    #[command(flatten)]
+    selection: SourceSelection,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
 enum DiagnosticFormat {
     #[default]
     Human,
@@ -102,19 +409,15 @@ enum DiagnosticFormat {
     Sarif,
 }
 impl DiagnosticFormat {
-    fn parse(raw: &str) -> Result<Self, String> {
-        match raw {
-            "human" | "text" => Ok(Self::Human),
-            "json" => Ok(Self::Json),
-            "sarif" => Ok(Self::Sarif),
-            _ => Err(format!(
-                "unknown diagnostic format `{raw}`; expected human, json, or sarif"
-            )),
-        }
-    }
     fn render(self, diagnostics: &DiagnosticBundle) -> String {
         match self {
-            Self::Human => diagnostics.render_human(),
+            Self::Human => {
+                let mut diagnostics = diagnostics.clone();
+                if let Ok(cwd) = std::env::current_dir() {
+                    diagnostics.relativize_sources(&cwd.canonicalize().unwrap_or(cwd));
+                }
+                diagnostics.render_human()
+            }
             Self::Json => diagnostics
                 .render_json()
                 .unwrap_or_else(|error| format!("failed to render diagnostics: {error}")),
@@ -124,98 +427,245 @@ impl DiagnosticFormat {
         }
     }
 }
+/// A failed `koto` command and the exit status it selects.
 #[derive(Debug)]
 enum KotoError {
-    Message(String),
+    /// Malformed command line detected after parsing (for example a conflicting combination).
+    Usage(String),
+    /// A file could not be read or written.
+    Io(String),
+    /// Code was rejected or tests failed; the details were already rendered or are in the text.
+    Failed(String),
+    /// Structured compiler diagnostics rendered in the requested format.
     Diagnostics {
         format: DiagnosticFormat,
         diagnostics: DiagnosticBundle,
     },
+    /// The toolchain itself failed.
+    Internal(String),
+    /// Failing tests whose report was already printed.
+    TestsFailed,
+    /// A complete rendered failure report (for example compiler diagnostics), printed as is.
+    Rendered(String),
 }
-impl From<String> for KotoError {
-    fn from(message: String) -> Self {
-        Self::Message(message)
+impl KotoError {
+    fn exit_status(&self) -> ExitStatus {
+        match self {
+            Self::Usage(_) => ExitStatus::Usage,
+            Self::Io(_) => ExitStatus::Io,
+            Self::Failed(_) | Self::Diagnostics { .. } | Self::Rendered(_) => ExitStatus::Failed,
+            Self::TestsFailed => ExitStatus::TestsFailed,
+            Self::Internal(_) => ExitStatus::Internal,
+        }
     }
 }
 impl std::fmt::Display for KotoError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Message(message) => formatter.write_str(message),
+            Self::Usage(message)
+            | Self::Io(message)
+            | Self::Failed(message)
+            | Self::Internal(message) => formatter.write_str(message),
             Self::Diagnostics {
                 format,
                 diagnostics,
             } => formatter.write_str(&format.render(diagnostics)),
+            Self::TestsFailed => Ok(()),
+            Self::Rendered(report) => formatter.write_str(report),
         }
     }
 }
 fn build_error(format: DiagnosticFormat, error: BuildError) -> KotoError {
-    match error.into_diagnostics() {
-        Ok(diagnostics) => KotoError::Diagnostics {
-            format,
-            diagnostics,
+    match error {
+        BuildError::Io { .. } => KotoError::Io(error.to_string()),
+        BuildError::InvalidProfile(_)
+        | BuildError::InvalidStem(_)
+        | BuildError::InvalidPath { .. }
+        | BuildError::OutputCollision { .. } => KotoError::Usage(error.to_string()),
+        BuildError::Render(_) | BuildError::Internal(_) => KotoError::Internal(error.to_string()),
+        error => match error.into_diagnostics() {
+            Ok(diagnostics) => KotoError::Diagnostics {
+                format,
+                diagnostics,
+            },
+            Err(error) => KotoError::Failed(error.to_string()),
         },
-        Err(error) => KotoError::Message(error.to_string()),
+    }
+}
+/// Attach physical project paths before rendering a build's canonical source diagnostics.
+fn located_build_error(
+    format: DiagnosticFormat,
+    error: BuildError,
+    source_paths: &BTreeMap<ProjectSourceKey, BTreeSet<PathBuf>>,
+) -> KotoError {
+    let mut error = build_error(format, error);
+    if let KotoError::Diagnostics { diagnostics, .. } = &mut error {
+        // Different roots in one batch may share a logical companion path. Keep ambiguous
+        // identities logical rather than pointing at the wrong file.
+        let unique_sources = source_paths
+            .iter()
+            .filter_map(|(key, paths)| {
+                (paths.len() == 1)
+                    .then(|| (key.clone(), paths.first().expect("one source").clone()))
+            })
+            .collect();
+        for diagnostic in &mut diagnostics.diagnostics {
+            remap_locked_project_diagnostic_sources(diagnostic, &unique_sources);
+        }
+    }
+    error
+}
+/// Keep load-time parser diagnostics rooted in the same physical files as build diagnostics.
+fn rooted_build_error(format: DiagnosticFormat, error: BuildError, root: &Path) -> KotoError {
+    let mut error = build_error(format, error);
+    if let KotoError::Diagnostics { diagnostics, .. } = &mut error {
+        for diagnostic in &mut diagnostics.diagnostics {
+            remap_rooted_diagnostic_sources(diagnostic, root);
+        }
+    }
+    error
+}
+impl From<kotodama_toolchain::koto_test_driver::KotoTestCliError> for KotoError {
+    fn from(error: kotodama_toolchain::koto_test_driver::KotoTestCliError) -> Self {
+        use kotodama_toolchain::koto_test_driver::KotoTestCliErrorKind as Kind;
+        match error.kind {
+            Kind::Usage => Self::Usage(error.message),
+            Kind::Io => Self::Io(error.message),
+            Kind::Compile => Self::Rendered(error.message),
+            Kind::TestsFailed => Self::TestsFailed,
+            Kind::Internal => Self::Internal(error.message),
+        }
     }
 }
 fn main() {
-    if let Err(error) = run(env::args().skip(1).collect()) {
-        match error {
-            KotoError::Message(message) => eprintln!("error: {message}"),
-            KotoError::Diagnostics {
-                format,
-                diagnostics,
-            } => eprintln!("{}", format.render(&diagnostics)),
-        }
-        std::process::exit(1);
-    }
+    std::process::exit(run_process(env::args_os()).code());
 }
-fn run(mut args: Vec<String>) -> Result<(), KotoError> {
-    let Some(command) = args.first().cloned() else {
-        print!("{USAGE}");
-        return Ok(());
+/// Parse a full process argument vector, run the command, and report its exit status.
+fn run_process<I, T>(args: I) -> ExitStatus
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let command = Cli::command().long_version(koto_long_version());
+    let cli = match command.try_get_matches_from(args) {
+        Ok(matches) => match Cli::from_arg_matches(&matches) {
+            Ok(cli) => cli,
+            Err(error) => return report_clap_error(&error),
+        },
+        Err(error) => return report_clap_error(&error),
     };
-    args.remove(0);
-    match koto_command(&command) {
-        Some(KotoCommand::Check) => check(args).map_err(KotoError::from),
-        Some(KotoCommand::Build) => build(args),
-        Some(KotoCommand::Test) => {
-            kotodama_toolchain::koto_test_driver::run_cli(args).map_err(KotoError::from)
+    match run(cli) {
+        Ok(()) => ExitStatus::Success,
+        Err(error) => {
+            let status = error.exit_status();
+            match error {
+                KotoError::Diagnostics {
+                    format,
+                    diagnostics,
+                } => eprintln!("{}", format.render(&diagnostics)),
+                // Failing tests already printed their report.
+                KotoError::TestsFailed => {}
+                KotoError::Rendered(report) => eprintln!("{report}"),
+                other => eprintln!("error: {other}"),
+            }
+            status
         }
-        Some(KotoCommand::Fmt) => format_sources(args).map_err(KotoError::from),
-        Some(KotoCommand::Doc) => document(args).map_err(KotoError::from),
-        Some(KotoCommand::Explain) => explain(args).map_err(KotoError::from),
-        Some(KotoCommand::Lsp) => language_server(args).map_err(KotoError::from),
-        None if matches!(command.as_str(), "help" | "--help" | "-h") => {
-            print!("{USAGE}");
-            Ok(())
-        }
-        None => Err(KotoError::Message(format!(
-            "unknown command `{command}`\n\n{USAGE}"
-        ))),
     }
 }
-fn extract_source_root(args: &mut Vec<String>) -> Result<Option<PathBuf>, String> {
-    let mut root = None;
-    while let Some(index) = args.iter().position(|arg| arg == "--source-root") {
-        if root.is_some() {
-            return Err("--source-root may be supplied only once".into());
+fn report_clap_error(error: &clap::Error) -> ExitStatus {
+    use clap::error::ErrorKind;
+    let _ = error.print();
+    match error.kind() {
+        ErrorKind::DisplayHelp
+        | ErrorKind::DisplayVersion
+        | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => {
+            if error.kind() == ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand {
+                ExitStatus::Usage
+            } else {
+                ExitStatus::Success
+            }
         }
-        if index + 1 >= args.len() || args[index + 1].starts_with('-') {
-            return Err("--source-root requires a directory".into());
+        _ => ExitStatus::Usage,
+    }
+}
+fn run(cli: Cli) -> Result<(), KotoError> {
+    match cli.command {
+        KotoCommand::Check(args) => check(args),
+        KotoCommand::Build(args) => build(args),
+        KotoCommand::Test(args) => run_tests(args),
+        KotoCommand::Fmt(args) => format_sources(args),
+        KotoCommand::Doc(args) => document(args),
+        KotoCommand::Explain(args) => explain::run(&args.topic, args.list, args.format),
+        KotoCommand::Lsp(args) => language_server(args),
+    }
+}
+/// Translate the parsed `koto test` command line into the runner's option record.
+fn test_cli_options(args: TestArgs) -> kotodama_toolchain::koto_test_driver::KotoTestCliOptions {
+    use kotodama_toolchain::koto_test_driver::{
+        KotoTestAction, KotoTestCliOptions, KotoTestReportFormat,
+    };
+    let suite_options = |action: KotoTestAction, suite: TestSuiteArgs| {
+        let TestSuiteArgs {
+            filter,
+            exact,
+            seed,
+            capabilities,
+            selection,
+            source,
+        } = suite;
+        let mut options = KotoTestCliOptions::new(action, capabilities.chain_discriminant());
+        options.source = source;
+        options.source_root = selection.source_root;
+        options.filter = filter;
+        options.exact = exact;
+        options.seed = seed;
+        options.zk_enabled = capabilities.zk;
+        options
+    };
+    let run_options = |args: TestRunArgs| {
+        let mut options = suite_options(KotoTestAction::Run, args.suite);
+        options.format = match args.format {
+            TestRunFormat::Human => KotoTestReportFormat::Human,
+            TestRunFormat::Json => KotoTestReportFormat::Json,
+            TestRunFormat::Junit => KotoTestReportFormat::Junit,
+        };
+        options.junit = args.junit;
+        options.gas_report = args.gas_report;
+        options.jobs = usize::try_from(args.jobs).unwrap_or(1);
+        options
+    };
+    let list_format = |format: TestListFormat| match format {
+        TestListFormat::Human => KotoTestReportFormat::Human,
+        TestListFormat::Json => KotoTestReportFormat::Json,
+    };
+    match args.action {
+        None => run_options(args.run),
+        Some(TestAction::Run(run)) => run_options(run),
+        Some(TestAction::List(list)) => {
+            let mut options = suite_options(KotoTestAction::List, list.suite);
+            options.format = list_format(list.format);
+            options
         }
-        args.remove(index);
-        root = Some(PathBuf::from(args.remove(index)));
+        Some(TestAction::Coverage(coverage)) => {
+            let mut options = suite_options(KotoTestAction::Coverage, coverage.suite);
+            options.jobs = usize::try_from(coverage.jobs).unwrap_or(1);
+            options
+        }
+        Some(TestAction::Trace(trace)) => {
+            let mut options = suite_options(KotoTestAction::Trace, trace.suite);
+            options.format = list_format(trace.format);
+            options
+        }
     }
-    if root.is_some() && args.iter().any(|arg| arg == "--project") {
-        return Err("--source-root cannot be combined with --project".into());
-    }
-    Ok(root)
+}
+fn run_tests(args: TestArgs) -> Result<(), KotoError> {
+    kotodama_toolchain::koto_test_driver::run_cli(test_cli_options(args)).map_err(KotoError::from)
 }
 fn source_root_for_input(input: &Path, explicit: Option<&Path>) -> Result<PathBuf, String> {
     if let Some(root) = explicit {
         return root
             .canonicalize()
-            .map_err(|error| format!("resolve source root: {error}"));
+            .map_err(|error| format!("resolve source root `{}`: {error}", root.display()));
     }
     input
         .parent()
@@ -224,28 +674,78 @@ fn source_root_for_input(input: &Path, explicit: Option<&Path>) -> Result<PathBu
         .canonicalize()
         .map_err(|error| format!("resolve source root: {error}"))
 }
-fn check(mut args: Vec<String>) -> Result<(), String> {
-    let source_root = extract_source_root(&mut args)?;
-    let CheckOptions {
+fn check(args: CheckArgs) -> Result<(), KotoError> {
+    let CheckArgs {
         format,
-        zk_enabled,
-        chain_discriminant,
-        project,
-        inputs,
-    } = parse_check_options(args)?;
+        lints,
+        capabilities,
+        selection,
+        sources,
+    } = args;
+    let lint_flags = lints.config()?;
+    // A source that cannot be opened is an I/O failure (exit status 10), as in every other
+    // subcommand, not a diagnostic about Kotodama code.
+    if let Some((path, error)) = sources.iter().find_map(|path| {
+        std::fs::File::open(path)
+            .err()
+            .map(|error| (path.as_path(), error))
+    }) {
+        return Err(KotoError::Io(format!(
+            "cannot read `{}`: {error}",
+            path.display()
+        )));
+    }
+    let chain_discriminant = capabilities.chain_discriminant();
     let session = CompilerSession::new(CompilerOptions {
-        force_zk: zk_enabled,
+        force_zk: capabilities.zk,
         chain_discriminant,
         ..CompilerOptions::default()
     });
     let driver = BuildDriver::new(session, "koto-check");
-    let (checked, diagnostics) = match project {
-        Some(manifest) => check_locked_project(&driver, &manifest),
-        None => check_project_paths_with_root(&driver, inputs, source_root.as_deref()),
+    let (test_modules, sources): (Vec<_>, Vec<_>) = sources
+        .into_iter()
+        .partition(|path| is_test_module_path(path));
+    let (mut checked, mut diagnostics) = if sources.is_empty() {
+        (Vec::new(), DiagnosticBundle::new(Vec::new()))
+    } else {
+        check_project_paths_with_root(
+            &driver,
+            sources,
+            selection.source_root.as_deref(),
+            &lint_flags,
+        )
     };
+    let mut test_targets = Vec::new();
+    for module in test_modules {
+        match kotodama_toolchain::koto_test_driver::check_test_module_v1(
+            &module,
+            selection.source_root.as_deref(),
+            chain_discriminant,
+            capabilities.zk,
+        ) {
+            Ok(target) => {
+                test_targets.push((module.clone(), target));
+                checked.push(module);
+            }
+            Err(kotodama_toolchain::koto_test_driver::KotoTestCheckErrorV1::Diagnostics(
+                bundle,
+            )) => diagnostics.diagnostics.extend(bundle.diagnostics),
+            Err(kotodama_toolchain::koto_test_driver::KotoTestCheckErrorV1::Other(error)) => {
+                return Err(KotoError::from(error));
+            }
+        }
+    }
     if format == DiagnosticFormat::Human {
-        for path in checked {
-            println!("checked {}", path.display());
+        for path in &checked {
+            match test_targets.iter().find(|(module, _)| module == path) {
+                Some((_, target)) => println!(
+                    "checked {} (test module for {}; run `koto test {}`)",
+                    display_path(path),
+                    display_path(target),
+                    display_path(path)
+                ),
+                None => println!("checked {}", display_path(path)),
+            }
         }
         if !diagnostics.diagnostics.is_empty() {
             eprintln!("{}", format.render(&diagnostics));
@@ -261,41 +761,53 @@ fn check(mut args: Vec<String>) -> Result<(), String> {
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
-        Err("one or more sources failed validation".to_owned())
+        Err(KotoError::Failed(
+            "one or more sources failed validation".to_owned(),
+        ))
     } else {
         Ok(())
     }
 }
-fn check_locked_project(driver: &BuildDriver, manifest: &Path) -> (Vec<PathBuf>, DiagnosticBundle) {
-    let loaded = match load_source_project_manifest(manifest) {
-        Ok(loaded) => loaded,
-        Err(error) => {
-            let diagnostics = error.into_diagnostics().unwrap_or_else(|error| {
-                DiagnosticBundle::single(Diagnostic::error(
-                    "K0000",
-                    DiagnosticPhase::Lex,
-                    error.to_string(),
-                    None,
-                ))
-            });
-            return (Vec::new(), diagnostics);
-        }
-    };
-    check_loaded_project(driver, loaded)
+/// Display a path relative to the working directory when it lies inside it.
+fn display_path(path: &Path) -> String {
+    let relative = std::env::current_dir().ok().and_then(|cwd| {
+        let cwd = cwd.canonicalize().unwrap_or(cwd);
+        let absolute = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        absolute.strip_prefix(&cwd).ok().map(Path::to_path_buf)
+    });
+    relative
+        .filter(|relative| !relative.as_os_str().is_empty())
+        .unwrap_or_else(|| path.to_path_buf())
+        .display()
+        .to_string()
+}
+/// Whether `path` parses as a standalone test module (`module` with `koto_test { target: ... }`).
+///
+/// Unreadable or unparsable files are not test modules here; the ordinary check path reports
+/// their diagnostics.
+fn is_test_module_path(path: &Path) -> bool {
+    read_source_file(path).is_ok_and(|source| {
+        kotodama_lang::parser::parse(&source).is_ok_and(|program| program.test_target.is_some())
+    })
 }
 fn check_loaded_project(
     driver: &BuildDriver,
     loaded: LoadedSourceProject,
+    lint_flags: &LintConfig,
 ) -> (Vec<PathBuf>, DiagnosticBundle) {
+    let lint_config = loaded.lints.merged_with(lint_flags);
     let source_paths = loaded.source_paths;
-    let checked_graph = if kotodama_lang::parser::parse(&loaded.graph.root.source)
-        .is_ok_and(|program| program.unit.kind == kotodama_lang::ast::SourceUnitKind::Module)
-        && loaded.graph.imports.is_empty()
-        && loaded.graph.packages.is_empty()
-    {
-        driver.check_module_sources(loaded.graph.root, loaded.graph.sources)
-    } else {
-        driver.check_project(loaded.graph)
+    let checked_graph = match loaded.graph {
+        LoadedProjectGraph::Source(graph)
+            if kotodama_lang::parser::parse(&graph.root.source).is_ok_and(|program| {
+                program.unit.kind == kotodama_lang::ast::SourceUnitKind::Module
+            }) && graph.imports.is_empty()
+                && graph.packages.is_empty() =>
+        {
+            driver.check_module_sources(graph.root, graph.sources, graph.artifacts)
+        }
+        LoadedProjectGraph::Source(graph) => driver.check_project(graph),
+        LoadedProjectGraph::Package(graph) => driver.check_package_project(graph),
     };
     match checked_graph {
         Ok(warnings) => {
@@ -307,7 +819,8 @@ fn check_loaded_project(
                 .collect();
             let diagnostics = warnings
                 .into_iter()
-                .map(|warning| {
+                .filter_map(|warning| {
+                    let lint = leveled_lint(&lint_config, warning.warning)?;
                     let key = ProjectSourceKey {
                         package_identity: warning.package_identity.clone(),
                         source_name: warning.source_name.clone(),
@@ -315,11 +828,11 @@ fn check_loaded_project(
                     let path = source_paths
                         .get(&key)
                         .map_or_else(|| Path::new(&warning.source_name), PathBuf::as_path);
-                    warning.warning.to_diagnostic(
-                        &path.display().to_string(),
+                    Some(lint.to_diagnostic(
+                        &display_path(path),
                         warning.package_identity.as_deref(),
                         kotodama_lang::i18n::detect_language(),
-                    )
+                    ))
                 })
                 .collect();
             (checked, DiagnosticBundle::new(diagnostics))
@@ -345,15 +858,18 @@ fn check_project_paths(
     driver: &BuildDriver,
     inputs: Vec<PathBuf>,
 ) -> (Vec<PathBuf>, DiagnosticBundle) {
-    check_project_paths_with_root(driver, inputs, None)
+    check_project_paths_with_root(driver, inputs, None, &LintConfig::default())
 }
 fn check_project_paths_with_root(
     driver: &BuildDriver,
     inputs: Vec<PathBuf>,
     explicit_root: Option<&Path>,
+    lint_config: &LintConfig,
 ) -> (Vec<PathBuf>, DiagnosticBundle) {
     if let [input] = inputs.as_slice() {
-        let loaded = source_root_for_input(input, explicit_root)
+        let root = source_root_for_input(input, explicit_root);
+        let loaded = root
+            .clone()
             .map_err(|error| BuildError::InvalidPath {
                 path: input.clone(),
                 message: error,
@@ -361,17 +877,24 @@ fn check_project_paths_with_root(
             .and_then(|root| load_source_project(input, &root, &BTreeMap::new()));
         match loaded {
             Ok(loaded) => {
-                return check_loaded_project(driver, loaded);
+                return check_loaded_project(driver, loaded, lint_config);
             }
             Err(error) => {
-                let diagnostics = error.into_diagnostics().unwrap_or_else(|error| {
+                let mut diagnostics = error.into_diagnostics().unwrap_or_else(|error| {
                     DiagnosticBundle::single(Diagnostic::error(
                         "K0000",
-                        DiagnosticPhase::Resolve,
+                        DiagnosticPhase::Lex,
                         error.to_string(),
                         None,
                     ))
                 });
+                // Loading parses the source and its companions; name them by the same
+                // working-directory-relative paths as semantic diagnostics.
+                if let Ok(root) = root {
+                    for diagnostic in &mut diagnostics.diagnostics {
+                        remap_rooted_diagnostic_sources(diagnostic, &root);
+                    }
+                }
                 return (Vec::new(), diagnostics);
             }
         }
@@ -457,12 +980,13 @@ fn check_project_paths_with_root(
         match driver.check_explicit_sources(sources) {
             Ok(warnings) => {
                 checked.extend(project_inputs);
-                diagnostics.extend(warnings.into_iter().map(|warning| {
+                diagnostics.extend(warnings.into_iter().filter_map(|warning| {
+                    let lint = leveled_lint(lint_config, warning.warning)?;
                     let path = source_paths
                         .get(&warning.source_name)
                         .map(String::as_str)
                         .unwrap_or(warning.source_name.as_str());
-                    lint_diagnostic(warning.warning, Path::new(path))
+                    Some(lint_diagnostic(lint, Path::new(path)))
                 }));
             }
             Err(error) => match error.into_diagnostics() {
@@ -501,160 +1025,135 @@ fn check_paths(
     }
     (checked, DiagnosticBundle::new(diagnostics))
 }
-fn build(mut args: Vec<String>) -> Result<(), KotoError> {
-    let source_root = extract_source_root(&mut args)?;
-    let mut diagnostic_format = DiagnosticFormat::Human;
-    let mut profile = String::from("dev");
-    let mut target_dir = PathBuf::from("target/kotodama");
-    let mut explicit_output = None;
-    let mut explicit_manifest_output = None;
-    let mut max_cycles = None;
-    let mut chain_discriminant = None;
-    let mut zk_enabled = false;
-    let mut publish_mode = PublishMode::Write;
-    let mut project_manifest = None;
-    let mut inputs = Vec::new();
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--format" => {
-                index += 1;
-                diagnostic_format = DiagnosticFormat::parse(
-                    args.get(index)
-                        .ok_or_else(|| "--format requires a value".to_owned())?,
-                )?;
-            }
-            "--profile" => {
-                index += 1;
-                profile = args
-                    .get(index)
-                    .ok_or_else(|| "--profile requires a value".to_owned())?
-                    .clone();
-            }
-            "--target-dir" => {
-                index += 1;
-                target_dir = PathBuf::from(
-                    args.get(index)
-                        .ok_or_else(|| "--target-dir requires a value".to_owned())?,
-                );
-            }
-            "--out" => {
-                index += 1;
-                explicit_output = Some(PathBuf::from(
-                    args.get(index)
-                        .ok_or_else(|| "--out requires a value".to_owned())?,
-                ));
-            }
-            "--manifest-out" => {
-                index += 1;
-                explicit_manifest_output =
-                    Some(PathBuf::from(args.get(index).ok_or_else(|| {
-                        "--manifest-out requires a value".to_owned()
-                    })?));
-            }
-            "--max-cycles" => {
-                index += 1;
-                let raw = args
-                    .get(index)
-                    .ok_or_else(|| "--max-cycles requires a value".to_owned())?;
-                let parsed = raw
-                    .parse::<u64>()
-                    .map_err(|error| format!("invalid --max-cycles value `{raw}`: {error}"))?;
-                if parsed == 0 {
-                    return Err("--max-cycles must be greater than zero".to_owned().into());
-                }
-                max_cycles = Some(parsed);
-            }
-            "--chain-discriminant" => {
-                index += 1;
-                let raw = args
-                    .get(index)
-                    .ok_or_else(|| "--chain-discriminant requires a value".to_owned())?;
-                let parsed = parse_chain_discriminant(raw)?;
-                if chain_discriminant.replace(parsed).is_some() {
-                    return Err("--chain-discriminant may be supplied only once"
-                        .to_owned()
-                        .into());
-                }
-            }
-            "--zk" => zk_enabled = true,
-            "--verify" => publish_mode = PublishMode::Verify,
-            "--project" => {
-                index += 1;
-                let path = PathBuf::from(
-                    args.get(index)
-                        .ok_or_else(|| "--project requires a value".to_owned())?,
-                );
-                if project_manifest.replace(path).is_some() {
-                    return Err("--project may be supplied only once".to_owned().into());
-                }
-            }
-            flag if flag.starts_with('-') => {
-                return Err(format!("unknown build option `{flag}`").into());
-            }
-            path => inputs.push(PathBuf::from(path)),
-        }
-        index += 1;
-    }
-    if project_manifest.is_some() && !inputs.is_empty() {
-        return Err("--project cannot be combined with positional source paths"
-            .to_owned()
-            .into());
-    }
-    if project_manifest.is_none() && inputs.is_empty() {
-        return Err("build requires at least one .ko source".to_owned().into());
-    }
-    let build_count = if project_manifest.is_some() {
-        1
+fn build(args: BuildArgs) -> Result<(), KotoError> {
+    let BuildArgs {
+        format: diagnostic_format,
+        profile,
+        target_dir,
+        out: explicit_output,
+        manifest_out: explicit_manifest_output,
+        max_cycles,
+        upgrade_from,
+        verify,
+        capabilities,
+        selection,
+        sources: inputs,
+    } = args;
+    let publish_mode = if verify {
+        PublishMode::Verify
     } else {
-        inputs.len()
+        PublishMode::Write
     };
+    let source_root = selection.source_root;
+    let build_count = inputs.len();
     if explicit_output.is_some() && build_count != 1 {
-        return Err("--out can be used only when building one source"
-            .to_owned()
-            .into());
+        return Err(KotoError::Usage(
+            "--out can be used only when building one source".to_owned(),
+        ));
     }
     if explicit_manifest_output.is_some() && build_count != 1 {
-        return Err("--manifest-out can be used only when building one source"
-            .to_owned()
-            .into());
+        return Err(KotoError::Usage(
+            "--manifest-out can be used only when building one source".to_owned(),
+        ));
     }
+    if upgrade_from.is_some() && build_count != 1 {
+        return Err(KotoError::Usage(
+            "--upgrade-from can be used only when building one replacement source".to_owned(),
+        ));
+    }
+    let previous_artifact = upgrade_from
+        .as_ref()
+        .map(|path| {
+            let bytes = std::fs::read(path).map_err(|error| {
+                KotoError::Io(format!(
+                    "read previous artifact `{}`: {error}",
+                    path.display()
+                ))
+            })?;
+            ivm::verify_contract_artifact(&bytes).map_err(|error| {
+                upgrade_diagnostic(
+                    diagnostic_format,
+                    "E_UPGRADE_BASE_INVALID",
+                    format!(
+                        "previous artifact `{}` failed canonical admission: {error}",
+                        path.display()
+                    ),
+                )
+            })
+        })
+        .transpose()?;
     let mut compiler_options = CompilerOptions::default();
     if let Some(max_cycles) = max_cycles {
         compiler_options.max_cycles = max_cycles;
     }
-    if let Some(chain_discriminant) = chain_discriminant {
-        compiler_options.chain_discriminant = chain_discriminant;
-    }
-    compiler_options.force_zk = zk_enabled;
+    compiler_options.chain_discriminant = capabilities.chain_discriminant();
+    compiler_options.force_zk = capabilities.zk;
     let session = CompilerSession::new(compiler_options);
-    let driver = BuildDriver::for_current_executable(session).map_err(|error| error.to_string())?;
+    let driver = BuildDriver::for_current_executable(session)
+        .map_err(|error| build_error(diagnostic_format, error))?;
     let manifest_stdout = explicit_manifest_output.as_deref() == Some(Path::new("-"));
-    let projects = if let Some(manifest) = project_manifest.as_ref() {
-        let loaded = load_source_project_manifest(manifest)
-            .map_err(|error| build_error(diagnostic_format, error))?;
-        let source_name = loaded.graph.root.source_name.clone();
-        let stem = Path::new(&source_name)
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .ok_or_else(|| format!("{source_name} has no UTF-8 file stem"))?
-            .to_owned();
-        vec![(stem, source_name, loaded.graph)]
-    } else {
+    let mut diagnostic_sources = BTreeMap::<ProjectSourceKey, BTreeSet<PathBuf>>::new();
+    let mut remember_sources = |loaded: &LoadedSourceProject| {
+        for (key, path) in &loaded.source_paths {
+            diagnostic_sources
+                .entry(key.clone())
+                .or_default()
+                .insert(path.clone());
+        }
+    };
+    let projects = {
         let mut projects = Vec::with_capacity(inputs.len());
         for input in &inputs {
             let stem = input
                 .file_stem()
                 .and_then(|stem| stem.to_str())
-                .ok_or_else(|| format!("{} has no UTF-8 file stem", input.display()))?
+                .ok_or_else(|| {
+                    KotoError::Usage(format!("{} has no UTF-8 file stem", input.display()))
+                })?
                 .to_owned();
-            let project_root = source_root_for_input(input, source_root.as_deref())?;
-            let graph = discover_source_link_request(input, &project_root, Vec::new(), Vec::new())
-                .map_err(|error| error.to_string())?;
+            let project_root =
+                source_root_for_input(input, source_root.as_deref()).map_err(KotoError::Io)?;
+            let loaded = load_source_project(input, &project_root, &BTreeMap::new())
+                .map_err(|error| rooted_build_error(diagnostic_format, error, &project_root))?;
+            remember_sources(&loaded);
+            let LoadedProjectGraph::Source(graph) = loaded.graph else {
+                unreachable!("source loader returns a source graph")
+            };
             let source_name = graph.root.source_name.clone();
             projects.push((stem, source_name, graph));
         }
         projects
+    };
+    let migration_obligations = if let Some(previous) = previous_artifact.as_ref() {
+        let (_, source_name, graph) = &projects[0];
+        let replacement = driver
+            .compile_project(graph.clone(), source_name)
+            .map_err(|error| located_build_error(diagnostic_format, error, &diagnostic_sources))?;
+        let replacement =
+            ivm::verify_contract_artifact(&replacement.artifact).map_err(|error| {
+                KotoError::Internal(format!(
+                    "fresh replacement artifact failed canonical admission: {error}"
+                ))
+            })?;
+        let plan = ivm_abi::upgrade::validate_contract_upgrade(
+            &previous.contract_interface,
+            &replacement.contract_interface,
+        )
+        .map_err(|error| {
+            upgrade_diagnostic(
+                diagnostic_format,
+                "E_UPGRADE_INCOMPATIBLE",
+                error.to_string(),
+            )
+        })?;
+        Some(
+            plan.added_scalars
+                .iter()
+                .map(|state| state.name.clone())
+                .collect::<Vec<_>>(),
+        )
+    } else {
+        None
     };
     let mut requests = Vec::with_capacity(projects.len());
     for (stem, source_name, graph) in projects {
@@ -663,7 +1162,7 @@ fn build(mut args: Vec<String>) -> Result<(), KotoError> {
         } else {
             PublishLayout::standard(&target_dir, &profile, &stem, false)
         }
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| build_error(diagnostic_format, error))?;
         if let Some(manifest) = explicit_manifest_output
             .as_ref()
             .filter(|path| path.as_path() != Path::new("-"))
@@ -683,8 +1182,30 @@ fn build(mut args: Vec<String>) -> Result<(), KotoError> {
     }
     let outcomes = driver
         .build_project_batch(requests)
-        .map_err(|error| build_error(diagnostic_format, error))?;
+        .map_err(|error| located_build_error(diagnostic_format, error, &diagnostic_sources))?;
+    if let Some(scalars) = migration_obligations {
+        eprintln!(
+            "upgrade check: all existing durable state names and complete types are preserved"
+        );
+        if !scalars.is_empty() {
+            eprintln!(
+                "kaizen must initialize new scalar state: {}; the runtime validates these values during migration",
+                scalars.join(", "),
+            );
+        }
+    }
     for outcome in outcomes {
+        let warnings = kotodama_toolchain::deployment_diagnostics::artifact_deployment_warnings(
+            &outcome.artifact,
+        )
+        .map_err(|error| {
+            KotoError::Internal(format!(
+                "fresh artifact failed canonical admission: {error}"
+            ))
+        })?;
+        if !warnings.diagnostics.is_empty() {
+            eprintln!("{}", diagnostic_format.render(&warnings));
+        }
         let notice = match outcome.status {
             BuildStatus::Fresh => "fresh",
             BuildStatus::Built => "built",
@@ -693,8 +1214,9 @@ fn build(mut args: Vec<String>) -> Result<(), KotoError> {
             eprintln!("{notice} {}", outcome.paths.artifact.display());
             println!(
                 "{}",
-                norito::json::to_json_pretty(&outcome.manifest)
-                    .map_err(|error| format!("render contract manifest: {error}"))?
+                norito::json::to_json_pretty(&outcome.manifest).map_err(|error| {
+                    KotoError::Internal(format!("render contract manifest: {error}"))
+                })?
             );
         } else {
             println!("{notice} {}", outcome.paths.artifact.display());
@@ -702,136 +1224,203 @@ fn build(mut args: Vec<String>) -> Result<(), KotoError> {
     }
     Ok(())
 }
-fn format_sources(args: Vec<String>) -> Result<(), String> {
-    let (check_only, inputs) = parse_format_sources_args(args)?;
+/// Render upgrade preflight failures through the compiler's human, JSON and SARIF channels.
+fn upgrade_diagnostic(format: DiagnosticFormat, code: &str, message: String) -> KotoError {
+    KotoError::Diagnostics {
+        format,
+        diagnostics: DiagnosticBundle::single(Diagnostic::error(
+            code,
+            DiagnosticPhase::Artifact,
+            message,
+            None,
+        )),
+    }
+}
+fn format_sources(args: FmtArgs) -> Result<(), KotoError> {
+    let FmtArgs { check, paths } = args;
+    let paths = if paths.is_empty() {
+        vec![PathBuf::from(".")]
+    } else {
+        paths
+    };
+    let inputs = collect_format_inputs(&paths)?;
+    if inputs.is_empty() {
+        return Err(KotoError::Usage(format!(
+            "no `*.ko` sources found under {}",
+            paths
+                .iter()
+                .map(|path| format!("`{}`", path.display()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
+    }
     let mut changed = false;
+    let mut invalid = false;
     for path in inputs {
-        let source = read_source_file(&path).map_err(|error| error.to_string())?;
-        let formatted = format_source_text(&source, path.to_str())?;
+        let source = read_source_file(&path).map_err(|error| KotoError::Io(error.to_string()))?;
+        let formatted = match format_source_text(&source, path.to_str()) {
+            Ok(formatted) => formatted,
+            Err(diagnostics) => {
+                // Keep formatting the remaining files; one invalid file must not hide drift in
+                // the others.
+                eprintln!("{diagnostics}");
+                invalid = true;
+                continue;
+            }
+        };
         if formatted != source {
             changed = true;
-            if check_only {
-                eprintln!("would format {}", path.display());
+            if check {
+                println!("would format {}", display_path(&path));
             } else {
                 atomic_write_if_changed(&path, formatted.as_bytes())
-                    .map_err(|error| error.to_string())?;
-                println!("formatted {}", path.display());
+                    .map_err(|error| KotoError::Io(error.to_string()))?;
+                println!("formatted {}", display_path(&path));
             }
         }
     }
-    if check_only && changed {
-        Err("one or more sources require formatting".to_owned())
+    if invalid {
+        Err(KotoError::Failed(
+            "one or more sources are not valid Kotodama and were left unchanged".to_owned(),
+        ))
+    } else if check && changed {
+        Err(KotoError::Failed(
+            "one or more sources require formatting; run `koto fmt` to rewrite them".to_owned(),
+        ))
     } else {
         Ok(())
     }
 }
-fn parse_format_sources_args(args: Vec<String>) -> Result<(bool, Vec<PathBuf>), String> {
-    let mut check_only = false;
-    let mut check_seen = false;
-    let mut positional_only = false;
-    let mut inputs = Vec::new();
-    for argument in args {
-        match argument.as_str() {
-            "--" if !positional_only => positional_only = true,
-            "--check" if !positional_only && !check_seen => {
-                check_only = true;
-                check_seen = true;
-            }
-            "--check" if !positional_only => {
-                return Err("fmt option `--check` was supplied more than once".to_owned());
-            }
-            flag if !positional_only && flag.starts_with('-') => {
-                return Err(format!("unknown fmt option `{flag}`"));
-            }
-            "" => return Err("fmt input path must not be empty".to_owned()),
-            _ => inputs.push(PathBuf::from(argument)),
+/// Expand `koto fmt` operands: files are kept as given and directories are searched recursively
+/// for `*.ko` sources in sorted order, skipping hidden directories, `target`, and symbolic links.
+fn collect_format_inputs(paths: &[PathBuf]) -> Result<Vec<PathBuf>, KotoError> {
+    let mut inputs = BTreeSet::new();
+    for path in paths {
+        let metadata = std::fs::metadata(path)
+            .map_err(|error| KotoError::Io(format!("read `{}`: {error}", path.display())))?;
+        if metadata.is_dir() {
+            collect_ko_sources(path, &mut inputs)?;
+        } else {
+            inputs.insert(path.clone());
         }
     }
-    if inputs.is_empty() {
-        return Err("fmt requires at least one .ko source".to_owned());
+    Ok(inputs.into_iter().collect())
+}
+fn collect_ko_sources(directory: &Path, out: &mut BTreeSet<PathBuf>) -> Result<(), KotoError> {
+    let entries = std::fs::read_dir(directory)
+        .map_err(|error| KotoError::Io(format!("read `{}`: {error}", directory.display())))?;
+    for entry in entries {
+        let entry = entry
+            .map_err(|error| KotoError::Io(format!("read `{}`: {error}", directory.display())))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|error| KotoError::Io(format!("read `{}`: {error}", directory.display())))?;
+        let path = entry.path();
+        let hidden_or_output = entry
+            .file_name()
+            .to_str()
+            .is_none_or(|name| name.starts_with('.') || name == "target");
+        if file_type.is_dir() {
+            if !hidden_or_output {
+                collect_ko_sources(&path, out)?;
+            }
+        } else if file_type.is_file() && path.extension().is_some_and(|extension| extension == "ko")
+        {
+            out.insert(path);
+        }
     }
-    Ok((check_only, inputs))
+    Ok(())
 }
 fn format_source_text(source: &str, source_name: Option<&str>) -> Result<String, String> {
     let file = SourceFile::new(SourceId(0), source_name.unwrap_or("<source>"), source);
-    format_source(&file, FrontendBudget::v1()).map_err(|diagnostics| diagnostics.render_human())
+    format_source(&file, FrontendBudget::v1())
+        .map_err(|diagnostics| DiagnosticFormat::Human.render(&diagnostics))
 }
-fn document(mut args: Vec<String>) -> Result<(), String> {
-    let source_root = extract_source_root(&mut args)?;
-    let project_manifest = if let Some(index) = args.iter().position(|arg| arg == "--project") {
-        args.remove(index);
-        if index >= args.len() {
-            return Err("--project requires a value".into());
-        }
-        Some(PathBuf::from(args.remove(index)))
-    } else {
-        None
-    };
-    let mut format = "markdown";
-    let mut zk_enabled = false;
-    let mut input = None;
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--format" => {
-                index += 1;
-                format = args
-                    .get(index)
-                    .ok_or_else(|| "doc --format requires a value".to_owned())?;
-                if !matches!(format, "markdown" | "json") {
-                    return Err(format!(
-                        "unknown doc format `{format}`; expected markdown or json"
-                    ));
-                }
+fn document(args: DocArgs) -> Result<(), KotoError> {
+    let DocArgs {
+        builtins,
+        format,
+        capabilities,
+        selection,
+        source,
+    } = args;
+    if builtins {
+        let rendered = match format {
+            DocFormat::Markdown => doc_builtins::markdown(),
+            DocFormat::Json => {
+                norito::json::to_json_pretty(&doc_builtins::json().map_err(KotoError::Internal)?)
+                    .map_err(|error| {
+                        KotoError::Internal(format!("render builtin reference: {error}"))
+                    })?
             }
-            "--zk" => zk_enabled = true,
-            flag if flag.starts_with('-') => {
-                return Err(format!("unknown doc option `{flag}`"));
-            }
-            path if input.is_none() => input = Some(PathBuf::from(path)),
-            _ => return Err("doc expects exactly one .ko source".to_owned()),
-        }
-        index += 1;
-    }
-    if project_manifest.is_some() && input.is_some() {
-        return Err("--project cannot be combined with a source path".into());
+        };
+        println!("{rendered}");
+        return Ok(());
     }
     let session = CompilerSession::new(CompilerOptions {
-        force_zk: zk_enabled,
+        force_zk: capabilities.zk,
+        chain_discriminant: capabilities.chain_discriminant(),
         ..CompilerOptions::default()
     });
-    let graph = if let Some(manifest) = project_manifest {
-        load_source_project_manifest(&manifest)
-            .map_err(|error| error.to_string())?
-            .graph
-    } else {
-        let path = input.ok_or_else(|| "doc expects a .ko source or --project".to_owned())?;
-        let project_root = source_root_for_input(&path, source_root.as_deref())?;
+    let graph = {
+        let path = source.ok_or_else(|| KotoError::Usage("doc expects a .ko source".to_owned()))?;
+        let project_root = source_root_for_input(&path, selection.source_root.as_deref())
+            .map_err(KotoError::Io)?;
         discover_source_link_request(&path, &project_root, Vec::new(), Vec::new())
-            .map_err(|error| error.to_string())?
+            .map_err(|error| build_error(DiagnosticFormat::Human, error))?
     };
     let source_name = graph.root.source_name.clone();
-    let analysis = kotodama_lang::editor::EditorSnapshot::project(&graph, zk_enabled);
+    let root_source = graph.root.source.clone();
+    let analysis = kotodama_lang::editor::EditorSnapshot::project(&graph, capabilities.zk);
     let source_id = analysis
         .sources()
         .find(|source| source.name() == source_name)
         .map(SourceFile::id)
         .ok_or_else(|| {
-            "documentation source is absent from the explicit project graph".to_owned()
+            KotoError::Internal(
+                "documentation source is absent from the explicit project graph".to_owned(),
+            )
         })?;
     let source_signatures = analysis.unit_declaration_signatures(source_id);
     let driver = BuildDriver::new(session, "koto-doc");
     let output = driver
         .compile_project(graph, &source_name)
-        .map_err(|error| error.to_string())?;
-    let rendered = if format == "json" {
-        norito::json::to_json_pretty(&contract_documentation_json(
-            &output.manifest,
-            &source_signatures,
-        )?)
-        .map_err(|error| format!("render contract interface: {error}"))?
-    } else {
-        render_contract_documentation(&output.manifest, &source_signatures)
+        .map_err(|error| build_error(DiagnosticFormat::Human, error))?;
+    let verified = ivm::verify_contract_artifact(&output.artifact).map_err(|error| {
+        KotoError::Internal(format!("documentation artifact failed admission: {error}"))
+    })?;
+    let private_input_entrypoints = verified.private_input_entrypoints();
+    let rendered = match format {
+        DocFormat::Json => {
+            let mut documentation =
+                contract_documentation_json(&output.manifest, &source_signatures)
+                    .map_err(KotoError::Internal)?;
+            let requires_private_input_host = !private_input_entrypoints.is_empty();
+            let private_input_names = private_input_entrypoints.to_vec();
+            let requirements = norito::json!({
+                "requires_private_input_host": requires_private_input_host,
+                "private_input_entrypoints": private_input_names,
+            });
+            if let norito::json::Value::Object(fields) = &mut documentation {
+                fields.insert("deployment_requirements".to_owned(), requirements);
+            }
+            norito::json::to_json_pretty(&documentation).map_err(|error| {
+                KotoError::Internal(format!("render contract interface: {error}"))
+            })?
+        }
+        DocFormat::Markdown => {
+            let mut rendered = render_contract_documentation(
+                &output.manifest,
+                &DocumentationContext::new(&source_signatures, Some(&root_source)),
+            );
+            if !private_input_entrypoints.is_empty() {
+                rendered.push_str(&format!(
+                    "\n> Prover/test host required: {} reach raw private-input transport. Production consensus hosts do not provide private witnesses. Generate proofs off-chain and deploy a public-proof verifier.\n",
+                    private_input_entrypoints.iter().map(|name| format!("`{}`", markdown_inline(name))).collect::<Vec<_>>().join(", ")
+                ));
+            }
+            rendered
+        }
     };
     println!("{rendered}");
     Ok(())
@@ -869,6 +1458,10 @@ fn contract_documentation_json(
                 ("name", Value::from(signature.name.clone())),
                 ("parameters", Value::Array(parameters)),
                 ("return_type", Value::from(signature.return_type.clone())),
+                (
+                    "documentation",
+                    Value::from(signature.authored_documentation.clone()),
+                ),
             ])
         })
         .collect::<Result<Vec<_>, _>>()
@@ -882,9 +1475,188 @@ fn contract_documentation_json(
     ])
     .map_err(|error| error.to_string())
 }
+/// Inputs to `koto doc` beyond the manifest: the source-form signatures and the keyword spelling
+/// written at each declaration.
+struct DocumentationContext<'a> {
+    signatures: &'a [kotodama_lang::editor::EditorSignature],
+    spellings: BTreeMap<String, String>,
+}
+impl<'a> DocumentationContext<'a> {
+    fn new(signatures: &'a [kotodama_lang::editor::EditorSignature], source: Option<&str>) -> Self {
+        Self {
+            signatures,
+            spellings: source.map(declared_keyword_spellings).unwrap_or_default(),
+        }
+    }
+}
+/// Map each kotoage, hajimari and kaizen declaration to the keyword spelling written in source,
+/// so generated documentation echoes `言挙げ` where the author wrote `言挙げ`.
+fn declared_keyword_spellings(source: &str) -> BTreeMap<String, String> {
+    use kotodama_lang::lexer::TokenKind;
+    let Ok(tokens) = kotodama_lang::lexer::lex(source) else {
+        return BTreeMap::new();
+    };
+    let spelling = |token: &kotodama_lang::lexer::Token| {
+        source
+            .get(token.range.start as usize..token.range.end as usize)
+            .map(ToOwned::to_owned)
+    };
+    let mut spellings = BTreeMap::new();
+    for (index, token) in tokens.iter().enumerate() {
+        match token.kind {
+            TokenKind::Kotoage => {
+                if let (Some(fn_token), Some(name_token)) =
+                    (tokens.get(index + 1), tokens.get(index + 2))
+                    && fn_token.kind == TokenKind::Fn
+                    && let TokenKind::Ident(name) = &name_token.kind
+                    && let Some(written) = spelling(token)
+                {
+                    spellings.insert(name.clone(), written);
+                }
+            }
+            TokenKind::Hajimari | TokenKind::Kaizen => {
+                let entry = if token.kind == TokenKind::Hajimari {
+                    "hajimari"
+                } else {
+                    "kaizen"
+                };
+                if let Some(written) = spelling(token) {
+                    spellings.insert(entry.to_owned(), written);
+                }
+            }
+            _ => {}
+        }
+    }
+    spellings
+}
+/// Canonical JSON example for one argument schema: the exact object `koto test`, Torii and the
+/// CLIs accept for this entrypoint. Numbers that would lose precision in JSON (`int`, `decimal`,
+/// `quantity`) are decimal strings.
+fn argument_example(
+    schema: &iroha_data_model::smart_contract::entrypoint::EntrypointArgumentSchemaV1,
+) -> String {
+    let fields = schema
+        .fields
+        .iter()
+        .map(|field| {
+            let mut index = 0;
+            format!(
+                "{}: {}",
+                norito::json::to_string(&norito::json::Value::from(field.name.clone()))
+                    .unwrap_or_else(|_| format!("\"{}\"", field.name)),
+                value_example(&field.ty.nodes, &mut index)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{{{fields}}}")
+}
+fn value_example(
+    nodes: &[iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1],
+    index: &mut usize,
+) -> String {
+    use iroha_data_model::smart_contract::entrypoint::{
+        EntrypointValueKindV1 as Kind, EntrypointValueTypeNodeV1 as Node,
+    };
+    let Some(node) = nodes.get(*index) else {
+        return "null".to_owned();
+    };
+    *index += 1;
+    match node {
+        Node::Struct(structure) => {
+            let fields = structure
+                .fields
+                .iter()
+                .map(|field| format!("\"{field}\": {}", value_example(nodes, index)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{{{fields}}}")
+        }
+        Node::Tuple(arity) => {
+            let items = (0..*arity)
+                .map(|_| value_example(nodes, index))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("[{items}]")
+        }
+        Node::Option => {
+            skip_value(nodes, index);
+            "{\"none\": true}".to_owned()
+        }
+        Node::Result => {
+            let ok = value_example(nodes, index);
+            skip_value(nodes, index);
+            format!("{{\"ok\": {ok}}}")
+        }
+        Node::List(_) => {
+            skip_value(nodes, index);
+            "[]".to_owned()
+        }
+        Node::Unit => "null".to_owned(),
+        Node::Error(error) => error.variants.first().map_or_else(
+            || "null".to_owned(),
+            |variant| format!("\"{}\"", variant.name),
+        ),
+        Node::Enum(error) => error.variants.first().map_or_else(
+            || "null".to_owned(),
+            |variant| format!("\"{}\"", variant.name),
+        ),
+        Node::StateCursor(_) => "\"0x…\"".to_owned(),
+        Node::Leaf(kind) => match kind {
+            Kind::Int | Kind::Quantity => "\"0\"",
+            Kind::Decimal => "\"0.0\"",
+            Kind::Bool => "false",
+            Kind::String => "\"\"",
+            Kind::Json => "{}",
+            Kind::Name => "\"name\"",
+            Kind::AccountId => "\"<account id>\"",
+            Kind::AssetDefinitionId => "\"<asset definition id>\"",
+            Kind::AssetId => "\"<asset id>\"",
+            Kind::DomainId => "\"<domain>.<dataspace>\"",
+            Kind::NftId => "\"<nft id>\"",
+            Kind::DataSpaceId => "0",
+            Kind::Blob => "\"0x\"",
+        }
+        .to_owned(),
+    }
+}
+/// Encoding rules `koto doc` states for one argument schema, each only when a parameter uses it:
+/// numbers that would lose precision in JSON are decimal strings, and options are tagged objects.
+fn argument_encoding_notes(
+    schema: &iroha_data_model::smart_contract::entrypoint::EntrypointArgumentSchemaV1,
+) -> String {
+    use iroha_data_model::smart_contract::entrypoint::{
+        EntrypointValueKindV1 as Kind, EntrypointValueTypeNodeV1 as Node,
+    };
+    let nodes = || schema.fields.iter().flat_map(|field| &field.ty.nodes);
+    let mut notes = String::new();
+    if nodes().any(|node| matches!(node, Node::Leaf(Kind::Int | Kind::Decimal | Kind::Quantity))) {
+        notes.push_str(" `int`, `decimal` and `quantity` values are canonical decimal strings.");
+    }
+    if nodes().any(|node| matches!(node, Node::Option)) {
+        notes.push_str(" Options are `{\"some\": value}` or `{\"none\": true}`.");
+    }
+    if nodes().any(|node| matches!(node, Node::Enum(_))) {
+        notes.push_str(
+            " Ordinary enum values use the exact declared variant name as a JSON string.",
+        );
+    }
+    notes
+}
+/// Advance `index` past one complete value subtree.
+fn skip_value(
+    nodes: &[iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1],
+    index: &mut usize,
+) {
+    let _ = value_example(nodes, index);
+}
+/// Whether an error identity is owned by the compiler rather than declared by the seiyaku.
+fn is_compiler_owned_error(identity: &str) -> bool {
+    identity.starts_with("kotodama::")
+}
 fn render_contract_documentation(
     manifest: &iroha_data_model::smart_contract::manifest::ContractManifest,
-    source_signatures: &[kotodama_lang::editor::EditorSignature],
+    context: &DocumentationContext<'_>,
 ) -> String {
     use iroha_data_model::smart_contract::manifest::EntryPointKind;
     use std::fmt::Write as _;
@@ -896,99 +1668,57 @@ fn render_contract_documentation(
     if let Some(abi_hash) = manifest.abi_hash.as_ref() {
         let _ = writeln!(output, "ABI V1: `{abi_hash}`");
     }
-    output.push_str("\n## `kotoage` / `言挙げ`, views, and lifecycle\n");
-    for entrypoint in manifest.entrypoints.as_deref().unwrap_or_default() {
-        let parameters = entrypoint
-            .params
+    if !manifest.permissions.is_empty() {
+        use iroha_data_model::smart_contract::manifest::ContractPermissionScopeV1;
+        output.push_str("\n## Declared permissions\n\n| Name | Grant scope |\n| --- | --- |\n");
+        for permission in &manifest.permissions {
+            let scope = match &permission.scope {
+                ContractPermissionScopeV1::Instance => "this deployed instance".to_owned(),
+                ContractPermissionScopeV1::Chain { permission_name } => format!(
+                    "explicit chain import `{}`",
+                    markdown_inline(permission_name.as_ref())
+                ),
+            };
+            let _ = writeln!(
+                output,
+                "| `{}` | {scope} |",
+                markdown_inline(permission.name.as_ref())
+            );
+        }
+    }
+    let entrypoints = manifest.entrypoints.as_deref().unwrap_or_default();
+    let keyword = |romaji: &str| {
+        kotodama_lang::glossary::by_spelling(romaji).map_or_else(
+            || format!("`{romaji}`"),
+            |keyword| format!("`{}` / `{}`", keyword.romaji, keyword.kanji),
+        )
+    };
+    let sections = [
+        (
+            EntryPointKind::Kotoage,
+            format!("{} (authorized public mutations)", keyword("kotoage")),
+        ),
+        (EntryPointKind::View, "Views (read-only calls)".to_owned()),
+        (
+            EntryPointKind::Hajimari,
+            format!("Lifecycle: {}", keyword("hajimari")),
+        ),
+        (
+            EntryPointKind::Kaizen,
+            format!("Lifecycle: {}", keyword("kaizen")),
+        ),
+    ];
+    for (kind, title) in sections {
+        let declared = entrypoints
             .iter()
-            .map(|parameter| {
-                format!(
-                    "{}: {}",
-                    markdown_inline(&parameter.name),
-                    markdown_inline(&parameter.type_name)
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-        let return_type = entrypoint
-            .return_type
-            .as_deref()
-            .map_or(String::new(), |ty| format!(" -> {}", markdown_inline(ty)));
-        let _ = writeln!(
-            output,
-            "\n### `{}({}){}`",
-            markdown_inline(&entrypoint.name),
-            parameters,
-            return_type
-        );
-        output
-            .push_str("\nExternal arguments use a JSON record with these declared field names.\n");
-        if let Some(signature) = source_signatures
-            .iter()
-            .find(|signature| signature.name == entrypoint.name)
-        {
-            let _ = writeln!(
-                output,
-                "Source declaration: `{}`",
-                markdown_inline(&signature.label())
-            );
+            .filter(|entrypoint| entrypoint.kind == kind)
+            .collect::<Vec<_>>();
+        if declared.is_empty() {
+            continue;
         }
-        let declaration = match entrypoint.kind {
-            EntryPointKind::Kotoage => {
-                "Declaration: `kotoage`/`言挙げ` (authorized public mutation)"
-            }
-            EntryPointKind::View => "Declaration: `view` (read-only call)",
-            EntryPointKind::Hajimari => "Lifecycle declaration: `hajimari`/`始まり`",
-            EntryPointKind::Kaizen => "Lifecycle declaration: `kaizen`/`改善`",
-        };
-        let _ = writeln!(output, "\n{declaration}");
-        match entrypoint.permission.as_deref() {
-            Some(permission) => {
-                let _ = writeln!(output, "Authorization: `{}`", markdown_inline(permission));
-            }
-            None if matches!(
-                entrypoint.kind,
-                EntryPointKind::Hajimari | EntryPointKind::Kaizen
-            ) =>
-            {
-                output.push_str("Authorization: runtime-defined lifecycle policy\n");
-            }
-            None => output.push_str("Authorization: public\n"),
-        }
-        let access_status = if entrypoint.access_hints_complete == Some(true)
-            && entrypoint.access_hints_skipped.is_empty()
-        {
-            "complete compiler derivation"
-        } else {
-            "conservative serialization required"
-        };
-        let _ = writeln!(output, "Access analysis: {access_status}");
-        if !entrypoint.read_keys.is_empty() {
-            let _ = writeln!(
-                output,
-                "Reads: {}",
-                entrypoint
-                    .read_keys
-                    .iter()
-                    .map(|key| format!("`{}`", markdown_inline(key)))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
-        if !entrypoint.write_keys.is_empty() {
-            let _ = writeln!(
-                output,
-                "Writes: {}",
-                entrypoint
-                    .write_keys
-                    .iter()
-                    .map(|key| format!("`{}`", markdown_inline(key)))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
-        for reason in &entrypoint.access_hints_skipped {
-            let _ = writeln!(output, "Access note: {}", markdown_inline(reason));
+        let _ = writeln!(output, "\n## {title}");
+        for entrypoint in declared {
+            render_entrypoint_documentation(&mut output, entrypoint, context);
         }
     }
     if let Some(states) = manifest.states.as_deref()
@@ -1004,11 +1734,45 @@ fn render_contract_documentation(
             );
         }
     }
-    if let Some(error_types) = manifest.error_types.as_deref()
-        && !error_types.is_empty()
-    {
-        output.push_str("\n## Seiyaku errors\n");
-        for error in error_types {
+    if !manifest.enum_types.is_empty() {
+        output.push_str("\n## Ordinary enums\n");
+        for descriptor in &manifest.enum_types {
+            let _ = writeln!(
+                output,
+                "\n- `{}`: {}",
+                markdown_inline(&descriptor.identity),
+                descriptor
+                    .variants
+                    .iter()
+                    .map(|variant| format!(
+                        "`{}` ({})",
+                        markdown_inline(&variant.name),
+                        variant.code
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+    }
+    if !manifest.events.is_empty() {
+        output.push_str("\n## Events\n\nCommitted emissions carry the authenticated contract, artifact, entrypoint and caller alongside this payload.\n");
+        for event in &manifest.events {
+            let mut index = 0;
+            let example = value_example(&event.payload_type.nodes, &mut index);
+            let _ = writeln!(
+                output,
+                "\n### `{}`\n\n```json\n{}\n```",
+                markdown_inline(event.name.as_ref()),
+                example
+            );
+        }
+    }
+    let error_types = manifest.error_types.as_deref().unwrap_or_default();
+    let render_errors = |output: &mut String| {
+        for error in error_types
+            .iter()
+            .filter(|error| !is_compiler_owned_error(&error.identity))
+        {
             for variant in &error.variants {
                 let _ = writeln!(
                     output,
@@ -1019,32 +1783,197 @@ fn render_contract_documentation(
                 );
             }
         }
+    };
+    if error_types
+        .iter()
+        .any(|error| !is_compiler_owned_error(&error.identity))
+    {
+        output.push_str("\n## Seiyaku errors\n");
+        render_errors(&mut output);
+    }
+    let compiler_owned = error_types
+        .iter()
+        .filter(|error| is_compiler_owned_error(&error.identity))
+        .collect::<Vec<_>>();
+    if !compiler_owned.is_empty() {
+        output.push_str(
+            "\n## Runtime errors\n\nCompiler-owned errors that checked list and numeric operations can raise in any seiyaku:\n",
+        );
+        for error in compiler_owned {
+            let _ = writeln!(
+                output,
+                "\n- `{}`: {}",
+                markdown_inline(&error.identity),
+                error
+                    .variants
+                    .iter()
+                    .map(|variant| format!(
+                        "`{}` ({})",
+                        markdown_inline(&variant.name),
+                        variant.code
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
     }
     output
 }
-fn explain(args: Vec<String>) -> Result<(), String> {
-    if args.len() != 1 {
-        return Err("explain expects one diagnostic code".to_owned());
-    }
-    let code = args[0].to_ascii_uppercase();
-    let explanation = kotodama_lang::diagnostic::diagnostic_explanation(&code)
-        .ok_or_else(|| format!("no explanation is registered for `{code}`"))?;
-    println!(
-        "{} [{}]: {}\nhelp: {}",
-        explanation.code,
-        explanation.phase.as_str(),
-        explanation.summary,
-        explanation.help
+fn render_entrypoint_documentation(
+    output: &mut String,
+    entrypoint: &iroha_data_model::smart_contract::manifest::EntrypointDescriptor,
+    context: &DocumentationContext<'_>,
+) {
+    use iroha_data_model::smart_contract::manifest::EntryPointKind;
+    use std::fmt::Write as _;
+    let written = context.spellings.get(&entrypoint.name).map(String::as_str);
+    let _ = writeln!(
+        output,
+        "\n### `{}`\n",
+        markdown_inline(&entrypoint_declaration(entrypoint, context, written))
     );
-    Ok(())
+    if let Some(signature) = context
+        .signatures
+        .iter()
+        .find(|signature| signature.name == entrypoint.name)
+        && !signature.authored_documentation.is_empty()
+    {
+        let _ = writeln!(output, "{}\n", signature.authored_documentation);
+    }
+    let declaration = match entrypoint.kind {
+        EntryPointKind::Kotoage => format!(
+            "Declared with `{}`: an authorized call that may change durable state and the ledger.",
+            written.unwrap_or("kotoage")
+        ),
+        EntryPointKind::View => "Declared with `view`: a read-only call.".to_owned(),
+        EntryPointKind::Hajimari => format!(
+            "Declared with `{}`: the one-shot activation hook. Until it runs, every other call and view is rejected.",
+            written.unwrap_or("hajimari")
+        ),
+        EntryPointKind::Kaizen => format!(
+            "Declared with `{}`: the migration hook run once after this seiyaku's code is replaced in place.",
+            written.unwrap_or("kaizen")
+        ),
+    };
+    let _ = writeln!(output, "{declaration}");
+    use iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1;
+    match &entrypoint.authorization {
+        EntrypointAuthorizationV1::Permission(permission) => {
+            let _ = writeln!(
+                output,
+                "Authorization: declared permission `{}`",
+                markdown_inline(permission.as_ref())
+            );
+        }
+        EntrypointAuthorizationV1::RuntimeLifecycle => {
+            output.push_str(
+                "Authorization: the runtime `CanInvokeContractEntrypoint` lifecycle permission\n",
+            );
+        }
+        EntrypointAuthorizationV1::Anyone => output.push_str("Authorization: anyone\n"),
+    }
+    match entrypoint.argument_schema.as_ref() {
+        Some(schema) => {
+            let _ = writeln!(
+                output,
+                "Arguments: a JSON object keyed by parameter name, for example `{}`.{}",
+                markdown_inline(&argument_example(schema)),
+                argument_encoding_notes(schema)
+            );
+        }
+        None if !entrypoint.params.is_empty() => {
+            output.push_str("Arguments: a JSON object keyed by parameter name; `int`, `decimal` and `quantity` values are canonical decimal strings.\n");
+        }
+        None => output.push_str("Arguments: none (send `{}`).\n"),
+    }
+    let complete = entrypoint.access_hints_complete == Some(true)
+        && entrypoint.access_hints_skipped.is_empty();
+    if complete {
+        output.push_str("Access analysis: complete; the scheduler can run this call in parallel with calls that touch other keys.\n");
+    } else {
+        output.push_str("Access analysis: conservative; the compiler could not list every key this call touches, so the scheduler serializes it with other calls to this seiyaku. This affects throughput, not correctness.\n");
+    }
+    if !entrypoint.read_keys.is_empty() {
+        let _ = writeln!(
+            output,
+            "Reads: {}",
+            entrypoint
+                .read_keys
+                .iter()
+                .map(|key| format!("`{}`", markdown_inline(key)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    if !entrypoint.write_keys.is_empty() {
+        let _ = writeln!(
+            output,
+            "Writes: {}",
+            entrypoint
+                .write_keys
+                .iter()
+                .map(|key| format!("`{}`", markdown_inline(key)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    for reason in &entrypoint.access_hints_skipped {
+        let _ = writeln!(output, "Access note: {}", markdown_inline(reason));
+    }
 }
-#[derive(Debug, PartialEq, Eq)]
-struct CheckOptions {
-    format: DiagnosticFormat,
-    zk_enabled: bool,
-    chain_discriminant: u16,
-    project: Option<PathBuf>,
-    inputs: Vec<PathBuf>,
+/// Source-syntax declaration header of an entrypoint, as `koto doc` headings show it.
+///
+/// Uses the editor snapshot's declaration (which keeps the keyword spelling written at the
+/// declaration site) and otherwise renders the manifest descriptor through the shared
+/// [`kotodama_lang::signature_render`] printer.
+fn entrypoint_declaration(
+    entrypoint: &iroha_data_model::smart_contract::manifest::EntrypointDescriptor,
+    context: &DocumentationContext<'_>,
+    written: Option<&str>,
+) -> String {
+    use iroha_data_model::smart_contract::manifest::EntryPointKind;
+    use kotodama_lang::{
+        ast::FunctionKind,
+        signature_render::{RenderParameter, SourceDeclaration, source_declaration},
+    };
+    if let Some(declaration) = context
+        .signatures
+        .iter()
+        .find(|signature| signature.name == entrypoint.name)
+        .map(|signature| signature.declaration.as_str())
+        .filter(|declaration| !declaration.is_empty())
+    {
+        return declaration.to_owned();
+    }
+    let parameters = entrypoint
+        .params
+        .iter()
+        .map(|parameter| RenderParameter {
+            name: &parameter.name,
+            ty: &parameter.type_name,
+            named: true,
+        })
+        .collect::<Vec<_>>();
+    source_declaration(&SourceDeclaration {
+        documentation: None,
+        kind: match entrypoint.kind {
+            EntryPointKind::Kotoage => FunctionKind::Kotoage,
+            EntryPointKind::View => FunctionKind::View,
+            EntryPointKind::Hajimari => FunctionKind::Hajimari,
+            EntryPointKind::Kaizen => FunctionKind::Kaizen,
+        },
+        keyword: written,
+        name: &entrypoint.name,
+        parameters: &parameters,
+        return_type: entrypoint.return_type.as_deref().unwrap_or("()"),
+        authorization: match &entrypoint.authorization {
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone => Some("anyone"),
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(name) => Some(name.as_ref()),
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::RuntimeLifecycle => None,
+        },
+        is_test: false,
+        fixture: None,
+    })
 }
 fn parse_chain_discriminant(raw: &str) -> Result<u16, String> {
     if raw.is_empty()
@@ -1064,63 +1993,6 @@ fn parse_chain_discriminant(raw: &str) -> Result<u16, String> {
         return Err("--chain-discriminant must be in 1..=65535".to_owned());
     }
     Ok(value)
-}
-fn parse_check_options(args: Vec<String>) -> Result<CheckOptions, String> {
-    let mut format = DiagnosticFormat::Human;
-    let mut zk_enabled = false;
-    let mut chain_discriminant = None;
-    let mut project = None;
-    let mut inputs = Vec::new();
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--format" => {
-                index += 1;
-                format = DiagnosticFormat::parse(
-                    args.get(index)
-                        .ok_or_else(|| "--format requires a value".to_owned())?,
-                )?;
-            }
-            "--zk" => zk_enabled = true,
-            "--chain-discriminant" => {
-                index += 1;
-                let raw = args
-                    .get(index)
-                    .ok_or_else(|| "--chain-discriminant requires a value".to_owned())?;
-                let parsed = parse_chain_discriminant(raw)?;
-                if chain_discriminant.replace(parsed).is_some() {
-                    return Err("--chain-discriminant may be supplied only once".to_owned());
-                }
-            }
-            "--project" => {
-                index += 1;
-                let path = PathBuf::from(
-                    args.get(index)
-                        .ok_or_else(|| "--project requires a value".to_owned())?,
-                );
-                if project.replace(path).is_some() {
-                    return Err("--project may be supplied only once".to_owned());
-                }
-            }
-            flag if flag.starts_with('-') => return Err(format!("unknown option `{flag}`")),
-            path => inputs.push(PathBuf::from(path)),
-        }
-        index += 1;
-    }
-    if project.is_some() && !inputs.is_empty() {
-        return Err("--project cannot be combined with positional source paths".to_owned());
-    }
-    if project.is_none() && inputs.is_empty() {
-        return Err("check requires at least one .ko source".to_owned());
-    }
-    Ok(CheckOptions {
-        format,
-        zk_enabled,
-        chain_discriminant: chain_discriminant
-            .unwrap_or_else(iroha_data_model::account::address::chain_discriminant),
-        project,
-        inputs,
-    })
 }
 #[cfg(test)]
 fn compile_path(session: &CompilerSession, path: &Path) -> Result<CompileOutput, DiagnosticBundle> {
@@ -1168,1522 +2040,231 @@ fn lint_diagnostic(warning: kotodama_lang::lint::LintWarning, path: &Path) -> Di
         kotodama_lang::i18n::detect_language(),
     )
 }
-fn language_server(mut args: Vec<String>) -> Result<(), String> {
-    let source_root = extract_source_root(&mut args)?;
-    let (zk_enabled, project_manifest) = parse_lsp_options(args)?;
-    let project = project_manifest
-        .as_deref()
-        .map(load_source_project_manifest)
-        .transpose()
-        .map_err(|error| error.to_string())?;
-    let inbox = lsp_transport::Inbox::new();
-    let reader = inbox.clone();
-    let _reader = std::thread::Builder::new()
-        .name("koto-lsp-input".to_owned())
-        .spawn(move || reader.read_from(&mut std::io::stdin().lock()))
-        .map_err(|error| format!("start LSP input reader: {error}"))?;
-    let stdout = std::io::stdout();
-    let result = language_server_dispatch(
-        &inbox,
-        &mut stdout.lock(),
-        project_manifest.as_deref(),
-        project,
-        zk_enabled,
-        source_root.as_deref(),
-    );
-    inbox.close();
-    result
-}
-
-fn language_server_dispatch(
-    inbox: &lsp_transport::Inbox,
-    transport_output: &mut impl Write,
-    project_manifest: Option<&Path>,
-    mut project: Option<LoadedSourceProject>,
-    zk_enabled: bool,
-    source_root: Option<&Path>,
-) -> Result<(), String> {
-    let mut documents = HashMap::<String, String>::new();
-    let mut versions = HashMap::<String, i64>::new();
-    let mut published_diagnostic_uris = BTreeSet::new();
-    let mut editor_cache = HashMap::<String, editor_lsp::Workspace>::new();
-    let session = CompilerSession::new(CompilerOptions {
-        force_zk: zk_enabled,
-        ..CompilerOptions::default()
-    });
-    let driver = BuildDriver::new(session, "koto-lsp");
-    while let Some(pending) = inbox.next()? {
-        if inbox.reject_before_analysis(&pending, transport_output)? {
-            continue;
-        }
-        let message = &pending.message;
-        // Keep the compiler and immutable semantic workspace on this dispatcher thread.
-        // The input thread can invalidate work while this operation is being analyzed.
-        let mut output = Vec::new();
-        let mut next_diagnostic_uris = None;
-        let method = message
-            .get("method")
-            .and_then(norito::json::Value::as_str)
-            .map(ToOwned::to_owned);
-        let id = message.get("id").cloned();
-        match method.as_deref() {
-            Some("initialize") => {
-                write_lsp_response(&mut output, id, lsp_initialize_result())?;
-            }
-            Some("shutdown") => {
-                write_lsp_response(&mut output, id, norito::json::Value::Null)?;
-            }
-            Some("exit") => return Ok(()),
-            Some("textDocument/didOpen") => {
-                if let (Some(uri), Some(text)) = (
-                    message
-                        .pointer("/params/textDocument/uri")
-                        .and_then(norito::json::Value::as_str),
-                    message
-                        .pointer("/params/textDocument/text")
-                        .and_then(norito::json::Value::as_str),
-                ) {
-                    let version = message
-                        .pointer("/params/textDocument/version")
-                        .and_then(norito::json::Value::as_i64);
-                    if let Some(version) = version
-                        && versions
-                            .get(uri)
-                            .is_some_and(|previous| *previous >= version)
-                    {
-                        continue;
-                    }
-                    editor_cache.clear();
-                    if let Err(message) = store_lsp_document(&mut documents, uri, text) {
-                        publish_lsp_notification(
-                            &mut output,
-                            "window/showMessage",
-                            json_object(vec![
-                                ("type", norito::json::Value::from(1_u64)),
-                                ("message", norito::json::Value::from(message)),
-                            ]),
-                        )?;
-                    }
-                    if documents.contains_key(uri) {
-                        if let Some(version) = version {
-                            versions.insert(uri.to_owned(), version);
-                        }
-                    } else {
-                        versions.remove(uri);
-                    }
-                    if project_manifest.is_none() && source_root.is_some() {
-                        project = lsp_local_source_project_with_root(&documents, None, source_root);
-                    }
-                    if inbox.is_current(&pending) {
-                        next_diagnostic_uris = Some(publish_lsp_project_diagnostics(
-                            &mut output,
-                            &driver,
-                            &documents,
-                            project.as_ref(),
-                            &versions,
-                            &published_diagnostic_uris,
-                        )?);
-                    }
-                }
-            }
-            Some("textDocument/didChange") => {
-                if let (Some(uri), Some(text)) = (
-                    message
-                        .pointer("/params/textDocument/uri")
-                        .and_then(norito::json::Value::as_str),
-                    message
-                        .pointer("/params/contentChanges/0/text")
-                        .and_then(norito::json::Value::as_str),
-                ) {
-                    let version = message
-                        .pointer("/params/textDocument/version")
-                        .and_then(norito::json::Value::as_i64);
-                    if let Some(version) = version
-                        && versions
-                            .get(uri)
-                            .is_some_and(|previous| *previous >= version)
-                    {
-                        continue;
-                    }
-                    editor_cache.clear();
-                    if let Err(message) = store_lsp_document(&mut documents, uri, text) {
-                        publish_lsp_notification(
-                            &mut output,
-                            "window/showMessage",
-                            json_object(vec![
-                                ("type", norito::json::Value::from(1_u64)),
-                                ("message", norito::json::Value::from(message)),
-                            ]),
-                        )?;
-                    }
-                    if documents.contains_key(uri) {
-                        if let Some(version) = version {
-                            versions.insert(uri.to_owned(), version);
-                        }
-                    } else {
-                        versions.remove(uri);
-                    }
-                    if project_manifest.is_none() && source_root.is_some() {
-                        project = lsp_local_source_project_with_root(&documents, None, source_root);
-                    }
-                    if inbox.is_current(&pending) {
-                        next_diagnostic_uris = Some(publish_lsp_project_diagnostics(
-                            &mut output,
-                            &driver,
-                            &documents,
-                            project.as_ref(),
-                            &versions,
-                            &published_diagnostic_uris,
-                        )?);
-                    }
-                }
-            }
-            Some("textDocument/didClose") => {
-                if let Some(uri) = message
-                    .pointer("/params/textDocument/uri")
-                    .and_then(norito::json::Value::as_str)
-                {
-                    documents.remove(uri);
-                    versions.remove(uri);
-                    editor_cache.clear();
-                    if project_manifest.is_none() && source_root.is_some() {
-                        project = lsp_local_source_project_with_root(&documents, None, source_root);
-                    }
-                    if inbox.is_current(&pending) {
-                        next_diagnostic_uris = Some(publish_lsp_project_diagnostics(
-                            &mut output,
-                            &driver,
-                            &documents,
-                            project.as_ref(),
-                            &versions,
-                            &published_diagnostic_uris,
-                        )?);
-                    }
-                }
-            }
-            Some(
-                method @ ("textDocument/completion"
-                | "textDocument/hover"
-                | "textDocument/signatureHelp"
-                | "textDocument/definition"
-                | "textDocument/references"
-                | "textDocument/prepareRename"
-                | "textDocument/rename"),
-            ) => {
-                let uri = message
-                    .pointer("/params/textDocument/uri")
-                    .and_then(norito::json::Value::as_str)
-                    .unwrap_or("");
-                // A locked graph may span every open URI. Retain one bounded graph snapshot,
-                // rather than duplicating the full graph once for each queried document.
-                editor_cache.retain(|key, _| key == uri);
-                let workspace = editor_cache.entry(uri.to_owned()).or_insert_with(|| {
-                    editor_lsp::Workspace::new(&documents, project.as_ref(), uri, zk_enabled)
-                        .with_versions(&versions)
-                });
-                match workspace.response(method, message) {
-                    Ok(result) => write_lsp_response(&mut output, id, result)?,
-                    Err(error) => write_lsp_error(&mut output, id, -32602, &error)?,
-                }
-            }
-            Some("workspace/didChangeWatchedFiles" | "textDocument/didSave") => {
-                editor_cache.clear();
-                if let Some(path) = project_manifest {
-                    match load_source_project_manifest(path) {
-                        Ok(loaded) => project = Some(loaded),
-                        Err(error) => {
-                            project = None;
-                            publish_lsp_notification(
-                                &mut output,
-                                "window/showMessage",
-                                json_object(vec![
-                                    ("type", 1_u64.into()),
-                                    (
-                                        "message",
-                                        format!("Kotodama project reload failed: {error}").into(),
-                                    ),
-                                ]),
-                            )?;
-                        }
-                    }
-                }
-                if project_manifest.is_none() && source_root.is_some() {
-                    project = lsp_local_source_project_with_root(&documents, None, source_root);
-                }
-                if inbox.is_current(&pending) {
-                    next_diagnostic_uris = Some(publish_lsp_project_diagnostics(
-                        &mut output,
-                        &driver,
-                        &documents,
-                        project.as_ref(),
-                        &versions,
-                        &published_diagnostic_uris,
-                    )?);
-                }
-            }
-            Some("textDocument/codeAction") => {
-                let actions = message
-                    .pointer("/params/textDocument/uri")
-                    .and_then(norito::json::Value::as_str)
-                    .and_then(|uri| {
-                        documents.get(uri).map(|_| {
-                            lsp_project_code_action_items(
-                                &driver,
-                                &documents,
-                                project.as_ref(),
-                                uri,
-                            )
-                        })
-                    })
-                    .unwrap_or_else(|| norito::json::Value::Array(Vec::new()));
-                write_lsp_response(&mut output, id, actions)?;
-            }
-            Some("textDocument/formatting") => {
-                let edits = message
-                    .pointer("/params/textDocument/uri")
-                    .and_then(norito::json::Value::as_str)
-                    .and_then(|uri| documents.get(uri))
-                    .map_or_else(Vec::new, |source| {
-                        let Ok(formatted) = format_source_text(source, None) else {
-                            return Vec::new();
-                        };
-                        if formatted == source.as_str() {
-                            Vec::new()
-                        } else {
-                            vec![json_object(vec![
-                                (
-                                    "range",
-                                    json_object(vec![
-                                        ("start", lsp_position(0_u64, 0_u64)),
-                                        ("end", lsp_position(u32::MAX, 0_u64)),
-                                    ]),
-                                ),
-                                ("newText", norito::json::Value::from(formatted)),
-                            ])]
-                        }
-                    });
-                write_lsp_response(&mut output, id, norito::json::Value::Array(edits))?;
-            }
-            Some(_) if id.is_some() => {
-                write_lsp_error(&mut output, id, -32601, "method not found")?;
-            }
-            Some(_) | None => {}
-        }
-        if inbox.complete(&pending, transport_output, &output)?
-            && let Some(uris) = next_diagnostic_uris
-        {
-            published_diagnostic_uris = uris;
-        }
-    }
-    Ok(())
-}
-fn parse_lsp_options(args: Vec<String>) -> Result<(bool, Option<PathBuf>), String> {
-    let mut zk_enabled = false;
-    let mut project = None;
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--zk" => zk_enabled = true,
-            "--project" => {
-                index += 1;
-                let path = PathBuf::from(
-                    args.get(index)
-                        .ok_or_else(|| "lsp --project requires a value".to_owned())?,
-                );
-                if project.replace(path).is_some() {
-                    return Err("lsp --project may be supplied only once".to_owned());
-                }
-            }
-            flag if flag.starts_with('-') => return Err(format!("unknown lsp option `{flag}`")),
-            argument => {
-                return Err(format!(
-                    "unexpected lsp argument `{argument}`; use --project <kotodama.project.json>"
-                ));
-            }
-        }
-        index += 1;
-    }
-    Ok((zk_enabled, project))
-}
-fn store_lsp_document(
-    documents: &mut HashMap<String, String>,
-    uri: &str,
-    source: &str,
-) -> Result<(), String> {
-    if uri.len() > MAX_LSP_URI_BYTES {
-        return Err(format!(
-            "Kotodama document URI exceeds the {MAX_LSP_URI_BYTES}-byte language-server limit"
-        ));
-    }
-    if source.len() > MAX_SOURCE_BYTES {
-        documents.remove(uri);
-        return Err(format!(
-            "Kotodama document `{uri}` exceeds the {MAX_SOURCE_BYTES}-byte V1 source limit"
-        ));
-    }
-    let previous_bytes = documents.get(uri).map_or(0, String::len);
-    let total_bytes = documents
-        .values()
-        .fold(0_usize, |total, value| total.saturating_add(value.len()))
-        .saturating_sub(previous_bytes)
-        .saturating_add(source.len());
-    let document_count = documents
-        .len()
-        .saturating_add(usize::from(!documents.contains_key(uri)));
-    if document_count > MAX_LSP_OPEN_DOCUMENTS || total_bytes > MAX_LSP_DOCUMENT_BYTES {
-        documents.remove(uri);
-        return Err(format!(
-            "Kotodama language server workspace limit reached ({MAX_LSP_OPEN_DOCUMENTS} documents/{MAX_LSP_DOCUMENT_BYTES} bytes); close unused documents"
-        ));
-    }
-    documents.insert(uri.to_owned(), source.to_owned());
-    Ok(())
-}
-fn read_bounded_lsp_header_line(
-    input: &mut impl BufRead,
-    line: &mut Vec<u8>,
-) -> Result<usize, String> {
-    line.clear();
-    loop {
-        let (consumed, terminated) = {
-            let available = input
-                .fill_buf()
-                .map_err(|error| format!("read LSP header: {error}"))?;
-            if available.is_empty() {
-                return Ok(line.len());
-            }
-            let terminated_at = available.iter().position(|byte| *byte == b'\n');
-            let consumed = terminated_at.map_or(available.len(), |index| index + 1);
-            if line.len().saturating_add(consumed) > MAX_LSP_HEADER_LINE_BYTES {
-                return Err(format!(
-                    "LSP header line exceeds the {MAX_LSP_HEADER_LINE_BYTES}-byte limit"
-                ));
-            }
-            line.extend_from_slice(&available[..consumed]);
-            (consumed, terminated_at.is_some())
-        };
-        input.consume(consumed);
-        if terminated {
-            return Ok(line.len());
-        }
-    }
-}
-#[cfg(test)]
-fn read_lsp_message(input: &mut impl BufRead) -> Result<Option<norito::json::Value>, String> {
-    read_lsp_message_frame(input).map(|frame| frame.map(|(message, _)| message))
-}
-fn read_lsp_message_frame(
-    input: &mut impl BufRead,
-) -> Result<Option<(norito::json::Value, usize)>, String> {
-    let mut content_length = None;
-    let mut line = Vec::new();
-    for _ in 0..MAX_LSP_HEADERS {
-        let read = read_bounded_lsp_header_line(input, &mut line)?;
-        if read == 0 {
-            return if content_length.is_none() {
-                Ok(None)
-            } else {
-                Err("unexpected EOF before the LSP header terminator".to_owned())
-            };
-        }
-        let line =
-            std::str::from_utf8(&line).map_err(|_| "LSP headers must be valid UTF-8".to_owned())?;
-        let header = line.trim_end_matches(['\r', '\n']);
-        if header.is_empty() {
-            break;
-        }
-        let (name, raw) = header
-            .split_once(':')
-            .ok_or_else(|| "malformed LSP header; expected `name: value`".to_owned())?;
-        if name.eq_ignore_ascii_case("Content-Length") {
-            if content_length.is_some() {
-                return Err("duplicate LSP Content-Length header".to_owned());
-            }
-            content_length = Some(
-                raw.trim()
-                    .parse::<usize>()
-                    .map_err(|_| "invalid LSP Content-Length".to_owned())?,
-            );
-        }
-    }
-    if !line.ends_with(b"\n") || !line.iter().all(|byte| matches!(byte, b'\r' | b'\n')) {
-        return Err(format!(
-            "LSP request exceeds the {MAX_LSP_HEADERS}-header limit"
-        ));
-    }
-    let length = content_length.ok_or_else(|| "missing LSP Content-Length".to_owned())?;
-    if length > MAX_LSP_MESSAGE_BYTES {
-        return Err(format!(
-            "LSP message exceeds the {MAX_LSP_MESSAGE_BYTES}-byte limit"
-        ));
-    }
-    let mut body = vec![0_u8; length];
-    input
-        .read_exact(&mut body)
-        .map_err(|error| format!("read LSP message: {error}"))?;
-    norito::json::from_slice(&body)
-        .map(|message| Some((message, length)))
-        .map_err(|error| format!("decode LSP JSON: {error}"))
-}
-fn write_lsp_message(output: &mut impl Write, message: &norito::json::Value) -> Result<(), String> {
-    let body =
-        norito::json::to_string(message).map_err(|error| format!("encode LSP JSON: {error}"))?;
-    write!(output, "Content-Length: {}\r\n\r\n{body}", body.len())
-        .map_err(|error| format!("write LSP message: {error}"))?;
-    output
-        .flush()
-        .map_err(|error| format!("flush LSP message: {error}"))
-}
-fn write_lsp_response(
-    output: &mut impl Write,
-    id: Option<norito::json::Value>,
-    result: norito::json::Value,
-) -> Result<(), String> {
-    write_lsp_message(
-        output,
-        &json_object(vec![
-            ("jsonrpc", norito::json::Value::from("2.0")),
-            ("id", id.unwrap_or(norito::json::Value::Null)),
-            ("result", result),
-        ]),
+/// Serve standalone source files through the shared language-server engine.
+fn language_server(args: LspArgs) -> Result<(), KotoError> {
+    kotodama_toolchain::lsp::run_project_stdio(
+        kotodama_toolchain::lsp::ServerOptions {
+            source_root: args.selection.source_root,
+            zk_enabled: args.capabilities.zk,
+            chain_discriminant: args.capabilities.chain_discriminant,
+        },
+        None,
     )
-}
-fn write_lsp_error(
-    output: &mut impl Write,
-    id: Option<norito::json::Value>,
-    code: i64,
-    message: &str,
-) -> Result<(), String> {
-    write_lsp_message(
-        output,
-        &json_object(vec![
-            ("jsonrpc", norito::json::Value::from("2.0")),
-            ("id", id.unwrap_or(norito::json::Value::Null)),
-            (
-                "error",
-                json_object(vec![
-                    ("code", norito::json::Value::from(code)),
-                    ("message", norito::json::Value::from(message)),
-                ]),
-            ),
-        ]),
-    )
-}
-fn publish_lsp_notification(
-    output: &mut impl Write,
-    method: &str,
-    params: norito::json::Value,
-) -> Result<(), String> {
-    write_lsp_message(
-        output,
-        &json_object(vec![
-            ("jsonrpc", norito::json::Value::from("2.0")),
-            ("method", norito::json::Value::from(method)),
-            ("params", params),
-        ]),
-    )
-}
-fn collect_lsp_project_diagnostics(
-    driver: &BuildDriver,
-    documents: &HashMap<String, String>,
-) -> HashMap<String, DiagnosticBundle> {
-    let mut ordered = documents.iter().collect::<Vec<_>>();
-    ordered.sort_by(|(left, _), (right, _)| left.cmp(right));
-    let mut logical_to_uri = HashMap::new();
-    let sources = ordered
-        .iter()
-        .enumerate()
-        .map(|(index, (uri, source))| {
-            let logical = format!("open/{index:04}.ko");
-            logical_to_uri.insert(logical.clone(), (*uri).clone());
-            SourceModuleUnit {
-                source_name: logical,
-                source: (*source).clone(),
-            }
-        })
-        .collect::<Vec<_>>();
-    let mut grouped = ordered
-        .iter()
-        .map(|(uri, _)| ((*uri).clone(), Vec::new()))
-        .collect::<HashMap<_, Vec<Diagnostic>>>();
-    match driver.check_lsp_open_sources(sources) {
-        Ok(warnings) => {
-            for warning in warnings {
-                let Some(uri) = logical_to_uri.get(&warning.source_name) else {
-                    continue;
-                };
-                grouped
-                    .entry(uri.clone())
-                    .or_default()
-                    .push(lint_diagnostic(warning.warning, Path::new(uri)));
-            }
-        }
-        Err(error) => {
-            let mut diagnostics = match error.into_diagnostics() {
-                Ok(bundle) => bundle.diagnostics,
-                Err(error) => vec![Diagnostic::error(
-                    "K0000",
-                    DiagnosticPhase::Lex,
-                    error.to_string(),
-                    None,
-                )],
-            };
-            for diagnostic in &mut diagnostics {
-                remap_project_diagnostic_sources(diagnostic, &logical_to_uri);
-            }
-            let fallback = ordered.first().map(|(uri, _)| (*uri).clone());
-            for diagnostic in diagnostics {
-                let owner = diagnostic
-                    .primary_span
-                    .as_ref()
-                    .and_then(|span| span.source.clone())
-                    .or_else(|| fallback.clone());
-                if let Some(owner) = owner {
-                    grouped.entry(owner).or_default().push(diagnostic);
-                }
-            }
-        }
-    }
-    grouped
-        .into_iter()
-        .map(|(uri, diagnostics)| (uri, DiagnosticBundle::new(diagnostics)))
-        .collect()
-}
-fn collect_lsp_workspace_diagnostics(
-    driver: &BuildDriver,
-    documents: &HashMap<String, String>,
-    project: Option<&LoadedSourceProject>,
-) -> HashMap<String, DiagnosticBundle> {
-    let local_project = project
-        .is_none()
-        .then(|| lsp_local_source_project(documents, None))
-        .flatten();
-    let project = project.or(local_project.as_ref());
-    let Some(project) = project else {
-        return collect_lsp_project_diagnostics(driver, documents);
-    };
-    let (graph, source_uris, project_documents, _) =
-        match lsp_project_with_open_overlays(project, documents) {
-            Ok(overlaid) => overlaid,
-            Err(error) => return lsp_source_loading_diagnostics(error, project, documents),
-        };
-    let mut grouped = documents
-        .keys()
-        .cloned()
-        .map(|uri| (uri, Vec::new()))
-        .collect::<HashMap<_, Vec<Diagnostic>>>();
-    match driver.check_project(graph) {
-        Ok(warnings) => {
-            for warning in warnings {
-                let key = ProjectSourceKey {
-                    package_identity: warning.package_identity.clone(),
-                    source_name: warning.source_name,
-                };
-                let Some(uri) = source_uris.get(&key) else {
-                    continue;
-                };
-                let diagnostic = warning.warning.to_diagnostic(
-                    uri,
-                    warning.package_identity.as_deref(),
-                    kotodama_lang::i18n::detect_language(),
-                );
-                grouped.entry(uri.clone()).or_default().push(diagnostic);
-            }
-        }
-        Err(error) => {
-            let diagnostics = error.into_diagnostics().unwrap_or_else(|error| {
-                DiagnosticBundle::single(Diagnostic::error(
-                    "K0000",
-                    DiagnosticPhase::Lex,
-                    error.to_string(),
-                    None,
-                ))
-            });
-            let fallback = source_uris.values().next().cloned();
-            for mut diagnostic in diagnostics.diagnostics {
-                let owner = diagnostic.primary_span.as_ref().and_then(|span| {
-                    let key = ProjectSourceKey {
-                        package_identity: span.package_identity.clone(),
-                        source_name: span.source.clone()?,
-                    };
-                    source_uris.get(&key).cloned()
-                });
-                if owner.is_none() {
-                    if let Some(span) = diagnostic.primary_span.take() {
-                        diagnostic.notes.push(format!(
-                            "locked project error originates in {}{}",
-                            span.package_identity
-                                .as_deref()
-                                .map_or(String::new(), |package| format!("{package}::")),
-                            span.source.as_deref().unwrap_or("<source>")
-                        ));
-                    }
-                    diagnostic.fix = None;
-                }
-                remap_lsp_locked_project_diagnostic(&mut diagnostic, &source_uris);
-                if let Some(uri) = owner.or_else(|| fallback.clone()) {
-                    grouped.entry(uri).or_default().push(diagnostic);
-                }
-            }
-        }
-    }
-    let loose_documents = documents
-        .iter()
-        .filter(|(uri, _)| !project_documents.contains(*uri))
-        .map(|(uri, source)| (uri.clone(), source.clone()))
-        .collect::<HashMap<_, _>>();
-    for (uri, bundle) in collect_lsp_project_diagnostics(driver, &loose_documents) {
-        grouped.entry(uri).or_default().extend(bundle.diagnostics);
-    }
-    grouped
-        .into_iter()
-        .map(|(uri, diagnostics)| (uri, DiagnosticBundle::new(diagnostics)))
-        .collect()
-}
-fn lsp_source_loading_diagnostics(
-    error: BuildError,
-    project: &LoadedSourceProject,
-    documents: &HashMap<String, String>,
-) -> HashMap<String, DiagnosticBundle> {
-    let bundle = error.into_diagnostics().unwrap_or_else(|error| {
-        DiagnosticBundle::single(Diagnostic::error(
-            "E_SOURCE_NOT_FOUND",
-            DiagnosticPhase::Resolve,
-            error.to_string(),
-            None,
-        ))
-    });
-    let root_key = ProjectSourceKey {
-        package_identity: None,
-        source_name: project.graph.root.source_name.clone(),
-    };
-    let root_path = project.source_paths.get(&root_key);
-    let source_root = project
-        .manifest
-        .as_ref()
-        .and_then(|manifest| manifest.path().parent().map(Path::to_path_buf))
-        .or_else(|| {
-            let mut path = root_path?.clone();
-            for _ in project.graph.root.source_name.split('/') {
-                path.pop();
-            }
-            Some(path)
-        });
-    let mut source_uris = project
-        .source_paths
-        .iter()
-        .filter_map(|(key, path)| lsp_path_file_uri(path).map(|uri| (key.clone(), uri)))
-        .collect::<BTreeMap<_, _>>();
-    for diagnostic in &bundle.diagnostics {
-        for span in diagnostic
-            .primary_span
-            .iter()
-            .chain(diagnostic.labels.iter().map(|label| &label.span))
-        {
-            if let (Some(root), Some(name)) = (&source_root, &span.source) {
-                let path = root.join(name);
-                if let Some(uri) = lsp_path_file_uri(&path) {
-                    source_uris
-                        .entry(ProjectSourceKey {
-                            package_identity: span.package_identity.clone(),
-                            source_name: name.clone(),
-                        })
-                        .or_insert(uri);
-                }
-            }
-        }
-    }
-    let fallback = root_path.and_then(|path| lsp_path_file_uri(path));
-    let mut grouped = documents
-        .keys()
-        .map(|uri| (uri.clone(), Vec::new()))
-        .collect::<HashMap<_, _>>();
-    for mut diagnostic in bundle.diagnostics {
-        remap_lsp_locked_project_diagnostic(&mut diagnostic, &source_uris);
-        if let Some(uri) = diagnostic
-            .primary_span
-            .as_ref()
-            .and_then(|span| span.source.clone())
-            .or_else(|| fallback.clone())
-        {
-            grouped.entry(uri).or_default().push(diagnostic);
-        }
-    }
-    grouped
-        .into_iter()
-        .map(|(uri, diagnostics)| (uri, DiagnosticBundle::new(diagnostics)))
-        .collect()
-}
-fn lsp_local_source_project(
-    documents: &HashMap<String, String>,
-    requested_uri: Option<&str>,
-) -> Option<LoadedSourceProject> {
-    lsp_local_source_project_with_root(documents, requested_uri, None)
-}
-fn lsp_local_source_project_with_root(
-    documents: &HashMap<String, String>,
-    requested_uri: Option<&str>,
-    source_root: Option<&Path>,
-) -> Option<LoadedSourceProject> {
-    let overlays = documents
-        .iter()
-        .filter_map(|(uri, source)| lsp_file_uri_path(uri).map(|path| (path, source.clone())))
-        .collect::<BTreeMap<_, _>>();
-    let requested = requested_uri.and_then(lsp_file_uri_path);
-    let mut ordered = overlays.iter().collect::<Vec<_>>();
-    ordered.sort_by(|(left, _), (right, _)| left.cmp(right));
-    for (path, source) in ordered {
-        if !kotodama_lang::parser::parse(source)
-            .is_ok_and(|program| program.unit.kind == kotodama_lang::ast::SourceUnitKind::Seiyaku)
-        {
-            continue;
-        }
-        let Some(root) = source_root.or_else(|| path.parent()) else {
-            continue;
-        };
-        // Retain the root even while its declared closure is incomplete. Overlay loading below
-        // reports the exact dependency error instead of reclassifying this contract as loose.
-        let project = load_source_project(path, root, &overlays).unwrap_or_else(|_| {
-            let source_name = logical_source_name(path, root)
-                .unwrap_or_else(|_| path.to_string_lossy().into_owned());
-            LoadedSourceProject {
-                graph: kotodama_lang::linker::SourceLinkRequest {
-                    root: SourceModuleUnit {
-                        source_name: source_name.clone(),
-                        source: source.clone(),
-                    },
-                    sources: Vec::new(),
-                    imports: Vec::new(),
-                    packages: Vec::new(),
-                },
-                source_paths: BTreeMap::from([(
-                    ProjectSourceKey {
-                        package_identity: None,
-                        source_name,
-                    },
-                    path.clone(),
-                )]),
-                manifest: None,
-            }
-        });
-        if requested
-            .as_ref()
-            .is_none_or(|requested| project.source_paths.values().any(|path| path == requested))
-        {
-            return Some(project);
-        }
-    }
-    None
-}
-/// Project link graph with the open editor documents overlaid: the link request, the
-/// document URI of each project source, the open document URIs owned by the project, and
-/// the effective project manifest.
-type LspOverlaidProject = (
-    kotodama_lang::linker::SourceLinkRequest,
-    BTreeMap<ProjectSourceKey, String>,
-    HashSet<String>,
-    Option<kotodama_lang::driver::ProjectManifestSource>,
-);
-fn lsp_project_with_open_overlays(
-    project: &LoadedSourceProject,
-    documents: &HashMap<String, String>,
-) -> Result<LspOverlaidProject, BuildError> {
-    let overlays = documents
-        .iter()
-        .filter_map(|(uri, source)| lsp_file_uri_path(uri).map(|path| (path, source.clone())))
-        .collect::<BTreeMap<_, _>>();
-    let manifest_overlay = project.manifest.as_ref().and_then(|manifest| {
-        documents
-            .iter()
-            .find(|(uri, _)| lsp_file_uri_path(uri).as_deref() == Some(manifest.path()))
-    });
-    let reloaded = project
-        .manifest
-        .as_ref()
-        .map(|manifest| {
-            kotodama_lang::driver::load_source_project_manifest_with_text_and_overlays(
-                manifest.path(),
-                manifest_overlay.map_or(manifest.text(), |(_, text)| text.as_str()),
-                &overlays,
-            )
-        })
-        .transpose()?;
-    let project = reloaded.as_ref().unwrap_or(project);
-    let mut graph = project.graph.clone();
-    let mut source_uris = project
-        .source_paths
-        .iter()
-        .filter_map(|(key, path)| lsp_path_file_uri(path).map(|uri| (key.clone(), uri)))
-        .collect::<BTreeMap<_, _>>();
-    let mut overlaid = BTreeSet::new();
-    let mut project_documents = HashSet::new();
-    if let Some((uri, _)) = manifest_overlay {
-        project_documents.insert(uri.clone());
-    }
-    let mut ordered = documents.iter().collect::<Vec<_>>();
-    ordered.sort_by(|(left, _), (right, _)| left.cmp(right));
-    for (uri, source) in ordered {
-        let Some(path) = lsp_file_uri_path(uri) else {
-            continue;
-        };
-        let Some((key, _)) = project
-            .source_paths
-            .iter()
-            .find(|(_, project_path)| *project_path == &path)
-        else {
-            continue;
-        };
-        if !overlaid.insert(key.clone()) {
-            continue;
-        }
-        if replace_project_source(&mut graph, key, source) {
-            source_uris.insert(key.clone(), uri.clone());
-            project_documents.insert(uri.clone());
-        }
-    }
-    let source_root = project
-        .manifest
-        .as_ref()
-        .and_then(|manifest| manifest.path().parent().map(Path::to_path_buf))
-        .or_else(|| {
-            let key = ProjectSourceKey {
-                package_identity: None,
-                source_name: graph.root.source_name.clone(),
-            };
-            let mut root = project.source_paths.get(&key)?.clone();
-            for _ in graph.root.source_name.split('/') {
-                root.pop();
-            }
-            Some(root)
-        })
-        .ok_or_else(|| BuildError::InvalidPath {
-            path: PathBuf::from(&graph.root.source_name),
-            message: "project root has no physical source path".into(),
-        })?;
-    graph.sources = kotodama_lang::driver::load_source_companions(
-        std::slice::from_ref(&graph.root),
-        &source_root,
-        &overlays,
-    )?;
-    for package in &mut graph.packages {
-        package.sources = kotodama_lang::driver::load_source_package_companions(
-            &package.modules,
-            &source_root,
-            &overlays,
-            &package.identity,
-        )
-        .map_err(|error| match error.into_diagnostics() {
-            Ok(mut bundle) => {
-                for diagnostic in &mut bundle.diagnostics {
-                    for span in diagnostic
-                        .primary_span
-                        .iter_mut()
-                        .chain(diagnostic.labels.iter_mut().map(|label| &mut label.span))
-                    {
-                        span.package_identity = Some(package.identity.clone());
-                    }
-                    if let Some(fix) = &mut diagnostic.fix {
-                        fix.span.package_identity = Some(package.identity.clone());
-                    }
-                }
-                BuildError::Compile(bundle)
-            }
-            Err(error) => error,
-        })?;
-    }
-    for (owner, source) in
-        graph
-            .sources
-            .iter()
-            .map(|source| (None, source))
-            .chain(graph.packages.iter().flat_map(|package| {
-                package
-                    .sources
-                    .iter()
-                    .map(move |source| (Some(package.identity.clone()), source))
-            }))
-    {
-        let path = source_root.join(&source.source_name);
-        let uri = lsp_path_file_uri(&path).ok_or_else(|| BuildError::InvalidPath {
-            path,
-            message: "source URI requires a UTF-8 path".into(),
-        })?;
-        if documents.contains_key(&uri) {
-            project_documents.insert(uri.clone());
-        }
-        source_uris.insert(
-            ProjectSourceKey {
-                package_identity: owner,
-                source_name: source.source_name.clone(),
-            },
-            uri,
-        );
-    }
-    Ok((
-        graph,
-        source_uris,
-        project_documents,
-        project.manifest.clone(),
-    ))
-}
-fn lsp_path_file_uri(path: &Path) -> Option<String> {
-    let text = path.to_str()?;
-    let mut uri = String::from("file://");
-    if !text.starts_with('/') {
-        uri.push('/');
-    }
-    for byte in text.as_bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(*byte, b'/' | b'-' | b'_' | b'.' | b'~' | b':')
-        {
-            uri.push(char::from(*byte));
-        } else {
-            use std::fmt::Write as _;
-            let _ = write!(uri, "%{byte:02X}");
-        }
-    }
-    Some(uri)
-}
-fn replace_project_source(
-    graph: &mut kotodama_lang::linker::SourceLinkRequest,
-    key: &ProjectSourceKey,
-    source: &str,
-) -> bool {
-    match &key.package_identity {
-        None if graph.root.source_name == key.source_name => {
-            graph.root.source = source.to_owned();
-            true
-        }
-        None => graph
-            .sources
-            .iter_mut()
-            .find(|unit| unit.source_name == key.source_name)
-            .is_some_and(|unit| {
-                unit.source = source.to_owned();
-                true
-            }),
-        Some(package_identity) => graph
-            .packages
-            .iter_mut()
-            .find(|package| &package.identity == package_identity)
-            .and_then(|package| {
-                package
-                    .modules
-                    .iter_mut()
-                    .chain(package.sources.iter_mut())
-                    .find(|module| module.source_name == key.source_name)
-            })
-            .is_some_and(|module| {
-                module.source = source.to_owned();
-                true
-            }),
-    }
-}
-fn lsp_file_uri_path(uri: &str) -> Option<PathBuf> {
-    let encoded = uri
-        .strip_prefix("file://localhost")
-        .or_else(|| uri.strip_prefix("file://"))?;
-    if !encoded.starts_with('/') {
-        // A non-empty authority names a remote host. Kotodama project sources
-        // are canonical local files, so such a URI cannot own an overlay.
-        return None;
-    }
-    let bytes = encoded.as_bytes();
-    let mut decoded = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' {
-            let high = decode_hex_digit(*bytes.get(index + 1)?)?;
-            let low = decode_hex_digit(*bytes.get(index + 2)?)?;
-            decoded.push((high << 4) | low);
-            index += 3;
-        } else {
-            decoded.push(bytes[index]);
-            index += 1;
-        }
-    }
-    let decoded = String::from_utf8(decoded).ok()?;
-    #[cfg(windows)]
-    let decoded = decoded
-        .strip_prefix('/')
-        .filter(|path| path.as_bytes().get(1) == Some(&b':'))
-        .unwrap_or(&decoded);
-    let path = PathBuf::from(decoded);
-    path.canonicalize().ok().or_else(|| {
-        let mut normalized = PathBuf::new();
-        for component in path.components() {
-            match component {
-                std::path::Component::ParentDir => {
-                    if !normalized.pop() {
-                        return None;
-                    }
-                }
-                std::path::Component::CurDir => {}
-                component => normalized.push(component.as_os_str()),
-            }
-        }
-        normalized.is_absolute().then_some(normalized)
-    })
-}
-fn decode_hex_digit(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
-}
-fn remap_lsp_locked_project_diagnostic(
-    diagnostic: &mut Diagnostic,
-    source_uris: &BTreeMap<ProjectSourceKey, String>,
-) {
-    let remap = |span: &mut SourceSpan| {
-        let Some(source_name) = span.source.as_ref() else {
-            return;
-        };
-        let key = ProjectSourceKey {
-            package_identity: span.package_identity.clone(),
-            source_name: source_name.clone(),
-        };
-        if let Some(uri) = source_uris.get(&key) {
-            span.source = Some(uri.clone());
-        }
-    };
-    if let Some(span) = &mut diagnostic.primary_span {
-        remap(span);
-    }
-    for label in &mut diagnostic.labels {
-        remap(&mut label.span);
-    }
-    if let Some(fix) = &mut diagnostic.fix {
-        remap(&mut fix.span);
-    }
-}
-fn remap_project_diagnostic_sources(
-    diagnostic: &mut Diagnostic,
-    logical_to_uri: &HashMap<String, String>,
-) {
-    let remap = |span: &mut SourceSpan| {
-        if let Some(uri) = span
-            .source
-            .as_ref()
-            .and_then(|source| logical_to_uri.get(source))
-        {
-            span.source = Some(uri.clone());
-        }
-    };
-    if let Some(span) = &mut diagnostic.primary_span {
-        remap(span);
-    }
-    for label in &mut diagnostic.labels {
-        remap(&mut label.span);
-    }
-    if let Some(fix) = &mut diagnostic.fix {
-        remap(&mut fix.span);
-    }
-}
-fn remap_locked_project_diagnostic_sources(
-    diagnostic: &mut Diagnostic,
-    source_paths: &BTreeMap<ProjectSourceKey, PathBuf>,
-) {
-    let remap = |span: &mut SourceSpan| {
-        let Some(source_name) = span.source.as_ref() else {
-            return;
-        };
-        let key = ProjectSourceKey {
-            package_identity: span.package_identity.clone(),
-            source_name: source_name.clone(),
-        };
-        if let Some(path) = source_paths.get(&key) {
-            span.source = Some(path.display().to_string());
-        }
-    };
-    if let Some(span) = &mut diagnostic.primary_span {
-        remap(span);
-    }
-    for label in &mut diagnostic.labels {
-        remap(&mut label.span);
-    }
-    if let Some(fix) = &mut diagnostic.fix {
-        remap(&mut fix.span);
-    }
-}
-fn publish_lsp_project_diagnostics(
-    output: &mut impl Write,
-    driver: &BuildDriver,
-    documents: &HashMap<String, String>,
-    project: Option<&LoadedSourceProject>,
-    versions: &HashMap<String, i64>,
-    previously_published: &BTreeSet<String>,
-) -> Result<BTreeSet<String>, String> {
-    let diagnostics = collect_lsp_workspace_diagnostics(driver, documents, project);
-    let current_uris = documents
-        .keys()
-        .chain(diagnostics.keys())
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    for uri in current_uris.union(previously_published) {
-        let source = documents.get(uri).map_or("", String::as_str);
-        let values = diagnostics
-            .get(uri)
-            .into_iter()
-            .flat_map(|bundle| bundle.diagnostics.iter())
-            .map(|diagnostic| lsp_diagnostic_value(diagnostic, source))
-            .collect();
-        let mut params = vec![
-            ("uri", norito::json::Value::from(uri.as_str())),
-            ("diagnostics", norito::json::Value::Array(values)),
-        ];
-        if let Some(version) = versions.get(uri) {
-            params.push(("version", (*version).into()));
-        }
-        publish_lsp_notification(
-            output,
-            "textDocument/publishDiagnostics",
-            json_object(params),
-        )?;
-    }
-    Ok(current_uris)
-}
-fn lsp_initialize_result() -> norito::json::Value {
-    json_object(vec![(
-        "capabilities",
-        json_object(vec![
-            ("textDocumentSync", norito::json::Value::from(1_u64)),
-            (
-                "completionProvider",
-                json_object(vec![
-                    ("resolveProvider", norito::json::Value::from(false)),
-                    (
-                        "triggerCharacters",
-                        norito::json::Value::Array(vec![".".into(), ":".into()]),
-                    ),
-                ]),
-            ),
-            (
-                "documentFormattingProvider",
-                norito::json::Value::from(true),
-            ),
-            ("codeActionProvider", norito::json::Value::from(true)),
-            ("hoverProvider", true.into()),
-            ("definitionProvider", true.into()),
-            ("referencesProvider", true.into()),
-            (
-                "renameProvider",
-                json_object(vec![("prepareProvider", true.into())]),
-            ),
-            (
-                "signatureHelpProvider",
-                json_object(vec![(
-                    "triggerCharacters",
-                    norito::json::Value::Array(vec!["(".into(), ",".into(), ":".into()]),
-                )]),
-            ),
-            ("positionEncoding", "utf-16".into()),
-        ]),
-    )])
-}
-#[cfg(test)]
-fn collect_lsp_diagnostics(session: &CompilerSession, uri: &str, source: &str) -> DiagnosticBundle {
-    // LSP validates reusable modules as well as deployable contracts. Calling
-    // `build` here would add the artifact-only K4003 error to every valid
-    // module document and perform unnecessary code generation while typing.
-    match session.check_with_lints(CompileRequest {
-        source,
-        source_name: Some(uri),
-    }) {
-        Ok(warnings) => DiagnosticBundle::new(
-            warnings
-                .into_iter()
-                .map(|warning| lint_diagnostic(warning, Path::new(uri)))
-                .collect(),
-        ),
-        Err(bundle) => bundle,
-    }
-}
-#[cfg(test)]
-fn lsp_diagnostics(session: &CompilerSession, uri: &str, source: &str) -> Vec<norito::json::Value> {
-    collect_lsp_diagnostics(session, uri, source)
-        .diagnostics
-        .iter()
-        .map(|diagnostic| lsp_diagnostic_value(diagnostic, source))
-        .collect()
-}
-fn lsp_diagnostic_value(diagnostic: &Diagnostic, source: &str) -> norito::json::Value {
-    let source = diagnostic
-        .primary_source
-        .as_ref()
-        .map_or(source, |file| file.text());
-    let range = diagnostic.primary_span.as_ref().map_or_else(
-        || lsp_range(0, 0, 0, 1),
-        |span| lsp_source_span_range(source, span),
-    );
-    let mut message = diagnostic.message.clone();
-    for note in &diagnostic.notes {
-        message.push_str("\n\nnote: ");
-        message.push_str(note);
-    }
-    if let Some(help) = &diagnostic.help {
-        message.push_str("\n\nhelp: ");
-        message.push_str(help);
-    }
-    let related = diagnostic
-        .labels
-        .iter()
-        .enumerate()
-        .filter_map(|(index, label)| {
-            let uri = label.span.source.as_deref()?;
-            let label_source = diagnostic
-                .label_sources
-                .get(index)
-                .and_then(Option::as_ref)
-                .map_or("", |file| file.text());
-            Some(json_object(vec![
-                (
-                    "location",
-                    json_object(vec![
-                        ("uri", norito::json::Value::from(uri)),
-                        ("range", lsp_source_span_range(label_source, &label.span)),
-                    ]),
-                ),
-                ("message", norito::json::Value::from(label.message.clone())),
-            ]))
-        })
-        .collect::<Vec<_>>();
-    json_object(vec![
-        ("range", range),
-        ("code", norito::json::Value::from(diagnostic.code.clone())),
-        (
-            "severity",
-            norito::json::Value::from(match diagnostic.severity {
-                kotodama_lang::diagnostic::Severity::Error => 1_u64,
-                kotodama_lang::diagnostic::Severity::Warning => 2_u64,
-            }),
-        ),
-        ("source", norito::json::Value::from("kotodama")),
-        ("relatedInformation", norito::json::Value::Array(related)),
-        (
-            "codeDescription",
-            json_object(vec![(
-                "href",
-                norito::json::Value::from(
-                    "https://docs.iroha.tech/blockchain/smart-contracts#diagnostics-and-editor",
-                ),
-            )]),
-        ),
-        ("message", norito::json::Value::from(message)),
-    ])
-}
-#[cfg(test)]
-fn lsp_code_action_items(
-    session: &CompilerSession,
-    uri: &str,
-    source: &str,
-) -> norito::json::Value {
-    lsp_code_actions_from_bundle(collect_lsp_diagnostics(session, uri, source), uri, source)
-}
-fn lsp_project_code_action_items(
-    driver: &BuildDriver,
-    documents: &HashMap<String, String>,
-    project: Option<&LoadedSourceProject>,
-    uri: &str,
-) -> norito::json::Value {
-    let source = documents.get(uri).map_or("", String::as_str);
-    let bundle = collect_lsp_workspace_diagnostics(driver, documents, project)
-        .remove(uri)
-        .unwrap_or_else(|| DiagnosticBundle::new(Vec::new()));
-    lsp_code_actions_from_bundle(bundle, uri, source)
-}
-fn lsp_code_actions_from_bundle(
-    bundle: DiagnosticBundle,
-    uri: &str,
-    source: &str,
-) -> norito::json::Value {
-    let actions = bundle
-        .diagnostics
-        .into_iter()
-        .filter_map(|diagnostic| {
-            let fix = diagnostic.fix.as_ref()?;
-            let byte_range = fix.span.byte_range?;
-            let start = usize::try_from(byte_range.start).ok()?;
-            let end = usize::try_from(byte_range.end).ok()?;
-            if start > end
-                || end > source.len()
-                || !source.is_char_boundary(start)
-                || !source.is_char_boundary(end)
-            {
-                return None;
-            }
-            let edit = json_object(vec![
-                ("range", lsp_text_range(source, byte_range)),
-                (
-                    "newText",
-                    norito::json::Value::from(fix.replacement.clone()),
-                ),
-            ]);
-            let changes =
-                norito::json::object([(uri.to_owned(), norito::json::Value::Array(vec![edit]))])
-                    .ok()?;
-            Some(json_object(vec![
-                (
-                    "title",
-                    norito::json::Value::from(format!(
-                        "Fix {}: {}",
-                        diagnostic.code, diagnostic.message
-                    )),
-                ),
-                ("kind", norito::json::Value::from("quickfix")),
-                ("isPreferred", norito::json::Value::from(true)),
-                (
-                    "diagnostics",
-                    norito::json::Value::Array(vec![lsp_diagnostic_value(&diagnostic, source)]),
-                ),
-                ("edit", json_object(vec![("changes", changes)])),
-            ]))
-        })
-        .collect();
-    norito::json::Value::Array(actions)
-}
-fn lsp_source_span_range(source: &str, span: &SourceSpan) -> norito::json::Value {
-    span.byte_range
-        .filter(|range| range.end as usize <= source.len() && !source.is_empty())
-        .map_or_else(
-            || {
-                let (start_line, start_character) = lsp_source_position(source, &span.start);
-                let (end_line, end_character) = lsp_source_position(source, &span.end);
-                lsp_range(start_line, start_character, end_line, end_character)
-            },
-            |range| lsp_text_range(source, range),
-        )
-}
-fn lsp_source_position(source: &str, position: &SourcePosition) -> (u64, u64) {
-    let line = position.line.saturating_sub(1);
-    let column = position.column.saturating_sub(1);
-    let character = source
-        .split('\n')
-        .nth(line)
-        .filter(|_| !source.is_empty())
-        .map_or(column, |text| {
-            text.chars().take(column).map(char::len_utf16).sum()
-        });
-    (line as u64, character as u64)
-}
-fn lsp_text_range(source: &str, range: kotodama_lang::source::TextRange) -> norito::json::Value {
-    let (start_line, start_character) = lsp_offset_position(source, range.start);
-    let (end_line, end_character) = lsp_offset_position(source, range.end);
-    lsp_range(start_line, start_character, end_line, end_character)
-}
-fn lsp_offset_position(source: &str, offset: u32) -> (u64, u64) {
-    let offset = usize::try_from(offset)
-        .unwrap_or(source.len())
-        .min(source.len());
-    let offset = if source.is_char_boundary(offset) {
-        offset
-    } else {
-        let mut boundary = offset;
-        while !source.is_char_boundary(boundary) {
-            boundary = boundary.saturating_sub(1);
-        }
-        boundary
-    };
-    let prefix = &source[..offset];
-    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() as u64;
-    let line_start = prefix.rfind('\n').map_or(0, |index| index + 1);
-    let character = prefix[line_start..].encode_utf16().count() as u64;
-    (line, character)
-}
-fn lsp_range(
-    start_line: u64,
-    start_character: u64,
-    end_line: u64,
-    end_character: u64,
-) -> norito::json::Value {
-    json_object(vec![
-        ("start", lsp_position(start_line, start_character)),
-        ("end", lsp_position(end_line, end_character)),
-    ])
-}
-#[cfg(test)]
-fn lsp_completion_items() -> norito::json::Value {
-    let mut labels = BTreeSet::new();
-    let mut items = Vec::new();
-    let mut push = |label: &'static str, kind: u64| {
-        if labels.insert(label) {
-            items.push(json_object(vec![
-                ("label", norito::json::Value::from(label)),
-                ("kind", norito::json::Value::from(kind)),
-            ]));
-        }
-    };
-    for &keyword in V1_KEYWORDS {
-        push(keyword, 14);
-    }
-    for &operator in V1_OPERATORS {
-        push(operator, 24);
-    }
-    for &ty in V1_SOURCE_TYPE_NAMES {
-        push(ty, 7);
-    }
-    for &path in V1_SUM_PATHS {
-        push(path, 3);
-    }
-    for &path in V1_ROUNDING_PATHS {
-        push(path, 20);
-    }
-    for &member in V1_LIST_MEMBER_NAMES {
-        push(member, 2);
-    }
-    for &(label, kind) in V1_CONTEXTUAL_COMPLETIONS {
-        push(label, kind);
-    }
-    for (builtin, spec) in Builtin::registry() {
-        match spec.surface {
-            BuiltinSurface::Function => push(spec.name, 3),
-            BuiltinSurface::MethodOnly => push(builtin.name(), 2),
-            BuiltinSurface::FunctionOrMethod => {
-                push(spec.name, 3);
-                push(builtin.name(), 2);
-            }
-            BuiltinSurface::CompilerInternal => continue,
-        }
-    }
-    norito::json::Value::Array(items)
-}
-fn lsp_position(line: impl Into<u64>, character: impl Into<u64>) -> norito::json::Value {
-    json_object(vec![
-        ("line", norito::json::Value::from(line.into())),
-        ("character", norito::json::Value::from(character.into())),
-    ])
-}
-fn json_object(entries: Vec<(&str, norito::json::Value)>) -> norito::json::Value {
-    norito::json::object(
-        entries
-            .into_iter()
-            .map(|(key, value)| (key.to_owned(), value)),
-    )
-    .unwrap_or(norito::json::Value::Null)
+    .map_err(KotoError::Io)
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Parse a complete `koto` argument vector the way `main` does.
+    fn parse_cli(args: &[&str]) -> Result<Cli, clap::Error> {
+        let command = Cli::command().long_version(koto_long_version());
+        let matches =
+            command.try_get_matches_from(std::iter::once("koto").chain(args.iter().copied()))?;
+        Cli::from_arg_matches(&matches)
+    }
     #[test]
     fn command_inventory_is_exact_and_retired_names_stay_rejected() {
-        let inventory = KOTO_COMMAND_INVENTORY
-            .iter()
-            .map(|(name, _)| *name)
+        let inventory = Cli::command()
+            .get_subcommands()
+            .map(|command| command.get_name().to_owned())
             .collect::<Vec<_>>();
         assert_eq!(
             inventory,
             ["check", "build", "test", "fmt", "doc", "explain", "lsp"]
         );
-        let usage_inventory = USAGE
-            .lines()
-            .filter_map(|line| line.strip_prefix("  koto "))
-            .filter_map(|line| line.split_ascii_whitespace().next())
-            .collect::<Vec<_>>();
-        assert_eq!(usage_inventory, inventory);
         for retired in ["compile", "lint", "koto_compile", "koto_lint", "koto_test"] {
-            assert_eq!(koto_command(retired), None, "retired command `{retired}`");
+            let error = parse_cli(&[retired, "x.ko"]).expect_err("retired command");
+            assert_eq!(
+                error.kind(),
+                clap::error::ErrorKind::InvalidSubcommand,
+                "{retired}"
+            );
         }
+        Cli::command().debug_assert();
+    }
+    #[test]
+    fn builtin_documentation_is_an_explicit_source_free_mode() {
+        for format in ["markdown", "json"] {
+            let Cli {
+                command: KotoCommand::Doc(args),
+            } = parse_cli(&["doc", "--builtins", "--format", format]).expect("builtin reference")
+            else {
+                panic!("expected doc command");
+            };
+            assert!(args.builtins);
+            assert!(args.source.is_none());
+        }
+        let Cli {
+            command: KotoCommand::Doc(args),
+        } = parse_cli(&["doc", "--builtins"]).expect("default builtin format")
+        else {
+            panic!("expected doc command");
+        };
+        assert_eq!(args.format, DocFormat::Markdown);
+        for arguments in [
+            vec!["doc"],
+            vec!["doc", "--source-root", "src"],
+            vec!["doc", "--format", "json"],
+        ] {
+            assert_eq!(
+                parse_cli(&arguments).unwrap_err().kind(),
+                clap::error::ErrorKind::MissingRequiredArgument
+            );
+        }
+        for arguments in [
+            vec!["doc", "--builtins", "counter.ko"],
+            vec!["doc", "--builtins", "--source-root", "src"],
+            vec!["doc", "--builtins", "--zk"],
+            vec!["doc", "--builtins", "--chain-discriminant", "753"],
+        ] {
+            assert_eq!(
+                parse_cli(&arguments).unwrap_err().kind(),
+                clap::error::ErrorKind::ArgumentConflict
+            );
+        }
+        assert!(
+            parse_cli(&[
+                "doc",
+                "--source-root",
+                "src",
+                "--zk",
+                "--chain-discriminant",
+                "753",
+                "src/counter.ko"
+            ])
+            .is_ok()
+        );
+    }
+    #[test]
+    fn every_subcommand_has_help_and_the_binary_reports_its_version() {
+        for command in ["check", "build", "test", "fmt", "doc", "explain", "lsp"] {
+            for flag in ["--help", "-h"] {
+                let error = parse_cli(&[command, flag]).expect_err("help is reported through clap");
+                assert_eq!(
+                    error.kind(),
+                    clap::error::ErrorKind::DisplayHelp,
+                    "{command} {flag}"
+                );
+                assert_eq!(report_status_for(&error), ExitStatus::Success);
+            }
+        }
+        for flag in ["--version", "-V"] {
+            let error = parse_cli(&[flag]).expect_err("version is reported through clap");
+            assert_eq!(error.kind(), clap::error::ErrorKind::DisplayVersion);
+        }
+        let long = koto_long_version();
+        assert!(long.contains("kotodama_lang/"));
+        assert!(long.contains("IVM 1.1 bytecode"));
+        assert!(long.lines().any(|line| {
+            line.strip_prefix("abi_hash: ")
+                .is_some_and(|hash| hash.len() == 64)
+        }));
+        let help = Cli::command().render_long_help().to_string();
+        for status in [
+            "0   success",
+            "2   usage error",
+            "8   compiler diagnostics",
+            "10  ",
+            "11  the tests ran",
+            "70  internal",
+        ] {
+            assert!(
+                help.contains(status),
+                "help omits exit status `{status}`:\n{help}"
+            );
+        }
+    }
+    /// Exit status `main` selects for a clap parse outcome, without printing.
+    fn report_status_for(error: &clap::Error) -> ExitStatus {
+        use clap::error::ErrorKind;
+        match error.kind() {
+            ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => ExitStatus::Success,
+            _ => ExitStatus::Usage,
+        }
+    }
+    #[test]
+    fn unknown_options_report_the_subcommand_usage_with_the_usage_status() {
+        let error = parse_cli(&["check", "--frobnicate", "a.ko"]).expect_err("unknown flag");
+        assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
+        assert_eq!(report_status_for(&error), ExitStatus::Usage);
+        assert!(error.to_string().contains("koto check"), "{error}");
+        let error = parse_cli(&["build"]).expect_err("missing source");
+        assert_eq!(report_status_for(&error), ExitStatus::Usage);
+        assert_eq!(ExitStatus::Usage.code(), 2);
+        assert_eq!(ExitStatus::Failed.code(), 8);
+        assert_eq!(ExitStatus::Io.code(), 10);
+        assert_eq!(ExitStatus::TestsFailed.code(), 11);
+        assert_eq!(ExitStatus::Internal.code(), 70);
+        assert_eq!(KotoError::Io("x".to_owned()).exit_status(), ExitStatus::Io);
+        assert_eq!(
+            KotoError::TestsFailed.exit_status(),
+            ExitStatus::TestsFailed
+        );
+        assert_eq!(
+            KotoError::from(kotodama_toolchain::koto_test_driver::KotoTestCliError {
+                kind: kotodama_toolchain::koto_test_driver::KotoTestCliErrorKind::TestsFailed,
+                message: String::new(),
+            })
+            .exit_status(),
+            ExitStatus::TestsFailed
+        );
+        assert_eq!(
+            KotoError::Failed("drift".to_owned()).exit_status(),
+            ExitStatus::Failed
+        );
+    }
+    #[test]
+    fn test_options_take_explicit_report_paths_and_default_to_run() {
+        use kotodama_toolchain::koto_test_driver::{KotoTestAction, KotoTestReportFormat};
+        let Cli {
+            command: KotoCommand::Test(args),
+        } = parse_cli(&["test", "--junit", "report.xml", "tests/vault.test.ko"]).expect("parse")
+        else {
+            panic!("expected test command");
+        };
+        let options = test_cli_options(args);
+        assert_eq!(options.action, KotoTestAction::Run);
+        assert_eq!(options.junit, Some(PathBuf::from("report.xml")));
+        assert_eq!(options.source, Some(PathBuf::from("tests/vault.test.ko")));
+        assert_eq!(options.format, KotoTestReportFormat::Human);
+        let error = parse_cli(&["test", "--junit", "tests/vault.test.ko"])
+            .expect_err("--junit consumes its value, so the source is missing");
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+        for (action, expected) in [
+            ("run", KotoTestAction::Run),
+            ("list", KotoTestAction::List),
+            ("coverage", KotoTestAction::Coverage),
+            ("trace", KotoTestAction::Trace),
+        ] {
+            let Cli {
+                command: KotoCommand::Test(args),
+            } = parse_cli(&["test", action, "--filter", "quote", "--exact", "x.test.ko"])
+                .expect("parse action")
+            else {
+                panic!("expected test command");
+            };
+            let options = test_cli_options(args);
+            assert_eq!(options.action, expected);
+            assert_eq!(options.filter.as_deref(), Some("quote"));
+            assert!(options.exact);
+        }
+        let error =
+            parse_cli(&["test", "--exact", "x.test.ko"]).expect_err("--exact needs --filter");
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+        let error = parse_cli(&["test", "run", "--format", "text", "x.test.ko"])
+            .expect_err("retired format spelling");
+        assert_eq!(error.kind(), clap::error::ErrorKind::InvalidValue);
+        let error = parse_cli(&["test", "--json", "x.test.ko"]).expect_err("retired --json flag");
+        assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
+        let error =
+            parse_cli(&["test", "profile", "x.test.ko"]).expect_err("`profile` is now `trace`");
+        assert_ne!(error.kind(), clap::error::ErrorKind::DisplayHelp);
     }
     #[test]
     fn layout_normalization_is_idempotent() {
@@ -2697,34 +2278,46 @@ mod tests {
     }
     #[test]
     fn contract_documentation_is_stable_markdown_from_the_manifest() {
-        let output = CompilerSession::default()
-            .build(CompileRequest {
-                source: r#"
-                    seiyaku Vault {
+        let source = r#"
+                    seiyaku Vault { permission CanDeposit;
                         error enum VaultError { Empty = 7 }
                         state int balance;
-                        hajimari() { balance = 0; }
+                        始まり() { balance = 0; }
                         kaizen() {}
-                        kotoage fn deposit(int amount) authorize("CanDeposit") {
+                        言挙げ fn deposit(int amount) authorize(CanDeposit) {
                             require(amount > 0, VaultError::Empty);
                             balance = balance + amount;
                         }
-                        view fn read() -> int { return balance; }
+                        view fn read() authorize(anyone) -> int { return balance; }
                     }
-                "#,
+                "#;
+        let output = CompilerSession::default()
+            .build(CompileRequest {
+                source,
                 source_name: Some("vault.ko"),
             })
             .expect("compile documentation fixture");
-        let markdown = render_contract_documentation(&output.manifest, &[]);
+        let markdown = render_contract_documentation(
+            &output.manifest,
+            &DocumentationContext::new(&[], Some(source)),
+        );
         for expected in [
             "# Vault",
-            "## `kotoage` / `言挙げ`, views, and lifecycle",
-            "### `deposit(amount: int) -> ()`",
-            "Declaration: `kotoage`/`言挙げ` (authorized public mutation)",
-            "Declaration: `view` (read-only call)",
-            "Lifecycle declaration: `hajimari`/`始まり`",
-            "Lifecycle declaration: `kaizen`/`改善`",
-            "Authorization: `CanDeposit`",
+            "## `kotoage` / `言挙げ` (authorized public mutations)",
+            "### `言挙げ fn deposit(int amount) authorize(CanDeposit)`",
+            "### `始まり()`",
+            "### `kaizen()`",
+            "### `view fn read() authorize(anyone) -> int`",
+            "Declared with `言挙げ`: an authorized call",
+            "## Views (read-only calls)",
+            "Declared with `view`: a read-only call.",
+            "Arguments: none (send `{}`).",
+            "## Lifecycle: `hajimari` / `始まり`",
+            "Declared with `始まり`: the one-shot activation hook",
+            "Declared with `kaizen`: the migration hook",
+            "Authorization: declared permission `CanDeposit`",
+            "for example `{\"amount\": \"0\"}`",
+            "`int`, `decimal` and `quantity` values are canonical decimal strings",
             "## Durable state",
             "`int` `balance`",
             "## Seiyaku errors",
@@ -2735,13 +2328,154 @@ mod tests {
                 "generated documentation omitted {expected:?}:\n{markdown}"
             );
         }
+        for absent in [
+            "deposit(amount: int)",
+            "deposit(int amount) -> ()",
+            "External arguments use a JSON record",
+        ] {
+            assert!(
+                !markdown.contains(absent),
+                "unexpected {absent:?}:\n{markdown}"
+            );
+        }
+        let runtime = markdown
+            .find("## Runtime errors")
+            .expect("runtime error appendix");
+        assert!(
+            markdown
+                .find("kotodama::")
+                .is_some_and(|first| first > runtime),
+            "compiler-owned errors stay in the appendix:\n{markdown}"
+        );
     }
+    #[test]
+    fn documentation_states_only_the_encodings_a_record_uses() {
+        let source = "seiyaku Notes { view fn greet(string who) authorize(anyone) -> string { return who; } view fn pick(Option<int> limit) authorize(anyone) -> int { return 1; } }";
+        let output = CompilerSession::default()
+            .build(CompileRequest {
+                source,
+                source_name: Some("notes.ko"),
+            })
+            .expect("compile encoding documentation fixture");
+        let schema = |name: &str| {
+            output
+                .manifest
+                .entrypoints
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .find(|entrypoint| entrypoint.name == name)
+                .and_then(|entrypoint| entrypoint.argument_schema.clone())
+                .expect("argument schema")
+        };
+        assert_eq!(argument_encoding_notes(&schema("greet")), "");
+        assert_eq!(
+            argument_encoding_notes(&schema("pick")),
+            " `int`, `decimal` and `quantity` values are canonical decimal strings. Options are `{\"some\": value}` or `{\"none\": true}`."
+        );
+        let markdown = render_contract_documentation(
+            &output.manifest,
+            &DocumentationContext::new(&[], Some(source)),
+        );
+        assert!(
+            markdown.contains("for example `{\"who\": \"\"}`.\n"),
+            "{markdown}"
+        );
+    }
+    #[test]
+    fn documentation_groups_compiler_owned_errors_separately() {
+        let source = "seiyaku Rates { view fn ratio(decimal left, decimal right) authorize(anyone) -> decimal { return left / right; } }";
+        let output = CompilerSession::default()
+            .build(CompileRequest {
+                source,
+                source_name: Some("rates.ko"),
+            })
+            .expect("compile numeric documentation fixture");
+        let markdown = render_contract_documentation(
+            &output.manifest,
+            &DocumentationContext::new(&[], Some(source)),
+        );
+        if markdown.contains("kotodama::") {
+            let runtime = markdown
+                .find("## Runtime errors")
+                .expect("runtime error heading");
+            let first = markdown.find("kotodama::").expect("compiler-owned error");
+            assert!(first > runtime, "{markdown}");
+        }
+        assert!(!markdown.contains("## Seiyaku errors"), "{markdown}");
+        assert!(
+            !markdown.contains("## `kotoage`"),
+            "no kotoage section without kotoage:\n{markdown}"
+        );
+        assert!(
+            markdown.contains("for example `{\"left\": \"0.0\", \"right\": \"0.0\"}`"),
+            "{markdown}"
+        );
+    }
+    #[test]
+    fn source_documentation_includes_ordinary_enums_events_and_exact_json_names() {
+        use kotodama_lang::editor::EditorSnapshot;
+        let source = "seiyaku Events { enum Status { Active = 1, Done = 7 } event Changed { Status status; } view fn echo(Status value) authorize(anyone) -> Status { value } kotoage fn notify() authorize(anyone) { emit Changed { status: Status::Done }; } }";
+        let snapshot = EditorSnapshot::single("events.ko", source, false);
+        let signatures = snapshot.declaration_signatures(SourceId(0));
+        let output = CompilerSession::default()
+            .build(CompileRequest {
+                source,
+                source_name: Some("events.ko"),
+            })
+            .expect("compile enum/event documentation fixture");
+        let markdown = render_contract_documentation(
+            &output.manifest,
+            &DocumentationContext::new(&signatures, Some(source)),
+        );
+        assert!(markdown.contains("## Ordinary enums"), "{markdown}");
+        assert!(markdown.contains("`Active` (1), `Done` (7)"), "{markdown}");
+        assert!(markdown.contains("## Events"), "{markdown}");
+        assert!(markdown.contains("### `Changed`"), "{markdown}");
+        assert!(markdown.contains("\"status\": \"Active\""), "{markdown}");
+        assert!(
+            markdown.contains("exact declared variant name as a JSON string"),
+            "{markdown}"
+        );
+        let json = contract_documentation_json(&output.manifest, &signatures).unwrap();
+        assert_eq!(json["manifest"]["events"].as_array().unwrap().len(), 1);
+        assert_eq!(json["manifest"]["enum_types"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn source_documentation_keeps_authored_markdown_in_both_formats() {
+        use kotodama_lang::editor::EditorSnapshot;
+        let source = "seiyaku Help {\n/// Returns the **current** amount.\n///\n/// No state is changed.\nview fn amount() authorize(anyone) -> int { 1 }\n}";
+        let snapshot = EditorSnapshot::single("help.ko", source, false);
+        let signatures = snapshot.declaration_signatures(SourceId(0));
+        let output = CompilerSession::default()
+            .build(CompileRequest {
+                source,
+                source_name: Some("help.ko"),
+            })
+            .unwrap();
+        let markdown = render_contract_documentation(
+            &output.manifest,
+            &DocumentationContext::new(&signatures, Some(source)),
+        );
+        assert!(
+            markdown.contains("Returns the **current** amount.\n\nNo state is changed."),
+            "{markdown}"
+        );
+        let json = contract_documentation_json(&output.manifest, &signatures).unwrap();
+        assert_eq!(
+            json["source_signatures"][0]["documentation"],
+            norito::json::Value::from("Returns the **current** amount.\n\nNo state is changed.")
+        );
+    }
+
     #[test]
     fn source_documentation_preserves_call_modes_and_named_external_records() {
         use kotodama_lang::editor::EditorSnapshot;
         for (declaration, mode) in [("int amount", "named"), ("int _ amount", "positional")] {
-            let source =
-                format!("seiyaku Labels {{ view fn echo({declaration}) -> int {{ amount }} }}");
+            let source = format!(
+                "seiyaku Labels {{ view fn echo({declaration}) authorize(anyone) -> int {{ amount }} }}"
+            );
             let snapshot = EditorSnapshot::single("labels.ko", &source, false);
             let signatures = snapshot.declaration_signatures(SourceId(0));
             let output = CompilerSession::default()
@@ -2750,12 +2484,17 @@ mod tests {
                     source_name: Some("labels.ko"),
                 })
                 .expect("compile source documentation fixture");
-            let markdown = render_contract_documentation(&output.manifest, &signatures);
+            let markdown = render_contract_documentation(
+                &output.manifest,
+                &DocumentationContext::new(&signatures, Some(&source)),
+            );
             assert!(
-                markdown.contains(&format!("Source declaration: `echo({declaration}) -> int`")),
+                markdown.contains(&format!(
+                    "### `view fn echo({declaration}) authorize(anyone) -> int`"
+                )),
                 "{markdown}"
             );
-            assert!(markdown.contains("### `echo(amount: int) -> int`"));
+            assert!(markdown.contains("`{\"amount\": \"0\"}`"), "{markdown}");
             let json = contract_documentation_json(&output.manifest, &signatures).unwrap();
             let echo = json
                 .get("source_signatures")
@@ -2785,21 +2524,21 @@ mod tests {
     #[test]
     fn formatter_validation_uses_lossless_v1_syntax() {
         format_source_text(
-            "seiyaku Demo { view fn value() -> int { return 1; } }",
+            "seiyaku Demo { view fn value() authorize(anyone) -> int { return 1; } }",
             Some("valid.ko"),
         )
         .expect("valid syntax");
         let branded = format_source_text(
-            "誓約 Demo { 言挙げ fn run() authorize(\"Run\") {} }",
+            "誓約 Demo { permission Run;  言挙げ fn run() authorize(Run) {} }",
             Some("branded.ko"),
         )
         .expect("branded Japanese keywords are valid V1 syntax");
         assert_eq!(
-            branded, "誓約 Demo {\n    言挙げ fn run() authorize(\"Run\") {}\n}\n",
+            branded, "誓約 Demo {\n    permission Run;\n    言挙げ fn run() authorize(Run) {}\n}\n",
             "formatting must preserve the selected branded script",
         );
         let error = format_source_text(
-            "seiyaku Démo { view fn value() -> int { return ; } }",
+            "seiyaku Démo { view fn value() authorize(anyone) -> int { return ; } }",
             Some("invalid.ko"),
         )
         .expect_err("invalid source must not be formatted");
@@ -2808,24 +2547,36 @@ mod tests {
     }
     #[test]
     fn check_options_select_zk_policy_without_source_metadata() {
-        let options = parse_check_options(vec![
-            "--format".to_owned(),
-            "sarif".to_owned(),
-            "--chain-discriminant".to_owned(),
-            "369".to_owned(),
-            "--zk".to_owned(),
-            "--project".to_owned(),
-            "kotodama.project.json".to_owned(),
+        let Cli {
+            command: KotoCommand::Check(options),
+        } = parse_cli(&[
+            "check",
+            "--format",
+            "sarif",
+            "--chain-discriminant",
+            "369",
+            "--zk",
+            "--source-root",
+            "contracts",
+            "contracts/app.ko",
         ])
-        .expect("parse check options");
+        .expect("parse check options")
+        else {
+            panic!("expected check");
+        };
         assert_eq!(options.format, DiagnosticFormat::Sarif);
-        assert!(options.zk_enabled);
-        assert_eq!(options.chain_discriminant, 369);
+        assert!(options.capabilities.zk);
+        assert_eq!(options.capabilities.chain_discriminant(), 369);
         assert_eq!(
-            options.project,
-            Some(PathBuf::from("kotodama.project.json"))
+            options.selection.source_root,
+            Some(PathBuf::from("contracts"))
         );
-        assert!(options.inputs.is_empty());
+        assert_eq!(options.sources, vec![PathBuf::from("contracts/app.ko")]);
+        let error = parse_cli(&["check", "--project", "p.json"])
+            .expect_err("project configuration belongs to Musubi");
+        assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
+        let error = parse_cli(&["check", "--format", "text", "a.ko"]).expect_err("retired alias");
+        assert_eq!(error.kind(), clap::error::ErrorKind::InvalidValue);
     }
     #[test]
     fn chain_discriminant_option_is_strict_and_nonzero() {
@@ -2840,15 +2591,16 @@ mod tests {
                 "accepted invalid discriminant {invalid:?}"
             );
         }
-        let duplicate = parse_check_options(vec![
-            "--chain-discriminant".to_owned(),
-            "369".to_owned(),
-            "--chain-discriminant".to_owned(),
-            "753".to_owned(),
-            "contract.ko".to_owned(),
+        let duplicate = parse_cli(&[
+            "check",
+            "--chain-discriminant",
+            "369",
+            "--chain-discriminant",
+            "753",
+            "contract.ko",
         ])
         .expect_err("duplicate option must fail closed");
-        assert!(duplicate.contains("only once"));
+        assert_eq!(duplicate.kind(), clap::error::ErrorKind::ArgumentConflict);
     }
     #[test]
     fn unreadable_sources_emit_native_structured_diagnostics() {
@@ -2974,9 +2726,8 @@ mod tests {
         .to_string();
         for expected in [
             "error[E_UNEXPORTED_SYMBOL] resolve",
-            "modules/app.ko:3:9-3:22",
-            "modules/math.ko:1:18-1:24",
-            "the private declaration is here",
+            "--> modules/app.ko:3:9",
+            "= label: modules/math.ko:1:18: the private declaration is here",
             "imports are explicit in V1",
             "= help:",
             "= fix:",
@@ -3023,7 +2774,7 @@ mod tests {
         let source = root.join("lint.ko");
         std::fs::write(
             &source,
-            "seiyaku Lint { view fn value(int unused) -> int { return 1; } }",
+            "seiyaku Lint { fn helper(int unused) -> int { return 1; } view fn value() authorize(anyone) -> int { return helper(unused: 0); } }",
         )
         .expect("write lint source");
         let warnings = check_path(&CompilerSession::default(), &source)
@@ -3042,6 +2793,137 @@ mod tests {
         std::fs::remove_dir_all(root).expect("remove lint check root");
     }
     #[test]
+    fn lint_flags_validate_names_and_select_one_level_per_lint() {
+        let flags = LintArgs {
+            deny_warnings: false,
+            allow: vec!["unused-local".to_owned()],
+            warn: Vec::new(),
+            deny: vec!["dead-store".to_owned()],
+        };
+        let config = flags.config().expect("known lints");
+        assert_eq!(config.level("unused-local"), LintLevel::Allow);
+        assert_eq!(config.level("dead-store"), LintLevel::Deny);
+        assert_eq!(config.level("unused-state"), LintLevel::Warn);
+        let conflicting = LintArgs {
+            deny: vec!["unused-local".to_owned()],
+            ..flags.clone()
+        };
+        assert!(matches!(
+            conflicting.config(),
+            Err(KotoError::Usage(message)) if message.contains("both `--allow` and `--deny`")
+        ));
+        let unknown = LintArgs {
+            allow: vec!["unused-locl".to_owned()],
+            ..LintArgs::default()
+        };
+        assert!(matches!(
+            unknown.config(),
+            Err(KotoError::Usage(message)) if message.contains("did you mean `unused-local`?")
+        ));
+        let denying = LintArgs {
+            deny_warnings: true,
+            ..LintArgs::default()
+        }
+        .config()
+        .expect("deny-warnings");
+        let warnings = CompilerSession::default()
+            .check_with_lints(CompileRequest {
+                source: "seiyaku L { view fn one() authorize(anyone) -> int { let unused = 1; return 1; } }",
+                source_name: Some("l.ko"),
+            })
+            .expect("lints do not fail the check");
+        let unused = warnings
+            .into_iter()
+            .find(|warning| warning.code == "unused-local")
+            .expect("unused local");
+        let denied = leveled_lint(&denying, unused.clone()).expect("denied lints are reported");
+        assert_eq!(denied.severity, kotodama_lang::lint::LintSeverity::Error);
+        assert!(
+            leveled_lint(&config, unused).is_none(),
+            "allowed lints are dropped"
+        );
+    }
+    #[test]
+    fn rooted_diagnostics_name_existing_sources_relative_to_the_working_directory() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let span = |source: &str| SourceSpan {
+            package_identity: None,
+            source: Some(source.to_owned()),
+            start: SourcePosition { line: 1, column: 1 },
+            end: SourcePosition { line: 1, column: 2 },
+            byte_range: None,
+        };
+        let mut diagnostic = Diagnostic::error(
+            "K1001",
+            DiagnosticPhase::Parse,
+            "message",
+            Some(span("lib.rs")),
+        );
+        diagnostic.alternative_fixes.push(DiagnosticFix {
+            span: span("missing.ko"),
+            replacement: String::new(),
+        });
+        remap_rooted_diagnostic_sources(&mut diagnostic, &root);
+        assert_eq!(
+            diagnostic
+                .primary_span
+                .and_then(|span| span.source)
+                .as_deref(),
+            Some(display_path(&root.join("lib.rs")).as_str())
+        );
+        assert_eq!(
+            diagnostic.alternative_fixes[0].span.source.as_deref(),
+            Some("missing.ko"),
+            "names that are not files below the root stay logical"
+        );
+    }
+    #[test]
+    fn build_and_format_diagnostics_preserve_physical_source_locations() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let diagnostic = Diagnostic::error(
+            "K1001",
+            DiagnosticPhase::Parse,
+            "message",
+            Some(SourceSpan {
+                package_identity: None,
+                source: Some("lib.rs".to_owned()),
+                start: SourcePosition { line: 1, column: 1 },
+                end: SourcePosition { line: 1, column: 2 },
+                byte_range: None,
+            }),
+        );
+        let bundle = DiagnosticBundle::single(diagnostic);
+        let source_paths = BTreeMap::from([(
+            ProjectSourceKey {
+                package_identity: None,
+                source_name: "lib.rs".to_owned(),
+            },
+            BTreeSet::from([root.join("lib.rs")]),
+        )]);
+        for error in [
+            located_build_error(
+                DiagnosticFormat::Human,
+                BuildError::Compile(bundle.clone()),
+                &source_paths,
+            ),
+            rooted_build_error(DiagnosticFormat::Human, BuildError::Compile(bundle), &root),
+        ] {
+            assert!(
+                error
+                    .to_string()
+                    .contains(&format!("--> {}:1:1", display_path(&root.join("lib.rs")))),
+                "{error}"
+            );
+        }
+        let path = root.join("invalid.ko");
+        let error =
+            format_source_text("seiyaku Invalid {", path.to_str()).expect_err("missing delimiter");
+        assert!(
+            error.contains(&format!("--> {}:", display_path(&path))),
+            "{error}"
+        );
+    }
+    #[test]
     fn unified_check_links_only_the_explicit_locked_project_graph() {
         let root = std::env::temp_dir().join(format!(
             "koto-check-project-{}-{}",
@@ -3054,10 +2936,9 @@ mod tests {
         std::fs::create_dir_all(&root).expect("create project check root");
         let app = root.join("app.ko");
         let module = root.join("math.ko");
-        let project = root.join("kotodama.project.json");
         std::fs::write(
             &app,
-            "seiyaku App { view fn run() -> int { return Math::value(unused: 1); } }",
+            "seiyaku App { view fn run() authorize(anyone) -> int { return Math::value(unused: 1); } }",
         )
         .expect("write project root");
         std::fs::write(
@@ -3065,23 +2946,56 @@ mod tests {
             "module Math { export fn value(int unused) -> int { return 7; } }",
         )
         .expect("write project module");
-        std::fs::write(
-            &project,
-            r#"{
-                "version": 1,
-                "root": "app.ko",
-                "imports": [{"alias": "Math", "package": "example/math@1.0.0"}],
-                "packages": [{
-                    "identity": "example/math@1.0.0",
-                    "modules": ["math.ko"],
-                    "exports": ["value"],
-                    "imports": []
-                }]
-            }"#,
-        )
-        .expect("write explicit project manifest");
+        let load_graph = || {
+            use kotodama_lang::linker::{ImportBinding, SourceLinkRequest, SourcePackageUnit};
+            let package = "example/math@1.0.0".to_owned();
+            LoadedSourceProject {
+                graph: LoadedProjectGraph::Source(SourceLinkRequest {
+                    artifacts: Vec::new(),
+                    root: SourceModuleUnit {
+                        source_name: "app.ko".into(),
+                        source: std::fs::read_to_string(&app).unwrap(),
+                    },
+                    sources: Vec::new(),
+                    imports: vec![ImportBinding {
+                        alias: "Math".into(),
+                        package: package.clone(),
+                    }],
+                    packages: vec![SourcePackageUnit {
+                        artifacts: Vec::new(),
+                        identity: package.clone(),
+                        modules: vec![SourceModuleUnit {
+                            source_name: "math.ko".into(),
+                            source: std::fs::read_to_string(&module).unwrap(),
+                        }],
+                        sources: Vec::new(),
+                        exports: BTreeSet::from(["value".into()]),
+                        imports: Vec::new(),
+                    }],
+                }),
+                source_paths: BTreeMap::from([
+                    (
+                        ProjectSourceKey {
+                            package_identity: None,
+                            source_name: "app.ko".into(),
+                        },
+                        app.canonicalize().unwrap(),
+                    ),
+                    (
+                        ProjectSourceKey {
+                            package_identity: Some(package),
+                            source_name: "math.ko".into(),
+                        },
+                        module.canonicalize().unwrap(),
+                    ),
+                ]),
+                manifests: Vec::new(),
+                lints: LintConfig::default(),
+            }
+        };
         let driver = BuildDriver::new(CompilerSession::default(), "koto-check-test");
-        let (checked, diagnostics) = check_locked_project(&driver, &project);
+        let (checked, diagnostics) =
+            check_loaded_project(&driver, load_graph(), &LintConfig::default());
         let canonical_app = app.canonicalize().expect("canonical app path");
         let canonical_module = module.canonicalize().expect("canonical module path");
         assert_eq!(
@@ -3123,10 +3037,11 @@ mod tests {
         );
         std::fs::write(
             &app,
-            "seiyaku App { view fn run() -> int { return Missing::value(); } }",
+            "seiyaku App { view fn run() authorize(anyone) -> int { return Missing::value(); } }",
         )
         .expect("write unknown module call");
-        let (checked, diagnostics) = check_locked_project(&driver, &project);
+        let (checked, diagnostics) =
+            check_loaded_project(&driver, load_graph(), &LintConfig::default());
         assert!(checked.is_empty());
         let error = diagnostics
             .diagnostics
@@ -3155,11 +3070,14 @@ mod tests {
         std::fs::create_dir_all(&root).expect("create multiple-root check directory");
         let first = root.join("a.ko");
         let second = root.join("b.ko");
-        std::fs::write(&first, "seiyaku A { view fn value() -> int { return 1; } }")
-            .expect("write first root");
+        std::fs::write(
+            &first,
+            "seiyaku A { view fn value() authorize(anyone) -> int { return 1; } }",
+        )
+        .expect("write first root");
         std::fs::write(
             &second,
-            "seiyaku B { view fn value() -> int { return 2; } }",
+            "seiyaku B { view fn value() authorize(anyone) -> int { return 2; } }",
         )
         .expect("write second root");
         let driver = BuildDriver::new(CompilerSession::default(), "koto-check-test");
@@ -3184,27 +3102,139 @@ mod tests {
     }
     #[test]
     fn formatter_options_fail_closed_and_allow_dash_paths_after_separator() {
-        let error = parse_format_sources_args(vec!["--write".to_owned(), "demo.ko".to_owned()])
+        let error = parse_cli(&["fmt", "--write", "demo.ko"])
             .expect_err("unknown formatter flags must not become file paths");
-        assert!(error.contains("unknown fmt option"));
-        let error = parse_format_sources_args(vec![
-            "--check".to_owned(),
-            "--check".to_owned(),
-            "demo.ko".to_owned(),
-        ])
-        .expect_err("duplicate formatter options must fail closed");
-        assert!(error.contains("more than once"));
-        let error = parse_format_sources_args(vec![String::new()])
-            .expect_err("empty formatter paths must fail closed");
-        assert!(error.contains("must not be empty"));
-        let (check_only, inputs) = parse_format_sources_args(vec![
-            "--check".to_owned(),
-            "--".to_owned(),
-            "--literal-name.ko".to_owned(),
-        ])
-        .expect("separator permits a leading-dash file name");
-        assert!(check_only);
-        assert_eq!(inputs, vec![PathBuf::from("--literal-name.ko")]);
+        assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
+        let error = parse_cli(&["fmt", "--check", "--check", "demo.ko"])
+            .expect_err("duplicate formatter options must fail closed");
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+        let Cli {
+            command: KotoCommand::Fmt(args),
+        } = parse_cli(&["fmt", "--check", "--", "--literal-name.ko"])
+            .expect("separator permits a leading-dash file name")
+        else {
+            panic!("expected fmt");
+        };
+        assert!(args.check);
+        assert_eq!(args.paths, vec![PathBuf::from("--literal-name.ko")]);
+    }
+    #[test]
+    fn formatter_directories_expand_recursively_to_sorted_sources() {
+        let root = std::env::temp_dir().join(format!(
+            "koto-fmt-dir-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        for directory in ["contracts", "tests/nested", "target/kotodama", ".hidden"] {
+            std::fs::create_dir_all(root.join(directory)).expect("create fmt tree");
+        }
+        for file in [
+            "contracts/b.ko",
+            "contracts/a.ko",
+            "tests/nested/c.test.ko",
+            "target/kotodama/generated.ko",
+            ".hidden/skip.ko",
+            "contracts/readme.md",
+        ] {
+            std::fs::write(root.join(file), "seiyaku Demo {}\n").expect("write fmt input");
+        }
+        let inputs = collect_format_inputs(std::slice::from_ref(&root)).expect("expand directory");
+        let relative = inputs
+            .iter()
+            .map(|path| path.strip_prefix(&root).expect("inside root").to_path_buf())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            relative,
+            [
+                PathBuf::from("contracts/a.ko"),
+                PathBuf::from("contracts/b.ko"),
+                PathBuf::from("tests/nested/c.test.ko"),
+            ]
+        );
+        let explicit = root.join("target/kotodama/generated.ko");
+        assert_eq!(
+            collect_format_inputs(std::slice::from_ref(&explicit)).expect("explicit file"),
+            vec![explicit]
+        );
+        assert!(matches!(
+            collect_format_inputs(&[root.join("missing")]),
+            Err(KotoError::Io(_))
+        ));
+        std::fs::remove_dir_all(root).expect("remove fmt tree");
+    }
+    fn build_args(args: &[&str]) -> BuildArgs {
+        let mut full = vec!["build"];
+        full.extend_from_slice(args);
+        match parse_cli(&full).expect("parse build arguments").command {
+            KotoCommand::Build(args) => args,
+            other => panic!("expected build, got {other:?}"),
+        }
+    }
+    #[test]
+    fn upgrade_build_checks_admitted_interfaces_before_publishing() {
+        let root = std::env::temp_dir().join(format!(
+            "koto-upgrade-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let previous = CompilerSession::default().build(CompileRequest {
+            source: "seiyaku Counter { state int total; hajimari() { total = 0; } view fn read() authorize(anyone) -> int { total } }",
+            source_name: Some("previous.ko"),
+        }).unwrap();
+        let previous_path = root.join("previous.to");
+        std::fs::write(&previous_path, previous.artifact).unwrap();
+        let source_path = root.join("replacement.ko");
+        let output = root.join("replacement.to");
+        let args = || {
+            build_args(&[
+                source_path.to_str().unwrap(),
+                "--out",
+                output.to_str().unwrap(),
+                "--upgrade-from",
+                previous_path.to_str().unwrap(),
+                "--format",
+                "json",
+            ])
+        };
+        for source in [
+            "seiyaku Counter { view fn read() authorize(anyone) -> int { 0 } }",
+            "seiyaku Counter { state bool total; hajimari() { total = false; } kaizen() {} view fn read() authorize(anyone) -> bool { total } }",
+            "seiyaku Counter { state int total; state int added; hajimari() { total = 0; added = 0; } view fn read() authorize(anyone) -> int { total } }",
+        ] {
+            std::fs::write(&source_path, source).unwrap();
+            let error = build(args()).expect_err("incompatible upgrade");
+            assert!(
+                error.to_string().contains("E_UPGRADE_INCOMPATIBLE"),
+                "{error}"
+            );
+            assert!(
+                !output.exists(),
+                "failed upgrade must not publish any artifact"
+            );
+        }
+        std::fs::write(&source_path, "seiyaku Counter { state int total; state int added; hajimari() { total = 0; added = 0; } kaizen() { added = 1; } view fn read() authorize(anyone) -> int { total + added } }").unwrap();
+        build(args()).expect("compatible upgrade with explicit migration obligation");
+        let published = std::fs::read(&output).unwrap();
+        ivm::verify_contract_artifact(&published).expect("complete replacement artifact");
+        std::fs::write(&previous_path, b"not an artifact").unwrap();
+        let error = build(args()).expect_err("base artifact must pass admission");
+        assert!(
+            error.to_string().contains("E_UPGRADE_BASE_INVALID"),
+            "{error}"
+        );
+        assert_eq!(
+            std::fs::read(&output).unwrap(),
+            published,
+            "failed preflight preserves prior output"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn build_rejects_standalone_module_without_publishing_artifact() {
@@ -3224,11 +3254,11 @@ mod tests {
             "module Math { export fn add(int left, int right) -> int { return left + right; } }",
         )
         .expect("write module source");
-        let error = build(vec![
-            "--target-dir".to_owned(),
-            target.display().to_string(),
-            source.display().to_string(),
-        ])
+        let error = build(build_args(&[
+            "--target-dir",
+            &target.display().to_string(),
+            &source.display().to_string(),
+        ]))
         .expect_err("standalone module build must fail");
         assert!(
             error.to_string().contains("E_ROOT_MUST_BE_SEIYAKU"),
@@ -3240,620 +3270,29 @@ mod tests {
         std::fs::remove_dir_all(root).expect("remove module test root");
     }
     #[test]
-    fn build_project_uses_the_same_explicit_locked_graph_as_check() {
-        let root = std::env::temp_dir().join(format!(
-            "koto-project-build-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let target = root.join("target/kotodama");
-        std::fs::create_dir_all(root.join("contracts")).expect("create contract directory");
-        std::fs::create_dir_all(root.join("modules")).expect("create module directory");
-        std::fs::write(
-            root.join("contracts/app.ko"),
-            "seiyaku App { view fn run() -> int { return Math::value(); } }",
-        )
-        .expect("write root source");
-        std::fs::write(
-            root.join("modules/math.ko"),
-            "module Math { export fn value() -> int { return 7; } }",
-        )
-        .expect("write module source");
-        let project = root.join("kotodama.project.json");
-        std::fs::write(
-            &project,
-            r#"{
-                "version": 1,
-                "root": "contracts/app.ko",
-                "imports": [{"alias": "Math", "package": "example/math@1.0.0"}],
-                "packages": [{
-                    "identity": "example/math@1.0.0",
-                    "modules": ["modules/math.ko"],
-                    "exports": ["value"],
-                    "imports": []
-                }]
-            }"#,
-        )
-        .expect("write project manifest");
-        build(vec![
-            "--target-dir".to_owned(),
-            target.display().to_string(),
-            "--project".to_owned(),
-            project.display().to_string(),
+    fn lsp_options_select_standalone_source_root() {
+        let Cli {
+            command: KotoCommand::Lsp(args),
+        } = parse_cli(&[
+            "lsp",
+            "--zk",
+            "--source-root",
+            "contracts",
+            "--chain-discriminant",
+            "42",
         ])
-        .expect("build exact project graph");
-        assert!(target.join("dev/app.to").is_file());
-        let malformed = std::fs::read_to_string(&project)
-            .expect("read project manifest")
-            .replace("\"exports\": [\"value\"]", "\"exports\": []");
-        std::fs::write(&project, malformed).expect("remove exact export");
-        let error = build(vec![
-            "--target-dir".to_owned(),
-            target.display().to_string(),
-            "--project".to_owned(),
-            project.display().to_string(),
-        ])
-        .expect_err("build must reject an undeclared export");
-        assert!(error.to_string().contains("E_UNEXPORTED_SYMBOL"), "{error}");
-        std::fs::remove_dir_all(root).expect("remove project build root");
-    }
-    #[test]
-    fn lsp_framing_and_completion_use_canonical_syntax_tables() {
-        let body = br#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#;
-        let framed = format!(
-            "Content-Length: {}\r\n\r\n{}",
-            body.len(),
-            std::str::from_utf8(body).expect("JSON is UTF-8")
-        );
-        let mut input = std::io::Cursor::new(framed.into_bytes());
-        let message = read_lsp_message(&mut input)
-            .expect("read LSP frame")
-            .expect("one message");
-        assert_eq!(
-            message.get("method").and_then(norito::json::Value::as_str),
-            Some("initialize")
-        );
-        assert_eq!(
-            lsp_initialize_result()
-                .pointer("/capabilities/codeActionProvider")
-                .and_then(norito::json::Value::as_bool),
-            Some(true),
-        );
-        let completions = lsp_completion_items();
-        let labels = completions
-            .as_array()
-            .expect("completion array")
-            .iter()
-            .filter_map(|item| item.get("label").and_then(norito::json::Value::as_str))
-            .collect::<Vec<_>>();
-        let completion_kind = |label: &str| {
-            completions
-                .as_array()
-                .expect("completion array")
-                .iter()
-                .find(|item| item.get("label").and_then(norito::json::Value::as_str) == Some(label))
-                .and_then(|item| item.get("kind"))
-                .and_then(norito::json::Value::as_u64)
+        .expect("standalone LSP options")
+        else {
+            panic!("expected lsp");
         };
-        assert!(labels.contains(&"seiyaku"));
-        assert!(labels.contains(&"kotoage"));
-        assert!(labels.contains(&"hajimari"));
-        assert!(labels.contains(&"kaizen"));
-        assert!(labels.contains(&"誓約"));
-        assert!(labels.contains(&"言挙げ"));
-        assert!(labels.contains(&"始まり"));
-        assert!(labels.contains(&"改善"));
-        assert!(labels.contains(&"&&"));
-        assert_eq!(completion_kind("json"), Some(14));
-        assert_eq!(completion_kind("div_round"), Some(2));
-        for current in V1_SUM_PATHS
-            .iter()
-            .chain(V1_ROUNDING_PATHS)
-            .chain(V1_LIST_MEMBER_NAMES)
-            .chain(V1_CONTEXTUAL_COMPLETIONS.iter().map(|(label, _)| label))
-        {
-            assert!(
-                labels.contains(current),
-                "missing canonical V1 completion `{current}`"
-            );
-        }
-        for current in [
-            "json",
-            "int",
-            "decimal",
-            "quantity",
-            "List",
-            "AccountView",
-            "AssetDefinitionView",
-            "QueryPage",
-            "Option::some",
-            "Result::err",
-            "Rounding::nearest_even",
-            "div_round",
-            "try_push",
-            "enumerate",
-            "get_int",
-            "get_decimal",
-            "get_quantity",
-            "get_json",
-            "get_name",
-            "get_account_id",
-            "get_asset_definition_id",
-            "get_nft_id",
-            "get_blob_hex",
-            "ledger::query::account",
-            "ledger::query::asset",
-            "ledger::query::asset_definition",
-            "ledger::query::domain",
-            "ledger::query::nft",
-            "ledger::query::accounts",
-            "ledger::query::assets",
-            "ledger::query::asset_definitions",
-            "ledger::query::domains",
-            "ledger::query::nfts",
-        ] {
-            assert!(
-                labels.contains(&current),
-                "missing V1 completion `{current}`"
-            );
-        }
+        assert!(args.capabilities.zk);
+        assert_eq!(args.capabilities.chain_discriminant, 42);
+        assert_eq!(args.selection.source_root, Some(PathBuf::from("contracts")));
         assert_eq!(
-            labels.iter().copied().collect::<BTreeSet<_>>().len(),
-            labels.len(),
-            "completion labels must be stable and duplicate-free",
-        );
-        for retired in [
-            "contract",
-            "entry",
-            "init",
-            "upgrade",
-            "json!",
-            "option::some",
-            "option::none",
-            "result::ok",
-            "result::err",
-            "Amount",
-            "get_amount",
-            "get_numeric",
-            "json_get_int",
-            "json_get_numeric",
-        ] {
-            assert!(!labels.contains(&retired));
-        }
-    }
-    #[test]
-    fn lsp_quick_fixes_are_exact_current_document_workspace_edits() {
-        let session = CompilerSession::default();
-        let uri = "file:///workspace/fixes.ko";
-        let indexed = "seiyaku C { fn write() { var List<int, 2> values = [1]; values[0] = 2; } }";
-        let indexed_actions = lsp_code_action_items(&session, uri, indexed);
-        let indexed_action = indexed_actions
-            .as_array()
-            .expect("code action array")
-            .iter()
-            .find(|action| {
-                action
-                    .pointer("/diagnostics/0/code")
-                    .and_then(norito::json::Value::as_str)
-                    == Some("E_LIST_UNSAFE_INDEX")
-            })
-            .expect("checked-list quick fix");
-        assert_eq!(
-            indexed_action
-                .pointer("/kind")
-                .and_then(norito::json::Value::as_str),
-            Some("quickfix")
-        );
-        let indexed_edit = indexed_action
-            .pointer("/edit/changes")
-            .and_then(|changes| changes.get(uri))
-            .and_then(norito::json::Value::as_array)
-            .and_then(|edits| edits.first())
-            .expect("checked-list workspace edit");
-        assert_eq!(
-            indexed_edit
-                .get("newText")
-                .and_then(norito::json::Value::as_str),
-            Some("values.set(index: 0, value: 2);")
-        );
-        let start = indexed_edit
-            .pointer("/range/start/character")
-            .and_then(norito::json::Value::as_u64)
-            .expect("indexed edit start") as usize;
-        let end = indexed_edit
-            .pointer("/range/end/character")
-            .and_then(norito::json::Value::as_u64)
-            .expect("indexed edit end") as usize;
-        assert_eq!(&indexed[start..end], "values[0] = 2;");
-        let unresolved = "seiyaku C { fn f() { target(1, second: 2); } }";
-        let unresolved_diagnostics = collect_lsp_diagnostics(&session, uri, unresolved);
-        assert!(unresolved_diagnostics.diagnostics.iter().any(|diagnostic| {
-            diagnostic.severity == Severity::Error && diagnostic.fix.is_none()
-        }));
-        let unresolved_actions = lsp_code_action_items(&session, uri, unresolved);
-        assert!(
-            unresolved_actions
-                .as_array()
-                .expect("code action array")
-                .is_empty(),
-            "an unresolved call must not receive a guessed parameter-name edit"
-        );
-        let positional =
-            "seiyaku C { struct Pair { int left, int right } fn f() { let pair = Pair(1, 2); } }";
-        let positional_actions = lsp_code_action_items(&session, uri, positional);
-        let positional_action = positional_actions
-            .as_array()
-            .expect("code action array")
-            .iter()
-            .find(|action| {
-                action
-                    .pointer("/diagnostics/0/code")
-                    .and_then(norito::json::Value::as_str)
-                    == Some("E_POSITIONAL_STRUCT")
-            })
-            .expect("positional-struct quick fix");
-        let positional_edit = positional_action
-            .pointer("/edit/changes")
-            .and_then(|changes| changes.get(uri))
-            .and_then(norito::json::Value::as_array)
-            .and_then(|edits| edits.first())
-            .expect("positional-struct workspace edit");
-        assert_eq!(
-            positional_edit
-                .get("newText")
-                .and_then(norito::json::Value::as_str),
-            Some("Pair { left: 1, right: 2, }")
-        );
-    }
-    #[test]
-    fn lsp_check_accepts_reusable_modules_without_artifact_codegen() {
-        let session = CompilerSession::default();
-        let module = lsp_diagnostics(
-            &session,
-            "file:///workspace/math.ko",
-            "module Math { export fn value() -> int { return 1; } }",
-        );
-        assert!(
-            module.is_empty(),
-            "valid reusable modules must not receive deployable-only K4003: {module:?}",
-        );
-        let invalid = lsp_diagnostics(
-            &session,
-            "file:///workspace/broken.ko",
-            "module Broken { export fn value( -> int { return 1; } }",
-        );
-        assert!(!invalid.is_empty());
-    }
-    #[test]
-    fn lsp_open_documents_never_infer_cross_file_graph_authority() {
-        let driver = BuildDriver::new(CompilerSession::default(), "lsp-test");
-        let app_uri = "file:///workspace/app.ko";
-        let module_uri = "file:///workspace/math.ko";
-        let documents = HashMap::from([
-            (
-                app_uri.to_owned(),
-                "seiyaku App { view fn run() -> int { return Math::value(); } }".to_owned(),
-            ),
-            (
-                module_uri.to_owned(),
-                "module Math { export fn value() -> int { return 1; } }".to_owned(),
-            ),
-        ]);
-        let diagnostics = collect_lsp_project_diagnostics(&driver, &documents);
-        let diagnostic = diagnostics[app_uri]
-            .diagnostics
-            .iter()
-            .find(|diagnostic| diagnostic.code == "E_PROJECT_MANIFEST_REQUIRED")
-            .expect("open root and module must require explicit graph authority");
-        let span = diagnostic.primary_span.as_ref().expect("exact call span");
-        assert_eq!(span.source.as_deref(), Some(app_uri));
-        assert!(
-            diagnostic
-                .help
-                .as_deref()
-                .is_some_and(|help| help.contains("--project"))
-        );
-        assert!(diagnostics[module_uri].diagnostics.is_empty());
-    }
-    #[test]
-    fn lsp_project_uses_open_overlays_on_the_exact_locked_graph() {
-        let root = std::env::temp_dir().join(format!(
-            "koto-lsp-project-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).expect("create LSP project root");
-        let app = root.join("app.ko");
-        let module = root.join("math.ko");
-        let manifest = root.join("kotodama.project.json");
-        std::fs::write(
-            &app,
-            "seiyaku App { view fn run() -> int { return Math::value(); } }",
-        )
-        .expect("write valid project root");
-        std::fs::write(
-            &module,
-            "module Math { export fn value() -> int { return 7; } }",
-        )
-        .expect("write project module");
-        std::fs::write(
-            &manifest,
-            r#"{
-                "version": 1,
-                "root": "app.ko",
-                "imports": [{"alias": "Math", "package": "example/math@1.0.0"}],
-                "packages": [{
-                    "identity": "example/math@1.0.0",
-                    "modules": ["math.ko"],
-                    "exports": ["value"],
-                    "imports": []
-                }]
-            }"#,
-        )
-        .expect("write exact LSP project manifest");
-        let project = load_source_project_manifest(&manifest).expect("load exact LSP project");
-        let app_uri = format!(
-            "file://{}",
-            app.canonicalize().expect("canonical app path").display()
-        );
-        let overlay = "seiyaku App { view fn run() -> int { return Math::missing(); } }".to_owned();
-        let documents = HashMap::from([(app_uri.clone(), overlay.clone())]);
-        let driver = BuildDriver::new(CompilerSession::default(), "lsp-project-test");
-        let diagnostics = collect_lsp_workspace_diagnostics(&driver, &documents, Some(&project));
-        let diagnostic = diagnostics[&app_uri]
-            .diagnostics
-            .iter()
-            .find(|diagnostic| diagnostic.code == "E_UNEXPORTED_SYMBOL")
-            .expect("open root overlay is checked against the locked package export set");
-        let span = diagnostic
-            .primary_span
-            .as_ref()
-            .expect("exact overlay span");
-        assert_eq!(span.source.as_deref(), Some(app_uri.as_str()));
-        assert!(span.package_identity.is_none());
-        let range = span.byte_range.expect("overlay byte range");
-        let start = usize::try_from(range.start).expect("range start fits usize");
-        let end = usize::try_from(range.end).expect("range end fits usize");
-        assert_eq!(&overlay[start..end], "Math::missing");
-        assert!(
-            diagnostics[&app_uri]
-                .diagnostics
-                .iter()
-                .all(|diagnostic| diagnostic.code != "E_PROJECT_MANIFEST_REQUIRED"),
-            "an explicit LSP project must provide graph authority"
-        );
-        // Unopened dependencies stay in the semantic graph and retain their exact text.
-        let documents = HashMap::new();
-        let workspace = editor_lsp::Workspace::new(&documents, Some(&project), &app_uri, false);
-        let root_source = &project.graph.root.source;
-        let request = norito::json!({"params": {"textDocument": {"uri": (app_uri.clone())}, "position": {"line": 0, "character": (root_source.find("value()").unwrap())}, "context": {"includeDeclaration": true}, "newName": "renamed"}});
-        let module_uri = lsp_path_file_uri(&module.canonicalize().unwrap()).unwrap();
-        let definition = workspace
-            .response("textDocument/definition", &request)
-            .unwrap();
-        assert_eq!(
-            definition
-                .pointer("/uri")
-                .and_then(norito::json::Value::as_str),
-            Some(module_uri.as_str())
-        );
-        let references = workspace
-            .response("textDocument/references", &request)
-            .unwrap();
-        assert_eq!(references.as_array().unwrap().len(), 2);
-        let renamed = workspace.response("textDocument/rename", &request).unwrap();
-        assert_eq!(
-            renamed
-                .pointer("/documentChanges")
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .len(),
-            3,
-            "owned exports rename the root reference, declaration, and exact manifest token together"
-        );
-        // Unopened source changes are reloaded from disk under the same locked manifest.
-        let invalid_source =
-            "module Math { /* 金庫😀 */ export fn value() -> int { return missing; } }";
-        std::fs::write(&module, invalid_source).expect("write unopened dependency error");
-        let diagnostics = collect_lsp_workspace_diagnostics(&driver, &documents, Some(&project));
-        let diagnostic = diagnostics[&module_uri]
-            .diagnostics
-            .iter()
-            .find(|diagnostic| diagnostic.code == "K2002")
-            .expect("unopened dependency error");
-        assert_eq!(
-            diagnostic.primary_source.as_ref().unwrap().text(),
-            invalid_source
-        );
-        let rendered = lsp_diagnostic_value(diagnostic, "");
-        let expected_character = invalid_source[..invalid_source.find("missing").unwrap()]
-            .encode_utf16()
-            .count() as u64;
-        assert_eq!(
-            rendered
-                .pointer("/range/start/character")
-                .and_then(norito::json::Value::as_u64),
-            Some(expected_character)
-        );
-        std::fs::write(
-            &module,
-            "module Math { /* 金庫😀 */ export fn value() -> int { 7 } fn helper(int unused) -> int { 1 } }",
-        )
-        .expect("write unopened dependency lint");
-        let diagnostics = collect_lsp_workspace_diagnostics(&driver, &documents, Some(&project));
-        let warning = diagnostics[&module_uri]
-            .diagnostics
-            .iter()
-            .find(|diagnostic| diagnostic.code == "K5003")
-            .expect("unopened dependency lint");
-        assert_eq!(
-            warning.primary_source.as_ref().unwrap().package_identity(),
-            Some("example/math@1.0.0")
-        );
-        let captured = warning.primary_source.as_ref().unwrap().text();
-        let range = warning.primary_span.as_ref().unwrap().byte_range.unwrap();
-        assert_eq!(
-            &captured[range.start as usize..range.end as usize],
-            "unused"
-        );
-        assert_eq!(
-            lsp_diagnostic_value(warning, "")
-                .pointer("/range/start/character")
-                .and_then(norito::json::Value::as_u64),
-            Some(captured[..range.start as usize].encode_utf16().count() as u64)
-        );
-        std::fs::remove_dir_all(root).expect("remove LSP project root");
-    }
-    #[test]
-    fn lsp_diagnostics_project_scalar_columns_and_captured_related_sources_to_utf16() {
-        let source = SourceFile::new(SourceId(0), "file:///日本語.ko", "金庫😀x\n次😀y");
-        let primary = SourceSpan {
-            package_identity: None,
-            source: Some(source.name().to_owned()),
-            start: SourcePosition { line: 1, column: 4 },
-            end: SourcePosition { line: 1, column: 5 },
-            byte_range: None,
-        };
-        let mut diagnostic = Diagnostic::error(
-            "K2002",
-            DiagnosticPhase::Resolve,
-            "unresolved x",
-            Some(primary),
-        );
-        diagnostic.labels.push(DiagnosticLabel {
-            span: SourceSpan {
-                package_identity: None,
-                source: Some(source.name().to_owned()),
-                start: SourcePosition { line: 2, column: 3 },
-                end: SourcePosition { line: 2, column: 4 },
-                byte_range: None,
-            },
-            message: "関連する定義 y".to_owned(),
-        });
-        diagnostic
-            .notes
-            .push("この値は現在のスコープにありません。".to_owned());
-        diagnostic.help = Some("使う前に値を宣言してください。".to_owned());
-        diagnostic.capture_source(&source);
-        let rendered = lsp_diagnostic_value(&diagnostic, "the editor has a newer buffer");
-        assert_eq!(rendered.pointer("/range"), Some(&lsp_range(0, 4, 0, 5)));
-        assert_eq!(
-            rendered.pointer("/relatedInformation/0/location/range"),
-            Some(&lsp_range(1, 3, 1, 4))
-        );
-        assert_eq!(
-            rendered
-                .pointer("/message")
-                .and_then(norito::json::Value::as_str),
-            Some(
-                "unresolved x\n\nnote: この値は現在のスコープにありません。\n\nhelp: 使う前に値を宣言してください。"
-            )
-        );
-        assert_eq!(
-            rendered
-                .pointer("/relatedInformation/0/message")
-                .and_then(norito::json::Value::as_str),
-            Some("関連する定義 y")
-        );
-        assert_eq!(
-            lsp_source_position("", &SourcePosition { line: 3, column: 9 }),
-            (2, 8)
-        );
-    }
-    #[test]
-    fn lsp_options_require_one_explicit_project_value() {
-        let (zk, project) = parse_lsp_options(vec![
-            "--zk".to_owned(),
-            "--project".to_owned(),
-            "kotodama.project.json".to_owned(),
-        ])
-        .expect("parse exact LSP project");
-        assert!(zk);
-        assert_eq!(project, Some(PathBuf::from("kotodama.project.json")));
-        assert!(
-            parse_lsp_options(vec!["--project".to_owned()])
-                .expect_err("missing project path")
-                .contains("requires a value")
-        );
-        assert!(
-            parse_lsp_options(vec![
-                "--project".to_owned(),
-                "a.json".to_owned(),
-                "--project".to_owned(),
-                "b.json".to_owned(),
-            ])
-            .expect_err("duplicate project path")
-            .contains("only once")
-        );
-    }
-    #[test]
-    fn lsp_document_store_is_bounded_and_removes_rejected_updates() {
-        let mut documents = HashMap::new();
-        for index in 0..MAX_LSP_OPEN_DOCUMENTS {
-            store_lsp_document(
-                &mut documents,
-                &format!("file:///workspace/{index}.ko"),
-                "module M {}",
-            )
-            .expect("document below count limit");
-        }
-        let error = store_lsp_document(
-            &mut documents,
-            "file:///workspace/overflow.ko",
-            "module Overflow {}",
-        )
-        .expect_err("document count must be bounded");
-        assert!(error.contains("workspace limit"));
-        assert!(!documents.contains_key("file:///workspace/overflow.ko"));
-        let huge_uri = format!("file:///{}", "u".repeat(MAX_LSP_URI_BYTES));
-        let error = store_lsp_document(&mut documents, &huge_uri, "module Uri {}")
-            .expect_err("document URI must be bounded");
-        assert!(error.contains("document URI exceeds"));
-        let existing = "file:///workspace/0.ko";
-        let oversized = "x".repeat(MAX_SOURCE_BYTES + 1);
-        let error = store_lsp_document(&mut documents, existing, &oversized)
-            .expect_err("oversized changed document must fail");
-        assert!(error.contains("V1 source limit"));
-        assert!(
-            !documents.contains_key(existing),
-            "a rejected update must not leave stale source available to formatting",
-        );
-    }
-    #[test]
-    fn lsp_framing_rejects_oversized_and_ambiguous_inputs_before_allocation() {
-        let oversized = format!("Content-Length: {}\r\n\r\n", MAX_LSP_MESSAGE_BYTES + 1);
-        let error = read_lsp_message(&mut std::io::Cursor::new(oversized.into_bytes()))
-            .expect_err("oversized LSP frame must fail");
-        assert!(error.contains("exceeds"), "unexpected error: {error}");
-        let duplicate = b"Content-Length: 2\r\nContent-Length: 2\r\n\r\n{}";
-        let error = read_lsp_message(&mut std::io::Cursor::new(duplicate))
-            .expect_err("duplicate length must fail");
-        assert!(error.contains("duplicate"), "unexpected error: {error}");
-        let mixed_case_duplicate = b"content-length: 2\r\nCONTENT-LENGTH: 2\r\n\r\n{}";
-        let error = read_lsp_message(&mut std::io::Cursor::new(mixed_case_duplicate))
-            .expect_err("header names are case-insensitive");
-        assert!(error.contains("duplicate"), "unexpected error: {error}");
-        let lowercase = b"content-length: 2\r\n\r\n{}";
-        read_lsp_message(&mut std::io::Cursor::new(lowercase))
-            .expect("lowercase header is valid")
-            .expect("one lowercase-header message");
-        let malformed = b"Content-Length 2\r\n\r\n{}";
-        let error = read_lsp_message(&mut std::io::Cursor::new(malformed))
-            .expect_err("malformed header must fail closed");
-        assert!(error.contains("malformed"), "unexpected error: {error}");
-        let long_header = format!("{}\n", "x".repeat(MAX_LSP_HEADER_LINE_BYTES + 1));
-        let error = read_lsp_message(&mut std::io::Cursor::new(long_header.into_bytes()))
-            .expect_err("oversized header line must fail");
-        assert!(
-            error.contains("header line exceeds"),
-            "unexpected error: {error}"
+            parse_cli(&["lsp", "--project", "p.json"])
+                .unwrap_err()
+                .kind(),
+            clap::error::ErrorKind::UnknownArgument
         );
     }
 }

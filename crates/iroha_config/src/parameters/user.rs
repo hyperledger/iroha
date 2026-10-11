@@ -64,12 +64,16 @@ use std::{
     time::Duration,
 };
 use thiserror::Error;
+mod kagemusha_enrollment;
+pub use kagemusha_enrollment::{
+    KagemushaEnrollmentIssuer, KagemushaEnrollmentProvider, KagemushaEnrollmentWorker,
+};
 mod app_routed_read_config;
 mod musubi_publication_installation;
 pub use musubi_publication_installation::MusubiPublicationInstallation;
 mod sccp;
 pub use sccp::{
-    SccpAttestor, SccpLightClientKeeper, SccpLightClientKeeperEndpoints, SccpNode, SccpSecretHeader,
+    SccpKeeper, SccpLightClientKeeper, SccpLightClientKeeperEndpoints, SccpNode, SccpSecretHeader,
 };
 type Result<T, E> = core::result::Result<T, Report<[E]>>;
 type KyberKeyInputs = (Vec<u8>, ParameterOrigin, Vec<u8>, ParameterOrigin);
@@ -77,8 +81,8 @@ const MIN_TIMER_INTERVAL: Duration = Duration::from_millis(100);
 const MAX_TELEMETRY_RETRY_DELAY_EXPONENT: u8 = 16;
 const MAX_TELEMETRY_SIGNING_KEY_ID_LENGTH: usize = 128;
 const MAX_TELEGRAM_CREDENTIAL_LENGTH: usize = 256;
-const MAX_PRIVATE_KEY_FILE_BYTES: u64 = 4 * 1024;
-const MAX_PUBLIC_IDENTITY_FILE_BYTES: u64 = 512;
+const MAX_PRIVATE_KEY_FILE_BYTES: usize = 4 * 1024;
+const MAX_PUBLIC_IDENTITY_FILE_BYTES: usize = 512;
 
 enum ConfigFiles<'a> {
     Native,
@@ -295,7 +299,7 @@ fn read_private_key_file(
         &path,
         ConfigFileRequest {
             access: ConfigFileAccess::Private,
-            maximum: MAX_PRIVATE_KEY_FILE_BYTES as usize,
+            maximum: MAX_PRIVATE_KEY_FILE_BYTES,
         },
     )
     .map_err(|error| format!("failed to read {file_field} `{}`: {error}", path.display()))?;
@@ -304,7 +308,7 @@ fn read_private_key_file(
     let encoded = encoded
         .strip_suffix("\r\n")
         .or_else(|| encoded.strip_suffix('\n'))
-        .unwrap_or(&encoded);
+        .unwrap_or(encoded);
     if encoded.is_empty() || encoded.bytes().any(|byte| matches!(byte, b'\r' | b'\n')) {
         return Err(format!(
             "{file_field} `{}` must contain exactly one canonical private key",
@@ -368,7 +372,7 @@ fn read_network_identity_file(
         &path,
         ConfigFileRequest {
             access: ConfigFileAccess::Public,
-            maximum: MAX_PUBLIC_IDENTITY_FILE_BYTES as usize,
+            maximum: MAX_PUBLIC_IDENTITY_FILE_BYTES,
         },
     )
     .map_err(|error| format!("failed to read {file_field} `{}`: {error}", path.display()))?;
@@ -997,7 +1001,7 @@ pub struct Root {
     /// Concurrency settings for thread pools.
     #[config(nested)]
     concurrency: Concurrency,
-    /// Node-local SCCP attestor and light-client keeper (`[sccp.*]`, file-only).
+    /// Node-local SCCP keeper and its light-client duty (`[sccp.*]`, file-only).
     #[config(nested)]
     sccp: SccpNode,
     /// Node data directory: state paths default under `<data_dir>/state/` and secret files
@@ -1100,7 +1104,7 @@ pub enum ParseError {
     /// Genesis trust-root configuration was absent, ambiguous, or invalid.
     #[error("Invalid genesis trust-root configuration")]
     InvalidGenesisConfig,
-    /// Node-local SCCP attestor or light-client keeper configuration was invalid.
+    /// Node-local SCCP keeper configuration was invalid.
     #[error("Invalid SCCP node configuration")]
     InvalidSccpConfig,
 }
@@ -1243,7 +1247,38 @@ impl Root {
     ) -> Result<actual::Root, ParseError> {
         self.parse_with_files(&ConfigFiles::Supplied(files))
     }
+    /// Whether this complete input claims an inline or referenced runtime genesis identity.
+    /// This reports structural presence only. The strict runtime parser validates the claim;
+    /// any claimed identity prevents selection of the unpublished signing context.
+    pub fn has_genesis_identity(&self) -> bool {
+        self.genesis.expected_hash.is_some() || self.genesis.expected_hash_file.is_some()
+    }
+    /// Validate complete unpublished policy without inventing a runtime genesis identity.
+    /// # Errors
+    /// Rejects either expected-identity field and preserves every ordinary node validation.
+    pub fn parse_for_genesis_signing(self) -> Result<actual::GenesisSigningContext, ParseError> {
+        self.parse_with_genesis(&ConfigFiles::Native, Genesis::parse_for_signing)
+            .map(actual::GenesisSigningContext::new)
+    }
+    /// Validate complete unpublished policy from one explicit retained file source.
+    /// Source errors are final; there is no filesystem or schema fallback.
+    /// # Errors
+    /// Refuses a claimed runtime identity, invalid policy or unavailable required file.
+    pub fn parse_for_genesis_signing_with_file_source(
+        self,
+        files: &dyn ConfigFileSource,
+    ) -> Result<actual::GenesisSigningContext, ParseError> {
+        self.parse_with_genesis(&ConfigFiles::Supplied(files), Genesis::parse_for_signing)
+            .map(actual::GenesisSigningContext::new)
+    }
     fn parse_with_files(self, files: &ConfigFiles<'_>) -> Result<actual::Root, ParseError> {
+        self.parse_with_genesis(files, Genesis::parse_with_file_source)
+    }
+    fn parse_with_genesis<G>(
+        self,
+        files: &ConfigFiles<'_>,
+        parse_genesis: impl FnOnce(Genesis, &ConfigFiles<'_>, &mut Emitter<ParseError>) -> Option<G>,
+    ) -> Result<actual::Root<G>, ParseError> {
         let mut emitter = Emitter::new();
         let _account_address_scope =
             AccountAddressParseScope::enter(*self.chain_discriminant.value());
@@ -1355,7 +1390,7 @@ impl Root {
             Self::validate_trusted_peer_pops(&trusted, &mut emitter);
             trusted
         });
-        let genesis = self.genesis.parse_with_file_source(files, &mut emitter);
+        let genesis = parse_genesis(self.genesis, files, &mut emitter);
         let data_dir = Self::parse_data_dir(self.data_dir, &mut emitter);
         let kura = self.kura.parse(&mut emitter);
         let sccp = self.sccp.parse(&kura.store_dir, &mut emitter);
@@ -2527,7 +2562,8 @@ pub struct Governance {
     /// Alternates retained for each attempt-local Parliament body draw.
     #[config(default = "crate::parameters::defaults::governance::PARLIAMENT_ALTERNATE_SIZE")]
     pub parliament_alternate_size: usize,
-    /// Exact nonzero delay from a committed Parliament sortition request to its beacon pulse.
+    /// Minimum nonzero delay from a committed Parliament sortition request to its beacon pulse,
+    /// which is the first consensus-native `NPoS` pulse height at or after that delay.
     #[config(
         default = "crate::parameters::defaults::governance::PARLIAMENT_SORTITION_PULSE_DELAY_BLOCKS"
     )]
@@ -4563,8 +4599,8 @@ mod pipeline_tests {
 }
 /// Zero-knowledge configuration section.
 ///
-/// This section holds local resource settings only: the Halo2 verifier
-/// worker, queue, retry and wall-clock settings and the FASTPQ prover
+/// This section holds local resource settings only: diagnostic trace workers,
+/// queues, retries, polynomial-opening bounds and the FASTPQ prover
 /// settings. Every validity-affecting ZK value of a chain (proof limits,
 /// windows, registry caps, relation-selecting keys, verification gas) is the
 /// committed `zk_validity_policy_v1` parameter, or the protocol default, never
@@ -4573,8 +4609,11 @@ mod pipeline_tests {
 #[derive(Debug, ReadConfig, Clone)]
 pub struct Zk {
     #[config(nested)]
-    /// Halo2 verifier local resources.
-    pub halo2: Halo2,
+    /// Optional local diagnostic trace checking; never proof authority.
+    pub trace: DiagnosticTrace,
+    #[config(nested)]
+    /// Bounds for the diagnostic native polynomial-opening endpoint.
+    pub ipa_commitment: IpaCommitment,
     #[config(nested)]
     /// FASTPQ prover configuration.
     pub fastpq: Fastpq,
@@ -4585,7 +4624,10 @@ impl Zk {
     /// with the committed ZK validity policy.
     fn parse(self) -> actual::Zk {
         actual::Zk {
-            halo2: self.halo2.parse(),
+            trace: self.trace.parse(),
+            ipa_commitment: self.ipa_commitment.parse(),
+            max_verify_batch: defaults::zk::MAX_VERIFY_BATCH,
+            pipa_r: actual::PipaR::default(),
             fastpq: self.fastpq.parse(),
             stark: actual::Stark::default(),
             sccp: actual::Sccp::default(),
@@ -4650,13 +4692,16 @@ mod zk_node_schema_tests {
 
     #[test]
     fn local_resource_keys_read() {
-        let zk = read_zk("[halo2]\nverifier_worker_threads = 3\nverifier_queue_cap = 9")
+        let zk = read_zk("[trace]\nworker_threads = 3\nqueue_cap = 9")
             .expect("local verifier resources are node configuration");
         let actual = zk.parse();
-        assert_eq!(actual.halo2.verifier_worker_threads, 3);
-        assert_eq!(actual.halo2.verifier_queue_cap, 9);
+        assert_eq!(actual.trace.worker_threads, 3);
+        assert_eq!(actual.trace.queue_cap, 9);
         // Every validity value is the protocol default.
-        assert_eq!(actual.halo2.max_k, defaults::zk::halo2::MAX_K);
+        assert_eq!(
+            actual.pipa_r.max_proof_bytes,
+            defaults::zk::pipa_r::MAX_PROOF_BYTES
+        );
         assert_eq!(
             actual.sccp.max_proof_bytes_per_proof,
             defaults::zk::sccp::MAX_PROOF_BYTES_PER_PROOF
@@ -4671,17 +4716,16 @@ mod zk_node_schema_tests {
             "[sccp]\nmax_proofs_per_block = 17",
             "[stark]\nenabled = false",
             "[stark]\nmax_proof_bytes = 1",
-            "[halo2]\nenabled = false",
-            "[halo2]\nmax_k = 3",
-            "[halo2]\ncurve = \"bn254\"",
-            "[halo2]\nmax_proof_bytes = 1",
+            "[pipa_r]\nenabled = false",
+            "max_verify_batch = 3",
+            "[pipa_r]\nmax_proof_bytes = 1",
             "ballot_history_cap = 1",
             "preverify_max_bytes = 1",
             "preverify_budget_bytes = 1",
             "proof_history_cap = 1",
             "bridge_proof_max_past_age_blocks = 1",
             "poseidon_params_id = 1",
-            "[kaigi_usage_vk]\nbackend = \"halo2/ipa\"\nname = \"local\"",
+            "[kaigi_usage_vk]\nbackend = \"pipa-r/pasta\"\nname = \"local\"",
         ] {
             let error = read_zk(source).expect_err("a validity key is not a node setting");
             assert!(error.contains("unknown parameter"), "{source}: {error}");
@@ -4733,6 +4777,23 @@ mod zk_node_schema_tests {
         iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::protocol_default()
             .validate()
             .expect("the protocol default satisfies the SCCP rules");
+    }
+    #[test]
+    fn retired_secp256k1_recovery_limits_are_not_part_of_the_schema() {
+        for key in [
+            "max_secp256k1_recoveries_per_transaction",
+            "max_secp256k1_recoveries_per_block",
+        ] {
+            let retired: toml::Table =
+                toml::from_str(&format!("[sccp]\n{key} = 1")).expect("parse retired SCCP key");
+            assert!(
+                ConfigReader::new()
+                    .with_toml_source(TomlSource::inline(retired))
+                    .read_and_complete::<Zk>()
+                    .is_err(),
+                "{key} belonged to the removed TRON light client"
+            );
+        }
     }
 }
 /// Execution mode override for the FASTPQ prover.
@@ -5483,71 +5544,71 @@ pub struct FraudAttester {
     /// Public key used to verify signatures (hex/base64 supported by PublicKey parser).
     pub public_key: iroha_crypto::PublicKey,
 }
-/// Local resources of the Halo2 verifier lane (user view).
-///
-/// Verification limits, the curve and the backend are chain policy
-/// (`zk_validity_policy_v1`) and are not part of the node configuration.
+/// File-only diagnostic polynomial-opening bounds.
 #[derive(Debug, ReadConfig, Clone, Copy)]
-#[allow(
-    clippy::struct_field_names,
-    reason = "the verifier_ prefix is part of the public `[zk.halo2]` configuration schema"
-)]
-pub struct Halo2 {
-    /// Soft time budget for a single verification (ms).
-    #[config(
-        env = "ZK_HALO2_VERIFIER_BUDGET_MS",
-        default = "defaults::zk::halo2::VERIFIER_BUDGET_MS"
-    )]
-    pub verifier_budget_ms: u64,
-    /// Number of worker threads serving ZK lane verification (0 = auto).
-    #[config(
-        env = "ZK_HALO2_VERIFIER_WORKER_THREADS",
-        default = "defaults::zk::halo2::VERIFIER_WORKER_THREADS"
-    )]
-    pub verifier_worker_threads: usize,
-    /// Capacity of the ZK lane verifier queue (0 = auto-derived).
-    #[config(
-        env = "ZK_HALO2_VERIFIER_QUEUE_CAP",
-        default = "defaults::zk::halo2::VERIFIER_QUEUE_CAP"
-    )]
-    pub verifier_queue_cap: usize,
-    /// Maximum enqueue wait for ZK lane admission under saturation (ms).
-    #[config(
-        env = "ZK_HALO2_VERIFIER_ENQUEUE_WAIT_MS",
-        default = "defaults::zk::halo2::VERIFIER_ENQUEUE_WAIT_MS"
-    )]
-    pub verifier_enqueue_wait_ms: u64,
-    /// Capacity of the in-memory retry ring used for important ZK lane tasks.
-    #[config(
-        env = "ZK_HALO2_VERIFIER_RETRY_RING_CAP",
-        default = "defaults::zk::halo2::VERIFIER_RETRY_RING_CAP"
-    )]
-    pub verifier_retry_ring_cap: usize,
-    /// Maximum retry rounds for an item in the ZK lane retry ring.
-    #[config(
-        env = "ZK_HALO2_VERIFIER_RETRY_MAX_ATTEMPTS",
-        default = "defaults::zk::halo2::VERIFIER_RETRY_MAX_ATTEMPTS"
-    )]
-    pub verifier_retry_max_attempts: u32,
-    /// Retry scheduler tick interval for the ZK lane (ms).
-    #[config(
-        env = "ZK_HALO2_VERIFIER_RETRY_TICK_MS",
-        default = "defaults::zk::halo2::VERIFIER_RETRY_TICK_MS"
-    )]
-    pub verifier_retry_tick_ms: u64,
+pub struct IpaCommitment {
+    /// Maximum domain exponent for diagnostic polynomial openings.
+    #[config(default = "defaults::zk::ipa_commitment::MAX_K")]
+    pub max_k: u32,
+    /// Maximum diagnostic transcript-label length in bytes.
+    #[config(default = "defaults::zk::ipa_commitment::MAX_TRANSCRIPT_LABEL_LEN")]
+    pub max_transcript_label_len: usize,
+    /// Maximum encoded diagnostic polynomial-opening envelope size.
+    #[config(default = "defaults::zk::ipa_commitment::MAX_ENVELOPE_BYTES")]
+    pub max_envelope_bytes: usize,
+    /// Require ASCII diagnostic transcript labels.
+    #[config(default = "defaults::zk::ipa_commitment::ENFORCE_TRANSCRIPT_LABEL_ASCII")]
+    pub enforce_transcript_label_ascii: bool,
 }
-impl Halo2 {
-    /// This node's verifier-lane resources over the protocol-default limits.
-    fn parse(self) -> actual::Halo2 {
-        actual::Halo2 {
-            verifier_budget_ms: self.verifier_budget_ms,
-            verifier_worker_threads: self.verifier_worker_threads,
-            verifier_queue_cap: self.verifier_queue_cap,
-            verifier_enqueue_wait_ms: self.verifier_enqueue_wait_ms,
-            verifier_retry_ring_cap: self.verifier_retry_ring_cap,
-            verifier_retry_max_attempts: self.verifier_retry_max_attempts,
-            verifier_retry_tick_ms: self.verifier_retry_tick_ms,
-            ..actual::Halo2::default()
+impl IpaCommitment {
+    fn parse(self) -> actual::IpaCommitment {
+        actual::IpaCommitment {
+            max_k: self.max_k,
+            max_transcript_label_len: self.max_transcript_label_len,
+            max_envelope_bytes: self.max_envelope_bytes,
+            enforce_transcript_label_ascii: self.enforce_transcript_label_ascii,
+        }
+    }
+}
+/// File-only diagnostic trace policy; checking never grants proof authority.
+#[derive(Debug, ReadConfig, Clone, Copy)]
+pub struct DiagnosticTrace {
+    /// Enable optional local diagnostic trace checking.
+    #[config(default = "defaults::zk::trace::ENABLED")]
+    pub enabled: bool,
+    /// Maximum diagnostic tasks dispatched in one worker batch.
+    #[config(default = "defaults::zk::trace::MAX_BATCH")]
+    pub max_batch: u32,
+    /// Diagnostic worker threads (0 selects the bounded automatic count).
+    #[config(default = "defaults::zk::trace::WORKER_THREADS")]
+    pub worker_threads: usize,
+    /// Diagnostic ingress capacity (0 derives a bounded capacity).
+    #[config(default = "defaults::zk::trace::QUEUE_CAP")]
+    pub queue_cap: usize,
+    /// Maximum diagnostic enqueue wait in milliseconds.
+    #[config(default = "defaults::zk::trace::ENQUEUE_WAIT_MS")]
+    pub enqueue_wait_ms: u64,
+    /// Capacity of the important diagnostic-task retry ring.
+    #[config(default = "defaults::zk::trace::RETRY_RING_CAP")]
+    pub retry_ring_cap: usize,
+    /// Maximum retry rounds for an important diagnostic task.
+    #[config(default = "defaults::zk::trace::RETRY_MAX_ATTEMPTS")]
+    pub retry_max_attempts: u32,
+    /// Diagnostic retry scheduler interval in milliseconds.
+    #[config(default = "defaults::zk::trace::RETRY_TICK_MS")]
+    pub retry_tick_ms: u64,
+}
+impl DiagnosticTrace {
+    fn parse(self) -> actual::DiagnosticTrace {
+        actual::DiagnosticTrace {
+            enabled: self.enabled,
+            max_batch: self.max_batch,
+            worker_threads: self.worker_threads,
+            queue_cap: self.queue_cap,
+            enqueue_wait_ms: self.enqueue_wait_ms,
+            retry_ring_cap: self.retry_ring_cap,
+            retry_max_attempts: self.retry_max_attempts,
+            retry_tick_ms: self.retry_tick_ms,
         }
     }
 }
@@ -5713,6 +5774,24 @@ pub struct Genesis {
     pub expected_hash_file: Option<WithOrigin<PathBuf>>,
 }
 impl Genesis {
+    fn parse_for_signing(
+        self,
+        _files: &ConfigFiles<'_>,
+        emitter: &mut Emitter<ParseError>,
+    ) -> Option<actual::GenesisForSigning> {
+        if self.expected_hash.is_some() || self.expected_hash_file.is_some() {
+            emitter.emit(
+                Report::new(ParseError::InvalidGenesisConfig)
+                    .attach("unpublished signing context cannot claim a runtime genesis identity"),
+            );
+            return None;
+        }
+        Some(actual::GenesisForSigning {
+            public_key: self.public_key.into_value(),
+            file: self.file,
+            manifest_json: self.manifest_json,
+        })
+    }
     fn parse_with_file_source(
         self,
         files: &ConfigFiles<'_>,
@@ -5762,9 +5841,6 @@ pub struct Sumeragi {
     /// Node-local participation role.
     #[config(default = "NodeRole::Validator")]
     pub role: NodeRole,
-    /// Fixed inherited private descriptor holding this peer's 32-byte Pasta seed.
-    /// Only descriptor 199 is accepted; the launch copy is consumed before node start.
-    pub mint_finality_seed_fd: Option<u16>,
     /// Credential-free deployment handle for the global beacon share signer.
     pub global_beacon_partial_signer_provider_handle: Option<String>,
     /// Exact non-zero provider contract revision for the global beacon share signer.
@@ -6016,7 +6092,6 @@ impl Sumeragi {
     ) -> Option<actual::Sumeragi> {
         let Self {
             role,
-            mint_finality_seed_fd,
             global_beacon_partial_signer_provider_handle,
             global_beacon_partial_signer_provider_revision,
             global_beacon_partial_signer_provider_policy_digest_hex,
@@ -6038,21 +6113,6 @@ impl Sumeragi {
             retired_keys,
         } = self;
         let mut valid = true;
-        if mint_finality_seed_fd.is_some_and(|fd| fd != 199) {
-            emitter.emit(
-                Report::new(ParseError::InvalidSumeragiConfig).attach(
-                    "sumeragi.mint_finality_seed_fd must be the fixed private descriptor 199",
-                ),
-            );
-            valid = false;
-        }
-        if mint_finality_seed_fd.is_some() && role != NodeRole::Validator {
-            emitter.emit(
-                Report::new(ParseError::InvalidSumeragiConfig)
-                    .attach("an observer must not configure a mint-finality seed descriptor"),
-            );
-            valid = false;
-        }
         let local = match Self::parse_local_overrides(
             view_timeout_base_ms,
             view_timeout_max_ms,
@@ -6139,7 +6199,6 @@ impl Sumeragi {
                 NodeRole::Validator => actual::NodeRole::Validator,
                 NodeRole::Observer => actual::NodeRole::Observer,
             },
-            mint_finality_seed_fd,
             global_beacon_partial_signer_provider_handle,
             global_beacon_partial_signer_provider_revision,
             global_beacon_partial_signer_provider_policy_digest,
@@ -9157,9 +9216,6 @@ pub struct NexusStorage {
     /// WSV hot-tier deterministic encoded-key plus measured-value budget (bytes).
     #[config(default = "defaults::nexus::storage::MAX_WSV_MEMORY_BYTES")]
     pub max_wsv_memory_bytes: Bytes,
-    /// Original allocation pool shared by the four fixed KAGEMUSHA indexes.
-    #[config(default = "defaults::nexus::storage::KAGEMUSHA_OPERATION_INDEX_BYTES")]
-    pub kagemusha_operation_index_bytes: Bytes,
     /// Finite shared carrier-shell and descriptor pool, excluding nested payload allocations.
     /// Zero is a closed pool, never an unlimited setting.
     #[config(default = "defaults::nexus::storage::RETAINED_CARRIER_SHELL_BYTES")]
@@ -9180,7 +9236,6 @@ impl_default!(NexusStorage {
     local_budget_bytes: None,
     budget_enforce_interval_blocks: defaults::nexus::storage::BUDGET_ENFORCE_INTERVAL_BLOCKS,
     max_wsv_memory_bytes: defaults::nexus::storage::MAX_WSV_MEMORY_BYTES,
-    kagemusha_operation_index_bytes: defaults::nexus::storage::KAGEMUSHA_OPERATION_INDEX_BYTES,
     retained_carrier_shell_bytes: defaults::nexus::storage::RETAINED_CARRIER_SHELL_BYTES,
     consensus_evidence_preparation_bytes:
         defaults::nexus::storage::CONSENSUS_EVIDENCE_PREPARATION_BYTES,
@@ -9190,14 +9245,6 @@ impl_default!(NexusStorage {
 impl NexusStorage {
     fn parse(self, emitter: &mut Emitter<ParseError>) -> Option<actual::NexusStorage> {
         let weights = self.disk_budget_weights.parse(emitter)?;
-        if self.kagemusha_operation_index_bytes.get() == 0
-            || usize::try_from(self.kagemusha_operation_index_bytes.get()).is_err()
-        {
-            emitter.emit(Report::new(ParseError::InvalidNexusConfig).attach(
-                "nexus.storage.kagemusha_operation_index_bytes must be positive and fit this platform's allocation address space",
-            ));
-            return None;
-        }
         if self
             .local_budget_bytes
             .is_some_and(|budget| budget.get() == 0)
@@ -9255,7 +9302,6 @@ impl NexusStorage {
             effective_local_budget_bytes: local_budget_bytes,
             budget_enforce_interval_blocks: self.budget_enforce_interval_blocks,
             max_wsv_memory_bytes: self.max_wsv_memory_bytes,
-            kagemusha_operation_index_bytes: self.kagemusha_operation_index_bytes,
             retained_carrier_shell_bytes: self.retained_carrier_shell_bytes,
             consensus_evidence_preparation_bytes: self.consensus_evidence_preparation_bytes,
             consensus_stake_index_bytes: self.consensus_stake_index_bytes,
@@ -9543,9 +9589,6 @@ pub struct NexusStaking {
     /// Maximum slash ratio allowed (basis points, 10_000 = 100%).
     #[config(default = "defaults::nexus::staking::MAX_SLASH_BPS")]
     pub max_slash_bps: u16,
-    /// Minimum reward amount paid out; smaller amounts are skipped as dust.
-    #[config(default = "defaults::nexus::staking::reward_dust_threshold()")]
-    pub reward_dust_threshold: Quantity,
     /// Asset definition used for staking bonds (string form).
     #[config(default = "defaults::nexus::staking::stake_asset_id()")]
     pub stake_asset_id: String,
@@ -9565,7 +9608,6 @@ impl_default!(NexusStaking {
     max_pending_unbonds_per_share: defaults::nexus::staking::MAX_PENDING_UNBONDS_PER_SHARE,
     unbonding_delay_ms: defaults::nexus::staking::UNBONDING_DELAY.into(),
     max_slash_bps: defaults::nexus::staking::MAX_SLASH_BPS,
-    reward_dust_threshold: defaults::nexus::staking::reward_dust_threshold(),
     stake_asset_id: defaults::nexus::staking::stake_asset_id(),
     stake_escrow_account_id: defaults::nexus::staking::stake_escrow_account_id(),
     slash_sink_account_id: defaults::nexus::staking::slash_sink_account_id(),
@@ -9579,6 +9621,14 @@ impl NexusStaking {
             emitter.emit(Report::new(ParseError::InvalidNexusConfig).attach(format!(
                 "nexus.staking.max_validators must be <= {lane_validator_cap} (found {})",
                 self.max_validators
+            )));
+            return None;
+        }
+        let reward_recipient_cap = iroha_data_model::validation_fee_rewards::MAX_REWARD_RECIPIENTS;
+        if self.max_stake_shares_per_validator.get() as usize > reward_recipient_cap {
+            emitter.emit(Report::new(ParseError::InvalidNexusConfig).attach(format!(
+                "nexus.staking.max_stake_shares_per_validator must be <= {reward_recipient_cap} to fit one historical reward exposure (found {})",
+                self.max_stake_shares_per_validator
             )));
             return None;
         }
@@ -9609,7 +9659,6 @@ impl NexusStaking {
             max_pending_unbonds_per_share: self.max_pending_unbonds_per_share,
             unbonding_delay: self.unbonding_delay_ms.get(),
             max_slash_bps: self.max_slash_bps,
-            reward_dust_threshold: self.reward_dust_threshold,
             stake_asset_id,
             stake_escrow_account_id: self.stake_escrow_account_id,
             slash_sink_account_id: self.slash_sink_account_id,
@@ -14422,6 +14471,8 @@ pub struct Torii {
     pub tx_history: Option<ToriiTxHistory>,
     /// Retail recipient lookup routes used by Torii app API.
     pub recipient_lookup: Option<ToriiRecipientLookup>,
+    /// Optional KAGEMUSHA issuer; all trust and runtime leaves are mandatory when present.
+    pub kagemusha_enrollment: Option<KagemushaEnrollmentIssuer>,
     /// Explicit Torii origins used for public-dataspace routed reads.
     #[config(default)]
     pub public_dataspace_upstreams: Vec<ToriiPublicDataspaceUpstream>,
@@ -14473,6 +14524,7 @@ impl core::fmt::Debug for Torii {
             )
             .field("tx_history", &self.tx_history)
             .field("recipient_lookup", &self.recipient_lookup)
+            .field("kagemusha_enrollment", &self.kagemusha_enrollment)
             .field(
                 "public_dataspace_upstream_count",
                 &self.public_dataspace_upstreams.len(),
@@ -15707,6 +15759,9 @@ impl Torii {
                 .and_then(|config| config.parse_with_file_source(files, emitter)),
             ram_lfe: self.ram_lfe.and_then(|config| config.parse(emitter)),
             tx_history: self.tx_history.map(|config| config.parse(emitter)),
+            kagemusha_enrollment: self
+                .kagemusha_enrollment
+                .and_then(|config| config.parse(emitter)),
             recipient_lookup: self
                 .recipient_lookup
                 .and_then(|config| config.parse(emitter))
@@ -17787,7 +17842,7 @@ impl AccountOnboarding {
             path,
             ConfigFileRequest {
                 access: ConfigFileAccess::Private,
-                maximum: MAX_PRIVATE_KEY_FILE_BYTES as usize,
+                maximum: MAX_PRIVATE_KEY_FILE_BYTES,
             },
         ) {
             Ok(bytes) => bytes,
@@ -17802,15 +17857,12 @@ impl AccountOnboarding {
                 return None;
             }
         };
-        let encoded = match std::str::from_utf8(&bytes) {
-            Ok(encoded) => encoded,
-            Err(_) => {
-                emit_torii_config_error(
-                    emitter,
-                    "torii.account_onboarding.private_key_file must contain UTF-8",
-                );
-                return None;
-            }
+        let Ok(encoded) = std::str::from_utf8(&bytes) else {
+            emit_torii_config_error(
+                emitter,
+                "torii.account_onboarding.private_key_file must contain UTF-8",
+            );
+            return None;
         };
         let encoded = encoded.trim_end_matches(['\r', '\n']);
         if encoded.is_empty() {
@@ -18448,7 +18500,7 @@ impl ToriiFaucet {
             path,
             ConfigFileRequest {
                 access: ConfigFileAccess::Private,
-                maximum: MAX_PRIVATE_KEY_FILE_BYTES as usize,
+                maximum: MAX_PRIVATE_KEY_FILE_BYTES,
             },
         ) {
             Ok(bytes) => bytes,
@@ -18463,15 +18515,9 @@ impl ToriiFaucet {
                 return None;
             }
         };
-        let encoded = match std::str::from_utf8(&bytes) {
-            Ok(encoded) => encoded,
-            Err(_) => {
-                emit_torii_config_error(
-                    emitter,
-                    "torii.faucet.private_key_file must contain UTF-8",
-                );
-                return None;
-            }
+        let Ok(encoded) = std::str::from_utf8(&bytes) else {
+            emit_torii_config_error(emitter, "torii.faucet.private_key_file must contain UTF-8");
+            return None;
         };
         let encoded = encoded.trim_end_matches(['\r', '\n']);
         if encoded.is_empty() {
@@ -34196,6 +34242,36 @@ mod configuration_regression_tests {
     }
 
     #[test]
+    fn pipa_r_file_policy_defaults_and_explicit_caps_parse_exactly() {
+        use iroha_config_base::{read::ConfigReader, toml::TomlSource};
+        let defaults = ConfigReader::new()
+            .with_toml_source(TomlSource::inline(toml::Table::new()))
+            .read_and_complete::<PipaR>()
+            .unwrap()
+            .parse();
+        assert!(defaults.enabled);
+        assert_eq!(
+            defaults.max_envelope_bytes,
+            defaults::zk::pipa_r::MAX_ENVELOPE_BYTES
+        );
+        assert_eq!(
+            defaults.max_proof_bytes,
+            defaults::zk::pipa_r::MAX_PROOF_BYTES
+        );
+        let table = "enabled = false\nmax_envelope_bytes = 999\nmax_proof_bytes = 777\n"
+            .parse::<toml::Table>()
+            .unwrap();
+        let configured = ConfigReader::new()
+            .with_toml_source(TomlSource::inline(table))
+            .read_and_complete::<PipaR>()
+            .unwrap()
+            .parse();
+        assert!(!configured.enabled);
+        assert_eq!(configured.max_envelope_bytes, 999);
+        assert_eq!(configured.max_proof_bytes, 777);
+    }
+
+    #[test]
     fn parliament_tle_key_lifecycle_rejects_zero_bounds() {
         for policy in [
             ParliamentTleKeyLifecycle {
@@ -34249,19 +34325,68 @@ mod configuration_regression_tests {
         );
     }
     #[test]
-    fn halo2_default_tags_are_protocol_tags() {
-        use iroha_data_model::zk_validity_policy::{HALO2_BACKEND_TAGS, HALO2_CURVE_TAGS};
-        // The node defaults name a curve and a backend the committed policy defines.
-        assert!(HALO2_BACKEND_TAGS.contains(&defaults::zk::halo2::BACKEND));
-        assert!(HALO2_CURVE_TAGS.contains(&defaults::zk::halo2::CURVE));
-        assert!(
-            !HALO2_CURVE_TAGS.contains(&"toy_p61_additive"),
-            "the retired toy-curve compatibility label must not be accepted"
+    fn diagnostic_trace_defaults_are_bounded_and_independent() {
+        let trace = actual::DiagnosticTrace::default();
+        assert!(trace.enabled);
+        assert_eq!(trace.max_batch, 16);
+        assert_eq!(trace.worker_threads, 0);
+        assert_eq!(trace.queue_cap, 0);
+        assert_eq!(trace.enqueue_wait_ms, 25);
+        assert_eq!(trace.retry_ring_cap, 2048);
+        assert_eq!(trace.retry_max_attempts, 3);
+        assert_eq!(trace.retry_tick_ms, 5);
+        assert_eq!(defaults::zk::MAX_VERIFY_BATCH, 16);
+    }
+
+    #[test]
+    fn zk_nested_diagnostic_settings_do_not_change_native_admission() {
+        use iroha_config_base::{read::ConfigReader, toml::TomlSource};
+
+        let table = r"
+            [trace]
+            enabled = false
+            max_batch = 3
+            worker_threads = 2
+            queue_cap = 9
+            enqueue_wait_ms = 11
+            retry_ring_cap = 13
+            retry_max_attempts = 4
+            retry_tick_ms = 17
+            [ipa_commitment]
+            max_k = 12
+            max_transcript_label_len = 19
+            max_envelope_bytes = 12345
+            enforce_transcript_label_ascii = false
+        "
+        .parse::<toml::Table>()
+        .unwrap();
+        let configured = ConfigReader::new()
+            .with_toml_source(TomlSource::inline(table))
+            .read_and_complete::<Zk>()
+            .unwrap()
+            .parse();
+        assert_eq!(configured.max_verify_batch, defaults::zk::MAX_VERIFY_BATCH);
+        assert!(!configured.trace.enabled);
+        assert_eq!(configured.trace.max_batch, 3);
+        assert_eq!(configured.trace.worker_threads, 2);
+        assert_eq!(configured.trace.queue_cap, 9);
+        assert_eq!(configured.trace.enqueue_wait_ms, 11);
+        assert_eq!(configured.trace.retry_ring_cap, 13);
+        assert_eq!(configured.trace.retry_max_attempts, 4);
+        assert_eq!(configured.trace.retry_tick_ms, 17);
+        assert_eq!(configured.ipa_commitment.max_k, 12);
+        assert_eq!(configured.ipa_commitment.max_transcript_label_len, 19);
+        assert_eq!(configured.ipa_commitment.max_envelope_bytes, 12345);
+        assert!(!configured.ipa_commitment.enforce_transcript_label_ascii);
+        assert!(configured.pipa_r.enabled);
+        assert_eq!(
+            configured.pipa_r.max_proof_bytes,
+            defaults::zk::pipa_r::MAX_PROOF_BYTES
         );
-        assert!(matches!(
-            actual::Halo2::default().curve,
-            actual::ZkCurve::Pallas
-        ));
+        assert_eq!(
+            configured.pipa_r.max_envelope_bytes,
+            defaults::zk::pipa_r::MAX_ENVELOPE_BYTES
+        );
     }
     #[test]
     fn telemetry_profile_round_trips_via_strings() {

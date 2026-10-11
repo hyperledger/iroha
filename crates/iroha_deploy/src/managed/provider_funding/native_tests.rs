@@ -666,3 +666,149 @@ fn genuine_economic_intent_never_authorizes_first_child_under_fresh_io_deadlines
             .exists()
     );
 }
+
+#[test]
+fn approval_tail_keeps_original_request_custody_and_restores_after_held_approval() {
+    let _guard = crate::managed::native_test_guard();
+    let (_root, prepared, mut owner) = fixture();
+    let (mut native, policy, h4) = registered(&prepared, &owner);
+    let plan = owner.plan().unwrap();
+    let mut options = options();
+    options
+        .max_total_fees
+        .insert(policy.asset_definition.clone(), Quantity::from(1_000u64));
+    let at4 = current(&native, &owner, &policy, &h4);
+    let original = Original::select(
+        &plan,
+        &policy,
+        &at4,
+        &h4,
+        Fees::from_options(&options).unwrap(),
+    )
+    .unwrap();
+    owner.validate_original(&plan, &original).unwrap();
+    let directory = owner.authority.directory.ensure_child("funding").unwrap();
+    original::publish(&directory, &plan, &original).unwrap();
+    let provider = owner.authority.provider_id().unwrap();
+    let intent = original.top_up().unwrap();
+    let mut request = ManagedReserveTopUpRequest::open(&prepared, provider).unwrap();
+    let operator = owner.authority.issuer_operator_config().unwrap();
+    let options = original.fees.options(options.deadline);
+    let utc = Terms::new(now_ms().unwrap() + 1_200_000, &options)
+        .unwrap()
+        .signing_deadline_unix_ms;
+    let mut http = NativeReadHttp::start_config(&operator, Arc::clone(native.chain.state()));
+    let signed = request
+        .funding_prepare(&intent, utc, &options, &at4, &h4)
+        .unwrap();
+    http.finish();
+    let h5 = commit(&mut native, &owner, &signed, 5);
+    request.funding_retain(&h5, options.deadline).unwrap();
+    let report = request
+        .recover_local_selected_if_present(&intent, &original.fees, options.deadline)
+        .unwrap()
+        .unwrap();
+    let history = report.historical().unwrap();
+    owner.validate_request(&original, history).unwrap();
+    let request_path = directory
+        .path()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("reserve-top-up-request/request");
+    let request_bytes = std::fs::read(request_path.join("original.nrt")).unwrap();
+    let phase = FundingPhase {
+        directory: &directory,
+        original: &original,
+        provider,
+        deadline: options.deadline,
+        mode: Mode::Local,
+        authorization: None,
+    };
+    let mut minimum_height = history.original().height;
+    let mut approval_history = None;
+    let mut peers = UnavailablePeers::start(&prepared);
+    let absent = owner
+        .run_approval(phase, &mut minimum_height, &mut approval_history, history)
+        .unwrap()
+        .unwrap();
+    unprepared(
+        absent.into_progress(),
+        FundingStep::Approval,
+        OperationStatus::Absent,
+    );
+    assert_eq!(minimum_height, 5);
+    assert!(approval_history.is_none());
+    assert_eq!(
+        ManagedReserveTopUpRequest::open_existing(&prepared, provider)
+            .err()
+            .expect("original request owner remains held")
+            .to_string(),
+        "another managed native operation holds this generation"
+    );
+
+    let at5 = current(&native, &owner, &policy, &h5);
+    let selection = SelectedStage::select(Stage::Approval, &original, &at5, &h5, 5).unwrap();
+    owner
+        .validate_stage(&selection, Stage::Approval, &original, 5)
+        .unwrap();
+    stage::publish(&directory, Stage::Approval, &original, &selection).unwrap();
+    let selection_bytes = std::fs::read(directory.path().join("approval-selection.nrt")).unwrap();
+    let approval = ManagedReserveTopUpApproval::open(&prepared, provider).unwrap();
+    assert_eq!(
+        owner
+            .run_approval(phase, &mut minimum_height, &mut approval_history, history)
+            .err()
+            .expect("held approval purpose refuses")
+            .to_string(),
+        "another managed native operation holds this generation"
+    );
+    assert_eq!(minimum_height, 5);
+    assert!(approval_history.is_none());
+    assert!(ManagedReserveTopUpRequest::open_existing(&prepared, provider).is_err());
+    drop(approval);
+    let restored = owner
+        .run_approval(phase, &mut minimum_height, &mut approval_history, history)
+        .unwrap()
+        .unwrap();
+    unprepared(
+        restored.into_progress(),
+        FundingStep::Approval,
+        OperationStatus::Absent,
+    );
+    assert_eq!(
+        std::fs::read(request_path.join("original.nrt")).unwrap(),
+        request_bytes
+    );
+    assert_eq!(
+        std::fs::read(directory.path().join("approval-selection.nrt")).unwrap(),
+        selection_bytes
+    );
+    assert!(peers.requests.lock().unwrap().is_empty());
+    drop(request);
+
+    let mut request_history = None;
+    let incomplete = owner
+        .run_request_approval(
+            phase,
+            &mut minimum_height,
+            &mut request_history,
+            &mut approval_history,
+        )
+        .unwrap()
+        .unwrap();
+    unprepared(
+        incomplete.into_progress(),
+        FundingStep::Approval,
+        OperationStatus::Absent,
+    );
+    assert_eq!(
+        request_history.unwrap().movement_id(),
+        history.movement_id()
+    );
+    assert_eq!(minimum_height, 5);
+    assert!(approval_history.is_none());
+    assert!(peers.requests.lock().unwrap().is_empty());
+    peers.finish();
+}

@@ -53,12 +53,13 @@ iroha_schema = { workspace = true }
 soranet_pq = { path = "../soranet_pq", default-features = false }
 chacha20poly1305 = { version = "0.11.0-rc.2", default-features = false, features = ["alloc", "getrandom", "rand_core"] }
 rand = { workspace = true }
-rand_core_06 = { workspace = true }
-poseidon-primitives = "0.2.0"
 
-halo2_proofs = { version = "0.5.1", package = "halo2-axiom", features = ["circuit-params", "multicore"] }
+iroha_pasta = { workspace = true }
+iroha_plonk = { workspace = true }
+ff = "0.13.1"
 
 [dev-dependencies]
+iroha_plonk_gadgets = { workspace = true }
 tempfile = "3.23.0"
 assert_cmd = "2.1.1"
 rand_chacha = "0.9"

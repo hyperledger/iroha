@@ -12,19 +12,20 @@ fn test_functions_accept_explicit_unit_and_reject_non_unit_results() {
 
 #[test]
 fn builtin_labels_follow_fixed_signatures_including_keyword_labels() {
-    let source = "fn inspect(Json event) -> int { let Option<int> number = event.get_int(Name::parse(\"n\")); bytes::len(b\"text\") } fn update() { ledger::trigger::set_enabled(trigger: Name::parse(\"wake\"), enabled: 1); } #[test] fn check() { test::assert_eq(expected: 2, actual: 2); }";
+    let source = "fn inspect(Json payload) -> int { let Option<int> number = payload.get_int(Name::parse(\"n\")); bytes::len(b\"text\") } fn update() { ledger::trigger::set_enabled(trigger: Name::parse(\"wake\"), enabled: true); } #[test] fn check() { test::assert_eq(expected: 2, actual: 2); }";
     analyze_test(&parse(source).expect("keyword labels parse"))
         .expect("fixed builtin policies type check");
+    // Single-argument calls accept a positional argument or the declared label.
     for source in [
-        "fn invalid() { ledger::trigger::unregister(Name::parse(\"wake\")); }",
-        "fn invalid() -> int { bytes::len(value: b\"text\") }",
+        "fn valid() { ledger::trigger::unregister(Name::parse(\"wake\")); }",
+        "fn valid() -> int { bytes::len(value: b\"text\") }",
     ] {
-        let error = analyze_error(source);
-        assert!(matches!(
-            error.code,
-            "E_NAMED_ARGUMENTS_REQUIRED" | "E_POSITIONAL_ARGUMENT_REQUIRED"
-        ));
+        analyze(&parse(source).expect("single-argument call parses"))
+            .expect("single-argument builtins accept either form");
     }
+    let error =
+        analyze_error("fn invalid(Name wake) { ledger::trigger::set_enabled(wake, true); }");
+    assert_eq!(error.code, "E_NAMED_ARGUMENTS_REQUIRED");
 }
 
 #[test]
@@ -159,7 +160,7 @@ fn named_struct_bindings_select_fields_and_capture_initializer_once() {
             (function.name == "main").then_some(function)
         })
         .expect("main");
-    assert_eq!(function.body.statements.iter().filter(|statement| matches!(statement, TypedStatement::Let { value, .. } if matches!(value.kind(), ExprKind::Call { name, .. } if name == "make"))).count(), 1);
+    assert_eq!(function.body.statements.iter().filter(|statement| matches!(statement, TypedStatement::Let { value, .. } if matches!(value.kind(), ExprKind::Call { target: name, .. } if name.user_name() == Some("make")))).count(), 1);
     let selected = function
         .body
         .statements
@@ -210,9 +211,7 @@ fn result_obligations_follow_named_argument_source_order_on_propagation() {
 
 #[test]
 fn interspersed_unit_parameters_match_public_and_internal_word_layouts() {
-    let source = "seiyaku Units { struct Receipt { () marker; int value; } \
-        view fn echo(() leading, Receipt receipt, () trailing) -> Receipt { \
-        let _ = leading; let _ = trailing; receipt } }";
+    let source = "seiyaku Units { struct Receipt { () marker; int value; } view fn echo(() leading, Receipt receipt, () trailing) authorize(anyone) -> Receipt { let _ = leading; let _ = trailing; receipt } }";
     let typed = analyze(&parse(source).expect("Unit product parameters parse"))
         .expect("Unit composes in public parameters and products");
     let TypedItem::Function(function) = &typed.items[0];

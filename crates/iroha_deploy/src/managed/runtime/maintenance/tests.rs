@@ -81,6 +81,7 @@ fn turn_deadline_cannot_outlive_old_monotonic_or_utc_observation() {
     let turn = Budget {
         started: mono,
         timeout: deadline.duration_since(mono),
+        startup_deadline_ns: None,
         utc_ceiling_unix_ms: Some(utc - 1),
         cancelled: Arc::new(AtomicBool::new(false)),
         progress: Arc::new(Progress::default()),
@@ -105,6 +106,7 @@ fn turn_rechecks_utc_after_an_action_before_accepting_its_result() {
     let turn = Budget {
         started: mono,
         timeout: Duration::from_secs(15),
+        startup_deadline_ns: None,
         utc_ceiling_unix_ms: Some(utc + 1_000),
         cancelled: Arc::new(AtomicBool::new(false)),
         progress: Arc::new(Progress::default()),
@@ -158,6 +160,7 @@ fn aggregate_refresh_budget_keeps_earliest_monotonic_and_utc_bounds_independentl
     let mut budget = Budget {
         started: mono,
         timeout: TURN_MAXIMUM,
+        startup_deadline_ns: None,
         utc_ceiling_unix_ms: None,
         cancelled: Arc::new(AtomicBool::new(false)),
         progress: Arc::new(Progress::default()),
@@ -182,6 +185,7 @@ fn aggregate_refresh_expired_input_refuses_without_partially_replacing_original_
     let mut budget = Budget {
         started: mono,
         timeout: Duration::from_secs(12),
+        startup_deadline_ns: None,
         utc_ceiling_unix_ms: Some(utc + 14_000),
         cancelled: Arc::new(AtomicBool::new(false)),
         progress: Arc::new(Progress::default()),

@@ -482,3 +482,31 @@ fn serialization_derives_differ_only_by_the_requested_archived_alias() {
         assert_eq!(payload_source, compact(generate(&input, true)));
     }
 }
+
+#[test]
+fn enum_byte_array_fields_use_the_exact_raw_field_helper() {
+    let input: DeriveInput = syn::parse_quote! {
+        enum RawFields {
+            Tuple([u8; 2]),
+            Named { bytes: [u8; 2] },
+            Values(Vec<u16>),
+        }
+    };
+    let Data::Enum(data) = &input.data else {
+        unreachable!("test input is an enum");
+    };
+    let expansion = compact(derive_enum_deserialize(
+        &input.ident,
+        &input.generics,
+        data,
+        &input.attrs,
+    ));
+    assert_eq!(
+        expansion.matches("decode_context_framed_byte_array::<{2}>(ptr,&mutoffset)?").count(),
+        2,
+        "both enum field forms must follow their raw-byte encoder"
+    );
+    assert!(expansion.contains("finish_context_fields(ptr,offset)"));
+    assert!(!expansion.contains("decode_context_field_canonical::<[u8;2]>"));
+    assert!(expansion.contains("decode_context_field_canonical::<Vec<u16>>(ptr,&mutoffset)"));
+}

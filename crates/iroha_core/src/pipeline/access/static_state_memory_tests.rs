@@ -17,7 +17,7 @@ pub(super) fn retention() -> ivm::ivm_cache::CacheLimitsGuard {
 pub(super) fn fixture() -> (State, IvmBytecode, ContractManifest, ContractArtifactId) {
     let (bytes, manifest) = kotodama_lang::compiler::Compiler::new()
         .compile_source_with_manifest(
-            "seiyaku FundedAccessHints { state StateMap<int, int> Values; kotoage fn write_one() authorize(\"CanWrite\") { Values[1] = 10; } }",
+            "seiyaku FundedAccessHints { permission CanWrite;  state StateMap<int, int> Values; kotoage fn write_one() authorize(CanWrite) { Values[1] = 10; } }",
         ).unwrap();
     let artifact = ContractArtifactId::new(DataSpaceId::UNIVERSAL, ivm::contract_code_hash(&bytes));
     let authority = iroha_test_samples::ALICE_ID.clone();

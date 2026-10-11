@@ -204,7 +204,7 @@ impl Run for ProofCommand {
 }
 #[derive(clap::Args, Debug, Clone, Default)]
 pub struct ProofFilterArgs {
-    /// Filter by backend identifier (e.g., `halo2/ipa`).
+    /// Filter by backend identifier (e.g., `pipa-r/pasta`).
     #[arg(long, value_name = "BACKEND")]
     backend: Option<String>,
     /// Filter by verification status (`Submitted`, `Verified`, `Rejected`).
@@ -284,7 +284,7 @@ impl Run for ProofCountArgs {
 }
 #[derive(clap::Args, Debug)]
 pub struct ProofGetArgs {
-    /// Backend identifier (e.g., `halo2/ipa`).
+    /// Backend identifier (e.g., `pipa-r/pasta`).
     #[arg(long, value_name = "BACKEND")]
     backend: String,
     /// Proof hash (hex, with or without `0x` prefix).
@@ -319,7 +319,7 @@ impl Run for ProofRetentionArgs {
 }
 #[derive(clap::Args, Debug)]
 pub struct ProofPruneArgs {
-    /// Restrict pruning to a single backend (e.g., `halo2/ipa`). Omit to prune all backends.
+    /// Restrict pruning to a single backend (e.g., `pipa-r/pasta`). Omit to prune all backends.
     #[arg(long, value_name = "BACKEND")]
     backend: Option<String>,
 }
@@ -778,7 +778,7 @@ mod tests {
     fn check_vk_submission_dispatch(operation: VkSubmissionOperation) {
         use iroha::data_model::isi::verifying_keys::{RegisterVerifyingKey, UpdateVerifyingKey};
         let mut payload = sample_vk_submission(Some("core"));
-        payload.circuit_id = "halo2/pasta/ipa/kaigi-usage-v1".to_owned();
+        payload.circuit_id = "pipa-r/pasta/kaigi-usage-v1".to_owned();
         let record = build_vk_record(&payload, operation).expect("canonical submission record");
         let directory = tempfile::tempdir().unwrap();
         let json = directory.path().join("vk.json");
@@ -986,7 +986,12 @@ mod tests {
     fn vk_submission_backend_parser_accepts_only_supported_open_verify_engines() {
         use iroha::data_model::zk::BackendTag;
         for (label, expected) in [
-            ("halo2/ipa", BackendTag::Halo2IpaPasta),
+            ("pipa-r/pasta", BackendTag::NativePipaRPasta),
+            (
+                "pipa-r/pasta/kaigi-authorization-v1",
+                BackendTag::NativePipaRPasta,
+            ),
+            ("pipa-r/pasta/kaigi-usage-v1", BackendTag::NativePipaRPasta),
             (
                 "stark/fri/poseidon-x7-goldilocks-6x64-v1",
                 BackendTag::Stark,
@@ -999,6 +1004,10 @@ mod tests {
             );
         }
         for label in [
+            "halo2/ipa",
+            "halo2/pasta/kaigi-authorization-v1",
+            "halo2/pasta/kaigi-usage-v1",
+            "pipa-r/ipa/pasta/kaigi-usage-v1",
             "halo2/ipa/orchard",
             "groth16/bls12-377",
             "sis-hints-anoncred-pq-v0",
@@ -1011,12 +1020,12 @@ mod tests {
     }
     fn sample_vk_submission(namespace: Option<&str>) -> VkSubmissionJson {
         VkSubmissionJson {
-            backend: "halo2/ipa".to_owned(),
+            backend: "pipa-r/pasta".to_owned(),
             name: "vk_namespace_test".to_owned(),
             version: 1,
             circuit_id: "namespace-test-v1".to_owned(),
             public_inputs_schema_hash_hex: "11".repeat(32),
-            curve: Some("pallas".to_owned()),
+            curve: Some("vesta".to_owned()),
             gas_schedule_id: Some("zk-gas-v1".to_owned()),
             vk_len: Some(32),
             max_proof_bytes: Some(4096),
@@ -1032,7 +1041,7 @@ mod tests {
     }
     #[test]
     fn vk_submission_namespace_explicit_and_defaults() {
-        let encoded = norito::json::to_value(&sample_vk_submission(Some("kagemusha_v1")))
+        let encoded = norito::json::to_value(&sample_vk_submission(Some("example_v1")))
             .expect("serialize VK submission fixture");
         let explicit: VkSubmissionJson =
             norito::json::from_value(encoded.clone()).expect("deserialize explicit namespace");
@@ -1040,7 +1049,7 @@ mod tests {
             build_vk_record(&explicit, VkSubmissionOperation::Register)
                 .expect("build explicit namespace record")
                 .namespace,
-            "kagemusha_v1"
+            "example_v1"
         );
         let mut omitted = encoded.clone();
         omitted
@@ -1070,7 +1079,7 @@ mod tests {
     }
     #[test]
     fn vk_submission_namespace_rejects_blank_or_untrimmed_values() {
-        for namespace in ["", " \t ", " kagemusha_v1", "kagemusha_v1 "] {
+        for namespace in ["", " \t ", " example_v1", "example_v1 "] {
             let err = build_vk_record(
                 &sample_vk_submission(Some(namespace)),
                 VkSubmissionOperation::Register,
@@ -1150,35 +1159,46 @@ mod tests {
     #[test]
     fn vk_submission_enforces_backend_specific_key_size_limits() {
         use base64::Engine as _;
-        let limit = iroha_core_zk::STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES;
-        let mut inline = sample_vk_submission(None);
-        inline.backend = iroha_core_zk::ZK_BACKEND_STARK_FRI_V1.to_owned();
-        inline.commitment_hex = None;
-        inline.vk_len = Some(u32::try_from(limit).expect("STARK VK limit fits u32"));
-        inline.vk_bytes = Some(base64::engine::general_purpose::STANDARD.encode(vec![0xA5; limit]));
-        assert!(
-            build_vk_record(&inline, VkSubmissionOperation::Register).is_ok(),
-            "the exact STARK VK byte limit must be admitted by the CLI builder"
-        );
-        inline.vk_len = Some(u32::try_from(limit + 1).expect("STARK VK overflow fits u32"));
-        inline.vk_bytes =
-            Some(base64::engine::general_purpose::STANDARD.encode(vec![0xA5; limit + 1]));
-        let error = build_vk_record(&inline, VkSubmissionOperation::Register)
-            .expect_err("the first byte over the STARK VK limit must be rejected");
-        assert!(error.to_string().contains("backend limit"), "{error}");
+        for (backend, limit) in [
+            (
+                iroha_core_zk::ZK_BACKEND_STARK_FRI_V1,
+                iroha_core_zk::STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES,
+            ),
+            (
+                "pipa-r/pasta",
+                iroha_core_zk::NATIVE_PIPA_R_VERIFYING_KEY_V1_MAX_BYTES,
+            ),
+        ] {
+            // This tests CLI container bounds, not cryptographic key admission.
+            let mut inline = sample_vk_submission(None);
+            inline.backend = backend.to_owned();
+            inline.commitment_hex = None;
+            inline.vk_len = Some(u32::try_from(limit).expect("VK limit fits u32"));
+            inline.vk_bytes =
+                Some(base64::engine::general_purpose::STANDARD.encode(vec![0xA5; limit]));
+            assert!(
+                build_vk_record(&inline, VkSubmissionOperation::Register).is_ok(),
+                "the exact {backend} VK byte limit must be admitted by the CLI builder"
+            );
+            inline.vk_len = Some(u32::try_from(limit + 1).expect("VK overflow fits u32"));
+            inline.vk_bytes =
+                Some(base64::engine::general_purpose::STANDARD.encode(vec![0xA5; limit + 1]));
+            let error = build_vk_record(&inline, VkSubmissionOperation::Register)
+                .expect_err("the first byte over the VK limit must be rejected");
+            assert!(error.to_string().contains("backend limit"), "{error}");
 
-        let mut commitment_only = sample_vk_submission(None);
-        commitment_only.backend = iroha_core_zk::ZK_BACKEND_STARK_FRI_V1.to_owned();
-        commitment_only.vk_len = Some(u32::try_from(limit).expect("STARK VK limit fits u32"));
-        assert!(
-            build_vk_record(&commitment_only, VkSubmissionOperation::Register).is_ok(),
-            "the exact declared STARK VK limit must be admitted"
-        );
-        commitment_only.vk_len =
-            Some(u32::try_from(limit + 1).expect("STARK VK overflow fits u32"));
-        let error = build_vk_record(&commitment_only, VkSubmissionOperation::Register)
-            .expect_err("an oversized declared STARK VK length must be rejected");
-        assert!(error.to_string().contains("backend limit"), "{error}");
+            let mut commitment_only = sample_vk_submission(None);
+            commitment_only.backend = backend.to_owned();
+            commitment_only.vk_len = Some(u32::try_from(limit).expect("VK limit fits u32"));
+            assert!(
+                build_vk_record(&commitment_only, VkSubmissionOperation::Register).is_ok(),
+                "the exact declared {backend} VK limit must be admitted"
+            );
+            commitment_only.vk_len = Some(u32::try_from(limit + 1).expect("VK overflow fits u32"));
+            let error = build_vk_record(&commitment_only, VkSubmissionOperation::Register)
+                .expect_err("an oversized declared VK length must be rejected");
+            assert!(error.to_string().contains("backend limit"), "{error}");
+        }
     }
     #[test]
     fn vk_submission_requires_strict_withdrawal_ordering() {
@@ -1388,8 +1408,8 @@ fn build_vk_record(
         ensure_verifier_backend_registry_label_v1(&payload.backend, "verifying key backend")?;
     let backend_tag = vk_backend_tag_from_label(backend)?;
     let max_vk_bytes = match backend_tag {
-        iroha::data_model::zk::BackendTag::Halo2IpaPasta => {
-            iroha_core_zk::HALO2_IPA_VERIFYING_KEY_V1_MAX_BYTES
+        iroha::data_model::zk::BackendTag::NativePipaRPasta => {
+            iroha_core_zk::NATIVE_PIPA_R_VERIFYING_KEY_V1_MAX_BYTES
         }
         iroha::data_model::zk::BackendTag::Stark => {
             iroha_core_zk::STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES
@@ -1542,7 +1562,7 @@ impl Run for VkUpdateArgs {
 }
 #[derive(clap::Args, Debug)]
 pub struct VkGetArgs {
-    /// Backend identifier (e.g., "halo2/ipa")
+    /// Backend identifier (e.g., "pipa-r/pasta")
     #[arg(long, value_name = "BACKEND")]
     backend: String,
     /// Verifying key name

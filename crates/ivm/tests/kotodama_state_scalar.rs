@@ -93,7 +93,7 @@ fn durable_state_reads_observe_calls_in_arguments_branches_and_loop_iterations()
         ),
     ] {
         let source = format!(
-            "seiyaku DurableReads {{ state int trace; hajimari() {{ trace = 0; }} fn mark(int _ value) -> int {{ trace = trace * 10 + value; value }} fn pack(int first, int second) -> int {{ first * 10 + second }} kotoage fn main() -> int authorize(\"WriteState\") {{ {body} }} }}"
+            "seiyaku DurableReads {{ permission WriteState;  state int trace; hajimari() {{ trace = 0; }} fn mark(int _ value) -> int {{ trace = trace * 10 + value; value }} fn pack(int first, int second) -> int {{ first * 10 + second }} kotoage fn main() authorize(WriteState) -> int {{ {body} }} }}"
         );
         assert_eq!(
             run_named_struct_order(&source),

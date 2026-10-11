@@ -205,6 +205,13 @@ WAVE_TWO_TARGETS = (
         modules=(),
         required_features=("trybuild-tests",),
     ),
+    # Its global allocator census must run in its own registered test process.
+    WaveTwoTarget(
+        package="crates/iroha_primitives",
+        target="numeric_abi_encoding_allocations",
+        root="numeric_abi_encoding_allocations.rs",
+        modules=(),
+    ),
     WaveTwoTarget(
         package="crates/iroha_zkp_halo2",
         target="vega_engine_reachability",
@@ -275,6 +282,7 @@ WAVE_TWO_SOURCE_PATHS = (
     'crates/iroha_monitor/tests/smoke.rs',
     'crates/iroha_primitives/tests/addr_parsing.rs',
     'crates/iroha_primitives/tests/numeric_inspect.rs',
+    'crates/iroha_primitives/tests/numeric_abi_encoding_allocations.rs',
     'crates/iroha_primitives/tests/ui.rs',
     'crates/iroha_zkp_halo2/tests/vega_engine_reachability.rs',
     'crates/iroha_zkp_halo2/tests/vega_microsoft_cross_conformance.rs',

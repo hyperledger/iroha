@@ -1,7 +1,8 @@
 // Durable StateMap set and get wrapped in a seiyaku.
 seiyaku MapOps {
+    permission Entry;
     state StateMap<int, int> values;
-    kotoage fn map_example() -> int authorize("Entry") {
+    kotoage fn map_example() authorize(Entry) -> int {
         values[1] = 42;
         let v = values.get(1).unwrap_or(0);
         return v;

@@ -136,180 +136,6 @@ fn registration_monetary_plan_rejects_every_changed_effect_before_custody_writes
 }
 
 #[test]
-fn reward_claim_rejects_skips_forged_records_accruals_payouts_and_oversized_prefixes() {
-    let state = setup_state();
-    let mut block = state.block(block_header_with_height(1));
-    let mut stx = block.transaction_for_callback_testing();
-    let lane = LaneId::SINGLE;
-    let (sink, recipient, asset, _) = configure_reward_fixture(&mut stx, lane, 100);
-    stx.nexus.staking.reward_dust_threshold = Quantity::zero();
-    for epoch in 0..2 {
-        reward_distribution(lane, epoch, &asset, &recipient, 10)
-            .execute(&sink, &mut stx)
-            .unwrap();
-    }
-    let plan = fixture_reward_claim_plan(&stx, lane, &recipient, None);
-    for change in 0..7 {
-        let mut invalid = plan.clone();
-        match change {
-            0 => {
-                invalid.records.remove(0);
-            }
-            1 => invalid.records[0].record_hash = Hash::new(b"forged record"),
-            2 => invalid.sources[0].expected_accrued = Some(Quantity::one()),
-            3 => invalid.sources[0].payout = 19_u64.into(),
-            4 => {
-                invalid.records = (0..65)
-                    .map(|epoch| PublicLaneRewardRecordRefV1 {
-                        epoch,
-                        record_hash: Hash::new(epoch.to_be_bytes()),
-                    })
-                    .collect()
-            }
-            5 => invalid.sources.clear(),
-            _ => {
-                invalid.expected_state =
-                    Some(iroha_data_model::nexus::PublicLaneRewardClaimStateV1 {
-                        through_epoch: Some(0),
-                    })
-            }
-        }
-        assert!(effects::prepare_reward_claim(&stx, lane, &recipient, &invalid).is_err());
-        assert!(
-            stx.world
-                .public_lane_reward_claims
-                .get(&(lane, recipient.clone()))
-                .is_none()
-        );
-        assert_eq!(
-            stx.world.public_lane_reward_reserves.get(&asset),
-            Some(&Quantity::from(20_u64))
-        );
-    }
-    let prepared = effects::prepare_reward_claim(&stx, lane, &recipient, &plan).unwrap();
-    assert_eq!(prepared.state_after.unwrap().through_epoch, Some(1));
-    assert_eq!(prepared.payouts[0].2, Quantity::from(20_u64));
-}
-
-#[test]
-fn reward_claim_processes_more_than_sixty_four_dust_records_without_forfeiture() {
-    let state = setup_state();
-    let mut block = state.block(block_header_with_height(1));
-    let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0xE2; Hash::LENGTH]));
-    let lane = LaneId::SINGLE;
-    let (sink, recipient, asset, definition) = configure_reward_fixture(&mut stx, lane, 200);
-    stx.nexus.staking.reward_dust_threshold = 100_u64.into();
-    for epoch in 0..130 {
-        reward_distribution(lane, epoch, &asset, &recipient, 1)
-            .execute(&sink, &mut stx)
-            .unwrap();
-    }
-    for (batch, expected_records, cursor, accrual, paid) in [
-        (0, 64, 63, 64, 0),
-        (1, 64, 127, 0, 128),
-        (2, 2, 129, 2, 128),
-    ] {
-        let plan = fixture_reward_claim_plan(&stx, lane, &recipient, None);
-        assert_eq!(plan.records.len(), expected_records);
-        ClaimPublicLaneRewards {
-            lane_id: lane,
-            account: recipient.clone(),
-            claim_plan: plan,
-        }
-        .execute(&recipient, &mut stx)
-        .unwrap();
-        assert_eq!(
-            stx.world
-                .public_lane_reward_claims
-                .get(&(lane, recipient.clone()))
-                .unwrap()
-                .through_epoch,
-            Some(cursor),
-            "batch {batch}"
-        );
-        assert_eq!(
-            stx.world
-                .public_lane_reward_accruals
-                .get(&(lane, recipient.clone(), asset.clone()))
-                .cloned()
-                .unwrap_or_else(Quantity::zero),
-            Quantity::from(accrual as u64)
-        );
-        assert_eq!(
-            stx.world
-                .assets
-                .get(&AssetId::new(definition.clone(), recipient.clone()))
-                .map_or_else(Quantity::zero, |value| value.as_ref().clone()),
-            Quantity::from(paid as u64)
-        );
-        assert_eq!(
-            rewards::outstanding_rewards(&stx.world, &asset).unwrap(),
-            Quantity::from((130 - paid) as u64)
-        );
-    }
-    stx.nexus.staking.reward_dust_threshold = Quantity::zero();
-    let plan = fixture_reward_claim_plan(&stx, lane, &recipient, None);
-    assert!(plan.records.is_empty());
-    ClaimPublicLaneRewards {
-        lane_id: lane,
-        account: recipient.clone(),
-        claim_plan: plan,
-    }
-    .execute(&recipient, &mut stx)
-    .unwrap();
-    assert_eq!(
-        stx.world
-            .assets
-            .get(&AssetId::new(definition, recipient))
-            .unwrap()
-            .as_ref(),
-        &Quantity::from(130_u64)
-    );
-    assert!(stx.world.public_lane_reward_reserves.get(&asset).is_none());
-}
-
-#[test]
-fn reward_claim_zero_entitlements_advance_without_creating_accrual() {
-    let state = setup_state();
-    let mut block = state.block(block_header_with_height(1));
-    let mut stx = block.transaction_for_callback_testing();
-    let lane = LaneId::SINGLE;
-    let (sink, validator, asset, _) = configure_reward_fixture(&mut stx, lane, 100);
-    reward_distribution(lane, 0, &asset, &validator, 10)
-        .execute(&sink, &mut stx)
-        .unwrap();
-    let recipient = ALICE_ID.clone();
-    let plan = fixture_reward_claim_plan(&stx, lane, &recipient, None);
-    assert_eq!(plan.sources.len(), 1);
-    assert!(plan.sources[0].payout.is_zero());
-    ClaimPublicLaneRewards {
-        lane_id: lane,
-        account: recipient.clone(),
-        claim_plan: plan,
-    }
-    .execute(&recipient, &mut stx)
-    .unwrap();
-    assert_eq!(
-        stx.world
-            .public_lane_reward_claims
-            .get(&(lane, recipient.clone()))
-            .unwrap()
-            .through_epoch,
-        Some(0)
-    );
-    assert!(
-        stx.world
-            .public_lane_reward_accruals
-            .get(&(lane, recipient, asset.clone()))
-            .is_none()
-    );
-    assert_eq!(
-        stx.world.public_lane_reward_reserves.get(&asset),
-        Some(&Quantity::from(10_u64))
-    );
-}
-
-#[test]
 fn staking_asset_resolution_requires_the_exact_committed_network_currency() {
     let state = setup_state();
     let mut block = state.block(block_header_with_height(1));
@@ -453,105 +279,7 @@ fn staking_registration_rejects_wrong_xor_shape_with_transaction_rollback() {
 }
 
 #[test]
-fn reward_claim_rejects_wrong_xor_shape_with_transaction_rollback() {
-    use iroha_data_model::asset::AssetBalancePolicy;
-    use iroha_primitives::numeric::NumericSpec;
-    for (spec, scope) in [
-        (NumericSpec::default(), AssetBalancePolicy::Global),
-        (NumericSpec::fractional(18), AssetBalancePolicy::Global),
-        (
-            NumericSpec::fractional(9),
-            AssetBalancePolicy::DataspaceRestricted,
-        ),
-    ] {
-        let state = setup_state();
-        let mut block = state.block(block_header_with_height(1));
-        let lane = LaneId::new(9);
-        let (recipient, source, claim, nexus, before) = {
-            let mut stx = block.transaction_for_callback_testing();
-            let (sink, recipient, source, _) = configure_reward_fixture(&mut stx, lane, 100);
-            RecordPublicLaneRewards {
-                lane_id: lane,
-                epoch: 0,
-                reward_asset: source.clone(),
-                total_reward: Quantity::from(25_u64),
-                shares: vec![PublicLaneRewardShare {
-                    account: recipient.clone(),
-                    role: PublicLaneRewardRole::Validator,
-                    amount: Quantity::from(25_u64),
-                }],
-                metadata: Metadata::default(),
-            }
-            .execute(&sink, &mut stx)
-            .unwrap();
-            let claim = ClaimPublicLaneRewards {
-                lane_id: lane,
-                account: recipient.clone(),
-                claim_plan: fixture_reward_claim_plan(&stx, lane, &recipient, None),
-            };
-            let before = stx.world.assets.get(&source).unwrap().clone();
-            let nexus = stx.nexus.clone();
-            stx.apply();
-            (recipient, source, claim, nexus, before)
-        };
-        {
-            let mut rejected = block.transaction_for_callback_testing();
-            rejected.nexus = nexus.clone();
-            let currency = rejected
-                .world
-                .asset_definitions
-                .get_mut(source.definition())
-                .unwrap();
-            currency.spec = spec;
-            currency.balance_scope_policy = scope;
-            let error = claim
-                .clone()
-                .execute(&recipient, &mut rejected)
-                .unwrap_err();
-            assert!(
-                error
-                    .to_string()
-                    .contains("global network XOR with scale nine"),
-                "{error}"
-            );
-            assert_eq!(rejected.world.assets.get(&source), Some(&before));
-            assert_eq!(
-                rejected.world.public_lane_reward_reserves.get(&source),
-                Some(&Quantity::from(25_u64))
-            );
-            assert!(
-                rejected
-                    .world
-                    .public_lane_reward_claims
-                    .iter()
-                    .next()
-                    .is_none()
-            );
-            assert!(
-                rejected
-                    .world
-                    .public_lane_reward_accruals
-                    .iter()
-                    .next()
-                    .is_none()
-            );
-        }
-        let mut accepted = block.transaction_for_callback_testing();
-        accepted.nexus = nexus;
-        assert_eq!(accepted.world.assets.get(&source), Some(&before));
-        claim.execute(&recipient, &mut accepted).unwrap();
-        assert!(
-            accepted
-                .world
-                .public_lane_reward_reserves
-                .get(&source)
-                .is_none()
-        );
-    }
-}
-
-#[test]
-fn staking_and_reward_configuration_reject_registered_xor_lookalike() {
+fn staking_configuration_and_reward_custody_reject_registered_xor_lookalike() {
     let state = setup_state();
     let mut block = state.block(block_header_with_height(1));
     let mut stx = block.transaction_for_callback_testing();
@@ -570,7 +298,7 @@ fn staking_and_reward_configuration_reject_registered_xor_lookalike() {
     .execute(&ALICE_ID, &mut stx)
     .unwrap();
     // An existing numeric asset with the same public name still has no network-currency
-    // authority. Both configuration entry points must resolve the exact committed identity.
+    // authority. Staking and funded reward custody both require the committed identity.
     for configured in [&committed_xor, &lookalike] {
         stx.nexus.staking.stake_asset_id = configured.to_string();
         stx.nexus.fees.fee_asset_id = configured.to_string();
@@ -581,14 +309,14 @@ fn staking_and_reward_configuration_reject_registered_xor_lookalike() {
             &validator,
             stx.block_unix_timestamp_ms(),
         );
-        let rewards = resolve_nexus_fee_asset_definition(&mut stx);
+        let rewards = crate::state::validate_network_xor_asset(&stx.world, configured);
         if configured == &committed_xor {
             assert_eq!(stake.unwrap().asset_definition, committed_xor);
-            assert_eq!(rewards.unwrap(), committed_xor);
+            rewards.unwrap();
         } else {
             for error in [
                 crate::execution_attempt::expect_completed_rejection(stake.unwrap_err()),
-                rewards.unwrap_err(),
+                crate::execution_attempt::expect_completed_rejection(rewards.unwrap_err()),
             ] {
                 assert!(error.to_string().contains("committed network XOR"));
             }

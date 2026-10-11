@@ -197,6 +197,16 @@ pub trait RegionLayouter<F: PastaField> {
         to: Assigned<F>,
     ) -> Result<Cell, Error>;
 
+    /// Guard a fixed cell against existing or future conflicting writes.
+    /// # Errors
+    /// Any backend bounds or layout conflict error.
+    fn expect_fixed(&mut self, column: Column<Fixed>, offset: usize, value: F)
+    -> Result<(), Error>;
+    /// Reserve one advice cell for exactly one future assignment.
+    /// # Errors
+    /// Any backend bounds or layout conflict error.
+    fn reserve_advice(&mut self, column: Column<Advice>, offset: usize) -> Result<(), Error>;
+
     /// Constrains `cell` to a constant (assigned after the region).
     ///
     /// # Errors
@@ -356,6 +366,26 @@ impl<F: PastaField> Region<'_, F> {
         to: impl Into<Assigned<F>>,
     ) -> Result<Cell, Error> {
         self.region.assign_fixed(column, offset, to.into())
+    }
+
+    /// Requires the existing, future and final fixed value to match exactly.
+    /// This synthesis guard adds no circuit query or polynomial.
+    /// # Errors
+    /// Out-of-range cells or conflicting fixed metadata.
+    pub fn expect_fixed(
+        &mut self,
+        column: Column<Fixed>,
+        row: usize,
+        value: F,
+    ) -> Result<(), Error> {
+        self.region.expect_fixed(column, row, value)
+    }
+    /// Reserves an unassigned advice cell for exactly one subsequent write.
+    /// The guard is structural and also applies to unknown witnesses.
+    /// # Errors
+    /// Out-of-range, already assigned/reserved, duplicate or missing writes.
+    pub fn reserve_advice(&mut self, column: Column<Advice>, row: usize) -> Result<(), Error> {
+        self.region.reserve_advice(column, row)
     }
 
     /// Constrains `cell` to equal `constant`.
@@ -826,6 +856,13 @@ impl<F: PastaField, CS: Assignment<F>> RegionLayouter<F> for SingleChipLayouterR
             row_offset: offset,
             column: column.into(),
         })
+    }
+
+    fn expect_fixed(&mut self, column: Column<Fixed>, row: usize, value: F) -> Result<(), Error> {
+        self.cs.expect_fixed(column, row, value)
+    }
+    fn reserve_advice(&mut self, column: Column<Advice>, row: usize) -> Result<(), Error> {
+        self.cs.reserve_advice(column, row)
     }
 
     fn constrain_constant(&mut self, cell: Cell, constant: Assigned<F>) -> Result<(), Error> {

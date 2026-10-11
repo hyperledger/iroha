@@ -1,6 +1,6 @@
 
-seiyaku Test {
-  kotoage fn arm() authorize("Entry") {}
+seiyaku Test { permission Entry;
+  kotoage fn arm() authorize(Entry) {}
   trigger wake -> callee::run {
     on time pre_commit;
   }

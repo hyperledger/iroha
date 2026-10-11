@@ -1,14 +1,16 @@
 //! σ-field Poseidon values of the wallet: the `P` and `P_bytes` hashes, their domains and the
-//! depth-32 indexed Merkle tree of every wallet map and of the credit-digest tree (§§3, 3.2,
-//! 4.1, 5.1; owner answers Q1, Q2, Q9 and Q10, and A2 and A3 of the second set, 2026-10-05).
+//! depth-32 indexed Merkle tree of every indexed wallet map and of the credit-digest tree (§§3,
+//! 3.2, 4.1, 5.1; owner answers Q1, Q2, Q9 and Q10, A2 and A3 of the second set, and B1, B3, B5
+//! and B6 of the third set, 2026-10-05).
 //!
 //! `P(d, items)` is the RP57 Poseidon `iroha_pasta::poseidon::hash_with_domain` with domain word
 //! `d` over Pasta `Fp`, the Vesta scalar field in which the step proofs σ are proved. Its value is
 //! one canonical field element, carried as its 32-byte little-endian encoding (`< p`). Element
 //! lists follow one rule: an integer, tag or mask is one element; a 32-byte SHA-256 digest or
 //! identifier is two `u128` limbs, low half first; a `P` value (commitment, chain, root, nonce,
-//! `credit_id`, `proof_digest`, Payment, lineage, credit-opening, credit-status or credited
-//! digest, signing message) is one element.
+//! `credit_id`, `proof_digest`, statement, object, certificate-set, package, operation,
+//! nullifier, Payment, lineage, credit-opening, credit-status or credited digest, signing
+//! message) is one element.
 //!
 //! `P_bytes(d, b) = P(d, [len(b)] || c_0 || ... || c_(m-1))` hashes a byte string: `len(b)` is
 //! the byte length as one element, `m = ceil(len(b) / 31)` and `c_i` is bytes `31i .. 31i + 30`
@@ -18,9 +20,10 @@
 //!
 //! # Indexed Merkle tree (owner answer A2)
 //!
-//! Every wallet map (consumed-credit, pending-outgoing, load/redeem recovery, fee-claim and
-//! quota-usage) and the lineage-level credit-digest tree is a depth-32 Poseidon indexed Merkle
-//! tree ([`KagemushaWalletIndexedTreeV1`]):
+//! The consumed-credit, pending-outgoing, load/redeem recovery, fee-claim and blacklist-history
+//! maps and the lineage-level credit-digest tree are depth-32 Poseidon indexed Merkle trees
+//! ([`KagemushaWalletIndexedTreeV1`]); the quota-usage map is the one exception, a depth-6 array
+//! aligned with the quota-window slots (owner answer B5):
 //!
 //! - Slots `0 .. 2^32` are the leaves at height 0. The node at height `h + 1` and index `j` has
 //!   the children `2j` (left) and `2j + 1` (right) at height `h`, so bit `h` of the slot index
@@ -35,8 +38,12 @@
 //! - Membership of `k` opens the leaf whose key is `k`; non-membership of `x` opens the low leaf
 //!   whose key and `next_key` bracket `x`. Insertion updates the low leaf's `next_key` and writes
 //!   the new leaf at the next free slot `f`, one more than the highest slot ever written;
-//!   removal relinks the predecessor and clears the slot, which is never reused. Every opening
-//!   carries exactly 32 siblings, from height 0 upward.
+//!   removal relinks the predecessor and clears the slot, which is never reused. No indexed map
+//!   updates a value in place. Every opening carries exactly 32 siblings, from height 0 upward.
+//! - Allocation position and lifetime exhaustion are native-store policy, not proved map
+//!   semantics (owner-approved technical decision Q1): a relation checks only that the low leaf
+//!   brackets the new key and that the written slot opens empty in the intermediate root, and no
+//!   root commits `f`. Slot `2^32 - 1` is valid; only an insertion with `f = 2^32` is rejected.
 
 use std::{cmp::Ordering, collections::BTreeMap, sync::OnceLock};
 
@@ -62,8 +69,8 @@ pub const KAGEMUSHA_WALLET_CORE_DOMAIN_V1: u64 = domain_v1(*b"kgwcore1");
 pub const KAGEMUSHA_WALLET_REST_DOMAIN_V1: u64 = domain_v1(*b"kgwrest1");
 /// Poseidon domain of the σ public statement digest (§3.2).
 pub const KAGEMUSHA_WALLET_STATEMENT_DOMAIN_V1: u64 = domain_v1(*b"kgwstmt1");
-/// Poseidon domain of `credit_id` over the 28 Request body elements (§5.1, owner answers Q1
-/// and A5).
+/// Poseidon domain of `credit_id` over the 26 Request body elements (§5.1, owner answers Q1,
+/// A5 and B6).
 pub const KAGEMUSHA_WALLET_CREDIT_DOMAIN_V1: u64 = domain_v1(*b"kgwcrdt1");
 /// Poseidon domain of one `send_chain` append (§3).
 pub const KAGEMUSHA_WALLET_SEND_CHAIN_DOMAIN_V1: u64 = domain_v1(*b"kgwschn1");
@@ -75,12 +82,28 @@ pub const KAGEMUSHA_WALLET_CONSUMED_CREDIT_VALUE_DOMAIN_V1: u64 = domain_v1(*b"k
 pub const KAGEMUSHA_WALLET_PENDING_OUTGOING_VALUE_DOMAIN_V1: u64 = domain_v1(*b"kgwpout1");
 /// Poseidon domain of load values of the load/redeem recovery map.
 pub const KAGEMUSHA_WALLET_LOAD_VALUE_DOMAIN_V1: u64 = domain_v1(*b"kgwload1");
+/// Packed-byte domain of an ordinary finalized transaction's exact Load receipt transcript.
+pub const KAGEMUSHA_WALLET_LOAD_RECEIPT_DOMAIN_V1: u64 = domain_v1(*b"kgwolod1");
 /// Poseidon domain of redeem values of the load/redeem recovery map.
 pub const KAGEMUSHA_WALLET_REDEEM_VALUE_DOMAIN_V1: u64 = domain_v1(*b"kgwrdm_1");
 /// Poseidon domain of fee-claim map values.
 pub const KAGEMUSHA_WALLET_FEE_CLAIM_VALUE_DOMAIN_V1: u64 = domain_v1(*b"kgwfee_1");
-/// Poseidon domain of quota-usage map values.
-pub const KAGEMUSHA_WALLET_QUOTA_USAGE_VALUE_DOMAIN_V1: u64 = domain_v1(*b"kgwquse1");
+/// Poseidon domain of a quota-usage array leaf (§3.3, owner answer B5).
+pub const KAGEMUSHA_WALLET_QUOTA_USAGE_LEAF_DOMAIN_V1: u64 = domain_v1(*b"kgwquse1");
+/// Poseidon domain of a quota-usage array node (§3.3, owner answer B5).
+pub const KAGEMUSHA_WALLET_QUOTA_USAGE_NODE_DOMAIN_V1: u64 = domain_v1(*b"kgwqusn1");
+/// Poseidon domain of blacklist-history map values (§3.3, owner answer B6).
+pub const KAGEMUSHA_WALLET_BLACKLIST_HISTORY_VALUE_DOMAIN_V1: u64 = domain_v1(*b"kgwbhst1");
+/// Poseidon domain of the certificate-set digest `P(kgwcset1, [count, digests...])` (owner
+/// answer B1).
+pub const KAGEMUSHA_WALLET_CERTIFICATE_SET_DOMAIN_V1: u64 = domain_v1(*b"kgwcset1");
+/// Poseidon domain of the package digest `P(kgwpkg_1, [statement, proof, receipt])` (owner
+/// answer B1).
+pub const KAGEMUSHA_WALLET_PACKAGE_DOMAIN_V1: u64 = domain_v1(*b"kgwpkg_1");
+/// Poseidon domain of the unload nullifier (owner answer B1).
+pub const KAGEMUSHA_WALLET_NULLIFIER_DOMAIN_V1: u64 = domain_v1(*b"kgwnull1");
+/// Poseidon domain of `operation_id` (owner answer B1).
+pub const KAGEMUSHA_WALLET_OPERATION_ID_DOMAIN_V1: u64 = domain_v1(*b"kgwopid1");
 /// Poseidon domain of lineage-level credit-digest values (§3).
 pub const KAGEMUSHA_WALLET_CREDIT_DIGEST_VALUE_DOMAIN_V1: u64 = domain_v1(*b"kgwcdig1");
 /// Poseidon domain of an indexed-tree leaf `P(kgwimlf1, [key, value, next_key])`.
@@ -112,8 +135,9 @@ pub const KAGEMUSHA_WALLET_CREDIT_STATUS_DOMAIN_V1: u64 = domain_v1(*b"kgwcsts1"
 pub const KAGEMUSHA_WALLET_CREDITED_DOMAIN_V1: u64 = domain_v1(*b"kgwcrdd1");
 
 /// Every Poseidon domain of the wallet other than the signing domains
-/// ([`super::KagemushaWalletSigningDomainV1`]), by use, in table order.
-pub const KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1: [(&str, u64); 26] = [
+/// ([`super::KagemushaWalletSigningDomainV1`]) and the object-digest domains
+/// ([`super::KagemushaWalletObjectDigestDomainV1`]), by use, in table order (wire record §3.2).
+pub const KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1: [(&str, u64); 33] = [
     ("core", KAGEMUSHA_WALLET_CORE_DOMAIN_V1),
     ("rest", KAGEMUSHA_WALLET_REST_DOMAIN_V1),
     ("statement", KAGEMUSHA_WALLET_STATEMENT_DOMAIN_V1),
@@ -129,15 +153,22 @@ pub const KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1: [(&str, u64); 26] = [
         KAGEMUSHA_WALLET_PENDING_OUTGOING_VALUE_DOMAIN_V1,
     ),
     ("load_value", KAGEMUSHA_WALLET_LOAD_VALUE_DOMAIN_V1),
+    ("load_receipt", KAGEMUSHA_WALLET_LOAD_RECEIPT_DOMAIN_V1),
     ("redeem_value", KAGEMUSHA_WALLET_REDEEM_VALUE_DOMAIN_V1),
     (
         "fee_claim_value",
         KAGEMUSHA_WALLET_FEE_CLAIM_VALUE_DOMAIN_V1,
     ),
     (
-        "quota_usage_value",
-        KAGEMUSHA_WALLET_QUOTA_USAGE_VALUE_DOMAIN_V1,
+        "blacklist_history_value",
+        KAGEMUSHA_WALLET_BLACKLIST_HISTORY_VALUE_DOMAIN_V1,
     ),
+    (
+        "certificate_set",
+        KAGEMUSHA_WALLET_CERTIFICATE_SET_DOMAIN_V1,
+    ),
+    ("package", KAGEMUSHA_WALLET_PACKAGE_DOMAIN_V1),
+    ("nullifier", KAGEMUSHA_WALLET_NULLIFIER_DOMAIN_V1),
     (
         "credit_digest_value",
         KAGEMUSHA_WALLET_CREDIT_DIGEST_VALUE_DOMAIN_V1,
@@ -148,6 +179,14 @@ pub const KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1: [(&str, u64); 26] = [
     ("blacklist_node", KAGEMUSHA_WALLET_BLACKLIST_NODE_DOMAIN_V1),
     ("quota_window_leaf", KAGEMUSHA_WALLET_QUOTA_WINDOW_DOMAIN_V1),
     ("quota_node", KAGEMUSHA_WALLET_QUOTA_NODE_DOMAIN_V1),
+    (
+        "quota_usage_leaf",
+        KAGEMUSHA_WALLET_QUOTA_USAGE_LEAF_DOMAIN_V1,
+    ),
+    (
+        "quota_usage_node",
+        KAGEMUSHA_WALLET_QUOTA_USAGE_NODE_DOMAIN_V1,
+    ),
     ("proof_digest", KAGEMUSHA_WALLET_PROOF_DOMAIN_V1),
     ("step_proof_digest", KAGEMUSHA_WALLET_STEP_PROOF_DOMAIN_V1),
     ("payment_digest", KAGEMUSHA_WALLET_PAYMENT_DOMAIN_V1),
@@ -161,6 +200,7 @@ pub const KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1: [(&str, u64); 26] = [
         KAGEMUSHA_WALLET_CREDIT_STATUS_DOMAIN_V1,
     ),
     ("credited_digest", KAGEMUSHA_WALLET_CREDITED_DOMAIN_V1),
+    ("operation_id", KAGEMUSHA_WALLET_OPERATION_ID_DOMAIN_V1),
 ];
 
 /// Bytes of one `P_bytes` chunk: 31, so every chunk is a canonical field element.
@@ -280,8 +320,7 @@ pub fn kagemusha_wallet_integer_cmp_v1(left: &[u8; 32], right: &[u8; 32]) -> Ord
 }
 
 /// Map key of an integer pair `(high, low)`: `high · 2^128 + low`, a canonical element for every
-/// `high < 2^125`. The load/redeem recovery map uses `(kind, ordinal)` (owner answer Q3) and the
-/// quota-usage map `(window kind, window start)`.
+/// `high < 2^125`. The load/redeem recovery map uses `(kind, ordinal)` (owner answer Q3).
 #[must_use]
 pub fn kagemusha_wallet_pair_key_v1(high: u8, low: u128) -> [u8; 32] {
     let mut key = [0_u8; 32];
@@ -448,6 +487,42 @@ impl KagemushaWalletIndexedOpeningV1 {
             }
         }
         Ok(Self { slot, siblings })
+    }
+
+    /// Parse one opening transcript (§3.2): a leaf opening `key || value || next_key || LE32
+    /// slot || siblings` (1,124 bytes), returned with its leaf, or an empty-slot opening
+    /// `LE32 slot || siblings` (1,028 bytes), returned without one. It is the inverse of
+    /// [`Self::leaf_transcript`] and [`Self::empty_transcript`].
+    ///
+    /// # Errors
+    ///
+    /// Rejects another length, an invalid leaf and a noncanonical sibling.
+    pub fn from_transcript(
+        bytes: &[u8],
+    ) -> WalletResult<(Option<KagemushaWalletIndexedLeafV1>, Self)> {
+        let (leaf, opening) = match bytes.len() {
+            KAGEMUSHA_WALLET_INDEXED_LEAF_OPENING_TRANSCRIPT_BYTES_V1 => {
+                let (fields, opening) = bytes.split_at(3 * 32);
+                let mut leaf = KagemushaWalletIndexedLeafV1::SENTINEL;
+                for (field, chunk) in [&mut leaf.key, &mut leaf.value, &mut leaf.next_key]
+                    .into_iter()
+                    .zip(fields.chunks_exact(32))
+                {
+                    field.copy_from_slice(chunk);
+                }
+                leaf.validate()?;
+                (Some(leaf), opening)
+            }
+            KAGEMUSHA_WALLET_INDEXED_EMPTY_OPENING_TRANSCRIPT_BYTES_V1 => (None, bytes),
+            _ => return Err(invalid_v1("indexed_opening.transcript")),
+        };
+        let (slot, siblings) = opening.split_at(4);
+        let mut slot_bytes = [0_u8; 4];
+        slot_bytes.copy_from_slice(slot);
+        Ok((
+            leaf,
+            Self::from_sibling_bytes(u32::from_le_bytes(slot_bytes), siblings)?,
+        ))
     }
 
     /// The 1,024 concatenated sibling bytes, height 0 first.
@@ -631,35 +706,6 @@ impl KagemushaWalletIndexedInsertV1 {
     }
 }
 
-/// Witness of one in-place value update: the leaf and its opening against the old root.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct KagemushaWalletIndexedUpdateV1 {
-    /// Leaf before the update.
-    pub leaf: KagemushaWalletIndexedLeafV1,
-    /// Opening of the leaf against the old root.
-    pub opening: KagemushaWalletIndexedOpeningV1,
-}
-
-impl KagemushaWalletIndexedUpdateV1 {
-    /// Verify the update of the leaf's value to `value` under `old_root` and return the new
-    /// root.
-    ///
-    /// # Errors
-    ///
-    /// Rejects what [`kagemusha_wallet_indexed_verify_membership_v1`] rejects and a zero or
-    /// noncanonical value.
-    pub fn verify(&self, old_root: &[u8; 32], value: &[u8; 32]) -> WalletResult<[u8; 32]> {
-        kagemusha_wallet_indexed_verify_membership_v1(old_root, &self.leaf, &self.opening)?;
-        if is_zero_field_v1(value) || !kagemusha_wallet_is_canonical_field_v1(value) {
-            return Err(invalid_v1("indexed_tree.value"));
-        }
-        self.opening.leaf_root(&KagemushaWalletIndexedLeafV1 {
-            value: *value,
-            ..self.leaf
-        })
-    }
-}
-
 /// Witness of one removal (`ArchiveSent` on the pending-outgoing map): the predecessor leaf
 /// `(k', w', k)` and its opening against the old root, then the removed leaf `(k, v, n)` and its
 /// opening against the root after the predecessor is relinked to `n`.
@@ -783,7 +829,7 @@ impl KagemushaWalletIndexedTreeV1 {
         self.nodes[height]
             .get(&index)
             .copied()
-            .unwrap_or(indexed_empty_v1()[height])
+            .unwrap_or_else(|| indexed_empty_v1()[height])
     }
 
     /// Opening of `slot` against the current root.
@@ -802,15 +848,12 @@ impl KagemushaWalletIndexedTreeV1 {
     fn write_slot(&mut self, slot: u32, leaf: Option<KagemushaWalletIndexedLeafV1>) {
         let empty = indexed_empty_v1();
         let mut index = u64::from(slot);
-        match leaf {
-            Some(leaf) => {
-                self.slots.insert(slot, leaf);
-                self.nodes[0].insert(index, leaf.hash_unchecked());
-            }
-            None => {
-                self.slots.remove(&slot);
-                self.nodes[0].remove(&index);
-            }
+        if let Some(leaf) = leaf {
+            self.slots.insert(slot, leaf);
+            self.nodes[0].insert(index, leaf.hash_unchecked());
+        } else {
+            self.slots.remove(&slot);
+            self.nodes[0].remove(&index);
         }
         for height in 0..KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1 {
             let left = self.node(height, index & !1);
@@ -928,25 +971,6 @@ impl KagemushaWalletIndexedTreeV1 {
             low_opening,
             slot_opening,
         })
-    }
-
-    /// Replace the value of a present `key` and return the witness.
-    ///
-    /// # Errors
-    ///
-    /// Rejects a zero, noncanonical or absent key and a zero or noncanonical value.
-    pub fn update(
-        &mut self,
-        key: &[u8; 32],
-        value: [u8; 32],
-    ) -> WalletResult<KagemushaWalletIndexedUpdateV1> {
-        let (slot, leaf) = self.present(key)?;
-        if is_zero_field_v1(&value) || !kagemusha_wallet_is_canonical_field_v1(&value) {
-            return Err(invalid_v1("indexed_tree.value"));
-        }
-        let opening = self.opening(slot);
-        self.write_slot(slot, Some(KagemushaWalletIndexedLeafV1 { value, ..leaf }));
-        Ok(KagemushaWalletIndexedUpdateV1 { leaf, opening })
     }
 
     /// Remove a present `key`: relink its predecessor and clear its slot, which is never

@@ -20,7 +20,7 @@ use std::{fmt, fs::File, io::Read as _, path::PathBuf, time::Duration};
 use url::Url;
 /// Minimal allowed transaction time-to-live.
 const MIN_TRANSACTION_TTL: Duration = Duration::from_secs(1);
-const MAX_PUBLIC_IDENTITY_FILE_BYTES: u64 = 512;
+const MAX_PUBLIC_IDENTITY_FILE_BYTES: usize = 512;
 
 pub(super) struct NativeConfigFiles;
 impl ConfigFileSource for NativeConfigFiles {
@@ -270,7 +270,7 @@ pub(super) fn resolve_network_id_source(
         &path,
         ConfigFileRequest {
             access: ConfigFileAccess::Public,
-            maximum: MAX_PUBLIC_IDENTITY_FILE_BYTES as usize,
+            maximum: MAX_PUBLIC_IDENTITY_FILE_BYTES,
         },
     ) {
         Ok(bytes) => bytes,
@@ -284,15 +284,12 @@ pub(super) fn resolve_network_id_source(
             return None;
         }
     };
-    let encoded = match std::str::from_utf8(&bytes) {
-        Ok(encoded) => encoded,
-        Err(_) => {
-            emitter.emit(
-                Report::new(ParseError::InvalidNetworkIdentity)
-                    .attach("network_id_file must contain UTF-8"),
-            );
-            return None;
-        }
+    let Ok(encoded) = std::str::from_utf8(&bytes) else {
+        emitter.emit(
+            Report::new(ParseError::InvalidNetworkIdentity)
+                .attach("network_id_file must contain UTF-8"),
+        );
+        return None;
     };
     let Some(identity_text) = encoded.strip_suffix('\n') else {
         emitter.emit(

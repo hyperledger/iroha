@@ -75,7 +75,11 @@ mapping of an `EventBox`. A broadcast `PipelineBatch` is expanded in its stored
 batch order. No SSE `id:` field is emitted.
 
 `/v1/contracts/events/sse` emits `event: contract_event` plus one JSON `data:`
-field. The JSON payload's `event_id` remains stable enough for consumer-side
+field carrying the same call-derived row as the contract events collection
+(see [Call-derived contract activity and events](collection_queries.md#call-derived-contract-activity-and-events)):
+rows are projected from committed `ContractCall` transactions, never from
+contract-emitted events, and `provenance` is always `derived`. The JSON
+payload's `event_id` remains stable enough for consumer-side
 deduplication, but Torii does not interpret it as an SSE replay cursor and does
 not emit it as an SSE `id:` field. Duplicate committed/applied notifications for
 the same block height are suppressed within a connection; projected events are

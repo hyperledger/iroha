@@ -49,7 +49,7 @@ fn fixture() -> Fixture {
     let binding = AxtBinding::new([0xA5; 32]);
     let program = kotodama_lang::compiler::Compiler::new()
         .compile_source(
-            "seiyaku IssuerFixture { kotoage fn main() authorize(\"issuer_fixture_run\") {} }",
+            "seiyaku IssuerFixture { permission issuer_fixture_run;  kotoage fn main() authorize(issuer_fixture_run) {} }",
         )
         .expect("compile current ABI V1 artifact");
     let invocation =
@@ -646,7 +646,7 @@ fn current_issuer_rejects_changed_policy_envelope_code_and_key() {
         Err(AxtCurrentIssuerErrorV1::InvocationBinding)
     );
     let other_program = kotodama_lang::compiler::Compiler::new().compile_source(
-        "seiyaku OtherIssuerFixture { kotoage fn other() authorize(\"other_issuer_fixture_run\") {} }",
+        "seiyaku OtherIssuerFixture { permission other_issuer_fixture_run;  kotoage fn other() authorize(other_issuer_fixture_run) {} }",
     ).unwrap();
     let other = ivm::prepare_contract(Arc::<[u8]>::from(other_program)).unwrap();
     assert_eq!(

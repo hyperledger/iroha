@@ -1,8 +1,8 @@
 # SORA Adversarial Constitution
 
-Status: design draft v0.3
+Status: design draft v0.4
 
-Last revised: 2026-08-26
+Last revised: 2026-10-05
 
 This document defines a self-contained game-theoretic frame for SORA as an
 opt-in network state. It treats SORA as a set of games among self-interested
@@ -36,23 +36,40 @@ Current maturity snapshot:
 |---|---|
 | Attempt-local multibody Parliament reducer and certificates | Implemented |
 | Future threshold-beacon, domain-separated citizen sortition | Implemented |
-| Mandatory ZK timed-OVN aggregate ballots for private juries | Implemented |
 | XOR purchasing-power target and reserve balance sheet | Specified |
 | Phoenix Capital Certificates | Specified |
 | Producer Credit Facilities | Specified |
 | Risk-tiered governance lanes | Specified |
+| Anonymous on-chain jury ballots (public votes, unlinkable one-use authorization) | Specified |
+| Epoch-seated SCCP standing pause panel (pause-only, public findings) | Specified |
 | Receipt-free, coercion-resistant Parliament voting | Research |
 | Equal signed clear Parliament ballots | Rejected |
 | Privacy-preserving uniqueness credentials | Research |
 | Prediction markets for governance outcomes | Research |
 | Token-weighted Parliament voting | Rejected |
+| Ballot custody or delayed opening (timed-OVN, Parliament TLE, threshold, trustee or coordinator decryption) | Rejected |
 | Phoenix as XOR reserve collateral | Rejected |
 | Unbacked XOR rewards or guaranteed Phoenix APY | Rejected |
+
+Anonymous on-chain jury ballots are not the rejected equal signed clear
+ballots. Both publish vote values. A signed clear ballot ties each vote to a
+juror's account, giving bribers a public receipt for every juror and
+retaliators a target list. An anonymous ballot is authorized only by a one-use
+nullifier and a zero-knowledge membership proof and carries no account
+identifier, so no published record links it to a seated juror beyond what the
+public votes, counts, committee size, network metadata, and the juror's own
+disclosures reveal. Neither is receipt-free. The
+[ballot design](./parliament_private_ballot_design.md) is normative for the
+binding-jury ballot.
 
 The current governance implementation is described in
 [`governance_pipeline.md`](./governance_pipeline.md). Where it differs from this
 document, the implemented behavior is authoritative until a separately
-reviewed upgrade is enacted.
+reviewed upgrade is enacted. That rule does not keep retired mechanisms alive:
+the timed-OVN and Parliament TLE ballot path still in source is scheduled for
+removal, is not a fallback, and no mainnet binding decision may rely on it. Binding Policy and
+Confirmation juries have no qualified ballot until the anonymous on-chain ballot
+is implemented, tested, audited, and activated.
 
 ## 1. Constitutional Axioms
 
@@ -225,12 +242,33 @@ Design intent:
 - no permanent seats;
 - no extra votes from extra XOR or Phoenix;
 - authority-authenticated public findings for nonbinding public bodies;
-- mandatory ZK timed-OVN aggregate ballots for the binding Policy and
-  Confirmation juries, with threshold-BLS timed opening and no plaintext,
-  manual-opening, or fallback electorate path;
-- no claim that the implemented private ballot is receipt-free or fully
-  coercion-resistant; those stronger properties remain research and require a
-  separately reviewed protocol change;
+- anonymous on-chain ballots for the binding Policy and Confirmation juries:
+  each citizen registers a seat credential, fresh for each body and authorizing
+  at most one ballot, on accepting a seat; the
+  committee's credentials are frozen into a root before casting, and a ballot
+  is a public vote, a nullifier, and a post-quantum zero-knowledge proof of
+  membership bound to the network, proposal, attempt, body, and committee root;
+- any relayer may submit a ballot; relaying confers no authority and cannot
+  alter a proof-bound vote;
+- vote values, exact counts, and the running tally are public; ballots contain
+  no direct account identifier, and credential unlinkability depends on the
+  qualified proof profile and remains limited by public information, auxiliary
+  knowledge, credential disclosure, endpoint compromise, and network metadata
+  (ballot design section 4);
+- validators only produce blocks: in the ballot process they provide no secret
+  custody, opening, or tally service; ordinary block execution verifies ballots,
+  maintains public counts, and derives the result;
+- no ballot custodian of any kind: the protocol neither requires nor
+  distributes any voter's credential secret, or equivalent impersonation,
+  opening, or recovery material, to a validator, trustee, juror, relayer,
+  coordinator, or time-lock holder;
+- anyone can recompute the tally and produce outcome evidence from finalized
+  block data;
+- no signed clear-ballot, manual-opening, or fallback electorate path;
+- no claim that anonymous ballots are receipt-free or coercion-resistant: a
+  juror who discloses their credential secret can prove or sell their vote;
+  those stronger properties remain research and require a separately reviewed
+  protocol change;
 - challenge windows and delayed enactment for high-risk actions;
 - accountability through bonds, clawbacks, public records, and later review.
 
@@ -445,15 +483,20 @@ Desired equilibrium:
 - governance is temporary service;
 - citizens can rise into governance through sortition;
 - wealth cannot buy sovereignty;
-- public bodies publish authority-authenticated findings while binding private
-  juries use attempt-bound ZK timed-OVN ballots;
+- public bodies publish authority-authenticated findings while binding juries
+  cast attempt-bound anonymous on-chain ballots with public votes and a public
+  tally;
+- ballots contain no direct account identifier, and no custodian receives
+  another voter's credential material; unlinkability is limited as stated in
+  the ballot design section 4;
 - the future research target prevents jurors from giving bribers transferable
-  proof without weakening the implemented aggregate-only opening boundary.
+  proof without adding a ballot custodian or weakening attempt binding.
 
 Failure mode:
 
 ```text
 capital -> governance capture -> extractive rents -> collapse of trust
+visible running tally -> bribe only the final margin -> cheap capture
 ```
 
 Countermeasure:
@@ -461,6 +504,9 @@ Countermeasure:
 - Phoenix has no votes;
 - equal-citizen sortition;
 - no permanent seats;
+- anonymous ballots with no ballot custodian and no validator role beyond block
+  production;
+- fixed casting deadlines and one immutable ballot per credential and attempt;
 - receipt-free ballots after the research design is implemented and audited;
 - challenge windows;
 - bonded minority escalations;
@@ -526,16 +572,26 @@ Countermeasure:
 
 ### 8.1 Receipt-Free Voting
 
-Private voting is not enough. Bribers must be unable to verify compliance.
+Anonymous voting is not enough. Bribers must be unable to verify compliance.
+
+Anonymous on-chain ballots contain no direct account identifier, but they are
+not receipt-free, and their unlinkability is limited by public information,
+auxiliary knowledge, credential disclosure, endpoint compromise, and network
+metadata. A juror who reveals their credential secret lets a briber
+recompute the nullifier and read the matching public vote; a juror who hands
+over the secret lets the briber cast the ballot. A public running tally also
+lets a briber watch the aggregate effect.
 
 Receipt-free voting is a research target, not current behavior. A candidate
-design should provide MACI-like properties:
+design should provide MACI-like properties without MACI's decrypting
+coordinator or any other ballot custodian:
 
 - voters can change votes;
 - later valid messages override earlier coerced messages;
-- voters can rotate keys;
+- voters can rotate credentials;
 - voters can present decoy keys or fake credentials;
-- final effective vote remains hidden from coercers;
+- a coercer cannot tell which public vote, if any, is the voter's effective
+  vote;
 - vote windows allow recovery from coercion.
 
 The goal:
@@ -545,7 +601,7 @@ The goal:
 If a briber cannot verify the vote, bribery becomes harder to enforce.
 
 Receipt-freeness does not solve endpoint compromise, physical coercion,
-voluntary key transfer, malware, or every form of screen sharing. Before
+voluntary key or credential transfer, malware, or every form of screen sharing. Before
 activation, the protocol requires an explicit coercion threat model, client
 security review, recovery tests, and a stated residual-risk bound.
 
@@ -590,7 +646,9 @@ commitments through collateral. SORA cannot assume bribers are informal.
 
 Countermeasures:
 
-- research receipt-free voting, vote override, and key rotation;
+- anonymous ballots that contain no direct account identifier;
+- research receipt-free voting, vote override, and credential rotation without
+  a ballot custodian;
 - bounded whistleblower bounties;
 - delayed enactment;
 - rollback and challenge paths;
@@ -598,7 +656,9 @@ Countermeasures:
 
 The goal is to reduce enforceability and contain damage. SORA does not claim it
 can make every Dark DAO negative-EV when attackers have unobservable external
-capital or non-economic objectives.
+capital or non-economic objectives. Anonymous ballots alone do not defeat a Dark
+DAO that takes custody of jurors' credential secrets or requires casting inside
+hardware it attests.
 
 ## 9. Producer Finance and Productive Funding
 
@@ -805,6 +865,10 @@ substantive review.
 | Constitutional | Monetary target, reserve waterfall, runtime, rights, or high irreversible loss | Full multibody Parliament, red teams, longer challenge, staged enactment | Explicit maximum irreversible loss |
 | Emergency | Immediate containment of a live incident | Narrow temporary authority followed by mandatory review | Hard scope cap and automatic expiry |
 
+The SCCP standing pause panel is an Emergency-lane body: pause-only,
+epoch-seated, deciding by public findings, with automatic hold expiry (see the
+[ballot design](./parliament_private_ballot_design.md) section 11).
+
 The proposer must justify the selected lane. Underclassification is itself
 challengeable. Routine and emergency authority cannot be chained to achieve a
 constitutional change incrementally.
@@ -823,8 +887,9 @@ proposal submitted
 -> sortition roster commitment
 -> future-beacon multibody sortition
 -> public findings for public bodies
--> mandatory ZK timed-OVN aggregate ballots for binding private juries
--> aggregate result
+-> seated jurors register seat credentials; committee root frozen
+-> anonymous on-chain ballots for binding juries, submitted by any relayer
+-> public tally and outcome evidence from finalized block data
 -> challenge window
 -> canary or staged rollout
 -> full enactment
@@ -832,11 +897,14 @@ proposal submitted
 -> clawback or rollback if needed
 ```
 
-The implemented private-jury step is confidential and aggregate-only but is
-not claimed to be receipt-free or fully coercion-resistant. A future protocol
-may strengthen those properties only through an audited, explicitly enacted
-change that preserves attempt binding, deterministic consensus validation, and
-the no-plaintext/no-manual-fallback rule.
+The binding-jury step publishes every vote value, the exact counts, and the
+running tally. At most it hides which seated juror cast which ballot and
+whether a given juror participated, within the limits stated in the ballot
+design section 4. It is not receipt-free or coercion-resistant. A future
+protocol may strengthen those properties only through an audited, explicitly
+enacted change that preserves attempt binding, deterministic consensus
+validation, block-production-only validators, the no-custodian rule, and the
+absence of any signed clear-ballot or manual fallback.
 
 For high-risk proposals, require:
 
@@ -919,13 +987,16 @@ Because SORA permits pseudonymity, identity cannot rely on real-world names.
 The problem is Sybil resistance, not "false identity" in a legal-name sense.
 
 Anonymous one-person-one-vote cannot be assumed without a scarce uniqueness
-signal. SORA combines imperfect layers and treats unresolved correlation
+signal. Anonymous jury ballots do not change this: a seat credential
+authorizes at most one ballot per sealed seat, not one per person.
+SORA combines imperfect layers and treats unresolved correlation
 conservatively:
 
 - persistent pseudonymous citizen keys;
 - aged citizenship bonds;
 - service history;
-- no-show and misconduct records;
+- invitation-decline, public-finding absence, and misconduct records
+  (binding-jury participation is never recorded per account);
 - cooldowns after powerful service;
 - limited-liability slashed vouching;
 - cluster-level introduction limits;
@@ -941,8 +1012,8 @@ vouch for citizen -> bond at risk
 Sybil cluster proven -> direct vouchers may lose up to their published cap
 ```
 
-There is no unbounded backward cascade. A sponsor cannot vote for, revoke, or
-direct the citizen it helped onboard. The design makes identity farming require
+There is no unbounded backward cascade. A sponsor cannot vote for, revoke,
+direct, or hold the seat credential of the citizen it helped onboard. The design makes identity farming require
 time, capital, and social-graph risk without converting established trust hubs
 into hereditary gatekeepers.
 
@@ -955,9 +1026,13 @@ into hereditary gatekeepers.
 | Phoenix reflexivity | Phoenix price collapse weakens XOR | Phoenix excluded from reserves and XOR collateral |
 | Capital to governance | Phoenix holders buy policy | Phoenix has no votes, Parliament sortition, bounded authority |
 | Expert capture | Captured experts frame choices | Bonded adversarial briefs and red teams |
-| Vote bribery | Briber buys vote | Current public audit; research receipt-free voting, decoy keys, vote override |
-| Key sale | Briber buys private key | Research key rotation, recovery, and decoy credentials; residual risk accepted |
-| Dark DAO | Smart contract enforces collusion | Bounded bounties, research receipt-freeness, delayed enactment, damage caps |
+| Vote bribery | Briber buys a vote | Anonymous ballots contain no direct account identifier, but a juror can prove a vote by revealing their credential secret; bounded bounties, delayed enactment; research receipt-free voting, decoy credentials, vote override |
+| Key or credential sale | Briber buys a juror's private key or seat credential and casts or verifies the ballot | Body-scoped credentials authorizing at most one ballot each; research credential rotation, recovery, and decoy credentials; residual risk accepted |
+| Dark DAO | Smart contract or attested hardware enforces collusion, including custody of jurors' seat credentials | Bounded bounties, research receipt-freeness, delayed enactment, damage caps |
+| Tally steering | A visible running tally lets a briber buy only the final margin or trigger a bandwagon | Fixed casting deadline, no early close, one immutable ballot per credential, challenge window, delayed enactment, bounded bounties |
+| Selective ballot censorship | Relayers or block proposers drop ballots by their visible vote | Any relayer may submit, resubmission until the deadline, casting windows sized past consecutive Byzantine leader slots, proposer rotation and observable finalized inclusion; no cryptographic evidence of deliberate censorship is claimed |
+| Custodian creep | A reform adds a trustee, coordinator, time-lock, or validator key that can open or link ballots | No ballot custodian of any kind; validators only produce blocks; custody is Rejected in section 0 |
+| Participation linkage | Submission metadata, fees, or rewards link a juror to a ballot | Signerless proof-authorized submission; no per-account voting rewards; network-metadata anonymity not claimed |
 | External short attack | Attacker profits from system failure elsewhere | Authority caps, staged changes, circuit breakers, recovery |
 | Sybil farming | AI agents farm citizenship | Aged bonds, limited vouching, service history, newcomer protections |
 | Fake demand | Cartel circulates payments | Sublinear subsidies, haircuts, audits, clawbacks |
@@ -993,7 +1068,16 @@ quantitative annex.
 - maximum irreversible state change per action;
 - expected participation cost and decision latency;
 - number and independence of effective veto players;
-- concentration and repeated overlap among bodies, experts, and auditors.
+- concentration and repeated overlap among bodies, experts, and auditors;
+- ballot inference at the smallest admitted committee from public votes,
+  counts, and committee size;
+- relayer and proposer coalitions able to drop ballots by visible vote before
+  the deadline;
+- independent recomputation of the tally and outcome from finalized block data
+  alone;
+- per-ballot verification work and the cost of invalid-proof floods;
+- confirmation that the protocol requires and distributes no voter's credential
+  secret or recovery material to any other party.
 
 ### 16.3 Producer-Finance Tests
 
@@ -1015,6 +1099,9 @@ At minimum, simulation covers:
 - Phoenix secondary-market collapse;
 - a patient AI-assisted identity farm;
 - expert and auditor cartels;
+- a briber buying the final margin against a visible running tally;
+- relayer or proposer censorship of ballots by visible vote;
+- a Dark DAO collecting jurors' seat credentials;
 - an attacker with a profitable external short;
 - frivolous challenge flooding;
 - a facility manager hiding losses through refinancing;
@@ -1152,11 +1239,15 @@ Does this create permanent power, or only temporary earned advantage?
 - Add bounded whistleblower bounties and evidence adjudication.
 - Add limited-liability vouching, appeals, and newcomer access.
 - Implement auditor bonds and second-opinion audits.
+- Implement, audit, and activate anonymous on-chain jury ballots; remove
+  timed-OVN and the Parliament TLE in the same change.
 
 ### Phase 3: Anti-Collusion Research and Pilot
 
-- Specify, prototype, and audit MACI-like receipt-free ballots.
-- Test vote override, key rotation, client compromise, and coercion recovery.
+- Specify, prototype, and audit receipt-free extensions of the anonymous
+  ballot with no decrypting coordinator or other ballot custodian.
+- Test vote override, credential rotation, client compromise, and coercion
+  recovery.
 - Pilot calibrated expert forecasts with bond assistance.
 - Measure whether the mechanisms improve decisions without excluding
   capital-poor participants.
@@ -1211,7 +1302,27 @@ and contracts.
 service.
 
 **Receipt-free voting**: Voting design where a voter cannot prove to a briber
-how they voted.
+how they voted, even by revealing their own credentials.
+
+**Anonymous on-chain ballot**: A Parliament jury ballot whose vote is public.
+It is authorized by a one-use nullifier and a post-quantum zero-knowledge proof
+of membership in the frozen committee root and carries no account identifier;
+public counts, small committees, network metadata, and the juror's own
+disclosures can still reveal who cast it.
+
+**Seat credential**: A credential that a citizen registers on accepting a jury
+seat and alone holds. It is fresh for each body and authorizes at most one
+ballot.
+
+**Nullifier**: A value derived from a seat credential and the ballot context.
+It prevents double voting without revealing the credential.
+
+**Ballot custodian**: Any party to which the protocol gives another voter's
+credential secret, or equivalent impersonation, opening, or recovery material.
+The constitution permits none.
+
+**Outcome evidence**: Evidence of a jury result that anyone can produce from
+finalized block data.
 
 **Dark DAO**: A trustless collusion contract that attempts to enforce bribery
 or cartel commitments.

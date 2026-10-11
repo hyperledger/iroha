@@ -1,9 +1,9 @@
 
-            seiyaku Demo {
-                kotoage fn run(int count) -> int authorize("Run") { return count; }
+            seiyaku Demo { permission Run;
+                kotoage fn run(int count) authorize(Run) -> int { return count; }
 
                 fn helper() {
-                    let _next = test::invoke_kotoage(kotoage: "run", arguments: Json::parse("{\"count\":7}"));
+                    let _next = test::invoke_kotoage(kotoage: "run", arguments: {count: 7});
                 }
             }
             

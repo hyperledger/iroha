@@ -134,6 +134,7 @@ void missingStateType;
 const unitEntry: ContractEntrypointInput = {
   name: "read",
   kind: "View",
+  authorization: { kind: "Anyone", value: null },
   returnType: "()",
   returnSchema: { nodes: [{ kind: "Unit", value: null }] },
 };
@@ -146,6 +147,7 @@ const partialUnitReturn: ContractEntrypointInput = {
 const nullUnitReturn: ContractEntrypointInput = {
   name: "read",
   kind: "View",
+  authorization: { kind: "Anyone", value: null },
   returnType: "()",
   // @ts-expect-error Unit is an explicit schema, never a null descriptor.
   returnSchema: null,
@@ -186,3 +188,15 @@ void artifactClient.getContractManifest("11".repeat(32), { canonicalAuth: artifa
 // @ts-expect-error The unsupported registration POST has no public SDK method.
 void artifactClient.registerContractCode({});
 void [scopedBytes, missingArtifact, missingManifestScope];
+
+import type { ContractManifestInput, ContractEnumTypeDescriptorRecord, ContractEventDescriptorV1 } from "../../../index.js";
+const enumType: ContractEnumTypeDescriptorRecord = { identity: "Demo::Status", variants: [{ name: "Open", code: 1 }] };
+const eventType: ContractEventDescriptorV1 = { name: "Changed", payload_type: { nodes: [{ kind: "Struct", value: { name: "Demo::Changed", fields: ["status"] } }, { kind: "Enum", value: enumType }] } };
+const currentManifest: ContractManifestInput = { permissions: [], events: [eventType], enumTypes: [enumType] };
+// @ts-expect-error All current manifests carry the ordinary enum declaration table.
+const missingEnums: ContractManifestInput = { permissions: [], events: [] };
+// @ts-expect-error All current manifests carry the durable event declaration table.
+const missingEvents: ContractManifestInput = { permissions: [], enumTypes: [] };
+void currentManifest;
+void missingEnums;
+void missingEvents;

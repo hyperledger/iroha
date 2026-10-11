@@ -3,6 +3,7 @@ use crate::proof::{VerifyingKeyId, VerifyingKeyRecord};
 isi! {
     /// Register a new verifying key record into the WSV.
     #[norito_schema(name = "iroha_data_model::isi::verifying_keys::RegisterVerifyingKey")]
+    #[derive(derive_more::Constructor)]
     pub struct RegisterVerifyingKey {
         /// Identifier of the verifying key (backend + name).
         pub id: VerifyingKeyId,
@@ -62,14 +63,14 @@ mod tests {
     };
     use crate::{proof::VerifyingKeyRecord, zk::BackendTag};
     fn key_id(name: &str) -> VerifyingKeyId {
-        VerifyingKeyId::new("halo2/ipa", name)
+        VerifyingKeyId::new("pipa-r/pasta", name)
     }
     fn record(version: u32) -> VerifyingKeyRecord {
         VerifyingKeyRecord::new(
             version,
-            "ivm-replay-binding-v1",
-            BackendTag::Halo2IpaPasta,
-            "pasta",
+            "pipa-r/pasta/confidential-transfer-v1",
+            BackendTag::NativePipaRPasta,
+            "vesta",
             [0x11; 32],
             [0x22; 32],
         )
@@ -108,5 +109,42 @@ mod tests {
                 record: record(2),
             },
         );
+    }
+
+    #[test]
+    fn verifying_key_sdk_fixture_matches_native_frame() {
+        let fixture: norito::json::Value = norito::json::from_str(include_str!(
+            "../../../../fixtures/zk/verifying_key_record_v1.json"
+        ))
+        .expect("SDK fixture JSON");
+        let mut record = VerifyingKeyRecord::new(
+            1,
+            "c",
+            BackendTag::NativePipaRPasta,
+            "unknown",
+            [0; 32],
+            [0x11; 32],
+        );
+        record.vk_len = 1;
+        record.status = crate::confidential::ConfidentialStatus::Withdrawn;
+        let value = RegisterVerifyingKey {
+            id: key_id("x"),
+            record,
+        };
+        let expected = hex::decode(
+            fixture["expected_inner_frame_hex"]
+                .as_str()
+                .expect("fixture frame"),
+        )
+        .expect("hex frame");
+        let encoded = norito::to_bytes(&value).expect("canonical native frame");
+        assert_eq!(encoded, expected);
+        assert_eq!(
+            norito::decode_from_bytes::<RegisterVerifyingKey>(&expected).expect("fixture decode"),
+            value
+        );
+        let mut wrong_schema = expected;
+        wrong_schema[6] ^= 1;
+        assert!(norito::decode_from_bytes::<RegisterVerifyingKey>(&wrong_schema).is_err());
     }
 }

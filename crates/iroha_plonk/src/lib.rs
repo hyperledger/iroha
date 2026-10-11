@@ -1,8 +1,8 @@
 //! Iroha-native PIPA-v1 PLONKish/IPA proof system (`specs/plonk_ipa_v1.md`).
 //!
 //! `iroha_plonk` reimplements the halo2-axiom arithmetization natively on
-//! [`iroha_pasta`]. The vendored halo2 stack is only a test oracle
-//! (`crates/iroha_plonk_oracle`); it is never a dependency of this crate.
+//! [`iroha_pasta`]. Independent captured vectors and native reference tests
+//! pin the arithmetic and protocol behavior without a second proof engine.
 //!
 //! # Contents
 //!
@@ -97,36 +97,25 @@
 //! - Verifier MSMs use complete formulas only ([`pcs::ipa::commit::msm_complete`]);
 //!   budgets change speed, never verdicts (S10).
 //! - Provers draw randomness only from [`prover::ProverRandomness`]; fixed
-//!   seeds exist only in unit tests and oracle builds (S8).
+//!   seeds exist only in unit tests (S8).
 //!
-//! # Oracle mode
+//! # Independent reference tests
 //!
-//! The vendored `transcript_repr` injection, the `fe_to_fe` Poseidon point
-//! absorption and caller-seeded prover randomness exist only with
-//! `--cfg iroha_plonk_oracle` (passed through `RUSTFLAGS` into a separate
-//! target directory; today that run is manual, see
-//! `crates/iroha_plonk_oracle/README.md`; TODO: an oracle CI job) or in this
-//! crate's unit tests; they are never a Cargo feature. [`ORACLE_BUILD`] says
-//! whether they were compiled in: every shipping root that links this crate
-//! must assert `!ORACLE_BUILD` at compile time (spec 6.4).
+//! Historical transcript framing and caller-seeded randomness exist only in
+//! this crate's unit tests. Shipping builds expose only the production proof
+//! and verifier API; there is no external configuration that enables a second
+//! transcript or fixed-seed proving API.
+//!
+//! ```compile_fail
+//! use iroha_plonk::prover::create_proof_oracle;
+//! ```
+//! ```compile_fail
+//! use iroha_plonk::verifier::verify_full_oracle;
+//! ```
+//! ```compile_fail
+//! let _ = iroha_plonk::ProverRandomness::fixed_seed_for_tests([0; 32]);
+//! ```
 #![forbid(unsafe_code)]
-
-/// Whether this build compiled the oracle-mode hooks (`--cfg
-/// iroha_plonk_oracle`): vendored `transcript_repr` injection, `fe_to_fe`
-/// Poseidon absorption and caller-seeded prover randomness.
-///
-/// The cfg comes from `RUSTFLAGS`, so a stray global setting would compile
-/// the hooks into any binary. Every shipping root that links `iroha_plonk`
-/// (node, CLI, SDK and wallet bridges) must therefore fail its build in
-/// that case (spec 6.4), with this item in its crate root:
-///
-/// ```text
-/// const _: () = assert!(!iroha_plonk::ORACLE_BUILD, "iroha_plonk_oracle is test-only");
-/// ```
-///
-/// (It is not a doctest, because an oracle build of this crate would fail
-/// it by design.)
-pub const ORACLE_BUILD: bool = cfg!(iroha_plonk_oracle);
 
 pub mod check;
 pub mod cs;
@@ -137,18 +126,14 @@ pub mod protocol;
 pub mod prover;
 #[cfg(test)]
 mod test_circuits;
-#[cfg(test)]
-mod lib_tests {
-    #[test]
-    fn oracle_build_reflects_the_cfg() {
-        assert_eq!(super::ORACLE_BUILD, cfg!(iroha_plonk_oracle));
-    }
-}
 pub mod transcript;
 pub mod verifier;
 
 pub use check::{CheckFailure, CheckMode, CheckReport};
-pub use cs::{CircuitDescriptorV1, ConstraintSystem, CsError, DescriptorError, Expression};
+pub use cs::{
+    CircuitDescriptorV1, CircuitDescriptorV2, ConstraintSystem, CsError, DescriptorError,
+    Expression, InstanceType, TranscriptV2,
+};
 pub use frontend::{Circuit, Error, Layouter, Region, SimpleFloorPlanner, Value};
 pub use keys::{DescriptorBinding, KeyError, ProvingKey, VerifyingKey};
 pub use pcs::{
@@ -160,9 +145,23 @@ pub use pcs::{
 };
 pub use protocol::{Protocol, ProtocolError, Shape};
 pub use prover::{
-    ProverConfig, ProverError, ProverRandomness, Witness, create_proof, prove_circuit,
+    ProverConfig, ProverError, ProverOutput, ProverRandomness, QuotientWorkspace, Witness,
+    WorkspaceError, create_proof, create_proof_owned, create_proof_owned_with_claim,
+    create_proof_owned_with_workspace, prove_circuit,
 };
 pub use transcript::{Transcript, TranscriptError, TranscriptRead, TranscriptWrite};
 pub use verifier::{
-    BatchItem, VerifyError, accumulate_succinct, batch_verify, verify_full, verify_full_from_bytes,
+    BatchItem, VerifyError, accumulate_generator, accumulate_succinct, batch_verify, verify_full,
+    verify_full_from_bytes, verify_full_from_bytes_v2,
 };
+
+#[cfg(test)]
+mod pipa_r_tests;
+
+mod secret;
+
+#[cfg(test)]
+mod cancellation_integration_tests;
+
+#[cfg(test)]
+mod captured_goldens;

@@ -2,8 +2,11 @@
 
 use std::{path::Path, str::FromStr};
 
-use iroha_config::parameters::actual::{self, ToriiMcpProfile};
-use iroha_config_base::toml::TomlSource;
+use iroha_config::parameters::{
+    actual::{self, ToriiMcpProfile},
+    user::Root as UserConfig,
+};
+use iroha_config_base::{read::ConfigReader, toml::TomlSource};
 use toml::Value;
 
 fn load_minamoto_profile() -> actual::Root {
@@ -74,7 +77,12 @@ fn load_minamoto_profile() -> actual::Root {
         ),
     );
 
-    actual::Root::from_toml_source(TomlSource::inline(table))
+    ConfigReader::new()
+        .without_env()
+        .with_toml_source(TomlSource::inline(table))
+        .read_and_complete::<UserConfig>()
+        .expect("Minamoto validator profile must decode")
+        .parse()
         .unwrap_or_else(|error| panic!("Minamoto validator profile must fully parse: {error:?}"))
 }
 

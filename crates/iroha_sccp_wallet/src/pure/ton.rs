@@ -1,10 +1,11 @@
 //! TON destination encodings (spec §5.3.2, §5.3.3, §7.1, §7.2).
 //!
 //! Minter message bodies built from verified bundles and rotation plans (`sccp_finalize*`,
-//! `sccp_void_*`, `sccp_rotate`, `sccp_apply_control*`, `sccp_init`, `sccp_deploy_buckets`),
-//! internal messages, wallet-v5 (`v5r1`) external messages signed with an owner-only Ed25519
-//! key file, and the TVM stack encoding of get-method arguments and results. Roster members are
-//! never sent: the minter reads them from storage.
+//! `sccp_void_*`, `sccp_rotate`, `sccp_apply_control*`, `sccp_init`, `sccp_deploy_buckets`,
+//! `sccp_retry`), internal messages, wallet-v5 (`v5r1`) external messages signed with an
+//! owner-only Ed25519 key file, the TVM stack encoding of get-method arguments and results, and
+//! the values a sender attaches (§5.3.5): a margin over the minter's quotes and the deployment
+//! funding of `MINTER_FLOOR`. Roster members are never sent: the minter reads them from storage.
 
 use std::path::Path;
 
@@ -17,6 +18,7 @@ use iroha_sccp::v1::{
     signature::SignatureSetV1,
     ton_cell::{
         Cell, CellBuilder, TonCellError, cell_from_boc, hash_chunks, member_chunks, snake_bytes,
+        ton_minter_floor_at_mainnet_prices,
     },
 };
 use zeroize::Zeroizing;
@@ -47,6 +49,12 @@ pub const OP_SCCP_APPLY_CONTROL: u32 = 0x5343_4d31;
 pub const OP_SCCP_APPLY_CONTROL_HISTORICAL: u32 = 0x5343_4d32;
 /// `sccp_deploy_buckets`.
 pub const OP_SCCP_DEPLOY_BUCKETS: u32 = 0x5343_4431;
+/// `sccp_retry`.
+pub const OP_SCCP_RETRY: u32 = 0x5343_5931;
+/// Fixed part of the margin added to a minter quote, in nanotons (0.05 TON).
+pub const QUOTE_MARGIN_MIN: u128 = 50_000_000;
+/// Gas, forwarding and `sccp_init` headroom of a minter deployment, in nanotons (0.1 TON).
+pub const DEPLOY_INIT_HEADROOM: u128 = 100_000_000;
 /// Default `wallet_id` of a mainnet workchain-0 `v5r1` wallet (subwallet 0).
 pub const WALLET_V5R1_MAINNET_ID: u32 = 2_147_483_409;
 /// Send mode: pay transfer fees separately and ignore action errors.
@@ -386,6 +394,41 @@ pub fn deploy_buckets_body(
     Ok(body.build())
 }
 
+/// `sccp_retry query_id response nonce`: re-runs the step the minter recorded for `nonce`
+/// (get method `get_sccp_retry`).
+///
+/// # Errors
+///
+/// Never fails for a workchain-0 response; the `Result` mirrors the builder.
+pub fn retry_body(nonce: u64, query_id: u64, response: &TonAccountV1) -> Result<Cell, TonError> {
+    let mut body = header(OP_SCCP_RETRY, query_id, response)?;
+    body.store_uint(u128::from(nonce), 64)?;
+    Ok(body.build())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Attached values (§5.3.5)
+// ---------------------------------------------------------------------------------------------
+
+/// The value to attach for a minter quote (`finalize_required_value`, `rotate_required_value`,
+/// ...): the quote plus 10%, and at least [`QUOTE_MARGIN_MIN`] more. The minter returns every
+/// nanoton its step does not use to the `response` address, so the margin only absorbs price
+/// and balance changes between the quote and the send.
+#[must_use]
+pub fn quote_with_margin(required: u128) -> u128 {
+    required.saturating_add((required / 10).max(QUOTE_MARGIN_MIN))
+}
+
+/// The value to send with a minter deployment (its `sccp_init`): `MINTER_FLOOR` at TON mainnet
+/// storage prices plus 25% and [`DEPLOY_INIT_HEADROOM`]. The value stays in the minter, so it
+/// starts above its floor; should storage prices have risen, the first finalize, void or control
+/// pays the remaining deficit (burns never do).
+#[must_use]
+pub fn minter_deploy_value() -> u128 {
+    let floor = ton_minter_floor_at_mainnet_prices();
+    floor + floor / 4 + DEPLOY_INIT_HEADROOM
+}
+
 // ---------------------------------------------------------------------------------------------
 // Messages and the wallet
 // ---------------------------------------------------------------------------------------------
@@ -694,6 +737,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn attached_values_cover_the_quote_and_the_floor() {
+        assert_eq!(quote_with_margin(0), QUOTE_MARGIN_MIN);
+        assert_eq!(
+            quote_with_margin(100_000_000),
+            100_000_000 + QUOTE_MARGIN_MIN
+        );
+        assert_eq!(quote_with_margin(2_000_000_000), 2_200_000_000);
+        assert_eq!(quote_with_margin(u128::MAX), u128::MAX);
+        let floor = ton_minter_floor_at_mainnet_prices();
+        assert!(minter_deploy_value() > floor + floor / 5);
+        // about 12.4 TON at mainnet prices (MINTER_FLOOR is about 9.84 TON)
+        assert_eq!(
+            minter_deploy_value(),
+            9_840_563_965 + 2_460_140_991 + 100_000_000
+        );
+    }
+
+    #[test]
     fn method_ids_follow_crc16_xmodem() {
         // `seqno` is the well-known method id 85143.
         assert_eq!(get_method_id("seqno"), 85_143);
@@ -740,6 +801,9 @@ mod tests {
         assert_eq!(body.bit_len(), 32 + 64 + 267 + 64 + 16);
         assert!(void_frozen_body(4, 0, 1, &[3; 32]).is_err());
         assert!(deploy_buckets_body(0, 1, &[3; 32]).is_err());
+        let retry = retry_body(513, 1, &[3; 32]).expect("body");
+        assert_eq!(&retry.data()[..4], &OP_SCCP_RETRY.to_be_bytes());
+        assert_eq!(retry.bit_len(), 32 + 64 + 267 + 64);
         let set = SignatureSetV1 {
             signer_bitmap: 0b11,
             signatures: vec![1; 130],

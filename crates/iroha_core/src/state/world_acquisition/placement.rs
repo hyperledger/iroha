@@ -111,7 +111,7 @@ macro_rules! original_placement_inventory {
     (; [$($prefix:ident,)*] [$($privacy:ident,)*] [$($suffix:ident,)*]) => {
         impl OriginalWorldFields<'_> {
             fn finish_initialization(&mut self) {
-                const FIELD_COUNT: usize = 3 $(+ { let _ = stringify!($prefix); 1 })* $(+ { let _ = stringify!($privacy); 1 })* $(+ { let _ = stringify!($suffix); 1 })*;
+                const FIELD_COUNT: usize = 2 $(+ { let _ = stringify!($prefix); 1 })* $(+ { let _ = stringify!($privacy); 1 })* $(+ { let _ = stringify!($suffix); 1 })*;
                 assert_eq!(self.initialized, FIELD_COUNT, "complete original World placement");
                 // SAFETY: the exact exhaustive inventory initialized all fields
                 // once in this same one-slot backing. No whole-value move occurs.
@@ -152,7 +152,6 @@ macro_rules! original_placement_inventory {
                     $(index += 1; if initialized >= index { std::ptr::drop_in_place(std::ptr::addr_of_mut!((*target).$privacy)); })*
                     $(index += 1; if initialized >= index { std::ptr::drop_in_place(std::ptr::addr_of_mut!((*target).$suffix)); })*
                     index += 1; if initialized >= index { std::ptr::drop_in_place(std::ptr::addr_of_mut!((*target).external_event_buf)); }
-                    index += 1; if initialized >= index { std::ptr::drop_in_place(std::ptr::addr_of_mut!((*target).operation_index_scope)); }
                 }
                 let _ = index;
             }
@@ -162,7 +161,7 @@ macro_rules! original_placement_inventory {
         // omitted from placement/drop even if Rust changes physical field order.
         #[expect(dead_code, reason = "type-checked exhaustive placement census")]
         fn exhaustive_fields(fields: &WorldBlockFields<'_>) {
-            let WorldBlockFields { dataspace_catalog: _, $($prefix: _,)* $($privacy: _,)* $($suffix: _,)* external_event_buf: _, operation_index_scope: _ } = fields;
+            let WorldBlockFields { dataspace_catalog: _, $($prefix: _,)* $($privacy: _,)* $($suffix: _,)* external_event_buf: _ } = fields;
         }
     };
 }

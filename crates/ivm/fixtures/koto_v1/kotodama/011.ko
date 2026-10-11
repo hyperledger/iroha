@@ -1,8 +1,8 @@
 
         seiyaku PermissionDemo {
-            kotoage fn add() {
-                ledger::trigger::register(trigger: Json::parse("{\"id\":\"t1\"}"));
-                ledger::trigger::set_enabled(trigger: Name::parse("t1"), enabled: 1);
+            kotoage fn add() authorize(anyone) {
+                ledger::trigger::register(trigger_spec: Json::parse("{\"id\":\"t1\"}"));
+                ledger::trigger::set_enabled(trigger: Name::parse("t1"), enabled: true);
             }
         }
     

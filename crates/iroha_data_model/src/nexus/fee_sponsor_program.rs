@@ -355,6 +355,13 @@ pub enum FeeSponsorRuleSelector {
     Ivm(FeeSponsorIvmSelector),
     /// One exact proved-IVM program hash.
     IvmProved(FeeSponsorIvmSelector),
+    /// Propose or approve the exact canonical native multisig contract-call envelope.
+    ///
+    /// Both the submitting beneficiary and the registered target controller must be
+    /// explicitly enrolled in this program. The complete inner envelope must bind
+    /// this exact live contract, code hash, and one enumerated entrypoint. Arbitrary
+    /// instructions, nested multisig, cancellation, and registration are excluded.
+    EnrolledMultisigContractCall(FeeSponsorContractSelector),
 }
 /// One stable, ordered sponsor-program rule.
 #[derive(
@@ -610,7 +617,8 @@ impl FeeSponsorProgramRevision {
                             );
                         }
                     }
-                    FeeSponsorRuleSelector::ContractCall(selector) => {
+                    FeeSponsorRuleSelector::ContractCall(selector)
+                    | FeeSponsorRuleSelector::EnrolledMultisigContractCall(selector) => {
                         if selector.entrypoints.is_empty() {
                             return Err(FeeSponsorProgramRevisionError::EmptyContractEntrypoints(
                                 rule.id.clone(),
@@ -1343,6 +1351,43 @@ mod tests {
             FeeSponsorProgram::decode(&mut program_bytes.as_slice()).unwrap(),
             program
         );
+    }
+    #[test]
+    fn enrolled_multisig_contract_selector_roundtrips_and_requires_exact_entrypoints() {
+        let contract = FeeSponsorContractSelector {
+            contract_address: "irohac1qyqqqqqqqqqqqqputuv64zhf0a0a4hhlqdj2lhnwuzq4xjq3qexfh"
+                .parse()
+                .expect("contract address"),
+            code_hash: Hash::new(b"enrolled-multisig-contract"),
+            entrypoints: vec!["approve".into(), "request".into()],
+        };
+        let selector = FeeSponsorRuleSelector::EnrolledMultisigContractCall(contract.clone());
+        let bytes = norito::to_bytes(&selector).unwrap();
+        assert_eq!(
+            norito::decode_from_bytes::<FeeSponsorRuleSelector>(&bytes).unwrap(),
+            selector
+        );
+        let json = norito::json::to_json(&selector).unwrap();
+        assert!(json.contains("enrolled_multisig_contract_call"));
+        assert_eq!(
+            norito::json::from_str::<FeeSponsorRuleSelector>(&json).unwrap(),
+            selector
+        );
+        let mut revision = sample_revision();
+        revision.rules[0].selectors = vec![selector];
+        assert_eq!(revision.validate(), Ok(()));
+        for entrypoints in [
+            vec![],
+            vec!["request".into(), "approve".into()],
+            vec!["approve".into(), "approve".into()],
+            vec![" approve".into()],
+        ] {
+            let mut bad = contract.clone();
+            bad.entrypoints = entrypoints;
+            revision.rules[0].selectors =
+                vec![FeeSponsorRuleSelector::EnrolledMultisigContractCall(bad)];
+            assert!(revision.validate().is_err());
+        }
     }
     #[test]
     fn multisig_selector_roundtrips_binary_and_json() {

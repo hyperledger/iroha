@@ -10,14 +10,10 @@ last_block_committed_at_ms	last_block_committed_at_ms	Millisecond UNIX timestamp
 last_non_empty_block_committed_at_ms	last_non_empty_block_committed_at_ms	Millisecond UNIX timestamp when this peer last processed a committed non-empty block	registered
 sm_syscall_total	iroha_sm_syscall_total	SM helper syscalls observed (labels: kind, mode)	registered
 sm_openssl_preview	iroha_sm_openssl_preview	Whether the OpenSSL-backed SM preview helpers are enabled (0/1).	registered
-zk_halo2_enabled	iroha_zk_halo2_enabled	Whether Halo2 verification is enabled for the host (0/1).	registered
-zk_halo2_curve_id	iroha_zk_halo2_curve_id	Active Halo2 curve identifier (0=Pallas, 1=Pasta, 2=Goldilocks, 3=Bn254).	registered
-zk_halo2_backend_id	iroha_zk_halo2_backend_id	Active Halo2 backend identifier (0=IPA, 1=Unsupported).	registered
-zk_halo2_max_k	iroha_zk_halo2_max_k	Maximum supported Halo2 circuit exponent (k).	registered
-zk_halo2_verifier_budget_ms	iroha_zk_halo2_verifier_budget_ms	Halo2 verifier soft budget in milliseconds.	registered
-zk_halo2_verifier_max_batch	iroha_zk_halo2_verifier_max_batch	Maximum proofs allowed in a Halo2 batch verification.	registered
-zk_halo2_verifier_worker_threads	iroha_zk_halo2_verifier_worker_threads	Number of worker threads serving ZK lane verification.	registered
-zk_halo2_verifier_queue_cap	iroha_zk_halo2_verifier_queue_cap	Effective ZK lane queue capacity.	registered
+zk_trace_enabled	iroha_zk_trace_enabled	Toggle state for local diagnostic trace checking (0/1).	registered
+zk_trace_max_batch	iroha_zk_trace_max_batch	Maximum diagnostic tasks dispatched per batch.	registered
+zk_trace_worker_threads	iroha_zk_trace_worker_threads	Effective diagnostic worker count.	registered
+zk_trace_queue_cap	iroha_zk_trace_queue_cap	Effective diagnostic ingress queue capacity.	registered
 zk_lane_enqueue_wait_total	iroha_zk_lane_enqueue_wait_total	Count of ZK lane admissions that required a bounded wait.	registered
 zk_lane_enqueue_timeout_total	iroha_zk_lane_enqueue_timeout_total	Count of ZK lane admissions that timed out under saturation.	registered
 zk_lane_drop_total	iroha_zk_lane_drop_total	Terminal ZK lane drops grouped by reason.	registered
@@ -26,7 +22,6 @@ zk_lane_retry_replayed_total	iroha_zk_lane_retry_replayed_total	Count of tasks r
 zk_lane_retry_exhausted_total	iroha_zk_lane_retry_exhausted_total	Count of tasks dropped after exhausting ZK lane retry attempts.	registered
 zk_lane_pending_depth	iroha_zk_lane_pending_depth	Current number of tasks buffered in ZK lane dispatch backlog.	registered
 zk_lane_retry_ring_depth	iroha_zk_lane_retry_ring_depth	Current number of tasks buffered in the ZK lane retry ring.	registered
-zk_verifier_cache_events_total	iroha_zk_verifier_cache_events_total	Verifier cache events grouped by cache name and event (hit|miss|insert|evict).	registered
 confidential_gas_base_verify	iroha_confidential_gas_base_verify	Base gas charged when verifying a confidential proof.	registered
 confidential_gas_per_public_input	iroha_confidential_gas_per_public_input	Gas multiplier per confidential proof public input.	registered
 confidential_gas_per_proof_byte	iroha_confidential_gas_per_proof_byte	Gas multiplier per confidential proof byte.	registered
@@ -333,7 +328,6 @@ nexus_public_lane_validator_activation_total	nexus_public_lane_validator_activat
 nexus_public_lane_validator_reject_total	nexus_public_lane_validator_reject_total	Rejected public-lane validator registrations grouped by reason	registered
 nexus_public_lane_stake_bonded	nexus_public_lane_stake_bonded	Total bonded stake per public lane (Quantity rendered as float)	registered
 nexus_public_lane_unbond_pending	nexus_public_lane_unbond_pending	Pending unbond amount per public lane	registered
-nexus_public_lane_reward_total	nexus_public_lane_reward_total	Cumulative rewards recorded per public lane	registered
 nexus_public_lane_slash_total	nexus_public_lane_slash_total	Slash events recorded per public lane	registered
 nexus_scheduler_lane_teu_capacity	nexus_scheduler_lane_teu_capacity	Configured TEU capacity for the current slot per lane	registered
 nexus_scheduler_lane_teu_slot_committed	nexus_scheduler_lane_teu_slot_committed	TEU committed in the current slot per lane	registered

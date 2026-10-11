@@ -10,15 +10,17 @@ Fixture bytes: 360,896. SHA-256:
 
 The capture ran before the `Owned<T>`, `AccountDetails`, `NftData` and `RwaData`
 identity declarations were added. Compiler-observed names, both directional
-hashes, bare payloads, complete frames and JSON were recorded. The selected
-999-input source manifest has SHA-256
-`f88b9d6182a5a68be784ce40e65c5b615991963edaefe8de1c0c631e60c853c0`;
-those inputs remained unchanged through the capture. This is development
+hashes, bare payloads, complete frames and JSON were recorded. The retained
+988-input source manifest has SHA-256
+`e9f3dd3e334ff1642482e9e70b58026372335ebb6c21da1e938101f1a7486157`.
+Those inputs remained unchanged through the capture. Eleven retired source
+paths were removed afterward; surviving hashes are unchanged. The original
+manifest count and digest remain in the capture record. This is development
 evidence, not a sealed release candidate or complete feature qualification.
 The [capture record](owned_storage_identity_capture.json) retains the observed
 artifact and harness identities, validation result and scope limitations.
-The exact [selected-input manifest](owned_storage_identity_capture_inputs.json)
-is retained alongside it so the recorded source hashes remain inspectable
+The [retained input manifest](owned_storage_identity_capture_inputs.json)
+is kept alongside it so the surviving source hashes remain inspectable
 without local build outputs.
 
 `Owned<T>` forwards the inner type's root frame and preserves its bytes.

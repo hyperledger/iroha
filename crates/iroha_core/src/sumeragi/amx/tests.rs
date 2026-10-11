@@ -13,7 +13,7 @@ use iroha_data_model::{
         AmxRecordProofV1, AmxRecordV1, AmxTransactionV1, AmxVoteV1, SumeragiAmxState,
     },
     sumeragi_finality::{
-        SUMERAGI_LANE_STATE_WITNESS_KEY, SumeragiLaneStateCommitment, genesis_epoch,
+        SUMERAGI_LANE_STATE_WITNESS_KEY, SumeragiLaneStateCommitment, authenticated_genesis,
         test_fixtures::NativeFinalityFixture,
     },
     sumeragi_lanes::SumeragiLaneState,
@@ -53,8 +53,12 @@ impl Dataspace {
         RegisterAmxDataspaceV1 {
             dataspace: self.id,
             instance: self.instance(),
-            anchor: norito::encode_canonical(&genesis_epoch(self.chain.genesis()).unwrap())
-                .unwrap(),
+            anchor: norito::encode_canonical(
+                &authenticated_genesis(self.chain.genesis())
+                    .map(|genesis| genesis.into_parts().0)
+                    .unwrap(),
+            )
+            .unwrap(),
         }
     }
 
@@ -234,7 +238,9 @@ fn sumeragi_amx_deadline_step_aborts_in_the_first_block_after_the_deadline() {
                 dataspace.id,
                 AmxForeignInstanceV1::new(
                     dataspace.instance(),
-                    genesis_epoch(dataspace.chain.genesis()).unwrap(),
+                    authenticated_genesis(dataspace.chain.genesis())
+                        .map(|genesis| genesis.into_parts().0)
+                        .unwrap(),
                 )
                 .unwrap(),
             )
@@ -250,7 +256,15 @@ fn sumeragi_amx_deadline_step_aborts_in_the_first_block_after_the_deadline() {
         *block.world.sumeragi_amx.get_mut() = seeded.clone();
         let _guard = crate::exec_witness::exec_witness_guard();
         crate::exec_witness::start_block();
-        let decisions = block.advance_sumeragi_amx().unwrap();
+        let count = block.advance_sumeragi_amx().unwrap();
+        let decisions = expected
+            .iter()
+            .map(|tx| iroha_data_model::sumeragi_amx::AmxDecisionV1 {
+                tx: *tx,
+                outcome: AmxOutcomeV1::Abort,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(count, decisions.len());
         assert_eq!(
             decisions
                 .iter()
@@ -282,7 +296,7 @@ fn sumeragi_amx_deadline_step_aborts_in_the_first_block_after_the_deadline() {
     // Nothing to expire leaves the cell untouched.
     let mut idle = state.block(header(3));
     *idle.world.sumeragi_amx.get_mut() = seeded;
-    assert!(idle.advance_sumeragi_amx().unwrap().is_empty());
+    assert_eq!(idle.advance_sumeragi_amx().unwrap(), 0);
 }
 
 #[test]
@@ -393,7 +407,9 @@ fn amx_relay_decode_refusal_keeps_original_undecided_record_and_retries_proof() 
                 dataspace.id,
                 AmxForeignInstanceV1::new(
                     dataspace.instance(),
-                    genesis_epoch(dataspace.chain.genesis()).unwrap(),
+                    authenticated_genesis(dataspace.chain.genesis())
+                        .map(|genesis| genesis.into_parts().0)
+                        .unwrap(),
                 )
                 .unwrap(),
             )
@@ -506,4 +522,97 @@ fn amx_registration_borrows_exact_direct_and_role_grants_under_decode_refusal() 
             }
         }
     }
+}
+
+#[test]
+fn amx_deadline_record_refusal_keeps_original_pending_state_and_typed_retry() {
+    let mut seeded = SumeragiAmxState::default();
+    for dataspace in [Dataspace::new(DS1), Dataspace::new(DS2)] {
+        seeded
+            .register_dataspace(
+                dataspace.id,
+                AmxForeignInstanceV1::new(
+                    dataspace.instance(),
+                    authenticated_genesis(dataspace.chain.genesis())
+                        .map(|genesis| genesis.into_parts().0)
+                        .unwrap(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+    }
+    let first = transaction(5, 21);
+    let second = transaction(5, 22);
+    let pending = transaction(9, 23);
+    for tx in [&first, &second, &pending] {
+        seeded.begin(2, tx).unwrap();
+    }
+    let state = blank_state();
+    let mut block = state.block(header(6));
+    *block.world.sumeragi_amx.get_mut() = seeded.clone();
+    let original_pointer = block.world.sumeragi_amx.get().transactions.as_ptr();
+    let original_capacity = block.world.sumeragi_amx.get().transactions.capacity();
+    let original = norito::core::DecodeResourceError::AllocationFailed { bytes: 57 };
+    let _guard = crate::exec_witness::exec_witness_guard();
+    crate::exec_witness::start_block();
+    let mut calls = 0;
+    // Refuse the record callback after one genuine witness write. This is a typed
+    // local boundary control, not a claim of physical allocator fault injection.
+    let error = block
+        .advance_sumeragi_amx_with(|record| {
+            calls += 1;
+            if calls == 2 {
+                return Err(super::AmxError::Resource(original));
+            }
+            super::write(record)
+        })
+        .expect_err("unfinished witness output cannot prune the original source");
+    assert_eq!(error, super::AmxError::Resource(original));
+    assert_eq!(block.world.sumeragi_amx.get(), &seeded);
+    assert_eq!(
+        block.world.sumeragi_amx.get().transactions.as_ptr(),
+        original_pointer
+    );
+    assert_eq!(
+        block.world.sumeragi_amx.get().transactions.capacity(),
+        original_capacity
+    );
+    assert_eq!(block.advance_sumeragi_amx().unwrap(), 2);
+    let mut actual = amx_records(&crate::exec_witness::drain_exec_witness().writes);
+    actual.sort_by_key(AmxRecordV1::tx);
+    let mut expected = [first.id().unwrap(), second.id().unwrap()]
+        .map(|tx| {
+            AmxRecordV1::Decision(iroha_data_model::sumeragi_amx::AmxDecisionV1 {
+                tx,
+                outcome: AmxOutcomeV1::Abort,
+            })
+        })
+        .to_vec();
+    expected.sort_by_key(AmxRecordV1::tx);
+    assert_eq!(actual, expected);
+    assert!(
+        block
+            .world
+            .sumeragi_amx
+            .get()
+            .transaction(&first.id().unwrap())
+            .is_none()
+    );
+    assert!(
+        block
+            .world
+            .sumeragi_amx
+            .get()
+            .transaction(&second.id().unwrap())
+            .is_none()
+    );
+    assert!(
+        block
+            .world
+            .sumeragi_amx
+            .get()
+            .transaction(&pending.id().unwrap())
+            .is_some()
+    );
+    assert_eq!(block.advance_sumeragi_amx().unwrap(), 0);
 }

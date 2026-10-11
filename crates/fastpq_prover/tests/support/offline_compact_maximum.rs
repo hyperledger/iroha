@@ -59,7 +59,13 @@ fn four_quadrant_accounts_for(complete_effect: bool) -> [AccountId; 4] {
         } else {
             transfer_balance_key(&asset, &account).unwrap()
         };
-        let hash: [u8; 32] = Hash::new_from_chunks(&[b"fastpq:v1:smt:key|", &frame]).into();
+        // Complete effects and transfer statements use distinct key-hash domains.
+        let key_domain: &[u8] = if complete_effect {
+            b"fastpq:execution-effects:v1:key|"
+        } else {
+            b"fastpq:v1:smt:key|"
+        };
+        let hash: [u8; 32] = Hash::new_from_chunks(&[key_domain, &frame]).into();
         let path = u32::from_le_bytes(hash[..4].try_into().unwrap());
         accounts[(path >> 30) as usize].get_or_insert(account);
         if accounts.iter().all(Option::is_some) {
@@ -97,7 +103,8 @@ fn complete_effect_keys_reach_the_same_four_quadrant_tree_capacity() {
         let key: FastpqExecutionQuantityKeyV1 = norito::decode_canonical(frame).unwrap();
         assert!(matches!(key, FastpqExecutionQuantityKeyV1::Balance(_)));
         assert_eq!(execution_quantity_key_v1(&key).unwrap(), row.key);
-        let hash: [u8; 32] = Hash::new_from_chunks(&[b"fastpq:v1:smt:key|", &row.key]).into();
+        let hash: [u8; 32] =
+            Hash::new_from_chunks(&[b"fastpq:execution-effects:v1:key|", &row.key]).into();
         let path = u32::from_le_bytes(hash[..4].try_into().unwrap());
         assert!(!quadrants[(path >> 30) as usize]);
         quadrants[(path >> 30) as usize] = true;

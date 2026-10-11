@@ -1,4 +1,4 @@
-seiyaku PrivateDiscarded {
+seiyaku PrivateDiscarded { permission WriteState;
     state int trace;
     hajimari() {
         trace = 0;
@@ -9,7 +9,7 @@ seiyaku PrivateDiscarded {
         return 99;
     }
 
-    kotoage fn main() -> int authorize("WriteState") {
+    kotoage fn main() authorize(WriteState) -> int {
         update(7);
         return trace;
     }

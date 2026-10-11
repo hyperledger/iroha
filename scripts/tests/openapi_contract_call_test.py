@@ -54,13 +54,21 @@ class PublicContractSchemaTests(unittest.TestCase):
                        output_hash='c' * 64, associated_data_hash='f' * 64,
                        executed_at_ms=42)
         receipt = dict(payload=payload, attestation=dict(kind='signed', signature='aa' * 64))
-        response = dict(program_id='example', opaque_hash='a' * 64,
-                        receipt_hash='b' * 64, output_ciphertext='abcd',
+        response = dict(program_id='example', program_id_canonical='ABCD',
+                        opaque_hash='a' * 64, receipt_hash='b' * 64, opaque_output='ABCD',
                         output_hash='c' * 64, associated_data_hash='f' * 64,
                         executed_at_ms=42, backend='bfv-programmed-v1',
                         verification_mode='signed', receipt=receipt)
         validator = self.validator('RamLfeExecuteResponse')
         self.assertTrue(validator.is_valid(response))
+        for field in ['program_id_canonical', 'opaque_output']:
+            incomplete = response.copy()
+            del incomplete[field]
+            self.assertFalse(validator.is_valid(incomplete))
+            self.assertFalse(validator.is_valid(response | {field: None}))
+            self.assertFalse(validator.is_valid(response | {field: 'abc'}))
+        self.assertFalse(validator.is_valid(response | {'program_id_canonical': 'AA' * 4097}))
+        self.assertFalse(validator.is_valid(response | {'output_ciphertext': 'ABCD'}))
         for opening in [None, {}, dict(payload=payload, signature='aa' * 64)]:
             self.assertFalse(validator.is_valid(response | {'output_opening': opening}))
         source = (ROOT / 'crates/iroha_torii/src/routing.rs').read_text()

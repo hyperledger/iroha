@@ -3,30 +3,38 @@
 //!
 //! Every honest peer derives identical bytes from committed state; wallets and destinations
 //! never trust them and verify every bundle themselves. Torii, the CLI and tests share these
-//! functions.
+//! functions. The views that do not depend on the attestation format (message status union,
+//! pages, light-client detail, governance detail, history paths) live in [`views`]; history
+//! paths go through the validated `O(log n)` node cache of `history`.
 //!
 //! TODO(ws35): serve signatures pruned from state (`attestation_retention_ms`, §4.10) from the
-//! recorded `SubmitSccpAttestationsV1` transactions in Kura.
+//! recorded `SubmitSccpAttestationsV1` transactions in Kura; until then they are `Pruned` (HTTP
+//! 410).
 
-use super::{leaves, store, subjects};
+mod history;
+mod views;
+
+pub use views::*;
+
+use super::{leaves, light_clients, store, subjects};
 use crate::state::{StateReadOnly, WorldReadOnly};
 use iroha_data_model::{
     bridge::SccpNetworkV1,
     sccp::{attestation::SccpAttestationStatementV1, control::SccpLeafRefV1},
 };
+/// The §6 wire types and page limits, re-exported for Torii and other readers.
+pub use iroha_sccp::api::{
+    self, MAX_CONTROLS_PAGE, MAX_OUTBOUND_PAGE, MAX_RECENT_MESSAGES, MAX_ROTATION_STEPS,
+};
 use iroha_sccp::{
     api::{
-        SccpCapabilitiesV1, SccpControlProofBundleV1, SccpHistoryProofV1, SccpMemberLivenessV1,
-        SccpMessageProofBundleV1, SccpPendingHandoffV1, SccpRosterViewV1, SccpRotationChainV1,
-        SccpRotationStepV1, SccpSignatureSetV1,
+        SccpCapabilitiesV1, SccpControlProofBundleV1, SccpHistoryProofV1, SccpLcProfileStatusV1,
+        SccpMemberLivenessV1, SccpMessageProofBundleV1, SccpPendingHandoffV1, SccpReadLimitsV1,
+        SccpRosterViewV1, SccpRotationChainV1, SccpRotationStepV1, SccpSignatureSetV1,
     },
-    v1::{
-        eip712::domain_separator, history::history_path, merkle::PromoteOddTree, roster::RosterV1,
-    },
+    light_client::profile::{SCCP_LC_PROFILE_NETWORKS_V1, SccpLcProfileCatalogV1},
+    v1::{eip712::domain_separator, merkle::PromoteOddTree, roster::RosterV1},
 };
-
-/// Largest rotation-chain page (§6).
-pub const MAX_ROTATION_STEPS: usize = 16;
 
 /// Why a read cannot be served.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -37,6 +45,9 @@ pub enum SccpReadError {
     /// The record exists but is not attested yet (`sccp_attestation_pending`).
     #[error("sccp_attestation_pending: {0}")]
     Pending(String),
+    /// The data existed but was pruned by retention (`sccp_pruned`, HTTP 410).
+    #[error("sccp_pruned: {0}")]
+    Pruned(String),
     /// The query is invalid against state.
     #[error("invalid query: {0}")]
     Invalid(String),
@@ -100,11 +111,12 @@ pub fn capabilities(view: &(impl StateReadOnly + ?Sized)) -> SccpCapabilitiesV1 
             })
         })
         .collect();
+    let committed_height = u64::try_from(view.height()).unwrap_or(u64::MAX);
     SccpCapabilitiesV1 {
         network_id,
         domain_separator: domain_separator(&network_id),
         parameters: store::parameters::get(world).clone(),
-        committed_height: u64::try_from(view.height()).unwrap_or(u64::MAX),
+        committed_height,
         latest_attested_height: store::attestation_status::iter(world)
             .rev()
             .find(|(_, status)| status.attested_at_height.is_some())
@@ -112,7 +124,52 @@ pub fn capabilities(view: &(impl StateReadOnly + ?Sized)) -> SccpCapabilitiesV1 
         current_generation,
         members,
         pending_handoffs,
+        light_client_profiles: light_client_profiles(world, committed_height.saturating_add(1)),
+        chain_id: view.chain_id().to_string(),
+        profiles: compiled_profiles(),
+        profiles_policy_hash: light_clients::active_profiles_at(
+            world,
+            committed_height.saturating_add(1),
+            &SccpLcProfileCatalogV1::compiled(),
+        )
+        .policy_hash(),
+        limits: SccpReadLimitsV1::v1(),
+        path_templates: Vec::new(),
     }
+}
+
+/// Return the light-client profile every external source chain runs under at Taira height
+/// `height`, in network order (§4.13.2; capabilities report the next block's).
+///
+/// `supported_until_ms` comes from the compiled profile of the active version, which every peer
+/// that applies the state compiles with the recorded hash; it is `None` only on a peer that does
+/// not (and therefore applies no further block).
+#[must_use]
+pub fn light_client_profiles(
+    world: &(impl WorldReadOnly + ?Sized),
+    height: u64,
+) -> Vec<SccpLcProfileStatusV1> {
+    let catalog = SccpLcProfileCatalogV1::compiled();
+    let active = light_clients::active_profiles_at(world, height, &catalog);
+    SCCP_LC_PROFILE_NETWORKS_V1
+        .into_iter()
+        .filter_map(|network| {
+            let profile = active.get(network)?;
+            let record = store::light_client_profiles::get(world, &(network, profile.version));
+            let supported_until_ms = catalog
+                .resolve(&catalog.genesis().with(network, profile))
+                .ok()
+                .and_then(|profiles| profiles.supported_until_ms(network));
+            Some(SccpLcProfileStatusV1 {
+                network,
+                version: profile.version,
+                profile_hash: profile.profile_hash,
+                activation_height: record.map(|record| record.activation_height),
+                proposal_id: record.map(|record| record.proposal_id),
+                supported_until_ms,
+            })
+        })
+        .collect()
 }
 
 /// Return every installed light client (`GET /v1/sccp/light-clients`, §4.13); each record
@@ -231,6 +288,21 @@ struct Attested {
     signatures: SccpSignatureSetV1,
 }
 
+/// An attested subject `height` whose stored `signatures` are fewer than `threshold` had them
+/// pruned by retention (§4.10): `Pruned` (HTTP 410), never `Pending`.
+fn require_retained(
+    height: u64,
+    signatures: &SccpSignatureSetV1,
+    threshold: u8,
+) -> Result<(), SccpReadError> {
+    if signatures.popcount() < u32::from(threshold) {
+        return Err(SccpReadError::Pruned(format!(
+            "the signatures of subject {height} were pruned from state; use a later attestation"
+        )));
+    }
+    Ok(())
+}
+
 fn attested(view: &(impl StateReadOnly + ?Sized), height: u64) -> Result<Attested, SccpReadError> {
     let world = view.world();
     let statement = subjects::statement(view, height)
@@ -249,11 +321,7 @@ fn attested(view: &(impl StateReadOnly + ?Sized), height: u64) -> Result<Atteste
     let roster = roster_view(world, &network_id, generation)
         .ok_or_else(|| SccpReadError::NotFound(format!("generation {generation} is unknown")))?;
     let signatures = signature_set(world, height);
-    if signatures.popcount() < u32::from(roster.threshold) {
-        return Err(SccpReadError::Pending(format!(
-            "the signatures of subject {height} were pruned from state"
-        )));
-    }
+    require_retained(height, &signatures, roster.threshold)?;
     Ok(Attested {
         digest: subjects::fields(&statement).digest(&network_id),
         statement,
@@ -330,31 +398,15 @@ fn leaf_paths(
     if attested.statement.height == height {
         return Ok((path, message_count, None));
     }
-    let commitment = store::block_commitments::get(world, &height)
-        .ok_or_else(|| SccpReadError::NotFound(format!("the commitment of block {height}")))?;
-    let size = attested.statement.history_size;
-    if commitment.history_index >= size {
+    // O(log n) through the shared history cache, never a rebuild of the whole history.
+    let (root, history) = history_proof(world, height, attested.statement.history_size)?;
+    if root != attested.statement.history_root {
         return Err(SccpReadError::Invalid(format!(
-            "block {height} is not in the history of subject {}",
+            "the stored history disagrees with the history root of subject {}",
             attested.statement.height
         )));
     }
-    let history: Vec<[u8; 32]> = store::history_leaves::range(world, 0..size)
-        .map(|(_, (_, leaf))| *leaf)
-        .collect();
-    let history_path = history_path(&history, commitment.history_index)
-        .map_err(|error| SccpReadError::Invalid(format!("history path: {error}")))?;
-    Ok((
-        path,
-        message_count,
-        Some(SccpHistoryProofV1 {
-            height,
-            sccp_root: commitment.root,
-            message_count: commitment.message_count,
-            leaf_index: commitment.history_index,
-            path: history_path,
-        }),
-    ))
+    Ok((path, message_count, Some(history)))
 }
 
 /// Assemble the proof bundle of outbound message `message_id` (`GET
@@ -596,6 +648,68 @@ mod tests {
     }
 
     #[test]
+    fn light_client_profiles_report_the_active_version_per_network() {
+        use iroha_data_model::{
+            bridge::SccpNetworkV1, sccp::light_client::SccpLcProfileActivationV1,
+        };
+        let state = blank_state();
+        let mut block = state.block(header(3));
+        let mut stx = block.transaction();
+        let genesis = light_client_profiles(&*stx.world, 4);
+        let networks: Vec<_> = genesis.iter().map(|status| status.network).collect();
+        assert_eq!(networks, SCCP_LC_PROFILE_NETWORKS_V1.to_vec());
+        let catalog = SccpLcProfileCatalogV1::compiled();
+        for status in &genesis {
+            assert_eq!(status.version, 1);
+            assert_eq!(
+                Some(status.profile_hash),
+                catalog.profile_hash(status.network, 1)
+            );
+            assert_eq!(status.activation_height, None);
+            assert_eq!(status.proposal_id, None);
+            assert!(status.supported_until_ms.is_some());
+        }
+        assert_eq!(
+            capabilities(&stx).profiles_policy_hash,
+            catalog.genesis().policy_hash(),
+            "without activations the policy hash commits to version 1 of every network"
+        );
+        let activation = SccpLcProfileActivationV1 {
+            profile_hash: [7; 32],
+            activation_height: 4,
+            proposal_id: [8; 32],
+        };
+        store::light_client_profiles::insert(&mut stx, (SccpNetworkV1::BscMainnet, 2), activation)
+            .expect("activation");
+        assert_eq!(light_client_profiles(&*stx.world, 3), genesis);
+        let activated = light_client_profiles(&*stx.world, 4);
+        let bsc = activated
+            .iter()
+            .find(|status| status.network == SccpNetworkV1::BscMainnet)
+            .expect("bsc");
+        assert_eq!(bsc.version, 2);
+        assert_eq!(bsc.profile_hash, [7; 32]);
+        assert_eq!(bsc.activation_height, Some(4));
+        assert_eq!(bsc.proposal_id, Some([8; 32]));
+        assert_eq!(bsc.supported_until_ms, None, "this release lacks version 2");
+        // Capabilities report the profiles of the next block, and the policy hash commits to
+        // the same active versions (the SCCP input of the confidential policy digest).
+        let reported = capabilities(&stx);
+        let next = reported.committed_height + 1;
+        assert_eq!(
+            reported.light_client_profiles,
+            light_client_profiles(&*stx.world, next)
+        );
+        let active = light_clients::active_profiles_at(&*stx.world, next, &catalog);
+        assert_eq!(reported.profiles_policy_hash, active.policy_hash());
+        assert_eq!(
+            reported.profiles_policy_hash == catalog.genesis().policy_hash(),
+            next < 4,
+            "the activation changes the hash from its activation height"
+        );
+    }
+
+    #[test]
     fn governance_revisions_list_nonzero_subjects() {
         use iroha_data_model::sccp::governance::SccpGovernanceSubjectV1;
         let state = blank_state();
@@ -648,6 +762,27 @@ mod tests {
         let set = signature_set(&*stx.world, 2);
         assert_eq!(set.signer_bitmap, 0b1001);
         assert_eq!(set.signatures, vec![[1; 65], [3; 65]]);
+    }
+
+    #[test]
+    fn signatures_below_the_threshold_of_an_attested_subject_are_pruned() {
+        let state = blank_state();
+        let mut block = state.block(header(3));
+        let mut stx = block.transaction();
+        for index in [0_u8, 2] {
+            store::attestation_signatures::insert(&mut stx, (2, index), [index; 65]).expect("sig");
+        }
+        let two = signature_set(&*stx.world, 2);
+        assert!(matches!(
+            require_retained(2, &two, 3),
+            Err(SccpReadError::Pruned(message)) if message.contains("subject 2")
+        ));
+        assert_eq!(require_retained(2, &two, 2), Ok(()));
+        // Fully pruned: no signature is left at all.
+        assert!(matches!(
+            require_retained(5, &signature_set(&*stx.world, 5), 1),
+            Err(SccpReadError::Pruned(_))
+        ));
     }
 
     #[test]

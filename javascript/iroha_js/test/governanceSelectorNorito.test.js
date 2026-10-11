@@ -30,9 +30,9 @@ const INVALID_SELECTORS = [
 
 function proofAttachment(name) {
   return {
-    backend: "halo2/ipa",
-    proof: { backend: "halo2/ipa", bytes: [1] },
-    vk_ref: { backend: "halo2/ipa", name },
+    backend: "pipa-r/pasta",
+    proof: { backend: "pipa-r/pasta", bytes: [1] },
+    vk_ref: { backend: "pipa-r/pasta", name },
     vk_commitment: null,
     envelope_hash: null,
     lane_privacy: null,
@@ -83,8 +83,8 @@ const SELECTOR_INSTRUCTIONS = [
           eligible_root: new Array(32).fill(0x11),
           start_ts: 1,
           end_ts: 2,
-          vk_ballot: { backend: "halo2/ipa", name: "vk_ballot" },
-          vk_tally: { backend: "halo2/ipa", name: "vk_tally" },
+          vk_ballot: { backend: "pipa-r/pasta", name: "vk_ballot" },
+          vk_tally: { backend: "pipa-r/pasta", name: "vk_tally" },
           domain_tag: "governance",
         },
       },

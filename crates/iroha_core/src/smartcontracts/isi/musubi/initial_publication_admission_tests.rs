@@ -7,10 +7,10 @@ mod initial_publication_admission {
         smartcontracts::isi::{
             InitialNativeInstructionAdmission, registered_native_instruction_initial_admission,
         },
-        state::WorldReadOnly as _,
         sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
     };
     use iroha_config::parameters::actual::Nexus;
+    use iroha_data_model::nexus::{DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneConfig};
     use iroha_data_model::{
         account::Account,
         asset::{AssetBalancePolicy, AssetDefinition, AssetDefinitionId, AssetId},
@@ -33,7 +33,6 @@ mod initial_publication_admission {
         },
     };
     use iroha_model_base::domain::DomainId;
-    use iroha_data_model::nexus::{DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneConfig};
     use iroha_model_base::topology::LaneId;
     use iroha_primitives::{numeric::Quantity, time::TimeSource};
     use sorafs_manifest::{
@@ -121,6 +120,7 @@ mod initial_publication_admission {
                 },
             ])
             .unwrap();
+            nexus.configured_dataspace_catalog = nexus.dataspace_catalog.clone();
             nexus.lane_catalog = LaneCatalog::new(
                 std::num::NonZeroU32::new(2).unwrap(),
                 vec![
@@ -135,9 +135,8 @@ mod initial_publication_admission {
             )
             .unwrap();
             nexus.configured_lane_catalog = nexus.lane_catalog.clone();
-            nexus.lane_config = iroha_config::parameters::actual::LaneConfig::from_catalog(
-                &nexus.lane_catalog,
-            );
+            nexus.lane_config =
+                iroha_config::parameters::actual::LaneConfig::from_catalog(&nexus.lane_catalog);
             config.nexus = Some(nexus);
             config.genesis_instructions = vec![
                 initialize.into(),

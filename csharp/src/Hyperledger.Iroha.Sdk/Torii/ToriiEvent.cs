@@ -191,7 +191,7 @@ public abstract record ToriiProofEvent : ToriiEvent
     {
     }
 
-    /// <summary>The proof backend, e.g. <c>halo2/ipa</c>.</summary>
+    /// <summary>The proof backend, e.g. <c>pipa-r/pasta</c>.</summary>
     public required string Backend { get; init; }
 }
 

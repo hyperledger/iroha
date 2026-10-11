@@ -8,7 +8,7 @@ use crate::soranet::privacy_metrics::SoranetPrivacyModeV1;
 use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 
 use norito::json::{
-    self, BoundedJsonError, JsonDeserialize, JsonSerialize, JsonWriteSink, Parser, Value,
+    self, BoundedJsonError, JsonDeserialize, JsonSerialize, JsonWriteSink, Parser,
     write_base64_json_to,
 };
 
@@ -197,53 +197,6 @@ pub mod u128_string {
         parse_canonical(&parser.parse_string()?)
     }
 }
-/// JSON arrays containing exactly two values in their existing typed representation.
-pub mod fixed_pair {
-    use super::*;
-
-    /// Serialize the two values without changing either element's JSON representation.
-    pub fn serialize<T: JsonSerialize>(values: &[T; 2], out: &mut String) {
-        out.push('[');
-        values[0].json_serialize(out);
-        out.push(',');
-        values[1].json_serialize(out);
-        out.push(']');
-    }
-
-    /// Stream both values through the checked sink without allocating a temporary sequence.
-    pub fn serialize_bounded<T: JsonSerialize>(
-        values: &[T; 2],
-        out: &mut dyn JsonWriteSink,
-    ) -> Result<(), BoundedJsonError> {
-        out.begin_container()?;
-        let result = (|| -> Result<(), norito::json::BoundedJsonError> {
-            out.push('[')?;
-            values[0].json_serialize_to(out)?;
-            out.push(',')?;
-            values[1].json_serialize_to(out)?;
-            out.push(']')?;
-            Ok(())
-        })();
-        out.end_container();
-        result
-    }
-
-    /// Parse exactly two typed values, rejecting missing or extra elements without staging a Vec.
-    pub fn deserialize<T: JsonDeserialize>(parser: &mut Parser<'_>) -> Result<[T; 2], json::Error> {
-        parser.skip_ws();
-        parser.expect(b'[')?;
-        parser.skip_ws();
-        let first = T::json_deserialize(parser)?;
-        parser.skip_ws();
-        parser.expect(b',')?;
-        parser.skip_ws();
-        let second = T::json_deserialize(parser)?;
-        parser.skip_ws();
-        parser.expect(b']')?;
-        Ok([first, second])
-    }
-}
-
 /// Helpers for fixed-size byte arrays (`[u8; N]`) and their container variants.
 pub mod fixed_bytes {
     use super::*;
@@ -591,104 +544,24 @@ pub mod account_metadata_map {
     pub fn deserialize(
         parser: &mut Parser<'_>,
     ) -> Result<BTreeMap<AccountId, Metadata>, norito::json::Error> {
-        let value = Value::json_deserialize(parser)?;
-        let object = match value {
-            Value::Object(map) => map,
-            other => {
-                return Err(norito::json::Error::Message(format!(
-                    "expected object for account metadata map, got {other:?}"
-                )));
+        BTreeMap::<AccountId, Metadata>::json_deserialize(parser).map_err(|error| {
+            if cfg!(all(test, sumeragi_model_mutation = "DM27"))
+                && matches!(
+                    error,
+                    norito::json::Error::ScopedDecodeResource(_)
+                        | norito::json::Error::DecodeResource(_)
+                )
+            {
+                return norito::json::Error::Message(error.to_string());
             }
-        };
-        object
-            .into_iter()
-            .map(|(key, value)| {
-                let account = AccountId::parse_encoded(&key)
-                    .map_err(|err| norito::json::Error::Message(err.to_string()))?;
-                let metadata: Metadata = json::from_value(value)?;
-                Ok((account, metadata))
-            })
-            .collect()
+            error
+        })
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     use norito::json;
-
-    #[derive(Debug, PartialEq, Eq, JsonSerialize, crate::DeriveJsonDeserialize)]
-    #[norito(deny_unknown_fields)]
-    struct FixedPairWrapper {
-        #[norito(json = "crate::json_helpers::fixed_pair")]
-        numbers: [u64; 2],
-        #[norito(json = "crate::json_helpers::fixed_pair")]
-        digests: [[u8; 32]; 2],
-    }
-
-    #[test]
-    fn fixed_pairs_preserve_numeric_and_hex_elements_and_checked_output_bounds() {
-        let value = FixedPairWrapper {
-            numbers: [0, u64::MAX],
-            digests: [[0xab; 32], [0xcd; 32]],
-        };
-        let expected = format!(
-            r#"{{"numbers":[0,{}],"digests":["{}","{}"]}}"#,
-            u64::MAX,
-            "AB".repeat(32),
-            "CD".repeat(32),
-        );
-        assert_eq!(json::to_json(&value).unwrap(), expected);
-        assert_eq!(
-            json::to_json_bounded(&value, expected.len()).unwrap(),
-            expected,
-        );
-        assert!(json::to_json_bounded(&value, expected.len() - 1).is_err());
-        assert_eq!(
-            json::from_str::<FixedPairWrapper>(&expected).unwrap(),
-            value
-        );
-        let spaced = expected.replace(',', ", \n");
-        assert_eq!(json::from_str::<FixedPairWrapper>(&spaced).unwrap(), value);
-    }
-
-    #[test]
-    fn fixed_pairs_reject_wrong_arity_and_malformed_typed_elements() {
-        let digest = "AB".repeat(32);
-        for numbers in [
-            "[]",
-            "[1]",
-            "[1,2,3]",
-            "[1,2,]",
-            "[1,-1]",
-            "[1,18446744073709551616]",
-            "[1,1.5]",
-            "[1,null]",
-            "[1,\"2\"]",
-        ] {
-            let input = format!(r#"{{"numbers":{numbers},"digests":["{digest}","{digest}"]}}"#);
-            assert!(
-                json::from_str::<FixedPairWrapper>(&input).is_err(),
-                "{numbers}"
-            );
-        }
-        for digests in [
-            "[]".to_owned(),
-            format!(r#"["{digest}"]"#),
-            format!(r#"["{digest}","{digest}","{digest}"]"#),
-            format!(r#"["{digest}","{digest}",]"#),
-            format!(r#"["{digest}","{}"]"#, "AB".repeat(31)),
-            format!(r#"["{digest}","{}"]"#, "AB".repeat(33)),
-            format!(r#"["{digest}","{}"]"#, "GG".repeat(32)),
-            format!(r#"["{digest}",null]"#),
-            format!(r#"["{digest}",[171]]"#),
-        ] {
-            let input = format!(r#"{{"numbers":[1,2],"digests":{digests}}}"#);
-            assert!(
-                json::from_str::<FixedPairWrapper>(&input).is_err(),
-                "{digests}"
-            );
-        }
-    }
 
     #[derive(Debug, PartialEq, Eq, JsonSerialize, crate::DeriveJsonDeserialize)]
     struct Base64Wrapper {

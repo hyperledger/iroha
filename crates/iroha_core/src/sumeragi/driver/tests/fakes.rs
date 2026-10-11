@@ -19,7 +19,7 @@ use iroha_sumeragi::{
     availability::AvailableBody,
     message::{Qc, SyncEntry, WireMessage},
     safety::RecordState,
-    sim::driver::{block_exec, encode_tx, payload_mints},
+    sim::driver::{block_exec, encode_tx},
     types::{Hash32, HeightConfig, Millis, PublicKey},
 };
 use parking_lot::Mutex;
@@ -471,8 +471,8 @@ impl Executor for FakeExecutor {
     fn build_control_witness(
         &mut self,
         _: &iroha_sumeragi::api::ControlWitnessContext,
-    ) -> Result<(iroha_sumeragi::types::ControlWitness, bool), PublicationError> {
-        Ok((iroha_sumeragi::types::ControlWitness::empty(), false))
+    ) -> Result<iroha_sumeragi::types::ControlWitness, PublicationError> {
+        Ok(iroha_sumeragi::types::ControlWitness::empty())
     }
     fn drive_control(
         &mut self,
@@ -572,7 +572,7 @@ impl Executor for FakeExecutor {
         _view: u64,
         max_bytes: u32,
         _exec_budget_ms: u32,
-    ) -> Result<(Option<iroha_sumeragi::availability::PayloadBytes>, bool), PublicationError> {
+    ) -> Result<Option<iroha_sumeragi::availability::PayloadBytes>, PublicationError> {
         self.wait_open();
         let state = self.state.lock();
         let mut payload = Vec::new();
@@ -582,16 +582,15 @@ impl Executor for FakeExecutor {
             }
             payload.extend_from_slice(tx);
         }
-        let attest = payload_mints(&payload);
         if payload.is_empty() {
-            return Ok((None, attest));
+            return Ok(None);
         }
         let mut payload =
             iroha_sumeragi::availability::PayloadBytes::from_untrusted(payload).unwrap();
         payload
             .admit(&self.budget)
             .map_err(|error| PublicationError::Retryable(error.to_string()))?;
-        Ok((Some(payload), attest))
+        Ok(Some(payload))
     }
 
     fn reject(&mut self, _height: u64, _view: u64, block_hash: &Hash32) {

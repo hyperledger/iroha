@@ -4,10 +4,7 @@ use super::*;
 use crate::execution_attempt::{ExecutionAttemptError, ExecutionDeferred};
 use iroha_data_model::{
     asset::Asset,
-    isi::staking::ClaimPublicLaneRewards,
-    nexus::{
-        PublicLaneMonetaryScopeV1, PublicLaneRewardClaimPlanV1, PublicLaneRewardClaimSourceV1,
-    },
+    isi::Transfer,
     transaction::{FeePaymentIntent, TransactionBuilder},
 };
 
@@ -19,16 +16,16 @@ fn limited<T>(read: impl FnOnce() -> T) -> T {
 }
 
 #[test]
-fn live_multisig_proposal_decode_refusal_retries_original_signed_xor_claim() {
-    signed_xor_claim_retry(false);
+fn live_multisig_proposal_decode_refusal_retries_original_signed_xor_transfer() {
+    signed_xor_transfer_retry(false);
 }
 
 #[test]
-fn live_multisig_proposal_body_binding_rolls_back_original_signed_xor_claim() {
-    signed_xor_claim_retry(true);
+fn live_multisig_proposal_body_binding_rolls_back_original_signed_xor_transfer() {
+    signed_xor_transfer_retry(true);
 }
 
-fn signed_xor_claim_retry(check_body_binding: bool) {
+fn signed_xor_transfer_retry(check_body_binding: bool) {
     crate::validation_fee::tests::with_validation_fee_payout_block_at_time(
         2,
         2_000,
@@ -43,34 +40,11 @@ fn signed_xor_claim_retry(check_body_binding: bool) {
             let multisig = AccountId::new_multisig(multisig_policy_from_spec(&spec).unwrap());
             let xor = iroha_data_model::parameter::system::SumeragiNposParameters::default()
                 .xor_asset_definition_id;
-            let source = AssetId::new(
-                xor.clone(),
-                AccountId::new(
-                    KeyPair::from_seed(vec![8; 32], Algorithm::Ed25519)
-                        .public_key()
-                        .clone(),
-                ),
-            );
-            let destination = AssetId::new(xor, multisig.clone());
+            let source = AssetId::new(xor.clone(), multisig.clone());
+            let destination = AssetId::new(xor, authority.clone());
             let instructions: Vec<InstructionBox> = vec![
-                ClaimPublicLaneRewards {
-                    lane_id: LaneId::SINGLE,
-                    account: multisig.clone(),
-                    claim_plan: PublicLaneRewardClaimPlanV1 {
-                        network_scope: PublicLaneMonetaryScopeV1::Network(block.network_id),
-                        valid_until_height: 2,
-                        expected_state: None,
-                        records: Vec::new(),
-                        sources: vec![PublicLaneRewardClaimSourceV1 {
-                            source_asset: source.clone(),
-                            destination_asset: destination.clone(),
-                            expected_accrued: Some(Quantity::from(10_u32)),
-                            payout: Quantity::from(10_u32),
-                        }],
-                        fee_claim: None,
-                    },
-                }
-                .into(),
+                Transfer::asset_quantity(source.clone(), Quantity::from(10_u32), authority.clone())
+                    .into(),
             ];
             let hash = HashOf::new(&instructions);
             let approval = MultisigApprove::new(multisig.clone(), hash);
@@ -106,14 +80,11 @@ fn signed_xor_claim_retry(check_body_binding: bool) {
                         Asset::new(asset.clone(), Quantity::from(amount)).into_key_value();
                     setup.world.assets.insert(asset.clone(), value);
                 }
+                // Reserved principal survives both decoder refusals and the successful transfer.
                 setup
                     .world
-                    .public_lane_reward_reserves
+                    .public_lane_stake_reserves
                     .insert(source.clone(), Quantity::from(10_u32));
-                setup.world.public_lane_reward_accruals.insert(
-                    (LaneId::SINGLE, multisig.clone(), source.clone()),
-                    Quantity::from(10_u32),
-                );
                 setup.apply();
             }
             let signed = TransactionBuilder::new(
@@ -162,7 +133,7 @@ fn signed_xor_claim_retry(check_body_binding: bool) {
                     &Quantity::zero()
                 );
                 assert_eq!(
-                    tx.world.public_lane_reward_reserves.get(&source),
+                    tx.world.public_lane_stake_reserves.get(&source),
                     Some(&Quantity::from(10_u32))
                 );
                 // Drop this actual rejected transaction, including its substituted read source.
@@ -228,7 +199,7 @@ fn signed_xor_claim_retry(check_body_binding: bool) {
                     &Quantity::from(20_u32)
                 );
                 assert_eq!(
-                    tx.world.public_lane_reward_reserves.get(&source),
+                    tx.world.public_lane_stake_reserves.get(&source),
                     Some(&Quantity::from(10_u32))
                 );
                 // Discard the actual refused overlay, including its sticky retry owner.
@@ -270,12 +241,9 @@ fn signed_xor_claim_retry(check_body_binding: bool) {
                 tx.world.assets.get(&destination).unwrap().as_ref(),
                 &Quantity::from(10_u32)
             );
-            assert!(tx.world.public_lane_reward_reserves.get(&source).is_none());
-            assert!(
-                tx.world
-                    .public_lane_reward_accruals
-                    .get(&(LaneId::SINGLE, multisig, source))
-                    .is_none()
+            assert_eq!(
+                tx.world.public_lane_stake_reserves.get(&source),
+                Some(&Quantity::from(10_u32))
             );
             assert!(tx.world.smart_contract_state.get(&key).is_none());
         },

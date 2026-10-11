@@ -5,7 +5,7 @@ use iroha_crypto::{Algorithm, KeyPair};
 use iroha_data_model::{
     NetworkId,
     account::AccountId,
-    block::{SignedBlock, consensus::ValidatorPower},
+    block::{SignedBlock, consensus::SumeragiGenesisContextParameters},
     isi::{InstructionBox, RegisterPeerWithPop, SetParameter},
     parameter::{
         CustomParameter, Parameter,
@@ -29,21 +29,12 @@ pub(crate) fn genesis_fixture(
         .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
         .collect::<Vec<_>>();
     voters.sort_by(|a, b| a.public_key().cmp(b.public_key()));
-    let roster = voters
-        .iter()
-        .map(|pair| ValidatorPower {
-            validator: PeerId::new(pair.public_key().clone()),
-            power: 1,
-        })
-        .collect::<Vec<_>>();
     let metadata = ConsensusHandshakeMetadata {
         mode,
         block_cadence_ms: NonZeroU64::new(1000).unwrap(),
         wire_protocol_version: u32::from(iroha_data_model::sumeragi::PROTOCOL_VERSION),
         consensus_fingerprint: ConsensusFingerprint::new([0x71; 32]),
-        kagemusha_mint_finality:
-            crate::kagemusha_v1_test_fixtures::mint_finality_genesis_parameters(&roster),
-        sumeragi_context: crate::kagemusha_v1_test_fixtures::genesis_context_parameters(),
+        sumeragi_context: SumeragiGenesisContextParameters::recommended(),
     };
     let mut instructions = voters
         .iter()
@@ -95,12 +86,14 @@ fn signed_genesis_fixes_complete_generation_epoch_seed_and_proofs() {
         SumeragiConsensusMode::Npos,
     ] {
         let genesis = genesis_fixture(mode, 10, false);
-        let context = genesis_epoch(&genesis).unwrap();
+        let context = authenticated_genesis(&genesis)
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap();
         assert_eq!(
             context.network_id,
             NetworkId::from_genesis_hash(genesis.hash())
         );
-        assert_eq!(context.authority.generation, 0);
+        assert_eq!(context.authorization.authority_generation, 0);
         assert_eq!(context.authorization.epoch, 0);
         assert_eq!(context.committee.len(), 4);
         assert_eq!(context.authorization.first_height, 1);
@@ -118,12 +111,22 @@ fn signed_genesis_fixes_complete_generation_epoch_seed_and_proofs() {
 fn signed_genesis_rejects_short_or_repeated_epoch_authority() {
     for length in [1, 2] {
         assert!(
-            genesis_epoch(&genesis_fixture(SumeragiConsensusMode::Npos, length, false)).is_err()
+            authenticated_genesis(&genesis_fixture(SumeragiConsensusMode::Npos, length, false))
+                .map(|genesis| genesis.into_parts().0)
+                .is_err()
         );
     }
-    assert!(genesis_epoch(&genesis_fixture(SumeragiConsensusMode::Npos, 10, true)).is_err());
-    let first = genesis_epoch(&genesis_fixture(SumeragiConsensusMode::Npos, 10, false)).unwrap();
-    let changed = genesis_epoch(&genesis_fixture(SumeragiConsensusMode::Npos, 11, false)).unwrap();
+    assert!(
+        authenticated_genesis(&genesis_fixture(SumeragiConsensusMode::Npos, 10, true))
+            .map(|genesis| genesis.into_parts().0)
+            .is_err()
+    );
+    let first = authenticated_genesis(&genesis_fixture(SumeragiConsensusMode::Npos, 10, false))
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
+    let changed = authenticated_genesis(&genesis_fixture(SumeragiConsensusMode::Npos, 11, false))
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
     assert_ne!(first.context_id().unwrap(), changed.context_id().unwrap());
     assert_ne!(first.network_id, changed.network_id);
 }

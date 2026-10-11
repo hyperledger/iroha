@@ -1,10 +1,11 @@
 //! Identifier resolution service plumbing for app-facing endpoints.
+pub(crate) mod owner_prf;
 use iroha_crypto::{
-    BfvIdentifierCiphertext, BfvIdentifierPublicParameters, BfvProgrammedPublicParameters,
-    BfvRamProgramProfile, ClientRequest, EvalResponse, Hash, HiddenRamFheProgram, KeyPair,
-    RamLfeBackend, RamLfeError, RamLfeSecret, RamLfeVerificationMode, Signature, SignatureOf,
-    decode_bfv_programmed_public_parameters, evaluate_commitment_with_hidden_program,
-    identifier_hashes_from_output_hash, ram_lfe_output_hash,
+    BfvIdentifierPublicParameters, BfvProgrammedPublicParameters, BfvRamProgramProfile,
+    ClientRequest, Hash, HiddenRamFheProgram, KeyPair, RamLfeBackend, RamLfeError, RamLfeSecret,
+    RamLfeVerificationMode, Signature, SignatureOf, decode_bfv_programmed_public_parameters,
+    evaluate_commitment_with_hidden_program, identifier_hashes_from_output_hash,
+    ram_lfe_output_hash,
 };
 use iroha_data_model::{
     account::OpaqueAccountId,
@@ -29,7 +30,7 @@ use std::{
 use thiserror::Error;
 struct ProgramRuntime {
     secret: RamLfeSecret,
-    hidden_program: HiddenRamFheProgram,
+    _hidden_program: HiddenRamFheProgram,
     signer: KeyPair,
     receipt_ttl_ms: Option<u64>,
 }
@@ -83,6 +84,8 @@ pub struct RamLfeExecutionDraft {
 /// Draft returned by hidden-function evaluation before ledger binding lookup.
 #[derive(Debug, Clone)]
 pub struct IdentifierResolutionDraft {
+    /// Network authenticated by the original owner request and native evaluation.
+    pub network_id: iroha_data_model::NetworkId,
     pub opaque_id: OpaqueAccountId,
     pub receipt_hash: Hash,
     pub resolved_at_ms: u64,
@@ -153,191 +156,11 @@ impl IdentifierResolutionService {
                 program_id,
                 Arc::new(ProgramRuntime {
                     secret,
-                    hidden_program,
+                    _hidden_program: hidden_program,
                     signer,
                     receipt_ttl_ms,
                 }),
             );
-    }
-    /// Execute one RAM-LFE program from a BFV ciphertext envelope.
-    ///
-    /// The current BFV profiles are insecure and fail closed before decoding or
-    /// accessing runtime material. A supported encrypted profile is required
-    /// before this route can execute private inputs.
-    pub fn execute_encrypted(
-        &self,
-        program_policy: &RamLfeProgramPolicy,
-        ciphertext: &BfvIdentifierCiphertext,
-    ) -> Result<RamLfeExecutionDraft, IdentifierResolutionError> {
-        require_supported_program_policy(program_policy)?;
-        if program_policy.commitment.backend != RamLfeBackend::BfvProgrammedV1 {
-            return Err(IdentifierResolutionError::UnsupportedBackend(
-                program_policy.commitment.backend,
-            ));
-        }
-        self.execute_request_payload(
-            program_policy,
-            norito::encode_canonical(ciphertext)
-                .map_err(|err| IdentifierResolutionError::Encoding(err.to_string()))?,
-        )
-    }
-    fn execute_request_payload(
-        &self,
-        program_policy: &RamLfeProgramPolicy,
-        request_payload: Vec<u8>,
-    ) -> Result<RamLfeExecutionDraft, IdentifierResolutionError> {
-        require_supported_program_policy(program_policy)?;
-        let runtime = self.runtime(program_policy)?;
-        let associated_data = program_id_bytes(&program_policy.program_id);
-        let request = ClientRequest {
-            normalized_input: request_payload,
-            associated_data: associated_data.clone(),
-        };
-        let EvalResponse {
-            output,
-            opaque_id,
-            receipt_hash,
-            backend,
-        } = evaluate_commitment_with_hidden_program(
-            runtime.secret.as_ref(),
-            &program_policy.commitment,
-            &request,
-            Some(&runtime.hidden_program),
-        )?;
-        let output_hash = ram_lfe_output_hash(&output);
-        let input_ciphertext_hash = Hash::new(&request.normalized_input);
-        let output_ciphertext_hash = output_hash;
-        let programmed_public_parameters = decode_programmed_public_parameters(program_policy)?
-            .ok_or(IdentifierResolutionError::UnsupportedBackend(
-                program_policy.commitment.backend,
-            ))?;
-        let executed_at_ms = crate::utils::unix_now_ms();
-        let expires_at_ms = runtime
-            .receipt_ttl_ms
-            .and_then(|ttl| executed_at_ms.checked_add(ttl));
-        Ok(RamLfeExecutionDraft {
-            output,
-            opaque_hash: opaque_id,
-            receipt_hash,
-            executed_at_ms,
-            expires_at_ms,
-            backend,
-            output_hash,
-            input_ciphertext_hash,
-            output_ciphertext_hash,
-            associated_data_hash: Hash::new(associated_data),
-            program_digest: programmed_public_parameters.hidden_program_digest,
-            parameter_digest: programmed_public_parameters.parameter_digest,
-            evaluation_key_digest: programmed_public_parameters.evaluation_key_digest,
-            verification_mode: program_policy.verification_mode,
-        })
-    }
-    /// Evaluate a BFV-encrypted identifier request under the selected policy.
-    pub fn derive_encrypted(
-        &self,
-        _policy: &IdentifierPolicy,
-        program_policy: &RamLfeProgramPolicy,
-        ciphertext: &BfvIdentifierCiphertext,
-        opening: RamLfeOutputOpening,
-    ) -> Result<IdentifierResolutionDraft, IdentifierResolutionError> {
-        let execution = self.execute_encrypted(program_policy, ciphertext)?;
-        validate_output_opening(&opening, &execution, program_policy)?;
-        let program_id_bytes = program_id_bytes(&program_policy.program_id);
-        let (opaque_id, receipt_hash) = identifier_hashes_from_output_hash(
-            &program_id_bytes,
-            &opening.payload.opened_output_hash,
-        );
-        Ok(IdentifierResolutionDraft {
-            opaque_id: OpaqueAccountId::from_hash(opaque_id),
-            receipt_hash,
-            resolved_at_ms: execution.executed_at_ms,
-            expires_at_ms: execution.expires_at_ms,
-            backend: execution.backend,
-            output_hash: execution.output_hash,
-            input_ciphertext_hash: execution.input_ciphertext_hash,
-            output_ciphertext_hash: execution.output_ciphertext_hash,
-            program_digest: execution.program_digest,
-            parameter_digest: execution.parameter_digest,
-            evaluation_key_digest: execution.evaluation_key_digest,
-            verification_mode: execution.verification_mode,
-            opening,
-            phone_retail_canonicality: None,
-        })
-    }
-    /// Derive the phone handle from a trusted canonical E.164 nullifier, never
-    /// from randomized BFV output bytes.
-    pub fn derive_phone_retail_encrypted(
-        &self,
-        policy: &IdentifierPolicy,
-        program_policy: &RamLfeProgramPolicy,
-        ciphertext: &BfvIdentifierCiphertext,
-        opening: RamLfeOutputOpening,
-        canonicality: PhoneRetailCanonicalityAttestationV1,
-        network_id: &iroha_data_model::NetworkId,
-    ) -> Result<IdentifierResolutionDraft, IdentifierResolutionError> {
-        if !policy.id.is_phone_retail()
-            || policy.normalization != IdentifierNormalization::PhoneE164
-            || policy.program_id.to_string() != "phone_retail"
-            || policy.program_id != program_policy.program_id
-            || policy.owner != program_policy.owner
-            || program_policy.backend != RamLfeBackend::BfvProgrammedV1
-            || program_policy.commitment.backend != program_policy.backend
-            || program_policy.verification_mode != RamLfeVerificationMode::Signed
-        {
-            return Err(IdentifierResolutionError::InvalidPhoneCanonicality(
-                "policy or program is not the pinned phone#retail contract".to_owned(),
-            ));
-        }
-        let execution = self.execute_encrypted(program_policy, ciphertext)?;
-        validate_output_opening(&opening, &execution, program_policy)?;
-        let statement = &canonicality.payload;
-        let pinned_key = policy
-            .phone_retail_attestor_public_key
-            .as_ref()
-            .ok_or_else(|| {
-                IdentifierResolutionError::InvalidPhoneCanonicality(
-                    "attestor key is not pinned".to_owned(),
-                )
-            })?;
-        let now = crate::utils::unix_now_ms();
-        if statement.network_id != *network_id
-            || statement.policy_id != policy.id
-            || statement.program_id != program_policy.program_id
-            || statement.input_ciphertext_hash != execution.input_ciphertext_hash
-            || statement.output_ciphertext_hash != execution.output_ciphertext_hash
-            || statement.opened_output_hash != opening.payload.opened_output_hash
-            || statement.canonical_phone_nullifier == Hash::prehashed([0; Hash::LENGTH])
-            || statement.issued_at_ms > now
-            || statement.expires_at_ms <= now
-            || statement.expires_at_ms <= statement.issued_at_ms
-        {
-            return Err(IdentifierResolutionError::InvalidPhoneCanonicality(
-                "network, commitment, nullifier, or validity window mismatch".to_owned(),
-            ));
-        }
-        canonicality
-            .verify(pinned_key)
-            .map_err(|err| IdentifierResolutionError::InvalidPhoneCanonicality(err.to_string()))?;
-        let (opaque_id, receipt_hash) = identifier_hashes_from_output_hash(
-            &program_id_bytes(&program_policy.program_id),
-            &statement.canonical_phone_nullifier,
-        );
-        Ok(IdentifierResolutionDraft {
-            opaque_id: OpaqueAccountId::from_hash(opaque_id),
-            receipt_hash,
-            resolved_at_ms: execution.executed_at_ms,
-            expires_at_ms: execution.expires_at_ms,
-            backend: execution.backend,
-            output_hash: execution.output_hash,
-            input_ciphertext_hash: execution.input_ciphertext_hash,
-            output_ciphertext_hash: execution.output_ciphertext_hash,
-            program_digest: execution.program_digest,
-            parameter_digest: execution.parameter_digest,
-            evaluation_key_digest: execution.evaluation_key_digest,
-            verification_mode: execution.verification_mode,
-            opening,
-            phone_retail_canonicality: Some(canonicality),
-        })
     }
     /// Sign a receipt binding a derived opaque identifier to the current ledger target.
     pub fn sign_receipt(
@@ -453,6 +276,7 @@ impl IdentifierResolutionService {
             expires_at_ms: draft.expires_at_ms,
         };
         let payload = IdentifierResolutionReceiptPayload {
+            network_id: draft.network_id,
             policy_id: policy.id.clone(),
             execution,
             opening: draft.opening.clone(),
@@ -482,7 +306,7 @@ impl IdentifierResolutionService {
             })
     }
 }
-/// Reject unsupported encryption before decoding requests, looking up private material, or signing.
+/// Reject unsupported backends before decoding requests, looking up private material, or signing.
 pub(crate) fn require_supported_program_policy(
     program_policy: &RamLfeProgramPolicy,
 ) -> Result<(), IdentifierResolutionError> {
@@ -713,6 +537,11 @@ mod tests {
             &opening.payload.opened_output_hash,
         );
         IdentifierResolutionDraft {
+            network_id: iroha_data_model::NetworkId::from_genesis_hash(
+                iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(
+                    b"identifier-component-network",
+                )),
+            ),
             opaque_id: OpaqueAccountId::from_hash(opaque_id),
             receipt_hash,
             resolved_at_ms: execution.executed_at_ms,
@@ -796,6 +625,12 @@ mod tests {
     fn payload_from_fixture(payload: &norito::json::Value) -> IdentifierResolutionReceiptPayload {
         let opening = fixture_object(payload, "opening");
         IdentifierResolutionReceiptPayload {
+            network_id: iroha_data_model::NetworkId::from_genesis_hash(
+                iroha_crypto::HashOf::from_untyped_unchecked(hash_hex(fixture_str(
+                    payload,
+                    "network_id",
+                ))),
+            ),
             policy_id: IdentifierPolicyId::from_str(fixture_str(payload, "policy_id"))
                 .expect("valid policy id"),
             execution: RamLfeExecutionReceiptPayload {
@@ -1121,7 +956,6 @@ mod tests {
             &signer,
             b"fixture secret",
         );
-        let ciphertext = BfvIdentifierCiphertext { slots: Vec::new() };
         for backend in [RamLfeBackend::BfvAffineV1, RamLfeBackend::BfvProgrammedV1] {
             for position in 0..2 {
                 let mut program_policy = supported_policy.clone();
@@ -1142,13 +976,24 @@ mod tests {
                     verified_at_ms: draft.resolved_at_ms,
                     expires_at_ms: None,
                 };
-                assert_insecure(service.execute_encrypted(&program_policy, &ciphertext));
-                assert_insecure(service.execute_request_payload(&program_policy, vec![0xff]));
-                assert_insecure(service.derive_encrypted(
+                assert_insecure(service.execute_owner_prf(
+                    &program_policy,
+                    "alice@example.com",
+                    &[1; 32],
+                    &iroha_data_model::NetworkId::from_genesis_hash(
+                        iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(b"test-network")),
+                    ),
+                ));
+                assert_insecure(service.derive_owner_prf(
                     &policy,
                     &program_policy,
-                    &ciphertext,
+                    "alice@example.com",
+                    &[1; 32],
                     draft.opening.clone(),
+                    None,
+                    &iroha_data_model::NetworkId::from_genesis_hash(
+                        iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(b"test-network")),
+                    ),
                 ));
                 assert_insecure(service.issue_execution_receipt(&program_policy, &execution));
                 assert_insecure(service.sign_receipt(&policy, &program_policy, &draft, &claim));
@@ -1204,11 +1049,15 @@ mod tests {
             ))
         ));
         assert!(matches!(
-            IdentifierResolutionService::new()
-                .execute_encrypted(&policy, &BfvIdentifierCiphertext { slots: Vec::new() }),
-            Err(IdentifierResolutionError::UnsupportedBackend(
-                RamLfeBackend::HkdfSha3_512PrfV1
-            ))
+            IdentifierResolutionService::new().execute_owner_prf(
+                &policy,
+                "alice@example.com",
+                &[1; 32],
+                &iroha_data_model::NetworkId::from_genesis_hash(
+                    iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(b"test-network"))
+                )
+            ),
+            Err(IdentifierResolutionError::UnknownProgram(_))
         ));
     }
 

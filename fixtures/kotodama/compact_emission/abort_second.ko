@@ -1,6 +1,7 @@
-seiyaku CompactAbortSecond {
+seiyaku CompactAbortSecond { permission WriteState;
     error enum Failure {
-        Low = 3, High = 9
+        Low = 3,
+        High = 9,
     }
 
     state int trace;
@@ -12,7 +13,7 @@ seiyaku CompactAbortSecond {
         require(flag >= 0, Failure::Low);
     }
 
-    kotoage fn main() authorize("WriteState") {
+    kotoage fn main() authorize(WriteState) {
         trace = 11;
         guarded(0);
         guarded(1);

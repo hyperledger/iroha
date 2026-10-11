@@ -74,7 +74,7 @@ fn assert_exact_tables(before: &CompileOutput, after: &CompileOutput) {
 fn dead_numeric_operands_reduce_real_saves_and_keep_authenticated_tables() {
     let source = r#"seiyaku DeadOperands {
         fn difference(int left, int right) -> int { return left - right; }
-        view fn main(int left, int right) -> int { return difference(left: left, right: right); }
+        view fn main(int left, int right) authorize(anyone) -> int { return difference(left: left, right: right); }
     }"#;
     let before = compile(source, true);
     let after = compile(source, false);

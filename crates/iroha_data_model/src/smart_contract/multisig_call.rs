@@ -8,9 +8,10 @@
 //! consent; an Approve transaction retains the original proposal hash. Terminal
 //! proposal identities and their original controller history are immutable.
 use crate::{
+    HasMetadata,
     account::AccountId,
     events::execute_trigger::ExecuteTriggerEventFilter,
-    isi::{ExecuteTrigger, InstructionBox, Register},
+    isi::{ExecuteTrigger, InstructionBox, Register, RegisterBox},
     smart_contract::{ContractAddress, ContractAlias},
     transaction::{
         Executable,
@@ -85,6 +86,25 @@ pub fn derive_multisig_contract_call_trigger_id(
     code_hash: &Hash,
     attempt_created_at_ms: NonZeroU64,
 ) -> Result<TriggerId, String> {
+    derive_trigger_id_checked(
+        authority,
+        address,
+        entrypoint,
+        payload,
+        code_hash,
+        attempt_created_at_ms,
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn derive_trigger_id_checked(
+    authority: &AccountId,
+    address: &ContractAddress,
+    entrypoint: &str,
+    payload: &Json,
+    code_hash: &Hash,
+    attempt_created_at_ms: NonZeroU64,
+) -> Result<TriggerId, norito::Error> {
     let material = (
         authority.clone(),
         address.clone(),
@@ -93,10 +113,10 @@ pub fn derive_multisig_contract_call_trigger_id(
         *code_hash,
         attempt_created_at_ms.get(),
     );
-    let wire = norito::encode_canonical(&material).map_err(|error| error.to_string())?;
+    let wire = norito::encode_canonical(&material)?;
     let hash = Hash::new_from_chunks(&[b"iroha:multisig-contract-trigger:v2\0", &wire]);
     let name = Name::from_str(&format!("msig_cc_{}", hex::encode(hash.as_ref())))
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| norito::Error::Message(error.to_string()))?;
     Ok(TriggerId::new(name))
 }
 
@@ -148,22 +168,16 @@ pub fn build_multisig_contract_call(
         payload,
         attempt_created_at_ms,
     );
-    let action = Action::new(
-        Executable::ContractCall(ContractInvocation {
-            contract_address: address.clone(),
-            expected_code_hash: *code_hash,
-            entrypoint: entrypoint.to_owned(),
-            arguments,
-        }),
-        Repeats::Exactly(1),
-        authority.clone(),
-        ExecuteTriggerEventFilter::new().for_trigger(trigger_id.clone()),
-    )
-    .map_err(|error| error.to_string())?
-    .with_metadata(metadata.clone());
-    let execute = ExecuteTrigger::new(trigger_id.clone()).with_args(payload.clone());
+    let invocation = ContractInvocation {
+        contract_address: address.clone(),
+        expected_code_hash: *code_hash,
+        entrypoint: entrypoint.to_owned(),
+        arguments,
+    };
+    let (trigger, execute) =
+        contract_call_pair(authority, invocation, payload, trigger_id, metadata.clone())?;
     let instructions = vec![
-        InstructionBox::from(Register::trigger(Trigger::new(trigger_id, action))),
+        InstructionBox::from(Register::trigger(trigger)),
         InstructionBox::from(execute),
     ];
     Ok(CanonicalMultisigContractCall {
@@ -171,6 +185,182 @@ pub fn build_multisig_contract_call(
         instructions,
         metadata,
     })
+}
+
+// The builder and recognizer share the typed action constructor. In particular,
+// neither can accept arbitrary instructions in place of the ContractCall body.
+fn contract_call_pair(
+    authority: &AccountId,
+    invocation: ContractInvocation,
+    payload: &Json,
+    trigger_id: TriggerId,
+    metadata: Metadata,
+) -> Result<(Trigger, ExecuteTrigger), String> {
+    let action = Action::new(
+        Executable::ContractCall(invocation),
+        Repeats::Exactly(1),
+        authority.clone(),
+        ExecuteTriggerEventFilter::new().for_trigger(trigger_id.clone()),
+    )
+    .map_err(|error| error.to_string())?
+    .with_metadata(metadata);
+    let execute = ExecuteTrigger::new(trigger_id.clone()).with_args(payload.clone());
+    Ok((Trigger::new(trigger_id, action), execute))
+}
+
+/// Typed contents of the exact canonical two-instruction contract envelope.
+/// Recognition alone does not authenticate deployment, fees or execution authority.
+#[derive(Debug)]
+pub struct RecognizedMultisigContractCall {
+    /// Canonical alias declared by the envelope, still requiring current world binding.
+    pub alias: ContractAlias,
+    /// Exact contract invocation, still requiring current address/code validation.
+    pub invocation: ContractInvocation,
+    /// Original positive Propose timestamp, to be joined to that signed transaction.
+    pub attempt_created_at_ms: NonZeroU64,
+}
+
+/// Original local inspection failure; callers must not treat refusal as nonmatching policy.
+#[derive(Debug)]
+pub enum MultisigContractCallRecognitionError {
+    /// The JSON reader could not complete within its active resource allowance.
+    Json(norito::json::Error),
+    /// Canonical trigger material could not be encoded or retained.
+    Encoding(norito::Error),
+}
+
+fn read_recognition_json<T: norito::json::JsonDeserialize>(
+    value: &Json,
+) -> Result<Option<T>, MultisigContractCallRecognitionError> {
+    match norito::json::from_str(value.get()) {
+        Ok(value) => Ok(Some(value)),
+        Err(error @ norito::json::Error::ScopedDecodeResource(_))
+            if !cfg!(all(test, sumeragi_model_mutation = "DM20")) =>
+        {
+            Err(MultisigContractCallRecognitionError::Json(error))
+        }
+        Err(
+            error @ (norito::json::Error::DecodeResourceLimit
+            | norito::json::Error::DecodeResource(_)
+            | norito::json::Error::AllocationFailed),
+        ) => Err(MultisigContractCallRecognitionError::Json(error)),
+        Err(_) => Ok(None),
+    }
+}
+
+/// Recognize only the exact envelope emitted by [`build_multisig_contract_call`].
+///
+/// All six reserved metadata values, positive attempt timestamp, derived trigger
+/// identity, exact action and execute payload are checked. Extra instructions or
+/// metadata, nested native instructions and IVM executables are not recognized.
+/// The whole typed pair is compared without `InstructionBox::eq` (which invokes
+/// an infallible encoder) or `Trigger::eq` (which compares identifiers only).
+///
+/// # Errors
+/// Preserves original JSON resource and canonical encoding failures so a caller
+/// can defer local admission instead of recording an authoritative policy denial.
+pub fn recognize_multisig_contract_call(
+    authority: &AccountId,
+    instructions: &[InstructionBox],
+) -> Result<Option<RecognizedMultisigContractCall>, MultisigContractCallRecognitionError> {
+    let [register, execute] = instructions else {
+        return Ok(None);
+    };
+    let Some(RegisterBox::Trigger(register)) = register.as_any().downcast_ref::<RegisterBox>()
+    else {
+        return Ok(None);
+    };
+    let Some(execute) = execute.as_any().downcast_ref::<ExecuteTrigger>() else {
+        return Ok(None);
+    };
+    let trigger = register.object();
+    let Executable::ContractCall(invocation) = trigger.action().executable() else {
+        return Ok(None);
+    };
+    let metadata = trigger.action().metadata();
+    if metadata.iter().len() != 6
+        || invocation.entrypoint.is_empty()
+        || invocation.entrypoint.len() > 128
+        || invocation.entrypoint.trim() != invocation.entrypoint
+    {
+        return Ok(None);
+    }
+    let field = |key: &str| {
+        metadata
+            .iter()
+            .find_map(|(name, value)| (name.as_ref() == key).then_some(value))
+    };
+    let (Some(alias), Some(address), Some(code), Some(entrypoint), Some(payload), Some(attempt)) = (
+        field("contract_alias"),
+        field("contract_address"),
+        field("contract_code_hash"),
+        field("contract_entrypoint"),
+        field("contract_payload"),
+        field("contract_attempt_created_at_ms"),
+    ) else {
+        return Ok(None);
+    };
+    let Some(alias_literal) = read_recognition_json::<String>(alias)? else {
+        return Ok(None);
+    };
+    let Ok(alias) = alias_literal.parse::<ContractAlias>() else {
+        return Ok(None);
+    };
+    if alias.to_string() != alias_literal {
+        return Ok(None);
+    }
+    let (Some(address), Some(code), Some(entrypoint), Some(attempt)) = (
+        read_recognition_json::<String>(address)?,
+        read_recognition_json::<String>(code)?,
+        read_recognition_json::<String>(entrypoint)?,
+        read_recognition_json::<u64>(attempt)?,
+    ) else {
+        return Ok(None);
+    };
+    let Some(attempt_created_at_ms) = NonZeroU64::new(attempt) else {
+        return Ok(None);
+    };
+    if address != invocation.contract_address.to_string()
+        || code != invocation.expected_code_hash.to_string()
+        || entrypoint != invocation.entrypoint
+        || payload != &execute.args
+    {
+        return Ok(None);
+    }
+    if !matches!(
+        read_recognition_json::<norito::json::Value>(payload)?,
+        Some(norito::json::Value::Object(_))
+    ) {
+        return Ok(None);
+    }
+    let trigger_id = derive_trigger_id_checked(
+        authority,
+        &invocation.contract_address,
+        &invocation.entrypoint,
+        payload,
+        &invocation.expected_code_hash,
+        attempt_created_at_ms,
+    )
+    .map_err(MultisigContractCallRecognitionError::Encoding)?;
+    let metadata = metadata
+        .try_clone_for_admission()
+        .map_err(MultisigContractCallRecognitionError::Encoding)?;
+    let Ok((expected_trigger, expected_execute)) =
+        contract_call_pair(authority, invocation.clone(), payload, trigger_id, metadata)
+    else {
+        return Ok(None);
+    };
+    if trigger.id() != expected_trigger.id()
+        || trigger.action() != expected_trigger.action()
+        || execute != &expected_execute
+    {
+        return Ok(None);
+    }
+    Ok(Some(RecognizedMultisigContractCall {
+        alias,
+        invocation: invocation.clone(),
+        attempt_created_at_ms,
+    }))
 }
 
 #[cfg(test)]
@@ -326,6 +516,320 @@ mod tests {
         assert_ne!(
             retained_approval_hash, retry.instructions_hash,
             "old consent cannot authorize a fresh attempt"
+        );
+    }
+    fn recognition_fixture() -> (AccountId, CanonicalMultisigContractCall) {
+        let (owner, address, alias, code) = fixture();
+        let call = build_multisig_contract_call(
+            &owner,
+            &address,
+            &alias,
+            "issue_dpn",
+            &Json::new(norito::json!({"invoice_id":"invoice-7"})),
+            Some(ContractArgumentRecord::try_new(vec![1, 2, 3]).unwrap()),
+            &code,
+            NonZeroU64::new(1_700_000_000_001).unwrap(),
+        )
+        .unwrap();
+        (owner, call)
+    }
+
+    fn replace_recognition_action(
+        instructions: &mut [InstructionBox],
+        change: impl FnOnce(&Trigger) -> Action,
+    ) {
+        let RegisterBox::Trigger(register) = instructions[0]
+            .as_any()
+            .downcast_ref::<RegisterBox>()
+            .unwrap()
+        else {
+            panic!("fixture trigger")
+        };
+        let trigger = register.object();
+        instructions[0] =
+            Register::trigger(Trigger::new(trigger.id().clone(), change(trigger))).into();
+    }
+
+    #[test]
+    fn canonical_recognition_roundtrips_the_exact_typed_pair() {
+        let (owner, call) = recognition_fixture();
+        let recognized = recognize_multisig_contract_call(&owner, &call.instructions)
+            .unwrap()
+            .unwrap();
+        let (_, address, alias, code) = fixture();
+        assert_eq!(recognized.alias, alias);
+        assert_eq!(recognized.invocation.contract_address, address);
+        assert_eq!(recognized.invocation.expected_code_hash, code);
+        assert_eq!(recognized.invocation.entrypoint, "issue_dpn");
+        assert_eq!(
+            recognized.invocation.arguments.as_ref().unwrap().as_bytes(),
+            &[1, 2, 3]
+        );
+        assert_eq!(recognized.attempt_created_at_ms.get(), 1_700_000_000_001);
+        let encoded = norito::encode_canonical(&call.instructions).unwrap();
+        let decoded = norito::decode_canonical::<Vec<InstructionBox>>(&encoded).unwrap();
+        assert!(
+            recognize_multisig_contract_call(&owner, &decoded)
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn canonical_recognition_rejects_extra_reordered_and_wrong_execute_instructions() {
+        let (owner, call) = recognition_fixture();
+        for instructions in [
+            Vec::new(),
+            call.instructions[..1].to_vec(),
+            vec![call.instructions[1].clone(), call.instructions[0].clone()],
+            vec![
+                call.instructions[0].clone(),
+                call.instructions[1].clone(),
+                call.instructions[1].clone(),
+            ],
+            vec![call.instructions[0].clone(), call.instructions[0].clone()],
+        ] {
+            assert!(
+                recognize_multisig_contract_call(&owner, &instructions)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        let mut instructions = call.instructions.clone();
+        instructions[1] = ExecuteTrigger::new("unrelated_trigger".parse().unwrap())
+            .with_args(Json::new(norito::json!({"invoice_id":"invoice-7"})))
+            .into();
+        assert!(
+            recognize_multisig_contract_call(&owner, &instructions)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn canonical_recognition_rejects_metadata_changes_and_zero_or_malformed_attempt() {
+        let (owner, call) = recognition_fixture();
+        for (key, value) in [
+            ("extra", Json::new(true)),
+            ("contract_address", Json::new("different")),
+            ("contract_code_hash", Json::new("different")),
+            ("contract_entrypoint", Json::new("different")),
+            ("contract_alias", Json::new(" invalid ")),
+            ("contract_alias", Json::new(4)),
+            (
+                "contract_payload",
+                Json::new(norito::json!({"invoice_id":"other"})),
+            ),
+            ("contract_attempt_created_at_ms", Json::new(0_u64)),
+            ("contract_attempt_created_at_ms", Json::new("1700000000001")),
+            (
+                "contract_attempt_created_at_ms",
+                Json::new(1_700_000_000_002_u64),
+            ),
+        ] {
+            let mut instructions = call.instructions.clone();
+            replace_recognition_action(&mut instructions, |trigger| {
+                let mut metadata = trigger.action().metadata().clone();
+                metadata.insert(key.parse().unwrap(), value);
+                trigger.action().clone().with_metadata(metadata)
+            });
+            assert!(
+                recognize_multisig_contract_call(&owner, &instructions)
+                    .unwrap()
+                    .is_none(),
+                "{key}"
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_recognition_rejects_changed_action_despite_equal_trigger_identity() {
+        let (owner, call) = recognition_fixture();
+        let other = KeyPair::try_from_seed(vec![9; 32], Algorithm::Ed25519).unwrap();
+        let other = AccountId::new(other.public_key().clone());
+        assert!(
+            recognize_multisig_contract_call(&other, &call.instructions)
+                .unwrap()
+                .is_none()
+        );
+        for repeats in [Repeats::Exactly(2), Repeats::Indefinitely] {
+            let mut instructions = call.instructions.clone();
+            replace_recognition_action(&mut instructions, |trigger| {
+                Action::new(
+                    trigger.action().executable().clone(),
+                    repeats,
+                    owner.clone(),
+                    ExecuteTriggerEventFilter::new().for_trigger(trigger.id().clone()),
+                )
+                .unwrap()
+                .with_metadata(trigger.action().metadata().clone())
+            });
+            assert!(
+                recognize_multisig_contract_call(&owner, &instructions)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        let mut instructions = call.instructions.clone();
+        replace_recognition_action(&mut instructions, |trigger| {
+            Action::new(
+                trigger.action().executable().clone(),
+                Repeats::Exactly(1),
+                owner.clone(),
+                ExecuteTriggerEventFilter::new().for_trigger("unrelated_trigger".parse().unwrap()),
+            )
+            .unwrap()
+            .with_metadata(trigger.action().metadata().clone())
+        });
+        assert!(
+            recognize_multisig_contract_call(&owner, &instructions)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn canonical_recognition_rejects_nested_native_and_ivm_executables() {
+        let (owner, call) = recognition_fixture();
+        for executable in [
+            Executable::from(call.instructions.clone()),
+            Executable::Ivm(crate::transaction::IvmBytecode::from_compiled(vec![
+                1, 2, 3,
+            ])),
+        ] {
+            let mut instructions = call.instructions.clone();
+            replace_recognition_action(&mut instructions, |trigger| {
+                Action::new(
+                    executable,
+                    Repeats::Exactly(1),
+                    owner.clone(),
+                    ExecuteTriggerEventFilter::new().for_trigger(trigger.id().clone()),
+                )
+                .unwrap()
+                .with_metadata(trigger.action().metadata().clone())
+            });
+            assert!(
+                recognize_multisig_contract_call(&owner, &instructions)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_recognition_preserves_original_scoped_refusal_and_same_envelope_retry() {
+        use norito::core::{DecodeAttemptErrorKind, classify_decode_attempt};
+
+        let (owner, call) = recognition_fixture();
+        let original_wire = norito::encode_canonical(&call.instructions).unwrap();
+        let original_pointer = call.instructions.as_ptr();
+        let mut malformed = call.instructions.clone();
+        replace_recognition_action(&mut malformed, |trigger| {
+            let mut metadata = trigger.action().metadata().clone();
+            metadata.insert("contract_alias".parse().unwrap(), Json::new(4));
+            trigger.action().clone().with_metadata(metadata)
+        });
+        let pool = iroha_allocation::AllocationBudget::new(65_536);
+        let original = norito::core::DecodeBudgetContext::try_new_owned(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX),
+            &pool,
+        )
+        .unwrap();
+        let baseline = pool.reserved_bytes();
+        let mut observed = None;
+        let refusal = original.with(|| {
+            norito::with_decode_limits_scope(
+                norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+                || {
+                    classify_decode_attempt(|| {
+                        match recognize_multisig_contract_call(&owner, &call.instructions) {
+                            Err(MultisigContractCallRecognitionError::Json(error)) => {
+                                let norito::json::Error::ScopedDecodeResource(origin) = &error else {
+                                    panic!("the original observed JSON refusal must retain its scope");
+                                };
+                                observed = Some(origin.clone());
+                                Err::<(), _>(error.into_core_error())
+                            }
+                            Err(MultisigContractCallRecognitionError::Encoding(error)) => {
+                                panic!("the original refusal must remain JSON: {error}");
+                            }
+                            Ok(_) => panic!(
+                                "a genuine scoped refusal must not become a nonmatching multisig envelope"
+                            ),
+                        }
+                    })
+                },
+            )
+        })
+        .unwrap_err();
+        assert_eq!(refusal.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+        let norito::Error::ScopedDecodeResource(returned) = refusal.into_error() else {
+            panic!("recognition must return the original JSON observer identity");
+        };
+        let observed = observed.unwrap();
+        assert_eq!(returned, observed);
+        assert!(matches!(
+            norito::Error::ScopedDecodeResource(returned.clone()).decode_resource_error(),
+            Some(norito::core::DecodeResourceError::TotalAllocationExceeded {
+                attempted,
+                limit: 0,
+            }) if attempted > 0
+        ));
+        drop(returned);
+        drop(observed);
+        assert_eq!(pool.reserved_bytes(), baseline);
+        let recognized = original
+            .with(|| recognize_multisig_contract_call(&owner, &call.instructions))
+            .unwrap()
+            .unwrap();
+        let (_, address, alias, code) = fixture();
+        assert_eq!(recognized.alias, alias);
+        assert_eq!(recognized.invocation.contract_address, address);
+        assert_eq!(recognized.invocation.expected_code_hash, code);
+        assert_eq!(recognized.invocation.entrypoint, "issue_dpn");
+        assert_eq!(recognized.attempt_created_at_ms.get(), 1_700_000_000_001);
+        drop(recognized);
+        assert_eq!(pool.reserved_bytes(), baseline);
+        assert!(
+            original
+                .with(|| recognize_multisig_contract_call(&owner, &malformed))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            original
+                .with(|| recognize_multisig_contract_call(&owner, &call.instructions[..1]))
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(call.instructions.as_ptr(), original_pointer);
+        assert_eq!(
+            norito::encode_canonical(&call.instructions).unwrap(),
+            original_wire
+        );
+        drop(original);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn canonical_recognition_preserves_local_json_refusal() {
+        let (owner, call) = recognition_fixture();
+        let result = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+            || recognize_multisig_contract_call(&owner, &call.instructions),
+        );
+        assert!(matches!(
+            result,
+            Err(MultisigContractCallRecognitionError::Json(
+                norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                )
+            ))
+        ));
+        assert!(
+            recognize_multisig_contract_call(&owner, &call.instructions)
+                .unwrap()
+                .is_some()
         );
     }
 }

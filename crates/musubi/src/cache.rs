@@ -211,6 +211,8 @@ pub struct CachedCompilerPackageV1 {
     pub manifest: String,
     /// Digest-verified Kotodama sources, ordered by portable bundle path.
     pub kotodama_sources: Vec<CachedKotodamaSourceV1>,
+    /// Complete compiled interfaces authenticated by the same immutable package commitment.
+    pub contract_artifacts: Vec<kotodama_lang::linker::SourceContractArtifact>,
     /// Canonical archive-independent release metadata embedded in the bundle.
     pub semantic_release: MusubiSemanticReleaseManifestV1,
     /// Publisher-supplied exact proof lock embedded in the bundle.
@@ -427,12 +429,14 @@ impl MusubiCache {
         let inventory = inventory_tree(&source_path)?;
         let (semantic_release, publication_lock) =
             verify_compiler_bundle(&source_path, node, &inventory.files)?;
-        let (manifest, kotodama_sources) = load_compiler_sources(&source_path, &inventory.files)?;
+        let (manifest, kotodama_sources, contract_artifacts) =
+            load_compiler_sources(&source_path, &inventory.files)?;
         archive_pin.validate()?;
         Ok(CachedCompilerPackageV1 {
             source_path,
             manifest,
             kotodama_sources,
+            contract_artifacts,
             semantic_release,
             publication_lock,
         })
@@ -1837,7 +1841,14 @@ fn verify_compiler_bundle(
 fn load_compiler_sources(
     root: &Path,
     files: &[FileInventory],
-) -> Result<(String, Vec<CachedKotodamaSourceV1>), CacheError> {
+) -> Result<
+    (
+        String,
+        Vec<CachedKotodamaSourceV1>,
+        Vec<kotodama_lang::linker::SourceContractArtifact>,
+    ),
+    CacheError,
+> {
     let manifest_entry = files
         .binary_search_by(|entry| entry.path.as_str().cmp("Musubi.toml"))
         .ok()
@@ -1855,9 +1866,13 @@ fn load_compiler_sources(
     let manifest = String::from_utf8(manifest_bytes)
         .map_err(|_| CacheError::CorruptEntry("cached Musubi.toml is not UTF-8".to_owned()))?;
     let mut sources = Vec::new();
+    let mut artifacts = Vec::new();
     let mut source_bytes = 0u64;
     for entry in files.iter().filter(|entry| {
-        !entry.path.starts_with(".musubi/") && entry.path.strip_suffix(".ko").is_some()
+        !entry.path.starts_with(".musubi/")
+            && Path::new(&entry.path)
+                .extension()
+                .is_some_and(|extension| extension == "ko" || extension == "to")
     }) {
         source_bytes = source_bytes.checked_add(entry.size).ok_or_else(|| {
             CacheError::CorruptEntry("Kotodama source byte count overflow".to_owned())
@@ -1874,6 +1889,16 @@ fn load_compiler_sources(
                 entry.path
             )));
         }
+        if Path::new(&entry.path)
+            .extension()
+            .is_some_and(|extension| extension == "to")
+        {
+            artifacts.push(kotodama_lang::linker::SourceContractArtifact {
+                source_name: entry.path.clone(),
+                artifact: bytes,
+            });
+            continue;
+        }
         let source = String::from_utf8(bytes).map_err(|_| {
             CacheError::CorruptEntry(format!(
                 "cached Kotodama source `{}` is not UTF-8",
@@ -1885,7 +1910,7 @@ fn load_compiler_sources(
             source,
         });
     }
-    Ok((manifest, sources))
+    Ok((manifest, sources, artifacts))
 }
 fn compare_inventory(plan: &CarBuildPlan, files: &[FileInventory]) -> Result<(), CacheError> {
     if plan.files.len() != files.len() {

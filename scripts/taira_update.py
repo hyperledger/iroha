@@ -12,6 +12,12 @@ Both pinned guest and Mac backing routes are required. Storage admission runs
 before transfers and again before apply; no cleanup or alternate route is inferred.
 --bind-backing-storage authors a fresh local deployment record from an explicit
 pinned Mac SSH route and VM backing directory; it contacts no host.
+--observe-installation captures a v2 initial cohort without stopping validators.
+--installed-observation binds that actual capture for the first preserved-state
+update; it makes no claim that an earlier update or checkpoint receipt exists.
+--retained-renderer selects an explicit public renderer source whose exact digest
+must equal the unchanged deployment and predecessor pins, independently of this
+controller checkout. The new plan retains that source path and rechecks it at apply.
 """
 import argparse
 import contextlib
@@ -100,11 +106,18 @@ def module(path, name):
 
 def validate_deployment(value):
     """Admit one explicit owner-public first-release Taira installation."""
+    modern = value.get('schema') == 'taira.runtime-deployment.v2'
     need(set(value) == {'schema', 'guest_ssh', 'backing_ssh', 'backing_path',
          'runtime_root', 'state_root', 'config_root',
          'config_release', 'genesis_manifest', 'network_id', 'public_origin', 'roles',
-         'ports', 'replay_floor', 'renderer_sha256', 'current'}, 'deployment fields differ')
-    need(value['schema'] == 'taira.runtime-deployment.v1', 'deployment schema differs')
+         'ports', 'replay_floor', 'renderer_sha256', 'current'}
+         | ({'config_filename', 'kura_hash_journal'} if modern else set()), 'deployment fields differ')
+    need(modern or value['schema'] == 'taira.runtime-deployment.v1', 'deployment schema differs')
+    if modern:
+        need(value['config_filename'] in ('config.toml', 'beacon.toml'), 'unsupported retained config name')
+        need(value['kura_hash_journal'] in ('storage/blocks/canonical/blocks.hashes',
+                                           'storage/kura/blocks/canonical/blocks.hashes'),
+             'explicit canonical Kura hash journal required')
     for key in ('runtime_root', 'state_root', 'config_root', 'genesis_manifest', 'backing_path'):
         raw = value[key]
         need(isinstance(raw, str) and raw.startswith('/') and str(Path(os.path.normpath(raw))) == raw
@@ -124,8 +137,26 @@ def validate_deployment(value):
     need(type(value['replay_floor']) is int and value['replay_floor'] > 0,
          'explicit retained replay floor required')
     current = value['current']
+    if modern and current.get('kind') == 'observed-installation':
+        need(set(current) == {'kind', 'commit', 'daemons'}
+             and re.fullmatch('[0-9a-f]{40}', current['commit'])
+             and set(current['daemons']) == set(value['roles']), 'observed installation fields differ')
+        for role, row in current['daemons'].items():
+            need(set(row) == {'command', 'resolved', 'sha256', 'size'}
+                 and row['command'] == str(Path(value['config_root']) / role / 'current/bin/iroha3d_taira')
+                 and row['resolved'] == str(Path(value['config_root']) / role / 'releases'
+                                           / value['config_release'] / 'bin/iroha3d_taira')
+                 and re.fullmatch('[0-9a-f]{64}', row['sha256'])
+                 and type(row['size']) is int and 1_000_000 < row['size'] < 1024**3,
+                 'observed per-role daemon identity differs')
+        need(re.fullmatch('[0-9a-f]{64}', value['renderer_sha256']), 'renderer digest missing')
+        retry.validate_ssh(value['guest_ssh']); retry.validate_ssh(value['backing_ssh'])
+        return value
+    if modern:
+        need(current.get('kind') == 'completed-update', 'v2 requires an explicit predecessor kind')
     need(set(current) == {'commit', 'daemon', 'attempt_name', 'plan_schema', 'result_schema',
-                         'local_plan', 'local_plan_sha256'}, 'current installation fields differ')
+                         'local_plan', 'local_plan_sha256'} | ({'kind'} if modern else set()),
+         'current installation fields differ')
     need(re.fullmatch('[0-9a-f]{40}', current['commit']) is not None
          and re.fullmatch('[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}', current['attempt_name']) is not None,
          'exact current installation required')
@@ -133,7 +164,8 @@ def validate_deployment(value):
     need(daemon.is_absolute() and daemon.is_relative_to(Path(value['runtime_root']))
          and '..' not in daemon.parts, 'current daemon escapes approved runtime root')
     for key in ('plan_schema', 'result_schema'):
-        need(isinstance(current[key], str) and re.fullmatch(r'taira\.[a-z0-9.-]+\.v1', current[key]),
+        need(isinstance(current[key], str) and re.fullmatch(r'taira\.[a-z0-9.-]+\.v[12]', current[key])
+             and (modern or current[key].endswith('.v1')),
              'explicit retained receipt schema required')
     for digest in (value['renderer_sha256'], current['local_plan_sha256']):
         need(re.fullmatch('[0-9a-f]{64}', digest) is not None, 'public evidence digest missing')
@@ -205,22 +237,35 @@ def failed_start_inputs(reference, deployment, prior, guest, operation, candidat
     return dict(reference, installed=installed), entries[-1][0]
 
 
-def make_plan(build, deployment, prior, guest, operation, failed_start=None):
+def make_plan(build, deployment, prior, guest, operation, failed_start=None, *, retained_renderer=None):
     reject_retired_worker_plan(prior)
     commit = build['commit']
     artifacts = validate_build(build, commit)
     current = deployment['current']
+    initial = current.get('kind') == 'observed-installation'
+    modern = deployment['schema'] == 'taira.runtime-deployment.v2'
+    need(not (modern and failed_start is not None),
+         'v2 failed starts require explicit reconciliation; v1 lineage is not reused')
     need(commit != current['commit'], 'candidate is already the current runtime')
     need(re.fullmatch('update-[0-9a-f]{32}', operation), 'invalid operation directory')
-    need(operation != current['attempt_name'], 'fresh operation directory required')
-    need(prior.get('schema') == current['plan_schema'] and prior.get('commit') == current['commit']
-         and prior.get('network_id') == deployment['network_id'], 'installed predecessor plan differs')
-    need(sha(read_public(ROOT / 'scripts/taira_validator_unit.py')) == deployment['renderer_sha256']
+    need(operation != current.get('attempt_name'), 'fresh operation directory required')
+    if initial:
+        need(failed_start is None, 'first adoption does not reinterpret a failed startup as an observation')
+        guest.validate_installation_observation(prior, deployment)
+    else:
+        need(prior.get('schema') == current['plan_schema'] and prior.get('commit') == current['commit']
+             and prior.get('network_id') == deployment['network_id'], 'installed predecessor plan differs')
+    renderer = Path(retained_renderer) if retained_renderer is not None else ROOT / 'scripts/taira_validator_unit.py'
+    need(renderer.is_absolute() and str(renderer) == os.path.normpath(str(renderer)),
+         'retained renderer requires an absolute canonical source path')
+    need(sha(read_public(renderer)) == deployment['renderer_sha256']
          == prior['renderer_sha256'], 'reviewed custody renderer changed')
     need([row['role'] for row in prior['units']] == deployment['roles'], 'predecessor cohort differs')
-    value = {'schema':'taira.daemon-update.plan.v1', 'commit':commit,
+    value = {'schema':'taira.daemon-update.plan.v2' if modern else 'taira.daemon-update.plan.v1', 'commit':commit,
              'network_id':deployment['network_id'], 'artifacts':artifacts,
              'operation':operation, 'deployment':deployment}
+    if retained_renderer is not None:
+        value['retained_renderer_path'] = str(renderer)
     installed_plan = prior
     if failed_start is not None:
         value['failed_start'], installed_plan = failed_start_inputs(
@@ -229,14 +274,18 @@ def make_plan(build, deployment, prior, guest, operation, failed_start=None):
     guest.configure(value)
     units = []
     for row in installed_plan['units']:
-        raw = base64.b64decode(row['after'], validate=True)
-        need(sha(raw) == row['after_sha256'], 'installed predecessor unit digest differs')
+        installed = row['installed' if initial else 'after']
+        raw = base64.b64decode(installed, validate=True)
+        need(sha(raw) == row['installed_sha256' if initial else 'after_sha256'],
+             'installed predecessor unit digest differs')
         after = guest.replace_daemon(raw, row['role'])
-        units.append({'role':row['role'], 'before':row['after'], 'after':base64.b64encode(after).decode(),
+        units.append({'role':row['role'], 'before':installed, 'after':base64.b64encode(after).decode(),
                       'before_sha256':sha(raw), 'after_sha256':sha(after)})
-    value.update(units=units,
-        retained_predecessor={'attempt_name':current['attempt_name'],
-            'intent_sha256':sha(json.dumps(prior, sort_keys=True, separators=(',', ':')).encode())},
+    predecessor = ({'schema':'taira.observed-installation-predecessor.v1', 'observation':prior,
+                    'observation_sha256':sha(json.dumps(prior, sort_keys=True, separators=(',', ':')).encode())}
+                   if initial else {'attempt_name':current['attempt_name'],
+                    'intent_sha256':sha(json.dumps(prior, sort_keys=True, separators=(',', ':')).encode())})
+    value.update(units=units, retained_predecessor=predecessor,
         guest_sha256=sha(read_public(HERE / 'taira_update_guest.py')),
         capacity_sha256=sha(read_public(HERE / 'taira_disk_capacity.py')),
         runner_sha256=sha(read_public(HERE / 'taira_update.py')),
@@ -260,6 +309,9 @@ def successor_deployment(plan, raw, output):
         'attempt_name':plan['operation'], 'plan_schema':'taira.daemon-update.plan.v1',
         'result_schema':'taira.daemon-update.result.v1',
         'local_plan':str(output / 'plan.json'), 'local_plan_sha256':sha(raw)}
+    if successor['schema'] == 'taira.runtime-deployment.v2':
+        successor['current'].update(kind='completed-update', plan_schema='taira.daemon-update.plan.v2',
+                                    result_schema='taira.daemon-update.result.v2')
     return successor
 
 
@@ -418,7 +470,7 @@ def prepare_artifacts(args, deployment, build_raw):
     build = retry.decode(build_raw)
     artifacts = validate_build(build, build['commit'])
     need(re.fullmatch('update-[0-9a-f]{32}', args.operation)
-         and args.operation != deployment['current']['attempt_name']
+         and args.operation != deployment['current'].get('attempt_name')
          and build['commit'] != deployment['current']['commit'], 'fresh candidate operation required')
     need(not args.output.exists(), 'fresh artifact preparation output required')
     plan = {'schema': 'taira.update-artifact-preparation.v1', 'operation': args.operation,
@@ -458,7 +510,8 @@ def apply_plan(args):
     for name, field in [('taira_update_guest.py', 'guest_sha256'), ('taira_update.py', 'runner_sha256'),
                         ('taira_disk_capacity.py', 'capacity_sha256')]:
         need(sha(read_public(HERE / name)) == plan[field], 'reviewed coordinator source changed')
-    need(sha(read_public(ROOT / 'scripts/taira_validator_unit.py')) == plan['renderer_sha256'],
+    renderer = Path(plan.get('retained_renderer_path', ROOT / 'scripts/taira_validator_unit.py'))
+    need(sha(read_public(renderer)) == plan['renderer_sha256'],
          'reviewed custody renderer changed')
     if 'failed_start' in plan:
         current = plan['deployment']['current']
@@ -466,7 +519,8 @@ def apply_plan(args):
         guest = module(HERE / 'taira_update_guest.py', 'runtime_update_recovery_validation')
         reference = {key: value for key, value in plan['failed_start'].items() if key != 'installed'}
         rebound = make_plan(json.loads(build_raw), plan['deployment'], prior, guest,
-                            plan['operation'], reference)
+                            plan['operation'], reference,
+                            retained_renderer=plan.get('retained_renderer_path'))
         need(rebound['failed_start'] == plan['failed_start'] and rebound['units'] == plan['units']
              and rebound['retained_predecessor'] == plan['retained_predecessor'],
              'failed-start recovery plan differs from its public inputs')
@@ -510,16 +564,41 @@ def apply_plan(args):
     print(json.dumps(result | {'next_deployment':str(args.output / 'next-deployment.json')}))
 
 
+def observe_installation(args, deployment):
+    """Capture the existing cohort through the pinned guest route, without a stop."""
+    need(deployment['schema'] == 'taira.runtime-deployment.v2'
+         and deployment['current']['kind'] == 'observed-installation',
+         'initial observation requires an observed-installation deployment')
+    need(not args.output.exists(), 'fresh observation output directory required')
+    args.output.mkdir(mode=0o700)
+    source = read_public(HERE / 'taira_update_guest.py')
+    request = {'deployment':deployment, 'commit':deployment['current']['commit'],
+               'operation':'observation-' + os.urandom(16).hex()}
+    payload = source + b'\ncapture_installation(' + repr(request).encode() + b')\n'
+    value = storage_remote(deployment['guest_ssh'], payload, args.output, 'installed-cohort')
+    guest = module(HERE / 'taira_update_guest.py', 'runtime_update_observation_validation')
+    guest.validate_installation_observation(value, deployment)
+    retry.write_public(args.output / 'observation.json', value)
+    print(json.dumps({'observation':str(args.output / 'observation.json'),
+                      'runtime_mutated':False, 'secret_contents_read':False}))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--deployment', type=Path, required=True)
     parser.add_argument('--prepared-result', type=Path)
+    parser.add_argument('--retained-renderer', type=Path,
+                        help='explicit public renderer source matching the unchanged deployment and predecessor digest pins')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--operation',
                         help='explicit fresh update-<32hex> operation identity')
     parser.add_argument('--prepare-artifacts', action='store_true',
                         help='create and verify the exact three candidate binaries before the reviewed runtime update')
     parser.add_argument('--plan-only', action='store_true', help='write the exact local plan without SSH')
+    parser.add_argument('--observe-installation', action='store_true',
+                        help='capture actual public units, native identity and private metadata for first adoption; no stop')
+    parser.add_argument('--installed-observation', type=Path,
+                        help='actual maintained first-adoption observation; never a prior update receipt')
     parser.add_argument('--failed-start-chain', type=Path,
                         help='ordered digest-bound failed attempts since the last completed deployment')
     parser.add_argument('--bind-backing-storage', action='store_true',
@@ -532,13 +611,21 @@ def main():
         need(args.backing_route is not None and args.backing_path is not None
              and args.prepared_result is None and args.operation is None
              and not args.prepare_artifacts
-             and not args.plan_only and args.failed_start_chain is None,
+             and not args.observe_installation and args.installed_observation is None
+             and not args.plan_only and args.failed_start_chain is None and args.retained_renderer is None,
              'backing authoring requires only deployment, backing-route, backing-path and fresh output')
+    elif args.observe_installation:
+        need(args.prepared_result is None and args.operation is None and not args.prepare_artifacts
+             and not args.plan_only and args.failed_start_chain is None
+             and args.installed_observation is None and args.backing_route is None and args.backing_path is None
+             and args.retained_renderer is None,
+             'initial observation is a separate read-only command')
     else:
         need(args.backing_route is None and args.backing_path is None
              and args.prepared_result is not None and args.operation is not None,
              'update requires prepared-result and operation; backing authoring is a separate local command')
-    need(not args.prepare_artifacts or (not args.plan_only and args.failed_start_chain is None),
+    need(not args.prepare_artifacts or (not args.plan_only and args.failed_start_chain is None
+                                       and args.retained_renderer is None),
          'prepare-artifacts is separate from plan-only and failed-start recovery')
     os.umask(0o077)
     need(subprocess.check_output(['git', 'branch', '--show-current'], cwd=ROOT, text=True).strip()
@@ -552,6 +639,9 @@ def main():
     need(args.output.is_absolute() and parent.resolve() == parent and stat.S_ISDIR(info.st_mode)
          and info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700,
          'fresh output below owner-private directory required')
+    if args.observe_installation:
+        observe_installation(args, deployment)
+        return
     lock = os.open(args.deployment.parent / '.taira-update.lock',
                    os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
@@ -563,13 +653,19 @@ def main():
         if args.prepare_artifacts:
             prepare_artifacts(args, deployment, build_raw)
             return
-        prior_raw = retry.public_record(deployment['current']['local_plan'],
-                                        deployment['current']['local_plan_sha256'])
+        if deployment['current'].get('kind') == 'observed-installation':
+            need(args.installed_observation is not None, 'first adoption requires an actual maintained observation')
+            prior_raw = read_public(args.installed_observation)
+        else:
+            need(args.installed_observation is None, 'completed updates use their retained completion')
+            prior_raw = retry.public_record(deployment['current']['local_plan'],
+                                            deployment['current']['local_plan_sha256'])
         guest = module(HERE / 'taira_update_guest.py', 'runtime_update_guest')
         value = make_plan(retry.decode(build_raw), deployment, retry.decode(prior_raw), guest,
                           args.operation,
                           retry.decode(read_public(args.failed_start_chain))
-                          if args.failed_start_chain is not None else None)
+                          if args.failed_start_chain is not None else None,
+                          retained_renderer=args.retained_renderer)
         value.update(build_result_path=str(args.prepared_result), build_result_sha256=sha(build_raw))
         raw = (json.dumps(value, sort_keys=True)+'\n').encode()
         if args.plan_only:

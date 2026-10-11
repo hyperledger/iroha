@@ -8,8 +8,6 @@
 use super::Header as BlockHeader;
 use iroha_sumeragi::availability::{DataAvailabilityLayout, recommended_data_availability_layout};
 
-#[cfg(test)]
-use crate::NetworkId;
 use crate::{DeriveJsonDeserialize, DeriveJsonSerialize};
 use crate::{
     account::AccountId,
@@ -18,8 +16,6 @@ use crate::{
     nexus::{FeeDebitSource, PublicLaneValidatorRecord},
 };
 use core::{fmt, num::NonZeroU64};
-#[cfg(test)]
-use iroha_crypto::{Algorithm, KeyPair};
 use iroha_crypto::{Hash, HashOf};
 use iroha_model_base::{peer::PeerId, topology::DataSpaceId, topology::LaneId};
 use iroha_primitives::numeric::{Numeric, Quantity};
@@ -138,11 +134,7 @@ pub struct ValidatorPower {
 ///
 /// The value is embedded in the signed consensus-genesis parameters. Live
 /// startup must reject a genesis which omits it; it must never reconstruct
-/// these fields from a node's mutable runtime configuration. The separately
-/// signed, network-independent KAGEMUSHA authority templates live beside
-/// this value in [`crate::parameter::system::ConsensusHandshakeMetadata`]; they
-/// are deliberately absent from this snapshot-reconstructible context and its
-/// secondary consensus fingerprint.
+/// these fields from a node's mutable runtime configuration.
 #[derive(
     Clone,
     Copy,
@@ -260,72 +252,12 @@ impl fmt::Display for ValidationError {
     }
 }
 impl std::error::Error for ValidationError {}
-/// Build deterministic paired-Pasta authority aligned to a unit-test consensus roster.
-#[cfg(test)]
-pub(crate) fn test_kagemusha_mint_finality_authority(
-    network_id: NetworkId,
-    generation: u64,
-    roster: &[ValidatorPower],
-) -> crate::isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1 {
-    use crate::isi::kagemusha_v1::{
-        KAGEMUSHA_CHAIN_VERSION_V1, KagemushaMintFinalityAuthorityGenerationV1,
-        KagemushaMintFinalityValidatorKeysV1,
-    };
-
-    KagemushaMintFinalityAuthorityGenerationV1 {
-        version: KAGEMUSHA_CHAIN_VERSION_V1,
-        network_id,
-        generation,
-        validators: roster
-            .iter()
-            .enumerate()
-            .map(|(index, validator)| KagemushaMintFinalityValidatorKeysV1 {
-                validator: validator.validator.clone(),
-                eq_proof_public_key: [u8::try_from(index + 1).expect("small fixture roster"); 32],
-                ep_proof_public_key: [u8::try_from(index + 17).expect("small fixture roster"); 32],
-            })
-            .collect(),
-    }
-}
-
 /// Build deterministic signed-genesis context parameters for unit tests.
 #[cfg(test)]
 pub(crate) fn test_genesis_context_parameters() -> SumeragiGenesisContextParameters {
     SumeragiGenesisContextParameters::recommended()
 }
 
-/// Build deterministic network-independent KAGEMUSHA genesis authority for unit tests.
-#[cfg(test)]
-pub(crate) fn test_kagemusha_mint_finality_genesis_parameters()
--> crate::isi::kagemusha_v1::KagemushaMintFinalityGenesisParametersV1 {
-    use crate::isi::kagemusha_v1::{
-        KagemushaMintFinalityAuthorityGenerationTemplateV1,
-        KagemushaMintFinalityGenesisParametersV1,
-    };
-
-    let network_id = NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(
-        Hash::new(b"Sumeragi unit-test genesis"),
-    ));
-    let mut roster = (1_u8..=4)
-        .map(|seed| {
-            let key_pair = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
-                .expect("derive deterministic test validator");
-            ValidatorPower {
-                validator: PeerId::new(key_pair.public_key().clone()),
-                power: 1,
-            }
-        })
-        .collect::<Vec<_>>();
-    roster.sort_by(|left, right| left.validator.cmp(&right.validator));
-    let bound = test_kagemusha_mint_finality_authority(network_id, 0, &roster);
-    KagemushaMintFinalityGenesisParametersV1 {
-        authority_generation: KagemushaMintFinalityAuthorityGenerationTemplateV1 {
-            version: bound.version,
-            generation: bound.generation,
-            validators: bound.validators,
-        },
-    }
-}
 /// Canonical consensus parameters included in the genesis fingerprint.
 ///
 /// These parameters are encoded with Norito (binary) in a fixed order to
@@ -475,7 +407,21 @@ impl Evidence {
     pub fn decode_native(
         &self,
     ) -> Result<iroha_sumeragi::message::Evidence, iroha_sumeragi::message::CodecError> {
-        let native = iroha_sumeragi::message::Evidence::decode(&self.native)?;
+        Self::decode_native_frame(self.native_frame())
+    }
+
+    /// Decode borrowed original frame bytes through the sole canonical proof validator.
+    ///
+    /// This creates no replacement owned Evidence or source buffer. Decoded native
+    /// artifacts and pair-comparison scratch keep their existing independent custody.
+    /// Historical signer authority is not supplied by this syntax operation.
+    ///
+    /// # Errors
+    /// Preserves the same bounded framing, artifact and pair-order error as `decode_native`.
+    pub fn decode_native_frame(
+        bytes: &[u8],
+    ) -> Result<iroha_sumeragi::message::Evidence, iroha_sumeragi::message::CodecError> {
+        let native = iroha_sumeragi::message::Evidence::decode(bytes)?;
         let mut canonical = native.clone();
         Self::canonicalize_pairs(&mut canonical)?;
         if canonical != native {
@@ -553,8 +499,8 @@ impl norito::json::JsonDeserialize for Evidence {
             native: wire.native,
         };
         evidence.decode_native().map_err(|error| match error {
-            iroha_sumeragi::message::CodecError::Resource(_) => {
-                norito::json::Error::DecodeResourceLimit
+            iroha_sumeragi::message::CodecError::Resource(resource) => {
+                norito::json::Error::from_decode_resource(resource.into())
             }
             other => norito::json::Error::Message(other.to_string()),
         })?;

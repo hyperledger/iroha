@@ -30,15 +30,15 @@ fn ephemeral_map_constructor_is_rejected() {
     );
 }
 #[test]
-fn get_or_state_map() {
+fn get_unwrap_or_state_map() {
     let src = r#"
-        seiyaku StateMapHelpers {
+        seiyaku StateMapHelpers { permission WriteState;
           state StateMap<int, int> m;
 
-          kotoage fn main() -> int authorize("WriteState") {
+          kotoage fn main() authorize(WriteState) -> int {
               m[7] = 111;
-              let a = m.get_or(key: 7, default: 5);
-              let b = m.get_or(key: 8, default: 9);
+              let a = m.get(7).unwrap_or(5);
+              let b = m.get(8).unwrap_or(9);
               return a * 2 + b;
           }
         }
@@ -52,15 +52,15 @@ fn get_or_state_map() {
     assert_eq!(common::decode_i64_return_word(&vm, 0), 111 * 2 + 9);
 }
 #[test]
-fn ir_lower_ensure_state_map() {
+fn ir_lower_get_or_insert_state_map() {
     let src = r#"
-        seiyaku EnsureLowering {
+        seiyaku GetOrInsertLowering { permission WriteState;
           state StateMap<int, int> m;
-          kotoage fn f(int k) -> int authorize("WriteState") { return m.ensure(key: k); }
+          kotoage fn f(int k) authorize(WriteState) -> int { return m.get_or_insert(k, 0); }
         }
     "#;
-    let prog = parse(src).expect("parse ensure");
-    let typed = analyze(&prog).expect("analyze ensure");
+    let prog = parse(src).expect("parse get_or_insert");
+    let typed = analyze(&prog).expect("analyze get_or_insert");
     let lowered = ir::lower(&typed).expect("lower");
     let f = &lowered.functions[0];
     let mut saw_get = false;
@@ -81,31 +81,25 @@ fn ir_lower_ensure_state_map() {
     assert!(saw_get && saw_set && saw_branch);
 }
 #[test]
-fn semantic_ensure_pointer_requires_explicit_default() {
-    let src = r#"
-        seiyaku EnsurePointer {
-          state StateMap<int, Name> m;
-          fn f() { let _ = m.ensure(key: 1); }
-        }
-    "#;
-    let prog = parse(src).expect("parse pointer map without default");
-    let err = analyze(&prog).expect_err("pointer-valued ensure should require default");
-    assert!(
-        err.message()
-            .contains("requires an explicit default for pointer-valued maps")
-    );
-}
-#[test]
-fn semantic_ensure_non_int_requires_explicit_default() {
-    let src = r#"
-        seiyaku EnsureBool {
-          state StateMap<int, bool> m;
-          fn f() { let _ = m.ensure(key: 1); }
-        }
-    "#;
-    let prog = parse(src).expect("parse bool map without default");
-    let err = analyze(&prog).expect_err("non-int map should require explicit default");
-    assert!(err.message().contains("auto-default is only available"));
+fn semantic_get_or_insert_always_requires_a_default() {
+    for value in ["int", "Name", "bool"] {
+        let src = format!(
+            r#"
+        seiyaku GetOrInsertDefault {{
+          state StateMap<int, {value}> m;
+          fn f() {{ let _ = m.get_or_insert(1); }}
+        }}
+    "#
+        );
+        let prog = parse(&src).expect("parse map helper without default");
+        let err = analyze(&prog).expect_err("absence never defaults implicitly");
+        assert!(
+            err.message()
+                .contains("missing required argument `default`"),
+            "{value}: {}",
+            err.message()
+        );
+    }
 }
 #[test]
 fn ir_lower_ensure_pointer_variants_use_pointer_syscalls() {
@@ -125,10 +119,10 @@ fn ir_lower_ensure_pointer_variants_use_pointer_syscalls() {
     for (ty, ctor) in cases {
         let src = format!(
             r#"
-        seiyaku C {{
+        seiyaku C {{ permission WriteState;
             state StateMap<int, {ty}> S;
-            kotoage fn main() -> {ty} authorize("WriteState") {{
-                return S.ensure(key: 7, default: {ctor});
+            kotoage fn main() authorize(anyone) -> {ty} authorize(WriteState) {{
+                return S.get_or_insert(7, {ctor});
             }}
         }}
         "#
@@ -150,7 +144,7 @@ fn ir_lower_ensure_pointer_variants_use_pointer_syscalls() {
                 } => Some((then_bb, else_bb)),
                 _ => None,
             })
-            .expect("durable ensure must branch on state presence");
+            .expect("durable get_or_insert must branch on state presence");
         let present = func
             .blocks
             .iter()
@@ -207,20 +201,20 @@ fn ir_lower_ensure_pointer_variants_use_pointer_syscalls() {
     }
 }
 #[test]
-fn runtime_durable_ensure_state_map() {
+fn runtime_durable_get_or_insert_state_map() {
     let src = r#"
-        seiyaku C {
+        seiyaku C { permission WriteState;
             state StateMap<int, int> S;
-            kotoage fn main() -> int authorize("WriteState") {
-                let x = S.ensure(key: 7);
-                let y = S.ensure(key: 7);
+            kotoage fn main() authorize(WriteState) -> int {
+                let x = S.get_or_insert(7, 0);
+                let y = S.get_or_insert(7, 5);
                 return x + y;
             }
         }
     "#;
     let code = Compiler::new()
         .compile_source(src)
-        .expect("compile durable ensure");
+        .expect("compile durable get_or_insert");
     let mut vm = IVM::new(u64::MAX);
     vm.load_program(&code).expect("load");
     let wsv = MockWorldStateView::new();
@@ -237,14 +231,11 @@ fn runtime_durable_ensure_state_map() {
     let host_ref = vm.host_mut_any().unwrap();
     let host = host_ref.downcast_ref::<WsvHost>().unwrap();
     let base = iroha_model_base::name::Name::from_str("S").expect("valid Name literal");
-    let key = ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(7))
-        .expect("encode canonical pointer-backed StateMap key");
+    let key = common::encode_int_state_value(7);
     let expected_path = format!("{}/{}", base.as_ref(), hex::encode(key));
-    let mut val = host.wsv.sc_get(&expected_path);
-    if val.is_none() {
-        let namespaced_path = format!("{}\0\0\0\0\0\0\0{}", char::from(0x01), expected_path);
-        val = host.wsv.sc_get(&namespaced_path);
-    }
-    let val = val.expect("durable state entry should exist");
+    let val = host
+        .wsv
+        .sc_get(&expected_path)
+        .expect("durable state entry should exist");
     assert_eq!(common::decode_int_state_value(&val), 0);
 }

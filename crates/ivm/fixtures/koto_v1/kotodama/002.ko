@@ -1,6 +1,6 @@
 
         seiyaku QuantityArithmetic {
-            view fn main() -> quantity {
+            view fn main() authorize(anyone) -> quantity {
                 let quantity a = 9_000_000_000;
                 let decimal factor = 2;
                 let quantity b = a * factor;

@@ -1,24 +1,15 @@
 //! Host-opening, complete context binding and adversarial final usage witnesses.
 use super::*;
 use crate::authorization_v1::compute_authorization_v1;
-use halo2_proofs::{
-    dev::MockProver,
-    halo2curves::pasta::EqAffine,
-    plonk::{create_proof, keygen_pk, keygen_vk, verify_proof},
-    poly::{
-        VerificationStrategy,
-        commitment::ParamsProver,
-        ipa::{
-            commitment::{IPACommitmentScheme, ParamsIPA},
-            multiopen::{ProverIPA, VerifierIPA},
-            strategy::SingleStrategy,
-        },
-    },
-    transcript::{
-        Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
-    },
+use iroha_pasta::{Eq, msm::MemoryBudget};
+use iroha_plonk::{
+    check::{CheckMode, check_circuit},
+    cs::InstanceType,
+    keys::{KeygenConfigV2, keygen_pk_v2},
+    pcs::ipa::PinnedParams,
+    prover::{ProverConfig, ProverRandomness, Witness, create_proof_owned},
+    verifier::verify_full,
 };
-use rand_core_06::OsRng;
 
 fn context() -> KaigiUsageContextV1 {
     KaigiUsageContextV1 {
@@ -54,16 +45,18 @@ fn raw_instance(words: [Scalar; CONTEXT_WORDS], secret: Scalar) -> [Scalar; 25] 
     instance
 }
 fn check(circuit: &KaigiUsageCircuitV1, instance: [Scalar; 25]) -> bool {
-    MockProver::run(KAIGI_USAGE_CIRCUIT_K_V1, circuit, vec![instance.to_vec()])
-        .expect("fixed usage domain fits")
-        .verify()
-        .is_ok()
+    check_circuit(
+        circuit,
+        KAIGI_USAGE_CIRCUIT_K_V1,
+        &[instance.to_vec()],
+        CheckMode::Strict,
+    )
+    .expect("fixed domain fits")
+    .is_satisfied()
 }
 
 #[test]
 fn usage_c_and_u_match_independent_poseidon_framing() {
-    use poseidon_primitives::poseidon::primitives::{ConstantLength, Hash};
-    let primitive = Hash::<Scalar, crate::KaigiPoseidonSpec, ConstantLength<2>, 3, 2>::init();
     let reference = |domain: u64, payload: &[Scalar]| {
         let mut frame = vec![Scalar::from(payload.len() as u64)];
         frame.extend_from_slice(payload);
@@ -75,7 +68,7 @@ fn usage_c_and_u_match_independent_poseidon_framing() {
         for pair in frame.chunks_exact(2) {
             state[0] += pair[0];
             state[1] += pair[1];
-            primitive.permute(&mut state);
+            crate::tests::reference_permute(&mut state);
         }
         state[0]
     };
@@ -95,7 +88,7 @@ fn usage_c_and_u_match_independent_poseidon_framing() {
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>()
     });
-    // Pinned only after agreement with the separately framed dependency permutation.
+    // Pinned only after agreement with the separately framed independent permutation.
     assert_eq!(
         hex,
         [
@@ -122,39 +115,21 @@ fn usage_opens_the_exact_stored_authorization_host_commitment() {
         ]
     );
     let instance = KaigiUsagePublicInputsV1 { context, outputs }.instance();
-    MockProver::run(
-        KAIGI_USAGE_CIRCUIT_K_V1,
+    assert!(check(
         &KaigiUsageCircuitV1::new(context, secret).unwrap(),
-        vec![instance.to_vec()],
-    )
-    .unwrap()
-    .assert_satisfied();
+        instance
+    ));
     assert_eq!(KAIGI_USAGE_CIRCUIT_K_V1, 12);
     assert_eq!(ASSIGNED_ROWS, 4037);
-    // The pinned Axiom mock backend panics on an out-of-domain assignment;
-    // retain the lower-k rejection check and authenticate that exact cause.
-    match std::panic::catch_unwind(|| {
-        MockProver::run(
-            11,
+    assert!(
+        check_circuit(
             &raw_circuit(context.words(), blinding()),
-            vec![instance.to_vec()],
+            11,
+            &[instance.to_vec()],
+            CheckMode::Strict
         )
-    }) {
-        Ok(result) => assert!(result.is_err()),
-        Err(payload) => {
-            let message = payload
-                .downcast_ref::<String>()
-                .map(String::as_str)
-                .or_else(|| payload.downcast_ref::<&str>().copied())
-                .expect("domain diagnostic");
-            assert!(
-                message.contains("row=")
-                    && message.contains("usable_rows=")
-                    && message.contains("k=11"),
-                "{message}"
-            );
-        }
-    }
+        .is_err()
+    );
     let maximal = KaigiUsageContextV1 {
         network_id: [255; 32],
         pre_roster_root: [255; 32],
@@ -313,45 +288,34 @@ fn usage_rejects_invalid_context_and_keeps_private_witness_redacted_and_owned() 
 }
 
 #[test]
-fn real_usage_ipa_proof_rejects_every_context_and_commitment_replay() {
-    let params: ParamsIPA<EqAffine> = ParamsIPA::new(KAIGI_USAGE_CIRCUIT_K_V1);
-    let empty = KaigiUsageCircuitV1::default();
-    let vk = keygen_vk(&params, &empty).unwrap();
-    let pk = keygen_pk(&params, vk.clone(), &empty).unwrap();
-    let words = context().words();
-    let instance = raw_instance(words, blinding());
-    let mut writer = Blake2bWrite::<_, EqAffine, Challenge255<EqAffine>>::init(Vec::new());
-    create_proof::<
-        IPACommitmentScheme<EqAffine>,
-        ProverIPA<'_, EqAffine>,
-        Challenge255<EqAffine>,
-        _,
-        _,
-        _,
-    >(
+fn real_usage_pipa_r_proof_rejects_every_context_and_commitment_replay() {
+    let params = PinnedParams::<Eq>::derive(KAIGI_USAGE_CIRCUIT_K_V1).unwrap();
+    let pk = keygen_pk_v2(
         &params,
-        &pk,
-        &[raw_circuit(words, blinding())],
-        &[&[&instance]],
-        OsRng,
-        &mut writer,
+        &KaigiUsageCircuitV1::default(),
+        &KeygenConfigV2::pipa_r(vec![InstanceType::Field]),
     )
     .unwrap();
-    let proof = writer.finalize();
-    let verify = |instance: &[Scalar]| {
-        let mut reader = Blake2bRead::<_, EqAffine, Challenge255<EqAffine>>::init(proof.as_slice());
-        verify_proof::<
-            IPACommitmentScheme<EqAffine>,
-            VerifierIPA<'_, EqAffine>,
-            Challenge255<EqAffine>,
-            _,
-            _,
-        >(
+    let words = context().words();
+    let instance = raw_instance(words, blinding());
+    let witness =
+        Witness::from_circuit(&pk, &raw_circuit(words, blinding()), &[instance.to_vec()]).unwrap();
+    let proof = create_proof_owned(
+        &params,
+        &pk,
+        witness,
+        ProverRandomness::hedged(),
+        ProverConfig::default(),
+    )
+    .unwrap();
+    let verify = |statement: &[Scalar]| {
+        verify_full(
             &params,
-            &vk,
-            SingleStrategy::new(&params),
-            &[&[instance]],
-            &mut reader,
+            pk.binding(),
+            pk.vk(),
+            &[statement.to_vec()],
+            &proof,
+            MemoryBudget::DEFAULT,
         )
         .is_ok()
     };

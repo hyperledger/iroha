@@ -384,3 +384,113 @@ fn borrowed_fee_funding_values_are_exact_and_missing_source_bucket_is_refused() 
         Some(account.alias.clone())
     );
 }
+
+fn identifier_original_pair() -> (
+    iroha_data_model::identifier::IdentifierPolicy,
+    iroha_data_model::ram_lfe::RamLfeProgramPolicy,
+) {
+    use iroha_crypto::{PolicyCommitment, RamLfeBackend, RamLfeVerificationMode};
+    use iroha_data_model::{
+        identifier::{IdentifierNormalization, IdentifierPolicy},
+        ram_lfe::RamLfeProgramPolicy,
+    };
+    let key = KeyPair::from_seed(vec![42; 32], Algorithm::Ed25519);
+    let owner = AccountId::new(key.public_key().clone());
+    let program_id: iroha_data_model::ram_lfe::RamLfeProgramId =
+        "original-program".parse().unwrap();
+    let policy = IdentifierPolicy::new(
+        "email#retail".parse().unwrap(),
+        owner.clone(),
+        IdentifierNormalization::EmailAddress,
+        program_id.clone(),
+    );
+    let program = RamLfeProgramPolicy::new(
+        program_id,
+        owner,
+        RamLfeBackend::HkdfSha3_512PrfV1,
+        RamLfeVerificationMode::Proof,
+        PolicyCommitment {
+            backend: RamLfeBackend::HkdfSha3_512PrfV1,
+            policy_hash: Hash::new(b"synthetic authority originals policy"),
+            public_parameters: vec![3, 5, 7],
+        },
+        key.public_key().clone(),
+    );
+    (policy, program)
+}
+
+#[test]
+fn identifier_originals_borrowed_encoding_and_correlation_preserve_both_rows() {
+    let (policy, program) = identifier_original_pair();
+    let (request, original) = account_fixture();
+    let mut request = request.clone();
+    request.selector = NativeAuthorityOriginalsSelectorV1::IdentifierPolicy(policy.id.clone());
+    let wire = request.canonical_wire().unwrap();
+    assert_eq!(
+        decode_native_authority_originals_request_v1(&wire).unwrap(),
+        request
+    );
+    let mut response = correlated(&request, original.clone());
+    response.originals =
+        NativeAuthorityOriginalsFamilyV1::IdentifierPolicy(NativeIdentifierPolicyStateV1 {
+            policy,
+            program,
+        });
+    response.validate_request_correlation(&request).unwrap();
+    let NativeAuthorityOriginalsFamilyV1::IdentifierPolicy(state) = &response.originals else {
+        unreachable!()
+    };
+    let borrowed = NativeAuthorityOriginalsRefV1::new(
+        &response.request_sha256,
+        &response.selector,
+        &response.attestation,
+        &response.world_snapshot,
+        NativeAuthorityOriginalsFamilyRefV1::IdentifierPolicy(
+            NativeIdentifierPolicyStateRefV1::new(&state.policy, &state.program),
+        ),
+    );
+    let wire = norito::encode_canonical(&response).unwrap();
+    assert_eq!(norito::encode_canonical(&borrowed).unwrap(), wire);
+    assert_eq!(
+        norito::json::to_json(&borrowed).unwrap(),
+        norito::json::to_json(&response).unwrap()
+    );
+    assert!(norito::json::to_json_bounded(&borrowed, 4).is_err());
+    let decoded = decode_unverified_native_authority_originals_v1(&wire).unwrap();
+    assert_eq!(decoded, response);
+    decoded.validate_request_correlation(&request).unwrap();
+    // This is correlation/codec coverage, not World membership or policy activation.
+    assert!(!state.policy.active && !state.program.active);
+    let mut changed = request.clone();
+    changed.challenge = [44; 32];
+    assert!(response.validate_request_correlation(&changed).is_err());
+    for mode in 0..5 {
+        let mut bad = response.clone();
+        let NativeAuthorityOriginalsFamilyV1::IdentifierPolicy(state) = &mut bad.originals else {
+            unreachable!()
+        };
+        match mode {
+            0 => state.policy.id = "other#retail".parse().unwrap(),
+            1 => state.policy.program_id = "foreign-program".parse().unwrap(),
+            2 => state.program.program_id = "foreign-program".parse().unwrap(),
+            3 => {
+                state.policy.note =
+                    Some("x".repeat(NATIVE_AUTHORITY_ORIGINALS_MAX_ROW_BYTES_V1 + 1))
+            }
+            4 => {
+                state.program.commitment.public_parameters =
+                    vec![9; NATIVE_AUTHORITY_ORIGINALS_MAX_ROW_BYTES_V1 + 1]
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            bad.validate_request_correlation(&request).is_err(),
+            "mode {mode}"
+        );
+    }
+    let bad = correlated(&request, original.clone());
+    assert!(
+        bad.validate_request_correlation(&request).is_err(),
+        "foreign family"
+    );
+}

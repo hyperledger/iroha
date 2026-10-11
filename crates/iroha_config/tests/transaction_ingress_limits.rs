@@ -1,4 +1,5 @@
 //! Validate Torii transaction-ingress resource-corridor configuration.
+
 use iroha_config::parameters::{actual::Root as ActualConfig, defaults, user::Root as UserConfig};
 use iroha_config_base::{read::ConfigReader, toml::TomlSource};
 use std::path::PathBuf;

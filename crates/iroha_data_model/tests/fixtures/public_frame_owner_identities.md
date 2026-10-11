@@ -71,13 +71,14 @@ root/Option/Vec frames retain their individually observed identities.
 | Fixture | Coverage | SHA-256 |
 | --- | --- | --- |
 | `manual_scalar_identity_frames.json` | Five owners, 35 frames: X.509 key usage, contract argument, alias, address and manifest CID | `7326473b538f2ef1248d6c1c847fadccdc01a139bd199cec291479b8379c6ece` |
-| `manual_protocol_identity_frames.json` | Eight owners, 56 frames: privacy magic/digest/catalog, confidential memo, device key/signature, IPM1 kind and repo instruction | `d6b705ce898b771cdd65090f8335df758357e8e6737532304051b8fc3d7c6e56` |
+| `manual_protocol_identity_frames.json` | Seven owners, 47 frames: privacy magic/digest/catalog, confidential memo, device key/signature and repo instruction | `d5059a7ff54f00d3969fee4e62d1d05366b89ba4739d46330420b3d2e01dfb09` |
 | `manual_proof_identity_frames.json` | Three owners, 29 frames: proof attachment/list and Kaigi authorization scalar | `dbaa4907c8c3076bf5fb3e436f6e1a8129de115734c31402c89b3a8f603e01d7` |
 
 `PrivacyX509KeyUsageRequirementV1` alone projects its root frame to `bool`.
 Its Option and Vec frames retain the wrapper's nominal identity and reject
-boolean-container frames in both directions. The other fifteen owners retain
-their own observed root identities. The full names and directional hashes are
+boolean-container frames in both directions. The other fourteen owners retain
+their own observed root identities. The old KAGEMUSHA IPM1 payload-kind owner and
+its nine frames were deleted with that wire family. The full names and directional hashes are
 stored in these immutable captures; no source-path lookup or alternate accepted
 identity is introduced.
 

@@ -480,3 +480,217 @@ async fn cold_genesis_uptime_refusal_remains_deferred_after_classified_prefix() 
         total
     );
 }
+
+// Test-owned real publisher lifetime. Cleanup releases and joins on every outcome.
+struct HeldStatusPublication {
+    release: Option<std::sync::mpsc::Sender<()>>,
+    writer: Option<std::thread::JoinHandle<()>>,
+}
+
+impl HeldStatusPublication {
+    fn release_and_join(mut self) -> std::thread::Result<()> {
+        if let Some(release) = self.release.take() {
+            let _ = release.send(());
+        }
+        self.writer
+            .take()
+            .expect("original publisher thread")
+            .join()
+    }
+}
+
+impl Drop for HeldStatusPublication {
+    fn drop(&mut self) {
+        if let Some(release) = self.release.take() {
+            let _ = release.send(());
+        }
+        if let Some(writer) = self.writer.take() {
+            let _ = writer.join();
+        }
+    }
+}
+
+async fn hold_original_status_publication(
+    state: &Arc<State>,
+) -> (
+    HeldStatusPublication,
+    iroha_allocation::release::ReleaseWait,
+) {
+    let (entered, ready) = oneshot::channel();
+    let (release, resume) = std::sync::mpsc::channel();
+    let original = Arc::clone(state);
+    let writer = std::thread::spawn(move || {
+        original.with_held_view_publication_for_reader_test(|wait| {
+            entered.send(wait).expect("original publication entered");
+            let _ = resume.recv();
+        });
+    });
+    let held = HeldStatusPublication {
+        release: Some(release),
+        writer: Some(writer),
+    };
+    let wait = ready.await.expect("actual publisher handshake");
+    (held, wait)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_prelude_refuses_original_publication_before_service_deadline() {
+    let sut = SystemUnderTest::new_native();
+    // Complete actual actor startup and canonical classification before contention.
+    let (warm, warm_height) = sut
+        .telemetry
+        .status_snapshot(&BuildStatus::default())
+        .await
+        .expect("current native status before held publication")
+        .into_parts();
+    assert_eq!(
+        warm_height,
+        u64::try_from(sut.state.committed_height()).unwrap()
+    );
+    let budget = sut.state.ivm_execution_budget();
+    let charged = budget.reserved_bytes();
+    let (held, original_wait) = hold_original_status_publication(&sut.state).await;
+    let exact_original = matches!(
+        sut.state.try_view_once(),
+        Err(crate::state::StateViewError::Busy(wait)) if wait == original_wait
+    );
+    let start = tokio::time::Instant::now();
+    let result = sut.telemetry.status_snapshot(&BuildStatus::default()).await;
+    let elapsed = start.elapsed();
+    let held_charge = budget.reserved_bytes();
+    // Both old and repaired paths release and physically join before assertions.
+    let joined = held.release_and_join();
+    let (after, height) = sut
+        .telemetry
+        .status_snapshot(&BuildStatus::default())
+        .await
+        .expect("current native classification after original publisher release")
+        .into_parts();
+    assert!(joined.is_ok(), "original status publisher must join");
+    assert!(
+        exact_original,
+        "test holds the actual State publication refusal"
+    );
+    assert_eq!(held_charge, charged);
+    assert_eq!(budget.reserved_bytes(), charged);
+    assert_eq!(height, u64::try_from(sut.state.committed_height()).unwrap());
+    assert_eq!(height, warm_height);
+    assert_eq!(after.blocks, height);
+    assert_eq!(after.txs_approved, warm.txs_approved);
+    assert_eq!(after.txs_rejected, warm.txs_rejected);
+    assert_eq!(
+        after.sumeragi.unwrap().mode_tag,
+        warm.sumeragi.unwrap().mode_tag
+    );
+    assert!(
+        matches!(result, Err(StatusSnapshotError::StateBusy)),
+        "status prelude must return the original State busy refusal without waiting for publication: observed {result:?}"
+    );
+    assert!(
+        elapsed < METRICS_SYNC_TIMEOUT,
+        "original status deadline is unchanged"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_final_world_sample_refuses_publication_after_verified_chunk() {
+    let sut = SystemUnderTest::new_native();
+    sut.telemetry
+        .status_snapshot(&BuildStatus::default())
+        .await
+        .expect("current native genesis classification");
+    let block = sut.commit_block(sut.create_block());
+    let expected_height = usize::try_from(block.height()).unwrap();
+    let (entered, ready) = oneshot::channel();
+    let (resume, wait) = oneshot::channel();
+    sut.telemetry
+        .actor
+        .send(Message::TestChunkBarrier {
+            entered,
+            resume: wait,
+        })
+        .await
+        .expect("original status actor mailbox");
+    let telemetry = sut.telemetry.clone();
+    let response =
+        tokio::spawn(async move { telemetry.status_snapshot(&BuildStatus::default()).await });
+    let at = tokio::time::timeout(METRICS_SYNC_TIMEOUT, ready).await;
+    if !matches!(at, Ok(Ok(_))) {
+        let _ = resume.send(());
+        let result = response.await;
+        panic!("actual classified status chunk did not reach its barrier: {at:?}; {result:?}");
+    }
+    let at = at.unwrap().unwrap();
+    let classified = sut.telemetry.metrics.block_height.get();
+    let accepted = sut
+        .telemetry
+        .metrics
+        .txs
+        .with_label_values(&["accepted"])
+        .get();
+    let budget = sut.state.ivm_execution_budget();
+    let charged = budget.reserved_bytes();
+    let (held, original_wait) = hold_original_status_publication(&sut.state).await;
+    let exact_original = matches!(
+        sut.state.try_view_once(),
+        Err(crate::state::StateViewError::Busy(wait)) if wait == original_wait
+    );
+    let _ = resume.send(());
+    let result = response.await;
+    let held_charge = budget.reserved_bytes();
+    let joined = held.release_and_join();
+    let (after, height) = sut
+        .telemetry
+        .status_snapshot(&BuildStatus::default())
+        .await
+        .expect("current native status after final-sample writer release")
+        .into_parts();
+    assert!(joined.is_ok(), "original final-sample writer must join");
+    assert!(
+        exact_original,
+        "final sample holds the actual State publication"
+    );
+    assert_eq!(at, expected_height);
+    assert_eq!(classified, u64::try_from(expected_height).unwrap());
+    assert_eq!(held_charge, charged);
+    assert_eq!(budget.reserved_bytes(), charged);
+    assert_eq!(height, classified);
+    assert_eq!(after.blocks, classified);
+    assert_eq!(after.txs_approved, accepted);
+    assert!(
+        matches!(result, Ok(Err(StatusSnapshotError::StateBusy))),
+        "status final World sample must refuse the original publication after retaining its verified chunk: observed {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn status_state_view_error_mapping_keeps_existing_busy_and_terminal_categories() {
+    let sut = SystemUnderTest::new();
+    sut.state.with_held_header_for_reader_test(|original| {
+        let error = match sut.state.try_view_once() {
+            Ok(_) => panic!("actual held header writer must refuse status sampling"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            &error,
+            crate::state::StateViewError::Busy(wait) if wait == &original
+        ));
+        assert!(matches!(
+            StatusSnapshotError::from(error),
+            StatusSnapshotError::StateBusy
+        ));
+    });
+    for error in [
+        crate::state::StateViewError::Changed,
+        crate::state::StateViewError::Poisoned,
+        crate::state::StateViewError::Runtime(crate::state::LaneLifecycleError::Storage(
+            "invalid original runtime projection".to_owned(),
+        )),
+    ] {
+        assert!(matches!(
+            StatusSnapshotError::from(error),
+            StatusSnapshotError::StateUnavailable
+        ));
+    }
+    assert!(sut.state.try_view_once().is_ok());
+}

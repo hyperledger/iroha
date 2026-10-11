@@ -23,7 +23,7 @@ use crate::sumeragi::durable_qc_codec::QcRef;
 pub(in crate::sumeragi) use decode::LaneRecordDecode;
 
 /// The only lane record, in fixed order: header, original availability, payload, CommitQC.
-/// All three bulk domains are funded in the reader's original pool; this remains untrusted.
+/// Both bulk domains are funded in the reader's original pool; this remains untrusted.
 #[derive(Debug, norito::Encode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core::sumeragi::lanes::LaneRecord")]
 pub(in crate::sumeragi) struct LaneRecord {
@@ -40,11 +40,12 @@ impl LaneRecord {
     }
 
     /// Untrusted mandatory original signature table, without a payload availability claim.
+    #[cfg(test)]
     pub(in crate::sumeragi) fn availability(&self) -> &AvailabilityFrame {
         &self.availability
     }
 
-    /// Untrusted certificate. Core retains its independent signature/attestation verification.
+    /// Untrusted certificate. Core retains its independent signature verification.
     pub(in crate::sumeragi) fn commit_qc(&self) -> &Qc {
         &self.commit_qc
     }
@@ -130,7 +131,6 @@ fn structural_context(header: &BlockHeader, qc: &Qc) -> Result<(), LaneRecordErr
         || qc.instance != header.instance
         || qc.epoch != header.epoch
         || qc.height != header.height
-        || qc.attest != header.attest
     {
         return Err(LaneRecordError::Context);
     }
@@ -155,7 +155,7 @@ fn check_context(
     Ok(())
 }
 
-/// Original body, certificate witness and fixed output retained through every publication retry.
+/// Original body, certificate and fixed output retained through every publication retry.
 pub(in crate::sumeragi) struct PreparedLaneWrite {
     body: AvailableBody,
     commit_qc: Qc,
@@ -176,7 +176,7 @@ impl PreparedLaneWrite {
     pub(in crate::sumeragi) fn body(&self) -> &AvailableBody {
         &self.body
     }
-    /// Original certificate, including its admitted witness owner.
+    /// Original certificate with its exact signer bitmap and aggregate.
     pub(in crate::sumeragi) fn commit_qc(&self) -> &Qc {
         &self.commit_qc
     }
@@ -194,17 +194,12 @@ impl PreparedLaneWrite {
         check_context(self.body.header(), &self.commit_qc, source, crypto)
     }
     /// Check structural consistency and encode once in exact original-pool backing.
-    /// Every failure leaves all owners in this job. No witness is copied into an uncharged Vec.
+    /// Every failure leaves all owners in this job. No payload or availability frame is copied into an uncharged Vec.
     pub(in crate::sumeragi) fn prepare(
         &mut self,
         budget: &AllocationBudget,
     ) -> Result<&[u8], LaneRecordError> {
         if !self.body.admitted_to(budget)
-            || self
-                .commit_qc
-                .attestation_witness
-                .as_ref()
-                .is_some_and(|w| !w.admitted_to(budget))
             || self.bytes.as_ref().is_some_and(|b| !b.belongs_to(budget))
         {
             return Err(LaneRecordError::ForeignBudget);

@@ -2,13 +2,13 @@
 #
 # Run the default contributor checks for Rust packages affected by the current
 # branch and working tree. Requires Git, Cargo, and Python with scripts
-# dependencies installed. Use --full for the exhaustive workspace workflow.
+# dependencies installed. Swift checks require macOS, Python 3.12, full Xcode,
+# and rustup. Use --full for the exhaustive workspace workflow.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-SWIFT_DIR="${REPO_ROOT}/IrohaSwift"
 ROUTER="${SCRIPT_DIR}/rust_ci.py"
 
 skip_tests=false
@@ -25,14 +25,14 @@ Runs the affected contributor workflow:
   1) cargo fmt --all -- --check
   2) classify changed packages with locked Cargo metadata
   3) cargo clippy/build/test --locked for the reverse-dependency closure
-  4) swift test when Swift sources or shared fixtures changed
+  4) prepare current native artifacts and run Swift tests when affected (macOS)
 
 Options:
   --base REF       Compare committed changes with REF instead of origin/main.
   --full           Validate every Rust lane and run Swift tests.
   --skip-tests     Omit affected cargo tests.
   --skip-swift     Omit Swift tests.
-  --target-dir DIR Set CARGO_TARGET_DIR to avoid build-directory contention.
+  --target-dir DIR Set CARGO_TARGET_DIR for the Rust checks.
   -h, --help       Show this help.
 
 Unknown, ambiguous, root-build, fixture, configuration, script, and workflow
@@ -150,8 +150,14 @@ import sys
 document = json.load(open(sys.argv[1], encoding="utf-8"))
 full = sys.argv[2] == "true"
 changed = document["changed_paths"]
-required = full or any(
-    path.startswith(("IrohaSwift/", "fixtures/")) for path in changed
+swift_prerequisites = {
+    "scripts/test_swift_local.py",
+    "scripts/norito_bridge_local_unit.py",
+    "scripts/build_native_sdk_host_guarded.py",
+}
+required = full or "connect_norito_bridge" in document["impacted_packages"] or any(
+    path.startswith(("IrohaSwift/", "fixtures/")) or path in swift_prerequisites
+    for path in changed
 )
 print("true" if required else "false")
 PY
@@ -161,13 +167,8 @@ if [[ "${skip_swift}" == true ]]; then
 	echo "[4/4] swift test (skipped)"
 elif [[ "${swift_required}" != true ]]; then
 	echo "[4/4] swift test (not affected)"
-elif command -v swift >/dev/null 2>&1; then
-	echo "[4/4] swift test (IrohaSwift)"
-	(
-		cd -- "${SWIFT_DIR}"
-		swift test
-	)
 else
-	echo "[4/4] swift test (swift not found; skipped)"
-	echo "Install Swift and rerun from ${SWIFT_DIR} to exercise the Swift SDK suite."
+	echo "[4/4] prepare native artifacts and run the complete local Swift suite"
+	# The host prerequisite owns its separate, guarded warm Cargo lane.
+	env -u CARGO_TARGET_DIR python3.12 "${SCRIPT_DIR}/test_swift_local.py"
 fi

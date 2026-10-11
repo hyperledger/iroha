@@ -3406,6 +3406,10 @@ mod tests {
 
     #[test]
     #[ignore = "explicit maintenance command prints current reputation event-id projection frames"]
+    #[expect(
+        clippy::assertions_on_constants,
+        reason = "This ignored fixture producer must fail at runtime when requested without its features while ordinary no-default test builds remain supported"
+    )]
     fn print_reputation_event_id_identity_fixture() {
         assert!(cfg!(feature = "governance"), "capture requires governance");
         assert!(cfg!(feature = "http"), "capture requires HTTP");

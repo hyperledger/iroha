@@ -231,6 +231,9 @@ fn contract_manifest_fixture_types() -> Result<ContractManifestFixtureTypes, Str
         },
     };
     let manifest = ContractManifest {
+        permissions: Vec::new(),
+        enum_types: Vec::new(),
+        events: Vec::new(),
         seiyaku_name: Some("Test".to_owned()),
         code_hash: None,
         abi_hash: None,
@@ -244,7 +247,7 @@ fn contract_manifest_fixture_types() -> Result<ContractManifestFixtureTypes, Str
             argument_schema: None,
             return_type: Some("()".to_owned()),
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit] }),
-            permission: Some("Execute".to_owned()),
+            authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),

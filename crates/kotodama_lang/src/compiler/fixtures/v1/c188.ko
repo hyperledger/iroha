@@ -8,7 +8,7 @@
                 return 777;
             }
 
-            view fn exposed(int value) -> int {
+            view fn exposed(int value) authorize(anyone) -> int {
                 return helper(value: helper(value: value));
             }
         }

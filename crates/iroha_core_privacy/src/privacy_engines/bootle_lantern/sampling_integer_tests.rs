@@ -360,7 +360,20 @@ fn zero_rejection_inputs_match_exact_reciprocal_m_vectors() {
             RejectionKindV1::Standard => standard_rejection_threshold_v1(0, 0, profile),
             RejectionKindV1::Bimodal => bimodal_rejection_threshold_v1(0, 0, profile),
         };
-        assert_eq!(finite_threshold(threshold), U256::from_be_hex(expected));
+        let threshold = finite_threshold(threshold);
+        assert_eq!(threshold, U256::from_be_hex(expected));
+        // Independent integer oracle: each zero-input threshold is exactly
+        // floor(2^512 / M_q256), not a rounded reciprocal or a limb truncation.
+        let m = profile.rejection_m_q256();
+        let threshold = U512::from(&threshold);
+        let lower: U1024 = m.mul(&threshold);
+        let upper: U1024 = m.mul(&threshold.wrapping_add(&U512::ONE));
+        let numerator = U1024::ONE.shl_vartime(512);
+        assert!(lower <= numerator, "reciprocal floor exceeds exact ratio");
+        assert!(
+            numerator < upper,
+            "reciprocal floor loses integer precision"
+        );
     }
 }
 #[test]

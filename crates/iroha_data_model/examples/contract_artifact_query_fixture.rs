@@ -25,6 +25,7 @@ use norito::{NoritoDeserialize, NoritoSchema, NoritoSerialize, json, json::Value
 // collection offset framing are unchanged. Consumers must read this metadata,
 // never infer layout from payload bytes or enable retired packed-layout bits.
 const FIXTURE_LAYOUT_FLAGS: u8 = 0x02;
+const PROOF_RECORD_BACKEND: &str = "pipa-r/pasta";
 
 const NETWORK: &str = "hash:32C903E5B3497E34C2B844EBFE8A39C19E6CF8F95D44C1FFB8BA9DCB42F91149#A2F0";
 // Public disposable SDK fixture seed, never a wallet or deployment credential.
@@ -176,11 +177,11 @@ fn managed_singular_cases(
         (
             "FindProofRecordById",
             query::proof::FindProofRecordById::new(ProofId {
-                backend: "halo2/ipa".to_owned(),
+                backend: PROOF_RECORD_BACKEND.to_owned(),
                 proof_hash: [0x27; 32],
             })
             .into(),
-            json!({"backend": "halo2/ipa", "proof_hash": (hex(&[0x27; 32]))}),
+            json!({"backend": PROOF_RECORD_BACKEND, "proof_hash": (hex(&[0x27; 32]))}),
         ),
         (
             "FindContractManifestByArtifactId",
@@ -341,6 +342,38 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn proof_record_fixture_binds_the_current_registry_backend_in_native_bytes() {
+        let fixture = fixture();
+        let case = fixture
+            .get("singular_cases")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case.get("name").unwrap().as_str() == Some("FindProofRecordById"))
+            .unwrap();
+        assert_eq!(
+            case.get("inputs").unwrap().get("backend").unwrap().as_str(),
+            Some("pipa-r/pasta")
+        );
+        let expected = QueryRequest::Singular(
+            iroha_data_model::query::proof::FindProofRecordById::new(
+                iroha_data_model::proof::ProofId {
+                    backend: "pipa-r/pasta".to_owned(),
+                    proof_hash: [0x27; 32],
+                },
+            )
+            .into(),
+        );
+        let (bytes, flags) = norito::codec::encode_with_header_flags(&expected);
+        assert_eq!(flags, FIXTURE_LAYOUT_FLAGS);
+        assert_eq!(
+            case.get("query_request_hex").unwrap().as_str(),
+            Some(hex(&bytes).as_str())
+        );
+    }
 
     #[test]
     fn every_managed_singular_query_has_an_authenticated_native_case() {

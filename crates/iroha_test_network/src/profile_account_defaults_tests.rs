@@ -14,7 +14,7 @@ fn profile_account_defaults_materialize_selected_chain_before_root_parse() {
         369
     );
     assert_eq!(&layers[..originals.len()], originals.as_slice());
-    let merged = merged_sora_profile_detection_config(&layers);
+    let (_peer_directory, _peer, merged) = sora_profile_runtime_config_fixture(&layers);
     let expected_bond = defaults::governance::bond_escrow_account_id()
         .to_i105_for_discriminant(369)
         .unwrap();

@@ -37,7 +37,7 @@ fn run_main_body_with_gas(result_type: &str, body: &str) -> (IVM, u64) {
     run_with_gas(&format!(
         r#"
         seiyaku ListGasContract {{
-            view fn main() -> {result_type} {{
+            view fn main() authorize(anyone) -> {result_type} {{
                 {body}
             }}
         }}
@@ -59,6 +59,35 @@ fn returned_int_list(vm: &IVM, capacity: u64) -> (u64, u64, Vec<i64>, Vec<u64>) 
         .map(|pointer| common::decode_i64_word(vm, *pointer))
         .collect();
     (length, words[1], elements, words[active_end..].to_vec())
+}
+// Protected return validation charges each active int separately. Pop changes
+// that active count, so remove only this canonical variable return charge before
+// comparing operation work; the List header, frame, and all body charges remain.
+fn int_list_active_return_validation_gas(vm: &IVM, capacity: u64) -> u64 {
+    let layout = ListLayoutV1::try_new(capacity, 1).expect("List<int, N> layout");
+    let base = vm
+        .public_call_result_word(0)
+        .expect("completed return word");
+    let length = vm.load_u64(base).expect("returned List length");
+    let mut gas = 0_u64;
+    for index in 0..length {
+        let offset = layout
+            .present_slot_offset(length, index)
+            .expect("active returned List slot");
+        let pointer = vm.load_u64(base + offset).expect("returned int pointer");
+        let tlv = vm
+            .validate_tlv(pointer)
+            .expect("validated returned int envelope");
+        assert_eq!(tlv.type_id, PointerType::Int);
+        let pointer_gas = ivm::call_gas::pointer(
+            u64::try_from(tlv.payload.len()).expect("returned int payload fits u64"),
+        )
+        .expect("bounded canonical pointer quote");
+        gas = gas
+            .checked_add(ivm::call_gas::NODE + ivm::call_gas::WORD + pointer_gas)
+            .expect("bounded active List validation quote");
+    }
+    gas
 }
 fn positive_gas_delta(measured: u64, control: u64, operation: &str) -> u64 {
     assert!(
@@ -100,7 +129,9 @@ fn run_parameterized_int_entrypoint(program: &[u8], index: i64) -> (IVM, u64) {
         Json::from_str_norito(&format!(r#"{{"index":"{index}"}}"#)).expect("valid List arguments");
     let record = ivm_abi::arguments::encode_argument_record_from_json(schema, &payload)
         .expect("encode List arguments");
-    let key: Name = "trigger_event_json".parse().expect("public input key");
+    let key: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+        .parse()
+        .expect("public input key");
     let host = DefaultHost::new().with_public_inputs(BTreeMap::from([(
         key,
         argument_tlv(PointerType::NoritoBytes, &record),
@@ -141,7 +172,9 @@ fn run_multiword_mutation_failure_case(
     .expect("valid multiword List arguments");
     let record = ivm_abi::arguments::encode_argument_record_from_json(schema, &payload)
         .expect("encode List arguments");
-    let key: Name = "trigger_event_json".parse().expect("public input key");
+    let key: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+        .parse()
+        .expect("public input key");
     let host = DefaultHost::new().with_public_inputs(BTreeMap::from([(
         key,
         argument_tlv(PointerType::NoritoBytes, &record),
@@ -190,7 +223,7 @@ fn list_gas_grows_with_the_active_element_count_at_fixed_capacity() {
         let source = format!(
             r#"
             seiyaku ListGas {{
-                view fn main() -> int {{
+                view fn main() authorize(anyone) -> int {{
                     let List<int, 8> source = [{elements}];
                     let List<int, 8> copied = [value for value in source if value > 0];
                     if copied.contains(99) {{ return -1; }}
@@ -469,8 +502,20 @@ fn pop_gas_and_transactionality_cover_nonempty_and_empty_lists() {
         empty_control_values,
         "empty pop must leave the complete allocation unchanged"
     );
-    let nonempty_delta = positive_gas_delta(nonempty_gas, nonempty_control_gas, "nonempty pop");
-    let empty_delta = positive_gas_delta(empty_gas, empty_control_gas, "empty pop");
+    let operation_gas = |vm: &IVM, gas: u64| {
+        gas.checked_sub(int_list_active_return_validation_gas(vm, 3))
+            .expect("total execution gas contains every active return validation charge")
+    };
+    let nonempty_delta = positive_gas_delta(
+        operation_gas(&nonempty, nonempty_gas),
+        operation_gas(&nonempty_control, nonempty_control_gas),
+        "nonempty pop",
+    );
+    let empty_delta = positive_gas_delta(
+        operation_gas(&empty, empty_gas),
+        operation_gas(&empty_control, empty_control_gas),
+        "empty pop",
+    );
     assert!(
         empty_delta < nonempty_delta,
         "empty pop must skip payload reads and clearing writes: nonempty={nonempty_delta}, empty={empty_delta}"

@@ -35,24 +35,24 @@ mod checked_string_id_tests {
     fn assert_canonical_stream<
         T: JsonSerialize + JsonDeserialize + std::fmt::Display + std::fmt::Debug + PartialEq,
     >(
-        id: T,
+        id: &T,
     ) {
         let expected = norito::json::to_json(&id.to_string()).unwrap();
-        assert_eq!(norito::json::to_json(&id).unwrap(), expected);
+        assert_eq!(norito::json::to_json(id).unwrap(), expected);
         let limits =
             |bytes| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, 32);
         let (body, usage) =
             norito::core::with_decode_limits_measured(limits(expected.len()), || {
-                norito::json::to_json_bounded_boxed(&id, expected.len())
+                norito::json::to_json_bounded_boxed(id, expected.len())
             });
         let body = body.unwrap();
         assert_eq!(&*body, expected.as_bytes());
         assert_eq!(usage.total_allocated_bytes(), expected.len());
-        assert_eq!(norito::json::from_slice::<T>(&body).unwrap(), id);
-        assert!(norito::json::to_json_bounded_boxed(&id, expected.len() - 1).is_err());
+        assert_eq!(&norito::json::from_slice::<T>(&body).unwrap(), id);
+        assert!(norito::json::to_json_bounded_boxed(id, expected.len() - 1).is_err());
         assert!(
             norito::with_decode_limits_scope(limits(expected.len() - 1), || {
-                norito::json::to_json_bounded_boxed(&id, expected.len())
+                norito::json::to_json_bounded_boxed(id, expected.len())
             })
             .is_err()
         );
@@ -60,18 +60,18 @@ mod checked_string_id_tests {
     #[test]
     fn native_string_ids_stream_exact_wire_without_literal_scratch() {
         assert_canonical_stream(
-            "rose$wonderland.universal"
+            &"rose$wonderland.universal"
                 .parse::<crate::nft::NftId>()
                 .unwrap(),
         );
-        assert_canonical_stream("notify".parse::<crate::trigger::TriggerId>().unwrap());
+        assert_canonical_stream(&"notify".parse::<crate::trigger::TriggerId>().unwrap());
         assert_canonical_stream(
-            "repo_trade"
+            &"repo_trade"
                 .parse::<crate::repo::RepoAgreementId>()
                 .unwrap(),
         );
         assert_canonical_stream(
-            "fx_trade"
+            &"fx_trade"
                 .parse::<crate::isi::settlement::SettlementId>()
                 .unwrap(),
         );

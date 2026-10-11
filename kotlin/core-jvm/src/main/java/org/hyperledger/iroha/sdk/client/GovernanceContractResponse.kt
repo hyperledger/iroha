@@ -30,6 +30,8 @@ class GovernanceContractLifecycle(
     @JvmField val pendingOwner: String?,
     @JvmField val parliamentDelegated: Boolean,
     @JvmField val activeCodeHashHex: String?,
+    /** Last bound complete artifact, retained while inactive. */
+    @JvmField val retainedCodeHashHex: String?,
     /** Full unsigned lifecycle CAS revision. */
     @JvmField val revision: BigInteger,
     @JvmField val emergencyHold: GovernanceContractEmergencyHold?,

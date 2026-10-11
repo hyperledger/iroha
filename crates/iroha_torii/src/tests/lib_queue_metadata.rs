@@ -50,14 +50,19 @@ mod tests_queue_metadata {
         let occupied = budget.try_reserve_bytes(8).unwrap();
         let original = budget.try_reserve_bytes(1).unwrap_err();
         let error = queue::Error::Deferred(original.clone().into());
-        assert_eq!(Error::status_code_for_queue_error(&error), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(
+            Error::status_code_for_queue_error(&error),
+            StatusCode::TOO_MANY_REQUESTS
+        );
         let envelope = Error::queue_error_envelope(&error, None);
         assert_eq!(envelope.code, "admission_deferred");
         let details = envelope.details.unwrap();
         assert_eq!(details.retry_after_seconds, Some(1));
         assert!(details.reject_code.is_none());
         assert!(details.fee.is_none());
-        let queue::Error::Deferred(owner) = error else { unreachable!() };
+        let queue::Error::Deferred(owner) = error else {
+            unreachable!()
+        };
         assert_eq!(owner.allocation_refusal(), Some(&original));
         drop(occupied);
     }

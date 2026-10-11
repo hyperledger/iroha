@@ -11,6 +11,10 @@ existence, exact effective alias grants, deployment CAS state, and
 every quoted native transaction. `persist` records the exact signed plan without
 submission. `execute` persists before dispatch; `resume` authenticates that plan
 and polls every attempted hash without signing a replacement or replaying it.
+Journal inspection, cancellation and receipt reads require the caller's original preflight and
+compare the complete authenticated plan before network reads or journal writes.
+Managed and package recovery also bind the service's Prepared event to that review
+before forwarding progress or dispatching a transaction.
 Bare governance identities are rejected because they are not approval evidence.
 Registered developers need no global management grant for immutable artifact
 creation. All stages pay the configured native fees. Other valid publisher
@@ -18,6 +22,13 @@ signatures over the same verified manifest content reuse the first stored
 provenance; neither the receipt nor readback claims that provenance was replaced.
 An owned domain acquired through the canonical paid `EnsureAlias` flow supplies
 only the exact alias scope needed within that domain.
+
+Artifact-derived `LifecycleHook` and `DeploymentLifecycleGuidance` let native
+frontends explain a required initialization call separately from the Applied
+deployment receipt. Guidance never claims the hook's current state or submits
+arguments. Resumed guidance authenticates the retained plan and requires its
+artifact hash to match the completed receipt; an unavailable advisory does not
+discard successful deployment evidence.
 
 Deployment does not automatically grant mutable entrypoint access. The current
 account owner in the canonical contract lifecycle may grant or revoke an exact

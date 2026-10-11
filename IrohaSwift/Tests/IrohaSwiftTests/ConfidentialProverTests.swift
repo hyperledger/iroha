@@ -179,7 +179,7 @@ private final class WalletDriver: ConfidentialProverDriver, @unchecked Sendable 
         let hex = request.root.map { String(format: "%02x", $0) }.joined()
         return try JSONSerialization.data(withJSONObject: [
             "relation": invalidResult ? "wrong_relation" : relation,
-            "backend": "halo2/ipa", "proof_hex": "abcd", "root_hex": hex,
+            "backend": "pipa-r/pasta", "proof_hex": "abcd", "root_hex": hex,
             "nullifiers_hex": Array(repeating: hex, count: request.inputs),
             "output_commitments_hex": Array(repeating: hex, count: request.outputs),
         ])

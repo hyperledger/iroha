@@ -13,7 +13,70 @@ mod layouts;
 mod values;
 pub(super) use layouts::CallLayouts;
 
+// Only the funded materializer may create this one-shot interpreter capability.
+// Guest descriptor registers and ordinary host input cannot forge it.
+pub(crate) struct CapturedRootTables {
+    pc: u64,
+    tables: crate::call_frame::CallTables,
+}
+
 impl IVM {
+    pub(crate) fn validate_captured_root_schema(
+        &self,
+        schema: Option<&ivm_abi::entrypoint::EntrypointArgumentSchemaV1>,
+        result_words: usize,
+    ) -> Result<(), VMError> {
+        if self.captured_root_tables.is_some() || self.has_prepaid_argument_decode() {
+            return Err(VMError::DecodeError);
+        }
+        let index = self.callable_index(self.pc)?;
+        let interface = self
+            .contract_interface
+            .as_ref()
+            .ok_or(VMError::DecodeError)?;
+        let callable = &interface.callables[index];
+        let entrypoint = interface
+            .entrypoints
+            .iter()
+            .find(|entry| entry.entry_pc == callable.entry_pc)
+            .ok_or(VMError::PermissionDenied)?;
+        if entrypoint.argument_schema.as_ref() != schema
+            || result_words == 0
+            || self
+                .call_layouts
+                .as_ref()
+                .ok_or(VMError::DecodeError)?
+                .callable(index)?
+                .frame
+                .result_words
+                != result_words
+        {
+            return Err(VMError::DecodeError);
+        }
+        Ok(())
+    }
+    pub(crate) fn retain_captured_root_tables(
+        &mut self,
+        argument_base: u64,
+        argument_words: usize,
+        result_base: u64,
+        result_words: usize,
+    ) -> Result<(), VMError> {
+        if self.captured_root_tables.is_some() {
+            return Err(VMError::DecodeError);
+        }
+        self.captured_root_tables = Some(CapturedRootTables {
+            pc: self.pc,
+            tables: crate::call_frame::CallTables {
+                argument_base,
+                argument_words: argument_words as u64,
+                result_base,
+                result_words: result_words as u64,
+            },
+        });
+        Ok(())
+    }
+
     /// Select a public entrypoint from the loaded, authenticated contract interface.
     ///
     /// Missing selectors and standalone opcode images have no public call authority.
@@ -86,20 +149,32 @@ impl IVM {
             return Err(VMError::PermissionDenied);
         }
         let schema = entrypoint.and_then(|entry| entry.argument_schema.as_ref());
-        let prepared = if schema.is_some() {
+        let captured = self.captured_root_tables.take();
+        if captured
+            .as_ref()
+            .is_some_and(|captured| captured.pc != self.pc)
+        {
+            return Err(VMError::DecodeError);
+        }
+        let prepared = if schema.is_some() && captured.is_none() {
             let _metadata_mask = crate::zk::RegLoggerGuard::mask();
             host.prepared_entrypoint_arguments()
         } else {
             None
         };
         use crate::ivm::register_logging::RootArguments;
-        let route = match (schema.is_some(), prepared.is_some()) {
+        let route = match (schema.is_some(), prepared.is_some() || captured.is_some()) {
             (false, _) => RootArguments::Empty,
             (true, true) => RootArguments::Prepared,
             (true, false) => RootArguments::DefaultHost,
         };
         let _register_batch = self.prepare_root_register_events(route)?;
-        if let Some(schema) = schema {
+        if let Some(captured) = captured {
+            self.set_register(10, captured.tables.argument_base);
+            self.set_register(11, captured.tables.argument_words);
+            self.set_register(12, captured.tables.result_base);
+            self.set_register(13, captured.tables.result_words);
+        } else if let Some(schema) = schema {
             if let Some(prepared) = prepared {
                 if prepared.word_count() != layout.frame.argument_words
                     || !prepared.is_bound_to(schema, prepared.canonical_bytes())?
@@ -275,12 +350,22 @@ impl IVM {
             {
                 Ok(())
             }
+            CallTypeNodeV1::Enum(descriptor)
+                if u32::try_from(word).ok().is_some_and(|code| {
+                    descriptor
+                        .variants
+                        .binary_search_by_key(&code, |variant| variant.code)
+                        .is_ok()
+                }) =>
+            {
+                Ok(())
+            }
             CallTypeNodeV1::Leaf(kind) if *kind != EntrypointValueKindV1::Bool => {
                 let expected = role.pointer_type().ok_or(VMError::DecodeError)?;
                 self.validate_call_pointer_role(word, Some(expected as u16), None, Some(*kind))
             }
             CallTypeNodeV1::Pointer(expected) => self.validate_call_pointer(word, Some(*expected)),
-            CallTypeNodeV1::StateCursor(key) => self.validate_call_cursor_pointer(word, *key),
+            CallTypeNodeV1::StateCursor(key) => self.validate_call_cursor_pointer(word, key),
             CallTypeNodeV1::StateRoot => self.validate_call_pointer(word, None),
             CallTypeNodeV1::SecretNumeric(expected) => {
                 self.validate_secret_call_pointer(word, *expected)
@@ -296,7 +381,7 @@ impl IVM {
     fn validate_call_cursor_pointer(
         &mut self,
         word: u64,
-        key: EntrypointValueKindV1,
+        key: &iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1,
     ) -> Result<(), VMError> {
         self.validate_call_pointer_role(
             word,
@@ -310,7 +395,7 @@ impl IVM {
         &mut self,
         word: u64,
         expected: Option<u16>,
-        cursor_key: Option<EntrypointValueKindV1>,
+        cursor_key: Option<&iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1>,
         leaf_kind: Option<EntrypointValueKindV1>,
     ) -> Result<(), VMError> {
         let (payload, _) = self.inspect_owned_public_tlv_header(word)?;
@@ -328,7 +413,9 @@ impl IVM {
                     tlv.payload,
                 )
                 .map_err(|_| VMError::NoritoInvalid)?;
-            if cursor.key_type != key {
+            if Some(cursor.key_schema_hash)
+                != iroha_data_model::smart_contract::entrypoint::state_key_schema_hash_v1(key)
+            {
                 return Err(VMError::NoritoInvalid);
             }
         }
@@ -394,7 +481,9 @@ mod tests {
 
     fn boolean_root(gas: u64) -> IVM {
         let (bytes, _) = KotodamaCompiler::new()
-            .compile_source_with_manifest("seiyaku Tables { view fn main() -> bool { true } }")
+            .compile_source_with_manifest(
+                "seiyaku Tables { view fn main() authorize(anyone) -> bool { true } }",
+            )
             .unwrap();
         let parsed = ProgramMetadata::parse(&bytes).unwrap();
         let entry = parsed
@@ -412,6 +501,35 @@ mod tests {
         vm
     }
 
+    #[test]
+    fn ordinary_enum_call_words_require_declared_nonzero_u32_codes() {
+        let mut vm = IVM::new(u64::MAX);
+        let address = vm.alloc_heap(8).unwrap();
+        let role = CallTypeNodeV1::Enum(
+            iroha_data_model::smart_contract::manifest::ContractEnumTypeDescriptorV1 {
+                identity: "local::Status".into(),
+                variants: vec![
+                    iroha_data_model::smart_contract::manifest::ContractEnumVariantDescriptorV1 {
+                        name: "Open".into(),
+                        code: 1,
+                    },
+                    iroha_data_model::smart_contract::manifest::ContractEnumVariantDescriptorV1 {
+                        name: "Closed".into(),
+                        code: 7,
+                    },
+                ],
+            },
+        );
+        for word in [1, 7] {
+            assert_eq!(vm.validate_call_word(address, word, &role), Ok(()));
+        }
+        for word in [0, 2, u64::from(u32::MAX) + 1, u64::MAX] {
+            assert_eq!(
+                vm.validate_call_word(address, word, &role),
+                Err(VMError::DecodeError)
+            );
+        }
+    }
     #[test]
     fn completed_results_use_owned_state_and_reset_discards_authority() {
         let mut vm = boolean_root(100_000);
@@ -432,7 +550,7 @@ mod tests {
     #[test]
     fn public_selection_and_transaction_dispatch_require_exact_selectors() {
         let code = KotodamaCompiler::new().compile_source(
-            "seiyaku Selectors { fn helper() -> bool { true } view fn main() -> bool { helper() } }"
+            "seiyaku Selectors { fn helper() -> bool { true } view fn main() authorize(anyone) -> bool { helper() } }"
         ).unwrap();
         let mut vm = IVM::new(100_000);
         vm.load_program(&code).unwrap();
@@ -555,7 +673,7 @@ mod tests {
             vm.validate_call_word(
                 slot,
                 invalid_pointer,
-                &CallTypeNodeV1::StateCursor(EntrypointValueKindV1::Int)
+                &CallTypeNodeV1::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)] })
             ),
             Err(VMError::NoritoInvalid)
         );
@@ -568,7 +686,7 @@ mod tests {
             instance: "contract::instance".into(),
             map: "balances".parse().unwrap(),
             schema_hash: [7; 32],
-            key_type: EntrypointValueKindV1::Int,
+            key_schema_hash: iroha_data_model::smart_contract::entrypoint::state_key_schema_hash_v1(&iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)] }).unwrap(),
             last_key: "balances/00".parse().unwrap(),
         };
         let valid_payload = cursor.encode_frame().unwrap();
@@ -584,7 +702,7 @@ mod tests {
             vm.validate_call_word(
                 slot,
                 valid_pointer,
-                &CallTypeNodeV1::StateCursor(EntrypointValueKindV1::Int)
+                &CallTypeNodeV1::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)] })
             ),
             Ok(())
         );
@@ -599,7 +717,7 @@ mod tests {
             instance: "contract::instance".into(),
             map: "balances".parse().unwrap(),
             schema_hash: [7; 32],
-            key_type: key,
+            key_schema_hash: iroha_data_model::smart_contract::entrypoint::state_key_schema_hash_v1(&iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(key)] }).unwrap(),
             last_key: "balances/00".parse().unwrap(),
         };
         let payload = cursor.encode_frame().unwrap();
@@ -632,7 +750,7 @@ mod tests {
 
     fn cursor_root() -> (IVM, EmbeddedCallableV1, crate::call_frame::CallTables) {
         let bytes = KotodamaCompiler::new().compile_source(
-            "seiyaku Cursors { fn echo(StateCursor<int> value) -> StateCursor<int> { value } view fn main(StateCursor<int> value) -> StateCursor<int> { echo(value: value) } }"
+            "seiyaku Cursors { fn echo(StateCursor<int> value) -> StateCursor<int> { value } view fn main(StateCursor<int> value) authorize(anyone) -> StateCursor<int> { echo(value: value) } }"
         ).unwrap();
         let parsed = ProgramMetadata::parse(&bytes).unwrap();
         let interface = parsed.contract_interface.as_ref().unwrap();
@@ -650,11 +768,11 @@ mod tests {
             .clone();
         assert_eq!(
             callable.arguments.nodes,
-            [CallTypeNodeV1::StateCursor(EntrypointValueKindV1::Int)]
+            [CallTypeNodeV1::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)] })]
         );
         assert_eq!(
             callable.results.nodes,
-            [CallTypeNodeV1::StateCursor(EntrypointValueKindV1::Int)]
+            [CallTypeNodeV1::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)] })]
         );
         let mut vm = IVM::new(100_000);
         vm.load_program(&bytes).unwrap();

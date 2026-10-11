@@ -54,6 +54,25 @@ Space Directory and ZK JSON inputs use Norito's shared JSON nesting limit
 Local contract durable-state fixtures require exact NFC path spelling and
 reject duplicate decoded JSON keys.
 
+`iroha offline registration-package` verifies and packages a successful Global
+KAGEMUSHA token registration without submitting or signing a transaction. Supply
+an owner-private `--input-dir` containing sealed `scheme.norito`,
+`committed.norito` and consecutive `proof-00000000000000000001.norito` files
+through the registered block. `--proof-count`, `--instruction-index`,
+`--asset-digest` and `--chain-id` select the exact history and registration.
+`--genesis-sha256` pins the entire first canonical finality proof and
+`--scheme-sha256` pins the scheme; obtain these independently from the deployment
+owner. `--output-parent` must already be a canonical private directory;
+`--output-name` creates a fresh child. Inputs remain read-only, failed partial
+packages are retained, and existing outputs are never overwritten. The command
+emits the verified registration identity and `registration-source.norito` path.
+After copying the package's immutable originals to an owner-private directory on
+the device, Swift and Kotlin expose `KagemushaWalletInstalledRuntimeV1.relocateRegistrationSource`
+to replace only the locator's local directory. This helper supports cross-platform
+paths and preserves the exact inventory; it neither copies nor verifies proofs.
+The wallet re-verifies imported data against its installed trust roots; this
+package cannot replace its genesis, application policy or enrollment authority.
+
 Binding-only IVM proof helpers are removed. Core rejects `IvmProved` until the
 complete native STARK execution relation and State-owned finalized anchor are
 available. Generic proof and verifying-key registry commands remain available.
@@ -169,7 +188,6 @@ iroha --config staker.toml --fee-payer authority app staking schedule-unbond \
 iroha --config staker.toml --fee-payer authority app staking finalize-unbond \
   --lane-id 0 --validator "$VALIDATOR" --request-id "$WITHDRAWAL_HASH" --monetary-plan withdrawal-plan.json
 iroha --config recipient.toml --fee-payer authority app staking claim-rewards --lane-id 0 --claim-plan claim-plan.json
-iroha --config treasury.toml --fee-payer authority app staking record-rewards --file epoch-rewards.json
 ```
 
 `bond` supports self stake and delegation. `--staker` defaults to the configured
@@ -189,25 +207,23 @@ unbonding delay. Finalization additionally waits for the consensus liability
 window. Registration, bonding, and finalization require a
 Norito JSON `PublicLaneMonetaryPlanV1`; claims require a
 `PublicLaneRewardClaimPlanV1`. These files bind the target network, expiry,
-exact assets and amounts, and current tenure or reward cursor/record commitments.
+exact assets and amounts, and current tenure or reward beneficiary/claim sequence.
 The CLI rejects mismatched runtime networks, recipients, amounts, or noncanonical
 plans. Core rechecks
 all state preconditions at execution. Plans must use the network's configured
 genesis-pinned global XOR definition at scale 9 and exact custody accounts.
 
-Claim plans contain at most 64 ordered reward record commitments and 64 exact
-sources. A zero payout may advance record processing while preserving unpaid
-dust. Construct canonical plan files from independently authenticated current
-state and refresh them when they expire or become stale. Execution checks
-permissions, maturity, lifecycle and all monetary preconditions.
+Claim plans contain one mandatory exact automatic XOR entitlement, including its
+funding lifecycle, beneficiary revision, custody assets and replay sequence.
+Amounts below the governed minimum remain accrued until enough rewards accumulate.
+Construct canonical plan files from authenticated current state and refresh them
+when they expire or become stale. Execution checks permissions, maturity,
+lifecycle and all monetary preconditions.
 
-`record-rewards` reads a Norito JSON `RecordPublicLaneRewards` object with
-`lane_id`, `epoch`, `reward_asset`, `total_reward`, `shares`, and `metadata`.
-Each share contains `account`, `role` (`"Validator"` or `"Nominator"`), and an
-exact `amount`. The configured fee-sink authority submits the distribution;
-the chain verifies its funding and allocation totals. This command does not
-mint rewards. The existing `register`, `rebind`, `activate`, and `exit`
-commands remain available for their corresponding validator transitions.
+Validator rewards accrue automatically from authenticated service and the historical
+eligible self-stake and nominations. Nominators prepare and sign their own
+`claim-rewards` plan; no validator or treasury payout list is accepted. The
+`register`, `rebind`, `activate`, and `exit` commands manage validator transitions.
 `rebind` requires `--network-id` matching the configured genesis network, `--peer-private-key-file`,
 `--activation-height`, and `--previous-peer-id` to sign replacement-peer
 consent for the exact stored pending tenure and binding. Consent is required
@@ -932,3 +948,15 @@ use `iroha explorer accounts`, `domains`, `asset-definitions`, `assets`, `nfts`,
 `instructions-latest`. All accept shared list flags (`--filter`, `--select`,
 `--limit`, `--cursor`, `--all`); history and Explorer feeds reject sorting,
 totals and aggregates.
+
+### Dataspace verification routes
+
+`iroha dataspace status dpn.toml --trust trust.json` verifies the original
+retained operation without submitting transactions. If the retained public peer
+URLs share an ingress, select four distinct direct read routes with four repeated
+`--verification-peer-url http://127.0.0.1:PORT/` arguments, in the trust profile's
+peer order. This option is accepted only by `status`. It preserves the original
+trust profile, plan, operation ID, funding cap and signed transactions. Fresh
+challenge attestations still verify the selected genesis and each exact peer,
+node/build/configuration fingerprint and native lane signer. The completion
+receipt records the routes used. Never edit the retained profile to repair routing.

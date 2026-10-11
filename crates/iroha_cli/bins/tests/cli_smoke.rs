@@ -2655,6 +2655,7 @@ fn gov_audit_deploy_reports_results_against_mock() {
                 "pending_owner": null,
                 "parliament_delegated": false,
                 "active_code_hash_hex": code_hash_hex,
+                "retained_code_hash_hex": code_hash_hex,
                 "revision": 1,
                 "emergency_hold": null
             },

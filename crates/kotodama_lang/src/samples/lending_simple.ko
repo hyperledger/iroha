@@ -1,6 +1,7 @@
 // Minimal lending market primitives.
 // Shows collateral ratio checks and minting borrowed asset.
 seiyaku LendingSimple {
+    permission Admin;
     error enum LendingError {
         InsufficientCollateral = 1,
     }
@@ -26,7 +27,7 @@ seiyaku LendingSimple {
         quantity collateral_value,
         quantity current_debt_value,
         decimal min_ratio_bps,
-    ) authorize("Admin") {
+    ) authorize(Admin) {
         let new_debt_value = current_debt_value + amount;
         let ratio = collateral_ratio_bps(
             collateral_value: collateral_value,
@@ -43,13 +44,12 @@ seiyaku LendingSimple {
         AccountId vault_account,
         AssetDefinitionId debt_asset,
         quantity amount,
-    ) authorize("Admin") {
+    ) authorize(Admin) {
         ledger::asset::transfer(
             source: user,
             destination: vault_account,
             asset_definition: debt_asset,
             amount: amount,
-            dataspace: DataSpaceId::parse("0"),
         );
         ledger::asset::burn(account: vault_account, asset_definition: debt_asset, amount: amount);
     }

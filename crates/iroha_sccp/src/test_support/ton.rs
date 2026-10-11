@@ -902,6 +902,14 @@ impl SyntheticTonChainV1 {
         arena.cell(&body, &body_refs)
     }
 
+    /// The canonical `BoC` of `event`'s external-out message body.
+    #[must_use]
+    pub fn event_body_boc(event: &SyntheticTonEventV1) -> Vec<u8> {
+        let mut arena = CellArenaV1::new();
+        let body = Self::event_body(&mut arena, event);
+        arena.boc(body)
+    }
+
     fn transaction(
         arena: &mut CellArenaV1,
         minter: &[u8; 32],

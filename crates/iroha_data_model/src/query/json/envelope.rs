@@ -185,6 +185,11 @@ pub enum SingularQueryJson {
         /// Asset definition address identifying the asset type.
         asset: String,
     },
+    /// Looks up the immutable direct dataspace home row of an asset definition.
+    FindAssetDefinitionDirectHome {
+        /// Asset definition address identifying the directly homed asset type.
+        asset: String,
+    },
     /// Looks up a non-fungible asset by identifier.
     FindNftById {
         /// Canonical NFT identifier.
@@ -315,6 +320,11 @@ impl SingularQueryJson {
             asset: payload_required_string(payload, "asset")?.to_owned(),
         })
     }
+    fn parse_asset_definition_direct_home(payload: &Map) -> Result<Self, QueryJsonError> {
+        Ok(Self::FindAssetDefinitionDirectHome {
+            asset: payload_required_string(payload, "asset")?.to_owned(),
+        })
+    }
     fn parse_nft_by_id(payload: &Map) -> Result<Self, QueryJsonError> {
         Ok(Self::FindNftById {
             nft_id: payload_required_string(payload, "nft_id")?.to_owned(),
@@ -429,7 +439,8 @@ impl SingularQueryJson {
                 }
                 map.insert("payload".to_owned(), Value::Object(payload));
             }
-            Self::FindAssetDefinitionById { asset } => {
+            Self::FindAssetDefinitionById { asset }
+            | Self::FindAssetDefinitionDirectHome { asset } => {
                 let mut payload = Map::new();
                 payload.insert("asset".to_owned(), Value::String(asset.clone()));
                 map.insert("payload".to_owned(), Value::Object(payload));
@@ -517,6 +528,9 @@ impl SingularQueryJson {
             }
             "FindAssetById" => Self::parse_asset_by_id(singular_payload(map)?),
             "FindAssetDefinitionById" => Self::parse_asset_definition(singular_payload(map)?),
+            "FindAssetDefinitionDirectHome" => {
+                Self::parse_asset_definition_direct_home(singular_payload(map)?)
+            }
             "FindNftById" => Self::parse_nft_by_id(singular_payload(map)?),
             "FindAssetEscrowById" => Self::parse_asset_escrow(singular_payload(map)?),
             "FindTriggerById" => Self::parse_trigger_by_id(singular_payload(map)?),
@@ -551,6 +565,9 @@ impl SingularQueryJson {
             }
             SingularQueryJson::FindAssetById { .. } => "FindAssetById",
             SingularQueryJson::FindAssetDefinitionById { .. } => "FindAssetDefinitionById",
+            SingularQueryJson::FindAssetDefinitionDirectHome { .. } => {
+                "FindAssetDefinitionDirectHome"
+            }
             SingularQueryJson::FindNftById { .. } => "FindNftById",
             SingularQueryJson::FindAssetEscrowById { .. } => "FindAssetEscrowById",
             SingularQueryJson::FindTriggerById { .. } => "FindTriggerById",
@@ -630,6 +647,12 @@ impl SingularQueryJson {
                 let id = Self::decode_asset_definition_id(&asset)?;
                 Ok(SingularQueryBox::FindAssetDefinitionById(
                     crate::query::asset::prelude::FindAssetDefinitionById::new(id),
+                ))
+            }
+            SingularQueryJson::FindAssetDefinitionDirectHome { asset } => {
+                let id = Self::decode_asset_definition_id(&asset)?;
+                Ok(SingularQueryBox::FindAssetDefinitionDirectHome(
+                    crate::query::asset::prelude::FindAssetDefinitionDirectHome::new(id),
                 ))
             }
             SingularQueryJson::FindNftById { nft_id } => {
@@ -1448,6 +1471,27 @@ mod tests {
             }
             other => panic!("unexpected query variant: {other:?}"),
         }
+        let home_query = SingularQueryJson::FindAssetDefinitionDirectHome {
+            asset: definition_id.to_string(),
+        };
+        let envelope = QueryEnvelopeJson::Singular(home_query);
+        let json = norito::json::to_json(&envelope).expect("serialize");
+        let parsed: QueryEnvelopeJson = norito::json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed, envelope);
+        let query = match parsed {
+            QueryEnvelopeJson::Singular(s) => s.into_box().expect("into box"),
+            _ => unreachable!(),
+        };
+        let SingularQueryBox::FindAssetDefinitionDirectHome(q) = &query else {
+            panic!("unexpected query variant: {query:?}");
+        };
+        assert_eq!(q.asset_definition_id(), &definition_id);
+        let frame = norito::codec::Encode::encode(&query);
+        assert_eq!(
+            <SingularQueryBox as norito::codec::Decode>::decode(&mut frame.as_slice())
+                .expect("decode direct-home query"),
+            query
+        );
         let escrow_id = crate::escrow::EscrowId::new(iroha_crypto::Hash::new("escrow-json"));
         let escrow_query = SingularQueryJson::FindAssetEscrowById { escrow_id };
         let envelope = QueryEnvelopeJson::Singular(escrow_query.clone());

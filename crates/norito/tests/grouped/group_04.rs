@@ -1,5 +1,4 @@
 //! Grouped Norito integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #[path = "../json_neon_index.rs"]
 mod json_neon_index;
 #[path = "../json_numbers.rs"]

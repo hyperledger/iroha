@@ -1,0 +1,37 @@
+// Route View to a view transport, lifecycle hooks through activation/upgrade, and
+// Kotoage through signed calls. Verify codeHash against the target's active binding.
+// Payloads use IrohaSwift's ToriiJSONValue; fees, authority and signing remain explicit.
+public enum BindingError: Error { case schema }
+public enum OptionValue<Value> { case none; case some(Value) }
+public enum ResultValue<Success, Failure> { case ok(Success); case err(Failure) }
+private static func string(_ value: ToriiJSONValue) throws -> String {
+ guard case let .string(text) = value else { throw BindingError.schema }; return text
+}
+private static func boolean(_ value: ToriiJSONValue) throws -> Bool {
+ guard case let .bool(flag) = value else { throw BindingError.schema }; return flag
+}
+private static func bytes(_ value: ToriiJSONValue) throws -> String {
+ let text = try string(value)
+ guard text.range(of: #"\A0x(?:[0-9a-f]{2})*\z"#, options: .regularExpression) != nil else { throw BindingError.schema }
+ return text
+}
+private static func dataspace(_ value: ToriiJSONValue) throws -> UInt64 {
+ switch value {
+ case .integer(let text):
+  guard let result = UInt64(text), String(result) == text else { throw BindingError.schema }; return result
+ case .number(let number):
+  guard number >= 0, number <= 9007199254740991, number.rounded() == number, number.sign != .minus else { throw BindingError.schema }; return UInt64(number)
+ default: throw BindingError.schema
+ }
+}
+private static func record(_ value: ToriiJSONValue, _ keys: [String]? = nil) throws -> [String: ToriiJSONValue] {
+ guard case let .object(fields) = value else { throw BindingError.schema }
+ if let keys = keys { guard Set(keys) == Set(fields.keys) else { throw BindingError.schema } }
+ return fields
+}
+private static func member(_ fields: [String: ToriiJSONValue], _ key: String) throws -> ToriiJSONValue {
+ guard let value = fields[key] else { throw BindingError.schema }; return value
+}
+private static func array(_ value: ToriiJSONValue, _ count: Int, _ exact: Bool) throws -> [ToriiJSONValue] {
+ guard case let .array(items) = value, exact ? items.count == count : items.count <= count else { throw BindingError.schema }; return items
+}

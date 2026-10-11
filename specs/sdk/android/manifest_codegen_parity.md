@@ -75,9 +75,9 @@ builders can stay aligned with the Rust data model.
 | `SetKeyValueBox` | 1 | iroha.set_key_value |
 
 The first-release Android projection intentionally omits the generic shield,
-shielded-transfer, and unshield discriminants. Confidential movement remains on
-the typed KAGEMUSHA V1 top-up/redemption lifecycle; its proof artifacts are
-not generic transaction builders.
+shielded-transfer, and unshield discriminants. The KAGEMUSHA V1
+top-up/redemption instructions were deleted on 2026-10-05; KAGEMUSHA proof
+artifacts are not generic transaction builders.
 
 ## 3. Fees, Manifest & Governance Payloads
 

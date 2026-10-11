@@ -9,6 +9,5 @@ mod cross_lane;
 mod lane_registry;
 mod localnet_npos;
 mod multilane_pipeline;
-mod multilane_router;
 mod privacy_proof_enforcement;
 mod tx_query_cross_dataspace_routing_localnet;

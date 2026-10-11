@@ -64,7 +64,6 @@ pub(crate) fn select(
             .transpose();
     }
     // Missing release custody refuses before build, output creation or bundle replacement.
-    // TODO(DX5): the release owner must commit the genuinely approved public Taira artifact.
     let bytes = InstalledNetworkProfiles::load(&root.join(RELEASE_PROFILES))
         .and_then(|profiles| profiles.encode_installation())
         .map_err(|_| "approved release-owned network profiles are missing or unsafe")?;

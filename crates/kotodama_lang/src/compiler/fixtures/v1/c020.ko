@@ -1,7 +1,7 @@
 
-seiyaku CompilerFixture {
+seiyaku CompilerFixture { permission FixtureAccess;
 
-kotoage fn dynamic(AccountId account, int quorum) authorize("CompilerFixture") {
+kotoage fn dynamic(AccountId account, int quorum) authorize(FixtureAccess) {
   ledger::account::set_quorum(account: account, quorum: quorum);
 }
 

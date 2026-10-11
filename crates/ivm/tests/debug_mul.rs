@@ -4,7 +4,7 @@ mod common;
 fn debug_mul() {
     let src = r#"
         seiyaku Multiply {
-            view fn main() -> int {
+            view fn main() authorize(anyone) -> int {
                 let t = 1;
                 return t * 2;
             }

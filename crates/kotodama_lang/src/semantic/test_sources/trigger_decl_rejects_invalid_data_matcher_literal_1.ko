@@ -1,6 +1,6 @@
 
-            seiyaku C {
-                kotoage fn run() authorize("RunTrigger") {}
+            seiyaku C { permission RunTrigger;
+                kotoage fn run() authorize(RunTrigger) {}
                 trigger wake -> run {
                     on data asset added {
                         asset_definition "not-an-address";

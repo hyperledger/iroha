@@ -2,7 +2,7 @@
         seiyaku ScalarState {
             state int counter;
             hajimari() { counter = 0; }
-            view fn main() -> int {
+            view fn main() authorize(anyone) -> int {
                 return counter;
             }
         }

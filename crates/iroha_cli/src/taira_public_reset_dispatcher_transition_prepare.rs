@@ -39,6 +39,10 @@ pub(in super::super::super) struct PrepareDispatcherTransition {
     /// This admits a new signed candidate without reusing the failed authorization.
     #[arg(long)]
     terminal_rolled_back: bool,
+    /// Supersede a deployment-proven predecessor whose seal bookkeeping is unfinished.
+    /// Preserve its original journal; require sealed guest custody and stopped runtime.
+    #[arg(long, conflicts_with = "terminal_rolled_back")]
+    deployment_proven_predecessor: bool,
     #[arg(long)]
     current_runtime: PathBuf,
     #[arg(long)]
@@ -324,7 +328,7 @@ fn validate_rolled_back_inventory(
             "rolled-back validator is not the restored stopped release",
         )?;
     }
-    runtime.hosts.validate_physical_binding(&inventory.hosts)?;
+    inventory.validate_physical_binding(&runtime.hosts)?;
     need(
         inventory.edge.slug == "taira-edge"
             && json::to_vec(inventory.edge.admitted_release()?)?
@@ -375,9 +379,7 @@ impl PrepareDispatcherTransition {
                 &retained_inventory_bytes,
                 "transition retained inventory",
             )?;
-            runtime
-                .hosts
-                .validate_physical_binding(&retained_inventory.hosts)?;
+            retained_inventory.validate_physical_binding(&runtime.hosts)?;
             let lease_pin = observed.pin(
                 &coordination.join("lease.json"),
                 Some(0o600),
@@ -404,6 +406,8 @@ impl PrepareDispatcherTransition {
             require_lower_sha256(&lease.authorization_semantic_sha256, "sealed authorization")?;
             let terminal_dir = if self.terminal_rolled_back {
                 "rolled-back"
+            } else if self.deployment_proven_predecessor {
+                "deployment-proven"
             } else {
                 "completed"
             };
@@ -416,6 +420,24 @@ impl PrepareDispatcherTransition {
                 16 * 1024 * 1024,
             )?;
             let terminal: Value = json::from_slice(&admission::read(&terminal_pin)?)?;
+            let unresolved_journal = if self.deployment_proven_predecessor {
+                let deployment_id = terminal
+                    .get("deployment_id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| eyre!("deployment-proven ID missing"))?;
+                super::super::super::validate_slug("deployment ID", deployment_id)?;
+                Some(
+                    observed.pin(
+                        &Path::new(RUNTIME)
+                            .join("journal-v1")
+                            .join(format!("{deployment_id}.journal.json")),
+                        Some(0o600),
+                        16 * 1024 * 1024,
+                    )?,
+                )
+            } else {
+                None
+            };
             let completed_next_step = u16::try_from(
                 terminal
                     .get("next_step")
@@ -446,6 +468,7 @@ impl PrepareDispatcherTransition {
                     authorization_nonce: lease.authorization_nonce,
                     native_edge_capture: runtime.native_edge.clone(),
                     rolled_back: self.terminal_rolled_back,
+                    unresolved_journal,
                     completed_next_step,
                     sealed_forward_ordinal: progress.next_forward_ordinal,
                     completed: terminal_pin,
@@ -494,6 +517,39 @@ impl PrepareDispatcherTransition {
 mod tests {
     use super::*;
     use crate::taira_public_reset as reset;
+
+    #[test]
+    fn deployment_proven_selection_is_explicit_and_conflicts_with_rollback() {
+        use clap::Parser as _;
+        let mut args = vec![
+            "iroha",
+            "taira",
+            "public-reset",
+            "prepare-dispatcher-transition",
+        ];
+        for flag in [
+            "--import-root",
+            "--expected-result-sha256",
+            "--native-edge-candidate",
+            "--expected-native-edge-candidate-sha256",
+            "--native-edge-cli",
+            "--source-manifest",
+            "--retained-inventory",
+            "--expected-retained-inventory-sha256",
+            "--current-runtime",
+            "--expected-current-runtime-sha256",
+            "--trusted-public-key",
+            "--operation-id",
+            "--output",
+        ] {
+            args.extend([flag, "/selected"]);
+        }
+        assert!(crate::Args::try_parse_from(args.clone()).is_ok());
+        args.push("--deployment-proven-predecessor");
+        assert!(crate::Args::try_parse_from(args.clone()).is_ok());
+        args.push("--terminal-rolled-back");
+        assert!(crate::Args::try_parse_from(args).is_err());
+    }
 
     fn runtime_fixture() -> CurrentRuntime {
         let inventory = reset::sample_inventory_fixture();

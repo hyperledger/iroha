@@ -1,6 +1,7 @@
 """Cargo source relocation regressions, including an actual dependency-free build."""
 
 import importlib.util
+import json
 import fcntl
 import os
 from pathlib import Path
@@ -231,6 +232,280 @@ class CargoSourceAdmissionTests(unittest.TestCase):
             self.assertEqual(cache.admit_source_fingerprints(source, target, "aarch64-unknown-linux-gnu",
                                                              {"taira-cache-fixture"}, repair=False), [])
 
+
+
+class CanonicalCargoSourceAdmissionTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.source = Path(self.directory.name).resolve() / "repo"
+        self.target = self.source / "target/linux-release"
+        self.package = self.source / "crates/ivm"
+        self.target.mkdir(parents=True)
+        self.package.mkdir(parents=True)
+        (self.package / "Cargo.toml").write_text('[package]\nname="ivm"\n')
+        self.triple = "aarch64-unknown-linux-gnu"
+        self.roots = {"ivm": self.package}
+        (self.package / "src").mkdir()
+        (self.package / "src/lib.rs").write_text("// signed source fixture\n")
+        self.source_paths = {self.package / "src/lib.rs", self.package / "Cargo.toml"}
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def fingerprint(self, paths, *, family="release", cross=False):
+        profile = self.target / self.triple / family if cross else self.target / family
+        directory = profile / ".fingerprint/ivm-1111111111111111"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "dep-fixture").write_bytes(record(paths))
+        return directory
+
+    def admit(self, **options):
+        return cache.admit_source_fingerprints(
+            self.source, self.target, self.triple, {"ivm"},
+            package_roots=self.roots, source_paths=self.source_paths, **options)
+
+    def test_metadata_binds_exact_canonical_manifest_roots(self):
+        local = {"name": "ivm", "source": None,
+                 "manifest_path": str(self.package / "Cargo.toml")}
+        registry = {"name": "external", "source": "registry+fixture"}
+        result = subprocess.CompletedProcess([], 0,
+            json.dumps({"packages": [local, registry]}).encode(), b"")
+        with patch.object(cache.subprocess, "run", return_value=result) as run:
+            self.assertEqual(cache.local_package_roots(self.source, {"CARGO": "/cargo"}, source_paths=self.source_paths), self.roots)
+        self.assertIn(str(self.source / "Cargo.toml"), run.call_args.args[0])
+        self.assertEqual(run.call_args.kwargs["cwd"], "/")
+        self.assertIn("--offline", run.call_args.args[0])
+        self.assertEqual(run.call_args.kwargs["umask"], 0o077)
+
+    def test_metadata_rejects_duplicate_foreign_and_symlinked_roots(self):
+        foreign = self.source.parent / "outside/Cargo.toml"
+        foreign.parent.mkdir()
+        foreign.write_text("fixture")
+        captured = self.target / "old/source/Cargo.toml"
+        captured.parent.mkdir(parents=True)
+        captured.write_text("fixture")
+        link = self.source / "linked"
+        link.symlink_to(self.package, target_is_directory=True)
+        selected = {"name": "ivm", "source": None,
+                    "manifest_path": str(self.package / "Cargo.toml")}
+        cases = [[selected, selected]] + [
+            [dict(selected, manifest_path=str(path))]
+            for path in (foreign, captured, link / "Cargo.toml")]
+        for packages in cases:
+            with self.subTest(packages=packages):
+                result = subprocess.CompletedProcess([], 0,
+                    json.dumps({"packages": packages}).encode(), b"")
+                with patch.object(cache.subprocess, "run", return_value=result):
+                    with self.assertRaisesRegex(ValueError, "ambiguous or foreign"):
+                        cache.local_package_roots(self.source, {"CARGO": "/cargo"}, source_paths=self.source_paths)
+
+    def test_package_root_mapping_requires_exact_names_and_canonical_source_paths(self):
+        outside = self.source.parent
+        captured = self.target / "old/source"
+        captured.mkdir(parents=True)
+        link = self.source / "linked"
+        link.symlink_to(self.package, target_is_directory=True)
+        cases = ({}, {"other": self.package}, {"ivm": outside},
+                 {"ivm": captured}, {"ivm": link}, {"ivm": Path("relative")})
+        for roots in cases:
+            with self.subTest(roots=roots), self.assertRaises(ValueError):
+                cache.admit_source_fingerprints(self.source, self.target, self.triple,
+                                               {"ivm"}, package_roots=roots)
+        self.assertFalse((self.target / ".taira-source-fingerprint-binding.json").exists())
+
+    def test_first_adoption_retires_ambiguous_kind_zero_in_every_selected_family(self):
+        directories = [self.fingerprint([(0, "src/lib.rs")], family=family, cross=cross)
+                       for family in ("debug", "release") for cross in (False, True)]
+        artifact = self.target / "release/retained-binary"
+        artifact.write_bytes(b"compiled output")
+        called = []
+        self.assertEqual(self.admit(before_retire=lambda: called.append(True)), ["ivm"])
+        self.assertEqual(called, [True])
+        self.assertTrue(all(not path.exists() for path in directories))
+        self.assertEqual(artifact.read_bytes(), b"compiled output")
+        marker = self.target / ".taira-source-fingerprint-binding.json"
+        self.assertEqual(stat.S_IMODE(marker.stat().st_mode), 0o600)
+        bound = json.loads(marker.read_bytes())
+        self.assertEqual(bound["source_root"], str(self.source))
+        self.assertEqual(bound["package_roots"], {"ivm": str(self.package)})
+        current = self.fingerprint([(0, "src/lib.rs"), (1, "release/build/ivm/out/generated.rs")])
+        self.assertEqual(self.admit(repair=False), [])
+        self.assertTrue(current.exists())
+
+    def test_missing_binding_refuses_postbuild_even_without_existing_fingerprints(self):
+        with self.assertRaisesRegex(ValueError, "binding is absent or changed"):
+            self.admit(repair=False)
+        self.assertFalse((self.target / ".taira-source-fingerprint-binding.json").exists())
+
+    def test_changed_package_root_retires_ambiguous_records_again(self):
+        self.admit()
+        original = self.fingerprint([(0, "src/lib.rs")])
+        replacement = self.source / "replacement/ivm"
+        replacement.mkdir(parents=True)
+        self.roots = {"ivm": replacement}
+        (replacement / "src").mkdir()
+        (replacement / "src/lib.rs").write_text("// replacement source fixture\n")
+        (replacement / "Cargo.toml").write_text("# signed replacement manifest\n")
+        self.source_paths = {replacement / "src/lib.rs", replacement / "Cargo.toml"}
+        with self.assertRaisesRegex(ValueError, "binding is absent or changed"):
+            self.admit(repair=False)
+        self.assertTrue(original.exists())
+        self.assertEqual(self.admit(), ["ivm"])
+        self.assertFalse(original.exists())
+        self.fingerprint([(0, "src/lib.rs")])
+        self.assertEqual(self.admit(repair=False), [])
+
+    def test_kind_zero_escape_and_captured_kind_one_never_become_canonical_source(self):
+        self.admit()
+        invalid = [(0, "../../../../outside.rs"), (0, "/outside.rs"),
+                   (0, "../../target/linux-release/old/source/lib.rs"),
+                   (1, "old/source/crates/ivm/src/lib.rs"),
+                   (1, "../another-lane/old/source/crates/ivm/src/lib.rs")]
+        for dependency in invalid:
+            with self.subTest(dependency=dependency):
+                directory = self.fingerprint([dependency])
+                with self.assertRaisesRegex(ValueError, "foreign Cargo source"):
+                    self.admit(repair=False)
+                self.assertTrue(directory.exists())
+                self.assertEqual(self.admit(), ["ivm"])
+
+    def test_generated_paths_stay_profile_bound_with_canonical_roots(self):
+        self.admit()
+        debug = self.fingerprint([(1, "release/build/ivm/out/generated.rs")], family="debug")
+        release = self.fingerprint([(1, "release/build/ivm/out/generated.rs")])
+        self.assertEqual(self.admit(), ["ivm"])
+        self.assertFalse(debug.exists())
+        self.assertTrue(release.exists())
+
+    def test_binding_publication_and_capture_keep_real_profile_locks_held(self):
+        self.fingerprint([(0, "src/lib.rs")])
+        self.fingerprint([(0, "src/lib.rs")], cross=True)
+        paths = [self.target / "release/.cargo-lock",
+                 self.target / self.triple / "release/.cargo-lock"]
+        with cache.source_fingerprints(self.source, self.target, self.triple, {"ivm"},
+                                       package_roots=self.roots, source_paths=self.source_paths):
+            self.assertTrue((self.target / ".taira-source-fingerprint-binding.json").is_file())
+            for path in paths:
+                fd = os.open(path, os.O_RDWR)
+                try:
+                    with self.assertRaises(BlockingIOError):
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                finally:
+                    os.close(fd)
+        for path in paths:
+            fd = os.open(path, os.O_RDWR)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                os.close(fd)
+
+    def test_failed_retirement_callback_cannot_publish_binding(self):
+        directory = self.fingerprint([(0, "src/lib.rs")])
+        with self.assertRaisesRegex(ValueError, "stop"):
+            self.admit(before_retire=lambda: (_ for _ in ()).throw(ValueError("stop")))
+        self.assertTrue(directory.exists())
+        self.assertFalse((self.target / ".taira-source-fingerprint-binding.json").exists())
+
+    def test_source_mapping_is_opt_in(self):
+        with self.assertRaisesRegex(ValueError, "maintained capture"):
+            cache.admit_source_fingerprints(self.source, self.target, self.triple, {"ivm"})
+
+
+    def test_canonical_mapping_requires_selected_regular_source_paths(self):
+        with self.assertRaisesRegex(ValueError, "requires signed regular-file paths"):
+            cache.admit_source_fingerprints(self.source, self.target, self.triple,
+                                           {"ivm"}, package_roots=self.roots)
+        self.assertFalse((self.target / ".taira-source-fingerprint-binding.json").exists())
+        link = self.package / "selected-link.rs"
+        link.symlink_to(self.package / "src/lib.rs")
+        for paths in ({Path("relative.rs")}, {self.source.parent / "outside.rs"}, {link}):
+            with self.subTest(paths=paths), self.assertRaises((ValueError, FileNotFoundError)):
+                cache.admit_source_fingerprints(self.source, self.target, self.triple,
+                    {"ivm"}, package_roots=self.roots, source_paths=paths)
+
+    def test_ignored_include_is_foreign_but_signed_sibling_and_generated_are_admitted(self):
+        shared = self.source / "crates/shared/shared.rs"
+        shared.parent.mkdir()
+        shared.write_text("// selected signed sibling fixture\n")
+        self.source_paths.add(shared)
+        self.admit()
+        ignored = self.package / "ignored.rs"
+        ignored.write_text("// ignored include fixture\n")
+        directory = self.fingerprint([(0, "ignored.rs")])
+        with self.assertRaisesRegex(ValueError, "foreign Cargo source"):
+            self.admit(repair=False)
+        self.assertTrue(directory.exists())
+        self.assertEqual(self.admit(), ["ivm"])
+        current = self.fingerprint([(0, "../shared/shared.rs"), (0, "src/lib.rs"),
+                                    (1, "release/build/ivm/out/generated.rs")])
+        self.assertEqual(self.admit(repair=False), [])
+        self.assertTrue(current.exists())
+
+    def test_source_path_selection_is_part_of_durable_binding(self):
+        self.admit()
+        directory = self.fingerprint([(0, "src/lib.rs")])
+        extra = self.package / "selected-extra.rs"
+        extra.write_text("// another signed regular source\n")
+        self.source_paths.add(extra)
+        with self.assertRaisesRegex(ValueError, "binding is absent or changed"):
+            self.admit(repair=False)
+        self.assertTrue(directory.exists())
+        self.assertEqual(self.admit(), ["ivm"])
+        marker = json.loads((self.target / ".taira-source-fingerprint-binding.json").read_bytes())
+        self.assertEqual(marker["source_paths"], sorted(str(path) for path in self.source_paths))
+        self.fingerprint([(0, "selected-extra.rs")])
+        self.assertEqual(self.admit(repair=False), [])
+
+
+    def test_ignored_package_manifest_cannot_enter_metadata_or_fingerprint_admission(self):
+        self.source_paths.remove(self.package / "Cargo.toml")
+        metadata = {"packages": [{"name": "ivm", "source": None,
+                                  "manifest_path": str(self.package / "Cargo.toml")}]}
+        result = subprocess.CompletedProcess([], 0, json.dumps(metadata).encode(), b"")
+        with patch.object(cache.subprocess, "run", return_value=result):
+            with self.assertRaisesRegex(ValueError, "ambiguous or foreign"):
+                cache.local_package_roots(self.source, {"CARGO": "/cargo"}, source_paths=self.source_paths)
+        with self.assertRaisesRegex(ValueError, "manifest is not a selected signed"):
+            self.admit()
+        self.assertFalse((self.target / ".taira-source-fingerprint-binding.json").exists())
+
+    def test_retirement_parents_are_durable_before_new_binding_publication(self):
+        directories = [self.fingerprint([(0, "src/lib.rs")], cross=cross) for cross in (False, True)]
+        events, opened = [], {}
+        original_open, original_fsync = cache.os.open, cache.os.fsync
+        original_rename, original_replace = cache.os.rename, cache.os.replace
+        marker = self.target / ".taira-source-fingerprint-binding.json"
+        def observe_open(path, *args, **kwargs):
+            fd = original_open(path, *args, **kwargs)
+            opened[fd] = Path(path)
+            return fd
+        def observe_fsync(fd):
+            events.append(("fsync", opened.get(fd)))
+            return original_fsync(fd)
+        def observe_rename(source, destination, *args, **kwargs):
+            events.append(("retire", Path(source), Path(destination)))
+            return original_rename(source, destination, *args, **kwargs)
+        def observe_replace(source, destination, *args, **kwargs):
+            if Path(destination) == marker:
+                events.append(("publish-binding",))
+            return original_replace(source, destination, *args, **kwargs)
+        with patch.object(cache.os, "open", side_effect=observe_open), \
+             patch.object(cache.os, "fsync", side_effect=observe_fsync), \
+             patch.object(cache.os, "rename", side_effect=observe_rename), \
+             patch.object(cache.os, "replace", side_effect=observe_replace):
+            self.assertEqual(self.admit(), ["ivm"])
+        published = events.index(("publish-binding",))
+        retirements = [(index, event) for index, event in enumerate(events) if event[0] == "retire"]
+        self.assertEqual(len(retirements), 2)
+        self.assertEqual({event[1] for _, event in retirements}, set(directories))
+        for retired, event in retirements:
+            for directory in (event[1].parent, event[2].parent):
+                while True:
+                    self.assertTrue(any(retired < index < published and item == ("fsync", directory)
+                                        for index, item in enumerate(events)), directory)
+                    if directory == self.target:
+                        break
+                    directory = directory.parent
 
 if __name__ == "__main__":
     unittest.main()

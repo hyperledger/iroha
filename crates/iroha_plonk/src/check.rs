@@ -350,7 +350,7 @@ enum Val<F> {
 }
 
 /// The witness tables the checker reads.
-struct Witness<'a, F> {
+struct Witness<'a, F: PastaField> {
     n: usize,
     usable: usize,
     mode: CheckMode,
@@ -447,7 +447,7 @@ fn rotate(row: usize, rotation: Rotation, n: usize) -> (usize, bool) {
 }
 
 /// Evaluates an expression at one row with poison semantics.
-struct RowEvaluator<'w, 'a, F> {
+struct RowEvaluator<'w, 'a, F: PastaField> {
     witness: &'w Witness<'a, F>,
     row: usize,
 }

@@ -5,7 +5,7 @@
                     test::invoke_kotoage_as(
                         actor: "issuer",
                         kotoage: "helper",
-                        arguments: Json::parse("{}"),
+                        arguments: {},
                     );
                 }
             }

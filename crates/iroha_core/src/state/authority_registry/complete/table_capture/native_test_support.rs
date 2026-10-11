@@ -18,16 +18,9 @@ pub(super) fn cloned<T: Clone>(value: &T) -> T {
     value.clone()
 }
 
-// The fixed operation index uses its actual prepaid writer; other fixture tables
-// use their ordinary storage writer. These controls never bypass node admission.
+// Fixture tables use their ordinary storage writer. These controls never
+// bypass node admission.
 macro_rules! fixture_insert {
-    ($state:ident, kagemusha_mint_credit_operations, $key:expr, $value:expr) => {
-        $state
-            .world
-            .kagemusha_mint_credit_operations
-            .try_with_admitted_block(|block| block.try_insert_admitted($key, $value))
-            .expect("original operation-index fixture admission");
-    };
     ($state:ident, $storage:ident, $key:expr, $value:expr) => {
         let mut block = $state.world.$storage.block();
         block.insert($key, $value);
@@ -35,13 +28,6 @@ macro_rules! fixture_insert {
     };
 }
 macro_rules! fixture_remove {
-    ($state:ident, kagemusha_mint_credit_operations, $key:expr) => {
-        $state
-            .world
-            .kagemusha_mint_credit_operations
-            .try_with_admitted_block(|block| block.try_remove_admitted($key))
-            .expect("original operation-index fixture removal admission");
-    };
     ($state:ident, $storage:ident, $key:expr) => {
         let mut block = $state.world.$storage.block();
         block.remove($key);

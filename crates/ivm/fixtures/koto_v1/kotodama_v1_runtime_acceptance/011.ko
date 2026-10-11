@@ -1,5 +1,5 @@
 
-seiyaku StateRootAcceptance {
+seiyaku StateRootAcceptance { permission WriteState;
   error enum StateRootError {
     ScalarLost = 1,
     StructLost = 2,
@@ -20,7 +20,7 @@ seiyaku StateRootAcceptance {
     Outcome = Result::ok(Pair { count: 11, ready: true });
   }
 
-  kotoage fn run() -> int authorize("WriteState") {
+  kotoage fn run() authorize(WriteState) -> int {
     require(Counter == 3, StateRootError::ScalarLost);
     require(Current.count == 5 && Current.ready, StateRootError::StructLost);
     let maybe = Maybe.unwrap_or(Pair { count: 0, ready: false });

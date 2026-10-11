@@ -1,6 +1,6 @@
 
-            seiyaku Demo {
-                kotoage fn run() authorize("RunTrigger") {
+            seiyaku Demo { permission RunTrigger;
+                kotoage fn run() authorize(RunTrigger) {
                     let ev = context::trigger_event();
                     let _escrow_id = ev.get_name(Name::parse("escrow_id"));
                     let _condition_code = ev.get_int(Name::parse("condition_code"));

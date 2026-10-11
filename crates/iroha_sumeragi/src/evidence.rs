@@ -10,7 +10,7 @@ use std::borrow::Borrow;
 
 use crate::{
     api::CommittedTip,
-    crypto::{AttestationVerifier, CertError, Crypto, Verifier},
+    crypto::{CertError, Crypto, Verifier},
     message::{BlockHeader, Defect, Evidence, Proposal, VoteKind},
     topology::{Topology, committee_permutation, demoted_set, demotion_window},
     types::{Bitmap, Hash32, HeightConfig},
@@ -175,7 +175,6 @@ impl<Header: Borrow<BlockHeader>> EvidenceContext<'_, Header> {
 /// must be enforced before constructing the input graph.
 pub fn verify_evidence<Header: Borrow<BlockHeader>>(
     crypto: &dyn Crypto,
-    attestation: &dyn AttestationVerifier,
     context: &EvidenceContext<'_, Header>,
     evidence: &Evidence,
 ) -> Result<EvidenceAttribution, EvidenceError> {
@@ -209,13 +208,11 @@ pub fn verify_evidence<Header: Borrow<BlockHeader>>(
                 || first.view != second.view
                 || first.kind != second.kind
                 || first.signer != second.signer
-                || (first.block_hash, first.result, first.attest)
-                    == (second.block_hash, second.result, second.attest)
+                || (first.block_hash == second.block_hash && first.result == second.result)
             {
                 return Err(EvidenceError::NotConflicting);
             }
-            // A signature on each distinct vote value proves equivocation independently
-            // of unsigned attestation attachments; those attachments cannot create a conflict.
+            // Each distinct vote value must carry its signer's valid signature.
             verifier.verify_vote(first)?;
             verifier.verify_vote(second)?;
             offenders.push(first.signer);
@@ -240,9 +237,7 @@ pub fn verify_evidence<Header: Borrow<BlockHeader>>(
             let topology = context.topology(crypto)?;
             let leader = topology.leader(proposal.view);
             let (hash, _) = verifier.verify_proposal_signature(leader, proposal)?;
-            if proposal_defect(crypto, attestation, context, &topology, proposal, hash)
-                != Some(*defect)
-            {
+            if proposal_defect(crypto, context, &topology, proposal, hash) != Some(*defect) {
                 return Err(EvidenceError::DefectMismatch);
             }
             offenders.push(leader);
@@ -256,10 +251,10 @@ pub fn verify_evidence<Header: Borrow<BlockHeader>>(
             {
                 return Err(EvidenceError::NotConflicting);
             }
-            // As in the native safety monitor (§7.6), exact Commit signatures alone
-            // establish this safety violation; an absent Pasta attachment does not erase it.
-            verifier.verify_qc_signatures(first)?;
-            verifier.verify_qc_signatures(second)?;
+            // As in the native safety monitor (§7.6), the exact quorum of authenticated
+            // Commit signatures establishes this safety violation.
+            verifier.verify_qc(first)?;
+            verifier.verify_qc(second)?;
             safety_violation = true;
             if first.view == second.view {
                 offenders.extend(
@@ -280,7 +275,6 @@ pub fn verify_evidence<Header: Borrow<BlockHeader>>(
 
 fn proposal_defect<Header: Borrow<BlockHeader>>(
     crypto: &dyn Crypto,
-    attestation: &dyn AttestationVerifier,
     context: &EvidenceContext<'_, Header>,
     topology: &Topology,
     proposal: &Proposal,
@@ -311,7 +305,7 @@ fn proposal_defect<Header: Borrow<BlockHeader>>(
                     &parent.epoch.id,
                     &parent.committee,
                 )
-                .verify_qc(attestation, qc)
+                .verify_qc(qc)
                 .is_ok()
             })
         },

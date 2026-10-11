@@ -403,7 +403,7 @@ fn expired_original_can_be_verified_and_read_without_renewal_or_dispatch() {
             .resume_initial_reputation_policy(&path, &request)
             .unwrap()
             .status,
-        OperationStatus::Absent
+        OperationStatus::Expired
     );
     assert_eq!(
         service
@@ -597,4 +597,118 @@ fn retain_initial_reputation_policy_request_is_a_real_unsigned_zero_http_boundar
         transport.requests.load(std::sync::atomic::Ordering::SeqCst),
         before
     );
+}
+
+#[test]
+fn retained_parent_initial_reputation_policy_inspection_keeps_exact_phases_lock_and_offline_request_checks()
+ {
+    let (service, transport) = service();
+    let request = request(&service.config, current_unix_ms().unwrap());
+    let root = tempfile::tempdir().unwrap();
+    let owner = iroha_fs::OwnerDirectory::open(root.path()).unwrap();
+    let parent = owner.create_private_child("parent").unwrap();
+    let name = std::ffi::OsStr::new("transaction");
+    let path = parent.path().join(name);
+    assert_eq!(
+        service
+            .inspect_initial_reputation_policy_preparation_in_parent(&parent, name, &request)
+            .unwrap()
+            .phase(),
+        NativePreparationPhase::Missing
+    );
+    assert!(!path.exists());
+    assert!(
+        service
+            .inspect_initial_reputation_policy_preparation_in_parent(
+                &parent,
+                std::ffi::OsStr::new("../transaction"),
+                &request
+            )
+            .is_err()
+    );
+    assert_eq!(transport.requests.load(Ordering::SeqCst), 0);
+
+    let first = service
+        .retain_initial_reputation_policy_request(&request, &path)
+        .unwrap();
+    let original = std::fs::read(path.join("preparation.json")).unwrap();
+    let borrowed = service
+        .inspect_initial_reputation_policy_preparation_in_parent(&parent, name, &request)
+        .unwrap();
+    let absolute = service
+        .inspect_initial_reputation_policy_preparation(&path, &request)
+        .unwrap();
+    assert_eq!(borrowed.phase(), NativePreparationPhase::RequestOnly);
+    assert_eq!(borrowed.phase(), absolute.phase());
+    assert_eq!(borrowed.request_sha256(), first.request_sha256());
+    assert_eq!(borrowed.request_sha256(), absolute.request_sha256());
+    assert_eq!(borrowed.unprepared_status(), absolute.unprepared_status());
+    assert!(borrowed.signed_transaction().is_none());
+    let mut changed = request.clone();
+    changed.deadline_unix_ms += 1;
+    assert!(
+        service
+            .inspect_initial_reputation_policy_preparation_in_parent(&parent, name, &changed)
+            .is_err()
+    );
+    assert!(
+        service
+            .inspect_initial_reputation_policy_preparation(&path, &changed)
+            .is_err()
+    );
+    let held_lock = Journal::open(&path).unwrap();
+    assert!(
+        service
+            .inspect_initial_reputation_policy_preparation_in_parent(&parent, name, &request)
+            .is_err()
+    );
+    drop(held_lock);
+    assert_eq!(
+        service
+            .inspect_initial_reputation_policy_preparation_in_parent(&parent, name, &request)
+            .unwrap()
+            .request_sha256(),
+        first.request_sha256()
+    );
+    assert_eq!(transport.requests.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        std::fs::read(path.join("preparation.json")).unwrap(),
+        original
+    );
+
+    service
+        .prepare_initial_reputation_policy(&request, &path)
+        .unwrap();
+    let calls = transport.requests.load(Ordering::SeqCst);
+    let absolute = service
+        .inspect_initial_reputation_policy_preparation(&path, &request)
+        .unwrap();
+    let borrowed = service
+        .inspect_initial_reputation_policy_preparation_in_parent(&parent, name, &request)
+        .unwrap();
+    assert_eq!(borrowed.phase(), NativePreparationPhase::Signed);
+    assert_eq!(borrowed.request_sha256(), absolute.request_sha256());
+    assert_eq!(
+        borrowed.signed_transaction().unwrap().encode_versioned(),
+        absolute.signed_transaction().unwrap().encode_versioned()
+    );
+    std::fs::remove_file(path.join("operation.json")).unwrap();
+    let absolute = service
+        .inspect_initial_reputation_policy_preparation(&path, &request)
+        .unwrap();
+    let borrowed = service
+        .inspect_initial_reputation_policy_preparation_in_parent(&parent, name, &request)
+        .unwrap();
+    assert_eq!(borrowed.phase(), NativePreparationPhase::PayloadRetained);
+    assert_eq!(borrowed.phase(), absolute.phase());
+    assert_eq!(borrowed.request_sha256(), absolute.request_sha256());
+    assert_eq!(borrowed.unprepared_status(), absolute.unprepared_status());
+    assert!(borrowed.signed_transaction().is_none());
+    assert!(!path.join("operation.json").exists());
+    assert!(!path.join("submission.json").exists());
+    assert_eq!(
+        std::fs::read(path.join("preparation.json")).unwrap(),
+        original
+    );
+    assert_eq!(transport.requests.load(Ordering::SeqCst), calls);
 }

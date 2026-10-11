@@ -18,7 +18,7 @@ fn load(source: &str) -> (IVM, Vec<u8>) {
 #[test]
 fn expect_preserves_zero_empty_bytes_names_and_aggregate_state() {
     let (mut vm, _) = load(
-        r#"seiyaku SimpleState {
+        r#"seiyaku SimpleState { permission WriteState;
             error enum StateError { Missing = 1101 }
             const Name KEY = Name::parse("note");
             struct Note { int nonce, bytes commitment, Name source, bool active }
@@ -26,7 +26,7 @@ fn expect_preserves_zero_empty_bytes_names_and_aggregate_state() {
             state StateMap<Name, int> Nonces;
             state StateMap<Name, bytes> Evidence;
 
-            kotoage fn run() -> bool authorize("WriteState") {
+            kotoage fn run() authorize(WriteState) -> bool {
                 Notes[KEY] = Note {
                     nonce: 0, commitment: b"", source: KEY, active: false
                 };
@@ -52,7 +52,7 @@ fn expect_absence_aborts_with_the_authenticated_nominal_error() {
             r#"seiyaku MissingState {{
                 error enum StateError {{ Missing = 1101 }}
                 struct Note {{ int nonce, bytes commitment }}
-                view fn run() -> {ty} {{
+                view fn run() authorize(anyone) -> {ty} {{
                     let Option<{ty}> absent = Option::none;
                     return absent.expect(StateError::Missing);
                 }}
@@ -91,7 +91,7 @@ fn expect_absence_aborts_with_the_authenticated_nominal_error() {
 #[test]
 fn expect_evaluates_a_stateful_receiver_once() {
     let (mut vm, _) = load(
-        r#"seiyaku Once {
+        r#"seiyaku Once { permission WriteState;
             error enum StateError { Missing = 1101 }
             state StateMap<int, int> Calls;
             fn next() -> Option<int> {
@@ -99,7 +99,7 @@ fn expect_evaluates_a_stateful_receiver_once() {
                 Calls[0] = count;
                 return Option::some(count);
             }
-            kotoage fn run() -> bool authorize("WriteState") {
+            kotoage fn run() authorize(WriteState) -> bool {
                 let value = next().expect(StateError::Missing);
                 return value == 1 && Calls.get(0).expect(StateError::Missing) == 1;
             }
@@ -112,7 +112,7 @@ fn expect_evaluates_a_stateful_receiver_once() {
 #[test]
 fn expect_evaluates_its_nominal_error_once_after_the_receiver() {
     let (mut vm, _) = load(
-        r#"seiyaku EvaluationOrder {
+        r#"seiyaku EvaluationOrder { permission WriteState;
             error enum Failure { Missing = 1 }
             state StateMap<int, int> Trace;
             fn present() -> Option<int> {
@@ -123,7 +123,7 @@ fn expect_evaluates_its_nominal_error_once_after_the_receiver() {
                 Trace[0] = Trace.get(0).unwrap_or(0) * 10 + 2;
                 return Failure::Missing;
             }
-            kotoage fn run() -> bool authorize("WriteState") {
+            kotoage fn run() authorize(WriteState) -> bool {
                 let value = present().expect(missing());
                 return value == 7 && Trace.get(0).unwrap_or(0) == 12;
             }
@@ -159,11 +159,7 @@ fn expect_rejects_untyped_errors_and_nonoptional_receivers() {
             "let Option<int> value = Option::some(1);"
         };
         let source = format!(
-            "seiyaku Invalid {{ error enum Failure {{ Missing = 1 }} \
-                view fn run() -> int {{ \
-                    {binding} \
-                    return {expression}; \
-                }} }}"
+            "seiyaku Invalid {{ error enum Failure {{ Missing = 1 }} view fn run() authorize(anyone) -> int {{ {binding} return {expression}; }} }}"
         );
         let error = Compiler::new()
             .compile_source(&source)
@@ -182,12 +178,12 @@ fn hex_prefixed_strings_remain_text_through_json_calls_and_state() {
         r#"let binary = b"ab"; let text = "0x6162";"#,
     ] {
         let source = format!(
-            r#"seiyaku LiteralText {{
+            r#"seiyaku LiteralText {{ permission WriteState;
                 error enum Failure {{ Missing = 1 }}
                 state StateMap<int, string> Texts;
                 state StateMap<string, int> Keys;
                 fn echo(string text) -> string {{ return text; }}
-                kotoage fn run() -> Json authorize("WriteState") {{
+                kotoage fn run() authorize(WriteState) -> Json {{
                     {bindings}
                     Texts[1] = text;
                     Keys[text] = 11;
@@ -239,7 +235,7 @@ fn hex_prefixed_strings_remain_text_through_json_calls_and_state() {
 
 #[test]
 fn concise_proposal_transition_preserves_record_state_and_nominal_rejections() {
-    let source = r#"seiyaku Proposals {
+    let source = r#"seiyaku Proposals { permission WriteState;
         error enum Failure { Missing = 1, NotPending = 2, InvalidAmount = 3, Exists = 4 }
         struct Proposal {
             quantity amount, bytes approval_alias, int status, int finalized_at_ms
@@ -257,7 +253,7 @@ fn concise_proposal_transition_preserves_record_state_and_nominal_rejections() {
             request.finalized_at_ms = finalized_at_ms;
             Requests[id] = request;
         }
-        kotoage fn run() -> bool authorize("WriteState") {
+        kotoage fn run() authorize(WriteState) -> bool {
             create(1, 25, b"approval");
             finalize(1, 100);
             ACTION
@@ -308,7 +304,7 @@ fn concise_proposal_transition_preserves_record_state_and_nominal_rejections() {
 #[test]
 fn positional_and_named_calls_preserve_source_evaluation_order() {
     let (mut vm, _) = load(
-        r#"seiyaku SimpleCalls {
+        r#"seiyaku SimpleCalls { permission WriteState;
             state StateMap<int, int> Calls;
             fn next() -> int {
                 let count = Calls.get(0).unwrap_or(0) + 1;
@@ -316,7 +312,7 @@ fn positional_and_named_calls_preserve_source_evaluation_order() {
                 return count;
             }
             fn pair(int left, int right) -> int { return left * 10 + right; }
-            kotoage fn run() -> bool authorize("WriteState") {
+            kotoage fn run() authorize(WriteState) -> bool {
                 let positional = pair(next(), next());
                 let named = pair(right: next(), left: next());
                 return positional == 12 && named == 43
@@ -331,13 +327,13 @@ fn positional_and_named_calls_preserve_source_evaluation_order() {
 #[test]
 fn mutable_record_fields_roundtrip_without_changing_other_fields() {
     let (mut vm, _) = load(
-        r#"seiyaku RecordUpdates {
+        r#"seiyaku RecordUpdates { permission WriteState;
             error enum StateError { Missing = 1101 }
             struct Consent { int nonce, bool approved }
             struct Note { Name source, bytes commitment, Consent consent }
             state StateMap<int, Note> Notes;
 
-            kotoage fn run() -> bool authorize("WriteState") {
+            kotoage fn run() authorize(WriteState) -> bool {
                 Notes[1] = Note {
                     source: Name::parse("invoice"), commitment: b"original",
                     consent: Consent { nonce: 0, approved: false }
@@ -368,7 +364,7 @@ fn record_fields_preserve_mutability_and_type_checks() {
         "var note = Note { nonce: 0 }; note.nonce = true;",
     ] {
         let source = format!(
-            "seiyaku Immutable {{ struct Note {{ int nonce }} view fn run() {{ {body} }} }}"
+            "seiyaku Immutable {{ struct Note {{ int nonce }} view fn run() authorize(anyone) {{ {body} }} }}"
         );
         assert!(
             Compiler::new().compile_source(&source).is_err(),
@@ -399,7 +395,7 @@ fn wide_records_cross_stack_table_windows_without_corrupting_fields() {
         .collect::<Vec<_>>()
         .join(" && ");
     let source = format!(
-        r#"seiyaku WideRecord {{
+        r#"seiyaku WideRecord {{ permission WriteState;
             error enum StateError {{ Missing = 1101 }}
             struct Record {{ {fields} }}
             state StateMap<int, Record> Records;
@@ -409,7 +405,7 @@ fn wide_records_cross_stack_table_windows_without_corrupting_fields() {
                 updated.f39 += 100;
                 return updated;
             }}
-            kotoage fn run() -> bool authorize("WriteState") {{
+            kotoage fn run() authorize(WriteState) -> bool {{
                 Records[0] = Record {{ {initial} }};
                 let original = Records.get(0).expect(StateError::Missing);
                 Records[0] = adjust(original);
@@ -427,7 +423,7 @@ fn wide_records_cross_stack_table_windows_without_corrupting_fields() {
 #[test]
 fn record_updates_survive_control_flow_merges_and_evaluate_rhs_once() {
     let (mut vm, _) = load(
-        r#"seiyaku RecordFlow {
+        r#"seiyaku RecordFlow { permission WriteState;
             struct Consent { int nonce, bool approved }
             struct Note { bytes evidence, Consent consent }
             state StateMap<int, int> Calls;
@@ -436,7 +432,7 @@ fn record_updates_survive_control_flow_merges_and_evaluate_rhs_once() {
                 Calls[0] = count;
                 return count;
             }
-            kotoage fn run() -> bool authorize("WriteState") {
+            kotoage fn run() authorize(WriteState) -> bool {
                 var note = Note {
                     evidence: b"retained", consent: Consent { nonce: 0, approved: false }
                 };
@@ -459,12 +455,12 @@ fn record_updates_survive_control_flow_merges_and_evaluate_rhs_once() {
 #[test]
 fn durable_record_fields_observe_updates_from_effectful_helpers() {
     let (mut vm, _) = load(
-        r#"seiyaku DurableRecord {
+        r#"seiyaku DurableRecord { permission WriteState;
             struct Counter { int count, bytes evidence }
             state Counter Current;
             hajimari() { Current = Counter { count: 0, evidence: b"original" }; }
             fn bump() { Current.count += 1; }
-            kotoage fn run() -> bool authorize("WriteState") {
+            kotoage fn run() authorize(WriteState) -> bool {
                 Current = Counter { count: 0, evidence: b"original" };
                 Current.count = 2;
                 bump();
@@ -482,7 +478,7 @@ fn nested_tuple_record_swaps_survive_continue_and_break() {
     let (mut vm, _) = load(
         r#"seiyaku RecordControl {
             struct Note { int value, bytes evidence, bool approved }
-            view fn run() -> bool {
+            view fn run() authorize(anyone) -> bool {
                 var pair = (
                     Note { value: 1, evidence: b"first", approved: false },
                     Note { value: 2, evidence: b"second", approved: false }

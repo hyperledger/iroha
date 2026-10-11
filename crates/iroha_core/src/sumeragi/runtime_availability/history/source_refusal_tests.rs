@@ -220,3 +220,85 @@ fn original_lane_evidence_handoff_preserves_actual_decode_refusal_and_exact_cut(
     drop(context);
     assert_eq!(budget.reserved_bytes(), baseline);
 }
+
+#[test]
+fn original_lane_commitment_decoder_refusal_survives_payload_and_archive_adapters() {
+    use crate::query::native_receipts::lane_payload::LanePayloadError;
+    use iroha_data_model::{
+        block::consensus::ExecWitness,
+        sumeragi_finality::{
+            NativeLaneStateProof, NativeLaneStateProofError, SUMERAGI_LANE_STATE_WITNESS_KEY,
+        },
+    };
+    let (chain, _record, _epoch) = super::super::tests::fixed_lane_chain();
+    let budget = chain.state().ivm_execution_budget();
+    let carrier = chain.committed(2);
+    let archive = NativeContextArchive::open_existing(
+        chain.kura(),
+        budget.clone(),
+        chain.kura().native_context_archive_max_bytes(),
+    )
+    .unwrap();
+    let bytes = archive.read_exact(2, carrier.block_hash()).unwrap();
+    let projection: crate::state::NativeExecutionProjectionV1 =
+        norito::decode_canonical(bytes.as_slice()).unwrap();
+    let witness = ExecWitness {
+        writes: projection.ordinary_writes,
+        ..ExecWitness::default()
+    };
+    assert_eq!(
+        NativeLaneStateProof::from_witness(&witness, &budget).unwrap(),
+        carrier.commitment().native_lanes
+    );
+    let commitment = witness
+        .writes
+        .iter()
+        .find(|write| write.key == SUMERAGI_LANE_STATE_WITNESS_KEY)
+        .unwrap();
+    let defaults = norito::canonical_decode_limits(commitment.value.len());
+    let limits = norito::DecodeLimits::new(
+        defaults.max_sequence_elements(),
+        defaults.max_field_bytes(),
+        defaults.max_total_elements(),
+        defaults.max_total_allocated_bytes(),
+        0,
+    );
+    let original_pointer = commitment.value.as_ptr();
+    let original_hash = HashOf::new(&witness);
+    let retained = budget.reserved_bytes();
+    for via_archive in [false, true] {
+        let original = norito::with_decode_limits_scope(limits, || {
+            NativeLaneStateProof::from_witness(&witness, &budget)
+        })
+        .unwrap_err();
+        assert!(
+            matches!(&original, NativeLaneStateProofError::Decode(error) if error.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit)
+        );
+        assert!(original.is_local_refusal());
+        let attempt = if via_archive {
+            let error = NativeContextArchiveError::Proof(original);
+            assert!(error.is_local_refusal());
+            archive_error(error)
+        } else {
+            let error = LanePayloadError::Proof(original);
+            assert!(error.is_local_refusal());
+            payload_error(error)
+        };
+        let Attempt::Deferred(original) = attempt else {
+            panic!("the history adapter must preserve the captured original decoder refusal")
+        };
+        assert_eq!(
+            original.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        );
+        assert!(original.allocation_refusal().is_none());
+        assert_eq!(commitment.value.as_ptr(), original_pointer);
+        assert_eq!(HashOf::new(&witness), original_hash);
+        assert_eq!(budget.reserved_bytes(), retained);
+    }
+    assert_eq!(
+        NativeLaneStateProof::from_witness(&witness, &budget).unwrap(),
+        carrier.commitment().native_lanes
+    );
+    assert_eq!(budget.reserved_bytes(), retained);
+}

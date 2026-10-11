@@ -243,6 +243,7 @@ impl IVM {
             staged_syscall: None,
             last_staged_syscall: None,
             argument_decode_prepaid_gas: None,
+            captured_root_tables: None,
             cycles: self.cycles,
             active_cycle_budget: self.active_cycle_budget.clone(),
             halted: self.halted,

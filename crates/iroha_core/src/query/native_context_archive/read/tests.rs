@@ -39,12 +39,14 @@ fn refused_archive_read_never_reopens_the_original_selected_inode() {
     let budget = AllocationBudget::new(original.len());
     let blocker = ChargedBuffer::<u8>::new(1, &budget).unwrap();
     let (directory, mut read) = fixture(&original, budget.clone());
+    assert!(!read.has_pinned_source());
     assert!(matches!(
         read.poll(),
         Err(NativeContextArchiveError::Allocation(
             ChargedBufferError::Admission(AllocationRefusal::Capacity { .. })
         ))
     ));
+    assert!(read.has_pinned_source());
     assert!(read.read.file.is_some());
     assert_eq!(read.read.length, Some(original.len()));
     assert!(read.read.bytes.is_none());
@@ -53,6 +55,7 @@ fn refused_archive_read_never_reopens_the_original_selected_inode() {
     fs::write(&path, vec![9; original.len()]).unwrap();
     drop(blocker);
     let bytes = complete(&mut read);
+    assert!(read.has_pinned_source());
     assert_eq!(bytes.as_slice(), original);
     assert!(bytes.belongs_to(&budget));
     assert_eq!(budget.reserved_bytes(), original.len());
@@ -229,5 +232,51 @@ fn returning_archive_cancels_pending_bytes_but_preserves_completed_byte_owner() 
     assert_eq!(bytes.as_slice(), original);
     drop(bytes);
     drop(next);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+#[cfg(unix)]
+fn original_intent_read_shares_exact_descriptor_capacity_and_prefix_custody() {
+    let original = vec![0x42; 5_000];
+    let budget = AllocationBudget::new(original.len());
+    let (directory, read) = fixture(&original, budget.clone());
+    let archive = read.into_archive();
+    let path = directory
+        .path()
+        .join("native-contexts")
+        .join(RecordName::intent(2, hash(), false).as_str());
+    fs::rename(canonical_path(directory.path()), &path).unwrap();
+    let mut read = archive.prepared_intent_read_job(2, hash());
+    let blocker = ChargedBuffer::<u8>::new(1, &budget).unwrap();
+    assert!(matches!(
+        read.poll(),
+        Err(NativeContextArchiveError::Allocation(
+            ChargedBufferError::Admission(AllocationRefusal::Capacity { .. })
+        ))
+    ));
+    assert!(read.has_pinned_source());
+    let metadata = read.read.file.as_ref().unwrap().metadata().unwrap();
+    use std::os::unix::fs::MetadataExt as _;
+    let identity = (metadata.dev(), metadata.ino());
+    fs::rename(&path, directory.path().join("original-held-intent")).unwrap();
+    fs::write(&path, vec![0x66; original.len()]).unwrap();
+    drop(blocker);
+    assert!(read.poll().unwrap().is_none());
+    let pointer = read.acquired_prefix().unwrap().as_ptr();
+    assert_eq!(read.acquired_prefix().unwrap(), &original[..4096]);
+    let bytes = complete(&mut read);
+    let retained = read.read.file.as_ref().unwrap().metadata().unwrap();
+    assert_eq!((retained.dev(), retained.ino()), identity);
+    assert_eq!(bytes.as_slice().as_ptr(), pointer);
+    assert_eq!(
+        bytes.as_slice(),
+        original,
+        "intent read never selects substituted pathname bytes"
+    );
+    assert!(bytes.belongs_to(&budget));
+    assert_eq!(budget.reserved_bytes(), original.len());
+    drop(bytes);
+    drop(read);
     assert_eq!(budget.reserved_bytes(), 0);
 }

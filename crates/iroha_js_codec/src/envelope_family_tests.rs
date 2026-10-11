@@ -776,6 +776,14 @@ fn multisig_envelopes_wrap_their_payloads_in_custom_instructions() {
         ("MultisigCancel", "Cancel"),
         ("MultisigRegister", "Register"),
     ] {
+        let fields = if key == "MultisigRegister" {
+            object([
+                ("account", Value::String("multisig-fixture".to_owned())),
+                ("uaid", Value::Null),
+            ])
+        } else {
+            fields.clone()
+        };
         let expected = custom_json_value(object([(wrapper, fields.clone())]));
         for spelling in [
             key.to_owned(),

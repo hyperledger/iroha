@@ -69,5 +69,6 @@ trusted alias/SPKI provenance, governed root and revocation freshness, device
 security level, and retained result/evidence identity. It fails for no bundles,
 missing expectations, authority/evidence overlap, stale or revoked certificates,
 a key mismatch, failed verification or missing output. Device and firmware
-coverage belong to the governed readiness matrix and actual run evidence;
+coverage belong to the device-lab reservation records
+(`specs/compliance/android/device_lab_reservation.md`) and actual run evidence;
 this source contract does not certify a fleet or procurement decision.

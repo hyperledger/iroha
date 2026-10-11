@@ -129,7 +129,9 @@ fn detached_invalid_vm_severs_foreign_loggers_without_allocating_or_scrubbing_th
     cache_memory::with_refused_shared_allocation_for_test(|| {
         assert!(matches!(
             vm.run_with_host(&mut DefaultHost::default()),
-            Err(VMError::PrivacyViolation)
+            Err(VMError::ExecutionDeferred(
+                crate::error::ExecutionDeferral::LocalInvariantViolation
+            ))
         ));
         assert!(vm.reg_log.is_none());
         assert!(vm.host_trace_invocation_log.is_none());

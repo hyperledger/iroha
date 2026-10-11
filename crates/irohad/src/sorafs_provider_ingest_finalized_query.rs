@@ -681,6 +681,8 @@ pub struct ArchivedProviderIngestFinalizedLedgerV1 {
     capture_signer: Option<ArchivedCompletedMusubiCaptureSignerSlotV1>,
     #[cfg(test)]
     signed_capture_source_reads: Arc<AtomicUsize>,
+    #[cfg(test)]
+    live_qualification_attempts: Arc<AtomicUsize>,
     active: Arc<Mutex<Option<ActiveArchiveScanV1>>>,
 }
 #[derive(Clone)]
@@ -787,6 +789,8 @@ impl ArchivedProviderIngestFinalizedLedgerV1 {
             capture_signer,
             #[cfg(test)]
             signed_capture_source_reads: Arc::new(AtomicUsize::new(0)),
+            #[cfg(test)]
+            live_qualification_attempts: Arc::new(AtomicUsize::new(0)),
             active: Arc::new(Mutex::new(None)),
         }
     }
@@ -837,6 +841,36 @@ impl ArchivedProviderIngestFinalizedLedgerV1 {
         &self,
     ) -> Result<ProviderIngestFinalizedArchiveQualificationV1, ProviderIngestFinalizedArchiveErrorV1>
     {
+        self.qualify_live_with_view()
+            .map(|(_view, qualification)| qualification)
+    }
+    // Keep the exact view that authenticated this qualification through activation's
+    // visibility check. A second current view could describe an ordinary next commit.
+    fn qualify_live_with_view(
+        &self,
+    ) -> Result<
+        (
+            StateQueryView<'_>,
+            ProviderIngestFinalizedArchiveQualificationV1,
+        ),
+        ProviderIngestFinalizedArchiveErrorV1,
+    > {
+        self.qualify_live_with_view_observed(
+            #[cfg(test)]
+            &mut || Ok(()),
+        )
+    }
+
+    fn qualify_live_with_view_observed(
+        &self,
+        #[cfg(test)] interleave: &mut impl FnMut() -> Result<(), ProviderIngestFinalizedArchiveErrorV1>,
+    ) -> Result<
+        (
+            StateQueryView<'_>,
+            ProviderIngestFinalizedArchiveQualificationV1,
+        ),
+        ProviderIngestFinalizedArchiveErrorV1,
+    > {
         for _ in 0..LIVE_SELECTION_ATTEMPTS_V1 {
             let view = self.state.query_view();
             if view.network_id() != &self.network_id {
@@ -846,15 +880,30 @@ impl ArchivedProviderIngestFinalizedLedgerV1 {
                     },
                 );
             }
-            match self.archive.qualify_against_certified_tip(
+            #[cfg(test)]
+            self.live_qualification_attempts
+                .fetch_add(1, Ordering::SeqCst);
+            #[cfg(test)]
+            let qualification = self
+                .archive
+                .qualify_against_certified_tip_with_interleaving_for_testing(
+                    &view,
+                    self.kura.as_ref(),
+                    self.max_kura_tip_lag_blocks,
+                    |_| interleave(),
+                );
+            #[cfg(not(test))]
+            let qualification = self.archive.qualify_against_certified_tip(
                 &view,
                 self.kura.as_ref(),
                 self.max_kura_tip_lag_blocks,
-            ) {
+            );
+            match qualification {
                 Err(ProviderIngestFinalizedArchiveErrorV1::QualificationBoundaryChanged {
                     ..
                 }) => {}
-                result => return result,
+                Ok(qualification) => return Ok((view, qualification)),
+                Err(error) => return Err(error),
             }
         }
         Err(
@@ -866,57 +915,48 @@ impl ArchivedProviderIngestFinalizedLedgerV1 {
     /// Validate adapter identity readiness without requiring a first commit to
     /// have completed before Sumeragi starts.
     ///
-    /// The deferred result is accepted only for the exact empty bootstrap gate.
-    /// Ordinary callers remain subject to configured live-lag qualification.
+    /// Empty bootstrap, authenticated archive lag within the configured ceiling,
+    /// and an unstable boundary after bounded qualification defer activation.
+    /// None grants query authority; corruption, incompatible
+    /// finality and excessive lag retain their original errors.
     pub(crate) fn activation_ready(&self) -> Result<bool, ProviderIngestFinalizedArchiveErrorV1> {
-        let strict_result = self.qualify_live();
-        if self.strict_qualification_is_activated(&strict_result)? {
-            return Ok(true);
-        }
-        match self.activation_gate {
-            ArchiveActivationGateV1::StrictLive => {
-                let _ = strict_result?;
-                Err(ProviderIngestFinalizedArchiveErrorV1::ArchiveUnavailable {
-                    reason: "provider-ingest archive tip is not visible through committed State",
-                })
-            }
-            ArchiveActivationGateV1::AwaitingGenesis => {
-                self.awaiting_genesis_activation_ready(strict_result)
-            }
-        }
+        self.activation_ready_observed(
+            #[cfg(test)]
+            &mut || Ok(()),
+        )
     }
-    fn strict_qualification_is_activated(
+
+    fn activation_ready_observed(
         &self,
-        strict_result: &Result<
-            ProviderIngestFinalizedArchiveQualificationV1,
-            ProviderIngestFinalizedArchiveErrorV1,
-        >,
+        #[cfg(test)] interleave: &mut impl FnMut() -> Result<(), ProviderIngestFinalizedArchiveErrorV1>,
     ) -> Result<bool, ProviderIngestFinalizedArchiveErrorV1> {
-        let Ok(qualification) = strict_result else {
-            return Ok(false);
-        };
-        if !self.qualification_is_visible(qualification)? {
-            return Ok(false);
+        match self.qualify_live_with_view_observed(
+            #[cfg(test)]
+            interleave,
+        ) {
+            Ok((view, qualification)) => self.qualification_is_visible(&view, &qualification),
+            Err(ProviderIngestFinalizedArchiveErrorV1::QualificationBoundaryChanged { .. }) => {
+                Ok(false)
+            }
+            Err(error) => match self.activation_gate {
+                ArchiveActivationGateV1::StrictLive => Err(error),
+                ArchiveActivationGateV1::AwaitingGenesis => {
+                    self.awaiting_genesis_activation_ready(error)
+                }
+            },
         }
-        Ok(true)
     }
 
     fn awaiting_genesis_activation_ready(
         &self,
-        strict_result: Result<
-            ProviderIngestFinalizedArchiveQualificationV1,
-            ProviderIngestFinalizedArchiveErrorV1,
-        >,
+        error: ProviderIngestFinalizedArchiveErrorV1,
     ) -> Result<bool, ProviderIngestFinalizedArchiveErrorV1> {
         let (_view, state_height) = self.activation_state_view()?;
         let kura_height = self.activation_kura_height("read deferred genesis Kura boundary")?;
         if state_height == 0 && kura_height <= 1 && self.archive.is_empty()? {
             return Ok(false);
         }
-        let _ = strict_result?;
-        Err(ProviderIngestFinalizedArchiveErrorV1::ArchiveUnavailable {
-            reason: "provider-ingest genesis archive tip is not visible through committed State",
-        })
+        Err(error)
     }
     fn activation_state_view(
         &self,
@@ -954,9 +994,9 @@ impl ArchivedProviderIngestFinalizedLedgerV1 {
     }
     fn qualification_is_visible(
         &self,
+        view: &StateQueryView<'_>,
         qualification: &ProviderIngestFinalizedArchiveQualificationV1,
     ) -> Result<bool, ProviderIngestFinalizedArchiveErrorV1> {
-        let view = self.state.query_view();
         if !std::ptr::eq(view.kura(), self.kura.as_ref()) {
             return Err(
                 ProviderIngestFinalizedArchiveErrorV1::FinalityAuthentication {
@@ -970,6 +1010,9 @@ impl ArchivedProviderIngestFinalizedLedgerV1 {
             }
         })?;
         if state_height != qualification.archive_tip().height {
+            // The executor publishes State before capturing its archive. A successful
+            // qualification already proved the configured lag bound and exact ancestry;
+            // wait for capture on the next bounded tick without declaring readiness.
             return Ok(false);
         }
         let state_hash = view
@@ -990,9 +1033,12 @@ impl ArchivedProviderIngestFinalizedLedgerV1 {
         }
         Ok(true)
     }
+    // Return the generation already authenticated by this bounded selection. A capture
+    // page must close against this same generation rather than requalifying only to read it.
     fn select_visible_committed_key(
         &self,
-    ) -> Result<ProviderIngestFinalizedArchiveKeyV1, ProviderIngestFinalizedArchiveErrorV1> {
+    ) -> Result<(ProviderIngestFinalizedArchiveKeyV1, u64), ProviderIngestFinalizedArchiveErrorV1>
+    {
         for _ in 0..LIVE_SELECTION_ATTEMPTS_V1 {
             let view = self.state.query_view();
             if !std::ptr::eq(view.kura(), self.kura.as_ref()) {
@@ -1024,7 +1070,7 @@ impl ArchivedProviderIngestFinalizedLedgerV1 {
                 .archive
                 .resolve_exact_key(&self.network_id, height, block_hash)?;
             if self.archive.health_generation()? == qualification.generation() {
-                return Ok(key);
+                return Ok((key, qualification.generation()));
             }
         }
         Err(
@@ -1071,7 +1117,7 @@ impl ArchivedProviderIngestFinalizedLedgerV1 {
             {
                 return Err(ProviderIngestFinalizedLedgerErrorV1::Unavailable);
             }
-            let before = self
+            let (before, _) = self
                 .select_visible_committed_key()
                 .map_err(|_| ProviderIngestFinalizedLedgerErrorV1::Unavailable)?;
             let generation_before = self
@@ -1089,7 +1135,7 @@ impl ArchivedProviderIngestFinalizedLedgerV1 {
                 self.provider_id,
                 ReplicationOrderId::new(authorization.order_id()),
             );
-            let after = self
+            let (after, _) = self
                 .select_visible_committed_key()
                 .map_err(|_| ProviderIngestFinalizedLedgerErrorV1::Unavailable)?;
             let generation_after = self
@@ -1182,7 +1228,7 @@ impl ArchivedProviderIngestFinalizedLedgerV1 {
                 if after_order_id.is_some() || active.is_some() {
                     return Err(ProviderIngestFinalizedLedgerErrorV1::Rejected);
                 }
-                let key = self
+                let (key, _) = self
                     .select_visible_committed_key()
                     .map_err(|_| ProviderIngestFinalizedLedgerErrorV1::Unavailable)?;
                 (key, None)
@@ -1237,13 +1283,10 @@ impl ArchivedProviderIngestFinalizedLedgerV1 {
         let (key, after_order_id, expected_generation) = match (at_finalized_cursor, after_order_id)
         {
             (None, None) => {
-                let key = self
+                let (key, generation) = self
                     .select_visible_committed_key()
                     .map_err(|_| ProviderIngestFinalizedLedgerErrorV1::Unavailable)?;
-                let qualification = self
-                    .qualify_live()
-                    .map_err(|_| ProviderIngestFinalizedLedgerErrorV1::Unavailable)?;
-                (key, None, qualification.generation())
+                (key, None, generation)
             }
             (Some(public_cursor), Some(after_order_id)) => {
                 let qualification = self
@@ -1261,7 +1304,24 @@ impl ArchivedProviderIngestFinalizedLedgerV1 {
             }
             (None, Some(_)) | (Some(_), None) => unreachable!("validated capture cursor shape"),
         };
-        let page = self.read_replay_safe_exact_capture_source_page(&key, after_order_id, limit)?;
+        self.read_generation_fenced_capture_source_page(
+            &key,
+            expected_generation,
+            after_order_id,
+            limit,
+        )
+    }
+    fn read_generation_fenced_capture_source_page(
+        &self,
+        key: &ProviderIngestFinalizedArchiveKeyV1,
+        expected_generation: u64,
+        after_order_id: Option<[u8; 32]>,
+        limit: usize,
+    ) -> Result<
+        ProviderIngestCompletedMusubiCaptureSourcePageV1,
+        ProviderIngestFinalizedLedgerErrorV1,
+    > {
+        let page = self.read_replay_safe_exact_capture_source_page(key, after_order_id, limit)?;
         if self
             .archive
             .health_generation()
@@ -2212,6 +2272,382 @@ mod tests {
         assert_eq!(
             replayed.archive().health_generation().unwrap(),
             generation + 1
+        );
+    }
+    #[test]
+    fn certified_state_before_archive_capture_defers_activation_then_requalifies() {
+        use iroha_core::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+
+        let root = physical_tempdir().unwrap();
+        let mut chain =
+            CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+        let mut config = archive_config();
+        config.max_kura_tip_lag_blocks = 2;
+        let prepared = prepare_provider_ingest_finalized_archive_v1(
+            &config,
+            chain.network_id(),
+            ProviderId::new([0x51; 32]),
+            root.path(),
+            chain.state(),
+            chain.kura(),
+            None,
+        )
+        .unwrap();
+        let reader = prepared.runtime_query();
+        assert!(reader.activation_ready().unwrap());
+        // This is the actual executor ordering: durable Kura and committed State publish
+        // first, then its configured archive captures that exact State before apply completes.
+        // The genuine certified chain produces every block and signature; the test withholds
+        // only the separate archive capture, without replacing State, Kura or a qualification.
+        chain.commit_at(2_000, Vec::new());
+        let qualification = reader.qualify_live().unwrap();
+        assert_eq!(qualification.archive_tip().height, 1);
+        assert_eq!(qualification.kura_tip_height(), 2);
+        assert_eq!(qualification.lag_blocks(), 1);
+        assert_eq!(chain.state().query_view().height(), 2);
+        assert!(
+            !reader
+                .activation_ready()
+                .expect("authenticated publication skew must defer"),
+            "an older archive must not declare the new committed State ready"
+        );
+        let mut bootstrap_reader = reader.as_ref().clone();
+        bootstrap_reader.activation_gate = ArchiveActivationGateV1::AwaitingGenesis;
+        assert!(
+            !bootstrap_reader.activation_ready().unwrap(),
+            "the bootstrap reader must also survive later ordinary commits"
+        );
+        let mut zero_lag = reader.as_ref().clone();
+        zero_lag.max_kura_tip_lag_blocks = 0;
+        assert!(matches!(
+            zero_lag.activation_ready(),
+            Err(
+                ProviderIngestFinalizedArchiveErrorV1::ArchiveKuraTipLagExceeded {
+                    archive_height: 1,
+                    kura_height: 2,
+                    lag: 1,
+                    maximum: 0,
+                }
+            )
+        ));
+        prepared
+            .archive()
+            .capture_certified_view(&chain.state().query_view(), chain.kura())
+            .unwrap();
+        assert!(reader.activation_ready().unwrap());
+        assert!(bootstrap_reader.activation_ready().unwrap());
+        assert!(zero_lag.activation_ready().unwrap());
+
+        // Finality bindings remain hard errors after prior successful activation.
+        let mut wrong_network = reader.as_ref().clone();
+        wrong_network.network_id = test_network_id(0x78);
+        assert_ne!(wrong_network.network_id, reader.network_id);
+        assert!(wrong_network.activation_ready().is_err());
+        let mut foreign_kura = reader.as_ref().clone();
+        foreign_kura.kura = Kura::blank_kura_for_testing();
+        assert!(foreign_kura.activation_ready().is_err());
+        assert!(reader.activation_ready().unwrap());
+
+        // A same-height hash substitution is an invalid native anchor, never a deferral.
+        let forged_root = physical_tempdir().unwrap();
+        let forged_archive = Arc::new(
+            ProviderIngestFinalizedArchiveV1::try_open(
+                forged_root.path().join("wrong-anchor"),
+                ProviderIngestFinalizedArchiveBoundsV1::try_new(
+                    2 * 1024 * 1024,
+                    8,
+                    16 * 1024 * 1024,
+                    8,
+                    8,
+                    16,
+                    2,
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        );
+        let wrong_key =
+            ProviderIngestFinalizedArchiveKeyV1::try_new(chain.network_id(), 2, [0x79; 32], 2_000)
+                .unwrap();
+        assert_ne!(
+            wrong_key.block_hash,
+            *chain.committed(2).block().hash().as_ref()
+        );
+        forged_archive
+            .insert(ProviderIngestFinalizedProjectionV1 {
+                key: wrong_key,
+                providers: Vec::new(),
+            })
+            .unwrap();
+        let mut wrong_anchor = reader.as_ref().clone();
+        wrong_anchor.archive = forged_archive;
+        assert!(matches!(
+            wrong_anchor.activation_ready(),
+            Err(ProviderIngestFinalizedArchiveErrorV1::ArchiveKuraAnchorMismatch { .. })
+        ));
+
+        let archive_root = root.path().join(&config.relative_root);
+        let records = archive_root.join("records");
+        let record = std::fs::read_dir(&records)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let original = std::fs::read(&record).unwrap();
+        std::fs::write(&record, [0xff]).unwrap();
+        let corrupt = reader.activation_ready();
+        std::fs::write(&record, &original).unwrap();
+        assert!(
+            corrupt.is_err(),
+            "malformed retained bytes must remain fatal"
+        );
+        assert!(reader.activation_ready().unwrap());
+        let held = archive_root.join("held-records");
+        std::fs::rename(&records, &held).unwrap();
+        std::fs::create_dir(&records).unwrap();
+        let replaced = reader.activation_ready();
+        std::fs::remove_dir(&records).unwrap();
+        std::fs::rename(&held, &records).unwrap();
+        assert!(replaced.is_err(), "reopened custody must remain fatal");
+        assert!(reader.activation_ready().unwrap());
+
+        // The last admitted lag still waits; exceeding the unchanged bound remains fatal.
+        chain.commit_at(3_000, Vec::new());
+        assert!(!reader.activation_ready().unwrap());
+        chain.commit_at(4_000, Vec::new());
+        assert_eq!(reader.qualify_live().unwrap().lag_blocks(), 2);
+        assert!(!reader.activation_ready().unwrap());
+        chain.commit_at(5_000, Vec::new());
+        assert!(matches!(
+            reader.activation_ready(),
+            Err(
+                ProviderIngestFinalizedArchiveErrorV1::ArchiveKuraTipLagExceeded {
+                    archive_height: 2,
+                    kura_height: 5,
+                    lag: 3,
+                    maximum: 2,
+                }
+            )
+        ));
+    }
+    #[test]
+    fn activation_defers_exhausted_genuine_boundary_drift_without_issuing_readiness() {
+        use iroha_core::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+
+        let root = physical_tempdir().unwrap();
+        let mut chain =
+            CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+        let config = archive_config();
+        let prepared = prepare_provider_ingest_finalized_archive_v1(
+            &config,
+            chain.network_id(),
+            ProviderId::new([0x51; 32]),
+            root.path(),
+            chain.state(),
+            chain.kura(),
+            None,
+        )
+        .unwrap();
+        let reader = prepared.runtime_query();
+        assert!(reader.activation_ready().unwrap());
+        let before = reader.live_qualification_attempts.load(Ordering::SeqCst);
+        let mut drifts = 0;
+        let mut interleave = || {
+            drifts += 1;
+            chain.commit_at(1_000 + drifts * 1_000, Vec::new());
+            prepared
+                .archive()
+                .capture_certified_view(&chain.state().view(), chain.kura())?;
+            Ok(())
+        };
+        assert!(!reader.activation_ready_observed(&mut interleave).unwrap());
+        assert_eq!(drifts, u64::try_from(LIVE_SELECTION_ATTEMPTS_V1).unwrap());
+        assert_eq!(
+            reader.live_qualification_attempts.load(Ordering::SeqCst) - before,
+            LIVE_SELECTION_ATTEMPTS_V1
+        );
+        assert!(
+            reader.activation_ready().unwrap(),
+            "settled original writers permit a fresh qualification"
+        );
+        let key = reader.qualify_live().unwrap().archive_tip().clone();
+        let record = prepared.archive().record_path(&key).unwrap();
+        let original = std::fs::read(&record).unwrap();
+        std::fs::write(&record, [0xff]).unwrap();
+        assert!(
+            reader.activation_ready().is_err(),
+            "stable corrupt storage is still fatal"
+        );
+        std::fs::write(&record, original).unwrap();
+        assert!(reader.activation_ready().unwrap());
+    }
+
+    #[test]
+    fn native_capture_selection_qualifies_once_and_fences_archive_generation() {
+        use iroha_core::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+
+        let root = physical_tempdir().unwrap();
+        let mut chain =
+            CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+        chain.commit_at(2_000, Vec::new());
+        let config = archive_config();
+        let provider = ProviderId::new([0x51; 32]);
+        let mut prepared = prepare_provider_ingest_finalized_archive_v1(
+            &config,
+            chain.network_id(),
+            provider,
+            root.path(),
+            chain.state(),
+            chain.kura(),
+            None,
+        )
+        .unwrap();
+        let query = prepared.take_signed_capture_reader().unwrap();
+        let qualification_count = || query.live_qualification_attempts.load(Ordering::SeqCst);
+        let expected = |height, time_ms| {
+            ProviderIngestCompletedMusubiCaptureSourcePageV1::from_projected_fields(
+                chain.network_id(),
+                *provider.as_bytes(),
+                ProviderIngestFinalizedCursorV1 {
+                    height,
+                    block_hash: *chain.committed(height).block().hash().as_ref(),
+                },
+                time_ms,
+                Vec::new(),
+                None,
+            )
+        };
+        let first_expected = expected(2, 2_000);
+        let before = qualification_count();
+        assert_eq!(
+            query
+                .read_replay_safe_capture_source_page(None, None, 1)
+                .unwrap(),
+            first_expected,
+            "native empty capture retains its exact certified head and terminal page"
+        );
+        assert_eq!(qualification_count() - before, 1);
+        let before = qualification_count();
+        assert_eq!(
+            query
+                .read_replay_safe_capture_source_page(None, None, 1)
+                .unwrap(),
+            first_expected
+        );
+        assert_eq!(
+            qualification_count() - before,
+            1,
+            "a later scan requalifies"
+        );
+        assert!(query.active.lock().unwrap().is_none());
+
+        let (selected, selected_generation) = query.select_visible_committed_key().unwrap();
+        assert_eq!(selected.height, 2);
+        assert_eq!(
+            selected_generation,
+            prepared.archive().health_generation().unwrap()
+        );
+        let record = prepared.archive().record_path(&selected).unwrap();
+        let original = std::fs::read(&record).unwrap();
+        let mut corrupt = original.clone();
+        corrupt[0] ^= 1;
+        std::fs::write(&record, &corrupt).unwrap();
+        let after_selection_corrupt = query.read_generation_fenced_capture_source_page(
+            &selected,
+            selected_generation,
+            None,
+            1,
+        );
+        let next_scan_corrupt = query.read_replay_safe_capture_source_page(None, None, 1);
+        std::fs::write(&record, &original).unwrap();
+        assert_eq!(
+            after_selection_corrupt,
+            Err(ProviderIngestFinalizedLedgerErrorV1::Unavailable)
+        );
+        assert_eq!(
+            next_scan_corrupt,
+            Err(ProviderIngestFinalizedLedgerErrorV1::Unavailable)
+        );
+        assert_eq!(
+            query
+                .read_generation_fenced_capture_source_page(&selected, selected_generation, None, 1)
+                .unwrap(),
+            first_expected,
+            "restored original source can be revalidated without cached refusal"
+        );
+
+        // Genuine publication advances State and Kura, then the same native archive owner.
+        // The retained old key is still a valid immutable page; its old generation cannot
+        // authorize returning that page after the selection-to-read fence has changed.
+        chain.commit_at(3_000, Vec::new());
+        assert_eq!(
+            query.read_replay_safe_capture_source_page(None, None, 1),
+            Err(ProviderIngestFinalizedLedgerErrorV1::Unavailable),
+            "a fresh scan cannot use the old archive while native State has advanced"
+        );
+        prepared
+            .archive()
+            .capture_certified_view(&chain.state().query_view(), chain.kura())
+            .unwrap();
+        assert_eq!(
+            prepared.archive().health_generation().unwrap(),
+            selected_generation + 1
+        );
+        assert_eq!(
+            query
+                .read_replay_safe_exact_capture_source_page(&selected, None, 1)
+                .unwrap(),
+            first_expected
+        );
+        assert_eq!(
+            query.read_generation_fenced_capture_source_page(
+                &selected,
+                selected_generation,
+                None,
+                1
+            ),
+            Err(ProviderIngestFinalizedLedgerErrorV1::Unavailable)
+        );
+        let next_expected = ProviderIngestCompletedMusubiCaptureSourcePageV1::from_projected_fields(
+            chain.network_id(),
+            *provider.as_bytes(),
+            ProviderIngestFinalizedCursorV1 {
+                height: 3,
+                block_hash: *chain.committed(3).block().hash().as_ref(),
+            },
+            3_000,
+            Vec::new(),
+            None,
+        );
+        let before = qualification_count();
+        assert_eq!(
+            query
+                .read_replay_safe_capture_source_page(None, None, 1)
+                .unwrap(),
+            next_expected
+        );
+        assert_eq!(qualification_count() - before, 1);
+        assert!(query.active.lock().unwrap().is_none());
+
+        let mut foreign_kura = query.clone();
+        foreign_kura.kura = Kura::blank_kura_for_testing();
+        assert_eq!(
+            foreign_kura.read_replay_safe_capture_source_page(None, None, 1),
+            Err(ProviderIngestFinalizedLedgerErrorV1::Unavailable)
+        );
+        let mut foreign_network = query.clone();
+        foreign_network.network_id = test_network_id(0x78);
+        assert_ne!(foreign_network.network_id, query.network_id);
+        assert_eq!(
+            foreign_network.read_replay_safe_capture_source_page(None, None, 1),
+            Err(ProviderIngestFinalizedLedgerErrorV1::Unavailable)
+        );
+        assert_eq!(
+            query
+                .read_replay_safe_capture_source_page(None, None, 1)
+                .unwrap(),
+            next_expected
         );
     }
     #[test]

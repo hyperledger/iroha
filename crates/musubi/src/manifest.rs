@@ -406,6 +406,9 @@ pub struct Manifest {
     pub dev_dependencies: BTreeMap<Name, DependencySpec>,
     /// Optional workspace declaration.
     pub workspace: Option<WorkspaceManifest>,
+    /// Lint levels from `[lints]`: lint slugs mapped to `"allow"`, `"warn"` or `"deny"`, plus the
+    /// optional `deny-warnings = true`. A package without `[lints]` uses its workspace root's.
+    pub lints: Option<kotodama_lang::session::LintConfig>,
 }
 impl Manifest {
     /// Return whether this document is a virtual workspace root.
@@ -527,6 +530,7 @@ pub fn parse_manifest(source: &str) -> Result<Manifest, ManifestError> {
             "dependencies",
             "dev-dependencies",
             "workspace",
+            "lints",
         ],
         "",
     )?;
@@ -554,6 +558,10 @@ pub fn parse_manifest(source: &str) -> Result<Manifest, ManifestError> {
     let workspace = root
         .get("workspace")
         .map(|value| parse_workspace(required_value_table(value, "workspace")?))
+        .transpose()?;
+    let lints = root
+        .get("lints")
+        .map(|value| parse_lints(required_value_table(value, "lints")?))
         .transpose()?;
     match (&package, &workspace) {
         (None, None) => {
@@ -595,7 +603,45 @@ pub fn parse_manifest(source: &str) -> Result<Manifest, ManifestError> {
         dependencies,
         dev_dependencies,
         workspace,
+        lints,
     })
+}
+/// Parse `[lints]`: every key is a registered lint slug (or `deny-warnings`), so a misspelled
+/// lint fails closed with the closest known name instead of being ignored.
+fn parse_lints(table: &toml::Table) -> Result<kotodama_lang::session::LintConfig, ManifestError> {
+    let mut config = kotodama_lang::session::LintConfig::new();
+    for (key, value) in table {
+        let location = format!("lints.{key}");
+        if key == "deny-warnings" {
+            let deny = value.as_bool().ok_or_else(|| {
+                ManifestError::new(
+                    ManifestErrorKind::InvalidField,
+                    &location,
+                    "`deny-warnings` must be `true` or `false`",
+                )
+            })?;
+            config.set_deny_warnings(deny);
+            continue;
+        }
+        let level = value
+            .as_str()
+            .and_then(kotodama_lang::lint::LintLevel::parse)
+            .ok_or_else(|| {
+                ManifestError::new(
+                    ManifestErrorKind::InvalidField,
+                    &location,
+                    "a lint level must be \"allow\", \"warn\", or \"deny\"",
+                )
+            })?;
+        config.set_level(key, level).map_err(|unknown| {
+            ManifestError::new(
+                ManifestErrorKind::UnknownField,
+                &location,
+                unknown.to_string(),
+            )
+        })?;
+    }
+    Ok(config)
 }
 /// Add or replace one dependency through a span-focused text edit.
 ///
@@ -1853,6 +1899,41 @@ fixtures = { path = "tests/fixtures" }
                 ConcreteDependency::Registry { .. }
             ))
         ));
+    }
+    #[test]
+    fn lints_table_selects_levels_and_rejects_unknown_lints() {
+        use kotodama_lang::lint::LintLevel;
+        let with_lints = |lints: &str| format!("{PACKAGE}\n[lints]\n{lints}\n");
+        let manifest = parse_manifest(&with_lints(
+            "unused-local = \"deny\"\ndead-store = \"allow\"\ndeny-warnings = true",
+        ))
+        .expect("valid lints");
+        let lints = manifest.lints.expect("[lints] is parsed");
+        assert_eq!(lints.level("unused-local"), LintLevel::Deny);
+        assert_eq!(lints.level("dead-store"), LintLevel::Allow);
+        assert_eq!(lints.level("unused-state"), LintLevel::Deny);
+        assert!(parse_manifest(PACKAGE).expect("no lints").lints.is_none());
+        for (lints, kind, message) in [
+            (
+                "unused-locl = \"deny\"",
+                ManifestErrorKind::UnknownField,
+                "did you mean `unused-local`?",
+            ),
+            (
+                "unused-local = \"error\"",
+                ManifestErrorKind::InvalidField,
+                "must be \"allow\", \"warn\", or \"deny\"",
+            ),
+            (
+                "deny-warnings = \"yes\"",
+                ManifestErrorKind::InvalidField,
+                "`deny-warnings` must be",
+            ),
+        ] {
+            let error = parse_manifest(&with_lints(lints)).expect_err(lints);
+            assert_eq!(error.kind(), kind, "{lints}");
+            assert!(error.message().contains(message), "{lints}: {error}");
+        }
     }
     #[test]
     fn virtual_workspace_and_inheritance_are_explicit() {

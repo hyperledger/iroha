@@ -61,7 +61,8 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
     ///
     /// The exact parent and target are authenticated by the reverse native hash/result
     /// chain. The parent's executed schedule then supplies the target's authority and
-    /// parameters. BLS quorum, paired-Pasta and signed availability checks still run.
+    /// parameters. Exact BLS quorum and signed availability checks still run; the default
+    /// verifier requires the exact native BLS quorum.
     /// A recent read therefore does not repeatedly decode every block since genesis.
     /// The caller admits each source frame before I/O and retains its allocation scope
     /// across the entire operation. No fresh per-frame decode budget is installed.
@@ -127,6 +128,27 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         select: impl FnOnce(&CertifiedBlock) -> Result<Option<NonZeroUsize>, QueryExecutionFail>,
     ) -> Result<(CertifiedBlock, Option<CertifiedBlock>), ExecutionAttemptError<QueryExecutionFail>>
     {
+        self.certified_with_ancestor_from_execution_into(
+            height,
+            before_read,
+            select,
+            |latest, ancestor| (latest, ancestor),
+        )
+    }
+
+    /// Transfer the two completed certificates after the original ancestry walk retires.
+    ///
+    /// The same kernel backs the owned public reader. Its consuming destination runs only
+    /// after every original source admission, selected certificate and presence check has
+    /// succeeded; it introduces no graph clone, allocation, scope or authority verdict.
+    #[inline(never)]
+    pub(crate) fn certified_with_ancestor_from_execution_into<Output>(
+        &self,
+        height: NonZeroUsize,
+        before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
+        select: impl FnOnce(&CertifiedBlock) -> Result<Option<NonZeroUsize>, QueryExecutionFail>,
+        finish: impl FnOnce(CertifiedBlock, Option<CertifiedBlock>) -> Output,
+    ) -> Result<Output, ExecutionAttemptError<QueryExecutionFail>> {
         let invalid = |message: &str| {
             ExecutionAttemptError::Rejected(QueryExecutionFail::Conversion(message.into()))
         };
@@ -179,7 +201,7 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         if select.is_none() && target_height != height.get() as u64 && ancestor.is_none() {
             return Err(invalid("authenticated selected ancestor is absent"));
         }
-        Ok((latest, ancestor))
+        Ok(finish(latest, ancestor))
     }
 
     fn executed_successor_authority(
@@ -188,43 +210,7 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         current: &CommittedBlock,
     ) -> Result<(VerifiedAuthority, iroha_sumeragi::types::HeightConfig), VerificationReadError>
     {
-        let height = current.height();
-        let malformed = |reason: String| ChainReadError::Committee { height, reason };
-        if !current.extends(parent) {
-            return Err(ChainReadError::Discontinuous { height }.into());
-        }
-        parent
-            .commitment
-            .schedule
-            .validate_successor(&current.commitment.schedule)
-            .map_err(|error| malformed(error.to_string()))?;
-        let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment.schedule.next else {
-            return Err(malformed("parent has no authorized successor".into()).into());
-        };
-        let mut validation = EpochValidationScope::new();
-        let config = scheduled
-            .height_config_with_validation(&mut validation)
-            .map_err(|error| malformed(error.to_string()))?;
-        // Resource admission precedes the boolean signature relation and keeps
-        // the original inherited cumulative allowance. No refusal is converted
-        // to an invalid certificate or hidden in a new per-frame scope.
-        let scratch = iroha_crypto::BlsNormalAggregateScratch::new(|bytes| {
-            #[cfg(all(test, sumeragi_core_mutation = "HC13"))]
-            {
-                let _ = bytes;
-                Ok(())
-            }
-            #[cfg(not(all(test, sumeragi_core_mutation = "HC13")))]
-            query_scratch_admission(bytes)
-        })
-        .map_err(VerificationReadError::Resource)?;
-        let authority = VerifiedAuthority::with_crypto(
-            scheduled.epoch.clone(),
-            height,
-            BlsCrypto::with_aggregate_scratch(scratch),
-            &mut validation,
-        )?;
-        Ok((authority, config))
+        executed_successor_authority(parent, current)
     }
 
     pub(super) fn verify_executed_successor(
@@ -232,19 +218,85 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         parent: &CommittedBlock,
         current: CommittedBlock,
     ) -> Result<CertifiedBlock, VerificationReadError> {
-        let (authority, config) = self.executed_successor_authority(parent, &current)?;
-        let certified = self
-            .verification_context()
-            .verify_certificate_with_scratch_admission(
-                current,
-                &authority,
-                Some(&config),
-                None,
-                &mut query_scratch_admission,
-            )?;
-        verify_boundary_source(&certified.committed, parent, &authority)?;
-        Ok(certified)
+        self.verification_context()
+            .verify_executed_successor(parent, current)
     }
+}
+
+// Both State-view readers and the event-only source adapter use this same successor
+// relation. The context is private and comes from actual authenticated signed genesis;
+// no caller-supplied committee, result, or checkpoint can construct certificate authority.
+impl PrefixVerifierContext {
+    pub(super) fn verify_executed_successor(
+        &self,
+        parent: &CommittedBlock,
+        current: CommittedBlock,
+    ) -> Result<CertifiedBlock, VerificationReadError> {
+        let certificate = self.prepare_executed_successor(parent, &current)?;
+        Ok(certificate.into_certified(current))
+    }
+
+    // The same complete certificate, availability and boundary relation can borrow
+    // original admitted receipts when its consumer only needs their original QC bytes.
+    fn prepare_executed_successor(
+        &self,
+        parent: &CommittedBlock,
+        current: &CommittedBlock,
+    ) -> Result<CertificateVerdict, VerificationReadError> {
+        let (authority, config) = executed_successor_authority(parent, current)?;
+        let certificate = self.prepare_certificate_with_scratch_admission(
+            current,
+            &authority,
+            Some(&config),
+            None,
+            &mut query_scratch_admission,
+        )?;
+        verify_boundary_source(current, parent, &authority)?;
+        Ok(certificate)
+    }
+}
+
+fn executed_successor_authority(
+    parent: &CommittedBlock,
+    current: &CommittedBlock,
+) -> Result<(VerifiedAuthority, iroha_sumeragi::types::HeightConfig), VerificationReadError> {
+    let height = current.height();
+    let malformed = |reason: String| ChainReadError::Committee { height, reason };
+    if !current.extends(parent) {
+        return Err(ChainReadError::Discontinuous { height }.into());
+    }
+    parent
+        .commitment
+        .schedule
+        .validate_successor(&current.commitment.schedule)
+        .map_err(|error| malformed(error.to_string()))?;
+    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment.schedule.next else {
+        return Err(malformed("parent has no authorized successor".into()).into());
+    };
+    let mut validation = EpochValidationScope::new();
+    let config = scheduled
+        .height_config_with_validation(&mut validation)
+        .map_err(|error| malformed(error.to_string()))?;
+    // Resource admission precedes the boolean signature relation and keeps
+    // the original inherited cumulative allowance. No refusal is converted
+    // to an invalid certificate or hidden in a new per-frame scope.
+    let scratch = iroha_crypto::BlsNormalAggregateScratch::new(|bytes| {
+        #[cfg(all(test, sumeragi_core_mutation = "HC13"))]
+        {
+            let _ = bytes;
+            Ok(())
+        }
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC13")))]
+        query_scratch_admission(bytes)
+    })
+    .map_err(VerificationReadError::Resource)?;
+    let authority = VerifiedAuthority::with_crypto(
+        scheduled.epoch.clone(),
+        height,
+        BlsCrypto::with_aggregate_scratch(scratch),
+        &mut validation,
+    )?;
+    Ok((authority, config))
 }
 
 /// Charge the inherited request allowance before allocating verification scratch.
@@ -266,7 +318,7 @@ pub(super) fn query_scratch_admission(
 
 // Resource locality was established by the verifier's original scratch admission or
 // codec producer. Do not rediscover it from the projected QueryExecutionFail.
-fn verification_attempt_failure(
+pub(super) fn verification_attempt_failure(
     error: VerificationReadError,
 ) -> ExecutionAttemptError<QueryExecutionFail> {
     match error {
@@ -301,6 +353,205 @@ mod allocation_tests {
             chain.commit(Vec::new());
         }
         chain
+    }
+
+    #[test]
+    fn admitted_parent_pair_retains_exact_original_slots_and_refunds_on_unwind() {
+        use std::alloc::Layout;
+
+        let chain = pair_chain();
+        let view = chain.state().view();
+        let reader = CertifiedChain::new_for_parent_service(&view).unwrap();
+        let budget = chain.state().ivm_execution_budget();
+        let baseline = budget.reserved_bytes();
+        let slot_bytes = Layout::array::<CommittedBlock>(1).unwrap().size();
+        let shell_bytes = iroha_data_model::block::SharedSignedBlock::allocation_layout().size();
+        let original = reader
+            .executed_parent_pair_with_finish(
+                NonZeroUsize::new(3).unwrap(),
+                |_, _| Ok(()),
+                |parent, current| {
+                    assert!(parent.belongs_to(&budget) && current.belongs_to(&budget));
+                    assert_eq!(
+                        (parent.slot_bytes(), current.slot_bytes()),
+                        (slot_bytes, slot_bytes)
+                    );
+                    assert!(
+                        parent.block().belongs_to(&budget) && current.block().belongs_to(&budget)
+                    );
+                    assert_eq!(
+                        budget.reserved_bytes(),
+                        baseline + 2 * (slot_bytes + shell_bytes),
+                        "only the two exact receipt slots and their original block shells remain"
+                    );
+                    Ok(current.block().clone())
+                },
+            )
+            .unwrap();
+        assert_eq!(budget.reserved_bytes(), baseline + shell_bytes);
+        drop(original);
+        assert_eq!(budget.reserved_bytes(), baseline);
+
+        let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = reader.executed_parent_pair_with_finish(
+                NonZeroUsize::new(3).unwrap(),
+                |_, _| Ok(()),
+                |parent, current| -> Result<(), ParentServiceError> {
+                    assert!(parent.belongs_to(&budget) && current.belongs_to(&budget));
+                    assert_eq!(
+                        budget.reserved_bytes(),
+                        baseline + 2 * (slot_bytes + shell_bytes)
+                    );
+                    panic!("interrupt original admitted parent completion");
+                },
+            );
+        }));
+        assert!(interrupted.is_err());
+        assert_eq!(budget.reserved_bytes(), baseline);
+        assert!(
+            reader
+                .parent_service_proposal_original(
+                    &chain
+                        .kura()
+                        .get_block(NonZeroUsize::new(5).unwrap(), &budget)
+                        .unwrap()
+                        .unwrap()
+                )
+                .is_ok(),
+            "the original source and pool remain usable after unwinding"
+        );
+        assert_eq!(budget.reserved_bytes(), baseline);
+    }
+
+    #[test]
+    fn admitted_receipt_refusal_preserves_original_pool_source_and_exact_retry() {
+        use std::alloc::Layout;
+
+        let chain = pair_chain();
+        let budget = chain.state().ivm_execution_budget();
+        let block = chain
+            .kura()
+            .get_block(NonZeroUsize::new(3).unwrap(), &budget)
+            .unwrap()
+            .unwrap();
+        let original = block.clone();
+        let baseline = budget.reserved_bytes();
+        let slot_bytes = Layout::array::<CommittedBlock>(1).unwrap().size();
+        let occupied_bytes = budget
+            .limit_bytes()
+            .checked_sub(baseline + slot_bytes - 1)
+            .unwrap();
+        let occupied = budget.try_reserve_bytes(occupied_bytes).unwrap();
+        let expected: ExecutionDeferred = budget.try_reserve_bytes(slot_bytes).unwrap_err().into();
+        let mut validation = EpochValidationScope::new();
+        let refused = AdmittedCommittedBlock::read(block.clone(), 3, &mut validation, &budget);
+        let Err(ExecutionAttemptError::Deferred(actual)) = refused else {
+            panic!("the exact original receipt slot must refuse before decoding")
+        };
+        assert_eq!(actual, expected);
+        assert_eq!(budget.reserved_bytes(), baseline + occupied_bytes);
+        assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+            &block, &original
+        ));
+        drop(occupied);
+        assert_eq!(budget.reserved_bytes(), baseline);
+        let receipt = AdmittedCommittedBlock::read(block.clone(), 3, &mut validation, &budget)
+            .expect("retry uses the original source and released original pool");
+        assert!(receipt.belongs_to(&budget));
+        assert_eq!(receipt.slot_bytes(), slot_bytes);
+        assert_eq!(
+            budget.reserved_bytes(),
+            baseline + slot_bytes,
+            "the temporary result slot retires after transfer into the original receipt"
+        );
+        assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+            receipt.block(),
+            &original
+        ));
+        let owned = receipt.into_owned();
+        assert_eq!(
+            budget.reserved_bytes(),
+            baseline,
+            "consuming the original receipt reclaims its empty backing before refund"
+        );
+        assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+            owned.block(),
+            &original
+        ));
+        assert_eq!(owned.height(), 3);
+        drop(owned);
+        assert_eq!(budget.reserved_bytes(), baseline);
+    }
+
+    #[test]
+    fn admitted_result_slot_refusal_releases_receipt_and_retries_original_frame() {
+        use std::alloc::Layout;
+
+        let chain = pair_chain();
+        let budget = chain.state().ivm_execution_budget();
+        let block = chain
+            .kura()
+            .get_block(NonZeroUsize::new(3).unwrap(), &budget)
+            .unwrap()
+            .unwrap();
+        let baseline = budget.reserved_bytes();
+        let receipt_bytes = Layout::array::<CommittedBlock>(1).unwrap().size();
+        let result_bytes = Layout::array::<ExecutionResultCommitment>(1)
+            .unwrap()
+            .size();
+        let occupied_bytes = budget
+            .limit_bytes()
+            .checked_sub(baseline + receipt_bytes + result_bytes - 1)
+            .unwrap();
+        let occupied = budget.try_reserve_bytes(occupied_bytes).unwrap();
+        let expected = budget
+            .try_reserve_bytes(receipt_bytes + result_bytes)
+            .unwrap_err();
+        let iroha_allocation::AllocationRefusal::Capacity {
+            release: expected_release,
+            ..
+        } = expected
+        else {
+            panic!("the unchanged original pool has temporary capacity occupied")
+        };
+        let mut validation = EpochValidationScope::new();
+        let refused = AdmittedCommittedBlock::read(block.clone(), 3, &mut validation, &budget);
+        let Err(ExecutionAttemptError::Deferred(actual)) = refused else {
+            panic!("the complete result slot must refuse before its decoder starts")
+        };
+        let Some(iroha_allocation::AllocationRefusal::Capacity {
+            requested_bytes,
+            reserved_bytes,
+            limit_bytes,
+            release,
+        }) = actual.allocation_refusal()
+        else {
+            panic!("retain the actual original result allocation refusal")
+        };
+        assert_eq!(*requested_bytes, result_bytes);
+        assert_eq!(*reserved_bytes, baseline + occupied_bytes + receipt_bytes);
+        assert_eq!(*limit_bytes, budget.limit_bytes());
+        assert_eq!(
+            release, &expected_release,
+            "result refusal retains the original pre-reclamation release observation"
+        );
+        assert_eq!(
+            budget.reserved_bytes(),
+            baseline + occupied_bytes,
+            "the still-empty receipt backing retires when its result slot refuses"
+        );
+        drop(occupied);
+        assert_eq!(budget.reserved_bytes(), baseline);
+        let receipt =
+            AdmittedCommittedBlock::read(block.clone(), 3, &mut validation, &budget).unwrap();
+        assert!(receipt.belongs_to(&budget));
+        assert_eq!(budget.reserved_bytes(), baseline + receipt_bytes);
+        assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+            receipt.block(),
+            &block
+        ));
+        drop(receipt);
+        assert_eq!(budget.reserved_bytes(), baseline);
     }
 
     fn pair_identity<V: StateReadOnly + ?Sized>(
@@ -647,23 +898,27 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         })
     }
 
+    #[cfg(test)]
     fn executed_parent_pair(
         &self,
         target: NonZeroUsize,
         before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
     ) -> Result<(CommittedBlock, CommittedBlock), ParentServiceError> {
         self.executed_parent_pair_with_finish(target, before_read, |parent, current| {
-            Ok((parent, current))
+            Ok((parent.into_owned(), current.into_owned()))
         })
     }
 
-    // Consume the same complete receipts only after the original State-tip walk returns.
-    // A small output keeps their value-returning caller slots off the active decoder stack.
+    // Retain only two small original-pool owners while the complete ancestry decoder runs.
+    // Their exact backing remains charged until completion, rejection or unwinding retires it.
     fn executed_parent_pair_with_finish<Output>(
         &self,
         target: NonZeroUsize,
         before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
-        finish: impl FnOnce(CommittedBlock, CommittedBlock) -> Result<Output, ParentServiceError>,
+        finish: impl FnOnce(
+            AdmittedCommittedBlock,
+            AdmittedCommittedBlock,
+        ) -> Result<Output, ParentServiceError>,
     ) -> Result<Output, ParentServiceError> {
         let predecessor = target
             .get()
@@ -678,7 +933,7 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         let mut parent = None;
         let mut current = None;
         view.canonical_history()
-            .visit_executed_backwards_until(predecessor, target, before_read, |receipt| {
+            .visit_executed_backwards_admitted_until(predecessor, target, before_read, |receipt| {
                 if receipt.height() == target.get() as u64 {
                     current = Some(receipt);
                 } else {
@@ -711,7 +966,7 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
             height,
             |_, _| Ok(()),
             |predecessor, original_parent| {
-                self.finish_parent_service_proposal_original(parent, predecessor, original_parent)
+                self.finish_parent_service_proposal_original(parent, &predecessor, &original_parent)
             },
         )
     }
@@ -721,19 +976,21 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
     fn finish_parent_service_proposal_original(
         &self,
         parent: &SignedBlock,
-        predecessor: CommittedBlock,
-        original_parent: CommittedBlock,
+        predecessor: &CommittedBlock,
+        original_parent: &CommittedBlock,
     ) -> Result<Vec<u8>, ParentServiceError> {
-        let certified = self
-            .verify_executed_successor(&predecessor, original_parent)
+        let _certificate = self
+            .verification_context()
+            .prepare_executed_successor(predecessor, original_parent)
             .map_err(parent_verification_source)?;
-        if certified.block_hash() != parent.hash() {
+        if original_parent.block_hash() != parent.hash() {
             return Err(ParentServiceError::Invalid(
                 "assembly parent differs from original executed parent".into(),
             ));
         }
-        let original = certified
-            .certificate()
+        let original = original_parent
+            .block()
+            .commit_certificate()
             .ok_or_else(|| parent_source_failure("executed parent has no local certificate"))?
             .commit_qc();
         if original.is_empty()
@@ -793,8 +1050,9 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
             .ok_or_else(|| {
                 ParentServiceError::Invalid("parent height is not addressable".into())
             })?;
-        let (parent, current) = self.executed_parent_pair(target, before_read)?;
-        self.verify_parent_service_at(proposal, &parent, current, offered)
+        self.executed_parent_pair_with_finish(target, before_read, |parent, current| {
+            self.verify_parent_service_at(proposal, &parent, &current, offered)
+        })
     }
 
     /// Private relation after an original-tip walk; tests retain genuine executed receipts.
@@ -802,7 +1060,7 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         &self,
         proposal: &SignedBlock,
         parent: &CommittedBlock,
-        current: CommittedBlock,
+        current: &CommittedBlock,
         offered: &[u8],
     ) -> Result<Option<VerifiedParentService>, ParentServiceError> {
         if proposal.header().prev_block_hash() != Some(current.block_hash()) {
@@ -812,12 +1070,12 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         }
         let qc: Qc = norito::decode_canonical(offered).map_err(parent_proof_decode_failure)?;
         let (authority, _config) = self
-            .executed_successor_authority(parent, &current)
+            .executed_successor_authority(parent, current)
             .map_err(parent_verification_source)?;
         self.verification_context()
-            .verify_commit_qc_original(&current, &authority, &qc)
+            .verify_commit_qc_original(current, &authority, &qc)
             .map_err(|error| ParentServiceError::Invalid(error.to_string()))?;
-        verify_boundary_source(&current, parent, &authority).map_err(parent_source_failure)?;
+        verify_boundary_source(current, parent, &authority).map_err(parent_source_failure)?;
         let committee = &current.commitment.schedule.current.committee;
         let mut signers = Vec::new();
         let count = qc.signers.ones().count();

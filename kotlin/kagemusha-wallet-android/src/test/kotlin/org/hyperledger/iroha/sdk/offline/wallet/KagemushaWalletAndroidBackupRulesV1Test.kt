@@ -51,7 +51,10 @@ class KagemushaWalletAndroidBackupRulesV1Test {
 
     @Test fun `the processed library manifest keeps the backup attributes`() {
         val path = assertNotNull(System.getProperty("iroha.kagemushaWalletAndroid.mergedManifest"), "merged manifest path")
-        assertBackupAttributes(document(File(path)))
+        val manifest = document(File(path))
+        assertBackupAttributes(manifest)
+        val sdk = children(manifest).single { it.tagName == "uses-sdk" }
+        assertEquals("26", sdk.getAttributeNS(ANDROID, "minSdkVersion"))
     }
 
     @Test fun `the shipped rules exclude every domain and pass the runtime validator`() {

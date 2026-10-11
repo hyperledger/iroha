@@ -1,7 +1,7 @@
 //! Genuine native private-root certificate fixtures and hostile parent-anchor inputs.
 
 use super::*;
-use crate::sumeragi_finality::{genesis_epoch, test_fixtures::NativeFinalityFixture};
+use crate::sumeragi_finality::{authenticated_genesis, test_fixtures::NativeFinalityFixture};
 use iroha_crypto::{Hash, HashOf};
 
 fn fixture() -> (NativeFinalityFixture, PrivateDataspaceRegistration) {
@@ -21,7 +21,9 @@ fn fixture() -> (NativeFinalityFixture, PrivateDataspaceRegistration) {
         fixture.chain_id().parse().unwrap(),
         fixture.network_id(),
         verified.result().0,
-        genesis_epoch(fixture.genesis()).unwrap(),
+        authenticated_genesis(fixture.genesis())
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap(),
     )
     .unwrap();
     (fixture, registration)
@@ -143,8 +145,7 @@ fn genuine_conflicts_gaps_and_foreign_bindings_do_not_change_parent_state() {
 }
 
 #[test]
-fn opaque_export_refuses_control_private_witnesses_and_resource_overflow() {
-    use iroha_sumeragi::message::ResultWitness;
+fn opaque_export_refuses_control_private_sidecars_and_resource_overflow() {
     use iroha_sumeragi::types::ControlWitness;
     let (mut fixture, registration) = fixture();
     let anchor = next(&mut fixture, &registration);
@@ -156,10 +157,12 @@ fn opaque_export_refuses_control_private_witnesses_and_resource_overflow() {
     assert!(secret.public_parts().is_err());
     assert!(PrivateDataspaceAnchor::decode(&norito::encode_canonical(&secret).unwrap()).is_err());
     let mut secret = anchor.clone();
-    let mut qc: Qc = norito::decode_canonical(&secret.certificate.commit_qc).unwrap();
-    qc.attestation_witness =
-        Some(ResultWitness::from_untrusted(b"private transaction body".to_vec()).unwrap());
-    secret.certificate.commit_qc = norito::encode_canonical(&qc).unwrap();
+    // The current certificate has no opaque witness field. A private body
+    // appended to its exact canonical frame is rejected before export.
+    secret
+        .certificate
+        .commit_qc
+        .extend_from_slice(b"private transaction body");
     assert!(secret.public_parts().is_err());
     let mut too_large = anchor.clone();
     too_large

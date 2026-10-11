@@ -5,633 +5,626 @@ pub(in crate::state) mod musubi_universal_policy;
 
 use super::{Canonical, DerivationCheck, Field, Role, Schema, V1_LAYOUT, schema};
 use crate::state::*;
+use iroha_data_model::block::consensus::EvidenceRecord;
 
 classified_owner!(WorldData, check_world_fields, WORLD_FIELDS, readers = WorldReadReleases, {
     parameters: Cell<Parameters> => ("world.parameters",
-        Role::Canonical(Canonical::Cell(schema::<Parameters>())));
+        Role::Canonical(Canonical::Cell(schema::<Parameters>()))), release = parameters;
     consensus_schedule: Cell<crate::sumeragi::schedule::RetainedConsensusSchedule> => ("world.consensus_schedule",
-        Role::Canonical(Canonical::Cell(schema::<crate::sumeragi::schedule::ConsensusSchedule>())));
+        Role::Canonical(Canonical::Cell(schema::<crate::sumeragi::schedule::ConsensusSchedule>()))), release = consensus_schedule;
     state_accumulator: Cell<crate::state::world_projection::WorldStateAccumulator> => ("world.state_accumulator",
-        Role::Derived { sources: &["state.world"], check: DerivationCheck::Commitment("state::world_projection::WorldStateAccumulator::capture") });
+        Role::Derived { sources: &["state.world"], check: DerivationCheck::Commitment("state::world_projection::WorldStateAccumulator::capture") }), release = state_accumulator;
     peers: Cell<Peers> => ("world.peers",
-        Role::Canonical(Canonical::Cell(schema::<Peers>())));
+        Role::Canonical(Canonical::Cell(schema::<Peers>()))), release = peers;
     domains: Storage<DomainId, Domain> => ("world.domains",
-        Role::Canonical(Canonical::Table { key: schema::<DomainId>(), value: schema::<Domain>() }));
+        Role::Canonical(Canonical::Table { key: schema::<DomainId>(), value: schema::<Domain>() })), release = domains;
     domains_by_owner: Storage<AccountId, BTreeSet<DomainId>> => ("world.domains_by_owner",
-        Role::Derived { sources: &["world.domains"], check: DerivationCheck::Rebuild("World::rebuild_domain_owner_index; state::authority_registry::domain_ownership::CheckedDomainOwnership::capture") });
+        Role::Derived { sources: &["world.domains"], check: DerivationCheck::Rebuild("World::rebuild_domain_owner_index; state::authority_registry::domain_ownership::CheckedDomainOwnership::capture") }), release = domains_by_owner;
     kaigi_relay_registry: Storage<AccountId, DomainId> => ("world.kaigi_relay_registry",
-        Role::Derived { sources: &["world.domains", "world.accounts"], check: DerivationCheck::Rebuild("isi::kaigi::rebuild_kaigi_relay_registry; validate_rebuilt_kaigi_relay_registry") });
+        Role::Derived { sources: &["world.domains", "world.accounts"], check: DerivationCheck::Rebuild("isi::kaigi::rebuild_kaigi_relay_registry; validate_rebuilt_kaigi_relay_registry") }), release = kaigi_relay_registry;
     kaigi_account_dependencies: Storage<AccountId, BTreeSet<(u8, DomainId, Name)>> => ("world.kaigi_account_dependencies",
-        Role::Derived { sources: &["world.domains", "world.accounts", "state.block_hashes"], check: DerivationCheck::Rebuild("isi::kaigi::rebuild_kaigi_account_dependencies_at; validate_rebuilt_kaigi_account_dependencies_at") });
+        Role::Derived { sources: &["world.domains", "world.accounts", "state.block_hashes"], check: DerivationCheck::Rebuild("isi::kaigi::rebuild_kaigi_account_dependencies_at; validate_rebuilt_kaigi_account_dependencies_at") }), release = kaigi_account_dependencies;
     accounts: Storage<AccountId, AccountValue> => ("world.accounts",
-        Role::Canonical(Canonical::Table { key: schema::<AccountId>(), value: schema::<AccountValue>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AccountId>(), value: schema::<AccountValue>() })), release = accounts;
     uaid_accounts: Storage<UniversalAccountId, AccountId> => ("world.uaid_accounts",
-        Role::Derived { sources: &["world.accounts"], check: DerivationCheck::Rebuild("state::account_identity_restore::rebuild; state::authority_registry::account_identity_ownership::CheckedAccountIdentities::capture") });
+        Role::Derived { sources: &["world.accounts"], check: DerivationCheck::Rebuild("state::account_identity_restore::rebuild; state::authority_registry::account_identity_ownership::CheckedAccountIdentities::capture") }), release = uaid_accounts;
     account_aliases: Storage<AccountAlias, AccountId> => ("world.account_aliases",
-        Role::Canonical(Canonical::Table { key: schema::<AccountAlias>(), value: schema::<AccountId>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AccountAlias>(), value: schema::<AccountId>() })), release = account_aliases;
     account_aliases_by_account: Storage<AccountId, BTreeSet<AccountAlias>> => ("world.account_aliases_by_account",
-        Role::Derived { sources: &["world.account_aliases", "world.accounts"], check: DerivationCheck::Rebuild("World::rebuild_account_alias_index; state::authority_registry::account_alias_ownership::CheckedAccountAliases::capture") });
+        Role::Derived { sources: &["world.account_aliases", "world.accounts"], check: DerivationCheck::Rebuild("World::rebuild_account_alias_index; state::authority_registry::account_alias_ownership::CheckedAccountAliases::capture") }), release = account_aliases_by_account;
     account_scope_directory: Storage<AccountId, AccountScopeDirectoryEntry> => ("world.account_scope_directory",
-        Role::Derived { sources: &["world.accounts", "world.account_aliases", "world.uaid_dataspaces"], check: DerivationCheck::Rebuild("state::account_scope_restore::rebuild") });
+        Role::Derived { sources: &["world.accounts", "world.account_aliases", "world.uaid_dataspaces"], check: DerivationCheck::Rebuild("state::account_scope_restore::rebuild") }), release = account_scope_directory;
     account_scope_accounts: Storage<(DataSpaceId, AccountAliasDomain), BTreeSet<AccountId>> => ("world.account_scope_accounts",
-        Role::Derived { sources: &["world.account_scope_directory"], check: DerivationCheck::Rebuild("state::account_scope_restore::rebuild_accounts_index") });
+        Role::Derived { sources: &["world.account_scope_directory"], check: DerivationCheck::Rebuild("state::account_scope_restore::rebuild_accounts_index") }), release = account_scope_accounts;
     opaque_uaids: Storage<OpaqueAccountId, UniversalAccountId> => ("world.opaque_uaids",
-        Role::Derived { sources: &["world.accounts"], check: DerivationCheck::Rebuild("state::account_identity_restore::rebuild; state::authority_registry::account_identity_ownership::CheckedAccountIdentities::capture") });
+        Role::Derived { sources: &["world.accounts"], check: DerivationCheck::Rebuild("state::account_identity_restore::rebuild; state::authority_registry::account_identity_ownership::CheckedAccountIdentities::capture") }), release = opaque_uaids;
     ram_lfe_program_policies: Storage<RamLfeProgramId, RamLfeProgramPolicy> => ("world.ram_lfe_program_policies",
-        Role::Canonical(Canonical::Table { key: schema::<RamLfeProgramId>(), value: schema::<RamLfeProgramPolicy>() }));
+        Role::Canonical(Canonical::Table { key: schema::<RamLfeProgramId>(), value: schema::<RamLfeProgramPolicy>() })), release = ram_lfe_program_policies;
     identifier_policies: Storage<IdentifierPolicyId, IdentifierPolicy> => ("world.identifier_policies",
-        Role::Canonical(Canonical::Table { key: schema::<IdentifierPolicyId>(), value: schema::<IdentifierPolicy>() }));
+        Role::Canonical(Canonical::Table { key: schema::<IdentifierPolicyId>(), value: schema::<IdentifierPolicy>() })), release = identifier_policies;
     fee_sponsor_programs: Storage<FeeSponsorProgramId, FeeSponsorProgram> => ("world.fee_sponsor_programs",
-        Role::Canonical(Canonical::Table { key: schema::<FeeSponsorProgramId>(), value: schema::<FeeSponsorProgram>() }));
+        Role::Canonical(Canonical::Table { key: schema::<FeeSponsorProgramId>(), value: schema::<FeeSponsorProgram>() })), release = fee_sponsor_programs;
     fee_sponsor_program_revisions: Storage<FeeSponsorProgramRevisionKey, FeeSponsorProgramRevision> => ("world.fee_sponsor_program_revisions",
-        Role::Canonical(Canonical::Table { key: schema::<FeeSponsorProgramRevisionKey>(), value: schema::<FeeSponsorProgramRevision>() }));
+        Role::Canonical(Canonical::Table { key: schema::<FeeSponsorProgramRevisionKey>(), value: schema::<FeeSponsorProgramRevision>() })), release = fee_sponsor_program_revisions;
     fee_sponsor_enrollments: Storage<FeeSponsorEnrollmentKey, FeeSponsorEnrollment> => ("world.fee_sponsor_enrollments",
-        Role::Canonical(Canonical::Table { key: schema::<FeeSponsorEnrollmentKey>(), value: schema::<FeeSponsorEnrollment>() }));
+        Role::Canonical(Canonical::Table { key: schema::<FeeSponsorEnrollmentKey>(), value: schema::<FeeSponsorEnrollment>() })), release = fee_sponsor_enrollments;
     fee_sponsor_vaults: Storage<FeeSponsorVaultKey, FeeSponsorVault> => ("world.fee_sponsor_vaults",
-        Role::Canonical(Canonical::Table { key: schema::<FeeSponsorVaultKey>(), value: schema::<FeeSponsorVault>() }));
+        Role::Canonical(Canonical::Table { key: schema::<FeeSponsorVaultKey>(), value: schema::<FeeSponsorVault>() })), release = fee_sponsor_vaults;
     fee_sponsor_budget_counters: Storage<FeeSponsorBudgetCounterKey, FeeSponsorBudgetCounter> => ("world.fee_sponsor_budget_counters",
-        Role::Canonical(Canonical::Table { key: schema::<FeeSponsorBudgetCounterKey>(), value: schema::<FeeSponsorBudgetCounter>() }));
+        Role::Canonical(Canonical::Table { key: schema::<FeeSponsorBudgetCounterKey>(), value: schema::<FeeSponsorBudgetCounter>() })), release = fee_sponsor_budget_counters;
     identifier_claims: Storage<OpaqueAccountId, IdentifierClaimRecord> => ("world.identifier_claims",
-        Role::Canonical(Canonical::Table { key: schema::<OpaqueAccountId>(), value: schema::<IdentifierClaimRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<OpaqueAccountId>(), value: schema::<IdentifierClaimRecord>() })), release = identifier_claims;
     account_rekey_records: Storage<AccountAlias, AccountRekeyRecord> => ("world.account_rekey_records",
-        Role::Canonical(Canonical::Table { key: schema::<AccountAlias>(), value: schema::<AccountRekeyRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AccountAlias>(), value: schema::<AccountRekeyRecord>() })), release = account_rekey_records;
     account_rekey_records_by_account: Storage<AccountId, BTreeSet<AccountAlias>> => ("world.account_rekey_records_by_account",
-        Role::Derived { sources: &["world.account_rekey_records", "world.accounts", "world.account_aliases"], check: DerivationCheck::Rebuild("World::rebuild_account_rekey_records; CheckedAccountRekeys::capture checks both native images") });
+        Role::Derived { sources: &["world.account_rekey_records", "world.accounts", "world.account_aliases"], check: DerivationCheck::Rebuild("World::rebuild_account_rekey_records; CheckedAccountRekeys::capture checks both native images") }), release = account_rekey_records_by_account;
     account_recovery_policies: Storage<AccountAlias, AccountRecoveryPolicy> => ("world.account_recovery_policies",
-        Role::Canonical(Canonical::Table { key: schema::<AccountAlias>(), value: schema::<AccountRecoveryPolicy>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AccountAlias>(), value: schema::<AccountRecoveryPolicy>() })), release = account_recovery_policies;
     account_recovery_requests: Storage<AccountAlias, AccountRecoveryRequest> => ("world.account_recovery_requests",
-        Role::Canonical(Canonical::Table { key: schema::<AccountAlias>(), value: schema::<AccountRecoveryRequest>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AccountAlias>(), value: schema::<AccountRecoveryRequest>() })), release = account_recovery_requests;
     asset_definitions: Storage<AssetDefinitionId, AssetDefinition> => ("world.asset_definitions",
-        Role::Canonical(Canonical::Table { key: schema::<AssetDefinitionId>(), value: schema::<AssetDefinition>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AssetDefinitionId>(), value: schema::<AssetDefinition>() })), release = asset_definitions;
     asset_definition_aliases: Storage<AssetDefinitionAlias, AssetDefinitionId> => ("world.asset_definition_aliases",
-        Role::Derived { sources: &["world.asset_definition_alias_bindings", "world.asset_definitions"], check: DerivationCheck::Rebuild("state::alias_index_restore::assets") });
+        Role::Derived { sources: &["world.asset_definition_alias_bindings", "world.asset_definitions"], check: DerivationCheck::Rebuild("state::alias_index_restore::assets") }), release = asset_definition_aliases;
     asset_definition_alias_bindings: Storage<AssetDefinitionId, AssetDefinitionAliasBindingRecord> => ("world.asset_definition_alias_bindings",
-        Role::Canonical(Canonical::Table { key: schema::<AssetDefinitionId>(), value: schema::<AssetDefinitionAliasBindingRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AssetDefinitionId>(), value: schema::<AssetDefinitionAliasBindingRecord>() })), release = asset_definition_alias_bindings;
     contract_aliases: Storage<ContractAlias, ContractAddress> => ("world.contract_aliases",
-        Role::Derived { sources: &["world.contract_alias_bindings"], check: DerivationCheck::Rebuild("state::alias_index_restore::contracts; state::authority_registry::grouped_ownership::CheckedContractAliases::capture") });
+        Role::Derived { sources: &["world.contract_alias_bindings"], check: DerivationCheck::Rebuild("state::alias_index_restore::contracts; state::authority_registry::grouped_ownership::CheckedContractAliases::capture") }), release = contract_aliases;
     contract_alias_bindings: Storage<ContractAddress, ContractAliasBindingRecord> => ("world.contract_alias_bindings",
-        Role::Canonical(Canonical::Table { key: schema::<ContractAddress>(), value: schema::<ContractAliasBindingRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<ContractAddress>(), value: schema::<ContractAliasBindingRecord>() })), release = contract_alias_bindings;
     asset_definition_domains: Storage<AssetDefinitionId, DomainId> => ("world.asset_definition_domains",
-        Role::Derived { sources: &["world.asset_definitions", "world.domains"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssetDefinitions::capture") });
+        Role::Derived { sources: &["world.asset_definitions", "world.domains"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssetDefinitions::capture") }), release = asset_definition_domains;
     domain_asset_definitions: Storage<DomainId, BTreeSet<AssetDefinitionId>> => ("world.domain_asset_definitions",
-        Role::Derived { sources: &["world.asset_definitions", "world.domains"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssetDefinitions::capture") });
+        Role::Derived { sources: &["world.asset_definitions", "world.domains"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssetDefinitions::capture") }), release = domain_asset_definitions;
     asset_definitions_by_owner: Storage<AccountId, BTreeSet<AssetDefinitionId>> => ("world.asset_definitions_by_owner",
-        Role::Derived { sources: &["world.asset_definitions", "world.domains"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssetDefinitions::capture") });
+        Role::Derived { sources: &["world.asset_definitions", "world.domains"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssetDefinitions::capture") }), release = asset_definitions_by_owner;
     asset_definition_holders: Storage<AssetDefinitionId, BTreeSet<AccountId>> => ("world.asset_definition_holders",
-        Role::Derived { sources: &["world.assets", "world.asset_definitions"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssets::capture") });
+        Role::Derived { sources: &["world.assets", "world.asset_definitions"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssets::capture") }), release = asset_definition_holders;
     asset_definition_assets: Storage<AssetDefinitionId, BTreeSet<AssetId>> => ("world.asset_definition_assets",
-        Role::Derived { sources: &["world.assets", "world.asset_definitions"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssets::capture") });
+        Role::Derived { sources: &["world.assets", "world.asset_definitions"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssets::capture") }), release = asset_definition_assets;
     assets_by_account: Storage<AccountId, BTreeSet<AssetId>> => ("world.assets_by_account",
-        Role::Derived { sources: &["world.assets", "world.asset_definitions"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssets::capture") });
+        Role::Derived { sources: &["world.assets", "world.asset_definitions"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssets::capture") }), release = assets_by_account;
     assets_by_domain: Storage<DomainId, BTreeSet<AssetId>> => ("world.assets_by_domain",
-        Role::Derived { sources: &["world.assets", "world.asset_definitions"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssets::capture") });
+        Role::Derived { sources: &["world.assets", "world.asset_definitions"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssets::capture") }), release = assets_by_domain;
     asset_definition_nonzero_holders: Storage<AssetDefinitionId, BTreeSet<AccountId>> => ("world.asset_definition_nonzero_holders",
-        Role::Derived { sources: &["world.assets", "world.asset_definitions"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssets::capture") });
+        Role::Derived { sources: &["world.assets", "world.asset_definitions"], check: DerivationCheck::Rebuild("state::asset_index_restore::assets; state::authority_registry::grouped_ownership::CheckedAssets::capture") }), release = asset_definition_nonzero_holders;
     assets: Storage<AssetId, AssetValue> => ("world.assets",
-        Role::Canonical(Canonical::Table { key: schema::<AssetId>(), value: schema::<AssetValue>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AssetId>(), value: schema::<AssetValue>() })), release = assets;
     asset_metadata: Storage<AssetId, Metadata> => ("world.asset_metadata",
-        Role::Canonical(Canonical::Table { key: schema::<AssetId>(), value: schema::<Metadata>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AssetId>(), value: schema::<Metadata>() })), release = asset_metadata;
     nfts: Storage<NftId, NftValue> => ("world.nfts",
-        Role::Canonical(Canonical::Table { key: schema::<NftId>(), value: schema::<NftValue>() }));
+        Role::Canonical(Canonical::Table { key: schema::<NftId>(), value: schema::<NftValue>() })), release = nfts;
     nfts_by_owner: Storage<AccountId, BTreeSet<NftId>> => ("world.nfts_by_owner",
-        Role::Derived { sources: &["world.nfts"], check: DerivationCheck::Rebuild("World::rebuild_nft_owner_index; state::authority_registry::grouped_ownership::CheckedNfts::capture") });
+        Role::Derived { sources: &["world.nfts"], check: DerivationCheck::Rebuild("World::rebuild_nft_owner_index; state::authority_registry::grouped_ownership::CheckedNfts::capture") }), release = nfts_by_owner;
     nfts_by_domain: Storage<DomainId, BTreeSet<NftId>> => ("world.nfts_by_domain",
-        Role::Derived { sources: &["world.nfts"], check: DerivationCheck::Rebuild("World::rebuild_nft_owner_index; state::authority_registry::grouped_ownership::CheckedNfts::capture") });
+        Role::Derived { sources: &["world.nfts"], check: DerivationCheck::Rebuild("World::rebuild_nft_owner_index; state::authority_registry::grouped_ownership::CheckedNfts::capture") }), release = nfts_by_domain;
     rwas: Storage<RwaId, RwaValue> => ("world.rwas",
-        Role::Canonical(Canonical::Table { key: schema::<RwaId>(), value: schema::<RwaValue>() }));
+        Role::Canonical(Canonical::Table { key: schema::<RwaId>(), value: schema::<RwaValue>() })), release = rwas;
     rwas_by_owner: Storage<AccountId, BTreeSet<RwaId>> => ("world.rwas_by_owner",
-        Role::Derived { sources: &["world.rwas"], check: DerivationCheck::Rebuild("World::rebuild_rwa_indexes; state::authority_registry::grouped_ownership::CheckedRwas::capture") });
+        Role::Derived { sources: &["world.rwas"], check: DerivationCheck::Rebuild("World::rebuild_rwa_indexes; state::authority_registry::grouped_ownership::CheckedRwas::capture") }), release = rwas_by_owner;
     rwas_by_status: Storage<Option<Name>, BTreeSet<RwaId>> => ("world.rwas_by_status",
-        Role::Derived { sources: &["world.rwas"], check: DerivationCheck::Rebuild("World::rebuild_rwa_indexes; state::authority_registry::grouped_ownership::CheckedRwas::capture") });
+        Role::Derived { sources: &["world.rwas"], check: DerivationCheck::Rebuild("World::rebuild_rwa_indexes; state::authority_registry::grouped_ownership::CheckedRwas::capture") }), release = rwas_by_status;
     rwas_by_frozen: Storage<bool, BTreeSet<RwaId>> => ("world.rwas_by_frozen",
-        Role::Derived { sources: &["world.rwas"], check: DerivationCheck::Rebuild("World::rebuild_rwa_indexes; state::authority_registry::grouped_ownership::CheckedRwas::capture") });
+        Role::Derived { sources: &["world.rwas"], check: DerivationCheck::Rebuild("World::rebuild_rwa_indexes; state::authority_registry::grouped_ownership::CheckedRwas::capture") }), release = rwas_by_frozen;
     roles: Storage<RoleId, iroha_data_model::role::Role> => ("world.roles",
-        Role::Canonical(Canonical::Table { key: schema::<RoleId>(), value: schema::<iroha_data_model::role::Role>() }));
+        Role::Canonical(Canonical::Table { key: schema::<RoleId>(), value: schema::<iroha_data_model::role::Role>() })), release = roles;
     account_permissions: Storage<AccountId, Permissions> => ("world.account_permissions",
-        Role::Canonical(Canonical::Table { key: schema::<AccountId>(), value: schema::<Permissions>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AccountId>(), value: schema::<Permissions>() })), release = account_permissions;
     account_roles: Storage<RoleIdWithOwner, ()> => ("world.account_roles",
-        Role::Canonical(Canonical::Table { key: schema::<RoleIdWithOwner>(), value: schema::<()>() }));
+        Role::Canonical(Canonical::Table { key: schema::<RoleIdWithOwner>(), value: schema::<()>() })), release = account_roles;
     oracle_feeds: Storage<iroha_data_model::oracle::FeedId, iroha_data_model::oracle::FeedConfig> => ("world.oracle_feeds",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::oracle::FeedId>(), value: schema::<iroha_data_model::oracle::FeedConfig>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::oracle::FeedId>(), value: schema::<iroha_data_model::oracle::FeedConfig>() })), release = oracle_feeds;
     oracle_observations: Storage<crate::oracle::ObservationWindowKey, crate::oracle::ObservationWindow> => ("world.oracle_observations",
-        Role::Canonical(Canonical::Table { key: schema::<crate::oracle::ObservationWindowKey>(), value: schema::<crate::oracle::ObservationWindow>() }));
+        Role::Canonical(Canonical::Table { key: schema::<crate::oracle::ObservationWindowKey>(), value: schema::<crate::oracle::ObservationWindow>() })), release = oracle_observations;
     oracle_history: Storage< iroha_data_model::oracle::FeedId, Vec<iroha_data_model::events::data::oracle::FeedEventRecord>, > => ("world.oracle_history",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::oracle::FeedId>(), value: schema::<Vec<iroha_data_model::events::data::oracle::FeedEventRecord>>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::oracle::FeedId>(), value: schema::<Vec<iroha_data_model::events::data::oracle::FeedEventRecord>>() })), release = oracle_history;
     oracle_provider_stats: Storage<OracleProviderKey, OracleProviderStats> => ("world.oracle_provider_stats",
-        Role::Canonical(Canonical::Table { key: schema::<OracleProviderKey>(), value: schema::<OracleProviderStats>() }));
+        Role::Canonical(Canonical::Table { key: schema::<OracleProviderKey>(), value: schema::<OracleProviderStats>() })), release = oracle_provider_stats;
     oracle_disputes: Storage<OracleDisputeId, OracleDispute> => ("world.oracle_disputes",
-        Role::Canonical(Canonical::Table { key: schema::<OracleDisputeId>(), value: schema::<OracleDispute>() }));
+        Role::Canonical(Canonical::Table { key: schema::<OracleDisputeId>(), value: schema::<OracleDispute>() })), release = oracle_disputes;
     oracle_changes: Storage< iroha_data_model::oracle::OracleChangeId, iroha_data_model::oracle::OracleChangeProposal, > => ("world.oracle_changes",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::oracle::OracleChangeId>(), value: schema::<iroha_data_model::oracle::OracleChangeProposal>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::oracle::OracleChangeId>(), value: schema::<iroha_data_model::oracle::OracleChangeProposal>() })), release = oracle_changes;
     defi_oracle_attestations: Storage<DefiOracleAttestationKey, Vec<DefiOracleAttestation>> => ("world.defi_oracle_attestations",
-        Role::Canonical(Canonical::Table { key: schema::<DefiOracleAttestationKey>(), value: schema::<Vec<DefiOracleAttestation>>() }));
+        Role::Canonical(Canonical::Table { key: schema::<DefiOracleAttestationKey>(), value: schema::<Vec<DefiOracleAttestation>>() })), release = defi_oracle_attestations;
     twitter_bindings: Storage<Hash, TwitterBindingRecord> => ("world.twitter_bindings",
-        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<TwitterBindingRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<TwitterBindingRecord>() })), release = twitter_bindings;
     // Query results preserve append order, which shared block timestamps cannot reconstruct.
     twitter_bindings_by_uaid: Storage<UniversalAccountId, Vec<Hash>> => ("world.twitter_bindings_by_uaid",
-        Role::Canonical(Canonical::Table { key: schema::<UniversalAccountId>(), value: schema::<Vec<Hash>>() }));
+        Role::Canonical(Canonical::Table { key: schema::<UniversalAccountId>(), value: schema::<Vec<Hash>>() })), release = twitter_bindings_by_uaid;
     viral_reward_budget: Cell<ViralRewardBudget> => ("world.viral_reward_budget",
-        Role::Canonical(Canonical::Cell(schema::<ViralRewardBudget>())));
+        Role::Canonical(Canonical::Cell(schema::<ViralRewardBudget>()))), release = viral_reward_budget;
     viral_campaign_budget: Cell<ViralCampaignBudget> => ("world.viral_campaign_budget",
-        Role::Canonical(Canonical::Cell(schema::<ViralCampaignBudget>())));
+        Role::Canonical(Canonical::Cell(schema::<ViralCampaignBudget>()))), release = viral_campaign_budget;
     viral_daily_counters: Storage<UniversalAccountId, ViralDailyCounter> => ("world.viral_daily_counters",
-        Role::Canonical(Canonical::Table { key: schema::<UniversalAccountId>(), value: schema::<ViralDailyCounter>() }));
+        Role::Canonical(Canonical::Table { key: schema::<UniversalAccountId>(), value: schema::<ViralDailyCounter>() })), release = viral_daily_counters;
     viral_binding_claims: Storage<Hash, u32> => ("world.viral_binding_claims",
-        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<u32>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<u32>() })), release = viral_binding_claims;
     viral_escrows: Storage<Hash, ViralEscrowRecord> => ("world.viral_escrows",
-        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<ViralEscrowRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<ViralEscrowRecord>() })), release = viral_escrows;
     viral_bonus_paid: Storage<Hash, bool> => ("world.viral_bonus_paid",
-        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<bool>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<bool>() })), release = viral_bonus_paid;
     asset_escrows: Storage<EscrowId, AssetEscrowRecord> => ("world.asset_escrows",
-        Role::Canonical(Canonical::Table { key: schema::<EscrowId>(), value: schema::<AssetEscrowRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<EscrowId>(), value: schema::<AssetEscrowRecord>() })), release = asset_escrows;
     asset_escrows_by_seller: Storage<AccountId, BTreeSet<EscrowId>> => ("world.asset_escrows_by_seller",
-        Role::Derived { sources: &["world.asset_escrows"], check: DerivationCheck::Rebuild("World::rebuild_escrow_indexes; state::authority_registry::grouped_ownership::CheckedEscrows::capture") });
+        Role::Derived { sources: &["world.asset_escrows"], check: DerivationCheck::Rebuild("World::rebuild_escrow_indexes; state::authority_registry::grouped_ownership::CheckedEscrows::capture") }), release = asset_escrows_by_seller;
     asset_escrows_by_buyer: Storage<AccountId, BTreeSet<EscrowId>> => ("world.asset_escrows_by_buyer",
-        Role::Derived { sources: &["world.asset_escrows"], check: DerivationCheck::Rebuild("World::rebuild_escrow_indexes; state::authority_registry::grouped_ownership::CheckedEscrows::capture") });
+        Role::Derived { sources: &["world.asset_escrows"], check: DerivationCheck::Rebuild("World::rebuild_escrow_indexes; state::authority_registry::grouped_ownership::CheckedEscrows::capture") }), release = asset_escrows_by_buyer;
     asset_escrows_by_status: Storage<AssetEscrowStatus, BTreeSet<EscrowId>> => ("world.asset_escrows_by_status",
-        Role::Derived { sources: &["world.asset_escrows"], check: DerivationCheck::Rebuild("World::rebuild_escrow_indexes; state::authority_registry::grouped_ownership::CheckedEscrows::capture") });
+        Role::Derived { sources: &["world.asset_escrows"], check: DerivationCheck::Rebuild("World::rebuild_escrow_indexes; state::authority_registry::grouped_ownership::CheckedEscrows::capture") }), release = asset_escrows_by_status;
     execution_proof_profiles: Storage<Hash, ExecutionProofProfileV1> => ("world.execution_proof_profiles",
-        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<ExecutionProofProfileV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<ExecutionProofProfileV1>() })), release = execution_proof_profiles;
     execution_proof_verifications: Storage<Hash, ExecutionProofVerificationV1> => ("world.execution_proof_verifications",
-        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<ExecutionProofVerificationV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<ExecutionProofVerificationV1>() })), release = execution_proof_verifications;
     game_sessions: Storage<Hash, GameSessionRecordV1> => ("world.game_sessions",
-        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<GameSessionRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<GameSessionRecordV1>() })), release = game_sessions;
     nft_sale_offers: Storage<Hash, NftSaleRecordV1> => ("world.nft_sale_offers",
-        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<NftSaleRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<NftSaleRecordV1>() })), release = nft_sale_offers;
     nft_custody_records: Storage<AccountId, NftCustodyRecordV1> => ("world.nft_custody_records",
-        Role::Canonical(Canonical::Table { key: schema::<AccountId>(), value: schema::<NftCustodyRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AccountId>(), value: schema::<NftCustodyRecordV1>() })), release = nft_custody_records;
     nft_custody_by_nft: Storage<NftId, AccountId> => ("world.nft_custody_by_nft",
-        Role::Derived { sources: &["world.nft_custody_records", "world.nft_sale_offers", "world.nfts"], check: DerivationCheck::Rebuild("World::rebuild_nft_custody_indexes") });
+        Role::Derived { sources: &["world.nft_custody_records", "world.nft_sale_offers", "world.nfts"], check: DerivationCheck::Rebuild("World::rebuild_nft_custody_indexes") }), release = nft_custody_by_nft;
     nft_custody_owner_refs: Storage<AccountId, u32> => ("world.nft_custody_owner_refs",
-        Role::Derived { sources: &["world.nft_custody_records", "world.nft_sale_offers", "world.nfts"], check: DerivationCheck::Rebuild("World::rebuild_nft_custody_indexes") });
+        Role::Derived { sources: &["world.nft_custody_records", "world.nft_sale_offers", "world.nfts"], check: DerivationCheck::Rebuild("World::rebuild_nft_custody_indexes") }), release = nft_custody_owner_refs;
     nft_custody_domain_refs: Storage<DomainId, u32> => ("world.nft_custody_domain_refs",
-        Role::Derived { sources: &["world.nft_custody_records", "world.nft_sale_offers", "world.nfts"], check: DerivationCheck::Rebuild("World::rebuild_nft_custody_indexes") });
+        Role::Derived { sources: &["world.nft_custody_records", "world.nft_sale_offers", "world.nfts"], check: DerivationCheck::Rebuild("World::rebuild_nft_custody_indexes") }), release = nft_custody_domain_refs;
     game_custody_by_account: Storage<AccountId, Hash> => ("world.game_custody_by_account",
-        Role::Derived { sources: &["world.game_sessions"], check: DerivationCheck::Rebuild("World::rebuild_game_session_indexes") });
+        Role::Derived { sources: &["world.game_sessions"], check: DerivationCheck::Rebuild("World::rebuild_game_session_indexes") }), release = game_custody_by_account;
     game_account_references: Storage<AccountId, u32> => ("world.game_account_references",
-        Role::Derived { sources: &["world.game_sessions"], check: DerivationCheck::Rebuild("World::rebuild_game_session_indexes") });
+        Role::Derived { sources: &["world.game_sessions"], check: DerivationCheck::Rebuild("World::rebuild_game_session_indexes") }), release = game_account_references;
     game_asset_references: Storage<AssetDefinitionId, u32> => ("world.game_asset_references",
-        Role::Derived { sources: &["world.game_sessions"], check: DerivationCheck::Rebuild("World::rebuild_game_session_indexes") });
+        Role::Derived { sources: &["world.game_sessions"], check: DerivationCheck::Rebuild("World::rebuild_game_session_indexes") }), release = game_asset_references;
     vpn_leases: Storage<[u8; 32], VpnLeaseRecordV1> => ("world.vpn_leases",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<VpnLeaseRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<VpnLeaseRecordV1>() })), release = vpn_leases;
     vpn_active_lease_by_account: Storage<AccountId, [u8; 32]> => ("world.vpn_active_lease_by_account",
-        Role::Derived { sources: &["world.vpn_leases"], check: DerivationCheck::Rebuild("World::rebuild_vpn_lease_indexes") });
+        Role::Derived { sources: &["world.vpn_leases"], check: DerivationCheck::Rebuild("World::rebuild_vpn_lease_indexes") }), release = vpn_active_lease_by_account;
     vpn_active_lease_by_address_slot: Storage<VpnAddressSlotV1, [u8; 32]> => ("world.vpn_active_lease_by_address_slot",
-        Role::Derived { sources: &["world.vpn_leases"], check: DerivationCheck::Rebuild("World::rebuild_vpn_lease_indexes") });
+        Role::Derived { sources: &["world.vpn_leases"], check: DerivationCheck::Rebuild("World::rebuild_vpn_lease_indexes") }), release = vpn_active_lease_by_address_slot;
     vpn_settled_leases_by_account: Storage<AccountId, BTreeSet<(u64, [u8; 32])>> => ("world.vpn_settled_leases_by_account",
-        Role::Derived { sources: &["world.vpn_leases"], check: DerivationCheck::Rebuild("World::rebuild_vpn_lease_indexes") });
+        Role::Derived { sources: &["world.vpn_leases"], check: DerivationCheck::Rebuild("World::rebuild_vpn_lease_indexes") }), release = vpn_settled_leases_by_account;
     uaid_dataspaces: Storage<UniversalAccountId, UaidDataspaceBindings> => ("world.uaid_dataspaces",
-        Role::Derived { sources: &["world.space_directory_manifests"], check: DerivationCheck::Rebuild("state::uaid_dataspace_restore::rebuild") });
+        Role::Derived { sources: &["world.space_directory_manifests"], check: DerivationCheck::Rebuild("state::uaid_dataspace_restore::rebuild") }), release = uaid_dataspaces;
     space_directory_manifests: Storage<UniversalAccountId, SpaceDirectoryManifestSet> => ("world.space_directory_manifests",
-        Role::Canonical(Canonical::Table { key: schema::<UniversalAccountId>(), value: schema::<SpaceDirectoryManifestSet>() }));
+        Role::Canonical(Canonical::Table { key: schema::<UniversalAccountId>(), value: schema::<SpaceDirectoryManifestSet>() })), release = space_directory_manifests;
     axt_policies: Storage<DataSpaceId, AxtPolicyEntry> => ("world.axt_policies",
-        Role::Derived { sources: &["world.space_directory_manifests", "world.axt_handle_counters", "runtime.lanes", "runtime.lane_incarnation_lineage", "state.nexus", "state.block_hashes"], check: DerivationCheck::Rebuild("World::rebuild_axt_policies_from_space_directory; exact authenticated slot and lane policy") });
+        Role::Derived { sources: &["world.space_directory_manifests", "world.axt_handle_counters", "runtime.lanes", "runtime.lane_incarnation_lineage", "state.nexus", "state.block_hashes"], check: DerivationCheck::Rebuild("World::rebuild_axt_policies_from_space_directory; exact authenticated slot and lane policy") }), release = axt_policies;
     axt_handle_counters: Storage<DataSpaceId, AxtHandleCounterRecord> => ("world.axt_handle_counters",
-        Role::Canonical(Canonical::Table { key: schema::<DataSpaceId>(), value: schema::<AxtHandleCounterRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<DataSpaceId>(), value: schema::<AxtHandleCounterRecord>() })), release = axt_handle_counters;
     axt_asset_incarnations: Storage<AssetDefinitionId, AxtAssetIncarnationV1> => ("world.axt_asset_incarnations",
-        Role::Canonical(Canonical::Table { key: schema::<AssetDefinitionId>(), value: schema::<AxtAssetIncarnationV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AssetDefinitionId>(), value: schema::<AxtAssetIncarnationV1>() })), release = axt_asset_incarnations;
+    asset_definition_direct_homes: Storage<AssetDefinitionId, AssetDefinitionDirectHomeV1> => ("world.asset_definition_direct_homes",
+        Role::Canonical(Canonical::Table { key: schema::<AssetDefinitionId>(), value: schema::<AssetDefinitionDirectHomeV1>() })), release = asset_definition_direct_homes;
     axt_replay_ledger: Storage<AxtHandleReplayKey, AxtReplayRecord> => ("world.axt_replay_ledger",
-        Role::Canonical(Canonical::Table { key: schema::<AxtHandleReplayKey>(), value: schema::<AxtReplayRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AxtHandleReplayKey>(), value: schema::<AxtReplayRecord>() })), release = axt_replay_ledger;
     axt_spend_nonce_ledger: Storage<AxtAnchoredSpendReplayKeyV1, u64> => ("world.axt_spend_nonce_ledger",
-        Role::Canonical(Canonical::Table { key: schema::<AxtAnchoredSpendReplayKeyV1>(), value: schema::<u64>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AxtAnchoredSpendReplayKeyV1>(), value: schema::<u64>() })), release = axt_spend_nonce_ledger;
     axt_source_transfer_replay_ledger: Storage<AxtSourceTransferReplayKeyV1, AxtSourceTransferReplayRecordV1> => ("world.axt_source_transfer_replay_ledger",
-        Role::Canonical(Canonical::Table { key: schema::<AxtSourceTransferReplayKeyV1>(), value: schema::<AxtSourceTransferReplayRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AxtSourceTransferReplayKeyV1>(), value: schema::<AxtSourceTransferReplayRecordV1>() })), release = axt_source_transfer_replay_ledger;
     axt_handle_budget_ledger: Storage<AxtHandleBudgetKey, AxtHandleBudgetRecord> => ("world.axt_handle_budget_ledger",
-        Role::Canonical(Canonical::Table { key: schema::<AxtHandleBudgetKey>(), value: schema::<AxtHandleBudgetRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AxtHandleBudgetKey>(), value: schema::<AxtHandleBudgetRecord>() })), release = axt_handle_budget_ledger;
     tx_sequences: Storage<AccountId, u64> => ("world.tx_sequences",
-        Role::Canonical(Canonical::Table { key: schema::<AccountId>(), value: schema::<u64>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AccountId>(), value: schema::<u64>() })), release = tx_sequences;
     triggers: TriggerSet => ("world.triggers",
-        Role::Canonical(Canonical::Owner(crate::smartcontracts::isi::triggers::set::AUTHORITY_FIELDS)));
+        Role::Canonical(Canonical::Owner(crate::smartcontracts::isi::triggers::set::AUTHORITY_FIELDS))), release = triggers;
     executor: Cell<Executor> => ("world.executor",
-        Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:executor-semantic:v1", encoder: "crate::executor::executor_norito::net_state_hash; excludes LoadedExecutor runtime pool", layout: V1_LAYOUT })));
+        Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:executor-semantic:v1", encoder: "crate::executor::executor_norito::net_state_hash; excludes LoadedExecutor runtime pool", layout: V1_LAYOUT }))), release = executor;
     executor_data_model: Cell<ExecutorDataModel> => ("world.executor_data_model",
-        Role::Canonical(Canonical::Cell(schema::<ExecutorDataModel>())));
+        Role::Canonical(Canonical::Cell(schema::<ExecutorDataModel>()))), release = executor_data_model;
     verifying_keys: Storage< iroha_data_model::proof::VerifyingKeyId, iroha_data_model::proof::VerifyingKeyRecord, > => ("world.verifying_keys",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::proof::VerifyingKeyId>(), value: schema::<iroha_data_model::proof::VerifyingKeyRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::proof::VerifyingKeyId>(), value: schema::<iroha_data_model::proof::VerifyingKeyRecord>() })), release = verifying_keys;
     verifying_keys_by_circuit: Storage<(String, u32), iroha_data_model::proof::VerifyingKeyId> => ("world.verifying_keys_by_circuit",
-        Role::Derived { sources: &["world.verifying_keys"], check: DerivationCheck::Rebuild("state::verifying_key_index_validation::validate; CheckedVerifyingKeys::capture and fail-closed restore check both original images, independent of status and activation") });
+        Role::Derived { sources: &["world.verifying_keys"], check: DerivationCheck::Rebuild("state::verifying_key_index_validation::validate; CheckedVerifyingKeys::capture and fail-closed restore check both original images, independent of status and activation") }), release = verifying_keys_by_circuit;
     consensus_keys: Storage< iroha_data_model::consensus::ConsensusKeyId, iroha_data_model::consensus::ConsensusKeyRecord, > => ("world.consensus_keys",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::consensus::ConsensusKeyId>(), value: schema::<iroha_data_model::consensus::ConsensusKeyRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::consensus::ConsensusKeyId>(), value: schema::<iroha_data_model::consensus::ConsensusKeyRecord>() })), release = consensus_keys;
     // Registration order is retained and consumed by public-key lookup; records do not carry it.
     consensus_keys_by_pk: Storage<String, Vec<iroha_data_model::consensus::ConsensusKeyId>> => ("world.consensus_keys_by_pk",
-        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<Vec<iroha_data_model::consensus::ConsensusKeyId>>() }));
+        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<Vec<iroha_data_model::consensus::ConsensusKeyId>>() })), release = consensus_keys_by_pk;
     domain_committees: Storage<String, DomainCommittee> => ("world.domain_committees",
-        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<DomainCommittee>() }));
+        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<DomainCommittee>() })), release = domain_committees;
     domain_endorsement_policies: Storage<DomainId, DomainEndorsementPolicy> => ("world.domain_endorsement_policies",
-        Role::Canonical(Canonical::Table { key: schema::<DomainId>(), value: schema::<DomainEndorsementPolicy>() }));
+        Role::Canonical(Canonical::Table { key: schema::<DomainId>(), value: schema::<DomainEndorsementPolicy>() })), release = domain_endorsement_policies;
     domain_endorsements: Storage<HashOf<DomainEndorsement>, DomainEndorsementRecord> => ("world.domain_endorsements",
-        Role::Canonical(Canonical::Table { key: schema::<HashOf<DomainEndorsement>>(), value: schema::<DomainEndorsementRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<HashOf<DomainEndorsement>>(), value: schema::<DomainEndorsementRecord>() })), release = domain_endorsements;
     // Endorsement query order is append order; accepted height does not retain intra-block order.
     domain_endorsements_by_domain: Storage<DomainId, Vec<HashOf<DomainEndorsement>>> => ("world.domain_endorsements_by_domain",
-        Role::Canonical(Canonical::Table { key: schema::<DomainId>(), value: schema::<Vec<HashOf<DomainEndorsement>>>() }));
+        Role::Canonical(Canonical::Table { key: schema::<DomainId>(), value: schema::<Vec<HashOf<DomainEndorsement>>>() })), release = domain_endorsements_by_domain;
     pedersen_params: Storage< iroha_data_model::confidential::ConfidentialParamsId, iroha_data_model::confidential::PedersenParams, > => ("world.pedersen_params",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::confidential::ConfidentialParamsId>(), value: schema::<iroha_data_model::confidential::PedersenParams>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::confidential::ConfidentialParamsId>(), value: schema::<iroha_data_model::confidential::PedersenParams>() })), release = pedersen_params;
     poseidon_params: Storage< iroha_data_model::confidential::ConfidentialParamsId, iroha_data_model::confidential::PoseidonParams, > => ("world.poseidon_params",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::confidential::ConfidentialParamsId>(), value: schema::<iroha_data_model::confidential::PoseidonParams>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::confidential::ConfidentialParamsId>(), value: schema::<iroha_data_model::confidential::PoseidonParams>() })), release = poseidon_params;
     runtime_upgrades: Storage< iroha_data_model::runtime::RuntimeUpgradeId, iroha_data_model::runtime::RuntimeUpgradeRecord, > => ("world.runtime_upgrades",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::runtime::RuntimeUpgradeId>(), value: schema::<iroha_data_model::runtime::RuntimeUpgradeRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::runtime::RuntimeUpgradeId>(), value: schema::<iroha_data_model::runtime::RuntimeUpgradeRecord>() })), release = runtime_upgrades;
     privacy_consensus_policy: Cell<iroha_data_model::privacy::PrivacyConsensusPolicyV1> => ("world.privacy_consensus_policy",
-        Role::Canonical(Canonical::Cell(schema::<iroha_data_model::privacy::PrivacyConsensusPolicyV1>())));
+        Role::Canonical(Canonical::Cell(schema::<iroha_data_model::privacy::PrivacyConsensusPolicyV1>()))), release = privacy_consensus_policy;
     privacy_exact12_qualification: Cell<Option<iroha_data_model::privacy::PrivacyExact12QualificationRecordV1>> => ("world.privacy_exact12_qualification",
-        Role::Canonical(Canonical::Cell(schema::<Option<iroha_data_model::privacy::PrivacyExact12QualificationRecordV1>>())));
+        Role::Canonical(Canonical::Cell(schema::<Option<iroha_data_model::privacy::PrivacyExact12QualificationRecordV1>>()))), release = privacy_exact12_qualification;
     privacy_activations: Storage< crate::privacy_state::PrivacyActivationKeyV1, iroha_data_model::privacy::PrivacyProtocolActivationRecordV1, > => ("world.privacy_activations",
-        Role::Canonical(Canonical::Table { key: schema::<crate::privacy_state::PrivacyActivationKeyV1>(), value: schema::<iroha_data_model::privacy::PrivacyProtocolActivationRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<crate::privacy_state::PrivacyActivationKeyV1>(), value: schema::<iroha_data_model::privacy::PrivacyProtocolActivationRecordV1>() })), release = privacy_activations;
+    kagemusha_wallet_ledger: Storage<iroha_data_model::kagemusha::KagemushaWalletLedgerKeyV1, Vec<u8>> => ("world.kagemusha_wallet_ledger",
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::kagemusha::KagemushaWalletLedgerKeyV1>(), value: schema::<Vec<u8>>() })), release = kagemusha_wallet_ledger;
     private_settlement_governance: Storage<PrivateSettlementPoolKeyV1, PrivateSettlementPoolGovernanceProjectionV1> => ("world.private_settlement_governance",
-        Role::Canonical(Canonical::Table { key: schema::<PrivateSettlementPoolKeyV1>(), value: schema::<PrivateSettlementPoolGovernanceProjectionV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<PrivateSettlementPoolKeyV1>(), value: schema::<PrivateSettlementPoolGovernanceProjectionV1>() })), release = private_settlement_governance;
     private_settlement_pools: Storage<PrivateSettlementPoolKeyV1, PrivateSettlementPoolStateV1> => ("world.private_settlement_pools",
-        Role::Canonical(Canonical::Table { key: schema::<PrivateSettlementPoolKeyV1>(), value: schema::<PrivateSettlementPoolStateV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<PrivateSettlementPoolKeyV1>(), value: schema::<PrivateSettlementPoolStateV1>() })), release = private_settlement_pools;
     private_settlement_roots: Storage<PrivateSettlementRootKeyV1, PrivateSettlementRootProvenanceV1> => ("world.private_settlement_roots",
-        Role::Canonical(Canonical::Table { key: schema::<PrivateSettlementRootKeyV1>(), value: schema::<PrivateSettlementRootProvenanceV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<PrivateSettlementRootKeyV1>(), value: schema::<PrivateSettlementRootProvenanceV1>() })), release = private_settlement_roots;
     private_settlement_nullifiers: Storage<PrivateSettlementNullifierKeyV1, PrivateSettlementFinalizationReferenceV1> => ("world.private_settlement_nullifiers",
-        Role::Canonical(Canonical::Table { key: schema::<PrivateSettlementNullifierKeyV1>(), value: schema::<PrivateSettlementFinalizationReferenceV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<PrivateSettlementNullifierKeyV1>(), value: schema::<PrivateSettlementFinalizationReferenceV1>() })), release = private_settlement_nullifiers;
     private_settlement_outputs: Storage<PrivateSettlementOutputKeyV1, PrivateSettlementOutputRecordV1> => ("world.private_settlement_outputs",
-        Role::Canonical(Canonical::Table { key: schema::<PrivateSettlementOutputKeyV1>(), value: schema::<PrivateSettlementOutputRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<PrivateSettlementOutputKeyV1>(), value: schema::<PrivateSettlementOutputRecordV1>() })), release = private_settlement_outputs;
     private_settlement_recipient_index: Storage< iroha_data_model::privacy::PrivacyRecipientIdV1, PrivateSettlementFinalizationReferenceV1, > => ("world.private_settlement_recipient_index",
-        Role::Derived { sources: &["world.private_settlement_outputs"], check: DerivationCheck::Rebuild("private_settlement::global_state::rebuild_private_settlement_recipient_index_v1; deserialize_world current and predecessor rebuild") });
+        Role::Derived { sources: &["world.private_settlement_outputs"], check: DerivationCheck::Rebuild("private_settlement::global_state::rebuild_private_settlement_recipient_index_v1; deserialize_world current and predecessor rebuild") }), release = private_settlement_recipient_index;
     private_settlement_staged_locks: Storage<PrivateSettlementStagedLockKeyV1, PrivateSettlementStagedLockRecordV1> => ("world.private_settlement_staged_locks",
-        Role::Canonical(Canonical::Table { key: schema::<PrivateSettlementStagedLockKeyV1>(), value: schema::<PrivateSettlementStagedLockRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<PrivateSettlementStagedLockKeyV1>(), value: schema::<PrivateSettlementStagedLockRecordV1>() })), release = private_settlement_staged_locks;
     private_settlement_receipts: Storage<Hash, iroha_data_model::nexus::PrivateSettlementReceiptV1> => ("world.private_settlement_receipts",
-        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<iroha_data_model::nexus::PrivateSettlementReceiptV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<iroha_data_model::nexus::PrivateSettlementReceiptV1>() })), release = private_settlement_receipts;
     private_settlement_aborts: Storage<Hash, iroha_data_model::nexus::PrivateSettlementAbortReceiptV1> => ("world.private_settlement_aborts",
-        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<iroha_data_model::nexus::PrivateSettlementAbortReceiptV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<iroha_data_model::nexus::PrivateSettlementAbortReceiptV1>() })), release = private_settlement_aborts;
     privacy_pgc_accounts: Storage< crate::privacy_state::PrivacyPgcAccountKeyV1, crate::privacy_state::PrivacyPgcAccountStateV1, > => ("world.privacy_pgc_accounts",
-        Role::Canonical(Canonical::Table { key: schema::<crate::privacy_state::PrivacyPgcAccountKeyV1>(), value: schema::<crate::privacy_state::PrivacyPgcAccountStateV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<crate::privacy_state::PrivacyPgcAccountKeyV1>(), value: schema::<crate::privacy_state::PrivacyPgcAccountStateV1>() })), release = _privacy_pgc_accounts;
     privacy_pgc_pool_invariants: Storage< crate::privacy_state::PrivacyPgcPoolInvariantKeyV1, crate::privacy_state::PrivacyPgcPoolInvariantV1, > => ("world.privacy_pgc_pool_invariants",
-        Role::Canonical(Canonical::Table { key: schema::<crate::privacy_state::PrivacyPgcPoolInvariantKeyV1>(), value: schema::<crate::privacy_state::PrivacyPgcPoolInvariantV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<crate::privacy_state::PrivacyPgcPoolInvariantKeyV1>(), value: schema::<crate::privacy_state::PrivacyPgcPoolInvariantV1>() })), release = _privacy_pgc_pool_invariants;
     privacy_nullifiers: Storage< crate::privacy_state::PrivacyNullifierKeyV1, crate::privacy_state::PrivacyStateItemRecordV1, > => ("world.privacy_nullifiers",
-        Role::Canonical(Canonical::Table { key: schema::<crate::privacy_state::PrivacyNullifierKeyV1>(), value: schema::<crate::privacy_state::PrivacyStateItemRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<crate::privacy_state::PrivacyNullifierKeyV1>(), value: schema::<crate::privacy_state::PrivacyStateItemRecordV1>() })), release = _privacy_nullifiers;
     privacy_commitments: Storage< crate::privacy_state::PrivacyCommitmentKeyV1, crate::privacy_state::PrivacyStateItemRecordV1, > => ("world.privacy_commitments",
-        Role::Canonical(Canonical::Table { key: schema::<crate::privacy_state::PrivacyCommitmentKeyV1>(), value: schema::<crate::privacy_state::PrivacyStateItemRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<crate::privacy_state::PrivacyCommitmentKeyV1>(), value: schema::<crate::privacy_state::PrivacyStateItemRecordV1>() })), release = privacy_commitments;
     privacy_roots: Storage< crate::privacy_state::PrivacyRootKeyV1, crate::privacy_state::PrivacyRootProvenanceV1, > => ("world.privacy_roots",
-        Role::Canonical(Canonical::Table { key: schema::<crate::privacy_state::PrivacyRootKeyV1>(), value: schema::<crate::privacy_state::PrivacyRootProvenanceV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<crate::privacy_state::PrivacyRootKeyV1>(), value: schema::<crate::privacy_state::PrivacyRootProvenanceV1>() })), release = _privacy_roots;
     privacy_root_heads: Storage< crate::privacy_state::PrivacyRootHeadKeyV1, crate::privacy_state::PrivacyRootHeadRecordV1, > => ("world.privacy_root_heads",
-        Role::Canonical(Canonical::Table { key: schema::<crate::privacy_state::PrivacyRootHeadKeyV1>(), value: schema::<crate::privacy_state::PrivacyRootHeadRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<crate::privacy_state::PrivacyRootHeadKeyV1>(), value: schema::<crate::privacy_state::PrivacyRootHeadRecordV1>() })), release = _privacy_root_heads;
     proofs: Storage<iroha_data_model::proof::ProofId, iroha_data_model::proof::ProofRecord> => ("world.proofs",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::proof::ProofId>(), value: schema::<iroha_data_model::proof::ProofRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::proof::ProofId>(), value: schema::<iroha_data_model::proof::ProofRecord>() })), release = proofs;
     proofs_by_status: Storage<iroha_data_model::proof::ProofStatus, BTreeSet<iroha_data_model::proof::ProofId>> => ("world.proofs_by_status",
-        Role::Derived { sources: &["world.proofs"], check: DerivationCheck::Rebuild("World::rebuild_proof_status_index; state::authority_registry::grouped_ownership::CheckedProofRecords::capture") });
+        Role::Derived { sources: &["world.proofs"], check: DerivationCheck::Rebuild("World::rebuild_proof_status_index; state::authority_registry::grouped_ownership::CheckedProofRecords::capture") }), release = proofs_by_status;
     proof_tags: Storage<iroha_data_model::proof::ProofId, Vec<[u8; 4]>> => ("world.proof_tags",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::proof::ProofId>(), value: schema::<Vec<[u8; 4]>>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::proof::ProofId>(), value: schema::<Vec<[u8; 4]>>() })), release = proof_tags;
     proofs_by_tag: Storage<[u8; 4], Vec<iroha_data_model::proof::ProofId>> => ("world.proofs_by_tag",
-        Role::Derived { sources: &["world.proof_tags"], check: DerivationCheck::Rebuild("state::deserialize::proof_tag_index::validate_proof_tag_index compares exact current and predecessor cuts without temporary index allocation") });
+        Role::Derived { sources: &["world.proof_tags"], check: DerivationCheck::Rebuild("state::deserialize::proof_tag_index::validate_proof_tag_index compares exact current and predecessor cuts without temporary index allocation") }), release = proofs_by_tag;
     merge_hint_roots: Cell<Vec<Hash>> => ("world.merge_hint_roots",
-        Role::Canonical(Canonical::Cell(schema::<Vec<Hash>>())));
+        Role::Canonical(Canonical::Cell(schema::<Vec<Hash>>()))), release = merge_hint_roots;
     merge_global_state_root: Cell<Option<Hash>> => ("world.merge_global_state_root",
-        Role::Canonical(Canonical::Cell(schema::<Option<Hash>>())));
-    consensus_evidence: Storage<Hash, EvidenceRecord> => ("world.consensus_evidence",
-        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<EvidenceRecord>() }));
+        Role::Canonical(Canonical::Cell(schema::<Option<Hash>>()))), release = merge_global_state_root;
+    consensus_evidence: Storage<Hash, RetainedEvidenceRecord> => ("world.consensus_evidence",
+        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<EvidenceRecord>() })), release = consensus_evidence;
     contract_manifests: Storage<iroha_data_model::smart_contract::ContractArtifactId, iroha_data_model::smart_contract::manifest::ContractManifest> => ("world.contract_manifests",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::smart_contract::ContractArtifactId>(), value: schema::<iroha_data_model::smart_contract::manifest::ContractManifest>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::smart_contract::ContractArtifactId>(), value: schema::<iroha_data_model::smart_contract::manifest::ContractManifest>() })), release = contract_manifests;
     contract_code: Storage<iroha_data_model::smart_contract::ContractArtifactId, Vec<u8>> => ("world.contract_code",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::smart_contract::ContractArtifactId>(), value: schema::<Vec<u8>>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::smart_contract::ContractArtifactId>(), value: schema::<Vec<u8>>() })), release = contract_code;
     contract_code_uploads: Storage<SmartContractCodeUploadKey, SmartContractCodeUploadDescriptor> => ("world.contract_code_uploads",
-        Role::Canonical(Canonical::Table { key: schema::<SmartContractCodeUploadKey>(), value: schema::<SmartContractCodeUploadDescriptor>() }));
+        Role::Canonical(Canonical::Table { key: schema::<SmartContractCodeUploadKey>(), value: schema::<SmartContractCodeUploadDescriptor>() })), release = contract_code_uploads;
     contract_code_upload_chunks: Storage<SmartContractCodeUploadChunkKey, Vec<u8>> => ("world.contract_code_upload_chunks",
-        Role::Canonical(Canonical::Table { key: schema::<SmartContractCodeUploadChunkKey>(), value: schema::<Vec<u8>>() }));
+        Role::Canonical(Canonical::Table { key: schema::<SmartContractCodeUploadChunkKey>(), value: schema::<Vec<u8>>() })), release = contract_code_upload_chunks;
     contract_instances: Storage<iroha_data_model::smart_contract::ContractAddress, iroha_crypto::Hash> => ("world.contract_instances",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::smart_contract::ContractAddress>(), value: schema::<iroha_crypto::Hash>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::smart_contract::ContractAddress>(), value: schema::<iroha_crypto::Hash>() })), release = contract_instances;
     contract_subject_bindings: Storage< iroha_data_model::smart_contract::ContractAddress, crate::smartcontracts::code::ContractSubjectBinding, > => ("world.contract_subject_bindings",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::smart_contract::ContractAddress>(), value: schema::<crate::smartcontracts::code::ContractSubjectBinding>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::smart_contract::ContractAddress>(), value: schema::<crate::smartcontracts::code::ContractSubjectBinding>() })), release = contract_subject_bindings;
     contract_subject_addresses: Storage<AccountId, iroha_data_model::smart_contract::ContractAddress> => ("world.contract_subject_addresses",
-        Role::Derived { sources: &["world.contract_subject_bindings", "world.accounts", "world.contract_instances"], check: DerivationCheck::Rebuild("state::contract_subject_restore::rebuild; state::authority_registry::grouped_ownership::CheckedContractSubjects::capture checks both original images") });
+        Role::Derived { sources: &["world.contract_subject_bindings", "world.accounts", "world.contract_instances"], check: DerivationCheck::Rebuild("state::contract_subject_restore::rebuild; state::authority_registry::grouped_ownership::CheckedContractSubjects::capture checks both original images") }), release = contract_subject_addresses;
     smart_contract_state: Storage<StatePath, Vec<u8>> => ("world.smart_contract_state",
-        Role::Canonical(Canonical::Table { key: schema::<StatePath>(), value: schema::<Vec<u8>>() }));
+        Role::Canonical(Canonical::Table { key: schema::<StatePath>(), value: schema::<Vec<u8>>() })), release = smart_contract_state;
     musubi_namespace_bindings: Storage<MusubiNamespaceV1, MusubiNamespaceBindingV1> => ("world.musubi_namespace_bindings",
-        Role::Canonical(Canonical::Table { key: schema::<MusubiNamespaceV1>(), value: schema::<MusubiNamespaceBindingV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<MusubiNamespaceV1>(), value: schema::<MusubiNamespaceBindingV1>() })), release = musubi_namespace_bindings;
     musubi_domain_ownership_generations: Storage<DomainId, u64> => ("world.musubi_domain_ownership_generations",
-        Role::Canonical(Canonical::Table { key: schema::<DomainId>(), value: schema::<u64>() }));
+        Role::Canonical(Canonical::Table { key: schema::<DomainId>(), value: schema::<u64>() })), release = musubi_domain_ownership_generations;
     musubi_packages: Storage<MusubiPackageIdV1, MusubiPackageRecordV1> => ("world.musubi_packages",
-        Role::Canonical(Canonical::Table { key: schema::<MusubiPackageIdV1>(), value: schema::<MusubiPackageRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<MusubiPackageIdV1>(), value: schema::<MusubiPackageRecordV1>() })), release = musubi_packages;
     musubi_package_metadata: Storage<MusubiPackageIdV1, MusubiPackageMetadataRecordV1> => ("world.musubi_package_metadata",
-        Role::Canonical(Canonical::Table { key: schema::<MusubiPackageIdV1>(), value: schema::<MusubiPackageMetadataRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<MusubiPackageIdV1>(), value: schema::<MusubiPackageMetadataRecordV1>() })), release = musubi_package_metadata;
     musubi_package_members: Storage<MusubiPackageMemberKeyV1, MusubiPackageMemberV1> => ("world.musubi_package_members",
-        Role::Canonical(Canonical::Table { key: schema::<MusubiPackageMemberKeyV1>(), value: schema::<MusubiPackageMemberV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<MusubiPackageMemberKeyV1>(), value: schema::<MusubiPackageMemberV1>() })), release = musubi_package_members;
     musubi_package_invitations: Storage<MusubiInviteIdV1, MusubiMaintainerInvitationV1> => ("world.musubi_package_invitations",
-        Role::Canonical(Canonical::Table { key: schema::<MusubiInviteIdV1>(), value: schema::<MusubiMaintainerInvitationV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<MusubiInviteIdV1>(), value: schema::<MusubiMaintainerInvitationV1>() })), release = musubi_package_invitations;
     musubi_maintainer_directory: Storage<MusubiMaintainerDirectoryKeyV1, MusubiMaintainerDirectoryEntryV1> => ("world.musubi_maintainer_directory",
-        Role::Derived { sources: &["world.musubi_package_members", "world.musubi_package_invitations"], check: DerivationCheck::Rebuild("state::deserialize::musubi_derived::validate_musubi_derived_cuts checks exact current and predecessor directory equivalence") });
+        Role::Derived { sources: &["world.musubi_package_members", "world.musubi_package_invitations"], check: DerivationCheck::Rebuild("state::deserialize::musubi_derived::validate_musubi_derived_cuts checks exact current and predecessor directory equivalence") }), release = musubi_maintainer_directory;
     musubi_releases: Storage<MusubiReleaseIdV1, MusubiReleaseRecordV1> => ("world.musubi_releases",
-        Role::Canonical(Canonical::Table { key: schema::<MusubiReleaseIdV1>(), value: schema::<MusubiReleaseRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<MusubiReleaseIdV1>(), value: schema::<MusubiReleaseRecordV1>() })), release = musubi_releases;
     musubi_archives: Storage<ArchiveId, MusubiArchiveRecordV1> => ("world.musubi_archives",
-        Role::Canonical(Canonical::Table { key: schema::<ArchiveId>(), value: schema::<MusubiArchiveRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<ArchiveId>(), value: schema::<MusubiArchiveRecordV1>() })), release = musubi_archives;
     musubi_pin_outbox_high_waters: Storage<AccountId, MusubiPinOutboxHighWaterV1> => ("world.musubi_pin_outbox_high_waters",
-        Role::Canonical(Canonical::Table { key: schema::<AccountId>(), value: schema::<MusubiPinOutboxHighWaterV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AccountId>(), value: schema::<MusubiPinOutboxHighWaterV1>() })), release = musubi_pin_outbox_high_waters;
     musubi_provider_bundle_attestations: Storage<MusubiProviderBundleAttestationKeyV1, MusubiProviderBundleAttestationRecordV1> => ("world.musubi_provider_bundle_attestations",
-        Role::Canonical(Canonical::Table { key: schema::<MusubiProviderBundleAttestationKeyV1>(), value: schema::<MusubiProviderBundleAttestationRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<MusubiProviderBundleAttestationKeyV1>(), value: schema::<MusubiProviderBundleAttestationRecordV1>() })), release = musubi_provider_bundle_attestations;
     musubi_archive_locations: Storage<MusubiArchiveLocationKeyV1, MusubiArchiveLocationV1> => ("world.musubi_archive_locations",
-        Role::Canonical(Canonical::Table { key: schema::<MusubiArchiveLocationKeyV1>(), value: schema::<MusubiArchiveLocationV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<MusubiArchiveLocationKeyV1>(), value: schema::<MusubiArchiveLocationV1>() })), release = musubi_archive_locations;
     musubi_locations_by_pin: Storage<ManifestDigest, MusubiPinLocationReferenceV1> => ("world.musubi_locations_by_pin",
-        Role::Derived { sources: &["world.musubi_archive_locations"], check: DerivationCheck::Rebuild("state::deserialize_world::validate_musubi_location_reverse_indices") });
+        Role::Derived { sources: &["world.musubi_archive_locations"], check: DerivationCheck::Rebuild("state::deserialize_world::validate_musubi_location_reverse_indices") }), release = musubi_locations_by_pin;
     musubi_locations_by_replication_order: Storage<ReplicationOrderId, MusubiReplicationOrderLocationReferenceV1> => ("world.musubi_locations_by_replication_order",
-        Role::Derived { sources: &["world.musubi_archive_locations"], check: DerivationCheck::Rebuild("state::deserialize_world::validate_musubi_location_reverse_indices") });
+        Role::Derived { sources: &["world.musubi_archive_locations"], check: DerivationCheck::Rebuild("state::deserialize_world::validate_musubi_location_reverse_indices") }), release = musubi_locations_by_replication_order;
     musubi_locations_by_provider: Storage<MusubiProviderLocationKeyV1, ()> => ("world.musubi_locations_by_provider",
-        Role::Derived { sources: &["world.musubi_archive_locations"], check: DerivationCheck::Rebuild("state::deserialize_world::validate_musubi_location_reverse_indices") });
+        Role::Derived { sources: &["world.musubi_archive_locations"], check: DerivationCheck::Rebuild("state::deserialize_world::validate_musubi_location_reverse_indices") }), release = musubi_locations_by_provider;
     musubi_archive_availability: Storage<ArchiveId, MusubiArchiveAvailabilityV1> => ("world.musubi_archive_availability",
-        Role::Canonical(Canonical::Table { key: schema::<ArchiveId>(), value: Schema::Semantic { identity: "iroha:state:musubi-availability-authority:v1", encoder: "state::authority_registry::world::musubi_availability_policy::MusubiAvailabilityAuthorityV1::from_record; state::deserialize_world::validate_musubi_live_projections checks current and predecessor cuts", layout: V1_LAYOUT } }));
+        Role::Canonical(Canonical::Table { key: schema::<ArchiveId>(), value: Schema::Semantic { identity: "iroha:state:musubi-availability-authority:v1", encoder: "state::authority_registry::world::musubi_availability_policy::MusubiAvailabilityAuthorityV1::from_record; state::deserialize_world::validate_musubi_live_projections checks current and predecessor cuts", layout: V1_LAYOUT } })), release = musubi_archive_availability;
     musubi_archive_reverse_references: Storage<ArchiveId, MusubiArchiveReverseReferencesV1> => ("world.musubi_archive_reverse_references",
-        Role::Derived { sources: &["world.musubi_archives", "world.musubi_releases"], check: DerivationCheck::Rebuild("state::deserialize::musubi_derived::validate_musubi_derived_cuts checks exact current and predecessor reverse references") });
+        Role::Derived { sources: &["world.musubi_archives", "world.musubi_releases"], check: DerivationCheck::Rebuild("state::deserialize::musubi_derived::validate_musubi_derived_cuts checks exact current and predecessor reverse references") }), release = musubi_archive_reverse_references;
     musubi_resolver_index: Storage<MusubiReleaseIdV1, MusubiResolverReleaseRowV1> => ("world.musubi_resolver_index",
-        Role::Canonical(Canonical::Table { key: schema::<MusubiReleaseIdV1>(), value: Schema::Semantic { identity: "iroha:state:musubi-resolver-authority:v1", encoder: "state::authority_registry::world::musubi_universal_policy::MusubiResolverAuthorityV1::from_record; state::deserialize::musubi_universal::validate_musubi_universal_projection_cuts verifies exact current/predecessor sources; state::world_commit::PreparedWorldCommit::prepare_overlay checks candidate before publication", layout: V1_LAYOUT } }));
+        Role::Canonical(Canonical::Table { key: schema::<MusubiReleaseIdV1>(), value: Schema::Semantic { identity: "iroha:state:musubi-resolver-authority:v1", encoder: "state::authority_registry::world::musubi_universal_policy::MusubiResolverAuthorityV1::from_record; state::deserialize::musubi_universal::validate_musubi_universal_projection_cuts verifies exact current/predecessor sources; state::world_commit::PreparedWorldCommit::prepare_overlay checks candidate before publication", layout: V1_LAYOUT } })), release = musubi_resolver_index;
     musubi_resolver_index_checkpoints: Storage<MusubiResolverIndexRevisionV1, MusubiRegistrySnapshotV1> => ("world.musubi_resolver_index_checkpoints",
-        Role::Canonical(Canonical::Table { key: schema::<MusubiResolverIndexRevisionV1>(), value: schema::<MusubiRegistrySnapshotV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<MusubiResolverIndexRevisionV1>(), value: schema::<MusubiRegistrySnapshotV1>() })), release = musubi_resolver_index_checkpoints;
     musubi_public_directory: Storage<MusubiPackageSelectorV1, MusubiOrderedPackageEntryV1> => ("world.musubi_public_directory",
-        Role::Canonical(Canonical::Table { key: schema::<MusubiPackageSelectorV1>(), value: Schema::Semantic { identity: "iroha:state:musubi-directory-authority:v1", encoder: "state::authority_registry::world::musubi_universal_policy::MusubiDirectoryAuthorityV1::from_record; state::deserialize::musubi_universal::validate_musubi_universal_projection_cuts verifies exact current/predecessor sources; state::world_commit::PreparedWorldCommit::prepare_overlay checks candidate before publication", layout: V1_LAYOUT } }));
+        Role::Canonical(Canonical::Table { key: schema::<MusubiPackageSelectorV1>(), value: Schema::Semantic { identity: "iroha:state:musubi-directory-authority:v1", encoder: "state::authority_registry::world::musubi_universal_policy::MusubiDirectoryAuthorityV1::from_record; state::deserialize::musubi_universal::validate_musubi_universal_projection_cuts verifies exact current/predecessor sources; state::world_commit::PreparedWorldCommit::prepare_overlay checks candidate before publication", layout: V1_LAYOUT } })), release = musubi_public_directory;
     musubi_aliases: Storage<MusubiAliasNameV1, MusubiAliasRecordV1> => ("world.musubi_aliases",
-        Role::Canonical(Canonical::Table { key: schema::<MusubiAliasNameV1>(), value: schema::<MusubiAliasRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<MusubiAliasNameV1>(), value: schema::<MusubiAliasRecordV1>() })), release = musubi_aliases;
     musubi_alias_history: Storage<MusubiAliasHistoryKeyV1, MusubiAliasHistoryEntryV1> => ("world.musubi_alias_history",
-        Role::Canonical(Canonical::Table { key: schema::<MusubiAliasHistoryKeyV1>(), value: schema::<MusubiAliasHistoryEntryV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<MusubiAliasHistoryKeyV1>(), value: schema::<MusubiAliasHistoryEntryV1>() })), release = musubi_alias_history;
     musubi_governance_decisions: Storage<[u8; 32], MusubiGovernanceDecisionConsumptionV1> => ("world.musubi_governance_decisions",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<MusubiGovernanceDecisionConsumptionV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<MusubiGovernanceDecisionConsumptionV1>() })), release = musubi_governance_decisions;
     musubi_registry_policy: Cell<MusubiRegistryPolicyV1> => ("world.musubi_registry_policy",
-        Role::Canonical(Canonical::Cell(schema::<MusubiRegistryPolicyV1>())));
+        Role::Canonical(Canonical::Cell(schema::<MusubiRegistryPolicyV1>()))), release = musubi_registry_policy;
     musubi_resolver_index_revision: Cell<MusubiResolverIndexRevisionV1> => ("world.musubi_resolver_index_revision",
-        Role::Canonical(Canonical::Cell(schema::<MusubiResolverIndexRevisionV1>())));
+        Role::Canonical(Canonical::Cell(schema::<MusubiResolverIndexRevisionV1>()))), release = musubi_resolver_index_revision;
     musubi_replication_shortfall_releases: Cell<u64, iroha_allocation::AllocationCharge> => ("world.musubi_replication_shortfall_releases",
-        Role::Derived { sources: &["world.musubi_releases", "world.musubi_archive_availability"], check: DerivationCheck::Rebuild("state::deserialize::musubi_derived::validate_musubi_derived_cuts checks exact current and predecessor shortfall count") });
+        Role::Derived { sources: &["world.musubi_releases", "world.musubi_archive_availability"], check: DerivationCheck::Rebuild("state::deserialize::musubi_derived::validate_musubi_derived_cuts checks exact current and predecessor shortfall count") }), release = musubi_replication_shortfall_releases;
     soracloud_sequence_watermark: Cell<u64> => ("world.soracloud_sequence_watermark",
-        Role::Canonical(Canonical::Cell(schema::<u64>())));
+        Role::Canonical(Canonical::Cell(schema::<u64>()))), release = soracloud_sequence_watermark;
     soracloud_service_revisions: Storage<(String, String), SoraDeploymentBundleV1> => ("world.soracloud_service_revisions",
-        Role::Canonical(Canonical::Table { key: schema::<(String, String)>(), value: schema::<SoraDeploymentBundleV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(String, String)>(), value: schema::<SoraDeploymentBundleV1>() })), release = soracloud_service_revisions;
     soracloud_service_deployments: Storage<Name, SoraServiceDeploymentStateV1> => ("world.soracloud_service_deployments",
-        Role::Canonical(Canonical::Table { key: schema::<Name>(), value: schema::<SoraServiceDeploymentStateV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Name>(), value: schema::<SoraServiceDeploymentStateV1>() })), release = soracloud_service_deployments;
     soracloud_app_infra_states: Storage<Name, SoraAppInfraStateV1> => ("world.soracloud_app_infra_states",
-        Role::Canonical(Canonical::Table { key: schema::<Name>(), value: schema::<SoraAppInfraStateV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Name>(), value: schema::<SoraAppInfraStateV1>() })), release = soracloud_app_infra_states;
     soracloud_service_runtime: Storage<Name, SoraServiceRuntimeStateV1> => ("world.soracloud_service_runtime",
-        Role::Canonical(Canonical::Table { key: schema::<Name>(), value: schema::<SoraServiceRuntimeStateV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Name>(), value: schema::<SoraServiceRuntimeStateV1>() })), release = soracloud_service_runtime;
     soracloud_inrou_replica_runtime: Storage<(String, String, String), SoraInrouReplicaRuntimeStateV1> => ("world.soracloud_inrou_replica_runtime",
-        Role::Canonical(Canonical::Table { key: schema::<(String, String, String)>(), value: schema::<SoraInrouReplicaRuntimeStateV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(String, String, String)>(), value: schema::<SoraInrouReplicaRuntimeStateV1>() })), release = soracloud_inrou_replica_runtime;
     soracloud_service_audit_events: Storage<u64, SoraServiceAuditEventV1> => ("world.soracloud_service_audit_events",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<SoraServiceAuditEventV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<SoraServiceAuditEventV1>() })), release = soracloud_service_audit_events;
     soracloud_app_infra_audit_events: Storage<u64, SoraAppInfraAuditEventV1> => ("world.soracloud_app_infra_audit_events",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<SoraAppInfraAuditEventV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<SoraAppInfraAuditEventV1>() })), release = soracloud_app_infra_audit_events;
     soracloud_service_state_entries: Storage<(String, String, String), SoraServiceStateEntryV1> => ("world.soracloud_service_state_entries",
-        Role::Canonical(Canonical::Table { key: schema::<(String, String, String)>(), value: schema::<SoraServiceStateEntryV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(String, String, String)>(), value: schema::<SoraServiceStateEntryV1>() })), release = soracloud_service_state_entries;
     soracloud_decryption_request_records: Storage<(String, String), SoraDecryptionRequestRecordV1> => ("world.soracloud_decryption_request_records",
-        Role::Canonical(Canonical::Table { key: schema::<(String, String)>(), value: schema::<SoraDecryptionRequestRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(String, String)>(), value: schema::<SoraDecryptionRequestRecordV1>() })), release = soracloud_decryption_request_records;
     soracloud_agent_apartments: Storage<String, SoraAgentApartmentRecordV1> => ("world.soracloud_agent_apartments",
-        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<SoraAgentApartmentRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<SoraAgentApartmentRecordV1>() })), release = soracloud_agent_apartments;
     soracloud_agent_apartment_audit_events: Storage<u64, SoraAgentApartmentAuditEventV1> => ("world.soracloud_agent_apartment_audit_events",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<SoraAgentApartmentAuditEventV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<SoraAgentApartmentAuditEventV1>() })), release = soracloud_agent_apartment_audit_events;
     soracloud_training_jobs: Storage<(String, String), SoraTrainingJobRecordV1> => ("world.soracloud_training_jobs",
-        Role::Canonical(Canonical::Table { key: schema::<(String, String)>(), value: schema::<SoraTrainingJobRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(String, String)>(), value: schema::<SoraTrainingJobRecordV1>() })), release = soracloud_training_jobs;
     soracloud_training_job_audit_events: Storage<u64, SoraTrainingJobAuditEventV1> => ("world.soracloud_training_job_audit_events",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<SoraTrainingJobAuditEventV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<SoraTrainingJobAuditEventV1>() })), release = soracloud_training_job_audit_events;
     soracloud_model_registries: Storage<(String, String), SoraModelRegistryV1> => ("world.soracloud_model_registries",
-        Role::Canonical(Canonical::Table { key: schema::<(String, String)>(), value: schema::<SoraModelRegistryV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(String, String)>(), value: schema::<SoraModelRegistryV1>() })), release = soracloud_model_registries;
     soracloud_model_weight_versions: Storage<(String, String, String), SoraModelWeightVersionRecordV1> => ("world.soracloud_model_weight_versions",
-        Role::Canonical(Canonical::Table { key: schema::<(String, String, String)>(), value: schema::<SoraModelWeightVersionRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(String, String, String)>(), value: schema::<SoraModelWeightVersionRecordV1>() })), release = soracloud_model_weight_versions;
     soracloud_model_weight_audit_events: Storage<u64, SoraModelWeightAuditEventV1> => ("world.soracloud_model_weight_audit_events",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<SoraModelWeightAuditEventV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<SoraModelWeightAuditEventV1>() })), release = soracloud_model_weight_audit_events;
     soracloud_model_artifacts: Storage<(String, String), SoraModelArtifactRecordV1> => ("world.soracloud_model_artifacts",
-        Role::Canonical(Canonical::Table { key: schema::<(String, String)>(), value: schema::<SoraModelArtifactRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(String, String)>(), value: schema::<SoraModelArtifactRecordV1>() })), release = soracloud_model_artifacts;
     soracloud_model_artifact_audit_events: Storage<u64, SoraModelArtifactAuditEventV1> => ("world.soracloud_model_artifact_audit_events",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<SoraModelArtifactAuditEventV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<SoraModelArtifactAuditEventV1>() })), release = soracloud_model_artifact_audit_events;
     soracloud_uploaded_model_bundles: Storage<(String, String, String), SoraUploadedModelBundleV1> => ("world.soracloud_uploaded_model_bundles",
-        Role::Canonical(Canonical::Table { key: schema::<(String, String, String)>(), value: schema::<SoraUploadedModelBundleV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(String, String, String)>(), value: schema::<SoraUploadedModelBundleV1>() })), release = soracloud_uploaded_model_bundles;
     soracloud_inrou_host_capabilities: Storage<AccountId, SoraInrouHostCapabilityRecordV1> => ("world.soracloud_inrou_host_capabilities",
-        Role::Canonical(Canonical::Table { key: schema::<AccountId>(), value: schema::<SoraInrouHostCapabilityRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AccountId>(), value: schema::<SoraInrouHostCapabilityRecordV1>() })), release = soracloud_inrou_host_capabilities;
     soracloud_hf_sources: Storage<Hash, SoraHfSourceRecordV1> => ("world.soracloud_hf_sources",
-        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<SoraHfSourceRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<SoraHfSourceRecordV1>() })), release = soracloud_hf_sources;
     soracloud_hf_shared_lease_pools: Storage<Hash, SoraHfSharedLeasePoolV1> => ("world.soracloud_hf_shared_lease_pools",
-        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<SoraHfSharedLeasePoolV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<SoraHfSharedLeasePoolV1>() })), release = soracloud_hf_shared_lease_pools;
     soracloud_hf_shared_lease_members: Storage<(String, String), SoraHfSharedLeaseMemberV1> => ("world.soracloud_hf_shared_lease_members",
-        Role::Canonical(Canonical::Table { key: schema::<(String, String)>(), value: schema::<SoraHfSharedLeaseMemberV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(String, String)>(), value: schema::<SoraHfSharedLeaseMemberV1>() })), release = soracloud_hf_shared_lease_members;
     soracloud_hf_shared_lease_audit_events: Storage<u64, SoraHfSharedLeaseAuditEventV1> => ("world.soracloud_hf_shared_lease_audit_events",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<SoraHfSharedLeaseAuditEventV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<SoraHfSharedLeaseAuditEventV1>() })), release = soracloud_hf_shared_lease_audit_events;
     soracloud_inrou_service_placements: Storage<(String, String), SoraInrouServicePlacementRecordV1> => ("world.soracloud_inrou_service_placements",
-        Role::Canonical(Canonical::Table { key: schema::<(String, String)>(), value: schema::<SoraInrouServicePlacementRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(String, String)>(), value: schema::<SoraInrouServicePlacementRecordV1>() })), release = soracloud_inrou_service_placements;
     soracloud_mailbox_messages: Storage<Hash, SoraServiceMailboxMessageV1> => ("world.soracloud_mailbox_messages",
-        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<SoraServiceMailboxMessageV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<SoraServiceMailboxMessageV1>() })), release = soracloud_mailbox_messages;
     soracloud_runtime_receipts: Storage<Hash, SoraRuntimeReceiptV1> => ("world.soracloud_runtime_receipts",
-        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<SoraRuntimeReceiptV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<Hash>(), value: schema::<SoraRuntimeReceiptV1>() })), release = soracloud_runtime_receipts;
     capacity_declarations: Storage<ProviderId, CapacityDeclarationRecord> => ("world.capacity_declarations",
-        Role::Canonical(Canonical::Table { key: schema::<ProviderId>(), value: schema::<CapacityDeclarationRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<ProviderId>(), value: schema::<CapacityDeclarationRecord>() })), release = capacity_declarations;
     capacity_fee_ledger: Storage<ProviderId, CapacityFeeLedgerEntry> => ("world.capacity_fee_ledger",
-        Role::Canonical(Canonical::Table { key: schema::<ProviderId>(), value: schema::<CapacityFeeLedgerEntry>() }));
+        Role::Canonical(Canonical::Table { key: schema::<ProviderId>(), value: schema::<CapacityFeeLedgerEntry>() })), release = capacity_fee_ledger;
     capacity_disputes: Storage<CapacityDisputeId, CapacityDisputeRecord> => ("world.capacity_disputes",
-        Role::Canonical(Canonical::Table { key: schema::<CapacityDisputeId>(), value: schema::<CapacityDisputeRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<CapacityDisputeId>(), value: schema::<CapacityDisputeRecord>() })), release = capacity_disputes;
     sorafs_pricing: Cell<PricingScheduleRecord> => ("world.sorafs_pricing",
-        Role::Canonical(Canonical::Cell(schema::<PricingScheduleRecord>())));
+        Role::Canonical(Canonical::Cell(schema::<PricingScheduleRecord>()))), release = sorafs_pricing;
     provider_credit_ledger: Storage<ProviderId, ProviderCreditRecord> => ("world.provider_credit_ledger",
-        Role::Canonical(Canonical::Table { key: schema::<ProviderId>(), value: schema::<ProviderCreditRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<ProviderId>(), value: schema::<ProviderCreditRecord>() })), release = provider_credit_ledger;
     provider_owners: Storage<ProviderId, AccountId> => ("world.provider_owners",
-        Role::Canonical(Canonical::Table { key: schema::<ProviderId>(), value: schema::<AccountId>() }));
+        Role::Canonical(Canonical::Table { key: schema::<ProviderId>(), value: schema::<AccountId>() })), release = provider_owners;
     provider_ingest_completion_authorities: Storage<ProviderId, ProviderIngestCompletionAuthorityV1> => ("world.provider_ingest_completion_authorities",
-        Role::Canonical(Canonical::Table { key: schema::<ProviderId>(), value: schema::<ProviderIngestCompletionAuthorityV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<ProviderId>(), value: schema::<ProviderIngestCompletionAuthorityV1>() })), release = provider_ingest_completion_authorities;
     da_pin_intents_by_ticket: Storage<StorageTicketId, DaPinIntentWithLocation> => ("world.da_pin_intents_by_ticket",
-        Role::Canonical(Canonical::Table { key: schema::<StorageTicketId>(), value: schema::<DaPinIntentWithLocation>() }));
+        Role::Canonical(Canonical::Table { key: schema::<StorageTicketId>(), value: schema::<DaPinIntentWithLocation>() })), release = da_pin_intents_by_ticket;
     da_pin_intents_by_alias: Storage<String, StorageTicketId> => ("world.da_pin_intents_by_alias",
-        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<StorageTicketId>() }));
+        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<StorageTicketId>() })), release = da_pin_intents_by_alias;
     da_pin_intents_by_manifest: Storage<ManifestDigest, StorageTicketId> => ("world.da_pin_intents_by_manifest",
-        Role::Derived { sources: &["world.da_pin_intents_by_ticket"], check: DerivationCheck::Rebuild("state::deserialize_world::validate_da_pin_persistence_cut") });
+        Role::Derived { sources: &["world.da_pin_intents_by_ticket"], check: DerivationCheck::Rebuild("state::deserialize_world::validate_da_pin_persistence_cut") }), release = da_pin_intents_by_manifest;
     da_pin_intents_by_lane_epoch: Storage<(LaneId, u64, u64), StorageTicketId> => ("world.da_pin_intents_by_lane_epoch",
-        Role::Derived { sources: &["world.da_pin_intents_by_ticket"], check: DerivationCheck::Rebuild("state::deserialize_world::validate_da_pin_persistence_cut") });
+        Role::Derived { sources: &["world.da_pin_intents_by_ticket"], check: DerivationCheck::Rebuild("state::deserialize_world::validate_da_pin_persistence_cut") }), release = da_pin_intents_by_lane_epoch;
     pin_manifests: Storage<ManifestDigest, PinManifestRecord> => ("world.pin_manifests",
-        Role::Canonical(Canonical::Table { key: schema::<ManifestDigest>(), value: schema::<PinManifestRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<ManifestDigest>(), value: schema::<PinManifestRecord>() })), release = pin_manifests;
     manifest_aliases: Storage<ManifestAliasId, ManifestAliasRecord> => ("world.manifest_aliases",
-        Role::Canonical(Canonical::Table { key: schema::<ManifestAliasId>(), value: schema::<ManifestAliasRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<ManifestAliasId>(), value: schema::<ManifestAliasRecord>() })), release = manifest_aliases;
     replication_orders: Storage<ReplicationOrderId, ReplicationOrderRecord> => ("world.replication_orders",
-        Role::Canonical(Canonical::Table { key: schema::<ReplicationOrderId>(), value: schema::<ReplicationOrderRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<ReplicationOrderId>(), value: schema::<ReplicationOrderRecord>() })), release = replication_orders;
     content_bundles: Storage<ContentBundleId, ContentBundleRecord> => ("world.content_bundles",
-        Role::Canonical(Canonical::Table { key: schema::<ContentBundleId>(), value: schema::<ContentBundleRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<ContentBundleId>(), value: schema::<ContentBundleRecord>() })), release = content_bundles;
     content_chunks: Storage<[u8; 32], ContentChunk> => ("world.content_chunks",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<ContentChunk>() }));
+        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<ContentChunk>() })), release = content_chunks;
     soradns_directory_records: Storage<DirectoryId, ResolverDirectoryRecordV1> => ("world.soradns_directory_records",
-        Role::Canonical(Canonical::Table { key: schema::<DirectoryId>(), value: schema::<ResolverDirectoryRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<DirectoryId>(), value: schema::<ResolverDirectoryRecordV1>() })), release = soradns_directory_records;
     soradns_directory_pending: Storage<DirectoryId, PendingDirectoryDraftV1> => ("world.soradns_directory_pending",
-        Role::Canonical(Canonical::Table { key: schema::<DirectoryId>(), value: schema::<PendingDirectoryDraftV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<DirectoryId>(), value: schema::<PendingDirectoryDraftV1>() })), release = soradns_directory_pending;
     soradns_directory_latest: Cell<Option<DirectoryId>> => ("world.soradns_directory_latest",
-        Role::Canonical(Canonical::Cell(schema::<Option<DirectoryId>>())));
+        Role::Canonical(Canonical::Cell(schema::<Option<DirectoryId>>()))), release = soradns_directory_latest;
     soradns_directory_history: Storage<u64, DirectoryId> => ("world.soradns_directory_history",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<DirectoryId>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<DirectoryId>() })), release = soradns_directory_history;
     soradns_directory_prev_of: Storage<DirectoryId, DirectoryId> => ("world.soradns_directory_prev_of",
-        Role::Canonical(Canonical::Table { key: schema::<DirectoryId>(), value: schema::<DirectoryId>() }));
+        Role::Canonical(Canonical::Table { key: schema::<DirectoryId>(), value: schema::<DirectoryId>() })), release = soradns_directory_prev_of;
     soradns_directory_revocations: Storage<ResolverId, ResolverRevocationRecordV1> => ("world.soradns_directory_revocations",
-        Role::Canonical(Canonical::Table { key: schema::<ResolverId>(), value: schema::<ResolverRevocationRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<ResolverId>(), value: schema::<ResolverRevocationRecordV1>() })), release = soradns_directory_revocations;
     soradns_release_signers: Storage<PublicKey, ()> => ("world.soradns_release_signers",
-        Role::Canonical(Canonical::Table { key: schema::<PublicKey>(), value: schema::<()>() }));
+        Role::Canonical(Canonical::Table { key: schema::<PublicKey>(), value: schema::<()>() })), release = soradns_release_signers;
     soradns_rotation_policy: Cell<DirectoryRotationPolicyV1> => ("world.soradns_rotation_policy",
-        Role::Canonical(Canonical::Cell(schema::<DirectoryRotationPolicyV1>())));
+        Role::Canonical(Canonical::Cell(schema::<DirectoryRotationPolicyV1>()))), release = soradns_rotation_policy;
     soradns_last_publish_ms: Cell<Option<u64>> => ("world.soradns_last_publish_ms",
-        Role::Canonical(Canonical::Cell(schema::<Option<u64>>())));
+        Role::Canonical(Canonical::Cell(schema::<Option<u64>>()))), release = soradns_last_publish_ms;
     soradns_history_len: Cell<u64> => ("world.soradns_history_len",
-        Role::Canonical(Canonical::Cell(schema::<u64>())));
+        Role::Canonical(Canonical::Cell(schema::<u64>()))), release = soradns_history_len;
     repo_agreements: Storage<RepoAgreementId, RepoAgreement> => ("world.repo_agreements",
-        Role::Canonical(Canonical::Table { key: schema::<RepoAgreementId>(), value: schema::<RepoAgreement>() }));
+        Role::Canonical(Canonical::Table { key: schema::<RepoAgreementId>(), value: schema::<RepoAgreement>() })), release = repo_agreements;
     repo_agreements_by_initiator: Storage<AccountId, BTreeSet<RepoAgreementId>> => ("world.repo_agreements_by_initiator",
-        Role::Derived { sources: &["world.repo_agreements"], check: DerivationCheck::Rebuild("World::rebuild_repo_agreement_indexes; state::authority_registry::grouped_ownership::CheckedRepoAgreements::capture") });
+        Role::Derived { sources: &["world.repo_agreements"], check: DerivationCheck::Rebuild("World::rebuild_repo_agreement_indexes; state::authority_registry::grouped_ownership::CheckedRepoAgreements::capture") }), release = repo_agreements_by_initiator;
     repo_agreements_by_counterparty: Storage<AccountId, BTreeSet<RepoAgreementId>> => ("world.repo_agreements_by_counterparty",
-        Role::Derived { sources: &["world.repo_agreements"], check: DerivationCheck::Rebuild("World::rebuild_repo_agreement_indexes; state::authority_registry::grouped_ownership::CheckedRepoAgreements::capture") });
+        Role::Derived { sources: &["world.repo_agreements"], check: DerivationCheck::Rebuild("World::rebuild_repo_agreement_indexes; state::authority_registry::grouped_ownership::CheckedRepoAgreements::capture") }), release = repo_agreements_by_counterparty;
     repo_agreements_by_custodian: Storage<AccountId, BTreeSet<RepoAgreementId>> => ("world.repo_agreements_by_custodian",
-        Role::Derived { sources: &["world.repo_agreements"], check: DerivationCheck::Rebuild("World::rebuild_repo_agreement_indexes; state::authority_registry::grouped_ownership::CheckedRepoAgreements::capture") });
+        Role::Derived { sources: &["world.repo_agreements"], check: DerivationCheck::Rebuild("World::rebuild_repo_agreement_indexes; state::authority_registry::grouped_ownership::CheckedRepoAgreements::capture") }), release = repo_agreements_by_custodian;
     settlement_receipts: Storage<SettlementId, SettlementReceipt> => ("world.settlement_receipts",
-        Role::Canonical(Canonical::Table { key: schema::<SettlementId>(), value: schema::<SettlementReceipt>() }));
-    kagemusha_mint_credit_operations: OperationIndex => ("world.kagemusha_mint_credit_operations",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<[u8; 32]>() }));
-    kagemusha_issuance_operations: OperationIndex => ("world.kagemusha_issuance_operations",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<[u8; 32]>() }));
-    kagemusha_redemption_id_operations: OperationIndex => ("world.kagemusha_redemption_id_operations",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<[u8; 32]>() }));
-    kagemusha_terminal_nullifier_operations: OperationIndex => ("world.kagemusha_terminal_nullifier_operations",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<[u8; 32]>() }));
+        Role::Canonical(Canonical::Table { key: schema::<SettlementId>(), value: schema::<SettlementReceipt>() })), release = settlement_receipts;
     public_lane_validators: Storage<(LaneId, AccountId), PublicLaneValidatorRecord> => ("world.public_lane_validators",
-        Role::Canonical(Canonical::Table { key: schema::<(LaneId, AccountId)>(), value: schema::<PublicLaneValidatorRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(LaneId, AccountId)>(), value: schema::<PublicLaneValidatorRecord>() })), release = public_lane_validators;
     public_lane_stake_shares: Storage<(LaneId, AccountId, AccountId), PublicLaneStakeShare> => ("world.public_lane_stake_shares",
-        Role::Canonical(Canonical::Table { key: schema::<(LaneId, AccountId, AccountId)>(), value: schema::<PublicLaneStakeShare>() }));
-    public_lane_rewards: Storage<(LaneId, u64), PublicLaneRewardRecord> => ("world.public_lane_rewards",
-        Role::Canonical(Canonical::Table { key: schema::<(LaneId, u64)>(), value: schema::<PublicLaneRewardRecord>() }));
-    public_lane_reward_claims: Storage<(LaneId, AccountId), PublicLaneRewardClaimStateV1> => ("world.public_lane_reward_claims",
-        Role::Canonical(Canonical::Table { key: schema::<(LaneId, AccountId)>(), value: schema::<PublicLaneRewardClaimStateV1>() }));
-    public_lane_reward_accruals: Storage<(LaneId, AccountId, AssetId), Quantity> => ("world.public_lane_reward_accruals",
-        Role::Canonical(Canonical::Table { key: schema::<(LaneId, AccountId, AssetId)>(), value: schema::<Quantity>() }));
-    public_lane_reward_reserves: Storage<AssetId, Quantity> => ("world.public_lane_reward_reserves",
-        Role::Derived { sources: &["world.public_lane_rewards", "world.public_lane_reward_claims", "world.public_lane_reward_accruals", "world.assets"], check: DerivationCheck::Rebuild("state::reward_reserves::validate_public_lane_reward_reserves reconstructs exact unpaid entitlements and validates retained custody backing at both cuts") });
+        Role::Canonical(Canonical::Table { key: schema::<(LaneId, AccountId, AccountId)>(), value: schema::<PublicLaneStakeShare>() })), release = public_lane_stake_shares;
     public_lane_stake_custody: Storage<(LaneId, AccountId), (AssetId, Quantity)> => ("world.public_lane_stake_custody",
-        Role::Canonical(Canonical::Table { key: schema::<(LaneId, AccountId)>(), value: schema::<(AssetId, Quantity)>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(LaneId, AccountId)>(), value: schema::<(AssetId, Quantity)>() })), release = public_lane_stake_custody;
     public_lane_stake_reserves: Storage<AssetId, Quantity> => ("world.public_lane_stake_reserves",
-        Role::Derived { sources: &["world.public_lane_stake_custody", "world.public_lane_stake_shares", "world.public_lane_validators", "world.assets"], check: DerivationCheck::Rebuild("state::stake_reserves::validate_public_lane_stake_reserves reconstructs exact pinned custody aggregate and checks bonded/pending shares and asset backing at both cuts") });
+        Role::Derived { sources: &["world.public_lane_stake_custody", "world.public_lane_stake_shares", "world.public_lane_validators", "world.assets"], check: DerivationCheck::Rebuild("state::stake_reserves::validate_public_lane_stake_reserves reconstructs exact pinned custody aggregate and checks bonded/pending shares and asset backing at both cuts") }), release = public_lane_stake_reserves;
     zk_assets: Storage<AssetDefinitionId, ZkAssetState> => ("world.zk_assets",
-        Role::Canonical(Canonical::Table { key: schema::<AssetDefinitionId>(), value: schema::<ZkAssetState>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AssetDefinitionId>(), value: schema::<ZkAssetState>() })), release = zk_assets;
     confidential_policy_transition_index: Storage<(u64, AssetDefinitionId), ()> => ("world.confidential_policy_transition_index",
-        Role::Derived { sources: &["world.asset_definitions"], check: DerivationCheck::Rebuild("World::rebuild_confidential_policy_transition_index; CheckedAssetDefinitions::capture checks both native images") });
+        Role::Derived { sources: &["world.asset_definitions"], check: DerivationCheck::Rebuild("World::rebuild_confidential_policy_transition_index; CheckedAssetDefinitions::capture checks both native images") }), release = _confidential_policy_transition_index;
     confidential_policy_transition_counts: Storage<u64, u32> => ("world.confidential_policy_transition_counts",
-        Role::Derived { sources: &["world.asset_definitions"], check: DerivationCheck::Rebuild("World::rebuild_confidential_policy_transition_index; CheckedAssetDefinitions::capture checks both native images") });
+        Role::Derived { sources: &["world.asset_definitions"], check: DerivationCheck::Rebuild("World::rebuild_confidential_policy_transition_index; CheckedAssetDefinitions::capture checks both native images") }), release = _confidential_policy_transition_counts;
     elections: Storage<String, ElectionState> => ("world.elections",
-        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<ElectionState>() }));
+        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<ElectionState>() })), release = elections;
     citizens: Storage<AccountId, CitizenshipRecord> => ("world.citizens",
-        Role::Canonical(Canonical::Table { key: schema::<AccountId>(), value: schema::<CitizenshipRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<AccountId>(), value: schema::<CitizenshipRecord>() })), release = citizens;
     ministry_agenda_proposals: Storage<String, iroha_data_model::ministry::AgendaProposalRecordV1> => ("world.ministry_agenda_proposals",
-        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<iroha_data_model::ministry::AgendaProposalRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<iroha_data_model::ministry::AgendaProposalRecordV1>() })), release = ministry_agenda_proposals;
     governance_proposals: Storage<[u8; 32], GovernanceProposalRecord> => ("world.governance_proposals",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<GovernanceProposalRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<GovernanceProposalRecord>() })), release = governance_proposals;
     governance_referenda: Storage<String, GovernanceReferendumRecord> => ("world.governance_referenda",
-        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<GovernanceReferendumRecord>() }));
+        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<GovernanceReferendumRecord>() })), release = governance_referenda;
     governance_locks: Storage<String, GovernanceLocksForReferendum> => ("world.governance_locks",
-        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<GovernanceLocksForReferendum>() }));
+        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<GovernanceLocksForReferendum>() })), release = governance_locks;
     governance_lock_expiry_index: Storage<u64, BTreeSet<(String, iroha_data_model::account::AccountId)>> => ("world.governance_lock_expiry_index",
-        Role::Derived { sources: &["world.governance_locks", "world.governance_referenda"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes") });
+        Role::Derived { sources: &["world.governance_locks", "world.governance_referenda"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes") }), release = governance_lock_expiry_index;
     validation_fee_proposal_index: Storage<(u64, [u8; 32]), ()> => ("world.validation_fee_proposal_index",
-        Role::Derived { sources: &["world.governance_proposals"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; CheckedValidationFeeProposals::capture checks both native images") });
+        Role::Derived { sources: &["world.governance_proposals"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; CheckedValidationFeeProposals::capture checks both native images") }), release = validation_fee_proposal_index;
     governance_slashes: Storage<String, GovernanceSlashLedger> => ("world.governance_slashes",
-        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<GovernanceSlashLedger>() }));
+        Role::Canonical(Canonical::Table { key: schema::<String>(), value: schema::<GovernanceSlashLedger>() })), release = governance_slashes;
     governance_last_unlock_sweep_height: Cell<u64> => ("world.governance_last_unlock_sweep_height",
-        Role::Canonical(Canonical::Cell(schema::<u64>())));
+        Role::Canonical(Canonical::Cell(schema::<u64>()))), release = governance_last_unlock_sweep_height;
     governance_unlock_stats: Cell<GovernanceUnlockStatsSnapshot> => ("world.governance_unlock_stats",
-        Role::Canonical(Canonical::Cell(schema::<GovernanceUnlockStatsSnapshot>())));
+        Role::Canonical(Canonical::Cell(schema::<GovernanceUnlockStatsSnapshot>()))), release = governance_unlock_stats;
     parliament_attempts: Storage<iroha_data_model::governance::types::GovernanceAttemptId, ParliamentAttemptStateV1> => ("world.parliament_attempts",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::governance::types::GovernanceAttemptId>(), value: schema::<ParliamentAttemptStateV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::governance::types::GovernanceAttemptId>(), value: schema::<ParliamentAttemptStateV1>() })), release = parliament_attempts;
     parliament_attempt_counts: Cell<ParliamentAttemptCountsV1> => ("world.parliament_attempt_counts",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") });
+        Role::Derived { sources: &["world.parliament_attempts"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_attempt_counts;
     parliament_member_reference_counts: Storage<AccountId, ParliamentMemberReferenceCountsV1> => ("world.parliament_member_reference_counts",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") });
+        Role::Derived { sources: &["world.parliament_attempts"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_member_reference_counts;
     parliament_timed_ovn_resource_reservations: Storage<BallotAttemptId, ParliamentTimedOvnResourceReservationV1> => ("world.parliament_timed_ovn_resource_reservations",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") });
+        Role::Derived { sources: &["world.parliament_attempts"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = _parliament_timed_ovn_resource_reservations;
     parliament_timed_ovn_casting_candidates: Storage<BallotAttemptId, ParliamentTimedOvnCastingCandidateV1> => ("world.parliament_timed_ovn_casting_candidates",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") });
+        Role::Derived { sources: &["world.parliament_attempts"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_timed_ovn_casting_candidates;
+    // Governance-local read index of the beacon slots that live attempts await (sortition
+    // `AwaitingPulse` slots and timed-OVN release slots). It is derived from the attempts
+    // alone and creates no consensus obligation: no pulse is demanded, vetoed or checked
+    // against it.
+    // TODO: rename and re-scope with the governance due-item iterator when timed-OVN is
+    // retired (specs/parliament_private_ballot_design.md 12.2 step 4).
     parliament_required_beacon_pulse_slots: Storage<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>> => ("world.parliament_required_beacon_pulse_slots",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") });
+        Role::Derived { sources: &["world.parliament_attempts"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_required_beacon_pulse_slots;
     parliament_certified_enactments: Storage<u64, BTreeSet<GovernanceAttemptId>> => ("world.parliament_certified_enactments",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") });
-    parliament_unavailable_beacon_pulse_slots: Storage<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>> => ("world.parliament_unavailable_beacon_pulse_slots",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") });
+        Role::Derived { sources: &["world.parliament_attempts"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_certified_enactments;
     parliament_tle_key_session_retention_deadlines: Storage<TleKeySessionId, ParliamentTleKeySessionRetentionIndexV1> => ("world.parliament_tle_key_session_retention_deadlines",
-        Role::Derived { sources: &["world.parliament_attempts", "world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") });
+        Role::Derived { sources: &["world.parliament_attempts"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; parliament_derived_read_indexes_v1") }), release = parliament_tle_key_session_retention_deadlines;
     tle_key_session_selection_intervals: Storage<u64, (u64, TleKeySessionId)> => ("world.tle_key_session_selection_intervals",
-        Role::Derived { sources: &["world.tle_key_session_lifecycles", "world.tle_active_key_session"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; tle_key_session_selection_intervals_v1") });
+        Role::Derived { sources: &["world.tle_key_session_lifecycles", "world.tle_active_key_session"], check: DerivationCheck::Rebuild("World::rebuild_governance_read_indexes; tle_key_session_selection_intervals_v1") }), release = tle_key_session_selection_intervals;
     tle_key_sessions: Storage<TleKeySessionId, TleKeySessionPublicStateV1> => ("world.tle_key_sessions",
-        Role::Canonical(Canonical::Table { key: schema::<TleKeySessionId>(), value: schema::<TleKeySessionPublicStateV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<TleKeySessionId>(), value: schema::<TleKeySessionPublicStateV1>() })), release = tle_key_sessions;
     tle_key_session_rosters: Storage<TleKeySessionId, Vec<PeerId>> => ("world.tle_key_session_rosters",
-        Role::Canonical(Canonical::Table { key: schema::<TleKeySessionId>(), value: schema::<Vec<PeerId>>() }));
+        Role::Canonical(Canonical::Table { key: schema::<TleKeySessionId>(), value: schema::<Vec<PeerId>>() })), release = tle_key_session_rosters;
     tle_key_session_lifecycles: Storage<TleKeySessionId, TleKeySessionLifecycleV1> => ("world.tle_key_session_lifecycles",
-        Role::Canonical(Canonical::Table { key: schema::<TleKeySessionId>(), value: schema::<TleKeySessionLifecycleV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<TleKeySessionId>(), value: schema::<TleKeySessionLifecycleV1>() })), release = tle_key_session_lifecycles;
     tle_active_key_session: Storage<u64, TleKeySessionId> => ("world.tle_active_key_session",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<TleKeySessionId>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<TleKeySessionId>() })), release = tle_active_key_session;
     timed_ovn_evidence: Storage<BallotAttemptId, TimedOvnLifecycleStateV1> => ("world.timed_ovn_evidence",
-        Role::Canonical(Canonical::Table { key: schema::<BallotAttemptId>(), value: schema::<TimedOvnLifecycleStateV1>() }));
-    validator_candidate_keys: Storage<[u8; 32], iroha_data_model::nexus::ValidatorCandidateKeysV1> => ("world.validator_candidate_keys",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<iroha_data_model::nexus::ValidatorCandidateKeysV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<BallotAttemptId>(), value: schema::<TimedOvnLifecycleStateV1>() })), release = timed_ovn_evidence;
     validator_committee_transitions: Storage<u64, iroha_data_model::nexus::ValidatorCommitteeTransitionV1> => ("world.validator_committee_transitions",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<iroha_data_model::nexus::ValidatorCommitteeTransitionV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<iroha_data_model::nexus::ValidatorCommitteeTransitionV1>() })), release = validator_committee_transitions;
     global_beacon_dkg: Storage<[u8; 32], GlobalThresholdBeaconDkgSnapshotV1> => ("world.global_beacon_dkg",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<GlobalThresholdBeaconDkgSnapshotV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<GlobalThresholdBeaconDkgSnapshotV1>() })), release = global_beacon_dkg;
     global_beacon_key_sessions: Storage<[u8; 32], RetainedFinalizedGlobalThresholdBeaconSessionV1> => ("world.global_beacon_key_sessions",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<RetainedFinalizedGlobalThresholdBeaconSessionV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<RetainedFinalizedGlobalThresholdBeaconSessionV1>() })), release = global_beacon_key_sessions;
     global_beacon_active_session: Storage<u64, [u8; 32]> => ("world.global_beacon_active_session",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<[u8; 32]>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<[u8; 32]>() })), release = global_beacon_active_session;
     global_beacon_latest_pulse: Storage<u64, GlobalThresholdBeaconPulseLinkV1> => ("world.global_beacon_latest_pulse",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<GlobalThresholdBeaconPulseLinkV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<GlobalThresholdBeaconPulseLinkV1>() })), release = global_beacon_latest_pulse;
     global_beacon_pulses: Storage<[u8; 32], iroha_data_model::consensus::FinalizedGlobalThresholdBeaconPulseV1> => ("world.global_beacon_pulses",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<iroha_data_model::consensus::FinalizedGlobalThresholdBeaconPulseV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<iroha_data_model::consensus::FinalizedGlobalThresholdBeaconPulseV1>() })), release = global_beacon_pulses;
     global_beacon_pulse_slots: Storage<(BeaconSessionId, u64), [u8; 32]> => ("world.global_beacon_pulse_slots",
-        Role::Derived { sources: &["world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_global_beacon_pulse_slots") });
+        Role::Derived { sources: &["world.global_beacon_pulses"], check: DerivationCheck::Rebuild("World::rebuild_global_beacon_pulse_slots") }), release = global_beacon_pulse_slots;
     external_event_buf: Cell<Vec<EventBox>> => ("world.external_event_buf",
-        Role::Local("Process delivery buffer; authoritative invocation effects and completions belong to execution output carriers"));
+        Role::Local("Process delivery buffer; authoritative invocation effects and completions belong to execution output carriers")), release = _external_event_buf;
     sumeragi_lanes: Cell<iroha_data_model::sumeragi_lanes::SumeragiLaneState> => ("world.sumeragi_lanes",
-        Role::Canonical(Canonical::Cell(schema::<iroha_data_model::sumeragi_lanes::SumeragiLaneState>())));
+        Role::Canonical(Canonical::Cell(schema::<iroha_data_model::sumeragi_lanes::SumeragiLaneState>()))), release = sumeragi_lanes;
     sumeragi_amx: Cell<iroha_data_model::sumeragi_amx::SumeragiAmxState> => ("world.sumeragi_amx",
-        Role::Canonical(Canonical::Cell(schema::<iroha_data_model::sumeragi_amx::SumeragiAmxState>())));
+        Role::Canonical(Canonical::Cell(schema::<iroha_data_model::sumeragi_amx::SumeragiAmxState>()))), release = sumeragi_amx;
     sumeragi_amx_participant: Cell<crate::sumeragi::amx::RetainedNativeAmx, iroha_allocation::AllocationCharge> => ("world.sumeragi_amx_participant",
-        Role::Canonical(Canonical::Cell(schema::<crate::sumeragi::amx::RetainedNativeAmx>())));
+        Role::Canonical(Canonical::Cell(schema::<crate::sumeragi::amx::RetainedNativeAmx>()))), release = sumeragi_amx_participant;
     private_dataspaces: Cell<iroha_data_model::private_dataspace::PrivateDataspaceRegistry> => ("world.private_dataspaces",
-        Role::Canonical(Canonical::Cell(schema::<iroha_data_model::private_dataspace::PrivateDataspaceRegistry>())));
+        Role::Canonical(Canonical::Cell(schema::<iroha_data_model::private_dataspace::PrivateDataspaceRegistry>()))), release = private_dataspaces;
     sccp_parameters: Cell<Option<iroha_data_model::sccp::params::SccpParametersV1>> => ("world.sccp_parameters",
-        Role::Canonical(Canonical::Cell(schema::<Option<iroha_data_model::sccp::params::SccpParametersV1>>())));
+        Role::Canonical(Canonical::Cell(schema::<Option<iroha_data_model::sccp::params::SccpParametersV1>>()))), release = sccp_parameters;
     sccp_reset_nonce: Cell<Option<[u8; 32]>> => ("world.sccp_reset_nonce",
-        Role::Canonical(Canonical::Cell(schema::<Option<[u8; 32]>>())));
+        Role::Canonical(Canonical::Cell(schema::<Option<[u8; 32]>>()))), release = sccp_reset_nonce;
     sccp_bridge_keys: Storage<PeerId, iroha_data_model::sccp::keys::SccpBridgeKeyStateV1> => ("world.sccp_bridge_keys",
-        Role::Canonical(Canonical::Table { key: schema::<PeerId>(), value: schema::<iroha_data_model::sccp::keys::SccpBridgeKeyStateV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<PeerId>(), value: schema::<iroha_data_model::sccp::keys::SccpBridgeKeyStateV1>() })), release = sccp_bridge_keys;
     sccp_bridge_key_owners: Storage<[u8; 20], PeerId> => ("world.sccp_bridge_key_owners",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 20]>(), value: schema::<PeerId>() }));
+        Role::Canonical(Canonical::Table { key: schema::<[u8; 20]>(), value: schema::<PeerId>() })), release = sccp_bridge_key_owners;
     sccp_rosters: Storage<u64, iroha_data_model::sccp::roster::SccpBridgeRosterV1> => ("world.sccp_rosters",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<iroha_data_model::sccp::roster::SccpBridgeRosterV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<iroha_data_model::sccp::roster::SccpBridgeRosterV1>() })), release = sccp_rosters;
     sccp_roster_current: Cell<u64> => ("world.sccp_roster_current",
-        Role::Canonical(Canonical::Cell(schema::<u64>())));
+        Role::Canonical(Canonical::Cell(schema::<u64>()))), release = sccp_roster_current;
     sccp_heartbeat_marker: Cell<Option<u64>> => ("world.sccp_heartbeat_marker",
-        Role::Canonical(Canonical::Cell(schema::<Option<u64>>())));
+        Role::Canonical(Canonical::Cell(schema::<Option<u64>>()))), release = sccp_heartbeat_marker;
     sccp_block_leaves: Storage<(u64, u32), iroha_data_model::sccp::control::SccpLeafRefV1> => ("world.sccp_block_leaves",
-        Role::Canonical(Canonical::Table { key: schema::<(u64, u32)>(), value: schema::<iroha_data_model::sccp::control::SccpLeafRefV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(u64, u32)>(), value: schema::<iroha_data_model::sccp::control::SccpLeafRefV1>() })), release = sccp_block_leaves;
     sccp_block_commitments: Storage<u64, iroha_data_model::sccp::attestation::SccpBlockCommitmentV1> => ("world.sccp_block_commitments",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<iroha_data_model::sccp::attestation::SccpBlockCommitmentV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<iroha_data_model::sccp::attestation::SccpBlockCommitmentV1>() })), release = sccp_block_commitments;
     sccp_history: Cell<iroha_data_model::sccp::attestation::SccpHistoryStateV1> => ("world.sccp_history",
-        Role::Canonical(Canonical::Cell(schema::<iroha_data_model::sccp::attestation::SccpHistoryStateV1>())));
+        Role::Canonical(Canonical::Cell(schema::<iroha_data_model::sccp::attestation::SccpHistoryStateV1>()))), release = sccp_history;
     sccp_history_leaves: Storage<u64, (u64, [u8; 32])> => ("world.sccp_history_leaves",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<(u64, [u8; 32])>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<(u64, [u8; 32])>() })), release = sccp_history_leaves;
     sccp_attestation_subjects: Storage<u64, iroha_data_model::sccp::attestation::SccpAttestationSubjectV1> => ("world.sccp_attestation_subjects",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<iroha_data_model::sccp::attestation::SccpAttestationSubjectV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<iroha_data_model::sccp::attestation::SccpAttestationSubjectV1>() })), release = sccp_attestation_subjects;
     sccp_attestation_status: Storage<u64, iroha_data_model::sccp::attestation::SccpAttestationStatusV1> => ("world.sccp_attestation_status",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<iroha_data_model::sccp::attestation::SccpAttestationStatusV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<iroha_data_model::sccp::attestation::SccpAttestationStatusV1>() })), release = sccp_attestation_status;
     sccp_attestation_signatures: Storage<(u64, u8), [u8; 65]> => ("world.sccp_attestation_signatures",
-        Role::Canonical(Canonical::Table { key: schema::<(u64, u8)>(), value: schema::<[u8; 65]>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(u64, u8)>(), value: schema::<[u8; 65]>() })), release = sccp_attestation_signatures;
     sccp_attestation_faults: Storage<([u8; 20], u64), iroha_data_model::sccp::keys::SccpAttestationFaultRecordV1> => ("world.sccp_attestation_faults",
-        Role::Canonical(Canonical::Table { key: schema::<([u8; 20], u64)>(), value: schema::<iroha_data_model::sccp::keys::SccpAttestationFaultRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<([u8; 20], u64)>(), value: schema::<iroha_data_model::sccp::keys::SccpAttestationFaultRecordV1>() })), release = sccp_attestation_faults;
     sccp_member_last_signed: Storage<[u8; 20], u64> => ("world.sccp_member_last_signed",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 20]>(), value: schema::<u64>() }));
+        Role::Canonical(Canonical::Table { key: schema::<[u8; 20]>(), value: schema::<u64>() })), release = sccp_member_last_signed;
     sccp_handoff_stalled: Storage<u64, u64> => ("world.sccp_handoff_stalled",
-        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<u64>() }));
+        Role::Canonical(Canonical::Table { key: schema::<u64>(), value: schema::<u64>() })), release = sccp_handoff_stalled;
     sccp_prune_cursor: Cell<iroha_data_model::sccp::keys_index::SccpPruneCursorV1> => ("world.sccp_prune_cursor",
-        Role::Canonical(Canonical::Cell(schema::<iroha_data_model::sccp::keys_index::SccpPruneCursorV1>())));
+        Role::Canonical(Canonical::Cell(schema::<iroha_data_model::sccp::keys_index::SccpPruneCursorV1>()))), release = sccp_prune_cursor;
     sccp_outbound_messages: Storage<[u8; 32], iroha_data_model::sccp::outbound::SccpOutboundMessageRecordV1> => ("world.sccp_outbound_messages",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<iroha_data_model::sccp::outbound::SccpOutboundMessageRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<iroha_data_model::sccp::outbound::SccpOutboundMessageRecordV1>() })), release = sccp_outbound_messages;
     sccp_outbound_by_nonce: Storage<(iroha_data_model::bridge::SccpNetworkV1, u32, u64), [u8; 32]> => ("world.sccp_outbound_by_nonce",
-        Role::Canonical(Canonical::Table { key: schema::<(iroha_data_model::bridge::SccpNetworkV1, u32, u64)>(), value: schema::<[u8; 32]>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(iroha_data_model::bridge::SccpNetworkV1, u32, u64)>(), value: schema::<[u8; 32]>() })), release = sccp_outbound_by_nonce;
     sccp_control_messages: Storage< (iroha_data_model::bridge::SccpNetworkV1, u32, u64), iroha_data_model::sccp::control::SccpControlRecordV1, > => ("world.sccp_control_messages",
-        Role::Canonical(Canonical::Table { key: schema::<(iroha_data_model::bridge::SccpNetworkV1, u32, u64)>(), value: schema::<iroha_data_model::sccp::control::SccpControlRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(iroha_data_model::bridge::SccpNetworkV1, u32, u64)>(), value: schema::<iroha_data_model::sccp::control::SccpControlRecordV1>() })), release = sccp_control_messages;
     sccp_routes: Storage< iroha_data_model::bridge::SccpNetworkV1, iroha_data_model::sccp::registry::SccpRouteV1, > => ("world.sccp_routes",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::bridge::SccpNetworkV1>(), value: schema::<iroha_data_model::sccp::registry::SccpRouteV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::bridge::SccpNetworkV1>(), value: schema::<iroha_data_model::sccp::registry::SccpRouteV1>() })), release = sccp_routes;
     sccp_destination_words: Storage<[u8; 32], (iroha_data_model::bridge::SccpNetworkV1, u32)> => ("world.sccp_destination_words",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<(iroha_data_model::bridge::SccpNetworkV1, u32)>() }));
+        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<(iroha_data_model::bridge::SccpNetworkV1, u32)>() })), release = sccp_destination_words;
     sccp_governance_revisions: Storage<iroha_data_model::sccp::governance::SccpGovernanceSubjectV1, u64> => ("world.sccp_governance_revisions",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::sccp::governance::SccpGovernanceSubjectV1>(), value: schema::<u64>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::sccp::governance::SccpGovernanceSubjectV1>(), value: schema::<u64>() })), release = sccp_governance_revisions;
     sccp_inbound_messages: Storage<[u8; 32], iroha_data_model::sccp::inbound::SccpInboundRecordV1> => ("world.sccp_inbound_messages",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<iroha_data_model::sccp::inbound::SccpInboundRecordV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<iroha_data_model::sccp::inbound::SccpInboundRecordV1>() })), release = sccp_inbound_messages;
     sccp_pending_counts: Storage<(iroha_data_model::bridge::SccpNetworkV1, u32), (u64, u64)> => ("world.sccp_pending_counts",
-        Role::Canonical(Canonical::Table { key: schema::<(iroha_data_model::bridge::SccpNetworkV1, u32)>(), value: schema::<(u64, u64)>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(iroha_data_model::bridge::SccpNetworkV1, u32)>(), value: schema::<(u64, u64)>() })), release = sccp_pending_counts;
     sccp_light_clients: Storage< iroha_data_model::bridge::SccpNetworkV1, iroha_data_model::sccp::light_client::SccpLightClientV1, > => ("world.sccp_light_clients",
-        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::bridge::SccpNetworkV1>(), value: schema::<iroha_data_model::sccp::light_client::SccpLightClientV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<iroha_data_model::bridge::SccpNetworkV1>(), value: schema::<iroha_data_model::sccp::light_client::SccpLightClientV1>() })), release = sccp_light_clients;
     sccp_light_client_sets: Storage< (iroha_data_model::bridge::SccpNetworkV1, u64), iroha_data_model::sccp::light_client::SccpLcConsensusSetV1, > => ("world.sccp_light_client_sets",
-        Role::Canonical(Canonical::Table { key: schema::<(iroha_data_model::bridge::SccpNetworkV1, u64)>(), value: schema::<iroha_data_model::sccp::light_client::SccpLcConsensusSetV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(iroha_data_model::bridge::SccpNetworkV1, u64)>(), value: schema::<iroha_data_model::sccp::light_client::SccpLcConsensusSetV1>() })), release = sccp_light_client_sets;
     sccp_light_client_checkpoints: Storage< (iroha_data_model::bridge::SccpNetworkV1, u64), iroha_data_model::sccp::light_client::SccpLcCheckpointV1, > => ("world.sccp_light_client_checkpoints",
-        Role::Canonical(Canonical::Table { key: schema::<(iroha_data_model::bridge::SccpNetworkV1, u64)>(), value: schema::<iroha_data_model::sccp::light_client::SccpLcCheckpointV1>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(iroha_data_model::bridge::SccpNetworkV1, u64)>(), value: schema::<iroha_data_model::sccp::light_client::SccpLcCheckpointV1>() })), release = sccp_light_client_checkpoints;
     sccp_light_client_stride_index: Storage<(iroha_data_model::bridge::SccpNetworkV1, u64), u64> => ("world.sccp_light_client_stride_index",
-        Role::Canonical(Canonical::Table { key: schema::<(iroha_data_model::bridge::SccpNetworkV1, u64)>(), value: schema::<u64>() }));
+        Role::Canonical(Canonical::Table { key: schema::<(iroha_data_model::bridge::SccpNetworkV1, u64)>(), value: schema::<u64>() })), release = sccp_light_client_stride_index;
+    sccp_light_client_profiles: Storage<(iroha_data_model::bridge::SccpNetworkV1, u32), iroha_data_model::sccp::light_client::SccpLcProfileActivationV1> => ("world.sccp_light_client_profiles",
+        Role::Canonical(Canonical::Table { key: schema::<(iroha_data_model::bridge::SccpNetworkV1, u32)>(), value: schema::<iroha_data_model::sccp::light_client::SccpLcProfileActivationV1>() })), release = sccp_light_client_profiles;
 });

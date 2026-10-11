@@ -180,16 +180,16 @@ mod effect_budget {
         let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(r#"
-seiyaku ActualEffectGroups {
-  kotoage fn first() authorize("CanInvokeContractEntrypoint") {
-    ledger::account::set_detail(account: context::authority(), key: Name::parse("effect_first"), value: Json::parse("true"));
+seiyaku ActualEffectGroups { permission CanInvokeContractEntrypoint;
+  kotoage fn first() authorize(CanInvokeContractEntrypoint) {
+    ledger::account::set_metadata(account: context::authority(), key: Name::parse("effect_first"), value: Json::parse("true"));
   }
-  kotoage fn second() authorize("CanInvokeContractEntrypoint") {
-    ledger::account::set_detail(account: context::authority(), key: Name::parse("effect_second"), value: Json::parse("true"));
+  kotoage fn second() authorize(CanInvokeContractEntrypoint) {
+    ledger::account::set_metadata(account: context::authority(), key: Name::parse("effect_second"), value: Json::parse("true"));
   }
-  kotoage fn pair() authorize("CanInvokeContractEntrypoint") {
-    ledger::account::set_detail(account: context::authority(), key: Name::parse("effect_first"), value: Json::parse("true"));
-    ledger::account::set_detail(account: context::authority(), key: Name::parse("effect_second"), value: Json::parse("true"));
+  kotoage fn pair() authorize(CanInvokeContractEntrypoint) {
+    ledger::account::set_metadata(account: context::authority(), key: Name::parse("effect_first"), value: Json::parse("true"));
+    ledger::account::set_metadata(account: context::authority(), key: Name::parse("effect_second"), value: Json::parse("true"));
   }
 }
 "#).expect("compile genuine effect-producing contract");
@@ -257,15 +257,15 @@ seiyaku ActualEffectGroups {
 
     fn grant_entrypoints(block: &mut crate::state::StateBlock<'_>, address: &ContractAddress) {
         let mut setup = block.transaction();
-        for entrypoint in ["first", "second", "pair"] {
-            let permission: Permission = iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+        let permission: Permission =
+            iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
                 contract: address.clone(),
-                entrypoint: entrypoint.to_owned(),
-            }.into();
-            Grant::account_permission(permission, ALICE_ID.clone())
-                .execute(&ALICE_ID, &mut setup)
-                .unwrap();
-        }
+                permission: "CanInvokeContractEntrypoint".parse().unwrap(),
+            }
+            .into();
+        Grant::account_permission(permission, ALICE_ID.clone())
+            .execute(&ALICE_ID, &mut setup)
+            .unwrap();
         setup.apply();
     }
 

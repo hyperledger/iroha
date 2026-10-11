@@ -57,7 +57,7 @@ class NativeWallet:
         return self.mutate(
             dict(
                 relation=relation,
-                backend="halo2/ipa",
+                backend="pipa-r/pasta",
                 proof=b"test-proof",
                 root=args["root"],
                 nullifiers=[bytes([1]) * 32] * len(args["inputs"]),

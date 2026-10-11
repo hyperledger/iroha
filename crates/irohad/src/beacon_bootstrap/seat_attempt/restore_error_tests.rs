@@ -59,9 +59,13 @@ fn corrupted_original_checkpoint_closes_the_receiver_without_rewriting_or_reroll
     assert_eq!(pending.owner.durable.public_source(), public);
     assert!(pending.owner.prepared.is_some());
     assert!(pending.owner.local.is_none());
-    assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+    // The canonical public graph is decoded before private AEAD verification;
+    // its original prepared row containers have retired even on this later error.
+    let terminal_reserved = budget.reserved_bytes();
+    assert!(terminal_reserved < budget.limit_bytes());
     let pending = pending.owner.resume().unwrap_err();
     assert!(matches!(pending.cause, AttemptError::Phase));
+    assert_eq!(budget.reserved_bytes(), terminal_reserved);
     assert_eq!(pending.owner.phase, Phase::Terminal);
     assert_eq!(std::ptr::from_ref(&*pending.owner), receiver);
     assert_eq!(

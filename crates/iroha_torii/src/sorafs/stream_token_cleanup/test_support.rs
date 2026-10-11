@@ -122,6 +122,16 @@ impl StreamTokenGatewayAdmissionProviderV1 for ProbeProvider {
     ) -> Result<StreamTokenGatewayAdmissionReadbackV1, StreamTokenGatewayAdmissionErrorV1> {
         self.inner.pending(max_items, deadline)
     }
+    fn pending_for_background(
+        &self,
+        max_items: u32,
+        deadline: Instant,
+    ) -> Result<
+        crate::sorafs::StreamTokenGatewayReconciliationReadV1,
+        StreamTokenGatewayAdmissionErrorV1,
+    > {
+        self.inner.pending_for_background(max_items, deadline)
+    }
     fn acknowledge(
         &self,
         record: StreamTokenGatewayAdmissionRecordV1,

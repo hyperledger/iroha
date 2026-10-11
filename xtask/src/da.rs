@@ -548,6 +548,9 @@ pub(crate) struct PrivilegeAuditOptions {
     pub extra_paths: Vec<PathBuf>,
     pub json_output: Option<JsonTarget>,
 }
+/// Local benchmark target; independent of node verifier admission policy.
+const DEFAULT_PROOF_BENCH_BUDGET_MS: u64 = 20;
+
 /// Options for benchmarking DA proof verification.
 pub(crate) struct ProofBenchOptions {
     pub manifest: PathBuf,
@@ -1253,9 +1256,7 @@ pub(crate) fn run_proof_bench(
     if let Some(seed) = options.sample_seed {
         config.sample_seed = seed;
     }
-    let budget_ms = options
-        .budget_ms
-        .unwrap_or(iroha_config::parameters::defaults::zk::halo2::VERIFIER_BUDGET_MS);
+    let budget_ms = options.budget_ms.unwrap_or(DEFAULT_PROOF_BENCH_BUDGET_MS);
     let iterations = options.iterations.max(1);
     let chunk_size_hint = {
         let base = if manifest.chunk_size == 0 {
@@ -1824,31 +1825,34 @@ mod tests {
     #[test]
     fn proof_bench_runner_accepts_fixture() {
         let root = crate::workspace_root();
-        let options = ProofBenchOptions {
-            manifest: root
-                .join("fixtures")
-                .join("da")
-                .join("reconstruct")
-                .join("rs_parity_v1")
-                .join("manifest.json"),
-            payload: root
-                .join("fixtures")
-                .join("da")
-                .join("reconstruct")
-                .join("rs_parity_v1")
-                .join("payload.bin"),
-            payload_bytes: None,
-            sample_count: Some(1),
-            sample_seed: Some(0),
-            budget_ms: Some(5_000),
-            json_output: Some(JsonTarget::Stdout),
-            markdown_output: Some(PathBuf::from("-")),
-            iterations: 1,
-        };
-        let report =
-            run_proof_bench(options).expect("benchmark should succeed for fixture payload");
-        assert_eq!(report.iterations, 1);
-        assert_eq!(report.runs.len(), 1);
-        assert_eq!(report.stats.proof_count, report.runs[0].proof_count);
+        for budget_ms in [None, Some(5_000)] {
+            let options = ProofBenchOptions {
+                manifest: root
+                    .join("fixtures")
+                    .join("da")
+                    .join("reconstruct")
+                    .join("rs_parity_v1")
+                    .join("manifest.json"),
+                payload: root
+                    .join("fixtures")
+                    .join("da")
+                    .join("reconstruct")
+                    .join("rs_parity_v1")
+                    .join("payload.bin"),
+                payload_bytes: None,
+                sample_count: Some(1),
+                sample_seed: Some(0),
+                budget_ms,
+                json_output: Some(JsonTarget::Stdout),
+                markdown_output: Some(PathBuf::from("-")),
+                iterations: 1,
+            };
+            let report =
+                run_proof_bench(options).expect("benchmark should succeed for fixture payload");
+            assert_eq!(report.iterations, 1);
+            assert_eq!(report.runs.len(), 1);
+            assert_eq!(report.stats.proof_count, report.runs[0].proof_count);
+            assert_eq!(report.budget_ms, budget_ms.unwrap_or(20));
+        }
     }
 }

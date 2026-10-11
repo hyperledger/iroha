@@ -31,7 +31,6 @@ iroha_genesis.workspace = true
 iroha_test_samples.workspace = true
 iroha_schema.workspace = true
 iroha_core = { workspace = true, features = ["node"], default-features = false }
-iroha_core_zk = { workspace = true, default-features = false }
 iroha_sumeragi = { workspace = true }
 iroha_config.workspace = true
 

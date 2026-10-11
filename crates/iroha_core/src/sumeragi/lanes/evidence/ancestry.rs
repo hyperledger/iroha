@@ -9,7 +9,7 @@ use std::borrow::Borrow;
 use iroha_data_model::sumeragi_lanes::SumeragiLaneFrontier;
 use iroha_sumeragi::{
     availability::{AvailabilitySource, AvailableBody},
-    crypto::{AttestationVerifier, Crypto, Verifier},
+    crypto::{Crypto, Verifier},
     message::Qc,
     topology::demotion_window,
     types::{Hash32, HeightConfig},
@@ -156,7 +156,6 @@ impl<Config: Borrow<HeightConfig>> LaneAncestry<Config> {
     pub fn advance<Source: Borrow<AvailabilitySource>>(
         &mut self,
         crypto: &dyn Crypto,
-        attestations: &dyn AttestationVerifier,
         body: &AvailableBody<Source>,
         qc: &Qc,
     ) -> Result<(), LaneAncestryError> {
@@ -171,7 +170,6 @@ impl<Config: Borrow<HeightConfig>> LaneAncestry<Config> {
             || header.height != height
             || header.instance != self.instance
             || header.epoch != config.epoch.id
-            || header.attest
             || !header.control_witness.is_empty()
             || body.hash(crypto) != Hash32(self.expected.block_hash)
             || qc.result != Hash32(self.expected.result)
@@ -182,7 +180,7 @@ impl<Config: Borrow<HeightConfig>> LaneAncestry<Config> {
             return Err(LaneAncestryError::Branch);
         }
         if !Verifier::new(crypto, &self.instance, &config.epoch.id, &config.committee)
-            .verify_commit_qc(attestations, qc, Some(header))
+            .verify_commit_qc(qc, Some(header))
         {
             return Err(LaneAncestryError::Certificate);
         }

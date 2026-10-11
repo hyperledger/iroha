@@ -41,6 +41,7 @@ use iroha_data_model::{
 };
 use iroha_model_base::metadata::Metadata;
 use iroha_model_base::topology::DataSpaceId;
+use norito::decode_from_bytes_with_limits;
 use sorafs_car::{
     CarBuildPlan, CarWriter, FileEntry, compute_chunk_plan_digest_sha3, compute_por_root,
     musubi::{

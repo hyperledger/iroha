@@ -21,7 +21,7 @@ use iroha_data_model::{
 };
 use iroha_sumeragi::{
     availability::{AvailabilitySource, AvailableBody},
-    crypto::{AttestationVerifier, Verifier},
+    crypto::Verifier,
     message::{BlockHeader, PayloadManifest, Qc, SyncEntry},
     types::Hash32,
 };
@@ -127,7 +127,7 @@ pub struct KuraBlockStore {
     staging: Staging,
     execution_budget: AllocationBudget,
     schedule: Arc<dyn AvailabilitySchedule>,
-    verifier: Arc<dyn AttestationVerifier + Send + Sync>,
+
     read: Mutex<Option<CommittedRead>>,
 }
 impl KuraBlockStore {
@@ -140,7 +140,6 @@ impl KuraBlockStore {
         staging: Staging,
         execution_budget: AllocationBudget,
         schedule: Arc<dyn AvailabilitySchedule>,
-        verifier: Arc<dyn AttestationVerifier + Send + Sync>,
     ) -> Self {
         Self {
             kura,
@@ -149,7 +148,6 @@ impl KuraBlockStore {
             staging,
             execution_budget,
             schedule,
-            verifier,
             read: Mutex::new(None),
         }
     }
@@ -212,7 +210,6 @@ impl KuraBlockStore {
                 self.execution_budget.clone(),
                 self.hasher.clone(),
                 self.schedule.clone(),
-                self.verifier.clone(),
             ));
         }
         match slot
@@ -238,7 +235,7 @@ impl KuraBlockStore {
     #[cfg(test)]
     pub(crate) fn pending_certificate_read_for_test(
         &self,
-    ) -> Option<(*const SignedBlock, Option<*const u8>, Option<*const u8>)> {
+    ) -> Option<(*const SignedBlock, Option<*const u8>)> {
         self.read
             .lock()
             .as_ref()?
@@ -327,7 +324,6 @@ impl BodyReader for KuraBlockStore {
             self.execution_budget.clone(),
             self.hasher.clone(),
             self.schedule.clone(),
-            self.verifier.clone(),
         )))
     }
 }

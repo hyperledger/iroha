@@ -164,38 +164,20 @@ async fn identical_records(
     }
 }
 
-// Mutate only a byte inside the native proof TLV. The canonical outer envelope,
-// public instances, verifier identity and all TLV boundaries remain unchanged.
+// Mutate only the native transcript. Canonical framing, public inputs and
+// verifier identity remain unchanged, so the network tests cryptographic failure.
 fn corrupt_native_proof(proof: &[u8]) -> Result<Vec<u8>> {
-    let mut envelope: iroha_data_model::zk::OpenVerifyEnvelope = norito::decode_canonical(proof)?;
-    let carrier = &mut envelope.proof_bytes;
+    use iroha_data_model::zk::{BackendTag, NativePipaRProofV1, OpenVerifyEnvelope};
+    let mut envelope: OpenVerifyEnvelope = norito::decode_canonical(proof)?;
     ensure!(
-        carrier.starts_with(b"ZK1\0"),
-        "fixture must use canonical ZK1"
+        envelope.backend == BackendTag::NativePipaRPasta,
+        "expected native PIPA-R fixture"
     );
-    let mut position = 4_usize;
-    let mut target = None;
-    while position < carrier.len() {
-        let header_end = position
-            .checked_add(8)
-            .ok_or_else(|| eyre!("TLV overflow"))?;
-        ensure!(header_end <= carrier.len(), "truncated fixture TLV header");
-        let length = u32::from_le_bytes(carrier[position + 4..header_end].try_into()?) as usize;
-        let end = header_end
-            .checked_add(length)
-            .ok_or_else(|| eyre!("TLV length overflow"))?;
-        ensure!(end <= carrier.len(), "truncated fixture TLV payload");
-        if &carrier[position..position + 4] == b"PROF" {
-            ensure!(
-                target.is_none() && length != 0,
-                "duplicate or empty proof TLV"
-            );
-            target = Some(header_end + length / 2);
-        }
-        position = end;
-    }
-    let target = target.ok_or_else(|| eyre!("fixture has no native proof"))?;
-    carrier[target] ^= 1;
+    let mut carrier: NativePipaRProofV1 = norito::decode_canonical(&envelope.proof_bytes)?;
+    ensure!(!carrier.proof.is_empty(), "fixture has no native proof");
+    let middle = carrier.proof.len() / 2;
+    carrier.proof[middle] ^= 1;
+    envelope.proof_bytes = norito::encode_canonical(&carrier)?;
     Ok(norito::encode_canonical(&envelope)?)
 }
 
@@ -725,36 +707,44 @@ fn kaigi_rejection_control_requires_exact_native_reason() {
 
 #[test]
 fn kaigi_proof_corruption_preserves_framing_and_public_instances() -> Result<()> {
-    use iroha_data_model::zk::{BackendTag, OpenVerifyEnvelope};
-    let mut carrier = b"ZK1\0PROF".to_vec();
-    carrier.extend_from_slice(&4_u32.to_le_bytes());
-    carrier.extend_from_slice(&[1, 2, 3, 4]);
-    carrier.extend_from_slice(b"I10P");
-    carrier.extend_from_slice(&3_u32.to_le_bytes());
-    carrier.extend_from_slice(&[7, 8, 9]);
+    use iroha_data_model::zk::{BackendTag, NativePipaRProofV1, OpenVerifyEnvelope};
+    let carrier = NativePipaRProofV1 {
+        public_inputs: vec![[7; 32], [9; 32]],
+        proof: vec![1, 2, 3, 4],
+    };
     let original = OpenVerifyEnvelope {
-        backend: BackendTag::Halo2IpaPasta,
+        backend: BackendTag::NativePipaRPasta,
         circuit_id: "fixture".into(),
         vk_hash: iroha_crypto::Hash::new(b"fixture").into(),
         public_inputs: vec![10, 11],
-        proof_bytes: carrier.clone(),
+        proof_bytes: norito::encode_canonical(&carrier)?,
         aux: Vec::new(),
     };
     let bytes = norito::encode_canonical(&original)?;
     let changed: OpenVerifyEnvelope = norito::decode_canonical(&corrupt_native_proof(&bytes)?)?;
+    let mut expected_carrier = carrier.clone();
+    expected_carrier.proof[2] ^= 1;
     let mut expected = original.clone();
-    expected.proof_bytes[14] ^= 1;
+    expected.proof_bytes = norito::encode_canonical(&expected_carrier)?;
     assert_eq!(changed, expected);
     assert_eq!(bytes.len(), norito::encode_canonical(&changed)?.len());
+    let canonical_carrier = norito::encode_canonical(&carrier)?;
+    let empty_proof = NativePipaRProofV1 {
+        proof: Vec::new(),
+        ..carrier
+    };
     for bad_carrier in [
-        b"ZK1\0".to_vec(),
         b"ZK1\0PROF".to_vec(),
-        [b"ZK1\0PROF".as_slice(), &u32::MAX.to_le_bytes()].concat(),
-        [carrier.as_slice(), b"PROF", &1_u32.to_le_bytes(), &[5]].concat(),
+        canonical_carrier[..canonical_carrier.len() - 1].to_vec(),
+        [canonical_carrier.as_slice(), &[0]].concat(),
+        norito::encode_canonical(&empty_proof)?,
     ] {
         let mut bad = original.clone();
         bad.proof_bytes = bad_carrier;
         assert!(corrupt_native_proof(&norito::encode_canonical(&bad)?).is_err());
     }
+    let mut wrong_engine = original;
+    wrong_engine.backend = BackendTag::Stark;
+    assert!(corrupt_native_proof(&norito::encode_canonical(&wrong_engine)?).is_err());
     Ok(())
 }

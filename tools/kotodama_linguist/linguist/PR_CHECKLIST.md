@@ -6,9 +6,14 @@ request.
 ## 1. Prove public usage
 
 Run these in an authenticated GitHub browser session:
-- `extension:ko contract NOT is:fork`
-- `extension:ko entry NOT is:fork`
-- `extension:ko "register_trigger" NOT is:fork`
+- `extension:ko seiyaku NOT is:fork`
+- `extension:ko 誓約 NOT is:fork`
+- `extension:ko kotoage NOT is:fork`
+- `extension:ko 言挙げ NOT is:fork`
+
+Every deployable Kotodama file declares its source unit with `seiyaku` or the
+equal Japanese spelling `誓約` (reusable files use `module`), and entrypoints use
+`kotoage` or `言挙げ`; count both spellings of each keyword.
 
 Acceptance caveat:
 - Linguist's current public guidance says new extensions are only accepted when

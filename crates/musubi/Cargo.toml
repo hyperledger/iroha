@@ -39,6 +39,7 @@ norito = { workspace = true, default-features = false, features = ["node-codec"]
 sorafs_car = { workspace = true, features = ["manifest"] }
 sorafs_manifest = { workspace = true }
 toml = { workspace = true }
+toml_edit = { workspace = true }
 url = { workspace = true }
 zeroize = { workspace = true }
 

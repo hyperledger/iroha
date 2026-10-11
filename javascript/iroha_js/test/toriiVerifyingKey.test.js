@@ -75,10 +75,10 @@ const FIXTURE_BOB_ID = fixtureAccountId("bob");
 function sampleVerifyingKeyRegisterPayload() {
   return {
     authority: SAMPLE_ACCOUNT_ID,
-    backend: "halo2/ipa",
+    backend: "pipa-r/pasta",
     name: "vk_main",
     version: 1,
-    circuit_id: "halo2/ipa::transfer_v1",
+    circuit_id: "pipa-r/pasta::transfer_v1",
     public_inputs_schema_hash_hex: "11".repeat(32),
     gas_schedule_id: "default",
     vk_bytes: Buffer.from("abc"),
@@ -144,7 +144,7 @@ function verifyingKeyInstructionForRequest(
           namespace: "core",
           backend: request.backend.startsWith("stark/")
             ? "stark"
-            : "halo2-ipa-pasta",
+            : "native-pipa-r-pasta",
           curve: request.curve ?? "unknown",
           public_inputs_schema_hash: Array.from(
             Buffer.from(request.public_inputs_schema_hash_hex, "hex"),
@@ -321,10 +321,10 @@ function u64BeBuffer(value) {
 function verifyingKeyRecordResponse(overrides = {}) {
   return {
     version: 1,
-    circuit_id: "halo2/ipa::transfer_v1",
+    circuit_id: "pipa-r/pasta::transfer_v1",
     owner_manifest_id: null,
     namespace: "core",
-    backend: "halo2-ipa-pasta",
+    backend: "native-pipa-r-pasta",
     curve: "pallas",
     public_inputs_schema_hash: "ab".repeat(32),
     commitment: "cd".repeat(32),
@@ -337,7 +337,7 @@ function verifyingKeyRecordResponse(overrides = {}) {
     withdraw_height: 20,
     status: "Active",
     key: {
-      backend: "halo2/ipa",
+      backend: "pipa-r/pasta",
       bytes_b64: Buffer.from("vk").toString("base64"),
     },
     ...overrides,
@@ -352,10 +352,10 @@ test("listVerifyingKeys validates canonical records", async () => {
       status: 200,
       jsonData: [
         {
-          id: { backend: "halo2/ipa", name: "vk_main" },
+          id: { backend: "pipa-r/pasta", name: "vk_main" },
           record: verifyingKeyRecordResponse({
             version: 2,
-            circuit_id: "halo2/ipa::transfer_v2",
+            circuit_id: "pipa-r/pasta::transfer_v2",
             owner_manifest_id: "builtin:transfer-v2",
             namespace: "payments",
             vk_len: 5,
@@ -364,7 +364,7 @@ test("listVerifyingKeys validates canonical records", async () => {
             vk_bytes_cid: "ipfs://vk",
             withdraw_height: 30,
             key: {
-              backend: "halo2/ipa",
+              backend: "pipa-r/pasta",
               bytes_b64: Buffer.from("hello").toString("base64"),
             },
           }),
@@ -375,7 +375,7 @@ test("listVerifyingKeys validates canonical records", async () => {
   };
   const client = new ToriiClient(BASE_URL, { fetchImpl });
   const list = await client.listVerifyingKeys({
-    backend: "halo2/ipa",
+    backend: "pipa-r/pasta",
     status: "Active",
     limit: 5,
     order: "asc",
@@ -383,18 +383,18 @@ test("listVerifyingKeys validates canonical records", async () => {
 
   assert.equal(list.length, 1);
   const entry = list[0];
-  assert.deepEqual(entry.id, { backend: "halo2/ipa", name: "vk_main" });
+  assert.deepEqual(entry.id, { backend: "pipa-r/pasta", name: "vk_main" });
   assert.equal(entry.record?.status, "Active");
-  assert.equal(entry.record?.backend, "halo2-ipa-pasta");
+  assert.equal(entry.record?.backend, "native-pipa-r-pasta");
   assert.equal(entry.record?.owner_manifest_id, "builtin:transfer-v2");
   assert.equal(entry.record?.namespace, "payments");
   assert.equal(entry.record?.vk_len, 5);
-  assert.equal(entry.record?.inline_key?.backend, "halo2/ipa");
+  assert.equal(entry.record?.inline_key?.backend, "pipa-r/pasta");
   assert.equal(entry.record?.inline_key?.bytes_b64, Buffer.from("hello").toString("base64"));
 
   const invoked = new URL(calls[0].url);
   assert.equal(invoked.pathname, "/v1/zk/vk");
-  assert.equal(invoked.searchParams.get("backend"), "halo2/ipa");
+  assert.equal(invoked.searchParams.get("backend"), "pipa-r/pasta");
   assert.equal(invoked.searchParams.get("status"), "Active");
   assert.equal(invoked.searchParams.get("limit"), "5");
   assert.equal(invoked.searchParams.get("order"), "asc");
@@ -409,6 +409,10 @@ test("verifying key read paths reject unsupported production backends before fet
     },
   });
   for (const backend of [
+    "halo2/ipa",
+    "halo2/pasta/kaigi-authorization-v1",
+    "halo2/pasta/kaigi-usage-v1",
+    "pipa-r/ipa/pasta/kaigi-usage-v1",
     "halo2/pasta/kaigi-roster-v1",
     "halo2/pasta/kagemusha-v1-mint-fold-merkle16-axiom-poseidon-v1",
     " halo2/ipa",
@@ -510,7 +514,7 @@ test("verifying key get path rejects padded selector names before fetch", async 
   });
   for (const name of [" vk_main", "vk_main "]) {
     await assert.rejects(
-      () => client.getVerifyingKey("halo2/ipa", name),
+      () => client.getVerifyingKey("pipa-r/pasta", name),
       /getVerifyingKey name must not contain surrounding whitespace/,
     );
   }
@@ -542,11 +546,11 @@ test("listVerifyingKeys rejects noncanonical response backends", async () => {
     { backend: "halo2\uFF0Fipa", name: "fullwidth_slash_vk" },
     { id: { backend: "h\u0430lo2/ipa", name: "cyrillic_a_vk" } },
     {
-      id: { backend: "halo2/ipa", name: "record_vk" },
+      id: { backend: "pipa-r/pasta", name: "record_vk" },
       record: { ...baseRecord, backend: "\thalo2-ipa-pasta" },
     },
     {
-      id: { backend: "halo2/ipa", name: "inline_vk" },
+      id: { backend: "pipa-r/pasta", name: "inline_vk" },
       record: {
         ...baseRecord,
         key: {
@@ -556,7 +560,7 @@ test("listVerifyingKeys rejects noncanonical response backends", async () => {
       },
     },
     {
-      id: { backend: "halo2/ipa", name: "zero_width_vk" },
+      id: { backend: "pipa-r/pasta", name: "zero_width_vk" },
       record: {
         ...baseRecord,
         key: {
@@ -576,7 +580,7 @@ test("listVerifyingKeys rejects noncanonical response backends", async () => {
     });
     await assert.rejects(
       () => client.listVerifyingKeys(),
-      /unsupported production verifier backend|surrounding whitespace|halo2-ipa-pasta or stark/,
+      /unsupported production verifier backend|surrounding whitespace|native-pipa-r-pasta or stark/,
     );
   }
 });
@@ -584,14 +588,14 @@ test("listVerifyingKeys rejects noncanonical response backends", async () => {
 test("listVerifyingKeys rejects padded response selector metadata", async () => {
   const baseRecord = verifyingKeyRecordResponse();
   for (const entry of [
-    { backend: "halo2/ipa", name: " flat_vk" },
-    { id: { backend: "halo2/ipa", name: "object_vk " } },
+    { backend: "pipa-r/pasta", name: " flat_vk" },
+    { id: { backend: "pipa-r/pasta", name: "object_vk " } },
     {
-      id: { backend: "halo2/ipa", name: "circuit_vk" },
-      record: { ...baseRecord, circuit_id: " halo2/ipa::transfer_v1" },
+      id: { backend: "pipa-r/pasta", name: "circuit_vk" },
+      record: { ...baseRecord, circuit_id: " pipa-r/pasta::transfer_v1" },
     },
     {
-      id: { backend: "halo2/ipa", name: "gas_vk" },
+      id: { backend: "pipa-r/pasta", name: "gas_vk" },
       record: { ...baseRecord, gas_schedule_id: "default " },
     },
   ]) {
@@ -617,7 +621,7 @@ test("iterateVerifyingKeys paginates and forwards filters", async () => {
     const offset = Number(parsed.searchParams.get("offset") ?? "0");
     const limit = Number(parsed.searchParams.get("limit") ?? "0");
     seenOffsets.push(offset);
-    assert.equal(parsed.searchParams.get("backend"), "halo2/ipa");
+    assert.equal(parsed.searchParams.get("backend"), "pipa-r/pasta");
     assert.equal(parsed.searchParams.get("status"), "Active");
     assert.equal(limit, 1);
     if (offset >= 2) {
@@ -625,14 +629,14 @@ test("iterateVerifyingKeys paginates and forwards filters", async () => {
     }
     return createResponse({
       status: 200,
-      jsonData: [{ backend: "halo2/ipa", name: `vk-${offset}` }],
+      jsonData: [{ backend: "pipa-r/pasta", name: `vk-${offset}` }],
       headers: { "content-type": "application/json" },
     });
   };
   const client = new ToriiClient(BASE_URL, { fetchImpl });
   const names = [];
   for await (const entry of client.iterateVerifyingKeys({
-    backend: "halo2/ipa",
+    backend: "pipa-r/pasta",
     status: "Active",
     pageSize: 1,
     maxItems: 2,
@@ -648,7 +652,7 @@ test("iterateVerifyingKeys rejects unsupported iterator options", () => {
     fetchImpl: async () => createResponse({ status: 200, jsonData: [], headers: { "content-type": "application/json" } }),
   });
   assert.throws(
-    () => client.iterateVerifyingKeys({ backend: "halo2/ipa", extra: true }),
+    () => client.iterateVerifyingKeys({ backend: "pipa-r/pasta", extra: true }),
     /iterator options contains unsupported fields: extra/,
   );
 });
@@ -660,7 +664,7 @@ test("listVerifyingKeys rejects unsupported option fields", async () => {
     },
   });
   await assert.rejects(
-    () => client.listVerifyingKeys({ backend: "halo2/ipa", extra: true }),
+    () => client.listVerifyingKeys({ backend: "pipa-r/pasta", extra: true }),
     /listVerifyingKeys options contains unsupported fields: extra/,
   );
 });
@@ -674,7 +678,7 @@ test("listVerifyingKeys rejects compatibility option aliases", async () => {
     },
   });
   for (const option of [
-    { backend_filter: "halo2/ipa" },
+    { backend_filter: "pipa-r/pasta" },
     { statusFilter: "Withdrawn" },
     { verifyingKeyStatus: "Withdrawn" },
     { name_contains: "transfer" },
@@ -692,11 +696,11 @@ test("listVerifyingKeys rejects compatibility option aliases", async () => {
 
 test("getVerifyingKey validates and returns the canonical payload", async () => {
   const fetchImpl = async (url) => {
-    assert.equal(url, `${BASE_URL}/v1/zk/vk/halo2%2Fipa/vk_main`);
+    assert.equal(url, `${BASE_URL}/v1/zk/vk/pipa-r%2Fpasta/vk_main`);
     return createResponse({
       status: 200,
       jsonData: {
-        id: { backend: "halo2/ipa", name: "vk_main" },
+        id: { backend: "pipa-r/pasta", name: "vk_main" },
         record: verifyingKeyRecordResponse({
           curve: "unknown",
           vk_len: 1024,
@@ -713,8 +717,8 @@ test("getVerifyingKey validates and returns the canonical payload", async () => 
     });
   };
   const client = new ToriiClient(BASE_URL, { fetchImpl });
-  const detail = await client.getVerifyingKey("halo2/ipa", "vk_main");
-  assert.equal(detail.id.backend, "halo2/ipa");
+  const detail = await client.getVerifyingKey("pipa-r/pasta", "vk_main");
+  assert.equal(detail.id.backend, "pipa-r/pasta");
   assert.equal(detail.id.name, "vk_main");
   assert.equal(detail.record.status, "Proposed");
   assert.equal(detail.record.vk_len, 1024);
@@ -730,7 +734,7 @@ test("getVerifyingKey rejects withdraw height at or before activation height", a
     createResponse({
       status: 200,
       jsonData: {
-        id: { backend: "halo2/ipa", name: "vk_main" },
+        id: { backend: "pipa-r/pasta", name: "vk_main" },
         record: verifyingKeyRecordResponse({
           activation_height: 10,
           withdraw_height: 10,
@@ -743,7 +747,7 @@ test("getVerifyingKey rejects withdraw height at or before activation height", a
     });
   const client = new ToriiClient(BASE_URL, { fetchImpl });
   await assert.rejects(
-    () => client.getVerifyingKey("halo2/ipa", "vk_main"),
+    () => client.getVerifyingKey("pipa-r/pasta", "vk_main"),
     /withdraw_height must be > activation_height/,
   );
 });
@@ -765,10 +769,10 @@ test("registerVerifyingKey canonicalizes payload and returns an unsigned draft",
   });
   const draft = await client.registerVerifyingKey({
     authority: canonicalAuthority,
-    backend: "halo2/ipa",
+    backend: "pipa-r/pasta",
     name: "vk_main",
     version: 3,
-    circuit_id: "halo2/ipa::transfer_v3",
+    circuit_id: "pipa-r/pasta::transfer_v3",
     public_inputs_schema_hash_hex: "22".repeat(32),
     gas_schedule_id: "halo2_default",
     vk_bytes: Buffer.from("abc"),
@@ -786,10 +790,10 @@ test("registerVerifyingKey canonicalizes payload and returns an unsigned draft",
   const body = captured.body;
   assert.equal(body.authority, normalizeAccountId(canonicalAuthority, "registerVerifyingKey.authority"));
   assert.equal(body.private_key, undefined);
-  assert.equal(body.backend, "halo2/ipa");
+  assert.equal(body.backend, "pipa-r/pasta");
   assert.equal(body.name, "vk_main");
   assert.equal(body.version, 3);
-  assert.equal(body.circuit_id, "halo2/ipa::transfer_v3");
+  assert.equal(body.circuit_id, "pipa-r/pasta::transfer_v3");
   assert.equal(body.public_inputs_schema_hash_hex, "22".repeat(32));
   assert.equal(body.public_inputs_schema_hex, undefined);
   assert.equal(body.gas_schedule_id, "halo2_default");
@@ -823,7 +827,7 @@ test("updateVerifyingKey sends metadata only and returns an unsigned draft", asy
   const draft = await client.updateVerifyingKey({
     ...sampleVerifyingKeyRegisterPayload(),
     version: 2,
-    circuit_id: "halo2/ipa::transfer_v2",
+    circuit_id: "pipa-r/pasta::transfer_v2",
   });
 
   assert.equal(captured.url, `${BASE_URL}/v1/zk/vk/update`);
@@ -1119,12 +1123,12 @@ test("registerVerifyingKey accepts current production backend labels", async () 
     localSigningContext: VK_LOCAL_SIGNING_CONTEXT,
   });
   const backends = [
-    "halo2/ipa",
-    "halo2/pasta/kaigi-authorization-v1",
-    "halo2/pasta/kaigi-usage-v1",
-    "halo2/pasta/confidential-transfer-2x2-merkle16-axiom-poseidon-v3",
-    "halo2/pasta/confidential-unshield-full-merkle16-axiom-poseidon-v3",
-    "halo2/pasta/confidential-unshield-change-merkle16-axiom-poseidon-v4",
+    "pipa-r/pasta",
+    "pipa-r/pasta/kaigi-authorization-v1",
+    "pipa-r/pasta/kaigi-usage-v1",
+    "pipa-r/pasta/confidential-transfer-v1",
+    "pipa-r/pasta/confidential-unshield-full-v1",
+    "pipa-r/pasta/confidential-unshield-change-v1",
     "stark/fri/poseidon-x7-goldilocks-6x64-v1",
   ];
   for (const [index, backend] of backends.entries()) {
@@ -1154,7 +1158,9 @@ test("updateVerifyingKey accepts current production backend labels", async () =>
     localSigningContext: VK_LOCAL_SIGNING_CONTEXT,
   });
   const backends = [
-    "halo2/ipa",
+    "pipa-r/pasta",
+    "pipa-r/pasta/kaigi-authorization-v1",
+    "pipa-r/pasta/kaigi-usage-v1",
     "stark/fri/poseidon-x7-goldilocks-6x64-v1",
   ];
   for (const [index, backend] of backends.entries()) {
@@ -1201,7 +1207,7 @@ test("verifying key registration rejects mismatched inline key commitment", asyn
     },
   });
   const bytes = Buffer.from("abc");
-  const matchingCommitment = verifyingKeyCommitmentHex("halo2/ipa", bytes);
+  const matchingCommitment = verifyingKeyCommitmentHex("pipa-r/pasta", bytes);
 
   await assert.rejects(
     () =>
@@ -1287,7 +1293,7 @@ test("verifying key requests reject padded selector metadata before fetch", asyn
     ],
     [
       "register padded circuit id",
-      () => client.registerVerifyingKey({ ...payload, circuit_id: " halo2/ipa::transfer_v1" }),
+      () => client.registerVerifyingKey({ ...payload, circuit_id: " pipa-r/pasta::transfer_v1" }),
       /registerVerifyingKey\.circuitId must not contain surrounding whitespace/,
     ],
     [
@@ -1302,7 +1308,7 @@ test("verifying key requests reject padded selector metadata before fetch", asyn
     ],
     [
       "update padded circuit id",
-      () => client.updateVerifyingKey({ ...payload, version: 2, circuit_id: "halo2/ipa::transfer_v1 " }),
+      () => client.updateVerifyingKey({ ...payload, version: 2, circuit_id: "pipa-r/pasta::transfer_v1 " }),
       /updateVerifyingKey\.circuitId must not contain surrounding whitespace/,
     ],
     [
@@ -1326,6 +1332,14 @@ test("verifying key registration rejects unsupported production backends before 
   });
   const base = sampleVerifyingKeyRegisterPayload();
   const cases = [
+    ...[
+      "halo2/pasta/ipa/confidential-transfer-2x2-merkle16-axiom-poseidon-v3",
+      "halo2/pasta/ipa/confidential-unshield-full-merkle16-axiom-poseidon-v3",
+      "halo2/pasta/ipa/confidential-unshield-change-merkle16-axiom-poseidon-v4",
+    ].flatMap((backend) => [
+      [`register retired confidential ${backend}`, () => client.registerVerifyingKey({ ...base, backend })],
+      [`update retired confidential ${backend}`, () => client.updateVerifyingKey({ ...base, backend })],
+    ]),
     ["register retired IVM binding backend", () => client.registerVerifyingKey({ ...base, backend: "halo2/pasta/ivm-execution-v1" })],
     ["update retired IVM binding backend", () => client.updateVerifyingKey({ ...base, backend: "halo2/pasta/ivm-execution-v1" })],
     ["register retired IVM replay binding backend", () => client.registerVerifyingKey({ ...base, backend: "halo2/pasta/ivm-replay-binding-v1" })],
@@ -1334,6 +1348,8 @@ test("verifying key registration rejects unsupported production backends before 
     ["update retired Kaigi roster", () => client.updateVerifyingKey({ ...base, backend: "halo2/pasta/kaigi-roster-v1" })],
     ["register unsupported KAGEMUSHA fold", () => client.registerVerifyingKey({ ...base, backend: "halo2/pasta/kagemusha-v1-mint-fold-merkle16-axiom-poseidon-v1" })],
     ["update unsupported KAGEMUSHA fold", () => client.updateVerifyingKey({ ...base, backend: "halo2/pasta/kagemusha-v1-mint-fold-merkle16-axiom-poseidon-v1" })],
+    ["register retired Halo2 engine", () => client.registerVerifyingKey({ ...base, backend: "halo2/ipa" })],
+    ["update retired Halo2 engine", () => client.updateVerifyingKey({ ...base, backend: "halo2/ipa" })],
     ["register unknown native", () => client.registerVerifyingKey({ ...base, backend: "halo2/unknown-native-v1" })],
     ["register unknown IPA suffix", () => client.registerVerifyingKey({ ...base, backend: "halo2/ipa:unknown-native-v1" })],
     ["register retired IPA cycle alias", () => client.registerVerifyingKey({ ...base, backend: "halo2/ipa-pasta-cycle-v1" })],
@@ -1481,7 +1497,7 @@ test("verifying key endpoints reject unsupported option fields", async () => {
     localSigningContext: VK_LOCAL_SIGNING_CONTEXT,
   });
   await assert.rejects(
-    () => client.getVerifyingKey("halo2/ipa", "vk_main", { extra: true }),
+    () => client.getVerifyingKey("pipa-r/pasta", "vk_main", { extra: true }),
     /getVerifyingKey options contains unsupported fields: extra/,
   );
   const registerPayload = sampleVerifyingKeyRegisterPayload();

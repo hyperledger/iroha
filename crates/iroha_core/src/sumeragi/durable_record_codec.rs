@@ -8,7 +8,7 @@ use iroha_sumeragi::{
 use norito::core as ncore;
 use std::{io, ops::Range};
 
-// Thirteen header fields: fixed scalar/hash/epoch fields fit 1024 bytes; every skipped key
+// Twelve header fields: fixed scalar/hash/epoch fields fit 1024 bytes; every skipped key
 // has at most MAX_PUBLIC_KEY_LEN occupied bytes plus 32 bytes of canonical count/field
 // framing; control carries at most MAX_CONTROL_WITNESS_BYTES. This conservative metadata
 // bound is independent of payload size and tested with the complete maximum-header fixture.

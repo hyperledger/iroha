@@ -11,7 +11,7 @@
                 Outcome = Result::err("not ready");
             }
 
-            view fn get_counter() -> int {
+            view fn get_counter() authorize(anyone) -> int {
                 return Counter;
             }
         }

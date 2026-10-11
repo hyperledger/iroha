@@ -982,3 +982,57 @@ fn local_recheck_refusal_preserves_original_signed_owner_and_accepted_time_floor
         "final owner releases original frame"
     );
 }
+
+#[test]
+fn pending_scheduling_hint_uses_preparation_and_drops_without_a_check() {
+    let mut fixture = Fixture::ready();
+    let height = fixture.chain.height();
+    let original_owners = Arc::strong_count(fixture.chain.state());
+    let empty = fixture.prepare(Selector::Pending { max_items: 4 });
+    assert_eq!(empty.pending_is_empty().unwrap(), Some(true));
+    assert!(empty.deadline() > Instant::now());
+    drop(empty);
+    assert_eq!(fixture.chain.height(), height);
+    assert_eq!(Arc::strong_count(fixture.chain.state()), original_owners);
+    let qualification = fixture.prepare(Selector::Qualification);
+    assert_eq!(qualification.pending_is_empty().unwrap(), None);
+    drop(qualification);
+
+    // Another caller's actual committed admission is observed after an earlier idle hint.
+    let request = fixture.request("background-external-work");
+    let record = fixture.admit(&request);
+    let prepared = fixture.prepare(Selector::Pending { max_items: 4 });
+    assert_eq!(prepared.pending_is_empty().unwrap(), Some(false));
+    let deadline = prepared.deadline();
+    let pending = fixture.bind(prepared);
+    assert_eq!(pending.deadline(), deadline);
+    fixture.publish(&pending);
+    let verified = pending.verify_finalized(|| Ok(fixture.clock())).unwrap();
+    assert_eq!(verified.deadline(), deadline);
+    assert!(matches!(verified.readback(),
+        StreamTokenGatewayCheckReadbackV1::Pending(readback) if readback.records == [record]));
+}
+
+#[test]
+fn pending_scheduling_hint_rejects_expiry_and_corrupt_native_finality() {
+    let fixture = Fixture::ready();
+    let mut expired = fixture.prepare(Selector::Pending { max_items: 4 });
+    expired.round.expire_for_test();
+    assert_eq!(expired.pending_is_empty(), Err(Error::Expired));
+    drop(expired);
+    let height = fixture.chain.height();
+    fixture
+        .chain
+        .corrupt_local_quorum_for_test(height, Signers::BelowQuorum);
+    assert!(
+        matches!(
+            begin_stream_token_gateway_check_v1(
+                Arc::clone(fixture.chain.state()),
+                fixture.expected(Selector::Pending { max_items: 4 }),
+                Instant::now() + Duration::from_secs(60),
+            ),
+            Err(Error::Finality)
+        ),
+        "corrupt original native finality cannot become Idle"
+    );
+}

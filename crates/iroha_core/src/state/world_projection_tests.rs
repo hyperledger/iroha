@@ -39,8 +39,8 @@ fn world_delta_ignores_noop_touch_history_and_aborted_changes() {
     assert_eq!(actual, sequenced.net_state_delta().unwrap());
     assert_eq!(
         actual.fields,
-        314 - 1 + 10,
-        "314 World overlay fields, including native AMX participants, with ten stores replacing TriggerSet"
+        crate::state::authority_registry::inventory_test_support::world_delta_field_count(),
+        "every original World overlay field, with TriggerSet replaced by every typed trigger store"
     );
 }
 

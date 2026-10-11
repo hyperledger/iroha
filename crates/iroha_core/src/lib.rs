@@ -49,14 +49,6 @@
     clippy::useless_let_if_seq
 )]
 #![cfg_attr(test, allow(clippy::large_stack_arrays))]
-#[cfg(not(feature = "zk-halo2"))]
-compile_error!(
-    "Halo2 backends are mandatory; enable `zk-halo2` (default) when building iroha_core"
-);
-#[cfg(not(feature = "zk-halo2-ipa"))]
-compile_error!(
-    "Halo2 IPA backends are mandatory; enable `zk-halo2-ipa` (default) when building iroha_core"
-);
 #[cfg(not(feature = "zk-ipa-native"))]
 compile_error!(
     "Native IPA helpers must remain enabled; `zk-ipa-native` is required for all builds"
@@ -122,6 +114,8 @@ pub mod pipeline_validity_policy;
 pub(crate) use iroha_core_privacy::{
     execution_proofs, privacy_engines, privacy_profiles, privacy_state, privacy_verifier,
 };
+/// Reserve-backed KAGEMUSHA wallet ledger orchestration.
+pub mod kagemusha_wallet_v1;
 /// First-release privacy protocol governance and admission budgets.
 pub mod privacy;
 /// Native deterministic privacy release evidence, compiled only into explicit
@@ -137,6 +131,8 @@ pub mod publication_rwlock;
 pub mod query;
 /// Transaction queue and mempool logic.
 pub mod queue;
+/// Dataspace classes and immutable asset-definition homes.
+pub mod read_scope;
 pub(crate) mod receiver_snapshot;
 /// Shared compiled validator identity and signed genesis input validation.
 pub mod release_identity;
@@ -564,7 +560,7 @@ pub(crate) mod execution_output_test_support;
 mod frame_identity_tests;
 #[cfg(test)]
 pub(crate) mod ivm_test_support;
-#[cfg(test)]
+#[cfg(any(test, feature = "iroha-core-tests"))]
 pub(crate) mod manifest_signing_test_support;
 #[cfg(test)]
 pub(crate) mod unit_test_support;
@@ -588,8 +584,6 @@ mod isi_gas_fees_tests;
 #[cfg(test)]
 #[path = "../tests/ivm_corehost_axt.rs"]
 mod ivm_corehost_axt_tests;
-#[cfg(any(test, feature = "iroha-core-tests"))]
-pub(crate) use iroha_core_zk::kagemusha_v1_test_fixtures;
 #[cfg(test)]
 mod network_payload_tests;
 #[cfg(test)]

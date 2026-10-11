@@ -320,10 +320,114 @@ async fn openapi_enforces_token_policy() {
     .expect("token accepted");
     assert_eq!(ok.status(), axum::http::StatusCode::OK);
 }
+/// Execute signed service deployment so status reads its original lifecycle audit.
+#[cfg(feature = "app_api")]
+fn soracloud_status_app_for_test(nexus: iroha_config::parameters::actual::Nexus) -> SharedAppState {
+    use iroha_data_model::soracloud::SoraServiceMutationPreconditionV1;
+    let fixture = seed_public_soracloud_world();
+    let mut bundle = fixture
+        .view()
+        .soracloud_service_revisions()
+        .get(&("web_portal".to_owned(), "2026.02.0".to_owned()))
+        .cloned()
+        .expect("original public service bundle");
+    bundle.service.container.manifest_hash = bundle.container_manifest_hash();
+    let mut config =
+        iroha_core::sumeragi::test_chain::TestChainConfig::new(World::default(), 1_000);
+    config.nexus = Some(iroha_config::parameters::actual::Nexus::default());
+    let authority = AccountId::new(config.genesis_key.public_key().clone());
+    config.genesis_instructions.push(
+        Grant::account_permission(
+            Permission::new(
+                "CanManageSoracloud".to_owned(),
+                iroha_primitives::json::Json::new(()),
+            ),
+            authority.clone(),
+        )
+        .into(),
+    );
+    let initial_service_configs = BTreeMap::new();
+    let initial_service_secrets = BTreeMap::new();
+    let precondition = SoraServiceMutationPreconditionV1::ServiceAbsent;
+    let payload = iroha_data_model::soracloud::encode_bundle_with_materials_provenance_payload(
+        &bundle,
+        &initial_service_configs,
+        &initial_service_secrets,
+        &precondition,
+    )
+    .expect("canonical signed deployment payload");
+    let provenance = iroha_data_model::smart_contract::manifest::ManifestProvenance {
+        signer: config.genesis_key.public_key().clone(),
+        signature: checked_torii_test_signature(
+            &config.genesis_key,
+            &payload,
+            "sign original service deployment",
+        ),
+    };
+    config.genesis_instructions.push(
+        iroha_data_model::isi::soracloud::DeploySoracloudService {
+            bundle,
+            initial_service_configs,
+            initial_service_secrets,
+            precondition,
+            provenance,
+        }
+        .into(),
+    );
+    let app = native_ingress_app_with_config_for_test(config);
+    let global_route =
+        super::lane_authority_route(RoutingDecision::new(LaneId::SINGLE, DataSpaceId::UNIVERSAL));
+    let original_global_authority = app
+        .state
+        .resolve_route_authority(global_route)
+        .expect("genuine service genesis committee before routing projection");
+    let original_audit_hash = {
+        let view = app.state.view();
+        HashOf::new(
+            view.world()
+                .soracloud_service_audit_events()
+                .get(&1)
+                .expect("original executed deployment audit"),
+        )
+    };
+    // Future/corrupt capacity catalogs are intentional routing projections, not
+    // startup, commit, recovery or native-proof fixtures. The canonical owner
+    // requires no committed runtime catalog and retains the genuine World.
+    app.state
+        .install_synthetic_routing_snapshot_for_testing(nexus);
+    assert_eq!(
+        app.state.resolve_route_authority(global_route).unwrap(),
+        original_global_authority
+    );
+    {
+        let view = app.state.view();
+        assert_eq!(view.height(), 1, "genuine signed deployment height");
+        let audit = view
+            .world()
+            .soracloud_service_audit_events()
+            .get(&1)
+            .expect("executed deployment lifecycle audit");
+        assert_eq!(
+            HashOf::new(audit),
+            original_audit_hash,
+            "routing projection cannot replace the executed lifecycle event"
+        );
+        audit
+            .validate()
+            .expect("original lifecycle audit is canonical");
+        assert_eq!(
+            audit.action,
+            iroha_data_model::soracloud::SoraServiceLifecycleActionV1::Deploy
+        );
+        assert_eq!(audit.signer, *authority.expect_single_signatory());
+        assert_eq!(audit.to_version, "2026.02.0");
+    }
+    app
+}
 #[tokio::test]
 #[cfg(feature = "app_api")]
 async fn soracloud_status_handler_returns_snapshot_sections() {
-    let mut app = mk_app_state_for_tests_with_world(seed_public_soracloud_world());
+    let mut app = soracloud_status_app_for_test(iroha_config::parameters::actual::Nexus::default());
     Arc::get_mut(&mut app)
         .expect("unique app state")
         .soracloud_runtime = Some(Arc::new(TestLocalReadRuntime::snapshot_only(
@@ -397,22 +501,7 @@ async fn soracloud_status_handler_returns_snapshot_sections() {
 async fn soracloud_status_routing_for_test(
     nexus: iroha_config::parameters::actual::Nexus,
 ) -> norito::json::Map {
-    let mut app = mk_app_state_for_tests_with_world(seed_public_soracloud_world());
-    {
-        let app_mut = Arc::get_mut(&mut app).expect("unique app state");
-        let state = Arc::get_mut(&mut app_mut.state).expect("unique state");
-        {
-            let mut current = state.nexus.write();
-            *current = nexus;
-        }
-        state.update_latest_block_header_cache_for_tests(BlockHeader::new(
-            NonZeroU64::new(1).expect("nonzero height"),
-            None,
-            None,
-            0,
-            0,
-        ));
-    }
+    let app = soracloud_status_app_for_test(nexus);
     let response = super::handler_soracloud_status(
         State(app),
         HeaderMap::new(),
@@ -706,7 +795,6 @@ fn soracloud_hosted_http_topology_section_excludes_inactive_validator() {
                 activation_height: 1,
                 election_exit_height: deactivation_height,
                 deactivation_height,
-                last_reward_epoch: None,
             },
         );
     }
@@ -1539,16 +1627,76 @@ async fn retired_storage_pin_route_cannot_mutate_chain_or_local_storage() {
     let storage = sorafs_node.storage().expect("enabled storage");
     assert_eq!(storage.manifest_count(), 0);
     assert_eq!(state.view().world().pin_manifests().len(), 0);
+    // Storage-enabled startup retains durable drain signers even though this
+    // retired HTTP route must never submit an instruction or mutate storage.
+    let native_signer = |role: SorafsNativeTransactionSignerRoleV1, seed| {
+        Arc::new(
+            crate::sorafs::native_transaction_signer::tests::TestProvider::new(
+                role,
+                format!("runtime://sorafs/retired-pin-router/{}", role.as_str()),
+                seed,
+            ),
+        )
+    };
+    let proof_signer = native_signer(SorafsNativeTransactionSignerRoleV1::ProofOutcome, 0x95);
+    let repair_signer = native_signer(SorafsNativeTransactionSignerRoleV1::Repair, 0x96);
+    let reserve_signer = native_signer(SorafsNativeTransactionSignerRoleV1::Reserve, 0x97);
+    let orderbook_signer = native_signer(SorafsNativeTransactionSignerRoleV1::Orderbook, 0x98);
+    let configured_signer =
+        |signer: &crate::sorafs::native_transaction_signer::tests::TestProvider| {
+            let binding = signer.expected_binding();
+            iroha_config::parameters::actual::SorafsNativeTransactionSignerBinding {
+                software_credential: None,
+                handle: binding.handle().to_owned(),
+                authority: binding.authority().clone(),
+                algorithm: binding.public_key().algorithm(),
+                public_key: binding.public_key().clone(),
+                revision: binding.qualification().revision(),
+                policy_digest: binding.qualification().policy_digest(),
+            }
+        };
     let runtime_deps = ToriiRuntimeDeps::new(
         crate::build_identity_test_fixture::build_identity(),
         routing::MaybeTelemetry::disabled(),
     )
-    .with_sorafs_node(sorafs_node);
-    let fixture = RuntimeApiRouterFixture::with_runtime(
+    .with_sorafs_proof_outcome_signer(proof_signer.clone())
+    .with_sorafs_repair_transaction_signer(repair_signer.clone())
+    .with_sorafs_reserve_transaction_signer(reserve_signer.clone())
+    .with_sorafs_orderbook_transaction_signer(orderbook_signer.clone())
+    .with_sorafs_node(sorafs_node.clone())
+    .with_sorafs_gateway_compliance_feed_transport(Arc::new(
+        crate::gateway_runtime_config_tests::TestComplianceFeedTransport,
+    ));
+    let fixture = RuntimeApiRouterFixture::with_configured_runtime(
         "sorafs-retired-storage-pin-router-test",
         kura,
         Arc::clone(&state),
         runtime_deps,
+        |cfg| {
+            let expected = sorafs_node.config();
+            cfg.torii.sorafs_storage.enabled = expected.enabled();
+            cfg.torii.sorafs_storage.data_dir = expected.data_dir().clone();
+            cfg.torii
+                .sorafs_storage
+                .native_transaction_signers
+                .proof_outcome = Some(configured_signer(&proof_signer));
+            cfg.torii.sorafs_storage.native_transaction_signers.repair =
+                Some(configured_signer(&repair_signer));
+            cfg.torii.sorafs_storage.native_transaction_signers.reserve =
+                Some(configured_signer(&reserve_signer));
+            cfg.torii
+                .sorafs_storage
+                .native_transaction_signers
+                .orderbook = Some(configured_signer(&orderbook_signer));
+            cfg.torii.sorafs_gateway.compliance =
+                Some(crate::gateway_runtime_config_tests::compliance_config(
+                    storage_dir
+                        .path()
+                        .canonicalize()
+                        .expect("canonical storage fixture root")
+                        .join("compliance.norito"),
+                ));
+        },
     );
     let mut request = Request::builder()
         .method(Method::POST)

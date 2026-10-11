@@ -3,6 +3,10 @@
 *.ndjson text eol=lf
 
 # Byte-exact extracted fixtures preserve their source payload whitespace.
+fixtures/kotodama/compact_emission/*.ko -whitespace
+fixtures/kotodama/frame_emission/*.ko -whitespace
+fixtures/kotodama/local_emission/*.ko -whitespace
+fixtures/kotodama/private_single_use/*.ko -whitespace
 crates/ivm/src/assets/text_v1/** -whitespace
 crates/ivm/fixtures/koto_v1/** -whitespace
 crates/kotodama_toolchain/fixtures/koto_v1/** -whitespace

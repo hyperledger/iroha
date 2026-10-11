@@ -47,6 +47,7 @@ pub use small::SmallPrivateKey as BlsSmallPrivateKey;
 pub use small::SmallPublicKey as BlsSmallPublicKey;
 pub(crate) mod aggregate_custody;
 pub(crate) mod canonical;
+pub mod consensus;
 #[cfg(test)]
 mod consolidation_tests;
 mod ethereum;

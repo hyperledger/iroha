@@ -1,7 +1,7 @@
 
-seiyaku CompilerFixture {
+seiyaku CompilerFixture { permission DebugContract;
 
-kotoage fn inspect() -> int authorize("DebugContract") {
+kotoage fn inspect() authorize(DebugContract) -> int {
   debug::info("ready");
   debug::info(42);
   return 1;

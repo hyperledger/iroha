@@ -74,12 +74,18 @@ fn erased_missing_children_and_malformed_flat_shapes_reject_on_decode() {
         vec![Node::Tuple(u32::MAX)],
         vec![Node::Tuple(1), Node::Unit],
         vec![Node::List { capacity: 0 }, Node::Unit],
-        vec![Node::StateCursor(EntrypointValueKindV1::Json)],
+        vec![Node::StateCursor(
+            crate::entrypoint::EntrypointValueTypeV1 {
+                nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                    EntrypointValueKindV1::Json,
+                )],
+            },
+        )],
         vec![Node::Pointer(PointerType::Int as u16)],
         vec![Node::SecretNumeric(PointerType::Blob as u16)],
         vec![
             Node::Struct {
-                name: "Point".into(),
+                name: "Fixture::Point".into(),
                 fields: vec!["x".into(), "x".into()],
             },
             Node::Unit,
@@ -128,14 +134,14 @@ fn wide_nominal_products_reject_duplicate_fields_across_validation_batches() {
         .map(|index| format!("f{index}"))
         .collect::<Vec<_>>();
     let mut nodes = vec![CallTypeNodeV1::Struct {
-        name: "Wide".into(),
+        name: "Fixture::Wide".into(),
         fields: fields.clone(),
     }];
     nodes.extend(std::iter::repeat_n(CallTypeNodeV1::Unit, fields.len()));
     assert_eq!(schema(nodes.clone()).word_count(), Some(4096));
     fields[4095] = fields[0].clone();
     nodes[0] = CallTypeNodeV1::Struct {
-        name: "Wide".into(),
+        name: "Fixture::Wide".into(),
         fields,
     };
     assert!(schema(nodes).analyze().is_none());
@@ -166,12 +172,16 @@ fn public_conversion_preserves_complete_nominal_and_nested_schema() {
     let public = EntrypointValueTypeV1 {
         nodes: vec![
             Public::Struct(EntrypointStructTypeNodeV1 {
-                name: "Payload".into(),
+                name: "Fixture::Payload".into(),
                 fields: vec!["values".into(), "failure".into()],
             }),
             Public::List(EntrypointListTypeNodeV1 { capacity: 4 }),
             Public::Option,
-            Public::StateCursor(EntrypointValueKindV1::Int),
+            Public::StateCursor(crate::entrypoint::EntrypointValueTypeV1 {
+                nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                    EntrypointValueKindV1::Int,
+                )],
+            }),
             Public::Error(crate::error_types::list_error_type()),
         ],
     };
@@ -199,7 +209,11 @@ fn public_conversion_preserves_complete_nominal_and_nested_schema() {
         match &mut changed.nodes[index] {
             CallTypeNodeV1::Struct { name, .. } => *name = "Different".into(),
             CallTypeNodeV1::List { capacity } => *capacity = 5,
-            CallTypeNodeV1::StateCursor(key) => *key = EntrypointValueKindV1::Bool,
+            CallTypeNodeV1::StateCursor(key) => {
+                *key = EntrypointValueTypeV1 {
+                    nodes: vec![EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Bool)],
+                }
+            }
             CallTypeNodeV1::Error(error) => error.identity = "kotodama::OtherError".into(),
             _ => unreachable!(),
         }
@@ -218,13 +232,13 @@ fn public_conversion_preserves_complete_nominal_and_nested_schema() {
 fn private_reserved_nominal_types_require_the_same_complete_shapes_as_public_types() {
     use CallTypeNodeV1 as Node;
     for name in [
-        "StatePage",
-        "QueryPage",
-        "AccountView",
-        "AssetView",
-        "AssetDefinitionView",
-        "DomainView",
-        "NftView",
+        "kotodama::StatePage",
+        "kotodama::QueryPage",
+        "kotodama::AccountView",
+        "kotodama::AssetView",
+        "kotodama::AssetDefinitionView",
+        "kotodama::DomainView",
+        "kotodama::NftView",
     ] {
         let invalid = schema(vec![
             Node::Struct {
@@ -241,12 +255,12 @@ fn private_reserved_nominal_types_require_the_same_complete_shapes_as_public_typ
     }
     let page = schema(vec![
         Node::Struct {
-            name: "QueryPage".into(),
+            name: "kotodama::QueryPage".into(),
             fields: vec!["items".into(), "next_offset".into()],
         },
         Node::List { capacity: 64 },
         Node::Struct {
-            name: "AccountView".into(),
+            name: "kotodama::AccountView".into(),
             fields: vec!["id".into(), "metadata".into()],
         },
         Node::Leaf(EntrypointValueKindV1::AccountId),
@@ -271,14 +285,14 @@ fn private_state_pages_allow_large_values_without_relaxing_public_schema_limits(
     use CallTypeNodeV1 as Node;
     let mut nodes = vec![
         Node::Struct {
-            name: "StatePage".into(),
+            name: "kotodama::StatePage".into(),
             fields: vec!["items".into(), "next".into()],
         },
         Node::List { capacity: 2 },
         Node::Tuple(2),
         Node::Leaf(EntrypointValueKindV1::Int),
         Node::Struct {
-            name: "Wide".into(),
+            name: "Fixture::Wide".into(),
             fields: (0..512).map(|index| format!("f{index}")).collect(),
         },
     ];
@@ -287,7 +301,13 @@ fn private_state_pages_allow_large_values_without_relaxing_public_schema_limits(
         512,
     ));
     nodes.push(Node::Option);
-    nodes.push(Node::StateCursor(EntrypointValueKindV1::Int));
+    nodes.push(Node::StateCursor(
+        crate::entrypoint::EntrypointValueTypeV1 {
+            nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                EntrypointValueKindV1::Int,
+            )],
+        },
+    ));
     let page = schema(nodes);
     assert_eq!(page.word_count(), Some(2));
     let mut layouts = vec![CallNodeLayoutV1::default(); page.nodes.len()];
@@ -298,7 +318,12 @@ fn private_state_pages_allow_large_values_without_relaxing_public_schema_limits(
         page
     );
     let mut mismatched = page.clone();
-    *mismatched.nodes.last_mut().unwrap() = Node::StateCursor(EntrypointValueKindV1::Bool);
+    *mismatched.nodes.last_mut().unwrap() =
+        Node::StateCursor(crate::entrypoint::EntrypointValueTypeV1 {
+            nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                EntrypointValueKindV1::Bool,
+            )],
+        });
     assert!(mismatched.analyze().is_none());
     let mut wrong_key = page;
     wrong_key.nodes[3] = Node::Leaf(EntrypointValueKindV1::Json);

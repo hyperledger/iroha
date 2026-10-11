@@ -842,7 +842,6 @@ fn frozen_global_binding_allows_requests_but_rejects_tenure_or_peer_rewrites() {
         activation_height: 1,
         election_exit_height: None,
         deactivation_height: None,
-        last_reward_epoch: None,
     };
     let key = (LaneId::SINGLE, validator);
     stx.world
@@ -887,7 +886,6 @@ fn requested_exit_excludes_future_elections_without_ending_voting_or_slashing_te
         activation_height: 1,
         election_exit_height: None,
         deactivation_height: None,
-        last_reward_epoch: None,
     };
     schedule_validator_deactivation(&mut record, 13, true).unwrap();
     assert!(validator_election_eligible_at_height(&record, 12));

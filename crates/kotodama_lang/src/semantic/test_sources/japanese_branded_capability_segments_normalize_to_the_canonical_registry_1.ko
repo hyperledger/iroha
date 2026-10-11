@@ -1,10 +1,10 @@
 
-            seiyaku BrandedCapabilities {
-                kotoage fn inspect() authorize("Inspect") {
+            seiyaku BrandedCapabilities { permission Inspect;
+                kotoage fn inspect() authorize(Inspect) {
                     let _selector = context::言挙げ();
-                    ledger::誓約::grant_kotoage(
+                    ledger::誓約::grant_permission(
                         account: context::authority(),
-                        言挙げ: "inspect",
+                        permission: Inspect,
                     );
                 }
             }

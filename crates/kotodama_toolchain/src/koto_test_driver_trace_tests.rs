@@ -28,6 +28,7 @@ fn host() -> KotoTestHost {
         ),
         None,
         HashMap::new(),
+        std::sync::Arc::new(crate::koto_test_driver::SourceContext::empty("Trace")),
     )
 }
 
@@ -116,25 +117,24 @@ fn refused_nested_capture_keeps_original_report_and_retries_in_same_pool() {
 }
 
 #[test]
-fn report_keeps_root_before_nested_rows_and_outlives_both_vms() {
+fn report_keeps_root_and_nested_rows_apart_and_outlives_both_vms() {
     for mode in [TraceMode::PcOnly, TraceMode::DeltaRegisters] {
         let budget = AllocationBudget::new(LIMIT);
         let root = traced_vm(&budget, mode, 11);
         let nested = traced_vm(&budget, mode, 22);
         let mut host = host();
         host.record_nested_trace(&nested).unwrap();
-        let report = capture_report(&root, host.supplemental_trace.as_ref())
-            .unwrap()
-            .unwrap();
+        let report = capture_report(&root, host.supplemental_trace.as_ref()).unwrap();
+        let harness = report.harness.as_ref().unwrap();
+        let runtime = report.runtime.as_ref().unwrap();
         if mode == TraceMode::PcOnly {
-            assert_eq!(
-                report.pcs(),
-                [root.trace_pcs(), nested.trace_pcs()].concat()
-            );
-            assert_eq!(report.delta_len(), 0);
+            assert_eq!(harness.pcs(), root.trace_pcs());
+            assert_eq!(runtime.pcs(), nested.trace_pcs());
+            assert_eq!(harness.delta_len() + runtime.delta_len(), 0);
         } else {
-            assert_eq!(values(&report), vec![11, 22]);
-            assert!(report.pcs().is_empty());
+            assert_eq!(values(harness), vec![11]);
+            assert_eq!(values(runtime), vec![22]);
+            assert!(harness.pcs().is_empty());
         }
         drop((root, nested, host));
         assert!(budget.reserved_bytes() > 0);
@@ -152,7 +152,8 @@ fn trace_off_needs_no_capture_allocation_under_exhausted_pool() {
     budget.set_limit_bytes(retained);
     host.record_nested_trace(&vm).unwrap();
     assert!(host.supplemental_trace.is_none());
-    assert!(capture_report(&vm, None).unwrap().is_none());
+    let report = capture_report(&vm, None).unwrap();
+    assert!(report.harness.is_none() && report.runtime.is_none());
     assert_eq!(budget.reserved_bytes(), retained);
     drop((vm, host));
     assert_eq!(budget.reserved_bytes(), 0);

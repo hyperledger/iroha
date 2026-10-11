@@ -34,7 +34,7 @@ pub const POP_REVOCATION_TREE_DEPTH_V1: u8 = 128;
 pub const POP_MEMBERSHIP_CONTEXT_MAX_BYTES_V1: usize = 256;
 /// Maximum number of replay-cache nullifiers accepted by the slice API.
 pub const POP_MEMBERSHIP_SEEN_NULLIFIERS_MAX_V1: usize = 65_536;
-/// Maximum serialized Halo2 transcript accepted by the verifier.
+/// Maximum serialized PIPA-R transcript accepted by the verifier.
 pub const POP_MEMBERSHIP_PROOF_MAX_BYTES_V1: usize = 128 * 1024;
 /// Maximum number of explicit revocations in one signed V1 snapshot.
 pub const POP_REVOCATION_ENTRIES_MAX_V1: usize = 4_096;
@@ -110,8 +110,8 @@ pub enum PopSignatureAlgorithmV1 {
 )]
 #[norito(tag = "proof_system", content = "value", rename_all = "snake_case")]
 pub enum PopMembershipProofSystemV1 {
-    /// Halo2 over the Pasta cycle with transparent IPA polynomial commitments.
-    Halo2IpaPastaV1,
+    /// Native PIPA-R over the Pasta cycle with transparent IPA commitments.
+    NativePipaRV1,
 }
 /// Credential attribute commitment.
 #[derive(norito::NoritoSchema)]
@@ -679,7 +679,7 @@ impl PopRenewalRequestV1 {
 pub struct PopMembershipVerifierMaterialV1 {
     /// Stable circuit identifier.
     pub circuit_id: String,
-    /// Halo2 domain exponent.
+    /// PIPA-R domain exponent.
     pub circuit_k: u32,
     /// Credential membership-tree depth compiled into the circuit.
     pub credential_tree_depth: u8,
@@ -701,7 +701,7 @@ impl PopMembershipVerifierMaterialV1 {
         }
         if self.circuit_k != zk::POP_MEMBERSHIP_CIRCUIT_K_V1 {
             return Err(PopCredentialValidationError::InvalidVerifierMaterial {
-                reason: "unexpected Halo2 circuit exponent".to_owned(),
+                reason: "unexpected PIPA-R circuit exponent".to_owned(),
             });
         }
         if self.credential_tree_depth != POP_CREDENTIAL_TREE_DEPTH_V1
@@ -718,7 +718,7 @@ impl PopMembershipVerifierMaterialV1 {
 /// Membership proof presented by a juror client for a verifier challenge.
 ///
 /// Credential identifiers, holder commitments, revocation nonces, and Merkle
-/// paths are deliberately absent. They exist only as Halo2 private witnesses.
+/// paths are deliberately absent. They exist only as PIPA-R private witnesses.
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "sorafs_manifest::pop_credentials::PopMembershipProofV1")]
 #[derive(
@@ -750,7 +750,7 @@ pub struct PopMembershipProofV1 {
     pub proof_system: PopMembershipProofSystemV1,
     /// Pinned transparent parameters and verifying-key fingerprints.
     pub verifier_material: PopMembershipVerifierMaterialV1,
-    /// Raw Halo2/IPA proof transcript.
+    /// Raw native PIPA-R proof transcript.
     pub proof_bytes: Vec<u8>,
     /// Credential expiry proven by the hidden leaf.
     pub expires_at_epoch: u64,
@@ -1569,13 +1569,13 @@ pub enum PopCredentialValidationError {
     /// Caller supplied too many replay-cache entries to the slice verifier.
     #[error("membership proof replay-cache input exceeds the bounded slice API")]
     ReplayCacheLimitExceeded,
-    /// Pinned Halo2 parameters or verifying-key material is invalid.
+    /// Pinned PIPA-R parameters or verifying-key material is invalid.
     #[error("invalid PoP membership verifier material: {reason}")]
     InvalidVerifierMaterial { reason: String },
-    /// Halo2 proving or deterministic material construction failed.
+    /// PIPA-R proving or deterministic material construction failed.
     #[error("PoP membership proof backend failed: {reason}")]
     ProofBackend { reason: String },
-    /// Halo2/IPA cryptographic verification failed.
+    /// native PIPA-R cryptographic verification failed.
     #[error("invalid PoP membership proof: {reason}")]
     InvalidMembershipProof { reason: String },
     /// Expected challenge does not match the proof statement.
@@ -2477,7 +2477,7 @@ mod tests {
                 ),
                 Err(PopCredentialValidationError::InvalidMembershipProof { .. })
             ),
-            "the Halo2 statement must bind the recipient even after envelope substitution"
+            "the PIPA-R statement must bind the recipient even after envelope substitution"
         );
         retargeted.presentation_binding_digest = [0; 32];
         assert!(matches!(
@@ -2932,7 +2932,7 @@ mod tests {
         }
     }
     #[test]
-    fn public_input_reordering_is_rejected_by_halo2_transcript() {
+    fn public_input_reordering_is_rejected_by_pipa_r_transcript() {
         let fixture = fixture();
         assert!(matches!(
             zk::verify_with_reordered_public_inputs_for_test(&fixture.proof),

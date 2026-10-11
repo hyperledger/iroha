@@ -13,7 +13,7 @@ class ConfidentialProverNativeTests {
         assertEquals(1, ConfidentialProverNative.revision())
         val proof = ConfidentialRedemptionExample.generateLocalProof()
         assertEquals(ConfidentialProof.Relation.FULL_REDEMPTION, proof.relation)
-        assertEquals("halo2/ipa", proof.backend)
+        assertEquals("pipa-r/pasta", proof.backend)
         assertTrue(proof.proof.isNotEmpty())
         assertEquals(1, proof.nullifiers.size)
         assertTrue(proof.outputCommitments.isEmpty())

@@ -6,6 +6,67 @@ use iroha_data_model::transaction::FeePaymentIntent;
 use std::sync::{Arc, atomic::AtomicBool};
 use std::{collections::BTreeMap, io, time::Duration};
 
+/// A test may delay exactly one successfully completed read stage, never its result or clock.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ReadStage {
+    OriginalInventory,
+    OriginalEncoding,
+    AuthorizationCensus,
+    AuthorizationIssued,
+    RecoveryCensus,
+}
+
+type ReadHook = (ReadStage, Box<dyn FnOnce()>);
+std::thread_local! {
+    static READ_HOOK: std::cell::RefCell<Option<ReadHook>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Execute a one-shot observation only after the production read has actually succeeded.
+pub(super) fn after_read(stage: ReadStage) {
+    let hook = READ_HOOK.with(|pending| {
+        let mut pending = pending.borrow_mut();
+        if pending
+            .as_ref()
+            .is_some_and(|(selected, _)| *selected == stage)
+        {
+            pending.take()
+        } else {
+            None
+        }
+    });
+    if let Some((_, action)) = hook {
+        action();
+    }
+}
+
+struct ReadHookGuard;
+impl ReadHookGuard {
+    fn install(stage: ReadStage, action: impl FnOnce() + 'static) -> Self {
+        READ_HOOK.with(|pending| {
+            assert!(pending.borrow().is_none());
+            *pending.borrow_mut() = Some((stage, Box::new(action)));
+        });
+        Self
+    }
+    fn assert_consumed(&self) {
+        READ_HOOK.with(|pending| assert!(pending.borrow().is_none()));
+    }
+}
+impl Drop for ReadHookGuard {
+    fn drop(&mut self) {
+        READ_HOOK.with(|pending| drop(pending.borrow_mut().take()));
+    }
+}
+
+fn wait_past(deadline: Instant) {
+    assert!(
+        Instant::now() < deadline,
+        "the real read completed inside its entry budget"
+    );
+    std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+    assert!(Instant::now() >= deadline);
+}
+
 fn fixture(name: &str) -> (tempfile::TempDir, PreparedLocalnet) {
     let temporary = tempfile::tempdir().unwrap();
     let ports = crate::managed::LocalnetPorts::reserve().unwrap();
@@ -39,6 +100,255 @@ fn retain(owner: &ManagedServiceBootstrap, original: &Original) -> PrivateDirect
         )
         .unwrap();
     directory
+}
+
+#[test]
+fn bootstrap_recovery_rejects_a_deadline_crossed_after_successful_census() {
+    let _guard = crate::managed::native_test_guard();
+    let (_temporary, prepared) = fixture("bootstrap-late-recovery");
+    let mut owner = ManagedServiceBootstrap::open(&prepared).unwrap();
+    let original =
+        Original::select(&owner.authority, Fees::from_options(&options()).unwrap()).unwrap();
+    let directory = retain(&owner, &original);
+    let bytes = directory.read("original.nrt", MAX_ORIGINAL_BYTES).unwrap();
+    let names = directory.entries(2).unwrap();
+    let lock_identity = iroha_fs::FileIdentity::of(&owner.authority._lock).unwrap();
+    let peers = UnavailablePeers::start(&prepared);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let hook = ReadHookGuard::install(ReadStage::RecoveryCensus, move || wait_past(deadline));
+    assert!(matches!(
+        owner.recover(deadline),
+        Err(crate::managed::Error::NativeDeadline)
+    ));
+    hook.assert_consumed();
+    drop(hook);
+    assert_eq!(directory.entries(2).unwrap(), names);
+    assert_eq!(
+        directory.read("original.nrt", MAX_ORIGINAL_BYTES).unwrap(),
+        bytes
+    );
+    assert_eq!(
+        iroha_fs::FileIdentity::of(&owner.authority._lock).unwrap(),
+        lock_identity
+    );
+    assert!(peers.requests.lock().unwrap().is_empty());
+    assert!(matches!(
+        owner.recover(options().deadline).unwrap(),
+        ServiceBootstrapProgress::Pending {
+            step: ServiceBootstrapStep::ReservePolicy,
+            status: OperationStatus::Absent,
+        }
+    ));
+    assert_eq!(directory.entries(2).unwrap(), names);
+    assert_eq!(
+        directory.read("original.nrt", MAX_ORIGINAL_BYTES).unwrap(),
+        bytes
+    );
+    assert!(peers.requests.lock().unwrap().is_empty());
+}
+
+#[test]
+fn bootstrap_startup_rechecks_budget_before_original_publication_and_census_return() {
+    use std::sync::atomic::Ordering;
+
+    let _guard = crate::managed::native_test_guard();
+    let (_temporary, prepared) = fixture("bootstrap-late-publication");
+    let mut owner = ManagedServiceBootstrap::open(&prepared).unwrap();
+    let peers = UnavailablePeers::start(&prepared);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let hook = ReadHookGuard::install(ReadStage::OriginalInventory, move || wait_past(deadline));
+    assert!(matches!(
+        owner.authorize_generated_startup(deadline, Arc::clone(&cancelled)),
+        Err(crate::managed::Error::NativeDeadline)
+    ));
+    hook.assert_consumed();
+    drop(hook);
+    assert!(
+        owner
+            .authority
+            .directory
+            .open_child_optional("initial")
+            .unwrap()
+            .is_none()
+    );
+    assert!(peers.requests.lock().unwrap().is_empty());
+
+    // Encoding may finish after cancellation. An admitted empty directory does not authorize a write.
+    let cancellation = Arc::clone(&cancelled);
+    let hook = ReadHookGuard::install(ReadStage::OriginalEncoding, move || {
+        cancellation.store(true, Ordering::Release)
+    });
+    assert!(matches!(
+        owner.authorize_generated_startup(options().deadline, Arc::clone(&cancelled)),
+        Err(crate::managed::Error::Bootstrap(
+            crate::managed::ManagedBootstrapFailure::Cancelled
+        ))
+    ));
+    hook.assert_consumed();
+    drop(hook);
+    let directory = owner.authority.directory.open_child("initial").unwrap();
+    require_empty(&directory).unwrap();
+    cancelled.store(false, Ordering::Release);
+
+    // The actual pending graph/census may succeed before cancellation, but no epoch may follow it.
+    let cancellation = Arc::clone(&cancelled);
+    let hook = ReadHookGuard::install(ReadStage::AuthorizationCensus, move || {
+        cancellation.store(true, Ordering::Release)
+    });
+    assert!(matches!(
+        owner.authorize_generated_startup(options().deadline, Arc::clone(&cancelled)),
+        Err(crate::managed::Error::Bootstrap(
+            crate::managed::ManagedBootstrapFailure::Cancelled
+        ))
+    ));
+    hook.assert_consumed();
+    drop(hook);
+    let retained = directory.read("original.nrt", MAX_ORIGINAL_BYTES).unwrap();
+    assert_eq!(
+        directory.entries(2).unwrap(),
+        vec![std::ffi::OsString::from("original.nrt")]
+    );
+    assert!(peers.requests.lock().unwrap().is_empty());
+    cancelled.store(false, Ordering::Release);
+    let authorization = owner
+        .authorize_generated_startup(options().deadline, Arc::clone(&cancelled))
+        .unwrap()
+        .unwrap();
+    assert_eq!(authorization.test_ordinal(), 1);
+    assert_eq!(
+        directory.read("original.nrt", MAX_ORIGINAL_BYTES).unwrap(),
+        retained
+    );
+    assert!(peers.requests.lock().unwrap().is_empty());
+}
+
+#[test]
+fn bootstrap_startup_closes_late_or_cancelled_issued_authorization_without_rewriting_epochs() {
+    use std::{cell::RefCell, rc::Rc, sync::atomic::Ordering};
+
+    let _guard = crate::managed::native_test_guard();
+    let (_temporary, prepared) = fixture("bootstrap-late-issuance");
+    let mut owner = ManagedServiceBootstrap::open(&prepared).unwrap();
+    let peers = UnavailablePeers::start(&prepared);
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let observed = Rc::new(RefCell::new(None));
+    let parent = owner.authority.directory.retain().unwrap();
+    let captured = Rc::clone(&observed);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let hook = ReadHookGuard::install(ReadStage::AuthorizationIssued, move || {
+        let directory = parent.open_child("initial").unwrap();
+        let epochs = directory.open_child("epochs").unwrap();
+        *captured.borrow_mut() = Some((
+            directory
+                .read("original.nrt", MAX_ORIGINAL_BYTES)
+                .unwrap()
+                .to_vec(),
+            epochs.read("0001.nrt", 64 * 1024).unwrap().to_vec(),
+        ));
+        wait_past(deadline);
+    });
+    assert!(matches!(
+        owner.authorize_generated_startup(deadline, Arc::clone(&cancelled)),
+        Err(crate::managed::Error::Bootstrap(
+            crate::managed::ManagedBootstrapFailure::AuthorizationExpired
+        ))
+    ));
+    hook.assert_consumed();
+    drop(hook);
+    let (original, first_epoch) = observed.borrow_mut().take().unwrap();
+    let directory = owner.authority.directory.open_child("initial").unwrap();
+    let epochs = directory.open_child("epochs").unwrap();
+    assert_eq!(
+        directory
+            .read("original.nrt", MAX_ORIGINAL_BYTES)
+            .unwrap()
+            .as_slice(),
+        original
+    );
+    assert_eq!(
+        epochs.read("0001.nrt", 64 * 1024).unwrap().as_slice(),
+        first_epoch
+    );
+    assert_eq!(
+        epochs.entries(128).unwrap(),
+        vec![std::ffi::OsString::from("0001.nrt")]
+    );
+    assert!(peers.requests.lock().unwrap().is_empty());
+
+    let parent = owner.authority.directory.retain().unwrap();
+    let captured = Rc::clone(&observed);
+    let cancellation = Arc::clone(&cancelled);
+    let hook = ReadHookGuard::install(ReadStage::AuthorizationIssued, move || {
+        let directory = parent.open_child("initial").unwrap();
+        *captured.borrow_mut() = Some((
+            directory
+                .read("original.nrt", MAX_ORIGINAL_BYTES)
+                .unwrap()
+                .to_vec(),
+            directory
+                .open_child("epochs")
+                .unwrap()
+                .read("0002.nrt", 64 * 1024)
+                .unwrap()
+                .to_vec(),
+        ));
+        cancellation.store(true, Ordering::Release);
+    });
+    assert!(matches!(
+        owner.authorize_generated_startup(options().deadline, Arc::clone(&cancelled)),
+        Err(crate::managed::Error::Bootstrap(
+            crate::managed::ManagedBootstrapFailure::Cancelled
+        ))
+    ));
+    hook.assert_consumed();
+    drop(hook);
+    let (same_original, second_epoch) = observed.borrow_mut().take().unwrap();
+    assert_eq!(same_original, original);
+    assert_eq!(
+        directory
+            .read("original.nrt", MAX_ORIGINAL_BYTES)
+            .unwrap()
+            .as_slice(),
+        original
+    );
+    assert_eq!(
+        epochs.read("0001.nrt", 64 * 1024).unwrap().as_slice(),
+        first_epoch
+    );
+    assert_eq!(
+        epochs.read("0002.nrt", 64 * 1024).unwrap().as_slice(),
+        second_epoch
+    );
+    assert_eq!(
+        epochs.entries(128).unwrap(),
+        vec![
+            std::ffi::OsString::from("0001.nrt"),
+            std::ffi::OsString::from("0002.nrt"),
+        ]
+    );
+    cancelled.store(false, Ordering::Release);
+    let authorization = owner
+        .authorize_generated_startup(options().deadline, Arc::clone(&cancelled))
+        .unwrap()
+        .unwrap();
+    assert_eq!(authorization.test_ordinal(), 3);
+    assert_eq!(
+        directory
+            .read("original.nrt", MAX_ORIGINAL_BYTES)
+            .unwrap()
+            .as_slice(),
+        original
+    );
+    assert_eq!(
+        epochs.read("0001.nrt", 64 * 1024).unwrap().as_slice(),
+        first_epoch
+    );
+    assert_eq!(
+        epochs.read("0002.nrt", 64 * 1024).unwrap().as_slice(),
+        second_epoch
+    );
+    assert!(peers.requests.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -520,5 +830,55 @@ fn aggregate_original_pins_each_scope_interval_and_fee_terms_without_changing_se
             .unwrap()
             .as_slice(),
         retained
+    );
+}
+
+#[test]
+fn completed_funding_projection_rejects_unfinished_reports_and_keeps_absent_pair() {
+    for step in [
+        super::super::provider_funding::FundingStep::Request,
+        super::super::provider_funding::FundingStep::Approval,
+        super::super::provider_funding::FundingStep::Credit,
+        super::super::provider_funding::FundingStep::Capacity,
+    ] {
+        let error = CompletedFunding::from_progress(ProviderFundingProgress::Unprepared {
+            step,
+            status: OperationStatus::Absent,
+        })
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("bootstrap funding history is not complete")
+        );
+    }
+    // Shape-only metadata, never passed to a native owner or used to mint completion.
+    let credit = ManagedTransactionFinality {
+        transaction_hash: iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(
+            b"completed funding shape credit",
+        )),
+        block_hash: iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(
+            b"completed funding shape block",
+        )),
+        height: 3,
+        block_time_ms: 100,
+    };
+    let capacity = ManagedTransactionFinality {
+        height: 4,
+        ..credit
+    };
+    let completed = CompletedFunding::from_progress(ProviderFundingProgress::Complete {
+        request: None,
+        approval: None,
+        credit,
+        capacity,
+    })
+    .unwrap();
+    assert!(completed.request.is_none());
+    assert!(completed.approval.is_none());
+    assert_eq!(completed.credit, credit);
+    assert_eq!(completed.capacity, capacity);
+    assert!(
+        std::mem::size_of::<CompletedFunding>() < std::mem::size_of::<ProviderFundingProgress>()
     );
 }

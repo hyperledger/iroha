@@ -1,7 +1,8 @@
 //! Oracles of §13.2, checked after every event of every honest replica: O-AGR, O-VAL, O-SIGN
 //! (in the provenance log at signing time), O-PBS (at the first exposure of every own
 //! signature), O-CERT (every certificate a core holds or commits on), O-LIVE, O-PERF (P1–P6),
-//! O-MEM, O-HALT, O-EVID, O-FAULT, O-TXP, O-CQ and O-ATT (commit attestation, §3.7).
+//! O-MEM, O-HALT, O-EVID, O-FAULT, O-TXP, O-CQ and O-TIME
+//! (the certified-time bound of the application clock guard, §4.5, in `world::clock_guard`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -15,17 +16,33 @@ use super::{
 use crate::{
     api::{Action, CoreStatus, ExecOutcome, LocalFault, LocalParams},
     availability::AvailableBody,
-    crypto::{Crypto, Signer, verify_attestations, verify_vote_attestation},
+    crypto::{Crypto, Signer},
     message::{BlockHeader, Evidence, Proposal, Qc, TimeoutCert, VoteKind, WireMessage},
     pacemaker::{
         PHI_DEN, PHI_NUM, ceil_log2, effective_t_max, level_cap, propose_allowance, view_timeout,
     },
     preimage::{self, KIND_COMMIT, KIND_ECHO, KIND_PREPARE, KIND_PROPOSAL, KIND_TIMEOUT},
     safety::SafetyRecord,
-    testing::{FakeVerifier, fake_sig},
+    testing::fake_sig,
     topology::Topology,
     types::{Bitmap, ChainParams, Hash32, Millis, PublicKey},
 };
+
+#[cfg(test)]
+std::thread_local! {
+    static HELD_CERTIFICATE_COPIES: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+// Count the actual held-certificate copies in tests without changing the oracle's verdicts.
+fn clone_held_certificate<T: Clone>(certificate: &T) -> T {
+    #[cfg(test)]
+    HELD_CERTIFICATE_COPIES.with(|copies| {
+        if let Some(count) = copies.get() {
+            copies.set(Some(count + 1));
+        }
+    });
+    certificate.clone()
+}
 
 /// A committed block of the reference chain.
 #[derive(Clone, Debug)]
@@ -256,7 +273,6 @@ pub fn build_chain(
             proposer: topo.leader(0),
             skipped_leaders: Vec::new(),
             // The application flags no plain payload, at an epoch boundary or elsewhere.
-            attest: false,
         };
         let author = signers
             .iter()
@@ -270,7 +286,6 @@ pub fn build_chain(
             crypto,
             author,
         );
-        let header = block.header();
         let bh = block.hash(crypto);
         let ExecOutcome::Valid(result) = reference_exec(&parent_result, &payload) else {
             break;
@@ -283,7 +298,6 @@ pub fn build_chain(
             0,
             &bh,
             &result,
-            header.attest,
         );
         let mut indices = Vec::new();
         let mut sigs = Vec::new();
@@ -304,11 +318,7 @@ pub fn build_chain(
             committee.q(),
             "prebuilt history needs a complete quorum"
         );
-        let statement = preimage::att_preimage(&inst.id, &header.epoch, h, &bh, &result);
         let qc = Qc {
-            attestation_witness: header
-                .attest
-                .then(|| crate::message::ResultWitness::from_untrusted(statement.clone()).unwrap()),
             epoch: inst.config(h).epoch.id,
             kind: VoteKind::Commit,
             instance: inst.id,
@@ -319,22 +329,6 @@ pub fn build_chain(
             signers: Bitmap::from_indices(committee.n(), indices.iter().copied())
                 .unwrap_or_else(|| Bitmap::new(committee.n())),
             agg_sig: aggregate(&sigs),
-            attest: header.attest,
-            attestations: if header.attest {
-                indices
-                    .iter()
-                    .map(|index| {
-                        crate::testing::fake_attestation(
-                            committee.get(*index).unwrap(),
-                            h,
-                            &statement,
-                        )
-                        .signature
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            },
         };
         chain.push((block, qc));
         parent_hash = bh;
@@ -561,14 +555,20 @@ impl World {
                 return self.fail(format!("O-MEM: replica {r} host queues: {excess}"));
             }
         }
-        let lock = core.lock().cloned();
-        let tc = core.highest_tc().cloned();
-        let cqc = core.committed_qc().cloned();
         let inst = self.replicas[r].inst;
         let obs = &self.oracle.reps[r];
-        let new_lock = lock.filter(|q| obs.checked_lock.as_ref() != Some(q));
-        let new_tc = tc.filter(|t| obs.checked_tc.as_ref() != Some(t));
-        let new_cqc = cqc.filter(|q| obs.checked_cqc.as_ref() != Some(q));
+        let new_lock = core
+            .lock()
+            .filter(|q| obs.checked_lock.as_ref() != Some(*q))
+            .map(clone_held_certificate);
+        let new_tc = core
+            .highest_tc()
+            .filter(|t| obs.checked_tc.as_ref() != Some(*t))
+            .map(clone_held_certificate);
+        let new_cqc = core
+            .committed_qc()
+            .filter(|q| obs.checked_cqc.as_ref() != Some(*q))
+            .map(clone_held_certificate);
         if let Some(q) = &new_lock {
             if let Err(e) = self.cert_qc(inst, q) {
                 return self.fail(format!("O-CERT: replica {r} holds lock {e}"));
@@ -1012,9 +1012,6 @@ impl World {
         if let Err(e) = self.cert_qc(inst, qc) {
             return self.fail(format!("O-CERT: replica {r} CommitBlock {h} with {e}"));
         }
-        if let Err(e) = self.attested(inst, block, qc) {
-            return self.fail(format!("O-ATT: replica {r} CommitBlock {h}: {e}"));
-        }
         if let Some(known) = self.oracle.refs[inst].get(&h) {
             if (known.bh, known.result) != qc.value() {
                 return self.fail(format!(
@@ -1032,9 +1029,8 @@ impl World {
             .committee(h)
             .get(block.header().proposer)
             .cloned();
-        let honest_proposer = proposer_key
-            .and_then(|k| self.key_owner.get(&k).copied())
-            .is_some_and(|m| !self.machines[m].byz);
+        let proposer = proposer_key.and_then(|k| self.key_owner.get(&k).copied());
+        let honest_proposer = proposer.is_some_and(|m| !self.machines[m].byz);
         for (id, _) in decode_txs(block.payload().as_slice()) {
             if let Some(entry) = self.txs[inst].get_mut(&id)
                 && entry.2.is_none()
@@ -1053,6 +1049,8 @@ impl World {
                 view: qc.view,
             },
         );
+        // O-TIME: the application clock guard's certified-time bound (§4.5).
+        self.check_certified_time(inst, block, qc.block_hash, proposer);
     }
 
     fn validity(&self, inst: usize, block: &AvailableBody, qc: &Qc) -> Result<(), String> {
@@ -1212,35 +1210,6 @@ impl World {
         Ok(())
     }
 
-    /// O-ATT (§3.7): the `CommitQC` of a committed block carries the block's flag and, for a
-    /// flagged block, exactly `q` signers with one ground-truth-valid attestation each (one
-    /// application bundle, A4); an unflagged block's carries none.
-    ///
-    /// # Errors
-    /// A description of the defect.
-    pub fn attested(&self, inst: usize, block: &AvailableBody, qc: &Qc) -> Result<(), String> {
-        if qc.attest != block.header().attest {
-            return Err(format!(
-                "a CommitQC with flag {} for a block with flag {}",
-                qc.attest,
-                block.header().attest
-            ));
-        }
-        let committee = self.instances[inst].committee(qc.height);
-        verify_attestations(&FakeVerifier, committee, qc)
-            .map_err(|e| format!("attestations of a flagged block: {e:?}"))?;
-        // Counted here, independently of `verify_attestations` (which MA11 mutates).
-        let signers = qc.signers.count_ones();
-        if qc.attest && (signers != committee.q() || qc.attestations.len() != signers) {
-            return Err(format!(
-                "{signers} signers and {} attestations, not exactly q = {}",
-                qc.attestations.len(),
-                committee.q()
-            ));
-        }
-        Ok(())
-    }
-
     /// O-CERT for a TC: quorum of genuine timeouts and `high_pqc` of the true maximum `hq`.
     ///
     /// # Errors
@@ -1335,20 +1304,6 @@ impl World {
         if self.machines[self.replicas[r].machine].byz {
             return;
         }
-        // O-ATT: an honest Commit vote of a flagged block leaves only with its genuine
-        // attestation (§3.7 A2).
-        if let WireMessage::Vote(vote) = msg
-            && vote.needs_attestation()
-        {
-            let inst = self.replicas[r].inst;
-            let committee = self.instances[inst].committee(vote.height);
-            if verify_vote_attestation(&FakeVerifier, committee, vote).is_err() {
-                return self.fail(format!(
-                    "O-ATT: replica {r} sent a Commit vote of a flagged block without a valid \
-                     attestation: {vote:?}"
-                ));
-            }
-        }
         let mut own = Vec::new();
         self.own_in_msg(r, msg, &mut own);
         self.check_exposed(r, own);
@@ -1379,8 +1334,8 @@ impl World {
                 self.own_in_proposal(r, proposal, &mut own);
             }
             Evidence::VoteEquivocation(a, b) => {
-                self.own_in_msg(r, &WireMessage::Vote(a.clone()), &mut own);
-                self.own_in_msg(r, &WireMessage::Vote(b.clone()), &mut own);
+                self.own_in_msg(r, &WireMessage::Vote(*a), &mut own);
+                self.own_in_msg(r, &WireMessage::Vote(*b), &mut own);
             }
             Evidence::TimeoutEquivocation(a, b) => {
                 self.own_in_msg(r, &WireMessage::Timeout(a.clone()), &mut own);
@@ -1782,5 +1737,129 @@ fn evidence_name(evidence: &Evidence) -> &'static str {
         Evidence::TimeoutEquivocation(..) => "TimeoutEquivocation",
         Evidence::InvalidProposal { .. } => "InvalidProposal",
         Evidence::ConflictingCertificates(..) => "ConflictingCertificates",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sim::{run, scenarios};
+
+    fn count_held_certificate_copies(work: impl FnOnce()) -> usize {
+        struct Disable;
+        impl Drop for Disable {
+            fn drop(&mut self) {
+                HELD_CERTIFICATE_COPIES.with(|copies| copies.set(None));
+            }
+        }
+        HELD_CERTIFICATE_COPIES.with(|copies| {
+            assert_eq!(copies.get(), None, "one observation probe on this thread");
+            copies.set(Some(0));
+        });
+        let _disable = Disable;
+        work();
+        HELD_CERTIFICATE_COPIES.with(|copies| copies.get().expect("active observation probe"))
+    }
+
+    #[test]
+    fn unchanged_genuine_held_certificates_do_not_clone_on_each_observation() {
+        // This is the same signed short World used by the complete-history sweep controls.
+        let mut scenario = scenarios::smoke(0, 4);
+        scenario.duration = 6_000;
+        scenario.checks.progress = 2;
+        assert_eq!(HELD_CERTIFICATE_COPIES.with(std::cell::Cell::get), None);
+        let mut world = run(scenario).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(HELD_CERTIFICATE_COPIES.with(std::cell::Cell::get), None);
+        let r = world
+            .honest()
+            .into_iter()
+            .find(|&r| {
+                world.replicas[r]
+                    .host
+                    .core()
+                    .is_some_and(|core| core.committed_qc().is_some())
+            })
+            .expect("a genuine signed CommitQC from the completed World");
+        let core = world.replicas[r].host.core().expect("running honest core");
+        let obs = &world.oracle.reps[r];
+        // The oracle retains the last verified owner after the Core clears a held certificate.
+        if let Some(lock) = core.lock() {
+            assert_eq!(Some(lock), obs.checked_lock.as_ref());
+        }
+        if let Some(tc) = core.highest_tc() {
+            assert_eq!(Some(tc), obs.checked_tc.as_ref());
+        }
+        assert_eq!(core.committed_qc(), obs.checked_cqc.as_ref());
+        let commit = core.committed_qc().expect("genuine signed CommitQC");
+        assert_eq!(commit.kind, VoteKind::Commit);
+        world
+            .cert_qc(world.replicas[r].inst, commit)
+            .expect("the original signing log authenticates the held certificate");
+        assert!(world.committed(r) >= 2);
+        assert!(!world.replicas[r].store.is_empty());
+        let checked = (
+            obs.checked_lock.clone(),
+            obs.checked_tc.clone(),
+            obs.checked_cqc.clone(),
+        );
+        let counters = |world: &World| {
+            let stats = world.stats;
+            (
+                stats.events,
+                stats.packets,
+                stats.bytes,
+                stats.lost,
+                stats.oversize,
+                stats.crashes,
+                stats.evidence,
+                stats.proposals,
+            )
+        };
+        let original_counters = counters(&world);
+        let original_height = world.committed(r);
+        let original_time = world.now;
+        let original_reference_count = world.oracle.refs[world.replicas[r].inst].len();
+        let copies = count_held_certificate_copies(|| {
+            for _ in 0..4 {
+                world.observe_core(r);
+            }
+        });
+        assert_eq!(HELD_CERTIFICATE_COPIES.with(std::cell::Cell::get), None);
+        assert_eq!(world.failure, None);
+        assert_eq!(counters(&world), original_counters);
+        assert_eq!(world.committed(r), original_height);
+        assert_eq!(world.now, original_time);
+        assert_eq!(
+            world.oracle.refs[world.replicas[r].inst].len(),
+            original_reference_count
+        );
+        let obs = &world.oracle.reps[r];
+        assert_eq!(obs.checked_lock.as_ref(), checked.0.as_ref());
+        assert_eq!(obs.checked_tc.as_ref(), checked.1.as_ref());
+        assert_eq!(obs.checked_cqc.as_ref(), checked.2.as_ref());
+        assert_eq!(
+            copies, 0,
+            "unchanged genuine held certificates must be compared before any certificate clone"
+        );
+
+        // A different complete certificate value still invokes the original O-CERT kernel.
+        world.oracle.reps[r]
+            .checked_cqc
+            .as_mut()
+            .expect("original checked CommitQC")
+            .view ^= 1;
+        let copies = count_held_certificate_copies(|| world.observe_core(r));
+        assert_eq!(HELD_CERTIFICATE_COPIES.with(std::cell::Cell::get), None);
+        assert_eq!(
+            copies, 1,
+            "a changed held certificate must be copied and checked"
+        );
+        assert_eq!(world.failure, None);
+        assert_eq!(
+            world.oracle.reps[r].checked_cqc.as_ref(),
+            checked.2.as_ref()
+        );
+        assert_eq!(counters(&world), original_counters);
+        assert_eq!(world.committed(r), original_height);
     }
 }

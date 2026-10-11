@@ -161,13 +161,35 @@ impl SignerFinalityV1 for CoreFinalityV1 {
         // One fresh view and one ascending certified walk authenticate every endpoint. Reopening
         // a reader for each endpoint would reverify the same prefix many times; retaining it
         // across calls would conceal changed durable evidence or current policy.
-        let mut targets = Vec::with_capacity(3 + historical.len());
+        let latest = u64::try_from(view.block_hashes().len()).map_err(|_| unavailable())?;
+        // Startup only qualifies custody; it grants no operation or serving authority. A
+        // separately certified descendant may preserve that exact custody while this signed
+        // reply is in flight. Every live operation/admission phase still requires the exact tip.
+        let startup_descendant = completed.is_none()
+            && observation.phase == SignerStreamTokenObservationPhaseV1::Startup
+            && matches!(
+                observation.subject,
+                SignerStreamTokenStateSubjectV1::CurrentCustody { .. }
+            )
+            && candidate.height < latest;
+        let mut targets =
+            Vec::with_capacity(3 + historical.len() + usize::from(startup_descendant));
         targets.extend([
             HistoricalFinalityV1::Custody(minimum).coordinates(),
             floor,
             HistoricalFinalityV1::Custody(candidate).coordinates(),
         ]);
         targets.extend(historical.iter().map(|anchor| anchor.coordinates()));
+        if startup_descendant {
+            targets.push(FinalityFloorV1 {
+                height: latest,
+                block_hash: view
+                    .block_hashes()
+                    .last()
+                    .map(|hash| *hash.as_ref())
+                    .ok_or_else(unavailable)?,
+            });
+        }
         let verified = VerifiedFinalityTargetsV1::verify(&view, &targets)?;
         verified.check_anchor(&self.pins, minimum)?;
         let current = verified.check_anchor(&self.pins, candidate)?;
@@ -177,9 +199,23 @@ impl SignerFinalityV1 for CoreFinalityV1 {
                 verified.check_anchor(&self.pins, *anchor)?;
             }
         }
-        let latest = u64::try_from(view.block_hashes().len()).map_err(|_| unavailable())?;
+        if startup_descendant {
+            let latest_control =
+                read_stream_token_custody_control_at_v1(&view, self.pins.binding(), latest)
+                    .map_err(|_| unavailable())?
+                    .ok_or_else(unavailable)?;
+            let latest_state = verified.check_anchor(&self.pins, latest_control.anchor)?;
+            // Compare the complete native control and its revision commitment, not just the
+            // observed head. A renewal, policy/key change or revocation must still refuse.
+            if latest_state != current
+                || latest_control.anchor.state_digest != candidate.state_digest
+            {
+                return Err(unavailable());
+            }
+            check_observed_control(&latest_state, candidate, observation)?;
+        }
         if candidate.height < floor.height
-            || candidate.height < latest
+            || (candidate.height < latest && !startup_descendant)
             || candidate.height < minimum.height
             || (candidate.height == minimum.height && candidate != minimum)
         {
@@ -231,10 +267,10 @@ struct VerifiedFinalityTargetsV1<'view, V: StateReadOnly> {
 
 impl<'view, V: StateReadOnly> VerifiedFinalityTargetsV1<'view, V> {
     fn verify(view: &'view V, targets: &[FinalityFloorV1]) -> Result<Self, StreamTokenIssuerError> {
-        // Minimum, floor, candidate and at most three historical endpoints. Validate before
-        // allocating or iterating any caller-selected height range.
+        // Minimum, floor, candidate, optional startup tip and at most three historical endpoints.
+        // Validate before allocating or iterating any caller-selected height range.
         if targets.is_empty()
-            || targets.len() > 6
+            || targets.len() > 7
             || targets
                 .iter()
                 .any(|target| target.height == 0 || target.block_hash == [0; 32])
@@ -367,15 +403,15 @@ mod tests {
             height: 2,
             block_hash: *chain.committed(2).block_hash().as_ref(),
         };
-        VerifiedFinalityTargetsV1::verify(&view, &[valid; 6])
-            .expect("six independently matched targets are allowed");
+        VerifiedFinalityTargetsV1::verify(&view, &[valid; 7])
+            .expect("seven independently matched targets are allowed");
         let mut conflicting = valid;
         conflicting.block_hash[0] ^= 1;
         for invalid in [
             vec![valid, conflicting],
             vec![conflicting, valid],
             Vec::new(),
-            vec![valid; 7],
+            vec![valid; 8],
             vec![FinalityFloorV1 { height: 0, ..valid }],
             vec![FinalityFloorV1 {
                 height: u64::MAX,

@@ -1,4 +1,5 @@
 //! Consensus-owned Bokolo monthly accounting, native collection and fee assessments.
+mod reward_history;
 use crate::execution_attempt::{
     ExecutionAttemptError, json_decode_attempt_error, norito_decode_attempt_error,
 };
@@ -12,6 +13,10 @@ use iroha_data_model::{
 use iroha_model_base::state_path::StatePath;
 use iroha_primitives::numeric::Quantity;
 use mv::storage::StorageReadOnly;
+pub(crate) use reward_history::{
+    ensure_reward_history_open, reward_history_closed_through, reward_history_is_closed,
+    validate_reward_history_frontier,
+};
 
 const STATE_PREFIX: &str = "retail_fee_v1/";
 /// Canonical marker preserves the complete reviewed assessment inside deferred instructions.
@@ -160,6 +165,7 @@ pub(crate) fn finish_rekey(
         predecessors(&stx.world, old).map_err(|error| world_read_error(&mut stx.world, error))?;
     lineage.push(old.clone());
     if let Some(mut record) = record {
+        reward_history::update(&mut stx.world, Some(&record), None)?;
         record.account_id = new.clone();
         stx.world.smart_contract_state.remove(key(old));
         write_account(&mut stx.world, &record)?;
@@ -205,10 +211,14 @@ pub fn account_state(
         })
         .transpose()
 }
-fn write_account(
+/// Write authoritative wallet state and its exact unsettled-month frontier together.
+pub(crate) fn write_account(
     world: &mut WorldTransaction<'_, '_>,
     record: &RetailFeeAccountStateV1,
 ) -> Result<(), InstructionExecutionError> {
+    let previous =
+        account_state(world, &record.account_id).map_err(|error| world_read_error(world, error))?;
+    reward_history::update(world, previous.as_ref(), Some(record))?;
     world.smart_contract_state.insert(
         key(&record.account_id),
         norito::to_bytes(record)
@@ -309,10 +319,7 @@ fn native_amx_enrolled_leg_is_no_without_effects_and_original_decoder_refusal_st
     let record =
         RetailFeeAccountStateV1::enroll(destination.clone(), 1_793_451_600_000, 10_000).unwrap();
     let original = norito::to_bytes(&record).unwrap();
-    transaction
-        .world
-        .smart_contract_state
-        .insert(key(&destination), original.clone());
+    write_account(&mut transaction.world, &record).unwrap();
     assert!(!native_amx_leg_supported(&transaction.world, &source, &destination).unwrap());
     assert_eq!(
         transaction
@@ -922,6 +929,20 @@ pub(crate) fn record_payment(
     destination: &AccountId,
     amount: &Quantity,
 ) -> Result<(), InstructionExecutionError> {
+    // Independently enacted native conversion may precede customer pricing.
+    // Consume only its exact verified leg before the optional retail policy;
+    // otherwise a real exempt transfer leaves an unconsumed authorization and
+    // finalization rejects the entire conversion.
+    if let Some(index) = stx.world.retail_fee_exempt_payments.iter().position(
+        |(approved_source, approved_destination, approved_amount)| {
+            approved_source == source
+                && approved_destination == destination
+                && approved_amount == amount
+        },
+    ) {
+        stx.world.retail_fee_exempt_payments.remove(index);
+        return Ok(());
+    }
     let Some(policy) = policy_at(
         &stx.world,
         stx.block_height(),
@@ -932,16 +953,6 @@ pub(crate) fn record_payment(
         return Ok(());
     };
     if source.definition() != &policy.ds_asset_id || amount.is_zero() {
-        return Ok(());
-    }
-    if let Some(index) = stx.world.retail_fee_exempt_payments.iter().position(
-        |(approved_source, approved_destination, approved_amount)| {
-            approved_source == source
-                && approved_destination == destination
-                && approved_amount == amount
-        },
-    ) {
-        stx.world.retail_fee_exempt_payments.remove(index);
         return Ok(());
     }
     if source.account() == destination && stx.world.retail_fee_assessment.is_none() {

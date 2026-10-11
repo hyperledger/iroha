@@ -10,7 +10,7 @@ mod build_registry;
 mod bundle;
 mod contracts;
 mod program;
-pub use program::admit_native_program;
+pub use program::{admit_native_build_input, admit_native_program};
 mod deployment_report;
 pub(crate) mod gateway_compliance;
 mod generated_service_runtime;
@@ -21,6 +21,7 @@ mod provider_capacity;
 mod provider_credit;
 mod provider_economics;
 mod provider_funding;
+mod provider_round;
 mod remote;
 mod remote_failure;
 mod remote_status;
@@ -38,7 +39,16 @@ pub(crate) mod stream_token_custody;
 mod transport;
 mod workspace;
 
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
+
+// Observation may await an already-dispatched task through its original maximum budget.
+// These bounds never extend task execution, signing authority or a retained transaction.
+const WORKER_STARTUP_MAXIMUM: Duration = Duration::from_secs(600);
+const OWNED_PEER_STOP_GRACE: Duration = Duration::from_secs(5);
+const STOP_REPLY_ALLOWANCE: Duration = Duration::from_secs(5);
+const STOP_OBSERVATION_MAXIMUM: Duration = WORKER_STARTUP_MAXIMUM
+    .saturating_add(OWNED_PEER_STOP_GRACE)
+    .saturating_add(STOP_REPLY_ALLOWANCE);
 
 use norito::json::{JsonDeserialize, JsonSerialize};
 
@@ -59,6 +69,7 @@ pub use provider_credit::{
     ManagedInitialProviderCredit, ManagedInitialProviderCreditIntent,
     ManagedInitialProviderCreditProgress,
 };
+pub use remote::ManagedAmxRegistrationOptions;
 pub use remote_failure::ManagedAttachmentFailure;
 pub use remote_status::{
     DataspaceRequest, ManagedAttachmentPhase, ManagedAttachmentStatus, ManagedConfirmedAnchor,
@@ -121,6 +132,20 @@ pub enum Error {
     /// Startup could not prove readiness within the requested budget.
     #[error("localnet startup did not complete within {0:?}")]
     Timeout(Duration),
+    /// The original native I/O budget elapsed; retained custody remains unresolved.
+    #[error("native operation I/O deadline elapsed; retain original journals")]
+    NativeDeadline,
+    /// A local worker failure occurred, and owned cleanup or status publication also failed.
+    #[error("{failure}{}", worker_failure_followup(cleanup, publication))]
+    WorkerFailure {
+        /// Original local startup or service cause, including native I/O diagnostics.
+        /// Retained status uses a separate closed classification, never this cause's text.
+        failure: String,
+        /// Exact error from stopping owned validators or joining owned background tasks.
+        cleanup: Option<Box<Error>>,
+        /// Exact error from retaining the failed status after cleanup was attempted.
+        publication: Option<Box<Error>>,
+    },
     /// Parent attachment or its independent registry work exhausted the caller's finite budget.
     #[error(
         "parent operation deadline expired; inspect `kagami dataspace status` and retry the same retained context"
@@ -136,6 +161,22 @@ pub enum Error {
         /// Closed classification containing no request, response or custody text.
         failure: ManagedAttachmentFailure,
     },
+}
+
+fn worker_failure_followup(
+    cleanup: &Option<Box<Error>>,
+    publication: &Option<Box<Error>>,
+) -> String {
+    let mut details = String::new();
+    if let Some(error) = cleanup {
+        details.push_str(&format!("\nOwned worker cleanup failed: {error}"));
+    }
+    if let Some(error) = publication {
+        details.push_str(&format!(
+            "\nFailed to retain startup failure status: {error}"
+        ));
+    }
+    details
 }
 
 /// Selected, secret-free client context backed by owner-private generated configuration.
@@ -197,6 +238,9 @@ pub struct LocalnetRequest {
     pub daemon: PathBuf,
     /// Total readiness budget, including generation.
     pub startup_timeout: Duration,
+    // Discovery retains its original files through startup; callers cannot substitute paths
+    // beneath that selection. Manual constructors admit their explicit paths on startup.
+    installed_programs: Option<Arc<program::RuntimePrograms>>,
 }
 
 impl LocalnetRequest {
@@ -211,6 +255,7 @@ impl LocalnetRequest {
             launcher,
             daemon,
             startup_timeout: Duration::from_secs(30),
+            installed_programs: None,
         }
     }
 
@@ -222,6 +267,19 @@ impl LocalnetRequest {
         Self {
             service_profile: crate::localnet::LocalnetServiceProfile::Standard,
             ..Self::new(launcher, daemon)
+        }
+    }
+
+    fn admit_programs(&self) -> Result<Arc<program::RuntimePrograms>> {
+        match &self.installed_programs {
+            Some(programs) => {
+                programs.require_paths(&self.launcher, &self.daemon)?;
+                Ok(Arc::clone(programs))
+            }
+            None => Ok(Arc::new(program::RuntimePrograms::capture(
+                &self.launcher,
+                &self.daemon,
+            )?)),
         }
     }
 }
@@ -283,14 +341,17 @@ pub struct ManagedStatus {
     /// Current worker observation.
     pub phase: ManagedPhase,
     /// Number of still-running owned validator processes.
+    /// When `failure` reports unconfirmed cleanup, this is an upper bound from retained handles.
     pub running_peers: usize,
     /// Public reason for a failed operation, without child output or credentials.
     pub failure: Option<String>,
 }
 
-#[derive(Clone, JsonSerialize, JsonDeserialize)]
+#[derive(Debug, Clone, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
 struct BinaryPin {
+    // Persistent generations bind path and contents across separately admitted process starts.
+    // Native object identity belongs only to live discovery/startup owners, not this record.
     path: PathBuf,
     blake3: String,
 }
@@ -348,14 +409,16 @@ fn decode<T: JsonDeserialize>(bytes: &[u8]) -> Result<T> {
 }
 
 fn validate_name(name: &str) -> Result<()> {
+    // A canonical private DNS label can occupy all 63 bytes. Keep the exact alias usable as
+    // the default context name; IPC bounds the complete path independently of this component.
     if name.is_empty()
-        || name.len() > 48
+        || name.len() > 63
         || !name.as_bytes()[0].is_ascii_alphanumeric()
         || !name
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
     {
-        return Err(Error::Invalid("managed names must contain 1..48 ASCII letters, digits, `-` or `_`, starting with a letter or digit".into()));
+        return Err(Error::Invalid("managed names must contain 1..63 ASCII letters, digits, `-` or `_`, starting with a letter or digit".into()));
     }
     Ok(())
 }

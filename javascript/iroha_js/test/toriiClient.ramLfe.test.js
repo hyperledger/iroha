@@ -1,19 +1,9 @@
 import assert from "node:assert/strict";
-import { generateKeyPairSync } from "node:crypto";
 import test from "node:test";
+import { ed25519 } from "@noble/curves/ed25519";
+import { readFileSync } from "node:fs";
 
 import { AccountAddress, LocalSigningContext, NetworkId, ToriiClient } from "../src/index.js";
-
-function ed25519PublicKeyBytes() {
-  const { publicKey } = generateKeyPairSync("ed25519");
-  const der = publicKey.export({ format: "der", type: "spki" });
-  return new Uint8Array(der.subarray(der.length - 32));
-}
-
-function demoAccountId() {
-  const address = AccountAddress.fromAccount({ publicKey: ed25519PublicKeyBytes() });
-  return address.toI105();
-}
 
 function jsonResponse(status, body) {
   return new Response(body == null ? null : JSON.stringify(body), {
@@ -22,7 +12,7 @@ function jsonResponse(status, body) {
   });
 }
 
-const ACCOUNT_ID = demoAccountId();
+const ACCOUNT_ID = AccountAddress.fromAccount({ publicKey: ed25519.getPublicKey(Buffer.alloc(32, 0x5a)) }).toI105();
 const APPLICATION_SIGNING_CONTEXT = new LocalSigningContext(NetworkId.fromBytes(Buffer.alloc(32, 0xa5)), 753);
 const APPLICATION_AUTH = Object.freeze({ accountId: ACCOUNT_ID, privateKey: Buffer.alloc(32, 0x5a) });
 const PROGRAM_ID = "identifier_lookup_retail";
@@ -35,6 +25,10 @@ const INPUT_CIPHERTEXT_HASH = "77".repeat(32);
 const OUTPUT_CIPHERTEXT_HASH = "88".repeat(32);
 const PARAMETER_DIGEST = "99".repeat(32);
 const EVALUATION_KEY_DIGEST = "aa".repeat(32);
+const OWNER_EXECUTE_DATA = JSON.parse(readFileSync(new URL("../../../fixtures/soracloud/identifier_owner_execute_v1.json", import.meta.url), "utf8"));
+assert.equal(OWNER_EXECUTE_DATA.schema, "iroha.identifier.owner-execute.v1");
+assert.equal(OWNER_EXECUTE_DATA.classification, "PUBLIC_SOFTWARE_DATA_UNADMITTED");
+const OWNER_EXECUTE = OWNER_EXECUTE_DATA.response;
 const RECEIPT = {
   payload: {
     program_id: PROGRAM_ID,
@@ -71,20 +65,7 @@ function ramLfeOutputOpening(overrides = {}) {
 }
 
 function ramLfeExecuteResponse(overrides = {}) {
-  return {
-    program_id: PROGRAM_ID,
-    opaque_hash: OPAQUE_HASH,
-    receipt_hash: RECEIPT_HASH,
-    output_ciphertext: "C0FFEE",
-    output_hash: OUTPUT_HASH,
-    associated_data_hash: ASSOCIATED_DATA_HASH,
-    executed_at_ms: 42,
-    expires_at_ms: 142,
-    backend: "bfv-programmed-v1",
-    verification_mode: "signed",
-    receipt: RECEIPT,
-    ...overrides,
-  };
+  return { ...structuredClone(OWNER_EXECUTE), ...overrides };
 }
 
 function ramLfeReceiptVerifyResponse(overrides = {}) {
@@ -202,7 +183,7 @@ test("RAM-LFE response parsers accept only current backend and verification mode
       ramLfeProgramPolicyListResponse(overrides),
       ramLfeExecuteResponse({
         ...overrides,
-        receipt: { ...RECEIPT, payload: { ...RECEIPT.payload, ...overrides } },
+        receipt: { ...OWNER_EXECUTE.receipt, payload: { ...OWNER_EXECUTE.receipt.payload, ...overrides } },
       }),
       ramLfeReceiptVerifyResponse(overrides),
     ];
@@ -213,10 +194,12 @@ test("RAM-LFE response parsers accept only current backend and verification mode
       });
       const parse = [
         () => client.listRamLfeProgramPolicies(),
-        () => client.executeRamLfeProgram(PROGRAM_ID, { encryptedInput: "ABCD", canonicalAuth: APPLICATION_AUTH }),
+        () => client.executeRamLfeProgram(PROGRAM_ID, { normalizedInput: OWNER_EXECUTE_DATA.normalized_input, inputNonce: OWNER_EXECUTE_DATA.input_nonce, canonicalAuth: APPLICATION_AUTH }),
         () => client.verifyRamLfeReceipt({ receipt: RECEIPT, canonicalAuth: APPLICATION_AUTH }),
       ][index];
-      if (rejectField) {
+      if (index === 1 && !rejectField && (overrides.backend !== "hkdf-sha3-512-prf-v1" || overrides.verification_mode !== "signed")) {
+        await assert.rejects(parse, /requested signed native HKDF program/u);
+      } else if (rejectField) {
         await assert.rejects(parse, new RegExp(`${rejectField} must be one of:`));
       } else {
         const result = await parse();
@@ -242,11 +225,11 @@ test("RAM-LFE response parsers accept only current backend and verification mode
     const client = new ToriiClient("https://example.test", {
       localSigningContext: APPLICATION_SIGNING_CONTEXT,
       fetchImpl: async () => jsonResponse(200, ramLfeExecuteResponse({
-        receipt: { ...RECEIPT, payload: { ...RECEIPT.payload, [field]: value } },
+        receipt: { ...OWNER_EXECUTE.receipt, payload: { ...OWNER_EXECUTE.receipt.payload, [field]: value } },
       })),
     });
     await assert.rejects(
-      () => client.executeRamLfeProgram(PROGRAM_ID, { encryptedInput: "ABCD", canonicalAuth: APPLICATION_AUTH }),
+      () => client.executeRamLfeProgram(PROGRAM_ID, { normalizedInput: OWNER_EXECUTE_DATA.normalized_input, inputNonce: OWNER_EXECUTE_DATA.input_nonce, canonicalAuth: APPLICATION_AUTH }),
       new RegExp(`receipt\\.payload\\.${field} must be one of:`),
     );
   }
@@ -280,7 +263,7 @@ test("listRamLfeProgramPolicies rejects non-exact proof-verifier metadata", asyn
   }
 });
 
-test("executeRamLfeProgram returns ciphertext and receipt without a plaintext opening", async () => {
+test("executeRamLfeProgram returns the genuine native opaque32 and signed program DATA binding", async () => {
   const client = new ToriiClient("https://example.test", {
     localSigningContext: APPLICATION_SIGNING_CONTEXT,
     fetchImpl: async (input, init) => {
@@ -291,21 +274,22 @@ test("executeRamLfeProgram returns ciphertext and receipt without a plaintext op
       );
       const payload = JSON.parse(init.body);
       assert.deepEqual(payload, {
-        encrypted_input: "ABCD",
+        normalized_input: OWNER_EXECUTE_DATA.normalized_input, input_nonce: OWNER_EXECUTE_DATA.input_nonce,
       });
       return jsonResponse(200, ramLfeExecuteResponse());
     },
   });
 
   const result = await client.executeRamLfeProgram(PROGRAM_ID, {
-    encryptedInput: "ABCD",
+    normalizedInput: OWNER_EXECUTE_DATA.normalized_input, inputNonce: OWNER_EXECUTE_DATA.input_nonce,
     canonicalAuth: APPLICATION_AUTH,
   });
   assert.equal(result.program_id, PROGRAM_ID);
-  assert.equal(result.output_ciphertext, "C0FFEE");
-  assert.equal(result.output_hash, OUTPUT_HASH);
+  assert.equal(result.opaque_output, OWNER_EXECUTE.opaque_output);
+  assert.equal(result.program_id_canonical, OWNER_EXECUTE.program_id_canonical);
+  assert.equal(result.output_hash, OWNER_EXECUTE.output_hash);
   assert.equal(result.verification_mode, "signed");
-  assert.deepEqual(result.receipt, RECEIPT);
+  assert.deepEqual(result.receipt, OWNER_EXECUTE.receipt);
   assert.equal(Object.hasOwn(result, "output_opening"), false);
 });
 
@@ -314,7 +298,7 @@ test("executeRamLfeProgram rejects non-exact response fields", async () => {
     ["program_id", ramLfeExecuteResponse({ program_id: ` ${PROGRAM_ID}` })],
     ["opaque_hash", ramLfeExecuteResponse({ opaque_hash: `${OPAQUE_HASH} ` })],
     ["receipt_hash", ramLfeExecuteResponse({ receipt_hash: ` ${RECEIPT_HASH}` })],
-    ["output_ciphertext", ramLfeExecuteResponse({ output_ciphertext: " C0FFEE" })],
+    ["opaque_output", ramLfeExecuteResponse({ opaque_output: ` ${OWNER_EXECUTE.opaque_output}` })],
     ["output_hash", ramLfeExecuteResponse({ output_hash: `${OUTPUT_HASH} ` })],
     [
       "associated_data_hash",
@@ -328,9 +312,9 @@ test("executeRamLfeProgram rejects non-exact response fields", async () => {
       "receipt.payload.input_ciphertext_hash",
       ramLfeExecuteResponse({
         receipt: {
-          ...RECEIPT,
+          ...OWNER_EXECUTE.receipt,
           payload: {
-            ...RECEIPT.payload,
+            ...OWNER_EXECUTE.receipt.payload,
             input_ciphertext_hash: `${INPUT_CIPHERTEXT_HASH} `,
           },
         },
@@ -339,12 +323,12 @@ test("executeRamLfeProgram rejects non-exact response fields", async () => {
     [
       "output_hash",
       ramLfeExecuteResponse({
-        receipt: { ...RECEIPT, payload: { ...RECEIPT.payload, output_hash: "dd".repeat(32) } },
+        receipt: { ...OWNER_EXECUTE.receipt, payload: { ...OWNER_EXECUTE.receipt.payload, output_hash: "dd".repeat(32) } },
       }),
     ],
     [
       "receipt",
-      ramLfeExecuteResponse({ receipt: { ...RECEIPT, ignored: true } }),
+      ramLfeExecuteResponse({ receipt: { ...OWNER_EXECUTE.receipt, ignored: true } }),
     ],
     [
       "output_opening",
@@ -368,7 +352,7 @@ test("executeRamLfeProgram rejects non-exact response fields", async () => {
       fetchImpl: async () => jsonResponse(200, body),
     });
     await assert.rejects(
-      () => client.executeRamLfeProgram(PROGRAM_ID, { encryptedInput: "ABCD", canonicalAuth: APPLICATION_AUTH }),
+      () => client.executeRamLfeProgram(PROGRAM_ID, { normalizedInput: OWNER_EXECUTE_DATA.normalized_input, inputNonce: OWNER_EXECUTE_DATA.input_nonce, canonicalAuth: APPLICATION_AUTH }),
       expectedPattern ?? new RegExp(`ram-lfe execute response\\.${field}`),
       `RAM-LFE execute response ${field} exactness`,
     );
@@ -380,13 +364,14 @@ test("executeRamLfeProgram returns null for missing programs", async () => {
     localSigningContext: APPLICATION_SIGNING_CONTEXT,
     fetchImpl: async (_input, init) => {
       const payload = JSON.parse(init.body);
-      assert.equal(payload.encrypted_input, "ABCD");
+      assert.equal(payload.normalized_input, OWNER_EXECUTE_DATA.normalized_input);
+      assert.equal(payload.input_nonce, OWNER_EXECUTE_DATA.input_nonce);
       return jsonResponse(404, {});
     },
   });
 
   const result = await client.executeRamLfeProgram(PROGRAM_ID, {
-    encryptedInput: "ABCD",
+    normalizedInput: OWNER_EXECUTE_DATA.normalized_input, inputNonce: OWNER_EXECUTE_DATA.input_nonce,
     canonicalAuth: APPLICATION_AUTH,
   });
   assert.equal(result, null);

@@ -17,7 +17,7 @@ isi! {
     }
 }
 impl crate::seal::Instruction for MutateSorafsFinalPromotionAuthority {}
-impl_sorafs_decode_from_slice!(MutateSorafsFinalPromotionAuthority {
+impl_aos_decode_from_slice!(MutateSorafsFinalPromotionAuthority {
     deployment_id: String,
     expected_control_revision: u64,
     expected_control_digest: [u8; 32],

@@ -797,7 +797,7 @@ private fun validateWalletExchange(
     payment: IrohaPeerWireMessageV1,
     credited: IrohaPeerWireMessageV1?,
 ) {
-    val requestBytes = request.canonicalPayload.bytes
+    val requestBytes = IrohaPeerKagemushaWalletAdapterV1.decode(request)
     val paymentBytes = payment.canonicalPayload.bytes
     val creditedBytes = credited?.canonicalPayload?.bytes
     try {

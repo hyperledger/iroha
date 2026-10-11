@@ -37,8 +37,7 @@ zeroize = { workspace = true }
 [dev-dependencies]
 # Differential oracle for encodings, field, curve and hash-to-curve results.
 pasta_curves = "0.5.2"
-# Cross-implementation encoding KATs against the second Pasta implementation
-# that production consensus key checks use (iroha_zkp_poseidon::pasta_keys).
+# Cross-implementation encoding KATs against the halo2curves Pasta implementation.
 halo2curves = { workspace = true }
 # Deterministic seeded loops replace property-test generators.
 rand_chacha = "0.3.1"

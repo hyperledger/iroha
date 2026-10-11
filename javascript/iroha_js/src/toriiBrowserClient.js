@@ -86,7 +86,6 @@ const FIELD_SINCE_TIMESTAMP_MS = "sinceTimestampMs";
 const FIELD_UNTIL_TIMESTAMP_MS = "untilTimestampMs";
 const FIELD_CONTRACT_ADDRESS = "contractAddress";
 const WIRE_FIELD_CONTRACT_ADDRESS = "contract_address";
-const FIELD_CONTRACT_ALIAS = "contractAlias";
 const WIRE_FIELD_CONTRACT_ALIAS = "contract_alias";
 const WIRE_FIELD_SINCE_TIMESTAMP_MS = "since_timestamp_ms";
 const WIRE_FIELD_UNTIL_TIMESTAMP_MS = "until_timestamp_ms";
@@ -163,9 +162,6 @@ const CONTRACT_EVENT_FILTER_OPTION_KEYS = new Set([
   FIELD_AUTHORITY,
   FIELD_CONTRACT_ADDRESS,
   WIRE_FIELD_CONTRACT_ADDRESS,
-  FIELD_CONTRACT_ALIAS,
-  WIRE_FIELD_CONTRACT_ALIAS,
-  "module",
   "eventKind",
   "event_kind",
   "participant",
@@ -647,6 +643,7 @@ function normalizeExplorerAssetDefinitionRecord(value, context) {
   const fields = [
     "id",
     "owning_domain",
+    "owning_dataspace",
     "mintable",
     "logo",
     "metadata",
@@ -673,6 +670,20 @@ function normalizeExplorerAssetDefinitionRecord(value, context) {
     );
     if (owningDomain !== value.owning_domain) {
       rejectType(`${context}.owning_domain${TEXT_MUST_BE_AN}exact string or null`);
+    }
+  }
+  if (value.owning_dataspace !== null) {
+    if (
+      typeof value.owning_dataspace !== "string" ||
+      value.owning_dataspace.length > 20 ||
+      !/^[1-9][0-9]*$/.test(value.owning_dataspace) ||
+      BigInt(value.owning_dataspace).toString() !== value.owning_dataspace ||
+      BigInt(value.owning_dataspace) > 0xffff_ffff_ffff_ffffn
+    ) {
+      rejectType(`${context}.owning_dataspace must be a canonical nonzero u64 decimal string or null`);
+    }
+    if (value.owning_domain !== null) {
+      rejectType(`${context} cannot carry both domain and dataspace homes`);
     }
   }
   for (const field of ["logo", WIRE_FIELD_LOCKED_QUANTITY, WIRE_FIELD_CIRCULATING_QUANTITY]) {
@@ -805,10 +816,14 @@ function normalizeLedgerEntryHash(value, context) {
   return normalized.toLowerCase();
 }
 
+/** The only provenance Torii's call-derived contract-event feed reports. */
+const CONTRACT_EVENT_PROVENANCE = "emitted";
+
 function normalizeContractEventFilterParams(options, context) {
   const provenance = normalizeOptionalString(options.provenance, `${context}.provenance`);
-  if (provenance !== undefined && provenance !== "emitted" && provenance !== "derived") {
-    rejectType(`${context}.provenance must be emitted or derived`);
+  // Only committed native emissions are exposed in contract event history.
+  if (provenance !== undefined && provenance !== CONTRACT_EVENT_PROVENANCE) {
+    rejectType(`${context}.provenance must be ${CONTRACT_EVENT_PROVENANCE}`);
   }
   return {
     authority: normalizeOptionalString(options.authority, `${context}.authority`),
@@ -816,11 +831,6 @@ function normalizeContractEventFilterParams(options, context) {
       optionAlias(options, FIELD_CONTRACT_ADDRESS, WIRE_FIELD_CONTRACT_ADDRESS),
       `${context}.contractAddress`,
     ),
-    contract_alias: normalizeOptionalString(
-      optionAlias(options, FIELD_CONTRACT_ALIAS, WIRE_FIELD_CONTRACT_ALIAS),
-      `${context}.contractAlias`,
-    ),
-    module: normalizeOptionalString(options.module, `${context}.module`),
     event_kind: normalizeOptionalString(
       optionAlias(options, "eventKind", "event_kind"),
       `${context}.eventKind`,

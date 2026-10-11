@@ -1,0 +1,139 @@
+{
+  "bound_inputs": "Dispatch/Permit use byte 01; Evidence/Credential use byte 02, repeated to their inclusive original limits. Evidence is present only for its action.",
+  "credential_hex": "090a",
+  "dispatch_hex": "010203",
+  "evidence_hex": "040506",
+  "generator": "crates/iroha_torii_shared/examples/kagemusha_enrollment_vectors.rs",
+  "inclusive_bounds": [
+    {
+      "flags": 2,
+      "header_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99001c40000000000000a114b7dda01436d802",
+      "name": "request_pre_key",
+      "sha256": "0062e8f7b8383235ae9b418789d4618fa380069a81fdb13d2eb8e62667d925c5",
+      "wire_length": 16452
+    },
+    {
+      "flags": 2,
+      "header_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99001e40080000000000c1a286cb35c21dae02",
+      "name": "request_evidence",
+      "sha256": "2b357f278522a33da808ff76a8f337dc79f987b82eb6f211ec58545f187b50d8",
+      "wire_length": 540742
+    },
+    {
+      "flags": 2,
+      "header_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99001c40000000000000acc30b08941720ac02",
+      "name": "request_issue",
+      "sha256": "1c5feed8697385529f89bafa965429f191f4a8e8b04b0df93353821f4bd249c1",
+      "wire_length": 16452
+    },
+    {
+      "flags": 2,
+      "header_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99001c4000000000000068a752b59b41475f02",
+      "name": "request_deliver",
+      "sha256": "260500207e59904b2b90e11b6f8fcd452d028786763196e0c833e184d2b23892",
+      "wire_length": 16452
+    },
+    {
+      "flags": 2,
+      "header_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed000e08000000000000df2154909fe27aa702",
+      "name": "response_permit",
+      "sha256": "7d6ae2b57058b1a4ba5d519a344b0e3258feb69d5e26e4d3994226c21644d9b3",
+      "wire_length": 2102
+    },
+    {
+      "flags": 2,
+      "header_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed000f00040000000000a3cebe029eeee03502",
+      "name": "response_credential",
+      "sha256": "06dfa97e7d60e172e28b2cf01ae48d02fe38b45f1f35fa45fdc37e6766f70cb4",
+      "wire_length": 262199
+    }
+  ],
+  "permit_hex": "0708",
+  "request_frame_max_bytes": 557056,
+  "request_payload_alignment": 8,
+  "request_schema_hash": "ab0d30435eb0ec05aa9d05f739460b99",
+  "request_schema_name": "iroha.torii.kagemusha.enrollment.request.v1",
+  "requests": [
+    {
+      "flags": 2,
+      "header_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99001d000000000000004836d06d1224c60202",
+      "name": "pre_key",
+      "sha256": "53781c6e683fc9e68829713997c95d307bad922ec5a0f95c0ff26825524cb0bf",
+      "wire_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99001d000000000000004836d06d1224c6020202010004000000000b0300000000000000010203080000000000000000",
+      "wire_length": 69
+    },
+    {
+      "flags": 2,
+      "header_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99002000000000000000cb9340113f30b04202",
+      "name": "evidence",
+      "sha256": "5c831b868a305d79d6206cc6f1465972444c196ced265b15a3738b57747f7248",
+      "wire_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99002000000000000000cb9340113f30b0420202010004010000000b03000000000000000102030b0300000000000000040506",
+      "wire_length": 72
+    },
+    {
+      "flags": 2,
+      "header_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99001d000000000000009d966ef607cb6ec402",
+      "name": "issue",
+      "sha256": "8223c28893f3f30c2f51839a248fbcc33c792e8399a001341981982d3f9542df",
+      "wire_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99001d000000000000009d966ef607cb6ec40202010004020000000b0300000000000000010203080000000000000000",
+      "wire_length": 69
+    },
+    {
+      "flags": 2,
+      "header_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99001d00000000000000b5c936ec18eb566e02",
+      "name": "deliver",
+      "sha256": "7ef928bf2e29ce74dea1376227c6fd143cd258c3a4881e2bec0ac7fa31fb723a",
+      "wire_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99001d00000000000000b5c936ec18eb566e0202010004030000000b0300000000000000010203080000000000000000",
+      "wire_length": 69
+    }
+  ],
+  "response_frame_max_bytes": 270336,
+  "response_payload_alignment": 8,
+  "response_schema_hash": "7683d588995cfa1d8b79e057d8c288ed",
+  "response_schema_name": "iroha.torii.kagemusha.enrollment.response.v1",
+  "responses": [
+    {
+      "flags": 2,
+      "header_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed000f0000000000000037d8d717c4eee10d02",
+      "name": "permit",
+      "sha256": "dc9b3e7714a5ec417c11478716b62c645bc769d610171fb4f9bed24d0106c712",
+      "wire_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed000f0000000000000037d8d717c4eee10d02000000000a02000000000000000708",
+      "wire_length": 55
+    },
+    {
+      "flags": 0,
+      "header_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed000400000000000000973e373c6b0c4be900",
+      "name": "evidence_ready",
+      "sha256": "0f26a08c662e3d64983bd857cffbeda316a3ec8548bcf8402d59209e955ac306",
+      "wire_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed000400000000000000973e373c6b0c4be90001000000",
+      "wire_length": 44
+    },
+    {
+      "flags": 0,
+      "header_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed000400000000000000f3dc425a899278cf00",
+      "name": "pending",
+      "sha256": "63ab21049ff1ee657c61e2babcff4668dff385dc3b87802973738f44a0907b7a",
+      "wire_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed000400000000000000f3dc425a899278cf0002000000",
+      "wire_length": 44
+    },
+    {
+      "flags": 0,
+      "header_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed0004000000000000002f7d6e78d71896d200",
+      "name": "credential_ready",
+      "sha256": "cc856705d177926931dba9f626be9a5aff4dc13de832cb080c1b91eb20118f41",
+      "wire_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed0004000000000000002f7d6e78d71896d20003000000",
+      "wire_length": 44
+    },
+    {
+      "flags": 2,
+      "header_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed000f00000000000000d621e4ebd5938e6502",
+      "name": "credential",
+      "sha256": "fe8c6327f095e625fef385161758bb82bbb8ce852f08fa6673af6bc4d24b6ed6",
+      "wire_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed000f00000000000000d621e4ebd5938e6502040000000a0200000000000000090a",
+      "wire_length": 55
+    }
+  ],
+  "route": "/v1/kagemusha/enrollment",
+  "scope": "Envelope codec DATA only. Synthetic originals are not permits, evidence or credentials and authorize no operation.",
+  "version": 1
+}

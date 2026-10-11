@@ -51,12 +51,13 @@ tracing = { version = "0.1", features = ["log"] }
 ## Client construction
 
 Construct an asynchronous client with `Client::builder(config).build()?`.
-The builder validates the endpoint, signing authority, address discriminant and
+The builder immediately validates the endpoint, signing authority, address discriminant and
 HTTP headers. Configure headers with `headers(...)`, HTTP transport with
 `http_transport(Arc<dyn iroha::http::HttpTransport>)`, and WebSocket transport with
 `stream_transport(Arc<dyn iroha::stream::StreamTransport>)` on the builder.
-Configuration is fixed after construction; transport initialization failures
-are returned through `iroha::Error`. The explicit blocking HTTP constructor is
+Configuration is fixed after construction. Native HTTP pools initialize on their
+first corresponding HTTP use; asynchronous pool construction failures are returned
+there through `iroha::Error`. The explicit blocking HTTP constructor is
 `iroha::blocking::Client::with_http_transport(config, transport)?`.
 
 Clones share their HTTP and stream transports and compatibility decision. To
@@ -68,8 +69,25 @@ a different origin, choose its HTTP and operator credentials explicitly.
 Bind account operations with `client.account_client()?` and privileged operations
 with `client.operator_client(operator_key_pair)?`. Synchronous applications use
 `iroha::blocking`, which owns a reusable runtime and rejects calls from an async
-runtime. Remaining synchronous capability methods and authority-owned operations
-are tracked in the repository's first-release architecture redesign record.
+runtime. `blocking::Client::with_request_deadline` retains that runtime and its HTTP
+pools while binding the account context to the shorter deadline. Either view may
+outlive the other; an expired deadline refuses HTTP dispatch. Remaining synchronous
+capability methods and authority-owned operations are tracked in the repository's
+first-release architecture redesign record.
+
+Alias setup planning uses `client.plan_alias_setup(&request).await?`. It signs
+the complete request, awaits asynchronous HTTP transport, and verifies the returned
+plan against that request, the account, the network, and its expiry. Synchronous
+callers use `iroha::blocking::Client::plan_alias_setup(&request)?`, which runs the
+same transport and verification through the facade's owned runtime.
+
+`account.kagemusha().load_issuance(...)`, `load_finality(...)` and `load_epoch(...)`
+read bounded canonical Load receipts, receipt certificates with event paths, and
+individual epoch-boundary certificates with the account's exact network
+signature. The blocking account facade exposes the same methods. These reads
+return data, not balance authority: the native wallet must verify BLS finality
+against signed genesis and authenticated epoch changes, then bind the counted
+event commitment to the exact retained receipt before signing its Advance.
 
 Signed Iroha queries use `account.query_single(query).await?` for singular
 lookups such as `FindAccountById`. Iterable signed queries

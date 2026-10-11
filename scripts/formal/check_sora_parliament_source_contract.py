@@ -20,6 +20,12 @@ recording. Opaque signed committee/staking authority is checked independently
 before optional policy lookup. Private execution admission stays closed until the complete
 native STARK relation exists. The retired binding-only Torii producer must not
 re-enter the proof-carrying governance corridor.
+Governance availability is isolated from consensus: pulse demand is the NPoS
+pre-boundary height alone, the Parliament slot index is read under
+`crates/iroha_core/src/sumeragi` only by the HC224 mutation hook, a sortition slot
+is the first consensus-native pulse height derived from fields frozen in the
+attempt, and no missing-pulse classification, veto or substitute draw exists in
+the reducer, planner, executor, State, restore or the model.
 It also keeps the PR model run bound to archived copies of its exact inputs and
 to stable, source-identified result metadata.
 
@@ -31,6 +37,7 @@ read-only.
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import sys
 from pathlib import Path
@@ -239,6 +246,273 @@ def rust_item(text: str, declaration: str, relative: str) -> str:
 def compact_rust(text: str) -> str:
     """Drop line comments and all whitespace for exact statement comparison."""
     return re.sub(r"\s+", "", re.sub(r"//[^\n]*", "", text))
+
+
+def strip_rust_comments(source: str) -> str:
+    """Blank Rust comments, preserving offsets and every literal, with the shared lexer.
+
+    A masked region opens at a comment marker or at a literal. Literals are kept
+    verbatim; each literal end is recomputed here and must agree with the lexer.
+    """
+    masked = mask_rust(source)
+    output = list(source)
+    length = len(source)
+    index = 0
+    while index < length:
+        if masked[index] == source[index]:
+            index += 1
+            continue
+        comment = True
+        if source.startswith("//", index):
+            end = source.find("\n", index)
+            end = length if end < 0 else end
+        elif source.startswith("/*", index):
+            depth, end = 1, index + 2
+            while end < length and depth:
+                if source.startswith("/*", end):
+                    depth, end = depth + 1, end + 2
+                elif source.startswith("*/", end):
+                    depth, end = depth - 1, end + 2
+                else:
+                    end += 1
+        else:
+            comment = False
+            raw = re.match(r'(?:br|cr|r)(#*)"', source[index:index + 300])
+            if raw is not None:
+                terminator = '"' + raw.group(1)
+                close = source.find(terminator, index + raw.end())
+                end = length if close < 0 else close + len(terminator)
+            else:
+                opening = re.match(r"[bc]?[\"']", source[index:index + 2])
+                if opening is None:
+                    raise RuntimeError("Rust literal lexing disagrees with the shared mask")
+                quote = opening.group(0)[-1]
+                end = index + opening.end()
+                while end < length and source[end] != quote:
+                    end += 2 if source[end] == "\\" else 1
+                end = min(end + 1, length)
+        if any(character not in " \n" for character in masked[index:end]):
+            raise RuntimeError("Rust literal lexing disagrees with the shared mask")
+        if comment:
+            for offset in range(index, end):
+                if output[offset] != "\n":
+                    output[offset] = " "
+        index = end
+    return "".join(output)
+
+
+def live_rust_item(text: str, declaration: str, relative: str) -> tuple[str, str]:
+    """Return one live item twice, whitespace-free: code only, and code with literals."""
+    item = rust_item(text, declaration, relative)
+    return (
+        re.sub(r"\s+", "", mask_rust(item)),
+        re.sub(r"\s+", "", strip_rust_comments(item)),
+    )
+
+
+def require_ordered_once(relative: str, owner: str, text: str, tokens: tuple[str, ...]) -> None:
+    """Require every token exactly once in `text`, in the given order."""
+    cursor = -1
+    for token in tokens:
+        count = text.count(token)
+        if count != 1:
+            raise RuntimeError(
+                f"{relative}: {owner} must contain {token!r} exactly once, found {count}"
+            )
+        position = text.index(token)
+        if position <= cursor:
+            raise RuntimeError(f"{relative}: {owner} reordered {token!r}")
+        cursor = position
+
+
+def live_item_attributes(masked: str, declaration: str, relative: str) -> tuple[str, ...]:
+    """Return every attribute of the one live `declaration`, outermost first.
+
+    `masked` is `mask_rust` output, so brackets belong to code. The whole run is
+    walked backwards from the declaration: an attribute placed before a pinned
+    one, on its own line or spanning several, is part of the answer.
+    """
+    starts = [match.start() for match in re.finditer(re.escape(declaration), masked)]
+    if len(starts) != 1:
+        raise RuntimeError(
+            f"{relative}: expected one live declaration {declaration!r}, found {len(starts)}"
+        )
+    attributes: list[str] = []
+    end = len(masked[:starts[0]].rstrip())
+    while end and masked[end - 1] == "]":
+        depth, index = 0, end - 1
+        while index >= 0:
+            depth += (masked[index] == "]") - (masked[index] == "[")
+            if depth == 0:
+                break
+            index -= 1
+        if index < 1 or masked[index - 1] != "#":
+            break
+        attributes.append(re.sub(r"\s+", "", masked[index - 1:end]))
+        end = len(masked[:index - 1].rstrip())
+    return tuple(reversed(attributes))
+
+
+def require_no_early_exit(relative: str, owner: str, code: str) -> None:
+    """Reject `return` in whitespace-free masked code whose assertions must all run."""
+    if "return" in code:
+        raise RuntimeError(
+            f"{relative}: {owner} must run every pinned assertion; it gained an early return"
+        )
+
+
+TEST_MODULE_OPENING = re.compile(
+    r"#\[cfg\(test\)\]\s*(?:pub(?:\([a-z:_ ]*\))?\s+)?mod\s+[A-Za-z_][A-Za-z0-9_]*\s*\{"
+)
+
+
+def production_rust(source: str) -> str:
+    """Mask comments and literals, then blank every inline `#[cfg(test)] mod name { .. }`.
+
+    Offsets are preserved. Nothing else is removed: a `#[cfg(test)]` function, a
+    mutation hook and a `#[cfg(not(..))]` block all stay visible to the caller.
+    """
+    masked = mask_rust(source)
+    output = list(masked)
+    cursor = 0
+    while True:
+        opening = TEST_MODULE_OPENING.search(masked, cursor)
+        if opening is None:
+            return "".join(output)
+        depth, end = 1, opening.end()
+        while end < len(masked) and depth:
+            depth += (masked[end] == "{") - (masked[end] == "}")
+            end += 1
+        if depth:
+            raise RuntimeError("unclosed inline Rust test module")
+        for offset in range(opening.start(), end):
+            if output[offset] != "\n":
+                output[offset] = " "
+        cursor = end
+
+
+def parliament_identifiers(code: str) -> tuple[str, ...]:
+    """Return every identifier occurrence naming Parliament in masked Rust code."""
+    return tuple(
+        identifier for identifier in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", code)
+        if "parliament" in identifier.lower()
+    )
+
+
+def require_parliament_identifiers(
+    relative: str, owner: str, code: str, allowed: tuple[str, ...]
+) -> None:
+    """Require exactly the `allowed` Parliament identifier occurrences in masked code."""
+    found = parliament_identifiers(code)
+    if found != allowed:
+        raise RuntimeError(
+            f"{relative}: {owner} must not read governance state: expected Parliament "
+            f"identifier(s) {allowed!r}, found {found!r}"
+        )
+
+
+SUMERAGI_SOURCE_DIR = "crates/iroha_core/src/sumeragi"
+SUMERAGI_MODULE_ROOT = SUMERAGI_SOURCE_DIR + "/mod.rs"
+# Modules compiled only for tests: unit-test modules and the certified test-chain
+# harness. Every other module declaration, gated or not, is production code.
+TEST_ONLY_MODULE_GATES = (
+    "#[cfg(test)]",
+    '#[cfg(any(test,feature="iroha-core-tests"))]',
+)
+MODULE_DECLARATION = re.compile(r"(?<![A-Za-z0-9_])mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;")
+
+
+def sumeragi_sources() -> dict[str, str]:
+    """Read every Rust source below the Sumeragi node driver, keyed by repository path."""
+    directory = ROOT / SUMERAGI_SOURCE_DIR
+    return {
+        path.relative_to(ROOT).as_posix(): read(path.relative_to(ROOT).as_posix())
+        for path in sorted(directory.rglob("*.rs"))
+    }
+
+
+def sumeragi_production_modules(sources: dict[str, str]) -> dict[str, str]:
+    """Follow module declarations from the driver root, skipping test-only modules.
+
+    Returns the masked production code of every reachable file. A file is test-only
+    by its declaration's `cfg` gate, never by its name, so renaming a production
+    module cannot hide it. An unresolvable declaration is an error.
+    """
+    if SUMERAGI_MODULE_ROOT not in sources:
+        raise RuntimeError(f"{SUMERAGI_MODULE_ROOT}: Sumeragi driver root is absent")
+    reached: dict[str, str] = {}
+    pending = [SUMERAGI_MODULE_ROOT]
+    while pending:
+        relative = pending.pop()
+        if relative in reached:
+            raise RuntimeError(f"{relative}: Rust module is declared twice")
+        source = sources[relative]
+        code = production_rust(source)
+        reached[relative] = code
+        if re.search(r"(?<![A-Za-z0-9_])include\s*!", code):
+            raise RuntimeError(
+                f"{relative}: a textual include would leave the scanned production modules"
+            )
+        location = Path(relative)
+        base = location.parent if location.name == "mod.rs" else location.with_suffix("")
+        for declaration in MODULE_DECLARATION.finditer(code):
+            # Walk the attribute run backwards on masked code; read it from the source
+            # so the `path` and `feature` literals are compared exactly.
+            attributes: list[str] = []
+            end = len(code[:declaration.start()].rstrip())
+            visibility = re.search(r"pub(?:\([a-z:_ ]*\))?$", code[:end])
+            if visibility is not None:
+                end = len(code[:visibility.start()].rstrip())
+            while end and code[end - 1] == "]":
+                depth, index = 0, end - 1
+                while index >= 0:
+                    depth += (code[index] == "]") - (code[index] == "[")
+                    if depth == 0:
+                        break
+                    index -= 1
+                if index < 1 or code[index - 1] != "#":
+                    break
+                attributes.append(re.sub(r"\s+", "", source[index - 1:end]))
+                end = len(code[:index - 1].rstrip())
+            if any(attribute in TEST_ONLY_MODULE_GATES for attribute in attributes):
+                continue
+            name = declaration.group(1)
+            explicit = [
+                re.fullmatch(r'#\[path="([^"]+)"\]', attribute) for attribute in attributes
+            ]
+            explicit = [match.group(1) for match in explicit if match is not None]
+            if explicit:
+                candidates = [(location.parent / explicit[0]).as_posix()]
+            else:
+                candidates = [(base / f"{name}.rs").as_posix(), (base / name / "mod.rs").as_posix()]
+            present = [candidate for candidate in candidates if candidate in sources]
+            if len(present) != 1:
+                raise RuntimeError(
+                    f"{relative}: cannot resolve production module {name!r} to one source file"
+                )
+            pending.append(present[0])
+    return reached
+
+
+def require_sumeragi_parliament_isolation(sources: dict[str, str]) -> None:
+    """No production module of the Sumeragi driver names governance state.
+
+    The single exception is the Parliament index read of the HC224 mutation hook in
+    `epoch_beacon::required`, whose position `require_parliament_beacon_requirement`
+    fixes by whole-body equality. A committed governance row therefore cannot reach
+    pulse demand, admission, production, readiness or block execution.
+    """
+    modules = sumeragi_production_modules(sources)
+    for required in (EPOCH_BEACON_PATH, BEACON_PRODUCER_PATH, BEACON_READINESS_PATH):
+        if required not in modules:
+            raise RuntimeError(
+                f"{required}: the pulse demand owner left the scanned production modules"
+            )
+    for relative, code in sorted(modules.items()):
+        allowed = (
+            ("parliament_required_beacon_pulse_slots",) if relative == EPOCH_BEACON_PATH else ()
+        )
+        require_parliament_identifiers(relative, "the Sumeragi node driver", code, allowed)
 
 
 def public_field_names(text: str) -> tuple[str, ...]:
@@ -518,6 +792,516 @@ def require_sortition_registration_guards(world: str) -> None:
         raise RuntimeError(
             f"{path}: shared sortition admission must enforce the hidden-electorate anonymity floor"
         )
+
+
+RETIRED_SORTITION_SUBSTITUTION_IDENTIFIERS = (
+    # The missing-pulse terminal and everything that classified, vetoed or indexed it.
+    "PulseUnavailable",
+    "SortitionPulseAvailable",
+    "SortitionPulseStillPending",
+    "pulse_missing_terminal",
+    "pulse_available",
+    "unavailable_beacon_pulse_slots_v1",
+    "classifies_beacon_pulse_unavailable_at",
+    "parliament_unavailable_beacon_pulse_slots",
+    "unavailable_beacon_pulse_slots",
+    "previous_unavailable_slots",
+    "next_unavailable_slots",
+)
+
+
+def require_substitution_path_absent(relative: str, source: str) -> None:
+    """Reject every retired missing-pulse identifier in live code, tests included.
+
+    Longer live names such as `ReleasePulseUnavailable`, `release_pulse_available`
+    and `unavailable_release_pulse_slots_v1` belong to the timed-OVN ballot and do
+    not match: identifiers are compared whole.
+    """
+    alternatives = "|".join(
+        re.escape(identifier) for identifier in RETIRED_SORTITION_SUBSTITUTION_IDENTIFIERS
+    )
+    found = sorted(set(re.findall(
+        rf"(?<![A-Za-z0-9_])(?:{alternatives})(?![A-Za-z0-9_])", mask_rust(source)
+    )))
+    if found:
+        raise RuntimeError(
+            f"{relative}: the retired missing-pulse substitution path returned: "
+            + ", ".join(repr(item) for item in found)
+        )
+
+
+def require_sortition_slot_rule(reducer: str, planner: str, world: str) -> None:
+    """A sortition slot is the first consensus-native pulse height, frozen at request time.
+
+    slot = aligned(max(request_height + delay, highest earlier generation slot + 1), L)
+    with the delay and the NPoS epoch length L frozen in the attempt. One pure
+    helper aligns, one method derives, both registration paths and the persistence
+    recheck use it, and the executor rejects attempt creation without an NPoS
+    cadence before any write. An election awaiting its pulse has no failure arm,
+    no planner step and no terminal shape: it waits for exactly its slot.
+    """
+    path = "crates/iroha_core/src/governance/parliament.rs"
+    planner_path = "crates/iroha_core/src/governance/parliament/planner.rs"
+    world_path = "crates/iroha_core/src/smartcontracts/isi/world.rs"
+
+    def body(source: str, declaration: str, relative: str) -> str:
+        return compact_rust(mask_rust(rust_item(source, declaration, relative)))
+
+    def equal(source: str, declaration: str, relative: str, expected: str, rule: str) -> None:
+        if body(source, declaration, relative) != compact_rust(expected):
+            raise RuntimeError(f"{relative}: {rule}")
+
+    equal(reducer, "pub const fn aligned_sortition_pulse_height_v1(", path, """
+        pub const fn aligned_sortition_pulse_height_v1(
+            earliest: u64,
+            epoch_length_blocks: u64,
+        ) -> Option<u64> {
+            if earliest == 0 || epoch_length_blocks < MIN_PARLIAMENT_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS_V1
+            {
+                return None;
+            }
+            let lead = epoch_length_blocks - 1 - earliest % epoch_length_blocks;
+            let Some(height) = earliest.checked_add(lead) else {
+                return None;
+            };
+            if height.checked_add(1).is_none() {
+                return None;
+            }
+            Some(height)
+        }
+    """, "the native pulse alignment must be the checked first height with (h + 1) % L == 0")
+    live = re.sub(r"\s+", "", mask_rust(reducer))
+    for token, count, rule in (
+        ("pubconstMIN_PARLIAMENT_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS_V1:u64=3;", 1,
+         "the frozen epoch length floor must be three blocks"),
+        ("fnaligned_sortition_pulse_height_v1(", 1, "one alignment helper"),
+        # Production reaches the alignment through the one derivation method only.
+        ("=>delayed,};aligned_sortition_pulse_height_v1("
+         "earliest,self.sortition_pulse_epoch_length_blocks)}", 1,
+         "the alignment must use the frozen epoch length"),
+        ("fnderived_sortition_generation_pulse_height_v1(", 1, "one derivation method"),
+        ("fnnext_sortition_generation_pulse_height_v1(", 1, "one next-slot method"),
+        ("fnensure_sortition_generation_pulse_height_v1(", 1, "one exact-slot guard"),
+        ("fninvalid_sortition_generation_slots_v1(", 1, "one persistence recheck"),
+    ):
+        if live.count(token) != count:
+            raise RuntimeError(f"{path}: sortition slot rule changed: {rule}")
+    production = re.sub(r"\s+", "", production_rust(reducer))
+    for token, count in (
+        ("aligned_sortition_pulse_height_v1(", 2),
+        ("self.derived_sortition_generation_pulse_height_v1(", 3),
+        ("self.ensure_sortition_generation_pulse_height_v1(", 2),
+        ("self.invalid_sortition_generation_slots_v1()", 1),
+    ):
+        if production.count(token) != count:
+            raise RuntimeError(
+                f"{path}: sortition slot derivation must keep its closed call set: "
+                f"{token!r} occurs {production.count(token)} time(s), expected {count}"
+            )
+
+    # The frozen fields, and their validation in the constructor and at restore.
+    state_fields = body(reducer, "pub struct ParliamentAttemptStateV1 {", path)
+    require_ordered_once(path, "ParliamentAttemptStateV1", state_fields, (
+        "sortition_pulse_delay_blocks:u64,sortition_pulse_epoch_length_blocks:u64,",
+    ))
+    schedule_floor = (
+        "sortition_pulse_delay_blocks==0||{0}sortition_pulse_epoch_length_blocks"
+        "<MIN_PARLIAMENT_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS_V1"
+        "{{returnErr(ParliamentReducerErrorV1::InvalidSortitionPulseSchedule);}}"
+    )
+    constructor_owner = "pub(crate) fn try_new_with_randomness_redraws_before_attempt("
+    constructor = body(reducer, constructor_owner, path)
+    require_ordered_once(path, constructor_owner, constructor, (
+        "if" + schedule_floor.format(""),
+        "policy_version,sortition_pulse_delay_blocks,sortition_pulse_epoch_length_blocks,"
+        "effect_preimage_hash,",
+    ))
+    simple = body(reducer, "pub fn try_new(", path)
+    require_ordered_once(path, "pub fn try_new(", simple, (
+        "Self::try_new_with_randomness_redraws_before_attempt(attempt,0,policy_version,"
+        "sortition_pulse_delay_blocks,sortition_pulse_epoch_length_blocks,"
+        "effect_preimage_hash,expected_head,required_bodies,)}",
+    ))
+    validate_owner = "pub fn validate(&self) -> Result<(), ParliamentReducerErrorV1> {"
+    validate = body(reducer, validate_owner, path)
+    slot_refusal = (
+        "ifinvalid_sortition_generation_slots.contains(&ParliamentPulseSlotV1::new("
+        "{0}.beacon_session_id,{0}.pulse_height,)){{"
+        "returnErr(ParliamentReducerErrorV1::InvalidSortitionPulseSchedule);}}"
+    )
+    require_ordered_once(path, validate_owner, validate, (
+        "ifself." + schedule_floor.format("self."),
+        "letinvalid_sortition_generation_slots=self.invalid_sortition_generation_slots_v1();",
+        slot_refusal.format("failure"),
+        slot_refusal.format("request"),
+        # A pulse wait is an empty, failure-free shape; a terminal election always
+        # consumed its pulse and closed its invitation window.
+        "BodyElectionAttemptStatusV1::AwaitingPulse=>{"
+        "if!election_awaiting_pulse_shape_is_empty(election)"
+        "||election.failure_kind.is_some()||election.failure_height.is_some()"
+        "{returnErr(ParliamentReducerErrorV1::ImmutableBindingMismatch);}}",
+        "letdrawn_empty_terminal=election.pulse_id.is_some()&&election.pulse_output.is_some()"
+        "&&assignment_plan_is_valid&&invitation_window_is_valid&&accepted_roster_len==0;",
+        "letdrawn_insufficient_hidden_terminal=election.pulse_id.is_some()"
+        "&&election.pulse_output.is_some()&&assignment_plan_is_valid"
+        "&&invitation_window_is_valid&&",
+        "letfailure_is_valid=match(election.failure_kind,election.failure_height){"
+        "(Some(ParliamentElectionFailureKindV1::EmptyAcceptedRoster),Some(height),)=>{"
+        "drawn_empty_terminal&&",
+        "(Some(ParliamentElectionFailureKindV1::InsufficientHiddenBallotRoster),Some(height),)"
+        "=>{drawn_insufficient_hidden_terminal&&",
+    ))
+
+    equal(reducer, "    fn derived_sortition_generation_pulse_height_v1(", path, """
+        fn derived_sortition_generation_pulse_height_v1(
+            &self,
+            request_height: u64,
+            previous_generation_height: Option<u64>,
+        ) -> Option<u64> {
+            let delayed = request_height.checked_add(self.sortition_pulse_delay_blocks)?;
+            let earliest = match previous_generation_height {
+                Some(previous) => delayed.max(previous.checked_add(1)?),
+                None => delayed,
+            };
+            aligned_sortition_pulse_height_v1(earliest, self.sortition_pulse_epoch_length_blocks)
+        }
+    """, "a generation slot must be derived from the frozen delay, the frozen epoch length "
+         "and the previous generation slot alone")
+    equal(reducer, "    pub(crate) fn next_sortition_generation_pulse_height_v1(", path, """
+        pub(crate) fn next_sortition_generation_pulse_height_v1(
+            &self,
+            request_height: u64,
+            beacon_session_id: BeaconSessionId,
+        ) -> Option<u64> {
+            let previous = self
+                .sortition_generation_requests_v1()
+                .filter_map(|(slot, _)| {
+                    (slot.beacon_session_id == beacon_session_id).then_some(slot.height)
+                })
+                .max();
+            self.derived_sortition_generation_pulse_height_v1(request_height, previous)
+        }
+    """, "a new generation must sit strictly above every earlier slot of its beacon session")
+    equal(reducer, "    fn ensure_sortition_generation_pulse_height_v1(", path, """
+        fn ensure_sortition_generation_pulse_height_v1(
+            &self,
+            request_height: u64,
+            pulse_height: u64,
+            beacon_session_id: BeaconSessionId,
+        ) -> Result<(), ParliamentReducerErrorV1> {
+            let mut previous = None::<u64>;
+            for (slot, generation_request_height) in self.sortition_generation_requests_v1() {
+                if slot.beacon_session_id != beacon_session_id {
+                    continue;
+                }
+                match slot.height.cmp(&pulse_height) {
+                    core::cmp::Ordering::Less => {
+                        previous = Some(previous.map_or(slot.height, |max| max.max(slot.height)));
+                    }
+                    core::cmp::Ordering::Equal if generation_request_height == request_height => {}
+                    core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {
+                        return Err(ParliamentReducerErrorV1::InvalidSortitionPulseSchedule);
+                    }
+                }
+            }
+            if self.derived_sortition_generation_pulse_height_v1(request_height, previous)
+                != Some(pulse_height)
+            {
+                return Err(ParliamentReducerErrorV1::InvalidSortitionPulseSchedule);
+            }
+            Ok(())
+        }
+    """, "registration must accept exactly the derived slot")
+    recheck_owner = "    fn invalid_sortition_generation_slots_v1("
+    require_ordered_once(path, recheck_owner, body(reducer, recheck_owner, path), (
+        "for(slot,request_height)inself.sortition_generation_requests_v1(){"
+        "if*generations.entry(slot).or_insert(request_height)!=request_height{"
+        "invalid.insert(slot);}}",
+        "letmutprevious=None::<ParliamentPulseSlotV1>;for(slot,request_height)in&generations{"
+        "letprevious_height=previous"
+        ".filter(|previous|previous.beacon_session_id==slot.beacon_session_id)"
+        ".map(|previous|previous.height);"
+        "ifself.derived_sortition_generation_pulse_height_v1(*request_height,previous_height)"
+        "!=Some(slot.height){invalid.insert(*slot);}previous=Some(*slot);}",
+    ))
+    # Both registration paths check the claimed slot: capacity evidence and election.
+    for owner, intent in (
+        ("    fn record_hidden_sortition_capacity_failure(", "request_intent"),
+        ("    pub(crate) fn register_sortition_request(", "request"),
+    ):
+        require_ordered_once(path, owner, body(reducer, owner, path), (
+            f"self.ensure_sortition_generation_pulse_height_v1({intent}.request_height,"
+            f"{intent}.pulse_height,{intent}.beacon_session_id,)?;",
+        ))
+    retry_owner = "    pub(crate) fn next_sortition_retry_v1("
+    require_ordered_once(path, retry_owner, body(reducer, retry_owner, path), (
+        "letpulse_height=self.next_sortition_generation_pulse_height_v1("
+        "request_height,beacon_session_id)?;",
+    ))
+
+    # Only a closed invitation window with an unviable roster fails an election.
+    equal(reducer, "    pub fn fail_body_election_no_roster(", path, """
+        pub fn fail_body_election_no_roster(
+            &mut self,
+            governance_attempt_id: GovernanceAttemptId,
+            election_attempt_id: BodyElectionAttemptId,
+            current_height: u64,
+        ) -> Result<(), ParliamentReducerErrorV1> {
+            self.ensure_active(governance_attempt_id)?;
+            let proposal_redraw_budget_exhausted =
+                self.randomness_redraws_used_v1()? == MAX_PARLIAMENT_RANDOMNESS_REDRAWS_V1;
+            let election = self.elections.get(&election_attempt_id).ok_or(
+                ParliamentReducerErrorV1::UnknownEntity(ParliamentReducerEntityV1::BodyElection),
+            )?;
+            let requirement = self.ensure_draw_eligible_body(election.attempt.request.body)?;
+            if election.attempt.status != BodyElectionAttemptStatusV1::AcceptingInvitations {
+                return Err(ParliamentReducerErrorV1::InvalidLifecycleTransition(
+                    ParliamentReducerEntityV1::BodyElection,
+                ));
+            }
+            if election
+                .invitation_close_height
+                .is_none_or(|close_height| current_height <= close_height)
+            {
+                return Err(ParliamentReducerErrorV1::InvitationWindowStillOpen);
+            }
+            let accepted_roster = accepted_roster(election)?;
+            let failure_kind = if accepted_roster.is_empty() {
+                ParliamentElectionFailureKindV1::EmptyAcceptedRoster
+            } else if requirement.decision_mode == ParliamentDecisionModeV1::HiddenBindingBallot
+                && !hidden_ballot_population_meets_anonymity_floor_v1(accepted_roster.len())
+            {
+                ParliamentElectionFailureKindV1::InsufficientHiddenBallotRoster
+            } else {
+                return Err(ParliamentReducerErrorV1::InvalidRoster);
+            };
+            let election = self
+                .elections
+                .get_mut(&election_attempt_id)
+                .expect();
+            election.attempt.status = BodyElectionAttemptStatusV1::NoRoster;
+            election.failure_kind = Some(failure_kind);
+            election.failure_height = Some(current_height);
+            if election.attempt.sequence == MAX_PARLIAMENT_SORTITION_RETRIES_V1
+                || proposal_redraw_budget_exhausted
+            {
+                self.attempt.status = GovernanceAttemptStatusV1::Rejected;
+            }
+            Ok(())
+        }
+    """, "an election may fail only from invitation acceptance on an objective roster fact; "
+         "a pulse wait has no failure arm and no pulse argument")
+    failure_kinds = body(reducer, "pub enum ParliamentElectionFailureKindV1 {", path)
+    if re.findall(r"[A-Za-z_][A-Za-z0-9_]*(?=[,}])", failure_kinds) != [
+            "EmptyAcceptedRoster", "InsufficientHiddenBallotRoster"]:
+        raise RuntimeError(
+            f"{path}: an election failure is an empty or sub-floor accepted roster, nothing else"
+        )
+
+    # The planner consumes the exact committed slot pulse and otherwise proposes
+    # nothing for a waiting election, at any height.
+    plan = body(planner, "pub fn plan_driver_v1(", planner_path)
+    start = plan.find("letmutawaiting:")
+    end = plan.find("letdrawing:Vec<_>=state")
+    expected_wait = compact_rust("""
+        let mut awaiting: BTreeMap<
+            (BeaconSessionId, u64),
+            Vec<(BodyElectionAttemptId, SortitionRequestId)>,
+        > = BTreeMap::new();
+        for (election_id, election) in &state.elections {
+            let request = &election.attempt.request;
+            if election.attempt.status == BodyElectionAttemptStatusV1::AwaitingPulse
+                && request.pulse_height <= committed_height
+            {
+                awaiting
+                    .entry((request.beacon_session_id, request.pulse_height))
+                    .or_default()
+                    .push((*election_id, request.id));
+            }
+        }
+        for ((session, pulse_height), elections) in awaiting {
+            if let Some((pulse_id, seed)) = world.verified_pulse(session, pulse_height) {
+                let mut request_ids: Vec<_> =
+                    elections.iter().map(|(_, request)| *request).collect();
+                request_ids.sort_unstable();
+                let transition = ParliamentLifecycleTransitionV1::ConsumeSortitionPulseBatch(
+                    ParliamentConsumeSortitionPulseBatchV1 {
+                        request_ids: request_ids.clone(),
+                        beacon_session_id: session,
+                        pulse_height,
+                        pulse_id,
+                    },
+                );
+                try_due(&mut state, due, transition, |state| {
+                    state.consume_sortition_pulse_batch(
+                        id,
+                        request_ids,
+                        session,
+                        pulse_height,
+                        pulse_id,
+                        seed,
+                        network_id,
+                        governance,
+                    )
+                });
+            }
+        }
+    """)
+    if start < 0 or end < start or plan[start:end] != expected_wait:
+        raise RuntimeError(
+            f"{planner_path}: an election awaiting its pulse must yield a transition only "
+            "when the pulse of its exact slot is committed"
+        )
+    fail_step = (
+        "letaccepting:Vec<_>=state.elections.iter().filter(|(_,election)|{"
+        "election.attempt.status==BodyElectionAttemptStatusV1::AcceptingInvitations})"
+        ".map(|(election_id,_)|*election_id).collect();forelection_idinaccepting{"
+        "letsealed=try_due(&mutstate,due,ParliamentLifecycleTransitionV1::SealBodyRoster("
+        "ParliamentSealBodyRosterV1{election_attempt_id:election_id,}),"
+        "|state|state.seal_body_roster(id,election_id,height),);"
+        "if!sealed{try_due(&mutstate,due,ParliamentLifecycleTransitionV1::FailBodyElectionNoRoster("
+        "ParliamentFailBodyElectionNoRosterV1{election_attempt_id:election_id,},),"
+        "|state|state.fail_body_election_no_roster(id,election_id,height),);}}"
+    )
+    planner_code = re.sub(r"\s+", "", production_rust(planner))
+    if (plan.count(fail_step) != 1
+            or planner_code.count("FailBodyElectionNoRoster(") != 1
+            or planner_code.count("fail_body_election_no_roster(") != 1):
+        raise RuntimeError(
+            f"{planner_path}: the only election failure step follows a closed invitation "
+            "window that could not be sealed"
+        )
+
+    # The executor freezes the NPoS epoch length from committed state, or creates nothing.
+    constant = re.sub(r"\s+", "", strip_rust_comments(world))
+    if constant.count(
+            "pub(crate)constPARLIAMENT_SORTITION_REQUIRES_NPOS_CADENCE_V1:&str="
+            '"Parliamentsortitionrequirestheconsensus-nativeNPoSpulsecadence";') != 1:
+        raise RuntimeError(
+            f"{world_path}: the NPoS cadence rejection must keep its one stable message"
+        )
+    equal(world, "    fn parliament_sortition_pulse_epoch_length_v1(", world_path, """
+        fn parliament_sortition_pulse_epoch_length_v1(
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<u64, Error> {
+            let no_native_cadence = || {
+                Error::from(InstructionExecutionError::InvariantViolation(
+                    PARLIAMENT_SORTITION_REQUIRES_NPOS_CADENCE_V1.into(),
+                ))
+            };
+            let policy = match state_transaction.world.sumeragi_npos_parameters() {
+                Ok(policy) => policy,
+                Err(error) => {
+                    return Err(contract_attempt_instruction_error(
+                        state_transaction,
+                        error.map_rejection(|message| {
+                            Error::from(InstructionExecutionError::InvariantViolation(
+                                message.into(),
+                            ))
+                        }),
+                    ));
+                }
+            };
+            let epoch_length_blocks = policy
+                .map(|policy| policy.epoch_length_blocks().get())
+                .filter(|length| {
+                    *length
+                        >= crate::governance::parliament::MIN_PARLIAMENT_SORTITION_PULSE_EPOCH_LENGTH_BLOCKS_V1
+                })
+                .ok_or_else(no_native_cadence)?;
+            let height = state_transaction.block_height();
+            let schedule = state_transaction.world.consensus_schedule();
+            let epoch = &schedule
+                .ready(height)
+                .map_err(|_| no_native_cadence())?
+                .epoch;
+            if epoch.mode != iroha_data_model::parameter::system::ConsensusMode::Npos
+                || epoch.authorization.last_height % epoch_length_blocks != 0
+            {
+                return Err(no_native_cadence());
+            }
+            Ok(epoch_length_blocks)
+        }
+    """, "attempt creation must require both committed NPoS signals: the genesis policy and "
+         "an Npos schedule epoch ending on a multiple of its length")
+    create_owner = "    impl Execute for gov::CreateParliamentGovernanceAttemptV1 {"
+    create = body(world, create_owner, world_path)
+    cadence = (
+        "letsortition_pulse_epoch_length_blocks="
+        "parliament_sortition_pulse_epoch_length_v1(state_transaction)?;"
+    )
+    require_ordered_once(world_path, create_owner, create, (
+        cadence,
+        "crate::governance::parliament::ParliamentAttemptStateV1::"
+        "try_new_with_randomness_redraws_before_attempt(self.canonical_attempt(risk_tier),"
+        "randomness_redraws_before_attempt,PARLIAMENT_GOVERNANCE_POLICY_VERSION_V1,"
+        "state_transaction.gov.parliament_sortition_pulse_delay_blocks,"
+        "sortition_pulse_epoch_length_blocks,effect_preimage_hash,expected_head,required_bodies,)"
+        ".map_err(parliament_reducer_error)?;",
+        ".put_governance_proposal(proposal_id,retried_proposal)",
+        ".put_parliament_attempt(attempt)",
+        ".emit_events(",
+    ))
+    before_cadence = create[:create.index(cadence)]
+    for write in (".put_", ".insert(", ".remove(", ".emit_events(", "_mut("):
+        if write in before_cadence:
+            raise RuntimeError(
+                f"{world_path}: the NPoS cadence check must precede every write of attempt "
+                f"creation; found {write!r} before it"
+            )
+    world_code = re.sub(r"\s+", "", production_rust(world))
+    for token, count in (
+        ("parliament_sortition_pulse_epoch_length_v1(", 2),
+        (".next_sortition_generation_pulse_height_v1(request_height,beacon_session_id)"
+         ".ok_or_else(||{InstructionExecutionError::InvariantViolation(", 2),
+    ):
+        if world_code.count(token) != count:
+            raise RuntimeError(
+                f"{world_path}: sortition slots must come from the frozen attempt alone: "
+                f"{token!r} occurs {world_code.count(token)} time(s), expected {count}"
+            )
+    fail_arm = compact_rust(mask_rust(section(
+        world,
+        "gov::ParliamentLifecycleTransitionV1::FailBodyElectionNoRoster(payload) => {",
+        "gov::ParliamentLifecycleTransitionV1::SealBodyRoster(payload) => {",
+        world_path,
+    )))
+    if fail_arm != compact_rust("""
+            attempt
+                .fail_body_election_no_roster(
+                    governance_attempt_id,
+                    payload.election_attempt_id,
+                    current_height,
+                )
+                .map_err(parliament_reducer_error)?;
+            if attempt.attempt().status
+                == iroha_data_model::governance::types::GovernanceAttemptStatusV1::Rejected
+            {
+                no_result_kind = Some(
+                    iroha_data_model::governance::types::ParliamentNoResultKindV1::SortitionRetriesExhausted,
+                );
+            }
+        }
+    """):
+        raise RuntimeError(
+            f"{world_path}: the election failure transition must never consult pulse availability"
+        )
+    pinned_test(
+        world, world_path,
+        "fn narrow_confirmation_request_freezes_exact_current_snapshot_and_schedule() {",
+        (
+            "assert_eq!(request.request_height,request_height);"
+            "assert_eq!(Some(request.pulse_height),"
+            "attempt.next_sortition_generation_pulse_height_v1(request_height,"
+            "BeaconSessionId::for_network_v1(&state_transaction.network_id),));"
+            "assert_eq!((request.pulse_height+1)%attempt.sortition_pulse_epoch_length_blocks(),0);"
+            "assert!(request.pulse_height>=request_height+attempt.sortition_pulse_delay_blocks());"
+            "assert_eq!(request.pulse_height,13);",
+            "request.id,request.canonical_id()",
+        ),
+    )
+    for relative, source in ((path, reducer), (planner_path, planner), (world_path, world)):
+        require_substitution_path_absent(relative, source)
 
 
 def require_sortition_retry_liveness(reducer: str) -> None:
@@ -969,10 +1753,37 @@ def require_parliament_commit_publication(state: str) -> None:
     # admitted sources, witnesses and finality through the ordinary pipeline.
     executor_path = "crates/iroha_core/src/sumeragi/executor.rs"
     executor_source = read(executor_path)
+    # Qc carries no execution witness. The current certificate is captured from
+    # this exact staged execution and must retain the State pool before authority
+    # construction or publication; a refusal latches post-execution recovery.
+    commit = compact_rust(mask_rust(rust_item(
+        executor_source, "    fn commit_inner(", executor_path,
+    )))
+    prepared_custody = compact_rust(mask_rust("""
+        let certificate = staged
+            .executed
+            .commit_certificate()
+            .ok_or("prepared frame lost its certificate")?;
+        if !certificate.admitted_to(&self.state.ivm_execution_budget()) {
+            self.recovery = Some("prepared certificate lost its original pool custody".into());
+            return Err("prepared certificate lost its original pool custody".into());
+        }
+    """))
+    custody = commit.find(prepared_custody)
+    authority = commit.find("letnative_execution=NativeExecutionAuthorization{")
+    visibility = commit.find("matchpublish(overlay){")
+    if (commit.count(prepared_custody) != 1
+            or commit.count("letnative_execution=NativeExecutionAuthorization{") != 1
+            or commit.count("matchpublish(overlay){") != 1
+            or not 0 <= custody < authority < visibility):
+        raise RuntimeError(
+            f"{executor_path}: original prepared certificate must retain pool custody "
+            "and recovery before authority or publication"
+        )
     executor = compact_rust(executor_source)
     require_all(executor_path, executor, (
         "self.prepare_with_origin(block,commit_qc,CommitTelemetryOrigin::Forward)",
-        "require_body_admission(block,&self.execution_budget)?;require_qc_witness_admission(commit_qc,&self.execution_budget)?;self.call(|reply|Request::Prepare(block.clone(),commit_qc.clone(),origin,reply))",
+        "require_body_admission(block,&self.execution_budget)?;self.call(|reply|Request::Prepare(block.clone(),commit_qc.clone(),origin,reply))",
         "Request::Prepare(block,qc,origin,reply)=>{let_=reply.send(self.prepare_with_origin(&block,&qc,origin));}",
         "Request::Replay(block,qc,reply)=>{let_=reply.send(self.replay(&block,&qc));}",
         "pending.matches(block,qc)&&pending.telemetry_origin==origin",
@@ -997,7 +1808,7 @@ def require_parliament_commit_publication(state: str) -> None:
     require_all(executor_path, replay_dispatch, (
         "->Result<(),PublicationError>{"
         "require_body_admission(block,&self.execution_budget)?;"
-        "require_qc_witness_admission(commit_qc,&self.execution_budget)?;"
+        ""
         "self.call(|reply|Request::Replay(block.clone(),commit_qc.clone(),reply))"
         ".unwrap_or_else(||Err(control::stopped()))}",
     ))
@@ -1012,7 +1823,7 @@ def require_parliament_commit_publication(state: str) -> None:
         replay_source, "    fn replay_with_encoder(", replay_path,
     )))
     require_all(replay_path, replay, (
-        "require_body_admission(block,&budget)?;require_qc_witness_admission(qc,&budget)?;",
+        "require_body_admission(block,&budget)?;",
         "returncompleted.acknowledge(block,qc,&budget,&mutencode);",
         "matchself.prepare_with_origin(block,qc,CommitTelemetryOrigin::HistoricalReplay)?{Some(result)ifresult==qc.result=>{}",
         "self.commit(block,qc)?;",
@@ -1023,6 +1834,30 @@ def require_parliament_commit_publication(state: str) -> None:
     retirement = compact_rust(mask_rust(rust_item(
         replay_source, "    fn retire_completed_replay(", replay_path,
     )))
+    # Retirement may hash and release only the certificate of the same published
+    # execution. `invalid` below preserves PublicationError::RecoveryRequired,
+    # including missing-certificate and original-pool custody refusals.
+    replay_custody = compact_rust(mask_rust("""
+        let certificate = staged
+            .executed
+            .commit_certificate()
+            .ok_or_else(|| invalid("published replay lost its certificate"))?;
+        if !certificate.admitted_to(&self.state.ivm_execution_budget()) {
+            return Err(invalid(
+                "published replay certificate lost original pool custody",
+            ));
+        }
+        let header = Hash::new(certificate.consensus_header());
+    """))
+    custody = retirement.find(replay_custody)
+    retirement_move = retirement.find("letlive=self.live.take()")
+    if (retirement.count(replay_custody) != 1
+            or retirement.count("letlive=self.live.take()") != 1
+            or not 0 <= custody < retirement_move):
+        raise RuntimeError(
+            f"{replay_path}: original replay certificate must retain pool custody "
+            "and typed recovery before retirement"
+        )
     require_all(replay_path, retirement, (
         "iforiginal!=qc||live.header!=*block.header()||live.availability!=*block.availability()||live.source!=*block.source()||live.telemetry_origin!=Some(CommitTelemetryOrigin::HistoricalReplay)",
         "letqc=Hash::new(certificate.commit_qc());",
@@ -1100,12 +1935,50 @@ def require_parliament_commit_publication(state: str) -> None:
             or not 0 <= call < propagated < frozen
             or not propagated < assignment < frozen):
         raise RuntimeError(f"{path}: World preparation must propagate refusal before publication")
-    validation = section(compact, "world_commit::PreparedWorldCommit::validate_prepared_overlay(",
-                         "iftiered_snapshot.is_none()", path)
-    if not validation.startswith("world,&state_ref.ivm_execution_budget(),).map_err(|error|matcherror{"):
-        raise RuntimeError(f"{path}: retained World validation must use the original overlay and allocation budget")
-    if not validation.endswith("ExecutionAttemptError::Deferred(reason)=>{TransactionsBlockError::ExecutionDeferred(reason)}})?;"):
+    # The retained World is validated in three ordered stages after its fields
+    # freeze. The policy prefix reruns on every attempt. Each Musubi stage is
+    # skipped only by its own retained success, granted by the one statement
+    # after that stage's propagated typed refusal. Tiered capture follows the
+    # last stage directly, so nothing publishes from an unvalidated World.
+    validator = "world_commit::PreparedWorldCommit::validate_prepared_"
+    state_pool = "(world,&state_ref.ivm_execution_budget(),)"
+    typed_refusal = compact_rust("""
+        |error| match error {
+            crate::execution_attempt::ExecutionAttemptError::Rejected(_) => {
+                TransactionsBlockError::WorldCommitPreparation
+            }
+            crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                TransactionsBlockError::ExecutionDeferred(reason)
+            }
+        }
+    """)
+    markers = ("musubi_live_validated", "musubi_validated")
+    validation = f"{validator}policy_transition(world).map_err({typed_refusal},)?;" + "".join(
+        f"if!*{marker}{{{validator}{stage}{state_pool}.map_err({typed_refusal})?;*{marker}=true;}}"
+        for marker, stage in zip(markers, ("musubi_live", "musubi_universal"))
+    )
+    freeze_end = "*fields_frozen=true;}"
+    validated = preparation_code.find(validation)
+    if (preparation_code.count(validation) != 1 or preparation_code.count(validator) != 3
+            or preparation_code.count(freeze_end) != 1
+            or not frozen < preparation_code.find(freeze_end) < validated
+            or not preparation_code.startswith(
+                "iftiered_snapshot.is_none()", validated + len(validation))):
         raise RuntimeError(f"{path}: retained World validation must propagate refusal before publication")
+    # A success marker has no other live mention: it is declared, constructed
+    # false, bound once from the original owner, and read and granted only in
+    # its own stage above. Its one other write resets it to false.
+    publication_code = mask_rust(publication)
+    compact_publication = compact_rust(publication_code)
+    for marker in markers:
+        owners = (
+            f"{marker}:bool,", f"{marker}:false,", f"original.{marker}=false;",
+            f",{marker},", f"if!*{marker}{{", f"*{marker}=true;",
+        )
+        mentions = re.findall(rf"(?<![A-Za-z0-9_]){marker}(?![A-Za-z0-9_])", publication_code)
+        if (len(mentions) != len(owners)
+                or any(compact_publication.count(owner) != 1 for owner in owners)):
+            raise RuntimeError(f"{path}: retained World validation success must stay with its original stage")
     geometry = section(compact, "ifletErr(err)=geometry_result{", "autoscale_start.elapsed()", path)
     if not geometry.endswith("returnErr(TransactionsBlockError::from(err));}"):
         raise RuntimeError(f"{path}: geometry refusal must return before State publication")
@@ -1117,7 +1990,6 @@ def require_parliament_commit_publication(state: str) -> None:
         "letcommitted_parliament_attempt_counts=world.parliament_attempt_counts.is_dirty()",
         "let_state_commit_lock=commit_fence.lock();",
         prepare_call,
-        "world_commit::PreparedWorldCommit::validate_prepared_overlay(",
         "*tiered_snapshot=Some(",
         "ifletErr(err)=geometry_result{",
         "letstate_write_lock_wait_start=Instant::now();let_state_write_lock=write_fence.lock();",
@@ -1219,6 +2091,9 @@ def require_parliament_commit_publication(state: str) -> None:
 
 EPOCH_BEACON_PATH = "crates/iroha_core/src/sumeragi/epoch_beacon.rs"
 BEACON_PRODUCER_PATH = "crates/iroha_core/src/sumeragi/epoch_beacon/producer.rs"
+BEACON_READINESS_PATH = (
+    "crates/iroha_core/src/sumeragi/epoch_beacon/producer/readiness.rs"
+)
 BEACON_PRODUCER_TESTS_PATH = "crates/iroha_core/src/sumeragi/epoch_beacon/producer/tests.rs"
 BEACON_EXECUTION_TESTS_PATH = (
     "crates/iroha_core/src/sumeragi/epoch_beacon/producer/execution_tests.rs"
@@ -1233,13 +2108,38 @@ BEACON_SEALED_SESSION_PATH = "crates/iroha_core/src/beacon/session_owner/validat
 BEACON_DKG_OWNER_PATH = "crates/iroha_core/src/beacon/session_owner/dkg.rs"
 
 
+def require_validator_committee_boundary(committee: str) -> None:
+    """Publish only the certified original preparation, generation and beacon credentials."""
+    committee_path = "crates/iroha_core/src/state/validator_committee.rs"
+    boundary = section(committee, "pub(crate) fn finalize_validator_committee_boundary(",
+                       "fn owns_validator(", committee_path)
+    require_all(committee_path, boundary, (
+        "let context = frozen.current();", "let boundary = frozen.boundary();",
+        "boundary.validate_against(context)?", "let snapshot = &boundary.next;",
+        "boundary.height != self._curr_block.height().get()", "context.network_id != self.network_id",
+        "self.block_hashes().hash_at(anchor_index) != Some(&boundary.selection_anchor)",
+        "self.block_hashes().hash_count() != anchor_index + 1",
+        "verify_progress(&self.world, &transition)?",
+        "transition.outcome = Some(*outcome)", "transition.validate()?",
+        ".validate_against_preparing_authorization(&context.authorization)?;",
+        "get(&credentials.beacon.session_id)",
+        "transition.preparation.committee != snapshot.committee",
+        "active_global_beacon_key_session() != Some(previous.session_id)",
+        "old.retire(outcome.first_height)", "next.activate(outcome.first_height)",
+        "beacon_rotation = Some((old, next))", "if let Some((old, next)) = beacon_rotation",
+        "ValidatorEpochDecisionV1::RetainAndCancel",
+        "retention must cancel the exact frozen attempt",
+    ))
+
+
+
 def require_beacon_finalization_roster(committee: str) -> None:
     """Finalization authenticates the original current and frozen target rosters."""
     committee_path = "crates/iroha_core/src/state/validator_committee.rs"
     finalization = section(committee, "pub(crate) fn validate_beacon_finalization(",
                            "impl StateBlock<'_> {", committee_path)
     require_all(committee_path, finalization, (
-        "current_authority(state)?", "validate_against_authority(authority)",
+        "current_authority(state)?", "validate_against_generation(authority)",
         "authority.generation != 0 || authorization.beacon != BeaconEpochBindingV1::Bootstrap",
         "authenticated_global_threshold_beacon_roster_hash_v1(&record.session, authorizing_roster)",
         "validator_committee_transitions()", "validate_against_preparing_authorization(authorization)?",
@@ -1299,8 +2199,13 @@ def require_borrowed_beacon_roster_and_sealed_binding() -> None:
     ))
 
 
-def require_parliament_beacon_requirement(beacon: str, producer: str) -> None:
-    """Authenticated root ownership and exact committed demand gate both consumers."""
+def require_parliament_beacon_requirement(beacon: str, producer: str, readiness: str) -> None:
+    """Authenticated root ownership and consensus-native demand gate every consumer.
+
+    Pulse demand is the NPoS pre-boundary height of a root that owns global
+    control. No Parliament row requires, vetoes or schedules a pulse: the index is
+    read only by the HC224 mutation hook.
+    """
     require_borrowed_beacon_roster_and_sealed_binding()
     path = EPOCH_BEACON_PATH
     ownership = compact_rust(rust_item(beacon, "fn owns_global_control(", path))
@@ -1316,17 +2221,21 @@ def require_parliament_beacon_requirement(beacon: str, producer: str) -> None:
             }
             if current.mode != ConsensusMode::Permissioned
                 || current.authorization.beacon != BeaconEpochBindingV1::Bootstrap
-                || world.parliament_required_beacon_pulse_slots().iter().next().is_some()
                 || world.active_global_beacon_key_session().is_some()
                 || world.global_beacon_pulses().iter().next().is_some()
             {
-                return Err("private root cannot own global epoch, Parliament, or beacon control".into());
+                return Err("private root cannot own global epoch or beacon control".into());
             }
             Ok(false)
         }
     """)
     if ownership != expected_ownership:
-        raise RuntimeError(f"{path}: private roots must refuse global control custody")
+        raise RuntimeError(
+            f"{path}: private roots must refuse global control custody from native "
+            "signals alone, never from governance rows"
+        )
+    # Demand is the NPoS pre-boundary height and nothing else. The Parliament index
+    # is read only by the HC224 mutation hook, which no production build compiles.
     requirement = compact_rust(rust_item(beacon, "pub(crate) fn required(", path))
     expected = compact_rust("""
         pub(crate) fn required(
@@ -1338,18 +2247,53 @@ def require_parliament_beacon_requirement(beacon: str, producer: str) -> None:
             if !owns_global_control(scope, world, current)? {
                 return Ok(false);
             }
-            Ok((current.mode == ConsensusMode::Npos
-                && height.checked_add(1) == Some(current.authorization.last_height))
-                || world
-                    .parliament_required_beacon_pulse_slots()
-                    .get(&(BeaconSessionId::for_network_v1(&current.network_id), height))
-                    .is_some_and(|attempts| !attempts.is_empty()))
+            let native = current.mode == ConsensusMode::Npos
+                && height.checked_add(1) == Some(current.authorization.last_height);
+            #[cfg(all(test, sumeragi_core_mutation = "HC224"))]
+            {
+                Ok(native
+                    || world
+                        .parliament_required_beacon_pulse_slots()
+                        .get(&(BeaconSessionId::for_network_v1(&current.network_id), height))
+                        .is_some_and(|attempts| !attempts.is_empty()))
+            }
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC224")))]
+            {
+                Ok(native)
+            }
         }
     """)
     if requirement != expected:
         raise RuntimeError(
-            f"{path}: mandatory beacon demand must use the exact committed network-height index"
+            f"{path}: mandatory beacon demand must be the NPoS pre-boundary height alone, "
+            "with the Parliament index confined to the HC224 mutation hook"
         )
+    # Whole-body equality above places the one index read inside the hook. Every
+    # other live statement of the file is free of governance state.
+    require_parliament_identifiers(
+        path, "consensus pulse demand", production_rust(beacon),
+        ("parliament_required_beacon_pulse_slots",),
+    )
+    # The in-file unit test holds a retained index row against both roots.
+    scope_module = "mod root_scope_tests {"
+    if live_item_attributes(mask_rust(beacon), scope_module, path) != ("#[cfg(test)]",):
+        raise RuntimeError(f"{path}: the root-scope tests must stay a compiled test module")
+    pinned_test(
+        rust_item(beacon, scope_module, path), path,
+        "fn retained_parliament_slot_row_creates_no_demand_on_private_or_global_root() {",
+        (
+            "world.parliament_required_beacon_pulse_slots.insert(slot,row.clone());",
+            "assert_eq!(view.parliament_required_beacon_pulse_slots().get(&slot),Some(&row));"
+            "assert_eq!(required(scope,&view,&epoch,7),Ok(false));"
+            "assert_eq!(required(SumeragiRootScope::Global,&view,&epoch,7),Ok(false));"
+            "assert_eq!(owns_global_control(scope,&view,&epoch),Ok(false));",
+            "letcaptured=capture(scope,&view,hashes.block_hashes(),&epoch,1,None,None).unwrap();"
+            "assert!(captured.pulse().is_none()&&captured.link().is_none());",
+            "wrong_mode.mode=ConsensusMode::Npos;"
+            "assert!(required(scope,&view,&wrong_mode,7).unwrap_err().contains());}",
+        ),
+        ('.unwrap_err().contains("globalepochorbeacon")',),
+    )
     # Follower admission: a demanded pulse is obligatory, an unrequested one is
     # refused, and a supplied pulse passes the committed slot history and the
     # height roster before its threshold proof is verified.
@@ -1430,6 +2374,25 @@ def require_parliament_beacon_requirement(beacon: str, producer: str) -> None:
             };
         """),
         "validate_pending_slot(world,current,height)?;",
+        compact_rust("""
+            if world.global_beacon_pulses().get(&pulse.pulse_id).is_some() {
+                return Err("native beacon witness repeats a committed pulse".into());
+            }
+            if world.active_global_beacon_key_session() != Some(pulse.session_id) {
+                return Err("native beacon witness uses an inactive session".into());
+            }
+        """),
+        compact_rust("""
+            if !record.is_active_at(height)
+                || record.session.adaptive_dkg.finalized_at_height > parent
+                || record.session.adaptive_dkg.session.authority_generation
+                    != current.authorization.authority_generation
+                || (current.authorization.beacon != BeaconEpochBindingV1::Bootstrap
+                    && current.authorization.beacon != BeaconEpochBindingV1::Installed(installed))
+            {
+                return Err("native beacon witness changes the authorized generation or transcript".into());
+            }
+        """),
         "letpeers=current.committee.iter().map(|seat|&seat.validator);",
         "authenticated_global_threshold_beacon_roster_hash_iter_v1(&record.session,peers)",
         compact_rust("""
@@ -1461,18 +2424,47 @@ def require_parliament_beacon_requirement(beacon: str, producer: str) -> None:
             f"{path}: follower admission must require, refuse and authenticate the committed demand"
         )
     require_all(path, admission, (
-        "record.session.adaptive_dkg.session.authority_generation!=current.authority.generation",
+        "record.session.adaptive_dkg.session.authority_generation!=current.authorization.authority_generation",
         "current.authorization.beacon!=BeaconEpochBindingV1::Installed(installed)",
         "Ok(VerifiedEpochPulse{pulse:Some(pulse),link:Some(link),})",
     ))
     pending = compact_rust(rust_item(beacon, "fn validate_pending_slot(", path))
-    require_all(path, pending, (
-        "letslot=(BeaconSessionId::for_network_v1(&current.network_id),height);",
-        ".parliament_unavailable_beacon_pulse_slots().get(&slot)"
-        ".is_some_and(|attempts|!attempts.is_empty())"
-        "||world.global_beacon_pulse_slots().get(&slot).is_some()",
-        'returnErr("nativebeaconwitnessrepeatsorcontradictscommittedpulsehistory".into());',
-    ))
+    expected_pending = compact_rust("""
+        fn validate_pending_slot(
+            world: &impl WorldReadOnly,
+            current: &ValidatorEpochContextV1,
+            height: u64,
+        ) -> Result<(), String> {
+            let slot = (BeaconSessionId::for_network_v1(&current.network_id), height);
+            if world.global_beacon_pulse_slots().get(&slot).is_some()
+                || world.global_beacon_pulse_slots().iter().count()
+                    != world.global_beacon_pulses().iter().count()
+            {
+                return Err("native beacon witness repeats or contradicts committed pulse history".into());
+            }
+            if let Some(previous) = world
+                .global_beacon_latest_pulse()
+                .get(&GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY)
+            {
+                previous.validate().map_err(|error| error.to_string())?;
+                if (
+                    height,
+                    crate::beacon::GLOBAL_THRESHOLD_BEACON_PULSE_ROUND_V1,
+                ) <= (previous.height, previous.round)
+                {
+                    return Err("native beacon witness does not advance pulse history".into());
+                }
+            } else if world.global_beacon_pulses().iter().next().is_some() {
+                return Err("native beacon history lost its latest cursor".into());
+            }
+            Ok(())
+        }
+    """)
+    if pending != expected_pending:
+        raise RuntimeError(
+            f"{path}: the committed slot check must keep slot uniqueness, count equality and "
+            "the monotonic cursor, with no governance veto"
+        )
 
     # Local production opens one round only on that same committed demand, after
     # the committed slot check, and never builds an empty witness for it.
@@ -1540,8 +2532,6 @@ def require_parliament_beacon_requirement(beacon: str, producer: str) -> None:
         activation,
         "GlobalThresholdBeaconChainAnchorV1{height:applied.0,block_hash:parent.iroha_hash(),}",
         ")?)}else{None};",
-        "self.mandatory_attestation=current.mode==ConsensusMode::Npos"
-        "&&context.height==current.authorization.last_height;",
         installed,
     )
     positions = [source.find(token) for token in source_order]
@@ -1558,7 +2548,7 @@ def require_parliament_beacon_requirement(beacon: str, producer: str) -> None:
                     height: context.height,
                 })?),
             };
-            Ok((control::encode(pulse)?, self.mandatory_attestation))
+            control::encode(pulse).map_err(NativeBeaconError::from)
         }
     """)
     if (not build.endswith(witness)
@@ -1567,13 +2557,425 @@ def require_parliament_beacon_requirement(beacon: str, producer: str) -> None:
         raise RuntimeError(
             f"{producer_path}: a demanded pulse must await actual shares, never an empty witness"
         )
-    for relative, text in ((path, beacon), (producer_path, producer)):
+    # The current producer verifies original share custody directly before its
+    # first signing call. A cached source/share cannot turn this into a detached
+    # attestation flag or project the signing refusal into a successful output.
+    drive = compact_rust(rust_item(producer, "    pub(crate) fn drive(", producer_path))
+    signing = compact_rust("""
+        if active.own.is_none() {
+            if let (Some(index), Some(signer)) = (active.local, self.signer.as_ref()) {
+                signer
+                    .attest_partial_signing_capability(active.aggregator.session(), index)
+                    .map_err(|_| NativeBeaconError::LocalSigning)?;
+                let partial = signer
+                    .sign_partial(active.aggregator.session(), active.aggregator.payload())
+                    .map_err(|_| NativeBeaconError::LocalSigning)?;
+    """)
+    if drive.count(signing) != 1:
+        raise RuntimeError(
+            f"{producer_path}: native signing must attest original session custody "
+            "and propagate refusal before signing"
+        )
+    # Production and the readiness horizon read no governance state at all: the
+    # next required pulse is the NPoS pre-boundary height or nothing.
+    require_parliament_identifiers(
+        producer_path, "native pulse production", production_rust(producer), ()
+    )
+    require_parliament_identifiers(
+        BEACON_READINESS_PATH, "the native readiness horizon", production_rust(readiness), ()
+    )
+    refresh_owner = "    pub(crate) fn refresh_readiness("
+    refresh, _ = live_rust_item(readiness, refresh_owner, BEACON_READINESS_PATH)
+    require_ordered_once(BEACON_READINESS_PATH, refresh_owner, refresh, (
+        "if!super::super::owns_global_control(root_scope,world,current)"
+        ".map_err(NativeBeaconError::Source)?{",
+        "next_required_pulse_height:None,",
+        "letnext=(current.mode==ConsensusMode::Npos)"
+        ".then(||current.authorization.last_height.checked_sub(1))"
+        ".flatten().filter(|height|*height>=context.height);",
+        "next_required_pulse_height:next,",
+        "horizon.session_covers_next_pulse=next.is_some_and(|height|record.is_active_at(height));",
+    ))
+    if refresh.count("next_required_pulse_height") != 2 or refresh.count("letnext=") != 1:
+        raise RuntimeError(
+            f"{BEACON_READINESS_PATH}: the readiness horizon must have one native source"
+        )
+    for relative, text in (
+        (path, beacon), (producer_path, producer), (BEACON_READINESS_PATH, readiness),
+    ):
         for scan in ("requires_beacon_pulse_at(", "classifies_beacon_pulse_unavailable_at(",
-                     "parliament_attempts"):
+                     "classifies_release_pulse_unavailable_at(",
+                     "parliament_unavailable_beacon_pulse_slots", "parliament_attempts"):
             if scan in text:
                 raise RuntimeError(
-                    f"{relative}: beacon demand regressed to an unbounded Parliament attempt scan"
+                    f"{relative}: beacon demand regressed to a Parliament attempt or "
+                    "unavailable-slot scan"
                 )
+
+
+RESTORE_TESTS_PATH = "crates/iroha_core/src/state/deserialize_world.rs"
+SORTITION_ISI_TESTS_PATH = (
+    "crates/iroha_core/src/smartcontracts/isi/world_parliament_initial_sortition_tests.rs"
+)
+MUTATION_GATE_PATH = "scripts/sumeragi_mutation_gate.py"
+SUMERAGI_SPEC_PATH = "specs/sumeragi.md"
+HC224_KILL_TEST = (
+    "pending_parliament_slots_create_no_native_control_demand_and_never_block_unrelated_work"
+)
+HC224_KILL_TEST_PATH = "sumeragi::epoch_beacon::producer::tests::execution_tests::" + HC224_KILL_TEST
+
+
+def pinned_test(
+    source: str, relative: str, declaration: str, code_tokens: tuple[str, ...],
+    literal_tokens: tuple[str, ...] = (),
+) -> None:
+    """One compiled `#[test]` runs every pinned assertion once, in order, with no early exit.
+
+    `code_tokens` are matched on whitespace-free code with comments and literals
+    masked, so a commented or quoted copy is not an assertion. `literal_tokens` are
+    matched likewise on code that keeps its literals.
+    """
+    if live_item_attributes(mask_rust(source), declaration, relative) != ("#[test]",):
+        raise RuntimeError(f"{relative}: {declaration} must be a compiled test")
+    code, text = live_rust_item(source, declaration, relative)
+    require_no_early_exit(relative, declaration, code)
+    require_ordered_once(relative, declaration, code, code_tokens)
+    require_ordered_once(relative, declaration, text, literal_tokens)
+
+
+def pinned_helper(
+    source: str, relative: str, declaration: str, code_tokens: tuple[str, ...]
+) -> None:
+    """One live test helper keeps every pinned statement once, in order, with no early exit."""
+    code, _ = live_rust_item(source, declaration, relative)
+    require_no_early_exit(relative, declaration, code)
+    require_ordered_once(relative, declaration, code, code_tokens)
+
+
+def require_parliament_pulse_isolation_evidence(
+    execution_tests: str, restore: str, sortition_tests: str, mutation_gate: str, spec: str
+) -> None:
+    """A missing Parliament pulse blocks no block, replay, restore or later consumption.
+
+    The HC224 kill test runs the real execution path over a pending governance
+    slot; the NPoS test shows the native obligation is unchanged by that state;
+    the restore tests show a wait survives a snapshot on its exact slot; the
+    rotation test shows late consumption uses the retained session and nothing
+    else. The mutation gate and the spec each carry exactly one HC224 row.
+    """
+    path = BEACON_EXECUTION_TESTS_PATH
+    pinned_helper(execution_tests, path, "fn admit(", (
+        "chain.setup_world_at(2_000,|transaction|{"
+        "transaction.world.put_parliament_attempt(attempt).expect();});",
+    ))
+    pinned_helper(execution_tests, path, "fn slot_index(", (
+        "chain.state().view().world().parliament_required_beacon_pulse_slots().iter()"
+        ".map(|(slot,attempts)|(*slot,attempts.clone())).collect()}",
+    ))
+    pinned_helper(execution_tests, path, "fn assert_sortition_awaits(", (
+        "letattempt=view.world().parliament_attempts().get(&attempt_id).expect();",
+        "forbodyin[ParliamentBody::RulesCommittee,ParliamentBody::PolicyJury]{",
+        "letelection=attempt.election(&BodyElectionAttemptId::derive_v1(attempt_id,body,0))"
+        ".expect().attempt();",
+        "assert_eq!(election.status,BodyElectionAttemptStatusV1::AwaitingPulse);",
+        "assert_eq!((election.request.beacon_session_id,election.request.pulse_height),"
+        "(logical_session(chain),slot),",
+    ))
+    pinned_helper(execution_tests, path, "fn assert_no_pulse(", (
+        "assert!(view.world().global_beacon_pulses().iter().next().is_none());",
+        "assert!(view.world().global_beacon_pulse_slots().iter().next().is_none());",
+        "assert!(view.world().global_beacon_latest_pulse()"
+        ".get(&GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY).is_none());",
+    ))
+    pinned_helper(execution_tests, path, "fn assert_no_demand_at_next_height(", (
+        "letheight=chain.height()+1;",
+        "letcurrent=&retained.ready(height).unwrap().epoch;",
+        "assert_eq!(current.mode,ConsensusMode::Permissioned);",
+        "assert!(!super::super::super::required(SumeragiRootScope::Global,view.world(),"
+        "current,height).unwrap(),",
+        "letmutproducer=NativeBeaconProducer::new(chain.instance(),Some(key),None);",
+        "assert!(producer.drive(&view,&context,applied).expect().is_none());",
+        "assert!(producer.active.is_none(),",
+        "assert!(producer.build(&build_context(&context,0)).expect().is_empty());",
+    ))
+    pinned_helper(execution_tests, path, "fn commit_unrelated_work(", (
+        "chain.commit(Vec::new());letstored=chain.committed(chain.height());",
+        "assert!(stored.block().has_consensus_work());",
+        "assert_eq!(stored.block().external_transactions().len(),1);",
+        "assert!(stored.block().network_output_at(0)"
+        ".is_some_and(|(_,output)|output.result.is_ok()),",
+        "assert!(stored.header().unwrap().control_witness.is_empty());",
+        "assert_eq!(stored.commitment().beacon,None);",
+    ))
+    pinned_helper(execution_tests, path, "fn invalid(", (
+        "assert!(matches!(executor.execute(candidate,&hash),Some(ExecOutcome::Invalid)));",
+        "assert_eq!(u64::try_from(view.height()).unwrap(),chain.height());",
+        "assert!(view.world().global_beacon_pulses().is_empty());",
+        "assert!(view.world().global_beacon_pulse_slots().is_empty());",
+    ))
+    pinned_test(execution_tests, path, f"fn {HC224_KILL_TEST}() {{", (
+        "constSLOT:u64=9;",
+        "letmutcustody=seeded(prefix());letmutchain=prefix();letmutreplay=prefix();",
+        "crate::beacon::tests::pending_batched_sortition_attempt("
+        "&chain.network_id(),&roster(&chain),SLOT,);",
+        # The index row is present on every chain and the generation awaits the slot.
+        "fortargetin[&custody.chain,&chain,&replay]{admit(target,attempt.clone());"
+        "assert_eq!(slot_index(target),"
+        "vec![((logical_session(target),SLOT),BTreeSet::from([attempt_id]))],);"
+        "assert_sortition_awaits(target,attempt_id,SLOT);}",
+        "assert!(chain.state().view().world().active_global_beacon_key_session().is_none()"
+        "&&chain.state().view().world().global_beacon_key_sessions().iter().next().is_none(),",
+        # Not required; a producer without any session reports nothing; no seat signs.
+        "assert_no_demand_at_next_height(&chain);{letview=custody.chain.state().view();"
+        "letapplied=(8,custody.context.parent_hash);forproducerin&mutcustody.producers{"
+        "assert!(producer.drive(&view,&custody.context,applied).unwrap().is_none());"
+        "assert!(producer.active.is_none());"
+        "assert!(producer.build(&build_context(&custody.context,0)).unwrap().is_empty());}}",
+        "assert!(custody.counts.iter().all(|count|count.load(Ordering::SeqCst)==0),",
+        # The slot block commits unrelated work with the empty witness and no pulse row.
+        "letindex=slot_index(&chain);letninth=commit_unrelated_work(&mutchain);"
+        "assert_eq!(chain.height(),SLOT);assert_no_pulse(&chain);"
+        "assert_sortition_awaits(&chain,attempt_id,SLOT);assert_eq!(slot_index(&chain),index);",
+        # The same body carrying a genuine pulse is Invalid; without it, Valid.
+        "with_pulse.control_witness="
+        "control::encode(Some(genuine_pulse_at_next_height(&custody,&custody.chain))).unwrap();"
+        "letunrequested=custody.chain.author_payload(with_pulse,bytes.clone());"
+        "invalid(&mutexecutor_in(&custody.chain,ConsensusMode::Permissioned),"
+        "&custody.chain,&unrequested,);",
+        "assert!(matches!(executor_in(&custody.chain,ConsensusMode::Permissioned)"
+        ".execute(&requested_nothing,&hash),Some(ExecOutcome::Valid(_))),",
+        "assert_sortition_awaits(&custody.chain,attempt_id,SLOT);",
+        # Every later block likewise, far past the unserved slot.
+        "whilechain.height()+1<release{assert_no_demand_at_next_height(&chain);"
+        "commit_unrelated_work(&mutchain);assert_no_pulse(&chain);"
+        "assert_sortition_awaits(&chain,attempt_id,SLOT);"
+        "assert_eq!(slot_index(&chain),index);}",
+        "assert!(chain.height()-SLOT>=12&&chain.height()>=BALLOT_REGISTERED_AT);",
+        # Cold replay reproduces every certified result over the same pending request.
+        "replay.replay_from(&chain).expect();assert_eq!(replay.height(),chain.height());"
+        "forheightinSLOT..=chain.height(){"
+        "assert_eq!(replay.committed(height).core_hash(),chain.committed(height).core_hash());"
+        "assert_eq!(replay.committed(height).result(),chain.committed(height).result());}"
+        "assert_no_pulse(&replay);assert_sortition_awaits(&replay,attempt_id,SLOT);"
+        "assert_eq!(slot_index(&replay),index);",
+        # TODO: the timed-OVN release-slot half below leaves with the timed-OVN ballot
+        # (specs/parliament_private_ballot_design.md 12.2 step 4).
+        "admit(&chain,ballot_attempt);assert_eq!(chain.height()+1,release);",
+        "assert_no_demand_at_next_height(&chain);assert_no_pulse(&chain);"
+        "assert_sortition_awaits(&chain,attempt_id,SLOT);letview=chain.state().view();",
+        "assert!(stored.requires_beacon_pulse_at(logical_session(&chain),release));}",
+    ))
+    # The native obligation at the NPoS pre-boundary height is unchanged by a pending
+    # governance slot that the alignment rule put on that same height.
+    pinned_test(
+        execution_tests, path,
+        "fn npos_boundary_pulse_stays_mandatory_with_or_without_pending_parliament_slots() {",
+        (
+            "fnmandatory_at_nine(fixture:Fixture)->(Fixture,Pulse){",
+            "letrefusal=matchfixture.chain.begin_proposal(proposal,ControlWitness::empty())"
+            "{Ok(_)=>panic!(),Err(refusal)=>refusal,};",
+            "assert_eq!(fixture.chain.height(),8);",
+            "fixture.chain.commit_with_control(Some(50_000),Vec::new(),Signers::Quorum,witness);",
+            "assert_eq!(stored.commitment().beacon,Some(pulse));",
+            "assert_eq!(view.world().global_beacon_pulse_slots()"
+            ".get(&(logical_session(&fixture.chain),9)),Some(&pulse.pulse_id));",
+            "let(plain,_)=mandatory_at_nine(fixture());"
+            "assert!(slot_index(&plain.chain).is_empty());",
+            "letmutchain=npos_prefix(4);",
+            "crate::beacon::tests::pending_batched_sortition_attempt_with_schedule("
+            "&chain.network_id(),&roster(&chain),3,3,NPOS_EPOCH_LENGTH_BLOCKS,);"
+            "assert_eq!(slot,9,",
+            "admit(&chain,attempt);letindex=slot_index(&chain);assert_eq!(index,"
+            "vec![((logical_session(&chain),9),BTreeSet::from([attempt_id]))]);",
+            "whilechain.height()<8{",
+            "assert_eq!(current.mode,ConsensusMode::Npos);"
+            "assert!(!super::super::super::required(SumeragiRootScope::Global,view.world(),"
+            "current,height).unwrap(),",
+            "commit_unrelated_work(&mutchain);assert_no_pulse(&chain);"
+            "assert_sortition_awaits(&chain,attempt_id,9);assert_eq!(slot_index(&chain),index);}",
+            "let(present,pulse)=mandatory_at_nine(seeded(chain));"
+            "assert_sortition_awaits(&present.chain,attempt_id,9);"
+            "assert_eq!(slot_index(&present.chain),index);",
+            ".verified_pulse(logical_session(&present.chain),9),Some(("
+            "iroha_data_model::governance::types::BeaconPulseId::new(pulse.pulse_id),"
+            "crate::beacon::global_threshold_beacon_governance_seed_v1(&pulse,9),)));}",
+        ),
+        ('assert!(refusal.contains("Invalid"),"{refusal}");',),
+    )
+
+    # Restore: no Parliament state vetoes a stored pulse, and a wait far past its
+    # unserved slot restores on exactly that slot, never on a later pulse.
+    awaiting = (
+        "assert_eq!(election.status,"
+        "iroha_data_model::governance::types::BodyElectionAttemptStatusV1::AwaitingPulse);"
+    )
+    rebuilt_index = (
+        "assert_eq!(restored.parliament_required_beacon_pulse_slots.view().iter()"
+        ".map(|(slot,attempts)|(*slot,attempts.clone())).collect::<Vec<_>>(),"
+        "vec![(pulse_slot,BTreeSet::from([governance_attempt_id]))]"
+    )
+    restore_module = "mod global_beacon_persistence_tests {"
+    if live_item_attributes(mask_rust(restore), restore_module, RESTORE_TESTS_PATH) != (
+            "#[cfg(test)]",):
+        raise RuntimeError(
+            f"{RESTORE_TESTS_PATH}: the pulse persistence tests must stay a compiled test module"
+        )
+    restore_tests = rust_item(restore, restore_module, RESTORE_TESTS_PATH)
+    pinned_test(
+        restore_tests, RESTORE_TESTS_PATH,
+        "fn restore_accepts_pulse_at_a_slot_a_pending_sortition_election_names() {",
+        (
+            "crate::beacon::tests::pending_batched_sortition_attempt("
+            "&network_id,&roster,pulse.height,);",
+            "assert_eq!(attempt.election(&election_attempt_id).expect().attempt()"
+            ".request.pulse_height,pulse.height);",
+            "world.global_beacon_pulses.insert(pulse.pulse_id,pulse);",
+            "world.parliament_attempts.insert(governance_attempt_id,attempt);"
+            "validate_global_beacon_persistence(&world).expect();",
+            awaiting + "assert_eq!(election.request.pulse_height,pulse.height);}",
+        ),
+    )
+    pinned_test(
+        restore_tests, RESTORE_TESTS_PATH,
+        "fn world_snapshot_roundtrip_keeps_a_pulse_wait_on_its_exact_slot() {",
+        (
+            "crate::governance::parliament::pulse_awaiting_parliament_attempt_for_testing(",
+            "attempt.validate_restored_height_v1(pulse_height+1_000_000).expect();",
+            "world.parliament_attempts.insert(governance_attempt_id,attempt.clone());"
+            "letencoded=json::to_json(&world).expect();",
+            "letrestored=parse_world(",
+            ".map_err(crate::state::deserialize::snapshot_format_error_for_test).expect();",
+            "assert_eq!(restored_attempt,&attempt);",
+            awaiting + "assert_eq!(election.request.pulse_height,pulse_height);}",
+            rebuilt_index + ");}",
+        ),
+    )
+    pinned_test(
+        restore_tests, RESTORE_TESTS_PATH,
+        "fn world_snapshot_roundtrip_past_an_unserved_slot_keeps_the_request_on_that_slot() {",
+        (
+            "constLATER_PULSE:u64=41;",
+            "crate::beacon::signed_persisted_pulse_fixture_for_world(network_id,LATER_PULSE,&budget,);",
+            "crate::governance::parliament::pulse_awaiting_parliament_attempt_for_testing(",
+            "assert!(pulse_slot.1+12<LATER_PULSE);",
+            awaiting + "assert_eq!((election.request.beacon_session_id,"
+            "election.request.pulse_height),pulse_slot);}};pending(&attempt);",
+            "forrestored_heightin[pulse_slot.1,pulse_slot.1+12,LATER_PULSE,"
+            "LATER_PULSE+1_000_000,]{"
+            "attempt.validate_restored_height_v1(restored_height).expect();}",
+            "world.global_beacon_pulses.insert(pulse.pulse_id,pulse);"
+            "world.global_beacon_pulse_slots.insert(later_slot,pulse.pulse_id);",
+            "world.parliament_attempts.insert(governance_attempt_id,attempt.clone());"
+            "validate_global_beacon_persistence(&world).expect();",
+            "letrestored=parse_world(",
+            ".map_err(crate::state::deserialize::snapshot_format_error_for_test).expect();",
+            "assert_eq!(restored_attempt,&attempt);pending(restored_attempt);",
+            rebuilt_index + ",",
+            "assert_eq!(restored.global_beacon_pulse_slots.view().iter()"
+            ".map(|(slot,id)|(*slot,*id)).collect::<Vec<_>>(),"
+            "vec![(later_slot,pulse.pulse_id)]);}",
+        ),
+    )
+
+    # Late consumption after a beacon rotation: the stored slot pulse verifies under
+    # its retained session and yields the same seed; no substitute ever draws.
+    refused = "refused(&mutstate_transaction,slot_height,"
+    pinned_test(
+        sortition_tests, SORTITION_ISI_TESTS_PATH,
+        "fn parliament_sortition_consumes_the_slot_pulse_under_its_retained_session_after_rotation() {",
+        (
+            "constROTATION_HEIGHT:u64=10;constEXECUTION_HEIGHT:u64=12;",
+            "ParliamentPermissionlessProgressPhase::AwaitingPulse,",
+            "assert!(slot_height<ROTATION_HEIGHT&&ROTATION_HEIGHT<EXECUTION_HEIGHT);",
+            "letpulse=session_a.pulse(anchor(slot_height),context);"
+            "letother_height=session_a.pulse(anchor(slot_height+1),context);"
+            "letsuccessor=session_b.pulse(anchor(slot_height),context);"
+            "assert_eq!((pulse.height,successor.height),(slot_height,slot_height));"
+            "assert_ne!(pulse.session_id,successor.session_id);",
+            ".verified_pulse(slot.0,slot.1)};"
+            "letseed=crate::beacon::global_threshold_beacon_governance_seed_v1(&pulse,slot_height);"
+            "letexpected=Some((BeaconPulseId::new(pulse.pulse_id),seed));"
+            "assert_eq!(verified(&state_transaction),expected);",
+            "world.retire_global_beacon_key_session(pulse.session_id,ROTATION_HEIGHT).expect();",
+            "world.activate_global_beacon_key_session(successor.session_id,ROTATION_HEIGHT)"
+            ".expect();assert_eq!(world.active_global_beacon_key_session(),"
+            "Some(successor.session_id));",
+            "assert!(old.is_active_at(slot_height)&&!old.is_active_at(EXECUTION_HEIGHT));",
+            "assert!(!new.is_active_at(slot_height)&&new.is_active_at(EXECUTION_HEIGHT));}"
+            "assert_eq!(verified(&state_transaction),expected,);"
+            "assert_eq!(crate::beacon::verified_persisted_global_threshold_beacon_governance_seed_v1("
+            "&state_transaction.world,&network_id,pulse,slot_height,),Ok(seed));",
+            "==BodyElectionAttemptStatusV1::AwaitingPulse};",
+            "leterror=consume(state_transaction,pulse_height,pulse_id).expect_err();",
+            "assert!(rendered.contains(expected),",
+            "assert!(awaiting_pulse(state_transaction));};",
+            refused + "successor.pulse_id,UNKNOWN,);store(&mutstate_transaction,successor);"
+            + refused + "successor.pulse_id,UNVERIFIED,);"
+            "state_transaction.world.global_beacon_pulse_slots.insert(slot,successor.pulse_id);"
+            + refused + "successor.pulse_id,UNVERIFIED,);"
+            "assert_eq!(verified(&state_transaction),None);",
+            refused + "other_height.pulse_id,MISMATCH,);"
+            "consume(&mutstate_transaction,other_height.height,other_height.pulse_id,)"
+            ".expect_err();assert!(awaiting_pulse(&state_transaction));",
+            "store(&mutstate_transaction,tampered);" + refused + "pulse.pulse_id,UNVERIFIED,);"
+            "assert_eq!(verified(&state_transaction),None);}store(&mutstate_transaction,pulse);",
+            refused + "[0xE3;32],UNKNOWN);",
+            "assert_eq!(verified(&state_transaction),expected);"
+            "consume(&mutstate_transaction,slot_height,pulse.pulse_id).expect();",
+            "assert_eq!(election.attempt().status,BodyElectionAttemptStatusV1::Drawing);"
+            "assert_eq!(election.pulse_id(),Some(BeaconPulseId::new(pulse.pulse_id)));"
+            "assert_eq!(election.pulse_output(),Some(seed),);}",
+        ),
+        (
+            'constUNKNOWN:&str="unknownfinalizedbeaconpulse";'
+            'constMISMATCH:&str="doesnotmatchthepersistedfinalizedbeaconpulse";'
+            'constUNVERIFIED:&str="failedpublicDKGorfinal-signatureverification";',
+        ),
+    )
+
+    # Sumeragi 13.4: exactly one HC224 row in the gate and in the spec, naming the test.
+    # The gate is parsed, so a commented or quoted row is not a row.
+    try:
+        gate = ast.parse(mutation_gate)
+    except SyntaxError as error:
+        raise RuntimeError(f"{MUTATION_GATE_PATH}: cannot parse the mutation gate: {error}") from error
+
+    def hc224_rows(node: ast.AST) -> list[ast.Call]:
+        return [
+            call for call in ast.walk(node)
+            if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+            and call.func.id == "m" and call.args
+            and isinstance(call.args[0], ast.Constant) and call.args[0].value == "HC224"
+        ]
+
+    core_tables = [
+        statement.value for statement in gate.body
+        if isinstance(statement, ast.Assign) and len(statement.targets) == 1
+        and isinstance(statement.targets[0], ast.Name)
+        and statement.targets[0].id == "CORE_MUTATIONS"
+    ]
+    rows = hc224_rows(gate)
+    if len(core_tables) != 1 or len(rows) != 1 or hc224_rows(core_tables[0]) != rows:
+        raise RuntimeError(
+            f"{MUTATION_GATE_PATH}: HC224 must be a Core mutation row, exactly once"
+        )
+    row = rows[0]
+    if (len(row.args) != 3 or row.keywords or not isinstance(row.args[2], ast.List)
+            or [getattr(test, "value", None) for test in row.args[2].elts]
+            != [HC224_KILL_TEST_PATH]):
+        raise RuntimeError(
+            f"{MUTATION_GATE_PATH}: Core mutation HC224 must have exactly one row killed by "
+            f"{HC224_KILL_TEST_PATH} alone"
+        )
+    rows = [line for line in spec.splitlines() if "HC224" in line]
+    cells = [cell.strip() for cell in rows[0].split("|")] if len(rows) == 1 else []
+    if (len(cells) != 6 or cells[0] or cells[5] or cells[1] != "HC224"
+            or "`epoch_beacon::required`" not in cells[2]
+            or cells[3] != f"`{HC224_KILL_TEST}`" or not cells[4]):
+        raise RuntimeError(
+            f"{SUMERAGI_SPEC_PATH}: section 13.4 must have exactly one HC224 row killed by "
+            f"{HC224_KILL_TEST}"
+        )
 
 
 def require_native_beacon_pulse_application(
@@ -1721,40 +3123,232 @@ def require_beacon_parliament_pulse_fixtures(
     )
     rust_item(fixtures, "pub(crate) fn pending_batched_sortition_attempt(", tests_path)
 
-    # Canonical admission maintains both derived slot indexes the consumers read.
-    admission = compact_rust(rust_item(
-        state_tests,
-        "fn parliament_required_beacon_slot_index_tracks_lifecycle_and_removal()",
-        state_tests_path,
+    # Canonical admission maintains the one governance-local slot index. A pulse wait
+    # has no expiry, never conflicts with a finalized pulse, and only consuming the
+    # pulse of the exact slot ends it. No unavailable-slot table exists.
+    pinned_helper(state_tests, state_tests_path, "fn parliament_pending_sortition_slot_fixture(", (
+        "crate::beacon::tests::pending_batched_sortition_attempt("
+        "&network_id,&roster,pulse_height);",
     ))
-    admission_order = (
-        "crate::beacon::tests::pending_batched_sortition_attempt(",
-        '.put_parliament_attempt(attempt.clone()).expect("persistthelivesortitionrequest");',
-        ".parliament_required_beacon_pulse_slots.get(&pulse_slot),"
-        "Some(&BTreeSet::from([governance_attempt_id]))",
-        ".fail_body_election_no_roster(",
-        ".put_parliament_attempt(attempt).expect(",
-        ".parliament_unavailable_beacon_pulse_slots.get(&pulse_slot),"
-        "Some(&BTreeSet::from([governance_attempt_id]))",
+    index_entry = (
+        "assert_eq!(transaction.parliament_required_beacon_pulse_slots.get(&pulse_slot),"
+        "Some(&BTreeSet::from([governance_attempt_id])));"
     )
-    positions = [admission.find(token) for token in admission_order]
-    if any(position < 0 for position in positions) or positions != sorted(positions):
-        raise RuntimeError(
-            f"{state_tests_path}: canonical Parliament admission must maintain both "
-            "derived pulse-slot indexes"
-        )
+    index_empty = (
+        "assert!(transaction.parliament_required_beacon_pulse_slots.iter().next().is_none());"
+    )
+    pinned_test(
+        state_tests, state_tests_path,
+        "fn parliament_required_beacon_slot_index_tracks_lifecycle_and_removal() {",
+        (),
+        (
+            "parliament_pending_sortition_slot_fixture(0xD9,pulse_height);",
+            '.put_parliament_attempt(attempt.clone()).expect("persistthelivesortitionrequest");'
+            + index_entry,
+            "assert_eq!(attempt.fail_body_election_no_roster(governance_attempt_id,"
+            "election_attempt_id,pulse_height+1_000_000,),"
+            "Err(ParliamentReducerErrorV1::InvalidLifecycleTransition("
+            "crate::governance::parliament::ParliamentReducerEntityV1::BodyElection)));",
+            '.put_parliament_attempt(attempt.clone()).expect("rewritetheunchangedpulsewait");'
+            "assert_eq!(transaction.parliament_required_beacon_pulse_slots.iter()"
+            ".map(|(slot,attempts)|(*slot,attempts.clone())).collect::<BTreeMap<_,_>>(),"
+            "BTreeMap::from([(pulse_slot,BTreeSet::from([governance_attempt_id]))]));",
+            "attempt.fail_sortition_generation_with_empty_roster_for_tests(",
+            ".put_parliament_attempt(attempt)"
+            '.expect("replacetheliverequestwithitsdrawntranscript");' + index_empty,
+            "assert!(transaction.remove_parliament_attempt_for_testing(&governance_attempt_id)"
+            ".is_some());" + index_empty + "}",
+        ),
+    )
+    rebuilt_entry = (
+        "assert_eq!(world.parliament_required_beacon_pulse_slots.view().get(&pulse_slot),"
+        "Some(&BTreeSet::from([governance_attempt_id])));"
+    )
+    pinned_test(
+        state_tests, state_tests_path,
+        "fn parliament_required_beacon_slot_index_rebuilds_and_tracks_removal() {",
+        (
+            "parliament_pending_sortition_slot_fixture(0xD4,pulse_height);",
+            "attempt.validate_restored_height_v1(pulse_height+1_000_000).expect();",
+            "world.parliament_attempts.insert(governance_attempt_id,attempt);"
+            "world.rebuild_governance_read_indexes().expect();" + rebuilt_entry
+            + "world.parliament_required_beacon_pulse_slots=Storage::default();"
+            "world.rebuild_governance_read_indexes().expect();" + rebuilt_entry,
+            "assert!(transaction.remove_parliament_attempt_for_testing(&governance_attempt_id)"
+            ".is_some());assert!(transaction.parliament_required_beacon_pulse_slots"
+            ".get(&pulse_slot).is_none());}",
+        ),
+    )
+    pinned_test(
+        state_tests, state_tests_path,
+        "fn parliament_sortition_slot_never_conflicts_with_a_finalized_pulse() {",
+        (
+            "parliament_pending_sortition_slot_fixture(0xD5,41);",
+            "crate::beacon::signed_persisted_pulse_fixture_for_world(network_id,41,&budget);",
+            "failed.fail_sortition_generation_with_empty_roster_for_tests(",
+            "assert!(pending.unavailable_release_pulse_slots_v1().is_empty());"
+            "assert!(failed.unavailable_release_pulse_slots_v1().is_empty());",
+            "for(attempt,awaited)in[(pending,true),(failed,false)]{",
+            "world.global_beacon_pulses.insert(pulse.pulse_id,pulse);"
+            "world.rebuild_global_beacon_pulse_slots().expect();",
+            "assert_eq!(transaction.put_parliament_attempt(attempt.clone()),Ok(()));"
+            "assert_eq!(transaction.parliament_required_beacon_pulse_slots.get(&pulse_slot)"
+            ".is_some(),awaited);",
+            "world.parliament_attempts.insert(governance_attempt_id,attempt);"
+            "world.rebuild_governance_read_indexes().expect();"
+            "assert_eq!(world.parliament_required_beacon_pulse_slots.view().get(&pulse_slot)"
+            ".is_some(),awaited);}}",
+        ),
+    )
+    # TODO: the timed-OVN ballot keeps the only committed-pulse contradiction check, on
+    # its release slot; delete this pin with the ballot path
+    # (specs/parliament_private_ballot_design.md 12.2 step 4).
+    pinned_test(
+        state_tests, state_tests_path,
+        "fn parliament_attempt_rejects_release_unavailable_ballot_at_a_finalized_pulse_slot_atomically() {",
+        (
+            "crate::governance::parliament::tests::release_pulse_unavailable_attempt_fixture_v1("
+            "release_session,);",
+            "assert_eq!(attempt.unavailable_release_pulse_slots_v1(),"
+            "BTreeSet::from([release_slot]));",
+            "forslotsin[Vec::new(),vec![(release_session,release_height-1),"
+            "(release_session,release_height+1),(other_session,release_height),],]{",
+            "assert_eq!(transaction.put_parliament_attempt(attempt.clone()),Ok(()));"
+            "assert_eq!(transaction.parliament_attempts.get(&governance_attempt_id),"
+            "Some(&attempt));}",
+            "letworld=world_with_pulse_slots(&[release_slot]);",
+            "assert_eq!(transaction.put_parliament_attempt(attempt.clone()),"
+            "Err(ParliamentReducerErrorV1::BeaconPulseAlreadyAvailable));"
+            "assert!(transaction.parliament_attempts.get(&governance_attempt_id).is_none());"
+            + index_empty,
+        ),
+    )
+    retired_state_tests = (
+        "parliament_unavailable_beacon_slot_index_rebuilds_and_tracks_removal",
+        "parliament_attempt_rejects_unavailable_slot_after_pulse_finalization_atomically",
+        "parliament_unavailable_slot_rebuild_rejects_finalized_pulse_fail_atomically",
+        "parliament_unavailable_beacon_pulse_slots",
+        "unavailable_beacon_pulse_slots_v1",
+    )
+    require_identifiers_absent(state_tests_path, mask_rust(state_tests), retired_state_tests)
 
-    # Both native consumers start with canonical attempt admission; directly
-    # fabricating the derived pulse index would miss the production handoff.
-    fixture = compact_rust(rust_item(
-        producer_tests, "fn fixture() -> Fixture {", BEACON_PRODUCER_TESTS_PATH
+    # The generic native consumers take demand from the executed NPoS chain alone:
+    # its pre-boundary height 9. They admit no Parliament attempt and write no
+    # governance index; directly fabricating either would hide the native demand.
+    def chain_owned(relative: str, owner: str, code: str, readers: tuple[str, ...]) -> None:
+        for identifier in sorted(set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", code))):
+            if "parliament" in identifier.lower() and identifier not in readers:
+                raise RuntimeError(
+                    f"{relative}: {owner} must take demand from the NPoS chain, not from "
+                    f"governance state: {identifier!r}"
+                )
+        if "pending_batched_sortition_attempt" in code:
+            raise RuntimeError(
+                f"{relative}: {owner} must not admit a Parliament sortition attempt"
+            )
+
+    fixture_owner = "fn fixture() -> Fixture {"
+    fixture_code, fixture = live_rust_item(
+        producer_tests, fixture_owner, BEACON_PRODUCER_TESTS_PATH
+    )
+    chain_owned(BEACON_PRODUCER_TESTS_PATH, fixture_owner, fixture_code,
+                ("parliament_required_beacon_pulse_slots",))
+    require_no_early_exit(BEACON_PRODUCER_TESTS_PATH, fixture_owner, fixture_code)
+    require_ordered_once(BEACON_PRODUCER_TESTS_PATH, fixture_owner, fixture_code, (
+        "letfixture=seeded(npos_prefix(8));",
+        "letcurrent=&retained.ready(9).unwrap().epoch;",
+        "assert_eq!(current.mode,ConsensusMode::Npos);",
+        "assert_eq!(current.authorization.last_height,NPOS_EPOCH_LENGTH_BLOCKS);",
+        "assert!(view.world().parliament_required_beacon_pulse_slots().iter().next().is_none(),",
+        "assert!(super::super::required(SumeragiRootScope::Global,view.world(),current,9)"
+        ".unwrap(),",
+        "assert!(!super::super::required(SumeragiRootScope::Global,view.world(),current,8)"
+        ".unwrap()&&!super::super::required(SumeragiRootScope::Global,view.world(),current,10)"
+        ".unwrap(),",
     ))
-    require_all(BEACON_PRODUCER_TESTS_PATH, fixture, (
-        "crate::beacon::tests::pending_batched_sortition_attempt(&chain.network_id(),&roster,9)",
-        '.put_parliament_attempt(attempt).expect("admittheproducer\'sParliamentdemand");',
-        "&(BeaconSessionId::for_network_v1(&chain.network_id()),9)",
-        "Some(&BTreeSet::from([attempt_id]))",
+    npos_owner = "fn npos_prefix(height: u64) -> CertifiedTestChain {"
+    npos_code, _ = live_rust_item(producer_tests, npos_owner, BEACON_PRODUCER_TESTS_PATH)
+    chain_owned(BEACON_PRODUCER_TESTS_PATH, npos_owner, npos_code, ())
+    require_ordered_once(BEACON_PRODUCER_TESTS_PATH, npos_owner, npos_code, (
+        "config.consensus_mode=SumeragiConsensusMode::Npos;",
+        "epoch_length_blocks:NonZeroU64::new(NPOS_EPOCH_LENGTH_BLOCKS).unwrap(),",
+        "Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(policy.epoch_length_blocks,)),",
+        "letmutchain=CertifiedTestChain::start(config)",
+        "whilechain.height()<height{chain.commit(Vec::new());}",
     ))
+    if re.sub(r"\s+", "", mask_rust(producer_tests)).count(
+            "constNPOS_EPOCH_LENGTH_BLOCKS:u64=10;") != 1:
+        raise RuntimeError(
+            f"{BEACON_PRODUCER_TESTS_PATH}: the fixture epoch must put its native pulse at 9"
+        )
+    seeded_owner = "fn seeded(chain: CertifiedTestChain) -> Fixture {"
+    seeded_code, _ = live_rust_item(producer_tests, seeded_owner, BEACON_PRODUCER_TESTS_PATH)
+    chain_owned(BEACON_PRODUCER_TESTS_PATH, seeded_owner, seeded_code, ())
+    require_ordered_once(BEACON_PRODUCER_TESTS_PATH, seeded_owner, seeded_code, (
+        "assert_eq!(chain.height(),8);",
+    ))
+
+    # Canonical Parliament admission has one producer owner, on a Permissioned chain
+    # that has no native pulse cadence. Admission derives the governance-local index
+    # and nothing else: demand stays false, the horizon has no height, no round
+    # opens, the witness is empty and no seat signs.
+    parliament_owner = (
+        "fn parliament_attempt_admission_derives_the_slot_index_and_no_pulse_demand() {"
+    )
+    not_required_at_nine = (
+        "assert!(!super::super::required(SumeragiRootScope::Global,view.world(),current,9)"
+        ".unwrap(),"
+    )
+    pinned_test(producer_tests, BEACON_PRODUCER_TESTS_PATH, parliament_owner, (
+        "letmutfixture=seeded(prefix());",
+        "assert_eq!(current.mode,ConsensusMode::Permissioned);" + not_required_at_nine,
+        "crate::beacon::tests::pending_batched_sortition_attempt(&chain.network_id(),&roster,9);",
+        ".put_parliament_attempt(attempt).expect();"
+        "assert_eq!(transaction.world.parliament_required_beacon_pulse_slots"
+        ".get(&(BeaconSessionId::for_network_v1(&chain.network_id()),9)),"
+        "Some(&BTreeSet::from([attempt_id])));});",
+        "letview=state.view();{letretained=view.world().consensus_schedule();"
+        "letcurrent=&retained.ready(9).unwrap().epoch;" + not_required_at_nine,
+        ".refresh_readiness(&view,&fixture.context,applied,generation).unwrap();"
+        "let(horizon,ready)=reporting.read(generation,9,8).unwrap();assert!(ready,",
+        "assert_eq!(horizon.epoch_length_blocks,0);"
+        "assert_eq!(horizon.next_required_pulse_height,None,",
+        "assert!(!horizon.session_covers_next_pulse);forproducerin&mutfixture.producers{"
+        "assert!(producer.drive(&view,&fixture.context,applied).unwrap().is_none(),",
+        "assert!(producer.active.is_none());"
+        "assert!(producer.build(&build_context(&fixture.context,0)).unwrap().is_empty(),",
+        "assert!(fixture.counts.iter().all(|count|count.load(Ordering::SeqCst)==0),",
+    ))
+    # The readiness horizon is native-only on both chain kinds: the NPoS boundary
+    # pulse and never a governance slot; nothing at all on a Permissioned root.
+    pinned_test(
+        producer_tests, BEACON_PRODUCER_TESTS_PATH,
+        "fn readiness_horizon_is_native_only_with_pending_parliament_slots() {",
+        (
+            "letchain=npos_prefix(5);",
+            "assert_eq!(npos_context.height,6);",
+            "crate::beacon::tests::pending_batched_sortition_attempt(&chain.network_id(),&roster,7);",
+            "assert_eq!(view.world().parliament_required_beacon_pulse_slots().get(&slot),"
+            "Some(&BTreeSet::from([attempt_id])));",
+            "assert_eq!(current.mode,ConsensusMode::Npos);forheightin6..=10{"
+            "assert_eq!(super::super::required(SumeragiRootScope::Global,view.world(),"
+            "current,height).unwrap(),height==9,",
+            "let(horizon,ready)=report.read(generation,6,5).unwrap();"
+            "assert_eq!(horizon.epoch_length_blocks,NPOS_EPOCH_LENGTH_BLOCKS);"
+            "assert_eq!(horizon.next_required_pulse_height,Some(9),",
+            "assert!(!ready,",
+            ".is_none()&&validator.active.is_none(),",
+            "letchain=prefix();",
+            "crate::beacon::tests::pending_batched_sortition_attempt(&chain.network_id(),&roster,9);",
+            ".get(&(BeaconSessionId::for_network_v1(&chain.network_id()),9)),"
+            "Some(&BTreeSet::from([attempt_id])));"
+            "assert!(view.world().active_global_beacon_key_session().is_none());",
+            "let(horizon,ready)=report.read(generation,9,8).unwrap();assert!(ready,",
+            "assert_eq!(horizon.next_required_pulse_height,None);"
+            "assert_eq!(horizon.active_session_id,None);"
+            "assert!(!horizon.local_provider_ready&&!horizon.session_covers_next_pulse);}",
+        ),
+    )
     real_shares = compact_rust(rust_item(
         producer_tests,
         "fn all_seats_drive_real_shares_once_and_followers_use_only_transported_pulse()",
@@ -1777,16 +3371,13 @@ def require_beacon_parliament_pulse_fixtures(
         "Err(NativeBeaconError::Source(_))",
         "count.load(Ordering::SeqCst)==0",
     ))
-    unavailable = compact_rust(rust_item(
-        producer_tests,
-        "fn wrong_source_sender_and_proof_never_change_the_owned_round()",
-        BEACON_PRODUCER_TESTS_PATH,
-    ))
-    require_all(BEACON_PRODUCER_TESTS_PATH, unavailable, (
-        ".parliament_unavailable_beacon_pulse_slots.insert(",
-        "fresh.drive(&source,&fixture.context,applied),Err(NativeBeaconError::Source(_))",
-        '"anunavailablecommittedslotcannotopenanewlocalsigninground"',
-    ))
+    # No committed governance classification can close a slot to the producer: the
+    # unavailable-slot table and every test write of it are retired.
+    for relative, text in (
+        (BEACON_PRODUCER_TESTS_PATH, producer_tests),
+        (BEACON_EXECUTION_TESTS_PATH, execution_tests),
+    ):
+        require_identifiers_absent(relative, mask_rust(text), retired_state_tests)
     replay = compact_rust(rust_item(
         execution_tests,
         "fn transported_pulse_executes_once_and_cold_replay_reproduces_the_certified_result()",
@@ -1808,15 +3399,23 @@ def require_beacon_parliament_pulse_fixtures(
         "letunrequested=same_predecessor(&fixture,false);",
         "invalid(&mutexecutor(&unrequested),&unrequested,&unrequested_body);",
     ))
-    predecessor = compact_rust(rust_item(
-        execution_tests,
-        "fn same_predecessor(fixture: &Fixture, demand: bool) -> CertifiedTestChain {",
-        BEACON_EXECUTION_TESTS_PATH,
-    ))
-    require_all(BEACON_EXECUTION_TESTS_PATH, predecessor, (
-        "crate::beacon::tests::pending_batched_sortition_attempt(&chain.network_id(),&roster,9)",
-        'ifdemand{transaction.world.put_parliament_attempt(attempt)'
-        '.expect("admitthereplay\'sParliamentdemand");}',
+    # The replay State differs from the unrequested one only by its NPoS tip: 8 puts
+    # the next height on the pre-boundary pulse, 7 on an ordinary height.
+    predecessor_owner = (
+        "fn same_predecessor(fixture: &Fixture, demand: bool) -> CertifiedTestChain {"
+    )
+    predecessor, _ = live_rust_item(
+        execution_tests, predecessor_owner, BEACON_EXECUTION_TESTS_PATH
+    )
+    chain_owned(BEACON_EXECUTION_TESTS_PATH, predecessor_owner, predecessor, ())
+    require_no_early_exit(BEACON_EXECUTION_TESTS_PATH, predecessor_owner, predecessor)
+    require_ordered_once(BEACON_EXECUTION_TESTS_PATH, predecessor_owner, predecessor, (
+        "lettip=ifdemand{8}else{7};letchain=npos_prefix(tip);",
+        "assert_eq!(chain.instance(),fixture.chain.instance());",
+        "letcurrent=&retained.ready(tip+1).unwrap().epoch;",
+        "assert_eq!(current.mode,ConsensusMode::Npos);",
+        "assert_eq!(super::super::super::required(SumeragiRootScope::Global,view.world(),"
+        "current,tip+1).unwrap(),demand,",
     ))
 
 
@@ -2016,7 +3615,7 @@ def require_signed_deferred_authority_and_native_fees(
         "return iroha_data_model::isi::instruction_wire_id(instruction);",
         "classify!(RegisterPublicLaneCandidate, RegisterPublicLaneValidator,"
         "BondPublicLaneStake, FinalizePublicLaneUnbond, SlashPublicLaneValidator,"
-        "RecordPublicLaneRewards, ClaimPublicLaneRewards,);",
+        "ClaimPublicLaneRewards,);",
     ))
     single = item(authority, "fn reject_opaque_committee_operation(", authority_path)
     require(authority_path, single, (
@@ -2195,114 +3794,360 @@ def require_proved_trigger_rejection(source: str) -> None:
         raise RuntimeError(f"{path}: proved trigger was downgraded to plain bytecode")
 
 
-def require_threshold_signer_startup_readiness(runtime_deps: str) -> None:
-    """Bind retained and expired startup custody to their exact executable test owners."""
+THRESHOLD_READINESS_CALLS = frozenset({
+    "Err", "Ok", "Some", "active_global_threshold_beacon_session_id_v1", "as_deref",
+    "check_binding", "commit_topology_snapshot", "committed_height", "from", "get",
+    "global_beacon_key_sessions", "global_threshold_beacon_roster_hash_v1", "is_active_at",
+    "iter", "len", "map", "map_err", "network_id_ref", "ok_or", "position",
+    "require_global_beacon_capability_for_local_seat_v1", "saturating_add", "transpose",
+    "try_from", "unwrap_or", "validate", "world_view",
+})
+# The whole live code of each startup-custody owner: whitespace-free, comments and
+# literal contents masked. Pinning it closes the control flow: an early success
+# return, a shadowed binding or a gate that is not a plain call changes the text.
+THRESHOLD_READINESS_BODIES = {
+    "fn validate_threshold_signer_startup_readiness_v1(": (
+        "fnvalidate_threshold_signer_startup_readiness_v1(state:&iroha_core::state::State,"
+        "local_peer:&PeerId,runtime_deps:&IrohaRuntimeDeps,)->Result<(),&'staticstr>{"
+        "useiroha_core::state::WorldReadOnlyas_;"
+        "letworld=state.world_view();"
+        "lettopology=state.commit_topology_snapshot();"
+        "lettopology_roster_hash=iroha_core::beacon::global_threshold_beacon_roster_hash_v1("
+        "&topology);"
+        "letcommitted_height=u64::try_from(state.committed_height()).unwrap_or(u64::MAX);"
+        "letactive_session_id=iroha_core::beacon::active_global_threshold_beacon_session_id_v1("
+        "&world).map_err(|_|)?;"
+        "ifletSome(active_session_id)=active_session_id{"
+        "letrecord=world.global_beacon_key_sessions().get(&active_session_id).ok_or()?;"
+        "record.validate().map_err(|_|)?;"
+        "ifrecord.session.network_id!=*state.network_id_ref()"
+        "||record.session.roster_hash!=topology_roster_hash"
+        "||usize::from(record.session.committee_size)!=topology.len()"
+        "||!record.is_active_at(committed_height.saturating_add(1)){returnErr();}"
+        "letsession=&record.session;"
+        "session.check_binding(&iroha_core::beacon::GlobalThresholdBeaconSessionBindingV1{"
+        "network_id:*state.network_id_ref(),session_id:active_session_id,"
+        "roster_hash:topology_roster_hash,transcript_hash:session.transcript_hash,})"
+        ".map_err(|_|)?;"
+        "letlocal_signer_index=topology.iter().position(|peer|peer==local_peer)"
+        ".map(|index|{u16::try_from(index+1).map_err(|_|)}).transpose()?;"
+        "require_global_beacon_capability_for_local_seat_v1(local_signer_index,"
+        "runtime_deps.sumeragi_global_beacon_partial_signer.as_deref(),session,)?;}Ok(())}"
+    ),
+    "fn require_global_beacon_capability_for_local_seat_v1(": (
+        "fnrequire_global_beacon_capability_for_local_seat_v1(local_signer_index:Option<u16>,"
+        "signer:Option<&dyniroha_core::beacon::GlobalThresholdBeaconPartialSignerV1>,"
+        "session:&iroha_core::beacon::ValidatedGlobalThresholdBeaconSessionV1,)"
+        "->Result<(),&'staticstr>{"
+        "require_global_beacon_signer_for_local_seat_v1(local_signer_index.is_some(),"
+        "signer.is_some())?;"
+        "let(Some(signer_index),Some(signer))=(local_signer_index,signer)else{returnOk(());};"
+        "letattestation=signer.attest_partial_signing_capability(session,signer_index)"
+        ".map_err(|_|,)?;"
+        "if!attestation.matches(session,signer_index){returnErr(,);}Ok(())}"
+    ),
+    "fn require_global_beacon_signer_for_local_seat_v1(": (
+        "fnrequire_global_beacon_signer_for_local_seat_v1(local_has_committee_seat:bool,"
+        "signer_is_resolved:bool,)->Result<(),&'staticstr>{"
+        "iflocal_has_committee_seat&&!signer_is_resolved{returnErr();}Ok(())}"
+    ),
+    "async fn preflight_threshold_signer_startup_readiness_v1(": (
+        "asyncfnpreflight_threshold_signer_startup_readiness_v1("
+        "state:Arc<iroha_core::state::State>,local_peer:PeerId,runtime_deps:IrohaRuntimeDeps,)"
+        "->Result<(),&'staticstr>{"
+        "tokio::task::spawn_blocking(move||{validate_threshold_signer_startup_readiness_v1("
+        "&state,&local_peer,&runtime_deps)}).await.map_err(|_|)?}"
+    ),
+}
+RETIRED_TLE_STARTUP_HELPERS = (
+    "require_parliament_tle_signer_for_local_seat_v1",
+    "require_parliament_tle_session_startup_binding_v1",
+    "parliament_tle_local_participant_index_v1",
+    "require_parliament_tle_capability_for_local_seat_v1",
+)
+RETIRED_TLE_STARTUP_LOOKUPS = (
+    "tle_key_sessions_required_for_runtime_custody_v1",
+    "tle_key_session_rosters",
+    "attest_partial_release_capability",
+    "parliament_tle_partial_release_signer",
+    "sign_partial_release",
+)
+
+
+def require_threshold_signer_startup_readiness(runtime_deps: str, daemon: str) -> None:
+    """Startup custody is consensus-native: the global beacon gates it, Parliament never does."""
     runtime_deps_path = "crates/irohad/src/main/runtime_deps.rs"
-    require_all(
-        runtime_deps_path,
-        runtime_deps,
-        (
-            "parliament_tle_partial_release_signer:",
-            "Option<Arc<dyn iroha_core::tle_release::TlePartialReleaseSignerV1>>",
-            "with_parliament_tle_partial_release_signer(",
-            "pub(crate) fn parliament_tle_release_coordinator(",
-            "TleReleaseCoordinatorV1::without_signer",
-            "TleReleaseCoordinatorV1::from_signer",
-            "tle_key_sessions_required_for_runtime_custody_v1(committed_height)",
-            ".tle_key_session_rosters()",
-            "parliament_tle_local_participant_index_v1(frozen_roster, local_peer)",
-            "require_parliament_tle_capability_for_local_seat_v1(",
-            ".attest_partial_release_capability(session, participant_index)",
-            "attestation.matches(session, participant_index)",
-        ),
+    daemon_path = "crates/irohad/src/main.rs"
+    live_file = mask_rust(runtime_deps)
+
+    # The four Parliament TLE startup helpers are deleted, under any caller.
+    retired = re.compile(
+        r"(?<![A-Za-z0-9_])(" + "|".join(RETIRED_TLE_STARTUP_HELPERS) + r")(?![A-Za-z0-9_])"
     )
-    readiness = rust_item(
-        runtime_deps, "fn validate_threshold_signer_startup_readiness_v1(", runtime_deps_path,
-    )
-    capability = rust_item(
-        runtime_deps, "fn require_parliament_tle_capability_for_local_seat_v1(", runtime_deps_path,
-    )
-    if any(".sign_partial_release(" in owner for owner in (readiness, capability)):
+    found = sorted({match.group(1) for match in retired.finditer(live_file)})
+    if found:
         raise RuntimeError(
-            f"{runtime_deps_path}: startup readiness must attest custody without signing"
+            f"{runtime_deps_path}: retired Parliament TLE startup helper(s) remain: "
+            + ", ".join(found)
         )
-    require_all(runtime_deps_path, capability, (
-        ".attest_partial_release_capability(session, participant_index)",
-        "attestation.matches(session, participant_index)",
-    ))
-    readiness_fixture = rust_item(
-        runtime_deps, "fn threshold_signer_readiness_fixture_v1(", runtime_deps_path,
-    )
-    require_all(
-        runtime_deps_path,
-        readiness_fixture,
-        (
-            "const RETAINED_SESSION_BYTE: u8 = 0xD1",
-            "const ACTIVE_SESSION_BYTE: u8 = 0xE1",
-            "const RETENTION_DEADLINE_HEIGHT: u64 = 13",
-            "active_validator_keys.reverse()",
-            "let retained_participant_index = 2",
-            "let active_participant_index = 3",
-            "TleKeySessionId::new([RETAINED_SESSION_BYTE; 32])",
-            "put_parliament_attempt_for_testing(attempt_id, attempt)",
-            "while u64::try_from(block_hashes.len()).unwrap_or(u64::MAX) < committed_height",
-        ),
-    )
-    retained_readiness_test = rust_item(
-        runtime_deps,
-        "fn threshold_signer_startup_readiness_scans_active_and_deadline_retained_frozen_rosters() {",
-        runtime_deps_path,
-    )
-    require_all(
-        runtime_deps_path,
-        retained_readiness_test,
-        (
-            "threshold_signer_readiness_fixture_v1(13)",
-            "validate_threshold_signer_startup_readiness_v1(",
-            "fixture.retained_key_session_id",
-            "fixture.retained_participant_index",
-            "fixture.active_key_session_id",
-            "fixture.active_participant_index",
-            "assert_eq!(calls, expected)",
-            "signer.sign_calls.load(Ordering::Acquire), 0",
-        ),
-    )
-    require_all(runtime_deps_path, compact_rust(retained_readiness_test), (
-        "letmutcalls=signer.attestation_calls();calls.sort_unstable();",
-        "letmutexpected=vec![(fixture.retained_key_session_id,fixture.retained_participant_index,),"
-        "(fixture.active_key_session_id,fixture.active_participant_index,),];"
-        "expected.sort_unstable();assert_eq!(calls,expected);",
-    ))
-    expired_readiness_test = rust_item(
-        runtime_deps,
-        "fn threshold_signer_startup_readiness_skips_expired_history_and_rejects_mismatch() {",
-        runtime_deps_path,
-    )
-    require_all(
-        runtime_deps_path,
-        expired_readiness_test,
-        (
-            "threshold_signer_readiness_fixture_v1(14)",
-            "validate_threshold_signer_startup_readiness_v1(",
-            "exact_signer.attestation_calls()",
-            "fixture.active_key_session_id",
-            "fixture.active_participant_index",
-            "CapabilityMode::MismatchedSeat",
-            "mismatched_signer.attestation_calls()",
-            "returned a mismatched runtime custody attestation",
-        ),
-    )
-    expired = compact_rust(expired_readiness_test)
-    for signer in ("exact_signer", "mismatched_signer"):
-        expected_calls = (
-            f"assert_eq!({signer}.attestation_calls(),"
-            "vec![(fixture.active_key_session_id,fixture.active_participant_index,)]);"
-        )
-        no_signing = f"assert_eq!({signer}.sign_calls.load(Ordering::Acquire),0);"
-        if expired.count(expected_calls) != 1 or expired.count(no_signing) != 1:
+
+    def consensus_native(owner: str, code: str) -> None:
+        for lookup in (*RETIRED_TLE_STARTUP_LOOKUPS, ".sign_partial("):
+            if lookup in code:
+                raise RuntimeError(
+                    f"{runtime_deps_path}: {owner} must not reach Parliament TLE custody "
+                    f"or sign: {lookup!r}"
+                )
+        for identifier in sorted(set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", code))):
+            lowered = identifier.lower()
+            if ("parliament" in lowered or "tle" in lowered.split("_")
+                    or re.match(r"Tle[A-Z]", identifier)):
+                raise RuntimeError(
+                    f"{runtime_deps_path}: {owner} must not name governance state: "
+                    f"{identifier!r}"
+                )
+
+    def closed_body(owner: str, code: str) -> None:
+        if code != THRESHOLD_READINESS_BODIES[owner]:
             raise RuntimeError(
-                f"{runtime_deps_path}: expired startup readiness must assert only the active exact seat without signing"
+                f"{runtime_deps_path}: {owner} differs from its modeled body; startup "
+                "custody control flow is closed"
             )
+
+    # The preflight body: global-beacon custody, in order, and nothing else is called.
+    readiness_owner = "fn validate_threshold_signer_startup_readiness_v1("
+    readiness, readiness_text = live_rust_item(runtime_deps, readiness_owner, runtime_deps_path)
+    consensus_native(readiness_owner, readiness)
+    require_ordered_once(runtime_deps_path, readiness_owner, readiness, (
+        "letworld=state.world_view();",
+        "lettopology=state.commit_topology_snapshot();",
+        "lettopology_roster_hash=iroha_core::beacon::global_threshold_beacon_roster_hash_v1("
+        "&topology);",
+        "letactive_session_id=iroha_core::beacon::active_global_threshold_beacon_session_id_v1("
+        "&world)",
+        "ifletSome(active_session_id)=active_session_id{",
+        "letrecord=world.global_beacon_key_sessions().get(&active_session_id)",
+        "record.validate()",
+        "ifrecord.session.network_id!=*state.network_id_ref()"
+        "||record.session.roster_hash!=topology_roster_hash"
+        "||usize::from(record.session.committee_size)!=topology.len()"
+        "||!record.is_active_at(committed_height.saturating_add(1)){returnErr(",
+        "letsession=&record.session;",
+        "session.check_binding(&iroha_core::beacon::GlobalThresholdBeaconSessionBindingV1{",
+        "letlocal_signer_index=topology.iter().position(|peer|peer==local_peer)",
+        "require_global_beacon_capability_for_local_seat_v1(local_signer_index,"
+        "runtime_deps.sumeragi_global_beacon_partial_signer.as_deref(),session,)?;}Ok(())}",
+    ))
+    readiness_code = mask_rust(rust_item(runtime_deps, readiness_owner, runtime_deps_path))
+    calls = set(re.findall(
+        r"([A-Za-z_][A-Za-z0-9_]*)\s*(?:!|::\s*<[^()]*>)?\s*\(",
+        readiness_code[len(readiness_owner) - 1:],
+    ))
+    unexpected = sorted(calls - THRESHOLD_READINESS_CALLS)
+    if unexpected:
+        raise RuntimeError(
+            f"{runtime_deps_path}: startup readiness gained an unmodeled call: "
+            + ", ".join(unexpected)
+        )
+    closed_body(readiness_owner, readiness)
+    require_all(runtime_deps_path, readiness_text, (
+        '"activeglobal-beaconkeysessionisnotboundtothestartuproster"',
+    ))
+
+    capability_owner = "fn require_global_beacon_capability_for_local_seat_v1("
+    capability, capability_text = live_rust_item(
+        runtime_deps, capability_owner, runtime_deps_path
+    )
+    consensus_native(capability_owner, capability)
+    require_ordered_once(runtime_deps_path, capability_owner, capability, (
+        "require_global_beacon_signer_for_local_seat_v1(local_signer_index.is_some(),"
+        "signer.is_some())?;",
+        "let(Some(signer_index),Some(signer))=(local_signer_index,signer)else{returnOk(());};",
+        "letattestation=signer.attest_partial_signing_capability(session,signer_index).map_err(",
+        "if!attestation.matches(session,signer_index){returnErr(",
+    ))
+    closed_body(capability_owner, capability)
+    require_all(runtime_deps_path, capability_text, (
+        '"localglobal-beaconcommitteeseathasnoexactruntimecustodyattestation"',
+        '"localglobal-beaconcommitteeseatreturnedamismatchedruntimecustodyattestation"',
+    ))
+    seat_owner = "fn require_global_beacon_signer_for_local_seat_v1("
+    seat, seat_text = live_rust_item(runtime_deps, seat_owner, runtime_deps_path)
+    consensus_native(seat_owner, seat)
+    require_ordered_once(runtime_deps_path, seat_owner, seat, (
+        "iflocal_has_committee_seat&&!signer_is_resolved{returnErr(",
+    ))
+    closed_body(seat_owner, seat)
+    require_all(runtime_deps_path, seat_text, (
+        '"localglobal-beaconcommitteeseathasnoresolvedpartialsigner"',
+    ))
+
+    wrapper_owner = "async fn preflight_threshold_signer_startup_readiness_v1("
+    wrapper, _ = live_rust_item(runtime_deps, wrapper_owner, runtime_deps_path)
+    consensus_native(wrapper_owner, wrapper)
+    require_ordered_once(runtime_deps_path, wrapper_owner, wrapper, (
+        "tokio::task::spawn_blocking(move||{validate_threshold_signer_startup_readiness_v1("
+        "&state,&local_peer,&runtime_deps)}).await.map_err(",
+    ))
+    closed_body(wrapper_owner, wrapper)
+
+    # The preflight is awaited, and its refusal propagated, before Sumeragi starts.
+    if mask_rust(daemon).count("preflight_threshold_signer_startup_readiness_v1(") != 1:
+        raise RuntimeError(f"{daemon_path}: startup must call the custody preflight exactly once")
+    startup_owner = "pub(crate) async fn start_with_runtime_deps("
+    startup, _ = live_rust_item(daemon, startup_owner, daemon_path)
+    require_ordered_once(daemon_path, startup_owner, startup, (
+        "letlocal_consensus_peer=config.common.trusted_peers.value().myself.id().clone();",
+        "preflight_threshold_signer_startup_readiness_v1(Arc::clone(&state),"
+        "local_consensus_peer.clone(),runtime_deps.clone(),).await"
+        ".map_err(|message|Report::new(StartError::StartP2p).attach(message))?;",
+        ".start_on_network(",
+    ))
+    # Unconditional: the preflight statement sits directly between its neighbours,
+    # in their block, with no guard around it (the trace literal is masked).
+    if startup.count(
+        "letlocal_consensus_peer=config.common.trusted_peers.value().myself.id().clone();"
+        "preflight_threshold_signer_startup_readiness_v1(Arc::clone(&state),"
+        "local_consensus_peer.clone(),runtime_deps.clone(),).await"
+        ".map_err(|message|Report::new(StartError::StartP2p).attach(message))?;"
+        "log_startup_trace(,startup_trace_started_at);letnode=prepared.start_on_network("
+    ) != 1:
+        raise RuntimeError(
+            f"{daemon_path}: the custody preflight must run unconditionally, directly before "
+            "consensus start"
+        )
+
+    # The TLE signer field, setter and release coordinator stay until timed-OVN is retired.
+    dependencies, _ = live_rust_item(runtime_deps, "pub struct IrohaRuntimeDeps {", runtime_deps_path)
+    require_ordered_once(runtime_deps_path, "pub struct IrohaRuntimeDeps", dependencies, (
+        "sumeragi_global_beacon_partial_signer:"
+        "Option<Arc<dyniroha_core::beacon::GlobalThresholdBeaconPartialSignerV1>>,",
+        "parliament_tle_partial_release_signer:"
+        "Option<Arc<dyniroha_core::tle_release::TlePartialReleaseSignerV1>>,",
+    ))
+    require_ordered_once(
+        runtime_deps_path, "runtime dependency setters", re.sub(r"\s+", "", live_file), (
+            "with_sumeragi_global_beacon_partial_signer(signer:"
+            "Arc<dyniroha_core::beacon::GlobalThresholdBeaconPartialSignerV1>,)"
+            "=>sumeragi_global_beacon_partial_signer;",
+            "with_parliament_tle_partial_release_signer(signer:"
+            "Arc<dyniroha_core::tle_release::TlePartialReleaseSignerV1>,)"
+            "=>parliament_tle_partial_release_signer;",
+        ),
+    )
+    coordinator_owner = "pub(crate) fn parliament_tle_release_coordinator("
+    coordinator, _ = live_rust_item(runtime_deps, coordinator_owner, runtime_deps_path)
+    require_ordered_once(runtime_deps_path, coordinator_owner, coordinator, (
+        "self.parliament_tle_partial_release_signer.clone().map_or_else(",
+        "iroha_core::tle_release::TleReleaseCoordinatorV1::without_signer,",
+        "iroha_core::tle_release::TleReleaseCoordinatorV1::from_signer,",
+    ))
+
+    # Both executable owners are compiled tests of the original test module.
+    module_owner = "mod parliament_tle_release_tests {"
+    module = rust_item(runtime_deps, module_owner, runtime_deps_path)
+    if live_item_attributes(live_file, module_owner, runtime_deps_path) != ("#[cfg(test)]",):
+        raise RuntimeError(f"{runtime_deps_path}: startup custody tests must stay a test module")
+    live_module = mask_rust(module)
+
+    def compiled_test(declaration: str) -> tuple[str, str]:
+        if live_item_attributes(live_module, declaration, runtime_deps_path) != ("#[test]",):
+            raise RuntimeError(
+                f"{runtime_deps_path}: {declaration!r} must be a compiled test of "
+                "parliament_tle_release_tests"
+            )
+        return live_rust_item(module, declaration, runtime_deps_path)
+
+    # The probe journals every Parliament TLE call, so "zero calls" is observable.
+    probe_owner = (
+        "impl iroha_core::tle_release::TlePartialReleaseSignerV1 for CapabilityProbeSigner {"
+    )
+    _, probe = live_rust_item(module, probe_owner, runtime_deps_path)
+    require_ordered_once(runtime_deps_path, probe_owner, probe, (
+        "fnattest_partial_release_capability(",
+        'self.attestation_calls.lock().expect("capabilitycalljournallock")'
+        ".push((session.public_state().key_session_id,expected_participant_index,));",
+        "fnsign_partial_release(",
+        "self.sign_calls.fetch_add(1,Ordering::AcqRel);",
+    ))
+
+    # Inversion: live and deadline-retained Parliament TLE seats without custody never
+    # refuse startup, and no Parliament TLE provider is attested or asked to sign.
+    inversion_owner = (
+        "fn threshold_signer_startup_readiness_never_consults_parliament_tle_custody() {"
+    )
+    inversion_code, inversion = compiled_test(inversion_owner)
+    require_ordered_once(runtime_deps_path, inversion_owner, inversion, (
+        "letfixture=threshold_signer_readiness_fixture_v1(13);",
+        '.tle_key_sessions_required_for_runtime_custody_v1(13)'
+        '.expect("canonicalcommittedParliamentstate");',
+        "assert_eq!(demanded.into_iter().collect::<Vec<_>>(),{letmutexpected=vec!["
+        "fixture.retained_key_session_id,fixture.active_key_session_id,];"
+        "expected.sort_unstable();expected},",
+        "for(key_session_id,participant_index)in[(fixture.retained_key_session_id,"
+        "fixture.retained_participant_index,),(fixture.active_key_session_id,"
+        "fixture.active_participant_index,),]{",
+        'letfrozen_roster=world.tle_key_session_rosters().get(&key_session_id)'
+        '.expect("frozenTLEroster");',
+        "assert_eq!(frozen_roster[usize::from(participant_index-1)],fixture.local_peer,",
+        "assert_eq!(validate_threshold_signer_startup_readiness_v1(&fixture.state,"
+        "&fixture.local_peer,&beacon_deps(&beacon_signer),),Ok(()),",
+        "formodein[CapabilityMode::Rejected,CapabilityMode::MismatchedSeat]{",
+        "lettle_signer=Arc::new(CapabilityProbeSigner::new(mode));",
+        "letruntime_deps=beacon_deps(&beacon_signer)"
+        ".with_parliament_tle_partial_release_signer(tle_signer.clone());",
+        "assert_eq!(validate_threshold_signer_startup_readiness_v1(&fixture.state,"
+        "&fixture.local_peer,&runtime_deps,),Ok(()));",
+        'assert!(tle_signer.attestation_calls().is_empty(),'
+        '"startupmakeszeroParliamentTLEattestationcalls");',
+        "assert_eq!(tle_signer.sign_calls.load(Ordering::Acquire),0);",
+        "assert_eq!(beacon_signer.sign_calls.load(Ordering::Acquire),0);",
+        ".with_parliament_tle_partial_release_signer(Arc::new(UnavailableSigner));",
+        "assert_eq!(validate_threshold_signer_startup_readiness_v1(&fixture.state,"
+        "&fixture.local_peer,&unavailable,),Ok(()));",
+    ))
+    beacon_attested_once = (
+        "assert_eq!(beacon_signer.attestation_calls(),"
+        "vec![(fixture.beacon_session_id,fixture.beacon_signer_index)]"
+    )
+    if (inversion.count(beacon_attested_once) != 2
+            or inversion_code.count("validate_threshold_signer_startup_readiness_v1(") != 3
+            or "Err(" in inversion_code or "return" in inversion_code):
+        raise RuntimeError(
+            f"{runtime_deps_path}: the inversion test must start three times, never expect a "
+            "refusal or return early, and still observe the global-beacon attestation"
+        )
+
+    # The consensus-native half still refuses a seated validator without exact custody.
+    beacon_owner = (
+        "fn threshold_signer_startup_readiness_requires_global_beacon_custody_for_local_seat() {"
+    )
+    beacon_code, beacon = compiled_test(beacon_owner)
+    require_no_early_exit(runtime_deps_path, beacon_owner, beacon_code)
+    require_ordered_once(runtime_deps_path, beacon_owner, beacon, (
+        "letfixture=threshold_signer_readiness_fixture_v1(13);",
+        "assert_eq!(validate_threshold_signer_startup_readiness_v1(&fixture.state,"
+        "&fixture.local_peer,&IrohaRuntimeDeps::default(),),"
+        'Err("localglobal-beaconcommitteeseathasnoresolvedpartialsigner"));',
+        "for(mode,expected)in[(CapabilityMode::Exact,Ok(())),(CapabilityMode::Rejected,"
+        'Err("localglobal-beaconcommitteeseathasnoexactruntimecustodyattestation"),),'
+        "(CapabilityMode::MismatchedSeat,Err("
+        '"localglobal-beaconcommitteeseatreturnedamismatchedruntimecustodyattestation",),),]{',
+        "letsigner=Arc::new(BeaconCapabilityProbeSigner::new(mode));",
+        "letruntime_deps=IrohaRuntimeDeps::default()"
+        ".with_sumeragi_global_beacon_partial_signer(signer.clone());",
+        "assert_eq!(validate_threshold_signer_startup_readiness_v1(&fixture.state,"
+        "&fixture.local_peer,&runtime_deps,),expected);",
+        "assert_eq!(signer.attestation_calls(),"
+        "vec![(fixture.beacon_session_id,fixture.beacon_signer_index)]);",
+        "assert_eq!(signer.sign_calls.load(Ordering::Acquire),0);",
+        "assert_eq!(validate_threshold_signer_startup_readiness_v1(&fixture.state,"
+        "&fixture.observer_peer,&IrohaRuntimeDeps::default(),),Ok(()));",
+        "assert!(observer_signer.attestation_calls().is_empty());",
+        "topology.get_mut().reverse();",
+        'Err("activeglobal-beaconkeysessionisnotboundtothestartuproster"));',
+        "assert!(exact_signer.attestation_calls().is_empty());",
+    ))
 
 
 def main() -> int:
@@ -2437,9 +4282,8 @@ def main() -> int:
         (
             "first consumed pulse must cover every initially required body in one",
             "sortition_pulse_delay_blocks: u64",
-            ".checked_add(self.sortition_pulse_delay_blocks)",
+            "sortition_pulse_epoch_length_blocks: u64",
             "InvalidSortitionPulseSchedule",
-            "SortitionPulseAvailable",
             "SortitionRetryLimitExceeded",
             "GovernanceAttemptRetryLimitExceeded",
             "MAX_PARLIAMENT_RANDOMNESS_REDRAWS_V1",
@@ -2460,7 +4304,6 @@ def main() -> int:
             "TooManyConcurrentCastingContexts",
             "pub fn register_sortition_request_batch(",
             "MAX_PARLIAMENT_SORTITION_RETRIES_V1",
-            "ParliamentElectionFailureKindV1::PulseUnavailable",
             "ParliamentElectionFailureKindV1::EmptyAcceptedRoster",
             "ParliamentElectionFailureKindV1::InsufficientHiddenBallotRoster",
             "pub struct ParliamentSortitionCapacityFailureV1 {",
@@ -2474,7 +4317,6 @@ def main() -> int:
             "request.request_height < failure_height",
             "election.attempt.sequence == MAX_PARLIAMENT_SORTITION_RETRIES_V1",
             "election_awaiting_pulse_shape_is_empty(election)",
-            "pulse_missing_terminal",
             "pub(crate) fn precheck_close_ballot_registration(",
             "current_height == ballot.registration_close_height",
             "pub(crate) fn precheck_freeze_ballot_survivors(",
@@ -2650,23 +4492,6 @@ def main() -> int:
             "BodyInstanceStatusV1::NoResult",
             "self.attempt.status = GovernanceAttemptStatusV1::Rejected",
             "return Ok(ParliamentAggregateOutcomeV1::NoResult)",
-        ),
-    )
-    sortition_failure_terminalization = section(
-        reducer,
-        "pub fn fail_body_election_no_roster(",
-        "/// Seal a canonical roster into a new body instance.",
-        reducer_path,
-    )
-    require_all(
-        reducer_path,
-        sortition_failure_terminalization,
-        (
-            "let proposal_redraw_budget_exhausted =",
-            "self.randomness_redraws_used_v1()? == MAX_PARLIAMENT_RANDOMNESS_REDRAWS_V1",
-            "retry_budget_exhausted || proposal_redraw_budget_exhausted",
-            "election.attempt.sequence == MAX_PARLIAMENT_SORTITION_RETRIES_V1",
-            "self.attempt.status = GovernanceAttemptStatusV1::Rejected",
         ),
     )
     require_sortition_retry_liveness(reducer)
@@ -2866,7 +4691,7 @@ def main() -> int:
         ),
         (
             "pub struct ParliamentBeginInvitationAcceptanceV1 {",
-            "/// Payload terminally recording a missing sortition pulse or empty roster.",
+            "/// Payload terminally recording an election whose invitation window closed",
             ("election_attempt_id",),
         ),
         (
@@ -2990,7 +4815,6 @@ def main() -> int:
             ".register_sortition_request_batch(",
             "request.beacon_session_id",
             "request.pulse_height",
-            "pulse_available,\n                            current_height",
             ".global_beacon_pulses",
             "ballot.release_beacon_session_id()",
             "release_pulse_available",
@@ -3127,13 +4951,7 @@ def main() -> int:
         (
             "gov::ParliamentLifecycleTransitionV1::FailBodyElectionNoRoster(payload) => {",
             "gov::ParliamentLifecycleTransitionV1::SealBodyRoster(payload) => {",
-            (
-                "parliament_verified_pulse_available_v1(",
-                "request.beacon_session_id",
-                "request.pulse_height",
-                "pulse_available",
-                "current_height",
-            ),
+            ("payload.election_attempt_id", "current_height"),
         ),
         (
             "gov::ParliamentLifecycleTransitionV1::SealBodyRoster(payload) => {",
@@ -3144,6 +4962,9 @@ def main() -> int:
         branch = section(world, branch_start, branch_end, world_path)
         require_all(world_path, branch, bindings)
     require_sortition_registration_guards(world)
+    require_sortition_slot_rule(
+        reducer, read("crates/iroha_core/src/governance/parliament/planner.rs"), world
+    )
     for forbidden in (
         "ParliamentLifecycleTransitionV1::ConstructCertificate",
         "ParliamentLifecycleTransitionV1::MarkEnacted",
@@ -3179,7 +5000,6 @@ def main() -> int:
         world,
         (
             "fn narrow_confirmation_request_freezes_exact_current_snapshot_and_schedule()",
-            "request_height + attempt.sortition_pulse_delay_blocks()",
             "request.id, request.canonical_id()",
         ),
     )
@@ -3628,13 +5448,24 @@ def main() -> int:
             "proposal_attempts.sort_unstable_by_key(|attempt| attempt.attempt().sequence)",
             "validate_parliament_randomness_redraw_lineage_v1(",
             '"governance Parliament randomness-redraw lineage is invalid: {error}"',
-            "let unavailable_beacon_pulse_slots = world",
-            ".flat_map(|(_, attempt)| attempt.unavailable_beacon_pulse_slots_v1())",
             ".collect::<BTreeSet<_>>()",
-            "unavailable_beacon_pulse_slots.contains(&(logical_session, pulse.height))",
-            '"finalized pulse conflicts with a Parliament slot terminally classified as unavailable"',
         ),
     )
+    # Restore never lets Parliament state contradict a stored consensus pulse: the
+    # pulse persistence validator reads no governance table at all.
+    pulse_restore_owner = "fn validate_global_beacon_persistence("
+    pulse_restore = mask_rust(rust_item(restore, pulse_restore_owner, restore_path))
+    require_parliament_identifiers(restore_path, pulse_restore_owner, pulse_restore, ())
+    require_ordered_once(restore_path, pulse_restore_owner, re.sub(r"\s+", "", pulse_restore), (
+        "letlogical_session=iroha_data_model::governance::types::BeaconSessionId::"
+        "for_network_v1(&pulse.network_id);"
+        "ifpulse_slots.get(&(logical_session,pulse.height))!=Some(pulse_id){",
+    ))
+    require_substitution_path_absent(restore_path, restore)
+    if "terminally classified as unavailable" in restore:
+        raise RuntimeError(
+            f"{restore_path}: the retired pulse-versus-unavailable-slot restore conflict returned"
+        )
     restore_size_validation = section(
         restore,
         "fn validate_parliament_attempt_encoded_size_bounds_v1(",
@@ -3829,12 +5660,8 @@ def main() -> int:
             "let next_required_slots = attempt.required_beacon_pulse_slots_v1()",
             "previous_required_slots.difference(&next_required_slots)",
             "self.parliament_required_beacon_pulse_slots",
-            "let previous_unavailable_slots =",
-            "let next_unavailable_slots = attempt.unavailable_beacon_pulse_slots_v1()",
             "self.global_beacon_pulse_slots.get(slot).is_some()",
             "return Err(ParliamentReducerErrorV1::BeaconPulseAlreadyAvailable)",
-            "previous_unavailable_slots.difference(&next_unavailable_slots)",
-            "self.parliament_unavailable_beacon_pulse_slots",
             "let previous_tle_retention_contributions =",
             ".map(ParliamentAttemptStateV1::tle_key_session_retention_contributions_v1)",
             "let next_tle_retention_contributions =",
@@ -3868,22 +5695,44 @@ def main() -> int:
         raise RuntimeError(
             f"{state_path}: replacement TLE retention contributors must follow authoritative attempt replacement"
         )
-    late_pulse_admission = section(
-        state,
-        "    pub(crate) fn verify_and_advance_global_beacon_pulse(",
-        "    /// Test helper: seed governance proposals while retaining the exact typed index.",
-        state_path,
+    # The one remaining committed-pulse contradiction check is governance-internal
+    # and ballot-only: a timed-OVN ballot may not be classified ReleasePulseUnavailable
+    # at a release slot that holds a finalized pulse. No sortition slot takes part.
+    # TODO: delete with the timed-OVN ballot path
+    # (specs/parliament_private_ballot_design.md 12.2 step 4).
+    release_guard = (
+        "ifattempt.unavailable_release_pulse_slots_v1().iter()"
+        ".any(|slot|self.global_beacon_pulse_slots.get(slot).is_some())"
+        "{returnErr(ParliamentReducerErrorV1::BeaconPulseAlreadyAvailable);}"
     )
-    require_all(
-        state_path,
-        late_pulse_admission,
-        (
-            "BeaconSessionId::for_network_v1(&pulse.network_id)",
-            ".parliament_unavailable_beacon_pulse_slots",
-            ".get(&(logical_beacon_session_id, pulse.height))",
-            "return Err(GlobalThresholdBeaconError::PersistenceConflict)",
-        ),
-    )
+    state_production = re.sub(r"\s+", "", production_rust(state))
+    if (compact_rust(mask_rust(attempt_admission)).count(release_guard) != 1
+            or state_production.count("BeaconPulseAlreadyAvailable") != 1
+            or state_production.count("unavailable_release_pulse_slots_v1(") != 1):
+        raise RuntimeError(
+            f"{state_path}: the committed-pulse contradiction check must stay the one "
+            "ballot-only release-slot guard of attempt admission"
+        )
+    require_substitution_path_absent(state_path, state)
+    # No Parliament-derived state vetoes, invalidates or contradicts a consensus pulse.
+    pulse_append_owner = "    pub(crate) fn verify_and_advance_global_beacon_pulse("
+    pulse_append = mask_rust(rust_item(state, pulse_append_owner, state_path))
+    require_parliament_identifiers(state_path, pulse_append_owner, pulse_append, ())
+    pulse_append = re.sub(r"\s+", "", pulse_append)
+    require_ordered_once(state_path, pulse_append_owner, pulse_append, (
+        "letlogical_beacon_session_id=BeaconSessionId::for_network_v1(&pulse.network_id);"
+        "letpulse_slot=(logical_beacon_session_id,pulse.height);"
+        "ifself.global_beacon_pulse_slots.len()!=self.global_beacon_pulses.len(){"
+        "returnErr(GlobalThresholdBeaconError::InvalidPulseHistory);}"
+        "ifself.global_beacon_pulse_slots.get(&pulse_slot).is_some(){"
+        "returnErr(GlobalThresholdBeaconError::ReusedPulse);}",
+        "self.global_beacon_pulses.insert(link.pulse_id,pulse);"
+        "self.global_beacon_pulse_slots.insert(pulse_slot,link.pulse_id);",
+    ))
+    if "PersistenceConflict" in pulse_append:
+        raise RuntimeError(
+            f"{state_path}: a stored consensus pulse must never conflict with governance state"
+        )
     attempt_removal = section(
         state,
         "    pub fn remove_parliament_attempt_for_testing(",
@@ -3898,8 +5747,6 @@ def main() -> int:
             ".parliament_certified_enactments",
             "ParliamentAttemptStateV1::required_beacon_pulse_slots_v1",
             ".parliament_required_beacon_pulse_slots",
-            "ParliamentAttemptStateV1::unavailable_beacon_pulse_slots_v1",
-            ".parliament_unavailable_beacon_pulse_slots",
             ".parliament_timed_ovn_casting_candidates",
             "candidate.governance_attempt_id == *id",
             "removed.tle_key_session_retention_contributions_v1()",
@@ -3953,15 +5800,15 @@ def main() -> int:
         state_tests_path,
         pulse_slot_regressions,
         (
+            # The assertions of these tests are pinned in order by
+            # require_beacon_parliament_pulse_fixtures; this keeps them in one block.
             ".parliament_required_beacon_pulse_slots",
-            'expect("replace the live request with its terminal transcript")',
-            "fn parliament_attempt_rejects_unavailable_slot_after_pulse_finalization_atomically()",
+            'expect("replace the live request with its drawn transcript")',
+            "fn parliament_required_beacon_slot_index_rebuilds_and_tracks_removal()",
+            "fn parliament_sortition_slot_never_conflicts_with_a_finalized_pulse()",
+            'expect("a finalized pulse never contradicts a sortition slot")',
+            "fn parliament_attempt_rejects_release_unavailable_ballot_at_a_finalized_pulse_slot_atomically()",
             "Err(ParliamentReducerErrorV1::BeaconPulseAlreadyAvailable)",
-            '"rejection must not publish a partial unavailable-slot index"',
-            "fn parliament_unavailable_slot_rebuild_rejects_finalized_pulse_fail_atomically()",
-            'expect_err("a finalized pulse cannot also be terminally unavailable")',
-            'error.contains("classifies finalized logical beacon slot")',
-            '"a failed rebuild must retain the previously published derived index"',
         ),
     )
     finalized_pulse_slot_regressions = section(
@@ -4202,6 +6049,18 @@ def main() -> int:
         "impl World {",
         state_path,
     )
+    # The derived Parliament indexes are a function of the attempts alone: no stored
+    # pulse can make their rebuild fail.
+    derived_owner = "fn parliament_derived_read_indexes_v1<'a>("
+    derived_code = compact_rust(mask_rust(rust_item(state, derived_owner, state_path)))
+    if (not derived_code.startswith(
+            "fnparliament_derived_read_indexes_v1<'a>(attempts:implIntoIterator<Item="
+            "(&'aGovernanceAttemptId,&'aParliamentAttemptStateV1)>,)"
+            "->Result<ParliamentDerivedReadIndexesV1,String>{")
+            or "global_beacon" in derived_code or "finalized_beacon" in derived_code):
+        raise RuntimeError(
+            f"{state_path}: Parliament derived indexes must be rebuilt from attempts alone"
+        )
     require_all(
         state_path,
         parliament_derived_indexes,
@@ -4214,8 +6073,6 @@ def main() -> int:
             "attempt.certified_enactment_height_v1()",
             "let mut required_beacon_pulse_slots =",
             "for pulse_slot in attempt.required_beacon_pulse_slots_v1()",
-            "let mut unavailable_beacon_pulse_slots =",
-            "for pulse_slot in attempt.unavailable_beacon_pulse_slots_v1()",
             "let mut tle_key_session_retention_deadlines =",
             "attempt.tle_key_session_retention_contributions_v1()",
             ".entry(opening_deadline)",
@@ -4235,7 +6092,7 @@ def main() -> int:
             "-> Result<(), String>",
             "self.citizens.view().len() > maximum_citizens",
             "MAX_PARLIAMENT_CITIZENS_V1",
-            "parliament_derived_read_indexes_v1(attempts.iter(), &finalized_beacon_pulse_slots)?",
+            "parliament_derived_read_indexes_v1(attempts.iter())?",
             "tle_key_session_selection_intervals_v1(",
             "let reverted_attempts = self.parliament_attempts.block_and_revert()",
             "let reverted_lifecycles = self.tle_key_session_lifecycles.block_and_revert()",
@@ -4246,7 +6103,6 @@ def main() -> int:
             "self.parliament_timed_ovn_casting_candidates =",
             "self.parliament_certified_enactments =",
             "self.parliament_required_beacon_pulse_slots =",
-            "self.parliament_unavailable_beacon_pulse_slots =",
             "self.parliament_tle_key_session_retention_deadlines =",
             "self.tle_key_session_selection_intervals =",
             "Ok(())",
@@ -4768,7 +6624,9 @@ def main() -> int:
             retired_public_parliament_identifiers,
         )
 
-    require_threshold_signer_startup_readiness(read("crates/irohad/src/main/runtime_deps.rs"))
+    require_threshold_signer_startup_readiness(
+        read("crates/irohad/src/main/runtime_deps.rs"), read("crates/irohad/src/main.rs")
+    )
 
     broker_primitives_path = (
         "crates/irohad/src/runtime_provider_broker/protocol_primitives.rs"
@@ -5077,8 +6935,39 @@ def main() -> int:
             "InitialSortitionRedrawCost ==",
             "ProposalRandomnessRedrawsUsed ==",
             "ProposalWideRandomnessRedrawBudget ==",
-            "sortitionPulseHeight' = height + SortitionPulseDelayBlocks",
-            "FailSortitionPulseUnavailable ==",
+            "sortitionPulseHeight' = FreshSortitionPulseSlot",
+            "IsNativePulseHeight(candidate) == (candidate + 1) % EpochLengthBlocks = 0",
+            "AlignedSortitionPulseHeight(earliest) ==\n"
+            "    earliest + (EpochLengthBlocks - 1 - (earliest % EpochLengthBlocks))",
+            "SortitionPulseSlot(request, priorSlots) ==\n"
+            "    LET delayed == request + SortitionPulseDelayBlocks\n"
+            "        earliest ==\n"
+            "            IF priorSlots = {} \\/ MaxHeightOf(priorSlots) < delayed\n"
+            "            THEN delayed\n"
+            "            ELSE MaxHeightOf(priorSlots) + 1\n"
+            "    IN AlignedSortitionPulseHeight(earliest)",
+            "FreshSortitionPulseSlot ==\n"
+            "    SortitionPulseSlot(height, PriorSortitionGenerationSlots)",
+            "       /\\ EpochLengthBlocks \\in Nat\n       /\\ EpochLengthBlocks >= 3\n",
+            'SortitionFailureKinds == {None, "HiddenElectorateCapacityUnavailable"}',
+            "NativeSortitionPulseSlots ==",
+            "StrictlyIncreasingGenerationSlots ==",
+            "FrozenSortitionRequestSlot ==",
+            "\nExactPulseWaitIsGovernanceLocal ==\n"
+            '    sortitionState = "AwaitingPulse" =>\n'
+            "        /\\ sortitionFailureKind = None\n"
+            "        /\\ sortitionFailureHeight = None\n"
+            "        /\\ sortitionConsumedPulseHeight = None\n"
+            "        /\\ ~ENABLED CommitInitialSortitionBatch\n"
+            "        /\\ ~ENABLED RetryInitialSortitionBatch\n"
+            "        /\\ \\A candidateCount \\in 0..2:\n"
+            "              /\\ ~ENABLED\n"
+            "                    RecordInitialHiddenSortitionCapacityFailure(candidateCount)\n"
+            "              /\\ ~ENABLED\n"
+            "                    RecordRetryHiddenSortitionCapacityFailure(candidateCount)\n"
+            "        /\\ ~sortitionPulseKnown => ~ENABLED ConsumeInitialSortitionBatch\n\n",
+            "AwaitingPulseLeavesOnlyByExactConsumption ==",
+            "SortitionSlotNeverChangesAfterRegistration ==",
             "RetryInitialSortitionBatch ==",
             "ReplayCommittedTransportIdempotently ==",
             "RecordInitialHiddenSortitionCapacityFailure(candidateCount) ==",
@@ -5087,7 +6976,6 @@ def main() -> int:
             "sortitionCandidateCount",
             "sortitionPulseConsumed",
             "HiddenElectorateCapacityConsumesNoPulse ==",
-            'sortitionFailureKind\' = "PulseUnavailable"',
             "sortitionSequence < MaxSortitionRetries",
             "supersededSortitionAttempts' = supersededSortitionAttempts + 1",
             "ObjectiveBoundedSortitionRetries ==",
@@ -5350,16 +7238,48 @@ def main() -> int:
             "confirmationRequirementCommitted' = TRUE",
             "confirmationRequestCommitted' = TRUE",
             "confirmationRequestHeight' = height",
-            "confirmationPulseHeight' = height + SortitionPulseDelayBlocks",
+            "confirmationPulseHeight' = FreshSortitionPulseSlot",
             "ProposalRandomnessRedrawsUsed < MaxRandomnessRedraws",
         ),
     )
+    # The model has no missing-pulse terminal and no slot other than the derived one:
+    # every registration, the Confirmation request included, freezes
+    # FreshSortitionPulseSlot, and EpochLengthBlocks is a declared constant.
+    for retired in (
+        "PulseUnavailable",
+        "FailSortitionPulseUnavailable",
+        "' = height + SortitionPulseDelayBlocks",
+    ):
+        if retired in model:
+            raise RuntimeError(
+                f"{model_path}: the retired missing-pulse or unaligned-slot model returned: "
+                f"{retired!r}"
+            )
+    slot_assignments = sorted(set(re.findall(
+        r"(?:sortition|confirmation)PulseHeight' = ([A-Za-z]+)", model
+    )))
+    if (slot_assignments != [
+            "FreshSortitionPulseSlot", "None", "confirmationPulseHeight", "sortitionPulseHeight"]
+            or "sortitionPulseHeight' = None" in model
+            or "sortitionPulseHeight' = confirmationPulseHeight" in model
+            or "confirmationPulseHeight' = sortitionPulseHeight" in model
+            or model.count("sortitionPulseHeight' = FreshSortitionPulseSlot") != 4
+            or model.count("confirmationPulseHeight' = FreshSortitionPulseSlot") != 1
+            or len(re.findall(r"(?m)^    EpochLengthBlocks,$", model)) != 1):
+        raise RuntimeError(
+            f"{model_path}: every modeled sortition slot must be the derived native pulse slot"
+        )
     if "ConstructCertificate ==" in model:
         raise RuntimeError(
             f"{model_path}: certificate construction remains a separately schedulable action"
         )
     model_config_path = "formal/sora_parliament/SoraParliamentV1.cfg"
     model_config = read(model_config_path)
+    if len(re.findall(r"(?m)^[ \t]*EpochLengthBlocks = 3[ \t]*$", model_config)) != 1:
+        raise RuntimeError(
+            f"{model_config_path}: the modeled epoch length must be bound exactly once as "
+            "EpochLengthBlocks = 3"
+        )
     require_all(
         model_config_path,
         model_config,
@@ -5404,6 +7324,10 @@ def main() -> int:
         "FuturePulseSortition",
         "ObjectiveBoundedSortitionRetries",
         "HiddenElectorateCapacityConsumesNoPulse",
+        "NativeSortitionPulseSlots",
+        "StrictlyIncreasingGenerationSlots",
+        "FrozenSortitionRequestSlot",
+        "ExactPulseWaitIsGovernanceLocal",
         "TimedOvnReservationSafety",
         "RejectedReservationDoesNotLeak",
         "TimedOvnReservationAuditShape",
@@ -5439,7 +7363,23 @@ def main() -> int:
             f"{model_config_path}: invariant block mismatch: "
             f"expected {expected_invariants!r}, found {configured_invariants!r}"
         )
-    for invariant in expected_invariants:
+    expected_properties = (
+        "AwaitingPulseLeavesOnlyByExactConsumption",
+        "SortitionSlotNeverChangesAfterRegistration",
+    )
+    configured_properties = tuple(
+        line.strip()
+        for line in section(
+            model_config, "\nPROPERTIES\n", "\nINVARIANTS\n", model_config_path
+        ).splitlines()
+        if line.strip()
+    )
+    if configured_properties != expected_properties:
+        raise RuntimeError(
+            f"{model_config_path}: property block mismatch: "
+            f"expected {expected_properties!r}, found {configured_properties!r}"
+        )
+    for invariant in (*expected_invariants, *expected_properties):
         declaration_count = len(
             re.findall(rf"(?m)^{re.escape(invariant)}[ \t]*==", model)
         )
@@ -5491,24 +7431,7 @@ def main() -> int:
     committee_path = "crates/iroha_core/src/state/validator_committee.rs"
     committee = read(committee_path)
     require_beacon_finalization_roster(committee)
-    boundary = section(committee, "pub(crate) fn finalize_validator_committee_boundary(",
-                       "fn owns_validator(", committee_path)
-    require_all(committee_path, boundary, (
-        "let context = frozen.current();", "let boundary = frozen.boundary();",
-        "boundary.validate_against(context)?", "let snapshot = &boundary.next;",
-        "boundary.height != self._curr_block.height().get()", "context.network_id != self.network_id",
-        "self.block_hashes().hash_at(anchor_index) != Some(&boundary.selection_anchor)",
-        "self.block_hashes().hash_count() != anchor_index + 1",
-        "verify_progress(&self.world, &transition)?",
-        "transition.outcome = Some(*outcome)", "transition.validate()?",
-        "credentials.authority != snapshot.authority",
-        "transition.preparation.committee != snapshot.committee",
-        "active_global_beacon_key_session() != Some(previous.session_id)",
-        "old.retire(outcome.first_height)", "next.activate(outcome.first_height)",
-        "beacon_rotation = Some((old, next))", "if let Some((old, next)) = beacon_rotation",
-        "ValidatorEpochDecisionV1::RetainAndCancel",
-        "retention must cancel the exact frozen attempt",
-    ))
+    require_validator_committee_boundary(committee)
 
     certificate_state_path = "crates/iroha_core/src/state.rs"
     certificate_state = read(certificate_state_path)
@@ -5530,7 +7453,17 @@ def main() -> int:
     )
 
     beacon_producer = read(BEACON_PRODUCER_PATH)
-    require_parliament_beacon_requirement(read(EPOCH_BEACON_PATH), beacon_producer)
+    require_parliament_beacon_requirement(
+        read(EPOCH_BEACON_PATH), beacon_producer, read(BEACON_READINESS_PATH)
+    )
+    require_sumeragi_parliament_isolation(sumeragi_sources())
+    require_parliament_pulse_isolation_evidence(
+        read(BEACON_EXECUTION_TESTS_PATH),
+        read(RESTORE_TESTS_PATH),
+        read(SORTITION_ISI_TESTS_PATH),
+        read(MUTATION_GATE_PATH),
+        read(SUMERAGI_SPEC_PATH),
+    )
     beacon_state_path = "crates/iroha_core/src/beacon.rs"
     beacon_state = read(beacon_state_path)
     require_encrypted_beacon_dkg_source(
@@ -5644,7 +7577,7 @@ def main() -> int:
             "parliament_public_finding_phase_blocks",
             "FailPublicFindingNoResult",
             "ParliamentNoResultKindV1",
-            "not yet an operationally automatic",
+            "parliament_private_ballot_design.md",
         ):
             if required.casefold() not in folded:
                 raise RuntimeError(

@@ -1,4 +1,4 @@
-seiyaku PrivateUnit {
+seiyaku PrivateUnit { permission WriteState;
     state int trace;
     hajimari() {
         trace = 0;
@@ -8,7 +8,7 @@ seiyaku PrivateUnit {
         trace = trace * 10 + value;
     }
 
-    kotoage fn main() -> ((), int) authorize("WriteState") {
+    kotoage fn main() authorize(WriteState) -> ((), int) {
         let unit = stamp(7);
         return (unit, trace);
     }

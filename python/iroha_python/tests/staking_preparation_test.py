@@ -91,22 +91,15 @@ def test_preparation_binding_rejects_changed_request_network_xor_effects_and_bal
     with pytest.raises((ValueError, TypeError)): validate(prepared, request, prepared.network_id, "fake-xor")
 
 
-def test_reward_preparation_retains_selected_accruals_epoch_cut_and_recipient():
+def test_reward_preparation_binds_current_beneficiary_and_mandatory_entitlement():
     request, prepared, _, _ = fixture("claim")
     plan = prepared.plan
-    for changed in (
-        replace(plan, records=(replace(plan.records[0], epoch=202),)),
-        replace(plan, expected_state=replace(plan.expected_state, through_epoch=200), records=()),
-        replace(plan, sources=()),
-        replace(plan, sources=(replace(plan.sources[0], expected_accrued=None),)),
-    ):
-        # The cursor-only plan is valid when its only source was explicitly selected.
-        if not changed.records and changed.sources:
-            assert validate(replace(prepared, plan=changed), request, prepared.network_id, prepared.xor_asset_definition_id)
-        else:
-            with pytest.raises(ValueError): validate(replace(prepared, plan=changed), request, prepared.network_id, prepared.xor_asset_definition_id)
-    with pytest.raises(ValueError): replace(request.operation, max_records=65)
-    with pytest.raises(ValueError): replace(request.operation, accrued_sources=request.operation.accrued_sources * 2)
+    changed = replace(plan, fee_claim=replace(plan.fee_claim, destination_asset=plan.fee_claim.source_asset))
+    with pytest.raises(ValueError):
+        validate(replace(prepared, plan=changed), request, prepared.network_id, prepared.xor_asset_definition_id)
+    with pytest.raises(TypeError): replace(plan, fee_claim=None)
+    for field in ("max_records", "upto_epoch", "accrued_sources"):
+        with pytest.raises(TypeError): replace(request.operation, **{field: None})
 
 
 def test_transport_sends_one_unsigned_exact_canonical_request_and_closes_stream():

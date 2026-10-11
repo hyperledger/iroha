@@ -136,19 +136,19 @@ Current Torii routes:
 | Route | Purpose |
 |-------|---------|
 | `GET /v1/ram-lfe/program-policies` | Lists active and inactive RAM-LFE program policies plus their public execution metadata, including optional BFV `input_encryption` parameters and the programmed-backend `ram_fhe_profile`. |
-| `POST /v1/ram-lfe/programs/{program_id}/execute` | Accepts `{ encrypted_input }` only and returns the stateless `RamLfeExecutionReceipt`, `{ output_ciphertext, output_hash, receipt_hash }`, and a signed `output_opening` that can be reused with the same encrypted input for identifier resolve/claim requests. It does not return plaintext output. The current Torii runtime issues receipts for the programmed BFV backend. |
-| `POST /v1/ram-lfe/receipts/verify` | Statelessly validates a signed `RamLfeExecutionReceipt` against the published on-chain program policy and optionally checks that a caller-supplied encrypted `output_hex` matches the receipt `output_hash`. Proof mode rejects until the [complete program-execution relation](ram_lfe_execution_proof.md) is implemented and qualified. |
-| `GET /v1/identifier-policies` | Lists active and inactive hidden-function policy namespaces plus their public metadata, including optional BFV `input_encryption` parameters, the required `normalization` mode for encrypted client-side input, and `ram_fhe_profile` for programmed BFV policies. |
-| `POST /v1/accounts/{account_id}/identifiers/claim-receipt` | Accepts `{ policy_id, encrypted_input, output_opening }` and requires `phone_retail_canonicality` for `phone#retail`. The BFV input must already be normalized according to the published policy mode. Non-phone handles derive from the verified opening; `phone#retail` derives from the signed canonical nullifier. The endpoint returns a receipt that `ClaimIdentifier` can submit on-chain. |
-| `POST /v1/identifiers/resolve` | Accepts the same fields and requires `phone_retail_canonicality` for `phone#retail`. It re-evaluates the encrypted input and verifies the output opening and, for phone, the signed canonical nullifier against the active claim. It returns a nested receipt when the binding exists. |
+| `POST /v1/ram-lfe/programs/{program_id}/execute` | The current ledger program owner signs the exact POST URI and raw `{ normalized_input, input_nonce }` body. The production HKDF PRF returns `opaque_output` and a signed execution receipt. The input nonce must be 32 nonzero bytes of exact lowercase hex; it blinds the public input commitment without changing the identifier. |
+| `POST /v1/ram-lfe/receipts/verify` | Statelessly validates a signed `RamLfeExecutionReceipt` against the published on-chain program policy and optionally checks that a caller-supplied output bytes in `output_hex` matches the receipt `output_hash`. Proof mode rejects until the [complete program-execution relation](ram_lfe_execution_proof.md) is implemented and qualified. |
+| `GET /v1/identifier-policies` | Lists active and inactive hidden-function policy namespaces plus their public metadata, including optional BFV `input_encryption` parameters, the exact `normalization` mode for current canonical owner input, and `ram_fhe_profile` for programmed BFV policies. |
+| `POST /v1/accounts/{account_id}/identifiers/claim-receipt` | The current identifier and program policy owner signs `{ phase, policy_id, normalized_input, input_nonce, output_opening?, phone_retail_canonicality? }`. `prepare` returns the actual pinned-key native opening and an unsigned beneficiary projection for an independent phone attestor. `claim` authenticates the exact original opening and phone proof before signing a prospective receipt for the selected existing beneficiary account and UAID. It does not admit the claim on-chain. |
+| `POST /v1/identifiers/resolve` | The same policy owner signs the current schema with `phase: "claim"`. Native re-evaluation must match the original opening, nonce-blinded input commitment and independent phone signature. Resolution requires an existing active admitted claim. |
 | `GET /v1/identifiers/receipts/{receipt_hash}` | Looks up the persisted `IdentifierClaimRecord` bound to a deterministic receipt hash so operators and SDKs can audit claim ownership or diagnose replay / mismatch failures without scanning the full identifier index. |
 
-Every RAM-LFE or identifier `POST` in this table requires exact-NetworkId
-canonical account authentication over the exact method, path, query, and raw
-body before JSON decoding or cryptographic work. Claim-receipt requests
-additionally require the authenticated account to resolve exactly to the
-`{account_id}` path principal. Responses are private and non-storable; API
-tokens and CIDR allowlists do not replace the account signature.
+The three owner-input POST routes authenticate the exact genesis-derived NetworkId,
+method, URI and raw bounded JSON body before decoding or private evaluation.
+The authenticated account must be the current ledger program owner and, for
+identifier requests, the exact identifier policy owner. The claim path selects
+an existing beneficiary account and UAID; ownership authorization does not come
+from that path account. API tokens do not replace the account signature.
 
 Encrypted RAM-LFE and identifier execution are currently unavailable. Core
 registration, activation, restoration and receipt admission reject both
@@ -163,21 +163,24 @@ setting enables the rejected BFV profile. The compiled initializer descriptor,
 canonical program frame and relinearization-only program metadata remain
 validation requirements for stored diagnostic material.
 
-The execute response contains ciphertext and an execution receipt. It supplies
-no plaintext opening. Identifier receipts separately require an externally
-signed opening bound to the exact program, input/output ciphertexts, parameters,
-evaluation key and lifetime. For `phone#retail`, the pinned canonicality attestor
-must additionally bind the canonical E.164 value and a network-scoped keyed
-nullifier. The opening alone does not establish phone canonicality or uniqueness.
-These checks remain independently tested; they do not make encrypted admission
-available.
+The current PRF transcript binds the actual network, exact program and normalized
+owner input using canonical Norito. Its public input commitment additionally
+binds a caller-retained random nonce. Only the genuine native opaque output is
+returned; the generic evaluator's echoed input is immediately cleared. A claim
+reuses its original signed opening time, signature and expiry (at most 120000ms)
+without renewal. The exact `phone#retail`/`phone_retail` contract independently
+pins an attestor distinct from the resolver and opener and binds network,
+program, policy, input commitment, output/nullifier, beneficiary, UAID and lease.
+Production signing still requires the actual configured runtime secret and
+ledger-pinned signing key. Source/component controls do not establish operator,
+device, Kagemusha monetary authority or release admission.
 
 SDK policy/receipt decoders accept only the exact compiled backend names and
 `signed`/`proof` metadata. Metadata decoding is not proof verification or feature
 activation. Local plaintext-encryption helpers refuse with
 `ram_lfe_encryption_unavailable`; caller-supplied seed overrides and shipped
-exact-lift encryption implementations are being retired. Existing ciphertext
-request DTOs and independent opening/signature verification have separate roles.
+exact-lift encryption implementations are being retired. Retired encrypted-input request DTOs are rejected. Current SDK callers of those
+retired methods require a coordinated source port; no fallback decoder remains.
 
 The instruction identities remain `RegisterIdentifierPolicy`,
 `ActivateIdentifierPolicy`, receipt-bound `ClaimIdentifier` and `RevokeIdentifier`.

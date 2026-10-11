@@ -264,7 +264,6 @@ fn startup_history_retains_original_cold_kura_refusal_and_exact_retry() {
         execution_attempt::ExecutionAttemptError as Attempt,
         state::WorldReadOnly as _,
         sumeragi::{
-            attestation::NativePastaVerifier,
             block_store::{KuraBlockStore, Staging},
             crypto::BlsCrypto,
             driver::{StartupHistoryError, assemble_init},
@@ -313,10 +312,6 @@ fn startup_history_retains_original_cold_kura_refusal_and_exact_retry() {
         Staging::new(),
         budget.clone(),
         schedule,
-        Arc::new(NativePastaVerifier::new(
-            chain.instance(),
-            chain.network_id(),
-        )),
     );
     let assemble = || {
         assemble_init(

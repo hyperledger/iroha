@@ -7,14 +7,18 @@ use crate::{
 /// Coarse source node category retained independently of AST enum layout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AstNodeKind {
+    /// A declared authorization name.
+    Permission,
     /// Top-level `seiyaku`/`誓約` or module declaration.
     SourceUnit,
     /// Function, lifecycle, or view declaration.
     Function,
     /// Struct declaration.
     Struct,
-    /// Error-enum declaration.
-    ErrorEnum,
+    /// Contract-owned native event declaration.
+    Event,
+    /// Ordinary or raisable-error enum declaration.
+    Enum,
     /// Durable state declaration.
     State,
     /// Constant declaration.
@@ -137,10 +141,13 @@ impl AstSourceMap {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DeclarationKind {
+    Permission,
     SourceUnit,
     Function,
     Struct,
-    ErrorEnum,
+    /// Contract-owned native event declaration.
+    Event,
+    Enum,
     State,
     Const,
     Trigger,
@@ -152,9 +159,11 @@ impl DeclarationKind {
             Self::SourceUnit => "source unit",
             Self::Function => "function",
             Self::Struct => "type",
-            Self::ErrorEnum => "type",
+            Self::Event => "event",
+            Self::Enum => "type",
             Self::State => "state declaration",
             Self::Const => "const declaration",
+            Self::Permission => "permission declaration",
             Self::Trigger => "trigger declaration",
             Self::Parameter => "parameter",
         }
@@ -163,7 +172,10 @@ impl DeclarationKind {
         matches!(self, Self::Function)
     }
     pub(crate) const fn is_type_declaration(self) -> bool {
-        matches!(self, Self::SourceUnit | Self::Struct | Self::ErrorEnum)
+        matches!(
+            self,
+            Self::SourceUnit | Self::Struct | Self::Enum | Self::Event
+        )
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -173,6 +185,8 @@ pub(crate) struct DeclarationFact {
     pub(crate) owner: Option<NodeId>,
     pub(crate) name: String,
     pub(crate) kind: DeclarationKind,
+    /// Authored documentation from the adjacent CST doc-comment block.
+    pub(crate) documentation: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct TypeUseFact {
@@ -207,6 +221,12 @@ pub(crate) struct BindingFact {
     pub(crate) name: String,
     pub(crate) kind: BindingFactKind,
 }
+/// Exact identifier used by a public function caller policy.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AuthorizationFact {
+    pub(crate) name_node: NodeId,
+    pub(crate) name: String,
+}
 /// CST-lowerer-owned source facts used to construct resolved HIR without rescanning text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AstFacts {
@@ -215,6 +235,7 @@ pub(crate) struct AstFacts {
     pub(crate) type_uses: Vec<TypeUseFact>,
     pub(crate) calls: Vec<CallFact>,
     pub(crate) bindings: Vec<BindingFact>,
+    pub(crate) authorizations: Vec<AuthorizationFact>,
 }
 impl AstFacts {
     pub(crate) fn new(source: SourceId) -> Self {
@@ -224,6 +245,7 @@ impl AstFacts {
             type_uses: Vec::new(),
             calls: Vec::new(),
             bindings: Vec::new(),
+            authorizations: Vec::new(),
         }
     }
 }

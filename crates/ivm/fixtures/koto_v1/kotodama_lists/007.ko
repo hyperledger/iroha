@@ -1,6 +1,6 @@
 
         seiyaku ListOfOptions {
-            view fn main() -> List<Option<int>, 4> {
+            view fn main() authorize(anyone) -> List<Option<int>, 4> {
                 [Option::some(7), Option::none]
             }
         }

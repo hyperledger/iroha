@@ -1,7 +1,6 @@
 #![doc = "Pre-proof ballot admission and rejection of development-only retained keys."]
 #![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
-#![cfg(all(feature = "zk-tests", feature = "halo2-dev-tests"))]
-#![cfg(any(feature = "zk-halo2", feature = "zk-halo2-ipa"))]
+#![cfg(feature = "zk-tests")]
 //! Pre-proof ballot admission and rejection of development-only retained keys.
 #[path = "zk_testkit.rs"]
 mod zk_testkit;
@@ -74,7 +73,7 @@ fn new_state() -> State {
     let mut state = State::new_for_testing(world, kura, query_handle);
     state.gov.citizenship_bond_amount = 0_u64.into();
     state
-        .edit_zk_for_testing(|zk| zk.halo2.enabled = true)
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
         .expect("fixture ZK settings install");
     state
         .edit_zk_for_testing(|zk| zk.verify_timeout = Duration::ZERO)
@@ -105,8 +104,8 @@ fn assert_instruction_error_contains(err: &InstructionExecutionError, expected: 
 fn seed_rejected_retained_election(
     stx: &mut StateTransaction<'_, '_>,
     election_id: &str,
-) -> zk_testkit::DevVoteMembershipProofBundle {
-    let bundle = zk_testkit::dev_vote_merkle8_bundle();
+) -> zk_testkit::UnqualifiedNativeBallotBundle {
+    let bundle = zk_testkit::unqualified_native_ballot_bundle();
     let vk_id = bundle.vk_id.clone();
     let perm = Permission::new("CanManageVerifyingKeys".to_string(), Json::new(()));
     Grant::account_permission(perm, ALICE_ID.clone())

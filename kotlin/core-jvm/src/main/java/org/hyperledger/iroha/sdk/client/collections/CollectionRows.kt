@@ -1,5 +1,7 @@
 package org.hyperledger.iroha.sdk.client.collections
 
+import org.hyperledger.iroha.sdk.client.ContractManifestJsonParser
+import org.hyperledger.iroha.sdk.client.ContractEventDescriptor
 import java.math.BigDecimal
 import org.hyperledger.iroha.sdk.json.Json
 import org.hyperledger.iroha.sdk.json.JsonArray
@@ -74,17 +76,90 @@ class ContractActivityRow internal constructor(json: JsonObject) : CollectionRow
     @JvmField val resultOk: Boolean? = row.booleanOrNull("result_ok")
 }
 
-/** A contract event with its committed ledger position. */
+/** One closed native value atom. Pointer contents remain canonical native TLV bytes. */
+class ContractValueAtomV1 internal constructor(json: JsonObject) {
+    /** Exact current tagged model kind. */
+    enum class Kind { Tag, Bool, Pointer, List, Unit, ErrorCode, EnumCode }
+    @JvmField val kind: Kind
+    @JvmField val value: Json
+    init {
+        require(json.keys == setOf("kind", "value")) { "value atom requires exactly kind and value" }
+        kind = Kind.valueOf(RowReader(json).string("kind"))
+        value = requireNotNull(json["value"])
+        when (kind) {
+            Kind.Tag, Kind.Bool -> require(value is JsonBoolean) { "boolean atom requires bool" }
+            Kind.Unit -> require(value === JsonNull) { "Unit atom requires null" }
+            Kind.Pointer -> requireByteArray(value, 1_048_576, "pointer")
+            Kind.List, Kind.ErrorCode, Kind.EnumCode -> {
+                val code = (value as? JsonNumber)?.toLongExact() ?: error("atom code requires integer")
+                require(if (kind == Kind.List) code in 0..64 else code in 1..0xffff_ffffL) { "atom code is outside its range" }
+            }
+        }
+    }
+}
+
+private fun requireByteArray(value: Json, maximum: Int, context: String): List<Int> {
+    val array = value as? JsonArray ?: error("$context requires byte array")
+    require(array.size <= maximum) { "$context exceeds byte limit" }
+    return java.util.Collections.unmodifiableList(array.items.map {
+        val byte = (it as? JsonNumber)?.toLongExact() ?: error("$context requires integer bytes")
+        require(byte in 0..255) { "$context requires bytes in 0..255" }
+        byte.toInt()
+    })
+}
+
+/** Exact native schema hash and preorder atom tape. */
+class ContractValueRecordV1 internal constructor(json: JsonObject) {
+    @JvmField val schemaHash: List<Int>
+    @JvmField val atoms: List<ContractValueAtomV1>
+    init {
+        require(json.keys == setOf("schema_hash", "atoms")) { "value record requires exactly schema_hash and atoms" }
+        schemaHash = requireByteArray(requireNotNull(json["schema_hash"]), 32, "schema_hash")
+        require(schemaHash.size == 32) { "schema_hash must contain 32 bytes" }
+        val values = json["atoms"] as? JsonArray ?: error("atoms must be array")
+        require(values.size <= 1_048_576) { "atom tape exceeds public record bound" }
+        atoms = java.util.Collections.unmodifiableList(values.items.map { ContractValueAtomV1(it as? JsonObject ?: error("atom must be object")) })
+    }
+}
+
+/** Native host-authenticated origin and source definition retained in each event row. */
+class ContractEmissionV1 internal constructor(json: JsonObject) {
+    private val row = RowReader(json)
+    @JvmField val contract: String = row.string("contract")
+    @JvmField val codeHash: String = row.string("code_hash")
+    @JvmField val entrypoint: Long = row.unsignedLong("entrypoint")
+    @JvmField val event: Long = row.unsignedLong("event")
+    @JvmField val caller: String = row.string("caller")
+    @JvmField val definition: ContractEventDescriptor = ContractManifestJsonParser.parseEventDescriptor(requireNotNull(json["definition"]).toJsonBytes())
+    @JvmField val payload: ContractValueRecordV1 = ContractValueRecordV1(json["payload"] as? JsonObject ?: error("native payload must be object"))
+    init {
+        require(json.keys == setOf("contract", "code_hash", "entrypoint", "event", "caller", "definition", "payload")) { "unknown or missing native emission field" }
+        require(entrypoint <= 0xffff_ffffL && event <= 0xffff_ffffL) { "native event ordinals must be u32" }
+    }
+}
+
+/** A committed emission at exact root-output and emission coordinates. */
 class ContractEventRow internal constructor(json: JsonObject) : CollectionRow(json) {
     private val row = RowReader(json)
     @JvmField val blockHeight: Long = row.unsignedLong("block_height")
-    @JvmField val blockIndex: Long = row.unsignedLong("block_index")
+    @JvmField val blockHashHex: String = row.string("block_hash_hex")
     @JvmField val eventId: String = row.string("event_id")
-    @JvmField val txHashHex: String = row.string("tx_hash_hex")
-    @JvmField val eventIndex: Long? = row.unsignedLongOrNull("event_index")
-    @JvmField val module: String? = row.stringOrNull("module")
-    @JvmField val eventKind: String? = row.stringOrNull("event_kind")
-    @JvmField val payload: Json? = row.value("payload")
+    @JvmField val executionHashHex: String = row.string("execution_hash_hex")
+    @JvmField val outputIndex: Long = row.unsignedLong("output_index")
+    @JvmField val emissionIndex: Long = row.unsignedLong("emission_index")
+    @JvmField val provenance: String = row.string("provenance")
+    @JvmField val authority: String = row.string("authority")
+    @JvmField val contractAddress: String = row.string("contract_address")
+    @JvmField val eventKind: String = row.string("event_kind")
+    @JvmField val payload: Json = requireNotNull(json["payload"]) { "event payload is required" }
+    @JvmField val emission: ContractEmissionV1 = ContractEmissionV1(json["emission"] as? JsonObject ?: error("native emission is required"))
+    init {
+        val allowed = setOf("event_id", "schema_version", "provenance", "authority", "timestamp_ms", "execution_hash_hex", "block_height", "block_hash_hex", "output_index", "emission_index", "result_ok", "contract_address", "event_kind", "participants", "asset_ids", "numeric_fields", "payload", "emission", "fee_payment")
+        require(allowed.containsAll(json.keys)) { "unknown or retired contract event field" }
+        require(row.unsignedLong("schema_version") == 1L && provenance == "emitted" && row.booleanOrNull("result_ok") == true) { "event must be a committed native emission" }
+        require(eventId == "$blockHashHex:$outputIndex:$emissionIndex") { "event_id does not match committed coordinates" }
+        require(contractAddress == emission.contract && authority == emission.caller && eventKind == emission.definition.name) { "event row does not match native origin" }
+    }
 }
 
 /** One account movement and its committed ledger position. */
@@ -142,6 +217,13 @@ class AssetDefinitionRow internal constructor(json: JsonObject) : CollectionRow(
     @JvmField val alias: String? = row.stringOrNull("alias")
     @JvmField val ownedBy: String? = row.stringOrNull("owned_by")
     @JvmField val owningDomain: String? = row.stringOrNull("owning_domain")
+    /** Immutable direct definition home, independent of concrete balance buckets. */
+    @JvmField val owningDataspace: String? = row.stringOrNull("owning_dataspace")?.also { home ->
+        require(owningDomain == null && home.length <= 20 && home.matches(Regex("[1-9][0-9]*")) &&
+            java.math.BigInteger(home) <= java.math.BigInteger("18446744073709551615")) {
+            "owning_dataspace must be canonical nonzero u64 text without owning_domain"
+        }
+    }
     @JvmField val mintable: String? = row.stringOrNull("mintable")
     @JvmField val description: String? = row.stringOrNull("description")
     @JvmField val logo: String? = row.stringOrNull("logo")

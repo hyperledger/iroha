@@ -175,8 +175,6 @@ pub mod data_dir {
     pub const STREAMING_KEY: &str = "streaming.key";
     /// Soracloud runtime mutation-signer private key.
     pub const RUNTIME_SIGNER_KEY: &str = "runtime_signer.key";
-    /// KAGEMUSHA mint-finality seed.
-    pub const MINT_FINALITY_SEED: &str = "mint_finality.seed";
     /// Global beacon partial-signer credential.
     pub const BEACON_CREDENTIAL: &str = "beacon.cred";
     /// Faucet authority private key (`torii.faucet.private_key_file`).
@@ -2600,6 +2598,16 @@ pub mod torii {
             None
         }
     }
+    /// Local limits only; no default issuer, bank, policy, signer or worker is selected.
+    pub mod kagemusha_enrollment {
+        /// Complete fresh bank observation timeout in milliseconds.
+        pub const REQUEST_TIMEOUT_MS: u64 = 5_000;
+        /// Complete private platform verification exchange timeout.
+        pub const WORKER_EXCHANGE_TIMEOUT_MS: u64 = 60_000;
+        /// Maximum concurrent authenticated service requests.
+        pub const MAX_INFLIGHT: usize = 16;
+    }
+
     /// Retail recipient lookup defaults (disabled unless routes are configured).
     pub mod recipient_lookup {
         /// HTTP request timeout applied to configured bank Core API lookups.
@@ -2903,7 +2911,7 @@ pub mod torii {
     /// Allowlisted backend prefixes for the background prover worker.
     #[must_use]
     pub fn zk_prover_allowed_backends() -> Vec<String> {
-        vec!["halo2/".to_string()]
+        vec!["pipa-r/pasta".to_string()]
     }
     /// Allowlisted circuit identifiers for the background prover worker.
     /// Empty list means "allow all circuits".
@@ -3475,8 +3483,6 @@ pub mod nexus {
         pub const BUDGET_ENFORCE_INTERVAL_BLOCKS: u64 = 10;
         /// WSV hot-tier deterministic encoded-key plus measured-value budget (bytes).
         pub const MAX_WSV_MEMORY_BYTES: Bytes = Bytes(8 * 1024 * 1024 * 1024);
-        /// Finite original allocation pool shared by fixed KAGEMUSHA indexes.
-        pub const KAGEMUSHA_OPERATION_INDEX_BYTES: Bytes = Bytes(64 * 1024 * 1024);
         /// Shared retained carrier shell/effects/descriptor allowance, not total RAM.
         pub const RETAINED_CARRIER_SHELL_BYTES: usize = 256 * 1024 * 1024;
         /// Exact backing for one maximum-size committed-evidence prune-key plan.
@@ -3655,10 +3661,6 @@ pub mod nexus {
         pub const UNBONDING_DELAY: Duration = Duration::from_secs(0);
         /// Maximum slash ratio (basis points, 10_000 = 100%).
         pub const MAX_SLASH_BPS: u16 = 10_000;
-        /// Minimum reward amount (base units) that will be paid out; smaller amounts are skipped.
-        pub fn reward_dust_threshold() -> Quantity {
-            Quantity::zero()
-        }
         /// Escrow account that custodies bonded stake.
         pub const STAKE_ESCROW_ACCOUNT_ID: &str = super::fees::FEE_SINK_ACCOUNT_ID;
         /// Account that receives slashed stake (treasury/burn sink).
@@ -4083,12 +4085,6 @@ pub mod zk {
             nonzero!(8_u64 * 1024 * 1024);
         /// Maximum framed native-finality header bytes committed in one block.
         pub const MAX_NATIVE_HEADER_BYTES_PER_BLOCK: NonZeroU64 = nonzero!(32_u64 * 1024 * 1024);
-        /// Maximum secp256k1 recoveries in one transaction.
-        ///
-        /// A full TRON advance carries 16 segments of at most 128 signed headers apiece.
-        pub const MAX_SECP256K1_RECOVERIES_PER_TRANSACTION: NonZeroU32 = nonzero!(2_048_u32);
-        /// Maximum secp256k1 recoveries committed in one block.
-        pub const MAX_SECP256K1_RECOVERIES_PER_BLOCK: NonZeroU32 = nonzero!(8_192_u32);
         /// Maximum Ed25519 signature checks in one transaction.
         ///
         /// A full TON advance carries 16 key-block hops signed by at most 1,024 validators
@@ -4130,40 +4126,46 @@ pub mod zk {
         /// Whether to log Metal device enumeration details (off by default).
         pub const METAL_DEBUG_ENUM: bool = false;
     }
-    /// Halo2 verifier configuration for host-side proof checking.
-    pub mod halo2 {
-        /// Feature toggle for Halo2 verification in hosts.
+    /// Native PIPA-R verifier limits for the compiled circuit registry.
+    pub mod pipa_r {
+        /// Native PIPA-R verification is available by default.
         pub const ENABLED: bool = true;
-        /// Default curve identifier used for Halo2 verification.
-        pub const CURVE: &str = "pallas";
-        /// Backend implementation identifier (e.g., IPA).
-        pub const BACKEND: &str = "ipa";
-        /// Maximum circuit size expressed as `k` (2^k rows).
-        pub const MAX_K: u32 = 16;
-        /// Soft wall-clock budget for verification in milliseconds (DA proof bench: 8 MiB / 128 openings about 15 ms max).
-        pub const VERIFIER_BUDGET_MS: u64 = 20; // soft budget
-        /// Maximum batch size processed in a single verification call.
-        pub const VERIFIER_MAX_BATCH: u32 = 16;
-        /// Number of ZK lane verifier worker threads (0 = bounded auto).
-        pub const VERIFIER_WORKER_THREADS: usize = 0;
-        /// Capacity of the ZK lane verifier ingress queue (0 = auto-derived).
-        pub const VERIFIER_QUEUE_CAP: usize = 0;
-        /// Maximum time spent waiting for ZK lane enqueue under saturation (ms).
-        pub const VERIFIER_ENQUEUE_WAIT_MS: u64 = 25;
-        /// Capacity of the important-task retry ring used by the ZK lane.
-        pub const VERIFIER_RETRY_RING_CAP: usize = 2048;
-        /// Maximum retry rounds for an item in the ZK lane retry ring.
-        pub const VERIFIER_RETRY_MAX_ATTEMPTS: u32 = 3;
-        /// Retry scheduler tick interval for the ZK lane (ms).
-        pub const VERIFIER_RETRY_TICK_MS: u64 = 5;
-        /// Maximum accepted Norito envelope payload length in bytes.
+        /// Maximum outer envelope size, shared with stateless pre-verification.
         pub const MAX_ENVELOPE_BYTES: usize = super::preverify::MAX_BYTES;
-        /// Maximum accepted proof length in bytes after Norito encoding.
+        /// Maximum canonical proof-payload size.
         pub const MAX_PROOF_BYTES: usize = 192 * 1024;
-        /// Maximum accepted transcript label length in bytes.
+    }
+    /// Maximum proofs accepted by one host batch-verification syscall.
+    pub const MAX_VERIFY_BATCH: u32 = 16;
+    /// Bounds for the local diagnostic polynomial-opening endpoint.
+    pub mod ipa_commitment {
+        /// Maximum domain exponent for diagnostic polynomial openings.
+        pub const MAX_K: u32 = 16;
+        /// Maximum diagnostic transcript-label length in bytes.
         pub const MAX_TRANSCRIPT_LABEL_LEN: usize = 64;
-        /// Whether transcript labels must be ASCII.
+        /// Maximum encoded diagnostic polynomial-opening envelope size.
+        pub const MAX_ENVELOPE_BYTES: usize = 256 * 1024;
+        /// Require ASCII diagnostic transcript labels.
         pub const ENFORCE_TRANSCRIPT_LABEL_ASCII: bool = true;
+    }
+    /// Optional local diagnostic trace worker defaults.
+    pub mod trace {
+        /// Enable optional local diagnostic trace checking.
+        pub const ENABLED: bool = true;
+        /// Maximum diagnostic tasks dispatched in one worker batch.
+        pub const MAX_BATCH: u32 = 16;
+        /// Diagnostic worker threads (0 selects the bounded automatic count).
+        pub const WORKER_THREADS: usize = 0;
+        /// Diagnostic ingress capacity (0 derives a bounded capacity).
+        pub const QUEUE_CAP: usize = 0;
+        /// Maximum diagnostic enqueue wait in milliseconds.
+        pub const ENQUEUE_WAIT_MS: u64 = 25;
+        /// Capacity of the important diagnostic-task retry ring.
+        pub const RETRY_RING_CAP: usize = 2048;
+        /// Maximum retry rounds for an important diagnostic task.
+        pub const RETRY_MAX_ATTEMPTS: u32 = 3;
+        /// Diagnostic retry scheduler interval in milliseconds.
+        pub const RETRY_TICK_MS: u64 = 5;
     }
     /// Native STARK/FRI verifier configuration defaults.
     pub mod stark {
@@ -4577,7 +4579,7 @@ pub mod confidential {
     /// Observer-only assume-valid disabled by default.
     pub const ASSUME_VALID: bool = false;
     /// Default verifier backend identifier.
-    pub const VERIFIER_BACKEND: &str = "halo2-ipa-pallas";
+    pub const VERIFIER_BACKEND: &str = "pipa-r/pasta";
     /// Maximum confidential proof size (bytes).
     pub const MAX_PROOF_SIZE_BYTES: u32 = 1_048_576;
     /// Maximum nullifiers per transaction.
@@ -4774,39 +4776,34 @@ pub mod settlement {
         pub const HALT_PCT: u8 = 2;
     }
 }
-/// Node-local SCCP defaults for `[sccp.attestor]` and `[sccp.light_client_keeper]`
-/// (`specs/sccp.md` §4.9, §4.13.4). Every value works without operator input.
+/// Node-local SCCP defaults for `[sccp.keeper]` and `[sccp.light_client_keeper]`
+/// (`specs/sccp.md` §4.13.4). Every value works without operator input.
 pub mod sccp {
-    /// `[sccp.attestor]` defaults.
-    pub mod attestor {
-        /// The attestor runs on every node by default.
+    /// `[sccp.keeper]` defaults.
+    pub mod keeper {
+        /// The keeper runs by default.
         pub const ENABLED: bool = true;
-        /// Bridge-key directory below `kura.store_dir`, used while `key_dir` is empty.
-        pub const KEY_DIR_UNDER_KURA_STORE: &str = "sccp/bridge-keys";
-        /// Register the node's newest bridge key with `SetSccpBridgeKeyV1` automatically.
-        pub const AUTO_REGISTER: bool = true;
-        /// Attestation entries per `SubmitSccpAttestationsV1` transaction.
-        pub const MAX_ENTRIES_PER_TRANSACTION: u32 = 64;
-        /// Largest accepted `max_entries_per_transaction`; the node also caps it at runtime
-        /// by the on-chain `max_attestation_entries_per_instruction`.
-        pub const MAX_ENTRIES_PER_TRANSACTION_CEILING: u32 = 1_024;
-        /// Blocks after which still-unrecorded attestation entries are resubmitted.
-        pub const RESUBMIT_AFTER_BLOCKS: u64 = 3;
-        /// Largest lead of a rotation subject's `timestamp_ms` over the local clock that is signed.
-        pub const MAX_CLOCK_DRIFT_MS: u64 = 3_600_000;
-        /// Longest graceful-shutdown delay spent getting pending subjects recorded.
-        pub const SHUTDOWN_GRACE_MS: u64 = 30_000;
+        /// Keeper-key directory below `kura.store_dir`, used while `key_dir` is empty.
+        pub const KEY_DIR_UNDER_KURA_STORE: &str = "sccp/keeper-key";
+        /// Submit due keepalives (§4.7.4).
+        pub const KEEPALIVE: bool = true;
+        /// Keepalive stagger per canonical committee index.
+        pub const KEEPALIVE_STAGGER_MS: u64 = 15_000;
+        /// Watch the registered destinations for certificates that Taira did not produce.
+        pub const WATCH: bool = true;
     }
     /// `[sccp.light_client_keeper]` defaults.
     pub mod light_client_keeper {
-        /// The keeper runs by default; it acts only while the node holds a registered bridge key.
+        /// The keeper advances stale light clients by default.
         pub const ENABLED: bool = true;
         /// `0` advances once `ws_bound_ms / 4` of each light client has elapsed without progress.
         pub const ADVANCE_AFTER_MS: u64 = 0;
-        /// Cadence of checking local light-client state.
+        /// Per-network cadence of checking local light-client state.
         pub const POLL_INTERVAL_MS: u64 = 60_000;
-        /// Timeout of one RPC request before failing over to the next endpoint.
+        /// Total wall-clock time of one RPC attempt before failing over to the next endpoint.
         pub const REQUEST_TIMEOUT_MS: u64 = 10_000;
+        /// Wall-clock budget of one network's poll: every RPC request of one advance build.
+        pub const POLL_BUDGET_MS: u64 = 120_000;
         /// Largest encoded advance the keeper submits.
         pub const MAX_ADVANCE_BYTES: usize = 262_144;
         /// Longest accepted endpoint list per chain.
@@ -4834,8 +4831,6 @@ pub mod sccp {
             "https://bsc-dataseed.bnbchain.org",
             "https://bsc-rpc.publicnode.com",
         ];
-        /// TRON mainnet HTTP API endpoints.
-        pub const TRON: &[&str] = &["https://api.trongrid.io", "https://tron-rpc.publicnode.com"];
         /// TON mainnet liteservers as `<ipv4>:<port>:<base64 ed25519 public key>`, copied from
         /// the `liteservers` array of `https://ton.org/global-config.json` (signed-integer IP
         /// converted to dotted form).

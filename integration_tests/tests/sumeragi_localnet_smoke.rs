@@ -644,6 +644,12 @@ fn diagnostic_identifier_receipt(
         payload: opening_payload,
     };
     let payload = IdentifierResolutionReceiptPayload {
+        // Explicit DATA identity: this diagnostic fixture is never submitted.
+        network_id: iroha_data_model::NetworkId::from_genesis_hash(
+            iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(
+                b"localnet-identifier-diagnostic-network",
+            )),
+        ),
         policy_id: context.policy_id.clone(),
         execution,
         opening,

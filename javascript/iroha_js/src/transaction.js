@@ -9,8 +9,10 @@ import {
   _createNoritoInstructionApi,
   exactFinalizeElectionTallyJson,
   exactPublicPlainBallotJson,
+  exactRegisterDataspaceAssetDefinitionJson,
 } from "./norito.js";
 import { networkIdBytes } from "./networkId.js";
+import { parseStrictLosslessJson } from "./strictLosslessJson.js";
 import {
   defaultNativeRuntime,
   resolveNativeRuntimeBinding,
@@ -148,6 +150,7 @@ function composeAssetHoldingIdFromDefinitionAndAccount(
   assetDefinitionId,
   accountId,
   context,
+  dataspaceId = null,
 ) {
   const definition = normalizeTransactionAssetDefinitionId(
     assetDefinitionId,
@@ -157,7 +160,8 @@ function composeAssetHoldingIdFromDefinitionAndAccount(
     accountId,
     `${context}.accountId`,
   );
-  return `${definition}#${normalizedAccountId}`;
+  const scope = dataspaceId === null ? "" : `#dataspace:${dataspaceId}`;
+  return `${definition}#${normalizedAccountId}${scope}`;
 }
 
 function normalizeTransactionAssetDefinitionId(assetDefinitionId, context) {
@@ -194,12 +198,78 @@ function serializeInstructionPayloads(instructions, context) {
     if (instruction && typeof instruction === "object") {
       return exactFinalizeElectionTallyJson(instruction)
         ?? exactPublicPlainBallotJson(instruction)
+        ?? exactRegisterDataspaceAssetDefinitionJson(instruction)
         ?? JSON.stringify(instruction);
     }
     throw new TypeError(
       `${context ?? "instructions"}[${index}] must be an object or JSON string`,
     );
   });
+}
+
+// Visit only Native instruction positions, never similarly named metadata keys.
+function directDataspaceInstructionSlots(payload) {
+  const executable = payload?.instructions;
+  const slots = [];
+  const add = (parent, key) => {
+    const instruction = parent?.[key];
+    if (instruction && typeof instruction === "object" &&
+        Object.prototype.hasOwnProperty.call(instruction, "RegisterDataspaceAssetDefinition")) {
+      slots.push({ parent, key, instruction });
+    }
+  };
+  if (Array.isArray(executable?.Instructions)) {
+    executable.Instructions.forEach((_instruction, index) => add(executable.Instructions, index));
+  }
+  if (Array.isArray(executable?.Batch)) {
+    executable.Batch.forEach((entry) => add(entry, "Instruction"));
+  }
+  return slots;
+}
+
+function parseTransactionPayloadJson(json, signed = false) {
+  const parsed = JSON.parse(json);
+  const slots = directDataspaceInstructionSlots(signed ? parsed?.payload : parsed);
+  if (slots.length === 0) return parsed;
+  // Native owns this schema. Read its original numeric tokens, then replace
+  // only direct instruction views; all other public projections stay unchanged.
+  const exact = parseStrictLosslessJson(`{"transaction":${json}}`, "Native transaction JSON", {
+    floatingPointPaths: [["transaction"]],
+  }).transaction;
+  const exactSlots = directDataspaceInstructionSlots(signed ? exact?.payload : exact);
+  slots.forEach(({ parent, key }, index) => {
+    const instruction = exactSlots[index].instruction;
+    exactRegisterDataspaceAssetDefinitionJson(instruction);
+    parent[key] = instruction;
+  });
+  return parsed;
+}
+
+function serializeTransactionPayloadJson(payload) {
+  const slots = directDataspaceInstructionSlots(payload);
+  if (slots.length === 0) return JSON.stringify(payload);
+  const replacements = new Map();
+  const exact = slots.map(({ parent, key, instruction }, index) => {
+    const fields = replacements.get(parent) ?? new Map();
+    fields.set(String(key), `__iroha-direct-dataspace-instruction-${index}__`);
+    replacements.set(parent, fields);
+    return exactRegisterDataspaceAssetDefinitionJson(instruction);
+  });
+  const seen = new Uint8Array(slots.length);
+  const json = JSON.stringify(payload, function (key, value) {
+    return replacements.get(this)?.get(key) ?? value;
+  }).replace(/"__iroha-direct-dataspace-instruction-(\d+)__"/gu, (_token, indexText) => {
+    const index = Number(indexText);
+    if (!Number.isSafeInteger(index) || index >= exact.length || seen[index] !== 0) {
+      throw new TypeError("direct-dataspace instruction exact-number marker collision");
+    }
+    seen[index] = 1;
+    return exact[index];
+  });
+  if (seen.some((count) => count !== 1)) {
+    throw new TypeError("direct-dataspace instruction exact-number marker collision");
+  }
+  return json;
 }
 
 const MAX_CONTRACT_ARGUMENT_RECORD_BYTES = 1024 * 1024;
@@ -543,8 +613,9 @@ export function decodeSignedTransaction(signedTransaction, networkPrefix) {
       "native binding 'decodeSignedTransactionJson' is unavailable",
     );
   }
-  const decoded = JSON.parse(
+  const decoded = parseTransactionPayloadJson(
     native.decodeSignedTransactionJson(toBuffer(signedTransaction), networkPrefix),
+    true,
   );
   if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) {
     throw new Error("decoded signed transaction must be an object");
@@ -899,7 +970,7 @@ export function buildTransactionPayload(input) {
     );
   }
   return {
-    payload: JSON.parse(payloadJson),
+    payload: parseTransactionPayloadJson(payloadJson),
     payloadJson,
     payloadBytes: Buffer.from(payloadBytes),
     payloadHash: Buffer.from(payloadHash),
@@ -948,7 +1019,7 @@ export function buildExecutableBatchTransactionPayload(input) {
     );
   }
   return {
-    payload: JSON.parse(payloadJson),
+    payload: parseTransactionPayloadJson(payloadJson),
     payloadJson,
     payloadBytes: Buffer.from(payloadBytes),
     payloadHash: Buffer.from(payloadHash),
@@ -981,7 +1052,7 @@ export function signQuotedTransactionPayload(input) {
   const payloadJson =
     typeof draft?.payloadJson === "string"
       ? draft.payloadJson
-      : JSON.stringify(draft?.payload ?? draft);
+      : serializeTransactionPayloadJson(draft?.payload ?? draft);
   const quoted = input?.quotedFeePayment;
   const quotedFeePaymentJson =
     typeof quoted === "string"
@@ -1776,6 +1847,7 @@ function resolveAssetHoldingIdForMint(
   assetDefinitionId,
   mint,
   context = "mint",
+  dataspaceId = null,
 ) {
   const providedAssetHoldingId = mint.assetHoldingId ?? mint.assetId;
   if (providedAssetHoldingId) {
@@ -1793,7 +1865,10 @@ function resolveAssetHoldingIdForMint(
       mint.accountId,
       context,
     );
-    if (normalizedAssetHoldingId !== derivedAssetHoldingId) {
+    // An explicit bilateral bucket is independent of the definition home.
+    const explicitDefinitionAndAccount = normalizedAssetHoldingId
+      .split("#").slice(0, 2).join("#");
+    if (explicitDefinitionAndAccount !== derivedAssetHoldingId) {
       throw new TypeError(
         `${context}.assetHoldingId must match ${context}.assetDefinitionId + ${context}.accountId`,
       );
@@ -1809,6 +1884,7 @@ function resolveAssetHoldingIdForMint(
     assetDefinitionId,
     mint.accountId,
     context,
+    dataspaceId,
   );
 }
 
@@ -1840,7 +1916,12 @@ function normalizeDomainMintSpecs(value, context) {
   );
 }
 
-function normalizeAssetDefinitionMintSpec(assetDefinitionId, value, context) {
+function normalizeAssetDefinitionMintSpec(
+  assetDefinitionId,
+  value,
+  context,
+  dataspaceId = null,
+) {
   if (!value || typeof value !== "object") {
     throw new TypeError(`${context} must be an object`);
   }
@@ -1848,6 +1929,7 @@ function normalizeAssetDefinitionMintSpec(assetDefinitionId, value, context) {
     assetDefinitionId,
     value,
     context,
+    dataspaceId,
   );
   return {
     assetHoldingId,
@@ -1859,7 +1941,12 @@ function normalizeAssetDefinitionMintSpec(assetDefinitionId, value, context) {
   };
 }
 
-function normalizeAssetDefinitionMintSpecs(assetDefinitionId, value, context) {
+function normalizeAssetDefinitionMintSpecs(
+  assetDefinitionId,
+  value,
+  context,
+  dataspaceId = null,
+) {
   if (!Array.isArray(value)) {
     throw new TypeError(
       `${context} must be an array of asset mint descriptors`,
@@ -1873,6 +1960,7 @@ function normalizeAssetDefinitionMintSpecs(assetDefinitionId, value, context) {
       assetDefinitionId,
       item,
       `${context}[${index}]`,
+      dataspaceId,
     ),
   );
 }
@@ -2135,12 +2223,19 @@ export function buildRegisterAssetDefinitionAndMintTransaction(input) {
   if (mint && mints) {
     throw new TypeError("provide either mint or mints, but not both");
   }
+  const instructions = buildRegisterAssetDefinitionInstructions({ assetDefinition });
+  const directRegistration = instructions[0].RegisterDataspaceAssetDefinition;
+  const mintDataspaceId =
+    directRegistration?.object.balance_scope_policy === "DataspaceRestricted"
+      ? directRegistration.dataspace_id
+      : null;
   const mintSpecs =
     mints !== undefined
       ? normalizeAssetDefinitionMintSpecs(
           assetDefinition.assetDefinitionId,
           mints,
           "mints",
+          mintDataspaceId,
         )
       : mint
         ? [
@@ -2148,13 +2243,15 @@ export function buildRegisterAssetDefinitionAndMintTransaction(input) {
               assetDefinition.assetDefinitionId,
               mint,
               "mint",
+              mintDataspaceId,
             ),
           ]
         : [];
-  const instructions = buildRegisterAssetDefinitionInstructions({
-    assetDefinition,
-    mints: mintSpecs,
-  });
+  instructions.push(
+    ...mintSpecs.map(({ assetHoldingId, quantity }) =>
+      buildMintAssetInstruction({ assetHoldingId, quantity }),
+    ),
+  );
   return buildTransaction.call(this, {
     networkId,
     authority,
@@ -2200,25 +2297,34 @@ export function buildRegisterAssetDefinitionMintAndTransferTransaction(input) {
   if (!mint && (mints === undefined || mints.length === 0)) {
     throw new TypeError("mint or mints parameters are required");
   }
+  const instructions = buildRegisterAssetDefinitionInstructions({ assetDefinition });
+  const directRegistration = instructions[0].RegisterDataspaceAssetDefinition;
+  const mintDataspaceId =
+    directRegistration?.object.balance_scope_policy === "DataspaceRestricted"
+      ? directRegistration.dataspace_id
+      : null;
   const mintSpecs =
     mints !== undefined
       ? normalizeAssetDefinitionMintSpecs(
           assetDefinition.assetDefinitionId,
           mints,
           "mints",
+          mintDataspaceId,
         )
       : [
           normalizeAssetDefinitionMintSpec(
             assetDefinition.assetDefinitionId,
             mint,
             "mint",
+            mintDataspaceId,
           ),
         ];
 
-  const instructions = buildRegisterAssetDefinitionInstructions({
-    assetDefinition,
-    mints: mintSpecs,
-  });
+  instructions.push(
+    ...mintSpecs.map(({ assetHoldingId, quantity }) =>
+      buildMintAssetInstruction({ assetHoldingId, quantity }),
+    ),
+  );
 
   if (transfer && transfers) {
     throw new TypeError("provide either transfer or transfers, but not both");

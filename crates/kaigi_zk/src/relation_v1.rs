@@ -1,15 +1,14 @@
 //! Shared fixed-frame Poseidon and bounded-limb gadgets for Kaigi V1 relations.
-//! Named CPU scratch slots are erased; Halo2-owned assignment/prover copies are not.
+//! Named CPU scratch slots are erased; native prover-owned assignment/prover copies are not.
 use super::{
     KaigiPoseidonConfig, POSEIDON_FULL_ROUNDS, POSEIDON_PARTIAL_ROUNDS, POSEIDON_ROUNDS, Scalar,
     configure_poseidon, poseidon_constants, poseidon_round, poseidon_round_value,
 };
 use core::array;
-use halo2_proofs::{
-    circuit::{Cell, Layouter, Value},
-    halo2curves::ff::{Field, PrimeField},
-    plonk::{Advice, Column, ConstraintSystem, Error, Expression, Instance, Selector},
-    poly::Rotation,
+use ff::{Field, PrimeField};
+use iroha_plonk::{
+    cs::{Advice, Column, ConstraintSystem, Expression, Instance, Rotation, Selector},
+    frontend::{Cell, Error, Layouter, Value},
 };
 use zeroize::{DefaultIsZeroes, Zeroizing};
 pub(super) const GOLDILOCKS_MODULUS_V1: u64 = 0xffff_ffff_0000_0001;
@@ -61,9 +60,9 @@ pub(super) struct KaigiRelationConfigV1 {
     pub(super) q_goldilocks: Selector,
 }
 impl KaigiRelationConfigV1 {
-    pub(super) fn configure(meta: &mut ConstraintSystem<Scalar>) -> Self {
+    pub(super) fn configure(meta: &mut ConstraintSystem<Scalar>, instance_rows: usize) -> Self {
         let poseidon = configure_poseidon(meta);
-        let instance = meta.instance_column();
+        let instance = meta.instance_column(instance_rows);
         meta.enable_equality(instance);
         let value = meta.advice_column();
         let previous = array::from_fn(|_| meta.advice_column());
@@ -142,23 +141,23 @@ pub(super) fn assign_range<const BITS: usize>(
         |mut region| {
             let mut accumulator = source.1;
             let initial = region
-                .assign_advice(config.range_accumulator, offset, accumulator)
+                .assign_advice(config.range_accumulator, offset, accumulator)?
                 .cell();
-            region.constrain_equal(initial, source.0);
+            region.constrain_equal(initial, source.0)?;
             for bit_index in 0..BITS {
                 config.q_range.enable(&mut region, offset + bit_index)?;
                 let bit = source.1.map(|value| {
                     let repr = value.to_repr();
                     Scalar::from(u64::from((repr[bit_index / 8] >> (bit_index % 8)) & 1))
                 });
-                region.assign_advice(config.range_bit, offset + bit_index, bit);
+                region.assign_advice(config.range_bit, offset + bit_index, bit)?;
                 accumulator = (accumulator - bit) * Value::known(Scalar::from(2).invert().unwrap());
                 let cell = region
                     .assign_advice(
                         config.range_accumulator,
                         offset + bit_index + 1,
                         accumulator,
-                    )
+                    )?
                     .cell();
                 if bit_index + 1 == BITS {
                     region.constrain_constant(cell, Scalar::ZERO)?;
@@ -197,10 +196,10 @@ pub(super) fn assign_sponge(
                 config.q_absorb.enable(&mut region, start)?;
                 for index in 0..3 {
                     let cell = region
-                        .assign_advice(config.previous[index], start, state[index])
+                        .assign_advice(config.previous[index], start, state[index])?
                         .cell();
                     if let Some(previous) = state_cells {
-                        region.constrain_equal(cell, previous[index]);
+                        region.constrain_equal(cell, previous[index])?;
                     } else {
                         region.constrain_constant(
                             cell,
@@ -214,10 +213,10 @@ pub(super) fn assign_sponge(
                 }
                 for index in 0..2 {
                     let cell = region
-                        .assign_advice(config.input[index], start, pair[index].1)
+                        .assign_advice(config.input[index], start, pair[index].1)?
                         .cell();
                     if let Some(source) = pair[index].0 {
-                        region.constrain_equal(cell, source);
+                        region.constrain_equal(cell, source)?;
                     } else {
                         let constant = if block == 0 && index == 0 {
                             Scalar::from(payload.len() as u64)
@@ -231,7 +230,7 @@ pub(super) fn assign_sponge(
                     state[index] = state[index] + pair[index].1;
                 }
                 for (column, value) in config.poseidon.state.iter().zip(state) {
-                    region.assign_advice(*column, start, value);
+                    region.assign_advice(*column, start, value)?;
                 }
                 for round in 0..POSEIDON_ROUNDS {
                     for index in 0..3 {
@@ -239,7 +238,7 @@ pub(super) fn assign_sponge(
                             config.poseidon.round_constants[index],
                             start + round,
                             poseidon_constants().round_constants[round][index],
-                        );
+                        )?;
                     }
                     let half = POSEIDON_FULL_ROUNDS / 2;
                     if round < half || round >= half + POSEIDON_PARTIAL_ROUNDS {
@@ -254,15 +253,21 @@ pub(super) fn assign_sponge(
                             .enable(&mut region, start + round)?;
                     }
                     state = poseidon_round_value(state, round);
-                    state_cells = Some(array::from_fn(|index| {
-                        region
-                            .assign_advice(
-                                config.poseidon.state[index],
-                                start + round + 1,
-                                state[index],
-                            )
-                            .cell()
-                    }));
+                    state_cells = Some(
+                        (0..3)
+                            .map(|index| {
+                                Ok(region
+                                    .assign_advice(
+                                        config.poseidon.state[index],
+                                        start + round + 1,
+                                        state[index],
+                                    )?
+                                    .cell())
+                            })
+                            .collect::<Result<Vec<_>, Error>>()?
+                            .try_into()
+                            .map_err(|_| Error::Synthesis)?,
+                    );
                 }
             }
             Ok((state_cells.expect("fixed nonempty frame")[0], state[0]))

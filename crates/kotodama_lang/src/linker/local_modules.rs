@@ -8,6 +8,46 @@ pub(super) struct ModuleEnvironment {
     pub(super) aliases: BTreeSet<String>,
 }
 impl ModuleEnvironment {
+    fn add_contracts(&mut self, module: &ModuleUnit) -> Result<(), LinkError> {
+        for (alias, interface) in &module.contracts {
+            validate_identifier("contract import alias", alias)?;
+            if is_reserved_import_alias(alias) {
+                return Err(LinkError::ReservedImport {
+                    scope: module.source_name.clone(),
+                    alias: alias.clone(),
+                });
+            }
+            if !self.aliases.insert(alias.clone()) {
+                return Err(LinkError::DuplicateImport {
+                    scope: module.source_name.clone(),
+                    alias: alias.clone(),
+                });
+            }
+            self.typed
+                .contracts
+                .insert(alias.clone(), interface.clone());
+        }
+        let types = semantic::contract_imports::namespace_types(
+            &module.contracts,
+            &module.ast().directives,
+        )
+        .map_err(|error| {
+            LinkError::Diagnostics(DiagnosticBundle::single(Diagnostic::error(
+                error.code,
+                DiagnosticPhase::Resolve,
+                error.message,
+                None,
+            )))
+        })?;
+        self.typed.types.extend(types);
+        for (alias, contract) in &module.contracts {
+            self.typed.functions.insert(
+                format!("{alias}::at"),
+                semantic::contract_imports::constructor_signature(contract),
+            );
+        }
+        Ok(())
+    }
     pub(super) fn add_package(&mut self, alias: &str, package: &ResolvedPackage<'_>) {
         self.aliases.insert(alias.to_owned());
         for (name, export) in &package.exports {
@@ -65,6 +105,7 @@ impl ModuleEnvironment {
         module: &ModuleUnit,
         modules: &[ResolvedModule<'_>],
     ) -> Result<Self, LinkError> {
+        self.add_contracts(module)?;
         for (alias, path) in imports(module)? {
             let target = modules
                 .iter()
@@ -150,6 +191,7 @@ pub(super) fn resolve_module_group<'request>(
             });
         }
         let mut environment = base.clone();
+        environment.add_contracts(module)?;
         for (alias, path) in &edges[index] {
             environment.add_module(
                 alias,
@@ -171,42 +213,20 @@ pub(super) fn resolve_module_group<'request>(
             options.test_builtins_enabled,
         );
         semantic.set_package_identity(nominal_owner.clone());
-        let mut signatures = semantic
+        let signatures = semantic
             .resolve_resolved_function_signatures_with_environment(
                 &module.program,
                 &environment.typed,
             )
             .map_err(|failures| semantic_link_error(module, failures))?;
-        let mut types = semantic
+        let types = semantic
             .declared_nominal_types(module.ast())
             .map_err(|failure| {
                 semantic_link_error(module, semantic::SemanticFailures::from(failure))
             })?;
-        let mut constants = semantic
+        let constants = semantic
             .declared_constants(&module.program)
             .map_err(|failures| semantic_link_error(module, failures))?;
-        let local_structs = module
-            .ast()
-            .items
-            .iter()
-            .filter_map(|item| {
-                if let Item::Struct(definition) = item {
-                    Some(definition.name.clone())
-                } else {
-                    None
-                }
-            })
-            .collect::<HashSet<_>>();
-        let type_prefix = format!("{nominal_owner}::{}", module.ast().unit.name);
-        for signature in signatures.values_mut() {
-            qualify_signature(signature, &local_structs, &type_prefix);
-        }
-        for ty in types.values_mut() {
-            qualify_type(ty, &local_structs, &type_prefix);
-        }
-        for value in constants.values_mut() {
-            qualify_expr(value, &local_structs, &type_prefix);
-        }
         let linked_names = signatures
             .keys()
             .enumerate()
@@ -223,8 +243,6 @@ pub(super) fn resolve_module_group<'request>(
             types,
             constants,
             linked_names,
-            local_structs,
-            type_prefix,
             nominal_owner,
             environment,
         });

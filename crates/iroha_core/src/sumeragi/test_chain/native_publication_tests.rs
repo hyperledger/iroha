@@ -1,4 +1,4 @@
-// Former shared publication controls exercised through native genesis and original Worker.
+// Native signed-genesis, exact-quorum publication and original Worker custody controls.
 
 #[test]
 fn original_genesis_and_successor_have_exact_native_execution_authority() {
@@ -13,8 +13,12 @@ fn original_genesis_and_successor_have_exact_native_execution_authority() {
             .output_results()
             .all(|result| result.as_ref().is_ok())
     );
-    assert_eq!(first.commitment().execution.kagemusha_top_up_count, 0);
-    assert_eq!(first.commitment().execution.kagemusha_top_up_root, None);
+    let initial = &first.commitment().schedule.current;
+    assert_eq!(initial.authorization.authority_generation, 0);
+    assert_eq!(
+        initial.generation().generation_id().unwrap(),
+        initial.authorization.authority_id
+    );
     assert!(
         startup::apply_genesis(
             &state,
@@ -45,8 +49,10 @@ fn original_genesis_and_successor_have_exact_native_execution_authority() {
     );
     assert_eq!(second.header().unwrap().parent_result, first.result());
     assert_eq!(second.header().unwrap().parent_hash, first.core_hash());
-    assert_eq!(second.commitment().execution.kagemusha_top_up_count, 0);
-    assert_eq!(second.commitment().execution.kagemusha_top_up_root, None);
+
+    let (_, qc) = chain.committed_body(2).unwrap().unwrap();
+    assert_eq!(qc.signers.count_ones(), 3);
+
     assert!(
         second
             .block()
@@ -63,18 +69,14 @@ fn foreign_execution_certificate_cannot_prepare_original_worker() {
     let mut foreign = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1000)).unwrap();
     foreign.commit_at(3000, Vec::new());
     let foreign_committed = foreign.committed(2);
-    let mut foreign_qc = foreign.commit_qc(
+    let foreign_qc = foreign.commit_qc(
         2,
         foreign_committed.core_hash(),
         foreign_committed.result(),
-        foreign_committed.header().unwrap().attest,
         Signers::Quorum,
     );
     let state = Arc::clone(source.state());
     let kura = Arc::clone(source.kura());
-    foreign_qc
-        .admit_attestation_witness(&state.ivm_execution_budget())
-        .unwrap();
     let proposal = source.proposal(Some(2000), Vec::new());
     let mut pending = source.begin_proposal(proposal, Default::default()).unwrap();
     let original_result = pending.result();
@@ -226,9 +228,6 @@ fn missing_genesis_authority_is_created_by_its_original_signed_registration() {
         state: Arc::clone(&state),
         kura: Arc::clone(&kura),
         validator_keys: fixture_keys(),
-        pasta_seeds: (0..4)
-            .map(|seat| zeroize::Zeroizing::new([0xA0 + seat; 32]))
-            .collect(),
         clock: key,
         lane_blocks: Arc::new(crate::sumeragi::lanes::merge::NoLanes),
     })

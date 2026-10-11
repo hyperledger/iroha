@@ -1,7 +1,8 @@
 // Using context::authority() in a metadata call inside a seiyaku.
 seiyaku DetailAuthority {
-    kotoage fn write_cursor() authorize("Admin") {
-        ledger::account::set_detail(
+    permission Admin;
+    kotoage fn write_cursor() authorize(Admin) {
+        ledger::account::set_metadata(
             account: context::authority(),
             key: Name::parse("cursor"),
             value: Json::parse("{\"cursor\":1,\"query\":\"sc_dummy\"}"),

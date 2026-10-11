@@ -29,9 +29,9 @@
 //! queued bucket indices, points and signs, addition kinds and the batch
 //! inversion scratch, including spare capacity) are zeroised when they are
 //! dropped, also during unwinding. Bucket indices, zero-digit skipping,
-//! conflict handling and the equal/opposite-point checks still depend on the
-//! scalar digits, which is the posture of the vendored `halo2curves` MSM it
-//! replaces: it is not a constant-time MSM.
+//! conflict handling, empty-gap weighting and equal/opposite-point
+//! checks depend on the scalar digits, which is the posture of the vendored
+//! `halo2curves` MSM it replaces: it is not a constant-time MSM.
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
@@ -43,6 +43,20 @@ use zeroize::Zeroize;
 
 use crate::curve::{PastaAffine, PastaCurve};
 use crate::field::PastaField;
+use crate::{CancellationToken, Cancelled};
+use zeroize::Zeroizing;
+
+#[cfg(test)]
+#[path = "reduction_tests.rs"]
+mod reduction_tests;
+
+#[cfg(test)]
+#[path = "gap_tests.rs"]
+mod gap_tests;
+
+#[cfg(test)]
+#[path = "batch_cap_experiment.rs"]
+mod batch_cap_experiment;
 
 /// Largest supported window: digits must fit `i16` with magnitude `2^(c-1)`.
 pub(crate) const MAX_WINDOW: usize = 15;
@@ -52,6 +66,30 @@ pub(crate) const MIN_WINDOW: usize = 2;
 pub(crate) const BUCKET_BYTES: usize = 64 + 96 + 1 + 1 + 4;
 /// Largest number of additions sharing one inversion.
 const MAX_BATCH: usize = 1024;
+
+/// Heap storage of a bucket set, including the bounded addition queue and
+/// batch-inversion buffers. Pasta projective points occupy 96 bytes.
+pub(crate) fn bucket_bytes(count: usize) -> Option<usize> {
+    let cap = (count / 4).clamp(16, MAX_BATCH);
+    let queued =
+        cap.checked_mul(2 * size_of::<u32>() + size_of::<bool>() + size_of::<Kind>() + 2 * 32)?;
+    count.checked_mul(BUCKET_BYTES)?.checked_add(queued)
+}
+
+/// Scratch retained across waves: recoded digits, skip flags and window sums.
+fn fixed_bytes(n: usize, nw: usize) -> Option<usize> {
+    n.checked_mul(nw)?
+        .checked_mul(2)?
+        .checked_add(n)?
+        .checked_add(nw.checked_mul(96)?)
+}
+
+/// One live task's buckets, returned window sums and its slot in the wave.
+fn task_bytes(windows: usize, buckets_per_window: usize) -> Option<usize> {
+    bucket_bytes(windows.checked_mul(buckets_per_window)?)?
+        .checked_add(windows.checked_mul(96)?)?
+        .checked_add(size_of::<(usize, Vec<crate::Ep>)>())
+}
 
 /// Number of windows for scalars of at most `bits` bits with window `c`.
 ///
@@ -112,19 +150,35 @@ impl Drop for Digits {
 
 impl Digits {
     /// Recodes `scalars` in parallel on the caller's pool.
+    #[cfg(test)]
     pub(crate) fn new<F: PastaField>(scalars: &[F], c: usize, nw: usize) -> Self {
+        Self::new_cancellable(scalars, c, nw, None).expect("no cancellation signal")
+    }
+
+    pub(crate) fn new_cancellable<F: PastaField>(
+        scalars: &[F],
+        c: usize,
+        nw: usize,
+        cancellation: Option<&CancellationToken>,
+    ) -> Result<Self, Cancelled> {
         use rayon::prelude::*;
+        CancellationToken::checkpoint(cancellation)?;
         let mut data = vec![0i16; scalars.len() * nw];
         data.par_chunks_mut(nw * 1024)
             .zip(scalars.par_chunks(1024))
             .for_each(|(out, chunk)| {
+                if CancellationToken::checkpoint(cancellation).is_err() {
+                    return;
+                }
                 for (s, o) in chunk.iter().zip(out.chunks_exact_mut(nw)) {
                     let mut limbs = s.to_canonical_limbs();
                     recode_into(&limbs, c, o);
                     limbs.zeroize();
                 }
             });
-        Self { data, nw }
+        let result = Self { data, nw };
+        CancellationToken::checkpoint(cancellation)?;
+        Ok(result)
     }
 
     /// The digits of scalar `i`.
@@ -171,6 +225,10 @@ impl<'a, C: PastaCurve, const SECRET: bool> Buckets<'a, C, SECRET> {
     /// Creates `count` empty buckets over the given base points.
     pub(crate) fn new(bases: &'a [C::AffineExt], count: usize) -> Self {
         let cap = (count / 4).clamp(16, MAX_BATCH);
+        // Diagnostic-only smaller batches retain the production planner's
+        // conservative reservation. Release libraries have no override or knob.
+        #[cfg(test)]
+        let cap = batch_cap_experiment::cap(count, cap);
         Self {
             bases,
             x: vec![C::Base::ZERO; count],
@@ -301,14 +359,47 @@ impl<'a, C: PastaCurve, const SECRET: bool> Buckets<'a, C, SECRET> {
     pub(crate) fn reduce(&self, start: usize, len: usize) -> C {
         let mut running = C::identity();
         let mut acc = C::identity();
-        for j in (start..start + len).rev() {
+        // Occupancy is digit-dependent under the existing variable-time
+        // MSM contract. An empty gap repeats the same running sum; multiply
+        // it by that exact positive gap length with complete curve formulas.
+        // Dense windows keep their one-addition path. No scratch is added.
+        let occupied = |j: usize| self.has[j] || self.overflow_used[j];
+        let Some(last) = (start..start + len).rfind(|&j| occupied(j)) else {
+            return acc;
+        };
+        // Retain the original reduction for dense windows. Counting stops
+        // once one occupied bucket per 32 positions is established; this
+        // avoids imposing gap-multiply overhead on coefficient-form MSMs.
+        let cutoff = (last - start + 1).div_ceil(32);
+        if (start..=last).filter(|&j| occupied(j)).take(cutoff).count() == cutoff {
+            for j in (start..=last).rev() {
+                if self.has[j] {
+                    running = running.add_affine_coords(self.x[j], self.y[j]);
+                }
+                if self.overflow_used[j] {
+                    running += self.overflow[j];
+                }
+                acc += running;
+            }
+            return acc;
+        }
+        let mut occupied = (start..=last)
+            .rev()
+            .filter(|&j| self.has[j] || self.overflow_used[j])
+            .peekable();
+        while let Some(j) = occupied.next() {
             if self.has[j] {
                 running = running.add_affine_coords(self.x[j], self.y[j]);
             }
             if self.overflow_used[j] {
                 running += self.overflow[j];
             }
-            acc += running;
+            let gap = occupied.peek().map_or(j - start + 1, |&next| j - next);
+            if gap == 1 {
+                acc += running;
+            } else {
+                acc += multiply_gap_vartime(running, gap);
+            }
         }
         acc
     }
@@ -341,6 +432,24 @@ impl<C: PastaCurve, const SECRET: bool> Drop for Buckets<'_, C, SECRET> {
     fn drop(&mut self) {
         self.wipe();
     }
+}
+
+/// The exact repeated sum of a running bucket total across an empty gap.
+/// The gap depends on digit occupancy; this is part of the variable-time
+/// prover MSM, never a replacement for a constant-time scalar multiplier.
+fn multiply_gap_vartime<C: PastaCurve>(point: C, gap: usize) -> C {
+    if gap == 0 {
+        return C::identity();
+    }
+    let mut result = point;
+    let top = usize::BITS - 1 - gap.leading_zeros();
+    for bit in (0..top).rev() {
+        result = result.double();
+        if (gap >> bit) & 1 == 1 {
+            result += point;
+        }
+    }
+    result
 }
 
 /// Mixed addition helpers on projective points used by the engine.
@@ -405,8 +514,8 @@ pub(crate) fn plan(n: usize, bits: usize, threads: usize, budget: usize) -> Opti
     for c in MIN_WINDOW..=MAX_WINDOW {
         let nw = num_windows(bits, c);
         let nb_per = 1usize << (c - 1);
-        let digit_bytes = n.checked_mul(nw)?.checked_mul(2)?;
-        let Some(avail) = budget.checked_sub(digit_bytes) else {
+        let fixed = fixed_bytes(n, nw)?;
+        let Some(avail) = budget.checked_sub(fixed) else {
             continue;
         };
         let max_windows_per_task = ((2usize << 20) / (nb_per * BUCKET_BYTES)).max(1);
@@ -414,12 +523,11 @@ pub(crate) fn plan(n: usize, bits: usize, threads: usize, budget: usize) -> Opti
             .div_ceil(threads.min(nw))
             .min(max_windows_per_task)
             .max(1);
-        let window_bytes = nb_per.checked_mul(BUCKET_BYTES)?;
         // Shrink tasks to one window if a single task would not fit.
-        while per_group > 1 && per_group * window_bytes > avail {
+        while per_group > 1 && task_bytes(per_group, nb_per)? > avail {
             per_group = per_group.div_ceil(2);
         }
-        let task_bytes = per_group.checked_mul(window_bytes)?;
+        let task_bytes = task_bytes(per_group, nb_per)?;
         if task_bytes > avail {
             continue;
         }
@@ -433,7 +541,7 @@ pub(crate) fn plan(n: usize, bits: usize, threads: usize, budget: usize) -> Opti
             .min(threads)
             .min(avail / task_bytes)
             .max(1);
-        let bytes = concurrency * task_bytes + digit_bytes;
+        let bytes = concurrency * task_bytes + fixed;
         let cost = model_cost(n, bits, c) / (concurrency as u128);
         if best.is_none_or(|(b, _)| cost < b) {
             best = Some((
@@ -454,21 +562,19 @@ pub(crate) fn plan(n: usize, bits: usize, threads: usize, budget: usize) -> Opti
 }
 
 /// The smallest budget [`plan`] accepts: over every window width, the digits
-/// of all windows plus one task holding a single window's buckets
-/// (`n * nw(c) * 2 + 2^(c-1) * BUCKET_BYTES`), exactly the feasibility test
-/// of [`plan`].
+/// of all windows, skip flags and window sums, plus one task holding a single
+/// window's buckets and result, exactly the feasibility test of [`plan`].
 pub(crate) fn min_plan_bytes(n: usize, bits: usize) -> usize {
     (MIN_WINDOW..=MAX_WINDOW)
         .filter_map(|c| {
-            let digits = n.checked_mul(num_windows(bits, c))?.checked_mul(2)?;
-            let buckets = (1usize << (c - 1)).checked_mul(BUCKET_BYTES)?;
-            digits.checked_add(buckets)
+            fixed_bytes(n, num_windows(bits, c))?.checked_add(task_bytes(1, 1usize << (c - 1))?)
         })
         .min()
         .unwrap_or(usize::MAX)
 }
 
 /// Runs the bucket phase of one task and returns its per-window sums.
+#[cfg(test)]
 pub(crate) fn run_task<C: PastaCurve, const SECRET: bool>(
     bases: &[C::AffineExt],
     skip: &[bool],
@@ -477,10 +583,24 @@ pub(crate) fn run_task<C: PastaCurve, const SECRET: bool>(
     group: usize,
     chunk: usize,
 ) -> (usize, Vec<C>) {
+    let (start, sums) =
+        run_task_cancellable::<C, SECRET>(bases, skip, digits, plan, group, chunk, None);
+    (start, sums.to_vec())
+}
+
+pub(crate) fn run_task_cancellable<C: PastaCurve, const SECRET: bool>(
+    bases: &[C::AffineExt],
+    skip: &[bool],
+    digits: &Digits,
+    plan: &Plan,
+    group: usize,
+    chunk: usize,
+    cancellation: Option<&CancellationToken>,
+) -> (usize, Zeroizing<Vec<C>>) {
     let w0 = group * plan.per_group;
     let w1 = ((group + 1) * plan.per_group).min(plan.nw);
-    if w0 >= w1 {
-        return (w0, Vec::new());
+    if w0 >= w1 || CancellationToken::checkpoint(cancellation).is_err() {
+        return (w0, Zeroizing::new(Vec::new()));
     }
     let n = bases.len();
     let nb_per = 1usize << (plan.c - 1);
@@ -489,13 +609,13 @@ pub(crate) fn run_task<C: PastaCurve, const SECRET: bool>(
     let step = n.div_ceil(plan.chunks);
     let i0 = chunk * step;
     let i1 = ((chunk + 1) * step).min(n);
-    for (i, _) in skip
-        .iter()
-        .enumerate()
-        .take(i1)
-        .skip(i0)
-        .filter(|(_, s)| !**s)
-    {
+    for (i, _) in skip.iter().enumerate().take(i1).skip(i0) {
+        if i % 256 == 0 && CancellationToken::checkpoint(cancellation).is_err() {
+            return (w0, Zeroizing::new(Vec::new()));
+        }
+        if skip[i] {
+            continue;
+        }
         let row = &digits.row(i)[w0..w1];
         for (gw, &d) in row.iter().enumerate() {
             if d != 0 {
@@ -509,7 +629,7 @@ pub(crate) fn run_task<C: PastaCurve, const SECRET: bool>(
         .map(|gw| buckets.reduce(gw * nb_per, nb_per))
         .collect();
     // Dropping `buckets` wipes its scratch in secret mode.
-    (w0, sums)
+    (w0, Zeroizing::new(sums))
 }
 
 /// Combines per-window sums: `sum_w 2^(c w) * W_w`.
@@ -576,6 +696,34 @@ mod tests {
         assert_eq!(min_plan_bytes(usize::MAX, 255), usize::MAX);
         assert_eq!(num_windows(255, 15), 18);
         assert!(model_cost(1000, 255, 8) > 0);
+    }
+
+    #[test]
+    fn bucket_accounting_covers_every_allocated_buffer() {
+        fn bytes<T>(values: &Vec<T>) -> usize {
+            values.capacity() * size_of::<T>()
+        }
+        for count in [2, 8, 16, 1024, 4096, 1 << 15] {
+            let buckets = Buckets::<Ep, false>::new(&[], count);
+            let allocated = bytes(&buckets.x)
+                + bytes(&buckets.y)
+                + bytes(&buckets.has)
+                + bytes(&buckets.mark)
+                + bytes(&buckets.overflow)
+                + bytes(&buckets.overflow_used)
+                + bytes(&buckets.queue_bucket)
+                + bytes(&buckets.queue_point)
+                + bytes(&buckets.queue_neg)
+                + bytes(&buckets.kind)
+                + bytes(&buckets.den)
+                + bytes(&buckets.prefix);
+            assert_eq!(bucket_bytes(count), Some(allocated));
+        }
+        assert_eq!(size_of::<crate::Ep>(), 96);
+        assert_eq!(size_of::<crate::Eq>(), 96);
+        assert_eq!(size_of::<crate::Fp>(), 32);
+        assert_eq!(size_of::<crate::Fq>(), 32);
+        assert!(bucket_bytes(usize::MAX).is_none());
     }
 
     #[test]

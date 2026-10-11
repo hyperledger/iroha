@@ -6,7 +6,7 @@
 //!   the `authority/*.key` network-authority keys). The configuration parser reads them, so every
 //!   one that exists passes [`verify_config_key_custody`] first, whenever the node file is loaded
 //!   (including `--check-config` and `--check-storage`);
-//! - the runtime-only secrets (`runtime_signer.key`, `mint_finality.seed`, `beacon.cred`), which
+//! - the runtime-only secrets (`runtime_signer.key`, `beacon.cred`), which
 //!   [`NodeSecretsV1`] opens only for a real start, after the complete configuration has passed the
 //!   offline checks: `--check-config` and `--check-storage` never open them.
 //!
@@ -25,21 +25,17 @@
 //!   ([`iroha_config::parameters::actual::node_runtime_signer`]);
 //! - `authority/onboarding.key` (when onboarding reads it from the fixed path) must be the key of
 //!   `torii.account_onboarding.authority`;
-//! - `mint_finality.seed` is bound against the authenticated genesis KAGEMUSHA mint-finality
-//!   roster: a named peer requires it and it must derive that roster entry's keys; an unnamed peer
-//!   that holds one keeps it as an unseated candidate authority;
 //! - `beacon.cred`, when present on a validator, yields the global-beacon partial signer. Its
 //!   provider binding (handle, revision, policy digest) is read from the credential header and must
 //!   equal the configured `sumeragi.global_beacon_partial_signer_provider_*` binding when one is set.
 //!
-//! The file-backed Soracloud signer ([`FileRuntimeSignerV1`]), its key-record parser and the
-//! mint-finality seed binding are shared with the `iroha3d_taira` launcher, which supplies its own
-//! compiled policy and inherited-descriptor loader.
+//! The file-backed Soracloud signer ([`FileRuntimeSignerV1`]) and its key-record parser are shared
+//! with the `iroha3d_taira` launcher, which supplies its own compiled policy and
+//! inherited-descriptor loader.
 //!
 //! TODO(P8): `iroha3d_taira` and its inherited-descriptor launcher are deleted at the cutover; until
 //! then they never use the fixed files.
 
-use crate::authenticated_genesis::AuthenticatedGenesis;
 use crate::{
     IrohaRuntimeDeps, IrohaRuntimeProviderBindingsV1, IrohaRuntimeProviderRegistryErrorV1,
     IrohaRuntimeProviderRegistryV1, IrohaRuntimeProviderSlotV1, RuntimeCredentialErrorV1,
@@ -66,18 +62,15 @@ use iroha_core::beacon::{
         global_beacon_partial_signer_credential_header_v1,
     },
 };
-use iroha_core_zk::kagemusha_v1_recursion::KagemushaMintFinalityLocalAuthorityV1;
 use iroha_crypto::{Algorithm, ExposedPrivateKey, KeyPair, PrivateKey, PublicKey, Signature};
 use iroha_data_model::{
     NetworkId,
     account::AccountId,
-    isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1,
     soracloud::{
         SoracloudRuntimeProvenancePurposeV1, validate_soracloud_runtime_provenance_preimage_v1,
     },
     transaction::{SignedTransaction, TransactionBuilder, TransactionPayload},
 };
-use iroha_model_base::peer::PeerId;
 use std::{
     fmt,
     io::ErrorKind,
@@ -87,8 +80,6 @@ use std::{
 };
 use zeroize::Zeroizing;
 
-/// Exact size of `mint_finality.seed`: the raw 32-byte seed.
-pub const MINT_FINALITY_SEED_FILE_BYTES_V1: usize = 32;
 /// Upper bound of a private-key file (one private multihash and a newline).
 pub const AUTHORITY_KEY_FILE_MAX_BYTES_V1: usize = 64 * 1024;
 /// Key files the configuration parser reads from `<data_dir>/secrets/` when the configuration
@@ -323,69 +314,6 @@ impl NodeSecretsV1 {
         })
     }
 
-    /// Bind the KAGEMUSHA mint-finality authority from `mint_finality.seed`.
-    ///
-    /// A peer the authenticated genesis names must hold the seed of its roster entry. An unnamed
-    /// peer that holds a seed retains it as an unseated candidate authority
-    /// ([`bind_mint_finality_seed`]); without the file it starts with no authority.
-    ///
-    /// # Errors
-    ///
-    /// [`NodeSecretsErrorV1`] when the genesis context does not belong to the configured network or
-    /// node, when a named peer's seed is missing, when a present seed fails custody or does not
-    /// derive the named peer's roster keys, or when an authority is already attached.
-    pub fn bind_mint_finality_authority(
-        &self,
-        config: &Config,
-        authenticated_genesis: &AuthenticatedGenesis,
-        dependencies: IrohaRuntimeDeps,
-    ) -> Result<IrohaRuntimeDeps, NodeSecretsErrorV1> {
-        const FILE: NodeSecretFile = NodeSecretFile::MintFinalitySeed;
-        if dependencies.kagemusha_mint_finality_authority.is_some() {
-            return Err(NodeSecretsErrorV1::Unsupported(
-                "a second KAGEMUSHA mint-finality authority was attached",
-            ));
-        }
-        let context = authenticated_genesis;
-        let network_id = NetworkId::from_genesis_hash(config.genesis.expected_hash);
-        if context.network_id != network_id
-            || config.common.peer.id.public_key() != config.common.key_pair.public_key()
-        {
-            return Err(NodeSecretsErrorV1::BindingMismatch {
-                file: FILE,
-                detail: "the authenticated genesis does not belong to the configured network and node",
-            });
-        }
-        let generation = &context.kagemusha_mint_finality_authority;
-        let seated = mint_finality_roster_position(generation, &config.common.peer.id).is_some();
-        let Some(path) = self.existing_secret(FILE)? else {
-            // A seated validator must hold its seed; an unseated peer may start without one.
-            return if seated {
-                Err(NodeSecretsErrorV1::Missing(FILE))
-            } else {
-                Ok(dependencies)
-            };
-        };
-        let authority = bind_mint_finality_seed(
-            network_id,
-            &config.common.peer.id,
-            generation,
-            load_mint_finality_seed(&path)?,
-        )?;
-        Ok(dependencies.with_kagemusha_mint_finality_authority(Arc::new(authority)))
-    }
-
-    /// Whether `mint_finality.seed` exists, so a start without a local genesis can refuse it.
-    ///
-    /// # Errors
-    ///
-    /// [`NodeSecretsErrorV1::Custody`] when the secrets directory cannot be inspected.
-    pub fn has_mint_finality_seed(&self) -> Result<bool, NodeSecretsErrorV1> {
-        Ok(self
-            .existing_secret(NodeSecretFile::MintFinalitySeed)?
-            .is_some())
-    }
-
     fn existing_secret(&self, file: NodeSecretFile) -> Result<Option<PathBuf>, NodeSecretsErrorV1> {
         existing_secret_path(&self.data_dir, file)
     }
@@ -611,72 +539,6 @@ fn parse_authority_key(
     let private_key = PrivateKey::from_str(literal).map_err(|_| malformed())?;
     let key_pair = KeyPair::from_private_key(private_key).map_err(|_| malformed())?;
     Ok(key_pair.public_key().clone())
-}
-
-fn load_mint_finality_seed(path: &Path) -> Result<Zeroizing<[u8; 32]>, NodeSecretsErrorV1> {
-    const FILE: NodeSecretFile = NodeSecretFile::MintFinalitySeed;
-    let bytes = load_secret(
-        path,
-        FILE,
-        MINT_FINALITY_SEED_FILE_BYTES_V1,
-        MINT_FINALITY_SEED_FILE_BYTES_V1,
-    )?;
-    let mut seed = Zeroizing::new([0_u8; 32]);
-    if bytes.len() != seed.len() {
-        return Err(NodeSecretsErrorV1::Malformed(FILE));
-    }
-    seed.copy_from_slice(&bytes);
-    Ok(seed)
-}
-
-/// Bind a held seed to the local peer against the authenticated genesis mint-finality roster.
-///
-/// A peer the roster names gets its seated genesis authority, whose keys the seed must derive. A
-/// peer the roster does not name is a future candidate: it retains its seed as an unseated
-/// authority without a genesis vote, and can sign only once an authenticated later generation
-/// seats that same peer with the keys the seed derives.
-pub(crate) fn bind_mint_finality_seed(
-    network_id: NetworkId,
-    local: &PeerId,
-    generation: &KagemushaMintFinalityAuthorityGenerationV1,
-    seed: Zeroizing<[u8; 32]>,
-) -> Result<KagemushaMintFinalityLocalAuthorityV1, NodeSecretsErrorV1> {
-    const FILE: NodeSecretFile = NodeSecretFile::MintFinalitySeed;
-    if generation.network_id != network_id {
-        return Err(NodeSecretsErrorV1::BindingMismatch {
-            file: FILE,
-            detail: "the genesis mint-finality roster belongs to another network",
-        });
-    }
-    let authority = match mint_finality_roster_position(generation, local) {
-        Some(position) => {
-            let validator_index =
-                u32::try_from(position).map_err(|_| NodeSecretsErrorV1::Malformed(FILE))?;
-            KagemushaMintFinalityLocalAuthorityV1::new(
-                Arc::new(generation.clone()),
-                seed,
-                validator_index,
-            )
-        }
-        None => {
-            KagemushaMintFinalityLocalAuthorityV1::new_unseated(generation, local.clone(), seed)
-        }
-    };
-    authority.map_err(|_| NodeSecretsErrorV1::BindingMismatch {
-        file: FILE,
-        detail: "the seed or candidate identity does not match the genesis mint-finality authority",
-    })
-}
-
-/// Position of `local` in the genesis mint-finality roster, `None` for an unseated peer.
-fn mint_finality_roster_position(
-    generation: &KagemushaMintFinalityAuthorityGenerationV1,
-    local: &PeerId,
-) -> Option<usize> {
-    generation
-        .validators
-        .iter()
-        .position(|entry| &entry.validator == local)
 }
 
 /// Global-beacon partial signer loaded from `beacon.cred` with its header-derived binding.

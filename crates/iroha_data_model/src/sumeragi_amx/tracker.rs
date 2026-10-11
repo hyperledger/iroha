@@ -11,9 +11,8 @@
 //! epoch start cannot certify any height of a later epoch.
 //!
 //! Certificate verification reuses the core's exact-quorum check
-//! ([`iroha_sumeragi::crypto::Verifier::verify_qc_signatures`]) over the committee's
-//! proof-of-possession-verified BLS keys, as the portable finality proofs do; application
-//! attestations of a flagged `CommitQC` are separate evidence and are checked only for shape.
+//! ([`iroha_sumeragi::crypto::Verifier::verify_qc`]) over the committee's
+//! proof-of-possession-verified BLS keys, as the portable finality proofs do.
 
 use iroha_schema::IntoSchema;
 use iroha_sumeragi::{
@@ -202,20 +201,11 @@ impl AmxForeignInstanceV1 {
                 && qc.instance == header.instance
                 && qc.epoch == header.epoch
                 && qc.height == header.height
-                && qc.block_hash == block_hash
-                && qc.attest == header.attest,
+                && qc.block_hash == block_hash,
             "the certificate is not a CommitQC of this header",
         )?;
-        need(
-            if qc.needs_attestations() {
-                qc.attestations.len() == committee.q()
-            } else {
-                qc.attestations.is_empty()
-            },
-            "certificate attestation shape differs from its signed flag",
-        )?;
         Verifier::new(&crypto, &header.instance, &epoch.id, &committee)
-            .verify_qc_signatures(&qc)
+            .verify_qc(&qc)
             .map_err(|error| proof_error(format!("commit certificate: {error:?}")))?;
         need(
             result_of_preimage(&block.result_preimage) == qc.result,

@@ -465,6 +465,242 @@ mod tests {
         ));
     }
     #[test]
+    fn space_directory_lifecycle_uses_current_catalog_and_exact_domain_authority() {
+        use crate::executor::Executor;
+        use iroha_data_model::{IntoKeyValue as _, account::Account, account::rekey::AccountAlias};
+
+        let mut state = test_state();
+        let account = |seed| {
+            AccountId::new(
+                KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519)
+                    .public_key()
+                    .clone(),
+            )
+        };
+        let registrar = account(41);
+        let foreign_registrar = account(42);
+        let customer = account(43);
+        let manifest_hash = [91; 32];
+        let dataspace = DataSpaceId::from_hash(&manifest_hash);
+        let domain = DomainId::try_new("company", "dpn").unwrap();
+        let foreign_domain = DomainId::try_new("foreign", "dpn").unwrap();
+        let uaid = UniversalAccountId::from_hash(Hash::new(b"current-dpn-customer"));
+        for authority in [&registrar, &foreign_registrar] {
+            let (id, value) = Account::new(authority.clone())
+                .build(authority)
+                .into_key_value();
+            state.world.accounts.insert(id, value);
+        }
+        seed_domain(&mut state, &domain, &registrar);
+        seed_domain(&mut state, &foreign_domain, &foreign_registrar);
+        grant_account_domain_manifest_permission(&mut state.world, &registrar, dataspace, domain);
+        grant_account_domain_manifest_permission(
+            &mut state.world,
+            &foreign_registrar,
+            dataspace,
+            foreign_domain,
+        );
+        // Initial instruction boundaries require the committed network root scope.
+        // This fixture is a Global chain with a dynamically added DPN dataspace.
+        {
+            let mut parameters = state.world.parameters.block();
+            parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                iroha_data_model::block::consensus::SumeragiRootScope::Global,
+            ));
+            parameters.commit();
+        }
+        // This isolated committed catalog fixture follows the native runtime reader tests.
+        // It proves later State scopes read the current catalog, not global finalization.
+        let catalog = iroha_data_model::nexus::NexusRuntimeCatalogV1 {
+            version: iroha_data_model::nexus::NexusRuntimeCatalogV1::VERSION,
+            baseline_dataspaces_hash: iroha_data_model::nexus::dataspace_catalog_hash(
+                &state.nexus.read().configured_dataspace_catalog,
+            ),
+            baseline_manifests_hash: Hash::prehashed(
+                state
+                    .lane_manifests
+                    .read()
+                    .baseline_consensus_policy_digest(),
+            ),
+            dataspaces: vec![iroha_data_model::nexus::RuntimeDataSpaceAdditionV1 {
+                descriptor: DataSpaceMetadata {
+                    id: dataspace,
+                    alias: "dpn".to_owned(),
+                    description: None,
+                    fault_tolerance: 1,
+                },
+                manifest_hash,
+            }],
+            manifests: vec![],
+        };
+        {
+            let mut world = state.world.block();
+            world.parameters.get_mut().set_parameter(
+                iroha_data_model::parameter::Parameter::Custom(
+                    catalog.into_custom_parameter().unwrap(),
+                ),
+            );
+            world.commit();
+            let mut runtime = state.canonical_runtime.block();
+            runtime.get_mut().owner_policy.dataspaces.push(
+                crate::state::SnapshotDataSpaceMetadata {
+                    id: dataspace,
+                    alias: "dpn".to_owned(),
+                    fault_tolerance: 1,
+                },
+            );
+            runtime.get_mut().lane_count = 2;
+            runtime
+                .get_mut()
+                .lanes
+                .push(iroha_data_model::nexus::LaneConfig {
+                    id: iroha_model_base::topology::LaneId::new(1),
+                    alias: "dpn-lane".to_owned(),
+                    dataspace_id: dataspace,
+                    ..Default::default()
+                });
+            // The isolated current-catalog fixture still needs the lane's
+            // complete retained identity, as every subsequent State scope does.
+            runtime.get_mut().lane_incarnation_lineage.push(
+                crate::state::SnapshotLaneIncarnationLineage {
+                    lane_id: iroha_model_base::topology::LaneId::new(1),
+                    generation: 1,
+                    incarnation: Hash::new(b"space-directory current DPN lane fixture"),
+                    activation_height: 1,
+                },
+            );
+            runtime.commit();
+        }
+        let header = BlockHeader::new(nonzero!(1_u64), None, None, 1, 0);
+        let mut block = state.block(header);
+        let mut tx = block.transaction();
+        Register::account(NewAccount::new(customer.clone()).with_uaid(Some(uaid)))
+            .execute(&registrar, &mut tx)
+            .unwrap();
+        let alias = AccountAlias::from_literal("customer@company.dpn", &tx.nexus.dataspace_catalog)
+            .unwrap();
+        tx.world
+            .insert_account_alias_binding(alias.clone(), customer.clone());
+        tx.world.replace_account_rekey_record(
+            iroha_data_model::account::rekey::AccountRekeyRecord::new(
+                alias.clone(),
+                customer.clone(),
+            ),
+        );
+        seed_account_alias_lease(&mut tx, &alias, &customer);
+        tx.apply();
+        block.commit_world_overlay_for_testing().unwrap();
+        let header = BlockHeader::new(nonzero!(2_u64), None, None, 2, 0);
+        let mut block = state.block(header);
+        let mut tx = block.transaction();
+        assert!(
+            tx.nexus
+                .configured_dataspace_catalog
+                .entries()
+                .iter()
+                .all(|entry| entry.id != dataspace),
+            "the configured node baseline predates the committed addition"
+        );
+        assert!(
+            tx.nexus
+                .dataspace_catalog
+                .entries()
+                .iter()
+                .any(|entry| entry.id == dataspace),
+            "a later State scope projects the committed native runtime catalog"
+        );
+
+        let publish = PublishSpaceDirectoryManifest::new(sample_manifest(uaid, dataspace, 1));
+        let revoke = RevokeSpaceDirectoryManifest {
+            uaid,
+            dataspace,
+            revoked_epoch: 7,
+            reason: Some("customer closed".into()),
+        };
+        let expire = ExpireSpaceDirectoryManifest {
+            uaid,
+            dataspace,
+            expired_epoch: 9,
+        };
+        let executor = Executor::Initial;
+        executor
+            .execute_instruction(&mut tx, &registrar, publish.clone().into())
+            .expect("current domain registrar publishes through Initial without activation");
+        let before = tx
+            .world
+            .space_directory_manifests
+            .get(&uaid)
+            .unwrap()
+            .clone();
+        for instruction in [
+            publish.clone().into(),
+            revoke.clone().into(),
+            expire.clone().into(),
+        ] {
+            let error = executor
+                .execute_instruction(&mut tx, &foreign_registrar, instruction)
+                .expect_err("another domain registrar cannot change this manifest");
+            assert!(
+                matches!(
+                    &error,
+                    iroha_data_model::ValidationFail::InstructionFailed(
+                        InstructionExecutionError::InvariantViolation(message)
+                    ) if message.as_ref() == "not permitted: CanPublishSpaceDirectoryManifest"
+                ),
+                "{error:?}"
+            );
+            assert_eq!(tx.world.space_directory_manifests.get(&uaid), Some(&before));
+        }
+        let unknown =
+            PublishSpaceDirectoryManifest::new(sample_manifest(uaid, DataSpaceId::new(92), 2));
+        let error = executor
+            .execute_instruction(&mut tx, &registrar, unknown.into())
+            .expect_err("an absent current dataspace cannot receive a manifest");
+        assert!(
+            matches!(
+                &error,
+                iroha_data_model::ValidationFail::InstructionFailed(
+                    InstructionExecutionError::InvalidParameter(
+                        InvalidParameterError::SmartContract(message)
+                    )
+                ) if message == "unknown dataspace id 92"
+            ),
+            "{error:?}"
+        );
+        assert_eq!(tx.world.space_directory_manifests.get(&uaid), Some(&before));
+        executor
+            .execute_instruction(&mut tx, &registrar, revoke.into())
+            .expect("same exact domain permission revokes through Initial");
+        assert!(
+            tx.world
+                .space_directory_manifests
+                .get(&uaid)
+                .unwrap()
+                .get(&dataspace)
+                .unwrap()
+                .lifecycle
+                .revocation
+                .is_some()
+        );
+        executor
+            .execute_instruction(&mut tx, &registrar, publish.into())
+            .expect("same authority publishes a fresh active manifest");
+        executor
+            .execute_instruction(&mut tx, &registrar, expire.into())
+            .expect("same exact domain permission expires through Initial");
+        let lifecycle = &tx
+            .world
+            .space_directory_manifests
+            .get(&uaid)
+            .unwrap()
+            .get(&dataspace)
+            .unwrap()
+            .lifecycle;
+        assert_eq!(lifecycle.expired_epoch, Some(9));
+        assert!(lifecycle.revocation.is_none());
+        assert!(tx.world.uaid_dataspaces.get(&uaid).is_none());
+    }
+    #[test]
     fn uaid_scoped_manifest_permission_rejects_cross_registrar_publish_revoke_and_expire() {
         let mut state = test_state();
         let hbl_registrar = checked_account_id();

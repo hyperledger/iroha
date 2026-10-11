@@ -8,13 +8,7 @@ use crate::{
         execution_output::{ExecutionOutputV1, NetworkExecutionOutputV1},
         output_budget::ExecutionOutputLimits,
     },
-    isi::{
-        InstructionBox, Log, RegisterPeerWithPop, SetParameter,
-        kagemusha_v1::{
-            KagemushaMintFinalityAuthorityGenerationTemplateV1,
-            KagemushaMintFinalityGenesisParametersV1, KagemushaMintFinalityValidatorKeysV1,
-        },
-    },
+    isi::{InstructionBox, Log, RegisterPeerWithPop, SetParameter},
     level::Level,
     parameter::{
         CustomParameter, Parameter,
@@ -96,20 +90,6 @@ pub fn author_payload(
         .unwrap_or_else(|(_, error)| panic!("genuine fixture availability authoring: {error:?}"))
 }
 
-// Existing reviewed public multiples 1..4 of the Pasta generator; no private monetary keys.
-const PALLAS: [&str; 4] = [
-    "00000000ed302d991bf94c09fc98462200000000000000000000000000000040",
-    "030000b067c50313fcac1144eee2fe0e0000000000000000000000000000001c",
-    "63d232eb3b8af0b75cfcf55ade47f6ff4cdf4e47a7454cb8ed67a9ba6f56e788",
-    "fc86bc8efbbcb878f49427618b6940409b9157e3d777a4c4c0514a8e0d92db18",
-];
-const VESTA: [&str; 4] = [
-    "0000000021eb468cdda89409fc98462200000000000000000000000000000040",
-    "03000070de065fede0093144eee2fe0e0000000000000000000000000000001c",
-    "5fce556feb6fee5a15560ddabae10224b026a5d0281af4c613955c39a8797837",
-    "f79037a77e26a2c0794dc326d866c664616499c064073a8f8ebf3080297be5ab",
-];
-
 /// A deterministic signed genesis and genuine exact-quorum native proof chain for tests.
 ///
 /// Certifying supplied results is not World execution or monetary qualification. The public
@@ -146,15 +126,22 @@ impl NativeFinalityFixture {
     /// Fixed public fixture keys and synthetic execution results grant no runtime authority.
     #[must_use]
     pub fn new_with_explicit_parameters() -> Self {
-        let mut fixture = Self::start_with_mode_and_scope_parameters(
-            "portable-native-fixture",
-            SumeragiConsensusMode::Permissioned,
-            crate::block::consensus::SumeragiRootScope::Global,
-            true,
-        );
+        let mut fixture = Self::start_with_explicit_parameters("portable-native-fixture");
         let block = fixture.block_with_submitted_work(fixture.next_header());
         fixture.certify(block);
         fixture
+    }
+
+    /// Start at a signed global genesis containing every explicit chain parameter.
+    /// This fixture owner leaves H2 available for the caller's submitted work.
+    #[must_use]
+    pub fn start_with_explicit_parameters(chain_id: &str) -> Self {
+        Self::start_with_mode_and_scope_parameters(
+            chain_id,
+            SumeragiConsensusMode::Permissioned,
+            crate::block::consensus::SumeragiRootScope::Global,
+            true,
+        )
     }
 
     /// Start at deterministic signed genesis for a separately selected fixture chain label.
@@ -199,9 +186,74 @@ impl NativeFinalityFixture {
         root_scope: crate::block::consensus::SumeragiRootScope,
         explicit_parameters: bool,
     ) -> Self {
+        Self::start_with_selected_npos_parameters(
+            chain_id,
+            mode,
+            root_scope,
+            explicit_parameters,
+            crate::parameter::system::SumeragiNposParameters::default(),
+            4,
+        )
+    }
+
+    /// Start a permissioned Global genesis that signs `nexus_amx_context_hash` and appends
+    /// `extra` signed genesis instructions (for example a lane policy). The fixed public
+    /// fixture keys and synthetic results grant no runtime authority.
+    #[must_use]
+    pub fn start_with_genesis_extension(
+        chain_id: &str,
+        nexus_amx_context_hash: [u8; 32],
+        extra: Vec<InstructionBox>,
+    ) -> Self {
+        Self::start_with_genesis_inputs(
+            chain_id,
+            SumeragiConsensusMode::Permissioned,
+            crate::block::consensus::SumeragiRootScope::Global,
+            false,
+            crate::parameter::system::SumeragiNposParameters::default(),
+            4,
+            Some(nexus_amx_context_hash),
+            extra,
+        )
+    }
+
+    fn start_with_selected_npos_parameters(
+        chain_id: &str,
+        mode: SumeragiConsensusMode,
+        root_scope: crate::block::consensus::SumeragiRootScope,
+        explicit_parameters: bool,
+        npos_parameters: crate::parameter::system::SumeragiNposParameters,
+        committee_seats: usize,
+    ) -> Self {
+        Self::start_with_genesis_inputs(
+            chain_id,
+            mode,
+            root_scope,
+            explicit_parameters,
+            npos_parameters,
+            committee_seats,
+            None,
+            Vec::new(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn start_with_genesis_inputs(
+        chain_id: &str,
+        mode: SumeragiConsensusMode,
+        root_scope: crate::block::consensus::SumeragiRootScope,
+        explicit_parameters: bool,
+        npos_parameters: crate::parameter::system::SumeragiNposParameters,
+        committee_seats: usize,
+        nexus_amx_context_hash: Option<[u8; 32]>,
+        extra: Vec<InstructionBox>,
+    ) -> Self {
         assert!(!chain_id.is_empty(), "fixture chain label must be selected");
-        let mut keys: Vec<_> = (1..=4)
-            .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
+        assert!((4..=31).contains(&committee_seats) && (committee_seats - 1).is_multiple_of(3));
+        let mut keys: Vec<_> = (1..=committee_seats)
+            .map(|seed| {
+                KeyPair::from_seed(vec![u8::try_from(seed).unwrap(); 32], Algorithm::BlsNormal)
+            })
             .collect();
         keys.sort_by_key(|key| key.public_key().try_to_bytes().unwrap().1.to_vec());
         let validators: Vec<_> = keys
@@ -217,29 +269,12 @@ impl NativeFinalityFixture {
             block_cadence_ms: NonZeroU64::new(1000).unwrap(),
             wire_protocol_version: u32::from(crate::sumeragi::PROTOCOL_VERSION),
             consensus_fingerprint: ConsensusFingerprint::new([0x71; 32]),
-            kagemusha_mint_finality: KagemushaMintFinalityGenesisParametersV1 {
-                authority_generation: KagemushaMintFinalityAuthorityGenerationTemplateV1 {
-                    version: 1,
-                    generation: 0,
-                    validators: validators
-                        .iter()
-                        .enumerate()
-                        .map(|(index, member)| KagemushaMintFinalityValidatorKeysV1 {
-                            validator: PeerId::new(member.public_key.clone()),
-                            eq_proof_public_key: hex::decode(PALLAS[index])
-                                .unwrap()
-                                .try_into()
-                                .unwrap(),
-                            ep_proof_public_key: hex::decode(VESTA[index])
-                                .unwrap()
-                                .try_into()
-                                .unwrap(),
-                        })
-                        .collect(),
-                },
-            },
             sumeragi_context: crate::block::consensus::SumeragiGenesisContextParameters {
                 root_scope,
+                nexus_amx_context_hash: nexus_amx_context_hash.unwrap_or(
+                    crate::block::consensus::SumeragiGenesisContextParameters::recommended()
+                        .nexus_amx_context_hash,
+                ),
                 ..crate::block::consensus::SumeragiGenesisContextParameters::recommended()
             },
         };
@@ -262,11 +297,8 @@ impl NativeFinalityFixture {
         );
         if mode == SumeragiConsensusMode::Npos {
             instructions.push(
-                SetParameter::new(Parameter::Custom(
-                    crate::parameter::system::SumeragiNposParameters::default()
-                        .into_custom_parameter(),
-                ))
-                .into(),
+                SetParameter::new(Parameter::Custom(npos_parameters.into_custom_parameter()))
+                    .into(),
             );
         }
         if explicit_parameters {
@@ -281,6 +313,7 @@ impl NativeFinalityFixture {
                     .map(|parameter| SetParameter::new(Parameter::Sumeragi(parameter)).into()),
             );
         }
+        instructions.extend(extra);
         let mut tx = TransactionBuilder::new_genesis(
             AccountId::new(authority.public_key().clone()),
             FeePaymentIntent::authority(vec![], None),
@@ -291,7 +324,9 @@ impl NativeFinalityFixture {
             .sign(authority.private_key());
         let genesis =
             SignedBlock::try_genesis(vec![tx], authority.private_key(), None, None).unwrap();
-        let epoch = genesis_epoch(&genesis).unwrap();
+        let epoch = authenticated_genesis(&genesis)
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap();
         let mut block = genesis.clone();
         Self::install_network_results(&mut block, vec![Ok(Vec::new())]);
         let result = Self::result(&block, &epoch);
@@ -434,13 +469,32 @@ impl NativeFinalityFixture {
             .unwrap();
     }
 
-    /// Certify one caller-supplied synthetic result block with the real native three-of-four QC.
+    /// Certify one caller-supplied synthetic result block with the real native exact-quorum QC.
     /// No World execution, monetary-policy verification or committee-transition claim is made.
     ///
     /// # Panics
     /// Panics if the block does not extend the fixture's exact tip or violates native proof rules.
     pub fn certify(&mut self, block: SignedBlock) -> SumeragiFinalityProof {
         let result = Self::result(&block, &self.epoch);
+        self.certify_result(block, &result)
+    }
+
+    /// Certify an explicit synthetic ordered event stream with a genuine native QC.
+    /// This helper executes no World transition; Core must separately test that
+    /// only successful execution emits its system events and rollback removes them.
+    ///
+    /// # Panics
+    /// Panics if the block is not the exact fixture successor or violates proof rules.
+    pub fn certify_with_events(
+        &mut self,
+        block: SignedBlock,
+        events: &[crate::events::EventBox],
+    ) -> SumeragiFinalityProof {
+        let tree: iroha_crypto::MerkleTree<crate::events::EventBox> =
+            events.iter().map(HashOf::new).collect();
+        let mut result = Self::result(&block, &self.epoch);
+        result.execution.event_commitment = tree.commitment();
+        result.validate().unwrap();
         self.certify_result(block, &result)
     }
 
@@ -536,12 +590,12 @@ impl NativeFinalityFixture {
             proposer: 0,
             skipped_leaders: vec![],
             control_witness: iroha_sumeragi::types::ControlWitness::empty(),
-            attest: false,
         };
         let authored = PayloadAuthoring::new(header, payload)
             .complete(self.verifier.instance(), &config, &budget, &crypto, &signer)
             .unwrap_or_else(|_| panic!("genuine fixture availability authoring"));
         let header = authored.body.header();
+        let quorum = self.keys.len() - (self.keys.len() - 1) / 3;
         let mut qc = Qc {
             kind: VoteKind::Commit,
             instance: header.instance,
@@ -550,13 +604,11 @@ impl NativeFinalityFixture {
             view: header.origin_view,
             block_hash: header.hash(&crypto),
             result: result.result().unwrap(),
-            attest: false,
-            signers: Bitmap::from_indices(4, [0, 1, 2]).unwrap(),
+            signers: Bitmap::from_indices(self.keys.len(), 0..u32::try_from(quorum).unwrap())
+                .unwrap(),
             agg_sig: AggregateSignature([0; 96]),
-            attestations: vec![],
-            attestation_witness: None,
         };
-        let shares: Vec<_> = self.keys[..3]
+        let shares: Vec<_> = self.keys[..quorum]
             .iter()
             .map(|key| iroha_crypto::Signature::try_new(key.private_key(), &qc.preimage()).unwrap())
             .collect();
@@ -615,8 +667,6 @@ impl NativeFinalityFixture {
                 parent_state_root: Hash::new(b"fixture parent"),
                 post_state_root: ordinary_root,
                 ordinary_writes_root: ordinary_root,
-                kagemusha_top_up_root: None,
-                kagemusha_top_up_count: 0,
                 parent_world_state_root: Hash::new(b"fixture parent world"),
                 world_state_root: Hash::new(b"fixture world"),
                 event_commitment: None,
@@ -638,6 +688,10 @@ impl NativeFinalityFixture {
         .unwrap()
     }
 }
+
+mod genesis_dataspace;
+pub use genesis_dataspace::*;
+mod npos_capture;
 
 #[cfg(test)]
 mod tests {
@@ -869,7 +923,9 @@ mod tests {
             "native-npos-fixture",
             SumeragiConsensusMode::Npos,
         );
-        let epoch = genesis_epoch(fixture.genesis()).unwrap();
+        let epoch = authenticated_genesis(fixture.genesis())
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap();
         assert_eq!(epoch.mode, crate::parameter::system::ConsensusMode::Npos);
         assert_eq!(epoch.authorization.first_height, 1);
         assert!(epoch.authorization.last_height >= 3);

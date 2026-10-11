@@ -1,3 +1,7 @@
+import { validateEmbeddedStates } from "./embeddedStateSchema.js";
+import { encodeContractMetadataValueV1, decodeContractMetadataValueV1 } from "../noritoContractMetadata.js";
+import { normalizeContractEventsV1 } from "../contractDeclarations.js";
+import { normalizeEntrypointAuthorizationV1, normalizeContractPermissionsV1, validateManifestDeclarationsV1, validateManifestEntrypointIdentityV1 } from "../contractManifestRules.js";
 import { readU32Le, readU64Le, readCompactField, decodeEmbeddedString, visitEmbeddedVector } from "./embeddedNorito.js";
 import { validateEmbeddedCallables } from "./embeddedCallSchema.js";
 const propertyDescriptor = Object.getOwnPropertyDescriptor.bind(Object);
@@ -47,7 +51,7 @@ const TEXT_ACCESS_HINTS_COMPLETE = "access_hints_complete";
 const TEXT_TRANSLATIONS = "translations";
 const TEXT_ACCESS_HINTS_SKIPPED = "access_hints_skipped";
 const TEXT_BOOLEAN = "boolean";
-import { normalizeContractErrorMessagesV1, normalizeContractErrorTypesV1, validateManifestErrorTypeBindingsV1 } from "../contractErrorTypes.js";
+import { normalizeContractErrorMessagesV1, normalizeContractErrorTypesV1, normalizeContractEnumTypesV1, validateManifestErrorTypeBindingsV1 } from "../contractErrorTypes.js";
 import { crc64Xz as noritoCrc64 } from "../crc64Xz.js";
 import { blake2b256 } from "../blake2b.js";
 import {
@@ -543,7 +547,7 @@ function validateEmbeddedInterfaceFrame(frame, manifest, headerMode, abiHashHex)
   }
 
   const state = { offset: 0 };
-  const fields = Array.from({ length: 11 }, (_, index) =>
+  const fields = Array.from({ length: 14 }, (_, index) =>
     readCompactField(payload, state, `${label}.field${index}`));
   if (state.offset !== payload.length) {
     rejectAt(label, " contains trailing or unknown fields");
@@ -591,18 +595,18 @@ function validateEmbeddedInterfaceFrame(frame, manifest, headerMode, abiHashHex)
     rejectType((TEXT_KOTODAMA_MANIFEST + ("access hints " + TEXT_DO_NOT_MATCH_THE_EMBEDDED + TEXT_INTERFACE)));
   }
   for (const [fieldIndex, manifestValue, fieldLabel] of [
-    [5, manifest.kotoba ?? [], "kotoba"],
-    [6, manifest.entrypoints, (TEXT_ENTRYPOINTS)],
-    [8, manifest.states, "states"],
-    [9, manifest.error_types ?? [], "error_types"],
-    [10, manifest.error_messages ?? [], (TEXT_ERROR_MESSAGES)],
+    [7, manifest.kotoba ?? [], "kotoba"],
+    [8, manifest.entrypoints, (TEXT_ENTRYPOINTS)],
+    [10, manifest.states, "states"],
+    [11, manifest.error_types ?? [], "error_types"],
+    [13, manifest.error_messages ?? [], (TEXT_ERROR_MESSAGES)],
   ]) {
     if (visitEmbeddedVector(fields[fieldIndex], `${label}.${fieldLabel}`, MAX_MANIFEST_ITEMS) !== manifestValue.length) {
       rejectAt(TEXT_KOTODAMA_MANIFEST, `${fieldLabel} count${TEXT_DOES_NOT_MATCH}the embedded interface`);
     }
   }
   const messages = [];
-  visitEmbeddedVector(fields[10], `${label}.${TEXT_ERROR_MESSAGES}`, MAX_MANIFEST_ITEMS, (entry, entryLabel) => {
+  visitEmbeddedVector(fields[13], `${label}.${TEXT_ERROR_MESSAGES}`, MAX_MANIFEST_ITEMS, (entry, entryLabel) => {
     const cursor = { offset: 0 };
     const identity = readCompactField(entry, cursor, `${entryLabel}.error_type`);
     const code = readCompactField(entry, cursor, `${entryLabel}.code`);
@@ -615,7 +619,27 @@ function validateEmbeddedInterfaceFrame(frame, manifest, headerMode, abiHashHex)
   if (JSON.stringify(normalizedMessages) !== JSON.stringify(manifest.error_messages ?? [])) {
     rejectAt(TEXT_KOTODAMA_MANIFEST, "error_messages do not match the embedded contract interface");
   }
-  return validateEmbeddedCallables(fields[7], headerMode, manifest.entrypoints.length, `${label}.callables`, manifest.error_types ?? []);
+  for (const [index, kind, expected] of [
+    [5, "permissions", normalizeContractPermissionsV1(manifest.permissions, "manifest.permissions")],
+    [6, "events", normalizeContractEventsV1(manifest.events, "manifest.events")],
+    [11, "error_types", normalizeContractErrorTypesV1(manifest.error_types) ?? []],
+    [12, "enum_types", normalizeContractEnumTypesV1(manifest.enum_types)],
+  ]) {
+    const actual = decodeContractMetadataValueV1(kind, fields[index]);
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) rejectAt(label, `.${kind} does not exactly match the manifest declaration table`);
+  }
+  let entryIndex = 0;
+  visitEmbeddedVector(fields[8], `${label}.entrypoints`, MAX_MANIFEST_ITEMS, (entry, entryLabel) => {
+    const cursor = { offset: 0 };
+    for (let index = 0; index < 12; index += 1) readCompactField(entry, cursor, entryLabel);
+    const declaration = entry.subarray(0, cursor.offset);
+    const pc = readCompactField(entry, cursor, `${entryLabel}.entry_pc`);
+    if (cursor.offset !== entry.length || pc.length !== 8 || readU64Le(pc, 0, entryLabel) % 4n !== 0n) rejectAt(entryLabel, " has an invalid entrypoint PC");
+    const expected = encodeContractMetadataValueV1("entrypoint", manifest.entrypoints[entryIndex++]);
+    if (!equalBytes(declaration, expected)) rejectAt(entryLabel, " does not exactly match the manifest entrypoint descriptor");
+  });
+  validateEmbeddedStates(fields[10], manifest.states, manifest.error_types ?? [], manifest.enum_types, `${label}.states`);
+  return validateEmbeddedCallables(fields[9], headerMode, manifest.entrypoints.length, `${label}.callables`, manifest.error_types ?? [], manifest.enum_types);
 }
 
 function validateLiteralSection(bytes, start) {
@@ -882,9 +906,12 @@ function validateSidecarEntry(value, index, kind) {
   const budget = kind === "budget";
   requireExactKeys(value, [
     ...FUNCTION_LOCATION_FIELDS,
-    ...(budget ? [...BUDGET_FIELDS, "jump_range_risk"] : []),
+    ...(budget ? [...BUDGET_FIELDS, "jump_range_risk"] : ["source_kind"]),
     ...SOURCE_LOCATION_FIELDS,
   ], label);
+  if (!budget && value.source_kind !== "function" && value.source_kind !== "statement") {
+    rejectAt(label, ".source_kind must be function or statement");
+  }
   requireString(value.function_name, `${label}.function_name`);
   requireUnsignedInteger(value.pc_start, Number.MAX_SAFE_INTEGER, `${label}.pc_start`);
   requireUnsignedInteger(value.pc_end, Number.MAX_SAFE_INTEGER, `${label}.pc_end`);
@@ -1112,7 +1139,7 @@ function validateCompilerEntrypoint(entry, index, names, lifecycleKinds) {
       "argument_schema",
       "return_type",
       (TEXT_RETURN_SCHEMA),
-      "permission",
+      "authorization",
       (TEXT_READ_KEYS),
       (TEXT_WRITE_KEYS),
       (TEXT_ACCESS_HINTS_COMPLETE),
@@ -1147,13 +1174,8 @@ function validateCompilerEntrypoint(entry, index, names, lifecycleKinds) {
   ) {
     rejectAt(label, `.kind${TEXT_DOES_NOT_MATCH}its branded lifecycle selector`);
   }
-  if (entry.kind.kind === "Kotoage" && (typeof entry.permission !== "string" || entry.permission.trim() === "")) {
-    rejectAt(label, " kotoage/言挙げ is missing caller authorization");
-  }
-  if (["Hajimari", "Kaizen"].includes(entry.kind.kind) && entry.permission !== null) {
-    rejectAt(label, " hajimari/始まり and kaizen/改善 must use runtime authorization");
-  }
-  if (entry.permission !== null) requireString(entry.permission, `${label}.permission`);
+  const authorization = normalizeEntrypointAuthorizationV1(entry.authorization, `${label}.authorization`);
+  validateManifestEntrypointIdentityV1(entry.name, entry.kind.kind, authorization, label);
   if (lifecycleKind !== null) {
     if (lifecycleKinds.has(lifecycleKind)) {
       rejectAt(TEXT_KOTODAMA_MANIFEST, `${TEXT_CONTAINS_DUPLICATE}${lifecycleKind} entrypoints`);
@@ -1279,9 +1301,12 @@ function validateCompilerManifest(manifest) {
       (TEXT_COMPILER_FINGERPRINT),
       (TEXT_FEATURES_BITMAP),
       TEXT_ACCESS_SET_HINTS,
+      "permissions",
+      "events",
       (TEXT_ENTRYPOINTS),
       "states",
       "error_types",
+      "enum_types",
       (TEXT_ERROR_MESSAGES),
       "kotoba",
       "provenance",
@@ -1311,6 +1336,10 @@ function validateCompilerManifest(manifest) {
     manifest.states,
     (TEXT_KOTODAMA_MANIFEST + TEXT_ACCESS_SET_HINTS),
   );
+  normalizeContractPermissionsV1(manifest.permissions, "manifest.permissions");
+  normalizeContractEventsV1(manifest.events, "manifest.events");
+  normalizeContractEnumTypesV1(manifest.enum_types, "manifest.enum_types");
+  validateManifestDeclarationsV1(manifest, "manifest");
   validateCompilerManifestErrorTypes(manifest.error_types);
   validateManifestErrorTypeBindingsV1(manifest, (TEXT_KOTODAMA_SHARED + TEXT_MANIFEST_SHARED));
   validateKotoba(manifest.kotoba);
@@ -1360,14 +1389,20 @@ function validateSpan(value, label) {
   }
 }
 
+function validateDiagnosticFix(value, label) {
+  requireExactKeys(value, ["span", "replacement"], label);
+  validateSpan(value.span, `${label}.span`);
+  requireString(value.replacement, `${label}.replacement`, { allowEmpty: true });
+}
+
 function validateDiagnostic(value, index) {
   const label = `${TEXT_KOTODAMA_SHARED}diagnostic ${index}`;
   requireExactKeys(
     value,
-    ["code", "severity", "phase", (TEXT_MESSAGE), "primary_span", "labels", "notes", "help", "fix"],
+    ["code", "severity", "phase", (TEXT_MESSAGE), "primary_span", "labels", "notes", "help", "fix", "alternative_fixes", "localized"],
     label,
   );
-  if (typeof value.code !== "string" || !/^[EK][A-Z0-9_]+$/.test(value.code)) {
+  if (typeof value.code !== "string" || !/^[EKW][A-Z0-9_]+$/.test(value.code)) {
     rejectAt(label, ".code is not a stable Kotodama diagnostic code");
   }
   if (!DIAGNOSTIC_SEVERITIES.has(value.severity)) {
@@ -1390,9 +1425,18 @@ function validateDiagnostic(value, index) {
   requireStringArray(value.notes, `${label}.notes`);
   requireNullableString(value.help, `${label}.help`, { allowEmpty: true });
   if (value.fix !== null) {
-    requireExactKeys(value.fix, ["span", "replacement"], `${label}.fix`);
-    validateSpan(value.fix.span, `${label}.fix.span`);
-    requireString(value.fix.replacement, `${label}.fix.replacement`, { allowEmpty: true });
+    validateDiagnosticFix(value.fix, `${label}.fix`);
+  }
+  requireDenseArray(value.alternative_fixes, `${label}.alternative_fixes`);
+  value.alternative_fixes.forEach((fix, fixIndex) => {
+    validateDiagnosticFix(fix, `${label}.alternative_fixes[${fixIndex}]`);
+  });
+  if (value.localized !== null) {
+    const localizedLabel = `${label}.localized`;
+    requireExactKeys(value.localized, ["language", "message", "help"], localizedLabel);
+    requireString(value.localized.language, `${localizedLabel}.language`);
+    requireString(value.localized.message, `${localizedLabel}.message`);
+    requireNullableString(value.localized.help, `${localizedLabel}.help`, { allowEmpty: true });
   }
 }
 
@@ -1440,19 +1484,34 @@ export function normalizeCompilerOutput(output) {
 
   const sourceMap = parseSidecar(output.sourceMapJson, "source-map", codeHashHex);
   const budgetReport = parseSidecar(output.budgetReportJson, "budget", codeHashHex);
-  if (sourceMap.length !== budgetReport.length) {
-    rejectType((TEXT_KOTODAMA_COMPILER + "sidecars must describe the same functions"));
-  }
-  sourceMap.forEach((sourceEntry, index) => {
-    const budgetEntry = budgetReport[index];
-    if (
-      sourceEntry.function_name !== budgetEntry.function_name ||
-      sourceEntry.pc_start !== budgetEntry.pc_start ||
-      sourceEntry.pc_end !== budgetEntry.pc_end
-    ) {
-      rejectAt(TEXT_KOTODAMA_COMPILER, `sidecar entry ${index} function identity does not match`);
+  // The source map partitions each physical function into statement intervals
+  // and generated-code gaps. An inlined statement retains its original helper
+  // name, while the budget remains attached to the physical function.
+  let sourceIndex = 0;
+  let previousEnd = 0;
+  for (const budgetEntry of budgetReport) {
+    if (budgetEntry.pc_start < previousEnd) {
+      rejectType((TEXT_KOTODAMA_COMPILER + "budget functions must be ordered without overlap"));
     }
-  });
+    let cursor = budgetEntry.pc_start;
+    while (cursor < budgetEntry.pc_end) {
+      const sourceEntry = sourceMap[sourceIndex];
+      if (!sourceEntry || sourceEntry.pc_start !== cursor ||
+          sourceEntry.pc_end <= cursor || sourceEntry.pc_end > budgetEntry.pc_end) {
+        rejectType((TEXT_KOTODAMA_COMPILER + "source-map intervals must exactly partition budget functions"));
+      }
+      if (sourceEntry.source_kind === "function" &&
+          sourceEntry.function_name !== budgetEntry.function_name) {
+        rejectAt(TEXT_KOTODAMA_COMPILER, `sidecar entry ${sourceIndex} function identity does not match`);
+      }
+      cursor = sourceEntry.pc_end;
+      sourceIndex += 1;
+    }
+    previousEnd = budgetEntry.pc_end;
+  }
+  if (sourceIndex !== sourceMap.length) {
+    rejectType((TEXT_KOTODAMA_COMPILER + "source-map intervals must exactly partition budget functions"));
+  }
   return {
     artifactBytes,
     codeHashHex,

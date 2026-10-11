@@ -125,7 +125,6 @@ fn sccp_governance_openapi_tracks_the_v1_parliament_proposal() {
             "GovernanceParliamentProposalPayloadSccpRouteGovernanceV1",
             "proposal",
         ),
-        ("ExplorerSccpRouteGovernanceInstructionValue", "proposal"),
     ] {
         let schema = schemas
             .get(schema_name)
@@ -146,6 +145,23 @@ fn sccp_governance_openapi_tracks_the_v1_parliament_proposal() {
             "{schema_name}.{field}"
         );
     }
+    // Explorer carries the exact native InstructionBox, including this proposal;
+    // the retired parallel instruction JSON projection must stay absent.
+    assert!(!schemas.contains_key("ExplorerSccpRouteGovernanceInstructionValue"));
+    let native_box = schemas
+        .get("ExplorerInstructionDetail")
+        .and_then(Value::as_object)
+        .and_then(|schema| schema.get("properties"))
+        .and_then(Value::as_object)
+        .and_then(|properties| properties.get("box"))
+        .and_then(Value::as_object)
+        .and_then(|schema| schema.get("properties"))
+        .and_then(Value::as_object)
+        .expect("Explorer native instruction box");
+    assert_eq!(
+        native_box.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["framed_sha256", "instruction", "wire_id"]
+    );
     let proposal = schemas
         .get("SccpGovernanceProposalV1")
         .and_then(Value::as_object)
@@ -193,6 +209,7 @@ fn sccp_governance_openapi_tracks_the_v1_parliament_proposal() {
             "freeze_light_client",
             "set_parameters",
             "clear_bridge_key_fault",
+            "activate_light_client_profile",
         ]
     );
     let ton = schemas
@@ -1296,7 +1313,7 @@ fn generated_spec_includes_documented_paths() {
     assert!(!paths.contains_key("/v1/attestation/issue"));
 }
 #[test]
-fn openapi_authorities_retire_kagemusha_transport_and_proposal_inputs() {
+fn openapi_authorities_preserve_native_enrollment_and_retire_wallet_transport_inputs() {
     for (variant, document) in [
         ("package-local", canonical_document()),
         ("compiled", generate_spec()),
@@ -1305,9 +1322,28 @@ fn openapi_authorities_retire_kagemusha_transport_and_proposal_inputs() {
             .get("paths")
             .and_then(Value::as_object)
             .expect("paths section");
-        assert!(
-            paths.keys().all(|path| !path.starts_with("/v1/kagemusha/")),
-            "retired KAGEMUSHA transport remains in {variant} OpenAPI"
+        assert_eq!(
+            paths
+                .keys()
+                .map(String::as_str)
+                .filter(|path| path.starts_with("/v1/kagemusha/"))
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["/v1/kagemusha/enrollment"]),
+            "only current native enrollment remains in {variant} OpenAPI"
+        );
+        let enrollment = &paths["/v1/kagemusha/enrollment"]["post"];
+        assert_eq!(
+            enrollment["requestBody"]["content"]
+                .as_object()
+                .expect("native enrollment body")
+                .keys()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["application/x-norito"])
+        );
+        assert_eq!(
+            enrollment["x-iroha-route-auth"]["stableRouteId"].as_str(),
+            Some("contracts.kagemusha_enrollment_post")
         );
         assert!(
             document
@@ -2677,11 +2713,7 @@ fn signed_transaction_reject_code_inventory_matches_runtime_metadata() {
         ]
         .map(SignatureRejectionCode::as_str),
     );
-    acceptance_codes.extend([
-        "ED07",
-        "PRTRY:KAGEMUSHA_V1_OPERATION_CARRIER_REJECTED",
-        "PRTRY:ROUTE_UNRESOLVED",
-    ]);
+    acceptance_codes.extend(["ED07", "PRTRY:ROUTE_UNRESOLVED"]);
     assert_eq!(
         acceptance_codes,
         TRANSACTION_ACCEPTANCE_BAD_REQUEST_REJECT_CODES

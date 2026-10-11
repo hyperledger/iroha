@@ -20,19 +20,21 @@
 //! RNG draws follow `BlindingScheduleV1` item 8 (spec section 10): the `n`
 //! coefficients of `s`, its blind, then `l_j` and `r_j` per round.
 
+use crate::secret::SecretPolynomial;
 use ff::Field;
 use group::prime::PrimeCurveAffine;
+use iroha_pasta::CancellationToken;
 use iroha_pasta::{
     PastaCurve,
-    fold::fold_generators_vartime,
-    msm::{MemoryBudget, msm_secret},
+    fold::fold_generators_cancellable,
+    msm::{MemoryBudget, SharedMemoryBudget, msm_secret_cancellable},
     params::ParamsIpa,
 };
 use rand_core_06::{CryptoRng, RngCore};
 
 use super::{
     IpaError,
-    commit::{Secrecy, commit},
+    commit::{Secrecy, commit_cancellable},
     evaluate_polynomial, inner_product,
 };
 use crate::transcript::TranscriptWrite;
@@ -65,6 +67,56 @@ where
     T: TranscriptWrite<C> + ?Sized,
     R: RngCore + CryptoRng,
 {
+    Ok(*create_proof_with_claim(params, rng, transcript, poly, blind, x, budget)?.g())
+}
+
+/// Creates the same opening and returns its generator obligation.
+///
+/// # Errors
+/// As [`create_proof`], including a degenerate folded generator.
+// The names follow the BGH19 equations, as in `create_proof`.
+#[allow(clippy::many_single_char_names)]
+pub fn create_proof_with_claim<C, T, R>(
+    params: &ParamsIpa<C>,
+    rng: &mut R,
+    transcript: &mut T,
+    poly: &[C::ScalarExt],
+    blind: &C::ScalarExt,
+    x: &C::ScalarExt,
+    budget: MemoryBudget,
+) -> Result<crate::pcs::ipa::GeneratorClaim<C>, IpaError>
+where
+    C: PastaCurve,
+    T: TranscriptWrite<C> + ?Sized,
+    R: RngCore + CryptoRng,
+{
+    create_proof_with_claim_cancellable(params, rng, transcript, poly, blind, x, budget, None)
+}
+
+/// Creates an opening with cooperative cancellation and no partial claim.
+/// On cancellation, discard the mutated transcript and random stream. Retry
+/// with freshly initialized owners and the original witness; a cancelled
+/// transcript is never a proof or a resumable transcript prefix.
+///
+/// # Errors
+/// As [`create_proof_with_claim`], or cancellation after kernel tasks join.
+#[allow(clippy::too_many_arguments, clippy::many_single_char_names)]
+pub fn create_proof_with_claim_cancellable<C, T, R>(
+    params: &ParamsIpa<C>,
+    rng: &mut R,
+    transcript: &mut T,
+    poly: &[C::ScalarExt],
+    blind: &C::ScalarExt,
+    x: &C::ScalarExt,
+    budget: MemoryBudget,
+    cancellation: Option<&CancellationToken>,
+) -> Result<crate::pcs::ipa::GeneratorClaim<C>, IpaError>
+where
+    C: PastaCurve,
+    T: TranscriptWrite<C> + ?Sized,
+    R: RngCore + CryptoRng,
+{
+    CancellationToken::checkpoint(cancellation)?;
     let n = params.n();
     if poly.len() != n {
         return Err(IpaError::LengthMismatch {
@@ -74,19 +126,28 @@ where
     }
 
     // A random polynomial with a root at x.
-    let mut s_poly: Vec<C::ScalarExt> = (0..n).map(|_| C::ScalarExt::random(&mut *rng)).collect();
+    let mut s_poly =
+        SecretPolynomial::new((0..n).map(|_| C::ScalarExt::random(&mut *rng)).collect());
     let s_at_x = evaluate_polynomial(&s_poly, *x);
     s_poly[0] -= s_at_x;
     let s_blind = C::ScalarExt::random(&mut *rng);
-    let s_commitment = commit(params, &s_poly, &s_blind, Secrecy::Secret, budget)?.to_affine();
+    let s_commitment = commit_cancellable(
+        params,
+        &s_poly,
+        &s_blind,
+        Secrecy::Secret,
+        budget,
+        cancellation,
+    )?
+    .to_affine();
     transcript.write_point(&s_commitment)?;
 
     let xi = transcript.squeeze_challenge();
     let z = transcript.squeeze_challenge();
 
     // p' = p + xi s - p'(x), so p'(x) = 0.
-    let mut p_prime: Vec<C::ScalarExt> =
-        s_poly.iter().zip(poly).map(|(s, p)| *s * xi + p).collect();
+    let mut p_prime =
+        SecretPolynomial::new(s_poly.iter().zip(poly).map(|(s, p)| *s * xi + p).collect());
     let v = evaluate_polynomial(&p_prime, *x);
     p_prime[0] -= v;
     let mut f = s_blind * xi + blind;
@@ -98,27 +159,40 @@ where
         power *= x;
     }
 
+    let mut challenges = Vec::with_capacity(params.k() as usize);
     let mut g_prime = params.g().to_vec();
     let u_base = params.u().to_curve();
     let w_base = params.w().to_curve();
     for round in 0..params.k() as usize {
+        CancellationToken::checkpoint(cancellation)?;
         let half = n >> (round + 1);
         let value_l = inner_product(&p_prime[half..2 * half], &b[..half]);
         let value_r = inner_product(&p_prime[..half], &b[half..2 * half]);
         let l_randomness = C::ScalarExt::random(&mut *rng);
         let r_randomness = C::ScalarExt::random(&mut *rng);
-        let l_j = (msm_secret::<C>(&p_prime[half..2 * half], &g_prime[..half], budget)?
-            + u_base * (value_l * z)
+        let l_j = (msm_secret_cancellable::<C>(
+            &p_prime[half..2 * half],
+            &g_prime[..half],
+            budget,
+            &SharedMemoryBudget::process_default(),
+            cancellation,
+        )? + u_base * (value_l * z)
             + w_base * l_randomness)
             .to_affine();
-        let r_j = (msm_secret::<C>(&p_prime[..half], &g_prime[half..2 * half], budget)?
-            + u_base * (value_r * z)
+        let r_j = (msm_secret_cancellable::<C>(
+            &p_prime[..half],
+            &g_prime[half..2 * half],
+            budget,
+            &SharedMemoryBudget::process_default(),
+            cancellation,
+        )? + u_base * (value_r * z)
             + w_base * r_randomness)
             .to_affine();
         transcript.write_point(&l_j)?;
         transcript.write_point(&r_j)?;
 
         let u_j = transcript.squeeze_challenge();
+        challenges.push(u_j);
         let u_j_inv =
             Option::<C::ScalarExt>::from(u_j.invert()).ok_or(IpaError::ZeroChallenge { round })?;
 
@@ -132,16 +206,17 @@ where
         }
         p_prime.truncate(half);
         b.truncate(half);
-        fold_generators_vartime::<C>(&mut g_prime[..2 * half], &u_j);
+        fold_generators_cancellable::<C>(&mut g_prime[..2 * half], &u_j, cancellation)?;
         g_prime.truncate(half);
 
         f += l_randomness * u_j_inv;
         f += r_randomness * u_j;
     }
 
+    CancellationToken::checkpoint(cancellation)?;
     transcript.write_scalar(&p_prime[0]);
     transcript.write_scalar(&f);
-    Ok(g_prime[0])
+    crate::pcs::ipa::GeneratorClaim::new(params.k(), g_prime[0], challenges)
 }
 
 #[cfg(test)]

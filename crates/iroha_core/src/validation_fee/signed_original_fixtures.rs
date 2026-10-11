@@ -76,17 +76,19 @@ pub(super) fn signed_fee_registry_root_fixture_with_config(
     (chain, authority, code, code_hash)
 }
 
-fn signed_fee_registry_fixture() -> (
+fn signed_fee_registry_fixture(
+    config: crate::sumeragi::test_chain::TestChainConfig,
+) -> (
     crate::sumeragi::test_chain::CertifiedTestChain,
     ValidationFeeTreasuryPayoutBindingV1,
-    crate::executor::ContractRuntimeExecutionContext,
     Vec<u8>,
 ) {
     use iroha_data_model::{
         isi::smart_contract_code::CommitContractDeployment,
         smart_contract::{ContractAddress, ContractAlias},
     };
-    let (mut chain, authority, code, code_hash) = signed_fee_registry_root_fixture();
+    let (mut chain, authority, code, code_hash) =
+        signed_fee_registry_root_fixture_with_config(config);
     let signer = key_pair(55);
     let address =
         ContractAddress::derive(&chain.network_id(), &authority, 0, DataSpaceId::UNIVERSAL)
@@ -99,7 +101,7 @@ fn signed_fee_registry_fixture() -> (
             expected_deploy_nonce: 0,
             contract_address: address.clone(),
             code_hash,
-            contract_alias: alias.clone(),
+            contract_alias: alias,
             lease_expiry_ms: None,
             expected_previous_contract_address: None,
         }
@@ -112,14 +114,8 @@ fn signed_fee_registry_fixture() -> (
         "actual signed deployment must publish successfully: {:?}",
         chain.committed(2).block().execution_outputs()
     );
-    let binding = treasury_payout_binding(address.clone(), &code);
-    let runtime = crate::executor::ContractRuntimeExecutionContext {
-        contract_address: address,
-        contract_subject: binding.treasury_account_id.clone(),
-        contract_alias: Some(alias),
-        entrypoint: binding.entrypoint.to_string(),
-    };
-    (chain, binding, runtime, code)
+    let binding = treasury_payout_binding(address, &code);
+    (chain, binding, code)
 }
 
 /// Two genuinely signed deployments used by the Parliament reader regression.
@@ -127,11 +123,26 @@ pub(crate) fn signed_payout_lifecycle_registry_fixture() -> (
     crate::sumeragi::test_chain::CertifiedTestChain,
     ValidationFeeTreasuryPayoutBindingV1,
 ) {
+    let deployer = AccountId::new(key_pair(55).public_key().clone());
+    let config = crate::sumeragi::test_chain::TestChainConfig::new(
+        validation_fee_payout_world(&deployer),
+        1_000,
+    );
+    signed_payout_lifecycle_registry_fixture_with_config(config)
+}
+
+/// Execute the same two signed deployments with the caller's original genesis policy.
+pub(crate) fn signed_payout_lifecycle_registry_fixture_with_config(
+    config: crate::sumeragi::test_chain::TestChainConfig,
+) -> (
+    crate::sumeragi::test_chain::CertifiedTestChain,
+    ValidationFeeTreasuryPayoutBindingV1,
+) {
     use iroha_data_model::{
         isi::smart_contract_code::CommitContractDeployment,
         smart_contract::{ContractAddress, ContractAlias},
     };
-    let (mut chain, mut binding, _, code) = signed_fee_registry_fixture();
+    let (mut chain, mut binding, code) = signed_fee_registry_fixture(config);
     let signer = key_pair(55);
     let authority = AccountId::new(signer.public_key().clone());
     let pool = ContractAddress::derive(

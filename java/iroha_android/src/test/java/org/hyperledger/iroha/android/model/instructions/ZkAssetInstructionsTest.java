@@ -254,11 +254,11 @@ public final class ZkAssetInstructionsTest {
 
   private static void nativeSignerZkMethodsBindFeePaymentWhenBridgeAvailable()
       throws Exception {
-    assert NativeSignerBridge.REQUIRED_BRIDGE_ABI_VERSION == 25;
+    assert NativeSignerBridge.REQUIRED_BRIDGE_ABI_VERSION == 29;
     assert NativeSignerBridge.REQUIRED_NATIVE_SIGNER_CONTRACT_REVISION == 7;
     if (!NativeSignerBridge.isNativeAvailable()) {
       throw new AssertionError(
-          "connect_norito_bridge ABI 25 native-signer contract revision 7 is required");
+          "connect_norito_bridge ABI 29 native-signer contract revision 7 is required");
     }
 
     final byte[] seed = new byte[32];

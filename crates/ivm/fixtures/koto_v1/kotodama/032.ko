@@ -1,10 +1,10 @@
 
-        seiyaku PointerConstructors {
-          kotoage fn main() authorize("PointerConstructors") {
+        seiyaku PointerConstructors { permission FixtureAccess;
+          kotoage fn main() authorize(FixtureAccess) {
             let did = "wonderland.universal";
             let aid = "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV";
             let key = "cursor";
-            ledger::account::set_detail(account: AccountId::parse(aid), key: Name::parse(key), value: Json::parse("{\"cursor\":1,\"query\":\"sc_dummy\"}"));
+            ledger::account::set_metadata(account: AccountId::parse(aid), key: Name::parse(key), value: Json::parse("{\"cursor\":1,\"query\":\"sc_dummy\"}"));
             ledger::domain::transfer(source: context::authority(), domain: DomainId::parse(did), destination: AccountId::parse(aid));
           }
         }

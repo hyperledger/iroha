@@ -621,7 +621,7 @@ impl CoreHost {
         self.sm_enabled = enabled;
         self
     }
-    /// Set the trusted host time returned by `current_time_ms()`.
+    /// Set the logical execution time returned by `CURRENT_TIME_MS` (`context::transaction_time_ms()`).
     pub fn with_current_time_ms(mut self, current_time_ms: u64) -> Self {
         self.current_time_ms = current_time_ms;
         self
@@ -936,7 +936,9 @@ impl CoreHost {
             | syscalls::SYSCALL_JSON_GET_ASSET_DEFINITION_ID
             | syscalls::SYSCALL_JSON_GET_INT
             | syscalls::SYSCALL_JSON_GET_DECIMAL
-            | syscalls::SYSCALL_JSON_GET_QUANTITY => {
+            | syscalls::SYSCALL_JSON_GET_QUANTITY
+            | syscalls::SYSCALL_JSON_GET_STRING
+            | syscalls::SYSCALL_JSON_GET_BOOL => {
                 let output_bound = if number == syscalls::SYSCALL_JSON_GET_JSON {
                     Self::maximum_host_pointer_output_payload()
                 } else {
@@ -1243,9 +1245,9 @@ impl IVMHost for CoreHost {
             syscalls::SYSCALL_STATE_SCAN => {
                 let request =
                     crate::state_scan::StateScanRequest::decode(vm, &self.state_instance)?;
-                let map = request.map.clone();
+                let map = request.map().clone();
                 let prefix = format!("{}/", map.as_ref());
-                let after = request.after.clone();
+                let after = request.after().cloned();
                 let mut page = crate::state_scan::StateScanPage::new(request);
                 for key in self
                     .state
@@ -1507,6 +1509,10 @@ impl IVMHost for CoreHost {
             syscalls::SYSCALL_DECODE_ARGUMENT_RECORD => {
                 crate::argument_record::decode_argument_record(vm)
             }
+            syscalls::SYSCALL_VALUE_ENCODE
+            | syscalls::SYSCALL_BLOB_CONCAT
+            | syscalls::SYSCALL_UTF8_VALIDATE
+            | syscalls::SYSCALL_VALUE_TO_STRING => crate::value_utilities::execute(number, vm),
             syscalls::SYSCALL_STATE_VALUE_ENCODE => {
                 crate::state_value_runtime::encode_state_value(vm, Self::resolve_code_tlv_addr)
             }
@@ -1975,12 +1981,14 @@ impl IVMHost for CoreHost {
             }
             syscalls::SYSCALL_TRANSFER_ASSET_SCOPED => {
                 // r10=&AccountId(from), r11=&AccountId(to), r12=&AssetDefinitionId,
-                // r13=&Quantity, r14=&DataSpaceId
+                // r13=&Quantity, r14=&DataSpaceId or 0 when the call names no dataspace.
                 Self::expect_tlv(vm, 10, PointerType::AccountId)?;
                 Self::expect_tlv(vm, 11, PointerType::AccountId)?;
                 Self::expect_tlv(vm, 12, PointerType::AssetDefinitionId)?;
                 Self::expect_amount(vm, 13)?;
-                Self::expect_tlv(vm, 14, PointerType::DataSpaceId)?;
+                if vm.register(14) != 0 {
+                    Self::expect_tlv(vm, 14, PointerType::DataSpaceId)?;
+                }
                 Ok(Self::mutation_gas(0))
             }
             syscalls::SYSCALL_TRANSFER_V1_BATCH_BEGIN => self.begin_fastpq_batch(),
@@ -2143,6 +2151,9 @@ mod tests {
     }
     fn state_interface(name: &str, ty: EmbeddedStateType) -> EmbeddedContractInterfaceV1 {
         EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             callables: vec![ivm_abi::call::EmbeddedCallableV1 {
                 entry_pc: 0,
                 frame_bytes: 0,
@@ -2164,7 +2175,8 @@ mod tests {
                 return_schema: Some(ivm_abi::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![ivm_abi::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: None,
+                authorization:
+                    iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: Some(true),
@@ -2334,7 +2346,8 @@ mod tests {
             .expect("state fixture has one entrypoint");
         if write {
             entrypoint.kind = iroha_data_model::smart_contract::manifest::EntryPointKind::Kotoage;
-            entrypoint.permission = Some("Execute".to_owned());
+            entrypoint.authorization =
+                iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone;
             entrypoint.write_keys.push(access_key);
         } else {
             entrypoint.read_keys.push(access_key);
@@ -2446,6 +2459,54 @@ mod tests {
             VMError::AbiTypeNotAllowed { abi: 2, type_id }
                 if type_id == PointerType::NoritoBytes as u16
         ));
+    }
+    #[test]
+    fn core_host_transfer_accepts_an_omitted_dataspace_scope() {
+        let account = iroha_data_model::account::AccountId::new(
+            "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03"
+                .parse()
+                .expect("public key"),
+        );
+        let asset = iroha_data_model::asset::AssetDefinitionId::derive_from_components(
+            iroha_model_base::domain::DomainId::try_new("wonderland", "universal").expect("domain"),
+            "rose".parse().expect("asset name"),
+        );
+        let mut vm = IVM::new(u64::MAX);
+        let account_tlv = make_pointer_tlv(
+            PointerType::AccountId,
+            &norito::to_bytes(&account).expect("encode account"),
+        );
+        let from = vm.alloc_input_tlv(&account_tlv).expect("from");
+        let to = vm.alloc_input_tlv(&account_tlv).expect("to");
+        let asset_ptr = vm
+            .alloc_input_tlv(&make_pointer_tlv(
+                PointerType::AssetDefinitionId,
+                &norito::to_bytes(&asset).expect("encode asset"),
+            ))
+            .expect("asset");
+        let amount = vm
+            .alloc_input_tlv(&make_amount_tlv(Quantity::from(1_u64)))
+            .expect("amount");
+        vm.set_register(10, from);
+        vm.set_register(11, to);
+        vm.set_register(12, asset_ptr);
+        vm.set_register(13, amount);
+        vm.set_register(14, 0);
+        let mut host = CoreHost::new();
+        assert!(
+            host.syscall(syscalls::SYSCALL_TRANSFER_ASSET_SCOPED, &mut vm)
+                .is_ok(),
+            "r14 = 0 names no dataspace scope"
+        );
+        let not_a_dataspace = vm
+            .alloc_input_tlv(&make_tlv(b"payload"))
+            .expect("non-dataspace pointer");
+        vm.set_register(14, not_a_dataspace);
+        assert!(
+            host.syscall(syscalls::SYSCALL_TRANSFER_ASSET_SCOPED, &mut vm)
+                .is_err(),
+            "a supplied scope must still be a DataSpaceId pointer"
+        );
     }
     #[test]
     fn core_host_amount_arguments_require_canonical_quantity_pointer() {
@@ -2566,7 +2627,7 @@ mod tests {
         assert_eq!(vm.register(10), 2);
     }
     #[test]
-    fn bool_state_map_keys_keep_canonical_zero_one_carriers_and_gas() {
+    fn bool_state_map_keys_keep_canonical_records_and_gas() {
         let mut host = CoreHost::new();
         let mut vm = IVM::new(u64::MAX);
         load_state_map_schema(&mut vm, "flags", EmbeddedStateType::Bool);
@@ -2579,8 +2640,11 @@ mod tests {
         let mut entries = Vec::new();
         let mut gas_charges = Vec::new();
 
-        for key in [0_i64, 1_i64] {
-            let carrier = norito::to_bytes(&key).expect("canonical Bool carrier");
+        for key in [false, true] {
+            let carrier = state_value_record(
+                &EmbeddedStateType::Bool,
+                vec![ivm_abi::state_value::StateValueAtomV1::Bool(key)],
+            );
             let key_ptr = vm
                 .alloc_host_tlv(&make_pointer_tlv(PointerType::NoritoBytes, &carrier))
                 .expect("allocate Bool key");
@@ -2615,7 +2679,7 @@ mod tests {
         assert_eq!(gas_charges[0], gas_charges[1]);
 
         let paths_before = host.state_paths();
-        for malformed in [2_i64, -1_i64] {
+        for malformed in [0_i64, 1_i64, 2_i64, -1_i64] {
             let bytes = norito::to_bytes(&malformed).expect("canonical i64");
             assert_eq!(
                 build_typed_map_path(&mut vm, &mut host, "flags", &bytes),
@@ -2672,9 +2736,7 @@ mod tests {
         let mut vm = IVM::new(u64::MAX);
         load_state_map_schema(&mut vm, "orders", EmbeddedStateType::Int);
         let base: Name = "orders".parse().expect("map base");
-        let key =
-            ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(-7))
-                .expect("encode canonical int key");
+        let key = int_state_value_record(-7);
         let path = crate::host::canonical_state_map_path(&base, &key).expect("canonical path");
         let page = norito::to_bytes(&vec![path]).expect("encode state key page");
         let page_ptr = vm
@@ -2763,9 +2825,8 @@ mod tests {
     #[test]
     fn state_map_numeric_key_ingress_rejects_missing_schema_and_invalid_frames() {
         use crate::numeric::PointerAbiFaultV1;
-        use iroha_primitives::{bigint::BigInt, numeric::Numeric, numeric_abi::IntValueV1};
-        let canonical_int =
-            ivm_abi::numeric_tlv::encode_int(&BigInt::one()).expect("encode canonical integer key");
+        use iroha_primitives::{numeric::Numeric, numeric_abi::IntValueV1};
+        let canonical_int = int_state_value_record(1);
         let mut schemaless_vm = IVM::new(u64::MAX);
         assert_eq!(
             build_typed_map_path(
@@ -2780,20 +2841,34 @@ mod tests {
         let mut vm = IVM::new(u64::MAX);
         load_state_map_schema(&mut vm, "values", EmbeddedStateType::Int);
         let mut host = CoreHost::new();
-        assert!(matches!(
+        assert_eq!(
             build_typed_map_path(&mut vm, &mut host, "values", &[0x11]),
+            Err(VMError::NoritoInvalid),
+            "the key carrier itself must be a canonical record"
+        );
+        let truncated = state_value_record(
+            &EmbeddedStateType::Int,
+            vec![ivm_abi::state_value::StateValueAtomV1::Pointer(vec![0x11])],
+        );
+        assert!(matches!(
+            build_typed_map_path(&mut vm, &mut host, "values", &truncated),
             Err(VMError::PointerAbiFault(
                 PointerAbiFaultV1::TruncatedEnvelope
             ))
         ));
         assert!(matches!(
-            decode_typed_map_page_key(&mut vm, &mut host, "values", &[0x11]),
+            decode_typed_map_page_key(&mut vm, &mut host, "values", &truncated),
             Err(VMError::PointerAbiFault(
                 PointerAbiFaultV1::TruncatedEnvelope
             ))
         ));
-        let decimal = ivm_abi::numeric_tlv::encode_decimal(&Numeric::one())
-            .expect("encode cross-typed decimal key");
+        let decimal = state_value_record(
+            &EmbeddedStateType::Int,
+            vec![ivm_abi::state_value::StateValueAtomV1::Pointer(
+                ivm_abi::numeric_tlv::encode_decimal(&Numeric::one())
+                    .expect("encode cross-typed decimal key"),
+            )],
+        );
         assert_eq!(
             build_typed_map_path(&mut vm, &mut host, "values", &decimal),
             Err(VMError::PointerAbiFault(PointerAbiFaultV1::WrongType))
@@ -2809,7 +2884,12 @@ mod tests {
         let noncanonical_frame =
             norito::core::frame_bare_with_header_flags::<IntValueV1>(&noncanonical_body, 0)
                 .expect("build structurally valid noncanonical integer frame");
-        let noncanonical = make_pointer_tlv(PointerType::Int, &noncanonical_frame);
+        let noncanonical = state_value_record(
+            &EmbeddedStateType::Int,
+            vec![ivm_abi::state_value::StateValueAtomV1::Pointer(
+                make_pointer_tlv(PointerType::Int, &noncanonical_frame),
+            )],
+        );
         assert_eq!(
             build_typed_map_path(&mut vm, &mut host, "values", &noncanonical),
             Err(VMError::PointerAbiFault(PointerAbiFaultV1::NonCanonical))
@@ -2820,8 +2900,7 @@ mod tests {
             "iteration must not surface a noncanonical persisted key"
         );
         let base: Name = "values".parse().expect("map base");
-        let canonical_zero =
-            ivm_abi::numeric_tlv::encode_int(&BigInt::zero()).expect("encode canonical zero key");
+        let canonical_zero = int_state_value_record(0);
         let canonical_path = crate::host::canonical_state_map_path(&base, &canonical_zero)
             .expect("build canonical zero path");
         let canonical_value = bytes_state_value_record(b"canonical");
@@ -2838,7 +2917,7 @@ mod tests {
     }
     #[test]
     fn state_map_nonnumeric_keys_remain_schema_bound_and_canonical() {
-        let blob_key = make_pointer_tlv(PointerType::Blob, b"opaque bytes");
+        let blob_key = bytes_state_value_record(b"opaque bytes");
         let mut bytes_vm = IVM::new(u64::MAX);
         load_state_map_schema(&mut bytes_vm, "values", EmbeddedStateType::Bytes);
         let bytes_path =
@@ -2849,9 +2928,14 @@ mod tests {
             format!("values/{}", hex::encode(&blob_key))
         );
         let name: Name = "alice".parse().expect("name key");
-        let name_key = make_pointer_tlv(
-            PointerType::Name,
-            &norito::to_bytes(&name).expect("encode name key"),
+        let name_key = state_value_record(
+            &EmbeddedStateType::Name,
+            vec![ivm_abi::state_value::StateValueAtomV1::Pointer(
+                make_pointer_tlv(
+                    PointerType::Name,
+                    &norito::to_bytes(&name).expect("encode name key"),
+                ),
+            )],
         );
         let mut name_vm = IVM::new(u64::MAX);
         load_state_map_schema(&mut name_vm, "values", EmbeddedStateType::Name);
@@ -2904,8 +2988,7 @@ mod tests {
                 panic!("scan syscall {syscall:#x} rejected map base: {error}")
             });
         }
-        let key = ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::zero())
-            .expect("encode canonical map key");
+        let key = int_state_value_record(0);
         let path = crate::host::canonical_state_map_path(&base, &key).expect("map child path");
         set_raw_state_path(&mut vm, &mut host, &path, &valid_value)
             .expect("canonical typed map value");
@@ -2947,8 +3030,7 @@ mod tests {
         let mut vm = IVM::new(u64::MAX);
         let mut host = CoreHost::new();
         let base: Name = "values".parse().expect("map base");
-        let key = ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::one())
-            .expect("encode canonical map key");
+        let key = int_state_value_record(1);
         let path = crate::host::canonical_state_map_path(&base, &key).expect("map child path");
         host.insert_state_value(path.as_ref(), b"preexisting-untyped");
         load_state_map_schema(&mut vm, base.as_ref(), EmbeddedStateType::Int);
@@ -3959,9 +4041,7 @@ mod tests {
         let base_ptr = vm
             .alloc_input_tlv(&make_pointer_tlv(PointerType::Name, &base_bytes))
             .expect("alloc base");
-        let key_bytes =
-            ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(7))
-                .expect("encode canonical int key");
+        let key_bytes = int_state_value_record(7);
         let key_ptr = vm
             .alloc_input_tlv(&make_pointer_tlv(PointerType::NoritoBytes, &key_bytes))
             .expect("alloc key");
@@ -4054,6 +4134,18 @@ mod tests {
         );
         vm.set_register(10, object_with_value_ptr);
         vm.set_register(11, key_name_ptr);
+        assert_eq!(
+            host.syscall(syscalls::SYSCALL_JSON_GET_INT, &mut vm),
+            Err(VMError::DecodeError),
+            "generic JSON_SET_I64 number tokens stay outside the exact-number surface"
+        );
+        let missing: Name = "missing".parse().expect("missing key");
+        let missing_bytes = norito::to_bytes(&missing).expect("encode missing key");
+        let missing_ptr = vm
+            .alloc_input_tlv(&make_pointer_tlv(PointerType::Name, &missing_bytes))
+            .expect("alloc missing key");
+        vm.set_register(10, object_with_value_ptr);
+        vm.set_register(11, missing_ptr);
         let get_gas = host
             .syscall(syscalls::SYSCALL_JSON_GET_INT, &mut vm)
             .expect("json get");
@@ -4063,14 +4155,11 @@ mod tests {
             crate::sum::SumLayoutV1::option(1).expect("int Option layout"),
         )
         .expect("read int Option");
-        assert!(
-            !present,
-            "generic JSON_SET_I64 number tokens stay outside the exact-number surface"
-        );
+        assert!(!present, "an absent key reads as Option::none");
         assert!(words.is_empty());
         assert_eq!(
             get_gas,
-            CoreHost::json_gas(object_with_value_len + key_name_bytes.len(), 16)
+            CoreHost::json_gas(object_with_value_len + missing_bytes.len(), 16)
         );
         let name: Name = "wonderland".parse().expect("name");
         let name_bytes = norito::to_bytes(&name).expect("encode name");
@@ -4123,10 +4212,18 @@ mod tests {
             .parse()
             .expect("maximum map base");
         let key_payload_len = syscalls::STATE_MAP_MAX_KEY_BYTES;
-        let key_payload = make_pointer_tlv(
-            PointerType::Blob,
-            &vec![fill; key_payload_len - TLV_ENVELOPE_OVERHEAD],
-        );
+        // Account for the canonical record as well as its nested pointer frame.
+        let mut low = 0;
+        let mut high = key_payload_len;
+        while low < high {
+            let middle = (low + high + 1) / 2;
+            if bytes_state_value_record(&vec![fill; middle]).len() <= key_payload_len {
+                low = middle;
+            } else {
+                high = middle - 1;
+            }
+        }
+        let key_payload = bytes_state_value_record(&vec![fill; low]);
         assert_eq!(key_payload.len(), key_payload_len);
         let path = crate::host::canonical_state_map_path(&base, &key_payload)
             .expect("maximum bounded map path");
@@ -4687,15 +4784,11 @@ mod tests {
                 .expect("allocate key");
             vm.set_register(10, token_json_ptr);
             vm.set_register(11, key_ptr);
-            host.syscall(syscall, &mut vm)
-                .expect("numeric token is Option::none");
+            // A present JSON number token is malformed input for an exact
+            // getter, never an absent field.
             assert_eq!(
-                crate::sum::read_words(
-                    &vm,
-                    vm.register(10),
-                    crate::sum::SumLayoutV1::option(1).expect("exact-number option layout"),
-                ),
-                Ok((false, vec![])),
+                host.syscall(syscall, &mut vm),
+                Err(VMError::DecodeError),
                 "{key} must reject a JSON number token",
             );
         }

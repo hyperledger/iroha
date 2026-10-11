@@ -59,6 +59,9 @@ const MILLISECONDS_PER_SECOND_V1: u64 = 1_000;
 ///
 /// Variants deliberately carry no certificate dates: those values are private
 /// witness material on the holder side.
+// Three public u64 window values outweigh the usize-only variant on 32-bit
+// targets. Retain the small, allocation-free Copy error and its existing API.
+#[cfg_attr(target_pointer_width = "32", allow(variant_size_differences))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub enum PrivacyZkX509PresentationIntervalErrorV1 {
     /// The public window is empty, reversed, or wider than the closed ceiling.

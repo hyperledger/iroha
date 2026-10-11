@@ -430,7 +430,7 @@ mod tests {
         let i = Hash32([1; 32]);
         let epoch = &crate::testing::TEST_EPOCH.id;
         let vote = |kind, height, view, bh: &Hash32| {
-            preimage::vote_preimage(kind, &i, epoch, height, view, bh, &i, false)
+            preimage::vote_preimage(kind, &i, epoch, height, view, bh, &i)
         };
         let tmo = |height, view, hq| preimage::tmo_preimage(&i, epoch, height, view, hq);
         let echo = |nonce, height| preimage::echo_preimage(&i, epoch, nonce, height);

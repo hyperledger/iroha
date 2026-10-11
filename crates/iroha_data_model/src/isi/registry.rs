@@ -373,11 +373,11 @@ mod tests {
     }
     #[test]
     fn source_has_one_bounded_typed_codec_registration_inventory() {
-        const EXPECTED_SOURCE_TYPED_CODEC_REGISTRARS: usize = 396;
+        const EXPECTED_SOURCE_TYPED_CODEC_REGISTRARS: usize = 391;
         #[cfg(feature = "governance")]
-        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 396;
+        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 391;
         #[cfg(not(feature = "governance"))]
-        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 378;
+        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 373;
         let registry_source = include_str!("registry.rs");
         let production = registry_source
             .split("\n#[cfg(test)]\nmod tests")
@@ -427,9 +427,9 @@ mod tests {
         use sha2::{Digest, Sha256};
         #[cfg(feature = "governance")]
         const EXPECTED_WITH_GOVERNANCE_SHA256: &str =
-            "14025d26bb09cfa26a1a79988bbc708899d72a4b66a065753d68795bc9aa91ab";
+            "4806865218ecfccf56f5c08de38a84f3d9a2774cde28c70301b428888cd51165";
         const EXPECTED_WITHOUT_GOVERNANCE_SHA256: &str =
-            "e6fc7d5b775f6909a95e1658fc396c2eb536a9c521cebac2af847b52ca3f4d4b";
+            "9ea48e63bde4261f3fe134bbf12b344e3657189c49c823b2e5e30898bbf31a74";
         let assignment_digest = |entries: Vec<&wire_ids::BuiltInWireId>| {
             let mut assignments = entries
                 .into_iter()
@@ -1317,6 +1317,17 @@ mod tests {
         assert!(registry.contains(settlement::SettlementInstructionBox::WIRE_ID));
     }
     #[test]
+    fn instruction_registry_has_no_manual_reward_publisher() {
+        let registry = default();
+        assert!(!registry.contains("iroha.instruction.v1::staking::RecordPublicLaneRewards"));
+        assert!(
+            registry
+                .wire_id("iroha_data_model::isi::staking::RecordPublicLaneRewards")
+                .is_none()
+        );
+    }
+
+    #[test]
     fn instruction_registry_registers_and_decodes_standalone_surface() {
         let registry = default();
         let expected = [
@@ -1339,7 +1350,6 @@ mod tests {
             std::any::type_name::<crate::isi::staking::SchedulePublicLaneUnbond>(),
             std::any::type_name::<crate::isi::staking::FinalizePublicLaneUnbond>(),
             std::any::type_name::<crate::isi::staking::SlashPublicLaneValidator>(),
-            std::any::type_name::<crate::isi::staking::RecordPublicLaneRewards>(),
             std::any::type_name::<crate::isi::staking::ClaimPublicLaneRewards>(),
         ];
         for type_name in expected {
@@ -1394,7 +1404,6 @@ mod tests {
             lane_id: iroha_model_base::topology::LaneId::SINGLE,
             account: account(0xA4),
             claim_plan: crate::nexus::PublicLaneRewardClaimPlanV1 {
-                fee_claim: None,
                 network_scope: crate::nexus::PublicLaneMonetaryScopeV1::Network(
                     crate::NetworkId::from_genesis_hash(
                         iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(
@@ -1403,19 +1412,15 @@ mod tests {
                     ),
                 ),
                 valid_until_height: 20,
-                expected_state: Some(crate::nexus::PublicLaneRewardClaimStateV1 {
-                    through_epoch: Some(8),
-                }),
-                records: vec![crate::nexus::PublicLaneRewardRecordRefV1 {
-                    epoch: 9,
-                    record_hash: iroha_crypto::Hash::new(b"registry reward fixture record"),
-                }],
-                sources: vec![crate::nexus::PublicLaneRewardClaimSourceV1 {
+                fee_claim: crate::nexus::PublicLaneFeeRewardClaimV1 {
+                    lifecycle_seal: [1; 32],
+                    beneficiary_id: account(0xA4),
+                    beneficiary_revision: 0,
                     source_asset: AssetId::new(asset_definition_id(), account(0xA5)),
                     destination_asset: AssetId::new(asset_definition_id(), account(0xA4)),
-                    expected_accrued: None,
-                    payout: Quantity::from(1_u64),
-                }],
+                    amount: Quantity::from(1_u64),
+                    expected_claim_sequence: 0,
+                },
             },
         });
     }

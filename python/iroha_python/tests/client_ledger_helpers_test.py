@@ -71,7 +71,7 @@ TRANSACTION_LOCAL_SIGNING_CONTEXT = LocalSigningContext(NETWORK_ID)
 
 def canonical_proof_attachment(
     *,
-    backend: str = "halo2/ipa",
+    backend: str = "pipa-r/pasta",
     proof_bytes: bytes = b"proof-bytes",
     vk_backend: str | None = None,
     vk_name: str = "vk_transfer",
@@ -1924,19 +1924,19 @@ def test_onboarding_plan_rejects_normalizing_alias_and_permission() -> None:
 def test_privacy_verifier_registry_is_closed_exact_and_engine_typed() -> None:
     expected = frozenset(
         {
-            "halo2/ipa",
-            "halo2/pasta/kaigi-authorization-v1",
-            "halo2/pasta/kaigi-usage-v1",
-            "halo2/pasta/confidential-transfer-2x2-merkle16-axiom-poseidon-v3",
-            "halo2/pasta/confidential-unshield-full-merkle16-axiom-poseidon-v3",
-            "halo2/pasta/confidential-unshield-change-merkle16-axiom-poseidon-v4",
+            "pipa-r/pasta",
+            "pipa-r/pasta/kaigi-authorization-v1",
+            "pipa-r/pasta/kaigi-usage-v1",
+            "pipa-r/pasta/confidential-transfer-v1",
+            "pipa-r/pasta/confidential-unshield-full-v1",
+            "pipa-r/pasta/confidential-unshield-change-v1",
             "stark/fri/poseidon-x7-goldilocks-6x64-v1",
         }
     )
     assert len(expected) == 7
     assert _VERIFIER_BACKEND_REGISTRY_LABELS_V1 == expected
     for backend in expected:
-        expected_tag = "halo2-ipa-pasta" if backend.startswith("halo2/") else "stark"
+        expected_tag = ("native-pipa-r-pasta" if backend.startswith("pipa-r/") else "stark")
         assert _verifier_backend_registry_tag_v1(backend) == expected_tag
         assert _is_verifier_backend_registry_label_v1(backend)
         assert _require_verifier_backend_registry_label_v1(backend, "backend") == backend
@@ -1945,7 +1945,11 @@ def test_privacy_verifier_registry_is_closed_exact_and_engine_typed() -> None:
 def test_privacy_verifier_registry_rejects_aliases_retired_and_hostile_labels() -> None:
     unsupported = (
         "",
+        "halo2/ipa",
         "halo2/pasta/ivm-execution-v1",
+        "halo2/pasta/kaigi-authorization-v1",
+        "halo2/pasta/kaigi-usage-v1",
+        "pipa-r/ipa/pasta/kaigi-usage-v1",
         "halo2/pasta/kaigi-roster-v1",
         "halo2/pasta/kagemusha-v1-mint-fold-merkle16-axiom-poseidon-v1",
         "unknown/privacy/backend",
@@ -2056,7 +2060,7 @@ def test_privacy_verifier_registry_rejects_aliases_retired_and_hostile_labels() 
         assert not _is_verifier_backend_registry_label_v1(backend), backend
         with pytest.raises(ValueError, match="unsupported verifier-registry label"):
             _require_verifier_backend_registry_label_v1(backend, "backend")
-    for backend in (None, b"halo2/ipa", 1, object()):
+    for backend in (None, b"pipa-r/pasta", 1, object()):
         assert _verifier_backend_registry_tag_v1(backend) is None
         assert not _is_verifier_backend_registry_label_v1(backend)
         with pytest.raises(TypeError, match="must be a string"):
@@ -2921,7 +2925,7 @@ def test_zk_verifying_key_helpers_detect_active_status_and_return_registration_d
     authority = account_address(31)
     registration_payload: dict[str, object] = {
         "authority": authority,
-        "backend": "halo2/ipa",
+        "backend": "pipa-r/pasta",
         "name": "vk_transfer",
         "version": 1,
         "circuit_id": "vk-transfer-v1",
@@ -2951,12 +2955,12 @@ def test_zk_verifying_key_helpers_detect_active_status_and_return_registration_d
     )
     assert client.local_signing_context is VK_LOCAL_SIGNING_CONTEXT
 
-    assert client.zk_verifying_key_active("halo2/ipa", "vk_transfer")
+    assert client.zk_verifying_key_active("pipa-r/pasta", "vk_transfer")
     draft = client.register_zk_verifying_key(registration_payload)
 
     assert draft == expected_draft
     assert [call["path"] for call in session.calls] == [
-        "/v1/zk/vk/halo2%2Fipa/vk_transfer",
+        "/v1/zk/vk/pipa-r%2Fpasta/vk_transfer",
         "/v1/zk/vk/register",
     ]
     body = json.loads(session.calls[1]["data"])
@@ -2994,6 +2998,9 @@ def test_zk_verifying_key_registration_rejects_unsupported_backends_before_reque
     session = FakeSession([])
     client = ToriiClient("http://torii.example", session=session, max_retries=0)
     for backend in (
+        "halo2/pasta/kaigi-authorization-v1",
+        "halo2/pasta/kaigi-usage-v1",
+        "pipa-r/ipa/pasta/kaigi-usage-v1",
         "halo2/pasta/kaigi-roster-v1",
         "halo2/pasta/kagemusha-v1-mint-fold-merkle16-axiom-poseidon-v1",
         "halo2/unknown-native-v1",
@@ -3096,7 +3103,7 @@ def test_zk_verifying_key_registration_rejects_bad_names_before_request() -> Non
     for bad_name in ("", "   ", "\t", " vk_transfer", "vk_transfer ", None, 7):
         with pytest.raises((TypeError, ValueError), match="register_zk_verifying_key.name"):
             client.submit_zk_verifying_key_registration(
-                {"backend": "halo2/ipa", "name": bad_name}
+                {"backend": "pipa-r/pasta", "name": bad_name}
             )
 
     assert session.calls == []
@@ -3107,7 +3114,7 @@ def test_zk_verifying_key_registration_rejects_padded_selector_metadata_before_r
     client = ToriiClient("http://torii.example", session=session, max_retries=0)
     base = {
         "authority": "alice",
-        "backend": "halo2/ipa",
+        "backend": "pipa-r/pasta",
         "name": "vk_transfer",
         "version": 1,
         "circuit_id": "halo2/ipa::transfer_v1",
@@ -3142,7 +3149,7 @@ def test_zk_verifying_key_registration_rejects_missing_authority_and_private_key
             client.submit_zk_verifying_key_registration(
                 {
                     "authority": authority,
-                    "backend": "halo2/ipa",
+                    "backend": "pipa-r/pasta",
                     "name": "vk_transfer",
                 }
             )
@@ -3161,7 +3168,7 @@ def test_zk_verifying_key_registration_rejects_missing_authority_and_private_key
             client.submit_zk_verifying_key_registration(
                 {
                     "authority": "alice",
-                    "backend": "halo2/ipa",
+                    "backend": "pipa-r/pasta",
                     "name": "vk_transfer",
                     field: private_key,
                 }
@@ -3179,13 +3186,13 @@ def test_zk_verifying_key_registration_rejects_mismatched_inline_commitment() ->
         max_retries=0,
     )
     vk_bytes = b"abc"
-    matching_commitment = zk_verifying_key_commitment("halo2/ipa", vk_bytes)
+    matching_commitment = zk_verifying_key_commitment("pipa-r/pasta", vk_bytes)
 
     with pytest.raises(ValueError, match="commitment_hex must match domain-separated SHA-256"):
         client.submit_zk_verifying_key_registration(
             {
                 "authority": "alice",
-                "backend": "halo2/ipa",
+                "backend": "pipa-r/pasta",
                 "name": "vk_transfer",
                 "version": 1,
                 "circuit_id": "halo2/ipa::transfer_v1",
@@ -3200,7 +3207,7 @@ def test_zk_verifying_key_registration_rejects_mismatched_inline_commitment() ->
     response_obj = client.submit_zk_verifying_key_registration(
         {
             "authority": "alice",
-            "backend": "halo2/ipa",
+            "backend": "pipa-r/pasta",
             "name": "vk_transfer",
             "version": 1,
             "circuit_id": "halo2/ipa::transfer_v1",
@@ -3223,7 +3230,7 @@ def test_zk_verifying_key_registration_rejects_withdraw_height_before_activation
         client.submit_zk_verifying_key_registration(
             {
                 "authority": "alice",
-                "backend": "halo2/ipa",
+                "backend": "pipa-r/pasta",
                 "name": "vk_transfer",
                 "version": 1,
                 "circuit_id": "halo2/ipa::transfer_v1",
@@ -3237,7 +3244,7 @@ def test_zk_verifying_key_registration_rejects_withdraw_height_before_activation
         client.submit_zk_verifying_key_registration(
             {
                 "authority": "alice",
-                "backend": "halo2/ipa",
+                "backend": "pipa-r/pasta",
                 "name": "vk_transfer",
                 "version": 1,
                 "circuit_id": "halo2/ipa::transfer_v1",
@@ -3255,11 +3262,11 @@ def test_zk_verifying_key_update_helper_returns_unsigned_draft(
     expected_draft = zk_verifying_key_transaction_draft()
     session = FakeSession([response(200, expected_draft)])
     vk_bytes = b"abc"
-    matching_commitment = zk_verifying_key_commitment("halo2/ipa", vk_bytes)
+    matching_commitment = zk_verifying_key_commitment("pipa-r/pasta", vk_bytes)
     authority = account_address(32)
     update_payload: dict[str, object] = {
         "authority": authority,
-        "backend": "halo2/ipa",
+        "backend": "pipa-r/pasta",
         "name": "vk_transfer",
         "version": 2,
         "circuit_id": "halo2/ipa::transfer_v2",
@@ -3294,7 +3301,7 @@ def test_zk_verifying_key_update_helper_returns_unsigned_draft(
     body = json.loads(call["data"])
     assert body["authority"] == authority
     assert "private_key" not in body
-    assert body["backend"] == "halo2/ipa"
+    assert body["backend"] == "pipa-r/pasta"
     assert body["name"] == "vk_transfer"
     assert body["vk_bytes"] == base64.b64encode(vk_bytes).decode("ascii")
     assert body["commitment_hex"] == matching_commitment
@@ -3305,7 +3312,7 @@ def test_zk_verifying_key_update_helper_returns_unsigned_draft(
 def test_zk_verifying_key_mutation_helpers_enforce_unsigned_draft_contract() -> None:
     payload = {
         "authority": account_address(33),
-        "backend": "halo2/ipa",
+        "backend": "pipa-r/pasta",
         "name": "vk_transfer",
         "version": 1,
         "circuit_id": "halo2/ipa::transfer_v1",
@@ -3377,7 +3384,7 @@ def test_zk_verifying_key_drafts_reject_substitution_extra_wrong_context_and_non
     authority = account_address(34)
     payload: dict[str, object] = {
         "authority": authority,
-        "backend": "halo2/ipa",
+        "backend": "pipa-r/pasta",
         "name": "vk_transfer",
         "version": 1,
         "circuit_id": "halo2/ipa::transfer_v1",
@@ -3442,7 +3449,7 @@ def test_zk_verifying_key_draft_rejects_any_record_field_mismatch(
     authority = account_address(35)
     payload: dict[str, object] = {
         "authority": authority,
-        "backend": "halo2/ipa",
+        "backend": "pipa-r/pasta",
         "name": "vk_transfer",
         "version": 1,
         "circuit_id": "halo2/ipa::transfer_v1",
@@ -3476,7 +3483,7 @@ def test_zk_verifying_key_local_signing_fails_closed_without_network_context() -
     client = ToriiClient("http://torii.example", session=session, max_retries=0)
     payload = {
         "authority": account_address(36),
-        "backend": "halo2/ipa",
+        "backend": "pipa-r/pasta",
         "name": "vk_transfer",
         "version": 1,
         "circuit_id": "halo2/ipa::transfer_v1",
@@ -3550,12 +3557,12 @@ def test_zk_verifying_key_update_rejects_bad_inputs_before_request() -> None:
     session = FakeSession([])
     client = ToriiClient("http://torii.example", session=session, max_retries=0)
     vk_bytes = b"abc"
-    matching_commitment = zk_verifying_key_commitment("halo2/ipa", vk_bytes)
+    matching_commitment = zk_verifying_key_commitment("pipa-r/pasta", vk_bytes)
 
     def payload(**overrides: object) -> dict[str, object]:
         base: dict[str, object] = {
             "authority": "alice",
-            "backend": "halo2/ipa",
+            "backend": "pipa-r/pasta",
             "name": "vk_transfer",
             "version": 2,
             "circuit_id": "halo2/ipa::transfer_v2",
@@ -3743,9 +3750,9 @@ def test_zk_verifying_key_read_helpers_reject_padded_names_before_request() -> N
 
     for name in (" vk_transfer", "vk_transfer "):
         with pytest.raises(ValueError, match="name.*surrounding whitespace"):
-            client.request_zk_verifying_key("halo2/ipa", name)
+            client.request_zk_verifying_key("pipa-r/pasta", name)
         with pytest.raises(ValueError, match="name.*surrounding whitespace"):
-            client.zk_verifying_key_active("halo2/ipa", name)
+            client.zk_verifying_key_active("pipa-r/pasta", name)
 
     assert session.calls == []
 
@@ -3762,7 +3769,7 @@ def test_event_stream_filters_use_the_collection_text_grammar() -> None:
     tx_hash = "ab" * 31 + "a1"
 
     list(client.stream_events(filter=(F.tx_hash == tx_hash) & F.tx_status.in_("Approved", "Rejected")))
-    list(client.stream_events(filter='proof_backend = "halo2/ipa"'))
+    list(client.stream_events(filter='proof_backend = "pipa-r/pasta"'))
     list(client.stream_events())
 
     assert captured == [
@@ -3770,7 +3777,7 @@ def test_event_stream_filters_use_the_collection_text_grammar() -> None:
             "/v1/events/sse",
             {"filter": f'tx_hash = "{tx_hash}" and tx_status in ["Approved", "Rejected"]'},
         ),
-        ("/v1/events/sse", {"filter": 'proof_backend = "halo2/ipa"'}),
+        ("/v1/events/sse", {"filter": 'proof_backend = "pipa-r/pasta"'}),
         ("/v1/events/sse", None),
     ]
 
@@ -4261,7 +4268,7 @@ def test_zk_instruction_helpers_serialize_full_surface() -> None:
     instructions = [
         Instruction.register_zk_asset(
             asset_definition_id,
-            vk_unshield={"backend": "halo2/ipa", "name": "vk_unshield"},
+            vk_unshield={"backend": "pipa-r/pasta", "name": "vk_unshield"},
         ),
         Instruction.verify_proof(proof),
     ]
@@ -4380,7 +4387,7 @@ def test_zk_registration_helper_rejects_adversarial_inputs() -> None:
     asset_definition_id = "7MBRDd8cGFBZkFGdDMwV7S6FPwbw"
 
     with pytest.raises(ValueError, match="backend:name"):
-        Instruction.register_zk_asset(asset_definition_id, vk_unshield="halo2/ipa")
+        Instruction.register_zk_asset(asset_definition_id, vk_unshield="pipa-r/pasta")
 
 
 def test_zk_client_helpers_build_transaction_drafts() -> None:

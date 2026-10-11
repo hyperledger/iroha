@@ -393,7 +393,10 @@ fn infallible_state_block_refuses_capacity_without_waiting_or_changing_state() {
     let budget = state.ivm_execution_budget();
     let retained = budget.reserved_bytes();
     let generation = state.state_view_generation();
-    budget.set_limit_bytes(0);
+    assert!(retained > 0, "the original State retains real pool custody");
+    // Saturate available credits while preserving a policy limit large enough
+    // for each request. A zero limit tests ExceedsLimit, not temporary Capacity.
+    budget.set_limit_bytes(retained);
     let header = BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
     assert!(matches!(
         state.try_block(header.clone()),

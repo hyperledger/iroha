@@ -71,7 +71,9 @@ fn compile_and_run(source: &str, arguments: Option<&Json>) -> (IVM, Result<(), V
         .expect("run entrypoint descriptor");
     let entry_pc = u64::try_from(parsed.prefix_len()).expect("prefix fits u64") + run.entry_pc;
     let host = if let Some(arguments) = arguments {
-        let key: Name = "trigger_event_json".parse().expect("public input key");
+        let key: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+            .parse()
+            .expect("public input key");
         DefaultHost::new()
             .with_network_id(common::test_network_id(0x71))
             .with_public_inputs(BTreeMap::from([(key, argument_record_tlv(run, arguments))]))
@@ -130,7 +132,7 @@ fn valid_vrf_request() -> (Vec<u8>, [u8; 32]) {
 fn vrf_verify_accepts_entrypoint_bytes_and_returns_expected_blob() {
     let source = r#"
 seiyaku VrfEntrypointBytes {
-  view fn run(bytes request) -> bytes {
+  view fn run(bytes request) authorize(anyone) -> bytes {
     return crypto::vrf::verify(request: request);
   }
 }
@@ -152,7 +154,7 @@ seiyaku VrfEntrypointBytes {
 fn vrf_verify_batch_rejects_empty_entrypoint_bytes() {
     let source = r#"
 seiyaku VrfBatchEntrypointBytes {
-  view fn run(bytes batch) -> bytes {
+  view fn run(bytes batch) authorize(anyone) -> bytes {
     return crypto::vrf::verify_batch(request: batch);
   }
 }
@@ -172,7 +174,7 @@ seiyaku VrfBatchEntrypointBytes {
 fn malformed_vrf_bytes_literal_reaches_decode_error() {
     let source = r#"
 seiyaku MalformedVrfLiteral {
-  view fn run() -> bytes {
+  view fn run() authorize(anyone) -> bytes {
     return crypto::vrf::verify(request: b"\x01\x02\x03");
   }
 }

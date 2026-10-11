@@ -1,10 +1,10 @@
 
-            seiyaku Demo {
-                kotoage fn run(int count) -> int authorize("Run") { return count + 1; }
+            seiyaku Demo { permission Run;
+                kotoage fn run(int count) authorize(Run) -> int { return count + 1; }
 
                 #[test]
                 fn drive_run() {
-                    let next = test::invoke_kotoage(kotoage: Name::parse("run"), arguments: Json::parse("{\"count\":7}"));
+                    let next = test::invoke_kotoage(kotoage: Name::parse("run"), arguments: {count: 7});
                     test::assert_eq(actual: next, expected: 8);
                 }
             }

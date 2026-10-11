@@ -382,6 +382,8 @@ const MAX_KOTODAMA_SOURCE_NAME_BYTES: usize = 4096;
 /// Bounded canonical Kotodama compiler request accepted by the Node binding.
 #[napi(object)]
 pub struct JsKotodamaCompileRequest {
+    /// Complete compiled contracts owned by the root source set.
+    pub artifacts: Vec<JsKotodamaContractArtifact>,
     /// Complete deployable Kotodama source.
     pub source: String,
     /// Optional logical source path preserved in diagnostics and sidecars.
@@ -403,6 +405,22 @@ pub struct JsKotodamaSourceFile {
     /// Complete UTF-8 source text.
     pub source: String,
 }
+/// One complete compiled interface, owned by a source package and admitted before use.
+#[napi(object)]
+pub struct JsKotodamaContractArtifact {
+    /// Portable owner-relative `.to` path.
+    pub source_name: String,
+    /// Exact complete deployable artifact bytes.
+    pub artifact: Vec<u8>,
+}
+fn kotodama_contract_artifact(
+    artifact: &JsKotodamaContractArtifact,
+) -> kotodama_lang::linker::SourceContractArtifact {
+    kotodama_lang::linker::SourceContractArtifact {
+        source_name: artifact.source_name.clone(),
+        artifact: artifact.artifact.clone(),
+    }
+}
 /// One dependency alias bound to an immutable package identity.
 #[napi(object)]
 pub struct JsKotodamaSourceImport {
@@ -414,6 +432,8 @@ pub struct JsKotodamaSourceImport {
 /// Immutable sources and dependency bindings for one locked package.
 #[napi(object)]
 pub struct JsKotodamaSourcePackage {
+    /// Complete compiled contracts authenticated with this exact package.
+    pub artifacts: Vec<JsKotodamaContractArtifact>,
     /// Canonical package identity.
     pub identity: String,
     /// Explicit library entry modules.
@@ -479,87 +499,100 @@ fn compile_kotodama_request(
             force_zk: request.zk,
             ..kotodama_lang::compiler::CompilerOptions::default()
         });
-    let compiled =
-        if request.sources.is_some() || request.imports.is_some() || request.packages.is_some() {
-            let sources = request.sources.as_deref().unwrap_or_default();
-            let packages = request.packages.as_deref().unwrap_or_default();
-            for package in packages {
-                if package
-                    .exports
-                    .iter()
-                    .collect::<std::collections::BTreeSet<_>>()
-                    .len()
-                    != package.exports.len()
-                {
-                    return Err("locked package contains duplicate exports".into());
-                }
+    let compiled = if !request.artifacts.is_empty()
+        || request.sources.is_some()
+        || request.imports.is_some()
+        || request.packages.is_some()
+    {
+        let sources = request.sources.as_deref().unwrap_or_default();
+        let packages = request.packages.as_deref().unwrap_or_default();
+        for package in packages {
+            if package
+                .exports
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                != package.exports.len()
+            {
+                return Err("locked package contains duplicate exports".into());
             }
-            let source_name = request
-                .source_name
-                .as_deref()
-                .ok_or_else(|| "sourceName is required when sources are supplied".to_owned())?;
-            let graph = kotodama_lang::linker::SourceLinkRequest {
-                root: kotodama_lang::linker::SourceModuleUnit {
-                    source_name: source_name.into(),
-                    source: request.source.clone(),
-                },
-                sources: sources
-                    .iter()
-                    .map(|source| kotodama_lang::linker::SourceModuleUnit {
-                        source_name: source.source_name.clone(),
-                        source: source.source.clone(),
-                    })
-                    .collect(),
-                imports: request
-                    .imports
-                    .as_deref()
-                    .unwrap_or_default()
-                    .iter()
-                    .map(kotodama_source_import)
-                    .collect(),
-                packages: packages
-                    .iter()
-                    .map(|package| kotodama_lang::linker::SourcePackageUnit {
-                        identity: package.identity.clone(),
-                        modules: package.modules.iter().map(kotodama_source_file).collect(),
-                        sources: package
-                            .sources
-                            .as_deref()
-                            .unwrap_or_default()
-                            .iter()
-                            .map(kotodama_source_file)
-                            .collect(),
-                        exports: package.exports.iter().cloned().collect(),
-                        imports: package
-                            .imports
-                            .as_deref()
-                            .unwrap_or_default()
-                            .iter()
-                            .map(kotodama_source_import)
-                            .collect(),
-                    })
-                    .collect(),
-            };
-            kotodama_lang::driver::BuildDriver::new(session, "iroha-js-host")
-                .compile_project(graph, source_name)
-                .map_err(|error| {
-                    error.into_diagnostics().unwrap_or_else(|error| {
-                        kotodama_lang::diagnostic::DiagnosticBundle::single(
-                            kotodama_lang::diagnostic::Diagnostic::error(
-                                "K0000",
-                                kotodama_lang::diagnostic::DiagnosticPhase::Resolve,
-                                error.to_string(),
-                                None,
-                            ),
-                        )
-                    })
+        }
+        let source_name = request
+            .source_name
+            .as_deref()
+            .ok_or_else(|| "sourceName is required when sources are supplied".to_owned())?;
+        let graph = kotodama_lang::linker::SourceLinkRequest {
+            artifacts: request
+                .artifacts
+                .iter()
+                .map(kotodama_contract_artifact)
+                .collect(),
+            root: kotodama_lang::linker::SourceModuleUnit {
+                source_name: source_name.into(),
+                source: request.source.clone(),
+            },
+            sources: sources
+                .iter()
+                .map(|source| kotodama_lang::linker::SourceModuleUnit {
+                    source_name: source.source_name.clone(),
+                    source: source.source.clone(),
                 })
-        } else {
-            session.build(kotodama_lang::session::CompileRequest {
-                source: &request.source,
-                source_name: request.source_name.as_deref(),
-            })
+                .collect(),
+            imports: request
+                .imports
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(kotodama_source_import)
+                .collect(),
+            packages: packages
+                .iter()
+                .map(|package| kotodama_lang::linker::SourcePackageUnit {
+                    artifacts: package
+                        .artifacts
+                        .iter()
+                        .map(kotodama_contract_artifact)
+                        .collect(),
+                    identity: package.identity.clone(),
+                    modules: package.modules.iter().map(kotodama_source_file).collect(),
+                    sources: package
+                        .sources
+                        .as_deref()
+                        .unwrap_or_default()
+                        .iter()
+                        .map(kotodama_source_file)
+                        .collect(),
+                    exports: package.exports.iter().cloned().collect(),
+                    imports: package
+                        .imports
+                        .as_deref()
+                        .unwrap_or_default()
+                        .iter()
+                        .map(kotodama_source_import)
+                        .collect(),
+                })
+                .collect(),
         };
+        kotodama_lang::driver::BuildDriver::new(session, "iroha-js-host")
+            .compile_project(graph, source_name)
+            .map_err(|error| {
+                error.into_diagnostics().unwrap_or_else(|error| {
+                    kotodama_lang::diagnostic::DiagnosticBundle::single(
+                        kotodama_lang::diagnostic::Diagnostic::error(
+                            "K0000",
+                            kotodama_lang::diagnostic::DiagnosticPhase::Resolve,
+                            error.to_string(),
+                            None,
+                        ),
+                    )
+                })
+            })
+    } else {
+        session.build(kotodama_lang::session::CompileRequest {
+            source: &request.source,
+            source_name: request.source_name.as_deref(),
+        })
+    };
     let output = match compiled {
         Ok(output) => output,
         Err(diagnostics) => {
@@ -8635,6 +8668,7 @@ mod tests {
     }
     fn canonical_kotodama_request(source: &str) -> JsKotodamaCompileRequest {
         JsKotodamaCompileRequest {
+            artifacts: Vec::new(),
             source: source.to_owned(),
             source_name: None,
             sources: None,
@@ -8714,11 +8748,11 @@ mod tests {
     #[test]
     fn canonical_kotodama_binding_returns_full_artifact_manifest() {
         let request = canonical_kotodama_request(
-            r#"seiyaku Demo {
+            r#"seiyaku Demo { permission RunDemo;
                 hajimari() {}
                 kaizen() {}
-                kotoage fn run() authorize("RunDemo") {}
-                view fn ping() -> int { return 1; }
+                kotoage fn run() authorize(RunDemo) {}
+                view fn ping() authorize(anyone) -> int { return 1; }
             }"#,
         );
         let result = compile_kotodama_request(&request).expect("compile canonical Kotodama source");
@@ -8786,8 +8820,8 @@ mod tests {
     #[test]
     fn canonical_kotodama_request_preserves_source_name_and_selects_zk_policy() {
         let source = r#"
-seiyaku Privacy {
-  kotoage fn commit() authorize("CanCommitPrivateInput") {
+seiyaku Privacy { permission CanCommitPrivateInput;
+  kotoage fn commit() authorize(CanCommitPrivateInput) {
     let Secret<int> value = crypto::private_input(0);
     let Secret<int> blinding = crypto::private_input(1);
     let commitment = crypto::valcom(left: value, right: blinding);
@@ -8796,6 +8830,7 @@ seiyaku Privacy {
 }
 "#;
         let request = JsKotodamaCompileRequest {
+            artifacts: Vec::new(),
             source: source.to_owned(),
             source_name: Some("contracts/privacy.ko".to_owned()),
             sources: None,
@@ -8809,6 +8844,7 @@ seiyaku Privacy {
         assert!(output.source_map_json.contains("contracts/privacy.ko"));
         assert!(output.budget_report_json.contains("contracts/privacy.ko"));
         let non_zk = JsKotodamaCompileRequest {
+            artifacts: Vec::new(),
             zk: false,
             ..request
         };
@@ -8824,13 +8860,15 @@ seiyaku Privacy {
     #[test]
     fn canonical_kotodama_request_compiles_named_companion_inventory() {
         let request = JsKotodamaCompileRequest {
+            artifacts: Vec::new(),
             source: "seiyaku App { include \"parts/view.ko\"; import \"math.ko\" as arith; }"
                 .into(),
             source_name: Some("app.ko".into()),
             sources: Some(vec![
                 JsKotodamaSourceFile {
                     source_name: "parts/view.ko".into(),
-                    source: "view fn value() -> int { return arith::value(); }".into(),
+                    source: "view fn value() authorize(anyone) -> int { return arith::value(); }"
+                        .into(),
                 },
                 JsKotodamaSourceFile {
                     source_name: "math.ko".into(),
@@ -8850,7 +8888,10 @@ seiyaku Privacy {
     #[test]
     fn canonical_kotodama_request_compiles_locked_package_companions() {
         let mut request = JsKotodamaCompileRequest {
-            source: "seiyaku App { view fn value() -> int { return calc::value(); } }".into(),
+            artifacts: Vec::new(),
+            source:
+                "seiyaku App { view fn value() authorize(anyone) -> int { return calc::value(); } }"
+                    .into(),
             source_name: Some("app.ko".into()),
             sources: None,
             imports: Some(vec![JsKotodamaSourceImport {
@@ -8858,6 +8899,7 @@ seiyaku Privacy {
                 package: "example/arithmetic@1".into(),
             }]),
             packages: Some(vec![JsKotodamaSourcePackage {
+                artifacts: Vec::new(),
                 identity: "example/arithmetic@1".into(),
                 modules: vec![JsKotodamaSourceFile {
                     source_name: "src/lib.ko".into(),
@@ -8896,7 +8938,9 @@ seiyaku Privacy {
             "x".repeat(MAX_KOTODAMA_SOURCE_NAME_BYTES + 1),
         ] {
             let request = JsKotodamaCompileRequest {
-                source: "seiyaku Demo { view fn ping() -> int { return 1; } }".to_owned(),
+                artifacts: Vec::new(),
+                source: "seiyaku Demo { view fn ping() authorize(anyone) -> int { return 1; } }"
+                    .to_owned(),
                 source_name: Some(source_name),
                 sources: None,
                 imports: None,
@@ -12363,6 +12407,8 @@ seiyaku Privacy {
             .try_partition_bytes(signer_bytes)
             .expect("retain original compact signer backing");
         let manifest = ContractManifest {
+            permissions: Vec::new(),
+            events: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(Hash::prehashed(sample_hash(0xAA))),
             abi_hash: Some(Hash::prehashed(sample_hash(0xBB))),
@@ -12401,7 +12447,7 @@ seiyaku Privacy {
                         )],
                     },
                 ),
-                permission: None,
+                authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::RuntimeLifecycle,
                 read_keys: vec!["contract:ledger".to_owned()],
                 write_keys: vec!["contract:ledger".to_owned()],
                 access_hints_complete: Some(true),
@@ -12418,6 +12464,7 @@ seiyaku Privacy {
             }]),
             error_messages: None,
             error_types: None,
+            enum_types: Vec::new(),
             provenance: None,
         };
         let frame_bytes = context
@@ -13501,12 +13548,12 @@ seiyaku Privacy {
             gas_policy_commitment: Hash::new(b"gas-policy"),
         };
         let attachment = ProofAttachment::new_ref(
-            "halo2/ipa".parse().expect("backend ident"),
+            "pipa-r/pasta".parse().expect("backend ident"),
             ProofBox::new(
-                "halo2/ipa".parse().expect("proof backend ident"),
+                "pipa-r/pasta".parse().expect("proof backend ident"),
                 vec![0xAA, 0xBB, 0xCC],
             ),
-            VerifyingKeyId::new("halo2/ipa", "ivm-exec-v1"),
+            VerifyingKeyId::new("pipa-r/pasta", "ivm-exec-v1"),
         );
         let proved_json = json::to_json(&proved).expect("proved json");
         let attachment_json = json::to_json(&attachment).expect("attachment json");

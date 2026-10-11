@@ -76,7 +76,6 @@ within configured bounds:
 - `iroha_confidential_frontier_last_checkpoint_commitments{asset_id}`
 - `iroha_confidential_root_evictions_total{asset_id}`
 - `iroha_confidential_frontier_evictions_total{asset_id}`
-- `iroha_zk_verifier_cache_events_total{cache,event}`
 
 Record the values immediately before and after the calibration workload. A
 single command per asset is sufficient; example for `4cuvDVPuLBKJyN6dPbRQhmLh68sU`:
@@ -90,18 +89,6 @@ Attach the raw output (or Prometheus snapshot) to the calibration ticket so the
 governance reviewer can confirm root-history caps and checkpoint intervals are
 honoured. The telemetry guide in `specs/telemetry.md#confidential-tree-telemetry-m22`
 expands on alerting expectations and the associated Grafana panels.
-
-Include the verifier cache counters in the same scrape so reviewers can confirm
-the miss ratio stayed below the 40 % warning threshold:
-
-```bash
-curl -s http://127.0.0.1:8180/metrics \\
-  | rg 'iroha_zk_verifier_cache_events_total{cache="vk",event="(hit|miss)"}'
-```
-
-Document the derived ratio (`miss / (hit + miss)`) inside the calibration note
-to show the SIMD-neutral cost modelling exercises reused warm caches instead of
-thrashing the Halo2 verifier registry.
 
 ## Neutral & AVX2 Waiver
 

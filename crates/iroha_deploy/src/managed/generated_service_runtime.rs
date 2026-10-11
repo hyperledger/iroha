@@ -4,7 +4,7 @@ use super::{
     ManagedCustodyEnrollmentInterval, ManagedStreamTokenCustody, ManagedTransactionFinality,
     PreparedLocalnet, Result, RetainedCustodyEnrollment,
     native_operation::{encode, invalid, now_ms, read_optional, require_deadline},
-    service_authority::{NetworkPurpose, ServiceAuthority},
+    service_authority::{CheckpointImportScope, NetworkPurpose, ServiceAuthority},
     service_bootstrap::{ManagedServiceBootstrap, ServiceBootstrapProgress},
     service_policies::GeneratedServicePolicies,
 };
@@ -25,6 +25,7 @@ use zeroize::Zeroizing;
 mod carriers;
 mod components;
 mod config;
+mod projections;
 mod recovery;
 use carriers::{RequiredTransaction, RequiredTransactions};
 use components::{ComponentIdentity, PreparedProviderComponent, ProviderComponent};
@@ -73,62 +74,100 @@ struct RuntimeSelection {
 }
 impl RuntimeSelection {
     fn read(authority: &ServiceAuthority) -> Result<Self> {
-        authority.validate_profile()?;
-        // RuntimeSelection owns its original projection; copy only at that ownership boundary.
-        let plans = authority.provider_plans()?.clone();
-        let publication = authority.publication_plan()?;
-        if publication.peer_index() != 0
-            || publication.network_id() != authority.config.network_id
-            || publication.chain_id() != authority.config.chain.as_str()
-            || publication.seed_provider() != plans[0].provider_id()
-            || publication.ingress_broker() != &authority
-                .provider_inventory(plans[0].provider_id())?
-                .authority(crate::localnet::service_authorities::StreamTokenAuthorityRole::IssuerOperator)?
-                .account
-            || publication.pin_authority()
-                != authority.network_role(
-                    crate::localnet::service_authorities::NetworkServiceAuthorityRole::MusubiPin,
-                )?
-        {
-            return Err(invalid("original publication selection differs"));
-        }
-        let parent = ManagedServiceBootstrap::open(&authority.prepared)?;
-        let policies = parent.selected_policies()?;
-        drop(parent);
-        let mut initial = Vec::with_capacity(3);
-        let mut compliance = Vec::with_capacity(3);
-        for (index, plan) in plans.iter().enumerate() {
-            if plan.peer_index() != index
-                || usize::from(plan.slot()) != index
-                || plan.network_id() != authority.config.network_id
+        let intent = authority.original_intent()?;
+        // This read owns one bounded immutable import workspace for its three fresh children.
+        // It carries no source, wallet, current-state or authority verdict beyond this call.
+        let imports = CheckpointImportScope::for_original(authority);
+        #[cfg(test)]
+        let imports = tests::import_scope_tests::select_scope(imports);
+        // Only immutable projections share this view. Every mutable child read below retains
+        // its ordinary native admission, and no projection escapes the full-image exit check.
+        let read = intent.runtime_read();
+        let result = (|| {
+            // RuntimeSelection owns its original projection; copy only at that ownership boundary.
+            let plans = intent.provider_plans()?.clone();
+            let publication = intent.publication_plan()?;
+            if publication.peer_index() != 0
+                || publication.network_id() != authority.config.network_id
+                || publication.chain_id() != authority.config.chain.as_str()
+                || publication.seed_provider() != plans[0].provider_id()
+                || publication.ingress_broker() != &authority
+                    .provider_inventory(plans[0].provider_id())?
+                    .authority(crate::localnet::service_authorities::StreamTokenAuthorityRole::IssuerOperator)?
+                    .account
+                || publication.pin_authority()
+                    != authority.network_role(
+                        crate::localnet::service_authorities::NetworkServiceAuthorityRole::MusubiPin,
+                    )?
             {
-                return Err(invalid("original generated provider slot differs"));
+                return Err(invalid("original publication selection differs"));
             }
-            policies.provider(plan.provider_id())?;
-            let selected = match ManagedStreamTokenCustody::open_existing(
-                &authority.prepared,
-                plan.provider_id(),
-            )? {
-                Some(custody) => custody.inspect_local_initial_interval_if_present(
-                    &policies.provider(plan.provider_id())?.custody,
-                )?,
-                None => None,
+            let parent = match read.as_ref() {
+                Some(read) => ManagedServiceBootstrap::open_existing_in_runtime(authority, read)?,
+                None => ManagedServiceBootstrap::open_existing_from_original(authority)?,
+            }
+            .ok_or_else(|| invalid("original service bootstrap intent is absent"))?;
+            let policies = match read.as_ref() {
+                Some(read) => parent.selected_policies_in_runtime(read)?,
+                None => parent.selected_policies()?,
             };
-            initial.push(selected);
-            compliance.push(authority.gateway_compliance_plan(plan.provider_id())?);
-        }
-        policies.validate(authority)?;
-        Ok(Self {
-            policies,
-            plans,
-            publication,
-            compliance: compliance
-                .try_into()
-                .map_err(|_| invalid("original compliance count differs"))?,
-            initial: initial
-                .try_into()
-                .map_err(|_| invalid("original enrollment count differs"))?,
-        })
+            drop(parent);
+            let mut initial = Vec::with_capacity(3);
+            let mut compliance = Vec::with_capacity(3);
+            for (index, plan) in plans.iter().enumerate() {
+                if plan.peer_index() != index
+                    || usize::from(plan.slot()) != index
+                    || plan.network_id() != authority.config.network_id
+                {
+                    return Err(invalid("original generated provider slot differs"));
+                }
+                policies.provider(plan.provider_id())?;
+                let custody = match read.as_ref() {
+                    Some(read) => ManagedStreamTokenCustody::open_existing_in_runtime(
+                        authority,
+                        plan.provider_id(),
+                        imports.as_ref(),
+                        read,
+                    )?,
+                    None => ManagedStreamTokenCustody::open_existing_from_original(
+                        authority,
+                        plan.provider_id(),
+                        imports.as_ref(),
+                    )?,
+                };
+                let selected = match custody {
+                    Some(custody) => custody.inspect_local_initial_interval_if_present(
+                        &policies.provider(plan.provider_id())?.custody,
+                    )?,
+                    None => None,
+                };
+                #[cfg(test)]
+                tests::import_scope_tests::after_child(index, imports.as_ref());
+                initial.push(selected);
+                compliance.push(intent.gateway_compliance_plan(plan.provider_id())?);
+            }
+            intent.validate_policies(&policies)?;
+            Ok(Self {
+                policies,
+                plans,
+                publication,
+                compliance: compliance
+                    .try_into()
+                    .map_err(|_| invalid("original compliance count differs"))?,
+                initial: initial
+                    .try_into()
+                    .map_err(|_| invalid("original enrollment count differs"))?,
+            })
+        })();
+        // Every temporary child is already closed. End pure reuse before closing the original
+        // intent on both success and ordinary error; neither selection retains this workspace.
+        drop(imports);
+        #[cfg(test)]
+        tests::before_selection_finish();
+        // Close custody even when a child or projection failed; an exit refusal supersedes
+        // the ordinary result rather than returning material from a changed original image.
+        intent.finish()?;
+        result
     }
     fn initial(&self, index: usize) -> Result<ManagedCustodyEnrollmentInterval> {
         self.initial
@@ -301,7 +340,9 @@ impl GeneratedServiceRuntime {
                 "runtime renewal requires exact next provider sequence",
             ));
         }
-        let mut parent = ManagedServiceBootstrap::open(&self.authority.prepared)?;
+        #[cfg(all(test, unix))]
+        tests::before_bootstrap_reopen();
+        let mut parent = self.open_original_bootstrap(&self.authority.prepared)?;
         let ServiceBootstrapProgress::Complete(history) = parent.recover(deadline)? else {
             return Err(invalid("renewal requires all original parent execution"));
         };
@@ -343,7 +384,7 @@ impl GeneratedServiceRuntime {
         )?;
         drop(custody);
         // A successor never carries the other two providers forward from stale local intent.
-        self.verify_current_components(&selection, &components, &required, deadline)?;
+        self.verify_current_components(&selection, &components, &required, deadline, false)?;
         self.publish(&selection, Some(components), Some(required), deadline)
     }
     pub(super) fn validate_for(
@@ -436,21 +477,47 @@ impl GeneratedServiceRuntime {
         components: &[Arc<ProviderComponent>; 3],
         required: &RequiredTransactions,
         deadline: Instant,
+        parallel: bool,
     ) -> Result<()> {
         let floor = required.observation_floor()?;
-        for (index, plan) in selection.plans.iter().enumerate() {
-            require_deadline(deadline)?;
-            let mut custody =
-                ManagedStreamTokenCustody::open(&self.authority.prepared, plan.provider_id())?;
+        self.current_provider_round(selection, deadline, parallel, |index, custody| {
+            let provider = selection.plans[index].provider_id();
             custody.verify_current_enrollment(
                 components[index].enrollment(),
-                &selection.policies.provider(plan.provider_id())?.custody,
+                &selection.policies.provider(provider)?.custody,
                 floor.height,
                 *floor.block_hash.as_ref(),
                 deadline,
-            )?;
-        }
-        Ok(())
+            )
+        })
+        .map(|_| ())
+    }
+
+    /// Only provider-local custody and fresh observations run here. Parent selection and
+    /// historical reconstruction stay outside, and every original owner closes before return.
+    fn current_provider_round<T: Send>(
+        &self,
+        selection: &RuntimeSelection,
+        deadline: Instant,
+        parallel: bool,
+        read: impl Fn(usize, &mut ManagedStreamTokenCustody) -> Result<T> + Sync,
+    ) -> Result<[T; 3]> {
+        let result = super::provider_round::run(
+            [0, 1, 2],
+            parallel,
+            |index| {
+                require_deadline(deadline)?;
+                let mut custody = ManagedStreamTokenCustody::open(
+                    &self.authority.prepared,
+                    selection.plans[index].provider_id(),
+                )?;
+                read(index, &mut custody)
+            },
+            || invalid("generated provider observation worker did not complete"),
+        );
+        // Even an ordinary member error waits for every worker and closes the common timer.
+        require_deadline(deadline)?;
+        result
     }
     fn publication_intent(
         &self,

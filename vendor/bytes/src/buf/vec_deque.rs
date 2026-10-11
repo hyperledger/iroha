@@ -1,5 +1,4 @@
 use alloc::collections::VecDeque;
-#[cfg(feature = "std")]
 use std::io;
 
 use super::Buf;
@@ -18,7 +17,6 @@ impl Buf for VecDeque<u8> {
         }
     }
 
-    #[cfg(feature = "std")]
     fn chunks_vectored<'a>(&'a self, dst: &mut [io::IoSlice<'a>]) -> usize {
         if self.is_empty() || dst.is_empty() {
             return 0;

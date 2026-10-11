@@ -2,8 +2,9 @@
 //!
 //! The caller captures all World reads before dropping its view. Native lane reads subsequently
 //! retain their source and pool here. The canonical capacity is unchanged; no live replay fence
-//! is evicted. TODO(S8): initial proof decoding, non-witness graphs, BLS caches and nested
-//! attribution still need complete original-pool owners; descriptors and frames do not fund them.
+//! is evicted. Completed offender vectors/compact keys retain their original execution pool
+//! through one immutable World record body. TODO(S8): native proof decoding and BLS/context
+//! scratch retain their existing owners; the funded body grants none of that scratch custody.
 use super::*;
 use crate::sumeragi::{
     evidence_history::LaneEvidenceRead, runtime_availability::history::HistoryCapture,
@@ -112,7 +113,7 @@ impl ReplayFence {
 }
 struct Candidate {
     key: Hash,
-    frame: ChargedBuffer<u8>,
+    frame: Option<ChargedBuffer<u8>>,
     native: NativeEvidence,
     lane: Option<LaneEvidenceRead>,
     verified: Option<AdmittedEvidence>,
@@ -126,6 +127,8 @@ pub(in crate::sumeragi) struct AdmissionRead {
     signers: ChargedBuffer<OriginalSigner>,
     candidates: ChargedBuffer<Candidate>,
     admitted: ChargedBuffer<AdmittedEvidence>,
+    proof_budget: AllocationBudget,
+    execution_budget: AllocationBudget,
 }
 impl AdmissionRead {
     pub(in crate::sumeragi) fn capture(
@@ -172,6 +175,7 @@ impl AdmissionRead {
             ));
         }
         let budget = state.evidence_preparation_budget();
+        let execution_budget = state.ivm_execution_budget();
         if proofs.is_empty() {
             return Ok(Self {
                 generation,
@@ -182,6 +186,8 @@ impl AdmissionRead {
                 candidates: ChargedBuffer::new(0, budget)
                     .map_err(EvidencePreparationError::from)?,
                 admitted: ChargedBuffer::new(0, budget).map_err(EvidencePreparationError::from)?,
+                proof_budget: budget.clone(),
+                execution_budget: execution_budget.clone(),
             });
         }
         let count = view.world().consensus_evidence().iter().count();
@@ -247,7 +253,9 @@ impl AdmissionRead {
             frame
                 .append(proof.native_frame())
                 .map_err(|_| EvidencePreparationError::Invariant)?;
-            let native = super::witness_custody::decode(proof, budget)?;
+            let native = proof
+                .decode_native()
+                .map_err(EvidenceAdmissionError::from)?;
             let (instance, height, _) = super::super::evidence_history::subject(&native);
             let mut matching = view
                 .world()
@@ -302,16 +310,16 @@ impl AdmissionRead {
                 )?;
                 (
                     None,
-                    Some(AdmittedEvidence {
+                    Some(AdmittedEvidence::from_verified(
                         key,
-                        attribution: verified.into_attribution(),
-                    }),
+                        verified.into_attribution(),
+                    )),
                 )
             };
             candidates
                 .try_push(Candidate {
                     key,
-                    frame,
+                    frame: Some(frame),
                     native,
                     lane,
                     verified,
@@ -327,6 +335,8 @@ impl AdmissionRead {
             signers,
             candidates,
             admitted,
+            proof_budget: budget.clone(),
+            execution_budget: execution_budget.clone(),
         })
     }
     pub(in crate::sumeragi) fn matches(
@@ -343,7 +353,19 @@ impl AdmissionRead {
                 .as_slice()
                 .iter()
                 .zip(proofs)
-                .all(|(candidate, proof)| candidate.frame.as_slice() == proof.native_frame())
+                .all(|(candidate, proof)| {
+                    candidate
+                        .frame
+                        .as_ref()
+                        .map(ChargedBuffer::as_slice)
+                        .or_else(|| {
+                            candidate
+                                .verified
+                                .as_ref()
+                                .and_then(AdmittedEvidence::native_frame)
+                        })
+                        == Some(proof.native_frame())
+                })
     }
     pub(in crate::sumeragi) fn complete(&mut self) -> Result<(), EvidenceAdmissionError> {
         for index in 0..self.candidates.as_slice().len() {
@@ -357,16 +379,16 @@ impl AdmissionRead {
                 if Some(verified.tip()) != self.tip {
                     return Err(EvidencePreparationError::Invariant.into());
                 }
-                candidate.verified = Some(AdmittedEvidence {
-                    key: candidate.key,
-                    attribution: verified.into_attribution(),
-                });
+                candidate.verified = Some(AdmittedEvidence::from_verified(
+                    candidate.key,
+                    verified.into_attribution(),
+                ));
             }
             let current = &self.candidates.as_slice()[index]
                 .verified
                 .as_ref()
                 .expect("independently verified")
-                .attribution;
+                .attribution();
             for fence in self.fences.as_slice() {
                 if fence.shares(current, self.signers.as_slice())? {
                     return Err(invalid(
@@ -380,7 +402,7 @@ impl AdmissionRead {
                         .verified
                         .as_ref()
                         .expect("earlier complete candidate")
-                        .attribution,
+                        .attribution(),
                     current,
                 )
             }) {
@@ -388,6 +410,20 @@ impl AdmissionRead {
                     "a retained report already accounts for an original signer in this epoch",
                 ));
             }
+        }
+        // Every original proof/authentication/replay guard completes before the new
+        // shared shell admission. A later local refusal retains both completed graphs
+        // in this same candidate; cache retirement remains generation/tip guarded.
+        for candidate in self.candidates.as_mut_slice() {
+            candidate
+                .verified
+                .as_mut()
+                .ok_or(EvidencePreparationError::Invariant)?
+                .bind_body(
+                    &mut candidate.frame,
+                    &self.proof_budget,
+                    &self.execution_budget,
+                )?;
         }
         Ok(())
     }
@@ -528,4 +564,4 @@ pub(in crate::sumeragi) fn prepare_admissions(
 mod tests;
 
 #[cfg(test)]
-mod witness_tests;
+mod frame_tests;

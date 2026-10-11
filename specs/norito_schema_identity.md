@@ -187,11 +187,10 @@ artifact. Both dependent library builds emit zero warnings. The shared crate's
 own default suite additionally passes its library and both integration targets,
 including the unchanged status and Android Connect wire fixtures.
 
-The shared HTTP model build identified two additional framed owners:
-`KagemushaOperationLookupV1` and `KagemushaOperationStatusV1`. Their declarations
-match four original serializer/decoder observations. All ten independently
-captured canonical root/Option/Vec frames match the candidate exactly and
-roundtrip. Bounded decoding and external finality anchoring remain enforced.
+The shared HTTP model build identified two additional framed owners,
+`KagemushaOperationLookupV1` and `KagemushaOperationStatusV1`, whose captured
+frames matched the candidate. Both were deleted with the KAGEMUSHA V1 Torii API
+on 2026-10-05.
 Failed predecessor builds and the original one-failure model run remain retained;
 none is counted as a pass. The following SDK qualification advances that
 consumer batch; remaining workspace migration, strict dependent/workspace
@@ -511,8 +510,8 @@ formatting, patch checks and codec guards pass for all 18 changed source/fixture
 paths; the complete state/consensus, workspace, native, memory and release gates
 remain open.
 
-The following Core stage declares 42 actual KAGEMUSHA state owners and 25
-finalized-query owners from retained directional identity observations. Eight
+The following Core stage declares 42 actual KAGEMUSHA state owners (deleted
+with the old KAGEMUSHA state on 2026-10-05) and 25 finalized-query owners from retained directional identity observations. Eight
 commitment functions and their private preimages move unchanged into one cohesive
 module; the state root falls to 4,858 lines and the commitment module is 312 lines.
 The one previously uncaptured function-local lane-binding record retains its
@@ -969,15 +968,6 @@ wider sealed model run completed 3,045 passes and exposed 37 failures that
 still require disposition. That historical run predates the finite Native AMX
 participant-settlement wire repair; therefore it does not qualify the complete
 model suite.
-
-The first-release KAGEMUSHA manifest now includes the genesis-derived
-`NetworkId` in its payload and in the release-ID subject. Its payload and
-release ID change, but the captured `KagemushaReleaseManifestV1` and
-`KagemushaReleaseSubjectV1` frame identities remain exact: Norito's frame hash
-depends on the declared nominal root name, not on payload fields. The
-model-owned captured-schema test checks both unchanged hashes; the manifest
-roundtrip and signed-network mutation test check the changed payload and
-release-ID behavior. There is no backward decoder for the networkless shape.
 
 ### Batch declaration migration
 

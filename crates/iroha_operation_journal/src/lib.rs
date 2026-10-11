@@ -16,7 +16,7 @@
 //! submission-intent schema. Retained descriptors bind the owner-private directory and original
 //! exclusive lock; changed ancestry, links, access, identities and record bytes are refused.
 use eyre::{Result, WrapErr as _, eyre};
-use iroha_fs::{FileIdentity, OwnerDirectory, PrivateDirectory, PublishMode};
+use iroha_fs::{FileIdentity, OwnerDirectory, PrivateDirectory, PrivateReadScope, PublishMode};
 use norito::json::{self, JsonDeserialize, JsonSerialize};
 use sha2::{Digest as _, Sha256};
 use std::{
@@ -61,11 +61,119 @@ pub fn canonical_bytes<T: JsonSerialize + ?Sized>(value: &T) -> Result<Box<[u8]>
         .map_err(|error| eyre!("bounded journal encoding: {error:?}"))
 }
 
+// One pure native-record decode/canonical policy, after the caller's per-record exit custody.
+fn decode_native<T: JsonDeserialize + JsonSerialize>(bytes: &[u8]) -> Result<T> {
+    let value = json::from_slice(bytes).wrap_err("invalid native preparation evidence")?;
+    eyre::ensure!(
+        canonical_bytes(&value)?.as_ref() == bytes,
+        "noncanonical native preparation evidence"
+    );
+    Ok(value)
+}
+
 /// Retained private operation directory and its exclusive native process lock.
 pub struct Journal {
     path: PathBuf,
     directory: PrivateDirectory,
     lock: File,
+}
+
+/// Borrowed fixed-record reader inside one closed original journal inspection.
+///
+/// No descriptor, path, writer or custody verdict is exposed. Each record retains entry/middle/exit
+/// original-lock checks before decoding. This view cannot leave [`Journal::read_native_scope`].
+pub struct NativeJournalReadScope<'read, 'scope> {
+    journal: &'read Journal,
+    reader: &'read mut PrivateReadScope<'scope>,
+}
+
+impl core::fmt::Debug for NativeJournalReadScope<'_, '_> {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("NativeJournalReadScope")
+            .finish_non_exhaustive()
+    }
+}
+
+impl NativeJournalReadScope<'_, '_> {
+    fn read_optional(&mut self, name: &str) -> Result<Option<Vec<u8>>> {
+        let journal = self.journal;
+        journal.with_read_custody_in_scope(self.reader, |reader| {
+            Self::read_optional_body(journal, reader, name)
+        })
+    }
+
+    fn read_optional_body(
+        journal: &Journal,
+        reader: &mut PrivateReadScope<'_>,
+        name: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        reader.read_admitted(
+            name,
+            MAX_JOURNAL_BYTES,
+            (
+                |extent| {
+                    let length = usize::try_from(extent)?;
+                    eyre::ensure!(
+                        length <= MAX_JOURNAL_BYTES,
+                        "journal evidence exceeds its byte bound"
+                    );
+                    Ok(length)
+                },
+                |length| {
+                    norito::core::reserve_decode_allocation(length)?;
+                    let mut bytes = Vec::new();
+                    bytes.try_reserve_exact(length)?;
+                    bytes.resize(length, 0);
+                    Ok(bytes)
+                },
+            ),
+            |reader| journal.revalidate_lock_in_scope(reader),
+            (
+                |error| eyre::Report::new(error).wrap_err("cannot open private journal evidence"),
+                |namespace| {
+                    eyre!(if namespace {
+                        "journal evidence namespace changed"
+                    } else {
+                        "journal evidence changed during read"
+                    })
+                },
+            ),
+        )
+    }
+
+    /// Read one fixed canonical record after its ordinary-result original-lock exit.
+    /// # Errors
+    /// Preserves unsafe native custody, allocation refusal, malformed and noncanonical evidence.
+    pub fn read_native<T: JsonDeserialize + JsonSerialize>(
+        &mut self,
+        record: NativeRecord,
+    ) -> Result<Option<T>> {
+        let Some(bytes) = self.read_optional(record.name())? else {
+            return Ok(None);
+        };
+        decode_native(&bytes).map(Some)
+    }
+
+    /// Observe exposure markers lazily without granting their bytes meaning.
+    /// # Errors
+    /// Refuses unsafe custody and malformed or excessive native evidence extents.
+    pub fn has_dispatch_evidence(&mut self) -> Result<bool> {
+        Ok(self.read_optional("submission.json")?.is_some()
+            || self.read_optional(APPLIED_EVIDENCE)?.is_some())
+    }
+
+    /// Recheck the exact original pre-dispatch marker independently at this read boundary.
+    /// # Errors
+    /// Preserves encoding limits and refuses a marker for different original bytes.
+    pub fn submission_recorded<T: JsonSerialize>(&mut self, operation: &T) -> Result<bool> {
+        let bytes = Journal::submission_bytes(operation)?;
+        match self.read_optional("submission.json")? {
+            Some(existing) if existing == bytes => Ok(true),
+            Some(_) => eyre::bail!("submission marker differs from the exact retained operation"),
+            None => Ok(false),
+        }
+    }
 }
 
 impl core::fmt::Debug for Journal {
@@ -186,13 +294,53 @@ impl Journal {
                 .parent()
                 .ok_or_else(|| eyre!("journal has no parent"))?,
         )?;
-        let selected = parent.path().join(name);
-        let outcome = match std::fs::symlink_metadata(&selected) {
-            Ok(_) => Self::open(&selected).map(Some),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Self::open_optional_in_parent(&parent, name)
+    }
+
+    /// Open an optional journal child through its original retained private parent.
+    ///
+    /// The child shares every held ancestor descriptor without reopening an absolute path.
+    /// Native child admission, the exclusive original lock and sync remain fresh. Only initial
+    /// child absence returns `None`; a missing lock or later custody failure remains an error.
+    /// Parent custody closes every ordinary result, including lock admission failures. The
+    /// original parent and all of its ancestors remain held for the returned journal lifetime.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe or changed custody, competing locks and native errors.
+    pub fn open_optional_child(
+        parent: &PrivateDirectory,
+        name: impl AsRef<std::ffi::OsStr>,
+    ) -> Result<Option<Self>> {
+        Self::open_optional_with_parent(|| parent.open_child_optional(name), || parent.revalidate())
+    }
+
+    // The original parent remains held through the child lock/sync boundary and every exit.
+    // A successful child shares its native ancestry; no second absolute owner is selected.
+    fn open_optional_in_parent(
+        parent: &OwnerDirectory,
+        name: &std::ffi::OsStr,
+    ) -> Result<Option<Self>> {
+        Self::open_optional_with_parent(
+            || parent.open_private_child_optional(name),
+            || parent.revalidate(),
+        )
+    }
+
+    // One child/lock/exit recipe for both legitimate parent admission boundaries. Keep the
+    // outcome live until the original parent exit, and release a successful lock on refusal.
+    fn open_optional_with_parent(
+        open_child: impl FnOnce() -> std::io::Result<Option<PrivateDirectory>>,
+        check_parent: impl FnOnce() -> std::io::Result<()>,
+    ) -> Result<Option<Self>> {
+        let outcome = match open_child() {
+            Ok(Some(directory)) => Self::lock_directory(directory, false).map(Some),
+            Ok(None) => Ok(None),
             Err(error) => Err(error.into()),
         };
-        parent.revalidate()?;
+        if let Err(error) = check_parent() {
+            drop(outcome);
+            return Err(error.into());
+        }
         outcome
     }
 
@@ -231,12 +379,51 @@ impl Journal {
         let Some(bytes) = self.read_optional(record.name())? else {
             return Ok(None);
         };
-        let value = json::from_slice(&bytes).wrap_err("invalid native preparation evidence")?;
-        eyre::ensure!(
-            canonical_bytes(&value)?.as_ref() == bytes,
-            "noncanonical native preparation evidence"
-        );
-        Ok(Some(value))
+        decode_native(&bytes).map(Some)
+    }
+
+    /// Inspect fixed native records in one read-only original-directory transaction.
+    ///
+    /// Every record retains fresh original-lock and native leaf admission and closes lock custody
+    /// before decode. Whole Journal and directory ancestry bracket all ordinary callback results;
+    /// exit refusal dominates body errors. Intermediate ancestry observations consolidate, so a
+    /// completely restored transient change may be unobserved. This is neither an atomic snapshot
+    /// nor an unwind guarantee. Keep callbacks free of writes, signing and network effects.
+    ///
+    /// # Errors
+    /// Preserves record/decoder errors only after original lock and full ancestry exit succeeds.
+    pub fn read_native_scope<T>(
+        &self,
+        read: impl for<'read, 'scope> FnOnce(&mut NativeJournalReadScope<'read, 'scope>) -> Result<T>,
+    ) -> Result<T> {
+        self.with_read_custody(|| {
+            self.directory.read_scope(|reader| {
+                read(&mut NativeJournalReadScope {
+                    journal: self,
+                    reader,
+                })
+            })
+        })
+    }
+
+    fn revalidate_lock_in_scope(&self, reader: &PrivateReadScope<'_>) -> Result<()> {
+        reader.require_same_file("lock", &self.lock, || {
+            eyre!("journal lock no longer identifies the retained ownership file")
+        })
+    }
+
+    fn with_read_custody_in_scope<'scope, T>(
+        &self,
+        reader: &mut PrivateReadScope<'scope>,
+        read: impl FnOnce(&mut PrivateReadScope<'scope>) -> Result<T>,
+    ) -> Result<T> {
+        self.revalidate_lock_in_scope(reader)?;
+        let result = read(reader);
+        if let Err(error) = self.revalidate_lock_in_scope(reader) {
+            drop(result);
+            return Err(error);
+        }
+        result
     }
 
     /// Append one immutable fixed native preparation record.
@@ -316,7 +503,7 @@ impl Journal {
                 "journal must be a fresh directory; existing evidence is never replaced",
             )?
         } else {
-            PrivateDirectory::open(parent.path().join(name))?
+            parent.open_private_child(name)?
         };
         Self::lock_directory(directory, create)
     }
@@ -420,36 +607,33 @@ impl Journal {
     }
 
     fn read_optional(&self, name: &str) -> Result<Option<Vec<u8>>> {
-        use std::io::Read as _;
+        self.with_read_custody(|| self.read_optional_body(name))
+    }
+
+    // Every ordinary result retains the same journal and original lock through exit custody.
+    // Exit refusal takes precedence over absence, a body error, or completed evidence bytes.
+    // This is a Result boundary; it does not promise a custody check during unwinding.
+    fn with_read_custody<T>(&self, read: impl FnOnce() -> Result<T>) -> Result<T> {
         self.revalidate()?;
-        let mut file = match self.directory.open_read(name) {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error).wrap_err("cannot open private journal evidence"),
-        };
-        let before = iroha_fs::FileSnapshot::of(&file, true)?;
-        let length = usize::try_from(file.metadata()?.len())?;
-        eyre::ensure!(
-            length <= MAX_JOURNAL_BYTES,
-            "journal evidence exceeds its byte bound"
-        );
-        norito::core::reserve_decode_allocation(length)?;
-        let mut bytes = Vec::new();
-        bytes.try_reserve_exact(length)?;
-        bytes.resize(length, 0);
-        file.read_exact(&mut bytes)?;
-        let mut tail = [0_u8; 1];
-        eyre::ensure!(
-            file.read(&mut tail)? == 0 && iroha_fs::FileSnapshot::of(&file, true)? == before,
-            "journal evidence changed during read"
-        );
-        self.revalidate()?;
-        let current = self.directory.open_read(name)?;
-        eyre::ensure!(
-            iroha_fs::FileSnapshot::of(&current, true)? == before,
-            "journal evidence namespace changed"
-        );
-        Ok(Some(bytes))
+        let result = read();
+        if let Err(error) = self.revalidate() {
+            drop(result);
+            return Err(error);
+        }
+        result
+    }
+
+    fn read_optional_body(&self, name: &str) -> Result<Option<Vec<u8>>> {
+        // Standalone and batch reads share first-open-only absence and the same owned recipe.
+        // This also consolidates standalone intermediate ancestry observations under this
+        // entry/ordinary-result exit bracket; a completely restored transient may be unobserved.
+        self.directory.read_scope(|reader| {
+            NativeJournalReadScope {
+                journal: self,
+                reader,
+            }
+            .read_optional(name)
+        })
     }
 
     fn read(&self, name: &str) -> Result<Vec<u8>> {
@@ -757,3 +941,16 @@ mod custody_anchor_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod read_exit_tests;
+
+#[cfg(test)]
+mod native_scope_tests;
+
+#[cfg(test)]
+mod parent_admission_tests;
+
+#[cfg(test)]
+#[path = "borrowed_private_parent_tests.rs"]
+mod borrowed_private_parent_tests;

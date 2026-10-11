@@ -201,12 +201,10 @@ impl KagemushaWalletAdvanceCapsuleV1 for KagemushaWalletRecoveryCapsuleV1 {
 /// certify is never selected. Both must be deterministic functions of the frozen capsule
 /// (and its signature): recovery asks again after a restart. A failure after selection leaves
 /// the operation performed and pending.
-// TODO(G2-S): the G1 owner derives the body with `KagemushaWalletReceiptBodyV1::derive` from
-// the credential's signer identity, the capsule's operation-dependent `proof_digest` and its
-// Receive Payment digest, and assembles the compact Payment (Send) or the Package with the
-// capsule's Ω(pred) slot (other kinds). Before staging it authenticates the native stores
-// against the expected head's roots (Ω(pred)'s pending-outgoing root for Send, Unload and
-// Retiring) and checks each recomputed successor root against σ's successor (spec §4.2 step 2).
+// The native state owner's TransitionOwner derives the receipt body from the credential,
+// operation proof digest and retained Payment digest, then assembles the exact Payment or
+// Package. Its Coordinator authenticates source maps and re-derives the frozen successor
+// before calling Advance; this provider interface owns the durable signing boundary.
 pub trait KagemushaWalletTransitionOwnerV1<C, R> {
     /// Exact `receipt-body` transcript for `capsule` whose frame digest is `capsule_digest`.
     ///
@@ -733,10 +731,10 @@ where
         if request.new_head != head {
             return Err(invalid("new_head"));
         }
-        // TODO(G2, spec §3.1 step 1 and design §14 items 3-5): for Send, Unload and Retiring
-        // also require a durable fold record of the expected head whose lineage digest equals
-        // the capsule's Ω(pred), keep fold records beside the capsules (create-new, two copies,
-        // reconciled) and retain fold witnesses until a durable Ω covers each step.
+        // For Send, Unload and Retiring, the native Coordinator requires the source-selected
+        // durable fold of this expected head and exact equality with capsule Ω(pred) before
+        // dispatch. Its collection owner retains witnesses until a verified durable Ω covers
+        // them. Advance independently binds the capsule to the currently selected head below.
         let bound = capsule
             .bound_proof_digest()
             .map_err(|_| invalid("proof_digest"))?;

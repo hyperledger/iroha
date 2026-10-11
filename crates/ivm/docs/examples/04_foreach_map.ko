@@ -1,7 +1,7 @@
 // Presence-aware StateMap reads inside a seiyaku.
 seiyaku MapIndexing {
     state StateMap<int, int> values;
-    kotoage fn sum_two() -> int authorize("Entry") {
+    view fn sum_two() authorize(anyone) -> int {
         let a = values.get(1).unwrap_or(0);
         let b = values.get(2).unwrap_or(0);
         return a + b;

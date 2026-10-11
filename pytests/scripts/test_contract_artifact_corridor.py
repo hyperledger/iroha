@@ -1,10 +1,11 @@
 """Unit and adversarial tests for `scripts/contract_artifact_corridor.py` (SCCP v1, `specs/sccp.md` §5.5).
 
-The corridor pins the native Solidity 0.8.31 compilers for ETH/BSC and TRON,
-compiles `contracts/evm/sccp/SccpTairaXor.sol` with the cancun legacy-pipeline
-settings, and locks each runtime template with its named immutable references.
-These tests use synthetic compilers and outputs; the real-compiler round trip
-runs only when both pinned compilers are already in the corridor cache.
+The corridor pins the native Solidity 0.8.31 compiler for Ethereum and BSC,
+compiles `contracts/evm/sccp/SccpTairaXor.sol` and its one imported library
+with the cancun legacy-pipeline settings, and locks the creation code and the
+runtime template with its named immutable references. These tests use a
+synthetic compiler and outputs; the real-compiler round trip runs only when the
+pinned compiler is already in the corridor cache.
 """
 
 from __future__ import annotations
@@ -30,6 +31,8 @@ import contract_artifact_corridor as corridor  # noqa: E402
 
 
 SOURCE_HEADER = "// SPDX-License-Identifier: Apache-2.0\npragma solidity 0.8.31;\n"
+CONTRACT_HEADER = SOURCE_HEADER + corridor.SCCP_LIBRARY_IMPORT + "\n"
+LIBRARY_TEXT = SOURCE_HEADER + "library BLS12_381 {}\n"
 IMMUTABLE_IDS = {name: str(100 + index) for index, name in enumerate(corridor.EXPECTED_IMMUTABLES)}
 
 
@@ -70,25 +73,27 @@ def fake_spec(target: str, payload: bytes) -> corridor.CompilerSpec:
 
 
 EVM_COMPILER = fake_executable(b"fake evm compiler")
-TRON_COMPILER = fake_executable(b"fake tron compiler")
 
 
 def fake_config(**overrides: object) -> corridor.CorridorConfig:
     config = corridor.CorridorConfig(
-        compilers={"evm": fake_spec("evm", EVM_COMPILER), "tron": fake_spec("tron", TRON_COMPILER)},
+        compilers={"evm": fake_spec("evm", EVM_COMPILER)},
         settings=corridor.EXPECTED_SETTINGS,
-        sources={"evm": (corridor.SCCP_SOURCE,), "tron": (corridor.SCCP_SOURCE,)},
-        size_limits={target: {"creation_bytecode_bytes": 49152, "runtime_bytecode_bytes": 24576} for target in corridor.TARGETS},
-        tvm_runner={"image": "tronbox/tre@sha256:" + "0" * 64, "platform": "linux/amd64"},
+        sources={"evm": corridor.SCCP_SOURCES},
+        size_limits={"evm": {"creation_bytecode_bytes": 49152, "runtime_bytecode_bytes": 24576}},
         canonical_sha256="a" * 64,
     )
     return replace(config, **overrides)
 
 
 def fake_repo(tmp_path: Path, body: str = "contract SccpTairaXor {}\n") -> Path:
+    """Write the contract (header, library import, `body`) and an empty library."""
+
     source = tmp_path / corridor.SCCP_SOURCE
-    source.parent.mkdir(parents=True)
-    source.write_text(SOURCE_HEADER + body)
+    library = tmp_path / corridor.SCCP_LIBRARY_SOURCE
+    library.parent.mkdir(parents=True)
+    source.write_text(CONTRACT_HEADER + body)
+    library.write_text(LIBRARY_TEXT)
     return tmp_path
 
 
@@ -108,15 +113,18 @@ def immutable_ast() -> Mapping[str, object]:
     }
 
 
-def fake_output(target: str, runtime_tail: str) -> Mapping[str, object]:
-    """Synthetic standard-json output with every §5.2.3 immutable referenced once."""
+def fake_output(runtime_tail: str = "aa") -> Mapping[str, object]:
+    """Synthetic standard-json output: the contract with every §5.2.3 immutable referenced once, and the library."""
 
     runtime = bytearray(32 * len(IMMUTABLE_IDS)) + bytes.fromhex(runtime_tail)
     references = {ast_id: [{"start": 32 * index, "length": 32}] for index, ast_id in enumerate(IMMUTABLE_IDS.values())}
-    version = "0.8.31+commit." + target
-    metadata = json.dumps({"compiler": {"version": version}, "settings": {"evmVersion": "cancun"}})
+    metadata = json.dumps({"compiler": {"version": "0.8.31+commit.evm"}, "settings": {"evmVersion": "cancun"}})
+    library_runtime = "73" + "00" * 20 + "3014"
     return {
-        "sources": {corridor.SCCP_SOURCE: {"id": 0, "ast": immutable_ast()}},
+        "sources": {
+            corridor.SCCP_SOURCE: {"id": 0, "ast": immutable_ast()},
+            corridor.SCCP_LIBRARY_SOURCE: {"id": 1, "ast": {"nodeType": "SourceUnit", "nodes": []}},
+        },
         "contracts": {
             corridor.SCCP_SOURCE: {
                 "SccpTairaXor": {
@@ -131,12 +139,22 @@ def fake_output(target: str, runtime_tail: str) -> Mapping[str, object]:
                         },
                     },
                 }
-            }
+            },
+            corridor.SCCP_LIBRARY_SOURCE: {
+                "BLS12_381": {
+                    "abi": [],
+                    "metadata": metadata,
+                    "evm": {
+                        "bytecode": {"object": "6015" + library_runtime, "linkReferences": {}},
+                        "deployedBytecode": {"object": library_runtime, "linkReferences": {}, "immutableReferences": {}},
+                    },
+                }
+            },
         },
     }
 
 
-def fake_runner(outputs: Dict[str, Mapping[str, object]]):
+def fake_runner(output: Mapping[str, object]):
     calls: List[str] = []
 
     def run(compiler_path: Path, spec: corridor.CompilerSpec, payload: bytes) -> Mapping[str, object]:
@@ -144,22 +162,30 @@ def fake_runner(outputs: Dict[str, Mapping[str, object]]):
         assert hashlib.sha256(compiled).hexdigest() == spec.artifacts[corridor.native_compiler_platform()].sha256
         corridor.validate_native_compiler_input(payload, corridor.EXPECTED_SETTINGS)
         calls.append(spec.target)
-        return copy.deepcopy(outputs[spec.target])
+        return copy.deepcopy(output)
 
     run.calls = calls  # type: ignore[attr-defined]
     return run
 
 
 def fake_fetcher(url: str) -> bytes:
-    return EVM_COMPILER if "evm" in url else TRON_COMPILER
+    assert url == "https://example.invalid/evm-solc"
+    return EVM_COMPILER
 
 
-def compile_fake(tmp_path: Path, outputs: Dict[str, Mapping[str, object]] | None = None):
+def compile_fake(tmp_path: Path, output: Optional[Mapping[str, object]] = None):
     repo = fake_repo(tmp_path / "repo")
     config = fake_config()
-    outputs = outputs or {"evm": fake_output("evm", "aa"), "tron": fake_output("tron", "bb")}
-    manifest = corridor.compile_corridor(repo, config, fake_fetcher, fake_runner(outputs), cache_dir=None)
+    runner = fake_runner(fake_output() if output is None else output)
+    manifest = corridor.compile_corridor(repo, config, fake_fetcher, runner, cache_dir=None)
+    assert runner.calls == ["evm"], "one authenticated compiler process compiles the single target"
     return repo, config, manifest
+
+
+def contract_output(output: Mapping[str, object]) -> Dict[str, object]:
+    """The mutable `evm` output of `SccpTairaXor` inside a synthetic compiler output."""
+
+    return output["contracts"][corridor.SCCP_SOURCE]["SccpTairaXor"]["evm"]  # type: ignore[index]
 
 
 # ---------------------------------------------------------------------------
@@ -191,17 +217,49 @@ def test_json_parsing_rejects_duplicates_constants_and_empty_input() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_committed_compiler_lock_pins_both_native_compilers() -> None:
+def test_committed_compiler_lock_pins_only_the_evm_compiler() -> None:
     config = corridor.load_corridor_config()
+    assert corridor.TARGETS == ("evm",)
     assert config.settings == corridor.EXPECTED_SETTINGS
     assert config.settings["evmVersion"] == "cancun" and config.settings["viaIR"] is False
     assert config.settings["metadata"] == {"appendCBOR": False, "bytecodeHash": "none"}
-    assert config.sources == {"evm": (corridor.SCCP_SOURCE,), "tron": (corridor.SCCP_SOURCE,)}
-    for target in corridor.TARGETS:
-        assert set(config.compilers[target].artifacts) == set(corridor.PLATFORMS)
+    assert config.sources == {
+        "evm": ("contracts/evm/sccp/SccpTairaXor.sol", "contracts/evm/sccp/lib/BLS12_381.sol")
+    }
+    assert config.size_limits == {"evm": {"creation_bytecode_bytes": 49152, "runtime_bytecode_bytes": 24576}}
+    assert set(config.compilers) == {"evm"}
+    assert set(config.compilers["evm"].artifacts) == set(corridor.PLATFORMS)
     assert config.compilers["evm"].reported_version == "0.8.31+commit.fd3a2265"
-    assert config.compilers["tron"].reported_version == "0.8.31+commit.c2812a3d"
-    assert config.tvm_runner["image"].startswith("tronbox/tre@sha256:")
+    lock = json.loads(corridor.DEFAULT_COMPILER_LOCK.read_text(encoding="utf-8"))
+    assert set(lock) == {"schema", "compilers", "settings", "sources", "size_limits"}
+
+
+def test_compiler_lock_rejects_a_second_target(tmp_path: Path) -> None:
+    path = tmp_path / "compiler-lock.json"
+    for section in ("compilers", "sources", "size_limits"):
+        lock = json.loads(corridor.DEFAULT_COMPILER_LOCK.read_text(encoding="utf-8"))
+        lock[section]["other"] = copy.deepcopy(lock[section]["evm"])
+        path.write_text(json.dumps(lock), encoding="utf-8")
+        with pytest.raises(corridor.CorridorError, match="exactly the EVM target"):
+            corridor.load_corridor_config(path)
+    assert set(corridor.EXPECTED_COMPILERS) == {"evm"}
+
+
+def test_expected_immutables_are_the_nine_constructor_arguments() -> None:
+    # `specs/sccp.md` §5.2.1 constructor arguments in declaration order.
+    constructor = (
+        "TAIRA_NETWORK_ID",
+        "CONSENSUS_INSTANCE",
+        "NETWORK_TAG",
+        "ROUTE_REVISION",
+        "MAX_WRAPPED_SUPPLY",
+        "INITIAL_GENERATION",
+        "INITIAL_COMMITTEE_ROOT",
+        "INITIAL_START_HEIGHT",
+        "INITIAL_UNTIL_MS",
+    )
+    assert len(corridor.EXPECTED_IMMUTABLES) == 9
+    assert corridor.EXPECTED_IMMUTABLES == tuple(sorted(constructor))
 
 
 @pytest.mark.parametrize(
@@ -211,13 +269,17 @@ def test_committed_compiler_lock_pins_both_native_compilers() -> None:
         lambda lock: lock["settings"].__setitem__("viaIR", True),
         lambda lock: lock["settings"]["metadata"].__setitem__("bytecodeHash", "ipfs"),
         lambda lock: lock["compilers"]["evm"]["artifacts"]["linux-amd64"].__setitem__("sha256", "0" * 64),
-        lambda lock: lock["compilers"]["tron"]["artifacts"]["macos-universal"].__setitem__("url", "http://x"),
+        lambda lock: lock["compilers"]["evm"]["artifacts"]["macos-universal"].__setitem__("url", "http://x"),
         lambda lock: lock["compilers"]["evm"]["artifacts"].pop("linux-arm64"),
         lambda lock: lock["sources"].__setitem__("evm", ["contracts/evm/sccp/Other.sol"]),
-        lambda lock: lock["sources"].__setitem__("tron", [corridor.SCCP_SOURCE, "a/B.sol"]),
+        lambda lock: lock["sources"].__setitem__("evm", [corridor.SCCP_SOURCE]),
+        lambda lock: lock["sources"].__setitem__("evm", [corridor.SCCP_LIBRARY_SOURCE]),
+        lambda lock: lock["sources"]["evm"].append("contracts/evm/sccp/lib/Other.sol"),
+        lambda lock: lock["sources"]["evm"].reverse(),
+        lambda lock: lock["sources"].__setitem__("evm", []),
         lambda lock: lock["sources"].__setitem__("evm", ["../escape.sol"]),
         lambda lock: lock["size_limits"]["evm"].__setitem__("runtime_bytecode_bytes", 0),
-        lambda lock: lock["tvm_runner"].__setitem__("image", "tronbox/tre:latest"),
+        lambda lock: lock["size_limits"]["evm"].pop("creation_bytecode_bytes"),
         lambda lock: lock.__setitem__("schema", "iroha.sccp.contract-compiler-lock.v0"),
         lambda lock: lock.__setitem__("extra", 1),
     ],
@@ -235,10 +297,6 @@ def test_committed_compiler_lock_is_exactly_the_reviewed_native_releases() -> No
     config = corridor.load_corridor_config()
     for target in corridor.TARGETS:
         assert corridor.compiler_identity(config.compilers[target]) == corridor.EXPECTED_COMPILERS[target]
-    assert config.tvm_runner == {
-        "image": "tronbox/tre@sha256:e57deeb0d8201498549dbec28e7c329d8647ef0976b547cfbb6fa6a41a10f491",
-        "platform": "linux/amd64",
-    }
 
 
 @pytest.mark.parametrize("target", corridor.TARGETS)
@@ -284,25 +342,6 @@ def test_compiler_lock_rejects_portable_source_path_collisions(tmp_path: Path) -
     path.write_text(json.dumps(lock), encoding="utf-8")
     with pytest.raises(corridor.CorridorError, match="sorted"):
         corridor.load_corridor_config(path)
-
-
-def test_compiler_aliases_are_rejected_before_fetch_or_execution(tmp_path: Path) -> None:
-    def forbidden(*_args: object) -> bytes:
-        raise AssertionError("a compiler alias must fail before fetch or execution")
-
-    config = fake_config()
-    evm, tron = config.compilers["evm"], config.compilers["tron"]
-    corridor.validate_distinct_compilers(config.compilers)
-    for compilers, message in (
-        ({"evm": evm, "tron": replace(tron, artifacts=evm.artifacts)}, "executables must be distinct"),
-        ({"evm": evm, "tron": replace(evm, target="tron")}, "identities must be distinct"),
-        ({"evm": tron, "tron": evm}, "reversed"),
-        ({"evm": evm}, "exactly the EVM and TRON"),
-    ):
-        with pytest.raises(corridor.CorridorError, match=message):
-            corridor.validate_distinct_compilers(compilers)
-        with pytest.raises(corridor.CorridorError, match=message):
-            corridor.compile_corridor(tmp_path, replace(config, compilers=compilers), forbidden, forbidden, None)
 
 
 def test_canonical_source_paths() -> None:
@@ -604,7 +643,7 @@ def test_native_runner_rejects_untrusted_bytes_and_wrong_target(tmp_path: Path, 
 
     def command(*args: object) -> bytes:
         calls.append(args)
-        return b"solc.tron, the solidity compiler commandline interface\nVersion: wrong\n"
+        return b"solc.fork, the solidity compiler commandline interface\nVersion: wrong\n"
 
     monkeypatch.setattr(corridor, "_run_native_command", command)
     with pytest.raises(corridor.CorridorError):
@@ -644,9 +683,9 @@ def test_run_native_solc_executes_the_private_copy_and_checks_its_banner(tmp_pat
 
     wrong_dir = tmp_path / "wrong"
     wrong_dir.mkdir()
-    # The TRON compiler's banner under the EVM spec: right version, wrong target.
+    # A fork compiler's banner under the EVM spec: right version, wrong target.
     wrong, wrong_spec = script_compiler(
-        wrong_dir, monkeypatch, "solc.tron, the solidity compiler commandline interface", version,
+        wrong_dir, monkeypatch, "solc.fork, the solidity compiler commandline interface", version,
         """printf '{"contracts":{}}'""",
     )
     assert wrong_spec.banner == spec.banner
@@ -716,7 +755,7 @@ def test_native_command_timeout_fails_closed(tmp_path: Path, monkeypatch) -> Non
         ("input", "standard-json compiler input must be a string"),
         ("missing", "absolute authenticated native compiler path is required"),
         ("relative", "absolute authenticated native compiler path is required"),
-        ("target", "compiler target must be evm or tron"),
+        ("target", "compiler target must be evm"),
         ("tampered", "digest mismatch before execution"),
     ],
 )
@@ -748,9 +787,52 @@ def test_node_native_adapter_rejects_unadmitted_compilers(tmp_path: Path, case: 
 # ---------------------------------------------------------------------------
 
 
-def test_source_policy_accepts_the_committed_contract() -> None:
-    source = (ROOT / corridor.SCCP_SOURCE).read_text()
-    corridor.validate_solidity_source_policy(source, corridor.SCCP_SOURCE)
+def test_source_policy_accepts_the_committed_sources() -> None:
+    for relative in corridor.SCCP_SOURCES:
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        corridor.validate_solidity_source_policy(source, relative)
+
+
+def test_source_policy_admits_only_the_bls_library_import() -> None:
+    assert corridor.SCCP_LIBRARY_IMPORT == 'import {BLS12_381} from "./lib/BLS12_381.sol";'
+    body = "contract SccpTairaXor {}\n"
+    corridor.validate_solidity_source_policy(CONTRACT_HEADER + body, corridor.SCCP_SOURCE)
+    corridor.validate_solidity_source_policy(LIBRARY_TEXT, corridor.SCCP_LIBRARY_SOURCE)
+    # A comment or string that spells an import is not a directive.
+    corridor.validate_solidity_source_policy(
+        CONTRACT_HEADER + '// import "./Other.sol";\ncontract SccpTairaXor { string s = "import"; }\n',
+        corridor.SCCP_SOURCE,
+    )
+    for directives in (
+        "",
+        corridor.SCCP_LIBRARY_IMPORT + "\n" + corridor.SCCP_LIBRARY_IMPORT + "\n",
+        corridor.SCCP_LIBRARY_IMPORT + '\nimport "./lib/Other.sol";\n',
+        'import "./lib/BLS12_381.sol";\n',
+        'import {BLS12_381} from "lib/BLS12_381.sol";\n',
+        'import {BLS12_381} from "./lib/BLS12_381.sol" ;\n',
+        'import {BLS12_381 as B} from "./lib/BLS12_381.sol";\n',
+        'import {BLS12_381} from /* hidden */ "./lib/BLS12_381.sol";\n',
+        'import * as B from "./lib/BLS12_381.sol";\n',
+        'import {BLS12_381} from "./lib/../lib/BLS12_381.sol";\n',
+        'import {BLS12_381} from "https://example.invalid/BLS12_381.sol";\n',
+    ):
+        with pytest.raises(corridor.CorridorError, match="must import exactly"):
+            corridor.validate_solidity_source_policy(SOURCE_HEADER + directives + body, corridor.SCCP_SOURCE)
+    with pytest.raises(corridor.CorridorError, match="incomplete or obfuscated import"):
+        corridor.validate_solidity_source_policy(CONTRACT_HEADER + "contract SccpTairaXor { import\n", corridor.SCCP_SOURCE)
+    # The library, and any other source, imports nothing: not even the library itself.
+    for relative in (corridor.SCCP_LIBRARY_SOURCE, "contracts/evm/sccp/Other.sol"):
+        with pytest.raises(corridor.CorridorError, match="self-contained without imports"):
+            corridor.validate_solidity_source_policy(CONTRACT_HEADER + "library BLS12_381 {}\n", relative)
+    for pattern, message in (("delete", "delete"), ("layout at", "storage layout")):
+        text = SOURCE_HEADER + f"library BLS12_381 {{ function f() internal {{ {pattern} }} }}\n"
+        with pytest.raises(corridor.CorridorError, match=message):
+            corridor.validate_solidity_source_policy(text, corridor.SCCP_LIBRARY_SOURCE)
+    with pytest.raises(corridor.CorridorError, match="pragma"):
+        corridor.validate_solidity_source_policy(
+            "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.25;\nlibrary BLS12_381 {}\n",
+            corridor.SCCP_LIBRARY_SOURCE,
+        )
 
 
 @pytest.mark.parametrize(
@@ -835,7 +917,7 @@ def test_source_map_uses_remaining_aggregate_compiler_input_budget(
     repo = fake_repo(tmp_path / "repo", "//" + "x" * 1000 + "\ncontract SccpTairaXor {}\n")
     other = "contracts/Other.sol"
     (repo / other).write_text(SOURCE_HEADER + "//" + "y" * 1000 + "\ncontract Other {}\n")
-    config = fake_config(sources={"evm": (corridor.SCCP_SOURCE, other), "tron": (corridor.SCCP_SOURCE,)})
+    config = fake_config(sources={"evm": (corridor.SCCP_SOURCE, other)})
     first_size = (repo / corridor.SCCP_SOURCE).stat().st_size
     second_size = (repo / other).stat().st_size
     total_budget = first_size + second_size - 1
@@ -855,7 +937,7 @@ def test_source_map_uses_remaining_aggregate_compiler_input_budget(
     # Raw bytes alone can fit while the serialized object does not. JSON
     # overhead still passes through the exact final compiler-input admission.
     monkeypatch.setattr(corridor, "MAX_COMPILER_INPUT_BYTES", first_size)
-    value, _ = corridor.standard_json_input(repo, fake_config(), "evm")
+    value, _ = corridor.standard_json_input(repo, fake_config(sources={"evm": (corridor.SCCP_SOURCE,)}), "evm")
     with pytest.raises(corridor.CorridorError, match="exceeds 16 MiB"):
         corridor.validate_native_compiler_input(corridor.canonical_json_bytes(value), corridor.EXPECTED_SETTINGS)
 
@@ -893,19 +975,23 @@ def test_source_policy_ignores_fake_pragmas_in_comments_and_strings(tmp_path: Pa
         "// pragma solidity ^0.8.0;\n"
         "/* pragma experimental ABIEncoderV2; */\n"
         "pragma solidity 0.8.31;\n"
+        f"{corridor.SCCP_LIBRARY_IMPORT}\n"
         'contract SccpTairaXor { string constant TEXT = "pragma solidity ^0.7.0; \\" delete"; }\n'
     )
     source.write_text(text)
     standard_input, inventory = corridor.standard_json_input(repo, fake_config(), "evm")
+    assert list(standard_input["sources"]) == list(corridor.SCCP_SOURCES)
     assert standard_input["sources"][corridor.SCCP_SOURCE]["content"] == text
+    assert standard_input["sources"][corridor.SCCP_LIBRARY_SOURCE]["content"] == LIBRARY_TEXT
     assert standard_input["settings"] == corridor.EXPECTED_SETTINGS
     assert inventory == [
         {
-            "path": corridor.SCCP_SOURCE,
-            "byte_length": len(text.encode()),
-            "sha256_hex": hashlib.sha256(text.encode()).hexdigest(),
-            "keccak256_hex": corridor.keccak256_hex(text.encode()),
+            "path": relative,
+            "byte_length": len(content.encode()),
+            "sha256_hex": hashlib.sha256(content.encode()).hexdigest(),
+            "keccak256_hex": corridor.keccak256_hex(content.encode()),
         }
+        for relative, content in ((corridor.SCCP_SOURCE, text), (corridor.SCCP_LIBRARY_SOURCE, LIBRARY_TEXT))
     ]
     with pytest.raises(corridor.CorridorError, match="unknown contract compilation target"):
         corridor.standard_json_input(repo, fake_config(), "wasm")
@@ -950,6 +1036,9 @@ def test_compile_corridor_records_templates_and_named_immutables(tmp_path: Path)
     record = manifest["targets"]["evm"]["contracts"][0]
     assert record["fully_qualified_name"] == corridor.SCCP_CONTRACT
     assert sorted({ref["name"] for ref in record["runtime_immutable_references"]}) == list(corridor.EXPECTED_IMMUTABLES)
+    library = manifest["targets"]["evm"]["contracts"][1]
+    assert library["fully_qualified_name"] == corridor.SCCP_LIBRARY
+    assert library["runtime_immutable_references"] == []
     lock = corridor.artifact_lock_from_manifest(manifest)
     locked = lock["targets"]["evm"]["contracts"][corridor.SCCP_CONTRACT]
     assert locked["runtime_template_hex"] == record["runtime_bytecode"]["hex"]
@@ -957,18 +1046,59 @@ def test_compile_corridor_records_templates_and_named_immutables(tmp_path: Path)
     corridor.validate_artifact_lock(manifest, lock)
 
 
+def test_artifact_lock_records_the_creation_code(tmp_path: Path) -> None:
+    _, _, manifest = compile_fake(tmp_path)
+    lock = corridor.artifact_lock_from_manifest(manifest)
+    assert list(lock["targets"]) == ["evm"]
+    # The key path `iroha_cli` reads; the inlined library is not a deployable artifact.
+    contracts = lock["targets"]["evm"]["contracts"]
+    assert list(contracts) == ["contracts/evm/sccp/SccpTairaXor.sol:SccpTairaXor"]
+    entry = contracts[corridor.SCCP_CONTRACT]
+    assert set(entry) == {
+        "creation_bytecode_bytes",
+        "creation_bytecode_hex",
+        "creation_bytecode_keccak256_hex",
+        "runtime_bytecode_bytes",
+        "runtime_template_hex",
+        "runtime_template_keccak256_hex",
+        "immutable_references",
+        "abi_sha256_hex",
+    }
+    assert entry["creation_bytecode_hex"] == "0x6080aa"
+    creation = bytes.fromhex(entry["creation_bytecode_hex"][2:])
+    assert entry["creation_bytecode_bytes"] == len(creation) == 3
+    assert entry["creation_bytecode_keccak256_hex"] == corridor.keccak256_hex(creation)
+    rendered = json.loads(corridor.render_artifact_lock(lock))
+    assert rendered["targets"]["evm"]["contracts"][corridor.SCCP_CONTRACT]["creation_bytecode_hex"] == "0x6080aa"
+    # A different creation code with the same runtime is a different lock.
+    other = fake_output()
+    contract_output(other)["bytecode"]["object"] = "6081aa"
+    _, _, changed = compile_fake(tmp_path / "changed", other)
+    with pytest.raises(corridor.CorridorError, match="creation_bytecode_hex drift"):
+        corridor.validate_artifact_lock(changed, lock)
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
         lambda lock: lock["targets"]["evm"]["contracts"][corridor.SCCP_CONTRACT].__setitem__("runtime_template_hex", "0x00"),
         lambda lock: lock["targets"]["evm"]["contracts"][corridor.SCCP_CONTRACT]["immutable_references"].pop(),
-        lambda lock: lock["targets"]["tron"]["contracts"][corridor.SCCP_CONTRACT].__setitem__("abi_sha256_hex", "0" * 64),
-        lambda lock: lock["targets"]["tron"].__setitem__("standard_json_input_sha256_hex", "0" * 64),
+        lambda lock: lock["targets"]["evm"]["contracts"][corridor.SCCP_CONTRACT].__setitem__("abi_sha256_hex", "0" * 64),
+        lambda lock: lock["targets"]["evm"].__setitem__("standard_json_input_sha256_hex", "0" * 64),
         lambda lock: lock["targets"]["evm"]["contracts"][corridor.SCCP_CONTRACT].__setitem__("runtime_bytecode_bytes", 1),
-        lambda lock: lock["targets"]["tron"]["contracts"][corridor.SCCP_CONTRACT].__setitem__("creation_bytecode_bytes", 1),
+        lambda lock: lock["targets"]["evm"]["contracts"][corridor.SCCP_CONTRACT].__setitem__("creation_bytecode_bytes", 1),
+        lambda lock: lock["targets"]["evm"]["contracts"][corridor.SCCP_CONTRACT].__setitem__("creation_bytecode_hex", "0x6080ab"),
+        lambda lock: lock["targets"]["evm"]["contracts"][corridor.SCCP_CONTRACT].pop("creation_bytecode_hex"),
+        lambda lock: lock["targets"]["evm"]["contracts"][corridor.SCCP_CONTRACT].__setitem__(
+            "creation_bytecode_keccak256_hex", "0" * 64
+        ),
         lambda lock: lock["targets"]["evm"]["contracts"][corridor.SCCP_CONTRACT].__setitem__("unreviewed", True),
         lambda lock: lock["targets"]["evm"]["contracts"].pop(corridor.SCCP_CONTRACT),
-        lambda lock: lock["targets"].pop("tron"),
+        lambda lock: lock["targets"]["evm"]["contracts"].__setitem__(
+            corridor.SCCP_LIBRARY, copy.deepcopy(lock["targets"]["evm"]["contracts"][corridor.SCCP_CONTRACT])
+        ),
+        lambda lock: lock["targets"].pop("evm"),
+        lambda lock: lock["targets"].__setitem__("other", copy.deepcopy(lock["targets"]["evm"])),
         lambda lock: lock.__setitem__("corridor_manifest_sha256_hex", "not-hex"),
         lambda lock: lock["targets"]["evm"]["contracts"].__setitem__("x.sol:X", {}),
         lambda lock: lock.__setitem__("corridor_manifest_sha256_hex", "0" * 64),
@@ -984,43 +1114,64 @@ def test_artifact_lock_drift_fails_closed(tmp_path: Path, mutate) -> None:
         corridor.validate_artifact_lock(manifest, lock)
 
 
-def test_compiler_warnings_missing_immutables_and_identical_targets_fail(tmp_path: Path) -> None:
-    warning = fake_output("evm", "aa")
+def test_compiler_warnings_wrong_immutables_links_and_contract_sets_fail(tmp_path: Path) -> None:
+    warning = fake_output()
     warning["errors"] = [{"severity": "warning", "formattedMessage": "Warning: unused"}]
     with pytest.raises(corridor.CorridorError, match="warning"):
-        compile_fake(tmp_path / "w", {"evm": warning, "tron": fake_output("tron", "bb")})
-    missing = fake_output("evm", "aa")
-    refs = missing["contracts"][corridor.SCCP_SOURCE]["SccpTairaXor"]["evm"]["deployedBytecode"]["immutableReferences"]
-    refs.pop(IMMUTABLE_IDS["DOMAIN_SEPARATOR"])
+        compile_fake(tmp_path / "w", warning)
+    for name in corridor.EXPECTED_IMMUTABLES:
+        missing = fake_output()
+        contract_output(missing)["deployedBytecode"]["immutableReferences"].pop(IMMUTABLE_IDS[name])
+        with pytest.raises(corridor.CorridorError, match="immutables"):
+            compile_fake(tmp_path / f"m-{name}", missing)
+    # A tenth immutable (for example a bound that §5.2.1 keeps a constant) is refused as well.
+    extra_immutable = fake_output()
+    extra_immutable["sources"][corridor.SCCP_SOURCE]["ast"]["nodes"][0]["nodes"].append(
+        {"nodeType": "VariableDeclaration", "mutability": "immutable", "id": 200, "name": "MAX_VALIDITY_MS"}
+    )
+    runtime = contract_output(extra_immutable)["deployedBytecode"]
+    runtime["immutableReferences"]["200"] = [{"start": len(runtime["object"]) // 2, "length": 32}]
+    runtime["object"] += "00" * 32
     with pytest.raises(corridor.CorridorError, match="immutables"):
-        compile_fake(tmp_path / "m", {"evm": missing, "tron": fake_output("tron", "bb")})
-    with pytest.raises(corridor.CorridorError, match="indistinguishable"):
-        compile_fake(tmp_path / "s", {"evm": fake_output("evm", "aa"), "tron": fake_output("tron", "aa")})
-    linked = fake_output("evm", "aa")
-    linked["contracts"][corridor.SCCP_SOURCE]["SccpTairaXor"]["evm"]["bytecode"]["object"] = "60__$lib$__"
+        compile_fake(tmp_path / "x", extra_immutable)
+    linked = fake_output()
+    contract_output(linked)["bytecode"]["object"] = "60__$lib$__"
     with pytest.raises(corridor.CorridorError):
-        compile_fake(tmp_path / "l", {"evm": linked, "tron": fake_output("tron", "bb")})
-    referenced = fake_output("evm", "aa")
-    referenced["contracts"][corridor.SCCP_SOURCE]["SccpTairaXor"]["evm"]["bytecode"]["linkReferences"] = {
-        "Library.sol": {"Library": [{"start": 1, "length": 20}]}
+        compile_fake(tmp_path / "l", linked)
+    referenced = fake_output()
+    contract_output(referenced)["bytecode"]["linkReferences"] = {
+        corridor.SCCP_LIBRARY_SOURCE: {"BLS12_381": [{"start": 1, "length": 20}]}
     }
     with pytest.raises(corridor.CorridorError, match="unresolved creation link references"):
-        compile_fake(tmp_path / "r", {"evm": referenced, "tron": fake_output("tron", "bb")})
-    extra = fake_output("tron", "bb")
-    extra["contracts"]["contracts/evm/sccp/Other.sol"] = {}
+        compile_fake(tmp_path / "r", referenced)
+    undeclared = fake_output()
+    undeclared["contracts"]["contracts/evm/sccp/Other.sol"] = {}
     with pytest.raises(corridor.CorridorError, match="undeclared source path"):
-        compile_fake(tmp_path / "u", {"evm": fake_output("evm", "aa"), "tron": extra})
+        compile_fake(tmp_path / "u", undeclared)
+    no_library = fake_output()
+    no_library["contracts"].pop(corridor.SCCP_LIBRARY_SOURCE)
+    with pytest.raises(corridor.CorridorError, match="must emit exactly"):
+        compile_fake(tmp_path / "n", no_library)
+    no_contract = fake_output()
+    no_contract["contracts"].pop(corridor.SCCP_SOURCE)
+    with pytest.raises(corridor.CorridorError, match="must emit exactly"):
+        compile_fake(tmp_path / "c", no_contract)
+    second = fake_output()
+    second["contracts"][corridor.SCCP_SOURCE]["Helper"] = copy.deepcopy(
+        second["contracts"][corridor.SCCP_LIBRARY_SOURCE]["BLS12_381"]
+    )
+    with pytest.raises(corridor.CorridorError, match="must emit exactly"):
+        compile_fake(tmp_path / "s", second)
 
 
 @pytest.mark.parametrize(("field", "limit"), (("creation_bytecode_bytes", 2), ("runtime_bytecode_bytes", 256)))
 def test_bytecode_size_ceilings_fail_closed(tmp_path: Path, field: str, limit: int) -> None:
     repo = fake_repo(tmp_path / "repo")
-    limits = {target: {"creation_bytecode_bytes": 49152, "runtime_bytecode_bytes": 24576} for target in corridor.TARGETS}
-    limits["tron"][field] = limit
+    limits = {"evm": {"creation_bytecode_bytes": 49152, "runtime_bytecode_bytes": 24576}}
+    limits["evm"][field] = limit
     config = fake_config(size_limits=limits)
-    outputs = {"evm": fake_output("evm", "aa"), "tron": fake_output("tron", "bb")}
     with pytest.raises(corridor.CorridorError, match="exceeds its ceiling"):
-        corridor.compile_corridor(repo, config, fake_fetcher, fake_runner(outputs), cache_dir=None)
+        corridor.compile_corridor(repo, config, fake_fetcher, fake_runner(fake_output()), cache_dir=None)
 
 
 def test_compiler_diagnostics_and_metadata_are_strict() -> None:
@@ -1047,24 +1198,6 @@ def test_compiler_diagnostics_and_metadata_are_strict() -> None:
             corridor._metadata_record(value, "x", "0.8.31+commit.y")
 
 
-def test_distinct_targets_reject_aliased_reversed_or_identical_builds(tmp_path: Path) -> None:
-    _, _, manifest = compile_fake(tmp_path)
-    evm_manifest, tron_manifest = manifest["targets"]["evm"], manifest["targets"]["tron"]
-    shared = {"Source.sol": {"Test": {}}}
-    evm = corridor.CompiledTarget("evm", "11" * 32, shared, evm_manifest)
-    tron = corridor.CompiledTarget("tron", "22" * 32, {"Source.sol": {"Test": {}}}, tron_manifest)
-    corridor.validate_distinct_targets(evm, tron)
-    for first, second, message in (
-        (evm, replace(tron, raw_contracts=shared), "aliased"),
-        (evm, replace(tron, manifest=evm_manifest), "aliased"),
-        (tron, evm, "reversed"),
-        (evm, replace(tron, compiler_sha256="11" * 32), "identities must be distinct"),
-        (evm, replace(tron, manifest=copy.deepcopy(evm_manifest)), "indistinguishable"),
-    ):
-        with pytest.raises(corridor.CorridorError, match=message):
-            corridor.validate_distinct_targets(first, second)
-
-
 def test_manifest_integrity_and_source_binding(tmp_path: Path) -> None:
     repo, config, manifest = compile_fake(tmp_path)
     corridor.validate_manifest_source_inputs(manifest, config, repo)
@@ -1073,16 +1206,16 @@ def test_manifest_integrity_and_source_binding(tmp_path: Path) -> None:
     with pytest.raises(corridor.CorridorError):
         corridor.validate_manifest_integrity(tampered, config)
     tampered = copy.deepcopy(manifest)
-    tampered["targets"]["tron"]["contracts"][0]["metadata"]["x"] = 1
+    tampered["targets"]["evm"]["contracts"][1]["metadata"]["x"] = 1
     with pytest.raises(corridor.CorridorError, match="metadata"):
         corridor.validate_manifest_integrity(tampered, config)
     for mutate, message in (
-        (lambda value: value["targets"]["tron"]["contracts"][0]["runtime_bytecode"].__setitem__("sha256_hex", "00" * 32), "SHA-256"),
+        (lambda value: value["targets"]["evm"]["contracts"][0]["runtime_bytecode"].__setitem__("sha256_hex", "00" * 32), "SHA-256"),
         (lambda value: value["targets"]["evm"]["contracts"][0]["creation_bytecode"].__setitem__("keccak256_hex", "00" * 32), "Keccak-256"),
         (lambda value: value["targets"]["evm"]["contracts"][0].__setitem__("unreviewed", True), "missing or unknown"),
         (
             lambda value: value["targets"]["evm"]["contracts"][0].__setitem__(
-                "runtime_immutable_references", [{"name": "X", "ast_id": "1", "start": 240, "length": 32}]
+                "runtime_immutable_references", [{"name": "X", "ast_id": "1", "start": 280, "length": 32}]
             ),
             "outside runtime bytecode",
         ),
@@ -1097,11 +1230,14 @@ def test_manifest_integrity_and_source_binding(tmp_path: Path) -> None:
             "§5.2.3 immutables",
         ),
         (lambda value: value["targets"]["evm"]["contracts"][0]["runtime_immutable_references"].reverse(), "not canonical"),
-        (lambda value: value["targets"]["evm"].__setitem__("target", "tron"), "role mismatch"),
-        (lambda value: value["targets"]["tron"]["compiler"].__setitem__("identity", "x"), "compiler identity"),
+        (lambda value: value["targets"]["evm"].__setitem__("target", "other"), "role mismatch"),
+        (lambda value: value["targets"]["evm"]["compiler"].__setitem__("identity", "x"), "compiler identity"),
         (lambda value: value["targets"]["evm"].__setitem__("settings_sha256_hex", "00" * 32), "settings digest"),
         (lambda value: value.__setitem__("compiler_lock_sha256_hex", "00" * 32), "compiler lock digest"),
-        (lambda value: value["targets"]["tron"].__setitem__("contracts", copy.deepcopy(value["targets"]["evm"]["contracts"])), "indistinguishable"),
+        (lambda value: value["targets"]["evm"]["contracts"].pop(1), "must hold exactly"),
+        (lambda value: value["targets"]["evm"]["contracts"].pop(0), "must hold exactly"),
+        (lambda value: value["targets"]["evm"]["contracts"].append(copy.deepcopy(value["targets"]["evm"]["contracts"][0])), "duplicated"),
+        (lambda value: value["targets"].__setitem__("other", copy.deepcopy(value["targets"]["evm"])), "exactly the EVM target"),
         (lambda value: value["targets"]["evm"]["contracts"][0].__setitem__("contract_name", "Other"), "identity is inconsistent"),
     ):
         tampered = copy.deepcopy(manifest)
@@ -1109,13 +1245,19 @@ def test_manifest_integrity_and_source_binding(tmp_path: Path) -> None:
         with pytest.raises(corridor.CorridorError, match=message):
             corridor.validate_manifest_integrity(tampered, config)
     tampered = copy.deepcopy(manifest)
-    tampered["targets"]["tron"]["sources"][0]["sha256_hex"] = "00" * 32
+    tampered["targets"]["evm"]["sources"][1]["sha256_hex"] = "00" * 32
     with pytest.raises(corridor.CorridorError, match="source inventory drift"):
         corridor.validate_manifest_source_inputs(tampered, config, repo)
     source = repo / corridor.SCCP_SOURCE
     source.write_text(source.read_text() + "// stale\n")
     with pytest.raises(corridor.CorridorError, match="stale"):
         corridor.validate_manifest_source_inputs(manifest, config, repo)
+    # The library is bound as tightly as the contract.
+    library_repo, library_config, library_manifest = compile_fake(tmp_path / "library")
+    library = library_repo / corridor.SCCP_LIBRARY_SOURCE
+    library.write_text(library.read_text() + "// stale\n")
+    with pytest.raises(corridor.CorridorError, match="stale"):
+        corridor.validate_manifest_source_inputs(library_manifest, library_config, library_repo)
 
 
 # ---------------------------------------------------------------------------
@@ -1237,18 +1379,17 @@ def test_committed_artifact_lock_covers_the_single_v1_contract() -> None:
     lock = corridor.load_artifact_lock()
     assert lock["schema"] == corridor.ARTIFACT_LOCK_SCHEMA
     assert lock["compiler_lock_sha256_hex"] == corridor.load_corridor_config().canonical_sha256
-    for target in corridor.TARGETS:
-        contracts = lock["targets"][target]["contracts"]
-        assert list(contracts) == [corridor.SCCP_CONTRACT]
-        entry = contracts[corridor.SCCP_CONTRACT]
-        assert sorted({ref["name"] for ref in entry["immutable_references"]}) == list(corridor.EXPECTED_IMMUTABLES)
-        template = bytes.fromhex(entry["runtime_template_hex"][2:])
-        assert len(template) == entry["runtime_bytecode_bytes"] <= 24576
-        assert corridor.keccak256_hex(template) == entry["runtime_template_keccak256_hex"]
-    assert (
-        lock["targets"]["evm"]["contracts"][corridor.SCCP_CONTRACT]["runtime_template_hex"]
-        != lock["targets"]["tron"]["contracts"][corridor.SCCP_CONTRACT]["runtime_template_hex"]
-    )
+    assert list(lock["targets"]) == ["evm"]
+    contracts = lock["targets"]["evm"]["contracts"]
+    assert list(contracts) == [corridor.SCCP_CONTRACT]
+    entry = contracts[corridor.SCCP_CONTRACT]
+    assert sorted({ref["name"] for ref in entry["immutable_references"]}) == list(corridor.EXPECTED_IMMUTABLES)
+    template = bytes.fromhex(entry["runtime_template_hex"][2:])
+    assert len(template) == entry["runtime_bytecode_bytes"] <= 24576
+    assert corridor.keccak256_hex(template) == entry["runtime_template_keccak256_hex"]
+    creation = bytes.fromhex(entry["creation_bytecode_hex"][2:])
+    assert len(creation) == entry["creation_bytecode_bytes"] <= 49152
+    assert corridor.keccak256_hex(creation) == entry["creation_bytecode_keccak256_hex"]
 
 
 def _cached_real_compilers() -> bool:
@@ -1286,14 +1427,15 @@ def test_real_cli_lock_build_verify_and_materialize_round_trip(tmp_path: Path, c
     assert published.read_bytes() == lock_manifest.read_bytes()
     assert corridor.main(["verify", "--manifest", str(published)]) == 0
     stale = tmp_path / "stale-checkout"
-    (stale / corridor.SCCP_SOURCE).parent.mkdir(parents=True)
+    (stale / corridor.SCCP_LIBRARY_SOURCE).parent.mkdir(parents=True)
+    (stale / corridor.SCCP_LIBRARY_SOURCE).write_bytes((ROOT / corridor.SCCP_LIBRARY_SOURCE).read_bytes())
     (stale / corridor.SCCP_SOURCE).write_bytes((ROOT / corridor.SCCP_SOURCE).read_bytes() + b"// stale\n")
     assert corridor.main(["verify", "--manifest", str(published), "--repo-root", str(stale)]) == 1
     assert "stale" in capsys.readouterr().err
-    compiler = tmp_path / "solc-tron"
-    assert corridor.main(["materialize", "--target", "tron", "--output", str(compiler)]) == 0
+    compiler = tmp_path / "solc-evm"
+    assert corridor.main(["materialize", "--target", "evm", "--output", str(compiler)]) == 0
     platform_name = corridor.native_compiler_platform()
-    assert capsys.readouterr().out.strip() == corridor.EXPECTED_COMPILERS["tron"]["artifacts"][platform_name]["sha256"]
+    assert capsys.readouterr().out.strip() == corridor.EXPECTED_COMPILERS["evm"]["artifacts"][platform_name]["sha256"]
     assert stat.S_IMODE(compiler.stat().st_mode) == 0o500
 
 
@@ -1314,9 +1456,12 @@ def test_evm_runtime_is_locked_audited_native_edr_that_mines_reverts() -> None:
     tooling = ROOT / "scripts" / "contract_tooling" / "evm-runtime"
     package = json.loads((tooling / "package.json").read_text(encoding="utf-8"))
     package_lock = json.loads((tooling / "package-lock.json").read_text(encoding="utf-8"))
-    assert package["dependencies"] == {"ethers": "6.16.0", "@nomicfoundation/edr": "0.12.1"}
+    assert package["dependencies"] == {"@noble/curves": "1.2.0", "ethers": "6.16.0", "@nomicfoundation/edr": "0.12.1"}
     assert package["overrides"] == {"ws": "8.21.0"}
     assert_registry_locked(package_lock)
+    assert package_lock["packages"][""]["dependencies"] == package["dependencies"]
+    for name, version in package["dependencies"].items():
+        assert package_lock["packages"][f"node_modules/{name}"]["version"] == version, name
     assert not {"node_modules/hardhat", "node_modules/adm-zip", "node_modules/solc"} & set(package_lock["packages"])
     provider = (tooling / "edr-provider.js").read_text(encoding="utf-8")
     for required in (
@@ -1330,8 +1475,14 @@ def test_evm_runtime_is_locked_audited_native_edr_that_mines_reverts() -> None:
         "allowUnlimitedContractSize: false",
         "this.closed = true",
         "this.provider = null",
+        'new Map([["prague", edr.SpecId.Prague], ["osaka", edr.SpecId.Osaka]])',
+        "HARDFORKS.has(hardfork)",
+        "...edr.l1GenesisState(specId)",
+        "hardfork: edr.l1HardforkToString(specId)",
+        "allowBlocksWithSameTimestamp: this.allowBlocksWithSameTimestamp",
     ):
         assert required in provider, required
+    assert "edr.SpecId.Osaka)" not in provider, "no hardfork is fixed outside the option table"
 
 
 def test_evm_smoke_script_uses_the_authenticated_corridor_and_audited_runtime() -> None:
@@ -1344,8 +1495,26 @@ def test_evm_smoke_script_uses_the_authenticated_corridor_and_audited_runtime() 
         "scripts/contract_artifact_corridor.py materialize",
         "digest mismatch before execution",
         "SCCP_CONTRACT_ARTIFACT_MANIFEST",
+        'require_exact_sources contracts/evm/sccp "$CONTRACT_SOURCE"',
+        'require_exact_sources contracts/evm/sccp/lib "$LIBRARY_SOURCE"',
+        'for stale_source in "$CONTRACT_SOURCE" "$LIBRARY_SOURCE"; do',
+        'mutated["targets"]["evm"]["contracts"]',
+        "scripts/tests/contract_edr_provider_test.cjs",
+        "contracts/evm/sccp/test/sccp_bls.test.js",
+        "contracts/evm/sccp/test/sccp_v1_fixtures.test.js",
         "contracts/evm/sccp/test/sccp_taira_xor.test.js",
+        "contracts/evm/sccp/test/sccp_gas.test.js",
+        "contracts/evm/sccp/test/gas_baseline_v1.json",
+        '{"prague", "osaka"}',
+        '{"ethereum", "bsc"}',
     ):
         assert required in smoke, required
+    # The suites must run against the committed lock and gate against the committed baseline.
+    assert "unset SCCP_CONTRACT_ARTIFACT_LOCK SCCP_GAS_BASELINE SCCP_ERROR_COVERAGE_REPORT" in smoke
+    for source, expected in (
+        (smoke.split('CONTRACT_SOURCE="', 1)[1].split('"', 1)[0], corridor.SCCP_CONTRACT),
+        (smoke.split('LIBRARY_SOURCE="', 1)[1].split('"', 1)[0], corridor.SCCP_LIBRARY),
+    ):
+        assert source == expected.split(":", 1)[0]
     completed = subprocess.run(["bash", "-n", str(ROOT / "scripts" / "sccp_evm_contract_smoke.sh")], check=False)
     assert completed.returncode == 0

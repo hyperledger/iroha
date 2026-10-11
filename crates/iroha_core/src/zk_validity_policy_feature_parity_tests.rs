@@ -154,9 +154,9 @@ fn gas_record() -> String {
         ))
         .into(),
         VerifyProof::new(ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            ProofBox::new("halo2/ipa".into(), vec![0x5A; 333]),
-            VerifyingKeyId::new("halo2/ipa", "parity"),
+            "pipa-r/pasta".into(),
+            ProofBox::new("pipa-r/pasta".into(), vec![0x5A; 333]),
+            VerifyingKeyId::new("pipa-r/pasta", "parity"),
         ))
         .into(),
     ];
@@ -250,7 +250,7 @@ fn compiled_features() -> String {
     let mut features = Vec::new();
     for (name, enabled) in [
         ("zk-stark", cfg!(feature = "zk-stark")),
-        ("zk-halo2", cfg!(feature = "zk-halo2")),
+        ("zk-ipa-native", cfg!(feature = "zk-ipa-native")),
         ("zk-preverify", cfg!(feature = "zk-preverify")),
         ("sm", cfg!(feature = "sm")),
         ("gost", cfg!(feature = "gost")),

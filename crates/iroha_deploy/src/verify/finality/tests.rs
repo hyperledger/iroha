@@ -1,10 +1,6 @@
 //! Genuine native BLS certificates over explicitly synthetic execution results.
-//! These portable verifier fixtures do not execute World, custody, DKG or Pasta application seals.
+//! These portable verifier fixtures do not execute World, custody or DKG.
 use super::*;
-use halo2curves::{
-    group::{Curve, GroupEncoding},
-    pasta::{Fp, Fq, Pallas, Vesta},
-};
 use iroha_crypto::{
     Algorithm, Hash, KeyPair, Signature, SignatureOf, bls_normal_aggregate_signatures,
     bls_normal_pop_prove,
@@ -16,7 +12,7 @@ use iroha_data_model::{
         FinalizedGlobalThresholdBeaconPulseV1, GlobalThresholdBeaconChainAnchorV1,
         GlobalThresholdBeaconPulseContextV1,
     },
-    isi::{InstructionBox, Log, RegisterPeerWithPop, SetParameter, kagemusha_v1::*},
+    isi::{InstructionBox, Log, RegisterPeerWithPop, SetParameter},
     level::Level,
     parameter::{
         CustomParameter, Parameter,
@@ -30,20 +26,20 @@ use iroha_data_model::{
         epoch::{
             BeaconEpochBindingV1, InstalledBeaconEpochBindingV1, ValidatorCommitteeMemberV1,
             ValidatorEpochAuthorizationV1, ValidatorEpochBoundaryV1, ValidatorEpochContextV1,
-            ValidatorEpochDecisionV1,
+            ValidatorEpochDecisionV1, ValidatorGenerationV1,
         },
     },
     sumeragi_finality::{
         ChainParamsRecord, ExecutionCommitment, ExecutionResultCommitment, NativeLaneStateProof,
-        ScheduleOutcome, ScheduledConfig, SumeragiFinalityAttestationBody, chain_hash, core_epoch,
-        genesis_epoch, global_threshold_beacon_npos_successor_seed_v1,
+        ScheduleOutcome, ScheduledConfig, SumeragiFinalityAttestationBody, authenticated_genesis,
+        chain_hash, core_epoch, global_threshold_beacon_npos_successor_seed_v1,
         global_threshold_beacon_pulse_id_v1, global_threshold_beacon_pulse_payload_v1,
         test_fixtures::{NativeFinalityFixture, author_payload},
     },
     transaction::{FeePaymentIntent, TransactionBuilder},
 };
 use iroha_sumeragi::{
-    message::{AttestationSignature, BlockHeader as CoreHeader, Qc, ResultWitness, VoteKind},
+    message::{BlockHeader as CoreHeader, Qc, VoteKind},
     preimage::{TAG_PAY, block_hash_preimage},
     types::{AggregateSignature, Bitmap, ChainParams, ControlWitness, Hash32},
 };
@@ -77,29 +73,6 @@ fn validators(keys: &[KeyPair]) -> Vec<FinalityValidator> {
         .map(|k| FinalityValidator {
             public_key: k.public_key().clone(),
             proof_of_possession: bls_normal_pop_prove(k.private_key()).unwrap(),
-        })
-        .collect()
-}
-fn pasta(keys: &[KeyPair], generation: u64) -> Vec<KagemushaMintFinalityValidatorKeysV1> {
-    keys.iter()
-        .enumerate()
-        .map(|(index, k)| {
-            let n = generation * 32 + index as u64 + 1;
-            KagemushaMintFinalityValidatorKeysV1 {
-                validator: peer(k),
-                eq_proof_public_key: (Pallas::generator() * Fq::from(n))
-                    .to_affine()
-                    .to_bytes()
-                    .as_ref()
-                    .try_into()
-                    .unwrap(),
-                ep_proof_public_key: (Vesta::generator() * Fp::from(n))
-                    .to_affine()
-                    .to_bytes()
-                    .as_ref()
-                    .try_into()
-                    .unwrap(),
-            }
         })
         .collect()
 }
@@ -181,13 +154,6 @@ impl Chain {
             block_cadence_ms: nz(1000),
             wire_protocol_version: u32::from(iroha_data_model::sumeragi::PROTOCOL_VERSION),
             consensus_fingerprint: ConsensusFingerprint::new([0x71; 32]),
-            kagemusha_mint_finality: KagemushaMintFinalityGenesisParametersV1 {
-                authority_generation: KagemushaMintFinalityAuthorityGenerationTemplateV1 {
-                    version: 1,
-                    generation: 0,
-                    validators: pasta(&keys, 0),
-                },
-            },
             sumeragi_context:
                 iroha_data_model::block::consensus::SumeragiGenesisContextParameters::recommended(),
         };
@@ -224,7 +190,9 @@ impl Chain {
         let genesis =
             SignedBlock::try_genesis(vec![tx], authority.private_key(), None, None).unwrap();
         let network = NetworkId::from_genesis_hash(genesis.hash());
-        let context = genesis_epoch(&genesis).unwrap();
+        let context = authenticated_genesis(&genesis)
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap();
         let mut epochs = vec![Epoch { keys, context }];
         for (range, end) in &ranges[1..] {
             let keys = ordered_keys(range.clone());
@@ -233,23 +201,21 @@ impl Chain {
                 .iter()
                 .map(|v| &v.public_key)
                 .eq(previous.committee.iter().map(|v| v.validator.public_key()));
-            let generation = previous.authority.generation + u64::from(!retained);
-            let authority = if retained {
-                previous.authority.clone()
-            } else {
-                KagemushaMintFinalityAuthorityGenerationV1 {
-                    version: 1,
-                    network_id: network,
-                    generation,
-                    validators: pasta(&keys, generation),
-                }
-            };
+            let generation = previous.generation().generation + u64::from(!retained);
+            let committee = validators(&keys)
+                .into_iter()
+                .map(|v| ValidatorCommitteeMemberV1 {
+                    validator: PeerId::new(v.public_key),
+                    proof_of_possession: v.proof_of_possession,
+                })
+                .collect::<Vec<_>>();
+            let roster = ValidatorGenerationV1::from_committee(network, generation, &committee);
             let authorization = ValidatorEpochAuthorizationV1 {
                 epoch: previous.authorization.epoch + 1,
                 first_height: previous.authorization.last_height + 1,
                 last_height: *end,
                 authority_generation: generation,
-                authority_id: authority.authority_id().unwrap(),
+                authority_id: roster.generation_id().unwrap(),
                 beacon: BeaconEpochBindingV1::Installed(InstalledBeaconEpochBindingV1 {
                     session_id: [7; 32],
                     transcript_hash: [8; 32],
@@ -267,17 +233,9 @@ impl Chain {
                 },
                 ..previous.authorization
             };
-            let committee = validators(&keys)
-                .into_iter()
-                .map(|v| ValidatorCommitteeMemberV1 {
-                    validator: PeerId::new(v.public_key),
-                    proof_of_possession: v.proof_of_possession,
-                })
-                .collect();
             epochs.push(Epoch {
                 keys,
                 context: ValidatorEpochContextV1 {
-                    authority,
                     authorization,
                     committee,
                     leader_seed: [9; 32],
@@ -443,8 +401,6 @@ impl Chain {
                     parent_state_root: Hash::new(b"synthetic parent"),
                     post_state_root: ordinary_root,
                     ordinary_writes_root: ordinary_root,
-                    kagemusha_top_up_root: None,
-                    kagemusha_top_up_count: 0,
                     parent_world_state_root: Hash::new(b"synthetic parent world"),
                     world_state_root: Hash::new(b"synthetic world"),
                     event_commitment: None,
@@ -484,7 +440,6 @@ impl Chain {
                     proposer: 0,
                     skipped_leaders: vec![],
                     control_witness: ControlWitness::empty(),
-                    attest: commitment.schedule.boundary.is_some(),
                 };
                 let keys = &chain.epochs[index].keys;
                 let parent_decision = native
@@ -515,24 +470,9 @@ impl Chain {
                     view: 0,
                     block_hash: chain_hash(&block_hash_preimage(header)),
                     result: commitment.result().unwrap(),
-                    attest: header.attest,
                     signers: Bitmap::new(keys.len()),
                     agg_sig: AggregateSignature([0; 96]),
-                    attestations: vec![],
-                    attestation_witness: None,
                 };
-                if qc.attest {
-                    // Application-specific Pasta seal verification is not performed by this verifier.
-                    qc.attestations =
-                        vec![
-                            AttestationSignature::try_from_slice(b"synthetic application seal")
-                                .unwrap();
-                            q
-                        ];
-                    qc.attestation_witness = Some(
-                        ResultWitness::from_untrusted(commitment.preimage().unwrap()).unwrap(),
-                    );
-                }
                 sign_qc(&mut qc, keys, &seats(0..q));
                 CommitCertificate::from_untrusted_parts(
                     norito::encode_canonical(header).unwrap(),
@@ -674,14 +614,14 @@ impl FinalitySource for Source<'_> {
         &self,
         p: &PeerId,
         c: &[u8; 32],
-    ) -> Result<SumeragiFinalityAttestation, Self::Error> {
+    ) -> Result<FinalityAttestation, Self::Error> {
         assert_eq!(*c, CHALLENGE);
         self.reads.borrow_mut().push(p.clone());
         if self.faults.contains(p) {
             return Err(std::io::Error::other("offline"));
         }
         if let Some(attestation) = self.attestation_overrides.get(p) {
-            return Ok(attestation.clone());
+            return Ok(attestation.clone().into());
         }
         let actual = self.substitutions.get(p).unwrap_or(p);
         let k = self
@@ -691,13 +631,16 @@ impl FinalitySource for Source<'_> {
             .flat_map(|e| &e.keys)
             .find(|k| peer(k) == *actual)
             .unwrap();
-        Ok(self.chain.attest(
-            k,
-            *self
-                .tips
-                .get(p)
-                .unwrap_or(&(self.chain.proofs.len() as u64)),
-        ))
+        Ok(self
+            .chain
+            .attest(
+                k,
+                *self
+                    .tips
+                    .get(p)
+                    .unwrap_or(&(self.chain.proofs.len() as u64)),
+            )
+            .into())
     }
 }
 fn resign(a: &mut SumeragiFinalityAttestation, k: &KeyPair) {
@@ -725,26 +668,27 @@ fn forge_qc(qc: &mut Qc, members: usize, named: &[u32], signers: &[&KeyPair], me
         .unwrap(),
     );
 }
-/// `context` with its equal-vote committee and paired Pasta authority replaced by `keys`.
+/// `context` with its equal-vote BLS signing generation replaced by `keys`.
 fn with_committee(context: &ValidatorEpochContextV1, keys: &[KeyPair]) -> ValidatorEpochContextV1 {
-    let authority = KagemushaMintFinalityAuthorityGenerationV1 {
-        validators: pasta(keys, 900),
-        ..context.authority.clone()
-    };
+    let committee = validators(keys)
+        .into_iter()
+        .map(|v| ValidatorCommitteeMemberV1 {
+            validator: PeerId::new(v.public_key),
+            proof_of_possession: v.proof_of_possession,
+        })
+        .collect::<Vec<_>>();
+    let generation = ValidatorGenerationV1::from_committee(
+        context.network_id,
+        context.authorization.authority_generation,
+        &committee,
+    );
     let authorization = ValidatorEpochAuthorizationV1 {
-        authority_id: authority.authority_id().unwrap(),
+        authority_id: generation.generation_id().unwrap(),
         ..context.authorization
     };
     ValidatorEpochContextV1 {
-        authority,
         authorization,
-        committee: validators(keys)
-            .into_iter()
-            .map(|v| ValidatorCommitteeMemberV1 {
-                validator: PeerId::new(v.public_key),
-                proof_of_possession: v.proof_of_possession,
-            })
-            .collect(),
+        committee,
         ..context.clone()
     }
 }
@@ -870,7 +814,10 @@ fn advance_verifies_contiguous_four_seven_four_and_non_four_committees() {
 #[test]
 fn retained_generations_advance_scheduling_epoch_without_key_substitution() {
     let c = Chain::new(&[(0..4, 3), (0..4, 6), (0..4, 9)], 8);
-    assert_eq!(c.epochs[0].context.authority, c.epochs[2].context.authority);
+    assert_eq!(
+        c.epochs[0].context.generation(),
+        c.epochs[2].context.generation()
+    );
     assert_ne!(
         c.epochs[0].context.context_id().unwrap(),
         c.epochs[2].context.context_id().unwrap()
@@ -948,6 +895,45 @@ fn advance_rejects_mutated_proofs_and_keeps_original_checkpoint() {
         assert_eq!(*v.checkpoint(), cp);
     }
 }
+#[test]
+fn epoch_boundaries_use_exact_native_quorums_without_application_seals() {
+    let chain = Chain::new(&[(0..4, 3), (0..7, 6), (3..7, 9)], 7);
+    for height in [3, 6] {
+        let proof = chain.proof(height);
+        let header = core(proof);
+        assert!(result(proof).schedule.boundary.is_some());
+        let mut qc: Qc =
+            norito::decode_canonical(block(proof).commit_certificate().unwrap().commit_qc())
+                .unwrap();
+        let current = chain.epoch(height);
+        let crypto = iroha_core::sumeragi::crypto::BlsCrypto::new();
+        let credentials = validators(&current.keys);
+        let committee = iroha_data_model::sumeragi_finality::global_committee(
+            crypto
+                .admit_committee(
+                    credentials
+                        .iter()
+                        .map(|member| (&member.public_key, member.proof_of_possession.as_slice())),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        let epoch = core_epoch(&current.context).unwrap();
+        let verifier =
+            iroha_sumeragi::crypto::Verifier::new(&crypto, &header.instance, &epoch.id, &committee);
+        assert_eq!(verifier.verify_qc(&qc), Ok(()));
+        sign_qc(&mut qc, &current.keys, &seats(0..committee.q() - 1));
+        assert!(verifier.verify_qc(&qc).is_err());
+        sign_qc(&mut qc, &current.keys, &seats(0..committee.q() + 1));
+        assert!(verifier.verify_qc(&qc).is_err());
+    }
+    let mut verifier = chain.verifier();
+    verifier
+        .advance(&Source::new(&chain), chain.proof(7))
+        .unwrap();
+    assert_eq!(verifier.checkpoint().height(), 7);
+}
+
 #[test]
 fn altered_boundary_cannot_select_a_foreign_committee_or_freshness_seed() {
     let chain = Chain::new(&[(0..4, 3), (0..7, 6), (3..7, 9)], 5);
@@ -2116,14 +2102,14 @@ fn observations_reject_incomplete_transport_batches_before_advancing() {
             &self,
             peer: &PeerId,
             challenge: &[u8; 32],
-        ) -> Result<SumeragiFinalityAttestation, Self::Error> {
+        ) -> Result<FinalityAttestation, Self::Error> {
             self.0.latest_attestation(peer, challenge)
         }
         fn latest_attestations(
             &self,
             peers: &[PeerId],
             challenge: &[u8; 32],
-        ) -> Vec<Result<SumeragiFinalityAttestation, Self::Error>> {
+        ) -> Vec<Result<FinalityAttestation, Self::Error>> {
             let mut reads = self.0.latest_attestations(peers, challenge);
             reads.pop();
             reads
@@ -2176,13 +2162,16 @@ fn original_genesis_policy_decode_refusal_preserves_exact_source_and_retry() {
     let original = chain.anchor.genesis.encode_wire().unwrap();
     let original_proof = norito::encode_canonical(chain.proof(1)).unwrap();
     let no_allocation = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
-    let producer =
-        norito::with_decode_limits_scope(no_allocation, || genesis_epoch(&chain.anchor.genesis))
-            .unwrap_err();
+    let producer = norito::with_decode_limits_scope(no_allocation, || {
+        authenticated_genesis(&chain.anchor.genesis).map(|genesis| genesis.into_parts().0)
+    })
+    .unwrap_err();
     assert!(
         matches!(
             producer,
-            GenesisReadError::Json(norito::json::Error::DecodeResourceLimit)
+            GenesisReadError::Json(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
         ),
         "{producer:?}"
     );
@@ -2193,9 +2182,9 @@ fn original_genesis_policy_decode_refusal_preserves_exact_source_and_retry() {
     assert!(
         matches!(
             error,
-            FinalityError::Genesis(GenesisReadError::Json(
-                norito::json::Error::DecodeResourceLimit
-            ))
+            FinalityError::Genesis(GenesisReadError::Json(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            )))
         ),
         "{error:?}"
     );
@@ -2273,16 +2262,56 @@ fn checkpoint_npos_refusal_follows_a_completed_original_binary_read() {
     norito::with_decode_limits_scope(limits(original_binary_cost), || {
         let decoded = decode().expect("entire original binary frame fits before policy");
         assert_eq!(decoded.hash(), chain.anchor.genesis.hash());
-        let error = genesis_epoch(&decoded).unwrap_err();
+        let error = authenticated_genesis(&decoded)
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap_err();
         assert!(
             matches!(
                 error,
-                GenesisReadError::Json(norito::json::Error::DecodeResourceLimit)
+                GenesisReadError::Json(norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                ))
             ),
             "{error:?}"
         );
     });
-    let error = norito::with_decode_limits_scope(limits(original_binary_cost), || {
+    // The public checkpoint encoder runs the same complete bounds/schedule validation as
+    // import before genesis decoding. Its ordinary serialization and argument clone consume
+    // no decode allowance; prove that separately so the measured prefix is exact.
+    let serialization = norito::core::DecodeBudgetContext::new(limits(ceiling));
+    serialization.with(|| {
+        assert_eq!(
+            norito::encode_canonical(&checkpoint.clone()).unwrap(),
+            original
+        );
+    });
+    assert_eq!(serialization.consumed_allocated_bytes(), 0);
+    let validation = norito::core::DecodeBudgetContext::new(limits(ceiling));
+    validation.with(|| {
+        assert_eq!(checkpoint.encode_canonical().unwrap(), original);
+    });
+    let validation_cost = usize::try_from(validation.consumed_allocated_bytes()).unwrap();
+    assert!(validation_cost > 0);
+    let before_policy_cost = validation_cost.checked_add(original_binary_cost).unwrap();
+    assert!(before_policy_cost < ceiling);
+    norito::with_decode_limits_scope(limits(before_policy_cost), || {
+        assert_eq!(checkpoint.encode_canonical().unwrap(), original);
+        let decoded = decode().expect("validated checkpoint prefix and original binary both fit");
+        assert_eq!(decoded.hash(), chain.anchor.genesis.hash());
+        let error = authenticated_genesis(&decoded)
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                GenesisReadError::Json(norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                ))
+            ),
+            "{error:?}"
+        );
+    });
+    let error = norito::with_decode_limits_scope(limits(before_policy_cost), || {
         FinalityVerifier::from_checkpoint(
             checkpoint.clone(),
             chain.anchor.network_id,
@@ -2293,9 +2322,9 @@ fn checkpoint_npos_refusal_follows_a_completed_original_binary_read() {
     assert!(
         matches!(
             error,
-            FinalityError::Genesis(GenesisReadError::Json(
-                norito::json::Error::DecodeResourceLimit
-            ))
+            FinalityError::Genesis(GenesisReadError::Json(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            )))
         ),
         "{error:?}"
     );
@@ -2320,6 +2349,12 @@ fn verified_tip_memo_is_shared_by_clones_without_changing_equality_or_advancemen
         CHAIN,
     )
     .unwrap();
+    assert!(Arc::ptr_eq(&verifier.checkpoint, &cloned.checkpoint));
+    assert!(!Arc::ptr_eq(&verifier.checkpoint, &independent.checkpoint));
+    assert_eq!(
+        verifier.checkpoint().encode_canonical().unwrap(),
+        independent.checkpoint().encode_canonical().unwrap()
+    );
     assert!(Arc::ptr_eq(&verifier.verified_tip, &cloned.verified_tip));
     assert!(!Arc::ptr_eq(
         &verifier.verified_tip,
@@ -2328,12 +2363,24 @@ fn verified_tip_memo_is_shared_by_clones_without_changing_equality_or_advancemen
     assert!(verifier.verified_tip.get().is_none());
     assert_eq!(verifier, independent);
     let verified = verifier.verified_tip().unwrap();
+    let borrowed = verifier.verified_tip_ref().unwrap();
+    assert!(std::ptr::eq(borrowed, verifier.verified_tip.get().unwrap()));
+    assert!(std::ptr::eq(borrowed, cloned.verified_tip_ref().unwrap()));
+    assert!(!std::ptr::eq(
+        borrowed,
+        independent.verified_tip_ref().unwrap()
+    ));
+    assert_eq!(borrowed.context_id(), verified.context_id());
     assert_eq!(
         verified.block().encode_wire().unwrap(),
         chain.proof(2).block_wire
     );
     assert!(cloned.verified_tip.get().is_some());
-    assert!(independent.verified_tip.get().is_none());
+    assert!(independent.verified_tip.get().is_some());
+    assert_eq!(
+        independent.verified_tip.get().unwrap().context_id(),
+        verified.context_id()
+    );
     assert_eq!(verifier, independent);
     assert_eq!(
         cloned.verified_tip().unwrap().context_id(),
@@ -2342,9 +2389,21 @@ fn verified_tip_memo_is_shared_by_clones_without_changing_equality_or_advancemen
     cloned
         .advance(&Source::new(&chain), chain.proof(3))
         .unwrap();
+    assert!(!Arc::ptr_eq(&verifier.checkpoint, &cloned.checkpoint));
+    assert_eq!(
+        verifier.checkpoint().encode_canonical().unwrap(),
+        independent.checkpoint().encode_canonical().unwrap()
+    );
+    assert_eq!(verifier.checkpoint().height(), 2);
+    assert_eq!(cloned.checkpoint().height(), 3);
     assert!(!Arc::ptr_eq(&verifier.verified_tip, &cloned.verified_tip));
     assert!(cloned.verified_tip.get().is_none());
     assert_eq!(cloned.verified_tip().unwrap().height(), 3);
+    assert!(!std::ptr::eq(
+        cloned.verified_tip_ref().unwrap(),
+        verifier.verified_tip_ref().unwrap()
+    ));
+    assert_eq!(borrowed.height(), 2);
     assert_eq!(verifier.verified_tip().unwrap().height(), 2);
     assert_eq!(verifier, independent);
     assert_ne!(verifier, cloned);
@@ -2357,23 +2416,42 @@ fn verified_tip_memo_is_replaced_by_catch_up_and_successful_observation() {
     let mut verifier = chain.verifier_at(2);
     assert_eq!(verifier.verified_tip().unwrap().height(), 2);
     let original = verifier.clone();
+    let original_tip = original.verified_tip_ref().unwrap();
     assert_eq!(verifier.catch_up(&source, nz(4)).unwrap(), 4);
+    assert!(!Arc::ptr_eq(&verifier.checkpoint, &original.checkpoint));
+    assert_eq!(original.checkpoint().height(), 2);
     assert!(!Arc::ptr_eq(&verifier.verified_tip, &original.verified_tip));
     assert!(verifier.verified_tip.get().is_none());
     assert_eq!(verifier.verified_tip().unwrap().height(), 4);
     let caught_up = verifier.clone();
+    assert!(Arc::ptr_eq(&verifier.checkpoint, &caught_up.checkpoint));
     let report = verifier.observe(&source, &CHALLENGE).unwrap();
     assert_eq!((report.height.get(), report.verified()), (5, 4));
     assert!(!Arc::ptr_eq(
         &verifier.verified_tip,
         &caught_up.verified_tip
     ));
-    assert!(verifier.verified_tip.get().is_none());
+    assert!(verifier.verified_tip.get().is_some());
+    assert!(!Arc::ptr_eq(&verifier.checkpoint, &caught_up.checkpoint));
+    assert_eq!(caught_up.checkpoint().height(), 4);
     let verified = verifier.verified_tip().unwrap();
     assert_eq!(verified.height(), 5);
     assert_eq!(verified.header().hash(), chain.proof(5).block_header.hash());
     assert_eq!(caught_up.verified_tip().unwrap().height(), 4);
     assert_eq!(original.verified_tip().unwrap().height(), 2);
+    assert_eq!(original_tip.height(), 2);
+    assert!(std::ptr::eq(
+        original_tip,
+        original.verified_tip_ref().unwrap()
+    ));
+    assert!(!std::ptr::eq(
+        original_tip,
+        caught_up.verified_tip_ref().unwrap()
+    ));
+    assert!(!std::ptr::eq(
+        caught_up.verified_tip_ref().unwrap(),
+        verifier.verified_tip_ref().unwrap()
+    ));
 }
 
 #[test]
@@ -2382,6 +2460,7 @@ fn verified_tip_memo_keeps_pending_progress_separate_until_explicit_promotion() 
     let mut verifier = chain.verifier_at(2);
     assert_eq!(verifier.verified_tip().unwrap().height(), 2);
     let original = verifier.clone();
+    let original_tip = original.verified_tip_ref().unwrap();
     let result = verifier.observe_with_budget(
         &Source::new(&chain),
         &CHALLENGE,
@@ -2401,21 +2480,40 @@ fn verified_tip_memo_keeps_pending_progress_separate_until_explicit_promotion() 
         "{result:?}"
     );
     assert_eq!(verifier.checkpoint(), original.checkpoint());
+    assert!(Arc::ptr_eq(&verifier.checkpoint, &original.checkpoint));
     assert_eq!(verifier.pending.as_ref().unwrap().height(), 3);
     assert!(Arc::ptr_eq(&verifier.verified_tip, &original.verified_tip));
     assert_eq!(verifier.verified_tip().unwrap().height(), 2);
+    assert!(std::ptr::eq(
+        original_tip,
+        verifier.verified_tip_ref().unwrap()
+    ));
     assert_ne!(verifier, original);
     let pending = verifier.clone();
     assert_eq!(verifier, pending);
     assert!(verifier.promote_verified_progress());
+    assert!(!Arc::ptr_eq(&verifier.checkpoint, &pending.checkpoint));
+    assert!(Arc::ptr_eq(&pending.checkpoint, &original.checkpoint));
+    assert_eq!(verifier.checkpoint().height(), 3);
+    assert_eq!(pending.checkpoint().height(), 2);
     assert!(!Arc::ptr_eq(&verifier.verified_tip, &pending.verified_tip));
     assert!(verifier.verified_tip.get().is_none());
     assert!(verifier.pending.is_none());
     assert_eq!(verifier.verified_tip().unwrap().height(), 3);
     assert_eq!(pending.verified_tip().unwrap().height(), 2);
     assert_eq!(pending.pending.as_ref().unwrap().height(), 3);
+    assert!(std::ptr::eq(
+        original_tip,
+        pending.verified_tip_ref().unwrap()
+    ));
+    assert!(!std::ptr::eq(
+        original_tip,
+        verifier.verified_tip_ref().unwrap()
+    ));
+    let promoted_checkpoint = Arc::clone(&verifier.checkpoint);
     let promoted = Arc::clone(&verifier.verified_tip);
     assert!(!verifier.promote_verified_progress());
+    assert!(Arc::ptr_eq(&verifier.checkpoint, &promoted_checkpoint));
     assert!(Arc::ptr_eq(&verifier.verified_tip, &promoted));
 }
 
@@ -2431,9 +2529,22 @@ fn verified_tip_memo_keeps_failures_retryable_and_rechecks_new_certificate_witne
             "{refusal:?}"
         );
         assert!(verifier.verified_tip.get().is_none());
+        let borrowed_refusal =
+            norito::with_decode_limits_scope(no_allocation, || verifier.verified_tip_ref());
+        assert!(matches!(
+            borrowed_refusal,
+            Err(FinalityError::DecodeResource(_))
+        ));
+        assert!(verifier.verified_tip.get().is_none());
     }
     assert_eq!(verifier.verified_tip().unwrap().height(), 2);
     let memo = Arc::clone(&verifier.verified_tip);
+    let original_tip = memo.get().unwrap();
+    assert!(std::ptr::eq(
+        original_tip,
+        verifier.verified_tip_ref().unwrap()
+    ));
+    let source_allocation = Arc::clone(&verifier.checkpoint);
     let checkpoint = verifier.checkpoint().clone();
     let mut alternate = chain.alternate(2);
     let member = &chain.epoch(2).keys[0];
@@ -2488,6 +2599,131 @@ fn verified_tip_memo_keeps_failures_retryable_and_rechecks_new_certificate_witne
         Err(FinalityError::StaleChallenge)
     ));
     assert_eq!(verifier.checkpoint(), &checkpoint);
+    assert!(Arc::ptr_eq(&verifier.checkpoint, &source_allocation));
     assert!(Arc::ptr_eq(&verifier.verified_tip, &memo));
+    assert!(std::ptr::eq(
+        original_tip,
+        verifier.verified_tip_ref().unwrap()
+    ));
     assert_eq!(verifier.verified_tip().unwrap().height(), 2);
 }
+
+#[test]
+fn checkpoint_import_retains_authenticated_tip_without_redecode_or_fresh_witness_bypass() {
+    let chain = Chain::constant(4, 3);
+    let original = chain.verifier_at(2);
+    let checkpoint = original.checkpoint().clone();
+    let original_bytes = checkpoint.encode_canonical().unwrap();
+    let no_allocation = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+    for _ in 0..2 {
+        let refusal = norito::with_decode_limits_scope(no_allocation, || {
+            FinalityVerifier::from_checkpoint(checkpoint.clone(), chain.anchor.network_id, CHAIN)
+        });
+        assert!(matches!(refusal, Err(FinalityError::DecodeResource(_))));
+    }
+    let mut imported =
+        FinalityVerifier::from_checkpoint(checkpoint.clone(), chain.anchor.network_id, CHAIN)
+            .unwrap();
+    assert!(imported.verified_tip.get().is_some());
+    assert_eq!(imported, original);
+    let cloned = imported.clone();
+    assert!(Arc::ptr_eq(&imported.checkpoint, &cloned.checkpoint));
+    assert_eq!(
+        cloned.checkpoint().encode_canonical().unwrap(),
+        original_bytes
+    );
+    assert!(Arc::ptr_eq(&imported.verified_tip, &cloned.verified_tip));
+    let retained_tip = cloned.verified_tip_ref().unwrap();
+    let borrowed = norito::with_decode_limits_scope(no_allocation, || imported.verified_tip_ref())
+        .expect("an exact read-only scope gate borrows the independently imported tip");
+    assert!(std::ptr::eq(borrowed, retained_tip));
+    assert!(std::ptr::eq(borrowed, imported.verified_tip.get().unwrap()));
+    borrowed
+        .verify_global_scope(chain.anchor.network_id, CHAIN)
+        .unwrap();
+    assert!(
+        borrowed
+            .verify_global_scope(chain.anchor.network_id, "foreign-chain")
+            .is_err()
+    );
+    let verified = norito::with_decode_limits_scope(no_allocation, || imported.verified_tip())
+        .expect("the successful import already authenticated this exact tip");
+    assert_eq!(
+        verified.block().encode_wire().unwrap(),
+        chain.proof(2).block_wire
+    );
+    assert_eq!(
+        verified.context_id(),
+        original.verified_tip().unwrap().context_id()
+    );
+    assert_eq!(checkpoint.encode_canonical().unwrap(), original_bytes);
+
+    let mut bad = chain.alternate(2);
+    let mut qc = commit_qc(&bad);
+    qc.agg_sig.0[0] ^= 1;
+    let header = core(&bad);
+    let execution = result(&bad);
+    replace_certificate(&mut bad, &header, &qc, &execution);
+    assert_eq!(bad.block_header, chain.proof(2).block_header);
+    assert!(matches!(
+        imported.advance(&Source::new(&chain), &bad),
+        Err(FinalityError::Native(_))
+    ));
+    let member = &chain.epoch(2).keys[0];
+    let mut attestation = chain.attest(member, 2);
+    attestation.body.finality_proof = bad;
+    resign(&mut attestation, member);
+    attestation
+        .signature
+        .verify_hash(member.public_key(), attestation.body.signing_hash())
+        .unwrap();
+    assert!(matches!(
+        imported.verify_attestation(&CHALLENGE, &attestation),
+        Err(FinalityError::Native(_))
+    ));
+    assert_eq!(imported.checkpoint(), &checkpoint);
+    assert!(Arc::ptr_eq(&imported.checkpoint, &cloned.checkpoint));
+    imported
+        .advance(&Source::new(&chain), chain.proof(3))
+        .unwrap();
+    assert!(!Arc::ptr_eq(&imported.checkpoint, &cloned.checkpoint));
+    assert_eq!(
+        cloned.checkpoint().encode_canonical().unwrap(),
+        original_bytes
+    );
+    assert!(!Arc::ptr_eq(&imported.verified_tip, &cloned.verified_tip));
+    assert!(imported.verified_tip.get().is_none());
+    let borrowed_refusal =
+        norito::with_decode_limits_scope(no_allocation, || imported.verified_tip_ref());
+    assert!(matches!(
+        borrowed_refusal,
+        Err(FinalityError::DecodeResource(_))
+    ));
+    assert!(imported.verified_tip.get().is_none());
+    assert!(std::ptr::eq(
+        retained_tip,
+        cloned.verified_tip_ref().unwrap()
+    ));
+    let refusal = norito::with_decode_limits_scope(no_allocation, || imported.verified_tip());
+    assert!(matches!(refusal, Err(FinalityError::DecodeResource(_))));
+    assert!(imported.verified_tip.get().is_none());
+    assert_eq!(imported.verified_tip().unwrap().height(), 3);
+    assert!(!std::ptr::eq(
+        retained_tip,
+        imported.verified_tip_ref().unwrap()
+    ));
+    assert_eq!(cloned.verified_tip().unwrap().height(), 2);
+    assert_eq!(cloned.checkpoint(), &checkpoint);
+}
+
+#[path = "carrier_tests.rs"]
+mod carrier_tests;
+
+#[path = "prefix_import_tests.rs"]
+mod prefix_import_tests;
+
+#[path = "observed_tip_tests.rs"]
+mod observed_tip_tests;
+
+#[path = "placement_tests.rs"]
+mod placement_tests;

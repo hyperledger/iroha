@@ -9,7 +9,7 @@
                     return 99;
                 }
 
-                view fn inspect() -> Option<int> {
+                view fn inspect() authorize(anyone) -> Option<int> {
                     return Option::none;
                 }
             }

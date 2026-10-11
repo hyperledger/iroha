@@ -720,9 +720,10 @@ async fn zk_verify_batch_endpoint_rejects_goldilocks_field_as_ipa_group() {
         false,
     )
     .await;
+    // The batch was decoded; its individual entry remains an unsupported-backend error.
     assert_eq!(
         value.get("ok").and_then(|entry| entry.as_bool()),
-        Some(false)
+        Some(true)
     );
     let statuses = value
         .get("statuses")

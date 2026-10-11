@@ -412,7 +412,7 @@ impl WorkflowStorage for FaultStorage {
     }
 }
 
-/// Another actor that acts when the journal first shows a given current-step state.
+/// Another actor triggered by a stored state or from inside an external call.
 struct ConcurrentActor {
     world: Arc<FakeWorkflowWorld>,
     engine: WorkflowEngine,
@@ -421,12 +421,8 @@ struct ConcurrentActor {
     trigger: Mutex<Option<(String, String)>>,
 }
 
-impl WorkflowObserver for ConcurrentActor {
-    fn on_progress(&self, progress: &WorkflowProgressV1) {
-        let current = progress
-            .current_step
-            .and_then(|index| progress.steps.get(index as usize))
-            .map(|step| step.state);
+impl ConcurrentActor {
+    fn act_when(&self, current: Option<&str>) {
         let action = {
             let mut trigger = self.trigger.lock().expect("trigger");
             match trigger.as_ref() {
@@ -443,7 +439,14 @@ impl WorkflowObserver for ConcurrentActor {
             "cancel" => {
                 let cancelled = self
                     .engine
-                    .cancel_by_id(progress.workflow_id)
+                    .cancel_by_id(
+                        self.handle
+                            .lock()
+                            .expect("handle")
+                            .as_ref()
+                            .expect("handle")
+                            .id(),
+                    )
                     .expect("concurrent cancellation");
                 self.world
                     .push_effect(format!("concurrent:cancel:{}", cancelled.status));
@@ -464,6 +467,17 @@ impl WorkflowObserver for ConcurrentActor {
             }
             other => panic!("unknown concurrent action `{other}`"),
         }
+    }
+}
+
+impl WorkflowObserver for ConcurrentActor {
+    fn on_progress(&self, progress: &WorkflowProgressV1) {
+        self.act_when(
+            progress
+                .current_step
+                .and_then(|index| progress.steps.get(index as usize))
+                .map(|step| step.state),
+        );
     }
 }
 
@@ -515,6 +529,13 @@ impl Fixture {
         *actor.handle.lock().expect("handle") =
             Some(reader.workflow(plan.clone()).expect("handle"));
         *actor.driver.lock().expect("driver") = Some(Arc::clone(&driver));
+        // Avoid a cycle: the actor owns the world, whose hook must not own the actor.
+        let weak_actor = Arc::downgrade(&actor);
+        world.set_effect_hook(Some(Arc::new(move |effect| {
+            if let Some(actor) = weak_actor.upgrade() {
+                actor.act_when(Some(&format!("effect:{effect}")));
+            }
+        })));
         Self {
             world,
             storage,

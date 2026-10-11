@@ -10,6 +10,6 @@ isi! {
     }
 }
 impl crate::seal::Instruction for MutateSorafsStreamTokenAuthority {}
-impl_sorafs_decode_from_slice!(MutateSorafsStreamTokenAuthority {
+impl_aos_decode_from_slice!(MutateSorafsStreamTokenAuthority {
     request: StreamTokenAuthorityRequestV1,
 });

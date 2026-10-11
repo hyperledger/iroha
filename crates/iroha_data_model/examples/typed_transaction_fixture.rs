@@ -176,10 +176,11 @@ fn fixture() -> Value {
     .into_iter()
     .enumerate()
     .map(|(index, value)| {
-        let json =
-            SetKeyValue::account(source.clone(), "memo".parse().unwrap(), value.clone()).value;
+        let instruction =
+            SetKeyValue::account(source.clone(), "memo".parse().unwrap(), value.clone());
+        let json = instruction.value();
         metadata.insert(format!("key_{index}").parse().unwrap(), value.clone());
-        json!({"value": value, "payload_hex": (hex(&norito::codec::encode_adaptive(&json)))})
+        json!({"value": value, "payload_hex": (hex(&norito::codec::encode_adaptive(json)))})
     })
     .collect();
     json!({

@@ -120,10 +120,8 @@ fn vote_pair(reader: &LaneProofRead, height: u64) -> Evidence {
             view: 5,
             block_hash: Hash32([byte; 32]),
             result: Hash32([73; 32]),
-            attest: false,
             signer: 2,
             sig: Signature([0; SIGNATURE_LEN]),
-            attestation: None,
         };
         vote.sig = signer.sign(&vote.preimage());
         vote
@@ -194,7 +192,6 @@ fn anchored_chain_with_config(
                 proposer: 0,
                 skipped_leaders: Vec::new(),
                 control_witness: ControlWitness::empty(),
-                attest: false,
             };
             let authored = PayloadAuthoring::new(header, payload)
                 .complete(
@@ -214,11 +211,8 @@ fn anchored_chain_with_config(
                 view: 0,
                 block_hash: hash,
                 result: Hash32([height as u8; 32]),
-                attest: false,
                 signers: Bitmap::from_indices(4, [0, 1, 2]).unwrap(),
                 agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
-                attestations: Vec::new(),
-                attestation_witness: None,
             };
             qc.agg_sig = crypto.aggregate(
                 &signers[..3]
@@ -233,11 +227,7 @@ fn anchored_chain_with_config(
                     &qc.epoch,
                     &context.authority.config().committee
                 )
-                .verify_commit_qc(
-                    &NoAttestation,
-                    &qc,
-                    Some(authored.body.header())
-                )
+                .verify_commit_qc(&qc, Some(authored.body.header()))
             );
             parent = iroha_data_model::sumeragi_lanes::SumeragiLaneFrontier {
                 height,
@@ -432,7 +422,6 @@ fn proposal_pair(reader: &LaneProofRead) -> Evidence {
             proposer,
             skipped_leaders: topology.skipped_leader_keys(&config.committee, 0),
             control_witness: ControlWitness::empty(),
-            attest: false,
         };
         let mut proposal = iroha_sumeragi::message::Proposal {
             instance: reader.instance,
@@ -542,7 +531,7 @@ fn lane_proof_rejects_valid_same_height_certificate_on_an_unmerged_branch() {
             &qc.epoch,
             &reader.cursor.config().committee
         )
-        .verify_commit_qc(&NoAttestation, &qc, Some(authored.body.header()))
+        .verify_commit_qc(&qc, Some(authored.body.header()))
     );
     let mut replacement = PreparedLaneWrite::new(authored.body, qc);
     std::fs::write(path, replacement.prepare(&reader.budget).unwrap()).unwrap();
@@ -597,6 +586,11 @@ fn retained_lane_evidence_read_preserves_original_capture_across_open_failure_an
     );
     assert_eq!(attribution.offenders[0].signer, 2);
     drop(reader);
+    assert!(
+        budget.reserved_bytes() > baseline,
+        "the immutable attribution still owns its actual graph"
+    );
+    drop(attribution);
     assert_eq!(budget.reserved_bytes(), baseline);
 }
 
@@ -848,11 +842,16 @@ fn native_lane_admission_and_restore_keep_original_carrier_clock_through_penalty
         matches!(replay, Err(evidence::EvidenceAdmissionError::Invalid(reason)) if reason == "evidence is already committed")
     );
 
-    let mut forged = current.clone();
+    let mut forged = current.canonical_projection();
     let EvidenceScope::Lane(scope) = &mut forged.attribution.scope else {
         panic!("lane scope")
     };
     scope.admission_parent_core_hash[0] ^= 1;
+    let forged = crate::state::RetainedEvidenceRecord::from_fixture(
+        forged,
+        &chain.state().ivm_execution_budget(),
+    )
+    .unwrap();
     let mut records = chain.state().world.consensus_evidence.block();
     records.insert(key, forged);
     records.commit();
@@ -863,12 +862,47 @@ fn native_lane_admission_and_restore_keep_original_carrier_clock_through_penalty
     evidence::validate_persisted_records(chain.state()).unwrap();
 }
 
+// These two view-only phases must return before nested native history reads start.
+// Keep their concrete StateView temporaries off the enclosing default-stack test frame.
+#[inline(never)]
+fn original_lane_observer_carrier(state: &crate::state::State) -> u64 {
+    assert!(
+        state
+            .view()
+            .world()
+            .consensus_evidence()
+            .iter()
+            .next()
+            .is_none()
+    );
+    state.view().height() as u64 + 1
+}
+
+#[inline(never)]
+fn assert_original_lane_observer_record(
+    state: &crate::state::State,
+    key: iroha_crypto::Hash,
+    proof: &iroha_data_model::block::consensus::Evidence,
+    carrier: u64,
+) {
+    use iroha_data_model::block::consensus::EvidencePenaltyStatus;
+    let view = state.view();
+    let record = view.world().consensus_evidence().get(&key).unwrap();
+    assert_eq!(record.evidence, *proof);
+    assert_eq!(record.recorded_at_height, carrier);
+    assert_eq!(record.penalty_status, EvidencePenaltyStatus::Pending);
+    assert_eq!(
+        view.world().consensus_evidence().iter().count(),
+        1,
+        "forged observations never gain World authority"
+    );
+    drop(view);
+}
+
 #[test]
 fn native_lane_observer_proposes_only_original_authenticated_reports_after_local_retry() {
     use crate::sumeragi::{evidence, lanes::runner::evidence_observer};
-    use iroha_data_model::{
-        block::consensus::EvidencePenaltyStatus, parameter::system::SumeragiNposParameters,
-    };
+    use iroha_data_model::parameter::system::SumeragiNposParameters;
     let (mut chain, _guard) = anchored_chain_with_policy(
         7,
         SumeragiNposParameters {
@@ -906,16 +940,7 @@ fn native_lane_observer_proposes_only_original_authenticated_reports_after_local
     observer.evidence(&native);
     let retained = budget.reserved_bytes();
     assert!(retained > initial);
-    assert!(
-        state
-            .view()
-            .world()
-            .consensus_evidence()
-            .iter()
-            .next()
-            .is_none()
-    );
-    let carrier = state.view().height() as u64 + 1;
+    let carrier = original_lane_observer_carrier(&state);
     assert!(
         7 > carrier,
         "local lane height must not exclude a global proposal"
@@ -944,17 +969,7 @@ fn native_lane_observer_proposes_only_original_authenticated_reports_after_local
     assert_eq!(original_pool.reserved_bytes(), original_base);
     assert_eq!(budget.reserved_bytes(), retained);
     chain.commit(Vec::new());
-    let view = state.view();
-    let record = view.world().consensus_evidence().get(&key).unwrap();
-    assert_eq!(record.evidence, proof);
-    assert_eq!(record.recorded_at_height, carrier);
-    assert_eq!(record.penalty_status, EvidencePenaltyStatus::Pending);
-    assert_eq!(
-        view.world().consensus_evidence().iter().count(),
-        1,
-        "forged observations never gain World authority"
-    );
-    drop(view);
+    assert_original_lane_observer_record(&state, key, &proof, carrier);
     evidence::validate_persisted_records(&state).unwrap();
 }
 
@@ -969,7 +984,6 @@ fn reported_original_lane_equivocation(context: &LaneEvidenceContext) -> Evidenc
     };
     use iroha_sumeragi::{
         api::{Init, LocalParams},
-        crypto::Attestation,
         message::WireMessage,
         types::{ConfigSlot, PublicKey},
     };
@@ -1015,7 +1029,6 @@ fn reported_original_lane_equivocation(context: &LaneEvidenceContext) -> Evidenc
         signers: Vec::new(),
         crypto: Box::new(crypto),
         hasher: Box::new(BlsCrypto::new()),
-        attestation: Attestation::none(),
         now: 0,
         ingress: Arc::new(parking_lot::Mutex::new(Ingress::new(
             IngressLimits::default(),
@@ -1065,10 +1078,8 @@ fn reported_original_lane_equivocation(context: &LaneEvidenceContext) -> Evidenc
             view: 0,
             block_hash: Hash32([block; 32]),
             result: Hash32([73; 32]),
-            attest: false,
             signer: 2,
             sig: Signature([0; SIGNATURE_LEN]),
-            attestation: None,
         };
         vote.sig = signer.sign(&vote.preimage());
         vote
@@ -1833,18 +1844,11 @@ fn terminal_lane_source_failure_cannot_pin_competing_original_admission_forever(
         .join("00000000000000000007.frame");
     drop(reader);
     let root = Evidence::ConflictingCertificates(
-        chain.commit_qc(
-            3,
-            Hash32([0x31; 32]),
-            Hash32([0x32; 32]),
-            false,
-            Signers::Quorum,
-        ),
+        chain.commit_qc(3, Hash32([0x31; 32]), Hash32([0x32; 32]), Signers::Quorum),
         chain.commit_qc(
             3,
             Hash32([0x33; 32]),
             Hash32([0x34; 32]),
-            false,
             Signers::LastThree,
         ),
     );
@@ -1892,20 +1896,8 @@ fn local_proposer_skips_terminal_lane_source_without_deleting_observation() {
     let (root_native, root) = (1..=255_u8)
         .find_map(|marker| {
             let proof = Evidence::ConflictingCertificates(
-                chain.commit_qc(
-                    3,
-                    Hash32([marker; 32]),
-                    Hash32([0x32; 32]),
-                    false,
-                    Signers::Quorum,
-                ),
-                chain.commit_qc(
-                    3,
-                    Hash32([0; 32]),
-                    Hash32([0x34; 32]),
-                    false,
-                    Signers::LastThree,
-                ),
+                chain.commit_qc(3, Hash32([marker; 32]), Hash32([0x32; 32]), Signers::Quorum),
+                chain.commit_qc(3, Hash32([0; 32]), Hash32([0x34; 32]), Signers::LastThree),
             );
             let wire = iroha_data_model::block::consensus::Evidence::from_native(&proof).unwrap();
             (evidence::evidence_key(&wire) > evidence::evidence_key(&lane)).then_some((proof, wire))
@@ -2069,4 +2061,79 @@ fn original_lane_observer_late_policy_refusal_retains_observation_and_retries() 
         evidence::pending_evidence_admissions(state, carrier, state.state_view_generation()),
         [original]
     );
+}
+
+#[test]
+fn lane_verified_offender_graph_refuses_occupied_original_pool_and_retries() {
+    let (chain, _guard) = anchored_chain(3);
+    let budget = chain.state().ivm_execution_budget();
+    let baseline = budget.reserved_bytes();
+    let mut reader = LaneProofRead::new(capture(&chain), 3)
+        .unwrap_or_else(|(_, error)| panic!("original lane custody: {error}"));
+    reader.poll().unwrap();
+    let proof = vote_pair(&reader, 3);
+    let config = std::ptr::from_ref(reader.cursor.config().epoch.as_ref());
+    let headers = reader.headers.as_slice().as_ptr();
+    let retained = budget.reserved_bytes();
+    let blocker = budget
+        .try_reserve_bytes(budget.limit_bytes() - retained)
+        .unwrap();
+    let compact_bytes = reader.cursor.config().committee.members()[2]
+        .as_bytes()
+        .len()
+        + 1;
+    let expected = budget
+        .try_reserve(std::alloc::Layout::array::<u8>(compact_bytes).unwrap())
+        .unwrap_err();
+    assert!(matches!(
+        &expected,
+        iroha_allocation::AllocationRefusal::Capacity { .. }
+    ));
+    let result = reader.verify(&proof);
+    let error = result.expect_err(
+        "occupied original offender pool must refuse before constructing a verified graph",
+    );
+    let classified = crate::sumeragi::evidence::EvidenceAdmissionError::from(error);
+    assert!(matches!(classified,
+        crate::sumeragi::evidence::EvidenceAdmissionError::Preparation(
+            crate::state::EvidencePreparationError::Admission(actual)) if actual == expected));
+    assert_eq!(
+        std::ptr::from_ref(reader.cursor.config().epoch.as_ref()),
+        config
+    );
+    assert_eq!(reader.headers.as_slice().as_ptr(), headers);
+    assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+    drop(blocker);
+    assert_eq!(budget.reserved_bytes(), retained);
+    let verified = reader.verify(&proof).unwrap();
+    assert_eq!(verified.tip(), reader.tip);
+    assert_eq!(verified.offenders()[0].signer, 2);
+    let vector = verified.offenders().as_ptr();
+    let compact = verified.offenders()[0]
+        .peer_id
+        .public_key()
+        .borrowed_parts()
+        .unwrap()
+        .1
+        .as_ptr();
+    let held = budget.reserved_bytes();
+    assert!(held > retained);
+    let attribution = verified.into_attribution();
+    assert!(attribution.belongs_to(&budget));
+    assert_eq!(attribution.offenders.as_ptr(), vector);
+    assert_eq!(
+        attribution.offenders[0]
+            .peer_id
+            .public_key()
+            .borrowed_parts()
+            .unwrap()
+            .1
+            .as_ptr(),
+        compact
+    );
+    assert_eq!(budget.reserved_bytes(), held);
+    drop(attribution);
+    assert_eq!(budget.reserved_bytes(), retained);
+    drop(reader);
+    assert_eq!(budget.reserved_bytes(), baseline);
 }

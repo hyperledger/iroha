@@ -224,14 +224,19 @@ mod tests {
         struct MissingReceiptSlot(
             crate::transaction::TransactionResultInner,
             Vec<crate::events::data::prelude::AssetBatchTransferOutcome>,
+            crate::smart_contract::event::ContractEmissionsV1,
         );
         // The intentionally incomplete frame advertises the actual result identity.
         assert_eq!(
             norito::schema::identity::frame_hash::<MissingReceiptSlot>(),
             norito::schema::identity::frame_hash::<TransactionResult>(),
         );
-        let bytes =
-            norito::encode_canonical(&MissingReceiptSlot(Ok(Vec::new()), Vec::new())).unwrap();
+        let bytes = norito::encode_canonical(&MissingReceiptSlot(
+            Ok(Vec::new()),
+            Vec::new(),
+            crate::smart_contract::event::ContractEmissionsV1::default(),
+        ))
+        .unwrap();
         assert!(norito::decode_canonical::<TransactionResult>(&bytes).is_err());
 
         // Derive malformed bare payloads from successful same-type controls, so
@@ -260,17 +265,38 @@ mod tests {
                 norito::core::read_len_from_slice_with_flags(&payload[receipt_offset..], flags)
                     .unwrap();
             assert!(length > 0, "the present Option must encode an explicit tag");
-            assert_eq!(receipt_offset + header + length, payload.len());
+            let receipt_end = receipt_offset + header + length;
+            let receipt_payload = &payload[receipt_offset + header..receipt_end];
+            let (decoded_receipt, used) =
+                norito::core::decode_field_canonical::<Option<NexusFeeReceipt>>(receipt_payload)
+                    .unwrap();
+            assert_eq!(used, receipt_payload.len());
+            assert_eq!(decoded_receipt.as_ref(), result.nexus_fee_receipt());
             if result.nexus_fee_receipt().is_none() {
-                assert_eq!(&payload[receipt_offset + header..], &[0]);
+                assert_eq!(receipt_payload, &[0]);
             }
 
-            let missing_slot = &payload[..receipt_offset];
+            // The required event field follows the receipt in the current tuple.
+            // Keep it byte-for-byte in both mutations so only the receipt differs.
+            let tail = &payload[receipt_end..];
+            let (event_length, event_header) =
+                norito::core::read_len_from_slice_with_flags(tail, flags).unwrap();
+            assert_eq!(event_header + event_length, tail.len());
+            let (events, used) = norito::core::decode_field_canonical::<
+                crate::smart_contract::event::ContractEmissionsV1,
+            >(&tail[event_header..])
+            .unwrap();
+            assert_eq!(used, event_length);
+            assert_eq!(&events, result.contract_events());
+
+            let mut missing_slot = payload[..receipt_offset].to_vec();
+            missing_slot.extend_from_slice(tail);
             assert!(
-                norito::core::decode_field_canonical::<TransactionResult>(missing_slot).is_err()
+                norito::core::decode_field_canonical::<TransactionResult>(&missing_slot).is_err()
             );
-            let mut missing_option_tag = missing_slot.to_vec();
+            let mut missing_option_tag = payload[..receipt_offset].to_vec();
             norito::core::write_len_to_vec_with_flags(&mut missing_option_tag, 0, flags);
+            missing_option_tag.extend_from_slice(tail);
             assert!(
                 norito::core::decode_field_canonical::<TransactionResult>(&missing_option_tag)
                     .is_err()

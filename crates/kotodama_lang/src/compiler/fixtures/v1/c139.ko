@@ -3,7 +3,7 @@ seiyaku BoundedHints {
   state StateMap<Name, int> Names;
   state StateMap<quantity, int> Quantities;
 
-  view fn scan() -> int {
+  view fn scan() authorize(anyone) -> int {
     var int total = 0;
     for (name1, value1) in Names.take(2) {
       total = total + value1;

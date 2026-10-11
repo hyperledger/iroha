@@ -1111,24 +1111,37 @@ public struct IrohaPeerNfcDurablePaymentAdmissionV1: Equatable, Sendable {
     }
 }
 
-/// A fully validated payment presented to application persistence at COMMIT.
+/// A structurally bound exchange presented to application persistence at COMMIT.
+/// Native authentication and monetary admission remain required before acknowledging receipt.
 public struct IrohaPeerNfcCommitContextV1: Equatable, Sendable {
     public let identity: IrohaPeerNfcRequestIdentityV1
     public let profilePolicy: IrohaPeerNfcProfilePolicyV1
+    public let receiveRequest: IrohaPeerWireMessageV1
     public let payment: IrohaPeerWireMessageV1
 
     public init(
         identity: IrohaPeerNfcRequestIdentityV1,
         profilePolicy: IrohaPeerNfcProfilePolicyV1,
+        receiveRequest: IrohaPeerWireMessageV1,
         payment: IrohaPeerWireMessageV1
     ) throws {
         guard profilePolicy.profile == identity.profile,
+              profilePolicy.accepts(receiveRequest.profile),
               profilePolicy.accepts(payment.profile) else {
             throw IrohaPeerNfcErrorV1.invalidProfile
         }
-        guard payment.kind == .payment else { throw IrohaPeerNfcErrorV1.invalidKind }
+        guard receiveRequest.kind == .request, payment.kind == .payment else {
+            throw IrohaPeerNfcErrorV1.invalidKind
+        }
+        guard receiveRequest.canonicalHash == identity.requestCanonicalHash,
+              receiveRequest.wireHash == identity.requestWireHash else {
+            throw IrohaPeerNfcErrorV1.continuityMismatch
+        }
+        try nfcRequireWalletExchange(request: receiveRequest, payment: payment)
+
         self.identity = identity
         self.profilePolicy = profilePolicy
+        self.receiveRequest = receiveRequest
         self.payment = payment
     }
 }
@@ -1165,6 +1178,8 @@ public struct IrohaPeerNfcDurableAcknowledgementV1: Equatable, Sendable {
         guard context.profilePolicy.accepts(decoded.profile) else {
             throw IrohaPeerNfcErrorV1.invalidProfile
         }
+        try nfcRequireWalletExchange(
+            request: context.receiveRequest, payment: context.payment, credited: decoded)
         self.identity = context.identity
         self.paymentProfile = context.payment.profile
         self.paymentLength = context.payment.encoded.count
@@ -1338,6 +1353,9 @@ public struct IrohaPeerNfcReceiverSessionV1: Sendable {
                   ) else {
                 throw IrohaPeerNfcErrorV1.continuityMismatch
             }
+        }
+        if let durableAcknowledgement {
+            try nfcRequireCreditedScheme(request: request, credited: durableAcknowledgement.acknowledgement)
         }
         var initialPendingPayment: PendingPayment?
         if let restoredPaymentAdmission {
@@ -1579,6 +1597,7 @@ public struct IrohaPeerNfcReceiverSessionV1: Sendable {
             try IrohaPeerNfcCommitContextV1(
                 identity: identity,
                 profilePolicy: profilePolicy,
+                receiveRequest: receiveRequest,
                 payment: payment
             )
         )
@@ -1596,6 +1615,7 @@ public struct IrohaPeerNfcReceiverSessionV1: Sendable {
               profilePolicy.accepts(record.acknowledgement.profile) else {
             throw IrohaPeerNfcErrorV1.invalidProfile
         }
+        try nfcRequireCreditedScheme(request: receiveRequest, credited: record.acknowledgement)
         if let durableAcknowledgement {
             guard durableAcknowledgement == record else {
                 throw IrohaPeerNfcErrorV1.conflictingReplay
@@ -1918,6 +1938,8 @@ public struct IrohaPeerNfcSenderCheckpointV1: Equatable, Sendable {
         } else {
             ackMessage = nil
         }
+        try nfcRequireWalletExchange(
+            request: requestMessage, payment: paymentMessage, credited: ackMessage)
         self.identity = try IrohaPeerNfcRequestIdentityV1(
             profile: requestMessage.profile,
             sessionID: sessionID,
@@ -2167,6 +2189,8 @@ public struct IrohaPeerNfcTwoTapReducerV1: Sendable {
               acknowledgement.wireHash == expectedAcknowledgementHash else {
             throw IrohaPeerNfcErrorV1.invalidHash
         }
+        try nfcRequireWalletExchange(
+            request: checkpoint.receiveRequest, payment: checkpoint.payment, credited: acknowledgement)
         return true
     }
 
@@ -2251,6 +2275,29 @@ public struct IrohaPeerNfcTwoTapReducerV1: Sendable {
         expectedAcknowledgementLength = nil
         expectedAcknowledgementHash = nil
     }
+}
+
+// Carrier checks preserve exact bytes; only Native can authenticate monetary effects.
+private func nfcRequireWalletExchange(
+    request: IrohaPeerWireMessageV1, payment: IrohaPeerWireMessageV1,
+    credited: IrohaPeerWireMessageV1? = nil
+) throws {
+    do {
+        try KagemushaWalletWireV1.requireExchangeBinding(
+            request: IrohaPeerKagemushaWalletAdapterV1.decode(request),
+            payment: IrohaPeerKagemushaWalletAdapterV1.decode(payment),
+            credited: try credited.map { try IrohaPeerKagemushaWalletAdapterV1.decode($0) })
+    } catch { throw IrohaPeerNfcErrorV1.continuityMismatch }
+}
+
+private func nfcRequireCreditedScheme(
+    request: IrohaPeerWireMessageV1, credited: IrohaPeerWireMessageV1
+) throws {
+    do {
+        try KagemushaWalletWireV1.requireCreditedScheme(
+            request: IrohaPeerKagemushaWalletAdapterV1.decode(request),
+            credited: IrohaPeerKagemushaWalletAdapterV1.decode(credited))
+    } catch { throw IrohaPeerNfcErrorV1.continuityMismatch }
 }
 
 private func nfcDecodeMessage(

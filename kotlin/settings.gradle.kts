@@ -16,7 +16,3 @@ include(":core-jvm")
 include(":tools")
 include(":client-android")
 include(":kagemusha-wallet-android")
-
-// The candidate evidence lab is an intentionally non-shipping Android
-// application.  It is absent from the normal project graph (and therefore
-// every Maven/release task) unless an operator opts in explicitly.

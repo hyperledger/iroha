@@ -54,9 +54,12 @@ fn keyword_kind(text: &str) -> SyntaxKind {
         Some(TokenKind::Continue) => SyntaxKind::KwContinue,
         Some(TokenKind::State) => SyntaxKind::KwState,
         Some(TokenKind::Struct) => SyntaxKind::KwStruct,
+        Some(TokenKind::Event) => SyntaxKind::KwEvent,
+        Some(TokenKind::Emit) => SyntaxKind::KwEmit,
         Some(TokenKind::Error) => SyntaxKind::KwError,
         Some(TokenKind::Enum) => SyntaxKind::KwEnum,
         Some(TokenKind::Authorize) => SyntaxKind::KwAuthorize,
+        Some(TokenKind::Permission) => SyntaxKind::KwPermission,
         Some(TokenKind::Trigger) => SyntaxKind::KwTrigger,
         Some(TokenKind::If) => SyntaxKind::KwIf,
         Some(TokenKind::Match) => SyntaxKind::KwMatch,
@@ -84,29 +87,190 @@ struct Scanner<'source> {
     pos: usize,
     previous_significant: Option<SyntaxKind>,
 }
-#[derive(Clone, Copy)]
+/// One lexical error with site-specific help and exact fixes.
+#[derive(Clone)]
 struct LexicalError {
     code: &'static str,
-    message: &'static str,
+    message: String,
+    help: Option<String>,
+    /// Absolute replacement ranges, preferred first.
+    fixes: Vec<(TextRange, String)>,
     strip_numeric_suffix: bool,
 }
 impl LexicalError {
-    const fn new(code: &'static str, message: &'static str) -> Self {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
-            message,
+            message: message.into(),
+            help: None,
+            fixes: Vec::new(),
             strip_numeric_suffix: false,
         }
     }
+    fn help(mut self, help: impl Into<String>) -> Self {
+        self.help = Some(help.into());
+        self
+    }
+    fn fix(mut self, range: TextRange, replacement: impl Into<String>) -> Self {
+        self.fixes.push((range, replacement.into()));
+        self
+    }
     fn retired_numeric_suffix(suffix: &str) -> Self {
         Self {
-            code: "E_RETIRED_NUMERIC_SUFFIX",
-            message: "numeric literal suffixes are not part of Kotodama V1; use an unsuffixed literal in an int, decimal, or quantity context",
             strip_numeric_suffix: matches!(suffix, "amt" | "qty"),
+            ..Self::new(
+                "E_RETIRED_NUMERIC_SUFFIX",
+                "numeric literal suffixes are not part of Kotodama V1; use an unsuffixed literal in an int, decimal, or quantity context",
+            )
         }
     }
 }
-#[derive(Clone, Copy)]
+/// Characters that make reviewed text differ from what compiles: bidirectional
+/// controls reorder the display, and Unicode line separators end a line in
+/// many viewers but not in the lexer. They are rejected everywhere, including
+/// comments and string literals.
+fn deceptive_character(character: char) -> Option<(&'static str, &'static str)> {
+    Some(match character {
+        '\u{202a}' => ("E_BIDI_CONTROL_CHARACTER", "LEFT-TO-RIGHT EMBEDDING"),
+        '\u{202b}' => ("E_BIDI_CONTROL_CHARACTER", "RIGHT-TO-LEFT EMBEDDING"),
+        '\u{202c}' => ("E_BIDI_CONTROL_CHARACTER", "POP DIRECTIONAL FORMATTING"),
+        '\u{202d}' => ("E_BIDI_CONTROL_CHARACTER", "LEFT-TO-RIGHT OVERRIDE"),
+        '\u{202e}' => ("E_BIDI_CONTROL_CHARACTER", "RIGHT-TO-LEFT OVERRIDE"),
+        '\u{2066}' => ("E_BIDI_CONTROL_CHARACTER", "LEFT-TO-RIGHT ISOLATE"),
+        '\u{2067}' => ("E_BIDI_CONTROL_CHARACTER", "RIGHT-TO-LEFT ISOLATE"),
+        '\u{2068}' => ("E_BIDI_CONTROL_CHARACTER", "FIRST STRONG ISOLATE"),
+        '\u{2069}' => ("E_BIDI_CONTROL_CHARACTER", "POP DIRECTIONAL ISOLATE"),
+        '\u{200e}' => ("E_BIDI_CONTROL_CHARACTER", "LEFT-TO-RIGHT MARK"),
+        '\u{200f}' => ("E_BIDI_CONTROL_CHARACTER", "RIGHT-TO-LEFT MARK"),
+        '\u{061c}' => ("E_BIDI_CONTROL_CHARACTER", "ARABIC LETTER MARK"),
+        '\u{2028}' => ("E_UNICODE_LINE_SEPARATOR", "LINE SEPARATOR"),
+        '\u{2029}' => ("E_UNICODE_LINE_SEPARATOR", "PARAGRAPH SEPARATOR"),
+        '\u{0085}' => ("E_UNICODE_LINE_SEPARATOR", "NEXT LINE"),
+        _ => return None,
+    })
+}
+/// Whitespace that separates tokens: ASCII whitespace and the ideographic
+/// space U+3000 that Japanese input methods insert. `koto fmt` rewrites U+3000
+/// to an ASCII space.
+const fn is_token_separator(character: char) -> bool {
+    matches!(
+        character,
+        ' ' | '\t' | '\n' | '\r' | '\u{000b}' | '\u{000c}' | '\u{3000}'
+    )
+}
+/// ASCII character for a full-width form (U+FF01..=U+FF5E).
+fn fullwidth_ascii(character: char) -> Option<char> {
+    let code = u32::from(character);
+    (0xff01..=0xff5e)
+        .contains(&code)
+        .then(|| char::from_u32(code - 0xfee0))
+        .flatten()
+}
+/// Whether `character` is written in a Japanese or Chinese script.
+fn is_cjk(character: char) -> bool {
+    matches!(u32::from(character),
+        0x3040..=0x30ff | 0x31f0..=0x31ff | 0x3400..=0x4dbf | 0x4e00..=0x9fff
+        | 0xf900..=0xfaff | 0xff66..=0xff9f | 0x20000..=0x2fa1f)
+}
+/// Diagnose a non-ASCII identifier, distinguishing input-method slips around
+/// the branded keywords from genuinely non-ASCII names.
+fn non_ascii_identifier_error(text: &str, start: usize) -> LexicalError {
+    let range = TextRange::new(start as u32, (start + text.len()) as u32);
+    // `言挙げfn`: a kanji keyword glued to the next ASCII word. A name such as
+    // `誓約_x` or `誓約2` is an attempted identifier, not a missing space.
+    for keyword in &crate::glossary::BRANDED_KEYWORDS {
+        if let Some(rest) = text.strip_prefix(keyword.kanji)
+            && rest
+                .chars()
+                .next()
+                .is_some_and(|character| character.is_ascii_alphabetic())
+            && rest
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '_')
+        {
+            let boundary = (start + keyword.kanji.len()) as u32;
+            return LexicalError::new(
+                "E_KEYWORD_SPACING",
+                format!("`{}` and `{rest}` need a space between them", keyword.kanji),
+            )
+            .help(format!(
+                "`{}` is a keyword (also spelled `{}`); separate it from the next word with a space",
+                keyword.kanji, keyword.romaji
+            ))
+            .fix(TextRange::empty(boundary), " ");
+        }
+    }
+    if text
+        .chars()
+        .any(|character| fullwidth_ascii(character).is_some())
+    {
+        return fullwidth_error(text, start);
+    }
+    let keyword = crate::glossary::suggestion_for(text).or_else(|| {
+        let length = text.chars().count();
+        (text.chars().any(is_cjk) && (2..=4).contains(&length))
+            .then(|| {
+                // A keyword followed by more characters (`誓約名`) is an attempted
+                // identifier, not a misspelling of the keyword.
+                crate::glossary::BRANDED_KEYWORDS.iter().find(|keyword| {
+                    !text.starts_with(keyword.kanji)
+                        && crate::diagnostic::suggest::edit_distance(text, keyword.kanji, 1)
+                            .is_some()
+                })
+            })
+            .flatten()
+    });
+    if let Some(keyword) = keyword {
+        return LexicalError::new(
+            "E_CONFUSABLE_KEYWORD",
+            format!(
+                "`{text}` is not a Kotodama keyword; did you mean `{}`/`{}`?",
+                keyword.kanji, keyword.romaji
+            ),
+        )
+        .help(format!(
+            "`{}` ({}, \u{201c}{}\u{201d}) is spelled exactly `{}` or `{}`; both spellings are the same keyword",
+            keyword.kanji, keyword.reading, keyword.literal, keyword.kanji, keyword.romaji
+        ))
+        .fix(range, keyword.kanji)
+        .fix(range, keyword.romaji);
+    }
+    if text.chars().any(is_cjk) {
+        LexicalError::new(
+            "K0100",
+            format!("non-ASCII identifier `{text}`: identifiers are ASCII"),
+        )
+        .help("the only Japanese words in Kotodama source are the keywords 誓約, 言挙げ, 始まり and 改善 (also spelled seiyaku, kotoage, hajimari and kaizen); name declarations with ASCII letters, digits and `_`, and keep Japanese text in strings and comments")
+    } else {
+        LexicalError::new(
+            "K0100",
+            format!("non-ASCII identifier `{text}`: identifiers are ASCII"),
+        )
+        .help("name declarations with ASCII letters, digits and `_`; non-ASCII text belongs in string literals and comments")
+    }
+}
+/// `E_FULLWIDTH_ASCII` for text containing full-width forms of ASCII
+/// characters, typically typed with a Japanese input method still active.
+fn fullwidth_error(text: &str, start: usize) -> LexicalError {
+    let ascii = text
+        .chars()
+        .map(|character| fullwidth_ascii(character).unwrap_or(character))
+        .collect::<String>();
+    let first = text
+        .chars()
+        .find(|character| fullwidth_ascii(*character).is_some())
+        .unwrap_or('\u{ff01}');
+    LexicalError::new(
+        "E_FULLWIDTH_ASCII",
+        format!(
+            "full-width `{text}` (U+{:04X}) is not Kotodama syntax; write `{ascii}`",
+            u32::from(first)
+        ),
+    )
+    .help("punctuation, letters and digits outside string literals are ASCII; switch the input method to half-width (direct input) for code")
+    .fix(TextRange::new(start as u32, (start + text.len()) as u32), ascii)
+}
+#[derive(Clone)]
 enum ScannedNumber {
     Integer,
     Decimal,
@@ -135,7 +299,11 @@ impl<'source> Scanner<'source> {
         self.rest().starts_with(pattern)
     }
     fn scan_whitespace(&mut self) {
-        while self.current().is_some_and(char::is_whitespace) {
+        while self.current().is_some_and(|character| {
+            is_token_separator(character)
+                || deceptive_character(character)
+                    .is_some_and(|(code, _)| code == "E_UNICODE_LINE_SEPARATOR")
+        }) {
             self.bump();
         }
     }
@@ -159,10 +327,11 @@ impl<'source> Scanner<'source> {
         false
     }
     fn scan_identifier(&mut self) {
-        while self
-            .current()
-            .is_some_and(|character| character.is_alphanumeric() || character == '_')
-        {
+        while self.current().is_some_and(|character| {
+            character.is_alphanumeric()
+                || character == '_'
+                || fullwidth_ascii(character).is_some_and(|ascii| ascii == '_')
+        }) {
             self.bump();
         }
     }
@@ -195,7 +364,8 @@ impl<'source> Scanner<'source> {
             self.bump();
         }
         let mut has_fraction = false;
-        if self.starts_with(".") && !tuple_index {
+        // `0..10` is an integer followed by `..`; the parser explains ranges.
+        if self.starts_with(".") && !tuple_index && !self.starts_with("..") {
             let after_dot = self.rest()[1..].chars().next();
             if after_dot.is_some_and(|character| character.is_ascii_digit() || character == '_') {
                 has_fraction = true;
@@ -329,6 +499,39 @@ impl<'source> Scanner<'source> {
         }
         false
     }
+    /// Whether the previous significant token ends an operand, so a binary
+    /// operator may follow it.
+    fn previous_ends_operand(&self) -> bool {
+        matches!(
+            self.previous_significant,
+            Some(
+                SyntaxKind::Ident
+                    | SyntaxKind::Number
+                    | SyntaxKind::Decimal
+                    | SyntaxKind::String
+                    | SyntaxKind::Bytes
+                    | SyntaxKind::KwTrue
+                    | SyntaxKind::KwFalse
+                    | SyntaxKind::RParen
+                    | SyntaxKind::RBracket
+            )
+        )
+    }
+    /// After a `|` consumed in operand position, whether the text reads as
+    /// a closure parameter list `name, name|` on the same line.
+    fn closure_parameters_follow(&self) -> bool {
+        if self.previous_ends_operand() {
+            return false;
+        }
+        let rest = self.rest();
+        let Some(end) = rest.find(['|', '\n']) else {
+            return false;
+        };
+        rest.as_bytes().get(end) == Some(&b'|')
+            && rest[..end].bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b',' | b' ' | b':')
+            })
+    }
     fn punctuation(&mut self) -> Option<SyntaxKind> {
         for &(spelling, kind) in V1_PUNCTUATION_KINDS {
             if self.starts_with(spelling) {
@@ -351,12 +554,41 @@ impl<'source> Scanner<'source> {
                 None,
             );
         };
-        let (kind, error) = if character.is_whitespace() {
+        let (kind, mut error) = if is_token_separator(character)
+            || deceptive_character(character)
+                .is_some_and(|(code, _)| code == "E_UNICODE_LINE_SEPARATOR")
+        {
             self.scan_whitespace();
             (SyntaxKind::Whitespace, None)
+        } else if character.is_whitespace() {
+            self.bump();
+            let replaced = TextRange::new(start as u32, self.pos as u32);
+            (
+                SyntaxKind::ErrorToken,
+                Some(
+                    LexicalError::new(
+                        "E_NON_ASCII_WHITESPACE",
+                        format!(
+                            "U+{:04X} is not a token separator; use an ASCII space",
+                            u32::from(character)
+                        ),
+                    )
+                    .help("tokens are separated by ASCII spaces, tabs and line breaks, or the ideographic space U+3000; other Unicode spaces look identical but are rejected")
+                    .fix(replaced, " "),
+                ),
+            )
+        } else if deceptive_character(character).is_some() {
+            // Reported once by the whole-source scan in `lex`.
+            self.bump();
+            (SyntaxKind::ErrorToken, None)
         } else if self.starts_with("//") {
+            let kind = if self.starts_with("///") && !self.starts_with("////") {
+                SyntaxKind::DocComment
+            } else {
+                SyntaxKind::LineComment
+            };
             self.scan_line_comment();
-            (SyntaxKind::LineComment, None)
+            (kind, None)
         } else if self.starts_with("/*") {
             let terminated = self.scan_block_comment();
             (
@@ -365,7 +597,10 @@ impl<'source> Scanner<'source> {
                 } else {
                     SyntaxKind::ErrorToken
                 },
-                (!terminated).then_some(LexicalError::new("K0100", "unterminated block comment")),
+                (!terminated).then(|| {
+                    LexicalError::new("K0100", "unterminated block comment")
+                        .help("close the comment with `*/`; block comments do not nest")
+                }),
             )
         } else if let Some((is_bytes, content_start, hashes)) = self.raw_prefix() {
             let terminated = self.scan_raw(content_start, hashes);
@@ -379,10 +614,10 @@ impl<'source> Scanner<'source> {
                 } else {
                     SyntaxKind::ErrorToken
                 },
-                (!terminated).then_some(LexicalError::new(
-                    "K0100",
-                    "unterminated raw string literal",
-                )),
+                (!terminated).then(|| {
+                    LexicalError::new("K0100", "unterminated raw string literal")
+                        .help(format!("close the literal with `\"{}`", "#".repeat(hashes)))
+                }),
             )
         } else if self.starts_with("b\"") {
             let terminated = self.scan_quoted(1);
@@ -392,10 +627,11 @@ impl<'source> Scanner<'source> {
                 } else {
                     SyntaxKind::ErrorToken
                 },
-                (!terminated).then_some(LexicalError::new(
-                    "K0100",
-                    "unterminated byte string literal",
-                )),
+                (!terminated).then(|| {
+                    LexicalError::new("K0100", "unterminated byte string literal").help(
+                        "close the literal with `\"` on the same line; write a line break as `\\n`",
+                    )
+                }),
             )
         } else if character == '"' {
             let terminated = self.scan_quoted(0);
@@ -405,19 +641,23 @@ impl<'source> Scanner<'source> {
                 } else {
                     SyntaxKind::ErrorToken
                 },
-                (!terminated).then_some(LexicalError::new("K0100", "unterminated string literal")),
+                (!terminated).then(|| {
+                    LexicalError::new("K0100", "unterminated string literal").help(
+                        "close the string with `\"` on the same line; write a line break as `\\n`",
+                    )
+                }),
             )
-        } else if character.is_alphabetic() || character == '_' {
+        } else if character.is_alphabetic()
+            || character == '_'
+            || fullwidth_ascii(character).is_some_and(|ascii| ascii.is_ascii_alphanumeric())
+        {
             self.scan_identifier();
             let text = &self.text[start..self.pos];
             let kind = keyword_kind(text);
             if kind == SyntaxKind::Ident && !text.is_ascii() {
                 (
                     SyntaxKind::ErrorToken,
-                    Some(LexicalError::new(
-                        "K0100",
-                        "non-ASCII identifier outside the branded Japanese keyword set",
-                    )),
+                    Some(non_ascii_identifier_error(text, start)),
                 )
             } else {
                 (kind, None)
@@ -431,27 +671,95 @@ impl<'source> Scanner<'source> {
             }
         } else if self.starts_with("++") {
             self.pos += 2;
-            (
-                SyntaxKind::ErrorToken,
-                Some(LexicalError::new("K0100", "invalid Kotodama V1 operator")),
-            )
+            let operator = TextRange::new(start as u32, self.pos as u32);
+            let mut error =
+                LexicalError::new("E_UNSUPPORTED_OPERATOR", "`++` is not a Kotodama operator")
+                    .help("increment with a compound assignment: `count += 1;`");
+            if matches!(
+                self.previous_significant,
+                Some(SyntaxKind::Ident | SyntaxKind::RParen | SyntaxKind::RBracket)
+            ) {
+                error = error.fix(operator, " += 1");
+            }
+            (SyntaxKind::ErrorToken, Some(error))
         } else if let Some(kind) = self.punctuation() {
             (kind, None)
         } else {
             // `punctuation` consumed exactly one Unicode scalar before
             // reporting failure.
-            (
-                SyntaxKind::ErrorToken,
-                Some(LexicalError::new(
+            let consumed = TextRange::new(start as u32, self.pos as u32);
+            let error = match character {
+                '|' if self.closure_parameters_follow() => {
+                    // `|x| x + 1`: absorb the parameter list up to the closing
+                    // `|` so the closure is reported once.
+                    while self.current().is_some_and(|next| next != '|') {
+                        self.bump();
+                    }
+                    self.bump();
+                    LexicalError::new(
+                        "E_UNSUPPORTED_OPERATOR",
+                        "closures are not part of Kotodama",
+                    )
+                    .help("write a named `fn` helper and call it; transform lists with comprehensions such as `[x + 1 for x in values]`")
+                }
+                '&' | '|' if !self.previous_ends_operand() => LexicalError::new(
+                    "E_UNSUPPORTED_OPERATOR",
+                    format!("`{character}` is not a Kotodama operator"),
+                )
+                .help("Kotodama has no references, bitwise operators or closures; boolean AND and OR are `&&` and `||`"),
+                '&' | '|' => {
+                    let doubled = if character == '&' { "&&" } else { "||" };
+                    let meaning = if character == '&' { "AND" } else { "OR" };
+                    LexicalError::new(
+                        "E_UNSUPPORTED_OPERATOR",
+                        format!("`{character}` is not a Kotodama operator; boolean {meaning} is `{doubled}`"),
+                    )
+                    .help("Kotodama has no bitwise operators or closures; combine `bool` conditions with `&&` and `||`")
+                    .fix(consumed, doubled)
+                }
+                _ if fullwidth_ascii(character).is_some() => {
+                    // Absorb the whole run of full-width forms so `（）` is
+                    // one error with one fix.
+                    while self.current().and_then(fullwidth_ascii).is_some() {
+                        self.bump();
+                    }
+                    fullwidth_error(&self.text[start..self.pos], start)
+                }
+                _ if character.is_ascii() => LexicalError::new(
                     "K0100",
-                    if character.is_ascii() {
-                        "invalid source character"
-                    } else {
-                        "non-ASCII character outside a string or comment"
-                    },
-                )),
-            )
+                    format!("`{}` is not valid Kotodama source", character.escape_default()),
+                )
+                .help("this character has no meaning outside string literals and comments; remove it"),
+                _ if is_cjk(character) => LexicalError::new(
+                    "K0100",
+                    format!("Japanese character `{character}` outside a string or comment"),
+                )
+                .help("outside string literals and comments Kotodama uses ASCII, except the keywords 誓約, 言挙げ, 始まり and 改善 (also spelled seiyaku, kotoage, hajimari and kaizen)"),
+                _ => LexicalError::new(
+                    "K0100",
+                    format!(
+                        "non-ASCII character U+{:04X} outside a string or comment",
+                        u32::from(character)
+                    ),
+                )
+                .help("outside string literals and comments Kotodama source is ASCII; remove the character or move it into a string"),
+            };
+            (SyntaxKind::ErrorToken, Some(error))
         };
+        if let Some(error) = error.as_mut()
+            && error.strip_numeric_suffix
+        {
+            let literal = &self.text[start..self.pos];
+            if let Some(replacement) = literal
+                .strip_suffix("amt")
+                .or_else(|| literal.strip_suffix("qty"))
+            {
+                error.fixes.push((
+                    TextRange::new(start as u32, self.pos as u32),
+                    replacement.to_owned(),
+                ));
+            }
+        }
         let end = self.pos;
         if !kind.is_trivia() && kind != SyntaxKind::Eof {
             self.previous_significant = Some(kind);
@@ -587,21 +895,14 @@ pub fn lex(source: &SourceFile, budget: FrontendBudget) -> Lexed {
             delimiter_stack.pop();
         }
         if let Some(error) = lexical_error {
-            let mut emitted = diagnostic(source, error.code, error.message, token.range);
-            if error.strip_numeric_suffix {
-                let literal = source
-                    .slice(token.range)
-                    .expect("scanner token range must remain within the source");
-                let replacement = literal
-                    .strip_suffix("amt")
-                    .or_else(|| literal.strip_suffix("qty"))
-                    .expect("numeric suffix fix is only enabled for amt or qty");
-                emitted.fix = emitted.primary_span.clone().map(|span| DiagnosticFix {
-                    span,
-                    replacement: replacement.to_owned(),
-                });
+            // Resolving a span's column is linear in the line length, so past
+            // the cap only the count is kept; a long line of errors stays
+            // linear overall.
+            if diagnostics.len() < budget.max_diagnostics() {
+                diagnostics.push(lexical_error_diagnostic(source, error, token.range));
+            } else {
+                omitted_diagnostics = omitted_diagnostics.saturating_add(1);
             }
-            record_diagnostic(&mut diagnostics, &mut omitted_diagnostics, budget, emitted);
         }
         let end = token.kind == SyntaxKind::Eof;
         tokens.push(token);
@@ -609,11 +910,95 @@ pub fn lex(source: &SourceFile, budget: FrontendBudget) -> Lexed {
             break;
         }
     }
+    let capacity = budget.max_diagnostics().saturating_sub(diagnostics.len());
+    let (deceptive, omitted) = deceptive_character_diagnostics(source, &tokens, capacity);
+    diagnostics.extend(deceptive);
+    omitted_diagnostics = omitted_diagnostics.saturating_add(omitted);
     Lexed {
         tokens,
         diagnostics,
         omitted_diagnostics,
     }
+}
+fn lexical_error_diagnostic(
+    source: &SourceFile,
+    error: LexicalError,
+    range: TextRange,
+) -> Diagnostic {
+    let mut emitted = diagnostic(source, error.code, error.message, range);
+    if let Some(help) = error.help {
+        emitted.help = Some(help);
+    }
+    let mut fixes = error
+        .fixes
+        .into_iter()
+        .map(|(range, replacement)| DiagnosticFix {
+            span: SourceSpan::from_range(source, range),
+            replacement,
+        });
+    emitted.fix = fixes.next();
+    emitted.alternative_fixes = fixes.collect();
+    emitted
+}
+/// Report every bidirectional control and Unicode line separator in the
+/// source, including inside comments and string literals.
+///
+/// Inside a string literal the fix spells the character as a `\u{...}`
+/// escape, keeping the string's value; elsewhere it deletes the character.
+/// At most `capacity` diagnostics are built; the number of further
+/// occurrences is returned alongside them.
+fn deceptive_character_diagnostics(
+    source: &SourceFile,
+    tokens: &[GreenToken],
+    capacity: usize,
+) -> (Vec<Diagnostic>, usize) {
+    let text = source.text();
+    let mut diagnostics = Vec::new();
+    let mut omitted = 0_usize;
+    for (offset, character) in text.char_indices() {
+        let Some((code, name)) = deceptive_character(character) else {
+            continue;
+        };
+        if diagnostics.len() >= capacity {
+            omitted = omitted.saturating_add(1);
+            continue;
+        }
+        let range = TextRange::new(offset as u32, (offset + character.len_utf8()) as u32);
+        let owner = tokens
+            .partition_point(|token| token.range.end <= range.start)
+            .min(tokens.len().saturating_sub(1));
+        let in_string = tokens.get(owner).is_some_and(|token| {
+            matches!(token.kind, SyntaxKind::String | SyntaxKind::Bytes)
+                && token.range.start <= range.start
+                && range.end <= token.range.end
+        });
+        let escape = format!("\\u{{{:x}}}", u32::from(character));
+        let what = if code == "E_BIDI_CONTROL_CHARACTER" {
+            "bidirectional control character"
+        } else {
+            "line separator"
+        };
+        let mut emitted = diagnostic(
+            source,
+            code,
+            format!(
+                "source contains the invisible {what} U+{:04X} ({name})",
+                u32::from(character)
+            ),
+            range,
+        )
+        .with_help(if in_string {
+            format!("it can make reviewed code read differently from what compiles; write it as the escape `{escape}` if the string really needs it")
+        } else {
+            "it can make reviewed code read differently from what compiles; delete it (inside a string literal, write it as a `\\u{...}` escape)".to_owned()
+        });
+        emitted.fix = Some(DiagnosticFix {
+            span: SourceSpan::from_range(source, range),
+            replacement: if in_string { escape } else { String::new() },
+        });
+        diagnostics.push(emitted);
+    }
+    (diagnostics, omitted)
 }
 #[cfg(test)]
 mod tests {
@@ -628,7 +1013,7 @@ mod tests {
         let source = SourceFile::new(
             SourceId(0),
             "branded-keywords.ko",
-            "誓約 Demo { 始まり() {} 言挙げ fn run() authorize(\"Run\") {} 改善() {} }",
+            "誓約 Demo { permission Run;  始まり() {} 言挙げ fn run() authorize(Run) {} 改善() {} }",
         );
         let lexed = lex(&source, FrontendBudget::v1());
         assert!(lexed.diagnostics.is_empty(), "{:?}", lexed.diagnostics);
@@ -656,14 +1041,7 @@ mod tests {
     #[test]
     fn retired_words_are_plain_identifiers_and_retired_operators_are_errors() {
         for text in [
-            "contract",
-            "entry",
-            "init",
-            "permission",
-            "meta",
-            "this",
-            "upgrade",
-            "while",
+            "contract", "entry", "init", "meta", "this", "upgrade", "while",
         ] {
             let source = SourceFile::new(SourceId(0), "retired-word.ko", text);
             let lexed = lex(&source, FrontendBudget::v1());
@@ -680,6 +1058,224 @@ mod tests {
             assert!(!lexed.diagnostics.is_empty(), "{text} must be rejected");
             assert_eq!(lexed.tokens[0].kind, SyntaxKind::ErrorToken, "{text}");
         }
+    }
+    fn diagnostics_for(text: &str) -> Vec<crate::diagnostic::Diagnostic> {
+        let source = SourceFile::new(SourceId(0), "unicode.ko", text);
+        let mut diagnostics = lex(&source, FrontendBudget::v1()).diagnostics;
+        diagnostics.sort_by_key(|diagnostic| {
+            diagnostic
+                .primary_span
+                .as_ref()
+                .and_then(|span| span.byte_range)
+                .map(|range| range.start)
+        });
+        diagnostics
+    }
+    fn fixes(diagnostic: &crate::diagnostic::Diagnostic) -> Vec<(u32, u32, String)> {
+        diagnostic
+            .fixes()
+            .map(|fix| {
+                let range = fix.span.byte_range.expect("fix range");
+                (range.start, range.end, fix.replacement.clone())
+            })
+            .collect()
+    }
+    #[test]
+    fn deceptive_characters_are_rejected_in_code_comments_and_strings() {
+        for (text, code) in [
+            ("// note \u{202e} hidden", "E_BIDI_CONTROL_CHARACTER"),
+            ("/* \u{2066} */", "E_BIDI_CONTROL_CHARACTER"),
+            ("x\u{200f}", "E_BIDI_CONTROL_CHARACTER"),
+            ("// reset\u{2028}code();", "E_UNICODE_LINE_SEPARATOR"),
+            ("// note\u{0085}v = 0;", "E_UNICODE_LINE_SEPARATOR"),
+            ("let a = 1;\u{2029}", "E_UNICODE_LINE_SEPARATOR"),
+        ] {
+            let diagnostics = diagnostics_for(text);
+            assert_eq!(
+                diagnostics
+                    .iter()
+                    .map(|d| d.code.as_str())
+                    .collect::<Vec<_>>(),
+                [code],
+                "{text:?}: {diagnostics:?}"
+            );
+            assert!(diagnostics[0].message.contains("invisible"));
+            assert_eq!(fixes(&diagnostics[0])[0].2, "", "{text:?}");
+        }
+        let text = "\"admin\u{202e} user\"";
+        let diagnostics = diagnostics_for(text);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(fixes(&diagnostics[0]), [(6, 9, "\\u{202e}".to_owned())]);
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("U+202E (RIGHT-TO-LEFT OVERRIDE)")
+        );
+    }
+    #[test]
+    fn ideographic_space_separates_tokens_but_other_unicode_spaces_do_not() {
+        let source = SourceFile::new(SourceId(0), "ime.ko", "誓約\u{3000}Demo\u{3000}{}");
+        let lexed = lex(&source, FrontendBudget::v1());
+        assert!(lexed.diagnostics.is_empty(), "{:?}", lexed.diagnostics);
+        assert_eq!(lexed.tokens[1].kind, SyntaxKind::Whitespace);
+        for space in ['\u{00a0}', '\u{2003}', '\u{202f}'] {
+            let text = format!("state{space}int x;");
+            let diagnostics = diagnostics_for(&text);
+            assert_eq!(diagnostics[0].code, "E_NON_ASCII_WHITESPACE", "{text:?}");
+            let end = 5 + space.len_utf8() as u32;
+            assert_eq!(fixes(&diagnostics[0]), [(5, end, " ".to_owned())]);
+        }
+    }
+    #[test]
+    fn full_width_forms_get_one_error_with_an_ascii_fix() {
+        let text = "始まり（） {}";
+        let diagnostics = diagnostics_for(text);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics[0].code, "E_FULLWIDTH_ASCII");
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("full-width `（）` (U+FF08)")
+        );
+        let start = "始まり".len() as u32;
+        assert_eq!(
+            fixes(&diagnostics[0]),
+            [(start, start + 6, "()".to_owned())]
+        );
+        let diagnostics = diagnostics_for("return 1；");
+        assert_eq!(diagnostics[0].code, "E_FULLWIDTH_ASCII");
+        assert_eq!(fixes(&diagnostics[0])[0].2, ";");
+        let diagnostics = diagnostics_for("ｓｅｉｙａｋｕ");
+        assert_eq!(diagnostics[0].code, "E_FULLWIDTH_ASCII");
+        assert_eq!(fixes(&diagnostics[0])[0].2, "seiyaku");
+    }
+    #[test]
+    fn input_method_slips_around_branded_keywords_get_targeted_fixes() {
+        let diagnostics = diagnostics_for("言挙げfn bump()");
+        assert_eq!(diagnostics[0].code, "E_KEYWORD_SPACING");
+        let boundary = "言挙げ".len() as u32;
+        assert_eq!(
+            fixes(&diagnostics[0]),
+            [(boundary, boundary, " ".to_owned())]
+        );
+        for (text, kanji, romaji) in [
+            ("契約", "誓約", "seiyaku"),
+            ("制約", "誓約", "seiyaku"),
+            ("事挙げ", "言挙げ", "kotoage"),
+            ("言上げ", "言挙げ", "kotoage"),
+            ("始り", "始まり", "hajimari"),
+            ("カイゼン", "改善", "kaizen"),
+            ("ことあげ", "言挙げ", "kotoage"),
+        ] {
+            let diagnostics = diagnostics_for(text);
+            assert_eq!(diagnostics[0].code, "E_CONFUSABLE_KEYWORD", "{text}");
+            assert!(
+                diagnostics[0]
+                    .message
+                    .contains(&format!("did you mean `{kanji}`/`{romaji}`?")),
+                "{text}: {}",
+                diagnostics[0].message
+            );
+            let replacements = fixes(&diagnostics[0])
+                .into_iter()
+                .map(|(_, _, replacement)| replacement)
+                .collect::<Vec<_>>();
+            assert_eq!(replacements, [kanji, romaji], "{text}");
+        }
+        // Near-miss suggestions never make the confusable spellings valid.
+        assert_eq!(diagnostics_for("利用者")[0].code, "K0100");
+        // A keyword prefix followed by `_` or a digit is an attempted name,
+        // so no space is suggested.
+        for text in ["誓約_x", "言挙げ2"] {
+            let diagnostics = diagnostics_for(text);
+            assert_eq!(diagnostics[0].code, "K0100", "{text}: {diagnostics:?}");
+            assert!(diagnostics[0].fix.is_none(), "{text}");
+        }
+    }
+    #[test]
+    fn foreign_operators_get_targeted_replacements() {
+        let diagnostics = diagnostics_for("a & b");
+        assert_eq!(diagnostics[0].code, "E_UNSUPPORTED_OPERATOR");
+        assert_eq!(fixes(&diagnostics[0]), [(2, 3, "&&".to_owned())]);
+        let diagnostics = diagnostics_for("a | b");
+        assert_eq!(fixes(&diagnostics[0]), [(2, 3, "||".to_owned())]);
+        // Closures are one error without a misleading `||` fix.
+        let diagnostics = diagnostics_for("let f = |x, y| x + y;");
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics[0].message, "closures are not part of Kotodama");
+        assert!(diagnostics[0].fix.is_none());
+        // `&x` is not an AND, so `&&` is not offered.
+        assert!(diagnostics_for("let r = &x;")[0].fix.is_none());
+        let diagnostics = diagnostics_for("i++;");
+        assert_eq!(fixes(&diagnostics[0]), [(1, 3, " += 1".to_owned())]);
+        assert!(fixes(&diagnostics_for("++i;")[0]).is_empty());
+        let diagnostics = diagnostics_for("a @ b");
+        assert_eq!(diagnostics[0].code, "K0100");
+        assert!(
+            !diagnostics[0]
+                .help
+                .as_deref()
+                .unwrap_or("")
+                .contains("誓約")
+        );
+    }
+    #[test]
+    fn specification_glossary_rows_match_the_shared_glossary() {
+        let specification = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../specs/kotodama_grammar.md"),
+        )
+        .expect("read normative Kotodama grammar");
+        for keyword in &crate::glossary::BRANDED_KEYWORDS {
+            let row = format!(
+                "| `{}` / `{}` | {} | {} | {} |",
+                keyword.romaji, keyword.kanji, keyword.reading, keyword.literal, keyword.role
+            );
+            assert!(
+                specification.contains(&row),
+                "specs/kotodama_grammar.md lacks the glossary row {row}"
+            );
+        }
+    }
+    #[test]
+    fn integer_range_is_not_a_malformed_decimal() {
+        let source = SourceFile::new(SourceId(0), "range.ko", "0..10");
+        let lexed = lex(&source, FrontendBudget::v1());
+        assert!(lexed.diagnostics.is_empty(), "{:?}", lexed.diagnostics);
+        let kinds = lexed
+            .tokens
+            .iter()
+            .map(|token| token.kind)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            kinds,
+            [
+                SyntaxKind::Number,
+                SyntaxKind::DotDot,
+                SyntaxKind::Number,
+                SyntaxKind::Eof
+            ]
+        );
+    }
+    #[test]
+    fn unterminated_literals_explain_how_to_close_them() {
+        let diagnostics = diagnostics_for("\"open");
+        assert_eq!(diagnostics[0].code, "K0100");
+        assert!(
+            diagnostics[0]
+                .help
+                .as_deref()
+                .unwrap_or("")
+                .contains("close the string")
+        );
+        let diagnostics = diagnostics_for("/* open");
+        assert!(
+            diagnostics[0]
+                .help
+                .as_deref()
+                .unwrap_or("")
+                .contains("`*/`")
+        );
     }
     #[test]
     fn normative_operator_table_drives_the_lossless_scanner() {

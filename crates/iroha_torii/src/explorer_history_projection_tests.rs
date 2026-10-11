@@ -2,6 +2,7 @@
 use crate::explorer_history::{
     HistoryInstructionRow, HistoryTransactionDetail, HistoryTransactionRow,
 };
+use iroha_data_model::isi;
 
 fn row(tx: SignedTransaction, height: u64, result: TransactionResult) -> HistoryTransactionRow {
     let hash = tx.hash_as_entrypoint();

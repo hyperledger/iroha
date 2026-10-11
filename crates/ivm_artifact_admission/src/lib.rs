@@ -39,6 +39,7 @@ use decoded::DecodedOp;
 pub struct VerifiedContractArtifact {
     // Only the native verifier creates the immutable executable range seal.
     admitted_program: admitted_program::AdmittedProgramSeal,
+    private_input_entrypoints: Vec<String>,
     /// Validated fixed-header execution metadata.
     pub metadata: ProgramMetadata,
     /// Fixed metadata header length in artifact bytes.
@@ -56,6 +57,15 @@ pub struct VerifiedContractArtifact {
     pub manifest: ContractManifest,
 }
 impl VerifiedContractArtifact {
+    /// Entrypoints whose admitted control-flow graph reaches raw private-witness input.
+    ///
+    /// Derived from the same transitive syscall analysis used by artifact admission. These
+    /// entrypoints require a prover or local test host: the production consensus host never
+    /// accepts raw private witnesses. A ZK capability bit alone does not imply this requirement.
+    #[must_use]
+    pub fn private_input_entrypoints(&self) -> &[String] {
+        &self.private_input_entrypoints
+    }
     /// Structurally and semantically admitted literal ranges from the original artifact.
     /// Native preparation consumes these coordinates on that same immutable input; this value
     /// does not authenticate replacement bytes. No second metadata decode is needed.
@@ -101,7 +111,7 @@ fn verify_contract_artifact_owned(
         ContractArtifactError::invalid("executable stream offset exceeds artifact length")
     })?;
     let decoded = decoded::instructions(code, budget)?;
-    policy::validate_contract_interface(
+    let private_input_entrypoints = policy::validate_contract_interface(
         &parsed.metadata,
         contract_interface,
         &decoded,
@@ -112,7 +122,12 @@ fn verify_contract_artifact_owned(
         .contract_interface
         .take()
         .expect("validated contract envelope retains its CNTR interface");
-    Ok(verified_from_parts(artifact, parsed, contract_interface))
+    Ok(verified_from_parts(
+        artifact,
+        parsed,
+        contract_interface,
+        private_input_entrypoints,
+    ))
 }
 /// Verify a compiler-produced generic IVM 1.1 Kotodama test harness against
 /// its compiler-owned interface sidecar.
@@ -130,19 +145,25 @@ pub fn verify_koto_test_artifact(
         ContractArtifactError::invalid("executable stream offset exceeds artifact length")
     })?;
     let decoded = decode_instruction_stream(code)?;
-    policy::validate_contract_interface(
+    let private_input_entrypoints = policy::validate_contract_interface(
         &parsed.metadata,
         &contract_interface,
         &decoded,
         policy::ValidationProfile::KotoTest,
     )?;
     literal::validate_literal_table(artifact, &parsed, &decoded)?;
-    Ok(verified_from_parts(artifact, parsed, contract_interface))
+    Ok(verified_from_parts(
+        artifact,
+        parsed,
+        contract_interface,
+        private_input_entrypoints,
+    ))
 }
 fn verified_from_parts(
     artifact: &[u8],
     parsed: ParsedProgramMetadata,
     contract_interface: EmbeddedContractInterfaceV1,
+    private_input_entrypoints: Vec<String>,
 ) -> VerifiedContractArtifact {
     let code_hash = contract_code_hash(artifact);
     let abi_hash = Hash::prehashed(contract_interface.abi_hash);
@@ -158,10 +179,13 @@ fn verified_from_parts(
         compiler_fingerprint: Some(contract_interface.compiler_fingerprint.clone()),
         features_bitmap: Some(contract_interface.features_bitmap),
         access_set_hints: contract_interface.access_set_hints.clone(),
+        permissions: contract_interface.permissions.clone(),
+        events: contract_interface.events.clone(),
         entrypoints: Some(entrypoints),
         states: Some(manifest_state_descriptors(&contract_interface.states)),
         error_types: (!contract_interface.error_types.is_empty())
             .then_some(contract_interface.error_types.clone()),
+        enum_types: contract_interface.enum_types.clone(),
         error_messages: (!contract_interface.error_messages.is_empty())
             .then_some(contract_interface.error_messages.clone()),
         kotoba: (!contract_interface.kotoba.is_empty())
@@ -169,6 +193,7 @@ fn verified_from_parts(
         provenance: None,
     };
     VerifiedContractArtifact {
+        private_input_entrypoints,
         admitted_program: admitted_program::AdmittedProgramSeal::new(
             &parsed.metadata,
             parsed.header_len,
@@ -371,6 +396,7 @@ fn manifest_scalar_state_type_name(ty: &EmbeddedStateType) -> Option<&str> {
     match ty {
         EmbeddedStateType::Unit => Some("()"),
         EmbeddedStateType::Error(error) => Some(&error.identity),
+        EmbeddedStateType::Enum(descriptor) => Some(&descriptor.identity),
         EmbeddedStateType::Int => Some("int"),
         EmbeddedStateType::Decimal => Some("decimal"),
         EmbeddedStateType::Quantity => Some("quantity"),
@@ -414,7 +440,7 @@ fn schedule_manifest_state_type_name<'a>(
     match ty {
         EmbeddedStateType::StateCursor(key) => {
             let schema = iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
-                nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::StateCursor(*key)],
+                nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::StateCursor(key.clone())],
             };
             output.push_str(
                 &schema
@@ -507,6 +533,38 @@ mod tests {
         metadata::EmbeddedStateFieldDescriptor,
         pointer_abi::PointerType,
     };
+    #[test]
+    fn private_input_requirements_follow_admitted_helper_reachability() {
+        let compiler = kotodama_lang::compiler::Compiler::new_with_options(
+            kotodama_lang::compiler::CompilerOptions {
+                force_zk: true,
+                ..Default::default()
+            },
+        );
+        for (source, expected) in [
+            (
+                "seiyaku Public { view fn read() authorize(anyone) -> int { 1 } }",
+                vec![],
+            ),
+            (
+                "seiyaku Prover { fn witness() -> Secret<int> { crypto::private_input(0) } kotoage fn commitment() authorize(anyone) -> int { let value = witness(); crypto::valcom(left: value, right: value) } view fn read() authorize(anyone) -> int { 1 } }",
+                vec!["commitment"],
+            ),
+            (
+                "seiyaku Unused { fn witness() -> Secret<int> { crypto::private_input(0) } view fn read() authorize(anyone) -> int { 1 } }",
+                vec![],
+            ),
+        ] {
+            let bytes = compiler.compile_source(source).unwrap();
+            let admitted = verify_contract_artifact(&bytes).unwrap();
+            assert_ne!(
+                admitted.contract_interface.features_bitmap
+                    & ivm_abi::metadata::CONTRACT_FEATURE_BIT_ZK,
+                0
+            );
+            assert_eq!(admitted.private_input_entrypoints(), expected);
+        }
+    }
     fn encoded(descriptor: &AxtDescriptor) -> Vec<u8> {
         norito::to_bytes(descriptor).expect("encode canonical AXT descriptor")
     }
@@ -522,7 +580,8 @@ mod tests {
             return_schema: Some(ivm_abi::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![ivm_abi::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("Execute".to_owned()),
+            authorization:
+                iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -531,6 +590,8 @@ mod tests {
             entry_pc: 0,
         };
         let interface = EmbeddedContractInterfaceV1 {
+            permissions: Vec::new(),
+            events: Vec::new(),
             callables: vec![ivm_abi::call::EmbeddedCallableV1 {
                 entry_pc: 0,
                 frame_bytes: 0,
@@ -549,6 +610,7 @@ mod tests {
                 ty,
             }],
             error_messages: Vec::new(),
+            enum_types: Vec::new(),
             error_types: Vec::new(),
         };
         let mut artifact = ProgramMetadata::default().encode();
@@ -707,7 +769,11 @@ mod tests {
             (EmbeddedStateType::Json, "Json"),
             (
                 EmbeddedStateType::StateCursor(
-                    iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1::Int,
+                    iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
+                        nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                            iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1::Int,
+                        )],
+                    },
                 ),
                 "StateCursor<int>",
             ),
@@ -716,7 +782,7 @@ mod tests {
             assert_eq!(manifest_state_type_name(&ty), expected);
         }
         let composite = EmbeddedStateType::Struct {
-            name: "Envelope".to_owned(),
+            name: "Fixture::Envelope".to_owned(),
             fields: vec![
                 EmbeddedStateFieldDescriptor {
                     name: "ordered_tuple".to_owned(),
@@ -744,7 +810,7 @@ mod tests {
         };
         assert_eq!(
             manifest_state_type_name(&composite),
-            "Envelope{ordered_tuple: (int, decimal), ordered_map: StateMap<Name, Result<Option<quantity>, List<bytes, 64>>>}"
+            "Fixture::Envelope{ordered_tuple: (int, decimal), ordered_map: StateMap<Name, Result<Option<quantity>, List<bytes, 64>>>}"
         );
     }
     #[test]

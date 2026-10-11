@@ -1325,6 +1325,18 @@ impl Collector {
                 let (relative, fragment) = match directive.kind {
                     SourceDirectiveKind::Include { path } => (path, true),
                     SourceDirectiveKind::Import { path, .. } => (path, false),
+                    SourceDirectiveKind::ContractTypeImport { .. } => continue,
+                    SourceDirectiveKind::ContractImport { path: relative, .. } => {
+                        let path = kotodama_lang::linker::resolve_contract_artifact_path(
+                            &referrer, &relative,
+                        )
+                        .map_err(|error| PackageError::InvalidSource {
+                            path: referrer.clone(),
+                            reason: error.to_string(),
+                        })?;
+                        self.collect_selector(Path::new(&path), SelectionShape::File)?;
+                        continue;
+                    }
                 };
                 let path = kotodama_lang::linker::resolve_source_path(&referrer, &relative)
                     .map_err(|error| PackageError::InvalidSource {
@@ -2599,7 +2611,8 @@ version = "1.0.0"
             r#"seiyaku App {
             include "parts/state.ko";
             import "../modules/math.ko" as arithmetic;
-            view fn value() -> int { return arithmetic::twice(total); }
+            import seiyaku "pool.to" as Pool;
+            view fn value() authorize(anyone) -> int { return arithmetic::twice(total); }
         }"#,
         )
         .unwrap();
@@ -2630,6 +2643,7 @@ version = "1.0.0"
             "not even valid source",
         )
         .unwrap();
+        fs::write(temp.path().join("contracts/pool.to"), [0, 255, 1]).unwrap();
         let mut layout = PackageLayout::new(temp.path());
         layout.add_contract("contracts/app.ko");
         let plan = plan_package(&layout, MANIFEST, &semantic_release().1).unwrap();
@@ -2644,6 +2658,7 @@ version = "1.0.0"
                 "contracts/app.ko",
                 "contracts/init.ko",
                 "contracts/parts/state.ko",
+                "contracts/pool.to",
                 "modules/math.ko",
                 "modules/operations.ko",
             ]
@@ -3885,11 +3900,11 @@ mod platform_tests {
             ("Musubi.toml", manifest),
             (
                 "contracts/coffee-club.ko",
-                include_str!("../templates/contract.ko"),
+                include_str!("../../../examples/coffee-club/contracts/coffee-club.ko"),
             ),
             (
                 "tests/coffee-club.test.ko",
-                include_str!("../templates/contract.test.ko"),
+                include_str!("../../../examples/coffee-club/tests/coffee-club.test.ko"),
             ),
             ("unselected.txt", "not in the package"),
         ] {

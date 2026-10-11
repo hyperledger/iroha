@@ -53,11 +53,43 @@ ROOT_INPUTS = (
     Path(".cargo/config.toml"),
     SOURCE_PATH,
     GENERATOR_PATH,
+    # Exact local JS parser dependencies; external package pins are owned by the SDK.
+    Path("javascript/iroha_js/src/address.js"),
+    Path("javascript/iroha_js/src/addressErrors.js"),
+    Path("javascript/iroha_js/src/addressPrimitives.js"),
     Path("javascript/iroha_js/src/blake2b.js"),
+    Path("javascript/iroha_js/src/commonLiterals.js"),
+    Path("javascript/iroha_js/src/contractAddress.js"),
+    Path("javascript/iroha_js/src/contractDeclarations.js"),
+    Path("javascript/iroha_js/src/contractErrorTypes.js"),
+    Path("javascript/iroha_js/src/contractManifestRules.js"),
+    Path("javascript/iroha_js/src/crc64Xz.js"),
+    Path("javascript/iroha_js/src/cryptoAlgorithms.js"),
+    Path("javascript/iroha_js/src/curveRegistry.js"),
+    Path("javascript/iroha_js/src/ed25519Strict.js"),
+    Path("javascript/iroha_js/src/entrypointSchema.js"),
+    Path("javascript/iroha_js/src/governanceSelector.js"),
     Path("javascript/iroha_js/src/ivmArtifact.js"),
-    Path("javascript/iroha_js/src/kotodamaCompiler/normalize.js"),
     Path("javascript/iroha_js/src/kotodamaCompiler/embeddedCallSchema.js"),
     Path("javascript/iroha_js/src/kotodamaCompiler/embeddedNorito.js"),
+    Path("javascript/iroha_js/src/kotodamaCompiler/embeddedStateSchema.js"),
+    Path("javascript/iroha_js/src/kotodamaCompiler/normalize.js"),
+    Path("javascript/iroha_js/src/kotodamaIdentifiers.js"),
+    Path("javascript/iroha_js/src/kotodamaProducts.js"),
+    Path("javascript/iroha_js/src/multisig.js"),
+    Path("javascript/iroha_js/src/native.js"),
+    Path("javascript/iroha_js/src/nativeArtifactHash.js"),
+    Path("javascript/iroha_js/src/nativeRuntime.js"),
+    Path("javascript/iroha_js/src/noritoContractCodecs.js"),
+    Path("javascript/iroha_js/src/noritoContractMetadata.js"),
+    Path("javascript/iroha_js/src/noritoGovernanceBoundary.js"),
+    Path("javascript/iroha_js/src/noritoRecordDecoder.js"),
+    Path("javascript/iroha_js/src/noritoValueCodecs.js"),
+    Path("javascript/iroha_js/src/normalizers.js"),
+    Path("javascript/iroha_js/src/numericV1.js"),
+    Path("javascript/iroha_js/src/strictLosslessJson.js"),
+    Path("javascript/iroha_js/src/validationError.js"),
+    Path("javascript/iroha_js/src/validationThrow.js"),
 )
 # Start at the executable's owner so the compiler and its runtime/admission
 # dependencies are included without traversing unrelated dev-dependencies.
@@ -1238,11 +1270,12 @@ def _build_artifact(
     artifact_path = stage.path / "current_rust_contract_artifact.to"
     manifest_path = stage.path / "current_rust_contract_artifact.manifest.json"
     source_descriptor = _open_snapshot(source)
-    source_argument = (
-        Path(f"/proc/self/fd/{source_descriptor}")
-        if sys.platform.startswith("linux")
-        else Path(f"/dev/fd/{source_descriptor}")
-    )
+    # The native source-graph owner selects a direct regular .ko file and retains
+    # that file and its ancestors through graph discovery. Use the existing
+    # sealed copy's logical filename; descriptor pseudo-paths have no .ko name
+    # and cannot satisfy that contract. Keep our original descriptor open as an
+    # independent identity fence before and after each native selection.
+    source_argument = source.path
     bindings: list[str] = []
     commands = (
         ("fmt", "--check", source_argument),
@@ -1269,7 +1302,6 @@ def _build_artifact(
                 koto,
                 arguments,
                 environment=environment,
-                inherited_fds=(source_descriptor,),
             )
             bindings.append(binding)
             _authenticate_directory(sealed_inputs)

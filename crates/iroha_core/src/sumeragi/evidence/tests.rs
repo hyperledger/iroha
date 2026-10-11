@@ -31,14 +31,12 @@ pub(super) fn conflict(chain: &CertifiedTestChain, height: u64) -> NativeEvidenc
             height,
             Hash32([0x31; 32]),
             Hash32([0x32; 32]),
-            false,
             Signers::Quorum,
         ),
         chain.commit_qc(
             height,
             Hash32([0x33; 32]),
             Hash32([0x34; 32]),
-            false,
             Signers::LastThree,
         ),
     )
@@ -353,10 +351,8 @@ pub(super) fn vote_pair(
             view: view_number,
             block_hash: Hash32([byte; 32]),
             result: Hash32([0x72; 32]),
-            attest: false,
             signer,
             sig: Signature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
-            attestation: None,
         };
         vote.sig = Signature(
             iroha_crypto::Signature::new(key.private_key(), &vote.preimage())
@@ -861,6 +857,8 @@ fn original_signed_evidence_root_scope_refusal_stays_local_and_retries_same_stat
     let original_epoch = expected.epoch();
     let original_generation = expected.authority_generation();
     let original_attribution = expected.into_attribution();
+    let expected_reserved = execution_pool.reserved_bytes();
+    assert!(expected_reserved > execution_reserved);
     let unlimited =
         || norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 64);
     let refusal = || norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
@@ -903,7 +901,7 @@ fn original_signed_evidence_root_scope_refusal_stays_local_and_retries_same_stat
                 if local == original_local),
             "root refusal must not become signed-input rejection or storage recovery"
         );
-        assert_eq!(execution_pool.reserved_bytes(), execution_reserved);
+        assert_eq!(execution_pool.reserved_bytes(), expected_reserved);
         assert_eq!(preparation_pool.reserved_bytes(), preparation_reserved);
         assert_eq!(state.state_view_generation(), generation);
         assert_eq!(view.native_execution_tip(), Some(tip));
@@ -922,6 +920,10 @@ fn original_signed_evidence_root_scope_refusal_stays_local_and_retries_same_stat
     assert_eq!(retried.epoch(), original_epoch);
     assert_eq!(retried.authority_generation(), original_generation);
     assert!(retried.matches_attribution(&original_attribution));
+    assert!(execution_pool.reserved_bytes() > expected_reserved);
+    drop(retried);
+    assert_eq!(execution_pool.reserved_bytes(), expected_reserved);
+    drop(original_attribution);
     assert_eq!(execution_pool.reserved_bytes(), execution_reserved);
     assert_eq!(preparation_pool.reserved_bytes(), preparation_reserved);
 }
@@ -1002,4 +1004,75 @@ fn original_root_observation_refusal_keeps_pending_bytes_and_same_state_retry() 
     assert_eq!(budget.reserved_bytes(), retained);
     assert_eq!(state.state_view_generation(), generation);
     assert_eq!(state.view().native_execution_tip(), tip);
+}
+
+#[test]
+fn global_verified_offender_graph_retains_original_pool_through_closed_move() {
+    let mut chain = chain();
+    chain.commit(Vec::new());
+    let native = conflict(&chain, 2);
+    let state = chain.state();
+    let view = state.view();
+    let generation = state.state_view_generation();
+    let tip = view.native_execution_tip().unwrap();
+    let budget = state.ivm_execution_budget();
+    let baseline = budget.reserved_bytes();
+    let preparation = state.evidence_preparation_budget();
+    let preparation_baseline = preparation.reserved_bytes();
+    let verified =
+        crate::sumeragi::evidence_history::verify_from_state(&view, &native, |_, _| Ok(()))
+            .unwrap();
+    assert_eq!(verified.tip(), tip);
+    let offenders = verified.offenders();
+    assert_eq!(
+        offenders.iter().map(|row| row.signer).collect::<Vec<_>>(),
+        [1, 2]
+    );
+    for offender in offenders {
+        assert_eq!(
+            offender.peer_id,
+            chain.validators()[offender.signer as usize].0
+        );
+        assert!(offender.lane_stake.is_none());
+    }
+    let original_vector = offenders.as_ptr();
+    let original_key = offenders[0]
+        .peer_id
+        .public_key()
+        .borrowed_parts()
+        .unwrap()
+        .1
+        .as_ptr();
+    let held = budget.reserved_bytes();
+    assert!(held > baseline);
+    let mut attribution = None;
+    assert_eq!(
+        crate::test_allocations::allocations_during(|| {
+            attribution = Some(verified.into_attribution());
+        }),
+        0
+    );
+    let attribution = attribution.unwrap();
+    assert_eq!(attribution.offenders.as_ptr(), original_vector);
+    assert_eq!(
+        attribution.offenders[0]
+            .peer_id
+            .public_key()
+            .borrowed_parts()
+            .unwrap()
+            .1
+            .as_ptr(),
+        original_key
+    );
+    assert!(attribution.belongs_to(&budget));
+    assert!(!attribution.belongs_to(preparation));
+    assert_eq!(attribution.allocation_bytes().unwrap(), held - baseline);
+    assert_eq!(budget.reserved_bytes(), held);
+    assert_eq!(preparation.reserved_bytes(), preparation_baseline);
+    assert_eq!(state.state_view_generation(), generation);
+    assert_eq!(view.native_execution_tip(), Some(tip));
+    assert!(attribution.safety_violation);
+    drop(attribution);
+    assert_eq!(budget.reserved_bytes(), baseline);
+    assert_eq!(preparation.reserved_bytes(), preparation_baseline);
 }

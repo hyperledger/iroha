@@ -1,5 +1,5 @@
 
-        seiyaku Treasury {
-            kotoage fn sweep() authorize("TreasuryOperator") {}
+        seiyaku Treasury { permission TreasuryOperator;
+            kotoage fn sweep() authorize(TreasuryOperator) {}
         }
         

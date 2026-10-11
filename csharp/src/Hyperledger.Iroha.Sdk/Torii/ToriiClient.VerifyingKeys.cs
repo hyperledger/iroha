@@ -557,9 +557,8 @@ public sealed partial class ToriiClient
         var exactKeyLength = keyBytes is null
             ? keyLength!.Value
             : checked((uint)keyBytes.Length);
-        var backendTag = backend.StartsWith("stark/", StringComparison.Ordinal)
-            ? (uint)VerifyingKeyBackendTag.Stark
-            : (uint)VerifyingKeyBackendTag.Halo2IpaPasta;
+        var backendTag = (uint)(VerifyingKeyBackendTags.RegistryTag(backend)
+            ?? throw new JsonException("request backend is not a canonical verifier registry label"));
         var statusTag = status switch
         {
             null or "Active" => (byte)1,

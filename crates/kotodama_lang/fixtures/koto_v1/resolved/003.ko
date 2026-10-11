@@ -1,8 +1,8 @@
 
-誓約 Sample {
+誓約 Sample { permission CanRun;
     struct Pair { int left; int right; }
     fn helper(int value) -> int { value }
-    言挙げ fn run(int value) -> int authorize("CanRun") {
+    言挙げ fn run(int value) authorize(CanRun) -> int {
         helper(value: value)
     }
 }

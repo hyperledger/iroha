@@ -3,10 +3,11 @@
     no_crate_inject,
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_variables))
 ))]
-#![no_std]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-//! Provides abstractions for working with bytes.
+//! Provides abstractions for working with bytes in Iroha native applications.
+//!
+//! This maintained fork requires the Rust standard library and the `std` feature.
 //!
 //! The `bytes` crate provides an efficient byte buffer structure
 //! ([`Bytes`]) and traits for working with buffer
@@ -71,10 +72,10 @@
 //! perform a syscall, which has the potential of failing. Operations on `Buf`
 //! and `BufMut` are infallible.
 
-extern crate alloc;
+#[cfg(not(feature = "std"))]
+compile_error!("Iroha bytes requires the `std` feature; std-disabled builds are unsupported");
 
-#[cfg(feature = "std")]
-extern crate std;
+extern crate alloc;
 
 pub mod buf;
 pub use crate::buf::{Buf, BufMut};
@@ -93,26 +94,10 @@ mod serde;
 #[inline(never)]
 #[cold]
 fn abort() -> ! {
-    #[cfg(feature = "std")]
-    {
-        std::process::abort();
-    }
-
-    #[cfg(not(feature = "std"))]
-    {
-        struct Abort;
-        impl Drop for Abort {
-            fn drop(&mut self) {
-                panic!();
-            }
-        }
-        let _a = Abort;
-        panic!("abort");
-    }
+    std::process::abort()
 }
 
 #[inline(always)]
-#[cfg(feature = "std")]
 fn saturating_sub_usize_u64(a: usize, b: u64) -> usize {
     match usize::try_from(b) {
         Ok(b) => a.saturating_sub(b),
@@ -121,7 +106,6 @@ fn saturating_sub_usize_u64(a: usize, b: u64) -> usize {
 }
 
 #[inline(always)]
-#[cfg(feature = "std")]
 fn min_u64_usize(a: u64, b: usize) -> usize {
     match usize::try_from(a) {
         Ok(a) => usize::min(a, b),
@@ -154,10 +138,8 @@ impl core::fmt::Display for TryGetError {
     }
 }
 
-#[cfg(feature = "std")]
 impl std::error::Error for TryGetError {}
 
-#[cfg(feature = "std")]
 impl From<TryGetError> for std::io::Error {
     fn from(error: TryGetError) -> Self {
         std::io::Error::new(std::io::ErrorKind::Other, error)

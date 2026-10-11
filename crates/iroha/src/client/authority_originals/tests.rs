@@ -148,6 +148,65 @@ fn successful(value: &NativeAuthorityOriginalsV1) -> Response<Vec<u8>> {
         .unwrap()
 }
 #[test]
+fn native_authority_provider_preserves_exact_peer_prefix_in_signed_post() {
+    let (request, value) = account_fixture();
+    for prefix in [
+        "native-peer-2/",
+        "native-peer-3/",
+        "native-peer-4/",
+        "private/nested/",
+    ] {
+        let mut client = configured();
+        client.torii_url = Url::parse(&format!("https://mock.local/{prefix}")).unwrap();
+        let (result, snapshots) = capture_requests(successful(value), |transport| {
+            client
+                .clone()
+                .with_test_http_transport(transport)
+                .read_native_authority_originals_wire(request.selector.clone(), request.challenge)
+        });
+        let result = result.unwrap();
+        assert_eq!(snapshots.len(), 1);
+        let actual = &snapshots[0];
+        assert_eq!(
+            actual.url.path(),
+            format!(
+                "/{prefix}{}",
+                NATIVE_AUTHORITY_ORIGINALS_ROUTE_V1.trim_start_matches('/')
+            )
+        );
+        assert_eq!(result.request_wire, request.canonical_wire().unwrap());
+        assert_eq!(
+            result.response_wire,
+            norito::encode_canonical(value).unwrap()
+        );
+        assert_canonical_account_signed_request(&client, actual);
+        let headers = actual
+            .headers
+            .iter()
+            .map(|(key, value)| (key.to_ascii_lowercase(), value))
+            .collect::<std::collections::HashMap<_, _>>();
+        let mut stripped = actual.url.clone();
+        stripped.set_path(NATIVE_AUTHORITY_ORIGINALS_ROUTE_V1);
+        let message = Client::exact_network_request_message(
+            &client.network_id,
+            &actual.method,
+            &stripped,
+            &actual.body,
+            headers["x-iroha-timestamp-ms"].parse::<u64>().unwrap(),
+            headers["x-iroha-nonce"],
+        )
+        .unwrap();
+        let signature = base64::engine::general_purpose::STANDARD
+            .decode(headers["x-iroha-signature"])
+            .unwrap();
+        assert!(
+            iroha_crypto::Signature::from_bytes(&signature)
+                .verify(client.key_pair.public_key(), &message)
+                .is_err()
+        );
+    }
+}
+#[test]
 fn native_authority_provider_dispatches_signed_post_and_retains_exact_request_preimage() {
     let client = configured();
     let (request, value) = account_fixture();
@@ -312,7 +371,7 @@ fn native_authority_provider_refuses_zero_entropy_cleartext_prefix_and_foreign_c
     }
     for root in [
         "http://mock.local/",
-        "https://mock.local/private/",
+        "https://mock.local/private",
         "https://mock.local/?q=1",
         "https://mock.local/#x",
         "https://user:secret@mock.local/",
@@ -425,4 +484,90 @@ fn native_authority_provider_refuses_duplicate_or_seed_response_header() {
         assert!(result.is_err());
         assert_eq!(snapshots.len(), 1);
     }
+}
+
+fn identifier_original_pair() -> (
+    iroha_data_model::identifier::IdentifierPolicy,
+    iroha_data_model::ram_lfe::RamLfeProgramPolicy,
+) {
+    use iroha_crypto::{PolicyCommitment, RamLfeBackend, RamLfeVerificationMode};
+    use iroha_data_model::{
+        identifier::{IdentifierNormalization, IdentifierPolicy},
+        ram_lfe::RamLfeProgramPolicy,
+    };
+    let key = KeyPair::from_seed(vec![42; 32], Algorithm::Ed25519);
+    let owner = AccountId::new(key.public_key().clone());
+    let program_id: iroha_data_model::ram_lfe::RamLfeProgramId =
+        "original-program".parse().unwrap();
+    let policy = IdentifierPolicy::new(
+        "email#retail".parse().unwrap(),
+        owner.clone(),
+        IdentifierNormalization::EmailAddress,
+        program_id.clone(),
+    );
+    let program = RamLfeProgramPolicy::new(
+        program_id,
+        owner,
+        RamLfeBackend::HkdfSha3_512PrfV1,
+        RamLfeVerificationMode::Proof,
+        PolicyCommitment {
+            backend: RamLfeBackend::HkdfSha3_512PrfV1,
+            policy_hash: Hash::new(b"synthetic authority originals policy"),
+            public_parameters: vec![3, 5, 7],
+        },
+        key.public_key().clone(),
+    );
+    (policy, program)
+}
+
+#[test]
+fn native_authority_provider_carries_identifier_originals_and_refuses_cross_program_rows() {
+    let client = configured();
+    let (request, original) = account_fixture();
+    let mut request = request.clone();
+    let (policy, program) = identifier_original_pair();
+    request.selector = NativeAuthorityOriginalsSelectorV1::IdentifierPolicy(policy.id.clone());
+    let mut value = original.clone();
+    let (digest, challenge) =
+        native_authority_originals_request_digests_v1(&request.canonical_wire().unwrap()).unwrap();
+    value.request_sha256 = digest;
+    value.selector = request.selector.clone();
+    value.attestation.body.challenge = challenge;
+    let node = KeyPair::from_seed(vec![1; 32], Algorithm::BlsNormal);
+    value.attestation.signature =
+        SignatureOf::try_from_hash(node.private_key(), value.attestation.body.signing_hash())
+            .unwrap();
+    value.originals =
+        NativeAuthorityOriginalsFamilyV1::IdentifierPolicy(NativeIdentifierPolicyStateV1 {
+            policy,
+            program,
+        });
+    // Native transport validates correlation only; the application independently
+    // verifies the selected originals' membership in its admitted current World.
+    let (result, snapshots) = capture_requests(successful(&value), |transport| {
+        client
+            .clone()
+            .with_test_http_transport(transport)
+            .read_native_authority_originals_wire(request.selector.clone(), request.challenge)
+    });
+    let result = result.unwrap();
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(result.request_wire, request.canonical_wire().unwrap());
+    assert_eq!(
+        result.response_wire,
+        norito::encode_canonical(&value).unwrap()
+    );
+    assert_canonical_account_signed_request(&client, &snapshots[0]);
+    let NativeAuthorityOriginalsFamilyV1::IdentifierPolicy(state) = &mut value.originals else {
+        unreachable!()
+    };
+    state.program.program_id = "foreign-program".parse().unwrap();
+    let (result, snapshots) = capture_requests(successful(&value), |transport| {
+        client
+            .clone()
+            .with_test_http_transport(transport)
+            .read_native_authority_originals_wire(request.selector.clone(), request.challenge)
+    });
+    assert!(result.is_err());
+    assert_eq!(snapshots.len(), 1);
 }

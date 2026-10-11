@@ -15,7 +15,7 @@ seiyaku MixedTailRuntime {
     }
   }
 
-  view fn run() -> int {
+  view fn run() authorize(anyone) -> int {
     via_if(flag: true)
       + via_if(flag: false)
       + via_if_let(value: Option::some(4))

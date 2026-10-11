@@ -51,9 +51,6 @@ RETIRED_KAGEMUSHA_C_SYMBOLS = {
     "connect_norito_kagemusha_testnet_value_credit_v1",
     "connect_norito_kagemusha_testnet_native_startup_contract_v1",
     "connect_norito_kagemusha_testnet_native_startup_activate_v1",
-    "connect_norito_kagemusha_ordinary_runtime_startup_v1",
-    "connect_norito_kagemusha_ordinary_current_control_v1",
-    "connect_norito_kagemusha_ordinary_outgoing_v1",
     "connect_norito_kagemusha_ordinary_incoming_v1",
     "connect_norito_kagemusha_ordinary_integrity_refresh_v1",
     "connect_norito_kagemusha_ordinary_mint_funding_v1",
@@ -74,7 +71,117 @@ def test_native_c_contracts_exclude_retired_kagemusha_exports() -> None:
     for sdk in ("c-jni", "csharp"):
         required = MODULE.REQUIRED_SYMBOLS[sdk]
         assert RETIRED_KAGEMUSHA_C_SYMBOLS.isdisjoint(required)
-        assert not any("kagemusha" in symbol.lower() for symbol in required)
+        expected = MODULE.KAGEMUSHA_WALLET_C_EXPORTS + (
+            MODULE.KAGEMUSHA_WALLET_JNI_EXPORTS + MODULE.KAGEMUSHA_LOAD_ORIGINAL_JNI_EXPORTS if sdk == "c-jni" else ()
+        )
+        assert tuple(symbol for symbol in required if "kagemusha" in symbol.lower()) == expected
+
+
+def test_current_wallet_export_contract_matches_every_apple_inventory() -> None:
+    """Keep the independently reviewed publication and admission inventories exact."""
+    expected = MODULE.KAGEMUSHA_WALLET_C_EXPORTS
+    assert len(expected) == len(set(expected)) == 27
+    for relative, start, end in (
+        ("scripts/build_norito_xcframework.sh", '"required_symbols": [', '"forbidden_symbols": ['),
+        ("scripts/validate_norito_bridge_xcframework.py", "EXPECTED_REQUIRED_SYMBOLS = [", "EXPECTED_FORBIDDEN_SYMBOLS = ["),
+        ("scripts/check_mobile_sdk_artifacts.sh", "REQUIRED_PROTOCOL_C_SYMBOLS=(", "\n)"),
+        ("ci/check_connect_norito_bridge_header.sh", "KAGEMUSHA_WALLET_EXPORTS = {", "\n}"),
+    ):
+        source = (REPO_ROOT / relative).read_text().split(start, 1)[1].split(end, 1)[0]
+        observed = re.findall(r"connect_norito_kagemusha_[A-Za-z0-9_]+", source)
+        assert len(observed) == len(expected), relative
+        assert set(observed) == set(expected), relative
+        if not relative.startswith("ci/"):
+            assert tuple(observed) == expected, relative
+
+
+def test_current_wallet_exports_are_accepted_and_unknown_names_are_rejected() -> None:
+    current = (
+        MODULE.KAGEMUSHA_WALLET_C_EXPORTS
+        + MODULE.KAGEMUSHA_WALLET_JNI_EXPORTS
+        + MODULE.KAGEMUSHA_LOAD_ORIGINAL_JNI_EXPORTS
+    )
+    assert len(current) == len(set(current)) == 48
+    for sdk in ("c-jni", "csharp"):
+        MODULE.validate_retired_protocol_symbols(current, sdk=sdk)
+        for symbol in (*current, "connect_norito_free"):
+            assert not MODULE.is_retired_kagemusha_export(symbol)
+        for symbol in (
+            "connect_norito_kagemusha_wallet_install_runtime_v1",
+            "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_installRuntime",
+            "connect_norito_kagemusha_wallet_load_original_validate_v1_optional",
+            "connect_norito_kagemusha_wallet_enrollment_v1_optional",
+            "connect_norito_kagemusha_wallet_fresh_grant_v1",
+            "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletEnrollmentNativeV1_freshGrant",
+            "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletEnrollmentNativeV1_enroll",
+            "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_reviewV2",
+            "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletLoadOriginalNativeV1_validate_optional",
+            "connect_norito_kagemusha_wallet_unknown_v1",
+            "connect_norito_kagemusha_wallet_sign_v1",
+            "connect_norito_kagemusha_wallet_open_v1",
+            "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_open",
+            "connect_norito_kagemusha_wallet_open_v2",
+            "connect_norito_kagemusha_wallet_open_v1_alias",
+            "connect_norito_kagemusha_retired_v1",
+            "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_sign",
+            "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV2_open",
+            "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_open_alias",
+            *sorted(RETIRED_KAGEMUSHA_C_SYMBOLS),
+        ):
+            assert MODULE.is_retired_kagemusha_export(symbol)
+            try:
+                MODULE.validate_retired_protocol_symbols([*current, symbol], sdk=sdk)
+            except MODULE.ArtifactContractError as error:
+                assert symbol in str(error)
+            else:
+                raise AssertionError("unknown KAGEMUSHA export accepted: " + symbol)
+
+
+def test_current_new_wallet_exports_are_each_mandatory_and_optional_aliases_are_rejected() -> None:
+    new_c = tuple("connect_norito_kagemusha_wallet_" + suffix + "_v1"
+                  for suffix in ("review", "execute_reviewed", "discard_review", "installation_begin", "installation_register", "installation_close", "registration_source_relocate", "observe", "account_original", "account_display", "enrollment", "enrollment_refusal"))
+    new_jni = tuple("Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_" + method
+                    for method in ("review", "executeReviewed", "discardReview", "enrollment", "enrollmentRefusal")) + (
+        "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_beginInstallation",
+        "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_registerInstallation",
+        "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_closeInstallation",
+        "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_relocateRegistrationSource",
+        "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletObservationNativeV1_observe",
+    )
+    for sdk, added in (("csharp", new_c), ("c-jni", new_c + new_jni)):
+        required = MODULE.REQUIRED_SYMBOLS[sdk]
+        for missing in added:
+            assert missing in required
+            library = types.SimpleNamespace(**{symbol: object() for symbol in required if symbol != missing})
+            with mock.patch.object(MODULE.ctypes, "CDLL", return_value=library):
+                try:
+                    MODULE.probe_c_abi(Path("symbol-DATA-only"), required)
+                except MODULE.ArtifactContractError as error:
+                    assert str(error) == "native C ABI artifact is missing required symbols: " + missing
+                else:
+                    raise AssertionError("missing required current wallet export accepted: " + missing)
+            assert MODULE.is_retired_kagemusha_export(missing + "_optional")
+            try:
+                MODULE.validate_retired_protocol_symbols([*required, missing + "_optional"], sdk=sdk)
+            except MODULE.ArtifactContractError as error:
+                assert missing + "_optional" in str(error)
+            else:
+                raise AssertionError("optional wallet alias accepted")
+
+
+def test_current_wallet_c_and_jni_inventory_matches_independent_source_declarations() -> None:
+    header = (REPO_ROOT / "crates/connect_norito_bridge/include/connect_norito_bridge.h").read_text()
+    native = "\n".join(path.read_text() for path in (REPO_ROOT / "crates/connect_norito_bridge/src").rglob("*.rs"))
+    c_header = set(re.findall(r"(?:int32_t|uint32_t|void)\s+(connect_norito_kagemusha_wallet_[A-Za-z0-9_]+)\s*\(", header))
+    c_rust = set(re.findall(r'pub\s+(?:unsafe\s+)?extern\s+"C"\s+fn\s+(connect_norito_kagemusha_wallet_[A-Za-z0-9_]+)\s*\(', native))
+    jni_rust = set(re.findall(r'pub\s+(?:unsafe\s+)?extern\s+"system"\s+fn\s+(Java_org_hyperledger_iroha_sdk_offline_wallet_Kagemusha[A-Za-z0-9_]+)\s*\(', native))
+    kotlin = (REPO_ROOT / "kotlin/kagemusha-wallet-android/src/main/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletV1.kt").read_text()
+    methods = re.findall(r"external\s+fun\s+(\w+)\s*\(", kotlin)
+    declared = {"Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_" + method for method in methods}
+    assert len(methods) == len(set(methods)) == 15
+    assert c_header == c_rust == set(MODULE.KAGEMUSHA_WALLET_C_EXPORTS)
+    assert declared == {symbol for symbol in MODULE.KAGEMUSHA_WALLET_JNI_EXPORTS if "KagemushaWalletNativeV1_" in symbol}
+    assert jni_rust == set(MODULE.KAGEMUSHA_WALLET_JNI_EXPORTS + MODULE.KAGEMUSHA_LOAD_ORIGINAL_JNI_EXPORTS)
 
 
 def test_native_privacy_inventory_requires_authoritative_capability_validator() -> None:
@@ -122,7 +229,7 @@ def test_current_fee_jni_requires_the_kotlin_sdk_owner() -> None:
 
 def test_current_host_jni_rejects_each_missing_shipping_endpoint() -> None:
     required = MODULE.REQUIRED_SYMBOLS["c-jni"]
-    for missing in MODULE.CONFIDENTIAL_PROVER_JNI_EXPORTS:
+    for missing in (*MODULE.CONFIDENTIAL_PROVER_JNI_EXPORTS, *MODULE.KAGEMUSHA_WALLET_JNI_EXPORTS):
         assert required.count(missing) == 1
         library = types.SimpleNamespace(**{
             symbol: object() for symbol in required if symbol != missing
@@ -246,6 +353,9 @@ def test_native_artifact_checker_has_no_retired_protocol_surface() -> None:
             "connect_norito_private_settlement_auditor_capsule_response_verify_v1",
             "Java_org_hyperledger_iroha_sdk_client_AtomicPrivateSettlementNativeResponseVerifierV1_nativeVerifyAuditorCapsuleResponseV1",
             "Java_org_hyperledger_iroha_android_client_AtomicPrivateSettlementNativeResponseVerifierV1_nativeVerifyAuditorCapsuleResponseV1",
+            # The Google first-device sign-up key JNI owner retired at bridge ABI 29.
+            "Java_org_hyperledger_iroha_sdk_crypto_keystore_NativeFirstDeviceAuthKeyJniV1_reserve",
+            "Java_org_hyperledger_iroha_sdk_crypto_keystore_NativeFirstDeviceAuthKeyJniV1_restore",
         },
         "csharp": {
             "connect_norito_validation_fee_hijiri_quote_request_v1",
@@ -266,6 +376,8 @@ def test_retired_protocol_symbol_inventory_is_rejected() -> None:
         ["connect_norito_private_settlement_auditor_capsule_response_verify_v1"],
         [RETIRED_KAGEMUSHA_C_PREFIX + "v1_payment_validate"],
         ["connect_norito_kagemusha_unrecognized_v1"],
+        ["connect_norito_kagemusha_wallet_commit_v1"],
+        ["Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_commit"],
     ):
         try:
             MODULE.validate_retired_protocol_symbols(symbols, sdk="csharp")
@@ -316,12 +428,12 @@ def test_python_probe_disables_bytecode_in_its_actual_isolated_child(tmp_path: P
         "assert sys.flags.isolated == 1\n"
         "assert sys.dont_write_bytecode\n"
         "def connect_norito_bridge_abi_version():\n"
-        "    return 25\n",
+        "    return 28\n",
         encoding="utf-8",
     )
     assert MODULE.probe_python_abi(
         artifact, ("connect_norito_bridge_abi_version",)
-    ) == 25
+    ) == 28
     assert not (tmp_path / "__pycache__").exists()
 
 
@@ -336,6 +448,22 @@ def test_retired_abi23_privacy_export_marker_is_rejected() -> None:
         assert "stale privacy/bridge ABI marker" in str(error)
     else:
         raise AssertionError("retired ABI-23 privacy export marker was accepted")
+
+
+def test_retired_abi26_privacy_export_markers_are_rejected() -> None:
+    for marker in (
+        "iroha_privacy_abi26_compiled_profile_catalog_v1",
+        "iroha_privacy_compiled_profile_catalog_v26",
+    ):
+        assert MODULE.STALE_PRIVACY_ABI_MARKER_RE.search(marker)
+        try:
+            MODULE.validate_privacy_c_exports(
+                [marker, *MODULE.APPROVED_PRIVACY_C_EXPORTS], require_exact=False
+            )
+        except MODULE.ArtifactContractError as error:
+            assert "stale privacy/bridge ABI marker" in str(error)
+        else:
+            raise AssertionError("retired ABI-26 privacy export marker was accepted")
 
 
 def test_retired_abi23_manifest_and_schema_are_rejected() -> None:
@@ -355,8 +483,16 @@ def test_retired_abi23_manifest_and_schema_are_rejected() -> None:
     }
     MODULE.validate_manifest(manifest)
     for field, retired, expected in (
-        ("bridge_abi_version", 23, "must be exactly 25"),
-        ("bridge_abi_version", 24, "must be exactly 25"),
+        ("bridge_abi_version", 23, "must be exactly 29"),
+        ("bridge_abi_version", 24, "must be exactly 29"),
+        ("bridge_abi_version", 25, "must be exactly 29"),
+        ("bridge_abi_version", 26, "must be exactly 29"),
+        ("bridge_abi_version", 27, "must be exactly 29"),
+        ("bridge_abi_version", 28, "must be exactly 29"),
+        ("schema", "iroha.native-sdk-abi28-artifact.v1", "schema is unsupported"),
+        ("schema", "iroha.native-sdk-abi27-artifact.v1", "schema is unsupported"),
+        ("schema", "iroha.native-sdk-abi26-artifact.v1", "schema is unsupported"),
+        ("schema", "iroha.native-sdk-abi25-artifact.v1", "schema is unsupported"),
         ("schema", "iroha.native-sdk-abi24-artifact.v1", "schema is unsupported"),
         ("schema", "iroha.native-sdk-abi23-artifact.v1", "schema is unsupported"),
     ):
@@ -513,7 +649,10 @@ def test_current_inventory_is_exact_for_posix_and_windows() -> None:
             assert inventories[sdk] == MODULE.REQUIRED_SYMBOLS[sdk]
             assert len(inventories[sdk]) == len(set(inventories[sdk]))
             assert "connect_norito_domain_id_validate_v1" in inventories[sdk]
-            assert not any("kagemusha" in symbol.lower() for symbol in inventories[sdk])
+            expected = MODULE.KAGEMUSHA_WALLET_C_EXPORTS + (
+                MODULE.KAGEMUSHA_WALLET_JNI_EXPORTS + MODULE.KAGEMUSHA_LOAD_ORIGINAL_JNI_EXPORTS if sdk == "c-jni" else ()
+            )
+            assert tuple(symbol for symbol in inventories[sdk] if "kagemusha" in symbol.lower()) == expected
 
 
 def test_private_settlement_rejects_each_missing_actual_endpoint() -> None:
@@ -590,14 +729,31 @@ def test_current_required_header_declarations_have_no_platform_exclusions() -> N
 
 def test_required_current_jni_exports_include_windows_hosts() -> None:
     """Required current JNI definitions share the supported host platform gate."""
-    platform = (REPO_ROOT / "crates/connect_norito_bridge/src/platform_jni.rs").read_text()
-    declaration = re.search(r'#!\[cfg\((.*?)\)\]', platform, re.DOTALL)
-    assert declaration is not None
-    assert 'windows' in declaration.group(1)
-    for target in ("android", "linux", "macos"):
-        assert f'target_os = "{target}"' in declaration.group(1)
+    bridge = REPO_ROOT / "crates/connect_norito_bridge/src"
+    platform = (bridge / "platform_jni.rs").read_text()
+    load_original = (bridge / "kagemusha_wallet_load_original.rs").read_text()
+    gates = [
+        re.search(r'#!\[cfg\((.*?)\)\]', platform, re.DOTALL),
+        re.search(
+            r'#\[cfg\((.*?)\)\]\s*'
+            r'#\[path = "kagemusha_wallet_load_original/jni.rs"\]\s*mod jni;',
+            load_original,
+            re.DOTALL,
+        ),
+    ]
+    for relative in ("kagemusha_wallet_ffi/installed.rs",):
+        source = (bridge / relative).read_text()
+        gates.append(re.search(r'#\[cfg\((.*?)\)\]\s*mod jni;', source, re.DOTALL))
+    for declaration in gates:
+        assert declaration is not None
+        assert 'windows' in declaration.group(1)
+        for target in ("android", "linux", "macos"):
+            assert f'target_os = "{target}"' in declaration.group(1)
     sources = "\n".join(path.read_text() for path in
-                         (REPO_ROOT / "crates/connect_norito_bridge/src/platform_jni").rglob("*.rs"))
+                         (bridge / "platform_jni").rglob("*.rs"))
+    sources += "\n" + (bridge / "kagemusha_wallet_load_original/jni.rs").read_text()
+    for relative in ("kagemusha_wallet_ffi/installed/jni.rs",):
+        sources += "\n" + (bridge / relative).read_text()
     for symbol in MODULE.REQUIRED_SYMBOLS["c-jni"]:
         if symbol.startswith("Java_"):
             assert re.search(r'pub\s+(?:unsafe\s+)?extern\s+"system"\s+fn\s+' + re.escape(symbol) + r'\b', sources), symbol
@@ -614,3 +770,289 @@ def test_required_prover_jni_module_is_portable_and_retired_startup_is_absent() 
     for symbol in MODULE.CONFIDENTIAL_PROVER_JNI_EXPORTS:
         assert symbol in MODULE.REQUIRED_SYMBOLS["c-jni"]
         assert re.search(r'pub\s+extern\s+"system"\s+fn\s+' + re.escape(symbol) + r'\b', wrappers)
+
+
+def test_current_wallet_jni_inventory_matches_shipping_consumer_and_definitions() -> None:
+    """Wallet artifacts require the exact JNI surface exposed to Kotlin."""
+    declared_exports = set()
+    defined_exports = []
+    for filename, owner, methods, relative in (
+        ("KagemushaWalletV1.kt", "KagemushaWalletNativeV1", {"revision", "openBegin", "openFinish", "openCancel", "close", "activity", "call", "setup", "enrollment", "enrollmentRefusal", "execute", "review", "executeReviewed", "discardReview", "snapshot"}, "platform_jni/kagemusha_wallet_advance.rs"),
+        ("KagemushaWalletInstalledRuntimeV1.kt", "KagemushaWalletInstalledRuntimeNativeV1", {"beginInstallation", "registerInstallation", "closeInstallation", "relocateRegistrationSource"}, "kagemusha_wallet_ffi/installed/jni.rs"),
+        ("KagemushaWalletOutputV1.kt", "KagemushaWalletObservationNativeV1", {"observe"}, "platform_jni/kagemusha_wallet_observation.rs"),
+    ):
+        consumer = (REPO_ROOT / "kotlin/kagemusha-wallet-android/src/main/java/org/hyperledger/iroha/sdk/offline/wallet" / filename).read_text()
+        declared = re.findall(r"@JvmStatic\s+external\s+fun\s+(\w+)\s*\(", consumer)
+        assert len(declared) == len(set(declared)) == len(methods)
+        assert set(declared) == methods
+        declared_exports.update("Java_org_hyperledger_iroha_sdk_offline_wallet_" + owner + "_" + method for method in declared)
+        source = (REPO_ROOT / "crates/connect_norito_bridge/src" / relative).read_text()
+        defined_exports.extend(re.findall(r'pub\s+(?:unsafe\s+)?extern\s+"system"\s+fn\s+(Java_\w+)\s*\(', source))
+    source = (REPO_ROOT / "crates/connect_norito_bridge/src/platform_jni/kagemusha_wallet_review.rs").read_text()
+    defined_exports.extend(re.findall(r'pub\s+(?:unsafe\s+)?extern\s+"system"\s+fn\s+(Java_\w+)\s*\(', source))
+    expected = MODULE.KAGEMUSHA_WALLET_JNI_EXPORTS
+    assert len(expected) == len(set(expected)) == len(declared_exports) == 20
+    assert set(expected) == declared_exports
+    assert len(defined_exports) == len(set(defined_exports)) == len(expected)
+    assert set(defined_exports) == set(expected)
+    checker = (REPO_ROOT / "scripts/check_mobile_sdk_artifacts.sh").read_text()
+    inventory = checker.split("REQUIRED_WALLET_JNI_SYMBOLS=(\n", 1)[1].split("\n)", 1)[0]
+    assert tuple(inventory.split()) == expected
+
+
+def test_swift_retained_bridge_exports_have_one_canonical_header_owner() -> None:
+    """Retained bridge exports consume one canonical C declaration without substitutes."""
+    from collections import Counter
+
+    def c_tokens(source: str) -> list[str]:
+        """Tokenize the bounded C inventory after splicing, ignoring lexical decoys."""
+        source = re.sub(r"\\\r?\n", "", source)
+        identifier = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+")
+        tokens = []
+        cursor = 0
+        line_start = True
+        while cursor < len(source):
+            character = source[cursor]
+            if character.isspace():
+                if character in "\r\n":
+                    line_start = True
+                cursor += 1
+                continue
+            if source.startswith("//", cursor):
+                end = source.find("\n", cursor + 2)
+                cursor = len(source) if end == -1 else end
+                continue
+            if source.startswith("/*", cursor):
+                end = source.find("*/", cursor + 2)
+                assert end != -1, "unterminated C comment"
+                if "\n" in source[cursor:end + 2]:
+                    line_start = True
+                cursor = end + 2
+                continue
+            if line_start and character == "#":
+                end = source.find("\n", cursor + 1)
+                cursor = len(source) if end == -1 else end
+                continue
+            if character in "\"'":
+                start = cursor
+                cursor += 1
+                while cursor < len(source) and source[cursor] != character:
+                    cursor += 2 if source[cursor] == "\\" else 1
+                assert cursor < len(source), "unterminated C literal"
+                cursor += 1
+                if source[start:cursor] == '"C"':
+                    tokens.append("@C-linkage")
+                line_start = False
+                continue
+            match = identifier.match(source, cursor)
+            if match:
+                tokens.append(match.group())
+                cursor = match.end()
+            else:
+                tokens.append(character)
+                cursor += 1
+            line_start = False
+        return tokens
+
+    def prototype_counts(source: str) -> Counter:
+        """Count outer declarators at semicolons, excluding typedefs and bodies."""
+        counts = Counter()
+        statement = []
+        linkage_depth = skipped_depth = parentheses = brackets = 0
+        for token in c_tokens(source):
+            if skipped_depth:
+                skipped_depth += (token == "{") - (token == "}")
+                continue
+            if token == "{":
+                if statement == ["extern", "@C-linkage"]:
+                    linkage_depth += 1
+                else:
+                    skipped_depth = 1
+                statement = []
+                parentheses = brackets = 0
+                continue
+            if token == "}":
+                assert linkage_depth > 0, "unmatched C linkage brace"
+                linkage_depth -= 1
+                statement = []
+                continue
+            if token == ";" and parentheses == brackets == 0:
+                names = []
+                if "typedef" not in statement:
+                    declarators = []
+                    declarator = []
+                    paren_depth = bracket_depth = 0
+                    for item in statement:
+                        if item == "," and paren_depth == bracket_depth == 0:
+                            declarators.append(declarator)
+                            declarator = []
+                        else:
+                            declarator.append(item)
+                        paren_depth += (item == "(") - (item == ")")
+                        bracket_depth += (item == "[") - (item == "]")
+                    assert paren_depth == bracket_depth == 0
+                    declarators.append(declarator)
+                    for ordinal, declarator in enumerate(declarators):
+                        depths = []
+                        paren_depth = bracket_depth = 0
+                        initialized = False
+                        for item in declarator:
+                            depths.append((paren_depth, bracket_depth))
+                            if item == "=" and paren_depth == bracket_depth == 0:
+                                initialized = True
+                            paren_depth += (item == "(") - (item == ")")
+                            bracket_depth += (item == "[") - (item == "]")
+                        assert paren_depth == bracket_depth == 0
+                        if initialized:
+                            continue
+                        for index, item in enumerate(declarator):
+                            if not item.startswith("connect_norito_"):
+                                continue
+                            left = index
+                            while left > 0 and declarator[left - 1] == "(":
+                                left -= 1
+                            right = index + 1
+                            wrappers = index - left
+                            if declarator[right:right + wrappers] != [")"] * wrappers:
+                                continue
+                            right += wrappers
+                            if (
+                                (left > 0 or ordinal > 0)
+                                and depths[left] == (0, 0)
+                                and declarator[right:right + 1] == ["("]
+                            ):
+                                names.append(item)
+                counts.update(names)
+                statement = []
+                continue
+            statement.append(token)
+            parentheses += (token == "(") - (token == ")")
+            brackets += (token == "[") - (token == "]")
+            assert parentheses >= 0 and brackets >= 0
+        assert linkage_depth == skipped_depth == parentheses == brackets == 0
+        return counts
+
+    def retained_exports(source: str) -> set[str]:
+        """Read references only from the unique outer required_exports initializer."""
+        tokens = c_tokens(source)
+        initializers = []
+        braces = parentheses = brackets = 0
+        for index, token in enumerate(tokens):
+            if token == "required_exports" and braces == parentheses == brackets == 0:
+                cursor = index + 1
+                while cursor < len(tokens) and tokens[cursor] not in {";", "=", "{", "}"}:
+                    cursor += 1
+                if tokens[cursor:cursor + 2] == ["=", "{"]:
+                    start = cursor + 2
+                    cursor = start
+                    depth = 1
+                    while cursor < len(tokens) and depth:
+                        depth += (tokens[cursor] == "{") - (tokens[cursor] == "}")
+                        cursor += 1
+                    assert depth == 0 and tokens[cursor:cursor + 1] == [";"]
+                    initializers.append({
+                        item for item in tokens[start:cursor - 1]
+                        if item.startswith("connect_norito_")
+                    })
+            braces += (token == "{") - (token == "}")
+            parentheses += (token == "(") - (token == ")")
+            brackets += (token == "[") - (token == "]")
+            assert braces >= 0 and parentheses >= 0 and brackets >= 0
+        assert braces == parentheses == brackets == 0
+        assert len(initializers) == 1, "required_exports must have one outer initializer"
+        return initializers[0]
+
+    # Controls exercise lexical and declaration syntax independently of current files.
+    first, second = "connect_norito_first", "connect_norito_second"
+    assert prototype_counts(f"int32_t\n{first}\n(void);") == Counter({first: 1})
+    assert prototype_counts(f"int32_t/* separator */{first}(void);") == Counter({first: 1})
+    assert prototype_counts(
+        f"extern \"C\" {{ int32_t {first}(void); int32_t {second}(void); }}"
+    ) == Counter({first: 1, second: 1})
+    assert prototype_counts(
+        f"int32_t {first}(void);int32_t {first}(void);"
+    ) == Counter({first: 2})
+    assert prototype_counts(
+        f"int32_t {first}(void), {second}(void);"
+    ) == Counter({first: 1, second: 1})
+    assert prototype_counts(f"int32_t ({first})(void);") == Counter({first: 1})
+    assert prototype_counts(f"int32_t ((({first})))(void);") == Counter({first: 1})
+    assert prototype_counts(
+        f"int32_t {first}(void), ordinary = 42;"
+    ) == Counter({first: 1})
+    assert prototype_counts(
+        f"int32_t ordinary = 42, ({first})(void), (({second}))(void);"
+    ) == Counter({first: 1, second: 1})
+    assert prototype_counts(
+        f"int32_t (*({first}))(void), (*(({second})))(void);"
+    ) == Counter()
+    assert prototype_counts(f"/* int32_t {first}(void); */") == Counter()
+    assert prototype_counts(f"// int32_t {first}(void);\n") == Counter()
+    assert prototype_counts(
+        f'const char *text = "int32_t {first}(void);"; char quote = \'"\' ;'
+    ) == Counter()
+    assert prototype_counts(
+        f'const char *text = "escaped \\" int32_t {first}(void);";'
+    ) == Counter()
+    assert prototype_counts(
+        f"#define FAKE int32_t \\\n{first}(void);\n"
+    ) == Counter()
+    assert prototype_counts(
+        f"/* directive prefix */ #define FAKE int32_t {first}(void);\n"
+    ) == Counter()
+    assert prototype_counts(
+        f"// continued comment \\\nint32_t {first}(void);\n"
+    ) == Counter()
+    assert prototype_counts(
+        f"void function(void) {{ {first}(); }} int32_t value = {first}();"
+    ) == Counter()
+    assert prototype_counts(
+        f"typedef int32_t {first}(void); "
+        f"typedef struct {{ int32_t (*{first})(void); }} Record;"
+    ) == Counter()
+    assert prototype_counts(
+        f"void {first}(void (*{second})(void));"
+    ) == Counter({first: 1})
+    assert prototype_counts(
+        f"int32_t\n/* local substitute */\n{first}\n(\nvoid\n);\n"
+    ) == Counter({first: 1})
+    assert c_tokens("connect_norito_/**/first") == ["connect_norito_", "first"]
+
+    initializer = (
+        "static NoritoBridgeExportReference required_exports[] = { "
+        f"(NoritoBridgeExportReference){first}, "
+        f"(NoritoBridgeExportReference)&{second}, "
+        f"(NoritoBridgeExportReference)((&{first})), "
+        f"((NoritoBridgeExportReference)({second})), "
+        '/* connect_norito_comment */ "connect_norito_string", '
+        "'x' };"
+    )
+    assert retained_exports(initializer) == {first, second}
+    assert retained_exports(
+        f"int32_t connect_norito_outside(void); "
+        f"void function(void) {{ void *required_exports[] = {{connect_norito_local}}; }}"
+        f'const char *text = "required_exports[] = {{connect_norito_literal}};";'
+        f"// required_exports[] = {{connect_norito_comment}};\n"
+        + initializer
+    ) == {first, second}
+    assert retained_exports(
+        "#define FAKE required_exports[] = { \\\nconnect_norito_macro };\n"
+        + initializer
+    ) == {first, second}
+
+    header = (
+        REPO_ROOT / "crates/connect_norito_bridge/include/connect_norito_bridge.h"
+    ).read_text(encoding="utf-8")
+    retention = (
+        REPO_ROOT / "IrohaSwift/Sources/NoritoBridgeRetention/NoritoBridgeRetention.c"
+    ).read_text(encoding="utf-8")
+    retained = retained_exports(retention)
+    assert {
+        "connect_norito_decode_control_approve_sig_alg",
+        "connect_norito_encode_envelope_sign_result_ok_with_alg",
+        "connect_norito_kagemusha_wallet_revision_v1",
+    } <= retained
+    declarations = prototype_counts(header)
+    for symbol in retained:
+        assert declarations[symbol] == 1, symbol
+    assert not prototype_counts(retention), "local bridge declarations substitute for the owner"

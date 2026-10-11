@@ -15,7 +15,7 @@ from iroha_python.validator_staking import (
     StakingScopeV1, StakingAssetScopeV1, StakingPeerIdV1,
     StakingMonetaryPlanV1, StakingMonetaryRegistrationV1, StakingMonetaryBondV1,
     StakingMonetaryUnbondV1, StakingMonetarySlashV1, StakingRewardClaimPlanV1,
-    StakingAuthorityGenerationV1, StakingEpochAuthorizationV1,
+    StakingValidatorGenerationV1, StakingEpochAuthorizationV1,
 )
 
 
@@ -26,13 +26,12 @@ def _rows():
 
 _ROWS = _rows()
 _TYPES = {
-    "authority_generation": StakingAuthorityGenerationV1,
+    "validator_generation": StakingValidatorGenerationV1,
     "epoch_authorization": StakingEpochAuthorizationV1,
     "monetary_plan": StakingMonetaryPlanV1,
     "monetary_bond_plan": StakingMonetaryPlanV1,
     "monetary_unbond_plan": StakingMonetaryPlanV1,
     "monetary_slash_plan": StakingMonetaryPlanV1,
-    "reward_claim_plan": StakingRewardClaimPlanV1,
     "fee_reward_claim_plan": StakingRewardClaimPlanV1,
 }
 
@@ -69,7 +68,7 @@ def test_staking_shared_rust_rows_are_exact(name, model):
 def test_staking_preconditions_bind_real_xor_and_exact_tenure():
     types = (StakingMonetaryRegistrationV1, StakingMonetaryBondV1, StakingMonetaryUnbondV1, StakingMonetarySlashV1)
     rows = ("monetary_plan", "monetary_bond_plan", "monetary_unbond_plan", "monetary_slash_plan")
-    authority = StakingAuthorityGenerationV1.from_norito(_ROWS["authority_generation"])
+    authority = StakingValidatorGenerationV1.from_norito(_ROWS["validator_generation"])
     for name, expected in zip(rows, types):
         plan = _plan(name)
         assert type(plan.precondition) is expected
@@ -79,7 +78,7 @@ def test_staking_preconditions_bind_real_xor_and_exact_tenure():
         assert plan.destination_asset.definition == plan.source_asset.definition
         assert plan.network_scope.network_id.to_bytes() == authority.network_id.to_bytes()
         assert str(plan.amount) == "1000"
-    assert _plan("monetary_bond_plan").precondition.peer_id == authority.validators[0].validator
+    assert _plan("monetary_bond_plan").precondition.peer_id == authority.validators[0]
     assert _plan("monetary_unbond_plan").precondition.request_hash == bytes([0x75]) * 32
     assert _plan("monetary_unbond_plan").source_asset == _plan().destination_asset
     assert str(_plan("monetary_slash_plan").precondition.slashable_exposure) == "1500"
@@ -98,42 +97,32 @@ def test_staking_fee_claim_is_required_and_has_independent_custody_sequence():
     assert fee.source_asset == _plan().destination_asset and fee.destination_asset == _plan().source_asset
     args = dict(plan.__dict__); args.pop("fee_claim")
     with pytest.raises(TypeError): StakingRewardClaimPlanV1(**args)
-    no_fee = StakingRewardClaimPlanV1.from_norito(_ROWS["reward_claim_plan"])
-    assert no_fee.fee_claim is None
-    assert _ROWS["reward_claim_plan"][-2:] == b"\1\0"
-    with pytest.raises((TypeError, ValueError, DecodeError)): StakingRewardClaimPlanV1.from_norito(_ROWS["reward_claim_plan"][:-2])
+    with pytest.raises(TypeError): replace(plan, fee_claim=None)
     for amount in (KotodamaQuantity("0"),):
         with pytest.raises(ValueError): replace(fee, amount=amount)
     with pytest.raises(ValueError): replace(fee, lifecycle_seal=bytes(32))
     with pytest.raises(ValueError): replace(fee, source_asset=replace(fee.source_asset, scope=StakingAssetScopeV1(1)))
-    with pytest.raises(ValueError): replace(plan, fee_claim=replace(fee, destination_asset=fee.source_asset))
-    with pytest.raises(ValueError): replace(plan.sources[0], expected_accrued=KotodamaQuantity("0"))
-    dust = replace(plan, sources=(replace(plan.sources[0], payout=KotodamaQuantity("0")),))
-    assert StakingRewardClaimPlanV1.from_norito(dust.to_norito()).sources[0].payout.mantissa == 0
 
 
-def test_staking_reward_order_bounds_and_immutable_identity_are_preserved():
-    plan = _claim(); source = plan.sources[0]
-    # Rust's Ed25519 custody key starts 0x5b and recipient key starts 0xe2.
-    # This order uses key bytes, not account text or variable frame lengths.
-    second = replace(source, source_asset=source.destination_asset, expected_accrued=None)
-    ordered = replace(plan, sources=(source, second))
-    assert StakingRewardClaimPlanV1.from_norito(ordered.to_norito()).sources == ordered.sources
-    with pytest.raises(ValueError): replace(plan, sources=(second, source))
-    with pytest.raises(ValueError): replace(plan, sources=(source, source))
-    with pytest.raises(ValueError): replace(plan, records=plan.records * 65)
-    with pytest.raises(ValueError): replace(plan, sources=plan.sources * 65)
-    with pytest.raises(ValueError): replace(plan, records=plan.records * 2)
-    body = _fields(plan.to_norito()); body[3] = (65).to_bytes(8, "little")
-    with pytest.raises(ValueError, match="bound"): StakingRewardClaimPlanV1.from_norito(_record(body))
+def test_staking_reward_exact_layout_and_immutable_identity_are_preserved():
+    plan = _claim()
+    for field in ("sources", "records", "expected_state"):
+        with pytest.raises(TypeError): replace(plan, **{field: ()})
+    body = _fields(plan.to_norito())
+    assert len(body) == 3
+    for malformed in (body[:-1], body + [b"\0"], [*body[:2], b"\0"]):
+        with pytest.raises((TypeError, ValueError, DecodeError)):
+            StakingRewardClaimPlanV1.from_norito(_record(malformed))
     raw = bytearray(plan.fee_claim.lifecycle_seal)
     owned = replace(plan.fee_claim, lifecycle_seal=raw); raw[0] ^= 1
     assert owned.lifecycle_seal == plan.fee_claim.lifecycle_seal
     with pytest.raises(FrozenInstanceError): owned.expected_claim_sequence = 0
+    maximum = replace(plan, fee_claim=replace(plan.fee_claim, beneficiary_revision=(1 << 64)-1, expected_claim_sequence=(1 << 64)-1))
+    assert StakingRewardClaimPlanV1.from_norito(maximum.to_norito()).fee_claim.expected_claim_sequence == (1 << 64)-1
 
 
 def test_staking_generation_epoch_bindings_do_not_couple_signing_lifetime():
-    authority = StakingAuthorityGenerationV1.from_norito(_ROWS["authority_generation"])
+    authority = StakingValidatorGenerationV1.from_norito(_ROWS["validator_generation"])
     epoch = StakingEpochAuthorizationV1.from_norito(_ROWS["epoch_authorization"])
     assert authority.generation == epoch.authority_generation == 0
     assert authority.network_id.to_bytes() == epoch.network_id.to_bytes()
@@ -141,7 +130,19 @@ def test_staking_generation_epoch_bindings_do_not_couple_signing_lifetime():
     assert StakingEpochAuthorizationV1.from_norito(later.to_norito()).authority_generation == 0
     for count in (3, 5, 32):
         with pytest.raises(ValueError): replace(authority, validators=(authority.validators * 8)[:count])
-    with pytest.raises(ValueError): replace(authority, version=2)
+    with pytest.raises(TypeError): replace(authority, version=1)
+    with pytest.raises(ValueError, match="ordered"):
+        replace(authority, validators=tuple(reversed(authority.validators)))
+    with pytest.raises(ValueError, match="ordered"):
+        replace(authority, validators=(authority.validators[0],) * 4)
+    ed_key = AccountAddress.from_i105(_plan().source_asset.account).controller
+    from iroha_python.crypto import public_key_multihash
+    non_bls = StakingPeerIdV1(public_key_multihash("ed25519", ed_key.public_key))
+    with pytest.raises(ValueError, match="BLS-normal"):
+        replace(authority, validators=(non_bls,) + authority.validators[1:])
+    # The retired generation frame prepended a version and carried paired keys.
+    with pytest.raises((ValueError, TypeError, DecodeError)):
+        StakingValidatorGenerationV1.from_norito(_record([b"\1\0", *_fields(authority.to_norito())]))
     with pytest.raises(ValueError): replace(epoch, first_height=0)
     with pytest.raises(ValueError): replace(epoch, decision="future")
     with pytest.raises(ValueError): NetworkId.from_bytes(bytes(32))

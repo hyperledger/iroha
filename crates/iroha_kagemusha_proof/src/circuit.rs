@@ -4,9 +4,10 @@
 //! # Columns
 //!
 //! - `L` Pow5 sponge lanes (`iroha_plonk_gadgets::poseidon`), four advice
-//!   columns each, sharing one set of six round-constant columns. The hashes
-//!   of the relation are spread over the lanes by a static plan
-//!   ([`LanePlan`]): longest hash first, each onto the least loaded lane.
+//!   columns each, sharing one set of six round-constant columns. The hash
+//!   sites of the relation (a single hash, or a tree leaf with its path) are
+//!   spread over the lanes by a static plan ([`LanePlan`]): longest site
+//!   first, each onto the least loaded lane.
 //! - The glue chip shares the four columns of the least loaded lane: its
 //!   rows start right after that lane's last permutation block. Its standard
 //!   gate is off wherever its coefficient columns are zero (every Pow5 row),
@@ -17,9 +18,12 @@
 //!   digest).
 //!
 //! With [`PrefixMode::Folded`] each lane starts its domain-prefixed hashes
-//! from the constant post-prefix state (one permutation fewer per hash);
-//! with [`PrefixMode::Absorbed`] the `[domain, arity]` prefix is absorbed in
-//! circuit. Both compute the same digests.
+//! from the constant post-prefix state (one permutation fewer per hash),
+//! except the few prefixes [`RelationShape::unfolded`] keeps absorbed so
+//! that the start selectors fill whole compressed selector columns (each
+//! column is a 32-byte proof evaluation); with [`PrefixMode::Absorbed`] the
+//! `[domain, arity]` prefix is absorbed in circuit. Both compute the same
+//! digests.
 
 use iroha_pasta::poseidon::PoseidonField;
 use iroha_plonk::{
@@ -34,11 +38,17 @@ use iroha_plonk_gadgets::{
 };
 
 use crate::{
+    controls::{QUOTA_CHARGES, SEGMENT_POSITIONS},
     relation::{self, Chips},
+    tree::{
+        BLACKLIST_DEPTH, BLACKLIST_LEAF_DOMAIN, BLACKLIST_NODE_DOMAIN, QUOTA_DEPTH,
+        QUOTA_NODE_DOMAIN, QUOTA_USAGE_DOMAIN, QUOTA_USAGE_NODE_DOMAIN, QUOTA_WINDOW_DOMAIN,
+        WINDOW_KINDS,
+    },
     witness::{
-        COMMITMENT_ARITY, CORE_DOMAIN, CREDIT_DOMAIN, NativeStep, RECEIVE_CHAIN_DOMAIN,
-        RECEIVE_CHAIN_FIELDS, REQUEST_FIELDS, SEND_CHAIN_DOMAIN, SEND_CHAIN_FIELDS, SigmaRelation,
-        StepDigests, StepWitness,
+        COMMITMENT_ARITY, CONTROL_BLACKLIST, CONTROL_QUOTAS, CORE_DOMAIN, CREDIT_DOMAIN,
+        NativeStep, RECEIVE_CHAIN_DOMAIN, RECEIVE_CHAIN_FIELDS, REQUEST_FIELDS, SEND_CHAIN_DOMAIN,
+        SEND_CHAIN_FIELDS, SigmaRelation, StepDigests, StepWitness,
     },
 };
 
@@ -48,6 +58,12 @@ pub const MAX_LANES: usize = 4;
 pub const DEFAULT_LIMB_BITS: usize = 10;
 /// The public outputs of every step relation: the statement digest.
 pub const PUBLIC_OUTPUTS: usize = 1;
+/// The Pow5 start selectors (degree-2 gates under degree 6) that selector
+/// compression combines into one fixed column (`6 - 2 + 1`).
+pub const STARTS_PER_SELECTOR_COLUMN: usize = 5;
+/// The most permutations [`RelationShape::unfolded`] adds to save a
+/// selector column.
+pub const MAX_UNFOLDED_PERMUTATIONS: usize = 4;
 
 /// How domain-prefixed hashes start.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -88,7 +104,21 @@ impl Default for RelationShape {
     }
 }
 
-/// A hash the relation computes.
+/// One path of a fixed-array quota charge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum UsagePath {
+    /// Old usage leaf to the running root.
+    LeafBefore,
+    /// Updated usage leaf to the successor root.
+    LeafAfter,
+}
+impl UsagePath {
+    /// Both paths in layout order.
+    pub const ALL: [Self; 2] = [Self::LeafBefore, Self::LeafAfter];
+}
+
+/// A hash site of the relation: one hash, or a tree leaf with its path
+/// (all on one lane).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum HashSite {
     /// The predecessor commitment.
@@ -101,6 +131,15 @@ pub enum HashSite {
     Chain,
     /// The statement digest.
     Statement,
+    /// The blacklist control: the gap leaf and its 16-node path.
+    BlacklistGap,
+    /// The quota control: the window leaf and 6-node path of a segment
+    /// position `(kind index, position)`.
+    QuotaWindow(u8, u8),
+    /// The quota control: the old and new usage values of a charge.
+    UsageValues(u8),
+    /// The quota control: one six-level usage-array path of a charge.
+    UsagePath(u8, UsagePath),
 }
 
 impl RelationShape {
@@ -122,9 +161,9 @@ impl RelationShape {
         format!("sigma_{}_{}", self.relation.label(), self.prefix.label())
     }
 
-    /// The hashes of every relation, in layout order (the same for both
-    /// steps).
-    pub const HASH_SITES: [HashSite; 5] = [
+    /// The hashes every relation computes, in layout order (the same for
+    /// both steps).
+    pub const BASE_SITES: [HashSite; 5] = [
         HashSite::Credit,
         HashSite::Chain,
         HashSite::Predecessor,
@@ -132,32 +171,147 @@ impl RelationShape {
         HashSite::Statement,
     ];
 
-    /// The `(domain, arity)` of a hash.
+    /// The hash sites of the relation, in layout order: the base sites,
+    /// then the blacklist gap (with the blacklist control) and the quota
+    /// windows, values and paths (`sigma_send` with the quota control).
     #[must_use]
-    pub const fn site_domain(self, site: HashSite) -> (u64, usize) {
-        match (site, self.relation.step()) {
-            (HashSite::Predecessor | HashSite::Successor, _) => (CORE_DOMAIN, COMMITMENT_ARITY),
-            (HashSite::Chain, StepRelation::Send) => (SEND_CHAIN_DOMAIN, SEND_CHAIN_FIELDS),
-            (HashSite::Chain, StepRelation::Receive) => {
-                (RECEIVE_CHAIN_DOMAIN, RECEIVE_CHAIN_FIELDS)
+    pub fn sites(self) -> Vec<HashSite> {
+        let mut sites = Self::BASE_SITES.to_vec();
+        if self.relation.enforces(CONTROL_BLACKLIST) {
+            sites.push(HashSite::BlacklistGap);
+        }
+        if self.relation.step() == StepRelation::Send && self.relation.enforces(CONTROL_QUOTAS) {
+            for kind in 0..WINDOW_KINDS.len() {
+                for position in 0..SEGMENT_POSITIONS {
+                    sites.push(HashSite::QuotaWindow(
+                        u8::try_from(kind).unwrap_or(u8::MAX),
+                        u8::try_from(position).unwrap_or(u8::MAX),
+                    ));
+                }
             }
-            (HashSite::Credit, _) => (CREDIT_DOMAIN, REQUEST_FIELDS),
-            (HashSite::Statement, _) => (STATEMENT_DOMAIN, STATEMENT_FIELDS),
+            for charge in 0..QUOTA_CHARGES {
+                let charge = u8::try_from(charge).unwrap_or(u8::MAX);
+                sites.push(HashSite::UsageValues(charge));
+                for path in UsagePath::ALL {
+                    sites.push(HashSite::UsagePath(charge, path));
+                }
+            }
+        }
+        sites
+    }
+
+    /// The `(domain, arity)` of every hash of a site, in order.
+    #[must_use]
+    pub fn site_hashes(self, site: HashSite) -> Vec<(u64, usize)> {
+        let path = |leaf: Option<(u64, usize)>, node: u64, depth: usize| {
+            leaf.into_iter()
+                .chain(core::iter::repeat_n((node, 2), depth))
+                .collect()
+        };
+        match (site, self.relation.step()) {
+            (HashSite::Predecessor | HashSite::Successor, _) => {
+                vec![(CORE_DOMAIN, COMMITMENT_ARITY)]
+            }
+            (HashSite::Chain, StepRelation::Send) => vec![(SEND_CHAIN_DOMAIN, SEND_CHAIN_FIELDS)],
+            (HashSite::Chain, StepRelation::Receive) => {
+                vec![(RECEIVE_CHAIN_DOMAIN, RECEIVE_CHAIN_FIELDS)]
+            }
+            (HashSite::Credit, _) => vec![(CREDIT_DOMAIN, REQUEST_FIELDS)],
+            (HashSite::Statement, _) => vec![(STATEMENT_DOMAIN, STATEMENT_FIELDS)],
+            (HashSite::BlacklistGap, _) => path(
+                Some((BLACKLIST_LEAF_DOMAIN, 4)),
+                BLACKLIST_NODE_DOMAIN,
+                BLACKLIST_DEPTH,
+            ),
+            (HashSite::QuotaWindow(..), _) => path(
+                Some((QUOTA_WINDOW_DOMAIN, 4)),
+                QUOTA_NODE_DOMAIN,
+                QUOTA_DEPTH,
+            ),
+            (HashSite::UsageValues(_), _) => vec![(QUOTA_USAGE_DOMAIN, 4); 2],
+            (HashSite::UsagePath(..), _) => path(None, QUOTA_USAGE_NODE_DOMAIN, QUOTA_DEPTH),
         }
     }
 
-    /// The Pow5 permutations of a hash.
+    /// The `(domain, arity)` prefixes of the relation's hashes in order of
+    /// first use (layout order), each with the number of hashes using it.
     #[must_use]
-    pub const fn site_permutations(self, site: HashSite) -> usize {
-        let (_, arity) = self.site_domain(site);
-        domain_permutations(arity, matches!(self.prefix, PrefixMode::Folded))
+    pub fn prefix_uses(self) -> Vec<((u64, usize), usize)> {
+        let mut uses: Vec<((u64, usize), usize)> = Vec::new();
+        for site in self.sites() {
+            for prefix in self.site_hashes(site) {
+                match uses.iter_mut().find(|(known, _)| *known == prefix) {
+                    Some((_, count)) => *count += 1,
+                    None => uses.push((prefix, 1)),
+                }
+            }
+        }
+        uses
     }
 
-    /// The Pow5 permutations of the relation (`sigma_send` 67 and
-    /// `sigma_recv` 65 with folded prefixes, one more per hash absorbed).
+    /// The prefixes a [`PrefixMode::Folded`] relation still absorbs in
+    /// circuit, to save a selector column.
+    ///
+    /// Each folded prefix is a start gate of degree 2 with its own
+    /// selector, and so is the raw start state every lane configures;
+    /// selector compression under the Pow5 degree 6 combines at most
+    /// [`STARTS_PER_SELECTOR_COLUMN`] of them into one fixed column, and
+    /// every fixed column adds one 32-byte evaluation to the proof. When the
+    /// starts of a relation overflow a column by a few, the prefixes with
+    /// the fewest hashes (the latest first on ties) are absorbed instead, at
+    /// one permutation per hash and at most [`MAX_UNFOLDED_PERMUTATIONS`] in
+    /// all. The rule reads the relation's prefixes, not the lane plan: on
+    /// one lane it removes the column exactly.
+    #[must_use]
+    pub fn unfolded(self) -> Vec<(u64, usize)> {
+        if self.prefix == PrefixMode::Absorbed {
+            return Vec::new();
+        }
+        let uses = self.prefix_uses();
+        let starts = uses.len() + 1;
+        let surplus = starts % STARTS_PER_SELECTOR_COLUMN;
+        if starts <= STARTS_PER_SELECTOR_COLUMN || surplus == 0 {
+            return Vec::new();
+        }
+        let mut candidates: Vec<(usize, core::cmp::Reverse<usize>, (u64, usize))> = uses
+            .iter()
+            .enumerate()
+            .map(|(order, (prefix, count))| (*count, core::cmp::Reverse(order), *prefix))
+            .collect();
+        candidates.sort_unstable();
+        let chosen = &candidates[..surplus];
+        let cost: usize = chosen.iter().map(|(count, _, _)| count).sum();
+        if cost > MAX_UNFOLDED_PERMUTATIONS {
+            return Vec::new();
+        }
+        chosen.iter().map(|(_, _, prefix)| *prefix).collect()
+    }
+
+    /// Whether the relation's hashes under `prefix` start from its folded
+    /// state.
+    #[must_use]
+    pub fn is_folded(self, prefix: (u64, usize)) -> bool {
+        self.prefix == PrefixMode::Folded && !self.unfolded().contains(&prefix)
+    }
+
+    /// The Pow5 permutations of a site.
+    #[must_use]
+    pub fn site_permutations(self, site: HashSite) -> usize {
+        let unfolded = self.unfolded();
+        let folded = matches!(self.prefix, PrefixMode::Folded);
+        self.site_hashes(site)
+            .into_iter()
+            .map(|prefix| domain_permutations(prefix.1, folded && !unfolded.contains(&prefix)))
+            .sum()
+    }
+
+    /// The Pow5 permutations of the relation (folded prefixes: `sigma_send`
+    /// 69, with the blacklist control 106, with the quota control 309
+    /// and with every control 345; `sigma_recv` 67 and with the
+    /// blacklist bit 104).
     #[must_use]
     pub fn permutations(self) -> usize {
-        Self::HASH_SITES
+        self.sites()
             .into_iter()
             .map(|site| self.site_permutations(site))
             .sum()
@@ -171,7 +325,7 @@ pub enum ParamsError {
     Lanes(usize),
     /// The limb width is outside `1..=24`.
     LimbBits(usize),
-    /// The relation enables a control this crate does not implement.
+    /// The relation enables an undefined control.
     Relation(SigmaRelation),
 }
 
@@ -182,7 +336,7 @@ impl core::fmt::Display for ParamsError {
             Self::LimbBits(bits) => write!(f, "{bits}-bit limbs (1..=24 supported)"),
             Self::Relation(relation) => write!(
                 f,
-                "relation selector {:?} enables an unsupported control",
+                "relation selector {:?} enables an undefined control",
                 relation.selector()
             ),
         }
@@ -216,7 +370,7 @@ impl SigmaParams {
     ///
     /// # Errors
     ///
-    /// [`ParamsError`] for a relation with an unsupported control, a lane
+    /// [`ParamsError`] for a relation with an undefined control, a lane
     /// count outside `1..=MAX_LANES` or a limb width outside `1..=24`.
     pub fn new(
         relation: RelationShape,
@@ -271,20 +425,24 @@ pub struct LanePlan {
 }
 
 impl LanePlan {
-    /// The plan of `relation` on `lanes >= 1` lanes: hashes by decreasing
+    /// The plan of `relation` on `lanes >= 1` lanes: sites by decreasing
     /// permutation count (layout order on ties), each onto the least loaded
     /// lane (lowest index on ties); the glue follows the least loaded lane.
     #[must_use]
     pub fn new(relation: RelationShape, lanes: usize) -> Self {
         let lanes = lanes.max(1);
-        let mut order = RelationShape::HASH_SITES.to_vec();
-        order.sort_by_key(|site| core::cmp::Reverse(relation.site_permutations(*site)));
+        let mut order: Vec<(HashSite, usize)> = relation
+            .sites()
+            .into_iter()
+            .map(|site| (site, relation.site_permutations(site)))
+            .collect();
+        // A stable sort keeps layout order on ties.
+        order.sort_by_key(|(_, permutations)| core::cmp::Reverse(*permutations));
         let mut lane_permutations = vec![0_usize; lanes];
         let mut sites = Vec::with_capacity(order.len());
-        for site in order {
+        for (site, permutations) in order {
             let lane = least_loaded(&lane_permutations);
-            lane_permutations[lane] =
-                lane_permutations[lane].saturating_add(relation.site_permutations(site));
+            lane_permutations[lane] = lane_permutations[lane].saturating_add(permutations);
             sites.push((site, lane));
         }
         let glue_lane = least_loaded(&lane_permutations);
@@ -328,17 +486,23 @@ impl LanePlan {
             .ok_or(Error::BoundsFailure)
     }
 
-    /// The `(domain, arity)` prefixes lane `lane` folds under `relation`.
+    /// The `(domain, arity)` prefixes lane `lane` folds under `relation`
+    /// (every prefix of its sites but [`RelationShape::unfolded`]).
     #[must_use]
     pub fn folded(&self, relation: RelationShape, lane: usize) -> Vec<(u64, usize)> {
         if relation.prefix == PrefixMode::Absorbed {
             return Vec::new();
         }
+        let unfolded = relation.unfolded();
         let mut folded = Vec::new();
         for (site, site_lane) in &self.sites {
-            let prefix = relation.site_domain(*site);
-            if *site_lane == lane && !folded.contains(&prefix) {
-                folded.push(prefix);
+            if *site_lane != lane {
+                continue;
+            }
+            for prefix in relation.site_hashes(*site) {
+                if !folded.contains(&prefix) && !unfolded.contains(&prefix) {
+                    folded.push(prefix);
+                }
             }
         }
         folded
@@ -609,35 +773,65 @@ mod tests {
     }
 
     #[test]
-    fn permutation_counts_of_the_g1_core() {
+    fn permutation_counts_of_the_g1_core_and_the_controls() {
         use PrefixMode::{Absorbed, Folded};
         let blacklist = SigmaRelation::send(CONTROL_BLACKLIST);
-        // Absorbed prefixes: openings 18 (33 inputs), credit 14, send chain
-        // 6, receive chain 4, statement 16 (28 inputs).
-        assert_eq!(shape(SigmaRelation::SEND, Absorbed).permutations(), 72);
-        assert_eq!(shape(SigmaRelation::RECEIVE, Absorbed).permutations(), 70);
-        // Folding saves one permutation per hash; the controls add none.
-        assert_eq!(shape(SigmaRelation::SEND, Folded).permutations(), 67);
-        assert_eq!(shape(blacklist, Folded).permutations(), 67);
-        assert_eq!(shape(SigmaRelation::RECEIVE, Folded).permutations(), 65);
+        let quotas = SigmaRelation::send(CONTROL_QUOTAS);
+        let every = SigmaRelation::send(crate::witness::CONTROLS_DEFINED);
+        let lease = SigmaRelation::send(crate::witness::CONTROL_ATTESTATION_LEASE);
+        let receive_blacklist = SigmaRelation::receive(CONTROL_BLACKLIST);
+        // Absorbed prefixes: openings 19 (34 inputs), credit 15 (26),
+        // send chain 6, receive chain 4, statement 15 (26 inputs).
+        assert_eq!(shape(SigmaRelation::SEND, Absorbed).permutations(), 74);
+        assert_eq!(shape(SigmaRelation::RECEIVE, Absorbed).permutations(), 72);
+        // Folding saves one permutation per hash; the lease adds none, the
+        // blacklist gap 35 (leaf 3, 16 nodes of 2), the quota rule 240
+        // (8 window openings of 15, 4 charges of 30). With the gap, two
+        // single-hash prefixes stay absorbed (two permutations) so the
+        // start selectors fill whole columns.
+        assert_eq!(shape(SigmaRelation::SEND, Folded).permutations(), 69);
+        assert_eq!(shape(lease, Folded).permutations(), 69);
+        assert_eq!(shape(blacklist, Folded).permutations(), 106);
+        assert_eq!(shape(quotas, Folded).permutations(), 309);
+        assert_eq!(shape(every, Folded).permutations(), 345);
+        assert_eq!(shape(SigmaRelation::RECEIVE, Folded).permutations(), 67);
+        assert_eq!(shape(receive_blacklist, Folded).permutations(), 104);
+        assert_eq!(shape(blacklist, Absorbed).permutations(), 74 + 52);
+        assert_eq!(shape(every, Absorbed).permutations(), 74 + 52 + 352);
         let send = shape(SigmaRelation::SEND, Folded);
-        assert_eq!(send.site_permutations(HashSite::Statement), 15);
-        assert_eq!(send.site_permutations(HashSite::Credit), 13);
-        assert_eq!(send.site_permutations(HashSite::Predecessor), 17);
+        assert_eq!(send.site_permutations(HashSite::Statement), 14);
+        assert_eq!(send.site_permutations(HashSite::Credit), 14);
+        assert_eq!(send.site_permutations(HashSite::Predecessor), 18);
         assert_eq!(send.site_permutations(HashSite::Chain), 5);
+        let quota = shape(quotas, Folded);
+        assert_eq!(quota.site_permutations(HashSite::QuotaWindow(1, 3)), 15);
+        assert_eq!(quota.site_permutations(HashSite::UsageValues(2)), 6);
+        assert_eq!(
+            quota.site_permutations(HashSite::UsagePath(0, UsagePath::LeafBefore)),
+            12
+        );
+        assert_eq!(
+            quota.site_permutations(HashSite::UsagePath(0, UsagePath::LeafAfter)),
+            12
+        );
         assert_eq!(
             shape(SigmaRelation::RECEIVE, Folded).site_permutations(HashSite::Chain),
             3
         );
-        assert_eq!(send.site_domain(HashSite::Predecessor), (CORE_DOMAIN, 33));
+        assert_eq!(
+            send.site_hashes(HashSite::Predecessor),
+            vec![(CORE_DOMAIN, 34)]
+        );
         assert_eq!(send.step(), StepRelation::Send);
         assert_eq!(send.label(), "sigma_send_m0_folded");
         assert_eq!(shape(blacklist, Folded).label(), "sigma_send_m1_folded");
         assert_eq!(
             shape(SigmaRelation::RECEIVE, Absorbed).label(),
-            "sigma_recv_absorbed"
+            "sigma_recv_m0_absorbed"
         );
-        assert_eq!(RelationShape::HASH_SITES.len(), 5);
+        assert_eq!(send.sites().len(), 5);
+        assert_eq!(shape(receive_blacklist, Folded).sites().len(), 6);
+        assert_eq!(quota.sites().len(), 5 + 8 + 4 * 3);
         assert_eq!(RelationShape::default(), send);
     }
 
@@ -645,35 +839,98 @@ mod tests {
     fn lane_plan_balances_longest_first() {
         let send = shape(SigmaRelation::SEND, PrefixMode::Folded);
         let one = LanePlan::new(send, 1);
-        assert_eq!(one.lane_permutations(), &[67]);
+        assert_eq!(one.lane_permutations(), &[69]);
         assert_eq!(one.glue_lane(), 0);
-        assert_eq!(one.glue_start(), Ok(67 * 37));
+        assert_eq!(one.glue_start(), Ok(69 * 37));
         let two = LanePlan::new(send, 2);
-        // 17 | 17, then 15 onto 17, 13 onto 17, 5 onto 30.
-        assert_eq!(two.lane_permutations(), &[32, 35]);
+        // 18 | 18, then 14 onto 18 (lane 0 on the tie), 14 onto 18, 5 onto
+        // the tie 32 | 32.
+        assert_eq!(two.lane_permutations(), &[37, 32]);
         assert_eq!(two.lane_of(HashSite::Predecessor), 0);
         assert_eq!(two.lane_of(HashSite::Successor), 1);
-        assert_eq!(two.lane_of(HashSite::Statement), 0);
-        assert_eq!(two.lane_of(HashSite::Credit), 1);
-        assert_eq!(two.lane_of(HashSite::Chain), 1);
-        assert_eq!(two.glue_lane(), 0);
+        assert_eq!(two.lane_of(HashSite::Statement), 1);
+        assert_eq!(two.lane_of(HashSite::Credit), 0);
+        assert_eq!(two.lane_of(HashSite::Chain), 0);
+        assert_eq!(two.glue_lane(), 1);
         assert_eq!(
             two.folded(send, 0),
-            vec![(CORE_DOMAIN, 33), (STATEMENT_DOMAIN, 28)]
+            vec![
+                (CORE_DOMAIN, 34),
+                (CREDIT_DOMAIN, 26),
+                (SEND_CHAIN_DOMAIN, 8)
+            ]
         );
         assert_eq!(
             two.folded(send, 1),
-            vec![
-                (CORE_DOMAIN, 33),
-                (CREDIT_DOMAIN, 24),
-                (SEND_CHAIN_DOMAIN, 9)
-            ]
+            vec![(CORE_DOMAIN, 34), (STATEMENT_DOMAIN, 26)]
         );
+        // A tree site folds its node prefix on its lane; the gap leaf and
+        // the statement stay absorbed (`RelationShape::unfolded`).
+        let gap = shape(SigmaRelation::send(CONTROL_BLACKLIST), PrefixMode::Folded);
+        let plan = LanePlan::new(gap, 1);
+        assert_eq!(plan.lane_permutations(), &[106]);
+        let folded = plan.folded(gap, 0);
+        assert!(!folded.contains(&(BLACKLIST_LEAF_DOMAIN, 4)));
+        assert!(!folded.contains(&(STATEMENT_DOMAIN, 26)));
+        assert!(folded.contains(&(BLACKLIST_NODE_DOMAIN, 2)));
+        assert_eq!(folded.len(), 4);
         let absorbed = shape(SigmaRelation::SEND, PrefixMode::Absorbed);
         assert!(LanePlan::new(absorbed, 2).folded(absorbed, 0).is_empty());
-        assert_eq!(LanePlan::new(send, 0).lane_permutations(), &[67]);
+        assert_eq!(LanePlan::new(send, 0).lane_permutations(), &[69]);
         assert_eq!(least_loaded(&[3, 1, 1]), 1);
         assert_eq!(least_loaded(&[]), 0);
+    }
+
+    #[test]
+    fn start_selectors_fill_whole_columns() {
+        use PrefixMode::{Absorbed, Folded};
+        let every = shape(
+            SigmaRelation::send(crate::witness::CONTROLS_DEFINED),
+            Folded,
+        );
+        // Base relations: the raw start and four prefixes fill one column.
+        for relation in [
+            SigmaRelation::SEND,
+            SigmaRelation::RECEIVE,
+            SigmaRelation::send(crate::witness::CONTROL_ATTESTATION_LEASE),
+        ] {
+            let relation = shape(relation, Folded);
+            assert_eq!(relation.prefix_uses().len() + 1, STARTS_PER_SELECTOR_COLUMN);
+            assert!(relation.unfolded().is_empty());
+        }
+        // The gap adds two prefixes: the gap leaf and the statement (one
+        // hash each, the latest first) are absorbed.
+        for relation in [
+            SigmaRelation::send(CONTROL_BLACKLIST),
+            SigmaRelation::receive(CONTROL_BLACKLIST),
+        ] {
+            let relation = shape(relation, Folded);
+            assert_eq!(
+                relation.unfolded(),
+                vec![(BLACKLIST_LEAF_DOMAIN, 4), (STATEMENT_DOMAIN, 26)]
+            );
+            assert!(!relation.is_folded((BLACKLIST_LEAF_DOMAIN, 4)));
+            assert!(relation.is_folded((BLACKLIST_NODE_DOMAIN, 2)));
+            assert_eq!(relation.site_permutations(HashSite::BlacklistGap), 36);
+            assert_eq!(relation.site_permutations(HashSite::Statement), 15);
+        }
+        // The quota rule's nine prefixes fill two columns; every control
+        // overflows by two again.
+        let quotas = shape(SigmaRelation::send(CONTROL_QUOTAS), Folded);
+        assert_eq!(
+            quotas.prefix_uses().len() + 1,
+            2 * STARTS_PER_SELECTOR_COLUMN - 1
+        );
+        assert!(quotas.unfolded().is_empty());
+        assert_eq!(every.unfolded(), vec![(BLACKLIST_LEAF_DOMAIN, 4)]);
+        assert_eq!(
+            every.prefix_uses().last(),
+            Some(&((QUOTA_USAGE_NODE_DOMAIN, 2), 4 * 2 * QUOTA_DEPTH))
+        );
+        // Absorbed relations fold nothing.
+        let absorbed = shape(SigmaRelation::send(CONTROL_BLACKLIST), Absorbed);
+        assert!(absorbed.unfolded().is_empty());
+        assert!(!absorbed.is_folded((CORE_DOMAIN, 34)));
     }
 
     #[test]
@@ -688,10 +945,15 @@ mod tests {
             SigmaParams::new(relation, 1, 25),
             Err(ParamsError::LimbBits(25))
         );
-        let quota = SigmaRelation::send(crate::witness::CONTROL_QUOTAS);
+        let undefined = SigmaRelation::send(8);
         assert_eq!(
-            SigmaParams::new(shape(quota, PrefixMode::Folded), 1, 9),
-            Err(ParamsError::Relation(quota))
+            SigmaParams::new(shape(undefined, PrefixMode::Folded), 1, 9),
+            Err(ParamsError::Relation(undefined))
+        );
+        let receive_quota = SigmaRelation::receive(CONTROL_QUOTAS);
+        assert_eq!(
+            SigmaParams::new(shape(receive_quota, PrefixMode::Folded), 1, 9),
+            Err(ParamsError::Relation(receive_quota))
         );
         assert!(
             SigmaParams::new(
@@ -708,7 +970,11 @@ mod tests {
         assert_eq!(SigmaParams::default().limb_bits(), DEFAULT_LIMB_BITS);
         assert!(ParamsError::Lanes(0).to_string().contains("lanes"));
         assert!(ParamsError::LimbBits(30).to_string().contains("limbs"));
-        assert!(ParamsError::Relation(quota).to_string().contains("(3, 2)"));
+        assert!(
+            ParamsError::Relation(undefined)
+                .to_string()
+                .contains("(3, 8)")
+        );
         assert_eq!(PrefixMode::Absorbed.label(), "absorbed");
     }
 

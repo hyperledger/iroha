@@ -70,7 +70,7 @@ mod tests {
         VerifyingKeyRecord::new(
             version,
             circuit,
-            BackendTag::Halo2IpaPasta,
+            BackendTag::NativePipaRPasta,
             "pasta",
             [1; 32],
             [2; 32],
@@ -152,7 +152,7 @@ mod tests {
     fn shared_restore_validator_preserves_exact_current_and_undo_for_version_and_status_touches() {
         use crate::state::verifying_key_index_validation::test_support as fixture;
         use iroha_data_model::confidential::ConfidentialStatus;
-        let mut world = fixture::world();
+        let world = fixture::world();
         {
             let mut block = world.block();
             let mut value = fixture::record();
@@ -234,7 +234,7 @@ mod tests {
     fn failed_restore_never_repairs_or_discards_either_persisted_image() {
         use crate::state::verifying_key_index_validation::test_support as fixture;
         for prior in [false, true] {
-            let mut world = fixture::world();
+            let world = fixture::world();
             {
                 let mut index = world.verifying_keys_by_circuit.block();
                 index.remove(("circuit".into(), 1));

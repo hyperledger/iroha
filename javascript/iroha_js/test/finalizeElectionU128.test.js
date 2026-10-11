@@ -10,9 +10,9 @@ function election(tally) {
     electionId: "election-u128",
     tally,
     tallyProof: {
-      backend: "halo2/ipa",
+      backend: "pipa-r/pasta",
       proof: Buffer.from("proof"),
-      verifyingKeyRef: { backend: "halo2/ipa", name: "vk_tally" },
+      verifyingKeyRef: { backend: "pipa-r/pasta", name: "vk_tally" },
     },
   });
 }

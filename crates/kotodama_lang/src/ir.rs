@@ -6,10 +6,10 @@
 //! uniqueness, and deterministically lowers it back for register allocation.
 use super::{
     abi_schema::{json_construction_schema, state_value_kind_for_type, state_value_schema},
-    ast::{BinaryOp, PatternBinding, STATE_MAP_GET_INTRINSIC, SumVariant, UnaryOp},
+    ast::{BinaryOp, PatternBinding, SumVariant, UnaryOp},
     semantic::{
-        self, Type, TypedBlock, TypedExpr, TypedFunction, TypedItem, TypedParam, TypedProgram,
-        TypedStateDecl, TypedStatement,
+        self, CompilerIntrinsic, Type, TypedBlock, TypedExpr, TypedFunction, TypedItem, TypedParam,
+        TypedProgram, TypedStateDecl, TypedStatement,
     },
 };
 use iroha_data_model::smart_contract::manifest::DynamicAccessHint;
@@ -165,6 +165,9 @@ pub enum DecimalToIntOp {
 /// Non-control-flow instructions.
 #[derive(Debug, PartialEq)]
 pub enum Instr {
+    /// Source provenance transport; consumed before SSA optimization and code generation.
+    /// This marker never becomes an IVM instruction or an optimization barrier.
+    Source(Option<crate::source::SourceRange>),
     Const {
         dest: Temp,
         value: i64,
@@ -213,12 +216,12 @@ pub enum Instr {
         value: Temp,
     },
     /// Fallibly convert a source `int` pointer to an internal signed IVM scalar.
-    IntTryToI64 {
+    IntToI64 {
         dest: Temp,
         value: Temp,
     },
     /// Fallibly convert a source `int` pointer to an internal unsigned IVM scalar.
-    IntTryToU64 {
+    IntToU64 {
         dest: Temp,
         value: Temp,
     },
@@ -431,19 +434,12 @@ pub enum Instr {
         ciphertext_and_tag: Temp,
         tag_len: Option<Temp>,
     },
-    /// Register an asset definition with additional metadata.
+    /// Register an asset definition with its display name and the
+    /// `ivm_registration` numeric-spec and mintability words.
     RegisterAsset {
         asset: Temp,
-        symbol: Temp,
-        quantity: Temp,
-        mintable: Temp,
-    },
-    /// Helper builtin combining registration and mint into one operation.
-    CreateNewAsset {
-        asset: Temp,
-        symbol: Temp,
-        quantity: Temp,
-        account: Temp,
+        name: Temp,
+        spec: Temp,
         mintable: Temp,
     },
     /// Call the scoped `transfer_asset` syscall with from, to, asset, amount and dataspace parameters.
@@ -500,10 +496,6 @@ pub enum Instr {
     TransferBatchBegin,
     /// End the current FASTPQ transfer batch scope.
     TransferBatchEnd,
-    /// Submit a pre-encoded FASTPQ TransferAssetBatch Norito payload.
-    TransferBatchApply {
-        payload: Temp,
-    },
     /// Call the `mint_asset` syscall with account, asset and amount parameters.
     MintAsset {
         account: Temp,
@@ -733,15 +725,15 @@ pub enum Instr {
         account: Temp,
         token: Temp,
     },
-    /// Grant an exact entrypoint capability for the executing contract address.
-    GrantContractEntrypoint {
+    /// Grant an instance permission capability for the executing contract address.
+    GrantContractPermission {
         account: Temp,
-        entrypoint: Temp,
+        permission: Temp,
     },
-    /// Revoke an exact entrypoint capability for the executing contract address.
-    RevokeContractEntrypoint {
+    /// Revoke an instance permission capability for the executing contract address.
+    RevokeContractPermission {
         account: Temp,
-        entrypoint: Temp,
+        permission: Temp,
     },
     /// Create a role with a JSON permission set.
     CreateRole {
@@ -821,12 +813,22 @@ pub enum Instr {
         dest: Temp,
         key: Temp,
     },
+    /// Typed invocation of one authenticated public method through A9.
+    CallContract {
+        view: bool,
+        dests: Vec<Temp>,
+        contract: Temp,
+        binding: Temp,
+        payload: Temp,
+        argument_words: usize,
+    },
     /// Test-only runtime call; no actor selects the current caller.
     InvokeEntrypointAs {
         dest: Option<Temp>,
         actor: Option<Temp>,
         entrypoint: Temp,
         payload: Temp,
+        argument_words: usize,
     },
     /// Test-only runtime call with multiple return values and an optional fixture actor.
     InvokeEntrypointAsMulti {
@@ -834,12 +836,14 @@ pub enum Instr {
         actor: Option<Temp>,
         entrypoint: Temp,
         payload: Temp,
+        argument_words: usize,
     },
     /// Test-only assertion that a named actor's runtime entrypoint call rejects.
     ExpectRejectAs {
         actor: Temp,
         entrypoint: Temp,
         payload: Temp,
+        argument_words: usize,
         expectation: Temp,
     },
     /// Test-only actor registry lookup helpers.
@@ -933,6 +937,8 @@ pub enum Instr {
         items_dest: Temp,
         /// Raw `Option<int>` next-offset handle returned in syscall register r11.
         next_offset_dest: Temp,
+        /// Optional exact owner filter, accepted only for Asset pages.
+        account: Option<Temp>,
         entity: ivm_abi::core_query::CoreQueryEntityTagV1,
         offset: Temp,
         limit: Temp,
@@ -971,10 +977,10 @@ pub enum Instr {
         dest: Temp,
         payload: Temp,
     },
-    /// Read VRF epoch seed with a NoritoBytes request in r10.
+    /// Read the exact unsigned epoch in r10; zero means no seed, otherwise Blob.
     VrfEpochSeed {
         dest: Temp,
-        payload: Temp,
+        epoch: Temp,
     },
     /// Subscription billing helper using trigger context.
     SubscriptionBill,
@@ -1042,16 +1048,11 @@ pub enum Instr {
         name: Temp,
     },
     /// Build framed, schema-bound `StatePath` bytes from a declared `Name` base
-    /// and canonical pointer-envelope key bytes.
+    /// and canonical schema-bound key-record bytes.
     PathMapKeyNorito {
         dest: Temp,
         base: Temp,
         key_blob: Temp,
-    },
-    /// Encode a Bool StateMap key as canonical Norito i64 0/1 bytes.
-    EncodeBoolKey {
-        dest: Temp,
-        value: Temp,
     },
     /// Encode a pointer-ABI value into NoritoBytes via host.
     PointerToNorito {
@@ -1136,6 +1137,18 @@ pub enum Instr {
     },
     /// JSON getter returning one active-only `Option<bytes>` handle.
     JsonGetBlobHex {
+        dest: Temp,
+        json: Temp,
+        key: Temp,
+    },
+    /// JSON getter returning one active-only `Option<string>` handle.
+    JsonGetString {
+        dest: Temp,
+        json: Temp,
+        key: Temp,
+    },
+    /// JSON getter returning one active-only `Option<bool>` handle.
+    JsonGetBool {
         dest: Temp,
         json: Temp,
         key: Temp,
@@ -1247,11 +1260,6 @@ pub enum DataRefKind {
     /// Canonical non-negative quantity.
     Quantity,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum KeyCodec {
-    Int,
-    Pointer,
-}
 fn pointer_kind_for_type(ty: &Type) -> Option<DataRefKind> {
     match semantic::resolve_struct_type(ty) {
         Type::AccountId => Some(DataRefKind::Account),
@@ -1269,7 +1277,7 @@ fn pointer_kind_for_type(ty: &Type) -> Option<DataRefKind> {
         Type::Int => Some(DataRefKind::Int),
         Type::Decimal => Some(DataRefKind::Decimal),
         Type::Quantity => Some(DataRefKind::Quantity),
-        Type::String | Type::Bytes => Some(DataRefKind::Blob),
+        Type::String | Type::Bytes | Type::ContractRef(_) => Some(DataRefKind::Blob),
         Type::StateCursor(_) => Some(DataRefKind::NoritoBytes),
         _ => None,
     }
@@ -1319,14 +1327,9 @@ fn lower_map_key_eq(ctx: &mut LowerCtx, key_ty: &Type, left: Temp, right: Temp) 
         t
     }
 }
-fn key_codec_for_type(ty: &Type) -> Option<KeyCodec> {
-    match semantic::resolve_struct_type(ty) {
-        Type::Bool => Some(KeyCodec::Int),
-        ty if semantic::is_wide_numeric_type(&ty) => Some(KeyCodec::Pointer),
-        Type::String | Type::Bytes => Some(KeyCodec::Pointer),
-        other if semantic::is_pointer_type(&other) => Some(KeyCodec::Pointer),
-        _ => None,
-    }
+fn state_map_key_type(ty: &Type) -> Option<Type> {
+    let ty = semantic::resolve_struct_type(ty);
+    semantic::is_supported_durable_key_type(&ty).then_some(ty)
 }
 fn emit_state_value_schema_ref(ctx: &mut LowerCtx, ty: &Type) -> Option<Temp> {
     let schema = state_value_schema(ty)?;
@@ -1365,6 +1368,7 @@ fn collect_state_value_words(
             collect_state_value_words(ctx, item, item_ty, words)
         }),
         Type::Unit
+        | Type::Enum(_)
         | Type::ErrorEnum(_)
         | Type::Option(_)
         | Type::Result(_, _)
@@ -1401,6 +1405,137 @@ fn collect_json_construction_words(
         }
     }
 }
+/// Materialize the same ordered scalar/aggregate-handle words used by public values.
+fn materialize_value_word_table(ctx: &mut LowerCtx, words: &[Temp]) -> Temp {
+    if words.is_empty() {
+        return emit_i64_const(ctx, 0);
+    }
+    let Some(bytes) = words
+        .len()
+        .checked_mul(8)
+        .and_then(|bytes| i64::try_from(bytes).ok())
+    else {
+        ctx.record_error("canonical value table exceeds the V1 byte limit".into());
+        return emit_i64_const(ctx, 0);
+    };
+    let bytes = emit_i64_const(ctx, bytes);
+    let table = emit_alloc(ctx, bytes);
+    for (index, word) in words.iter().copied().enumerate() {
+        let offset = index * 8;
+        if let Ok(offset) = i16::try_from(offset) {
+            emit_store64_imm(ctx, table, offset, word);
+        } else {
+            let offset = emit_i64_const(ctx, offset as i64);
+            let address = emit_binary(ctx, BinaryOp::Add, table, offset);
+            emit_store64_imm(ctx, address, 0, word);
+        }
+    }
+    table
+}
+/// Capture source expressions once, then expose their declared parameter order.
+fn lower_contract_call(
+    ctx: &mut LowerCtx,
+    method: &semantic::ContractMethod,
+    args: &[TypedExpr],
+    result: &Type,
+    vars: &mut HashMap<String, Temp>,
+) -> Temp {
+    let contract = lower_expr(ctx, &args[0], vars);
+    let binding = ivm_abi::contract_call::ContractCallBindingV1 {
+        code_hash: method.contract.code_hash,
+        entrypoint: method.entrypoint,
+    };
+    let bytes = binding
+        .to_bytes()
+        .expect("validated canonical contract call binding");
+    let binding = emit_data_ref(
+        ctx,
+        DataRefKind::NoritoBytes,
+        format!("0x{}", hex::encode(bytes)),
+    );
+    let mut words = Vec::new();
+    for argument in &args[1..] {
+        let value = lower_expr(ctx, argument, vars);
+        collect_function_value_words(ctx, value, &argument.ty, &mut words);
+    }
+    let argument_words = words.len();
+    let payload = materialize_value_word_table(ctx, &words);
+    let dests = if *result == Type::Unit {
+        Vec::new()
+    } else {
+        runtime_value_word_types(result)
+            .iter()
+            .map(|_| ctx.new_temp())
+            .collect::<Vec<_>>()
+    };
+    ctx.current_instr(Instr::CallContract {
+        view: method.descriptor().kind
+            == iroha_data_model::smart_contract::manifest::EntryPointKind::View,
+        dests: dests.clone(),
+        contract,
+        binding,
+        payload,
+        argument_words,
+    });
+    if *result == Type::Unit {
+        emit_i64_const(ctx, 0)
+    } else {
+        rebuild_runtime_value(ctx, result, &dests)
+    }
+}
+fn lower_test_argument_record(
+    ctx: &mut LowerCtx,
+    expression: &TypedExpr,
+    vars: &mut HashMap<String, Temp>,
+) -> (Temp, usize) {
+    let value = lower_expr(ctx, expression, vars);
+    let mut words = Vec::new();
+    match semantic::resolve_struct_type(&expression.ty) {
+        Type::Struct { fields, .. } if fields.is_empty() => {}
+        Type::Struct { .. } => collect_function_value_words(ctx, value, &expression.ty, &mut words),
+        _ => ctx.record_error(
+            "internal error: test arguments lack their contextual record type".into(),
+        ),
+    }
+    let count = words.len();
+    (materialize_value_word_table(ctx, &words), count)
+}
+fn lower_event_emission(
+    ctx: &mut LowerCtx,
+    args: &[TypedExpr],
+    vars: &mut HashMap<String, Temp>,
+) -> Temp {
+    let [ordinal, payload] = args else {
+        ctx.record_error(
+            "internal error: event emission requires its ordinal and typed record".into(),
+        );
+        return emit_i64_const(ctx, 0);
+    };
+    let ordinal = lower_expr_as_u64(ctx, ordinal, vars);
+    // Struct lowering captures each expression once in source order, then places
+    // the resulting values in declared field order. Public output uses these words too.
+    let value = lower_expr(ctx, payload, vars);
+    let mut words = Vec::new();
+    collect_function_value_words(ctx, value, &payload.ty, &mut words);
+    let expected = entrypoint_value_type("event payload", &payload.ty)
+        .ok()
+        .and_then(|schema| schema.word_count());
+    if expected != Some(words.len()) {
+        ctx.record_error(
+            "internal error: event payload differs from its canonical value schema".into(),
+        );
+        return emit_i64_const(ctx, 0);
+    }
+    let table = materialize_value_word_table(ctx, &words);
+    let count = emit_i64_const(ctx, words.len() as i64);
+    let result = ctx.new_temp();
+    ctx.current_instr(Instr::DirectHelperSyscall {
+        dest: result,
+        syscall: ivm_abi::syscalls::SYSCALL_EMIT_CONTRACT_EVENT,
+        args: vec![ordinal, table, count],
+    });
+    emit_i64_const(ctx, 0)
+}
 fn lower_json_construction(
     ctx: &mut LowerCtx,
     expr: &TypedExpr,
@@ -1428,31 +1563,7 @@ fn lower_json_construction(
         ctx.record_error("internal error: native JSON value-word schema mismatch".into());
         return emit_i64_const(ctx, 0);
     }
-    let table = if words.is_empty() {
-        emit_i64_const(ctx, 0)
-    } else {
-        let Some(byte_len) = words
-            .len()
-            .checked_mul(std::mem::size_of::<u64>())
-            .and_then(|bytes| i64::try_from(bytes).ok())
-        else {
-            ctx.record_error("native JSON value table exceeds the V1 byte limit".into());
-            return emit_i64_const(ctx, 0);
-        };
-        let bytes = emit_i64_const(ctx, byte_len);
-        let table = emit_alloc(ctx, bytes);
-        for (index, word) in words.into_iter().enumerate() {
-            let Some(offset) = index
-                .checked_mul(std::mem::size_of::<u64>())
-                .and_then(|offset| i16::try_from(offset).ok())
-            else {
-                ctx.record_error("native JSON value-table offset exceeds the V1 limit".into());
-                return emit_i64_const(ctx, 0);
-            };
-            emit_store64_imm(ctx, table, offset, word);
-        }
-        table
-    };
+    let table = materialize_value_word_table(ctx, &words);
     let word_count = emit_i64_const(ctx, i64::try_from(expected_words).unwrap_or(i64::MAX));
     let dest = ctx.new_temp();
     ctx.current_instr(Instr::DirectHelperSyscall {
@@ -1548,6 +1659,7 @@ fn rebuild_state_value_from_table(
             Some(dest)
         }
         Type::Unit
+        | Type::Enum(_)
         | Type::ErrorEnum(_)
         | Type::Option(_)
         | Type::Result(_, _)
@@ -1732,9 +1844,9 @@ fn emit_int_from_u64(ctx: &mut LowerCtx, value: Temp) -> Temp {
     ctx.current_instr(Instr::IntFromU64 { dest, value });
     dest
 }
-fn emit_int_try_to_u64(ctx: &mut LowerCtx, value: Temp) -> Temp {
+fn emit_int_to_u64(ctx: &mut LowerCtx, value: Temp) -> Temp {
     let dest = ctx.new_temp();
-    ctx.current_instr(Instr::IntTryToU64 { dest, value });
+    ctx.current_instr(Instr::IntToU64 { dest, value });
     dest
 }
 fn emit_list_allocation(ctx: &mut LowerCtx, list_ty: &Type, initial_len: u64) -> Temp {
@@ -2088,6 +2200,67 @@ fn emit_list_value_eq(ctx: &mut LowerCtx, left: Temp, right: Temp, element_ty: &
     ctx.start_block(end);
     result
 }
+/// Branch on a local-test assertion; on failure, report the site, the compared values (encoded
+/// as canonical state-value records with their schema), and the message to the test host.
+///
+/// The host-private syscall is emitted only in test projections, never in deployable artifacts.
+/// A host that returns from it still stops at the trailing `Assert`.
+fn emit_test_assertion(
+    ctx: &mut LowerCtx,
+    cond: Temp,
+    site: &TypedExpr,
+    values: Option<(Temp, Temp, &Type)>,
+    message: Option<Temp>,
+    vars: &mut HashMap<String, Temp>,
+) {
+    let failed = ctx.new_label();
+    let passed = ctx.new_label();
+    ctx.finish_current(Terminator::Branch {
+        cond,
+        then_bb: passed,
+        else_bb: failed,
+    });
+    ctx.start_block(failed);
+    let site = lower_expr(ctx, site, vars);
+    let zero = emit_i64_const(ctx, 0);
+    let (actual, expected, schema) = values
+        .and_then(|(actual, expected, ty)| {
+            let schema = emit_state_value_schema_ref(ctx, ty)?;
+            let actual = encode_aggregate_state_value(ctx, actual, ty)?;
+            let expected = encode_aggregate_state_value(ctx, expected, ty)?;
+            Some((actual, expected, schema))
+        })
+        .unwrap_or((zero, zero, zero));
+    let dest = ctx.new_temp();
+    ctx.current_instr(Instr::DirectHelperSyscall {
+        dest,
+        syscall: ivm_abi::syscalls::SYSCALL_KOTO_TEST_ASSERT_FAILED,
+        args: vec![site, actual, expected, schema, message.unwrap_or(zero)],
+    });
+    ctx.current_instr(Instr::Assert { cond });
+    ctx.finish_current(Terminator::Jump(passed));
+    ctx.start_block(passed);
+}
+/// Hand the compiler-owned call-site record of the next `test::` helper call to the test host.
+///
+/// Emitted after the helper's operands are evaluated, so a helper call nested inside an operand
+/// cannot overwrite the site. The host-private syscall exists only in test projections.
+fn emit_test_call_site(
+    ctx: &mut LowerCtx,
+    site: Option<&TypedExpr>,
+    vars: &mut HashMap<String, Temp>,
+) {
+    let Some(site) = site.filter(|site| matches!(site.kind(), semantic::ExprKind::Bytes(_))) else {
+        return;
+    };
+    let site = lower_expr(ctx, site, vars);
+    let dest = ctx.new_temp();
+    ctx.current_instr(Instr::DirectHelperSyscall {
+        dest,
+        syscall: ivm_abi::syscalls::SYSCALL_KOTO_TEST_CALL_SITE,
+        args: vec![site],
+    });
+}
 /// Emit canonical value equality shared by operators and List.contains.
 fn emit_typed_value_eq(ctx: &mut LowerCtx, left: Temp, right: Temp, ty: &Type) -> Temp {
     match semantic::resolve_struct_type(ty) {
@@ -2105,7 +2278,10 @@ fn emit_typed_value_eq(ctx: &mut LowerCtx, left: Temp, right: Temp, ty: &Type) -
                 emit_numeric_compare(ctx, BinaryOp::Eq, left, right, kind)
             } else if is_pointer_eq_type(&leaf) {
                 emit_pointer_eq(ctx, left, right)
-            } else if matches!(leaf, Type::Unit | Type::ErrorEnum(_) | Type::Bool) {
+            } else if matches!(
+                leaf,
+                Type::Unit | Type::Enum(_) | Type::ErrorEnum(_) | Type::Bool
+            ) {
                 emit_binary(ctx, BinaryOp::Eq, left, right)
             } else {
                 ctx.record_error(format!(
@@ -2143,7 +2319,7 @@ fn lower_list_get(
     // The dominating exact-int comparisons prove `0 <= index < len <= 64`,
     // so this scalar conversion cannot fail. Keeping it inside the active arm
     // makes arbitrary-width out-of-range indices return `Option::none`.
-    let index = emit_int_try_to_u64(ctx, index);
+    let index = emit_int_to_u64(ctx, index);
     let value = load_list_element(ctx, list, index, &element_ty);
     let value = emit_sum_value(ctx, result_ty, 1, Some(value));
     emit_copy(ctx, result, value);
@@ -2180,7 +2356,7 @@ fn lower_list_try_set(
     });
     ctx.start_block(success);
     // Conversion is reached only after the exact-int bounds proof above.
-    let index = emit_int_try_to_u64(ctx, index);
+    let index = emit_int_to_u64(ctx, index);
     store_list_element(ctx, list, index, value, &element_ty);
     let one = emit_i64_const(ctx, 1);
     emit_copy(ctx, result, one);
@@ -2370,7 +2546,15 @@ fn lower_list_take(
     vars: &mut HashMap<String, Temp>,
 ) -> Temp {
     let source = lower_expr(ctx, &args[0], vars);
-    let limit = lower_expr_as_u64(ctx, &args[1], vars);
+    let limit = if let Some(limit) = args.get(1) {
+        lower_expr_as_u64(ctx, limit, vars)
+    } else {
+        let Type::List(_, capacity) = semantic::resolve_struct_type(result_ty) else {
+            ctx.record_error("internal error: widening result is not a List".into());
+            return emit_i64_const(ctx, 0);
+        };
+        emit_i64_const(ctx, i64::from(capacity))
+    };
     let Type::List(source_element, _) = semantic::resolve_struct_type(&args[0].ty) else {
         ctx.record_error("internal error: List.take receiver lost List type".into());
         return emit_i64_const(ctx, 0);
@@ -2450,53 +2634,55 @@ fn lower_list_enumerate(
 }
 fn lower_list_intrinsic(
     ctx: &mut LowerCtx,
-    name: &str,
+    name: CompilerIntrinsic,
     args: &[TypedExpr],
     result_ty: &Type,
     vars: &mut HashMap<String, Temp>,
 ) -> Option<Temp> {
     Some(match name {
-        semantic::LIST_LEN_INTRINSIC => {
+        CompilerIntrinsic::ListLen => {
             let list = lower_expr(ctx, &args[0], vars);
             let len = emit_load64_imm(ctx, list, 0);
             emit_int_from_u64(ctx, len)
         }
-        semantic::LIST_GET_INTRINSIC => lower_list_get(ctx, args, result_ty, vars),
-        semantic::LIST_SET_INTRINSIC | semantic::LIST_TRY_SET_INTRINSIC => {
+        CompilerIntrinsic::ListGet => lower_list_get(ctx, args, result_ty, vars),
+        CompilerIntrinsic::ListSet | CompilerIntrinsic::ListTrySet => {
             let success = lower_list_try_set(ctx, args, vars);
             lower_list_mutation_result(ctx, success, 1, result_ty)
         }
-        semantic::LIST_PUSH_INTRINSIC | semantic::LIST_TRY_PUSH_INTRINSIC => {
+        CompilerIntrinsic::ListPush | CompilerIntrinsic::ListTryPush => {
             let success = lower_list_try_push(ctx, args, vars);
             lower_list_mutation_result(ctx, success, 2, result_ty)
         }
-        semantic::LIST_POP_INTRINSIC => lower_list_pop(ctx, args, result_ty, vars),
-        semantic::LIST_CONTAINS_INTRINSIC => lower_list_contains(ctx, args, vars),
-        semantic::LIST_TAKE_INTRINSIC => lower_list_take(ctx, args, result_ty, vars),
-        semantic::LIST_ENUMERATE_INTRINSIC => lower_list_enumerate(ctx, args, result_ty, vars),
+        CompilerIntrinsic::ListPop => lower_list_pop(ctx, args, result_ty, vars),
+        CompilerIntrinsic::ListContains => lower_list_contains(ctx, args, vars),
+        CompilerIntrinsic::ListTake | CompilerIntrinsic::ListWiden => {
+            lower_list_take(ctx, args, result_ty, vars)
+        }
+        CompilerIntrinsic::ListEnumerate => lower_list_enumerate(ctx, args, result_ty, vars),
         _ => return None,
     })
 }
 fn lower_numeric_round_intrinsic(
     ctx: &mut LowerCtx,
-    name: &str,
+    name: CompilerIntrinsic,
     args: &[TypedExpr],
     vars: &mut HashMap<String, Temp>,
 ) -> Option<Temp> {
     let (op, result_kind) = match name {
-        semantic::DECIMAL_MUL_DIV_ROUND_INTRINSIC => {
+        CompilerIntrinsic::DecimalMulDivRound => {
             (NumericRoundOp::DecimalMulDiv, WideNumericKind::Decimal)
         }
-        semantic::QUANTITY_MUL_DIV_ROUND_INTRINSIC => {
+        CompilerIntrinsic::QuantityMulDivRound => {
             (NumericRoundOp::QuantityMulDiv, WideNumericKind::Quantity)
         }
-        semantic::DECIMAL_DIV_ROUND_INTRINSIC => {
+        CompilerIntrinsic::DecimalDivRound => {
             (NumericRoundOp::DecimalDiv, WideNumericKind::Decimal)
         }
-        semantic::QUANTITY_DIV_ROUND_INTRINSIC => {
+        CompilerIntrinsic::QuantityDivRound => {
             (NumericRoundOp::QuantityDiv, WideNumericKind::Quantity)
         }
-        semantic::QUANTITY_RATIO_ROUND_INTRINSIC => {
+        CompilerIntrinsic::QuantityRatioRound => {
             (NumericRoundOp::QuantityRatio, WideNumericKind::Decimal)
         }
         _ => return None,
@@ -2533,13 +2719,13 @@ fn lower_numeric_round_intrinsic(
 }
 fn lower_decimal_to_int_intrinsic(
     ctx: &mut LowerCtx,
-    name: &str,
+    name: CompilerIntrinsic,
     args: &[TypedExpr],
     vars: &mut HashMap<String, Temp>,
 ) -> Option<Temp> {
     let (op, expected_args) = match name {
-        semantic::DECIMAL_TO_INT_TRUNC_INTRINSIC => (DecimalToIntOp::Truncate, 1),
-        semantic::DECIMAL_TO_INT_ROUND_INTRINSIC => (DecimalToIntOp::Round, 2),
+        CompilerIntrinsic::DecimalToIntTrunc => (DecimalToIntOp::Truncate, 1),
+        CompilerIntrinsic::DecimalToIntRound => (DecimalToIntOp::Round, 2),
         _ => return None,
     };
     if args.len() != expected_args {
@@ -2561,11 +2747,13 @@ fn sum_pattern_tag(pattern: &semantic::TypedSumPattern) -> u64 {
     match &pattern.pattern.variant {
         SumVariant::OptionNone | SumVariant::ResultErr => 0,
         SumVariant::OptionSome | SumVariant::ResultOk => 1,
-        SumVariant::Error { .. } => u64::from(pattern.error_code.expect("resolved error variant")),
+        SumVariant::Nominal { .. } => {
+            u64::from(pattern.variant_code.expect("resolved nominal variant"))
+        }
     }
 }
 fn pattern_matches(ctx: &mut LowerCtx, pattern: &semantic::TypedSumPattern, value: Temp) -> Temp {
-    let observed = if pattern.error_code.is_some() {
+    let observed = if pattern.variant_code.is_some() {
         value
     } else {
         load_sum_tag(ctx, value)
@@ -2589,8 +2777,8 @@ fn branch_on_sum_pattern(
         SumVariant::OptionNone | SumVariant::ResultErr => {
             (load_sum_tag(ctx, value), unmatched, matched)
         }
-        // Nominal errors have explicit nonzero codes, not boolean tags.
-        SumVariant::Error { .. } => (pattern_matches(ctx, pattern, value), matched, unmatched),
+        // Nominal enum variants have explicit nonzero codes, not boolean tags.
+        SumVariant::Nominal { .. } => (pattern_matches(ctx, pattern, value), matched, unmatched),
     };
     ctx.finish_current(Terminator::Branch {
         cond,
@@ -2620,7 +2808,7 @@ fn propagation_match_return<'a>(
     return_ty: &Type,
     arms: &'a [semantic::TypedMatchArm],
 ) -> Option<(&'a semantic::TypedMatchArm, &'a semantic::TypedMatchArm)> {
-    if arms.len() != 2 || matches!(value_ty, Type::ErrorEnum(_)) {
+    if arms.len() != 2 || matches!(value_ty, Type::Enum(_) | Type::ErrorEnum(_)) {
         return None;
     }
     let success = arms.iter().find(|arm| sum_pattern_tag(&arm.pattern) == 1)?;
@@ -2788,8 +2976,8 @@ fn lower_state_map_get_value(
     key_ty: &Type,
     value_ty: &Type,
 ) -> Option<Temp> {
-    let key_codec = key_codec_for_type(key_ty)?;
-    let path = build_state_map_path(ctx, base_name, key_tmp, &key_codec);
+    let key_type = state_map_key_type(key_ty)?;
+    let path = build_state_map_path(ctx, base_name, key_tmp, &key_type);
     let blob = ctx.new_temp();
     ctx.current_instr(Instr::StateGet { dest: blob, path });
     decode_state_map_value_blob(ctx, blob, value_ty)
@@ -2810,10 +2998,10 @@ fn lower_state_map_set_value(
     value_tmp: Temp,
 ) -> bool {
     let resolved = semantic::resolve_struct_type(value_ty);
-    let Some(key_codec) = key_codec_for_type(key_ty) else {
+    let Some(key_type) = state_map_key_type(key_ty) else {
         return false;
     };
-    let path = build_state_map_path(ctx, base_name, key_tmp, &key_codec);
+    let path = build_state_map_path(ctx, base_name, key_tmp, &key_type);
     if !is_canonical_state_value_type(&resolved) {
         return false;
     }
@@ -3044,29 +3232,8 @@ fn entrypoint_value_kind(
     value_name: &str,
     ty: &Type,
 ) -> Result<ivm_abi::entrypoint::EntrypointValueKindV1, String> {
-    use ivm_abi::entrypoint::EntrypointValueKindV1 as Kind;
-    let resolved = semantic::resolve_struct_type(ty);
-    Ok(match resolved {
-        Type::Int => Kind::Int,
-        Type::Decimal => Kind::Decimal,
-        Type::Quantity => Kind::Quantity,
-        Type::Bool => Kind::Bool,
-        Type::String => Kind::String,
-        Type::Json => Kind::Json,
-        Type::Name => Kind::Name,
-        Type::AccountId => Kind::AccountId,
-        Type::AssetDefinitionId => Kind::AssetDefinitionId,
-        Type::AssetId => Kind::AssetId,
-        Type::DomainId => Kind::DomainId,
-        Type::NftId => Kind::NftId,
-        Type::DataSpaceId => Kind::DataSpaceId,
-        Type::Bytes => Kind::Blob,
-        other => {
-            return Err(format!(
-                "entrypoint value `{value_name}` uses unsupported public type {:?}",
-                other,
-            ));
-        }
+    crate::abi_schema::public_value_kind(&semantic::resolve_struct_type(ty)).ok_or_else(|| {
+        format!("entrypoint value `{value_name}` uses unsupported public type {ty:?}")
     })
 }
 fn append_entrypoint_value_type_nodes(
@@ -3080,10 +3247,12 @@ fn append_entrypoint_value_type_nodes(
     };
     match semantic::resolve_struct_type(ty) {
         Type::Unit => nodes.push(Node::Unit),
+        Type::Enum(descriptor) => nodes.push(Node::Enum((*descriptor).clone())),
         Type::ErrorEnum(descriptor) => nodes.push(Node::Error((*descriptor).clone())),
-        Type::StateCursor(key) => {
-            nodes.push(Node::StateCursor(entrypoint_value_kind(value_name, &key)?))
-        }
+        Type::StateCursor(key) => nodes.push(Node::StateCursor(
+            crate::abi_schema::state_map_key_schema(&key)
+                .ok_or_else(|| format!("{value_name}: invalid StateCursor key schema"))?,
+        )),
         Type::Struct { name, fields } => {
             nodes.push(Node::Struct(StructNode {
                 name,
@@ -3377,7 +3546,7 @@ fn collect_expr_reads(expr: &TypedExpr, reads: &mut BTreeSet<String>) {
         semantic::ExprKind::Ident(name) => {
             reads.insert(name.clone());
         }
-        semantic::ExprKind::ErrorValue(_)
+        semantic::ExprKind::VariantCode(_)
         | semantic::ExprKind::IntLiteral(_)
         | semantic::ExprKind::DecimalLiteral { .. }
         | semantic::ExprKind::Bool(_)
@@ -3683,10 +3852,17 @@ fn lower_block_tail_with_live_after(
     outer_live_after: &BTreeSet<String>,
 ) -> Option<Temp> {
     let live_after = block_live_after_sets(block, outer_live_after);
-    for (statement, statement_live_after) in block.statements.iter().zip(live_after.iter()) {
+    let enclosing_source = ctx.current_source;
+    for (index, (statement, statement_live_after)) in
+        block.statements.iter().zip(live_after.iter()).enumerate()
+    {
+        ctx.set_source(block.statement_source(index).or(enclosing_source));
         lower_statement(ctx, statement, vars, statement_live_after);
     }
-    block.tail.as_ref().map(|tail| lower_expr(ctx, tail, vars))
+    ctx.set_source(block.tail_source().or(enclosing_source));
+    let value = block.tail.as_ref().map(|tail| lower_expr(ctx, tail, vars));
+    ctx.set_source(enclosing_source);
+    value
 }
 fn lower_expression_block(
     ctx: &mut LowerCtx,
@@ -4042,53 +4218,19 @@ fn lower_statement(
     }
 }
 fn decode_state_map_key(ctx: &mut LowerCtx, key_blob: Temp, key_ty: &Type) -> Option<Temp> {
-    match semantic::resolve_struct_type(key_ty) {
-        Type::Bool => {
-            // STATE_MAP_KEY_AT has already validated that a returned key is
-            // exactly the canonical 0/1 Norito i64 carrier. Compare it with
-            // the canonical true key without invoking the public Int codec.
-            let true_key = ivm_abi::codec::encode_canonical_norito(&1_i64)
-                .expect("canonical Bool key encodes");
-            let true_blob = emit_data_ref(
-                ctx,
-                DataRefKind::NoritoBytes,
-                format!("0x{}", hex::encode(true_key)),
-            );
-            let key = ctx.new_temp();
-            ctx.current_instr(Instr::PointerEq {
-                dest: key,
-                left: key_blob,
-                right: true_blob,
-            });
-            Some(key)
-        }
-        ty if semantic::is_wide_numeric_type(&ty) => {
-            let kind = pointer_kind_for_type(&ty)?;
-            let key = emit_pointer_from_norito(ctx, key_blob, kind);
-            Some(key)
-        }
-        Type::String | Type::Bytes => {
-            let key = emit_pointer_from_norito(ctx, key_blob, DataRefKind::Blob);
-            Some(key)
-        }
-        ty if semantic::is_pointer_type(&ty) => {
-            let kind = pointer_kind_for_type(&ty)?;
-            let key = emit_pointer_from_norito(ctx, key_blob, kind);
-            Some(key)
-        }
-        _ => None,
-    }
+    state_map_key_type(key_ty)?;
+    decode_aggregate_state_value(ctx, key_blob, key_ty)
 }
 fn lower_state_page_intrinsic(
     ctx: &mut LowerCtx,
-    name: &str,
+    name: CompilerIntrinsic,
     args: &[TypedExpr],
     result_ty: &Type,
     vars: &mut HashMap<String, Temp>,
 ) -> Option<Temp> {
     if !matches!(
         name,
-        semantic::STATE_PAGE_INTRINSIC | semantic::STATE_TAKE_INTRINSIC
+        CompilerIntrinsic::StatePage | CompilerIntrinsic::StateTake
     ) {
         return None;
     }
@@ -4096,7 +4238,7 @@ fn lower_state_page_intrinsic(
     let Type::StateMap(key_ty, value_ty) = semantic::resolve_struct_type(&args[0].ty) else {
         unreachable!("validated StateMap scan receiver");
     };
-    let take = name == semantic::STATE_TAKE_INTRINSIC;
+    let take = name == CompilerIntrinsic::StateTake;
     let list_ty = if take {
         result_ty.clone()
     } else {
@@ -4241,7 +4383,7 @@ fn lower_expr_as_i64(
     let value = lower_expr(ctx, expr, vars);
     if matches!(semantic::resolve_struct_type(&expr.ty), Type::Int) {
         let out = ctx.new_temp();
-        ctx.current_instr(Instr::IntTryToI64 { dest: out, value });
+        ctx.current_instr(Instr::IntToI64 { dest: out, value });
         out
     } else {
         value
@@ -4264,7 +4406,7 @@ fn lower_expr_as_u64(
     let value = lower_expr(ctx, expr, vars);
     if matches!(semantic::resolve_struct_type(&expr.ty), Type::Int) {
         let out = ctx.new_temp();
-        ctx.current_instr(Instr::IntTryToU64 { dest: out, value });
+        ctx.current_instr(Instr::IntToU64 { dest: out, value });
         out
     } else {
         value
@@ -4367,7 +4509,19 @@ fn lower_signature_builtin_call(
             });
         }
         Builtin::VerifySignature => {
-            let scheme = lower_expr_as_u64(ctx, &args[3], vars);
+            // Semantic analysis folds the `SignatureScheme::*` argument into
+            // its host scheme code, so no runtime value can name another scheme.
+            let scheme = match args.get(3).map(semantic::TypedExpr::kind) {
+                Some(semantic::ExprKind::IntLiteral(code)) => {
+                    emit_i64_const(ctx, code.try_to_i64().unwrap_or(0))
+                }
+                _ => {
+                    ctx.record_error(
+                        "internal error: signature scheme was not folded to its host code".into(),
+                    );
+                    emit_i64_const(ctx, 0)
+                }
+            };
             ctx.current_instr(Instr::VerifySignature {
                 dest,
                 message,
@@ -4431,6 +4585,82 @@ fn lower_sm4_builtin_call(
         _ => unreachable!("non-SM4 builtin passed to lower_sm4_builtin_call"),
     }
     dest
+}
+/// Exact numeric selection keeps the source domain and evaluates every argument once.
+fn lower_numeric_selection(
+    ctx: &mut LowerCtx,
+    builtin: Builtin,
+    args: &[TypedExpr],
+    vars: &mut HashMap<String, Temp>,
+) -> Temp {
+    let kind = wide_numeric_kind_for_type(&args[0].ty).expect("typed selection operand");
+    let values = args
+        .iter()
+        .map(|arg| lower_expr(ctx, arg, vars))
+        .collect::<Vec<_>>();
+    if kind == WideNumericKind::Int {
+        let syscall = match builtin {
+            Builtin::Min => ivm_abi::syscalls::SYSCALL_INT_MIN,
+            Builtin::Max => ivm_abi::syscalls::SYSCALL_INT_MAX,
+            Builtin::Abs => ivm_abi::syscalls::SYSCALL_INT_ABS,
+            _ => unreachable!("numeric selection builtin"),
+        };
+        let dest = ctx.new_temp();
+        ctx.current_instr(Instr::DirectHelperSyscall {
+            dest,
+            syscall,
+            args: values,
+        });
+        return dest;
+    }
+    if builtin == Builtin::Abs && kind == WideNumericKind::Quantity {
+        return values[0];
+    }
+    let right = if builtin == Builtin::Abs {
+        emit_data_ref(ctx, DataRefKind::Decimal, "0".into())
+    } else {
+        values[1]
+    };
+    let less = emit_numeric_compare(ctx, BinaryOp::Lt, values[0], right, kind);
+    let yes = ctx.new_label();
+    let no = ctx.new_label();
+    let end = ctx.new_label();
+    let output = ctx.new_temp();
+    ctx.finish_current(Terminator::Branch {
+        cond: less,
+        then_bb: yes,
+        else_bb: no,
+    });
+    ctx.start_block(yes);
+    let selected = match builtin {
+        Builtin::Abs => {
+            let dest = ctx.new_temp();
+            ctx.current_instr(Instr::NumericNeg {
+                dest,
+                value: values[0],
+                kind,
+            });
+            dest
+        }
+        Builtin::Min => values[0],
+        Builtin::Max => right,
+        _ => unreachable!("numeric selection builtin"),
+    };
+    emit_copy(ctx, output, selected);
+    ctx.finish_current(Terminator::Jump(end));
+    ctx.start_block(no);
+    emit_copy(
+        ctx,
+        output,
+        if builtin == Builtin::Min {
+            right
+        } else {
+            values[0]
+        },
+    );
+    ctx.finish_current(Terminator::Jump(end));
+    ctx.start_block(end);
+    output
 }
 fn lower_direct_helper_call(
     ctx: &mut LowerCtx,
@@ -4593,27 +4823,22 @@ fn lower_transfer_batch_call(
     emit_i64_const(ctx, 0)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum MapFallback {
-    Eager,
-    Lazy,
-    Insert,
-}
-
+/// Lower the absent-key fallback of `map.get_or_insert(key, default)`: return
+/// the stored value, or evaluate `default` only when the key is absent, write
+/// it, and return it.
 fn lower_map_fallback(
     ctx: &mut LowerCtx,
     map_expr: &TypedExpr,
     key_expr: &TypedExpr,
     default_expr: &TypedExpr,
-    fallback: MapFallback,
     vars: &mut HashMap<String, Temp>,
 ) -> Temp {
     let key = lower_expr(ctx, key_expr, vars);
     if let Some(base) = state_map_base_name(map_expr)
         && let Some(spec) = ctx.state_map_configs.get(&base).cloned()
-        && let Some(key_codec) = key_codec_for_type(&spec.key)
+        && let Some(key_type) = state_map_key_type(&spec.key)
     {
-        let path = build_state_map_path(ctx, &base, key, &key_codec);
+        let path = build_state_map_path(ctx, &base, key, &key_type);
         let blob = emit_state_get(ctx, path);
         let zero = emit_i64_const(ctx, 0);
         let result_words = runtime_value_word_types(&spec.value)
@@ -4638,9 +4863,7 @@ fn lower_map_fallback(
 
         ctx.start_block(default_block);
         let default = lower_expr(ctx, default_expr, vars);
-        if fallback == MapFallback::Insert {
-            let _ = lower_state_map_set_value(ctx, &base, key, &spec.key, &spec.value, default);
-        }
+        let _ = lower_state_map_set_value(ctx, &base, key, &spec.key, &spec.value, default);
         copy_runtime_value_words(ctx, default, &spec.value, &result_words);
         ctx.finish_current(Terminator::Jump(end_block));
 
@@ -4649,10 +4872,6 @@ fn lower_map_fallback(
     }
 
     let map = lower_expr(ctx, map_expr, vars);
-    let eager_default = match fallback {
-        MapFallback::Eager => Some(lower_expr(ctx, default_expr, vars)),
-        MapFallback::Lazy | MapFallback::Insert => None,
-    };
     let stored_key = ctx.new_temp();
     let stored_value = ctx.new_temp();
     ctx.current_instr(Instr::MapLoadPair {
@@ -4683,17 +4902,12 @@ fn lower_map_fallback(
     ctx.finish_current(Terminator::Jump(end_block));
 
     ctx.start_block(default_block);
-    let default = match eager_default {
-        Some(default) => default,
-        None => lower_expr(ctx, default_expr, vars),
-    };
-    if fallback == MapFallback::Insert {
-        ctx.current_instr(Instr::MapSet {
-            map,
-            key,
-            value: default,
-        });
-    }
+    let default = lower_expr(ctx, default_expr, vars);
+    ctx.current_instr(Instr::MapSet {
+        map,
+        key,
+        value: default,
+    });
     ctx.current_instr(Instr::Binary {
         dest: result,
         op: BinaryOp::Add,
@@ -4958,7 +5172,7 @@ fn lower_surface_builtin_call(
             });
             d
         }
-        Builtin::GetBlobHex => {
+        Builtin::GetBytesHex => {
             let j = lower_expr(ctx, &args[0], vars);
             let k = lower_expr(ctx, &args[1], vars);
             let d = ctx.new_temp();
@@ -4968,6 +5182,17 @@ fn lower_surface_builtin_call(
                 key: k,
             });
             d
+        }
+        Builtin::GetString | Builtin::GetBool => {
+            let json = lower_expr(ctx, &args[0], vars);
+            let key = lower_expr(ctx, &args[1], vars);
+            let dest = ctx.new_temp();
+            ctx.current_instr(if builtin == Builtin::GetString {
+                Instr::JsonGetString { dest, json, key }
+            } else {
+                Instr::JsonGetBool { dest, json, key }
+            });
+            dest
         }
         Builtin::TriggerEvent => {
             let dest = ctx.new_temp();
@@ -4984,7 +5209,7 @@ fn lower_surface_builtin_call(
             ctx.current_instr(Instr::SysvarAuthority { dest });
             dest
         }
-        Builtin::CurrentTimeMs => {
+        Builtin::TransactionTimeMs => {
             let scalar = ctx.new_temp();
             ctx.current_instr(Instr::CurrentTimeMs { dest: scalar });
             emit_int_from_u64(ctx, scalar)
@@ -5016,19 +5241,16 @@ fn lower_surface_builtin_call(
         }
         Builtin::Path => {
             let base = lower_expr(ctx, &args[0], vars);
-            let d = ctx.new_temp();
-            if semantic::is_numeric_type(&args[1].ty) || semantic::is_blob_like(&args[1].ty) {
-                let key = lower_expr(ctx, &args[1], vars);
-                let blob = emit_pointer_to_norito(ctx, key);
-                ctx.current_instr(Instr::PathMapKeyNorito {
-                    dest: d,
-                    base,
-                    key_blob: blob,
-                });
-            } else {
-                panic!("path expects a canonical numeric or bytes-like key")
-            }
-            d
+            let key = lower_expr(ctx, &args[1], vars);
+            let key_blob = encode_aggregate_state_value(ctx, key, &args[1].ty)
+                .expect("validated canonical StateMap key");
+            let dest = ctx.new_temp();
+            ctx.current_instr(Instr::PathMapKeyNorito {
+                dest,
+                base,
+                key_blob,
+            });
+            dest
         }
         Builtin::NameDecode => {
             let blob = lower_expr(ctx, &args[0], vars);
@@ -5043,7 +5265,7 @@ fn lower_surface_builtin_call(
             ctx.current_instr(Instr::PointerEq { dest, left, right });
             dest
         }
-        Builtin::TlvLen | Builtin::BytesLen => {
+        Builtin::TlvLen | Builtin::BytesLen | Builtin::StringLen => {
             let value = lower_expr(ctx, &args[0], vars);
             let scalar = ctx.new_temp();
             ctx.current_instr(Instr::TlvLen {
@@ -5051,6 +5273,37 @@ fn lower_surface_builtin_call(
                 value,
             });
             emit_int_from_u64(ctx, scalar)
+        }
+        Builtin::StringAsBytes => lower_expr(ctx, &args[0], vars),
+        Builtin::BytesConcat | Builtin::StringConcat => {
+            lower_direct_helper_call(ctx, builtin, args, vars)
+        }
+        Builtin::StringFromBytes => {
+            let pointer = lower_direct_helper_call(ctx, builtin, args, vars);
+            lower_nullable_pointer(ctx, pointer, &Type::String)
+        }
+        Builtin::ValueEncode | Builtin::StringFrom => {
+            let value = lower_expr(ctx, &args[0], vars);
+            let schema = entrypoint_value_type(builtin.source_name(), &args[0].ty)
+                .expect("validated public utility operand");
+            let encoded = ivm_abi::codec::encode_canonical_norito(&schema)
+                .expect("canonical utility value schema");
+            let schema = emit_data_ref(
+                ctx,
+                DataRefKind::NoritoBytes,
+                format!("0x{}", hex::encode(encoded)),
+            );
+            let mut words = Vec::new();
+            collect_function_value_words(ctx, value, &args[0].ty, &mut words);
+            let count = emit_i64_const(ctx, words.len() as i64);
+            let table = materialize_value_word_table(ctx, &words);
+            let dest = ctx.new_temp();
+            ctx.current_instr(Instr::DirectHelperSyscall {
+                dest,
+                syscall: direct_builtin_syscall(builtin),
+                args: vec![schema, table, count],
+            });
+            dest
         }
         Builtin::PointerToNorito => {
             let value = lower_expr(ctx, &args[0], vars);
@@ -5133,13 +5386,12 @@ fn lower_surface_builtin_call(
             });
             dest
         }
-        builtin @ (Builtin::Isqrt
-        | Builtin::Abs
-        | Builtin::Min
-        | Builtin::Max
-        | Builtin::DivCeil
-        | Builtin::Gcd
-        | Builtin::Mean) => lower_direct_helper_call(ctx, builtin, args, vars),
+        Builtin::Min | Builtin::Max | Builtin::Abs => {
+            lower_numeric_selection(ctx, builtin, args, vars)
+        }
+        builtin @ (Builtin::Isqrt | Builtin::DivCeil | Builtin::Gcd | Builtin::Mean) => {
+            lower_direct_helper_call(ctx, builtin, args, vars)
+        }
         Builtin::Poseidon2 => {
             let a = lower_expr_as_u64(ctx, &args[0], vars);
             let b = lower_expr_as_u64(ctx, &args[1], vars);
@@ -5255,14 +5507,20 @@ fn lower_surface_builtin_call(
         }
         Builtin::QueryPageAccounts
         | Builtin::QueryPageAssets
+        | Builtin::QueryPageAssetsOf
         | Builtin::QueryPageAssetDefinitions
         | Builtin::QueryPageDomains
         | Builtin::QueryPageNfts => {
-            let offset = lower_expr_as_i64(ctx, &args[0], vars);
-            let limit = lower_expr_as_u64(ctx, &args[1], vars);
+            let account =
+                (builtin == Builtin::QueryPageAssetsOf).then(|| lower_expr(ctx, &args[0], vars));
+            let first = usize::from(account.is_some());
+            let offset = lower_expr_as_i64(ctx, &args[first], vars);
+            let limit = lower_expr_as_u64(ctx, &args[first + 1], vars);
             let entity = match builtin {
                 Builtin::QueryPageAccounts => ivm_abi::core_query::CoreQueryEntityTagV1::Account,
-                Builtin::QueryPageAssets => ivm_abi::core_query::CoreQueryEntityTagV1::Asset,
+                Builtin::QueryPageAssets | Builtin::QueryPageAssetsOf => {
+                    ivm_abi::core_query::CoreQueryEntityTagV1::Asset
+                }
                 Builtin::QueryPageAssetDefinitions => {
                     ivm_abi::core_query::CoreQueryEntityTagV1::AssetDefinition
                 }
@@ -5276,6 +5534,7 @@ fn lower_surface_builtin_call(
                 items_dest,
                 next_offset_dest,
                 entity,
+                account,
                 offset,
                 limit,
             });
@@ -5357,19 +5616,6 @@ fn lower_surface_builtin_call(
             ctx.current_instr(Instr::GetPublicInput { dest, key });
             dest
         }
-        Builtin::ContractInvokeQuantity2 => {
-            let contract = lower_expr(ctx, &args[0], vars);
-            let entrypoint = lower_expr(ctx, &args[1], vars);
-            let amount_in = lower_expr(ctx, &args[3], vars);
-            let min_out = lower_expr(ctx, &args[4], vars);
-            let dest = ctx.new_temp();
-            ctx.current_instr(Instr::DirectHelperSyscall {
-                dest,
-                syscall: ivm_abi::syscalls::SYSCALL_CALL_CONTRACT_QUANTITY2,
-                args: vec![contract, entrypoint, amount_in, min_out],
-            });
-            dest
-        }
         Builtin::DebugPrint => {
             let value = lower_expr_as_i64(ctx, &args[0], vars);
             ctx.current_instr(Instr::DebugPrint { value });
@@ -5381,11 +5627,11 @@ fn lower_surface_builtin_call(
             emit_i64_const(ctx, 0)
         }
         Builtin::Assert => {
-            let cond = lower_expr(ctx, &args[0], vars);
-            if args.len() > 1 {
-                let _ = lower_expr(ctx, &args[1], vars);
-            }
-            ctx.current_instr(Instr::Assert { cond });
+            // Typed arguments: condition, optional message, compiler-owned assertion site.
+            let (site, values) = args.split_last().expect("typed assertion site");
+            let cond = lower_expr(ctx, &values[0], vars);
+            let message = values.get(1).map(|message| lower_expr(ctx, message, vars));
+            emit_test_assertion(ctx, cond, site, None, message, vars);
             emit_i64_const(ctx, 0)
         }
         Builtin::Require => {
@@ -5425,20 +5671,24 @@ fn lower_surface_builtin_call(
             emit_i64_const(ctx, 0)
         }
         Builtin::AssertEq => {
-            let left = lower_expr(ctx, &args[0], vars);
-            let right = lower_expr(ctx, &args[1], vars);
-            let equal = ctx.new_temp();
-            ctx.current_instr(Instr::NumericCompare {
-                dest: equal,
-                op: BinaryOp::Eq,
-                left,
-                right,
-                kind: WideNumericKind::Int,
-            });
-            ctx.current_instr(Instr::Assert { cond: equal });
+            // Typed arguments: actual, expected, optional message, compiler-owned assertion site.
+            let (site, values) = args.split_last().expect("typed assertion site");
+            let ty = values[0].ty.clone();
+            let actual = lower_expr(ctx, &values[0], vars);
+            let expected = lower_expr(ctx, &values[1], vars);
+            let message = values.get(2).map(|message| lower_expr(ctx, message, vars));
+            let equal = emit_typed_value_eq(ctx, actual, expected, &ty);
+            emit_test_assertion(
+                ctx,
+                equal,
+                site,
+                Some((actual, expected, &ty)),
+                message,
+                vars,
+            );
             emit_i64_const(ctx, 0)
         }
-        Builtin::SetAccountDetail => {
+        Builtin::SetAccountMetadata => {
             let account = lower_expr(ctx, &args[0], vars);
             let key = lower_expr(ctx, &args[1], vars);
             let value = lower_expr(ctx, &args[2], vars);
@@ -5483,7 +5733,13 @@ fn lower_surface_builtin_call(
             let to = lower_expr(ctx, &args[1], vars);
             let asset = lower_expr(ctx, &args[2], vars);
             let amt = lower_expr_as_numeric(ctx, &args[3], vars);
-            let dataspace = lower_expr(ctx, &args[4], vars);
+            // An omitted `dataspace:` is the constant zero word: the host then
+            // applies the definition's global policy and rejects a
+            // dataspace-restricted definition.
+            let dataspace = match args.get(4) {
+                Some(dataspace) => lower_expr(ctx, dataspace, vars),
+                None => emit_i64_const(ctx, 0),
+            };
             ctx.current_instr(Instr::TransferAsset {
                 from,
                 to,
@@ -5545,29 +5801,16 @@ fn lower_surface_builtin_call(
             emit_i64_const(ctx, 0)
         }
         Builtin::RegisterAsset => {
+            // `spec` and `mintable` were folded by semantic analysis into
+            // the `ivm_registration` words every host decodes.
             let asset = lower_expr(ctx, &args[0], vars);
-            let symbol = lower_expr(ctx, &args[1], vars);
-            let quantity = lower_expr_as_u64(ctx, &args[2], vars);
+            let name = lower_expr(ctx, &args[1], vars);
+            let spec = lower_expr_as_u64(ctx, &args[2], vars);
             let mintable = lower_expr_as_u64(ctx, &args[3], vars);
             ctx.current_instr(Instr::RegisterAsset {
                 asset,
-                symbol,
-                quantity,
-                mintable,
-            });
-            emit_i64_const(ctx, 0)
-        }
-        Builtin::CreateNewAsset => {
-            let asset = lower_expr(ctx, &args[0], vars);
-            let symbol = lower_expr(ctx, &args[1], vars);
-            let quantity = lower_expr_as_u64(ctx, &args[2], vars);
-            let account = lower_expr(ctx, &args[3], vars);
-            let mintable = lower_expr_as_u64(ctx, &args[4], vars);
-            ctx.current_instr(Instr::CreateNewAsset {
-                asset,
-                symbol,
-                quantity,
-                account,
+                name,
+                spec,
                 mintable,
             });
             emit_i64_const(ctx, 0)
@@ -5599,17 +5842,17 @@ fn lower_surface_builtin_call(
         }
         Builtin::SetTriggerEnabled => {
             let name = lower_expr(ctx, &args[0], vars);
-            let enabled = lower_expr_as_u64(ctx, &args[1], vars);
+            let enabled = lower_expr(ctx, &args[1], vars);
             ctx.current_instr(Instr::SetTriggerEnabled { name, enabled });
             emit_i64_const(ctx, 0)
         }
-        Builtin::CreateRole => {
+        Builtin::RegisterRole => {
             let name = lower_expr(ctx, &args[0], vars);
             let json = lower_expr(ctx, &args[1], vars);
             ctx.current_instr(Instr::CreateRole { name, json });
             emit_i64_const(ctx, 0)
         }
-        Builtin::DeleteRole => {
+        Builtin::UnregisterRole => {
             let name = lower_expr(ctx, &args[0], vars);
             ctx.current_instr(Instr::DeleteRole { name });
             emit_i64_const(ctx, 0)
@@ -5638,21 +5881,21 @@ fn lower_surface_builtin_call(
             ctx.current_instr(Instr::RevokePermission { account, token });
             emit_i64_const(ctx, 0)
         }
-        Builtin::GrantContractEntrypoint => {
+        Builtin::GrantContractPermission => {
             let account = lower_expr(ctx, &args[0], vars);
-            let entrypoint = lower_expr(ctx, &args[1], vars);
-            ctx.current_instr(Instr::GrantContractEntrypoint {
+            let permission = lower_expr(ctx, &args[1], vars);
+            ctx.current_instr(Instr::GrantContractPermission {
                 account,
-                entrypoint,
+                permission,
             });
             emit_i64_const(ctx, 0)
         }
-        Builtin::RevokeContractEntrypoint => {
+        Builtin::RevokeContractPermission => {
             let account = lower_expr(ctx, &args[0], vars);
-            let entrypoint = lower_expr(ctx, &args[1], vars);
-            ctx.current_instr(Instr::RevokeContractEntrypoint {
+            let permission = lower_expr(ctx, &args[1], vars);
+            ctx.current_instr(Instr::RevokeContractPermission {
                 account,
-                entrypoint,
+                permission,
             });
             emit_i64_const(ctx, 0)
         }
@@ -5744,19 +5987,6 @@ fn lower_surface_builtin_call(
             ctx.current_instr(Instr::SetExecutionDepth { value });
             emit_i64_const(ctx, 0)
         }
-        Builtin::TransferV1BatchBegin => {
-            ctx.current_instr(Instr::TransferBatchBegin);
-            emit_i64_const(ctx, 0)
-        }
-        Builtin::TransferV1BatchEnd => {
-            ctx.current_instr(Instr::TransferBatchEnd);
-            emit_i64_const(ctx, 0)
-        }
-        Builtin::TransferV1BatchApply => {
-            let payload = lower_expr(ctx, &args[0], vars);
-            ctx.current_instr(Instr::TransferBatchApply { payload });
-            emit_i64_const(ctx, 0)
-        }
         Builtin::TransferBatch => lower_transfer_batch_call(ctx, args, vars),
         Builtin::AxtBegin => {
             let desc = lower_expr(ctx, &args[0], vars);
@@ -5819,10 +6049,13 @@ fn lower_surface_builtin_call(
             emit_i64_const(ctx, 0)
         }
         Builtin::VrfEpochSeed => {
-            let payload = lower_expr(ctx, &args[0], vars);
-            let dest = ctx.new_temp();
-            ctx.current_instr(Instr::VrfEpochSeed { dest, payload });
-            dest
+            let epoch = lower_expr_as_u64(ctx, &args[0], vars);
+            let pointer = ctx.new_temp();
+            ctx.current_instr(Instr::VrfEpochSeed {
+                dest: pointer,
+                epoch,
+            });
+            lower_nullable_pointer(ctx, pointer, &Type::Bytes)
         }
         Builtin::VrfVerify => {
             let request = lower_expr(ctx, &args[0], vars);
@@ -5949,9 +6182,9 @@ fn lower_surface_builtin_call(
             let key_tmp = lower_expr(ctx, kexpr, vars);
             if let Some(bn) = state_map_base_name(mexpr)
                 && let Some(spec) = ctx.state_map_configs.get(&bn).cloned()
-                && let Some(key_codec) = key_codec_for_type(&spec.key)
+                && let Some(key_type) = state_map_key_type(&spec.key)
             {
-                let t_path = build_state_map_path(ctx, &bn, key_tmp, &key_codec);
+                let t_path = build_state_map_path(ctx, &bn, key_tmp, &key_type);
                 let t_blob = emit_state_get(ctx, t_path);
                 let zero = emit_i64_const(ctx, 0);
                 let out = emit_binary(ctx, BinaryOp::Ne, t_blob, zero);
@@ -5968,15 +6201,7 @@ fn lower_surface_builtin_call(
             });
             lower_map_key_eq(ctx, &kexpr.ty, sk, key_tmp)
         }
-        Builtin::GetOrDefault => {
-            lower_map_fallback(ctx, &args[0], &args[1], &args[2], MapFallback::Eager, vars)
-        }
-        Builtin::GetOr => {
-            lower_map_fallback(ctx, &args[0], &args[1], &args[2], MapFallback::Lazy, vars)
-        }
-        Builtin::Ensure => {
-            lower_map_fallback(ctx, &args[0], &args[1], &args[2], MapFallback::Insert, vars)
-        }
+        Builtin::GetOrInsert => lower_map_fallback(ctx, &args[0], &args[1], &args[2], vars),
         Builtin::StateMapRemove => lower_state_map_remove_option(ctx, args, vars),
         Builtin::KeysTake2 | Builtin::ValuesTake2 => {
             let (key, value) = lower_take2_pair(ctx, args, vars);
@@ -5990,6 +6215,20 @@ fn lower_surface_builtin_call(
             let (key, value) = lower_take2_pair(ctx, args, vars);
             emit_tuple_pack(ctx, vec![key, value])
         }
+        Builtin::TestSetBlockHeight
+        | Builtin::TestAdvanceBlocks
+        | Builtin::TestSetTransactionTimeMs => {
+            // Host-private test syscall with one unsigned scalar operand; a negative or
+            // oversized int traps in the checked conversion before the host is reached.
+            let value = lower_expr_as_u64(ctx, &args[0], vars);
+            let dest = ctx.new_temp();
+            ctx.current_instr(Instr::DirectHelperSyscall {
+                dest,
+                syscall: builtin.operation_syscalls()[0],
+                args: vec![value],
+            });
+            emit_i64_const(ctx, 0)
+        }
         Builtin::TestInvokeEntrypoint
         | Builtin::TestInvokeEntrypointAs
         | Builtin::TestExpectRejectAs
@@ -5998,6 +6237,22 @@ fn lower_surface_builtin_call(
         | Builtin::TestActorPublicKey
         | Builtin::TestActorSign => {
             unreachable!("test helpers use their dedicated lowering paths")
+        }
+        Builtin::NumericSpecUnconstrained
+        | Builtin::NumericSpecInteger
+        | Builtin::NumericSpecFractional
+        | Builtin::MintableInfinitely
+        | Builtin::MintableOnce
+        | Builtin::MintableNot
+        | Builtin::MintableLimited
+        | Builtin::SignatureSchemeEd25519
+        | Builtin::SignatureSchemeSecp256k1
+        | Builtin::SignatureSchemeMlDsa => {
+            ctx.record_error(format!(
+                "`{}` is a compile-time argument value and has no runtime lowering",
+                builtin.source_name()
+            ));
+            emit_i64_const(ctx, 0)
         }
     }
 }
@@ -6016,13 +6271,84 @@ fn named_argument_requires_capture(argument: &TypedExpr) -> bool {
     }
     !matches!(
         argument.kind(),
-        semantic::ExprKind::ErrorValue(_)
+        semantic::ExprKind::VariantCode(_)
             | semantic::ExprKind::IntLiteral(_)
             | semantic::ExprKind::DecimalLiteral { .. }
             | semantic::ExprKind::Bool(_)
             | semantic::ExprKind::String(_)
             | semantic::ExprKind::Bytes(_)
     )
+}
+/// Lower a resolved user function directly through its declared call ABI.
+fn lower_user_call(
+    ctx: &mut LowerCtx,
+    name: &str,
+    args: &[TypedExpr],
+    result_ty: &semantic::Type,
+    vars: &mut HashMap<String, Temp>,
+) -> Temp {
+    // User-defined function call: pass args; capture result(s) if any.
+    let mut arg_tmps = Vec::new();
+    let signature = ctx.function_param_specs.get(name).cloned();
+    for (idx, a) in args.iter().enumerate() {
+        if signature
+            .as_ref()
+            .and_then(|params| params.get(idx))
+            .is_some_and(|param| param.is_state)
+        {
+            let param = signature
+                .as_ref()
+                .and_then(|params| params.get(idx))
+                .expect("checked state parameter");
+            arg_tmps.extend(lower_state_handle_args(ctx, a, &param.ty, vars));
+        } else if let Some(param) = signature.as_ref().and_then(|params| params.get(idx))
+            && function_value_word_types(&param.ty).is_some()
+        {
+            let value = lower_expr(ctx, a, vars);
+            collect_function_value_words(ctx, value, &param.ty, &mut arg_tmps);
+        } else {
+            arg_tmps.push(lower_expr(ctx, a, vars));
+        }
+    }
+    match result_ty {
+        semantic::Type::Unit => {
+            ctx.current_instr(Instr::Call {
+                callee: ctx.call_target(name),
+                args: arg_tmps,
+                dest: None,
+            });
+            emit_i64_const(ctx, 0)
+        }
+        aggregate if function_value_word_types(aggregate).is_some() => {
+            let word_types =
+                function_value_word_types(aggregate).expect("aggregate return word types checked");
+            // Multi-return: load the flattened ABI words from the result table, then
+            // rebuild the compiler-only aggregate shape.
+            let mut words = Vec::with_capacity(word_types.len());
+            for _ in word_types {
+                words.push(ctx.new_temp());
+            }
+            ctx.current_instr(Instr::CallMulti {
+                callee: ctx.call_target(name),
+                args: arg_tmps,
+                dests: words.clone(),
+            });
+            let mut index = 0_usize;
+            let value = rebuild_function_value_from_words(ctx, aggregate, &words, &mut index)
+                .expect("validated aggregate return must rebuild from ABI words");
+            debug_assert_eq!(index, words.len());
+            value
+        }
+        _ => {
+            let d = ctx.new_temp();
+            ctx.current_instr(Instr::Call {
+                callee: ctx.call_target(name),
+                args: arg_tmps,
+                dest: Some(d),
+            });
+            d
+        }
+    }
 }
 /// Lower a named call by capturing observable argument evaluations in source
 /// order and then reusing their temporary identities in declaration/ABI order.
@@ -6033,17 +6359,31 @@ fn named_argument_requires_capture(argument: &TypedExpr) -> bool {
 fn lower_named_call(
     ctx: &mut LowerCtx,
     result_ty: &Type,
-    name: &str,
+    target: &semantic::CallTarget,
     args: &[TypedExpr],
     evaluation_order: &[usize],
     vars: &mut HashMap<String, Temp>,
 ) -> Temp {
+    if target.is_lazy_sum_error() {
+        if evaluation_order != [0, 1] {
+            ctx.record_error(format!(
+                "internal error: lazy sum method `{target}` has an invalid argument order"
+            ));
+        }
+        return lower_sum_error_bridge(
+            ctx,
+            target.intrinsic().expect("lazy intrinsic"),
+            args,
+            result_ty,
+            vars,
+        );
+    }
     let mut seen = vec![false; args.len()];
     let mut captured = vec![None; args.len()];
     for &index in evaluation_order {
         if index >= args.len() || seen[index] {
             ctx.record_error(format!(
-                "internal error: named call `{name}` has an invalid source evaluation order"
+                "internal error: named call `{target}` has an invalid source evaluation order"
             ));
             continue;
         }
@@ -6055,7 +6395,7 @@ fn lower_named_call(
     for (index, was_seen) in seen.iter().copied().enumerate() {
         if !was_seen {
             ctx.record_error(format!(
-                "internal error: named call `{name}` omits ABI argument slot {index} from its source evaluation order"
+                "internal error: named call `{target}` omits ABI argument slot {index} from its source evaluation order"
             ));
             if named_argument_requires_capture(&args[index]) {
                 captured[index] = Some(lower_expr(ctx, &args[index], vars));
@@ -6068,7 +6408,7 @@ fn lower_named_call(
     // active.
     let positional = TypedExpr {
         expr: semantic::ExprKind::Call {
-            name: name.to_owned(),
+            target: target.clone(),
             args: args.to_vec(),
         },
         ty: result_ty.clone(),
@@ -6096,7 +6436,7 @@ fn lower_expr(ctx: &mut LowerCtx, expr: &TypedExpr, vars: &mut HashMap<String, T
         return temp;
     }
     match &expr.expr {
-        semantic::ExprKind::ErrorValue(code) => emit_i64_const(ctx, i64::from(*code)),
+        semantic::ExprKind::VariantCode(code) => emit_i64_const(ctx, i64::from(*code)),
         semantic::ExprKind::JsonObject(_) | semantic::ExprKind::JsonArray(_) => {
             lower_json_construction(ctx, expr, vars)
         }
@@ -6470,7 +6810,7 @@ fn lower_expr(ctx: &mut LowerCtx, expr: &TypedExpr, vars: &mut HashMap<String, T
             rebuild_runtime_value(ctx, &expr.ty, &result_words)
         }
         semantic::ExprKind::Match { value, arms } => {
-            if matches!(&value.ty, Type::ErrorEnum(_)) {
+            if matches!(&value.ty, Type::Enum(_) | Type::ErrorEnum(_)) {
                 let code = lower_expr(ctx, value, vars);
                 let end = ctx.new_label();
                 let result_words = runtime_value_word_types(&expr.ty)
@@ -6568,48 +6908,46 @@ fn lower_expr(ctx: &mut LowerCtx, expr: &TypedExpr, vars: &mut HashMap<String, T
         }
         semantic::ExprKind::Propagate { value } => lower_propagation(ctx, value, vars),
         semantic::ExprKind::NamedCall {
-            name,
+            target: name,
             args,
             evaluation_order,
         } => lower_named_call(ctx, &expr.ty, name, args, evaluation_order, vars),
-        semantic::ExprKind::Call { name, args } => {
-            if let Some(value) = lower_state_page_intrinsic(ctx, name, args, &expr.ty, vars) {
-                return value;
+        semantic::ExprKind::Call { target, args } => match target {
+            semantic::CallTarget::User(name) => lower_user_call(ctx, name, args, &expr.ty, vars),
+            semantic::CallTarget::Contract(method) => {
+                lower_contract_call(ctx, method, args, &expr.ty, vars)
             }
-            if let Some(value) = lower_numeric_round_intrinsic(ctx, name, args, vars) {
-                return value;
-            }
-            if let Some(value) = lower_decimal_to_int_intrinsic(ctx, name, args, vars) {
-                return value;
-            }
-            if let Some(value) = lower_list_intrinsic(ctx, name, args, &expr.ty, vars) {
-                return value;
-            }
-            if let Some(value) = lower_sum_type_call(ctx, name, args, vars) {
-                return value;
-            }
-            if let Some(builtin) = Builtin::from_name(name)
-                && !matches!(
-                    builtin,
-                    Builtin::TestInvokeEntrypoint
-                        | Builtin::TestInvokeEntrypointAs
-                        | Builtin::TestExpectRejectAs
-                        | Builtin::TestExpectAnyRejectAs
-                        | Builtin::TestActorAccount
-                        | Builtin::TestActorPublicKey
-                        | Builtin::TestActorSign
-                )
-            {
-                return lower_surface_builtin_call(ctx, builtin, args, &expr.ty, vars);
-            }
-            match name.as_str() {
-                "Map::new" | "map_new" => {
-                    let t = ctx.new_temp();
-                    ctx.current_instr(Instr::MapNew { dest: t });
-                    t
+            semantic::CallTarget::Intrinsic(intrinsic) => {
+                let name = *intrinsic;
+                if name == CompilerIntrinsic::ContractAt {
+                    return lower_expr(ctx, &args[0], vars);
                 }
-                "invoke_entrypoint" | "invoke_entrypoint_as" => {
-                    let (actor, target_index) = if name == "invoke_entrypoint_as" {
+                if name == CompilerIntrinsic::EmitEvent {
+                    return lower_event_emission(ctx, args, vars);
+                }
+                if let Some(value) = lower_state_page_intrinsic(ctx, name, args, &expr.ty, vars) {
+                    return value;
+                }
+                if let Some(value) = lower_numeric_round_intrinsic(ctx, name, args, vars) {
+                    return value;
+                }
+                if let Some(value) = lower_decimal_to_int_intrinsic(ctx, name, args, vars) {
+                    return value;
+                }
+                if let Some(value) = lower_list_intrinsic(ctx, name, args, &expr.ty, vars) {
+                    return value;
+                }
+                if let Some(value) = lower_sum_type_call(ctx, name, args, &expr.ty, vars) {
+                    return value;
+                }
+                ctx.record_error(format!(
+                    "internal error: unhandled typed intrinsic `{name}`"
+                ));
+                emit_i64_const(ctx, 0)
+            }
+            semantic::CallTarget::Builtin(builtin) => match builtin {
+                Builtin::TestInvokeEntrypoint | Builtin::TestInvokeEntrypointAs => {
+                    let (actor, target_index) = if *builtin == Builtin::TestInvokeEntrypointAs {
                         let actor = match args[0].kind() {
                             semantic::ExprKind::String(value) => lower_blob_literal(ctx, value),
                             _ => panic!("invoke_entrypoint_as actor must be a literal string"),
@@ -6622,7 +6960,9 @@ fn lower_expr(ctx: &mut LowerCtx, expr: &TypedExpr, vars: &mut HashMap<String, T
                         semantic::ExprKind::String(value) => lower_blob_literal(ctx, value),
                         _ => panic!("runtime entrypoint must be a literal string"),
                     };
-                    let payload = lower_expr(ctx, &args[target_index + 1], vars);
+                    let (payload, argument_words) =
+                        lower_test_argument_record(ctx, &args[target_index + 1], vars);
+                    emit_test_call_site(ctx, args.get(target_index + 2), vars);
                     match &expr.ty {
                         semantic::Type::Unit => {
                             ctx.current_instr(Instr::InvokeEntrypointAs {
@@ -6630,6 +6970,7 @@ fn lower_expr(ctx: &mut LowerCtx, expr: &TypedExpr, vars: &mut HashMap<String, T
                                 actor,
                                 entrypoint,
                                 payload,
+                                argument_words,
                             });
                             emit_i64_const(ctx, 0)
                         }
@@ -6643,6 +6984,7 @@ fn lower_expr(ctx: &mut LowerCtx, expr: &TypedExpr, vars: &mut HashMap<String, T
                                 actor,
                                 entrypoint,
                                 payload,
+                                argument_words,
                             });
                             let mut index = 0_usize;
                             let value = rebuild_function_value_from_words(
@@ -6659,12 +7001,13 @@ fn lower_expr(ctx: &mut LowerCtx, expr: &TypedExpr, vars: &mut HashMap<String, T
                                 actor,
                                 entrypoint,
                                 payload,
+                                argument_words,
                             });
                             dest
                         }
                     }
                 }
-                "expect_reject_as" | "expect_any_reject_as" => {
+                Builtin::TestExpectRejectAs | Builtin::TestExpectAnyRejectAs => {
                     let actor = match args[0].kind() {
                         semantic::ExprKind::String(value) => lower_blob_literal(ctx, value),
                         _ => panic!("expect_reject_as actor must be a literal string"),
@@ -6673,40 +7016,45 @@ fn lower_expr(ctx: &mut LowerCtx, expr: &TypedExpr, vars: &mut HashMap<String, T
                         semantic::ExprKind::String(value) => lower_blob_literal(ctx, value),
                         _ => panic!("expect_reject_as entrypoint must be a literal string"),
                     };
-                    let payload = lower_expr(ctx, &args[2], vars);
+                    let (payload, argument_words) = lower_test_argument_record(ctx, &args[2], vars);
                     let expectation = lower_expr(ctx, &args[3], vars);
+                    emit_test_call_site(ctx, args.get(4), vars);
                     ctx.current_instr(Instr::ExpectRejectAs {
                         actor,
                         entrypoint,
                         payload,
+                        argument_words,
                         expectation,
                     });
                     emit_i64_const(ctx, 0)
                 }
-                "actor_account" => {
+                Builtin::TestActorAccount => {
                     let actor = match args[0].kind() {
                         semantic::ExprKind::String(value) => lower_blob_literal(ctx, value),
                         _ => panic!("actor_account actor must be a literal string"),
                     };
+                    emit_test_call_site(ctx, args.get(1), vars);
                     let dest = ctx.new_temp();
                     ctx.current_instr(Instr::ActorAccount { dest, actor });
                     dest
                 }
-                "actor_public_key" => {
+                Builtin::TestActorPublicKey => {
                     let actor = match args[0].kind() {
                         semantic::ExprKind::String(value) => lower_blob_literal(ctx, value),
                         _ => panic!("actor_public_key actor must be a literal string"),
                     };
+                    emit_test_call_site(ctx, args.get(1), vars);
                     let dest = ctx.new_temp();
                     ctx.current_instr(Instr::ActorPublicKey { dest, actor });
                     dest
                 }
-                "actor_sign" => {
+                Builtin::TestActorSign => {
                     let actor = match args[0].kind() {
                         semantic::ExprKind::String(value) => lower_blob_literal(ctx, value),
                         _ => panic!("actor_sign actor must be a literal string"),
                     };
                     let message = lower_expr(ctx, &args[1], vars);
+                    emit_test_call_site(ctx, args.get(2), vars);
                     let dest = ctx.new_temp();
                     ctx.current_instr(Instr::ActorSign {
                         dest,
@@ -6715,75 +7063,9 @@ fn lower_expr(ctx: &mut LowerCtx, expr: &TypedExpr, vars: &mut HashMap<String, T
                     });
                     dest
                 }
-                _ => {
-                    // User-defined function call: pass args; capture result(s) if any.
-                    let mut arg_tmps = Vec::new();
-                    let signature = ctx.function_param_specs.get(name).cloned();
-                    for (idx, a) in args.iter().enumerate() {
-                        if signature
-                            .as_ref()
-                            .and_then(|params| params.get(idx))
-                            .is_some_and(|param| param.is_state)
-                        {
-                            let param = signature
-                                .as_ref()
-                                .and_then(|params| params.get(idx))
-                                .expect("checked state parameter");
-                            arg_tmps.extend(lower_state_handle_args(ctx, a, &param.ty, vars));
-                        } else if let Some(param) =
-                            signature.as_ref().and_then(|params| params.get(idx))
-                            && function_value_word_types(&param.ty).is_some()
-                        {
-                            let value = lower_expr(ctx, a, vars);
-                            collect_function_value_words(ctx, value, &param.ty, &mut arg_tmps);
-                        } else {
-                            arg_tmps.push(lower_expr(ctx, a, vars));
-                        }
-                    }
-                    match &expr.ty {
-                        semantic::Type::Unit => {
-                            ctx.current_instr(Instr::Call {
-                                callee: ctx.call_target(name),
-                                args: arg_tmps,
-                                dest: None,
-                            });
-                            emit_i64_const(ctx, 0)
-                        }
-                        aggregate if function_value_word_types(aggregate).is_some() => {
-                            let word_types = function_value_word_types(aggregate)
-                                .expect("aggregate return word types checked");
-                            // Multi-return: load the flattened ABI words from the result table, then
-                            // rebuild the compiler-only aggregate shape.
-                            let mut words = Vec::with_capacity(word_types.len());
-                            for _ in word_types {
-                                words.push(ctx.new_temp());
-                            }
-                            ctx.current_instr(Instr::CallMulti {
-                                callee: ctx.call_target(name),
-                                args: arg_tmps,
-                                dests: words.clone(),
-                            });
-                            let mut index = 0_usize;
-                            let value = rebuild_function_value_from_words(
-                                ctx, aggregate, &words, &mut index,
-                            )
-                            .expect("validated aggregate return must rebuild from ABI words");
-                            debug_assert_eq!(index, words.len());
-                            value
-                        }
-                        _ => {
-                            let d = ctx.new_temp();
-                            ctx.current_instr(Instr::Call {
-                                callee: ctx.call_target(name),
-                                args: arg_tmps,
-                                dest: Some(d),
-                            });
-                            d
-                        }
-                    }
-                }
-            }
-        }
+                builtin => lower_surface_builtin_call(ctx, *builtin, args, &expr.ty, vars),
+            },
+        },
         semantic::ExprKind::Index { .. } => {
             // Typed source lowering never contains an rvalue map index: an
             // absent durable key must be represented by Option<V>. Keep this
@@ -6871,58 +7153,89 @@ fn lower_expr(ctx: &mut LowerCtx, expr: &TypedExpr, vars: &mut HashMap<String, T
 }
 fn lower_sum_type_call(
     ctx: &mut LowerCtx,
-    name: &str,
+    name: CompilerIntrinsic,
     args: &[semantic::TypedExpr],
+    result_ty: &Type,
     vars: &mut HashMap<String, Temp>,
 ) -> Option<Temp> {
     Some(match name {
-        STATE_MAP_GET_INTRINSIC => lower_state_map_get_option(ctx, args, vars),
-        "is_some" | "is_ok" => {
+        CompilerIntrinsic::StateMapGet => lower_state_map_get_option(ctx, args, vars),
+        CompilerIntrinsic::IsSome | CompilerIntrinsic::IsOk => {
             let tagged_value = lower_expr(ctx, &args[0], vars);
             load_sum_tag(ctx, tagged_value)
         }
-        "is_none" | "is_err" => {
+        CompilerIntrinsic::IsNone | CompilerIntrinsic::IsErr => {
             let tagged_value = lower_expr(ctx, &args[0], vars);
             let tag = load_sum_tag(ctx, tagged_value);
             emit_unary(ctx, UnaryOp::Not, tag)
         }
-        "unwrap_or" => lower_tagged_unwrap(ctx, &args[0], &args[1], true, vars),
-        "unwrap_err_or" => lower_tagged_unwrap(ctx, &args[0], &args[1], false, vars),
-        "expect" => lower_option_expect(ctx, &args[0], &args[1], vars),
+        CompilerIntrinsic::UnwrapOr => lower_tagged_unwrap(ctx, &args[0], &args[1], true, vars),
+        CompilerIntrinsic::UnwrapErrOr => lower_tagged_unwrap(ctx, &args[0], &args[1], false, vars),
+        CompilerIntrinsic::Expect
+        | CompilerIntrinsic::OptionOkOr
+        | CompilerIntrinsic::ResultOrErr => {
+            lower_sum_error_bridge(ctx, name, args, result_ty, vars)
+        }
         _ => return None,
     })
 }
-fn lower_option_expect(
+fn lower_sum_error_bridge(
     ctx: &mut LowerCtx,
-    option: &semantic::TypedExpr,
-    error: &semantic::TypedExpr,
+    name: CompilerIntrinsic,
+    args: &[semantic::TypedExpr],
+    result_ty: &Type,
     vars: &mut HashMap<String, Temp>,
 ) -> Temp {
-    let tagged = lower_expr(ctx, option, vars);
-    let code = lower_expr(ctx, error, vars);
-    let Type::Option(payload_ty) = semantic::resolve_struct_type(&option.ty) else {
-        unreachable!("typed Option.expect receiver")
+    let tagged = lower_expr(ctx, &args[0], vars);
+    let payload_ty = match semantic::resolve_struct_type(&args[0].ty) {
+        Type::Option(value) | Type::Result(value, _) => value,
+        _ => unreachable!("typed sum error bridge receiver"),
     };
-    let Type::ErrorEnum(error_type) = semantic::resolve_struct_type(&error.ty) else {
-        unreachable!("typed nominal Option.expect error")
-    };
-    let encoded = ivm_abi::codec::encode_canonical_norito(error_type.as_ref())
-        .expect("validated nominal error schema encodes");
-    let descriptor = emit_data_ref(
-        ctx,
-        DataRefKind::NoritoBytes,
-        format!("0x{}", hex::encode(encoded)),
-    );
     let tag = load_sum_tag(ctx, tagged);
-    let absent = emit_unary(ctx, UnaryOp::Not, tag);
-    ctx.current_instr(Instr::AbortIf {
-        cond: absent,
-        descriptor,
-        code,
+    let success = ctx.new_label();
+    let failure = ctx.new_label();
+    ctx.finish_current(Terminator::Branch {
+        cond: tag,
+        then_bb: success,
+        else_bb: failure,
     });
-    // The abort precedes payload access: Option::none carries no inactive
-    // payload, and extraction must never synthesize a placeholder for it.
-    load_sum_payload(ctx, tagged, &payload_ty)
+    ctx.start_block(failure);
+    let error = lower_expr(ctx, &args[1], vars);
+    if name == CompilerIntrinsic::Expect {
+        let Type::ErrorEnum(error_type) = semantic::resolve_struct_type(&args[1].ty) else {
+            unreachable!("typed nominal sum expectation error")
+        };
+        let encoded = ivm_abi::codec::encode_canonical_norito(error_type.as_ref())
+            .expect("validated nominal error schema encodes");
+        let descriptor = emit_data_ref(
+            ctx,
+            DataRefKind::NoritoBytes,
+            format!("0x{}", hex::encode(encoded)),
+        );
+        let reject = emit_i64_const(ctx, 1);
+        ctx.current_instr(Instr::AbortIf {
+            cond: reject,
+            descriptor,
+            code: error,
+        });
+        // AbortIf is unconditional here. The shared success continuation has
+        // no synthesized value for the inactive branch.
+        ctx.finish_current(Terminator::Jump(success));
+        ctx.start_block(success);
+        return load_sum_payload(ctx, tagged, &payload_ty);
+    }
+    let end = ctx.new_label();
+    let output = ctx.new_temp();
+    let rejected = emit_sum_value(ctx, result_ty, 0, Some(error));
+    emit_copy(ctx, output, rejected);
+    ctx.finish_current(Terminator::Jump(end));
+    ctx.start_block(success);
+    let payload = load_sum_payload(ctx, tagged, &payload_ty);
+    let accepted = emit_sum_value(ctx, result_ty, 1, Some(payload));
+    emit_copy(ctx, output, accepted);
+    ctx.finish_current(Terminator::Jump(end));
+    ctx.start_block(end);
+    output
 }
 fn lower_tagged_unwrap(
     ctx: &mut LowerCtx,
@@ -6964,6 +7277,29 @@ fn lower_tagged_unwrap(
     ctx.finish_current(Terminator::Jump(end_block));
     ctx.start_block(end_block);
     rebuild_runtime_value(ctx, &payload_ty, &result_words)
+}
+/// Convert a host's nullable public pointer into the ordinary nominal Option layout.
+fn lower_nullable_pointer(ctx: &mut LowerCtx, pointer: Temp, payload_type: &Type) -> Temp {
+    let option = Type::Option(Box::new(payload_type.clone()));
+    let some_block = ctx.new_label();
+    let none_block = ctx.new_label();
+    let end = ctx.new_label();
+    let output = ctx.new_temp();
+    ctx.finish_current(Terminator::Branch {
+        cond: pointer,
+        then_bb: some_block,
+        else_bb: none_block,
+    });
+    ctx.start_block(some_block);
+    let some = emit_sum_value(ctx, &option, 1, Some(pointer));
+    emit_copy(ctx, output, some);
+    ctx.finish_current(Terminator::Jump(end));
+    ctx.start_block(none_block);
+    let none = emit_sum_value(ctx, &option, 0, None);
+    emit_copy(ctx, output, none);
+    ctx.finish_current(Terminator::Jump(end));
+    ctx.start_block(end);
+    output
 }
 /// Decode a present durable value and materialize the selected `Option` arm.
 ///
@@ -7025,11 +7361,11 @@ fn lower_state_map_get_option(
         ctx.record_error(format!("StateMap.get receiver `{base}` is not declared"));
         return lower_absent_option(ctx, &declared_value_ty);
     };
-    let Some(key_codec) = key_codec_for_type(&spec.key) else {
+    let Some(key_type) = state_map_key_type(&spec.key) else {
         ctx.record_error("StateMap.get key type is not lowerable".into());
         return lower_absent_option(ctx, &spec.value);
     };
-    let path = build_state_map_path(ctx, &base, key, &key_codec);
+    let path = build_state_map_path(ctx, &base, key, &key_type);
     let blob = ctx.new_temp();
     ctx.current_instr(Instr::StateGet { dest: blob, path });
     let zero = emit_i64_const(ctx, 0);
@@ -7057,11 +7393,11 @@ fn lower_state_map_remove_option(
         ctx.record_error(format!("StateMap.remove receiver `{base}` is not declared"));
         return lower_absent_option(ctx, &declared_value_ty);
     };
-    let Some(key_codec) = key_codec_for_type(&spec.key) else {
+    let Some(key_type) = state_map_key_type(&spec.key) else {
         ctx.record_error("StateMap.remove key type is not lowerable".into());
         return lower_absent_option(ctx, &spec.value);
     };
-    let path = build_state_map_path(ctx, &base, key, &key_codec);
+    let path = build_state_map_path(ctx, &base, key, &key_type);
     let blob = ctx.new_temp();
     ctx.current_instr(Instr::StateGet { dest: blob, path });
     let zero = emit_i64_const(ctx, 0);
@@ -7111,6 +7447,7 @@ struct LoopContext {
 struct LowerCtx {
     next_temp: usize,
     next_label: usize,
+    current_source: Option<crate::source::SourceRange>,
     blocks: Vec<BasicBlock>,
     current: Option<BasicBlock>,
     loop_stack: Vec<LoopContext>,
@@ -7151,6 +7488,7 @@ impl LowerCtx {
         Self {
             next_temp: 0,
             next_label: 0,
+            current_source: None,
             blocks: Vec::new(),
             current: None,
             loop_stack: Vec::new(),
@@ -7200,9 +7538,21 @@ impl LowerCtx {
         }
         self.current = Some(BasicBlock {
             label,
-            instrs: Vec::new(),
+            instrs: self
+                .current_source
+                .map(|source| Instr::Source(Some(source)))
+                .into_iter()
+                .collect(),
             terminator: Terminator::Jump(label),
         });
+    }
+    fn set_source(&mut self, source: Option<crate::source::SourceRange>) {
+        if self.current_source != source {
+            self.current_source = source;
+            if let Some(block) = &mut self.current {
+                block.instrs.push(Instr::Source(source));
+            }
+        }
     }
     fn current_instr(&mut self, instr: Instr) {
         if matches!(
@@ -7211,6 +7561,7 @@ impl LowerCtx {
                 | Instr::CallMulti { .. }
                 | Instr::StateSet { .. }
                 | Instr::StateDel { .. }
+                | Instr::CallContract { .. }
                 | Instr::InvokeEntrypointAs { .. }
                 | Instr::InvokeEntrypointAsMulti { .. }
                 | Instr::ExpectRejectAs { .. }
@@ -7324,34 +7675,17 @@ fn build_state_root_path(ctx: &mut LowerCtx, name: &str) -> Temp {
         build_state_path_literal(ctx, name)
     }
 }
-fn build_state_map_path(ctx: &mut LowerCtx, name: &str, key: Temp, key_codec: &KeyCodec) -> Temp {
-    let t_base = build_state_base_name(ctx, name);
-    match key_codec {
-        KeyCodec::Int => {
-            let key_blob = ctx.new_temp();
-            ctx.current_instr(Instr::EncodeBoolKey {
-                dest: key_blob,
-                value: key,
-            });
-            let t_path = ctx.new_temp();
-            ctx.current_instr(Instr::PathMapKeyNorito {
-                dest: t_path,
-                base: t_base,
-                key_blob,
-            });
-            t_path
-        }
-        KeyCodec::Pointer => {
-            let key_blob = emit_pointer_to_norito(ctx, key);
-            let t_path = ctx.new_temp();
-            ctx.current_instr(Instr::PathMapKeyNorito {
-                dest: t_path,
-                base: t_base,
-                key_blob,
-            });
-            t_path
-        }
-    }
+fn build_state_map_path(ctx: &mut LowerCtx, name: &str, key: Temp, key_type: &Type) -> Temp {
+    let base = build_state_base_name(ctx, name);
+    let key_blob = encode_aggregate_state_value(ctx, key, key_type)
+        .expect("validated canonical durable map key schema");
+    let path = ctx.new_temp();
+    ctx.current_instr(Instr::PathMapKeyNorito {
+        dest: path,
+        base,
+        key_blob,
+    });
+    path
 }
 fn lowerable_state_handle_name(ctx: &LowerCtx, expr: &semantic::TypedExpr) -> Option<String> {
     match expr.kind() {
@@ -7541,7 +7875,7 @@ mod tests {
     #[test]
     fn contextually_typed_integer_quantity_literal_lowers_as_quantity_data() {
         let program =
-            parse("seiyaku QuantityLiteral { view fn amount() -> quantity { return 1; } }")
+            parse("seiyaku QuantityLiteral { view fn amount() authorize(anyone) -> quantity { return 1; } }")
                 .expect("parse quantity literal contract");
         let typed = analyze(&program).expect("analyze contextual quantity literal");
         let lowered = lower(&typed).expect("lower contextual quantity literal");
@@ -7566,51 +7900,35 @@ mod tests {
         assert!(!data_refs.contains(&(DataRefKind::Int, "1")));
     }
     #[test]
-    fn bool_state_keys_use_their_own_canonical_codec() {
-        let mut context = LowerCtx::new(Type::Unit, 64, HashMap::new(), HashMap::new());
-        let entry = context.new_label();
-        context.start_block(entry);
-        let key = emit_i64_const(&mut context, 1);
-        let _path = build_state_map_path(&mut context, "flags", key, &KeyCodec::Int);
-        let blob = emit_i64_const(&mut context, 8);
-        let decoded = decode_state_map_key(&mut context, blob, &Type::Bool)
-            .expect("Bool StateMap key must decode");
-        context.finish_current(Terminator::Return(Some(decoded)));
-        let instructions = &context.blocks[0].instrs;
-        assert!(instructions.iter().any(|instruction| {
-            matches!(instruction, Instr::EncodeBoolKey { value, .. } if *value == key)
-        }));
-        assert!(instructions.iter().any(|instruction| {
-            matches!(instruction, Instr::PointerEq { dest, left, .. } if *dest == decoded && *left == blob)
-        }));
-        assert!(instructions.iter().all(|instruction| !matches!(
-            instruction,
-            Instr::PointerToNorito { .. } | Instr::PointerFromNorito { .. }
-        )));
-    }
-    #[test]
-    fn wide_numeric_state_keys_use_canonical_pointer_norito() {
-        assert_eq!(key_codec_for_type(&Type::Bool), Some(KeyCodec::Int));
-        for ty in [Type::Int, Type::Decimal, Type::Quantity] {
-            assert_eq!(key_codec_for_type(&ty), Some(KeyCodec::Pointer));
+    fn scalar_and_tuple_state_keys_share_the_canonical_state_record_codec() {
+        for ty in [
+            Type::Bool,
+            Type::Int,
+            Type::Decimal,
+            Type::Quantity,
+            Type::Tuple(vec![Type::AccountId, Type::Int]),
+        ] {
+            assert!(state_map_key_type(&ty).is_some());
             let mut context = LowerCtx::new(Type::Unit, 64, HashMap::new(), HashMap::new());
             let entry = context.new_label();
             context.start_block(entry);
-            let blob = emit_i64_const(&mut context, 8);
-            let decoded = decode_state_map_key(&mut context, blob, &ty)
-                .expect("wide numeric state key must decode");
+            let key = emit_i64_const(&mut context, 8);
+            let _ = build_state_map_path(&mut context, "values", key, &ty);
+            let blob = emit_i64_const(&mut context, 16);
+            let decoded =
+                decode_state_map_key(&mut context, blob, &ty).expect("canonical key decodes");
             context.finish_current(Terminator::Return(Some(decoded)));
-            let expected_kind = pointer_kind_for_type(&ty).expect("numeric pointer kind");
-            assert!(context.blocks[0].instrs.iter().any(|instruction| {
-                matches!(
-                    instruction,
-                    Instr::PointerFromNorito {
-                        dest,
-                        blob: actual_blob,
-                        kind,
-                    } if *dest == decoded && *actual_blob == blob && *kind == expected_kind
-                )
-            }));
+            let instructions = &context.blocks[0].instrs;
+            assert!(
+                instructions
+                    .iter()
+                    .any(|instruction| matches!(instruction, Instr::StateValueEncode { .. }))
+            );
+            assert!(instructions.iter().any(|instruction| matches!(instruction, Instr::DirectHelperSyscall { syscall, .. } if *syscall == ivm_abi::syscalls::SYSCALL_STATE_VALUE_DECODE)));
+            assert!(instructions.iter().all(|instruction| !matches!(
+                instruction,
+                Instr::PointerToNorito { .. } | Instr::PointerFromNorito { .. }
+            )));
         }
     }
     #[test]
@@ -7842,7 +8160,7 @@ mod tests {
         let checked_scalars = instructions
             .iter()
             .filter_map(|instruction| match instruction {
-                Instr::IntTryToU64 { dest, .. } => Some(*dest),
+                Instr::IntToU64 { dest, .. } => Some(*dest),
                 _ => None,
             })
             .collect::<std::collections::HashSet<_>>();
@@ -8185,6 +8503,7 @@ mod tests {
                     entity,
                     offset,
                     limit,
+                    ..
                 } => Some((*items_dest, *next_offset_dest, *entity, *offset, *limit)),
                 _ => None,
             })
@@ -8200,7 +8519,7 @@ mod tests {
                 .iter()
                 .flat_map(|block| &block.instrs)
                 .filter(|instruction| {
-                    matches!(instruction, Instr::IntTryToI64 { dest, .. } if *dest == pages[0].3)
+                    matches!(instruction, Instr::IntToI64 { dest, .. } if *dest == pages[0].3)
                 })
                 .count(),
             1,
@@ -8212,7 +8531,7 @@ mod tests {
                 .iter()
                 .flat_map(|block| &block.instrs)
                 .filter(|instruction| {
-                    matches!(instruction, Instr::IntTryToU64 { dest, .. } if *dest == pages[0].4)
+                    matches!(instruction, Instr::IntToU64 { dest, .. } if *dest == pages[0].4)
                 })
                 .count(),
             1,
@@ -8414,7 +8733,7 @@ mod tests {
                 block
                     .instrs
                     .iter()
-                    .any(|instruction| matches!(instruction, Instr::IntTryToU64 { .. }))
+                    .any(|instruction| matches!(instruction, Instr::IntToU64 { .. }))
             })
             .expect("successful List.get arm converts its proven index");
         let predecessor = function
@@ -8451,7 +8770,7 @@ mod tests {
             predecessor
                 .instrs
                 .iter()
-                .all(|instruction| !matches!(instruction, Instr::IntTryToU64 { .. })),
+                .all(|instruction| !matches!(instruction, Instr::IntToU64 { .. })),
             "out-of-range indices must reach Option::none without a narrowing fault"
         );
     }
@@ -8471,20 +8790,19 @@ mod tests {
         let converted = instructions
             .iter()
             .filter_map(|instruction| match instruction {
-                Instr::IntTryToU64 { dest, .. } => Some(*dest),
+                Instr::IntToU64 { dest, .. } => Some(*dest),
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(converted.len(), 3);
+        assert_eq!(converted.len(), 2);
         for scalar in instructions
             .iter()
             .filter_map(|instruction| match instruction {
-                Instr::VerifySignature { scheme, .. } => Some(*scheme),
                 Instr::Sm4CcmSeal {
                     tag_len: Some(tag_len),
                     ..
                 } => Some(*tag_len),
-                Instr::SetTriggerEnabled { enabled, .. } => Some(*enabled),
+                Instr::SetAccountQuorum { quorum, .. } => Some(*quorum),
                 _ => None,
             })
         {
@@ -8498,8 +8816,8 @@ mod tests {
     fn scalar_protocol_literals_outside_u64_fail_lowering() {
         for value in ["-1", "18446744073709551616"] {
             let source = format!(
-                "fn verify(bytes payload) {{ let _ok = crypto::verify_signature(\
-                    message: payload, signature: payload, public_key: payload, scheme: {value}); }}"
+                "fn seal(bytes payload) {{ let _sealed = crypto::sm4_ccm::seal(\
+                    key: payload, nonce: payload, aad: payload, payload: payload, tag_length: {value}); }}"
             );
             let typed = analyze(&parse(&source).expect("parse scalar boundary overflow"))
                 .expect("analyze scalar boundary overflow");
@@ -8511,7 +8829,7 @@ mod tests {
         }
     }
     #[test]
-    fn state_map_int_keys_are_encoded_from_the_canonical_int_pointer() {
+    fn state_map_int_keys_use_the_canonical_state_record() {
         let source = "state StateMap<int, int> balances; fn set(int key, int value) { balances[key] = value; }";
         let lowered = lower(
             &analyze(&parse(source).expect("parse numeric StateMap key"))
@@ -8523,10 +8841,20 @@ mod tests {
             .iter()
             .flat_map(|block| &block.instrs)
             .collect::<Vec<_>>();
+        let path_keys = instructions
+            .iter()
+            .filter_map(|instruction| match instruction {
+                Instr::PathMapKeyNorito { key_blob, .. } => Some(*key_blob),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(path_keys.len(), 1, "one canonical key per access");
         let encoded_keys = instructions
             .iter()
             .filter_map(|instruction| match instruction {
-                Instr::PointerToNorito { dest, value } => Some((*dest, *value)),
+                Instr::StateValueEncode { dest, words, .. } if *dest == path_keys[0] => {
+                    Some(words.as_slice())
+                }
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -8535,13 +8863,13 @@ mod tests {
             1,
             "one canonical key encoding per access"
         );
-        assert!(instructions.iter().any(|instruction| {
-            matches!(
-                instruction,
-                Instr::PathMapKeyNorito { key_blob, .. }
-                    if *key_blob == encoded_keys[0].0
-            )
-        }));
+        assert_eq!(encoded_keys[0].len(), 1, "int keys retain one typed word");
+        assert!(
+            !instructions
+                .iter()
+                .any(|instruction| { matches!(instruction, Instr::PointerToNorito { .. }) }),
+            "scalar keys must not retain the old scalar-envelope path"
+        );
     }
     #[test]
     fn scalar_state_paths_lower_to_framed_state_path_bytes() {
@@ -8874,10 +9202,10 @@ mod tests {
             else {
                 panic!("unexpected {entrypoint_name} schema: {schema:?}");
             };
-            assert_eq!(page.name, "QueryPage");
+            assert_eq!(page.name, "kotodama::QueryPage");
             assert_eq!(page.fields, ["items", "next_offset"]);
             assert_eq!(items.capacity, 64);
-            assert_eq!(view.name, view_name);
+            assert_eq!(view.name, format!("kotodama::{view_name}"));
             assert!(matches!(
                 schema
                     .nodes
@@ -9007,6 +9335,61 @@ mod tests {
         }
         assert!(saw_invoke, "expected InvokeEntrypointAs in lowered test");
         assert!(saw_expect_reject, "expected ExpectRejectAs in lowered test");
+    }
+    #[test]
+    fn test_helper_calls_announce_their_source_site_first() {
+        let src = include_str!("ir/fixtures/v1/i052.ko");
+        let typed = semantic::SemanticContext::with_capabilities(false, true)
+            .analyze(&parse(src).expect("parse invoke_entrypoint_as"))
+            .expect("analyze invoke_entrypoint_as");
+        let ir = lower_with_cap(&typed, 2).expect("lower invoke_entrypoint_as");
+        let test_fn = ir
+            .functions
+            .iter()
+            .find(|function| function.name == "drive_run")
+            .expect("test function");
+        let instructions = test_fn
+            .blocks
+            .iter()
+            .flat_map(|block| &block.instrs)
+            .collect::<Vec<_>>();
+        let helper_calls = instructions
+            .iter()
+            .enumerate()
+            .filter(|(_, instruction)| {
+                matches!(
+                    instruction,
+                    Instr::InvokeEntrypointAs { .. } | Instr::ExpectRejectAs { .. }
+                )
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        assert_eq!(helper_calls.len(), 2);
+        for index in helper_calls {
+            assert!(
+                instructions[..index]
+                    .iter()
+                    .rev()
+                    .any(|instruction| matches!(
+                        instruction,
+                        Instr::DirectHelperSyscall { syscall, args, .. }
+                            if *syscall == ivm_abi::syscalls::SYSCALL_KOTO_TEST_CALL_SITE
+                                && args.len() == 1
+                    )),
+                "helper call at {index} has no call-site announcement"
+            );
+        }
+        let announcements = instructions
+            .iter()
+            .filter(|instruction| {
+                matches!(
+                    instruction,
+                    Instr::DirectHelperSyscall { syscall, .. }
+                        if *syscall == ivm_abi::syscalls::SYSCALL_KOTO_TEST_CALL_SITE
+                )
+            })
+            .count();
+        assert_eq!(announcements, 2, "one announcement per helper call");
     }
     #[test]
     fn invoke_entrypoint_as_tuple_return_lowers_to_multi_intrinsic() {
@@ -9733,13 +10116,15 @@ mod tests {
         Some(true),
         Some(false)
     );
-    alias_lowering_case!(
-        lower_account_id_invalid_non_alias_literal_keeps_static_account_dataref,
-        AliasSource::Exact(r#"fn main() { let _acct = AccountId::parse("merchant"); }"#),
-        AliasLiteral::DataRef(DataRefKind::Account, "merchant"),
-        Some(false),
-        Some(true)
-    );
+    #[test]
+    fn account_id_invalid_non_alias_literal_is_rejected_before_lowering() {
+        // A literal that is neither canonical I105 nor alias-shaped never
+        // reaches lowering: semantic analysis rejects it with its span.
+        let program = parse(r#"fn main() { let _acct = AccountId::parse("merchant"); }"#)
+            .expect("parse invalid account literal");
+        let error = analyze(&program).expect_err("non-alias invalid AccountId literal");
+        assert_eq!(error.code, "E_INVALID_ID_LITERAL");
+    }
     alias_lowering_case!(
         lower_account_id_canonical_literal_to_static_account_dataref,
         AliasSource::CanonicalAccount,
@@ -10003,8 +10388,8 @@ mod tests {
         );
     }
     #[test]
-    fn lower_get_or_on_state_map_reads_without_writing() {
-        let src = "state StateMap<int, int> balances; fn f() -> int { return balances.get_or(key: 1, default: 7); }";
+    fn lower_get_unwrap_or_on_state_map_reads_without_writing() {
+        let src = "state StateMap<int, int> balances; fn f() -> int { return balances.get(1).unwrap_or(7); }";
         let prog = parse(src).unwrap();
         let typed = analyze(&prog).unwrap();
         let ir = lower(&typed).expect("lower");
@@ -10022,9 +10407,87 @@ mod tests {
         }
         assert!(
             state_gets >= 1,
-            "expected get_or durable path to read state"
+            "expected get(...).unwrap_or durable path to read state"
         );
-        assert_eq!(state_sets, 0, "get_or must not mutate durable state");
+        assert_eq!(
+            state_sets, 0,
+            "get(...).unwrap_or must not mutate durable state"
+        );
+    }
+    #[test]
+    fn lower_get_or_insert_writes_the_default_only_on_absence() {
+        let src = "permission W; state StateMap<int, int> balances; kotoage fn f() authorize(W) -> int { return balances.get_or_insert(1, 7); }";
+        let typed = analyze(&parse(src).unwrap()).unwrap();
+        let ir = lower(&typed).expect("lower");
+        let f = &ir.functions[0];
+        let (mut state_gets, mut state_sets) = (0, 0);
+        for instr in f.blocks.iter().flat_map(|bb| &bb.instrs) {
+            match instr {
+                Instr::StateGet { .. } => state_gets += 1,
+                Instr::StateSet { .. } => state_sets += 1,
+                _ => {}
+            }
+        }
+        assert!(state_gets >= 1, "get_or_insert reads before writing");
+        assert!(state_sets >= 1, "get_or_insert writes the default");
+    }
+    #[test]
+    fn transfer_without_dataspace_passes_a_null_scope_word() {
+        let src = "fn pay(AccountId from, AccountId to, AssetDefinitionId asset) { ledger::asset::transfer(source: from, destination: to, asset_definition: asset, amount: 1); }";
+        let typed = analyze(&parse(src).unwrap()).unwrap();
+        let ir = lower(&typed).expect("lower");
+        let instrs = ir.functions[0]
+            .blocks
+            .iter()
+            .flat_map(|bb| &bb.instrs)
+            .collect::<Vec<_>>();
+        let dataspace = instrs
+            .iter()
+            .find_map(|instr| match instr {
+                Instr::TransferAsset { dataspace, .. } => Some(*dataspace),
+                _ => None,
+            })
+            .expect("transfer lowers to TransferAsset");
+        assert!(
+            instrs.iter().any(|instr| matches!(
+                instr,
+                Instr::Const { dest, value: 0 } if *dest == dataspace
+            )),
+            "an omitted dataspace must lower to the zero scope word"
+        );
+    }
+    #[test]
+    fn signature_scheme_values_pass_their_host_scheme_code() {
+        for (path, code) in [
+            ("SignatureScheme::Ed25519", 1),
+            ("SignatureScheme::Secp256k1", 2),
+            ("SignatureScheme::MlDsa", 3),
+        ] {
+            let src = format!(
+                "fn check(bytes payload) -> bool {{ return crypto::verify_signature(message: payload, signature: payload, public_key: payload, scheme: {path}); }}"
+            );
+            let typed = analyze(&parse(&src).unwrap()).unwrap();
+            let ir = lower(&typed).expect("lower");
+            let instrs = ir.functions[0]
+                .blocks
+                .iter()
+                .flat_map(|bb| &bb.instrs)
+                .collect::<Vec<_>>();
+            let scheme = instrs
+                .iter()
+                .find_map(|instr| match instr {
+                    Instr::VerifySignature { scheme, .. } => Some(*scheme),
+                    _ => None,
+                })
+                .expect("verification lowers to VerifySignature");
+            assert!(
+                instrs.iter().any(|instr| matches!(
+                    instr,
+                    Instr::Const { dest, value } if *dest == scheme && *value == code
+                )),
+                "{path} must pass scheme code {code}"
+            );
+        }
     }
     #[test]
     fn scalar_state_map_get_reuses_presence_blob() {
@@ -10313,12 +10776,64 @@ mod tests {
         }
         assert_eq!(state_sets, 1, "StateMap aggregate must use one host write");
         assert_eq!(state_gets, 1, "StateMap aggregate must use one host read");
-        assert_eq!(aggregate_encodes, 1);
+        assert_eq!(
+            aggregate_encodes, 3,
+            "encode the write key, value and read key once each"
+        );
         assert_eq!(aggregate_decodes, 1);
         assert!(
             child_paths.is_empty(),
             "unexpected child paths: {child_paths:?}"
         );
+    }
+    #[test]
+    fn sum_error_bridges_lower_fallbacks_only_in_the_failure_block() {
+        let source = r#"module Bridges {
+            error enum Previous { Denied = 1 }
+            error enum Failure { Missing = 7 }
+            fn fallback() -> Failure { Failure::Missing }
+            fn receiver(bool present) -> Option<(int, bool)> {
+                if present { Option::some((7, true)) } else { Option::none }
+            }
+            fn convert(bool present) -> Result<(int, bool), Failure> {
+                receiver(present).ok_or(error: fallback())
+            }
+            fn replace(Result<int, Previous> value) -> Result<int, Failure> {
+                value.or_err(error: fallback())
+            }
+            fn extract(Result<int, Previous> value) -> int { value.expect(error: fallback()) }
+        }"#;
+        let typed = analyze(&parse(source).expect("parse lazy error bridges"))
+            .expect("type lazy error bridges");
+        let lowered = lower(&typed).expect("lower lazy error bridges");
+        for name in ["convert", "replace", "extract"] {
+            let function = lowered
+                .functions
+                .iter()
+                .find(|function| function.name == name)
+                .unwrap();
+            let branch = function
+                .blocks
+                .iter()
+                .find_map(|block| match block.terminator {
+                    Terminator::Branch { else_bb, .. } => Some((block, else_bb)),
+                    _ => None,
+                })
+                .expect("sum tag selects a success or failure branch");
+            let fallback_blocks = function.blocks.iter().filter(|block| block.instrs.iter().any(|instruction| {
+                matches!(instruction, Instr::Call { callee, .. } | Instr::CallMulti { callee, .. } if callee == "fallback")
+            })).map(|block| block.label).collect::<Vec<_>>();
+            assert_eq!(
+                fallback_blocks,
+                vec![branch.1],
+                "{name}: fallback belongs only to the failing branch"
+            );
+            if name == "convert" {
+                assert_eq!(branch.0.instrs.iter().filter(|instruction| {
+                    matches!(instruction, Instr::Call { callee, .. } | Instr::CallMulti { callee, .. } if callee == "receiver")
+                }).count(), 1, "receiver is captured once before branching");
+            }
+        }
     }
     #[test]
     fn aggregate_unwrap_or_lowers_one_eager_fallback_call() {
@@ -10565,7 +11080,10 @@ mod tests {
                 )
             })
             .count();
-        assert_eq!(encodes, 1, "bytes map writes must use the typed codec");
+        assert_eq!(
+            encodes, 3,
+            "both map keys and the written value use the same typed codec"
+        );
         assert_eq!(decodes, 1, "bytes map reads must use the typed codec");
     }
     #[test]
@@ -10627,6 +11145,52 @@ mod tests {
                 .expect_err("invalid constant numeric arithmetic must fail semantic checking");
             assert_eq!(error.code, code);
         }
+    }
+    #[test]
+    fn native_event_lowering_captures_each_field_once_before_emission() {
+        let typed = analyze(
+            &parse(
+                r#"seiyaku Events {
+            event Pair { int first; int second; }
+            fn first() -> int { 1 }
+            fn second() -> int { 2 }
+            kotoage fn run() authorize(anyone) { emit Pair { second: second(), first: first() }; }
+        }"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let lowered = lower(&typed).unwrap();
+        let instructions = lowered
+            .functions
+            .iter()
+            .flat_map(|function| &function.blocks)
+            .flat_map(|block| &block.instrs)
+            .collect::<Vec<_>>();
+        let calls = instructions
+            .iter()
+            .filter_map(|instruction| match instruction {
+                Instr::Call { callee, .. } if callee == "first" || callee == "second" => {
+                    Some(callee.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(calls, ["second", "first"]);
+        let emissions = instructions
+            .iter()
+            .filter_map(|instruction| match instruction {
+                Instr::DirectHelperSyscall { syscall, args, .. }
+                    if *syscall == ivm_abi::syscalls::SYSCALL_EMIT_CONTRACT_EVENT =>
+                {
+                    Some(args)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(emissions.len(), 1);
+        assert_eq!(emissions[0].len(), 3);
+        assert!(!instructions.iter().any(|instruction| matches!(instruction, Instr::DirectHelperSyscall { syscall, .. } if *syscall == ivm_abi::syscalls::SYSCALL_JSON_BUILD)));
     }
     include!("ir_tail_tests.rs");
 }

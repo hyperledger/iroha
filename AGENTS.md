@@ -12,7 +12,7 @@ These guidelines apply to the entire repository, which is organised as a Cargo w
 - Format code: `cargo fmt --all` (edition 2024)
 - Test one crate: `cargo test -p <crate>`
 - Run one test: `cargo test -p <crate> <test_name> -- --nocapture`
-- Swift SDK: from the `IrohaSwift` directory run `swift test` to execute the Swift package tests.
+- Swift SDK: run `python3.12 scripts/test_swift_local.py` from the repository root to build the current native bridge and execute the complete Swift package tests. Direct `swift test` requires an already authenticated matching native artifact.
 - Kotlin SDK: from the `kotlin` directory run `./gradlew :core-jvm:test --console=plain`; build Android artifacts with `./gradlew :client-android:assembleRelease :kagemusha-wallet-android:assembleRelease --quiet`.
 - JVM attestation tooling: from `kotlin`, run `./gradlew :tools:test :tools:installDist --console=plain`; the repository shell launcher invokes the same Kotlin-owned command.
 - Android managed consumers: from `kotlin`, run `./gradlew :client-android:testDebugUnitTest :kagemusha-wallet-android:testDebugUnitTest --console=plain` with JDK 21 and the Android SDK configured.
@@ -62,7 +62,7 @@ These guidelines apply to the entire repository, which is organised as a Cargo w
     - `ivm` – the Iroha Virtual Machine.
     - `iroha_cli` – command-line interface for interacting with a node.
     - `iroha_core`, `iroha_data_model`, `iroha_crypto`, and other supporting crates.
-- `IrohaSwift/` – Swift Package for the client/mobile SDK. Its sources live under `Sources/IrohaSwift/` and its unit tests under `Tests/IrohaSwiftTests/`. Run `swift test` from this directory to exercise the Swift suite.
+- `IrohaSwift/` – Swift Package for the client/mobile SDK. Its sources live under `Sources/IrohaSwift/` and its unit tests under `Tests/IrohaSwiftTests/`. Run `python3.12 scripts/test_swift_local.py` from the repository root to prepare its native dependency and exercise the Swift suite.
 - `kotlin/` – default JVM/Android SDK for new mobile work. `core-jvm` contains the pure Kotlin/JVM Norito + client/model stack, `client-android` adds Android-only client/keystore integration, and `kagemusha-wallet-android` contains Android-only KAGEMUSHA wallet code and JNI libraries. `tools` owns the offline attestation command and depends on the pure JVM evidence verifier in `core-jvm`.
 - `java/` – duplicate implementations awaiting capability, fixture and delivery migration into Kotlin-owned modules. Track retirement in `specs/jvm_consolidation_inventory.md`; do not add new implementation surface here. Java-source consumer tests target the canonical Kotlin API.
 - `integration_tests/` – Cargo crate hosting cross-component tests under `tests/`.

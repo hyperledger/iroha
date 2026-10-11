@@ -120,9 +120,9 @@ fn guess_defaults(n: u32) -> (String, String, String) {
         ret = "r10=payload_len:u64".into();
         gas = "G_tlv_len + bytes".into();
     } else if up.contains("VRF_EPOCH_SEED") || n == 0x7E {
-        args = "r10=&NoritoBytes(VrfEpochSeedRequest)".into();
-        ret = "r10=ptr (&NoritoBytes(VrfEpochSeedResponse)), r11=status:u64".into();
-        gas = "G_vote_get + bytes".into();
+        args = "r10=epoch:u64".into();
+        ret = "r10=&Blob(seed[32]) or 0 if absent".into();
+        gas = "G_state_query + 8 + 32 if found, otherwise G_state_query + 8".into();
     } else if up.starts_with("INT_") || up.starts_with("DECIMAL_") || up.starts_with("QUANTITY_") {
         // Numeric ABI rows are mandatory in `spec/syscalls.toml`; this branch
         // is only the diagnostic starting point printed when one is missing.
@@ -273,7 +273,7 @@ fn guess_defaults(n: u32) -> (String, String, String) {
         ret = "r10=ptr (&AccountId)".into();
         gas = "G_get_auth + bytes".into();
     } else if up.contains("SYSVAR_CONTRACT_ADDRESS") || n == 0x01_0024 {
-        ret = "r10=ptr (&NoritoBytes(ContractAddress)) or 0".into();
+        ret = "r10=&Blob(canonical ContractAddress UTF-8 literal, exactly 60 bytes) or 0 without contract context".into();
         gas = "G_sysvar + bytes".into();
     } else if up.contains("SYSVAR_ENTRYPOINT") || n == 0x01_0025 {
         ret = "r10=ptr (&Blob(entrypoint)) or 0".into();

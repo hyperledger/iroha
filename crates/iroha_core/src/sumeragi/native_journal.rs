@@ -16,7 +16,6 @@ use iroha_data_model::{
     },
 };
 use iroha_model_base::chain::ChainId;
-use iroha_sumeragi::crypto::AttestationVerifier;
 
 use super::certified_chain::{CertifiedChain, ChainReadError};
 use crate::execution_attempt::ExecutionAttemptError;
@@ -81,7 +80,7 @@ impl NativeJournalIndex {
 /// The configured `network` is the expected signed-genesis hash, supplied independently of
 /// evidence. `chain_id` pins the native instance. Every frame is decoded and every native
 /// certificate/parent/result/epoch link through the tip is verified before `read` executes.
-/// The mandatory explicit attestation verifier must verify each flagged boundary. A single H1
+/// Every ordinary certificate requires its exact authenticated BLS quorum. A single H1
 /// journal still proves only signed-body authority; its unsigned result never acquires a QC.
 ///
 /// The same cumulative Norito allocation scope covers decoding and certificate verification.
@@ -89,13 +88,12 @@ impl NativeJournalIndex {
 ///
 /// # Errors
 /// Rejects malformed bounds, excessive source/decoded size, noncanonical frames, noncontiguous
-/// heights, wrong network/instance, altered execution results, quorum or attestation failures.
+/// heights, wrong network/instance, altered execution results, quorum or signature failures.
 pub fn with_verified_native_journal<T>(
     journal: NativeFinalitySource<'_>,
     chain_id: &ChainId,
     network: &NetworkId,
     limits: NativeFinalityLimits,
-    attestations: &dyn AttestationVerifier,
     budget: &AllocationBudget,
     read: impl FnOnce(&CertifiedChain<'_, StateView<'_>>) -> Result<T, NativeJournalError>,
 ) -> Result<T, NativeJournalError> {
@@ -170,8 +168,7 @@ pub fn with_verified_native_journal<T>(
             network,
             index.hashes.as_slice(),
             index.frames.as_slice(),
-        )?
-        .with_attestation_verifier(attestations);
+        )?;
         let height = u64::try_from(count).map_err(|_| "native journal height overflow")?;
         reader.certified(height)?;
         read(&reader)
@@ -180,8 +177,8 @@ pub fn with_verified_native_journal<T>(
 
 /// One source-owned phase clock for a bounded offline committee operation.
 ///
-/// Each advancement is verified by the same native journal reader and production Pasta
-/// verifier. The retained tip is only a continuity pin; it never supplies a new epoch roster.
+/// Each advancement is verified by the same native journal reader. The retained tip is
+/// only a continuity pin; it never supplies a new epoch roster.
 /// Refusal leaves the previous tip intact. Initial genesis authority has no finalized receipt:
 /// at least H2 must genuinely certify its parent result before this clock can advance.
 pub struct NativeJournalCursor {
@@ -189,7 +186,6 @@ pub struct NativeJournalCursor {
     network: NetworkId,
     limits: NativeFinalityLimits,
     budget: AllocationBudget,
-    attestations: super::attestation::NativePastaVerifier,
     tip: Option<super::certified_chain::CommittedBlock>,
 }
 impl NativeJournalCursor {
@@ -202,7 +198,8 @@ impl NativeJournalCursor {
         budget: &AllocationBudget,
     ) -> Result<Self, NativeJournalError> {
         limits.validate()?;
-        let instance = root_scope
+        // The configured root scope must derive this operation's native instance.
+        root_scope
             .instance_id(&super::crypto::BlsCrypto::new(), network, chain_id.as_str())
             .map_err(|error| error.to_string())?;
         Ok(Self {
@@ -210,14 +207,10 @@ impl NativeJournalCursor {
             network,
             limits,
             budget: budget.clone(),
-            attestations: super::attestation::NativePastaVerifier::new(instance, network),
             tip: None,
         })
     }
-    /// Borrow the production verifier pinned to this operation's independent identity.
-    pub fn attestations(&self) -> &super::attestation::NativePastaVerifier {
-        &self.attestations
-    }
+
     /// Original operation pool retained across unchanged-source retries.
     pub fn allocation_budget(&self) -> &AllocationBudget {
         &self.budget
@@ -253,7 +246,6 @@ impl NativeJournalCursor {
             &self.chain_id,
             &self.network,
             self.limits,
-            &self.attestations,
             &self.budget,
             |reader| {
                 if let Some(tip) = &self.tip {
@@ -301,7 +293,8 @@ pub fn authenticate_signed_genesis(
     if block.hash() != network.into_genesis_hash() {
         return Err("foreign signed genesis".into());
     }
-    let epoch = super::epoch::genesis_epoch(&block)?;
+    let epoch =
+        super::epoch::authenticated_genesis(&block).map(|genesis| genesis.into_parts().0)?;
     Ok((block, epoch))
 }
 
@@ -319,7 +312,6 @@ mod tests {
         },
     };
     use iroha_data_model::sumeragi::finality::{NativeFinalityArtifact, NativeFinalityJournal};
-    use iroha_sumeragi::crypto::NoAttestation;
 
     fn limits() -> NativeFinalityLimits {
         NativeFinalityLimits {
@@ -346,14 +338,12 @@ mod tests {
     fn actual_native_journal_authenticates_source_and_keeps_genesis_scope_explicit() {
         let (chain, journal) = fixture();
         let chain_id = ChainId::from("sumeragi-certified-test-chain");
-        // Permissioned ordinary certificates carry no Pasta requirement; this rejecting verifier
-        // is not a bypass for flagged boundaries (the production caller supplies NativePasta).
+        // The same production reader verifies every exact BLS quorum and source link.
         with_verified_native_journal(
             (&journal).into(),
             &chain_id,
             &chain.network_id(),
             limits(),
-            &NoAttestation,
             &chain.state().ivm_execution_budget(),
             |reader| {
                 assert_eq!(
@@ -383,7 +373,6 @@ mod tests {
                 id,
                 &chain.network_id(),
                 bounds,
-                &NoAttestation,
                 &chain.state().ivm_execution_budget(),
                 |_| Err::<(), _>("callback must not run".into()),
             )
@@ -474,7 +463,13 @@ mod tests {
         use iroha_allocation::AllocationRefusal;
         use std::task::{Context, Waker};
         let (chain, journal) = fixture();
-        let pool = chain.state().ivm_execution_budget();
+        // Keep the independent Kura read outside this operation's accounting
+        // window; only the cursor and its refusal observer are under test here.
+        let expected_tip = chain.committed(3).block_hash();
+        // This offline reader owns one finite operation pool. The fixture's
+        // committed State has independently retired MV generations whose epoch
+        // reclamation must not be counted as journal-reader refunds.
+        let pool = AllocationBudget::new(limits().allocated_bytes);
         let floor = pool.reserved_bytes();
         let mut observer = crate::unit_test_support::release_registration(&pool);
         let mut cursor = NativeJournalCursor::new(
@@ -518,7 +513,7 @@ mod tests {
         observer.cancel();
         assert_eq!(
             cursor.advance((&journal).into()).unwrap().block_hash(),
-            chain.committed(3).block_hash()
+            expected_tip,
         );
         drop(cursor);
         drop(observer);
@@ -528,7 +523,8 @@ mod tests {
     #[test]
     fn native_journal_decoder_refusal_never_runs_reader_or_replaces_cursor_tip() {
         let (chain, journal) = fixture();
-        let pool = chain.state().ivm_execution_budget();
+        // Keep refusal accounting within the one original offline operation.
+        let pool = AllocationBudget::new(limits().allocated_bytes);
         let mut cursor = NativeJournalCursor::new(
             ChainId::from("sumeragi-certified-test-chain"),
             chain.network_id(),
@@ -555,7 +551,6 @@ mod tests {
                     cursor.chain_id(),
                     &chain.network_id(),
                     limits(),
-                    cursor.attestations(),
                     &pool,
                     |_| -> Result<(), NativeJournalError> {
                         panic!("refused source must not reach reader");

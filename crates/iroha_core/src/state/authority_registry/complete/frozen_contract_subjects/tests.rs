@@ -70,6 +70,7 @@ fn changed_binding() -> ContractSubjectBinding {
     row.lifecycle.revision = 2;
     row.lifecycle.pending_owner = Some(ContractLifecycleOwnerV1::Account(BOB_ID.clone()));
     row.lifecycle.active_code_hash = Some(Hash::new(b"original active code"));
+    row.lifecycle.retained_code_hash = Some(Hash::new(b"original active code"));
     row
 }
 fn stage(block: &mut StateBlock<'_>) {

@@ -1,7 +1,7 @@
 {
   "default_encode_flags": 2,
   "format_version": 1,
-  "purpose": "eight public manual protocol owners before identity declaration",
+  "purpose": "seven public manual protocol owners before identity declaration",
   "rows": [
     {
       "actual_type_name": "iroha_data_model::privacy::PrivacyProofWireMagicV1",
@@ -458,114 +458,6 @@
       "header_schema_hash_hex": "5fae2c994574e5aa90442545c8eabafd",
       "payload_length": 138,
       "serialize_schema_hash_hex": "5fae2c994574e5aa90442545c8eabafd"
-    },
-    {
-      "actual_type_name": "iroha_data_model::kagemusha::kagemusha_v1::KagemushaIpm1PayloadKindV1",
-      "alignment_padding_length": 0,
-      "bare_hex": "01",
-      "case": "kagemusha_ipm1_payload_kind/root_0",
-      "deserialize_schema_hash_hex": "d439e6b873d203a454e0a17c5389e021",
-      "frame_hex": "4e5254300000d439e6b873d203a454e0a17c5389e0210001000000000000003660c067cded83ac0001",
-      "header_flags": 0,
-      "header_schema_hash_hex": "d439e6b873d203a454e0a17c5389e021",
-      "payload_length": 1,
-      "serialize_schema_hash_hex": "d439e6b873d203a454e0a17c5389e021"
-    },
-    {
-      "actual_type_name": "core::option::Option<iroha_data_model::kagemusha::kagemusha_v1::KagemushaIpm1PayloadKindV1>",
-      "alignment_padding_length": 0,
-      "bare_hex": "010101",
-      "case": "kagemusha_ipm1_payload_kind/option_0",
-      "deserialize_schema_hash_hex": "81e585959e96bd4f58fa4d6742d8ccd9",
-      "frame_hex": "4e525430000081e585959e96bd4f58fa4d6742d8ccd9000300000000000000ef18c4bea08b353202010101",
-      "header_flags": 2,
-      "header_schema_hash_hex": "81e585959e96bd4f58fa4d6742d8ccd9",
-      "payload_length": 3,
-      "serialize_schema_hash_hex": "81e585959e96bd4f58fa4d6742d8ccd9"
-    },
-    {
-      "actual_type_name": "iroha_data_model::kagemusha::kagemusha_v1::KagemushaIpm1PayloadKindV1",
-      "alignment_padding_length": 0,
-      "bare_hex": "02",
-      "case": "kagemusha_ipm1_payload_kind/root_1",
-      "deserialize_schema_hash_hex": "d439e6b873d203a454e0a17c5389e021",
-      "frame_hex": "4e5254300000d439e6b873d203a454e0a17c5389e021000100000000000000029f27cc249729eb0002",
-      "header_flags": 0,
-      "header_schema_hash_hex": "d439e6b873d203a454e0a17c5389e021",
-      "payload_length": 1,
-      "serialize_schema_hash_hex": "d439e6b873d203a454e0a17c5389e021"
-    },
-    {
-      "actual_type_name": "core::option::Option<iroha_data_model::kagemusha::kagemusha_v1::KagemushaIpm1PayloadKindV1>",
-      "alignment_padding_length": 0,
-      "bare_hex": "010102",
-      "case": "kagemusha_ipm1_payload_kind/option_1",
-      "deserialize_schema_hash_hex": "81e585959e96bd4f58fa4d6742d8ccd9",
-      "frame_hex": "4e525430000081e585959e96bd4f58fa4d6742d8ccd9000300000000000000dbe7231549f19f7502010102",
-      "header_flags": 2,
-      "header_schema_hash_hex": "81e585959e96bd4f58fa4d6742d8ccd9",
-      "payload_length": 3,
-      "serialize_schema_hash_hex": "81e585959e96bd4f58fa4d6742d8ccd9"
-    },
-    {
-      "actual_type_name": "iroha_data_model::kagemusha::kagemusha_v1::KagemushaIpm1PayloadKindV1",
-      "alignment_padding_length": 0,
-      "bare_hex": "03",
-      "case": "kagemusha_ipm1_payload_kind/root_2",
-      "deserialize_schema_hash_hex": "d439e6b873d203a454e0a17c5389e021",
-      "frame_hex": "4e5254300000d439e6b873d203a454e0a17c5389e0210001000000000000006dc080cf9adb07580003",
-      "header_flags": 0,
-      "header_schema_hash_hex": "d439e6b873d203a454e0a17c5389e021",
-      "payload_length": 1,
-      "serialize_schema_hash_hex": "d439e6b873d203a454e0a17c5389e021"
-    },
-    {
-      "actual_type_name": "core::option::Option<iroha_data_model::kagemusha::kagemusha_v1::KagemushaIpm1PayloadKindV1>",
-      "alignment_padding_length": 0,
-      "bare_hex": "010103",
-      "case": "kagemusha_ipm1_payload_kind/option_2",
-      "deserialize_schema_hash_hex": "81e585959e96bd4f58fa4d6742d8ccd9",
-      "frame_hex": "4e525430000081e585959e96bd4f58fa4d6742d8ccd9000300000000000000b4b88416f7bdb1c602010103",
-      "header_flags": 2,
-      "header_schema_hash_hex": "81e585959e96bd4f58fa4d6742d8ccd9",
-      "payload_length": 3,
-      "serialize_schema_hash_hex": "81e585959e96bd4f58fa4d6742d8ccd9"
-    },
-    {
-      "actual_type_name": "core::option::Option<iroha_data_model::kagemusha::kagemusha_v1::KagemushaIpm1PayloadKindV1>",
-      "alignment_padding_length": 0,
-      "bare_hex": "00",
-      "case": "kagemusha_ipm1_payload_kind/option_none",
-      "deserialize_schema_hash_hex": "81e585959e96bd4f58fa4d6742d8ccd9",
-      "frame_hex": "4e525430000081e585959e96bd4f58fa4d6742d8ccd9000100000000000000593f676473a1ad1f0000",
-      "header_flags": 0,
-      "header_schema_hash_hex": "81e585959e96bd4f58fa4d6742d8ccd9",
-      "payload_length": 1,
-      "serialize_schema_hash_hex": "81e585959e96bd4f58fa4d6742d8ccd9"
-    },
-    {
-      "actual_type_name": "alloc::vec::Vec<iroha_data_model::kagemusha::kagemusha_v1::KagemushaIpm1PayloadKindV1>",
-      "alignment_padding_length": 0,
-      "bare_hex": "0000000000000000",
-      "case": "kagemusha_ipm1_payload_kind/vec_empty",
-      "deserialize_schema_hash_hex": "099b75bb5a94d4c86fa48b3a25c7f88d",
-      "frame_hex": "4e5254300000099b75bb5a94d4c86fa48b3a25c7f88d000800000000000000c0ca824265736ab6000000000000000000",
-      "header_flags": 0,
-      "header_schema_hash_hex": "099b75bb5a94d4c86fa48b3a25c7f88d",
-      "payload_length": 8,
-      "serialize_schema_hash_hex": "099b75bb5a94d4c86fa48b3a25c7f88d"
-    },
-    {
-      "actual_type_name": "alloc::vec::Vec<iroha_data_model::kagemusha::kagemusha_v1::KagemushaIpm1PayloadKindV1>",
-      "alignment_padding_length": 0,
-      "bare_hex": "0300000000000000010101020103",
-      "case": "kagemusha_ipm1_payload_kind/vec_all",
-      "deserialize_schema_hash_hex": "099b75bb5a94d4c86fa48b3a25c7f88d",
-      "frame_hex": "4e5254300000099b75bb5a94d4c86fa48b3a25c7f88d000e000000000000000949581d2c70fa0e020300000000000000010101020103",
-      "header_flags": 2,
-      "header_schema_hash_hex": "099b75bb5a94d4c86fa48b3a25c7f88d",
-      "payload_length": 14,
-      "serialize_schema_hash_hex": "099b75bb5a94d4c86fa48b3a25c7f88d"
     },
     {
       "actual_type_name": "iroha_data_model::isi::repo::RepoInstructionBox",

@@ -12,13 +12,10 @@ use std::{
 
 use iroha::client::{BridgeFinalityAttestationTipMismatch, Client};
 use iroha_crypto::Algorithm;
-use iroha_data_model::{
-    NetworkId,
-    sumeragi_finality::{SumeragiFinalityAttestation, SumeragiFinalityProof},
-};
+use iroha_data_model::{NetworkId, sumeragi_finality::SumeragiFinalityProof};
 use iroha_model_base::peer::PeerId;
 
-use super::finality::{FinalitySource, MAX_OBSERVATION_PEERS};
+use super::finality::{FinalityAttestation, FinalitySource, MAX_OBSERVATION_PEERS};
 
 const MAX_CONCURRENT_PEERS: usize = 8;
 const PER_PEER_BUDGET: Duration = Duration::from_secs(5);
@@ -127,7 +124,7 @@ impl FinalitySource for HttpFinalitySource {
         &self,
         peer: &PeerId,
         challenge: &[u8; 32],
-    ) -> Result<SumeragiFinalityAttestation, Self::Error> {
+    ) -> Result<FinalityAttestation, Self::Error> {
         if *challenge == [0; 32] {
             return Err(HttpFinalityError::Invalid("zero challenge"));
         }
@@ -141,6 +138,7 @@ impl FinalitySource for HttpFinalitySource {
         read_tip(self.initial_height, deadline, |height| {
             client
                 .get_sumeragi_finality_attestation(height, *challenge, peer)
+                .map(FinalityAttestation::Authenticated)
                 .map_err(|error| {
                     match error.downcast_ref::<BridgeFinalityAttestationTipMismatch>() {
                         Some(progress) => TipRead::Progress(progress.response().applied_height),
@@ -154,11 +152,19 @@ impl FinalitySource for HttpFinalitySource {
         &self,
         peers: &[PeerId],
         challenge: &[u8; 32],
-    ) -> Vec<Result<SumeragiFinalityAttestation, Self::Error>> {
+    ) -> Vec<Result<FinalityAttestation, Self::Error>> {
         if peers.len() > MAX_OBSERVATION_PEERS {
             return peers
                 .iter()
                 .map(|_| Err(HttpFinalityError::Invalid("peer batch count")))
+                .collect();
+        }
+        if norito::core::decode_limits_active() {
+            // The SDK decodes and verifies each response synchronously. Keep an enclosing
+            // caller's cumulative admission and peer order on its original thread.
+            return peers
+                .iter()
+                .map(|peer| self.latest_attestation(peer, challenge))
                 .collect();
         }
         // Batches bound native threads and open requests. All joins finish before returning;

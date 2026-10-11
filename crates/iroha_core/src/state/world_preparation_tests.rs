@@ -28,10 +28,9 @@ impl RetainedWorldField for FaultField {
     fn publication_slot<'target>(
         self: Box<Self>,
         target: &'target World,
-        scope: &OwnedAllocationScope,
     ) -> Box<dyn PreparedWorldField + 'target> {
         Box::new(PreparedFaultField {
-            original: self.original.publication_slot(target, scope),
+            original: self.original.publication_slot(target),
             after_prepare: self.after_prepare,
             target,
         })
@@ -103,12 +102,8 @@ pub(in crate::state) fn arm_first_release(
 // cannot hide a still-held later writer. No assertion executes in callbacks.
 pub(in crate::state) fn probe_fields(original: DetachedWorld<()>, target: &World) -> [usize; 3] {
     let mut counts = [0; 3];
-    let scope = original
-        .operation_index_budget
-        .try_owned_refund_scope()
-        .unwrap();
     for field in original.fields {
-        let mut slot = field.publication_slot(target, &scope);
+        let mut slot = field.publication_slot(target);
         match slot.try_prepare() {
             Ok(()) => {
                 counts[0] += 1;
@@ -154,7 +149,7 @@ fn world_publication_slot_late_caught_panic_retains_every_writer_until_terminal_
     }
     let world = Arc::new(World::default());
     let mut registration = Some(crate::unit_test_support::release_registration(
-        world.operation_index_budget(),
+        &iroha_allocation::AllocationBudget::new(64 * 1024),
     ));
     let capture = || {
         world
@@ -173,6 +168,15 @@ fn world_publication_slot_late_caught_panic_retains_every_writer_until_terminal_
     });
     let mut observer = Some(capture());
     let held_probes = capture();
+    let expected_fields =
+        crate::state::authority_registry::inventory_test_support::world_overlay_names();
+    assert_eq!(
+        held_probes
+            .fields()
+            .map(|field| field.name.to_owned())
+            .collect::<std::collections::BTreeSet<_>>(),
+        expected_fields,
+    );
     let mut original = capture();
     let wait = Arc::new(Mutex::new(None));
     let stored = Arc::clone(&wait);
@@ -192,7 +196,10 @@ fn world_publication_slot_late_caught_panic_retains_every_writer_until_terminal_
     }));
     assert!(result.is_err());
     assert_eq!(callback.wakes.load(Ordering::SeqCst), 0);
-    assert_eq!(probe_fields(held_probes, &world), [0, 314, 0]);
+    assert_eq!(
+        probe_fields(held_probes, &world),
+        [0, expected_fields.len(), 0]
+    );
     assert!(
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| slot.recover_original())).is_err()
     );
@@ -200,7 +207,10 @@ fn world_publication_slot_late_caught_panic_retains_every_writer_until_terminal_
     assert_eq!(callback.wakes.load(Ordering::SeqCst), 0);
     drop(slot);
     assert_eq!(callback.wakes.load(Ordering::SeqCst), 1);
-    assert_eq!(*callback.counts.lock().unwrap(), Some([314, 0, 0]));
+    assert_eq!(
+        *callback.counts.lock().unwrap(),
+        Some([expected_fields.len(), 0, 0])
+    );
     let (observation, mut registration) = wait.lock().unwrap().take().unwrap();
     assert!(
         registration

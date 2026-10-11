@@ -5,6 +5,6 @@
                     int f05, int f06, int f07, int f08, int f09,
                     int f10, int f11, int f12, int f13
                 }
-                view fn inspect(Wide value) -> int { return value.f00; }
+                view fn inspect(Wide value) authorize(anyone) -> int { return value.f00; }
             }
         

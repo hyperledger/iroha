@@ -36,12 +36,12 @@ const RETIRED_GENERIC_CONFIDENTIAL_VARIANTS = Object.freeze([
 
 function proofAttachment(verifyingKeyName) {
   return {
-    backend: "halo2/ipa",
+    backend: "pipa-r/pasta",
     proof: {
-      backend: "halo2/ipa",
+      backend: "pipa-r/pasta",
       bytes: Array.from(Buffer.from("proof")),
     },
-    vk_ref: { backend: "halo2/ipa", name: verifyingKeyName },
+    vk_ref: { backend: "pipa-r/pasta", name: verifyingKeyName },
   };
 }
 

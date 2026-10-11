@@ -91,10 +91,12 @@ pub(super) fn through_original_later_phase(
     [File; 2],
     [File; 2],
     iroha_core::sumeragi::test_chain::CertifiedTestChain,
+    Instant,
 ) {
     use iroha_core::beacon::GlobalThresholdBeaconDkgSnapshotV1;
     assert!((2..=4).contains(&phase));
     let (mut attempt, writers, inherited) = prepare_restartable(root, budget).unwrap();
+    let admitted_deadline = attempt.deadline;
     let mut chain = genuine_chain();
     assert_eq!(chain.network_id(), attempt.session.network_id);
     through_publication_encoding(&mut attempt);
@@ -179,7 +181,7 @@ pub(super) fn through_original_later_phase(
         chain.committed(2).result()
     );
     if phase == 2 {
-        return (attempt, writers, inherited, chain);
+        return (attempt, writers, inherited, chain, admitted_deadline);
     }
     let mut edges = Vec::new();
     let original_delivery: GlobalThresholdBeaconDkgSnapshotV1 =
@@ -232,7 +234,7 @@ pub(super) fn through_original_later_phase(
         chain.committed(3).result()
     );
     if phase == 3 {
-        return (attempt, writers, inherited, chain);
+        return (attempt, writers, inherited, chain, admitted_deadline);
     }
     let crypto = iroha_core::beacon::AdaptiveGlobalThresholdBeaconDkgCryptoV1;
     let mut reducer =
@@ -300,7 +302,7 @@ pub(super) fn through_original_later_phase(
         attempt.finality.clock().tip().unwrap().result(),
         chain.committed(4).result()
     );
-    (attempt, writers, inherited, chain)
+    (attempt, writers, inherited, chain, admitted_deadline)
 }
 
 #[test]
@@ -309,7 +311,7 @@ fn original_complete_delivery_and_acceptance_heads_restore_signed_owners_real_an
     for phase in [2, 3] {
         let (_temporary, root) = root();
         let budget = AllocationBudget::new(64 * 1024 * 1024);
-        let (original, writers, inherited, chain) =
+        let (original, writers, inherited, chain, admitted_deadline) =
             through_original_later_phase(&root, &budget, phase);
         let original_output = original
             .local
@@ -318,7 +320,11 @@ fn original_complete_delivery_and_acceptance_heads_restore_signed_owners_real_an
             .encoded_public_frame()
             .to_vec();
         let original_identity = original.claim_and_fifo_identity().unwrap();
-        let original_deadline = original.deadline;
+        let original_deadline = admitted_deadline;
+        let original_expiry =
+            norito::decode_canonical::<durable::Intent>(original.durable.intent_bytes(1).unwrap())
+                .unwrap()
+                .expiry;
         let original_stream_generations = original.stream_generations();
         let directory = original.claim.directory().unwrap().path.clone();
         let files = (1..=phase)
@@ -389,6 +395,12 @@ fn original_complete_delivery_and_acceptance_heads_restore_signed_owners_real_an
             chain.committed(u64::from(phase)).result()
         );
         assert!(restored.deadline <= original_deadline);
+        assert_eq!(
+            norito::decode_canonical::<durable::Intent>(restored.durable.intent_bytes(1).unwrap())
+                .unwrap()
+                .expiry,
+            original_expiry
+        );
         assert_eq!(std::ptr::from_ref(&*restored), receiver);
         for (path, bytes) in files {
             assert_eq!(
@@ -409,7 +421,8 @@ fn complete_later_restore_exact_source_admission_refusal_keeps_original_descript
  {
     let (_temporary, root) = root();
     let budget = AllocationBudget::new(64 * 1024 * 1024);
-    let (original, _writers, inherited, _chain) = through_original_later_phase(&root, &budget, 2);
+    let (original, _writers, inherited, _chain, _admitted_deadline) =
+        through_original_later_phase(&root, &budget, 2);
     drop(original);
     assert_eq!(budget.reserved_bytes(), 0);
     let mut restored = prepare_with_sources(
@@ -467,7 +480,7 @@ fn complete_original_later_head_never_reopens_partial_next_read_or_extraction_in
     ] {
         let (_temporary, root) = root();
         let budget = AllocationBudget::new(64 * 1024 * 1024);
-        let (original, _writers, inherited, _chain) =
+        let (original, _writers, inherited, _chain, _admitted_deadline) =
             through_original_later_phase(&root, &budget, 2);
         let path = original.claim.directory().unwrap().path.join(marker);
         fs::write(&path, b"original interrupted immutable intent").unwrap();

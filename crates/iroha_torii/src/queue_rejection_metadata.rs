@@ -122,7 +122,8 @@ impl Error {
             _ => None,
         };
         ErrorEnvelope::new(code, message).with_details(ErrorDetails {
-            reject_code: (!matches!(err, queue::Error::Deferred(_))).then(|| reject_code.to_owned()),
+            reject_code: (!matches!(err, queue::Error::Deferred(_)))
+                .then(|| reject_code.to_owned()),
             queue: backpressure.map(|backpressure| {
                 let saturated = backpressure.is_saturated();
                 QueueErrorSnapshot {

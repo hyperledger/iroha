@@ -248,7 +248,7 @@ final class TxBuilderTests: XCTestCase {
     private static let fixtureClaimUaidHex =
         "c60973f731ccb57008687f9bc38cc712e3be7ab46d99a1beffd1c9fd61e60a87"
     private static let fixtureClaimResolvedAtMs: UInt64 = 1_764_450_000_024
-    private static let fixtureClaimExpiresAtMs: UInt64 = 1_764_453_000_056
+    private static let fixtureClaimExpiresAtMs: UInt64 = 1_764_450_060_024
     private static let fixtureClaimAccountMultihash =
         "ed01205634E9071E8662974A22F137972663C4644DC3546A1938E1CAC58DE4CBA8D965"
     private static let fixtureClaimSignatureHex =
@@ -363,6 +363,7 @@ final class TxBuilderTests: XCTestCase {
         }
         let claimAccountId = try AccountId.make(publicKey: Data(multihashBytes.dropFirst(3)))
         let payload = ToriiIdentifierResolutionPayload(
+            networkId: Self.fixtureNetworkId,
             policyId: Self.fixtureClaimPolicyId,
             opaqueId: "opaque:\(Self.fixtureClaimOpaqueIdHex)",
             receiptHash: Self.fixtureClaimReceiptHashHex,
@@ -371,7 +372,7 @@ final class TxBuilderTests: XCTestCase {
             execution: ToriiIdentifierResolutionExecutionPayload(
                 programId: Self.fixtureClaimProgramId,
                 programDigest: Self.fixtureClaimProgramDigestHex,
-                backend: "bfv-programmed-v1",
+                backend: "hkdf-sha3-512-prf-v1",
                 verificationMode: "signed",
                 inputCiphertextHash: String(repeating: "ab", count: 32),
                 outputCiphertextHash: String(repeating: "bb", count: 32),
@@ -393,7 +394,7 @@ final class TxBuilderTests: XCTestCase {
                     openedAtMs: Self.fixtureClaimResolvedAtMs,
                     expiresAtMs: Self.fixtureClaimExpiresAtMs
                 ),
-                signature: Self.fixtureClaimSignatureHex
+                signature: Self.fixtureClaimSignatureHex.lowercased()
             )
         )
         guard let payloadJSON = String(data: try JSONEncoder().encode(payload), encoding: .utf8) else {
@@ -404,7 +405,6 @@ final class TxBuilderTests: XCTestCase {
           "payload":\(payloadJSON),
           "attestation":{
             "kind":"signed",
-            "algorithm":"ed25519",
             "signature":"\(Self.fixtureClaimSignatureHex)"
           }
         }
@@ -1412,7 +1412,11 @@ final class TxBuilderTests: XCTestCase {
         let sdk = IrohaSDK(baseURL: URL(string: "https://example.test")!)
         let authority = try AccountId.make(publicKey: keypair.publicKey)
         let request = try makeClaimIdentifierRequest(authority: authority, ttlMs: 60)
-        XCTAssertEqual(request.receipt.attestation.algorithm, SigningAlgorithm.ed25519.wireName)
+        XCTAssertEqual(request.receipt.attestation.kind, "signed")
+        let receiptJSON = try encodeNativeClaimIdentifierReceiptJSON(request.receipt)
+        let receiptObject = try XCTUnwrap(JSONSerialization.jsonObject(with: receiptJSON) as? [String: Any])
+        let attestation = try XCTUnwrap(receiptObject["attestation"] as? [String: Any])
+        XCTAssertEqual(Set(attestation.keys), ["kind", "signature"])
         let envelope = try sdk.buildClaimIdentifier(request: request, keypair: keypair)
         XCTAssertEqual(envelope.norito.first, 1)
         XCTAssertEqual(Data(envelope.norito.dropFirst()), envelope.signedTransaction)

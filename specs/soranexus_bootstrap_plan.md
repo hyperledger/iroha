@@ -28,7 +28,7 @@ summary: Operational plan for bringing the core Nexus validator cluster online b
    - `specs/nexus.md` (consensus and Nexus architecture).
    - `specs/nexus_operations.md` (operational lifecycle and evidence requirements).
    - `specs/sora_nexus_operator_onboarding.md` (configuration, key custody, and onboarding checks).
-2. Materialize `configs/soranexus/nexus/genesis.template.json` or `configs/soranexus/taira/genesis.template.json` with operator-provisioned public mint-finality parameters, inject the final validator topology, and require exact identity, canonical-point, and staking-policy validation before signing.
+2. Materialize `configs/soranexus/nexus/genesis.template.json` or `configs/soranexus/taira/genesis.template.json` with the network's explicit canonical XOR asset definition, inject the final ordered validator BLS topology and proofs of possession, and require exact identity, committee geometry, and staking-policy validation before signing.
 3. Confirm network parameters:
    - Consensus committee size & quorum.
    - Block interval / finality thresholds.

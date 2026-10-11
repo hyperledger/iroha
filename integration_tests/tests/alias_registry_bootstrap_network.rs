@@ -38,7 +38,6 @@ use iroha_core::{
     kura::{BlockIndex, BlockStore, Kura},
     state::{AllocationBudget, derive_committee_key_id},
     sumeragi::{
-        attestation::NativePastaVerifier,
         availability_schedule::AvailabilitySchedule,
         certified_chain::CertifiedPrefix,
         crypto::BlsCrypto,
@@ -486,9 +485,6 @@ fn validator_bindings(
                     == Some("staking")
                 && item
                     .get("deactivation_height")
-                    .is_some_and(norito::json::Value::is_null)
-                && item
-                    .get("last_reward_epoch")
                     .is_some_and(norito::json::Value::is_null),
             "BPNG validator record route, authority source or open tenure changed"
         );
@@ -979,7 +975,7 @@ async fn acquire(
                 valid_until_ms,
             },
         )]);
-        let plan = planning_client.client().plan_alias_setup(&request)?;
+        let plan = planning_client.plan_alias_setup(&request)?;
         ensure!(
             plan.body.blockers.is_empty() && plan.body.resources.len() == 1,
             "native planner did not produce one executable resource"
@@ -1654,7 +1650,6 @@ fn inspect_certified_bpng_lane_evidence(
             crypto.clone(),
             budget.clone(),
             Arc::clone(&schedule),
-            Arc::new(NativePastaVerifier::new(instance, network_id)),
         )?
         .poll()?;
         ensure!(
@@ -1918,6 +1913,7 @@ fn inspect_stopped_peer(
         store_dir: WithOrigin::inline(peer.kura_store_dir()),
         max_disk_usage_bytes: defaults::kura::MAX_DISK_USAGE_BYTES,
         blocks_in_memory: NonZeroUsize::new(2).expect("nonzero"),
+        history_checkpoint_cache_capacity: defaults::kura::HISTORY_CHECKPOINT_CACHE_CAPACITY,
         debug_output_new_blocks: false,
         fsync_mode: FsyncMode::Batched,
         fsync_interval: defaults::kura::FSYNC_INTERVAL,

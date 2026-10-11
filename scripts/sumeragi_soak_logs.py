@@ -8,11 +8,11 @@ emits two structured audit events (``crates/iroha_core/src/sumeragi/driver/audit
 
 * ``sumeragi block applied`` (INFO): the executor worker made a block the applied state, for every
   instance (the global chain and every lane). Fields: ``instance``, ``height``, ``view``,
-  ``origin_view``, ``block``, ``result``, ``proposer``, ``payload_bytes``, ``attest``.
+  ``origin_view``, ``block``, ``result``, ``proposer``, ``payload_bytes``.
 * ``sumeragi record durable`` (DEBUG): the persistence worker made a safety record durable
   (§7.4). Fields: ``instance``, ``key``, ``height``, ``epoch`` and ``signed``, the record's
   latest signatures at ``height``: ``proposal:<view>:<block>``,
-  ``prepare:<view>:<block>:<result>:<attest 0|1>``, ``lock:<view>:<block>:<result>:<attest>``
+  ``prepare:<view>:<block>:<result>``, ``lock:<view>:<block>:<result>``
   and ``timeout:<view>:<view of the carried PrepareQC or ->``, comma-separated, or ``-``.
 
 Both the JSON and the text (full/compact) formats of the node logger are understood. From these
@@ -103,7 +103,6 @@ class Applied:
     result: str
     proposer: int
     payload_bytes: int
-    attest: bool
 
 
 @dataclass(frozen=True)
@@ -111,8 +110,8 @@ class Signed:
     """The ``signed`` field of a durable record: the key's latest signatures at the height."""
 
     proposal: Optional[tuple[int, str]] = None
-    prepare: Optional[tuple[int, str, str, bool]] = None
-    lock: Optional[tuple[int, str, str, bool]] = None
+    prepare: Optional[tuple[int, str, str]] = None
+    lock: Optional[tuple[int, str, str]] = None
     timeout: Optional[tuple[int, Optional[int]]] = None
 
 
@@ -417,8 +416,8 @@ def parse_signed(value: str) -> Signed:
             if kind == "proposal" and len(parts) == 3:
                 _require(proposal is None, entry)
                 proposal = (int(parts[1]), _hex(parts[2]))
-            elif kind in ("prepare", "lock") and len(parts) == 5:
-                vote = (int(parts[1]), _hex(parts[2]), _hex(parts[3]), _flag(parts[4]))
+            elif kind in ("prepare", "lock") and len(parts) == 4:
+                vote = (int(parts[1]), _hex(parts[2]), _hex(parts[3]))
                 if kind == "prepare":
                     _require(prepare is None, entry)
                     prepare = vote
@@ -447,14 +446,6 @@ def _hex(value: str) -> str:
     return value
 
 
-def _flag(value: str) -> bool:
-    if value in ("0", "false"):
-        return False
-    if value in ("1", "true"):
-        return True
-    raise AuditParseError(f"not a flag: {value!r}")
-
-
 def _int(fields: Mapping[str, Any], name: str) -> int:
     if name not in fields:
         raise AuditParseError(f"missing field {name!r}")
@@ -471,15 +462,6 @@ def _text(fields: Mapping[str, Any], name: str) -> str:
     if name not in fields:
         raise AuditParseError(f"missing field {name!r}")
     return str(fields[name]).strip('"')
-
-
-def _bool(fields: Mapping[str, Any], name: str) -> bool:
-    if name not in fields:
-        raise AuditParseError(f"missing field {name!r}")
-    value = fields[name]
-    if isinstance(value, bool):
-        return value
-    return _flag(str(value).strip('"'))
 
 
 def split_event(raw: str) -> Optional[tuple[str, Optional[str], Mapping[str, Any]]]:
@@ -555,7 +537,6 @@ def parse_log_lines(node: str, boot: int, lines: Iterable[str], log: NodeLog) ->
                         result=_hex(_text(fields, "result")),
                         proposer=_int(fields, "proposer"),
                         payload_bytes=_int(fields, "payload_bytes"),
-                        attest=_bool(fields, "attest"),
                     )
                 )
             elif message == DURABLE_MESSAGE:
@@ -1251,6 +1232,16 @@ def live_bound_ms(params: LiveBoundParams) -> float:
     return (f + 2 + level_cap) * b_view + sync
 
 
+def missing_requested_faults(requested: object, observed: Iterable[str]) -> list[str]:
+    """Missing kinds of an explicit fault contract; malformed contracts are refused."""
+    if not isinstance(requested, (list, tuple)) or any(
+        not isinstance(kind, str) or kind not in ("kill", "disk", "net")
+        for kind in requested
+    ) or len(set(requested)) != len(requested):
+        raise ValueError("faults must be a list of distinct kill, disk or net kinds")
+    return sorted(set(requested) - set(observed))
+
+
 def build_verdict(
     analysis: Analysis,
     timeline: Timeline,
@@ -1266,6 +1257,20 @@ def build_verdict(
     perf, perf_metrics = check_performance(analysis.commits, timeline, instance, thresholds, load)
     logs = analysis.nodes
     harness: list[Violation] = []
+    if run is not None:
+        observed = sorted({
+            window.kind for window in timeline.windows
+            if timeline.start_ms <= window.start_ms < window.end_ms <= timeline.end_ms
+        })
+        try:
+            missing_faults = missing_requested_faults(run.get("faults"), observed)
+        except ValueError as error:
+            harness.append(Violation("HARNESS", "invalid-requested-fault-kinds", {"reason": str(error)}))
+        else:
+            if missing_faults:
+                harness.append(Violation("HARNESS", "missing-requested-fault-kinds", {
+                    "requested": sorted(run["faults"]), "observed": observed, "missing": missing_faults,
+                }))
     parse_error_count = sum(log.parse_error_count for log in logs.values())
     if parse_error_count:
         harness.append(

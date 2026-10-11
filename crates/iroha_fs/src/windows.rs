@@ -361,10 +361,24 @@ struct Snapshot {
     modified: i64,
     changed: i64,
     attributes: u32,
+    links: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct FileSnapshot(Snapshot);
+
+impl FileSnapshot {
+    pub(super) fn local_parts(self) -> LocalFileSnapshot {
+        (
+            2,
+            (self.0.id.volume, self.0.id.object),
+            self.0.length,
+            [u64::from(self.0.attributes), u64::from(self.0.links), 0, 0],
+            [self.0.modified, 0],
+            [self.0.changed, 0],
+        )
+    }
+}
 
 pub(super) fn journal_snapshot(file: &File) -> io::Result<FileSnapshot> {
     let value = snapshot(file, true, false)?;
@@ -387,13 +401,30 @@ pub(super) fn snapshot_file(file: &File, private: bool) -> io::Result<FileSnapsh
     snapshot(file, private, false).map(FileSnapshot)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LinkPolicy {
+    Single,
+    BuildInput,
+}
+
 fn snapshot(file: &File, private: bool, directory: bool) -> io::Result<Snapshot> {
+    snapshot_with_links(file, private, directory, LinkPolicy::Single)
+}
+
+fn snapshot_with_links(
+    file: &File,
+    private: bool,
+    directory: bool,
+    links: LinkPolicy,
+) -> io::Result<Snapshot> {
     let basic: FILE_BASIC_INFO = info(file, FileBasicInfo)?;
     let standard: FILE_STANDARD_INFO = info(file, FileStandardInfo)?;
     if basic.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
         || (basic.FileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0) != directory
         || standard.DeletePending
-        || (!directory && standard.NumberOfLinks != 1)
+        || (!directory
+            && (standard.NumberOfLinks == 0
+                || (links == LinkPolicy::Single && standard.NumberOfLinks != 1)))
     {
         return Err(denied(
             "native object is a reparse point, has shared links, or has the wrong type",
@@ -407,7 +438,18 @@ fn snapshot(file: &File, private: bool, directory: bool) -> io::Result<Snapshot>
         modified: basic.LastWriteTime,
         changed: basic.ChangeTime,
         attributes: basic.FileAttributes,
+        // Directory snapshots retain their existing semantics; only file link custody varies.
+        links: if directory { 0 } else { standard.NumberOfLinks },
     })
+}
+
+fn named_file_matches(
+    named: Snapshot,
+    after: Snapshot,
+    expected: FileIdentity,
+    links: LinkPolicy,
+) -> bool {
+    named.id == expected && (links == LinkPolicy::Single || named == after)
 }
 
 fn open_file(
@@ -469,6 +511,8 @@ pub(super) struct Directory {
     links: Vec<Arc<Link>>,
 }
 
+#[path = "windows/custody_io.rs"]
+mod custody_io;
 #[path = "windows/private_files.rs"]
 mod private_files;
 
@@ -511,6 +555,19 @@ impl Directory {
 
     pub(super) fn entries(&self, maximum: usize) -> io::Result<Vec<std::ffi::OsString>> {
         self.revalidate()?;
+        self.entries_native(maximum, |mut names| {
+            self.revalidate()?;
+            names.sort();
+            Ok(names)
+        })
+    }
+
+    // Consume the original census while its directory metadata and native owner remain live.
+    pub(super) fn entries_native<T>(
+        &self,
+        maximum: usize,
+        consume: impl FnOnce(Vec<std::ffi::OsString>) -> io::Result<T>,
+    ) -> io::Result<T> {
         let before = snapshot(&self.current().file, self.current().private, true)?;
         let mut names = Vec::new();
         for entry in std::fs::read_dir(self.path())? {
@@ -524,9 +581,7 @@ impl Directory {
         if before != snapshot(&self.current().file, self.current().private, true)? {
             return Err(changed());
         }
-        self.revalidate()?;
-        names.sort();
-        Ok(names)
+        consume(names)
     }
 
     fn open_with_policy(path: &Path, create: bool, private: bool) -> io::Result<Self> {
@@ -642,7 +697,28 @@ impl Directory {
         &self.current().path
     }
     pub(super) fn revalidate(&self) -> io::Result<()> {
-        for link in &self.links {
+        self.revalidate_from(0)
+    }
+
+    // Only a strict descendant with this complete shared native chain omits the prefix.
+    // Independently opened or unrelated owners retain their original full validation.
+    pub(super) fn revalidate_in_tree(&self, anchor: &Self) -> io::Result<()> {
+        let first = if self.links.len() > anchor.links.len()
+            && self
+                .links
+                .iter()
+                .zip(&anchor.links)
+                .all(|(descendant, ancestor)| Arc::ptr_eq(descendant, ancestor))
+        {
+            anchor.links.len()
+        } else {
+            0
+        };
+        self.revalidate_from(first)
+    }
+
+    fn revalidate_from(&self, first: usize) -> io::Result<()> {
+        for link in self.links.iter().skip(first) {
             let held = snapshot(&link.file, link.private, true)?;
             let named = open_file(
                 &link.path,
@@ -657,6 +733,32 @@ impl Directory {
             }
         }
         Ok(())
+    }
+
+    pub(super) fn child_reader(&self, name: &OsStr) -> io::Result<Self> {
+        self.revalidate()?;
+        let path = self.path().join(name);
+        let file = open_file(
+            &path,
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            OPEN_EXISTING,
+            true,
+            false,
+        )?;
+        snapshot(&file, false, true)?;
+        let mut links = self.links.clone();
+        if links.len() >= 128 {
+            return Err(invalid("private directory depth bound exceeded"));
+        }
+        links.push(Arc::new(Link {
+            path,
+            file,
+            private: false,
+        }));
+        let result = Self { links };
+        result.revalidate()?;
+        Ok(result)
     }
 
     pub(super) fn child(&self, name: &OsStr, create: bool, exclusive: bool) -> io::Result<Self> {
@@ -679,6 +781,34 @@ impl Directory {
         exclusive: bool,
         private: bool,
     ) -> io::Result<Self> {
+        match self.child_admission(name, create, exclusive, private)? {
+            NativeChildOutcome::Present(child) => Ok(child),
+            NativeChildOutcome::InitialAbsence(error) => Err(error),
+        }
+    }
+
+    pub(super) fn child_optional(&self, name: &OsStr) -> io::Result<Option<Self>> {
+        let result = match self.child_admission(name, false, false, true) {
+            // The admitted child already closed its complete retained ancestry.
+            Ok(NativeChildOutcome::Present(child)) => return Ok(Some(child)),
+            Ok(NativeChildOutcome::InitialAbsence(_)) => Ok(None),
+            Err(error) => Err(error),
+        };
+        // No body failure or initial absence may skip the original parent exit.
+        if let Err(error) = self.revalidate() {
+            drop(result);
+            return Err(error);
+        }
+        result
+    }
+
+    fn child_admission(
+        &self,
+        name: &OsStr,
+        create: bool,
+        exclusive: bool,
+        private: bool,
+    ) -> io::Result<NativeChildOutcome<Self>> {
         self.revalidate()?;
         let path = self.path().join(name);
         if create {
@@ -688,14 +818,20 @@ impl Directory {
                 Err(error) => return Err(error),
             }
         }
-        let file = open_file(
+        let file = match open_file(
             &path,
             FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             OPEN_EXISTING,
             true,
             false,
-        )?;
+        ) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(NativeChildOutcome::InitialAbsence(error));
+            }
+            Err(error) => return Err(error),
+        };
         snapshot(&file, private, true)?;
         validate_current_owner(&file)?;
         sync_directory_metadata(&file)?;
@@ -710,22 +846,39 @@ impl Directory {
         }));
         let result = Self { links };
         result.revalidate()?;
-        Ok(result)
+        Ok(NativeChildOutcome::Present(result))
     }
 
     pub(super) fn open_readonly(&self, name: &OsStr) -> io::Result<File> {
         self.revalidate()?;
-        let file = open_file(
+        let file = self
+            .open_readonly_native(name, false)?
+            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+        self.revalidate()?;
+        Ok(file)
+    }
+
+    // Sole original readonly-open admission, with no ancestry observation. Only the initial
+    // native opener may yield optional absence; named admission and final-name errors remain errors.
+    pub(super) fn open_readonly_native(
+        &self,
+        name: &OsStr,
+        optional: bool,
+    ) -> io::Result<Option<File>> {
+        let file = match open_file(
             &self.path().join(name),
             GENERIC_READ,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             OPEN_EXISTING,
             false,
             false,
-        )?;
+        ) {
+            Ok(file) => file,
+            Err(error) if optional && error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
         snapshot(&file, true, false)?;
-        self.revalidate()?;
-        Ok(file)
+        Ok(Some(file))
     }
 
     pub(super) fn open_retained(
@@ -737,6 +890,10 @@ impl Directory {
         RetainedFile::open(self.clone(), name.to_owned(), private, create_new)
     }
 
+    pub(super) fn open_build_input(&self, name: &OsStr) -> io::Result<RetainedFile> {
+        RetainedFile::open_build_input(self.clone(), name.to_owned())
+    }
+
     pub(super) fn read(
         &self,
         name: &OsStr,
@@ -744,21 +901,91 @@ impl Directory {
         private: bool,
     ) -> io::Result<Zeroizing<Vec<u8>>> {
         self.revalidate()?;
-        let mut file = open_file(
+        self.read_native(name, maximum, private, |bytes| {
+            self.revalidate()?;
+            Ok(bytes)
+        })
+    }
+
+    pub(super) fn read_optional(
+        &self,
+        name: &OsStr,
+        maximum: usize,
+        private: bool,
+    ) -> io::Result<Option<Zeroizing<Vec<u8>>>> {
+        self.revalidate()?;
+        let mut exit_checked = false;
+        let result = checked_name(name).and_then(|name| {
+            self.read_optional_native(name, maximum, private, |bytes| {
+                exit_checked = true;
+                self.revalidate()?;
+                Ok(bytes)
+            })
+        });
+        if !exit_checked {
+            self.revalidate()?;
+        }
+        result
+    }
+
+    // Required admission over the sole native leaf recipe. Initial absence retains the
+    // original native error; file/snapshot owners remain live through the internal consumer.
+    // No consumer or file descriptor is exposed by the closed public comparison API.
+    pub(super) fn read_native<T>(
+        &self,
+        name: &OsStr,
+        maximum: usize,
+        private: bool,
+        consume: impl FnOnce(Zeroizing<Vec<u8>>) -> io::Result<T>,
+    ) -> io::Result<T> {
+        match self.read_leaf_native(name, maximum, private, consume)? {
+            NativeReadOutcome::InitialAbsence(error) => Err(error),
+            NativeReadOutcome::Present(value) => Ok(value),
+        }
+    }
+
+    pub(super) fn read_optional_native<T>(
+        &self,
+        name: &OsStr,
+        maximum: usize,
+        private: bool,
+        consume: impl FnOnce(Zeroizing<Vec<u8>>) -> io::Result<T>,
+    ) -> io::Result<Option<T>> {
+        match self.read_leaf_native(name, maximum, private, consume)? {
+            NativeReadOutcome::InitialAbsence(_) => Ok(None),
+            NativeReadOutcome::Present(value) => Ok(Some(value)),
+        }
+    }
+
+    // Sole leaf recipe: every error after the first open remains a native refusal.
+    // Its original held/named owners stay live through the internal consumer.
+    fn read_leaf_native<T>(
+        &self,
+        name: &OsStr,
+        maximum: usize,
+        private: bool,
+        consume: impl FnOnce(Zeroizing<Vec<u8>>) -> io::Result<T>,
+    ) -> io::Result<NativeReadOutcome<T>> {
+        let mut file = match open_file(
             &self.path().join(name),
             GENERIC_READ,
             FILE_SHARE_READ,
             OPEN_EXISTING,
             false,
             false,
-        )?;
+        ) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(NativeReadOutcome::InitialAbsence(error));
+            }
+            Err(error) => return Err(error),
+        };
         let before = snapshot(&file, private, false)?;
         let bytes = bounded_read(&mut file, before.length, maximum)?;
         if before != snapshot(&file, private, false)? {
             return Err(changed());
         }
-        self.revalidate()?;
-        Ok(bytes)
+        consume(bytes).map(NativeReadOutcome::Present)
     }
 
     pub(super) fn write_atomic(
@@ -965,7 +1192,16 @@ impl Directory {
             OPEN_ALWAYS,
             false,
             true,
-        )?;
+        )
+        .map_err(|error| {
+            if error.raw_os_error()
+                == Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION.cast_signed())
+            {
+                io::Error::from(io::ErrorKind::WouldBlock)
+            } else {
+                error
+            }
+        })?;
         snapshot(&file, true, false)?;
         file.sync_all()?;
         self.sync()?;
@@ -1029,13 +1265,77 @@ impl Directory {
         let destination = parent.path.join(name);
         rename_handle(&publishing, &destination, mode)?;
         sync_directory_metadata(&publishing)?;
+        // DELETE authority is needed only for publication. Returning that handle would
+        // conflict with ordinary readers that exclude delete sharing while traversing this
+        // directory. The original read-only handle stays live through this transition, so
+        // the final namespace pin must still name the same original native object.
+        drop(publishing);
+        let published = open_file(
+            &destination,
+            FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            OPEN_EXISTING,
+            true,
+            false,
+        )?;
+        if identity(&published)? != id {
+            return Err(changed());
+        }
+        snapshot(&published, private, true)?;
         self.links.push(Arc::new(Link {
             path: destination,
-            file: publishing,
+            file: published,
             private,
         }));
         self.revalidate()?;
         Ok(self)
+    }
+
+    // The public removal bracket owns full entry and every-result exit custody.
+    pub(super) fn remove_private_native(&self, name: &OsStr) -> io::Result<bool> {
+        let path = self.path().join(name);
+        let file = match open_file(
+            &path,
+            GENERIC_READ | DELETE,
+            FILE_SHARE_READ,
+            OPEN_EXISTING,
+            false,
+            false,
+        ) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        let before = journal_snapshot(&file)?;
+        self.revalidate()?;
+        // This observer permits the original handle's DELETE access, without acquiring
+        // write or delete authority itself. The original excludes replacement sharing.
+        let named = open_file(
+            &path,
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            OPEN_EXISTING,
+            false,
+            false,
+        )?;
+        if journal_snapshot(&file)? != before || journal_snapshot(&named)? != before {
+            return Err(changed());
+        }
+        drop(named);
+        let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
+        // SAFETY: this exact no-reparse private regular single-link file owns DELETE
+        // access and excludes write/delete sharing; no pathname deletion is performed.
+        unsafe {
+            win_ok(SetFileInformationByHandle(
+                file.as_raw_handle(),
+                FileDispositionInfo,
+                from_ref(&disposition).cast(),
+                native_size::<FILE_DISPOSITION_INFO>()?,
+            ))?;
+        }
+        drop(file);
+        sync_directory_metadata(&self.current().file)?;
+        Ok(true)
     }
 
     pub(super) fn reconcile_atomic_staging(
@@ -1197,6 +1497,7 @@ pub(super) struct RetainedFile<D = Directory, N = std::ffi::OsString> {
     name: N,
     file: File,
     before: Snapshot,
+    links: LinkPolicy,
     private: bool,
     writable: bool,
     read_only: bool,
@@ -1205,6 +1506,20 @@ pub(super) struct RetainedFile<D = Directory, N = std::ffi::OsString> {
 
 impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
     fn open(directory: D, name: N, private: bool, create_new: bool) -> io::Result<Self> {
+        Self::open_with_links(directory, name, private, create_new, LinkPolicy::Single)
+    }
+
+    fn open_build_input(directory: D, name: N) -> io::Result<Self> {
+        Self::open_with_links(directory, name, false, false, LinkPolicy::BuildInput)
+    }
+
+    fn open_with_links(
+        directory: D,
+        name: N,
+        private: bool,
+        create_new: bool,
+        links: LinkPolicy,
+    ) -> io::Result<Self> {
         let parent = directory.borrow();
         parent.revalidate()?;
         let file = open_file(
@@ -1224,12 +1539,13 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
             false,
             create_new,
         )?;
-        let before = snapshot(&file, private || create_new, false)?;
+        let before = snapshot_with_links(&file, private || create_new, false, links)?;
         let retained = Self {
             directory,
             name,
             file,
             before,
+            links,
             private: private || create_new,
             writable: create_new,
             read_only: false,
@@ -1245,14 +1561,19 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
 
     pub(super) fn snapshot(&self) -> io::Result<FileSnapshot> {
         self.revalidate()?;
-        let value = FileSnapshot(snapshot(&self.file, self.private, false)?);
+        let value = FileSnapshot(snapshot_with_links(
+            &self.file,
+            self.private,
+            false,
+            self.links,
+        )?);
         self.revalidate()?;
         Ok(value)
     }
     pub(super) fn seal(mut self) -> io::Result<Self> {
         self.file.sync_all()?;
         self.revalidate()?;
-        self.before = snapshot(&self.file, self.private, false)?;
+        self.before = snapshot_with_links(&self.file, self.private, false, self.links)?;
         self.writable = false;
         self.directory.borrow().sync()?;
         Ok(self)
@@ -1271,7 +1592,7 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
     }
     pub(super) fn revalidate(&self) -> io::Result<()> {
         self.directory.borrow().revalidate()?;
-        let after = snapshot(&self.file, self.private, false)?;
+        let after = snapshot_with_links(&self.file, self.private, false, self.links)?;
         if self.read_only {
             private_files::validate_read_only(&self.file)?;
         }
@@ -1286,7 +1607,8 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
             false,
             false,
         )?;
-        if snapshot(&named, self.private, false)?.id != self.before.id {
+        let named_snapshot = snapshot_with_links(&named, self.private, false, self.links)?;
+        if !named_file_matches(named_snapshot, after, self.before.id, self.links) {
             return Err(changed());
         }
         self.directory.borrow().revalidate()
@@ -1502,5 +1824,133 @@ mod tests {
         store.clear_contents_preserving(&["runtime.lock"]).unwrap();
         drop(inherited);
         assert!(store.open_ownership_lock("runtime.lock").is_ok());
+    }
+}
+
+#[cfg(test)]
+mod build_input_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn build_input_final_named_join_refuses_first_observed_link_or_metadata_changes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("cargo-program");
+        std::fs::write(&path, b"native snapshot fixture").unwrap();
+        std::fs::hard_link(&path, temporary.path().join("cargo-dependency")).unwrap();
+        let directory = Directory::open_reader(temporary.path()).unwrap();
+        let original = directory
+            .open_build_input(OsStr::new("cargo-program"))
+            .unwrap();
+        // Real native admission establishes the held full snapshot before a later named read.
+        let after = original.before;
+        assert_eq!(after.links, 2);
+        assert!(named_file_matches(
+            after,
+            after,
+            after.id,
+            LinkPolicy::BuildInput
+        ));
+        let mut late_link = after;
+        late_link.links += 1;
+        assert!(!named_file_matches(
+            late_link,
+            after,
+            after.id,
+            LinkPolicy::BuildInput
+        ));
+        let mut late_content = after;
+        late_content.length += 1;
+        assert!(!named_file_matches(
+            late_content,
+            after,
+            after.id,
+            LinkPolicy::BuildInput
+        ));
+        let mut late_metadata = after;
+        late_metadata.changed += 1;
+        assert!(!named_file_matches(
+            late_metadata,
+            after,
+            after.id,
+            LinkPolicy::BuildInput
+        ));
+        let mut replaced = after;
+        replaced.id.object[0] ^= 1;
+        for policy in [LinkPolicy::Single, LinkPolicy::BuildInput] {
+            assert!(!named_file_matches(replaced, after, after.id, policy));
+        }
+        // Strict owners keep their prior final ID join after their separate single-link
+        // admission. Only build inputs need the additional full named-to-held equality.
+        assert!(named_file_matches(
+            late_content,
+            after,
+            after.id,
+            LinkPolicy::Single
+        ));
+        original.revalidate().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod private_child_parent_sharing_tests {
+    use super::*;
+
+    #[test]
+    fn private_child_adds_one_handle_and_shares_the_complete_original_parent_chain() {
+        let temporary = tempfile::tempdir().unwrap();
+        let nested = temporary.path().join("one/two/three");
+        std::fs::create_dir_all(&nested).unwrap();
+        let parent = crate::OwnerDirectory::open(&nested).unwrap();
+        let original = parent.create_private_child("journal").unwrap();
+        let identity = original.identity().unwrap();
+        drop(original);
+        let depth = parent.inner.links.len();
+        for optional in [false, true] {
+            let child = if optional {
+                parent
+                    .open_private_child_optional("journal")
+                    .unwrap()
+                    .unwrap()
+            } else {
+                parent.open_private_child("journal").unwrap()
+            };
+            assert_eq!(child.identity().unwrap(), identity);
+            assert_eq!(child.inner.links.len(), depth + 1);
+            assert!(
+                parent
+                    .inner
+                    .links
+                    .iter()
+                    .zip(&child.inner.links)
+                    .all(|(parent, child)| Arc::ptr_eq(parent, child))
+            );
+            let shared = parent
+                .inner
+                .links
+                .iter()
+                .chain(&child.inner.links)
+                .map(|link| Arc::as_ptr(link) as usize)
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(shared.len(), depth + 1);
+            // The old absolute selection holds a separate File for every prefix component.
+            let reopened = crate::PrivateDirectory::open(child.path()).unwrap();
+            assert_eq!(reopened.identity().unwrap(), identity);
+            assert!(
+                parent
+                    .inner
+                    .links
+                    .iter()
+                    .zip(&reopened.inner.links)
+                    .all(|(parent, child)| !Arc::ptr_eq(parent, child))
+            );
+            let duplicated = parent
+                .inner
+                .links
+                .iter()
+                .chain(&reopened.inner.links)
+                .map(|link| Arc::as_ptr(link) as usize)
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(duplicated.len(), 2 * depth + 1);
+        }
     }
 }

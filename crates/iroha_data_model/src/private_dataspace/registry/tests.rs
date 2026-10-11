@@ -1,7 +1,7 @@
 //! Native-certificate registry transitions, quotas and hostile restored state.
 
 use super::*;
-use crate::sumeragi_finality::{genesis_epoch, test_fixtures::NativeFinalityFixture};
+use crate::sumeragi_finality::{authenticated_genesis, test_fixtures::NativeFinalityFixture};
 use iroha_crypto::{Hash, HashOf, KeyPair};
 
 fn owner(seed: u8) -> AccountId {
@@ -31,7 +31,9 @@ fn fixture(id: u64) -> (NativeFinalityFixture, PrivateDataspaceRegistration) {
         fixture.chain_id().parse().unwrap(),
         fixture.network_id(),
         result,
-        genesis_epoch(fixture.genesis()).unwrap(),
+        authenticated_genesis(fixture.genesis())
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap(),
     )
     .unwrap();
     (fixture, registration)

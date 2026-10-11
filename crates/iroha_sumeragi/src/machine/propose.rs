@@ -130,12 +130,7 @@ impl Core {
     }
 
     /// Keep the first nonempty bounded payload until its exact control response arrives.
-    pub(super) fn on_payload_built(
-        &mut self,
-        req: u64,
-        payload: Option<PayloadBytes>,
-        attest: bool,
-    ) {
+    pub(super) fn on_payload_built(&mut self, req: u64, payload: Option<PayloadBytes>) {
         if self.awaiting {
             return;
         }
@@ -170,7 +165,7 @@ impl Core {
             .fresh_build
             .as_mut()
             .expect("original fresh build retained");
-        fresh.payload = Some((payload, attest));
+        fresh.payload = Some(payload);
         let context = fresh.context;
         self.build = Build::Requested {
             req,
@@ -180,7 +175,7 @@ impl Core {
         self.out.push(Action::BuildControlWitness { req, context });
         // MS47: a missing authenticated application response is silently invented.
         if cfg!(sumeragi_mutation = "MS47") {
-            self.on_control_witness_built(req, context, &ControlWitness::empty(), false);
+            self.on_control_witness_built(req, context, &ControlWitness::empty());
         }
     }
 
@@ -205,7 +200,6 @@ impl Core {
         req: u64,
         context: ControlWitnessContext,
         witness: &ControlWitness,
-        attest: bool,
     ) {
         if self.awaiting {
             return;
@@ -231,8 +225,8 @@ impl Core {
             .fresh_build
             .as_mut()
             .expect("original request retained");
-        let (payload, payload_attest) = fresh.payload.take().expect("original nonempty payload");
-        self.request_authoring(req, payload, payload_attest || attest, witness);
+        let payload = fresh.payload.take().expect("original nonempty payload");
+        self.request_authoring(req, payload, witness);
     }
 
     /// On `PayloadReady{req}` (§6.10): wake the eligible leader's empty-build wait at any
@@ -265,26 +259,17 @@ impl Core {
         }
     }
 
-    /// Build and send a fresh block (§6.10 rule 3) with the builder's application flag `attest`
-    /// (§3.7 A1).
+    /// Build and send a fresh block from the authenticated application response (§6.10 rule 3).
     fn request_authoring(
         &mut self,
         req: u64,
         payload: PayloadBytes,
-        attest: bool,
         control_witness: &ControlWitness,
     ) {
         let Some(me) = self.leader_eligible() else {
             self.build = Build::Idle;
             return;
         };
-        // The fresh flag is exactly the builders' flag: the core adds no attestation requirement
-        // of its own, not even at an epoch boundary (§3.7 A1). MA7: the builder's flag is
-        // dropped.
-        let attest = attest && !cfg!(sumeragi_mutation = "MA7");
-        // MS45: a mandatory epoch-boundary flag is imposed.
-        #[cfg(sumeragi_mutation = "MS45")]
-        let attest = attest || self.height == self.cfg.epoch.last_height;
         let justify = if self.view == 0 {
             None
         } else {
@@ -308,7 +293,6 @@ impl Core {
                 .topo
                 .skipped_leader_keys(&self.cfg.committee, self.view),
             control_witness: *control_witness,
-            attest,
         };
         self.fresh_build
             .as_mut()

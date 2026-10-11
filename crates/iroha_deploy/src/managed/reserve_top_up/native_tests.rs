@@ -785,6 +785,13 @@ fn generated_native_top_up_binds_only_exact_successful_original_request() {
         crate::managed::native_operation::test_support::provider_id(&prepared, 0),
     )
     .unwrap();
+    crate::managed::native_operation::test_support::assert_optional_current(
+        &outage,
+        &committed,
+        |verifier| {
+            reopened.read_current(&policy, verifier, Instant::now() + Duration::from_secs(30))
+        },
+    );
     let recovered = reopened
         .recover(Instant::now() + Duration::from_secs(30))
         .unwrap();

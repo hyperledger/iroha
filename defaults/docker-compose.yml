@@ -26,7 +26,15 @@ services:
           test -z \"$$(tail -c 1 < \"$$GENESIS_EXPECTED_HASH_FILE\")\" && \\
           IFS= read -r GENESIS_NETWORK_ID < \"$$GENESIS_EXPECTED_HASH_FILE\" && \\
           printf '%s\n' \"$$GENESIS_NETWORK_ID\" | grep -Eq '^hash:[0-9A-F]{63}[13579BDF]#[0-9A-F]{4}$$' && \\
-          export GENESIS_PUBLIC_KEY GENESIS GENESIS_EXPECTED_HASH_FILE && exec iroha3d
+          require_private_file() {
+              test -f \"$$1\" && test ! -L \"$$1\" && test -r \"$$1\" && test -s \"$$1\" &&
+              test \"$$(stat -c '%u:%a:%h' \"$$1\")\" = \"$$(id -u):600:1\" &&
+              test \"$$(wc -c < \"$$1\")\" -le \"$$2\" || {
+                  printf '%s\n' 'required configuration original is absent or lacks native owner-0600 single-link custody' >&2; exit 1;
+              };
+          } &&
+          require_private_file /config/peer.toml 8388608 &&
+          export GENESIS_PUBLIC_KEY GENESIS GENESIS_EXPECTED_HASH_FILE && exec iroha3d --config /config/peer.toml
       "
     environment:
       API_ADDRESS: 0.0.0.0:8080
@@ -60,6 +68,13 @@ services:
         source: '${IROHA_GENESIS_SIGNED_FILE:?set IROHA_GENESIS_SIGNED_FILE to an owner-prepared signed genesis block}'
         target: /genesis/genesis.signed.nrt
         type: bind
+      -
+        bind:
+          create_host_path: false
+        read_only: true
+        source: '${IROHA_PEER0_CONFIG_FILE:?set IROHA_PEER0_CONFIG_FILE to this nodes existing owner-0600 TOML}'
+        target: /config/peer.toml
+        type: bind
   irohad1:
     command: |-
       /bin/sh -eu -c "
@@ -78,7 +93,15 @@ services:
           test -z \"$$(tail -c 1 < \"$$GENESIS_EXPECTED_HASH_FILE\")\" && \\
           IFS= read -r GENESIS_NETWORK_ID < \"$$GENESIS_EXPECTED_HASH_FILE\" && \\
           printf '%s\n' \"$$GENESIS_NETWORK_ID\" | grep -Eq '^hash:[0-9A-F]{63}[13579BDF]#[0-9A-F]{4}$$' && \\
-          export GENESIS_PUBLIC_KEY GENESIS GENESIS_EXPECTED_HASH_FILE && exec iroha3d
+          require_private_file() {
+              test -f \"$$1\" && test ! -L \"$$1\" && test -r \"$$1\" && test -s \"$$1\" &&
+              test \"$$(stat -c '%u:%a:%h' \"$$1\")\" = \"$$(id -u):600:1\" &&
+              test \"$$(wc -c < \"$$1\")\" -le \"$$2\" || {
+                  printf '%s\n' 'required configuration original is absent or lacks native owner-0600 single-link custody' >&2; exit 1;
+              };
+          } &&
+          require_private_file /config/peer.toml 8388608 &&
+          export GENESIS_PUBLIC_KEY GENESIS GENESIS_EXPECTED_HASH_FILE && exec iroha3d --config /config/peer.toml
       "
     environment:
       API_ADDRESS: 0.0.0.0:8081
@@ -112,6 +135,13 @@ services:
         source: '${IROHA_GENESIS_SIGNED_FILE:?set IROHA_GENESIS_SIGNED_FILE to an owner-prepared signed genesis block}'
         target: /genesis/genesis.signed.nrt
         type: bind
+      -
+        bind:
+          create_host_path: false
+        read_only: true
+        source: '${IROHA_PEER1_CONFIG_FILE:?set IROHA_PEER1_CONFIG_FILE to this nodes existing owner-0600 TOML}'
+        target: /config/peer.toml
+        type: bind
   irohad2:
     command: |-
       /bin/sh -eu -c "
@@ -130,7 +160,15 @@ services:
           test -z \"$$(tail -c 1 < \"$$GENESIS_EXPECTED_HASH_FILE\")\" && \\
           IFS= read -r GENESIS_NETWORK_ID < \"$$GENESIS_EXPECTED_HASH_FILE\" && \\
           printf '%s\n' \"$$GENESIS_NETWORK_ID\" | grep -Eq '^hash:[0-9A-F]{63}[13579BDF]#[0-9A-F]{4}$$' && \\
-          export GENESIS_PUBLIC_KEY GENESIS GENESIS_EXPECTED_HASH_FILE && exec iroha3d
+          require_private_file() {
+              test -f \"$$1\" && test ! -L \"$$1\" && test -r \"$$1\" && test -s \"$$1\" &&
+              test \"$$(stat -c '%u:%a:%h' \"$$1\")\" = \"$$(id -u):600:1\" &&
+              test \"$$(wc -c < \"$$1\")\" -le \"$$2\" || {
+                  printf '%s\n' 'required configuration original is absent or lacks native owner-0600 single-link custody' >&2; exit 1;
+              };
+          } &&
+          require_private_file /config/peer.toml 8388608 &&
+          export GENESIS_PUBLIC_KEY GENESIS GENESIS_EXPECTED_HASH_FILE && exec iroha3d --config /config/peer.toml
       "
     environment:
       API_ADDRESS: 0.0.0.0:8082
@@ -164,6 +202,13 @@ services:
         source: '${IROHA_GENESIS_SIGNED_FILE:?set IROHA_GENESIS_SIGNED_FILE to an owner-prepared signed genesis block}'
         target: /genesis/genesis.signed.nrt
         type: bind
+      -
+        bind:
+          create_host_path: false
+        read_only: true
+        source: '${IROHA_PEER2_CONFIG_FILE:?set IROHA_PEER2_CONFIG_FILE to this nodes existing owner-0600 TOML}'
+        target: /config/peer.toml
+        type: bind
   irohad3:
     command: |-
       /bin/sh -eu -c "
@@ -182,7 +227,15 @@ services:
           test -z \"$$(tail -c 1 < \"$$GENESIS_EXPECTED_HASH_FILE\")\" && \\
           IFS= read -r GENESIS_NETWORK_ID < \"$$GENESIS_EXPECTED_HASH_FILE\" && \\
           printf '%s\n' \"$$GENESIS_NETWORK_ID\" | grep -Eq '^hash:[0-9A-F]{63}[13579BDF]#[0-9A-F]{4}$$' && \\
-          export GENESIS_PUBLIC_KEY GENESIS GENESIS_EXPECTED_HASH_FILE && exec iroha3d
+          require_private_file() {
+              test -f \"$$1\" && test ! -L \"$$1\" && test -r \"$$1\" && test -s \"$$1\" &&
+              test \"$$(stat -c '%u:%a:%h' \"$$1\")\" = \"$$(id -u):600:1\" &&
+              test \"$$(wc -c < \"$$1\")\" -le \"$$2\" || {
+                  printf '%s\n' 'required configuration original is absent or lacks native owner-0600 single-link custody' >&2; exit 1;
+              };
+          } &&
+          require_private_file /config/peer.toml 8388608 &&
+          export GENESIS_PUBLIC_KEY GENESIS GENESIS_EXPECTED_HASH_FILE && exec iroha3d --config /config/peer.toml
       "
     environment:
       API_ADDRESS: 0.0.0.0:8083
@@ -215,4 +268,11 @@ services:
         read_only: true
         source: '${IROHA_GENESIS_SIGNED_FILE:?set IROHA_GENESIS_SIGNED_FILE to an owner-prepared signed genesis block}'
         target: /genesis/genesis.signed.nrt
+        type: bind
+      -
+        bind:
+          create_host_path: false
+        read_only: true
+        source: '${IROHA_PEER3_CONFIG_FILE:?set IROHA_PEER3_CONFIG_FILE to this nodes existing owner-0600 TOML}'
+        target: /config/peer.toml
         type: bind

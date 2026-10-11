@@ -1,4 +1,4 @@
-seiyaku Demo {
+seiyaku Demo { permission CreateRequest;
                 struct Request {
                     int status,
                     bytes alias_blob,
@@ -9,7 +9,7 @@ seiyaku Demo {
                 kotoage fn create_request(Name proposal_id,
                                           bytes alias_literal,
                                           bytes requested_by_actor_id,
-                                          Json requested_by_actor) authorize("CreateRequest") {
+                                          Json requested_by_actor) authorize(CreateRequest) {
                     Requests[proposal_id] = Request {
                         status: 1,
                         alias_blob: alias_literal,

@@ -898,6 +898,13 @@ impl StreamTokenGatewayAdmissionProviderV1 for ForbiddenInjectedProvider {
     fn pending(&self, _: u32, _: Instant) -> Result<Readback, Error> {
         panic!("startup must not reconcile an injected provider")
     }
+    fn pending_for_background(
+        &self,
+        _: u32,
+        _: Instant,
+    ) -> Result<StreamTokenGatewayReconciliationReadV1, Error> {
+        panic!("startup must not inspect injected background work")
+    }
     fn acknowledge(&self, _: Record, _: Instant) -> Result<Ack, Error> {
         panic!("startup must not acknowledge through an injected provider")
     }
@@ -1321,5 +1328,141 @@ fn native_gateway_consume_refusal_retries_original_check_before_one_capture_sign
     assert_eq!((captures.get(), signs.get(), submits.get()), (1, 1, 1));
     assert_eq!(driver.appends(), vec![signed_append]);
     assert_eq!(driver.committed.lock().unwrap().len(), committed_before + 1);
+    driver.finish();
+}
+
+#[test]
+fn native_background_idle_does_not_sign_and_revocation_is_not_idle() {
+    let mut fixture = Fixture::new();
+    let (_dir, config) = credentials();
+    let queue = queue();
+    let runtime = fixture.runtime(&config, queue.clone());
+    let height = fixture.chain.height();
+    let owners = Arc::strong_count(fixture.chain.state());
+    for _ in 0..2 {
+        assert!(matches!(
+            runtime.pending_for_background(4, Instant::now() + Duration::from_secs(60)),
+            Ok(StreamTokenGatewayReconciliationReadV1::Idle)
+        ));
+    }
+    assert_eq!(runtime.transactions.sign_calls.load(Ordering::Relaxed), 0);
+    assert_eq!(queue.queued_len(), 0);
+    assert_eq!(fixture.chain.height(), height);
+    assert_eq!(Arc::strong_count(fixture.chain.state()), owners);
+    assert!(
+        runtime
+            .pending_for_background(0, Instant::now() + Duration::from_secs(60))
+            .is_err()
+    );
+    assert!(runtime.pending_for_background(4, Instant::now()).is_err());
+
+    let revoke = Revoke::account_permission(
+        Permission::from(CanCheckSorafsStreamTokenGateway {
+            gateway_id: fixture.policy.qualification.gateway_id,
+        }),
+        account(3),
+    );
+    let now = now_ms();
+    let signed = fixture
+        .chain
+        .sign(&key(3), [InstructionBox::from(revoke)], now);
+    assert_eq!(fixture.chain.commit_at(now, vec![signed]), [true]);
+    assert!(
+        runtime
+            .pending_for_background(4, Instant::now() + Duration::from_secs(60))
+            .is_err(),
+        "a genuinely revoked observer must fail fresh preparation despite an empty outbox"
+    );
+    assert_eq!(runtime.transactions.sign_calls.load(Ordering::Relaxed), 0);
+    assert_eq!(queue.queued_len(), 0);
+}
+
+#[test]
+fn native_background_recovers_external_pending_and_keeps_startup_checks_signed() {
+    let mut fixture = Fixture::new();
+    let (_dir, config) = credentials();
+    let queue = queue();
+    let runtime = Arc::new(fixture.runtime(&config, queue.clone()));
+    assert!(matches!(
+        runtime.pending_for_background(4, Instant::now() + Duration::from_secs(60)),
+        Ok(StreamTokenGatewayReconciliationReadV1::Idle)
+    ));
+    assert_eq!(runtime.transactions.sign_calls.load(Ordering::Relaxed), 0);
+
+    // Commit through the separate chain owner, bypassing this runtime's local admission path.
+    // A previous idle poll must not cache away another replica's durable recovery work.
+    let original = request();
+    let source_time = original.validated_at_unix_ms;
+    let admit = MutateSorafsStreamTokenGateway {
+        request: NativeRequest {
+            network_id: fixture.policy.network_id,
+            gateway_id: fixture.policy.qualification.gateway_id,
+            expected_policy_revision: fixture.policy.qualification.revision,
+            expected_policy_digest: fixture.policy.qualification.policy_digest,
+            action: Action::Admit(original),
+        },
+    };
+    let signed = fixture
+        .chain
+        .sign(&key(2), [InstructionBox::from(admit)], source_time);
+    assert_eq!(fixture.chain.commit_at(source_time, vec![signed]), [true]);
+    let driver = NativeDriver::start(fixture, queue);
+    let capture = StreamTokenAdmissionCaptureV1::try_new(
+        runtime.handle().to_owned(),
+        runtime.qualification,
+        4,
+        Duration::from_secs(60),
+        runtime.clone(),
+        runtime.clone(),
+    )
+    .unwrap();
+    assert_eq!(
+        runtime.transactions.sign_calls.load(Ordering::Relaxed),
+        1,
+        "mandatory startup qualification still signs even before background polling"
+    );
+    let before_recovery = runtime.transactions.sign_calls.load(Ordering::Relaxed);
+    assert_eq!(
+        capture.reconcile_background().unwrap(),
+        StreamTokenReconciliationOutcomeV1::Reconciled(1)
+    );
+    assert!(
+        runtime.transactions.sign_calls.load(Ordering::Relaxed) > before_recovery,
+        "pending recovery signs full native Checks and acknowledgement"
+    );
+    assert_eq!(
+        driver.appends().len(),
+        1,
+        "one genuine original callback is delivered"
+    );
+    let after_recovery = runtime.transactions.sign_calls.load(Ordering::Relaxed);
+    assert_eq!(
+        capture.reconcile_background().unwrap(),
+        StreamTokenReconciliationOutcomeV1::Idle
+    );
+    assert_eq!(
+        runtime.transactions.sign_calls.load(Ordering::Relaxed),
+        after_recovery
+    );
+
+    // Mandatory startup/explicit reconciliation still proves an empty prefix on chain.
+    assert_eq!(capture.reconcile_pending().unwrap(), 0);
+    assert_eq!(
+        runtime.transactions.sign_calls.load(Ordering::Relaxed),
+        after_recovery + 1
+    );
+    capture
+        .validate_expected_binding(
+            runtime.handle(),
+            runtime.qualification,
+            4,
+            Duration::from_secs(60),
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.transactions.sign_calls.load(Ordering::Relaxed),
+        after_recovery + 2,
+        "independent Torii preflight qualification remains a signed Check"
+    );
     driver.finish();
 }

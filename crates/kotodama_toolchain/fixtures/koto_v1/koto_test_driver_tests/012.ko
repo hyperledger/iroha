@@ -1,7 +1,7 @@
-
+permission Test;
             module BadTests {
               koto_test { target: "demo.ko" }
 
-              kotoage fn not_local() authorize("Test") {}
+              kotoage fn not_local() authorize(Test) {}
             }
             

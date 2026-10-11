@@ -5,7 +5,6 @@ use iroha_data_model::{
         AddSignatory, BurnBox, CustomInstruction, GrantBox, MintBox, RegisterBox,
         RemoveAssetKeyValue, RemoveKeyValueBox, RemoveSignatory, RevokeBox, SetAccountQuorum,
         SetAssetKeyValue, SetKeyValueBox, TransferAssetBatch, TransferBox, UnregisterBox,
-        staking::RecordPublicLaneRewards,
     },
     prelude::InstructionBox,
 };
@@ -195,14 +194,6 @@ fn collect_instruction_account_activities(
     }
     if let Some(quorum) = any.downcast_ref::<SetAccountQuorum>() {
         push_unique(out, &quorum.account, AccountActivityRole::Affected);
-        return;
-    }
-    if let Some(rewards) = any.downcast_ref::<RecordPublicLaneRewards>() {
-        push_unique(
-            out,
-            rewards.reward_asset().account(),
-            AccountActivityRole::Incoming,
-        );
         return;
     }
     if let Some(custom) = any.downcast_ref::<CustomInstruction>() {

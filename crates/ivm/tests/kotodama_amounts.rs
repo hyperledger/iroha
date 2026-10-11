@@ -14,7 +14,7 @@ fn execute_rounded(mode: &str) -> Quantity {
                 );
             }}
 
-            view fn main() -> quantity {{
+            view fn main() authorize(anyone) -> quantity {{
                 return rounded(value: 1, divisor: 8.0, scale: 2);
             }}
         }}

@@ -6,8 +6,6 @@ mod fixture_json;
 mod game_v1_codec;
 #[path = "../governance_generated_schema_identity.rs"]
 mod governance_generated_schema_identity;
-#[path = "../kagemusha_app_platform_signing_vectors_v1.rs"]
-mod kagemusha_app_platform_signing_vectors_v1;
 #[path = "../model_parser.rs"]
 mod model_parser;
 #[path = "../../src/bin/musubi_fixture_values.rs"]
@@ -28,8 +26,6 @@ mod nft_market_v1_codec;
 mod norito_chain_layout;
 #[path = "../norito_golden_scaffold.rs"]
 mod norito_golden_scaffold;
-#[path = "../norito_pointer_abi_roundtrip.rs"]
-mod norito_pointer_abi_roundtrip;
 #[path = "../oracle_query_roundtrip.rs"]
 mod oracle_query_roundtrip;
 #[path = "../oracle_reference_fixtures.rs"]

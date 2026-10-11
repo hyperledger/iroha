@@ -14,8 +14,10 @@ pub(super) fn through_original_extraction_intent(
     [File; 2],
     [File; 2],
     iroha_core::sumeragi::test_chain::CertifiedTestChain,
+    Instant,
 ) {
-    let (mut original, writers, inherited, chain) = through_original_later_phase(root, budget, 4);
+    let (mut original, writers, inherited, chain, admitted_deadline) =
+        through_original_later_phase(root, budget, 4);
     assert_eq!(original.phase, Phase::ExportPrepared);
     assert_eq!(original.finality.height(), 4);
     assert_eq!(
@@ -24,7 +26,7 @@ pub(super) fn through_original_extraction_intent(
     );
     original.step().unwrap();
     assert_eq!(original.phase, Phase::AggregateIntentDurable);
-    (original, writers, inherited, chain)
+    (original, writers, inherited, chain, admitted_deadline)
 }
 
 pub(super) fn through_original_aggregate_head(
@@ -35,8 +37,9 @@ pub(super) fn through_original_aggregate_head(
     [File; 2],
     [File; 2],
     iroha_core::sumeragi::test_chain::CertifiedTestChain,
+    Instant,
 ) {
-    let (mut original, writers, inherited, chain) =
+    let (mut original, writers, inherited, chain, admitted_deadline) =
         through_original_extraction_intent(root, budget);
     for expected in [Phase::AggregateProduced, Phase::AggregateDurable] {
         original.step().unwrap();
@@ -45,7 +48,7 @@ pub(super) fn through_original_aggregate_head(
     assert!(original.aggregate_durable.complete());
     assert!(original.local.is_some());
     assert!(original.export.as_ref().unwrap().source_is_empty());
-    (original, writers, inherited, chain)
+    (original, writers, inherited, chain, admitted_deadline)
 }
 
 /// Move only the actual completed producer after its original H4/private/head barriers.
@@ -57,7 +60,7 @@ pub(crate) fn genuine_aggregate_owner(
     GlobalBeaconAggregateOwnerV1,
 ) {
     let (_temporary, path) = root();
-    let (mut original, _writers, _inherited, _chain) =
+    let (mut original, _writers, _inherited, _chain, _admitted_deadline) =
         through_original_aggregate_head(&path, budget);
     let context = original
         .aggregate_context(original.aggregate_durable.intent_hash().unwrap())
@@ -84,7 +87,7 @@ fn finalized_original_aggregate_writer_refusal_retains_once_produced_ciphertext_
  {
     let (_temporary, path) = root();
     let budget = AllocationBudget::new(64 * 1024 * 1024);
-    let (mut original, _writers, _inherited, chain) =
+    let (mut original, _writers, _inherited, chain, _admitted_deadline) =
         through_original_extraction_intent(&path, &budget);
     let directory = original.claim.directory().unwrap().path.clone();
     let checkpoint = directory.join("private-aggregate-checkpoint.norito");
@@ -172,7 +175,7 @@ fn original_complete_aggregate_and_four_output_heads_restore_genuine_h3_h4_ances
     for complete_export in [false, true] {
         let (_temporary, path) = root();
         let budget = AllocationBudget::new(64 * 1024 * 1024);
-        let (mut original, writers, inherited, chain) =
+        let (mut original, writers, inherited, chain, admitted_deadline) =
             through_original_aggregate_head(&path, &budget);
         original.step().unwrap();
         assert_eq!(original.phase, Phase::ShareExtracted);
@@ -185,8 +188,13 @@ fn original_complete_aggregate_and_four_output_heads_restore_genuine_h3_h4_ances
             .to_vec();
         let identity = original.claim_and_fifo_identity().unwrap();
         let generations = original.stream_generations();
-        let deadline = original.deadline;
+        let deadline = admitted_deadline;
         let directory = original.claim.directory().unwrap().path.clone();
+        let original_expiry = norito::decode_canonical::<aggregate_durable::AggregateIntent>(
+            &fs::read(directory.join("producer-extraction-intent.norito")).unwrap(),
+        )
+        .unwrap()
+        .expiry;
         let output_bytes = if complete_export {
             original.step().unwrap();
             assert_eq!(original.phase, Phase::Complete);
@@ -230,6 +238,16 @@ fn original_complete_aggregate_and_four_output_heads_restore_genuine_h3_h4_ances
         assert_eq!(restored.claim_and_fifo_identity().unwrap(), identity);
         assert_eq!(restored.stream_generations(), generations);
         assert!(restored.deadline <= deadline);
+        let restored_expiry = {
+            let attempt = &mut *restored;
+            attempt
+                .aggregate_durable
+                .load(attempt.claim.directory().unwrap())
+                .unwrap()
+                .0
+                .expiry
+        };
+        assert_eq!(restored_expiry, original_expiry);
         assert!(restored.prepared.is_none());
         assert!(restored.local.is_none());
         assert_eq!(
@@ -266,7 +284,8 @@ fn aggregate_reload_all_source_extents_are_paid_together_before_any_private_adop
  {
     let (_temporary, path) = root();
     let budget = AllocationBudget::new(64 * 1024 * 1024);
-    let (original, _writers, inherited, _chain) = through_original_aggregate_head(&path, &budget);
+    let (original, _writers, inherited, _chain, _admitted_deadline) =
+        through_original_aggregate_head(&path, &budget);
     drop(original);
     assert_eq!(budget.reserved_bytes(), 0);
     let mut restored = prepare_with_sources(&path, &budget, inherited, HANDLE, 7).unwrap();
@@ -312,7 +331,8 @@ fn original_aggregate_head_rejects_partial_final_output_prefix_before_private_ex
     use std::os::unix::fs::PermissionsExt as _;
     let (_temporary, path) = root();
     let budget = AllocationBudget::new(64 * 1024 * 1024);
-    let (original, _writers, inherited, _chain) = through_original_aggregate_head(&path, &budget);
+    let (original, _writers, inherited, _chain, _admitted_deadline) =
+        through_original_aggregate_head(&path, &budget);
     let directory = original.claim.directory().unwrap().path.clone();
     let partial = directory.join(seat_export::output_names()[0]);
     fs::write(&partial, b"original incomplete final output").unwrap();
@@ -345,7 +365,7 @@ fn original_extraction_intent_without_complete_aggregate_head_never_falls_back_t
  {
     let (_temporary, path) = root();
     let budget = AllocationBudget::new(64 * 1024 * 1024);
-    let (original, _writers, inherited, _chain) =
+    let (original, _writers, inherited, _chain, _admitted_deadline) =
         through_original_extraction_intent(&path, &budget);
     let intent_path = original
         .claim
@@ -370,7 +390,7 @@ fn original_extraction_intent_without_complete_aggregate_head_never_falls_back_t
 fn actual_aggregate_handoff_checks_prepared_destination_before_retiring_original_contributions() {
     let (_temporary, path) = root();
     let budget = AllocationBudget::new(64 * 1024 * 1024);
-    let (mut original, _writers, _inherited, _chain) =
+    let (mut original, _writers, _inherited, _chain, _admitted_deadline) =
         through_original_aggregate_head(&path, &budget);
     let destination = original.export.take().unwrap();
     let context = original

@@ -20,15 +20,6 @@ int soranet_mldsa_verify(uint32_t suite_id,
     const uint8_t *message, size_t message_len,
     const uint8_t *signature, size_t signature_len);
 
-// Current Connect exports implemented in crates/connect_norito_bridge/src/lib.rs.
-int32_t connect_norito_decode_control_approve_sig_alg(
-    const uint8_t *inp_ptr, unsigned long inp_len,
-    char **out_alg_ptr, unsigned long *out_alg_len);
-int32_t connect_norito_encode_envelope_sign_result_ok_with_alg(
-    uint64_t seq, const char *alg_ptr, unsigned long alg_len,
-    const uint8_t *sig_ptr, unsigned long sig_len,
-    uint8_t **out_ptr, unsigned long *out_len);
-
 typedef void (*NoritoBridgeExportReference)(void);
 
 // Volatile reads prevent optimization from discarding this address inventory.
@@ -133,6 +124,33 @@ static NoritoBridgeExportReference volatile required_exports[] = {
     (NoritoBridgeExportReference)connect_norito_encode_transfer_signed_transaction,
     (NoritoBridgeExportReference)connect_norito_encode_transfer_signed_transaction_alg,
     (NoritoBridgeExportReference)connect_norito_free,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_account_display_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_account_original_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_activity_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_close_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_credit_status_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_discard_review_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_enrollment_refusal_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_enrollment_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_execute_reviewed_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_execute_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_fold_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_installation_begin_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_installation_close_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_installation_register_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_load_original_validate_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_observe_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_open_begin_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_open_cancel_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_open_finish_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_registration_source_relocate_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_request_status_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_resume_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_retry_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_review_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_revision_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_setup_v1,
+    (NoritoBridgeExportReference)connect_norito_kagemusha_wallet_snapshot_v1,
     (NoritoBridgeExportReference)connect_norito_keypair_from_seed,
     (NoritoBridgeExportReference)connect_norito_parliament_timed_ovn_ballot_from_proof_v1,
     (NoritoBridgeExportReference)connect_norito_parliament_timed_ovn_registration_from_proof_v1,

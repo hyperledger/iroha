@@ -21,7 +21,7 @@ test("Explorer OpenAPI and MCP name the same native instruction fields", () => {
   const exported = readJson("../../../artifacts/openapi/torii.json");
   const schemas = openapi.components.schemas;
   const box = schemas.ExplorerInstructionDetail.properties.box;
-  assert.deepEqual(Object.keys(box.properties), ["wire_id", "framed_sha256", "instruction"]);
+  assert.deepEqual(Object.keys(box.properties).sort(), ["framed_sha256", "instruction", "wire_id"]);
   assert.deepEqual(box.required, ["wire_id", "framed_sha256", "instruction"]);
   assert.equal(box.additionalProperties, false);
   assert.equal(box.properties.framed_sha256.pattern, "^[0-9a-f]{64}$");

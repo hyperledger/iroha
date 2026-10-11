@@ -1,5 +1,5 @@
 #![allow(clippy::redundant_pub_crate, clippy::needless_pass_by_value)]
-use super::commands::{DiagnosticsArgs, ParamsArgs, StatusArgs};
+use super::commands::{DiagnosticsArgs, LanesArgs, ParamsArgs, StatusArgs};
 use crate::{CliOutputFormat, RunContext};
 use eyre::Result;
 use norito::json::Value;
@@ -10,6 +10,21 @@ pub(crate) fn status<C: RunContext>(context: &mut C, _args: StatusArgs) -> Resul
         CliOutputFormat::Text => context.println(summarize_status(&value)),
         CliOutputFormat::Json => context.print_data(&value),
     }
+}
+pub(crate) fn lanes<C: RunContext>(context: &mut C, args: LanesArgs) -> Result<()> {
+    context.operator_key_pair().ok_or_else(|| {
+        eyre::eyre!(
+            "consensus lanes require --operator-private-key-file or --operator-private-key-fd"
+        )
+    })?;
+    let mut client = context.client_from_config()?;
+    if let Some(torii_url) = args.torii_url {
+        let mut builder = client.to_builder();
+        builder.torii_url = torii_url;
+        client = builder.build()?;
+    }
+    let lanes = client.get_sumeragi_lanes()?;
+    context.print_data(&lanes)
 }
 pub(crate) fn diagnostics<C: RunContext>(context: &mut C, _args: DiagnosticsArgs) -> Result<()> {
     let client = context.client_from_config()?;

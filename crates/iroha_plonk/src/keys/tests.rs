@@ -41,6 +41,32 @@ struct TestCircuit {
 
 const ROWS: usize = 4;
 
+#[test]
+fn verifier_only_binding_matches_full_keys_on_both_curves() {
+    fn check<C: PastaCurve>() {
+        let params = PinnedParams::<C>::derive(6).expect("parameters");
+        let config = KeygenConfigV2::pipa_r(vec![crate::cs::InstanceType::Field]);
+        let circuit = TestCircuit { rows: ROWS };
+        let (binding, key) =
+            keygen_vk_with_binding_v2(&params, &circuit, &config).expect("verifier");
+        let pk = keygen_pk_v2(&params, &circuit, &config).expect("prover");
+        assert_eq!(&binding, pk.binding());
+        assert_eq!(key.to_bytes(), pk.vk().to_bytes());
+        assert_eq!(key.descriptor_digest(), binding.digest());
+        assert_eq!(
+            keygen_vk_v2(&params, &circuit, &config)
+                .expect("key only")
+                .to_bytes(),
+            key.to_bytes()
+        );
+        let mut wrong = config;
+        wrong.instance_types.clear();
+        assert!(keygen_vk_with_binding_v2(&params, &circuit, &wrong).is_err());
+    }
+    check::<Ep>();
+    check::<Eq>();
+}
+
 impl<F: PastaField> Circuit<F> for TestCircuit {
     type Config = TestConfig;
     type FloorPlanner = SimpleFloorPlanner;
@@ -162,6 +188,238 @@ impl<F: PastaField> Circuit<F> for TestCircuit {
 const K: u32 = 6;
 const CIRCUIT: TestCircuit = TestCircuit { rows: ROWS };
 
+#[test]
+fn proving_key_artifact_round_trip_proves_on_both_curves() {
+    fn check<C: PastaCurve>() {
+        use crate::{ProverConfig, ProverRandomness, Witness, create_proof_owned, verify_full};
+        let params = params::<C>();
+        for compress in [true, false] {
+            let mut profile = KeygenConfigV2::pipa_r(vec![crate::cs::InstanceType::Field]);
+            profile.compress_selectors = compress;
+            let original = keygen_pk_v2(&params, &CIRCUIT, &profile).expect("frozen producer");
+            let encoded = original.artifact_bytes_v2().expect("original bytes");
+            let config = pk::artifact::ReadConfig {
+                maximum_bytes: encoded.len(),
+                maximum_rows: 1 << K,
+                coset_cache: CosetCachePolicy::OnDemand,
+                msm_budget: MemoryBudget::DEFAULT,
+            };
+            let imported = ProvingKey::<C>::from_artifact_v2(
+                &encoded,
+                original.binding(),
+                &params,
+                &CIRCUIT,
+                config,
+            )
+            .expect("installed original");
+            assert!(!imported.has_coset_cache());
+            assert_eq!(imported.artifact_bytes_v2().unwrap(), encoded);
+            assert_eq!(imported.fixed_polys(), original.fixed_polys());
+            assert_eq!(imported.permutation_polys(), original.permutation_polys());
+            assert_eq!(imported.mask_polys(), original.mask_polys());
+            let instances = vec![vec![C::ScalarExt::from(36)]];
+            let witness = Witness::from_circuit(&imported, &CIRCUIT, &instances).unwrap();
+            let proof = create_proof_owned(
+                &params,
+                &imported,
+                witness,
+                ProverRandomness::hedged(),
+                ProverConfig::default(),
+            )
+            .expect("actual imported proof");
+            verify_full(
+                &params,
+                original.binding(),
+                original.vk(),
+                &instances,
+                &proof,
+                MemoryBudget::DEFAULT,
+            )
+            .expect("actual original VK");
+            let mut changed = instances;
+            changed[0][0] += C::ScalarExt::ONE;
+            assert!(
+                verify_full(
+                    &params,
+                    original.binding(),
+                    original.vk(),
+                    &changed,
+                    &proof,
+                    MemoryBudget::DEFAULT
+                )
+                .is_err()
+            );
+        }
+    }
+    check::<Ep>();
+    check::<Eq>();
+}
+
+#[test]
+fn proving_key_artifact_rejects_source_encoding_allocation_and_commitment_changes() {
+    use pk::artifact::{Error as ArtifactError, ReadConfig};
+    #[derive(Clone, Copy)]
+    struct NeverSynthesize;
+    impl<F: PastaField> Circuit<F> for NeverSynthesize {
+        type Config = ();
+        type FloorPlanner = SimpleFloorPlanner;
+        type Params = ();
+        fn without_witnesses(&self) -> Self {
+            panic!("invalid original reached synthesis")
+        }
+        fn configure(_: &mut ConstraintSystem<F>) {
+            panic!("invalid original reached configuration")
+        }
+        fn synthesize(&self, (): (), _: impl Layouter<F>) -> Result<(), Error> {
+            panic!("invalid original reached layout")
+        }
+    }
+    let params = params::<Ep>();
+    let profile = KeygenConfigV2::pipa_r(vec![crate::cs::InstanceType::Field]);
+    let original = keygen_pk_v2(&params, &CIRCUIT, &profile).unwrap();
+    let encoded = original.artifact_bytes_v2().unwrap();
+    let config = ReadConfig {
+        maximum_bytes: encoded.len(),
+        maximum_rows: 1 << K,
+        coset_cache: CosetCachePolicy::OnDemand,
+        msm_budget: MemoryBudget::DEFAULT,
+    };
+    let read = |bytes: &[u8], source: &TestCircuit, selected: ReadConfig| {
+        ProvingKey::<Ep>::from_artifact_v2(bytes, original.binding(), &params, source, selected)
+            .err()
+    };
+    for bytes in [&encoded[..0], &encoded[..43], &encoded[..encoded.len() - 1]] {
+        assert_eq!(read(bytes, &CIRCUIT, config), Some(ArtifactError::Length));
+    }
+    let mut extended = encoded.clone();
+    extended.push(0);
+    assert_eq!(
+        read(&extended, &CIRCUIT, config),
+        Some(ArtifactError::Length)
+    );
+    for index in [0, 8, 39] {
+        let mut changed = encoded.clone();
+        changed[index] ^= 1;
+        assert_eq!(
+            read(&changed, &CIRCUIT, config),
+            Some(ArtifactError::Encoding)
+        );
+    }
+    let mut changed = encoded.clone();
+    changed[40] ^= 1;
+    assert_eq!(
+        read(&changed, &CIRCUIT, config),
+        Some(ArtifactError::Length)
+    );
+    let mut cap = config;
+    cap.maximum_bytes -= 1;
+    assert_eq!(read(&encoded, &CIRCUIT, cap), Some(ArtifactError::Length));
+    cap = config;
+    cap.maximum_rows -= 1;
+    assert_eq!(read(&encoded, &CIRCUIT, cap), Some(ArtifactError::Length));
+    assert_eq!(
+        ProvingKey::<Ep>::from_artifact_v2(
+            &encoded,
+            original.binding(),
+            &params,
+            &NeverSynthesize,
+            cap
+        )
+        .err(),
+        Some(ArtifactError::Length)
+    );
+    let mut malformed = encoded.clone();
+    malformed[0] ^= 1;
+    assert_eq!(
+        ProvingKey::<Ep>::from_artifact_v2(
+            &malformed,
+            original.binding(),
+            &params,
+            &NeverSynthesize,
+            config
+        )
+        .err(),
+        Some(ArtifactError::Encoding)
+    );
+    assert!(read(&encoded, &TestCircuit { rows: ROWS + 1 }, config).is_some());
+    let vk_end = 44 + original.vk().to_bytes().len();
+    let mut changed = encoded.clone();
+    changed[vk_end] ^= 1;
+    assert_eq!(
+        read(&changed, &CIRCUIT, config),
+        Some(ArtifactError::Source)
+    );
+    let mut changed = encoded.clone();
+    changed[vk_end + 32..vk_end + 64].fill(0xff);
+    assert_eq!(
+        read(&changed, &CIRCUIT, config),
+        Some(ArtifactError::Encoding)
+    );
+    let mut changed = encoded.clone();
+    changed[vk_end + 32..vk_end + 64].fill(0);
+    changed[vk_end + 32] = 19;
+    assert_eq!(
+        read(&changed, &CIRCUIT, config),
+        Some(ArtifactError::Source)
+    );
+    let sigma_start = vk_end + 32 + original.fixed_values().len() * original.binding().n() * 32;
+    let mut changed = encoded.clone();
+    changed[sigma_start..sigma_start + 32].fill(0);
+    changed[sigma_start] = 19;
+    assert_eq!(
+        read(&changed, &CIRCUIT, config),
+        Some(ArtifactError::Source)
+    );
+    let selectors_start =
+        44 + 10 + (original.fixed_values().len() + original.permutation_values().len()) * 32;
+    let mut changed = encoded.clone();
+    changed[selectors_start] ^= 1;
+    assert!(read(&changed, &CIRCUIT, config).is_some());
+    // A valid point in another column leaves codec/profile valid but changes the commitment.
+    let mut changed = encoded.clone();
+    let alternate = &original.vk().to_bytes()[10 + 32..10 + 64];
+    assert_ne!(&encoded[44 + 10..44 + 10 + 32], alternate);
+    changed[44 + 10..44 + 10 + 32].copy_from_slice(alternate);
+    assert_eq!(
+        read(&changed, &CIRCUIT, config),
+        Some(ArtifactError::Commitment)
+    );
+    let wrong_params = PinnedParams::<Ep>::derive(K + 1).unwrap();
+    assert_eq!(
+        ProvingKey::<Ep>::from_artifact_v2(
+            &encoded,
+            original.binding(),
+            &wrong_params,
+            &CIRCUIT,
+            config
+        )
+        .err(),
+        Some(ArtifactError::Profile)
+    );
+    let wrong_curve = PinnedParams::<Eq>::derive(K).unwrap();
+    assert!(
+        ProvingKey::<Eq>::from_artifact_v2(
+            &encoded,
+            original.binding(),
+            &wrong_curve,
+            &CIRCUIT,
+            config
+        )
+        .is_err()
+    );
+    let v1 = keygen_pk(
+        &params,
+        &CIRCUIT,
+        &KeygenConfig::new(TranscriptV1::Blake2bChallenge255),
+    )
+    .unwrap();
+    assert_eq!(v1.artifact_bytes_v2().err(), Some(ArtifactError::Profile));
+    assert_eq!(
+        ProvingKey::<Ep>::from_artifact_v2(&encoded, v1.binding(), &params, &CIRCUIT, config).err(),
+        Some(ArtifactError::Profile)
+    );
+}
+
 fn params<C: PastaCurve>() -> PinnedParams<C> {
     PinnedParams::<C>::derive(K).expect("params")
 }
@@ -197,7 +455,10 @@ fn round_trip<C: PastaCurve>() {
         assert_eq!(read, vk);
         assert_eq!(
             *vk.transcript_repr(),
-            transcript_repr::<C::ScalarExt>(pk.binding().digest(), vk.to_bytes())
+            crate::transcript::TranscriptRepr::Scalar(transcript_repr::<C::ScalarExt>(
+                pk.binding().digest(),
+                vk.to_bytes()
+            ))
         );
         assert_eq!(vk.descriptor_digest(), pk.binding().digest());
         assert_eq!(pk.transcript_repr_bytes(), vk.transcript_repr_bytes());
@@ -746,9 +1007,8 @@ fn small_domains_are_unpinned() {
     ));
 }
 
-#[cfg(iroha_plonk_oracle)]
 #[test]
-fn oracle_builds_can_inject_the_vendored_transcript_repr() {
+fn unit_tests_can_inject_the_captured_transcript_repr() {
     use iroha_pasta::Fq;
     let params = params::<Ep>();
     let vk = keygen_vk(
@@ -758,6 +1018,290 @@ fn oracle_builds_can_inject_the_vendored_transcript_repr() {
     )
     .expect("vk");
     let injected = vk.clone().with_transcript_repr_for_oracle(Fq::from(5));
-    assert_eq!(*injected.transcript_repr(), Fq::from(5));
+    assert_eq!(
+        *injected.transcript_repr(),
+        crate::transcript::TranscriptRepr::Scalar(Fq::from(5))
+    );
     assert_eq!(injected.to_bytes(), vk.to_bytes());
+}
+
+fn wallet_digest<C: PastaCurve>() {
+    use crate::{
+        cs::{CircuitDescriptorV2, CurveV1, InstanceType, TranscriptV2},
+        transcript::TranscriptRepr,
+    };
+    use ff::PrimeField;
+    use iroha_pasta::{PastaAffine, poseidon::hash_with_domain};
+
+    let params = params::<C>();
+    let config = KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]);
+    let pk = keygen_pk_v2(&params, &CIRCUIT, &config).expect("PIPA-R keys");
+    let vk = pk.vk();
+    let digest = vk.kagemusha_digest(pk.binding()).expect("wallet digest");
+    let TranscriptRepr::Base(repr) = *vk.transcript_repr() else {
+        panic!("base repr")
+    };
+    let descriptor = pk.binding().descriptor();
+    let curve = match descriptor.curve {
+        CurveV1::Pallas => 0,
+        CurveV1::Vesta => 1,
+    };
+    let mut fields = vec![
+        C::Base::ONE,
+        C::Base::from(curve),
+        C::Base::from(u64::from(K)),
+        C::Base::from(vk.fixed_commitments().len() as u64),
+        C::Base::from(vk.permutation_commitments().len() as u64),
+        repr,
+    ];
+    for chunk in pk.binding().digest().chunks_exact(16) {
+        fields.push(C::Base::from_u128(u128::from_le_bytes(
+            chunk.try_into().expect("16 bytes"),
+        )));
+    }
+    for point in vk
+        .fixed_commitments()
+        .iter()
+        .chain(vk.permutation_commitments())
+    {
+        let (x, y) = point.coordinates().expect("finite");
+        fields.extend([x, y]);
+    }
+    let domain = u64::from_le_bytes(*b"kgwvkey1");
+    assert_eq!(digest, hash_with_domain(domain, &fields));
+    assert_ne!(digest, hash_with_domain(domain ^ 1, &fields));
+    // Every header, digest limb, coordinate and exact arity is bound.
+    for index in 0..fields.len() {
+        let mut changed = fields.clone();
+        changed[index] += C::Base::ONE;
+        assert_ne!(digest, hash_with_domain(domain, &changed), "field {index}");
+    }
+    assert_ne!(
+        digest,
+        hash_with_domain(domain, &fields[..fields.len() - 1])
+    );
+    let mut swapped = fields.clone();
+    swapped.swap(8, 10);
+    swapped.swap(9, 11);
+    assert_ne!(digest, hash_with_domain(domain, &swapped));
+    let mut changed = CircuitDescriptorV2::decode(pk.binding().encoded()).expect("descriptor");
+    changed.instance_types = vec![InstanceType::Field];
+    let other = DescriptorBinding::new_v2(changed).expect("other binding");
+    assert_eq!(vk.kagemusha_digest(&other), Err(VkError::Binding));
+    let rebound = VerifyingKey::<C>::read(vk.to_bytes(), &other).expect("same arithmetic key");
+    assert_ne!(digest, rebound.kagemusha_digest(&other).expect("digest"));
+    let mut fixed = vk.fixed_commitments().to_vec();
+    fixed.swap(0, 1);
+    let foreign = VerifyingKey::<C>::from_parts(
+        pk.binding(),
+        fixed,
+        vk.permutation_commitments().to_vec(),
+        vk.selectors().to_vec(),
+    )
+    .expect("foreign key");
+    assert_ne!(
+        digest,
+        foreign.kagemusha_digest(pk.binding()).expect("digest")
+    );
+    let mut scalar = config;
+    scalar.transcript = TranscriptV2::KagemushaPoseidonRp57;
+    let legacy_profile = keygen_pk_v2(&params, &CIRCUIT, &scalar).expect("retained scalar profile");
+    assert_eq!(
+        legacy_profile
+            .vk()
+            .kagemusha_digest(legacy_profile.binding()),
+        Err(VkError::Binding)
+    );
+}
+
+#[test]
+fn wallet_digest_binds_native_fields_and_v2_keys_on_both_curves() {
+    wallet_digest::<Ep>();
+    wallet_digest::<Eq>();
+}
+
+#[test]
+fn cancellable_keygen_preserves_originals_and_fresh_retry_on_both_curves() {
+    fn check<C: PastaCurve>() {
+        use iroha_pasta::CancellationToken;
+        let params = PinnedParams::<C>::derive(6).unwrap();
+        let circuit = TestCircuit { rows: ROWS };
+        for (coset_cache, table_budget) in [
+            (CosetCachePolicy::Eager, Some(MemoryBudget::DEFAULT)),
+            (CosetCachePolicy::OnDemand, None),
+            (CosetCachePolicy::OnDemand, Some(MemoryBudget::new(0))),
+        ] {
+            let mut config = KeygenConfigV2::pipa_r(vec![crate::cs::InstanceType::Field]);
+            config.coset_cache = coset_cache;
+            config.table_budget = table_budget;
+            let expected = keygen_pk_v2(&params, &circuit, &config).unwrap();
+            let token = CancellationToken::new();
+            token.cancel();
+            assert!(matches!(
+                keygen_pk_v2_cancellable(&params, &circuit, &config, Some(&token)),
+                Err(KeyError::Cancelled)
+            ));
+            assert!(matches!(
+                keygen_vk_with_binding_v2_cancellable(&params, &circuit, &config, Some(&token)),
+                Err(KeyError::Cancelled)
+            ));
+            let fresh = CancellationToken::new();
+            let retry = keygen_pk_v2_cancellable(&params, &circuit, &config, Some(&fresh)).unwrap();
+            let (binding, vk) =
+                keygen_vk_with_binding_v2_cancellable(&params, &circuit, &config, Some(&fresh))
+                    .unwrap();
+            assert_eq!(
+                retry.artifact_bytes_v2().unwrap(),
+                expected.artifact_bytes_v2().unwrap()
+            );
+            assert_eq!(
+                retry.commitment_tables().present(),
+                expected.commitment_tables().present()
+            );
+            assert_eq!(retry.has_coset_cache(), expected.has_coset_cache());
+            assert_eq!(&binding, expected.binding());
+            assert_eq!(vk.to_bytes(), expected.vk().to_bytes());
+            assert_eq!(
+                VerifyingKey::<C>::read_cancellable(vk.to_bytes(), &binding, Some(&fresh)).unwrap(),
+                vk
+            );
+            assert!(matches!(
+                VerifyingKey::<C>::read_cancellable(vk.to_bytes(), &binding, Some(&token)),
+                Err(VkError::Cancelled)
+            ));
+            assert!(matches!(
+                VerifyingKey::<C>::from_parts_cancellable(
+                    &binding,
+                    vk.fixed_commitments().to_vec(),
+                    vk.permutation_commitments().to_vec(),
+                    vk.selectors().to_vec(),
+                    Some(&token)
+                ),
+                Err(VkError::Cancelled)
+            ));
+            assert!(
+                binding
+                    .descriptor()
+                    .check_selector_plan_cancellable(vk.selectors(), Some(&token))
+                    .unwrap_err()
+                    .is_cancelled()
+            );
+            assert_eq!(
+                binding
+                    .descriptor()
+                    .check_selector_plan_cancellable(vk.selectors(), Some(&fresh)),
+                Ok(())
+            );
+            if table_budget.is_some_and(|budget| budget.bytes() == 0) {
+                assert_eq!(retry.commitment_tables().present(), (false, false));
+            }
+        }
+    }
+    check::<Ep>();
+    check::<Eq>();
+}
+
+#[test]
+fn keygen_cancellation_after_real_synthesis_is_typed_and_operation_local() {
+    #[derive(Clone)]
+    struct CancelAfterSynthesis {
+        circuit: TestCircuit,
+        token: iroha_pasta::CancellationToken,
+    }
+    impl<F: PastaField> Circuit<F> for CancelAfterSynthesis {
+        type Config = TestConfig;
+        type FloorPlanner = SimpleFloorPlanner;
+        type Params = ();
+        fn without_witnesses(&self) -> Self {
+            self.clone()
+        }
+        fn configure(meta: &mut ConstraintSystem<F>) -> TestConfig {
+            TestCircuit::configure(meta)
+        }
+        fn synthesize(&self, config: TestConfig, layouter: impl Layouter<F>) -> Result<(), Error> {
+            self.circuit.synthesize(config, layouter)?;
+            self.token.cancel();
+            Ok(())
+        }
+    }
+    fn check<C: PastaCurve>() {
+        let params = PinnedParams::<C>::derive(6).unwrap();
+        let config = KeygenConfigV2::pipa_r(vec![crate::cs::InstanceType::Field]);
+        let circuit = TestCircuit { rows: ROWS };
+        for verifier_only in [false, true] {
+            let token = iroha_pasta::CancellationToken::new();
+            let interrupted = CancelAfterSynthesis {
+                circuit,
+                token: token.clone(),
+            };
+            let result = if verifier_only {
+                keygen_vk_with_binding_v2_cancellable(&params, &interrupted, &config, Some(&token))
+                    .map(|_| ())
+            } else {
+                keygen_pk_v2_cancellable(&params, &interrupted, &config, Some(&token)).map(|_| ())
+            };
+            assert!(matches!(result, Err(KeyError::Cancelled)));
+            let fresh = iroha_pasta::CancellationToken::new();
+            let retry = keygen_pk_v2_cancellable(&params, &circuit, &config, Some(&fresh)).unwrap();
+            assert_eq!(
+                retry.artifact_bytes_v2().unwrap(),
+                keygen_pk_v2(&params, &circuit, &config)
+                    .unwrap()
+                    .artifact_bytes_v2()
+                    .unwrap()
+            );
+        }
+        assert!(KeyError::from(crate::cs::CsError::Cancelled).is_cancelled());
+        assert!(matches!(
+            Error::from(crate::cs::CsError::Cancelled),
+            Error::Cancelled
+        ));
+    }
+    check::<Ep>();
+    check::<Eq>();
+}
+
+#[test]
+fn cancellable_vk_hash_matches_every_transcript_profile() {
+    fn check<C: PastaCurve>() {
+        use crate::{cs::TranscriptV2, transcript::TranscriptRepr};
+        use iroha_pasta::CancellationToken;
+        let bytes = (0_u32..12_345)
+            .map(|index| u8::try_from(index % 251).unwrap())
+            .collect::<Vec<_>>();
+        let fresh = CancellationToken::new();
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        for v2 in [false, true] {
+            for profile in [
+                TranscriptV2::Blake2bChallenge255,
+                TranscriptV2::KagemushaPoseidonRp57,
+                TranscriptV2::KagemushaPoseidonRp57Base,
+            ] {
+                assert_eq!(
+                    TranscriptRepr::<C>::derive_cancellable(
+                        v2,
+                        profile,
+                        &[19; 32],
+                        &bytes,
+                        Some(&fresh)
+                    )
+                    .unwrap(),
+                    TranscriptRepr::<C>::derive(v2, profile, &[19; 32], &bytes)
+                );
+                assert_eq!(
+                    TranscriptRepr::<C>::derive_cancellable(
+                        v2,
+                        profile,
+                        &[19; 32],
+                        &bytes,
+                        Some(&cancelled)
+                    ),
+                    Err(iroha_pasta::Cancelled)
+                );
+            }
+        }
+    }
+    check::<Ep>();
+    check::<Eq>();
 }

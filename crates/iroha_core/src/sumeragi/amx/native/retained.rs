@@ -11,9 +11,6 @@ use iroha_allocation::{
 use iroha_crypto::PublicKey;
 use iroha_data_model::{
     account::AccountId,
-    isi::kagemusha_v1::{
-        KagemushaMintFinalityAuthorityGenerationV1, KagemushaMintFinalityValidatorKeysV1,
-    },
     sumeragi::epoch::{ValidatorCommitteeMemberV1, ValidatorEpochContextV1},
     sumeragi_amx::{
         AmxForeignInstanceV1, AmxHeldDecisionV1, AmxParticipantStateV1, AmxPreparedEntryV1,
@@ -98,6 +95,122 @@ impl From<PrepaidBufferError> for GraphError {
     }
 }
 
+/// Move-only genuine global context retaining every copied roster/key/PoP allocation.
+/// This admission grants no authority; the caller still verifies the original H2.
+pub(super) struct RetainedGlobalSource {
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC219")))]
+    value: RetainedPayload<AmxForeignInstanceV1>,
+    #[cfg(all(test, sumeragi_core_mutation = "HC219"))]
+    value: AmxForeignInstanceV1,
+}
+impl RetainedGlobalSource {
+    #[allow(
+        unsafe_code,
+        reason = "the exact context copier moves each physical allocation with its original ledger into an immutable returned owner"
+    )]
+    pub(super) fn admit(
+        instance: [u8; 32],
+        context: &ValidatorEpochContextV1,
+        budget: &AllocationBudget,
+    ) -> Result<Self, GraphError> {
+        #[cfg(all(test, sumeragi_core_mutation = "HC219"))]
+        {
+            let _ = budget;
+            return Ok(Self {
+                value: AmxForeignInstanceV1 {
+                    instance,
+                    current: context.clone(),
+                    previous: None,
+                },
+            });
+        }
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC219")))]
+        {
+            let mut demand = Demand::default();
+            demand.context(context)?;
+            let mut construction = Construction::new_with_control(demand, budget, 0)?;
+            let current = construction.context(context, budget)?;
+            let value = AmxForeignInstanceV1 {
+                instance,
+                current,
+                previous: None,
+            };
+            let charges = construction
+                .charges
+                .take()
+                .expect("returned context ledger");
+            if construction.reservation.remaining_bytes() != 0
+                || charges.as_slice().len() != charges.capacity()
+            {
+                drop(value);
+                drop(charges);
+                return Err(GraphError::Invalid(
+                    "returned context exact demand changed".into(),
+                ));
+            }
+            // SAFETY: the shared copier prepaid the exact committee Vec, compact key
+            // boxes and PoP Vecs, all unchanged/private. RetainedPayload drops every
+            // actual allocation before its same-pool ledger, including unwind/refusal.
+            let value = unsafe { RetainedPayload::try_new(value, charges, budget) }.map_err(
+                |(value, charges, error)| {
+                    drop(value);
+                    drop(charges);
+                    GraphError::Invalid(error.to_string())
+                },
+            )?;
+            Ok(Self { value })
+        }
+    }
+    pub(super) fn canonical(&self) -> &AmxForeignInstanceV1 {
+        #[cfg(all(test, sumeragi_core_mutation = "HC219"))]
+        {
+            &self.value
+        }
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC219")))]
+        {
+            self.value.get()
+        }
+    }
+    #[cfg(test)]
+    pub(super) fn allocation_bytes(&self) -> Option<usize> {
+        #[cfg(all(test, sumeragi_core_mutation = "HC219"))]
+        {
+            Some(0)
+        }
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC219")))]
+        {
+            self.value.allocation_bytes()
+        }
+    }
+    pub(super) fn belongs_to(&self, budget: &AllocationBudget) -> bool {
+        #[cfg(all(test, sumeragi_core_mutation = "HC219"))]
+        {
+            let _ = budget;
+            false
+        }
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC219")))]
+        {
+            self.value.belongs_to(budget)
+        }
+    }
+}
+
+/// Original initial registration inputs lent until complete World admission.
+pub(super) struct RegistrationSource<'a> {
+    pub(super) dataspace: iroha_model_base::topology::DataSpaceId,
+    pub(super) global: &'a RetainedGlobalSource,
+    pub(super) global_genesis: &'a [u8],
+    pub(super) global_successor: &'a [u8],
+    pub(super) global_chain_label: &'a [u8],
+    pub(super) custody: &'a AccountId,
+}
+
+impl fmt::Debug for RetainedGlobalSource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.canonical().fmt(formatter)
+    }
+}
+
 /// Canonical World participant value whose shared graph is admitted only by this module.
 #[derive(Clone, Default)]
 pub struct RetainedNativeAmx {
@@ -106,6 +219,87 @@ pub struct RetainedNativeAmx {
     authenticated: bool,
 }
 impl RetainedNativeAmx {
+    /// Construct the initially empty graph directly from the still-retained global context.
+    /// No ordinary epoch clone or uncharged canonical temporary is created.
+    pub(super) fn admit_registration(
+        source: RegistrationSource<'_>,
+        budget: &AllocationBudget,
+    ) -> Result<Self, GraphError> {
+        if !source.global.belongs_to(budget) {
+            return Err(GraphError::Invalid(
+                "returned global context belongs to another original pool".into(),
+            ));
+        }
+        let global = source.global.canonical();
+        NativeAmxParticipantStateV1::validate_initial_sources(
+            global,
+            source.global_genesis,
+            source.global_successor,
+            source.global_chain_label,
+        )
+        .map_err(GraphError::from)?;
+        let mut demand = Demand::default();
+        demand.array::<u8>(source.global_genesis.len())?;
+        demand.array::<u8>(source.global_successor.len())?;
+        demand.array::<u8>(source.global_chain_label.len())?;
+        demand.account(source.custody)?;
+        demand.context(&global.current)?;
+        if let Some(previous) = &global.previous {
+            demand.context(previous)?;
+        }
+        demand.array::<AmxPreparedEntryV1>(0)?;
+        demand.array::<AmxHeldDecisionV1>(0)?;
+        demand.array::<AmxTransferEscrowV1>(0)?;
+        let mut construction = Construction::new(demand, budget)?;
+        let global_genesis = construction.bytes(source.global_genesis)?;
+        let global_successor = construction.bytes(source.global_successor)?;
+        let global_chain_label = construction.bytes(source.global_chain_label)?;
+        let custody = construction.account(source.custody)?;
+        let current = construction.context(&global.current, budget)?;
+        let previous = global
+            .previous
+            .as_ref()
+            .map(|previous| construction.context(previous, budget))
+            .transpose()?;
+        let global = AmxForeignInstanceV1 {
+            instance: global.instance,
+            current,
+            previous,
+        };
+        let prepared = construction.buffer::<AmxPreparedEntryV1>(0)?;
+        let prepared = construction.vector(prepared)?;
+        let held = construction.buffer::<AmxHeldDecisionV1>(0)?;
+        let held = construction.vector(held)?;
+        let escrows = construction.buffer::<AmxTransferEscrowV1>(0)?;
+        let value = NativeAmxParticipantStateV1 {
+            global_genesis,
+            global_successor,
+            global_chain_label,
+            participant: AmxParticipantStateV1 {
+                dataspace: source.dataspace,
+                global,
+                global_height: 0,
+                prepared,
+                held,
+            },
+            custody,
+            escrows: construction.vector(escrows)?,
+        };
+        Candidate {
+            value: Some(value),
+            construction,
+            budget: budget.clone(),
+        }
+        .finish()
+    }
+    #[cfg(test)]
+    pub(super) fn allocation_bytes(&self) -> Option<usize> {
+        let owner = self.owner.as_ref()?;
+        owner.allocation_bytes()?.checked_add(
+            ChargedShared::<RetainedPayload<NativeAmxParticipantStateV1>>::allocation_layout()
+                .size(),
+        )
+    }
     /// Borrow immutable canonical authority without copying its nested allocations.
     pub(crate) fn canonical(&self) -> Option<&NativeAmxParticipantStateV1> {
         self.owner.as_ref().map(|owner| owner.get())
@@ -115,6 +309,17 @@ impl RetainedNativeAmx {
         self.owner
             .as_ref()
             .is_none_or(|owner| owner.belongs_to(budget))
+    }
+    /// Borrow this already-authenticated original parent source for local outbound capture.
+    /// Decoded snapshots and equivalent foreign pools cannot supply this runtime capability.
+    /// The returned claim still needs original carrier certification before relaying.
+    pub(crate) fn authenticated_parent_source(
+        &self,
+        budget: &AllocationBudget,
+    ) -> Option<&NativeAmxParticipantStateV1> {
+        (self.authenticated && self.belongs_to(budget))
+            .then(|| self.canonical())
+            .flatten()
     }
     pub(super) const fn is_authenticated(&self) -> bool {
         self.authenticated
@@ -240,14 +445,25 @@ impl Demand {
         )
     }
     fn context(&mut self, source: &ValidatorEpochContextV1) -> Result<(), GraphError> {
-        self.array::<KagemushaMintFinalityValidatorKeysV1>(source.authority.validators.len())?;
-        for member in &source.authority.validators {
-            self.key(member.validator.public_key())?;
-        }
-        self.array::<ValidatorCommitteeMemberV1>(source.committee.len())?;
-        for member in &source.committee {
-            self.key(member.validator.public_key())?;
-            self.array::<u8>(member.proof_of_possession.len())?;
+        // Generation identity derives from this sole BLS roster and the fixed authorization.
+        // Exhaustive fields make new owned epoch/credential storage require accounting review.
+        let ValidatorEpochContextV1 {
+            da_layout: _,
+            version: _,
+            network_id: _,
+            mode: _,
+            authorization: _,
+            committee,
+            leader_seed: _,
+        } = source;
+        self.array::<ValidatorCommitteeMemberV1>(committee.len())?;
+        for ValidatorCommitteeMemberV1 {
+            validator,
+            proof_of_possession,
+        } in committee
+        {
+            self.key(validator.public_key())?;
+            self.array::<u8>(proof_of_possession.len())?;
         }
         Ok(())
     }
@@ -283,11 +499,25 @@ impl Drop for Construction {
     }
 }
 impl Construction {
-    fn new(mut demand: Demand, budget: &AllocationBudget) -> Result<Self, GraphError> {
+    fn new(demand: Demand, budget: &AllocationBudget) -> Result<Self, GraphError> {
+        Self::new_with_control(
+            demand,
+            budget,
+            ChargedShared::<RetainedPayload<NativeAmxParticipantStateV1>>::allocation_layout()
+                .size(),
+        )
+    }
+    fn new_with_control(
+        mut demand: Demand,
+        budget: &AllocationBudget,
+        control_bytes: usize,
+    ) -> Result<Self, GraphError> {
         let ledger = Layout::array::<AllocationCharge>(demand.charges)
             .map_err(|_| AllocationRefusal::DemandOverflow)?;
-        demand.bytes = demand.bytes.checked_add(ledger.size())
-            .and_then(|bytes| bytes.checked_add(ChargedShared::<RetainedPayload<NativeAmxParticipantStateV1>>::allocation_layout().size()))
+        demand.bytes = demand
+            .bytes
+            .checked_add(ledger.size())
+            .and_then(|bytes| bytes.checked_add(control_bytes))
             .ok_or(AllocationRefusal::DemandOverflow)?;
         let mut reservation = budget.try_reserve_bytes(demand.bytes)?;
         let charges = ChargedBuffer::from_reservation(demand.charges, &mut reservation)?;
@@ -389,26 +619,25 @@ impl Construction {
         source: &ValidatorEpochContextV1,
         budget: &AllocationBudget,
     ) -> Result<ValidatorEpochContextV1, GraphError> {
-        let mut validators = self.buffer(source.authority.validators.len())?;
-        for member in &source.authority.validators {
-            validators.push_reserved(KagemushaMintFinalityValidatorKeysV1 {
-                validator: PeerId::new(self.key(member.validator.public_key(), budget)?),
-                eq_proof_public_key: member.eq_proof_public_key,
-                ep_proof_public_key: member.ep_proof_public_key,
-            });
-        }
-        let authority = KagemushaMintFinalityAuthorityGenerationV1 {
-            version: source.authority.version,
-            network_id: source.authority.network_id,
-            generation: source.authority.generation,
-            validators: self.vector(validators)?,
-        };
-        let mut committee = self.buffer(source.committee.len())?;
-        for member in &source.committee {
-            let validator = PeerId::new(self.key(member.validator.public_key(), budget)?);
-            let mut proof = self.buffer(member.proof_of_possession.len())?;
+        let ValidatorEpochContextV1 {
+            da_layout,
+            version,
+            network_id,
+            mode,
+            authorization,
+            committee: source_committee,
+            leader_seed,
+        } = source;
+        let mut committee = self.buffer(source_committee.len())?;
+        for ValidatorCommitteeMemberV1 {
+            validator,
+            proof_of_possession,
+        } in source_committee
+        {
+            let validator = PeerId::new(self.key(validator.public_key(), budget)?);
+            let mut proof = self.buffer(proof_of_possession.len())?;
             proof
-                .append(&member.proof_of_possession)
+                .append(proof_of_possession)
                 .map_err(|error| GraphError::Invalid(error.to_string()))?;
             committee.push_reserved(ValidatorCommitteeMemberV1 {
                 validator,
@@ -416,14 +645,13 @@ impl Construction {
             });
         }
         Ok(ValidatorEpochContextV1 {
-            da_layout: source.da_layout,
-            version: source.version,
-            network_id: source.network_id,
-            mode: source.mode,
-            authority,
-            authorization: source.authorization,
+            da_layout: *da_layout,
+            version: *version,
+            network_id: *network_id,
+            mode: *mode,
+            authorization: *authorization,
             committee: self.vector(committee)?,
-            leader_seed: source.leader_seed,
+            leader_seed: *leader_seed,
         })
     }
     fn escrow(&mut self, source: &AmxTransferEscrowV1) -> Result<AmxTransferEscrowV1, GraphError> {

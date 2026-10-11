@@ -138,7 +138,7 @@ fn manifest_install_and_unwind_defer_indexes_until_even_generation_and_free_fenc
 }
 
 #[test]
-fn compatible_manifest_refresh_defers_real_read_refusal_and_write_success() {
+fn compatible_manifest_refresh_defers_real_read_release_without_publication() {
     for refuse in [false, true] {
         let state = blank_test_state();
         let nexus = state.nexus_snapshot();
@@ -178,14 +178,16 @@ fn compatible_manifest_refresh_defers_real_read_refusal_and_write_success() {
         let state = Arc::new(state);
         let probe = Probe::new(Arc::clone(&state));
         let mut watches = vec![watch(&state.lane_manifests, &probe)];
-        if !refuse {
-            watches.push(watch(&state.lane_privacy_registry, &probe));
-        }
+        let generation = state.state_view_generation();
+        let privacy = state.lane_privacy_registry.read().clone();
         assert_eq!(
             state.install_lane_manifests_if_consensus_compatible(&candidate),
             !refuse
         );
         ready(&mut watches, &probe);
+        assert_eq!(state.state_view_generation(), generation);
+        assert!(Arc::ptr_eq(&state.lane_manifests.read(), &original));
+        assert!(Arc::ptr_eq(&state.lane_privacy_registry.read(), &privacy));
         assert_eq!(
             state.lane_manifests.read().consensus_policy_digest(),
             original.consensus_policy_digest()

@@ -1070,6 +1070,11 @@
         "discriminant": 25,
         "tag": "Sccp",
         "type": "SccpEventFilter"
+      },
+      {
+        "discriminant": 26,
+        "tag": "KagemushaLoadCommitted",
+        "type": "Option<Array<u8, 32>>"
       }
     ]
   },
@@ -2222,46 +2227,6 @@
     ]
   },
   "Json": "String",
-  "KagemushaMintFinalityAuthorityGenerationTemplateV1": {
-    "Struct": [
-      {
-        "name": "version",
-        "type": "u16"
-      },
-      {
-        "name": "generation",
-        "type": "u64"
-      },
-      {
-        "name": "validators",
-        "type": "Vec<KagemushaMintFinalityValidatorKeysV1>"
-      }
-    ]
-  },
-  "KagemushaMintFinalityGenesisParametersV1": {
-    "Struct": [
-      {
-        "name": "authority_generation",
-        "type": "KagemushaMintFinalityAuthorityGenerationTemplateV1"
-      }
-    ]
-  },
-  "KagemushaMintFinalityValidatorKeysV1": {
-    "Struct": [
-      {
-        "name": "validator",
-        "type": "PeerId"
-      },
-      {
-        "name": "eq_proof_public_key",
-        "type": "Array<u8, 32>"
-      },
-      {
-        "name": "ep_proof_public_key",
-        "type": "Array<u8, 32>"
-      }
-    ]
-  },
   "KeyedHash": {
     "Struct": [
       {
@@ -3123,10 +3088,6 @@
         "type": "SumeragiGenesisContextParameters"
       },
       {
-        "name": "kagemusha_mint_finality",
-        "type": "KagemushaMintFinalityGenesisParametersV1"
-      },
-      {
         "name": "crypto",
         "type": "ManifestCrypto"
       }
@@ -3480,10 +3441,6 @@
       {
         "discriminant": 66,
         "tag": "bsc_mainnet"
-      },
-      {
-        "discriminant": 67,
-        "tag": "tron_mainnet"
       },
       {
         "discriminant": 68,
@@ -4178,9 +4135,6 @@
   },
   "Vec<InstructionBox>": {
     "Vec": "InstructionBox"
-  },
-  "Vec<KagemushaMintFinalityValidatorKeysV1>": {
-    "Vec": "KagemushaMintFinalityValidatorKeysV1"
   },
   "Vec<MultisigMember>": {
     "Vec": "MultisigMember"

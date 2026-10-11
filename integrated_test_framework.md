@@ -25,7 +25,7 @@ Note on API: In this codebase, Torii is an HTTP/WebSocket API (Axum). Tests shou
 
 **Genesis Block:**
 
-- Source: `NetworkBuilder` constructs an explicit per-test genesis and binds mint-finality authority to the actual test topology. `defaults/genesis.template.json` is a non-signable operator source reference, not a test/runtime manifest. Tests may append instructions with `NetworkBuilder::with_genesis_instruction` and start a new transaction via `.next_genesis_transaction()`. The resulting block is serialized to Norito `.nrt`.
+- Source: `NetworkBuilder` constructs an explicit per-test genesis and binds validator generation zero to the actual ordered BLS topology and proofs of possession. `defaults/genesis.template.json` is a non-signable operator source reference, not a test/runtime manifest. Tests may append instructions with `NetworkBuilder::with_genesis_instruction` and start a new transaction via `.next_genesis_transaction()`. The resulting block is serialized to Norito `.nrt`.
 - Topology: Stored in the first transaction (`transactions[0].topology`) and includes all 7 peers (public key + address), so each peer knows the network from the start.
 - Accounts/Permissions: Prefer standardized accounts from `crates/iroha_test_samples` (`ALICE_ID`, `BOB_ID`, `SAMPLE_GENESIS_ACCOUNT_KEYPAIR`) with explicit grants for test scenarios, e.g. `CanManagePeers`, `CanManageRoles`, `CanMintAssetWithDefinition`.
 - Injection strategy: Every peer with empty storage must receive the same signed
@@ -91,8 +91,6 @@ Note on API: In this codebase, Torii is an HTTP/WebSocket API (Axum). Tests shou
 
 ## Testus Localnet Runbook
 
-- Regenerate the Testus profile bundle after profile changes:
-  - `NORITO_SKIP_BINDINGS_SYNC=1 cargo run -p xtask --features dev-tools --bin xtask -- kagami-profiles --profile iroha3-testus --kagemusha-mint-finality-parameters-dir <AUTHORITY_DIR>`
 - Build required localnet binaries once:
   - `cargo build -p iroha_kagami --bin kagami`
   - `cargo build -p irohad --bin iroha3d`

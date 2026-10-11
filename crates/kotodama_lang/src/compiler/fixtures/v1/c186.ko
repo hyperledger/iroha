@@ -4,7 +4,7 @@
                 return value;
             }
 
-            view fn exposed(int value) -> int {
+            view fn exposed(int value) authorize(anyone) -> int {
                 return identity(value: identity(value: value));
             }
         }

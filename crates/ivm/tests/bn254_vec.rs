@@ -1,3 +1,4 @@
+//! BN254 arithmetic parity and fixed-width reduction across native word sizes.
 #![cfg(feature = "ivm_zk_tests")]
 use halo2curves::{
     bn256::Fr,
@@ -67,6 +68,54 @@ fn test_mul_edge_cases() {
     assert_eq!(mul(zero, pm1).to_fr(), Fr::zero());
     assert_eq!(mul(pm1, pm1).to_fr(), Fr::one());
     assert_eq!(mul(one, zero).to_fr(), Fr::zero());
+}
+#[test]
+fn test_reduce_wide_fixed_width_vectors() {
+    // Integer remainder vectors exercise every half-limb and both halves of the
+    // 512-bit input, independently of crypto_bigint's native word representation.
+    let below_modulus = [
+        0x0123_4567_89ab_cdef,
+        0xfedc_ba98_7654_3210,
+        0x8899_aabb_ccdd_eeff,
+        0x1234_5678_9abc_def0,
+    ];
+    assert_eq!(reduce_wide([0; 8]), [0; 4]);
+    assert_eq!(
+        reduce_wide([
+            below_modulus[0],
+            below_modulus[1],
+            below_modulus[2],
+            below_modulus[3],
+            0,
+            0,
+            0,
+            0,
+        ]),
+        below_modulus,
+    );
+    let modulus = ivm::bn254_vec::MODULUS;
+    assert_eq!(
+        reduce_wide([modulus[0], modulus[1], modulus[2], modulus[3], 0, 0, 0, 0]),
+        [0; 4],
+    );
+    assert_eq!(
+        reduce_wide([0, 0, 0, 0, 1, 0, 0, 0]),
+        [
+            0xac96_341c_4fff_fffb,
+            0x36fc_7695_9f60_cd29,
+            0x666e_a36f_7879_462e,
+            0x0e0a_77c1_9a07_df2f,
+        ],
+    );
+    assert_eq!(
+        reduce_wide([u64::MAX; 8]),
+        [
+            0x1bb8_e645_ae21_6da6,
+            0x53fe_3ab1_e35c_59e3,
+            0x8c49_833d_53bb_8085,
+            0x0216_d0b1_7f4e_44a5,
+        ],
+    );
 }
 #[test]
 fn test_reduce_wide_random() {

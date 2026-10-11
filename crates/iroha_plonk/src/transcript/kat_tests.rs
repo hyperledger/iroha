@@ -2,7 +2,7 @@
 //!
 //! The vendored vectors come from `fixtures/native_prover/kats_v1.json`
 //! (`blake2b_transcript` and `poseidon_transcript`), recorded by
-//! `crates/iroha_plonk_oracle/tests/native_prover_kats.rs` from
+//! the now-retired differential capture owner from
 //! `halo2_axiom::transcript::Blake2bWrite` (`blake2b_simd` 1.0.4) and
 //! snark-verifier's `PoseidonTranscript<C, NativeLoader, _, 3, 2, 8, 57>`.
 //! Every script is replayed on a writer (challenges, absorbed bytes or

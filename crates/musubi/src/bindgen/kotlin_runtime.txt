@@ -1,0 +1,50 @@
+// Route View to a view transport, lifecycle hooks through activation/upgrade, and
+// Kotoage through signed calls. Verify codeHash against the target's active binding.
+// Payload maps integrate with HttpClientTransport; signing and fee policy remain explicit.
+sealed class OptionValue<out Value> {
+ object None : OptionValue<Nothing>()
+ data class Some<Value>(val value: Value) : OptionValue<Value>()
+}
+sealed class ResultValue<out Success, out Failure> {
+ data class Ok<Success>(val value: Success) : ResultValue<Success, Nothing>()
+ data class Err<Failure>(val value: Failure) : ResultValue<Nothing, Failure>()
+}
+private fun fail(): Nothing = throw IllegalArgumentException("Value does not match the signed Kotodama schema")
+private fun string(value: Any?): String {
+ if (value !is String) fail()
+ var index = 0
+ while (index < value.length) {
+  val unit = value[index++]
+  if (unit in '\uD800'..'\uDBFF') {
+   require(index < value.length && value[index++] in '\uDC00'..'\uDFFF')
+  } else require(unit !in '\uDC00'..'\uDFFF')
+ }
+ return value
+}
+private fun boolean(value: Any?): Boolean = if (value is Boolean) value else fail()
+private fun bytes(value: Any?): String = string(value).also { require(Regex("0x(?:[0-9a-f]{2})*").matches(it)) }
+private fun dataspace(value: Any?): BigInteger {
+ val result = when (value) { is BigInteger -> value; is Long -> BigInteger.valueOf(value); is Int -> BigInteger.valueOf(value.toLong()); else -> fail() }
+ require(result.signum() >= 0 && result.bitLength() <= 64)
+ return result
+}
+private fun record(value: Any?, keys: Set<String>? = null): Map<*, *> {
+ if (value !is Map<*, *> || value.keys.any { it !is String }) fail()
+ if (keys != null) require(keys == value.keys)
+ return value
+}
+private fun array(value: Any?, count: Int, exact: Boolean): List<*> {
+ if (value !is List<*>) fail()
+ require(if (exact) value.size == count else value.size <= count)
+ return value
+}
+private fun json(value: Any?, depth: Int = 0, budget: IntArray = intArrayOf(1_000_000)): Any? {
+ require(depth <= 128 && --budget[0] >= 0)
+ return when (value) {
+  null, is Boolean, is Int, is Long, is BigInteger -> value
+  is String -> string(value)
+  is List<*> -> value.map { json(it, depth + 1, budget) }
+  is Map<*, *> -> value.entries.associate { string(it.key) to json(it.value, depth + 1, budget) }
+  else -> fail()
+ }
+}

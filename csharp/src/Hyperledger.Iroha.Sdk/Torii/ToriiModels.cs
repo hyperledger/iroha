@@ -4900,7 +4900,7 @@ public sealed record class ToriiContractCodeRecord
     [JsonPropertyName("artifact_id")]
     public required ContractArtifactId ArtifactId { get; init; }
 
-    private ToriiContractManifest manifest = new();
+    private ToriiContractManifest manifest = new() { Permissions = [], Events = [], EnumTypes = [] };
     private string? codeHash;
     private string? abiHash;
 
@@ -5170,6 +5170,9 @@ public sealed record class ToriiGovernedContractLifecycle
 
     [JsonPropertyName("active_code_hash_hex")]
     public string? ActiveCodeHashHex { get; init; }
+
+    [JsonPropertyName("retained_code_hash_hex")]
+    public required string? RetainedCodeHashHex { get; init; }
 
     [JsonPropertyName("revision")]
     public ulong Revision { get; init; }
@@ -5724,7 +5727,6 @@ public sealed record class ToriiContractViewEntrypoint
     private string kind = string.Empty;
     private ToriiContractViewEntrypointParam[] parameters = Array.Empty<ToriiContractViewEntrypointParam>();
     private string? returnType;
-    private string? permission;
     private string[] readKeys = Array.Empty<string>();
     private string[] writeKeys = Array.Empty<string>();
     private string[] accessHintsSkipped = Array.Empty<string>();
@@ -5760,13 +5762,17 @@ public sealed record class ToriiContractViewEntrypoint
             nameof(ReturnType));
     }
 
-    [JsonPropertyName("permission")]
-    public string? Permission
+    private ToriiEntrypointAuthorizationV1 authorization = null!;
+    [JsonPropertyName("authorization")]
+    public required ToriiEntrypointAuthorizationV1 Authorization
     {
-        get => permission;
-        init => permission = ToriiContractMetadataDirectMetadata.RequireOptionalExactTokenText(
-            value,
-            nameof(Permission));
+        get => authorization;
+        init
+        {
+            try { _ = ToriiContractManifestJson.BuildAuthorization(value, "authorization"); }
+            catch (JsonException error) { throw new ArgumentException(error.Message, nameof(Authorization), error); }
+            authorization = value;
+        }
     }
 
     [JsonPropertyName("read_keys")]
@@ -5927,6 +5933,15 @@ public sealed record class ToriiContractVerifiedSourceReference
 [JsonConverter(typeof(ToriiContractCodeViewJsonConverter))]
 public sealed record class ToriiContractCodeView
 {
+    private ToriiContractSourceArtifact[] sourceArtifacts = Array.Empty<ToriiContractSourceArtifact>();
+    [JsonRequired]
+    [JsonPropertyName("source_artifacts")]
+    public IReadOnlyList<ToriiContractSourceArtifact> SourceArtifacts
+    {
+        get => ToriiListSnapshots.CopyRequired(sourceArtifacts);
+        init => sourceArtifacts = ToriiListSnapshots.CopyNonNullItems(value, nameof(SourceArtifacts)) ?? throw new ArgumentNullException(nameof(SourceArtifacts));
+    }
+
     [JsonPropertyName("network_id")]
     public required NetworkId NetworkId { get; init; }
 
@@ -5937,7 +5952,7 @@ public sealed record class ToriiContractCodeView
     private string? declaredCodeHash;
     private string? abiHash;
     private string? compilerFingerprint;
-    private string[] permissions = Array.Empty<string>();
+    private ToriiContractPermissionDescriptorV1[] permissions = Array.Empty<ToriiContractPermissionDescriptorV1>();
     private ToriiContractViewEntrypoint[] entrypoints = Array.Empty<ToriiContractViewEntrypoint>();
     private string[] warnings = Array.Empty<string>();
     private string renderedSourceKind = string.Empty;
@@ -5981,12 +5996,20 @@ public sealed record class ToriiContractCodeView
     public ulong? ByteLength { get; init; }
 
     [JsonPropertyName("permissions")]
-    public IReadOnlyList<string> Permissions
+    public required IReadOnlyList<ToriiContractPermissionDescriptorV1> Permissions
     {
         get => ToriiListSnapshots.CopyRequired(permissions);
-        init => permissions = ToriiContractMetadataDirectMetadata.CopyRequiredExactTokenTextList(
-            value,
-            nameof(Permissions));
+        init
+        {
+            var items = ToriiListSnapshots.CopyNonNullItems(value, nameof(Permissions))
+                ?? throw new ArgumentNullException(nameof(Permissions));
+            for (var index = 0; index < items.Length; index++)
+            {
+                try { _ = ToriiContractManifestJson.BuildPermissionDeclaration(items[index], "permission declaration"); }
+                catch (JsonException error) { throw new ArgumentException(error.Message, $"{nameof(Permissions)}[{index}]", error); }
+            }
+            permissions = items;
+        }
     }
 
     [JsonPropertyName("access_hints")]
@@ -6421,6 +6444,10 @@ public sealed record class ToriiContractViewErrorResponse
 
     [JsonPropertyName("vm_diagnostic")]
     public ToriiContractViewVmDiagnostic? VmDiagnostic { get; init; }
+    /// <summary>Required nullable deterministic fault, independent of optional diagnostics.</summary>
+    [JsonPropertyName("fault")]
+    public required ToriiIvmFault? Fault { get; init; }
+
 }
 
 internal static class ToriiContractCallDirectMetadata
@@ -6530,6 +6557,15 @@ public sealed record class ToriiContractViewExecutionResult
 
 public sealed record class ToriiContractVerifiedSourceSubmission
 {
+    private ToriiContractSourceArtifact[] artifacts = Array.Empty<ToriiContractSourceArtifact>();
+    [JsonRequired]
+    [JsonPropertyName("artifacts")]
+    public IReadOnlyList<ToriiContractSourceArtifact> Artifacts
+    {
+        get => ToriiListSnapshots.CopyRequired(artifacts);
+        init => artifacts = ToriiListSnapshots.CopyNonNullItems(value, nameof(Artifacts)) ?? throw new ArgumentNullException(nameof(Artifacts));
+    }
+
     [JsonPropertyName("language")]
     public string Language { get; init; } = string.Empty;
 
@@ -6576,6 +6612,15 @@ public sealed record class ToriiContractSourceImport
 
 public sealed record class ToriiContractSourcePackage
 {
+    private ToriiContractSourceArtifact[] artifacts = Array.Empty<ToriiContractSourceArtifact>();
+    [JsonRequired]
+    [JsonPropertyName("artifacts")]
+    public IReadOnlyList<ToriiContractSourceArtifact> Artifacts
+    {
+        get => ToriiListSnapshots.CopyRequired(artifacts);
+        init => artifacts = ToriiListSnapshots.CopyNonNullItems(value, nameof(Artifacts)) ?? throw new ArgumentNullException(nameof(Artifacts));
+    }
+
     private ToriiContractSourceFile[] modules = Array.Empty<ToriiContractSourceFile>();
     private ToriiContractSourceFile[] sources = Array.Empty<ToriiContractSourceFile>();
     private ToriiContractSourceImport[] imports = Array.Empty<ToriiContractSourceImport>();
@@ -6610,6 +6655,24 @@ public sealed record class ToriiContractSourcePackage
     {
         get => ToriiListSnapshots.CopyRequired(imports);
         init => imports = ToriiListSnapshots.CopyNonNullItems(value, nameof(Imports)) ?? Array.Empty<ToriiContractSourceImport>();
+    }
+}
+
+/// <summary>Complete immutable compiled interface owned by one source package.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record class ToriiContractSourceArtifact
+{
+    [JsonRequired]
+    [JsonPropertyName("source_name")]
+    public string SourceName { get; init; } = string.Empty;
+
+    private byte[] artifact = Array.Empty<byte>();
+    [JsonRequired]
+    [JsonPropertyName("artifact")]
+    public IReadOnlyList<byte> Artifact
+    {
+        get => Array.AsReadOnly((byte[])artifact.Clone());
+        init => artifact = value?.ToArray() ?? throw new ArgumentNullException(nameof(Artifact));
     }
 }
 

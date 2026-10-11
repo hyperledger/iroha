@@ -5,7 +5,7 @@ ROOT_DIR="${PRIVACY_JS_SDK_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd
 NODE_OVERRIDE="${PRIVACY_JS_SDK_NODE_BIN:-}"
 PYTHON_BIN="${PRIVACY_JS_SDK_PYTHON_BIN:-python3}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ABI25_CHECKER="${ROOT_DIR}/scripts/check_native_sdk_artifact.py"
+ABI29_CHECKER="${ROOT_DIR}/scripts/check_native_sdk_artifact.py"
 NATIVE_BUILD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/iroha-privacy-js-native.XXXXXX")"
 
 # Preserve the tracked root source authority and the independently sealed
@@ -145,16 +145,16 @@ export PYTHONDONTWRITEBYTECODE=1
 "${NODE_BIN}" scripts/build-native.mjs
 "${NODE_BIN}" scripts/copy-native.mjs
 NATIVE_ARTIFACT="${IROHA_JS_NATIVE_DIR}/iroha_js_host.node"
-NATIVE_MANIFEST="${NATIVE_BUILD_ROOT}/node-native-abi25.json"
+NATIVE_MANIFEST="${NATIVE_BUILD_ROOT}/node-native-abi29.json"
 NATIVE_TARGET="$("${NODE_BIN}" --eval 'process.stdout.write(`${process.platform}-${process.arch}-node${process.versions.node.split(".")[0]}`)')"
-"${PYTHON_BIN}" -I -S "${ABI25_CHECKER}" record \
+"${PYTHON_BIN}" -I -S "${ABI29_CHECKER}" record \
   --artifact "${NATIVE_ARTIFACT}" \
   --manifest "${NATIVE_MANIFEST}" \
   --source-root "${ROOT_DIR}" \
   --node "${NODE_BIN}" \
   --sdk node \
   --target "${NATIVE_TARGET}"
-"${PYTHON_BIN}" -I -S "${ABI25_CHECKER}" verify \
+"${PYTHON_BIN}" -I -S "${ABI29_CHECKER}" verify \
   --artifact "${NATIVE_ARTIFACT}" \
   --manifest "${NATIVE_MANIFEST}" \
   --source-root "${ROOT_DIR}" \
@@ -179,7 +179,7 @@ NATIVE_TARGET="$("${NODE_BIN}" --eval 'process.stdout.write(`${process.platform}
 "${NODE_BIN}" --test --test-name-pattern "browser crypto exposes only the privacy compiled-profile catalog bridge as a safe stub" \
   test/crypto.browser.test.js
 
-"${PYTHON_BIN}" -I -S "${ABI25_CHECKER}" verify \
+"${PYTHON_BIN}" -I -S "${ABI29_CHECKER}" verify \
   --artifact "${NATIVE_ARTIFACT}" \
   --manifest "${NATIVE_MANIFEST}" \
   --source-root "${ROOT_DIR}" \

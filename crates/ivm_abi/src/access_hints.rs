@@ -31,6 +31,7 @@ pub const DYNAMIC_ACCESS_HINT_BOUND_KINDS_V1: &[&str] = &["page", "take"];
 /// Exact keywords and compiler-reserved state declaration names.
 pub const DYNAMIC_ACCESS_HINT_RESERVED_STATE_IDENTIFIERS_V1: &[&str] = &[
     "as",
+    "permission",
     "authorize",
     "break",
     "const",
@@ -56,6 +57,8 @@ pub const DYNAMIC_ACCESS_HINT_RESERVED_STATE_IDENTIFIERS_V1: &[&str] = &[
     "seiyaku",
     "state",
     "struct",
+    "event",
+    "emit",
     "trigger",
     "true",
     "var",
@@ -114,13 +117,8 @@ pub const DYNAMIC_ACCESS_HINT_RESERVED_STATE_IDENTIFIERS_V1: &[&str] = &[
     "__kotodama_quantity_ratio_round",
     "__kotodama_decimal_to_int_trunc",
     "__kotodama_decimal_to_int_round",
-    "is_some",
-    "is_none",
-    "is_ok",
-    "is_err",
-    "unwrap_or",
-    "unwrap_err_or",
-    "expect",
+    "__kotodama_option_ok_or",
+    "__kotodama_result_or_err",
 ];
 /// Exact compiler-owned prefixes forbidden for state declarations.
 pub const DYNAMIC_ACCESS_HINT_RESERVED_STATE_PREFIXES_V1: &[&str] = &["__kotodama_link_"];
@@ -180,7 +178,50 @@ pub fn dynamic_access_hint_state_name_v1(base_key: &str) -> Result<&str, Dynamic
 /// Return whether `key_type` is an exact active V1 `StateMap` key type.
 #[must_use]
 pub fn is_dynamic_access_hint_key_type_v1(key_type: &str) -> bool {
-    DYNAMIC_ACCESS_HINT_KEY_TYPES_V1.contains(&key_type)
+    use crate::entrypoint::{
+        MAX_ENTRYPOINT_ARGUMENT_TYPE_DEPTH, MAX_ENTRYPOINT_ARGUMENT_TYPE_NODES,
+    };
+    let mut remaining = key_type;
+    let mut tuple_children = [0usize; MAX_ENTRYPOINT_ARGUMENT_TYPE_DEPTH];
+    let mut depth = 0usize;
+    let mut nodes = 0usize;
+    loop {
+        nodes += 1;
+        if nodes > MAX_ENTRYPOINT_ARGUMENT_TYPE_NODES
+            || depth + 1 > MAX_ENTRYPOINT_ARGUMENT_TYPE_DEPTH
+        {
+            return false;
+        }
+        if let Some(tail) = remaining.strip_prefix('(') {
+            tuple_children[depth] = 0;
+            depth += 1;
+            remaining = tail;
+            continue;
+        }
+        let end = remaining.find([',', ')']).unwrap_or(remaining.len());
+        if !DYNAMIC_ACCESS_HINT_KEY_TYPES_V1.contains(&&remaining[..end]) {
+            return false;
+        }
+        remaining = &remaining[end..];
+        loop {
+            if depth == 0 {
+                return remaining.is_empty();
+            }
+            tuple_children[depth - 1] += 1;
+            if let Some(tail) = remaining.strip_prefix(", ") {
+                remaining = tail;
+                break;
+            }
+            if tuple_children[depth - 1] < 2 {
+                return false;
+            }
+            let Some(tail) = remaining.strip_prefix(')') else {
+                return false;
+            };
+            depth -= 1;
+            remaining = tail;
+        }
+    }
 }
 /// Return whether `bound_kind` is an exact active V1 bound source.
 #[must_use]
@@ -207,6 +248,34 @@ pub fn validate_dynamic_access_hint_v1(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn tuple_keys_require_exact_scalar_grammar_and_shared_bounds() {
+        for valid in [
+            "(AccountId, int)",
+            "(int, (Name, bytes))",
+            "((bool, string), quantity)",
+        ] {
+            assert!(is_dynamic_access_hint_key_type_v1(valid), "{valid}");
+        }
+        for invalid in [
+            "()",
+            "(int)",
+            "(int,)",
+            "(int,bool)",
+            "(int,  bool)",
+            "(int, bool) ",
+            "(Json, int)",
+            "(Option<int>, int)",
+            "(Unit::Kind, int)",
+            "(int, bool), int",
+        ] {
+            assert!(!is_dynamic_access_hint_key_type_v1(invalid), "{invalid}");
+        }
+        let at_limit = format!("({})", vec!["int"; 255].join(", "));
+        assert!(is_dynamic_access_hint_key_type_v1(&at_limit));
+        let too_wide = format!("({})", vec!["int"; 256].join(", "));
+        assert!(!is_dynamic_access_hint_key_type_v1(&too_wide));
+    }
     fn hint(base_key: &str, key_type: &str, bound_kind: &str, max_keys: u32) -> DynamicAccessHint {
         DynamicAccessHint {
             base_key: base_key.to_owned(),
@@ -240,6 +309,18 @@ mod tests {
     }
     #[test]
     fn base_key_requires_one_canonical_state_declaration_identifier() {
+        for valid in [
+            "state:is_some",
+            "state:unwrap_or",
+            "state:expect",
+            "state:anyone",
+        ] {
+            assert_eq!(
+                validate_dynamic_access_hint_v1(&hint(valid, "int", "page", 1)),
+                Ok(()),
+                "contextual method or policy name {valid} remains a valid state identifier"
+            );
+        }
         for invalid in [
             "",
             "state:",
@@ -251,8 +332,6 @@ mod tests {
             "state:注文",
             "state:state",
             "state:int",
-            "state:is_some",
-            "state:unwrap_or",
             "state:Amount",
             "state:__kotodama_link_x",
             "State:Orders",

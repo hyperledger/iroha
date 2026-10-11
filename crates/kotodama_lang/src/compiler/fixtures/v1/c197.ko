@@ -1,7 +1,7 @@
 
-seiyaku CompilerFixture {
+seiyaku CompilerFixture { permission Admin;
 
-kotoage fn run(bytes payload) authorize("Admin") {
+kotoage fn run(bytes payload) authorize(Admin) {
   ledger::governance::submit_ballot(value: payload);
   ledger::subscription::bill();
   ledger::subscription::record_usage();

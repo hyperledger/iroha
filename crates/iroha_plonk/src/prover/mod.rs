@@ -38,7 +38,7 @@
 //! the witness digest and the statement, and a recovery seed whose stream
 //! this crate keys with the witness and statement digests, so a caller
 //! cannot opt out of the binding). Fixed seeds exist only in this crate's
-//! unit tests and in oracle builds (`--cfg iroha_plonk_oracle`).
+//! unit tests.
 //!
 //! # Determinism
 //!
@@ -62,24 +62,28 @@ use rand_core_06::{CryptoRng, RngCore, SeedableRng};
 
 use crate::{
     cs::{
-        CircuitDescriptorV1, CsError, DescriptorConfig, DescriptorError,
+        CircuitDescriptorV1, CsError, DescriptorConfig, DescriptorError, ProtocolDescriptor,
         descriptor::{Blake2bPersonal, blake2b_personal},
     },
-    frontend::{self, Circuit, synthesize},
+    frontend::{self, Circuit},
     keys::{KeyError, ProvingKey},
     pcs::{ipa::PinnedParams, multiopen::MultiopenError},
     protocol::{AllTerms, ConstraintFilter, Protocol, ProtocolError},
     transcript::{
-        DescriptorHash, Transcript, TranscriptError, TranscriptWrite, TranscriptWriter,
-        absorb_prelude,
+        DescriptorHash, Transcript, TranscriptError, TranscriptRepr, TranscriptWrite,
+        TranscriptWriter, absorb_prelude, absorb_prelude_v2,
     },
 };
 
 mod advice;
+mod batch;
 mod lookup;
 mod multiopen;
 mod permutation;
 pub mod quotient;
+pub use quotient::{QuotientWorkspace, WorkspaceError};
+#[cfg(test)]
+mod cancellation_tests;
 #[cfg(test)]
 mod tests;
 mod vanishing;
@@ -103,6 +107,8 @@ pub const RECOVERY_PURPOSE: &[u8] = b"iroha_plonk:pipa-v1:prover-randomness";
 /// Proving failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProverError {
+    /// The caller cancelled this operation; it has no completed proof result.
+    Cancelled,
     /// The circuit failed to synthesize its witness.
     Synthesis(frontend::Error),
     /// The circuit's constraint system, fixed columns, selectors or copy
@@ -118,6 +124,14 @@ pub enum ProverError {
         found: usize,
     },
     /// The number of instance columns differs from the descriptor.
+    /// An instance value is outside its declared integer type.
+    InstanceType {
+        /// Instance column.
+        column: usize,
+        /// Row within the column.
+        row: usize,
+    },
+    /// Incorrect instance-column count.
     InstanceColumns {
         /// The descriptor's count.
         expected: usize,
@@ -155,6 +169,8 @@ pub enum ProverError {
     Descriptor(DescriptorError),
     /// A proving-key polynomial or coset was unavailable.
     Key(KeyError),
+    /// The caller-owned quotient workspace could not admit its buffers.
+    Workspace(WorkspaceError),
     /// An MSM failed (budget or size).
     Msm(MsmError),
     /// An FFT failed.
@@ -165,9 +181,28 @@ pub enum ProverError {
     Multiopen(MultiopenError),
 }
 
+impl ProverError {
+    /// Whether this failure is cooperative cancellation, never an invalid proof.
+    pub fn is_cancelled(&self) -> bool {
+        match self {
+            Self::Cancelled => true,
+            Self::Msm(error) => matches!(error, MsmError::Cancelled),
+            Self::Fft(error) => matches!(error, FftError::Cancelled),
+            Self::Key(error) => error.is_cancelled(),
+            Self::Synthesis(error) => matches!(error, frontend::Error::Cancelled),
+            Self::Multiopen(error) => error.is_cancelled(),
+            _ => false,
+        }
+    }
+}
+
 impl fmt::Display for ProverError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Cancelled => f.write_str("operation cancelled"),
+            Self::InstanceType { column, row } => {
+                write!(f, "instance ({column}, {row}) is outside its declared type")
+            }
             Self::Synthesis(error) => write!(f, "synthesis: {error}"),
             Self::CircuitMismatch => f.write_str("the circuit does not match the proving key"),
             Self::ParamsMismatch => f.write_str("the parameters do not match the descriptor"),
@@ -197,6 +232,7 @@ impl fmt::Display for ProverError {
             Self::Protocol(error) => write!(f, "protocol: {error}"),
             Self::Descriptor(error) => write!(f, "descriptor: {error}"),
             Self::Key(error) => write!(f, "key: {error}"),
+            Self::Workspace(error) => write!(f, "workspace: {error}"),
             Self::Msm(error) => write!(f, "MSM: {error}"),
             Self::Fft(error) => write!(f, "FFT: {error}"),
             Self::Transcript(error) => write!(f, "transcript: {error}"),
@@ -207,9 +243,19 @@ impl fmt::Display for ProverError {
 
 impl std::error::Error for ProverError {}
 
+impl From<iroha_pasta::Cancelled> for ProverError {
+    fn from(_: iroha_pasta::Cancelled) -> Self {
+        Self::Cancelled
+    }
+}
+
 impl From<frontend::Error> for ProverError {
     fn from(error: frontend::Error) -> Self {
-        Self::Synthesis(error)
+        if matches!(error, frontend::Error::Cancelled) {
+            Self::Cancelled
+        } else {
+            Self::Synthesis(error)
+        }
     }
 }
 
@@ -233,19 +279,31 @@ impl From<DescriptorError> for ProverError {
 
 impl From<KeyError> for ProverError {
     fn from(error: KeyError) -> Self {
-        Self::Key(error)
+        if matches!(error, KeyError::Cancelled) {
+            Self::Cancelled
+        } else {
+            Self::Key(error)
+        }
     }
 }
 
 impl From<MsmError> for ProverError {
     fn from(error: MsmError) -> Self {
-        Self::Msm(error)
+        if matches!(error, MsmError::Cancelled) {
+            Self::Cancelled
+        } else {
+            Self::Msm(error)
+        }
     }
 }
 
 impl From<FftError> for ProverError {
     fn from(error: FftError) -> Self {
-        Self::Fft(error)
+        if matches!(error, FftError::Cancelled) {
+            Self::Cancelled
+        } else {
+            Self::Fft(error)
+        }
     }
 }
 
@@ -257,7 +315,11 @@ impl From<TranscriptError> for ProverError {
 
 impl From<MultiopenError> for ProverError {
     fn from(error: MultiopenError) -> Self {
-        Self::Multiopen(error)
+        if matches!(error, MultiopenError::Cancelled) {
+            Self::Cancelled
+        } else {
+            Self::Multiopen(error)
+        }
     }
 }
 
@@ -278,8 +340,8 @@ enum Source<'a> {
     Hedged,
     /// A caller derivation from the recovery context.
     Recovery(RecoveryDerivation<'a>),
-    /// A caller-supplied stream (unit tests and oracle builds only).
-    #[cfg(any(test, iroha_plonk_oracle))]
+    /// A caller-supplied stream (unit tests only).
+    #[cfg(test)]
     External(Box<dyn ProverRng + Send + 'a>),
 }
 
@@ -309,7 +371,7 @@ enum Source<'a> {
 /// "PIPA-v1-WitnessD", u32_le(advice columns) || u32_le(u) || the usable
 /// rows of every advice column)`.
 ///
-/// No seed or byte buffer is accepted outside unit tests and oracle builds.
+/// No seed or byte buffer is accepted outside unit tests.
 pub struct ProverRandomness<'a> {
     source: Source<'a>,
 }
@@ -320,7 +382,7 @@ impl fmt::Debug for ProverRandomness<'_> {
             Source::Os => "Os",
             Source::Hedged => "Hedged",
             Source::Recovery(_) => "Recovery",
-            #[cfg(any(test, iroha_plonk_oracle))]
+            #[cfg(test)]
             Source::External(_) => "External",
         };
         f.debug_struct("ProverRandomness")
@@ -389,9 +451,9 @@ impl<'a> ProverRandomness<'a> {
         }
     }
 
-    /// A caller-supplied stream. Unit tests and oracle builds only (spec
+    /// A caller-supplied stream. Unit tests only (spec
     /// 6.4): it reproduces vendored proofs from their fixed seeds.
-    #[cfg(any(test, iroha_plonk_oracle))]
+    #[cfg(test)]
     #[doc(hidden)]
     #[must_use]
     pub fn from_rng_for_tests<R: ProverRng + Send + 'a>(rng: R) -> Self {
@@ -400,9 +462,9 @@ impl<'a> ProverRandomness<'a> {
         }
     }
 
-    /// A `ChaCha20` stream from a fixed seed. Unit tests and oracle builds
+    /// A `ChaCha20` stream from a fixed seed. Unit tests
     /// only.
-    #[cfg(any(test, iroha_plonk_oracle))]
+    #[cfg(test)]
     #[doc(hidden)]
     #[must_use]
     pub fn fixed_seed_for_tests(seed: [u8; 32]) -> Self {
@@ -441,7 +503,7 @@ impl<'a> ProverRandomness<'a> {
                 drawn.fill(0);
                 Ok(StreamRng::ChaCha(Box::new(ChaCha20Rng::from_seed(key))))
             }
-            #[cfg(any(test, iroha_plonk_oracle))]
+            #[cfg(test)]
             Source::External(rng) => Ok(StreamRng::Boxed(rng)),
         }
     }
@@ -465,9 +527,9 @@ pub fn recovery_stream_key(drawn: &[u8; 32], context: &[u8; 32]) -> [u8; 32] {
 enum StreamRng<'a> {
     ChaCha(Box<ChaCha20Rng>),
     /// A caller-supplied stream: only [`ProverRandomness::from_rng_for_tests`]
-    /// (unit tests and oracle builds) constructs it; production streams are
+    /// (unit tests) constructs it; production streams are
     /// always the `ChaCha20` streams this crate keys.
-    #[cfg_attr(not(any(test, iroha_plonk_oracle)), allow(dead_code))]
+    #[cfg_attr(not(test), allow(dead_code))]
     Boxed(Box<dyn ProverRng + Send + 'a>),
 }
 
@@ -530,9 +592,33 @@ impl<F: PastaField> Drop for Witness<F> {
     }
 }
 
+/// A reusable caller-owned witness or one whose advice buffers can be
+/// transferred to the prover after shape and randomness-binding checks.
+enum WitnessInput<'a, F: PastaField> {
+    Borrowed(&'a Witness<F>),
+    Owned(Witness<F>),
+}
+
+impl<F: PastaField> WitnessInput<'_, F> {
+    fn witness(&self) -> &Witness<F> {
+        match self {
+            Self::Borrowed(witness) => witness,
+            Self::Owned(witness) => witness,
+        }
+    }
+
+    /// The returned columns are immediately placed in zeroizing [`advice::Advice`].
+    fn take_advice(&mut self) -> Vec<Vec<F>> {
+        match self {
+            Self::Borrowed(witness) => witness.advice().to_vec(),
+            Self::Owned(witness) => core::mem::take(&mut witness.advice),
+        }
+    }
+}
+
 /// Checks the instance shape against the descriptor (S4).
-fn check_instances<F>(
-    descriptor: &CircuitDescriptorV1,
+fn check_instances<F: PastaField>(
+    descriptor: &ProtocolDescriptor,
     instances: &[Vec<F>],
 ) -> Result<(), ProverError> {
     if instances.len() != descriptor.instance_lengths.len() {
@@ -554,6 +640,9 @@ fn check_instances<F>(
                 found: values.len(),
             });
         }
+    }
+    if let Some((column, row)) = descriptor.invalid_instance(instances) {
+        return Err(ProverError::InstanceType { column, row });
     }
     Ok(())
 }
@@ -581,10 +670,29 @@ impl<F: PastaField> Witness<F> {
         C: PastaCurve<ScalarExt = F>,
         Ci: Circuit<F>,
     {
+        Self::from_circuit_cancellable(pk, circuit, instances, None)
+    }
+
+    /// Synthesizes and validates a witness with the caller's cancellation signal.
+    ///
+    /// # Errors
+    /// As [`Self::from_circuit`], or [`ProverError::Cancelled`].
+    pub fn from_circuit_cancellable<C, Ci>(
+        pk: &ProvingKey<C>,
+        circuit: &Ci,
+        instances: &[Vec<F>],
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Self, ProverError>
+    where
+        C: PastaCurve<ScalarExt = F>,
+        Ci: Circuit<F>,
+    {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         let descriptor = pk.binding().descriptor();
         check_instances(descriptor, instances)?;
         let k = u32::from(descriptor.k);
-        let mut synthesized = synthesize(circuit, k, Some(instances))?;
+        let mut synthesized =
+            frontend::synthesize_cancellable(circuit, k, Some(instances), cancellation)?;
         let advice = synthesized
             .tables
             .take_advice()
@@ -606,11 +714,16 @@ impl<F: PastaField> Witness<F> {
             DescriptorConfig {
                 curve: descriptor.curve,
                 k,
-                transcript: descriptor.transcript,
+                transcript: crate::cs::TranscriptV1::Blake2bChallenge255,
                 instance_mode: descriptor.instance_mode,
                 proof_suffix: descriptor.proof_suffix,
             },
         )?;
+        let mut rebuilt: ProtocolDescriptor = (&rebuilt).into();
+        rebuilt.transcript = descriptor.transcript;
+        rebuilt
+            .instance_types
+            .clone_from(&descriptor.instance_types);
         let fixed = pk.fixed_values();
         if rebuilt != *descriptor
             || fixed.get(..first_column) != Some(tables.fixed())
@@ -620,6 +733,7 @@ impl<F: PastaField> Witness<F> {
             return Err(ProverError::CircuitMismatch);
         }
         witness.check_shape(pk)?;
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         Ok(witness)
     }
 
@@ -683,7 +797,11 @@ impl<F: PastaField> Witness<F> {
     /// The witness digest over the usable rows of every advice column,
     /// streamed value by value (no copy of the advice is built; each
     /// encoded value is wiped after it is absorbed).
-    fn digest(&self, usable_rows: usize) -> [u8; 32] {
+    fn digest(
+        &self,
+        usable_rows: usize,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<[u8; 32], ProverError> {
         let mut hasher = Blake2bPersonal::<32>::new(WITNESS_PERSONA);
         hasher.update(
             &u32::try_from(self.advice.len())
@@ -692,13 +810,16 @@ impl<F: PastaField> Witness<F> {
         );
         hasher.update(&u32::try_from(usable_rows).unwrap_or(u32::MAX).to_le_bytes());
         for column in &self.advice {
-            for value in column.iter().take(usable_rows) {
+            for (index, value) in column.iter().take(usable_rows).enumerate() {
+                if index % 1024 == 0 {
+                    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+                }
                 let mut repr = value.to_repr();
                 hasher.update(repr.as_ref());
                 repr.as_mut().fill(0);
             }
         }
-        hasher.finalize()
+        Ok(hasher.finalize())
     }
 }
 
@@ -709,10 +830,18 @@ pub fn statement_digest<F: PastaField>(
     transcript_repr: &F,
     instances: &[Vec<F>],
 ) -> [u8; 32] {
+    statement_digest_bytes(descriptor_digest, &transcript_repr.to_repr(), instances)
+}
+
+fn statement_digest_bytes<F: PastaField>(
+    descriptor_digest: &[u8; 32],
+    transcript_repr: &[u8; 32],
+    instances: &[Vec<F>],
+) -> [u8; 32] {
     let count = |value: usize| u32::try_from(value).unwrap_or(u32::MAX).to_le_bytes();
     let mut hasher = Blake2bPersonal::<32>::new(STATEMENT_PERSONA);
     hasher.update(descriptor_digest);
-    hasher.update(transcript_repr.to_repr().as_ref());
+    hasher.update(transcript_repr.as_ref());
     hasher.update(&count(instances.len()));
     for column in instances {
         hasher.update(&count(column.len()));
@@ -724,16 +853,19 @@ pub fn statement_digest<F: PastaField>(
 }
 
 /// Resources of one proof.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ProverConfig {
+#[derive(Clone, Copy, Debug)]
+pub struct ProverConfig<'a> {
     /// Budget of each prover MSM.
     pub msm_budget: MemoryBudget,
+    /// Per-proof cooperative cancellation; no signal means run to completion.
+    pub cancellation: Option<&'a iroha_pasta::CancellationToken>,
 }
 
-impl Default for ProverConfig {
+impl Default for ProverConfig<'_> {
     fn default() -> Self {
         Self {
             msm_budget: MemoryBudget::DEFAULT,
+            cancellation: None,
         }
     }
 }
@@ -741,9 +873,50 @@ impl Default for ProverConfig {
 /// How the transcript is primed: production, or oracle mode with the
 /// vendored `transcript_repr` (spec 6.4).
 #[derive(Clone, Copy, Debug)]
-struct Mode<F> {
+struct Mode<C: PastaCurve> {
     oracle: bool,
-    transcript_repr: F,
+    transcript_repr: TranscriptRepr<C>,
+}
+
+/// Proof bytes and the generator obligation produced by the same IPA run.
+#[derive(Clone, Debug)]
+pub struct ProverOutput<C: PastaCurve> {
+    /// Canonical proof bytes.
+    pub proof: Vec<u8>,
+    /// The opening obligation; recursive consumers must fold or decide it.
+    pub opening: crate::pcs::ipa::GeneratorClaim<C>,
+}
+
+/// Consumes the witness and returns proof bytes plus `(G, u)` without reparsing.
+///
+/// # Errors
+/// As [`create_proof_owned`].
+pub fn create_proof_owned_with_claim<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    pk: &ProvingKey<C>,
+    witness: Witness<C::ScalarExt>,
+    randomness: ProverRandomness<'_>,
+    config: ProverConfig,
+) -> Result<ProverOutput<C>, ProverError>
+where
+    C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
+{
+    let mode = Mode {
+        oracle: false,
+        transcript_repr: *pk.vk().transcript_repr(),
+    };
+    prove_output(
+        params,
+        pk,
+        WitnessInput::Owned(witness),
+        randomness,
+        config,
+        mode,
+        &mut lookup::VendoredPermutation,
+        &AllTerms,
+        None,
+    )
 }
 
 /// Writes a PIPA-v1 proof of `witness` under `pk` (see the module
@@ -763,6 +936,7 @@ pub fn create_proof<C: PastaCurve>(
 ) -> Result<Vec<u8>, ProverError>
 where
     C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
 {
     let mode = Mode {
         oracle: false,
@@ -771,7 +945,7 @@ where
     prove(
         params,
         pk,
-        witness,
+        WitnessInput::Borrowed(witness),
         randomness,
         config,
         mode,
@@ -780,8 +954,85 @@ where
     )
 }
 
+/// Creates a proof by consuming `witness` and reusing its advice buffers.
+///
+/// This produces the same bytes as [`create_proof`] for the same witness,
+/// key and randomness source. Advice evaluations remain live until the
+/// lookup and permutation products are built, then become coefficients in
+/// place. These advice buffers are zeroized on success and every error path.
+/// Prefer this entry point when the caller does not need to reuse a witness.
+///
+/// # Errors
+///
+/// As [`create_proof`].
+pub fn create_proof_owned<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    pk: &ProvingKey<C>,
+    witness: Witness<C::ScalarExt>,
+    randomness: ProverRandomness<'_>,
+    config: ProverConfig,
+) -> Result<Vec<u8>, ProverError>
+where
+    C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
+{
+    let mode = Mode {
+        oracle: false,
+        transcript_repr: *pk.vk().transcript_repr(),
+    };
+    prove(
+        params,
+        pk,
+        WitnessInput::Owned(witness),
+        randomness,
+        config,
+        mode,
+        &mut lookup::VendoredPermutation,
+        &AllTerms,
+    )
+}
+
+/// Consumes a witness and reuses caller-owned quotient buffers across proofs.
+///
+/// Returns the same bytes and opening obligation as
+/// [`create_proof_owned_with_claim`]. Every lease is zeroized before returning,
+/// including on failure; only the bounded empty allocation remains reusable.
+/// The key and witness are checked afresh on every call. The workspace ceiling
+/// is independent of, and does not relax, the process-wide MSM scratch ceiling.
+///
+/// # Errors
+/// As [`create_proof_owned`], plus [`ProverError::Workspace`] if the explicit
+/// buffer ceiling is too small or the admitted allocation cannot be made.
+pub fn create_proof_owned_with_workspace<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    pk: &ProvingKey<C>,
+    witness: Witness<C::ScalarExt>,
+    randomness: ProverRandomness<'_>,
+    config: ProverConfig,
+    workspace: &mut QuotientWorkspace<C::ScalarExt>,
+) -> Result<ProverOutput<C>, ProverError>
+where
+    C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
+{
+    prove_output(
+        params,
+        pk,
+        WitnessInput::Owned(witness),
+        randomness,
+        config,
+        Mode {
+            oracle: false,
+            transcript_repr: *pk.vk().transcript_repr(),
+        },
+        &mut lookup::VendoredPermutation,
+        &AllTerms,
+        Some(workspace),
+    )
+}
+
 /// Synthesizes `circuit` with `instances` ([`Witness::from_circuit`]) and
-/// proves it ([`create_proof`]).
+/// consumes its witness to prove it ([`create_proof_owned`]).
 ///
 /// # Errors
 ///
@@ -796,20 +1047,21 @@ pub fn prove_circuit<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
 ) -> Result<Vec<u8>, ProverError>
 where
     C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
 {
-    let witness = Witness::from_circuit(pk, circuit, instances)?;
-    create_proof(params, pk, &witness, randomness, config)
+    let witness = Witness::from_circuit_cancellable(pk, circuit, instances, config.cancellation)?;
+    create_proof_owned(params, pk, witness, randomness, config)
 }
 
 /// [`create_proof`] in oracle mode (spec 6.4): the vendored
 /// `transcript_repr` is injected, Poseidon points are absorbed with
-/// `fe_to_fe` and the instance frame is omitted. Unit tests and oracle builds
+/// `fe_to_fe` and the instance frame is omitted. Unit tests
 /// only; never compiled into shipping binaries.
 ///
 /// # Errors
 ///
 /// As [`create_proof`].
-#[cfg(any(test, iroha_plonk_oracle))]
+#[cfg(test)]
 #[doc(hidden)]
 pub fn create_proof_oracle<C: PastaCurve>(
     params: &PinnedParams<C>,
@@ -821,15 +1073,16 @@ pub fn create_proof_oracle<C: PastaCurve>(
 ) -> Result<Vec<u8>, ProverError>
 where
     C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
 {
     let mode = Mode {
         oracle: true,
-        transcript_repr: vendored_transcript_repr,
+        transcript_repr: TranscriptRepr::Scalar(vendored_transcript_repr),
     };
     prove(
         params,
         pk,
-        witness,
+        WitnessInput::Borrowed(witness),
         randomness,
         config,
         mode,
@@ -855,24 +1108,66 @@ struct Challenges<F> {
 fn prove<C, P>(
     params: &PinnedParams<C>,
     pk: &ProvingKey<C>,
-    witness: &Witness<C::ScalarExt>,
+    input: WitnessInput<'_, C::ScalarExt>,
     randomness: ProverRandomness<'_>,
     config: ProverConfig,
-    mode: Mode<C::ScalarExt>,
+    mode: Mode<C>,
     permutation: &mut P,
     filter: &(impl ConstraintFilter + Sync),
 ) -> Result<Vec<u8>, ProverError>
 where
     C: PastaCurve,
     C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
     P: lookup::LookupPermutation<C::ScalarExt>,
 {
+    Ok(prove_output(
+        params,
+        pk,
+        input,
+        randomness,
+        config,
+        mode,
+        permutation,
+        filter,
+        None,
+    )?
+    .proof)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prove_output<C, P>(
+    params: &PinnedParams<C>,
+    pk: &ProvingKey<C>,
+    mut input: WitnessInput<'_, C::ScalarExt>,
+    randomness: ProverRandomness<'_>,
+    config: ProverConfig,
+    mode: Mode<C>,
+    permutation: &mut P,
+    filter: &(impl ConstraintFilter + Sync),
+    workspace: Option<&mut QuotientWorkspace<C::ScalarExt>>,
+) -> Result<ProverOutput<C>, ProverError>
+where
+    C: PastaCurve,
+    C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
+    P: lookup::LookupPermutation<C::ScalarExt>,
+{
+    let cancellation = config.cancellation;
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    let witness = input.witness();
     let descriptor = pk.binding().descriptor();
     if params.k() != u32::from(descriptor.k) || params.curve() != descriptor.curve {
         return Err(ProverError::ParamsMismatch);
     }
     let protocol = Protocol::new(descriptor)?;
     let shape = *protocol.shape();
+    if let Some(workspace) = workspace.as_ref() {
+        let bytes = quotient::workspace_elements(pk, &protocol)?
+            .checked_mul(size_of::<C::ScalarExt>())
+            .ok_or(ProtocolError::Overflow)?;
+        workspace.check(bytes).map_err(ProverError::Workspace)?;
+    }
     // Re-check the witness against this key (it may come from another one).
     if witness.advice.len() != shape.num_advice {
         return Err(ProverError::WitnessShape {
@@ -888,45 +1183,65 @@ where
     }
     check_instances(descriptor, &witness.instances)?;
 
-    let binding = randomness.needs_binding().then(|| Binding {
-        statement: statement_digest(
-            pk.binding().digest(),
-            &mode.transcript_repr,
-            &witness.instances,
-        ),
-        witness: witness.digest(shape.usable_rows),
-    });
+    let binding = if randomness.needs_binding() {
+        Some(Binding {
+            statement: statement_digest_bytes(
+                pk.binding().digest(),
+                &mode.transcript_repr.to_repr(),
+                &witness.instances,
+            ),
+            witness: witness.digest(shape.usable_rows, config.cancellation)?,
+        })
+    } else {
+        None
+    };
     let mut rng = randomness.into_stream(binding)?;
     let budget = config.msm_budget;
 
     let hash = if mode.oracle {
-        oracle_hash::<C>(descriptor)
+        oracle_hash::<C>(descriptor)?
     } else {
         DescriptorHash::<C>::production(descriptor.transcript)
     };
     let mut transcript = TranscriptWriter::<C, _>::new(hash);
     if mode.oracle {
-        oracle_prelude(&mut transcript, &mode.transcript_repr);
+        oracle_prelude(
+            &mut transcript,
+            mode.transcript_repr
+                .scalar()
+                .ok_or(TranscriptError::ProfileMismatch)?,
+        );
+    } else if let Some(types) = &descriptor.instance_types {
+        absorb_prelude_v2::<C, _>(
+            &mut transcript,
+            &mode.transcript_repr,
+            &descriptor.instance_lengths,
+            types,
+        )?;
     } else {
         absorb_prelude::<C, _>(
             &mut transcript,
-            &mode.transcript_repr,
+            mode.transcript_repr
+                .scalar()
+                .ok_or(TranscriptError::ProfileMismatch)?,
             &descriptor.instance_lengths,
         );
     }
 
     // The instances, then row 1.
-    let instance = advice::InstanceColumns::new(pk, witness.instances())?;
-    instance.absorb(params, &shape, &mut transcript, budget)?;
-    let advice = advice::commit(
+    let mut instance = advice::InstanceColumns::new(pk, witness.instances(), cancellation)?;
+    instance.absorb(params, &shape, &mut transcript, budget, cancellation)?;
+    let mut advice = advice::commit(
         params,
         pk,
         &shape,
-        witness,
+        input.take_advice(),
         &mut rng,
         &mut transcript,
         budget,
+        cancellation,
     )?;
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
     let theta = transcript.squeeze_challenge();
 
     // Row 2.
@@ -943,7 +1258,11 @@ where
         &mut rng,
         &mut transcript,
         budget,
+        cancellation,
     )?;
+    // Lookup inputs have been materialized. Do not retain this DAG while
+    // constructing the products or the larger quotient expression table.
+    drop(compiled_lookups);
     let beta = transcript.squeeze_challenge();
     let gamma = transcript.squeeze_challenge();
 
@@ -959,6 +1278,7 @@ where
         &mut rng,
         &mut transcript,
         budget,
+        cancellation,
     )?;
     let lookups = lookup::commit_products(
         params,
@@ -970,41 +1290,85 @@ where
         &mut rng,
         &mut transcript,
         budget,
+        cancellation,
     )?;
 
+    // Products are the final consumers of evaluations. Reuse the advice
+    // allocation for its coefficient form instead of retaining both copies
+    // through the quotient and IPA, and release padded public instances.
+    advice.interpolate_in_place(pk, cancellation)?;
+    instance.values.clear();
+
     // Row 5.
-    let random = vanishing::commit_random(params, pk, &shape, &mut rng, &mut transcript, budget)?;
+    let random = vanishing::commit_random(
+        params,
+        pk,
+        &shape,
+        &mut rng,
+        &mut transcript,
+        budget,
+        cancellation,
+    )?;
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
     let y = transcript.squeeze_challenge();
 
     // Row 6.
     let compiled = quotient::CompiledExpressions::compile(descriptor, true)?;
-    let h = quotient::evaluate(
+    let inputs = quotient::QuotientInputs {
+        advice: &advice.polys,
+        instance: &instance.polys,
+        permutation_products: products.iter().map(|set| set.poly.as_slice()).collect(),
+        lookups: lookups
+            .iter()
+            .map(|lookup| quotient::LookupPolys {
+                product: &lookup.product_poly,
+                input: &lookup.input_poly,
+                table: &lookup.table_poly,
+            })
+            .collect(),
+    };
+    let challenges = Challenges {
+        theta,
+        beta,
+        gamma,
+        y,
+    };
+    let h = if let Some(workspace) = workspace {
+        quotient::evaluate_with_workspace_cancellable(
+            pk,
+            &protocol,
+            &compiled,
+            &inputs,
+            challenges,
+            filter,
+            workspace,
+            cancellation,
+        )?
+    } else {
+        quotient::evaluate_cancellable(
+            pk,
+            &protocol,
+            &compiled,
+            &inputs,
+            challenges,
+            filter,
+            cancellation,
+        )?
+    };
+    // The quotient evaluations are owned by `h`; no later phase reads the
+    // compiled DAG, including quotient commitments and the opening proof.
+    drop(compiled);
+    let quotient = vanishing::commit_quotient(
+        params,
         pk,
-        &protocol,
-        &compiled,
-        &quotient::QuotientInputs {
-            advice: &advice.polys,
-            instance: &instance.polys,
-            permutation_products: products.iter().map(|set| set.poly.as_slice()).collect(),
-            lookups: lookups
-                .iter()
-                .map(|lookup| quotient::LookupPolys {
-                    product: &lookup.product_poly,
-                    input: &lookup.input_poly,
-                    table: &lookup.table_poly,
-                })
-                .collect(),
-        },
-        Challenges {
-            theta,
-            beta,
-            gamma,
-            y,
-        },
-        filter,
+        &shape,
+        h,
+        &mut rng,
+        &mut transcript,
+        budget,
+        cancellation,
     )?;
-    let quotient =
-        vanishing::commit_quotient(params, pk, &shape, &h, &mut rng, &mut transcript, budget)?;
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
     let x = transcript.squeeze_challenge();
     let xn = x.pow_vartime([u64::try_from(shape.n).map_err(|_| ProtocolError::Overflow)?]);
     if bool::from(x.is_zero()) || xn == C::ScalarExt::ONE {
@@ -1021,30 +1385,54 @@ where
         quotient: quotient.combine(xn),
     };
     opened.write_evaluations(pk, &protocol, x, &mut transcript)?;
-    let folded = opened.open(params, pk, &protocol, x, &mut rng, &mut transcript, budget)?;
+    let folded = opened.open(
+        params,
+        pk,
+        &protocol,
+        x,
+        &mut rng,
+        &mut transcript,
+        budget,
+        cancellation,
+    )?;
     if shape.folded_generator_suffix {
-        transcript.append_unabsorbed_point(&folded)?;
+        transcript.append_unabsorbed_point(folded.g())?;
     }
-    Ok(transcript.finish())
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    Ok(ProverOutput {
+        proof: transcript.finish(),
+        opening: folded,
+    })
 }
 
 /// The oracle-mode hash of the descriptor's transcript.
-#[cfg(any(test, iroha_plonk_oracle))]
-fn oracle_hash<C: PastaCurve>(descriptor: &CircuitDescriptorV1) -> DescriptorHash<C>
+#[cfg(test)]
+fn oracle_hash<C: PastaCurve>(
+    descriptor: &ProtocolDescriptor,
+) -> Result<DescriptorHash<C>, TranscriptError>
 where
     C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
 {
-    DescriptorHash::<C>::oracle(descriptor.transcript)
+    Ok(DescriptorHash::<C>::oracle(
+        descriptor
+            .transcript
+            .retained()
+            .ok_or(TranscriptError::ProfileMismatch)?,
+    ))
 }
 
 /// Oracle mode does not exist in shipping builds; the production hash is
 /// returned so the code path stays total.
-#[cfg(not(any(test, iroha_plonk_oracle)))]
-fn oracle_hash<C: PastaCurve>(descriptor: &CircuitDescriptorV1) -> DescriptorHash<C>
+#[cfg(not(test))]
+fn oracle_hash<C: PastaCurve>(
+    _descriptor: &ProtocolDescriptor,
+) -> Result<DescriptorHash<C>, TranscriptError>
 where
     C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
 {
-    DescriptorHash::<C>::production(descriptor.transcript)
+    Err(TranscriptError::ProfileMismatch)
 }
 
 /// The oracle-mode prelude (`transcript_repr` only).

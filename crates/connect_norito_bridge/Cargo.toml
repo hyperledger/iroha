@@ -33,6 +33,7 @@ privacy-production-enabled = []
 cuda = ["ivm/cuda"]
 
 [dependencies]
+p256 = { version = "0.13.2", default-features = false, features = ["std", "ecdsa"] }
 iroha_core_privacy = { workspace = true, default-features = false, features = ["zk-stark"] }
 iroha_core_timed_ovn = { workspace = true }
 iroha_model_base = { workspace = true }
@@ -40,6 +41,11 @@ norito = { path = "../norito", version = "2.0.0-rc.2.0", default-features = fals
 # The production bridge selects the complete Halo2/IPA circuit-parameter and
 # STARK/FRI verifier paths explicitly on the proof and privacy owner crates.
 iroha_core_zk = { path = "../iroha_core_zk", default-features = false, features = ["proofs-stark", "zk-preverify"] }
+iroha_genesis = { workspace = true }
+iroha_fs = { workspace = true }
+iroha_kagemusha_proof = { workspace = true }
+iroha_pasta = { workspace = true }
+iroha_plonk = { workspace = true }
 iroha_torii_shared = { workspace = true }
 iroha_crypto = { workspace = true, default-features = false, features = ["consensus", "gost", "pqc", "sm"] }
 # The bridge ships the exact-12 KAT generator/validator, but must not expose the

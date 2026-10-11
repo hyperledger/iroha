@@ -347,7 +347,7 @@ mod tests {
     #[test]
     fn release_contract_bytes_must_match_native_full_artifact_hash() {
         let bytes = kotodama_lang::compiler::Compiler::new()
-            .compile_source("seiyaku ReleaseContract { view fn value() -> int { return 7; } }")
+            .compile_source("seiyaku ReleaseContract { view fn value() authorize(anyone) -> int { return 7; } }")
             .unwrap();
         let expected: [u8; 32] = ivm::contract_code_hash(&bytes).into();
         super::verify_contract_bytes(&bytes, &expected).unwrap();

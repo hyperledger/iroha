@@ -189,7 +189,7 @@ def valid_map() -> dict:
                     {"path": CLIENT, "kind": "wire_tag", "literals": [TAG]},
                     {"path": CLIENT_TEST, "kind": "test", "literals": [TAG], "test_only": True},
                 ],
-                "no_effect_evidence": [{"path": BACKEND, "symbol": "bfv_multiply"}],
+                "consumer_evidence": [{"path": BACKEND, "symbol": "bfv_multiply"}],
             },
             "plaintext_prf": {"entries": [{"path": BACKEND, "symbols": [
                 {"symbol": "derive_phone_nullifier", "callers_exhaustive": True, "callers": {}},
@@ -1279,7 +1279,7 @@ class MapTest(TreeCase):
     def test_plaintext_prf_is_separate_from_the_backend(self) -> None:
         document = valid_map()
         document["hkdf"]["plaintext_prf"]["entries"][0]["symbols"] = [{"symbol": "evaluate_hkdf_prf", "callers_exhaustive": True, "callers": {}}]
-        self.assert_error(document, "evaluate_hkdf_prf is recorded as both plaintext PRF and encrypted-evaluation backend")
+        self.assert_error(document, "evaluate_hkdf_prf is recorded as both plaintext PRF and RAM-LFE backend")
         self.assert_error(document, f"{BACKEND}::evaluate_hkdf_prf instantiates HKDF and is recorded as the RAM-LFE backend and the plaintext PRF")
         document = valid_map()
         document["hkdf"]["plaintext_prf"]["entries"][0]["symbols"] = [{"symbol": "absent_derivation"}]
@@ -1324,25 +1324,40 @@ class MapTest(TreeCase):
         self.write("generated-files.toml", f'[[generated]]\noutputs = ["{CLIENT}", "{VECTORS}"]\n')
         self.assertEqual(self.errors(document), [f"{CLIENT} is a registered generated output but generated_consumers does not list it"])
 
-    def test_no_effect_evidence_generators_and_destination_are_checked(self) -> None:
+    def test_consumer_evidence_generators_and_destination_are_checked(self) -> None:
         document = valid_map()
         document["generated_sdk_code"] = {"runtime_generators": [
             {"generator": BACKEND, "symbols": [{"symbol": "evaluate_hkdf_prf"}], "consumers": [CLIENT_TEST]},
         ]}
         document["destination"]["path"] = "crates/shared"
         self.assertEqual(self.errors(document), [])
-        document["hkdf"]["ram_lfe_backend"]["no_effect_evidence"][0]["symbol"] = "absent_rejection"
-        self.assert_error(document, "hkdf no-effect evidence: crates/high/src/backend.rs does not define absent_rejection")
-        document["hkdf"]["ram_lfe_backend"]["no_effect_evidence"] = []
-        self.assert_error(document, "hkdf.ram_lfe_backend.no_effect_evidence must anchor the consumers that reject the backend")
-        del document["hkdf"]["ram_lfe_backend"]["no_effect_evidence"]
-        self.assert_error(document, "hkdf.ram_lfe_backend.no_effect_evidence must anchor the consumers that reject the backend")
+        document["hkdf"]["ram_lfe_backend"]["consumer_evidence"][0]["symbol"] = "absent_rejection"
+        self.assert_error(document, "hkdf consumer evidence: crates/high/src/backend.rs does not define absent_rejection")
+        document["hkdf"]["ram_lfe_backend"]["consumer_evidence"] = []
+        self.assert_error(document, "hkdf.ram_lfe_backend.consumer_evidence must anchor the current backend consumers")
+        del document["hkdf"]["ram_lfe_backend"]["consumer_evidence"]
+        self.assert_error(document, "hkdf.ram_lfe_backend.consumer_evidence must anchor the current backend consumers")
         document["generated_sdk_code"]["runtime_generators"][0]["consumers"] = ["sdk/absent.kt"]
         self.assert_error(document, "runtime generator consumer sdk/absent.kt is not listed")
         document["generated_sdk_code"]["runtime_generators"][0]["symbols"] = [{"symbol": "absent_emitter"}]
         self.assert_error(document, "runtime generator: crates/high/src/backend.rs does not define absent_emitter")
         document["destination"]["path"] = "crates/elsewhere"
         self.assert_error(document, "destination.path must equal")
+
+    def test_consumer_evidence_rejects_retired_no_effect_contract(self) -> None:
+        document = valid_map()
+        backend = document["hkdf"]["ram_lfe_backend"]
+        backend["no_effect_evidence"] = copy.deepcopy(backend["consumer_evidence"])
+        self.assert_error(document, "hkdf.ram_lfe_backend.no_effect_evidence is retired; record current consumer_evidence")
+        del backend["consumer_evidence"]
+        self.assert_error(document, "hkdf.ram_lfe_backend.consumer_evidence must anchor the current backend consumers")
+
+    def test_consumer_evidence_requires_production_symbols(self) -> None:
+        document = valid_map()
+        document["hkdf"]["ram_lfe_backend"]["consumer_evidence"] = [
+            {"path": RING, "symbol": "ntt_reference", "cfg": ["test"], "test_only": True},
+        ]
+        self.assert_error(document, f"hkdf consumer evidence: {RING}::ntt_reference must be production")
 
     def test_current_state_claims_need_live_anchors(self) -> None:
         document = valid_map()
@@ -1845,7 +1860,7 @@ class RepositoryTest(unittest.TestCase):
         self.assertTrue(derivations)
         self.assertFalse(backend & derivations)
         self.assertEqual(hkdf["unrelated_preserve"]["disposition"], "preserve")
-        self.assertTrue(hkdf["ram_lfe_backend"]["no_effect_evidence"])
+        self.assertTrue(hkdf["ram_lfe_backend"]["consumer_evidence"])
         self.assertEqual([entry["id"] for entry in self.document["current_state"]], list(CHECKER.REQUIRED_CURRENT_STATE))
 
 

@@ -616,6 +616,17 @@ fn generated_native_approval_joins_exact_request_and_manager_decision_with_separ
         crate::managed::native_operation::test_support::provider_id(&prepared, 0),
     )
     .unwrap();
+    crate::managed::native_operation::test_support::assert_optional_current(
+        &outage,
+        &approved,
+        |verifier| {
+            reopened.read_current(
+                &rotated_policy,
+                verifier,
+                Instant::now() + Duration::from_secs(30),
+            )
+        },
+    );
     let recovered = reopened
         .recover(&history, Instant::now() + Duration::from_secs(30))
         .unwrap();

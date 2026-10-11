@@ -2545,28 +2545,16 @@ fn validate_advertised_routing_plan(
     Ok(())
 }
 fn dataspace_plane(lane_config: &LaneGeometry, dataspace_id: DataSpaceId) -> Option<GossipPlane> {
-    let mut plane: Option<GossipPlane> = None;
-    for entry in lane_config.entries() {
-        if entry.dataspace_id != dataspace_id {
-            continue;
-        }
-        let entry_plane = match entry.visibility {
+    // The lane catalog keeps one visibility per dataspace (`LaneCatalog::new`), so any lane
+    // of the dataspace decides its plane.
+    lane_config
+        .entries()
+        .iter()
+        .find(|entry| entry.dataspace_id == dataspace_id)
+        .map(|entry| match entry.visibility {
             LaneVisibility::Public => GossipPlane::Public,
             LaneVisibility::Restricted => GossipPlane::Restricted,
-        };
-        plane = match plane {
-            Some(GossipPlane::Restricted) => Some(GossipPlane::Restricted),
-            Some(GossipPlane::Public) if entry_plane == GossipPlane::Restricted => {
-                Some(GossipPlane::Restricted)
-            }
-            Some(existing) => Some(existing),
-            None => Some(entry_plane),
-        };
-        if entry_plane == GossipPlane::Restricted {
-            break;
-        }
-    }
-    plane
+        })
 }
 pub(crate) fn gossip_plane_label(plane: GossipPlane) -> &'static str {
     match plane {
@@ -4391,26 +4379,34 @@ deferred_send_ttl: Duration::from_millis(defaults::network::DEFERRED_SEND_TTL_MS
         );
     }
     #[test]
-    fn dataspace_plane_favors_restricted_when_mixed() {
-        let lanes = vec![
-            iroha_data_model::nexus::LaneConfig {
-                id: LaneId::new(0),
-                dataspace_id: DataSpaceId::new(42),
-                alias: "public-lane".to_string(),
-                visibility: LaneVisibility::Public,
-                ..iroha_data_model::nexus::LaneConfig::default()
-            },
-            iroha_data_model::nexus::LaneConfig {
-                id: LaneId::new(1),
-                dataspace_id: DataSpaceId::new(42),
-                alias: "restricted-lane".to_string(),
-                visibility: LaneVisibility::Restricted,
-                ..iroha_data_model::nexus::LaneConfig::default()
-            },
-        ];
-        let catalog =
-            LaneCatalog::new(core::num::NonZeroU32::new(2).expect("nonzero lanes"), lanes)
-                .expect("lane catalog");
+    fn dataspace_plane_follows_the_single_dataspace_visibility() {
+        let lane = |id: u32, alias: &str, visibility| iroha_data_model::nexus::LaneConfig {
+            id: LaneId::new(id),
+            dataspace_id: DataSpaceId::new(42),
+            alias: alias.to_string(),
+            visibility,
+            ..iroha_data_model::nexus::LaneConfig::default()
+        };
+        let nonzero = core::num::NonZeroU32::new(2).expect("nonzero lanes");
+        // A dataspace cannot mix public and restricted lanes.
+        assert!(
+            LaneCatalog::new(
+                nonzero,
+                vec![
+                    lane(0, "public-lane", LaneVisibility::Public),
+                    lane(1, "restricted-lane", LaneVisibility::Restricted),
+                ],
+            )
+            .is_err()
+        );
+        let catalog = LaneCatalog::new(
+            nonzero,
+            vec![
+                lane(0, "restricted-a", LaneVisibility::Restricted),
+                lane(1, "restricted-b", LaneVisibility::Restricted),
+            ],
+        )
+        .expect("lane catalog");
         let lane_config = LaneGeometry::from_catalog(&catalog);
         assert_eq!(
             dataspace_plane(&lane_config, DataSpaceId::new(42)),

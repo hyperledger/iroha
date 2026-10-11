@@ -158,9 +158,9 @@ function verifyLocalUnitBinding(paths) {
     const output = paths.nativeDir;
     const root = resolve(paths.jsRoot, "..", "..");
     if (!paths.hasOverride || realpathSync(output) !== output ||
-        output === root || output.startsWith(root + "/") ||
+        !output.startsWith(join(root, "target", "qualification") + "/") ||
         !existsSync(join(root, "Cargo.toml"))) {
-      throw new Error("local-unit binding requires the current source checkout and external canonical directory");
+      throw new Error("local-unit binding requires the current source checkout and canonical target/qualification child");
     }
     const readOriginal = (path, limit) => {
       const stat = lstatSync(path);

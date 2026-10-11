@@ -4,14 +4,14 @@
 use super::*;
 use iroha_core::release_identity::BuildIdentity;
 use iroha_core::sumeragi::native_journal::authenticate_signed_genesis;
+use iroha_data_model::NetworkId;
 use iroha_data_model::query::{
     block::prelude::FindBlocks, builder::QueryBuilderExt as _, parameters::Pagination,
 };
 use iroha_data_model::sumeragi::epoch::{
     BeaconEpochBindingV1, InstalledBeaconEpochBindingV1, ValidatorEpochAuthorizationV1,
-    ValidatorEpochDecisionV1,
+    ValidatorEpochDecisionV1, ValidatorGenerationV1,
 };
-use iroha_data_model::{NetworkId, isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1};
 use iroha_model_base::peer::PeerId;
 use std::num::NonZeroU64;
 
@@ -26,14 +26,14 @@ pub(super) fn admit_build_identity(identity: BuildIdentity) -> Result<BuildIdent
 }
 
 fn require_retained_successor(
-    authority: &KagemushaMintFinalityAuthorityGenerationV1,
+    authority: &ValidatorGenerationV1,
     current: &ValidatorEpochAuthorizationV1,
     next: &ValidatorEpochAuthorizationV1,
     installed: InstalledBeaconEpochBindingV1,
     boundary_height: u64,
 ) -> Result<()> {
-    current.validate_against_authority(authority)?;
-    next.validate_against_authority(authority)?;
+    current.validate_against_generation(authority)?;
+    next.validate_against_generation(authority)?;
     next.validate_successor(current)?;
     ensure!(
         current.last_height == boundary_height
@@ -59,7 +59,7 @@ pub(super) async fn verify_boundary_chain(
         "epoch retention requires all four validators"
     );
     let genesis_bytes = fs::read(prepared.genesis_directory.join("genesis.signed.nrt"))?;
-    let (genesis_identity, metadata) = iroha_core::release_identity::genesis_identity(
+    let (genesis_identity, _metadata) = iroha_core::release_identity::genesis_identity(
         &genesis_bytes,
         &prepared.genesis_public_key,
     )?;
@@ -71,17 +71,14 @@ pub(super) async fn verify_boundary_chain(
             && genesis_hash == network.into_genesis_hash(),
         "epoch proof chain must bind the independently signed genesis network"
     );
-    let authority = metadata
-        .kagemusha_mint_finality
-        .authority_generation
-        .bind_network_id(network)?;
-    let initial = ValidatorEpochAuthorizationV1::genesis(&authority, EPOCH_LENGTH)?;
     let (_, genesis_epoch) =
         authenticate_signed_genesis(&genesis_bytes, network, native_finality_limits())
             .map_err(|error| eyre!(error))?;
+    let authority = genesis_epoch.generation();
+    let initial = ValidatorEpochAuthorizationV1::genesis(&authority, EPOCH_LENGTH)?;
     ensure!(
-        genesis_epoch.authority == authority && genesis_epoch.authorization == initial,
-        "signed genesis neutral epoch differs from signed release identity"
+        genesis_epoch.authorization == initial,
+        "signed genesis neutral epoch differs from its signed generation-zero roster"
     );
     let roster = genesis_epoch.committee;
     ensure!(
@@ -151,10 +148,10 @@ pub(super) async fn verify_boundary_chain(
             let cursor = NativeJournalCursor::new(client.chain().clone(), network, iroha_data_model::block::consensus::SumeragiRootScope::Global, native_finality_limits(),
 &iroha_allocation::AllocationBudget::new(native_finality_limits().allocated_bytes),
 ).map_err(|error| eyre!(error))?;
-            let proofs = with_verified_native_journal((&journal).into(), client.chain(), &network, native_finality_limits(), cursor.attestations(), cursor.allocation_budget(), |reader| reader.walk(1, height).collect::<std::result::Result<Vec<_>, _>>().map_err(iroha_core::sumeragi::native_journal::NativeJournalError::History)).map_err(|error| eyre!(error))?;
+            let proofs = with_verified_native_journal((&journal).into(), client.chain(), &network, native_finality_limits(), cursor.allocation_budget(), |reader| reader.walk(1, height).collect::<std::result::Result<Vec<_>, _>>().map_err(iroha_core::sumeragi::native_journal::NativeJournalError::History)).map_err(|error| eyre!(error))?;
             let first = proofs.first().ok_or_else(|| eyre!("missing actual signed genesis"))?;
             let context = &first.commitment().schedule.current;
-            ensure!(first.block_hash() == genesis_hash && context.committee == roster && context.authority == authority && context.authorization == initial,
+            ensure!(first.block_hash() == genesis_hash && context.committee == roster && context.generation() == authority && context.authorization == initial,
                 "native proof graph differs from exact independent signed genesis authority and schedule");
             let mut expected = initial;
             for proof in proofs.iter().skip(1) {
@@ -179,11 +176,11 @@ pub(super) async fn verify_boundary_chain(
                     )?;
                 }
                 let context = &proof.commitment().schedule.current;
-                ensure!(context.authority == authority && context.authorization == expected && context.committee == roster,
+                ensure!(context.generation() == authority && context.authorization == expected && context.committee == roster,
                     "certified epoch changed retained generation, original PoPs or authorization");
                 if next_height == expected.last_height {
                     let transition = proof.commitment().schedule.boundary.as_ref().ok_or_else(|| eyre!("certified boundary omitted retention"))?;
-                    ensure!(transition.next.authority == authority && transition.next.committee == roster, "retained boundary changed original keys, validators or PoPs");
+                    ensure!(transition.next.generation() == authority && transition.next.committee == roster, "retained boundary changed original validators or PoPs");
                     require_retained_successor(&authority, &expected, &transition.next.authorization, installed_binding, next_height)?;
                     expected = transition.next.authorization;
                 }
@@ -233,7 +230,7 @@ fn production_epoch_retention_requires_exact_source_identity_before_setup() -> R
 }
 
 fn authorization_fixture() -> Result<(
-    KagemushaMintFinalityAuthorityGenerationV1,
+    ValidatorGenerationV1,
     ValidatorEpochAuthorizationV1,
     ValidatorEpochAuthorizationV1,
     InstalledBeaconEpochBindingV1,
@@ -241,16 +238,11 @@ fn authorization_fixture() -> Result<(
     let mut validators = (1_u8..=4)
         .map(|seed| {
             let key = KeyPair::from_seed(vec![seed; 32], iroha_crypto::Algorithm::BlsNormal);
-            iroha_core_zk::kagemusha_v1_recursion::derive_kagemusha_mint_finality_validator_keys_v1(
-                &[seed; 32],
-                0,
-                PeerId::new(key.public_key().clone()),
-            )
+            PeerId::new(key.public_key().clone())
         })
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-    validators.sort_by(|left, right| left.validator.cmp(&right.validator));
-    let authority = KagemushaMintFinalityAuthorityGenerationV1 {
-        version: iroha_data_model::isi::kagemusha_v1::KAGEMUSHA_CHAIN_VERSION_V1,
+        .collect::<Vec<_>>();
+    validators.sort();
+    let authority = ValidatorGenerationV1 {
         network_id: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
             iroha_crypto::Hash::new(b"retained-generation-test"),
         )),

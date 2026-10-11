@@ -1,7 +1,7 @@
 
-seiyaku CompilerFixture {
+seiyaku CompilerFixture { permission FixtureAccess;
 
-kotoage fn main() authorize("CompilerFixture") {
+kotoage fn main() authorize(FixtureAccess) {
   let evidence = b"00";
   ledger::escrow::open_offer(
     offer: Name::parse("aitai_offer"),

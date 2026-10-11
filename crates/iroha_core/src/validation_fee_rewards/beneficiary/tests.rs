@@ -1,10 +1,72 @@
 //! Funded reward custody and claim ownership across repeated beneficiary rekeys.
 use super::*;
 use iroha_data_model::{IntoKeyValue, fee_evidence::FeeEvidencePayloadV1};
+
+#[test]
+fn current_owner_requires_explicit_alias_before_initial_and_recovered_claims() {
+    crate::retail_fee_tests::fixture(1_793_451_600_000, |stx, policy| {
+        let (_, binding) = super::super::tests::network_xor_claim_fixture(stx, policy);
+        let original = super::super::tests::account(2);
+        let recovered = super::super::tests::account(4);
+        let stranger = super::super::tests::account(5);
+        super::super::tests::seed_claim_credit(stx, &binding, &original, 200, 200);
+        // Recovery must retain both the current owner alias and the original
+        // self-alias used by delayed exposure and authenticated evidence.
+        for (alias_account, expected_owner) in [
+            (&original, &original),
+            (&recovered, &recovered),
+            (&original, &recovered),
+        ] {
+            if alias_account == &recovered {
+                rekey_beneficiary(stx, &original, &recovered).unwrap();
+            }
+            let key = alias_key(&binding, alias_account).unwrap();
+            let exact = stx.world.smart_contract_state.remove(key.clone()).unwrap();
+            assert!(owner_in_world(&stx.world, &binding, &original).is_err());
+            assert!(super::super::reconciliation::validate(&stx.world, &binding).is_err());
+            for substituted in [
+                Alias {
+                    account_id: alias_account.clone(),
+                    beneficiary_id: stranger.clone(),
+                },
+                Alias {
+                    account_id: stranger.clone(),
+                    beneficiary_id: original.clone(),
+                },
+            ] {
+                stx.world
+                    .smart_contract_state
+                    .insert(key.clone(), norito::to_bytes(&substituted).unwrap());
+                assert!(owner_in_world(&stx.world, &binding, &original).is_err());
+                assert!(super::super::reconciliation::validate(&stx.world, &binding).is_err());
+            }
+            stx.world.smart_contract_state.insert(key, exact);
+            assert_eq!(
+                owner(stx, &binding, &original).unwrap().unwrap().account_id,
+                *expected_owner
+            );
+            super::super::reconciliation::validate(&stx.world, &binding).unwrap();
+            assert_eq!(
+                read::<u128>(stx, &claimable_key(&binding, &original).unwrap()).unwrap(),
+                Some(200)
+            );
+            assert_eq!(read_state(stx, &binding).unwrap().reserved_xor, 200);
+        }
+        super::super::tests::signed_claim_all(stx, &binding, &recovered);
+        let paid = AssetId::new(binding.xor_asset_id.clone(), recovered);
+        assert_eq!(
+            minor_units(stx.world.assets.get(&paid).unwrap().as_ref(), 9).unwrap(),
+            200
+        );
+        assert_eq!(read_state(stx, &binding).unwrap().reserved_xor, 0);
+        super::super::reconciliation::validate(&stx.world, &binding).unwrap();
+    });
+}
+
 #[test]
 fn recovery_preserves_reserved_and_delayed_rewards_through_repeated_rekeys() {
     crate::retail_fee_tests::fixture(1_793_451_600_000, |stx, policy| {
-        let (_, binding) = super::super::tests::network_xor_claim_fixture(stx, policy);
+        let (policy, binding) = super::super::tests::network_xor_claim_fixture(stx, policy);
         let old = super::super::tests::account(2);
         let middle = super::super::tests::account(3);
         let latest = super::super::tests::account(4);
@@ -18,7 +80,7 @@ fn recovery_preserves_reserved_and_delayed_rewards_through_repeated_rekeys() {
         let (_, treasury_balance) =
             Asset::new(treasury.clone(), quantity(200, 2).unwrap()).into_key_value();
         stx.world.assets.insert(treasury, treasury_balance);
-        write(stx, service_key(&binding, period).unwrap(), &weights).unwrap();
+        super::super::tests::seed_service(stx, &binding, period, &weights);
         write(stx, pending_key(&binding, period).unwrap(), &200u64).unwrap();
         save_state(
             stx,
@@ -41,6 +103,7 @@ fn recovery_preserves_reserved_and_delayed_rewards_through_repeated_rekeys() {
             100,
         )
         .unwrap();
+        super::super::tests::accrue_all(stx, &binding);
         let pool = AssetId::new(
             binding.xor_asset_id.clone(),
             binding.reward_pool_account_id.clone(),
@@ -54,12 +117,47 @@ fn recovery_preserves_reserved_and_delayed_rewards_through_repeated_rekeys() {
             .get(&allocated_key)
             .unwrap()
             .clone();
+        let active_registry =
+            crate::validation_fee::tests::policy_registry(&[policy.clone()], &[binding.clone()]);
+        let mut retained_registry = active_registry.clone();
+        retained_registry.payout_policies.entries =
+            vec![crate::validation_fee::tests::payout_registry_entry(
+                &binding,
+                1,
+                stx.block_height(),
+            )];
+        crate::validation_fee::tests::install_policy_registry_fixture(&retained_registry, stx);
+        assert!(active_bindings(stx).unwrap().is_empty());
         rekey_beneficiary(stx, &old, &middle).unwrap();
         assert_eq!(root(stx, &binding, &middle).unwrap(), old);
         assert_eq!(
             read::<u128>(stx, &claimable_key(&binding, &old).unwrap()).unwrap(),
             Some(100)
         );
+        let corpus = pending_fee_evidence_records(stx).unwrap();
+        assert!(
+            corpus.iter().any(|record| matches!(
+                &record.payload,
+                FeeEvidencePayloadV1::RewardCustody(custody) if custody.state.reserved_xor == 100
+            )),
+            "retained custody remains visible before conversion activation"
+        );
+        let latest_revision = owner(stx, &binding, &old).unwrap().unwrap();
+        let mut recovery_sources = vec![iroha_data_model::fee_evidence::FeeEvidenceRecordV1 {
+            key: revision_key(&binding, &old, latest_revision.revision).unwrap(),
+            recorded_at_height: stx.block_height(),
+            payload: FeeEvidencePayloadV1::RewardBeneficiaryRevision(latest_revision),
+        }];
+        append_evidence_sources(stx, &mut recovery_sources).unwrap();
+        assert!(recovery_sources.iter().any(|record| matches!(
+            &record.payload,
+            FeeEvidencePayloadV1::RewardBeneficiaryAlias(alias) if alias.account_id == middle && alias.beneficiary_id == old
+        )));
+        assert!(recovery_sources.iter().any(|record| matches!(
+            &record.payload,
+            FeeEvidencePayloadV1::RewardBeneficiaryRevision(revision) if revision.revision == 0 && revision.account_id == old
+        )), "inactive recovery includes the previous authorized owner source");
+        crate::validation_fee::tests::install_policy_registry_fixture(&active_registry, stx);
         assert!(
             super::super::tests::claim_current_fee_credit(stx, &old, binding.validator_lane_id)
                 .is_err()
@@ -86,6 +184,7 @@ fn recovery_preserves_reserved_and_delayed_rewards_through_repeated_rekeys() {
             100,
         )
         .unwrap();
+        super::super::tests::accrue_all(stx, &binding);
         rekey_beneficiary(stx, &middle, &latest).unwrap();
         assert_eq!(root(stx, &binding, &latest).unwrap(), old);
         assert_eq!(owner(stx, &binding, &old).unwrap().unwrap().revision, 2);
@@ -137,6 +236,6 @@ fn recovery_preserves_reserved_and_delayed_rewards_through_repeated_rekeys() {
             (1, 2)
         );
         assert!(corpus.iter().any(|r| matches!(&r.payload, FeeEvidencePayloadV1::RewardBeneficiaryRevision(revision) if revision.account_id == middle && revision.revision == 1)), "claim before same-block rekey retains its exact earlier owner source");
-        assert!(corpus.iter().any(|r| matches!(&r.payload, FeeEvidencePayloadV1::RewardAllocation(a) if a.sequence == 1 && a.beneficiaries.get(&old) == Some(&old))));
+        assert!(corpus.iter().any(|r| matches!(&r.payload, FeeEvidencePayloadV1::RewardEntitlement(a) if a.allocation_sequence == 1 && a.beneficiaries.get(&old) == Some(&old))));
     });
 }

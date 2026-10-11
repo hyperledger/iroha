@@ -295,9 +295,10 @@ fn actual_compact_pairs_preserve_permission_authorization_and_denial_before_role
                 .iter()
                 .find(|entrypoint| entrypoint.name == "main")
                 .unwrap()
-                .permission
-                .as_deref(),
-            Some("ManageRoles")
+                .authorization,
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "ManageRoles".parse().unwrap()
+            )
         );
         for authorized in [false, true] {
             let caller =

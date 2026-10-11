@@ -16,13 +16,13 @@ part of `:core-jvm:test`. Managed tests without JNI are not substitutes.
 
 The producer requires these explicit arguments:
 
-- `--source-root`: the candidate source checkout. Native ABI-25 verification
+- `--source-root`: the candidate source checkout. Native ABI-26 verification
   requires the native manifest's exact clean commit and source manifest.
 - `--core-jar`, `--client-aar`: the actual package bytes to exercise. The producer
   refuses duplicated SDK classes, foreign class namespaces, hidden classpaths,
   malformed archives, and SDK classes outside the JDK 8 target.
 - `--native-artifact`, `--native-manifest`: the same host C/JNI artifact and
-  `iroha.native-sdk-abi25-artifact.v1` evidence. The existing native verifier runs
+  `iroha.native-sdk-abi26-artifact.v1` evidence. The existing native verifier runs
   before and after both lanes against original bytes and their private copy.
 - `--jdk-home`: canonical JDK 21 home. `javac --release 8 -proc:none` compiles only
   the captured consumer/runner sources with an empty implicit source path.

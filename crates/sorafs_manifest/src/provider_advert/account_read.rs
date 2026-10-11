@@ -224,11 +224,9 @@ mod tests {
             p.https_host = host.into();
             assert!(p.validate().is_err(), "{host}");
         }
-        for port in [0] {
-            let mut p = policy();
-            p.https_port = port;
-            assert!(p.validate().is_err());
-        }
+        let mut p = policy();
+        p.https_port = 0;
+        assert!(p.validate().is_err());
         let mut p = policy();
         p.ttl_secs = STREAM_TOKEN_MAX_TTL_SECS_V1 + 1;
         assert!(p.validate().is_err());

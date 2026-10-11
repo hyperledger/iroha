@@ -288,7 +288,6 @@ impl ReadinessNode {
             key_pair: node_key.clone(),
             genesis: Some(genesis),
             beacon_signer: None,
-            mint_finality_authority: None,
             genesis_account,
             consensus_mode: iroha_data_model::parameter::system::ConsensusMode::Permissioned,
             config: NodeConfig {
@@ -2465,6 +2464,8 @@ fn mk_app_state_for_tests_with_world_and_options_and_network_id_and_nexus(
             iroha_core::musubi_search::MusubiSearchIndexV1::default(),
         )),
         bootle_lantern_issuance_runtime: None,
+        #[cfg(feature = "app_api")]
+        kagemusha_enrollment: None,
         kiso,
         query_service: query_handle,
         query_inflight: Arc::new(tokio::sync::Semaphore::new(
@@ -2913,9 +2914,17 @@ async fn debug_witness_operator_and_telemetry_profile_matrix() {
             .expect("untrusted debug witness response");
         assert_eq!(
             untrusted.status(),
-            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
             "untrusted profile {profile:?}"
         );
+
+        let refusal = decode_torii_json(
+            untrusted,
+            "untrusted debug witness refusal",
+            "operator refusal JSON",
+        )
+        .await;
+        assert_eq!(refusal["code"].as_str(), Some("operator_key_not_allowed"));
 
         let operator_headers = operator_signatures::signed_request_headers(
             &app.da_receipt_signer,

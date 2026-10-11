@@ -10,8 +10,8 @@ use crate::native_check_binding::{CheckTermination, complete_binding, complete_c
 use iroha_config::parameters::actual::SorafsStreamTokenGatewayNativeConfig;
 use iroha_core::{
     query::stream_token_gateway::observation::{
-        StreamTokenGatewayCheckAttemptFailureV1, StreamTokenGatewayCheckBindingFailureV1,
-        StreamTokenGatewayCheckExpectedV1 as Expected,
+        PreparedStreamTokenGatewayCheckV1 as Prepared, StreamTokenGatewayCheckAttemptFailureV1,
+        StreamTokenGatewayCheckBindingFailureV1, StreamTokenGatewayCheckExpectedV1 as Expected,
         StreamTokenGatewayCheckReadbackV1 as VerifiedReadback,
         StreamTokenGatewayCheckSelectorV1 as Selector,
         StreamTokenGatewayEligibilityTimeV1 as EligibilityTime,
@@ -153,9 +153,9 @@ impl NativeGateway {
     fn time(&self) -> Result<EligibilityTime, ObservationError> {
         eligibility_time(SystemTime::now(), self.uncertainty_ms)
     }
-    fn checked(&self, selector: Selector, deadline: Instant) -> Result<Verified, Error> {
+    fn prepare_check(&self, selector: Selector, deadline: Instant) -> Result<Prepared, Error> {
         self.check_deadline(deadline)?;
-        let prepared = begin_stream_token_gateway_check_v1(
+        begin_stream_token_gateway_check_v1(
             self.state.clone(),
             Expected {
                 network_id: *self.state.network_id_ref(),
@@ -166,7 +166,14 @@ impl NativeGateway {
             },
             deadline,
         )
-        .map_err(observation_error)?;
+        .map_err(observation_error)
+    }
+    fn checked(&self, selector: Selector, deadline: Instant) -> Result<Verified, Error> {
+        self.complete_prepared_check(self.prepare_check(selector, deadline)?)
+    }
+    fn complete_prepared_check(&self, prepared: Prepared) -> Result<Verified, Error> {
+        let deadline = prepared.deadline();
+        self.check_deadline(deadline)?;
         let signed = self
             .transactions
             .sign(prepared.instruction(), true, deadline)?;
@@ -235,6 +242,32 @@ impl StreamTokenGatewayAdmissionProviderV1 for NativeGateway {
         match proof.readback() {
             VerifiedReadback::Pending(value) => Ok(value.clone()),
             _ => Err(Error::SubstitutedOutcome),
+        }
+    }
+    fn pending_for_background(
+        &self,
+        max_items: u32,
+        deadline: Instant,
+    ) -> Result<StreamTokenGatewayReconciliationReadV1, Error> {
+        let prepared = self.prepare_check(Selector::Pending { max_items }, deadline)?;
+        match prepared.pending_is_empty().map_err(observation_error)? {
+            Some(true) => {
+                self.check_deadline(deadline)?;
+                // Drop the unsent original challenge and its State owner before reporting Idle.
+                // This branch supplies no authenticated empty readback and authorizes no effect.
+                drop(prepared);
+                Ok(StreamTokenGatewayReconciliationReadV1::Idle)
+            }
+            Some(false) => {
+                let proof = self.complete_prepared_check(prepared)?;
+                match proof.readback() {
+                    VerifiedReadback::Pending(value) => Ok(
+                        StreamTokenGatewayReconciliationReadV1::Checked(value.clone()),
+                    ),
+                    _ => Err(Error::SubstitutedOutcome),
+                }
+            }
+            None => Err(Error::SubstitutedOutcome),
         }
     }
     fn acknowledge(&self, record: Record, deadline: Instant) -> Result<Ack, Error> {

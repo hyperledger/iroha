@@ -15,13 +15,7 @@ use iroha_data_model::{
         GlobalThresholdBeaconDkgRecipientKeyV1, GlobalThresholdBeaconDkgSessionV1,
         GlobalThresholdBeaconDkgShareAcceptanceV1, GlobalThresholdBeaconDkgTranscriptV1,
     },
-    isi::{
-        kagemusha_v1::{
-            KAGEMUSHA_CHAIN_VERSION_V1, KagemushaMintFinalityAuthorityGenerationV1,
-            KagemushaMintFinalityValidatorKeysV1,
-        },
-        staking::{PublicLanePeerBindingAuthorization, RebindPublicLaneValidatorPeer},
-    },
+    isi::staking::{PublicLanePeerBindingAuthorization, RebindPublicLaneValidatorPeer},
     nexus::{
         PublicLaneFeeRewardClaimV1, PublicLaneMonetaryBondV1, PublicLaneMonetaryPlanV1,
         PublicLaneMonetaryPreconditionV1, PublicLaneMonetaryRegistrationV1,
@@ -29,14 +23,13 @@ use iroha_data_model::{
         PublicLanePreparationBalanceV1, PublicLanePreparationOperationV1,
         PublicLanePreparationRequestV1, PublicLanePreparationV1, PublicLanePrepareBondV1,
         PublicLanePrepareClaimV1, PublicLanePrepareRegistrationV1, PublicLanePrepareUnbondV1,
-        PublicLanePreparedPlanV1, PublicLaneRewardClaimPlanV1, PublicLaneRewardClaimSourceV1,
-        PublicLaneRewardClaimStateV1, PublicLaneRewardRecordRefV1, ValidatorCommitteeCredentialsV1,
+        PublicLanePreparedPlanV1, PublicLaneRewardClaimPlanV1, ValidatorCommitteeCredentialsV1,
         ValidatorCommitteePreparationV1, ValidatorCommitteeTransitionV1,
     },
     parameter::system::SumeragiNposParameters,
     sumeragi::epoch::{
         BeaconEpochBindingV1, InstalledBeaconEpochBindingV1, ValidatorEpochAuthorizationV1,
-        ValidatorEpochDecisionV1,
+        ValidatorEpochDecisionV1, ValidatorGenerationV1,
     },
 };
 use iroha_model_base::{peer::PeerId, topology::LaneId};
@@ -61,24 +54,11 @@ fn peers() -> Vec<PeerId> {
     peers
 }
 
-fn authority(
-    network_id: NetworkId,
-    peers: &[PeerId],
-    generation: u64,
-) -> KagemushaMintFinalityAuthorityGenerationV1 {
-    KagemushaMintFinalityAuthorityGenerationV1 {
-        version: KAGEMUSHA_CHAIN_VERSION_V1,
+fn generation(network_id: NetworkId, peers: &[PeerId], generation: u64) -> ValidatorGenerationV1 {
+    ValidatorGenerationV1 {
         network_id,
         generation,
-        validators: peers
-            .iter()
-            .enumerate()
-            .map(|(index, validator)| KagemushaMintFinalityValidatorKeysV1 {
-                validator: validator.clone(),
-                eq_proof_public_key: [u8::try_from(index + 1).unwrap(); 32],
-                ep_proof_public_key: [u8::try_from(index + 11).unwrap(); 32],
-            })
-            .collect(),
+        validators: peers.to_vec(),
     }
 }
 
@@ -170,16 +150,16 @@ fn dkg_transcript(
 fn all_fixture_rows() -> Vec<(&'static str, Vec<u8>)> {
     let network_id = network();
     let peers = peers();
-    let genesis_authority = authority(network_id, &peers, 0);
-    let successor_authority = authority(network_id, &peers, 1);
+    let genesis_generation = generation(network_id, &peers, 0);
+    let successor_generation = generation(network_id, &peers, 1);
     let genesis_authorization = ValidatorEpochAuthorizationV1 {
-        version: KAGEMUSHA_CHAIN_VERSION_V1,
+        version: 1,
         network_id,
         epoch: 0,
         first_height: 1,
         last_height: 100,
         authority_generation: 0,
-        authority_id: genesis_authority.authority_id().unwrap(),
+        authority_id: genesis_generation.generation_id().unwrap(),
         beacon: BeaconEpochBindingV1::Bootstrap,
         previous_authorization_id: [0; 32],
         transition_id: [0; 32],
@@ -192,13 +172,13 @@ fn all_fixture_rows() -> Vec<(&'static str, Vec<u8>)> {
         transcript_hash: [0x58; 32],
     };
     let activation = ValidatorEpochAuthorizationV1 {
-        version: KAGEMUSHA_CHAIN_VERSION_V1,
+        version: 1,
         network_id,
         epoch: 2,
         first_height: 201,
         last_height: 300,
         authority_generation: 1,
-        authority_id: successor_authority.authority_id().unwrap(),
+        authority_id: successor_generation.generation_id().unwrap(),
         beacon: BeaconEpochBindingV1::Installed(installed),
         previous_authorization_id: [0x59; 32],
         transition_id: [0x5a; 32],
@@ -241,18 +221,18 @@ fn all_fixture_rows() -> Vec<(&'static str, Vec<u8>)> {
     preparation
         .validate()
         .expect("real frozen committee and policy");
+    assert_eq!(preparation.generation(), successor_generation);
     let transition = ValidatorCommitteeTransitionV1 {
         preparation,
-        credentials: Some(ValidatorCommitteeCredentialsV1 {
-            authority: successor_authority,
-            beacon: installed,
-        }),
+        credentials: Some(ValidatorCommitteeCredentialsV1 { beacon: installed }),
         readiness: Vec::new(),
         outcome: Some(activation),
     };
     let staker = AccountId::new(key(0x71, Algorithm::Ed25519).public_key().clone());
     let custody = AccountId::new(key(0x72, Algorithm::Ed25519).public_key().clone());
-    let xor = SumeragiNposParameters::default().xor_asset_definition_id;
+    let xor = SumeragiNposParameters::default()
+        .xor_asset_definition_id()
+        .clone();
     let plan = PublicLaneMonetaryPlanV1 {
         network_scope: PublicLaneMonetaryScopeV1::Network(network_id),
         valid_until_height: 210,
@@ -292,35 +272,19 @@ fn all_fixture_rows() -> Vec<(&'static str, Vec<u8>)> {
         }),
         ..plan.clone()
     };
-    let reward_plan = PublicLaneRewardClaimPlanV1 {
+    let fee_reward_plan = PublicLaneRewardClaimPlanV1 {
         network_scope: PublicLaneMonetaryScopeV1::Network(network_id),
         valid_until_height: 210,
-        expected_state: Some(PublicLaneRewardClaimStateV1 {
-            through_epoch: Some(200),
-        }),
-        records: vec![PublicLaneRewardRecordRefV1 {
-            epoch: 201,
-            record_hash: Hash::new(b"sdk-exact-reward-record"),
-        }],
-        sources: vec![PublicLaneRewardClaimSourceV1 {
+        fee_claim: PublicLaneFeeRewardClaimV1 {
+            lifecycle_seal: [0x77; 32],
+            beneficiary_id: staker.clone(),
+            beneficiary_revision: 4,
             source_asset: plan.destination_asset.clone(),
             destination_asset: plan.source_asset.clone(),
-            expected_accrued: Some(Quantity::from(5_u64)),
-            payout: Quantity::from(15_u64),
-        }],
-        fee_claim: None,
+            amount: Quantity::from(7_u64),
+            expected_claim_sequence: 5,
+        },
     };
-    let mut fee_reward_plan = reward_plan.clone();
-    fee_reward_plan.fee_claim = Some(PublicLaneFeeRewardClaimV1 {
-        lifecycle_seal: [0x77; 32],
-        beneficiary_id: staker.clone(),
-        beneficiary_revision: 4,
-        source_asset: plan.destination_asset.clone(),
-        destination_asset: plan.source_asset.clone(),
-        amount: Quantity::from(7_u64),
-        expected_claim_sequence: 5,
-    });
-    assert!(reward_plan.has_canonical_shape(&staker));
     assert!(fee_reward_plan.has_canonical_shape(&staker));
     let new_peer_key = key(0x73, Algorithm::Ed25519);
     let new_peer = PeerId::new(new_peer_key.public_key().clone());
@@ -339,7 +303,7 @@ fn all_fixture_rows() -> Vec<(&'static str, Vec<u8>)> {
         SignatureOf::try_new(new_peer_key.private_key(), &consent).unwrap(),
     );
     let mut rows = vec![
-        ("authority_generation", genesis_authority.encode()),
+        ("validator_generation", genesis_generation.encode()),
         ("epoch_authorization", genesis_authorization.encode()),
         ("dkg_session", session.encode()),
         ("dkg_transcript", transcript.encode()),
@@ -348,7 +312,6 @@ fn all_fixture_rows() -> Vec<(&'static str, Vec<u8>)> {
         ("monetary_bond_plan", bond_plan.encode()),
         ("monetary_unbond_plan", unbond_plan.encode()),
         ("monetary_slash_plan", slash_plan.encode()),
-        ("reward_claim_plan", reward_plan.encode()),
         ("fee_reward_claim_plan", fee_reward_plan.encode()),
         ("rebind_peer", rebind.encode()),
     ];
@@ -389,9 +352,6 @@ fn all_fixture_rows() -> Vec<(&'static str, Vec<u8>)> {
             "prepare_claim_response",
             PublicLanePreparationOperationV1::ClaimRewards(PublicLanePrepareClaimV1 {
                 recipient: staker,
-                upto_epoch: Some(201),
-                max_records: 1,
-                accrued_sources: vec![plan.destination_asset.clone()],
             }),
             PublicLanePreparedPlanV1::Claim(fee_reward_plan),
         ),
@@ -432,7 +392,7 @@ fn all_fixture_rows() -> Vec<(&'static str, Vec<u8>)> {
 }
 
 // Bare DTO payload fixtures stay separate from full request/response frames.
-// Swift and Kotlin consumers retain their exact, unchanged DTO identity set.
+// SDK consumers decode only the current first-release DTO identities.
 fn fixture_rows() -> Vec<(&'static str, Vec<u8>)> {
     all_fixture_rows()
         .into_iter()
@@ -449,7 +409,9 @@ fn preparation_fixture_rows() -> Vec<(&'static str, Vec<u8>)> {
 
 #[test]
 fn operation_specific_monetary_fixtures_roundtrip_exact_bindings_and_network_xor() {
-    let xor = SumeragiNposParameters::default().xor_asset_definition_id;
+    let xor = SumeragiNposParameters::default()
+        .xor_asset_definition_id()
+        .clone();
     let rows = fixture_rows();
     let plans = rows
         .iter()
@@ -532,7 +494,9 @@ fn staking_preparation_frames_keep_schema_alignment_and_exact_native_intent() {
             );
             assert_eq!(
                 response.xor_asset_definition_id,
-                SumeragiNposParameters::default().xor_asset_definition_id
+                SumeragiNposParameters::default()
+                    .xor_asset_definition_id()
+                    .clone()
             );
             for row in response.balances {
                 assert_eq!(
@@ -561,16 +525,19 @@ fn retired_synthetic_xor_has_the_same_rejected_sdk_identity() {
     );
     assert_ne!(
         retired,
-        SumeragiNposParameters::default().xor_asset_definition_id
+        SumeragiNposParameters::default()
+            .xor_asset_definition_id()
+            .clone()
     );
 }
 
 #[test]
 fn committed_validator_staking_sdk_fixtures_match_current_rust_records() {
-    let committed = include_str!(concat!(
+    let committed = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../fixtures/validator_staking/norito_v1.tsv"
-    ));
+    ))
+    .expect("read canonical validator-staking fixture");
     let rows = committed
         .lines()
         .filter(|line| !line.is_empty() && !line.starts_with('#'))

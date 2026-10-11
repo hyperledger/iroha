@@ -16,7 +16,8 @@ use iroha_torii_shared::authority_originals::{
     NativeAccountAliasStateRefV1, NativeAuthorityOriginalsFamilyRefV1,
     NativeAuthorityOriginalsRefV1, NativeAuthorityOriginalsRequestV1,
     NativeAuthorityOriginalsSelectorV1, NativeGlobalFeeProgramStateRefV1,
-    decode_native_authority_originals_request_v1, native_authority_originals_request_digests_v1,
+    NativeIdentifierPolicyStateRefV1, decode_native_authority_originals_request_v1,
+    native_authority_originals_request_digests_v1,
 };
 
 // Payload fields physically drop before their prepaid intake reservation. The
@@ -364,6 +365,29 @@ async fn handle(
                             );
                             encode(&payload, format, max_response, &budget, unavailable).map_err(
                                 |_| "native authority fee serialization refused".to_owned(),
+                            )
+                        },
+                    )
+                    .map_err(|_| unavailable())?,
+                NativeAuthorityOriginalsSelectorV1::IdentifierPolicy(policy_id) => state
+                    .with_native_identifier_policy_originals_v1(
+                        &tip,
+                        &capture_authority,
+                        policy_id,
+                        &budget,
+                        |snapshot, policy, program| {
+                            let family = NativeAuthorityOriginalsFamilyRefV1::IdentifierPolicy(
+                                NativeIdentifierPolicyStateRefV1::new(policy, program),
+                            );
+                            let payload = NativeAuthorityOriginalsRefV1::new(
+                                &digest,
+                                &intake.request.selector,
+                                &attestation,
+                                snapshot,
+                                family,
+                            );
+                            encode(&payload, format, max_response, &budget, unavailable).map_err(
+                                |_| "native authority identifier serialization refused".to_owned(),
                             )
                         },
                     )

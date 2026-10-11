@@ -20,13 +20,12 @@ use super::{
 };
 use crate::{
     api::{Action, ExecOutcome},
-    crypto::{Signer, verify_vote_attestation},
+    crypto::Signer,
     message::{
         BlockHeader, PayloadChunk, PayloadManifest, Proposal, ProposalMessage, Qc, Status,
         SyncEntry, SyncResponse, TcEntry, TimeoutCert, TimeoutVote, Vote, VoteKind, WireMessage,
     },
     preimage,
-    testing::{FakeVerifier, fake_attestation},
     types::{Bitmap, Hash32, Millis, PublicKey, SIGNATURE_LEN, Signature},
 };
 
@@ -119,16 +118,7 @@ pub enum Strategy {
     /// own signature (forged), with its own echo under another nonce (replayed), and with its
     /// own valid echo reporting a low height (a Byzantine member counts as one reply) (F24).
     ForgeEchoes,
-    /// As proxy tail, strip the attestations of the flagged `CommitQC`s it forms, and clear
-    /// their flag and result witness every other time (§3.7, F37, MA2, MA6).
-    StripAttestations,
-    /// Send its Commit votes of flagged blocks with a forged attestation, or with none, in
-    /// turn (§3.7, F37, MA1).
-    ForgeAttestations,
-    /// Collect the genuinely attested Commit votes of flagged blocks it receives; once `q`
-    /// other members' votes for one value are known, broadcast a `CommitQC` of them plus its
-    /// own genuine vote: `q + 1` genuine signatures and attestations, one more than a KAGEMUSHA
-    /// bundle holds (§3.7 A4, F37, MA11).
+    /// Broadcast a certificate with q + 1 genuine votes to test exact-quorum rejection.
     OverAggregate,
 }
 
@@ -206,7 +196,7 @@ pub struct Adversary {
     /// Votes seen by short-certificate forgers.
     short: BTreeMap<ShortKey, BTreeMap<u32, Signature>>,
     /// Attested Commit votes seen by over-aggregators, and the values already over-aggregated.
-    over: BTreeMap<ShortKey, BTreeMap<u32, (Signature, crate::message::CommitAttestation)>>,
+    over: BTreeMap<ShortKey, BTreeMap<u32, Signature>>,
     over_sent: BTreeSet<ShortKey>,
     requests: VecDeque<(usize, PublicKey, WireMessage)>,
     relayed: BTreeSet<(usize, u64, u64)>,
@@ -289,10 +279,7 @@ pub fn relabel(msg: &WireMessage, id: Hash32) -> WireMessage {
             p.proposal.parent_qc = p.proposal.parent_qc.as_ref().map(|q| qc(q, id));
             WireMessage::Proposal(Box::new(p))
         }
-        WireMessage::Vote(v) => WireMessage::Vote(Vote {
-            instance: id,
-            ..v.clone()
-        }),
+        WireMessage::Vote(v) => WireMessage::Vote(Vote { instance: id, ..*v }),
         WireMessage::Qc(q) => WireMessage::Qc(qc(q, id)),
         WireMessage::Timeout(t) => WireMessage::Timeout(Box::new(TimeoutVote {
             instance: id,
@@ -448,21 +435,12 @@ impl World {
         self.adv.counter += 1;
         let bh = Hash32([u8::try_from(self.adv.counter % 251).unwrap_or(0); 32]);
         let result = Hash32([0x77; 32]);
-        let msg = preimage::vote_preimage(
-            kind,
-            &instance,
-            &self.instances[inst].config(height).epoch.id,
-            height,
-            view,
-            &bh,
-            &result,
-            false,
-        );
+        let epoch = self.instances[inst].epoch(height).id;
+        let msg = preimage::vote_preimage(kind, &instance, &epoch, height, view, &bh, &result);
         let own = self.byz_signer(r).sign(&msg);
         let indices: Vec<u32> = (0..u32::try_from(q).unwrap_or(1)).collect();
         Qc {
-            attestation_witness: None,
-            epoch: self.instances[inst].config(height).epoch.id,
+            epoch,
             kind,
             instance,
             height,
@@ -472,8 +450,6 @@ impl World {
             signers: Bitmap::from_indices(n, indices.iter().copied())
                 .unwrap_or_else(|| Bitmap::new(n)),
             agg_sig: aggregate(&[own]),
-            attest: false,
-            attestations: Vec::new(),
         }
     }
 
@@ -580,33 +556,6 @@ impl World {
                     (Strategy::RewriteResult, WireMessage::Qc(q)) => {
                         let mut q = q.clone();
                         q.result = Hash32([0x5e; 32]);
-                        msg = WireMessage::Qc(q);
-                    }
-                    (Strategy::ForgeAttestations, WireMessage::Vote(v))
-                        if v.needs_attestation() && Some(v.signer) == own_index =>
-                    {
-                        let mut v = v.clone();
-                        self.adv.counter += 1;
-                        if self.adv.counter.is_multiple_of(2) {
-                            v.attestation = None;
-                        } else if let Some(share) = v.attestation.as_mut() {
-                            let mut changed = share.signature.as_slice().to_vec();
-                            changed[0] ^= 0xff;
-                            share.signature =
-                                crate::message::AttestationSignature::try_from_slice(&changed)
-                                    .unwrap();
-                        }
-                        msg = WireMessage::Vote(v);
-                    }
-                    (Strategy::StripAttestations, WireMessage::Qc(q)) if q.needs_attestations() => {
-                        let mut q = q.clone();
-                        q.attestations.clear();
-                        self.adv.counter += 1;
-                        if self.adv.counter.is_multiple_of(2) {
-                            // Shaped as unflagged, so only the signed flag rejects it (MA6).
-                            q.attest = false;
-                            q.attestation_witness = None;
-                        }
                         msg = WireMessage::Qc(q);
                     }
                     (Strategy::SplitBrain, _)
@@ -1066,7 +1015,6 @@ impl World {
         let signers: Vec<u32> = pool.keys().copied().collect();
         let sigs: Vec<Signature> = pool.values().copied().collect();
         let qc = Qc {
-            attestation_witness: None,
             epoch: v.epoch,
             kind: v.kind,
             instance: v.instance,
@@ -1077,16 +1025,13 @@ impl World {
             signers: Bitmap::from_indices(committee.n(), signers.iter().copied())
                 .unwrap_or_else(|| Bitmap::new(committee.n())),
             agg_sig: aggregate(&sigs),
-            attest: false,
-            attestations: Vec::new(),
         };
         let at = self.now;
         self.byz_send_all(r, v.height, WireMessage::Qc(qc), at);
     }
 
-    /// Over-aggregation (MA11): pool the genuinely attested Commit votes of flagged blocks from
-    /// other members; with `q` of one value, add its own genuine vote and broadcast the
-    /// `q + 1`-signer `CommitQC` once (valid in every respect but the exact quorum of §3.7 A4).
+    /// Pool q genuine Commit votes, add one distinct own vote, and broadcast a
+    /// q + 1 signer certificate to exercise exact-quorum rejection.
     fn observe_over(&mut self, r: usize, v: &Vote) {
         let inst = self.replicas[r].inst;
         let instance = self.instances[inst].id;
@@ -1104,20 +1049,15 @@ impl World {
             v.result,
         );
         let genuine = v.kind == VoteKind::Commit
-            && v.needs_attestation()
             && v.signer != own
             && crate::crypto::Verifier::new(&self.hasher, &instance, &v.epoch, &committee)
                 .verify_vote(v)
-                .is_ok()
-            && verify_vote_attestation(&FakeVerifier, &committee, v).is_ok();
+                .is_ok();
         if !genuine || self.adv.over_sent.contains(&key) {
             return;
         }
-        let Some(attestation) = v.attestation.clone() else {
-            return;
-        };
         let pool = self.adv.over.entry(key).or_default();
-        pool.insert(v.signer, (v.sig, attestation));
+        pool.insert(v.signer, v.sig);
         if pool.len() < committee.q() {
             while self.adv.over.len() > 256 {
                 self.adv.over.pop_first();
@@ -1134,19 +1074,9 @@ impl World {
             v.view,
             &v.block_hash,
             &v.result,
-            true,
         );
-        let statement =
-            preimage::att_preimage(&instance, &v.epoch, v.height, &v.block_hash, &v.result);
-        votes.insert(
-            own,
-            (
-                self.byz_signer(r).sign(&msg),
-                fake_attestation(&me, v.height, &statement),
-            ),
-        );
+        votes.insert(own, self.byz_signer(r).sign(&msg));
         let qc = Qc {
-            attestation_witness: votes.values().next().map(|(_, a)| a.witness.clone()),
             epoch: v.epoch,
             kind: VoteKind::Commit,
             instance,
@@ -1154,11 +1084,9 @@ impl World {
             view: v.view,
             block_hash: v.block_hash,
             result: v.result,
-            attest: true,
             signers: Bitmap::from_indices(committee.n(), votes.keys().copied())
                 .unwrap_or_else(|| Bitmap::new(committee.n())),
-            agg_sig: aggregate(&votes.values().map(|(sig, _)| *sig).collect::<Vec<_>>()),
-            attestations: votes.into_values().map(|(_, a)| a.signature).collect(),
+            agg_sig: aggregate(&votes.values().copied().collect::<Vec<_>>()),
         };
         self.trace(
             r,
@@ -1301,14 +1229,13 @@ impl World {
             return;
         };
         let instance = self.instances[inst].id;
-        let epoch = self.instances[inst].config(h).epoch.id;
+        let epoch = self.instances[inst].epoch(h).id;
         let at = self.now;
         let vote = |world: &mut Self, kind: VoteKind, view: u64, bh: Hash32, result: Hash32| {
             if !world.adv.split_votes.insert((inst, h, view, kind.byte())) {
                 return;
             }
-            let pre =
-                preimage::vote_preimage(kind, &instance, &epoch, h, view, &bh, &result, false);
+            let pre = preimage::vote_preimage(kind, &instance, &epoch, h, view, &bh, &result);
             let vote = Vote {
                 epoch,
                 kind,
@@ -1319,8 +1246,6 @@ impl World {
                 result,
                 signer: index,
                 sig: signer.sign(&pre),
-                attest: false,
-                attestation: None,
             };
             world.byz_send_all(r, h, WireMessage::Vote(vote), at);
         };
@@ -1409,7 +1334,7 @@ impl World {
                 core.committed_qc().cloned(),
             )
         };
-        let epoch = self.instances[inst].config(height).epoch.id;
+        let epoch = self.instances[inst].epoch(height).id;
         let me = self.net_key(r);
         let signer = self.byz_signer(r);
         let committee = self.instances[inst].committee(height).clone();
@@ -1466,8 +1391,6 @@ impl World {
                                 result: q.result,
                                 signer: s,
                                 sig: junk_sig(self.adv.counter),
-                                attest: false,
-                                attestation: None,
                             }));
                             for &x in &targets {
                                 if x != r {
@@ -1503,7 +1426,6 @@ impl World {
                             payload_len: u32::try_from(payload.len()).unwrap_or(0),
                             proposer: index,
                             skipped_leaders: Vec::new(),
-                            attest: false,
                         };
                         let justify = self.replicas[r]
                             .host
@@ -1534,7 +1456,6 @@ impl World {
                             v2,
                             &Hash32::ZERO,
                             &Hash32::ZERO,
-                            false,
                         );
                         let vote = Vote {
                             epoch,
@@ -1546,8 +1467,6 @@ impl World {
                             result: Hash32::ZERO,
                             signer: index,
                             sig: signer.sign(&pre),
-                            attest: false,
-                            attestation: None,
                         };
                         self.byz_send_all(r, height, WireMessage::Vote(vote), now);
                         let tv = view + 1_000_000_000;
@@ -1606,7 +1525,6 @@ impl World {
                                 payload_len: 1,
                                 proposer: index,
                                 skipped_leaders: Vec::new(),
-                                attest: false,
                             };
                             let manifest = PayloadManifest {
                                 header,
@@ -1714,7 +1632,6 @@ impl World {
                         0,
                         &bh,
                         &result,
-                        false,
                     );
                     let indices: Vec<u32> = colluders
                         .iter()
@@ -1722,7 +1639,6 @@ impl World {
                         .collect();
                     let sigs: Vec<Signature> = colluders.iter().map(|s| s.sign(&pre)).collect();
                     let qc = Qc {
-                        attestation_witness: None,
                         epoch,
                         kind: VoteKind::Commit,
                         instance,
@@ -1733,8 +1649,6 @@ impl World {
                         signers: Bitmap::from_indices(committee.n(), indices.iter().copied())
                             .unwrap_or_else(|| Bitmap::new(committee.n())),
                         agg_sig: aggregate(&sigs),
-                        attest: false,
-                        attestations: Vec::new(),
                     };
                     let status = Status {
                         instance,
@@ -1808,7 +1722,7 @@ impl World {
             ..Status::default()
         };
         let low = 1;
-        let epoch = self.instances[inst].config(low).epoch.id;
+        let epoch = self.instances[inst].epoch(low).id;
         let mut out = Vec::new();
         // Forged: other members' keys under this node's signature.
         for key in committee.members().iter().filter(|k| **k != me && *k != to) {
@@ -1884,8 +1798,7 @@ impl World {
                             });
                     if let Some(block) = genuine {
                         let shape = self.instances[inst]
-                            .config(block.header().height)
-                            .epoch
+                            .epoch(block.header().height)
                             .da_layout
                             .shape(block.payload().as_slice().len() as u64)
                             .unwrap();

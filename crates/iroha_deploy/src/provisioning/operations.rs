@@ -35,7 +35,23 @@ pub(super) trait ProvisioningOperations {
     fn lease(&self, config: &Config, request: &LeaseRead<'_>) -> Result<VerifiedSnsLeaseV1>;
 }
 
-pub(super) struct NativeOperations;
+#[derive(Default)]
+pub(super) struct NativeOperations {
+    pub(super) cancellation: Option<Arc<AtomicBool>>,
+}
+
+impl NativeOperations {
+    fn require_active(&self) -> Result<()> {
+        if self
+            .cancellation
+            .as_ref()
+            .is_some_and(|signal| signal.load(Ordering::Acquire))
+        {
+            return Err(ProvisioningError::Cancelled);
+        }
+        Ok(())
+    }
+}
 
 impl ProvisioningOperations for NativeOperations {
     fn fund(
@@ -46,6 +62,10 @@ impl ProvisioningOperations for NativeOperations {
         deadline: Instant,
     ) -> Result<OperationStatus> {
         let service = OnboardingService::new(config.clone())
+            .and_then(|service| match &self.cancellation {
+                Some(signal) => service.with_cancellation(Arc::clone(signal)),
+                None => Ok(service),
+            })
             .and_then(|service| service.with_deadline(deadline))
             .map_err(|_| ProvisioningError::Invalid("cannot construct exact faucet context"))?;
         if !path_exists(journal)? {
@@ -73,11 +93,12 @@ impl ProvisioningOperations for NativeOperations {
         account_alias: &str,
         deadline: Instant,
     ) -> Result<AliasSetupPlanRequestV1> {
-        Ok(
-            prepare_private_dataspace_request(config, alias, account_alias, deadline)
-                .map_err(|_| ProvisioningError::NamespaceQuote)?
-                .request,
-        )
+        self.require_active()?;
+        let request = prepare_private_dataspace_request(config, alias, account_alias, deadline)
+            .map_err(|_| ProvisioningError::NamespaceQuote)?
+            .request;
+        self.require_active()?;
+        Ok(request)
     }
 
     fn reserve(
@@ -88,6 +109,10 @@ impl ProvisioningOperations for NativeOperations {
         journal: &Path,
     ) -> Result<OperationStatus> {
         let service = AccountService::new(config.clone())
+            .and_then(|service| match &self.cancellation {
+                Some(signal) => service.with_cancellation(Arc::clone(signal)),
+                None => Ok(service),
+            })
             .and_then(|service| service.with_deadline(options.deadline))
             .map_err(|_| ProvisioningError::Invalid("cannot construct exact namespace context"))?;
         let preparation = service

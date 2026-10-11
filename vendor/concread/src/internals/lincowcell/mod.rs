@@ -461,6 +461,41 @@ pub struct LinCowCellOwned<T, R, U, Charge = Untracked> {
     root: Shared<Mutex<WriteState<T, R, Charge>>, Charge>,
 }
 
+/// Immutable custody of the exact original private cursor allocation.
+///
+/// Only the frozen map facade creates this handle. It retains the original
+/// working cursor, base and root in value-before-node-owner destruction order.
+/// Cloning adds references to existing charged allocations and allocates nothing.
+pub(crate) struct LinCowCellRetainedWork<T, R, U, Charge = Untracked> {
+    work: Shared<U, Charge>,
+    base: Shared<LinCowCellInner<R, Charge>, Charge>,
+    root: Shared<Mutex<WriteState<T, R, Charge>>, Charge>,
+}
+
+impl<T, R, U, Charge> Clone for LinCowCellRetainedWork<T, R, U, Charge> {
+    fn clone(&self) -> Self {
+        Self {
+            work: self.work.clone(),
+            base: self.base.clone(),
+            root: self.root.clone(),
+        }
+    }
+}
+
+impl<T, R, U, Charge> LinCowCellRetainedWork<T, R, U, Charge> {
+    pub(crate) fn same_work(&self, other: &Self) -> bool {
+        Shared::ptr_eq(&self.work, &other.work)
+            && Shared::ptr_eq(&self.base, &other.base)
+            && Shared::ptr_eq(&self.root, &other.root)
+    }
+}
+
+impl<T, R, U, Charge> AsRef<U> for LinCowCellRetainedWork<T, R, U, Charge> {
+    fn as_ref(&self) -> &U {
+        &self.work
+    }
+}
+
 /// Original physical writer before admission or successor construction.
 /// No cursor allocation or caller callback runs while acquiring this owner.
 #[must_use = "admit a successor or release the original acquired writer"]
@@ -1264,6 +1299,20 @@ where
 }
 
 impl<T, R, U, Charge> LinCowCellOwned<T, R, U, Charge> {
+    /// Freeze-only handle retaining the actual original cursor, not a copy.
+    pub(crate) fn retain_work(&self) -> LinCowCellRetainedWork<T, R, U, Charge> {
+        LinCowCellRetainedWork {
+            work: self.work.clone(),
+            base: self.base.clone(),
+            root: self.root.clone(),
+        }
+    }
+
+    /// Admit mutable handoff only after every original frozen reader retires.
+    pub(crate) fn work_is_unique(&mut self) -> bool {
+        Shared::get_mut(&mut self.work).is_some()
+    }
+
     /// Exclusively borrow the original private cursor; no map lock or copy is needed.
     pub(crate) fn get_mut(&mut self) -> &mut U {
         Shared::get_mut(&mut self.work).expect("original cursor must be uniquely owned")

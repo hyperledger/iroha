@@ -1,0 +1,651 @@
+## pool_manager.ko
+//	comment.line.double-slash.kotodama punctuation.definition.comment.kotodama
+Representative liquidity-pool seiyaku for Kotodama grammar validation.	comment.line.double-slash.kotodama
+seiyaku	keyword.declaration.contract.kotodama
+PoolManager	entity.name.type.contract.kotodama
+{	punctuation.section.braces.kotodama
+permission	storage.type.permission.kotodama
+Admin	-
+;	punctuation.terminator.statement.kotodama
+state	storage.type.kotodama
+StateMap	support.type.kotodama
+<	keyword.operator.kotodama
+Name	support.type.kotodama
+,	punctuation.separator.comma.kotodama
+AccountId	support.type.kotodama
+>	keyword.operator.kotodama
+PoolAccount	-
+;	punctuation.terminator.statement.kotodama
+state	storage.type.kotodama
+StateMap	support.type.kotodama
+<	keyword.operator.kotodama
+Name	support.type.kotodama
+,	punctuation.separator.comma.kotodama
+quantity	support.type.kotodama
+>	keyword.operator.kotodama
+ReserveA	-
+;	punctuation.terminator.statement.kotodama
+state	storage.type.kotodama
+StateMap	support.type.kotodama
+<	keyword.operator.kotodama
+Name	support.type.kotodama
+,	punctuation.separator.comma.kotodama
+quantity	support.type.kotodama
+>	keyword.operator.kotodama
+ReserveB	-
+;	punctuation.terminator.statement.kotodama
+fn	keyword.declaration.function.kotodama
+min_value	entity.name.function.kotodama
+(	punctuation.section.parens.kotodama
+quantity	support.type.kotodama
+a	-
+,	punctuation.separator.comma.kotodama
+quantity	support.type.kotodama
+b	-
+)	punctuation.section.parens.kotodama
+->	keyword.operator.kotodama
+quantity	support.type.kotodama
+{	punctuation.section.braces.kotodama
+if	keyword.control.kotodama
+a	-
+<	keyword.operator.kotodama
+b	-
+{	punctuation.section.braces.kotodama
+return	keyword.control.kotodama
+a	-
+;	punctuation.terminator.statement.kotodama
+}	punctuation.section.braces.kotodama
+else	keyword.control.kotodama
+{	punctuation.section.braces.kotodama
+return	keyword.control.kotodama
+b	-
+;	punctuation.terminator.statement.kotodama
+}	punctuation.section.braces.kotodama
+}	punctuation.section.braces.kotodama
+kotoage	storage.modifier.kotodama
+fn	keyword.declaration.function.kotodama
+quote_or_deposit	entity.name.function.kotodama
+(	punctuation.section.parens.kotodama
+AccountId	support.type.kotodama
+trader	-
+,	punctuation.separator.comma.kotodama
+Name	support.type.kotodama
+pool	-
+,	punctuation.separator.comma.kotodama
+quantity	support.type.kotodama
+amount_a	-
+,	punctuation.separator.comma.kotodama
+quantity	support.type.kotodama
+amount_b	-
+,	punctuation.separator.comma.kotodama
+)	punctuation.section.parens.kotodama
+authorize	storage.modifier.authorization.kotodama
+(	punctuation.section.parens.kotodama
+Admin	-
+)	punctuation.section.parens.kotodama
+->	keyword.operator.kotodama
+quantity	support.type.kotodama
+{	punctuation.section.braces.kotodama
+let	storage.type.kotodama
+quantity	support.type.kotodama
+zero	-
+=	keyword.operator.kotodama
+0	constant.numeric.integer.decimal.kotodama
+;	punctuation.terminator.statement.kotodama
+let	storage.type.kotodama
+reserve_a	-
+=	keyword.operator.kotodama
+ReserveA	-
+.	punctuation.accessor.kotodama
+get_or_insert	support.function.method.kotodama
+(	punctuation.section.parens.kotodama
+pool	-
+,	punctuation.separator.comma.kotodama
+zero	-
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+let	storage.type.kotodama
+reserve_b	-
+=	keyword.operator.kotodama
+ReserveB	-
+.	punctuation.accessor.kotodama
+get_or_insert	support.function.method.kotodama
+(	punctuation.section.parens.kotodama
+pool	-
+,	punctuation.separator.comma.kotodama
+zero	-
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+let	storage.type.kotodama
+pool_account	-
+=	keyword.operator.kotodama
+PoolAccount	-
+.	punctuation.accessor.kotodama
+get	support.function.method.kotodama
+(	punctuation.section.parens.kotodama
+pool	-
+)	punctuation.section.parens.kotodama
+.	punctuation.accessor.kotodama
+unwrap_or	support.function.method.kotodama
+(	punctuation.section.parens.kotodama
+trader	-
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+//	comment.line.double-slash.kotodama punctuation.definition.comment.kotodama
+Sample settlement policy: round the asset-B quote down to 18 decimal places.	comment.line.double-slash.kotodama
+let	storage.type.kotodama
+quoted	-
+=	keyword.operator.kotodama
+(	punctuation.section.parens.kotodama
+reserve_a	-
+==	keyword.operator.kotodama
+zero	-
+)	punctuation.section.parens.kotodama
+?	keyword.operator.kotodama
+amount_b	-
+:	punctuation.separator.colon.kotodama
+min_value	-
+(	punctuation.section.parens.kotodama
+a	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+reserve_b	-
+.	punctuation.accessor.kotodama
+mul_div_round	support.function.method.kotodama
+(	punctuation.section.parens.kotodama
+multiplier	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+decimal	support.type.kotodama
+::	punctuation.separator.namespace.kotodama
+from_quantity	support.function.kotodama
+(	punctuation.section.parens.kotodama
+amount_a	-
+)	punctuation.section.parens.kotodama
+,	punctuation.separator.comma.kotodama
+divisor	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+decimal	support.type.kotodama
+::	punctuation.separator.namespace.kotodama
+from_quantity	support.function.kotodama
+(	punctuation.section.parens.kotodama
+reserve_a	-
+)	punctuation.section.parens.kotodama
+,	punctuation.separator.comma.kotodama
+scale	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+18	constant.numeric.integer.decimal.kotodama
+,	punctuation.separator.comma.kotodama
+mode	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+Rounding::floor	support.constant.variant.rounding.kotodama
+,	punctuation.separator.comma.kotodama
+)	punctuation.section.parens.kotodama
+,	punctuation.separator.comma.kotodama
+b	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+amount_b	-
+,	punctuation.separator.comma.kotodama
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+if	keyword.control.kotodama
+quoted	-
+>	keyword.operator.kotodama
+zero	-
+{	punctuation.section.braces.kotodama
+ledger	-
+::	punctuation.separator.namespace.kotodama
+asset	-
+::	punctuation.separator.namespace.kotodama
+transfer	support.function.kotodama
+(	punctuation.section.parens.kotodama
+source	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+trader	-
+,	punctuation.separator.comma.kotodama
+destination	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+pool_account	-
+,	punctuation.separator.comma.kotodama
+asset_definition	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+AssetDefinitionId	support.type.kotodama
+::	punctuation.separator.namespace.kotodama
+parse	support.function.kotodama
+(	punctuation.section.parens.kotodama
+"	string.quoted.double.kotodama punctuation.definition.string.begin.kotodama
+62Fk4FPcMuLvW5QjDGNF2a4jAmjM	string.quoted.double.kotodama
+"	string.quoted.double.kotodama punctuation.definition.string.end.kotodama
+)	punctuation.section.parens.kotodama
+,	punctuation.separator.comma.kotodama
+amount	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+amount_a	-
+,	punctuation.separator.comma.kotodama
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+ledger	-
+::	punctuation.separator.namespace.kotodama
+asset	-
+::	punctuation.separator.namespace.kotodama
+transfer	support.function.kotodama
+(	punctuation.section.parens.kotodama
+source	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+trader	-
+,	punctuation.separator.comma.kotodama
+destination	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+pool_account	-
+,	punctuation.separator.comma.kotodama
+asset_definition	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+AssetDefinitionId	support.type.kotodama
+::	punctuation.separator.namespace.kotodama
+parse	support.function.kotodama
+(	punctuation.section.parens.kotodama
+"	string.quoted.double.kotodama punctuation.definition.string.begin.kotodama
+6pEP9RjNoZ7beWkT3pLfKoM1dyfi	string.quoted.double.kotodama
+"	string.quoted.double.kotodama punctuation.definition.string.end.kotodama
+)	punctuation.section.parens.kotodama
+,	punctuation.separator.comma.kotodama
+amount	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+quoted	-
+,	punctuation.separator.comma.kotodama
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+}	punctuation.section.braces.kotodama
+ReserveA	-
+[	punctuation.section.brackets.kotodama
+pool	-
+]	punctuation.section.brackets.kotodama
+=	keyword.operator.kotodama
+reserve_a	-
++	keyword.operator.kotodama
+amount_a	-
+;	punctuation.terminator.statement.kotodama
+ReserveB	-
+[	punctuation.section.brackets.kotodama
+pool	-
+]	punctuation.section.brackets.kotodama
+=	keyword.operator.kotodama
+reserve_b	-
++	keyword.operator.kotodama
+quoted	-
+;	punctuation.terminator.statement.kotodama
+return	keyword.control.kotodama
+quoted	-
+;	punctuation.terminator.statement.kotodama
+}	punctuation.section.braces.kotodama
+}	punctuation.section.braces.kotodama
+## reward_ledger.ko
+//	comment.line.double-slash.kotodama punctuation.definition.comment.kotodama
+Representative sample written with the Japanese keyword spellings.	comment.line.double-slash.kotodama
+//	comment.line.double-slash.kotodama punctuation.definition.comment.kotodama
+誓約, 言挙げ, 始まり and 改善 are the same keywords as seiyaku, kotoage,	comment.line.double-slash.kotodama
+//	comment.line.double-slash.kotodama punctuation.definition.comment.kotodama
+hajimari and kaizen; either spelling may be used anywhere.	comment.line.double-slash.kotodama
+誓約	keyword.declaration.contract.kotodama
+RewardLedger	entity.name.type.contract.kotodama
+{	punctuation.section.braces.kotodama
+permission	storage.type.permission.kotodama
+CanAwardPoints	-
+;	punctuation.terminator.statement.kotodama
+error	keyword.declaration.error.kotodama
+enum	keyword.declaration.error.kotodama
+RewardError	entity.name.type.enum.kotodama
+{	punctuation.section.braces.kotodama
+#[	meta.annotation.kotodama punctuation.definition.annotation.begin.kotodama
+message	meta.annotation.kotodama keyword.annotation.kotodama
+(	meta.annotation.kotodama punctuation.section.parens.kotodama
+"	meta.annotation.kotodama string.quoted.double.kotodama punctuation.definition.string.begin.kotodama
+Points must be positive	meta.annotation.kotodama string.quoted.double.kotodama
+"	meta.annotation.kotodama string.quoted.double.kotodama punctuation.definition.string.end.kotodama
+)	meta.annotation.kotodama punctuation.section.parens.kotodama
+]	meta.annotation.kotodama punctuation.definition.annotation.end.kotodama
+NonPositive	-
+=	keyword.operator.kotodama
+1	constant.numeric.integer.decimal.kotodama
+,	punctuation.separator.comma.kotodama
+}	punctuation.section.braces.kotodama
+state	storage.type.kotodama
+StateMap	support.type.kotodama
+<	keyword.operator.kotodama
+AccountId	support.type.kotodama
+,	punctuation.separator.comma.kotodama
+int	support.type.kotodama
+>	keyword.operator.kotodama
+Points	-
+;	punctuation.terminator.statement.kotodama
+state	storage.type.kotodama
+int	support.type.kotodama
+SchemaVersion	-
+;	punctuation.terminator.statement.kotodama
+始まり	keyword.declaration.lifecycle.kotodama
+(	punctuation.section.parens.kotodama
+)	punctuation.section.parens.kotodama
+{	punctuation.section.braces.kotodama
+SchemaVersion	-
+=	keyword.operator.kotodama
+1	constant.numeric.integer.decimal.kotodama
+;	punctuation.terminator.statement.kotodama
+}	punctuation.section.braces.kotodama
+改善	keyword.declaration.lifecycle.kotodama
+(	punctuation.section.parens.kotodama
+)	punctuation.section.parens.kotodama
+{	punctuation.section.braces.kotodama
+SchemaVersion	-
+=	keyword.operator.kotodama
+2	constant.numeric.integer.decimal.kotodama
+;	punctuation.terminator.statement.kotodama
+}	punctuation.section.braces.kotodama
+言挙げ	storage.modifier.kotodama
+fn	keyword.declaration.function.kotodama
+award	entity.name.function.kotodama
+(	punctuation.section.parens.kotodama
+AccountId	support.type.kotodama
+member	-
+,	punctuation.separator.comma.kotodama
+int	support.type.kotodama
+points	-
+)	punctuation.section.parens.kotodama
+authorize	storage.modifier.authorization.kotodama
+(	punctuation.section.parens.kotodama
+CanAwardPoints	-
+)	punctuation.section.parens.kotodama
+{	punctuation.section.braces.kotodama
+require	support.function.kotodama
+(	punctuation.section.parens.kotodama
+points	-
+>	keyword.operator.kotodama
+0	constant.numeric.integer.decimal.kotodama
+,	punctuation.separator.comma.kotodama
+RewardError	-
+::	punctuation.separator.namespace.kotodama
+NonPositive	-
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+let	storage.type.kotodama
+current	-
+=	keyword.operator.kotodama
+Points	-
+.	punctuation.accessor.kotodama
+get	support.function.method.kotodama
+(	punctuation.section.parens.kotodama
+member	-
+)	punctuation.section.parens.kotodama
+.	punctuation.accessor.kotodama
+unwrap_or	support.function.method.kotodama
+(	punctuation.section.parens.kotodama
+0	constant.numeric.integer.decimal.kotodama
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+Points	-
+[	punctuation.section.brackets.kotodama
+member	-
+]	punctuation.section.brackets.kotodama
+=	keyword.operator.kotodama
+current	-
++	keyword.operator.kotodama
+points	-
+;	punctuation.terminator.statement.kotodama
+}	punctuation.section.braces.kotodama
+view	storage.modifier.kotodama
+fn	keyword.declaration.function.kotodama
+balance	entity.name.function.kotodama
+(	punctuation.section.parens.kotodama
+AccountId	support.type.kotodama
+member	-
+)	punctuation.section.parens.kotodama
+authorize	storage.modifier.authorization.kotodama
+(	punctuation.section.parens.kotodama
+anyone	-
+)	punctuation.section.parens.kotodama
+->	keyword.operator.kotodama
+int	support.type.kotodama
+{	punctuation.section.braces.kotodama
+Points	-
+.	punctuation.accessor.kotodama
+get	support.function.method.kotodama
+(	punctuation.section.parens.kotodama
+member	-
+)	punctuation.section.parens.kotodama
+.	punctuation.accessor.kotodama
+unwrap_or	support.function.method.kotodama
+(	punctuation.section.parens.kotodama
+0	constant.numeric.integer.decimal.kotodama
+)	punctuation.section.parens.kotodama
+}	punctuation.section.braces.kotodama
+}	punctuation.section.braces.kotodama
+## treasury_sweep.ko
+//	comment.line.double-slash.kotodama punctuation.definition.comment.kotodama
+Representative trigger sample for Kotodama grammar validation.	comment.line.double-slash.kotodama
+seiyaku	keyword.declaration.contract.kotodama
+TreasurySweep	entity.name.type.contract.kotodama
+{	punctuation.section.braces.kotodama
+permission	storage.type.permission.kotodama
+Admin	-
+;	punctuation.terminator.statement.kotodama
+error	keyword.declaration.error.kotodama
+enum	keyword.declaration.error.kotodama
+SweepError	entity.name.type.enum.kotodama
+{	punctuation.section.braces.kotodama
+EmptyTreasury	-
+=	keyword.operator.kotodama
+1	constant.numeric.integer.decimal.kotodama
+,	punctuation.separator.comma.kotodama
+}	punctuation.section.braces.kotodama
+state	storage.type.kotodama
+int	support.type.kotodama
+LastSweepHeight	-
+;	punctuation.terminator.statement.kotodama
+hajimari	keyword.declaration.lifecycle.kotodama
+(	punctuation.section.parens.kotodama
+)	punctuation.section.parens.kotodama
+{	punctuation.section.braces.kotodama
+LastSweepHeight	-
+=	keyword.operator.kotodama
+0	constant.numeric.integer.decimal.kotodama
+;	punctuation.terminator.statement.kotodama
+}	punctuation.section.braces.kotodama
+trigger	meta.trigger.kotodama keyword.declaration.trigger.kotodama
+settle_block	meta.trigger.kotodama entity.name.function.trigger.kotodama
+->	meta.trigger.kotodama keyword.operator.kotodama
+sweep	meta.trigger.kotodama variable.function.callback.kotodama
+{	meta.trigger.kotodama punctuation.section.braces.kotodama
+on	meta.trigger.kotodama keyword.other.trigger.kotodama
+pipeline	meta.trigger.kotodama keyword.other.trigger.kotodama
+block	meta.trigger.kotodama keyword.other.trigger.kotodama
+;	meta.trigger.kotodama punctuation.terminator.statement.kotodama
+repeats	meta.trigger.kotodama keyword.other.trigger.kotodama
+1	meta.trigger.kotodama constant.numeric.integer.decimal.kotodama
+;	meta.trigger.kotodama punctuation.terminator.statement.kotodama
+authority	meta.trigger.kotodama keyword.other.trigger.kotodama
+"	meta.trigger.kotodama string.quoted.double.kotodama punctuation.definition.string.begin.kotodama
+sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV	meta.trigger.kotodama string.quoted.double.kotodama
+"	meta.trigger.kotodama string.quoted.double.kotodama punctuation.definition.string.end.kotodama
+;	meta.trigger.kotodama punctuation.terminator.statement.kotodama
+metadata	meta.trigger.kotodama keyword.other.trigger.kotodama
+{	meta.trigger.kotodama punctuation.section.braces.kotodama
+tag	meta.trigger.kotodama variable.parameter.named.kotodama
+:	meta.trigger.kotodama punctuation.separator.colon.kotodama
+"	meta.trigger.kotodama string.quoted.double.kotodama punctuation.definition.string.begin.kotodama
+treasury	meta.trigger.kotodama string.quoted.double.kotodama
+"	meta.trigger.kotodama string.quoted.double.kotodama punctuation.definition.string.end.kotodama
+;	meta.trigger.kotodama punctuation.terminator.statement.kotodama
+enabled	meta.trigger.kotodama variable.parameter.named.kotodama
+:	meta.trigger.kotodama punctuation.separator.colon.kotodama
+true	meta.trigger.kotodama constant.language.boolean.kotodama
+;	meta.trigger.kotodama punctuation.terminator.statement.kotodama
+}	meta.trigger.kotodama punctuation.section.braces.kotodama
+}	meta.trigger.kotodama punctuation.section.braces.kotodama
+kotoage	storage.modifier.kotodama
+fn	keyword.declaration.function.kotodama
+sweep	entity.name.function.kotodama
+(	punctuation.section.parens.kotodama
+)	punctuation.section.parens.kotodama
+authorize	storage.modifier.authorization.kotodama
+(	punctuation.section.parens.kotodama
+Admin	-
+)	punctuation.section.parens.kotodama
+{	punctuation.section.braces.kotodama
+let	storage.type.kotodama
+balance	-
+=	keyword.operator.kotodama
+1_000_000	constant.numeric.integer.decimal.kotodama
+;	punctuation.terminator.statement.kotodama
+require	support.function.kotodama
+(	punctuation.section.parens.kotodama
+balance	-
+>	keyword.operator.kotodama
+0	constant.numeric.integer.decimal.kotodama
+,	punctuation.separator.comma.kotodama
+SweepError	-
+::	punctuation.separator.namespace.kotodama
+EmptyTreasury	-
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+LastSweepHeight	-
+=	keyword.operator.kotodama
+LastSweepHeight	-
++	keyword.operator.kotodama
+1	constant.numeric.integer.decimal.kotodama
+;	punctuation.terminator.statement.kotodama
+debug	-
+::	punctuation.separator.namespace.kotodama
+info	support.function.kotodama
+(	punctuation.section.parens.kotodama
+"	string.quoted.double.kotodama punctuation.definition.string.begin.kotodama
+treasury_swept	string.quoted.double.kotodama
+"	string.quoted.double.kotodama punctuation.definition.string.end.kotodama
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+}	punctuation.section.braces.kotodama
+}	punctuation.section.braces.kotodama
+## zk_bridge.ko
+//	comment.line.double-slash.kotodama punctuation.definition.comment.kotodama
+Representative ZK bridge sample for Kotodama grammar validation.	comment.line.double-slash.kotodama
+seiyaku	keyword.declaration.contract.kotodama
+ZkBridge	entity.name.type.contract.kotodama
+{	punctuation.section.braces.kotodama
+permission	storage.type.permission.kotodama
+Admin	-
+;	punctuation.terminator.statement.kotodama
+error	keyword.declaration.error.kotodama
+enum	keyword.declaration.error.kotodama
+VerificationError	entity.name.type.enum.kotodama
+{	punctuation.section.braces.kotodama
+InvalidFlags	-
+=	keyword.operator.kotodama
+1	constant.numeric.integer.decimal.kotodama
+,	punctuation.separator.comma.kotodama
+EmptyEnvelope	-
+=	keyword.operator.kotodama
+2	constant.numeric.integer.decimal.kotodama
+,	punctuation.separator.comma.kotodama
+}	punctuation.section.braces.kotodama
+kotoage	storage.modifier.kotodama
+fn	keyword.declaration.function.kotodama
+verify	entity.name.function.kotodama
+(	punctuation.section.parens.kotodama
+bytes	support.type.kotodama
+proof_env	-
+,	punctuation.separator.comma.kotodama
+bytes	support.type.kotodama
+instruction	-
+)	punctuation.section.parens.kotodama
+authorize	storage.modifier.authorization.kotodama
+(	punctuation.section.parens.kotodama
+Admin	-
+)	punctuation.section.parens.kotodama
+{	punctuation.section.braces.kotodama
+let	storage.type.kotodama
+domain	-
+=	keyword.operator.kotodama
+b"	string.quoted.double.bytes.kotodama punctuation.definition.string.begin.kotodama
+ENV-BALLOT	string.quoted.double.bytes.kotodama
+"	string.quoted.double.bytes.kotodama punctuation.definition.string.end.kotodama
+;	punctuation.terminator.statement.kotodama
+let	storage.type.kotodama
+label	-
+=	keyword.operator.kotodama
+br#"	string.quoted.double.raw.bytes.kotodama punctuation.definition.string.begin.kotodama
+proof-bytes	string.quoted.double.raw.bytes.kotodama
+"#	string.quoted.double.raw.bytes.kotodama punctuation.definition.string.end.kotodama
+;	punctuation.terminator.statement.kotodama
+let	storage.type.kotodama
+flags	-
+=	keyword.operator.kotodama
+bytes	support.type.kotodama
+::	punctuation.separator.namespace.kotodama
+len	support.function.kotodama
+(	punctuation.section.parens.kotodama
+domain	-
+)	punctuation.section.parens.kotodama
++	keyword.operator.kotodama
+bytes	support.type.kotodama
+::	punctuation.separator.namespace.kotodama
+len	support.function.kotodama
+(	punctuation.section.parens.kotodama
+label	-
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+require	support.function.kotodama
+(	punctuation.section.parens.kotodama
+flags	-
+>	keyword.operator.kotodama
+0	constant.numeric.integer.decimal.kotodama
+,	punctuation.separator.comma.kotodama
+VerificationError	-
+::	punctuation.separator.namespace.kotodama
+InvalidFlags	-
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+require	support.function.kotodama
+(	punctuation.section.parens.kotodama
+bytes	support.type.kotodama
+::	punctuation.separator.namespace.kotodama
+len	support.function.kotodama
+(	punctuation.section.parens.kotodama
+proof_env	-
+)	punctuation.section.parens.kotodama
+>	keyword.operator.kotodama
+0	constant.numeric.integer.decimal.kotodama
+,	punctuation.separator.comma.kotodama
+VerificationError	-
+::	punctuation.separator.namespace.kotodama
+EmptyEnvelope	-
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+ledger	-
+::	punctuation.separator.namespace.kotodama
+governance	-
+::	punctuation.separator.namespace.kotodama
+verify_ballot	support.function.kotodama
+(	punctuation.section.parens.kotodama
+request	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+proof_env	-
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+ledger	-
+::	punctuation.separator.namespace.kotodama
+governance	-
+::	punctuation.separator.namespace.kotodama
+submit_ballot	support.function.kotodama
+(	punctuation.section.parens.kotodama
+value	variable.parameter.named.kotodama
+:	punctuation.separator.colon.kotodama
+instruction	-
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+debug	-
+::	punctuation.separator.namespace.kotodama
+info	support.function.kotodama
+(	punctuation.section.parens.kotodama
+"	string.quoted.double.kotodama punctuation.definition.string.begin.kotodama
+verified	string.quoted.double.kotodama
+"	string.quoted.double.kotodama punctuation.definition.string.end.kotodama
+)	punctuation.section.parens.kotodama
+;	punctuation.terminator.statement.kotodama
+}	punctuation.section.braces.kotodama
+}	punctuation.section.braces.kotodama

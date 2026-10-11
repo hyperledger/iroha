@@ -12,14 +12,31 @@ fn unregistered_instruction_returns_error_with_name() {
         // The registry is process-global. Exercise its deliberately incomplete
         // state in a child so parallel grouped tests retain the canonical
         // instruction inventory for both passes of every encoding.
-        let status = std::process::Command::new(
+        let test = "unregistered_instruction::unregistered_instruction_returns_error_with_name";
+        let output = std::process::Command::new(
             std::env::current_exe().expect("resolve grouped integration-test executable"),
         )
-        .arg("unregistered_instruction_returns_error_with_name")
+        .args(["--exact", test])
         .env(UNREGISTERED_INSTRUCTION_CHILD, "1")
-        .status()
+        .output()
         .expect("run isolated unregistered-instruction test");
-        assert!(status.success(), "isolated registry test failed");
+        assert!(
+            output.status.success(),
+            "isolated registry test failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout
+                .lines()
+                .any(|line| line == format!("test {test} ... ok")),
+            "isolated exact test did not pass: {stdout}",
+        );
+        assert!(
+            stdout.contains("test result: ok. 1 passed; 0 failed; 0 ignored;"),
+            "isolated test selection changed: {stdout}",
+        );
         return;
     }
 

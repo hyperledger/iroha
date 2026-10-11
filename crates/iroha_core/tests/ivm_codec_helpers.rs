@@ -35,6 +35,9 @@ fn load_metadata(vm: &mut IVM) {
 }
 fn load_state_map_metadata(vm: &mut IVM, name: &str, key: EmbeddedStateType) {
     let interface = EmbeddedContractInterfaceV1 {
+        events: Vec::new(),
+        enum_types: Vec::new(),
+        permissions: Vec::new(),
         callables: vec![ivm::call::EmbeddedCallableV1 {
                 entry_pc: 0,
                 frame_bytes: 0,
@@ -56,7 +59,7 @@ fn load_state_map_metadata(vm: &mut IVM, name: &str, key: EmbeddedStateType) {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: None,
+            authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),

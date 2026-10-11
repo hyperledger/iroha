@@ -42,7 +42,7 @@ fn proof_query_authority_fixture_uses_checked_ed25519_key_generation() {
 #[tokio::test]
 #[allow(clippy::too_many_lines)]
 async fn proofs_query_find_by_id_returns_norito() {
-    let backend = "halo2/ipa";
+    let backend = "pipa-r/pasta";
     let proof_hash = [0xAA; 32];
     // The signed proof query requires a registered authority with ledger-read permission.
     let key_pair = checked_proof_query_authority_fixture();
@@ -74,7 +74,7 @@ async fn proofs_query_find_by_id_returns_norito() {
     let proof_id = id.clone();
     let rec = ProofRecord {
         id: id.clone(),
-        vk_ref: Some(VerifyingKeyId::new("halo2/ipa", "vk_test")),
+        vk_ref: Some(VerifyingKeyId::new("pipa-r/pasta", "vk_test")),
         vk_commitment: None,
         status: ProofStatus::Verified,
         verified_at_height: Some(1),

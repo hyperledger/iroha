@@ -117,6 +117,19 @@ impl<T> FieldDestination for Inline<'_, T> {
     type Error = Infallible;
 }
 macro_rules! fixed_field {
+    ($record:ty,$owner:ident,$index:literal,[u8; $length:expr],$name:ident) => {
+        impl DecodeField<$index, [u8; $length]> for View<'_, $record> {
+            type Value = ();
+            fn decode_field(
+                &mut self,
+                field: CanonicalField<'_, [u8; $length]>,
+            ) -> std::result::Result<(), DecodeIntoError<Infallible>> {
+                self.owner.$owner.as_mut_slice()[0].$name =
+                    field.decode_owned().map_err(DecodeIntoError::Codec)?;
+                Ok(())
+            }
+        }
+    };
     ($record:ty,$owner:ident,$index:literal,$ty:ty,$name:ident) => {
         impl DecodeField<$index, $ty> for View<'_, $record> {
             type Value = ();
@@ -137,6 +150,18 @@ macro_rules! fixed_field {
     };
 }
 macro_rules! inline_field {
+    ($record:ty,$index:literal,[u8; $length:expr],$name:ident) => {
+        impl DecodeField<$index, [u8; $length]> for Inline<'_, $record> {
+            type Value = ();
+            fn decode_field(
+                &mut self,
+                field: CanonicalField<'_, [u8; $length]>,
+            ) -> std::result::Result<(), DecodeIntoError<Infallible>> {
+                self.0.$name = field.decode_owned().map_err(DecodeIntoError::Codec)?;
+                Ok(())
+            }
+        }
+    };
     ($record:ty,$index:literal,$ty:ty,$name:ident) => {
         impl DecodeField<$index, $ty> for Inline<'_, $record> {
             type Value = ();
@@ -830,3 +855,171 @@ impl PreparedAggregateDurable {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod raw_field_adapter_tests {
+    use super::*;
+
+    fn check_raw_record<const N: usize, E: std::fmt::Debug>(
+        value: &impl SerializePayload,
+        raw_indices: &[usize],
+        start: usize,
+        mut decode: impl FnMut(&[u8]) -> std::result::Result<usize, DecodeIntoError<E>>,
+    ) {
+        let mut payload = Vec::new();
+        norito::core::serialize_to_writer(value, &mut payload).unwrap();
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 32);
+        let (decoded, usage) =
+            norito::core::with_decode_limits_measured(limits, || decode(&payload));
+        assert_eq!(decoded.unwrap(), payload.len());
+        assert_eq!(usage.total_allocated_bytes(), 0);
+        for &index in raw_indices {
+            let mut offset = start;
+            let mut frame_start = 0;
+            let mut body_start = 0;
+            for _ in 0..=index {
+                frame_start = offset;
+                let (length, prefix) =
+                    norito::core::inspect_len_from_slice(&payload[offset..]).unwrap();
+                body_start = offset + prefix;
+                offset = body_start + length;
+            }
+            let raw: [u8; N] = payload[body_start..offset].try_into().unwrap();
+            let mut generic = Vec::new();
+            norito::core::serialize_to_writer(&raw, &mut generic).unwrap();
+            assert_ne!(generic.len(), N);
+            let mut long = raw.to_vec();
+            long.push(0xa5);
+            for body in [raw[..N - 1].to_vec(), long, generic] {
+                let mut malformed = payload[..frame_start].to_vec();
+                norito::core::write_len_header_to_vec(&mut malformed, body.len() as u64);
+                malformed.extend_from_slice(&body);
+                malformed.extend_from_slice(&payload[offset..]);
+                let (decoded, usage) =
+                    norito::core::with_decode_limits_measured(limits, || decode(&malformed));
+                assert!(matches!(
+                    decoded,
+                    Err(DecodeIntoError::Codec(norito::Error::LengthMismatch))
+                ));
+                assert_eq!(usage.total_allocated_bytes(), 0);
+            }
+        }
+    }
+
+    fn hash(seed: u8) -> [u8; 32] {
+        std::array::from_fn(|i| (i as u8).wrapping_add(seed))
+    }
+
+    #[test]
+    fn aggregate_raw_fields_keep_both_layouts_original_credit_and_generic_source_arrays() {
+        for flags in [0, norito::core::header_flags::COMPACT_LEN] {
+            let _flags = norito::core::DecodeFlagsGuard::enter(flags);
+            let expiry = DurableDeadline {
+                boot: hash(0x41),
+                origin_nanos: 100,
+                expiry_nanos: 200,
+            };
+            let mut binding = empty_binding();
+            binding.network_id = hash(0x11);
+            binding.attempt_id = hash(0x12);
+            binding.session_id = hash(0x13);
+            binding.roster_hash = hash(0x14);
+            binding.lifecycle_key_hash = hash(0x15);
+            binding.provider_handle_hash = hash(0x16);
+            binding.public_session_hash = hash(0x17);
+            binding.transcript_hash = hash(0x18);
+            binding.accepted_checkpoint_hash = hash(0x19);
+            binding.accepted_head_hash = hash(0x1a);
+            binding.extraction_intent_hash = hash(0x1b);
+            binding.source =
+                iroha_crypto::threshold_bls::checkpoint::DkgCheckpointSourceV1::ExecutedNativeTip {
+                    height: 9,
+                    block_hash: hash(0x21),
+                    core_hash: hash(0x22),
+                    result_hash: hash(0x23),
+                };
+            let mut decoded_binding = empty_binding();
+            check_raw_record::<32, _>(
+                &binding,
+                &[0, 1, 3, 4, 6, 7, 16, 17, 18, 19, 20],
+                0,
+                |bytes| {
+                    DkgAggregateCheckpointBindingV1::decode_fields(
+                        bytes,
+                        &mut Inline(&mut decoded_binding),
+                    )
+                    .map(|(_, used)| used)
+                },
+            );
+            assert_eq!(decoded_binding, binding);
+            let mut decoded_expiry = DurableDeadline {
+                boot: [0; 32],
+                ..expiry
+            };
+            check_raw_record::<32, _>(&expiry, &[0], 0, |bytes| {
+                DurableDeadline::decode_fields(bytes, &mut Inline(&mut decoded_expiry))
+                    .map(|(_, used)| used)
+            });
+            assert_eq!(decoded_expiry, expiry);
+            let mut intent = AggregateIntent::empty(expiry);
+            intent.binding = binding;
+            intent.claim_identity = [17, 18, 19, 20];
+            intent.claim_path_hash = hash(0x51);
+            intent.fifo_identity = [21, 22, 23, 24];
+            intent.source_hashes = [hash(0x61), hash(0x71)];
+            intent.stream_generations = [25, 26];
+            let head = AggregateHead {
+                version: 1,
+                binding,
+                checkpoint_hash: hash(0x81),
+            };
+            let pool = AllocationBudget::new(1 << 20);
+            let mut destination = Destination {
+                intent: ChargedBuffer::new(1, &pool).unwrap(),
+                head: ChargedBuffer::new(1, &pool).unwrap(),
+            };
+            destination
+                .intent
+                .push_reserved(AggregateIntent::empty(expiry));
+            destination.head.push_reserved(AggregateHead::empty());
+            let pointers = (
+                destination.intent.as_slice().as_ptr(),
+                destination.head.as_slice().as_ptr(),
+            );
+            let blocker = pool
+                .try_reserve_bytes(pool.limit_bytes() - pool.reserved_bytes())
+                .unwrap();
+            check_raw_record::<32, _>(&intent, &[4], 0, |bytes| {
+                AggregateIntent::decode_fields(
+                    bytes,
+                    &mut View::<AggregateIntent> {
+                        owner: &mut destination,
+                        expiry,
+                        marker: std::marker::PhantomData,
+                    },
+                )
+                .map(|(_, used)| used)
+            });
+            assert_eq!(destination.intent.as_slice()[0], intent);
+            check_raw_record::<32, _>(&head, &[2], 0, |bytes| {
+                AggregateHead::decode_fields(
+                    bytes,
+                    &mut View::<AggregateHead> {
+                        owner: &mut destination,
+                        expiry,
+                        marker: std::marker::PhantomData,
+                    },
+                )
+                .map(|(_, used)| used)
+            });
+            assert_eq!(destination.head.as_slice()[0], head);
+            assert_eq!(destination.intent.as_slice().as_ptr(), pointers.0);
+            assert_eq!(destination.head.as_slice().as_ptr(), pointers.1);
+            assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+            drop(destination);
+            assert_eq!(pool.reserved_bytes(), blocker.remaining_bytes());
+            drop(blocker);
+            assert_eq!(pool.reserved_bytes(), 0);
+        }
+    }
+}

@@ -4,15 +4,15 @@
 #![cfg(feature = "zk-preverify")]
 //! Backend tag acceptance tests for ZK attachments (pre-verify path).
 //! - Trusted-setup families (e.g., `groth16/*`) are rejected at VK admission.
-//! - Halo2 curve mismatch is rejected at VK admission.
-use iroha_core::{
-    executor::Executor, kura::Kura, query::store::LiveQueryStore, smartcontracts::Execute,
-    state::State,
-};
-use iroha_core_zk::test_utils::halo2_fixture_envelope;
+//! - Native PIPA-R curve mismatch is rejected at VK admission.
+#[path = "common/zk_components.rs"]
+mod zk_components;
+use iroha_core::{kura::Kura, query::store::LiveQueryStore, smartcontracts::Execute, state::State};
+use iroha_core_zk::test_utils::native_confidential_fixture_envelope;
 use iroha_data_model::prelude::*;
 use iroha_test_samples::ALICE_ID;
 use nonzero_ext::nonzero;
+use zk_components::execute_isi_component;
 #[path = "common/world_fixture.rs"]
 mod test_world;
 fn new_block_ctx() -> (State, iroha_data_model::block::BlockHeader) {
@@ -41,14 +41,13 @@ fn vk_record(
     record.vk_len = vk_box.bytes.len() as u32;
     record.status = iroha_data_model::confidential::ConfidentialStatus::Active;
     record.key = Some(vk_box);
-    record.gas_schedule_id = Some("halo2_default".into());
+    record.gas_schedule_id = Some("native_pipa_r_default".into());
     record
 }
 #[test]
 fn trusted_setup_backend_label_is_unsupported() {
     let (state, header) = new_block_ctx();
     let mut block = state.block(header);
-    let exec = Executor::default();
     let mut stx = block.transaction();
     let authority = ALICE_ID.clone();
     let perm = Permission::new(
@@ -65,15 +64,14 @@ fn trusted_setup_backend_label_is_unsupported() {
         id: vk_id.clone(),
         record: vk_record(
             "groth16/bn254:unsupported",
-            iroha_data_model::zk::BackendTag::Halo2IpaPasta,
-            "pallas",
+            iroha_data_model::zk::BackendTag::NativePipaRPasta,
+            "vesta",
             vk_box,
             [0u8; 32],
         ),
     }
     .into();
-    let err = exec
-        .execute_instruction(&mut stx, &authority, reg_vk)
+    let err = execute_isi_component(&mut stx, &authority, reg_vk)
         .expect_err("trusted-setup VK backend should be rejected at admission");
     let msg = format!("{err:?}");
     assert!(
@@ -82,16 +80,15 @@ fn trusted_setup_backend_label_is_unsupported() {
     );
 }
 #[test]
-fn halo2_curve_mismatch_rejected_at_vk_admission() {
+fn native_curve_mismatch_rejected_at_vk_admission() {
     let (state, header) = new_block_ctx();
     let mut block = state.block(header);
-    let exec = Executor::default();
     let authority = ALICE_ID.clone();
-    let halo2_fixture = halo2_fixture_envelope("halo2/pasta/ipa/tiny-add", [0u8; 32]);
-    let vk_box = halo2_fixture
-        .vk_box("halo2/pasta/ipa")
+    let native_fixture = native_confidential_fixture_envelope();
+    let vk_box = native_fixture
+        .vk_box("pipa-r/pasta")
         .expect("fixture verifying key");
-    let vk_id = iroha_data_model::proof::VerifyingKeyId::new("halo2/pasta/ipa", "vk_curve");
+    let vk_id = iroha_data_model::proof::VerifyingKeyId::new("pipa-r/pasta", "vk_curve");
     let mut stx = block.transaction();
     let perm = Permission::new(
         "CanManageVerifyingKeys".parse().unwrap(),
@@ -103,20 +100,19 @@ fn halo2_curve_mismatch_rejected_at_vk_admission() {
     let reg_vk: InstructionBox = iroha_data_model::isi::verifying_keys::RegisterVerifyingKey {
         id: vk_id.clone(),
         record: vk_record(
-            "halo2/pasta/ipa/tiny-add",
-            iroha_data_model::zk::BackendTag::Halo2IpaPasta,
+            iroha_core_zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
+            iroha_data_model::zk::BackendTag::NativePipaRPasta,
             "pasta",
             vk_box,
-            halo2_fixture.schema_hash,
+            native_fixture.schema_hash,
         ),
     }
     .into();
-    let err = exec
-        .execute_instruction(&mut stx, &authority, reg_vk)
+    let err = execute_isi_component(&mut stx, &authority, reg_vk)
         .expect_err("curve mismatch should be rejected at VK admission");
     let msg = format!("{err:?}");
     assert!(
-        msg.contains("verifying key curve must be \\\"pallas\\\""),
+        msg.contains("verifying key curve must be \\\"vesta\\\""),
         "unexpected error: {msg}"
     );
 }

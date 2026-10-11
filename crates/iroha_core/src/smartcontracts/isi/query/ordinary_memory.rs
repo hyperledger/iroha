@@ -1020,6 +1020,7 @@ define_singular_source_admission! {
     FindAbiVersion: ProvenBounded,
     FindAssetById: ProvenBounded,
     FindAssetDefinitionById: ProvenBounded,
+    FindAssetDefinitionDirectHome: ProvenBounded,
     FindNftById: ProvenBounded,
     FindAssetEscrowById: ProvenBounded,
     FindTriggerById: ProvenBounded,
@@ -1358,6 +1359,14 @@ pub(super) fn preflight_server_singular_source_materialization(
                     charge(binding, &mut remaining)?;
                 }
                 charge_fixed(128, &mut remaining)?;
+            }
+        }
+        SingularQueryBox::FindAssetDefinitionDirectHome(query) => {
+            if let Some(home) = world
+                .asset_definition_direct_homes()
+                .get(query.asset_definition_id())
+            {
+                charge(home, &mut remaining)?;
             }
         }
         SingularQueryBox::FindAssetEscrowById(query) => {
@@ -1714,7 +1723,7 @@ mod tests {
     }
     #[test]
     fn singular_source_admission_audit_covers_every_variant() {
-        assert_eq!(SINGULAR_SOURCE_ADMISSION_AUDIT.len(), 101);
+        assert_eq!(SINGULAR_SOURCE_ADMISSION_AUDIT.len(), 102);
         let mut names = std::collections::BTreeSet::new();
         for (name, class) in SINGULAR_SOURCE_ADMISSION_AUDIT {
             assert!(!name.is_empty());

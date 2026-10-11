@@ -5,7 +5,10 @@ use super::{
     ManagedStore, Result,
 };
 use iroha::{config::Config, data_model::account::address::ChainDiscriminantGuard};
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 /// Matching installed native programs used by either developer frontend.
 ///
@@ -16,6 +19,7 @@ pub struct InstalledRuntime {
     kagami: PathBuf,
     daemon: PathBuf,
     profiles: PathBuf,
+    programs: Arc<super::program::RuntimePrograms>,
 }
 
 impl InstalledRuntime {
@@ -39,25 +43,29 @@ impl InstalledRuntime {
     /// two matching programs. A desktop UI is never a CLI runtime prerequisite.
     ///
     /// # Errors
-    /// Missing binaries and indirect or nonregular program files are rejected.
+    /// Missing, indirect, unsafe, nonregular or non-native programs are rejected. Live request
+    /// clones retain the original program objects; a later path or content change is refused.
     pub fn from_directory(directory: &Path) -> Result<Self> {
         super::bundle::runtime_profiles_path(directory)?;
         let directory = directory.canonicalize()?;
         let profiles = super::bundle::runtime_profiles_path(&directory)?;
         let kagami = directory.join(format!("kagami{}", std::env::consts::EXE_SUFFIX));
         let daemon = directory.join(format!("iroha3d{}", std::env::consts::EXE_SUFFIX));
-        for binary in [&kagami, &daemon] {
-            let metadata = std::fs::symlink_metadata(binary).map_err(|_| Error::Invalid("the matching Kagami and iroha3d programs must be installed together; install the complete native developer bundle".into()))?;
-            if !metadata.is_file() || metadata.file_type().is_symlink() {
-                return Err(Error::Invalid(
-                    "installed runtime programs must be direct regular files".into(),
-                ));
-            }
-        }
+        let programs = Arc::new(
+            super::program::RuntimePrograms::capture(&kagami, &daemon).map_err(|error| {
+                match error {
+                    Error::Io(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        Error::Invalid("the matching Kagami and iroha3d programs must be installed together; install the complete native developer bundle".into())
+                    }
+                    error => error,
+                }
+            })?,
+        );
         Ok(Self {
             kagami,
             daemon,
             profiles,
+            programs,
         })
     }
 
@@ -69,6 +77,7 @@ impl InstalledRuntime {
         let mut request = LocalnetRequest::new(self.kagami.clone(), self.daemon.clone());
         request.name = name.into();
         request.startup_timeout = timeout;
+        request.installed_programs = Some(Arc::clone(&self.programs));
         request
     }
 
@@ -82,6 +91,7 @@ impl InstalledRuntime {
         let mut request = LocalnetRequest::private_root(self.kagami.clone(), self.daemon.clone());
         request.name = name.into();
         request.startup_timeout = timeout;
+        request.installed_programs = Some(Arc::clone(&self.programs));
         request
     }
 
@@ -114,15 +124,16 @@ impl ManagedStore {
         timeout: std::time::Duration,
     ) -> Result<ManagedStatus> {
         let (name, retained) = match self.context(requested) {
-            Ok(context) => (context.name, true),
-            Err(Error::NoSelection) if requested.is_none() => ("local".into(), false),
+            Ok(context) => (context.name.clone(), Some(context)),
+            Err(Error::NoSelection) if requested.is_none() => ("local".into(), None),
             Err(error) => return Err(error),
         };
         let mut request = runtime.localnet_request(&name, timeout);
-        let status = if retained {
+        let status = if let Some(expected) = retained.as_ref() {
             request.service_profile = self.prepared(&name)?.service_profile;
             self.up_retained_with_selection(
                 &request,
+                expected,
                 super::store::StartupSelection::for_requested_context(requested),
             )?
         } else {
@@ -243,14 +254,15 @@ mod tests {
 
     #[test]
     fn installed_runtime_requires_the_complete_sibling_pair() {
+        let _resources = super::super::native_test_guard();
         let temporary = tempfile::tempdir().unwrap();
         assert!(InstalledRuntime::from_directory(temporary.path()).is_err());
         for program in ["kagami", "iroha3d"] {
-            std::fs::write(
+            std::fs::copy(
+                std::env::current_exe().unwrap(),
                 temporary
                     .path()
                     .join(format!("{program}{}", std::env::consts::EXE_SUFFIX)),
-                b"test executable",
             )
             .unwrap();
         }
@@ -283,18 +295,19 @@ mod tests {
 
     #[test]
     fn installed_network_profiles_require_the_exact_bundle_without_defaults() {
+        let _resources = super::super::native_test_guard();
         use crate::bootstrap::{InstalledNetworkProfiles, NETWORK_PROFILES_FILENAME};
 
         let temporary = tempfile::tempdir().unwrap();
         let directory = PrivateDirectory::open_or_create(temporary.path().join("bundle")).unwrap();
         for program in ["kagami", "iroha3d"] {
-            directory
-                .write_atomic(
-                    &format!("{program}{}", std::env::consts::EXE_SUFFIX),
-                    b"test executable",
-                    PublishMode::CreateNew,
-                )
-                .unwrap();
+            std::fs::copy(
+                std::env::current_exe().unwrap(),
+                directory
+                    .path()
+                    .join(format!("{program}{}", std::env::consts::EXE_SUFFIX)),
+            )
+            .unwrap();
         }
         let runtime = InstalledRuntime::from_directory(directory.path()).unwrap();
         assert!(runtime.network_profiles().is_err());
@@ -319,8 +332,10 @@ mod tests {
         assert!(runtime.network_profiles().is_err());
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn relocated_and_renamed_app_uses_only_its_exact_resources() {
+        let _resources = super::super::native_test_guard();
         use super::super::{NativeBundleLayout, macos_info_plist};
         use crate::bootstrap::{InstalledNetworkProfiles, NETWORK_PROFILES_FILENAME};
         let temporary = tempfile::tempdir().unwrap();
@@ -335,9 +350,9 @@ mod tests {
         )
         .unwrap();
         for program in ["kagami", "iroha3d"] {
-            std::fs::write(
+            std::fs::copy(
+                std::env::current_exe().unwrap(),
                 programs.join(format!("{program}{}", std::env::consts::EXE_SUFFIX)),
-                b"test executable",
             )
             .unwrap();
         }
@@ -376,16 +391,17 @@ mod tests {
         assert!(InstalledRuntime::from_directory(&moved_app.join("Contents")).is_err());
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     #[test]
     fn packaged_runtime_rejects_indirect_application_resources_and_metadata() {
+        let _resources = super::super::native_test_guard();
         use std::os::unix::fs::symlink;
         let temporary = tempfile::tempdir().unwrap();
         let contents = temporary.path().join("Mochi.app/Contents");
         let programs = contents.join("MacOS");
         std::fs::create_dir_all(&programs).unwrap();
         for program in ["kagami", "iroha3d"] {
-            std::fs::write(programs.join(program), b"test executable").unwrap();
+            std::fs::copy(std::env::current_exe().unwrap(), programs.join(program)).unwrap();
         }
         std::fs::write(contents.join("Info.plist"), b"installed metadata").unwrap();
         let resources = temporary.path().join("resources");
@@ -441,13 +457,13 @@ mod tests {
         let networks = PrivateDirectory::open(store.root().join("networks")).unwrap();
         let directory = networks.create_child("native-authorities").unwrap();
         for program in ["kagami", "iroha3d"] {
-            directory
-                .write_atomic(
-                    format!("{program}{}", std::env::consts::EXE_SUFFIX),
-                    b"intentionally not an executable",
-                    PublishMode::CreateNew,
-                )
-                .unwrap();
+            std::fs::copy(
+                std::env::current_exe().unwrap(),
+                directory
+                    .path()
+                    .join(format!("{program}{}", std::env::consts::EXE_SUFFIX)),
+            )
+            .unwrap();
         }
         let runtime = InstalledRuntime::from_directory(directory.path()).unwrap();
         let mut request =
@@ -472,8 +488,8 @@ mod tests {
             .ensure_selected(&runtime, None, std::time::Duration::from_secs(60))
             .unwrap_err();
         assert!(
-            matches!(error, Error::Io(_)),
-            "expected actual native spawn failure after exact profile selection: {error}"
+            matches!(error, Error::Timeout(timeout) if timeout == std::time::Duration::from_secs(60)),
+            "expected original-budget worker-start failure after exact profile selection: {error}"
         );
         assert_eq!(store.prepared(&request.name).unwrap(), retained.prepared);
         assert!(!directory.path().join(".preparing").exists());

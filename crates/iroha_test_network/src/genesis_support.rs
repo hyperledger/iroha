@@ -419,12 +419,8 @@ fn load_node_config(path: &Path, allow_unresolved_hash: bool) -> Result<(actual:
 mod tests {
     use super::*;
     use iroha_crypto::{Algorithm, bls_normal_pop_prove};
-    use iroha_data_model::{
-        block::consensus::{SumeragiGenesisContextParameters, is_valid_committee_size},
-        isi::kagemusha_v1::{
-            KAGEMUSHA_CHAIN_VERSION_V1, KagemushaMintFinalityAuthorityGenerationTemplateV1,
-            KagemushaMintFinalityGenesisParametersV1,
-        },
+    use iroha_data_model::block::consensus::{
+        SumeragiGenesisContextParameters, is_valid_committee_size,
     };
     use iroha_genesis::{GenesisBuilder, GenesisTopologyEntry};
     use iroha_model_base::peer::PeerId;
@@ -454,36 +450,9 @@ mod tests {
             iroha_crypto::bls_normal_pop_verify(entry.peer.public_key(), &pop)
                 .expect("verify genesis-support validator proof of possession");
         }
-        let validators = topology
-            .iter()
-            .map(|entry| entry.peer.clone())
-            .collect::<Vec<_>>();
-        let validators = validators
-            .into_iter()
-            .enumerate()
-            .map(|(index, validator)| {
-                iroha_core_zk::kagemusha_v1_recursion::derive_kagemusha_mint_finality_validator_keys_v1(
-                    &[0xA0_u8.wrapping_add(u8::try_from(index).expect("small test roster")); 32],
-                    0,
-                    validator,
-                )
-                .expect("derive deterministic test mint-finality keys")
-            })
-            .collect();
-        let parameters = KagemushaMintFinalityGenesisParametersV1 {
-            authority_generation: KagemushaMintFinalityAuthorityGenerationTemplateV1 {
-                version: KAGEMUSHA_CHAIN_VERSION_V1,
-                generation: 0,
-                validators,
-            },
-        };
-        parameters
-            .validate()
-            .expect("genesis-support test authority must be canonical");
         builder
             .set_topology(topology)
             .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-            .with_kagemusha_mint_finality_genesis_parameters(parameters)
     }
     fn prepared_manifest(chain_id: ChainId) -> (RawGenesisTransaction, KeyPair) {
         let topology = (0..4)

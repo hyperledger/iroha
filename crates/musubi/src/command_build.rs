@@ -10,6 +10,16 @@ pub(super) fn run_build(
     command: &'static str,
     args: &BuildArgs,
 ) -> CommandResult {
+    run_build_with_warnings(explicit_manifest, command, args, None).map(|(success, _)| success)
+}
+
+/// Run `check`, `build` or `test`, also returning canonical lint warnings for SARIF output.
+pub(super) fn run_build_with_warnings(
+    explicit_manifest: Option<&Path>,
+    command: &'static str,
+    args: &BuildArgs,
+    test: Option<&TestArgs>,
+) -> Result<(Success, kotodama_lang::diagnostic::DiagnosticBundle), Diagnostic> {
     let PreparedBuild {
         workspace,
         selected_names,
@@ -26,8 +36,11 @@ pub(super) fn run_build(
         } else {
             CompilerActionV1::Check
         },
+        network::NetworkPurpose::LocalCompilation,
     )?;
     let chain_discriminant = graph.account_chain_discriminant()?;
+    let warnings = leveled_warnings(execution.warnings.clone(), args.deny_warnings)
+        .map_err(compiler_bundle_diagnostic)?;
     let mut data = Map::from_iter([
         ("network".to_owned(), network.json()),
         (
@@ -40,37 +53,56 @@ pub(super) fn run_build(
         ),
         (
             "warnings".to_owned(),
-            Value::from(execution.warnings as u64),
+            Value::from(execution.warnings.len() as u64),
         ),
+        (
+            "diagnostics".to_owned(),
+            Value::Array(
+                warnings
+                    .diagnostics
+                    .iter()
+                    .map(kotodama_lang::diagnostic::Diagnostic::to_json_value)
+                    .collect(),
+            ),
+        ),
+        ("zk".to_owned(), Value::Bool(args.zk)),
         ("archives".to_owned(), Value::Array(archives)),
         ("lock".to_owned(), lockfile_json(&graph.lock)),
     ]);
-    let mut human = format!(
-        "Network: {} (address profile {chain_discriminant})\n",
-        network.name
-    );
-    if let Some(id) = network.network_id {
-        let _ = writeln!(human, "Network identity: {id}");
-    } else {
-        human.push_str("Local compilation; deployment network is not configured.\n");
+    let mut human = network_header(&network, chain_discriminant);
+    if !warnings.diagnostics.is_empty() {
+        human.push_str(&warnings.render_human());
+        human.push('\n');
     }
     if command == "test" {
+        let mut options = WorkspaceTestOptionsV1::new(chain_discriminant);
+        options.zk_enabled = args.zk;
+        if let Some(test) = test {
+            options.filter.clone_from(&test.filter);
+            options.exact = test.exact;
+            options.contract.clone_from(&test.contract);
+        }
         let report = execute_workspace_tests_v1(
             cache.as_ref(),
             &workspace,
             &selected_names,
             &graph.lock,
-            &WorkspaceTestOptionsV1::new(chain_discriminant),
+            &options,
         )
         .map_err(|error| graph_mode_test_diagnostic(&error, args.mode))?;
         let (summary, tests) = render_test_report(&report);
         human.push_str(&summary);
         data.extend(tests);
         if !report.is_success() {
-            return Err(
-                Diagnostic::new(ErrorCode::Compiler, "Kotodama tests failed")
-                    .with_details(human, &Value::Object(data)),
-            );
+            let failed = report.failed();
+            return Err(Diagnostic::new(
+                ErrorCode::TestFailed,
+                format!(
+                    "Kotodama tests failed: {failed} of {} failed",
+                    report.passed() + failed
+                ),
+            )
+            .with_report(human, &Value::Object(data)));
         }
     } else {
         append_build_completion(
@@ -82,10 +114,55 @@ pub(super) fn run_build(
             &network,
         );
     }
-    Ok(Success {
-        message: human,
-        data: Value::Object(data),
-    })
+    Ok((
+        Success {
+            message: human,
+            data: Value::Object(data),
+        },
+        warnings,
+    ))
+}
+
+/// Apply `--deny-warnings` to the lint findings of a check. Findings denied by `[lints]` or by
+/// the flag are errors and fail the command with the complete set of findings.
+fn leveled_warnings(
+    mut warnings: Vec<kotodama_lang::diagnostic::Diagnostic>,
+    deny_warnings: bool,
+) -> Result<kotodama_lang::diagnostic::DiagnosticBundle, kotodama_lang::diagnostic::DiagnosticBundle>
+{
+    use kotodama_lang::diagnostic::{DiagnosticBundle, Severity};
+    if deny_warnings {
+        for warning in &mut warnings {
+            warning.severity = Severity::Error;
+        }
+    }
+    let bundle = DiagnosticBundle::new(warnings);
+    if bundle
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        Err(bundle)
+    } else {
+        Ok(bundle)
+    }
+}
+
+/// Describe which address profile the selected sources were compiled for.
+fn network_header(network: &network::SelectedNetwork, chain_discriminant: u16) -> String {
+    match network.network_id {
+        Some(id) => format!(
+            "Network: {} (address profile {chain_discriminant})\nNetwork identity: {id}\n",
+            network.name
+        ),
+        None if network.name == network::LOCAL_NETWORK_NAME => format!(
+            "Local compilation for address profile {chain_discriminant}; no deployment network is selected.\n"
+        ),
+        None => format!(
+            "Network: {} (address profile {chain_discriminant})\nLocal compilation; the deployment network is not configured.\n",
+            network.name
+        ),
+    }
 }
 
 /// Append the build/check completion summary, artifacts and package interfaces.
@@ -100,7 +177,9 @@ fn append_build_completion(
     let _ = writeln!(
         human,
         "{command} completed: {} package(s), {} contract target(s), {} warning(s)",
-        execution.validated_packages, execution.contract_targets, execution.warnings
+        execution.validated_packages,
+        execution.contract_targets,
+        execution.warnings.len()
     );
     for artifact in &execution.artifacts {
         human.push_str(&render_artifact(artifact));
@@ -160,12 +239,18 @@ fn deployment_next_step(
             quote_cli_argument(&artifact.target)
         )
     } else {
+        let target = if network.network_id.is_none() && network.name == network::LOCAL_NETWORK_NAME
+        {
+            "taira"
+        } else {
+            network.name.as_str()
+        };
         let (setup, client) = match client {
             Some(client) => (
                 "Bind an alias in a domain owned by the selected account; the existing fee policy is retained.\n".to_owned(),
                 client,
             ),
-            None if network.name == "taira" => (
+            None if target == "taira" => (
                 "For a new Taira account, run `musubi wallet create`, `musubi wallet fund`, and `musubi wallet namespace <your-domain>`.\n".to_owned(),
                 " --wallet default".to_owned(),
             ),
@@ -175,8 +260,7 @@ fn deployment_next_step(
             ),
         };
         format!(
-            "{setup}Next: {invocation} network configure {}{client} --package {} --contract {} --alias <name::your-domain>\n",
-            network.name,
+            "{setup}Next: {invocation} network configure {target}{client} --package {} --contract {} --alias <name::your-domain>\n",
             quote_cli_argument(&artifact.package.to_string()),
             quote_cli_argument(&artifact.target)
         )
@@ -193,17 +277,26 @@ pub(super) struct PreparedBuild {
     pub(super) execution: crate::compiler::CompilerExecutionV1,
 }
 
-pub(super) fn prepare_build(
+pub(super) struct PreparedProject {
+    pub(super) workspace: Workspace,
+    pub(super) selected_names: Vec<MusubiPackageSelectorV1>,
+    pub(super) network: network::SelectedNetwork,
+    pub(super) graph: ResolvedWorkspaceGraphV1,
+    pub(super) cache: Option<MusubiCache>,
+    pub(super) archives: Vec<Value>,
+}
+pub(super) fn prepare_project(
     explicit_manifest: Option<&Path>,
     args: &BuildArgs,
-    action: CompilerActionV1,
-) -> Result<PreparedBuild, Diagnostic> {
+    purpose: network::NetworkPurpose,
+) -> Result<PreparedProject, Diagnostic> {
     let (workspace, selected_names) = load_selected_workspace(explicit_manifest, &args.selection)?;
     let network = network::select_network(
         workspace.root(),
         args.network.as_deref(),
         args.registry.config.as_deref(),
         args.chain_discriminant,
+        purpose,
     )?;
     let previous = read_optional_workspace_lock(&workspace)?;
     let graph = resolve_and_persist_graph(
@@ -232,6 +325,29 @@ pub(super) fn prepare_build(
         Some(cache) => ensure_graph_archives(cache, &graph, args.mode)?,
         None => Vec::new(),
     };
+    Ok(PreparedProject {
+        workspace,
+        selected_names,
+        network,
+        graph,
+        cache,
+        archives,
+    })
+}
+pub(super) fn prepare_build(
+    explicit_manifest: Option<&Path>,
+    args: &BuildArgs,
+    action: CompilerActionV1,
+    purpose: network::NetworkPurpose,
+) -> Result<PreparedBuild, Diagnostic> {
+    let PreparedProject {
+        workspace,
+        selected_names,
+        network,
+        graph,
+        cache,
+        archives,
+    } = prepare_project(explicit_manifest, args, purpose)?;
     let chain_discriminant = graph.account_chain_discriminant()?;
     let execution = execute_compiler_graph(
         cache.as_ref(),
@@ -239,7 +355,11 @@ pub(super) fn prepare_build(
         &selected_names,
         &graph.lock,
         action,
-        chain_discriminant,
+        CompilerSettingsV1 {
+            chain_discriminant,
+            zk_enabled: args.zk,
+            profile: &args.profile,
+        },
     )
     .map_err(|error| graph_mode_compiler_diagnostic(&error, args.mode))?;
     Ok(PreparedBuild {
@@ -253,18 +373,34 @@ pub(super) fn prepare_build(
     })
 }
 
+/// Exact local package and contract selection retained across a runtime build.
+#[derive(Clone, Copy)]
+pub struct RuntimePackageSelection<'a> {
+    /// Selected manifest handle whose identity the caller retains and revalidates.
+    pub manifest: &'a iroha_fs::SelectedRegularFile,
+    /// Explicit package selector, if the workspace does not select it implicitly.
+    pub package: Option<&'a str>,
+    /// Explicit contract target, if the package has more than one.
+    pub contract: Option<&'a str>,
+    /// Require the existing lock graph without resolving a replacement.
+    pub locked: bool,
+}
+
 pub(super) fn build_runtime_package(
     config: &iroha::config::Config,
     cache_root: &Path,
     registry_config: Option<&iroha::config::Config>,
     registry_resolver: Option<&crate::deployment_runtime::BuildRegistryResolver>,
-    manifest: &Path,
-    package: Option<&str>,
-    contract: Option<&str>,
-    locked: bool,
+    selection: &RuntimePackageSelection<'_>,
     mut archive_transport: Option<PreparedProductionSorafsArchiveTransportV1>,
 ) -> Result<crate::deployment_runtime::BuiltArtifact, Diagnostic> {
-    let selection = SelectionArgs {
+    let RuntimePackageSelection {
+        manifest,
+        package,
+        contract,
+        locked,
+    } = *selection;
+    let mut selection = SelectionArgs {
         packages: package
             .map(str::parse)
             .transpose()
@@ -273,7 +409,44 @@ pub(super) fn build_runtime_package(
             .collect(),
         ..SelectionArgs::default()
     };
-    let (workspace, selected) = load_selected_workspace(Some(manifest), &selection)?;
+    let manifest_path = project_manifest_path(Some(manifest.path()))?;
+    if manifest_path != manifest.path() {
+        return Err(Diagnostic::new(
+            ErrorCode::Usage,
+            "selected manifest path changed during workspace admission",
+        ));
+    }
+    let workspace =
+        crate::workspace::load_workspace_from_selected(manifest).map_err(workspace_diagnostic)?;
+    if manifest.path() != workspace.root_manifest_path() {
+        let member = workspace
+            .members()
+            .values()
+            .find(|member| member.manifest_path == manifest.path())
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    ErrorCode::Usage,
+                    "selected manifest has no owning workspace member",
+                )
+            })?;
+        if selection
+            .packages
+            .iter()
+            .any(|package| package != &member.package.selector)
+        {
+            return Err(Diagnostic::new(
+                ErrorCode::Usage,
+                "selected member manifest cannot select another package",
+            ));
+        }
+        if selection.packages.is_empty() {
+            selection.packages.push(member.package.selector.clone());
+        }
+    }
+    let selected = select_members(&workspace, &selection)?
+        .into_iter()
+        .map(|member| member.package.selector.clone())
+        .collect::<Vec<_>>();
     let previous = read_optional_workspace_lock(&workspace)?;
     let mode = GraphModeArgs {
         locked,
@@ -423,7 +596,11 @@ pub(super) fn build_runtime_package(
         &selected,
         &graph.lock,
         CompilerActionV1::Build,
-        config.account_chain_discriminant,
+        CompilerSettingsV1 {
+            chain_discriminant: config.account_chain_discriminant,
+            zk_enabled: false,
+            profile: "production",
+        },
     )
     .map_err(|error| graph_mode_compiler_diagnostic(&error, mode))?;
     let artifact = deploy::select_artifact(&execution.artifacts, contract)?;
@@ -512,6 +689,7 @@ fn render_test_report(report: &WorkspaceTestReportV1) -> (String, Map) {
                         ("name", Value::from(case.name.clone())),
                         ("line", Value::from(u64::from(case.line))),
                         ("passed", Value::from(case.passed)),
+                        ("fault", norito::json!(case.fault)),
                         (
                             "failure",
                             case.failure
@@ -550,6 +728,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn deny_warnings_turns_every_lint_finding_into_a_failure() {
+        use kotodama_lang::diagnostic::{Diagnostic, DiagnosticPhase, Severity};
+        let warning = Diagnostic::warning("K5013", DiagnosticPhase::Semantic, "unused", None);
+        let kept = leveled_warnings(vec![warning.clone()], false).expect("warnings do not fail");
+        assert_eq!(kept.diagnostics[0].severity, Severity::Warning);
+        let denied = leveled_warnings(vec![warning.clone()], true).expect_err("denied");
+        assert_eq!(denied.diagnostics[0].severity, Severity::Error);
+        let mut by_manifest = warning;
+        by_manifest.severity = Severity::Error;
+        assert!(leveled_warnings(vec![by_manifest], false).is_err());
+        assert!(
+            leveled_warnings(Vec::new(), true)
+                .expect("nothing to deny")
+                .diagnostics
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn copyable_commands_quote_shell_syntax_in_package_paths_and_target_names() {
         for (input, expected) in [
             ("demo/coffee::target", "demo/coffee::target"),
@@ -580,18 +777,21 @@ mod tests {
                             name: "first".to_owned(),
                             line: 3,
                             passed: false,
+                            fault: None,
                             failure: Some("actual 29; expected 30".to_owned()),
                         },
                         KotoTestCaseOutcomeV1 {
                             name: "second".to_owned(),
                             line: 8,
                             passed: false,
+                            fault: None,
                             failure: Some("VM gas exhausted".to_owned()),
                         },
                         KotoTestCaseOutcomeV1 {
                             name: "third".to_owned(),
                             line: 13,
                             passed: true,
+                            fault: None,
                             failure: None,
                         },
                     ],
@@ -658,7 +858,19 @@ mod tests {
             Some("quote")
         );
         let dir = tempfile::tempdir().expect("workspace");
-        let mut network = network::select_network(dir.path(), None, None, None).expect("network");
+        let mut network = network::select_network(
+            dir.path(),
+            None,
+            None,
+            None,
+            network::NetworkPurpose::LocalCompilation,
+        )
+        .expect("network");
+        assert_eq!(network.name, network::LOCAL_NETWORK_NAME);
+        assert!(
+            network_header(&network, network.chain_discriminant)
+                .starts_with("Local compilation for address profile 753;")
+        );
         let manifest = dir.path().join("Musubi.toml");
         let unbound = deployment_next_step(&manifest, &network, &artifact);
         for expected in [
@@ -722,7 +934,15 @@ mod tests {
         let mut execution = CompilerExecutionV1 {
             validated_packages: 2,
             contract_targets: 1,
-            warnings: 3,
+            warnings: vec![
+                kotodama_lang::diagnostic::Diagnostic::warning(
+                    "K5001",
+                    kotodama_lang::diagnostic::DiagnosticPhase::Semantic,
+                    "unused binding",
+                    None,
+                );
+                3
+            ],
             artifacts: vec![artifact.clone()],
             package_interfaces: vec![crate::compiler::CompilerPackageInterfaceV1 {
                 package: "demo/library".parse().expect("library package"),
@@ -730,7 +950,14 @@ mod tests {
             }],
         };
         let dir = tempfile::tempdir().expect("workspace");
-        let network = network::select_network(dir.path(), None, None, None).expect("network");
+        let network = network::select_network(
+            dir.path(),
+            None,
+            None,
+            None,
+            network::NetworkPurpose::LocalCompilation,
+        )
+        .expect("network");
         let manifest = dir.path().join("Musubi.toml");
         let mut human = String::new();
         let mut data = Map::new();

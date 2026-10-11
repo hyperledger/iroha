@@ -17,6 +17,10 @@ pub(in crate::state) use typed::{
     TypedPairedRowAllowance, TypedPairedRowError, TypedPairedTableBuilder,
 };
 
+#[path = "paired/retained_semantic.rs"]
+mod retained_semantic;
+pub(in crate::state) use retained_semantic::{RetainedSemanticError, RetainedSemanticRows};
+
 impl CanonicalTableLeafSet {
     /// Build both table indexes from one canonical streaming value per row.
     ///
@@ -75,50 +79,23 @@ impl CanonicalTableLeafSet {
         V: 'a,
         S: Encode,
     {
-        let selection = Self::new(&[table], limits, budget)?;
-        let Some((table, (key_schema, value_schema))) = selection.selection.table(table) else {
-            unreachable!("selected table remains registered")
-        };
-        if !matches!(value_schema, Schema::Semantic { identity, .. } if identity == semantic_identity)
-        {
-            return Err(LeafError::TypeMismatch(table));
-        }
-        let max_rows = limits.max_rows.min(MAX_NORITO_TREE_ENTRIES as u64);
-        let mut encoded = StagedRows::new(max_rows as usize, budget)?;
-        let mut retained_bytes = 0_usize;
-        let mut streamed_bytes = 0_u64;
-        for (key, value) in rows {
-            if encoded.len() as u64 >= max_rows {
-                return Err(LeafError::RowLimit);
-            }
-            let key =
-                staging::encode_key(table, key_schema, key, limits.max_payload_bytes, budget)?;
-            charge_digest_row(&mut retained_bytes, key.as_slice().len(), limits)?;
-            let bound = value_stream_bound(limits, streamed_bytes)?;
-            let (ordered_value_digest, lookup_value_digest, length) =
-                semantic_bare_payload_digests(
-                    table,
-                    value_schema,
-                    semantic_identity,
-                    &project(value),
-                    bound,
-                )
-                .map_err(|error| value_stream_error(error, bound, limits))?;
-            charge_streamed_value(&mut streamed_bytes, length, limits)?;
-            encoded.push(PairedDigestRow {
-                key,
-                ordered_value_digest,
-                lookup_value_digest,
-            })?;
-        }
-        Self::paired_table_from_digest_rows(
+        let mut builder = retained_semantic::RetainedSemanticTable::once(
             table,
+            semantic_identity,
             limits,
             budget,
-            selection,
-            encoded,
-            retained_bytes,
-        )
+        )?;
+        let limit = builder.work_bound()?;
+        for (key, value) in rows {
+            builder
+                .push(key, || project(value), limit)
+                .map_err(|error| error.into_leaf())?;
+        }
+        builder.seal_rows();
+        builder
+            .advance_finalizer(limit)
+            .map_err(|error| error.into_leaf())?;
+        builder.take_once()
     }
 
     fn paired_table_from_digest_rows(
@@ -126,7 +103,7 @@ impl CanonicalTableLeafSet {
         limits: LeafLimits,
         budget: &iroha_allocation::AllocationBudget,
         mut lookup: Self,
-        mut encoded: StagedRows<'_>,
+        mut encoded: StagedRows,
         retained_bytes: usize,
     ) -> Result<CanonicalTablePairedSnapshot, LeafError> {
         let Some((table, (key_schema, _))) = lookup.selection.table(table) else {

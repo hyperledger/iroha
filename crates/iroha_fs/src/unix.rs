@@ -1,5 +1,8 @@
 //! Descriptor-relative Unix custody and atomic publication.
 
+#[path = "unix/custody_io.rs"]
+mod custody_io;
+
 use super::*;
 use rustix::fs::{AtFlags, FileType, Mode, OFlags};
 use std::{
@@ -17,11 +20,71 @@ mod apple_acl;
 #[path = "apple_inventory.rs"]
 mod apple_inventory;
 
+#[cfg(any(target_os = "android", test))]
+#[path = "unix/android_ancestry.rs"]
+mod android_ancestry;
+#[cfg(all(target_os = "android", test))]
+#[path = "unix/android_ancestry_syscall_tests.rs"]
+mod android_ancestry_syscall_tests;
+
+/// Ancestors need search permission on Android; the actual selected directory stays readable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DirectoryAccess {
+    Read,
+    #[cfg(target_os = "android")]
+    Search,
+}
+impl DirectoryAccess {
+    fn for_component(last: bool) -> Self {
+        #[cfg(target_os = "android")]
+        if !last {
+            return Self::Search;
+        }
+        #[cfg(not(target_os = "android"))]
+        let _ = last;
+        Self::Read
+    }
+    fn flags(self) -> OFlags {
+        let access = match self {
+            Self::Read => OFlags::RDONLY,
+            #[cfg(target_os = "android")]
+            Self::Search => OFlags::PATH,
+        };
+        access | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
+    }
+}
+
 #[derive(Debug)]
 struct Link {
     path: PathBuf,
     file: File,
     private: bool,
+    // Preserve this access across native namespace revalidation, including shared ancestors.
+    access: DirectoryAccess,
+}
+impl Link {
+    fn sync(&self) -> io::Result<()> {
+        match self.access {
+            DirectoryAccess::Read => self.file.sync_all(),
+            #[cfg(target_os = "android")]
+            DirectoryAccess::Search => {
+                // O_PATH cannot fsync. Reopen this held directory itself, requiring actual
+                // kernel read permission, and retain the same native identity/policy.
+                let readable = File::from(rustix::fs::openat(
+                    &self.file,
+                    ".",
+                    DirectoryAccess::Read.flags(),
+                    Mode::empty(),
+                )?);
+                if validate_directory(&readable, self.private)?
+                    != validate_directory(&self.file, self.private)?
+                {
+                    return Err(changed());
+                }
+                readable.sync_all()
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -29,42 +92,169 @@ pub struct Directory {
     links: Vec<Arc<Link>>,
 }
 
-fn open_directory(path: &Path) -> io::Result<File> {
+#[cfg(test)]
+type NamedOpenHook = (&'static str, Box<dyn FnOnce()>);
+
+#[cfg(test)]
+std::thread_local! {
+    static READONLY_NAMED_HOOK: std::cell::RefCell<Option<NamedOpenHook>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn before_readonly_named_open(name: &OsStr) {
+    let hook = READONLY_NAMED_HOOK.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot
+            .as_ref()
+            .is_some_and(|(selected, _)| name == OsStr::new(selected))
+        {
+            slot.take().map(|(_, hook)| hook)
+        } else {
+            None
+        }
+    });
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
+/// Run one named readonly-open race hook, clearing it on return or unwind.
+#[cfg(test)]
+pub fn with_readonly_named_hook<T>(
+    name: &'static str,
+    hook: impl FnOnce() + 'static,
+    read: impl FnOnce() -> T,
+) -> T {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            READONLY_NAMED_HOOK.with(|slot| {
+                slot.borrow_mut().take();
+            });
+        }
+    }
+    READONLY_NAMED_HOOK.with(|slot| {
+        assert!(slot.borrow().is_none(), "readonly hook must not overlap");
+        *slot.borrow_mut() = Some((name, Box::new(hook)));
+    });
+    let _reset = Reset;
+    read()
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static CHILD_NAMED_HOOK: std::cell::RefCell<Option<NamedOpenHook>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn before_child_named_validation(name: &OsStr) {
+    let hook = CHILD_NAMED_HOOK.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot
+            .as_ref()
+            .is_some_and(|(selected, _)| name == OsStr::new(selected))
+        {
+            slot.take().map(|(_, hook)| hook)
+        } else {
+            None
+        }
+    });
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
+/// Run one named child-validation race hook, clearing it on return or unwind.
+#[cfg(test)]
+pub fn with_child_named_hook<T>(
+    name: &'static str,
+    hook: impl FnOnce() + 'static,
+    open: impl FnOnce() -> T,
+) -> T {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            CHILD_NAMED_HOOK.with(|slot| {
+                slot.borrow_mut().take();
+            });
+        }
+    }
+    CHILD_NAMED_HOOK.with(|slot| {
+        assert!(slot.borrow().is_none(), "child hook must not overlap");
+        *slot.borrow_mut() = Some((name, Box::new(hook)));
+    });
+    let _reset = Reset;
+    open()
+}
+
+fn open_directory(path: &Path, access: DirectoryAccess) -> io::Result<File> {
     Ok(File::from(rustix::fs::open(
         path,
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        access.flags(),
         Mode::empty(),
     )?))
 }
 
-fn validate_directory(file: &File, private: bool) -> io::Result<()> {
+fn validate_directory(file: &File, private: bool) -> io::Result<FileIdentity> {
     let metadata = file.metadata()?;
     let uid = rustix::process::geteuid().as_raw();
     if !metadata.is_dir() {
         return Err(denied("directory handle does not name a directory"));
     }
-    if private {
-        if metadata.uid() != uid || metadata.mode() & 0o7777 != 0o700 {
-            return Err(denied(
-                "private directory requires current ownership and mode 0700",
-            ));
-        }
-    } else if !matches!(metadata.uid(), 0) && metadata.uid() != uid {
-        return Err(denied("directory ancestor has foreign ownership"));
-    } else if metadata.mode() & 0o022 != 0
-        && !(metadata.uid() == 0 && metadata.mode() & 0o1000 != 0)
+    #[cfg(target_os = "android")]
+    android_ancestry::validate_permissions(
+        metadata.uid(),
+        metadata.gid(),
+        metadata.mode(),
+        uid,
+        private,
+    )?;
+    #[cfg(not(target_os = "android"))]
     {
-        return Err(denied("directory ancestor is writable by other users"));
+        if private {
+            if metadata.uid() != uid || metadata.mode() & 0o7777 != 0o700 {
+                return Err(denied(
+                    "private directory requires current ownership and mode 0700",
+                ));
+            }
+        } else if !matches!(metadata.uid(), 0) && metadata.uid() != uid {
+            return Err(denied("directory ancestor has foreign ownership"));
+        } else if metadata.mode() & 0o022 != 0
+            && !(metadata.uid() == 0 && metadata.mode() & 0o1000 != 0)
+        {
+            return Err(denied("directory ancestor is writable by other users"));
+        }
     }
     #[cfg(target_vendor = "apple")]
     apple_acl::validate(file, private)?;
-    Ok(())
+    // This fresh metadata identifies the live, privately held descriptor. Its
+    // device/inode pair cannot change during this borrow; custody is still
+    // checked independently for the held and freshly opened named handles.
+    let mut object = [0; 16];
+    object[..8].copy_from_slice(&metadata.ino().to_le_bytes());
+    Ok(FileIdentity {
+        volume: metadata.dev(),
+        object,
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LinkPolicy {
+    Single,
+    BuildInput,
 }
 
 fn validate_file(file: &File, private: bool) -> io::Result<fs::Metadata> {
+    validate_file_links(file, private, LinkPolicy::Single)
+}
+
+fn validate_file_links(file: &File, private: bool, links: LinkPolicy) -> io::Result<fs::Metadata> {
     let metadata = file.metadata()?;
     let uid = rustix::process::geteuid().as_raw();
-    if !metadata.is_file() || metadata.nlink() != 1 {
+    if !metadata.is_file()
+        || metadata.nlink() == 0
+        || (links == LinkPolicy::Single && metadata.nlink() != 1)
+    {
         return Err(denied("file must be regular with exactly one link"));
     }
     if private {
@@ -137,6 +327,19 @@ impl Directory {
 
     pub(super) fn entries(&self, maximum: usize) -> io::Result<Vec<std::ffi::OsString>> {
         self.revalidate()?;
+        self.entries_native(maximum, |mut names| {
+            self.revalidate()?;
+            names.sort();
+            Ok(names)
+        })
+    }
+
+    // Consume the original census while its directory metadata and native owner remain live.
+    pub(super) fn entries_native<T>(
+        &self,
+        maximum: usize,
+        consume: impl FnOnce(Vec<std::ffi::OsString>) -> io::Result<T>,
+    ) -> io::Result<T> {
         let before = self.current().file.metadata()?;
         let mut names = Vec::new();
         for entry in rustix::fs::Dir::read_from(&self.current().file)? {
@@ -154,9 +357,7 @@ impl Directory {
         if !unchanged(&before, &self.current().file.metadata()?) {
             return Err(changed());
         }
-        self.revalidate()?;
-        names.sort();
-        Ok(names)
+        consume(names)
     }
 
     fn open_with_policy(
@@ -173,12 +374,14 @@ impl Directory {
         if !matches!(parts.first(), Some(Component::RootDir)) {
             return Err(invalid("absolute native path required"));
         }
-        let root = open_directory(Path::new("/"))?;
+        let root_access = DirectoryAccess::for_component(parts.len() == 1);
+        let root = open_directory(Path::new("/"), root_access)?;
         validate_directory(&root, parts.len() == 1 && private)?;
         let mut links = vec![Arc::new(Link {
             path: PathBuf::from("/"),
             file: root,
             private: parts.len() == 1 && private,
+            access: root_access,
         })];
         for (index, component) in parts.iter().enumerate().skip(1) {
             let name = match component {
@@ -189,22 +392,16 @@ impl Directory {
             let parent = links.last().expect("root retained");
             let current = parent.path.join(name);
             let last = index + 1 == parts.len();
+            let access = DirectoryAccess::for_component(last);
             let mut created = false;
-            let open = || {
-                rustix::fs::openat(
-                    &parent.file,
-                    name,
-                    OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-                    Mode::empty(),
-                )
-            };
+            let open = || rustix::fs::openat(&parent.file, name, access.flags(), Mode::empty());
             let descriptor = match open() {
                 Ok(file) => file,
                 Err(rustix::io::Errno::NOENT) if create => {
                     match rustix::fs::mkdirat(&parent.file, name, Mode::from_raw_mode(0o700)) {
                         Ok(()) => {
                             created = true;
-                            parent.file.sync_all()?;
+                            parent.sync()?;
                         }
                         Err(rustix::io::Errno::EXIST) => {}
                         Err(error) => return Err(error.into()),
@@ -215,6 +412,7 @@ impl Directory {
                     // Only immutable system-owned aliases (e.g. macOS /var -> /private/var)
                     // may redirect traversal. Restart and validate the complete resolved ancestry.
                     if allow_system_aliases
+                        && !cfg!(target_os = "android")
                         && let Ok(link) =
                             rustix::fs::statat(&parent.file, name, AtFlags::SYMLINK_NOFOLLOW)
                         && FileType::from_raw_mode(link.st_mode) == FileType::Symlink
@@ -244,6 +442,7 @@ impl Directory {
                 path: current,
                 file,
                 private: private_link,
+                access,
             }));
         }
         let result = Self { links };
@@ -259,24 +458,69 @@ impl Directory {
     }
 
     pub(super) fn revalidate(&self) -> io::Result<()> {
-        for (index, link) in self.links.iter().enumerate() {
-            validate_directory(&link.file, link.private)?;
+        self.revalidate_from(0)
+    }
+
+    // Only a strict descendant with this complete shared native chain omits the prefix.
+    // Independently opened or unrelated owners retain their original full validation.
+    pub(super) fn revalidate_in_tree(&self, anchor: &Self) -> io::Result<()> {
+        let first = if self.links.len() > anchor.links.len()
+            && self
+                .links
+                .iter()
+                .zip(&anchor.links)
+                .all(|(descendant, ancestor)| Arc::ptr_eq(descendant, ancestor))
+        {
+            anchor.links.len()
+        } else {
+            0
+        };
+        self.revalidate_from(first)
+    }
+
+    fn revalidate_from(&self, first: usize) -> io::Result<()> {
+        for (index, link) in self.links.iter().enumerate().skip(first) {
+            let held_identity = validate_directory(&link.file, link.private)?;
             let named = if index == 0 {
-                open_directory(&link.path)?
+                open_directory(&link.path, link.access)?
             } else {
                 File::from(rustix::fs::openat(
                     &self.links[index - 1].file,
                     link.path.file_name().ok_or_else(changed)?,
-                    OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                    link.access.flags(),
                     Mode::empty(),
                 )?)
             };
-            validate_directory(&named, link.private)?;
-            if identity(&named)? != identity(&link.file)? {
+            let named_identity = validate_directory(&named, link.private)?;
+            if named_identity != held_identity {
                 return Err(changed());
             }
         }
         Ok(())
+    }
+
+    pub(super) fn child_reader(&self, name: &OsStr) -> io::Result<Self> {
+        self.revalidate()?;
+        let file = File::from(rustix::fs::openat(
+            &self.current().file,
+            name,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?);
+        validate_directory(&file, false)?;
+        let mut links = self.links.clone();
+        if links.len() >= 128 {
+            return Err(invalid("private directory depth bound exceeded"));
+        }
+        links.push(Arc::new(Link {
+            path: self.path().join(name),
+            file,
+            private: false,
+            access: DirectoryAccess::Read,
+        }));
+        let result = Self { links };
+        result.revalidate()?;
+        Ok(result)
     }
 
     pub(super) fn child(&self, name: &OsStr, create: bool, exclusive: bool) -> io::Result<Self> {
@@ -299,6 +543,36 @@ impl Directory {
         exclusive: bool,
         private: bool,
     ) -> io::Result<Self> {
+        match self.child_admission(name, create, exclusive, private)? {
+            NativeChildOutcome::Present(child) => Ok(child),
+            NativeChildOutcome::InitialAbsence(error) => Err(error),
+        }
+    }
+
+    pub(super) fn child_optional(&self, name: &OsStr) -> io::Result<Option<Self>> {
+        let result = match self.child_admission(name, false, false, true) {
+            // The admitted child already closed its complete retained ancestry.
+            Ok(NativeChildOutcome::Present(child)) => return Ok(Some(child)),
+            Ok(NativeChildOutcome::InitialAbsence(_)) => Ok(None),
+            Err(error) => Err(error),
+        };
+        // No body failure or initial absence may skip the original parent exit.
+        #[cfg(test)]
+        before_child_named_validation(name);
+        if let Err(error) = self.revalidate() {
+            drop(result);
+            return Err(error);
+        }
+        result
+    }
+
+    fn child_admission(
+        &self,
+        name: &OsStr,
+        create: bool,
+        exclusive: bool,
+        private: bool,
+    ) -> io::Result<NativeChildOutcome<Self>> {
         self.revalidate()?;
         if create {
             match rustix::fs::mkdirat(&self.current().file, name, Mode::from_raw_mode(0o700)) {
@@ -309,12 +583,21 @@ impl Directory {
                 Err(error) => return Err(error.into()),
             }
         }
-        let file = File::from(rustix::fs::openat(
+        let descriptor = match rustix::fs::openat(
             &self.current().file,
             name,
             OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
             Mode::empty(),
-        )?);
+        ) {
+            Ok(descriptor) => descriptor,
+            Err(rustix::io::Errno::NOENT) => {
+                return Ok(NativeChildOutcome::InitialAbsence(
+                    rustix::io::Errno::NOENT.into(),
+                ));
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let file = File::from(descriptor);
         validate_directory(&file, private)?;
         if file.metadata()?.uid() != rustix::process::geteuid().as_raw() {
             return Err(denied("child directory requires current ownership"));
@@ -327,10 +610,13 @@ impl Directory {
             path: self.path().join(name),
             file,
             private,
+            access: DirectoryAccess::Read,
         }));
         let result = Self { links };
+        #[cfg(test)]
+        before_child_named_validation(name);
         result.revalidate()?;
-        Ok(result)
+        Ok(NativeChildOutcome::Present(result))
     }
 
     fn open_read(&self, name: &OsStr) -> io::Result<File> {
@@ -344,12 +630,38 @@ impl Directory {
 
     pub(super) fn open_readonly(&self, name: &OsStr) -> io::Result<File> {
         self.revalidate()?;
-        let file = self.open_read(name)?;
+        let file = self
+            .open_readonly_native(name, false)?
+            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+        self.revalidate()?;
+        Ok(file)
+    }
+
+    // Sole original readonly-open admission, with no ancestry observation. Only the initial
+    // native opener may yield optional absence; named admission and final-name errors remain errors.
+    pub(super) fn open_readonly_native(
+        &self,
+        name: &OsStr,
+        optional: bool,
+    ) -> io::Result<Option<File>> {
+        let file = match self.open_read(name) {
+            Ok(file) => file,
+            Err(error) if optional && error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        self.admit_readonly_file(name, file).map(Some)
+    }
+
+    // This is the original native admission after the first opened leaf exists. A missing
+    // second named open is an error, never the optional absence handled by the initial opener.
+    pub(super) fn admit_readonly_file(&self, name: &OsStr, file: File) -> io::Result<File> {
         validate_file(&file, true)?;
-        if identity(&file)? != identity(&self.open_read(name)?)? {
+        let original = identity(&file)?;
+        #[cfg(test)]
+        before_readonly_named_open(name);
+        if original != identity(&self.open_read(name)?)? {
             return Err(changed());
         }
-        self.revalidate()?;
         Ok(file)
     }
 
@@ -362,6 +674,10 @@ impl Directory {
         RetainedFile::open(self.clone(), name.to_owned(), private, create_new)
     }
 
+    pub(super) fn open_build_input(&self, name: &OsStr) -> io::Result<RetainedFile> {
+        RetainedFile::open_build_input(self.clone(), name.to_owned())
+    }
+
     pub(super) fn read(
         &self,
         name: &OsStr,
@@ -369,16 +685,88 @@ impl Directory {
         private: bool,
     ) -> io::Result<Zeroizing<Vec<u8>>> {
         self.revalidate()?;
-        let mut file = self.open_read(name)?;
+        self.read_native(name, maximum, private, |bytes| {
+            self.revalidate()?;
+            Ok(bytes)
+        })
+    }
+
+    pub(super) fn read_optional(
+        &self,
+        name: &OsStr,
+        maximum: usize,
+        private: bool,
+    ) -> io::Result<Option<Zeroizing<Vec<u8>>>> {
+        self.revalidate()?;
+        let mut exit_checked = false;
+        let result = checked_name(name).and_then(|name| {
+            self.read_optional_native(name, maximum, private, |bytes| {
+                exit_checked = true;
+                self.revalidate()?;
+                Ok(bytes)
+            })
+        });
+        if !exit_checked {
+            self.revalidate()?;
+        }
+        result
+    }
+
+    // Required admission over the sole native leaf recipe. Initial absence retains the
+    // original native error; file/snapshot owners remain live through the internal consumer.
+    // No consumer or file descriptor is exposed by the closed public comparison API.
+    pub(super) fn read_native<T>(
+        &self,
+        name: &OsStr,
+        maximum: usize,
+        private: bool,
+        consume: impl FnOnce(Zeroizing<Vec<u8>>) -> io::Result<T>,
+    ) -> io::Result<T> {
+        match self.read_leaf_native(name, maximum, private, consume)? {
+            NativeReadOutcome::InitialAbsence(error) => Err(error),
+            NativeReadOutcome::Present(value) => Ok(value),
+        }
+    }
+
+    pub(super) fn read_optional_native<T>(
+        &self,
+        name: &OsStr,
+        maximum: usize,
+        private: bool,
+        consume: impl FnOnce(Zeroizing<Vec<u8>>) -> io::Result<T>,
+    ) -> io::Result<Option<T>> {
+        match self.read_leaf_native(name, maximum, private, consume)? {
+            NativeReadOutcome::InitialAbsence(_) => Ok(None),
+            NativeReadOutcome::Present(value) => Ok(Some(value)),
+        }
+    }
+
+    // Sole leaf recipe: every error after the first open remains a native refusal.
+    // Its original held/named owners stay live through the internal consumer.
+    fn read_leaf_native<T>(
+        &self,
+        name: &OsStr,
+        maximum: usize,
+        private: bool,
+        consume: impl FnOnce(Zeroizing<Vec<u8>>) -> io::Result<T>,
+    ) -> io::Result<NativeReadOutcome<T>> {
+        let mut file = match self.open_read(name) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(NativeReadOutcome::InitialAbsence(error));
+            }
+            Err(error) => return Err(error),
+        };
         let before = validate_file(&file, private)?;
         let bytes = bounded_read(&mut file, before.len(), maximum)?;
         let after = validate_file(&file, private)?;
+        #[cfg(test)]
+        before_readonly_named_open(name);
         let named = self.open_read(name)?;
         if !unchanged(&before, &after) || !unchanged(&after, &validate_file(&named, private)?) {
             return Err(changed());
         }
-        self.revalidate()?;
-        Ok(bytes)
+        consume(bytes).map(NativeReadOutcome::Present)
     }
 
     pub(super) fn write_atomic(
@@ -464,6 +852,22 @@ impl Directory {
             }
         }
         result
+    }
+
+    // The public removal bracket owns full entry and every-result exit custody.
+    pub(super) fn remove_private_native(&self, name: &OsStr) -> io::Result<bool> {
+        let Some(file) = self.open_readonly_native(name, true)? else {
+            return Ok(false);
+        };
+        let before = journal_snapshot(&file)?;
+        self.revalidate()?;
+        if journal_snapshot(&file)? != before || journal_snapshot(&self.open_read(name)?)? != before
+        {
+            return Err(changed());
+        }
+        rustix::fs::unlinkat(&self.current().file, name, AtFlags::empty())?;
+        self.current().sync()?;
+        Ok(true)
     }
 
     pub(super) fn reconcile_atomic_staging(
@@ -588,7 +992,7 @@ impl Directory {
             current.path.file_name().ok_or_else(changed)?,
             AtFlags::REMOVEDIR,
         )?;
-        parent.file.sync_all()?;
+        parent.sync()?;
         self.revalidate()
     }
 
@@ -622,7 +1026,7 @@ impl Directory {
             .to_str()
             .ok_or_else(|| invalid("directory name must be UTF-8"))?;
         publish_new(&parent.file, source, name)?;
-        parent.file.sync_all()?;
+        parent.sync()?;
         current.path = parent.path.join(name);
         self.links.push(Arc::new(current));
         self.revalidate()?;
@@ -680,6 +1084,7 @@ impl Directory {
                     path: self.path().join(name),
                     file,
                     private: false,
+                    access: DirectoryAccess::Read,
                 }));
                 let child = Self { links };
                 child.clear(&[], remaining)?;
@@ -712,6 +1117,7 @@ pub struct RetainedFile<D = Directory, N = std::ffi::OsString> {
     name: N,
     file: File,
     before: fs::Metadata,
+    links: LinkPolicy,
     private: bool,
     writable: bool,
     read_only: bool,
@@ -731,6 +1137,21 @@ pub struct FileSnapshot {
 }
 
 impl FileSnapshot {
+    pub(super) fn local_parts(self) -> LocalFileSnapshot {
+        (
+            1,
+            (self.identity.volume, self.identity.object),
+            self.length,
+            [
+                u64::from(self.mode),
+                u64::from(self.owner),
+                u64::from(self.group),
+                self.links,
+            ],
+            [self.modified.0, self.modified.1],
+            [self.changed.0, self.changed.1],
+        )
+    }
     fn from_metadata(value: &fs::Metadata) -> Self {
         let mut object = [0; 16];
         object[..8].copy_from_slice(&value.ino().to_le_bytes());
@@ -789,6 +1210,20 @@ pub fn snapshot_file(file: &File, private: bool) -> io::Result<FileSnapshot> {
 
 impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
     fn open(directory: D, name: N, private: bool, create_new: bool) -> io::Result<Self> {
+        Self::open_with_links(directory, name, private, create_new, LinkPolicy::Single)
+    }
+
+    fn open_build_input(directory: D, name: N) -> io::Result<Self> {
+        Self::open_with_links(directory, name, false, false, LinkPolicy::BuildInput)
+    }
+
+    fn open_with_links(
+        directory: D,
+        name: N,
+        private: bool,
+        create_new: bool,
+        links: LinkPolicy,
+    ) -> io::Result<Self> {
         let parent = directory.borrow();
         parent.revalidate()?;
         let file = if create_new {
@@ -801,12 +1236,13 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
         } else {
             parent.open_read(name.as_ref())?
         };
-        let before = validate_file(&file, private || create_new)?;
+        let before = validate_file_links(&file, private || create_new, links)?;
         let retained = Self {
             directory,
             name,
             file,
             before,
+            links,
             private: private || create_new,
             writable: create_new,
             read_only: false,
@@ -826,7 +1262,7 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
 
     pub(super) fn snapshot(&self) -> io::Result<FileSnapshot> {
         self.revalidate()?;
-        let value = validate_file(&self.file, self.private)?;
+        let value = validate_file_links(&self.file, self.private, self.links)?;
         let snapshot = FileSnapshot::from_metadata(&value);
         self.revalidate()?;
         Ok(snapshot)
@@ -834,7 +1270,7 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
     pub(super) fn seal(mut self) -> io::Result<Self> {
         self.file.sync_all()?;
         self.revalidate()?;
-        self.before = validate_file(&self.file, self.private)?;
+        self.before = validate_file_links(&self.file, self.private, self.links)?;
         self.writable = false;
         self.directory.borrow().sync()?;
         Ok(self)
@@ -859,7 +1295,7 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
     }
     pub(super) fn revalidate(&self) -> io::Result<()> {
         self.directory.borrow().revalidate()?;
-        let after = validate_file(&self.file, self.private)?;
+        let after = validate_file_links(&self.file, self.private, self.links)?;
         if self.read_only {
             private_files::validate_read_only(&self.file)?;
         }
@@ -869,7 +1305,7 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
             return Err(changed());
         }
         let named = self.directory.borrow().open_read(self.name.as_ref())?;
-        let named_metadata = validate_file(&named, self.private)?;
+        let named_metadata = validate_file_links(&named, self.private, self.links)?;
         if !unchanged(&after, &named_metadata) {
             return Err(changed());
         }
@@ -956,5 +1392,69 @@ mod snapshot_tests {
         fs::rename(&path, root.path().join("retired")).unwrap();
         fs::create_dir(&path).unwrap();
         assert!(directory.snapshot_directory().is_err());
+    }
+}
+
+#[cfg(test)]
+mod private_child_parent_sharing_tests {
+    use super::*;
+
+    #[test]
+    fn private_child_adds_one_handle_and_shares_the_complete_original_parent_chain() {
+        let temporary = tempfile::tempdir().unwrap();
+        let nested = temporary.path().join("one/two/three");
+        std::fs::create_dir_all(&nested).unwrap();
+        let parent = crate::OwnerDirectory::open(&nested).unwrap();
+        let original = parent.create_private_child("journal").unwrap();
+        let identity = original.identity().unwrap();
+        drop(original);
+        let depth = parent.inner.links.len();
+        for optional in [false, true] {
+            let child = if optional {
+                parent
+                    .open_private_child_optional("journal")
+                    .unwrap()
+                    .unwrap()
+            } else {
+                parent.open_private_child("journal").unwrap()
+            };
+            assert_eq!(child.identity().unwrap(), identity);
+            assert_eq!(child.inner.links.len(), depth + 1);
+            assert!(
+                parent
+                    .inner
+                    .links
+                    .iter()
+                    .zip(&child.inner.links)
+                    .all(|(parent, child)| Arc::ptr_eq(parent, child))
+            );
+            let shared = parent
+                .inner
+                .links
+                .iter()
+                .chain(&child.inner.links)
+                .map(|link| Arc::as_ptr(link) as usize)
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(shared.len(), depth + 1);
+            // The old absolute selection holds a separate File for every prefix component.
+            let reopened = crate::PrivateDirectory::open(child.path()).unwrap();
+            assert_eq!(reopened.identity().unwrap(), identity);
+            assert!(
+                parent
+                    .inner
+                    .links
+                    .iter()
+                    .zip(&reopened.inner.links)
+                    .all(|(parent, child)| !Arc::ptr_eq(parent, child))
+            );
+            let duplicated = parent
+                .inner
+                .links
+                .iter()
+                .chain(&reopened.inner.links)
+                .map(|link| Arc::as_ptr(link) as usize)
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(duplicated.len(), 2 * depth + 1);
+        }
     }
 }

@@ -45,6 +45,7 @@ soranet_incentives = { workspace = true }
 iroha = { workspace = true }
 iroha_fs = { workspace = true }
 iroha_wallet = { workspace = true }
+iroha_operation_journal = { workspace = true }
 iroha_storage_client = { workspace = true }
 iroha_sccp = { workspace = true }
 iroha_sccp_rpc = { workspace = true }

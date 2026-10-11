@@ -7,3 +7,10 @@
 
 /// VM-backed Kotodama test runner shared by developer tools.
 pub mod koto_test_driver;
+
+/// Build-time warnings for unsupported production-host requirements.
+pub mod deployment_diagnostics;
+/// Shared diagnostic presentation and lint policy.
+pub mod diagnostics;
+/// Shared language-server engine for standalone and Musubi workspaces.
+pub mod lsp;

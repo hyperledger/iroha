@@ -32,6 +32,16 @@ crates directly. `iroha_plonk` replays both transcript sections
 sponge chip and `iroha_kagemusha_proof` assert the `kagemusha_v1_poseidon`
 vectors (`tests/digest_parity.rs` in each).
 
+`confidential_poseidon_v1.json` retains the complete pre-retirement Core_zk
+Poseidon parity corpus: 218 outputs across both Pasta fields, seven production
+domains, and input lengths 0 through 33 under three boundary domains. Inputs
+include zero, one, minus one and the position index. The source and capture
+hashes identify the original vendored-oracle run; the Python checker independently
+re-derives every output from the pinned RP57 constants. The native Core_zk test
+`native_confidential_poseidon_matches_captured_oracle_on_both_pasta_fields`
+checks the same corpus without importing the retired prover. The corpus and
+its mutation tests remain after oracle deletion.
+
 ## Regenerate and check
 
 The generator is `crates/iroha_plonk_oracle/tests/native_prover_kats.rs`. By
@@ -53,8 +63,61 @@ transcript challenge (from the pinned constants), the absorbed encodings,
 `ParamsIPA` lengths and point validity, and checks that every recorded
 transcript rejection is a distinct malformed input (a scalar at least the
 modulus; a point that is the identity, non-canonical or off the curve). It does
-not re-derive hash-to-curve.
+not re-derive hash-to-curve. It also checks all 218 captured confidential boundary
+outputs and their exact domain/input matrix.
 
 ```sh
 python3 fixtures/native_prover/verify_kats_v1.py
 ```
+
+## Succinct verifier and BGH19 obligations
+
+`succinct_v1.json` freezes eight independently captured snark-verifier results:
+Sigma at k6 and Wide at k8, on both Pasta curves, with prover seeds 42 and 43.
+Each record retains the complete original proof, native descriptor and processed
+key, public inputs, historical transcript scalar, every squeezed challenge, and
+the returned generator point and round challenges. The corpus names its original
+snark-verifier revision and source hashes. It covers these generic golden
+circuits, not the deleted private KAGEMUSHA operation circuits or a current
+source-qualified operation catalog.
+
+The oracle compares every challenge with the original Halo2 full verifier and
+compares the returned generator obligation with native succinct verification.
+Both generator decisions must pass. Five mutations per record retain the exact
+original outcome: wrong instance, changed proof point, changed suffix, trailing
+byte and truncation. The original native loader panics on a false group equation;
+its reader accepts a valid prefix followed by trailing bytes (DEV-05). These
+outcomes are recorded rather than hidden by a wrapper. The native verifier must
+reject all five normally. A cheap verification result alone is never acceptance.
+The separate PIPA-AS-v1 accumulation transcript is intentionally different and is
+not a byte-parity claim of this corpus.
+
+```sh
+RUSTFLAGS='--cfg iroha_plonk_oracle' cargo test --release -p iroha_plonk_oracle --test vendored_goldens succinct_parity::
+cargo test --release -p iroha_plonk captured_succinct_tests::
+```
+
+The second command links no retired prover. It replays all eight exact retained
+proofs through native verification, checks the complete case matrix and retained
+hashes, compares each generator and round vector, and then decides the claim.
+A separately mutated well-formed accumulator must fail its decision. These tests
+and the frozen originals remain after temporary-oracle retirement. Fixture changes
+require an independently reviewed recapture; ordinary tests never rewrite it.
+
+## Independent full-proof verification
+
+`reference_v1.json` retains 46 genuine full proofs, both Pasta curves, all three
+transcript profiles and ten pinned parameter sets at k6 through k10. The
+standard-library-only implementation in `reference_verifier/` checks the complete
+PLONK, multiopen and IPA equations, including the generator decision. Its
+production entry point has no historical oracle fallback. The separate explicit
+oracle entry point checks retained original proofs.
+
+```sh
+python3 -I -B -S fixtures/native_prover/verify_reference_v1.py
+python3 -B -m pytest -q pytests/scripts/native_prover_reference_test.py
+```
+
+The exact matrix, genuine recapture command, adversarial coverage and limits are
+documented in [the reference README](reference_verifier/README.md). This evidence
+does not establish batch, recursive, full-catalog or physical-phone acceptance.

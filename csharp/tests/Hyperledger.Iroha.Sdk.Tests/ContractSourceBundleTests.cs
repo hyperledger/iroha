@@ -8,11 +8,44 @@ namespace Hyperledger.Iroha.Sdk.Tests;
 public sealed class ContractSourceBundleTests
 {
     [Fact]
+    public void CompiledInterfacesUseRequiredNumericBytesAndImmutableSnapshots()
+    {
+        byte[] bytes = [0, 255, 1];
+        var artifact = new ToriiContractSourceArtifact { SourceName = "pool.to", Artifact = bytes };
+        bytes[0] = 99;
+        using var encoded = JsonDocument.Parse(JsonSerializer.Serialize(artifact));
+        Assert.Equal(JsonValueKind.Array, encoded.RootElement.GetProperty("artifact").ValueKind);
+        Assert.Equal(0, encoded.RootElement.GetProperty("artifact")[0].GetInt32());
+        var decoded = JsonSerializer.Deserialize<ToriiContractSourceArtifact>(encoded.RootElement)!;
+        Assert.Equal(new byte[] { 0, 255, 1 }, decoded.Artifact);
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ToriiContractSourceArtifact>("""{"source_name":"pool.to"}"""));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ToriiContractSourceArtifact>("""{"source_name":"pool.to","artifact":"AP8B"}"""));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ToriiContractSourceArtifact>("""{"source_name":"pool.to","artifact":[256]}"""));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ToriiContractSourceArtifact>("""{"source_name":"pool.to","artifact":[1],"manifest":{}}"""));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ToriiContractVerifiedSourceSubmission>("""{"language":"kotodama","source_text":"seiyaku App {}"}"""));
+    }
+
+    [Theory]
+    [InlineData("../pool.to")]
+    [InlineData("pool.ko")]
+    [InlineData("pool.json")]
+    public async Task InvalidCompiledInterfacePathsFailBeforeDispatch(string path)
+    {
+        using var handler = new NoDispatchHandler();
+        using var client = new ToriiClient(new Uri("https://torii.example"), new HttpClient(handler));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => client.SubmitContractVerifiedSourceJobAsync(new ContractArtifactId(0, new string('b', 64)), new ToriiContractVerifiedSourceSubmission {
+            Language = "kotodama", SourceName = "app.ko", SourceText = "seiyaku App {}",
+            Artifacts = new[] { new ToriiContractSourceArtifact { SourceName = path, Artifact = new byte[] { 1 } } },
+        }, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(0, handler.Requests);
+    }
+
+    [Fact]
     public void VerifiedSourceCompanionsRoundtripWithTheirFileIdentities()
     {
         var view = JsonSerializer.Deserialize<ToriiContractCodeView>("""
             {"network_id":"hash:32C903E5B3497E34C2B844EBFE8A39C19E6CF8F95D44C1FFB8BA9DCB42F91149#A2F0","artifact_id":{"dataspace_id":0,"code_hash":"hash:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB#ABA2"},"code_hash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-             "permissions":[],"entrypoints":[],"warnings":[],"rendered_source_kind":"verified_source",
+             "permissions":[],"entrypoints":[],"warnings":[],"source_artifacts":[],"rendered_source_kind":"verified_source",
              "rendered_source_text":"seiyaku App { include \"view.ko\"; }",
              "source_files":[{"source_name":"view.ko","source_text":"view fn value() -> int { 7 }"}]}
             """)!;
@@ -40,6 +73,7 @@ public sealed class ContractSourceBundleTests
     public void VerifiedSourceLimitsDoNotConstrainGeneratedPseudoSource()
     {
         var view = new ToriiContractCodeView {
+            Permissions = Array.Empty<ToriiContractPermissionDescriptorV1>(),
             NetworkId = NetworkId.Parse("hash:32C903E5B3497E34C2B844EBFE8A39C19E6CF8F95D44C1FFB8BA9DCB42F91149#A2F0"),
             ArtifactId = new ContractArtifactId(0, new string('b', 64)),
             CodeHash = new string('b', 64), RenderedSourceKind = "pseudo_source",
@@ -95,6 +129,7 @@ public sealed class ContractSourceBundleTests
         Assert.Equal("Math::add", package.GetProperty("exports")[0].GetString());
 
         var view = new ToriiContractCodeView {
+            Permissions = Array.Empty<ToriiContractPermissionDescriptorV1>(),
             NetworkId = NetworkId.Parse("hash:32C903E5B3497E34C2B844EBFE8A39C19E6CF8F95D44C1FFB8BA9DCB42F91149#A2F0"),
             ArtifactId = new ContractArtifactId(0, new string('b', 64)),
             CodeHash = new string('b', 64), RenderedSourceKind = "verified_source", RenderedSourceText = Bundle().SourceText,
@@ -137,6 +172,7 @@ public sealed class ContractSourceBundleTests
         var request = Bundle();
         var package = request.Packages.Single();
         var view = new ToriiContractCodeView {
+            Permissions = Array.Empty<ToriiContractPermissionDescriptorV1>(),
             NetworkId = NetworkId.Parse("hash:32C903E5B3497E34C2B844EBFE8A39C19E6CF8F95D44C1FFB8BA9DCB42F91149#A2F0"),
             ArtifactId = new ContractArtifactId(0, new string('b', 64)),
             CodeHash = new string('b', 64), RenderedSourceKind = "verified_source", RenderedSourceText = request.SourceText,

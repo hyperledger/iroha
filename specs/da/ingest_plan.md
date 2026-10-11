@@ -760,8 +760,8 @@ tightening block-level caps:
   is set without an explicit `--payload`, the generated blob is written to
   `artifacts/da/proof_bench/payload.bin` so fixtures stay untouched.【xtask/src/da.rs:1332】【xtask/src/main.rs:2515】
 - Reports default to `artifacts/da/proof_bench/benchmark.{json,md}` and include proofs/run, total and
-  per-proof timings, budget pass rate, and a recommended budget (110% of the slowest iteration) to
-  line up with `zk.halo2.verifier_budget_ms`.【artifacts/da/proof_bench/benchmark.md:1】
+  per-proof timings, budget pass rate, and a recommended benchmark budget (110% of the slowest
+  iteration). The harness accepts its measurement budget through `--budget-ms`.
 - Latest run (synthetic 1 MiB payload, 64 KiB chunks, 32 proofs/run, 10 iterations, 250 ms budget)
   recommended a 3 ms verifier budget with 100% of iterations inside the cap.【artifacts/da/proof_bench/benchmark.md:1】
 - Example (generates a deterministic payload and writes both reports):

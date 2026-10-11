@@ -11,7 +11,7 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{
     asset::AssetDefinitionId,
     block::BlockHeader,
-    sumeragi_finality::SumeragiFinalityCheckpoint,
+    sumeragi_finality::{EpochValidationScope, SumeragiFinalityCheckpoint},
     transaction::{FeePaymentIntent, SignedTransaction, TransactionEntrypoint},
 };
 use iroha_fs::{PrivateDirectory, PublishMode};
@@ -25,7 +25,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-pub(super) const MAX_CHECKPOINT_BYTES: usize = 32 * 1024 * 1024;
+pub(crate) const MAX_CHECKPOINT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_REPLAY_SUCCESSORS: u64 = 16;
 
 #[path = "native_operation/attempts.rs"]
@@ -75,10 +75,10 @@ impl Fees {
 
 #[derive(Clone, PartialEq, Eq, Encode, Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_deploy::managed::native_operation::Terms")]
-pub(super) struct Terms {
+pub(crate) struct Terms {
     pub requested_deadline_unix_ms: u64,
     pub signing_deadline_unix_ms: u64,
-    pub fees: Fees,
+    pub(super) fees: Fees,
 }
 
 impl Terms {
@@ -123,7 +123,7 @@ impl Terms {
                 .ok_or_else(|| invalid("native operation monotonic deadline overflow"))?,
         ))
     }
-    pub(super) fn matches(
+    pub(crate) fn matches(
         &self,
         deadline_unix_ms: u64,
         options: &BoundedTransactionOptions,
@@ -138,7 +138,7 @@ impl Terms {
         }
         Ok(())
     }
-    pub(super) fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         if self.requested_deadline_unix_ms == 0
             || self.requested_deadline_unix_ms == u64::MAX
             || self.signing_deadline_unix_ms == 0
@@ -182,19 +182,16 @@ pub(super) fn encode<T: norito::NoritoSerialize>(value: &T, maximum: usize) -> R
     }
     norito::encode_canonical(value).map_err(|_| invalid("cannot encode native operation record"))
 }
-pub(super) fn read_optional(
+pub(crate) fn read_optional(
     directory: &PrivateDirectory,
     name: &str,
     maximum: usize,
 ) -> Result<Option<Vec<u8>>> {
-    match directory.read(name, maximum) {
-        Ok(bytes) => Ok(Some(bytes.to_vec())),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            directory.revalidate()?;
-            Ok(None)
-        }
-        Err(error) => Err(error.into()),
-    }
+    // Initial absence is admitted by the native owner, after its unconditional custody exit.
+    // Move the sole successful allocation; later native errors cannot become absence.
+    Ok(directory
+        .read_optional(name, maximum)?
+        .map(|mut bytes| std::mem::take(&mut *bytes)))
 }
 pub(super) fn require_empty(directory: &PrivateDirectory) -> Result<()> {
     if !directory.entries(0)?.is_empty() {
@@ -205,26 +202,64 @@ pub(super) fn require_empty(directory: &PrivateDirectory) -> Result<()> {
 
 impl ServiceAuthority {
     pub(super) fn observe_finality(&mut self, deadline: Instant) -> Result<FinalityVerifier> {
+        self.observe_finality_with_source(deadline, |height, deadline| {
+            self.source(height, deadline)
+        })
+        .map(|(verifier, _)| verifier)
+    }
+
+    // One cursor and fresh-challenge owner; component fixtures replace only the source.
+    // The count describes this same verified quorum, never a second observation.
+    pub(super) fn observe_finality_with_source<S: FinalitySource>(
+        &self,
+        deadline: Instant,
+        source: impl Fn(u64, Instant) -> Result<S>,
+    ) -> Result<(FinalityVerifier, usize)> {
         require_deadline(deadline)?;
         let retained = read_optional(
             &self.directory,
             "current-checkpoint.nrt",
             MAX_CHECKPOINT_BYTES,
         )?;
+        // A seed is only a previously certified immutable receipt from this joined advance.
+        // Retained cursors keep their independent native bytes; no current verdict is shared.
+        let seed = if retained.is_none() {
+            self.certificate_seed()?
+        } else {
+            None
+        };
         let mut verifier = if let Some(bytes) = retained {
             self.decode_checkpoint(&bytes)?
+        } else if let Some(seed) = &seed {
+            seed.verifier()
         } else {
-            let source = self.source(1, deadline)?;
+            let source = source(1, deadline)?;
             let proof = source
                 .finality_proof(NonZeroU64::new(1).expect("positive genesis"))
                 .map_err(|_| invalid("cannot read original genesis result"))?;
             FinalityVerifier::from_genesis(&self.genesis, &proof)
                 .map_err(|_| invalid("original genesis finality differs"))?
         };
-        let source = self.source(verifier.checkpoint().height(), deadline)?;
-        let observation = verifier.observe(&source, &rand::random());
-        retain_observation(&self.directory, &mut verifier, observation)?;
-        Ok(verifier)
+        let result = source(verifier.checkpoint().height(), deadline).and_then(|source| {
+            let observation = verifier.observe(&source, &rand::random());
+            let verified = observation.as_ref().map_or(0, AttestationQuorum::verified);
+            if let Some(seed) = &seed {
+                self.validate_profile()?;
+                seed.revalidate()?;
+                require_deadline(deadline)?;
+            }
+            retain_observation(&self.directory, &mut verifier, observation)?;
+            Ok(verified)
+        });
+        // Close source custody on every ordinary result, including source construction refusal.
+        // A certificate never substitutes for an available source or a fresh attestation quorum.
+        if let Some(seed) = &seed {
+            self.validate_profile()?;
+            seed.revalidate()?;
+            require_deadline(deadline)?;
+        }
+        let verified = result?;
+        Ok((verifier, verified))
     }
 
     pub(super) fn source(&self, height: u64, deadline: Instant) -> Result<HttpFinalitySource> {
@@ -246,12 +281,9 @@ impl ServiceAuthority {
         directory: &PrivateDirectory,
         transaction: &SignedTransaction,
     ) -> Result<Option<ManagedTransactionFinality>> {
-        retained_carrier(
-            directory,
-            self.config.network_id,
-            &self.config.chain.to_string(),
-            transaction,
-        )
+        retained_carrier_using(directory, transaction, |bytes| {
+            self.decode_checkpoint(bytes)
+        })
     }
 
     pub(super) fn advance_carrier(
@@ -260,7 +292,7 @@ impl ServiceAuthority {
         original_checkpoint: &[u8],
         transaction: &SignedTransaction,
         report: &OperationReport,
-        observed_height: u64,
+        observed: &FinalityVerifier,
         deadline: Instant,
     ) -> Result<Option<ManagedTransactionFinality>> {
         let height = report
@@ -269,13 +301,17 @@ impl ServiceAuthority {
             .and_then(|e| e.get("block_height"))
             .and_then(norito::json::Value::as_u64)
             .ok_or_else(|| invalid("Applied native operation observation has no carrier hint"))?;
-        self.advance_carrier_at(
+        self.advance_carrier_with_source(
             directory,
             original_checkpoint,
             transaction,
-            height,
-            observed_height,
-            deadline,
+            CarrierTarget {
+                height,
+                observed_height: observed.checkpoint().height(),
+                observed: Some(observed),
+                deadline,
+            },
+            |height, deadline| self.source(height, deadline),
         )
     }
 
@@ -290,13 +326,37 @@ impl ServiceAuthority {
         observed_height: u64,
         deadline: Instant,
     ) -> Result<Option<ManagedTransactionFinality>> {
+        self.advance_carrier_with_source(
+            directory,
+            original_checkpoint,
+            transaction,
+            CarrierTarget {
+                height,
+                observed_height,
+                observed: None,
+                deadline,
+            },
+            |height, deadline| self.source(height, deadline),
+        )
+    }
+
+    // Production and genuine fixtures use the same native selection and publication owner.
+    // The injected source changes transport only; it cannot construct an observed receipt.
+    pub(super) fn advance_carrier_with_source<S: FinalitySource>(
+        &self,
+        directory: &PrivateDirectory,
+        original_checkpoint: &[u8],
+        transaction: &SignedTransaction,
+        target: CarrierTarget<'_>,
+        source: impl FnOnce(u64, Instant) -> Result<S>,
+    ) -> Result<Option<ManagedTransactionFinality>> {
         let original_verifier = self.decode_checkpoint(original_checkpoint)?;
-        if height <= original_verifier.checkpoint().height() {
+        if target.height <= original_verifier.checkpoint().height() {
             return Err(invalid(
                 "native operation carrier predates its original request",
             ));
         }
-        if height > observed_height {
+        if target.height > target.observed_height {
             return Ok(None);
         }
         // Applied is only a replaceable lookup hint. A false earlier hint cannot irreversibly
@@ -304,21 +364,125 @@ impl ServiceAuthority {
         let progress = read_optional(directory, "replay.nrt", MAX_CHECKPOINT_BYTES)?
             .map(|bytes| self.decode_checkpoint(&bytes))
             .transpose()?;
-        let mut verifier = replay_start(original_verifier, progress, height)?;
-        let source = self.source(verifier.checkpoint().height(), deadline)?;
-        retain_carrier_progress(directory, transaction, &mut verifier, height, &source)
+        let handoff = (!norito::core::decode_limits_active() && progress.is_none())
+            .then_some(target.observed)
+            .flatten()
+            .filter(|observed| {
+                original_verifier.checkpoint().height() > 1
+                    && observed.checkpoint().height() == target.height
+                    && original_verifier.checkpoint().height().checked_add(1) == Some(target.height)
+            });
+        let mut verifier = replay_start(original_verifier, progress, target.height)?;
+        // Keep the existing endpoint/network/deadline constructor even when the native proof
+        // was already delivered by the immediately preceding fresh quorum.
+        let source = source(verifier.checkpoint().height(), target.deadline)?;
+        let finalized = match handoff {
+            Some(observed) => {
+                self.validate_profile()?;
+                require_deadline(target.deadline)?;
+                let result = retain_observed_carrier(
+                    directory,
+                    transaction,
+                    &mut verifier,
+                    observed,
+                    target.deadline,
+                );
+                // Close original profile custody and the unchanged clock on every result.
+                self.validate_profile()?;
+                require_deadline(target.deadline)?;
+                result?
+            }
+            None => retain_carrier_progress(
+                directory,
+                transaction,
+                &mut verifier,
+                target.height,
+                &source,
+            )?,
+        };
+        if finalized.is_some() {
+            self.remember_certificate(directory, &verifier)?;
+        }
+        Ok(finalized)
     }
+}
+
+// The observed owner is supplied only by the same post-Apply fresh quorum. A numeric frontier
+// remains sufficient for renewal/recovery, which always keep their independent replay.
+pub(super) struct CarrierTarget<'a> {
+    pub(super) height: u64,
+    pub(super) observed_height: u64,
+    pub(super) observed: Option<&'a FinalityVerifier>,
+    pub(super) deadline: Instant,
+}
+
+fn retain_observed_carrier(
+    directory: &PrivateDirectory,
+    transaction: &SignedTransaction,
+    original: &mut FinalityVerifier,
+    observed: &FinalityVerifier,
+    deadline: Instant,
+) -> Result<Option<ManagedTransactionFinality>> {
+    let parent = original
+        .verified_tip_ref()
+        .map_err(|_| invalid("invalid original native operation checkpoint"))?;
+    let child = observed
+        .verified_tip_ref()
+        .map_err(|_| invalid("invalid observed native operation carrier"))?;
+    child
+        .verify_immediate_global_successor_of(
+            parent,
+            original.checkpoint().network_id(),
+            original.checkpoint().chain_id(),
+        )
+        .map_err(|_| invalid("observed carrier is not the exact original native successor"))?;
+    if observed.checkpoint().network_id() != original.checkpoint().network_id()
+        || observed.checkpoint().chain_id() != original.checkpoint().chain_id()
+    {
+        return Err(invalid(
+            "observed carrier changed original network or chain",
+        ));
+    }
+    require_deadline(deadline)?;
+    *original = observed.clone();
+    retain_verified_carrier(
+        directory,
+        transaction,
+        original,
+        original.checkpoint().height(),
+        true,
+    )
+    .map(|outcome| outcome.map(|outcome| outcome.finality))
 }
 
 /// Retain a bounded verified replay from the sole finality-source abstraction. Test sources
 /// execute the original generated native chain; no decoded report supplies successful inclusion.
-pub(crate) fn retain_carrier_progress(
+pub(crate) fn retain_carrier_progress<S: FinalitySource + ?Sized>(
     directory: &PrivateDirectory,
     transaction: &SignedTransaction,
     verifier: &mut FinalityVerifier,
     height: u64,
-    source: &impl FinalitySource,
+    source: &S,
 ) -> Result<Option<ManagedTransactionFinality>> {
+    retain_carrier_execution_progress(directory, transaction, verifier, height, source, true)
+        .map(|outcome| outcome.map(|outcome| outcome.finality))
+}
+
+/// Historical exact transaction outcome. This conveys no permission or current registry fact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct NativeTransactionExecution {
+    pub(crate) finality: ManagedTransactionFinality,
+    pub(crate) applied: bool,
+}
+
+pub(crate) fn retain_carrier_execution_progress<S: FinalitySource + ?Sized>(
+    directory: &PrivateDirectory,
+    transaction: &SignedTransaction,
+    verifier: &mut FinalityVerifier,
+    height: u64,
+    source: &S,
+    require_success: bool,
+) -> Result<Option<NativeTransactionExecution>> {
     let target = height.min(
         verifier
             .checkpoint()
@@ -331,14 +495,55 @@ pub(crate) fn retain_carrier_progress(
             NonZeroU64::new(target).ok_or_else(|| invalid("zero native operation carrier"))?,
         )
         .map_err(|_| invalid("original native operation carrier replay unavailable"))?;
+    retain_verified_carrier(directory, transaction, verifier, height, require_success)
+}
+
+// Preserve one publication order for independently replayed and already observed carriers.
+fn retain_verified_carrier(
+    directory: &PrivateDirectory,
+    transaction: &SignedTransaction,
+    verifier: &FinalityVerifier,
+    height: u64,
+    require_success: bool,
+) -> Result<Option<NativeTransactionExecution>> {
     let bytes = checkpoint_bytes(verifier)?;
     directory.write_atomic("replay.nrt", &bytes, PublishMode::Replace)?;
     if verifier.checkpoint().height() != height {
         return Ok(None);
     }
-    let finalized = verify_carrier(verifier, transaction)?;
+    let finalized = verify_carrier_execution(verifier, transaction, require_success)?;
     directory.write_atomic("carrier.nrt", &bytes, PublishMode::CreateNew)?;
     Ok(Some(finalized))
+}
+
+pub(crate) fn retained_carrier_execution(
+    directory: &PrivateDirectory,
+    network: iroha_data_model::NetworkId,
+    chain: &str,
+    transaction: &SignedTransaction,
+) -> Result<Option<NativeTransactionExecution>> {
+    read_optional(directory, "carrier.nrt", MAX_CHECKPOINT_BYTES)?
+        .map(|bytes| {
+            verify_carrier_execution(
+                &decode_checkpoint(&bytes, network, chain)?,
+                transaction,
+                false,
+            )
+        })
+        .transpose()
+}
+
+// Optional post-replay reporting only. Required predecessor, authorization and native carrier
+// checks stay with their callers and must complete before this projection can be skipped.
+pub(super) fn optional_current<T>(
+    requested: bool,
+    observed: Option<&FinalityVerifier>,
+    read: impl FnOnce(&FinalityVerifier) -> Result<T>,
+) -> Option<T> {
+    if !requested {
+        return None;
+    }
+    observed.and_then(|verifier| read(verifier).ok())
 }
 
 // Every candidate is checked by the supplied SDK operation against the same independently
@@ -363,28 +568,57 @@ pub(super) fn read_selected_peers<T>(
     ))
 }
 
-pub(super) fn decode_checkpoint(
+pub(crate) fn decode_checkpoint(
     bytes: &[u8],
     network: iroha_data_model::NetworkId,
     chain: &str,
 ) -> Result<FinalityVerifier> {
+    decode_checkpoint_with_validation(bytes, network, chain, None)
+}
+
+pub(super) fn decode_checkpoint_with_validation(
+    bytes: &[u8],
+    network: iroha_data_model::NetworkId,
+    chain: &str,
+    mut validation: Option<&mut EpochValidationScope>,
+) -> Result<FinalityVerifier> {
+    // The current outer owner wins even if this operation warmed before it was entered.
+    if norito::core::decode_limits_active() {
+        validation = None;
+    }
     if bytes.len() > MAX_CHECKPOINT_BYTES {
         return Err(invalid("native operation checkpoint exceeds bound"));
     }
-    let checkpoint = SumeragiFinalityCheckpoint::decode_canonical(bytes)
-        .map_err(|_| invalid("invalid retained native operation checkpoint"))?;
-    FinalityVerifier::from_checkpoint(checkpoint, network, chain)
+    let checkpoint = SumeragiFinalityCheckpoint::decode_canonical_with_validation(
+        bytes,
+        validation.as_deref_mut(),
+    )
+    .map_err(|_| invalid("invalid retained native operation checkpoint"))?;
+    FinalityVerifier::from_checkpoint_with_validation(checkpoint, network, chain, validation)
         .map_err(|_| invalid("retained native operation checkpoint changed network or chain"))
 }
 
+#[cfg(test)]
 pub(crate) fn retained_carrier(
     directory: &PrivateDirectory,
     network: iroha_data_model::NetworkId,
     chain: &str,
     transaction: &SignedTransaction,
 ) -> Result<Option<ManagedTransactionFinality>> {
+    retained_carrier_using(directory, transaction, |bytes| {
+        decode_checkpoint(bytes, network, chain)
+    })
+}
+
+pub(super) fn retained_carrier_using(
+    directory: &PrivateDirectory,
+    transaction: &SignedTransaction,
+    checkpoint: impl FnOnce(&[u8]) -> Result<FinalityVerifier>,
+) -> Result<Option<ManagedTransactionFinality>> {
+    // Re-read actual native custody before every use. Only the caller's existing immutable
+    // checkpoint importer differs; transaction signature and successful inclusion stay fresh.
     read_optional(directory, "carrier.nrt", MAX_CHECKPOINT_BYTES)?
-        .map(|bytes| verify_carrier(&decode_checkpoint(&bytes, network, chain)?, transaction))
+        .map(|bytes| verify_carrier(&checkpoint(&bytes)?, transaction))
         .transpose()
 }
 
@@ -393,6 +627,12 @@ pub(crate) fn retain_observation(
     verifier: &mut FinalityVerifier,
     observation: std::result::Result<AttestationQuorum, FinalityError>,
 ) -> Result<()> {
+    // Native component failures need the original per-peer cause before the public
+    // managed result closes it into its existing classification. Success stays silent.
+    #[cfg(test)]
+    if let Err(error) = &observation {
+        eprintln!("native finality observation refused: {error:?}");
+    }
     match &observation {
         Ok(_) => {}
         Err(FinalityError::CatchingUp { .. }) => {
@@ -444,8 +684,16 @@ pub(crate) fn verify_carrier(
     verifier: &FinalityVerifier,
     transaction: &SignedTransaction,
 ) -> Result<ManagedTransactionFinality> {
+    verify_carrier_execution(verifier, transaction, true).map(|outcome| outcome.finality)
+}
+
+fn verify_carrier_execution(
+    verifier: &FinalityVerifier,
+    transaction: &SignedTransaction,
+    require_success: bool,
+) -> Result<NativeTransactionExecution> {
     let verified = verifier
-        .verified_tip()
+        .verified_tip_ref()
         .map_err(|_| invalid("invalid original native operation carrier"))?;
     verified
         .verify_global_scope(
@@ -464,7 +712,7 @@ pub(crate) fn verify_carrier(
     let wire = transaction
         .encode_wire_v1()
         .map_err(|_| invalid("invalid original native operation wire"))?;
-    let mut found = false;
+    let mut found = None;
     for (index, entrypoint) in verified.block().network_entrypoints().enumerate() {
         let TransactionEntrypoint::External(candidate) = entrypoint else {
             continue;
@@ -474,36 +722,47 @@ pub(crate) fn verify_carrier(
         }
         let input_index = u32::try_from(index)
             .map_err(|_| invalid("native operation carrier index exceeds bound"))?;
-        if found
+        if found.is_some()
             || candidate
                 .encode_wire_v1()
                 .map_err(|_| invalid("invalid carrier transaction wire"))?
                 != wire
-            || !verified
-                .block()
-                .network_output_at(input_index)
-                .is_some_and(|(_, output)| output.result.as_ref().is_ok())
         {
             return Err(invalid(
                 "native operation carrier lacks exact successful original execution",
             ));
         }
-        found = true;
+        let output = verified
+            .block()
+            .network_output_at(input_index)
+            .ok_or_else(|| {
+                invalid("native operation carrier lacks exact successful original execution")
+            })?;
+        let applied = output.1.result.as_ref().is_ok();
+        if require_success && !applied {
+            return Err(invalid(
+                "native operation carrier lacks exact successful original execution",
+            ));
+        }
+        found = Some(applied);
     }
-    if !found {
+    let Some(applied) = found else {
         return Err(invalid(
             "original native operation transaction absent from certified carrier",
         ));
-    }
-    Ok(ManagedTransactionFinality {
-        transaction_hash: transaction.hash(),
-        height: verified.height(),
-        block_hash: verified.header().hash(),
-        block_time_ms: verified.header().creation_time_ms,
+    };
+    Ok(NativeTransactionExecution {
+        applied,
+        finality: ManagedTransactionFinality {
+            transaction_hash: transaction.hash(),
+            height: verified.height(),
+            block_hash: verified.header().hash(),
+            block_time_ms: verified.header().creation_time_ms,
+        },
     })
 }
 
-pub(super) fn checkpoint_bytes(verifier: &FinalityVerifier) -> Result<Vec<u8>> {
+pub(crate) fn checkpoint_bytes(verifier: &FinalityVerifier) -> Result<Vec<u8>> {
     let bytes = verifier
         .checkpoint()
         .encode_canonical()
@@ -517,8 +776,12 @@ pub(super) fn checkpoint_bytes(verifier: &FinalityVerifier) -> Result<Vec<u8>> {
 // own classification; a decoder result never supplies current service authority.
 pub(in crate::managed) fn require_retained_material<T>(value: Result<T>) -> Result<T> {
     value.map_err(|error| match error {
-        Error::Bootstrap(_) => error,
-        _ => super::ManagedBootstrapFailure::RetainedMaterial.into(),
+        Error::Bootstrap(_) | Error::NativeDeadline => error,
+        _error => {
+            #[cfg(test)]
+            deadline_diagnostics::retained_error(&_error);
+            super::ManagedBootstrapFailure::RetainedMaterial.into()
+        }
     })
 }
 
@@ -527,9 +790,9 @@ pub(super) fn invalid(message: &'static str) -> Error {
 }
 pub(super) fn require_deadline(deadline: Instant) -> Result<()> {
     if deadline <= Instant::now() {
-        return Err(invalid(
-            "native operation I/O deadline elapsed; retain original journals",
-        ));
+        #[cfg(test)]
+        deadline_diagnostics::deadline_refused();
+        return Err(Error::NativeDeadline);
     }
     Ok(())
 }
@@ -546,3 +809,19 @@ pub(crate) fn now_ms() -> Result<u64> {
 #[cfg(test)]
 #[path = "native_operation/test_support.rs"]
 pub(crate) mod test_support;
+
+#[cfg(test)]
+#[path = "native_operation/deadline_diagnostics.rs"]
+pub(in crate::managed) mod deadline_diagnostics;
+
+#[cfg(test)]
+#[path = "native_operation/deadline_tests.rs"]
+mod deadline_tests;
+
+#[cfg(test)]
+#[path = "native_operation/optional_read_tests.rs"]
+mod optional_read_tests;
+
+#[cfg(test)]
+#[path = "native_operation/optional_admission_tests.rs"]
+mod optional_admission_tests;

@@ -8,7 +8,6 @@ use iroha_data_model::{
 };
 use iroha_model_base::topology::DataSpaceId;
 use iroha_test_samples::{ALICE_ID, BOB_ID};
-use mv::storage::StorageReadOnly;
 pub(in crate::state) fn alias(name: &str) -> AccountAlias {
     AccountAlias::domainless(name.parse().unwrap(), DataSpaceId::UNIVERSAL)
 }

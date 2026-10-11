@@ -227,8 +227,8 @@ if the CLI output format changes.
      roles and 365-day retention.
 4. **Diff tool recommendations (2026-03-05 run)**
    - ✅ Completed 2026-03-05 — No new recommendations were emitted. We
-     re-reviewed the StrongBox capture inventory
-     (`specs/sdk/android/readiness/android_strongbox_device_matrix.md`) and
+     re-reviewed the StrongBox device-lab lanes
+     (`specs/compliance/android/device_lab_reservation.md`) and
      telemetry redaction guidance (`specs/android_support_playbook.md`
      §8.1) to confirm the `consumer`/`enterprise` tier mapping and permitted
      hardware buckets remain accurate; no follow-up actions required.

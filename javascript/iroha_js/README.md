@@ -266,7 +266,7 @@ verified native artifact directory.
 ## Native SoraFS Reference Validation
 
 The repository SoraFS qualification runner pins
-`IROHA_JS_NATIVE_BUILD_PROFILE=release` for its authenticated ABI-25 host
+`IROHA_JS_NATIVE_BUILD_PROFILE=release` for its authenticated ABI-29 host
 artifact. Plain source-checkout builds remain `debug` unless the profile is
 selected explicitly.
 
@@ -464,7 +464,7 @@ manifest through the Node/N-API client with an HTTPS origin and immutable
 `LocalSigningContext`. Explicit custom fetch implementations are trusted transport
 dependencies and must preserve HTTPS authentication, response URL, and redirect semantics.
 Public archive decoding is inspection-only; copying or re-decoding transport
-bytes loses admission authority. The authenticated ABI25 binding applies
+bytes loses admission authority. The authenticated ABI29 binding applies
 the bounded canonical decoder; transaction construction must then call
 `requirePrivacyExact12CapabilityAdmissionV1`, which requires committed Active
 state, registered production qualification, and byte-exact equality with the
@@ -887,9 +887,13 @@ const result = await compileKotodamaProgram(
 Source paths stay inside their source root. Each file is bounded to 1 MiB; a
 complete inventory permits 512 files and 16 MiB. Immutable locked dependencies
 can be supplied with `imports: [{ alias, package }]` and
-`packages: [{ identity, modules, sources, exports, imports }]`; package source
-paths are relative to that package's root. Compilation performs no file or
-network discovery. The same request shape is used by the native and remote adapters.
+`packages: [{ identity, modules, sources, artifacts, exports, imports }]`; package
+paths are relative to that package's root. Compiled contract imports use complete
+`.to` bytes in `artifacts: [{ sourceName, artifact }]`, where `artifact` is an
+array of bytes. Root and package artifacts belong to their respective immutable
+inventories and count toward the shared file and byte limits. Compilation
+performs no file or network discovery. The native and remote adapters use the
+same request shape.
 
 The browser export has no compiler implementation. It requires an explicit
 canonical Rust compiler-service endpoint:
@@ -933,6 +937,11 @@ access-claim, and other semantic admission checks. The service must therefore be
 a trusted canonical Rust compiler endpoint; the ledger remains the final
 authority on whether an artifact is deployable.
 
+Source-map entries carry `source_kind: "function" | "statement"` and partition
+each physical function's budget range. Inlined statements retain their original
+helper names and source locations. Diagnostics preserve canonical English fields,
+required `alternative_fixes`, and nullable `localized` presentation text.
+
 Browser deployment performs those bounded structural checks before node
 capability/state reads, signing, or submission. It does not expose a local
 semantic-verifier selector: V1 workspace builds target Rust `std`, and browser
@@ -949,7 +958,9 @@ contract address uses the fixed lowercase `irohac` Bech32m prefix.
 The first release accepts only `provenance: null`; signed provenance remains
 disabled until its exact message and public-key algorithm can be verified.
 The native binding and service receive the same canonical JSON-shaped request,
-`{ source, sourceName?, zk }`. `sourceName` is limited to 4096 UTF-8 bytes and
+`{ source, artifacts, zk, sourceName?, sources?, imports?, packages? }`. The
+adapter includes an empty `artifacts` array when no compiled imports are supplied.
+`sourceName` is limited to 4096 UTF-8 bytes and
 must not contain control characters. Unknown options—including ABI, vector,
 debug-embedding, and test-mode selectors—fail closed.
 Compilation failures resolve to `{ ok: false, diagnostics }` with the exact
@@ -2785,6 +2796,34 @@ The helpers require exact lower-case `uaid:<64-hex>` literals with LSB=1 and
 throw on whitespace, raw hashes, or case variants, ensuring automation scripts
 surface clear diagnostics before the request reaches Torii.
 
+### Canonical contract arguments
+
+Pass the entrypoint's signed `argument_schema` as `argumentSchema` to
+`prepareContractCall`. The client checks the argument fields and converts safe
+integer or bigint values for `int`, `decimal` and `quantity` to canonical strings
+before hashing or signing the request. Invalid values report their field path.
+The schema stays local and is not included in the Torii request.
+
+Use the same schema when constructing the draft intent's payload digest:
+
+```js
+import {
+  canonicalContractArguments,
+  contractPayloadDigestHex,
+} from "@iroha/iroha-js/contract-payload";
+
+const argumentSchema = entrypoint.argument_schema;
+const payload = canonicalContractArguments({ amount: 7n }, { argumentSchema });
+const payloadDigestHex = contractPayloadDigestHex(payload);
+```
+
+`canonicalContractPayloadJson(payload, { argumentSchema })` and
+`contractPayloadDigestHex(payload, { argumentSchema })` apply the same conversion.
+`canonicalContractArguments(payload)` rejects numbers when their declared types
+are unknown. The raw JSON canonicalizer and digest helpers, called without
+options, retain JSON integer tokens for fields whose actual type permits them,
+such as `Json` and `DataSpaceId`; they do not infer an entrypoint schema.
+
 ### Publishing & revoking manifests
 
 Operators can stage capability rotations or emergency deny-wins decisions via
@@ -3391,7 +3430,7 @@ proofs while that relation remains incomplete.
 Validation-fee authority is ledger-native. Applications obtain bounded policy
 proof pages with `ToriiClient.getValidationFeeCurrentPolicyProofPage`, anchored
 to an immutable exact `NetworkId`/policy-chain binding and a durable checkpoint.
-The ABI 25 native bridge verifies the Norito proof against the complete
+The ABI 29 native bridge verifies the Norito proof against the complete
 independently selected native checkpoint and returns the policy projection together
 with its promoted canonical checkpoint bytes. A checkpoint is exactly
 `{ checkpointNorito: bytes }`; a height/context pair cannot replace it. Persist every
@@ -4753,6 +4792,17 @@ Either way, applications must handle the gap instead of treating closure as a
 lossless continuation point. Aborting `signal` or leaving the `for await`
 loop cancels the response body.
 
+Contract-event rows (`contractEvents` pages and `streamContractEvents`) are
+native emissions committed by successful contract execution, with `provenance`
+always `"emitted"`. Each row retains the full typed `emission`, its rendered
+`payload`, and the immutable `output_index` and `emission_index`; `event_id` is
+`block_hash_hex:output_index:emission_index`. `execution_hash_hex` identifies the
+owning Network, Pipeline, or Time execution. The emitting contract address,
+immediate caller, and signed event definition determine `contract_address`,
+`authority`, and `event_kind`. Both clients reject a `provenance` stream filter
+naming anything else, and `ToriiClient` verifies these row fields against the
+native emission. Call metadata and rejected executions cannot create event rows.
+
 `streamEvents({ filter })` takes a `Filter`, a text filter or the JSON form.
 Torii accepts `=` and `in` on `tx_hash`, `tx_status`, `tx_block_height`,
 `tx_lane_id`, `tx_dataspace_id`, `block_status`, `block_height`,
@@ -5015,7 +5065,7 @@ or endpoint-reported transaction status.
 
 Canonical staking values are available through `encodeValidatorStakingValueV1`
 and `decodeValidatorStakingValueV1` on the root and `norito` exports. The typed
-monetary preconditions, bounded reward records (including required explicit
+monetary preconditions, automatic reward entitlements (with mandatory exact
 `fee_claim`), signing generations and epoch authorizations use the Rust shared
 fixtures. Amounts remain exact decimal strings and unsigned heights accept
 `bigint`; native identity validation is mandatory. These are bare value codecs,

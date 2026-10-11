@@ -46,7 +46,6 @@ fn original_source(
     assert!(block.is_resultless_proposal());
     assert_eq!(block.signatures().len(), 0);
     GlobalPayloadSource {
-        attest: proposal_requires_attestation(&block, scheduled.epoch.authorization.last_height),
         block,
         pending_inputs: None,
     }
@@ -160,11 +159,11 @@ fn original_local_payload_signature_refusal_keeps_job_and_exact_release_owner() 
             registration.poll_wait(&release, &mut context),
             Poll::Ready(())
         );
-        let (bytes, attest) = worker.finish_payload_build().unwrap();
+        let bytes = worker.finish_payload_build().unwrap();
         let bytes = bytes.unwrap();
         assert!(bytes.admitted_to(&budget));
         assert_eq!(bytes.as_slice(), expected);
-        assert!(!attest);
+
         assert!(worker.payload_build.is_none());
         assert_eq!((scope.height, scope.view), (applied.0 + 1, 0));
         // This source has no Queue lease and cannot authorize completed-payload reuse.
@@ -218,7 +217,7 @@ fn original_local_payload_wire_refusal_retains_completed_leaf_without_repreparat
             assert!(events.try_recv().is_err());
         }
         drop(pressure);
-        let (bytes, _) = worker.finish_payload_build().unwrap();
+        let bytes = worker.finish_payload_build().unwrap();
         let bytes = bytes.unwrap();
         assert!(bytes.admitted_to(&budget));
         assert_eq!(bytes.as_slice(), expected);

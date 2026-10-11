@@ -7,11 +7,11 @@ seiyaku CompilerFixture {
         decimal y,
         quantity q,
         quantity r,
-    ) -> (int, decimal, quantity, decimal) {
+    ) authorize(anyone) -> (int, decimal, quantity, decimal) {
         return (a + b, x * y, q - r, q / r);
     }
 
-    view fn compare(quantity left, quantity right) -> bool {
+    view fn compare(quantity left, quantity right) authorize(anyone) -> bool {
         return left >= right;
     }
 }

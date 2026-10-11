@@ -42,7 +42,11 @@ use iroha_model_base::state_path::StatePath;
 use iroha_model_base::{topology::DataSpaceId, topology::LaneId};
 #[cfg(test)]
 use iroha_primitives::numeric::Numeric;
-use iroha_primitives::{json::Json, numeric::Quantity, numeric_abi::QuantityValueV1};
+use iroha_primitives::{
+    json::Json,
+    numeric::{NumericSpec, Quantity},
+    numeric_abi::QuantityValueV1,
+};
 use ivm_abi::codec::{decode_canonical_norito, encode_canonical_norito};
 use norito::{
     decode_from_bytes,
@@ -57,21 +61,59 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
+#[cfg(test)]
+#[path = "mock_wsv/contract_call_tests.rs"]
+mod contract_call_tests;
+#[path = "mock_wsv/contract_calls.rs"]
+mod contract_calls;
+#[cfg(test)]
+#[path = "mock_wsv/contract_permission_tests.rs"]
+mod contract_permission_tests;
+#[cfg(test)]
+#[path = "mock_wsv/vrf_epoch_seed_tests.rs"]
+mod vrf_epoch_seed_tests;
+use contract_calls::MockContractInstance;
+pub use contract_calls::{MockContractEvent, contract_state_path};
 /// Definition of an asset type.
 #[derive(Clone, Debug)]
 struct AssetDefinition {
+    /// Human-readable display name supplied at registration.
+    name: String,
+    /// Numeric spec every minted quantity must satisfy.
+    spec: NumericSpec,
     mintable: Mintable,
     total_supply: Quantity,
     owner: AccountId,
 }
 impl AssetDefinition {
-    fn new(mintable: Mintable, owner: AccountId) -> Self {
+    fn new(name: String, spec: NumericSpec, mintable: Mintable, owner: AccountId) -> Self {
         Self {
+            name,
+            spec,
             mintable,
             total_supply: Quantity::zero(),
             owner,
         }
     }
+}
+/// Decode the `REGISTER_ASSET` display name (`r11` payload), numeric-spec
+/// word (`r12`) and mintability word (`r13`) with the data-model decoder that
+/// CoreHost also uses, so both hosts accept and reject exactly the same calls.
+///
+/// # Errors
+/// Returns [`VMError::DecodeError`] for an invalid display name or a word
+/// outside the encoding, as CoreHost does.
+fn decode_asset_registration(
+    name: &[u8],
+    spec_word: u64,
+    mintable_word: u64,
+) -> Result<iroha_data_model::asset::definition::ivm_registration::Registration, VMError> {
+    iroha_data_model::asset::definition::ivm_registration::decode_registration(
+        name,
+        spec_word,
+        mintable_word,
+    )
+    .map_err(|_| VMError::DecodeError)
 }
 /// NFT state tracking the current owner, stored metadata, and the issuing authority.
 #[derive(Clone, Debug)]
@@ -236,7 +278,14 @@ pub enum PermissionToken {
         /// Exact case-sensitive public selector.
         entrypoint: String,
     },
-    /// Opaque custom permission token used by contract entrypoints and tests.
+    /// Permission declared by one immutable deployed contract instance.
+    ContractPermission {
+        /// Immutable deployed contract address.
+        contract: ContractAddress,
+        /// Exact name in the current authenticated declaration table.
+        permission: Name,
+    },
+    /// Exact chain-wide marker token, imported explicitly by a contract.
     Custom(String),
 }
 /// Minimal account representation tracking signatories, quorum, and metadata.
@@ -301,18 +350,21 @@ pub struct MockWorldStateView {
     // ZK (shielded) state
     zk_assets: HashMap<AssetDefinitionId, ZkAssetState>,
     elections: HashMap<String, ElectionState>,
+    /// Exact committed epoch seeds supplied by local diagnostic fixtures.
+    vrf_epoch_seeds: BTreeMap<u64, [u8; 32]>,
     /// Events emitted by ZK operations for test visibility
     zk_events: Vec<ZkEvent>,
     /// Durable smart-contract state (path -> NoritoBytes payload TLVs)
     state_overlay: DurableStateOverlay,
-    /// Manifest registry keyed by code hash (presence-only for gating).
-    contract_manifests: HashSet<iroha_data_model::smart_contract::ContractArtifactId>,
-    /// Stored contract bytecode keyed by code hash.
-    contract_code: HashMap<iroha_data_model::smart_contract::ContractArtifactId, Vec<u8>>,
-    /// Active contract instances keyed by canonical contract address.
-    contract_instances: HashMap<ContractAddress, CryptoHash>,
+    /// Complete admitted artifacts owned by their exact dataspace and code hash.
+    contract_artifacts:
+        HashMap<iroha_data_model::smart_contract::ContractArtifactId, crate::PreparedContract>,
+    /// Explicit diagnostic lifecycle fixtures keyed by immutable instance address.
+    contract_instances: HashMap<ContractAddress, MockContractInstance>,
     /// Logical wall-clock timestamp used for time-gated operations (ms since epoch).
     current_time_ms: u64,
+    /// Deterministic block height reported to contracts; local tests advance it explicitly.
+    current_block_height: u64,
     /// Slot length (ms) used to derive current slot for expiry checks.
     slot_length_ms: u64,
     /// Maximum wall-clock skew (ms) tolerated for AXT expiry calculations.
@@ -324,6 +376,11 @@ pub struct ZkPolicyConfig {
     pub vk_unshield: Option<VerifyingKeyId>,
 }
 impl MockWorldStateView {
+    /// Supply one exact deterministic epoch seed for a local diagnostic fixture.
+    /// This never fabricates a seed for a different or missing epoch.
+    pub fn set_vrf_epoch_seed_fixture(&mut self, epoch: u64, seed: [u8; 32]) {
+        self.vrf_epoch_seeds.insert(epoch, seed);
+    }
     /// Create an empty mock WSV.
     pub fn new() -> Self {
         Self {
@@ -345,10 +402,11 @@ impl MockWorldStateView {
             elections: HashMap::new(),
             zk_events: Vec::new(),
             state_overlay: DurableStateOverlay::in_memory(),
-            contract_manifests: HashSet::new(),
-            contract_code: HashMap::new(),
+            contract_artifacts: HashMap::new(),
+            vrf_epoch_seeds: BTreeMap::new(),
             contract_instances: HashMap::new(),
             current_time_ms: 0,
+            current_block_height: 0,
             slot_length_ms: 1,
             axt_max_clock_skew_ms: 0,
             verifying_keys: BTreeMap::new(),
@@ -457,6 +515,14 @@ impl MockWorldStateView {
     pub fn current_time_ms(&self) -> u64 {
         self.current_time_ms
     }
+    /// Override the block height reported by `context::block_height()`.
+    pub fn set_current_block_height(&mut self, height: u64) {
+        self.current_block_height = height;
+    }
+    /// Return the block height reported by `context::block_height()`.
+    pub fn current_block_height(&self) -> u64 {
+        self.current_block_height
+    }
     // -----------------------------
     // Smart-contract durable state (mock)
     // -----------------------------
@@ -494,14 +560,6 @@ impl MockWorldStateView {
     }
     pub fn sc_flush(&self) -> Result<(), VMError> {
         self.state_overlay.flush()
-    }
-    /// Bind a contract instance in the mock registry.
-    pub fn bind_contract_instance(
-        &mut self,
-        contract_address: ContractAddress,
-        code_hash: CryptoHash,
-    ) {
-        self.contract_instances.insert(contract_address, code_hash);
     }
     // -----------------------------
     // ZK shielded ledger handlers (permissions and full Merkle enforcement outstanding)
@@ -904,7 +962,14 @@ impl MockWorldStateView {
             wsv.accounts.entry(subject.clone()).or_default();
             wsv.asset_definitions
                 .entry(asset.clone())
-                .or_insert_with(|| AssetDefinition::new(Mintable::Infinitely, account.clone()));
+                .or_insert_with(|| {
+                    AssetDefinition::new(
+                        asset.to_string(),
+                        NumericSpec::unconstrained(),
+                        Mintable::Infinitely,
+                        account.clone(),
+                    )
+                });
             wsv.balances
                 .insert((subject, asset.clone()), amount.clone());
             if let Some(def) = wsv.asset_definitions.get_mut(asset) {
@@ -1042,12 +1107,51 @@ impl MockWorldStateView {
         id: AssetDefinitionId,
         mintable: Mintable,
     ) -> bool {
-        if !self.has_permission(caller, &PermissionToken::RegisterAssetDefinition) {
+        let name = id.to_string();
+        self.register_asset_definition_with_spec(
+            caller,
+            id,
+            name,
+            NumericSpec::unconstrained(),
+            mintable,
+        )
+    }
+    /// Register an asset definition with the display name, numeric spec and
+    /// mintability a contract supplied through `REGISTER_ASSET`.
+    pub fn register_asset_definition_with_spec(
+        &mut self,
+        caller: &AccountId,
+        id: AssetDefinitionId,
+        name: String,
+        spec: NumericSpec,
+        mintable: Mintable,
+    ) -> bool {
+        if !self.has_permission(caller, &PermissionToken::RegisterAssetDefinition)
+            || iroha_data_model::asset::definition::validate_asset_name(&name).is_err()
+        {
             return false;
         }
-        self.asset_definitions
-            .insert(id, AssetDefinition::new(mintable, caller.clone()))
-            .is_none()
+        if self.asset_definitions.contains_key(&id) {
+            return false;
+        }
+        self.asset_definitions.insert(
+            id,
+            AssetDefinition::new(name, spec, mintable, caller.clone()),
+        );
+        true
+    }
+    /// Display name, numeric spec and mintability recorded for an asset definition.
+    pub fn asset_definition_registration(
+        &self,
+        id: &AssetDefinitionId,
+    ) -> Option<(&str, NumericSpec, Mintable)> {
+        self.asset_definitions.get(id).map(|definition| {
+            (
+                definition.name.as_str(),
+                definition.spec,
+                definition.mintable,
+            )
+        })
     }
     /// Unregister an asset definition when no non-zero balances exist for it.
     pub fn unregister_asset_definition(&mut self, id: &AssetDefinitionId) -> bool {
@@ -1220,6 +1324,9 @@ impl MockWorldStateView {
         let Some(def) = self.asset_definitions.get_mut(&asset_id) else {
             return false;
         };
+        if def.spec.check(amount.as_numeric()).is_err() {
+            return false;
+        }
         let balance_key = (Self::account_subject(&account_id), asset_id.clone());
         let current = self
             .balances
@@ -1463,7 +1570,7 @@ pub struct WsvHost {
     // ZK verify gating and configuration
     zk_verified_ballot: VecDeque<[u8; 32]>,
     zk_verified_tally: Option<[u8; 32]>,
-    zk_cfg: crate::host::ZkHalo2Config,
+    zk_cfg: crate::host::ZkVerifyLimits,
     axt_state: Option<axt::HostAxtState>,
     axt_policy: Arc<dyn AxtPolicy>,
     axt_policy_overridden: bool,
@@ -1471,6 +1578,10 @@ pub struct WsvHost {
     contract_runtime_invoker: Option<AccountId>,
     contract_runtime_address: Option<ContractAddress>,
     contract_runtime_entrypoint: Option<String>,
+    contract_fixture_state_scope: Option<ContractAddress>,
+    contract_execution_budget: iroha_allocation::AllocationBudget,
+    contract_ancestors: Vec<ContractAddress>,
+    contract_events: Vec<MockContractEvent>,
     fastpq_batch_entries: Option<Vec<(AccountId, AccountId, AssetDefinitionId, Quantity)>>,
     actual_access: crate::host::AccessLog,
     state_overlay: BTreeMap<StatePath, Option<Vec<u8>>>,
@@ -1486,7 +1597,7 @@ struct WsvHostSnapshot {
     public_inputs: BTreeMap<Name, Vec<u8>>,
     zk_verified_ballot: VecDeque<[u8; 32]>,
     zk_verified_tally: Option<[u8; 32]>,
-    zk_cfg: crate::host::ZkHalo2Config,
+    zk_cfg: crate::host::ZkVerifyLimits,
     axt_state: Option<axt::HostAxtState>,
     axt_policy: Arc<dyn AxtPolicy>,
     axt_policy_overridden: bool,
@@ -1494,6 +1605,10 @@ struct WsvHostSnapshot {
     contract_runtime_invoker: Option<AccountId>,
     contract_runtime_address: Option<ContractAddress>,
     contract_runtime_entrypoint: Option<String>,
+    contract_fixture_state_scope: Option<ContractAddress>,
+    contract_execution_budget: iroha_allocation::AllocationBudget,
+    contract_ancestors: Vec<ContractAddress>,
+    contract_events: Vec<MockContractEvent>,
     fastpq_batch_entries: Option<Vec<(AccountId, AccountId, AssetDefinitionId, Quantity)>>,
     actual_access: crate::host::AccessLog,
     state_overlay: BTreeMap<StatePath, Option<Vec<u8>>>,
@@ -1504,7 +1619,7 @@ impl WsvHost {
     /// Quote response-producing WSV helpers from pointer headers and ABI
     /// region bounds only. No world-state lookup, schema call, proof walk, or
     /// guest allocation is allowed during preparation.
-    fn bounded_response_gas_quote(number: u32, vm: &IVM) -> Result<Option<u64>, VMError> {
+    fn bounded_response_gas_quote(&self, number: u32, vm: &IVM) -> Result<Option<u64>, VMError> {
         let maximum_output =
             usize::try_from(crate::memory::Memory::INPUT_SIZE).unwrap_or(usize::MAX);
         let quote = match number {
@@ -1577,9 +1692,17 @@ impl WsvHost {
             crate::syscalls::SYSCALL_CURRENT_TIME_MS
             | crate::syscalls::SYSCALL_SYSVAR_BLOCK_TIME_MS
             | crate::syscalls::SYSCALL_SYSVAR_BLOCK_HEIGHT
-            | crate::syscalls::SYSCALL_SYSVAR_CHAIN_ID
-            | crate::syscalls::SYSCALL_SYSVAR_CONTRACT_ADDRESS
-            | crate::syscalls::SYSCALL_SYSVAR_ENTRYPOINT => Self::sysvar_gas(0),
+            | crate::syscalls::SYSCALL_SYSVAR_CHAIN_ID => Self::sysvar_gas(0),
+            crate::syscalls::SYSCALL_SYSVAR_CONTRACT_ADDRESS => Self::sysvar_gas(
+                self.contract_runtime_address
+                    .as_ref()
+                    .map_or(0, |address| address.as_str().len()),
+            ),
+            crate::syscalls::SYSCALL_SYSVAR_ENTRYPOINT => Self::sysvar_gas(
+                self.contract_runtime_entrypoint
+                    .as_ref()
+                    .map_or(0, String::len),
+            ),
             _ => return Ok(None),
         };
         Ok(Some(quote))
@@ -1603,7 +1726,7 @@ impl WsvHost {
             public_inputs: BTreeMap::new(),
             zk_verified_ballot: VecDeque::new(),
             zk_verified_tally: None,
-            zk_cfg: crate::host::ZkHalo2Config::default(),
+            zk_cfg: crate::host::ZkVerifyLimits::default(),
             axt_state: None,
             axt_policy: policy,
             axt_policy_overridden: false,
@@ -1611,6 +1734,10 @@ impl WsvHost {
             contract_runtime_invoker: None,
             contract_runtime_address: None,
             contract_runtime_entrypoint: None,
+            contract_fixture_state_scope: None,
+            contract_execution_budget: iroha_allocation::AllocationBudget::new(128 * 1024 * 1024),
+            contract_ancestors: Vec::new(),
+            contract_events: Vec::new(),
             fastpq_batch_entries: None,
             actual_access: crate::host::AccessLog::default(),
             state_overlay: BTreeMap::new(),
@@ -1677,6 +1804,10 @@ impl WsvHost {
             contract_runtime_invoker: self.contract_runtime_invoker.clone(),
             contract_runtime_address: self.contract_runtime_address.clone(),
             contract_runtime_entrypoint: self.contract_runtime_entrypoint.clone(),
+            contract_fixture_state_scope: self.contract_fixture_state_scope.clone(),
+            contract_execution_budget: self.contract_execution_budget.clone(),
+            contract_ancestors: self.contract_ancestors.clone(),
+            contract_events: self.contract_events.clone(),
             fastpq_batch_entries: self.fastpq_batch_entries.clone(),
             actual_access: self.actual_access.clone(),
             state_overlay: self.state_overlay.clone(),
@@ -1699,6 +1830,10 @@ impl WsvHost {
         self.contract_runtime_invoker = snapshot.contract_runtime_invoker.clone();
         self.contract_runtime_address = snapshot.contract_runtime_address.clone();
         self.contract_runtime_entrypoint = snapshot.contract_runtime_entrypoint.clone();
+        self.contract_fixture_state_scope = snapshot.contract_fixture_state_scope.clone();
+        self.contract_execution_budget = snapshot.contract_execution_budget.clone();
+        self.contract_ancestors = snapshot.contract_ancestors.clone();
+        self.contract_events = snapshot.contract_events.clone();
         self.fastpq_batch_entries = snapshot.fastpq_batch_entries.clone();
         self.actual_access = snapshot.actual_access.clone();
         self.state_overlay = snapshot.state_overlay.clone();
@@ -1708,7 +1843,7 @@ impl WsvHost {
         self.wsv.sc_flush()
     }
     /// Configure Halo2 verification limits for this host.
-    pub fn with_zk_halo2_config(mut self, cfg: crate::host::ZkHalo2Config) -> Self {
+    pub fn with_zk_verify_limits(mut self, cfg: crate::host::ZkVerifyLimits) -> Self {
         self.zk_cfg = cfg;
         self
     }
@@ -2695,6 +2830,26 @@ fn parse_permission_name_payload(bytes: &[u8]) -> Result<PermissionToken, VMErro
 /* tests moved to EOF */
 impl IVMHost for WsvHost {
     fn prepare_syscall(&self, number: u32, vm: &IVM) -> Result<u64, VMError> {
+        if number == syscalls::SYSCALL_VRF_EPOCH_SEED {
+            vm.ensure_public_register(10)?;
+            return Ok(crate::vrf::epoch_seed_gas(
+                self.wsv.vrf_epoch_seeds.contains_key(&vm.register(10)),
+            ));
+        }
+        if number == syscalls::SYSCALL_CALL_CONTRACT {
+            let bytes = Self::quote_contract_call(vm)?;
+            return reserve_available_syscall_gas_at_least(
+                vm,
+                gas::syscall_byte_gas(gas::G_CALL_CONTRACT, bytes, 0),
+            );
+        }
+        if number == syscalls::SYSCALL_EMIT_CONTRACT_EVENT {
+            for register in 10..=12 {
+                vm.ensure_public_register(register)?;
+            }
+            return reserve_available_syscall_gas_at_least(vm, 32);
+        }
+
         let metering = require_host_syscall_metering_spec(vm.syscall_policy(), number)?;
         if metering.metering == crate::syscall_metering::SyscallMetering::Staged {
             return Ok(0);
@@ -2709,6 +2864,10 @@ impl IVMHost for WsvHost {
             number,
             crate::syscalls::SYSCALL_BUILD_PATH_KEY_NORITO
                 | crate::syscalls::SYSCALL_STATE_MAP_KEY_AT
+                | crate::syscalls::SYSCALL_VALUE_ENCODE
+                | crate::syscalls::SYSCALL_BLOB_CONCAT
+                | crate::syscalls::SYSCALL_UTF8_VALIDATE
+                | crate::syscalls::SYSCALL_VALUE_TO_STRING
                 | crate::syscalls::SYSCALL_STATE_VALUE_ENCODE
                 | crate::syscalls::SYSCALL_STATE_VALUE_DECODE
                 | crate::syscalls::SYSCALL_STATE_PATH_FROM_NAME
@@ -2768,7 +2927,7 @@ impl IVMHost for WsvHost {
         if let Some(quote) = crate::core_host::CoreHost::codec_gas_quote(number, vm)? {
             return Ok(quote);
         }
-        if let Some(quote) = Self::bounded_response_gas_quote(number, vm)? {
+        if let Some(quote) = self.bounded_response_gas_quote(number, vm)? {
             return Ok(quote);
         }
         // Mutating ledger calls and proof verification retain the generic
@@ -2790,6 +2949,14 @@ impl IVMHost for WsvHost {
             return Ok(Self::json_gas(cost.input_bytes, cost.output_bytes));
         }
         match number {
+            syscalls::SYSCALL_VRF_EPOCH_SEED => {
+                let epoch = vm.register(10);
+                crate::vrf::publish_epoch_seed(vm, self.wsv.vrf_epoch_seeds.get(&epoch))
+            }
+
+            syscalls::SYSCALL_CALL_CONTRACT => self.call_contract(vm),
+            syscalls::SYSCALL_EMIT_CONTRACT_EVENT => self.emit_contract_event(vm),
+
             crate::syscalls::SYSCALL_CORE_QUERY_GET => {
                 let tag = ivm_abi::core_query::CoreQueryEntityTagV1::try_from(vm.register(10))
                     .map_err(|_| VMError::DecodeError)?;
@@ -2812,6 +2979,8 @@ impl IVMHost for WsvHost {
                 // &NoritoBytes value (or 0 if none).
                 let (path, path_len) = self.decode_state_path_reg(vm, 10)?;
                 crate::host::validate_declared_state_path(vm, &path)?;
+                let logical_path = path;
+                let path = self.scoped_state_path(&logical_path)?;
                 if self.tx_active
                     && let Some(entry) = self.state_overlay.get(&path)
                 {
@@ -2826,7 +2995,11 @@ impl IVMHost for WsvHost {
                             let len = Self::state_value_payload_len(val)?;
                             let gas = crate::host::state_value_gas(path_len, len);
                             preflight_reserved_syscall_gas(vm, gas)?;
-                            crate::host::validate_declared_state_value_payload(vm, &path, val)?;
+                            crate::host::validate_declared_state_value_payload(
+                                vm,
+                                &logical_path,
+                                val,
+                            )?;
                             let val = val.clone();
                             self.log_read_key(path.as_ref());
                             Self::load_state_value(vm, &val)?;
@@ -2845,7 +3018,7 @@ impl IVMHost for WsvHost {
                     let len = Self::state_value_payload_len(env)?;
                     let gas = crate::host::state_value_gas(path_len, len);
                     preflight_reserved_syscall_gas(vm, gas)?;
-                    crate::host::validate_declared_state_value_payload(vm, &path, env)?;
+                    crate::host::validate_declared_state_value_payload(vm, &logical_path, env)?;
                     let env = env.to_vec();
                     self.log_read_key(path.as_ref());
                     Self::load_state_value(vm, &env)?;
@@ -2883,6 +3056,7 @@ impl IVMHost for WsvHost {
                 crate::host::validate_declared_state_path(vm, &path)?;
                 crate::host::validate_state_value_payload_len(p_val.payload.len())?;
                 crate::host::validate_declared_state_value_payload(vm, &path, p_val.payload)?;
+                let path = self.scoped_state_path(&path)?;
                 self.log_write_key(path.as_ref());
                 let stored = p_val.payload.to_vec();
                 if self.tx_active {
@@ -2902,6 +3076,7 @@ impl IVMHost for WsvHost {
                 // r10 = &NoritoBytes(StatePath)
                 let (path, path_len) = self.decode_state_path_reg(vm, 10)?;
                 crate::host::validate_declared_state_path(vm, &path)?;
+                let path = self.scoped_state_path(&path)?;
                 self.log_write_key(path.as_ref());
                 if self.tx_active {
                     if crate::dev_env::decode_trace_enabled() {
@@ -2917,11 +3092,16 @@ impl IVMHost for WsvHost {
                 let instance = self
                     .contract_runtime_address
                     .as_ref()
+                    .or(self.contract_fixture_state_scope.as_ref())
                     .map_or_else(|| "local".to_owned(), ToString::to_string);
                 let request = crate::state_scan::StateScanRequest::decode(vm, &instance)?;
-                let map = request.map.clone();
-                let prefix = format!("{}/", map.as_ref());
-                let after = request.after.clone();
+                let map = request.map().clone();
+                let namespace = self.state_namespace();
+                let prefix = format!("{}{}/", namespace, map.as_ref());
+                let after = request
+                    .after()
+                    .map(|path| self.scoped_state_path(path))
+                    .transpose()?;
                 let lower = after
                     .as_ref()
                     .map_or(std::ops::Bound::Included(prefix.as_str()), |key| {
@@ -2940,19 +3120,27 @@ impl IVMHost for WsvHost {
                 let mut page = crate::state_scan::StateScanPage::new(request);
                 for (key, present) in crate::state_scan::merge_candidates(backing, overlay) {
                     if page
-                        .examine(vm, key.as_ref(), key.as_ref().len(), present)?
+                        .examine(
+                            vm,
+                            key.as_ref()
+                                .strip_prefix(&namespace)
+                                .ok_or(VMError::DecodeError)?,
+                            key.as_ref().len(),
+                            present,
+                        )?
                         .is_break()
                     {
                         break;
                     }
                 }
                 let gas = page.publish(vm)?;
-                self.log_read_key(map.as_ref());
+                self.log_read_key(self.scoped_state_path(&map)?.as_ref());
                 Ok(gas)
             }
             crate::syscalls::SYSCALL_STATE_HAS => {
                 let (path, path_len) = self.decode_state_path_reg(vm, 10)?;
                 crate::host::validate_declared_state_path(vm, &path)?;
+                let path = self.scoped_state_path(&path)?;
                 self.log_read_key(path.as_ref());
                 vm.set_register(10, u64::from(self.state_key_present(&path)));
                 Ok(crate::host::state_path_gas(path_len))
@@ -2960,6 +3148,7 @@ impl IVMHost for WsvHost {
             crate::syscalls::SYSCALL_STATE_LEN => {
                 let (path, path_len) = self.decode_state_path_reg(vm, 10)?;
                 crate::host::validate_declared_state_path(vm, &path)?;
+                let path = self.scoped_state_path(&path)?;
                 self.log_read_key(path.as_ref());
                 if let Some(len) = self.state_value_len(&path)? {
                     let gas = crate::host::state_path_gas(path_len);
@@ -2978,6 +3167,7 @@ impl IVMHost for WsvHost {
             crate::syscalls::SYSCALL_STATE_COUNT => {
                 let (prefix, path_len) = self.decode_state_path_reg(vm, 10)?;
                 crate::host::validate_declared_state_scan_path(vm, &prefix)?;
+                let prefix = self.scoped_state_path(&prefix)?;
                 let (total, scan_work_gas) = self.state_count_with_prefix(vm, &prefix, path_len)?;
                 let gas = crate::host::STATE_QUERY_GAS_BASE.saturating_add(scan_work_gas);
                 preflight_reserved_syscall_gas(vm, gas)?;
@@ -3336,6 +3526,10 @@ impl IVMHost for WsvHost {
             }
             crate::syscalls::SYSCALL_BUILD_PATH_KEY_NORITO
             | crate::syscalls::SYSCALL_STATE_MAP_KEY_AT
+            | crate::syscalls::SYSCALL_VALUE_ENCODE
+            | crate::syscalls::SYSCALL_BLOB_CONCAT
+            | crate::syscalls::SYSCALL_UTF8_VALIDATE
+            | crate::syscalls::SYSCALL_VALUE_TO_STRING
             | crate::syscalls::SYSCALL_STATE_VALUE_ENCODE
             | crate::syscalls::SYSCALL_STATE_VALUE_DECODE
             | crate::syscalls::SYSCALL_STATE_PATH_FROM_NAME
@@ -3404,7 +3598,7 @@ impl IVMHost for WsvHost {
                 let _: QueryRequest = decode_canonical_norito(tlv.payload)?;
                 Err(VMError::NotImplemented { syscall: number })
             }
-            // Link ZK_VERIFY syscalls: decode Norito envelope and set per-op verified flags.
+            // Decode bounded proof envelopes; standalone hosts cannot authorize proofs.
             syscalls::SYSCALL_ZK_VOTE_VERIFY_BALLOT | syscalls::SYSCALL_ZK_VOTE_VERIFY_TALLY => {
                 // Expect NoritoBytes TLV in r10 for a `iroha_data_model::zk::OpenVerifyEnvelope`.
                 //
@@ -3422,17 +3616,6 @@ impl IVMHost for WsvHost {
                     vm.set_register(11, crate::host::ERR_ENVELOPE_SIZE);
                     return Ok(gas);
                 }
-                let env_hash: [u8; 32] = CryptoHash::new(tlv.payload).into();
-                if !self.zk_cfg.enabled {
-                    vm.set_register(10, 0);
-                    vm.set_register(11, crate::host::ERR_DISABLED);
-                    return Ok(gas);
-                }
-                if self.zk_cfg.backend != crate::host::ZkHalo2Backend::Ipa {
-                    vm.set_register(10, 0);
-                    vm.set_register(11, crate::host::ERR_BACKEND);
-                    return Ok(gas);
-                }
                 let env: iroha_data_model::zk::OpenVerifyEnvelope =
                     match decode_canonical_norito(tlv.payload) {
                         Ok(env) => env,
@@ -3442,28 +3625,15 @@ impl IVMHost for WsvHost {
                             return Ok(gas);
                         }
                     };
-                if env.backend != iroha_data_model::zk::BackendTag::Halo2IpaPasta {
-                    vm.set_register(10, 0);
-                    vm.set_register(11, crate::host::ERR_BACKEND);
-                    return Ok(gas);
-                }
                 if env.proof_bytes.len() > self.zk_cfg.max_proof_bytes {
                     vm.set_register(10, 0);
                     vm.set_register(11, crate::host::ERR_PROOF_LEN);
                     return Ok(gas);
                 }
-                // Mock host treats the envelope as verified if it passes basic gating.
-                vm.set_register(10, 1);
-                vm.set_register(11, 0);
-                match number {
-                    syscalls::SYSCALL_ZK_VOTE_VERIFY_BALLOT => {
-                        self.zk_verified_ballot.push_back(env_hash);
-                    }
-                    syscalls::SYSCALL_ZK_VOTE_VERIFY_TALLY => {
-                        self.zk_verified_tally = Some(env_hash);
-                    }
-                    _ => {}
-                }
+                // This standalone mock has no authenticated verifier registry.
+                // Structural parsing must never grant ballot or tally authority.
+                vm.set_register(10, 0);
+                vm.set_register(11, crate::host::ERR_BACKEND);
                 Ok(gas)
             }
             syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION => {
@@ -3632,39 +3802,32 @@ impl IVMHost for WsvHost {
                     return Err(VMError::NoritoInvalid);
                 }
                 let req: scode::DeactivateContractInstance = decode_canonical_norito(tlv.payload)?;
-                if self
+                let instance = self
                     .wsv
                     .contract_instances
-                    .remove(req.contract_address())
-                    .is_some()
+                    .get_mut(req.contract_address())
+                    .ok_or(VMError::PermissionDenied)?;
+                if instance.lifecycle.owner
+                    != iroha_data_model::smart_contract::ContractLifecycleOwnerV1::Account(
+                        self.caller.clone(),
+                    )
+                    || instance.lifecycle.revision != *req.expected_revision()
+                    || instance.lifecycle.active_code_hash.is_none()
                 {
-                    Ok(Self::mutation_gas(0))
-                } else {
-                    Err(VMError::PermissionDenied)
+                    return Err(VMError::PermissionDenied);
                 }
+                instance.lifecycle.revision = instance
+                    .lifecycle
+                    .revision
+                    .checked_add(1)
+                    .ok_or(VMError::PermissionDenied)?;
+                instance.lifecycle.active_code_hash = None;
+                Ok(Self::mutation_gas(0))
             }
             syscalls::SYSCALL_REMOVE_SMART_CONTRACT_BYTES => {
-                let ptr = vm.register(10);
-                let tlv = vm.validate_tlv(ptr)?;
-                if tlv.type_id != PointerType::NoritoBytes {
-                    return Err(VMError::NoritoInvalid);
-                }
-                let req: scode::RemoveSmartContractBytes = decode_canonical_norito(tlv.payload)?;
-                let artifact_id = *req.artifact_id();
-                if self.wsv.contract_manifests.contains(&artifact_id) {
-                    return Err(VMError::PermissionDenied);
-                }
-                if self.wsv.contract_instances.iter().any(|(address, hash)| {
-                    address.dataspace_id().ok() == Some(artifact_id.dataspace_id)
-                        && hash == &artifact_id.code_hash
-                }) {
-                    return Err(VMError::PermissionDenied);
-                }
-                if self.wsv.contract_code.remove(&artifact_id).is_some() {
-                    Ok(Self::mutation_gas(0))
-                } else {
-                    Err(VMError::PermissionDenied)
-                }
+                // Installed mock artifacts always include the authenticated declaration table;
+                // deleting code independently of that retained fixture would create invalid state.
+                Err(VMError::PermissionDenied)
             }
             syscalls::SYSCALL_REGISTER_DOMAIN => {
                 // r10=&DomainId TLV; caller must have RegisterDomain
@@ -3763,8 +3926,9 @@ impl IVMHost for WsvHost {
                 }
             }
             syscalls::SYSCALL_REGISTER_ASSET => {
-                // r10 = &AssetDefinitionId. Bare names no longer inherit any account-domain
-                // context now that account identity is canonical and domainless.
+                // r10 = &AssetDefinitionId, r11 = &Blob UTF-8 display name,
+                // r12 = numeric-spec word, r13 = mintability word, decoded by the
+                // data-model `ivm_registration` decoder shared with CoreHost.
                 let id = match vm.validate_tlv(vm.register(10)) {
                     Ok(tlv) => match tlv.type_id {
                         PointerType::AssetDefinitionId => self.decode_asset_payload(tlv.payload)?,
@@ -3775,16 +3939,19 @@ impl IVMHost for WsvHost {
                     },
                     Err(error) => return Err(error),
                 };
-                // Determine mintability from r13 (0 → Infinitely, 1 → Once, otherwise Not)
-                let mintable = match vm.register(13) {
-                    0 => Mintable::Infinitely,
-                    1 => Mintable::Once,
-                    _ => Mintable::Not,
-                };
-                if self
-                    .wsv
-                    .register_asset_definition(&self.caller, id, mintable)
-                {
+                let name_tlv = vm.validate_tlv(vm.register(11))?;
+                if name_tlv.type_id != PointerType::Blob {
+                    return Err(VMError::NoritoInvalid);
+                }
+                let registration =
+                    decode_asset_registration(name_tlv.payload, vm.register(12), vm.register(13))?;
+                if self.wsv.register_asset_definition_with_spec(
+                    &self.caller,
+                    id,
+                    registration.name,
+                    registration.spec,
+                    registration.mintable,
+                ) {
                     Ok(Self::mutation_gas(0))
                 } else {
                     Err(VMError::PermissionDenied)
@@ -4007,7 +4174,7 @@ impl IVMHost for WsvHost {
                 Ok(Self::sysvar_gas(0))
             }
             syscalls::SYSCALL_SYSVAR_BLOCK_HEIGHT => {
-                vm.set_register(10, 0);
+                vm.set_register(10, self.wsv.current_block_height());
                 Ok(Self::sysvar_gas(0))
             }
             syscalls::SYSCALL_SYSVAR_CHAIN_ID => {
@@ -4019,8 +4186,8 @@ impl IVMHost for WsvHost {
                     vm.set_register(10, 0);
                     return Ok(Self::sysvar_gas(0));
                 };
-                let payload = encode_canonical_norito(contract)?;
-                let pointer = Self::alloc_tlv_payload(vm, PointerType::NoritoBytes, &payload)?;
+                let payload = contract.as_str().as_bytes();
+                let pointer = Self::alloc_tlv_payload(vm, PointerType::Blob, payload)?;
                 vm.set_register(10, pointer);
                 Ok(Self::sysvar_gas(payload.len()))
             }
@@ -4039,8 +4206,8 @@ impl IVMHost for WsvHost {
                     vm.set_register(10, 0);
                     return Ok(Self::sysvar_gas(0));
                 };
-                let payload = entrypoint.as_bytes().to_vec();
-                let pointer = Self::alloc_tlv_payload(vm, PointerType::Blob, &payload)?;
+                let payload = entrypoint.as_bytes();
+                let pointer = Self::alloc_tlv_payload(vm, PointerType::Blob, payload)?;
                 vm.set_register(10, pointer);
                 Ok(Self::sysvar_gas(payload.len()))
             }
@@ -4116,27 +4283,33 @@ impl IVMHost for WsvHost {
                 self.wsv.revoke_permission(&subject, &token);
                 Ok(Self::mutation_gas(0))
             }
-            syscalls::SYSCALL_GRANT_CONTRACT_ENTRYPOINT
-            | syscalls::SYSCALL_REVOKE_CONTRACT_ENTRYPOINT => {
+            syscalls::SYSCALL_GRANT_CONTRACT_PERMISSION
+            | syscalls::SYSCALL_REVOKE_CONTRACT_PERMISSION => {
                 let subject = self.decode_account_subject_reg(vm, 10)?;
-                let selector_tlv = vm.validate_tlv(vm.register(11))?;
-                if selector_tlv.type_id != PointerType::Blob {
-                    return Err(VMError::NoritoInvalid);
-                }
-                let entrypoint =
-                    core::str::from_utf8(selector_tlv.payload).map_err(|_| VMError::DecodeError)?;
-                if entrypoint.is_empty() || entrypoint.trim() != entrypoint {
-                    return Err(VMError::DecodeError);
-                }
+                let permission = self.decode_name_reg(vm, 11)?;
                 let contract = self
                     .contract_runtime_address
                     .clone()
                     .ok_or(VMError::PermissionDenied)?;
-                let token = PermissionToken::ContractEntrypoint {
+                let interface = vm.contract_interface().ok_or(VMError::InvalidMetadata)?;
+                let declared = interface.permissions.iter().any(|declaration| {
+                    declaration.name == permission
+                        && matches!(
+                            declaration.scope,
+                            iroha_data_model::smart_contract::manifest::ContractPermissionScopeV1::Instance
+                        )
+                });
+                if !declared || self.caller != contract.subject_id() {
+                    return Err(VMError::PermissionDenied);
+                }
+                let token = PermissionToken::ContractPermission {
                     contract,
-                    entrypoint: entrypoint.to_owned(),
+                    permission,
                 };
-                let is_grant = number == syscalls::SYSCALL_GRANT_CONTRACT_ENTRYPOINT;
+                if !self.wsv.has_permission(&self.caller, &token) {
+                    return Err(VMError::PermissionDenied);
+                }
+                let is_grant = number == syscalls::SYSCALL_GRANT_CONTRACT_PERMISSION;
                 let exists = self.wsv.has_permission(&subject, &token);
                 if exists == is_grant {
                     return Err(VMError::PermissionDenied);
@@ -4238,14 +4411,19 @@ impl IVMHost for WsvHost {
                 let to_id = self.decode_canonical_account_reg(vm, 11)?;
                 let asset_id = self.decode_asset_reg(vm, 12)?;
                 let amount = self.decode_amount_reg(vm, 13)?;
-                let dataspace_id = self.decode_dataspace_reg(vm, 14)?;
+                // r14 = 0 means the call named no `dataspace:`; mock definitions are
+                // all globally scoped, so the transfer uses the global bucket.
+                let scope = match vm.register(14) {
+                    0 => AssetBalanceScope::Global,
+                    _ => AssetBalanceScope::Dataspace(self.decode_dataspace_reg(vm, 14)?),
+                };
                 let transfers_external_bucket = MockWorldStateView::account_subject(&from_id)
                     != MockWorldStateView::account_subject(&self.caller);
                 if transfers_external_bucket {
                     let exact = PermissionToken::TransferAssetBucket(AssetId::with_scope(
                         asset_id.clone(),
                         from_id.clone(),
-                        AssetBalanceScope::Dataspace(dataspace_id),
+                        scope,
                     ));
                     let definition_wide = PermissionToken::TransferAsset(asset_id.clone());
                     if !self.wsv.has_permission(&self.caller, &exact)
@@ -4623,15 +4801,15 @@ mod tests_governance_elections {
     use crate::Memory;
     use iroha_data_model::proof::{ProofAttachment, ProofBox, VerifyingKeyId};
     fn vote_vk_id() -> VerifyingKeyId {
-        VerifyingKeyId::new("halo2/ipa", "governance_vote_vk")
+        VerifyingKeyId::new("mock/governance-fixture", "governance_vote_vk")
     }
     fn register_vote_vk(wsv: &mut MockWorldStateView) {
         wsv.insert_verifying_key(vote_vk_id(), vec![0x02]);
     }
     fn dummy_ballot_proof(hash: [u8; 32]) -> ProofAttachment {
         let mut attachment = ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            ProofBox::new("halo2/ipa".into(), vec![0x01]),
+            "mock/governance-fixture".into(),
+            ProofBox::new("mock/governance-fixture".into(), vec![0x01]),
             vote_vk_id(),
         );
         attachment.envelope_hash = Some(hash);
@@ -4639,8 +4817,8 @@ mod tests_governance_elections {
     }
     fn dummy_tally_proof(hash: [u8; 32]) -> ProofAttachment {
         let mut attachment = ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            ProofBox::new("halo2/ipa".into(), vec![0x11]),
+            "mock/governance-fixture".into(),
+            ProofBox::new("mock/governance-fixture".into(), vec![0x11]),
             vote_vk_id(),
         );
         attachment.envelope_hash = Some(hash);
@@ -4743,24 +4921,24 @@ mod tests_governance_elections {
         wsv.set_current_time_ms(1);
         // Missing envelope hash
         let missing_hash = ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            ProofBox::new("halo2/ipa".into(), vec![0x0a]),
+            "mock/governance-fixture".into(),
+            ProofBox::new("mock/governance-fixture".into(), vec![0x0a]),
             vote_vk_id(),
         );
         assert!(!wsv.submit_ballot("proof-test", vec![0x20], [0x04; 32], missing_hash,));
         // Empty proof bytes
         let mut empty_proof = ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            ProofBox::new("halo2/ipa".into(), Vec::new()),
+            "mock/governance-fixture".into(),
+            ProofBox::new("mock/governance-fixture".into(), Vec::new()),
             vote_vk_id(),
         );
         empty_proof.envelope_hash = Some([0x06; 32]);
         assert!(!wsv.submit_ballot("proof-test", vec![0x21], [0x05; 32], empty_proof,));
         // Missing registry reference should fail.
         let mut vk_mismatch = ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            ProofBox::new("halo2/ipa".into(), vec![0x0d]),
-            VerifyingKeyId::new("halo2/ipa", "missing_vote_vk"),
+            "mock/governance-fixture".into(),
+            ProofBox::new("mock/governance-fixture".into(), vec![0x0d]),
+            VerifyingKeyId::new("mock/governance-fixture", "missing_vote_vk"),
         );
         vk_mismatch.envelope_hash = Some([0x07; 32]);
         assert!(!wsv.submit_ballot("proof-test", vec![0x22], [0x06; 32], vk_mismatch,));
@@ -4790,8 +4968,8 @@ mod tests_governance_elections {
         assert!(wsv.create_election("e-invalid".to_string(), 2, [0u8; 32], 0, u64::MAX));
         // Missing envelope hash -> reject
         let proof_missing = ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            ProofBox::new("halo2/ipa".into(), vec![0x21]),
+            "mock/governance-fixture".into(),
+            ProofBox::new("mock/governance-fixture".into(), vec![0x21]),
             vote_vk_id(),
         );
         assert!(!wsv.finalize_election("e-invalid", vec![1, 2], proof_missing));
@@ -4950,8 +5128,11 @@ mod tests_governance_elections {
             election_id: "e-bind".to_string(),
             tally: vec![4, 6],
             tally_proof: iroha_data_model::proof::ProofAttachment::new_ref(
-                "halo2/ipa".into(),
-                iroha_data_model::proof::ProofBox::new("halo2/ipa".into(), vec![0x31]),
+                "mock/governance-fixture".into(),
+                iroha_data_model::proof::ProofBox::new(
+                    "mock/governance-fixture".into(),
+                    vec![0x31],
+                ),
                 vote_vk_id(),
             ),
         };
@@ -4978,8 +5159,8 @@ mod tests_governance_elections {
         let mut host = WsvHost::new_with_subject(wsv, caller.clone());
         host.__test_set_verified_tally([0xFE; 32]);
         let mut tally_proof = iroha_data_model::proof::ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            iroha_data_model::proof::ProofBox::new("halo2/ipa".into(), vec![0x41]),
+            "mock/governance-fixture".into(),
+            iroha_data_model::proof::ProofBox::new("mock/governance-fixture".into(), vec![0x41]),
             vote_vk_id(),
         );
         tally_proof.envelope_hash = Some([0xEF; 32]); // mismatch
@@ -5038,8 +5219,11 @@ mod tests_governance_elections {
             election_id: "e1".to_string(),
             ciphertext: vec![1, 2, 3],
             ballot_proof: iroha_data_model::proof::ProofAttachment::new_ref(
-                "halo2/ipa".into(),
-                iroha_data_model::proof::ProofBox::new("halo2/ipa".into(), vec![0x01]),
+                "mock/governance-fixture".into(),
+                iroha_data_model::proof::ProofBox::new(
+                    "mock/governance-fixture".into(),
+                    vec![0x01],
+                ),
                 vote_vk_id(),
             ),
             nullifier: [7u8; 32],
@@ -5093,8 +5277,8 @@ mod tests_governance_elections {
             election_id: "gov1".to_string(),
             ciphertext: vec![0xaa, 0xbb, 0xcc],
             ballot_proof: ProofAttachment::new_ref(
-                "halo2/ipa".into(),
-                ProofBox::new("halo2/ipa".into(), vec![0x01]),
+                "mock/governance-fixture".into(),
+                ProofBox::new("mock/governance-fixture".into(), vec![0x01]),
                 vote_vk_id(),
             ),
             nullifier: [0x09; 32],
@@ -5118,8 +5302,8 @@ mod tests_governance_elections {
             host.__test_push_verified_ballot([0x22; 32]);
         }
         let mut mismatch_proof = ProofAttachment::new_ref(
-            "halo2/ipa".into(),
-            ProofBox::new("halo2/ipa".into(), vec![0x03]),
+            "mock/governance-fixture".into(),
+            ProofBox::new("mock/governance-fixture".into(), vec![0x03]),
             vote_vk_id(),
         );
         mismatch_proof.envelope_hash = Some([0x33; 32]);
@@ -5180,8 +5364,11 @@ mod tests_governance_elections {
             election_id: "e2".to_string(),
             tally: vec![5, 2, 1],
             tally_proof: iroha_data_model::proof::ProofAttachment::new_ref(
-                "halo2/ipa".into(),
-                iroha_data_model::proof::ProofBox::new("halo2/ipa".into(), vec![0x03]),
+                "mock/governance-fixture".into(),
+                iroha_data_model::proof::ProofBox::new(
+                    "mock/governance-fixture".into(),
+                    vec![0x03],
+                ),
                 vote_vk_id(),
             ),
         };
@@ -5278,6 +5465,9 @@ mod tests_null_decode {
 
     fn load_int_state_map_schema(vm: &mut IVM, name: &str) {
         let interface = crate::metadata::EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             callables: vec![ivm_abi::call::EmbeddedCallableV1 {
                 entry_pc: 0,
                 frame_bytes: 0,
@@ -5299,7 +5489,8 @@ mod tests_null_decode {
                 return_schema: Some(ivm_abi::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![ivm_abi::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: None,
+                authorization:
+                    iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: Some(true),
@@ -5406,6 +5597,61 @@ mod tests_null_decode {
                 call_syscall(&mut vm, syscalls::SYSCALL_POINTER_FROM_NORITO),
                 Err(VMError::NoritoInvalid),
                 "numeric {kind:?} cannot decode from null"
+            );
+            assert_eq!(vm.register(10), 0);
+        }
+    }
+    #[test]
+    fn contract_context_byte_outputs_have_exact_gas_quotes_and_canonical_address_bytes() {
+        let caller = test_account_id(
+            "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03",
+            "fixture",
+        );
+        let address = ContractAddress::derive(
+            &"hash:0000000000000000000000000000000000000000000000000000000000000001#C50E"
+                .parse()
+                .unwrap(),
+            &caller,
+            812,
+            iroha_model_base::topology::DataSpaceId::UNIVERSAL,
+        )
+        .unwrap();
+        let mut host = WsvHost::new_with_subject(MockWorldStateView::new(), caller);
+        host.contract_runtime_address = Some(address.clone());
+        host.contract_runtime_entrypoint = Some("digest_for".into());
+        for (number, expected) in [
+            (
+                syscalls::SYSCALL_SYSVAR_CONTRACT_ADDRESS,
+                address.as_str().as_bytes(),
+            ),
+            (
+                syscalls::SYSCALL_SYSVAR_ENTRYPOINT,
+                b"digest_for".as_slice(),
+            ),
+        ] {
+            let mut vm = IVM::new(1_000_000);
+            let quote = host.prepare_syscall(number, &vm).unwrap();
+            let used = host.syscall(number, &mut vm).unwrap();
+            assert_eq!(quote, used);
+            assert_eq!(used, WsvHost::sysvar_gas(expected.len()));
+            let output = vm.validate_tlv(vm.register(10)).unwrap();
+            assert_eq!(output.type_id, PointerType::Blob);
+            assert_eq!(output.payload, expected);
+        }
+        host.contract_runtime_address = None;
+        host.contract_runtime_entrypoint = None;
+        for number in [
+            syscalls::SYSCALL_SYSVAR_CONTRACT_ADDRESS,
+            syscalls::SYSCALL_SYSVAR_ENTRYPOINT,
+        ] {
+            let mut vm = IVM::new(1_000_000);
+            assert_eq!(
+                host.prepare_syscall(number, &vm).unwrap(),
+                WsvHost::sysvar_gas(0)
+            );
+            assert_eq!(
+                host.syscall(number, &mut vm).unwrap(),
+                WsvHost::sysvar_gas(0)
             );
             assert_eq!(vm.register(10), 0);
         }
@@ -5640,6 +5886,46 @@ mod tests_null_decode {
         assert_eq!(vm.register(11), crate::host::ERR_DECODE);
     }
     #[test]
+    fn canonical_proof_envelopes_never_set_mock_verification_latches() {
+        use iroha_data_model::zk::{BackendTag, OpenVerifyEnvelope};
+        let caller = test_account_id(
+            "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03",
+            "wonderland",
+        );
+        let host = WsvHost::new_with_subject(MockWorldStateView::new(), caller);
+        let mut vm = IVM::new(u64::MAX);
+        vm.set_host(host);
+        for backend in BackendTag::ALL {
+            for syscall in [
+                syscalls::SYSCALL_ZK_VOTE_VERIFY_BALLOT,
+                syscalls::SYSCALL_ZK_VOTE_VERIFY_TALLY,
+            ] {
+                let envelope = OpenVerifyEnvelope::new(
+                    backend,
+                    "mock-unadmitted-relation",
+                    [1; 32],
+                    vec![2; 32],
+                    vec![3; 32],
+                );
+                let payload = encode_canonical_norito(&envelope).expect("envelope");
+                let ptr = vm
+                    .alloc_input_tlv(&make_tlv(PointerType::NoritoBytes, &payload))
+                    .expect("allocate proof");
+                vm.set_register(10, ptr);
+                call_syscall(&mut vm, syscall).expect("bounded rejection");
+                assert_eq!(vm.register(10), 0);
+                assert_eq!(vm.register(11), crate::host::ERR_BACKEND);
+                let host = vm
+                    .host_mut_any()
+                    .expect("host")
+                    .downcast_ref::<WsvHost>()
+                    .expect("mock host");
+                assert!(host.zk_verified_ballot.is_empty());
+                assert!(host.zk_verified_tally.is_none());
+            }
+        }
+    }
+    #[test]
     fn zk_read_helpers_charge_request_and_response_bytes() {
         let caller: AccountId = test_account_id(
             "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03",
@@ -5804,7 +6090,7 @@ mod tests_null_decode {
             "wonderland",
         );
         let host = WsvHost::new_with_subject(MockWorldStateView::new(), caller.clone())
-            .with_zk_halo2_config(crate::host::ZkHalo2Config {
+            .with_zk_verify_limits(crate::host::ZkVerifyLimits {
                 max_envelope_bytes: 64,
                 ..Default::default()
             });
@@ -6040,12 +6326,56 @@ mod tests_null_decode {
         );
     }
     #[test]
+    fn smartcontract_instruction_rejects_record_sccp_message_under_every_tag() {
+        // specs/sccp.md §4.4: contracts record no SCCP messages. ABI v1 defines only tag
+        // `1=SubmitBallot`, so the canonical encoded record fails under it, under the retired
+        // tag 2 and under every other tag, without touching the mock world.
+        let caller: AccountId = test_account_id(
+            "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03",
+            "wonderland",
+        );
+        let mut vm = IVM::new(u64::MAX);
+        vm.set_host(WsvHost::new_with_subject(MockWorldStateView::new(), caller));
+        let record = iroha_data_model::isi::sccp::RecordSccpMessage {
+            network: iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet,
+            expected_revision: 1,
+            amount: Numeric::new(2_u32, 0),
+            recipient: vec![0x22; 20],
+        };
+        let payload = encode_canonical_norito(&DMInstructionBox::from(record))
+            .expect("encode canonical RecordSccpMessage");
+        let ptr = vm
+            .alloc_input_tlv(&make_tlv(PointerType::NoritoBytes, &payload))
+            .expect("alloc canonical RecordSccpMessage");
+        vm.set_register(10, ptr);
+        for tag in [
+            0,
+            syscalls::SMARTCONTRACT_INSTRUCTION_TAG_SUBMIT_BALLOT,
+            2,
+            u64::MAX,
+        ] {
+            vm.set_register(11, tag);
+            assert_eq!(
+                call_syscall(&mut vm, syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION),
+                Err(VMError::PermissionDenied),
+                "tag {tag} must not execute RecordSccpMessage"
+            );
+        }
+        let host = vm
+            .host_mut_any()
+            .expect("host")
+            .downcast_ref::<WsvHost>()
+            .expect("WsvHost");
+        assert!(host.wsv.zk_events.is_empty() && host.wsv.elections.is_empty());
+        assert!(host.state_overlay.is_empty() && host.fastpq_batch_entries.is_none());
+    }
+    #[test]
     fn smartcontract_instruction_accepts_only_canonical_instruction_box() {
         let caller: AccountId = test_account_id(
             "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03",
             "wonderland",
         );
-        let vote_vk = VerifyingKeyId::new("halo2/ipa", "canonical-box-ballot");
+        let vote_vk = VerifyingKeyId::new("mock/governance-fixture", "canonical-box-ballot");
         let mut wsv = MockWorldStateView::new();
         wsv.insert_verifying_key(vote_vk.clone(), vec![0x02]);
         assert!(wsv.create_election("canonical-box".to_owned(), 2, [0x42; 32], 0, u64::MAX));
@@ -6057,8 +6387,11 @@ mod tests_null_decode {
             election_id: "canonical-box".to_owned(),
             ciphertext: vec![0xCA, 0xFE],
             ballot_proof: ProofAttachment::new_ref(
-                "halo2/ipa".into(),
-                iroha_data_model::proof::ProofBox::new("halo2/ipa".into(), vec![0x01]),
+                "mock/governance-fixture".into(),
+                iroha_data_model::proof::ProofBox::new(
+                    "mock/governance-fixture".into(),
+                    vec![0x01],
+                ),
                 vote_vk,
             ),
             nullifier: [0x11; 32],
@@ -6161,8 +6494,8 @@ mod tests_null_decode {
             eligible_root: [0x42; 32],
             start_ts: 1,
             end_ts: 2,
-            vk_ballot: VerifyingKeyId::new("halo2/ipa", "ballot"),
-            vk_tally: VerifyingKeyId::new("halo2/ipa", "tally"),
+            vk_ballot: VerifyingKeyId::new("mock/governance-fixture", "ballot"),
+            vk_tally: VerifyingKeyId::new("mock/governance-fixture", "tally"),
             domain_tag: "unsupported".to_owned(),
         };
         let other_payload = encode_canonical_norito(&DMInstructionBox::from(other))
@@ -6448,9 +6781,19 @@ mod tests_null_decode {
         let base_ptr = vm
             .alloc_input_tlv(&make_tlv(PointerType::Name, &base_bytes))
             .expect("alloc base");
-        let key_bytes =
-            ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(7))
-                .expect("encode canonical int key");
+        let key_schema = crate::state_value_runtime::schema_for_embedded_state_type(
+            &crate::metadata::EmbeddedStateType::Int,
+        )
+        .expect("scalar key schema");
+        let key_schema_bytes = norito::to_bytes(&key_schema).expect("key schema frame");
+        let key_record = ivm_abi::state_value::StateValueRecordV1 {
+            schema_hash: ivm_abi::state_value::state_value_schema_hash_v1(&key_schema_bytes),
+            atoms: vec![ivm_abi::state_value::StateValueAtomV1::Pointer(
+                ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(7))
+                    .expect("encode canonical int key"),
+            )],
+        };
+        let key_bytes = norito::to_bytes(&key_record).expect("canonical key record");
         let key_ptr = vm
             .alloc_input_tlv(&make_tlv(PointerType::NoritoBytes, &key_bytes))
             .expect("alloc key");
@@ -6531,6 +6874,18 @@ mod tests_null_decode {
         );
         vm.set_register(10, object_with_value_ptr);
         vm.set_register(11, key_name_ptr);
+        assert_eq!(
+            call_syscall_with_quote(&mut vm, syscalls::SYSCALL_JSON_GET_INT),
+            Err(VMError::DecodeError),
+            "generic JSON_SET_I64 number tokens stay outside the exact-number surface"
+        );
+        let missing: Name = "missing".parse().expect("missing key");
+        let missing_bytes = norito::to_bytes(&missing).expect("encode missing key");
+        let missing_ptr = vm
+            .alloc_input_tlv(&make_tlv(PointerType::Name, &missing_bytes))
+            .expect("alloc missing key");
+        vm.set_register(10, object_with_value_ptr);
+        vm.set_register(11, missing_ptr);
         let get_gas =
             call_syscall_with_quote(&mut vm, syscalls::SYSCALL_JSON_GET_INT).expect("json get");
         let (present, words) = crate::sum::read_words(
@@ -6539,14 +6894,11 @@ mod tests_null_decode {
             crate::sum::SumLayoutV1::option(1).expect("int Option layout"),
         )
         .expect("read int Option");
-        assert!(
-            !present,
-            "generic JSON_SET_I64 number tokens stay outside the exact-number surface"
-        );
+        assert!(!present, "an absent key reads as Option::none");
         assert!(words.is_empty());
         assert_eq!(
             get_gas,
-            WsvHost::json_gas(object_with_value_len + key_name_bytes.len(), 16)
+            WsvHost::json_gas(object_with_value_len + missing_bytes.len(), 16)
         );
         let name: Name = "wonderland".parse().expect("name");
         let name_bytes = norito::to_bytes(&name).expect("encode name");
@@ -7070,15 +7422,10 @@ mod tests_null_decode {
             .expect("allocate negative JSON");
         vm.set_register(10, negative_ptr);
         vm.set_register(11, key_ptr);
-        host.syscall(syscalls::SYSCALL_JSON_GET_QUANTITY, &mut vm)
-            .expect("invalid quantity is Option::none");
+        // A present negative amount is malformed input, never an absent field.
         assert_eq!(
-            crate::sum::read_words(
-                &vm,
-                vm.register(10),
-                crate::sum::SumLayoutV1::option(1).expect("quantity option layout"),
-            ),
-            Ok((false, vec![]))
+            host.syscall(syscalls::SYSCALL_JSON_GET_QUANTITY, &mut vm),
+            Err(VMError::DecodeError)
         );
     }
     #[test]
@@ -7437,5 +7784,176 @@ mod tests_core_asset_definition {
             Err(VMError::NoritoInvalid)
         );
         assert!(host.wsv.asset_definitions.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod tests_asset_registration_and_scope {
+    use super::*;
+    use iroha_data_model::asset::definition::ivm_registration;
+
+    fn tlv(pointer_type: PointerType, payload: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(7 + payload.len() + iroha_crypto::Hash::LENGTH);
+        out.extend_from_slice(&(pointer_type as u16).to_be_bytes());
+        out.push(1);
+        out.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        out.extend_from_slice(payload);
+        let hash: [u8; 32] = iroha_crypto::Hash::new(payload).into();
+        out.extend_from_slice(&hash);
+        out
+    }
+
+    fn asset() -> AssetDefinitionId {
+        AssetDefinitionId::derive_from_components(
+            DomainId::try_new("wonderland", "universal").expect("domain"),
+            "rose".parse().expect("asset name"),
+        )
+    }
+
+    fn registering_host() -> WsvHost {
+        let caller = test_account_id(
+            "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03",
+            "wonderland",
+        );
+        let mut host = WsvHost::new_with_subject(MockWorldStateView::new(), caller);
+        let subject = host.caller_subject();
+        host.wsv
+            .grant_permission(&subject, PermissionToken::RegisterAssetDefinition);
+        host
+    }
+
+    fn register(
+        host: &mut WsvHost,
+        name: &[u8],
+        spec_word: u64,
+        mintable_word: u64,
+    ) -> Result<u64, VMError> {
+        let mut vm = IVM::new(u64::MAX);
+        let asset_ptr = vm
+            .alloc_input_tlv(&tlv(
+                PointerType::AssetDefinitionId,
+                &norito::to_bytes(&asset()).expect("encode asset definition"),
+            ))
+            .expect("asset TLV");
+        let name_ptr = vm
+            .alloc_input_tlv(&tlv(PointerType::Blob, name))
+            .expect("name TLV");
+        vm.set_register(10, asset_ptr);
+        vm.set_register(11, name_ptr);
+        vm.set_register(12, spec_word);
+        vm.set_register(13, mintable_word);
+        host.syscall(syscalls::SYSCALL_REGISTER_ASSET, &mut vm)
+    }
+
+    #[test]
+    fn register_asset_records_the_display_name_spec_and_mintability() {
+        let mut host = registering_host();
+        let spec = NumericSpec::fractional(2);
+        let mintable = Mintable::limited_from_u32(3).expect("token budget");
+        register(
+            &mut host,
+            b"Rose",
+            ivm_registration::numeric_spec_word(spec),
+            ivm_registration::mintable_word(mintable),
+        )
+        .expect("register asset");
+        assert_eq!(
+            host.wsv.asset_definition_registration(&asset()),
+            Some(("Rose", spec, mintable))
+        );
+    }
+
+    #[test]
+    fn register_asset_rejects_malformed_words_and_display_names() {
+        // The same inputs trap with `DecodeError` on CoreHost
+        // (`register_asset_syscall_rejects_malformed_registration_words`).
+        for (name, spec_word, mintable_word) in [
+            (&b"Rose"[..], 30, 0),
+            (&b"Rose"[..], 0, 0b100),
+            (&b"Rose"[..], 0, 3),
+            (&b""[..], 0, 0),
+            (&b"ro#se"[..], 0, 0),
+            (&b"\xff"[..], 0, 0),
+        ] {
+            let mut host = registering_host();
+            assert_eq!(
+                register(&mut host, name, spec_word, mintable_word),
+                Err(VMError::DecodeError)
+            );
+            assert_eq!(host.wsv.asset_definition_registration(&asset()), None);
+            assert!(decode_asset_registration(name, spec_word, mintable_word).is_err());
+        }
+        let decoded = decode_asset_registration(
+            b"Rose",
+            ivm_registration::numeric_spec_word(NumericSpec::integer()),
+            ivm_registration::mintable_word(Mintable::Not),
+        )
+        .expect("valid registration");
+        assert_eq!(decoded.name, "Rose");
+        assert_eq!(decoded.spec, NumericSpec::integer());
+        assert_eq!(decoded.mintable, Mintable::Not);
+    }
+
+    #[test]
+    fn minting_respects_the_registered_numeric_spec_and_mintability() {
+        let mut wsv = MockWorldStateView::new();
+        let owner = test_account_id(
+            "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03",
+            "wonderland",
+        );
+        wsv.accounts
+            .entry(MockWorldStateView::account_subject(&owner))
+            .or_default();
+        wsv.grant_permission(&owner, PermissionToken::RegisterAssetDefinition);
+        wsv.grant_permission(&owner, PermissionToken::MintAsset(asset()));
+        assert!(wsv.register_asset_definition_with_spec(
+            &owner,
+            asset(),
+            "Rose".to_owned(),
+            NumericSpec::integer(),
+            Mintable::Once,
+        ));
+        assert!(wsv.mint(&owner, owner.clone(), asset(), Quantity::from(5_u64)));
+        assert!(!wsv.mint(&owner, owner.clone(), asset(), Quantity::from(1_u64)));
+    }
+
+    #[test]
+    fn transfer_without_dataspace_uses_the_global_bucket() {
+        let caller = test_account_id(
+            "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03",
+            "wonderland",
+        );
+        let wsv = MockWorldStateView::with_balances(&[(
+            (caller.clone(), asset()),
+            Quantity::from(3_u64),
+        )]);
+        let mut host = WsvHost::new_with_subject(wsv, caller.clone());
+        let mut vm = IVM::new(u64::MAX);
+        let account = norito::to_bytes(&caller).expect("encode account");
+        let from = vm
+            .alloc_input_tlv(&tlv(PointerType::AccountId, &account))
+            .expect("from TLV");
+        let to = vm
+            .alloc_input_tlv(&tlv(PointerType::AccountId, &account))
+            .expect("to TLV");
+        let asset_ptr = vm
+            .alloc_input_tlv(&tlv(
+                PointerType::AssetDefinitionId,
+                &norito::to_bytes(&asset()).expect("encode asset definition"),
+            ))
+            .expect("asset TLV");
+        let amount = vm
+            .alloc_input_tlv(
+                &ivm_abi::numeric_tlv::encode_quantity(&Quantity::from(1_u64))
+                    .expect("quantity envelope"),
+            )
+            .expect("amount TLV");
+        vm.set_register(10, from);
+        vm.set_register(11, to);
+        vm.set_register(12, asset_ptr);
+        vm.set_register(13, amount);
+        vm.set_register(14, 0);
+        host.syscall(syscalls::SYSCALL_TRANSFER_ASSET_SCOPED, &mut vm)
+            .expect("a global transfer needs no dataspace");
     }
 }

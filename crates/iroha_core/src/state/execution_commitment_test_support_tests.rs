@@ -24,7 +24,9 @@ fn execute(prepared: &PreparedTestChainConfig) -> (ValidBlock, Box<StateBlock<'_
             .map(|key| iroha_model_base::peer::PeerId::new(key.public_key().clone())),
     );
     let account = AccountId::new(prepared.genesis.public_key().clone());
-    let epoch = crate::sumeragi::epoch::genesis_epoch(prepared.genesis.block()).unwrap();
+    let epoch = crate::sumeragi::epoch::authenticated_genesis(prepared.genesis.block())
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
     ValidBlock::validate_signed_genesis(
         prepared.genesis.block().clone(),
         &topology,

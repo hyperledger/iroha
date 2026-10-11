@@ -7,9 +7,11 @@
 //! Its original source and captured execution route survive rejection and fee handling.
 
 use super::*;
+use crate::state::StateReadOnly;
 use crate::{
     queue::RoutingDecision,
     smartcontracts::ivm::cache::IvmCache,
+    state::contract_event_journal::DrainedContractEvents,
     state::network_policy_routes::CapturedNetworkPolicyRoute,
     tx::{
         AcceptedTransaction, execution_rejection_from_admission_failure,
@@ -346,7 +348,7 @@ impl<'source> ExecutionOutputProducer<'_, '_, 'source> {
         if captured_native != routing {
             return Err("Network source changed its captured native route".into());
         }
-        let row = execute_network_attempt(
+        let row = execute_network_attempt_with_amx(
             self.state,
             &self.source,
             input,
@@ -360,6 +362,7 @@ impl<'source> ExecutionOutputProducer<'_, '_, 'source> {
             quarantine == QuarantineAdmission::Overflow,
             reservation,
             cache,
+            self.amx_legs.as_deref_mut(),
         )?;
         self.rows[index] = row;
         self.network_resolved[index] = true;
@@ -371,10 +374,10 @@ impl<'source> ExecutionOutputProducer<'_, '_, 'source> {
 /// The caller owns the complete authenticated input projection and frozen route;
 /// this function never derives invocation authority from a supplied hash.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-pub(in crate::state) fn execute_network_attempt(
-    state: &mut StateBlock<'_>,
+fn execute_network_attempt_with_amx<'attempt>(
+    state: &'attempt mut StateBlock<'_>,
     inputs: &(impl iroha_data_model::block::execution_output::ExecutionInputs + ?Sized),
-    input: &TransactionEntrypoint,
+    input: &'attempt TransactionEntrypoint,
     input_index: u32,
     execution_index: u64,
     height: u64,
@@ -385,6 +388,7 @@ pub(in crate::state) fn execute_network_attempt(
     quarantine_overflow: bool,
     reservation: iroha_data_model::block::output_budget::ExecutionOutputReservation<'_>,
     cache: &mut IvmCache,
+    amx_legs: Option<&'attempt mut crate::sumeragi::amx::NativeAmxLegPreparations>,
 ) -> Result<ExecutionOutputV1, ExecutionAttemptError<String>> {
     if inputs.input_at(input_index as usize) != Some(input)
         || state._curr_block.height().get() != height
@@ -403,6 +407,9 @@ pub(in crate::state) fn execute_network_attempt(
         .as_mut()
         .ok_or("Network attempt is absent")?;
     bind_source(transaction, input, execution_index, routing)?;
+    transaction.native_amx_leg_execution = amx_legs.map(|bank| {
+        crate::sumeragi::amx::NativeAmxLegExecution::new(bank, input, input_index as usize)
+    });
     let mut result = match admitted {
         Ok(_) if quarantine_overflow => Err(TransactionRejectionReason::Validation(
             ValidationFail::NotPermitted("quarantine overflow".into()),
@@ -459,6 +466,9 @@ pub(in crate::state) fn execute_network_attempt(
         transaction
             .callback_journal
             .discard_rejected(Hash::from(input.execution_call_hash()))?;
+        transaction
+            .contract_event_journal
+            .discard_rejected(Hash::from(input.execution_call_hash()))?;
         drop(attempt);
         return complete_network_rejection(
             state,
@@ -503,11 +513,23 @@ pub(in crate::state) fn execute_network_attempt(
         return Err("Network receipts belong to another execution call".into());
     }
     let fee_receipt = transaction.pending_nexus_fee_receipt.take();
-    let (actual, journal_overflow) = match transaction.callback_journal.take(call)? {
-        DrainedCallbacks::Complete { steps, completions } => {
+    let callback_capture = transaction.callback_journal.take(call)?;
+    let event_capture = if matches!(callback_capture, DrainedCallbacks::OutputLimit) {
+        transaction.contract_event_journal.discard_rejected(call)?;
+        DrainedContractEvents::OutputLimit
+    } else {
+        let budget = transaction.execution_budget();
+        transaction.contract_event_journal.take(call, &budget)?
+    };
+    let (actual, journal_overflow) = match (callback_capture, event_capture) {
+        (
+            DrainedCallbacks::Complete { steps, completions },
+            DrainedContractEvents::Complete(events),
+        ) => {
             let mut result = TransactionResult::new(Ok(steps));
             result.set_batch_transfer_outcomes(owned);
             result.set_nexus_fee_receipt(fee_receipt);
+            result.set_contract_events(events);
             (
                 ExecutionOutputV1::Network(NetworkExecutionOutputV1 {
                     input_index,
@@ -517,7 +539,7 @@ pub(in crate::state) fn execute_network_attempt(
                 false,
             )
         }
-        DrainedCallbacks::OutputLimit => (
+        _ => (
             ExecutionOutputV1::network_output_limit_rejection(input_index),
             true,
         ),

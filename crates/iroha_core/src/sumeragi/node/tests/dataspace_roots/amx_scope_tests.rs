@@ -5,7 +5,7 @@ use crate::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig, TestChain
 use iroha_data_model::{
     isi::sumeragi_amx::{BeginAmxV1, RegisterAmxDataspaceV1},
     sumeragi_amx::{AmxLegV1, AmxTransactionV1},
-    sumeragi_finality::{genesis_epoch, test_fixtures::NativeFinalityFixture},
+    sumeragi_finality::{authenticated_genesis, test_fixtures::NativeFinalityFixture},
 };
 
 fn coordinator_instructions() -> (Vec<InstructionBox>, [u8; 32]) {
@@ -16,8 +16,12 @@ fn coordinator_instructions() -> (Vec<InstructionBox>, [u8; 32]) {
             RegisterAmxDataspaceV1 {
                 dataspace: DataSpaceId::new(id),
                 instance: participant.verifier().instance().0,
-                anchor: norito::encode_canonical(&genesis_epoch(participant.genesis()).unwrap())
-                    .unwrap(),
+                anchor: norito::encode_canonical(
+                    &authenticated_genesis(participant.genesis())
+                        .map(|genesis| genesis.into_parts().0)
+                        .unwrap(),
+                )
+                .unwrap(),
             }
             .into()
         })

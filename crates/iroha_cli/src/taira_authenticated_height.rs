@@ -214,7 +214,9 @@ impl HeightReads for NativeReads {
         challenge: [u8; 32],
         identity: &PeerId,
     ) -> Result<SumeragiFinalityAttestation> {
-        self.clients[peer].get_sumeragi_finality_attestation(height, challenge, identity)
+        self.clients[peer]
+            .get_sumeragi_finality_attestation(height, challenge, identity)
+            .map(|attestation| attestation.into_attestation())
     }
 
     fn next_proof(

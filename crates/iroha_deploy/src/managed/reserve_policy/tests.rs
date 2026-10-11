@@ -166,6 +166,14 @@ fn reserve_original_rejects_selection_mutations_and_invalid_native_checkpoint_be
     let _resources = crate::managed::native_test_guard();
     let (_temporary, _prepared, mut coordinator) = fixture();
     let original = codec_original(&coordinator);
+    let original_bytes = encode(&original, 256 * 1024).unwrap();
+    let imports = coordinator.authority.test_checkpoint_import_attempts();
+    // This original is only a prelude/codec control: its invalid checkpoint grants no authority.
+    coordinator.validate_original_selection(&original).unwrap();
+    assert_eq!(
+        coordinator.authority.test_checkpoint_import_attempts(),
+        imports
+    );
     for mutation in 0..8 {
         let mut changed = original.clone();
         match mutation {
@@ -192,7 +200,24 @@ fn reserve_original_rejects_selection_mutations_and_invalid_native_checkpoint_be
             error.to_string().contains(expected),
             "selection {mutation}: {error}"
         );
+        assert_eq!(
+            coordinator.authority.test_checkpoint_import_attempts(),
+            imports
+        );
+        assert_eq!(encode(&original, 256 * 1024).unwrap(), original_bytes);
     }
+    let error = coordinator.validate_original(&original).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("invalid retained native operation checkpoint")
+    );
+    assert_eq!(
+        coordinator.authority.test_checkpoint_import_attempts(),
+        imports + 1
+    );
+    coordinator.validate_original_selection(&original).unwrap();
+    assert_eq!(encode(&original, 256 * 1024).unwrap(), original_bytes);
     let directory = coordinator.authority.directory.ensure_child("set").unwrap();
     let original = retain_explicit_request(
         &coordinator,
@@ -204,7 +229,7 @@ fn reserve_original_rejects_selection_mutations_and_invalid_native_checkpoint_be
     let bytes = directory.read("original.nrt", 256 * 1024).unwrap();
     for mode in [Advance::ObserveOnly, Advance::SubmitOriginal] {
         let error = coordinator
-            .advance_original(Instant::now() + Duration::from_secs(10), mode, true)
+            .advance_original(Instant::now() + Duration::from_secs(10), mode, true, None)
             .unwrap_err();
         assert!(
             error

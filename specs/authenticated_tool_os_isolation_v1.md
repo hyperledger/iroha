@@ -9,8 +9,7 @@ record. A checkout path or an unreviewed locally rebuilt binary is not a
 production trust root.
 
 The isolated execution surface is `run-v1`. No first-release production
-protocol grants monetary or consensus authority through this controller;
-KAGEMUSHA V1 relies exclusively on its hardware `GuardBundle` contract.
+protocol grants monetary or consensus authority through this controller.
 `qualify-host-v1` accepts no arguments and runs the controller's built-in
 hostile host suite. Its internal adversarial payload, `qualification-probe-v1`,
 must not be granted as a standalone privileged sudo command. Unknown, duplicate,

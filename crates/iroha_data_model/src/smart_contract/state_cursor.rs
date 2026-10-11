@@ -2,9 +2,10 @@
 use iroha_schema::IntoSchema;
 use norito::{Decode, Encode};
 
-use super::entrypoint::EntrypointValueKindV1;
 use iroha_model_base::{name::Name, state_path::StatePath};
 
+/// Maximum canonical encoded durable-map key record size.
+pub const MAX_STATE_MAP_KEY_BYTES_V1: usize = 4096;
 /// Maximum complete canonical Norito cursor frame accepted by V1 boundaries.
 pub const MAX_STATE_CURSOR_BYTES_V1: usize = 64 * 1024;
 /// Maximum UTF-8 byte length of the host-provided contract instance identity.
@@ -27,8 +28,8 @@ pub struct StateCursorV1 {
     pub map: StatePath,
     /// Hash of the complete key/value map schema.
     pub schema_hash: [u8; 32],
-    /// Exact scalar map-key kind.
-    pub key_type: EntrypointValueKindV1,
+    /// Domain-separated hash of the complete scalar or tuple key schema.
+    pub key_schema_hash: [u8; 32],
     /// Last examined canonical map path, resumed strictly after this key.
     pub last_key: StatePath,
 }
@@ -43,7 +44,6 @@ impl StateCursorV1 {
             || map.len() > 255
             || map.contains('/')
             || map.parse::<Name>().is_err()
-            || self.key_type == EntrypointValueKindV1::Json
         {
             return false;
         }
@@ -56,6 +56,7 @@ impl StateCursorV1 {
             return false;
         };
         !hex.is_empty()
+            && hex.len() <= MAX_STATE_MAP_KEY_BYTES_V1 * 2
             && hex.len().is_multiple_of(2)
             && hex
                 .bytes()
@@ -115,7 +116,7 @@ mod tests {
             instance: "example::金庫".into(),
             map: "balances".parse().unwrap(),
             schema_hash: [7; 32],
-            key_type: EntrypointValueKindV1::Int,
+            key_schema_hash: [3; 32],
             last_key: "balances/0010abcdef".parse().unwrap(),
         }
     }
@@ -137,15 +138,12 @@ mod tests {
         assert_eq!(boundary.instance.len(), MAX_STATE_CURSOR_INSTANCE_BYTES_V1);
         let map = "a".repeat(255);
         boundary.map = map.parse().unwrap();
-        boundary.last_key = format!(
-            "{map}/{}",
-            "ab".repeat((iroha_model_base::state_path::MAX_STATE_PATH_BYTES - 256) / 2)
-        )
-        .parse()
-        .unwrap();
+        boundary.last_key = format!("{map}/{}", "ab".repeat(MAX_STATE_MAP_KEY_BYTES_V1))
+            .parse()
+            .unwrap();
         assert_eq!(
             boundary.last_key.as_ref().len(),
-            iroha_model_base::state_path::MAX_STATE_PATH_BYTES
+            256 + MAX_STATE_MAP_KEY_BYTES_V1 * 2
         );
         let frame = boundary.encode_frame().unwrap();
         assert!(frame.len() <= MAX_STATE_CURSOR_BYTES_V1);
@@ -172,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn validation_rejects_wrong_map_noncanonical_hex_and_json_key_kind() {
+    fn validation_rejects_wrong_map_noncanonical_hex_and_oversized_key() {
         for path in [
             "other/00",
             "balances/AB",
@@ -193,7 +191,9 @@ mod tests {
         invalid.instance = "a".repeat(MAX_STATE_CURSOR_INSTANCE_BYTES_V1 + 1);
         assert!(!invalid.validate());
         invalid = cursor();
-        invalid.key_type = EntrypointValueKindV1::Json;
+        invalid.last_key = format!("balances/{}", "ab".repeat(MAX_STATE_MAP_KEY_BYTES_V1 + 1))
+            .parse()
+            .unwrap();
         assert!(invalid.encode_frame().is_err());
         invalid = cursor();
         invalid.map = "balances/child".parse().unwrap();

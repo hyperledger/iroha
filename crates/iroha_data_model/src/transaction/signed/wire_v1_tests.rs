@@ -11,8 +11,7 @@ use iroha_data_model::transaction::{
 use iroha_version::codec::{DecodeVersioned as _, EncodeVersioned as _};
 use std::{cell::Cell, io};
 
-#[path = "wire_v1_test_support.rs"]
-mod support;
+use super::super::wire_v1_test_support as support;
 
 // Independent test-only oracle for the previously established wire contract: version one,
 // then the canonical default-layout bare payload. This is not a production fallback encoder.
@@ -76,7 +75,8 @@ fn same_payload_with_different_authorization_has_different_exact_wire() {
 #[test]
 fn sealed_entrypoint_variants_preserve_canonical_wire_and_roundtrip() {
     let signed = support::signed("advance");
-    let signer = iroha_crypto::KeyPair::from_seed(vec![0x91; 32], iroha_crypto::Algorithm::Ed25519);
+    let keypair =
+        iroha_crypto::KeyPair::from_seed(vec![0x91; 32], iroha_crypto::Algorithm::Ed25519);
     let network = *signed.network_id().unwrap();
     let salt = [0xA5; 32];
     let commitment = compute_sealed_transaction_commitment(&network, &signed, salt, 42);
@@ -89,7 +89,7 @@ fn sealed_entrypoint_variants_preserve_canonical_wire_and_roundtrip() {
         std::num::NonZeroU64::new(7),
     );
     let sealed =
-        SignedSealedTransactionCommitment::try_sign(payload, signer.private_key()).unwrap();
+        SignedSealedTransactionCommitment::try_sign(payload, keypair.private_key()).unwrap();
     sealed.verify_signature().unwrap();
     for entry in [
         TransactionEntrypoint::SealedCommitment(sealed),

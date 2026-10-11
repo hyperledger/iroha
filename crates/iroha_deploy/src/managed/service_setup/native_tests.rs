@@ -3,6 +3,7 @@
 //! Exact wallet envelopes are committed directly through the existing native component fixture.
 //! These controls do not establish full coordinator HTTP success or daemon qualification. Native
 //! identical-policy replay retains the first policy origin; the new carrier proves execution only.
+//! A fresh gateway setup restores explicitly revoked grants; duplicate grants are never idempotent.
 
 use super::tests::{fixture, options};
 use super::*;
@@ -12,21 +13,29 @@ use crate::{
         test_support::{
             UnavailablePeers,
             gateway_setup_native_tests::native_configured_gateway,
-            native_fixture::{NativeReadHttp, balance},
+            native_fixture::{NativeFixture, NativeReadHttp, balance, quote_instructions},
         },
         verify_carrier,
     },
     verify::finality::FinalityVerifier,
 };
-use iroha_core::smartcontracts::ValidSingularQuery;
+use iroha_core::{
+    smartcontracts::ValidSingularQuery,
+    state::{StorageReadOnly as _, WorldReadOnly},
+};
 use iroha_data_model::{
     asset::{AssetDefinitionId, AssetId},
+    isi::Revoke,
+    permission::Permission,
     query::sorafs::prelude::FindSorafsReputationJournalAuthorityPolicy,
     sorafs::reputation::ReputationJournalPolicyOriginV1,
 };
+use iroha_executor_data_model::permission::sorafs::{
+    CanCheckSorafsStreamTokenGateway, CanOperateSorafsStreamTokenGateway,
+};
 use iroha_fs::PublishMode;
 use iroha_primitives::numeric::Quantity;
-use std::{sync::Arc, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 fn original(owner: &Setup, intent: Intent, checkpoint: &FinalityVerifier) -> Original {
     let original = Original {
@@ -72,7 +81,7 @@ fn maximum_fee(http: &NativeReadHttp, asset: &AssetDefinitionId) -> Quantity {
 }
 
 #[test]
-fn exact_managed_setup_replays_retain_prior_policy_origin_and_recover_original_carriers() {
+fn exact_managed_setup_replays_policy_restores_missing_grants_and_recovers_original_carriers() {
     let _guard = crate::managed::native_test_guard();
     let (_root, prepared) = fixture();
     // The sole shared fixture retains every original H2-H6 positive/rollback assertion.
@@ -101,6 +110,129 @@ fn exact_managed_setup_replays_retain_prior_policy_origin_and_recover_original_c
     let role_before = role_assets
         .each_ref()
         .map(|asset| balance(native.chain.state(), asset));
+    // Configure is an exact policy replay, but the two following Grant instructions reject
+    // existing direct permissions. Create the real missing-grant state through the manager's
+    // authorized native Revoke path instead of changing instruction or duplicate-grant semantics.
+    let gateway_id = configured.gateway_policy.qualification.gateway_id;
+    let operator = gateway
+        .inner
+        .authority
+        .provider_role(StreamTokenAuthorityRole::GatewayOperator)
+        .unwrap()
+        .clone();
+    let observer = gateway
+        .inner
+        .authority
+        .provider_role(StreamTokenAuthorityRole::GatewayObserver)
+        .unwrap()
+        .clone();
+    let operate: Permission = CanOperateSorafsStreamTokenGateway { gateway_id }.into();
+    let check: Permission = CanCheckSorafsStreamTokenGateway { gateway_id }.into();
+    let permissions = |native: &NativeFixture| {
+        let view = native.chain.state().view();
+        view.world()
+            .account_permissions()
+            .iter()
+            .map(|(account, permissions)| (account.clone(), permissions.clone()))
+            .collect::<BTreeMap<_, _>>()
+    };
+    let original_permissions = permissions(&native);
+    let mut missing_permissions = original_permissions.clone();
+    assert!(
+        missing_permissions
+            .get_mut(&operator)
+            .unwrap()
+            .remove(&operate)
+    );
+    assert!(
+        missing_permissions
+            .get_mut(&observer)
+            .unwrap()
+            .remove(&check)
+    );
+    // Preserve the complete real gateway namespace, including the immutable policy record's
+    // execution origin. These opaque bytes are compared, never decoded into a fixture authority.
+    let gateway_prefix = format!(
+        "sorafs_stream_token_gateway_v1/{}/",
+        hex::encode(gateway_id)
+    );
+    let gateway_rows = |native: &NativeFixture| {
+        let view = native.chain.state().view();
+        view.world()
+            .smart_contract_state()
+            .iter()
+            .filter(|(path, _)| path.as_ref().starts_with(&gateway_prefix))
+            .map(|(path, bytes)| (path.as_ref().to_owned(), bytes.clone()))
+            .collect::<BTreeMap<_, _>>()
+    };
+    let original_gateway_rows = gateway_rows(&native);
+    for suffix in [
+        "head",
+        "policy/head",
+        "policy/revision/00000000000000000001",
+    ] {
+        assert!(original_gateway_rows.contains_key(&format!("{gateway_prefix}{suffix}")));
+    }
+    let original_recorder_policy = FindSorafsReputationJournalAuthorityPolicy
+        .execute(&native.chain.state().view())
+        .unwrap();
+    let revoke = quote_instructions(
+        &native,
+        &manager,
+        [
+            Revoke::account_permission(operate, operator).into(),
+            Revoke::account_permission(check, observer).into(),
+        ],
+    );
+    revoke.verify_signature().unwrap();
+    assert_eq!(revoke.authority(), &manager.account);
+    let revoke_maximum = revoke.fee_payment_intent().charge_limits().iter().fold(
+        Quantity::zero(),
+        |sum, component| {
+            assert_eq!(&component.asset_definition_id, &asset);
+            sum.checked_add(&component.max_amount).unwrap()
+        },
+    );
+    let manager_before_revoke = balance(native.chain.state(), &manager_asset);
+    let revoked = native.chain.commit(vec![revoke.clone()]);
+    assert_eq!(
+        revoked,
+        vec![true],
+        "authorized exact grant revocation native result: {:?}",
+        native
+            .chain
+            .committed(7)
+            .block()
+            .network_output_at(0)
+            .unwrap()
+            .1
+            .result,
+    );
+    assert_eq!(permissions(&native), missing_permissions);
+    assert_eq!(gateway_rows(&native), original_gateway_rows);
+    assert_eq!(
+        FindSorafsReputationJournalAuthorityPolicy
+            .execute(&native.chain.state().view())
+            .unwrap(),
+        original_recorder_policy,
+    );
+    let revoke_fee = manager_before_revoke
+        .checked_sub(&balance(native.chain.state(), &manager_asset))
+        .unwrap();
+    assert!(!revoke_fee.is_zero() && revoke_fee <= revoke_maximum);
+    assert_eq!(
+        role_assets
+            .each_ref()
+            .map(|asset| balance(native.chain.state(), asset)),
+        role_before,
+    );
+    let setup_checkpoint = native.observe(&gateway.inner.authority);
+    only_original(&setup_checkpoint, &revoke, 7);
+    assert_eq!(
+        verify_carrier(&setup_checkpoint, &revoke).unwrap().height,
+        7
+    );
+
     let mut opts = options();
     opts.deadline = Instant::now() + Duration::from_secs(600);
     opts.max_total_fees
@@ -108,7 +240,7 @@ fn exact_managed_setup_replays_retain_prior_policy_origin_and_recover_original_c
     let gateway_original = original(
         &gateway.inner,
         Intent::gateway(&gateway.inner.authority, &configured.gateway_policy).unwrap(),
-        &configured.checkpoint,
+        &setup_checkpoint,
     );
     let recorder_original = original(
         &recorder.inner,
@@ -118,7 +250,7 @@ fn exact_managed_setup_replays_retain_prior_policy_origin_and_recover_original_c
             &configured.reputation_policy,
         )
         .unwrap(),
-        &configured.checkpoint,
+        &setup_checkpoint,
     );
     let gateway_dir = gateway
         .inner
@@ -132,18 +264,20 @@ fn exact_managed_setup_replays_retain_prior_policy_origin_and_recover_original_c
         .directory
         .ensure_child("setup")
         .unwrap();
+    let gateway_utc = now_ms().unwrap() + 1_200_000;
     let gateway_original = super::tests::retain_explicit_request(
         &gateway.inner,
         &gateway_dir,
         &gateway_original,
-        now_ms().unwrap() + 1_200_000,
+        || gateway_utc,
         &opts,
     );
+    let recorder_utc = now_ms().unwrap() + 1_200_000;
     let recorder_original = super::tests::retain_explicit_request(
         &recorder.inner,
         &recorder_dir,
         &recorder_original,
-        now_ms().unwrap() + 1_200_000,
+        || recorder_utc,
         &opts,
     );
     let gateway_bytes = std::fs::read(gateway_dir.path().join("original.nrt")).unwrap();
@@ -298,19 +432,31 @@ fn exact_managed_setup_replays_retain_prior_policy_origin_and_recover_original_c
     )
     .unwrap();
     let manager_before = balance(native.chain.state(), &manager_asset);
+    let gateway_execution = native.chain.commit(vec![signed_gateway.clone()]);
     assert_eq!(
-        native.chain.commit(vec![signed_gateway.clone()]),
-        vec![true]
+        gateway_execution,
+        vec![true],
+        "original gateway setup replay native result: {:?}",
+        native
+            .chain
+            .committed(8)
+            .block()
+            .network_output_at(0)
+            .expect("the original replay has one network entrypoint")
+            .1
+            .result,
     );
-    let h7 = native.observe(&gateway.inner.authority);
-    only_original(&h7, &signed_gateway, 7);
-    let gateway_finality = verify_carrier(&h7, &signed_gateway).unwrap();
+    assert_eq!(permissions(&native), original_permissions);
+    assert_eq!(gateway_rows(&native), original_gateway_rows);
+    let h8 = native.observe(&gateway.inner.authority);
+    only_original(&h8, &signed_gateway, 8);
+    let gateway_finality = verify_carrier(&h8, &signed_gateway).unwrap();
     gateway
         .inner
         .validate_carrier(&gateway_original, &gateway_finality)
         .unwrap();
     assert!(verify_carrier(&configured.checkpoint, &signed_gateway).is_err());
-    assert!(verify_carrier(&h7, &configured.gateway_signed).is_err());
+    assert!(verify_carrier(&h8, &configured.gateway_signed).is_err());
     let old = verify_carrier(&configured.checkpoint, &configured.reputation_signed).unwrap();
     assert!(
         gateway
@@ -326,7 +472,7 @@ fn exact_managed_setup_replays_retain_prior_policy_origin_and_recover_original_c
         .directory()
         .write_atomic(
             "carrier.nrt",
-            &checkpoint_bytes(&h7).unwrap(),
+            &checkpoint_bytes(&h8).unwrap(),
             PublishMode::CreateNew,
         )
         .unwrap();
@@ -382,19 +528,29 @@ fn exact_managed_setup_replays_retain_prior_policy_origin_and_recover_original_c
     )
     .unwrap();
     let manager_before = balance(native.chain.state(), &manager_asset);
+    let recorder_execution = native.chain.commit(vec![signed_recorder.clone()]);
     assert_eq!(
-        native.chain.commit(vec![signed_recorder.clone()]),
-        vec![true]
+        recorder_execution,
+        vec![true],
+        "original recorder setup replay native result: {:?}",
+        native
+            .chain
+            .committed(9)
+            .block()
+            .network_output_at(0)
+            .expect("the original replay has one network entrypoint")
+            .1
+            .result,
     );
-    let h8 = native.observe(&recorder.inner.authority);
-    only_original(&h8, &signed_recorder, 8);
-    let recorder_finality = verify_carrier(&h8, &signed_recorder).unwrap();
+    let h9 = native.observe(&recorder.inner.authority);
+    only_original(&h9, &signed_recorder, 9);
+    let recorder_finality = verify_carrier(&h9, &signed_recorder).unwrap();
     recorder
         .inner
         .validate_carrier(&recorder_original, &recorder_finality)
         .unwrap();
-    assert!(verify_carrier(&h7, &signed_recorder).is_err());
-    assert!(verify_carrier(&h8, &signed_gateway).is_err());
+    assert!(verify_carrier(&h8, &signed_recorder).is_err());
+    assert!(verify_carrier(&h9, &signed_gateway).is_err());
     let fee = manager_before
         .checked_sub(&balance(native.chain.state(), &manager_asset))
         .unwrap();
@@ -410,14 +566,16 @@ fn exact_managed_setup_replays_retain_prior_policy_origin_and_recover_original_c
         .unwrap();
     assert_eq!(
         after_policy, before_policy,
-        "successful H8 replay preserves actual H6 policy origin"
+        "successful H9 replay preserves actual H6 policy origin"
     );
+    assert_eq!(permissions(&native), original_permissions);
+    assert_eq!(gateway_rows(&native), original_gateway_rows);
     assert_ne!(recorder_finality.height, before_origin.height);
     recorder_original
         .directory()
         .write_atomic(
             "carrier.nrt",
-            &checkpoint_bytes(&h8).unwrap(),
+            &checkpoint_bytes(&h9).unwrap(),
             PublishMode::CreateNew,
         )
         .unwrap();
@@ -666,8 +824,6 @@ fn genuine_unprepared_service_intents_expire_without_http_or_wallet_even_after_r
         &configured.reputation_policy,
     )
     .unwrap();
-    // Both future authorizations come from production Terms after expensive native setup.
-    let utc = now_ms().unwrap() + 500;
     let gateway_original = Original {
         intent: gateway_intent,
         checkpoint: checkpoint.clone(),
@@ -693,18 +849,20 @@ fn genuine_unprepared_service_intents_expire_without_http_or_wallet_even_after_r
         .inner
         .validate_original(&recorder_original)
         .unwrap();
+    // Give each independent original the same 500 ms interval only after its native proof
+    // and helper prelude are complete; the first journal must not spend the second's window.
     let gateway_original = super::tests::retain_explicit_request(
         &gateway.inner,
         &gateway_dir,
         &gateway_original,
-        utc,
+        || now_ms().unwrap() + 500,
         &opts,
     );
     let recorder_original = super::tests::retain_explicit_request(
         &recorder.inner,
         &recorder_dir,
         &recorder_original,
-        utc,
+        || now_ms().unwrap() + 500,
         &opts,
     );
     let gateway_bytes = std::fs::read(gateway_dir.path().join("original.nrt")).unwrap();
@@ -718,6 +876,10 @@ fn genuine_unprepared_service_intents_expire_without_http_or_wallet_even_after_r
     let prefixes = [&gateway_original, &recorder_original].map(|selected| {
         prefix_names.map(|name| std::fs::read(selected.directory().path().join(name)).unwrap())
     });
+    let utc = gateway_original
+        .terms
+        .requested_deadline_unix_ms
+        .max(recorder_original.terms.requested_deadline_unix_ms);
     let limit = Instant::now() + Duration::from_secs(2);
     while now_ms().unwrap() < utc {
         assert!(Instant::now() < limit);

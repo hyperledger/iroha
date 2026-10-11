@@ -138,8 +138,8 @@ fn numeric_literal_homes_are_omitted_only_at_audited_rematerialized_uses() {
         }
     }
     for instruction in [
-        Instr::IntTryToI64 { dest, value: t },
-        Instr::IntTryToU64 { dest, value: t },
+        Instr::IntToI64 { dest, value: t },
+        Instr::IntToU64 { dest, value: t },
         Instr::WrappingBinary {
             dest,
             op: BinaryOp::Add,

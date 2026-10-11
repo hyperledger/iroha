@@ -54,7 +54,7 @@ fn isolated(mode: &str, test: &str, body: fn()) {
 fn original_context(
     allocated: usize,
 ) -> (AllocationBudget, AllocationReservation, DecodeBudgetContext) {
-    let cap = usize::try_from(TransactionParameters::default().max_tx_bytes.get())
+    let cap = usize::try_from(TransactionParameters::default().max_tx_bytes().get())
         .expect("native transaction cap");
     let pool = AllocationBudget::new(allocated + DecodeBudgetContext::allocation_layout().size());
     let mut grant = pool
@@ -81,10 +81,9 @@ fn original_instruction() -> InstructionBox {
 
 fn rejected_instruction_manifest() -> ContractManifest {
     let mut manifest = populated_manifest();
-    let rejection = TransactionRejectionReason::InstructionExecution(InstructionExecutionFail {
-        instruction: original_instruction(),
-        reason: "original_native_refusal".into(),
-    });
+    let rejection = TransactionRejectionReason::InstructionExecution(
+        InstructionExecutionFail::new(original_instruction(), "original_native_refusal".into()),
+    );
     let filter =
         TransactionEventFilter::new().for_status(TransactionStatus::Rejected(Box::new(rejection)));
     manifest.entrypoints.as_mut().expect("original entrypoint")[0].triggers =

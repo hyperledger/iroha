@@ -22,46 +22,93 @@ from unittest.mock import MagicMock, patch
 
 # Exact current-source native census. Both scopes retain the closed MV/Concread
 # ownership suite, including funded replacement/snapshot and deletion controls.
-# Prepared signature custody and exact parent activation add six Core controls.
+# Current reward accounting and owner custody regressions remain mandatory.
+# Every accepted leaf remains explicit and bound to its current source owner.
 # Linux additionally selects OpenSSH descriptor custody. All platforms select
 # the same genuine four-peer beacon workload.
 EXPECTED_BEACON_NETWORK_TEST = (
     'production_beacon_bootstrap::four_peer_fresh_custody_bootstrap_reaches_mandatory_pulse'
 )
 PLATFORM_REGRESSION_COUNT = 1 if sys.platform == "linux" else 0
-EXPECTED_BASIC_REGRESSION_COUNT = 1769 + PLATFORM_REGRESSION_COUNT
-EXPECTED_REGRESSION_COUNT = 1802 + PLATFORM_REGRESSION_COUNT
+EXPECTED_BASIC_REGRESSION_COUNT = 1949 + PLATFORM_REGRESSION_COUNT
+EXPECTED_REGRESSION_COUNT = 1982 + PLATFORM_REGRESSION_COUNT
 
 REWARD_ACCOUNTING_SOURCE_TESTS = {
-    'domain.rs': ('smartcontracts::isi::domain::tests::', (
-        'unregister_account_rejects_retained_reward_processing_cursor',
-        'unregister_account_rejects_when_account_is_reward_claim_asset_owner',
-        'unregister_asset_definition_ignores_mismatched_public_lane_reward_record',
+    'smartcontracts/isi/multisig.rs': ('smartcontracts::isi::multisig::tests::', (
+        'replace_account_controller_preserves_principal_custody_and_exact_reserves',
     )),
-    'multisig.rs': ('smartcontracts::isi::multisig::tests::', (
-        'rekey_public_lane_reward_cursors_and_unpaid_sources_preserve_scope_and_quantity',
+    'smartcontracts/isi/staking_reward_tests.rs': ('smartcontracts::isi::staking::tests::', (
+        'staking_instructions_change_only_future_reward_exposure',
     )),
-    'staking_rewards.rs': ('smartcontracts::isi::staking::rewards::tests::', (
-        'outstanding_rewards_retains_processed_dust_in_its_exact_source',
+    'smartcontracts/isi/staking_custody_tests.rs': ('smartcontracts::isi::staking::tests::', (
+        'staking_reserve_checks_aggregate_batch_debits',
     )),
-    'staking_reward_tests.rs': ('smartcontracts::isi::staking::tests::', (
-        'reward_epoch_zero_is_claimable_once',
-        'reward_dust_accumulates_until_paid',
-        'reward_reserve_blocks_transfer_and_burn_but_releases_paid_rewards',
-        'reward_failed_payment_restores_claim_and_reserve',
-        'reward_obligation_audit_rejects_corrupt_record_keys',
-        'reward_claim_uses_recorded_custody_after_fee_policy_changes',
-        'reward_recording_excludes_bonded_custody_from_a_shared_fee_sink',
-        'reward_failed_second_source_rolls_back_all_claim_state',
+    'validation_fee_rewards/automatic_tests.rs': ('validation_fee_rewards::tests::', (
+        'automatic_multiple_validator_nominations_accrue_and_claim_exact_xor',
+        'empty_eligible_service_preserves_validator_gross_and_signed_claim',
+        'delayed_funding_preserves_pre_exit_service_and_late_stake_cannot_capture_it',
+        'automatic_cursor_rounding_conserves_minor_units_across_cohorts_and_replay',
+        'automatic_nominator_failed_transfer_rolls_back_credit_reserve_and_claim_receipt',
     )),
-    'staking.rs': ('smartcontracts::isi::staking::tests::', (
-        'claim_rewards_transfers_and_marks_epoch',
-        'claim_rewards_defers_dust_without_marking_paid',
-        'claim_rewards_rejects_mismatched_reward_record_rows_without_releasing_reserves',
-        'claim_rewards_accepts_i105_fee_sink',
+    'validation_fee_rewards.rs': ('validation_fee_rewards::tests::', (
+        'conversion_reserves_once_preserves_earning_month_and_obeys_caps',
+        'pending_sbd_and_reserved_xor_are_protected_but_unrelated_funds_are_spendable',
     )),
-    'staking_custody_tests.rs': ('smartcontracts::isi::staking::tests::', (
-        'staking_custody_and_rewards_share_one_additive_reserve_floor',
+    'validation_fee_rewards/beneficiary/tests.rs': ('validation_fee_rewards::beneficiary::tests::', (
+        'current_owner_requires_explicit_alias_before_initial_and_recovered_claims',
+    )),
+    'validation_fee_rewards/exposure.rs': ('validation_fee_rewards::exposure::tests::', (
+        'changed_exposure_preserves_chronology_and_only_adjacent_snapshots_coalesce',
+        'full_page_rollover_is_atomic_and_does_not_limit_future_changes',
+        'optional_validator_registration_cannot_overfill_historical_service_roster',
+        'historical_capture_survives_current_block_slash_exit_and_late_deposit',
+    )),
+    'validation_fee_rewards/exposure_service_tests.rs': ('validation_fee_rewards::exposure::service_tests::', (
+        'authenticated_finalized_service_captures_nominators_once_before_current_mutations',
+    )),
+    'validation_fee_rewards/exposure_restart_tests.rs': ('validation_fee_rewards::exposure::restart_tests::', (
+        'certified_reward_replay_resumes_unfinished_pages_and_actual_signed_claims',
+    )),
+    'validation_fee_rewards/exposure_archive_tests.rs': ('validation_fee_rewards::exposure::archive_tests::', (
+        'archived_exposure_survives_hot_rollover_replay_and_signed_claims',
+    )),
+    'validation_fee_rewards/reconciliation.rs': ('validation_fee_rewards::reconciliation::tests::', (
+        'funded_reward_restore_accepts_cursor_credit_and_bounded_source_pruning',
+        'restore_rejects_forged_claimable_cursor_and_entitlement_without_consuming_credit',
+        'restart_requires_complete_unfinished_sources_and_consecutive_funded_sequences',
+        'restart_requires_unsealed_sources_even_without_pending_funding',
+        'lifetime_reward_turnover_can_exceed_current_balance_width',
+        'restore_requires_retirement_journal_before_accepting_funded_rights',
+        'compacted_outstanding_balance_requires_its_retained_beneficiary_owner',
+    )),
+    'validation_fee_rewards/exposure_budget_tests.rs': ('validation_fee_rewards::exposure::budget_tests::', (
+        'live_stake_backing_does_not_rescan_history_but_restore_requires_it',
+        'maximum_committee_tail_archive_fits_independent_source_budget',
+    )),
+    'validation_fee_rewards/history.rs': ('validation_fee_rewards::history::tests::', (
+        'journal_validation_requires_exact_original_height_hash_and_custody',
+        'retirement_journal_keeps_contract_and_custody_scope',
+        'compacted_lifetime_turnover_preserves_more_than_u128',
+        'retirement_journal_decode_refusal_defers_without_retiring_original_bytes',
+        'unavailable_original_archive_leaves_journal_and_checkpoint_intact',
+    )),
+    'query/native_receipts/reward_history/tests.rs': ('query::native_receipts::reward_history::tests::', (
+        'committed_fee_archive_preserves_original_corpus_and_rejects_absent_exposure',
+        'committed_reward_archive_missing_corrupt_and_changed_root_defer_without_fabrication',
+        'reward_archive_capacity_preserves_original_pool_refusal',
+    )),
+    'receiver_snapshot.rs': ('receiver_snapshot::native_fee_evidence_tests::', (
+        'native_fee_snapshot_decode_refusal_retries_original_authenticated_bytes',
+    )),
+    'retail_fee/reward_history.rs': ('retail_fee::reward_history::tests::', (
+        'original_month_history_waits_for_late_wallet_collection_and_credit_flush',
+        'wallet_recovery_and_closure_keep_exact_frontier_without_lifetime_rows',
+        'restart_rejects_missing_or_fabricated_unsettled_month_frontier',
+        'rejected_wallet_update_rolls_back_frontier_and_closure_seal',
+    )),
+    'validation_fee/runtime_rewards_tests.rs': ('validation_fee::tests::runtime_wrapper_tests::reward_tests::', (
+        'scheduled_production_conversion_automatically_funds_nominator_signed_claims',
+        'scheduled_funded_pool_conversion_automatically_funds_nominator_signed_claims',
     )),
 }
 
@@ -151,6 +198,142 @@ def assert_native_coverage(case, labels=None):
 
 
 class BeaconGateTests(unittest.TestCase):
+    def assert_current_amx_owner_control_required(self, harness, regression):
+        for scope in gate.QUALIFICATION_SCOPES:
+            stages = gate.qualification_stages(scope).get(harness, ())
+            names = [name for _, tests in stages for name in tests]
+            self.assertEqual(names.count(regression), 1,
+                             'the current changed-owner custody control must be selected')
+            focused = gate.focused_regression_stages(scope, (harness + '=' + regression,))
+            self.assertEqual([name for _, tests in focused[harness] for name in tests], [regression])
+            listing = '\n'.join(name + ': test' for name in names if name != regression)
+            with self.assertRaisesRegex(gate.CheckError, 'required regressions missing'):
+                gate.require_tests(listing, stages)
+            gate.validate_selected_source_test_inventory(SCRIPT.resolve().parents[1], focused)
+
+    def test_current_amx_owner_requires_funded_native_leg_preserves_exact_original_capacity_release_generation_and_final_refund(self):
+        self.assert_current_amx_owner_control_required('data-model', 'sumeragi_amx::native::leg_decode::tests::funded_native_leg_preserves_exact_original_capacity_release_generation_and_final_refund')
+
+    def test_current_amx_owner_requires_funded_native_leg_preserves_original_root_depth_field_and_source_context(self):
+        self.assert_current_amx_owner_control_required('data-model', 'sumeragi_amx::native::leg_decode::tests::funded_native_leg_preserves_original_root_depth_field_and_source_context')
+
+    def test_current_amx_owner_requires_funded_native_leg_rejects_original_malformed_frames_flags_and_payload_bound(self):
+        self.assert_current_amx_owner_control_required('data-model', 'sumeragi_amx::native::leg_decode::tests::funded_native_leg_rejects_original_malformed_frames_flags_and_payload_bound')
+
+    def test_current_amx_owner_requires_partial_native_multisig_retains_original_member_ledger_spans_and_key_pointer_through_retry(self):
+        self.assert_current_amx_owner_control_required('data-model', 'sumeragi_amx::native::leg_decode::tests::partial_native_multisig_retains_original_member_ledger_spans_and_key_pointer_through_retry')
+
+    def test_current_amx_owner_requires_partial_native_member_values_survive_original_ledger_refusal_without_prefix_refund(self):
+        self.assert_current_amx_owner_control_required('data-model', 'sumeragi_amx::native::leg_decode::tests::partial_native_member_values_survive_original_ledger_refusal_without_prefix_refund')
+
+    def test_current_amx_owner_requires_partial_native_leg_rejects_substituted_frame_and_retains_original_graph_through_retry(self):
+        self.assert_current_amx_owner_control_required('data-model', 'sumeragi_amx::native::leg_decode::tests::partial_native_leg_rejects_substituted_frame_and_retains_original_graph_through_retry')
+
+    def test_current_amx_owner_requires_partial_native_retry_rechecks_cached_field_and_depth_limits_without_retiring_original_backing(self):
+        self.assert_current_amx_owner_control_required('data-model', 'sumeragi_amx::native::leg_decode::tests::partial_native_retry_rechecks_cached_field_and_depth_limits_without_retiring_original_backing')
+
+    def test_current_amx_owner_requires_borrowed_member_validation_preserves_constructor_causes_and_original_key(self):
+        self.assert_current_amx_owner_control_required('data-model', 'account::controller::borrowed_validation_tests::borrowed_member_validation_preserves_constructor_causes_and_original_key')
+
+    def test_current_amx_owner_requires_borrowed_policy_validation_preserves_canonical_causes_and_member_storage(self):
+        self.assert_current_amx_owner_control_required('data-model', 'account::controller::borrowed_validation_tests::borrowed_policy_validation_preserves_canonical_causes_and_member_storage')
+
+    def test_current_amx_owner_requires_invalid_native_multisig_retains_original_policy_and_member_prefix_on_replay(self):
+        self.assert_current_amx_owner_control_required('data-model', 'sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_retains_original_policy_and_member_prefix_on_replay')
+
+    def test_current_amx_owner_requires_borrowed_public_key_recheck_preserves_canonical_limits_and_original_backing(self):
+        self.assert_current_amx_owner_control_required('crypto', 'prepared_decode::tests::borrowed_public_key_recheck_preserves_canonical_limits_and_original_backing')
+
+    def test_current_amx_owner_requires_retained_sequence_keeps_late_framing_storage_and_cumulative_retry_work(self):
+        self.assert_current_amx_owner_control_required('norito-exact-field', 'prepared_sequence::retained_sequence_keeps_late_framing_storage_and_cumulative_retry_work')
+
+    def test_current_amx_owner_requires_retained_sequence_does_not_wake_its_original_capacity_refusal_during_retry(self):
+        self.assert_current_amx_owner_control_required('norito-exact-field', 'prepared_sequence::retained_sequence_does_not_wake_its_original_capacity_refusal_during_retry')
+
+    def test_current_amx_owner_requires_retained_sequence_rejects_substitution_in_place_mutation_and_changed_flags(self):
+        self.assert_current_amx_owner_control_required('norito-exact-field', 'prepared_sequence::retained_sequence_rejects_substitution_in_place_mutation_and_changed_flags')
+
+    def test_current_amx_owner_requires_retained_sequence_preserves_first_admission_and_exhausted_retry_order(self):
+        self.assert_current_amx_owner_control_required('norito-exact-field', 'prepared_sequence::retained_sequence_preserves_first_admission_and_exhausted_retry_order')
+
+    def test_current_amx_owner_requires_retained_sequence_admits_only_exact_spans_for_each_layout_and_empty_input(self):
+        self.assert_current_amx_owner_control_required('norito-exact-field', 'prepared_sequence::retained_sequence_admits_only_exact_spans_for_each_layout_and_empty_input')
+
+    def test_current_amx_owner_requires_retained_quantity_digits_survive_late_scale_rejection_and_same_backing_retry(self):
+        self.assert_current_amx_owner_control_required('primitives-quantity', 'numeric::prepared_quantity::tests::retained_quantity_digits_survive_late_scale_rejection_and_same_backing_retry')
+
+    def test_current_amx_owner_requires_retained_quantity_original_quota_refusal_does_not_retire_digits_or_reset_outer_work(self):
+        self.assert_current_amx_owner_control_required('primitives-quantity', 'numeric::prepared_quantity::tests::retained_quantity_original_quota_refusal_does_not_retire_digits_or_reset_outer_work')
+
+    def test_current_amx_owner_requires_borrowed_quantity_recheck_preserves_original_field_limits_without_backing_allocation(self):
+        self.assert_current_amx_owner_control_required('primitives-quantity', 'numeric::prepared_quantity::tests::borrowed_quantity_recheck_preserves_original_field_limits_without_backing_allocation')
+
+    def test_current_amx_owner_requires_one_pass_quantity_matches_canonical_values_rejections_and_exact_original_digits(self):
+        self.assert_current_amx_owner_control_required('primitives-quantity', 'numeric::prepared_quantity::tests::one_pass_quantity_matches_canonical_values_rejections_and_exact_original_digits')
+
+    def test_current_amx_owner_requires_one_pass_quantity_allocates_only_final_digits_and_preserves_allocator_refusal_order(self):
+        self.assert_current_amx_owner_control_required('primitives-quantity-allocations', 'one_pass_quantity_allocates_only_final_digits_and_preserves_allocator_refusal_order')
+
+    def test_current_amx_owner_requires_one_pass_quantity_drop_deallocates_before_original_release_wake(self):
+        self.assert_current_amx_owner_control_required('primitives-quantity-allocations', 'one_pass_quantity_drop_deallocates_before_original_release_wake')
+
+    def test_current_amx_lower_owner_targets_preserve_default_native_artifact_identity(self):
+        expected = {'norito-exact-field': ('native retained canonical sequence custody', 'exact_field_streaming_allocations', 'test', ['-p', 'norito', '--test', 'exact_field_streaming_allocations']), 'primitives-quantity': ('native retained canonical Quantity custody', 'iroha_primitives', 'lib', ['-p', 'iroha_primitives', '--lib']), 'primitives-quantity-allocations': ('native canonical Quantity allocations', 'numeric_abi_encoding_allocations', 'test', ['-p', 'iroha_primitives', '--test', 'numeric_abi_encoding_allocations'])}
+        for harness, target in expected.items():
+            self.assertEqual(gate.HARNESS_TARGETS[harness], target)
+            command = gate.compile_command(Path('/frozen'), {'CARGO': '/pinned/cargo'}, harness=harness)
+            self.assertNotIn('--profile', command)
+            self.assertNotIn('--release', command)
+            self.assertIn('--locked', command)
+            self.assertIn('--offline', command)
+            self.assertIn('--no-run', command)
+            event = {'reason': 'compiler-artifact', 'target': {'name': target[1], 'kind': [target[2]]},
+                     'profile': {'test': True}, 'executable': '/retained/current-owner'}
+            self.assertEqual(gate.test_artifact(json.dumps(event), harness=harness), '/retained/current-owner')
+            event['target']['name'] = 'unrelated'
+            self.assertIsNone(gate.test_artifact(json.dumps(event), harness=harness))
+        self.assertEqual(gate.native_harness_selection(tuple(expected)), [
+            '-p', 'norito', '-p', 'iroha_primitives', '--test', 'exact_field_streaming_allocations',
+            '--lib', '--test', 'numeric_abi_encoding_allocations'])
+
+    def test_instruction_bridge_diagnostic_custody_is_required_in_both_scopes(self):
+        regression = 'execution_attempt::tests::instruction_bridges_keep_original_refusal_without_discarded_diagnostic_allocations'
+        for scope in gate.QUALIFICATION_SCOPES:
+            stages = gate.qualification_stages(scope)['core']
+            names = [name for _, tests in stages for name in tests]
+            self.assertEqual(names.count(regression), 1,
+                             'the original instruction bridge allocation control must be selected')
+        assert_native_coverage(self, labels=('native original JSON attempt refusal and instruction bridge diagnostics',))
+
+    def assert_model_multisig_replay_required(self, leaf):
+        root = SCRIPT.resolve().parents[1]
+        parent = root / 'crates/iroha_data_model/src/sumeragi_amx/native/leg_decode.rs'
+        source = parent.with_suffix('') / 'tests.rs'
+        mask = gate._native_inventory['rust_source_masker'](root)
+        self.assertRegex(mask(parent.read_text()), r'#\[cfg\(test\)\]\s+mod tests;')
+        declared = re.findall(r'#\[test\]\s*fn\s+(\w+)\s*\(', mask(source.read_text()))
+        self.assertEqual(declared.count(leaf), 1)
+        regression = 'sumeragi_amx::native::leg_decode::tests::' + leaf
+        for scope in gate.QUALIFICATION_SCOPES:
+            stages = gate.qualification_stages(scope)['data-model']
+            names = [name for _, tests in stages for name in tests]
+            self.assertEqual(names.count(regression), 1,
+                             'the original multisig allocation replay control must be selected')
+            focused = gate.focused_regression_stages(scope, ('data-model=' + regression,))
+            self.assertEqual([name for _, tests in focused['data-model'] for name in tests], [regression])
+            listing = '\n'.join(name + ': test' for name in names if name != regression)
+            with self.assertRaisesRegex(gate.CheckError, 'required regressions missing'):
+                gate.require_tests(listing, stages)
+
+    def test_multisig_threshold_diagnostic_replay_is_required_in_both_scopes(self):
+        self.assert_model_multisig_replay_required('invalid_native_multisig_threshold_replay_preserves_original_cause_without_diagnostic_allocations')
+
+    def test_multisig_member_diagnostic_replay_is_required_in_both_scopes(self):
+        self.assert_model_multisig_replay_required('invalid_native_multisig_member_replay_preserves_original_cause_without_diagnostic_allocations')
+
+    def test_original_amx_worker_partial_and_completed_controls_are_required_in_both_scopes(self):
+        assert_native_coverage(self, labels=('native original AMX Worker partial and completed retry custody',))
+
     def test_push_and_connect_rate_regressions_are_exact_source_bound_and_required(self):
         source = SCRIPT.resolve().parents[1] / "crates/iroha_torii"
         cases = {
@@ -230,7 +413,6 @@ class BeaconGateTests(unittest.TestCase):
         owners = (
             ("smartcontracts/isi/staking_monetary_fixture_tests.rs", "smartcontracts::isi::staking::tests", True, (
                 "registration_rejects_changed_signed_monetary_fields_without_custody_writes",
-                "reward_claim_rejects_changed_record_source_and_entitlement_without_payment",
                 "genesis_monetary_scope_requires_exact_height_without_npos_parameters",
             )),
             ("executor_opaque_monetary_tests.rs", "executor::opaque_monetary_tests", True, (
@@ -238,9 +420,9 @@ class BeaconGateTests(unittest.TestCase):
                 "supplied_proved_staking_effects_require_signed_monetary_plan",
             )),
             ("smartcontracts/isi/multisig/tests/proposal_attempt.rs", "smartcontracts::isi::multisig::tests::proposal_attempt", True, (
-                "live_multisig_proposal_decode_refusal_retries_original_signed_xor_claim",
+                "live_multisig_proposal_decode_refusal_retries_original_signed_xor_transfer",
                 "live_multisig_proposal_missing_malformed_and_rebound_state_are_not_deferrals",
-                "live_multisig_proposal_body_binding_rolls_back_original_signed_xor_claim",
+                "live_multisig_proposal_body_binding_rolls_back_original_signed_xor_transfer",
                 "proposal_migration_validates_original_physical_key_and_body_before_writes",
                 "cancel_wrapper_decode_refusal_rolls_back_and_retries_original_signed_approval",
                 "expiry_child_decode_refusal_rolls_back_and_retries_original_signed_approval",
@@ -265,7 +447,7 @@ class BeaconGateTests(unittest.TestCase):
             for leaf in leaves:
                 self.assertEqual(names.count(leaf), 1, (relative, leaf))
                 expected.append(prefix + "::" + leaf)
-        self.assertEqual(len(expected), 16)
+        self.assertEqual(len(expected), 15)
         for platform in ("darwin", "linux"):
             spec = importlib.util.spec_from_file_location("monetary_authority_gate", gate.__file__)
             selected_gate = importlib.util.module_from_spec(spec)
@@ -290,8 +472,8 @@ class BeaconGateTests(unittest.TestCase):
     def test_reward_accounting_repairs_are_required_once_in_both_scopes(self):
         required = [prefix + name for prefix, names in REWARD_ACCOUNTING_SOURCE_TESTS.values()
                     for name in names]
-        self.assertEqual(len(required), 18)
-        self.assertEqual(len(set(required)), 18)
+        self.assertEqual(len(required), 42)
+        self.assertEqual(len(set(required)), 42)
         for platform in ("darwin", "linux"):
             spec = importlib.util.spec_from_file_location("reward_accounting_gate", gate.__file__)
             selected_gate = importlib.util.module_from_spec(spec)
@@ -318,20 +500,44 @@ class BeaconGateTests(unittest.TestCase):
                             selected_gate.require_tests(listing, stages)
 
     def test_reward_accounting_selectors_follow_actual_module_and_include_paths(self):
-        root = SCRIPT.resolve().parents[1] / "crates/iroha_core/src/smartcontracts/isi"
-        module = (root / "mod.rs").read_text()
-        for child in ("domain", "multisig", "staking"):
+        root = SCRIPT.resolve().parents[1] / "crates/iroha_core/src"
+        module = (root / "smartcontracts/isi/mod.rs").read_text()
+        for child in ("multisig", "staking"):
             self.assertIn("pub mod " + child + ";", module)
-        staking = (root / "staking.rs").read_text()
-        self.assertRegex(staking, r'#\[path = "staking_rewards\.rs"\]\s*mod rewards;')
+        staking = (root / "smartcontracts/isi/staking.rs").read_text()
         for child in ("staking_reward_tests.rs", "staking_custody_tests.rs"):
             self.assertIn('include!("' + child + '");', staking)
-        for child in ("domain.rs", "multisig.rs", "staking.rs", "staking_rewards.rs"):
+        rewards = (root / "validation_fee_rewards.rs").read_text()
+        self.assertIn('include!("validation_fee_rewards/automatic_tests.rs");', rewards)
+        for child in ("beneficiary", "exposure", "history", "reconciliation"):
+            self.assertIn('mod ' + child + ';', rewards)
+        self.assertIn('#[cfg(test)]\nmod tests;',
+                      (root / "validation_fee_rewards/beneficiary.rs").read_text())
+        exposure = (root / "validation_fee_rewards/exposure.rs").read_text()
+        for child in ("archive", "budget", "restart", "service"):
+            self.assertIn('#[path = "exposure_' + child + '_tests.rs"]\nmod ' + child + '_tests;', exposure)
+        self.assertIn('mod reward_history;', (root / "retail_fee.rs").read_text())
+        self.assertIn('pub mod native_receipts;', (root / "query/mod.rs").read_text())
+        self.assertIn('mod reward_history;', (root / "query/native_receipts.rs").read_text())
+        self.assertIn('#[cfg(test)]\nmod tests;',
+                      (root / "query/native_receipts/reward_history.rs").read_text())
+        self.assertRegex((root / "receiver_snapshot.rs").read_text(),
+                         r'#\[cfg\(test\)\]\s*mod native_fee_evidence_tests\s*\{')
+        self.assertIn('#[path = "validation_fee/tests.rs"]\npub(crate) mod tests;',
+                      (root / "validation_fee.rs").read_text())
+        self.assertIn('#[path = "runtime_wrapper_tests.rs"]\npub(crate) mod runtime_wrapper_tests;',
+                      (root / "validation_fee/tests.rs").read_text())
+        self.assertIn('#[path = "runtime_rewards_tests.rs"]\npub(crate) mod reward_tests;',
+                      (root / "validation_fee/runtime_wrapper_tests.rs").read_text())
+        for child in ("smartcontracts/isi/multisig.rs", "smartcontracts/isi/staking.rs",
+                      "validation_fee_rewards.rs", "validation_fee_rewards/exposure.rs",
+                      "validation_fee_rewards/reconciliation.rs", "validation_fee_rewards/history.rs",
+                      "retail_fee/reward_history.rs"):
             self.assertRegex((root / child).read_text(), r'#\[cfg\(test\)\]\s*mod tests\s*\{')
         registered = [name for _, names in gate.CORE_REWARD_ACCOUNTING_STAGES for name in names]
         expected = []
         # This verifies selected names in their explicit source/module owners; it
-        # does not claim these eighteen exhaust every staking or account test.
+        # does not claim these forty-two exhaust every reward or custody test.
         for child, (prefix, names) in REWARD_ACCOUNTING_SOURCE_TESTS.items():
             source = (root / child).read_text()
             for name in names:
@@ -342,7 +548,7 @@ class BeaconGateTests(unittest.TestCase):
 
     def test_current_runner_and_monetary_repairs_are_required_in_all_scopes(self):
         assert_native_coverage(self, ["native publication custody", "native durable archive recovery"])
-        required = {'core-zk': ('kagemusha_polynomial_store_v1::tests::key_roles::key_roles_roundtrip_both_fields_bases_and_chunk_boundaries_with_shared_ordinals', 'kagemusha_polynomial_store_v1::tests::key_roles::key_role_descriptor_substitution_is_retryable_but_authenticated_metadata_forgery_poisons'), 'data-model': ('sumeragi::epoch::authorization::tests::beacon_epoch_binding_roundtrips_both_variants_and_registers_payload_schema', 'sumeragi::epoch::authorization::tests::epoch_decisions_roundtrip_all_discriminants_and_reject_untagged_json', 'sumeragi::epoch::authorization::tests::epoch_authorization_binding_keeps_fixed_width_identity', 'nexus::staking::monetary_codec_tests::monetary_variants_roundtrip_canonical_binary_and_tagged_json', 'nexus::staking::monetary_codec_tests::monetary_schema_names_every_variant_and_distinct_named_payload')}
+        required = {'data-model': ('sumeragi::epoch::authorization::tests::beacon_epoch_binding_roundtrips_both_variants_and_registers_payload_schema', 'sumeragi::epoch::authorization::tests::epoch_decisions_roundtrip_all_discriminants_and_reject_untagged_json', 'sumeragi::epoch::authorization::tests::epoch_authorization_binding_keeps_fixed_width_identity', 'nexus::staking::monetary_codec_tests::monetary_variants_roundtrip_canonical_binary_and_tagged_json', 'nexus::staking::monetary_codec_tests::monetary_schema_names_every_variant_and_distinct_named_payload')}
         for scope in gate.QUALIFICATION_SCOPES:
             for harness, cases in required.items():
                 stages = gate.qualification_stages(scope)[harness]
@@ -391,6 +597,9 @@ class BeaconGateTests(unittest.TestCase):
             listing = "\n".join(item + ": test" for item in names if item != name)
             with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
                 gate.require_tests(listing, selected)
+
+    def test_original_queue_payload_leases_are_exact_and_mandatory_in_both_scopes(self):
+        assert_native_coverage(self, ["native original Queue payload lease custody"])
 
     def test_startup_beacon_and_world_root_original_errors_remain_required(self):
         assert_native_coverage(self, [
@@ -455,14 +664,16 @@ class BeaconGateTests(unittest.TestCase):
     def test_signed_fee_reward_authority_is_required_in_both_scopes(self):
         expected = tuple("validation_fee_rewards::tests::" + name for name in (
             "canonical_network_xor_is_required_before_fee_reward_state_changes",
+            "public_fee_reward_claim_rejects_wrong_network_xor_without_writes_and_retries_original_plan",
             "signed_fee_reward_claim_rejects_every_changed_binding_before_mutation",
             "self_custody_fee_claim_releases_only_its_exact_reserve_without_debiting_balance",
-            "absent_fee_claim_leaves_even_unreadable_credit_and_dust_untouched",
-            "signed_fee_reward_claim_rolls_back_public_payout_when_fee_transfer_is_refused",
+            "unreadable_credit_rejects_the_required_claim_without_mutation",
             "shared_fee_stake_reward_custody_is_additive",
             "fee_reward_claim_refuses_currency_substitution_and_stale_credit",
         ))
         self.assertEqual(tuple(name for _, names in gate.CORE_FEE_REWARD_AUTHORITY_STAGES for name in names), expected)
+        gate.validate_selected_source_test_inventory(
+            SCRIPT.resolve().parents[1], {"core": gate.CORE_FEE_REWARD_AUTHORITY_STAGES})
         for scope in gate.QUALIFICATION_SCOPES:
             stages = gate.qualification_stages(scope)["core"]
             names = [name for _, tests in stages for name in tests]
@@ -728,7 +939,7 @@ class BeaconGateTests(unittest.TestCase):
         exact_height = "production_beacon_bootstrap::production_beacon_exact_height_wait_preserves_retained_tip"
         launch_controls = (
             "production_beacon_bootstrap::production_beacon_fresh_key_assertion_is_only_for_the_original_launch",
-            "production_beacon_bootstrap::production_beacon_stock_config_preserves_providers_and_configures_seed_custody",
+            "production_beacon_bootstrap::production_beacon_stock_config_preserves_providers_and_binds_the_broker",
         )
         seam = "taira_runtime_signer::tests::disposable_broker_composes_exact_soracloud_and_threshold_catalogs"
         fixture_root = SCRIPT.resolve().parents[1] / "crates/iroha_test_network/tests"
@@ -867,8 +1078,8 @@ class NativeInventoryPreflightTests(unittest.TestCase):
         path.write_text(f"#!{sys.executable}\nimport sys\nfrom pathlib import Path\n"
             f"with Path({str(self.root / 'calls')!r}).open('a') as f: f.write({name!r} + ':' + '|'.join(sys.argv[1:]) + '\\n')\n"
             f"if '--list' in sys.argv:\n print({''.join(n + ': test' + chr(10) for n in names)!r}); sys.exit({listing_exit})\n"
-            "name=sys.argv[1]\nprint('test '+name+' ... ok')\n"
-            "print('test result: ok. 1 passed; 0 failed; 0 ignored;')\n")
+            "name=sys.argv[1]\nprint('running 1 test')\nprint('test '+name+' ... ok')\n"
+            f"print('test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; {len(names) - 1} filtered out; finished in 0.01s')\n")
         path.chmod(0o700)
         return str(path)
 
@@ -1768,10 +1979,10 @@ class BasicReleaseQualificationTests(unittest.TestCase):
             ),
             "deploy": (
                 "genesis::staging::tests::default_genesis_staging_authenticates_catalog_and_reproduces_signed_context",
-                "localnet::tests::localnet_asset_defaults_are_selected_by_exact_taira_chain_context",
-                "localnet::tests::localnet_asset_validation_rejects_selected_builtin_identity_or_alias_collision",
+                "localnet::tests::localnet_assets_contain_only_explicit_requests",
+                "localnet::tests::localnet_asset_validation_rejects_duplicate_identity_or_alias",
                 "localnet::tests::canonical_taira_generation_binds_four_runtime_signers_to_validator_peers",
-                "localnet::tests::generated_localnet_bootstraps_universal_kagemusha_asset",
+                "localnet::tests::generated_localnet_bootstraps_explicitly_requested_asset",
                 "localnet::tests::generated_localnet_registers_requested_asset_definition_for_client_owner",
                 "localnet::tests::private_dataspace_manifests_use_the_selected_lane_alias",
             ),
@@ -3152,8 +3363,8 @@ class EarlyReleaseCheckTests(unittest.TestCase):
                 "if '--list' in sys.argv:\n print('first: test\\nsecond: test\\nthird: test');sys.exit(0)\n"
                 "name=sys.argv[1]\n"
                 "with Path('executed').open('a') as f:f.write(name+'\\n')\n"
-                "print('test '+name+(' ... ok' if name=='second' else ' ... FAILED'))\n"
-                "print('test result: ok. 1 passed; 0 failed; 0 ignored;' if name=='second' else 'fixture failure')\n"
+                "print('running 1 test')\nprint('test '+name+(' ... ok' if name=='second' else ' ... FAILED'))\n"
+                "print('test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.01s' if name=='second' else 'fixture failure')\n"
                 "sys.exit(0 if name=='second' else 101)\n")
             harness.chmod(0o700)
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -3299,12 +3510,12 @@ class EarlyReleaseCheckTests(unittest.TestCase):
                  'taira_public_reset::deployment_profile::tests::deployment_profile_binds_native_genesis_and_ordered_inventory_peers',
                  'taira_public_reset::deployment_profile::tests::deployment_profile_rejects_genesis_artifact_peer_and_slot_substitution',
                  'taira_public_reset::deployment_profile::tests::deployment_profile_command_parses_without_private_or_runtime_arguments'],
-         'core-zk': ['zkparse::production_parameter_cache_tests::finite_production_cache_initializes_once_across_threads',
-                     'zkparse::production_parameter_cache_tests::finite_production_cache_matches_native_parameter_bytes_and_fingerprint',
-                     'zkparse::production_parameter_cache_tests::finite_production_cache_rejects_unadmitted_domains_without_construction',
-                     'halo2_ipa_parameter_source_tests::production_parameter_source_rejects_duplicate_and_mismatched_metadata',
-                     'halo2_ipa_parameter_source_tests::production_parameter_source_rejects_unbounded_k_before_construction',
-                     'debug_backend_tests::preverify_rejects_retired_ivm_stark_relation_before_dedup'],
+         'core-zk': ['native_pipa_r::tests::native_compiled_key_cache_shares_exact_material_across_threads',
+                     'native_pipa_r::tests::native_compiled_descriptors_bind_pinned_parameters_and_exact_domains',
+                     'native_pipa_r::tests::native_parameter_admission_rejects_unadmitted_and_oversized_sources',
+                     'native_pipa_r::tests::native_key_records_bind_curve_schema_relation_length_and_compiled_key',
+                     'native_parameter_source_tests::production_parameter_map_matches_kaigi_circuit_constants',
+                     'preverify_tests::preverify_rejects_retired_ivm_stark_relation_before_dedup'],
          'core': ['sns::tests::registration_absence_is_distinct_from_policy_and_malformed_state'],
          'torii-unit': ['sns::tests::registration_absence_http_response_is_typed_and_other_not_found_is_not',
                         'openapi::tests::sns_name_absence_openapi_is_typed_and_selector_bound'],
@@ -3328,7 +3539,7 @@ class EarlyReleaseCheckTests(unittest.TestCase):
 
     def test_complete_regression_census_tracks_every_native_stage_group(self):
         self.assertEqual(gate.selected_regression_count("full"), EXPECTED_REGRESSION_COUNT)
-        for group in ("ALLOCATION_OWNERSHIP_STAGES", "ALLOCATION_SHARED_STAGES", "MV_OWNERSHIP_STAGES", "MV_EBR_STAGES", "MV_MAP_STAGES", "MV_ADMITTED_MAP_STAGES", "CONCREAD_STAGES", "STAGES", "CONFIG_STAGES", "CONFIG_FIXTURE_STAGES", "GENESIS_STAGES", "CONFIG_UNIT_STAGES", "DATA_MODEL_STAGES", "SCHEMA_STAGES", "CRYPTO_STAGES", "P2P_STAGES", "CORE_STAGES", "CORE_ZK_STAGES", "CURRENT_CONSENSUS_STAGES",
+        for group in ("NORITO_RETAINED_SEQUENCE_STAGES", "PRIMITIVES_QUANTITY_STAGES", "PRIMITIVES_QUANTITY_ALLOCATION_STAGES", "ALLOCATION_OWNERSHIP_STAGES", "ALLOCATION_SHARED_STAGES", "MV_OWNERSHIP_STAGES", "MV_EBR_STAGES", "MV_MAP_STAGES", "MV_ADMITTED_MAP_STAGES", "CONCREAD_STAGES", "STAGES", "CONFIG_STAGES", "CONFIG_FIXTURE_STAGES", "GENESIS_STAGES", "CONFIG_UNIT_STAGES", "DATA_MODEL_STAGES", "SCHEMA_STAGES", "CRYPTO_STAGES", "P2P_STAGES", "CORE_STAGES", "CORE_ZK_STAGES", "CURRENT_CONSENSUS_STAGES",
                       "TEST_NETWORK_STAGES", "NETWORK_STAGES", "PROOF_STAGES",
                       "PROOF_FLOW_STAGES", "TORII_STAGES", "TORII_SHARED_STAGES", "CLIENT_STAGES", "WALLET_STAGES", "TORII_UNIT_STAGES", "DAEMON_STAGES", "KAGAMI_STAGES", "DEPLOY_STAGES"):
             original_count = sum(len(names) for _, names in getattr(gate, group))
@@ -3338,8 +3549,8 @@ class EarlyReleaseCheckTests(unittest.TestCase):
 
     def test_exact_one_test_passes(self):
         result = subprocess.CompletedProcess([], 0,
-            "test example ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 99 filtered out\n", "")
-        gate.require_one_pass("example", result)
+            "running 1 test\ntest example ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.01s\n", "")
+        gate.require_one_pass("example", result, 99)
 
     def test_zero_ignored_wrong_or_failed_test_is_fatal(self):
         outputs = (
@@ -3351,7 +3562,7 @@ class EarlyReleaseCheckTests(unittest.TestCase):
         for code, output in outputs:
             with self.subTest(code=code, output=output), contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaisesRegex(gate.CheckError, "did not execute and pass"):
-                    gate.require_one_pass("example", subprocess.CompletedProcess([], code, output, ""))
+                    gate.require_one_pass("example", subprocess.CompletedProcess([], code, output, ""), 99)
 
 
     def test_frozen_harness_uses_captured_manifest_config_and_no_git_lookup(self):
@@ -3372,7 +3583,7 @@ class EarlyReleaseCheckTests(unittest.TestCase):
             stack.enter_context(patch.object(gate, "preflight_native_test_inventories", return_value={"/fixture/harness": "fixture: test\n"}))
             run = stack.enter_context(patch.object(gate.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "running 1 test\ntest fixture ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n", "")))
             stack.enter_context(patch.object(gate, "STAGES", (("fixtures", ("fixture",)),)))
-            stack.enter_context(patch.multiple(gate, ALLOCATION_OWNERSHIP_STAGES=(), ALLOCATION_SHARED_STAGES=(), MV_OWNERSHIP_STAGES=(),
+            stack.enter_context(patch.multiple(gate, NORITO_RETAINED_SEQUENCE_STAGES=(), PRIMITIVES_QUANTITY_STAGES=(), PRIMITIVES_QUANTITY_ALLOCATION_STAGES=(), ALLOCATION_OWNERSHIP_STAGES=(), ALLOCATION_SHARED_STAGES=(), MV_OWNERSHIP_STAGES=(),
                                                MV_EBR_STAGES=(), MV_MAP_STAGES=(), MV_ADMITTED_MAP_STAGES=(), CONCREAD_STAGES=(),
                                                CONFIG_FIXTURE_STAGES=(), GENESIS_STAGES=(), CONFIG_UNIT_STAGES=(), DEPLOY_STAGES=()))
             stack.enter_context(patch.object(gate, "DATA_MODEL_STAGES", ()))
@@ -3413,7 +3624,7 @@ class EarlyReleaseCheckTests(unittest.TestCase):
             stack.enter_context(patch.object(gate, "preflight_native_test_inventories", return_value={"/fixture/harness": "fixture: test\n"}))
             run = stack.enter_context(patch.object(gate.subprocess, "run", side_effect=results))
             stack.enter_context(patch.object(gate, "STAGES", (("fixtures", ("fixture",)),)))
-            stack.enter_context(patch.multiple(gate, ALLOCATION_OWNERSHIP_STAGES=(), ALLOCATION_SHARED_STAGES=(), MV_OWNERSHIP_STAGES=(),
+            stack.enter_context(patch.multiple(gate, NORITO_RETAINED_SEQUENCE_STAGES=(), PRIMITIVES_QUANTITY_STAGES=(), PRIMITIVES_QUANTITY_ALLOCATION_STAGES=(), ALLOCATION_OWNERSHIP_STAGES=(), ALLOCATION_SHARED_STAGES=(), MV_OWNERSHIP_STAGES=(),
                                                MV_EBR_STAGES=(), MV_MAP_STAGES=(), MV_ADMITTED_MAP_STAGES=(), CONCREAD_STAGES=(),
                                                CONFIG_FIXTURE_STAGES=(), GENESIS_STAGES=(), CONFIG_UNIT_STAGES=(), DEPLOY_STAGES=()))
             stack.enter_context(patch.object(gate, "DATA_MODEL_STAGES", ()))
@@ -3456,7 +3667,7 @@ class EarlyReleaseCheckTests(unittest.TestCase):
             compile = stack.enter_context(patch.object(gate, "compile_test_harnesses", return_value=FixtureCopies({"torii": "/warm/routes", "cli": "/warm/cli"})))
             run = stack.enter_context(patch.object(gate.subprocess, "run", side_effect=results))
             stack.enter_context(patch.object(gate, "STAGES", (("CLI", ("cli",)),)))
-            stack.enter_context(patch.multiple(gate, ALLOCATION_OWNERSHIP_STAGES=(), ALLOCATION_SHARED_STAGES=(), MV_OWNERSHIP_STAGES=(),
+            stack.enter_context(patch.multiple(gate, NORITO_RETAINED_SEQUENCE_STAGES=(), PRIMITIVES_QUANTITY_STAGES=(), PRIMITIVES_QUANTITY_ALLOCATION_STAGES=(), ALLOCATION_OWNERSHIP_STAGES=(), ALLOCATION_SHARED_STAGES=(), MV_OWNERSHIP_STAGES=(),
                                                MV_EBR_STAGES=(), MV_MAP_STAGES=(), MV_ADMITTED_MAP_STAGES=(), CONCREAD_STAGES=(),
                                                CONFIG_FIXTURE_STAGES=(), GENESIS_STAGES=(), CONFIG_UNIT_STAGES=(), DEPLOY_STAGES=()))
             stack.enter_context(patch.object(gate, "DATA_MODEL_STAGES", ()))
@@ -3498,7 +3709,7 @@ class EarlyReleaseCheckTests(unittest.TestCase):
         with patch.object(gate, "compile_test_harnesses", return_value=FixtureCopies({
                 name: "/warm/" + name for name in gate.HARNESS_TARGETS})) as compile, \
              patch.object(gate, "run_network_checks") as network, \
-             patch.multiple(gate, ALLOCATION_OWNERSHIP_STAGES=(), ALLOCATION_SHARED_STAGES=(), MV_OWNERSHIP_STAGES=(), MV_EBR_STAGES=(),
+             patch.multiple(gate, NORITO_RETAINED_SEQUENCE_STAGES=(), PRIMITIVES_QUANTITY_STAGES=(), PRIMITIVES_QUANTITY_ALLOCATION_STAGES=(), ALLOCATION_OWNERSHIP_STAGES=(), ALLOCATION_SHARED_STAGES=(), MV_OWNERSHIP_STAGES=(), MV_EBR_STAGES=(),
                             MV_MAP_STAGES=(), MV_ADMITTED_MAP_STAGES=(), CONCREAD_STAGES=(), CONFIG_FIXTURE_STAGES=(), GENESIS_STAGES=(), CONFIG_UNIT_STAGES=(), DEPLOY_STAGES=()), \
              patch.object(gate, "DATA_MODEL_STAGES", ()), \
              patch.object(gate, "CRYPTO_STAGES", ()), \
@@ -3521,7 +3732,7 @@ class EarlyReleaseCheckTests(unittest.TestCase):
 
     def test_network_failure_does_not_trigger_separate_harness_builds(self):
         env = {"CARGO": "/fixed/cargo", "CARGO_HOME": "/isolated", "CARGO_TARGET_DIR": "/warm"}
-        names = ("config", "allocation", "allocation-shared", "mv", "mv-ebr", "mv-map", "mv-admitted-map", "concread", "config-fixtures", "config-unit", "genesis", "data-model", "deploy", "proof", "proof-flows", "crypto", "p2p", "core", "core-zk", "sumeragi", "schema", "test-network", "client", "wallet", "torii-unit", "torii", "torii-shared", "torii-lifecycle", "daemon", "network", "cli")
+        names = ("config", "norito-exact-field", "primitives-quantity", "primitives-quantity-allocations", "allocation", "allocation-shared", "mv", "mv-ebr", "mv-map", "mv-admitted-map", "concread", "config-fixtures", "config-unit", "genesis", "data-model", "deploy", "proof", "proof-flows", "crypto", "p2p", "core", "core-zk", "sumeragi", "schema", "test-network", "client", "wallet", "torii-unit", "torii", "torii-shared", "torii-lifecycle", "daemon", "network", "cli")
         with patch.object(gate, "run_network_checks", side_effect=gate.CheckError("consensus stalled")) as network, \
              patch.object(gate, "compile_test_harnesses", return_value=FixtureCopies({
                  name: "/warm/" + name for name in names})) as batch, \
@@ -3551,7 +3762,7 @@ class EarlyReleaseCheckTests(unittest.TestCase):
 
     def test_deferred_transport_or_fixture_failure_stops_release_success(self):
         env = {"CARGO": "/fixed/cargo", "CARGO_HOME": "/isolated", "CARGO_TARGET_DIR": "/warm"}
-        names = ("config", "allocation", "allocation-shared", "mv", "mv-ebr", "mv-map", "mv-admitted-map", "concread", "config-fixtures", "config-unit", "genesis", "data-model", "deploy", "proof", "proof-flows", "crypto", "p2p", "core", "core-zk", "sumeragi", "schema", "test-network", "client", "wallet", "torii-unit", "torii", "torii-shared", "torii-lifecycle", "daemon", "network", "cli")
+        names = ("config", "norito-exact-field", "primitives-quantity", "primitives-quantity-allocations", "allocation", "allocation-shared", "mv", "mv-ebr", "mv-map", "mv-admitted-map", "concread", "config-fixtures", "config-unit", "genesis", "data-model", "deploy", "proof", "proof-flows", "crypto", "p2p", "core", "core-zk", "sumeragi", "schema", "test-network", "client", "wallet", "torii-unit", "torii", "torii-shared", "torii-lifecycle", "daemon", "network", "cli")
         for failed, target in (("crypto", "crypto"), ("p2p", "p2p"),
                                ("fixture", "test-network")):
             output = io.StringIO()
@@ -3579,7 +3790,7 @@ class EarlyReleaseCheckTests(unittest.TestCase):
 
     def test_public_contract_library_failures_block_release_success(self):
         env = {"CARGO": "/fixed/cargo", "CARGO_HOME": "/isolated", "CARGO_TARGET_DIR": "/warm"}
-        names = ("config", "allocation", "allocation-shared", "mv", "mv-ebr", "mv-map", "mv-admitted-map", "concread", "config-fixtures", "config-unit", "genesis", "data-model", "deploy", "proof", "proof-flows", "crypto", "p2p", "core", "core-zk", "sumeragi", "schema", "test-network", "client", "wallet", "torii-unit", "torii", "torii-shared", "torii-lifecycle", "daemon", "network", "cli")
+        names = ("config", "norito-exact-field", "primitives-quantity", "primitives-quantity-allocations", "allocation", "allocation-shared", "mv", "mv-ebr", "mv-map", "mv-admitted-map", "concread", "config-fixtures", "config-unit", "genesis", "data-model", "deploy", "proof", "proof-flows", "crypto", "p2p", "core", "core-zk", "sumeragi", "schema", "test-network", "client", "wallet", "torii-unit", "torii", "torii-shared", "torii-lifecycle", "daemon", "network", "cli")
         for failed in ("deploy", "client", "wallet", "torii-unit", "torii", "torii-shared", "torii-lifecycle"):
             def run(harness, *args, **_kwargs):
                 if harness == "/warm/" + failed:
@@ -3816,8 +4027,8 @@ class EarlyReleaseCheckTests(unittest.TestCase):
                         output = "".join(name + ": test\n" for name in expected)
                     else:
                         seen.append(command[1])
-                        output = (f"test {command[1]} ... ok\n"
-                                  "test result: ok. 1 passed; 0 failed; 0 ignored;\n")
+                        output = (f"running 1 test\ntest {command[1]} ... ok\n"
+                                  f"test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; {len(expected) - 1} filtered out; finished in 0.01s\n")
                     return subprocess.CompletedProcess(command, 0, output, "")
                 with patch.object(gate, "compile_network_binaries", return_value=FixtureCopies({
                         "iroha3d": "/node", "iroha": "/cli", "taira-launcher": "/taira", "kagami": "/kagami", "iroha_test_runtime_provider_broker": "/broker"})), \
@@ -3841,7 +4052,7 @@ class EarlyReleaseCheckTests(unittest.TestCase):
             if command[1] == catalog:
                 return subprocess.CompletedProcess(command, 101, "exact cold recovery failed\n", "")
             return subprocess.CompletedProcess(command, 0,
-                f"test {command[1]} ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored;\n", "")
+                f"running 1 test\ntest {command[1]} ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; {len(expected) - 1} filtered out; finished in 0.01s\n", "")
         with patch.object(gate, "compile_network_binaries", return_value=FixtureCopies({
                 "iroha3d": "/node", "iroha": "/cli", "taira-launcher": "/taira", "kagami": "/kagami", "iroha_test_runtime_provider_broker": "/broker"})), \
              patch.object(gate, "beacon_fixture_root", return_value=Path("/private/beacon")), \
@@ -3907,7 +4118,7 @@ class FocusedNetworkObservationTests(unittest.TestCase):
                 output = name + ": test\n"
             else:
                 executed.append(command[1])
-                output = f"test {name} ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored;\n"
+                output = f"running 1 test\ntest {name} ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n"
             return subprocess.CompletedProcess(command, 0, output, "")
 
         with patch.object(gate, "compile_network_binaries") as build, \
@@ -4044,7 +4255,7 @@ class EarlyConfigurationGateTests(unittest.TestCase):
 
     def test_one_batch_runs_configuration_first_after_source_audits(self):
         events = []
-        libraries = ("config", "allocation", "allocation-shared", "mv", "mv-ebr", "mv-map", "mv-admitted-map", "concread", "config-fixtures", "config-unit", "genesis", "data-model", "deploy", "proof", "proof-flows", "crypto", "p2p", "core", "core-zk", "sumeragi", "schema", "test-network", "client", "wallet", "torii-unit", "torii", "torii-shared", "torii-lifecycle", "daemon", "network", "cli")
+        libraries = ("config", "norito-exact-field", "primitives-quantity", "primitives-quantity-allocations", "allocation", "allocation-shared", "mv", "mv-ebr", "mv-map", "mv-admitted-map", "concread", "config-fixtures", "config-unit", "genesis", "data-model", "deploy", "proof", "proof-flows", "crypto", "p2p", "core", "core-zk", "sumeragi", "schema", "test-network", "client", "wallet", "torii-unit", "torii", "torii-shared", "torii-lifecycle", "daemon", "network", "cli")
 
         def run_stage(harness, root, env, stages, lock_fds, **kwargs):
             self.assertIn(harness, kwargs.pop("inventories"))
@@ -4109,7 +4320,7 @@ class EarlyConfigurationGateTests(unittest.TestCase):
     def test_configuration_always_runs_before_exact_independent_checkpoint_reuse(self):
         for config_fails in (False, True):
             with self.subTest(config_fails=config_fails), contextlib.ExitStack() as stack:
-                for name in ("ALLOCATION_OWNERSHIP_STAGES", "ALLOCATION_SHARED_STAGES", "MV_OWNERSHIP_STAGES", "MV_EBR_STAGES", "MV_MAP_STAGES", "MV_ADMITTED_MAP_STAGES", "CONCREAD_STAGES",
+                for name in ("NORITO_RETAINED_SEQUENCE_STAGES", "PRIMITIVES_QUANTITY_STAGES", "PRIMITIVES_QUANTITY_ALLOCATION_STAGES", "ALLOCATION_OWNERSHIP_STAGES", "ALLOCATION_SHARED_STAGES", "MV_OWNERSHIP_STAGES", "MV_EBR_STAGES", "MV_MAP_STAGES", "MV_ADMITTED_MAP_STAGES", "CONCREAD_STAGES",
                              "CONFIG_FIXTURE_STAGES", "GENESIS_STAGES", "DEPLOY_STAGES", "CONFIG_UNIT_STAGES", "DATA_MODEL_STAGES", "SCHEMA_STAGES", "CRYPTO_STAGES", "P2P_STAGES", "CORE_STAGES", "CORE_ZK_STAGES", "CURRENT_CONSENSUS_STAGES", "TEST_NETWORK_STAGES",
                              "CLIENT_STAGES", "WALLET_STAGES", "TORII_UNIT_STAGES", "TORII_STAGES", "TORII_SHARED_STAGES", "TORII_LIFECYCLE_STAGES", "DAEMON_STAGES",
                              "PROOF_STAGES", "PROOF_FLOW_STAGES", "DEPLOY_STAGES"):
@@ -4513,7 +4724,7 @@ class NativeTestBatchBuildTests(unittest.TestCase):
             "test", "--manifest-path", "/frozen/Cargo.toml", "--locked", "--offline",
         "-p", "iroha_config", "-p", "iroha_data_model", "-p", "iroha_deploy", "-p", "fastpq_prover", "-p", "iroha_crypto", "-p", "iroha_p2p", "-p", "iroha_core", "-p", "iroha_sumeragi", "-p", "iroha_schema_gen", "-p", "iroha_test_network",
             "-p", "iroha", "-p", "iroha_wallet", "-p", "iroha_torii", "-p", "iroha_torii_shared", "--test", "taira_config_contracts", "--lib", "--test", "fastpq_integration", "--test", "taira_app_contracts",
-            "--test", "torii_nexus_sorafs", "--test", "taira_consensus_contracts", "--features", "iroha_data_model/transparent_api", "--no-run", "--message-format=json-render-diagnostics"])
+            "--test", "torii_nexus_sorafs", "--test", "taira_consensus_contracts", "--features", "iroha_data_model/transparent_api,iroha_torii/test-fixtures", "--no-run", "--message-format=json-render-diagnostics"])
         for missing in ("config", "deploy", "torii", "torii-shared", "torii-lifecycle", "network"):
             incomplete = "".join(self.artifact(name) for name in names if name != missing)
             with self.subTest(missing=missing), \
@@ -4651,7 +4862,7 @@ class NativeTestMetadataCheckTests(unittest.TestCase):
         for scope in gate.QUALIFICATION_SCOPES:
             _, names, _ = gate.native_harness_plan(gate.qualification_stages(scope), shipping)
             self.assertEqual(names, (
-                "config", "allocation", "allocation-shared", "mv", "mv-ebr", "mv-map", "mv-admitted-map", "concread", "config-fixtures", "config-unit", "genesis", "data-model",
+                "config", "norito-exact-field", "primitives-quantity", "primitives-quantity-allocations", "allocation", "allocation-shared", "mv", "mv-ebr", "mv-map", "mv-admitted-map", "concread", "config-fixtures", "config-unit", "genesis", "data-model",
                 "kagami", "deploy", "proof", "proof-flows", "crypto", "p2p", "core", "core-zk",
                 "sumeragi", "schema", "test-network", "client", "wallet", "torii-unit", "torii", "torii-shared",
                 "torii-lifecycle", "daemon", "network", "cli", "cli-bin", "taira-launcher",
@@ -5524,7 +5735,7 @@ class NativeArtifactIsolationTests(unittest.TestCase):
                 payload = (f"#!{sys.executable}\nimport sys\nfrom pathlib import Path\n"
                     "assert Path(sys.argv[0]).is_file()\n"
                     "if '--list' in sys.argv: print('fixture: test'); sys.exit(0)\n"
-                    + ("print('test fixture ... ok\\ntest result: ok. 1 passed; 0 failed; 0 ignored;')\n"
+                    + ("print('running 1 test\\ntest fixture ... ok\\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s')\n"
                        if succeeds else "print('diagnostic retained'); sys.exit(101)\n")).encode()
                 original, row, event = self.artifact("core", payload)
                 with patch.object(gate.subprocess, "Popen", return_value=self.process([event])):
@@ -5592,7 +5803,7 @@ class NativeArtifactIsolationTests(unittest.TestCase):
                     "with log.open('w') as stream:\n"
                     "    for key in ('TEST_NETWORK_BIN_IROHAD', 'TEST_NETWORK_BIN_IROHAD_TAIRA', 'TEST_NETWORK_BIN_IROHA'):\n"
                     "        subprocess.run([os.environ[key]], check=True, stdout=stream)\n"
-                    + ("print('test fixture ... ok\\ntest result: ok. 1 passed; 0 failed; 0 ignored;')\n"
+                    + ("print('running 1 test\\ntest fixture ... ok\\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s')\n"
                        if succeeds else "print('network fixture failed after children'); sys.exit(101)\n")).encode()
                 harness, _, _ = self.artifact("network", harness_payload)
                 errors = io.StringIO()
@@ -6339,6 +6550,130 @@ class NativeTestOutputOpenFileTests(unittest.TestCase):
             run.side_effect = TimeoutExpired("lsof", 5)
             self.assertFalse(gate.native_test_output_confirmed_closed(Path("/exact/test")))
 
+
+
+class ExactSingleRegressionAccountingTests(unittest.TestCase):
+    def completed(self, output, code=0):
+        return subprocess.CompletedProcess([], code, output, "")
+
+    def output(self, filtered=99):
+        return ("running 1 test\ntest example ... ok\n\n"
+                f"test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; {filtered} filtered out; finished in 0.01s\n")
+
+    def test_single_regression_uses_the_existing_closed_native_census(self):
+        for filtered in (0, 99, 10000):
+            result = self.completed(self.output(filtered))
+            with self.subTest(filtered=filtered), patch.object(gate, "native_test_batch_failures", wraps=gate.native_test_batch_failures) as census:
+                gate.require_one_pass("example", result, filtered)
+                census.assert_called_once_with(("example",), filtered, result)
+
+    def test_single_regression_refuses_duplicate_contradictory_or_incomplete_output(self):
+        output = self.output()
+        summary = output.splitlines()[-1]
+        cases = {
+            "duplicate summary": output + summary + "\n",
+            "duplicate terminal": output.replace("test example ... ok\n", "test example ... ok\ntest example ... ok\n"),
+            "foreign terminal": output.replace("test example ... ok\n", "test example ... ok\ntest foreign ... ok\n"),
+            "contradictory later result": output + "running 1 test\ntest example ... FAILED\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.01s\n",
+            "missing running": output.removeprefix("running 1 test\n"),
+            "wrong running": output.replace("running 1 test", "running 2 tests"),
+            "duplicate running": "running 1 test\n" + output,
+            "partial summary": "running 1 test\ntest example ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored;\n",
+            "wrong passed count": output.replace("1 passed;", "2 passed;"),
+            "ignored count": output.replace("0 ignored;", "1 ignored;"),
+            "measured count": output.replace("0 measured;", "1 measured;"),
+            "wrong filtered census": output.replace("99 filtered out;", "98 filtered out;"),
+            "trailing unclosed output": output + "test foreign ... ",
+            "missing selected terminal": output.replace("test example ... ok\n", ""),
+            "failed terminal": output.replace("test example ... ok", "test example ... FAILED"),
+            "failure diagnostics": output.replace("\n\ntest result:", "\nfailures:\n\ntest result:"),
+        }
+        for label, value in cases.items():
+            with self.subTest(label=label), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaisesRegex(gate.CheckError, "did not execute and pass"):
+                    gate.require_one_pass("example", self.completed(value), 99)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(gate.CheckError):
+            gate.require_one_pass("example", self.completed(output, 101), 99)
+
+    def test_single_stage_forwards_the_actual_listing_filtered_census(self):
+        names = ("example", "other", "third")
+        harness = "/ignored/synthetic-native-parser"
+        listing = "".join(name + ": test\n" for name in names)
+        result = self.completed(self.output(2))
+        with patch.object(gate.subprocess, "run", return_value=result) as native, \
+             patch.object(gate, "require_one_pass", wraps=gate.require_one_pass) as accounting, \
+             contextlib.redirect_stdout(io.StringIO()):
+            gate.run_stages(harness, Path("/ignored/synthetic-fixture"), {}, (("fixture", ("example",)),), (), inventories={harness: listing})
+        accounting.assert_called_once_with("example", result, 2)
+        native.assert_called_once_with([harness, "example", "--exact", "--color", "never"], cwd=Path("/ignored/synthetic-fixture"), env={}, stdin=subprocess.DEVNULL, text=True, capture_output=True, check=False, pass_fds=(), umask=0o077)
+        with patch.object(gate.subprocess, "run", return_value=self.completed(self.output(1))), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()), \
+             self.assertRaises(gate.SelectedRegressionFailures):
+            gate.run_stages(harness, Path("/ignored/synthetic-fixture"), {}, (("fixture", ("example",)),), (), inventories={harness: listing})
+
+
+class NativeExpectedPanicAccountingTests(unittest.TestCase):
+    name = "isi::registry::tests::instruction_registry_rejects_wire_id_collisions"
+
+    @staticmethod
+    def completed(output, code=0):
+        return subprocess.CompletedProcess([], code, output, "")
+
+    def output(self, status="ok"):
+        # This exact passing row occurred in the bound current Model component log.
+        passed, failed = (1, 0) if status == "ok" else (0, 1)
+        outcome = "ok" if status == "ok" else "FAILED"
+        return (f"running 1 test\ntest {self.name} - should panic ... {status}\n\n"
+                f"test result: {outcome}. {passed} passed; {failed} failed; 0 ignored; "
+                "0 measured; 99 filtered out; finished in 0.01s\n")
+
+    def test_expected_panic_pass_retains_exact_original_name(self):
+        self.assertEqual(gate.native_test_batch_failures(
+            (self.name,), 99, self.completed(self.output())), [])
+
+    def test_expected_panic_failure_remains_a_failed_original_test(self):
+        failures = gate.native_test_batch_failures(
+            (self.name,), 99, self.completed(self.output("FAILED"), 101))
+        self.assertEqual(failures, [f"regression did not pass: {self.name} (FAILED)"])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(gate.CheckError):
+            gate.require_one_pass(self.name, self.completed(self.output("FAILED"), 101), 99)
+
+    def test_expected_panic_and_ordinary_results_share_the_exact_census(self):
+        output = (f"running 2 tests\ntest {self.name} - should panic ... ok\n"
+                  "test ordinary ... ok\n\n"
+                  "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; "
+                  "98 filtered out; finished in 0.01s\n")
+        self.assertEqual(gate.native_test_batch_failures(
+            (self.name, "ordinary"), 98, self.completed(output)), [])
+
+    def test_single_regression_admits_the_literal_expected_panic_annotation(self):
+        gate.require_one_pass(self.name, self.completed(self.output()), 99)
+
+    def test_expected_panic_annotation_cannot_hide_duplicate_foreign_or_partial_rows(self):
+        output = self.output()
+        row = f"test {self.name} - should panic ... ok\n"
+        cases = {
+            "duplicate": output.replace(row, row + row),
+            "foreign": output.replace(self.name, "unselected"),
+            "orphan terminal": output.replace(row, "ok\n"),
+            "missing terminal": output.replace(row, f"test {self.name} - should panic ... \n"),
+            "foreign after closure": output + "test unselected - should panic ... ok\n",
+            "missing header": output.removeprefix("running 1 test\n"),
+            "wrong filtered count": output.replace("99 filtered out", "98 filtered out"),
+            "malformed annotation": output.replace(" - should panic", " - should panic again"),
+            "near-miss annotation": output.replace(" - should panic", " - should_panic"),
+        }
+        for label, changed in cases.items():
+            with self.subTest(label=label):
+                self.assertTrue(gate.native_test_batch_failures(
+                    (self.name,), 99, self.completed(changed)))
+
+    def test_ignored_expected_panic_result_cannot_qualify(self):
+        output = self.output().replace("... ok", "... ignored, unavailable")
+        output = output.replace("1 passed; 0 failed; 0 ignored", "0 passed; 0 failed; 1 ignored")
+        self.assertEqual(gate.native_test_batch_failures(
+            (self.name,), 99, self.completed(output)),
+            [f"regression did not pass: {self.name} (ignored)"])
 
 
 if __name__ == "__main__":

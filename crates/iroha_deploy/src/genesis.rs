@@ -1,4 +1,5 @@
 //! Shared genesis policy, default generation, and authentic core staging.
+pub mod amx;
 mod defaults;
 pub mod profile;
 pub mod staging;

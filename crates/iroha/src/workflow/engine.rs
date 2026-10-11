@@ -755,14 +755,14 @@ impl WorkflowEngine {
         check_options(options)?;
         let mut session = self.open(id, None)?;
         // A refused driver still reports the progress of the journal this call validated.
-        let result = match driver.map(|driver| check_driver(driver, &session.journal.identity.driver))
-        {
-            Some(Err(error)) => Err(error),
-            Some(Ok(())) | None => {
-                self.drive(&mut session, driver, options, Mode::Recover)
-                    .await
-            }
-        };
+        let result =
+            match driver.map(|driver| check_driver(driver, &session.journal.identity.driver)) {
+                Some(Err(error)) => Err(error),
+                Some(Ok(())) | None => {
+                    self.drive(&mut session, driver, options, Mode::Recover)
+                        .await
+                }
+            };
         session.finish(result)
     }
 

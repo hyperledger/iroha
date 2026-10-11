@@ -29,6 +29,9 @@ fn ivm_manifest_fixture_uses_checked_randomness() {
 }
 fn minimal_contract_interface() -> ivm::EmbeddedContractInterfaceV1 {
     ivm::EmbeddedContractInterfaceV1 {
+        events: Vec::new(),
+        enum_types: Vec::new(),
+        permissions: vec![iroha_data_model::smart_contract::manifest::ContractPermissionDescriptorV1 { name: "CanManageSmartContractCode".parse().unwrap(), scope: iroha_data_model::smart_contract::manifest::ContractPermissionScopeV1::Chain { permission_name: "CanManageSmartContractCode".parse().unwrap() } }],
         callables: vec![ivm::call::EmbeddedCallableV1 {
             entry_pc: 0,
             frame_bytes: 0,
@@ -50,7 +53,7 @@ fn minimal_contract_interface() -> ivm::EmbeddedContractInterfaceV1 {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("CanManageSmartContractCode".to_owned()),
+            authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission("CanManageSmartContractCode".parse().unwrap()),
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -152,7 +155,7 @@ fn install_current_lane_manifest_registry(state: &State) {
 // It does not apply signed genesis or establish an authenticated root or Network finality.
 fn manifest_admission_root_parameter() -> iroha_data_model::parameter::Parameter {
     use iroha_data_model::{
-        block::consensus::{SumeragiRootScope, ValidatorPower},
+        block::consensus::{SumeragiGenesisContextParameters, SumeragiRootScope},
         parameter::{
             Parameter,
             custom::CustomParameter,
@@ -162,22 +165,13 @@ fn manifest_admission_root_parameter() -> iroha_data_model::parameter::Parameter
             },
         },
     };
-    let validators = iroha_core::sumeragi::test_chain::fixture_validators()
-        .into_iter()
-        .map(|(validator, _)| ValidatorPower {
-            validator,
-            power: 1,
-        })
-        .collect::<Vec<_>>();
-    let context = iroha_core_zk::kagemusha_v1_test_fixtures::genesis_context_parameters();
+    let context = SumeragiGenesisContextParameters::recommended();
     assert_eq!(context.root_scope, SumeragiRootScope::Global);
     let metadata = ConsensusHandshakeMetadata {
         mode: SumeragiConsensusMode::Permissioned,
         block_cadence_ms: NonZeroU64::new(1_000).unwrap(),
         wire_protocol_version: u32::from(iroha_data_model::sumeragi::PROTOCOL_VERSION),
         consensus_fingerprint: ConsensusFingerprint::new([0xA5; 32]),
-        kagemusha_mint_finality:
-            iroha_core_zk::kagemusha_v1_test_fixtures::mint_finality_genesis_parameters(&validators),
         sumeragi_context: context,
     };
     metadata

@@ -21,10 +21,7 @@ use iroha_data_model::{
         ConfidentialMemoEnvelopeV1, ConfidentialMemoRecipientSlotV1, ConfidentialMemoSuiteV1,
     },
     isi::repo::{RepoInstructionBox, RepoIsi, RepoMarginCallIsi, ReverseRepoIsi},
-    kagemusha::{
-        KagemushaIpm1PayloadKindV1,
-        kagemusha_wallet_v1::{KagemushaDevicePublicKeyV1, KagemushaDeviceSignatureV1},
-    },
+    kagemusha::kagemusha_wallet_v1::{KagemushaDevicePublicKeyV1, KagemushaDeviceSignatureV1},
     privacy::{
         GoldilocksDigest384V1, PRIVACY_PROOF_WIRE_MAGIC_BYTES_V1,
         PrivacyExact12CatalogCommitmentV1, PrivacyProofWireMagicV1,
@@ -295,26 +292,6 @@ fn kagemusha_values(rows: &mut Vec<Value>) {
     reject_payload::<KagemushaDeviceSignatureV1>(&high.to_bytes());
     family(rows, "kagemusha_device_public_key", &keys);
     family(rows, "kagemusha_device_signature", &signatures);
-    let kinds = [
-        KagemushaIpm1PayloadKindV1::Request,
-        KagemushaIpm1PayloadKindV1::Payment,
-        KagemushaIpm1PayloadKindV1::Acknowledgement,
-    ];
-    for (tag, kind) in (1..=3).zip(kinds) {
-        assert_eq!(kind.wire_tag(), tag);
-        assert_eq!(kind.encode(), [tag]);
-        assert_eq!(
-            KagemushaIpm1PayloadKindV1::from_wire_tag(tag).unwrap(),
-            kind
-        );
-        assert_json(&kind);
-    }
-    for tag in (0..=u8::MAX).filter(|tag| !(1..=3).contains(tag)) {
-        assert!(KagemushaIpm1PayloadKindV1::from_wire_tag(tag).is_err());
-        reject_payload::<KagemushaIpm1PayloadKindV1>(&[tag]);
-    }
-    reject_payload::<KagemushaIpm1PayloadKindV1>(&[]);
-    family(rows, "kagemusha_ipm1_payload_kind", &kinds);
 }
 
 fn repo_values(rows: &mut Vec<Value>) {
@@ -373,10 +350,10 @@ fn manual_protocol_frames_match_capture() {
     memo_values(&mut rows);
     kagemusha_values(&mut rows);
     repo_values(&mut rows);
-    assert_eq!(rows.len(), 56);
+    assert_eq!(rows.len(), 47);
     let evidence = norito::json!({
         "format_version": 1,
-        "purpose": "eight public manual protocol owners before identity declaration",
+        "purpose": "seven public manual protocol owners before identity declaration",
         "default_encode_flags": (ncore::default_encode_flags()),
         "rows": rows,
     });

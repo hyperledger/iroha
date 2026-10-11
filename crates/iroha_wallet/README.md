@@ -28,6 +28,8 @@ fee quotes, plan verification and finality observation remain native SDK respons
   or signing. Request-only retirement requires the exact request and clean inventory under
   the original lock; it grants no replacement authorization. Signed and submission-marked
   history preserves exact wire and prevents repeated submission after an attempted write.
+  `AccountService::with_deadline` retains the original SDK runtime, HTTP pools and
+  cancellation signal; repeated views can only shorten the HTTP deadline.
   `BoundedTransactionOptions` caps aggregate execution fees and shares one deadline across
   paid alias preparation, parent registration and anchoring. Bounded alias recovery requires
   the original alias request, rent guards and fee authorization; it never signs another wire.

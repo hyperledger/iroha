@@ -3,7 +3,7 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
 enum PackageTemplate {
-    /// A runnable contract and four tests of its public quote entrypoint.
+    /// A runnable counter seiyaku with state, hajimari, an authorized kotoage, a view and tests.
     #[default]
     Contract,
     /// A reusable library with explicitly selected exported declarations.
@@ -14,8 +14,9 @@ struct PackageTemplateArgs {
     /// Package purpose and generated source layout.
     #[arg(long, value_enum, default_value_t)]
     template: PackageTemplate,
-    /// Canonical public namespace.
-    #[arg(long)]
+    /// Registry namespace; local-only packages may keep the default and choose one before
+    /// `musubi publish`.
+    #[arg(long, default_value = DEFAULT_NAMESPACE)]
     namespace: MusubiNamespaceV1,
     /// Override the package name inferred from the directory.
     #[arg(long)]
@@ -71,6 +72,9 @@ pub(super) struct InitArgs {
     #[arg(long)]
     force: bool,
 }
+/// Namespace for packages that have not chosen a registry namespace yet; `musubi publish`
+/// refuses it.
+pub(super) const DEFAULT_NAMESPACE: &str = "local";
 pub(super) fn run_new(args: &NewArgs) -> CommandResult {
     match fs::symlink_metadata(&args.path) {
         Ok(_) => {
@@ -100,6 +104,7 @@ pub(super) fn run_new(args: &NewArgs) -> CommandResult {
         Some(source) => initialize_package_files(&args.path, &source_dir, &manifest, &source)?,
         None => initialize_contract_files(&args.path, &name, &manifest)?,
     }
+    initialize_project_files(&args.path, &name, &args.package)?;
     Ok(Success {
         message: scaffold_message("created", &args.path, args.package.template),
         data: object([
@@ -136,6 +141,7 @@ pub(super) fn run_init(args: &InitArgs) -> CommandResult {
         }
         PackageTemplate::Contract => initialize_contract_files(&root, &name, &manifest)?,
     }
+    initialize_project_files(&root, &name, &args.package)?;
     Ok(Success {
         message: scaffold_message("initialized", &args.path, args.package.template),
         data: object([
@@ -242,7 +248,7 @@ fn render_package_manifest(
             push_toml_string(&mut output, "name", &name.to_string());
             push_toml_string(&mut output, "path", &format!("contracts/{name}.ko"));
             output.push_str("\n[[test]]\n");
-            push_toml_string(&mut output, "name", "quote");
+            push_toml_string(&mut output, "name", &name.to_string());
             push_toml_string(&mut output, "path", &format!("tests/{name}.test.ko"));
         }
     }
@@ -288,6 +294,146 @@ fn toml_quote(value: &str) -> String {
     }
     quoted.push('"');
     quoted
+}
+/// Root-scoped state that a package loses when it becomes a member of a new parent workspace.
+const WORKSPACE_SCOPED_STATE: [&str; 4] = [
+    "Musubi.networks.toml",
+    "target/deploy",
+    "target/call",
+    "target/package",
+];
+/// Create the parent workspace that lets a standalone package depend on a sibling package.
+///
+/// Path dependencies stay below one workspace root, so lockfiles, build outputs and compiler source
+/// identities remain relative to it. For two standalone packages this writes
+/// `<common parent>/Musubi.toml` listing both as members, then confirms that discovery places the
+/// selected package in it; the new file is removed again if that check fails. Packages holding
+/// root-scoped network bindings, deployment or call journals, or publication state are refused,
+/// because that state would no longer be found from the new root. Returns the created manifest.
+pub(super) fn create_sibling_workspace(
+    manifest_path: &Path,
+    dependency: &DependencyPath,
+) -> Result<PathBuf, Diagnostic> {
+    let workspace = load_workspace(manifest_path).map_err(workspace_diagnostic)?;
+    if !workspace.is_synthetic() {
+        return Err(Diagnostic::new(
+            ErrorCode::Usage,
+            "`--create-workspace` applies only to a standalone package",
+        )
+        .with_context(
+            "workspace",
+            workspace.root_manifest_path().display().to_string(),
+        )
+        .with_help("list the dependency package in this workspace's `members` instead"));
+    }
+    let package_root = workspace.root().to_path_buf();
+    let requested = package_root.join(dependency.to_path_buf());
+    let candidate = fs::canonicalize(&requested)
+        .map_err(|error| io_diagnostic("resolve local dependency directory", &requested, &error))?;
+    if candidate.starts_with(&package_root) {
+        return Err(Diagnostic::new(
+            ErrorCode::Usage,
+            "the dependency is inside this package; add it without `--create-workspace`",
+        )
+        .with_context("path", dependency.to_string()));
+    }
+    let target =
+        load_workspace(&candidate.join(MANIFEST_FILE_NAME)).map_err(workspace_diagnostic)?;
+    if !target.is_synthetic() || target.root() != candidate {
+        return Err(Diagnostic::new(
+            ErrorCode::Usage,
+            "`--create-workspace` needs a standalone dependency package outside any workspace",
+        )
+        .with_context("path", candidate.display().to_string()));
+    }
+    let mut parent = package_root.clone();
+    while !candidate.starts_with(&parent) {
+        parent.pop();
+    }
+    if parent.parent().is_none() {
+        return Err(Diagnostic::new(
+            ErrorCode::Usage,
+            "the packages share only the filesystem root; move them under one project directory",
+        )
+        .with_context("path", candidate.display().to_string()));
+    }
+    for root in [&package_root, &candidate] {
+        for state in WORKSPACE_SCOPED_STATE {
+            if fs::symlink_metadata(root.join(state)).is_ok() {
+                return Err(Diagnostic::new(
+                    ErrorCode::WorkspaceInvalid,
+                    "this package holds workspace-scoped state that a new parent workspace would not find",
+                )
+                .with_context("path", root.join(state).display().to_string())
+                .with_help(format!(
+                    "create `{}` by hand and move network bindings and journals to its root, or keep the packages separate",
+                    parent.join(MANIFEST_FILE_NAME).display()
+                )));
+            }
+        }
+    }
+    let created = parent.join(MANIFEST_FILE_NAME);
+    if fs::symlink_metadata(&created).is_ok() {
+        return Err(Diagnostic::new(
+            ErrorCode::WorkspaceInvalid,
+            "the shared parent already has a manifest that does not own both packages",
+        )
+        .with_context("path", created.display().to_string()));
+    }
+    let relative = |root: &Path| {
+        root.strip_prefix(&parent)
+            .ok()
+            .and_then(|relative| {
+                relative
+                    .components()
+                    .map(|component| component.as_os_str().to_str())
+                    .collect::<Option<Vec<_>>>()
+            })
+            .map(|components| components.join("/"))
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    ErrorCode::WorkspaceInvalid,
+                    "workspace member paths must be UTF-8 directories below the shared parent",
+                )
+                .with_context("path", root.display().to_string())
+            })
+    };
+    let mut members = [relative(&package_root)?, relative(&candidate)?];
+    members.sort();
+    let contents = format!(
+        "manifest-version = 1\n\n[workspace]\nmembers = [{}, {}]\n",
+        toml_quote(&members[0]),
+        toml_quote(&members[1])
+    );
+    AtomicWriteRoot::new(&parent)
+        .and_then(|writer| {
+            writer.install_immutable(Path::new(MANIFEST_FILE_NAME), contents.as_bytes())
+        })
+        .map_err(atomic_diagnostic)?;
+    let owned = load_workspace(manifest_path)
+        .map_err(workspace_diagnostic)
+        .and_then(|workspace| {
+            let owns = |root: &Path| {
+                workspace
+                    .members()
+                    .values()
+                    .any(|member| member.package_root == root)
+            };
+            if workspace.root() == parent && owns(&package_root) && owns(&candidate) {
+                Ok(())
+            } else {
+                Err(Diagnostic::new(
+                    ErrorCode::WorkspaceInvalid,
+                    "the created workspace does not own both packages",
+                ))
+            }
+        });
+    if let Err(diagnostic) = owned {
+        // Only the manifest this call just installed is removed; nothing else was written.
+        let _ = fs::remove_file(&created);
+        return Err(diagnostic.with_context("workspace", created.display().to_string()));
+    }
+    Ok(created)
 }
 pub(super) enum PackageLibrarySource {
     Existing,
@@ -426,30 +572,111 @@ fn scaffold_message(verb: &str, path: &Path, template: PackageTemplate) -> Strin
         path.display()
     );
     if template == PackageTemplate::Contract {
-        message.push_str("\n  musubi test\n  musubi build");
+        message.push_str(
+            "\n  musubi test\n  musubi build\n\nREADME.md shows how to deploy and activate the seiyaku.",
+        );
     }
     message
 }
-/// The contract template is also the executable coffee example shipped with the repository.
+/// Placeholder identifier used throughout the contract templates.
+const TEMPLATE_IDENTIFIER: &str = "Scaffold";
+/// Placeholder contract path referenced by the template tests.
+const TEMPLATE_TARGET: &str = "../contracts/scaffold.ko";
+/// Runnable counter seiyaku template; `Scaffold` is replaced by the package's seiyaku name.
 const CONTRACT_SOURCE: &str = include_str!("../templates/contract.ko");
+/// Standalone tests for [`CONTRACT_SOURCE`].
 const CONTRACT_TESTS: &str = include_str!("../templates/contract.test.ko");
+/// Package README template for contract packages.
+const PACKAGE_README: &str = include_str!("../templates/package-README.md");
+/// Ignore rules for generated build, deployment and call journals.
+const PACKAGE_GITIGNORE: &str = "# Musubi build outputs, deployment and call journals.\n/target/\n";
+
+/// Upper-camel-case seiyaku name derived from a lowercase kebab package name.
+///
+/// The result is always a canonical, non-reserved Kotodama type name: a leading digit gains a
+/// `Seiyaku` prefix and a reserved name gains a `Seiyaku` suffix.
+fn seiyaku_name(package: &MusubiPackageNameV1) -> String {
+    let mut name = package
+        .to_string()
+        .split(['-', '_', '.'])
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| {
+            let mut characters = segment.chars();
+            characters.next().map_or_else(String::new, |first| {
+                first.to_ascii_uppercase().to_string() + characters.as_str()
+            })
+        })
+        .collect::<String>();
+    if name.is_empty() || name.starts_with(|character: char| character.is_ascii_digit()) {
+        name.insert_str(0, "Seiyaku");
+    }
+    let valid = |candidate: &str| {
+        iroha_data_model::smart_contract::entrypoint::is_canonical_kotodama_identifier(candidate)
+            && !kotodama_surface::source_policy::is_reserved_source_declaration(candidate, false)
+            && !kotodama_surface::source_policy::is_reserved_source_declaration(
+                &format!("{candidate}Error"),
+                false,
+            )
+    };
+    if !valid(&name) {
+        name.push_str("Seiyaku");
+    }
+    name
+}
+
+/// Render the contract and its standalone tests for one package.
+fn render_contract_templates(name: &MusubiPackageNameV1) -> (String, String) {
+    let seiyaku = seiyaku_name(name);
+    let source = CONTRACT_SOURCE.replace(TEMPLATE_IDENTIFIER, &seiyaku);
+    let tests = CONTRACT_TESTS
+        .replace(TEMPLATE_TARGET, &format!("../contracts/{name}.ko"))
+        .replace(TEMPLATE_IDENTIFIER, &seiyaku);
+    (source, tests)
+}
+
+/// Write the README and ignore rules a new package needs, preserving existing user files.
+fn initialize_project_files(
+    root: &Path,
+    name: &MusubiPackageNameV1,
+    package: &PackageTemplateArgs,
+) -> Result<(), Diagnostic> {
+    let readme = match package.template {
+        PackageTemplate::Contract => PACKAGE_README
+            .replace("{{package}}", &name.to_string())
+            .replace("{{seiyaku}}", &seiyaku_name(name))
+            .replace("{{namespace}}", &package.namespace.to_string()),
+        PackageTemplate::Library => format!(
+            "# {name}\n\nA reusable Kotodama library package managed by Musubi. Exported \
+             declarations live in `{}`.\n\n```sh\nmusubi check\n```\n",
+            library_source_dir(package)?.as_str()
+        ),
+    };
+    let writer = AtomicWriteRoot::new(root).map_err(atomic_diagnostic)?;
+    for (path, contents) in [
+        ("README.md", readme.as_str()),
+        (".gitignore", PACKAGE_GITIGNORE),
+    ] {
+        let physical = root.join(path);
+        match fs::symlink_metadata(&physical) {
+            Ok(_) => continue,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(io_diagnostic("inspect scaffold file", &physical, &error)),
+        }
+        writer
+            .install_immutable(Path::new(path), contents.as_bytes())
+            .map_err(atomic_diagnostic)?;
+    }
+    Ok(())
+}
 fn initialize_contract_files(
     root: &Path,
     name: &MusubiPackageNameV1,
     manifest: &str,
 ) -> Result<(), Diagnostic> {
+    let (source, tests) = render_contract_templates(name);
     let targets = [
-        (
-            PathBuf::from(format!("contracts/{name}.ko")),
-            CONTRACT_SOURCE.to_owned(),
-        ),
-        (
-            PathBuf::from(format!("tests/{name}.test.ko")),
-            CONTRACT_TESTS.replace(
-                "../contracts/coffee-club.ko",
-                &format!("../contracts/{name}.ko"),
-            ),
-        ),
+        (PathBuf::from(format!("contracts/{name}.ko")), source),
+        (PathBuf::from(format!("tests/{name}.test.ko")), tests),
     ];
     // Capture the creation decision before any file is written. Existing user sources are preserved.
     let prepared = targets
@@ -628,22 +855,37 @@ mod tests {
                 .expect("workflow output");
                 assert_eq!(result.exit_code(), 0, "{operation}: {}", result.stderr());
                 if operation == "test" {
-                    assert!(result.stdout().contains("4 passed"));
+                    assert!(result.stdout().contains("4 passed"), "{}", result.stdout());
                 }
             }
             assert!(
-                root.join("target/kotodama/demo/coffee-club/production/coffee-club.to")
+                root.join("target/kotodama/demo/coffee-club/dev/coffee-club.to")
                     .is_file()
             );
             let contract_path = root.join("contracts/coffee-club.ko");
+            let contract = fs::read_to_string(&contract_path).expect("generated contract");
+            assert!(contract.contains("seiyaku CoffeeClub {"));
+            assert!(contract.contains("error enum CoffeeClubError {"));
+            assert!(!contract.contains(TEMPLATE_IDENTIFIER));
+            let tests = fs::read_to_string(root.join("tests/coffee-club.test.ko"))
+                .expect("generated tests");
+            assert!(tests.contains("module CoffeeClubTests {"));
+            assert!(tests.contains("target: \"../contracts/coffee-club.ko\""));
+            assert!(tests.contains("test::expect_reject_as("));
+            let readme = fs::read_to_string(root.join("README.md")).expect("generated README");
+            assert!(readme.contains("`CoffeeClub` seiyaku"));
+            assert!(readme.contains("target/kotodama/demo/coffee-club/dev/coffee-club.to"));
+            assert!(readme.contains("musubi deploy --activate"));
+            assert!(!readme.contains("{{"));
+            assert_eq!(
+                fs::read_to_string(root.join(".gitignore")).expect("ignore rules"),
+                PACKAGE_GITIGNORE
+            );
             fs::write(
                 &contract_path,
-                CONTRACT_SOURCE.replace(
-                    "return points(coffees: coffees);",
-                    "return points(coffees: coffees) + 1;",
-                ),
+                contract.replace("count = count + step;", "count = count + step + 1;"),
             )
-            .expect("mutate public boundary only");
+            .expect("mutate kotoage state update only");
             let result = invoke([
                 OsString::from("musubi"),
                 OsString::from("--manifest-path"),
@@ -651,10 +893,10 @@ mod tests {
                 OsString::from("test"),
                 OsString::from("--frozen"),
             ]);
-            assert_ne!(
+            assert_eq!(
                 result.output.exit_code(),
-                0,
-                "tests must exercise quote, not only the unchanged helper"
+                ErrorCode::TestFailed.exit_code(),
+                "tests must exercise the kotoage state update"
             );
         }
     }
@@ -679,14 +921,88 @@ mod tests {
     }
 
     #[test]
-    fn example_sources_match_the_canonical_contract_template() {
+    fn seiyaku_names_follow_the_package_name() {
+        let name = |raw: &str| seiyaku_name(&raw.parse().expect("package name"));
+        assert_eq!(name("hello"), "Hello");
+        assert_eq!(name("coffee-club"), "CoffeeClub");
+        assert_eq!(name("fee-vault-2"), "FeeVault2");
+        assert_eq!(name("2fa-vault"), "Seiyaku2faVault");
+        for raw in ["hello", "coffee-club", "2fa-vault", "json", "option"] {
+            let rendered = name(raw);
+            assert!(
+                iroha_data_model::smart_contract::entrypoint::is_canonical_kotodama_identifier(
+                    &rendered
+                ),
+                "{rendered}"
+            );
+            assert!(
+                !kotodama_surface::source_policy::is_reserved_source_declaration(&rendered, false),
+                "{rendered}"
+            );
+        }
+        let (source, tests) = render_contract_templates(&"fee-vault".parse().expect("name"));
+        assert!(source.contains("seiyaku FeeVault {"));
+        assert!(source.contains("require(step > 0, FeeVaultError::ZeroStep);"));
+        assert!(tests.contains("target: \"../contracts/fee-vault.ko\""));
+        assert!(tests.contains("expected: FeeVaultError::ZeroStep"));
+        assert!(!source.contains(TEMPLATE_IDENTIFIER) && !tests.contains(TEMPLATE_IDENTIFIER));
+        for keyword in [
+            "seiyaku",
+            "kotoage fn",
+            "hajimari()",
+            "view fn",
+            "authorize(",
+        ] {
+            assert!(source.contains(keyword), "template lacks {keyword}");
+        }
+    }
+
+    #[test]
+    fn new_defaults_to_a_local_namespace_and_keeps_existing_project_files() {
+        let temporary = TempDir::new().expect("scaffold directory");
+        let root = temporary.path().join("hello");
+        let result = invoke([
+            OsString::from("musubi"),
+            OsString::from("new"),
+            root.as_os_str().to_owned(),
+        ])
+        .output
+        .render(OutputFormat::Human)
+        .expect("creation output");
+        assert_eq!(result.exit_code(), 0, "{}", result.stderr());
+        assert!(result.stdout().contains("README.md shows how to deploy"));
+        let manifest =
+            parse_manifest(&fs::read_to_string(root.join(MANIFEST_FILE_NAME)).expect("manifest"))
+                .expect("valid manifest");
+        let package = manifest.package.expect("package");
+        assert!(matches!(
+            &package.namespace,
+            crate::manifest::Inheritable::Value(namespace) if namespace.to_string() == DEFAULT_NAMESPACE
+        ));
+        assert_eq!(manifest.tests[0].name.to_string(), "hello");
+        let readme = fs::read_to_string(root.join("README.md")).expect("README");
+        assert!(readme.contains("target/kotodama/local/hello/dev/hello.to"));
+        let existing = TempDir::new().expect("init directory");
+        let init_root = existing.path().join("kept");
+        fs::create_dir(&init_root).expect("existing directory");
+        fs::write(init_root.join("README.md"), "user notes").expect("user README");
+        fs::write(init_root.join(".gitignore"), "user rules").expect("user ignore rules");
+        let result = invoke([
+            OsString::from("musubi"),
+            OsString::from("init"),
+            init_root.as_os_str().to_owned(),
+        ])
+        .output
+        .render(OutputFormat::Human)
+        .expect("init output");
+        assert_eq!(result.exit_code(), 0, "{}", result.stderr());
         assert_eq!(
-            CONTRACT_SOURCE,
-            include_str!("../../../examples/coffee-club/contracts/coffee-club.ko")
+            fs::read_to_string(init_root.join("README.md")).expect("README"),
+            "user notes"
         );
         assert_eq!(
-            CONTRACT_TESTS,
-            include_str!("../../../examples/coffee-club/tests/coffee-club.test.ko")
+            fs::read_to_string(init_root.join(".gitignore")).expect("ignore rules"),
+            "user rules"
         );
     }
 }

@@ -189,7 +189,7 @@ fn current_owner_fixture() -> &'static std::collections::BTreeMap<String, Value>
             include_str!("../../tests/fixtures/native_current_codec_owner_identities.json");
         assert_eq!(
             hex::encode(Sha256::digest(source.as_bytes())),
-            "6bd8a9c34c620e4c47bca8c71a44f13f47bb58b723aa4eae26454ea192ecc428"
+            "1b809fde05de75fdec361d76391359a02a360e490870646b74d0b01fbdd9595a"
         );
         let document: Value = json::from_str(source).expect("paired native owner inventory");
         assert_eq!(
@@ -203,7 +203,7 @@ fn current_owner_fixture() -> &'static std::collections::BTreeMap<String, Value>
         );
         assert_eq!(document.get("schema").and_then(Value::as_u64), Some(1));
         let owners = document.get("owners").and_then(Value::as_array).unwrap();
-        assert_eq!(owners.len(), 105, "complete current compiler owner census");
+        assert_eq!(owners.len(), 102, "complete current compiler owner census");
         let mut result = BTreeMap::new();
         let mut roots = BTreeMap::new();
         let mut directions = BTreeMap::new();
@@ -259,9 +259,26 @@ fn current_owner_fixture() -> &'static std::collections::BTreeMap<String, Value>
                 "duplicate captured owner"
             );
         }
-        assert_eq!(roots.len(), 1_551, "complete current nominal inventory");
+        assert_eq!(roots.len(), 1_469, "complete current nominal inventory");
         result
     })
+}
+
+/// Assert a changed first-release codec against its retained current compiler output.
+pub(super) fn assert_current_identity<T>(nominal: &str)
+where
+    T: NoritoSchema + NoritoSerialize + for<'a> NoritoDeserialize<'a>,
+{
+    let actual = bidirectional::<T>(nominal).row();
+    let mut matches = current_owner_fixture()
+        .values()
+        .flat_map(|owner| owner["rows"].as_array().expect("current owner rows"))
+        .filter(|row| row["nominal"].as_str() == Some(nominal));
+    let expected = matches.next().expect("current compiler-captured identity");
+    assert_eq!(&actual, expected);
+    for duplicate in matches {
+        assert_eq!(duplicate, expected, "shared current identities agree");
+    }
 }
 
 /// Compare this exact typed inventory with its separately retained paired native output.
@@ -281,7 +298,7 @@ pub fn assert_current_owner(cases: &[Case], owner: &str) {
 
 #[test]
 fn current_native_fixture_has_complete_owner_inventory() {
-    assert_eq!(current_owner_fixture().len(), 105);
+    assert_eq!(current_owner_fixture().len(), 102);
 }
 
 // Apply only the closed feature conditions in the current typed inventory.
@@ -331,19 +348,36 @@ fn current_owner_inventory_excludes_retired_types_under_every_feature_shape() {
     for (name, owner) in owners {
         let complete = owner_for_current_inventory(owner, true);
         if name == "iroha_data_model::captured_schema_tests::current_release_capture" {
-            assert_eq!(complete["rows"].as_array().unwrap().len(), 3);
+            assert_eq!(complete["rows"].as_array().unwrap().len(), 1);
             assert!(complete["rows"].as_array().unwrap().iter().all(|row| {
                 !row["nominal"]
                     .as_str()
                     .unwrap()
                     .contains("KagemushaVerifier")
             }));
+        } else if name == "iroha_data_model::nexus::staking::captured_staking_schema_tests" {
+            let rows = complete["rows"].as_array().expect("current staking rows");
+            assert_eq!(
+                rows.len(),
+                5,
+                "only current automatic-reward staking models"
+            );
+            for retired in [
+                "PublicLaneRewardShare",
+                "PublicLaneRewardRole",
+                "PublicLaneRewardRecord",
+            ] {
+                assert!(
+                    rows.iter()
+                        .all(|row| !row["nominal"].as_str().unwrap().ends_with(retired))
+                );
+            }
         } else {
             assert_eq!(complete, *owner);
         }
         let minimal = owner_for_current_inventory(owner, false);
         let expected = match name.as_str() {
-            "iroha_data_model::captured_schema_tests::current_release_capture" => 3,
+            "iroha_data_model::captured_schema_tests::current_release_capture" => 1,
             "iroha_data_model::fraud::types::captured_types_schema_tests" => 7,
             _ => {
                 assert_eq!(minimal, *owner);

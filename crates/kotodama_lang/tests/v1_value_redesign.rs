@@ -19,7 +19,7 @@ fn unit_is_a_value_in_aggregates_state_and_public_schemas() {
         struct Receipt { () marker; List<(), 2> markers; }
         state () marker;
         hajimari() { marker = (); }
-        view fn main() -> Receipt { Receipt { marker: (), markers: [(), ()] } }
+        view fn main() authorize(anyone) -> Receipt { Receipt { marker: (), markers: [(), ()] } }
         fn omitted() { return (); }
         fn some_unit() -> Option<()> { Option::some(()) }
         fn result_unit() -> Result<(), ListError> { Result::ok(()) }
@@ -56,7 +56,7 @@ fn error_codes_are_enum_local_and_nominal_values_support_exhaustive_match() {
         fn convert(Left value) -> Right {
             match value { Left::Failed => { Right::Failed } }
         }
-        view fn main() -> bool { Left::Failed == Left::Failed }
+        view fn main() authorize(anyone) -> bool { Left::Failed == Left::Failed }
     "#,
     )
     .unwrap();
@@ -87,7 +87,7 @@ fn error_codes_are_enum_local_and_nominal_values_support_exhaustive_match() {
 }
 #[test]
 fn nominal_errors_work_with_japanese_branding_and_source_text() {
-    let source = "誓約 Values { /* 不足は明示的な失敗です */ error enum Failure { Missing = 1 } view fn convert(Failure value) -> Failure { match value { Failure::Missing => { Failure::Missing } } } }";
+    let source = "誓約 Values { /* 不足は明示的な失敗です */ error enum Failure { Missing = 1 } view fn convert(Failure value) authorize(anyone) -> Failure { match value { Failure::Missing => { Failure::Missing } } } }";
     semantic::analyze(&parser::parse(source).unwrap()).unwrap();
 }
 #[test]
@@ -180,15 +180,12 @@ fn fused_rounding_folds_once_and_lowers_to_one_fused_instruction() {
 fn exact_rejection_requires_expected_while_catch_all_stays_explicit() {
     let program = |call: &str| {
         parser::parse(&format!(
-            "seiyaku Demo {{ \
-             kotoage fn run(int count) -> int authorize(\"Run\") {{ return count; }} \
-             #[test] fn rejection() {{ {call}; }} \
-             }}"
+            "seiyaku Demo {{ permission Run;  kotoage fn run(int count) authorize(Run) -> int {{ return count; }} #[test] fn rejection() {{ {call}; }} }}"
         ))
         .expect("rejection helper source must parse before semantic validation")
     };
     let missing_expected = program(
-        r#"test::expect_reject_as(actor: "issuer", kotoage: "run", arguments: json { count: 7 })"#,
+        r#"test::expect_reject_as(actor: "issuer", kotoage: "run", arguments:  { count: 7 })"#,
     );
     let error = semantic::SemanticContext::with_capabilities(false, true)
         .analyze(&missing_expected)
@@ -206,11 +203,11 @@ fn exact_rejection_requires_expected_while_catch_all_stays_explicit() {
     assert_eq!(error.code(), "E_NAMED_ARGUMENTS_REQUIRED");
     assert_eq!(
         error.message(),
-        "parameter `actor` of `test::expect_reject_as` requires its declared name"
+        "parameter `actor` of `test::expect_reject_as` requires its label; write `actor: ...` or pass a variable named `actor`"
     );
 
     let catch_all = program(
-        r#"test::expect_any_reject_as(actor: "issuer", kotoage: "run", arguments: json { count: 7 })"#,
+        r#"test::expect_any_reject_as(actor: "issuer", kotoage: "run", arguments:  { count: 7 })"#,
     );
     semantic::SemanticContext::with_capabilities(false, true)
         .analyze(&catch_all)
@@ -224,7 +221,7 @@ fn structural_equality_accepts_nested_values_and_consumes_results() {
         struct Record { () marker; (int, bool) pair; Option<List<Result<quantity, Failure>, 2>> values; }
         fn compare(Record left, Record right) -> bool { left == right }
         fn different(Record left, Record right) -> bool { left != right }
-        view fn main() -> bool {
+        view fn main() authorize(anyone) -> bool {
             let Record first = Record { marker: (), pair: (3, true), values: Option::some([Result::ok(4)]) };
             let Record second = Record { marker: (), pair: (3, true), values: Option::some([Result::ok(4)]) };
             compare(left: first, right: second)
@@ -272,7 +269,7 @@ fn call_tables_flatten_large_products_and_bind_all_callable_signatures() {
         .collect::<Vec<_>>()
         .join("; ");
     let source = format!(
-        "seiyaku Wide {{ struct Record {{ {fields}; }} fn echo(Record value) -> Record {{ value }} view fn main(Record value) -> Record {{ echo(value: value) }} }}"
+        "seiyaku Wide {{ struct Record {{ {fields}; }} fn echo(Record value) -> Record {{ value }} view fn main(Record value) authorize(anyone) -> Record {{ echo(value: value) }} }}"
     );
     let bytes = Compiler::new()
         .compile_source(&source)
@@ -322,7 +319,7 @@ fn call_tables_preserve_8192_word_bound_without_a_register_fast_path() {
         .collect::<Vec<_>>()
         .join(", ");
     let source = format!(
-        "seiyaku Bound {{ fn too_wide({parameters}) -> bool {{ p0 }} view fn main() -> bool {{ true }} }}"
+        "seiyaku Bound {{ fn too_wide({parameters}) -> bool {{ p0 }} view fn main() authorize(anyone) -> bool {{ true }} }}"
     );
     let error = kotodama_lang::session::CompilerSession::default()
         .check(kotodama_lang::session::CompileRequest {
@@ -343,7 +340,9 @@ fn call_tables_preserve_8192_word_bound_without_a_register_fast_path() {
             source_name: Some("inclusive.ko"),
         })
         .expect("exactly 8192 argument words remain valid");
-    let source = "seiyaku Small { fn echo(bool value) -> bool { value } view fn main() -> bool { echo(value: true) } }";
+    // Two call sites keep `echo` out of single-use private-call inlining, so
+    // the artifact really contains a small call through the call table.
+    let source = "seiyaku Small { fn echo(bool value) -> bool { value } view fn main() authorize(anyone) -> bool { echo(value: true) || echo(value: false) } }";
     let bytes = Compiler::new()
         .compile_source(source)
         .expect("small calls use the same descriptor");
@@ -383,7 +382,7 @@ fn call_tables_reject_oversized_shared_product_returns_before_lowering() {
         ));
     }
     let source = format!(
-        "seiyaku Bound {{ {declarations} fn too_wide(B13 value) -> B14 {{ B14 {{ left: value, right: value }} }} view fn main() -> bool {{ true }} }}"
+        "seiyaku Bound {{ {declarations} fn too_wide(B13 value) -> B14 {{ B14 {{ left: value, right: value }} }} view fn main() authorize(anyone) -> bool {{ true }} }}"
     );
     let error = kotodama_lang::session::CompilerSession::default()
         .check(kotodama_lang::session::CompileRequest {

@@ -80,6 +80,7 @@ mod tests {
         events::data::prelude::{DataEvent, DomainEvent, MetadataChanged},
         events::execute_trigger::ExecuteTriggerEventFilter,
     };
+    #[cfg(feature = "transparent_api")]
     use iroha_crypto::Hash;
     use iroha_model_base::domain::DomainId;
     use iroha_model_base::name::Name;

@@ -11,8 +11,6 @@ import tomllib
 from pathlib import Path
 
 SUPPORTED_GIT_SOURCES = {
-    "git+https://github.com/axiom-crypto/halo2-lib.git?tag=v0.5.3#c54cbac60da598e8e484b8aea858e0bf3c51a857",
-    "git+https://github.com/axiom-crypto/snark-verifier.git?rev=bbfcc721d714bea0d44a27c8fc6c4736e73ca853#bbfcc721d714bea0d44a27c8fc6c4736e73ca853",
     "git+https://github.com/zcash/orchard.git?rev=9d07047d32c4787e1b7964b4cf4fa0286c93824c#9d07047d32c4787e1b7964b4cf4fa0286c93824c",
 }
 

@@ -11,6 +11,7 @@ import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
 import java.security.Key
 import java.security.KeyFactory
+import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
@@ -22,7 +23,9 @@ import java.security.spec.ECGenParameterSpec
  * Exact payment-key generation request (spec §§2.2, 2.3; G2 design rev 2 E3).
  *
  * Only [alias], [challengeDigest] and [strongBox] vary. The key is always EC secp256r1 with
- * `PURPOSE_SIGN` and `DIGEST_SHA256` only. [kagemushaWalletAndroidConfigureKeyGenV1] applies it
+ * `PURPOSE_SIGN` and `DIGEST_SHA256` only, never `DIGEST_NONE`: every signature of the protocol
+ * is standard ECDSA-P256-SHA256 over a 32-byte Poseidon signing message, so KeyMint itself hashes
+ * the message (owner answer A1). [kagemushaWalletAndroidConfigureKeyGenV1] applies it
  * through [KagemushaWalletAndroidKeyGenBuilderV1], which offers no user-authentication,
  * unlocked-device, usage-count, user-presence or user-confirmation setter: removing the screen
  * lock would otherwise invalidate the key and destroy the balance (spec §2.3).
@@ -76,20 +79,22 @@ internal fun kagemushaWalletAndroidConfigureKeyGenV1(
     if (spec.strongBox) builder.strongBoxBacked()
 }
 
-/** API 31+ readback of a generated key's `KeyInfo`, independent of Android types. */
+/** Actual `KeyInfo` readback; null means the field does not exist on this Android API. */
 internal class KagemushaWalletAndroidKeyFactsV1(
     val insideSecureHardware: Boolean,
-    /** `KeyInfo.getSecurityLevel`. */
-    val securityLevel: Int,
-    /** `KeyInfo.getRemainingUsageCount`. */
-    val remainingUsageCount: Int,
+    /** `KeyInfo.getSecurityLevel` on API 31+, otherwise unavailable. */
+    val securityLevel: Int?,
+    /** `KeyInfo.getRemainingUsageCount` on API 31+, otherwise unavailable. */
+    val remainingUsageCount: Int?,
     val origin: Int,
     val purposes: Int,
     digests: Set<String>,
     val keySize: Int,
     val userAuthenticationRequired: Boolean,
-    val userPresenceRequired: Boolean,
-    val userConfirmationRequired: Boolean,
+    /** `KeyInfo.isTrustedUserPresenceRequired` on API 28+, otherwise unavailable. */
+    val userPresenceRequired: Boolean?,
+    /** `KeyInfo.isUserConfirmationRequired` on API 28+, otherwise unavailable. */
+    val userConfirmationRequired: Boolean?,
 ) {
     val digests: Set<String> = digests.toSet()
 }
@@ -101,27 +106,32 @@ internal class KagemushaWalletAndroidStrongBoxUnavailableV1(cause: Throwable?) :
 /**
  * Narrow AndroidKeyStore access used by [KagemushaWalletAndroidPaymentKeyV1].
  *
- * Every method reports errors by throwing; none of them turns an error into absence. Only
- * [getKey] answers whether an entry exists, and only on keystore2 (API 31+). `containsAlias`,
+ * Every method reports errors by throwing; none of them turns an error into absence.
+ * A non-null [getKey] proves an occupied entry; null proves absence only on keystore2
+ * (API 31+), and is unknown on API 26–30. `containsAlias`,
  * `aliases`, `size`, `isKeyEntry` and `getCertificate*` swallow Keystore errors as "absent"
  * (AOSP `AndroidKeyStoreSpi`), so they are not offered for existence decisions:
  * [getCertificateChain] is read only after [getKey] returned a key, and a null there is never
  * absence.
  */
 internal interface KagemushaWalletAndroidKeyStoreV1 {
-    /** `KeyStore.getKey(alias, null)`: a key, null for no key entry, or a throw. */
+    /** `KeyStore.getKey(alias, null)`: an occupied key, an API-dependent null, or a throw. */
     fun getKey(alias: String): Key?
 
     /** Attestation chain (leaf first) of an entry [getKey] reported present; null is an error. */
     fun getCertificateChain(alias: String): List<Certificate>?
 
-    /** Generate under [spec]; throws [KagemushaWalletAndroidStrongBoxUnavailableV1] when StrongBox is unavailable. */
-    fun generate(spec: KagemushaWalletAndroidKeySpecV1)
+    /** Return the actual generated key pair under [spec]; throws [KagemushaWalletAndroidStrongBoxUnavailableV1] when StrongBox is unavailable. */
+    fun generate(spec: KagemushaWalletAndroidKeySpecV1): KeyPair
 
     /** `KeyInfo` readback of a present key. */
     fun facts(key: PrivateKey): KagemushaWalletAndroidKeyFactsV1
 
-    /** `SHA256withECDSA` over the exact 32-byte native [message], returned as the platform's DER. */
+    /**
+     * [KAGEMUSHA_WALLET_ANDROID_SIGNATURE_ALGORITHM_V1] (`SHA256withECDSA`) over the exact 32-byte
+     * signing [message]: KeyMint hashes it with SHA-256 under the key's `DIGEST_SHA256`. Returns the
+     * platform's DER.
+     */
     fun sign(key: PrivateKey, message: ByteArray): ByteArray
 
     /** `KeyStore.deleteEntry(alias)`. */
@@ -134,6 +144,12 @@ internal interface KagemushaWalletAndroidKeyStoreV1 {
 /** Keystore alias prefix of payment keys: `kgm-w1-<64 lowercase hex slot digits>`. */
 internal const val KAGEMUSHA_WALLET_ANDROID_ALIAS_PREFIX_V1: String = "kgm-w1-"
 
+/**
+ * JCA algorithm of every payment-key signature: ECDSA-P256 with SHA-256 over the 32-byte signing
+ * message (owner answer A1). The no-digest `NONEwithECDSA` is never used.
+ */
+internal const val KAGEMUSHA_WALLET_ANDROID_SIGNATURE_ALGORITHM_V1: String = "SHA256withECDSA"
+
 /** Production AndroidKeyStore access. */
 internal class KagemushaWalletAndroidSystemKeyStoreV1 : KagemushaWalletAndroidKeyStoreV1 {
     private fun keyStore(): KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
@@ -143,11 +159,11 @@ internal class KagemushaWalletAndroidSystemKeyStoreV1 : KagemushaWalletAndroidKe
     override fun getCertificateChain(alias: String): List<Certificate>? =
         keyStore().getCertificateChain(alias)?.toList()
 
-    override fun generate(spec: KagemushaWalletAndroidKeySpecV1) {
+    override fun generate(spec: KagemushaWalletAndroidKeySpecV1): KeyPair {
         val builder = KagemushaWalletAndroidSystemKeyGenBuilderV1(KeyGenParameterSpec.Builder(spec.alias, spec.purposes))
         kagemushaWalletAndroidConfigureKeyGenV1(spec, builder)
         val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, ANDROID_KEYSTORE)
-        if (spec.strongBox) {
+        return if (spec.strongBox) {
             KagemushaWalletAndroidStrongBoxApi28V1.generate(generator, builder.build())
         } else {
             generator.initialize(builder.build())
@@ -155,15 +171,30 @@ internal class KagemushaWalletAndroidSystemKeyStoreV1 : KagemushaWalletAndroidKe
         }
     }
 
+    @Suppress("DEPRECATION")
     override fun facts(key: PrivateKey): KagemushaWalletAndroidKeyFactsV1 {
-        check(Build.VERSION.SDK_INT >= KAGEMUSHA_WALLET_ANDROID_MIN_API_V1) { "KeyInfo readback needs keystore2" }
+        val apiLevel = Build.VERSION.SDK_INT
+        check(apiLevel >= KAGEMUSHA_WALLET_ANDROID_MIN_API_V1) { "KeyInfo readback requires API 26" }
         val info = KeyFactory.getInstance(key.algorithm, ANDROID_KEYSTORE).getKeySpec(key, KeyInfo::class.java)
-        return KagemushaWalletAndroidKeyInfoApi31V1.facts(info)
+        return KagemushaWalletAndroidKeyFactsV1(
+            insideSecureHardware = info.isInsideSecureHardware,
+            securityLevel = if (apiLevel >= 31) KagemushaWalletAndroidKeyInfoApi31V1.securityLevel(info) else null,
+            remainingUsageCount = if (apiLevel >= 31) KagemushaWalletAndroidKeyInfoApi31V1.remainingUsageCount(info) else null,
+            origin = info.origin,
+            purposes = info.purposes,
+            digests = info.digests.toSet(),
+            keySize = info.keySize,
+            userAuthenticationRequired = info.isUserAuthenticationRequired,
+            userPresenceRequired = if (apiLevel >= 28) KagemushaWalletAndroidKeyInfoApi28V1.userPresenceRequired(info) else null,
+            userConfirmationRequired = if (apiLevel >= 28) KagemushaWalletAndroidKeyInfoApi28V1.userConfirmationRequired(info) else null,
+        )
     }
 
     override fun sign(key: PrivateKey, message: ByteArray): ByteArray {
-        require(message.size == KAGEMUSHA_WALLET_ANDROID_SIGNING_MESSAGE_BYTES_V1) { "signing message must contain exactly 32 bytes" }
-        return Signature.getInstance(SIGNATURE_ALGORITHM).run {
+        require(message.size == KAGEMUSHA_WALLET_ANDROID_SIGNING_MESSAGE_BYTES_V1) {
+            "signing message must be exactly $KAGEMUSHA_WALLET_ANDROID_SIGNING_MESSAGE_BYTES_V1 bytes"
+        }
+        return Signature.getInstance(KAGEMUSHA_WALLET_ANDROID_SIGNATURE_ALGORITHM_V1).run {
             initSign(key)
             update(message)
             sign()
@@ -179,7 +210,6 @@ internal class KagemushaWalletAndroidSystemKeyStoreV1 : KagemushaWalletAndroidKe
 
     private companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
-        const val SIGNATURE_ALGORITHM = "SHA256withECDSA"
     }
 }
 
@@ -213,8 +243,8 @@ private object KagemushaWalletAndroidStrongBoxApi28V1 {
         builder.setIsStrongBoxBacked(true)
     }
 
-    fun generate(generator: KeyPairGenerator, spec: KeyGenParameterSpec) {
-        try {
+    fun generate(generator: KeyPairGenerator, spec: KeyGenParameterSpec): KeyPair {
+        return try {
             generator.initialize(spec)
             generator.generateKeyPair()
         } catch (unavailable: StrongBoxUnavailableException) {
@@ -223,21 +253,16 @@ private object KagemushaWalletAndroidStrongBoxApi28V1 {
     }
 }
 
+/** Keep API 28 getters out of classes loaded on API 26–27. */
+@android.annotation.TargetApi(28)
+private object KagemushaWalletAndroidKeyInfoApi28V1 {
+    fun userPresenceRequired(info: KeyInfo): Boolean = info.isTrustedUserPresenceRequired
+    fun userConfirmationRequired(info: KeyInfo): Boolean = info.isUserConfirmationRequired
+}
+
+/** Keep API 31 getters out of classes loaded on API 26–30. */
 @android.annotation.TargetApi(31)
 private object KagemushaWalletAndroidKeyInfoApi31V1 {
-    // `isInsideSecureHardware` is deprecated in favour of `securityLevel`; both are read so the
-    // readback cross-checks two platform answers.
-    @Suppress("DEPRECATION")
-    fun facts(info: KeyInfo): KagemushaWalletAndroidKeyFactsV1 = KagemushaWalletAndroidKeyFactsV1(
-        insideSecureHardware = info.isInsideSecureHardware,
-        securityLevel = info.securityLevel,
-        remainingUsageCount = info.remainingUsageCount,
-        origin = info.origin,
-        purposes = info.purposes,
-        digests = info.digests.toSet(),
-        keySize = info.keySize,
-        userAuthenticationRequired = info.isUserAuthenticationRequired,
-        userPresenceRequired = info.isTrustedUserPresenceRequired,
-        userConfirmationRequired = info.isUserConfirmationRequired,
-    )
+    fun securityLevel(info: KeyInfo): Int = info.securityLevel
+    fun remainingUsageCount(info: KeyInfo): Int = info.remainingUsageCount
 }

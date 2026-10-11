@@ -509,6 +509,7 @@ Root {
             request_timeout: 4s,
             routes: [],
         },
+        kagemusha_enrollment: None,
         da_ingest: DaIngest {
             replay_cache_capacity: 4096,
             replay_cache_max_lane_epochs: 1024,
@@ -731,7 +732,6 @@ Root {
     },
     sumeragi: Sumeragi {
         role: Validator,
-        mint_finality_seed_fd: None,
         global_beacon_partial_signer_provider_handle: None,
         global_beacon_partial_signer_provider_revision: None,
         global_beacon_partial_signer_provider_policy_digest: None,
@@ -807,9 +807,6 @@ Root {
             max_wsv_memory_bytes: Bytes(
                 8589934592,
             ),
-            kagemusha_operation_index_bytes: Bytes(
-                67108864,
-            ),
             retained_carrier_shell_bytes: 268435456,
             consensus_evidence_preparation_bytes: 441187328,
             consensus_stake_index_bytes: 67108864,
@@ -833,12 +830,6 @@ Root {
             max_pending_unbonds_per_share: 8,
             unbonding_delay: 0ns,
             max_slash_bps: 10000,
-            reward_dust_threshold: Quantity(
-                Numeric {
-                    mantissa: 0,
-                    scale: 0,
-                },
-            ),
             stake_asset_id: "6TEAJqbb8oEPmLncoNiMRbLEK6tw",
             stake_escrow_account_id: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
             slash_sink_account_id: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
@@ -1407,23 +1398,27 @@ Root {
         attesters: [],
     },
     zk: Zk {
-        halo2: Halo2 {
+        trace: DiagnosticTrace {
             enabled: true,
-            curve: Pallas,
-            backend: Ipa,
+            max_batch: 16,
+            worker_threads: 0,
+            queue_cap: 0,
+            enqueue_wait_ms: 25,
+            retry_ring_cap: 2048,
+            retry_max_attempts: 3,
+            retry_tick_ms: 5,
+        },
+        ipa_commitment: IpaCommitment {
             max_k: 16,
-            verifier_budget_ms: 20,
-            verifier_max_batch: 16,
-            verifier_worker_threads: 0,
-            verifier_queue_cap: 0,
-            verifier_enqueue_wait_ms: 25,
-            verifier_retry_ring_cap: 2048,
-            verifier_retry_max_attempts: 3,
-            verifier_retry_tick_ms: 5,
+            max_transcript_label_len: 64,
+            max_envelope_bytes: 262144,
+            enforce_transcript_label_ascii: true,
+        },
+        max_verify_batch: 16,
+        pipa_r: PipaR {
+            enabled: true,
             max_envelope_bytes: 1048576,
             max_proof_bytes: 196608,
-            max_transcript_label_len: 64,
-            enforce_transcript_label_ascii: true,
         },
         fastpq: Fastpq {
             execution_mode: Cpu,
@@ -1460,8 +1455,6 @@ Root {
             max_ethereum_light_client_updates_per_block: 512,
             max_native_header_bytes_per_transaction: 8388608,
             max_native_header_bytes_per_block: 33554432,
-            max_secp256k1_recoveries_per_transaction: 2048,
-            max_secp256k1_recoveries_per_block: 8192,
             max_ed25519_signature_checks_per_transaction: 65536,
             max_ed25519_signature_checks_per_block: 262144,
             max_bls_vote_attestations_per_transaction: 64,
@@ -1867,7 +1860,7 @@ Root {
     confidential: Confidential {
         enabled: true,
         assume_valid: false,
-        verifier_backend: "halo2-ipa-pallas",
+        verifier_backend: "pipa-r/pasta",
         verify_timeout: 750ms,
     },
     crypto: Crypto {
@@ -1929,25 +1922,24 @@ Root {
         },
     },
     sccp: SccpNode {
-        attestor: SccpAttestor {
+        keeper: SccpKeeper {
             enabled: true,
             key_dir: WithOrigin {
-                value: "./storage/sccp/bridge-keys",
+                value: "./storage/sccp/keeper-key",
                 origin: Custom {
-                    message: "derived from kura.store_dir because sccp.attestor.key_dir was empty",
+                    message: "derived from kura.store_dir because sccp.keeper.key_dir was empty",
                 },
             },
-            auto_register: true,
-            max_entries_per_transaction: 64,
-            resubmit_after_blocks: 3,
-            max_clock_drift: 3600s,
-            shutdown_grace: 30s,
+            keepalive: true,
+            keepalive_stagger: 15s,
+            watch: true,
         },
         light_client_keeper: SccpLightClientKeeper {
             enabled: true,
             advance_after: None,
             poll_interval: 60s,
             request_timeout: 10s,
+            poll_budget: 120s,
             max_advance_bytes: 262144,
             endpoints: SccpLightClientKeeperEndpoints {
                 ethereum_execution: [
@@ -1962,10 +1954,6 @@ Root {
                 bsc: [
                     "https://bsc-dataseed.bnbchain.org/",
                     "https://bsc-rpc.publicnode.com/",
-                ],
-                tron: [
-                    "https://api.trongrid.io/",
-                    "https://tron-rpc.publicnode.com/",
                 ],
                 ton_liteservers: [
                     "5.9.10.47:19949:n4VDnSCUuSpjnCyUk9e3QOOd6o0ItSWYbTnW3Wnn8wk=",

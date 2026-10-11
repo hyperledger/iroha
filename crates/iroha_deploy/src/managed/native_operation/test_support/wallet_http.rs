@@ -82,7 +82,49 @@ impl Drop for WalletHttp {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
         if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+            match worker.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    // Retain the original fixture failure even when the caller is unwinding.
+                    // Causes here are fixed parser/cap messages or OS errors, never request data.
+                    struct BoundedCause<'a> {
+                        bytes: &'a mut [u8],
+                        length: usize,
+                    }
+                    impl std::fmt::Write for BoundedCause<'_> {
+                        fn write_str(&mut self, value: &str) -> std::fmt::Result {
+                            let mut length = value.len().min(self.bytes.len() - self.length);
+                            while !value.is_char_boundary(length) {
+                                length -= 1;
+                            }
+                            self.bytes[self.length..self.length + length]
+                                .copy_from_slice(&value.as_bytes()[..length]);
+                            self.length += length;
+                            if length < value.len() {
+                                return Err(std::fmt::Error);
+                            }
+                            Ok(())
+                        }
+                    }
+                    let mut bytes = [0; 512];
+                    let mut cause = BoundedCause {
+                        bytes: &mut bytes,
+                        length: 0,
+                    };
+                    let _ = std::fmt::write(&mut cause, format_args!("{error}"));
+                    let text = std::str::from_utf8(&cause.bytes[..cause.length])
+                        .unwrap_or("invalid fixture error text");
+                    let _ = writeln!(
+                        io::stderr().lock(),
+                        "wallet HTTP fixture worker failed: kind={:?} raw_os={:?} cause={text}",
+                        error.kind(),
+                        error.raw_os_error(),
+                    );
+                }
+                Err(_) => {
+                    let _ = writeln!(io::stderr().lock(), "wallet HTTP fixture worker panicked");
+                }
+            }
         }
     }
 }
@@ -90,6 +132,8 @@ impl Drop for WalletHttp {
 pub(in crate::managed) fn wallet_request(socket: &mut TcpStream) -> io::Result<WalletHttpRequest> {
     const MAX_HEADER: usize = 16 * 1024;
     const MAX_BODY: usize = 128 * 1024;
+    // Darwin can inherit nonblocking mode from the listener; this parser owns bounded reads.
+    socket.set_nonblocking(false)?;
     socket.set_read_timeout(Some(Duration::from_secs(2)))?;
     socket.set_write_timeout(Some(Duration::from_secs(2)))?;
     let mut bytes = Vec::new();
@@ -224,4 +268,48 @@ fn wallet_response(
         }
         (method, path) => panic!("unexpected reserve wallet HTTP request {method} {path}"),
     }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn wallet_request_restores_blocking_mode_before_bounded_http_reads() {
+    use std::os::fd::AsRawFd as _;
+
+    fn flags(socket: &TcpStream) -> io::Result<libc::c_int> {
+        #[expect(
+            unsafe_code,
+            reason = "F_GETFL only reads status flags from this live test-owned socket descriptor"
+        )]
+        let flags = unsafe { libc::fcntl(socket.as_raw_fd(), libc::F_GETFL) };
+        if flags < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(flags)
+        }
+    }
+
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    // Queue the whole request first, so the old parser can consume it without any timing race.
+    client
+        .write_all(b"POST /v1/fees/quote?scope=global HTTP/1.1\r\nContent-Length: 4\r\n\r\nnull")
+        .unwrap();
+    let (mut socket, _) = listener.accept().unwrap();
+    socket.set_nonblocking(true).unwrap();
+    assert_ne!(flags(&socket).unwrap() & libc::O_NONBLOCK, 0);
+
+    let request = wallet_request(&mut socket).unwrap();
+
+    assert_eq!(flags(&socket).unwrap() & libc::O_NONBLOCK, 0);
+    assert_eq!(socket.read_timeout().unwrap(), Some(Duration::from_secs(2)));
+    assert_eq!(
+        socket.write_timeout().unwrap(),
+        Some(Duration::from_secs(2))
+    );
+    assert_eq!(request.method, "POST");
+    assert_eq!(
+        request.target.as_str(),
+        "http://127.0.0.1/v1/fees/quote?scope=global"
+    );
+    assert_eq!(request.body.as_slice(), b"null");
 }

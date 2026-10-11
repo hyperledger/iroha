@@ -12,6 +12,7 @@ documentation = "https://docs.rs/ivm"
 build = "build.rs"
 
 [dependencies]
+thiserror = { workspace = true }
 iroha_allocation = { workspace = true }
 iroha_accel = { workspace = true }
 iroha_model_base = { workspace = true }
@@ -71,8 +72,6 @@ dispatch2 = { version = "0.3.1", optional = true }
 
 
 [dev-dependencies]
-# Pinned original fixed-parameter generator is a test oracle only.
-poseidon-primitives = "0.2.0"
 # Driverless admission tests use the real failure type and runtime-loaded owner.
 # This does not itself enable IVM's optional authenticated CUDA build path.
 iroha_accel = { workspace = true, features = ["cuda"] }

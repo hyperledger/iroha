@@ -43,7 +43,7 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
                     .unwrap()
                     .as_ref(),
             );
-            let result_owner = std::ptr::from_ref(worker.live.as_ref().unwrap().commitment.get());
+            let result_owner = std::ptr::from_ref(worker.live.as_ref().unwrap().commitment().get());
             let preimage = match &worker.live.as_ref().unwrap().phase {
                 PublicationPhase::Executed { preimage, .. } => preimage.as_slice().as_ptr(),
                 _ => panic!("retain original executed phase"),
@@ -116,7 +116,7 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
                 overlay
             );
             assert_eq!(
-                std::ptr::from_ref(worker.live.as_ref().unwrap().commitment.get()),
+                std::ptr::from_ref(worker.live.as_ref().unwrap().commitment().get()),
                 result_owner
             );
 
@@ -366,7 +366,9 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
                     _ => panic!("retain the same unfinished context proof"),
                 },
                 1 => match &pending.archive_refusal {
-                    Some(NativeContextArchiveError::Allocation(error)) => error,
+                    Some(NativeContextArchiveError::Proof(NativeLaneStateProofError::Scratch(
+                        error,
+                    ))) => error,
                     _ => panic!("retain the same unfinished context archive"),
                 },
                 _ => match &pending.encoding_refusal {

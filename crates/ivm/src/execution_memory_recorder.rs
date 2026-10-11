@@ -1012,6 +1012,9 @@ mod tests {
     fn admitted_prepared_fetch_preserves_every_physical_alignment_and_refuses_false_bytes() {
         use crate::execution_diagnostics::DiagnosticExecutionRecorders;
         let interface = crate::metadata::EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             callables: vec![ivm_abi::call::EmbeddedCallableV1 {
                 entry_pc: 0,
                 frame_bytes: 512,
@@ -1033,7 +1036,8 @@ mod tests {
                 return_schema: Some(ivm_abi::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![ivm_abi::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: Some("Execute".to_owned()),
+                authorization:
+                    iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: Some(true),

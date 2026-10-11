@@ -5,7 +5,7 @@ use crate::{
     account::AccountId,
     block::consensus::{ExecKv, ExecWitness},
     sumeragi_finality::{
-        SUMERAGI_LANE_STATE_WITNESS_KEY, SumeragiLaneStateCommitment, genesis_epoch,
+        SUMERAGI_LANE_STATE_WITNESS_KEY, SumeragiLaneStateCommitment, authenticated_genesis,
         test_fixtures::NativeFinalityFixture,
     },
     sumeragi_lanes::SumeragiLaneState,
@@ -32,7 +32,9 @@ fn private_record_proof_binds_independent_parent_decision_and_exact_public_recor
         child.chain_id().parse().unwrap(),
         child.network_id(),
         child_result,
-        genesis_epoch(child.genesis()).unwrap(),
+        authenticated_genesis(child.genesis())
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap(),
     )
     .unwrap();
     let owner = AccountId::new(

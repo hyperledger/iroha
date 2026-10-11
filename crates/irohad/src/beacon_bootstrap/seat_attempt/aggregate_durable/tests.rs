@@ -38,7 +38,7 @@ fn actual_original_complete_aggregate_head_interrupted_before_sync_restores_thro
  {
     let (_temporary, path) = root();
     let budget = AllocationBudget::new(64 * 1024 * 1024);
-    let (mut original, _writers, inherited, chain) =
+    let (mut original, _writers, inherited, chain, _admitted_deadline) =
         through_original_extraction_intent(&path, &budget);
     let context = original
         .aggregate_context(original.aggregate_durable.intent_hash().unwrap())
@@ -125,7 +125,8 @@ fn actual_aggregate_sync_completion_refusal_keeps_all_original_descriptors_and_s
  {
     let (_temporary, path) = root();
     let budget = AllocationBudget::new(64 * 1024 * 1024);
-    let (original, _writers, inherited, _chain) = through_original_aggregate_head(&path, &budget);
+    let (original, _writers, inherited, _chain, _admitted_deadline) =
+        through_original_aggregate_head(&path, &budget);
     drop(original);
     let mut restored = prepare_with_sources(&path, &budget, inherited, HANDLE, 7).unwrap();
     prepare_loaded(&mut restored);
@@ -213,7 +214,8 @@ fn aggregate_source_name_replacement_during_original_directory_sync_never_adopts
     use std::os::unix::fs::PermissionsExt as _;
     let (_temporary, path) = root();
     let budget = AllocationBudget::new(64 * 1024 * 1024);
-    let (original, _writers, inherited, _chain) = through_original_aggregate_head(&path, &budget);
+    let (original, _writers, inherited, _chain, _admitted_deadline) =
+        through_original_aggregate_head(&path, &budget);
     drop(original);
     let mut restored = prepare_with_sources(&path, &budget, inherited, HANDLE, 7).unwrap();
     prepare_loaded(&mut restored);
@@ -291,7 +293,7 @@ fn original_aggregate_reload_rejects_foreign_provider_widened_cutoff_and_fake_h4
     for mutation in [0, 1, 2] {
         let (_temporary, path) = root();
         let budget = AllocationBudget::new(64 * 1024 * 1024);
-        let (original, _writers, inherited, _chain) =
+        let (original, _writers, inherited, _chain, _admitted_deadline) =
             through_original_aggregate_head(&path, &budget);
         let directory = original.claim.directory().unwrap().path.clone();
         if mutation > 0 {
@@ -347,7 +349,7 @@ fn retired_phase_four_extraction_format_has_no_encoder_or_writer_beside_the_orig
  {
     let (_temporary, path) = root();
     let budget = AllocationBudget::new(64 * 1024 * 1024);
-    let (mut original, _writers, _inherited, _chain) =
+    let (mut original, _writers, _inherited, _chain, _admitted_deadline) =
         through_original_extraction_intent(&path, &budget);
     let context = *original.durable.latest_context().unwrap();
     let (claim, root_hash, fifos) = original.claim_and_fifo_identity().unwrap();

@@ -46,7 +46,7 @@ use iroha_data_model::{
         light_client::{
             SccpLcAdvanceBytesV1, SccpLcCheckpointDataV1, SccpLcCheckpointOriginV1,
             SccpLcCheckpointV1, SccpLcConsensusSetV1, SccpLcEvidenceBytesV1, SccpLcHeadV1,
-            SccpLcPointV1, SccpLightClientParamsV1, SccpLightClientV1,
+            SccpLcPointV1, SccpLcProfileActivationV1, SccpLightClientParamsV1, SccpLightClientV1,
         },
         outbound::{SccpOutboundMessageRecordV1, SccpOutboundStatusV1},
         params::SccpParametersV1,
@@ -194,7 +194,7 @@ impl SampleInstructions {
     /// Return a void proof submission.
     pub(crate) fn void() -> SubmitSccpOutboundVoidV1 {
         SubmitSccpOutboundVoidV1 {
-            network: SccpNetworkV1::TronMainnet,
+            network: SccpNetworkV1::BscMainnet,
             revision: 1,
             proof: SccpSourceProofBytesV1::new(vec![0x4e, 0x52, 0x54, 0x30, 0x02])
                 .expect("bounded proof"),
@@ -493,4 +493,213 @@ pub(crate) fn populate_every_sccp_map(block: &mut WorldBlock<'_>, seed: u8) {
     block
         .sccp_light_client_stride_index
         .insert((network, height / 8_192), height);
+    block.sccp_light_client_profiles.insert(
+        (network, u32::from(seed) + 1),
+        SccpLcProfileActivationV1 {
+            profile_hash: word(seed),
+            activation_height: height + 1,
+            proposal_id: word(seed),
+        },
+    );
+}
+
+/// EVM contract address of the outbound fixture's Ethereum revision 1.
+pub(crate) const OUTBOUND_FIXTURE_CONTRACT: [u8; 20] = [0xc0; 20];
+
+/// Install live SCCP for an outbound record (§4.4): Taira default parameters, the route
+/// escrows, a live roster generation 1 from height 1, and Ethereum revision 1 in
+/// `Bidirectional` with `max_wrapped_supply`.
+pub(crate) fn install_outbound_route(
+    state_transaction: &mut crate::state::StateTransaction<'_, '_>,
+    max_wrapped_supply: u128,
+) {
+    use super::{escrow, store};
+    use iroha_data_model::sccp::registry::SccpRouteActivationV1;
+
+    store::parameters::set(state_transaction, Some(SccpParametersV1::taira_default()));
+    escrow::create_route_escrows(state_transaction).expect("route escrows");
+    store::rosters::insert(state_transaction, 1, sample_roster(1, 1)).expect("roster");
+    store::roster_current::set(state_transaction, 1);
+    let mut route = store::routes::get(&*state_transaction.world, &SccpNetworkV1::EthereumMainnet)
+        .cloned()
+        .expect("route");
+    let mut revision = SccpRouteRevisionV1::staged(
+        1,
+        SccpDeploymentV1::Evm(SccpEvmDeploymentV1 {
+            address: OUTBOUND_FIXTURE_CONTRACT,
+            runtime_code_hash: word(0x34),
+        }),
+        max_wrapped_supply,
+        1,
+        word(0x35),
+        2,
+    );
+    revision.activation = SccpRouteActivationV1::Bidirectional;
+    route.revisions.insert(1, revision);
+    store::routes::insert(state_transaction, SccpNetworkV1::EthereumMainnet, route).expect("route");
+}
+
+/// Set `holder`'s XOR balance to `units` Taira units.
+pub(crate) fn set_xor_balance(
+    state_transaction: &mut crate::state::StateTransaction<'_, '_>,
+    holder: &AccountId,
+    units: u128,
+) {
+    use iroha_data_model::{
+        IntoKeyValue,
+        asset::{Asset, AssetId},
+        sccp::escrow::sccp_taira_xor_asset_definition_id,
+    };
+
+    let asset = AssetId::of(sccp_taira_xor_asset_definition_id(), holder.clone());
+    let quantity = super::escrow::xor_quantity(units).expect("XOR quantity");
+    let (_, value) = Asset::new(asset.clone(), quantity).into_key_value();
+    state_transaction.world.assets.insert(asset, value);
+}
+
+/// Return the fixture's record of `amount_xor` whole XOR to `recipient` on Ethereum revision 1.
+pub(crate) fn outbound_record(amount_xor: u32, recipient: [u8; 20]) -> RecordSccpMessage {
+    RecordSccpMessage {
+        network: SccpNetworkV1::EthereumMainnet,
+        expected_revision: 1,
+        amount: Numeric::new(amount_xor, 0),
+        recipient: recipient.to_vec(),
+    }
+}
+
+/// Return the sender of the Ethereum revision 1 outbound record with `nonce`, if recorded.
+pub(crate) fn outbound_sender(
+    world: &(impl crate::state::WorldReadOnly + ?Sized),
+    nonce: u64,
+) -> Option<AccountId> {
+    use super::store;
+
+    let message_id =
+        store::outbound_by_nonce::get(world, &(SccpNetworkV1::EthereumMainnet, 1, nonce))?;
+    store::outbound_messages::get(world, message_id).map(|record| record.sender.clone())
+}
+
+/// One XOR in Taira units (`specs/sccp.md` §0).
+pub(crate) const ONE_XOR: u128 = 1_000_000_000;
+
+/// Return a state in which `holder` owns the Taira XOR definition and holds `balance` Taira
+/// units of XOR.
+pub(crate) fn funded_xor_state(holder: &AccountId, balance: u128) -> State {
+    use iroha_data_model::{
+        Registrable,
+        account::Account,
+        asset::{Asset, AssetBalancePolicy, AssetDefinition, AssetId},
+        sccp::escrow::sccp_taira_xor_asset_definition_id,
+    };
+    let xor = sccp_taira_xor_asset_definition_id();
+    let definition = AssetDefinition::numeric(
+        xor.clone(),
+        "XOR".to_owned(),
+        AssetBalancePolicy::Global,
+        None,
+    )
+    .build(holder);
+    let world = World::with_assets(
+        [],
+        [Account::new(holder.clone()).build(holder)],
+        [definition],
+        [Asset::new(
+            AssetId::of(xor, holder.clone()),
+            super::escrow::xor_quantity(balance).expect("quantity"),
+        )],
+        [],
+    );
+    State::new_for_testing(
+        world,
+        Kura::blank_kura_for_testing(),
+        LiveQueryStore::start_test(),
+    )
+}
+
+/// Initialize SCCP (Taira default parameters, the three route escrows, live roster generation
+/// 1) unless it already exists, and add revision `revision` of `network` with `activation` and
+/// the cap `max_wrapped_supply`.
+pub(crate) fn install_value_route(
+    stx: &mut crate::state::StateTransaction<'_, '_>,
+    network: SccpNetworkV1,
+    revision: u32,
+    activation: iroha_data_model::sccp::registry::SccpRouteActivationV1,
+    max_wrapped_supply: u128,
+) {
+    use super::{escrow, store};
+    if store::parameters::get(&*stx.world).is_none() {
+        store::parameters::set(stx, Some(SccpParametersV1::taira_default()));
+        escrow::create_route_escrows(stx).expect("escrows");
+        store::rosters::insert(stx, 1, sample_roster(1, 1)).expect("roster");
+        store::roster_current::set(stx, 1);
+    }
+    let mut route = store::routes::get(&*stx.world, &network)
+        .cloned()
+        .expect("route");
+    let tag = word(u8::try_from(revision).unwrap_or(0x7f) ^ iroha_sccp::v1::network::tag(network));
+    let mut record = SccpRouteRevisionV1::staged(
+        revision,
+        SccpDeploymentV1::Evm(SccpEvmDeploymentV1 {
+            address: address(0xc0),
+            runtime_code_hash: word(0x34),
+        }),
+        max_wrapped_supply,
+        1,
+        tag,
+        2,
+    );
+    record.activation = activation;
+    route.revisions.insert(revision, record);
+    store::routes::insert(stx, network, route).expect("route");
+}
+
+/// Return the XOR balance of `account` in Taira units.
+pub(crate) fn xor_balance(
+    world: &(impl crate::state::WorldReadOnly + ?Sized),
+    account: &AccountId,
+) -> u128 {
+    use iroha_data_model::{asset::AssetId, sccp::escrow::sccp_taira_xor_asset_definition_id};
+    use mv::storage::StorageReadOnly;
+    world
+        .assets()
+        .get(&AssetId::of(
+            sccp_taira_xor_asset_definition_id(),
+            account.clone(),
+        ))
+        .filter(|quantity| !quantity.as_ref().is_zero())
+        .map_or(0, |quantity| {
+            iroha_sccp::v1::amount::taira_units(quantity.as_ref().as_numeric())
+                .expect("a canonical XOR balance")
+        })
+}
+
+/// Assert the escrow invariants of every route (`specs/sccp.md` §4.15):
+/// `balance(escrow(route)) = Σ_r liability(r) + stranded(route)` and
+/// `liability(r) ≤ max_wrapped_supply(r)`; `context` names the failing step.
+pub(crate) fn assert_escrow_invariant(
+    world: &(impl crate::state::WorldReadOnly + ?Sized),
+    context: &str,
+) {
+    for (network, route) in super::store::routes::iter(world) {
+        let liability: u128 = route
+            .revisions
+            .values()
+            .map(|revision| {
+                assert!(
+                    revision.liability <= revision.max_wrapped_supply,
+                    "{context}: {network:?} revision {} liability {} exceeds its cap {}",
+                    revision.revision,
+                    revision.liability,
+                    revision.max_wrapped_supply
+                );
+                revision.liability
+            })
+            .sum();
+        assert_eq!(
+            xor_balance(world, &route.escrow),
+            liability + route.stranded,
+            "{context}: {network:?} escrow balance != Σ liability {liability} + stranded {}",
+            route.stranded
+        );
+    }
 }

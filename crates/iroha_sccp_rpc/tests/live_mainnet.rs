@@ -22,15 +22,14 @@ use iroha_data_model::{
 };
 use iroha_sccp::light_client::{
     self, SccpLcError, SccpLcStateView, bsc::BscLcError, ethereum::EthereumLcError,
-    state::SccpLcMemoryStateV1, tron::TronLcError,
+    state::SccpLcMemoryStateV1,
 };
 use iroha_sccp_rpc::{
-    BeaconClient, EndpointSet, EvmClient, FailoverPolicy, HttpConfig, HttpTransport, TronClient,
+    BeaconClient, EndpointSet, EvmClient, FailoverPolicy, HttpConfig, HttpTransport,
     builders::{
-        bsc::BscBuilder,
-        ethereum::{BuildError, EthereumBuilder, EthereumEventV1},
-        ton::TonBuilder,
-        tron::TronBuilder,
+        AdvanceBudgetV1, BuildError, LightClientReplayV1, SourceChainBuilder, SourceEventRefV1,
+        TairaLightClientView, bsc::BscBuilder, ethereum::EthereumBuilder,
+        ethereum::EthereumEventV1, ton::TonBuilder,
     },
     evm::{BlockId, BlockTag},
     ton::{LiteClient, LiteClientConfig, LiteServerSet},
@@ -51,18 +50,18 @@ fn transport(urls: &[&str]) -> HttpTransport {
 }
 
 /// Install `bootstrap`, wait `pause`, then build and apply one advance from the installed head,
-/// with Taira's clock reading `now()`; returns the light-client state.
+/// stepped to the keeper's default budget, with Taira's clock reading `now()`; returns the
+/// replayed light client.
 fn bootstrap_then_advance(
     network: SccpNetworkV1,
     bootstrap: &SccpLcBootstrapV1,
     pause: Duration,
     now: impl Fn() -> u64,
-    advance: impl FnOnce(u64, usize) -> Result<SccpLcAdvanceBytesV1, BuildError>,
-) -> SccpLcMemoryStateV1 {
+    advance: impl FnOnce(u64, AdvanceBudgetV1) -> Result<SccpLcAdvanceBytesV1, BuildError>,
+) -> LightClientReplayV1 {
     let params = SccpLightClientParamsV1::defaults_for(network).expect("defaults");
-    let mut state = SccpLcMemoryStateV1::new();
     let initial = light_client::initialize_light_client(
-        &state,
+        &SccpLcMemoryStateV1::new(),
         network,
         SccpLcInitExpectationV1::Absent,
         &params,
@@ -70,8 +69,8 @@ fn bootstrap_then_advance(
         now(),
     )
     .expect("the live bootstrap verifies");
-    state.install(network, &initial);
-    let installed = state.light_client(network).expect("installed");
+    let mut replay = LightClientReplayV1::installed(network, &initial);
+    let installed = replay.light_client().expect("installed");
     println!(
         "{}: bootstrap {} bytes, set {}, head {:?}",
         network.profile_key(),
@@ -80,13 +79,13 @@ fn bootstrap_then_advance(
         installed.head
     );
     std::thread::sleep(pause);
-    let max = usize::try_from(params.max_updates_per_advance).unwrap_or(usize::MAX);
-    match advance(installed.head.latest_set_id, max) {
+    let budget = AdvanceBudgetV1::for_params(&params, 262_144);
+    match advance(installed.head.latest_set_id, budget) {
         Ok(bytes) => {
-            let delta = light_client::apply_advance(&state, network, &bytes, now())
+            let delta = replay
+                .advance(&bytes, now())
                 .expect("the live advance verifies");
-            state.apply(network, &delta);
-            let head = state.light_client(network).expect("installed").head;
+            let head = replay.light_client().expect("installed").head;
             println!(
                 "{}: advance {} bytes, {} new sets, head {head:?}",
                 network.profile_key(),
@@ -102,7 +101,7 @@ fn bootstrap_then_advance(
         }
         Err(error) => panic!("{}: advance: {error}", network.profile_key()),
     }
-    state
+    replay
 }
 
 /// The first successful receipt with a log in EVM block `number`.
@@ -125,13 +124,13 @@ fn ethereum_bootstrap_and_advance_verify() {
         BeaconClient::new(transport(endpoints::ETHEREUM_BEACON)),
         execution,
     );
-    let bootstrap = builder.finalized_bootstrap().expect("bootstrap");
-    let state = bootstrap_then_advance(
+    let bootstrap = builder.bootstrap().expect("bootstrap");
+    let replay = bootstrap_then_advance(
         SccpNetworkV1::EthereumMainnet,
         &bootstrap,
         Duration::ZERO,
         now_ms,
-        |latest, max| builder.advance(latest, max),
+        |latest, budget| builder.advance(latest, budget),
     );
     let execution = EvmClient::new(transport(endpoints::ETHEREUM_EXECUTION));
     let finalized = execution
@@ -141,13 +140,20 @@ fn ethereum_bootstrap_and_advance_verify() {
         .header
         .number;
     let tx = receipt_with_log(&execution, finalized - 8);
-    let proof = builder
-        .source_proof(&tx, EthereumEventV1::TransferToTaira { log_index: 0 })
+    let event = SourceEventRefV1::Evm {
+        tx_hash: tx,
+        event: EthereumEventV1::TransferToTaira { log_index: 0 },
+    };
+    let evidence = builder
+        .evidence(&event, &replay, now_ms())
         .expect("the proof builds");
-    let error =
-        light_client::verify_proof(&state, SccpNetworkV1::EthereumMainnet, &proof, now_ms())
-            .expect_err("an ordinary log is not an SCCP event");
-    println!("ethereum-mainnet: proof {} bytes, {error}", proof.len());
+    let error = replay
+        .verify_evidence(&evidence, now_ms())
+        .expect_err("an ordinary log is not an SCCP event");
+    println!(
+        "ethereum-mainnet: proof {} bytes, {error}",
+        evidence.proof.len()
+    );
     assert!(
         matches!(error, SccpLcError::Ethereum(EthereumLcError::Event(_))),
         "the proof must fail only at the event: {error:?}"
@@ -159,83 +165,40 @@ fn ethereum_bootstrap_and_advance_verify() {
 fn bsc_bootstrap_and_advance_verify() {
     let builder = BscBuilder::new(EvmClient::new(transport(endpoints::BSC)));
     let bootstrap = builder.bootstrap().expect("bootstrap");
-    let state = bootstrap_then_advance(
+    let replay = bootstrap_then_advance(
         SccpNetworkV1::BscMainnet,
         &bootstrap,
         Duration::from_secs(10),
         now_ms,
-        |latest, max| builder.advance(latest, max),
+        |latest, budget| builder.advance(latest, budget),
     );
-    let head = state
-        .light_client(SccpNetworkV1::BscMainnet)
-        .expect("installed")
-        .head;
-    let sets = vec![
-        state
+    let head = replay.light_client().expect("installed").head;
+    assert!(
+        replay
+            .state()
             .consensus_set(SccpNetworkV1::BscMainnet, head.latest_set_id)
-            .expect("stored set"),
-    ];
+            .is_some(),
+        "the newest set is stored"
+    );
     let rpc = EvmClient::new(transport(endpoints::BSC));
     let tx = receipt_with_log(&rpc, head.latest_finalized.source_height - 4);
-    let proof = builder
-        .source_proof(
-            &tx,
-            EthereumEventV1::TransferToTaira { log_index: 0 },
-            &sets,
-        )
+    let event = SourceEventRefV1::Evm {
+        tx_hash: tx,
+        event: EthereumEventV1::TransferToTaira { log_index: 0 },
+    };
+    let evidence = builder
+        .evidence(&event, &replay, now_ms())
         .expect("the proof builds");
-    let error = light_client::verify_proof(&state, SccpNetworkV1::BscMainnet, &proof, now_ms())
+    let error = replay
+        .verify_evidence(&evidence, now_ms())
         .expect_err("an ordinary log is not an SCCP event");
-    println!("bsc-mainnet: proof {} bytes, {error}", proof.len());
+    println!("bsc-mainnet: proof {} bytes, {error}", evidence.proof.len());
     assert!(
         matches!(
             error,
             SccpLcError::Bsc(BscLcError::Receipt(EthereumLcError::Event(_)))
         ),
         "the proof must fail only at the event: {error:?}"
-    );
-}
-
-#[test]
-#[ignore = "reads public TRON mainnet endpoints"]
-fn tron_bootstrap_and_advance_verify() {
-    let builder = TronBuilder::new(TronClient::new(transport(endpoints::TRON)));
-    let bootstrap = builder.bootstrap().expect("bootstrap");
-    let state = bootstrap_then_advance(
-        SccpNetworkV1::TronMainnet,
-        &bootstrap,
-        Duration::from_secs(10),
-        now_ms,
-        |latest, max| builder.advance(latest, max),
-    );
-    let api = TronClient::new(transport(endpoints::TRON));
-    let solid = api.solidity_now_block().expect("solid block").header.number;
-    let block = api
-        .block_by_num(solid - 10)
-        .expect("block")
-        .expect("served");
-    let tx = block
-        .transactions
-        .iter()
-        .find(|transaction| {
-            let contract = &transaction.raw_data["contract"][0];
-            contract["type"].as_str() == Some("TriggerSmartContract")
-                && contract["parameter"]["value"]["call_value"].is_null()
-                && transaction
-                    .ret
-                    .first()
-                    .and_then(|ret| ret["contractRet"].as_str())
-                    == Some("SUCCESS")
-        })
-        .expect("a successful contract call")
-        .tx_id;
-    let proof = builder.source_proof(&tx).expect("the proof builds");
-    let error = light_client::verify_proof(&state, SccpNetworkV1::TronMainnet, &proof, now_ms())
-        .expect_err("an ordinary call is not an SCCP call");
-    println!("tron-mainnet: proof {} bytes, {error}", proof.len());
-    assert!(
-        matches!(error, SccpLcError::Tron(TronLcError::NotSccpCall(_))),
-        "the proof must fail only at the call: {error:?}"
     );
 }
 
@@ -253,7 +216,7 @@ fn ton_bootstrap_and_advance_verify() {
         &builder.bootstrap_at(newest).expect("bootstrap"),
         Duration::ZERO,
         now_ms,
-        |latest, max| builder.advance(latest, max),
+        |latest, budget| builder.advance(latest, budget),
     );
     // Replay the hop into the newest key block at a Taira time just after it, while the earlier
     // epoch was still fresh, so the hop verifier runs on real signatures and config proofs.
@@ -278,9 +241,9 @@ fn ton_bootstrap_and_advance_verify() {
         &builder.bootstrap_at(previous).expect("earlier bootstrap"),
         Duration::ZERO,
         || newest_time + 60_000,
-        |latest, max| builder.advance(latest, max),
+        |latest, budget| builder.advance(latest, budget),
     )
-    .light_client(SccpNetworkV1::TonMainnet)
+    .light_client()
     .expect("installed")
     .head
     .latest_set_id;

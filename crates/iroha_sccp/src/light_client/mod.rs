@@ -18,9 +18,13 @@
 //!   reason.
 //!
 //! Frames travel as headered canonical Norito frames ([`proof`]) inside the data-model byte
-//! wrappers. The source-chain fork schedule and `supported_until` come from the compiled
-//! [`profile`], never from stored params. [`SccpVerifierWorkV1`] estimates the committed `sccp` (ZK validity policy) work
-//! categories of every call before it runs, so core can meter and reject oversized work cheaply.
+//! wrappers. The source-chain fork schedule and `supported_until` come from a compiled
+//! [`profile`] version, never from stored params. Every check has a `*_with_profiles` form:
+//! Taira execution passes the versions active at the executing height
+//! ([`profile::SccpLcProfileCatalogV1::resolve`]), and the plain forms, used by off-chain tools,
+//! run under the newest compiled versions ([`profile::SccpChainProfilesV1::latest`]).
+//! [`SccpVerifierWorkV1`] estimates the committed `sccp` (ZK validity policy) work categories of every call before it runs,
+//! so core can meter and reject oversized work cheaply.
 
 pub mod bsc;
 pub mod ethereum;
@@ -28,7 +32,6 @@ pub mod profile;
 pub mod proof;
 pub mod state;
 pub mod ton;
-pub mod tron;
 
 use core::fmt;
 
@@ -47,7 +50,6 @@ use iroha_data_model::{
 
 use self::{
     bsc::BscLcError, ethereum::EthereumLcError, profile::SccpChainProfilesV1, ton::TonLcError,
-    tron::TronLcError,
 };
 pub use self::{
     proof::{
@@ -100,6 +102,9 @@ pub enum SccpLcError {
         /// Network named by the data.
         found: SccpNetworkV1,
     },
+    /// The network's light client reads no checkpoints, so a trusted checkpoint would recover
+    /// nothing (TON: old blocks are reached through `OldMcBlocksInfo`).
+    CheckpointsUnused(SccpNetworkV1),
     /// No light client is installed for the network.
     NotInstalled(SccpNetworkV1),
     /// `InitializeLightClient` names an expectation the stored state does not meet (§4.14.3):
@@ -184,8 +189,6 @@ pub enum SccpLcError {
     Ethereum(EthereumLcError),
     /// BSC-specific verification failure.
     Bsc(BscLcError),
-    /// TRON-specific verification failure.
-    Tron(TronLcError),
     /// TON-specific verification failure.
     Ton(TonLcError),
 }
@@ -196,6 +199,11 @@ impl fmt::Display for SccpLcError {
             Self::UnsupportedNetwork(network) => write!(
                 formatter,
                 "no SCCP light client verifies {} in this release",
+                network.profile_key()
+            ),
+            Self::CheckpointsUnused(network) => write!(
+                formatter,
+                "the {} light client reads no checkpoints; trusted checkpoints are refused",
                 network.profile_key()
             ),
             Self::NetworkMismatch { expected, found } => write!(
@@ -278,7 +286,6 @@ impl fmt::Display for SccpLcError {
             }
             Self::Ethereum(error) => write!(formatter, "Ethereum light client: {error}"),
             Self::Bsc(error) => write!(formatter, "BSC light client: {error}"),
-            Self::Tron(error) => write!(formatter, "TRON light client: {error}"),
             Self::Ton(error) => write!(formatter, "TON light client: {error}"),
         }
     }
@@ -311,8 +318,6 @@ pub struct SccpVerifierWorkV1 {
     pub ethereum_light_client_updates: u32,
     /// BSC fast-finality vote attestations (each one fast-aggregate BLS check).
     pub bls_vote_attestations: u32,
-    /// secp256k1 recoveries (TRON headers).
-    pub secp256k1_recoveries: u32,
     /// Ed25519 signature checks (TON blocks).
     pub ed25519_signature_checks: u32,
 }
@@ -334,9 +339,6 @@ impl SccpVerifierWorkV1 {
             bls_vote_attestations: self
                 .bls_vote_attestations
                 .checked_add(other.bls_vote_attestations)?,
-            secp256k1_recoveries: self
-                .secp256k1_recoveries
-                .checked_add(other.secp256k1_recoveries)?,
             ed25519_signature_checks: self
                 .ed25519_signature_checks
                 .checked_add(other.ed25519_signature_checks)?,
@@ -347,10 +349,9 @@ impl SccpVerifierWorkV1 {
 /// Fail unless this release has a light client for `network`.
 fn ensure_supported(network: SccpNetworkV1) -> Result<(), SccpLcError> {
     match network {
-        SccpNetworkV1::EthereumMainnet
-        | SccpNetworkV1::BscMainnet
-        | SccpNetworkV1::TronMainnet
-        | SccpNetworkV1::TonMainnet => Ok(()),
+        SccpNetworkV1::EthereumMainnet | SccpNetworkV1::BscMainnet | SccpNetworkV1::TonMainnet => {
+            Ok(())
+        }
         SccpNetworkV1::SoraTaira => Err(SccpLcError::UnsupportedNetwork(network)),
     }
 }
@@ -386,7 +387,7 @@ fn u32_bound(value: u32) -> usize {
     usize::try_from(value).unwrap_or(usize::MAX)
 }
 
-/// Verify an `InitializeLightClient` bootstrap with the compiled profiles.
+/// Verify an `InitializeLightClient` bootstrap with the newest compiled profiles.
 ///
 /// See [`verify_bootstrap_with_profiles`].
 ///
@@ -400,7 +401,7 @@ pub fn verify_bootstrap(
     taira_now_ms: u64,
 ) -> Result<SccpLcInitialStateV1, SccpLcError> {
     verify_bootstrap_with_profiles(
-        SccpChainProfilesV1::compiled(),
+        SccpChainProfilesV1::latest(),
         network,
         params,
         bootstrap,
@@ -446,16 +447,13 @@ pub fn verify_bootstrap_with_profiles(
         SccpLcBootstrapDataV1::Bsc(bootstrap) => {
             bsc::verify_bootstrap(&profiles.bsc, params, &bootstrap, taira_now_ms)
         }
-        SccpLcBootstrapDataV1::Tron(bootstrap) => {
-            tron::verify_bootstrap(&profiles.tron, params, &bootstrap, taira_now_ms)
-        }
         SccpLcBootstrapDataV1::Ton(bootstrap) => {
             ton::verify_bootstrap(&profiles.ton, params, &bootstrap, taira_now_ms)
         }
     }
 }
 
-/// Check an enacted `InitializeLightClient` with the compiled profiles.
+/// Check an enacted `InitializeLightClient` with the newest compiled profiles.
 ///
 /// See [`initialize_light_client_with_profiles`].
 ///
@@ -471,7 +469,7 @@ pub fn initialize_light_client<V: SccpLcStateView + ?Sized>(
     taira_now_ms: u64,
 ) -> Result<SccpLcInitialStateV1, SccpLcError> {
     initialize_light_client_with_profiles(
-        SccpChainProfilesV1::compiled(),
+        SccpChainProfilesV1::latest(),
         view,
         network,
         expected,
@@ -517,7 +515,7 @@ pub fn initialize_light_client_with_profiles<V: SccpLcStateView + ?Sized>(
         (SccpLcInitExpectationV1::Absent, None) => None,
         (SccpLcInitExpectationV1::Unusable, Some(installed)) if installed.is_frozen() => None,
         (SccpLcInitExpectationV1::Unusable, Some(installed))
-            if is_aged_with_profiles(profiles, view, &installed, network, taira_now_ms)? =>
+            if is_installed_aged(profiles, view, &installed, network, taira_now_ms)? =>
         {
             Some(installed)
         }
@@ -532,9 +530,6 @@ pub fn initialize_light_client_with_profiles<V: SccpLcStateView + ?Sized>(
                 ethereum::aged_supersessions(&profiles.ethereum, view, &installed)?
             }
             SccpNetworkV1::BscMainnet => bsc::aged_supersessions(view, &installed),
-            SccpNetworkV1::TronMainnet => {
-                tron::aged_supersessions(&profiles.tron, view, &installed)?
-            }
             SccpNetworkV1::TonMainnet => ton::aged_supersessions(view, &installed),
             SccpNetworkV1::SoraTaira => return Err(SccpLcError::UnsupportedNetwork(network)),
         };
@@ -568,7 +563,7 @@ pub fn initialize_light_client_with_profiles<V: SccpLcStateView + ?Sized>(
     Ok(initial)
 }
 
-/// Apply an advance with the compiled profiles.
+/// Apply an advance with the newest compiled profiles.
 ///
 /// See [`apply_advance_with_profiles`].
 ///
@@ -582,7 +577,7 @@ pub fn apply_advance<V: SccpLcStateView + ?Sized>(
     taira_now_ms: u64,
 ) -> Result<SccpLcDeltaV1, SccpLcError> {
     apply_advance_with_profiles(
-        SccpChainProfilesV1::compiled(),
+        SccpChainProfilesV1::latest(),
         view,
         network,
         advance,
@@ -626,9 +621,6 @@ pub fn apply_advance_with_profiles<V: SccpLcStateView + ?Sized>(
         SccpLcAdvanceV1::Bsc(advance) => {
             bsc::apply_advance(&profiles.bsc, view, &light_client, &advance, taira_now_ms)
         }
-        SccpLcAdvanceV1::Tron(advance) => {
-            tron::apply_advance(&profiles.tron, view, &light_client, &advance, taira_now_ms)
-        }
         SccpLcAdvanceV1::Ton(advance) => {
             ton::apply_advance(&profiles.ton, view, &light_client, &advance, taira_now_ms)
         }
@@ -638,13 +630,10 @@ pub fn apply_advance_with_profiles<V: SccpLcStateView + ?Sized>(
         SccpLcAdvanceV1::Backfill {
             segment: SccpLcSegmentV1::Bsc(segment),
         } => bsc::apply_backfill(&profiles.bsc, view, &light_client, &segment, taira_now_ms),
-        SccpLcAdvanceV1::Backfill {
-            segment: SccpLcSegmentV1::Tron(segment),
-        } => tron::apply_backfill(&profiles.tron, view, &light_client, &segment, taira_now_ms),
     }
 }
 
-/// Verify an inbound or void proof with the compiled profiles.
+/// Verify an inbound or void proof with the newest compiled profiles.
 ///
 /// See [`verify_proof_with_profiles`].
 ///
@@ -658,7 +647,7 @@ pub fn verify_proof<V: SccpLcStateView + ?Sized>(
     taira_now_ms: u64,
 ) -> Result<SccpVerifiedProofV1, SccpLcError> {
     verify_proof_with_profiles(
-        SccpChainProfilesV1::compiled(),
+        SccpChainProfilesV1::latest(),
         view,
         network,
         proof,
@@ -702,16 +691,13 @@ pub fn verify_proof_with_profiles<V: SccpLcStateView + ?Sized>(
         SccpSourceProofV1::Bsc(proof) => {
             bsc::verify_proof(&profiles.bsc, view, &light_client, &proof, taira_now_ms)
         }
-        SccpSourceProofV1::Tron(proof) => {
-            tron::verify_proof(&profiles.tron, view, &light_client, &proof, taira_now_ms)
-        }
         SccpSourceProofV1::Ton(proof) => {
             ton::verify_proof(&profiles.ton, view, &proof, taira_now_ms)
         }
     }
 }
 
-/// Verify equivocation evidence with the compiled profiles.
+/// Verify equivocation evidence with the newest compiled profiles.
 ///
 /// See [`verify_equivocation_with_profiles`].
 ///
@@ -726,7 +712,7 @@ pub fn verify_equivocation<V: SccpLcStateView + ?Sized>(
     taira_now_ms: u64,
 ) -> Result<SccpLcFreezeReasonV1, SccpLcError> {
     verify_equivocation_with_profiles(
-        SccpChainProfilesV1::compiled(),
+        SccpChainProfilesV1::latest(),
         view,
         network,
         a,
@@ -780,16 +766,6 @@ pub fn verify_equivocation_with_profiles<V: SccpLcStateView + ?Sized>(
             (&second, b.as_bytes()),
             taira_now_ms,
         ),
-        (SccpLcEvidenceV1::Tron(first), SccpLcEvidenceV1::Tron(second)) => {
-            tron::verify_equivocation(
-                &profiles.tron,
-                view,
-                &light_client,
-                (&first, a.as_bytes()),
-                (&second, b.as_bytes()),
-                taira_now_ms,
-            )
-        }
         (SccpLcEvidenceV1::Ton(first), SccpLcEvidenceV1::Ton(second)) => ton::verify_equivocation(
             &profiles.ton,
             view,
@@ -804,9 +780,10 @@ pub fn verify_equivocation_with_profiles<V: SccpLcStateView + ?Sized>(
     }
 }
 
-/// Whether the installed light client has aged beyond its weak-subjectivity bound: its newest
-/// signing set is stale at `taira_now_ms`, so it cannot advance and needs re-initialization
-/// (`InitializeLightClient { expected: Unusable }`, §4.14.3).
+/// Whether the installed light client has aged beyond its weak-subjectivity bound, with the
+/// newest compiled profiles.
+///
+/// See [`is_aged_with_profiles`].
 ///
 /// # Errors
 ///
@@ -816,19 +793,29 @@ pub fn is_aged<V: SccpLcStateView + ?Sized>(
     network: SccpNetworkV1,
     taira_now_ms: u64,
 ) -> Result<bool, SccpLcError> {
+    is_aged_with_profiles(SccpChainProfilesV1::latest(), view, network, taira_now_ms)
+}
+
+/// Whether the installed light client has aged beyond its weak-subjectivity bound: its newest
+/// signing set is stale at `taira_now_ms`, so it cannot advance and needs re-initialization
+/// (`InitializeLightClient { expected: Unusable }`, §4.14.3).
+///
+/// # Errors
+///
+/// Returns [`SccpLcError::NotInstalled`] or [`SccpLcError::UnsupportedNetwork`].
+pub fn is_aged_with_profiles<V: SccpLcStateView + ?Sized>(
+    profiles: &SccpChainProfilesV1,
+    view: &V,
+    network: SccpNetworkV1,
+    taira_now_ms: u64,
+) -> Result<bool, SccpLcError> {
     let light_client = view
         .light_client(network)
         .ok_or(SccpLcError::NotInstalled(network))?;
-    is_aged_with_profiles(
-        SccpChainProfilesV1::compiled(),
-        view,
-        &light_client,
-        network,
-        taira_now_ms,
-    )
+    is_installed_aged(profiles, view, &light_client, network, taira_now_ms)
 }
 
-fn is_aged_with_profiles<V: SccpLcStateView + ?Sized>(
+fn is_installed_aged<V: SccpLcStateView + ?Sized>(
     profiles: &SccpChainProfilesV1,
     view: &V,
     light_client: &SccpLightClientV1,
@@ -842,7 +829,6 @@ fn is_aged_with_profiles<V: SccpLcStateView + ?Sized>(
             taira_now_ms,
         )),
         SccpNetworkV1::BscMainnet => Ok(bsc::is_aged(light_client, taira_now_ms)),
-        SccpNetworkV1::TronMainnet => Ok(tron::is_aged(&profiles.tron, light_client, taira_now_ms)),
         SccpNetworkV1::TonMainnet => Ok(ton::is_aged(
             &profiles.ton,
             view,
@@ -853,8 +839,9 @@ fn is_aged_with_profiles<V: SccpLcStateView + ?Sized>(
     }
 }
 
-/// Taira time from which the newest signing set of the installed light client is stale (the
-/// weak-subjectivity deadline Torii reports and wallets check before burning, §4.13.4, §7.2).
+/// Weak-subjectivity deadline of the installed light client with the newest compiled profiles.
+///
+/// See [`weak_subjectivity_deadline_ms_with_profiles`].
 ///
 /// # Errors
 ///
@@ -863,16 +850,26 @@ pub fn weak_subjectivity_deadline_ms<V: SccpLcStateView + ?Sized>(
     view: &V,
     network: SccpNetworkV1,
 ) -> Result<u64, SccpLcError> {
+    weak_subjectivity_deadline_ms_with_profiles(SccpChainProfilesV1::latest(), view, network)
+}
+
+/// Taira time from which the newest signing set of the installed light client is stale (the
+/// weak-subjectivity deadline Torii reports and wallets check before burning, §4.13.4, §7.2).
+///
+/// # Errors
+///
+/// Returns [`SccpLcError::NotInstalled`] or [`SccpLcError::UnsupportedNetwork`].
+pub fn weak_subjectivity_deadline_ms_with_profiles<V: SccpLcStateView + ?Sized>(
+    profiles: &SccpChainProfilesV1,
+    view: &V,
+    network: SccpNetworkV1,
+) -> Result<u64, SccpLcError> {
     let light_client = view
         .light_client(network)
         .ok_or(SccpLcError::NotInstalled(network))?;
     ensure_supported(network)?;
-    let profiles = SccpChainProfilesV1::compiled();
     Ok(match network {
         SccpNetworkV1::BscMainnet => bsc::weak_subjectivity_deadline_ms(&light_client),
-        SccpNetworkV1::TronMainnet => {
-            tron::weak_subjectivity_deadline_ms(&profiles.tron, &light_client)
-        }
         SccpNetworkV1::TonMainnet => {
             ton::weak_subjectivity_deadline_ms(&profiles.ton, view, &light_client)
         }
@@ -882,15 +879,18 @@ pub fn weak_subjectivity_deadline_ms<V: SccpLcStateView + ?Sized>(
 
 /// Check an enacted `InstallTrustedCheckpoint` (§4.14.3) and return the checkpoint to write.
 ///
-/// The light client must be installed (frozen or aged is allowed: the action recovers burns),
+/// TON is refused: its light client reads no checkpoints (old masterchain blocks are reached
+/// through `OldMcBlocksInfo`), so a checkpoint would recover nothing. Otherwise the light client
+/// must be installed (frozen or aged is allowed: the action recovers burns),
 /// the block hash and root must be nonzero, and a stored checkpoint at the same height must
 /// describe the same block ([`state::same_checkpoint_block`]). The result has `origin: Parliament`, so an identical stored checkpoint is
 /// upgraded to a permanent one. The weak-subjectivity bound does not apply.
 ///
 /// # Errors
 ///
-/// Returns [`SccpLcError::NotInstalled`], [`SccpLcError::MalformedFrame`] for a zero hash or
-/// root, or [`SccpLcError::ConflictsWithStoredData`].
+/// Returns [`SccpLcError::CheckpointsUnused`] for TON, [`SccpLcError::NotInstalled`],
+/// [`SccpLcError::MalformedFrame`] for a zero hash or root, or
+/// [`SccpLcError::ConflictsWithStoredData`].
 pub fn verify_trusted_checkpoint<V: SccpLcStateView + ?Sized>(
     view: &V,
     network: SccpNetworkV1,
@@ -899,6 +899,9 @@ pub fn verify_trusted_checkpoint<V: SccpLcStateView + ?Sized>(
 ) -> Result<SccpLcCheckpointV1, SccpLcError> {
     if !network.is_external() {
         return Err(SccpLcError::UnsupportedNetwork(network));
+    }
+    if network == SccpNetworkV1::TonMainnet {
+        return Err(SccpLcError::CheckpointsUnused(network));
     }
     view.light_client(network)
         .ok_or(SccpLcError::NotInstalled(network))?;
@@ -936,7 +939,6 @@ pub fn advance_work(
     Ok(match &decoded {
         SccpLcAdvanceV1::Ethereum(advance) => ethereum::advance_work(advance),
         SccpLcAdvanceV1::Bsc(advance) => bsc::advance_work(advance),
-        SccpLcAdvanceV1::Tron(advance) => tron::advance_work(advance),
         SccpLcAdvanceV1::Ton(advance) => ton::advance_work(advance),
         SccpLcAdvanceV1::Backfill {
             segment: SccpLcSegmentV1::Ethereum(segment),
@@ -944,9 +946,6 @@ pub fn advance_work(
         SccpLcAdvanceV1::Backfill {
             segment: SccpLcSegmentV1::Bsc(segment),
         } => bsc::segment_work(segment),
-        SccpLcAdvanceV1::Backfill {
-            segment: SccpLcSegmentV1::Tron(segment),
-        } => tron::segment_work(segment),
     }
     .with_frame_bytes(advance.len()))
 }
@@ -966,7 +965,6 @@ pub fn proof_work(
     Ok(match &decoded {
         SccpSourceProofV1::Ethereum(proof) => ethereum::proof_work(proof),
         SccpSourceProofV1::Bsc(proof) => bsc::proof_work(proof),
-        SccpSourceProofV1::Tron(proof) => tron::proof_work(proof),
         SccpSourceProofV1::Ton(proof) => ton::proof_work(proof),
     }
     .with_frame_bytes(proof.len()))
@@ -990,7 +988,6 @@ pub fn evidence_work(
         let work = match &decoded {
             SccpLcEvidenceV1::Ethereum(record) => ethereum::evidence_work(record),
             SccpLcEvidenceV1::Bsc(record) => bsc::evidence_work(record),
-            SccpLcEvidenceV1::Tron(record) => tron::evidence_work(record),
             SccpLcEvidenceV1::Ton(record) => ton::evidence_work(record),
         }
         .with_frame_bytes(evidence.len());
@@ -1020,13 +1017,22 @@ mod tests {
             native_header_bytes: 20,
             ethereum_light_client_updates: 3,
             bls_vote_attestations: 7,
-            secp256k1_recoveries: 4,
             ed25519_signature_checks: 5,
         };
         let two = one.checked_add(&one).expect("no overflow");
-        assert_eq!(two.proofs, 2);
-        assert_eq!(two.bls_vote_attestations, 14);
-        assert_eq!(two.ed25519_signature_checks, 10);
+        assert_eq!(
+            two,
+            SccpVerifierWorkV1 {
+                proofs: 2,
+                proof_bytes: 20,
+                native_headers: 4,
+                native_header_bytes: 40,
+                ethereum_light_client_updates: 6,
+                bls_vote_attestations: 14,
+                ed25519_signature_checks: 10,
+            },
+            "one category per [zk.sccp] limit; no secp256k1-recovery category exists"
+        );
         let full = SccpVerifierWorkV1 {
             proofs: u32::MAX,
             ..SccpVerifierWorkV1::default()
@@ -1147,6 +1153,30 @@ mod tests {
         assert_eq!(
             verify_trusted_checkpoint(&memory, SccpNetworkV1::SoraTaira, &data, 6),
             Err(SccpLcError::UnsupportedNetwork(SccpNetworkV1::SoraTaira))
+        );
+        // TON reads no checkpoints, installed or not.
+        let ton = SccpNetworkV1::TonMainnet;
+        memory.install(
+            ton,
+            &state::SccpLcInitialStateV1 {
+                light_client: SccpLightClientV1 {
+                    params: SccpLightClientParamsV1::defaults_for(ton).expect("external"),
+                    ..memory.light_client(network).expect("installed")
+                },
+                purge: SccpLcPurgeV1::DiscardUnvetted,
+                superseded_sets: Vec::new(),
+                sets: Vec::new(),
+                checkpoints: Vec::new(),
+            },
+        );
+        assert_eq!(
+            verify_trusted_checkpoint(&memory, ton, &data, 6),
+            Err(SccpLcError::CheckpointsUnused(ton))
+        );
+        assert!(
+            SccpLcError::CheckpointsUnused(ton)
+                .to_string()
+                .contains("reads no checkpoints")
         );
         let deadline = weak_subjectivity_deadline_ms(&memory, network).expect("installed");
         assert_eq!(

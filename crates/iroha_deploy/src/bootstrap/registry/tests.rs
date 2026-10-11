@@ -4,7 +4,7 @@ use std::{cell::Cell, num::NonZeroU64};
 
 use iroha_crypto::{Algorithm, ExposedPrivateKey, KeyPair};
 use iroha_data_model::sumeragi_finality::{
-    SumeragiFinalityAttestation, SumeragiFinalityProof, test_fixtures::NativeFinalityFixture,
+    SumeragiFinalityProof, test_fixtures::NativeFinalityFixture,
 };
 use iroha_model_base::peer::PeerId;
 
@@ -24,7 +24,7 @@ impl FinalitySource for Offline {
         &self,
         _: &PeerId,
         _: &[u8; 32],
-    ) -> std::io::Result<SumeragiFinalityAttestation> {
+    ) -> std::io::Result<crate::verify::finality::FinalityAttestation> {
         self.0.set(self.0.get() + 1);
         Err(std::io::Error::other("offline"))
     }

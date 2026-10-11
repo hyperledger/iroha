@@ -27,7 +27,7 @@ use iroha_crypto::{ChargedPublicKey, Hash, PublicKey, PublicKeyAllocationError};
 use iroha_data_model::{
     block::{
         BlockHeader,
-        consensus::{Evidence, EvidencePenaltyStatus, EvidenceRecord, EvidenceScope},
+        consensus::{Evidence, EvidencePenaltyStatus, EvidenceScope},
     },
     consensus::{
         NposConsensusEffects, NposConsensusSlashAction, NposMarkConsensusEvidenceAppliedAction,
@@ -399,7 +399,7 @@ impl<'a> PenaltyApplier<'a> {
                 world,
             )?
             .ok_or_else(|| eyre!("NPoS penalty derivation requires signed NPoS parameters"))?;
-        let due = |record: &EvidenceRecord| {
+        let due = |record: &crate::state::RetainedEvidenceRecord| {
             let admitted_at = if cfg!(all(test, sumeragi_core_mutation = "HC3"))
                 && matches!(record.attribution.scope, EvidenceScope::Lane(_))
             {
@@ -470,6 +470,30 @@ impl<'a> PenaltyApplier<'a> {
                 let charge = peer_key_reservation
                     .try_split(layout)
                     .map_err(|_| EvidencePreparationError::Invariant)?;
+                let owned = offender
+                    .peer_id
+                    .public_key()
+                    .try_clone_from_charge(budget, charge)
+                    .map_err(|(_charge, error)| match error {
+                        PublicKeyAllocationError::Allocation(
+                            ChargedBufferFromChargeError::Allocator { layout },
+                        ) => {
+                            if cfg!(all(test, sumeragi_core_mutation = "HC160")) {
+                                EvidencePreparationError::Invariant
+                            } else {
+                                EvidencePreparationError::Allocator {
+                                    requested_bytes: layout.size(),
+                                }
+                            }
+                        }
+                        _ => EvidencePreparationError::Invariant,
+                    })?;
+                // SAFETY: the immutable compact key moves immediately into the
+                // existing move-only pending tuple with its exact original charge.
+                // PeerId precedes the charge, so refusal, unwind and final drop
+                // destroy the actual compact Box before refunding its credit.
+                #[allow(unsafe_code)]
+                let (peer_key, charge) = unsafe { owned.into_allocation_parts() };
                 pending
                     .try_push(PendingPenaltyEvidence((
                         *key,
@@ -479,7 +503,7 @@ impl<'a> PenaltyApplier<'a> {
                         record.attribution.instance,
                         Some((
                             offender.signer,
-                            offender.peer_id.clone(),
+                            PeerId::new(peer_key),
                             offender.lane_stake,
                             charge,
                         )),
@@ -903,14 +927,7 @@ fn apply_npos_consensus_effects_to_transaction_inner(
         }
         tx.world.consensus_evidence.insert(
             key,
-            EvidenceRecord {
-                evidence: evidence.clone(),
-                attribution: admitted.attribution().clone(),
-                recorded_at_height: current_height,
-                recorded_at_view: current_view,
-                recorded_at_ms: now_ms,
-                penalty_status: EvidencePenaltyStatus::Pending,
-            },
+            admitted.record(evidence, current_height, current_view, now_ms)?,
         );
     }
     for action in &effects.penalty_actions {
@@ -1170,7 +1187,6 @@ pub(crate) fn seed_penalty_validator_for_tests(
                     activation_height: 1,
                     election_exit_height: None,
                     deactivation_height: None,
-                    last_reward_epoch: None,
                 },
             )
             .is_none(),
@@ -1390,10 +1406,8 @@ mod tests {
                 view,
                 block_hash: Hash32([seed; 32]),
                 result: Hash32([0x43; 32]),
-                attest: false,
                 signer,
                 sig: NativeSignature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
-                attestation: None,
             };
             vote.sig = NativeSignature(
                 Signature::new(keys[signer as usize].private_key(), &vote.preimage())
@@ -1446,6 +1460,11 @@ mod tests {
             penalty_status: EvidencePenaltyStatus::Pending,
         };
         let mut block = state.world.consensus_evidence.block();
+        let record = crate::state::RetainedEvidenceRecord::from_fixture(
+            record,
+            &state.ivm_execution_budget(),
+        )
+        .unwrap();
         block.insert(key, record);
         block.commit();
         key
@@ -2897,6 +2916,132 @@ mod tests {
     }
 
     #[test]
+    fn pending_penalty_peer_key_allocator_refusal_preserves_original_source_and_retries() {
+        let state = native_penalty_state();
+        install_one_block_delay_npos(&state);
+        let due = insert_evidence(&state, fixture_vote_evidence(1, 0), 1);
+        let view = state.view();
+        let original = view
+            .world()
+            .consensus_evidence()
+            .get(&due)
+            .expect("original accepted evidence row");
+        assert_eq!(original.attribution.offenders.len(), 1);
+        let offender = &original.attribution.offenders[0];
+        let original_peer = &offender.peer_id;
+        let original_pointer = original_peer
+            .public_key()
+            .borrowed_parts()
+            .expect("original canonical compact key")
+            .1
+            .as_ptr();
+        let layout = pending_peer_key_layout(original_peer).expect("exact original key layout");
+        assert_eq!(
+            layout,
+            original_peer.public_key().retained_allocation_layout()
+        );
+        let budget = state.evidence_preparation_budget();
+        let stake_budget = state.stake_index_budget();
+        let baseline = budget.reserved_bytes();
+        let stake_baseline = stake_budget.reserved_bytes();
+
+        // Exercise the real allocation after exact original-pool admission. Ordinary
+        // PeerId::clone would abort here; a charged fallible copy returns this layout.
+        let (result, refused) = crate::test_allocations::refuse_one_layout_during(layout, || {
+            PenaltyApplier::parent_snapshot(&view, 2, budget, stake_budget)
+        });
+        assert!(
+            refused,
+            "the actual compact key allocation must be attempted"
+        );
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("physical key refusal must not complete pending penalty metadata"),
+        };
+        let refusal = error
+            .downcast_ref::<EvidencePreparationError>()
+            .expect("physical refusal retains its original local preparation cause");
+        assert!(matches!(
+            refusal,
+            EvidencePreparationError::Allocator { requested_bytes }
+                if *requested_bytes == layout.size()
+        ));
+        assert!(
+            refusal.release_wait().is_none(),
+            "allocator refusal has no invented pool wake"
+        );
+        drop(error);
+        assert_eq!(budget.reserved_bytes(), baseline);
+        assert_eq!(stake_budget.reserved_bytes(), stake_baseline);
+        assert_eq!(view.height(), 1);
+        assert_eq!(original.penalty_status, EvidencePenaltyStatus::Pending);
+        assert_eq!(view.world().consensus_evidence().get(&due), Some(original));
+        assert_eq!(
+            original_peer
+                .public_key()
+                .borrowed_parts()
+                .unwrap()
+                .1
+                .as_ptr(),
+            original_pointer,
+            "physical refusal must retain the same original key allocation"
+        );
+
+        let snapshot = PenaltyApplier::parent_snapshot(&view, 2, budget, stake_budget)
+            .expect("the same original source retries after physical allocation is restored");
+        assert!(snapshot.validator_map.rows.as_slice().is_empty());
+        assert!(
+            snapshot
+                .validator_map
+                ._account_charges
+                .as_slice()
+                .is_empty()
+        );
+        assert_eq!(snapshot.pending.as_slice().len(), 1);
+        let retained = &snapshot.pending.as_slice()[0].0;
+        assert_eq!(retained.0, due);
+        assert_eq!(retained.1, original.attribution.scope);
+        assert_eq!(retained.2, original.attribution.height);
+        assert_eq!(retained.3, original.recorded_at_height);
+        assert_eq!(retained.4, original.attribution.instance);
+        let (signer, peer, lane_stake, charge) = retained.5.as_ref().expect("actual retained key");
+        assert_eq!(*signer, offender.signer);
+        assert_eq!(peer, original_peer);
+        assert_eq!(*lane_stake, offender.lane_stake);
+        assert!(charge.belongs_to(budget));
+        assert_eq!(charge.layout(), layout);
+        assert_eq!(peer.public_key().retained_allocation_layout(), layout);
+        assert_ne!(
+            peer.public_key().borrowed_parts().unwrap().1.as_ptr(),
+            original_pointer
+        );
+        assert_eq!(
+            budget.reserved_bytes(),
+            baseline + std::mem::size_of::<PendingPenaltyEvidence>() + layout.size(),
+            "the actual pending buffer and copied compact key retain exact original charges"
+        );
+        assert_eq!(stake_budget.reserved_bytes(), stake_baseline);
+        drop(snapshot);
+        assert_eq!(
+            budget.reserved_bytes(),
+            baseline,
+            "last-owner drop refunds actual pending fields"
+        );
+        assert_eq!(stake_budget.reserved_bytes(), stake_baseline);
+        assert_eq!(view.world().consensus_evidence().get(&due), Some(original));
+        assert_eq!(
+            original_peer
+                .public_key()
+                .borrowed_parts()
+                .unwrap()
+                .1
+                .as_ptr(),
+            original_pointer
+        );
+        assert_eq!(view.height(), 1);
+    }
+
+    #[test]
     fn pending_penalty_peer_key_refusal_preserves_source_and_retries_after_original_release() {
         use iroha_allocation::AllocationRefusal;
 
@@ -3579,10 +3724,13 @@ mod tests {
         .unwrap();
         let key = insert_evidence(&state, proof, 21);
         let mut rows = state.world.consensus_evidence.block();
-        let mut row = rows.get(&key).unwrap().clone();
+        let mut row = rows.get(&key).unwrap().canonical_projection();
         row.attribution.scope = EvidenceScope::Lane(scope);
         row.attribution.height = 1_000; // Native lane clock, intentionally above global carrier.
         row.attribution.offenders[0].lane_stake = bound.then_some(binding);
+        let row =
+            crate::state::RetainedEvidenceRecord::from_fixture(row, &state.ivm_execution_budget())
+                .unwrap();
         rows.insert(key, row);
         rows.commit();
         (state, key, validator)

@@ -110,15 +110,15 @@ fn ordinary_scalar_decoder_probes_exact_native_digits_without_negative_byte_scra
 fn archived_bigint_retains_original_allocation_refusal_and_retries_same_quantity_source() {
     use crate::numeric::{Numeric, Quantity};
 
+    #[repr(align(8))]
+    struct AlignedSource([u8; 64]);
+
     let _flags = ncore::DecodeFlagsGuard::enter(0);
     let mantissa = BigInt::from(1_u128 << 127);
-    let field_charge = core::mem::size_of::<u32>() + mantissa.to_twos_bytes().len();
     let native_charge = mantissa.admission_clone_layout().unwrap().size();
     let expected = Quantity::try_from(Numeric::try_new(mantissa, 1).unwrap()).unwrap();
     let mut bytes = Vec::new();
     ncore::serialize_to_buffer(&expected, &mut bytes).unwrap();
-    #[repr(align(8))]
-    struct AlignedSource([u8; 64]);
     let mut aligned = AlignedSource([0; 64]);
     aligned.0[..bytes.len()].copy_from_slice(&bytes);
     let source = &aligned.0[..bytes.len()];
@@ -127,8 +127,15 @@ fn archived_bigint_retains_original_allocation_refusal_and_retries_same_quantity
         (pointer.addr() + core::mem::size_of::<u64>())
             .is_multiple_of(ncore::archived_payload_align::<BigInt>())
     );
-    let limits =
-        ncore::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, field_charge, usize::MAX);
+    // Borrowed framing charges no storage. Refuse the actual native digits before
+    // their allocation; the nested canonical limit must not replenish this scope.
+    let limits = ncore::DecodeLimits::new(
+        usize::MAX,
+        usize::MAX,
+        usize::MAX,
+        native_charge - 1,
+        usize::MAX,
+    );
     let error = ncore::with_decode_limits_scope(limits, || {
         ncore::classify_decode_attempt(|| {
             ncore::with_decode_limits(norito::canonical_decode_limits(source.len()), || {
@@ -142,7 +149,7 @@ fn archived_bigint_retains_original_allocation_refusal_and_retries_same_quantity
     assert!(matches!(
         original.decode_resource_error(),
         Some(ncore::DecodeResourceError::TotalAllocationExceeded { attempted, limit })
-            if attempted == (field_charge + native_charge) as u64 && limit == field_charge as u64
+            if attempted == native_charge as u64 && limit == (native_charge - 1) as u64
     ));
     assert_eq!(source, bytes);
     assert_eq!(source.as_ptr(), pointer);

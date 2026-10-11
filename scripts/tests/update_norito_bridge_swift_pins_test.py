@@ -224,11 +224,13 @@ def validate(
             )
         payload = {
             "version": "1.0.0",
-            "native_bridge_abi_version": 25,
+            "native_bridge_abi_version": 29,
             "privacy_production_enabled": True,
             "cargo_features": ["privacy-production-enabled"],
             "build_environment": {
                 "schema": "iroha.mobile-native-build-environment.v1",
+                "wallet_runtime_authority": "cbsi-release-v1",
+                "wallet_runtime_trust_ed25519_hex": "3" * 64,
                 "hermetic_runner_schema": "iroha.mobile-hermetic-command.v1",
                 "hermetic_runner_sha256": hashlib.sha256(
                     (scripts / "run_mobile_hermetic_command.py").read_bytes()

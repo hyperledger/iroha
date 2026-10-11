@@ -17,7 +17,7 @@ pub(super) struct CommittedRead {
     budget: AllocationBudget,
     crypto: SharedCrypto,
     schedule: Arc<dyn AvailabilitySchedule>,
-    verifier: Arc<dyn AttestationVerifier + Send + Sync>,
+
     phase: Phase,
 }
 impl CommittedRead {
@@ -27,7 +27,6 @@ impl CommittedRead {
         budget: AllocationBudget,
         crypto: SharedCrypto,
         schedule: Arc<dyn AvailabilitySchedule>,
-        verifier: Arc<dyn AttestationVerifier + Send + Sync>,
     ) -> Self {
         Self {
             height,
@@ -35,7 +34,6 @@ impl CommittedRead {
             budget,
             crypto,
             schedule,
-            verifier,
         }
     }
     pub(super) fn height(&self) -> u64 {
@@ -45,7 +43,7 @@ impl CommittedRead {
     #[cfg(test)]
     pub(super) fn retained_certificate_owners_for_test(
         &self,
-    ) -> Option<(*const SignedBlock, Option<*const u8>, Option<*const u8>)> {
+    ) -> Option<(*const SignedBlock, Option<*const u8>)> {
         match &self.phase {
             Phase::Certificate(job) => Some(job.retained_owners_for_test()),
             _ => None,
@@ -73,7 +71,6 @@ impl CommittedRead {
                     let source = match certified_source(
                         &*self.schedule,
                         &*self.crypto,
-                        &*self.verifier,
                         self.height,
                         &decoded.header,
                         &decoded.commit_qc,
@@ -125,7 +122,7 @@ impl CommittedRead {
 pub(super) fn certified_source(
     schedule: &dyn AvailabilitySchedule,
     crypto: &dyn iroha_sumeragi::crypto::Crypto,
-    attestations: &dyn AttestationVerifier,
+
     height: u64,
     header: &BlockHeader,
     qc: &Qc,
@@ -137,11 +134,9 @@ pub(super) fn certified_source(
     let config = schedule
         .height_config(height)?
         .ok_or_else(|| busy("authenticated historical authority unavailable"))?;
-    if !Verifier::new(crypto, &instance, &config.epoch.id, &config.committee).verify_commit_qc(
-        attestations,
-        qc,
-        Some(header),
-    ) {
+    if !Verifier::new(crypto, &instance, &config.epoch.id, &config.committee)
+        .verify_commit_qc(qc, Some(header))
+    {
         return Err(invalid("original commit certificate does not verify").into());
     }
     AvailabilitySource::new(instance, height, qc.block_hash, config)

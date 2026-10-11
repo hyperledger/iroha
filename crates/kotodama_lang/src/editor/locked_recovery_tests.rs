@@ -3,16 +3,16 @@ use super::*;
 use crate::linker::{SourceModuleUnit, SourcePackageUnit};
 
 fn request(member: &str, ty: &str) -> SourceLinkRequest {
-    SourceLinkRequest { sources: Vec::new(),
+    SourceLinkRequest { artifacts: Vec::new(), sources: Vec::new(),
         root: SourceModuleUnit {
             source_name: "app.ko".into(),
-            source: format!("誓約 App {{ view fn read(rows::{ty} row) -> int {{ row.{member} }} }}"),
+            source: format!("誓約 App {{ view fn read(rows::{ty} row) authorize(anyone) -> int {{ row.{member} }} }}"),
         },
         imports: vec![ImportBinding {
             alias: "rows".into(),
             package: "local/rows@1".into(),
         }],
-        packages: vec![SourcePackageUnit { sources: Vec::new(),
+        packages: vec![SourcePackageUnit { artifacts: Vec::new(), sources: Vec::new(),
             identity: "local/rows@1".into(),
             modules: vec![SourceModuleUnit {
                 source_name: "model.ko".into(),
@@ -44,8 +44,12 @@ fn assert_receiver_fields(request: &SourceLinkRequest, package: Option<&str>, so
             .iter()
             .map(|candidate| candidate.label.as_str())
             .collect::<BTreeSet<_>>(),
-        BTreeSet::from(["amount", "memo"]),
-        "completion must use the imported receiver, not globals or hidden exports"
+        if package == Some("local/adapter@1") {
+            BTreeSet::from(["amount", "inspect", "memo"])
+        } else {
+            BTreeSet::from(["amount", "memo"])
+        },
+        "completion must include exact imported fields and matching local receiver helpers"
     );
     assert_eq!(
         candidates
@@ -96,13 +100,14 @@ fn incomplete_graph_uses_the_linkers_canonical_source_names() {
 fn incomplete_package_receivers_use_their_own_imports_and_source_identity() {
     for member in ["", "am"] {
         let mut request = request(member, "Row");
-        request.root.source = "seiyaku App { view fn read() -> int { 7 } }".into();
+        request.root.source =
+            "seiyaku App { view fn read() authorize(anyone) -> int { 7 } }".into();
         request.root.source_name = "model.ko".into();
         request.imports = vec![ImportBinding {
             alias: "adapter".into(),
             package: "local/adapter@1".into(),
         }];
-        request.packages.push(SourcePackageUnit {
+        request.packages.push(SourcePackageUnit { artifacts: Vec::new(),
             sources: Vec::new(),
             identity: "local/adapter@1".into(),
             modules: vec![SourceModuleUnit {

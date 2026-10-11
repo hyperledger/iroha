@@ -1648,6 +1648,7 @@ fn private_receipt_commit_requires_exact_canonical_success() {
         block_height: 7,
         scope: "global".into(),
         resolved_from: "state".into(),
+        charge: None,
     };
     let receipt = norito::json!({ "commit": (json::to_value(&commit).unwrap()) });
     assert_eq!(receipt_commit(&receipt).unwrap(), commit);
@@ -1968,13 +1969,13 @@ fn installed_cli_fixture_admits_only_two_programs_and_colocated_profiles() {
         fixture_bundle_directory(&root, &KagamiBundleLayout::runtime_directory(root.path()))
             .unwrap();
     for program in ["kagami", "iroha3d"] {
-        runtime
-            .write_atomic(
-                format!("{program}{}", std::env::consts::EXE_SUFFIX),
-                b"native runtime admission fixture",
-                PublishMode::CreateNew,
-            )
-            .unwrap();
+        std::fs::copy(
+            std::env::current_exe().unwrap(),
+            runtime
+                .path()
+                .join(format!("{program}{}", std::env::consts::EXE_SUFFIX)),
+        )
+        .unwrap();
     }
     let installed = InstalledRuntime::from_directory(runtime.path()).unwrap();
     let profiles = InstalledNetworkProfiles::new(Vec::new()).unwrap();

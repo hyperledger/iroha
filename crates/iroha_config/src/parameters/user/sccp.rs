@@ -1,18 +1,13 @@
-//! User view of the node-local SCCP configuration: `[sccp.attestor]` and
-//! `[sccp.light_client_keeper]` (`specs/sccp.md` §4.9, §4.13.4).
+//! User view of the node-local SCCP configuration: `[sccp.keeper]` and
+//! `[sccp.light_client_keeper]` (`specs/sccp.md` §4.13.4).
 //!
 //! The tables are file-only (no environment aliases), and every field has a default that works
-//! without editing: an empty `key_dir` derives `<kura.store_dir>/sccp/bridge-keys` like the
+//! without editing: an empty `key_dir` derives `<kura.store_dir>/sccp/keeper-key` like the
 //! default snapshot store directory, and an empty endpoint list selects the compiled public
-//! list. Parsing checks syntax only; owner-only file checks happen at runtime in the attestor,
-//! the keeper and the RPC crate.
+//! list. Parsing checks syntax only; owner-only file checks happen at runtime in the keeper and
+//! the RPC crate.
 
-use std::{
-    collections::BTreeSet,
-    num::{NonZeroU32, NonZeroU64, NonZeroUsize},
-    path::PathBuf,
-    time::Duration,
-};
+use std::{collections::BTreeSet, num::NonZeroUsize, path::PathBuf, time::Duration};
 
 use error_stack::Report;
 use iroha_config_base::{
@@ -32,10 +27,10 @@ const fn ms(millis: u64) -> DurationMs {
 /// `[sccp]`: node-local SCCP components.
 #[derive(Debug, Clone, ReadConfig)]
 pub struct SccpNode {
-    /// `[sccp.attestor]`: the in-node bridge-key attestor (§4.9).
+    /// `[sccp.keeper]`: the in-node keeper and its keeper key (§4.13.4).
     #[config(nested)]
-    pub attestor: SccpAttestor,
-    /// `[sccp.light_client_keeper]`: the in-node inbound light-client keeper (§4.13.4).
+    pub keeper: SccpKeeper,
+    /// `[sccp.light_client_keeper]`: the keeper's light-client advance duty (§4.13.4).
     #[config(nested)]
     pub light_client_keeper: SccpLightClientKeeper,
 }
@@ -49,122 +44,104 @@ impl SccpNode {
         emitter: &mut Emitter<ParseError>,
     ) -> actual::SccpNode {
         actual::SccpNode {
-            attestor: self.attestor.parse(kura_store_dir, emitter),
+            keeper: self.keeper.parse(kura_store_dir, emitter),
             light_client_keeper: self.light_client_keeper.parse(emitter),
         }
     }
 }
 
-/// `[sccp.attestor]`: the in-node bridge-key attestor (§4.9).
+/// `[sccp.keeper]`: the in-node keeper (§4.13.4).
 ///
-/// It is enabled by default and needs no operator input: a validator installs, starts and
-/// leaves exactly as it would without SCCP.
+/// It is enabled by default and needs no operator input. The keeper signs with a node-local
+/// Ed25519 keeper key that it generates on first start; the key is neither registered nor
+/// funded, because every transaction the keeper submits is fee-exempt on success (§4.19).
 #[derive(Debug, Clone, ReadConfig)]
-pub struct SccpAttestor {
-    /// Run the attestor (default `true`). If the key directory is unusable the attestor is
-    /// inert and health reports `sccp_attestor_unconfigured`; the node itself does not abort.
-    #[config(default = "defaults::sccp::attestor::ENABLED")]
+pub struct SccpKeeper {
+    /// Run the keeper (default `true`). If the key directory is unusable the keeper is inert
+    /// and health reports `sccp_keeper_unconfigured`; the node itself does not abort.
+    #[config(default = "defaults::sccp::keeper::ENABLED")]
     pub enabled: bool,
-    /// Bridge-key directory. Empty (the default) means `<kura.store_dir>/sccp/bridge-keys`.
-    /// A relative path resolves against the configuration file. The directory is created
-    /// `0700`; each key is one owner-only `0600` regular file `<address-hex>.key`, and
-    /// symlinks and other modes are refused. An operator MAY point it elsewhere or pre-place a
-    /// key file there; that override is the only optional step.
+    /// Keeper-key directory. Empty (the default) means `<kura.store_dir>/sccp/keeper-key`. A
+    /// relative path resolves against the configuration file. The directory is created `0700`
+    /// and holds the keeper key as one owner-only `0600` regular file; symlinks and other
+    /// modes are refused.
     #[config(default = "PathBuf::new()")]
     pub key_dir: WithOrigin<PathBuf>,
-    /// Submit `SetSccpBridgeKeyV1` automatically (default `true`) while the node is a
-    /// registered, non-barred validator and no active or pending key of its peer equals its
-    /// newest local key; retried once per epoch until the key is pending or active.
-    #[config(default = "defaults::sccp::attestor::AUTO_REGISTER")]
-    pub auto_register: bool,
-    /// Entries per `SubmitSccpAttestationsV1` transaction (default `64`, `1..=1024`). The
-    /// node also caps it at runtime by the on-chain `max_attestation_entries_per_instruction`.
-    #[config(default = "defaults::sccp::attestor::MAX_ENTRIES_PER_TRANSACTION")]
-    pub max_entries_per_transaction: u32,
-    /// Blocks after which entries that are still unrecorded are resubmitted (default `3`,
-    /// at least `1`).
-    #[config(default = "defaults::sccp::attestor::RESUBMIT_AFTER_BLOCKS")]
-    pub resubmit_after_blocks: u64,
-    /// Refuse to sign a rotation subject whose `timestamp_ms` exceeds the local wall clock by
-    /// more than this many milliseconds (default `3600000`), because a future-dated rotation
-    /// would extend roster validity on destinations.
-    #[config(default = "ms(defaults::sccp::attestor::MAX_CLOCK_DRIFT_MS)")]
-    pub max_clock_drift_ms: DurationMs,
-    /// On a graceful shutdown, sign and submit every pending subject of the node's keys and
-    /// delay the exit until they are recorded or this many milliseconds elapse (default
-    /// `30000`), logging any handoff that could not complete.
-    #[config(default = "ms(defaults::sccp::attestor::SHUTDOWN_GRACE_MS)")]
-    pub shutdown_grace_ms: DurationMs,
+    /// Submit due keepalives (default `true`, §4.7.4).
+    #[config(default = "defaults::sccp::keeper::KEEPALIVE")]
+    pub keepalive: bool,
+    /// Keepalive stagger per canonical committee index in milliseconds (default `15000`,
+    /// nonzero).
+    #[config(default = "ms(defaults::sccp::keeper::KEEPALIVE_STAGGER_MS)")]
+    pub keepalive_stagger_ms: DurationMs,
+    /// Watch the registered destinations (default `true`); it uses the endpoints of the
+    /// light-client keeper.
+    #[config(default = "defaults::sccp::keeper::WATCH")]
+    pub watch: bool,
 }
 
-impl SccpAttestor {
+impl SccpKeeper {
     fn parse(
         self,
         kura_store_dir: &WithOrigin<PathBuf>,
         emitter: &mut Emitter<ParseError>,
-    ) -> actual::SccpAttestor {
-        let defaults = actual::SccpAttestor::defaults_for_kura_store_dir(kura_store_dir);
+    ) -> actual::SccpKeeper {
+        let defaults = actual::SccpKeeper::defaults_for_kura_store_dir(kura_store_dir);
         let key_dir = if self.key_dir.value().as_os_str().is_empty() {
             defaults.key_dir
         } else {
             self.key_dir
         };
-        let ceiling = defaults::sccp::attestor::MAX_ENTRIES_PER_TRANSACTION_CEILING;
-        let max_entries_per_transaction = NonZeroU32::new(self.max_entries_per_transaction)
-            .filter(|entries| entries.get() <= ceiling)
-            .unwrap_or_else(|| {
-                emit_sccp_error(
-                    emitter,
-                    format!("sccp.attestor.max_entries_per_transaction must be in 1..={ceiling}"),
-                );
-                defaults.max_entries_per_transaction
-            });
-        let resubmit_after_blocks =
-            NonZeroU64::new(self.resubmit_after_blocks).unwrap_or_else(|| {
-                emit_sccp_error(
-                    emitter,
-                    "sccp.attestor.resubmit_after_blocks must be at least 1",
-                );
-                defaults.resubmit_after_blocks
-            });
-        actual::SccpAttestor {
+        let keepalive_stagger = nonzero_duration(
+            self.keepalive_stagger_ms,
+            "sccp.keeper.keepalive_stagger_ms",
+            defaults.keepalive_stagger,
+            emitter,
+        );
+        actual::SccpKeeper {
             enabled: self.enabled,
             key_dir,
-            auto_register: self.auto_register,
-            max_entries_per_transaction,
-            resubmit_after_blocks,
-            max_clock_drift: self.max_clock_drift_ms.get(),
-            shutdown_grace: self.shutdown_grace_ms.get(),
+            keepalive: self.keepalive,
+            keepalive_stagger,
+            watch: self.watch,
         }
     }
 }
 
-/// `[sccp.light_client_keeper]`: the in-node inbound light-client keeper (§4.13.4).
+/// `[sccp.light_client_keeper]`: the keeper's light-client advance duty (§4.13.4).
 ///
-/// Enabled by default and effective only while the node holds an active or pending registered
-/// bridge key; it needs no other setup. When a light client has made no progress for
-/// `advance_after_ms`, the keeper builds proof-carrying advances from its RPC endpoints and
-/// submits them from that bridge key's account, fee-exempt on success.
+/// Enabled by default and effective while `[sccp.keeper]` runs; it needs no other setup. When a
+/// light client has made no progress for `advance_after_ms`, the keeper builds proof-carrying
+/// advances from its RPC endpoints and submits them from the keeper key's account, fee-exempt
+/// on success.
 #[derive(Debug, Clone, ReadConfig)]
 pub struct SccpLightClientKeeper {
-    /// Run the keeper (default `true`); effective only while the node holds an active or
-    /// pending bridge key.
+    /// Advance stale light clients (default `true`); effective only while `[sccp.keeper]` is
+    /// enabled.
     #[config(default = "defaults::sccp::light_client_keeper::ENABLED")]
     pub enabled: bool,
     /// Advance a light client once `now - head.last_progress_taira_ms` reaches this many
     /// milliseconds. `0` (the default) means `ws_bound_ms / 4` of each light client.
     #[config(default = "ms(defaults::sccp::light_client_keeper::ADVANCE_AFTER_MS)")]
     pub advance_after_ms: DurationMs,
-    /// How often local light-client state is checked, in milliseconds (default `60000`,
-    /// nonzero).
+    /// How often each network's local light-client state is checked, in milliseconds (default
+    /// `60000`, nonzero). The keeper adds up to a quarter of jitter and doubles the wait after
+    /// each consecutive failed poll of a network, up to 64 × this interval.
     #[config(default = "ms(defaults::sccp::light_client_keeper::POLL_INTERVAL_MS)")]
     pub poll_interval_ms: DurationMs,
-    /// Timeout of one RPC request in milliseconds, with failover to the next endpoint (default
-    /// `10000`, nonzero).
+    /// Total wall-clock time of one RPC attempt in milliseconds (connecting, sending and
+    /// reading the whole answer), then failover to the next endpoint (default `10000`,
+    /// nonzero).
     #[config(default = "ms(defaults::sccp::light_client_keeper::REQUEST_TIMEOUT_MS)")]
     pub request_timeout_ms: DurationMs,
-    /// Largest encoded advance the keeper submits (default `262144`, nonzero); a larger built
-    /// advance is dropped with a warning. The on-chain per-instruction bounds still apply.
+    /// Wall-clock budget of one network's poll in milliseconds, covering every RPC request of
+    /// one advance build (default `120000`, nonzero).
+    #[config(default = "ms(defaults::sccp::light_client_keeper::POLL_BUDGET_MS)")]
+    pub poll_budget_ms: DurationMs,
+    /// Largest encoded advance the keeper submits (default `262144`, nonzero). Advances are
+    /// stepped to fit it (a light client far behind catches up over several polls); one that
+    /// still does not fit is dropped with a warning. The on-chain per-instruction bounds still
+    /// apply.
     #[config(default = "defaults::sccp::light_client_keeper::MAX_ADVANCE_BYTES")]
     pub max_advance_bytes: usize,
     /// `[sccp.light_client_keeper.endpoints]`: RPC endpoint lists per chain.
@@ -192,6 +169,12 @@ impl SccpLightClientKeeper {
             defaults.request_timeout,
             emitter,
         );
+        let poll_budget = nonzero_duration(
+            self.poll_budget_ms,
+            "sccp.light_client_keeper.poll_budget_ms",
+            defaults.poll_budget,
+            emitter,
+        );
         let max_advance_bytes = NonZeroUsize::new(self.max_advance_bytes).unwrap_or_else(|| {
             emit_sccp_error(
                 emitter,
@@ -204,6 +187,7 @@ impl SccpLightClientKeeper {
             advance_after: (!advance_after_ms.is_zero()).then_some(advance_after_ms),
             poll_interval,
             request_timeout,
+            poll_budget,
             max_advance_bytes,
             endpoints: self.endpoints.parse(emitter),
             secret_headers: parse_secret_headers(self.secret_headers, emitter),
@@ -229,9 +213,6 @@ pub struct SccpLightClientKeeperEndpoints {
     /// BNB Smart Chain JSON-RPC URLs.
     #[config(default)]
     pub bsc: Vec<String>,
-    /// TRON HTTP API URLs.
-    #[config(default)]
-    pub tron: Vec<String>,
     /// TON liteservers as `<ipv4>:<port>:<base64 ed25519 public key>`.
     #[config(default)]
     pub ton_liteservers: Vec<String>,
@@ -256,12 +237,6 @@ impl SccpLightClientKeeperEndpoints {
                 &self.bsc,
                 "bsc",
                 defaults::sccp::endpoints::BSC,
-                emitter,
-            ),
-            tron: parse_http_endpoint_list(
-                &self.tron,
-                "tron",
-                defaults::sccp::endpoints::TRON,
                 emitter,
             ),
             ton_liteservers: parse_endpoint_list(
@@ -450,19 +425,14 @@ mod tests {
     #[test]
     fn sccp_empty_tables_yield_defaults() {
         let node = parse("").expect("empty SCCP config is valid");
-        assert!(node.attestor.enabled);
-        assert!(node.attestor.auto_register);
+        assert!(node.keeper.enabled);
         assert_eq!(
-            node.attestor.key_dir_path(),
-            PathBuf::from("/srv/iroha/storage/sccp/bridge-keys")
+            node.keeper.key_dir_path(),
+            PathBuf::from("/srv/iroha/storage/sccp/keeper-key")
         );
-        assert_eq!(node.attestor.max_entries_per_transaction.get(), 64);
-        assert_eq!(node.attestor.resubmit_after_blocks.get(), 3);
-        assert_eq!(
-            node.attestor.max_clock_drift,
-            Duration::from_millis(3_600_000)
-        );
-        assert_eq!(node.attestor.shutdown_grace, Duration::from_millis(30_000));
+        assert!(node.keeper.keepalive);
+        assert_eq!(node.keeper.keepalive_stagger, Duration::from_millis(15_000));
+        assert!(node.keeper.watch);
         assert_eq!(
             node.light_client_keeper,
             actual::SccpLightClientKeeper::default()
@@ -471,39 +441,33 @@ mod tests {
 
     #[test]
     fn sccp_explicit_empty_key_dir_derives_from_kura() {
-        let node = parse("[attestor]\nkey_dir = \"\"\n").expect("empty key_dir is the default");
+        let node = parse("[keeper]\nkey_dir = \"\"\n").expect("empty key_dir is the default");
         assert_eq!(
-            node.attestor.key_dir_path(),
-            PathBuf::from("/srv/iroha/storage/sccp/bridge-keys")
+            node.keeper.key_dir_path(),
+            PathBuf::from("/srv/iroha/storage/sccp/keeper-key")
         );
     }
 
     #[test]
-    fn sccp_attestor_bounds() {
-        for (text, needle) in [
-            (
-                "[attestor]\nmax_entries_per_transaction = 0\n",
-                "max_entries_per_transaction must be in 1..=1024",
-            ),
-            (
-                "[attestor]\nmax_entries_per_transaction = 1025\n",
-                "max_entries_per_transaction must be in 1..=1024",
-            ),
-            (
-                "[attestor]\nresubmit_after_blocks = 0\n",
-                "resubmit_after_blocks must be at least 1",
-            ),
-        ] {
-            let error = parse(text).expect_err(text);
-            assert!(error.contains(needle), "{error}");
-        }
-        for entries in [1, 1024] {
-            let node = parse(&format!(
-                "[attestor]\nmax_entries_per_transaction = {entries}\n"
-            ))
-            .expect("bound is inclusive");
-            assert_eq!(node.attestor.max_entries_per_transaction.get(), entries);
-        }
+    fn sccp_keeper_overrides_and_stagger_bound() {
+        let node = parse(
+            "[keeper]\nenabled = false\nkey_dir = \"/opt/iroha/keeper-key\"\n\
+             keepalive = false\nkeepalive_stagger_ms = 1\nwatch = false\n",
+        )
+        .expect("explicit keeper table");
+        assert!(!node.keeper.enabled);
+        assert_eq!(
+            node.keeper.key_dir_path(),
+            PathBuf::from("/opt/iroha/keeper-key")
+        );
+        assert!(!node.keeper.keepalive);
+        assert_eq!(node.keeper.keepalive_stagger, Duration::from_millis(1));
+        assert!(!node.keeper.watch);
+        let error = parse("[keeper]\nkeepalive_stagger_ms = 0\n").expect_err("zero stagger");
+        assert!(
+            error.contains("sccp.keeper.keepalive_stagger_ms must be nonzero"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -516,6 +480,10 @@ mod tests {
             (
                 "[light_client_keeper]\nrequest_timeout_ms = 0\n",
                 "request_timeout_ms must be nonzero",
+            ),
+            (
+                "[light_client_keeper]\npoll_budget_ms = 0\n",
+                "poll_budget_ms must be nonzero",
             ),
             (
                 "[light_client_keeper]\nmax_advance_bytes = 0\n",
@@ -548,13 +516,13 @@ mod tests {
             .collect();
         assert_eq!(bsc, ["https://bsc.example.org/", "http://127.0.0.1:8545/"]);
         assert_eq!(
-            node.light_client_keeper.endpoints.tron,
-            actual::compiled_http_endpoints(defaults::sccp::endpoints::TRON)
+            node.light_client_keeper.endpoints.ethereum_execution,
+            actual::compiled_http_endpoints(defaults::sccp::endpoints::ETHEREUM_EXECUTION)
         );
         for (text, needle) in [
             (
-                "tron = [\"http://tron.example.org\"]",
-                "endpoints.tron[0]: an endpoint URL must use https",
+                "ethereum_beacon = [\"http://beacon.example.org\"]",
+                "endpoints.ethereum_beacon[0]: an endpoint URL must use https",
             ),
             (
                 "bsc = [\"https://a.example.org\", \"https://a.example.org/\"]",
@@ -626,7 +594,8 @@ mod tests {
     #[test]
     fn sccp_unknown_keys_are_rejected() {
         for text in [
-            "[attestor]\nkey_directory = \"/x\"\n",
+            "[keeper]\nkey_directory = \"/x\"\n",
+            "[attestor]\nenabled = true\n",
             "[light_client_keeper.endpoints]\nethereum = []\n",
         ] {
             let table: toml::Table = toml::from_str(text).expect("test TOML parses");

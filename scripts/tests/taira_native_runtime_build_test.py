@@ -59,6 +59,8 @@ class NativeRuntimeBuildTests(unittest.TestCase):
         self.edit_emissions = lambda values: None
         self.after_build = lambda: None
         self.snapshots = lambda: [{"path": "Cargo.toml", "sha256": "c" * 64}]
+        self.canonical_snapshots = lambda: [{"path": "Cargo.toml", "kind": "regular", "sha256": "c" * 64}]
+        self.fingerprint_calls = []
         self.cpu = 0x100000c
         self.before_publish = lambda *_a, **_k: None
         self.after_publish = lambda *_a, **_k: None
@@ -107,7 +109,7 @@ class NativeRuntimeBuildTests(unittest.TestCase):
                        + '{"reason":"build-finished","success":true}\n')
         self.after_build()
 
-    def run_runtime(self, build=None, signed=None):
+    def run_runtime(self, build=None, signed=None, *, runtime=True):
         linker = {"preference": "system", "platform": "darwin", "tools": {}}
         def isolate(_root, _source, env):
             return dict(env, CARGO=str(self.tool), RUSTC=str(self.tool), CARGO_BUILD_JOBS="6",
@@ -117,6 +119,9 @@ class NativeRuntimeBuildTests(unittest.TestCase):
             result = self.native_publish(*args, **kwargs)
             self.after_publish(*args, **kwargs)
             return result
+        def fingerprints(*args, **kwargs):
+            self.fingerprint_calls.append((args, kwargs))
+            return contextlib.nullcontext([])
         with contextlib.ExitStack() as stack:
             for owner, name, options in [
                 (release, "__file__", {"new": str(self.root / "scripts/taira_release.py")}),
@@ -128,13 +133,15 @@ class NativeRuntimeBuildTests(unittest.TestCase):
                 (release, "source_lane", {"side_effect": lambda *_: contextlib.nullcontext((self.source, 88))}),
                 (release, "capture_source", {"return_value": self.source}),
                 (release, "frozen_snapshot", {"side_effect": lambda *_: self.snapshots()}),
+                (release, "canonical_source_snapshot", {"side_effect": lambda *_: self.canonical_snapshots()}),
                 (release, "isolated_cargo_environment", {"side_effect": isolate}),
                 (release, "preparation_native_linker", {"return_value": linker}),
                 (release, "preparation_native_environment", {"side_effect": lambda env, _: env}),
                 (release.subprocess, "check_output", {"return_value": "rustc fixture\nhost: " + HOST + "\n"}),
                 (release, "local_package_names", {"return_value": {"iroha_cli", "iroha_kagami", "irohad"}}),
-                (release, "admit_source_fingerprints", {"return_value": []}),
-                (release, "source_fingerprints", {"side_effect": lambda *_a, **_k: contextlib.nullcontext([])}),
+                (release, "local_package_roots", {"return_value": {"fixture": self.root}}),
+                (release, "admit_source_fingerprints", {"side_effect": lambda *a, **k: self.fingerprint_calls.append((a, k)) or []}),
+                (release, "source_fingerprints", {"side_effect": fingerprints}),
                 (release, "run_build", {"side_effect": build or self.compile}),
                 (release, "publish_directory_noreplace", {"side_effect": publish}),
             ]:
@@ -142,7 +149,127 @@ class NativeRuntimeBuildTests(unittest.TestCase):
             stack.enter_context(patch.dict(os.environ, {"PRIVATE_KEY": "excluded", "RUSTFLAGS": "untrusted",
                                                         "VERGEN_GIT_SHA": "local-fast"}))
             stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
-            return release.prepare_native_runtime(self.args)
+            return (release.prepare_native_runtime(self.args) if runtime
+                    else release.prepare_client(self.args))
+
+    def select_canonical_source(self):
+        self.args.source_mode = "canonical-checkout"
+        for path in self.source.rglob("*"):
+            if path.is_file():
+                target = self.root / path.relative_to(self.source)
+                target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                target.write_bytes(path.read_bytes())
+
+    def test_canonical_runtime_routes_compiler_and_fingerprints_to_checkout_only(self):
+        self.select_canonical_source()
+        result = self.run_runtime()
+        self.assertEqual(result["source_mode"], "canonical-checkout")
+        self.assertEqual(result["compiler_source_root"], str(self.root))
+        self.assertEqual(result["source_root"], str(self.source))
+        self.assertEqual(result["source_snapshot_sha256"],
+                         hashlib.sha256(release.canonical_json_bytes(self.snapshots())).hexdigest())
+        self.assertEqual(result["command"], release.native_runtime_build_command(
+            self.root, self.target, str(self.tool), HOST))
+        self.assertEqual(len(self.fingerprint_calls), 2)
+        for args, kwargs in self.fingerprint_calls:
+            self.assertEqual(args[:4], (self.root, self.target, HOST, {"fixture"}))
+            self.assertEqual(kwargs["package_roots"], {"fixture": self.root})
+            self.assertEqual(kwargs["source_paths"], {self.root / "Cargo.toml"})
+        self.assertEqual(release.read_record(self.output / "request.json")["compiler_source_root"], str(self.root))
+
+    def test_canonical_musubi_client_uses_checkout_manifest_and_genuine_emission(self):
+        self.args.bin = "musubi"
+        self.target = self.root / "target/taira-macos-client"
+        name, package, manifest, entry = release.CLIENT_BINARIES[self.args.bin]
+        path = self.source / manifest
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path.write_text('[package]\nname = "musubi"\nversion.workspace = true\n')
+        self.select_canonical_source()
+        def compile_client(source, command, environment, log, **locks):
+            self.builds += 1
+            self.assertEqual(source, self.root)
+            self.assertEqual(command, release.client_build_command(
+                self.root, self.target, str(self.tool), HOST, "musubi"))
+            self.assertNotIn("CARGO_BUILD_JOBS", environment)
+            self.assertEqual(locks["label"], "native musubi build")
+            os.fstat(locks["lock_fd"])
+            os.fstat(locks["mode_lock_fd"])
+            binary = self.target / HOST / "debug" / name
+            binary.parent.mkdir(mode=0o700, parents=True)
+            binary.write_bytes(executable(name))
+            binary.chmod(0o700)
+            row = {"reason": "compiler-artifact",
+                   "package_id": "path+" + (source / manifest).parent.as_uri() + "#2.0.0",
+                   "manifest_path": str(source / manifest),
+                   "target": {"name": name, "kind": ["bin"], "src_path": str(source / entry)},
+                   "profile": {"test": False}, "features": ["default"],
+                   "filenames": [str(binary)], "executable": str(binary), "fresh": False}
+            log.write_text(json.dumps(row) + '\n{"reason":"build-finished","success":true}\n')
+        result = self.run_runtime(build=compile_client, runtime=False)
+        self.assertEqual(self.builds, 1)
+        self.assertEqual(result["schema"], "taira.local-client-build.v2")
+        self.assertEqual(result["source_mode"], "canonical-checkout")
+        self.assertEqual(result["compiler_source_root"], str(self.root))
+        self.assertEqual(result["source_root"], str(self.source))
+        self.assertEqual(result["artifact"]["name"], "musubi")
+        self.assertEqual(Path(result["artifact"]["path"]).read_bytes(), executable("musubi"))
+
+    def test_canonical_preflight_refusal_has_no_lane_or_output(self):
+        self.select_canonical_source()
+        def refuse():
+            raise release.PrepareError("canonical compiler HEAD differs")
+        self.canonical_snapshots = refuse
+        with self.assertRaisesRegex(release.PrepareError, "canonical compiler HEAD differs"):
+            self.run_runtime()
+        self.assertFalse(self.target.exists())
+        self.assertFalse(self.output.exists())
+        self.assertEqual(self.builds, 0)
+
+    def test_canonical_and_authority_drift_both_prevent_package_publication(self):
+        self.select_canonical_source()
+        for fault in ("canonical", "authority"):
+            with self.subTest(fault=fault):
+                self.args.output_dir = self.root / "target" / ("canonical-drift-" + fault)
+                self.snapshots = lambda: [{"path": "Cargo.toml", "sha256": "c" * 64}]
+                self.canonical_snapshots = lambda: [{"path": "Cargo.toml", "kind": "regular", "sha256": "c" * 64}]
+                field = "canonical_snapshots" if fault == "canonical" else "snapshots"
+                self.after_build = lambda: setattr(self, field, lambda: [{"changed": True}])
+                with self.assertRaisesRegex(release.PrepareError, "source changed"):
+                    self.run_runtime()
+                self.assertTrue((self.args.output_dir / "request.json").is_file())
+                self.assertTrue((self.args.output_dir / "cargo.jsonl").is_file())
+                self.assertFalse((self.args.output_dir / "bin").exists())
+                self.assertFalse((self.args.output_dir / "result.json").exists())
+
+    def test_canonical_mode_rejects_emission_from_authority_capture(self):
+        self.select_canonical_source()
+        def redirect(values):
+            for row in values:
+                if row.get("executable"):
+                    row["manifest_path"] = str(self.source / Path(row["manifest_path"]).relative_to(self.root))
+        self.edit_emissions = redirect
+        with self.assertRaisesRegex(release.PrepareError, "artifact differs"):
+            self.run_runtime()
+        self.assertFalse((self.output / "bin").exists())
+        self.assertFalse((self.output / "result.json").exists())
+
+    def test_native_source_modes_are_explicit_and_unknown_mode_is_refused(self):
+        for action in ("prepare-client", "prepare-native-runtime"):
+            argv = [action, "--expected-commit", "a" * 40, "--expected-signer", "A" * 40,
+                    "--output-dir", str(self.output)]
+            if action == "prepare-client":
+                argv += ["--bin", "musubi"]
+            self.assertEqual(release.parser().parse_args(argv).source_mode, "captured")
+            self.assertEqual(release.parser().parse_args(argv + ["--source-mode", "canonical-checkout"]).source_mode,
+                             "canonical-checkout")
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                release.parser().parse_args(argv + ["--source-mode", "alternate-checkout"])
+        self.args.source_mode = "alternate-checkout"
+        with self.assertRaisesRegex(release.PrepareError, "unsupported compiler source mode"):
+            self.run_runtime()
+        self.assertEqual(self.builds, 0)
+        self.assertFalse(self.target.exists())
+        self.assertFalse(self.output.exists())
 
     def test_one_native_invocation_publishes_exact_complete_retained_package(self):
         result = self.run_runtime()

@@ -403,9 +403,11 @@ function canonicalTargetRoot(repoRoot, env) {
       "Native build requires CARGO_TARGET_DIR to be an absolute canonical path.",
     );
   }
-  // The canonical generated cache is the sole admitted source descendant.
-  // Other supported targets must be disjoint from the complete source root.
-  if (configured !== join(repoRoot, "target")) {
+  // Generated qualification lanes keep original-checkout builds and outputs
+  // together. Canonical paths and directory identities are still checked below.
+  const qualificationParent = join(repoRoot, "target", "qualification");
+  const qualificationChild = configured.startsWith(qualificationParent + sep);
+  if (configured !== join(repoRoot, "target") && !qualificationChild) {
     assertDisjointPathAncestry(
       repoRoot,
       configured,

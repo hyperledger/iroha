@@ -13,7 +13,10 @@ use iroha_data_model::{
     },
     query::error::QueryExecutionFail,
     smart_contract::ContractArtifactId,
-    smart_contract::manifest::{ContractManifest, EntryPointKind, EntrypointDescriptor},
+    smart_contract::manifest::{
+        ContractManifest, ContractPermissionDescriptorV1, ContractPermissionScopeV1,
+        EntryPointKind, EntrypointAuthorizationV1, EntrypointDescriptor,
+    },
     transaction::TransactionEntrypoint,
 };
 use ivm::analysis::ProgramAnalysis;
@@ -23,7 +26,7 @@ use std::fs::File;
 #[cfg(any(unix, windows))]
 use std::path::Component;
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::HashMap,
     ffi::OsString,
     fmt::{self, Write as _},
     fs,
@@ -105,8 +108,7 @@ pub struct ContractViewEntrypointDto {
     pub params: Vec<ContractViewEntrypointParamDto>,
     #[norito(skip_serializing_if = "Option::is_none")]
     pub return_type: Option<String>,
-    #[norito(skip_serializing_if = "Option::is_none")]
-    pub permission: Option<String>,
+    pub authorization: EntrypointAuthorizationV1,
     pub read_keys: Vec<String>,
     pub write_keys: Vec<String>,
     #[norito(skip_serializing_if = "Option::is_none")]
@@ -205,7 +207,7 @@ pub struct ContractCodeViewDto {
     pub compiler_fingerprint: Option<String>,
     #[norito(skip_serializing_if = "Option::is_none")]
     pub byte_len: Option<u64>,
-    pub permissions: Vec<String>,
+    pub permissions: Vec<ContractPermissionDescriptorV1>,
     #[norito(skip_serializing_if = "Option::is_none")]
     pub access_hints: Option<ContractViewAccessHintsDto>,
     pub entrypoints: Vec<ContractViewEntrypointDto>,
@@ -217,6 +219,8 @@ pub struct ContractCodeViewDto {
     /// Companion files belonging to the verified root, with original file identities.
     #[norito(default, skip_serializing_if = "Vec::is_empty")]
     pub source_files: Vec<ContractSourceFileDto>,
+    /// Complete immutable root-owned interface artifacts needed for recompilation.
+    pub source_artifacts: Vec<ContractSourceArtifactDto>,
     /// Exact root import bindings of the verified source bundle.
     #[norito(default, skip_serializing_if = "Vec::is_empty")]
     pub source_imports: Vec<ContractSourceImportDto>,
@@ -245,6 +249,8 @@ pub struct SubmitVerifiedContractSourceDto {
     /// Explicit companion files; compilation never reads server-local files.
     #[norito(default)]
     pub sources: Vec<ContractSourceFileDto>,
+    /// Complete immutable imported interfaces, owned by this source set.
+    pub artifacts: Vec<ContractSourceArtifactDto>,
     /// Exact root import bindings; no package resolution occurs on the server.
     #[norito(default)]
     pub imports: Vec<ContractSourceImportDto>,
@@ -270,6 +276,26 @@ pub struct ContractSourceFileDto {
     pub source_name: String,
     /// Complete bounded UTF-8 file contents.
     pub source_text: String,
+}
+/// Exact compiled contract interface supplied with its owning source set.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    norito::NoritoSchema,
+    crate::json_macros::JsonDeserialize,
+    crate::json_macros::JsonSerialize,
+    norito::derive::NoritoDeserialize,
+    norito::derive::NoritoSerialize,
+)]
+#[norito_schema(name = "iroha_torii::contract_sources::ContractSourceArtifactDto")]
+#[norito(deny_unknown_fields)]
+pub struct ContractSourceArtifactDto {
+    /// Canonical relative `.to` path; no server-local file resolution occurs.
+    pub source_name: String,
+    /// Complete immutable compiled bytes, authenticated by the compiler.
+    pub artifact: Vec<u8>,
 }
 /// One exact package import binding in a verified source bundle.
 #[derive(
@@ -311,6 +337,8 @@ pub struct ContractSourcePackageDto {
     /// Companion files reached through module include/import declarations.
     #[norito(default)]
     pub sources: Vec<ContractSourceFileDto>,
+    /// Complete immutable imported interfaces, owned by this source set.
+    pub artifacts: Vec<ContractSourceArtifactDto>,
     /// Explicit exported symbol names.
     pub exports: Vec<String>,
     /// Exact transitive import bindings.
@@ -366,6 +394,7 @@ struct StoredVerifiedSourceRecord {
     source_name: Option<String>,
     source_text: String,
     sources: Vec<ContractSourceFileDto>,
+    artifacts: Vec<ContractSourceArtifactDto>,
     imports: Vec<ContractSourceImportDto>,
     packages: Vec<ContractSourcePackageDto>,
     submitted_at: String,
@@ -1489,6 +1518,7 @@ fn validate_verified_source_record_schema(
             &record.sources,
             &record.imports,
             &record.packages,
+            &record.artifacts,
         )
         .is_some()
         || record.source_name.as_ref().is_some_and(|name| {
@@ -1527,6 +1557,7 @@ fn validate_verified_source_record(
         &record.sources,
         &record.imports,
         &record.packages,
+        &record.artifacts,
     )
     .map_err(|_| {
         storage_error("stored verified-source record no longer compiles under Kotodama V1")
@@ -1761,30 +1792,19 @@ fn entrypoint_signature(entrypoint: &EntrypointDescriptor) -> Result<String, &'s
         .as_ref()
         .map(|value| format!(" -> {value}"))
         .unwrap_or_default();
-    let authorization = match entrypoint.kind {
-        EntryPointKind::Kotoage => {
-            let permission = entrypoint
-                .permission
-                .as_deref()
-                .filter(|permission| !permission.trim().is_empty())
-                .ok_or("kotoage entrypoint is missing caller authorization")?;
-            format!(" authorize({})", kotodama_string_literal(permission))
+    let authorization = match (&entrypoint.kind, &entrypoint.authorization) {
+        (EntryPointKind::Kotoage | EntryPointKind::View, EntrypointAuthorizationV1::Anyone) => {
+            " authorize(anyone)".to_owned()
         }
-        EntryPointKind::View => match entrypoint.permission.as_deref() {
-            Some(permission) if permission.trim().is_empty() => {
-                return Err("view entrypoint declares an empty caller authorization");
-            }
-            Some(permission) => {
-                format!(" authorize({})", kotodama_string_literal(permission))
-            }
-            None => String::new(),
-        },
-        EntryPointKind::Hajimari | EntryPointKind::Kaizen => {
-            if entrypoint.permission.is_some() {
-                return Err("lifecycle entrypoint declares forbidden source authorization");
-            }
-            String::new()
-        }
+        (
+            EntryPointKind::Kotoage | EntryPointKind::View,
+            EntrypointAuthorizationV1::Permission(name),
+        ) => format!(" authorize({name})"),
+        (
+            EntryPointKind::Hajimari | EntryPointKind::Kaizen,
+            EntrypointAuthorizationV1::RuntimeLifecycle,
+        ) => String::new(),
+        _ => return Err("entrypoint kind and authorization policy do not match"),
     };
     Ok(match entrypoint.kind {
         EntryPointKind::Kotoage | EntryPointKind::View => format!(
@@ -1792,8 +1812,8 @@ fn entrypoint_signature(entrypoint: &EntrypointDescriptor) -> Result<String, &'s
             entrypoint_kind_label(entrypoint.kind),
             entrypoint.name,
             params,
-            return_type,
-            authorization
+            authorization,
+            return_type
         ),
         EntryPointKind::Hajimari | EntryPointKind::Kaizen => format!(
             "{}({}){}",
@@ -1842,6 +1862,7 @@ fn render_pseudo_source(
     );
     lines.push(format!("  // code_hash: {code_hash}"));
     if let Some(manifest) = manifest {
+        render_permission_declarations(manifest, &mut lines);
         if let Some(abi_hash) = manifest.abi_hash.as_ref() {
             lines.push(format!("  // abi_hash: {}", hash_hex(abi_hash)));
         }
@@ -1934,6 +1955,7 @@ fn render_manifest_stub(
     );
     lines.push(format!("  // code_hash: {code_hash}"));
     if let Some(manifest) = manifest {
+        render_permission_declarations(manifest, &mut lines);
         if let Some(abi_hash) = manifest.abi_hash.as_ref() {
             lines.push(format!("  // abi_hash: {}", hash_hex(abi_hash)));
         }
@@ -1957,16 +1979,22 @@ fn render_manifest_stub(
     lines.push("}".to_owned());
     lines.join("\n")
 }
-fn aggregate_permissions(manifest: Option<&ContractManifest>) -> Vec<String> {
-    let mut values = BTreeSet::new();
-    if let Some(entrypoints) = manifest.and_then(|value| value.entrypoints.as_ref()) {
-        for entrypoint in entrypoints {
-            if let Some(permission) = entrypoint.permission.as_ref() {
-                values.insert(permission.clone());
-            }
-        }
+fn aggregate_permissions(
+    manifest: Option<&ContractManifest>,
+) -> Vec<ContractPermissionDescriptorV1> {
+    manifest.map_or_else(Vec::new, |manifest| manifest.permissions.clone())
+}
+fn render_permission_declarations(manifest: &ContractManifest, lines: &mut Vec<String>) {
+    for declaration in &manifest.permissions {
+        lines.push(match &declaration.scope {
+            ContractPermissionScopeV1::Instance => format!("  permission {};", declaration.name),
+            ContractPermissionScopeV1::Chain { permission_name } => format!(
+                "  import permission {} as {};",
+                kotodama_string_literal(permission_name.as_ref()),
+                declaration.name
+            ),
+        });
     }
-    values.into_iter().collect()
 }
 fn to_entrypoint_dto(entrypoint: &EntrypointDescriptor) -> ContractViewEntrypointDto {
     ContractViewEntrypointDto {
@@ -1981,7 +2009,7 @@ fn to_entrypoint_dto(entrypoint: &EntrypointDescriptor) -> ContractViewEntrypoin
             })
             .collect(),
         return_type: entrypoint.return_type.clone(),
-        permission: entrypoint.permission.clone(),
+        authorization: entrypoint.authorization.clone(),
         read_keys: entrypoint.read_keys.clone(),
         write_keys: entrypoint.write_keys.clone(),
         access_hints_complete: entrypoint.access_hints_complete,
@@ -2185,6 +2213,10 @@ fn build_contract_view(mut input: ContractViewBuildInput) -> Result<ContractCode
         warnings: input.warnings,
         rendered_source_kind,
         rendered_source_text,
+        source_artifacts: verified_source_record
+            .as_ref()
+            .map(|record| record.artifacts.clone())
+            .unwrap_or_default(),
         source_files: verified_source_record
             .as_ref()
             .map(|record| record.sources.clone())
@@ -2303,6 +2335,7 @@ fn verified_source_request_bound_error(
         &request.sources,
         &request.imports,
         &request.packages,
+        &request.artifacts,
     )
 }
 fn source_bundle_bound_error(
@@ -2311,20 +2344,26 @@ fn source_bundle_bound_error(
     sources: &[ContractSourceFileDto],
     imports: &[ContractSourceImportDto],
     packages: &[ContractSourcePackageDto],
+    artifacts: &[ContractSourceArtifactDto],
 ) -> Option<&'static str> {
-    let count = packages
-        .iter()
-        .fold(1usize.saturating_add(sources.len()), |count, package| {
+    let count = packages.iter().fold(
+        1usize
+            .saturating_add(sources.len())
+            .saturating_add(artifacts.len()),
+        |count, package| {
             count
                 .saturating_add(package.modules.len())
                 .saturating_add(package.sources.len())
-        });
+                .saturating_add(package.artifacts.len())
+        },
+    );
     if count > kotodama_lang::linker::MAX_MODULE_GRAPH_SOURCES
         || packages.len() > kotodama_lang::linker::MAX_MODULE_GRAPH_SOURCES
     {
         return Some("source set exceeds the 512-file maximum");
     }
-    if (!sources.is_empty() || !imports.is_empty() || !packages.is_empty()) && source_name.is_none()
+    if (!sources.is_empty() || !artifacts.is_empty() || !imports.is_empty() || !packages.is_empty())
+        && source_name.is_none()
     {
         return Some("source_name is required when companion sources are supplied");
     }
@@ -2356,6 +2395,22 @@ fn source_bundle_bound_error(
             return Some("locked package contains duplicate exports");
         }
     }
+    for artifact in artifacts
+        .iter()
+        .chain(packages.iter().flat_map(|package| &package.artifacts))
+    {
+        if artifact.source_name.is_empty()
+            || artifact.source_name.len() > VERIFIED_SOURCE_NAME_MAX_BYTES_V1
+            || artifact.source_name.chars().any(char::is_control)
+            || !artifact.source_name.ends_with(".to")
+            || artifact.artifact.is_empty()
+        {
+            return Some(
+                "interface artifact requires a bounded .to path and complete nonempty bytes",
+            );
+        }
+        bytes = bytes.saturating_add(artifact.artifact.len());
+    }
     if bytes > kotodama_lang::linker::MAX_MODULE_GRAPH_SOURCE_BYTES {
         return Some("source set exceeds the 16777216-byte maximum");
     }
@@ -2367,8 +2422,10 @@ fn verified_source_link_request(
     sources: &[ContractSourceFileDto],
     imports: &[ContractSourceImportDto],
     packages: &[ContractSourcePackageDto],
+    artifacts: &[ContractSourceArtifactDto],
 ) -> kotodama_lang::linker::SourceLinkRequest {
     kotodama_lang::linker::SourceLinkRequest {
+        artifacts: artifacts.iter().map(source_artifact_unit).collect(),
         root: kotodama_lang::linker::SourceModuleUnit {
             source_name: name.into(),
             source: source_text.into(),
@@ -2390,6 +2447,7 @@ fn verified_source_link_request(
         packages: packages
             .iter()
             .map(|package| kotodama_lang::linker::SourcePackageUnit {
+                artifacts: package.artifacts.iter().map(source_artifact_unit).collect(),
                 identity: package.identity.clone(),
                 modules: package
                     .modules
@@ -2420,6 +2478,22 @@ fn verified_source_link_request(
             .collect(),
     }
 }
+fn source_artifact_unit(
+    artifact: &ContractSourceArtifactDto,
+) -> kotodama_lang::linker::SourceContractArtifact {
+    kotodama_lang::linker::SourceContractArtifact {
+        source_name: artifact.source_name.clone(),
+        artifact: artifact.artifact.clone(),
+    }
+}
+fn source_artifact_dto(
+    artifact: kotodama_lang::linker::SourceContractArtifact,
+) -> ContractSourceArtifactDto {
+    ContractSourceArtifactDto {
+        source_name: artifact.source_name,
+        artifact: artifact.artifact,
+    }
+}
 fn source_file_dto(source: kotodama_lang::linker::SourceModuleUnit) -> ContractSourceFileDto {
     ContractSourceFileDto {
         source_name: source.source_name,
@@ -2436,6 +2510,11 @@ fn source_package_dto(
     package: kotodama_lang::linker::SourcePackageUnit,
 ) -> ContractSourcePackageDto {
     ContractSourcePackageDto {
+        artifacts: package
+            .artifacts
+            .into_iter()
+            .map(source_artifact_dto)
+            .collect(),
         identity: package.identity,
         modules: package.modules.into_iter().map(source_file_dto).collect(),
         sources: package.sources.into_iter().map(source_file_dto).collect(),
@@ -2449,16 +2528,18 @@ fn compile_verified_source(
     sources: &[ContractSourceFileDto],
     imports: &[ContractSourceImportDto],
     packages: &[ContractSourcePackageDto],
+    artifacts: &[ContractSourceArtifactDto],
 ) -> Result<kotodama_lang::session::CompileOutput, kotodama_lang::diagnostic::DiagnosticBundle> {
     let session = kotodama_lang::session::CompilerSession::default();
-    if sources.is_empty() && imports.is_empty() && packages.is_empty() {
+    if sources.is_empty() && artifacts.is_empty() && imports.is_empty() && packages.is_empty() {
         return session.build(kotodama_lang::session::CompileRequest {
             source: source_text,
             source_name,
         });
     }
     let name = source_name.unwrap_or("main.ko");
-    let graph = verified_source_link_request(name, source_text, sources, imports, packages);
+    let graph =
+        verified_source_link_request(name, source_text, sources, imports, packages, artifacts);
     kotodama_lang::driver::BuildDriver::new(session, "verified-source")
         .compile_project(graph, name)
         .map_err(|error| {
@@ -2687,6 +2768,8 @@ pub fn handle_post_verified_source_job(
     }
     let mut source_name = request.source_name;
     let source_text = request.source_text;
+    let mut artifacts = request.artifacts;
+    artifacts.sort_by(|left, right| left.source_name.cmp(&right.source_name));
     let mut sources = request.sources;
     sources.sort_by(|left, right| left.source_name.cmp(&right.source_name));
     let mut imports = request.imports;
@@ -2698,6 +2781,9 @@ pub fn handle_post_verified_source_job(
     let mut packages = request.packages;
     packages.sort_by(|left, right| left.identity.cmp(&right.identity));
     for package in &mut packages {
+        package
+            .artifacts
+            .sort_by(|left, right| left.source_name.cmp(&right.source_name));
         package
             .modules
             .sort_by(|left, right| left.source_name.cmp(&right.source_name));
@@ -2727,7 +2813,11 @@ pub fn handle_post_verified_source_job(
         let persisted = persist_job_response(response)?;
         return Ok((StatusCode::BAD_REQUEST, JsonBody(persisted)));
     }
-    let canonical_error = if sources.is_empty() && imports.is_empty() && packages.is_empty() {
+    let canonical_error = if sources.is_empty()
+        && artifacts.is_empty()
+        && imports.is_empty()
+        && packages.is_empty()
+    {
         None
     } else {
         let graph = verified_source_link_request(
@@ -2738,11 +2828,17 @@ pub fn handle_post_verified_source_job(
             &sources,
             &imports,
             &packages,
+            &artifacts,
         );
         match kotodama_lang::linker::ModuleBuildGraph::canonical_source_bundle(graph) {
             Ok(graph) => {
                 source_name = Some(graph.root.source_name);
                 sources = graph.sources.into_iter().map(source_file_dto).collect();
+                artifacts = graph
+                    .artifacts
+                    .into_iter()
+                    .map(source_artifact_dto)
+                    .collect();
                 imports = graph.imports.into_iter().map(source_import_dto).collect();
                 packages = graph.packages.into_iter().map(source_package_dto).collect();
                 None
@@ -2758,6 +2854,7 @@ pub fn handle_post_verified_source_job(
             &sources,
             &imports,
             &packages,
+            &artifacts,
         ),
     };
     let response = match compile_result {
@@ -2799,6 +2896,7 @@ pub fn handle_post_verified_source_job(
                 if let Some(existing) = load_verified_source_record(network_id, artifact_id)? {
                     if existing.source_text == source_text
                         && existing.source_name == source_name
+                        && existing.artifacts == artifacts
                         && existing.sources == sources
                         && existing.imports == imports
                         && existing.packages == packages
@@ -2850,6 +2948,7 @@ pub fn handle_post_verified_source_job(
                         source_name: source_name.clone(),
                         source_text,
                         sources,
+                        artifacts,
                         imports,
                         packages,
                         submitted_at: submitted_at.clone(),
@@ -2950,6 +3049,7 @@ mod tests {
             kotodama_lang::linker::MAX_LOGICAL_SOURCE_PATH_BYTES
         );
         let mut request = SubmitVerifiedContractSourceDto {
+            artifacts: Vec::new(),
             sources: Vec::new(),
             imports: Vec::new(),
             packages: Vec::new(),
@@ -2988,12 +3088,61 @@ mod tests {
         );
     }
     #[test]
+    fn verified_source_artifacts_share_the_count_and_byte_limits() {
+        let mut request = SubmitVerifiedContractSourceDto {
+            language: "kotodama".into(),
+            source_name: Some("main.ko".into()),
+            source_text: "seiyaku App {}".into(),
+            sources: Vec::new(),
+            imports: Vec::new(),
+            packages: Vec::new(),
+            artifacts: vec![ContractSourceArtifactDto {
+                source_name: "interfaces/pool.to".into(),
+                artifact: vec![1],
+            }],
+        };
+        assert_eq!(verified_source_request_bound_error(&request), None);
+        let encoded = norito::json::to_value(&request).unwrap();
+        let mut retired = encoded.clone();
+        retired.as_object_mut().unwrap().remove("artifacts");
+        assert!(norito::json::from_value::<SubmitVerifiedContractSourceDto>(retired).is_err());
+        let decoded: SubmitVerifiedContractSourceDto = norito::json::from_value(encoded).unwrap();
+        assert_eq!(decoded.artifacts, request.artifacts);
+        request.artifacts[0].artifact.resize(
+            kotodama_lang::linker::MAX_MODULE_GRAPH_SOURCE_BYTES - request.source_text.len(),
+            1,
+        );
+        assert_eq!(verified_source_request_bound_error(&request), None);
+        request.artifacts[0].artifact.push(1);
+        assert_eq!(
+            verified_source_request_bound_error(&request),
+            Some("source set exceeds the 16777216-byte maximum")
+        );
+        request.artifacts = (0..kotodama_lang::linker::MAX_MODULE_GRAPH_SOURCES)
+            .map(|index| ContractSourceArtifactDto {
+                source_name: format!("{index:04}.to"),
+                artifact: vec![1],
+            })
+            .collect();
+        assert_eq!(
+            verified_source_request_bound_error(&request),
+            Some("source set exceeds the 512-file maximum")
+        );
+        request.artifacts.truncate(1);
+        request.artifacts[0].source_name = "pool.ko".into();
+        assert_eq!(
+            verified_source_request_bound_error(&request),
+            Some("interface artifact requires a bounded .to path and complete nonempty bytes")
+        );
+    }
+
+    #[test]
     fn verified_source_bundle_recompiles_local_and_locked_package_closures() {
         let root = "seiyaku App { include \"parts/view.ko\"; import \"local.ko\" as local; }";
         let sources = vec![
             ContractSourceFileDto {
                 source_name: "parts/view.ko".into(),
-                source_text: "view fn value() -> int { return local::value() + calc::value(); }"
+                source_text: "view fn value() authorize(anyone) -> int { return local::value() + calc::value(); }"
                     .into(),
             },
             ContractSourceFileDto {
@@ -3006,6 +3155,7 @@ mod tests {
             package: "std/math@1".into(),
         }];
         let mut packages = vec![ContractSourcePackageDto {
+            artifacts: Vec::new(),
             identity: "std/math@1".into(),
             modules: vec![ContractSourceFileDto {
                 source_name: "src/math.ko".into(),
@@ -3018,10 +3168,12 @@ mod tests {
             exports: vec!["value".into()],
             imports: Vec::new(),
         }];
-        let original = compile_verified_source(Some("app.ko"), root, &sources, &imports, &packages)
-            .expect("complete immutable graph");
-        let repeat = compile_verified_source(Some("app.ko"), root, &sources, &imports, &packages)
-            .expect("reproducible graph");
+        let original =
+            compile_verified_source(Some("app.ko"), root, &sources, &imports, &packages, &[])
+                .expect("complete immutable graph");
+        let repeat =
+            compile_verified_source(Some("app.ko"), root, &sources, &imports, &packages, &[])
+                .expect("reproducible graph");
         assert_eq!(original.artifact, repeat.artifact);
         assert!(
             original
@@ -3034,6 +3186,7 @@ mod tests {
             ivm::verify_contract_artifact(&original.artifact).expect("verified artifact");
         let code_hash = hash_hex(&canonical_code_hash(&original.artifact).expect("code hash"));
         let mut record = StoredVerifiedSourceRecord {
+            artifacts: Vec::new(),
             network_id: source_network(),
             artifact_id: source_artifact(&code_hash),
             version: VERIFIED_SOURCE_VERSION,
@@ -3071,17 +3224,20 @@ mod tests {
             "retired persisted record shape must not decode"
         );
         packages[0].sources[0].source_text = "export fn value() -> int { return 5; }".into();
-        let changed = compile_verified_source(Some("app.ko"), root, &sources, &imports, &packages)
-            .expect("changed graph");
+        let changed =
+            compile_verified_source(Some("app.ko"), root, &sources, &imports, &packages, &[])
+                .expect("changed graph");
         assert_ne!(original.artifact, changed.artifact);
         packages[0].sources.clear();
         assert!(
-            compile_verified_source(Some("app.ko"), root, &sources, &imports, &packages).is_err()
+            compile_verified_source(Some("app.ko"), root, &sources, &imports, &packages, &[])
+                .is_err()
         );
     }
     #[test]
     fn verified_source_bundle_bounds_include_package_companions() {
         let package = ContractSourcePackageDto {
+            artifacts: Vec::new(),
             identity: "math@1".into(),
             modules: Vec::new(),
             sources: (0..512)
@@ -3094,7 +3250,7 @@ mod tests {
             exports: Vec::new(),
         };
         assert_eq!(
-            source_bundle_bound_error(Some("app.ko"), "seiyaku App {}", &[], &[], &[package]),
+            source_bundle_bound_error(Some("app.ko"), "seiyaku App {}", &[], &[], &[package], &[]),
             Some("source set exceeds the 512-file maximum")
         );
     }
@@ -3154,6 +3310,7 @@ mod tests {
     }
     fn persisted_json_size_fixture() -> StoredVerifiedSourceRecord {
         StoredVerifiedSourceRecord {
+            artifacts: Vec::new(),
             network_id: source_network(),
             artifact_id: source_artifact(&"ab".repeat(32)),
             sources: Vec::new(),
@@ -3182,6 +3339,7 @@ mod tests {
         let verified = ivm::verify_contract_artifact(&compiled.artifact)
             .expect("verify source record fixture");
         StoredVerifiedSourceRecord {
+            artifacts: Vec::new(),
             network_id: source_network(),
             artifact_id: ContractArtifactId::new(
                 iroha_model_base::topology::DataSpaceId::UNIVERSAL,
@@ -3327,7 +3485,7 @@ mod tests {
     #[test]
     fn verified_source_record_load_rejects_version_identity_and_source_corruption() {
         let _guard = TestDataDirGuard::new();
-        let source = "seiyaku Exact { kotoage fn main() authorize(\"Run\") {} }";
+        let source = "seiyaku Exact { permission Run;  kotoage fn main() authorize(Run) {} }";
         let record = valid_verified_source_record(source, "exact.ko");
         let path = verified_source_record_path(record.network_id, record.artifact_id);
         persist_verified_source_record(&record).expect("persist valid source record");
@@ -3357,7 +3515,7 @@ mod tests {
 
         corrupt = record.clone();
         corrupt.source_text =
-            "seiyaku Different { kotoage fn main() authorize(\"Run\") {} }".to_owned();
+            "seiyaku Different { permission Run;  kotoage fn main() authorize(Run) {} }".to_owned();
         fs::write(
             &path,
             norito::json::to_vec(&corrupt).expect("encode wrong-source record"),
@@ -3369,7 +3527,7 @@ mod tests {
     fn verified_sources_are_isolated_by_network_and_full_dataspace_id() {
         let _guard = TestDataDirGuard::new();
         let mut record = valid_verified_source_record(
-            "seiyaku Scoped { view fn value() -> int { return 1; } }",
+            "seiyaku Scoped { view fn value() authorize(anyone) -> int { return 1; } }",
             "scoped.ko",
         );
         record.artifact_id.dataspace_id = iroha_model_base::topology::DataSpaceId::new(u64::MAX);
@@ -3559,111 +3717,61 @@ mod tests {
         }
     }
     #[test]
-    fn pseudo_source_uses_branded_entrypoint_syntax() {
-        let descriptor = |name: &str, kind| {
-            EntrypointDescriptor {
-            name: name.to_owned(),
-            kind,
-            params: Vec::new(),
-            argument_schema: None,
-            return_type: Some("()".to_owned()),
-            return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
-                nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
-            }),
-            permission: (kind == EntryPointKind::Kotoage).then(|| "Run".to_owned()),
-            read_keys: Vec::new(),
-            write_keys: Vec::new(),
-            access_hints_complete: Some(true),
-            access_hints_skipped: Vec::new(),
-            triggers: Vec::new(),
+    fn pseudo_source_uses_branded_entrypoint_syntax_and_complete_permission_catalog() {
+        let (_, manifest) = kotodama_lang::compiler::Compiler::new()
+            .compile_source_with_manifest(
+                r#"
+seiyaku Display {
+  permission Run;
+  permission Unused;
+  import permission "GlobalRun" as Shared;
+  kotoage fn run(quantity amount) authorize(Run) {}
+  view fn read() authorize(anyone) -> int { return 1; }
+  view fn shared() authorize(Shared) -> int { return 2; }
+  hajimari() {}
+  kaizen() {}
+}
+"#,
+            )
+            .unwrap();
+        let entries = manifest.entrypoints.as_ref().unwrap();
+        let entry = |name: &str| entries.iter().find(|entry| entry.name == name).unwrap();
+        assert_eq!(
+            entrypoint_signature(entry("run")).unwrap(),
+            "kotoage fn run(quantity amount) authorize(Run) -> ()"
+        );
+        assert_eq!(
+            entrypoint_signature(entry("read")).unwrap(),
+            "view fn read() authorize(anyone) -> int"
+        );
+        assert_eq!(
+            entrypoint_signature(entry("hajimari")).unwrap(),
+            "hajimari() -> ()"
+        );
+        assert_eq!(
+            entrypoint_signature(entry("kaizen")).unwrap(),
+            "kaizen() -> ()"
+        );
+        for rendered in [
+            render_pseudo_source("00", Some(&manifest), None),
+            render_manifest_stub("00", Some(&manifest), &[]),
+        ] {
+            assert!(rendered.contains("permission Run;"));
+            assert!(rendered.contains("permission Unused;"));
+            assert!(rendered.contains("import permission \"GlobalRun\" as Shared;"));
+            assert!(rendered.contains("view fn shared() authorize(Shared) -> int"));
         }
-        };
-        let mut run = descriptor("run", EntryPointKind::Kotoage);
-        run.params.push(
-            iroha_data_model::smart_contract::manifest::EntrypointParamDescriptor {
-                name: "amount".to_owned(),
-                type_name: "quantity".to_owned(),
-            },
-        );
+        assert_eq!(aggregate_permissions(Some(&manifest)), manifest.permissions);
         assert_eq!(
-            entrypoint_signature(&run).expect("canonical kotoage signature"),
-            "kotoage fn run(quantity amount) -> () authorize(\"Run\")",
+            to_entrypoint_dto(entry("run")).authorization,
+            EntrypointAuthorizationV1::Permission("Run".parse().unwrap())
         );
-        assert_eq!(
-            entrypoint_signature(&descriptor("read", EntryPointKind::View))
-                .expect("canonical view signature"),
-            "view fn read() -> ()",
-        );
-        assert_eq!(
-            entrypoint_signature(&descriptor("hajimari", EntryPointKind::Hajimari))
-                .expect("canonical hajimari signature"),
-            "hajimari() -> ()",
-        );
-        assert_eq!(
-            entrypoint_signature(&descriptor("kaizen", EntryPointKind::Kaizen))
-                .expect("canonical kaizen signature"),
-            "kaizen() -> ()",
-        );
-        let mut typed = descriptor("write", EntryPointKind::Kotoage);
-        typed.params = vec![
-            iroha_data_model::smart_contract::manifest::EntrypointParamDescriptor {
-                name: "amount".to_owned(),
-                type_name: "quantity".to_owned(),
-            },
-            iroha_data_model::smart_contract::manifest::EntrypointParamDescriptor {
-                name: "memo".to_owned(),
-                type_name: "string".to_owned(),
-            },
-        ];
-        typed.permission = Some("CanWrite\"Memo\\Ledger\n".to_owned());
-        assert_eq!(
-            entrypoint_signature(&typed).expect("escaped typed kotoage signature"),
-            "kotoage fn write(quantity amount, string memo) -> () authorize(\"CanWrite\\\"Memo\\\\Ledger\\n\")"
-        );
-        let manifest = ContractManifest {
-            seiyaku_name: Some("Demo".to_owned()),
-            code_hash: None,
-            abi_hash: None,
-            compiler_fingerprint: None,
-            features_bitmap: None,
-            access_set_hints: None,
-            entrypoints: Some(vec![typed]),
-            states: None,
-            error_messages: None,
-            error_types: None,
-            kotoba: None,
-            provenance: None,
-        };
-        let rendered = render_pseudo_source("00", Some(&manifest), None);
-        assert!(rendered.contains(
-            "kotoage fn write(quantity amount, string memo) -> () authorize(\"CanWrite\\\"Memo\\\\Ledger\\n\")"
-        ));
-        assert!(!rendered.contains("// permission:"));
-        assert_eq!(rendered.matches("CanWrite").count(), 1);
-        let mut missing_authorization = descriptor("write", EntryPointKind::Kotoage);
-        missing_authorization.permission = None;
-        assert_eq!(
-            entrypoint_signature(&missing_authorization),
-            Err("kotoage entrypoint is missing caller authorization")
-        );
-        missing_authorization.permission = Some(" \t\n".to_owned());
-        assert_eq!(
-            entrypoint_signature(&missing_authorization),
-            Err("kotoage entrypoint is missing caller authorization")
-        );
-        let mut empty_view_authorization = descriptor("read", EntryPointKind::View);
-        empty_view_authorization.permission = Some(" \t\n".to_owned());
-        assert_eq!(
-            entrypoint_signature(&empty_view_authorization),
-            Err("view entrypoint declares an empty caller authorization")
-        );
-        let mut forbidden_lifecycle_authorization =
-            descriptor("hajimari", EntryPointKind::Hajimari);
-        forbidden_lifecycle_authorization.permission = Some("Admin".to_owned());
-        assert_eq!(
-            entrypoint_signature(&forbidden_lifecycle_authorization),
-            Err("lifecycle entrypoint declares forbidden source authorization")
-        );
+        let mut invalid = entry("hajimari").clone();
+        invalid.authorization = EntrypointAuthorizationV1::Anyone;
+        assert!(entrypoint_signature(&invalid).is_err());
+        invalid = entry("read").clone();
+        invalid.authorization = EntrypointAuthorizationV1::RuntimeLifecycle;
+        assert!(entrypoint_signature(&invalid).is_err());
     }
     fn build_state_with_single_transaction(
         instructions: Vec<dm::InstructionBox>,
@@ -3761,7 +3869,7 @@ mod tests {
         let _guard = TestDataDirGuard::new();
         let program = kotodama_lang::session::CompilerSession::default()
             .build(kotodama_lang::session::CompileRequest {
-                source: "seiyaku Demo { view fn main() -> int { return 1; } }",
+                source: "seiyaku Demo { view fn main() authorize(anyone) -> int { return 1; } }",
                 source_name: Some("instruction_view.ko"),
             })
             .expect("compile callable source fixture")
@@ -3803,7 +3911,7 @@ mod tests {
             Kura::blank_kura_for_testing(),
             LiveQueryStore::start_test(),
         ));
-        let source = "seiyaku Demo { kotoage fn main() authorize(\"Run\") {} }";
+        let source = "seiyaku Demo { permission Run;  kotoage fn main() authorize(Run) {} }";
         let source_name = "demo.ko";
         let compiled = kotodama_lang::session::CompilerSession::default()
             .build(kotodama_lang::session::CompileRequest {
@@ -3830,6 +3938,7 @@ mod tests {
         );
         let code_hash_hex = hash_hex(&code_hash);
         let record = StoredVerifiedSourceRecord {
+            artifacts: Vec::new(),
             network_id,
             artifact_id: source_artifact(&code_hash_hex),
             sources: Vec::new(),
@@ -3864,11 +3973,11 @@ mod tests {
     #[test]
     fn contract_view_never_labels_a_declared_hash_source_as_verified_for_other_code() {
         let _guard = TestDataDirGuard::new();
-        let declared_source = "seiyaku Declared { kotoage fn main() authorize(\"Declared\") {} }";
+        let declared_source = "seiyaku Declared { permission InvokeDeclared;  kotoage fn main() authorize(InvokeDeclared) {} }";
         let declared = valid_verified_source_record(declared_source, "declared.ko");
         persist_verified_source_record(&declared).expect("persist declared-hash source");
 
-        let actual_source = "seiyaku Actual { kotoage fn main() authorize(\"Actual\") {} }";
+        let actual_source = "seiyaku Actual { permission InvokeActual;  kotoage fn main() authorize(InvokeActual) {} }";
         let actual = kotodama_lang::session::CompilerSession::default()
             .build(kotodama_lang::session::CompileRequest {
                 source: actual_source,
@@ -3899,7 +4008,7 @@ mod tests {
     fn verified_source_job_accepts_exact_match_and_persists_record() {
         let _guard = TestDataDirGuard::new();
         let source = r#"
-seiyaku Demo { kotoage fn main() authorize("Run") {} }
+seiyaku Demo { permission Run;  kotoage fn main() authorize(Run) {} }
 "#;
         let (compiled, _, _) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest_and_report(source)
@@ -3912,6 +4021,7 @@ seiyaku Demo { kotoage fn main() authorize("Run") {} }
                 .build(),
         );
         let request = SubmitVerifiedContractSourceDto {
+            artifacts: Vec::new(),
             sources: Vec::new(),
             imports: Vec::new(),
             packages: Vec::new(),
@@ -3952,6 +4062,7 @@ seiyaku Demo { kotoage fn main() authorize("Run") {} }
             source_network(),
             source_artifact(&code_hash),
             SubmitVerifiedContractSourceDto {
+                artifacts: Vec::new(),
                 sources: Vec::new(),
                 imports: Vec::new(),
                 packages: Vec::new(),
@@ -3976,7 +4087,7 @@ seiyaku Demo { kotoage fn main() authorize("Run") {} }
     #[test]
     fn verified_source_job_does_not_mutate_provider_storage() {
         let _guard = TestDataDirGuard::new();
-        let source = "seiyaku Demo { kotoage fn main() authorize(\"Run\") {} }";
+        let source = "seiyaku Demo { permission Run;  kotoage fn main() authorize(Run) {} }";
         let (compiled, _, _) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest_and_report(source)
             .expect("compile contract");
@@ -3992,6 +4103,7 @@ seiyaku Demo { kotoage fn main() authorize("Run") {} }
             source_network(),
             source_artifact(&code_hash_hex),
             SubmitVerifiedContractSourceDto {
+                artifacts: Vec::new(),
                 sources: Vec::new(),
                 imports: Vec::new(),
                 packages: Vec::new(),
@@ -4015,7 +4127,7 @@ seiyaku Demo { kotoage fn main() authorize("Run") {} }
     #[test]
     fn verified_source_job_reports_hash_mismatch() {
         let _guard = TestDataDirGuard::new();
-        let source = "seiyaku Demo { kotoage fn main() authorize(\"Run\") {} }";
+        let source = "seiyaku Demo { permission Run;  kotoage fn main() authorize(Run) {} }";
         let wrong_hash = "11".repeat(32);
         let node = sorafs_node::NodeHandle::new(
             sorafs_node::config::StorageConfig::builder()
@@ -4026,6 +4138,7 @@ seiyaku Demo { kotoage fn main() authorize("Run") {} }
             source_network(),
             source_artifact(&wrong_hash),
             SubmitVerifiedContractSourceDto {
+                artifacts: Vec::new(),
                 sources: Vec::new(),
                 imports: Vec::new(),
                 packages: Vec::new(),

@@ -1,5 +1,5 @@
 
-        seiyaku C {
+        seiyaku C { permission WriteState;
             struct PolicyState {
                 int version,
                 bytes document,
@@ -21,7 +21,7 @@
                 };
             }
 
-            kotoage fn main() -> bool authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) -> bool {
                 let key = Name::parse("spend");
                 Policies[key] = PolicyState {
                     version: 7,

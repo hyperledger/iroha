@@ -488,8 +488,8 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
                     self.assertTrue(self.public_role_original(source))
 
     def test_public_required_roles_are_exact_without_suffix_widening(self) -> None:
-        self.assertEqual(len(self.public_role_inputs()), 80)
-        self.assertEqual(len(seal._REVIEWED_PUBLIC_SOURCE_FOLDER_INPUTS), 10)
+        self.assertEqual(len(self.public_role_inputs()), 76)
+        self.assertEqual(len(seal._REVIEWED_PUBLIC_SOURCE_FOLDER_INPUTS), 6)
         self.assertEqual(len(seal._REVIEWED_PUBLIC_FIXTURE_INPUTS), 23)
         self.assertEqual(len(seal._REVIEWED_PUBLIC_NONOPERATIONAL_FIXTURE_PINS), 4)
         for relative in self.public_role_inputs():
@@ -547,7 +547,6 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
     def test_public_source_folder_roles_do_not_admit_operations_or_neighbors(self) -> None:
         for relative in (
             "crates/iroha_core/src/sumeragi/certified_chain/artifacts/other.rs",
-            "crates/iroha_core_zk/src/kagemusha_v1_recursion/artifacts/unowned.bin",
             "crates/iroha_p2p/src/peer/run/other.rs",
             "crates/ivm/tests/fixtures/predecoder/mixed/artifacts/unowned.to",
             "crates/ivm/tests/fixtures/predecoder/mixed/private/artifacts/unowned.to",
@@ -1214,7 +1213,7 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
             seal.seal_inputs(self.root, profile, self.root / "Cargo.lock")
         self.assertEqual(closure.call_args.args[1], ("armv7-linux-androideabi",))
         self.assertEqual(seal.PLATFORM_TARGETS["android"],
-                         ("aarch64-linux-android", "x86_64-linux-android"))
+                         ("aarch64-linux-android", "armv7-linux-androideabi", "x86_64-linux-android"))
         self.assertIn("scripts/inspect_android_armv7_diagnostic.py",
                       seal.PLATFORM_ROOT_INPUTS[profile])
 
@@ -1241,7 +1240,9 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
 
     def test_armv7_diagnostic_snapshot_cannot_verify_as_android_release(self) -> None:
         original = self.root / "armv7-diagnostic-seal.json"
-        with mock.patch.object(seal, "local_dependency_roots", return_value=set()):
+        with mock.patch.object(seal, "local_dependency_roots", return_value=set()), \
+             mock.patch.object(seal, "android_armv7_diagnostic_configuration",
+                               return_value={"fixture": "source-only diagnostic configuration; no authority"}):
             original.write_bytes(seal.snapshot_bytes(self.root, "android-armv7-diagnostic", self.root / "Cargo.lock"))
             seal.verify_snapshot(self.root, "android-armv7-diagnostic", original, self.root / "Cargo.lock")
             with self.assertRaisesRegex(RuntimeError, "source changed"):
@@ -1251,7 +1252,9 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
         helper = self.root / "scripts/inspect_android_armv7_diagnostic.py"
         helper.write_text("# original inspection recipe\n", encoding="utf-8")
         original = self.root / "armv7-diagnostic-seal.json"
-        with mock.patch.object(seal, "local_dependency_roots", return_value=set()):
+        with mock.patch.object(seal, "local_dependency_roots", return_value=set()), \
+             mock.patch.object(seal, "android_armv7_diagnostic_configuration",
+                               return_value={"fixture": "source-only diagnostic configuration; no authority"}):
             original.write_bytes(seal.snapshot_bytes(self.root, "android-armv7-diagnostic", self.root / "Cargo.lock"))
             helper.write_text("# substituted inspection recipe\n", encoding="utf-8")
             with self.assertRaisesRegex(RuntimeError, "source changed"):
@@ -1331,6 +1334,8 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
             "IROHA_GIT_COMMIT_HASH": "1" * 40,
             "LANG": "C.UTF-8",
             "LC_ALL": "C.UTF-8",
+            "MOBILE_SDK_WALLET_RUNTIME_AUTHORITY": "bpng-taira-v7",
+            "MOBILE_SDK_WALLET_RUNTIME_TRUST_ED25519_HEX": "3" * 64,
             "NORITO_SKIP_BINDINGS_SYNC": "1",
             "PATH": f"{tools}:/usr/bin:/bin",
             "RUSTC": str(tools / "rustc"),
@@ -1549,6 +1554,8 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
             "HOME": str(self.root),
             "LANG": "C.UTF-8",
             "LC_ALL": "C.UTF-8",
+            "MOBILE_SDK_WALLET_RUNTIME_AUTHORITY": "bpng-taira-v7",
+            "MOBILE_SDK_WALLET_RUNTIME_TRUST_ED25519_HEX": "3" * 64,
             "NORITO_SKIP_BINDINGS_SYNC": "1",
             "PATH": f"{tools}:/usr/bin:/bin",
             "RUSTC": str(tools / "rustc"),

@@ -103,9 +103,11 @@ mod status_observation_tests {
         sync::{Arc, Mutex},
     };
 
+    type StatusResponse = (u16, Vec<u8>, Option<&'static str>, Option<&'static str>);
+
     #[derive(Debug)]
     struct StatusTransport {
-        responses: Mutex<VecDeque<(u16, Vec<u8>, Option<&'static str>, Option<&'static str>)>>,
+        responses: Mutex<VecDeque<StatusResponse>>,
         request_budgets: Mutex<Vec<Duration>>,
     }
 

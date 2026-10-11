@@ -10,7 +10,7 @@ Validate the sole first-release mobile SDK surface:
   - canonical NoritoBridge C/header exports and retired export rejection;
   - current Swift and Kotlin SDK packaging;
   - source-authenticated NoritoBridge XCFramework manifest and slices; and
-  - optional built Android jars/AARs with both qualified native ABIs.
+  - optional built Android jars/AARs with all three maintained native ABIs.
 USAGE
 }
 
@@ -475,6 +475,63 @@ REQUIRED_PROTOCOL_C_SYMBOLS=(
   connect_norito_private_settlement_auditor_capsule_response_verify_with_request_v1
   connect_norito_private_settlement_audit_approval_response_verify_v1
   connect_norito_sorafs_reference_validate_appeal_finance_cancel_asset_lock_json
+  connect_norito_kagemusha_wallet_revision_v1
+  connect_norito_kagemusha_wallet_open_begin_v1
+  connect_norito_kagemusha_wallet_open_finish_v1
+  connect_norito_kagemusha_wallet_open_cancel_v1
+  connect_norito_kagemusha_wallet_close_v1
+  connect_norito_kagemusha_wallet_activity_v1
+  connect_norito_kagemusha_wallet_setup_v1
+  connect_norito_kagemusha_wallet_execute_v1
+  connect_norito_kagemusha_wallet_load_original_validate_v1
+  connect_norito_kagemusha_wallet_request_status_v1
+  connect_norito_kagemusha_wallet_retry_v1
+  connect_norito_kagemusha_wallet_resume_v1
+  connect_norito_kagemusha_wallet_fold_v1
+  connect_norito_kagemusha_wallet_credit_status_v1
+  connect_norito_kagemusha_wallet_snapshot_v1
+  connect_norito_kagemusha_wallet_review_v1
+  connect_norito_kagemusha_wallet_execute_reviewed_v1
+  connect_norito_kagemusha_wallet_discard_review_v1
+  connect_norito_kagemusha_wallet_installation_begin_v1
+  connect_norito_kagemusha_wallet_installation_register_v1
+  connect_norito_kagemusha_wallet_installation_close_v1
+  connect_norito_kagemusha_wallet_registration_source_relocate_v1
+  connect_norito_kagemusha_wallet_observe_v1
+  connect_norito_kagemusha_wallet_account_original_v1
+  connect_norito_kagemusha_wallet_account_display_v1
+  connect_norito_kagemusha_wallet_enrollment_v1
+  connect_norito_kagemusha_wallet_enrollment_refusal_v1
+)
+REQUIRED_WALLET_JNI_SYMBOLS=(
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_revision
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_openBegin
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_openFinish
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_openCancel
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_close
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_activity
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_call
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_setup
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_enrollment
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_enrollmentRefusal
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_execute
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_snapshot
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_beginInstallation
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_registerInstallation
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_closeInstallation
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_relocateRegistrationSource
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletObservationNativeV1_observe
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_review
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_executeReviewed
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_discardReview
+)
+REQUIRED_LOAD_ORIGINAL_JNI_SYMBOLS=(
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletLoadOriginalNativeV1_validate
+)
+# Retired with the Google first-device sign-up key at bridge ABI 29.
+RETIRED_AUTH_JNI_SYMBOLS=(
+  Java_org_hyperledger_iroha_sdk_crypto_keystore_NativeFirstDeviceAuthKeyJniV1_reserve
+  Java_org_hyperledger_iroha_sdk_crypto_keystore_NativeFirstDeviceAuthKeyJniV1_restore
 )
 RETIRED_AUDITOR_CAPSULE_VERIFY_PARTS=(
   connect_norito_private_settlement_auditor_capsule_response
@@ -512,15 +569,29 @@ check_binary_symbols() {
   [[ -n "$symbols" ]] || { fail "$label has no inspectable exported symbols"; return; }
   local symbol
   if [[ "$nm_mode" == "elf" ]]; then
+    for symbol in "${REQUIRED_WALLET_JNI_SYMBOLS[@]}" "${REQUIRED_LOAD_ORIGINAL_JNI_SYMBOLS[@]}"; do
+      if ! grep -Fxq "$symbol" <<<"$symbols"; then
+        fail "$label is missing $symbol"
+      fi
+    done
+    for symbol in "${RETIRED_AUTH_JNI_SYMBOLS[@]}"; do
+      if grep -Fxq "$symbol" <<<"$symbols"; then
+        fail "$label exposes retired first-device JNI symbol $symbol"
+      fi
+    done
     local retired_jni_prefix
     for retired_jni_prefix in \
       Java_org_hyperledger_iroha_sdk_offline_Kagemusha \
       Java_org_hyperledger_iroha_sdk_offline_probe_Kagemusha \
       Java_org_hyperledger_iroha_sdk_offline_wallet_Kagemusha \
       Java_org_hyperledger_iroha_sdk_offline_probe_Pixel6TestnetDiagnosticSelectionJniV1_; do
-      if grep -Eq "^${retired_jni_prefix}" <<<"$symbols"; then
-        fail "$label exposes a retired KAGEMUSHA JNI namespace"
-      fi
+      while IFS= read -r symbol; do
+        [[ -n "$symbol" ]] || continue
+        case " ${REQUIRED_WALLET_JNI_SYMBOLS[*]} ${REQUIRED_LOAD_ORIGINAL_JNI_SYMBOLS[*]} " in
+          *" ${symbol} "*) ;;
+          *) fail "$label exposes a retired KAGEMUSHA JNI namespace: $symbol" ;;
+        esac
+      done < <(grep -E "^${retired_jni_prefix}" <<<"$symbols" || true)
     done
   fi
   for symbol in "${REQUIRED_PROTOCOL_C_SYMBOLS[@]}"; do
@@ -536,9 +607,16 @@ check_binary_symbols() {
   if grep -Eq "^_?${RETIRED_KAGEMUSHA_C_PREFIX}" <<<"$symbols"; then
     fail "$label exposes a retired KAGEMUSHA C namespace"
   fi
-  if grep -Eq '^_?connect_norito_kagemusha_' <<<"$symbols"; then
-    fail "$label exposes a retired KAGEMUSHA C namespace"
-  fi
+  # Only the exact current wallet entries above are admitted. Prefix matching
+  # identifies candidates for rejection; it never approves an unknown export.
+  while IFS= read -r symbol; do
+    [[ -n "$symbol" ]] || continue
+    symbol="${symbol#_}"
+    case " ${REQUIRED_PROTOCOL_C_SYMBOLS[*]} " in
+      *" ${symbol} "*) ;;
+      *) fail "$label exposes a retired KAGEMUSHA C namespace: $symbol" ;;
+    esac
+  done < <(grep -E '^_?connect_norito_kagemusha_' <<<"$symbols" || true)
 }
 
 check_apple() {
@@ -640,6 +718,7 @@ check_android() {
     classes.jar \
     assets/iroha/native-build-provenance-v1.json \
     jni/arm64-v8a/libconnect_norito_bridge.so \
+    jni/armeabi-v7a/libconnect_norito_bridge.so \
     jni/x86_64/libconnect_norito_bridge.so; do
     if ! unzip -Z1 "$aar" | grep -Fxq -- "$entry"; then
       fail "client-android release AAR is missing $entry"
@@ -650,7 +729,7 @@ check_android() {
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/iroha-mobile-sdk.XXXXXX")"
   trap 'rm -rf "$tmp"' RETURN
   local abi
-  for abi in arm64-v8a x86_64; do
+  for abi in arm64-v8a armeabi-v7a x86_64; do
     local archive_entry="jni/$abi/libconnect_norito_bridge.so"
     if unzip -p "$aar" "$archive_entry" >"$tmp/$abi.so"; then
       check_binary_symbols "$tmp/$abi.so" "client-android $abi bridge" elf

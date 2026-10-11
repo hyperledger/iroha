@@ -1,6 +1,6 @@
 
-seiyaku Test {
-  kotoage fn subscription() authorize("Admin") {
+seiyaku Test { permission Admin;
+  kotoage fn subscription() authorize(Admin) {
     ledger::subscription::bill();
     ledger::subscription::record_usage();
   }

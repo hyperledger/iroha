@@ -1,6 +1,6 @@
 
         seiyaku IfLetExpression {
-            view fn main(Option<int> value, int fallback) -> int {
+            view fn main(Option<int> value, int fallback) authorize(anyone) -> int {
                 match value {
                     Option::some(payload) => payload,
                     Option::none => fallback,

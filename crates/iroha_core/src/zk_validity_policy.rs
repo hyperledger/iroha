@@ -23,12 +23,10 @@ use std::{
     sync::RwLock,
 };
 
-use iroha_config::parameters::actual::{
-    ConfidentialGas, Halo2, Halo2Backend, Sccp, Stark, VerifyingKeyRef, Zk, ZkCurve,
-};
+use iroha_config::parameters::actual::{ConfidentialGas, PipaR, Sccp, Stark, VerifyingKeyRef, Zk};
 use iroha_data_model::parameter::{CustomParameter, Parameters};
 pub use iroha_data_model::zk_validity_policy::{
-    ZkConfidentialValidityV1, ZkHalo2ValidityV1, ZkProofValidityV1, ZkSccpValidityV1,
+    ZkConfidentialValidityV1, ZkPipaRValidityV1, ZkProofValidityV1, ZkSccpValidityV1,
     ZkStarkValidityV1, ZkValidityPolicyError, ZkValidityPolicyV1, ZkVerificationGasV1,
     ZkVerifyingKeyRefV1,
 };
@@ -68,44 +66,6 @@ fn size(value: u64, field: &'static str) -> Result<usize, ZkValidityPolicyError>
     usize::try_from(value).map_err(|_| ZkValidityPolicyError::OutOfRange(field))
 }
 
-fn curve_tag(curve: ZkCurve) -> &'static str {
-    match curve {
-        ZkCurve::Pallas => "pallas",
-        ZkCurve::Pasta => "pasta",
-        ZkCurve::Goldilocks => "goldilocks",
-        ZkCurve::Bn254 => "bn254",
-    }
-}
-
-fn curve_from_tag(tag: &str) -> Result<ZkCurve, ZkValidityPolicyError> {
-    match tag {
-        "pallas" => Ok(ZkCurve::Pallas),
-        "pasta" => Ok(ZkCurve::Pasta),
-        "goldilocks" => Ok(ZkCurve::Goldilocks),
-        "bn254" => Ok(ZkCurve::Bn254),
-        other => Err(ZkValidityPolicyError::Unsupported(
-            "halo2.curve",
-            other.to_owned(),
-        )),
-    }
-}
-
-fn backend_tag(backend: Halo2Backend) -> &'static str {
-    match backend {
-        Halo2Backend::Ipa => "ipa",
-    }
-}
-
-fn backend_from_tag(tag: &str) -> Result<Halo2Backend, ZkValidityPolicyError> {
-    match tag {
-        "ipa" => Ok(Halo2Backend::Ipa),
-        other => Err(ZkValidityPolicyError::Unsupported(
-            "halo2.backend",
-            other.to_owned(),
-        )),
-    }
-}
-
 fn key_ref(value: Option<&VerifyingKeyRef>) -> Option<ZkVerifyingKeyRefV1> {
     value.map(|key| ZkVerifyingKeyRefV1 {
         backend: key.backend.clone(),
@@ -137,7 +97,10 @@ fn non_zero_u64(value: u64, field: &'static str) -> Result<NonZeroU64, ZkValidit
 #[allow(clippy::too_many_lines)]
 pub fn policy_of(zk: &Zk) -> ZkValidityPolicyV1 {
     let Zk {
-        halo2,
+        trace: _,          // local resource: optional diagnostic trace checks
+        ipa_commitment: _, // local resource: diagnostic polynomial-opening limits
+        max_verify_batch,
+        pipa_r,
         fastpq: _, // local resource: prover devices, sidecar queue
         stark,
         sccp,
@@ -175,24 +138,11 @@ pub fn policy_of(zk: &Zk) -> ZkValidityPolicyV1 {
         registry_max_delta_per_block,
         gas,
     } = zk;
-    let Halo2 {
-        enabled: halo2_enabled,
-        curve,
-        backend,
-        max_k,
-        verifier_budget_ms: _, // local resource
-        verifier_max_batch,
-        verifier_worker_threads: _,     // local resource
-        verifier_queue_cap: _,          // local resource
-        verifier_enqueue_wait_ms: _,    // local resource
-        verifier_retry_ring_cap: _,     // local resource
-        verifier_retry_max_attempts: _, // local resource
-        verifier_retry_tick_ms: _,      // local resource
-        max_envelope_bytes: halo2_max_envelope_bytes,
-        max_proof_bytes: halo2_max_proof_bytes,
-        max_transcript_label_len,
-        enforce_transcript_label_ascii,
-    } = halo2;
+    let PipaR {
+        enabled: pipa_r_enabled,
+        max_envelope_bytes: pipa_r_max_envelope_bytes,
+        max_proof_bytes: pipa_r_max_proof_bytes,
+    } = pipa_r;
     let Stark {
         enabled: stark_enabled,
         max_envelope_bytes: stark_max_envelope_bytes,
@@ -210,8 +160,6 @@ pub fn policy_of(zk: &Zk) -> ZkValidityPolicyV1 {
         max_ethereum_light_client_updates_per_block,
         max_native_header_bytes_per_transaction,
         max_native_header_bytes_per_block,
-        max_secp256k1_recoveries_per_transaction,
-        max_secp256k1_recoveries_per_block,
         max_ed25519_signature_checks_per_transaction,
         max_ed25519_signature_checks_per_block,
         max_bls_vote_attestations_per_transaction,
@@ -225,16 +173,10 @@ pub fn policy_of(zk: &Zk) -> ZkValidityPolicyV1 {
         per_commitment,
     } = gas;
     ZkValidityPolicyV1 {
-        halo2: ZkHalo2ValidityV1 {
-            enabled: *halo2_enabled,
-            curve: curve_tag(*curve).to_owned(),
-            backend: backend_tag(*backend).to_owned(),
-            max_k: *max_k,
-            verifier_max_batch: *verifier_max_batch,
-            max_envelope_bytes: count(*halo2_max_envelope_bytes),
-            max_proof_bytes: count(*halo2_max_proof_bytes),
-            max_transcript_label_len: count(*max_transcript_label_len),
-            enforce_transcript_label_ascii: *enforce_transcript_label_ascii,
+        pipa_r: ZkPipaRValidityV1 {
+            enabled: *pipa_r_enabled,
+            max_envelope_bytes: count(*pipa_r_max_envelope_bytes),
+            max_proof_bytes: count(*pipa_r_max_proof_bytes),
         },
         stark: ZkStarkValidityV1 {
             enabled: *stark_enabled,
@@ -255,9 +197,6 @@ pub fn policy_of(zk: &Zk) -> ZkValidityPolicyV1 {
                 max_ethereum_light_client_updates_per_block.get(),
             max_native_header_bytes_per_transaction: max_native_header_bytes_per_transaction.get(),
             max_native_header_bytes_per_block: max_native_header_bytes_per_block.get(),
-            max_secp256k1_recoveries_per_transaction: max_secp256k1_recoveries_per_transaction
-                .get(),
-            max_secp256k1_recoveries_per_block: max_secp256k1_recoveries_per_block.get(),
             max_ed25519_signature_checks_per_transaction:
                 max_ed25519_signature_checks_per_transaction.get(),
             max_ed25519_signature_checks_per_block: max_ed25519_signature_checks_per_block.get(),
@@ -266,6 +205,7 @@ pub fn policy_of(zk: &Zk) -> ZkValidityPolicyV1 {
             max_bls_vote_attestations_per_block: max_bls_vote_attestations_per_block.get(),
         },
         proofs: ZkProofValidityV1 {
+            max_verify_batch: *max_verify_batch,
             ballot_history_cap: count(*ballot_history_cap),
             preverify_max_bytes: count(*preverify_max_bytes),
             preverify_budget_bytes: *preverify_budget_bytes,
@@ -324,7 +264,7 @@ pub fn policy_of(zk: &Zk) -> ZkValidityPolicyV1 {
 pub fn apply_policy(policy: &ZkValidityPolicyV1, zk: &mut Zk) -> Result<(), ZkValidityPolicyError> {
     policy.validate()?;
     let ZkValidityPolicyV1 {
-        halo2,
+        pipa_r,
         stark,
         sccp,
         proofs,
@@ -332,26 +272,13 @@ pub fn apply_policy(policy: &ZkValidityPolicyV1, zk: &mut Zk) -> Result<(), ZkVa
         gas,
     } = policy;
     let applied = Zk {
-        halo2: Halo2 {
-            enabled: halo2.enabled,
-            curve: curve_from_tag(&halo2.curve)?,
-            backend: backend_from_tag(&halo2.backend)?,
-            max_k: halo2.max_k,
-            verifier_budget_ms: zk.halo2.verifier_budget_ms,
-            verifier_max_batch: halo2.verifier_max_batch,
-            verifier_worker_threads: zk.halo2.verifier_worker_threads,
-            verifier_queue_cap: zk.halo2.verifier_queue_cap,
-            verifier_enqueue_wait_ms: zk.halo2.verifier_enqueue_wait_ms,
-            verifier_retry_ring_cap: zk.halo2.verifier_retry_ring_cap,
-            verifier_retry_max_attempts: zk.halo2.verifier_retry_max_attempts,
-            verifier_retry_tick_ms: zk.halo2.verifier_retry_tick_ms,
-            max_envelope_bytes: size(halo2.max_envelope_bytes, "halo2.max_envelope_bytes")?,
-            max_proof_bytes: size(halo2.max_proof_bytes, "halo2.max_proof_bytes")?,
-            max_transcript_label_len: size(
-                halo2.max_transcript_label_len,
-                "halo2.max_transcript_label_len",
-            )?,
-            enforce_transcript_label_ascii: halo2.enforce_transcript_label_ascii,
+        trace: zk.trace,
+        ipa_commitment: zk.ipa_commitment,
+        max_verify_batch: proofs.max_verify_batch,
+        pipa_r: PipaR {
+            enabled: pipa_r.enabled,
+            max_envelope_bytes: size(pipa_r.max_envelope_bytes, "pipa_r.max_envelope_bytes")?,
+            max_proof_bytes: size(pipa_r.max_proof_bytes, "pipa_r.max_proof_bytes")?,
         },
         fastpq: zk.fastpq.clone(),
         stark: Stark {
@@ -403,14 +330,6 @@ pub fn apply_policy(policy: &ZkValidityPolicyV1, zk: &mut Zk) -> Result<(), ZkVa
             max_native_header_bytes_per_block: non_zero_u64(
                 sccp.max_native_header_bytes_per_block,
                 "sccp.max_native_header_bytes_per_block",
-            )?,
-            max_secp256k1_recoveries_per_transaction: non_zero_u32(
-                sccp.max_secp256k1_recoveries_per_transaction,
-                "sccp.max_secp256k1_recoveries_per_transaction",
-            )?,
-            max_secp256k1_recoveries_per_block: non_zero_u32(
-                sccp.max_secp256k1_recoveries_per_block,
-                "sccp.max_secp256k1_recoveries_per_block",
             )?,
             max_ed25519_signature_checks_per_transaction: non_zero_u32(
                 sccp.max_ed25519_signature_checks_per_transaction,
@@ -621,7 +540,10 @@ mod tests {
     #[allow(clippy::too_many_lines)]
     fn local_resources_of(zk: &Zk) -> String {
         let Zk {
-            halo2,
+            trace,
+            ipa_commitment,
+            max_verify_batch: _,
+            pipa_r: _,
             fastpq,
             stark: _,
             sccp: _,
@@ -659,41 +581,25 @@ mod tests {
             registry_max_delta_per_block: _,
             gas: _,
         } = zk;
-        let Halo2 {
-            enabled: _,
-            curve: _,
-            backend: _,
-            max_k: _,
-            verifier_budget_ms,
-            verifier_max_batch: _,
-            verifier_worker_threads,
-            verifier_queue_cap,
-            verifier_enqueue_wait_ms,
-            verifier_retry_ring_cap,
-            verifier_retry_max_attempts,
-            verifier_retry_tick_ms,
-            max_envelope_bytes: _,
-            max_proof_bytes: _,
-            max_transcript_label_len: _,
-            enforce_transcript_label_ascii: _,
-        } = halo2;
-        format!(
-            "{verifier_budget_ms} {verifier_worker_threads} {verifier_queue_cap} \
-             {verifier_enqueue_wait_ms} {verifier_retry_ring_cap} {verifier_retry_max_attempts} \
-             {verifier_retry_tick_ms} {verify_timeout:?} {fastpq:?}"
-        )
+        format!("{trace:?} {ipa_commitment:?} {verify_timeout:?} {fastpq:?}")
     }
 
     /// Settings whose every local resource differs from the default.
     fn scarce_local_resources() -> Zk {
         let mut node = default_zk_config();
-        node.halo2.verifier_budget_ms += 4_321;
-        node.halo2.verifier_worker_threads += 7;
-        node.halo2.verifier_queue_cap += 33;
-        node.halo2.verifier_enqueue_wait_ms += 5;
-        node.halo2.verifier_retry_ring_cap += 9;
-        node.halo2.verifier_retry_max_attempts += 2;
-        node.halo2.verifier_retry_tick_ms += 3;
+        node.trace.enabled = !node.trace.enabled;
+        node.trace.max_batch += 1;
+        node.ipa_commitment.max_k += 1;
+        node.ipa_commitment.max_envelope_bytes += 1;
+        node.ipa_commitment.max_transcript_label_len += 1;
+        node.ipa_commitment.enforce_transcript_label_ascii =
+            !node.ipa_commitment.enforce_transcript_label_ascii;
+        node.trace.worker_threads += 7;
+        node.trace.queue_cap += 33;
+        node.trace.enqueue_wait_ms += 5;
+        node.trace.retry_ring_cap += 9;
+        node.trace.retry_max_attempts += 2;
+        node.trace.retry_tick_ms += 3;
         node.verify_timeout = std::time::Duration::from_millis(5);
         node.fastpq.metal_trace = !node.fastpq.metal_trace;
         node.fastpq.device_class = Some("local-device".to_owned());
@@ -731,13 +637,9 @@ mod tests {
         let default_hash = compute_zk_consensus_policy_hash(&default_zk_config());
         let default = ZkValidityPolicyV1::protocol_default();
         let names = ZkValidityPolicyV1::field_names();
-        assert_eq!(names.len(), 65);
+        assert_eq!(names.len(), 58);
         let mut seen_hashes = std::collections::BTreeSet::from([default_hash]);
         for (index, name) in names.iter().enumerate() {
-            if name == "halo2.backend" {
-                // One defined tag: the field has no second value to carry.
-                continue;
-            }
             let salt = u32::try_from(index).expect("field count fits") + 1;
             let mut policy = default.clone();
             assert!(policy.perturb_field(name, salt), "{name}");
@@ -768,11 +670,11 @@ mod tests {
     fn all_fields_changed_round_trip_and_are_stripped_from_a_node() {
         let all_changed = changed_policy();
         let default = ZkValidityPolicyV1::protocol_default();
-        assert_eq!(all_changed.differing_fields(&default).len(), 64);
+        assert_eq!(all_changed.differing_fields(&default).len(), 58);
         let mut zk = default_zk_config();
         apply_policy(&all_changed, &mut zk).expect("valid policy");
         assert_eq!(policy_of(&zk), all_changed);
-        assert_eq!(node_validity_overrides(&zk).len(), 64);
+        assert_eq!(node_validity_overrides(&zk).len(), 58);
         assert!(node_validity_overrides(&node_local_resources(zk)).is_empty());
     }
 
@@ -810,7 +712,7 @@ mod tests {
         assert_eq!(committed(&parameters), Ok(Some(committed_policy.clone())));
         // Two nodes with different installed settings read the same policy.
         let mut second = default_zk_config();
-        second.halo2.max_k = 3;
+        second.max_verify_batch = 3;
         second.max_proof_size_bytes = 9;
         let first = effective_zk(default_zk_config(), &parameters);
         let second = effective_zk(second, &parameters);
@@ -917,18 +819,6 @@ mod tests {
             ))
         );
         assert_eq!(format!("{untouched:?}"), before);
-        // The conversions agree with the data-model tag lists.
-        for tag in iroha_data_model::zk_validity_policy::HALO2_CURVE_TAGS {
-            assert_eq!(curve_tag(curve_from_tag(tag).expect("defined curve")), tag);
-        }
-        for tag in iroha_data_model::zk_validity_policy::HALO2_BACKEND_TAGS {
-            assert_eq!(
-                backend_tag(backend_from_tag(tag).expect("defined backend")),
-                tag
-            );
-        }
-        assert!(curve_from_tag("secp256k1").is_err());
-        assert!(backend_from_tag("kzg").is_err());
         assert_eq!(count(7), 7);
         assert_eq!(size(7, "field"), Ok(7));
         assert!(non_zero_u32(0, "field").is_err());
@@ -938,7 +828,7 @@ mod tests {
         // A relation-selecting key reference is carried unchanged in both directions.
         let mut keyed = ZkValidityPolicyV1::protocol_default();
         keyed.proofs.kaigi_usage_vk = Some(ZkVerifyingKeyRefV1 {
-            backend: "halo2/ipa".to_owned(),
+            backend: "pipa-r/pasta".to_owned(),
             name: "kaigi-usage-v1".to_owned(),
         });
         let mut zk = default_zk_config();

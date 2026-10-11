@@ -663,6 +663,10 @@ impl CanonicalNativeDigits {
             negative,
         }
     }
+    /// Borrow the exact canonical native magnitude before selecting its funded owner.
+    pub(crate) fn as_slice(&self) -> &[NativeBigDigit] {
+        &self.digits[..self.len]
+    }
     pub(crate) fn allocation_layout(&self) -> Layout {
         Layout::array::<NativeBigDigit>(self.len).expect("bounded native digit layout")
     }

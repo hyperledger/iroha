@@ -13,20 +13,20 @@ fn parse_source(text: &str) -> kotodama_lang::syntax::ParseOutput {
 #[test]
 fn romanized_and_japanese_declaration_sets_are_first_class() {
     for source in [
-        r#"seiyaku Branding {
+        r#"seiyaku Branding { permission Set;
             state int value;
             hajimari() { value = 0; }
-            kotoage fn set(int next) authorize("Set") { value = next; }
+            kotoage fn set(int next) authorize(Set) { value = next; }
             kaizen() {}
-            view fn read() -> int { return value; }
+            view fn read() authorize(anyone) -> int { return value; }
             trigger tick -> set { on time pre_commit; }
         }"#,
-        r#"誓約 Branding {
+        r#"誓約 Branding { permission Set;
             state int value;
             始まり() { value = 0; }
-            言挙げ fn set(int next) authorize("Set") { value = next; }
+            言挙げ fn set(int next) authorize(Set) { value = next; }
             改善() {}
-            view fn read() -> int { return value; }
+            view fn read() authorize(anyone) -> int { return value; }
             trigger tick -> set { on time pre_commit; }
         }"#,
     ] {
@@ -39,7 +39,7 @@ fn formatting_preserves_the_selected_japanese_declaration_script() {
     let source = SourceFile::new(
         SourceId(1),
         "japanese-branding.ko",
-        "誓約 Branding{始まり(){}言挙げ fn set()authorize(\"Set\"){}改善(){}}",
+        "誓約 Branding{ permission Set; 始まり(){}言挙げ fn set() authorize(Set) {}改善(){}}",
     );
     let formatted = format_source(&source, FrontendBudget::v1())
         .expect("Japanese branded declarations must format");
@@ -77,7 +77,7 @@ fn english_feature_aliases_are_rejected_by_the_lossless_frontend() {
         ("contract", "contract Branding {}"),
         (
             "entry",
-            "seiyaku Branding { entry fn set() authorize(\"Set\") {} }",
+            "seiyaku Branding { entry fn set() authorize(anyone) {} }",
         ),
         ("init", "seiyaku Branding { init() {} }"),
         ("upgrade", "seiyaku Branding { upgrade() {} }"),

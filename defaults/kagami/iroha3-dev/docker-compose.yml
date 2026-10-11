@@ -1,4 +1,3 @@
-# Intentionally non-deployable. Materialize `genesis.template.json` with an
-# explicitly owned disposable-dev KAGEMUSHA authority, then regenerate the
-# complete profile bundle before enabling services.
+# Intentionally non-deployable. Materialize `genesis.template.json` by generating the
+# complete signed profile bundle before enabling services.
 services: {}

@@ -798,13 +798,41 @@ pub fn try_submit(task: ZkTask) -> bool {
 pub fn register_events_sender(sender: crate::EventsSender) {
     let _ = EVENTS.set(sender);
 }
-/// Start the background diagnostic trace lane if Halo2 support is enabled.
+/// Start the background diagnostic trace lane when local trace checking is enabled.
 ///
 /// Returns an optional handle and a `tokio` task `JoinHandle` wrapped for supervisor registration.
 /// If the lane is already running, returns the existing handle and no new task.
 pub fn start(
-    cfg: &iroha_config::parameters::actual::Halo2,
+    cfg: &iroha_config::parameters::actual::DiagnosticTrace,
 ) -> Option<(ZkLaneHandle, tokio::task::JoinHandle<()>)> {
+    let workers = if cfg.enabled {
+        resolve_worker_threads(cfg.worker_threads)
+    } else {
+        0
+    };
+    let queue_cap = if cfg.enabled {
+        resolve_queue_cap(cfg.queue_cap, workers)
+    } else {
+        0
+    };
+    with_metrics(|metrics| {
+        let worker_threads = u64::try_from(workers).unwrap_or(u64::MAX);
+        let queue_cap = u64::try_from(queue_cap).unwrap_or(u64::MAX);
+        metrics.zk_trace_enabled.set(u64::from(cfg.enabled));
+        metrics.zk_trace_max_batch.set(u64::from(cfg.max_batch));
+        metrics.zk_trace_worker_threads.set(worker_threads);
+        metrics.zk_trace_queue_cap.set(queue_cap);
+        *metrics
+            .trace_status
+            .write()
+            .expect("trace status lock poisoned") =
+            iroha_torii_shared::status::DiagnosticTraceStatus {
+                enabled: cfg.enabled,
+                max_batch: cfg.max_batch,
+                worker_threads,
+                queue_cap,
+            };
+    });
     if !cfg.enabled {
         return None;
     }
@@ -816,15 +844,10 @@ pub fn start(
         ZK_RESULT_CACHE_CAP,
         Duration::from_millis(ZK_RESULT_CACHE_TTL_MS),
     )));
-    let workers = resolve_worker_threads(cfg.verifier_worker_threads);
-    let queue_cap = resolve_queue_cap(cfg.verifier_queue_cap, workers);
-    let enqueue_wait = resolve_enqueue_wait_ms(cfg.verifier_enqueue_wait_ms);
+    let enqueue_wait = resolve_enqueue_wait_ms(cfg.enqueue_wait_ms);
     let enqueue_poll = resolve_enqueue_poll(enqueue_wait);
-    let retry_tick = resolve_retry_tick_ms(cfg.verifier_retry_tick_ms);
-    let retry_ring = Arc::new(RetryRing::new(
-        cfg.verifier_retry_ring_cap,
-        cfg.verifier_retry_max_attempts,
-    ));
+    let retry_tick = resolve_retry_tick_ms(cfg.retry_tick_ms);
+    let retry_ring = Arc::new(RetryRing::new(cfg.retry_ring_cap, cfg.retry_max_attempts));
     let worker_queue_cap = queue_cap.saturating_div(workers).max(1);
     let (tx, mut rx) = mpsc::channel::<ZkTask>(queue_cap);
     let handle = ZkLaneHandle {
@@ -834,17 +857,9 @@ pub fn start(
         retry_ring: Arc::clone(&retry_ring),
     };
     let _ = GLOBAL_SENDER.set(handle.clone());
-    with_metrics(|metrics| {
-        metrics
-            .zk_halo2_verifier_worker_threads
-            .set(u64::try_from(workers).unwrap_or(u64::MAX));
-        metrics
-            .zk_halo2_verifier_queue_cap
-            .set(u64::try_from(queue_cap).unwrap_or(u64::MAX));
-    });
     set_pending_depth(0);
     set_retry_ring_depth(0);
-    let max_batch = cfg.verifier_max_batch.max(1) as usize;
+    let max_batch = cfg.max_batch.max(1) as usize;
     let task = tokio::spawn(async move {
         let mut worker_pool = WorkerPool::spawn(workers, worker_queue_cap);
         let mut pending: Vec<ZkTask> = Vec::with_capacity(max_batch);

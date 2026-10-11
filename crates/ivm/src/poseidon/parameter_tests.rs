@@ -3,39 +3,17 @@
 use super::*;
 use crate::field_dispatch::{self, FieldArithmetic, ScalarField};
 use ff::Field;
-use poseidon_primitives::poseidon::primitives::Spec;
+#[path = "../../../../fixtures/poseidon/reader.rs"]
+mod reference;
 
-#[derive(Debug)]
-struct FrSpec;
-impl Spec<Fr, 3, 2> for FrSpec {
-    fn full_rounds() -> usize {
-        8
-    }
-    fn partial_rounds() -> usize {
-        56
-    }
-    fn sbox(val: Fr) -> Fr {
-        val.pow_vartime([5])
-    }
-    fn secure_mds() -> usize {
-        0
-    }
+fn captured<const W: usize>(text: &str) -> ([[Fr; W]; 64], [[Fr; W]; W]) {
+    let (rounds, mds) = reference::parameters::<W>(text);
+    let field = |bytes: [u8; 32]| Fr::from_repr(bytes.into()).expect("canonical reference field");
+    (
+        rounds.map(|row| row.map(field)),
+        mds.map(|row| row.map(field)),
+    )
 }
-impl Spec<Fr, 6, 5> for FrSpec {
-    fn full_rounds() -> usize {
-        8
-    }
-    fn partial_rounds() -> usize {
-        56
-    }
-    fn sbox(val: Fr) -> Fr {
-        val.pow_vartime([5])
-    }
-    fn secure_mds() -> usize {
-        0
-    }
-}
-
 fn bytes(field: FieldElem) -> [u8; 32] {
     std::array::from_fn(|i| field.0[i / 8].to_le_bytes()[i % 8])
 }
@@ -114,8 +92,12 @@ pub(crate) fn state6(mut state: [FieldElem; 6]) -> [FieldElem; 6] {
     state
 }
 fn parity(backend: &dyn FieldArithmetic) {
-    let (rc3, m3, _) = <FrSpec as Spec<Fr, 3, 2>>::constants();
-    let (rc6, m6, _) = <FrSpec as Spec<Fr, 6, 5>>::constants();
+    let (rc3, m3) = captured::<3>(include_str!(
+        "../../../../fixtures/poseidon/bn254-w3-rp56.hex"
+    ));
+    let (rc6, m6) = captured::<6>(include_str!(
+        "../../../../fixtures/poseidon/bn254-w6-rp56.hex"
+    ));
     let fields = [
         Fr::ZERO,
         -Fr::ONE,

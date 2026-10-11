@@ -5648,9 +5648,10 @@ fn full_bootstrap_execution_bfv_native_air_rejects_wrapper_statement_retarget() 
     );
     let vk_box = sample_fhe_full_bootstrap_execution_vk_box();
     let guardrails = crate::zk::ZkVerifyGuardrails {
-        halo2_enabled: true,
-        halo2_max_envelope_bytes: usize::MAX,
-        halo2_max_proof_bytes: usize::MAX,
+        pipa_r_enabled: true,
+        pipa_r_max_envelope_bytes: usize::MAX,
+        pipa_r_max_proof_bytes: usize::MAX,
+
         stark_enabled: true,
         stark_max_envelope_bytes: usize::MAX,
         stark_max_proof_bytes: usize::MAX,
@@ -5741,9 +5742,10 @@ fn full_bootstrap_bfv_native_air_boundary_runs_before_dedicated_verifier_error()
         ),
     );
     let test_guardrails = crate::zk::ZkVerifyGuardrails {
-        halo2_enabled: true,
-        halo2_max_envelope_bytes: usize::MAX,
-        halo2_max_proof_bytes: usize::MAX,
+        pipa_r_enabled: true,
+        pipa_r_max_envelope_bytes: usize::MAX,
+        pipa_r_max_proof_bytes: usize::MAX,
+
         stark_enabled: true,
         stark_max_envelope_bytes: usize::MAX,
         stark_max_proof_bytes: usize::MAX,
@@ -5766,7 +5768,7 @@ fn full_bootstrap_bfv_native_air_boundary_runs_before_dedicated_verifier_error()
     .expect("safe BFV AIR must pass the full-bootstrap arithmetic verifier boundary");
     assert!(bfv_native_verified);
     let mut non_stark_envelope = safe_envelope.clone();
-    non_stark_envelope.backend = BackendTag::Halo2IpaPasta;
+    non_stark_envelope.backend = BackendTag::NativePipaRPasta;
     let err = verify_soracloud_fhe_full_bootstrap_arithmetic_stark_air(
         label,
         FHE_INPUT_ADMISSION_BACKEND,
@@ -9993,7 +9995,7 @@ fn run_full_bootstrap_verifier_record_rejection(
                         record.namespace = "other".to_string();
                     }
                     FullBootstrapVerifierRecordMetadataTamper::Backend => {
-                        record.backend = BackendTag::Halo2IpaPasta;
+                        record.backend = BackendTag::NativePipaRPasta;
                     }
                     FullBootstrapVerifierRecordMetadataTamper::Curve => {
                         record.curve = "bn254".to_string();
@@ -13212,7 +13214,7 @@ fn soracloud_fhe_bootstrap_key_proof_rejects_verifier_record_metadata_drift()
                     .verifying_keys
                     .get_mut(&vk_id)
                     .expect("registered bootstrap verifier")
-                    .backend = BackendTag::Halo2IpaPasta;
+                    .backend = BackendTag::NativePipaRPasta;
             }
             VerifierTamper::Curve => {
                 stx.world

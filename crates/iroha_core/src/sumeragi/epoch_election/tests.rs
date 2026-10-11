@@ -7,17 +7,16 @@ use iroha_data_model::{
     IntoKeyValue, Registrable,
     account::{Account, AccountId},
     asset::{Asset, AssetDefinition, AssetId},
-    block::{
-        BlockHeader,
-        consensus::{SumeragiRootScope, ValidatorPower},
-    },
+    block::{BlockHeader, consensus::SumeragiRootScope},
     consensus::{ConsensusKeyId, ConsensusKeyStatus},
     nexus::{PublicLaneStakeShare, PublicLaneValidatorStatus},
     parameter::{
         Parameter,
         system::{ConsensusMode, SumeragiNposParameters},
     },
-    sumeragi::epoch::{ValidatorCommitteeMemberV1, ValidatorEpochAuthorizationV1},
+    sumeragi::epoch::{
+        ValidatorCommitteeMemberV1, ValidatorEpochAuthorizationV1, ValidatorGenerationV1,
+    },
 };
 use iroha_model_base::metadata::Metadata;
 use iroha_primitives::numeric::NumericSpec;
@@ -85,7 +84,6 @@ fn custody_pool(count: usize) -> (World, ValidatorElectionPolicyV1, Vec<KeyPair>
                 activation_height: 1,
                 election_exit_height: None,
                 deactivation_height: None,
-                last_reward_epoch: None,
             },
         );
         world.public_lane_stake_shares.insert(
@@ -263,31 +261,22 @@ fn pulse_fixture() -> (World, ValidatorEpochContextV1, Vec<HashOf<BlockHeader>>)
         height: 8,
         block_hash: hashes[7],
     };
-    let roster = pairs
+    let committee = pairs
         .iter()
-        .map(|pair| ValidatorPower {
+        .map(|pair| ValidatorCommitteeMemberV1 {
             validator: PeerId::new(pair.public_key().clone()),
-            power: 1,
+            proof_of_possession: iroha_crypto::bls_normal_pop_prove(pair.private_key()).unwrap(),
         })
         .collect::<Vec<_>>();
-    let authority =
-        crate::kagemusha_v1_test_fixtures::mint_finality_authority(network(), 0, &roster);
-    let authorization = ValidatorEpochAuthorizationV1::genesis(&authority, 10).unwrap();
+    let generation = ValidatorGenerationV1::from_committee(network(), 0, &committee);
+    let authorization = ValidatorEpochAuthorizationV1::genesis(&generation, 10).unwrap();
     let current = ValidatorEpochContextV1 {
         da_layout: iroha_sumeragi::availability::recommended_data_availability_layout(),
         version: 1,
         network_id: network(),
         mode: ConsensusMode::Npos,
-        authority,
         authorization,
-        committee: pairs
-            .iter()
-            .map(|pair| ValidatorCommitteeMemberV1 {
-                validator: PeerId::new(pair.public_key().clone()),
-                proof_of_possession: iroha_crypto::bls_normal_pop_prove(pair.private_key())
-                    .unwrap(),
-            })
-            .collect(),
+        committee,
         leader_seed: [5; 32],
     };
     current.validate().unwrap();
@@ -315,6 +304,72 @@ fn pulse_fixture() -> (World, ValidatorEpochContextV1, Vec<HashOf<BlockHeader>>)
     );
     world.global_beacon_pulses.insert(pulse.pulse_id, pulse);
     (world, current, hashes)
+}
+
+#[test]
+fn activation_generation_identity_uses_original_pool_and_exact_ordered_bls_roster() {
+    let (_, current, _) = pulse_fixture();
+    let original = current.context_id().unwrap();
+    let budget = AllocationBudget::new(0);
+    assert!(matches!(
+        super::owned::generation_id(current.network_id, 1, &current.committee, &budget),
+        Err(BoundaryCaptureError::Admission(_))
+    ));
+    assert_eq!(budget.reserved_bytes(), 0);
+    budget.set_limit_bytes(1 << 20);
+    let target = ValidatorGenerationV1::from_committee(current.network_id, 1, &current.committee);
+    let expected = target.generation_id().unwrap();
+    assert_eq!(
+        super::owned::generation_id(current.network_id, 1, &current.committee, &budget).unwrap(),
+        expected
+    );
+    assert_eq!(
+        budget.reserved_bytes(),
+        0,
+        "temporary roster must release every charge"
+    );
+    assert_ne!(expected, current.authorization.authority_id);
+    assert_ne!(
+        super::owned::generation_id(current.network_id, 2, &current.committee, &budget).unwrap(),
+        expected
+    );
+    let foreign = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+        b"foreign generation network",
+    )));
+    assert_ne!(
+        super::owned::generation_id(foreign, 1, &current.committee, &budget).unwrap(),
+        expected
+    );
+    for control in 0..4 {
+        let mut committee = current.committee.clone();
+        match control {
+            0 => {
+                committee.pop();
+            }
+            1 => committee.swap(0, 1),
+            2 => committee[1] = committee[0].clone(),
+            _ => {
+                committee[0].validator = PeerId::new(
+                    KeyPair::from_seed(vec![0xF1; 32], Algorithm::Ed25519)
+                        .public_key()
+                        .clone(),
+                );
+            }
+        }
+        assert!(
+            matches!(
+                super::owned::generation_id(current.network_id, 1, &committee, &budget),
+                Err(BoundaryCaptureError::Invalid(_))
+            ),
+            "control {control}"
+        );
+        assert_eq!(
+            budget.reserved_bytes(),
+            0,
+            "rejected roster must release every charge"
+        );
+    }
+    assert_eq!(current.context_id().unwrap(), original);
 }
 
 #[test]
@@ -424,10 +479,14 @@ fn boundary_retains_incumbent_and_freezes_real_pool_with_original_allocation_cus
         .unwrap()
         .unwrap();
     assert_eq!(captured.current(), &current);
-    assert_eq!(captured.boundary().next.authority, current.authority);
+    assert_eq!(captured.boundary().next.generation(), current.generation());
     assert_eq!(captured.boundary().next.committee, current.committee);
     let future = captured.boundary().preparation.as_ref().unwrap();
     assert_eq!(future.committee.len(), 7);
+    assert_eq!(
+        future.authority_generation,
+        current.authorization.authority_generation + 1
+    );
     assert_eq!(
         (
             future.selection_epoch,
@@ -485,7 +544,7 @@ fn frozen_boundary_refusal_returns_original_pool_and_does_not_need_fresh_incumbe
     let captured = freeze_boundary(&world.view(), &hashes, &current, &policy, 10, &budget)
         .unwrap()
         .unwrap();
-    assert_eq!(captured.boundary().next.authority, current.authority);
+    assert_eq!(captured.boundary().next.generation(), current.generation());
     assert_eq!(captured.boundary().next.committee, current.committee);
     assert!(captured.boundary().preparation.is_none());
     assert_eq!(
@@ -722,16 +781,13 @@ fn restore_installs_exact_current_and_undo_graph_owners_without_deep_cloning() {
 
 #[test]
 fn prepared_boundary_readiness_requires_every_frozen_seat_custody() {
-    // Source component: genuine attempt-bound paired/share proofs and an independently
+    // Source component: genuine attempt-bound beacon-share proofs and an independently
     // reconciled global XOR ledger. Certified boundary publication remains a separate gate.
     let fixture = crate::state::validator_committee::tests::fixture(7);
     let mut transition = fixture.transition;
     let (mut world, policy, pairs, asset) = custody_pool(8);
     {
         let original = fixture.world.view();
-        for (id, keys) in original.validator_candidate_keys().iter() {
-            world.validator_candidate_keys.insert(*id, keys.clone());
-        }
         for (id, record) in original.global_beacon_key_sessions().iter() {
             world.global_beacon_key_sessions.insert(*id, record.clone());
         }

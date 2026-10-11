@@ -1,4 +1,10 @@
 //! Hidden-function-backed identifier policy and claim types.
+mod hkdf_v1;
+pub use hkdf_v1::{
+    hkdf_identifier_execution_metadata_v1, hkdf_identifier_input_commitment_v1,
+    hkdf_identifier_request_payload_v1,
+};
+
 use crate::{
     NetworkId,
     account::{AccountId, OpaqueAccountId},
@@ -214,7 +220,7 @@ impl IdentifierPolicy {
         self
     }
 }
-/// Signed statement that a trusted verifier checked one encrypted phone input,
+/// Signed statement that an independent trusted verifier checked one owner phone input,
 /// canonicalized it to E.164, and derived its stable secret-keyed nullifier.
 /// No phone number or unkeyed phone digest is put on chain.
 #[derive(
@@ -239,9 +245,9 @@ pub struct PhoneRetailCanonicalityPayloadV1 {
     pub policy_id: IdentifierPolicyId,
     /// Pinned first-release hidden program, `phone_retail`.
     pub program_id: RamLfeProgramId,
-    /// Digest of the encrypted BFV input whose plaintext was checked.
+    /// Nonce-blinded commitment to the exact canonical owner PRF input.
     pub input_ciphertext_hash: Hash,
-    /// Digest of the evaluated encrypted output.
+    /// Digest of the genuine opaque native PRF output.
     pub output_ciphertext_hash: Hash,
     /// Opened output digest verified by the program's opening key.
     pub opened_output_hash: Hash,
@@ -371,11 +377,13 @@ pub struct IdentifierResolutionReceipt {
 )]
 #[norito_schema(name = "iroha_data_model::identifier::IdentifierResolutionReceiptPayload")]
 pub struct IdentifierResolutionReceiptPayload {
+    /// Exact independently selected network, covered first by the resolver signature.
+    pub network_id: NetworkId,
     /// Policy namespace used for the resolution.
     pub policy_id: IdentifierPolicyId,
     /// Generic RAM-LFE execution receipt payload.
     pub execution: RamLfeExecutionReceiptPayload,
-    /// Externally verified opening for the RAM-LFE encrypted output.
+    /// Independently verified original opening for the current native opaque output.
     pub opening: RamLfeOutputOpening,
     /// Opaque identifier derived by the hidden-function resolver.
     pub opaque_id: OpaqueAccountId,
@@ -433,10 +441,11 @@ pub mod prelude {
     };
 }
 fn normalize_phone_e164(raw: &str) -> Result<String, IdentifierNormalizationError> {
-    let compact: String = raw
-        .chars()
-        .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r' | '-' | '(' | ')' | '.'))
-        .collect();
+    let compact = zeroize::Zeroizing::new(
+        raw.chars()
+            .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r' | '-' | '(' | ')' | '.'))
+            .collect::<String>(),
+    );
     let without_prefix = compact
         .strip_prefix('+')
         .or_else(|| compact.strip_prefix("00"))
@@ -452,7 +461,7 @@ fn normalize_phone_e164(raw: &str) -> Result<String, IdentifierNormalizationErro
     Ok(format!("+{without_prefix}"))
 }
 fn normalize_email_address(raw: &str) -> Result<String, IdentifierNormalizationError> {
-    let lowered = raw.trim().to_ascii_lowercase();
+    let lowered = zeroize::Zeroizing::new(raw.trim().to_ascii_lowercase());
     let mut parts = lowered.split('@');
     let local = parts.next().unwrap_or_default();
     let domain = parts.next().unwrap_or_default();
@@ -462,14 +471,15 @@ fn normalize_email_address(raw: &str) -> Result<String, IdentifierNormalizationE
                 .to_owned(),
         ));
     }
-    Ok(lowered)
+    Ok(lowered.to_string())
 }
 fn normalize_account_number(raw: &str) -> Result<String, IdentifierNormalizationError> {
-    let normalized: String = raw
-        .chars()
-        .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r' | '-'))
-        .map(|ch| ch.to_ascii_uppercase())
-        .collect();
+    let normalized = zeroize::Zeroizing::new(
+        raw.chars()
+            .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r' | '-'))
+            .map(|ch| ch.to_ascii_uppercase())
+            .collect::<String>(),
+    );
     if normalized.is_empty()
         || !normalized
             .chars()
@@ -479,7 +489,7 @@ fn normalize_account_number(raw: &str) -> Result<String, IdentifierNormalization
             "account-number normalization expects ASCII alphanumeric input".to_owned(),
         ));
     }
-    Ok(normalized)
+    Ok(normalized.to_string())
 }
 #[cfg(test)]
 mod tests {
@@ -610,6 +620,9 @@ mod tests {
             payload: opening_payload,
         };
         let payload = IdentifierResolutionReceiptPayload {
+            network_id: NetworkId::from_genesis_hash(iroha_crypto::HashOf::from_untyped_unchecked(
+                Hash::new(b"identifier-component-network"),
+            )),
             policy_id: IdentifierPolicyId::from_str("email#retail").expect("valid policy"),
             execution: RamLfeExecutionReceiptPayload {
                 program_id: RamLfeProgramId::from_str("email_retail").expect("valid program id"),
@@ -734,6 +747,12 @@ mod tests {
                     }
                     mutated.payload.policy_id =
                         IdentifierPolicyId::from_str(raw).expect("valid policy id mutation");
+                }
+                "receipt.payload.network_id" => {
+                    mutated.payload.network_id =
+                        NetworkId::from_genesis_hash(iroha_crypto::HashOf::from_untyped_unchecked(
+                            hash_hex(fixture_str(negative, "value")),
+                        ));
                 }
                 "receipt.attestation.signature" => {
                     mutated.attestation = RamLfeReceiptAttestation::Signed(
@@ -921,6 +940,9 @@ mod tests {
     }
     fn live_identifier_resolution_payload_fixture() -> IdentifierResolutionReceiptPayload {
         IdentifierResolutionReceiptPayload {
+            network_id: NetworkId::from_genesis_hash(iroha_crypto::HashOf::from_untyped_unchecked(
+                Hash::new(b"identifier-component-network"),
+            )),
             policy_id: IdentifierPolicyId::from_str("email#retail").expect("valid policy"),
             execution: live_identifier_execution_fixture(),
             opening: live_identifier_output_opening_fixture(),
@@ -1048,6 +1070,9 @@ mod tests {
     fn payload_from_fixture(payload: &norito::json::Value) -> IdentifierResolutionReceiptPayload {
         let opening = fixture_object(payload, "opening");
         IdentifierResolutionReceiptPayload {
+            network_id: NetworkId::from_genesis_hash(iroha_crypto::HashOf::from_untyped_unchecked(
+                hash_hex(fixture_str(payload, "network_id")),
+            )),
             policy_id: IdentifierPolicyId::from_str(fixture_str(payload, "policy_id"))
                 .expect("valid policy id"),
             execution: execution_from_fixture(fixture_object(payload, "execution")),
@@ -1142,3 +1167,180 @@ mod tests {
 
 #[cfg(test)]
 mod captured_identifier_schema_tests;
+
+#[cfg(test)]
+mod current_receipt_network_tests {
+    use super::*;
+    #[test]
+    fn receipt_network_is_mandatory_first_raw32_and_covered_by_signature() {
+        let signer =
+            iroha_crypto::KeyPair::try_from_seed(vec![0x71; 32], iroha_crypto::Algorithm::Ed25519)
+                .unwrap();
+        let raw = norito::json::from_str::<norito::json::Value>(include_str!(
+            "../../../fixtures/soracloud/identifier_receipt_vectors_v1.json"
+        ))
+        .unwrap();
+        // Public DTO fields are intentionally decoded by the existing exact fixture owner.
+        let fixture = raw.get("receipt").unwrap().get("payload").unwrap();
+        let network_hex = fixture.get("network_id").unwrap().as_str().unwrap();
+        let hash: Hash = network_hex.parse().unwrap();
+        let network =
+            NetworkId::from_genesis_hash(iroha_crypto::HashOf::from_untyped_unchecked(hash));
+        let program: RamLfeProgramId = "email_retail".parse().unwrap();
+        let output = Hash::new(b"network-layout-data");
+        let opening_payload = crate::ram_lfe::RamLfeOutputOpeningPayload {
+            program_id: program.clone(),
+            input_ciphertext_hash: output,
+            output_ciphertext_hash: output,
+            parameter_digest: output,
+            evaluation_key_digest: output,
+            opened_output_hash: output,
+            opened_at_ms: 100,
+            expires_at_ms: Some(200),
+        };
+        let opening = RamLfeOutputOpening {
+            signature: SignatureOf::try_new(signer.private_key(), &opening_payload)
+                .unwrap()
+                .into(),
+            payload: opening_payload,
+        };
+        let payload = IdentifierResolutionReceiptPayload {
+            network_id: network,
+            policy_id: "email#retail".parse().unwrap(),
+            execution: RamLfeExecutionReceiptPayload {
+                program_id: program,
+                program_digest: output,
+                backend: iroha_crypto::RamLfeBackend::HkdfSha3_512PrfV1,
+                verification_mode: iroha_crypto::RamLfeVerificationMode::Signed,
+                input_ciphertext_hash: output,
+                output_ciphertext_hash: output,
+                parameter_digest: output,
+                evaluation_key_digest: output,
+                output_hash: output,
+                associated_data_hash: output,
+                executed_at_ms: 100,
+                expires_at_ms: Some(200),
+            },
+            opening,
+            opaque_id: OpaqueAccountId::from_hash(output),
+            receipt_hash: output,
+            uaid: UniversalAccountId::from_hash(output),
+            account_id: AccountId::new(signer.public_key().clone()),
+        };
+        let signature = SignatureOf::try_new(signer.private_key(), &payload).unwrap();
+        signature.verify(signer.public_key(), &payload).unwrap();
+        // SignatureOf and receipt.payload_bytes() own the fixed bare payload.
+        // encode_canonical instead owns a full Norito frame and header.
+        let bytes = payload.encode();
+        assert_eq!(bytes[0], 32);
+        assert_eq!(&bytes[1..33], network.as_bytes());
+        let mut changed = payload.clone();
+        changed.network_id = NetworkId::from_genesis_hash(
+            iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(b"other-network")),
+        );
+        assert!(signature.verify(signer.public_key(), &changed).is_err());
+        let json = norito::json::to_string(&payload).unwrap();
+        let decoded: IdentifierResolutionReceiptPayload = norito::json::from_str(&json).unwrap();
+        assert_eq!(decoded, payload);
+        let mut value: norito::json::Value = norito::json::from_str(&json).unwrap();
+        value.as_object_mut().unwrap().remove("network_id");
+        assert!(norito::json::from_value::<IdentifierResolutionReceiptPayload>(value).is_err());
+    }
+    #[test]
+    fn original_phone_and_opening_json_use_exact_typed_carriers() {
+        let signer =
+            iroha_crypto::KeyPair::try_from_seed(vec![0x72; 32], iroha_crypto::Algorithm::Ed25519)
+                .unwrap();
+        let hash = Hash::new(b"typed-original-data");
+        let network =
+            NetworkId::from_genesis_hash(iroha_crypto::HashOf::from_untyped_unchecked(hash));
+        let program: RamLfeProgramId = "phone_retail".parse().unwrap();
+        let original = crate::ram_lfe::RamLfeOutputOpeningPayload {
+            program_id: program.clone(),
+            input_ciphertext_hash: hash,
+            output_ciphertext_hash: hash,
+            parameter_digest: hash,
+            evaluation_key_digest: hash,
+            opened_output_hash: hash,
+            opened_at_ms: 100,
+            expires_at_ms: Some(200),
+        };
+        let opening = RamLfeOutputOpening {
+            signature: SignatureOf::try_new(signer.private_key(), &original)
+                .unwrap()
+                .into(),
+            payload: original,
+        };
+        let phone = PhoneRetailCanonicalityPayloadV1 {
+            network_id: network,
+            policy_id: "phone#retail".parse().unwrap(),
+            program_id: program,
+            input_ciphertext_hash: hash,
+            output_ciphertext_hash: hash,
+            opened_output_hash: hash,
+            canonical_phone_nullifier: hash,
+            uaid: UniversalAccountId::from_hash(hash),
+            account_id: AccountId::new(signer.public_key().clone()),
+            issued_at_ms: 100,
+            expires_at_ms: 200,
+        };
+        let typed = norito::json::to_value(&phone).unwrap();
+        assert_eq!(
+            typed.get("network_id"),
+            Some(&norito::json::to_value(&network).unwrap())
+        );
+        assert_eq!(
+            typed.get("uaid"),
+            Some(&norito::json::Value::Array(vec![
+                norito::json::to_value(&hash).unwrap()
+            ]))
+        );
+        assert_eq!(
+            typed
+                .get("policy_id")
+                .unwrap()
+                .get("kind")
+                .unwrap()
+                .as_str(),
+            Some("phone")
+        );
+        assert_eq!(
+            typed
+                .get("policy_id")
+                .unwrap()
+                .get("business_rule")
+                .unwrap()
+                .as_str(),
+            Some("retail")
+        );
+        assert_eq!(
+            typed
+                .get("program_id")
+                .unwrap()
+                .get("name")
+                .unwrap()
+                .as_str(),
+            Some("phone_retail")
+        );
+        assert_eq!(
+            norito::json::from_value::<PhoneRetailCanonicalityPayloadV1>(typed).unwrap(),
+            phone
+        );
+        let typed_opening = norito::json::to_value(&opening).unwrap();
+        assert_eq!(
+            typed_opening.get("signature").unwrap().as_str(),
+            Some(hex::encode_upper(opening.signature.payload()).as_str())
+        );
+        assert_eq!(
+            typed_opening
+                .get("payload")
+                .unwrap()
+                .get("input_ciphertext_hash"),
+            Some(&norito::json::to_value(&hash).unwrap())
+        );
+        assert_eq!(
+            norito::json::from_value::<RamLfeOutputOpening>(typed_opening).unwrap(),
+            opening
+        );
+    }
+}

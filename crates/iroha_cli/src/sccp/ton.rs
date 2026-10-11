@@ -20,12 +20,10 @@ use iroha_sccp_wallet::pure::{
     ton::{
         SEND_MODE_PAY_FEES_SEPARATELY_IGNORE_ERRORS, TonAccountV1, TonWalletKeyV1, TvmIntV1,
         WALLET_V5R1_MAINNET_ID, finalize_body, get_method_id, internal_message, parse_int_stack,
-        rotate_body, stack_of_ints, wallet_v5_transfer,
+        quote_with_margin, rotate_body, stack_of_ints, wallet_v5_transfer,
     },
 };
 
-/// Value sent with a rotation (excess returns to the wallet), in nanotons.
-const ROTATE_VALUE: u128 = 100_000_000;
 /// Lifetime of a wallet external message (seconds).
 const EXTERNAL_LIFETIME_S: u32 = 120;
 
@@ -216,6 +214,17 @@ impl TonDestination {
         })
     }
 
+    /// Get method `method` of the minter returning one value in nanotons (a required-value
+    /// quote, §5.3.5), plus the [`quote_with_margin`] margin: the minter returns what its step
+    /// does not use.
+    fn quoted_value(&self, method: &str, args: &[i64]) -> Result<u128> {
+        let values = run_method(&self.lite, &self.minter, method, args)?;
+        let quote = int_at(&values, 0, method)?
+            .to_u64()
+            .ok_or_else(|| eyre!("`{method}` is not a u64 value"))?;
+        Ok(quote_with_margin(u128::from(quote)))
+    }
+
     /// Destination time in milliseconds (the liteserver clock).
     pub(super) fn now_ms(&self) -> Result<u64> {
         Ok(u64::from(
@@ -227,7 +236,7 @@ impl TonDestination {
     }
 
     /// Verify `bundle` for this deployment and send `sccp_finalize` from `wallet` with the
-    /// minter's `finalize_required_value`.
+    /// minter's `finalize_required_value` plus a margin.
     pub(super) fn finalize(
         &self,
         bundle: &SccpMessageProofBundleV1,
@@ -244,18 +253,10 @@ impl TonDestination {
             |error| eyre!("the proof bundle does not verify for this deployment: {error}"),
         )?;
         let nonce = i64::try_from(verified.nonce()).map_err(|_| eyre!("nonce overflows"))?;
-        let value = run_method(
-            &self.lite,
-            &self.minter,
-            "finalize_required_value",
-            &[nonce],
-        )?;
-        let value = int_at(&value, 0, "required value")?
-            .to_u64()
-            .ok_or_else(|| eyre!("the required value is not a u64"))?;
+        let value = self.quoted_value("finalize_required_value", &[nonce])?;
         let body = finalize_body(&verified, verified.nonce(), wallet.address())
             .map_err(|error| eyre!("finalize message: {error}"))?;
-        let message = internal_message(&self.minter, u128::from(value), true, body, None)
+        let message = internal_message(&self.minter, value, true, body, None)
             .map_err(|error| eyre!("internal message: {error}"))?;
         wallet.send(
             &self.lite,
@@ -264,7 +265,9 @@ impl TonDestination {
     }
 
     /// Verify `chain` from the minter's roster to `target_generation` and send one
-    /// `sccp_rotate` per rotation from `wallet`. Returns the sent message hashes.
+    /// `sccp_rotate` per rotation from `wallet`, in order and in one wallet message, each with
+    /// the minter's `rotate_required_value` plus a margin. Returns the sent message hashes
+    /// (none when the minter's roster is current).
     pub(super) fn rotate(
         &self,
         chain: &SccpRotationChainV1,
@@ -280,19 +283,24 @@ impl TonDestination {
             self.now_ms()?,
         )
         .map_err(|error| eyre!("the rotation chain does not verify: {error}"))?;
-        plan.rotations
+        if plan.rotations.is_empty() {
+            return Ok(Vec::new());
+        }
+        // A rotation never raises the quote: it tops the minter up to its floor.
+        let value = self.quoted_value("rotate_required_value", &[])?;
+        let messages = plan
+            .rotations
             .iter()
             .map(|rotation| {
                 let body = rotate_body(rotation, rotation.attestation.height, wallet.address())
                     .map_err(|error| eyre!("rotate message: {error}"))?;
-                let message = internal_message(&self.minter, ROTATE_VALUE, true, body, None)
+                let message = internal_message(&self.minter, value, true, body, None)
                     .map_err(|error| eyre!("internal message: {error}"))?;
-                wallet.send(
-                    &self.lite,
-                    &[(message, SEND_MODE_PAY_FEES_SEPARATELY_IGNORE_ERRORS)],
-                )
+                Ok((message, SEND_MODE_PAY_FEES_SEPARATELY_IGNORE_ERRORS))
             })
-            .collect()
+            .collect::<Result<Vec<_>>>()?;
+        // One wallet message (one seqno); the minter receives the rotations in order.
+        Ok(vec![wallet.send(&self.lite, &messages)?])
     }
 }
 

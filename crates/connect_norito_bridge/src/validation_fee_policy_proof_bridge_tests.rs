@@ -20,6 +20,13 @@ mod validation_fee_policy_proof_bridge_tests {
     fn request_encoder_derives_height_from_complete_native_checkpoint() {
         for height in 1..=2 {
             let checkpoint = native_checkpoint(height);
+            let decoded_checkpoint =
+                iroha_data_model::sumeragi_finality::SumeragiFinalityCheckpoint::decode_canonical(
+                    checkpoint,
+                )
+                .unwrap();
+            assert_eq!(decoded_checkpoint.height(), height);
+            assert_eq!(decoded_checkpoint.encode_canonical().unwrap(), checkpoint);
             let request = validation_fee_current_policy_proof_request_v1(checkpoint).unwrap();
             let decoded: ValidationFeeCurrentPolicyProofRequestV1 =
                 decode_from_bytes(&request).unwrap();

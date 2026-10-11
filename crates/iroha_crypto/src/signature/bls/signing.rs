@@ -5,13 +5,20 @@
 //! upstream `(s + x, -x)` equation and uses its unchanged field sampler. The
 //! synchronous blst primitives perform hashing and both scalar multiplications
 //! with fixed backing. No message concatenation or signature Vec is constructed.
+//!
+//! The consensus suite (`super::consensus`) reuses the same checked scalar
+//! decoding and blinded split, but hashes an allowlisted [`ConsensusDigest`]
+//! under `DST_SIG` with no augmentation. That producer takes only a
+//! `ConsensusDigest`, so no other caller can sign under `DST_SIG`.
 
 use ark_serialize::{CanonicalDeserialize as _, CanonicalSerialize as _, SerializationError};
 use blst::*;
 use w3f_bls::EngineBLS as _;
 use zeroize::Zeroizing;
 
+use super::consensus::{ConsensusDigest, DST_SIG};
 use super::implementation::BlsConfiguration;
+use super::normal::NormalConfiguration;
 use super::uncached::{HASH_TO_FIELD_DST, NORMAL_PREFIX, SMALL_PREFIX};
 use crate::{Algorithm, Error};
 
@@ -91,12 +98,34 @@ fn scalar<C: BlsConfiguration + ?Sized, E>(
     Ok(Zeroizing::new(value))
 }
 
+/// One checked private scalar held as two shares whose sum is the original scalar.
+struct ScalarShares<S: zeroize::Zeroize> {
+    first: Zeroizing<S>,
+    second: Zeroizing<S>,
+}
+
+type EngineScalar<C> = <<C as BlsConfiguration>::Engine as w3f_bls::EngineBLS>::Scalar;
+
 #[cfg(feature = "rand")]
 pub(super) fn sign_with_rng<C, R>(
     bytes: &[u8],
     message: &[u8],
     rng: &mut R,
 ) -> Result<SigningOutput, BlsSigningError<R::Error>>
+where
+    C: BlsConfiguration + ?Sized,
+    R: rand_core::TryCryptoRng,
+{
+    let shares = split_with_rng::<C, R>(bytes, rng)?;
+    sign_split::<C, R::Error>(&shares.first, &shares.second, message)
+}
+
+/// Decode the scalar, then draw the existing random split `(s + x, -x)`.
+#[cfg(feature = "rand")]
+fn split_with_rng<C, R>(
+    bytes: &[u8],
+    rng: &mut R,
+) -> Result<ScalarShares<EngineScalar<C>>, BlsSigningError<R::Error>>
 where
     C: BlsConfiguration + ?Sized,
     R: rand_core::TryCryptoRng,
@@ -119,7 +148,7 @@ where
     let mut second = Zeroizing::new(C::Engine::generate(&mut split_rng));
     *first += *second;
     *second = -*second;
-    sign_split::<C, R::Error>(&first, &second, message)
+    Ok(ScalarShares { first, second })
 }
 
 #[cfg(any(test, not(feature = "rand")))]
@@ -127,9 +156,96 @@ pub(super) fn sign_once<C: BlsConfiguration + ?Sized>(
     bytes: &[u8],
     message: &[u8],
 ) -> Result<SigningOutput, BlsSigningError> {
-    let first = scalar::<C, rand_core::OsError>(bytes)?;
-    let second = Zeroizing::new(<C::Engine as w3f_bls::EngineBLS>::Scalar::from(0u64));
-    sign_split::<C, rand_core::OsError>(&first, &second, message)
+    let shares = split_once::<C, rand_core::OsError>(bytes)?;
+    sign_split::<C, rand_core::OsError>(&shares.first, &shares.second, message)
+}
+
+/// Decode the scalar without blinding: the second share is zero.
+#[cfg(any(test, not(feature = "rand")))]
+fn split_once<C: BlsConfiguration + ?Sized, E>(
+    bytes: &[u8],
+) -> Result<ScalarShares<EngineScalar<C>>, BlsSigningError<E>> {
+    let first = scalar::<C, E>(bytes)?;
+    let second = Zeroizing::new(EngineScalar::<C>::from(0u64));
+    Ok(ScalarShares { first, second })
+}
+
+/// Sign one allowlisted consensus digest: `sk · hash_to_G2(m, DST_SIG)`.
+///
+/// `bytes` is the retained BLS-normal private-key payload. With `rand`, the
+/// scalar is blinded by the same OS-entropy split as the contextual signer;
+/// the signature is unique for the key and digest either way.
+pub(super) fn sign_consensus(
+    bytes: &[u8],
+    digest: &ConsensusDigest,
+) -> Result<[u8; 96], BlsSigningError> {
+    #[cfg(feature = "rand")]
+    {
+        sign_consensus_with_rng(bytes, digest, &mut rand::rngs::OsRng)
+    }
+    #[cfg(not(feature = "rand"))]
+    {
+        sign_consensus_once(bytes, digest)
+    }
+}
+
+/// Consensus signing with an explicit entropy source for the scalar split.
+#[cfg(feature = "rand")]
+pub(super) fn sign_consensus_with_rng<R: rand_core::TryCryptoRng>(
+    bytes: &[u8],
+    digest: &ConsensusDigest,
+    rng: &mut R,
+) -> Result<[u8; 96], BlsSigningError<R::Error>> {
+    let shares = split_with_rng::<NormalConfiguration, R>(bytes, rng)?;
+    consensus_split::<R::Error>(&shares, digest)
+}
+
+/// Consensus signing without the blinding split.
+#[cfg(any(test, not(feature = "rand")))]
+pub(super) fn sign_consensus_once(
+    bytes: &[u8],
+    digest: &ConsensusDigest,
+) -> Result<[u8; 96], BlsSigningError> {
+    let shares = split_once::<NormalConfiguration, rand_core::OsError>(bytes)?;
+    consensus_split::<rand_core::OsError>(&shares, digest)
+}
+
+/// No augmentation: the IETF min-pk proof-of-possession suite hashes exactly the message.
+const NO_AUGMENTATION: &[u8] = &[];
+
+fn consensus_split<E>(
+    shares: &ScalarShares<EngineScalar<NormalConfiguration>>,
+    digest: &ConsensusDigest,
+) -> Result<[u8; 96], BlsSigningError<E>> {
+    let first = encoded_scalar::<NormalConfiguration, E>(&shares.first)?;
+    let second = encoded_scalar::<NormalConfiguration, E>(&shares.second)?;
+    let message = digest.as_bytes();
+    let mut output = [0_u8; 96];
+    // SAFETY: every point/output is initialized and exact-size for its primitive.
+    // The digest, DST and empty augmentation pointers carry their actual lengths.
+    // The synchronous C primitives retain no pointers and allocate no Rust buffers;
+    // both scalar multiplications use blst's constant-time signing routine.
+    #[allow(unsafe_code)]
+    unsafe {
+        let mut hash = blst_p2::default();
+        let mut left = blst_p2::default();
+        let mut right = blst_p2::default();
+        let mut sum = blst_p2::default();
+        blst_hash_to_g2(
+            &raw mut hash,
+            message.as_ptr(),
+            message.len(),
+            DST_SIG.as_ptr(),
+            DST_SIG.len(),
+            NO_AUGMENTATION.as_ptr(),
+            NO_AUGMENTATION.len(),
+        );
+        blst_sign_pk_in_g1(&raw mut left, &raw const hash, &raw const *first);
+        blst_sign_pk_in_g1(&raw mut right, &raw const hash, &raw const *second);
+        blst_p2_add_or_double(&raw mut sum, &raw const left, &raw const right);
+        blst_p2_compress(output.as_mut_ptr(), &raw const sum);
+    }
+    Ok(output)
 }
 
 fn encoded_scalar<C: BlsConfiguration + ?Sized, E>(

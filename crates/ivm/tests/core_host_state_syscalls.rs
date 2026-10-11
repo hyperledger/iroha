@@ -56,7 +56,8 @@ fn state_program(name: &str, write: bool) -> Vec<u8> {
         return_schema: Some(ivm_abi::entrypoint::EntrypointValueTypeV1 {
             nodes: vec![ivm_abi::entrypoint::EntrypointValueTypeNodeV1::Unit],
         }),
-        permission: write.then(|| "Execute".to_owned()),
+        authorization:
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
         read_keys: (!write).then_some(access_key.clone()).into_iter().collect(),
         write_keys: write.then_some(access_key).into_iter().collect(),
         access_hints_complete: Some(true),
@@ -65,6 +66,8 @@ fn state_program(name: &str, write: bool) -> Vec<u8> {
         entry_pc: 0,
     };
     let interface = EmbeddedContractInterfaceV1 {
+        permissions: Vec::new(),
+        events: Vec::new(),
         callables: vec![common::unit_callable(0)],
         seiyaku_name: "StateSyscallFixture".to_owned(),
         compiler_fingerprint: "ivm-integration-tests".to_owned(),
@@ -79,6 +82,7 @@ fn state_program(name: &str, write: bool) -> Vec<u8> {
         }],
         error_messages: Vec::new(),
         error_types: Vec::new(),
+        enum_types: Vec::new(),
     };
     let mut program = ProgramMetadata::default().encode();
     program.extend_from_slice(&interface.encode_section());

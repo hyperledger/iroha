@@ -32,7 +32,9 @@
 //!   §7.4 record-provenance rules (initial records only at installation events, never over an
 //!   existing file; a rolled-back or replaced store makes every key imported).
 //! - [`scenarios`]: seeded fault scenarios ([`scenarios::ALL`]). F31 runs independent
-//!   instances with the toy two-phase settlement application and O-AMX over certified results.
+//!   instances with the toy two-phase settlement application and O-AMX over certified results;
+//!   F39 runs the application clock guard of §4.5 (per-machine wall clocks, block times, CT1 and
+//!   CT5 for uncertified executions) with O-TIME.
 //!
 //! Seeds: `SUMERAGI_SIM_SEEDS` (count per scenario), `SUMERAGI_SIM_SEED_BASE` (first seed) or
 //! `SUMERAGI_SIM_SEED` (exactly one seed, to reproduce a failure). Diagnostics:

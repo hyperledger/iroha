@@ -28,10 +28,10 @@ mod peers_gossiper_topology_sync;
 mod runtime_provider_broker;
 /// Deployment-owned runtime-provider registry boundary for the standard launcher.
 pub mod runtime_provider_registry;
-/// In-node SCCP attestor with zero-touch bridge-key management.
+/// In-node SCCP keeper with a node-generated keeper key.
 #[cfg(unix)]
-#[path = "sccp_attestor.rs"]
-mod sccp_attestor;
+#[path = "sccp_keeper.rs"]
+mod sccp_keeper;
 /// Embedded Soracloud runtime-manager reconciliation.
 #[path = "soracloud_runtime.rs"]
 mod soracloud_runtime;
@@ -291,7 +291,7 @@ fn confidential_handshake_policy_digest(
         None,
         None,
         digest.conf_rules_version,
-        digest.zk_policy_hash,
+        Some(iroha_core::state::default_genesis_confidential_policy_hash()),
     )
 }
 fn decode_consensus_handshake_meta(
@@ -428,40 +428,11 @@ fn complete_test_genesis_builder_for_topology(
         iroha_crypto::bls_normal_pop_verify(entry.peer.public_key(), &pop)
             .expect("verify irohad test validator proof of possession");
     }
-    let validators = topology
-        .iter()
-        .map(|entry| entry.peer.clone())
-        .enumerate()
-        .map(|(index, validator)| {
-            let seed_byte = 0xA0_u8.wrapping_add(
-                u8::try_from(index).expect("test genesis validator index fits in one byte"),
-            );
-            iroha_core_zk::kagemusha_v1_recursion::derive_kagemusha_mint_finality_validator_keys_v1(
-                &[seed_byte; 32],
-                0,
-                validator,
-            )
-            .expect("derive deterministic paired-Pasta test genesis validator keys")
-        })
-        .collect();
-    let parameters =
-        iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalityGenesisParametersV1 {
-            authority_generation:
-                iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationTemplateV1 {
-                    version: iroha_data_model::isi::kagemusha_v1::KAGEMUSHA_CHAIN_VERSION_V1,
-                    generation: 0,
-                    validators,
-                },
-        };
-    parameters
-        .validate()
-        .expect("test genesis topology must form a canonical mint-finality roster");
     builder
         .set_topology(topology)
         .with_sumeragi_context_parameters(
             iroha_data_model::block::consensus::SumeragiGenesisContextParameters::recommended(),
         )
-        .with_kagemusha_mint_finality_genesis_parameters(parameters)
 }
 
 #[cfg(test)]
@@ -655,7 +626,7 @@ mod handshake_payload_tests {
         );
         let committed = iroha_core::state::combine_zk_and_sccp_policy_hashes(
             iroha_core::state::compute_zk_consensus_policy_hash(&state.zk_snapshot()),
-            iroha_core::state::sccp_policy_hash_v1(),
+            iroha_core::state::sccp_genesis_policy_hash_v1(),
         );
         assert_ne!(Some(committed), features.zk_policy_hash);
         assert_eq!(handshake_confidential_features(), features);
@@ -674,7 +645,21 @@ mod handshake_payload_tests {
         assert_eq!(handshake.poseidon_params_id, None);
         assert_eq!(handshake.pedersen_params_id, None);
         assert_eq!(handshake.conf_rules_version, Some(1));
-        assert_eq!(handshake.zk_policy_hash, Some([2; 32]));
+        // The block digest's policy hash binds the light-client profile versions active at its
+        // height; the handshake binds the version-1 profiles, so a Parliament profile
+        // activation never splits peers at different heights.
+        assert_eq!(
+            handshake.zk_policy_hash,
+            Some(iroha_core::state::default_genesis_confidential_policy_hash())
+        );
+        let after_activation = iroha_data_model::confidential::ConfidentialFeatureDigest {
+            zk_policy_hash: Some([3; 32]),
+            ..digest
+        };
+        assert_eq!(
+            confidential_handshake_policy_digest(after_activation),
+            handshake
+        );
     }
 }
 #[derive(Debug, JsonDeserialize)]
@@ -692,21 +677,10 @@ pub fn is_coloring_supported() -> bool {
 fn default_terminal_colors_str() -> clap::builder::OsStr {
     is_coloring_supported().to_string().into()
 }
-/// Feed zk verifier-key cache events into `zk_verifier_cache_events_total`.
-#[cfg(feature = "telemetry")]
-fn record_zk_vk_cache_event(cache: &'static str, event: &'static str) {
-    if let Some(metrics) = iroha_telemetry::metrics::global() {
-        metrics
-            .zk_verifier_cache_events_total
-            .with_label_values(&[cache, event])
-            .inc();
-    }
-}
 #[cfg(feature = "telemetry")]
 fn init_global_metrics_handle(
     panic_on_duplicate_metrics: bool,
 ) -> Arc<iroha_telemetry::metrics::Metrics> {
-    let _ = iroha_core_zk::install_vk_cache_event_observer(record_zk_vk_cache_event);
     set_duplicate_metrics_panic(panic_on_duplicate_metrics);
     iroha_telemetry::metrics::global().map_or_else(
         || {
@@ -828,8 +802,8 @@ fn startup_beep(enable_beep: bool) -> bool {
 pub struct StartupArgs {
     /// Validate configuration and available genesis, then exit without binding network sockets.
     ///
-    /// The runtime-only secrets under `<data_dir>/secrets/` (runtime signer, mint-finality seed,
-    /// beacon credential) are never opened; the key files the configuration names are read by
+    /// The runtime-only secrets under `<data_dir>/secrets/` (runtime signer and beacon
+    /// credential) are never opened; the key files the configuration names are read by
     /// the parser after their custody checks.
     #[arg(long)]
     pub check_config: bool,
@@ -1143,7 +1117,7 @@ fn apply_state_runtime_config_before_snapshot_auth(state: &mut State, config: &C
     state.set_fraud_monitoring(config.fraud_monitoring.clone());
     state.set_gov(config.gov.clone());
     state.content = config.content.clone();
-    state.set_settlement(config.settlement.clone());
+    state.set_settlement(config.settlement);
 }
 /// Install the node's own pipeline settings: local resources and the fee policy.
 ///
@@ -2661,14 +2635,6 @@ impl Iroha {
                 })?
         };
         let mut loaded_state_from_snapshot = false;
-        let operation_index_budget = iroha_allocation::AllocationBudget::new(
-            usize::try_from(config.nexus.storage.kagemusha_operation_index_bytes.get()).map_err(
-                |_| {
-                    Report::new(StartError::InitKura)
-                        .attach("configured operation-index pool exceeds addressable memory")
-                },
-            )?,
-        );
         let snapshot_read_buffer_budget =
             iroha_allocation::AllocationBudget::new(config.snapshot.max_read_buffer_bytes.get());
         let snapshot_result = if snapshot_mode_allows_restore(config.snapshot.mode) {
@@ -2690,7 +2656,6 @@ impl Iroha {
                 #[cfg(feature = "telemetry")]
                 state_telemetry.clone(),
                 &snapshot_read_buffer_budget,
-                &operation_index_budget,
             )
         } else {
             iroha_logger::info!("Snapshot restore is disabled by configuration");
@@ -2729,14 +2694,15 @@ impl Iroha {
                     "Kura retains the configured-primary replay floor; rebuilding state from blocks"
                 );
                 let genesis_public_key = effective_genesis_public_key.clone();
-                let mut world = World::try_with_resource_budgets(
+                let mut world = World::try_with_execution_budget(
                     [genesis_domain(genesis_public_key.clone())],
                     [genesis_account(genesis_public_key)],
                     [],
-                    operation_index_budget.clone(),
                     &state_execution_budget,
                 )
-                .map_err(|error| Report::new(error).change_context(StartError::InitKura))?;
+                .map_err(|error: iroha_core::state::WorldConstructionError| {
+                    Report::new(error).change_context(StartError::InitKura)
+                })?;
                 if let Some(genesis_block) = effective_genesis {
                     iroha_core::sns::seed_genesis_alias_bootstrap(
                         &mut world,
@@ -3668,8 +3634,9 @@ impl Iroha {
                         ))
                     })?;
                 let local_consensus_peer = config.common.trusted_peers.value().myself.id().clone();
-                // Active Parliament TLE custody is mandatory: private timed-OVN has no alternate
-                // ballot-opening path when this validator owns a release-share seat.
+                // Consensus-native custody only: a validator seated in the active global-beacon key
+                // session must hold its exact partial signer before Sumeragi starts. Governance
+                // state never gates startup.
                 preflight_threshold_signer_startup_readiness_v1(
                     Arc::clone(&state),
                     local_consensus_peer.clone(),
@@ -3686,9 +3653,6 @@ impl Iroha {
                             key_pair: config.common.key_pair.clone(),
                             beacon_signer: runtime_deps
                                 .sumeragi_global_beacon_partial_signer
-                                .clone(),
-                            mint_finality_authority: runtime_deps
-                                .kagemusha_mint_finality_authority
                                 .clone(),
                             config: sumeragi_node_config(
                                 &config,
@@ -4622,14 +4586,15 @@ impl Iroha {
             supervisor.monitor(child);
             Some(runtime)
         };
-        // The SCCP attestor signs only durably final state and never aborts the node.
+        // The SCCP keeper is a supervised task of its own and never aborts the node: its
+        // public RPC delays neither block production nor any other task.
         #[cfg(unix)]
         if !emergency_fast
-            && let Some(child) = sccp_attestor::start(
+            && let Some(child) = sccp_keeper::start(
                 Arc::clone(&state),
                 Arc::clone(&queue),
-                config.common.key_pair.clone(),
-                config.sccp.attestor.clone(),
+                &PeerId::new(config.common.key_pair.public_key().clone()),
+                &config.sccp.keeper,
                 config.sccp.light_client_keeper.clone(),
                 supervisor.shutdown_signal(),
             )
@@ -4973,10 +4938,9 @@ impl Iroha {
         // Start proof lanes before Torii begins accepting submissions so one-time GPU setup happens
         // during node startup instead of the first hot-path transaction burst.
         if !emergency_fast {
-            // The ZK lane is a local diagnostic worker: it is sized by this node's
-            // own verifier resources and reads no chain policy, so a fresh node and
-            // a restarted one start it identically.
-            if let Some((_h, child)) = iroha_core::pipeline::zk_lane::start(&config.zk.halo2) {
+            // The diagnostic worker uses node-local trace resources, independently
+            // of the committed proof validity policy.
+            if let Some((_h, child)) = iroha_core::pipeline::zk_lane::start(&config.zk.trace) {
                 supervisor.monitor(Child::new(child, OnShutdown::Wait(Duration::from_secs(1))));
             }
             if let Some((_h, child)) =
@@ -7060,7 +7024,7 @@ metadata = {}
         .expect("multilane config")
     }
     const NEXUS_DEFAULTS_BLAKE2B: &str =
-        "2c2a75cb5d97b1c50dcdc6c5e5d900cde7f4011cf7761ebf5c3cbd9d5404c9e5";
+        "37af6d032c455549e0e10568d910720bc0ec6b5b67f03ffe47fc62469a90f65d";
     fn file_blake2b_hex(path: &Path) -> String {
         let bytes = std::fs::read(path).expect("read file");
         Hash::new(bytes).to_string()
@@ -8019,12 +7983,6 @@ pub fn run_with_runtime_provider_registry(
 }
 /// Deployment-launcher guard evaluated over the parsed daemon configuration.
 type IrohaLauncherConfigGuardV1 = fn(&Config) -> Result<(), String>;
-/// Private deployment callback bound to the exact authenticated local genesis.
-type IrohaLauncherRuntimeFactoryV1 = fn(
-    &Config,
-    &crate::authenticated_genesis::AuthenticatedGenesis,
-    IrohaRuntimeDeps,
-) -> Result<IrohaRuntimeDeps, String>;
 /// Run the standard CLI launcher with a deployment-owned configuration guard.
 ///
 /// The guard runs after the complete configuration is parsed and before
@@ -8036,7 +7994,7 @@ pub(crate) fn run_with_config_guard(
     build: CompiledBuildMetadata,
     guard: IrohaLauncherConfigGuardV1,
 ) -> ReportResult<(), MainError> {
-    run_main_with_config_guard(build, None, None, Some(guard), None)
+    run_main_with_config_guard(build, None, None, Some(guard))
 }
 /// Run the standard CLI launcher with a deployment-owned provider registry and
 /// configuration guard.
@@ -8047,15 +8005,8 @@ pub(crate) fn run_with_runtime_provider_registry_and_config_guard(
     build: CompiledBuildMetadata,
     registry: &dyn IrohaRuntimeProviderRegistryV1,
     guard: IrohaLauncherConfigGuardV1,
-    runtime_factory: IrohaLauncherRuntimeFactoryV1,
 ) -> ReportResult<(), MainError> {
-    run_main_with_config_guard(
-        build,
-        Some(registry),
-        None,
-        Some(guard),
-        Some(runtime_factory),
-    )
+    run_main_with_config_guard(build, Some(registry), None, Some(guard))
 }
 /// Run the standard CLI launcher with a deployment-owned private Musubi publication factory.
 ///
@@ -8339,95 +8290,6 @@ fn install_fastpq_queue_probe(labels: FastpqDeviceLabels) {
         })
         .expect("spawn FASTPQ Metal queue telemetry thread");
 }
-/// Reject a second Pasta seed source for a stock `data_dir` launch, which reads its seed from the
-/// fixed `<data_dir>/secrets/mint_finality.seed`.
-fn verify_node_secrets_seed_source(
-    node_secrets_launch: bool,
-    config: &Config,
-) -> Result<(), &'static str> {
-    if node_secrets_launch && config.sumeragi.mint_finality_seed_fd.is_some() {
-        return Err(
-            "a data_dir node reads its mint-finality seed from secrets/mint_finality.seed; \
-             remove sumeragi.mint_finality_seed_fd",
-        );
-    }
-    Ok(())
-}
-/// Reject a missing Pasta seed source before contacting deployment providers.
-///
-/// Registry providers have no Pasta slot; the fixed consumed descriptor, the
-/// fixed `<data_dir>/secrets/mint_finality.seed` of a stock `data_dir` launch
-/// and the exact launcher factory are the only supported ways to provide local
-/// seed custody. A later check binds the resolved holder to the full signed record.
-fn verify_signed_genesis_mint_finality_source_before_providers(
-    network_id: iroha_data_model::NetworkId,
-    local_validator: &iroha_model_base::peer::PeerId,
-    authenticated_authority: &iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1,
-    configured_seed_source: bool,
-    launcher_authority: bool,
-) -> Result<(), String> {
-    authenticated_authority
-        .validate()
-        .map_err(|error| format!("signed-genesis Pasta authority is invalid: {error}"))?;
-    if authenticated_authority.network_id != network_id {
-        return Err("signed-genesis Pasta authority belongs to another network".to_owned());
-    }
-    if authenticated_authority
-        .validators
-        .iter()
-        .any(|entry| &entry.validator == local_validator)
-        && !configured_seed_source
-        && !launcher_authority
-    {
-        return Err(
-            "signed-genesis validator requires a private Pasta seed source before provider startup"
-                .to_owned(),
-        );
-    }
-    Ok(())
-}
-
-/// Require exact Pasta custody before a signed-genesis validator starts.
-///
-/// A peer absent from the signed genesis authority has no genesis voting seat.
-/// Its separately held seed becomes usable only after the authenticated height
-/// context activates a generation containing that exact peer and public keys.
-fn verify_signed_genesis_mint_finality_custody(
-    network_id: iroha_data_model::NetworkId,
-    local_validator: &iroha_model_base::peer::PeerId,
-    authenticated_authority: &iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1,
-    held_authority: Option<
-        &iroha_core_zk::kagemusha_v1_recursion::KagemushaMintFinalityLocalAuthorityV1,
-    >,
-) -> Result<(), String> {
-    authenticated_authority
-        .validate()
-        .map_err(|error| format!("signed-genesis Pasta authority is invalid: {error}"))?;
-    if authenticated_authority.network_id != network_id {
-        return Err("signed-genesis Pasta authority belongs to another network".to_owned());
-    }
-    let Some(index) = authenticated_authority
-        .validators
-        .iter()
-        .position(|entry| &entry.validator == local_validator)
-    else {
-        return Ok(());
-    };
-    let held_authority = held_authority.ok_or_else(|| {
-        "signed-genesis validator requires its exact private Pasta seed before startup".to_owned()
-    })?;
-    let expected_index = u32::try_from(index)
-        .map_err(|_| "signed-genesis Pasta seat index exceeds u32".to_owned())?;
-    if held_authority.authority() != Some(authenticated_authority)
-        || held_authority.signer().map(
-            iroha_core_zk::kagemusha_v1_recursion::KagemushaMintFinalitySignerV1::validator_index,
-        ) != Some(expected_index)
-    {
-        return Err("held Pasta seed does not match this signed-genesis validator seat".to_owned());
-    }
-    Ok(())
-}
-
 fn run_main(
     build: CompiledBuildMetadata,
     runtime_provider_registry: Option<&dyn IrohaRuntimeProviderRegistryV1>,
@@ -8440,7 +8302,6 @@ fn run_main(
         runtime_provider_registry,
         musubi_publication_factory,
         None,
-        None,
     )
 }
 fn run_main_with_config_guard(
@@ -8450,7 +8311,6 @@ fn run_main_with_config_guard(
         Box<dyn musubi_publication_service::MusubiPublicationPrivateServiceFactoryV1>,
     >,
     launcher_config_guard: Option<IrohaLauncherConfigGuardV1>,
-    launcher_runtime_factory: Option<IrohaLauncherRuntimeFactoryV1>,
 ) -> ReportResult<(), MainError> {
     let args = parse_args(build);
     let lang = i18n::detect_language(args.language.as_deref());
@@ -8517,12 +8377,8 @@ fn run_main_with_config_guard(
     validate_startup_config_offline(&config).change_context(MainError::Config)?;
     // A `data_dir` node started by the stock launcher reads its runtime secrets from fixed files
     // under `<data_dir>/secrets/`; deployment launchers keep their own registries.
-    let node_secrets_launch = config.data_dir.is_some()
-        && !emergency_fast
-        && runtime_provider_registry.is_none()
-        && launcher_runtime_factory.is_none();
-    verify_node_secrets_seed_source(node_secrets_launch, &config)
-        .map_err(|error| Report::new(MainError::Config).attach(error))?;
+    let node_secrets_launch =
+        config.data_dir.is_some() && !emergency_fast && runtime_provider_registry.is_none();
     let authenticated_genesis = genesis
         .as_ref()
         .map(|local_genesis| {
@@ -8530,24 +8386,13 @@ fn run_main_with_config_guard(
                 .map(|(authenticated, _)| authenticated)
         })
         .transpose()?;
-    if let Some(authenticated_genesis) = authenticated_genesis.as_ref() {
-        let context = authenticated_genesis;
-        verify_signed_genesis_mint_finality_source_before_providers(
-            iroha_data_model::NetworkId::from_genesis_hash(config.genesis.expected_hash),
-            &config.common.peer.id,
-            &context.kagemusha_mint_finality_authority,
-            config.sumeragi.mint_finality_seed_fd.is_some() || node_secrets_launch,
-            launcher_runtime_factory.is_some(),
-        )
-        .map_err(|error| Report::new(MainError::Config).attach(error))?;
-    }
     let runtime_deps = if emergency_fast {
         iroha_logger::warn!(
             "emergency Fast startup skipped deployment runtime-provider projection and resolution"
         );
         IrohaRuntimeDeps::default()
     } else if node_secrets_launch {
-        resolve_node_secrets_runtime_deps(&config, authenticated_genesis.as_ref())?
+        resolve_node_secrets_runtime_deps(&config)?
     } else {
         let stock_runtime_provider_registry = if runtime_provider_registry.is_none() {
             let bindings = IrohaRuntimeProviderBindingsV1::try_from_config(&config)
@@ -8573,48 +8418,6 @@ fn run_main_with_config_guard(
             .change_context(MainError::Config)
             .attach("failed to resolve deployment runtime-provider bindings")?
     };
-    if config.sumeragi.mint_finality_seed_fd.is_some() && launcher_runtime_factory.is_some() {
-        return Err(Report::new(MainError::Config)
-            .attach("configured mint-finality seed rejects a second launcher authority"));
-    }
-    let runtime_deps = if let Some(factory) = launcher_runtime_factory {
-        if emergency_fast {
-            return Err(Report::new(MainError::Config)
-                .attach("deployment runtime authority requires authenticated full startup"));
-        }
-        let authenticated_genesis = authenticated_genesis.as_ref().ok_or_else(|| {
-            Report::new(MainError::Config)
-                .attach("deployment runtime authority requires the exact local signed genesis")
-        })?;
-        factory(&config, authenticated_genesis, runtime_deps)
-            .map_err(|error| Report::new(MainError::Config).attach(error))?
-    } else {
-        runtime_deps
-    };
-    #[cfg(unix)]
-    let runtime_deps = if config.sumeragi.mint_finality_seed_fd.is_some() {
-        if emergency_fast {
-            return Err(Report::new(MainError::Config)
-                .attach("configured mint-finality seed rejects emergency startup"));
-        }
-        let authenticated_genesis = authenticated_genesis.as_ref().ok_or_else(|| {
-            Report::new(MainError::Config)
-                .attach("configured mint-finality seed requires exact local signed genesis")
-        })?;
-        taira_runtime_signer::resolve_inherited_mint_finality_runtime(
-            &config,
-            authenticated_genesis,
-            runtime_deps,
-        )
-        .map_err(|error| Report::new(MainError::Config).attach(error))?
-    } else {
-        runtime_deps
-    };
-    #[cfg(not(unix))]
-    if config.sumeragi.mint_finality_seed_fd.is_some() {
-        return Err(Report::new(MainError::Config)
-            .attach("mint-finality private descriptor requires a Unix daemon"));
-    }
     #[cfg(feature = "test-network-parliament-signers")]
     let runtime_deps = {
         if emergency_fast {
@@ -8671,21 +8474,13 @@ fn run_main_with_config_guard(
             }
         }
     };
-    if let Some(authenticated_genesis) = authenticated_genesis.as_ref() {
-        let context = authenticated_genesis;
-        let expected_network_id =
-            iroha_data_model::NetworkId::from_genesis_hash(config.genesis.expected_hash);
-        if context.network_id != expected_network_id {
-            return Err(Report::new(MainError::Config)
-                .attach("signed-genesis Pasta context belongs to another network"));
-        }
-        verify_signed_genesis_mint_finality_custody(
-            expected_network_id,
-            &config.common.peer.id,
-            &context.kagemusha_mint_finality_authority,
-            runtime_deps.kagemusha_mint_finality_authority.as_deref(),
-        )
-        .map_err(|error| Report::new(MainError::Config).attach(error))?;
+    if authenticated_genesis.as_ref().is_some_and(|context| {
+        context.network_id
+            != iroha_data_model::NetworkId::from_genesis_hash(config.genesis.expected_hash)
+    }) {
+        return Err(
+            Report::new(MainError::Config).attach("signed genesis belongs to another network")
+        );
     }
     let musubi_publication_factory = if emergency_fast {
         None
@@ -8798,15 +8593,10 @@ fn validate_config_and_genesis_for_check(
 
 /// Resolve the runtime secrets of a `data_dir` node for a real start.
 ///
-/// Opens the fixed files under `<data_dir>/secrets/` through [`node_secrets::NodeSecretsV1`],
-/// resolves the Soracloud runtime signer and the global-beacon partial signer, and binds the
-/// KAGEMUSHA mint-finality authority from `secrets/mint_finality.seed` against the roster of the
-/// already authenticated local genesis.
+/// Opens the fixed files under `<data_dir>/secrets/` through [`node_secrets::NodeSecretsV1`] and
+/// resolves the Soracloud runtime signer and the global-beacon partial signer.
 #[cfg(feature = "daemon")]
-fn resolve_node_secrets_runtime_deps(
-    config: &Config,
-    authenticated_genesis: Option<&crate::authenticated_genesis::AuthenticatedGenesis>,
-) -> ReportResult<IrohaRuntimeDeps, MainError> {
+fn resolve_node_secrets_runtime_deps(config: &Config) -> ReportResult<IrohaRuntimeDeps, MainError> {
     let secrets_error = |error: node_secrets::NodeSecretsErrorV1| {
         Report::new(MainError::Config).attach(error.to_string())
     };
@@ -8819,26 +8609,12 @@ fn resolve_node_secrets_runtime_deps(
     let secrets = node_secrets::NodeSecretsV1::open(config, &credential_budget)
         .map_err(|error| Report::new(error).change_context(MainError::Config))?
         .ok_or_else(|| Report::new(MainError::Config).attach("node secrets require data_dir"))?;
-    let runtime_deps = secrets
-        .resolve_runtime_deps(config)
-        .map_err(secrets_error)?;
-    let Some(authenticated_genesis) = authenticated_genesis else {
-        if secrets.has_mint_finality_seed().map_err(secrets_error)? {
-            return Err(Report::new(MainError::Config).attach(
-                "secrets/mint_finality.seed needs the local signed genesis to authenticate its roster",
-            ));
-        }
-        return Ok(runtime_deps);
-    };
-    secrets
-        .bind_mint_finality_authority(config, authenticated_genesis, runtime_deps)
-        .map_err(secrets_error)
+    secrets.resolve_runtime_deps(config).map_err(secrets_error)
 }
 /// A build without daemon providers cannot resolve fixed-secret runtime providers.
 #[cfg(not(feature = "daemon"))]
 fn resolve_node_secrets_runtime_deps(
     _config: &Config,
-    _authenticated_genesis: Option<&crate::authenticated_genesis::AuthenticatedGenesis>,
 ) -> ReportResult<IrohaRuntimeDeps, MainError> {
     Err(Report::new(MainError::Config).attach("data_dir node secrets require the daemon feature"))
 }
@@ -8992,21 +8768,15 @@ fn validate_genesis_execution_offline(
     let kura = open_disposable_validation_kura(config, &validation_root)?;
     let execution_budget =
         iroha_allocation::AllocationBudget::new(config.pipeline.ivm_execution_max_bytes);
-    let mut world = World::try_with_resource_budgets(
+    let mut world = World::try_with_execution_budget(
         [genesis_domain(config.genesis.public_key.clone())],
         [genesis_account(config.genesis.public_key.clone())],
         [],
-        iroha_allocation::AllocationBudget::new(
-            usize::try_from(config.nexus.storage.kagemusha_operation_index_bytes.get()).map_err(
-                |_| {
-                    Report::new(MainError::Config)
-                        .attach("configured operation-index pool exceeds addressable memory")
-                },
-            )?,
-        ),
         &execution_budget,
     )
-    .map_err(|error| Report::new(error).change_context(MainError::Config))?;
+    .map_err(|error: iroha_core::state::WorldConstructionError| {
+        Report::new(error).change_context(MainError::Config)
+    })?;
     iroha_core::sns::seed_genesis_alias_bootstrap(
         &mut world,
         &genesis.0,
@@ -9077,11 +8847,10 @@ fn validate_genesis_execution_offline(
             "staged genesis cadence {staged_block_cadence_ms} ms differs from authenticated signed cadence {expected_block_cadence_ms} ms"
         )));
     }
-    let epoch = iroha_data_model::sumeragi_finality::genesis_epoch(&genesis.0)
+    let authenticated = iroha_data_model::sumeragi_finality::authenticated_genesis(&genesis.0)
         .map_err(|error| Report::new(MainError::Config).attach(error))?;
-    let metadata =
-        iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(&genesis.0)
-            .map_err(|error| Report::new(MainError::Config).attach(error))?;
+    let metadata = authenticated.metadata();
+    let epoch = authenticated.into_parts().0;
     // The native genesis path checked the exact signed epoch and both policy commitments
     // against original execution before publishing this disposable State.
     let execution_policy_hash = Hash::prehashed(metadata.sumeragi_context.execution_policy_hash);
@@ -9091,7 +8860,6 @@ fn validate_genesis_execution_offline(
         initial_committee_size,
         execution_policy_hash,
         nexus_amx_context_hash,
-        kagemusha_mint_finality_authority: epoch.authority,
     })
 }
 fn parse_confidential_registry_hash(payload: &Json) -> ReportResult<Option<[u8; 32]>, MainError> {
@@ -11216,13 +10984,6 @@ mod tests {
             let second = super::init_global_metrics_handle(false);
             assert!(Arc::ptr_eq(&first, &second));
         }
-        #[test]
-        #[serial]
-        fn init_global_metrics_handle_installs_zk_vk_cache_observer() {
-            fn noop(_: &'static str, _: &'static str) {}
-            let _ = super::init_global_metrics_handle(false);
-            assert!(!iroha_core_zk::install_vk_cache_event_observer(noop));
-        }
     }
     mod cli_args {
         #[allow(unused_imports)]
@@ -11438,17 +11199,13 @@ mod tests {
             let kura = open_disposable_validation_kura(config, &root).expect("genesis Kura");
             let budget =
                 iroha_allocation::AllocationBudget::new(config.pipeline.ivm_execution_max_bytes);
-            let mut world = World::try_with_resource_budgets(
+            let mut world = World::try_with_execution_budget(
                 [genesis_domain(signer.public_key().clone())],
                 [genesis_account(signer.public_key().clone())],
                 [],
-                iroha_allocation::AllocationBudget::new(
-                    usize::try_from(config.nexus.storage.kagemusha_operation_index_bytes.get())
-                        .expect("operation-index budget"),
-                ),
                 &budget,
             )
-            .expect("genesis world");
+            .expect("completed genesis World initialization");
             iroha_core::sns::seed_genesis_alias_bootstrap(
                 &mut world,
                 &provisional.0,

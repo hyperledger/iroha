@@ -1,5 +1,5 @@
 
-seiyaku Test {
+seiyaku Test { permission Entry;
   state Name LastRequestId;
 
   hajimari() {
@@ -10,7 +10,7 @@ seiyaku Test {
     LastRequestId = request_id;
   }
 
-  kotoage fn run()  authorize("Entry") {
+  kotoage fn run() authorize(Entry) {
     update_record(request_id: Name::parse("request-1"));
   }
 

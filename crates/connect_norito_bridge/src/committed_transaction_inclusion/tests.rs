@@ -352,13 +352,13 @@ fn candidate_distinguishes_exact_empty_page_from_invalid_evidence() {
 
 #[test]
 fn ffi_failure_clears_every_output_before_rejection() {
-    let mut row_pointer = 1usize as *mut u8;
+    let mut row_pointer = ptr::dangling_mut::<u8>();
     let mut row_len: c_ulong = 12;
     let mut output_hash = [0xff; 32];
     let mut block_hash = [0xff; 32];
     let mut height = 42_u64;
     let mut result_ok = 1_u8;
-    let mut checkpoint_pointer = 1usize as *mut u8;
+    let mut checkpoint_pointer = ptr::dangling_mut::<u8>();
     let mut checkpoint_len: c_ulong = 12;
     let status = unsafe {
         connect_norito_verify_committed_transaction_inclusion_v1(

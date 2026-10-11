@@ -1,20 +1,16 @@
 #![doc = "End-to-end vendor bridge gating path for ZK verification"]
 #![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "zk-tests")]
-#![cfg(any(feature = "zk-halo2", feature = "zk-halo2-ipa"))]
-//! End-to-end gating path: ZK verify (mocked) -> vendor bridge -> `CoreHost` gating.
+//! An injected verification latch cannot authorize an unadmitted native proof relation.
 //!
-//! A real development IPA proof remains inadmissible even if a test-only helper
+//! A real native transfer proof relabelled as a ballot remains inadmissible even if a test-only helper
 //! forces the prior-verification latch. Initial executor authority and the direct
 //! relation-role consumer are checked separately; the latter is an instruction
 //! unit boundary, not a successful production host handoff.
+#[path = "common/native_genesis.rs"]
+mod native_genesis;
 use iroha_core::smartcontracts::Execute;
-use iroha_core::{
-    kura::Kura,
-    query::store::LiveQueryStore,
-    smartcontracts::ivm::host::CoreHost,
-    state::{State, WorldReadOnly},
-};
+use iroha_core::{smartcontracts::ivm::host::CoreHost, state::WorldReadOnly};
 use iroha_crypto::Hash;
 use iroha_data_model::{
     account::Account,
@@ -89,20 +85,24 @@ fn forced_vendor_latch_cannot_admit_development_ballot() {
     let domain = Domain::new(domain_id.clone()).build(&authority);
     let account = Account::new(authority.clone()).build(&authority);
     let world = iroha_core::state::World::with([domain], [account], Vec::<AssetDefinition>::new());
-    let kura = Kura::blank_kura_for_testing();
-    let query = LiveQueryStore::start_test();
-    let mut state = State::new_for_testing(world, kura, query);
+    let mut state = native_genesis::certified_state(world);
     state.gov.citizenship_bond_amount = 0_u64.into();
     state
-        .edit_zk_for_testing(|zk| zk.halo2.enabled = true)
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
         .expect("fixture ZK settings install");
-    let header = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
+    let header = iroha_data_model::block::BlockHeader::new(
+        nonzero!(2_u64),
+        state.view().latest_block_hash(),
+        None,
+        1,
+        0,
+    );
     let mut block = state.block(header);
     let mut stx = block.transaction();
     // Authority and host
     let mut vm = IVM::new(10_000_000);
     let mut host = CoreHost::with_accounts(authority.clone(), Arc::new(vec![authority.clone()]));
-    let ballot_bundle = super::zk_testkit::dev_vote_merkle8_bundle();
+    let ballot_bundle = super::zk_testkit::unqualified_native_ballot_bundle();
     let vk_commitment = ballot_bundle.vk_record.commitment;
     let vk_id = ballot_bundle.vk_id.clone();
     let vk_record = ballot_bundle.vk_record.clone();
@@ -133,8 +133,8 @@ fn forced_vendor_latch_cannot_admit_development_ballot() {
     let (contract_program, _) = kotodama_lang::compiler::Compiler::new()
         .compile_source_with_manifest(
             r#"
-seiyaku VendorBridgeGate {
-    kotoage fn execute(bytes instruction) authorize("CanUseVendorBridgeTest") {
+seiyaku VendorBridgeGate { permission CanUseVendorBridgeTest;
+    kotoage fn execute(bytes instruction) authorize(CanUseVendorBridgeTest) {
         ledger::governance::submit_ballot(value: instruction);
     }
 }
@@ -225,7 +225,7 @@ seiyaku VendorBridgeGate {
             options: 2,
             eligible_root: root_bytes,
             start_ts: 0,
-            end_ts: 0,
+            end_ts: 10_000,
             finalized: false,
             tally: vec![0, 0],
             accepted_ballots: Vec::new(),

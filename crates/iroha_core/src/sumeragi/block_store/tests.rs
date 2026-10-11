@@ -6,7 +6,7 @@ use iroha_data_model::{
     block::decode_framed_signed_block,
     sumeragi_finality::{ScheduledSlot, test_fixtures::NativeFinalityFixture},
 };
-use iroha_sumeragi::{availability::AvailabilityFrame, crypto::NoAttestation, types::HeightConfig};
+use iroha_sumeragi::{availability::AvailabilityFrame, types::HeightConfig};
 struct Schedule {
     instance: Hash32,
     config: Mutex<Option<HeightConfig>>,
@@ -69,22 +69,13 @@ fn fixture() -> Fixture {
     let executed = iroha_data_model::block::SharedSignedBlock::reserve(&budget)
         .unwrap()
         .initialize(executed);
-    let store = KuraBlockStore::new(
-        kura,
-        crypto,
-        1,
-        Staging::new(),
-        budget,
-        schedule.clone(),
-        Arc::new(NoAttestation),
-    );
+    let store = KuraBlockStore::new(kura, crypto, 1, Staging::new(), budget, schedule.clone());
     let mut read = CommittedRead::new(
         executed.clone(),
         2,
         store.execution_budget.clone(),
         store.hasher.clone(),
         schedule.clone(),
-        store.verifier.clone(),
     );
     let (body, qc) = read.poll().unwrap();
     Fixture {
@@ -154,15 +145,9 @@ fn independently_changed_authority_rejects_original_body_before_any_publication(
     let mut config = f.body.source().config().clone();
     config.params.block_time += 1;
     *f.schedule.config.lock() = Some(config);
-    let independent = committed_read::certified_source(
-        &*f.schedule,
-        &*f.store.hasher,
-        &*f.store.verifier,
-        2,
-        f.body.header(),
-        &f.qc,
-    )
-    .unwrap();
+    let independent =
+        committed_read::certified_source(&*f.schedule, &*f.store.hasher, 2, f.body.header(), &f.qc)
+            .unwrap();
     assert_ne!(
         &independent,
         f.body.source(),
@@ -513,7 +498,6 @@ fn refused_certificate_read_observation_preserves_original_source_and_table() {
     let owners = f.store.pending_certificate_read_for_test().unwrap();
     assert_eq!(owners.0, std::ptr::from_ref(source.as_ref()));
     assert!(owners.1.is_some());
-    assert!(owners.2.is_none());
     assert_eq!(budget.reserved_bytes(), reserved + table_len);
     for height in [2, 3, 2] {
         assert_eq!(
@@ -574,7 +558,6 @@ fn real_valid_future_certificate_cannot_skip_a_height_and_reopening_keeps_origin
         f.store.execution_budget.clone(),
         f.store.hasher.clone(),
         f.schedule.clone(),
-        f.store.verifier.clone(),
     );
     let (body, qc) = read.poll().unwrap();
     assert_eq!(
@@ -591,7 +574,6 @@ fn real_valid_future_certificate_cannot_skip_a_height_and_reopening_keeps_origin
         Staging::new(),
         f.store.execution_budget.clone(),
         f.schedule.clone(),
-        f.store.verifier.clone(),
     );
     assert_eq!(reopened.height(), 2);
     assert_eq!(
@@ -958,7 +940,6 @@ fn merged_execution_cold_read_restores_original_signed_availability() {
         Staging::new(),
         f.store.execution_budget.clone(),
         f.schedule.clone(),
-        f.store.verifier.clone(),
     );
     let (body, qc) = reopened
         .committed_body(2)

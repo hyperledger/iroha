@@ -14,7 +14,7 @@ use iroha_data_model::{
     isi::SetParameter,
     parameter::{CustomParameter, Parameter},
     sns::{NameControllerV1, NameRecordV1},
-    sumeragi_finality::{genesis_epoch, test_fixtures::NativeFinalityFixture},
+    sumeragi_finality::{authenticated_genesis, test_fixtures::NativeFinalityFixture},
 };
 use iroha_model_base::metadata::Metadata;
 use norito::codec::Encode;
@@ -100,7 +100,9 @@ fn registration(state: &State) -> (NativeFinalityFixture, RegisterPrivateDataspa
         child.chain_id().parse().unwrap(),
         child.network_id(),
         result,
-        genesis_epoch(child.genesis()).unwrap(),
+        authenticated_genesis(child.genesis())
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap(),
     )
     .unwrap();
     (
@@ -334,7 +336,8 @@ fn parent_receipt_uses_original_certified_archive_and_survives_native_replay() {
         .unwrap()
         .unwrap();
     assert_eq!(receipt.record.anchor.cursor().height, 1);
-    let validators = genesis_epoch(chain.genesis())
+    let validators = authenticated_genesis(chain.genesis())
+        .map(|genesis| genesis.into_parts().0)
         .unwrap()
         .committee
         .into_iter()

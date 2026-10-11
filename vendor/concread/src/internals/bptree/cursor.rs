@@ -356,6 +356,25 @@ pub(crate) trait CursorReadOps<K: Clone + Ord + Debug, V: Clone, C = Untracked> 
 
     fn get_txid(&self) -> u64;
 
+    /// Checked structural positions borrowed from this actual immutable cursor.
+    fn next_row_path(
+        &self,
+        previous: Option<&super::positions::RowPath>,
+    ) -> Result<Option<super::positions::RowPath>, ()> {
+        super::positions::next_path(self.get_root_ref(), previous)
+    }
+
+    /// Resolve only finite structural slots; the borrow never outlives this cursor.
+    fn resolve_row_path<'a>(
+        &'a self,
+        position: &super::positions::RowPath,
+    ) -> Option<(&'a K, &'a V)>
+    where
+        C: 'a,
+    {
+        super::positions::resolve(self.get_root_ref(), position)
+    }
+
     #[cfg(test)]
     fn get_tree_density(&self) -> (usize, usize) {
         // Walk the tree and calculate the packing efficiency.

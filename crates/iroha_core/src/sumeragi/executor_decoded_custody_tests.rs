@@ -16,6 +16,7 @@ fn original_attempt(worker: &Worker<'_>, block: &AvailableBody) -> SignatureDeco
             .unwrap(),
         decoded: None,
         returned_refusal: None,
+        amx_legs: None,
     }
 }
 

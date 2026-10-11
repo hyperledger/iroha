@@ -19,7 +19,7 @@ class CombinedCliGraphTests(unittest.TestCase):
     artifact = staticmethod(existing.NativeTestBatchBuildTests.artifact)
     process = existing.NativeTestBatchBuildTests.process
 
-    def test_fifteen_targets_share_one_graph_without_extra_binary_or_feature_selection(self):
+    def test_fifteen_targets_share_one_graph_with_only_required_fixture_feature(self):
         names = ("config", "config-unit", "proof", "proof-flows", "crypto", "p2p", "core", "test-network", "client", "torii-unit", "torii", "torii-lifecycle", "daemon", "network", "cli")
         lines = "".join(self.artifact(name) for name in reversed(names))
         lines += self.artifact("cli")
@@ -38,6 +38,7 @@ class CombinedCliGraphTests(unittest.TestCase):
             "-p", "iroha_test_network", "-p", "iroha", "-p", "iroha_torii",
             "-p", "irohad_lib", "-p", "iroha_cli_lib", "--test", "taira_config_contracts", "--lib", "--test", "fastpq_integration", "--test", "taira_app_contracts",
             "--test", "torii_nexus_sorafs", "--test", "taira_consensus_contracts",
+            "--features", "iroha_torii/test-fixtures",
             "--no-run", "--message-format=json-render-diagnostics",
         ])
         self.assertEqual(spawn.call_args.kwargs["pass_fds"], (77, 88))

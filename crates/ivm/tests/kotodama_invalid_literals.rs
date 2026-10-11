@@ -6,8 +6,8 @@ fn english_compiler() -> Compiler {
 #[test]
 fn invalid_account_id_literal_reports_error() {
     let src = r#"
-        seiyaku InvalidAccount {
-          kotoage fn main() authorize("RegisterAccount") {
+        seiyaku InvalidAccount { permission RegisterAccount;
+          kotoage fn main() authorize(RegisterAccount) {
             ledger::account::register(account: AccountId::parse("invalid-account"));
           }
         }
@@ -21,8 +21,8 @@ fn invalid_account_id_literal_reports_error() {
 #[test]
 fn invalid_asset_definition_literal_reports_error() {
     let src = r#"
-        seiyaku InvalidAssetDefinition {
-          kotoage fn main() authorize("UnregisterAsset") {
+        seiyaku InvalidAssetDefinition { permission UnregisterAsset;
+          kotoage fn main() authorize(UnregisterAsset) {
             ledger::asset::unregister(asset_definition: AssetDefinitionId::parse("invalid"));
           }
         }
@@ -36,9 +36,9 @@ fn invalid_asset_definition_literal_reports_error() {
 #[test]
 fn invalid_json_literal_reports_error() {
     let src = r#"
-        seiyaku InvalidJson {
-          kotoage fn main() authorize("SetAccountDetail") {
-            ledger::account::set_detail(account: AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"), key: Name::parse("cursor"), value: Json::parse("{\"unterminated\":}"));
+        seiyaku InvalidJson { permission SetAccountDetail;
+          kotoage fn main() authorize(SetAccountDetail) {
+            ledger::account::set_metadata(account: AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"), key: Name::parse("cursor"), value: Json::parse("{\"unterminated\":}"));
           }
         }
     "#;
@@ -51,9 +51,8 @@ fn invalid_json_literal_reports_error() {
 #[test]
 fn build_submit_ballot_inline_rejects_runtime_bytes() {
     let src = r#"
-        seiyaku RuntimeBallotBytes {
-          kotoage fn main(bytes cipher, bytes nullifier, bytes proof, bytes vk)
-            authorize("SubmitBallot") {
+        seiyaku RuntimeBallotBytes { permission SubmitBallot;
+          kotoage fn main(bytes cipher, bytes nullifier, bytes proof, bytes vk) authorize(SubmitBallot) {
             ledger::governance::build_submit_ballot(election_id: "election", ciphertext: cipher, nullifier: nullifier, backend: "ipa", proof: proof, verification_key: vk);
           }
         }
@@ -67,8 +66,8 @@ fn build_submit_ballot_inline_rejects_runtime_bytes() {
 #[test]
 fn retired_unshield_builder_is_not_a_source_api() {
     let src = r#"
-        seiyaku RetiredUnshieldBuilder {
-          kotoage fn main() authorize("Unshield") {
+        seiyaku RetiredUnshieldBuilder { permission Unshield;
+          kotoage fn main() authorize(Unshield) {
             crypto::zk::build_unshield();
           }
         }
@@ -82,8 +81,8 @@ fn retired_unshield_builder_is_not_a_source_api() {
 #[test]
 fn build_submit_ballot_inline_rejects_wrong_nullifier_length() {
     let src = r#"
-        seiyaku ShortNullifier {
-          kotoage fn main() authorize("SubmitBallot") {
+        seiyaku ShortNullifier { permission SubmitBallot;
+          kotoage fn main() authorize(SubmitBallot) {
             ledger::governance::build_submit_ballot(election_id: "election", ciphertext: b"ciphertext", nullifier: b"short", backend: "ipa", proof: b"proof", verification_key: b"vk");
           }
         }

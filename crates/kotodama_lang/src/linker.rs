@@ -24,7 +24,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     error::Error,
     fmt,
-    sync::{Arc, Mutex},
+    sync::Mutex,
 };
 mod editor;
 mod local_modules;
@@ -49,6 +49,8 @@ pub struct ImportBinding {
 /// One parsed reusable module and its diagnostic source name.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModuleUnit {
+    /// Authenticated compiled interfaces imported by this exact source unit.
+    pub contracts: BTreeMap<String, semantic::ImportedContractInterface>,
     /// Logical source path used in linker errors.
     pub source_name: String,
     /// CST-derived, fail-closed resolved source unit.
@@ -95,9 +97,22 @@ pub struct SourceModuleUnit {
     /// Complete Kotodama source text.
     pub source: String,
 }
+/// One complete compiled contract supplied by its owning source package.
+///
+/// Paths are canonical package-relative `.to` paths. The linker admits the complete bytes before
+/// exposing public signatures; a JSON manifest or caller-assembled interface is not sufficient.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceContractArtifact {
+    /// Portable relative artifact path within the source owner.
+    pub source_name: String,
+    /// Complete immutable deployable artifact, including its authenticated CNTR interface.
+    pub artifact: Vec<u8>,
+}
 /// One locked package before its source modules are parsed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourcePackageUnit {
+    /// Explicit compiled-interface inventory owned by this exact package.
+    pub artifacts: Vec<SourceContractArtifact>,
     /// Stable canonical package reference.
     pub identity: String,
     /// Explicit module entry files; their include/import closure is loaded from `sources`.
@@ -113,6 +128,8 @@ pub struct SourcePackageUnit {
 /// Complete source-level request for one typed-HIR module build graph.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceLinkRequest {
+    /// Explicit compiled-interface inventory owned by the root source set.
+    pub artifacts: Vec<SourceContractArtifact>,
     /// The single deployable `seiyaku`/`誓約` source.
     pub root: SourceModuleUnit,
     /// Explicit inventory of fragments and local modules owned by the root project.
@@ -197,6 +214,13 @@ pub enum SourceGraphError {
         /// Normalized logical source path.
         source: String,
     },
+    /// A supplied compiled-interface inventory entry has no artifact bytes.
+    EmptyArtifact {
+        /// Source owner containing the artifact, or `root` for the root graph.
+        scope: String,
+        /// Canonical owner-relative compiled artifact path.
+        source: String,
+    },
     /// Typed-HIR linking failed.
     Link(LinkError),
 }
@@ -221,6 +245,7 @@ impl SourceGraphError {
                 .map_or("K2002", |diagnostic| diagnostic.code.as_str()),
             Self::InvalidSourcePath { .. } => "E_INVALID_SOURCE_PATH",
             Self::DuplicateSource { .. } => "E_DUPLICATE_SOURCE",
+            Self::EmptyArtifact { .. } => "E_CONTRACT_IMPORT_INVALID",
             Self::Link(error) => error.diagnostic_code(),
         }
     }
@@ -261,6 +286,14 @@ impl SourceGraphError {
                 format!("Kotodama package `{scope}` contains duplicate logical source `{source}`"),
                 None,
             )),
+            Self::EmptyArtifact { scope, source } => DiagnosticBundle::single(Diagnostic::error(
+                "E_CONTRACT_IMPORT_INVALID",
+                DiagnosticPhase::Resolve,
+                format!(
+                    "compiled contract artifact `{source}` in `{scope}` is empty; supply the complete .to bytes"
+                ),
+                None,
+            )),
             Self::Link(error) => error.into_diagnostics(),
         }
     }
@@ -280,6 +313,8 @@ pub enum InvalidSourcePathReason {
     DotOnlyComponent,
     /// Source dependencies must use the canonical Kotodama extension.
     InvalidExtension,
+    /// Compiled contract dependencies must use the canonical `.to` extension.
+    InvalidArtifactExtension,
     /// A character is not portable in a logical source identity.
     NonPortableCharacter {
         /// UTF-8 byte offset of the rejected character.
@@ -308,6 +343,9 @@ impl fmt::Display for InvalidSourcePathReason {
             }
             Self::DotOnlyComponent => {
                 formatter.write_str("dot-only file-name components are not portable")
+            }
+            Self::InvalidArtifactExtension => {
+                formatter.write_str("compiled interfaces must have a lowercase .to extension")
             }
             Self::InvalidExtension => {
                 formatter.write_str("source dependencies must have a lowercase .ko extension")
@@ -415,6 +453,21 @@ impl ModuleBuildGraph {
     ) -> Result<LinkRequest, SourceGraphError> {
         request = Self::canonical_source_bundle(request)?;
         source_bundle::resolve(self, &request)
+    }
+    /// Resolve a reusable package and its locked dependencies with original source identities.
+    ///
+    /// Applies the canonical graph bounds and explicit include/import closure without adding a
+    /// deployable root or discovering files. Full type and effect validation remains the job of
+    /// [`Self::validate_package`].
+    pub fn resolve_package_sources(
+        &self,
+        request: SourcePackageGraphRequest,
+    ) -> Result<Vec<PackageUnit>, SourceGraphError> {
+        let request = Self::canonical_source_package_bundle(request)?;
+        let packages = std::iter::once(request.package)
+            .chain(request.dependencies)
+            .collect::<Vec<_>>();
+        source_bundle::resolve_packages(self, &packages)
     }
     /// Normalize a bounded inventory and retain only its declared source dependency closure.
     ///
@@ -581,7 +634,15 @@ impl ModuleBuildGraph {
             retain_package_source_closure(package);
         }
         let (resolved, parsed_tests) =
-            source_bundle::resolve_with_tests(self, &request, &test_sources)?;
+            source_bundle::resolve_with_tests(self, &request, &test_sources).map_err(|error| {
+                source_bundle::recover_project_diagnostics(
+                    self,
+                    &request,
+                    &test_sources,
+                    options,
+                    error,
+                )
+            })?;
         let program = TypedLinker::new(options).link_with_tests(resolved, parsed_tests)?;
         Ok(LinkedSourceGraph {
             program,
@@ -625,7 +686,16 @@ impl ModuleBuildGraph {
         let mut packages = Vec::with_capacity(1_usize.saturating_add(request.dependencies.len()));
         packages.push(request.package);
         packages.extend(request.dependencies);
-        let resolved_packages = source_bundle::resolve_packages(self, &packages)?;
+        let resolved_packages =
+            source_bundle::resolve_packages(self, &packages).map_err(|error| {
+                source_bundle::recover_package_diagnostics(
+                    self,
+                    &packages,
+                    &local_identity,
+                    options,
+                    error,
+                )
+            })?;
         let interface_fingerprint =
             TypedLinker::new(options).validate_package_graph(resolved_packages, &local_identity)?;
         Ok(ValidatedSourcePackageGraph {
@@ -985,6 +1055,7 @@ fn validate_source_link_request(
             Ok(name)
         })
         .collect::<Result<Vec<_>, _>>()?;
+    validate_artifact_inventory("root", &request.artifacts, &seen)?;
     let packages = validate_source_package_metadata(request.packages.iter())?;
     Ok(CanonicalSourceLinkNames {
         root,
@@ -1018,6 +1089,7 @@ fn canonicalize_source_link_request(
     request: &mut SourceLinkRequest,
     names: CanonicalSourceLinkNames,
 ) {
+    canonicalize_artifacts("root", &mut request.artifacts);
     request.root.source_name = names.root;
     for (source, name) in request.sources.iter_mut().zip(names.sources) {
         source.source_name = name;
@@ -1046,6 +1118,7 @@ fn canonicalize_source_package_graph_request(
         .sort_by(|left, right| left.identity.cmp(&right.identity));
 }
 fn canonicalize_source_package(package: &mut SourcePackageUnit, names: Vec<String>) {
+    canonicalize_artifacts(&package.identity, &mut package.artifacts);
     assert_eq!(
         package.modules.len() + package.sources.len(),
         names.len(),
@@ -1075,19 +1148,26 @@ fn sort_imports(imports: &mut [ImportBinding]) {
     });
 }
 fn validate_source_graph_budget(request: &SourceLinkRequest) -> Result<(), SourceGraphError> {
-    let mut sources = 1_usize + request.sources.len();
+    let mut sources = 1_usize + request.sources.len() + request.artifacts.len();
     let mut source_bytes = request
         .sources
         .iter()
         .fold(request.root.source.len(), |total, source| {
             total.saturating_add(source.source.len())
         });
+    for artifact in &request.artifacts {
+        source_bytes = source_bytes.saturating_add(artifact.artifact.len());
+    }
     for package in &request.packages {
         sources = sources
             .saturating_add(package.modules.len())
-            .saturating_add(package.sources.len());
+            .saturating_add(package.sources.len())
+            .saturating_add(package.artifacts.len());
         for module in package.modules.iter().chain(&package.sources) {
             source_bytes = source_bytes.saturating_add(module.source.len());
+        }
+        for artifact in &package.artifacts {
+            source_bytes = source_bytes.saturating_add(artifact.artifact.len());
         }
     }
     if sources > MAX_MODULE_GRAPH_SOURCES || source_bytes > MAX_MODULE_GRAPH_SOURCE_BYTES {
@@ -1104,11 +1184,14 @@ fn validate_package_graph_budget(
     request: &SourcePackageGraphRequest,
 ) -> Result<(), SourceGraphError> {
     let sources = request.dependencies.iter().fold(
-        request.package.modules.len() + request.package.sources.len(),
+        request.package.modules.len()
+            + request.package.sources.len()
+            + request.package.artifacts.len(),
         |total, package| {
             total
                 .saturating_add(package.modules.len())
                 .saturating_add(package.sources.len())
+                .saturating_add(package.artifacts.len())
         },
     );
     let source_bytes = std::iter::once(&request.package)
@@ -1116,6 +1199,12 @@ fn validate_package_graph_budget(
         .flat_map(|package| package.modules.iter().chain(&package.sources))
         .fold(0_usize, |total, module| {
             total.saturating_add(module.source.len())
+        });
+    let source_bytes = std::iter::once(&request.package)
+        .chain(&request.dependencies)
+        .flat_map(|package| &package.artifacts)
+        .fold(source_bytes, |total, artifact| {
+            total.saturating_add(artifact.artifact.len())
         });
     if sources > MAX_MODULE_GRAPH_SOURCES || source_bytes > MAX_MODULE_GRAPH_SOURCE_BYTES {
         return Err(SourceGraphError::Budget {
@@ -1181,6 +1270,7 @@ fn validate_source_package_metadata<'a>(
             }
             package_sources.push(source);
         }
+        validate_artifact_inventory(&package.identity, &package.artifacts, &sources)?;
         canonical_sources.push(package_sources);
     }
     let package_indexes = packages
@@ -1199,6 +1289,71 @@ fn validate_source_package_metadata<'a>(
     validate_acyclic_package_imports(&identities, &imports)?;
     Ok(canonical_sources)
 }
+fn validate_artifact_inventory(
+    scope: &str,
+    artifacts: &[SourceContractArtifact],
+    sources: &BTreeSet<String>,
+) -> Result<(), SourceGraphError> {
+    let mut seen = sources.clone();
+    for artifact in artifacts {
+        let name = canonical_logical_source_name(scope, &artifact.source_name)?;
+        if !name.ends_with(".to") {
+            return Err(SourceGraphError::InvalidSourcePath {
+                scope: scope.into(),
+                source: name,
+                reason: InvalidSourcePathReason::InvalidArtifactExtension,
+            });
+        }
+        if artifact.artifact.is_empty() {
+            return Err(SourceGraphError::EmptyArtifact {
+                scope: scope.into(),
+                source: name,
+            });
+        }
+        if !seen.insert(name.clone()) {
+            return Err(SourceGraphError::DuplicateSource {
+                scope: scope.into(),
+                source: name,
+            });
+        }
+    }
+    Ok(())
+}
+fn canonicalize_artifacts(scope: &str, artifacts: &mut [SourceContractArtifact]) {
+    for artifact in artifacts.iter_mut() {
+        artifact.source_name = canonical_logical_source_name(scope, &artifact.source_name)
+            .expect("validated artifact path");
+    }
+    artifacts.sort_by(|left, right| left.source_name.cmp(&right.source_name));
+}
+fn append_artifact_fingerprint(
+    transcript: &mut Vec<u8>,
+    scope: &str,
+    artifacts: &[SourceContractArtifact],
+) {
+    fn field(transcript: &mut Vec<u8>, bytes: &[u8]) {
+        transcript.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+        transcript.extend_from_slice(bytes);
+    }
+    let mut artifacts = artifacts
+        .iter()
+        .map(|artifact| {
+            (
+                canonical_logical_source_name(scope, &artifact.source_name)
+                    .expect("validated artifact path"),
+                &artifact.artifact,
+            )
+        })
+        .collect::<Vec<_>>();
+    artifacts.sort_by(|(left, _), (right, _)| left.cmp(right));
+    field(transcript, b"compiled-contract-interfaces");
+    field(transcript, &(artifacts.len() as u64).to_le_bytes());
+    for (name, bytes) in artifacts {
+        field(transcript, name.as_bytes());
+        field(transcript, bytes);
+    }
+}
+
 fn canonical_logical_source_name(scope: &str, source: &str) -> Result<String, SourceGraphError> {
     let invalid = |reason| SourceGraphError::InvalidSourcePath {
         scope: scope.to_owned(),
@@ -1257,6 +1412,23 @@ fn canonical_logical_source_name(scope: &str, source: &str) -> Result<String, So
 /// Resolution never consults the filesystem. Both paths must remain within the
 /// same supplied source inventory; platform-specific and escaping paths fail.
 pub fn resolve_source_path(referrer: &str, relative: &str) -> Result<String, SourceGraphError> {
+    resolve_dependency_path(referrer, relative, false)
+}
+/// Resolve a compiled contract path within its referring source's owner, without filesystem reads.
+///
+/// # Errors
+/// Rejects escaping, nonportable, or non-`.to` paths.
+pub fn resolve_contract_artifact_path(
+    referrer: &str,
+    relative: &str,
+) -> Result<String, SourceGraphError> {
+    resolve_dependency_path(referrer, relative, true)
+}
+fn resolve_dependency_path(
+    referrer: &str,
+    relative: &str,
+    artifact: bool,
+) -> Result<String, SourceGraphError> {
     let referrer = canonical_logical_source_name("source", referrer)?;
     let relative = relative.replace('\\', "/");
     if relative.starts_with('/') || relative.as_bytes().get(1) == Some(&b':') {
@@ -1272,11 +1444,15 @@ pub fn resolve_source_path(referrer: &str, relative: &str) -> Result<String, Sou
         format!("{parent}/{relative}")
     };
     let normalized = canonical_logical_source_name("source dependency", &combined)?;
-    if !normalized.ends_with(".ko") {
+    if !normalized.ends_with(if artifact { ".to" } else { ".ko" }) {
         return Err(SourceGraphError::InvalidSourcePath {
             scope: "source dependency".into(),
             source: normalized,
-            reason: InvalidSourcePathReason::InvalidExtension,
+            reason: if artifact {
+                InvalidSourcePathReason::InvalidArtifactExtension
+            } else {
+                InvalidSourcePathReason::InvalidExtension
+            },
         });
     }
     Ok(normalized)
@@ -1401,6 +1577,7 @@ fn source_graph_fingerprint(request: &SourceLinkRequest, names: &CanonicalSource
         field(&mut transcript, name);
         field(&mut transcript, &source.source);
     }
+    append_artifact_fingerprint(&mut transcript, "root", &request.artifacts);
     imports(&mut transcript, &request.imports);
     let mut packages = request
         .packages
@@ -1411,6 +1588,7 @@ fn source_graph_fingerprint(request: &SourceLinkRequest, names: &CanonicalSource
     field(&mut transcript, (packages.len() as u64).to_le_bytes());
     for (package, names) in packages {
         field(&mut transcript, &package.identity);
+        append_artifact_fingerprint(&mut transcript, &package.identity, &package.artifacts);
         imports(&mut transcript, &package.imports);
         field(
             &mut transcript,
@@ -1466,6 +1644,7 @@ fn source_package_graph_fingerprint(
     }
     fn package(transcript: &mut Vec<u8>, value: &SourcePackageUnit, names: &[String]) {
         field(transcript, &value.identity);
+        append_artifact_fingerprint(transcript, &value.identity, &value.artifacts);
         imports(transcript, &value.imports);
         field(transcript, (value.exports.len() as u64).to_le_bytes());
         for export in &value.exports {
@@ -1640,6 +1819,11 @@ pub enum LinkError {
         /// Stable nominal error identity.
         identity: String,
     },
+    /// One ordinary enum identity was assigned conflicting finite schemas.
+    ConflictingEnumType {
+        /// Stable nominal data enum identity.
+        identity: String,
+    },
     /// A module localization key collided with another linked key.
     DuplicateMessage {
         /// Repeated localization key.
@@ -1676,6 +1860,7 @@ impl LinkError {
             Self::ReservedSymbol { .. } => "E_RESERVED_DECLARATION",
             Self::InvalidModuleItem { .. } => "E_INVALID_MODULE_ITEM",
             Self::ConflictingErrorType { .. } => "E_CONFLICTING_ERROR_TYPE",
+            Self::ConflictingEnumType { .. } => "E_CONFLICTING_ENUM_TYPE",
             Self::DuplicateMessage { .. } => "E_DUPLICATE_MESSAGE",
             Self::Semantic { diagnostics } | Self::Diagnostics(diagnostics) => diagnostics
                 .diagnostics
@@ -1782,6 +1967,10 @@ impl LinkError {
             Self::ConflictingErrorType { identity } => diagnostic(
                 "E_CONFLICTING_ERROR_TYPE",
                 format!("linked modules assign conflicting schemas to error type `{identity}`"),
+            ),
+            Self::ConflictingEnumType { identity } => diagnostic(
+                "E_CONFLICTING_ENUM_TYPE",
+                format!("linked modules assign conflicting schemas to enum type `{identity}`"),
             ),
             Self::DuplicateMessage { key } => diagnostic(
                 "E_DUPLICATE_MESSAGE",
@@ -1931,12 +2120,14 @@ impl TypedLinker {
             environment.functions.extend(root_external);
             environment.types.extend(root_types);
             let resolution_environment = crate::resolved::ExternalResolutionEnvironment {
+                contracts: environment.contracts.clone(),
+                permissions: BTreeSet::new(),
                 functions: environment.functions.keys().cloned().collect(),
                 states: environment.states.keys().cloned().collect(),
                 structs: environment.structs.keys().cloned().collect(),
                 consts: environment.consts.keys().cloned().collect(),
-                error_codes: environment
-                    .error_codes
+                variant_codes: environment
+                    .variant_codes
                     .iter()
                     .map(|(name, code)| (name.clone(), *code))
                     .collect(),
@@ -1986,6 +2177,7 @@ impl TypedLinker {
                     .map_err(LinkError::Diagnostics)?;
                 root.items.append(&mut typed.items);
                 root.error_types.append(&mut typed.error_types);
+                root.enum_types.append(&mut typed.enum_types);
                 root.error_messages.append(&mut typed.error_messages);
                 root.message_entries.append(&mut typed.message_entries);
                 root.test_support_enabled |= typed.test_support_enabled;
@@ -2060,8 +2252,6 @@ struct ResolvedModule<'request> {
     types: BTreeMap<String, Type>,
     constants: BTreeMap<String, TypedExpr>,
     linked_names: BTreeMap<String, String>,
-    local_structs: HashSet<String>,
-    type_prefix: String,
     nominal_owner: String,
     environment: ModuleEnvironment,
 }
@@ -2147,7 +2337,7 @@ fn interface_modifiers(transcript: &mut Vec<u8>, modifiers: &crate::ast::Functio
         FunctionKind::Kaizen => 3,
         FunctionKind::View => 4,
     });
-    interface_optional_field(transcript, modifiers.permission.as_deref());
+    interface_optional_field(transcript, modifiers.authorization.as_deref());
     transcript.push(u8::from(modifiers.is_test));
     interface_optional_field(transcript, modifiers.test_fixture.as_deref());
 }
@@ -2173,6 +2363,11 @@ fn interface_type(transcript: &mut Vec<u8>, ty: &Type) {
         Type::Name => transcript.push(17),
         Type::Json => transcript.push(18),
         Type::Unit => transcript.push(19),
+        Type::Enum(descriptor) => {
+            transcript.push(31);
+            interface_field(transcript, descriptor.identity.as_bytes());
+            interface_field(transcript, &descriptor.schema_hash());
+        }
         Type::ErrorEnum(descriptor) => {
             transcript.push(28);
             interface_field(transcript, descriptor.identity.as_bytes());
@@ -2220,6 +2415,10 @@ fn interface_type(transcript: &mut Vec<u8>, ty: &Type) {
                 interface_field(transcript, field.as_bytes());
                 interface_type(transcript, ty);
             }
+        }
+        Type::ContractRef(contract) => {
+            transcript.push(32);
+            interface_field(transcript, contract.code_hash.as_ref());
         }
         Type::NamedStruct(name) => {
             transcript.push(27);
@@ -2548,7 +2747,6 @@ fn link_resolved_packages(
             .map_err(|failures| semantic_link_error(module.source, failures))?;
         crate::session::enforce_call_table_bounds(&typed, &module.source.program)
             .map_err(LinkError::Diagnostics)?;
-        qualify_typed_program(&mut typed, &module.local_structs, &module.type_prefix);
         rename_program_calls(&mut typed, &module.linked_names, &module.environment.names);
         let mut new_error_types = Vec::new();
         for error in std::mem::take(&mut typed.error_types) {
@@ -2609,7 +2807,9 @@ fn link_resolved_packages(
             }
             program.items.extend(typed.items);
             program.states.extend(typed.states);
+            program.permissions.extend(typed.permissions);
             program.error_types.extend(typed.error_types);
+            program.enum_types.extend(typed.enum_types);
             program.error_messages.extend(typed.error_messages);
             program.triggers.extend(typed.triggers);
             program.message_entries.extend(typed.message_entries);
@@ -2626,6 +2826,17 @@ fn link_resolved_packages(
             None,
         )),
     })?;
+    let mut enum_types = BTreeMap::new();
+    for descriptor in std::mem::take(&mut linked.enum_types) {
+        if let Some(previous) = enum_types.insert(descriptor.identity.clone(), descriptor.clone())
+            && previous != descriptor
+        {
+            return Err(LinkError::ConflictingEnumType {
+                identity: descriptor.identity,
+            });
+        }
+    }
+    linked.enum_types = enum_types.into_values().collect();
     linked
         .error_messages
         .sort_by(|left, right| (&left.error_type, left.code).cmp(&(&right.error_type, right.code)));
@@ -2734,8 +2945,10 @@ fn validate_program_symbols(module: &ModuleUnit) -> Result<(), LinkError> {
     for item in &module.ast().items {
         let (name, is_function, is_type) = match item {
             Item::Function(function) => (Some(function.name.as_str()), true, false),
-            Item::Struct(definition) => (Some(definition.name.as_str()), false, true),
-            Item::ErrorEnum(definition) => (Some(definition.name.as_str()), false, true),
+            Item::Struct(definition) | Item::Event(definition) => {
+                (Some(definition.name.as_str()), false, true)
+            }
+            Item::Enum(definition) => (Some(definition.name.as_str()), false, true),
             Item::Const(constant) => (Some(constant.name.as_str()), false, false),
             Item::State(state) => (Some(state.name.as_str()), false, false),
             Item::Trigger(trigger) => (Some(trigger.name.as_str()), false, false),
@@ -2800,10 +3013,7 @@ fn environment_import_diagnostics(
         let error = if !environment.aliases.contains(alias) {
             Some((
                 "E_UNKNOWN_IMPORT_ALIAS",
-                format!(
-                    "source `{}` uses unknown import alias `{alias}`",
-                    module.source_name
-                ),
+                format!("unknown import alias `{alias}` in type `{}`", ty.name),
             ))
         } else if !environment.typed.types.contains_key(&ty.name) {
             Some((
@@ -2844,10 +3054,7 @@ fn environment_import_diagnostics(
         } else if !environment.aliases.contains(alias) {
             Some((
                 "E_UNKNOWN_IMPORT_ALIAS",
-                format!(
-                    "source `{}` uses unknown import alias `{alias}`",
-                    module.source_name
-                ),
+                format!("unknown import alias `{alias}` in call `{}`", call.name),
             ))
         } else if !environment.typed.functions.contains_key(&call.name) {
             Some((
@@ -2870,267 +3077,6 @@ fn environment_import_diagnostics(
         }
     }
     diagnostics
-}
-fn qualify_signature(
-    signature: &mut FunctionSignature,
-    local_structs: &HashSet<String>,
-    prefix: &str,
-) {
-    for param in &mut signature.params {
-        qualify_type(&mut param.ty, local_structs, prefix);
-    }
-    qualify_type(&mut signature.return_type, local_structs, prefix);
-}
-fn qualify_type(ty: &mut Type, local_structs: &HashSet<String>, prefix: &str) {
-    match ty {
-        Type::Secret(inner) | Type::Option(inner) | Type::List(inner, _) => {
-            qualify_type(inner, local_structs, prefix);
-        }
-        Type::StateMap(key, value) | Type::Result(key, value) => {
-            qualify_type(key, local_structs, prefix);
-            qualify_type(value, local_structs, prefix);
-        }
-        Type::Tuple(items) => {
-            for item in items {
-                qualify_type(item, local_structs, prefix);
-            }
-        }
-        Type::Struct { name, fields } => {
-            if local_structs.contains(name) {
-                *name = format!("{prefix}::{name}");
-            }
-            for (_, field) in Arc::make_mut(fields) {
-                qualify_type(field, local_structs, prefix);
-            }
-        }
-        Type::NamedStruct(name) if local_structs.contains(name) => {
-            *name = format!("{prefix}::{name}");
-        }
-        Type::Int
-        | Type::Decimal
-        | Type::Quantity
-        | Type::Bool
-        | Type::String
-        | Type::Bytes
-        | Type::DataSpaceId
-        | Type::AxtDescriptor
-        | Type::AxtAnchoredSpendV1
-        | Type::ProofBlob
-        | Type::SoracloudRequest
-        | Type::SoracloudResponse
-        | Type::AccountId
-        | Type::AssetDefinitionId
-        | Type::AssetId
-        | Type::NftId
-        | Type::DomainId
-        | Type::Name
-        | Type::Json
-        | Type::Unit
-        | Type::ErrorEnum(_)
-        | Type::StateCursor(_)
-        | Type::NamedStruct(_) => {}
-    }
-}
-fn qualify_typed_program(
-    program: &mut TypedProgram,
-    local_structs: &HashSet<String>,
-    prefix: &str,
-) {
-    for item in &mut program.items {
-        let TypedItem::Function(function) = item;
-        for param in &mut function.param_types {
-            qualify_type(&mut param.ty, local_structs, prefix);
-        }
-        if let Some(return_type) = &mut function.ret_ty {
-            qualify_type(return_type, local_structs, prefix);
-        }
-        qualify_block(&mut function.body, local_structs, prefix);
-    }
-}
-fn qualify_block(block: &mut TypedBlock, local_structs: &HashSet<String>, prefix: &str) {
-    for statement in &mut block.statements {
-        qualify_statement(statement, local_structs, prefix);
-    }
-    if let Some(tail) = &mut block.tail {
-        qualify_expr(tail, local_structs, prefix);
-    }
-}
-fn qualify_statement(
-    statement: &mut TypedStatement,
-    local_structs: &HashSet<String>,
-    prefix: &str,
-) {
-    match statement.kind_mut() {
-        TypedStatement::Let { value, .. } | TypedStatement::Expr(value) => {
-            qualify_expr(value, local_structs, prefix)
-        }
-        TypedStatement::Return(Some(value)) => qualify_expr(value, local_structs, prefix),
-        TypedStatement::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            qualify_expr(cond, local_structs, prefix);
-            qualify_block(then_branch, local_structs, prefix);
-            if let Some(branch) = else_branch {
-                qualify_block(branch, local_structs, prefix);
-            }
-        }
-        TypedStatement::IfLet {
-            pattern,
-            value,
-            then_branch,
-            else_branch,
-        } => {
-            if let Some(payload) = &mut pattern.payload_type {
-                qualify_type(payload, local_structs, prefix);
-            }
-            qualify_expr(value, local_structs, prefix);
-            qualify_block(then_branch, local_structs, prefix);
-            if let Some(branch) = else_branch {
-                qualify_block(branch, local_structs, prefix);
-            }
-        }
-        TypedStatement::While { cond, body } => {
-            qualify_expr(cond, local_structs, prefix);
-            qualify_block(body, local_structs, prefix);
-        }
-        TypedStatement::For {
-            init,
-            cond,
-            step,
-            body,
-            ..
-        } => {
-            if let Some(init) = init {
-                qualify_statement(init, local_structs, prefix);
-            }
-            if let Some(cond) = cond {
-                qualify_expr(cond, local_structs, prefix);
-            }
-            if let Some(step) = step {
-                qualify_statement(step, local_structs, prefix);
-            }
-            qualify_block(body, local_structs, prefix);
-        }
-        TypedStatement::ForEachMap { map, body, .. } => {
-            qualify_expr(map, local_structs, prefix);
-            qualify_block(body, local_structs, prefix);
-        }
-        TypedStatement::MapSet { map, key, value } => {
-            qualify_expr(map, local_structs, prefix);
-            qualify_expr(key, local_structs, prefix);
-            qualify_expr(value, local_structs, prefix);
-        }
-        TypedStatement::Return(None) | TypedStatement::Break | TypedStatement::Continue => {}
-    }
-}
-fn qualify_expr(expr: &mut TypedExpr, local_structs: &HashSet<String>, prefix: &str) {
-    qualify_type(&mut expr.ty, local_structs, prefix);
-    match expr.kind_mut() {
-        ExprKind::Binary { left, right, .. } => {
-            qualify_expr(left, local_structs, prefix);
-            qualify_expr(right, local_structs, prefix);
-        }
-        ExprKind::Unary { expr, .. }
-        | ExprKind::NumericCast { expr }
-        | ExprKind::NumericTryCast { expr }
-        | ExprKind::OptionSome { value: expr }
-        | ExprKind::ResultOk { value: expr }
-        | ExprKind::ResultErr { error: expr }
-        | ExprKind::Propagate { value: expr } => qualify_expr(expr, local_structs, prefix),
-        ExprKind::Conditional {
-            cond,
-            then_expr,
-            else_expr,
-        } => {
-            qualify_expr(cond, local_structs, prefix);
-            qualify_expr(then_expr, local_structs, prefix);
-            qualify_expr(else_expr, local_structs, prefix);
-        }
-        ExprKind::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            qualify_expr(condition, local_structs, prefix);
-            qualify_block(then_branch, local_structs, prefix);
-            qualify_block(else_branch, local_structs, prefix);
-        }
-        ExprKind::IfLet {
-            pattern,
-            value,
-            then_branch,
-            else_branch,
-        } => {
-            if let Some(payload) = &mut pattern.payload_type {
-                qualify_type(payload, local_structs, prefix);
-            }
-            qualify_expr(value, local_structs, prefix);
-            qualify_block(then_branch, local_structs, prefix);
-            qualify_block(else_branch, local_structs, prefix);
-        }
-        ExprKind::Match { value, arms } => {
-            qualify_expr(value, local_structs, prefix);
-            for arm in arms {
-                if let Some(payload) = &mut arm.pattern.payload_type {
-                    qualify_type(payload, local_structs, prefix);
-                }
-                qualify_block(&mut arm.body, local_structs, prefix);
-            }
-        }
-        ExprKind::Call { args, .. }
-        | ExprKind::NamedCall { args, .. }
-        | ExprKind::Tuple(args)
-        | ExprKind::List(args) => {
-            for arg in args {
-                qualify_expr(arg, local_structs, prefix);
-            }
-        }
-        ExprKind::JsonObject(entries) => {
-            for (_, value) in entries {
-                qualify_expr(value, local_structs, prefix);
-            }
-        }
-        ExprKind::JsonArray(elements) => {
-            for element in elements {
-                qualify_expr(element, local_structs, prefix);
-            }
-        }
-        ExprKind::ListComprehension {
-            expression,
-            source,
-            condition,
-            ..
-        } => {
-            qualify_expr(source, local_structs, prefix);
-            qualify_expr(expression, local_structs, prefix);
-            if let Some(condition) = condition {
-                qualify_expr(condition, local_structs, prefix);
-            }
-        }
-        ExprKind::StructLiteral { name, fields } => {
-            if local_structs.contains(name) {
-                *name = format!("{prefix}{name}");
-            }
-            for (_, value) in fields {
-                qualify_expr(value, local_structs, prefix);
-            }
-        }
-        ExprKind::Member { object, .. } => qualify_expr(object, local_structs, prefix),
-        ExprKind::Index { target, index } => {
-            qualify_expr(target, local_structs, prefix);
-            qualify_expr(index, local_structs, prefix);
-        }
-        ExprKind::IntLiteral(_)
-        | ExprKind::DecimalLiteral { .. }
-        | ExprKind::OptionNone
-        | ExprKind::Bool(_)
-        | ExprKind::ErrorValue(_)
-        | ExprKind::String(_)
-        | ExprKind::Bytes(_)
-        | ExprKind::Ident(_) => {}
-    }
 }
 fn rename_program_calls(
     program: &mut TypedProgram,
@@ -3233,8 +3179,13 @@ fn rename_expr_calls(
     external_names: &BTreeMap<String, String>,
 ) {
     match expr.kind_mut() {
-        ExprKind::Call { name, args } | ExprKind::NamedCall { name, args, .. } => {
-            if let Some(linked) = local_names.get(name).or_else(|| external_names.get(name)) {
+        ExprKind::Call { target: name, args }
+        | ExprKind::NamedCall {
+            target: name, args, ..
+        } => {
+            if let crate::semantic::CallTarget::User(name) = name
+                && let Some(linked) = local_names.get(name).or_else(|| external_names.get(name))
+            {
                 *name = linked.clone();
             }
             for arg in args {
@@ -3329,7 +3280,7 @@ fn rename_expr_calls(
         | ExprKind::DecimalLiteral { .. }
         | ExprKind::OptionNone
         | ExprKind::Bool(_)
-        | ExprKind::ErrorValue(_)
+        | ExprKind::VariantCode(_)
         | ExprKind::String(_)
         | ExprKind::Bytes(_)
         | ExprKind::Ident(_) => {}

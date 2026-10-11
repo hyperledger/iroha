@@ -17,15 +17,52 @@ What exists so far:
   `SignedNetworkCheckpoint`, and atomically prepares `checkpoint.nrt` and `network-profiles.nrt`
   for an explicitly selected release authority and HTTPS publication location. The schema in its
   public receipt binds the compiled candidate; preparation does not qualify a live network,
-  publish the endpoint, or authenticate a bundle installation. Release packaging consumes the
-  profile through `cargo xtask kagami-bundle --network-profiles` for the matching client/worker/daemon CLI
-  package, or `cargo xtask mochi-bundle --network-profiles` for the desktop application.
+  publish the endpoint, or authenticate a bundle installation. Release packaging selects the exact
+  committed `defaults/developer/network-profiles.nrt` image automatically: use
+  `cargo xtask kagami-bundle --profile release --out <fresh-directory>` for the matching
+  client/worker/daemon CLI package, or `cargo xtask mochi-bundle --profile release --out <fresh-directory>`
+  for the desktop application. `--network-profiles` is an override for development bundles only.
 - `managed`: workspace-scoped private contexts, four-validator process ownership,
   authenticated native control IPC, durable stop/restart/reset and signed readiness.
   `ManagedStore::up` retains the same generation and signer across starts; readiness
   requires one signed transaction to be applied by every validator. Kagami and
   Mochi call this owner directly. Explicit deployment/recovery targets preserve the
   workspace selection; ordinary startup and default auto-creation select their environment.
+  Startup transfers the original runtime lock through inherited stdin, preserving ownership
+  through worker loading and into its validator children. Unix retains the shared native file
+  lock; Windows relies on the trusted inherited handle's writer exclusion.
+  Binary verification, worker loading, activation and Ready publication share the original
+  startup budget. A same-boot continuous deadline includes suspend across the handoff;
+  clock failures refuse startup. Selection preparation, including fresh generation validation,
+  precedes the foreground's final matching Ready observation within that deadline. Only the
+  atomic workspace-selection write follows admission. This uninterruptible persistence cannot
+  retroactively time out readiness or stop its worker; publication errors remain explicit and
+  may have published, as specified by the native filesystem owner. Whole-command latency still
+  includes selection persistence. Later renewal and maintenance turns have separate budgets.
+  A callback-free gateway observation round binds all three providers to the exact same
+  owned launch. It checks the complete aggregate revision and current interval at entry and
+  on every ordinary exit, preserving each provider's fresh compliance projections and child
+  observations. The closing material check and all final child observations run before any
+  inner failure propagates; deadline/cancellation refusal still takes precedence. Active
+  codec budgets retain the original per-provider validation recipe. The inactive round
+  observes aggregate material twice rather than once per provider, so it makes no claim to
+  identical sampling of an external change fully restored between those boundaries. No
+  result crosses bootstrap effects, callbacks or the next gateway round.
+  Within worker admission, the current executable reuses the retained launcher's content hash
+  only after a fresh native open rejoins its exact path, identity and unchanged snapshot.
+  Both opened files are revalidated; different paths still receive full content admission.
+  Readiness submission reuses peer zero's transport after checking its endpoint against the
+  selected client configuration. The rebuilt submission context performs fresh compatibility
+  checks and retains the original deadline, signer, fee limits and four-validator proof checks.
+  After ownership and generation admission, failures before IPC publish Failed with zero
+  children. Rejected IPC clients do not terminate the listener. Later supervisor errors
+  cancel work and stop owned children before retaining a closed failure; cleanup and
+  status-publication errors remain explicit. `down` waits for native ownership to close;
+  missing IPC while ownership remains
+  does not prove stopped. An unavailable endpoint is reconciled only against its unchanged
+  admitted session, the original generation and explicit terminal zero-peer status.
+  A new start retires the stale session and endpoint while holding both environment locks.
+  These changes still require matching installed-runtime and native-platform validation.
   Unix sockets stay under the private managed store when the complete pathname fits the
   native limit; longer paths use the short owner-bound namespace. Reset removes a validated
   stale socket only while holding both environment locks. Windows uses owner-restricted native named pipes;
@@ -46,8 +83,10 @@ What exists so far:
   independently installed authority, with private durable release/clock rollback
   protection and explicit network reset identity. `ParentFinalityStore` retains
   the advancing native prefix separately and publishes before returning fresh
-  readiness; reopening an older release never rewinds it. Official Taira release-key
-  installation, artifact publication and combined parent-provisioning qualification remain outstanding.
+  readiness; reopening an older release never rewinds it. The Taira installation profile is
+  bundled from its committed image, and the published checkpoint has passed native verification.
+  Authenticated bundle distribution, recurring signed checkpoint publication and combined
+  parent-provisioning qualification remain outstanding.
   Native installation profiles and bounded unsigned HTTPS retrieval select the release
   independently. Signed account profiles, committee endpoints and optional faucet
   allowances feed exact parent SDK contexts without forwarding child credentials.
@@ -124,7 +163,11 @@ Fresh managed global localnets use the `StreamTokenAuthorities` profile to prepa
 three distinct providers on peers zero through two, with four unchanged validators. Each provider
 has ten separate service-role credentials; the network has one reserve-operations account and one
 reputation recorder, with the existing manager retained for decisions. Registered transaction
-accounts are funded and receive exact initial capabilities in signed genesis. Proof-outcome,
+accounts are funded and receive exact initial capabilities in signed genesis. Each issuer
+allocation covers the original reserve quote, pricing collateral and admitted stake, plus
+the existing setup fee allowance; ordinary service roles receive the fee allowance.
+Retained validation requires each exact allocation once and rejects direct reserve-account
+minting. Proof-outcome,
 repair and ingest completion grants are provider-scoped; the orderbook matcher receives no broad
 grant. Native runtime bindings stay absent until a validated service revision selects them.
 Generated keys alone do not authorize work or establish current matcher policy.
@@ -153,6 +196,39 @@ plan commitment, retains the original finite interval and exact empty external-f
 revalidates all sidecars on reopen. Original trust does not establish a promoted catalog, current
 operator permission, acknowledgements, runtime admission or serving readiness. Standard profiles
 have no generated compliance plan.
+Bootstrap recovery, child inventories, runtime custody selection and gateway plan lookups reuse
+the parent's immutable decoded profile. Gateway projections refuse another prepared generation.
+Runtime selection and startup polling reopen only existing bootstrap custody; explicit startup
+initialization owns its creation. Polling uses the retained renderer's exact generation and closes
+its original profile checks on successful and failed child admission. Missing bootstrap state is
+refused without reconstruction.
+The final runtime policy comparison borrows that same original intent outside active decode
+budgets and owned-profile admission. It retains complete policy construction, canonical encoding,
+equality and the original operation-lock observations. Only two nested immutable profile scans
+consolidate into the enclosing full-image entry and unconditional ordinary-result exit. No child
+read, current interval or finality check is shared. A profile change completely restored between
+these observations may be unseen; the read is not an atomic snapshot or a reusable authority.
+Within one RuntimeSelection read, existing child constructors and bootstrap policy projections
+borrow only its exact captured image. All original operation-lock and provider-scope observations
+remain at their old boundaries, while immutable image scans consolidate into the enclosing full
+entry and unconditional ordinary-result exit. Each child still acquires its own lock and freshly
+reads its mutable records. Initial-enrollment histories, wallet inspection, runtime components,
+launch configurations and current intervals retain their separate checks. This constructor scope
+never escapes the selection read or crosses a startup effect. A profile change fully restored
+between image observations can be unseen; this is not an atomic snapshot. Foreign captures and
+constructor parents are refused. Active Norito decode budgets and parents opened under those
+budgets retain the original complete profile-capture recipe.
+Each read-only bootstrap traversal and child census owns a separate cache of up to three
+immutable checkpoint imports, keyed by their complete bytes, network and chain. Fresh custody
+and transaction checks still run for every child. Each cache ends with its traversal; active
+decode budgets always perform the original import and do not reuse cached results.
+Each traversal also retains at most two complete validated epoch contexts for reuse by that
+same importer. This separate bounded workspace supplies no source or current-state verdict.
+Recovery rechecks the caller's deadline after its final inventory read. Startup also rechecks
+cancellation before publishing original intent and validates each newly issued authorization
+before returning it. Shared live-authorization checks close cancellation after the original
+and epoch reads, while preserving custody and expiry errors. Failed attempts retain their
+original intent and epoch history for retry.
 The ordinary CLI and Mochi global creation paths share this default; their private-root request
 constructors select `Standard`. Restart preserves the exact retained profile. Profile changes
 require a new context, and private roots reject the global service profile. Explicit unmanaged
@@ -262,8 +338,15 @@ policy and registration, funding, distinct-key ingest authority, gateway configu
 original wallet and authenticated carrier. Recovery verifies explicit wallet preparation stages;
 partial request/payload history is read-only until an explicit advance rechecks the native
 prerequisite and finishes that same original. Recovery compares every original selection before
-network access and requires strictly ordered successful carriers; a newer I/O deadline cannot renew
-the original signing deadline. Complete reports describe historical execution. The worker now
+network access and requires the reserve carrier before every provider, strict prerequisites within
+each provider, and reputation after every gateway. Independent providers may share a certified block;
+every original transaction remains in the all-peer barrier. A fresh closed name census permits at most
+three scoped provider workers outside active decode budgets; existing purposes and resumed histories
+use serial dispatch. That census selects scheduling only: raced material still goes through ordinary
+native admission and the one shared epoch/replacement fence. Every spawned worker is joined before
+census or returning a report, with the same original deadline and cancellation. A provider failure may
+leave another provider's exact resumable work; it never grants readiness. A newer I/O deadline cannot
+renew the original signing deadline. Complete reports describe historical execution. The worker now
 composes those owners, promotes the original signed catalog and restarts only its owned peers
 with the derived token configuration. It rechecks the same paid readiness receipt, exact Applied
 carrier on all four peers, promoted catalog and fresh native discovery before reporting Ready.

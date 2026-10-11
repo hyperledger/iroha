@@ -356,9 +356,10 @@ def pinned_fixture(tmp_path, *, stdout="connect_norito_free\n", stderr="", exit_
                     + "sys.stderr.write(" + repr(stderr) + ")\nsys.exit(" + str(exit_code) + ")\n")
     tool.chmod(0o700)
     library = root / "libbridge.so"
-    header = bytearray(64)
-    header[:7] = b"\x7fELF\x02\x01\x01"
-    header[16:20] = struct.pack("<HH", 3, GUARD.ANDROID_MACHINES[abi])
+    elf_class = GUARD.ANDROID_ELF_CLASSES[abi]
+    header = bytearray(52 if elf_class == 1 else 64)
+    header[:7] = b"\x7fELF" + bytes((elf_class, 1, 1))
+    header[16:24] = struct.pack("<HHI", 3, GUARD.ANDROID_MACHINES[abi], 1)
     library.write_bytes(header + b"synthetic symbol inspection fixture")
     library.chmod(0o600)
     return library, {"abi": abi, "tool": tool,
@@ -520,6 +521,47 @@ def test_android_audit_requires_complete_explicit_pin_and_separate_outputs(tmp_p
                     symbol_tool=pin["tool"], symbol_tool_sha256=pin["tool_sha256"],
                     symbol_tool_size_bytes=pin["tool_size_bytes"],
                     inspection_output=roots["core-jvm"][0] / "inspection")
+
+
+@pytest.mark.parametrize("abi", ["arm64-v8a", "armeabi-v7a", "x86_64"])
+def test_exact_android_elf_class_and_machine_are_required(tmp_path, abi):
+    library, pin = pinned_fixture(tmp_path, abi=abi)
+    symbols, record = GUARD.inspect_pinned_android_symbols(library, **pin)
+    assert symbols == ("connect_norito_free",) and record["android_abi"] == abi
+    assert record["tool_pinned"] is True
+
+
+@pytest.mark.parametrize("mutation", ["class", "machine", "endianness", "kind", "version", "truncated"])
+def test_armv7_header_rejections_do_not_start_a_symbol_child(tmp_path, mutation):
+    library, pin = pinned_fixture(tmp_path, abi="armeabi-v7a")
+    data = bytearray(library.read_bytes())
+    if mutation == "class":
+        data[4] = 2
+    elif mutation == "machine":
+        data[18:20] = struct.pack("<H", 183)
+    elif mutation == "endianness":
+        data[5] = 2
+    elif mutation == "kind":
+        data[16:18] = struct.pack("<H", 2)
+    elif mutation == "version":
+        data[20:24] = struct.pack("<I", 0)
+    else:
+        data = data[:51]
+    library.write_bytes(data)
+    with pytest.raises(GUARD.AuditError, match="exact ABI ELF class and machine"):
+        GUARD.inspect_pinned_android_symbols(library, **pin)
+    assert not pin["output"].exists()
+
+
+@pytest.mark.parametrize("abi", ["arm64-v8a", "x86_64"])
+def test_64_bit_android_abi_rejects_elf32_before_child(tmp_path, abi):
+    library, pin = pinned_fixture(tmp_path, abi=abi)
+    data = bytearray(library.read_bytes())
+    data[4] = 1
+    library.write_bytes(data)
+    with pytest.raises(GUARD.AuditError, match="exact ABI ELF class and machine"):
+        GUARD.inspect_pinned_android_symbols(library, **pin)
+    assert not pin["output"].exists()
 
 
 def test_android_x86_64_and_bounded_owned_child_timeout(tmp_path):
@@ -689,10 +731,11 @@ def test_compiled_privacy_contract_seals_nonprivacy_main_classes_too(tmp_path):
         GUARD.audit_privacy_classfiles(tmp_path)
 
 
-# First-release KAGEMUSHA SDK package surface. The bridge exports no KAGEMUSHA
-# symbol, so check_kotlin_jni.py admits no KAGEMUSHA JNI owner; these source-only
-# guards pin the matching package surface in every SDK. They read repository
-# sources only and need no JDK, native artifact, network or environment variable.
+# First-release KAGEMUSHA eligibility and wallet V1 wire, platform adapters,
+# Native owner clients and typed projections. Compiled declaration/export auditing requires exact
+# Native ownership for every wallet JNI declaration. These
+# source inventories do not execute wallet JNI or prove artifacts are available.
+# They need no JDK, native artifact, network or environment variable.
 ROOT = Path(__file__).resolve().parents[2]
 KOTLIN_OFFLINE_PACKAGE = "org/hyperledger/iroha/sdk/offline"
 
@@ -708,17 +751,65 @@ def kagemusha_named_files(root, directories):
 
 
 def test_kotlin_ships_only_the_kagemusha_wallet_v1_surface():
-    """Only the wallet V1 wire, its P-256 codec and the Android wallet V1 platform remain."""
+    """Pin current eligibility, ledger wire, P-256 and Android/Native wallet owners."""
     kotlin = ROOT / "kotlin"
     offline = KOTLIN_OFFLINE_PACKAGE
     wallet = "kagemusha-wallet-android/src"
     kept = {
+        "core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/"
+        "KagemushaWalletIssueLoadInstructionV1.kt",
+        "core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/core/model/instructions/"
+        "KagemushaWalletIssueLoadInstructionV1Test.kt",
+        "core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/"
+        "KagemushaWalletActivateInstructionV1.kt",
+        "core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/core/model/instructions/"
+        "KagemushaWalletActivateInstructionV1Test.kt",
         f"core-jvm/src/main/java/{offline}/KagemushaP256Codec.kt",
         f"core-jvm/src/main/java/{offline}/KagemushaWalletWireV1.kt",
+        f"core-jvm/src/main/java/{offline}/KagemushaWalletEnrollmentBindingV1.kt",
+        f"core-jvm/src/test/kotlin/{offline}/KagemushaWalletEnrollmentBindingV1Test.kt",
+        f"core-jvm/src/main/java/{offline}/KagemushaWalletAccountOriginalV1.kt",
+        f"core-jvm/src/test/kotlin/{offline}/KagemushaWalletAccountOriginalV1Test.kt",
+        f"core-jvm/src/main/java/{offline}/KagemushaEnrollmentEligibilityV1.kt",
+        f"core-jvm/src/test/kotlin/{offline}/KagemushaEnrollmentEligibilityV1Test.kt",
+        f"core-jvm/src/test/java/{offline}/KagemushaEligibilityJavaTest.java",
+        "core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/client/"
+        "KagemushaLedgerOriginalTransportV1Test.kt",
         f"core-jvm/src/test/kotlin/{offline}/KagemushaWalletVectorsV1Test.kt",
         f"{wallet}/androidTest/java/{offline}/wallet/KagemushaWalletAndroidPlatformDeviceV1Test.kt",
         f"{wallet}/main/res/xml/kagemusha_wallet_v1_data_extraction_rules.xml",
         f"{wallet}/main/res/xml/kagemusha_wallet_v1_full_backup_content.xml",
+        f"{wallet}/main/java/{offline}/wallet/KagemushaWalletV1.kt",
+        f"{wallet}/main/java/{offline}/wallet/KagemushaWalletEnrollmentV1.kt",
+        f"{wallet}/main/java/{offline}/wallet/KagemushaWalletLoadOriginalV1.kt",
+        f"{wallet}/main/java/{offline}/wallet/KagemushaWalletLedgerV1.kt",
+        f"{wallet}/main/java/{offline}/wallet/KagemushaWalletCreditProjectionV1.kt",
+        f"{wallet}/main/java/{offline}/wallet/KagemushaWalletRequestFeeSelectionV1.kt",
+        f"{wallet}/main/java/{offline}/wallet/KagemushaWalletInstalledRuntimeV1.kt",
+        f"{wallet}/main/java/{offline}/wallet/KagemushaWalletInstallationAttemptV1.kt",
+        f"{wallet}/main/java/{offline}/wallet/KagemushaWalletEnrollmentV1.kt",
+        f"{wallet}/main/java/{offline}/wallet/KagemushaWalletReviewV1.kt",
+        f"{wallet}/main/java/{offline}/wallet/KagemushaWalletOpenV1.kt",
+        f"{wallet}/main/java/{offline}/wallet/KagemushaWalletSetupV1.kt",
+        f"{wallet}/main/java/{offline}/wallet/KagemushaWalletNativeReplyV1.kt",
+        f"{wallet}/main/java/{offline}/wallet/KagemushaWalletSnapshotV1.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletV1Test.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletEnrollmentV1Test.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletInstalledRuntimeV1Test.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletInstallationAttemptV1Test.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletReviewV1Test.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletCurrentReviewIntegrationV1Test.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletInstalledHolderV1Test.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletCleanupQuarantineV1Test.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletAdmissionLifetimeV1Test.kt",
+        f"{wallet}/test/java/{offline}/wallet/KagemushaWalletLoadOriginalV1Test.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletSetupV1Test.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletHostNativeV1Test.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletSnapshotV1Test.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletLedgerV1Test.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletCreditProjectionV1Test.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletRequestFeeSelectionV1Test.kt",
+        f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletBoundDeliveryV1Test.kt",
         *(
             f"{wallet}/main/java/{offline}/wallet/KagemushaWalletAndroid{name}V1.kt"
             for name in ("Environment", "KeyStore", "PaymentKey", "Platform", "Results")
@@ -744,7 +835,25 @@ def test_kotlin_ships_only_the_kagemusha_wallet_v1_surface():
             probe = kotlin / module / "src" / source_set / offline / "probe"
             assert not probe.exists(), f"{probe.relative_to(ROOT)} must stay retired"
 
-    # Consumer rules keep only the wallet V1 platform upcalls and result types.
+    # Keep exact wallet V1 platform upcalls, Native owners/results and snapshot holder.
+    expected_wallet_kept_names = {
+        "KagemushaWalletAndroidPlatformV1",
+        "KagemushaWalletAndroidUnavailableV1",
+        "KagemushaWalletAndroidKeyProbeV1",
+        "KagemushaWalletAndroidKeyGenerationV1",
+        "KagemushaWalletAndroidSecurityLevelV1",
+        "KagemushaWalletAndroidSignatureV1",
+        "KagemushaWalletAndroidRemoveV1",
+        "KagemushaWalletAndroidAttestationChainV1",
+        "KagemushaWalletAndroidCustodyRootV1",
+        "KagemushaWalletNativeReplyV1",
+        "KagemushaWalletNativeV1",
+        "KagemushaWalletLoadOriginalNativeV1",
+        "KagemushaWalletInstalledRuntimeNativeV1",
+        "KagemushaWalletReviewReplyV1",
+        "KagemushaWalletCallV1",
+        "KagemushaWalletSnapshotReplyV1",
+    }
     for rules in (
         "client-android/consumer-rules.pro",
         "kagemusha-wallet-android/consumer-rules.pro",
@@ -752,10 +861,16 @@ def test_kotlin_ships_only_the_kagemusha_wallet_v1_surface():
     ):
         lines = (kotlin / rules).read_text(encoding="utf-8").splitlines()
         rule_text = "\n".join(line for line in lines if not line.lstrip().startswith("#"))
-        kept_names = re.findall(r"\bKagemusha\w*", rule_text)
-        assert all(name.startswith("KagemushaWalletAndroid") for name in kept_names), (
-            rules, sorted(set(kept_names)),
-        )
+        kept_names = set(re.findall(r"\bKagemusha\w*", rule_text))
+        expected_names = expected_wallet_kept_names if rules == "kagemusha-wallet-android/consumer-rules.pro" else set()
+        assert kept_names == expected_names, (rules, sorted(kept_names))
+        kept_classes = {
+            name for name in re.findall(r"\bclass\s+([\w.$]+)", rule_text)
+            if "Kagemusha" in name
+        }
+        assert kept_classes == {
+            "org.hyperledger.iroha.sdk.offline.wallet." + name for name in expected_names
+        }, (rules, sorted(kept_classes))
 
     # The wallet manifest binds the exclude-only backup and device-transfer rules.
     manifest = (kotlin / wallet / "main/AndroidManifest.xml").read_text(encoding="utf-8")
@@ -768,15 +883,39 @@ def test_kotlin_ships_only_the_kagemusha_wallet_v1_surface():
 
 
 def test_swift_ships_no_old_kagemusha_surface():
-    """Only the KAGEMUSHA wallet V1 wire and Apple platform files remain in Swift."""
+    """Pin the wallet V1 wire, Apple platform, Native client and typed snapshot files."""
     swift = ROOT / "IrohaSwift"
     kept = {
         "Sources/IrohaSwift/KagemushaWalletAppleAppAttestV1.swift",
         "Sources/IrohaSwift/KagemushaWalletApplePlatformV1.swift",
         "Sources/IrohaSwift/KagemushaWalletAppleSystemV1.swift",
         "Sources/IrohaSwift/KagemushaWalletWireV1.swift",
+        "Sources/IrohaSwift/KagemushaWalletV1.swift",
+        "Sources/IrohaSwift/KagemushaWalletEnrollmentV1.swift",
+        "Sources/IrohaSwift/KagemushaWalletReviewV1.swift",
+        "Sources/IrohaSwift/KagemushaWalletInstalledRuntimeV1.swift",
+        "Sources/IrohaSwift/KagemushaWalletInstallationAttemptV1.swift",
+        "Sources/IrohaSwift/KagemushaWalletAccountOriginalV1.swift",
+        "Sources/IrohaSwift/KagemushaWalletLoadOriginalV1.swift",
+        "Sources/IrohaSwift/KagemushaWalletLedgerV1.swift",
+        "Sources/IrohaSwift/KagemushaWalletOpenV1.swift",
+        "Sources/IrohaSwift/KagemushaWalletSetupV1.swift",
+        "Sources/IrohaSwift/KagemushaWalletSnapshotV1.swift",
         "Tests/IrohaSwiftTests/KagemushaWalletApplePlatformV1Tests.swift",
         "Tests/IrohaSwiftTests/KagemushaWalletVectorsV1Tests.swift",
+        "Tests/IrohaSwiftTests/KagemushaWalletNativeV1Tests.swift",
+        "Tests/IrohaSwiftTests/KagemushaWalletEnrollmentV1Tests.swift",
+        "Tests/IrohaSwiftTests/KagemushaWalletReviewV1Tests.swift",
+        "Tests/IrohaSwiftTests/KagemushaWalletInstalledRuntimeV1Tests.swift",
+        "Tests/IrohaSwiftTests/KagemushaWalletInstallationAttemptV1Tests.swift",
+        "Tests/IrohaSwiftTests/KagemushaWalletAccountOriginalV1Tests.swift",
+        "Tests/IrohaSwiftTests/KagemushaWalletExchangeBindingV1Tests.swift",
+        "Tests/IrohaSwiftTests/KagemushaWalletNativeLeaseV1Tests.swift",
+        "Tests/IrohaSwiftTests/KagemushaWalletCurrentReviewIntegrationV1Tests.swift",
+        "Tests/IrohaSwiftTests/KagemushaWalletLoadOriginalV1Tests.swift",
+        "Tests/IrohaSwiftTests/KagemushaWalletOpenV1Tests.swift",
+        "Tests/IrohaSwiftTests/KagemushaWalletSetupV1Tests.swift",
+        "Tests/IrohaSwiftTests/KagemushaWalletSnapshotV1Tests.swift",
     }
     assert kagemusha_named_files(swift, ("Sources", "Tests")) == kept
     for relative in (

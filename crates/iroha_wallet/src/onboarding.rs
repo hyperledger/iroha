@@ -28,6 +28,10 @@ use iroha_primitives::numeric::Quantity;
 use norito::json::{self, JsonDeserialize, JsonSerialize, Value};
 use std::{
     path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 const JOURNAL_SCHEMA: &str = "iroha.wallet.account-operation.v1";
@@ -79,6 +83,7 @@ pub struct FaucetRequest {
 pub struct OnboardingService {
     config: Config,
     deadline: Option<Instant>,
+    cancellation: Option<Arc<AtomicBool>>,
 }
 impl OnboardingService {
     /// Bind one native wallet identity and safe public endpoint.
@@ -90,7 +95,26 @@ impl OnboardingService {
         Ok(Self {
             config,
             deadline: None,
+            cancellation: None,
         })
+    }
+    /// Bind a caller-owned cancellation signal to new preparation and dispatch.
+    ///
+    /// Set this signal once when cancelling; callers must never reset it. Shorter deadline
+    /// views retain the same signal. Cancellation does not prevent exact read-only recovery
+    /// of retained signed envelopes or a previously recorded submission attempt.
+    ///
+    /// # Errors
+    /// Refuses replacing an existing cancellation binding with a different signal.
+    pub fn with_cancellation(mut self, cancellation: Arc<AtomicBool>) -> Result<Self> {
+        eyre::ensure!(
+            self.cancellation
+                .as_ref()
+                .is_none_or(|original| Arc::ptr_eq(original, &cancellation)),
+            "account bootstrap cancellation signal cannot be replaced"
+        );
+        self.cancellation = Some(cancellation);
+        Ok(self)
     }
     /// Retain one absolute I/O budget across preparation, proof-of-work and exact recovery.
     /// Applying another deadline can only shorten this context's remaining budget.
@@ -124,7 +148,10 @@ impl OnboardingService {
             token,
             options,
             journal,
-            operation_deadline(options.timeout_secs, self.deadline)?,
+            MutationBudget {
+                deadline: operation_deadline(options.timeout_secs, self.deadline)?,
+                cancellation: self.cancellation.as_deref(),
+            },
         )
     }
     /// Solve the bounded native puzzle and persist a trusted faucet-signed envelope before submission.
@@ -143,7 +170,10 @@ impl OnboardingService {
             request,
             options,
             journal,
-            operation_deadline(options.timeout_secs, self.deadline)?,
+            MutationBudget {
+                deadline: operation_deadline(options.timeout_secs, self.deadline)?,
+                cancellation: self.cancellation.as_deref(),
+            },
         )
     }
     /// Submit a saved onboarding envelope at most once, then wait within the configured timeout.
@@ -236,6 +266,7 @@ impl OnboardingService {
                 submit,
                 token: None,
                 expected_faucet: Some(request),
+                cancellation: self.cancellation.as_deref(),
             },
         )
     }
@@ -258,6 +289,7 @@ impl OnboardingService {
                 submit,
                 token,
                 expected_faucet: None,
+                cancellation: self.cancellation.as_deref(),
             },
         )
     }
@@ -388,14 +420,35 @@ fn operation_client(config: &Config, timeout_secs: u64, deadline: Instant) -> Re
         .with_request_deadline(deadline))
 }
 
+#[derive(Clone, Copy)]
+struct MutationBudget<'a> {
+    deadline: Instant,
+    cancellation: Option<&'a AtomicBool>,
+}
+impl MutationBudget<'_> {
+    fn ensure_active(self) -> Result<()> {
+        if self
+            .cancellation
+            .is_some_and(|signal| signal.load(Ordering::Acquire))
+        {
+            eyre::bail!("account bootstrap operation cancelled");
+        }
+        if Instant::now() >= self.deadline {
+            eyre::bail!("account bootstrap deadline elapsed");
+        }
+        Ok(())
+    }
+}
+
 fn prepare_onboarding(
     config: &Config,
     args: &OnboardingRequest,
     token: &str,
     options: &PreparationOptions,
     path: &Path,
-    io_deadline: Instant,
+    budget: MutationBudget<'_>,
 ) -> Result<OperationReport> {
+    budget.ensure_active()?;
     let issuer = args.issuer.clone();
     if issuer.try_signatory().is_none() {
         eyre::bail!("onboarding issuer must be single-signatory");
@@ -408,14 +461,17 @@ fn prepare_onboarding(
     let requested_fee = args.fee_payment.clone();
     requested_fee.validate()?;
     let (request_id, deadline) = options.identity(current_unix_ms()?)?;
-    let client = operation_client(config, options.timeout_secs, io_deadline)?;
+    let client = operation_client(config, options.timeout_secs, budget.deadline)?;
+    budget.ensure_active()?;
     let receipt = client.plan_account_onboarding(&request, token)?;
+    budget.ensure_active()?;
     verify_trusted_issuer(&receipt, &issuer)?;
     let binding = PreparedOperationBindingV1::onboarding(
         &receipt,
         request_id,
         deadline.min(receipt.body.valid_until_ms),
     )?;
+    budget.ensure_active()?;
     let response = client.prepare_account_onboarding_transaction(
         &request,
         &receipt,
@@ -447,6 +503,7 @@ fn prepare_onboarding(
     // Planning and preparation do not dispatch a transaction. Establish durable operation
     // custody only once the verified envelope exists, so an offline preparation can retry
     // without leaving an empty journal that could be mistaken for submitted work.
+    budget.ensure_active()?;
     let journal = Journal::create_prepared(path, &operation)?;
     report(
         &journal,
@@ -465,8 +522,9 @@ fn prepare_faucet(
     args: &FaucetRequest,
     options: &PreparationOptions,
     path: &Path,
-    io_deadline: Instant,
+    budget: MutationBudget<'_>,
 ) -> Result<OperationReport> {
+    budget.ensure_active()?;
     let issuer = args.issuer.clone();
     let asset_definition = args.asset_definition.clone();
     let amount = args.amount.clone();
@@ -475,8 +533,9 @@ fn prepare_faucet(
     let requested_fee = args.fee_payment.clone();
     requested_fee.validate()?;
     let (request_id, expires_at) = options.identity(current_unix_ms()?)?;
-    let client = operation_client(config, options.timeout_secs, io_deadline)?;
-    let deadline = observation_deadline(options.timeout_secs, expires_at)?.min(io_deadline);
+    let client = operation_client(config, options.timeout_secs, budget.deadline)?;
+    let deadline = observation_deadline(options.timeout_secs, expires_at)?.min(budget.deadline);
+    budget.ensure_active()?;
     let claim = solve_account_faucet_claim(
         config.torii_api_url.as_str(),
         &config.account,
@@ -484,7 +543,9 @@ fn prepare_faucet(
         config.account_chain_discriminant,
         deadline,
     )?;
+    budget.ensure_active()?;
     let binding = PreparedOperationBindingV1::faucet(&claim, request_id, expires_at)?;
+    budget.ensure_active()?;
     let prepared =
         client.prepare_account_faucet_transaction(&claim, &binding, &requested_fee, &policy)?;
     let operation = new_operation(
@@ -501,6 +562,7 @@ fn prepare_faucet(
         })),
     );
     operation.verify(config, "faucet")?;
+    budget.ensure_active()?;
     let journal = Journal::create_prepared(path, &operation)?;
     report(&journal, &operation, "Prepared", None)
 }
@@ -630,6 +692,7 @@ struct SavedAction<'a> {
     submit: bool,
     token: Option<&'a str>,
     expected_faucet: Option<&'a FaucetRequest>,
+    cancellation: Option<&'a AtomicBool>,
 }
 
 fn run_saved_operation(
@@ -679,11 +742,21 @@ fn run_saved_operation_with_client(
     if current_unix_ms()? >= operation.binding.execution_expires_at_unix_ms {
         return report(&journal, &operation, "Expired", None);
     }
+    let budget = MutationBudget {
+        deadline,
+        cancellation: action.cancellation,
+    };
+    // An exact preflight read can finish after the caller cancels. Preserve its signed
+    // operation, but refuse any fresh dispatch marker or server mutation.
+    budget.ensure_active()?;
     // This durable marker is installed before the only mutation call. A failed response is
     // ambiguous; the immutable transaction remains the sole object accepted on every retry.
     if !journal.record_submission(&operation)? {
         return report(&journal, &operation, "Pending", None);
     }
+    // Cancellation while the durable marker is being published remains an ambiguous
+    // retained attempt. Recovery never clears it or grants a replacement submission.
+    budget.ensure_active()?;
     let _submission = match &operation.operation {
         OperationV1::Onboarding(onboarding) => match &onboarding.response {
             OnboardingResponseV1::Prepared(prepared) => {

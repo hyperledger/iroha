@@ -3,7 +3,7 @@ use super::*;
 use iroha_primitives::json::Json;
 fn fixture() -> (Vec<u8>, ContractAddress) {
     let artifact = kotodama_lang::compiler::Compiler::new().compile_source(
-        "seiyaku Example { kotoage fn write(int value) authorize(\"CanInvokeContractEntrypoint\") {} kotoage fn ping() authorize(\"CanInvokeContractEntrypoint\") {} view fn read() -> int { return 1; } }",
+        "seiyaku Example { permission Update;  kotoage fn write(int value) authorize(Update) {} kotoage fn ping() authorize(Update) {} view fn read() authorize(anyone) -> int { return 1; } }",
     ).expect("compile current artifact");
     let key = iroha::crypto::KeyPair::random();
     let authority = iroha_data_model::account::AccountId::new(key.public_key().clone());
@@ -308,4 +308,172 @@ fn mutable_call_failure_keeps_the_redacted_cause_chain() {
     assert!(rendered.contains("call failed"), "{rendered}");
     assert!(rendered.contains("route_unavailable"), "{rendered}");
     assert!(!rendered.contains("secret-value"), "{rendered}");
+}
+
+#[test]
+fn gas_limit_follows_the_simulation_before_anything_is_signed() {
+    let executed = CallSimulation::Executed { gas_used: 100_000 };
+    let (limit, note) = choose_gas_limit(None, &executed).expect("simulated budget");
+    assert_eq!(limit, 160_000);
+    assert!(
+        note.contains("Simulated gas: 100000; gas limit: 160000"),
+        "{note}"
+    );
+    assert_eq!(
+        choose_gas_limit(Some(200_000), &executed)
+            .expect("requested budget")
+            .0,
+        200_000
+    );
+    let too_small = choose_gas_limit(Some(99_999), &executed).expect_err("below simulation");
+    assert_eq!(too_small.code(), ErrorCode::Usage);
+    assert!(human_failure(too_small).contains("pass at least 160000"));
+    let rejected = choose_gas_limit(
+        None,
+        &CallSimulation::Rejected {
+            message: "contract rejected: ZeroStep".to_owned(),
+            gas_used: 12,
+        },
+    )
+    .expect_err("rejected simulation stops the call");
+    let rendered = human_failure(rejected);
+    assert!(
+        rendered.contains("nothing was signed or submitted"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("ZeroStep"), "{rendered}");
+    let (limit, note) =
+        choose_gas_limit(None, &CallSimulation::RequiresSelfGrant).expect("unsimulated default");
+    assert_eq!(
+        limit,
+        iroha_contract_deploy::call::UNSIMULATED_CALL_GAS_LIMIT
+    );
+    assert!(note.contains("pass --gas-limit"), "{note}");
+    assert_eq!(
+        choose_gas_limit(Some(42), &CallSimulation::RequiresSelfGrant)
+            .expect("requested")
+            .0,
+        42
+    );
+    assert!(parsed_call(&["--entrypoint", "write"]).gas_limit.is_none());
+    assert!(
+        Cli::try_parse_from([
+            "musubi",
+            "call",
+            "--entrypoint",
+            "write",
+            "--gas-limit",
+            "10000001"
+        ])
+        .is_err()
+    );
+}
+
+#[test]
+fn receipts_report_the_settled_gas_and_fee() {
+    let mut evidence = iroha_contract_deploy::AppliedEvidence {
+        hash: "hash".to_owned(),
+        terminal_kind: "Applied".to_owned(),
+        block_height: 3,
+        scope: "global".to_owned(),
+        resolved_from: "state".to_owned(),
+        charge: None,
+    };
+    assert_eq!(
+        charge_line("Call", &evidence),
+        "Call: gas and fee not reported by the node\n"
+    );
+    evidence.charge = Some(iroha_contract_deploy::AppliedCharge {
+        gas_used: 4_321,
+        fee_asset: "6TEAJqbb8oEPmLncoNiMRbLEK6tw".parse().expect("asset"),
+        fee_amount: "3".parse().expect("fee"),
+    });
+    assert_eq!(
+        charge_line("Call", &evidence),
+        "Call: gas used 4321; fee 3 6TEAJqbb8oEPmLncoNiMRbLEK6tw\n"
+    );
+}
+
+#[test]
+fn call_view_and_activation_share_args_and_args_file() {
+    let dir = tempfile::tempdir().expect("argument directory");
+    let file = dir.path().join("arguments.json");
+    fs::write(&file, "{\"step\":\"2\"}").expect("argument file");
+    assert_eq!(
+        argument_source(Some("{}"), Some(&file)).expect("file arguments"),
+        "{\"step\":\"2\"}"
+    );
+    assert_eq!(
+        argument_source(Some("{\"step\":\"1\"}"), None).expect("inline arguments"),
+        "{\"step\":\"1\"}"
+    );
+    assert_eq!(argument_source(None, None).expect("no arguments"), "{}");
+    fs::write(&file, [0xff_u8, 0xfe]).expect("non-UTF-8 file");
+    assert_eq!(
+        argument_source(None, Some(&file))
+            .expect_err("arguments are UTF-8 JSON")
+            .code(),
+        ErrorCode::Usage
+    );
+    fs::write(&file, vec![b' '; 64 * 1024 + 1]).expect("oversized file");
+    assert!(argument_source(None, Some(&file)).is_err());
+    let path = file.to_str().expect("UTF-8 path");
+    let parse = |arguments: &[&str]| Cli::try_parse_from(arguments.iter());
+    assert_eq!(
+        parsed_call(&["--entrypoint", "write", "--args-file", path])
+            .args_file
+            .as_deref(),
+        Some(file.as_path())
+    );
+    for refused in [
+        &[
+            "musubi",
+            "call",
+            "--entrypoint",
+            "write",
+            "--args",
+            "{}",
+            "--args-file",
+            path,
+        ][..],
+        &[
+            "musubi",
+            "view",
+            "--contract",
+            "c",
+            "--entrypoint",
+            "read",
+            "--args",
+            "{}",
+            "--args-file",
+            path,
+        ],
+        &["musubi", "deploy", "--args-file", path],
+        &[
+            "musubi",
+            "deploy",
+            "--activate",
+            "--args",
+            "{}",
+            "--args-file",
+            path,
+        ],
+    ] {
+        assert!(parse(refused).is_err(), "{refused:?}");
+    }
+    for accepted in [
+        &[
+            "musubi",
+            "view",
+            "--contract",
+            "c",
+            "--entrypoint",
+            "read",
+            "--args-file",
+            path,
+        ][..],
+        &["musubi", "deploy", "--activate", "--args-file", path],
+    ] {
+        assert!(parse(accepted).is_ok(), "{accepted:?}");
+    }
 }

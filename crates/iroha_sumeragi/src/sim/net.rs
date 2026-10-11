@@ -28,24 +28,8 @@ pub fn lane(class: Class) -> usize {
     }
 }
 
-fn attestations_size(attestations: &[crate::message::AttestationSignature]) -> u64 {
-    attestations.iter().map(|a| 4 + len64(a.len())).sum()
-}
-
 fn qc_size(qc: &Qc) -> u64 {
-    1 + 32
-        + 8
-        + 8
-        + 32
-        + 32
-        + 8
-        + len64(qc.signers.as_bytes().len())
-        + 96
-        + attestations_size(&qc.attestations)
-        + 1
-        + qc.attestation_witness
-            .as_ref()
-            .map_or(0, |w| 4 + len64(w.as_slice().len()))
+    1 + 32 + 8 + 8 + 32 + 32 + 8 + len64(qc.signers.as_bytes().len()) + 96
 }
 
 fn opt_qc_size(qc: Option<&Qc>) -> u64 {
@@ -95,18 +79,7 @@ pub fn approx_size(msg: &WireMessage) -> u64 {
                 + len64(p.availability.as_slice().len())
                 + 96
         }
-        WireMessage::Vote(v) => {
-            1 + 32
-                + 8
-                + 8
-                + 32
-                + 32
-                + 4
-                + 96
-                + v.attestation.as_ref().map_or(0, |a| {
-                    8 + len64(a.signature.len()) + len64(a.witness.as_slice().len())
-                })
-        }
+        WireMessage::Vote(_) => 1 + 32 + 8 + 8 + 32 + 32 + 4 + 96,
         WireMessage::Qc(qc) => qc_size(qc),
         WireMessage::Timeout(t) => 32 + 8 + 8 + opt_qc_size(t.high_pqc.as_ref()) + 4 + 96,
         WireMessage::Tc(tc) => tc_size(tc),

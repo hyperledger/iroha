@@ -33,7 +33,12 @@ fn original_npos_diagnostics_refusal_is_capacity_and_same_source_retries() {
     })
     .unwrap_err();
     assert!(
-        matches!(producer, norito::json::Error::DecodeResourceLimit),
+        matches!(
+            producer,
+            norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            )
+        ),
         "{producer:?}"
     );
     let error =

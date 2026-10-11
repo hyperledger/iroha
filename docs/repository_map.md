@@ -59,7 +59,7 @@ above while the remaining service records await migration.
 | [`crates/iroha`](../crates/iroha) | Rust SDK; [the operation inventory](sdk_inventory.md) records Torii route authority and pending consumer mapping. |
 | [`kotlin/core-jvm`](../kotlin/core-jvm) | Canonical Kotlin/JVM implementation for Kotlin and Java consumers; Norito, models, and client code with JDK 8 API enforcement. |
 | [`kotlin/client-android`](../kotlin/client-android) | Android client and keystore integration. Android dependencies stay outside `core-jvm`. |
-| [`kotlin/kagemusha-wallet-android`](../kotlin/kagemusha-wallet-android) | Android KAGEMUSHA wallet and JNI integration. Native/device qualification is separate from JVM tests. |
+| [`kotlin/kagemusha-wallet-android`](../kotlin/kagemusha-wallet-android) | Android KAGEMUSHA wallet platform adapter (`sdk.offline.wallet`): payment key, Keystore and backup rules, and the JNI upcall surface for the planned bridge adapter of the Rust `Advance` provider. Native/device qualification is separate from JVM tests. |
 | [`kotlin/tools`](../kotlin/tools) | Offline JVM attestation command using the `core-jvm` evidence verifier; owns filesystem/archive input and command output, without Android or SDK publication dependencies. |
 | [`IrohaSwift`](../IrohaSwift) | Swift package, tests, and native bridge integration. |
 | [`javascript/iroha_js`](../javascript/iroha_js), `iroha_js_host` | JavaScript SDK and Rust native host, with source-bound native provenance. |

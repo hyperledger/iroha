@@ -50,7 +50,7 @@ use iroha_data_model::{
     sumeragi::{PROTOCOL_VERSION, SumeragiFootprint, SumeragiStatus},
     sumeragi_finality::{
         FinalityValidator, SumeragiFinalityProof, SumeragiFinalityVerifier, VerifiedSumeragiBlock,
-        genesis_epoch,
+        authenticated_genesis,
     },
     sumeragi_lanes::{SumeragiLaneRecord, SumeragiLaneRoute},
     transaction::{
@@ -507,13 +507,11 @@ fn lane_certificate(
                 view: 0,
                 block_hash: body.hash(crypto),
                 result: result.hash(),
-                attest: false,
                 signer: config
                     .committee
                     .index_of(signer.public_key())
                     .expect("lane member"),
                 sig: Signature([0; SIGNATURE_LEN]),
-                attestation: None,
             };
             vote.sig = signer.sign(&vote.preimage());
             vote
@@ -580,7 +578,6 @@ fn store_lane_block(
         proposer: 0,
         skipped_leaders: Vec::new(),
         control_witness: ControlWitness::empty(),
-        attest: false,
     };
     let budget = chain.state().ivm_execution_budget();
     let mut original = iroha_allocation::ChargedBuffer::new(lane_payload.len(), &budget)
@@ -770,7 +767,8 @@ fn activated_chain() -> ActivatedChain {
 
 /// The trust root a client selects independently: the signed genesis and its own committee.
 fn genesis_verifier(chain: &CertifiedTestChain) -> SumeragiFinalityVerifier {
-    let committee = genesis_epoch(chain.genesis())
+    let committee = authenticated_genesis(chain.genesis())
+        .map(|genesis| genesis.into_parts().0)
         .expect("signed genesis epoch")
         .committee
         .into_iter()

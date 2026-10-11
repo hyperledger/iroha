@@ -493,15 +493,16 @@ bundle. The second command derives the request and four ordered final-unit input
 from native-validated genesis and the intent's nonce. Use each returned
 `credential_path` unchanged with the authenticated renderer's
 `--global-beacon-credential` and `--config-file beacon.toml`, preserving the initial
-unit's exact runtime-key and mint-finality-seed paths. Render four fresh mode0644
+unit's exact runtime-key path. Render four fresh mode0644
 final unit files; do not modify the initial units or construct beacon request JSON
 by hand. The [maintained retry caller](../../../docs/source/taira_retry.md)
 authenticates the pinned renderer and initial units and performs these steps for
 its admitted rolled-back deployment scope.
 
 Assembly binds the four client configs and initial/final units in validator
-order to the authenticated beacon inputs. Scheduling epochs retain the incumbent
-mint-finality authority generation; no separate supervisor plan is installed.
+order to the authenticated beacon inputs. Scheduling epochs follow the native
+validator epoch graph and its certified activation or retention decisions; no
+separate supervisor plan is installed.
 This example uses `full_inrou`; omit `--inrou-stage-dir` for `core_testnet`.
 
 ```bash
@@ -813,6 +814,7 @@ kagami genesis sign <network>/genesis.json \
   --config <network>/peer0.toml \
   --out-file <network>/genesis.signed.nrt \
   --bound-manifest-out <network>/genesis.json \
+  --nexus-context-output <network>/nexus-amx-context.v1.bin \
   --expected-hash-out <network>/genesis.expected_hash.next
 mv <network>/genesis.expected_hash.next <network>/genesis.expected_hash
 ```
@@ -1014,9 +1016,8 @@ authorization headers in this repository.
 
 - `config.toml` and `genesis.template.json` are canonical profile sources
   consumed by compiled Kagami/config/genesis tests. The genesis source omits
-  operator-owned mint-finality authority and the runtime-generated Parliament
-  citizens, is not a raw or signable manifest, and is not an input to the
-  disposable generator. `config.toml` is also the compiled source of the
+  the runtime-generated validator topology and Parliament citizens, is not a raw
+  or signable manifest, and is not an input to the disposable generator. `config.toml` is also the compiled source of the
   Parliament seating profile used by `iroha taira seat-parliament` and
   `iroha taira doctor`.
 - `privacy_bootstrap_plan.json` and `privacy_rollout_plan_v1.json` remain
@@ -1039,6 +1040,9 @@ authorization headers in this repository.
   at `/Users/administrator/dev/iroha2-block-explorer-web/dist`; it does not
   proxy `/status` or `/v1`. Both Torii CORS and the public-edge CORS map admit
   the exact `https://taira-explorer.sora.org` browser origin.
+  The public Torii virtual host streams request bodies to its selected peer
+  with `proxy_request_buffering off`, so signed fee quotes and transaction
+  bodies do not depend on nginx client-body temporary-directory permissions.
 
 The edge renderer's `--validator-listeners-only` scope emits only the four peer
 upstreams and TLS listeners. It requires explicit `--validator-listen-address`

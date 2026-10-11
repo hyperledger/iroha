@@ -1,6 +1,6 @@
 
-        seiyaku RegisterDomain {
-            kotoage fn register() authorize("Admin") {
+        seiyaku RegisterDomain { permission Admin;
+            kotoage fn register() authorize(Admin) {
                 ledger::domain::register(domain: DomainId::parse("wonderland.universal"));
             }
         }

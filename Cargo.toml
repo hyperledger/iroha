@@ -71,13 +71,12 @@ connect_norito_bridge = { path = "crates/connect_norito_bridge" }
 fastpq_prover = { path = "crates/fastpq_prover" }
 iroha_zkp_halo2 = { path = "crates/iroha_zkp_halo2" }
 iroha_zkp_poseidon = { path = "crates/iroha_zkp_poseidon" }
-# Native PLONK/IPA stack. `iroha_plonk_oracle` is temporary test infrastructure
-# (publish = false): use it only as a dev-dependency.
+# Native PLONK/IPA stack; one first-release proof implementation.
 iroha_pasta = { path = "crates/iroha_pasta" }
 iroha_plonk = { path = "crates/iroha_plonk" }
 iroha_plonk_gadgets = { path = "crates/iroha_plonk_gadgets" }
+iroha_plonk_recursion = { path = "crates/iroha_plonk_recursion" }
 iroha_kagemusha_proof = { path = "crates/iroha_kagemusha_proof" }
-iroha_plonk_oracle = { path = "crates/iroha_plonk_oracle" }
 iroha_i18n = { path = "crates/iroha_i18n" }
 
 # Crates that need JSON, governance, HTTP, bridge, BLS, or transparent APIs
@@ -183,6 +182,7 @@ dashmap = { version = "6.1.0" }
 rustc-hash = "2.1.1"
 
 toml = "0.9.8"
+toml_edit = { version = "0.25.11", default-features = false, features = ["parse"] }
 zstd = "0.13.3"
 zeroize = { version = "1.8.2", default-features = false, features = ["alloc", "std"] }
 time = { version = "0.3.44", default-features = false, features = ["formatting", "parsing"] }
@@ -207,17 +207,9 @@ axum-core = { path = "vendor/axum-core" }
 concread = { path = "vendor/concread" }
 # Quantity admission requires exact fallible native-digit handoff without repacking.
 num-bigint = { path = "vendor/num-bigint-0.4.6" }
-halo2-axiom = { path = "vendor/halo2-axiom" }
-halo2curves-axiom = { path = "vendor/halo2curves-axiom" }
 find_cuda_helper = { path = "vendor/find_cuda_helper" }
 cust_raw = { path = "vendor/cust_raw" }
 wayland-scanner = { path = "vendor/wayland-scanner-0.31.10" }
-
-# The pinned 0.5.3 release does not adapt Pasta fields to halo2-base's local
-# ScalarField trait. Keep this source-scoped so no crates.io package can be
-# substituted accidentally.
-[patch."https://github.com/axiom-crypto/halo2-lib.git"]
-halo2-base = { path = "vendor/halo2-base" }
 
 [workspace.lints]
 rustdoc.private_doc_tests = "deny"
@@ -434,6 +426,80 @@ debug = 0
 codegen-units = 256
 strip = "none"
 
+# Native runtime admission and package publication stream complete executable
+# contents through BLAKE3 and SHA-256. Normal debug bundles can exceed 2 GB;
+# optimize the existing Rust/native hash implementations, preserving all byte
+# reads, custody fences, debug assertions and overflow checks in both profiles.
+[profile.dev.package.blake3]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+
+[profile.test.package.blake3]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+
+[profile.dev.package.sha2]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+
+[profile.test.package.sha2]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+
+# Closed renewal profiling found per-byte zeroization and private-filesystem
+# helper overhead in unoptimized local builds. Keep the same volatile wipes,
+# native custody checks and assertion policy; optimize only their code generation.
+# Match both runnable profiles so node and test consumers share this policy.
+[profile.dev.package.zeroize]
+opt-level = 1
+debug-assertions = true
+overflow-checks = true
+
+[profile.test.package.zeroize]
+opt-level = 1
+debug-assertions = true
+overflow-checks = true
+
+[profile.dev.package.iroha_fs]
+opt-level = 1
+debug-assertions = true
+overflow-checks = true
+
+[profile.test.package.iroha_fs]
+opt-level = 1
+debug-assertions = true
+overflow-checks = true
+
+# Cold native checkpoint recovery retains large orchestration temporaries in
+# unoptimized local Deploy builds. Optimize this package's code generation while
+# preserving assertion and overflow checks; keep dev and test policy identical.
+[profile.dev.package.iroha_deploy]
+opt-level = 1
+debug-assertions = true
+overflow-checks = true
+
+[profile.test.package.iroha_deploy]
+opt-level = 1
+debug-assertions = true
+overflow-checks = true
+
+# Fresh finality profiling found unoptimized Ed25519 field arithmetic beneath
+# optimized iroha_crypto. Match the existing arithmetic dependency policy while
+# retaining every public-key, subgroup and signature check in local profiles.
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+
+[profile.test.package.curve25519-dalek]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+
 # Local validators execute the production memory-hard authentication puzzle.
 # Optimize only its arithmetic dependencies so debug builds can service the
 # same bounded authentication lifetime without weakening the puzzle policy.
@@ -504,38 +570,24 @@ opt-level = 3
 [profile.test.package.ark-serialize]
 opt-level = 3
 
-# Linux startup profiling found unoptimized field arithmetic instantiated in
-# halo2curves-axiom. Optimize this crate in both runnable profiles while keeping
-# their existing debug assertions and overflow checks.
-[profile.dev.package.halo2curves-axiom]
-opt-level = 3
-
-[profile.test.package.halo2curves-axiom]
-opt-level = 3
-
-# Native signer finality also validates paired Pasta keys through halo2curves
-# 0.9, which owns its concrete Fp/Fq arithmetic. CPU samples of the native
-# signer workflow found its unoptimized square roots in repeated epoch checks.
-# Optimize that owner in both local profiles without changing expiry, proof
-# verification, debug assertions, or overflow checks.
+# Optimize the shared halo2curves arithmetic used by proof-system consumers
+# in local profiles, preserving debug assertions and overflow checks.
 [profile.dev.package.halo2curves]
 opt-level = 3
 
 [profile.test.package.halo2curves]
 opt-level = 3
 
-# Pasta owns the concrete arithmetic reexported by halo2curves-axiom.
-# Optimizing the reexporting crate alone leaves its upstream arithmetic at O0.
-# Preserve assertions and overflow checks in both local runnable profiles.
+# Orchard retains the independent upstream Pasta arithmetic. Preserve
+# assertions and overflow checks in both local runnable profiles.
 [profile.dev.package.pasta_curves]
 opt-level = 3
 
 [profile.test.package.pasta_curves]
 opt-level = 3
 
-# The native Pasta arithmetic and prover kernels replace halo2curves-axiom and
-# pasta_curves above. Optimize them identically in both local runnable profiles,
-# keeping debug assertions and overflow checks.
+# Optimize the native Pasta arithmetic and prover kernels in both local
+# runnable profiles, keeping debug assertions and overflow checks.
 [profile.dev.package.iroha_pasta]
 opt-level = 3
 
@@ -567,8 +619,17 @@ opt-level = 2
 [profile.test.package.fastpq_isi]
 opt-level = 2
 
+# FASTPQ proving and replay loops live in fastpq_prover, beyond fastpq_isi.
+# Optimize that owner identically for local nodes and tests while retaining
+# inherited assertions/overflow checks and the full canonical proof geometry.
+[profile.dev.package.fastpq_prover]
+opt-level = 2
+
+[profile.test.package.fastpq_prover]
+opt-level = 2
+
 # `iroha_data_model` is a very broad derive-heavy crate. LLVM `-O3` for this
-# one package exceeds the reviewed mobile/KAGEMUSHA release-build memory
+# one package exceeds the reviewed mobile release-build memory
 # envelope even with a single job and hundreds of codegen units. Measured O2
 # also crossed the fixed 13 GiB soft ceiling before proof work began, so O1
 # avoids that optimizer-only peak. Halo2, core, and the bridge remain at O3.

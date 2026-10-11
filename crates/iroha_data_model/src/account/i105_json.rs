@@ -521,7 +521,6 @@ mod tests {
     }
     #[test]
     fn checked_i105_scratch_is_charged_before_any_visitor_output() {
-        let _guard = ChainDiscriminantGuard::enter(0x02f1);
         fn visit_without_destination(
             account: &AccountId,
             expected: &str,
@@ -536,6 +535,7 @@ mod tests {
             (result, offset)
         }
 
+        let _guard = ChainDiscriminantGuard::enter(0x02f1);
         let limits = |bytes| {
             norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX)
         };

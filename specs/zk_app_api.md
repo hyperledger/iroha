@@ -29,8 +29,9 @@ ledger paths:
   The wire carries only a `(version, curve, n)` selector; the verifier derives
   the deterministic V1 generators and callers cannot submit another parameter
   set. The complete derived parameter fingerprint is absorbed into the opening
-  transcript. The route fails closed unless `halo2.enabled` of the committed ZK validity policy is true and
-  admits work through Torii's general and heavy-query limits before moving
+  transcript. The route applies the finite `zk.ipa_commitment` diagnostic
+  bounds and `zk.max_verify_batch`, then admits work through Torii's general
+  and heavy-query limits before moving
   decoding and verification to a blocking worker; owned permits remain with
   that physical worker if the HTTP request is cancelled. Requests must declare
   exactly one `Content-Type`: `application/json` (optionally with the single
@@ -51,7 +52,7 @@ signed transaction containing `VerifyProof` (or the applicable proof-bearing
 instruction) through the ordinary transaction pipeline.
 
 Runtime-critical surfaces such as governance ballots/tallies, confidential
-assets, and registry-backed STARK/Halo2 flows use the guarded core verifier
+assets, and registry-backed STARK/native PIPA-R flows use the guarded core verifier
 path instead. `IvmProved` admission fails closed until the complete execution
 relation is available.
 
@@ -148,7 +149,7 @@ Verification rules:
 - `vk_ref` is resolved via the WSV verifying‑key registry. When a registry entry omits inline key bytes, Torii loads the key bytes from `torii.zk_prover_keys_dir` (see storage layout below).
 - `vk_commitment` is validated against the computed VK hash when present.
 - Backends and circuits are allowlisted via `torii.zk_prover_allowed_backends` and `torii.zk_prover_allowed_circuits` (prefix match).
-- Supported backends currently include `halo2/ipa` and other `halo2/…` variants built into the node. The `stark/fri` family is supported when built with feature `zk-stark` and `stark.enabled` of the committed `zk_validity_policy_v1` parameter is true (the protocol default). `groth16/…` remains unsupported.
+- Supported native operation proofs use the exact compiled `pipa-r/pasta/…` relation labels. The `stark/fri` family requires feature `zk-stark` and `stark.enabled` of the committed `zk_validity_policy_v1` parameter. `groth16/…` remains unsupported.
 
 Background reports are bounded node-local worker diagnostics. Torii does not
 mount a report HTTP API, and first-release clients do not expose report
@@ -164,10 +165,10 @@ Report schema (JSON):
   "size": 123,
   "created_ms": 1710000000000,
   "processed_ms": 1710000300000,
-  "backend": "halo2/ipa",
-  "vk_ref": { "backend": "halo2/ipa", "name": "vk_main" },
+  "backend": "pipa-r/pasta",
+  "vk_ref": { "backend": "pipa-r/pasta", "name": "vk_main" },
   "proof_hash": "…",
-  "circuit_id": "halo2/pasta/ipa/kaigi-usage-v1"
+  "circuit_id": "pipa-r/pasta/kaigi-usage-v1"
 }
 ```
 
@@ -217,7 +218,7 @@ zk_prover_max_inflight = 2            # process up to 2 attachments concurrently
 zk_prover_max_scan_bytes = 16_777_216 # cap each scan to 16 MiB of attachment data
 zk_prover_max_scan_millis = 2000      # bail out after 2 seconds of wall-clock time per scan
 zk_prover_keys_dir = "./storage/torii/zk_prover/keys"
-zk_prover_allowed_backends = ["halo2/"] # prefix match (empty = allow all)
+zk_prover_allowed_backends = ["pipa-r/pasta"] # prefix match (empty = allow all)
 zk_prover_allowed_circuits = []       # prefix match (empty = allow all)
 
 # IVM simulation and view tooling
@@ -231,8 +232,8 @@ api_tokens = ["example-token-value-at-least-32-bytes"]
 proof_rate_per_minute = 120           # steady-state tokens/min (None to disable rate limiting)
 proof_burst = 60                      # burst tokens per endpoint key
 proof_max_body_bytes = 8_388_608      # maximum submission payload size (bytes)
-proof_body_max_inflight = 8           # aggregate pre-parse proof/KAGEMUSHA body admission
-proof_body_read_timeout_ms = 15000    # absolute deadline for each admitted proof/KAGEMUSHA body
+proof_body_max_inflight = 8           # aggregate pre-parse proof body admission
+proof_body_read_timeout_ms = 15000    # absolute deadline for each admitted proof body
 proof_max_list_limit = 200            # maximum allowed `limit` for proofs list
 proof_request_timeout_ms = 1000       # wall-clock timeout for list/count
 proof_cache_max_age_secs = 30         # Cache-Control max-age for proof fetches
@@ -250,7 +251,7 @@ images include the helper, and Linux images include Bubblewrap.
 
 Configuration must be set via `iroha_config` files. Environment variable overrides exist for developer tooling but are not intended for operator-facing deployments.
 
-The body-admission count and read deadline are shared with KAGEMUSHA V1 top-up/redemption command bodies; the shared gate prevents slow or concurrent uploads from reserving heavy verification capacity before their bounded bodies are complete.
+The body-admission count and read deadline are shared by every proof-bearing request body; the shared gate prevents slow or concurrent uploads from reserving heavy verification capacity before their bounded bodies are complete.
 
 When the worker exhausts the byte, time, or bounded directory-work budget, it stops scheduling new attachments, increments `torii_zk_prover_budget_exhausted_total{reason="bytes|time|work"}`, and leaves the remainder queued for the next scan. Discovery retains only a scan-budget-derived window, resumes its directory cursor across cycles, canonically orders that window instead of collecting the complete multi-tenant attachment population, and reserves the latter half of the scan deadline for scheduled work. Live gauges expose the current workload via `torii_zk_prover_inflight` (attachments in progress), `torii_zk_prover_pending` (discovered pending entries plus one sentinel while the sweep is incomplete), and the most recent cycle statistics: `torii_zk_prover_last_scan_bytes` and `torii_zk_prover_last_scan_ms`.
 
@@ -319,34 +320,13 @@ SDK draft decoders reject non-canonical base64, oversized payloads, a signing-me
 not match the payload, the wrong chain or authority, extra instructions, and any registry record
 that does not exactly match the request. Only after these checks should a client sign and submit.
 
-`GET` responses include the normalized record and its Norito encoding. For the
-generated canonical replay-binding key (encoded blobs abbreviated):
-
-```json5
-{
-  "id": { "backend": "halo2/ipa", "name": "ivm_replay_binding" },
-  "record": {
-    "version": 1,
-    "circuit_id": "halo2/pasta/ipa/ivm-replay-binding-v1",
-    "owner_manifest_id": null,
-    "namespace": "core",
-    "backend": "halo2-ipa-pasta",
-    "curve": "pallas",
-    "public_inputs_schema_hash": "03f741ebb9859047e5be057c54e1e468e7dc5ed1cebeb4e3a554f5a04277413b",
-    "commitment": "9ce86e89d81b1fa022ad01130e2e6f78f0038eca11e714e5b0f14100895c05ed",
-    "vk_len": 111,
-    "max_proof_bytes": 8388608,
-    "gas_schedule_id": "halo2_default",
-    "metadata_uri_cid": null,
-    "vk_bytes_cid": null,
-    "activation_height": null,
-    "withdraw_height": null,
-    "status": "Active",
-    "key": { "backend": "halo2/ipa", "bytes_b64": "..." }
-  },
-  "record_norito_base64": "..."
-}
-```
+`GET` responses include the normalized record and its Norito encoding. Native
+PIPA-R records use `backend = "native-pipa-r-pasta"`, `curve = "vesta"`,
+`gas_schedule_id = "native_pipa_r_default"`, and an exact compiled relation ID,
+such as `pipa-r/pasta/confidential-transfer-v1`. The key carrier contains the
+canonical descriptor and processed key; its commitment, length and public-input
+schema must match the compiled relation. A key for another relation is rejected.
+The inline key's backend and registry ID backend use `pipa-r/pasta`.
 
 When `ids_only=true`, the list endpoint returns objects containing just `{ "backend": "...", "name": "..." }`.
 
@@ -361,22 +341,11 @@ configuration; their JSON files contain public registry data only:
 - Update: `iroha app zk vk update --json ./vk_update.json`
 - Get: `iroha app zk vk get --backend <backend> --name <name>`
 
-Generate a complete CLI registration file for the supported Halo2 IVM
-replay-binding relation. The helper selects the compiled circuit, key, schema,
-curve and proof limit; the output contains no signing authority or private key.
-
-```bash
-cargo run --locked -p iroha_cli --features dev-tools --bin ivm_replay_binding_keygen -- \
-  --name ivm_replay_binding \
-  --vk-out ./replay-binding.vk \
-  --template-out ./vk_register.json
-iroha app zk vk register --json ./vk_register.json
-```
-
 The CLI uses the account and signing key in its client configuration. The HTTP
-draft endpoint instead requires the public `authority` field in its own request
-DTO. Do not insert HTTP-only fields into a CLI registration file. Proving-key
-archive export is optional; server proving derives that key automatically.
+draft endpoint requires the public `authority` in its own request DTO. Do not
+insert HTTP-only fields into a CLI registration file. There is no admitted
+replay-binding circuit or replay-binding key generator; generic proof validation
+does not establish a signed transaction's execution effects.
 
 Notes:
 - Commitments are domain-separated SHA-256 hashes over the `iroha:zk:v1:vk`
@@ -410,7 +379,7 @@ Examples:
 iroha trigger register \
   --id proof_watch \
   --filter data \
-  --data-proof halo2/ipa:0123abcd0123abcd0123abcd0123abcd0123abcd0123abcd0123abcd0123abcd \
+  --data-proof pipa-r/pasta:0123abcd0123abcd0123abcd0123abcd0123abcd0123abcd0123abcd0123abcd \
   --path ./on_proof.ko
 ```
 
@@ -420,7 +389,7 @@ iroha trigger register \
 iroha trigger register \
   --id proof_successes \
   --filter data \
-  --data-proof halo2/ipa:0123abcd... \
+  --data-proof pipa-r/pasta:0123abcd... \
   --data-proof-only verified \
   --path ./on_verified.ko
 ```

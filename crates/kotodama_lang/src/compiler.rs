@@ -29,6 +29,7 @@ mod single_use_fixtures;
 mod single_use_private;
 #[cfg(test)]
 mod state_operands;
+mod statement_sources;
 use access_hint_normalization::canonical_state_hint_keys;
 use entrypoint_descriptors::build_entrypoint_descriptors;
 
@@ -281,10 +282,18 @@ pub struct CompileReport {
     /// Canonical deployable-artifact hash used to key this sidecar.
     pub artifact_hash: iroha_crypto::Hash,
     pub source_map: Vec<EmbeddedSourceMapEntryV1>,
+    /// Executed statement intervals, including original source sites of inlined helpers.
+    pub statement_map: Vec<EmbeddedSourceMapEntryV1>,
     pub budget_report: Vec<EmbeddedFunctionBudgetReportV1>,
     pub access_hint_diagnostics: AccessHintDiagnostics,
 }
 impl CompileReport {
+    /// Non-overlapping instruction ranges with statement locations and generated-code gaps.
+    /// Inlined instructions retain the helper's original source location.
+    #[must_use]
+    pub fn symbolized_source_map(&self) -> Vec<EmbeddedSourceMapEntryV1> {
+        statement_sources::complete_map(&self.source_map, &self.statement_map)
+    }
     /// Render the canonical, hash-bound source-map sidecar shared by all compiler drivers.
     ///
     /// Debug information deliberately lives outside the deployable artifact.  The
@@ -292,10 +301,26 @@ impl CompileReport {
     /// source locations with different bytecode.
     pub fn render_source_map_json(&self) -> Result<String, json::Error> {
         let entries = self
-            .source_map
+            .symbolized_source_map()
             .iter()
             .map(|entry| {
                 report_json_object([
+                    (
+                        "source_kind",
+                        json::Value::from(
+                            if self
+                                .statement_map
+                                .binary_search_by_key(&entry.pc_start, |statement| {
+                                    statement.pc_start
+                                })
+                                .is_ok()
+                            {
+                                "statement"
+                            } else {
+                                "function"
+                            },
+                        ),
+                    ),
                     (
                         "function_name",
                         json::Value::from(entry.function_name.clone()),
@@ -1917,7 +1942,7 @@ mod test_mode_tests {
             "an ordinary unreachable private function must not become a test root"
         );
         let production_code = Compiler::new()
-            .compile_source("seiyaku ProductionFixture { view fn inspect() {} }")
+            .compile_source("seiyaku ProductionFixture { view fn inspect() authorize(anyone) {} }")
             .expect("compile production contract");
         let production_metadata =
             ProgramMetadata::parse(&production_code).expect("parse production metadata");
@@ -1929,7 +1954,7 @@ mod test_mode_tests {
     }
     #[test]
     fn test_and_production_entrypoints_use_the_same_argument_boundary() {
-        let source = "seiyaku Demo { view fn run(int count) -> int { return count + 1; } }";
+        let source = "seiyaku Demo { view fn run(int count) authorize(anyone) -> int { return count + 1; } }";
         let mut schemas = Vec::new();
         for mode in [CompilerMode::Test, CompilerMode::Production] {
             let output = Compiler::new_with_options(CompilerOptions {
@@ -2062,7 +2087,7 @@ mod test_mode_tests {
             ),
         ] {
             let source = format!(
-                "seiyaku Demo {{ kotoage fn probe() authorize(\"Probe\") {{ let _value = {call}; }} }}"
+                "seiyaku Demo {{ permission Probe;  kotoage fn probe() authorize(Probe) {{ let _value = {call}; }} }}"
             );
             let error = Compiler::new()
                 .compile_source(&source)
@@ -2136,10 +2161,10 @@ mod test_mode_tests {
             else {
                 panic!("unexpected {entrypoint_name} schema: {schema:?}");
             };
-            assert_eq!(page.name, "QueryPage");
+            assert_eq!(page.name, "kotodama::QueryPage");
             assert_eq!(page.fields, ["items", "next_offset"]);
             assert_eq!(items.capacity, 64);
-            assert_eq!(view.name, view_name);
+            assert_eq!(view.name, format!("kotodama::{view_name}"));
             assert!(matches!(
                 schema
                     .nodes
@@ -2207,7 +2232,7 @@ mod test_mode_tests {
         let parameter_type = field_schema
             .canonical_type_name()
             .expect("ordinary struct parameter canonical ABI name");
-        assert_eq!(parameter_type, "struct Pair");
+        assert_eq!(parameter_type, "struct UserStructAbi::Pair");
         assert_eq!(
             entrypoint
                 .params
@@ -2223,7 +2248,7 @@ mod test_mode_tests {
         let return_type = return_schema
             .canonical_type_name()
             .expect("ordinary struct return canonical ABI name");
-        assert_eq!(return_type, "struct Pair");
+        assert_eq!(return_type, "struct UserStructAbi::Pair");
         assert_eq!(
             entrypoint.return_type.as_deref(),
             Some(return_type.as_str())
@@ -2291,7 +2316,7 @@ mod test_mode_tests {
             // otherwise unused by executable code.
             source.push_str("}\nstate StateMap<Name, Wide> value;\n");
         }
-        source.push_str("view fn inspect() {}\n");
+        source.push_str("view fn inspect() authorize(anyone) {}\n");
         source.push_str("}\n");
         source
     }
@@ -2488,7 +2513,12 @@ mod test_mode_tests {
             .iter()
             .find(|entrypoint| entrypoint.name == "increment")
             .expect("authorized increment entrypoint");
-        assert_eq!(increment.permission.as_deref(), Some("CanIncrement"));
+        assert_eq!(
+            increment.authorization,
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "CanIncrement".parse().unwrap()
+            )
+        );
         assert!(
             interface
                 .entrypoints
@@ -3005,12 +3035,15 @@ impl Compiler {
         let loaded =
             crate::driver::load_source_project(path, root, &std::collections::BTreeMap::new())
                 .map_err(|error| error.to_string())?;
-        let source_name = loaded.graph.root.source_name.clone();
+        let crate::driver::LoadedProjectGraph::Source(graph) = loaded.graph else {
+            unreachable!("source loader returns a source graph")
+        };
+        let source_name = graph.root.source_name.clone();
         crate::driver::BuildDriver::new(
             crate::session::CompilerSession::new(self.opts.clone()),
             COMPILER_FINGERPRINT,
         )
-        .compile_project(loaded.graph, &source_name)
+        .compile_project(graph, &source_name)
         .map(|output| output.artifact)
         .map_err(|error| error.to_string())
     }
@@ -3228,6 +3261,8 @@ impl Compiler {
         if ir_prog.functions.is_empty() {
             return Err(i18n::translate(self.lang, Message::NoFunctions));
         }
+        let statement_sources = statement_sources::Sources::take(&mut ir_prog, &typed);
+        let mut statement_seeds = Vec::new();
         for function in &mut ir_prog.functions {
             layout_compact_branch_fallthrough(function)?;
         }
@@ -3244,6 +3279,24 @@ impl Compiler {
         let mut instruction_literal_access_map: HashMap<(usize, ir::Temp), AccessSets> =
             HashMap::new();
         let multiply_defined_dests = multiply_defined_temps(&ir_prog);
+        let map_key_encodings = ir_prog
+            .functions
+            .iter()
+            .enumerate()
+            .flat_map(|(index, function)| {
+                function.blocks.iter().flat_map(move |block| {
+                    block
+                        .instrs
+                        .iter()
+                        .filter_map(move |instruction| match instruction {
+                            ir::Instr::PathMapKeyNorito { key_blob, .. } => {
+                                Some((index, *key_blob))
+                            }
+                            _ => None,
+                        })
+                })
+            })
+            .collect::<HashSet<_>>();
         let mut authority_account_temps: HashSet<(usize, ir::Temp)> = HashSet::new();
         let func_count = ir_prog.functions.len();
         let mut access_sets: Vec<AccessSets> = vec![AccessSets::default(); func_count];
@@ -3417,14 +3470,6 @@ impl Compiler {
                     {
                         dataref_kind_map.insert((func_idx, *dest), DRK::Int);
                     }
-                    if let ir::Instr::EncodeBoolKey { dest, value } = instr
-                        && let Some(raw) = int_const_map.get(&(func_idx, *value)).copied()
-                    {
-                        let payload = ivm_abi::codec::encode_canonical_norito(&raw)
-                            .expect("encode canonical int key");
-                        norito_literal_map
-                            .insert((func_idx, *dest), format!("0x{}", hex::encode(payload)));
-                    }
                     if let ir::Instr::DataRef { dest, kind, value } = instr {
                         // Track typed refs in string_map keyed by temp; kind is handled at use sites
                         string_map.insert((func_idx, *dest), value.clone());
@@ -3517,6 +3562,23 @@ impl Compiler {
                             state_path_hints
                                 .insert((func_idx, *dest), StatePathHint::Path(base.clone()));
                         }
+                    }
+                    if let ir::Instr::StateValueEncode {
+                        dest,
+                        schema,
+                        words,
+                    } = instr
+                        && let Some(raw) = literal_state_value_record(
+                            func_idx,
+                            *schema,
+                            words,
+                            &string_map,
+                            &dataref_kind_map,
+                            &int_const_map,
+                            &string_literal_temps,
+                        )
+                    {
+                        norito_literal_map.insert((func_idx, *dest), raw);
                     }
                     if let ir::Instr::PathMapKeyNorito {
                         dest,
@@ -3737,6 +3799,23 @@ impl Compiler {
                             let hex = hex::encode(tlv_bytes);
                             string_map.insert((func_idx, *dest), format!("0x{hex}"));
                         }
+                    }
+                    if let ir::Instr::StateValueEncode {
+                        dest,
+                        schema,
+                        words,
+                    } = instr
+                        && let Some(raw) = literal_state_value_record(
+                            func_idx,
+                            *schema,
+                            words,
+                            &string_map,
+                            &dataref_kind_map,
+                            &int_const_map,
+                            &string_literal_temps,
+                        )
+                    {
+                        norito_literal_map.insert((func_idx, *dest), raw);
                     }
                     if let ir::Instr::PathMapKeyNorito {
                         dest,
@@ -3962,6 +4041,9 @@ impl Compiler {
                 }
                 match instruction {
                     Instr::InvokeEntrypointAs { .. } => max_result_words = max_result_words.max(1),
+                    Instr::CallContract { dests, .. } => {
+                        max_result_words = max_result_words.max(dests.len().max(1));
+                    }
                     Instr::InvokeEntrypointAsMulti { dests, .. } => {
                         max_result_words = max_result_words.max(dests.len());
                     }
@@ -4339,6 +4421,7 @@ impl Compiler {
                 #[cfg(test)]
                 let mut emission_observation = None;
                 for (instruction_index, instr) in bb.instrs.iter().enumerate() {
+                    let instruction_start = code.len();
                     #[cfg(test)]
                     emission_profile::advance(
                         &mut emission_observation,
@@ -4356,6 +4439,9 @@ impl Compiler {
                         continue;
                     }
                     match instr {
+                        Instr::Source(_) => {
+                            unreachable!("source transport is removed before code generation")
+                        }
                         Instr::StringConst { dest, value } => {
                             // Materialize string literals as Blob pointers via the literal table.
                             let (rd, spilled, imm) = dst_reg(dest);
@@ -5046,17 +5132,17 @@ impl Compiler {
                             };
                             push_syscall_imm8(&mut code, num);
                         }
-                        Instr::GrantContractEntrypoint {
+                        Instr::GrantContractPermission {
                             account,
-                            entrypoint,
+                            permission,
                         }
-                        | Instr::RevokeContractEntrypoint {
+                        | Instr::RevokeContractPermission {
                             account,
-                            entrypoint,
+                            permission,
                         } => {
-                            // r10 = &AccountId; r11 = &Blob containing the UTF-8 selector.
+                            // r10 = &AccountId; r11 = &Name containing the declared permission name.
                             load_pointer(account, 10, scratch1, DataKind::Account, &mut code)?;
-                            load_pointer(entrypoint, 11, scratch2, DataKind::Blob, &mut code)?;
+                            load_pointer(permission, 11, scratch2, DataKind::Name, &mut code)?;
                             code.extend_from_slice(&publish_tlv);
                             push_word(&mut code, encode_addi(12, 10, 0)?);
                             push_word(&mut code, encode_addi(10, 11, 0)?);
@@ -5064,10 +5150,10 @@ impl Compiler {
                             push_word(&mut code, encode_addi(11, 10, 0)?);
                             push_word(&mut code, encode_addi(10, 12, 0)?);
                             let number = match instr {
-                                Instr::GrantContractEntrypoint { .. } => {
-                                    syscalls::SYSCALL_GRANT_CONTRACT_ENTRYPOINT
+                                Instr::GrantContractPermission { .. } => {
+                                    syscalls::SYSCALL_GRANT_CONTRACT_PERMISSION
                                 }
-                                _ => syscalls::SYSCALL_REVOKE_CONTRACT_ENTRYPOINT,
+                                _ => syscalls::SYSCALL_REVOKE_CONTRACT_PERMISSION,
                             };
                             push_syscall_imm8(&mut code, number);
                         }
@@ -5231,14 +5317,26 @@ impl Compiler {
                             items_dest,
                             next_offset_dest,
                             entity,
+                            account,
                             offset,
                             limit,
                         } => {
-                            let roffset = src_reg(offset, scratch1, &mut code)?;
-                            push_word(&mut code, encode_addi(11, roffset, 0)?);
-                            let rlimit = src_reg(limit, scratch2, &mut code)?;
-                            push_word(&mut code, encode_addi(12, rlimit, 0)?);
+                            if let Some(account) = account {
+                                emit_values_to_syscall_registers(
+                                    &[*account, *offset, *limit],
+                                    &mut code,
+                                )?;
+                                code.extend_from_slice(&publish_tlv);
+                                push_word(&mut code, encode_addi(13, 10, 0)?);
+                            } else {
+                                emit_values_to_syscall_registers(&[*offset, *limit], &mut code)?;
+                                push_word(&mut code, encode_addi(12, 11, 0)?);
+                                push_word(&mut code, encode_addi(11, 10, 0)?);
+                                push_word(&mut code, encode_addi(13, 0, 0)?);
+                            }
                             emit_addi(&mut code, 10, 0, entity.as_u64() as i64);
+                            push_word(&mut code, encode_addi(14, 0, 0)?);
+                            push_word(&mut code, encode_addi(15, 0, 0)?);
                             push_syscall(&mut code, syscalls::SYSCALL_CORE_QUERY_PAGE);
                             // Preserve both syscall results before assigning
                             // allocator-selected destinations: either result
@@ -5309,23 +5407,23 @@ impl Compiler {
                             code.extend_from_slice(&publish_tlv);
                             push_syscall(&mut code, *syscall);
                         }
-                        Instr::TransferBatchApply { payload } => {
-                            load_pointer(payload, 10, scratch1, DataKind::NoritoBytes, &mut code)?;
-                            code.extend_from_slice(&publish_tlv);
-                            push_syscall(&mut code, syscalls::SYSCALL_TRANSFER_V1_BATCH_APPLY);
-                        }
+
                         Instr::ZkRootsGet { dest, payload }
-                        | Instr::ZkVoteGetTally { dest, payload }
-                        | Instr::VrfEpochSeed { dest, payload } => {
+                        | Instr::ZkVoteGetTally { dest, payload } => {
                             load_pointer(payload, 10, scratch1, DataKind::NoritoBytes, &mut code)?;
                             code.extend_from_slice(&publish_tlv);
                             let syscall = match instr {
                                 Instr::ZkRootsGet { .. } => syscalls::SYSCALL_ZK_ROOTS_GET,
                                 Instr::ZkVoteGetTally { .. } => syscalls::SYSCALL_ZK_VOTE_GET_TALLY,
-                                Instr::VrfEpochSeed { .. } => syscalls::SYSCALL_VRF_EPOCH_SEED,
                                 _ => unreachable!(),
                             };
                             push_syscall(&mut code, syscall);
+                            spill_syscall_result(dest, &mut code)?;
+                        }
+                        Instr::VrfEpochSeed { dest, epoch } => {
+                            let epoch = src_reg(epoch, scratch1, &mut code)?;
+                            push_word(&mut code, encode_addi(10, epoch, 0)?);
+                            push_syscall(&mut code, syscalls::SYSCALL_VRF_EPOCH_SEED);
                             spill_syscall_result(dest, &mut code)?;
                         }
                         Instr::SoracloudHostCall {
@@ -5440,8 +5538,8 @@ impl Compiler {
                         }
                         Instr::RegisterAsset {
                             asset,
-                            symbol,
-                            quantity,
+                            name,
+                            spec,
                             mintable,
                         } => {
                             if let Some(asset_str) = string_map.get(&(func_idx, *asset)) {
@@ -5452,59 +5550,13 @@ impl Compiler {
                                 push_word(&mut code, encode_addi(10, r_asset, 0)?);
                             }
                             code.extend_from_slice(&publish_tlv);
-                            let r_symbol = src_reg(symbol, scratch1, &mut code)?;
-                            let r_qty = src_reg(quantity, scratch2, &mut code)?;
+                            let r_name = src_reg(name, scratch1, &mut code)?;
+                            let r_spec = src_reg(spec, scratch2, &mut code)?;
                             let r_mint = src_reg(mintable, scratchd, &mut code)?;
-                            push_word(&mut code, encode_addi(11, r_symbol, 0)?);
-                            push_word(&mut code, encode_addi(12, r_qty, 0)?);
+                            push_word(&mut code, encode_addi(11, r_name, 0)?);
+                            push_word(&mut code, encode_addi(12, r_spec, 0)?);
                             push_word(&mut code, encode_addi(13, r_mint, 0)?);
                             push_syscall_imm8(&mut code, syscalls::SYSCALL_REGISTER_ASSET);
-                        }
-                        Instr::CreateNewAsset {
-                            asset,
-                            symbol,
-                            quantity,
-                            account,
-                            mintable,
-                        } => {
-                            let r_symbol = src_reg(symbol, scratch2, &mut code)?;
-                            let r_qty = src_reg(quantity, scratchd, &mut code)?;
-                            let r_mint = src_reg(mintable, scratch1, &mut code)?;
-                            if let Some(asset_str) = string_map.get(&(func_idx, *asset)) {
-                                let key_asset = DataKey(DataKind::AssetDef, asset_str.clone());
-                                emit_literal_load(&mut code, &fixups, 10, key_asset);
-                            } else {
-                                let r_asset = src_reg(asset, scratch1, &mut code)?;
-                                push_word(&mut code, encode_addi(10, r_asset, 0)?);
-                            }
-                            push_word(&mut code, encode_addi(11, r_symbol, 0)?);
-                            push_word(&mut code, encode_addi(12, r_qty, 0)?);
-                            push_word(&mut code, encode_addi(13, r_mint, 0)?);
-                            push_syscall_imm8(&mut code, syscalls::SYSCALL_REGISTER_ASSET);
-                            let r_acc = src_reg(account, scratch1, &mut code)?;
-                            push_word(&mut code, encode_addi(10, r_acc, 0)?);
-                            if let Some(asset_str) = string_map.get(&(func_idx, *asset)) {
-                                let key_asset = DataKey(DataKind::AssetDef, asset_str.clone());
-                                emit_literal_load(&mut code, &fixups, 11, key_asset);
-                            } else {
-                                let r_asset = src_reg(asset, scratch2, &mut code)?;
-                                push_word(&mut code, encode_addi(11, r_asset, 0)?);
-                            }
-                            push_word(&mut code, encode_addi(12, r_qty, 0)?);
-                            // Publish r10 and preserve it in x13.
-                            code.extend_from_slice(&publish_tlv);
-                            push_word(&mut code, encode_addi(13, 10, 0)?);
-                            // Publish r11: x10 <- x11; publish; x11 <- x10.
-                            push_word(&mut code, encode_addi(10, 11, 0)?);
-                            code.extend_from_slice(&publish_tlv);
-                            push_word(&mut code, encode_addi(11, 10, 0)?);
-                            // Publish r12: x10 <- x12; publish; x12 <- x10.
-                            push_word(&mut code, encode_addi(10, 12, 0)?);
-                            code.extend_from_slice(&publish_tlv);
-                            push_word(&mut code, encode_addi(12, 10, 0)?);
-                            // Restore account pointer: x10 <- x13.
-                            push_word(&mut code, encode_addi(10, 13, 0)?);
-                            push_syscall_imm8(&mut code, syscalls::SYSCALL_MINT_ASSET);
                         }
                         Instr::TransferAsset {
                             from,
@@ -5767,7 +5819,7 @@ impl Compiler {
                             // Per-argument strategy: values produced via DataRef/StringConst use a
                             // LOAD fixup in the appropriate register; runtime values move from their
                             // allocated register. This allows patterns like
-                            // `ledger::account::set_detail(account: context::authority(),
+                            // `ledger::account::set_metadata(account: context::authority(),
                             // key: Name::parse("k"), value: Json::parse("{}"))` where only key/value
                             // are literals and account is provided by the host.
                             // r10 = &AccountId
@@ -5924,16 +5976,59 @@ impl Compiler {
                             push_syscall_imm8(&mut code, syscalls::SYSCALL_GET_PUBLIC_INPUT);
                             spill_syscall_result(dest, &mut code)?;
                         }
+                        Instr::CallContract {
+                            dests,
+                            contract,
+                            binding,
+                            payload,
+                            argument_words,
+                            ..
+                        } => {
+                            load_pointer(contract, 10, scratch1, DataKind::Blob, &mut code)?;
+                            load_pointer(binding, 11, scratch1, DataKind::NoritoBytes, &mut code)?;
+                            let table = src_reg(payload, scratch1, &mut code)?;
+                            push_word(&mut code, encode_addi(12, table, 0)?);
+                            emit_i64_literal_load(&mut code, &fixups, 13, *argument_words as i64);
+                            emit_bounded_add(
+                                &mut code,
+                                &fixups,
+                                14,
+                                sp,
+                                frame.outgoing_result_base as i64,
+                                LITERAL_SHIFT_REG,
+                            )?;
+                            emit_i64_literal_load(
+                                &mut code,
+                                &fixups,
+                                15,
+                                dests.len().max(1) as i64,
+                            );
+                            push_syscall(&mut code, syscalls::SYSCALL_CALL_CONTRACT);
+                            for (index, destination) in dests.iter().enumerate() {
+                                let (rd, spilled, imm) = dst_reg(destination);
+                                emit_load64(
+                                    &mut code,
+                                    &fixups,
+                                    rd,
+                                    sp,
+                                    (frame.outgoing_result_base + index * 8) as i64,
+                                    Some(scratch1),
+                                )?;
+                                spill_back(destination, rd, spilled, imm, &mut code)?;
+                            }
+                        }
                         Instr::InvokeEntrypointAs {
                             actor,
                             entrypoint,
                             payload,
+                            argument_words,
                             ..
                         }
                         | Instr::InvokeEntrypointAsMulti {
                             actor,
                             entrypoint,
                             payload,
+                            argument_words,
                             ..
                         } => {
                             let destinations = match instr {
@@ -5955,31 +6050,18 @@ impl Compiler {
                                 push_word(&mut code, encode_addi(10, 0, 0)?);
                             }
                             load_pointer(entrypoint, 11, scratch1, DataKind::Blob, &mut code)?;
-                            if let Some(payload_raw) = string_map.get(&(func_idx, *payload)) {
-                                if let Some(kind) = dataref_kind_map.get(&(func_idx, *payload)) {
-                                    emit_literal_load(
-                                        &mut code,
-                                        &fixups,
-                                        12,
-                                        literal_data_key(payload, *kind, payload_raw),
-                                    );
-                                } else {
-                                    let rs_payload = src_reg(payload, scratch1, &mut code)?;
-                                    push_word(&mut code, encode_addi(12, rs_payload, 0)?);
-                                }
-                            } else {
-                                let rs_payload = src_reg(payload, scratch1, &mut code)?;
-                                push_word(&mut code, encode_addi(12, rs_payload, 0)?);
-                            }
+                            let rs_payload = src_reg(payload, scratch1, &mut code)?;
+                            push_word(&mut code, encode_addi(12, rs_payload, 0)?);
+                            emit_i64_literal_load(&mut code, &fixups, 13, *argument_words as i64);
                             emit_bounded_add(
                                 &mut code,
                                 &fixups,
-                                13,
+                                14,
                                 sp,
                                 frame.outgoing_result_base as i64,
                                 LITERAL_SHIFT_REG,
                             )?;
-                            emit_i64_literal_load(&mut code, &fixups, 14, result_words as i64);
+                            emit_i64_literal_load(&mut code, &fixups, 15, result_words as i64);
                             push_syscall(
                                 &mut code,
                                 syscalls::SYSCALL_KOTO_TEST_INVOKE_ENTRYPOINT_AS,
@@ -6001,28 +6083,15 @@ impl Compiler {
                             actor,
                             entrypoint,
                             payload,
+                            argument_words,
                             expectation,
                         } => {
                             load_pointer(actor, 10, scratch1, DataKind::Blob, &mut code)?;
                             load_pointer(entrypoint, 11, scratch1, DataKind::Blob, &mut code)?;
-                            if let Some(payload_raw) = string_map.get(&(func_idx, *payload)) {
-                                if let Some(kind) = dataref_kind_map.get(&(func_idx, *payload)) {
-                                    emit_literal_load(
-                                        &mut code,
-                                        &fixups,
-                                        12,
-                                        literal_data_key(payload, *kind, payload_raw),
-                                    );
-                                } else {
-                                    let rs_payload = src_reg(payload, scratch1, &mut code)?;
-                                    push_word(&mut code, encode_addi(12, rs_payload, 0)?);
-                                }
-                            } else {
-                                let rs_payload = src_reg(payload, scratch1, &mut code)?;
-                                push_word(&mut code, encode_addi(12, rs_payload, 0)?);
-                            }
-                            load_pointer(expectation, 13, scratch1, DataKind::Blob, &mut code)?;
-                            push_word(&mut code, encode_addi(14, 0, 0)?);
+                            let rs_payload = src_reg(payload, scratch1, &mut code)?;
+                            push_word(&mut code, encode_addi(12, rs_payload, 0)?);
+                            emit_i64_literal_load(&mut code, &fixups, 13, *argument_words as i64);
+                            load_pointer(expectation, 14, scratch1, DataKind::Blob, &mut code)?;
                             push_word(&mut code, encode_addi(15, 0, 0)?);
                             push_syscall(&mut code, syscalls::SYSCALL_KOTO_TEST_EXPECT_REJECT_AS);
                         }
@@ -6932,70 +7001,99 @@ impl Compiler {
                             schema,
                             words,
                         } => {
-                            if words.len() > state_value_table_words {
-                                return Err("durable aggregate state scratch frame is undersized"
-                                    .to_string());
-                            }
-                            let mut state_window = StackTableWindow::new(scratch1);
-                            for (index, word) in words.iter().enumerate() {
-                                let source = if let Some(kind) =
-                                    dataref_kind_map.get(&(func_idx, *word)).copied()
-                                    && let Some(literal) =
-                                        string_map.get(&(func_idx, *word)).cloned()
-                                {
-                                    emit_literal_load(
-                                        &mut code,
-                                        &fixups,
-                                        scratch2,
-                                        literal_data_key(word, kind, &literal),
-                                    );
-                                    scratch2
-                                } else {
-                                    src_reg(word, scratch2, &mut code)?
-                                };
-                                let offset = state_value_table_base
-                                    .checked_add(index.saturating_mul(
-                                        ivm_abi::state_value::DECODED_STATE_VALUE_WORD_BYTES
-                                            as usize,
-                                    ))
-                                    .ok_or_else(|| {
-                                        "durable aggregate state table offset overflow".to_string()
-                                    })?;
-                                let (table_base, table_offset) =
-                                    state_window.address(&mut code, &fixups, offset)?;
-                                emit_store64(
-                                    &mut code,
-                                    &fixups,
-                                    table_base,
-                                    source,
-                                    table_offset,
-                                    scratchd,
-                                )?;
-                            }
-                            if let Some(kind) = dataref_kind_map.get(&(func_idx, *schema)).copied()
-                                && let Some(literal) = string_map.get(&(func_idx, *schema)).cloned()
+                            // Publish a known key as the same canonical record the runtime
+                            // encoder produces. This preserves exact static child-key analysis
+                            // without adding a second codec or evaluating source operands again.
+                            if map_key_encodings.contains(&(func_idx, *dest))
+                                && !multiply_defined_dests.contains(&(func_idx, *dest))
+                                && let Some(raw) = literal_state_value_record(
+                                    func_idx,
+                                    *schema,
+                                    words,
+                                    &string_map,
+                                    &dataref_kind_map,
+                                    &int_const_map,
+                                    &string_literal_temps,
+                                )
                             {
                                 emit_literal_load(
                                     &mut code,
                                     &fixups,
                                     10,
-                                    literal_data_key(schema, kind, &literal),
+                                    DataKey(DataKind::NoritoBytes, raw),
                                 );
+                                spill_syscall_result(dest, &mut code)?;
                             } else {
-                                let schema_reg = src_reg(schema, scratch1, &mut code)?;
-                                push_word(&mut code, encode_addi(10, schema_reg, 0)?);
+                                if words.len() > state_value_table_words {
+                                    return Err(
+                                        "durable aggregate state scratch frame is undersized"
+                                            .to_string(),
+                                    );
+                                }
+                                let mut state_window = StackTableWindow::new(scratch1);
+                                for (index, word) in words.iter().enumerate() {
+                                    let source = if let Some(kind) =
+                                        dataref_kind_map.get(&(func_idx, *word)).copied()
+                                        && let Some(literal) =
+                                            string_map.get(&(func_idx, *word)).cloned()
+                                    {
+                                        emit_literal_load(
+                                            &mut code,
+                                            &fixups,
+                                            scratch2,
+                                            literal_data_key(word, kind, &literal),
+                                        );
+                                        scratch2
+                                    } else {
+                                        src_reg(word, scratch2, &mut code)?
+                                    };
+                                    let offset = state_value_table_base
+                                        .checked_add(index.saturating_mul(
+                                            ivm_abi::state_value::DECODED_STATE_VALUE_WORD_BYTES
+                                                as usize,
+                                        ))
+                                        .ok_or_else(|| {
+                                            "durable aggregate state table offset overflow"
+                                                .to_string()
+                                        })?;
+                                    let (table_base, table_offset) =
+                                        state_window.address(&mut code, &fixups, offset)?;
+                                    emit_store64(
+                                        &mut code,
+                                        &fixups,
+                                        table_base,
+                                        source,
+                                        table_offset,
+                                        scratchd,
+                                    )?;
+                                }
+                                if let Some(kind) =
+                                    dataref_kind_map.get(&(func_idx, *schema)).copied()
+                                    && let Some(literal) =
+                                        string_map.get(&(func_idx, *schema)).cloned()
+                                {
+                                    emit_literal_load(
+                                        &mut code,
+                                        &fixups,
+                                        10,
+                                        literal_data_key(schema, kind, &literal),
+                                    );
+                                } else {
+                                    let schema_reg = src_reg(schema, scratch1, &mut code)?;
+                                    push_word(&mut code, encode_addi(10, schema_reg, 0)?);
+                                }
+                                emit_bounded_add(
+                                    &mut code,
+                                    &fixups,
+                                    11,
+                                    sp,
+                                    state_value_table_base as i64,
+                                    LITERAL_SHIFT_REG,
+                                )?;
+                                emit_addi(&mut code, 12, 0, words.len() as i64);
+                                push_syscall(&mut code, syscalls::SYSCALL_STATE_VALUE_ENCODE);
+                                spill_syscall_result(dest, &mut code)?;
                             }
-                            emit_bounded_add(
-                                &mut code,
-                                &fixups,
-                                11,
-                                sp,
-                                state_value_table_base as i64,
-                                LITERAL_SHIFT_REG,
-                            )?;
-                            emit_addi(&mut code, 12, 0, words.len() as i64);
-                            push_syscall(&mut code, syscalls::SYSCALL_STATE_VALUE_ENCODE);
-                            spill_syscall_result(dest, &mut code)?;
                         }
                         Instr::StateHas { dest, path } => {
                             if let Some(key) = state_path_literal_data_key(
@@ -7045,50 +7143,6 @@ impl Compiler {
                             push_syscall(&mut code, syscalls::SYSCALL_STATE_COUNT);
                             spill_syscall_result(dest, &mut code)?;
                         }
-                        Instr::EncodeBoolKey { dest, value } => {
-                            // Bool StateMap keys retain the exact canonical
-                            // Norito i64 0/1 bytes without depending on the
-                            // public signed-512 Int codec.
-                            let source = src_reg(value, scratch1, &mut code)?;
-                            push_word(&mut code, encode_addi(scratch1, source, 0)?);
-                            push_word(&mut code, encode_addi(scratch2, 0, 1)?);
-                            push_word(
-                                &mut code,
-                                encoding::wide::encode_rr(
-                                    instruction::wide::arithmetic::SEQ,
-                                    scratch2,
-                                    scratch1,
-                                    scratch2,
-                                ),
-                            );
-                            // A malformed Bool word still rejects as before.
-                            push_word(&mut code, encode_branch_rv(0x0, scratch1, scratch2, 8)?);
-                            push_syscall_imm8(&mut code, syscalls::SYSCALL_ABORT);
-                            let false_bytes = ivm_abi::codec::encode_canonical_norito(&0_i64)
-                                .expect("canonical false key encodes");
-                            emit_literal_load(
-                                &mut code,
-                                &fixups,
-                                10,
-                                DataKey(
-                                    DataKind::NoritoBytes,
-                                    format!("0x{}", hex::encode(false_bytes)),
-                                ),
-                            );
-                            push_word(&mut code, encode_branch_rv(0x0, scratch2, 0, 8)?);
-                            let true_bytes = ivm_abi::codec::encode_canonical_norito(&1_i64)
-                                .expect("canonical true key encodes");
-                            emit_literal_load(
-                                &mut code,
-                                &fixups,
-                                10,
-                                DataKey(
-                                    DataKind::NoritoBytes,
-                                    format!("0x{}", hex::encode(true_bytes)),
-                                ),
-                            );
-                            spill_syscall_result(dest, &mut code)?;
-                        }
                         Instr::IntFromI64 { dest, value } | Instr::IntFromU64 { dest, value } => {
                             let rv = src_reg(value, scratch1, &mut code)?;
                             push_word(&mut code, encode_addi(10, rv, 0)?);
@@ -7100,19 +7154,20 @@ impl Compiler {
                             push_syscall(&mut code, syscall);
                             spill_syscall_result(dest, &mut code)?;
                         }
-                        Instr::IntTryToI64 { dest, value } | Instr::IntTryToU64 { dest, value } => {
+                        Instr::IntToI64 { dest, value } | Instr::IntToU64 { dest, value } => {
                             load_pointer(value, 10, scratch1, DataKind::Int, &mut code)?;
                             code.extend_from_slice(&publish_tlv);
                             let syscall = match instr {
-                                Instr::IntTryToI64 { .. } => syscalls::SYSCALL_INT_TRY_TO_I64,
-                                Instr::IntTryToU64 { .. } => syscalls::SYSCALL_INT_TRY_TO_U64,
+                                Instr::IntToI64 { .. } => syscalls::SYSCALL_INT_TO_I64,
+                                Instr::IntToU64 { .. } => syscalls::SYSCALL_INT_TO_U64,
                                 _ => unreachable!("matched int-to-scalar conversions"),
                             };
+                            // Scalar-only host boundaries preserve the exact numeric fault.
+                            // Reserved operands and the trap failure mode are all zero.
+                            for register in 11..=14 {
+                                push_word(&mut code, encode_addi(register, 0, 0)?);
+                            }
                             push_syscall(&mut code, syscall);
-                            // Scalar-only host protocols cannot carry a recoverable numeric
-                            // status. Fail closed before consuming the scalar result.
-                            push_word(&mut code, encode_branch_rv(0x0, 11, 0, 8)?);
-                            push_syscall(&mut code, syscalls::SYSCALL_ABORT);
                             spill_syscall_result(dest, &mut code)?;
                         }
                         Instr::NumericConvert {
@@ -7134,21 +7189,21 @@ impl Compiler {
                                 push_word(&mut code, encode_addi(10, r, 0)?);
                             }
                             code.extend_from_slice(&publish_tlv);
-                            let (syscall, recoverable) = match (source, destination) {
+                            let syscall = match (source, destination) {
                                 (ir::WideNumericKind::Int, ir::WideNumericKind::Decimal) => {
-                                    (syscalls::SYSCALL_DECIMAL_FROM_INT, false)
+                                    syscalls::SYSCALL_DECIMAL_FROM_INT
                                 }
                                 (ir::WideNumericKind::Int, ir::WideNumericKind::Quantity) => {
-                                    (syscalls::SYSCALL_QUANTITY_TRY_FROM_INT, true)
+                                    syscalls::SYSCALL_QUANTITY_FROM_INT
                                 }
                                 (ir::WideNumericKind::Decimal, ir::WideNumericKind::Int) => {
-                                    (syscalls::SYSCALL_DECIMAL_TRY_TO_INT_EXACT, true)
+                                    syscalls::SYSCALL_DECIMAL_TO_INT_EXACT
                                 }
                                 (ir::WideNumericKind::Decimal, ir::WideNumericKind::Quantity) => {
-                                    (syscalls::SYSCALL_QUANTITY_TRY_FROM_DECIMAL, true)
+                                    syscalls::SYSCALL_QUANTITY_FROM_DECIMAL
                                 }
                                 (ir::WideNumericKind::Quantity, ir::WideNumericKind::Decimal) => {
-                                    (syscalls::SYSCALL_QUANTITY_TO_DECIMAL, false)
+                                    syscalls::SYSCALL_QUANTITY_TO_DECIMAL
                                 }
                                 _ => {
                                     return Err(
@@ -7156,11 +7211,10 @@ impl Compiler {
                                     );
                                 }
                             };
-                            push_syscall(&mut code, syscall);
-                            if recoverable {
-                                push_word(&mut code, encode_branch_rv(0x0, 11, 0, 8)?);
-                                push_syscall(&mut code, syscalls::SYSCALL_ABORT);
+                            for register in 11..=14 {
+                                push_word(&mut code, encode_addi(register, 0, 0)?);
                             }
+                            push_syscall(&mut code, syscall);
                             spill_syscall_result(dest, &mut code)?;
                         }
                         Instr::NumericTryConvert {
@@ -7188,10 +7242,10 @@ impl Compiler {
                             code.extend_from_slice(&publish_tlv);
                             let syscall = match (source, destination) {
                                 (ir::WideNumericKind::Int, ir::WideNumericKind::Quantity) => {
-                                    syscalls::SYSCALL_QUANTITY_TRY_FROM_INT
+                                    syscalls::SYSCALL_QUANTITY_FROM_INT
                                 }
                                 (ir::WideNumericKind::Decimal, ir::WideNumericKind::Quantity) => {
-                                    syscalls::SYSCALL_QUANTITY_TRY_FROM_DECIMAL
+                                    syscalls::SYSCALL_QUANTITY_FROM_DECIMAL
                                 }
                                 _ => {
                                     return Err(
@@ -7200,6 +7254,17 @@ impl Compiler {
                                     );
                                 }
                             };
+                            for register in 11..=13 {
+                                push_word(&mut code, encode_addi(register, 0, 0)?);
+                            }
+                            push_word(
+                                &mut code,
+                                encode_addi(
+                                    ivm_abi::numeric::NUMERIC_FAILURE_MODE_REGISTER as u8,
+                                    0,
+                                    ivm_abi::numeric::NUMERIC_FAILURE_STATUS as i16,
+                                )?,
+                            );
                             push_syscall(&mut code, syscall);
                             let (result_reg, result_spilled, result_imm) = dst_reg(dest);
                             push_word(&mut code, encode_addi(result_reg, 10, 0)?);
@@ -7639,7 +7704,15 @@ impl Compiler {
                                 push_syscall(&mut code, *syscall);
                                 spill_syscall_result(dest, &mut code)?;
                             } else {
-                                if local_emission::parallel_state_decode(*syscall, args.len()) {
+                                if local_emission::parallel_state_decode(*syscall, args.len())
+                                    || matches!(
+                                        *syscall,
+                                        syscalls::SYSCALL_VALUE_ENCODE
+                                            | syscalls::SYSCALL_VALUE_TO_STRING
+                                            | syscalls::SYSCALL_BLOB_CONCAT
+                                            | syscalls::SYSCALL_UTF8_VALIDATE
+                                    )
+                                {
                                     // The original schema/data decoder consumes its owned
                                     // canonical inputs after every register source is staged.
                                     emit_values_to_syscall_registers(args, &mut code)?;
@@ -7874,7 +7947,9 @@ impl Compiler {
                         | Instr::JsonGetAccountId { dest, json, key }
                         | Instr::JsonGetAssetDefinitionId { dest, json, key }
                         | Instr::JsonGetNftId { dest, json, key }
-                        | Instr::JsonGetBlobHex { dest, json, key } => {
+                        | Instr::JsonGetBlobHex { dest, json, key }
+                        | Instr::JsonGetString { dest, json, key }
+                        | Instr::JsonGetBool { dest, json, key } => {
                             // Typed JSON getters return one active-only Option handle in r10.
                             load_pointer(json, 10, scratch1, DataKind::Json, &mut code)?;
                             code.extend_from_slice(&publish_tlv);
@@ -7895,9 +7970,13 @@ impl Compiler {
                                 }
                                 Instr::JsonGetNftId { .. } => syscalls::SYSCALL_JSON_GET_NFT_ID,
                                 Instr::JsonGetBlobHex { .. } => syscalls::SYSCALL_JSON_GET_BLOB_HEX,
+                                Instr::JsonGetString { .. } => syscalls::SYSCALL_JSON_GET_STRING,
+                                Instr::JsonGetBool { .. } => syscalls::SYSCALL_JSON_GET_BOOL,
                                 _ => unreachable!(),
                             };
-                            push_syscall_imm8(&mut code, syscall);
+                            // `push_syscall` keeps the 8-bit form for the original
+                            // getters and uses the extended form above 0xFF.
+                            push_syscall(&mut code, syscall);
                             spill_syscall_result(dest, &mut code)?;
                         }
                         Instr::NameDecode { dest, blob } => {
@@ -8017,8 +8096,17 @@ impl Compiler {
                             push_syscall_imm8(&mut code, syscalls::SYSCALL_AXT_COMMIT);
                         }
                     }
+                    statement_sources.record(
+                        &mut statement_seeds,
+                        &func.name,
+                        bb.label,
+                        instruction_index,
+                        instruction_start,
+                        code.len(),
+                    );
                 }
                 // end for instr in &bb.instrs
+                let terminator_start = code.len();
                 #[cfg(test)]
                 emission_profile::finish(emission_observation, code.len());
                 allocation_position.set(next_allocation_position);
@@ -8148,6 +8236,14 @@ impl Compiler {
                         }
                     }
                 }
+                statement_sources.record(
+                    &mut statement_seeds,
+                    &func.name,
+                    bb.label,
+                    bb.instrs.len(),
+                    terminator_start,
+                    code.len(),
+                );
             }
             debug_assert_eq!(
                 next_allocation_position,
@@ -8271,6 +8367,10 @@ impl Compiler {
                 .map_err(|_| "relaxed function start does not fit u64".to_owned())?;
             seed.pc_end = u64::try_from(code_offsets.entry(old_end))
                 .map_err(|_| "relaxed function end does not fit u64".to_owned())?;
+        }
+        for seed in &mut statement_seeds {
+            seed.start = code_offsets.entry(seed.start);
+            seed.end = code_offsets.entry(seed.end);
         }
         uses_vector_global |= detect_vector_usage(&code);
         uses_zk_global |= detect_zk_usage(&code);
@@ -8726,9 +8826,12 @@ impl Compiler {
             abi_hash: crate::syscalls::compute_abi_hash(crate::SyscallPolicy::AbiV1),
             features_bitmap: feature_bits,
             access_set_hints: access_set_hints.clone(),
+            permissions: typed.permissions.clone(),
+            events: typed.events.clone(),
             kotoba: message_entries.clone(),
             entrypoints: entrypoint_descriptors.clone(),
             error_types: typed.error_types.clone(),
+            enum_types: typed.enum_types.clone(),
             error_messages: typed.error_messages.clone(),
             states: state_descriptors,
         };
@@ -8834,6 +8937,7 @@ impl Compiler {
         let compile_report = build_compile_report(
             metadata::contract_code_hash(&out),
             &function_debug_seeds,
+            &statement_seeds,
             code.len(),
             source_name.as_deref(),
             &typed.source_files,
@@ -8873,14 +8977,20 @@ impl Compiler {
         let ssa = self.construct_ssa_program(lowered)?;
         let optimized = self.optimize_ssa_program(ssa)?;
         let codegen = self.destroy_ssa_program(optimized)?;
+        // Typed-identifier literals are rejected during semantic analysis, so
+        // codegen failures carry no fabricated source position.
+        // TODO: move the source-level checks that still run in `compile_codegen`
+        // (literal-only arguments such as `build_submit_ballot_inline` and
+        // pointer constructors, `E_ACCESS_INCOMPLETE`) into semantic analysis;
+        // K3099 can then be worded as a compiler defect only.
         let artifacts = self.compile_codegen(codegen).map_err(|message| {
-            native_diagnostic_bundle(
+            let unit = source_name.map_or_else(String::new, |name| format!(" for `{name}`"));
+            DiagnosticBundle::single(Diagnostic::error(
                 "K3099",
                 DiagnosticPhase::Lowering,
-                source_name,
+                format!("bytecode generation failed{unit}: {message}"),
                 None,
-                message,
-            )
+            ))
         })?;
         self.manifest_from_artifacts(artifacts).map_err(|message| {
             native_diagnostic_bundle(
@@ -8963,6 +9073,8 @@ impl Compiler {
             compiler_fingerprint: Some(contract_interface.compiler_fingerprint.clone()),
             features_bitmap: Some(contract_interface.features_bitmap),
             access_set_hints: contract_interface.access_set_hints.clone(),
+            permissions: contract_interface.permissions.clone(),
+            events: contract_interface.events.clone(),
             entrypoints: Some(
                 contract_interface
                     .entrypoints
@@ -8973,6 +9085,7 @@ impl Compiler {
             states: Some(manifest_state_descriptors(&contract_interface.states)),
             error_types: (!contract_interface.error_types.is_empty())
                 .then_some(contract_interface.error_types.clone()),
+            enum_types: contract_interface.enum_types.clone(),
             error_messages: (!contract_interface.error_messages.is_empty())
                 .then_some(contract_interface.error_messages.clone()),
             kotoba: (!contract_interface.kotoba.is_empty())
@@ -9005,6 +9118,7 @@ impl Compiler {
 fn build_compile_report(
     artifact_hash: iroha_crypto::Hash,
     function_debug_seeds: &[FunctionDebugSeed],
+    statement_seeds: &[statement_sources::Seed],
     code_len: usize,
     source_path: Option<&str>,
     source_files: &BTreeMap<crate::source::SourceId, crate::source::SourceFile>,
@@ -9039,9 +9153,24 @@ fn build_compile_report(
             source: Some(source),
         });
     }
+    let statement_map = statement_seeds
+        .iter()
+        .map(|seed| EmbeddedSourceMapEntryV1 {
+            function_name: seed.function_name.clone(),
+            pc_start: seed.start as u64,
+            pc_end: seed.end.min(code_len) as u64,
+            source: embedded_source_location(
+                Some(seed.source),
+                source_path,
+                SourceLocation { line: 1, column: 1 },
+                source_files,
+            ),
+        })
+        .collect();
     CompileReport {
         artifact_hash,
         source_map,
+        statement_map,
         budget_report,
         access_hint_diagnostics,
     }
@@ -9093,6 +9222,66 @@ fn render_state_scan_hint(hint: Option<&StatePathHint>) -> Option<String> {
 }
 fn insert_state_hint(keys: &mut IndexSet<String>, key: String) {
     keys.insert(key);
+}
+/// Preserve exact key access hints only when every canonical record atom is known.
+fn literal_state_value_record(
+    function: usize,
+    schema: ir::Temp,
+    words: &[ir::Temp],
+    literals: &HashMap<(usize, ir::Temp), String>,
+    kinds: &HashMap<(usize, ir::Temp), ir::DataRefKind>,
+    integers: &HashMap<(usize, ir::Temp), i64>,
+    strings: &HashSet<(usize, ir::Temp)>,
+) -> Option<String> {
+    use ivm_abi::state_value::{
+        StateValueAtomV1 as Atom, StateValueKindV1 as Kind, StateValueNodeV1 as Node,
+        StateValueRecordV1, StateValueSchemaV1, state_value_schema_hash_v1,
+    };
+    let schema_bytes = decode_norito_literal_payload(literals.get(&(function, schema))?)?;
+    let schema: StateValueSchemaV1 = ivm_abi::codec::decode_canonical_norito(&schema_bytes).ok()?;
+    if !schema.validate() {
+        return None;
+    }
+    let mut atoms = Vec::with_capacity(words.len());
+    let mut index = 0;
+    for node in &schema.nodes {
+        let Node::Leaf(kind) = node else {
+            if matches!(node, Node::Tuple { .. }) {
+                continue;
+            }
+            return None;
+        };
+        let word = *words.get(index)?;
+        index += 1;
+        let key = (function, word);
+        atoms.push(if *kind == Kind::Bool {
+            Atom::Bool(match integers.get(&key)? {
+                0 => false,
+                1 => true,
+                _ => return None,
+            })
+        } else {
+            let data_kind = *kinds.get(&key)?;
+            if pointer_type_for_kind(data_kind) != kind.pointer_type() {
+                return None;
+            }
+            Atom::Pointer(encode_pointer_tlv_bytes(
+                data_kind,
+                literals.get(&key)?,
+                strings.contains(&key),
+            )?)
+        });
+    }
+    if index != words.len() || !schema.validate_atoms(&atoms) {
+        return None;
+    }
+    let record = StateValueRecordV1 {
+        schema_hash: state_value_schema_hash_v1(&schema_bytes),
+        atoms,
+    };
+    let encoded = ivm_abi::codec::encode_canonical_norito(&record).ok()?;
+    (encoded.len() <= syscalls::STATE_MAP_MAX_KEY_BYTES)
+        .then(|| format!("0x{}", hex::encode(encoded)))
 }
 fn state_path_for_norito_key(base: &str, raw: &str) -> Option<String> {
     let bytes = decode_hex_or_raw_bytes(raw).ok()?;
@@ -9265,27 +9454,12 @@ fn manifest_state_descriptors(states: &[EmbeddedStateDescriptor]) -> Vec<StateDe
 }
 fn manifest_state_type_name(ty: &EmbeddedStateType) -> String {
     match ty {
-        EmbeddedStateType::StateCursor(key) => {
-            use ivm_abi::entrypoint::EntrypointValueKindV1 as K;
-            let key = match key {
-                K::Int => "int",
-                K::Decimal => "decimal",
-                K::Quantity => "quantity",
-                K::Bool => "bool",
-                K::String => "string",
-                K::Blob => "bytes",
-                K::Json => "Json",
-                K::Name => "Name",
-                K::AccountId => "AccountId",
-                K::AssetId => "AssetId",
-                K::AssetDefinitionId => "AssetDefinitionId",
-                K::DomainId => "DomainId",
-                K::NftId => "NftId",
-                K::DataSpaceId => "DataSpaceId",
-            };
-            format!("StateCursor<{key}>")
-        }
+        EmbeddedStateType::StateCursor(key) => format!(
+            "StateCursor<{}>",
+            key.canonical_type_name().expect("validated map key schema")
+        ),
         EmbeddedStateType::Unit => "()".to_string(),
+        EmbeddedStateType::Enum(descriptor) => descriptor.identity.clone(),
         EmbeddedStateType::Error(descriptor) => descriptor.identity.clone(),
         EmbeddedStateType::Int => "int".to_string(),
         EmbeddedStateType::Decimal => "decimal".to_string(),
@@ -9348,9 +9522,10 @@ fn build_state_type_descriptor(ty: &semantic::Type) -> Result<EmbeddedStateType,
         Type::Bool => EmbeddedStateType::Bool,
         Type::Unit => EmbeddedStateType::Unit,
         Type::StateCursor(key) => EmbeddedStateType::StateCursor(
-            crate::abi_schema::state_cursor_key_kind(&key)
+            crate::abi_schema::state_map_key_schema(&key)
                 .ok_or_else(|| "StateCursor requires a canonical map key type".to_owned())?,
         ),
+        Type::Enum(descriptor) => EmbeddedStateType::Enum((*descriptor).clone()),
         Type::ErrorEnum(descriptor) => EmbeddedStateType::Error((*descriptor).clone()),
         Type::String => EmbeddedStateType::String,
         Type::Bytes => EmbeddedStateType::Bytes,
@@ -9400,7 +9575,8 @@ fn build_state_type_descriptor(ty: &semantic::Type) -> Result<EmbeddedStateType,
                 "state type `{name}` was not resolved before CNTR schema emission"
             ));
         }
-        Type::Secret(_)
+        Type::ContractRef(_)
+        | Type::Secret(_)
         | Type::AxtDescriptor
         | Type::AxtAnchoredSpendV1
         | Type::ProofBlob
@@ -9438,12 +9614,12 @@ fn private_literal_candidates(typed: &TypedProgram) -> BTreeMap<String, ir::Data
             let TypedItem::Function(function) = item;
             let crate::ast::FunctionModifiers {
                 kind,
-                permission,
+                authorization,
                 is_test,
                 test_fixture,
             } = &function.modifiers;
             if *kind != FunctionKind::Private
-                || permission.is_some()
+                || authorization.is_some()
                 || *is_test
                 || test_fixture.is_some()
                 || !function.params.is_empty()
@@ -9495,7 +9671,7 @@ fn private_inline_candidates(typed: &TypedProgram) -> BTreeMap<String, bool> {
             let modifiers = &function.modifiers;
             let result = function.ret_ty.as_ref().unwrap_or(&semantic::Type::Unit);
             (modifiers.kind == FunctionKind::Private
-                && modifiers.permission.is_none()
+                && modifiers.authorization.is_none()
                 && !modifiers.is_test
                 && modifiers.test_fixture.is_none()
                 && function
@@ -9610,19 +9786,19 @@ fn propagate_transitive_access_hints(
                             );
                         }
                     }
-                    ir::Instr::InvokeEntrypointAs { .. }
-                    | ir::Instr::InvokeEntrypointAsMulti { .. }
-                    | ir::Instr::ExpectRejectAs { .. } => {
-                        mark_conservative(
-                            caller_index,
+                    ir::Instr::CallContract { view: true, .. } => {
+                        access_sets[caller_index]
+                            .reads
+                            .insert(GLOBAL_WILDCARD_KEY.to_owned());
+                        record_hint_skip(
+                            &mut hint_skips[caller_index],
                             HINT_SKIP_CONTRACT_CALL_TARGET,
-                            access_sets,
-                            hint_skips,
                         );
                     }
-                    ir::Instr::DirectHelperSyscall { syscall, .. }
-                        if *syscall == ivm_abi::syscalls::SYSCALL_CALL_CONTRACT_QUANTITY2 =>
-                    {
+                    ir::Instr::CallContract { view: false, .. }
+                    | ir::Instr::InvokeEntrypointAs { .. }
+                    | ir::Instr::InvokeEntrypointAsMulti { .. }
+                    | ir::Instr::ExpectRejectAs { .. } => {
                         mark_conservative(
                             caller_index,
                             HINT_SKIP_CONTRACT_CALL_TARGET,
@@ -9813,14 +9989,7 @@ fn record_isi_access(
     };
     match instr {
         ir::Instr::TransferBatchBegin | ir::Instr::TransferBatchEnd => {}
-        ir::Instr::TransferBatchApply { payload } => {
-            let Some(raw) = string_map.get(&(func_idx, *payload)) else {
-                return apply_fallback(access_set, hint_diagnostics, HINT_SKIP_OPAQUE_ISI);
-            };
-            if record_transfer_asset_batch_access(raw, access_set).is_none() {
-                apply_fallback(access_set, hint_diagnostics, HINT_SKIP_OPAQUE_ISI);
-            }
-        }
+
         ir::Instr::TransferBatchAsset {
             from, to, asset, ..
         } => {
@@ -10050,8 +10219,8 @@ fn record_isi_access(
             add_account_hint_rw(access_set, &account);
             add_permission_account_hint_w(access_set, &account, &perm);
         }
-        ir::Instr::GrantContractEntrypoint { account, .. }
-        | ir::Instr::RevokeContractEntrypoint { account, .. } => {
+        ir::Instr::GrantContractPermission { account, .. }
+        | ir::Instr::RevokeContractPermission { account, .. } => {
             let Some(account) = account_access_hint_for_temp(
                 string_map,
                 authority_account_temps,
@@ -10069,24 +10238,6 @@ fn record_isi_access(
                 add_asset_def_rw(access_set, &id);
             } else {
                 add_dynamic_asset_definition_rw(access_set);
-            }
-        }
-        ir::Instr::CreateNewAsset { asset, account, .. } => {
-            let account = account_access_hint_for_temp(
-                string_map,
-                authority_account_temps,
-                func_idx,
-                *account,
-            );
-            if let Some(asset_def) = parse_temp::<AssetDefinitionId>(string_map, func_idx, *asset) {
-                add_asset_definition_ownership_r(access_set, &asset_def);
-                add_asset_def_rw(access_set, &asset_def);
-                add_asset_rw_for_optional_account_hint(access_set, &asset_def, account.as_ref());
-            } else {
-                add_dynamic_asset_definition_rw_for_optional_account_hint(
-                    access_set,
-                    account.as_ref(),
-                );
             }
         }
         ir::Instr::CreateTrigger { json } => {
@@ -10207,13 +10358,10 @@ fn record_isi_access(
                 apply_fallback(access_set, hint_diagnostics, HINT_SKIP_OPAQUE_ISI);
             }
         }
-        ir::Instr::VrfEpochSeed { payload, .. } => {
-            let Some(raw) = string_map.get(&(func_idx, *payload)) else {
-                return apply_fallback(access_set, hint_diagnostics, HINT_SKIP_OPAQUE_ISI);
-            };
-            if record_vrf_epoch_seed_access(raw, access_set).is_none() {
-                apply_fallback(access_set, hint_diagnostics, HINT_SKIP_OPAQUE_ISI);
-            }
+        ir::Instr::VrfEpochSeed { .. } => {
+            // Epochs are ordinary expressions. A read-only wildcard covers the
+            // exact host lookup without claiming an unrelated latest-seed read.
+            apply_fallback(access_set, hint_diagnostics, HINT_SKIP_OPAQUE_ISI);
         }
         ir::Instr::BuildSubmitBallotInline { .. } => {}
         ir::Instr::TransferDomain { domain, to } => {
@@ -10296,9 +10444,7 @@ fn record_isi_access(
                 apply_fallback(access_set, hint_diagnostics, HINT_SKIP_OPAQUE_ISI);
             }
         }
-        ir::Instr::DirectHelperSyscall { syscall, .. }
-            if *syscall == ivm_abi::syscalls::SYSCALL_CALL_CONTRACT_QUANTITY2 =>
-        {
+        ir::Instr::CallContract { .. } => {
             apply_fallback(access_set, hint_diagnostics, HINT_SKIP_CONTRACT_CALL_TARGET)
         }
         ir::Instr::InvokeEntrypointAs { .. }
@@ -10348,18 +10494,6 @@ fn record_zk_vote_get_tally_access(raw: &str, access_set: &mut AccessSets) -> Op
     add_zk_election_tally_r(access_set, &request.election_id);
     Some(())
 }
-fn record_vrf_epoch_seed_access(raw: &str, access_set: &mut AccessSets) -> Option<()> {
-    let payload = decode_norito_literal_payload(raw)?;
-    let request: ivm_abi::host_payload::VrfEpochSeedRequest =
-        ivm_abi::codec::decode_canonical_norito(&payload).ok()?;
-    access_set
-        .reads
-        .insert(format!("vrf:epoch_seed:{}", request.epoch));
-    if request.fallback_to_latest {
-        access_set.reads.insert("vrf:epoch_seed:latest".to_owned());
-    }
-    Some(())
-}
 fn record_smart_contract_lifecycle_access(
     raw: &str,
     syscall: u32,
@@ -10404,12 +10538,6 @@ fn record_smart_contract_lifecycle_access(
         _ => return None,
     }
     Some(())
-}
-fn record_transfer_asset_batch_access(raw: &str, access_set: &mut AccessSets) -> Option<()> {
-    let payload = decode_norito_literal_payload(raw)?;
-    let batch: iroha_data_model::isi::transfer::TransferAssetBatch =
-        ivm_abi::codec::decode_canonical_norito(&payload).ok()?;
-    record_transfer_asset_batch_entries_access(&batch, access_set)
 }
 fn record_transfer_asset_batch_entries_access(
     batch: &iroha_data_model::isi::transfer::TransferAssetBatch,
@@ -11725,6 +11853,7 @@ fn record_asset_escrow_close_access(set: &mut AccessSets, escrow_id: &EscrowId) 
 }
 fn classify_ir_access(instr: &ir::Instr) -> IrAccessClass {
     match instr {
+        ir::Instr::Source(_) => IrAccessClass::None,
         ir::Instr::Const { .. }
         | ir::Instr::Copy { .. }
         | ir::Instr::StringConst { .. }
@@ -11734,8 +11863,8 @@ fn classify_ir_access(instr: &ir::Instr) -> IrAccessClass {
         | ir::Instr::WrappingNeg { .. }
         | ir::Instr::IntFromI64 { .. }
         | ir::Instr::IntFromU64 { .. }
-        | ir::Instr::IntTryToI64 { .. }
-        | ir::Instr::IntTryToU64 { .. }
+        | ir::Instr::IntToI64 { .. }
+        | ir::Instr::IntToU64 { .. }
         | ir::Instr::NumericConvert { .. }
         | ir::Instr::NumericTryConvert { .. }
         | ir::Instr::NumericStatus { .. }
@@ -11787,7 +11916,6 @@ fn classify_ir_access(instr: &ir::Instr) -> IrAccessClass {
         | ir::Instr::StateValueEncode { .. }
         | ir::Instr::StatePathFromName { .. }
         | ir::Instr::PathMapKeyNorito { .. }
-        | ir::Instr::EncodeBoolKey { .. }
         | ir::Instr::PointerToNorito { .. }
         | ir::Instr::PointerFromNorito { .. }
         | ir::Instr::JsonEncode { .. }
@@ -11803,6 +11931,8 @@ fn classify_ir_access(instr: &ir::Instr) -> IrAccessClass {
         | ir::Instr::JsonGetAssetDefinitionId { .. }
         | ir::Instr::JsonGetNftId { .. }
         | ir::Instr::JsonGetBlobHex { .. }
+        | ir::Instr::JsonGetString { .. }
+        | ir::Instr::JsonGetBool { .. }
         | ir::Instr::NameDecode { .. }
         | ir::Instr::SchemaEncode { .. }
         | ir::Instr::SchemaDecode { .. }
@@ -11822,7 +11952,6 @@ fn classify_ir_access(instr: &ir::Instr) -> IrAccessClass {
         ir::Instr::Sm4CcmOpen { .. } => access_class_for_builtin(Builtin::Sm4CcmOpen),
         ir::Instr::PrivateNumericValcom { .. } => access_class_for_builtin(Builtin::Valcom),
         ir::Instr::RegisterAsset { .. } => access_class_for_builtin(Builtin::RegisterAsset),
-        ir::Instr::CreateNewAsset { .. } => access_class_for_builtin(Builtin::CreateNewAsset),
         ir::Instr::TransferAsset { .. } => access_class_for_builtin(Builtin::TransferAsset),
         ir::Instr::TransferBatchAsset { .. } => access_class_for_builtin(Builtin::TransferBatch),
         ir::Instr::EscrowOpenOffer { .. } => access_class_for_builtin(Builtin::EscrowOpenOffer),
@@ -11836,10 +11965,8 @@ fn classify_ir_access(instr: &ir::Instr) -> IrAccessClass {
         ir::Instr::EscrowResolveDispute { .. } => {
             access_class_for_builtin(Builtin::EscrowResolveDispute)
         }
-        ir::Instr::TransferBatchBegin => access_class_for_builtin(Builtin::TransferV1BatchBegin),
-        ir::Instr::TransferBatchEnd => access_class_for_builtin(Builtin::TransferV1BatchEnd),
-        ir::Instr::TransferBatchApply { .. } => {
-            access_class_for_builtin(Builtin::TransferV1BatchApply)
+        ir::Instr::TransferBatchBegin | ir::Instr::TransferBatchEnd => {
+            access_class_for_builtin(Builtin::TransferBatch)
         }
         ir::Instr::MintAsset { .. } => access_class_for_builtin(Builtin::MintAsset),
         ir::Instr::BurnAsset { .. } => access_class_for_builtin(Builtin::BurnAsset),
@@ -11851,7 +11978,7 @@ fn classify_ir_access(instr: &ir::Instr) -> IrAccessClass {
         }
         ir::Instr::SetExecutionDepth { .. } => access_class_for_builtin(Builtin::SetExecutionDepth),
         ir::Instr::SetVl { .. } => access_class_for_builtin(Builtin::SetVl),
-        ir::Instr::SetAccountDetail { .. } => access_class_for_builtin(Builtin::SetAccountDetail),
+        ir::Instr::SetAccountDetail { .. } => access_class_for_builtin(Builtin::SetAccountMetadata),
         ir::Instr::CreateNft { .. } => access_class_for_builtin(Builtin::NftMintAsset),
         ir::Instr::SetNftData { .. } => access_class_for_builtin(Builtin::NftSetMetadata),
         ir::Instr::BurnNft { .. } => access_class_for_builtin(Builtin::NftBurnAsset),
@@ -11871,15 +11998,22 @@ fn classify_ir_access(instr: &ir::Instr) -> IrAccessClass {
         ir::Instr::SetTriggerEnabled { .. } => access_class_for_builtin(Builtin::SetTriggerEnabled),
         ir::Instr::GrantPermission { .. } => access_class_for_builtin(Builtin::GrantPermission),
         ir::Instr::RevokePermission { .. } => access_class_for_builtin(Builtin::RevokePermission),
-        ir::Instr::GrantContractEntrypoint { .. } => {
-            access_class_for_builtin(Builtin::GrantContractEntrypoint)
+        ir::Instr::GrantContractPermission { .. } => {
+            access_class_for_builtin(Builtin::GrantContractPermission)
         }
-        ir::Instr::RevokeContractEntrypoint { .. } => {
-            access_class_for_builtin(Builtin::RevokeContractEntrypoint)
+        ir::Instr::RevokeContractPermission { .. } => {
+            access_class_for_builtin(Builtin::RevokeContractPermission)
         }
-        ir::Instr::CreateRole { .. } => access_class_for_builtin(Builtin::CreateRole),
-        ir::Instr::DeleteRole { .. } => access_class_for_builtin(Builtin::DeleteRole),
+        ir::Instr::CreateRole { .. } => access_class_for_builtin(Builtin::RegisterRole),
+        ir::Instr::DeleteRole { .. } => access_class_for_builtin(Builtin::UnregisterRole),
         ir::Instr::GrantRole { .. } => access_class_for_builtin(Builtin::GrantRole),
+        // Host-private local-test helpers (assertion reports, block height and time control)
+        // touch only the test host, never ledger state; they exist only in test projections.
+        ir::Instr::DirectHelperSyscall { syscall, .. }
+            if ivm_abi::syscalls::is_koto_test_syscall(*syscall) =>
+        {
+            IrAccessClass::None
+        }
         ir::Instr::DirectHelperSyscall { syscall, .. } => {
             use ivm_abi::syscalls::SyscallAccess;
             match ivm_abi::syscalls::registered_syscall_access(*syscall) {
@@ -11900,6 +12034,11 @@ fn classify_ir_access(instr: &ir::Instr) -> IrAccessClass {
         ir::Instr::ResolveAccountAlias { .. } => {
             access_class_for_builtin(Builtin::ResolveAccountAlias)
         }
+        ir::Instr::CallContract { view, .. } => IrAccessClass::Ledger(if *view {
+            BuiltinAccess::LedgerRead
+        } else {
+            BuiltinAccess::Dynamic
+        }),
         ir::Instr::InvokeEntrypointAs { .. } | ir::Instr::InvokeEntrypointAsMulti { .. } => {
             access_class_for_builtin(Builtin::TestInvokeEntrypointAs)
         }
@@ -12181,7 +12320,7 @@ fn validate_codegen_supported(tp: &semantic::TypedProgram) -> Result<(), Vec<ir:
                 expr_ok(target)?;
                 expr_ok(index)
             }
-            EK::ErrorValue(_)
+            EK::VariantCode(_)
             | EK::IntLiteral(_)
             | EK::DecimalLiteral { .. }
             | EK::Bool(_)

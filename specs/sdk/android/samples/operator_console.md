@@ -97,7 +97,7 @@ This section turns the design brief into a reproducible demo script. It assumes
 you can run the shared sandbox bundled with the repository. An emulator or a
 device without StrongBox is sufficient for the normal walkthrough. A
 StrongBox-capable Pixel from the
-[device matrix](../readiness/android_strongbox_device_matrix.md) is needed only
+[device-lab lanes](../../../compliance/android/device_lab_reservation.md#2-reservation-windows) is needed only
 for the optional attestation drill.
 
 ### 8.1 Prerequisites
@@ -258,7 +258,7 @@ Follow these phases whenever you demo the console for operators or auditors.
 
 | Symptom | Resolution |
 |---------|------------|
-| **Optional attestation capture fails** | Continue the provider-neutral software-signing walkthrough. For a separately requested hardware drill, confirm the device appears as 🈴 in the [StrongBox matrix](../readiness/android_strongbox_device_matrix.md), re-run `scripts/android_keystore_attestation.sh --require-strongbox`, and document the remediation in `android_strongbox_attestation_run_log.md`. |
+| **Optional attestation capture fails** | Continue the provider-neutral software-signing walkthrough. For a separately requested hardware drill, confirm the device is a StrongBox lane in the [device-lab reservations](../../../compliance/android/device_lab_reservation.md#2-reservation-windows), re-run `scripts/android_keystore_attestation.sh --require-strongbox`, and document the remediation in `android_strongbox_attestation_run_log.md`. |
 | **Pipeline panel never clears** | Tail the Torii log referenced by `ANDROID_SAMPLE_TORII_LOG` and cross-check the pending queue with `iroha_cli pipeline inspect`. If retries climb above the thresholds in Section 6, roll back to the last known-good sample config and file an AND4 bug. |
 | **Dashboard parity diff fails** | Review the JSON written by `ci/check_android_dashboard_parity.sh`, compare it against the allowance file, and follow the public operator guidance at [docs.iroha.tech](https://docs.iroha.tech/). |
 | **Telemetry export refuses to run** | Ensure `scripts/android_sample_env.sh` was invoked without `--no-telemetry` and that the dry-run file `ANDROID_SAMPLE_TELEMETRY_LOG` exists. For live tests, pass `--telemetry-live --telemetry-cluster <cluster>` and capture the HTTP 202 receipts in the evidence bundle. |

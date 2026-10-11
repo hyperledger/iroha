@@ -6,7 +6,7 @@
                     return Result::ok(Option::some(Pair { count: 7, ready: true }));
                 }
 
-                view fn inspect(int seed) -> Result<Option<Pair>, (string, bool)> {
+                view fn inspect(int seed) authorize(anyone) -> Result<Option<Pair>, (string, bool)> {
                     let _ = seed;
                     return make();
                 }

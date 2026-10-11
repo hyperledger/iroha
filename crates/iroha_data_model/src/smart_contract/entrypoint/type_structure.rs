@@ -4,7 +4,8 @@
 //! budget before checking nominal shapes; private callable types do not inherit public limits.
 
 use super::{
-    EntrypointValueKindV1 as Kind, EntrypointValueTypeNodeV1, MAX_ENTRYPOINT_LIST_CAPACITY_V1,
+    EntrypointValueKindV1 as Kind, EntrypointValueTypeNodeV1, EntrypointValueTypeV1,
+    MAX_ENTRYPOINT_LIST_CAPACITY_V1,
 };
 
 /// Borrowed structural information needed to validate a flat type tape.
@@ -27,9 +28,9 @@ pub enum TypeNodeViewV1<'a> {
     List(u8),
     /// Exact public scalar kind.
     Leaf(Kind),
-    /// Exact scalar cursor key kind.
-    StateCursor(Kind),
-    /// Another leaf with no children (Unit, nominal error, or internal/private leaf).
+    /// Exact scalar or tuple cursor key schema.
+    StateCursor(&'a EntrypointValueTypeV1),
+    /// Another leaf with no children (Unit, nominal enum/error, or internal/private leaf).
     Other,
 }
 impl TypeNodeViewV1<'_> {
@@ -63,8 +64,8 @@ impl FlatTypeNodeV1 for EntrypointValueTypeNodeV1 {
             Self::Result => TypeNodeViewV1::Result,
             Self::List(list) => TypeNodeViewV1::List(list.capacity),
             Self::Leaf(kind) => TypeNodeViewV1::Leaf(*kind),
-            Self::StateCursor(key) => TypeNodeViewV1::StateCursor(*key),
-            Self::Unit | Self::Error(_) => TypeNodeViewV1::Other,
+            Self::StateCursor(key) => TypeNodeViewV1::StateCursor(key),
+            Self::Unit | Self::Error(_) | Self::Enum(_) => TypeNodeViewV1::Other,
         }
     }
 }
@@ -90,7 +91,11 @@ pub fn subtree_range_v1<N: FlatTypeNodeV1>(
 pub(super) fn is_core_query_view_name(name: &str) -> bool {
     matches!(
         name,
-        "AccountView" | "AssetView" | "AssetDefinitionView" | "DomainView" | "NftView"
+        "kotodama::AccountView"
+            | "kotodama::AssetView"
+            | "kotodama::AssetDefinitionView"
+            | "kotodama::DomainView"
+            | "kotodama::NftView"
     )
 }
 
@@ -100,15 +105,15 @@ fn core_query_view_nodes_name<N: FlatTypeNodeV1>(nodes: &[N]) -> Option<(&str, u
         return None;
     };
     let (names, shape): (&[&str], &[TypeNodeViewV1<'_>]) = match name {
-        "AccountView" => (
+        "kotodama::AccountView" => (
             &["id", "metadata"],
             &[Leaf(Kind::AccountId), Leaf(Kind::Json)],
         ),
-        "AssetView" => (
+        "kotodama::AssetView" => (
             &["id", "amount"],
             &[Leaf(Kind::AssetId), Leaf(Kind::Quantity)],
         ),
-        "AssetDefinitionView" => (
+        "kotodama::AssetDefinitionView" => (
             &[
                 "id",
                 "name",
@@ -130,7 +135,7 @@ fn core_query_view_nodes_name<N: FlatTypeNodeV1>(nodes: &[N]) -> Option<(&str, u
                 Leaf(Kind::Json),
             ],
         ),
-        "DomainView" => (
+        "kotodama::DomainView" => (
             &["id", "owned_by", "metadata"],
             &[
                 Leaf(Kind::DomainId),
@@ -138,7 +143,7 @@ fn core_query_view_nodes_name<N: FlatTypeNodeV1>(nodes: &[N]) -> Option<(&str, u
                 Leaf(Kind::Json),
             ],
         ),
-        "NftView" => (
+        "kotodama::NftView" => (
             &["id", "owned_by", "content"],
             &[Leaf(Kind::NftId), Leaf(Kind::AccountId), Leaf(Kind::Json)],
         ),
@@ -182,16 +187,19 @@ fn valid_state_page_shape<N: FlatTypeNodeV1>(nodes: &[N], start: usize) -> Optio
     {
         return None;
     }
-    let TypeNodeViewV1::Leaf(key) = nodes.get(start.checked_add(3)?)?.type_node_view() else {
+    let key_range = subtree_range_v1(nodes, start.checked_add(3)?)?;
+    let value_end = subtree_range_v1(nodes, key_range.end)?.end;
+    let TypeNodeViewV1::StateCursor(key) = nodes.get(value_end.checked_add(1)?)?.type_node_view()
+    else {
         return None;
     };
-    if key == Kind::Json {
-        return None;
-    }
-    let value_end = subtree_range_v1(nodes, start.checked_add(4)?)?.end;
-    (nodes.get(value_end)?.type_node_view() == TypeNodeViewV1::Option
-        && nodes.get(value_end.checked_add(1)?)?.type_node_view()
-            == TypeNodeViewV1::StateCursor(key)
+    (super::validate_state_key_schema_v1(key)
+        && nodes
+            .get(key_range)?
+            .iter()
+            .map(FlatTypeNodeV1::type_node_view)
+            .eq(key.nodes.iter().map(FlatTypeNodeV1::type_node_view))
+        && nodes.get(value_end)?.type_node_view() == TypeNodeViewV1::Option
         && subtree_range_v1(nodes, start)?.end == value_end.checked_add(2)?)
     .then_some(())
 }
@@ -212,13 +220,13 @@ pub fn validate_reserved_nominal_shapes_v1<N: FlatTypeNodeV1>(nodes: &[N]) -> bo
             }
             continue;
         }
-        if name == "StatePage" {
+        if name == "kotodama::StatePage" {
             if valid_state_page_shape(nodes, start).is_none() {
                 return false;
             }
             continue;
         }
-        if name != "QueryPage" {
+        if name != "kotodama::QueryPage" {
             continue;
         }
         if fields != ["items", "next_offset"] {

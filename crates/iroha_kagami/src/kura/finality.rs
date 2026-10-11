@@ -5,7 +5,7 @@ use iroha_core::{state::AllocationBudget, sumeragi::certified_chain::CertifiedPr
 use iroha_data_model::{
     NetworkId,
     block::SharedSignedBlock,
-    sumeragi_finality::{FinalityValidator, SumeragiFinalityProof, genesis_epoch},
+    sumeragi_finality::{FinalityValidator, SumeragiFinalityProof, authenticated_genesis},
 };
 use iroha_model_base::chain::ChainId;
 
@@ -67,7 +67,9 @@ pub(super) fn inspect(
     let budget = AllocationBudget::new(MAX_OUTPUT_BYTES);
     let genesis = read_block(&mut store, 1, &budget)?;
     let network = NetworkId::from_genesis_hash(genesis.hash());
-    let epoch = genesis_epoch(&genesis).map_err(|error| eyre!(error))?;
+    let epoch = authenticated_genesis(&genesis)
+        .map(|genesis| genesis.into_parts().0)
+        .map_err(|error| eyre!(error))?;
     let mut committee = epoch.committee;
     let mut prefix = CertifiedPrefix::new(chain_id, network, genesis.clone())
         .wrap_err("authenticate the local signed genesis")?;

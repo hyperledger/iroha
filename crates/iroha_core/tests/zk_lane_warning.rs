@@ -1,6 +1,6 @@
 #![doc = "ZK lane reporting: background verification emits a non-forking pipeline warning."]
 #![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
-#![cfg(all(feature = "zk-tests", feature = "halo2-dev-tests"))]
+#![cfg(feature = "zk-tests")]
 //! ZK lane reporting: background verification emits a non-forking pipeline warning.
 use iroha_core::pipeline::zk_lane;
 use iroha_crypto::streaming::TransportCapabilityResolutionSnapshot;
@@ -13,14 +13,10 @@ async fn zk_lane_emits_warning_on_rejected_trace() {
     let (tx, mut rx) = tokio::sync::broadcast::channel::<iroha_data_model::events::EventBox>(16);
     zk_lane::register_events_sender(tx.clone());
     // Start the ZK lane (enabled=true). Use a tiny batch size to flush quickly.
-    let cfg = iroha_config::parameters::actual::Halo2 {
+    let cfg = iroha_config::parameters::actual::DiagnosticTrace {
         enabled: true,
-        curve: iroha_config::parameters::actual::ZkCurve::Pasta,
-        backend: iroha_config::parameters::actual::Halo2Backend::Ipa,
-        max_k: 18,
-        verifier_budget_ms: 10,
-        verifier_max_batch: 2,
-        ..iroha_config::parameters::actual::Halo2::default()
+        max_batch: 2,
+        ..iroha_config::parameters::actual::DiagnosticTrace::default()
     };
     let _ = zk_lane::start(&cfg);
     // Build a task whose constraint fails: gpr[0] = 1 but requires zero at cycle 0

@@ -20,7 +20,10 @@ fn contract_dispatch_context_rejects_no_selector_self_describing_artifact_withou
         .expect("explicit run context");
     assert_eq!(context.entrypoint.as_deref(), Some("run"));
     assert_eq!(context.entrypoint_pc(), Some(expected_entrypoint_pc));
-    assert_eq!(context.entrypoint_permission(), Some("RunPermission"));
+    assert_eq!(
+        context.entrypoint_authorization(),
+        &EntrypointAuthorizationV1::Permission("RunPermission".parse().unwrap())
+    );
 }
 #[test]
 fn trigger_dispatch_encodes_event_args_as_one_canonical_record() {
@@ -135,7 +138,7 @@ fn trigger_dispatch_rejects_static_payload_and_implicit_entrypoint() {
     ));
 }
 #[test]
-fn contract_entrypoint_permission_accepts_direct_and_role_grants() {
+fn contract_entrypoint_authorization_accepts_direct_and_role_grants() {
     let authority = ALICE_ID.clone();
     let account = Account::new(authority.clone()).build(&authority);
     let world = World::with([], [account], []);
@@ -154,42 +157,77 @@ fn contract_entrypoint_permission_accepts_direct_and_role_grants() {
         DataSpaceId::UNIVERSAL,
     )
     .expect("derive contract address");
-    let direct_context = contract_permission_context(contract_address.clone(), "admin");
-    let err = enforce_contract_entrypoint_permission(&tx.world, &authority, &direct_context)
+    let (artifact, manifest) = kotodama_lang::compiler::Compiler::new()
+        .compile_source_with_manifest(
+            r#"
+seiyaku DispatchRoles {
+  permission Admin;
+  permission RoleAdmin;
+  permission MalformedOnly;
+  import permission "ContractOperations" as ContractOperations;
+  import permission "CanTransferAsset" as AssetTransfer;
+  kotoage fn admin() authorize(Admin) {}
+  kotoage fn role_admin() authorize(RoleAdmin) {}
+  kotoage fn malformed_only() authorize(MalformedOnly) {}
+  kotoage fn custom_admin() authorize(ContractOperations) {}
+  kotoage fn typed_import() authorize(AssetTransfer) {}
+}
+"#,
+        )
+        .expect("compile declared dispatch roles");
+    let code_hash = ivm::contract_code_hash(&artifact);
+    tx.world
+        .contract_instances
+        .insert(contract_address.clone(), code_hash);
+    tx.world.contract_manifests.insert(
+        iroha_data_model::smart_contract::ContractArtifactId::for_address(
+            &contract_address,
+            code_hash,
+        )
+        .unwrap(),
+        manifest,
+    );
+    seed_owner_permission_contract(&mut tx, &contract_address, &authority, code_hash);
+    let direct_context = contract_permission_context(contract_address.clone(), "admin", "Admin");
+    let err = enforce_contract_entrypoint_authorization(&tx.world, &authority, &direct_context)
         .map_err(crate::execution_attempt::expect_completed_rejection)
         .expect_err("missing permission should reject contract entrypoint");
-    assert!(matches!(
-        err,
-        ValidationFail::NotPermitted(message)
-            if message.contains("requires an exact `CanInvokeContractEntrypoint` grant")
-    ));
+    assert!(
+        matches!(
+            err,
+            ValidationFail::NotPermitted(ref message)
+                if message.contains("requires its declared exact authorization")
+        ),
+        "unexpected authorization rejection: {err:?}"
+    );
     let direct_permission: Permission =
-        iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+        iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
             contract: contract_address.clone(),
-            entrypoint: "admin".to_owned(),
+            permission: "Admin".parse().unwrap(),
         }
         .into();
     Grant::account_permission(direct_permission, authority.clone())
         .execute(&authority, &mut tx)
         .expect("grant direct contract permission");
-    enforce_contract_entrypoint_permission(&tx.world, &authority, &direct_context)
+    enforce_contract_entrypoint_authorization(&tx.world, &authority, &direct_context)
         .expect("direct permission should allow contract entrypoint");
-    let role_context = contract_permission_context(contract_address.clone(), "role_admin");
+    let role_context =
+        contract_permission_context(contract_address.clone(), "role_admin", "RoleAdmin");
     let role_id: RoleId = "contract_admin_role".parse().expect("role id");
     let role: iroha_data_model::role::NewRole = Role::new(role_id.clone(), authority.clone())
         .add_permission(Permission::from(
-            iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+            iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
                 contract: contract_address.clone(),
-                entrypoint: "role_admin".to_owned(),
+                permission: "RoleAdmin".parse().unwrap(),
             },
         ));
     Register::role(role)
         .execute(&authority, &mut tx)
         .expect("register contract role");
-    enforce_contract_entrypoint_permission(&tx.world, &authority, &role_context)
+    enforce_contract_entrypoint_authorization(&tx.world, &authority, &role_context)
         .expect("role permission should allow contract entrypoint");
     for denied_context in [
-        contract_permission_context(contract_address.clone(), "wrong_entrypoint"),
+        contract_permission_context(contract_address.clone(), "wrong_entrypoint", "Admin"),
         contract_permission_context(
             ContractAddress::derive(
                 &"hash:0000000000000000000000000000000000000000000000000000000000000001#C50E"
@@ -201,13 +239,14 @@ fn contract_entrypoint_permission_accepts_direct_and_role_grants() {
             )
             .expect("derive distinct contract address"),
             "admin",
+            "Admin",
         ),
     ] {
-        enforce_contract_entrypoint_permission(&tx.world, &authority, &denied_context)
+        enforce_contract_entrypoint_authorization(&tx.world, &authority, &denied_context)
             .expect_err("a grant for another contract or selector must fail closed");
     }
     let malformed_permission =
-        Permission::new("CanInvokeContractEntrypoint".to_owned(), Json::new(()));
+        Permission::new("CanUseContractPermission".to_owned(), Json::new(()));
     let staged_before = norito::to_bytes(
         &tx.world
             .account_permissions
@@ -235,14 +274,17 @@ fn contract_entrypoint_permission_accepts_direct_and_role_grants() {
     ))
     .unwrap();
     tx.world.take_external_events();
-    let malformed_grant =
-        Grant::account_permission(malformed_permission.clone(), authority.clone())
-            .execute(&authority, &mut tx)
-            .expect_err("native Grant rejects the recognized malformed permission before mutation");
+    let malformed_grant = super::Executor::Initial
+        .execute_instruction(
+            &mut tx,
+            &authority,
+            Grant::account_permission(malformed_permission.clone(), authority.clone()).into(),
+        )
+        .expect_err("native Grant rejects the recognized malformed permission before mutation");
     assert!(matches!(
         malformed_grant,
-        iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(message)
-            if message.contains("payout runtime permission")
+        ValidationFail::NotPermitted(message)
+            if message.contains("Invalid permission payload")
     ));
     assert_eq!(
         norito::to_bytes(
@@ -281,8 +323,9 @@ fn contract_entrypoint_permission_accepts_direct_and_role_grants() {
     // Seed adversarial retained DATA to test the executor's independent authority boundary.
     tx.world
         .add_account_permission(&authority, malformed_permission);
-    let malformed_only = contract_permission_context(contract_address.clone(), "malformed_only");
-    enforce_contract_entrypoint_permission(&tx.world, &authority, &malformed_only)
+    let malformed_only =
+        contract_permission_context(contract_address.clone(), "malformed_only", "MalformedOnly");
+    enforce_contract_entrypoint_authorization(&tx.world, &authority, &malformed_only)
         .expect_err("a name-only permission must never bypass exact payload matching");
     let custom_name = "ContractOperations";
     let noncanonical_custom = Permission::new(
@@ -292,12 +335,12 @@ fn contract_entrypoint_permission_accepts_direct_and_role_grants() {
     Grant::account_permission(noncanonical_custom.clone(), authority.clone())
         .execute(&authority, &mut tx)
         .expect("store same-name custom permission with a noncanonical payload");
-    enforce_named_contract_entrypoint_permission(
+    enforce_named_contract_entrypoint_authorization(
         &tx.world,
         &authority,
         &contract_address,
         "custom_admin",
-        Some(custom_name),
+        &EntrypointAuthorizationV1::Permission(custom_name.parse().unwrap()),
     )
     .expect_err("a same-name custom payload must not authorize an entrypoint");
     Revoke::account_permission(noncanonical_custom, authority.clone())
@@ -309,14 +352,34 @@ fn contract_entrypoint_permission_accepts_direct_and_role_grants() {
     )
     .execute(&authority, &mut tx)
     .expect("grant canonical custom entrypoint permission");
-    enforce_named_contract_entrypoint_permission(
+    enforce_named_contract_entrypoint_authorization(
         &tx.world,
         &authority,
         &contract_address,
         "custom_admin",
-        Some(custom_name),
+        &EntrypointAuthorizationV1::Permission(custom_name.parse().unwrap()),
     )
     .expect("the exact empty-payload custom permission must authorize its marker");
+    let imported_asset = AssetId::of(
+        AssetDefinitionId::derive_from_components(
+            DomainId::try_new("sharedrole", "universal").unwrap(),
+            "coin".parse().unwrap(),
+        ),
+        authority.clone(),
+    );
+    let typed_transfer: Permission = executor_permission::asset::CanTransferAsset {
+        asset: imported_asset,
+    }
+    .into();
+    tx.world.add_account_permission(&authority, typed_transfer);
+    enforce_named_contract_entrypoint_authorization(
+        &tx.world,
+        &authority,
+        &contract_address,
+        "typed_import",
+        &EntrypointAuthorizationV1::Permission("AssetTransfer".parse().unwrap()),
+    )
+    .expect_err("an imported marker never consumes a typed ledger permission payload");
 }
 fn generate_denied_program(message: &str) -> Vec<u8> {
     let verdict = Err(iroha_data_model::ValidationFail::NotPermitted(

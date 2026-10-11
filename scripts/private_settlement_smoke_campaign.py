@@ -36,6 +36,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 import private_settlement_release_runner as release_runner
+import sumeragi_mutation_gate as native_accounting
 
 
 def _load_source_manifest_tools() -> ModuleType:
@@ -58,6 +59,10 @@ EMPTY_PROTOCOL_HASH = "0" * 63 + "1"
 TEST_NAME = (
     "nexus::atomic_private_settlement_localnet::"
     "atomic_private_settlement_n3_real_process_smoke"
+)
+HAPPY_DAY_TEST_NAME = (
+    "nexus::atomic_private_settlement_localnet::"
+    "atomic_private_settlement_n3_happy_day"
 )
 RUN_COUNT = 10
 PEER_COUNT = 16
@@ -258,17 +263,46 @@ def new_request(commit: str, run: int, *, kind: str = "smoke") -> dict[str, Any]
 def terminal_success(output: str, *, kind: str = "smoke") -> None:
     """Require an executed exact test, excluding zero-test/ignored/skip successes."""
     require(kind in ("smoke", "happy_day"), "unknown experiment kind")
-    terminals = re.findall(r"^test result: .*?$", output, re.MULTILINE)
-    require(len(terminals) == 1 and re.fullmatch(
-        r"test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; \d+ filtered out; finished in .+",
-        terminals[0]) is not None, "smoke lacks exact terminal 1 passed / 0 failed / 0 ignored")
-    require(re.search(r"^running 1 test\s*$", output, re.MULTILINE) is not None,
-            "smoke test was not executed")
+    selected = TEST_NAME if kind == "smoke" else HAPPY_DAY_TEST_NAME
+    terminals, owners_valid = native_accounting.serial_test_terminals(output)
+    headers = list(native_accounting.TEST_RUNNING.finditer(output))
+    summaries = list(native_accounting.TEST_COMPLETION.finditer(output))
+    require(owners_valid and len(terminals) == 1
+            and terminals[0][:2] == (selected, "ok"),
+            "experiment lacks its exact successful native test terminal")
+    require(len(headers) == len(summaries) == 1
+            and len(re.findall(r"^test result:.*$", output, re.MULTILINE)) == 1
+            and headers[0].group(1) == "1"
+            and summaries[0].group(1) == "ok"
+            and tuple(map(int, summaries[0].group(2, 3, 4, 5))) == (1, 0, 0, 0)
+            and headers[0].end() < terminals[0][2]
+            and terminals[0][3] < summaries[0].start(),
+            "experiment lacks one ordered exact native header and success summary")
     require(re.search(r"\bskip(?:ped|ping)?\b|\bretrying\b|fresh startup attempt [2-9]", output,
                       re.IGNORECASE) is None, "smoke reported a skip or retry")
     require(output.count(f"APS {kind} completed:") == 1, "missing unique Rust experiment completion")
     other = "happy_day" if kind == "smoke" else "smoke"
     require(f"APS {other} completed:" not in output, "another experiment completion was mixed into the stream")
+
+
+def validate_process_closure(output: str) -> None:
+    """Require all restart and final-shutdown exits from the standalone smoke run.
+
+    PeerExit prints the pinned Rust ExitStatus Debug value: Unix wait status or
+    the nested Windows ExitStatus. Every one of the 16 original and 16 replacement
+    validator processes must report successful termination; unrelated log lines
+    do not replace missing records. Native/source/PID custody remains separately
+    authenticated by the campaign and its Rust producer.
+    """
+    prefix = "TEST_NETWORK peer exited"
+    records = [line for line in output.splitlines() if prefix in line]
+    require(len(records) == 2 * PEER_COUNT, "smoke requires exactly 32 validator process exit records")
+    successful = {
+        "TEST_NETWORK peer exited with status ExitStatus(unix_wait_status(0))",
+        "TEST_NETWORK peer exited with status ExitStatus(ExitStatus(0))",
+    }
+    require(records[0] in successful and all(record == records[0] for record in records),
+            "smoke requires successful validator process exits with one exact platform grammar")
 
 
 def validate_inventory(before: Any, after: Any, restarts: Any, validator_sha: str,
@@ -1027,7 +1061,9 @@ def run_campaign(repo: Path, output: Path, target: Path, commit: str) -> dict[st
             write_json(directory / "after.json", {"source": post_source, "artifacts": post_binaries})
             require(post_source == seal and post_binaries == binaries, "source or executable drift during smoke")
             require(receipt["exit_code"] == 0, f"smoke run {index} failed; all output retained in {directory}")
-            terminal_success(read_bytes(directory / "stdout.log", limit=256 * 1024 * 1024).decode("utf-8"))
+            output_text = read_bytes(directory / "stdout.log", limit=256 * 1024 * 1024).decode("utf-8")
+            terminal_success(output_text)
+            validate_process_closure(output_text)
             summary = validate_run(directory, request, binaries["validator"]["sha256"])
             for name in ("network_id", "bundle_id"):
                 identity = canonical(summary[name])
@@ -1147,7 +1183,9 @@ def validate_campaign(path: Path | str, *, expected_commit: str | None = None) -
         require(record["started_ns"] >= previous_end and row["command_sha256"] == sha(canonical(record)),
                 "smoke runs overlap or command receipt changed")
         previous_end = record["finished_ns"]
-        terminal_success(read_bytes(directory / "stdout.log", limit=256 * 1024 * 1024).decode())
+        output_text = read_bytes(directory / "stdout.log", limit=256 * 1024 * 1024).decode()
+        terminal_success(output_text)
+        validate_process_closure(output_text)
         summary = validate_run(directory, request, binaries["validator"]["sha256"])
         require(row["summary"] == summary and row["result_sha256"] == summary["result_sha256"], "run summary changed")
         for name in ("network_id", "bundle_id"):

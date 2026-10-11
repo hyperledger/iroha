@@ -122,24 +122,24 @@ fn every_capacity_original_field_and_hidden_row_refuse_substitution() {
     assert!(verify(&absent, &absent_policy, &absent_block).is_err());
     let original = capacity();
     let mut changes = Vec::new();
-    macro_rules! changed {
+    macro_rules! candidate {
         ($field:ident, $value:expr) => {{
             let mut value = original.clone();
             value.$field = $value;
             changes.push(value);
         }};
     }
-    changed!(provider_id, ProviderId::new([0x53; 32]));
-    changed!(declaration, vec![1, 2, 3]);
-    changed!(committed_capacity_gib, 2);
-    changed!(registered_epoch, 1);
-    changed!(valid_from_epoch, 1);
-    changed!(valid_until_epoch, 2);
-    changed!(metadata, iroha_model_base::metadata::Metadata::default());
+    candidate!(provider_id, ProviderId::new([0x53; 32]));
+    candidate!(declaration, vec![1, 2, 3]);
+    candidate!(committed_capacity_gib, 2);
+    candidate!(registered_epoch, 1);
+    candidate!(valid_from_epoch, 1);
+    candidate!(valid_until_epoch, 2);
+    candidate!(metadata, iroha_model_base::metadata::Metadata::default());
     for value in changes {
-        let mut changed = proof.clone();
-        changed.capacity = Some(norito::encode_canonical(&value).unwrap());
-        assert!(verify(&changed, &policy, &block).is_err());
+        let mut candidate = proof.clone();
+        candidate.capacity = Some(norito::encode_canonical(&value).unwrap());
+        assert!(verify(&candidate, &policy, &block).is_err());
     }
 }
 

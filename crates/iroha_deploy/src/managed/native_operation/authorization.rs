@@ -7,15 +7,18 @@ use super::{
     attempts::{self, BodyReplacementTarget, Origin, Purpose},
     invalid, now_ms, require_deadline,
 };
+#[cfg(test)]
+use crate::managed::stream_token_custody::body_history::finish_timing;
 use crate::managed::{ManagedBootstrapFailure, Result};
 use iroha_crypto::Hash;
 use iroha_data_model::sorafs::capacity::ProviderId;
 use iroha_fs::PrivateDirectory;
 use iroha_wallet::operations::AccountService;
 use std::{
+    cell::Cell,
     ffi::OsString,
     sync::{
-        Arc,
+        Arc, RwLock, RwLockReadGuard, RwLockWriteGuard, TryLockError,
         atomic::{AtomicBool, Ordering},
     },
     time::Instant,
@@ -80,7 +83,7 @@ impl ReplacementTarget {
 }
 
 /// Closed local scope. It cannot supply a native policy, current state or successful carrier.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(in crate::managed) enum Scope {
     Bootstrap([ProviderId; 3]),
     Renewal { provider: ProviderId, sequence: u64 },
@@ -130,6 +133,9 @@ pub(in crate::managed) struct Lease {
     pub(in crate::managed) epoch: Epoch,
     deadline: Instant,
     cancelled: Arc<AtomicBool>,
+    // Serialize this live owner's epoch census with its sole replacement publication.
+    // This is not a retained absence verdict or a lock over another process's writes.
+    replacement_gate: RwLock<()>,
 }
 impl Lease {
     pub(in crate::managed) fn issue(
@@ -170,22 +176,27 @@ impl Lease {
         let terms = Terms::new(requested, &fees.options(deadline))?;
         require_active(&cancelled)?;
         let root = directory.ensure_child("epochs")?;
-        let retained = read_epochs(&root, original_digest, fees, scope)?;
+        let retained = read_epochs(&root, original_digest, fees, scope, Vec::new())?;
         if retained.len() >= MAX_EPOCHS {
             return Err(ManagedBootstrapFailure::EpochLimit.into());
         }
         let epoch = Epoch {
             ordinal: u8::try_from(retained.len() + 1)
                 .map_err(|_| invalid("generated epoch ordinal overflow"))?,
-            previous: retained.last().map(digest).transpose()?,
+            previous: retained
+                .last()
+                .map(|entry| entry.epoch.digest())
+                .transpose()?,
             parent_intent: original_digest,
             issued_at_unix_ms,
             terms,
         };
         require_active(&cancelled)?;
         attempts::write_record(&root, &format!("{:04}.nrt", epoch.ordinal), &epoch)?;
-        let after = read_epochs(&root, original_digest, fees, scope)?;
-        if after.last() != Some(&epoch) || after.len() != retained.len() + 1 {
+        let after = read_epochs(&root, original_digest, fees, scope, Vec::new())?;
+        if after.last().map(|entry| &entry.epoch.value) != Some(&epoch)
+            || after.len() != retained.len() + 1
+        {
             return Err(invalid("new generated epoch changed during publication"));
         }
         Ok(Self {
@@ -196,9 +207,19 @@ impl Lease {
             epoch,
             deadline,
             cancelled,
+            replacement_gate: RwLock::new(()),
         })
     }
     pub(in crate::managed) fn check(&self, deadline: Instant) -> Result<Instant> {
+        let _guard = self.read_guard(deadline)?;
+        self.check_locked(deadline)
+    }
+    // All native and final live checks remain in their original order. The caller owns
+    // either the shared census guard or the exclusive replacement guard throughout.
+    fn check_locked(&self, deadline: Instant) -> Result<Instant> {
+        #[cfg(test)]
+        let _closure_timing =
+            finish_timing::phase_in_closure(finish_timing::Phase::ClosureLiveCheck);
         require_active(&self.cancelled)?;
         let deadline = deadline.min(self.deadline);
         if deadline <= Instant::now() {
@@ -221,16 +242,69 @@ impl Lease {
             self.original_digest,
             &self.epoch.terms.fees,
             self.scope,
+            Vec::new(),
         )?;
-        if retained.last() != Some(&self.epoch) {
+        if retained.last().map(|entry| &entry.epoch.value) != Some(&self.epoch) {
             return Err(invalid(
                 "generated capability no longer selects its retained epoch",
             ));
         }
-        self.epoch
-            .terms
-            .signing_deadline(deadline)
-            .map_err(|_| ManagedBootstrapFailure::AuthorizationExpired.into())
+        #[cfg(test)]
+        cancellation_tests::after_native_reads();
+        let deadline = self.epoch.terms.signing_deadline(deadline).map_err(|_| {
+            crate::managed::Error::Bootstrap(ManagedBootstrapFailure::AuthorizationExpired)
+        })?;
+        // Preserve native/retained and expiry refusals before closing a successful live check.
+        require_active(&self.cancelled)?;
+        Ok(deadline)
+    }
+    fn require_lock_budget(&self, deadline: Instant) -> Result<()> {
+        require_active(&self.cancelled)?;
+        if deadline.min(self.deadline) <= Instant::now() {
+            return Err(ManagedBootstrapFailure::AuthorizationExpired.into());
+        }
+        if now_ms()? >= self.epoch.terms.signing_deadline_unix_ms {
+            return Err(ManagedBootstrapFailure::AuthorizationExpired.into());
+        }
+        Ok(())
+    }
+    fn read_guard(&self, deadline: Instant) -> Result<RwLockReadGuard<'_, ()>> {
+        loop {
+            self.require_lock_budget(deadline)?;
+            match self.replacement_gate.try_read() {
+                Ok(guard) => {
+                    self.require_lock_budget(deadline)?;
+                    return Ok(guard);
+                }
+                Err(TryLockError::Poisoned(_)) => {
+                    return Err(invalid("generated authorization replacement gate poisoned"));
+                }
+                Err(TryLockError::WouldBlock) => {
+                    #[cfg(test)]
+                    parallel_tests::after_contention();
+                    std::thread::yield_now();
+                }
+            }
+        }
+    }
+    fn write_guard(&self, deadline: Instant) -> Result<RwLockWriteGuard<'_, ()>> {
+        loop {
+            self.require_lock_budget(deadline)?;
+            match self.replacement_gate.try_write() {
+                Ok(guard) => {
+                    self.require_lock_budget(deadline)?;
+                    return Ok(guard);
+                }
+                Err(TryLockError::Poisoned(_)) => {
+                    return Err(invalid("generated authorization replacement gate poisoned"));
+                }
+                Err(TryLockError::WouldBlock) => {
+                    #[cfg(test)]
+                    parallel_tests::after_contention();
+                    std::thread::yield_now();
+                }
+            }
+        }
     }
     fn origin(&self) -> Result<Origin> {
         Ok(Origin::Generated {
@@ -240,7 +314,13 @@ impl Lease {
         })
     }
     fn claim(&self, purpose: Purpose, target: ReplacementTarget, deadline: Instant) -> Result<()> {
-        self.check(deadline)?;
+        #[cfg(test)]
+        let _closure_timing =
+            finish_timing::phase_in_closure(finish_timing::Phase::ClosureLiveClaim);
+        let _guard = self.write_guard(deadline)?;
+        #[cfg(test)]
+        parallel_tests::after_claim_lock();
+        self.check_locked(deadline)?;
         self.scope.check(purpose)?;
         target.validate(purpose)?;
         let root = self.directory.open_child("epochs")?;
@@ -255,10 +335,10 @@ impl Lease {
                 return Err(ManagedBootstrapFailure::ReplacementLimit.into());
             }
         } else {
-            self.check(deadline)?;
+            self.check_locked(deadline)?;
             attempts::write_record(&root, &name, &selected)?;
         }
-        self.check(deadline)?;
+        self.check_locked(deadline)?;
         Ok(())
     }
 }
@@ -338,56 +418,196 @@ pub(in crate::managed) trait DispatchAuthorization: sealed::Sealed {
     }
 }
 
+// Owned once by a lexical read. Ordinary censuses and selected parser references freshly
+// observe their bytes; a parser's original complete sequence also closes at full exit.
+// These immutable DTOs/digests cannot issue a Lease or survive in BodyHistory.
+struct RecordImage<T> {
+    bytes: Vec<u8>,
+    value: T,
+    digest: Cell<Option<[u8; 32]>>,
+}
+impl<T: norito::NoritoSerialize> RecordImage<T> {
+    fn digest(&self) -> Result<[u8; 32]> {
+        if let Some(value) = self.digest.get() {
+            return Ok(value);
+        }
+        let value = digest(&self.value)?;
+        #[cfg(test)]
+        reader_tests::digest_computed();
+        self.digest.set(Some(value));
+        Ok(value)
+    }
+}
+struct RetainedEpoch {
+    epoch: RecordImage<Epoch>,
+    claim: Option<RecordImage<Replacement>>,
+}
+
+/// One body parser's bounded metadata workspace, never a live authorization verdict.
+/// A concrete read-only parser may borrow its exact original source until the full exit;
+/// ordinary/effectful readers and active decode budgets retain every complete census.
+#[derive(Default)]
+pub(in crate::managed) struct EpochReader {
+    records: Vec<RetainedEpoch>,
+    parser_source: Option<parser::Source>,
+}
+impl EpochReader {
+    fn refresh(
+        &mut self,
+        directory: &PrivateDirectory,
+        original_digest: [u8; 32],
+        fees: &Fees,
+        scope: Scope,
+    ) -> Result<()> {
+        // Open the child anew at every original census point. No old native directory or
+        // file handle is used to replace the currently named custody observation.
+        self.records = match directory.open_child_optional("epochs")? {
+            Some(root) => read_epochs(
+                &root,
+                original_digest,
+                fees,
+                scope,
+                std::mem::take(&mut self.records),
+            )?,
+            None => Vec::new(),
+        };
+        Ok(())
+    }
+    pub(in crate::managed) fn validate_retained(
+        &mut self,
+        directory: &PrivateDirectory,
+        original_digest: [u8; 32],
+        fees: &Fees,
+        scope: Scope,
+    ) -> Result<()> {
+        self.refresh(directory, original_digest, fees, scope)?;
+        directory.revalidate()?;
+        Ok(())
+    }
+    pub(in crate::managed) fn validate_references<'a>(
+        &mut self,
+        directory: &PrivateDirectory,
+        original_digest: [u8; 32],
+        fees: &Fees,
+        scope: Scope,
+        origins: impl Iterator<Item = &'a Origin>,
+    ) -> Result<()> {
+        if self.parser_source.is_some() {
+            return self.validate_parser_references(
+                directory,
+                original_digest,
+                fees,
+                scope,
+                origins,
+            );
+        }
+        self.refresh(directory, original_digest, fees, scope)?;
+        for origin in origins {
+            if let Origin::Generated {
+                ordinal,
+                epoch,
+                parent_intent,
+            } = origin
+            {
+                let selected = self
+                    .records
+                    .get(
+                        usize::from(*ordinal)
+                            .checked_sub(1)
+                            .ok_or_else(|| invalid("generated epoch ordinal is zero"))?,
+                    )
+                    .ok_or_else(|| {
+                        invalid("retained dispatch lost its original authorization epoch")
+                    })?;
+                if *parent_intent != original_digest || *epoch != selected.epoch.digest()? {
+                    return Err(invalid(
+                        "retained dispatch changed its original authorization epoch",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
 pub(in crate::managed) fn validate_retained(
     directory: &PrivateDirectory,
     original_digest: [u8; 32],
     fees: &Fees,
     scope: Scope,
 ) -> Result<()> {
-    match directory.open_child("epochs") {
-        Ok(root) => {
-            read_epochs(&root, original_digest, fees, scope)?;
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
+    EpochReader::default().validate_retained(directory, original_digest, fees, scope)
+}
+
+// One physical producer for ordinary imports and exact parser-owned image comparisons.
+fn read_source_image(root: &PrivateDirectory, name: &str) -> Result<Option<Vec<u8>>> {
+    #[cfg(test)]
+    reader_tests::record_read();
+    super::read_optional(root, name, attempts::MAX_RECORD_BYTES)
+}
+
+fn read_image<T: norito::NoritoSerialize + for<'a> norito::NoritoDeserialize<'a>>(
+    root: &PrivateDirectory,
+    name: &str,
+    retained: Option<RecordImage<T>>,
+    exact: bool,
+) -> Result<Option<RecordImage<T>>> {
+    let current = read_source_image(root, name)?;
+    // Compare before dropping or replacing the original image: absence, a newly appeared
+    // claim/epoch, and changed bytes all refuse the exact lexical parser exit.
+    if exact && current.as_deref() != retained.as_ref().map(|image| image.bytes.as_slice()) {
+        return Err(invalid("original epoch parser image changed"));
     }
-    directory.revalidate()?;
+    let Some(bytes) = current else {
+        return Ok(None);
+    };
+    // An enclosing decoder owns its current admission, including field/sequence/depth
+    // ceilings. Such a caller must independently decode this image even when identical;
+    // pure metadata reuse cannot transfer a prior decoder's admission to another scope.
+    if let Some(retained) =
+        retained.filter(|retained| !norito::core::decode_limits_active() && retained.bytes == bytes)
+    {
+        return Ok(Some(retained));
+    }
+    let value = attempts::decode_record(&bytes)?;
+    #[cfg(test)]
+    reader_tests::record_decoded();
+    Ok(Some(RecordImage {
+        bytes,
+        value,
+        digest: Cell::new(None),
+    }))
+}
+fn validate_epoch(
+    epoch: &RecordImage<Epoch>,
+    ordinal: usize,
+    previous: Option<&RecordImage<Epoch>>,
+    parent_intent: [u8; 32],
+    fees: &Fees,
+) -> Result<()> {
+    let value = &epoch.value;
+    value.terms.validate()?;
+    if usize::from(value.ordinal) != ordinal
+        || value.parent_intent != parent_intent
+        || value.terms.fees != *fees
+        || value.issued_at_unix_ms == 0
+        || value.issued_at_unix_ms >= value.terms.signing_deadline_unix_ms
+        || value.previous != previous.map(RecordImage::digest).transpose()?
+    {
+        return Err(invalid(
+            "generated epoch changed original intent, fees or lineage",
+        ));
+    }
     Ok(())
 }
-pub(in crate::managed) fn validate_references<'a>(
-    directory: &PrivateDirectory,
-    original_digest: [u8; 32],
-    fees: &Fees,
+fn validate_claim(
+    claim: &RecordImage<Replacement>,
+    epoch: &RecordImage<Epoch>,
     scope: Scope,
-    origins: impl Iterator<Item = &'a Origin>,
 ) -> Result<()> {
-    let records = match directory.open_child("epochs") {
-        Ok(root) => read_epochs(&root, original_digest, fees, scope)?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(error) => return Err(error.into()),
-    };
-    for origin in origins {
-        if let Origin::Generated {
-            ordinal,
-            epoch,
-            parent_intent,
-        } = origin
-        {
-            let selected = records
-                .get(
-                    usize::from(*ordinal)
-                        .checked_sub(1)
-                        .ok_or_else(|| invalid("generated epoch ordinal is zero"))?,
-                )
-                .ok_or_else(|| {
-                    invalid("retained dispatch lost its original authorization epoch")
-                })?;
-            if *parent_intent != original_digest || *epoch != digest(selected)? {
-                return Err(invalid(
-                    "retained dispatch changed its original authorization epoch",
-                ));
-            }
-        }
+    scope.check(claim.value.purpose)?;
+    claim.value.target.validate(claim.value.purpose)?;
+    if claim.value.epoch != epoch.digest()? {
+        return Err(invalid("generated unsigned replacement claim changed"));
     }
     Ok(())
 }
@@ -397,41 +617,63 @@ fn read_epochs(
     parent_intent: [u8; 32],
     fees: &Fees,
     scope: Scope,
-) -> Result<Vec<Epoch>> {
+    retained: Vec<RetainedEpoch>,
+) -> Result<Vec<RetainedEpoch>> {
+    read_epochs_using(root, parent_intent, fees, scope, retained, false)
+}
+
+// One canonical sequence reader owns bounds, physical reads, decoding, semantics and
+// namespace order. The parser exit moves its original images through this same reader.
+fn read_epochs_using(
+    root: &PrivateDirectory,
+    parent_intent: [u8; 32],
+    fees: &Fees,
+    scope: Scope,
+    retained: Vec<RetainedEpoch>,
+    exact: bool,
+) -> Result<Vec<RetainedEpoch>> {
+    #[cfg(test)]
+    reader_tests::namespace_read();
     let names = root.entries(MAX_EPOCHS * 2)?;
     let mut expected = Vec::<OsString>::new();
-    let mut epochs: Vec<Epoch> = Vec::new();
+    let mut epochs: Vec<RetainedEpoch> = Vec::new();
+    // Move each already owned image after its fresh observation. Unchanged records keep
+    // their original allocation; changed records are dropped before canonical decode.
+    // Old unread tails and partial new results are dropped if this census refuses.
+    let mut retained = retained.into_iter();
     for index in 1..=MAX_EPOCHS {
         let name = format!("{index:04}.nrt");
-        let Some(epoch): Option<Epoch> = attempts::read_record(root, &name)? else {
+        let (old_epoch, old_claim) = retained
+            .next()
+            .map_or((None, None), |entry| (Some(entry.epoch), entry.claim));
+        let Some(epoch): Option<RecordImage<Epoch>> = read_image(root, &name, old_epoch, exact)?
+        else {
             break;
         };
-        epoch.terms.validate()?;
-        if usize::from(epoch.ordinal) != index
-            || epoch.parent_intent != parent_intent
-            || epoch.terms.fees != *fees
-            || epoch.issued_at_unix_ms == 0
-            || epoch.issued_at_unix_ms >= epoch.terms.signing_deadline_unix_ms
-            || epoch.previous != epochs.last().map(digest).transpose()?
-        {
-            return Err(invalid(
-                "generated epoch changed original intent, fees or lineage",
-            ));
-        }
+        validate_epoch(
+            &epoch,
+            index,
+            epochs.last().map(|entry| &entry.epoch),
+            parent_intent,
+            fees,
+        )?;
         expected.push(name.into());
         let claim_name = format!("{index:04}-replacement.nrt");
-        if let Some(claim) = attempts::read_record::<Replacement>(root, &claim_name)? {
-            scope.check(claim.purpose)?;
-            claim.target.validate(claim.purpose)?;
-            if claim.epoch != digest(&epoch)? {
-                return Err(invalid("generated unsigned replacement claim changed"));
-            }
+        let claim = read_image(root, &claim_name, old_claim, exact)?;
+        if let Some(claim) = &claim {
+            validate_claim(claim, &epoch, scope)?;
             expected.push(claim_name.into());
         }
-        epochs.push(epoch);
+        epochs.push(RetainedEpoch { epoch, claim });
     }
     expected.sort();
-    if names != expected || root.entries(MAX_EPOCHS * 2)? != names {
+    // Keep the short-circuit order: a mismatched original inventory refuses before the
+    // original final namespace observation is attempted.
+    if names != expected || {
+        #[cfg(test)]
+        reader_tests::namespace_read();
+        root.entries(MAX_EPOCHS * 2)? != names
+    } {
         return Err(invalid(
             "generated epoch inventory changed or contains gaps or unknown material",
         ));
@@ -448,3 +690,19 @@ pub(in crate::managed) fn require_active(cancelled: &AtomicBool) -> Result<()> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "authorization/reader_tests.rs"]
+mod reader_tests;
+
+#[cfg(test)]
+#[path = "authorization/cancellation_tests.rs"]
+mod cancellation_tests;
+
+#[cfg(test)]
+#[path = "authorization/parallel_tests.rs"]
+mod parallel_tests;
+
+#[path = "authorization/parser.rs"]
+mod parser;
+pub(in crate::managed) use parser::BodyParserEpochContext;

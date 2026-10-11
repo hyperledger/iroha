@@ -92,6 +92,22 @@ fn current_constructors() -> BTreeMap<String, Value> {
     let mut values = missing_record_values();
     values.extend(sorafs_values());
     values.extend(kaigi_records::current_values());
+    // Capture the exact asset and expected ordinal of the current IssueLoad
+    // constructor through the real codec;
+    // retired discriminants and container frames are never decoded or projected.
+    values.push(capture(
+        crate::isi::kagemusha_wallet::KagemushaWalletLedgerV1::new(
+            [1; 32],
+            crate::isi::kagemusha_wallet::KagemushaWalletLedgerActionV1::IssueLoad {
+                wallet: [2; 32],
+                asset: [4; 32],
+                ordinal: 0,
+                request_id: [3; 32],
+                amount: 7,
+                charge: None,
+            },
+        ),
+    ));
     unique_rows(values)
 }
 

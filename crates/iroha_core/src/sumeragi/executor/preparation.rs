@@ -63,7 +63,8 @@ pub(super) fn certificate_failure(error: &CertificateAdmissionError) -> Publicat
 #[cfg(test)]
 mod tests;
 
-/// Preserve the exact witness backing/control refusal before storing diagnostic progress.
+/// Preserve the exact witness backing/control refusal in unit classification controls.
+#[cfg(test)]
 pub(super) fn witness_failure(
     error: &iroha_sumeragi::message::ByteAdmissionError,
 ) -> PublicationError {

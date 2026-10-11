@@ -1,4 +1,4 @@
-//! Original incumbent and signed candidate-command refusal ownership.
+//! Original incumbent and signed frozen-credential-command refusal ownership.
 
 use super::*;
 use crate::{
@@ -8,21 +8,12 @@ use crate::{
 use iroha_data_model::{isi::SetParameter, prelude::*};
 use iroha_model_base::domain::DomainId;
 
-fn original_candidate() -> (CertifiedTestChain, KeyPair, ValidatorCandidateKeysV1) {
-    use crate::{
-        sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
-        zk::kagemusha_v1_recursion::{
-            derive_kagemusha_mint_finality_validator_keys_v1,
-            prove_kagemusha_mint_finality_candidate_possession_v1,
-        },
-    };
-    use iroha_crypto::{Algorithm, SignatureOf};
+fn original_incumbent() -> (CertifiedTestChain, KeyPair) {
+    use crate::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+    use iroha_crypto::Algorithm;
     use iroha_data_model::{
         isi::RegisterPublicLaneValidator,
-        nexus::{
-            PublicLaneMonetaryPlanV1, ValidatorCandidateKeyAuthorizationV1,
-            ValidatorCandidateKeysV1,
-        },
+        nexus::PublicLaneMonetaryPlanV1,
         parameter::{Parameter, system::SumeragiNposParameters},
     };
     use iroha_model_base::{peer::PeerId, topology::LaneId};
@@ -79,34 +70,305 @@ fn original_candidate() -> (CertifiedTestChain, KeyPair, ValidatorCandidateKeysV
         .into(),
     );
     let chain = CertifiedTestChain::start(config).unwrap();
-    let network = chain.network_id();
-    let candidate = |generation| {
-        let keys =
-            derive_kagemusha_mint_finality_validator_keys_v1(&[0xDD; 32], generation, peer.clone())
-                .unwrap();
-        let possession = prove_kagemusha_mint_finality_candidate_possession_v1(
-            &[0xDD; 32],
-            network,
-            generation,
-            &keys,
+    (chain, owner_key)
+}
+
+/// Execute the original selecting boundary and both real ceremonies before testing publication.
+fn original_preparation() -> (CertifiedTestChain, KeyPair, ValidatorCommitteeOperationV1) {
+    use crate::beacon::{
+        FinalizedGlobalThresholdBeaconKeySessionRecordV1, GlobalThresholdBeaconPartialSignerV1,
+        GlobalThresholdBeaconPulseAggregatorV1, InMemoryGlobalThresholdBeaconPartialSignerV1,
+        ValidatedGlobalThresholdBeaconSessionV1,
+    };
+    use crate::sumeragi::test_chain::{Signers, TestChainConfig};
+    use iroha_data_model::{
+        consensus::{GlobalThresholdBeaconChainAnchorV1, GlobalThresholdBeaconPulseContextV1},
+        isi::{
+            RegisterPublicLaneValidator,
+            consensus_keys::{
+                ApplyThresholdKeyLifecycleCertificateV1, ThresholdKeyLifecycleActionV1,
+                ThresholdKeyLifecycleCertificateV1, ThresholdKeyLifecycleSignatureV1,
+            },
+        },
+        nexus::{PrepareValidatorCommitteeCredentialsV1, PublicLaneMonetaryPlanV1},
+        parameter::system::SumeragiParameter,
+    };
+    use std::num::NonZeroU64;
+
+    const EPOCH: u64 = 16;
+    let mut keys = (0x51..=0x54)
+        .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
+        .collect::<Vec<_>>();
+    keys.sort_by_key(|key| PeerId::new(key.public_key().clone()));
+    let owners = (0xD1..=0xD4)
+        .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519))
+        .collect::<Vec<_>>();
+    let accounts = owners
+        .iter()
+        .map(|key| AccountId::new(key.public_key().clone()))
+        .collect::<Vec<_>>();
+    let staking = iroha_config::parameters::actual::NexusStaking::default();
+    let definition: AssetDefinitionId = staking.stake_asset_id.parse().unwrap();
+    let escrow = AccountId::parse_encoded(&staking.stake_escrow_account_id).unwrap();
+    let world = World::with_assets(
+        [Domain::new(DomainId::try_new("nexus", "universal").unwrap()).build(&accounts[0])],
+        accounts
+            .iter()
+            .map(|account| Account::new(account.clone()).build(account))
+            .chain([Account::new(escrow.clone()).build(&escrow)]),
+        [AssetDefinition::new(
+            definition.clone(),
+            "Staked XOR",
+            iroha_primitives::numeric::NumericSpec::fractional(9),
+            iroha_data_model::asset::AssetBalancePolicy::Global,
+            None,
+        )
+        .build(&accounts[0])],
+        accounts.iter().map(|account| {
+            Asset::new(
+                AssetId::new(definition.clone(), account.clone()),
+                Quantity::from(1_000u64),
+            )
+        }),
+        [],
+    );
+    let mut config = TestChainConfig::new(world, 1_000);
+    config.validator_keys = Some(keys.clone());
+    config.consensus_mode = iroha_data_model::parameter::system::SumeragiConsensusMode::Npos;
+    config.genesis_parameters.extend([
+        Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(
+            NonZeroU64::new(EPOCH).unwrap(),
+        )),
+        Parameter::Custom(
+            SumeragiNposParameters {
+                epoch_length_blocks: NonZeroU64::new(EPOCH).unwrap(),
+                max_validators: 4,
+                evidence_horizon_blocks: EPOCH,
+                slashing_delay_blocks: 2,
+                ..SumeragiNposParameters::default()
+            }
+            .into_custom_parameter(),
+        ),
+    ]);
+    for (account, key) in accounts.iter().zip(&keys) {
+        let source = AssetId::new(definition.clone(), account.clone());
+        let destination = AssetId::new(definition.clone(), escrow.clone());
+        config.genesis_instructions.push(
+            RegisterPublicLaneValidator::new(
+                LaneId::SINGLE,
+                account.clone(),
+                PeerId::new(key.public_key().clone()),
+                account.clone(),
+                Quantity::from(1_000u64),
+                Metadata::default(),
+                PublicLaneMonetaryPlanV1::genesis_registration(
+                    source,
+                    destination,
+                    Quantity::from(1_000u64),
+                ),
+            )
+            .into(),
+        );
+    }
+    let mut chain = CertifiedTestChain::start(config).unwrap();
+
+    struct Beacon {
+        session: ValidatedGlobalThresholdBeaconSessionV1,
+        signers: Vec<InMemoryGlobalThresholdBeaconPartialSignerV1>,
+    }
+    fn ceremony(
+        chain: &CertifiedTestChain,
+        keys: &[KeyPair],
+        generation: u64,
+        session_id: [u8; 32],
+        attempt_id: [u8; 32],
+        start: u64,
+    ) -> Beacon {
+        let roster = keys
+            .iter()
+            .map(|key| PeerId::new(key.public_key().clone()))
+            .collect::<Vec<_>>();
+        let (session, signers) = prepared_session_and_signers_fixture_for_keys_v1(
+            GlobalThresholdBeaconDkgSessionV1 {
+                version: 1,
+                network_id: chain.network_id(),
+                session_id,
+                attempt_id,
+                authority_generation: generation,
+                roster_hash: crate::beacon::global_threshold_beacon_roster_hash_v1(&roster),
+                committee_size: 4,
+                threshold: 2,
+                start_height: start,
+                commitments_end_height: start + 1,
+                deliveries_end_height: start + 2,
+                acceptances_end_height: start + 3,
+            },
+            keys,
+            &chain.state().ivm_execution_budget(),
+        );
+        assert!(session.belongs_to(&chain.state().ivm_execution_budget()));
+        Beacon { session, signers }
+    }
+    fn install(chain: &mut CertifiedTestChain, beacon: &Beacon, keys: &[KeyPair], owner: &KeyPair) {
+        let height = chain.height() + 1;
+        let roster = keys
+            .iter()
+            .map(|key| PeerId::new(key.public_key().clone()))
+            .collect::<Vec<_>>();
+        let record = FinalizedGlobalThresholdBeaconKeySessionRecordV1::new(
+            beacon.session.record().clone(),
+            &chain.state().ivm_execution_budget(),
         )
         .unwrap();
-        let authorization = ValidatorCandidateKeyAuthorizationV1::new(
-            network,
-            generation,
-            keys.clone(),
-            possession.clone(),
+        let mut certificate = ThresholdKeyLifecycleCertificateV1 {
+            version: crate::state::THRESHOLD_KEY_LIFECYCLE_CERTIFICATE_VERSION_V1,
+            action: ThresholdKeyLifecycleActionV1::FinalizeGlobalBeaconKey,
+            expected_active_session_id: chain
+                .state()
+                .view()
+                .world()
+                .active_global_beacon_key_session(),
+            effective_height: height,
+            network_id: chain.network_id(),
+            roster_hash: crate::beacon::global_threshold_beacon_roster_hash_v1(&roster),
+            committee_size: 4,
+            quorum: 3,
+            session_id: record.session.session_id,
+            transcript_hash: record.session.transcript_hash,
+            public_state: norito::encode_canonical(&record).unwrap(),
+            signatures: Vec::new(),
+        };
+        let preimage =
+            crate::state::threshold_key_lifecycle_certificate_preimage_v1(&certificate).unwrap();
+        certificate.signatures = keys
+            .iter()
+            .take(3)
+            .enumerate()
+            .map(|(index, key)| ThresholdKeyLifecycleSignatureV1 {
+                signer_index: index as u16,
+                signature: iroha_crypto::Signature::try_new(key.private_key(), &preimage).unwrap(),
+            })
+            .collect();
+        crate::state::verify_threshold_key_lifecycle_certificate_v1(
+            &certificate,
+            &chain.network_id(),
+            height,
+            &roster,
+        )
+        .unwrap();
+        let signed = chain.sign(
+            owner,
+            [ApplyThresholdKeyLifecycleCertificateV1 { certificate }.into()],
+            height * 1_000,
         );
-        ValidatorCandidateKeysV1 {
-            network_id: network,
-            generation,
-            keys,
-            possession,
-            peer_signature: SignatureOf::new(peer_key.private_key(), &authorization),
+        assert_eq!(chain.commit_at(height * 1_000, vec![signed]), [true]);
+    }
+    fn advance(chain: &mut CertifiedTestChain, target: u64, beacon: &Beacon) {
+        while chain.height() < target {
+            let height = chain.height() + 1;
+            let current = chain
+                .state()
+                .view()
+                .world()
+                .consensus_schedule()
+                .ready(height)
+                .unwrap()
+                .epoch
+                .clone();
+            let control = if height + 1 == current.authorization.last_height {
+                let parent = chain.committed(chain.height());
+                let epoch = crate::sumeragi::schedule::core_epoch(&current).unwrap().id;
+                let mut pulse = GlobalThresholdBeaconPulseAggregatorV1::new(
+                    beacon.session.clone(),
+                    height,
+                    GlobalThresholdBeaconChainAnchorV1 {
+                        height: chain.height(),
+                        block_hash: parent.block_hash(),
+                    },
+                    GlobalThresholdBeaconPulseContextV1 {
+                        instance: chain.instance().0,
+                        epoch: epoch.epoch,
+                        epoch_context_id: epoch.context.0,
+                        parent_consensus_hash: parent.core_hash().0,
+                        parent_result: parent.result().0,
+                    },
+                )
+                .unwrap();
+                for signer in beacon.signers.iter().take(2) {
+                    pulse
+                        .accept_partial(
+                            signer
+                                .sign_partial(pulse.session(), pulse.payload())
+                                .unwrap(),
+                        )
+                        .unwrap();
+                }
+                crate::sumeragi::epoch_beacon::control::encode(Some(pulse.finalize().unwrap()))
+                    .unwrap()
+            } else {
+                iroha_sumeragi::types::ControlWitness::empty()
+            };
+            chain.commit_with_control(Some(height * 1_000), Vec::new(), Signers::Quorum, control);
+            assert_eq!(chain.height(), height);
         }
-    };
-    let candidate = candidate(1);
-    (chain, owner_key, candidate)
+    }
+    let bootstrap = ceremony(&chain, &keys, 0, [0x71; 32], [0x71; 32], 1);
+    advance(&mut chain, 3, &bootstrap);
+    install(&mut chain, &bootstrap, &keys, &owners[0]);
+    advance(&mut chain, EPOCH, &bootstrap);
+    let preparation = chain
+        .state()
+        .view()
+        .world()
+        .validator_committee_transitions()
+        .get(&2)
+        .unwrap()
+        .preparation
+        .clone();
+    assert_eq!(preparation.selection_height, EPOCH);
+    assert_eq!(
+        preparation.selection_anchor,
+        chain.committed(EPOCH - 1).block_hash()
+    );
+    assert_eq!(
+        preparation.generation().validators,
+        keys.iter()
+            .map(|key| PeerId::new(key.public_key().clone()))
+            .collect::<Vec<_>>()
+    );
+    let target = ceremony(
+        &chain,
+        &keys,
+        1,
+        preparation.beacon_session_id().unwrap(),
+        preparation.transition_id().unwrap(),
+        EPOCH + 1,
+    );
+    advance(&mut chain, EPOCH + 4, &bootstrap);
+    install(&mut chain, &target, &keys, &owners[0]);
+    let command =
+        ValidatorCommitteeOperationV1::PrepareCredentials(PrepareValidatorCommitteeCredentialsV1 {
+            transition_id: preparation.transition_id().unwrap(),
+            target_epoch: 2,
+            credentials: ValidatorCommitteeCredentialsV1 {
+                beacon: InstalledBeaconEpochBindingV1 {
+                    session_id: target.session.record().session_id,
+                    transcript_hash: target.session.record().transcript_hash,
+                },
+            },
+        });
+    assert!(
+        chain
+            .state()
+            .view()
+            .world()
+            .validator_committee_transitions()
+            .get(&2)
+            .unwrap()
+            .credentials
+            .is_none()
+    );
+    (chain, owners[0].clone(), command)
 }
 
 fn no_allocation<T>(read: impl FnOnce() -> T) -> T {
@@ -118,7 +380,7 @@ fn no_allocation<T>(read: impl FnOnce() -> T) -> T {
 
 #[test]
 fn original_incumbent_history_refusal_keeps_authority_and_same_source_retry() {
-    let (chain, _, _) = original_candidate();
+    let (chain, _) = original_incumbent();
     let view = chain.state().view();
     let expected = current_authority(&view).unwrap();
     let error: Attempt<String> = no_allocation(|| current_authority(&view)).unwrap_err();
@@ -135,16 +397,30 @@ fn original_incumbent_history_refusal_keeps_authority_and_same_source_retry() {
 }
 
 #[test]
-fn original_candidate_command_decode_refusal_has_no_publication_and_retries() {
-    let (mut chain, owner_key, candidate) = original_candidate();
+fn original_credentials_command_decode_refusal_has_no_publication_and_retries() {
+    let (mut chain, owner_key, command) = original_preparation();
+    let before = chain
+        .state()
+        .view()
+        .world()
+        .validator_committee_transitions()
+        .get(&2)
+        .unwrap()
+        .clone();
+    let original_height = chain.height();
+    let time = (original_height + 1) * 1_000;
     let owner = AccountId::new(owner_key.public_key().clone());
-    let command = ValidatorCommitteeOperationV1::PublishCandidate(candidate.clone());
     let parameter = command.clone().into_custom_parameter();
     let producer =
         no_allocation(|| ValidatorCommitteeOperationV1::from_custom_parameter(&parameter))
             .unwrap_err();
     assert!(
-        matches!(producer, norito::json::Error::DecodeResourceLimit),
+        matches!(
+            producer,
+            norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            )
+        ),
         "{producer:?}"
     );
     let original = parameter.payload().get().to_owned();
@@ -152,10 +428,9 @@ fn original_candidate_command_decode_refusal_has_no_publication_and_retries() {
     let signed = chain.sign(
         &owner_key,
         [InstructionBox::from(instruction.clone())],
-        2_000,
+        time,
     );
-    let proposal = chain.proposal(Some(2_000), vec![signed.clone()]);
-    let key = ValidatorCandidateKeysV1::key_id(chain.network_id(), 1, &candidate.keys.validator);
+    let proposal = chain.proposal(Some(time), vec![signed.clone()]);
     {
         let mut block = chain.state().block(proposal.header());
         let mut tx = block.transaction();
@@ -168,38 +443,57 @@ fn original_candidate_command_decode_refusal_has_no_publication_and_retries() {
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
         assert!(reason.allocation_refusal().is_none());
-        assert!(tx.world.validator_candidate_keys.get(&key).is_none());
+        assert_eq!(
+            tx.world.validator_committee_transitions.get(&2),
+            Some(&before)
+        );
         tx.apply();
-        assert!(block.world.validator_candidate_keys.get(&key).is_none());
+        assert_eq!(
+            block.world.validator_committee_transitions.get(&2),
+            Some(&before)
+        );
     }
     assert_eq!(parameter.payload().get(), &original);
-    assert_eq!(chain.height(), 1);
-    assert_eq!(chain.commit_at(2_000, vec![signed]), [true]);
+    assert_eq!(chain.height(), original_height);
+    assert_eq!(chain.commit_at(time, vec![signed]), [true]);
+    let mut expected = before;
+    let ValidatorCommitteeOperationV1::PrepareCredentials(prepared) = &command else {
+        unreachable!()
+    };
+    expected.credentials = Some(prepared.credentials);
     assert_eq!(
         chain
             .state()
             .view()
             .world()
-            .validator_candidate_keys()
-            .get(&key),
-        Some(&candidate)
+            .validator_committee_transitions()
+            .get(&2),
+        Some(&expected)
     );
 }
 
 #[test]
-fn original_candidate_authority_refusal_keeps_command_and_same_source_retry() {
-    let (mut chain, owner_key, candidate) = original_candidate();
+fn original_credentials_authority_refusal_keeps_command_and_same_source_retry() {
+    let (mut chain, owner_key, command) = original_preparation();
+    let before = chain
+        .state()
+        .view()
+        .world()
+        .validator_committee_transitions()
+        .get(&2)
+        .unwrap()
+        .clone();
+    let original_height = chain.height();
+    let time = (original_height + 1) * 1_000;
     let owner = AccountId::new(owner_key.public_key().clone());
-    let command = ValidatorCommitteeOperationV1::PublishCandidate(candidate.clone());
     let signed = chain.sign(
         &owner_key,
         [InstructionBox::from(SetParameter::new(Parameter::Custom(
             command.clone().into_custom_parameter(),
         )))],
-        2_000,
+        time,
     );
-    let proposal = chain.proposal(Some(2_000), vec![signed.clone()]);
-    let key = ValidatorCandidateKeysV1::key_id(chain.network_id(), 1, &candidate.keys.validator);
+    let proposal = chain.proposal(Some(time), vec![signed.clone()]);
     {
         let mut block = chain.state().block(proposal.header());
         let mut tx = block.transaction();
@@ -214,32 +508,45 @@ fn original_candidate_authority_refusal_keeps_command_and_same_source_retry() {
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
         assert!(reason.allocation_refusal().is_none());
-        assert!(tx.world.validator_candidate_keys.get(&key).is_none());
-        tx.apply_validator_committee_operation(&owner, command)
-            .unwrap();
         assert_eq!(
-            tx.world.validator_candidate_keys.get(&key),
-            Some(&candidate)
+            tx.world.validator_committee_transitions.get(&2),
+            Some(&before)
+        );
+        tx.apply_validator_committee_operation(&owner, command.clone())
+            .unwrap();
+        let mut expected = before.clone();
+        let ValidatorCommitteeOperationV1::PrepareCredentials(prepared) = &command else {
+            unreachable!()
+        };
+        expected.credentials = Some(prepared.credentials);
+        assert_eq!(
+            tx.world.validator_committee_transitions.get(&2),
+            Some(&expected)
         );
         // The observational attempt is discarded; the exact signed input is retried below.
     }
-    assert_eq!(chain.height(), 1);
-    assert_eq!(chain.commit_at(2_000, vec![signed]), [true]);
+    assert_eq!(chain.height(), original_height);
+    assert_eq!(chain.commit_at(time, vec![signed]), [true]);
+    let mut expected = before;
+    let ValidatorCommitteeOperationV1::PrepareCredentials(prepared) = &command else {
+        unreachable!()
+    };
+    expected.credentials = Some(prepared.credentials);
     assert_eq!(
         chain
             .state()
             .view()
             .world()
-            .validator_candidate_keys()
-            .get(&key),
-        Some(&candidate)
+            .validator_committee_transitions()
+            .get(&2),
+        Some(&expected)
     );
 }
 
 #[test]
-fn malformed_candidate_command_is_terminal_and_never_installs_authority() {
+fn malformed_committee_command_is_terminal_and_never_installs_credentials() {
     use iroha_data_model::parameter::custom::CustomParameter;
-    let (chain, owner_key, _) = original_candidate();
+    let (chain, owner_key) = original_incumbent();
     let owner = AccountId::new(owner_key.public_key().clone());
     let malformed = CustomParameter::new(
         ValidatorCommitteeOperationV1::parameter_id(),
@@ -260,9 +567,9 @@ fn malformed_candidate_command_is_terminal_and_never_installs_authority() {
         "{error:?}"
     );
     assert!(tx.execution_deferral().is_none());
-    assert!(tx.world.validator_candidate_keys.is_empty());
+    assert!(tx.world.validator_committee_transitions.is_empty());
     drop(tx);
-    assert!(block.world.validator_candidate_keys.is_empty());
+    assert!(block.world.validator_committee_transitions.is_empty());
 }
 
 #[test]
@@ -273,7 +580,7 @@ fn original_beacon_public_state_decode_refusal_defers_before_installation() {
         ApplyThresholdKeyLifecycleCertificateV1, ThresholdKeyLifecycleActionV1,
         ThresholdKeyLifecycleCertificateV1, ThresholdKeyLifecycleSignatureV1,
     };
-    let (mut chain, owner_key, _) = original_candidate();
+    let (mut chain, owner_key) = original_incumbent();
     let owner = AccountId::new(owner_key.public_key().clone());
     let mut keys = (0x51..=0x54)
         .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
@@ -396,7 +703,7 @@ fn original_tle_public_state_decode_refusal_defers_before_installation() {
         ApplyThresholdKeyLifecycleCertificateV1, ThresholdKeyLifecycleActionV1,
         ThresholdKeyLifecycleCertificateV1, ThresholdKeyLifecycleSignatureV1,
     };
-    let (mut chain, owner_key, _) = original_candidate();
+    let (mut chain, owner_key) = original_incumbent();
     let owner = AccountId::new(owner_key.public_key().clone());
     let mut keys = (0x51..=0x54)
         .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
@@ -550,7 +857,7 @@ fn original_tle_public_state_decode_refusal_defers_before_installation() {
 fn original_staking_authority_refusal_keeps_exit_overlay_and_same_signed_retry() {
     use iroha_data_model::isi::ExitPublicLaneValidator;
     use iroha_model_base::topology::LaneId;
-    let (mut chain, owner_key, _) = original_candidate();
+    let (mut chain, owner_key) = original_incumbent();
     let owner = AccountId::new(owner_key.public_key().clone());
     let key = (LaneId::SINGLE, owner.clone());
     let original = chain
@@ -662,7 +969,7 @@ fn original_npos_parameter_refusal_does_not_become_missing_staking_policy() {
         },
         parameter::system::SumeragiNposParameters,
     };
-    let (chain, owner_key, _) = original_candidate();
+    let (chain, owner_key) = original_incumbent();
     let view = chain.state().view();
     let owner = AccountId::new(owner_key.public_key().clone());
     let request = PublicLanePreparationRequestV1 {
@@ -670,9 +977,6 @@ fn original_npos_parameter_refusal_does_not_become_missing_staking_policy() {
         valid_for_blocks: 1,
         operation: PublicLanePreparationOperationV1::ClaimRewards(PublicLanePrepareClaimV1 {
             recipient: owner,
-            upto_epoch: None,
-            max_records: 1,
-            accrued_sources: vec![],
         }),
     };
     let custom = view
@@ -686,12 +990,18 @@ fn original_npos_parameter_refusal_does_not_become_missing_staking_policy() {
         &view,
         request.clone(),
     )
-    .unwrap();
+    .unwrap_err();
+    assert!(matches!(expected, Attempt::Rejected(_)), "{expected:?}");
     let producer =
         no_allocation(|| norito::json::from_str::<SumeragiNposParameters>(&original_bytes))
             .unwrap_err();
     assert!(
-        matches!(producer, norito::json::Error::DecodeResourceLimit),
+        matches!(
+            producer,
+            norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            )
+        ),
         "{producer:?}"
     );
     let error = no_allocation(|| {
@@ -706,11 +1016,10 @@ fn original_npos_parameter_refusal_does_not_become_missing_staking_policy() {
         "the original signed NPoS read refusal was flattened: {error:?}"
     );
     assert_eq!(custom.payload().get(), &original_bytes);
-    assert_eq!(
+    let retry =
         crate::smartcontracts::isi::staking::preparation::prepare_public_lane_plan(&view, request)
-            .unwrap(),
-        expected
-    );
+            .unwrap_err();
+    assert_eq!(retry, expected);
 }
 
 #[test]
@@ -719,7 +1028,7 @@ fn original_npos_exit_policy_refusal_keeps_stake_and_same_signed_retry() {
         isi::ExitPublicLaneValidator, parameter::system::SumeragiNposParameters,
     };
     use iroha_model_base::topology::LaneId;
-    let (mut chain, owner_key, _) = original_candidate();
+    let (mut chain, owner_key) = original_incumbent();
     let owner = AccountId::new(owner_key.public_key().clone());
     let key = (LaneId::SINGLE, owner.clone());
     let instruction = ExitPublicLaneValidator {
@@ -753,7 +1062,12 @@ fn original_npos_exit_policy_refusal_keeps_stake_and_same_signed_retry() {
     let producer =
         no_allocation(|| SumeragiNposParameters::from_custom_parameter(&parameter)).unwrap_err();
     assert!(
-        matches!(producer, norito::json::Error::DecodeResourceLimit),
+        matches!(
+            producer,
+            norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            )
+        ),
         "{producer:?}"
     );
     {
@@ -817,7 +1131,7 @@ fn original_npos_exit_policy_refusal_keeps_stake_and_same_signed_retry() {
 
 #[test]
 fn original_npos_reserve_validation_refuses_without_changing_current_or_undo() {
-    let (mut chain, _, _) = original_candidate();
+    let (mut chain, _) = original_incumbent();
     chain.commit(Vec::new());
     let state = chain.state();
     let before = norito::json::to_json(&state.world).unwrap();
@@ -829,10 +1143,8 @@ fn original_npos_reserve_validation_refuses_without_changing_current_or_undo() {
     let current = state.world.view();
     assert_custody(&current);
     crate::state::validate_public_lane_stake_reserves(&current).unwrap();
-    crate::state::validate_public_lane_reward_reserves(&current).unwrap();
     for error in [
         no_allocation(|| crate::state::validate_public_lane_stake_reserves(&current)).unwrap_err(),
-        no_allocation(|| crate::state::validate_public_lane_reward_reserves(&current)).unwrap_err(),
     ] {
         assert!(matches!(error, Attempt::Deferred(_)), "{error:?}");
     }
@@ -841,22 +1153,19 @@ fn original_npos_reserve_validation_refuses_without_changing_current_or_undo() {
         let previous = state.world.block_and_revert();
         assert_custody(&previous);
         crate::state::validate_public_lane_stake_reserves(&previous).unwrap();
-        crate::state::validate_public_lane_reward_reserves(&previous).unwrap();
-        for error in [
-            no_allocation(|| crate::state::validate_public_lane_stake_reserves(&previous))
-                .unwrap_err(),
-            no_allocation(|| crate::state::validate_public_lane_reward_reserves(&previous))
-                .unwrap_err(),
-        ] {
+        for error in
+            [
+                no_allocation(|| crate::state::validate_public_lane_stake_reserves(&previous))
+                    .unwrap_err(),
+            ]
+        {
             assert!(matches!(error, Attempt::Deferred(_)), "{error:?}");
         }
         crate::state::validate_public_lane_stake_reserves(&previous).unwrap();
-        crate::state::validate_public_lane_reward_reserves(&previous).unwrap();
     }
     assert_eq!(norito::json::to_json(&state.world).unwrap(), before);
     let current = state.world.view();
     crate::state::validate_public_lane_stake_reserves(&current).unwrap();
-    crate::state::validate_public_lane_reward_reserves(&current).unwrap();
 }
 
 #[cfg(feature = "telemetry")]
@@ -866,7 +1175,7 @@ fn late_original_npos_activation_read_refusal_rolls_back_and_same_signed_retry()
         isi::ActivatePublicLaneValidator, parameter::system::SumeragiNposParameters,
     };
     use iroha_model_base::topology::LaneId;
-    let (mut chain, owner_key, _) = original_candidate();
+    let (mut chain, owner_key) = original_incumbent();
     let owner = AccountId::new(owner_key.public_key().clone());
     let key = (LaneId::SINGLE, owner.clone());
     let original = chain

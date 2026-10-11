@@ -194,9 +194,9 @@ capture, package closure, pinned tools, six jobs, release profile and immutable
 artifact custody remain required. Existing failed or diagnostic records are never
 relabeled as a successful check. Transfer and the same-revision owner-signed
 dispatcher transition preserve the actual typed check evidence without requiring
-regression success. Native deployment preflight, signed canary, finality,
-readiness and restart proof still run; the build result keeps `release_qualified`
-and `deployed` false.
+regression success. Native deployment preflight, authenticated bootstrap,
+finality and readiness still run; diagnostic canaries and restart proofs are
+optional. The build result keeps `release_qualified` and `deployed` false.
 
 Use independently reviewed tool digests and the full signing-key fingerprint
 (GPG uppercase hexadecimal, or SSH SHA256 form). A valid signature from another
@@ -500,12 +500,15 @@ The closed `iroha.taira.public-reset.topology-intent.v1` contains topology, path
 and explicit authority only. Computed release/config/artifact pins and generated
 beacon plans are not fields. Native validation extracts the
 canary public identity from its exact onboarding request and validates the signed
-genesis against the generated raw manifest. The command atomically writes five
+genesis against the generated raw manifest. The command atomically writes six
 public artifacts: `genesis.json`, `genesis.signed.nrt`, `genesis.hash`,
-`canary-onboarding-request.json` and `public-inputs.json`, with mode0644 inside a
-mode0700 directory. The typed record binds `raw_manifest_sha256` and distinguishes
-the native consensus genesis hash from the signed wire's SHA256. An incomplete
-five-file bundle is rejected; prepare a fresh complete output. Repeating an
+`nexus-amx-context.v1.bin`, `canary-onboarding-request.json` and
+`public-inputs.json`, with mode0644 inside a mode0700 directory. The typed record
+binds `raw_manifest_sha256` and `nexus_amx_context_sha256` and distinguishes
+the native consensus genesis hash from the signed wire's SHA256. The exact context
+preimage must hash to the signed genesis commitment and pass the current typed
+decoder; the generator emits it alongside signed genesis. An incomplete six-file
+bundle is rejected; prepare a fresh complete output. Repeating an
 identical complete request verifies the retained bundle without replacing it.
 The explicit `--canary-public-key PATH` alternative is mutually exclusive with
 `--intent` and reads only that public key.
@@ -519,7 +522,7 @@ same topology intent and public bundle:
       --output /absolute/private/beacon-inputs.json
 
 Use the authenticated same-revision unit renderer for each returned final-unit
-entry, preserving its initial runtime-key and mint-finality-seed paths and using
+entry, preserving its initial runtime-key path and using
 the exact native `credential_path` with `--global-beacon-credential` and
 `--config-file beacon.toml`. The [maintained retry caller](taira_retry.md) verifies
 the pinned renderer and initial units before rendering these four final mode0644
@@ -528,14 +531,15 @@ units. The native request is not hand-authored JSON.
 `public-reset assemble --intent PATH` and `authorize` require the same
 `--public-inputs DIR`, `--beacon-inputs PATH`, four ordered
 `--beacon-validator-unit` paths, runtime client, four validator client configs,
-operator key, onboarding token, initial validator units, edge unit, and known
-hosts. Full scope also requires its Inrou stage. Native assembly independently
+operator key, onboarding token, initial validator units, native edge capability,
+and known hosts. Full scope also requires its Inrou stage. Native assembly independently
 rederives the source, credential joins, signed genesis, beacon request, and seat
 map before signing. Apply receives only admitted runtime inputs.
 
 The same-release artifact closure includes Kagami. Reset installs no epoch
 maintenance worker; old worker state or service files reject host preflight.
-The current production epoch boundary retains the incumbent authority.
+The production epoch boundary applies the authenticated validator epoch graph
+and its certified activation or retention decision.
 See the [maintained retry caller](taira_retry.md) for the current path records
 and preparation order.
 
@@ -590,6 +594,18 @@ These preparation operations do not authorize replacement of shared network
 state. The reviewed inventory, explicit reset authorization, and independently
 provisioned trusted host dispatcher and reset guard remain prerequisites for
 `public-reset apply`. The candidate cannot provision its own host authority.
+
+For an explicitly authorized fresh reset after deployment proof whose seal
+bookkeeping remains unfinished, select
+`public-reset prepare-dispatcher-transition --deployment-proven-predecessor`.
+This admits the genuine immutable `deployment-proven` receipt together with the
+exact unresolved operational journal, sealed guest progress with no pending
+action, the expired predecessor lease, the stopped current runtime and the
+independently signed native edge capture. The journal must agree with the proof
+except for its bounded seal-failure diagnostic. Both original files remain
+unchanged; this does not claim that the old deployment completed. The new
+source, artifacts and reset authorization retain their normal custody and
+signature checks. This selection conflicts with `--terminal-rolled-back`.
 
 For first-time native custody, use the same-source Kagami key owner with two
 separate fresh directories, one for native capture and one for the independently

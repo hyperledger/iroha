@@ -16,11 +16,11 @@ use crate::{
     smart_contract::ContractArtifactId,
 };
 
-/// Inclusive number of original files in one native source registration.
+/// Inclusive number of original source files and imported artifacts in one registration.
 pub const MAX_SOURCE_FILES: usize = 512;
 /// Inclusive UTF-8 bytes in one original source file.
 pub const MAX_SOURCE_FILE_BYTES: usize = 1024 * 1024;
-/// Inclusive aggregate original UTF-8 source bytes in one registration.
+/// Inclusive aggregate source text and imported artifact bytes in one registration.
 pub const MAX_SOURCE_BYTES: usize = 16 * 1024 * 1024;
 /// Inclusive UTF-8 bytes in one portable source path or locked package identity.
 pub const MAX_SOURCE_IDENTITY_BYTES: usize = 4096;
@@ -50,6 +50,27 @@ pub struct ContractSourceFile {
     pub source_name: String,
     /// Original bounded UTF-8 text.
     pub source_text: String,
+}
+
+/// Exact compiled contract interface input, owned by its source inventory or locked package.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Encode,
+    Decode,
+    norito::NoritoSchema,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+)]
+#[norito(deny_unknown_fields)]
+pub struct ContractSourceArtifact {
+    /// Canonical relative `.to` path resolved only within this inventory owner.
+    pub source_name: String,
+    /// Complete immutable compiled artifact, authenticated and admitted by the compiler.
+    pub artifact: Vec<u8>,
 }
 
 /// Exact immutable locked-package binding, with no endpoint-selected resolution.
@@ -94,6 +115,8 @@ pub struct ContractSourcePackage {
     pub modules: Vec<ContractSourceFile>,
     /// Original companion files, sorted by path.
     pub sources: Vec<ContractSourceFile>,
+    /// Exact imported compiled artifacts, strictly sorted by their owner-relative paths.
+    pub artifacts: Vec<ContractSourceArtifact>,
     /// Exact exported names, strictly sorted.
     pub exports: Vec<String>,
     /// Exact import bindings, strictly sorted by alias and package.
@@ -122,6 +145,8 @@ pub struct ContractSourceInventory {
     pub root: ContractSourceFile,
     /// Original root companions, strictly sorted by path.
     pub sources: Vec<ContractSourceFile>,
+    /// Exact root-owned compiled artifacts, strictly sorted by path.
+    pub artifacts: Vec<ContractSourceArtifact>,
     /// Exact root import bindings, strictly sorted by alias and package.
     pub imports: Vec<ContractSourceImport>,
     /// Complete locked package inventories, strictly sorted by identity.
@@ -191,6 +216,32 @@ fn files(values: &[ContractSourceFile]) -> Result<(), SourceInventoryError> {
     }
     Ok(())
 }
+fn artifacts(
+    values: &[ContractSourceArtifact],
+    files: impl Iterator<Item = impl AsRef<str>>,
+) -> Result<(), SourceInventoryError> {
+    if values
+        .windows(2)
+        .any(|pair| pair[0].source_name >= pair[1].source_name)
+    {
+        return Err(SourceInventoryError::Order);
+    }
+    for artifact in values {
+        path(&artifact.source_name)?;
+        if !artifact.source_name.ends_with(".to") || artifact.artifact.is_empty() {
+            return Err(SourceInventoryError::Identity);
+        }
+    }
+    for file in files {
+        if values
+            .binary_search_by(|artifact| artifact.source_name.as_str().cmp(file.as_ref()))
+            .is_ok()
+        {
+            return Err(SourceInventoryError::Order);
+        }
+    }
+    Ok(())
+}
 impl ContractSourceInventory {
     /// Validate the exact complete original inventory without allocating lookup collections.
     /// Compiler semantic/token/AST admission remains a separate native execution obligation.
@@ -200,6 +251,11 @@ impl ContractSourceInventory {
     pub fn validate(&self) -> Result<(), SourceInventoryError> {
         path(&self.root.source_name)?;
         files(&self.sources)?;
+        artifacts(
+            &self.artifacts,
+            std::iter::once(self.root.source_name.as_str())
+                .chain(self.sources.iter().map(|file| file.source_name.as_str())),
+        )?;
         imports(&self.imports)?;
         if self.packages.len() > MAX_SOURCE_FILES {
             return Err(SourceInventoryError::Capacity);
@@ -222,6 +278,14 @@ impl ContractSourceInventory {
             }
             files(&package.modules)?;
             files(&package.sources)?;
+            artifacts(
+                &package.artifacts,
+                package
+                    .modules
+                    .iter()
+                    .chain(&package.sources)
+                    .map(|file| file.source_name.as_str()),
+            )?;
             imports(&package.imports)?;
             for export in &package.exports {
                 identity(export)?;
@@ -253,6 +317,15 @@ impl ContractSourceInventory {
                 return Err(SourceInventoryError::Capacity);
             }
         }
+        for artifact in self.artifacts() {
+            count = count.checked_add(1).ok_or(SourceInventoryError::Capacity)?;
+            bytes = bytes
+                .checked_add(artifact.artifact.len())
+                .ok_or(SourceInventoryError::Capacity)?;
+            if count > MAX_SOURCE_FILES || bytes > MAX_SOURCE_BYTES {
+                return Err(SourceInventoryError::Capacity);
+            }
+        }
         let mut metadata_bytes = 0usize;
         for value in self.identities() {
             metadata_bytes = metadata_bytes
@@ -274,9 +347,20 @@ impl ContractSourceInventory {
         )
     }
 
+    /// Borrow the complete original compiled artifact inventory, including locked packages.
+    pub fn artifacts(&self) -> impl Iterator<Item = &ContractSourceArtifact> {
+        self.artifacts
+            .iter()
+            .chain(self.packages.iter().flat_map(|package| &package.artifacts))
+    }
+
     fn identities(&self) -> impl Iterator<Item = &str> {
         self.files()
             .map(|file| file.source_name.as_str())
+            .chain(
+                self.artifacts()
+                    .map(|artifact| artifact.source_name.as_str()),
+            )
             .chain(
                 self.imports
                     .iter()
@@ -373,6 +457,7 @@ mod tests {
 
     fn inventory() -> ContractSourceInventory {
         ContractSourceInventory {
+            artifacts: Vec::new(),
             root: ContractSourceFile {
                 source_name: "main.ko".into(),
                 source_text: "seiyaku Source { view fn value() -> int { return 7; } }".into(),
@@ -386,6 +471,7 @@ mod tests {
                 package: "package@exact".into(),
             }],
             packages: vec![ContractSourcePackage {
+                artifacts: Vec::new(),
                 identity: "package@exact".into(),
                 modules: vec![ContractSourceFile {
                     source_name: "lib.ko".into(),
@@ -472,6 +558,52 @@ mod tests {
     }
 
     #[test]
+    fn imported_artifacts_are_owner_bound_canonical_and_counted() {
+        let mut input = inventory();
+        let empty = input.commitment().unwrap();
+        input.artifacts.push(ContractSourceArtifact {
+            source_name: "interfaces/pool.to".into(),
+            artifact: vec![1, 2, 3],
+        });
+        let root_owned = input.commitment().unwrap();
+        assert_ne!(root_owned, empty);
+        input.artifacts[0].artifact[0] = 4;
+        assert_ne!(input.commitment().unwrap(), root_owned);
+        input.artifacts[0].artifact[0] = 1;
+        input.packages[0].artifacts = std::mem::take(&mut input.artifacts);
+        assert_ne!(input.commitment().unwrap(), root_owned);
+        assert_eq!(input.artifacts().count(), 1);
+        let frame = norito::encode_canonical(&input).unwrap();
+        assert_eq!(
+            norito::decode_canonical::<ContractSourceInventory>(&frame).unwrap(),
+            input
+        );
+        for invalid in ["../pool.to", "pool.ko", "/pool.to", "pool\\other.to"] {
+            let mut changed = input.clone();
+            changed.packages[0].artifacts[0].source_name = invalid.into();
+            assert_eq!(changed.validate(), Err(SourceInventoryError::Identity));
+        }
+        let mut duplicate = input.clone();
+        let same = duplicate.packages[0].artifacts[0].clone();
+        duplicate.packages[0].artifacts.push(same);
+        assert_eq!(duplicate.validate(), Err(SourceInventoryError::Order));
+        input.packages[0].artifacts[0]
+            .artifact
+            .resize(MAX_SOURCE_BYTES, 0);
+        assert_eq!(input.validate(), Err(SourceInventoryError::Capacity));
+        input.packages[0].artifacts[0].artifact.clear();
+        assert_eq!(input.validate(), Err(SourceInventoryError::Identity));
+        let mut count = inventory();
+        count.artifacts = (0..MAX_SOURCE_FILES)
+            .map(|index| ContractSourceArtifact {
+                source_name: format!("{index:04}.to"),
+                artifact: vec![1],
+            })
+            .collect();
+        assert_eq!(count.validate(), Err(SourceInventoryError::Capacity));
+    }
+
+    #[test]
     fn original_file_limit_refuses_before_commitment() {
         let mut input = inventory();
         input.root.source_text = " ".repeat(MAX_SOURCE_FILE_BYTES);
@@ -503,6 +635,7 @@ mod tests {
         assert_eq!(input.validate(), Err(SourceInventoryError::Identity));
         input.packages = (0..=MAX_SOURCE_FILES)
             .map(|index| ContractSourcePackage {
+                artifacts: Vec::new(),
                 identity: format!("package{index:04}"),
                 modules: Vec::new(),
                 sources: Vec::new(),

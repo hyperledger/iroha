@@ -1,6 +1,6 @@
 
-seiyaku Test {
-  kotoage fn build(AccountId owner) -> Json  authorize("Entry") {
+seiyaku Test { permission Entry;
+  kotoage fn build(AccountId owner) authorize(Entry) -> Json {
     return json { bucket_id: 1, owner: owner };
   }
 }

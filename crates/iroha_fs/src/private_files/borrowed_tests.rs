@@ -6,7 +6,7 @@ use std::os::unix::fs::{PermissionsExt as _, symlink};
 use std::{
     ffi::OsString,
     fs::{self, OpenOptions},
-    io::{Seek as _, SeekFrom, Write as _},
+    io::{SeekFrom, Write as _},
 };
 
 fn store() -> (tempfile::TempDir, PrivateDirectory) {

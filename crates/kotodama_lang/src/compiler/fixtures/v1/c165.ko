@@ -1,6 +1,6 @@
 
-seiyaku Test {
-  kotoage fn register() authorize("Admin") {
-    ledger::trigger::register(trigger: Json::parse("{\"name\":\"t1\"}"));
+seiyaku Test { permission Admin;
+  kotoage fn register() authorize(Admin) {
+    ledger::trigger::register(trigger_spec: Json::parse("{\"name\":\"t1\"}"));
   }
 }

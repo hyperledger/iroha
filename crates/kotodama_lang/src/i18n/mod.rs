@@ -125,6 +125,24 @@ fn message_for(lang: Language, message: MessageIndex) -> &'static str {
 pub fn detect_language() -> Language {
     iroha_i18n::detect_language(None)
 }
+/// Attach a translated message to a diagnostic whose `message` is the
+/// canonical English text.
+///
+/// Machine-readable output keeps the English message; the translation is
+/// shown to humans only when it covers all of the diagnostic's prose (see
+/// [`crate::diagnostic::Diagnostic::presented_text`]). Nothing is attached for
+/// English or when the translation fell back to the English text.
+#[must_use]
+pub fn with_translation(
+    diagnostic: crate::diagnostic::Diagnostic,
+    language: Language,
+    translated: String,
+) -> crate::diagnostic::Diagnostic {
+    if language == Language::English || translated == diagnostic.message {
+        return diagnostic;
+    }
+    diagnostic.with_localized(language.tag(), translated, None)
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StateShadowContext {
     Parameter,
@@ -277,6 +295,58 @@ pub fn translate(lang: Language, msg: Message) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagnostic::{Diagnostic, DiagnosticBundle, DiagnosticPhase};
+    #[test]
+    fn translations_never_replace_the_canonical_message_or_mix_languages() {
+        let english = translate(
+            Language::English,
+            Message::LintUnusedParameter {
+                func: "run",
+                name: "unused",
+            },
+        );
+        let japanese = translate(
+            Language::Japanese,
+            Message::LintUnusedParameter {
+                func: "run",
+                name: "unused",
+            },
+        );
+        assert_ne!(english, japanese);
+        let base = Diagnostic::warning("K5003", DiagnosticPhase::Semantic, english.clone(), None);
+        let localized = with_translation(base.clone(), Language::Japanese, japanese.clone());
+        assert_eq!(localized.message, english);
+        assert_eq!(
+            localized
+                .localized
+                .as_ref()
+                .map(|text| text.language.as_str()),
+            Some(Language::Japanese.tag())
+        );
+        // The registry help is English and untranslated, so humans see the
+        // English pair rather than a Japanese message with English help.
+        assert_eq!(localized.presented_text().0, english);
+        let without_help = Diagnostic {
+            help: None,
+            ..localized.clone()
+        };
+        assert_eq!(without_help.presented_text(), (japanese.as_str(), None));
+        let rendered = DiagnosticBundle::single(without_help)
+            .render_json()
+            .expect("JSON");
+        assert!(rendered.contains(&format!("\"message\": \"{english}\"")));
+        assert!(rendered.contains("\"localized\""));
+        assert!(
+            with_translation(base.clone(), Language::English, japanese)
+                .localized
+                .is_none()
+        );
+        assert!(
+            with_translation(base, Language::Japanese, english)
+                .localized
+                .is_none()
+        );
+    }
     #[test]
     fn semantic_error_templates_preserve_braces_in_replacement_values() {
         let rendered = translate(

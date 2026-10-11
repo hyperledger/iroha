@@ -3,7 +3,7 @@ name = "iroha_kagemusha_proof"
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
-description = "Native-only KAGEMUSHA relations on the PIPA-v1 engine: the split-lineage step relations sigma_send and sigma_recv in the G1 wallet layout, their native consumer checks and verifying-key allowlist selection, shape selector and keygen, prove and verify entry points"
+description = "Native-only KAGEMUSHA relations on the PIPA-R engine: the split-lineage step relations sigma_send and sigma_recv in the G1 wallet layout, their native consumer checks and verifying-key allowlist selection, shape selector and keygen, prove and verify entry points"
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
@@ -24,15 +24,27 @@ iroha_pasta = { workspace = true }
 # Constraint systems, keys, the prover and the verifier.
 iroha_plonk = { workspace = true }
 # Pow5 sponge lanes, running-sum range checks, checked u128 and glue chips,
-# and the G1 28-element statement encoding.
+# and the G1rev4 26-element statement encoding.
 iroha_plonk_gadgets = { workspace = true }
+# Descriptor-fixed recursive verifier and local accumulation lanes for Q_sigma.
+iroha_plonk_recursion = { workspace = true }
+# Canonical source-bound native checkpoint payloads and shared fixture codecs.
+norito = { workspace = true, default-features = false, features = ["base-codec"] }
 # `Field`/`PrimeField` traits of the iroha_pasta field types.
 ff = "0.13.1"
+# Curve::to_affine for canonical transported incoming correction points.
+group = "0.13"
 
 [dev-dependencies]
-# The shared KAGEMUSHA Poseidon vectors in `fixtures/native_prover/kats_v1.json`
-# and the G1 wallet vectors in `fixtures/kagemusha/wallet_v1_vectors.json`.
-norito = { workspace = true, default-features = false, features = ["base-codec"] }
+sha2 = "0.10.9"
+# Canonical executed-genesis admission for the source-only finality compiler.
+# These test-driver dependencies never enter the production native proof boundary.
+iroha_genesis = { workspace = true }
+iroha_data_model = { workspace = true, default-features = false }
+# Exact canonical CommitQC projection from independently verified captured blocks.
+iroha_sumeragi = { workspace = true }
+# Independent native normal-validator signature and BLS program oracles.
+iroha_crypto = { workspace = true, default-features = false, features = ["bls"] }
 # Deterministic recovery streams for reproducible test proofs.
 rand_chacha = "0.3.1"
 # Thread pools for the measurement harness and the parallel tamper sweep.

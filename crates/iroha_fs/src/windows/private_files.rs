@@ -186,6 +186,74 @@ impl Directory {
         RetainedFile::open_read_only(self.clone(), name.to_owned())
     }
 
+    pub(crate) fn open_retained_private_optional(
+        &self,
+        name: &OsStr,
+    ) -> io::Result<Option<RetainedFile>> {
+        // Preserve ordinary retained-private admission's exclusive sharing fence.
+        let file = match open_file(
+            &self.path().join(name),
+            GENERIC_READ,
+            FILE_SHARE_READ,
+            OPEN_EXISTING,
+            false,
+            false,
+        ) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let before = snapshot(&file, true, false)?;
+        let retained = RetainedFile {
+            directory: self.clone(),
+            name: name.to_owned(),
+            file,
+            before,
+            links: LinkPolicy::Single,
+            private: true,
+            writable: false,
+            read_only: false,
+            publishable: false,
+        };
+        retained.revalidate()?;
+        Ok(Some(retained))
+    }
+
+    pub(crate) fn open_retained_read_only_optional(
+        &self,
+        name: &OsStr,
+    ) -> io::Result<Option<RetainedFile>> {
+        // Preserve retained-file sharing rights. Only this initial native open
+        // establishes absence; snapshot, ACL and named revalidation never do.
+        let file = match open_file(
+            &self.path().join(name),
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            OPEN_EXISTING,
+            false,
+            false,
+        ) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let before = snapshot(&file, true, false)?;
+        validate_read_only(&file)?;
+        let retained = RetainedFile {
+            directory: self.clone(),
+            name: name.to_owned(),
+            file,
+            before,
+            links: LinkPolicy::Single,
+            private: true,
+            writable: false,
+            read_only: true,
+            publishable: false,
+        };
+        retained.revalidate()?;
+        Ok(Some(retained))
+    }
+
     pub(crate) fn create_borrowed_private<'a>(
         &'a self,
         name: &'a OsStr,
@@ -223,6 +291,7 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
             name,
             file,
             before,
+            links: LinkPolicy::Single,
             private: true,
             writable: false,
             read_only: true,
@@ -277,6 +346,7 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
             name,
             file: self.file,
             before: after,
+            links: LinkPolicy::Single,
             private: self.private,
             writable: self.writable,
             read_only: self.read_only,

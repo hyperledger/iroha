@@ -32,7 +32,7 @@ use iroha_data_model::{
     transaction::signed::TransactionEntrypoint,
 };
 use iroha_model_base::domain::DomainId;
-use iroha_model_base::{metadata::Metadata, name::Name};
+use iroha_model_base::{metadata::Metadata, name::Name, topology::DataSpaceId};
 use iroha_primitives::numeric::{Numeric, Quantity};
 use iroha_torii_shared::qr::{EcLevel, QrCode, QrError};
 use mv::storage::StorageReadOnly;
@@ -553,8 +553,10 @@ pub(crate) struct ExplorerDomainsPage<'world> {
 #[derive(Clone, Debug, JsonSerialize)]
 pub(crate) struct ExplorerAssetDefinitionDto<'world> {
     pub id: &'world AssetDefinitionId,
-    /// Immutable domain ownership, or `None` for an intentionally unowned global definition.
+    /// Immutable domain home, absent for direct-dataspace and global definitions.
     pub owning_domain: Option<&'world DomainId>,
+    /// Immutable direct dataspace home as an exact decimal string; never a balance bucket.
+    pub owning_dataspace: Option<String>,
     pub mintable: ExplorerMintable,
     pub logo: Option<&'world SorafsUri>,
     pub metadata: &'world Metadata,
@@ -568,10 +570,12 @@ impl<'world> ExplorerAssetDefinitionDto<'world> {
     pub(crate) fn from_definition_with_asset_count(
         definition: &'world AssetDefinition,
         assets: u32,
+        owning_dataspace: Option<DataSpaceId>,
     ) -> Self {
         Self {
             id: definition.id(),
             owning_domain: definition.owning_domain().as_ref(),
+            owning_dataspace: owning_dataspace.map(|dataspace| dataspace.as_u64().to_string()),
             mintable: ExplorerMintable(definition.mintable()),
             logo: definition.logo().as_ref(),
             metadata: definition.metadata(),
@@ -902,7 +906,11 @@ pub(crate) struct ExplorerHealthDto {
 pub(crate) fn instruction_kind(instruction: &InstructionBox) -> ExplorerInstructionKind {
     let wire_id = instruction_wire_id(instruction);
     match wire_id {
-        id if id == RegisterBox::WIRE_ID => ExplorerInstructionKind::Register,
+        id if id == RegisterBox::WIRE_ID
+            || id == iroha_data_model::isi::RegisterDataspaceAssetDefinition::WIRE_ID =>
+        {
+            ExplorerInstructionKind::Register
+        }
         id if id == UnregisterBox::WIRE_ID => ExplorerInstructionKind::Unregister,
         id if id == MintBox::WIRE_ID => ExplorerInstructionKind::Mint,
         id if id == BurnBox::WIRE_ID => ExplorerInstructionKind::Burn,
@@ -926,7 +934,11 @@ pub(crate) fn instruction_kind(instruction: &InstructionBox) -> ExplorerInstruct
         id if id == CustomInstruction::WIRE_ID => ExplorerInstructionKind::Custom,
         _ => {
             let any = (**instruction).as_any();
-            if any.downcast_ref::<RegisterBox>().is_some() {
+            if any.downcast_ref::<RegisterBox>().is_some()
+                || any
+                    .downcast_ref::<iroha_data_model::isi::RegisterDataspaceAssetDefinition>()
+                    .is_some()
+            {
                 ExplorerInstructionKind::Register
             } else if any.downcast_ref::<UnregisterBox>().is_some() {
                 ExplorerInstructionKind::Unregister
@@ -1200,7 +1212,17 @@ fn require_canonical_cursor_text<K: ExplorerCursorKeyText>(
 impl CanonicalExplorerCursorKey for AccountId {
     fn parse_canonical_cursor_key(key: &str) -> Result<Self, ExplorerCursorError> {
         let parsed = json::JsonObjectKeyOwned::from_json_key_text(key).map_err(|error| {
-            if matches!(error, json::Error::DecodeResourceLimit) {
+            if matches!(
+                error,
+                json::Error::DecodeResourceLimit
+                    | json::Error::DecodeResource(
+                        norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+                            | norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                    )
+            ) {
                 ExplorerCursorError::ByteLimitExceeded
             } else {
                 ExplorerCursorError::InvalidKey
@@ -1212,7 +1234,17 @@ impl CanonicalExplorerCursorKey for AccountId {
 impl CanonicalExplorerCursorKey for DomainId {
     fn parse_canonical_cursor_key(key: &str) -> Result<Self, ExplorerCursorError> {
         let parsed = json::JsonObjectKeyOwned::from_json_key_text(key).map_err(|error| {
-            if matches!(error, json::Error::DecodeResourceLimit) {
+            if matches!(
+                error,
+                json::Error::DecodeResourceLimit
+                    | json::Error::DecodeResource(
+                        norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+                            | norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                    )
+            ) {
                 ExplorerCursorError::ByteLimitExceeded
             } else {
                 ExplorerCursorError::InvalidKey
@@ -1226,7 +1258,17 @@ impl CanonicalExplorerCursorKey for AssetId {
         let encoded = json::to_json_bounded_boxed(key, EXPLORER_CURSOR_MAX_KEY_BYTES * 6 + 2)
             .map_err(|_| ExplorerCursorError::ByteLimitExceeded)?;
         let parsed = json::from_slice::<Self>(&encoded).map_err(|error| {
-            if matches!(error, json::Error::DecodeResourceLimit) {
+            if matches!(
+                error,
+                json::Error::DecodeResourceLimit
+                    | json::Error::DecodeResource(
+                        norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+                            | norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                    )
+            ) {
                 ExplorerCursorError::ByteLimitExceeded
             } else {
                 ExplorerCursorError::InvalidKey
@@ -1271,7 +1313,17 @@ impl CanonicalExplorerCursorKey for RwaId {
     }
 }
 fn explorer_identifier_decode_error(error: json::Error) -> ExplorerCursorError {
-    if matches!(error, json::Error::DecodeResourceLimit) {
+    if matches!(
+        error,
+        json::Error::DecodeResourceLimit
+            | json::Error::DecodeResource(
+                norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+                    | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+                    | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+                    | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+                    | norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            )
+    ) {
         ExplorerCursorError::ByteLimitExceeded
     } else {
         ExplorerCursorError::InvalidKey
@@ -1751,6 +1803,9 @@ pub(crate) fn asset_definitions_page_for_filters<'world>(
                 ExplorerAssetDefinitionDto::from_definition_with_asset_count(
                     definition,
                     definition_instance_count_from_world(world, definition.id(), visibility),
+                    world
+                        .asset_definition_dataspace(definition.id())
+                        .map_err(|_| ExplorerCursorError::InvalidSnapshot)?,
                 ),
             )
         },
@@ -2152,8 +2207,8 @@ mod tests {
         trigger::DataTriggerSequence,
     };
     use iroha_model_base::domain::DomainId;
+    use iroha_model_base::metadata::Metadata;
     use iroha_model_base::topology::DataSpaceId;
-    use iroha_model_base::{metadata::Metadata, name::Name};
     use iroha_primitives::numeric::Quantity;
     use iroha_test_samples::{ALICE_ID, ALICE_KEYPAIR, BOB_ID};
     use std::{iter, num::NonZeroU32, time::Duration as StdDuration};
@@ -2814,7 +2869,8 @@ mod tests {
             "ticker".parse().unwrap(),
             json::Value::String("ROSE".into()),
         );
-        let dto = ExplorerAssetDefinitionDto::from_definition_with_asset_count(&definition, 7);
+        let dto =
+            ExplorerAssetDefinitionDto::from_definition_with_asset_count(&definition, 7, None);
         assert_eq!(dto.mintable.to_string(), "Once");
         assert_eq!(dto.assets, 7);
         assert_eq!(dto.total_quantity, &Quantity::from(100_u32));
@@ -2822,11 +2878,22 @@ mod tests {
         assert!(dto.circulating_quantity.is_none());
         assert_eq!(dto.owned_by, &*ALICE_ID);
         assert_eq!(dto.owning_domain, None);
+        assert_eq!(dto.owning_dataspace, None);
+        let direct = ExplorerAssetDefinitionDto::from_definition_with_asset_count(
+            &definition,
+            7,
+            Some(DataSpaceId::new(8_648_377_547_929_788_715)),
+        );
+        assert_eq!(
+            direct.owning_dataspace.as_deref(),
+            Some("8648377547929788715")
+        );
+        assert!(direct.owning_domain.is_none());
         assert!(std::ptr::eq(dto.metadata, definition.metadata()));
         assert_explorer_wire(
             &dto,
             norito::json!({
-                "id":(def_id.to_string()), "owning_domain":null, "mintable":"Once", "logo":null,
+                "id":(def_id.to_string()), "owning_domain":null, "owning_dataspace":null, "mintable":"Once", "logo":null,
                 "metadata":{"ticker":"ROSE"}, "owned_by":(ALICE_ID.to_string()), "assets":7,
                 "total_quantity":"100", "locked_quantity":null, "circulating_quantity":null
             }),
@@ -3764,6 +3831,22 @@ mod tests {
                 DomainId::try_new("wonderland", "universal").unwrap(),
                 "rose".parse().unwrap(),
             );
+        let direct_registration: InstructionBox =
+            iroha_data_model::isi::RegisterDataspaceAssetDefinition::new(
+                DataSpaceId::new(7),
+                AssetDefinition::numeric(
+                    asset_def.clone(),
+                    "Rose",
+                    iroha_data_model::asset::AssetBalancePolicy::DataspaceRestricted,
+                    None,
+                ),
+            )
+            .expect("valid direct registration")
+            .into();
+        assert_eq!(
+            instruction_kind(&direct_registration),
+            ExplorerInstructionKind::Register
+        );
         let asset_id = AssetId::new(asset_def.clone(), ALICE_ID.clone());
         let transfer = Transfer::asset_quantity(asset_id, 1u32, BOB_ID.clone());
         let transfer_box: InstructionBox = transfer.into();

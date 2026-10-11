@@ -52,6 +52,7 @@ export {
   buildRedeemRwaInstruction,
   buildRegisterAccountInstruction,
   buildRegisterAssetDefinitionInstruction,
+  buildRegisterDataspaceAssetDefinitionInstruction,
   buildActivateRetailDailyLimitV1InstructionJson,
   buildBindRetailIdentityV1InstructionJson,
   buildRetailMonetaryMovementV1InstructionJson,

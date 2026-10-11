@@ -8,7 +8,7 @@ adjacent code.
 
 | Goal | Status | Completion criteria |
 | --- | --- | --- |
-| O1: Finish compiler and Core ZK ownership | In progress | IVM's normal graph excludes the compiler; compiler/toolchain/VM and proof tests pass; source guards and consumers use actual owners; current default and proof-harness Core ZK checks and strict lint pass. |
+| O1: Finish compiler and Core ZK ownership | In progress | IVM's normal graph excludes the compiler; compiler/toolchain/VM and proof tests pass; source guards and consumers use actual owners; current Core ZK strict checks and canonical proof-owner/consumer tests pass. |
 | O2: Extract state-free privacy verification | In progress | Privacy owns state-free verification while Core retains state authority; original proof/wire fixtures and ordinary coverage remain; native/Python/JS graphs exclude validator execution; current repaired regressions and ordinary suite pass. |
 | O3: Extract state-free timed-OVN verification | Complete | Evidence, casting archive and TLE verification have a separate owner; Core retains authenticated constructors, state reads and signers; bridge tests preserve authorization and replay checks. |
 | O4: Isolate executable build metadata | Complete | Thin daemon/CLI packages supply compiled identity to metadata-free libraries; executable names/features remain coherent; the authenticated two-build metadata check preserves library freshness on its recorded source cut. |
@@ -25,10 +25,12 @@ committed-state reads and authenticated authority. Thin executables own build
 metadata. Shared operation journaling has one owner consumed directly by Wallet,
 SCCP, services and daemon, with signing and finality retained by consumers.
 
-The merged manifest inventory contains 129 source manifests and 123 workspace
-members, with the inactive Wayland patch protected. The source-cost ratchet
-matches all 72 measurements exactly. Recorded locked offline dependency boundary,
-feature hygiene, legacy-codec and checker-control passes retain their input cuts.
+The recorded signed validation baseline is `4486aa78661b8f289d21238e034fc2ece10600d8`.
+Recorded static source-graph discovery lists 124 workspace members; it does not
+establish a current resolved Cargo metadata graph. The inactive Wayland patch
+remains protected. Source-cost and feature-hygiene checks passed on that recorded
+cut, with all 72 cost limits matched exactly. Recorded locked offline dependency boundaries,
+legacy-codec and checker controls retain their input cuts.
 Shipping Oracle denials and the sole aggregate-model test exception remain intact.
 The reviewed ratchet includes the model’s live Pasta field/hash dependency,
 direct allocation-owner dependencies and the proof crate’s development-only
@@ -36,30 +38,52 @@ timing dependency. The daemon’s unused direct Sumeragi edge is removed; Core
 retains consensus ownership. Resolved metadata requires canonical `deps`;
 malformed entries are rejected instead of inferring an empty or alternate graph.
 Native qualification and requalification of changed selected inputs remain required.
-SDK Native custody and genuine production proving remain mandatory even with
-SDK defaults disabled; assembly and admission tools require explicit `dev-tools`
-selection under the unchanged 24-default ceiling.
+SDK custody and genuine proving qualification follow the canonical G1, Advance
+and PIPA owners. Their bridge, SDK and ledger integration remains open under the
+[single-design goals](kagemusha_single_design_proposal.md#9-implementation-ownership-and-retirement).
 
-The compiler fixture seal records 308 includes and 616 test names, with all
-43 source-reader controls passing on their finite input cut. Foundation CI
-selection passes all 88 controls. Norito passes 581 ordinary tests, the original
-ignored snapshot utility and eight public heap controls on its recorded cut,
-before later Model/Torii changes. Journal strict lint and all 11 unfiltered
-ordinary tests pass on their current selected inputs, with zero ignores. Strict
-lint preserves 1,476 protected inputs; the test interval preserves all 1,490
-inputs, invocation, tools and executable custody. Wallet's shared retained reader
-audits the fixed native namespace before decoding, signing or HTTP. Its
-prospective macOS registry
-retains all 191 earlier names and 15 custody controls across 216 cases; native
-qualification remains open. Direct IVM/SDK and both Core ZK strict frontends also
-remain required. Earlier component passes retain their source, feature and
-artifact scope.
+Rust CI now has one `axum-core` owner and its workflow/source controls pass.
+Compiler fixture and source-reader controls retain their recorded input scope;
+compiler/toolchain/VM and proof native tests remain required.
+Earlier `pytests/scripts` and the five affected source-scanner module passes
+retain their original input cuts and stock skips. Current full Python
+requalification remains pending. The drifted whole-scripts run remains
+diagnostic; interrupted attempts with unknown exits remain unresolved.
 
-All 52 previously failed ordinary Privacy cases remain ordinary tests. They
-must pass in the current harness, followed by its complete unfiltered ordinary
-suite with the original ignores retained. A prepared runtime schedule, source
-inventory or successful focused subset does not satisfy O2. Core-wide failures
-and their repairs require separate current-source qualification.
+The generic Norito array correction is applied and formatted: element frames
+must be consumed exactly, actual owned allocations are charged once, and nominal
+raw-byte fields keep their explicit layouts. Complete Primitives/P2P/Manifest and Norito/derive/Crypto runs passed on the
+recorded cut with stock ignores retained and stable source. The latter Cargo process exited successfully, but its outer controller
+reported a changed Git baseline; that original outer failure is preserved. An
+independent Source/Git join binds both runs to that recorded source and genuine
+formatter baseline. Subsequent commits and selected-input changes require fresh
+qualification. This join does not qualify broader native tools, artifacts
+or consumers. Earlier Model library,
+bin, test and doctest passes and Python passes retain their original inputs;
+current full Model and Python requalification remain pending. The earlier
+successful Crypto run with source/Git drift and interrupted unknown exits do not
+qualify the current checkout. FASTPQ's raw-field regression remains pending.
+
+Journal strict lint/runtime and earlier Crypto checks retain their selected
+source and artifact scope. Wallet's shared retained reader audits the fixed
+native namespace before decoding, signing or HTTP. Its prospective 218-case
+macOS registry preserves all 191 earlier names, 15 custody controls and two new
+byte-frame allocation controls; native qualification remains open. ABI/IVM
+validation preserves the original 12 phases and adds allocation and compact-call
+compiler/runtime phases, 14 total; these phases and direct consumers remain unrun.
+Eleven changed fixed inputs still require current joins, including Torii and
+epoch-owner evidence.
+
+Current Core ZK qualification requires strict library checks with defaults and
+without defaults, the `zk-tests`/`halo2-dev-tests` library and grouped integration
+coverage, and canonical Pasta/PLONK/G1/Advance/PIPA owner and consumer tests.
+Those checks and FASTPQ ordinary runtime remain pending. Genuine Halo2/Pasta
+proving is mandatory in every build; the retired real-proof-harness feature is
+not a qualification target. All 52 previously failed Privacy cases remain ordinary tests;
+current regressions followed by the complete unfiltered ordinary suite are still
+required, with stock ignores retained. Its prepared controller remains inactive.
+A prepared schedule or successful focused subset does not satisfy O2. Core-wide
+failures and their repairs require separate current-source qualification.
 
 The September 27 baseline checked `irohad`, `iroha_cli` and `iroha_kagami`
 without incremental compilation after a data-model edit: 526 seconds overall,

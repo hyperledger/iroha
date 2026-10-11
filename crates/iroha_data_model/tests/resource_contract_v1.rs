@@ -69,9 +69,9 @@ fn committed_defaults_are_the_values_the_contract_records() {
     assert_eq!(transaction.ivm_bytecode_size().get(), 4 * MIB);
     assert_eq!(transaction.max_metadata_depth().get(), 8);
     assert_eq!(transaction.max_time_to_live_ms().get(), 86_400_000);
-    assert_eq!(parameters.sumeragi().max_block_bytes.get(), 4_194_304);
-    assert_eq!(parameters.sumeragi().exec_budget_ms.get(), 4_000);
-    assert_eq!(parameters.sumeragi().apply_budget_ms.get(), 1_000);
+    assert_eq!(parameters.sumeragi().max_block_bytes().get(), 4_194_304);
+    assert_eq!(parameters.sumeragi().exec_budget_ms().get(), 4_000);
+    assert_eq!(parameters.sumeragi().apply_budget_ms().get(), 1_000);
     assert_eq!(parameters.block().max_transactions().get(), 512);
     let contract = parameters.smart_contract();
     assert_eq!(contract.fuel().get(), 55_000_000);
@@ -278,7 +278,7 @@ fn privacy_limits_keep_their_order_and_record_the_open_envelope_relation() {
     assert!(framed.len() as u64 > u64::from(limits.max_action_bytes));
     assert!(
         u64::from(limits.max_privacy_bytes_per_block)
-            > u64::from(Parameters::default().sumeragi().max_block_bytes.get())
+            > u64::from(Parameters::default().sumeragi().max_block_bytes().get())
     );
 }
 
@@ -539,7 +539,7 @@ fn contract_argument_record_accepts_the_limit_and_rejects_one_over() {
 /// Committed chain parameters: the payload limit is validated against the chain frame limit.
 #[test]
 fn committed_block_payload_limit_accepts_the_frame_limit_and_rejects_one_over() {
-    assert_eq!(FRAME_OVERHEAD, 591_904);
+    assert_eq!(FRAME_OVERHEAD, 264_224);
     assert_eq!(
         CHAIN_TRANSPORT_FRAME_LIMIT,
         16 * MIB + u64::from(FRAME_OVERHEAD)
@@ -587,7 +587,7 @@ fn rs16_layout_accepts_the_payload_limit_and_rejects_one_over() {
     assert_eq!(oversized.validate(), Err(LayoutError::InvalidLayout));
     // Every committed payload limit fits the protocol-wide RS16 payload bound.
     assert!(
-        u64::from(Parameters::default().sumeragi().max_block_bytes.get())
+        u64::from(Parameters::default().sumeragi().max_block_bytes().get())
             <= MAX_DA_PAYLOAD_SIZE_BYTES
     );
     assert!(CHAIN_TRANSPORT_FRAME_LIMIT - u64::from(FRAME_OVERHEAD) <= MAX_DA_PAYLOAD_SIZE_BYTES);

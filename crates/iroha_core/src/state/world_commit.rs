@@ -14,6 +14,67 @@
 use super::*;
 use crate::execution_attempt::ExecutionAttemptError;
 
+/// Observe the two actual pure validators on the calling native test thread.
+/// The guard restores the prior observation on normal return and unwind.
+#[cfg(test)]
+pub(super) mod validation_observer {
+    use std::cell::Cell;
+
+    thread_local! {
+        static COUNTS: Cell<Option<[usize; 2]>> = const { Cell::new(None) };
+    }
+
+    pub(in crate::state) fn observe<R>(action: impl FnOnce() -> R) -> R {
+        struct Restore(Option<[usize; 2]>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                COUNTS.with(|counts| counts.set(self.0));
+            }
+        }
+        let restore = Restore(COUNTS.with(|counts| counts.replace(Some([0; 2]))));
+        let result = action();
+        drop(restore);
+        result
+    }
+
+    pub(in crate::state) fn counts() -> [usize; 2] {
+        COUNTS.with(|counts| counts.get().expect("active validator observation"))
+    }
+
+    pub(super) fn record(index: usize) {
+        COUNTS.with(|counts| {
+            if let Some(mut observed) = counts.get() {
+                observed[index] += 1;
+                counts.set(Some(observed));
+            }
+        });
+    }
+
+    #[test]
+    fn nested_validation_observation_restores_original_counts_after_unwind() {
+        observe(|| {
+            record(0);
+            let original = counts();
+            observe(|| {
+                record(1);
+                assert_eq!(counts(), [0, 1]);
+            });
+            assert_eq!(counts(), original);
+            assert!(
+                std::panic::catch_unwind(|| {
+                    observe(|| {
+                        record(1);
+                        panic!("test-only validator observation unwind");
+                    });
+                })
+                .is_err()
+            );
+            assert_eq!(counts(), original);
+        });
+        assert!(COUNTS.with(|counts| counts.get().is_none()));
+    }
+}
+
 /// One finalized World overlay and its derived DA cache publication records.
 ///
 /// Production uses only the associated deterministic-tail functions on the State's own
@@ -87,6 +148,7 @@ impl<'state> PreparedWorldCommit<'state> {
     /// Finish the same deterministic tail while the consuming carrier still
     /// owns every State journal. Its returned effects are retained by that
     /// read-only owner; they cannot publish or make an unprepared World valid.
+    #[cfg(test)]
     pub(in crate::state) fn prepare_overlay(
         world: &mut WorldBlock<'state>,
         execution_budget: &iroha_allocation::AllocationBudget,
@@ -148,16 +210,36 @@ impl<'state> PreparedWorldCommit<'state> {
 
     /// Validate the same completed immutable World. A local capacity refusal does not
     /// recreate quota writes, pin records, lifecycle pruning or their allocations.
+    #[cfg(test)]
     pub(in crate::state) fn validate_prepared_overlay(
         world: &WorldBlock<'state>,
         execution_budget: &iroha_allocation::AllocationBudget,
     ) -> Result<(), ExecutionAttemptError<String>> {
+        Self::validate_prepared_policy_transition(world)?;
+        Self::validate_prepared_musubi(world, execution_budget)
+    }
+
+    /// Keep the original policy-transition prefix on every publication attempt.
+    pub(in crate::state) fn validate_prepared_policy_transition(
+        world: &WorldBlock<'state>,
+    ) -> Result<(), ExecutionAttemptError<String>> {
         super::retail_daily_limit_state::validate_immutable_policy_transition(world)
-            .map_err(crate::execution_attempt::ExecutionAttemptError::Rejected)?;
-        // A previously admitted World cut remains exact until one of these
-        // predicate inputs changes. Validate the completed overlay before it
-        // can publish; the same path checks replacement-block rollback cuts.
-        if world.musubi_archives.is_dirty()
+            .map_err(crate::execution_attempt::ExecutionAttemptError::Rejected)
+    }
+
+    /// Fixture convenience preserves the original live-before-universal order.
+    #[cfg(test)]
+    pub(in crate::state) fn validate_prepared_musubi(
+        world: &WorldBlock<'state>,
+        execution_budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<(), ExecutionAttemptError<String>> {
+        Self::validate_prepared_musubi_live(world, execution_budget)?;
+        Self::validate_prepared_musubi_universal(world, execution_budget)
+    }
+
+    /// Exact immutable dependency set shared by the two original validators.
+    fn requires_musubi_validation(world: &WorldBlock<'state>) -> bool {
+        world.musubi_archives.is_dirty()
             || world.musubi_archive_locations.is_dirty()
             || world.musubi_provider_bundle_attestations.is_dirty()
             || world.musubi_locations_by_pin.is_dirty()
@@ -172,13 +254,36 @@ impl<'state> PreparedWorldCommit<'state> {
             || world.musubi_resolver_index.is_dirty()
             || world.musubi_public_directory.is_dirty()
             || world.musubi_resolver_index_revision.is_dirty()
-        {
+    }
+
+    /// Finish the original live projection pass, retaining no scratch after success.
+    /// Only its enclosing immutable publisher can reuse that same-cut success.
+    pub(in crate::state) fn validate_prepared_musubi_live(
+        world: &WorldBlock<'state>,
+        execution_budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<(), ExecutionAttemptError<String>> {
+        if Self::requires_musubi_validation(world) {
+            #[cfg(test)]
+            validation_observer::record(0);
             deserialize::validate_musubi_live_projection_cut(world, execution_budget).map_err(
                 |error| {
                     error
                         .map_rejection(|error| format!("Musubi World publication refused: {error}"))
                 },
             )?;
+        }
+        Ok(())
+    }
+
+    /// Preserve package-identity-before-scratch order in the original universal pass.
+    /// A refusal advances no universal stage and changes no source or pool authority.
+    pub(in crate::state) fn validate_prepared_musubi_universal(
+        world: &WorldBlock<'state>,
+        execution_budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<(), ExecutionAttemptError<String>> {
+        if Self::requires_musubi_validation(world) {
+            #[cfg(test)]
+            validation_observer::record(1);
             deserialize::musubi_universal::validate_musubi_universal_projection_cut(
                 world,
                 deserialize::musubi_rejection::ProjectionCut::Candidate,

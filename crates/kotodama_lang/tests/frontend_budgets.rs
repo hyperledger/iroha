@@ -725,11 +725,11 @@ fn expression_depth_accounts_for_const_fixture_and_trigger_contexts() {
     assert_source_depth_boundary(
         "trigger-metadata-expression",
         format!(
-            "seiyaku Demo {{ kotoage fn run() authorize(\"Run\") {{}} trigger wake -> run {{ on time pre_commit; metadata {{ payload: 0{}; }} }} }}",
+            "seiyaku Demo {{ permission Run;  kotoage fn run() authorize(Run) {{}} trigger wake -> run {{ on time pre_commit; metadata {{ payload: 0{}; }} }} }}",
             " + 1".repeat(nested_links)
         ),
         format!(
-            "seiyaku Demo {{ kotoage fn run() authorize(\"Run\") {{}} trigger wake -> run {{ on time pre_commit; metadata {{ payload: 0{}; }} }} }}",
+            "seiyaku Demo {{ permission Run;  kotoage fn run() authorize(Run) {{}} trigger wake -> run {{ on time pre_commit; metadata {{ payload: 0{}; }} }} }}",
             " + 1".repeat(nested_links + 1)
         ),
         35,

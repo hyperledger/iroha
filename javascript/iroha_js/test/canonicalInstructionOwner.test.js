@@ -265,9 +265,9 @@ test("retail and public-ballot decoders keep strict duplicate-key rejection", ()
 
 test("u128 election tallies reach both encoders exactly and never decode as rounded numbers", () => {
   const tallyProof = {
-    backend: "halo2/ipa",
-    proof: { backend: "halo2/ipa", bytes: [1] },
-    vk_ref: { backend: "halo2/ipa", name: "vk_tally" },
+    backend: "pipa-r/pasta",
+    proof: { backend: "pipa-r/pasta", bytes: [1] },
+    vk_ref: { backend: "pipa-r/pasta", name: "vk_tally" },
   };
   const maximum = (1n << 128n) - 1n;
   const source = { zk: { FinalizeElection: { election_id: "exact-tally", tally: [maximum, 0], tally_proof: tallyProof } } };

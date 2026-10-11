@@ -1,7 +1,7 @@
 
 seiyaku CompilerFixture {
 
-view fn digest() -> bytes {
+view fn digest() authorize(anyone) -> bytes {
   let payload = b"\x01\x02\x03";
   let _sm3 = crypto::sm3(payload);
   let _sha256 = crypto::sha256(payload);

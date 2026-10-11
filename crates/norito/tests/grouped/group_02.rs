@@ -1,5 +1,4 @@
 //! Grouped Norito integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #[path = "../compress_auto.rs"]
 mod compress_auto;
 #[path = "../compression.rs"]

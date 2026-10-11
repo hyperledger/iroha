@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Python 3.12, authenticated Rust tools and a clean committed release source are
+# required. Optional developer evidence retention names a fresh private child of
+# ROOT/target/qualification; it never bypasses release or installed-wheel checks.
+EVIDENCE_OUTPUT="${PRIVACY_PYTHON_SDK_EVIDENCE_DIR:-}"
+
 ROOT_OVERRIDE="${PRIVACY_PYTHON_SDK_ROOT:-}"
 ROOT_DIR="${ROOT_OVERRIDE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 PYTHON_OVERRIDE="${PRIVACY_PYTHON_SDK_PYTHON_BIN:-}"
@@ -10,7 +15,7 @@ TEST_VENV_OVERRIDE="${PRIVACY_PYTHON_SDK_TEST_VENV:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQUIREMENTS_LOCKFILE="${ROOT_DIR}/python/iroha_python/requirements-ci.lock"
 CHECKOUT_NATIVE_DIR="${ROOT_DIR}/python"
-ABI25_CHECKER="${ROOT_DIR}/scripts/check_native_sdk_artifact.py"
+ABI29_CHECKER="${ROOT_DIR}/scripts/check_native_sdk_artifact.py"
 WHEEL_PATH=""
 WHEEL_SEAL=""
 SDK_WHEEL_PATH=""
@@ -1156,24 +1161,28 @@ case "${INSTALLED_NATIVE_PATH}" in
 esac
 assert_privacy_sdk_inputs_unchanged
 
-NATIVE_ABI25_MANIFEST="${PRIVATE_CARGO_WRAPPER_DIR}/python-native-abi25.json"
-"${VENV_DIR}/bin/python" -I -S "${ABI25_CHECKER}" record \
+NATIVE_ABI29_MANIFEST="${PRIVATE_CARGO_WRAPPER_DIR}/python-native-abi29.json"
+"${VENV_DIR}/bin/python" -I -S "${ABI29_CHECKER}" record \
   --artifact "${INSTALLED_NATIVE_PATH}" \
-  --manifest "${NATIVE_ABI25_MANIFEST}" \
+  --manifest "${NATIVE_ABI29_MANIFEST}" \
   --source-root "${ROOT_DIR}" \
   --python "${VENV_DIR}/bin/python" \
   --sdk python \
   --target "${AUTHENTICATED_RUST_HOST_TRIPLE}-py312"
-"${VENV_DIR}/bin/python" -I -S "${ABI25_CHECKER}" verify \
+"${VENV_DIR}/bin/python" -I -S "${ABI29_CHECKER}" verify \
   --artifact "${INSTALLED_NATIVE_PATH}" \
-  --manifest "${NATIVE_ABI25_MANIFEST}" \
+  --manifest "${NATIVE_ABI29_MANIFEST}" \
   --source-root "${ROOT_DIR}" \
   --python "${VENV_DIR}/bin/python"
 assert_privacy_sdk_inputs_unchanged
 
 export IROHA_PYTHON_TEST_INSTALLED_PACKAGE=1
 export PYTHONPATH="${ROOT_DIR}/python/norito_py/src:${ROOT_DIR}/python"
+NATIVE_TEST_XML="${PRIVATE_CARGO_WRAPPER_DIR}/installed-tests.xml"
+PYTEST_STATUS=0
 "${VENV_DIR}/bin/python" -I -B -m pytest -q \
+  --junitxml "${NATIVE_TEST_XML}" \
+  tests/confidential_wallet_native_test.py \
   tests/privacy_catalog_test.py \
   tests/privacy_exact12_fixture_test.py \
   tests/package_import_fallback_test.py \
@@ -1186,12 +1195,28 @@ export PYTHONPATH="${ROOT_DIR}/python/norito_py/src:${ROOT_DIR}/python"
   tests/governance_tally_test.py \
   "${ROOT_DIR}/python/iroha_torii_client/tests/governance_tally_response_test.py" \
   "${ROOT_DIR}/scripts/tests/check_privacy_jvm_native_gate_test.py" \
-  "${ROOT_DIR}/scripts/tests/check_privacy_python_witness_boundary_test.py"
+  "${ROOT_DIR}/scripts/tests/check_privacy_python_witness_boundary_test.py" || PYTEST_STATUS=$?
 assert_privacy_sdk_inputs_unchanged
 
-"${VENV_DIR}/bin/python" -I -S "${ABI25_CHECKER}" verify \
+"${VENV_DIR}/bin/python" -I -S "${ABI29_CHECKER}" verify \
   --artifact "${INSTALLED_NATIVE_PATH}" \
-  --manifest "${NATIVE_ABI25_MANIFEST}" \
+  --manifest "${NATIVE_ABI29_MANIFEST}" \
   --source-root "${ROOT_DIR}" \
   --python "${VENV_DIR}/bin/python"
 assert_privacy_sdk_inputs_unchanged
+
+# Retain only after the final installed-artifact/source verification. The receipt
+# reports native test coverage; the outer guard exit still includes cleanup's
+# final revalidation, and failures never become a passing native result.
+if [[ -n "${EVIDENCE_OUTPUT}" ]]; then
+  "${VENV_DIR}/bin/python" -I -B "${SCRIPT_DIR}/python_native_guard_evidence.py" \
+    --root "${ROOT_DIR}" --output "${EVIDENCE_OUTPUT}" \
+    --private-dir "${PRIVATE_CARGO_WRAPPER_DIR}" --venv "${VENV_DIR}" \
+    --native "${INSTALLED_NATIVE_PATH}" \
+    --native-wheel "${WHEEL_PATH}" --native-wheel-seal "${WHEEL_SEAL}" \
+    --sdk-wheel "${SDK_WHEEL_PATH}" --sdk-wheel-seal "${SDK_WHEEL_SEAL}" \
+    --manifest "${NATIVE_ABI29_MANIFEST}" --source-pin "${SOURCE_BEFORE_PIN}" \
+    --tests "${NATIVE_TEST_XML}" --test-exit "${PYTEST_STATUS}" \
+    --cargo-audit "${PRIVATE_CARGO_AUDIT_PATH}"
+fi
+exit "${PYTEST_STATUS}"

@@ -2,8 +2,6 @@
 
 /// AMX two-phase commit on the global chain (`specs/sumeragi.md` §11).
 pub mod amx;
-/// Native source-complete Pasta Commit attestations.
-pub mod attestation;
 /// The driver's block store over Kura: one certified `SignedBlockWire` frame per height.
 pub mod block_store;
 /// File-backed body store of the Sumeragi driver (bodies of accepted, unapplied blocks).
@@ -57,6 +55,7 @@ pub mod startup;
 pub mod test_chain;
 pub use genesis_meta::{
     staged_genesis_execution_policy_hash, staged_genesis_nexus_amx_context_hash,
+    staged_genesis_nexus_amx_context_preimage,
 };
 /// The initial validator roster: the authenticated subset of the configured trusted peers.
 pub mod roster;

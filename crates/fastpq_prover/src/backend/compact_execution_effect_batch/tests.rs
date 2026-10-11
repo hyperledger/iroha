@@ -164,12 +164,12 @@ pub(in crate::backend) fn fixture() -> (
 
 pub(in crate::backend) fn expected(
     statement: &FastpqExecutionEffectStatementV1,
-) -> ExecutionEffectExpectations {
-    ExecutionEffectExpectations {
-        effects_digest: execution_effects_digest_v1(&statement.effects).unwrap(),
-        statement_digest: execution_effect_statement_digest_v1(statement).unwrap(),
+) -> Result<ExecutionEffectExpectations> {
+    Ok(ExecutionEffectExpectations {
+        effects_digest: execution_effects_digest_v1(&statement.effects)?,
+        statement_digest: execution_effect_statement_digest_v1(statement)?,
         public_inputs: statement.public_inputs,
-    }
+    })
 }
 
 fn root_limbs(bytes: [u8; 32]) -> [u32; 8] {
@@ -224,7 +224,7 @@ fn build(
     ExecutionEffectBatch::new(
         &SourceExecutionEffectStatement::from_owned(statement),
         source,
-        expected(statement),
+        expected(statement)?,
         roots,
         limits,
         &budget,
@@ -280,7 +280,7 @@ fn borrowed_owned_canonical_frames_and_distinct_domains_match_exactly() {
     assert_eq!(
         view.digest(ExecutionEffectLimits::default().max_public_bytes)
             .unwrap(),
-        expected(&statement).statement_digest
+        expected(&statement).unwrap().statement_digest
     );
     let bound = batch(&source, &statement, &roots);
     let owned = OwnedBatch {
@@ -460,7 +460,7 @@ fn independent_source_and_expectation_mutants_refuse_before_preparation_credit()
             ExecutionEffectBatch::new(
                 &view,
                 &changed,
-                expected(&statement),
+                expected(&statement).unwrap(),
                 &roots,
                 limits(),
                 &budget,
@@ -478,7 +478,7 @@ fn independent_source_and_expectation_mutants_refuse_before_preparation_credit()
         assert_eq!(budget.reserved_bytes(), 0);
     }
     for mutation in 0..3 {
-        let mut expectation = expected(&statement);
+        let mut expectation = expected(&statement).unwrap();
         match mutation {
             0 => expectation.statement_digest = Hash::new(b"other statement"),
             1 => expectation.effects_digest = Hash::new(b"other tape"),
@@ -647,7 +647,7 @@ fn original_pool_exact_funding_and_output_drop_retain_physical_context_and_ports
         ExecutionEffectBatch::new(
             &view,
             &source,
-            expected(&statement),
+            expected(&statement).unwrap(),
             &roots,
             limits(),
             &budget,
@@ -665,7 +665,7 @@ fn original_pool_exact_funding_and_output_drop_retain_physical_context_and_ports
             ExecutionEffectBatch::new(
                 &view,
                 &source,
-                expected(&statement),
+                expected(&statement).unwrap(),
                 &roots,
                 limits(),
                 &budget,
@@ -680,7 +680,7 @@ fn original_pool_exact_funding_and_output_drop_retain_physical_context_and_ports
     let batch = ExecutionEffectBatch::new(
         &view,
         &source,
-        expected(&statement),
+        expected(&statement).unwrap(),
         &roots,
         limits(),
         &budget,
@@ -730,7 +730,7 @@ fn caller_raised_public_cap_cannot_allocate_before_fixed_byte_refusal() {
         .resize(fixed.max_public_bytes + 1, 0);
     // Recompute the test-owned statement expectation so only the fixed public
     // ceiling, rather than a stale digest, causes this early refusal.
-    let expectation = expected(&statement);
+    let expectation = expected(&statement).unwrap();
     let raised = EffectBatchLimits {
         public: ExecutionEffectLimits {
             max_effects: usize::MAX,

@@ -74,6 +74,9 @@ pub struct SccpSourceLocatorV1 {
 }
 
 /// Why a proven inbound message is not yet settled (§4.12.3, §4.12.5).
+///
+/// Every reason is a hold that `SettleSccpV1::Inbound` retries; none is permanent. A recipient
+/// that can never be credited bounces instead (`SccpBounceReasonV1`).
 #[derive(
     Debug,
     Clone,
@@ -108,6 +111,20 @@ pub enum SccpPendingReasonV1 {
     #[codec(index = 2)]
     #[norito(rename = "liability_shortfall")]
     LiabilityShortfall,
+    /// The release movement refuses the credit now (the recipient's incoming transfer control,
+    /// holding limit or custody, or the XOR definition's transfer and usage policy).
+    #[codec(index = 3)]
+    #[norito(rename = "credit_refused")]
+    CreditRefused,
+    /// A self-claim fee is due and the Nexus fee sink does not resolve to an account that can
+    /// receive it.
+    #[codec(index = 4)]
+    #[norito(rename = "fee_sink_unavailable")]
+    FeeSinkUnavailable,
+    /// The message bounces, and the executing block already holds its maximum of SCCP leaves.
+    #[codec(index = 5)]
+    #[norito(rename = "block_leaves_full")]
+    BlockLeavesFull,
 }
 
 /// Payload of [`SccpInboundStatusV1::Pending`].
@@ -245,7 +262,9 @@ pub struct SccpInboundRecordV1 {
     pub source_locator: SccpSourceLocatorV1,
     /// Taira height at which the proof was accepted.
     pub proven_at_height: u64,
-    /// Self-claim fee charged once at release (0 for relayed claims).
+    /// Self-claim fee charged once at release, strictly below the amount. Only a fee-exempt
+    /// self-claim of the recipient sets it (§4.12.4); it is 0 for relayed proofs and for
+    /// recipients that paid the ordinary fee.
     #[norito(json = "crate::json_helpers::u128_string")]
     pub fee_due: u128,
     /// Lifecycle status.
@@ -257,6 +276,15 @@ mod tests {
     use super::*;
     use crate::sccp::test_support::{assert_rejects_unknown_field, roundtrip};
     use norito::{codec::DecodeAll as _, core::DecodeFromSlice as _};
+
+    const REASONS: [SccpPendingReasonV1; 6] = [
+        SccpPendingReasonV1::Disabled,
+        SccpPendingReasonV1::RevisionNotSettleable,
+        SccpPendingReasonV1::LiabilityShortfall,
+        SccpPendingReasonV1::CreditRefused,
+        SccpPendingReasonV1::FeeSinkUnavailable,
+        SccpPendingReasonV1::BlockLeavesFull,
+    ];
 
     fn statuses() -> [SccpInboundStatusV1; 5] {
         [
@@ -272,9 +300,9 @@ mod tests {
 
     fn record(status: SccpInboundStatusV1) -> SccpInboundRecordV1 {
         SccpInboundRecordV1 {
-            network: SccpNetworkV1::TronMainnet,
+            network: SccpNetworkV1::BscMainnet,
             revision: 2,
-            payload: vec![2, 1, 0, 0, 0, 5],
+            payload: vec![2, 1, 0, 0, 0, 2],
             source_locator: SccpSourceLocatorV1 {
                 source_height: 70_000_000,
                 block_hash: [7; 32],
@@ -289,6 +317,13 @@ mod tests {
     #[test]
     fn binary_and_json_roundtrip() {
         for status in statuses() {
+            roundtrip(&status);
+            roundtrip(&record(status));
+        }
+        for reason in REASONS {
+            roundtrip(&reason);
+            let status = SccpInboundStatusV1::pending(reason);
+            assert!(status.is_pending());
             roundtrip(&status);
             roundtrip(&record(status));
         }

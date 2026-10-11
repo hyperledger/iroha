@@ -1,13 +1,12 @@
 
-seiyaku Test {
+seiyaku Test { permission Admin;
   #[access(read="*", write="*")]
-  kotoage fn move(AccountId from, AccountId to, AssetDefinitionId asset, quantity amount) authorize("Admin") {
+  kotoage fn move(AccountId from, AccountId to, AssetDefinitionId asset, quantity amount) authorize(Admin) {
     ledger::asset::transfer(
       source: from,
       destination: to,
       asset_definition: asset,
       amount: amount,
-      dataspace: DataSpaceId::parse("0"),
     );
   }
 }

@@ -22,7 +22,7 @@ impl ManifestSigningFixture {
             "fixture declares at least one signature"
         );
         let max_frame_bytes = usize::try_from(
-            iroha_data_model::parameter::system::defaults::transaction::ivm_bytecode_size().get(),
+            iroha_config::parameters::defaults::transaction::ivm_bytecode_size().get(),
         )
         .expect("configured fixture frame bound fits usize");
         let signer_bytes = iroha_crypto::MAX_PUBLIC_KEY_PAYLOAD_BYTES
@@ -34,7 +34,7 @@ impl ManifestSigningFixture {
             .and_then(|one_signature| one_signature.checked_mul(signature_count))
             .expect("finite fixture signing grant fits usize");
         let max_elements = usize::try_from(
-            iroha_data_model::parameter::system::defaults::transaction::max_instructions().get(),
+            iroha_config::parameters::defaults::transaction::max_instructions().get(),
         )
         .expect("configured fixture element bound fits usize")
         .checked_mul(signature_count)
@@ -88,6 +88,9 @@ mod tests {
 
     fn manifest(name: String) -> ContractManifest {
         ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: Some(name),
             code_hash: Some(Hash::new(b"Torii fixture code")),
             abi_hash: Some(Hash::new(b"Torii fixture ABI")),

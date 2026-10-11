@@ -6,7 +6,7 @@ mod registry_refusal_tests;
 #[path = "runtime_dlmm_tests.rs"]
 mod runtime_dlmm_tests;
 #[path = "runtime_wrapper_tests.rs"]
-mod runtime_wrapper_tests;
+pub(crate) mod runtime_wrapper_tests;
 #[path = "signed_original_fixtures.rs"]
 mod signed_original_fixtures;
 use super::*;
@@ -24,10 +24,29 @@ use iroha_data_model::{
 use iroha_model_base::{domain::DomainId, name::Name, topology::DataSpaceId};
 use iroha_primitives::numeric::NumericSpec;
 pub(crate) use signed_original_fixtures::{
-    signed_payout_lifecycle_registry_fixture, with_original_validation_fee_payout_state_at_height,
+    signed_payout_lifecycle_registry_fixture, signed_payout_lifecycle_registry_fixture_with_config,
+    with_original_validation_fee_payout_state_at_height,
 };
 use std::str::FromStr as _;
 const TEST_VALIDATION_FEE_ASSET_SCALE: u8 = 2;
+fn encode_fixture_int_map_key(value: i128) -> Vec<u8> {
+    use ivm_abi::state_value::{
+        StateValueAtomV1, StateValueKindV1, StateValueNodeV1, StateValueRecordV1,
+        StateValueSchemaV1, state_value_schema_hash_v1,
+    };
+    let schema = StateValueSchemaV1 {
+        nodes: vec![StateValueNodeV1::Leaf(StateValueKindV1::Int)],
+    };
+    let envelope =
+        ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(value))
+            .unwrap();
+    norito::encode_canonical(&StateValueRecordV1 {
+        schema_hash: state_value_schema_hash_v1(&norito::encode_canonical(&schema).unwrap()),
+        atoms: vec![StateValueAtomV1::Pointer(envelope)],
+    })
+    .unwrap()
+}
+
 fn key_pair(seed: u8) -> KeyPair {
     KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519).expect("key pair")
 }
@@ -135,7 +154,10 @@ fn minimal_bound_contract_artifact() -> (
                 ],
             },
         ),
-        permission: Some(VALIDATION_FEE_PAYOUT_WRAPPER_ENTRYPOINT_PERMISSION.to_owned()),
+        authorization:
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "Payout".parse().unwrap(),
+            ),
         read_keys: Vec::new(),
         write_keys: Vec::new(),
         access_hints_complete: None,
@@ -144,10 +166,19 @@ fn minimal_bound_contract_artifact() -> (
     };
     let pool_entrypoint = iroha_data_model::smart_contract::manifest::EntrypointDescriptor {
         name: VALIDATION_FEE_POOL_SWAP_ENTRYPOINT.to_owned(),
+        authorization:
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "SwapQuotePublic".parse().unwrap(),
+            ),
         ..wrapper_entrypoint.clone()
     };
     let entrypoints = [wrapper_entrypoint, pool_entrypoint];
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        events: Vec::new(),
+        enum_types: Vec::new(),
+        permissions: ["Payout", "SwapQuotePublic"].into_iter().map(|name| iroha_data_model::smart_contract::manifest::ContractPermissionDescriptorV1 {
+            name: name.parse().unwrap(), scope: iroha_data_model::smart_contract::manifest::ContractPermissionScopeV1::Instance,
+        }).collect(),
         callables: (0..entrypoints.len())
             .map(|index| crate::ivm_test_support::unit_callable(index as u64 * 16))
             .collect(),
@@ -167,7 +198,7 @@ fn minimal_bound_contract_artifact() -> (
                 argument_schema: entrypoint.argument_schema.clone(),
                 return_type: entrypoint.return_type.clone(),
                 return_schema: entrypoint.return_schema.clone(),
-                permission: entrypoint.permission.clone(),
+                authorization: entrypoint.authorization.clone(),
                 read_keys: entrypoint.read_keys.clone(),
                 write_keys: entrypoint.write_keys.clone(),
                 access_hints_complete: entrypoint.access_hints_complete,
@@ -189,6 +220,47 @@ fn minimal_bound_contract_artifact() -> (
     artifact.extend_from_slice(&instructions);
     let verified = ivm::verify_contract_artifact(&artifact).expect("valid bound contract artifact");
     (artifact, verified.manifest)
+}
+
+#[test]
+fn payout_permissions_require_dedicated_instance_roles() {
+    use iroha_data_model::smart_contract::manifest::{
+        ContractPermissionScopeV1, EntrypointAuthorizationV1,
+    };
+    let (_, manifest) = minimal_bound_contract_artifact();
+    let selector = "autonomous_validation_fee_tick";
+    assert_eq!(
+        dedicated_payout_permission(&manifest, selector),
+        Some("Payout".parse().unwrap())
+    );
+    assert_eq!(
+        dedicated_payout_permission(&manifest, VALIDATION_FEE_POOL_SWAP_ENTRYPOINT),
+        Some("SwapQuotePublic".parse().unwrap())
+    );
+    assert_eq!(dedicated_payout_permission(&manifest, "missing"), None);
+    for authorization in [
+        EntrypointAuthorizationV1::Anyone,
+        EntrypointAuthorizationV1::RuntimeLifecycle,
+    ] {
+        let mut changed = manifest.clone();
+        changed.entrypoints.as_mut().unwrap()[0].authorization = authorization;
+        assert_eq!(dedicated_payout_permission(&changed, selector), None);
+    }
+    let mut shared = manifest.clone();
+    shared.permissions[0].scope = ContractPermissionScopeV1::Chain {
+        permission_name: "Payout".parse().unwrap(),
+    };
+    assert_eq!(dedicated_payout_permission(&shared, selector), None);
+    let mut grouped = manifest.clone();
+    let roles = grouped.entrypoints.as_mut().unwrap();
+    roles[1].authorization = roles[0].authorization.clone();
+    assert_eq!(dedicated_payout_permission(&grouped, selector), None);
+    let mut missing = manifest.clone();
+    missing.permissions.clear();
+    assert_eq!(dedicated_payout_permission(&missing, selector), None);
+    let mut duplicate = manifest;
+    duplicate.permissions.push(duplicate.permissions[0].clone());
+    assert_eq!(dedicated_payout_permission(&duplicate, selector), None);
 }
 
 pub(crate) fn validation_fee_payout_world(deployer: &AccountId) -> crate::state::World {

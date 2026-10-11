@@ -29,7 +29,7 @@ async fn proof_event_json_includes_call_hash() {
     assert_eq!(resp.status(), http::StatusCode::OK);
     // Send a single Proof::Rejected event with a known call_hash
     let call_hash = [0xABu8; 32];
-    let ev = ProofEventFixture::new("halo2/ipa", [0x11; 32])
+    let ev = ProofEventFixture::new("pipa-r/pasta", [0x11; 32])
         .with_call_hash(Some(call_hash))
         .rejected();
     let _ = events.send(ev);

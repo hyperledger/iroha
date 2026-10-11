@@ -42,7 +42,7 @@ fn zk_ballot_unqualified_keys_cannot_register_or_create_an_election() {
         assert_eq!(
             error,
             InstructionExecutionError::InvalidParameter(InvalidParameterError::SmartContract(
-                "Halo2 OpenVerify circuit_id is not in the production circuit registry".to_owned(),
+                "native PIPA-R circuit_id is not in the compiled circuit registry".to_owned(),
             ),)
         );
         assert!(transaction.world.verifying_keys().get(&id).is_none());

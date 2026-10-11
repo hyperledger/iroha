@@ -6,7 +6,7 @@
 //!   Kura hash at the newest snapshot's height and a snapshot-restore dry run, all read with this
 //!   build's decoders.
 //!
-//! Neither probe opens runtime-only secrets (runtime signer, mint-finality seed, beacon
+//! Neither probe opens runtime-only secrets (runtime signer and beacon
 //! credential), binds a socket or mutates node storage. Both parse the configuration, which reads
 //! the key files it names after their custody checks (`node_secrets::verify_config_key_custody`).
 
@@ -457,11 +457,6 @@ fn snapshot_restore_dry_run(
         iroha_allocation::AllocationBudget::new(config.pipeline.ivm_execution_max_bytes);
     let read_buffer_budget =
         iroha_allocation::AllocationBudget::new(config.snapshot.max_read_buffer_bytes.get());
-    // The same bounded operation-index pool the node's own startup restore uses.
-    let operation_index_budget = iroha_allocation::AllocationBudget::new(
-        usize::try_from(config.nexus.storage.kagemusha_operation_index_bytes.get())
-            .map_err(|_| "configured operation-index pool exceeds addressable memory".to_owned())?,
-    );
     // Supply the real durable height for bounds checking. This never grants a positive-height
     // snapshot authority to replace native certified execution replay.
     let block_count = BlockCount(usize::try_from(tip_height).map_err(|error| error.to_string())?);
@@ -483,7 +478,6 @@ fn snapshot_restore_dry_run(
         #[cfg(feature = "telemetry")]
         iroha_core::telemetry::StateTelemetry::default(),
         &read_buffer_budget,
-        &operation_index_budget,
     );
     match restored {
         Ok(state) => {

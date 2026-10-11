@@ -1,0 +1,23 @@
+{
+  "files": {
+    "README.md": "a4d6e35f5ed8e88b85377f0b1526f709385821e7b8f6cead31caf5c6dac1edcb",
+    "REGULARITY.md": "d91dfd775c54c75c58e54c42d79e65a4e0f144b64bc0eb90674b62822d2a26c3",
+    "auxiliary.py": "63434375e8917209660ac436e3ba6b24b8e0d38feab2210100500eb7da1c4d3b",
+    "check.py": "39d97d12c355b86a5db8a4d7e2578554ac3acdca6cb5916fda0df2dadd2a1f96",
+    "cover.py": "a3685168a597f2d24794075a2cc859e16bf9bcd0f67803f50f5905e46fc80a33",
+    "primes.py": "37cb478041d2f4b79f135cd6735ae7aeff63f340d8c32e701128f3ca9b98d8f9",
+    "supplied_primes.json": "0cec765fe86bd0ba5f2913b0a9866531fe70898cada149fcb0e10feb5746e1ee",
+    "test_certificates.py": "23459e409f8fe8e67e31b7d7803a2c6a259bd822540dc0c3696eb1a2de14b5b8",
+    "test_cover_hypotheses.py": "f0dd6fd1782bac871711f9b866e4ee4f8162e0a6457078a557622cd0ff76ebde"
+  },
+  "schema": "kagemusha.pasta.algebra-certificate-sources.v1",
+  "sources": {
+    "crates/iroha_pasta/src/curve/hash_to_curve.rs": "85dc853cd0a665190eb05b73d03c6c36568f3cc92723cb4777643083423f72d8",
+    "crates/iroha_pasta/src/curve/pallas.rs": "8982de616390905193125462753e5afe0a3c6f8168bf7dd631c607118b580baa",
+    "crates/iroha_pasta/src/curve/vesta.rs": "3140218c00b2f7e666c81b88b5a9cf136b9b7d88f6f1f90dc1ca8d9328ee0100",
+    "crates/iroha_pasta/src/field/cios.rs": "172d4ff0fc74fd52f2d7fdcf485e7a75e92a7d4d8b28af80823c6962fece0ba9",
+    "crates/iroha_pasta/src/field/fp.rs": "61284a412332893b683159d1afb1a589043338395bfb10e212ce9acf10ca26af",
+    "crates/iroha_pasta/src/field/fq.rs": "5fe748759680457212b2bce3bdbdbde15c140b8a291152168428c851e5db2ad8",
+    "crates/iroha_pasta/src/field/mod.rs": "3763013cdf7484bb4f2d9f8624e6ff9ef9c9afa2064ddaa23799d162daf9ba3e"
+  }
+}

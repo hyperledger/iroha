@@ -37,6 +37,15 @@ reject both BFV tags before private work; the HKDF PRF remains available.
 Arithmetic regression tests use private diagnostic dispatch. Remaining exported
 low-level BFV utilities still require retirement or a secure replacement.
 
+The separate authenticated-owner HKDF path evaluates the owner's normalized
+cleartext input, returns opaque PRF material and binds the network, program,
+private input nonce and original bounded opening lease. Phone claims additionally
+require an independent pinned canonicality attestor. Core registration and
+restored claims enforce the same signed HKDF policy contract. Restored policy
+registries reject keys that contradict their embedded identifier or program identity,
+including entries with no current claim. This path does not
+provide encrypted-input execution or the canonical V1 execution and opening proofs.
+
 Execution produces ciphertext. The former execute response incorrectly signed a
 ciphertext hash as an opened-plaintext hash; that issuer and response field are
 removed. An identifier's independent plaintext opening currently comes from its
@@ -47,7 +56,7 @@ The [Core receipt helper](../crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs
 refuses the unavailable relation before parsing any proof or key. The former
 generic verifier and four-payload-hash-limb acceptance path are removed. The
 [identifier consumer](../crates/iroha_core/src/smartcontracts/isi/identifier.rs)
-uses the same refusal, independently of policy registration and receipt preflight.
+uses the same proof-mode refusal, independently of policy registration and receipt preflight.
 An otherwise valid replay-binding proof cannot establish program execution.
 Policy validation also applies during
 [state restoration](../crates/iroha_core/src/state/deserialize_core.rs).
@@ -61,9 +70,10 @@ when an SDK row no longer matches its file.
 | Symbols | File | Current behaviour |
 | --- | --- | --- |
 | `RamLfeBackend::require_production_support` | `crates/iroha_crypto/src/ram_lfe.rs` | Refuses the two BFV backends with the insecure-profile error. Accepts the HKDF backend. |
-| `execute_encrypted`, `require_supported_program_policy` | `crates/iroha_torii/src/identifier_resolution.rs` | Applies the refusal above to both backend fields, then returns the unsupported-backend error for every backend except the programmed BFV one. No backend passes both checks: an HKDF policy registers and then has no encrypted execution. |
-| `derive_encrypted` | `crates/iroha_torii/src/identifier_resolution.rs` | Runs the encrypted execution first, then checks the opening. |
-| `derive_phone_retail_encrypted` | `crates/iroha_torii/src/identifier_resolution.rs` | Checks the pinned phone-retail contract shape first and returns the invalid-canonicality error for any other policy. Only then runs the encrypted execution. |
+| `require_supported_program_policy`, `issue_execution_receipt`, `issue_receipt` | `crates/iroha_torii/src/identifier_resolution.rs` | Refuses both BFV backend fields before private runtime lookup or receipt signing. |
+| `execute_owner_prf` | `crates/iroha_torii/src/identifier_resolution/owner_prf.rs` | Requires signed HKDF and the pinned resolver and opening keys before evaluating the authenticated owner's normalized input. Clears the evaluator input and echoed output, and returns only opaque PRF material. This is cleartext owner evaluation, not encrypted execution. |
+| `derive_owner_prf` | `crates/iroha_torii/src/identifier_resolution/owner_prf.rs` | Re-evaluates the exact owner input, checks the original bounded opening lease and signature, and authenticates an independent pinned phone attestor before deriving the identifier. |
+| `owner_prf_opening` | `crates/iroha_torii/src/identifier_resolution/owner_prf.rs` | Checks the opening key and original lease before signing, then rechecks that same lease before delivery. |
 | `PROOF_RELATION_UNAVAILABLE`, `validate_program_policy`, `validate_execution_receipt_at` | `crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs` | Proof-mode policies and receipts are refused before any proof or key is parsed. |
 | `RamLfeVerificationMode::Signed` | `crates/iroha_crypto/src/ram_lfe.rs` | The signed execution mode still exists. It does not make a BFV policy admissible. |
 | `RamLfeReceiptAttestation::Signed`, `RamLfeOutputOpening::verify_signature` | `crates/iroha_data_model/src/ram_lfe.rs` | Signed receipt types still exist. An opening is a signature by the policy's opening key. |

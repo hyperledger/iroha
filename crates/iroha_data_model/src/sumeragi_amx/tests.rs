@@ -52,12 +52,8 @@ fn rotated(previous: &ValidatorEpochContextV1, seeds: [u8; 4]) -> ValidatorEpoch
             proof_of_possession: iroha_crypto::bls_normal_pop_prove(pair.private_key()).unwrap(),
         })
         .collect();
-    next.authority.generation += 1;
-    for (keys, member) in next.authority.validators.iter_mut().zip(&next.committee) {
-        keys.validator = member.validator.clone();
-    }
-    next.authorization.authority_generation = next.authority.generation;
-    next.authorization.authority_id = next.authority.authority_id().unwrap();
+    next.authorization.authority_generation += 1;
+    next.authorization.authority_id = next.generation().generation_id().unwrap();
     next.authorization.decision = ValidatorEpochDecisionV1::Activate;
     next.authorization.transition_id = [0x61; 32];
     next.authorization.beacon = BeaconEpochBindingV1::Installed(InstalledBeaconEpochBindingV1 {
@@ -172,8 +168,6 @@ fn result_commitment(
             parent_state_root: Hash::new(b"parent"),
             post_state_root: root,
             ordinary_writes_root: root,
-            kagemusha_top_up_root: None,
-            kagemusha_top_up_count: 0,
             parent_world_state_root: Hash::new(b"fixture parent world"),
             world_state_root: Hash::new(b"fixture world"),
             event_commitment: None,
@@ -221,7 +215,6 @@ fn sign(
         proposer: 0,
         skipped_leaders: vec![],
         control_witness: ControlWitness::empty(),
-        attest: false,
     };
     let mut qc = Qc {
         kind: VoteKind::Commit,
@@ -231,11 +224,8 @@ fn sign(
         view: 0,
         block_hash: header.hash(&crypto),
         result,
-        attest: false,
         signers: Bitmap::from_indices(4, 0..u32::try_from(signers).unwrap()).unwrap(),
         agg_sig: AggregateSignature([0; 96]),
-        attestations: vec![],
-        attestation_witness: None,
     };
     let everyone = key_pairs(1..=16);
     let shares: Vec<_> = context
@@ -392,6 +382,62 @@ fn sumeragi_amx_transaction_id_binds_every_field_and_validates_shape() {
             .validate()
             .is_ok()
     );
+}
+
+#[test]
+fn sumeragi_amx_begin_match_borrows_exact_fields_and_rejects_each_substitution() {
+    let original = transaction(&[DS1, DS2], 50, 1);
+    let begin = original.begin().unwrap();
+    let expected_frame = norito::encode_canonical(&original).unwrap();
+    let expected_id: [u8; 32] =
+        Hash::new_from_chunks(&[AMX_TRANSACTION_DOMAIN, &expected_frame]).into();
+    assert_eq!(original.id().unwrap(), expected_id);
+    let legs = original.legs.as_ptr();
+    let participants = begin.participants.as_ptr();
+    assert!(begin.matches(&original));
+    for altered in [
+        AmxBeginV1 {
+            tx: [0; 32],
+            ..begin.clone()
+        },
+        AmxBeginV1 {
+            deadline: 51,
+            ..begin.clone()
+        },
+        AmxBeginV1 {
+            participants: vec![DS1, DS3],
+            ..begin.clone()
+        },
+        AmxBeginV1 {
+            participants: vec![DS2, DS1],
+            ..begin.clone()
+        },
+        AmxBeginV1 {
+            participants: vec![DS1],
+            ..begin.clone()
+        },
+        AmxBeginV1 {
+            participants: vec![DS1, DS2, DS3],
+            ..begin.clone()
+        },
+    ] {
+        assert!(!altered.matches(&original));
+    }
+    for malformed in [
+        transaction(&[DS1], 50, 1),
+        transaction(&[DS1, DS1], 50, 1),
+        transaction(&[DS2, DS1], 50, 1),
+        transaction(&[DS1, DS2], 0, 1),
+    ] {
+        let mut altered = begin.clone();
+        altered.deadline = malformed.deadline;
+        altered.participants = malformed.legs.iter().map(|leg| leg.dataspace).collect();
+        assert!(!altered.matches(&malformed));
+        assert!(matches!(malformed.id(), Err(AmxError::Transaction(_))));
+    }
+    assert_eq!(original.legs.as_ptr(), legs);
+    assert_eq!(begin.participants.as_ptr(), participants);
+    assert_eq!(norito::encode_canonical(&original).unwrap(), expected_frame);
 }
 
 #[test]
@@ -825,8 +871,8 @@ fn sumeragi_amx_commit_needs_every_yes_by_the_deadline() {
         state.relay_prepared(40, &no).unwrap(),
         AmxRelayOutcome::Ignored
     );
-    assert!(state.expire(40).is_empty());
-    assert!(state.expire(41).is_empty());
+    assert!(expire_records(&mut state, 40).is_empty());
+    assert!(expire_records(&mut state, 41).is_empty());
     assert!(state.transaction(&x).is_none());
     // The dropped id can never be begun again: its deadline passed.
     assert!(state.begin(41, &tx).is_err());
@@ -835,6 +881,19 @@ fn sumeragi_amx_commit_needs_every_yes_by_the_deadline() {
         state.relay_prepared(42, &yes(DS1)).unwrap(),
         AmxRelayOutcome::Ignored
     );
+}
+
+/// Collect records only in the test oracle; production expiration streams them.
+fn expire_records(state: &mut SumeragiAmxState, height: u64) -> Vec<AmxDecisionV1> {
+    let mut records = Vec::new();
+    let count = state
+        .expire(height, |record| {
+            records.push(record);
+            Ok::<(), std::convert::Infallible>(())
+        })
+        .unwrap();
+    assert_eq!(count, records.len());
+    records
 }
 
 #[test]
@@ -880,8 +939,8 @@ fn sumeragi_amx_first_no_or_the_deadline_aborts() {
             .unwrap(),
         AmxRelayOutcome::Voted
     );
-    assert!(state.expire(30).is_empty());
-    let mut aborted = state.expire(31);
+    assert!(expire_records(&mut state, 30).is_empty());
+    let mut aborted = expire_records(&mut state, 31);
     aborted.sort();
     let mut expected = vec![
         AmxDecisionV1 {
@@ -897,7 +956,7 @@ fn sumeragi_amx_first_no_or_the_deadline_aborts() {
     assert_eq!(aborted, expected);
     assert!(state.transaction(&late_yes.id().unwrap()).is_none());
     assert!(state.transaction(&aborted_by_no.id().unwrap()).is_some());
-    assert!(state.expire(41).is_empty());
+    assert!(expire_records(&mut state, 41).is_empty());
     assert!(state.transactions.is_empty());
 }
 
@@ -1648,4 +1707,163 @@ fn amx_intrinsic_codec_limit_without_caller_scope_remains_a_proof_error() {
         super::proof_codec_error(&error, "core header", true),
         AmxError::Resource(error.decode_resource_error().unwrap())
     );
+}
+
+/// Construct the actual allocation owner from the existing exact-quorum BLS AMX fixture.
+/// The producer grants no authority; native source authentication and paid execution remain
+/// independently exercised by Core. All fixture input allocation predates its finite pool.
+pub fn allocated_amx_instruction_fixture() -> (
+    AmxTransactionV1,
+    AllocatedAmxRecordProofV1,
+    iroha_allocation::AllocationBudget,
+) {
+    use crate::block::CommitCertificate;
+    let transaction = transaction(&[DS1, DS2], 9, 0x71);
+    let record = AmxRecordV1::Begin(transaction.begin().unwrap());
+    let context = fixture(4);
+    let writes = vec![
+        write_of(&record),
+        (b"unrelated original field".to_vec(), vec![0x31; 5]),
+    ];
+    let block = certify(GLOBAL, &context, 2, &writes, None, 3);
+    let complete = block_writes(&context, 2, &writes);
+    let ordinary_root = write_set_root(
+        complete
+            .iter()
+            .map(|(key, value)| (key.as_slice(), value.as_slice())),
+    )
+    .unwrap();
+    let expected = AmxRecordProofV1::from_writes(
+        block.clone(),
+        complete
+            .iter()
+            .map(|(key, value)| (key.as_slice(), value.as_slice())),
+        record,
+    )
+    .unwrap();
+    assert_eq!(
+        AmxForeignInstanceV1::new(GLOBAL, context)
+            .unwrap()
+            .verify_record(&expected)
+            .unwrap()
+            .height,
+        2
+    );
+    // This input remains explicitly offchain/unadmitted. Its BLS fixture check above does
+    // not make the allocation owner a production publication or monetary credential.
+    let certificate = CommitCertificate::from_untrusted_parts(
+        block.consensus_header,
+        block.commit_qc,
+        block.result_preimage,
+        Vec::new(),
+    );
+    let witness = ExecWitness {
+        writes: complete
+            .into_iter()
+            .map(|(key, value)| ExecKv { key, value })
+            .collect(),
+        ..ExecWitness::default()
+    };
+    let pool = iroha_allocation::AllocationBudget::new(1 << 20);
+    let original = AllocatedAmxRecordProofV1::from_original_witness(
+        &certificate,
+        &witness,
+        AmxRecordKind::Begin,
+        transaction.id().unwrap(),
+        ordinary_root,
+        &pool,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(original.canonical(), &expected);
+    (transaction, original, pool)
+}
+
+#[test]
+fn sumeragi_amx_expiry_refusal_and_unwind_preserve_original_pending_graph() {
+    let mut state = state_with(&[DS1, DS2]);
+    for (deadline, nonce) in [(20, 11), (20, 12), (30, 13)] {
+        state
+            .begin(10, &transaction(&[DS1, DS2], deadline, nonce))
+            .unwrap();
+    }
+    let before = state.clone();
+    let original_pointer = state.transactions.as_ptr();
+    let original_capacity = state.transactions.capacity();
+    let participants = state
+        .transactions
+        .iter()
+        .map(|entry| {
+            (
+                entry.begin.participants.as_ptr(),
+                entry.begin.participants.capacity(),
+                entry.yes.as_ptr(),
+                entry.yes.capacity(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected = before
+        .transactions
+        .iter()
+        .filter(|entry| entry.begin.deadline < 21)
+        .map(|entry| AmxDecisionV1 {
+            tx: entry.begin.tx,
+            outcome: AmxOutcomeV1::Abort,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(expected.len(), 2);
+    let refusal = [0x19_u8, 0x96];
+    for fail_at in 0..2 {
+        let mut observed = Vec::new();
+        let error = state
+            .expire(21, |record| {
+                if observed.len() == fail_at {
+                    return Err(&refusal);
+                }
+                observed.push(record);
+                Ok(())
+            })
+            .expect_err("record refusal must preserve all original pending entries");
+        assert!(std::ptr::eq(error, &raw const refusal));
+        assert_eq!(observed, expected[..fail_at]);
+        assert_eq!(state, before);
+        assert_eq!(state.transactions.as_ptr(), original_pointer);
+        assert_eq!(state.transactions.capacity(), original_capacity);
+        for (entry, (pointer, capacity, yes_pointer, yes_capacity)) in
+            state.transactions.iter().zip(&participants)
+        {
+            assert_eq!(entry.begin.participants.as_ptr(), *pointer);
+            assert_eq!(entry.begin.participants.capacity(), *capacity);
+            assert_eq!(entry.yes.as_ptr(), *yes_pointer);
+            assert_eq!(entry.yes.capacity(), *yes_capacity);
+        }
+    }
+    let mut observed = 0;
+    let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = state.expire(21, |_| {
+            observed += 1;
+            assert!(observed != 2, "record writer unwind");
+            Ok::<(), std::convert::Infallible>(())
+        });
+    }));
+    assert!(unwind.is_err());
+    assert_eq!(state, before);
+    assert_eq!(state.transactions.as_ptr(), original_pointer);
+    assert_eq!(expire_records(&mut state, 21), expected);
+    assert_eq!(state.transactions.len(), 1);
+    assert_eq!(state.transactions[0].begin.deadline, 30);
+    assert!(expire_records(&mut state, 21).is_empty());
+}
+
+#[test]
+fn sumeragi_amx_encoding_keeps_exact_physical_allocator_refusal() {
+    let error = norito::Error::AllocationFailed { bytes: 57 };
+    assert_eq!(
+        super::encoding(&error),
+        AmxError::Resource(norito::core::DecodeResourceError::AllocationFailed { bytes: 57 })
+    );
+    assert!(matches!(
+        super::encoding(norito::Error::LengthMismatch),
+        AmxError::Encoding(_)
+    ));
 }

@@ -10,8 +10,8 @@ mod common;
 fn kotodama_unregister_domain() {
     // Program unregisters a domain using a constructor
     let src = r#"
-        seiyaku UnregisterDomain {
-            kotoage fn main() authorize("UnregisterDomain") {
+        seiyaku UnregisterDomain { permission FixtureAccess;
+            kotoage fn main() authorize(FixtureAccess) {
                 ledger::domain::unregister(domain: DomainId::parse("wonderland.universal"));
             }
         }
@@ -47,8 +47,8 @@ fn kotodama_unregister_domain() {
 fn kotodama_transfer_domain() {
     // Program transfers a domain from the execution authority to bob.
     let src = r#"
-        seiyaku TransferDomain {
-        kotoage fn main() authorize("TransferDomain") {
+        seiyaku TransferDomain { permission FixtureAccess;
+        kotoage fn main() authorize(FixtureAccess) {
           ledger::domain::transfer(source: context::authority(), domain: DomainId::parse("wonderland.universal"), destination: AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"));
         }
         }

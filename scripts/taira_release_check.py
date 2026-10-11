@@ -409,7 +409,12 @@ STAGES = (
         'taira_public_reset::host::occupied::tests::stopped_unit_admission_requires_the_exact_prior_or_durable_successor',
     )),
     ("stopped owner runtime cleanup", (
-        "taira_public_reset::host::maintenance::tests::maintenance_scope_binds_all_four_units_and_failed_installed_runtime",
+        "taira_public_reset::host::maintenance::tests::maintenance_scope_admits_all_four_observed_daemon_pins",
+        "taira_public_reset::host::maintenance::tests::maintenance_scope_rejects_incomplete_or_crossed_observed_cohorts",
+        "taira_public_reset::host::maintenance::tests::maintenance_predecessor_kind_is_explicit_and_never_inferred",
+        "taira_public_reset::host::maintenance::tests::observed_daemon_hash_is_exact_size_and_deadline_bounded",
+        "taira_public_reset::host::maintenance::tests::maintenance_scope_binds_v2_all_four_units_and_installed_runtime",
+        "taira_public_reset::host::maintenance::tests::maintenance_scope_rejects_unsupported_update_contracts",
         "taira_public_reset::host::maintenance::tests::maintenance_flock_requires_one_exact_live_updater_owner",
         "taira_public_reset::host::maintenance::tests::maintenance_process_identity_handles_names_and_rejects_dead_owner",
         "taira_public_reset::host::stopped_runtime::tests::stopped_owner_cohort_preflight_preserves_workers_until_every_slot_is_admitted",
@@ -472,6 +477,10 @@ CRYPTO_STAGES += (("optimized BLS arithmetic preserves verification boundaries",
     "signature::bls::tests::small::signature_verification_different_keys",
     "signature::bls::tests::small::parse_public_key_rejects_non_subgroup_point",
     "signature::bls::tests::small::verify_cache_rejects_variable_length_tuple_splice",
+)),)
+
+CRYPTO_STAGES += (('borrowed canonical public-key backing', (
+    'prepared_decode::tests::borrowed_public_key_recheck_preserves_canonical_limits_and_original_backing',
 )),)
 
 P2P_STAGES = (("bounded peer authentication and validator retry ownership", (
@@ -822,12 +831,6 @@ CORE_ADMISSION_STARTUP_STAGES += (("unconditional alias registry admission and r
 CORE_NATIVE_ARCHIVE_RECOVERY_STAGES = native_owner_stages("native durable archive recovery")
 CORE_ADMISSION_STARTUP_STAGES += CORE_NATIVE_ARCHIVE_RECOVERY_STAGES
 
-CORE_NATIVE_RECEIPT_STAGES = (("original native receipt mailbox custody", (
-    "sumeragi::attestation::tests::mailbox_and_release_control_require_original_pool_admission_before_allocation",
-    "sumeragi::attestation::tests::mailbox_poison_is_observed_only_after_the_original_guard_releases",
-    "sumeragi::attestation::tests::actual_mailbox_contention_retains_original_receipt_and_source",
-)),)
-CORE_ADMISSION_STARTUP_STAGES += CORE_NATIVE_RECEIPT_STAGES
 
 
 CORE_ADMISSION_STARTUP_STAGES += (("typed State status contention and integrity boundary", (
@@ -835,37 +838,60 @@ CORE_ADMISSION_STARTUP_STAGES += (("typed State status contention and integrity 
 )), )
 
 
-CORE_REWARD_ACCOUNTING_STAGES = (("retained reward cursors, unpaid custody and reserve accounting", (
-    'smartcontracts::isi::domain::tests::unregister_account_rejects_retained_reward_processing_cursor',
-    'smartcontracts::isi::domain::tests::unregister_account_rejects_when_account_is_reward_claim_asset_owner',
-    'smartcontracts::isi::domain::tests::unregister_asset_definition_ignores_mismatched_public_lane_reward_record',
-    'smartcontracts::isi::multisig::tests::rekey_public_lane_reward_cursors_and_unpaid_sources_preserve_scope_and_quantity',
-    'smartcontracts::isi::staking::rewards::tests::outstanding_rewards_retains_processed_dust_in_its_exact_source',
-    'smartcontracts::isi::staking::tests::reward_epoch_zero_is_claimable_once',
-    'smartcontracts::isi::staking::tests::reward_dust_accumulates_until_paid',
-    'smartcontracts::isi::staking::tests::reward_reserve_blocks_transfer_and_burn_but_releases_paid_rewards',
-    'smartcontracts::isi::staking::tests::reward_failed_payment_restores_claim_and_reserve',
-    'smartcontracts::isi::staking::tests::reward_obligation_audit_rejects_corrupt_record_keys',
-    'smartcontracts::isi::staking::tests::reward_claim_uses_recorded_custody_after_fee_policy_changes',
-    'smartcontracts::isi::staking::tests::reward_recording_excludes_bonded_custody_from_a_shared_fee_sink',
-    'smartcontracts::isi::staking::tests::reward_failed_second_source_rolls_back_all_claim_state',
-    'smartcontracts::isi::staking::tests::claim_rewards_transfers_and_marks_epoch',
-    'smartcontracts::isi::staking::tests::claim_rewards_defers_dust_without_marking_paid',
-    'smartcontracts::isi::staking::tests::claim_rewards_rejects_mismatched_reward_record_rows_without_releasing_reserves',
-    'smartcontracts::isi::staking::tests::claim_rewards_accepts_i105_fee_sink',
-    'smartcontracts::isi::staking::tests::staking_custody_and_rewards_share_one_additive_reserve_floor',
+CORE_REWARD_ACCOUNTING_STAGES = (("automatic historical nomination rewards, funded custody and restart", (
+    'smartcontracts::isi::multisig::tests::replace_account_controller_preserves_principal_custody_and_exact_reserves',
+    'smartcontracts::isi::staking::tests::staking_instructions_change_only_future_reward_exposure',
+    'smartcontracts::isi::staking::tests::staking_reserve_checks_aggregate_batch_debits',
+    'validation_fee_rewards::tests::automatic_multiple_validator_nominations_accrue_and_claim_exact_xor',
+    'validation_fee_rewards::tests::empty_eligible_service_preserves_validator_gross_and_signed_claim',
+    'validation_fee_rewards::tests::delayed_funding_preserves_pre_exit_service_and_late_stake_cannot_capture_it',
+    'validation_fee_rewards::tests::automatic_cursor_rounding_conserves_minor_units_across_cohorts_and_replay',
+    'validation_fee_rewards::tests::automatic_nominator_failed_transfer_rolls_back_credit_reserve_and_claim_receipt',
+    'validation_fee_rewards::tests::conversion_reserves_once_preserves_earning_month_and_obeys_caps',
+    'validation_fee_rewards::tests::pending_sbd_and_reserved_xor_are_protected_but_unrelated_funds_are_spendable',
+    'validation_fee_rewards::beneficiary::tests::current_owner_requires_explicit_alias_before_initial_and_recovered_claims',
+    'validation_fee_rewards::exposure::tests::changed_exposure_preserves_chronology_and_only_adjacent_snapshots_coalesce',
+    'validation_fee_rewards::exposure::tests::full_page_rollover_is_atomic_and_does_not_limit_future_changes',
+    'validation_fee_rewards::exposure::tests::optional_validator_registration_cannot_overfill_historical_service_roster',
+    'validation_fee_rewards::exposure::tests::historical_capture_survives_current_block_slash_exit_and_late_deposit',
+    'validation_fee_rewards::exposure::service_tests::authenticated_finalized_service_captures_nominators_once_before_current_mutations',
+    'validation_fee_rewards::exposure::restart_tests::certified_reward_replay_resumes_unfinished_pages_and_actual_signed_claims',
+    'validation_fee_rewards::exposure::archive_tests::archived_exposure_survives_hot_rollover_replay_and_signed_claims',
+    'validation_fee_rewards::reconciliation::tests::funded_reward_restore_accepts_cursor_credit_and_bounded_source_pruning',
+    'validation_fee_rewards::reconciliation::tests::restore_rejects_forged_claimable_cursor_and_entitlement_without_consuming_credit',
+    'validation_fee_rewards::reconciliation::tests::restart_requires_complete_unfinished_sources_and_consecutive_funded_sequences',
+    'validation_fee_rewards::reconciliation::tests::restart_requires_unsealed_sources_even_without_pending_funding',
+    'validation_fee_rewards::reconciliation::tests::lifetime_reward_turnover_can_exceed_current_balance_width',
+    'validation_fee_rewards::reconciliation::tests::restore_requires_retirement_journal_before_accepting_funded_rights',
+    'validation_fee_rewards::reconciliation::tests::compacted_outstanding_balance_requires_its_retained_beneficiary_owner',
+    'validation_fee_rewards::exposure::budget_tests::live_stake_backing_does_not_rescan_history_but_restore_requires_it',
+    'validation_fee_rewards::exposure::budget_tests::maximum_committee_tail_archive_fits_independent_source_budget',
+    'validation_fee_rewards::history::tests::journal_validation_requires_exact_original_height_hash_and_custody',
+    'validation_fee_rewards::history::tests::retirement_journal_keeps_contract_and_custody_scope',
+    'validation_fee_rewards::history::tests::compacted_lifetime_turnover_preserves_more_than_u128',
+    'validation_fee_rewards::history::tests::retirement_journal_decode_refusal_defers_without_retiring_original_bytes',
+    'validation_fee_rewards::history::tests::unavailable_original_archive_leaves_journal_and_checkpoint_intact',
+    'query::native_receipts::reward_history::tests::committed_fee_archive_preserves_original_corpus_and_rejects_absent_exposure',
+    'query::native_receipts::reward_history::tests::committed_reward_archive_missing_corrupt_and_changed_root_defer_without_fabrication',
+    'query::native_receipts::reward_history::tests::reward_archive_capacity_preserves_original_pool_refusal',
+    'receiver_snapshot::native_fee_evidence_tests::native_fee_snapshot_decode_refusal_retries_original_authenticated_bytes',
+    'retail_fee::reward_history::tests::original_month_history_waits_for_late_wallet_collection_and_credit_flush',
+    'retail_fee::reward_history::tests::wallet_recovery_and_closure_keep_exact_frontier_without_lifetime_rows',
+    'retail_fee::reward_history::tests::restart_rejects_missing_or_fabricated_unsettled_month_frontier',
+    'retail_fee::reward_history::tests::rejected_wallet_update_rolls_back_frontier_and_closure_seal',
+    'validation_fee::tests::runtime_wrapper_tests::reward_tests::scheduled_production_conversion_automatically_funds_nominator_signed_claims',
+    'validation_fee::tests::runtime_wrapper_tests::reward_tests::scheduled_funded_pool_conversion_automatically_funds_nominator_signed_claims',
 )), )
 CORE_ADMISSION_STARTUP_STAGES += CORE_REWARD_ACCOUNTING_STAGES
 
 CORE_MONETARY_AUTHORITY_STAGES = (("exact signed staking and reward monetary authority", (
     'smartcontracts::isi::staking::tests::registration_rejects_changed_signed_monetary_fields_without_custody_writes',
-    'smartcontracts::isi::staking::tests::reward_claim_rejects_changed_record_source_and_entitlement_without_payment',
     'smartcontracts::isi::staking::tests::genesis_monetary_scope_requires_exact_height_without_npos_parameters',
     'executor::opaque_monetary_tests::raw_ivm_staking_trigger_requires_signed_monetary_plan',
     'executor::opaque_monetary_tests::supplied_proved_staking_effects_require_signed_monetary_plan',
-    'smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_decode_refusal_retries_original_signed_xor_claim',
+    'smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_decode_refusal_retries_original_signed_xor_transfer',
     'smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_missing_malformed_and_rebound_state_are_not_deferrals',
-    'smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_body_binding_rolls_back_original_signed_xor_claim',
+    'smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_body_binding_rolls_back_original_signed_xor_transfer',
     'smartcontracts::isi::multisig::tests::proposal_attempt::proposal_migration_validates_original_physical_key_and_body_before_writes',
     'smartcontracts::isi::multisig::tests::proposal_attempt::cancel_wrapper_decode_refusal_rolls_back_and_retries_original_signed_approval',
     'smartcontracts::isi::multisig::tests::proposal_attempt::expiry_child_decode_refusal_rolls_back_and_retries_original_signed_approval',
@@ -879,10 +905,10 @@ CORE_ADMISSION_STARTUP_STAGES += CORE_MONETARY_AUTHORITY_STAGES
 
 CORE_FEE_REWARD_AUTHORITY_STAGES = (("signed network-XOR fee rewards and additive custody", (
     'validation_fee_rewards::tests::canonical_network_xor_is_required_before_fee_reward_state_changes',
+    'validation_fee_rewards::tests::public_fee_reward_claim_rejects_wrong_network_xor_without_writes_and_retries_original_plan',
     'validation_fee_rewards::tests::signed_fee_reward_claim_rejects_every_changed_binding_before_mutation',
     'validation_fee_rewards::tests::self_custody_fee_claim_releases_only_its_exact_reserve_without_debiting_balance',
-    'validation_fee_rewards::tests::absent_fee_claim_leaves_even_unreadable_credit_and_dust_untouched',
-    'validation_fee_rewards::tests::signed_fee_reward_claim_rolls_back_public_payout_when_fee_transfer_is_refused',
+    'validation_fee_rewards::tests::unreadable_credit_rejects_the_required_claim_without_mutation',
     'validation_fee_rewards::tests::shared_fee_stake_reward_custody_is_additive',
     'validation_fee_rewards::tests::fee_reward_claim_refuses_currency_substitution_and_stale_credit',
 )), )
@@ -986,6 +1012,44 @@ MODEL_MONETARY_CODEC_STAGES = (('canonical monetary authority payload schemas an
 )),)
 DATA_MODEL_STAGES += MODEL_MONETARY_CODEC_STAGES
 
+DATA_MODEL_STAGES += (("native AMX original multisig diagnostic custody", (
+    "sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_threshold_replay_preserves_original_cause_without_diagnostic_allocations",
+    "sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_member_replay_preserves_original_cause_without_diagnostic_allocations",
+)),)
+
+DATA_MODEL_STAGES += (('native AMX retained partial decode and borrowed validation', (
+    'sumeragi_amx::native::leg_decode::tests::funded_native_leg_preserves_exact_original_capacity_release_generation_and_final_refund',
+    'sumeragi_amx::native::leg_decode::tests::funded_native_leg_preserves_original_root_depth_field_and_source_context',
+    'sumeragi_amx::native::leg_decode::tests::funded_native_leg_rejects_original_malformed_frames_flags_and_payload_bound',
+    'sumeragi_amx::native::leg_decode::tests::partial_native_multisig_retains_original_member_ledger_spans_and_key_pointer_through_retry',
+    'sumeragi_amx::native::leg_decode::tests::partial_native_member_values_survive_original_ledger_refusal_without_prefix_refund',
+    'sumeragi_amx::native::leg_decode::tests::partial_native_leg_rejects_substituted_frame_and_retains_original_graph_through_retry',
+    'sumeragi_amx::native::leg_decode::tests::partial_native_retry_rechecks_cached_field_and_depth_limits_without_retiring_original_backing',
+    'account::controller::borrowed_validation_tests::borrowed_member_validation_preserves_constructor_causes_and_original_key',
+    'account::controller::borrowed_validation_tests::borrowed_policy_validation_preserves_canonical_causes_and_member_storage',
+    'sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_retains_original_policy_and_member_prefix_on_replay',
+)),)
+
+NORITO_RETAINED_SEQUENCE_STAGES = (('retained canonical sequence custody', (
+    'prepared_sequence::retained_sequence_keeps_late_framing_storage_and_cumulative_retry_work',
+    'prepared_sequence::retained_sequence_does_not_wake_its_original_capacity_refusal_during_retry',
+    'prepared_sequence::retained_sequence_rejects_substitution_in_place_mutation_and_changed_flags',
+    'prepared_sequence::retained_sequence_preserves_first_admission_and_exhausted_retry_order',
+    'prepared_sequence::retained_sequence_admits_only_exact_spans_for_each_layout_and_empty_input',
+)),)
+
+PRIMITIVES_QUANTITY_STAGES = (('retained canonical Quantity custody', (
+    'numeric::prepared_quantity::tests::retained_quantity_digits_survive_late_scale_rejection_and_same_backing_retry',
+    'numeric::prepared_quantity::tests::retained_quantity_original_quota_refusal_does_not_retire_digits_or_reset_outer_work',
+    'numeric::prepared_quantity::tests::borrowed_quantity_recheck_preserves_original_field_limits_without_backing_allocation',
+    'numeric::prepared_quantity::tests::one_pass_quantity_matches_canonical_values_rejections_and_exact_original_digits',
+)),)
+
+PRIMITIVES_QUANTITY_ALLOCATION_STAGES = (('canonical Quantity allocation and release ordering', (
+    'one_pass_quantity_allocates_only_final_digits_and_preserves_allocator_refusal_order',
+    'one_pass_quantity_drop_deallocates_before_original_release_wake',
+)),)
+
 TEST_NETWORK_STAGES = (("isolated validator fixture configuration", (
     "config::tests::base_config_applies_bounded_storage_caps",
     "config::tests::base_config_preserves_caller_storage_budget_and_smaller_component_cap",
@@ -1024,7 +1088,7 @@ NETWORK_OBSERVATION_STAGES = (("signed genesis paid authority and public failure
     "production_beacon_bootstrap::production_beacon_exact_height_wait_preserves_retained_tip",
 )), ("native beacon configuration and original signing custody", (
     "production_beacon_bootstrap::production_beacon_fresh_key_assertion_is_only_for_the_original_launch",
-    "production_beacon_bootstrap::production_beacon_stock_config_preserves_providers_and_configures_seed_custody",
+    "production_beacon_bootstrap::production_beacon_stock_config_preserves_providers_and_binds_the_broker",
 )),)
 # Every platform qualifies retained authority generations against the same four
 # independent genesis-anchored chains and full application workload.
@@ -1235,6 +1299,9 @@ TORII_UNIT_STAGES = (("released State snapshots and exact canonical outcome auth
 )), ) + TORII_UNIT_STAGES
 
 HARNESS_TARGETS = {
+    'norito-exact-field': ('native retained canonical sequence custody', 'exact_field_streaming_allocations', 'test', ['-p', 'norito', '--test', 'exact_field_streaming_allocations']),
+    'primitives-quantity': ('native retained canonical Quantity custody', 'iroha_primitives', 'lib', ['-p', 'iroha_primitives', '--lib']),
+    'primitives-quantity-allocations': ('native canonical Quantity allocations', 'numeric_abi_encoding_allocations', 'test', ['-p', 'iroha_primitives', '--test', 'numeric_abi_encoding_allocations']),
     "allocation": ("native finite allocation custody", "iroha_allocation", "lib", ["-p", "iroha_allocation", "--lib"]),
     "allocation-shared": ("physical funded shared wake custody", "charged_shared_custody", "test", ["-p", "iroha_allocation", "--test", "charged_shared_custody"]),
     "mv": ("native MV ownership", "mv", "lib", ["-p", "mv", "--lib"]),
@@ -1276,13 +1343,13 @@ HARNESS_TARGETS = {
 DEPLOY_STAGES = (("native generated genesis and independent localnet profiles", (
     "genesis::staging::tests::default_genesis_staging_authenticates_catalog_and_reproduces_signed_context",
     "localnet::tests::generated_taira_genesis_grants_deployment_only_to_generated_client",
-    "localnet::tests::localnet_asset_defaults_are_selected_by_exact_taira_chain_context",
-    "localnet::tests::localnet_asset_validation_rejects_selected_builtin_identity_or_alias_collision",
+    "localnet::tests::localnet_assets_contain_only_explicit_requests",
+    "localnet::tests::localnet_asset_validation_rejects_duplicate_identity_or_alias",
     "localnet::tests::canonical_taira_generation_binds_four_runtime_signers_to_validator_peers",
     "localnet::tests::localnet_runtime_bundle_separates_ledger_and_http_operator_custody",
     "localnet::tests::generated_nexus_localnet_serves_xor_faucet_from_client_signer",
     "localnet::tests::generated_permissioned_localnet_cannot_mint_additional_xor",
-    "localnet::tests::generated_localnet_bootstraps_universal_kagemusha_asset",
+    "localnet::tests::generated_localnet_bootstraps_explicitly_requested_asset",
     "localnet::tests::generated_localnet_registers_requested_asset_definition_for_client_owner",
     "localnet::tests::private_dataspace_manifests_use_the_selected_lane_alias",
 )), )
@@ -1346,7 +1413,7 @@ CURRENT_CONSENSUS_STAGES = (("current nonempty consensus and bounded work wakeup
     'machine::tests::handlers::idle_payload_wait_and_payload_ready',
     'machine::tests::handlers::oversized_payload_waits_for_bounded_rebuild',
     'machine::tests::liveness::det_l13_late_views_build_nonempty_work',
-    'machine::tests::attestation::det_a7_empty_proposals_are_rejected_at_every_view',
+    'machine::tests::build_and_roles::empty_proposals_are_rejected_at_every_view',
     'machine::tests::cluster::det_l21_idle_work_wakes_without_heartbeat',
     'machine::tests::handlers::det_r4_payload_ready_moves_no_timer',
     'sim::tests::f17_far_behind_joiner',
@@ -1391,6 +1458,8 @@ CORE_CONTRACT_OWNER_STAGES = (("exact contract lifecycle owner delegation and in
     'executor::tests::current_contract_owner_originates_and_revokes_exact_tokens_without_code_management',
     'executor::tests::contract_owner_delegation_rejects_foreign_transferred_pending_and_parliament_authority',
     'executor::tests::ordinary_owner_self_grant_enables_guarded_call_and_revocation_closes_it',
+    'executor::tests::suspended_contract_permissions_can_be_repaired_without_authorizing_invocation',
+    'executor::tests::scoped_permission_delegation_requires_current_declaration_and_exact_instance',
 )),)
 CORE_STARTUP_STAGES = CORE_CONTRACT_OWNER_STAGES + CORE_STARTUP_STAGES
 CORE_ADMISSION_STARTUP_STAGES = CORE_CONTRACT_OWNER_STAGES + CORE_ADMISSION_STARTUP_STAGES
@@ -1426,6 +1495,7 @@ DATA_MODEL_STAGES += (("portable current certificate cryptography and attestatio
     'sumeragi_finality::tests::current_proofs_roundtrip_and_verify_successful_exact_execution',
     'sumeragi_finality::tests::alternate_current_quorum_witnesses_have_one_authenticated_execution',
     'sumeragi_finality::tests::current_proof_rejects_tampered_qc_result_committee_parent_wire_and_availability',
+    'sumeragi_finality::tests::current_certificate_rejects_retired_attestation_fields',
     'sumeragi_finality::tests::current_attestation_roundtrip_binds_challenge_node_status_and_runtime_identity',
 )),)
 TORII_UNIT_STAGES += (("actual current-node public finality boundary", (
@@ -1473,7 +1543,7 @@ DAEMON_BEACON_STAGES = (('native beacon bootstrap, broker and consumed credentia
     'taira_runtime_signer::tests::registry_allows_bootstrap_without_beacon_and_rejects_extra_or_duplicate_slots',
     'taira_runtime_signer::tests::registry_resolves_exact_configured_beacon_and_preserves_soracloud_binding',
     'taira_runtime_signer::tests::offline_introspection_never_requires_the_runtime_signer',
-    'taira_runtime_signer::tests::mint_seed_loader_consumes_exact_private_record_and_preserves_restart_source',
+    'taira_runtime_signer::tests::consumption_preserves_restart_source_and_starves_child_descriptor',
     'taira_runtime_signer::tests::descriptor_loader_accepts_only_canonical_owner_only_ed25519',
     'beacon_bootstrap::tests::each_seat_credential_binds_exact_public_session_and_private_share',
     'beacon_bootstrap::tests::genesis_session_rejects_mutated_identity_under_same_attempt',
@@ -1787,7 +1857,6 @@ CORE_STATE_VIEW_CONSUMER_STAGES = (("original State reader refusals through auth
     'state::authority_registry::lane_manifest_policy::tests::authority_captures_preserve_exact_state_reader_refusal',
     'state::world_projection::world_state_accumulator::world_state_snapshot::tests::snapshot_reader_refusal_preserves_original_source_and_does_not_call_consumer',
     'state::native_execution_tip::finalized_world::tests::source_bounds_corrupt_carrier_and_busy_publication_return_no_receipt',
-    'sumeragi::executor::validation_refusal_tests::prepared_certificate_busy_retries_same_execution_after_original_reader_release',
     'publication_rwlock::tests::admitted_reader_control_preserves_original_refusal_and_outlives_its_lock',
     'publication_lock::admitted_control_tests::original_fence_control_is_fallible_and_retained_by_its_release_observation',
 )), )
@@ -2079,11 +2148,6 @@ CORE_NATIVE_CONNECTION_STAGES = (
         'state::world_journals::resources::tests::world_shell_planning_never_reads_targets_or_acquires_held_writers',
         'state::world_journals::resources::tests::world_shell_planning_checks_each_sum_count_and_vector_layout_overflow',
     )),
-    ('scoped original World storage publication', (
-        'state::world_journals::storage_mode::tests::prepaid_world_storage_adapter_refuses_foreign_owned_scope_before_writers',
-        'state::world_journals::storage_mode::tests::prepaid_world_storage_adapter_preserves_original_pair_through_abort_and_publish',
-        'state::world_journals::storage_mode::tests::prepaid_world_storage_adapter_busy_retry_keeps_exact_original_values',
-    )),
     ('retained candidate descriptors and exact marker custody', (
     )),
     ('original service Queue retirement publication', (
@@ -2100,20 +2164,12 @@ CORE_NATIVE_CONNECTION_STAGES = (
 # Proof-stack regressions run in the extracted `iroha_core_zk` library harness.
 CORE_ZK_STAGES = (
     ("bounded deterministic IPA startup parameters", (
-        'zkparse::production_parameter_cache_tests::finite_production_cache_initializes_once_across_threads',
-        'zkparse::production_parameter_cache_tests::finite_production_cache_matches_native_parameter_bytes_and_fingerprint',
-        'zkparse::production_parameter_cache_tests::finite_production_cache_rejects_unadmitted_domains_without_construction',
-        'halo2_ipa_parameter_source_tests::production_parameter_source_rejects_duplicate_and_mismatched_metadata',
-        'halo2_ipa_parameter_source_tests::production_parameter_source_rejects_unbounded_k_before_construction',
-        'debug_backend_tests::preverify_rejects_retired_ivm_stark_relation_before_dedup',
-    )),
-    ('authenticated indexed polynomial key ownership', (
-        'kagemusha_polynomial_store_v1::tests::key_roles::key_roles_roundtrip_both_fields_bases_and_chunk_boundaries_with_shared_ordinals',
-        'kagemusha_polynomial_store_v1::tests::key_roles::key_role_descriptor_substitution_is_retryable_but_authenticated_metadata_forgery_poisons',
-    )),
-    ('Native process publication and bootstrap isolation', (
-        'kagemusha_v1_recursion::mint_helper::bootstrap_gates_tests::bootstrap_gates_accept_zero_count_initial_height_and_no_successor_in_both_fields',
-        'kagemusha_v1_recursion::mint_helper::bootstrap_gates_tests::bootstrap_gates_reject_each_forbidden_witness_in_both_fields',
+        'native_pipa_r::tests::native_compiled_key_cache_shares_exact_material_across_threads',
+        'native_pipa_r::tests::native_compiled_descriptors_bind_pinned_parameters_and_exact_domains',
+        'native_pipa_r::tests::native_parameter_admission_rejects_unadmitted_and_oversized_sources',
+        'native_pipa_r::tests::native_key_records_bind_curve_schema_relation_length_and_compiled_key',
+        'native_parameter_source_tests::production_parameter_map_matches_kaigi_circuit_constants',
+        'preverify_tests::preverify_rejects_retired_ivm_stark_relation_before_dedup',
     )),
 )
 
@@ -2446,10 +2502,7 @@ CORE_CANONICAL_XOR_STAGES = (("exact network XOR scope precision and rollback", 
     'state::network_xor::tests::network_xor_rejects_wrong_definition_scope_and_precision',
     'state::stake_reserves::tests::pinned_stake_custody_rejects_wrong_xor_scope_and_precision',
     'state::stake_reserves::tests::pinned_stake_custody_snapshot_rejects_wrong_precision_in_both_cuts',
-    'state::reward_reserves::tests::reward_reserves_reject_wrong_xor_scope_and_precision',
-    'state::reward_reserves::tests::reward_reserves_snapshot_rejects_wrong_precision_in_both_cuts',
     'smartcontracts::isi::staking::tests::staking_registration_rejects_wrong_xor_shape_with_transaction_rollback',
-    'smartcontracts::isi::staking::tests::reward_claim_rejects_wrong_xor_shape_with_transaction_rollback',
 )),)
 CORE_STAGES += CORE_CANONICAL_XOR_STAGES
 CORE_STARTUP_STAGES += CORE_CANONICAL_XOR_STAGES
@@ -2496,6 +2549,9 @@ def qualification_stages(qualification_scope: str = "basic") -> dict[str, tuple]
     if qualification_scope not in QUALIFICATION_SCOPES:
         raise CheckError("native qualification scope must be basic or full")
     selected = {
+        'norito-exact-field': NORITO_RETAINED_SEQUENCE_STAGES,
+        'primitives-quantity': PRIMITIVES_QUANTITY_STAGES,
+        'primitives-quantity-allocations': PRIMITIVES_QUANTITY_ALLOCATION_STAGES,
         "allocation": ALLOCATION_OWNERSHIP_STAGES,
         "allocation-shared": ALLOCATION_SHARED_STAGES,
         "mv": MV_OWNERSHIP_STAGES, "mv-ebr": MV_EBR_STAGES, "mv-map": MV_MAP_STAGES,
@@ -2710,8 +2766,12 @@ def native_harness_selection(harnesses: tuple[str, ...]) -> list[str]:
     # The portable proof fixtures use the model's explicit deterministic constructors.
     # Select the feature even for a focused model-only graph; dependency unification
     # must not decide whether required cryptographic regressions exist.
-    features = (["--features", "iroha_data_model/transparent_api"]
-                if "data-model" in harnesses else [])
+    selected_features = []
+    if "data-model" in harnesses:
+        selected_features.append("iroha_data_model/transparent_api")
+    if "torii-lifecycle" in harnesses:
+        selected_features.append("iroha_torii/test-fixtures")
+    features = ["--features", ",".join(selected_features)] if selected_features else []
     return [*selection, *targets, *features]
 
 
@@ -3595,10 +3655,8 @@ def require_tests(listing: str, stages=None) -> None:
         raise CheckError("required regressions missing from native harness: " + ", ".join(missing))
 
 
-def require_one_pass(name: str, result: subprocess.CompletedProcess[str]) -> None:
-    if (result.returncode != 0
-            or f"test {name} ... ok" not in result.stdout.splitlines()
-            or "test result: ok. 1 passed; 0 failed; 0 ignored;" not in result.stdout):
+def require_one_pass(name: str, result: subprocess.CompletedProcess[str], filtered_out: int) -> None:
+    if native_test_batch_failures((name,), filtered_out, result):
         # These tests use disposable fixtures, never operator runtime inputs.
         sys.stderr.write(result.stdout)
         sys.stderr.write(result.stderr)
@@ -3658,7 +3716,7 @@ def native_test_batch_failures(names: tuple[str, ...], filtered_out: int,
             diagnostics = True
         if diagnostics:
             continue
-        match = re.fullmatch(r"test (\S+) \.\.\. (ok|FAILED|ignored(?:, .*)?|bench: .*)", line)
+        match = re.fullmatch(r"test (\S+)(?: - should panic)? \.\.\. (ok|FAILED|ignored(?:, .*)?|bench: .*)", line)
         if match is None:
             failures.append(f"CLI batch has malformed result output: {line}")
             continue
@@ -3769,6 +3827,7 @@ def run_stages(harness: str, fixture_root: Path, env: dict[str, str], stages,
     else:
         raise CheckError("native stage lacks the current artifact's preflight inventory")
     require_tests(listing, stages)
+    available = {line.removesuffix(": test") for line in listing.splitlines() if line.endswith(": test")}
     if batch:
         run_native_test_batch(harness, fixture_root, env, stages, lock_fds, names, listing)
         return
@@ -3784,7 +3843,7 @@ def run_stages(harness: str, fixture_root: Path, env: dict[str, str], stages,
                                     cwd=fixture_root, env=env, stdin=subprocess.DEVNULL,
                                     text=True, capture_output=True, check=False, pass_fds=lock_fds, umask=0o077)
             try:
-                require_one_pass(name, result)
+                require_one_pass(name, result, len(available) - 1)
             except CheckError as error:
                 failures.append(str(error))
                 print(f"[taira-check] failed {name} ({time.monotonic() - test_start:.1f}s)", flush=True)
@@ -4298,14 +4357,25 @@ def validate_torii_lifecycle_test_registration(root: Path) -> None:
         if len(rows) != 1:
             raise ValueError("lifecycle test target must be explicitly registered once")
         features = manifest.get("features", {})
-        active, pending = set(), ["default"]
+        # Test-owned fixtures are explicit Cargo inputs. Keep them outside the
+        # shipping default closure while verifying this selected libtest graph.
+        selection = native_harness_selection(("torii-lifecycle",))
+        requested = []
+        for index, argument in enumerate(selection):
+            if argument == "--features":
+                requested.extend(feature.removeprefix("iroha_torii/")
+                                 for feature in selection[index + 1].split(",")
+                                 if feature.startswith("iroha_torii/"))
+        if any(feature not in features for feature in requested):
+            raise ValueError("lifecycle selected feature is not declared")
+        active, pending = set(), ["default", *requested]
         while pending:
             feature = pending.pop()
             if feature not in active:
                 active.add(feature)
                 pending.extend(value for value in features.get(feature, []) if value in features)
         if not set(rows[0].get("required-features", [])).issubset(active):
-            raise ValueError("lifecycle target requires non-default features")
+            raise ValueError("lifecycle target requires unselected features")
         grouped = package / rows[0]["path"]
         if not grouped.resolve().is_relative_to(package.resolve()):
             raise ValueError("lifecycle target path leaves package")

@@ -15,6 +15,7 @@
     "cancel_after_a_rejected_identity_opens_no_replacement.json",
     "cancel_after_irreversible_progress_keeps_confirmed_steps.json",
     "cancel_between_steps_marks_the_planned_step_cancelled.json",
+    "cancel_during_round_recovery_prevents_restart.json",
     "cancel_of_a_completed_round_changes_nothing.json",
     "cancel_of_a_completed_workflow_changes_nothing.json",
     "cancel_of_a_round_that_never_started.json",

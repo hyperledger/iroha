@@ -8,10 +8,15 @@ use crate::error::{
     VMError, VmBudgetSnapshot, VmExecutionContext, VmExecutionDiagnostic, VmSourceLocation,
     VmTrapKind,
 };
+use iroha_data_model::executor::fault::{
+    IvmFaultPositionV1, IvmFaultSiteV1, IvmFaultV1, IvmInvocationSelectorV1,
+};
 
 /// Inline trap-time values. The source index resolves only against this VM's debug owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct TrapSnapshot {
+    pub(super) fault: Option<IvmFaultV1>,
+    pub(super) propagated: bool,
     pub(super) trap_kind: VmTrapKind,
     pub(super) pc: u64,
     pub(super) source_index: Option<usize>,
@@ -40,6 +45,7 @@ impl IVM {
             })
         });
         Some(VmExecutionDiagnostic {
+            fault: trap.fault,
             trap_kind: trap.trap_kind,
             pc: trap.pc,
             source,
@@ -56,13 +62,39 @@ impl IVM {
     }
 
     pub(super) fn capture_trap(&mut self, error: &VMError) {
+        self.capture_trap_at(
+            error,
+            IvmFaultPositionV1::Execute {
+                pc_offset: self.pc.saturating_sub(self.program_prefix_len),
+            },
+        );
+    }
+
+    pub(super) fn capture_trap_at(&mut self, error: &VMError, position: IvmFaultPositionV1) {
+        let inherited = self
+            .last_diagnostic
+            .filter(|snapshot| snapshot.propagated)
+            .and_then(|snapshot| snapshot.fault);
         self.last_diagnostic = None;
         if error.execution_deferral().is_some() {
             return;
         }
         // Read diagnostics outside the guest register transcript.
         let _mask = crate::zk::RegLoggerGuard::mask();
-        let relative_pc = self.pc.checked_sub(self.program_prefix_len);
+        let fault = inherited.or_else(|| self.execution_fault(error, position));
+        let relative_pc = match fault {
+            Some(fault) if fault.site.code_hash.as_ref() != &self.code_hash => None,
+            Some(IvmFaultV1 {
+                site:
+                    IvmFaultSiteV1 {
+                        position: IvmFaultPositionV1::Execute { pc_offset },
+                        ..
+                    },
+                ..
+            }) => Some(pc_offset),
+            Some(_) => None,
+            None => self.pc.checked_sub(self.program_prefix_len),
+        };
         let source_index = relative_pc.and_then(|pc| {
             self.contract_debug
                 .as_ref()?
@@ -74,6 +106,8 @@ impl IVM {
         let stack_bytes_used = stack_top.saturating_sub(self.registers.get(31));
         let predecoded_loaded = self.prepared.is_some();
         self.last_diagnostic = Some(TrapSnapshot {
+            fault,
+            propagated: false,
             trap_kind: Self::classify_trap(error),
             pc: self.pc,
             source_index,
@@ -100,6 +134,70 @@ impl IVM {
             predecoded_loaded,
             predecoded_hit: Some(predecoded_loaded && self.prepared_contains_pc(self.pc)),
         });
+    }
+
+    /// Record a deterministic failure at a trusted host boundary outside the run loop.
+    ///
+    /// The selected entrypoint must already be installed. Local execution refusals
+    /// clear the snapshot and never acquire a consensus fault value.
+    pub fn record_boundary_fault(&mut self, error: &VMError, position: IvmFaultPositionV1) {
+        self.capture_trap_at(error, position);
+    }
+
+    /// Return the bounded deterministic fault without copying diagnostic strings.
+    ///
+    /// The exact child origin already captured by a nested call wins over this
+    /// VM's call-site coordinates. Application rejections and local refusals do
+    /// not have a fault value. `position` applies only without a trap snapshot.
+    pub fn execution_fault(
+        &self,
+        error: &VMError,
+        position: IvmFaultPositionV1,
+    ) -> Option<IvmFaultV1> {
+        let kind = error.fault_kind()?;
+        if let Some(fault) = self.last_diagnostic.and_then(|snapshot| snapshot.fault) {
+            return Some(fault);
+        }
+        let selector = match self.contract_interface() {
+            None => IvmInvocationSelectorV1::Generic,
+            Some(interface) => {
+                let pc = self.entrypoint_pc?.checked_sub(self.program_prefix_len)?;
+                let index = interface
+                    .entrypoints
+                    .iter()
+                    .position(|entry| entry.entry_pc == pc)?;
+                IvmInvocationSelectorV1::Entrypoint(u32::try_from(index).ok()?)
+            }
+        };
+        Some(IvmFaultV1 {
+            kind,
+            site: IvmFaultSiteV1 {
+                code_hash: iroha_crypto::Hash::prehashed(self.code_hash),
+                selector,
+                position,
+            },
+        })
+    }
+
+    /// Retain a child's authenticated origin before its VM is released.
+    ///
+    /// Only the fixed fault value crosses this boundary. Child source indices,
+    /// source text and allocation owners never become parent diagnostic owners.
+    pub fn inherit_execution_fault(
+        &mut self,
+        child: &IVM,
+        error: &VMError,
+        position: IvmFaultPositionV1,
+    ) {
+        let Some(fault) = child.execution_fault(error, position) else {
+            return;
+        };
+        self.capture_trap(error);
+        if let Some(snapshot) = self.last_diagnostic.as_mut() {
+            snapshot.fault = Some(fault);
+            snapshot.propagated = true;
+            snapshot.source_index = None;
+        }
     }
 
     pub(crate) fn classify_trap(err: &VMError) -> VmTrapKind {
@@ -137,7 +235,9 @@ impl IVM {
             VMError::VectorExtensionDisabled
             | VMError::ZkExtensionDisabled
             | VMError::NullifierAlreadyUsed
-            | VMError::PermissionDenied => VmTrapKind::PermissionDenied,
+            | VMError::PermissionDenied
+            | VMError::ReentrantCall
+            | VMError::CallDepthExceeded => VmTrapKind::PermissionDenied,
             VMError::PrivacyViolation => VmTrapKind::PrivacyViolation,
             VMError::RegisterOutOfBounds => VmTrapKind::RegisterOutOfBounds,
             VMError::NoritoInvalid => VmTrapKind::NoritoInvalid,

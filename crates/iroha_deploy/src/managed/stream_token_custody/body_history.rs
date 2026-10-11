@@ -5,10 +5,11 @@
 //! authorization can replace an expired body whose complete dispatch history is proven unsigned.
 
 use super::*;
+use crate::localnet::service_authorities::RetainedProviderServicePlan;
 use crate::managed::native_operation::{
     attempts::{
-        BodyDispatchScope, BodyReplacementTarget, EnrollmentScopeBinding, EnrollmentScopeEvidence,
-        History, HistoryScope, SemanticSuccessor, VerifiedUnsignedClosure,
+        BodyDispatchScope, BodyReplacementTarget, EnrollmentReadPass, EnrollmentScopeBinding,
+        EnrollmentScopeEvidence, History, HistoryScope, SemanticSuccessor, VerifiedUnsignedClosure,
     },
     require_retained_material,
 };
@@ -48,24 +49,56 @@ struct RecordSnapshot {
     directory: Arc<PrivateDirectory>,
     name: String,
     maximum: usize,
-    length: usize,
-    digest: [u8; 32],
+    observed: Option<(usize, [u8; 32])>,
 }
 impl RecordSnapshot {
-    fn new(directory: Arc<PrivateDirectory>, name: &str, maximum: usize) -> Result<Self> {
-        let bytes = directory.read(name, maximum)?;
-        Ok(Self {
+    // Bind the bytes actually consumed by the sole decoder, including observed absence.
+    // A second read here could silently attach a replacement file to an older decoded value.
+    fn from_read(
+        directory: Arc<PrivateDirectory>,
+        name: &str,
+        maximum: usize,
+        bytes: Option<&[u8]>,
+    ) -> Self {
+        Self {
             directory,
             name: name.to_owned(),
             maximum,
-            length: bytes.len(),
-            digest: *Hash::new(&bytes).as_ref(),
-        })
+            observed: bytes.map(|bytes| (bytes.len(), *Hash::new(bytes).as_ref())),
+        }
     }
     fn revalidate(&self) -> Result<()> {
-        self.directory.revalidate()?;
-        let bytes = self.directory.read(&self.name, self.maximum)?;
-        if bytes.len() != self.length || *Hash::new(&bytes).as_ref() != self.digest {
+        #[cfg(test)]
+        shared_snapshot_tests::record_read();
+        // Both readers begin with fresh native directory revalidation. The
+        // optional reader also revalidates custody before accepting absence.
+        let bytes = if self.observed.is_some() {
+            Some(self.directory.read(&self.name, self.maximum)?)
+        } else {
+            read_optional(&self.directory, &self.name, self.maximum)?.map(zeroize::Zeroizing::new)
+        };
+        let observed = bytes
+            .as_ref()
+            .map(|bytes| (bytes.len(), *Hash::new(bytes).as_ref()));
+        #[cfg(test)]
+        snapshot_root_scope_tests::after_record(self)?;
+        if observed != self.observed {
+            return Err(invalid("retained enrollment body material changed"));
+        }
+        Ok(())
+    }
+    fn revalidate_in_scope(&self, reader: &mut iroha_fs::PrivateReadScope<'_>) -> Result<()> {
+        #[cfg(test)]
+        shared_snapshot_tests::record_read();
+        let observe = |bytes: &[u8]| (bytes.len(), *Hash::new(bytes).as_ref());
+        let observed = if self.observed.is_some() {
+            Some(reader.read(&self.name, self.maximum, observe)?)
+        } else {
+            reader.read_optional(&self.name, self.maximum, observe)?
+        };
+        #[cfg(test)]
+        snapshot_root_scope_tests::after_record(self)?;
+        if observed != self.observed {
             return Err(invalid("retained enrollment body material changed"));
         }
         Ok(())
@@ -78,16 +111,19 @@ struct NamesSnapshot {
     names: Vec<std::ffi::OsString>,
 }
 impl NamesSnapshot {
-    fn capture(directory: Arc<PrivateDirectory>, maximum: usize) -> Result<Self> {
-        let names = directory.entries(maximum)?;
-        Ok(Self {
+    fn from_read(
+        directory: Arc<PrivateDirectory>,
+        maximum: usize,
+        names: Vec<std::ffi::OsString>,
+    ) -> Self {
+        Self {
             directory,
             maximum,
             names,
-        })
+        }
     }
     fn revalidate(&self) -> Result<()> {
-        self.directory.revalidate()?;
+        // entries brackets the native census with fresh directory revalidation.
         if self.directory.entries(self.maximum)? != self.names {
             return Err(invalid("retained enrollment namespace changed"));
         }
@@ -101,23 +137,227 @@ struct Snapshot {
     names: Vec<NamesSnapshot>,
     root: Option<Arc<PrivateDirectory>>,
 }
+/// Borrowed coverage of one exact immutable snapshot chain during a closed read-only pass.
+/// Construction and membership stay with the sole snapshot owner; no token is retained.
+pub(in crate::managed) struct SnapshotReadPass<'a> {
+    head: &'a Snapshot,
+}
+impl SnapshotReadPass<'_> {
+    fn covers(&self, snapshot: &Snapshot) -> bool {
+        if norito::core::decode_limits_active() {
+            return false;
+        }
+        let mut next = Some(self.head);
+        for _ in 0..usize::from(MAX_BODIES) + 2 {
+            let Some(current) = next else { return false };
+            if std::ptr::eq(current, snapshot) {
+                return true;
+            }
+            next = current.previous.as_deref();
+        }
+        false
+    }
+}
 impl Snapshot {
     fn revalidate(&self) -> Result<()> {
+        #[cfg(test)]
+        let _snapshot_timing = finish_timing::phase(finish_timing::Phase::SnapshotRevalidate);
+        match self.tree_root() {
+            Some(root) => root
+                .read_tree_scope(|tree| self.revalidate_in_tree_with_root(Some(tree), Some(root))),
+            None => self.revalidate_in_tree(None),
+        }
+    }
+    // Only the immutable layout produced below opts into a common-ancestry bracket.
+    // This selects a read strategy, never source validity or native ancestry eligibility.
+    // Rootless, custom and multiple-root chains retain the original full-read path.
+    fn tree_root(&self) -> Option<&PrivateDirectory> {
+        let mut snapshot = self;
+        let mut container: Option<&Arc<PrivateDirectory>> = None;
+        let mut bodies = 0usize;
+        while let Some(previous) = &snapshot.previous {
+            if snapshot.root.is_some() {
+                return None;
+            }
+            if previous.previous.is_none() {
+                // The existing container snapshot lies immediately after the sole base root.
+                if !snapshot.records.is_empty() || snapshot.names.len() > 1 {
+                    return None;
+                }
+                match snapshot.names.first() {
+                    Some(names)
+                        if names.maximum == usize::from(MAX_BODIES) * 3
+                            && container.is_none_or(|directory| {
+                                Arc::ptr_eq(directory, &names.directory)
+                            }) => {}
+                    None if bodies == 0 => {}
+                    _ => return None,
+                }
+            } else {
+                let [reserved, original, activation, unused] = snapshot.records.as_slice() else {
+                    return None;
+                };
+                if reserved.name != "reserved.nrt"
+                    || reserved.maximum != MAX_BODY_BYTES
+                    || reserved.observed.is_none()
+                    || original.name != "original.nrt"
+                    || original.maximum != journal::MAX_ORIGINAL_BYTES
+                    || activation.maximum != MAX_SELECTION_BYTES
+                    || unused.maximum != MAX_SELECTION_BYTES
+                    || !activation.name.ends_with("-activation.nrt")
+                    || !unused.name.ends_with("-unused.nrt")
+                    || !Arc::ptr_eq(&reserved.directory, &original.directory)
+                    || !Arc::ptr_eq(&activation.directory, &unused.directory)
+                    || Arc::ptr_eq(&reserved.directory, &activation.directory)
+                    || container
+                        .is_some_and(|directory| !Arc::ptr_eq(directory, &activation.directory))
+                    || snapshot.names.len() > 1
+                    || snapshot.names.first().is_some_and(|names| {
+                        names.maximum != 1 || !Arc::ptr_eq(&names.directory, &reserved.directory)
+                    })
+                {
+                    return None;
+                }
+                bodies += 1;
+                if bodies > usize::from(MAX_BODIES) {
+                    return None;
+                }
+                container = Some(&activation.directory);
+            }
+            snapshot = previous;
+        }
+        let root = snapshot.root.as_ref()?;
+        let [original, anchor, reference] = snapshot.records.as_slice() else {
+            return None;
+        };
+        if snapshot.names.is_empty()
+            && original.name == "original.nrt"
+            && original.maximum == MAX_SELECTION_BYTES
+            && original.observed.is_some()
+            && anchor.name == "anchor.nrt"
+            && anchor.maximum == MAX_BODY_BYTES
+            && anchor.observed.is_some()
+            && reference.name.ends_with("-selection.nrt")
+            && reference.maximum == MAX_SELECTION_BYTES
+            && Arc::ptr_eq(&original.directory, root)
+            && Arc::ptr_eq(&anchor.directory, root)
+            && !Arc::ptr_eq(&reference.directory, root)
+            && self.previous.is_some()
+        {
+            Some(root)
+        } else {
+            None
+        }
+    }
+    // The original traversal and source checks remain one producer. The optional borrowed
+    // tree only consolidates common native ancestry across this one complete read pass.
+    // Every original independent caller still opens a fresh bracket. Persistent anchor exit
+    // refusal wins ordinary body errors; a prefix changed and restored inside may be unseen.
+    fn revalidate_in_tree(
+        &self,
+        tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
+    ) -> Result<()> {
+        self.revalidate_in_tree_with_root(tree, None)
+    }
+    fn revalidate_in_tree_with_root(
+        &self,
+        mut tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
+        canonical_root: Option<&PrivateDirectory>,
+    ) -> Result<()> {
+        #[cfg(test)]
+        shared_snapshot_tests::snapshot_visit();
+        let mut index = 0;
         if let Some(root) = &self.root {
-            root.revalidate()?;
-            check_names(root, &["original.nrt", "anchor.nrt", "bodies", "epochs"], 4)?;
+            if tree.is_some()
+                && reuse_root_scope()
+                && canonical_root.is_some_and(|admitted| std::ptr::eq(admitted, root.as_ref()))
+            {
+                // This exact base has no predecessor or names snapshot. Its original
+                // inventory and two adjacent root records are one read-only transaction;
+                // the external selection reference keeps its independent full bracket.
+                // The root exit precedes that reference and overrides ordinary inner errors.
+                // Interior root changes fully restored within this bracket may be unseen.
+                #[cfg(test)]
+                snapshot_root_scope_tests::root_scope(true);
+                root.read_scope(|reader| {
+                    let names = reader.entries(4)?;
+                    let inventory = require_allowed_names(&names, &SCOPE_ROOT_NAMES);
+                    #[cfg(test)]
+                    snapshot_root_scope_tests::after_inventory(root)?;
+                    inventory?;
+                    for record in &self.records[..2] {
+                        record.revalidate_in_scope(reader)?;
+                    }
+                    Ok::<_, crate::managed::Error>(())
+                })?;
+                index = 2;
+            } else {
+                #[cfg(test)]
+                snapshot_root_scope_tests::root_scope(false);
+                root.revalidate()?;
+                let inventory = check_names(root, &SCOPE_ROOT_NAMES, 4);
+                #[cfg(test)]
+                snapshot_root_scope_tests::after_inventory(root)?;
+                inventory?;
+            }
         }
         if let Some(previous) = &self.previous {
-            previous.revalidate()?;
+            previous.revalidate_in_tree_with_root(tree.as_deref_mut(), canonical_root)?;
         }
-        for record in &self.records {
-            record.revalidate()?;
+        while index < self.records.len() {
+            let mut end = index + 1;
+            while end < self.records.len()
+                && Arc::ptr_eq(&self.records[index].directory, &self.records[end].directory)
+            {
+                end += 1;
+            }
+            if end == index + 1 {
+                self.records[index].revalidate()?;
+            } else {
+                let read = |reader: &mut iroha_fs::PrivateReadScope<'_>| {
+                    for record in &self.records[index..end] {
+                        record.revalidate_in_scope(reader)?;
+                    }
+                    Ok::<_, crate::managed::Error>(())
+                };
+                // The base root and singleton external reference keep their full checks.
+                match (self.root.is_none(), tree.as_deref_mut()) {
+                    (true, Some(tree)) => tree.read_scope(&self.records[index].directory, read)?,
+                    _ => self.records[index].directory.read_scope(read)?,
+                }
+            }
+            index = end;
         }
         for names in &self.names {
-            names.revalidate()?;
+            match tree.as_deref_mut() {
+                Some(tree) => tree.read_scope(&names.directory, |reader| {
+                    if reader.entries(names.maximum)? != names.names {
+                        return Err(invalid("retained enrollment namespace changed"));
+                    }
+                    Ok::<_, crate::managed::Error>(())
+                })?,
+                None => names.revalidate()?,
+            }
         }
         Ok(())
     }
+}
+const SCOPE_ROOT_NAMES: [&str; 4] = ["original.nrt", "anchor.nrt", "bodies", "epochs"];
+
+fn reuse_root_scope() -> bool {
+    #[cfg(test)]
+    if snapshot_root_scope_tests::original_recipe() {
+        return false;
+    }
+    !norito::core::decode_limits_active()
+}
+
+fn reuse_scope_ancestry() -> bool {
+    #[cfg(test)]
+    if scope_ancestry_tests::original_recipe() {
+        return false;
+    }
+    !norito::core::decode_limits_active()
 }
 
 /// Only BodyHistory constructs this sealed evidence after its complete bounded outer census.
@@ -143,14 +383,107 @@ impl EnrollmentScopeEvidence for ScopeEvidence {
         &self.fees
     }
     fn revalidate(&self) -> Result<()> {
+        self.revalidate_with_snapshot_read_pass(None)
+    }
+    fn with_snapshot_read_pass(
+        &self,
+        action: &mut dyn FnMut(Option<&SnapshotReadPass<'_>>) -> Result<()>,
+    ) -> Result<()> {
+        // Preserve the original source/codec charging recipe under an inherited owner.
+        if norito::core::decode_limits_active() {
+            return action(None);
+        }
+        self.revalidate()?;
+        let pass = SnapshotReadPass {
+            head: &self.snapshots,
+        };
+        let result = action(Some(&pass));
+        // Close every ordinary result. Persistent custody/byte changes outrank inner errors.
+        self.revalidate()?;
+        result
+    }
+    fn revalidate_with_snapshot_read_pass(
+        &self,
+        pass: Option<&SnapshotReadPass<'_>>,
+    ) -> Result<()> {
+        #[cfg(test)]
+        scope_ancestry_tests::record(scope_ancestry_tests::Point::Full);
         self.root.revalidate()?;
-        check_names(
-            &self.root,
-            &["original.nrt", "anchor.nrt", "bodies", "epochs"],
-            4,
-        )?;
+        check_names(&self.root, &SCOPE_ROOT_NAMES, 4)?;
+        #[cfg(test)]
+        scope_ancestry_tests::record(scope_ancestry_tests::Point::Inventory);
         self.body.revalidate()?;
-        self.snapshots.revalidate()
+        if pass.is_some_and(|pass| pass.covers(&self.snapshots)) {
+            Ok(())
+        } else {
+            self.snapshots.revalidate()
+        }
+    }
+    fn revalidate_in_tree(
+        &self,
+        pass: Option<&SnapshotReadPass<'_>>,
+        tree: &mut iroha_fs::PrivateReadTreeScope<'_>,
+        root_read: Option<&mut attempts::GraphRootReadPass<'_, '_>>,
+    ) -> Result<()> {
+        if !reuse_scope_ancestry() || !pass.is_some_and(|pass| pass.covers(&self.snapshots)) {
+            return self.revalidate_with_snapshot_read_pass(pass);
+        }
+        #[cfg(test)]
+        scope_ancestry_tests::record(scope_ancestry_tests::Point::Tree);
+        // A complete graph direction may lend its exact original root reader. The actual
+        // inventory and allowed-name comparison still run at every original position.
+        // Only root ancestry observations consolidate into that direction's closed entry/exit;
+        // foreign owners and a decoder activated after scope entry keep the literal recipe.
+        let read_names = |reader: &mut iroha_fs::PrivateReadScope<'_>| {
+            let names = reader.entries(4)?;
+            #[cfg(test)]
+            {
+                scope_ancestry_tests::record(scope_ancestry_tests::Point::Inventory);
+                scope_ancestry_tests::hit(scope_ancestry_tests::Boundary::InventoryRead)?;
+                graph_root_scope_tests::hit(graph_root_scope_tests::Boundary::InventoryRead)?;
+            }
+            Ok::<_, crate::managed::Error>(names)
+        };
+        let names = match root_read.filter(|read| read.covers(&self.root)) {
+            Some(read) => read.read(read_names),
+            None => {
+                #[cfg(test)]
+                graph_root_scope_tests::record(graph_root_scope_tests::Point::InventoryBracket);
+                tree.read_scope(&self.root, read_names)
+            }
+        }?;
+        require_allowed_names(&names, &SCOPE_ROOT_NAMES)?;
+        #[cfg(test)]
+        scope_ancestry_tests::hit(scope_ancestry_tests::Boundary::RootClosed)?;
+        // Strict descendants share only the exact native prefix; nonshared owners retain
+        // full checks. The enclosing graph closes the original anchor on every ordinary
+        // result. Interior prefix changes restored before those fences may be unseen.
+        tree.revalidate_directory(&self.body)?;
+        #[cfg(test)]
+        scope_ancestry_tests::hit(scope_ancestry_tests::Boundary::BodyClosed)?;
+        #[cfg(test)]
+        graph_root_scope_tests::hit(graph_root_scope_tests::Boundary::BodyClosed)?;
+        Ok(())
+    }
+    fn covers_semantic_original(&self, pass: &SnapshotReadPass<'_>, semantic: [u8; 32]) -> bool {
+        if !pass.covers(&self.snapshots) || self.binding.semantic != semantic {
+            return false;
+        }
+        let [reserved, original, _, _] = self.snapshots.records.as_slice() else {
+            return false;
+        };
+        self.snapshots.root.is_none()
+            && self.snapshots.previous.is_some()
+            && reserved.name == "reserved.nrt"
+            && reserved.maximum == MAX_BODY_BYTES
+            && reserved.observed.is_some()
+            && Arc::ptr_eq(&reserved.directory, &self.body)
+            && original.name == "original.nrt"
+            && original.maximum == journal::MAX_ORIGINAL_BYTES
+            && Arc::ptr_eq(&original.directory, &self.body)
+            && original.observed.is_some_and(|(length, observed)| {
+                length > 0 && length <= journal::MAX_ORIGINAL_BYTES && observed == semantic
+            })
     }
     fn require_active(&self) -> Result<()> {
         self.revalidate()?;
@@ -172,6 +505,12 @@ struct Target {
 }
 impl Target {
     fn revalidate(&self) -> Result<()> {
+        self.revalidate_with_snapshot_read_pass(None)
+    }
+    fn revalidate_with_snapshot_read_pass(
+        &self,
+        pass: Option<&SnapshotReadPass<'_>>,
+    ) -> Result<()> {
         self.fees.validate()?;
         if self.outer == [0; 32]
             || self.previous_body == [0; 32]
@@ -180,7 +519,11 @@ impl Target {
         {
             return Err(invalid("enrollment replacement target is incomplete"));
         }
-        self.snapshots.revalidate()
+        if pass.is_some_and(|pass| pass.covers(&self.snapshots)) {
+            Ok(())
+        } else {
+            self.snapshots.revalidate()
+        }
     }
 }
 /// Native-validated unsigned selection; the live issuer consumes this target before publication.
@@ -216,6 +559,12 @@ macro_rules! replacement_target {
             fn validate_target(&self) -> Result<()> {
                 self.target.revalidate()
             }
+            fn validate_target_with_snapshot_read_pass(
+                &self,
+                pass: Option<&SnapshotReadPass<'_>>,
+            ) -> Result<()> {
+                self.target.revalidate_with_snapshot_read_pass(pass)
+            }
         }
     };
 }
@@ -227,6 +576,12 @@ impl SemanticSuccessor for ReservedBodySuccessor {
     }
     fn revalidate(&self) -> Result<()> {
         self.target.revalidate()
+    }
+    fn revalidate_with_snapshot_read_pass(
+        &self,
+        pass: Option<&SnapshotReadPass<'_>>,
+    ) -> Result<()> {
+        self.target.revalidate_with_snapshot_read_pass(pass)
     }
 }
 
@@ -287,14 +642,48 @@ fn read<T: norito::NoritoSerialize + for<'de> norito::NoritoDeserialize<'de>>(
 ) -> Result<T> {
     decode(&directory.read(name, maximum)?, maximum)
 }
-fn optional<T: norito::NoritoSerialize + for<'de> norito::NoritoDeserialize<'de>>(
-    directory: &PrivateDirectory,
+fn read_observed<T: norito::NoritoSerialize + for<'de> norito::NoritoDeserialize<'de>>(
+    directory: &Arc<PrivateDirectory>,
     name: &str,
     maximum: usize,
-) -> Result<Option<T>> {
-    read_optional(directory, name, maximum)?
-        .map(|bytes| decode(&bytes, maximum))
-        .transpose()
+) -> Result<(T, RecordSnapshot)> {
+    let bytes = directory.read(name, maximum)?;
+    let value = decode(&bytes, maximum)?;
+    let snapshot = RecordSnapshot::from_read(Arc::clone(directory), name, maximum, Some(&bytes));
+    Ok((value, snapshot))
+}
+fn optional_observed<T: norito::NoritoSerialize + for<'de> norito::NoritoDeserialize<'de>>(
+    directory: &Arc<PrivateDirectory>,
+    name: &str,
+    maximum: usize,
+) -> Result<(Option<T>, RecordSnapshot)> {
+    let bytes = read_optional(directory, name, maximum)?;
+    let value = bytes
+        .as_ref()
+        .map(|bytes| decode(bytes, maximum))
+        .transpose()?;
+    let snapshot = RecordSnapshot::from_read(
+        Arc::clone(directory),
+        name,
+        maximum,
+        bytes.as_ref().map(|bytes| bytes.as_slice()),
+    );
+    Ok((value, snapshot))
+}
+fn read_reference(
+    owner: &ManagedStreamTokenCustody,
+    purpose: CustodyPurpose,
+) -> Result<(Option<Reference>, RecordSnapshot)> {
+    owner.authority.directory.revalidate()?;
+    let directory = owner.authority.directory.retain()?;
+    if directory.identity()? != owner.authority.directory.identity()? {
+        return Err(invalid("enrollment authority custody changed"));
+    }
+    optional_observed(
+        &Arc::new(directory),
+        &reference_name(purpose)?,
+        MAX_SELECTION_BYTES,
+    )
 }
 fn private_parent(directory: &PrivateDirectory) -> Result<OwnerDirectory> {
     directory.revalidate()?;
@@ -304,8 +693,16 @@ fn private_parent(directory: &PrivateDirectory) -> Result<OwnerDirectory> {
     }
     Ok(parent)
 }
-fn check_names(directory: &PrivateDirectory, allowed: &[&str], bound: usize) -> Result<()> {
+fn checked_names(
+    directory: &PrivateDirectory,
+    allowed: &[&str],
+    bound: usize,
+) -> Result<Vec<std::ffi::OsString>> {
     let names = directory.entries(bound)?;
+    require_allowed_names(&names, allowed)?;
+    Ok(names)
+}
+fn require_allowed_names(names: &[std::ffi::OsString], allowed: &[&str]) -> Result<()> {
     if names
         .iter()
         .any(|name| !allowed.iter().any(|allowed| name == OsStr::new(allowed)))
@@ -313,6 +710,9 @@ fn check_names(directory: &PrivateDirectory, allowed: &[&str], bound: usize) -> 
         return Err(invalid("enrollment body contains unknown material"));
     }
     Ok(())
+}
+fn check_names(directory: &PrivateDirectory, allowed: &[&str], bound: usize) -> Result<()> {
+    checked_names(directory, allowed, bound).map(|_| ())
 }
 fn same<T: norito::NoritoSerialize>(left: &T, right: &T, bound: usize) -> Result<bool> {
     Ok(encode(left, bound)? == encode(right, bound)?)
@@ -339,35 +739,131 @@ fn write_once<T: norito::NoritoSerialize>(
     Ok(())
 }
 
+// Only this module can assemble a pure history read. The attempt pass invokes this
+// concrete algorithm, never an arbitrary callback or a caller-supplied effectful action.
+pub(in crate::managed) struct ReadOnlyHistoryParser<'a> {
+    current: &'a mut BodyHistory,
+    owner: &'a ManagedStreamTokenCustody,
+    retained: Option<&'a BodyHistory>,
+}
+impl<'a> ReadOnlyHistoryParser<'a> {
+    pub(in crate::managed) fn retained_graph(&self) -> Option<&'a History> {
+        self.retained.and_then(BodyHistory::retained_graph)
+    }
+    pub(in crate::managed) fn epoch_context(
+        &self,
+    ) -> Result<Option<crate::managed::native_operation::authorization::BodyParserEpochContext>>
+    {
+        let CustodyPurpose::Renewal(sequence) = self.current.purpose else {
+            return Ok(None);
+        };
+        // With the independent initial census retained, fewer than three Original bodies
+        // cannot reduce complete census work. This threshold avoids adding a third census
+        // to the two-body case; actual savings also depend on generated-origin count.
+        if self
+            .current
+            .bodies
+            .iter()
+            .filter(|body| body.original.is_some())
+            .count()
+            < 3
+        {
+            return Ok(None);
+        }
+        Ok(Some(
+            crate::managed::native_operation::authorization::BodyParserEpochContext {
+                parent: Arc::clone(&self.current.root),
+                parent_intent: self.current.selection.digest()?,
+                fees: self.current.selection.fees.clone(),
+                scope: crate::managed::native_operation::authorization::Scope::Renewal {
+                    provider: self.owner.authority.provider_id()?,
+                    sequence,
+                },
+            },
+        ))
+    }
+    pub(in crate::managed) fn read(
+        self,
+        pass: &EnrollmentReadPass<'_>,
+        epochs: &mut crate::managed::native_operation::authorization::EpochReader,
+    ) -> Result<()> {
+        self.current
+            .verify_histories_in_pass(self.owner, self.retained, epochs, Some(pass))
+    }
+}
+
+/// Only the concrete body-record parser can borrow its freshly authenticated original plan.
+/// This value conveys a pure comparison input, never a profile freshness or live authority verdict.
+pub(super) struct BodyOriginalPlan<'a> {
+    owner: &'a ManagedStreamTokenCustody,
+    plan: &'a RetainedProviderServicePlan,
+}
+impl BodyOriginalPlan<'_> {
+    pub(super) fn for_owner(
+        &self,
+        owner: &ManagedStreamTokenCustody,
+    ) -> Option<&RetainedProviderServicePlan> {
+        (std::ptr::eq(self.owner, owner) && !norito::core::decode_limits_active())
+            .then_some(self.plan)
+    }
+}
+
 impl BodyHistory {
     pub(super) fn open(
         owner: &ManagedStreamTokenCustody,
         purpose: CustodyPurpose,
     ) -> Result<Option<Self>> {
+        // Reuse only the two exact pure epoch contexts within this fresh historical parse.
+        // Source, current authority and active decoder admission remain with their owners.
+        let mut validation = EpochValidationScope::new();
+        let result = Self::open_with_imports(
+            owner,
+            purpose,
+            &mut crate::managed::service_authority::CheckpointImports::new(
+                &owner.authority,
+                Some(&mut validation),
+            ),
+        );
+        drop(validation);
+        result
+    }
+
+    pub(super) fn open_with_imports(
+        owner: &ManagedStreamTokenCustody,
+        purpose: CustodyPurpose,
+        imports: &mut crate::managed::service_authority::CheckpointImports<'_, '_>,
+    ) -> Result<Option<Self>> {
         sequence(purpose)?;
         owner.authority.directory.revalidate()?;
         let name = purpose.directory_name()?;
-        let reference: Option<Reference> = optional(
-            &owner.authority.directory,
-            &reference_name(purpose)?,
-            MAX_SELECTION_BYTES,
-        )?;
-        let root = match owner.authority.directory.open_child(&name) {
-            Ok(value) => Arc::new(value),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound && reference.is_none() => {
+        let (reference, reference_snapshot) = read_reference(owner, purpose)?;
+        let root = match owner.authority.directory.open_child_optional(&name) {
+            Ok(Some(value)) => Arc::new(value),
+            Ok(None) if reference.is_none() => {
+                reference_snapshot.revalidate()?;
                 return Ok(None);
             }
+            Ok(None) => return Err(ManagedBootstrapFailure::RetainedMaterial.into()),
             Err(error) => return require_retained_material(Err(error.into())),
         };
-        owner.authority.validate_profile()?;
-        require_retained_material(Self::read(owner, purpose, root, reference, None)).map(Some)
+        let plan = owner.authority.provider_plan()?;
+        require_retained_material(Self::read(
+            owner,
+            purpose,
+            root,
+            (reference, reference_snapshot),
+            None,
+            plan,
+            imports,
+        ))
+        .map(Some)
     }
 
     // Consuming transitions keep all original Files live until the same parser has rebuilt
     // and authenticated fresh metadata. Only previously absent paths are opened anew.
     pub(super) fn reopen(self, owner: &ManagedStreamTokenCustody) -> Result<Self> {
         #[cfg(test)]
-        let _timing = crate::custody_timing::Span::enter(crate::custody_timing::Category::Reopen);
+        let _timing = finish_timing::phase(finish_timing::Phase::Reopen);
         self.read_current(owner)
     }
 
@@ -383,19 +879,31 @@ impl BodyHistory {
         {
             return Err(invalid("retained enrollment belongs to another authority"));
         }
-        let reference = optional(
-            &owner.authority.directory,
-            &reference_name(self.purpose)?,
-            MAX_SELECTION_BYTES,
-        )?;
-        owner.authority.validate_profile()?;
-        let current = require_retained_material(Self::read(
-            owner,
-            self.purpose,
-            Arc::clone(&self.root),
-            reference,
-            Some(self),
-        ))?;
+        let reference = read_reference(owner, self.purpose)?;
+        #[cfg(test)]
+        let timing = finish_timing::phase(finish_timing::Phase::ProfileEntry);
+        let plan = owner.authority.provider_plan()?;
+        #[cfg(test)]
+        drop(timing);
+        let current = {
+            // End this parse's pure workspace before the closing retained-custody fences
+            // and before the caller can publish any successor, retirement or signature.
+            let mut validation = EpochValidationScope::new();
+            let result = Self::read(
+                owner,
+                self.purpose,
+                Arc::clone(&self.root),
+                reference,
+                Some(self),
+                plan,
+                &mut crate::managed::service_authority::CheckpointImports::new(
+                    &owner.authority,
+                    Some(&mut validation),
+                ),
+            );
+            drop(validation);
+            require_retained_material(result)?
+        };
         require_retained_material(self.revalidate_handles())?;
         require_retained_material(self.require_retained_prefix(&current))?;
         require_retained_material(current.revalidate_handles())?;
@@ -403,20 +911,28 @@ impl BodyHistory {
     }
 
     fn revalidate_handles(&self) -> Result<()> {
-        self.root.revalidate()?;
-        if let Some(container) = &self.body_root {
-            container.revalidate()?;
-        }
-        for body in &self.bodies {
-            body.directory.revalidate()?;
-        }
-        if let Some(active) = &self.active {
-            active.history.revalidate_retained_handles()?;
-        }
-        if let Some(closure) = &self.nearest_closure {
-            closure.retained_history().revalidate_retained_handles()?;
-        }
-        Ok(())
+        // Preserve root, container, body, active graph and nearest-closure order. Only
+        // identical complete shared native prefixes use this fresh closed bracket;
+        // independently reopened or unrelated handles keep the full native fallback.
+        self.root.read_tree_scope(|tree| {
+            if let Some(container) = &self.body_root {
+                tree.revalidate_directory(container)?;
+            }
+            for body in &self.bodies {
+                tree.revalidate_directory(&body.directory)?;
+            }
+            if let Some(active) = &self.active {
+                active
+                    .history
+                    .revalidate_retained_handles_in_tree(Some(&mut *tree))?;
+            }
+            if let Some(closure) = &self.nearest_closure {
+                closure
+                    .retained_history()
+                    .revalidate_retained_handles_in_tree(Some(&mut *tree))?;
+            }
+            Ok(())
+        })
     }
 
     fn require_retained_prefix(&self, current: &Self) -> Result<()> {
@@ -480,20 +996,68 @@ impl BodyHistory {
         owner: &ManagedStreamTokenCustody,
         purpose: CustodyPurpose,
         root: Arc<PrivateDirectory>,
-        reference: Option<Reference>,
+        reference: (Option<Reference>, RecordSnapshot),
         retained: Option<&Self>,
+        plan: RetainedProviderServicePlan,
+        imports: &mut crate::managed::service_authority::CheckpointImports<'_, '_>,
+    ) -> Result<Self> {
+        // Both callers just acquired this exact owner's plan through its full profile
+        // producer. Preserve that entry's native error order. The inactive concrete parser
+        // owns the original post-inspection profile exit on every ordinary result, including
+        // errors before any Original. No source verdict or borrowed plan leaves this call.
+        let share_plan = !norito::core::decode_limits_active();
+        #[cfg(test)]
+        let share_plan = share_plan && !borrowed_plan_tests::original_recipe();
+        if !share_plan {
+            return Self::read_inner(
+                owner, purpose, root, reference, retained, plan, imports, false,
+            );
+        }
+        let result = Self::read_inner(
+            owner, purpose, root, reference, retained, plan, imports, true,
+        );
+        // Any existing inner history/epoch/snapshot exits run before this independent full
+        // profile exit. Persistent profile custody refusal outranks an ordinary parse error.
+        #[cfg(test)]
+        let _timing = finish_timing::phase(finish_timing::Phase::ProfileExit);
+        owner.authority.validate_profile()?;
+        result
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep one canonical parser with original read inputs and explicit profile scope mode"
+    )]
+    fn read_inner(
+        owner: &ManagedStreamTokenCustody,
+        purpose: CustodyPurpose,
+        root: Arc<PrivateDirectory>,
+        reference: (Option<Reference>, RecordSnapshot),
+        retained: Option<&Self>,
+        plan: RetainedProviderServicePlan,
+        imports: &mut crate::managed::service_authority::CheckpointImports<'_, '_>,
+        share_plan: bool,
     ) -> Result<Self> {
         #[cfg(test)]
-        let _timing = crate::custody_timing::Span::enter(crate::custody_timing::Category::Read);
-        check_names(
+        let records_timing = finish_timing::phase(finish_timing::Phase::ReadRecords);
+        let (reference, reference_snapshot) = reference;
+        let root_names = checked_names(
             &root,
             &["original.nrt", "anchor.nrt", "bodies", "epochs"],
             4,
         )?;
-        let selection: Selection = read(&root, "original.nrt", MAX_SELECTION_BYTES)?;
-        selection.validate(owner, purpose)?;
+        // This inventory fences this parse only: later authorized epochs/body publication is legal.
+        let root_names = NamesSnapshot::from_read(Arc::clone(&root), 4, root_names);
+        let (selection, selection_snapshot): (Selection, _) =
+            read_observed(&root, "original.nrt", MAX_SELECTION_BYTES)?;
+        // The entry owner just authenticated this complete original profile. Share it only
+        // for pure comparisons, never retain it in History or carry it across a callback.
+        selection.validate(owner, purpose, &plan)?;
         let outer = selection.digest()?;
-        let anchor: Anchor = read(&root, "anchor.nrt", MAX_BODY_BYTES)?;
+        let (anchor, anchor_snapshot): (Anchor, _) =
+            read_observed(&root, "anchor.nrt", MAX_BODY_BYTES)?;
+        #[cfg(test)]
+        parser_snapshot_tests::hit(parser_snapshot_tests::Point::AnchorDecoded, root.path())?;
         if anchor.completed == Some([0; 32])
             || anchor.active.is_none() && anchor.completed.is_some()
             || anchor.outer != outer
@@ -528,22 +1092,7 @@ impl BodyHistory {
                 return Err(invalid("enrollment lost its original operation reference"));
             }
         }
-        let mut root_records = vec![
-            RecordSnapshot::new(Arc::clone(&root), "original.nrt", MAX_SELECTION_BYTES)?,
-            RecordSnapshot::new(Arc::clone(&root), "anchor.nrt", MAX_BODY_BYTES)?,
-        ];
-        if reference.is_some() {
-            owner.authority.directory.revalidate()?;
-            let authority_root = owner.authority.directory.retain()?;
-            if authority_root.identity()? != owner.authority.directory.identity()? {
-                return Err(invalid("enrollment authority custody changed"));
-            }
-            root_records.push(RecordSnapshot::new(
-                Arc::new(authority_root),
-                &reference_name(purpose)?,
-                MAX_SELECTION_BYTES,
-            )?);
-        }
+        let root_records = vec![selection_snapshot, anchor_snapshot, reference_snapshot];
         let root_snapshots = Arc::new(Snapshot {
             previous: None,
             records: root_records,
@@ -553,18 +1102,10 @@ impl BodyHistory {
         let body_root = match retained.and_then(|prior| prior.body_root.as_ref()) {
             Some(container) => {
                 container.revalidate()?;
-                Ok(Arc::clone(container))
+                Some(Arc::clone(container))
             }
-            None => root.open_child("bodies").map(Arc::new),
-        };
-        let body_root = match body_root {
-            Ok(value) => Some(value),
-            Err(error)
-                if error.kind() == std::io::ErrorKind::NotFound && anchor.active.is_none() =>
-            {
-                None
-            }
-            Err(error) => return Err(error.into()),
+            None if anchor.active.is_none() => root.open_child_optional("bodies")?.map(Arc::new),
+            None => Some(Arc::new(root.open_child("bodies")?)),
         };
         let names = body_root
             .as_ref()
@@ -583,37 +1124,54 @@ impl BodyHistory {
                 ));
             }
         }
+        #[cfg(test)]
+        parser_snapshot_tests::hit(
+            parser_snapshot_tests::Point::ContainerNamesValidated,
+            root.path(),
+        )?;
         let mut retained_bytes = 0usize;
         let mut bodies: Vec<Body> = Vec::new();
-        let mut snapshots = Arc::clone(&root_snapshots);
+        let mut snapshots = Arc::new(Snapshot {
+            previous: Some(Arc::clone(&root_snapshots)),
+            records: vec![],
+            names: body_root
+                .as_ref()
+                .map(|container| {
+                    NamesSnapshot::from_read(
+                        Arc::clone(container),
+                        usize::from(MAX_BODIES) * 3,
+                        names.clone(),
+                    )
+                })
+                .into_iter()
+                .collect(),
+            root: None,
+        });
         for ordinal in 1..=anchor.highest {
             let name = body_name(ordinal)?;
             let directory =
                 match retained.and_then(|prior| prior.bodies.get(usize::from(ordinal) - 1)) {
                     Some(body) => {
                         body.directory.revalidate()?;
-                        Ok(Some(Arc::clone(&body.directory)))
+                        Some(Arc::clone(&body.directory))
                     }
-                    None => body_root
-                        .as_ref()
-                        .map(|root| root.open_child(&name).map(Arc::new))
-                        .transpose(),
+                    None => match body_root.as_ref() {
+                        Some(root)
+                            if anchor
+                                .pending
+                                .as_ref()
+                                .is_some_and(|r| r.ordinal == ordinal) =>
+                        {
+                            root.open_child_optional(&name)?.map(Arc::new)
+                        }
+                        Some(root) => Some(Arc::new(root.open_child(&name)?)),
+                        None => None,
+                    },
                 };
-            let directory = match directory {
-                Ok(Some(value)) => value,
-                Ok(None) => break,
-                Err(error)
-                    if error.kind() == std::io::ErrorKind::NotFound
-                        && anchor
-                            .pending
-                            .as_ref()
-                            .is_some_and(|r| r.ordinal == ordinal) =>
-                {
-                    break;
-                }
-                Err(error) => return Err(error.into()),
+            let Some(directory) = directory else {
+                break;
             };
-            check_names(
+            let body_names = checked_names(
                 &directory,
                 &[
                     "reserved.nrt",
@@ -628,8 +1186,16 @@ impl BodyHistory {
             let raw = directory.read("reserved.nrt", MAX_BODY_BYTES)?;
             add_bytes(&mut retained_bytes, raw.len())?;
             let reservation: Reservation = decode(&raw, MAX_BODY_BYTES)?;
+            let reservation_snapshot = RecordSnapshot::from_read(
+                Arc::clone(&directory),
+                "reserved.nrt",
+                MAX_BODY_BYTES,
+                Some(&raw),
+            );
             drop(raw);
-            reservation.unsigned.validate(owner, purpose)?;
+            reservation
+                .unsigned
+                .validate_with_imports(owner, purpose, || Ok(&plan), imports)?;
             selection.matches_unsigned(&reservation.unsigned)?;
             let previous = bodies.last();
             if reservation.ordinal != ordinal
@@ -653,10 +1219,10 @@ impl BodyHistory {
                 .ok_or_else(|| invalid("body container absent"))?;
             let activation_name = format!("{name}-activation.nrt");
             let unused_name = format!("{name}-unused.nrt");
-            let activation: Option<Activation> =
-                optional(container, &activation_name, MAX_SELECTION_BYTES)?;
-            let unused: Option<UnusedClosure> =
-                optional(container, &unused_name, MAX_SELECTION_BYTES)?;
+            let (activation, activation_snapshot): (Option<Activation>, _) =
+                optional_observed(container, &activation_name, MAX_SELECTION_BYTES)?;
+            let (unused, unused_snapshot): (Option<UnusedClosure>, _) =
+                optional_observed(container, &unused_name, MAX_SELECTION_BYTES)?;
             let reservation_digest = reservation.digest()?;
             if activation
                 .as_ref()
@@ -668,16 +1234,46 @@ impl BodyHistory {
                 return Err(invalid("active enrollment body lost its activation"));
             }
             let original = journal::read_body_intent(&directory)?;
+            let original_snapshot = RecordSnapshot::from_read(
+                Arc::clone(&directory),
+                "original.nrt",
+                journal::MAX_ORIGINAL_BYTES,
+                original.as_ref().map(|(_, bytes)| bytes.as_slice()),
+            );
+            let original = original.map(|(value, _bytes)| value);
             if let Some(original) = &original {
                 add_bytes(
                     &mut retained_bytes,
-                    norito::canonical_frame_len(original)
-                        .map_err(|_| invalid("cannot size retained enrollment body"))?,
+                    match original_snapshot
+                        .observed
+                        .filter(|_| reuse_original_encoding())
+                    {
+                        Some((length, _)) => length,
+                        None => {
+                            #[cfg(test)]
+                            pure_original_tests::recomputed(pure_original_tests::Point::Length);
+                            norito::canonical_frame_len(original)
+                                .map_err(|_| invalid("cannot size retained enrollment body"))?
+                        }
+                    },
                 )?;
                 if activation.is_none() || ordinal > anchor.active.unwrap_or(0) {
                     return Err(invalid("unsigned body has paid material before activation"));
                 }
-                owner.validate_original(original, purpose)?;
+                #[cfg(test)]
+                borrowed_plan_tests::hit(ordinal)?;
+                if share_plan {
+                    // This borrow ends with the canonical pure Original comparison. The local
+                    // plan is dropped below before any wallet callback can execute.
+                    owner.validate_original_in_body_read(
+                        original,
+                        purpose,
+                        imports,
+                        &BodyOriginalPlan { owner, plan: &plan },
+                    )?;
+                } else {
+                    owner.validate_original_with_imports(original, purpose, imports)?;
+                }
                 reservation.unsigned.matches_original(original)?;
                 if unused.is_some() {
                     return Err(invalid("unused body contains a completed Original"));
@@ -686,7 +1282,21 @@ impl BodyHistory {
                 // Absence is meaningful only under the original reservation. No paid/native files.
                 check_names(&directory, &["reserved.nrt"], 1)?;
             }
-            let semantic = original.as_ref().map(Original::digest).transpose()?;
+            let semantic = original
+                .as_ref()
+                .map(|original| {
+                    // The sole canonical decoder already compared this immutable Original's
+                    // complete encoding with exactly the bytes bound by this snapshot.
+                    if reuse_original_encoding()
+                        && let Some((_, semantic)) = original_snapshot.observed
+                    {
+                        return Ok(semantic);
+                    }
+                    #[cfg(test)]
+                    pure_original_tests::recomputed(pure_original_tests::Point::ReadDigest);
+                    original.digest()
+                })
+                .transpose()?;
             if anchor.active == Some(ordinal) {
                 if anchor.completed.is_some() && anchor.completed != semantic {
                     return Err(invalid(
@@ -697,39 +1307,21 @@ impl BodyHistory {
                     check_names(&directory, &["reserved.nrt", "original.nrt"], 2)?;
                 }
             }
-            let mut records = vec![RecordSnapshot::new(
-                Arc::clone(&directory),
-                "reserved.nrt",
-                MAX_BODY_BYTES,
-            )?];
-            if original.is_some() {
-                records.push(RecordSnapshot::new(
+            let records = vec![
+                reservation_snapshot,
+                original_snapshot,
+                activation_snapshot,
+                unused_snapshot,
+            ];
+            let names = if original.is_none() {
+                vec![NamesSnapshot::from_read(
                     Arc::clone(&directory),
-                    "original.nrt",
-                    journal::MAX_ORIGINAL_BYTES,
-                )?);
-            }
-            if activation.is_some() {
-                records.push(RecordSnapshot::new(
-                    Arc::clone(container),
-                    &activation_name,
-                    MAX_SELECTION_BYTES,
-                )?);
-            }
-            if unused.is_some() {
-                records.push(RecordSnapshot::new(
-                    Arc::clone(container),
-                    &unused_name,
-                    MAX_SELECTION_BYTES,
-                )?);
-            }
-            let mut names = vec![NamesSnapshot::capture(
-                Arc::clone(container),
-                usize::from(MAX_BODIES) * 3,
-            )?];
-            if original.is_none() {
-                names.push(NamesSnapshot::capture(Arc::clone(&directory), 1)?);
-            }
+                    1,
+                    body_names,
+                )]
+            } else {
+                vec![]
+            };
             snapshots = Arc::new(Snapshot {
                 previous: Some(snapshots),
                 records,
@@ -755,7 +1347,9 @@ impl BodyHistory {
             {
                 return Err(invalid("enrollment body prefix has a gap"));
             }
-            pending.unsigned.validate(owner, purpose)?;
+            pending
+                .unsigned
+                .validate_with_imports(owner, purpose, || Ok(&plan), imports)?;
             selection.matches_unsigned(&pending.unsigned)?;
             if pending.outer != outer
                 || pending.previous_body
@@ -789,8 +1383,9 @@ impl BodyHistory {
             reference_present: reference.is_some(),
             purpose,
         };
+        let mut epochs = crate::managed::native_operation::authorization::EpochReader::default();
         if let CustodyPurpose::Renewal(sequence) = purpose {
-            crate::managed::native_operation::authorization::validate_retained(
+            epochs.validate_retained(
                 &value.root,
                 value.selection.digest()?,
                 &value.selection.fees,
@@ -800,10 +1395,44 @@ impl BodyHistory {
                 },
             )?;
         }
-        value.verify_histories(owner, retained)?;
-        value.root_snapshots.revalidate()?;
+        drop(plan);
+        #[cfg(test)]
+        drop(records_timing);
+        value.verify_histories(owner, retained, &mut epochs)?;
+        #[cfg(test)]
+        parser_snapshot_tests::hit(
+            parser_snapshot_tests::Point::HistoriesVerified,
+            value.root.path(),
+        )?;
+        // The final tail includes unsigned bodies, all optional absences and the inventory
+        // actually validated. Mutation-time root fences intentionally remain separate.
+        snapshots.revalidate()?;
+        root_names.revalidate()?;
+        // Recheck the complete original image after all record and wallet inspection, before
+        // this local historical result can leave the parser. It grants no current authority.
+        if !share_plan {
+            #[cfg(test)]
+            let _timing = finish_timing::phase(finish_timing::Phase::ProfileExit);
+            owner.authority.validate_profile()?;
+        }
         Ok(value)
     }
+}
+// Only concrete canonical Originals use this local pure-computation shortcut. All active
+// Norito owners retain the original size/encode/hash calls at their original error positions.
+fn reuse_original_encoding() -> bool {
+    #[cfg(test)]
+    if pure_original_tests::original_recipe() {
+        return false;
+    }
+    !norito::core::decode_limits_active()
+}
+fn reuse_successor_encoding() -> bool {
+    #[cfg(test)]
+    if target_digest_tests::original_recipe() {
+        return false;
+    }
+    !norito::core::decode_limits_active()
 }
 fn add_bytes(total: &mut usize, amount: usize) -> Result<()> {
     *total = total
@@ -845,27 +1474,68 @@ impl BodyHistory {
             },
         }))
     }
+    fn retained_graph(&self) -> Option<&History> {
+        self.active
+            .as_ref()
+            .map(|active| &active.history)
+            .or_else(|| {
+                self.nearest_closure
+                    .as_ref()
+                    .map(VerifiedUnsignedClosure::retained_history)
+            })
+    }
     fn verify_histories(
         &mut self,
         owner: &ManagedStreamTokenCustody,
         retained: Option<&Self>,
+        epochs: &mut crate::managed::native_operation::authorization::EpochReader,
     ) -> Result<()> {
-        let retained_graph = retained.and_then(|prior| {
-            prior
-                .active
-                .as_ref()
-                .map(|active| &active.history)
-                .or_else(|| {
-                    prior
-                        .nearest_closure
-                        .as_ref()
-                        .map(VerifiedUnsignedClosure::retained_history)
-                })
-        });
-        let account = owner.wallet()?;
+        #[cfg(test)]
+        let _timing = finish_timing::phase(finish_timing::Phase::VerifyHistories);
+        if norito::core::decode_limits_active() {
+            return self.verify_histories_in_pass(owner, retained, epochs, None);
+        }
+        let snapshots = self.bodies.last().map_or_else(
+            || Arc::clone(&self.root_snapshots),
+            |body| Arc::clone(&body.snapshots),
+        );
+        snapshots.revalidate()?;
+        let pass = SnapshotReadPass { head: &snapshots };
+        let parser = ReadOnlyHistoryParser {
+            current: self,
+            owner,
+            retained,
+        };
+        #[cfg(test)]
+        let result = if parser_handle_tests::original_recipe() {
+            EnrollmentReadPass::run(&pass, |pass| parser.read(pass, epochs))
+        } else {
+            EnrollmentReadPass::parse(&pass, parser, epochs)
+        };
+        #[cfg(not(test))]
+        let result = EnrollmentReadPass::parse(&pass, parser, epochs);
+        // Persistent immutable custody changes override every ordinary parser result.
+        snapshots.revalidate()?;
+        result
+    }
+    fn verify_histories_in_pass(
+        &mut self,
+        owner: &ManagedStreamTokenCustody,
+        retained: Option<&Self>,
+        epochs: &mut crate::managed::native_operation::authorization::EpochReader,
+        pass: Option<&EnrollmentReadPass<'_>>,
+    ) -> Result<()> {
+        let retained_graph = retained.and_then(Self::retained_graph);
+        // Most body reads precede a wallet observation. Construct its HTTP transports only
+        // when the canonical History asks to inspect one, sharing it across this read's bodies.
+        let mut account = None;
         let mut preceding: Option<VerifiedUnsignedClosure> = None;
         let mut previous_retirement = None;
+        #[cfg(test)]
+        let parser_root = self.root.path().to_path_buf();
         for index in 0..self.bodies.len() {
+            #[cfg(test)]
+            parser_handle_tests::hit(parser_handle_tests::Point::BeforeBody(index))?;
             let body = &self.bodies[index];
             if let Some(activation) = &body.activation {
                 if activation.preceding_retirement != previous_retirement
@@ -915,15 +1585,51 @@ impl BodyHistory {
                 }
                 continue;
             };
+            // Body has one private producer and its Original is never mutated. This stored
+            // semantic was established from that same value before any History inspection.
+            // Recheck the active budget at each original call site, not once per parser.
+            let digest = || {
+                if reuse_original_encoding()
+                    && let Some(semantic) = body.semantic
+                {
+                    return Ok(semantic);
+                }
+                #[cfg(test)]
+                pure_original_tests::recomputed(pure_original_tests::Point::HistoryDigest);
+                original.digest()
+            };
+            // The sole successor producer above already hashed this exact immutable
+            // selection and body reservation. Reuse only those local values before any
+            // wallet callback; every use rechecks active admission and keeps its fallback.
+            let outer_digest = || {
+                if reuse_successor_encoding()
+                    && let Some(successor) = successor.as_ref()
+                {
+                    return Ok(successor.target.outer);
+                }
+                #[cfg(test)]
+                target_digest_tests::recomputed(target_digest_tests::Point::Outer);
+                self.selection.digest()
+            };
+            let body_digest = || {
+                if reuse_successor_encoding()
+                    && let Some(successor) = successor.as_ref()
+                {
+                    return Ok(successor.target.previous_body);
+                }
+                #[cfg(test)]
+                target_digest_tests::recomputed(target_digest_tests::Point::Body);
+                body.reservation.digest()
+            };
             let scope = HistoryScope::Enrollment(BodyDispatchScope::verify(
                 Arc::new(ScopeEvidence {
                     root: Arc::clone(&self.root),
                     body: Arc::clone(&body.directory),
                     binding: EnrollmentScopeBinding {
-                        outer_intent: self.selection.digest()?,
-                        body_selection: body.reservation.digest()?,
+                        outer_intent: outer_digest()?,
+                        body_selection: body_digest()?,
                         purpose: self.selection.purpose,
-                        semantic: original.digest()?,
+                        semantic: digest()?,
                         predecessor_closure: preceding
                             .as_ref()
                             .map(VerifiedUnsignedClosure::digest),
@@ -937,27 +1643,30 @@ impl BodyHistory {
                         && self.anchor.completed == body.semantic,
                 }),
                 preceding.take(),
+                pass,
             )?);
             let history = match retained_graph {
-                Some(prior) => History::read_retained(
+                Some(prior) => History::read_retained_with_pass(
                     &body.directory,
                     self.selection.purpose,
-                    original.digest()?,
+                    digest()?,
                     &scope,
                     prior,
+                    pass,
                 )?,
-                None => History::read(
+                None => History::read_with_pass(
                     &body.directory,
                     self.selection.purpose,
-                    original.digest()?,
+                    digest()?,
                     &scope,
+                    pass,
                 )?,
             };
             history.require_fees(&self.selection.fees)?;
             if let CustodyPurpose::Renewal(sequence) = self.purpose {
-                crate::managed::native_operation::authorization::validate_references(
+                epochs.validate_references(
                     &self.root,
-                    self.selection.digest()?,
+                    outer_digest()?,
                     &self.selection.fees,
                     crate::managed::native_operation::authorization::Scope::Renewal {
                         provider: self.selection.predecessor.provider_id,
@@ -967,18 +1676,33 @@ impl BodyHistory {
                 )?;
             }
             let inspect = |attempt: &attempts::Attempt| {
-                original
+                #[cfg(test)]
+                let _timing = finish_timing::phase(finish_timing::Phase::ParserWallet);
+                let account = match &mut account {
+                    Some(account) => account,
+                    empty => empty.insert(owner.wallet()?),
+                };
+                let preparation = original
                     .request(attempt.terms(), attempt.observation()?, Instant::now())?
-                    .inspect(&account, &attempt.wallet_path())
+                    .inspect_in_parent(account, attempt.directory())?;
+                #[cfg(test)]
+                parser_snapshot_tests::hit(
+                    parser_snapshot_tests::Point::WalletInspected,
+                    &parser_root,
+                )?;
+                #[cfg(test)]
+                parser_handle_tests::hit(parser_handle_tests::Point::WalletInspected(index))?;
+                Ok(preparation)
             };
             if let Some(successor) = successor {
-                match history.verify_unsigned_closure(&successor, inspect)? {
-                    Some(closure) => {
+                match history.into_unsigned_closure_with_pass(&successor, inspect, pass)? {
+                    attempts::UnsignedClosureVerification::Closed(closure) => {
                         previous_retirement = Some(closure.digest());
                         preceding = Some(closure);
                     }
-                    None if self.anchor.active == Some(body.reservation.ordinal)
-                        && self.anchor.pending.is_some() =>
+                    attempts::UnsignedClosureVerification::Pending(history)
+                        if self.anchor.active == Some(body.reservation.ordinal)
+                            && self.anchor.pending.is_some() =>
                     {
                         previous_retirement = None;
                         self.active = Some(ActiveHistory {
@@ -987,14 +1711,14 @@ impl BodyHistory {
                             history,
                         });
                     }
-                    None => {
+                    attempts::UnsignedClosureVerification::Pending(_) => {
                         return Err(invalid(
                             "successor body precedes complete unsigned History closure",
                         ));
                     }
                 }
             } else {
-                history.verify_wallets(inspect)?;
+                history.verify_wallets_with_pass(inspect, pass)?;
                 self.active = Some(ActiveHistory {
                     index,
                     scope,
@@ -1004,12 +1728,38 @@ impl BodyHistory {
             }
         }
         self.nearest_closure = preceding;
+        if pass.is_some() {
+            if let Some(active) = &self.active {
+                active.history.close_parser_read()?;
+            }
+        }
         Ok(())
     }
     pub(super) fn validate_renewal_context(
         &self,
         owner: &ManagedStreamTokenCustody,
         deadline: Instant,
+        prerequisite: impl FnOnce() -> Result<enrollment::RetainedInitialPrerequisite>,
+    ) -> Result<()> {
+        self.with_unsigned_renewal_context(|unsigned| {
+            owner.validate_unsigned_renewal_context_using(unsigned, deadline, prerequisite)
+        })
+    }
+
+    pub(super) fn validate_renewal_context_with_imports(
+        &self,
+        owner: &ManagedStreamTokenCustody,
+        deadline: Instant,
+        imports: &mut crate::managed::service_authority::CheckpointImports<'_, '_>,
+    ) -> Result<()> {
+        self.with_unsigned_renewal_context(|unsigned| {
+            owner.validate_unsigned_renewal_context_with_imports(unsigned, deadline, imports)
+        })
+    }
+
+    fn with_unsigned_renewal_context(
+        &self,
+        validate: impl FnOnce(&UnsignedEnrollment) -> Result<()>,
     ) -> Result<()> {
         if !matches!(self.purpose, CustodyPurpose::Renewal(_)) {
             return Err(invalid("renewal context used for another purpose"));
@@ -1021,7 +1771,7 @@ impl BodyHistory {
             .map(|r| &r.unsigned)
             .or_else(|| self.bodies.last().map(|b| &b.reservation.unsigned))
             .ok_or_else(|| invalid("renewal unsigned selection absent"))?;
-        owner.validate_unsigned_renewal_context(unsigned, deadline)
+        validate(unsigned)
     }
     /// Paid payload/signature phases retain their original recovery path even after body expiry.
     /// This result comes from the sole canonical wallet inspector after the complete history read.
@@ -1044,7 +1794,7 @@ impl BodyHistory {
             .ok_or_else(|| invalid("paid original absent"))?;
         let preparation = original
             .request(last.terms(), last.observation()?, Instant::now())?
-            .inspect(&owner.wallet()?, &last.wallet_path())?;
+            .inspect_in_parent(&owner.wallet()?, last.directory())?;
         Ok(matches!(
             preparation.phase(),
             iroha_wallet::operations::NativePreparationPhase::PayloadRetained
@@ -1207,9 +1957,6 @@ impl BodyHistory {
         turn: &SigningTurn<'_>,
         deadline: Instant,
     ) -> Result<Self> {
-        #[cfg(test)]
-        let _timing =
-            crate::custody_timing::Span::enter(crate::custody_timing::Category::Initialize);
         if Self::open(owner, purpose)?.is_some() {
             return Err(invalid("enrollment operation already selected"));
         }
@@ -1316,11 +2063,9 @@ impl BodyHistory {
         &self,
         owner: &ManagedStreamTokenCustody,
         current: &VerifiedStreamTokenCustodyStateV1,
-    ) -> Result<()> {
-        #[cfg(test)]
-        let _timing =
-            crate::custody_timing::Span::enter(crate::custody_timing::Category::FreshPredecessor);
-        self.selection.validate(owner, self.purpose)?;
+    ) -> Result<RetainedProviderServicePlan> {
+        let plan = owner.authority.provider_plan()?;
+        self.selection.validate(owner, self.purpose, &plan)?;
         let selected = owner.selection(&self.selection.predecessor.binding, current)?;
         if !same(&selected, &self.selection.predecessor, 64 * 1024)? {
             return Err(ManagedBootstrapFailure::EnrollmentPredecessorChanged.into());
@@ -1334,7 +2079,7 @@ impl BodyHistory {
         {
             return Err(ManagedBootstrapFailure::ProfileExpired.into());
         }
-        Ok(())
+        Ok(plan)
     }
     /// Retain exactly one successor after live native qualification and complete unsigned inspection.
     pub(super) fn reserve_successor(
@@ -1349,8 +2094,9 @@ impl BodyHistory {
             return Err(ManagedBootstrapFailure::TransitionPending.into());
         }
         authorization.check(self.selection.purpose, deadline)?;
-        self.verify_fresh_predecessor(owner, current)?;
-        unsigned.validate(owner, self.purpose)?;
+        let plan = self.verify_fresh_predecessor(owner, current)?;
+        unsigned.validate(owner, self.purpose, || Ok(&plan))?;
+        drop(plan);
         self.selection.matches_unsigned(&unsigned)?;
         let last = self
             .bodies
@@ -1382,7 +2128,7 @@ impl BodyHistory {
             active.history.verify_wallets(|attempt| {
                 let value = original
                     .request(attempt.terms(), attempt.observation()?, deadline)?
-                    .inspect(&account, &attempt.wallet_path())?;
+                    .inspect_in_parent(&account, attempt.directory())?;
                 if Some(attempt.digest()?) == last_digest
                     && !matches!(
                         value.phase(),
@@ -1458,7 +2204,7 @@ impl BodyHistory {
         reads: &impl EnrollmentReads,
     ) -> Result<Self> {
         #[cfg(test)]
-        let _timing = crate::custody_timing::Span::enter(crate::custody_timing::Category::Finish);
+        let _timing = finish_timing::phase(finish_timing::Phase::Finish);
         turn.check(&self.selection, deadline)?;
         self.verify_fresh_predecessor(owner, current)?;
         if !self.reference_present {
@@ -1470,20 +2216,19 @@ impl BodyHistory {
             let ordinal = pending.ordinal;
             turn.check(&self.selection, deadline)?;
             let body_root = self.root.ensure_child("bodies")?;
-            match body_root.open_child(body_name(ordinal)?) {
-                Ok(body) => {
+            match body_root.open_child_optional(body_name(ordinal)?)? {
+                Some(body) => {
                     if body.read("reserved.nrt", MAX_BODY_BYTES)?.as_slice() != bytes {
                         return Err(invalid("retained body reservation changed"));
                     }
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                None => {
                     turn.check(&self.selection, deadline)?;
                     private_parent(&body_root)?.publish_private_child(
                         body_name(ordinal)?,
                         &[("reserved.nrt", bytes.as_slice())],
                     )?;
                 }
-                Err(error) => return Err(error.into()),
             }
             self = self.reopen(owner)?;
             let previous_retirement = if ordinal == 1 {
@@ -1519,36 +2264,58 @@ impl BodyHistory {
                             .as_ref()
                             .ok_or_else(|| invalid("body Original absent"))?;
                         let account = owner.wallet()?;
+                        #[cfg(test)]
+                        let prepare_timing =
+                            finish_timing::phase(finish_timing::Phase::ClosurePrepare);
                         let pending = active.history.prepare_unsigned_closure(
                             &successor,
                             *authorization,
                             deadline,
                             |attempt| {
+                                #[cfg(test)]
+                                let _timing =
+                                    finish_timing::phase(finish_timing::Phase::ClosureWallet);
                                 original
                                     .request(attempt.terms(), attempt.observation()?, deadline)?
-                                    .inspect(&account, &attempt.wallet_path())
+                                    .inspect_in_parent(&account, attempt.directory())
                             },
                             |attempt| {
+                                #[cfg(test)]
+                                let _timing =
+                                    finish_timing::phase(finish_timing::Phase::WalletRetire);
                                 original
                                     .request(attempt.terms(), attempt.observation()?, deadline)?
                                     .retire(&account, &attempt.wallet_path())
                             },
                         )?;
+                        #[cfg(test)]
+                        drop(prepare_timing);
+                        #[cfg(test)]
+                        let close_timing =
+                            finish_timing::phase(finish_timing::Phase::ClosureFinish);
                         let closed = pending.finish(
                             &successor,
                             *authorization,
                             deadline,
                             |attempt| {
+                                #[cfg(test)]
+                                let _timing =
+                                    finish_timing::phase(finish_timing::Phase::ClosureWallet);
                                 original
                                     .request(attempt.terms(), attempt.observation()?, deadline)?
-                                    .inspect(&account, &attempt.wallet_path())
+                                    .inspect_in_parent(&account, attempt.directory())
                             },
                             |attempt| {
+                                #[cfg(test)]
+                                let _timing =
+                                    finish_timing::phase(finish_timing::Phase::WalletRetire);
                                 original
                                     .request(attempt.terms(), attempt.observation()?, deadline)?
                                     .retire(&account, &attempt.wallet_path())
                             },
                         )?;
+                        #[cfg(test)]
+                        drop(close_timing);
                         let digest = closed.digest();
                         // Keep the actual closed History and every predecessor File alive for
                         // retained reparsing; a digest cannot lend or authenticate custody.
@@ -1625,7 +2392,7 @@ impl BodyHistory {
         reads: &impl EnrollmentReads,
     ) -> Result<Self> {
         #[cfg(test)]
-        let _timing = crate::custody_timing::Span::enter(crate::custody_timing::Category::Sign);
+        let _timing = finish_timing::phase(finish_timing::Phase::SignRetained);
         if matches!(turn, SigningTurn::RenewalSelection(_)) {
             return Err(invalid("renewal selection does not grant attester signing"));
         }
@@ -1651,16 +2418,23 @@ impl BodyHistory {
             }
             return Ok(self);
         }
-        self.verify_fresh_predecessor(owner, current)?;
-        body.reservation.unsigned.validate(owner, self.purpose)?;
+        let plan = self.verify_fresh_predecessor(owner, current)?;
+        body.reservation
+            .unsigned
+            .validate(owner, self.purpose, || Ok(&plan))?;
+        drop(plan);
         let unsigned = &body.reservation.unsigned;
         let checkpoint = owner.authority.decode_checkpoint(&unsigned.checkpoint)?;
+        #[cfg(test)]
+        let timing = finish_timing::phase(finish_timing::Phase::HistoricalRead);
         let historical = reads.historical(
             owner,
             &control(&unsigned.selection)?.policy,
             &checkpoint,
             deadline,
         )?;
+        #[cfg(test)]
+        drop(timing);
         let tip = checkpoint
             .verified_tip()
             .map_err(|_| invalid("unsigned checkpoint invalid"))?;
@@ -1743,7 +2517,18 @@ impl ManagedStreamTokenCustody {
         &self,
         purpose: CustodyPurpose,
     ) -> Result<Selected<Original>> {
-        BodyHistory::open(self, purpose)?
+        self.required_enrollment_with_imports(
+            purpose,
+            &mut crate::managed::service_authority::CheckpointImports::new(&self.authority, None),
+        )
+    }
+
+    pub(super) fn required_enrollment_with_imports(
+        &self,
+        purpose: CustodyPurpose,
+        imports: &mut crate::managed::service_authority::CheckpointImports<'_, '_>,
+    ) -> Result<Selected<Original>> {
+        BodyHistory::open_with_imports(self, purpose, imports)?
             .ok_or(ManagedBootstrapFailure::RetainedMaterial)?
             .into_selected()
     }
@@ -1766,3 +2551,86 @@ mod initial_tests;
 #[cfg(test)]
 #[path = "body_history/deep_history_tests.rs"]
 mod deep_history_tests;
+
+#[cfg(test)]
+#[path = "body_history/profile_plan_tests.rs"]
+mod profile_plan_tests;
+
+#[cfg(test)]
+#[path = "body_history/parser_snapshot_tests.rs"]
+mod parser_snapshot_tests;
+
+#[cfg(test)]
+#[path = "body_history/snapshot_native_tests.rs"]
+mod snapshot_native_tests;
+
+#[cfg(test)]
+#[path = "body_history/read_scope_tests.rs"]
+mod read_scope_tests;
+
+#[cfg(test)]
+#[path = "body_history/tree_snapshot_tests.rs"]
+mod tree_snapshot_tests;
+
+#[cfg(test)]
+#[path = "body_history/handle_tree_tests.rs"]
+mod handle_tree_tests;
+
+#[cfg(test)]
+#[path = "body_history/optional_admission_tests.rs"]
+mod optional_admission_tests;
+
+#[cfg(test)]
+#[path = "body_history/shared_snapshot_tests.rs"]
+mod shared_snapshot_tests;
+
+#[cfg(test)]
+#[path = "body_history/epoch_scope_tests.rs"]
+mod epoch_scope_tests;
+
+#[cfg(test)]
+#[path = "body_history/closure_ownership_tests.rs"]
+mod closure_ownership_tests;
+
+#[cfg(test)]
+#[path = "body_history/parser_handle_tests.rs"]
+mod parser_handle_tests;
+
+#[cfg(test)]
+#[path = "body_history/epoch_parser_tests.rs"]
+mod epoch_parser_tests;
+
+#[cfg(test)]
+#[path = "body_history/borrowed_plan_tests.rs"]
+mod borrowed_plan_tests;
+
+#[cfg(test)]
+#[path = "body_history/finish_timing.rs"]
+pub(in crate::managed) mod finish_timing;
+
+#[cfg(test)]
+#[path = "body_history/pure_original_tests.rs"]
+mod pure_original_tests;
+
+#[cfg(test)]
+#[path = "body_history/target_digest_tests.rs"]
+mod target_digest_tests;
+
+#[cfg(test)]
+#[path = "body_history/operation_scope_tests.rs"]
+pub(in crate::managed) mod operation_scope_tests;
+
+#[cfg(test)]
+#[path = "body_history/graph_original_tests.rs"]
+pub(in crate::managed) mod graph_original_tests;
+#[cfg(test)]
+#[path = "body_history/graph_root_scope_tests.rs"]
+pub(in crate::managed) mod graph_root_scope_tests;
+
+#[cfg(test)]
+#[path = "body_history/scope_ancestry_tests.rs"]
+mod scope_ancestry_tests;
+
+#[cfg(test)]
+#[path = "body_history/snapshot_root_scope_tests.rs"]
+mod snapshot_root_scope_tests;

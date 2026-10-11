@@ -6,13 +6,13 @@
 //! another key; the following page can therefore be empty.
 use std::ops::{Bound, ControlFlow};
 
+use iroha_allocation::AllocationReservation;
 use iroha_crypto::Hash;
-use iroha_data_model::smart_contract::{
-    entrypoint::EntrypointValueKindV1,
-    state_cursor::{MAX_STATE_CURSOR_BYTES_V1, StateCursorV1},
-};
+use iroha_data_model::smart_contract::state_cursor::{MAX_STATE_CURSOR_BYTES_V1, StateCursorV1};
 use iroha_model_base::{name::Name, state_path::StatePath};
-use ivm_abi::codec::{decode_canonical_norito, encode_canonical_norito};
+#[cfg(test)]
+use ivm_abi::codec::decode_canonical_norito;
+use ivm_abi::codec::encode_canonical_norito;
 
 use crate::{
     IVM, VMError, gas, host, metadata::EmbeddedStateType, pointer_abi::PointerType, syscalls,
@@ -25,16 +25,16 @@ pub use iroha_data_model::smart_contract::state_cursor::STATE_CURSOR_SCHEMA_HASH
 
 /// Validated scan inputs, bound to the currently loaded contract interface.
 pub struct StateScanRequest {
-    /// Bare source map name; backing stores may prepend an instance namespace.
-    pub map: StatePath,
-    /// Last examined canonical map entry, exclusive, if resuming a page.
-    pub after: Option<StatePath>,
-    /// Maximum live keys to materialize.
-    pub limit: usize,
+    map: StatePath,
+    after: Option<StatePath>,
+    limit: usize,
     instance: String,
     schema_hash: [u8; 32],
-    key_type: EntrypointValueKindV1,
+    key_schema_hash: [u8; 32],
     input_gas: u64,
+    // The original input-decode allowance follows the owned map, continuation,
+    // and instance until they are destroyed. This owner is intentionally not Clone.
+    _reservation: Option<AllocationReservation>,
 }
 
 fn payload_at(vm: &IVM, register: usize, maximum: usize) -> Result<&[u8], VMError> {
@@ -63,24 +63,36 @@ pub fn prepare_minimum(vm: &IVM) -> Result<u64, VMError> {
     Ok(gas::STATE_QUERY_GAS_BASE.saturating_add((path + cursor + 256) as u64))
 }
 
-fn key_kind(ty: &EmbeddedStateType) -> Result<EntrypointValueKindV1, VMError> {
-    use EntrypointValueKindV1 as K;
-    Ok(match ty {
-        EmbeddedStateType::Int => K::Int,
-        EmbeddedStateType::Decimal => K::Decimal,
-        EmbeddedStateType::Quantity => K::Quantity,
-        EmbeddedStateType::Bool => K::Bool,
-        EmbeddedStateType::String => K::String,
-        EmbeddedStateType::Bytes => K::Blob,
-        EmbeddedStateType::Name => K::Name,
-        EmbeddedStateType::DataSpaceId => K::DataSpaceId,
-        EmbeddedStateType::AccountId => K::AccountId,
-        EmbeddedStateType::AssetDefinitionId => K::AssetDefinitionId,
-        EmbeddedStateType::AssetId => K::AssetId,
-        EmbeddedStateType::DomainId => K::DomainId,
-        EmbeddedStateType::NftId => K::NftId,
-        _ => return Err(VMError::NoritoInvalid),
-    })
+fn unavailable() -> VMError {
+    VMError::ExecutionDeferred(crate::ExecutionDeferral::AllocationUnavailable)
+}
+
+fn codec_error(error: norito::Error) -> VMError {
+    match error {
+        norito::Error::AllocationFailed { .. } => unavailable(),
+        _ => VMError::NoritoInvalid,
+    }
+}
+
+fn decode_request_value<T>(
+    reservation: &mut Option<AllocationReservation>,
+    limits: norito::core::DecodeLimits,
+    decode: impl FnOnce() -> Result<T, norito::Error>,
+) -> Result<T, VMError> {
+    let context = match reservation.as_mut() {
+        Some(reservation) => norito::core::DecodeBudgetContext::from_reservation(
+            limits,
+            reservation,
+        )
+        .map_err(|error| match error {
+            iroha_allocation::PrepaidSharedError::Reservation(_) => {
+                VMError::ExecutionDeferred(crate::ExecutionDeferral::LocalInvariantViolation)
+            }
+            iroha_allocation::PrepaidSharedError::Allocator { .. } => unavailable(),
+        })?,
+        None => norito::core::DecodeBudgetContext::new(limits),
+    };
+    context.with(decode).map_err(codec_error)
 }
 
 impl StateScanRequest {
@@ -94,7 +106,35 @@ impl StateScanRequest {
             return Err(VMError::NoritoInvalid);
         }
         let map_payload = payload_at(vm, 10, syscalls::STATE_MAX_PATH_FRAME_BYTES)?;
-        let map: StatePath = decode_canonical_norito(map_payload)?;
+        let cursor_payload = (vm.register(11) != 0)
+            .then(|| payload_at(vm, 11, MAX_STATE_CURSOR_BYTES_V1))
+            .transpose()?;
+        let map_limits = norito::canonical_decode_limits(map_payload.len());
+        // Use the cursor model's exact bounded decode policy. The reservation is
+        // conservative for the retained subset: no clone, reacquisition, or pool
+        // substitution is needed when the cursor's last key becomes `after`.
+        let cursor_limits = norito::core::DecodeLimits::new(
+            MAX_STATE_CURSOR_BYTES_V1,
+            MAX_STATE_CURSOR_BYTES_V1,
+            MAX_STATE_CURSOR_BYTES_V1,
+            MAX_STATE_CURSOR_BYTES_V1 * 8,
+            16,
+        );
+        let context_bytes = norito::core::DecodeBudgetContext::allocation_layout().size();
+        let input_bytes = map_limits.max_total_allocated_bytes()
+            + context_bytes
+            + instance.len()
+            + cursor_payload.map_or(0, |_| {
+                cursor_limits.max_total_allocated_bytes() + context_bytes
+            });
+        let mut reservation = vm
+            .allocation_budget()
+            .map(|pool| pool.try_reserve_bytes(input_bytes))
+            .transpose()
+            .map_err(VMError::AllocationDeferred)?;
+        let map: StatePath = decode_request_value(&mut reservation, map_limits, || {
+            norito::decode_canonical_with_limits(map_payload, map_limits)
+        })?;
         let name: Name = map.as_ref().parse().map_err(|_| VMError::NoritoInvalid)?;
         let interface = vm.contract_interface().ok_or(VMError::InvalidMetadata)?;
         let mut declarations = interface
@@ -108,7 +148,6 @@ impl StateScanRequest {
         let EmbeddedStateType::StateMap { key, .. } = &declaration.ty else {
             return Err(VMError::NoritoInvalid);
         };
-        let key_type = key_kind(key)?;
         // The schema is signed and admission-bounded. Charge its full encoding
         // before allocation/hashing, in addition to the public input envelopes.
         // Admission bounds every value schema to 64 KiB and 256 nodes. The
@@ -121,7 +160,23 @@ impl StateScanRequest {
             vm,
             minimum.saturating_add(SCHEMA_ENCODING_BOUND as u64),
         )?;
-        let schema = encode_canonical_norito(&declaration.ty)?;
+        // Projection, embedded-schema encoding and cursor validation scratch
+        // are bounded separately and die before the retained request is returned.
+        // Four complete schema envelopes cover simultaneous child/parent encoder
+        // backing and its bounded traversal; key nodes have a distinct exact bound.
+        let scratch_bytes = 4 * SCHEMA_ENCODING_BOUND
+            + ivm_abi::entrypoint::MAX_ENTRYPOINT_ARGUMENT_TYPE_NODES
+                * core::mem::size_of::<ivm_abi::entrypoint::EntrypointValueTypeNodeV1>();
+        let _scratch_reservation = vm
+            .allocation_budget()
+            .map(|pool| pool.try_reserve_bytes(scratch_bytes))
+            .transpose()
+            .map_err(VMError::AllocationDeferred)?;
+        let key_schema = ivm_abi::state_value::state_map_key_schema_v1(key).map_err(codec_error)?;
+        let key_schema_hash =
+            iroha_data_model::smart_contract::entrypoint::state_key_schema_hash_v1(&key_schema)
+                .ok_or(VMError::NoritoInvalid)?;
+        let schema = norito::encode_canonical(&declaration.ty).map_err(codec_error)?;
         if schema.len() > SCHEMA_ENCODING_BOUND {
             return Err(VMError::NoritoInvalid);
         }
@@ -131,37 +186,50 @@ impl StateScanRequest {
             .saturating_sub(256)
             .saturating_add(schema.len() as u64)
             .saturating_add(instance.len() as u64);
-        let mut material =
-            Vec::with_capacity(STATE_CURSOR_SCHEMA_HASH_DOMAIN_V1.len() + schema.len());
-        material.extend_from_slice(STATE_CURSOR_SCHEMA_HASH_DOMAIN_V1);
-        material.extend_from_slice(&schema);
-        let schema_hash = Hash::new(material).into();
-        let after = if vm.register(11) == 0 {
-            None
-        } else {
-            let cursor =
-                StateCursorV1::decode_frame(payload_at(vm, 11, MAX_STATE_CURSOR_BYTES_V1)?)
-                    .map_err(|_| VMError::NoritoInvalid)?;
+        let schema_hash =
+            Hash::new_from_chunks(&[STATE_CURSOR_SCHEMA_HASH_DOMAIN_V1, &schema]).into();
+        let after = if let Some(payload) = cursor_payload {
+            let cursor = decode_request_value(&mut reservation, cursor_limits, || {
+                StateCursorV1::decode_frame(payload)
+            })?;
             if !cursor.validate()
                 || cursor.instance != instance
                 || cursor.map != map
                 || cursor.schema_hash != schema_hash
-                || cursor.key_type != key_type
+                || cursor.key_schema_hash != key_schema_hash
             {
                 return Err(VMError::NoritoInvalid);
             }
             host::validate_declared_state_path(vm, &cursor.last_key)?;
             Some(cursor.last_key)
+        } else {
+            None
         };
+        let mut owned_instance = String::new();
+        owned_instance
+            .try_reserve_exact(instance.len())
+            .map_err(|_| unavailable())?;
+        owned_instance.push_str(instance);
         Ok(Self {
             map,
             after,
             limit: vm.register(12) as usize,
-            instance: instance.to_owned(),
+            instance: owned_instance,
             schema_hash,
-            key_type,
+            key_schema_hash,
             input_gas,
+            _reservation: reservation,
         })
+    }
+
+    /// Borrow the bare source map name while its original custody owner remains live.
+    pub fn map(&self) -> &StatePath {
+        &self.map
+    }
+
+    /// Borrow the exclusive continuation position without detaching its allocation custody.
+    pub fn after(&self) -> Option<&StatePath> {
+        self.after.as_ref()
     }
 
     /// Ordered lower bound for a backing store using unprefixed source paths.
@@ -176,7 +244,7 @@ impl StateScanRequest {
             instance: self.instance.clone(),
             map: self.map.clone(),
             schema_hash: self.schema_hash,
-            key_type: self.key_type,
+            key_schema_hash: self.key_schema_hash,
             last_key,
         }
     }
@@ -348,14 +416,14 @@ mod tests {
 
     fn vm(gas: u64) -> IVM {
         let code = kotodama_lang::compiler::Compiler::new().compile_source(
-            "seiyaku Scan { state StateMap<string, int> orders; state StateMap<string, int> other; view fn main() { () } }",
+            "seiyaku Scan { state StateMap<string, int> orders; state StateMap<string, int> other; view fn main() authorize(anyone) { () } }",
         ).expect("compile scan contract");
         let mut vm = IVM::new(gas);
         vm.load_program(&code).expect("load scan contract");
         vm
     }
 
-    fn key(index: usize) -> StatePath {
+    pub(super) fn key(index: usize) -> StatePath {
         let text = format!("{index:04}");
         let mut envelope = Vec::new();
         envelope.extend_from_slice(&(PointerType::Blob as u16).to_be_bytes());
@@ -363,10 +431,25 @@ mod tests {
         envelope.extend_from_slice(&(text.len() as u32).to_be_bytes());
         envelope.extend_from_slice(text.as_bytes());
         envelope.extend_from_slice(Hash::new(text.as_bytes()).as_ref());
-        host::canonical_state_map_path(&"orders".parse().unwrap(), &envelope).unwrap()
+        use ivm_abi::state_value::{
+            StateValueAtomV1, StateValueKindV1, StateValueNodeV1, StateValueRecordV1,
+            StateValueSchemaV1, state_value_schema_hash_v1,
+        };
+        let schema = StateValueSchemaV1 {
+            nodes: vec![StateValueNodeV1::Leaf(StateValueKindV1::String)],
+        };
+        let record = StateValueRecordV1 {
+            schema_hash: state_value_schema_hash_v1(&encode_canonical_norito(&schema).unwrap()),
+            atoms: vec![StateValueAtomV1::Pointer(envelope)],
+        };
+        host::canonical_state_map_path(
+            &"orders".parse().unwrap(),
+            &encode_canonical_norito(&record).unwrap(),
+        )
+        .unwrap()
     }
 
-    fn arguments(vm: &mut IVM, map: &str, cursor: Option<&[u8]>, limit: u64) {
+    pub(super) fn arguments(vm: &mut IVM, map: &str, cursor: Option<&[u8]>, limit: u64) {
         let map: StatePath = map.parse().unwrap();
         let path = publish_bytes(vm, &encode_canonical_norito(&map).unwrap()).unwrap();
         let cursor = cursor.map_or(0, |cursor| publish_bytes(vm, cursor).unwrap());
@@ -436,9 +519,9 @@ mod tests {
         let pointer = publish_bytes(&mut vm, &encode_canonical_norito(last).unwrap()).unwrap();
         vm.set_register(10, pointer);
         host.syscall(syscalls::SYSCALL_STATE_DEL, &mut vm).unwrap();
-        let before = key(0);
-        let after = key(99);
-        assert!(&before < last && &after > last);
+        // Canonical record bytes, including their checksums, define the ordering.
+        let before = (100..1000).map(key).find(|key| key < last).unwrap();
+        let after = (100..1000).map(key).find(|key| key > last).unwrap();
         host.insert_state_value(before.as_ref(), b"insert before cursor");
         host.insert_state_value(after.as_ref(), b"insert after cursor");
         arguments(&mut vm, "orders", Some(&cursor), 64);
@@ -454,7 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn cursor_rejects_wrong_instance_map_schema_and_key_kind() {
+    fn cursor_rejects_wrong_instance_map_schema_and_key_schema() {
         let mut vm = vm(u64::MAX);
         let mut host = CoreHost::new();
         host.set_state_instance("instance-a".into()).unwrap();
@@ -472,7 +555,7 @@ mod tests {
         for change_kind in [false, true] {
             let mut altered = StateCursorV1::decode_frame(&cursor).unwrap();
             if change_kind {
-                altered.key_type = EntrypointValueKindV1::Int;
+                altered.key_schema_hash = [99; 32];
             } else {
                 altered.schema_hash[0] ^= 1;
             }
@@ -541,3 +624,7 @@ mod tests {
         assert_eq!(vm.register(10), path);
     }
 }
+
+#[cfg(test)]
+#[path = "state_scan/request_custody_tests.rs"]
+mod request_custody_tests;

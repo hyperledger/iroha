@@ -2,7 +2,6 @@ use crate::Buf;
 
 use core::cmp;
 
-#[cfg(feature = "std")]
 use std::io::IoSlice;
 
 /// A `Buf` adapter which limits the bytes read from an underlying buffer.
@@ -156,7 +155,6 @@ impl<T: Buf> Buf for Take<T> {
         r
     }
 
-    #[cfg(feature = "std")]
     fn chunks_vectored<'a>(&'a self, dst: &mut [IoSlice<'a>]) -> usize {
         if self.limit == 0 {
             return 0;

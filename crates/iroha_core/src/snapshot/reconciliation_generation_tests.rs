@@ -211,7 +211,6 @@ async fn ordinary_signed_snapshot_rejects_kura_tail_loss_without_mutation() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::new(<_>::default(), true),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) {
         Ok(_) => panic!("ordinary signed snapshot must not repair a lost Kura suffix"),
         Err(error) => error,
@@ -284,7 +283,6 @@ async fn signed_native_snapshot_cannot_replace_missing_historical_bodies() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::new(<_>::default(), true),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     )
     .err()
     .expect("a locally signed cache cannot replace original certified history");
@@ -348,7 +346,6 @@ async fn emergency_fast_rejects_native_snapshot_before_world_or_journal_restore(
             #[cfg(feature = "telemetry")]
             StateTelemetry::new(<_>::default(), true),
             &snapshot_read_budget_for_testing(),
-            &crate::state::kagemusha_operation_indexes::default_budget(),
         )
         .err()
         .expect("Fast manifest cannot authorize committed World recovery")
@@ -646,7 +643,6 @@ async fn snapshot_read_succeeds_without_selector_bootstrap() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::new(<_>::default(), true),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     )
     .expect("snapshot read");
     assert_eq!(snapshot_state.chain_id, expected_chain_id);
@@ -727,9 +723,9 @@ async fn snapshot_restore_reads_the_committed_zk_policy_under_divergent_node_set
     divergent.max_proof_size_bytes = 1;
     divergent.max_nullifiers_per_tx = 1_000;
     divergent.bridge_proof_max_past_age_blocks = 7;
-    divergent.halo2.max_k = 3;
+    divergent.max_verify_batch = 3;
     divergent.gas.proof_base = 1;
-    divergent.halo2.verifier_worker_threads = 1;
+    divergent.trace.worker_threads = 1;
     divergent.verify_timeout = std::time::Duration::from_nanos(1);
     let mut restored = Vec::new();
     for node in [crate::state::default_zk_config(), divergent] {
@@ -741,8 +737,8 @@ async fn snapshot_restore_reads_the_committed_zk_policy_under_divergent_node_set
         // The node contributed its local resources and nothing else.
         assert!(node_validity_overrides(&snapshot_state.installed_zk()).is_empty());
         assert_eq!(
-            snapshot_state.installed_zk().halo2.verifier_worker_threads,
-            node.halo2.verifier_worker_threads
+            snapshot_state.installed_zk().trace.worker_threads,
+            node.trace.worker_threads
         );
         assert_eq!(
             snapshot_state.installed_zk().verify_timeout,
@@ -1348,7 +1344,6 @@ async fn cannot_find_snapshot_on_read_is_not_found() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::default(),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) else {
         panic!("should not be ok")
     };
@@ -1381,7 +1376,6 @@ async fn cannot_parse_snapshot_on_read_is_error() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::default(),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) else {
         panic!("should not be ok")
     };
@@ -1418,7 +1412,6 @@ async fn checksum_mismatch_rejected() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::default(),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) else {
         panic!("should not be ok")
     };
@@ -1454,7 +1447,6 @@ async fn network_id_mismatch_rejected() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::default(),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) else {
         panic!("should not be ok")
     };
@@ -1513,7 +1505,6 @@ async fn missing_checksum_rejected() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::default(),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) else {
         panic!("should not be ok")
     };
@@ -1552,7 +1543,6 @@ async fn missing_merkle_rejected() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::default(),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) else {
         panic!("should not be ok")
     };
@@ -1591,7 +1581,6 @@ async fn merkle_root_mismatch_rejected() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::default(),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) else {
         panic!("should not be ok")
     };
@@ -1630,7 +1619,6 @@ async fn merkle_leaf_count_mismatch_rejected() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::default(),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) else {
         panic!("should not be ok")
     };
@@ -1666,7 +1654,6 @@ async fn merkle_chunk_size_mismatch_rejected() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::default(),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) else {
         panic!("should not be ok")
     };

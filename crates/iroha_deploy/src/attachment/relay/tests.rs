@@ -3,10 +3,7 @@
 use std::{cell::RefCell, time::Duration};
 
 use iroha_crypto::{Algorithm, ExposedPrivateKey, KeyPair};
-use iroha_data_model::{
-    sumeragi_finality::{SumeragiFinalityAttestation, SumeragiFinalityProof},
-    transaction::FeePaymentIntent,
-};
+use iroha_data_model::{sumeragi_finality::SumeragiFinalityProof, transaction::FeePaymentIntent};
 use iroha_model_base::peer::PeerId;
 
 use super::*;
@@ -39,7 +36,7 @@ impl FinalitySource for Offline {
         &self,
         _: &PeerId,
         _: &[u8; 32],
-    ) -> std::result::Result<SumeragiFinalityAttestation, Self::Error> {
+    ) -> std::result::Result<crate::verify::finality::FinalityAttestation, Self::Error> {
         Err(std::io::Error::other("offline fixture"))
     }
 }

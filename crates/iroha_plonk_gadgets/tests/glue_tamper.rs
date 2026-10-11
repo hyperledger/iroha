@@ -42,6 +42,7 @@ fn all_operations<F: PoseidonField>(
     let checked = glue.assert_bool(region, &w[3])?;
     GlueChip::assert_equal(region, bit.word(), checked.word())?;
     let selected = glue.select(region, &bit, x, y)?;
+    let selected_constant = glue.select_constant(region, &bit, z, F::from(13u64))?;
     let zero_is_zero = glue.is_zero(region, zero)?;
     let x_is_zero = glue.is_zero(region, x)?;
     let x_equals_y = glue.is_equal(region, x, y)?;
@@ -59,6 +60,7 @@ fn all_operations<F: PoseidonField>(
         shifted,
         linear,
         selected,
+        selected_constant,
         zero_is_zero.word().clone(),
         x_is_zero.word().clone(),
         x_equals_y.word().clone(),
@@ -80,6 +82,7 @@ fn expected<F: PoseidonField>(x: F, y: F, z: F, b: bool) -> Vec<F> {
         x + F::from(11u64),
         F::from(3u64) * x - F::from(2u64) * y + F::from(5u64) * z + F::ONE,
         select_native(b, x, y),
+        select_native(b, z, F::from(13u64)),
         bit(is_zero_native(&F::ZERO)),
         bit(is_zero_native(&x)),
         bit(is_zero_native(&(x - y))),
@@ -92,7 +95,7 @@ fn expected<F: PoseidonField>(x: F, y: F, z: F, b: bool) -> Vec<F> {
 fn glue_circuit<F: PoseidonField>(x: F, y: F, z: F, b: bool) -> (GadgetCircuit<F>, Vec<F>) {
     let bit = if b { F::ONE } else { F::ZERO };
     let circuit = GadgetCircuit::new(
-        Shape::new(0, 4, 14),
+        Shape::new(0, 4, 15),
         all_operations::<F>,
         vec![x, y, z, bit, F::ZERO],
     );
@@ -173,6 +176,8 @@ fn row_costs<F: PoseidonField>(
     expect(glue, 1)?;
     let _ = glue.select(region, &bit, &w[0], &out)?;
     expect(glue, 1)?;
+    let _ = glue.select_constant(region, &bit, &w[0], F::ONE)?;
+    expect(glue, 1)?;
     let _ = glue.is_zero(region, &w[4])?;
     expect(glue, 1)?;
     let _ = glue.is_equal(region, &w[0], &w[1])?;
@@ -194,11 +199,11 @@ fn inventory_one_row_per_operation() {
         report(&circuit, K, &public)
     );
     let flags = assigned(&circuit, K, &public);
-    assert_eq!(extent(&flags[GLUE_COLUMNS[0]]), 8);
-    // The full operation set: 14 outputs in 21 rows of four cells.
+    assert_eq!(extent(&flags[GLUE_COLUMNS[0]]), 9);
+    // The full operation set: 15 outputs in 22 rows of four cells.
     let (all, public) = circuit_rows();
     let flags = assigned(&all, K, &public);
-    assert_eq!(extent(&flags[GLUE_COLUMNS[0]]), 21);
+    assert_eq!(extent(&flags[GLUE_COLUMNS[0]]), 22);
 }
 
 fn circuit_rows() -> (GadgetCircuit<Fp>, Vec<Fp>) {

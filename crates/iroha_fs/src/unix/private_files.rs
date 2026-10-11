@@ -82,6 +82,55 @@ impl Directory {
         RetainedFile::open_read_only(self.clone(), name.to_owned())
     }
 
+    pub(crate) fn open_retained_private_optional(
+        &self,
+        name: &OsStr,
+    ) -> io::Result<Option<RetainedFile>> {
+        let Some(file) = self.open_readonly_native(name, true)? else {
+            return Ok(None);
+        };
+        let before = validate_file(&file, true)?;
+        let retained = RetainedFile {
+            directory: self.clone(),
+            name: name.to_owned(),
+            file,
+            before,
+            links: LinkPolicy::Single,
+            private: true,
+            writable: false,
+            read_only: false,
+            publication: PublicationAuthority::None,
+        };
+        retained.revalidate()?;
+        Ok(Some(retained))
+    }
+
+    pub(crate) fn open_retained_read_only_optional(
+        &self,
+        name: &OsStr,
+    ) -> io::Result<Option<RetainedFile>> {
+        // Reuse native optional admission: only its first open may return None.
+        // The public boundary holds directory custody around every result.
+        let Some(file) = self.open_readonly_native(name, true)? else {
+            return Ok(None);
+        };
+        let before = validate_file(&file, true)?;
+        validate_read_only(&file)?;
+        let retained = RetainedFile {
+            directory: self.clone(),
+            name: name.to_owned(),
+            file,
+            before,
+            links: LinkPolicy::Single,
+            private: true,
+            writable: false,
+            read_only: true,
+            publication: PublicationAuthority::None,
+        };
+        retained.revalidate()?;
+        Ok(Some(retained))
+    }
+
     pub(crate) fn create_borrowed_private<'a>(
         &'a self,
         name: &'a OsStr,
@@ -120,6 +169,7 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
             name,
             file,
             before,
+            links: LinkPolicy::Single,
             private: true,
             writable: true,
             read_only: false,
@@ -194,6 +244,7 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
             name,
             file: self.file,
             before: after,
+            links: LinkPolicy::Single,
             private: self.private,
             writable: self.writable,
             read_only: self.read_only,

@@ -1,0 +1,8 @@
+{
+  "files": {
+    "README.md": "fab6c14f3f81aebd9beab3e805721b83ff52d2a272c6ddcb9521b3e84004ed6d",
+    "ideal_game.py": "36850de9e3d1658703b60cbc024128db96aaa3e1fe9b247cb2b0da92f91f98cc",
+    "test_ideal_game.py": "0b0d12d803f43df01feb183789a56992b9ea82f8e6472aa396251780843ec996"
+  },
+  "schema": "kagemusha.fold.ideal-game-controls.v1"
+}

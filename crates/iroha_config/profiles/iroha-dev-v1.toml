@@ -1,5 +1,10 @@
 # Compiled network profile `iroha-dev-v1`: permissioned developer defaults.
 #
+# KAGEMUSHA finalized-load publication is required in every role. The node file may
+# bind only its two private custody-file paths; otherwise data_dir completes them
+# under secrets/. Finite publication policy inherits the mandatory typed defaults.
+# Custody must be supplied by its owner; the profile never generates signer keys.
+#
 # A single-lane permissioned network with the default I105 discriminant (753), no SoraFS
 # provider, no Soracloud production posture and loopback-friendly ingress. It follows the
 # intent of the `iroha3-dev` Kagami bundle (`defaults/kagami/iroha3-dev`).

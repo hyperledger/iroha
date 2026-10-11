@@ -40,6 +40,7 @@ fn every_flip_is_rejected<C: PastaCurve>(
     proof: &[u8],
 ) where
     C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
 {
     assert_eq!(setup.verify(instances, proof), Ok(()));
     let mut tampered = proof.to_vec();
@@ -127,6 +128,7 @@ fn check_schedule<C, Ci>(circuit: &Ci, instances: &[Vec<C::ScalarExt>])
 where
     C: PastaCurve,
     C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
     Ci: crate::frontend::Circuit<C::ScalarExt>,
 {
     use crate::{
@@ -462,7 +464,7 @@ fn the_descriptor_digest_binds_the_transcript() {
         })
         .expect("the add gate is scaled");
     *scaled = Fq::from(8).to_repr();
-    let binding = DescriptorBinding::new(descriptor).expect("valid descriptor");
+    let binding = DescriptorBinding::new(descriptor.arithmetic_layout()).expect("valid descriptor");
     assert_ne!(binding.digest(), setup.pk.binding().digest());
     let vk = VerifyingKey::<Ep>::read(setup.pk.vk().to_bytes(), &binding).expect("same bytes");
     assert_ne!(vk.transcript_repr(), setup.pk.vk().transcript_repr());
@@ -545,6 +547,7 @@ fn a_folded_generator_solved_from_the_equation_is_accumulated_but_never_accepted
             production(vk),
             BUDGET,
             &AllTerms,
+            None,
         )
         .expect("the messages are well formed");
         let (terms, neg_c, _) = read.pending.into_batch_terms(&setup.params);

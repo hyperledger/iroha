@@ -68,8 +68,30 @@ def receipt(args):
             or document.get("source_tree_dirty") is not False or document.get("source_commit") != args.source_commit
             or document.get("artifact_scope") == "local-integration"):
         raise ValueError("publication requires production native provenance from its exact clean source")
+    abis = ("arm64-v8a", "armeabi-v7a", "x86_64")
+    if set(document.get("libraries", {})) != set(abis):
+        raise ValueError("publication requires exact three-ABI native provenance")
     client = root / "client-android/outputs/aar/client-android-release.aar"
     with zipfile.ZipFile(client) as archive:
+        names = archive.namelist()
+        expected = {f"jni/{abi}/libconnect_norito_bridge.so" for abi in abis}
+        if len(names) != len(set(names)) or {name for name in names if name.startswith("jni/") and name.endswith("/libconnect_norito_bridge.so")} != expected:
+            raise ValueError("published client requires exact three-ABI originals")
+        for abi in abis:
+            generated = root / f"client-android/generated/jniLibs/production/{abi}/libconnect_norito_bridge.so"
+            selected = document["libraries"][abi]
+            entry = f"jni/{abi}/libconnect_norito_bridge.so"
+            digest = OWNER.file_digest(generated)
+            if (selected["aar_path"] != entry or selected["sha256"] != digest
+                    or selected["bytes"] != generated.stat().st_size
+                    or archive.getinfo(entry).file_size != selected["bytes"]):
+                raise ValueError("published native member differs from generated provenance")
+            actual = hashlib.sha256()
+            with archive.open(entry) as member:
+                for chunk in iter(lambda: member.read(1024 * 1024), b""):
+                    actual.update(chunk)
+            if actual.hexdigest() != digest:
+                raise ValueError("published native payload differs from its generated original")
         entry = "assets/iroha/native-build-provenance-v1.json"
         if archive.getinfo(entry).file_size > 1024 * 1024 or hashlib.sha256(archive.read(entry)).hexdigest() != OWNER.file_digest(provenance):
             raise ValueError("published client provenance differs from its generated original")
@@ -86,7 +108,7 @@ def receipt(args):
             raise ValueError("publication SBOM must bind its exact module and version")
         paths.extend(((path, "sbom"), (path.with_suffix(path.suffix + ".sigstore"), "sbom-signature")))
     paths.append((provenance, "native-provenance"))
-    for abi in ("arm64-v8a", "x86_64"):
+    for abi in ("arm64-v8a", "armeabi-v7a", "x86_64"):
         paths.append((root / f"client-android/generated/jniLibs/production/{abi}/libconnect_norito_bridge.so", "native"))
     records = [{"path": str(path), "sha256": OWNER.file_digest(path), "kind": kind} for path, kind in paths]
     OWNER.canonical_directory(str(args.report.parent), "publication receipt parent")

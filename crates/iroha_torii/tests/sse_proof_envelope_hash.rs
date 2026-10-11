@@ -40,7 +40,7 @@ async fn sse_filters_by_proof_envelope_hash() {
     let resp = app.clone().oneshot(req).await.unwrap();
     assert_eq!(resp.status(), http::StatusCode::OK);
     // Send a non-matching event (different envelope_hash)
-    let ev_bad = ProofEventFixture::new("halo2/ipa", [0x12; 32])
+    let ev_bad = ProofEventFixture::new("pipa-r/pasta", [0x12; 32])
         .without_vk()
         .with_envelope_hash(Some([0xDD; 32]))
         .verified();
@@ -64,7 +64,7 @@ async fn sse_filters_by_proof_envelope_hash() {
         }
     }
     // Send a matching event with the exact envelope hash
-    let ev_ok = ProofEventFixture::new("halo2/ipa", [0x13; 32])
+    let ev_ok = ProofEventFixture::new("pipa-r/pasta", [0x13; 32])
         .without_vk()
         .with_envelope_hash(Some([0xCC; 32]))
         .verified();

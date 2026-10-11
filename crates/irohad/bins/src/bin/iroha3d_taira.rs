@@ -1,4 +1,4 @@
-//! Taira launcher with Soracloud signing at FD 198 and private mint-finality seed custody at FD 199.
+//! Taira launcher with Soracloud signing at FD 198 and optional beacon custody at FD 200.
 
 #[cfg(unix)]
 fn main() {

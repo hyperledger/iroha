@@ -91,7 +91,7 @@ pub enum RootScopeDecodeRefusal {
 /// Local State storage or protocol decoder refusal; never a verdict on consensus data.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum StateStorageAdmissionError {
-    /// Original finite-credit refusal from an admitted World index.
+    /// Original finite-credit refusal from an admitted World storage owner.
     #[error(transparent)]
     World(#[from] mv::storage::AdmittedStorageError),
     /// The original decoder scope or allocator refused while executing an AMX instruction.

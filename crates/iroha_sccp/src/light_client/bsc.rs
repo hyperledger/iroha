@@ -13,7 +13,14 @@
 //! least `⌈2n/3⌉` of them signed, and the fast-aggregate BLS signature (proof-of-possession DST)
 //! over `keccak256(rlp(VoteData))` verifies. The set must be fresh: a superseded set until
 //! `ws_bound_ms` after the checkpoint time of its successor, the newest set until `ws_bound_ms`
-//! after the newest finalized block the light client holds.
+//! after the newest finalized epoch checkpoint that (re-)announces it (`head.latest_finalized`).
+//! Finalized blocks without such a checkpoint never extend the newest set's freshness, so a set
+//! the chain no longer announces ages out like a superseded one.
+//!
+//! **Roster keys:** a roster's BLS vote keys are validated once, when its set is learned (the
+//! bootstrap set or a transition). Stored sets, and the announcements compared with them, are
+//! only checked structurally, so a verification costs its charged BLS checks and no unmetered
+//! key validation.
 //!
 //! **Advance (skipping):** at most `min(params.max_updates_per_advance, 16)` steps. A step is at
 //! most 256 parent-linked headers ending at a block the step's attestation finalizes. When its
@@ -21,8 +28,10 @@
 //! set (or turn length), the step is a set transition: the attestation must come from the newest
 //! set and its target must precede the new set's first covered height. Any other epoch
 //! checkpoint above the newest set's checkpoint in a step, proof or evidence record must announce
-//! the newest set, so every transition is learned by a step of its own. Cost is O(set changes):
-//! when the set is unchanged, one later finalized block advances `latest_finalized`.
+//! the newest set, so every transition is learned by a step of its own. Cost is O(set changes)
+//! plus the refreshes: when the set is unchanged, one step from a later epoch checkpoint (which
+//! re-announces it) to a finalized descendant advances `latest_finalized` to that checkpoint.
+//! Steps without an epoch checkpoint record checkpoints but leave the head.
 //!
 //! **Backfill:** at most 256 parent-linked headers ending at a stored checkpoint; the first header
 //! becomes a checkpoint (`origin: Backfill`).
@@ -566,8 +575,15 @@ struct AnnouncedSetV1 {
     turn_length: u8,
 }
 
-/// Check a roster: 1..=64 members, strictly ascending nonzero addresses, distinct valid BLS keys.
-fn check_roster(validators: &[BscValidatorV1]) -> Result<Vec<[u8; 48]>, BscLcError> {
+#[cfg(test)]
+std::thread_local! {
+    static BLS_KEY_VALIDATIONS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// Check a roster's structure and return its vote keys: 1..=64 members, strictly ascending
+/// nonzero addresses, distinct 48-byte keys. The keys themselves are validated once, when the set
+/// is learned ([`validate_roster_keys`]).
+fn roster_keys(validators: &[BscValidatorV1]) -> Result<Vec<[u8; 48]>, BscLcError> {
     if validators.is_empty() || validators.len() > BSC_MAX_VALIDATORS {
         return Err(BscLcError::InvalidRoster);
     }
@@ -584,16 +600,27 @@ fn check_roster(validators: &[BscValidatorV1]) -> Result<Vec<[u8; 48]>, BscLcErr
         {
             return Err(BscLcError::InvalidRoster);
         }
-        ethereum_bls_pop_validate_public_key(&key).map_err(|_| BscLcError::InvalidRoster)?;
         previous = Some(address);
         keys.push(key);
     }
     Ok(keys)
 }
 
+/// Validate every BLS vote key of a set being learned (point encoding and subgroup checks). A
+/// learned set is stored only after this succeeds, so stored sets are never re-validated.
+fn validate_roster_keys(validators: &[BscValidatorV1]) -> Result<(), BscLcError> {
+    for key in roster_keys(validators)? {
+        #[cfg(test)]
+        BLS_KEY_VALIDATIONS.with(|count| count.set(count.get().saturating_add(1)));
+        ethereum_bls_pop_validate_public_key(&key).map_err(|_| BscLcError::InvalidRoster)?;
+    }
+    Ok(())
+}
+
 /// The set an epoch checkpoint announces: after the 32-byte vanity, a count byte, `count`
 /// `(address ‖ BLS key)` entries and the turn length; then an optional attestation and the
-/// 65-byte seal.
+/// 65-byte seal. The roster is checked structurally; its keys are validated only if it is
+/// learned.
 fn announced_set(header: &HeaderV1) -> Result<AnnouncedSetV1, BscLcError> {
     let middle = extra_middle(&header.extra)?;
     let count = usize::from(*middle.first().ok_or(BscLcError::MalformedExtra)?);
@@ -615,7 +642,7 @@ fn announced_set(header: &HeaderV1) -> Result<AnnouncedSetV1, BscLcError> {
             vote_public_key: entry[20..].to_vec(),
         })
         .collect::<Vec<_>>();
-    check_roster(&validators)?;
+    roster_keys(&validators)?;
     Ok(AnnouncedSetV1 {
         validators,
         turn_length,
@@ -843,12 +870,13 @@ fn parse_attestation(bytes: &[u8]) -> Result<AttestationV1, BscLcError> {
     })
 }
 
-/// Check that at least `⌈2n/3⌉` members of `validators` signed `attestation`.
+/// Check that at least `⌈2n/3⌉` members of the stored set `validators` signed `attestation`.
+/// The stored keys were validated when the set was learned.
 fn verify_quorum(
     validators: &[BscValidatorV1],
     attestation: &AttestationV1,
 ) -> Result<(), SccpLcError> {
-    let keys = check_roster(validators)?;
+    let keys = roster_keys(validators)?;
     let members = keys.len();
     if members < 64 && attestation.vote_address_set >> members != 0 {
         return Err(BscLcError::InsufficientQuorum {
@@ -997,7 +1025,8 @@ struct Ctx<'a> {
     now: u64,
     /// Newest set id.
     newest: u64,
-    /// Time of the newest finalized block: the newest set was active then.
+    /// Time of the newest finalized epoch checkpoint announcing the newest set: it was the
+    /// announced set then.
     newest_seen_ms: u64,
 }
 
@@ -1202,6 +1231,7 @@ pub(super) fn verify_bootstrap(
         return Err(BscLcError::InvalidBootstrap.into());
     }
     let announced = announced_set(&checkpoint)?;
+    validate_roster_keys(&announced.validators)?;
     let prior = announced_set(&previous)?;
     let valid_from = checkpoint
         .number
@@ -1321,6 +1351,7 @@ pub(super) fn apply_advance<V: SccpLcStateView + ?Sized>(
                     return Err(invalid.into());
                 }
                 ctx.check_announcements(&sets, &headers[1..])?;
+                validate_roster_keys(&announced.validators)?;
                 let next = set_record(
                     BscValidatorSetV1 {
                         checkpoint_height: first.number,
@@ -1338,9 +1369,15 @@ pub(super) fn apply_advance<V: SccpLcStateView + ?Sized>(
         }
         recorder.record(first.checkpoint())?;
         recorder.record(last.checkpoint())?;
-        if last.number > latest_finalized.source_height {
-            latest_finalized = last.point();
-            ctx.newest_seen_ms = last.time_ms;
+        // Every epoch checkpoint at or above the newest set's own announces the newest set (the
+        // transition and `check_announcements` ensure it); the newest finalized one refreshes it.
+        if let Some(announcement) = headers.iter().rev().find(|header| {
+            profile.is_epoch_checkpoint(header.number) && header.number >= ctx.newest
+        }) && announcement.number > latest_finalized.source_height
+        {
+            recorder.record(announcement.checkpoint())?;
+            latest_finalized = announcement.point();
+            ctx.newest_seen_ms = announcement.time_ms;
         }
     }
     let moved = ctx.newest != light_client.head.latest_set_id
@@ -1566,8 +1603,8 @@ pub(super) fn verify_equivocation<V: SccpLcStateView + ?Sized>(
 // Freshness and work
 // ---------------------------------------------------------------------------------------------
 
-/// Taira time from which the newest set is stale: `ws_bound_ms` after the newest finalized
-/// block.
+/// Taira time from which the newest set is stale: `ws_bound_ms` after the newest finalized epoch
+/// checkpoint that (re-)announces it.
 pub(super) fn weak_subjectivity_deadline_ms(light_client: &SccpLightClientV1) -> u64 {
     light_client
         .head
@@ -1582,7 +1619,8 @@ pub(super) fn is_aged(light_client: &SccpLightClientV1, taira_now_ms: u64) -> bo
 }
 
 /// Supersession of an aged light client's newest set, recorded when a fresh bootstrap
-/// re-initializes it without a purge: the set was last seen active at the newest finalized block.
+/// re-initializes it without a purge: the set was last seen announced at the newest finalized
+/// epoch checkpoint.
 pub(super) fn aged_supersessions<V: SccpLcStateView + ?Sized>(
     view: &V,
     light_client: &SccpLightClientV1,
@@ -1671,7 +1709,7 @@ mod tests {
     const EMITTER: [u8; 20] = [0x42; 20];
 
     fn profiles(chain: &SyntheticParliaChainV1) -> SccpChainProfilesV1 {
-        SccpChainProfilesV1::compiled().with_bsc(*chain.profile())
+        SccpChainProfilesV1::genesis().with_bsc(*chain.profile())
     }
 
     fn params() -> SccpLightClientParamsV1 {
@@ -1759,14 +1797,20 @@ mod tests {
     }
 
     #[test]
-    fn unchanged_set_advances_move_the_head_and_are_idempotent() {
+    fn unchanged_set_advances_move_the_head_at_re_announcements_and_are_idempotent() {
         let chain = SyntheticParliaChainV1::new([2; 32], 21, 16);
         let (mut memory, _) = installed(&chain, 5);
-        let now = SyntheticParliaChainV1::time_ms(5_400) + 2_000;
-        let step = chain.step(5_397, 5_400, 5_000, None);
+        let now = SyntheticParliaChainV1::time_ms(6_010) + 2_000;
+        // A finalized block without an epoch checkpoint records checkpoints, not a head.
+        let plain = chain.step(5_397, 5_400, 5_000, None);
+        let delta = advance(&chain, &mut memory, vec![plain], now).expect("advances");
+        assert!(delta.head.is_none());
+        assert_eq!(delta.checkpoints.len(), 2);
+        // The next epoch checkpoint re-announces the set and becomes the head.
+        let step = chain.step(6_000, 6_003, 5_000, None);
         let delta = advance(&chain, &mut memory, vec![step.clone()], now).expect("advances");
         let head = delta.head.expect("moved");
-        assert_eq!(head.latest_finalized.source_height, 5_400);
+        assert_eq!(head.latest_finalized.source_height, 6_000);
         assert_eq!(head.latest_set_id, 5_000);
         assert!(delta.new_sets.is_empty());
         assert_eq!(delta.checkpoints.len(), 2);
@@ -1785,6 +1829,120 @@ mod tests {
             advance(&chain, &mut memory, Vec::new(), now),
             Err(SccpLcError::TooFewItems { .. })
         ));
+    }
+
+    #[test]
+    fn the_newest_set_stays_fresh_only_from_its_newest_re_announcement() {
+        let chain = SyntheticParliaChainV1::new([12; 32], 21, 16);
+        let (mut memory, _) = installed(&chain, 5);
+        let ws = params().ws_bound_ms;
+        let stale = SyntheticParliaChainV1::time_ms(5_000) + ws;
+        // Finalized blocks after the bootstrap checkpoint do not extend the set's freshness.
+        advance(
+            &chain,
+            &mut memory,
+            vec![chain.step(5_900, 5_901, 5_000, None)],
+            stale - 1,
+        )
+        .expect("fresh until the bound");
+        let light_client = memory.light_client(NETWORK).expect("installed");
+        assert_eq!(weak_subjectivity_deadline_ms(&light_client), stale);
+        assert!(matches!(
+            advance(
+                &chain,
+                &mut memory,
+                vec![chain.step(5_950, 5_951, 5_000, None)],
+                stale
+            ),
+            Err(SccpLcError::StaleSigningSet { set_id: 5_000, .. })
+        ));
+        // A re-announcement does.
+        let (mut memory, _) = installed(&chain, 5);
+        advance(
+            &chain,
+            &mut memory,
+            vec![chain.step(7_000, 7_002, 5_000, None)],
+            stale - 1,
+        )
+        .expect("re-announced");
+        let light_client = memory.light_client(NETWORK).expect("installed");
+        assert_eq!(
+            weak_subjectivity_deadline_ms(&light_client),
+            SyntheticParliaChainV1::time_ms(7_000) + ws
+        );
+        advance(
+            &chain,
+            &mut memory,
+            vec![chain.step(7_500, 7_501, 5_000, None)],
+            stale,
+        )
+        .expect("fresh from the re-announcement");
+    }
+
+    fn key_validations() -> usize {
+        BLS_KEY_VALIDATIONS.with(core::cell::Cell::get)
+    }
+
+    #[test]
+    fn roster_keys_are_validated_once_when_a_set_is_learned() {
+        let chain = SyntheticParliaChainV1::new([13; 32], 21, 16).with_transition(7, 1, 24, 8);
+        let before = key_validations();
+        let (mut memory, _) = installed(&chain, 5);
+        assert_eq!(key_validations() - before, 21, "the installed set only");
+        let now = SyntheticParliaChainV1::time_ms(7_010) + 2_000;
+        let before = key_validations();
+        advance(
+            &chain,
+            &mut memory,
+            vec![chain.step(6_000, 6_002, 5_000, None)],
+            now,
+        )
+        .expect("re-announcement");
+        assert_eq!(key_validations(), before, "stored and re-announced sets");
+        advance(
+            &chain,
+            &mut memory,
+            vec![chain.step(7_000, 7_002, 5_000, None)],
+            now,
+        )
+        .expect("transition");
+        assert_eq!(key_validations() - before, 24, "the learned set once");
+        let before = key_validations();
+        let again = advance(
+            &chain,
+            &mut memory,
+            vec![chain.step(7_000, 7_002, 5_000, Some(7_000))],
+            now,
+        )
+        .expect("idempotent");
+        assert!(again.is_empty());
+        assert_eq!(
+            key_validations(),
+            before,
+            "a stored transition is not re-validated"
+        );
+        let (receipt_chain, receipt_proof) = burn_chain(14, 5_390);
+        let (proof_memory, _) = installed(&receipt_chain, 5);
+        let before_proof = key_validations();
+        let step = receipt_chain.step(5_390, 5_400, 5_000, None);
+        let proof = BscSourceProofV1 {
+            anchor: BscProofAnchorV1::Finality(step.finality),
+            headers: step.headers,
+            transaction_index: 0,
+            receipt_proof,
+            event: transfer_selector(),
+        };
+        let bytes = SccpSourceProofV1::Bsc(proof).to_bytes().expect("bounded");
+        verify_proof_with_profiles(
+            &profiles(&receipt_chain),
+            &proof_memory,
+            NETWORK,
+            &bytes,
+            SyntheticParliaChainV1::time_ms(5_400) + 2_000,
+        )
+        .expect("proof verifies");
+        assert_eq!(key_validations(), before_proof, "proofs use stored keys");
+        assert_eq!(before_proof - before, 21, "the proof client's bootstrap");
     }
 
     #[test]
@@ -1910,7 +2068,7 @@ mod tests {
         assert!(!is_aged(&light_client, now));
         assert!(is_aged(&light_client, deadline));
         assert_eq!(
-            is_aged_with_profiles(&profiles(&chain), &memory, &light_client, NETWORK, deadline),
+            is_aged_with_profiles(&profiles(&chain), &memory, NETWORK, deadline),
             Ok(true)
         );
         let step = chain.step(5_400, 5_400, 5_000, None);

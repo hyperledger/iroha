@@ -1,0 +1,40 @@
+seiyaku NestedBreaks {
+    // 長い三項式の分岐は、さらに内側の演算子で折り返す。
+    fn choose(int first_value, int second_value, int third_value, bool flag) -> int {
+        let int chosen = flag
+            ? first_value
+                + second_value
+                + third_value
+                + first_value
+                + second_value
+                + third_value
+                + 1
+            : 0;
+        let int product = first_value
+                * second_value
+                * third_value
+                * first_value
+                * second_value
+                * third_value
+                * 7
+            + third_value;
+        if flag
+                && first_value * second_value
+                        + third_value * first_value
+                        + second_value * third_value
+                        + first_value
+                    > 10
+            || flag
+        {
+            return 1;
+        }
+        let int kept = flag
+            ? first_value.checked_add(second_value).unwrap_or(0) + third_value_lookup(first_value)
+            : 0;
+        return chosen + product + kept;
+    }
+
+    fn third_value_lookup(int value) -> int {
+        return value;
+    }
+}

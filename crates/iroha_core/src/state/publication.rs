@@ -8,6 +8,21 @@
 use super::*;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
+#[path = "publication/retained_musubi.rs"]
+mod retained_musubi;
+#[path = "publication/retained_musubi_group.rs"]
+mod retained_musubi_group;
+#[path = "publication/retained_rows.rs"]
+mod retained_rows;
+#[cfg(test)]
+pub(super) use retained_musubi::RetainedPackageReadError;
+#[cfg(test)]
+pub(super) use retained_musubi::retained_package_control_layout_for_test;
+#[cfg(test)]
+pub(super) use retained_musubi_group::RetainedMusubiGroupReadError;
+#[cfg(test)]
+pub(super) use retained_musubi_group::retained_musubi_group_control_layout_for_test;
+
 /// Local result of attempting publication of the exact retained State.
 #[derive(Debug)]
 pub(crate) enum StatePublicationOutcome {
@@ -40,7 +55,20 @@ pub(super) struct StatePublication<'state> {
             world_projection::world_state_accumulator::world_state_cut::CutCapsule,
         >,
     >,
+    // Actual completed tail survives only its final shell's local refusal.
+    // Original generation and predecessor checks still run before every retry.
+    world_cut_pending:
+        Option<world_projection::world_state_accumulator::world_state_cut::PendingCutCapsule>,
     world_cut_prepared: bool,
+    // Pure validation success belongs only to these immutable original fields.
+    // Generation and exact predecessor installation still run on every attempt.
+    musubi_live_validated: bool,
+    // Complete validation includes the later universal pass. Keep the partial
+    // live success beside this same original owner if universal admission refuses.
+    musubi_validated: bool,
+    // All read/index owners retire before the exact original scope in this plan.
+    package_read: Option<retained_musubi::RetainedPackageRead>,
+    musubi_group_read: Option<retained_musubi_group::RetainedMusubiGroupRead>,
     tiered_snapshot: Option<tiered_publication::PreparedTieredSnapshot>,
     da_effects: Option<carrier_da_effects::PreparedDaCommitmentEffects>,
     lifecycle_effects: Option<carrier_lifecycle_effects::PreparedLaneLifecycleEffects>,
@@ -70,7 +98,12 @@ impl<'state> StatePublication<'state> {
             publication_notice: state.state_view_publication(),
             world_effects: None,
             world_cut: None,
+            world_cut_pending: None,
             world_cut_prepared: false,
+            musubi_live_validated: false,
+            musubi_validated: false,
+            package_read: None,
+            musubi_group_read: None,
             tiered_snapshot: None,
             da_effects: None,
             lifecycle_effects: None,
@@ -122,6 +155,24 @@ impl<'state> StateBlock<'state> {
                 TransactionsBlockError::PublicationRecoveryRequired,
             );
         }
+        // Structural read capture grants no publication authority. The materializer
+        // must explicitly retire every read/index before the unchanged engine runs.
+        // Invoking publication earlier is a local ordering invariant, never a
+        // fabricated writer wait or consensus rejection. Keep the original owner.
+        if original
+            .package_read
+            .as_ref()
+            .is_some_and(|plan| !plan.retired)
+            || original
+                .musubi_group_read
+                .as_ref()
+                .is_some_and(|plan| !plan.retired)
+        {
+            self.publication = Some(original);
+            return StatePublicationOutcome::Deferred(TransactionsBlockError::ExecutionDeferred(
+                ivm::error::ExecutionDeferral::LocalInvariantViolation.into(),
+            ));
+        }
         // The original phase is restored even on unwind. No detached effect is lost
         // to a call-local destructor, and the actual panic remains a local failure.
         let (mut execution, mut membership, mut hashes) = original
@@ -160,6 +211,16 @@ impl<'state> StateBlock<'state> {
                             )
                     );
                 if retryable {
+                    #[cfg(all(test, sumeragi_core_mutation = "HC178"))]
+                    {
+                        // Restore loss of the successful live prefix on refusal.
+                        original.musubi_live_validated = false;
+                    }
+                    #[cfg(all(test, sumeragi_core_mutation = "HC177"))]
+                    {
+                        // Restore the discarded successful validation stage.
+                        original.musubi_validated = false;
+                    }
                     StatePublicationOutcome::Deferred(error)
                 } else {
                     original.poisoned = true;
@@ -193,7 +254,12 @@ impl<'state> StateBlock<'state> {
             publication_notice,
             world_effects,
             world_cut,
+            world_cut_pending,
             world_cut_prepared,
+            musubi_live_validated,
+            musubi_validated,
+            package_read: _,
+            musubi_group_read: _,
             tiered_snapshot,
             da_effects,
             lifecycle_effects,
@@ -218,6 +284,13 @@ impl<'state> StateBlock<'state> {
                 error!(
                     ?error,
                     "execution output publication authorization is invalid"
+                );
+                return Err(TransactionsBlockError::ExecutionOutputCapacity);
+            }
+            if let Err(error) = this.validate_direct_home_rows() {
+                error!(
+                    ?error,
+                    "direct asset homes differ from their live definition incarnations"
                 );
                 return Err(TransactionsBlockError::ExecutionOutputCapacity);
             }
@@ -452,31 +525,90 @@ impl<'state> StateBlock<'state> {
                     let generation = current_generation
                         .checked_add(2)
                         .ok_or(TransactionsBlockError::SnapshotObservationChanged)?;
-                    Some(capture.prepare(world, tip, generation, &state_ref.ivm_execution_budget())
-                        .map_err(|error| match error {
-                            world_projection::world_state_accumulator::world_state_cut::CutError::Deferred(reason) => TransactionsBlockError::ExecutionDeferred(reason),
-                            world_projection::world_state_accumulator::world_state_cut::CutError::Invalid(reason) => {
-                                error!(block_height, %reason, "original World cut does not reconstruct certified R");
-                                TransactionsBlockError::WorldCommitPreparation
+                    let prepared = match world_cut_pending.take() {
+                        Some(pending) => pending
+                            .try_share()
+                            .map_err(|(pending, error)| (Some(pending), error)),
+                        None => capture.prepare_retained(
+                            world,
+                            tip,
+                            generation,
+                            &state_ref.ivm_execution_budget(),
+                        ),
+                    };
+                    match prepared {
+                        Ok(capsule) => Some(capsule),
+                        Err((pending, error)) => {
+                            *world_cut_pending = pending;
+                            #[cfg(all(test, sumeragi_core_mutation = "HC179"))]
+                            {
+                                // Restore loss of the actually completed original tail.
+                                *world_cut_pending = None;
                             }
-                        })?)
+                            return Err(match error {
+                                world_projection::world_state_accumulator::world_state_cut::CutError::Deferred(reason) => TransactionsBlockError::ExecutionDeferred(reason),
+                                world_projection::world_state_accumulator::world_state_cut::CutError::Invalid(reason) => {
+                                    error!(block_height, %reason, "original World cut does not reconstruct certified R");
+                                    TransactionsBlockError::WorldCommitPreparation
+                                }
+                            });
+                        }
+                    }
                 }
                 None => None,
             };
             *world_cut_prepared = true;
         }
-        world_commit::PreparedWorldCommit::validate_prepared_overlay(
-            world,
-            &state_ref.ivm_execution_budget(),
-        )
-        .map_err(|error| match error {
-            crate::execution_attempt::ExecutionAttemptError::Rejected(_) => {
-                TransactionsBlockError::WorldCommitPreparation
-            }
-            crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
-                TransactionsBlockError::ExecutionDeferred(reason)
-            }
-        })?;
+        // This prefix is deliberately not cached: preserve its original priority
+        // before every Musubi check and later publication attempt.
+        world_commit::PreparedWorldCommit::validate_prepared_policy_transition(world).map_err(
+            |error| match error {
+                crate::execution_attempt::ExecutionAttemptError::Rejected(_) => {
+                    TransactionsBlockError::WorldCommitPreparation
+                }
+                crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                    TransactionsBlockError::ExecutionDeferred(reason)
+                }
+            },
+        )?;
+        if !*musubi_live_validated {
+            world_commit::PreparedWorldCommit::validate_prepared_musubi_live(
+                world,
+                &state_ref.ivm_execution_budget(),
+            )
+            .map_err(|error| match error {
+                crate::execution_attempt::ExecutionAttemptError::Rejected(_) => {
+                    TransactionsBlockError::WorldCommitPreparation
+                }
+                crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                    TransactionsBlockError::ExecutionDeferred(reason)
+                }
+            })?;
+            // This flag retains only complete live-pass success on the original
+            // frozen source. Its scratch is already retired by that validator.
+            *musubi_live_validated = true;
+        }
+        if !*musubi_validated {
+            world_commit::PreparedWorldCommit::validate_prepared_musubi_universal(
+                world,
+                &state_ref.ivm_execution_budget(),
+            )
+            .map_err(|error| match error {
+                crate::execution_attempt::ExecutionAttemptError::Rejected(_) => {
+                    TransactionsBlockError::WorldCommitPreparation
+                }
+                crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                    TransactionsBlockError::ExecutionDeferred(reason)
+                }
+            })?;
+            // Only complete success advances this stage. A partial validator
+            // refusal preserves its original cause and admits no success marker.
+            *musubi_validated = true;
+        }
+        // TODO: retain unfinished work inside each validator as well as complete
+        // passes; only successful same-cut phases survive this narrow retry seam.
+        // TODO: connect finite retained materialization and incremental dependency
+        // authority to StatePublication; this pure-stage reuse is not a State root.
         if tiered_snapshot.is_none() {
             *tiered_snapshot = Some(tiered_publication::PreparedTieredSnapshot::prepare(
                 world,
@@ -543,18 +675,17 @@ impl<'state> StateBlock<'state> {
             world
                 .install_frozen_publication(&state_ref.world)
                 .map_err(|_| TransactionsBlockError::SnapshotObservationChanged)?;
-            let scope = &world.operation_index_scope;
             canonical_runtime
-                .install_frozen_publication(&state_ref.canonical_runtime, scope)
+                .install_frozen_publication(&state_ref.canonical_runtime)
                 .map_err(|_| TransactionsBlockError::SnapshotObservationChanged)?;
             native_execution_tip
-                .install_frozen_publication(&state_ref.native_execution_tip, scope)
+                .install_frozen_publication(&state_ref.native_execution_tip)
                 .map_err(|_| TransactionsBlockError::SnapshotObservationChanged)?;
             prev_committed_topology
-                .install_frozen_publication(&state_ref.prev_commit_topology, scope)
+                .install_frozen_publication(&state_ref.prev_commit_topology)
                 .map_err(|_| TransactionsBlockError::SnapshotObservationChanged)?;
             committed_topology
-                .install_frozen_publication(&state_ref.commit_topology, scope)
+                .install_frozen_publication(&state_ref.commit_topology)
                 .map_err(|_| TransactionsBlockError::SnapshotObservationChanged)?;
             transactions.install_frozen_publication(&state_ref.transactions);
             transactions
@@ -989,3 +1120,35 @@ impl StateBlock<'_> {
 #[cfg(test)]
 #[path = "replay_retirement_probe.rs"]
 mod replay_retirement_probe;
+
+#[cfg(test)]
+impl StateBlock<'_> {
+    /// Inspect actual completed capsule custody, not a copied source authority.
+    pub(crate) fn completed_world_cut_identity_for_test(
+        &self,
+    ) -> Option<world_projection::world_state_accumulator::world_state_cut::CutIdentityForTest>
+    {
+        let original = self.publication.as_ref()?;
+        original
+            .world_cut_pending
+            .as_ref()
+            .map(|pending| pending.identity_for_test())
+            .or_else(|| {
+                original
+                    .world_cut
+                    .as_ref()
+                    .map(|capsule| capsule.identity_for_test())
+            })
+    }
+}
+
+#[cfg(test)]
+impl State {
+    /// Read actual fence availability after the original publication attempt returned.
+    pub(crate) fn publication_fences_available_for_test(&self) -> (bool, bool) {
+        (
+            self.state_write_lock.try_lock().is_some(),
+            self.state_commit_lock.try_lock().is_some(),
+        )
+    }
+}

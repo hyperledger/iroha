@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import shutil
 import struct
 import zlib
@@ -191,7 +192,7 @@ class ArchiveNoritoXcframeworkTests(unittest.TestCase):
         hashes: dict[str, str] = {}
         self.framework.mkdir()
         for identifier, (platform, architectures, variant) in SLICE_METADATA.items():
-            binary = f"native:{identifier}:abi25".encode()
+            binary = f"native:{identifier}:abi29".encode()
             slice_root = self.framework / identifier
             headers = slice_root / "Headers"
             headers.mkdir(parents=True)
@@ -222,6 +223,8 @@ class ArchiveNoritoXcframeworkTests(unittest.TestCase):
             plistlib.dump(info, handle, sort_keys=True)
         build_environment = {
             "schema": "iroha.mobile-native-build-environment.v1",
+                "wallet_runtime_authority": "cbsi-release-v1",
+                "wallet_runtime_trust_ed25519_hex": "3" * 64,
             "hermetic_runner_schema": "iroha.mobile-hermetic-command.v1",
             "hermetic_runner_sha256": digest(
                 (ROOT / "scripts/run_mobile_hermetic_command.py").read_bytes()
@@ -255,7 +258,7 @@ class ArchiveNoritoXcframeworkTests(unittest.TestCase):
         }
         manifest = {
             "version": "0.1.0",
-            "native_bridge_abi_version": 25,
+            "native_bridge_abi_version": 29,
             "privacy_production_enabled": True,
             "cargo_features": ["privacy-production-enabled"],
             "build_environment": build_environment,
@@ -968,7 +971,7 @@ else:
         self.assertGreaterEqual(builder.count("--archive-output requires a value"), 2)
         self.assertIn('output.suffix != ".zip"', builder)
         self.assertIn(
-            'header_abis != ["25"]',
+            'header_abis != ["29"]',
             builder,
         )
         self.assertIn(
@@ -989,7 +992,11 @@ else:
         required_inventory = builder.split('"required_symbols": [', 1)[1].split(
             '"forbidden_symbols": [', 1
         )[0]
-        self.assertNotIn('"connect_norito_kagemusha_', required_inventory)
+        wallet_exports = re.findall(r'"(connect_norito_kagemusha_[A-Za-z0-9_]+)"', required_inventory)
+        self.assertEqual(wallet_exports, [
+            "connect_norito_kagemusha_wallet_" + suffix + "_v1"
+            for suffix in ("revision", "open_begin", "open_finish", "open_cancel", "close", "activity", "setup", "execute", "load_original_validate", "request_status", "retry", "resume", "fold", "credit_status", "snapshot", "review", "execute_reviewed", "discard_review", "installation_begin", "installation_register", "installation_close", "enrollment")
+        ])
         self.assertNotIn(
             "CONNECT_NORITO_BRIDGE_ABI_VERSION:[[:space:]]*u32",
             builder,

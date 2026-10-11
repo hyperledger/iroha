@@ -12,6 +12,7 @@ Kotodama uses type-first declarations consistently:
 
 ```kotodama
 seiyaku Counter {
+    permission CanIncrement;
     const int initial = 1;
     const int step = 2;
 
@@ -21,11 +22,11 @@ seiyaku Counter {
         value = initial;
     }
 
-    kotoage fn increment() authorize("CanIncrement") {
+    kotoage fn increment() authorize(CanIncrement) {
         value = value + step;
     }
 
-    view fn current() -> int {
+    view fn current() authorize(anyone) -> int {
         return value;
     }
 }
@@ -47,8 +48,9 @@ retired surface and show the type-first replacement.
 Exact `Amount` is forbidden in every source identifier position. The other
 retired spellings are reserved only when declaring or referring to a type and
 remain ordinary value-namespace identifiers; lowercase `amount` therefore
-remains valid, so `fn amount(quantity amount) -> quantity` is valid and
-unambiguous.
+remains valid, so `fn total(quantity amount) -> quantity` is valid and
+unambiguous. (A parameter still cannot share its function's name: functions and
+locals live in one value namespace.)
 
 V1 exposes three numeric types:
 
@@ -292,7 +294,8 @@ decimal.mul_div_round(multiplier: decimal, divisor: decimal, scale: int, mode: r
 quantity.mul_div_round(multiplier: decimal, divisor: decimal, scale: int, mode: rounding-mode) -> quantity
 ```
 
-All four arguments are named. These operations retain the mathematical product
+Like every receiver method, the four arguments may be passed positionally in
+the order shown or with these labels. These operations retain the mathematical product
 before division and round exactly once at the requested scale. The product does
 not pass through the ordinary bounded multiplication result type; an overflowing
 intermediate is allowed when the final rounded result is representable. Constant
@@ -306,7 +309,8 @@ The existing observed fused primitive charges canonical envelopes, exact limb
 multiplication/division and final rounding under staged metering. These calls
 must not lower to separate bounded multiplication and division syscalls.
 
-All three methods require the three argument names shown above. `rounding-mode`
+Like every receiver method, these accept their arguments positionally in the
+order shown or with the declared labels. `rounding-mode`
 denotes one of the seven `Rounding::*` paths below, not a user-declarable type
 or an integer tag. `scale` is
 checked against `0..=28`; a constant outside that range is rejected with
@@ -365,10 +369,11 @@ The source conversion surface is explicit and complete:
 | `quantity::try_from_decimal(value)` | `Result<quantity, NumericError>` | preserves the exact canonical value; a negative input returns `NumericError::NegativeQuantity` |
 | `decimal::from_quantity(value)` | `decimal` | exact nominal-domain exit with identical mantissa and scale |
 
-The `int` error payload of a recoverable quantity conversion is the stable
-numeric fault tag; it is not a substituted value. Exact and truncating
-decimal-to-int forms and all infallible conversions trap on an impossible
-final-domain violation rather than saturating. Width-specific constructors,
+The `NumericError` error payload of a recoverable quantity conversion identifies
+the exact numeric fault. Its ABI status register carries the corresponding stable
+`NumericFaultV1` tag. Exact and truncating decimal-to-int forms and all infallible
+conversions trap on an impossible final-domain violation rather than saturating.
+Width-specific constructors,
 implicit assignment/argument/return/arithmetic/comparison conversions, and
 generic `numeric::*` arithmetic helpers are not part of V1.
 
@@ -388,7 +393,8 @@ math::wrapping_sub(int left, int right) -> int
 math::wrapping_mul(int left, int right) -> int
 ```
 
-The binary forms require the `left` and `right` argument names. These four
+Like every `math::` helper, the binary forms accept their operands positionally
+or labelled `left:` and `right:`. These four
 spellings are the complete V1 wrapping surface; flat `wrapping_*` aliases and
 generic `numeric::*` helpers are not source APIs.
 
@@ -398,7 +404,8 @@ gas, and ABI surface; host-language bigint behavior is never inherited
 implicitly.
 
 The checked helpers `math::isqrt(value)` and `math::abs(value)` accept one
-`int`. Binary helpers use named `left:` and `right:` arguments of type `int`.
+`int`. Binary helpers take two `int` operands, positionally or labelled `left:`
+and `right:` (`dividend:` and `divisor:` for `div_ceil`).
 All operands and final results obey the complete signed 512-bit domain.
 
 | Helper | Result and faults |
@@ -564,10 +571,12 @@ ABI V1 contains the unconditional numeric syscall blocks:
 ```
 
 Typed exact-number JSON getters occupy exactly `0x010160..0x010162`: `int`,
-`decimal`, and `quantity`. They accept only a canonical base-10 JSON string. A
-JSON number token, exponent spelling, leading plus or zero, negative quantity,
-removable fractional zero, or out-of-domain string returns `Option::none`; it
-is never rounded or converted through a host floating-point type. Numbers
+`decimal`, and `quantity`. They accept only a canonical base-10 JSON string and
+return `Option::none` only when the key is absent. A present JSON number token,
+exponent spelling, leading plus or zero, negative quantity, removable
+fractional zero, or out-of-domain string traps with `DecodeError`, so malformed
+input never reads as a missing field; it is never rounded or converted through
+a host floating-point type. Numbers
 `0x010163..0x010165` are unassigned and return `UnknownSyscall` before syscall
 gas charging, allocation, or state mutation. Generic `JSON_SET_I64` remains a
 number-token constructor outside the exact-number surface.
@@ -613,9 +622,17 @@ Stable numeric pointer-validation fault tags are:
 
 Both fault tables, including names and tags, are inputs to the ABI V1 hash.
 
-Fallible arithmetic accepts failure mode `0` (trap) or `1` (return the fault in
-the status register). Conversions documented as recoverable always return a
-status. Invalid pointer envelopes, versions, lengths, hashes, schemas, flags,
+Fallible arithmetic and checked conversions accept failure mode `0` (trap) or
+`1` (return the fault in the status register). `INT_TO_I64`, `INT_TO_U64`,
+`DECIMAL_TO_INT_EXACT`, `QUANTITY_FROM_INT`, and `QUANTITY_FROM_DECIMAL` read
+the authenticated source pointer from `r10`, require zero `r11..r13`, and read
+the failure mode from `r14`. Trap mode preserves the exact `NumericFaultV1`;
+it does not lower a failed conversion to a generic abort. Status mode returns
+zero in `r10` and the fault tag in `r11`. Success returns the converted value
+in `r10` and zero in `r11`. The compiler selects status mode only for source
+operations that return `Result`, such as `quantity::try_from_int`; source
+operations with a checked value result use trap mode. Invalid pointer
+envelopes, versions, lengths, hashes, schemas, flags,
 canonical encodings, scale pointers, rounding tags, failure modes, and required
 zero registers have deterministic distinct validation behavior.
 

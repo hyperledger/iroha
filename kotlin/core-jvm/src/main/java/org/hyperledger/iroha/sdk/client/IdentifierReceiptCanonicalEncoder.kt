@@ -1,5 +1,6 @@
 package org.hyperledger.iroha.sdk.client
 
+import org.hyperledger.iroha.sdk.core.model.NetworkId
 import java.util.Base64
 import org.hyperledger.iroha.sdk.address.requireCanonicalI105Address
 import org.hyperledger.iroha.sdk.core.model.instructions.TransferWirePayloadEncoder
@@ -21,6 +22,7 @@ object IdentifierReceiptCanonicalEncoder {
     @JvmStatic
     fun encodePayload(payload: IdentifierResolutionPayload): ByteArray {
         val writer = NoritoEncoder(NoritoCodec.DEFAULT_FLAGS)
+        encodeSizedField(writer, PassthroughBytesAdapter, payload.networkId.bytes())
         encodeSizedField(writer, PassthroughBytesAdapter, encodePolicyId(payload.policyId))
         encodeSizedField(writer, PassthroughBytesAdapter, encodeExecution(payload.execution))
         encodeSizedField(writer, PassthroughBytesAdapter, encodeOutputOpening(payload.opening))
@@ -51,6 +53,7 @@ object IdentifierReceiptCanonicalEncoder {
         chainDiscriminant: Int,
     ): IdentifierResolutionPayload {
         val decoder = NoritoDecoder(encoded, NoritoCodec.DEFAULT_FLAGS)
+        val networkId = NetworkId.fromBytes(decodeSizedField(decoder, PassthroughBytesAdapter, "payload.network_id"))
         val policyId = decodePolicyId(decodeSizedField(decoder, PassthroughBytesAdapter, "payload.policy_id"))
         val execution = decodeExecution(decodeSizedField(decoder, PassthroughBytesAdapter, "payload.execution"))
         val opening = decodeOutputOpening(decodeSizedField(decoder, PassthroughBytesAdapter, "payload.opening"))
@@ -74,7 +77,7 @@ object IdentifierReceiptCanonicalEncoder {
             decoder.flags,
         )
         require(decoder.remaining() == 0) { "Trailing bytes after identifier receipt payload" }
-        return IdentifierResolutionPayload(policyId, execution, opening, opaqueId, receiptHash, uaid, accountId)
+        return IdentifierResolutionPayload(networkId, policyId, execution, opening, opaqueId, receiptHash, uaid, accountId)
     }
 
     @JvmStatic
@@ -137,6 +140,45 @@ object IdentifierReceiptCanonicalEncoder {
         return attestation
     }
 
+    /** Exact Model field grammar; these structural bytes grant no phone signature authority. */
+    @JvmStatic
+    internal fun encodePhoneCarrier(carrier: PhoneRetailCanonicalityAttestationV1): ByteArray {
+        val out = NoritoEncoder(NoritoCodec.DEFAULT_FLAGS)
+        val p = carrier.payload
+        val payload = NoritoEncoder(NoritoCodec.DEFAULT_FLAGS)
+        encodeSizedField(payload, PassthroughBytesAdapter, p.networkId.bytes())
+        encodeSizedField(payload, PassthroughBytesAdapter, encodePolicyId(p.policyId))
+        encodeSizedField(payload, PassthroughBytesAdapter, encodeProgramId(p.programId, "phone.program_id"))
+        for (hash in listOf(p.inputCiphertextHash, p.outputCiphertextHash, p.openedOutputHash, p.canonicalPhoneNullifier)) encodeSizedField(payload, PassthroughBytesAdapter, decodeHash(hash, "phone.hash"))
+        encodeSizedField(payload, PassthroughBytesAdapter, encodeOpaqueHash(p.uaid, "uaid:", "phone.uaid"))
+        encodeSizedField(payload, PassthroughBytesAdapter, TransferWirePayloadEncoder.encodeAccountIdPayload(p.accountId))
+        encodeSizedField(payload, U64_ADAPTER, p.issuedAtMs)
+        encodeSizedField(payload, U64_ADAPTER, p.expiresAtMs)
+        encodeSizedField(out, PassthroughBytesAdapter, payload.toByteArray())
+        encodeSizedField(out, SIGNATURE_ADAPTER, decodeHex(carrier.signature, "phone.signature"))
+        return out.toByteArray()
+    }
+
+    @JvmStatic
+    internal fun decodePhoneCarrier(bytes: ByteArray, chainDiscriminant: Int): PhoneRetailCanonicalityAttestationV1 {
+        val d = NoritoDecoder(bytes, NoritoCodec.DEFAULT_FLAGS)
+        val payloadBytes = decodeSizedField(d, PassthroughBytesAdapter, "phone.payload")
+        val signature = hexLower(decodeSizedField(d, SIGNATURE_ADAPTER, "phone.signature"))
+        require(d.remaining() == 0) { "Trailing bytes after phone carrier" }
+        val p = NoritoDecoder(payloadBytes, NoritoCodec.DEFAULT_FLAGS)
+        val network = NetworkId.fromBytes(decodeSizedField(p, PassthroughBytesAdapter, "phone.network_id"))
+        val policy = decodePolicyId(decodeSizedField(p, PassthroughBytesAdapter, "phone.policy_id"))
+        val program = decodeProgramId(decodeSizedField(p, PassthroughBytesAdapter, "phone.program_id"))
+        fun hash() = hashHex(decodeSizedField(p, PassthroughBytesAdapter, "phone.hash"))
+        val input = hash(); val output = hash(); val opened = hash(); val nullifier = hash()
+        val uaid = decodeOpaqueHash(decodeSizedField(p, PassthroughBytesAdapter, "phone.uaid"), "uaid:", "phone.uaid")
+        val account = TransferWirePayloadEncoder.decodeAccountIdPayload(decodeSizedField(p, PassthroughBytesAdapter, "phone.account_id"), chainDiscriminant, p.flags)
+        val issued = decodeSizedField(p, U64_ADAPTER, "phone.issued_at_ms")
+        val expires = decodeSizedField(p, U64_ADAPTER, "phone.expires_at_ms")
+        require(p.remaining() == 0) { "Trailing bytes after phone payload" }
+        return PhoneRetailCanonicalityAttestationV1(PhoneRetailCanonicalityPayloadV1(network, policy, program, input, output, opened, nullifier, uaid, account, issued, expires), signature)
+    }
+
     private fun encodePolicyId(raw: String): ByteArray {
         val value = requireExactNonBlankString(raw, "payload.policy_id")
         val parts = value.split("#", limit = 2)
@@ -159,7 +201,7 @@ object IdentifierReceiptCanonicalEncoder {
         return "$kind#$rule"
     }
 
-    private fun encodeExecution(execution: IdentifierResolutionExecutionPayload): ByteArray {
+    internal fun encodeExecution(execution: IdentifierResolutionExecutionPayload): ByteArray {
         val writer = NoritoEncoder(NoritoCodec.DEFAULT_FLAGS)
         encodeSizedField(
             writer,
@@ -322,9 +364,9 @@ object IdentifierReceiptCanonicalEncoder {
     }
 
     private fun encodePrefixedHash(raw: String, prefix: String, field: String): ByteArray {
-        val normalized = requireExactNonBlankString(raw, field).lowercase()
-        val body = if (normalized.startsWith(prefix)) normalized.substring(prefix.length) else normalized
-        return decodeHash(body, field)
+        val exact = requireExactNonBlankString(raw, field)
+        require(exact.startsWith(prefix)) { "$field requires its exact $prefix prefix" }
+        return decodeHash(exact.removePrefix(prefix), field)
     }
 
     private fun encodeOpaqueHash(raw: String, prefix: String, field: String): ByteArray {
@@ -345,24 +387,12 @@ object IdentifierReceiptCanonicalEncoder {
         return prefix + hashHex(hash)
     }
 
-    private fun decodeHash(raw: String, field: String): ByteArray {
-        var body = requireExactNonBlankString(raw, field)
-        if (body.lowercase().startsWith("hash:")) {
-            body = body.substring("hash:".length)
-        }
-        val suffixIndex = body.indexOf('#')
-        if (suffixIndex >= 0) {
-            body = body.substring(0, suffixIndex)
-        }
-        val bytes = decodeHex(body, field)
-        require(bytes.size == 32) { "$field must contain 32 bytes" }
-        return bytes
-    }
+    private fun decodeHash(raw: String, field: String): ByteArray =
+        decodeHex(IdentifierOwnerInputV1.rawHash32(raw, field), field)
 
     private fun decodeHex(raw: String, field: String): ByteArray {
         var trimmed = requireNonBlank(raw, field)
         require(trimmed == raw) { "$field must not contain surrounding whitespace" }
-        if (trimmed.startsWith("0x") || trimmed.startsWith("0X")) trimmed = trimmed.substring(2)
         require(trimmed.length % 2 == 0) { "$field must contain an even number of hex characters" }
         val out = ByteArray(trimmed.length / 2)
         for (i in trimmed.indices step 2) {

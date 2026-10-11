@@ -85,8 +85,8 @@ class ToriiCollectionTest {
         assertEquals("active", client.subscriptions.page().join().items.single().status)
         executor.reply(200, """{"items":[{"block_height":9,"block_index":2,"entrypoint_hash":"tx"}],"next_cursor":null}""")
         assertEquals(2L, client.contractActivity.page().join().items.single().blockIndex)
-        executor.reply(200, """{"items":[{"block_height":9,"block_index":2,"event_id":"tx:0","tx_hash_hex":"tx"}],"next_cursor":null}""")
-        assertEquals("tx:0", client.contractEvents.page().join().items.single().eventId)
+        executor.reply(200, """{"items":[{"schema_version":1,"block_height":9,"block_hash_hex":"block","event_id":"block:2:0","execution_hash_hex":"execution","output_index":2,"emission_index":0,"provenance":"emitted","result_ok":true,"authority":"alice","contract_address":"contract","event_kind":"Changed","payload":{},"emission":{"contract":"contract","code_hash":"code","entrypoint":0,"event":0,"caller":"alice","definition":{"name":"Changed","payload_type":{"nodes":[{"kind":"Struct","value":{"name":"Demo::Changed","fields":[]}}]}},"payload":{"schema_hash":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"atoms":[]}}}],"next_cursor":null}""")
+        assertEquals("block:2:0", client.contractEvents.page().join().items.single().eventId)
         executor.reply(200, """{"items":[{"id":"movement","block_height":9,"block_index":2,"movement_index":3,"amount":"1.25"}],"next_cursor":null}""")
         assertEquals(3L, client.accountHistory("alice@wonderland").page().join().items.single().movementIndex)
         assertTrue(executor.requests.all { it.method == "POST" })
@@ -107,6 +107,42 @@ class ToriiCollectionTest {
         for (body in listOf("""{"items":[],"has_more":false}""", """{"items":[]}""", """{"items":[],"next_cursor":""}""")) {
             executor.reply(200, body)
             assertFailsWith<CompletionException> { client.subscriptions.page().join() }
+        }
+    }
+
+    @Test
+    fun directAssetDefinitionHomesPreserveExactUnsignedIdentityAndPartialRows() {
+        for (home in listOf("1", "9007199254740993", "8648377547929788715", "18446744073709551615")) {
+            val row = AssetDefinitionRow(Json.parse("""{"id":"asset","owning_domain":null,"owning_dataspace":"$home"}""") as JsonObject)
+            assertEquals(home, row.owningDataspace)
+            assertNull(row.owningDomain)
+        }
+        for (body in listOf(
+            """{"id":"asset"}""",
+            """{"id":"asset","owning_domain":null,"owning_dataspace":null}""",
+            """{"id":"asset","owning_domain":"treasury.bpng","owning_dataspace":null}""",
+        )) {
+            assertNull(AssetDefinitionRow(Json.parse(body) as JsonObject).owningDataspace)
+        }
+        val selected = AssetDefinitionRow(Json.parse("""{"id":"asset","owning_dataspace":"7"}""") as JsonObject)
+        assertEquals("7", selected.owningDataspace)
+        assertNull(selected.owningDomain, "selected rows retain optional field semantics")
+    }
+
+    @Test
+    fun directAssetDefinitionHomesRejectNoncanonicalAndConflictingValues() {
+        for (home in listOf("0", "00", "01", "18446744073709551616", "184467440737095516150", "", "+1", "-1", "1.0", "1e0", " 1", "1 ", "１")) {
+            assertFailsWith<IllegalArgumentException>(home) {
+                AssetDefinitionRow(Json.parse("""{"id":"asset","owning_dataspace":"$home"}""") as JsonObject)
+            }
+        }
+        for (home in listOf("0", "7", "9007199254740992", "true", "{}", "[]")) {
+            assertFailsWith<IllegalArgumentException>(home) {
+                AssetDefinitionRow(Json.parse("""{"id":"asset","owning_dataspace":$home}""") as JsonObject)
+            }
+        }
+        assertFailsWith<IllegalArgumentException> {
+            AssetDefinitionRow(Json.parse("""{"id":"asset","owning_domain":"treasury.bpng","owning_dataspace":"7"}""") as JsonObject)
         }
     }
 
@@ -154,6 +190,8 @@ class ToriiCollectionTest {
         assertEquals("xor#universal", xor.alias)
         assertEquals("Infinitely", xor.mintable)
         assertNull(xor.description)
+        assertEquals("universal", xor.owningDomain)
+        assertNull(xor.owningDataspace)
         assertEquals(Json.parse("""{"scale":9}"""), xor.spec)
         assertEquals("active", xor.aliasBinding!!.status)
         assertEquals(1_700_000_000_000L, xor.aliasBinding!!.leaseExpiryMs)

@@ -10,7 +10,7 @@ use super::{
         ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid, now_ms,
         require_deadline, require_empty,
     },
-    service_authority::{NetworkPurpose, ProviderPurpose, ServiceAuthority},
+    service_authority::{CheckpointImportScope, NetworkPurpose, ProviderPurpose, ServiceAuthority},
 };
 use crate::localnet::service_authorities::StreamTokenAuthorityRole;
 use iroha_data_model::{
@@ -63,6 +63,17 @@ impl ManagedInitialGatewaySetup {
     pub fn open(prepared: &PreparedLocalnet, provider: ProviderId) -> Result<Self> {
         Ok(Self {
             inner: Setup::open_provider(prepared, provider, Kind::Gateway)?,
+        })
+    }
+
+    /// Admit the fixed setup purpose from immutable original intent with its own native lock.
+    /// Active decode admission and owned parents retain the full standalone producer.
+    pub(super) fn open_from_original(
+        parent: &ServiceAuthority,
+        provider: ProviderId,
+    ) -> Result<Self> {
+        Ok(Self {
+            inner: Setup::open_provider_from_original(parent, provider, Kind::Gateway)?,
         })
     }
     /// Retain a complete revision-one policy and bounded authorization, then advance it.
@@ -120,11 +131,24 @@ impl ManagedInitialGatewaySetup {
         let intent = Intent::gateway(&self.inner.authority, policy)?;
         self.inner.advance_selected(intent, authorization, deadline)
     }
+    // The real standalone producer remains the test baseline for physical admission parity.
+    #[cfg(test)]
     pub(super) fn open_existing(
         prepared: &PreparedLocalnet,
         provider: ProviderId,
     ) -> Result<Option<Self>> {
         Setup::open_provider_existing(prepared, provider, Kind::Gateway)
+            .map(|inner| inner.map(|inner| Self { inner }))
+    }
+
+    /// Retain the fixed setup purpose from the immutable original read-only parent profile.
+    /// Optional lexical import work supplies no source, transaction or current-state verdict.
+    pub(super) fn open_existing_from_original(
+        parent: &ServiceAuthority,
+        provider: ProviderId,
+        scope: Option<&CheckpointImportScope>,
+    ) -> Result<Option<Self>> {
+        Setup::open_provider_existing_from_original(parent, provider, Kind::Gateway, scope)
             .map(|inner| inner.map(|inner| Self { inner }))
     }
 }
@@ -140,6 +164,14 @@ impl ManagedInitialReputationPolicy {
     pub fn open(prepared: &PreparedLocalnet) -> Result<Self> {
         Ok(Self {
             inner: Setup::open_reputation(prepared)?,
+        })
+    }
+
+    /// Admit the fixed network recorder purpose from immutable original intent.
+    /// This grants no signing authority and retains the child's independent native lock.
+    pub(super) fn open_from_original(parent: &ServiceAuthority) -> Result<Self> {
+        Ok(Self {
+            inner: Setup::open_reputation_from_original(parent)?,
         })
     }
     /// Retain a full revision-one recorder policy and its complete original gateway list.
@@ -202,8 +234,20 @@ impl ManagedInitialReputationPolicy {
         let intent = Intent::reputation(&self.inner.authority, compliance_gateway_ids, policy)?;
         self.inner.advance_selected(intent, authorization, deadline)
     }
+    // The real standalone producer remains the test baseline for physical admission parity.
+    #[cfg(test)]
     pub(super) fn open_existing(prepared: &PreparedLocalnet) -> Result<Option<Self>> {
         Setup::open_reputation_existing(prepared).map(|inner| inner.map(|inner| Self { inner }))
+    }
+
+    /// Retain the fixed setup purpose from the immutable original read-only parent profile.
+    /// Optional lexical import work supplies no source, transaction or current-state verdict.
+    pub(super) fn open_existing_from_original(
+        parent: &ServiceAuthority,
+        scope: Option<&CheckpointImportScope>,
+    ) -> Result<Option<Self>> {
+        Setup::open_reputation_existing_from_original(parent, scope)
+            .map(|inner| inner.map(|inner| Self { inner }))
     }
 }
 
@@ -219,6 +263,17 @@ impl ManagedInitialProviderIngestAuthority {
     pub fn open(prepared: &PreparedLocalnet, provider: ProviderId) -> Result<Self> {
         Ok(Self {
             inner: Setup::open_provider(prepared, provider, Kind::ProviderIngest)?,
+        })
+    }
+
+    /// Admit the fixed setup purpose from immutable original intent with its own native lock.
+    /// Active decode admission and owned parents retain the full standalone producer.
+    pub(super) fn open_from_original(
+        parent: &ServiceAuthority,
+        provider: ProviderId,
+    ) -> Result<Self> {
+        Ok(Self {
+            inner: Setup::open_provider_from_original(parent, provider, Kind::ProviderIngest)?,
         })
     }
     /// Retain one exact initial authority and finite fee/UTC authorization, then advance it.
@@ -274,11 +329,24 @@ impl ManagedInitialProviderIngestAuthority {
         let intent = Intent::provider_ingest(&self.inner.authority, authority)?;
         self.inner.advance_selected(intent, authorization, deadline)
     }
+    // The real standalone producer remains the test baseline for physical admission parity.
+    #[cfg(test)]
     pub(super) fn open_existing(
         prepared: &PreparedLocalnet,
         provider: ProviderId,
     ) -> Result<Option<Self>> {
         Setup::open_provider_existing(prepared, provider, Kind::ProviderIngest)
+            .map(|inner| inner.map(|inner| Self { inner }))
+    }
+
+    /// Retain the fixed setup purpose from the immutable original read-only parent profile.
+    /// Optional lexical import work supplies no source, transaction or current-state verdict.
+    pub(super) fn open_existing_from_original(
+        parent: &ServiceAuthority,
+        provider: ProviderId,
+        scope: Option<&CheckpointImportScope>,
+    ) -> Result<Option<Self>> {
+        Setup::open_provider_existing_from_original(parent, provider, Kind::ProviderIngest, scope)
             .map(|inner| inner.map(|inner| Self { inner }))
     }
 }
@@ -343,19 +411,56 @@ impl Setup {
             kind: Kind::Reputation,
         })
     }
+    fn open_provider_from_original(
+        parent: &ServiceAuthority,
+        provider: ProviderId,
+        kind: Kind,
+    ) -> Result<Self> {
+        let purpose = Self::provider_purpose(kind)?;
+        Ok(Self {
+            authority: ServiceAuthority::open_provider_from_original(parent, provider, purpose)?,
+            kind,
+        })
+    }
+    fn open_reputation_from_original(parent: &ServiceAuthority) -> Result<Self> {
+        Ok(Self {
+            authority: ServiceAuthority::open_network_from_original(
+                parent,
+                NetworkPurpose::InitialReputationPolicy,
+            )?,
+            kind: Kind::Reputation,
+        })
+    }
+    // Used only by the standalone constructor baseline above.
+    #[cfg(test)]
     fn open_provider_existing(
         prepared: &PreparedLocalnet,
         provider: ProviderId,
         kind: Kind,
     ) -> Result<Option<Self>> {
-        let purpose = match kind {
-            Kind::ProviderIngest => ProviderPurpose::InitialProviderIngestAuthority,
-            Kind::Gateway => ProviderPurpose::InitialGatewaySetup,
-            Kind::Reputation => return Err(invalid("recorder setup requires network scope")),
-        };
+        let purpose = Self::provider_purpose(kind)?;
         ServiceAuthority::open_provider_existing(prepared, provider, purpose)
             .map(|authority| authority.map(|authority| Self { authority, kind }))
     }
+    fn open_provider_existing_from_original(
+        parent: &ServiceAuthority,
+        provider: ProviderId,
+        kind: Kind,
+        scope: Option<&CheckpointImportScope>,
+    ) -> Result<Option<Self>> {
+        let purpose = Self::provider_purpose(kind)?;
+        ServiceAuthority::open_provider_existing_from_original(parent, provider, purpose, scope)
+            .map(|authority| authority.map(|authority| Self { authority, kind }))
+    }
+    fn provider_purpose(kind: Kind) -> Result<ProviderPurpose> {
+        Ok(match kind {
+            Kind::ProviderIngest => ProviderPurpose::InitialProviderIngestAuthority,
+            Kind::Gateway => ProviderPurpose::InitialGatewaySetup,
+            Kind::Reputation => return Err(invalid("recorder setup requires network scope")),
+        })
+    }
+    // Used only by the standalone constructor baseline above.
+    #[cfg(test)]
     fn open_reputation_existing(prepared: &PreparedLocalnet) -> Result<Option<Self>> {
         ServiceAuthority::open_network_existing(prepared, NetworkPurpose::InitialReputationPolicy)
             .map(|authority| {
@@ -364,6 +469,22 @@ impl Setup {
                     kind: Kind::Reputation,
                 })
             })
+    }
+    fn open_reputation_existing_from_original(
+        parent: &ServiceAuthority,
+        scope: Option<&CheckpointImportScope>,
+    ) -> Result<Option<Self>> {
+        ServiceAuthority::open_network_existing_from_original(
+            parent,
+            NetworkPurpose::InitialReputationPolicy,
+            scope,
+        )
+        .map(|authority| {
+            authority.map(|authority| Self {
+                authority,
+                kind: Kind::Reputation,
+            })
+        })
     }
     fn purpose(&self) -> Result<Purpose> {
         Ok(match self.kind {
@@ -465,7 +586,7 @@ impl Setup {
             |attempt| {
                 original
                     .request(attempt.terms(), deadline)
-                    .inspect(&account, &attempt.wallet_path())
+                    .inspect_in_parent(&account, attempt.directory())
             },
             |attempt| {
                 original
@@ -496,10 +617,8 @@ impl Setup {
         require_deadline(deadline)?;
         self.authority.validate_profile()?;
         self.validate_intent(intent)?;
-        let directory = match self.authority.directory.open_child("setup") {
-            Ok(directory) => directory,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
+        let Some(directory) = self.authority.directory.open_child_optional("setup")? else {
+            return Ok(None);
         };
         let Some(original) = journal::read_intent(&directory)? else {
             return Ok(None);
@@ -543,7 +662,7 @@ impl Setup {
         self.validate_intent(&original.intent)?;
         self.authority
             .decode_checkpoint(&original.checkpoint)?
-            .verified_tip()
+            .verified_tip_ref()
             .map_err(|_| invalid("invalid original service setup checkpoint"))?
             .verify_global_scope(
                 self.authority.config.network_id,
@@ -605,11 +724,13 @@ impl Setup {
             original.verify_wallets(|intent, attempt| {
                 intent
                     .request(attempt.terms(), deadline)
-                    .inspect(&account, &attempt.wallet_path())
+                    .inspect_in_parent(&account, attempt.directory())
             })
         };
         verify_custody()?;
-        let preparation = original.request(deadline).inspect(&account, &path)?;
+        let preparation = original
+            .request(deadline)
+            .inspect_in_parent(&account, directory)?;
         let unprepared_expired = preparation.unprepared_status() == Some(OperationStatus::Expired);
         let retained = match preparation.phase() {
             iroha_wallet::operations::NativePreparationPhase::Missing
@@ -705,7 +826,7 @@ impl Setup {
                     &original.checkpoint,
                     &transaction,
                     &report,
-                    observed.checkpoint().height(),
+                    &observed,
                     deadline,
                 )?
             } else {
@@ -737,6 +858,7 @@ enum Request {
     Reputation(InitialReputationPolicyRequest),
 }
 impl Request {
+    #[cfg(test)]
     fn inspect(
         &self,
         account: &AccountService,
@@ -753,7 +875,36 @@ impl Request {
                 account.inspect_initial_reputation_policy_preparation(path, request)
             }
         }
-        .map_err(|_| invalid("service wallet preparation differs from exact original request"))
+        .map_err(Self::inspection_error)
+    }
+    fn inspect_in_parent(
+        &self,
+        account: &AccountService,
+        parent: &PrivateDirectory,
+    ) -> Result<iroha_wallet::operations::VerifiedNativePreparation> {
+        match self {
+            Self::ProviderIngest(request) => account
+                .inspect_initial_provider_ingest_authority_preparation_in_parent(
+                    parent,
+                    std::ffi::OsStr::new("transaction"),
+                    request,
+                ),
+            Self::Gateway(request) => account.inspect_initial_gateway_setup_preparation_in_parent(
+                parent,
+                std::ffi::OsStr::new("transaction"),
+                request,
+            ),
+            Self::Reputation(request) => account
+                .inspect_initial_reputation_policy_preparation_in_parent(
+                    parent,
+                    std::ffi::OsStr::new("transaction"),
+                    request,
+                ),
+        }
+        .map_err(Self::inspection_error)
+    }
+    fn inspection_error(_: color_eyre::eyre::Report) -> crate::managed::Error {
+        invalid("service wallet preparation differs from exact original request")
     }
     fn retain(
         &self,

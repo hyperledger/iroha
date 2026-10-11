@@ -4,8 +4,8 @@ fn trigger_decl_builds_typed_metadata() {
     let authority_literal = sample_account_literal();
     let program = parse(&format!(
         r#"
-        seiyaku C {{
-            kotoage fn run() authorize("RunTrigger") {{}}
+        seiyaku C {{ permission RunTrigger;
+            kotoage fn run() authorize(RunTrigger) {{}}
             trigger wake -> run {{
                 on time pre_commit;
                 repeats 2;
@@ -38,8 +38,8 @@ fn trigger_metadata_json_parse_obeys_the_canonical_call_contract() {
     let trigger_source = |value: &str| {
         format!(
             r#"
-            seiyaku C {{
-                kotoage fn run() authorize("RunTrigger") {{}}
+            seiyaku C {{ permission RunTrigger;
+                kotoage fn run() authorize(RunTrigger) {{}}
                 trigger wake -> run {{
                     on time pre_commit;
                     metadata {{ payload: {value}; }}
@@ -48,17 +48,14 @@ fn trigger_metadata_json_parse_obeys_the_canonical_call_contract() {
             "#,
         )
     };
-    let value = r#"Json::parse("{}")"#;
-    let program =
-        parse(&trigger_source(value)).expect("canonical Json::parse metadata should parse");
-    analyze(&program)
-        .unwrap_or_else(|error| panic!("canonical trigger metadata `{value}` failed: {error:?}"));
+    for value in [r#"Json::parse("{}")"#, r#"Json::parse(value: "{}")"#] {
+        let program =
+            parse(&trigger_source(value)).expect("canonical Json::parse metadata should parse");
+        analyze(&program).unwrap_or_else(|error| {
+            panic!("canonical trigger metadata `{value}` failed: {error:?}")
+        });
+    }
     for (value, code, message) in [
-        (
-            r#"Json::parse(value: "{}")"#,
-            "E_POSITIONAL_ARGUMENT_REQUIRED",
-            "parameter `value` of `Json::parse` is declared positional; omit its label",
-        ),
         (
             r#"Json::parse(raw: "{}")"#,
             "E_UNKNOWN_NAMED_ARGUMENT",
@@ -112,8 +109,8 @@ fn trigger_decl_supports_structured_asset_data_filter() {
     let asset_definition_literal = asset_definition.to_string();
     let program = parse(&format!(
         r#"
-        seiyaku C {{
-            kotoage fn run() authorize("RunTrigger") {{}}
+        seiyaku C {{ permission RunTrigger;
+            kotoage fn run() authorize(RunTrigger) {{}}
             trigger wake -> run {{
                 on data asset added {{
                     asset_definition "{asset_definition_literal}";
@@ -150,8 +147,8 @@ fn trigger_decl_supports_transfer_specific_asset_filter() {
     );
     let program = parse(&format!(
         r#"
-        seiyaku C {{
-            kotoage fn run() authorize("RunTrigger") {{}}
+        seiyaku C {{ permission RunTrigger;
+            kotoage fn run() authorize(RunTrigger) {{}}
             trigger wake -> run {{
                 on data asset transferred {{
                     asset_definition "{asset_definition}";
@@ -223,8 +220,8 @@ fn trigger_decl_supports_structured_data_filters_for_core_families() {
         (
             format!(
                 r#"
-                seiyaku C {{
-            kotoage fn run() authorize("RunTrigger") {{}}
+                seiyaku C {{ permission RunTrigger;
+            kotoage fn run() authorize(RunTrigger) {{}}
                     trigger wake -> run {{
                         on data peer added {{
                             peer "{peer_literal}";
@@ -242,8 +239,8 @@ fn trigger_decl_supports_structured_data_filters_for_core_families() {
         (
             format!(
                 r#"
-                seiyaku C {{
-                    kotoage fn run() authorize("RunTrigger") {{}}
+                seiyaku C {{ permission RunTrigger;
+                    kotoage fn run() authorize(RunTrigger) {{}}
                     trigger wake -> run {{
                         on data domain created {{
                             domain "{domain}";
@@ -261,8 +258,8 @@ fn trigger_decl_supports_structured_data_filters_for_core_families() {
         (
             format!(
                 r#"
-                seiyaku C {{
-                    kotoage fn run() authorize("RunTrigger") {{}}
+                seiyaku C {{ permission RunTrigger;
+                    kotoage fn run() authorize(RunTrigger) {{}}
                     trigger wake -> run {{
                         on data account created {{
                             account "{account_literal}";
@@ -280,8 +277,8 @@ fn trigger_decl_supports_structured_data_filters_for_core_families() {
         (
             format!(
                 r#"
-                seiyaku C {{
-                    kotoage fn run() authorize("RunTrigger") {{}}
+                seiyaku C {{ permission RunTrigger;
+                    kotoage fn run() authorize(RunTrigger) {{}}
                     trigger wake -> run {{
                         on data asset added {{
                             asset "{asset_literal}";
@@ -301,8 +298,8 @@ fn trigger_decl_supports_structured_data_filters_for_core_families() {
         (
             format!(
                 r#"
-                seiyaku C {{
-                    kotoage fn run() authorize("RunTrigger") {{}}
+                seiyaku C {{ permission RunTrigger;
+                    kotoage fn run() authorize(RunTrigger) {{}}
                     trigger wake -> run {{
                         on data asset_definition created {{
                             asset_definition "{asset_definition}";
@@ -320,8 +317,8 @@ fn trigger_decl_supports_structured_data_filters_for_core_families() {
         (
             format!(
                 r#"
-                seiyaku C {{
-                    kotoage fn run() authorize("RunTrigger") {{}}
+                seiyaku C {{ permission RunTrigger;
+                    kotoage fn run() authorize(RunTrigger) {{}}
                     trigger wake -> run {{
                         on data nft created {{
                             nft "{nft}";
@@ -339,8 +336,8 @@ fn trigger_decl_supports_structured_data_filters_for_core_families() {
         (
             format!(
                 r#"
-                seiyaku C {{
-                    kotoage fn run() authorize("RunTrigger") {{}}
+                seiyaku C {{ permission RunTrigger;
+                    kotoage fn run() authorize(RunTrigger) {{}}
                     trigger wake -> run {{
                         on data rwa created {{
                             rwa "{rwa}";
@@ -358,8 +355,8 @@ fn trigger_decl_supports_structured_data_filters_for_core_families() {
         (
             format!(
                 r#"
-                seiyaku C {{
-                    kotoage fn run() authorize("RunTrigger") {{}}
+                seiyaku C {{ permission RunTrigger;
+                    kotoage fn run() authorize(RunTrigger) {{}}
                     trigger wake -> run {{
                         on data trigger created {{
                             trigger "{trigger_id}";
@@ -377,8 +374,8 @@ fn trigger_decl_supports_structured_data_filters_for_core_families() {
         (
             format!(
                 r#"
-                seiyaku C {{
-                    kotoage fn run() authorize("RunTrigger") {{}}
+                seiyaku C {{ permission RunTrigger;
+                    kotoage fn run() authorize(RunTrigger) {{}}
                     trigger wake -> run {{
                         on data role created {{
                             role "{role_id}";
@@ -468,8 +465,8 @@ fn trigger_decl_rejects_duplicate_data_matchers() {
     .to_string();
     let program = parse(&format!(
         r#"
-        seiyaku C {{
-            kotoage fn run() authorize("RunTrigger") {{}}
+        seiyaku C {{ permission RunTrigger;
+            kotoage fn run() authorize(RunTrigger) {{}}
             trigger wake -> run {{
                 on data asset added {{
                     asset_definition "{asset_definition_literal}";
@@ -489,8 +486,8 @@ fn trigger_decl_accepts_canonical_domainless_authority() {
     let authority = sample_account_literal();
     let program = parse(&format!(
         r#"
-        seiyaku C {{
-            kotoage fn run() authorize("RunTrigger") {{}}
+        seiyaku C {{ permission RunTrigger;
+            kotoage fn run() authorize(RunTrigger) {{}}
             trigger wake -> run {{
                 on time pre_commit;
                 authority "{authority}";
@@ -542,11 +539,116 @@ fn semantic_analysis_defends_against_lifecycle_permission_hints() {
     let Item::Function(hajimari) = &mut program.items[0] else {
         panic!("expected hajimari")
     };
-    hajimari.modifiers.permission = Some("SourceOwnedPermission".to_owned());
+    hajimari.modifiers.authorization = Some("SourceOwnedPermission".to_owned());
     let error = analyze(&program).expect_err("lifecycle permission must be rejected");
     assert!(
         error
             .message
             .contains("lifecycle authorization is runtime-defined")
     );
+}
+
+#[test]
+fn trigger_event_families_require_parameterless_local_callbacks() {
+    for filter in [
+        "time pre_commit",
+        "time schedule(start_ms: 0, period_ms: 1_000)",
+        "data any",
+        "data asset added {}",
+        "pipeline transaction approved",
+        "pipeline block approved",
+    ] {
+        let source = format!(
+            "seiyaku Callback {{ kotoage fn run(int amount) authorize(anyone) {{}} trigger wake -> run {{ on {filter}; }} }}"
+        );
+        let error = analyze_error(&source);
+        assert_eq!(
+            error.code, "E_TRIGGER_CALLBACK_PARAMETERS",
+            "{filter}: {error:?}"
+        );
+        let accepted = source.replace("run(int amount)", "run()");
+        analyze(&parse(&accepted).unwrap()).unwrap_or_else(|error| panic!("{filter}: {error:?}"));
+    }
+}
+#[test]
+fn execute_trigger_callbacks_accept_typed_public_parameters() {
+    let source = "seiyaku Callback { kotoage fn run(int amount, Name recipient) authorize(anyone) {} trigger wake -> run { on execute trigger wake; } }";
+    let typed = analyze(&parse(source).unwrap())
+        .expect("execute event supplies explicit callback arguments");
+    assert_eq!(typed.triggers.len(), 1);
+    let TypedItem::Function(function) = &typed.items[0];
+    assert_eq!(
+        function
+            .param_types
+            .iter()
+            .map(|parameter| &parameter.ty)
+            .collect::<Vec<_>>(),
+        vec![&Type::Int, &Type::Name]
+    );
+}
+#[test]
+fn trigger_callback_checks_cannot_be_bypassed_by_constructed_targets() {
+    for (target, code) in [
+        ("missing", "K2002"),
+        ("private", "E_TRIGGER_TARGET_KIND"),
+        ("inspect", "E_TRIGGER_VIEW_TARGET"),
+        ("dependency::run", "E_TRIGGER_TARGET_NAMESPACE"),
+    ] {
+        let mut program = parse("seiyaku Callback { kotoage fn run() authorize(anyone) {} fn private() {} view fn inspect() authorize(anyone) {} trigger wake -> run { on time pre_commit; } }").unwrap();
+        let trigger = program
+            .items
+            .iter_mut()
+            .find_map(|item| {
+                if let Item::Trigger(trigger) = item {
+                    Some(trigger)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        trigger.call.entrypoint = target.into();
+        let error = analyze(&program).expect_err("invalid callback target");
+        assert_eq!(error.code, code, "{target}: {error:?}");
+    }
+}
+#[test]
+fn trigger_schedules_accept_exact_labelled_integer_constant_expressions() {
+    let source = "seiyaku Clock { const int START = 1_000; const int PERIOD = 60 * 1_000; kotoage fn run() authorize(anyone) {} trigger wake -> run { on time schedule(start_ms: START + 500, period_ms: PERIOD); } }";
+    let typed = analyze(&parse(source).unwrap()).expect("constant schedule");
+    assert_eq!(
+        typed.triggers[0].filter,
+        EventFilterBox::Time(TimeEventFilter(ExecutionTime::Schedule(Schedule {
+            start_ms: 1500,
+            period_ms: Some(60_000)
+        })))
+    );
+    let once = source.replace("START + 500, period_ms: PERIOD", "0");
+    let typed = analyze(&parse(&once).unwrap()).expect("one shot schedule");
+    assert_eq!(
+        typed.triggers[0].filter,
+        EventFilterBox::Time(TimeEventFilter(ExecutionTime::Schedule(Schedule {
+            start_ms: 0,
+            period_ms: None
+        })))
+    );
+}
+#[test]
+fn trigger_schedule_rejects_dynamic_negative_overflow_and_zero_period() {
+    for (arguments, code) in [
+        (
+            "start_ms: context::block_height()",
+            "E_TRIGGER_SCHEDULE_CONSTANT",
+        ),
+        ("start_ms: true", "E_TRIGGER_SCHEDULE_CONSTANT"),
+        ("start_ms: -1", "E_TRIGGER_SCHEDULE_START"),
+        ("start_ms: 18446744073709551616", "E_TRIGGER_SCHEDULE_START"),
+        ("start_ms: 0, period_ms: 0", "E_TRIGGER_SCHEDULE_PERIOD"),
+        ("start_ms: 0, period_ms: -1", "E_TRIGGER_SCHEDULE_PERIOD"),
+    ] {
+        let source = format!(
+            "seiyaku Clock {{ kotoage fn run() authorize(anyone) {{}} trigger wake -> run {{ on time schedule({arguments}); }} }}"
+        );
+        let error = analyze_error(&source);
+        assert_eq!(error.code, code, "{arguments}: {error:?}");
+    }
 }

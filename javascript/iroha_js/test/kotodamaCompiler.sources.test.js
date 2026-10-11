@@ -6,11 +6,11 @@ test("compiler source sets preserve complete named files for native and service 
   const source = 'seiyaku App { include "parts/view.ko"; }';
   const request = buildCompilerRequest(source, {
     sourceName: "contracts/./app.ko",
-    sources: [{ sourceName: "contracts/parts/view.ko", source: "view fn value() -> int { 7 }" }],
+    sources: [{ sourceName: "contracts/parts/view.ko", source: "view fn value() authorize(anyone) -> int { 7 }" }],
   });
   assert.deepEqual(request, {
-    source, sourceName: "contracts/app.ko", zk: false,
-    sources: [{ sourceName: "contracts/parts/view.ko", source: "view fn value() -> int { 7 }" }],
+    source, artifacts: [], sourceName: "contracts/app.ko", zk: false,
+    sources: [{ sourceName: "contracts/parts/view.ko", source: "view fn value() authorize(anyone) -> int { 7 }" }],
   });
 });
 
@@ -44,7 +44,7 @@ test("compiler source entries must be inert data objects", () => {
 test("compiler source sets preserve locked packages and bound their complete inventories", () => {
   const pkg = { identity: "math@1", modules: [{ sourceName: "src/math.ko", source: "module Math {}" }], sources: [{ sourceName: "src/body.ko", source: "" }], exports: ["Math::value"], imports: [] };
   const request = buildCompilerRequest("seiyaku App {}", { sourceName: "app.ko", imports: [{ alias: "Math", package: "math@1" }], packages: [pkg] });
-  assert.deepEqual(request.packages, [pkg]);
+  assert.deepEqual(request.packages, [{ ...pkg, artifacts: [] }]);
   assert.deepEqual(request.imports, [{ alias: "Math", package: "math@1" }]);
   assert.throws(() => buildCompilerRequest("seiyaku App {}", { sourceName: "app.ko", packages: [pkg, pkg] }), /duplicate package identity/u);
   assert.throws(() => buildCompilerRequest("seiyaku App {}", { sourceName: "app.ko", packages: [{ ...pkg, sources: [{ sourceName: "src/./math.ko", source: "" }] }] }), /duplicate Kotodama source path/u);

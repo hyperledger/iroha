@@ -1,10 +1,15 @@
 //! Golden SCCP v1 vectors (`specs/sccp.md` §11).
 //!
-//! Regenerates `fixtures/sccp/{payload,commitment_tree,control,history,eip712,roster,
+//! Regenerates `fixtures/sccp/{payload,commitment_tree,history,eip712,roster,
 //! evm_calldata}_v1.json` from `iroha_sccp::v1` and asserts byte equality with the committed
 //! files. Every generator also cross-checks its vectors with the crate's verifiers (paths,
 //! signature sets, roster rotation, proof bundles), so a committed vector is always one the Rust
 //! implementation accepts or rejects exactly as recorded.
+//!
+//! `control_v1.json` is a revision-5 reference file: `tests/v1_reference_control.rs` owns it.
+//! Of the files written here, `payload_v1.json` follows revision 5 (its sections, §0, §2 and
+//! §3.1–§3.3, describe the current profiles, codecs and payload layout); the other five still
+//! carry the revision 4 layouts named in their `spec` strings.
 //!
 //! After a reviewed layout change, rewrite the files with
 //! `cargo test -p iroha_sccp --test v1_vectors -- --ignored regenerate_v1_vectors`.
@@ -17,14 +22,13 @@ use iroha_sccp::v1::{
     constants::{
         ATTESTATION_TYPE, ATTESTATION_TYPEHASH, BRIDGE_KEY_TYPE, BRIDGE_KEY_TYPEHASH,
         CODEC_CANONICAL_TEXT, CODEC_TAIRA_ACCOUNT, DOMAIN_TYPEHASH, EIP712_DOMAIN_TYPE,
-        EVENT_CONTROL_APPLIED, EVENT_TOPICS, MAX_CLOCK_SKEW_MS, MAX_ROSTER_MEMBERS,
-        MAX_ROSTER_VALIDITY_MS, MIN_ROSTER_MEMBERS, NAME_HASH, PREVIOUS_ROSTER_GRACE_MS,
-        SECP256K1_HALF_N, SECP256K1_N, SELECTORS, TON_AMOUNT_BOUND, TOPIC_CONTROL_APPLIED,
-        VERSION_HASH,
+        EVENT_TOPICS, MAX_CLOCK_SKEW_MS, MAX_ROSTER_MEMBERS, MAX_ROSTER_VALIDITY_MS,
+        MIN_ROSTER_MEMBERS, NAME_HASH, PREVIOUS_ROSTER_GRACE_MS, SECP256K1_HALF_N, SECP256K1_N,
+        SELECTORS, TON_AMOUNT_BOUND, VERSION_HASH,
     },
     eip712::{AttestationFieldsV1, BridgeKeyPopFieldsV1, domain_separator, peer_key_hash},
     evm_abi::{
-        AbiError, AttestedV1, RotationV1, TransferToTairaCallV1, TransferToTairaLogV1, ViewCallV1,
+        AttestedV1, RotationV1, TransferToTairaCallV1, TransferToTairaLogV1, ViewCallV1,
         VoidCallV1, VoidedLogV1, apply_control_calldata, apply_control_historical_calldata,
         encode_roster_state_return, finalize_from_taira_calldata,
         finalize_from_taira_historical_calldata, rotate_rosters_calldata, void_expired_calldata,
@@ -37,8 +41,8 @@ use iroha_sccp::v1::{
     history::{HistoryAccumulatorV1, history_path, history_root},
     merkle::{PromoteOddTree, merkle_root},
     network::{
-        ALL_NETWORKS, EXTERNAL_NETWORKS, account_codec, domain, identity_word, lane_bytes,
-        network_bytes, route_id, tag,
+        ALL_NETWORKS, EXTERNAL_NETWORKS, account_codec, domain, identity_word, network_bytes,
+        route_id, tag,
     },
     payload::{PayloadAccountV1, SccpTransferPayloadV1},
     proof::{
@@ -159,11 +163,6 @@ fn external_account(network: SccpNetworkV1, seed: u8) -> Vec<u8> {
     let body = keccak256(&[b"SCCP/FIXTURE/EXTERNAL/V1", &[seed]]);
     match network {
         SccpNetworkV1::EthereumMainnet | SccpNetworkV1::BscMainnet => body[12..].to_vec(),
-        SccpNetworkV1::TronMainnet => {
-            let mut bytes = vec![0x41];
-            bytes.extend_from_slice(&body[12..]);
-            bytes
-        }
         SccpNetworkV1::TonMainnet => {
             let mut bytes = vec![0; 4];
             bytes.extend_from_slice(&body);
@@ -177,7 +176,6 @@ fn external_account(network: SccpNetworkV1, seed: u8) -> Vec<u8> {
 fn destination_word(network: SccpNetworkV1) -> [u8; 32] {
     match network {
         SccpNetworkV1::TonMainnet => [0x44; 32],
-        SccpNetworkV1::TronMainnet => word_address(&[0x33; 20]),
         _ => word_address(&[0x22; 20]),
     }
 }
@@ -320,6 +318,14 @@ fn direction_payload(
     .expect("valid direction payload")
 }
 
+/// An account of the removed TRON profile in its retired codec 5 form: `0x41` then 20 bytes.
+fn retired_tron_account(seed: u8) -> PayloadAccountV1 {
+    let body = keccak256(&[b"SCCP/FIXTURE/EXTERNAL/V1", &[seed]]);
+    let mut bytes = vec![0x41];
+    bytes.extend_from_slice(&body[12..]);
+    PayloadAccountV1::new(5, bytes)
+}
+
 fn payload_json(label: &str, payload: &SccpTransferPayloadV1) -> Value {
     let encoded = payload.encode().expect("valid payload");
     assert_eq!(
@@ -406,9 +412,16 @@ fn rejected_payloads() -> Vec<Value> {
     ));
     cases.push((
         "recipient_codec_5_on_eth",
+        mutate(&|payload| payload.recipient = retired_tron_account(0)),
+    ));
+    // The removed TRON profile as it encoded its own lanes: domain 5, codec 5 accounts and the
+    // route id `taira_tron_xor`.
+    cases.push((
+        "retired_tron_domain_5_outbound",
         mutate(&|payload| {
-            payload.recipient =
-                PayloadAccountV1::new(5, external_account(SccpNetworkV1::TronMainnet, 0));
+            payload.dest_domain = 5;
+            payload.recipient = retired_tron_account(0);
+            "taira_tron_xor".clone_into(&mut payload.route_id);
         }),
     ));
     cases.push((
@@ -437,7 +450,7 @@ fn rejected_payloads() -> Vec<Value> {
         bytes[index] = CODEC_TAIRA_ACCOUNT;
         bytes
     }));
-    let inbound = direction_payload(SccpNetworkV1::TronMainnet, SccpNetworkV1::SoraTaira, 0);
+    let inbound = direction_payload(SccpNetworkV1::BscMainnet, SccpNetworkV1::SoraTaira, 0);
     let inbound_mutate = |f: &dyn Fn(&mut SccpTransferPayloadV1)| {
         let mut payload = inbound.clone();
         f(&mut payload);
@@ -448,12 +461,20 @@ fn rejected_payloads() -> Vec<Value> {
         inbound_mutate(&|payload| payload.deadline_ms = 1),
     ));
     cases.push((
-        "tron_sender_without_0x41",
-        inbound_mutate(&|payload| payload.sender.bytes[0] = 0x42),
+        "inbound_zero_evm_sender",
+        inbound_mutate(&|payload| payload.sender.bytes.fill(0)),
     ));
     cases.push((
-        "tron_zero_sender",
-        inbound_mutate(&|payload| payload.sender.bytes[1..].fill(0)),
+        "sender_codec_5_on_bsc",
+        inbound_mutate(&|payload| payload.sender = retired_tron_account(0)),
+    ));
+    cases.push((
+        "retired_tron_domain_5_inbound",
+        inbound_mutate(&|payload| {
+            payload.source_domain = 5;
+            payload.sender = retired_tron_account(0);
+            "taira_tron_xor".clone_into(&mut payload.route_id);
+        }),
     ));
     let ton = direction_payload(SccpNetworkV1::SoraTaira, SccpNetworkV1::TonMainnet, 0);
     let ton_mutate = |f: &dyn Fn(&mut SccpTransferPayloadV1)| {
@@ -552,7 +573,7 @@ fn payload_fixture() -> Value {
     with(
         header(
             "iroha.sccp.payload.v1",
-            "specs/sccp.md §0, §2, §3.1–§3.3 (revision 4)",
+            "specs/sccp.md §0, §2, §3.1–§3.3 (revision 5)",
         ),
         vec![
             ("taira_network_id", hex(&TAIRA)),
@@ -758,120 +779,6 @@ fn commitment_tree_fixture() -> Value {
             ),
             ("trees", Value::Array(trees)),
             ("negatives", Value::Array(negatives)),
-        ],
-    )
-}
-
-// ---------------------------------------------------------------------------------------------
-// control_v1.json
-// ---------------------------------------------------------------------------------------------
-
-#[allow(
-    clippy::too_many_lines,
-    reason = "one generator writes one fixture file"
-)]
-fn control_fixture() -> Value {
-    let example = |nonce: u64, paused: bool, expected: &str| {
-        let word = word_address(&[0x22; 20]);
-        let leaf = control_leaf(
-            &TAIRA,
-            SccpNetworkV1::EthereumMainnet,
-            &word,
-            1,
-            nonce,
-            paused,
-        )
-        .expect("control leaf");
-        assert_eq!(hex_string(&leaf), expected, "§3.4 example");
-        obj([
-            ("target", profile(SccpNetworkV1::EthereumMainnet)),
-            ("destination_word", hex(&word)),
-            ("route_revision", num(1)),
-            ("control_nonce", num(nonce)),
-            ("paused", Value::Bool(paused)),
-            ("leaf", hex(&leaf)),
-        ])
-    };
-    let spec_examples = vec![
-        example(
-            1,
-            true,
-            "0x93d641053e51b4d28f40930e098212e8b6ab340ceaaf8ad38a458203ce98c662",
-        ),
-        example(
-            2,
-            false,
-            "0x85fcfc8718c845c212df8ae486161d03bde8116eaa7dd74bbb2312667bce5cdf",
-        ),
-    ];
-    let mut controls = Vec::new();
-    for network in EXTERNAL_NETWORKS {
-        let word = destination_word(network);
-        for revision in [1_u32, 2] {
-            for control_nonce in [1_u64, 2, 1 << 32] {
-                for paused in [true, false] {
-                    let preimage = control_leaf_preimage(
-                        &TAIRA,
-                        network,
-                        &word,
-                        revision,
-                        control_nonce,
-                        paused,
-                    )
-                    .expect("control preimage");
-                    assert_eq!(preimage.len(), 126);
-                    let leaf =
-                        control_leaf(&TAIRA, network, &word, revision, control_nonce, paused)
-                            .expect("control leaf");
-                    controls.push(obj([
-                        ("target", profile(network)),
-                        ("destination_word", hex(&word)),
-                        ("route_revision", num(u64::from(revision))),
-                        ("control_nonce", num(control_nonce)),
-                        ("paused", Value::Bool(paused)),
-                        (
-                            "lane_bytes",
-                            hex(&lane_bytes(SccpNetworkV1::SoraTaira, network, &TAIRA)
-                                .expect("lane")),
-                        ),
-                        ("preimage", hex(&preimage)),
-                        ("leaf", hex(&leaf)),
-                    ]));
-                }
-            }
-        }
-    }
-    let word = destination_word(SccpNetworkV1::EthereumMainnet);
-    let rejected = [
-        ("taira_target", SccpNetworkV1::SoraTaira, 1_u32, 1_u64),
-        ("zero_revision", SccpNetworkV1::EthereumMainnet, 0, 1),
-        ("zero_control_nonce", SccpNetworkV1::EthereumMainnet, 1, 0),
-    ]
-    .into_iter()
-    .map(|(label, target, revision, nonce)| {
-        let error = control_leaf(&TAIRA, target, &word, revision, nonce, true)
-            .expect_err("rejected control");
-        obj([
-            ("label", text(label)),
-            ("target", profile(target)),
-            ("route_revision", num(u64::from(revision))),
-            ("control_nonce", num(nonce)),
-            ("error", error_name(error)),
-        ])
-    })
-    .collect();
-    with(
-        header(
-            "iroha.sccp.control.v1",
-            "specs/sccp.md §3.4, §4.14.6, §5.1.6 (revision 4)",
-        ),
-        vec![
-            ("taira_network_id", hex(&TAIRA)),
-            ("event_signature", text(EVENT_CONTROL_APPLIED)),
-            ("topic_control_applied", hex(&TOPIC_CONTROL_APPLIED)),
-            ("spec_examples", Value::Array(spec_examples)),
-            ("controls", Value::Array(controls)),
-            ("rejected", Value::Array(rejected)),
         ],
     )
 }
@@ -1684,55 +1591,7 @@ fn evm_calldata_fixture() -> Value {
         log_json("voided_frozen", frozen_topics, frozen_data),
     ];
 
-    // Non-canonical transferToTaira calldata (§5.1.7); the contract reverts on each.
-    let canonical = transfer_calldata;
-    let head = 4 + 3 * 32;
-    let mut offset_0x80 = canonical.clone();
-    offset_0x80[4 + 31] = 0x80;
-    let mut dirty_padding = canonical.clone();
-    let last = dirty_padding.len() - 1;
-    dirty_padding[last] = 0x01;
-    let mut trailing_word = canonical.clone();
-    trailing_word.extend_from_slice(&[0; 32]);
-    let mut trailing_byte = canonical.clone();
-    trailing_byte.push(0);
-    let truncated = canonical[..canonical.len() - 32].to_vec();
-    let mut length_zero = canonical[..head + 32].to_vec();
-    length_zero[head..].fill(0);
-    let too_long = TransferToTairaCallV1 {
-        taira_recipient: vec![0x5a; 1025],
-        ..transfer_call.clone()
-    }
-    .calldata();
-    let zero_amount = TransferToTairaCallV1 {
-        token_amount: 0,
-        ..transfer_call.clone()
-    }
-    .calldata();
-    let mut amount_2_pow_128 = canonical.clone();
-    amount_2_pow_128[4 + 32..4 + 64].fill(0);
-    amount_2_pow_128[4 + 32 + 15] = 1;
-    let non_canonical: Vec<Value> = [
-        ("offset_0x80", offset_0x80),
-        ("nonzero_padding", dirty_padding),
-        ("trailing_word", trailing_word),
-        ("trailing_byte", trailing_byte),
-        ("truncated", truncated),
-        ("empty_recipient", length_zero),
-        ("recipient_1025_bytes", too_long),
-        ("zero_amount", zero_amount),
-        ("amount_2_pow_128", amount_2_pow_128),
-    ]
-    .into_iter()
-    .map(|(label, calldata)| {
-        let error: AbiError = TransferToTairaCallV1::decode(&calldata).expect_err(label);
-        obj([
-            ("label", text(label)),
-            ("calldata", hex(&calldata)),
-            ("error", error_name(error)),
-        ])
-    })
-    .collect();
+    let conformance = calldata_conformance(&transfer_call, &void_expired, &void_expired_historical);
 
     let selectors: Vec<Value> = SELECTORS
         .iter()
@@ -1800,12 +1659,329 @@ fn evm_calldata_fixture() -> Value {
             ("calls", Value::Array(calls)),
             ("views", Value::Array(views)),
             ("logs", Value::Array(logs)),
-            (
-                "non_canonical_transfer_to_taira",
-                Value::Array(non_canonical),
-            ),
+            ("calldata_conformance", Value::Array(conformance)),
         ],
     )
+}
+
+/// A conformance verdict: the call succeeds (contract) or decodes (Rust).
+const ACCEPT: &str = "accept";
+/// The contract reverts in Solidity's own ABI decoder, with empty revert data.
+const EMPTY_REVERT: &str = "empty";
+/// The contract's custom error for a non-canonical encoding.
+const NON_CANONICAL: &str = "NonCanonicalCalldata";
+/// One ABI word.
+const WORD: usize = 32;
+
+/// `calldata` with a zero word inserted at argument offset `at` (after the selector).
+fn with_gap(calldata: &[u8], at: usize) -> Vec<u8> {
+    let mut out = calldata[..4 + at].to_vec();
+    out.extend_from_slice(&[0; WORD]);
+    out.extend_from_slice(&calldata[4 + at..]);
+    out
+}
+
+/// The `u64` value of the argument word at `at`.
+fn arg_u64(calldata: &[u8], at: usize) -> usize {
+    let low = &calldata[4 + at + 24..4 + at + WORD];
+    usize::try_from(u64::from_be_bytes(low.try_into().expect("8 bytes"))).expect("usize")
+}
+
+/// Adds `delta` to the `u64` argument word at `at`.
+fn bump(calldata: &mut [u8], at: usize, delta: u64) {
+    let low = 4 + at + 24..4 + at + WORD;
+    let value = u64::from_be_bytes(calldata[low.clone()].try_into().expect("8 bytes")) + delta;
+    calldata[low].copy_from_slice(&value.to_be_bytes());
+}
+
+/// `calldata` with byte `index` of the argument word at `at` set to 1.
+fn dirty(calldata: &[u8], at: usize, index: usize) -> Vec<u8> {
+    let mut out = calldata.to_vec();
+    out[4 + at + index] = 1;
+    out
+}
+
+fn appended(calldata: &[u8], tail: &[u8]) -> Vec<u8> {
+    let mut out = calldata.to_vec();
+    out.extend_from_slice(tail);
+    out
+}
+
+/// The `voidExpired*` variants (`historical` selects `voidExpiredHistorical`, whose head has 15
+/// words instead of 14). Besides the length edits, every unsigned integer field gets a word
+/// with the lowest bit above its declared width set, every dynamic offset is moved past an
+/// inserted zero word (with every enclosing offset moved accordingly, so Solidity's own decoder
+/// reads the same arguments) and every `bytes` value gets a nonzero padding byte.
+fn void_expired_variants(
+    base: &[u8],
+    historical: bool,
+) -> Vec<(&'static str, Vec<u8>, &'static str)> {
+    let head_words = if historical { 15 } else { 14 };
+    let head = |from: usize| (from..head_words).map(|word| word * WORD);
+    let roster_at = arg_u64(base, 11 * WORD);
+    let signatures_at = arg_u64(base, 12 * WORD);
+    let proof_head = (head_words - 1) * WORD;
+    let proof_at = arg_u64(base, proof_head);
+    let members_at = roster_at + arg_u64(base, roster_at + 4 * WORD);
+    let signature_bytes_at = signatures_at + arg_u64(base, signatures_at + WORD);
+    let payload_at = proof_at + arg_u64(base, proof_at);
+    let path_at = proof_at + arg_u64(base, proof_at + 2 * WORD);
+
+    // (label, argument offset of the word, declared width in bytes).
+    let mut fields = vec![
+        ("dirty_attestation_height", WORD, 8),
+        ("dirty_attestation_epoch", 2 * WORD, 8),
+        ("dirty_attestation_timestamp_ms", 3 * WORD, 8),
+        ("dirty_attestation_message_count", 6 * WORD, 4),
+        ("dirty_attestation_history_size", 8 * WORD, 8),
+        ("dirty_roster_generation", roster_at, 8),
+        ("dirty_roster_valid_from_ms", roster_at + WORD, 8),
+        ("dirty_roster_valid_until_ms", roster_at + 2 * WORD, 8),
+        ("dirty_roster_threshold", roster_at + 3 * WORD, 1),
+        ("dirty_signer_bitmap", signatures_at, 4),
+        ("dirty_message_leaf_index", proof_at + WORD, 4),
+    ];
+    // (label, argument offset where the zero word goes, offsets that move past it).
+    let mut gaps: Vec<(&'static str, usize, Vec<usize>)> = vec![
+        ("roster_offset_gap", roster_at, head(11).collect()),
+        (
+            "members_offset_gap",
+            members_at,
+            std::iter::once(roster_at + 4 * WORD)
+                .chain(head(12))
+                .collect(),
+        ),
+        ("signatures_offset_gap", signatures_at, head(12).collect()),
+        (
+            "signature_bytes_offset_gap",
+            signature_bytes_at,
+            std::iter::once(signatures_at + WORD)
+                .chain(head(13))
+                .collect(),
+        ),
+        ("message_proof_offset_gap", proof_at, vec![proof_head]),
+        (
+            "payload_offset_gap",
+            payload_at,
+            vec![proof_at, proof_at + 2 * WORD],
+        ),
+        ("path_offset_gap", path_at, vec![proof_at + 2 * WORD]),
+    ];
+    let paddings = [
+        ("nonzero_members_padding", members_at),
+        ("nonzero_signatures_padding", signature_bytes_at),
+        ("nonzero_payload_padding", payload_at),
+    ];
+    if historical {
+        let history_at = arg_u64(base, 13 * WORD);
+        fields.extend([
+            ("dirty_history_height", history_at, 8),
+            ("dirty_history_message_count", history_at + 2 * WORD, 4),
+            ("dirty_history_leaf_index", history_at + 3 * WORD, 8),
+        ]);
+        gaps.extend([
+            ("history_offset_gap", history_at, head(13).collect()),
+            (
+                "history_path_offset_gap",
+                history_at + arg_u64(base, history_at + 4 * WORD),
+                vec![history_at + 4 * WORD, 14 * WORD],
+            ),
+        ]);
+    }
+
+    let mut variants = vec![
+        ("canonical", base.to_vec(), ACCEPT),
+        ("trailing_byte", appended(base, &[0]), NON_CANONICAL),
+        ("trailing_word", appended(base, &[0; WORD]), NON_CANONICAL),
+        ("short_byte", base[..base.len() - 1].to_vec(), NON_CANONICAL),
+        ("dirty_nonce_high_bits", dirty(base, 0, 23), EMPTY_REVERT),
+        ("offset_high_bits", dirty(base, 11 * WORD, 0), EMPTY_REVERT),
+    ];
+    variants.extend(
+        fields
+            .into_iter()
+            .map(|(label, at, width)| (label, dirty(base, at, WORD - width - 1), NON_CANONICAL)),
+    );
+    variants.extend(gaps.into_iter().map(|(label, at, offsets)| {
+        let mut calldata = with_gap(base, at);
+        for offset in offsets {
+            assert!(offset < at, "{label}: only offsets before the gap move");
+            bump(&mut calldata, offset, 0x20);
+        }
+        (label, calldata, NON_CANONICAL)
+    }));
+    variants.extend(paddings.into_iter().map(|(label, at)| {
+        let len = arg_u64(base, at);
+        assert_ne!(len % WORD, 0, "{label}: the bytes have padding");
+        let mut calldata = base.to_vec();
+        calldata[4 + at + WORD + len.div_ceil(WORD) * WORD - 1] = 1;
+        (label, calldata, NON_CANONICAL)
+    }));
+    variants
+}
+
+/// The shared void and burn calldata conformance table (§5.1.7, §5.1.8, §5.2.2): every entry
+/// records the Rust decoder's verdict and the destination's outcome in a state where the
+/// canonical call succeeds, and the two accept exactly the same entries. `contract` is
+/// `accept`, a custom error, or `empty` for a revert in Solidity's ABI decoder.
+fn calldata_conformance(
+    transfer_call: &TransferToTairaCallV1,
+    void_expired: &[u8],
+    void_expired_historical: &[u8],
+) -> Vec<Value> {
+    let mut cases: Vec<(&str, String, Vec<u8>, &str)> = Vec::new();
+    let mut push = |function: &'static str,
+                    variants: Vec<(&'static str, Vec<u8>, &'static str)>| {
+        for (label, calldata, contract) in variants {
+            cases.push((function, label.to_owned(), calldata, contract));
+        }
+    };
+
+    push("voidExpired", void_expired_variants(void_expired, false));
+    push(
+        "voidExpiredHistorical",
+        void_expired_variants(void_expired_historical, true),
+    );
+
+    // `voidFrozen` in a frozen state; the accepted ranges are disjoint.
+    let frozen = void_frozen_calldata(4, 3);
+    push(
+        "voidFrozen",
+        vec![
+            ("canonical", frozen.clone(), ACCEPT),
+            ("count_1", void_frozen_calldata(0, 1), ACCEPT),
+            ("count_256", void_frozen_calldata(256, 256), ACCEPT),
+            (
+                "range_ends_at_u64_max",
+                void_frozen_calldata(u64::MAX - 255, 256),
+                ACCEPT,
+            ),
+            ("count_0", void_frozen_calldata(8, 0), "BadAmount"),
+            ("count_257", void_frozen_calldata(8, 257), "BadAmount"),
+            (
+                "range_past_u64_max",
+                void_frozen_calldata(u64::MAX, 2),
+                "BadAmount",
+            ),
+            ("trailing_byte", appended(&frozen, &[0]), NON_CANONICAL),
+            (
+                "trailing_word",
+                appended(&frozen, &[0; WORD]),
+                NON_CANONICAL,
+            ),
+            (
+                "short_byte",
+                frozen[..frozen.len() - 1].to_vec(),
+                EMPTY_REVERT,
+            ),
+            (
+                "dirty_first_nonce_high_bits",
+                dirty(&frozen, 0, 23),
+                EMPTY_REVERT,
+            ),
+            (
+                "dirty_count_high_bits",
+                dirty(&frozen, WORD, 23),
+                EMPTY_REVERT,
+            ),
+        ],
+    );
+
+    // `transferToTaira` by a funded caller whose next nonce is 0.
+    let transfer = transfer_call.calldata();
+    let recipient_len = transfer_call.taira_recipient.len();
+    assert_ne!(recipient_len % WORD, 0, "the recipient has padding");
+    // Offset 0x80 over the unchanged body points the length at the recipient bytes; with a zero
+    // word inserted first, Solidity's own decoder reads the same arguments.
+    let mut offset_0x80 = transfer.clone();
+    offset_0x80[4 + 31] = 0x80;
+    let mut offset_gap = with_gap(&transfer, 3 * WORD);
+    bump(&mut offset_gap, 0, 0x20);
+    let mut padding = transfer.clone();
+    let last = padding.len() - 1;
+    padding[last] = 1;
+    let mut empty_recipient = transfer[..4 + 4 * WORD].to_vec();
+    empty_recipient[4 + 3 * WORD..].fill(0);
+    // The length word claims one byte less; the dropped recipient byte becomes padding.
+    let mut length_short = transfer.clone();
+    length_short[4 + 4 * WORD - 1] -= 1;
+    let mut amount_2_pow_128 = transfer.clone();
+    amount_2_pow_128[4 + WORD..4 + 2 * WORD].fill(0);
+    amount_2_pow_128[4 + WORD + 15] = 1;
+    let with = |edit: TransferToTairaCallV1| edit.calldata();
+    push(
+        "transferToTaira",
+        vec![
+            ("canonical", transfer.clone(), ACCEPT),
+            ("offset_0x80", offset_0x80, EMPTY_REVERT),
+            ("recipient_offset_gap", offset_gap, NON_CANONICAL),
+            ("nonzero_padding", padding, NON_CANONICAL),
+            (
+                "trailing_word",
+                appended(&transfer, &[0; WORD]),
+                NON_CANONICAL,
+            ),
+            ("trailing_byte", appended(&transfer, &[0]), NON_CANONICAL),
+            (
+                "truncated_word",
+                transfer[..transfer.len() - WORD].to_vec(),
+                EMPTY_REVERT,
+            ),
+            ("empty_recipient", empty_recipient, NON_CANONICAL),
+            ("recipient_length_short_by_one", length_short, NON_CANONICAL),
+            (
+                "recipient_1025_bytes",
+                with(TransferToTairaCallV1 {
+                    taira_recipient: vec![0x5a; 1025],
+                    ..transfer_call.clone()
+                }),
+                NON_CANONICAL,
+            ),
+            (
+                "zero_amount",
+                with(TransferToTairaCallV1 {
+                    token_amount: 0,
+                    ..transfer_call.clone()
+                }),
+                "BadAmount",
+            ),
+            ("amount_2_pow_128", amount_2_pow_128, "BadAmount"),
+            (
+                "dirty_nonce_high_bits",
+                dirty(&transfer, 2 * WORD, 23),
+                EMPTY_REVERT,
+            ),
+        ],
+    );
+
+    cases
+        .into_iter()
+        .map(|(function, label, calldata, contract)| {
+            let outcome = if function == "transferToTaira" {
+                TransferToTairaCallV1::decode(&calldata).map(|call| {
+                    assert_eq!(&call, transfer_call, "{label}");
+                })
+            } else {
+                VoidCallV1::decode(&calldata).map(|_| ())
+            };
+            let decoder = match outcome {
+                Ok(()) => text(ACCEPT),
+                Err(error) => error_name(error),
+            };
+            assert_eq!(
+                decoder == text(ACCEPT),
+                contract == ACCEPT,
+                "{function} {label}: the decoder and the contract disagree"
+            );
+            obj([
+                ("function", text(function)),
+                ("label", text(&label)),
+                ("calldata", hex(&calldata)),
+                ("decoder", decoder),
+                ("contract", text(contract)),
+            ])
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1814,10 +1990,9 @@ fn evm_calldata_fixture() -> Value {
 
 type Generator = fn() -> Value;
 
-const FIXTURES: [(&str, Generator); 7] = [
+const FIXTURES: [(&str, Generator); 6] = [
     ("payload_v1.json", payload_fixture),
     ("commitment_tree_v1.json", commitment_tree_fixture),
-    ("control_v1.json", control_fixture),
     ("history_v1.json", history_fixture),
     ("eip712_v1.json", eip712_fixture),
     ("roster_v1.json", roster_fixture),

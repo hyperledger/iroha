@@ -7,6 +7,5 @@
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
 pub mod pasta;
-pub mod pasta_keys;
 pub mod poseidon;
 pub mod vega_constants;

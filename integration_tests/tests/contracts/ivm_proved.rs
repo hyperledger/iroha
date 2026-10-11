@@ -51,9 +51,9 @@ fn counter_artifact() -> Vec<u8> {
         ..Default::default()
     })
     .compile_source(
-        r#"seiyaku ProvedCounter {
+        r#"seiyaku ProvedCounter { import permission "CanEnactGovernance" as CanEnactGovernance;
   state StateMap<int, int> Counters;
-  kotoage fn bump() authorize("CanEnactGovernance") {
+  kotoage fn bump() authorize(CanEnactGovernance) {
     let current = Counters.get(7).unwrap_or(0);
     Counters[7] = current + 1;
   }

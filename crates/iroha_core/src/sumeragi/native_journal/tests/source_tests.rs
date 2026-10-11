@@ -10,7 +10,8 @@ use iroha_data_model::sumeragi::finality::{
 fn prepared_native_journal_decodes_without_late_allocations_and_advances_real_native_cursor() {
     let (chain, journal) = fixture();
     let wire = norito::encode_canonical(&journal).unwrap();
-    let pool = chain.state().ivm_execution_budget();
+    // All source and cursor owners use one original offline-reader pool.
+    let pool = AllocationBudget::new(limits().allocated_bytes);
     let floor = pool.reserved_bytes();
     let mut source = ChargedBuffer::new(wire.len(), &pool).unwrap();
     source.append(&wire).unwrap();
@@ -118,7 +119,9 @@ fn prepared_native_journal_range_allocator_refusal_refunds_original_pool() {
 fn native_reader_rejects_foreign_prepared_source_pool_before_decode_or_control_admission() {
     let (chain, journal) = fixture();
     let wire = norito::encode_canonical(&journal).unwrap();
-    let pool = chain.state().ivm_execution_budget();
+    // Keep both original offchain operation pools independent of the chain
+    // fixture's MV epoch reclamation. No refusal creates or replaces a pool.
+    let pool = AllocationBudget::new(limits().allocated_bytes);
     let foreign = AllocationBudget::new(pool.limit_bytes());
     let mut source = ChargedBuffer::new(wire.len(), &foreign).unwrap();
     source.append(&wire).unwrap();
@@ -139,7 +142,6 @@ fn native_reader_rejects_foreign_prepared_source_pool_before_decode_or_control_a
                 &chain_id,
                 &network,
                 limits(),
-                &NoAttestation,
                 &pool,
                 |_| -> Result<(), NativeJournalError> {
                     panic!("foreign pool may not decode or authenticate")

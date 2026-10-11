@@ -341,6 +341,24 @@ impl StreamTokenGatewayAdmissionProviderV1 for DurableProvider {
                 .collect(),
         })
     }
+    fn pending_for_background(
+        &self,
+        max_items: u32,
+        deadline: Instant,
+    ) -> Result<StreamTokenGatewayReconciliationReadV1, StreamTokenGatewayAdmissionErrorV1> {
+        self.note_call("background", deadline)?;
+        if self.state.lock().unwrap().qualification_unavailable {
+            return Err(StreamTokenGatewayAdmissionErrorV1::Unavailable);
+        }
+        let readback = self.pending(max_items, deadline)?;
+        if readback.records.is_empty()
+            && readback.high_water_sequence == readback.acknowledged_through_sequence
+        {
+            Ok(StreamTokenGatewayReconciliationReadV1::Idle)
+        } else {
+            Ok(StreamTokenGatewayReconciliationReadV1::Checked(readback))
+        }
+    }
     fn acknowledge(
         &self,
         record: StreamTokenGatewayAdmissionRecordV1,
@@ -989,4 +1007,58 @@ fn native_delivery_binding_drift_rejects_before_any_operation_work() {
     );
     assert!(reputation.calls().is_empty());
     assert!(provider.state.lock().unwrap().calls.is_empty());
+}
+
+#[test]
+fn background_idle_and_recovery_keep_binding_errors_and_one_deadline() {
+    let provider = Arc::new(DurableProvider::new());
+    let reputation = Arc::new(ReputationProbe::default());
+    let capture = capture(provider.clone(), reputation.clone(), 8);
+    assert_eq!(
+        capture.reconcile_background().unwrap(),
+        StreamTokenReconciliationOutcomeV1::Idle
+    );
+    assert!(reputation.calls().is_empty());
+    provider.state.lock().unwrap().qualification_unavailable = true;
+    assert_eq!(
+        capture.reconcile_background(),
+        Err(StreamTokenGatewayAdmissionErrorV1::Unavailable)
+    );
+    provider.state.lock().unwrap().qualification_unavailable = false;
+    reputation.wrong_binding.store(1, Ordering::Release);
+    assert_eq!(
+        capture.reconcile_background(),
+        Err(StreamTokenGatewayAdmissionErrorV1::StaleOrRevoked)
+    );
+    reputation.wrong_binding.store(0, Ordering::Release);
+
+    // Work arrives via the shared provider after this capture has reported Idle.
+    let request = request(
+        "background-recovery",
+        VALIDATED_AT_MS,
+        VALIDATED_AT_MS / 1_000 + 600,
+        2,
+    );
+    let record = provider.admit(&request, test_deadline()).unwrap().record;
+    reputation.fail_once();
+    assert_eq!(
+        capture.reconcile_background(),
+        Err(StreamTokenGatewayAdmissionErrorV1::ReputationCallback)
+    );
+    assert_eq!(provider.acknowledged_through(), 0);
+    provider.state.lock().unwrap().calls.clear();
+    assert_eq!(
+        capture.reconcile_background().unwrap(),
+        StreamTokenReconciliationOutcomeV1::Reconciled(1)
+    );
+    assert_eq!(provider.acknowledged_through(), 1);
+    let state = provider.state.lock().unwrap();
+    let deadline = state.calls[0].1;
+    assert!(state.calls.iter().all(|(_, actual)| *actual == deadline));
+    assert_eq!(reputation.calls(), vec![(record, deadline)]);
+    drop(state);
+    assert_eq!(
+        capture.reconcile_background().unwrap(),
+        StreamTokenReconciliationOutcomeV1::Idle
+    );
 }

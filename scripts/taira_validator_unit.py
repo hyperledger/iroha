@@ -38,7 +38,7 @@ from pathlib import Path, PurePosixPath
 import re
 import stat
 
-CUSTODY = '''reserved_fds = (198, 199, 200)
+CUSTODY = '''reserved_fds = (198, 200)
 for reserved_fd in reserved_fds:
     try:
         os.fstat(reserved_fd)
@@ -153,7 +153,6 @@ def stage_signer(source_path, target_fd, expected_size, label):
 
 try:
     stage_signer(runtime_key, 198, 71, "runtime signer")
-    stage_signer(mint_finality_seed, 199, 32, "mint-finality seed")
     if global_beacon_credential is not None:
         stage_signer(global_beacon_credential, 200, None, "global-beacon credential")
     launch_argv = cmd
@@ -415,16 +414,15 @@ def first_boot_paths(role, state_root=None):
     return root, root + "/" + FIRST_BOOT_TOKEN, tuple(root + "/" + name for name in SUMERAGI_HISTORY)
 
 
-def launcher(role, runtime_key, mint_finality_seed, global_beacon_credential=None, *,
+def launcher(role, runtime_key, global_beacon_credential=None, *,
              config_file="config.toml", state_root=None):
     if role not in ROLES:
         raise ValueError("unknown validator role")
     if config_file not in CONFIG_FILES:
         raise ValueError("config file must be config.toml or beacon.toml")
     runtime_key = checked_path(runtime_key, "signer input")
-    mint_finality_seed = checked_path(mint_finality_seed, "signer input")
     state_root, first_boot_token, sumeragi_history = first_boot_paths(role, state_root)
-    paths = (runtime_key, runtime_key + ".fd198", mint_finality_seed, mint_finality_seed + ".fd199",
+    paths = (runtime_key, runtime_key + ".fd198",
              first_boot_token, *sumeragi_history)
     if global_beacon_credential is not None:
         global_beacon_credential = checked_path(global_beacon_credential, "signer input")
@@ -436,7 +434,7 @@ def launcher(role, runtime_key, mint_finality_seed, global_beacon_credential=Non
     # Native consumers truncate only their independent owner-private, single-link
     # RW launch copies. Retained native sources remain intact for restart.
     return ("import errno\nimport os\nimport stat\n"
-            + f"runtime_key = {runtime_key!r}\nmint_finality_seed = {mint_finality_seed!r}\n"
+            + f"runtime_key = {runtime_key!r}\n"
             + f"global_beacon_credential = {global_beacon_credential!r}\n"
             + f"state_root = {state_root!r}\nfirst_boot_token = {first_boot_token!r}\n"
             + f"sumeragi_history = {sumeragi_history!r}\n"
@@ -452,8 +450,8 @@ def systemd_argument(value):
     return '"' + out + '"'
 
 
-def render(role, runtime_key, mint_finality_seed, global_beacon_credential=None, *, config_file="config.toml"):
-    code = launcher(role, runtime_key, mint_finality_seed, global_beacon_credential, config_file=config_file)
+def render(role, runtime_key, global_beacon_credential=None, *, config_file="config.toml"):
+    code = launcher(role, runtime_key, global_beacon_credential, config_file=config_file)
     compile(code, "<signed-unit-inline-python>", "exec")
     return (f"[Unit]\nDescription=Taira {role}\nAfter=network.target\n\n"
             "[Service]\nType=exec\nUser=root\nGroup=root\nUMask=0077\n"
@@ -503,14 +501,13 @@ def main():
     parser.add_argument("--role", choices=ROLES, required=True)
     parser.add_argument("--arm-first-boot", action="store_true", help="Render nothing; as root on the stopped validator host, before the first start of its fresh state root, create the one-shot token that makes the next start pass --sumeragi-assert-fresh-key; refuses when Sumeragi safety history or a token exists")
     parser.add_argument("--runtime-key", help="Required to render. Actual retained owner-0600, single-link, 71-byte signer path on the approved guest; never read here")
-    parser.add_argument("--mint-finality-seed", help="Required to render. Actual retained owner-0600, single-link, 32-byte raw mint-finality seed path on the approved guest; never read here")
     parser.add_argument("--global-beacon-credential", help="Retained owner-0600, single-link native beacon credential on the approved guest; consumed launch copy at FD 200; omit only for initial key setup; never read here")
     parser.add_argument("--config-file", choices=CONFIG_FILES, help="Exact retained initial config (config.toml, the default) or authenticated beacon provider transition")
     parser.add_argument("--amend-unit", type=Path, help="Installed public unit whose sole native config fingerprint is to be amended; config and custody bytes stay unchanged")
     parser.add_argument("--rate-config-receipt", type=Path, help="Public native torii-rate-config-amend receipt binding the installed config path and old/new fingerprints")
     parser.add_argument("--output", type=Path, help="Required to render or amend. Fresh iroha3d-ROLE.service file; never overwritten")
     args = parser.parse_args()
-    rendering = {"--runtime-key": args.runtime_key, "--mint-finality-seed": args.mint_finality_seed,
+    rendering = {"--runtime-key": args.runtime_key,
                  "--global-beacon-credential": args.global_beacon_credential,
                  "--config-file": args.config_file, "--output": args.output}
     if args.arm_first_boot:
@@ -534,13 +531,13 @@ def main():
         except (OSError, ValueError, SyntaxError, RecursionError) as error:
             parser.exit(1, f"{parser.prog}: unit not amended: {error}\n")
         return
-    missing = [flag for flag in ("--runtime-key", "--mint-finality-seed", "--output") if rendering[flag] is None]
+    missing = [flag for flag in ("--runtime-key", "--output") if rendering[flag] is None]
     if missing:
         parser.error("the following arguments are required to render: " + ", ".join(missing))
     if args.output.name != f"iroha3d-{args.role}.service":
         parser.error("output filename must match the canonical role unit name")
     try:
-        content = render(args.role, args.runtime_key, args.mint_finality_seed, args.global_beacon_credential,
+        content = render(args.role, args.runtime_key, args.global_beacon_credential,
                          config_file=args.config_file or "config.toml").encode()
     except ValueError as error:
         parser.error(str(error))

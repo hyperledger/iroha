@@ -18,7 +18,7 @@ async fn proof_tags_returns_ascii_tags() {
     let query = LiveQueryStore::start_test();
     let state = State::new_for_testing(World::new(), kura, query);
     // Insert tag index directly (prototype path)
-    let backend = "halo2/ipa";
+    let backend = "pipa-r/pasta";
     let proof_hash = [0x44; 32];
     let id = ProofId {
         backend: backend.into(),

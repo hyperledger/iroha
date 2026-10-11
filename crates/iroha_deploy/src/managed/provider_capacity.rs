@@ -9,7 +9,7 @@ use super::{
         now_ms, read_optional, require_deadline, require_empty,
     },
     provider_economics,
-    service_authority::{ProviderPurpose, ServiceAuthority},
+    service_authority::{CheckpointImportScope, ProviderPurpose, ServiceAuthority},
 };
 use crate::{
     localnet::service_authorities::{RetainedProviderServicePlan, StreamTokenAuthorityRole},
@@ -117,6 +117,23 @@ impl ManagedProviderCapacity {
         Ok(owner)
     }
 
+    /// Preserve the plan postcondition while admitting this provider's own purpose lock.
+    /// Active decode admission and owned parents retain the full standalone capture recipe.
+    pub(super) fn open_from_original(
+        parent: &ServiceAuthority,
+        provider: iroha_data_model::sorafs::capacity::ProviderId,
+    ) -> Result<Self> {
+        let owner = Self {
+            authority: ServiceAuthority::open_provider_from_original(
+                parent,
+                provider,
+                ProviderPurpose::ProviderCapacityDeclaration,
+            )?,
+        };
+        owner.plan()?;
+        Ok(owner)
+    }
+
     /// Retain the generated declaration against fresh native economic and predecessor facts.
     /// Bootstrap selects policy from its prior owner; users supply no declaration or amount.
     /// Native declaration registration is a replacement, without atomic capacity CAS.
@@ -129,16 +146,35 @@ impl ManagedProviderCapacity {
         self.declare_original(policy, deadline_unix_ms, options, None)
     }
 
+    #[cfg(test)]
     pub(super) fn open_existing(
         prepared: &PreparedLocalnet,
         provider: iroha_data_model::sorafs::capacity::ProviderId,
     ) -> Result<Option<Self>> {
-        let Some(authority) = ServiceAuthority::open_provider_existing(
+        Self::from_existing_authority(ServiceAuthority::open_provider_existing(
             prepared,
             provider,
             ProviderPurpose::ProviderCapacityDeclaration,
-        )?
-        else {
+        )?)
+    }
+
+    /// Preserve the existing plan postcondition while borrowing the original read-only profile.
+    /// Optional lexical import work supplies no source, transaction or current-state verdict.
+    pub(super) fn open_existing_from_original(
+        parent: &ServiceAuthority,
+        provider: iroha_data_model::sorafs::capacity::ProviderId,
+        scope: Option<&CheckpointImportScope>,
+    ) -> Result<Option<Self>> {
+        Self::from_existing_authority(ServiceAuthority::open_provider_existing_from_original(
+            parent,
+            provider,
+            ProviderPurpose::ProviderCapacityDeclaration,
+            scope,
+        )?)
+    }
+
+    fn from_existing_authority(authority: Option<ServiceAuthority>) -> Result<Option<Self>> {
+        let Some(authority) = authority else {
             return Ok(None);
         };
         let owner = Self { authority };
@@ -227,8 +263,9 @@ impl ManagedProviderCapacity {
             None,
             |attempt| {
                 account
-                    .inspect_provider_capacity_declaration_preparation(
-                        &attempt.wallet_path(),
+                    .inspect_provider_capacity_declaration_preparation_in_parent(
+                        attempt.directory(),
+                        std::ffi::OsStr::new("transaction"),
                         &original.request(attempt.terms(), deadline),
                     )
                     .map_err(|_| invalid("capacity attempt differs from exact wallet request"))
@@ -273,7 +310,7 @@ impl ManagedProviderCapacity {
     ) -> Result<Original> {
         let plan = self.plan()?;
         let tip = verifier
-            .verified_tip()
+            .verified_tip_ref()
             .map_err(|_| invalid("capacity requires selected certified state"))?;
         if current.height() != tip.height()
             || current.context_id() != tip.context_id()
@@ -397,10 +434,8 @@ impl ManagedProviderCapacity {
         self.authority.validate_profile()?;
         self.validate_policy(policy)?;
         journal::admit_selection_inputs(partition, credit, self.plan()?.declaration())?;
-        let directory = match self.authority.directory.open_child("declare") {
-            Ok(directory) => directory,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
+        let Some(directory) = self.authority.directory.open_child_optional("declare")? else {
+            return Ok(None);
         };
         let Some(original) = journal::read_intent(&directory)? else {
             require_empty(&directory)?;
@@ -445,8 +480,9 @@ impl ManagedProviderCapacity {
         let verify_custody = || {
             original.verify_wallets(|intent, attempt| {
                 account
-                    .inspect_provider_capacity_declaration_preparation(
-                        &attempt.wallet_path(),
+                    .inspect_provider_capacity_declaration_preparation_in_parent(
+                        attempt.directory(),
+                        std::ffi::OsStr::new("transaction"),
                         &intent.request(attempt.terms(), deadline),
                     )
                     .map_err(|_| invalid("retained capacity attempt history changed"))
@@ -454,7 +490,11 @@ impl ManagedProviderCapacity {
         };
         verify_custody()?;
         let preparation = account
-            .inspect_provider_capacity_declaration_preparation(&path, &original.request(deadline))
+            .inspect_provider_capacity_declaration_preparation_in_parent(
+                directory,
+                std::ffi::OsStr::new("transaction"),
+                &original.request(deadline),
+            )
             .map_err(|_| invalid("wallet preparation differs from the exact original request"))?;
         let unprepared_expired = preparation.unprepared_status() == Some(OperationStatus::Expired);
         let retained = match preparation.phase() {
@@ -588,7 +628,7 @@ impl ManagedProviderCapacity {
                     &original.checkpoint,
                     &transaction,
                     &report,
-                    observed.checkpoint().height(),
+                    observed,
                     deadline,
                 )?
             } else {
@@ -600,9 +640,11 @@ impl ManagedProviderCapacity {
         if let Some(finalized) = &finalized {
             self.validate_carrier(&original, finalized)?;
         }
-        let current = observed
-            .as_ref()
-            .and_then(|verifier| self.read_current(&original.policy, verifier, deadline).ok());
+        let current = super::native_operation::optional_current(
+            observe_current,
+            observed.as_ref(),
+            |verifier| self.read_current(&original.policy, verifier, deadline),
+        );
         verify_custody()?;
         Ok(progress(report.status, finalized, current))
     }
@@ -701,7 +743,7 @@ impl ManagedProviderCapacity {
         }
         let checkpoint = self.authority.decode_checkpoint(&original.checkpoint)?;
         let tip = checkpoint
-            .verified_tip()
+            .verified_tip_ref()
             .map_err(|_| invalid("invalid original capacity checkpoint"))?;
         tip.verify_global_scope(
             self.authority.config.network_id,

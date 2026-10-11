@@ -290,7 +290,7 @@ final class VerifyingKeyDraftBinding {
                             : Optional.of(
                                 new ExpectedKey(
                                     value.backend, value.verifyingKeyBytes))));
-            encodeSized(record, field -> field.writeUInt(value.status, 8));
+            encodeSized(record, field -> field.writeUInt(value.status, 32));
           });
     }
 

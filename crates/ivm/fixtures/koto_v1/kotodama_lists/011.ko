@@ -1,6 +1,6 @@
 
             seiyaku ContextualEmptyList {
-                view fn main() -> int {
+                view fn main() authorize(anyone) -> int {
                     let List<int, 4> values = [];
                     values.len()
                 }

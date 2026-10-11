@@ -123,18 +123,6 @@ const SYNTHETIC_LANE_LIFECYCLE_HEADER_DOMAIN: &[u8] =
 fn lane_incarnation_is_zero(incarnation: Hash) -> bool {
     incarnation.as_ref().iter().all(|byte| *byte == 0)
 }
-fn lane_incarnation_matches_at_height(
-    incarnations: &BTreeMap<LaneId, Hash>,
-    activation_heights: &BTreeMap<LaneId, u64>,
-    lane_id: LaneId,
-    proposal_height: u64,
-    actual: Hash,
-) -> bool {
-    incarnations.get(&lane_id) == Some(&actual)
-        && activation_heights
-            .get(&lane_id)
-            .is_some_and(|activation_height| proposal_height > *activation_height)
-}
 #[cfg(test)]
 fn synthetic_lane_lifecycle_header_hash(
     network_id: &iroha_data_model::NetworkId,
@@ -645,38 +633,14 @@ fn ensure_live_shared_dataspace_staking_owner_is_not_reset(
         });
     }
 
-    // Reward records, cursors and accruals are pruned with a retired/replaced lane. Its
-    // recipients must receive every promised payment before that destructive
-    // boundary, including rewards owed after all staking custody has drained.
-    if let Some(((lane, _, _), _)) = world
-        .public_lane_reward_accruals()
-        .iter()
-        .find(|((lane, _, _), _)| lanes_to_reset.contains(lane))
+    // Automatic reward history survives principal exit. Keep its claim lane
+    // available until funded liabilities and unclosed historical earnings retire.
+    if let Some(lane) = crate::validation_fee_rewards::unsettled_reward_lane(world, lanes_to_reset)?
     {
         return Err(LaneLifecycleError::UnsafeRetirement {
-            lane: *lane,
-            reason: "public-lane accrued rewards remain unpaid",
+            lane,
+            reason: "automatic staking reward obligations remain unsettled",
         });
-    }
-    for (key, reward) in world.public_lane_rewards().iter() {
-        if !lanes_to_reset.contains(&key.0) && !lanes_to_reset.contains(&reward.lane_id) {
-            continue;
-        }
-        if !public_lane_reward_record_matches_key(key, reward)
-            || reward.shares.iter().any(|share| {
-                !share.amount.is_zero()
-                    && world
-                        .public_lane_reward_claims()
-                        .get(&(key.0, share.account.clone()))
-                        .and_then(|claim| claim.through_epoch)
-                        .is_none_or(|through| through < key.1)
-            })
-        {
-            return Err(LaneLifecycleError::UnsafeRetirement {
-                lane: key.0,
-                reason: "public-lane rewards remain unpaid or their retained record is invalid",
-            });
-        }
     }
 
     let dataspaces = nexus

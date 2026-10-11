@@ -1,6 +1,6 @@
 
-        seiyaku Demo {
-            kotoage fn run() authorize("Admin") {
+        seiyaku Demo { permission Admin;
+            kotoage fn run() authorize(Admin) {
                 debug::info("run");
             }
 

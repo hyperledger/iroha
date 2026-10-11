@@ -18,17 +18,18 @@ use iroha_data_model::{
 /// Require current finality and the exact ordinary input, output, and execution route.
 pub(super) fn authenticated_native_execution(
     finality: &FixtureFinality,
-    peer: &PeerId,
-    client: &iroha::client::Client,
-    store: &Path,
+    peer: &real_custody::CatalogPeer,
     transaction: &SignedTransaction,
     height: u64,
     route: RoutingDecision,
     expected_committee: Option<&[PeerId]>,
 ) -> Result<Vec<u8>> {
+    let client = &peer.client;
+    let store = &peer.kura_store;
     let details = client.get_successful_transaction_details(transaction.hash_as_entrypoint())?;
     let committed = &details.transaction;
-    let verified = finality.verified_block(peer, client, height, *committed.block_hash())?;
+    let verified =
+        finality.verified_block(&peer.peer_id, client, height, *committed.block_hash())?;
     verify_ordinary_execution(
         &verified,
         &finality.network_id,
@@ -187,7 +188,7 @@ mod tests {
             .collect::<Vec<_>>();
         let mut verifier = SumeragiFinalityVerifier::new(
             chain.genesis(),
-            &chain.state().chain_id_ref().to_string(),
+            chain.state().chain_id_ref().as_ref(),
             validators.clone(),
         )
         .unwrap();

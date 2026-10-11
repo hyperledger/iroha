@@ -25,7 +25,6 @@ struct StableSidecarMetadata {
 #[derive(Debug)]
 struct StableSidecarRead<B> {
     bytes: B,
-    bytes_hash: Hash,
     metadata: StableSidecarMetadata,
 }
 /// Exact directory generation covered by a completed progress-pair durability barrier.

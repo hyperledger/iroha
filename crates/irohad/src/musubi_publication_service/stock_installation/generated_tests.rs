@@ -108,7 +108,7 @@ impl Generated {
             .unwrap();
         let mut custody = Vec::new();
         let mut first = None;
-        for (index, peer) in prepared.peers.iter().enumerate() {
+        for peer in &prepared.peers {
             let reader = open_node_config(
                 NodeFile::Path(peer.config_path.clone()),
                 NodeConfigOptions::default(),
@@ -117,21 +117,12 @@ impl Generated {
             let (user, _) = reader.read().unwrap();
             let config = user.parse().unwrap();
             ensure_peer_config_matches_manifest(&config, &manifest).unwrap();
-            let secrets = root
-                .open_child("nodes")
-                .unwrap()
-                .open_child(format!("peer{index}"))
-                .unwrap()
-                .open_child("secrets")
-                .unwrap();
-            let bytes = secrets.read("mint_finality.seed", 32).unwrap();
-            let seed = zeroize::Zeroizing::new(<[u8; 32]>::try_from(bytes.as_slice()).unwrap());
-            custody.push((config.common.key_pair.clone(), seed));
+            custody.push(config.common.key_pair.clone());
             if first.is_none() {
                 first = Some(config);
             }
         }
-        custody.sort_by_key(|(key, _)| PeerId::new(key.public_key().clone()));
+        custody.sort_by_key(|key| PeerId::new(key.public_key().clone()));
         let config = first.unwrap();
         assert_eq!(
             config.pipeline.ivm_execution_max_bytes,
@@ -152,14 +143,12 @@ impl Generated {
             &GenesisBlock(genesis.block().clone()),
         )
         .unwrap();
-        let (validator_keys, pasta_seeds) = custody.into_iter().unzip();
         let chain = CertifiedTestChain::from_prepared(PreparedTestChainConfig {
             genesis,
             manifest,
             state: Arc::new(state),
             kura,
-            validator_keys,
-            pasta_seeds,
+            validator_keys: custody,
             clock: manager.key_pair.clone(),
             lane_blocks: Arc::new(NoLanes),
         })

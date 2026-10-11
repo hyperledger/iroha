@@ -15,7 +15,7 @@ const SOURCE: &str = r#"seiyaku NumericOperands {
         if (left < right) { return (left + right) * (right - left); }
         return (left - right) + (left * right);
     }
-    view fn run(int left, int right) -> int { return arithmetic(left, right); }
+    view fn run(int left, int right) authorize(anyone) -> int { return arithmetic(left, right); }
 }"#;
 
 fn compile(source: &str, retain_publication: bool) -> CompileOutput {

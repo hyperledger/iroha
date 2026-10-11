@@ -83,6 +83,17 @@ impl From<TelemetryStatusSourceError> for StatusSnapshotError {
     }
 }
 
+impl From<crate::state::StateViewError> for StatusSnapshotError {
+    fn from(error: crate::state::StateViewError) -> Self {
+        match error {
+            crate::state::StateViewError::Busy(_) => Self::StateBusy,
+            crate::state::StateViewError::Changed
+            | crate::state::StateViewError::Poisoned
+            | crate::state::StateViewError::Runtime(_) => Self::StateUnavailable,
+        }
+    }
+}
+
 #[derive(Default)]
 struct ClassifiedDelta {
     accepted: u64,

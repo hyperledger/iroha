@@ -1,22 +1,21 @@
 module ContractFlowTests {
-    koto_test {
-        target: "19_contract_flow_test.ko"
-    }
+    koto_test { target: "19_contract_flow_test.ko" }
 
     fixture actors {
         actor(
             "issuer",
-            AccountId::parse("sorauﾛ1QEnRヰ7Dﾑzmg1ﾊｻ4ﾈAcckｻsafiｳヱufｴｻｻPﾆｴﾖﾁﾉDR1Y5PX", ),
+            AccountId::parse("sorauﾛ1QEnRヰ7Dﾑzmg1ﾊｻ4ﾈAcckｻsafiｳヱufｴｻｻPﾆｴﾖﾁﾉDR1Y5PX"),
             "0x0909090909090909090909090909090909090909090909090909090909090909",
         );
-        grant_permission("issuer", "Entry");
+        grant_seiyaku_permission("issuer", "Entry");
+        grant_seiyaku_lifecycle_permission("issuer", "hajimari");
     }
 
     #[test(fixture = "actors")]
     fn actor_helpers_roundtrip() {
         let acct = test::actor_account("issuer");
         test::assert(
-            acct == AccountId::parse("sorauﾛ1QEnRヰ7Dﾑzmg1ﾊｻ4ﾈAcckｻsafiｳヱufｴｻｻPﾆｴﾖﾁﾉDR1Y5PX", ),
+            acct == AccountId::parse("sorauﾛ1QEnRヰ7Dﾑzmg1ﾊｻ4ﾈAcckｻsafiｳヱufｴｻｻPﾆｴﾖﾁﾉDR1Y5PX"),
         );
         test::actor_public_key("issuer");
         test::actor_sign(actor: "issuer", payload: b"native-flow");
@@ -24,33 +23,22 @@ module ContractFlowTests {
 
     #[test(fixture = "actors")]
     fn invoke_kotoage_as_runs_the_seiyaku() {
-        test::invoke_kotoage_as(
-            actor: "issuer",
-            kotoage: "hajimari",
-            arguments: Json::parse("{}"),
-        );
-        test::invoke_kotoage_as(
-            actor: "issuer",
-            kotoage: "increment",
-            arguments: Json::parse("{}"),
-        );
+        test::invoke_kotoage_as(actor: "issuer", kotoage: "hajimari", arguments: {});
+        test::invoke_kotoage_as(actor: "issuer", kotoage: "increment", arguments: {});
         test::assert(counter == 5);
-        test::invoke_kotoage_as(
-            actor: "issuer",
-            kotoage: "remember_caller",
-            arguments: Json::parse("{}"),
-        );
+        test::invoke_kotoage_as(actor: "issuer", kotoage: "remember_caller", arguments: {});
         test::assert(
-            last_actor == AccountId::parse("sorauﾛ1QEnRヰ7Dﾑzmg1ﾊｻ4ﾈAcckｻsafiｳヱufｴｻｻPﾆｴﾖﾁﾉDR1Y5PX", ),
+            last_actor == AccountId::parse("sorauﾛ1QEnRヰ7Dﾑzmg1ﾊｻ4ﾈAcckｻsafiｳヱufｴｻｻPﾆｴﾖﾁﾉDR1Y5PX"),
         );
     }
 
     #[test(fixture = "actors")]
     fn expect_reject_as_captures_seiyaku_rejection() {
+        test::invoke_kotoage_as(actor: "issuer", kotoage: "hajimari", arguments: {});
         test::expect_reject_as(
             actor: "issuer",
             kotoage: "reject_me",
-            arguments: Json::parse("{}"),
+            arguments: {},
             expected: ExampleError::Rejected,
         );
     }

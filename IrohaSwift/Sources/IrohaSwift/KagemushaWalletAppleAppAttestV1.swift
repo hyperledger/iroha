@@ -59,8 +59,17 @@ public enum KagemushaWalletAppleEnrollmentAttestationErrorV1: Error, Equatable, 
   case malformedAppAttestKeyID
   /// An App Attest call failed at `stage` with the underlying error's `domain` and `code`
   /// (`DCError.Code` in `DCErrorDomain`: for example `serverUnavailable` is worth retrying,
-  /// `featureUnsupported` is not). A retry uses a fresh App Attest key.
+  /// `featureUnsupported` is not). An uncertain effect is never repeated implicitly.
   case appAttestFailed(stage: KagemushaWalletAppleAppAttestStageV1, domain: String, code: Int)
+}
+
+/// Internal custody callbacks. They confer no authority independently; production uses only
+/// the actual Native Enrollment owner, while component tests supply explicitly unauthenticated DATA.
+protocol KagemushaWalletAppleEvidenceJournalV1: Sendable {
+  func originals() throws -> [Data]
+  func begin(_ stage: UInt8) throws
+  func retain(_ stage: UInt8, _ original: Data) throws
+  func complete() throws
 }
 
 extension KagemushaWalletApplePlatformV1 {
@@ -70,21 +79,11 @@ extension KagemushaWalletApplePlatformV1 {
     KagemushaWalletWireV1.digest(role: .enrollmentKeyBinding, body: challengeDigest + paymentPublicKey)
   }
 
-  /// Produce App Attest evidence for the slot's payment key (design E5, after the payment key
-  /// and the generation-0 marker are durable).
-  ///
-  /// The payment key must be `paymentPublicKey` and must have been generated for
-  /// `challengeDigest` (recorded with the key at generation). A fresh App Attest key is
-  /// generated and attested with `clientDataHash = challengeDigest`; the same key then asserts
-  /// the enrollment key-binding digest, computed here from `challengeDigest` and the bound
-  /// payment key, so the assertion binds exactly that key. Each call uses a fresh App Attest
-  /// key, so a crash after attestation but before the evidence is retained never reuses an
-  /// attested key.
-  // TODO(G2-bridge): the Rust enrollment owner retains the evidence, the App Attest key
-  // identifier and its consumed assertion counter in its E5 credential request; it can check
-  // `keyBindingDigest` against `kagemusha_wallet_enrollment_key_binding_v1`.
-  public func attestEnrollment(
-    slot: KagemushaWalletAppleSlotV1, paymentPublicKey: Data, challengeDigest: Data
+  /// Component sequencing only. Production supplies the same actual Native enrollment journal.
+  /// Its dispatch claims and returned originals survive retries; no new key replaces an uncertain effect.
+  func collectEnrollmentEvidence(
+    slot: KagemushaWalletAppleSlotV1, paymentPublicKey: Data, challengeDigest: Data,
+    journal: any KagemushaWalletAppleEvidenceJournalV1
   ) async throws -> KagemushaWalletAppleEnrollmentEvidenceV1 {
     guard challengeDigest.count == 32 else {
       throw KagemushaWalletAppleEnrollmentAttestationErrorV1.invalidDigest
@@ -105,16 +104,40 @@ extension KagemushaWalletApplePlatformV1 {
     }
     let keyBindingDigest = Self.enrollmentKeyBindingDigest(
       challengeDigest: challengeDigest, paymentPublicKey: paymentPublicKey)
-    let keyID = try await appAttestCall(.generateKey) { try await appAttest.generateKey() }
-    guard Data(base64Encoded: keyID)?.count == 32 else {
-      throw KagemushaWalletAppleEnrollmentAttestationErrorV1.malformedAppAttestKeyID
+    var originals = try journal.originals()
+    if originals[0].isEmpty {
+      let actual = try await appAttestCall(.generateKey, authorize: {
+        try Task.checkCancellation(); try journal.begin(1)
+      }) { try await appAttest.generateKey() }
+      // Retain the actual return before cancellation, key-shape checks or another vendor effect.
+      try journal.retain(1, Data(actual.utf8))
+      originals = try journal.originals()
     }
-    let attestation = try await appAttestCall(.attestKey) {
-      try await appAttest.attestKey(keyID, clientDataHash: challengeDigest)
+    guard let keyID = String(data: originals[0], encoding: .utf8),
+      let decoded = Data(base64Encoded: keyID), decoded.count == 32,
+      decoded.contains(where: { $0 != 0 }), decoded.base64EncodedString() == keyID
+    else { throw KagemushaWalletAppleEnrollmentAttestationErrorV1.malformedAppAttestKeyID }
+    if originals[1].isEmpty {
+      let actual = try await appAttestCall(.attestKey, authorize: {
+        try Task.checkCancellation(); try journal.begin(2)
+      }) {
+        try await appAttest.attestKey(keyID, clientDataHash: challengeDigest)
+      }
+      try journal.retain(2, actual)
+      originals = try journal.originals()
     }
-    let assertion = try await appAttestCall(.generateAssertion) {
-      try await appAttest.generateAssertion(keyID, clientDataHash: keyBindingDigest)
+    if originals[2].isEmpty {
+      let actual = try await appAttestCall(.generateAssertion, authorize: {
+        try Task.checkCancellation(); try journal.begin(3)
+      }) {
+        try await appAttest.generateAssertion(keyID, clientDataHash: keyBindingDigest)
+      }
+      try journal.retain(3, actual)
+      originals = try journal.originals()
     }
+    try Task.checkCancellation()
+    try journal.complete()
+    let attestation = originals[1], assertion = originals[2]
     return KagemushaWalletAppleEnrollmentEvidenceV1(
       appAttestKeyID: keyID, attestation: attestation, keyBindingDigest: keyBindingDigest,
       keyBindingAssertion: assertion)
@@ -122,8 +145,12 @@ extension KagemushaWalletApplePlatformV1 {
 
   /// Run one App Attest call, keeping the underlying error's domain and code on failure.
   private func appAttestCall<Value>(
-    _ stage: KagemushaWalletAppleAppAttestStageV1, _ call: () async throws -> Value
+    _ stage: KagemushaWalletAppleAppAttestStageV1, authorize: () throws -> Void,
+    _ call: () async throws -> Value
   ) async throws -> Value {
+    // Execute the Native check after entering this asynchronous function, immediately
+    // before calling the vendor; no awaited preparation follows the one-use authorization.
+    try authorize()
     do {
       return try await call()
     } catch {

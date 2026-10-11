@@ -26,7 +26,9 @@ fn deterministic_relation<C: BlsConfiguration>() {
     for seed in [1, 0x47, 0xfe] {
         let key = key::<C>(seed);
         for size in [0, 1, 32, 55, 64, 127, 1024, 4097] {
-            let message: Vec<_> = (0..size).map(|offset| (offset % 251) as u8).collect();
+            let message: Vec<_> = (0..size)
+                .map(|offset| u8::try_from(offset % 251).unwrap())
+                .collect();
             let reference = upstream_once::<C>(key.as_bytes(), &message);
             let actual = without_allocations(|| sign_once::<C>(key.as_bytes(), &message)).unwrap();
             assert_eq!(actual.as_slice(), reference);

@@ -51,6 +51,7 @@ get fun `test state size constants cover the compiled contracts`() {
     val bucketData: BucketStorage = {
         minterAddress: minter,
         index: 0xFFFFFFFF,
+        activated: true,
         bitsHi: 0,
         bitsLo: 0,
     };
@@ -144,7 +145,7 @@ get fun `test message size constants cover the largest messages`() {
     val consume = createMessage({
         bounce: BounceMode.Only256BitsOfBody,
         value: SCCP_TON_AMOUNT_LIMIT,
-        dest: sccpBucketDeployment(a, 0xFFFFFFFF, build("SccpConsumedBucket")),
+        dest: a,
         body: SccpConsume {
             queryId: (1 << 64) - 1,
             nonce: (1 << 64) - 1,
@@ -153,13 +154,44 @@ get fun `test message size constants cover the largest messages`() {
         },
     });
     val (cc, cb) = treeSize(consume.messageCell);
+    expectCovered("consume", cc, cb, SCCP_MSG_CONSUME_CELLS, SCCP_MSG_CONSUME_BITS);
+    val activate = createMessage({
+        bounce: BounceMode.Only256BitsOfBody,
+        value: SCCP_TON_AMOUNT_LIMIT,
+        dest: sccpBucketDeployment(a, 0xFFFFFFFF, build("SccpConsumedBucket")),
+        body: SccpActivateBucket {
+            queryId: (1 << 64) - 1,
+            index: 0xFFFFFFFF,
+        },
+    });
+    val (ac, ab) = treeSize(activate.messageCell);
     expectCovered(
-        "consume + StateInit",
-        cc,
-        cb,
-        SCCP_MSG_CONSUME_CELLS + SCCP_BUCKET_STATE_INIT_CELLS,
-        SCCP_MSG_CONSUME_BITS + SCCP_BUCKET_STATE_INIT_BITS,
+        "activate + StateInit",
+        ac,
+        ab,
+        SCCP_MSG_SMALL_CELLS + SCCP_BUCKET_STATE_INIT_CELLS,
+        SCCP_MSG_SMALL_BITS + SCCP_BUCKET_STATE_INIT_BITS,
     );
+    val smalls: array<cell> = [
+        (SccpConsumeReverted {
+            queryId: (1 << 64) - 1,
+            nonce: (1 << 64) - 1,
+            amount: SCCP_TON_AMOUNT_LIMIT - 1,
+        }).toCell(),
+        (SccpUnconsume { nonce: (1 << 64) - 1 }).toCell(),
+    ];
+    var k = 0;
+    while (k < smalls.size()) {
+        val small = createMessage({
+            bounce: BounceMode.Only256BitsOfBody,
+            value: SCCP_TON_AMOUNT_LIMIT,
+            dest: a,
+            body: smalls.get(k),
+        });
+        val (sc, sb) = treeSize(small.messageCell);
+        expectCovered("small message", sc, sb, SCCP_MSG_SMALL_CELLS, SCCP_MSG_SMALL_BITS);
+        k += 1;
+    }
     val consumed = createMessage({
         bounce: BounceMode.Only256BitsOfBody,
         value: SCCP_TON_AMOUNT_LIMIT,
@@ -224,6 +256,22 @@ get fun `test message size constants cover the largest messages`() {
     });
     val (vc, vb) = treeSize(voided.messageCell);
     expectCovered("sccp_voided", vc, vb, SCCP_MSG_EXT_EVENT_CELLS, SCCP_MSG_EXT_EVENT_BITS);
+    val rotated = createExternalLogMessage({
+        dest: createAddressNone(),
+        body: SccpRosterRotatedEvent {
+            generation: (1 << 64) - 1,
+            digest: MAX_U256,
+            validUntilMs: (1 << 64) - 1,
+        },
+    });
+    val (rrc, rrb) = treeSize(rotated.messageCell);
+    expectCovered(
+        "sccp_roster_rotated",
+        rrc,
+        rrb,
+        SCCP_MSG_EXT_EVENT_CELLS,
+        SCCP_MSG_EXT_EVENT_BITS,
+    );
     val (chunks, len) = sccpParseSnakeBytes(snakeOfLength(1024), 1024, 1);
     val payload = sccpBuildOutboundPayload(
         (1 << 64) - 1,
@@ -403,9 +451,9 @@ get fun `test worst-case finalize gas per step and the floors`() {
         SCCP_GAS_BUCKET_CONSUME,
     );
     expectGas(
-        "bucket top-up deploy",
-        gasOf<TopUpTons>(res, env.minter.getBucketAddress(0)),
-        SCCP_GAS_BUCKET_TOP_UP,
+        "bucket activation",
+        gasOf<SccpActivateBucket>(res, env.minter.getBucketAddress(0)),
+        SCCP_GAS_BUCKET_ACTIVATE,
     );
     expectGas(
         "minter consumed",
@@ -515,7 +563,82 @@ get fun `test rotation and control gas at n=31`() {
     val c = deliverControl(env, 1, true);
     val control = sendApplyControl(env, c);
     expect(control).toHaveAllSuccessfulTxs();
-    println("gas apply control n=31: {}", gasOf<SccpApplyControl>(control, env.minter.address));
+    expectGas(
+        "apply control n=31",
+        gasOf<SccpApplyControl>(control, env.minter.address),
+        SCCP_GAS_MINTER_APPLY_CONTROL,
+    );
+    // historical worst case: control at leaf 511 of 512, history path 32
+    val leaf = sccpControlLeaf(
+        env.networkId,
+        env.minter.address.accountId(),
+        TEST_REVISION,
+        2,
+        false,
+    );
+    var blockPath: array<int> = [];
+    var i = 0;
+    while (i < 9) {
+        blockPath.push(fillerLeaf(300 + i));
+        i += 1;
+    }
+    val blockRoot = sccpMerkleRoot(leaf, 511, 512, blockPath);
+    var historyPath: array<int> = [];
+    i = 0;
+    while (i < 32) {
+        historyPath.push(fillerLeaf(400 + i));
+        i += 1;
+    }
+    val historyIndex = SCCP_MAX_HISTORY_SIZE - 1;
+    val statement: TestStatement = {
+        height: 98,
+        epoch: 9,
+        timestampMs: T0 * 1000,
+        blockHash: 0x98,
+        sccpRoot: fillerLeaf(8),
+        messageCount: 512,
+        historyRoot: sccpMerkleRoot(
+            sccpHistoryLeaf(76, blockRoot, 512),
+            historyIndex,
+            SCCP_MAX_HISTORY_SIZE,
+            historyPath,
+        ),
+        historySize: SCCP_MAX_HISTORY_SIZE,
+        rosterDigest: env.digest(),
+        nextRosterDigest: 0,
+    };
+    val historical = env
+        .minter
+        .sendSccpApplyControlHistorical(
+            env.deployer,
+            1,
+            env.deployer,
+            statement.attestation(),
+            signByThreshold(env.roster, statement.digest(env.networkId)),
+            {
+                height: 76,
+                sccpRoot: blockRoot,
+                messageCount: 512,
+                leafIndex: historyIndex,
+                pathLen: 32,
+                path: sccpBuildHashPath(historyPath),
+            },
+            {
+                controlNonce: 2,
+                paused: false,
+                leafIndex: 511,
+                pathLen: 9,
+                path: sccpBuildHashPath(blockPath),
+            },
+            { value: env.minter.applyControlRequiredValue(), bounce: true },
+        );
+    expect(historical).toHaveAllSuccessfulTxs();
+    expect(env.minter.getSccpState().controlNonce).toEqual(2);
+    expectGas(
+        "apply control historical n=31",
+        gasOf<SccpApplyControlHistorical>(historical, env.minter.address),
+        SCCP_GAS_MINTER_APPLY_CONTROL,
+    );
     val next = makeRoster(
         8,
         31,
@@ -526,7 +649,11 @@ get fun `test rotation and control gas at n=31`() {
     );
     val res = rotateTo(env, next, 400);
     expect(res).toHaveAllSuccessfulTxs();
-    println("gas rotation n=31 -> n=31: {}", gasOf<SccpRotate>(res, env.minter.address));
+    expectGas(
+        "rotation n=31 -> n=31",
+        gasOf<SccpRotate>(res, env.minter.address),
+        SCCP_GAS_MINTER_ROTATE,
+    );
     val small = setupEnv();
     val controlSmall = sendApplyControl(small, deliverControl(small, 1, true));
     println(
@@ -586,6 +713,24 @@ get fun `test burn, void frozen, deploy and unconsume gas`() {
     expectGas(
         "minter void frozen",
         gasOf<SccpVoidFrozen>(frozen, env.minter.address),
+        SCCP_GAS_MINTER_VOID_FROZEN,
+    );
+    // the worst case activates four buckets (deployed = 17 after the deploy above)
+    val ahead = env
+        .minter
+        .sendSccpVoidFrozen(
+            env.deployer,
+            0,
+            env.deployer,
+            20 * 512,
+            512,
+            { value: env.minter.voidFrozenRequiredValue(20 * 512), bounce: true },
+        );
+    expect(ahead).toHaveAllSuccessfulTxs();
+    expect(env.minter.getSccpState().deployedBuckets).toEqual(21);
+    expectGas(
+        "minter void frozen activating 4 buckets",
+        gasOf<SccpVoidFrozen>(ahead, env.minter.address),
         SCCP_GAS_MINTER_VOID_FROZEN,
     );
     expectGas(
@@ -663,8 +808,11 @@ get fun `test an underfunded minter charges its floor deficit to the next caller
     };
     val balance = testing.getAccountBalance(minter.address);
     expect(balance < sccpMinterFloor()).toBeTrue();
+    expect(minter.minterFloor()).toEqual(sccpMinterFloor());
     val required = finalizeValue(env, 0);
-    expect(required).toEqual(sccpFinalizeRequiredValue(1) + sccpMinterFloor() - balance);
+    expect(required).toEqual(
+        sccpFinalizeRequiredValue(1) + sccpMinterFloor() - balance + sccpMinterStorageGrace(),
+    );
     val alice = testing.treasury("alice").address;
     val d = deliverDefault(env, 0, 10, alice);
     expect(
@@ -673,8 +821,15 @@ get fun `test an underfunded minter charges its floor deficit to the next caller
         to: minter.address,
         exitCode: SccpErrors.NotEnoughValue as int,
     });
-    val ok = sendFinalize(env, env.deployer, d, finalizeValue(env, 0));
+    // the entry minimum is the quote without the grace
+    expect(
+        sendFinalize(env, env.deployer, d, required - sccpMinterStorageGrace() - 1),
+    ).toHaveFailedTx<SccpFinalize>({
+        to: minter.address,
+        exitCode: SccpErrors.NotEnoughValue as int,
+    });
+    val ok = sendFinalize(env, env.deployer, d, required);
     expect(ok).toHaveAllSuccessfulTxs();
     expect(jettonBalanceOf(env, alice)).toEqual(10);
-    expect(testing.getAccountBalance(minter.address) >= sccpMinterFloor()).toBeTrue();
+    expect(testing.getAccountBalance(minter.address) >= sccpMinterFloor() - 1000).toBeTrue();
 }

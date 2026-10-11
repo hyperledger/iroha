@@ -65,6 +65,11 @@ fn sequential_deserialize_value(
 
 /// Decode one enum-variant field from its length-prefixed frame.
 fn enum_field_decode(generics: &mut Generics, ty: &syn::Type) -> TokenStream2 {
+    if let Some(length) = u8_array_len(ty) {
+        return quote! {
+            norito::core::decode_context_framed_byte_array::<{ #length }>(ptr, &mut offset)?
+        };
+    }
     add_bound(
         generics,
         ty,

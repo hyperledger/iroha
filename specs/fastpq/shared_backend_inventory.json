@@ -1661,8 +1661,8 @@
           "symbol": "pub fn verify_backend_with_timing_guardrails"
         },
         {
-          "path": "crates/iroha_core_zk/src/confidential_v2.rs",
-          "symbol": "norito::decode_canonical::<StarkFriOpenProofV1>"
+          "path": "crates/iroha_core_zk/src/native_pipa_r.rs",
+          "symbol": "pub fn public_instances"
         },
         {
           "path": "crates/iroha_data_model/src/zk.rs",
@@ -1678,7 +1678,7 @@
         }
       ],
       "migration": "B.3 after P.4/P.5: a closed typed-relation registry on the shared backend replaces the generic stark/fri envelope.",
-      "note": "verify_backend, preverify_with_budget and verify_for_relation dispatch on the backend tag, so the facade also lists callers that reach only the distinct Halo2 family through them. StarkFriOpenProofV1 is the generic STARK envelope wire type of the data model. ZK_BACKEND_STARK_FRI_V1, BackendTag::Stark and STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES find the callers that select the generic STARK backend only by its label, its tag or its verifying-key size limit.",
+      "note": "verify_backend, preverify_with_budget and verify_for_relation dispatch on the backend tag, so the facade also lists callers that reach only the native PIPA-R family through them. StarkFriOpenProofV1 is the generic STARK envelope wire type of the data model. ZK_BACKEND_STARK_FRI_V1, BackendTag::Stark and STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES find the callers that select the generic STARK backend only by its label, its tag or its verifying-key size limit.",
       "facade": {
         "detect": [
           {
@@ -1703,6 +1703,10 @@
           },
           {
             "path": "crates/iroha_core/src/executor.rs",
+            "role": "source"
+          },
+          {
+            "path": "crates/iroha_core/src/gas.rs",
             "role": "source"
           },
           {
@@ -1790,14 +1794,6 @@
             "role": "test"
           },
           {
-            "path": "crates/iroha_core_zk/src/halo2_backend_01_tests.rs",
-            "role": "test"
-          },
-          {
-            "path": "crates/iroha_core_zk/src/halo2_backend_03_tests.rs",
-            "role": "test"
-          },
-          {
             "path": "crates/iroha_core_zk/src/ivm_proof_identity/tests.rs",
             "role": "test"
           },
@@ -1812,6 +1808,10 @@
           {
             "path": "crates/iroha_core_zk/src/lib.rs",
             "role": "source"
+          },
+          {
+            "path": "crates/iroha_core_zk/src/native_pipa_r_tests.rs",
+            "role": "test"
           },
           {
             "path": "crates/iroha_core_zk/src/stark.rs",
@@ -1906,6 +1906,10 @@
             "role": "test"
           },
           {
+            "path": "integration_tests/tests/kaigi_privacy_network.rs",
+            "role": "test"
+          },
+          {
             "path": "integration_tests/tests/nexus/cross_dataspace_zk_stark_localnet.rs",
             "role": "test"
           },
@@ -1926,7 +1930,7 @@
             "role": "test"
           },
           {
-            "path": "xtask/src/vote_tally.rs",
+            "path": "xtask/src/vote_tally/native.rs",
             "role": "cli"
           }
         ]
@@ -2444,14 +2448,15 @@
   "distinct_families": [
     {
       "id": "halo2-ipa",
-      "family": "Halo2 / PLONKish with IPA",
+      "family": "Native PIPA-R and retained polynomial IPA / Orchard",
       "reason": "Polynomial IOP over Pasta/BN254 with inner-product-argument openings; a different arithmetization, commitment and transcript than a hash-based STARK.",
       "owner_paths": [
         "crates/iroha_zkp_halo2/src/ipa.rs",
         "crates/iroha_zkp_halo2/src/poly.rs",
         "crates/iroha_zkp_halo2/src/transcript.rs",
         "crates/iroha_zkp_halo2/src/backend/",
-        "crates/iroha_core_zk/src/halo2_backend.rs",
+        "crates/iroha_core_zk/src/native_pipa_r.rs",
+        "crates/iroha_plonk/src/",
         "crates/kaigi_zk/src/",
         "crates/iroha_core_privacy/src/privacy_engines/orchard.rs"
       ],
@@ -4263,7 +4268,7 @@
       "id": "ram-lfe",
       "plan_role": "RAM-LFE program classes (affine, bounded, refresh), verifiable opening and threshold opening",
       "current_engine": null,
-      "finding": "No RAM-LFE path proves or verifies with a FASTPQ-style engine today. Core refuses proof mode: policy validation and receipt verification both return PROOF_RELATION_UNAVAILABLE and never reach a verifier; the Core file's only use of the generic verification facade is a negative-control test showing that a valid proof of another relation is still refused. iroha_crypto's RAM-LFE code has no STARK, FRI or AIR code; it uses the fastpq_isi Digest384 hash for commitments only. The three iroha_core_zk modules are test-only Halo2 capacity experiments for the unavailable relation and belong to the distinct Halo2 family. The checker fails when a listed path starts importing a proof engine.",
+      "finding": "No RAM-LFE path proves or verifies with a FASTPQ-style engine today. Core refuses proof mode: policy validation and receipt verification both return PROOF_RELATION_UNAVAILABLE and never reach a verifier; the Core file's only use of the generic verification facade is a negative-control test showing that a valid proof of another relation is still refused. iroha_crypto's RAM-LFE code has no STARK, FRI or AIR code; it uses the fastpq_isi Digest384 hash for commitments only. The three iroha_core_zk modules are test-only native PIPA-R capacity experiments for the unavailable relation; they do not authorize the production RAM-LFE relation. The checker fails when a listed path starts importing a proof engine.",
       "checked_paths": [
         "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs",
         "crates/iroha_crypto/src/ram_lfe.rs",
@@ -4290,7 +4295,7 @@
         },
         {
           "path": "crates/iroha_core_zk/src/ram_lfe_word.rs",
-          "symbol": "halo2_proofs"
+          "symbol": "iroha_plonk"
         }
       ],
       "planned_tasks": [
@@ -4406,6 +4411,10 @@
         },
         {
           "path": "crates/iroha_core_zk/src/ivm_proof_identity/tests.rs",
+          "role": "test"
+        },
+        {
+          "path": "crates/iroha_core_zk/src/native_pipa_r_tests.rs",
           "role": "test"
         },
         {

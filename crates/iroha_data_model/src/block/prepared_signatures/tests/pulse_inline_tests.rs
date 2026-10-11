@@ -37,9 +37,9 @@ fn pulse_fixture() -> FinalizedGlobalThresholdBeaconPulseV1 {
         pulse_id: [13; 32],
     }
 }
-fn pulse_block(count: usize, pulse: Option<FinalizedGlobalThresholdBeaconPulseV1>) -> SignedBlock {
+fn pulse_block(count: usize, pulse: Option<&FinalizedGlobalThresholdBeaconPulseV1>) -> SignedBlock {
     let mut original = fixture(count);
-    original.set_global_beacon_pulse(pulse);
+    original.set_global_beacon_pulse(pulse.copied());
     original.validate_proposal_commitments().unwrap();
     original
 }
@@ -49,7 +49,7 @@ fn complete_inline_pulse_child_keeps_original_canonical_block_and_shared_static_
     let pulse = pulse_fixture();
     for count in [0, 4, 31] {
         for value in [None, Some(pulse)] {
-            let original = pulse_block(count, value);
+            let original = pulse_block(count, value.as_ref());
             let wire = original.encode_wire().unwrap();
             let ordinary = crate::block::decode_framed_signed_block(&wire).unwrap();
             assert_eq!(ordinary, original);
@@ -115,7 +115,7 @@ fn pulse_block_original_signature_enclosing_cause_keeps_same_source_and_retry() 
         DecodeAttemptErrorKind, DecodeLimits, DecodeResourceError, with_decode_limits_scope,
     };
     let pulse = pulse_fixture();
-    let original = pulse_block(4, Some(pulse));
+    let original = pulse_block(4, Some(&pulse));
     let wire = original.encode_wire().unwrap();
     let pool = AllocationBudget::new(1 << 20);
     let (source, span) = source_for(&original, &pool);
@@ -159,7 +159,7 @@ fn pulse_block_original_signature_enclosing_cause_keeps_same_source_and_retry() 
 fn complete_pulse_block_rejects_foreign_changed_truncated_and_wrong_flags_sources_with_original_causes()
  {
     let pulse = pulse_fixture();
-    let original = pulse_block(4, Some(pulse));
+    let original = pulse_block(4, Some(&pulse));
     let wire = original.encode_wire().unwrap();
     let pool = AllocationBudget::new(1 << 20);
     let (mut source, span) = source_for(&original, &pool);

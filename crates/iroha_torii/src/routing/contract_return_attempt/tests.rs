@@ -15,7 +15,9 @@ fn completed_return() -> (IVM, AllocationBudget, EntrypointValueTypeV1) {
     let original = AllocationBudget::new(LIMIT);
     let mut vm = IVM::try_new_with_memory_budget(100_000, &original).unwrap();
     let program = kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku ReturnAttempt { view fn main() -> bool { true } }")
+        .compile_source(
+            "seiyaku ReturnAttempt { view fn main() authorize(anyone) -> bool { true } }",
+        )
         .unwrap();
     vm.load_program(&program).unwrap();
     vm.select_entrypoint("main").unwrap();

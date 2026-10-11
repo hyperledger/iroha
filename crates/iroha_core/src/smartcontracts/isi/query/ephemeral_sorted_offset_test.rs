@@ -1,5 +1,4 @@
-// Included in `query::tests` to keep the original test path while holding the
-// production module below its ratcheted source-file budget.
+// Pagination regression tests for ephemeral sorted queries.
 #[tokio::test]
 async fn ephemeral_sorted_query_respects_offset_and_limit() {
     use iroha_data_model::{

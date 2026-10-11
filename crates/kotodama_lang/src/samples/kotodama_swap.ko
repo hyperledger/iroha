@@ -1,5 +1,6 @@
 // Constant-product asset swap using the strict branded V1 surface.
 seiyaku KotodamaSwap {
+    permission Admin;
     hajimari() {
         debug::info("initialized");
     }
@@ -12,7 +13,7 @@ seiyaku KotodamaSwap {
         quantity amount_in,
         quantity reserve_in,
         quantity reserve_out,
-    ) -> quantity authorize("Admin") {
+    ) authorize(Admin) -> quantity {
         let decimal fee_numerator = 997;
         let decimal fee_denominator = 1000;
         let effective = (amount_in * fee_numerator) / fee_denominator;
@@ -22,14 +23,12 @@ seiyaku KotodamaSwap {
             destination: pool,
             asset_definition: input_asset,
             amount: amount_in,
-            dataspace: DataSpaceId::parse("0"),
         );
         ledger::asset::transfer(
             source: pool,
             destination: trader,
             asset_definition: output_asset,
             amount: out,
-            dataspace: DataSpaceId::parse("0"),
         );
         return out;
     }

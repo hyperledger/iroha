@@ -46,8 +46,9 @@ pub(super) fn execute_pool(
     host.set_contract_entrypoint_authorization(Some(ContractEntrypointAuthorizationSnapshot::new(
         authority.clone(),
         entrypoint.to_owned(),
-        descriptor.permission.clone(),
+        descriptor.authorization.clone(),
         &crate::smartcontracts::code::BoundContractIdentity {
+            lifecycle_revision: 1,
             contract_address: pool.clone(),
             contract_alias: None,
             contract_alias_binding: None,
@@ -161,8 +162,7 @@ fn pool_bin_quantity(
     bin: i128,
 ) -> Quantity {
     let scope = hex::encode(Hash::new(pool.to_string().as_bytes()).as_ref());
-    let key = ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(bin))
-        .unwrap();
+    let key = encode_fixture_int_map_key(bin);
     let relative = ivm::host::canonical_state_map_path(&field.parse().unwrap(), &key).unwrap();
     let key: iroha_model_base::state_path::StatePath =
         format!("sc/{scope}/{relative}").parse().unwrap();
@@ -180,8 +180,9 @@ fn pool_bin_quantity(
 #[test]
 fn production_dlmm_rounds_at_native_asset_precision_and_conserves_both_directions() {
     let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
-    // Exact current production source. The cross-repository source guard checks
-    // this copy byte-for-byte before the SoraSwap check/build/test workflows.
+    // Full current Iroha DLMM fixture through production native execution. The
+    // sibling SoraSwap source still needs the current-language/shared-traversal
+    // migration; this test does not establish cross-repository byte parity.
     let source = include_str!("fixtures/dlmm_pool.ko");
     let (code, _) = kotodama_lang::compiler::Compiler::new()
         .compile_source_with_manifest(source)
@@ -275,20 +276,23 @@ fn production_dlmm_rounds_at_native_asset_precision_and_conserves_both_direction
                 (&trader, "swap_exact_in_quote_public"),
             ] {
                 stx.world.add_account_permission(who,
-                    iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
-                        contract: pool.clone(), entrypoint: entrypoint.into(),
-                    }.into());
+                    if entrypoint == "hajimari" {
+                        iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+                            contract: pool.clone(), entrypoint: entrypoint.into(),
+                        }.into()
+                    } else {
+                        iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                            contract: pool.clone(), permission: if entrypoint == "seed_bin" { "OperatePool" } else { "SwapQuotePublic" }.parse().unwrap(),
+                        }.into()
+                    });
             }
             stx.world.add_account_permission(
                 &trader,
-                iroha_data_model::permission::Permission::new("AssetOps".into(), Json::new(())),
-            );
-            stx.world.add_account_permission(
-                deployer,
-                iroha_data_model::permission::Permission::new(
-                    iroha_data_model::smart_contract::CONTRACT_HAJIMARI_PERMISSION_NAME.into(),
-                    Json::new(()),
-                ),
+                iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                    contract: pool.clone(),
+                    permission: "AssetOps".parse().unwrap(),
+                }
+                .into(),
             );
             let initialize = Json::from(norito::json!({
                 "base_asset": (base.to_string()), "quote_asset": (quote.to_string()),

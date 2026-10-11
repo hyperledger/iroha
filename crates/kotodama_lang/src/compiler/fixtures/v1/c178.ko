@@ -1,6 +1,6 @@
 
 seiyaku DecimalOps {
-    view fn calculate(decimal left, decimal right) -> decimal {
+    view fn calculate(decimal left, decimal right) authorize(anyone) -> decimal {
         let sum = left + right;
         let product = sum * right;
         return product / left;

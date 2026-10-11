@@ -9,8 +9,8 @@ use std::{convert::TryInto, error::Error, fs, path::Path};
 pub fn bundle_file_names() -> &'static [&'static str] {
     &[
         "dev_vote_membership_meta.json",
-        "dev_vote_membership_proof.zk1",
-        "dev_vote_membership_vk.zk1",
+        "dev_vote_membership_proof.norito",
+        "dev_vote_membership_vk.norito",
     ]
 }
 /// Human-readable summary derived from the development membership bundle artifacts.
@@ -39,7 +39,7 @@ impl std::fmt::Display for BundleSummary {
         writeln!(f, "  proof_len: {}", self.proof_len)
     }
 }
-/// Generate the Halo2 development membership bundle and write it to `out_dir`.
+/// Generate the native PIPA-R development membership bundle and write it to `out_dir`.
 #[cfg(feature = "dev-vote-fixture")]
 pub fn write_bundle(out_dir: &Path) -> Result<BundleSummary, Box<dyn Error>> {
     vote_tally_backend::write_bundle(out_dir)
@@ -70,8 +70,8 @@ pub fn read_summary(dir: &Path) -> Result<BundleSummary, Box<dyn Error>> {
         .as_str()
         .unwrap_or_default()
         .to_string();
-    let vk_len = fs::metadata(dir.join("dev_vote_membership_vk.zk1"))?.len() as usize;
-    let proof_len = fs::metadata(dir.join("dev_vote_membership_proof.zk1"))?.len() as usize;
+    let vk_len = fs::metadata(dir.join("dev_vote_membership_vk.norito"))?.len() as usize;
+    let proof_len = fs::metadata(dir.join("dev_vote_membership_proof.norito"))?.len() as usize;
     Ok(BundleSummary {
         backend,
         circuit_id,
@@ -136,251 +136,9 @@ fn deterministic_fixture_id(summary: &BundleSummary) -> u64 {
     u64::from_be_bytes(hash[..8].try_into().expect("slice length"))
 }
 #[cfg(feature = "dev-vote-fixture")]
-mod vote_tally_backend {
-    use super::*;
-    use halo2_proofs as halo2_axiom;
-    use halo2_proofs::{
-        SerdeFormat,
-        halo2curves::{
-            ff::PrimeField as _,
-            pasta::{EqAffine as Curve, Fp as Scalar},
-        },
-        plonk::{keygen_pk, keygen_vk},
-        poly::{
-            VerificationStrategy as _,
-            commitment::ParamsProver as _,
-            ipa::{
-                commitment::{IPACommitmentScheme, ParamsIPA},
-                multiopen::ProverIPA,
-                strategy::SingleStrategy,
-            },
-        },
-        transcript::{
-            Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
-        },
-    };
-    use iroha_core_zk::depth::VoteBoolCommitMerkle;
-    use iroha_data_model::{
-        proof::{ProofBox, VerifyingKeyBox},
-        zk::{BackendTag, OpenVerifyEnvelope},
-    };
-    use rand_chacha::{
-        ChaCha20Rng,
-        rand_core::{RngCore as RngCoreNew, SeedableRng as _},
-    };
-    use rand_core_06::{CryptoRng as CryptoRngOld, RngCore as RngCoreOld};
-    struct Halo2ProofRng(ChaCha20Rng);
-    impl Halo2ProofRng {
-        fn from_seed(seed: [u8; 32]) -> Self {
-            Self(ChaCha20Rng::from_seed(seed))
-        }
-    }
-    impl RngCoreOld for Halo2ProofRng {
-        fn next_u32(&mut self) -> u32 {
-            RngCoreNew::next_u32(&mut self.0)
-        }
-        fn next_u64(&mut self) -> u64 {
-            RngCoreNew::next_u64(&mut self.0)
-        }
-        fn fill_bytes(&mut self, destination: &mut [u8]) {
-            RngCoreNew::fill_bytes(&mut self.0, destination);
-        }
-        fn try_fill_bytes(&mut self, destination: &mut [u8]) -> Result<(), rand_core_06::Error> {
-            RngCoreNew::fill_bytes(&mut self.0, destination);
-            Ok(())
-        }
-    }
-    impl CryptoRngOld for Halo2ProofRng {}
-    pub(super) fn write_bundle(out_dir: &Path) -> Result<BundleSummary, Box<dyn Error>> {
-        fs::create_dir_all(out_dir)?;
-        let bundle = generate_bundle()?;
-        let vk_path = out_dir.join("dev_vote_membership_vk.zk1");
-        fs::write(&vk_path, &bundle.vk_bytes)?;
-        let proof_path = out_dir.join("dev_vote_membership_proof.zk1");
-        fs::write(&proof_path, &bundle.proof_bytes)?;
-        let summary = BundleSummary {
-            backend: bundle.backend.into(),
-            circuit_id: bundle.circuit_id.into(),
-            commit_hex: hex::encode(bundle.commit.to_repr()),
-            root_hex: hex::encode(bundle.root.to_repr()),
-            public_inputs_hash_hex: hex::encode(bundle.public_inputs_hash),
-            vk_commit_hex: hex::encode(bundle.vk_commitment),
-            vk_len: bundle.vk_bytes.len(),
-            proof_len: bundle.proof_bytes.len(),
-        };
-        let meta_path = out_dir.join("dev_vote_membership_meta.json");
-        let mut meta_text = json::to_string_pretty(&summary_to_json(&summary))?;
-        meta_text.push('\n');
-        fs::write(&meta_path, meta_text)?;
-        Ok(summary)
-    }
-    struct DevVoteMembershipBundle {
-        backend: &'static str,
-        circuit_id: &'static str,
-        commit: Scalar,
-        root: Scalar,
-        vk_bytes: Vec<u8>,
-        proof_bytes: Vec<u8>,
-        vk_commitment: [u8; 32],
-        public_inputs_hash: [u8; 32],
-    }
-    fn generate_bundle() -> Result<DevVoteMembershipBundle, Box<dyn Error>> {
-        const BACKEND: &str = "halo2/ipa";
-        const CIRCUIT_ID: &str = "halo2/pasta/ipa/vote-bool-commit-merkle8";
-        const K: u32 = 6;
-        const RNG_SEED: [u8; 32] = *b"iroha_halo2_vote_tally_seed_____";
-        let params = ParamsIPA::<Curve>::new(K);
-        let circuit = VoteBoolCommitMerkle::<8>;
-        let vk_h2 = keygen_vk(&params, &circuit)?;
-        let pk = keygen_pk(&params, vk_h2.clone(), &circuit)?;
-        let commit = compute_commit();
-        let root = compute_root(commit);
-        let mut transcript = Blake2bWrite::<_, Curve, Challenge255<Curve>>::init(vec![]);
-        let instance_columns = [vec![commit], vec![root]];
-        let instances = instance_columns
-            .iter()
-            .map(|column| column.as_slice())
-            .collect::<Vec<_>>();
-        halo2_axiom::plonk::create_proof::<
-            IPACommitmentScheme<Curve>,
-            ProverIPA<'_, Curve>,
-            Challenge255<Curve>,
-            Halo2ProofRng,
-            Blake2bWrite<Vec<u8>, Curve, Challenge255<Curve>>,
-            VoteBoolCommitMerkle<8>,
-        >(
-            &params,
-            &pk,
-            &[circuit],
-            &[&instances],
-            Halo2ProofRng::from_seed(RNG_SEED),
-            &mut transcript,
-        )?;
-        let proof_raw = transcript.finalize();
-        let mut reader = Blake2bRead::<_, Curve, Challenge255<Curve>>::init(proof_raw.as_slice());
-        halo2_proofs::plonk::verify_proof(
-            &params,
-            &vk_h2,
-            SingleStrategy::<Curve>::new(&params),
-            &[&instances],
-            &mut reader,
-        )?;
-        let mut vk_bytes = wrap_start();
-        wrap_append_ipa_k(&mut vk_bytes, K);
-        wrap_append_vk_pasta(&mut vk_bytes, &vk_h2);
-        let mut proof_bytes = wrap_start();
-        wrap_append_proof(&mut proof_bytes, &proof_raw);
-        wrap_append_instances_pasta_fp_cols(&instances, &mut proof_bytes);
-        let mut public_inputs = Vec::with_capacity(64);
-        public_inputs.extend_from_slice(commit.to_repr().as_ref());
-        public_inputs.extend_from_slice(root.to_repr().as_ref());
-        let public_inputs_hash = iroha_hash(&public_inputs);
-        let vk_box = VerifyingKeyBox::new(BACKEND.into(), vk_bytes.clone());
-        let vk_commitment = iroha_core_zk::hash_vk(&vk_box);
-        // Validate the mathematical fixture above, and independently require that its
-        // internally consistent envelope remains outside the closed production registry.
-        let envelope = OpenVerifyEnvelope {
-            backend: BackendTag::Halo2IpaPasta,
-            circuit_id: CIRCUIT_ID.into(),
-            vk_hash: vk_commitment,
-            public_inputs,
-            proof_bytes: proof_bytes.clone(),
-            aux: Vec::new(),
-        };
-        let boxed = ProofBox::new(BACKEND.into(), norito::to_bytes(&envelope)?);
-        if iroha_core_zk::verify_backend(BACKEND, &boxed, Some(&vk_box)) {
-            return Err("development fixture unexpectedly admitted by production verifier".into());
-        }
-        Ok(DevVoteMembershipBundle {
-            backend: BACKEND,
-            circuit_id: CIRCUIT_ID,
-            commit,
-            root,
-            vk_bytes,
-            proof_bytes,
-            vk_commitment,
-            public_inputs_hash,
-        })
-    }
-    fn compute_commit() -> Scalar {
-        let vote = Scalar::one();
-        let rho = Scalar::from(12345u64);
-        compress(vote, rho)
-    }
-    fn compute_root(mut acc: Scalar) -> Scalar {
-        for i in 0..8u64 {
-            acc = compress(acc, Scalar::from(20 + i));
-        }
-        acc
-    }
-    fn compress(left: Scalar, right: Scalar) -> Scalar {
-        let rc0 = Scalar::from(7u64);
-        let rc1 = Scalar::from(13u64);
-        let two = Scalar::from(2u64);
-        let three = Scalar::from(3u64);
-        let a = left + rc0;
-        let b = right + rc1;
-        let a2 = a * a;
-        let a4 = a2 * a2;
-        let a5 = a4 * a;
-        let b2 = b * b;
-        let b4 = b2 * b2;
-        let b5 = b4 * b;
-        two * a5 + three * b5
-    }
-    fn wrap_start() -> Vec<u8> {
-        b"ZK1\0".to_vec()
-    }
-    fn wrap_append_proof(buf: &mut Vec<u8>, transcript_bytes: &[u8]) {
-        write_tlv(buf, *b"PROF", transcript_bytes);
-    }
-    fn wrap_append_ipa_k(buf: &mut Vec<u8>, k: u32) {
-        let bytes = k.to_le_bytes();
-        write_tlv(buf, *b"IPAK", &bytes);
-    }
-    fn wrap_append_vk_pasta(buf: &mut Vec<u8>, vk: &halo2_proofs::plonk::VerifyingKey<Curve>) {
-        let bytes = vk.to_bytes(SerdeFormat::Processed);
-        write_tlv(buf, *b"H2VK", &bytes);
-    }
-    fn wrap_append_instances_pasta_fp_cols(columns: &[&[Scalar]], buf: &mut Vec<u8>) {
-        if columns.is_empty() {
-            return;
-        }
-        let cols: u32 = columns.len() as u32;
-        let rows: u32 = columns[0].len() as u32;
-        if columns.iter().any(|c| c.len() as u32 != rows) {
-            return;
-        }
-        let mut payload = Vec::with_capacity(8 + (rows as usize) * (cols as usize) * 32);
-        payload.extend_from_slice(&cols.to_le_bytes());
-        payload.extend_from_slice(&rows.to_le_bytes());
-        for row in 0..rows as usize {
-            for column in columns.iter() {
-                payload.extend_from_slice(column[row].to_repr().as_ref());
-            }
-        }
-        write_tlv(buf, *b"I10P", &payload);
-    }
-    fn write_tlv(buf: &mut Vec<u8>, tag: [u8; 4], payload: &[u8]) {
-        buf.extend_from_slice(&tag);
-        buf.extend_from_slice(&(payload.len() as u32).to_le_bytes());
-        buf.extend_from_slice(payload);
-    }
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        #[test]
-        fn halo2_proof_rng_is_seed_deterministic() {
-            let mut first_rng = Halo2ProofRng::from_seed([0x5a; 32]);
-            let mut second_rng = Halo2ProofRng::from_seed([0x5a; 32]);
-            let mut first = [0u8; 64];
-            let mut second = [0u8; 64];
-            RngCoreOld::fill_bytes(&mut first_rng, &mut first);
-            RngCoreOld::fill_bytes(&mut second_rng, &mut second);
-            assert_eq!(first, second);
-        }
-    }
-}
+#[path = "vote_tally/native.rs"]
+mod vote_tally_backend;
+
 pub fn iroha_hash(bytes: &[u8]) -> [u8; 32] {
     let vec_hash = Blake2bVar::new(32)
         .expect("failed to construct blake2b-256 hasher")

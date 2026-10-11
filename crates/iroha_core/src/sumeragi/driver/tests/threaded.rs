@@ -12,7 +12,7 @@ use std::{
 
 use iroha_sumeragi::{
     api::{ExecOutcome, HaltReason, LocalParams},
-    crypto::{NoAttestation, Signer},
+    crypto::Signer,
     message::{PayloadRequest, Status, SyncRequest, VoteKind, WireMessage},
     safety::RecordState,
     sim::driver::block_exec,
@@ -158,8 +158,6 @@ fn spawn_instance<C: Clock + 'static>(
                 init,
                 signers: vec![Arc::new(signer)],
                 crypto,
-                attestor: Box::new(NoAttestation),
-                verifier: Box::new(NoAttestation),
             },
         )
         .unwrap();
@@ -489,8 +487,6 @@ fn frame_limit_below_parameters_is_refused() {
             init,
             signers: vec![Arc::new(signer)],
             crypto: Arc::new(FakeCrypto::new()),
-            attestor: Box::new(NoAttestation),
-            verifier: Box::new(NoAttestation),
         },
     );
     assert!(matches!(refused, Err(DriverError::FrameLimit { .. })));
@@ -557,8 +553,6 @@ fn a_signed_epoch_layout_below_the_block_bound_is_refused() {
                 init,
                 signers: vec![Arc::new(signer.clone())],
                 crypto: Arc::new(FakeCrypto::new()),
-                attestor: Box::new(NoAttestation),
-                verifier: Box::new(NoAttestation),
             },
         );
         assert!(
@@ -805,8 +799,6 @@ fn serving_flood_does_not_delay_the_nodes_fetch() {
                 init,
                 signers: vec![Arc::new(vals.signer(0).clone())],
                 crypto,
-                attestor: Box::new(NoAttestation),
-                verifier: Box::new(NoAttestation),
             },
         )
         .unwrap();
@@ -837,7 +829,6 @@ fn serving_flood_does_not_delay_the_nodes_fetch() {
         payload_len: application_bytes.len() as u32,
         proposer: 0,
         skipped_leaders: Vec::new(),
-        attest: false,
         control_witness: iroha_sumeragi::types::ControlWitness::empty(),
     };
     let b1 = iroha_sumeragi::testing::author_body(

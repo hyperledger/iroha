@@ -21,15 +21,15 @@ fn tree<T>() -> MerkleTree<T> {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    hex::encode(bytes)
 }
 
 fn record<T: NoritoSchema + NoritoSerialize + for<'a> NoritoDeserialize<'a>>(
-    value: T,
+    value: &T,
 ) -> json::Value {
     assert_eq!(T::nominal_name(), std::any::type_name::<T>());
     assert_eq!(T::frame_name(), T::nominal_name());
-    let frame = norito::to_bytes(&value).unwrap();
+    let frame = norito::to_bytes(value).unwrap();
     let header = norito::core::Header::read(frame.as_slice()).unwrap();
     assert_eq!(header.schema, norito::schema::identity::frame_hash::<T>());
     let decoded: T = norito::decode_from_bytes(&frame).unwrap();
@@ -46,11 +46,11 @@ fn record<T: NoritoSchema + NoritoSerialize + for<'a> NoritoDeserialize<'a>>(
 fn current_frames() -> Vec<json::Value> {
     let tree = tree::<OriginalMarker>();
     vec![
-        record(tree.get_proof(2).unwrap()),
-        record(tree.commitment().unwrap()),
-        record(tree),
+        record(&tree.get_proof(2).unwrap()),
+        record(&tree.commitment().unwrap()),
+        record(&tree),
         record(
-            HashOf::<MerkleTree<OriginalMarker>>::from_untyped_unchecked(Hash::prehashed([7; 32])),
+            &HashOf::<MerkleTree<OriginalMarker>>::from_untyped_unchecked(Hash::prehashed([7; 32])),
         ),
     ]
 }

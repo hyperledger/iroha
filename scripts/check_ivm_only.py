@@ -22,9 +22,6 @@ SELF = "scripts/check_ivm_only.py"
 TEST = "pytests/scripts/ivm_only_guard_test.py"
 UPSTREAM_VENDOR_ROOTS = {
     "vendor/find_cuda_helper",
-    "vendor/halo2-axiom",
-    "vendor/halo2-base",
-    "vendor/halo2curves-axiom",
     "vendor/vega-prover",
     "vendor/wayland-scanner-0.31.10",
 }

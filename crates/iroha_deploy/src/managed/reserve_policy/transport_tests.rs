@@ -204,9 +204,13 @@ fn original_request_wallet_reopens_without_resigning_or_duplicate_dispatch() {
     );
     let operation_bytes = std::fs::read(path.join("operation.json")).unwrap();
     let before_verify = http.requests.lock().unwrap().len();
-    let signed = coordinator
-        .verify_wallet(original.directory(), &original, options.deadline)
-        .unwrap();
+    let signed = ManagedInitialReservePolicy::verify_wallet(
+        &account,
+        original.directory(),
+        &original,
+        options.deadline,
+    )
+    .unwrap();
     assert_eq!(http.requests.lock().unwrap().len(), before_verify);
     let signed_wire = signed.encode_wire_v1().unwrap();
     assert!(!path.join("submission.json").exists());
@@ -231,17 +235,21 @@ fn original_request_wallet_reopens_without_resigning_or_duplicate_dispatch() {
             request.deadline_unix_ms,
             original.terms.signing_deadline_unix_ms
         );
+        let account = AccountService::new(coordinator.authority.config.clone()).unwrap();
         let before_verify = http.requests.lock().unwrap().len();
         assert_eq!(
-            coordinator
-                .verify_wallet(restored.directory(), &restored, request.options.deadline)
-                .unwrap()
-                .encode_wire_v1()
-                .unwrap(),
+            ManagedInitialReservePolicy::verify_wallet(
+                &account,
+                restored.directory(),
+                &restored,
+                request.options.deadline,
+            )
+            .unwrap()
+            .encode_wire_v1()
+            .unwrap(),
             signed_wire
         );
         assert_eq!(http.requests.lock().unwrap().len(), before_verify);
-        let account = AccountService::new(coordinator.authority.config.clone()).unwrap();
         assert_eq!(
             account
                 .submit_initial_reserve_policy(&path, &request)
@@ -312,4 +320,138 @@ fn original_request_wallet_reopens_without_resigning_or_duplicate_dispatch() {
             signed.hash()
         );
     }
+}
+
+#[test]
+fn reserve_signed_journal_verifier_reuses_bound_account_and_refuses_tampering_without_http() {
+    use iroha_fs::PublishMode;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    let _resources = crate::managed::native_test_guard();
+    let (_temporary, _prepared, coordinator, mut unavailable) = fixture();
+    unavailable.finish();
+    let directory = coordinator.authority.directory.ensure_child("set").unwrap();
+    let policy = policy(&coordinator.authority);
+    let options = BoundedTransactionOptions {
+        fee_payment: FeePaymentIntent::authority(Vec::new(), None),
+        max_total_fees: BTreeMap::new(),
+        deadline: Instant::now() + Duration::from_secs(180),
+    };
+    let intent = Original {
+        selection: coordinator.selection(&policy).unwrap(),
+        policy,
+        // This genuine signed journal is a codec/local custody control, not a native carrier.
+        checkpoint: vec![1],
+    };
+    let original = super::tests::retain_explicit_request(
+        &coordinator,
+        &directory,
+        &intent,
+        now_ms().unwrap() + 600_000,
+        &options,
+    );
+    let path = original.directory().path().join("transaction");
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let account = AccountService::new(coordinator.authority.config.clone())
+        .unwrap()
+        .with_cancellation(Arc::clone(&cancelled))
+        .unwrap();
+    let request = original.request(original.terms.signing_deadline(options.deadline).unwrap());
+    let mut http = WalletHttp::start_config(&coordinator.authority.config, path.clone());
+    assert_eq!(
+        account
+            .prepare_initial_reserve_policy(&request, &path)
+            .unwrap()
+            .status,
+        OperationStatus::Prepared,
+    );
+    let journal = iroha_fs::PrivateDirectory::open_exact(&path).unwrap();
+    let names = journal.entries(8).unwrap();
+    let request_bytes = journal.read("preparation.json", 4 * 1024 * 1024).unwrap();
+    let operation_bytes = journal.read("operation.json", 4 * 1024 * 1024).unwrap();
+    let payload_bytes = journal.read("payload.json", 4 * 1024 * 1024).unwrap();
+    let before = http.requests.lock().unwrap().len();
+    let expected = account
+        .verify_initial_reserve_policy_journal(&path, &request)
+        .unwrap()
+        .encode_wire_v1()
+        .unwrap();
+    cancelled.store(true, Ordering::Release);
+    // Historical inspection remains available after cancellation, without rebinding authority.
+    assert!(
+        account
+            .with_deadline(options.deadline)
+            .unwrap()
+            .with_cancellation(Arc::new(AtomicBool::new(false)))
+            .is_err()
+    );
+    assert_eq!(
+        ManagedInitialReservePolicy::verify_wallet(
+            &account,
+            original.directory(),
+            &original,
+            options.deadline,
+        )
+        .unwrap()
+        .encode_wire_v1()
+        .unwrap(),
+        expected,
+    );
+    let mut changed = original.request(options.deadline);
+    changed.selection.manager = coordinator
+        .authority
+        .manifest
+        .network
+        .reserve_accounts
+        .treasury
+        .clone();
+    assert!(
+        account
+            .verify_initial_reserve_policy_journal(&path, &changed)
+            .is_err()
+    );
+    journal
+        .write_atomic("operation.json", b"{}", PublishMode::Replace)
+        .unwrap();
+    assert!(matches!(
+        ManagedInitialReservePolicy::verify_wallet(
+            &account, original.directory(), &original, options.deadline,
+        ),
+        Err(crate::managed::Error::Invalid(message))
+            if message == "reserve wallet differs from the exact original request"
+    ));
+    journal
+        .write_atomic("operation.json", &operation_bytes, PublishMode::Replace)
+        .unwrap();
+    assert_eq!(
+        ManagedInitialReservePolicy::verify_wallet(
+            &account,
+            original.directory(),
+            &original,
+            options.deadline,
+        )
+        .unwrap()
+        .encode_wire_v1()
+        .unwrap(),
+        expected,
+    );
+    assert_eq!(journal.entries(8).unwrap(), names);
+    assert_eq!(
+        journal.read("preparation.json", 4 * 1024 * 1024).unwrap(),
+        request_bytes
+    );
+    assert_eq!(
+        journal.read("operation.json", 4 * 1024 * 1024).unwrap(),
+        operation_bytes
+    );
+    assert_eq!(
+        journal.read("payload.json", 4 * 1024 * 1024).unwrap(),
+        payload_bytes
+    );
+    assert!(!path.join("submission.json").exists());
+    assert_eq!(http.requests.lock().unwrap().len(), before);
+    http.finish();
 }

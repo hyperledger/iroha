@@ -61,7 +61,7 @@ builds, governance signing, deployments, or releases.
 | `s23-strongbox-a` | Galaxy S23 / Snapdragon 8 Gen 2 | `.../s23-strongbox-a/2026-02-12/result.json` | ✅ Passed | Knox attestation profile imported 2026-02-09. |
 | `s24-strongbox-a` | Galaxy S24 / Snapdragon 8 Gen 3 | `.../s24-strongbox-a/2026-02-13/result.json` | ✅ Passed | Knox attestation profile imported; CI lane now green. |
 
-Device tags map to `specs/sdk/android/readiness/android_strongbox_device_matrix.md`.
+Device tags map to the device-lab lanes in `specs/compliance/android/device_lab_reservation.md`.
 
 ## 3. Reviewer Checklist
 

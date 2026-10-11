@@ -7,8 +7,9 @@
 //! - **T1** the `Terminal{Abandoned}` marker is created at generation 1 with NOREPLACE, so it
 //!   competes with the Bootstrap Selected marker for the same generation: exactly one wins;
 //! - **T2** generation 0 is retired and the iOS anchor raised to the terminal marker;
-//! - **T3** the signed Abandon ledger control naming the durable terminal marker is retained
-//!   create-new before any submission; **T4** every submission sends those exact bytes.
+//! - **T3** the signed Abandon ledger control naming the durable terminal marker and its exact
+//!   output selection are retained create-new before return; **T4** every submission sends
+//!   those exact bytes. A selected but missing original is a custody failure, never a re-sign.
 //!
 //! **Custody deletion** is deliberate and user-confirmed for exactly the state the user saw:
 //!
@@ -32,13 +33,15 @@ use super::{
     advance::KagemushaWalletAdvanceCapsuleV1,
     anchor::kagemusha_wallet_raise_anchor_v1,
     completion::{KagemushaWalletCompletionFrameV1, kagemusha_wallet_list_completions_v1},
+    decode_envelope_v1, encode_envelope_v1, kagemusha_wallet_provider_digest_v1,
     layout::{
-        KAGEMUSHA_WALLET_ABANDONMENT_NAME_V1, KagemushaWalletCustodyDirV1,
-        KagemushaWalletEntryNameV1, KagemushaWalletSlotIdV1, kagemusha_wallet_archive_dir_v1,
-        kagemusha_wallet_capsules_dir_v1, kagemusha_wallet_completion_dir_v1,
-        kagemusha_wallet_fixed_name_v1, kagemusha_wallet_list_dir_v1,
-        kagemusha_wallet_require_published_v1, kagemusha_wallet_require_removed_v1,
-        kagemusha_wallet_slot_dir_v1,
+        KAGEMUSHA_WALLET_ABANDONMENT_NAME_V1,
+        KAGEMUSHA_WALLET_ABANDONMENT_SELECTION_NAME_V1 as ABANDONMENT_SELECTION_NAME,
+        KagemushaWalletCustodyDirV1, KagemushaWalletEntryNameV1, KagemushaWalletSlotIdV1,
+        kagemusha_wallet_archive_dir_v1, kagemusha_wallet_capsules_dir_v1,
+        kagemusha_wallet_completion_dir_v1, kagemusha_wallet_fixed_name_v1,
+        kagemusha_wallet_list_dir_v1, kagemusha_wallet_require_published_v1,
+        kagemusha_wallet_require_removed_v1, kagemusha_wallet_slot_dir_v1,
     },
     marker::{
         KagemushaWalletDurableMarkerV1, KagemushaWalletMarkerPublicationV1,
@@ -49,7 +52,7 @@ use super::{
         KagemushaWalletEntryKindV1, KagemushaWalletFsV1, KagemushaWalletNotPublishedV1,
         KagemushaWalletPlatformV1, KagemushaWalletProbeV1, KagemushaWalletPublishOutcomeV1,
         KagemushaWalletReadV1, KagemushaWalletRemoveOutcomeV1, KagemushaWalletUnavailableV1,
-        kagemusha_wallet_boot_stamp_v1, kagemusha_wallet_sign_role_v1,
+        kagemusha_wallet_boot_stamp_v1, kagemusha_wallet_sign_domain_v1,
     },
     provider::{KagemushaWalletProviderV1, KagemushaWalletSlotStatusV1},
     retained::kagemusha_wallet_list_tombstones_v1,
@@ -81,6 +84,26 @@ impl KagemushaWalletDestructiveConfirmationV1 {
             _ => None,
         }
     }
+}
+
+// This local immutable output selection follows durable original publication. It detects
+// missing/substituted selected output; complete filesystem rollback is outside this primitive.
+const ABANDONMENT_SELECTION_MAX: usize = 512;
+#[derive(Debug, Clone, PartialEq, Eq, norito::Encode, norito::Decode, norito::NoritoSchema)]
+#[norito_schema(name = "iroha_core_zk::kagemusha_wallet_advance_v1::AbandonmentSelectionV1")]
+struct AbandonmentSelectionV1 {
+    version: u16,
+    slot: [u8; 32],
+    terminal: [u8; 32],
+    original: [u8; 32],
+}
+fn abandonment_custody_error() -> KagemushaWalletProviderErrorV1 {
+    KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+        object: "selected abandonment",
+    }
+}
+fn abandonment_digest(bytes: &[u8]) -> [u8; 32] {
+    kagemusha_wallet_provider_digest_v1("abandonment-original", bytes)
 }
 
 fn terminal_reason(
@@ -190,9 +213,20 @@ where
     ) -> Result<Vec<u8>, KagemushaWalletProviderErrorV1> {
         let dir = kagemusha_wallet_slot_dir_v1(slot);
         let name = kagemusha_wallet_fixed_name_v1(KAGEMUSHA_WALLET_ABANDONMENT_NAME_V1);
+        let selected = self.read_abandonment_selection(&dir, terminal)?;
         if let Some(existing) = self.read_abandonment(&dir, &name, terminal)? {
+            if selected
+                .as_ref()
+                .is_some_and(|value| value.original != abandonment_digest(&existing))
+            {
+                return Err(abandonment_custody_error());
+            }
             kagemusha_wallet_require_published_v1(self.store.rewrite_same(&dir, &name, &existing))?;
+            self.select_abandonment(&dir, terminal, &existing)?;
             return Ok(existing);
+        }
+        if selected.is_some() {
+            return Err(abandonment_custody_error());
         }
         let intent = self
             .read_intent(slot)?
@@ -207,7 +241,7 @@ where
                 .map_err(|_| KagemushaWalletProviderErrorV1::Invalid {
                     field: "abandon.body",
                 })?;
-        let signature = kagemusha_wallet_sign_role_v1(
+        let signature = kagemusha_wallet_sign_domain_v1(
             &self.platform,
             slot,
             terminal.payment_key(),
@@ -230,7 +264,7 @@ where
                 field: "abandon.frame",
             }
         })?;
-        match self.store.write_new(&dir, &name, &frame) {
+        let frame = match self.store.write_new(&dir, &name, &frame) {
             // An earlier attempt retained another signature: it wins.
             KagemushaWalletPublishOutcomeV1::NotPublished(
                 KagemushaWalletNotPublishedV1::DestinationExists,
@@ -244,6 +278,63 @@ where
                 Ok(existing)
             }
             outcome => kagemusha_wallet_require_published_v1(outcome).map(|()| frame),
+        }?;
+        self.select_abandonment(&dir, terminal, &frame)?;
+        Ok(frame)
+    }
+
+    fn read_abandonment_selection(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        terminal: &KagemushaWalletMarkerRecordV1,
+    ) -> Result<Option<AbandonmentSelectionV1>, KagemushaWalletProviderErrorV1> {
+        let name = kagemusha_wallet_fixed_name_v1(ABANDONMENT_SELECTION_NAME);
+        match self.store.read(dir, &name, ABANDONMENT_SELECTION_MAX) {
+            KagemushaWalletReadV1::Absent => Ok(None),
+            KagemushaWalletReadV1::Unavailable(reason) => {
+                Err(KagemushaWalletProviderErrorV1::Unavailable(reason))
+            }
+            KagemushaWalletReadV1::Oversized => Err(abandonment_custody_error()),
+            KagemushaWalletReadV1::Present(bytes) => {
+                let selected: AbandonmentSelectionV1 =
+                    decode_envelope_v1(&bytes, ABANDONMENT_SELECTION_MAX)
+                        .map_err(|_| abandonment_custody_error())?;
+                if selected.version != 1
+                    || selected.slot != terminal.slot().0
+                    || selected.terminal != *terminal.marker_file_digest()
+                    || selected.original == [0; 32]
+                {
+                    return Err(abandonment_custody_error());
+                }
+                Ok(Some(selected))
+            }
+        }
+    }
+
+    fn select_abandonment(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        terminal: &KagemushaWalletMarkerRecordV1,
+        original: &[u8],
+    ) -> Result<(), KagemushaWalletProviderErrorV1> {
+        let selected = AbandonmentSelectionV1 {
+            version: 1,
+            slot: terminal.slot().0,
+            terminal: *terminal.marker_file_digest(),
+            original: abandonment_digest(original),
+        };
+        let bytes = encode_envelope_v1(&selected, ABANDONMENT_SELECTION_MAX)?;
+        let name = kagemusha_wallet_fixed_name_v1(ABANDONMENT_SELECTION_NAME);
+        match self.store.write_new(dir, &name, &bytes) {
+            KagemushaWalletPublishOutcomeV1::NotPublished(
+                KagemushaWalletNotPublishedV1::DestinationExists,
+            ) => {
+                if self.read_abandonment_selection(dir, terminal)?.as_ref() != Some(&selected) {
+                    return Err(abandonment_custody_error());
+                }
+                kagemusha_wallet_require_published_v1(self.store.rewrite_same(dir, &name, &bytes))
+            }
+            outcome => kagemusha_wallet_require_published_v1(outcome),
         }
     }
 

@@ -1,7 +1,7 @@
 //! Unqualified key and retained-election adversaries for the closed registry.
 //! No fixture represents an admitted election or a valid proof.
 use iroha_core::state::ElectionState;
-use iroha_core_zk::{ZK_BACKEND_HALO2_IPA, hash_vk};
+use iroha_core_zk::{hash_vk, native_pipa_r::BACKEND as NATIVE_BACKEND};
 use iroha_data_model::{
     confidential::ConfidentialStatus,
     proof::{VerifyingKeyBox, VerifyingKeyId, VerifyingKeyRecord},
@@ -9,14 +9,14 @@ use iroha_data_model::{
 };
 
 pub(super) fn unqualified_key(circuit_id: &str) -> (VerifyingKeyId, VerifyingKeyRecord) {
-    let id = VerifyingKeyId::new(ZK_BACKEND_HALO2_IPA, "unqualified");
+    let id = VerifyingKeyId::new(NATIVE_BACKEND, "unqualified");
     // Deliberately opaque rejected input. The role gate must reject before key decode.
-    let key = VerifyingKeyBox::new(ZK_BACKEND_HALO2_IPA.to_owned(), vec![1, 2, 3, 4]);
+    let key = VerifyingKeyBox::new(NATIVE_BACKEND.to_owned(), vec![1, 2, 3, 4]);
     let mut record = VerifyingKeyRecord::new(
         1,
         circuit_id,
-        BackendTag::Halo2IpaPasta,
-        "pallas",
+        BackendTag::NativePipaRPasta,
+        "vesta",
         [0x11; 32],
         hash_vk(&key),
     );
@@ -24,7 +24,7 @@ pub(super) fn unqualified_key(circuit_id: &str) -> (VerifyingKeyId, VerifyingKey
     record.vk_len = u32::try_from(key.bytes.len()).expect("key extent");
     record.key = Some(key);
     record.max_proof_bytes = 1024;
-    record.gas_schedule_id = Some("halo2_default".to_owned());
+    record.gas_schedule_id = Some("native_pipa_r_default".to_owned());
     (id, record)
 }
 

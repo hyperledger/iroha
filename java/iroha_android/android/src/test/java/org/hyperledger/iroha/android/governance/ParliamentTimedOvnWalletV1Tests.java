@@ -276,8 +276,8 @@ public final class ParliamentTimedOvnWalletV1Tests {
   }
 
   @Test
-  public void JavaFacadeDelegatesToTheExactAbi25ProofKotlinJniContract() throws Exception {
-    assertEquals(25, ParliamentTimedOvnWalletV1.REQUIRED_BRIDGE_ABI_VERSION);
+  public void JavaFacadeDelegatesToTheExactAbi29ProofKotlinJniContract() throws Exception {
+    assertEquals(29, ParliamentTimedOvnWalletV1.REQUIRED_BRIDGE_ABI_VERSION);
     assertEquals(
         8 * 1024 * 1024, ParliamentTimedOvnWalletV1.MAXIMUM_CASTING_PROOF_RESPONSE_BYTES);
     assertEquals(3_624, ParliamentTimedOvnWalletV1.REGISTRATION_RECORD_BYTES);

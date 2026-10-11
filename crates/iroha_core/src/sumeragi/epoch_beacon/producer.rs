@@ -123,7 +123,6 @@ pub(crate) struct NativeBeaconProducer {
     local_bls: Option<[u8; 48]>,
     signer: Option<Arc<dyn GlobalThresholdBeaconPartialSignerV1>>,
     prepared: Option<ApplicationControlContext>,
-    mandatory_attestation: bool,
     active: Option<ActiveRound>,
     readiness: Option<NativeBeaconReadiness>,
 }
@@ -139,7 +138,6 @@ impl NativeBeaconProducer {
             local_bls,
             signer,
             prepared: None,
-            mandatory_attestation: false,
             active: None,
             readiness: None,
         }
@@ -219,7 +217,7 @@ impl NativeBeaconProducer {
     pub(crate) fn build(
         &self,
         context: &ControlWitnessContext,
-    ) -> Result<(ControlWitness, bool), NativeBeaconError> {
+    ) -> Result<ControlWitness, NativeBeaconError> {
         let source = ApplicationControlContext {
             instance: self.instance,
             epoch: context.epoch,
@@ -236,7 +234,7 @@ impl NativeBeaconProducer {
                 height: context.height,
             })?),
         };
-        Ok((control::encode(pulse)?, self.mandatory_attestation))
+        control::encode(pulse).map_err(NativeBeaconError::from)
     }
 
     /// Bind only the current parent to the opaque authority retained by this State
@@ -325,8 +323,6 @@ impl NativeBeaconProducer {
         } else {
             None
         };
-        self.mandatory_attestation = current.mode == ConsensusMode::Npos
-            && context.height == current.authorization.last_height;
         self.active = active;
         self.prepared = Some(*context);
         Ok(())
@@ -372,7 +368,7 @@ impl ActiveRound {
             || record.session.adaptive_dkg.finalized_at_height > anchor.height
             || record.session.network_id != current.network_id
             || record.session.adaptive_dkg.session.authority_generation
-                != current.authority.generation
+                != current.authorization.authority_generation
             || (current.authorization.beacon != BeaconEpochBindingV1::Bootstrap
                 && current.authorization.beacon != BeaconEpochBindingV1::Installed(binding))
         {

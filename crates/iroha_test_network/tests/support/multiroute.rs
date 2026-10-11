@@ -420,7 +420,9 @@ fn multiroute_genesis_authenticates_all_configured_lane_policies() {
     );
     let policy = &native_policies[0];
     iroha_core::sumeragi::lanes::step::validate_policy(policy).unwrap();
-    let epoch = iroha_data_model::sumeragi_finality::genesis_epoch(&genesis.0).unwrap();
+    let epoch = iroha_data_model::sumeragi_finality::authenticated_genesis(&genesis.0)
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
     assert_eq!(policy.da_layout, epoch.da_layout);
     assert_eq!(policy.fixed.len(), 2);
     assert_eq!(policy.routes.len(), 2);

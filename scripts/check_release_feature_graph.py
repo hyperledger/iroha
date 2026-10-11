@@ -60,13 +60,19 @@ NATIVE_ARTIFACT_WORKFLOWS = (
     Path(".github/workflows/mobile_sdk_artifacts.yml"),
     Path(".github/workflows/sorafs-orchestrator-sdk.yml"),
 )
-# This exact build produces a test subprocess used by core-jvm's
+# These exact builds produce test subprocesses used by core-jvm's
 # FixtureGeneratorRunner through IROHA_KOTLIN_FIXTURE_GEN_BIN. The reviewed
-# workflow uploads the native ABI manifest and test reports, not this binary.
+# workflows upload SDK artifacts, ABI manifests and test reports, not these binaries.
 # Keep this classification scoped to the sealed consumer declaration and exact
 # Cargo command; selecting the same package anywhere else remains shipping and
 # therefore fails the positive shipping policy below.
 NONSHIPPING_WORKFLOW_BUILD_COMMANDS = {
+    Path(".github/workflows/mobile_sdk_artifacts.yml"): frozenset({
+        (
+            "cargo", "build", "--locked", "-p", "kotlin-fixture-gen",
+            "--features", "dev-tools", "--bin", "kotlin-fixture-gen",
+        ),
+    }),
     Path(".github/workflows/sorafs-orchestrator-sdk.yml"): frozenset({
         (
             "cargo", "build", "--locked", "--offline", "--release",
@@ -171,20 +177,16 @@ SHIPPING_ROOT_FEATURE_ALLOWLIST = {
         {
             "app_api",
             "bls",
-            "circuit-params",
             "default",
             "gost",
             "json",
             "node",
             "profiling",
-            "proofs-halo2",
             "proofs-stark",
             "runtime",
             "simd",
             "sm",
             "telemetry",
-            "zk-halo2",
-            "zk-halo2-ipa",
             "zk-ipa-native",
             "zk-preverify",
             "zk-stark",
@@ -197,7 +199,6 @@ SHIPPING_ROOT_FEATURE_ALLOWLIST = {
             "app_api",
             "app_api_https",
             "app_api_wss",
-            "circuit-params",
             "connect",
             "default",
             "gost",
@@ -205,15 +206,12 @@ SHIPPING_ROOT_FEATURE_ALLOWLIST = {
             "node-api",
             "profiling",
             "proofs-full",
-            "proofs-halo2",
             "proofs-stark",
             "push",
             "schema",
             "sm",
             "telemetry",
             "transparent_api",
-            "zk-halo2",
-            "zk-halo2-ipa",
             "zk-stark",
             "zk-verify-batch",
         }

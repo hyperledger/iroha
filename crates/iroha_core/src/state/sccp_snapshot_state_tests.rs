@@ -36,7 +36,7 @@ fn every_sccp_member_is_serialized_in_field_order() {
     let json::Value::Object(members) = &value else {
         panic!("the envelope is an object");
     };
-    assert_eq!(members.len(), 30, "one member per SCCP world field");
+    assert_eq!(members.len(), 31, "one member per SCCP world field");
     let mut restored = World::default();
     restore(&text, &mut restored).expect("an empty envelope restores");
     assert_eq!(encoded(&restored), text);
@@ -172,6 +172,11 @@ fn sccp_snapshot_rejects_every_storage_invariant_violation() {
         leaf: [1; 32],
         proposal_id: [1; 32],
     };
+    let profile_activation = |profile_hash| SccpLcProfileActivationV1 {
+        profile_hash,
+        activation_height: 9,
+        proposal_id: [1; 32],
+    };
     let commitment = |message_count| SccpBlockCommitmentV1 {
         root: [1; 32],
         message_count,
@@ -286,6 +291,45 @@ fn sccp_snapshot_rejects_every_storage_invariant_violation() {
             }),
             world_with(|block| {
                 block.sccp_pending_counts.insert((network, 1), (0, 1));
+            }),
+        ),
+        (
+            "sccp_light_client_profiles",
+            world_with(|block| {
+                block
+                    .sccp_light_client_profiles
+                    .insert((network, 1), profile_activation([1; 32]));
+            }),
+            world_with(|block| {
+                block
+                    .sccp_light_client_profiles
+                    .insert((network, 2), profile_activation([1; 32]));
+            }),
+        ),
+        (
+            "sccp_light_client_profiles",
+            world_with(|block| {
+                block
+                    .sccp_light_client_profiles
+                    .insert((network, 2), profile_activation([0; 32]));
+            }),
+            world_with(|block| {
+                block
+                    .sccp_light_client_profiles
+                    .insert((network, 3), profile_activation([2; 32]));
+            }),
+        ),
+        (
+            "sccp_light_client_profiles",
+            world_with(|block| {
+                block
+                    .sccp_light_client_profiles
+                    .insert((SccpNetworkV1::SoraTaira, 2), profile_activation([1; 32]));
+            }),
+            world_with(|block| {
+                block
+                    .sccp_light_client_profiles
+                    .insert((SccpNetworkV1::TonMainnet, 2), profile_activation([1; 32]));
             }),
         ),
     ];

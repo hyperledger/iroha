@@ -15,7 +15,7 @@ use crate::{
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_primitives::json::Json;
 use norito::json::{self, BoundedJsonError, JsonSerialize, JsonWriteSink};
-use std::{cell::Cell, num::NonZeroU64};
+use std::num::NonZeroU64;
 
 const ORIGINAL_DEPTH: usize = 5;
 struct OriginalSink {
@@ -109,15 +109,6 @@ fn grant_owner() -> AccountId {
     AccountId::new(key.public_key().clone())
 }
 
-#[test]
-fn original_fixed_pair_checked_refusals_preserve_depth_and_exact_bytes() {
-    let values = [12_u64, 34];
-    let mut expected = String::new();
-    crate::json_helpers::fixed_pair::serialize(&values, &mut expected);
-    audit_writer(&expected, |out| {
-        crate::json_helpers::fixed_pair::serialize_bounded(&values, out)
-    });
-}
 #[test]
 fn original_fixed_bytes_checked_refusals_preserve_depth_and_exact_bytes() {
     let values = [0_u8, 127, 255];
@@ -235,48 +226,4 @@ fn original_complete_parameter_leaf_checked_refusals_preserve_depth_and_exact_by
     let mut value = Parameters::default();
     value.set_parameter(Parameter::Custom(custom()));
     audit(&value);
-}
-
-// Manual payload deliberately has no FastJsonWrite or Clone implementation.
-struct OriginalUnsupportedLeaf(Cell<usize>);
-impl JsonSerialize for OriginalUnsupportedLeaf {
-    fn json_serialize(&self, out: &mut String) {
-        out.push_str("null");
-    }
-    fn json_serialize_to(&self, _out: &mut dyn JsonWriteSink) -> Result<(), BoundedJsonError> {
-        self.0.set(self.0.get() + 1);
-        Err(BoundedJsonError::Unsupported)
-    }
-}
-#[test]
-fn original_fixed_pair_keeps_exact_manual_leaf_error_and_balances_own_level() {
-    let values = [
-        OriginalUnsupportedLeaf(Cell::new(0)),
-        OriginalUnsupportedLeaf(Cell::new(0)),
-    ];
-    let mut original = OriginalSink::new(usize::MAX);
-    assert_eq!(
-        crate::json_helpers::fixed_pair::serialize_bounded(&values, &mut original),
-        Err(BoundedJsonError::Unsupported)
-    );
-    assert_eq!(original.depth, ORIGINAL_DEPTH);
-    assert_eq!(original.text, "[");
-    assert_eq!(values[0].0.get(), 1);
-    assert_eq!(values[1].0.get(), 0);
-}
-#[test]
-fn original_fixed_pair_byte_cap_refuses_before_observing_manual_leaf() {
-    let values = [
-        OriginalUnsupportedLeaf(Cell::new(0)),
-        OriginalUnsupportedLeaf(Cell::new(0)),
-    ];
-    let mut original = OriginalSink::new(0);
-    assert_eq!(
-        crate::json_helpers::fixed_pair::serialize_bounded(&values, &mut original),
-        Err(BoundedJsonError::BodyTooLarge)
-    );
-    assert_eq!(original.depth, ORIGINAL_DEPTH);
-    assert!(original.text.is_empty());
-    assert_eq!(values[0].0.get(), 0);
-    assert_eq!(values[1].0.get(), 0);
 }

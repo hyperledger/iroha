@@ -9,7 +9,6 @@ bouncycastle = "1.78.1"
 serializationJson = "1.10.0"
 desugarJdkLibs = "2.1.5"
 playServicesNearby = "19.3.0"
-playIntegrity = "1.6.0"
 okhttp = "4.12.0"
 netty = "4.1.138.Final"
 androidxTestRunner = "1.6.2"
@@ -28,10 +27,10 @@ junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", vers
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junitPlatform" }
 zstd-jni = { module = "com.github.luben:zstd-jni", version.ref = "zstd" }
 bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
+bcpkix = { module = "org.bouncycastle:bcpkix-jdk18on", version.ref = "bouncycastle" }
 serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serializationJson" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 play-services-nearby = { module = "com.google.android.gms:play-services-nearby", version.ref = "playServicesNearby" }
-play-integrity = { module = "com.google.android.play:integrity", version.ref = "playIntegrity" }
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidxTestRunner" }
 androidx-test-junit = { module = "androidx.test.ext:junit", version.ref = "androidxTestJunit" }
 

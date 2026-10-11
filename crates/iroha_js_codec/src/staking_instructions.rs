@@ -84,7 +84,6 @@ staking_codec!(
     FinalizePublicLaneUnbond,
     SlashPublicLaneValidator,
     ClaimPublicLaneRewards,
-    RecordPublicLaneRewards,
 );
 
 #[cfg(test)]
@@ -161,6 +160,13 @@ mod tests {
         let frame = crate::encode_instruction_frame(&text, 753).unwrap();
         let decoded = crate::decode_instruction_frame(&frame, 753).unwrap();
         assert_eq!(norito::json::from_str::<Value>(&decoded).unwrap(), json);
+    }
+
+    #[test]
+    fn staking_json_rejects_manual_reward_publication() {
+        let value = json::json!({"RecordPublicLaneRewards": {}});
+        assert!(from_json(&value).is_none());
+        assert!(crate::value_to_instruction(value).is_err());
     }
 
     #[test]

@@ -5365,6 +5365,7 @@ class GovernanceContractLifecycleRecord:
     pending_owner: Optional[str]
     parliament_delegated: bool
     active_code_hash_hex: Optional[str]
+    retained_code_hash_hex: Optional[str]
     revision: int
     emergency_hold: Optional[GovernanceContractEmergencyHoldRecord]
 
@@ -5382,6 +5383,7 @@ class GovernanceContractLifecycleRecord:
             "pending_owner",
             "parliament_delegated",
             "active_code_hash_hex",
+            "retained_code_hash_hex",
             "revision",
             "emergency_hold",
         }
@@ -5439,6 +5441,11 @@ class GovernanceContractLifecycleRecord:
                 return "parliament"
             return _normalize_exact_any_i105_account_id(value, f"{context}.{field}")
 
+        active_code_hash = optional_hash("active_code_hash_hex")
+        retained_code_hash = optional_hash("retained_code_hash_hex")
+        if active_code_hash is not None and retained_code_hash != active_code_hash:
+            raise ValueError(f"{context}.retained_code_hash_hex must match active_code_hash_hex for an active binding")
+
         return cls(
             version=version,
             origin=origin,
@@ -5450,7 +5457,8 @@ class GovernanceContractLifecycleRecord:
             owner=owner("owner"),
             pending_owner=None if pending_owner is None else owner("pending_owner"),
             parliament_delegated=parliament_delegated,
-            active_code_hash_hex=optional_hash("active_code_hash_hex"),
+            active_code_hash_hex=active_code_hash,
+            retained_code_hash_hex=retained_code_hash,
             revision=revision,
             emergency_hold=(
                 GovernanceContractEmergencyHoldRecord.from_payload(
@@ -5805,6 +5813,7 @@ class GovernanceUnlockStats:
 _KOTODAMA_RESERVED_IDENTIFIERS = frozenset(
     {
         "as",
+        "permission",
         "authorize",
         "break",
         "const",
@@ -5834,6 +5843,8 @@ _KOTODAMA_RESERVED_IDENTIFIERS = frozenset(
         "誓約",
         "state",
         "struct",
+        "event",
+        "emit",
         "trigger",
         "true",
         "var",
@@ -5898,13 +5909,8 @@ _KOTODAMA_RESERVED_DECLARATION_IDENTIFIERS = frozenset(
         "__kotodama_quantity_ratio_round",
         "__kotodama_decimal_to_int_trunc",
         "__kotodama_decimal_to_int_round",
-        "is_some",
-        "is_none",
-        "is_ok",
-        "is_err",
-        "unwrap_or",
-        "unwrap_err_or",
-        "expect",
+        "__kotodama_option_ok_or",
+        "__kotodama_result_or_err",
     }
 )
 
@@ -6075,10 +6081,14 @@ def _canonical_kotodama_struct_name(value: str) -> bool:
     if not isinstance(value, str) or len(value) > 1024:
         return False
     if "::" not in value:
-        return _canonical_kotodama_identifier(value, type_declaration=True)
+        return False
     if "__kotodama_link_" in value:
         return False
     parts = value.split("::")
+    if len(parts) == 2:
+        if parts[0] == "kotodama":
+            return value in _RESERVED_ENTRYPOINT_STRUCT_NAMES
+        return all(_canonical_kotodama_identifier(part, type_declaration=True) for part in parts)
     if len(parts) == 4 and parts[0] == "local":
         return (re.fullmatch(r"[0-9a-f]{64}", parts[1]) is not None
                 and all(_canonical_kotodama_identifier(part, type_declaration=True) for part in parts[2:]))
@@ -6139,10 +6149,93 @@ def _canonical_kotodama_dynamic_access_base_key(value: str) -> bool:
 def _kotodama_v1_state_map_key_type_name(type_name: str) -> Optional[str]:
     if not _canonical_kotodama_state_type_name(type_name):
         return None
-    match = re.match(r"\AStateMap<([A-Za-z_][A-Za-z0-9_]*), ", type_name)
-    if match is None or match.group(1) not in _KOTODAMA_V1_STATE_MAP_KEY_TYPES:
+    if not type_name.startswith("StateMap<"):
         return None
-    return match.group(1)
+    key = _state_key_prefix(type_name, len("StateMap<"))
+    return type_name[len("StateMap<"):key[0]] if key is not None else None
+
+
+_CORE_QUERY_VIEW_LAYOUTS = {
+    "kotodama::AccountView": (["id", "metadata"], ["AccountId", "Json"]),
+    "kotodama::AssetView": (["id", "amount"], ["AssetId", "quantity"]),
+    "kotodama::AssetDefinitionView": (
+        [
+            "id",
+            "name",
+            "description",
+            "owned_by",
+            "total_quantity",
+            "numeric_scale",
+            "metadata",
+        ],
+        [
+            "AssetDefinitionId",
+            "string",
+            "Option<string>",
+            "AccountId",
+            "quantity",
+            "Option<int>",
+            "Json",
+        ],
+    ),
+    "kotodama::DomainView": (
+        ["id", "owned_by", "metadata"],
+        ["DomainId", "AccountId", "Json"],
+    ),
+    "kotodama::NftView": (
+        ["id", "owned_by", "content"],
+        ["NftId", "AccountId", "Json"],
+    ),
+}
+
+
+def _state_key_prefix(value: str, start: int = 0, initial_depth: int = 1) -> Optional[Tuple[int, int]]:
+    cursor = start
+    nodes = 0
+    def parse(depth: int) -> bool:
+        nonlocal cursor, nodes
+        nodes += 1
+        if nodes > 256 or depth > 256:
+            return False
+        if value[cursor:cursor + 1] == "(":
+            cursor += 1
+            if not parse(depth + 1) or value[cursor:cursor + 2] != ", ":
+                return False
+            cursor += 2
+            if not parse(depth + 1):
+                return False
+            while value[cursor:cursor + 2] == ", ":
+                cursor += 2
+                if not parse(depth + 1):
+                    return False
+            if value[cursor:cursor + 1] != ")":
+                return False
+            cursor += 1
+            return True
+        token = re.match(r"[A-Za-z][A-Za-z0-9]*", value[cursor:])
+        if token is None or token.group() not in _KOTODAMA_V1_STATE_MAP_KEY_TYPES:
+            return False
+        cursor += len(token.group())
+        return True
+    return (cursor, nodes) if parse(initial_depth) else None
+
+
+def _canonical_state_key_type(value: str) -> bool:
+    parsed = _state_key_prefix(value)
+    return parsed is not None and parsed[0] == len(value)
+
+
+def _exact_durable_builtin_product(name: str, fields: list[str], types: list[str]) -> bool:
+    expected = _CORE_QUERY_VIEW_LAYOUTS.get(name)
+    if expected is not None:
+        return fields == expected[0] and types == expected[1]
+    if name != "kotodama::QueryPage":
+        return not name.startswith("kotodama::")
+    if fields != ["items", "next_offset"] or types[1] != "Option<int>":
+        return False
+    return any(types[0] == "List<" + view + "{" + ", ".join(
+        field + ": " + child for field, child in zip(shape[0], shape[1])
+    ) + "}, 64>" for view, shape in _CORE_QUERY_VIEW_LAYOUTS.items())
 
 
 def _canonical_kotodama_state_type_name(
@@ -6192,6 +6285,16 @@ def _canonical_kotodama_state_type_name(
             and 1 <= int(spelling) <= 64
         )
 
+    def parse_key(depth: int) -> Optional[str]:
+        nonlocal cursor, nodes
+        key = _state_key_prefix(value, cursor, depth)
+        if key is None or nodes + key[1] > _KOTODAMA_V1_MAX_TYPE_NODES:
+            return None
+        name = value[cursor:key[0]]
+        cursor = key[0]
+        nodes += key[1]
+        return name
+
     def parse_type(allow_state_map: bool, depth: int) -> Optional[str]:
         nonlocal nodes, cursor
         nodes += 1
@@ -6230,7 +6333,7 @@ def _canonical_kotodama_state_type_name(
         if name in _KOTODAMA_V1_STATE_SCALAR_TYPES:
             return name
         if name == "StateCursor":
-            if not consume("<") or identifier() not in _KOTODAMA_V1_STATE_MAP_KEY_TYPES or not consume(">"):
+            if not consume("<") or parse_key(depth + 1) is None or not consume(">"):
                 return None
             return "cursor"
         if name == "Option":
@@ -6260,37 +6363,39 @@ def _canonical_kotodama_state_type_name(
         if name == "StateMap":
             if not allow_state_map or not consume("<"):
                 return None
-            # StateMap's scalar key and wrapper are not StateValueSchemaV1
-            # nodes, but its wrapper still consumes one CNTR depth level.
-            nodes -= 1
-            key_type = identifier()
+            # Key and value each have an independent schema node budget.
+            value_nodes = nodes - 1
+            nodes = 0
+            key_type = parse_key(depth + 1)
+            nodes = value_nodes
             if (
-                key_type not in _KOTODAMA_V1_STATE_MAP_KEY_TYPES
+                key_type is None
                 or not consume(", ")
                 or parse_type(False, depth + 1) is None
                 or not consume(">")
             ):
                 return None
             return "aggregate"
-        if name == "StatePage":
-            nodes += 5  # List, Tuple, scalar key, Option, StateCursor.
+        if name == "kotodama::StatePage":
+            nodes += 4  # List, Tuple, Option, StateCursor; both key schemas count below.
             if nodes > _KOTODAMA_V1_MAX_TYPE_NODES or depth + 3 > _KOTODAMA_V1_MAX_TYPE_DEPTH:
                 return None
             if not consume("{items: List<("):
                 return None
-            key_type = identifier()
-            if (key_type not in _KOTODAMA_V1_STATE_MAP_KEY_TYPES or not consume(", ")
+            key_type = parse_key(depth + 3)
+            if (key_type is None or not consume(", ")
                     or parse_type(False, depth + 3) is None or not consume("), ")
                     or not list_capacity() or not consume(">, next: Option<StateCursor<")):
                 return None
-            return "aggregate" if consume(key_type) and consume(">>}") else None
+            return "aggregate" if parse_key(depth + 3) == key_type and consume(">>}") else None
         if not _canonical_kotodama_struct_name(name) or not consume("{"):
             return None
 
         # Empty products retain their validated nominal name and have no fields.
         if consume("}"):
-            return "aggregate"
-        fields: set[str] = set()
+            return "aggregate" if _exact_durable_builtin_product(name, [], []) else None
+        fields: list[str] = []
+        types: list[str] = []
         while True:
             field = identifier()
             if (
@@ -6300,11 +6405,13 @@ def _canonical_kotodama_state_type_name(
                 or not consume(": ")
             ):
                 return None
-            fields.add(field)
+            fields.append(field)
+            child_start = cursor
             if parse_type(False, depth + 1) is None:
                 return None
+            types.append(value[child_start:cursor])
             if consume("}"):
-                return "aggregate"
+                return "aggregate" if _exact_durable_builtin_product(name, fields, types) else None
             if not consume(", "):
                 return None
 
@@ -6425,17 +6532,18 @@ class EntrypointValueTypeNodeKindV1(str, Enum):
     UNIT = "Unit"
     ERROR = "Error"
     STATE_CURSOR = "StateCursor"
+    ENUM = "Enum"
 
 
 _RESERVED_ENTRYPOINT_STRUCT_NAMES = frozenset(
     {
-        "AccountView",
-        "AssetView",
-        "AssetDefinitionView",
-        "DomainView",
-        "NftView",
-        "QueryPage",
-        "StatePage",
+        "kotodama::AccountView",
+        "kotodama::AssetView",
+        "kotodama::AssetDefinitionView",
+        "kotodama::DomainView",
+        "kotodama::NftView",
+        "kotodama::QueryPage",
+        "kotodama::StatePage",
     }
 )
 
@@ -6514,10 +6622,16 @@ class EntrypointValueTypeNodeV1:
             value = EntrypointListTypeNodeV1.from_payload(raw_value)
         elif kind is EntrypointValueTypeNodeKindV1.ERROR:
             value = ContractErrorTypeDescriptor.from_payload(raw_value)
+        elif kind is EntrypointValueTypeNodeKindV1.ENUM:
+            value = ContractEnumTypeDescriptor.from_payload(raw_value)
         elif kind is EntrypointValueTypeNodeKindV1.STATE_CURSOR:
-            value = EntrypointValueKindV1.from_payload(raw_value)
-            if value is EntrypointValueKindV1.JSON:
-                raise TypeError("StateCursor key type cannot be Json")
+            raw = _contract_object(raw_value, "state cursor key schema")
+            raw_nodes = _contract_array(raw.get("nodes"), "state cursor key schema.nodes")
+            if not 1 <= len(raw_nodes) <= 256 or any(not isinstance(node, Mapping) or node.get("kind") not in ("Leaf", "Tuple") for node in raw_nodes):
+                raise TypeError("StateCursor key schema requires only scalar or tuple nodes")
+            value = EntrypointValueTypeV1.from_payload(raw)
+            if not value.is_state_key:
+                raise TypeError("StateCursor key schema requires non-Json scalars or nested tuples")
         else:
             value = EntrypointValueKindV1.from_payload(raw_value)
         return cls(kind=kind, value=value)
@@ -6547,6 +6661,13 @@ class EntrypointValueTypeV1:
             raise TypeError("entrypoint value type contains a forged reserved V1 schema") from exc
         return result
 
+    @property
+    def is_state_key(self) -> bool:
+        """Whether this is one complete bounded scalar or nested-tuple key schema."""
+        return all(node.kind is EntrypointValueTypeNodeKindV1.TUPLE or
+                   (node.kind is EntrypointValueTypeNodeKindV1.LEAF and node.value is not EntrypointValueKindV1.JSON)
+                   for node in self.nodes) and self._analyze(1) is not None
+
     def _analyze(self, root_depth: int) -> Optional[Tuple[int, int, int]]:
         """Return `(node_count, word_count, max_depth)` for a canonical schema."""
 
@@ -6571,6 +6692,7 @@ class EntrypointValueTypeV1:
                 EntrypointValueTypeNodeKindV1.LEAF,
                 EntrypointValueTypeNodeKindV1.UNIT,
                 EntrypointValueTypeNodeKindV1.ERROR,
+                EntrypointValueTypeNodeKindV1.ENUM,
                 EntrypointValueTypeNodeKindV1.STATE_CURSOR,
             ):
                 return 0
@@ -6579,6 +6701,7 @@ class EntrypointValueTypeV1:
         frames: list[dict[str, Any]] = []
         word_count = 0
         max_depth = 0
+        node_count = len(self.nodes)
         for index, node in enumerate(self.nodes):
             while frames and frames[-1]["remaining"] == 0:
                 frames.pop()
@@ -6629,8 +6752,21 @@ class EntrypointValueTypeV1:
                     node.value.validate()
                 except TypeError:
                     return None
+            elif node.kind is EntrypointValueTypeNodeKindV1.ENUM:
+                if not isinstance(node.value, ContractEnumTypeDescriptor):
+                    return None
+                try:
+                    node.value.validate()
+                except TypeError:
+                    return None
             elif node.kind is EntrypointValueTypeNodeKindV1.STATE_CURSOR:
-                if not isinstance(node.value, EntrypointValueKindV1) or node.value is EntrypointValueKindV1.JSON:
+                if not isinstance(node.value, EntrypointValueTypeV1) or not node.value.is_state_key:
+                    return None
+                key_analysis = node.value._analyze(1)
+                assert key_analysis is not None
+                node_count += key_analysis[0]
+                max_depth = max(max_depth, depth + key_analysis[2])
+                if node_count > 256 or max_depth > 256:
                     return None
 
             handle = node.kind in (
@@ -6654,7 +6790,7 @@ class EntrypointValueTypeV1:
             frames.pop()
         if frames:
             return None
-        return len(self.nodes), word_count, max_depth
+        return node_count, word_count, max_depth
 
     @property
     def word_count(self) -> int:
@@ -6686,38 +6822,7 @@ class EntrypointValueTypeV1:
             EntrypointValueKindV1.BLOB: "bytes",
         }
 
-        core_views = {
-            "AccountView": (["id", "metadata"], ["AccountId", "Json"]),
-            "AssetView": (["id", "amount"], ["AssetId", "quantity"]),
-            "AssetDefinitionView": (
-                [
-                    "id",
-                    "name",
-                    "description",
-                    "owned_by",
-                    "total_quantity",
-                    "numeric_scale",
-                    "metadata",
-                ],
-                [
-                    "AssetDefinitionId",
-                    "string",
-                    "Option<string>",
-                    "AccountId",
-                    "quantity",
-                    "Option<int>",
-                    "Json",
-                ],
-            ),
-            "DomainView": (
-                ["id", "owned_by", "metadata"],
-                ["DomainId", "AccountId", "Json"],
-            ),
-            "NftView": (
-                ["id", "owned_by", "content"],
-                ["NftId", "AccountId", "Json"],
-            ),
-        }
+
 
         def child_count(node: EntrypointValueTypeNodeV1) -> int:
             if node.kind is EntrypointValueTypeNodeKindV1.STRUCT:
@@ -6749,15 +6854,15 @@ class EntrypointValueTypeV1:
                 if not isinstance(descriptor, EntrypointStructTypeNodeV1):
                     raise ValueError("invalid struct node")
                 child_names = [child["text"] for child in children]
-                if descriptor.name in core_views:
-                    expected_fields, expected_children = core_views[descriptor.name]
+                if descriptor.name in _CORE_QUERY_VIEW_LAYOUTS:
+                    expected_fields, expected_children = _CORE_QUERY_VIEW_LAYOUTS[descriptor.name]
                     if (
                         list(descriptor.fields) != expected_fields
                         or child_names != expected_children
                     ):
                         raise ValueError("forged reserved query view")
-                    result = {"text": descriptor.name, "core_view": descriptor.name}
-                elif descriptor.name == "QueryPage":
+                    result = {"text": descriptor.name.removeprefix("kotodama::"), "core_view": descriptor.name.removeprefix("kotodama::")}
+                elif descriptor.name == "kotodama::QueryPage":
                     if (
                         list(descriptor.fields) != ["items", "next_offset"]
                         or len(children) != 2
@@ -6768,7 +6873,7 @@ class EntrypointValueTypeV1:
                     ):
                         raise ValueError("forged QueryPage schema")
                     result = {"text": f"QueryPage<{children[0]['list_element_core_view']}>"}
-                elif descriptor.name == "StatePage":
+                elif descriptor.name == "kotodama::StatePage":
                     items = children[0] if children else {}
                     pair = items.get("list_element", {}).get("tuple_children", [])
                     continuation = children[1].get("option_child", {}) if len(children) == 2 else {}
@@ -6786,6 +6891,7 @@ class EntrypointValueTypeV1:
                     result = {"text": f"struct {descriptor.name}"}
             elif node.kind is EntrypointValueTypeNodeKindV1.TUPLE:
                 result = {"text": f"({', '.join(child['text'] for child in children)})", "tuple_children": children}
+                result["key_type"] = result["text"] if all(child.get("key_type") is not None for child in children) else None
             elif node.kind is EntrypointValueTypeNodeKindV1.OPTION:
                 result = {"text": f"Option<{children[0]['text']}>", "option_child": children[0]}
             elif node.kind is EntrypointValueTypeNodeKindV1.RESULT:
@@ -6804,14 +6910,14 @@ class EntrypointValueTypeV1:
             elif node.kind is EntrypointValueTypeNodeKindV1.LEAF:
                 if not isinstance(node.value, EntrypointValueKindV1):
                     raise ValueError("invalid leaf node")
-                result = {"text": leaf_names[node.value], "key_type": node.value if node.value is not EntrypointValueKindV1.JSON else None}
+                result = {"text": leaf_names[node.value], "key_type": leaf_names[node.value] if node.value is not EntrypointValueKindV1.JSON else None}
             elif node.kind is EntrypointValueTypeNodeKindV1.UNIT:
                 result = {"text": "()"}
-            elif node.kind is EntrypointValueTypeNodeKindV1.ERROR:
+            elif node.kind in (EntrypointValueTypeNodeKindV1.ERROR, EntrypointValueTypeNodeKindV1.ENUM):
                 node.value.validate()
                 result = {"text": node.value.identity}
             elif node.kind is EntrypointValueTypeNodeKindV1.STATE_CURSOR:
-                result = {"text": f"StateCursor<{leaf_names[node.value]}>", "kind": "StateCursor", "key_type": node.value}
+                result = {"text": f"StateCursor<{node.value.canonical_type_name}>", "kind": "StateCursor", "key_type": node.value.canonical_type_name}
             else:
                 raise ValueError("invalid entrypoint value type")
             rendered.append(result)
@@ -7002,6 +7108,82 @@ def _contract_trigger_descriptor(
 
 
 @dataclass(frozen=True)
+class EntrypointAuthorizationV1:
+    """Closed public, declared-role, or runtime lifecycle authorization."""
+
+    kind: str
+    value: Optional[str]
+
+    def __post_init__(self) -> None:
+        if self.kind == "Permission":
+            if not isinstance(self.value, str) or not _canonical_kotodama_identifier(self.value):
+                raise TypeError("authorization Permission requires a canonical declaration name")
+        elif self.kind not in {"Anyone", "RuntimeLifecycle"} or self.value is not None:
+            raise TypeError("authorization must be Anyone, Permission, or RuntimeLifecycle")
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "EntrypointAuthorizationV1":
+        value = _contract_object(payload, "entrypoint authorization")
+        _require_wire_fields(value, required=("kind", "value"), context="entrypoint authorization")
+        return cls(value["kind"], value["value"])
+
+
+@dataclass(frozen=True)
+class ContractPermissionScopeV1:
+    """An instance role or explicit import of an exact chain permission."""
+
+    kind: str
+    permission_name: Optional[str]
+
+    def __post_init__(self) -> None:
+        if self.kind == "Instance" and self.permission_name is None:
+            return
+        if self.kind == "Chain" and isinstance(self.permission_name, str) and self.permission_name and not any(
+            character.isspace() for character in self.permission_name
+        ):
+            return
+        raise TypeError("permission scope must be Instance or Chain with an exact permission name")
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ContractPermissionScopeV1":
+        value = _contract_object(payload, "permission scope")
+        _require_wire_fields(value, required=("kind", "value"), context="permission scope")
+        if value["kind"] == "Instance" and value["value"] is None:
+            return cls("Instance", None)
+        if value["kind"] == "Chain":
+            imported = _contract_object(value["value"], "chain permission")
+            _require_wire_fields(imported, required=("permission_name",), context="chain permission")
+            name = _contract_required_string(imported["permission_name"], "chain permission.permission_name")
+            if any(character.isspace() for character in name):
+                raise TypeError("chain permission must be an exact name")
+            return cls("Chain", name)
+        raise TypeError("permission scope must be Instance or Chain")
+
+
+@dataclass(frozen=True)
+class ContractPermissionDescriptorV1:
+    """One signed permission declaration, keyed by its local identifier."""
+
+    name: str
+    scope: ContractPermissionScopeV1
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not _canonical_kotodama_identifier(self.name):
+            raise TypeError("permission declaration name must be a canonical identifier")
+        if not isinstance(self.scope, ContractPermissionScopeV1):
+            raise TypeError("permission declaration requires a typed scope")
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ContractPermissionDescriptorV1":
+        value = _contract_object(payload, "permission declaration")
+        _require_wire_fields(value, required=("name", "scope"), context="permission declaration")
+        name = _contract_required_string(value["name"], "permission declaration.name")
+        if not _canonical_kotodama_identifier(name):
+            raise TypeError("permission declaration name must be a canonical identifier")
+        return cls(name, ContractPermissionScopeV1.from_payload(value["scope"]))
+
+
+@dataclass(frozen=True)
 class ContractEntrypointDescriptor:
     """Exact public interface metadata for one Kotodama entrypoint."""
 
@@ -7011,7 +7193,7 @@ class ContractEntrypointDescriptor:
     argument_schema: Optional[EntrypointArgumentSchemaV1]
     return_type: Optional[str]
     return_schema: Optional[EntrypointValueTypeV1]
-    permission: Optional[str]
+    authorization: EntrypointAuthorizationV1
     read_keys: Tuple[str, ...]
     write_keys: Tuple[str, ...]
     access_hints_complete: Optional[bool]
@@ -7030,7 +7212,7 @@ class ContractEntrypointDescriptor:
                 "argument_schema",
                 "return_type",
                 "return_schema",
-                "permission",
+                "authorization",
                 "read_keys",
                 "write_keys",
                 "access_hints_complete",
@@ -7087,9 +7269,7 @@ class ContractEntrypointDescriptor:
                 )
             ),
             return_schema=return_schema,
-            permission=_contract_optional_string(
-                value.get("permission"), "entrypoint descriptor.permission"
-            ),
+            authorization=EntrypointAuthorizationV1.from_payload(value.get("authorization")),
             read_keys=_contract_string_tuple(
                 value.get("read_keys", ()), "entrypoint descriptor.read_keys"
             ),
@@ -7142,12 +7322,8 @@ class ContractEntrypointDescriptor:
             not in {ContractEntrypointKind.HAJIMARI, ContractEntrypointKind.KAIZEN}
         )
         exact_authorization = (
-            descriptor.permission is not None
-            if descriptor.kind is ContractEntrypointKind.KOTOAGE
-            else descriptor.permission is None
-            if descriptor.kind in {ContractEntrypointKind.HAJIMARI, ContractEntrypointKind.KAIZEN}
-            else True
-        )
+            descriptor.kind in {ContractEntrypointKind.HAJIMARI, ContractEntrypointKind.KAIZEN}
+        ) == (descriptor.authorization.kind == "RuntimeLifecycle")
         exact_access_hints = not (
             descriptor.access_hints_complete is True and descriptor.access_hints_skipped
         ) and not (
@@ -7246,6 +7422,84 @@ class ContractErrorTypeDescriptor:
 
 
 @dataclass(frozen=True)
+class ContractEnumVariantDescriptor:
+    """One named nonzero u32 discriminant, local to its nominal ordinary enum type."""
+
+    name: str
+    code: int
+
+    def validate(self) -> None:
+        if not isinstance(self.name, str) or not _canonical_contract_error_variant(self.name):
+            raise TypeError("enum variant name must be a canonical Kotodama identifier")
+        if isinstance(self.code, bool) or not isinstance(self.code, int) or not 1 <= self.code <= 0xFFFFFFFF:
+            raise TypeError("enum variant code must be a non-zero u32")
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ContractEnumVariantDescriptor":
+        value = _contract_object(payload, "enum variant descriptor")
+        _contract_exact_fields(value, ("name", "code"), "enum variant descriptor")
+        result = cls(name=value.get("name"), code=value.get("code"))
+        result.validate()
+        return result
+
+
+@dataclass(frozen=True)
+class ContractEnumTypeDescriptor:
+    """Stable nominal identity and its exact ordered variant schema."""
+
+    identity: str
+    variants: Tuple[ContractEnumVariantDescriptor, ...]
+
+    def validate(self) -> None:
+        if not _canonical_contract_error_identity(self.identity):
+            raise TypeError("enum type identity must be a canonical nominal identity")
+        if not isinstance(self.variants, tuple) or not 1 <= len(self.variants) <= 256:
+            raise TypeError("enum type must declare 1..256 variants")
+        for variant in self.variants:
+            if not isinstance(variant, ContractEnumVariantDescriptor):
+                raise TypeError("enum type variants must be typed descriptors")
+            variant.validate()
+        if len({variant.name for variant in self.variants}) != len(self.variants) or any(left.code >= right.code for left, right in zip(self.variants, self.variants[1:])):
+            raise TypeError("enum variants must have unique names and increasing enum-local codes")
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ContractEnumTypeDescriptor":
+        value = _contract_object(payload, "enum type descriptor")
+        _contract_exact_fields(value, ("identity", "variants"), "enum type descriptor")
+        result = cls(identity=value.get("identity"), variants=tuple(
+            ContractEnumVariantDescriptor.from_payload(variant)
+            for variant in _contract_array(value.get("variants"), "enum type variants")
+        ))
+        result.validate()
+        return result
+
+
+@dataclass(frozen=True)
+class ContractEventDescriptor:
+    """Authenticated event declaration with a named durable public payload."""
+
+    name: str
+    payload_type: EntrypointValueTypeV1
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ContractEventDescriptor":
+        obj = _contract_object(payload, "event declaration")
+        _contract_exact_fields(obj, ("name", "payload_type"), "event declaration")
+        name = obj.get("name")
+        if not isinstance(name, str) or not _canonical_kotodama_identifier(name):
+            raise TypeError("event name must be a canonical Kotodama identifier")
+        schema = EntrypointValueTypeV1.from_payload(obj.get("payload_type"))
+        root = schema.nodes[0]
+        if root.kind is not EntrypointValueTypeNodeKindV1.STRUCT or root.value.name.rsplit("::", 1)[-1] != name:
+            raise TypeError("event payload must be a named struct matching the event name")
+        if any(node.kind is EntrypointValueTypeNodeKindV1.STATE_CURSOR or
+               (node.kind is EntrypointValueTypeNodeKindV1.LEAF and node.value is EntrypointValueKindV1.JSON)
+               for node in schema.nodes):
+            raise TypeError("event payload cannot contain Json or StateCursor")
+        return cls(name, schema)
+
+
+@dataclass(frozen=True)
 class ContractDynamicAccessHint:
     """One bounded dynamic access-set hint from the compiler."""
 
@@ -7278,7 +7532,7 @@ class ContractDynamicAccessHint:
         key_type = _contract_required_string(
             value.get("key_type"), "dynamic access hint.key_type"
         )
-        if key_type not in _KOTODAMA_V1_STATE_MAP_KEY_TYPES:
+        if not _canonical_state_key_type(key_type):
             raise TypeError(
                 "dynamic access hint.key_type must be an exact Kotodama V1 "
                 "StateMap key scalar"
@@ -7456,9 +7710,12 @@ class ContractManifest:
     compiler_fingerprint: Optional[str]
     features_bitmap: Optional[int]
     access_set_hints: Optional[ContractAccessSetHints]
+    permissions: Tuple[ContractPermissionDescriptorV1, ...]
+    events: Tuple[ContractEventDescriptor, ...]
     entrypoints: Optional[Tuple[ContractEntrypointDescriptor, ...]]
     states: Optional[Tuple[ContractStateDescriptor, ...]]
     error_types: Optional[Tuple[ContractErrorTypeDescriptor, ...]]
+    enum_types: Tuple[ContractEnumTypeDescriptor, ...]
     error_messages: Optional[Tuple[ContractErrorMessage, ...]]
     kotoba: Optional[Tuple[ContractKotobaTranslationEntry, ...]]
     provenance: Optional[Mapping[str, Any]]
@@ -7482,9 +7739,12 @@ class ContractManifest:
             "compiler_fingerprint",
             "features_bitmap",
             "access_set_hints",
+            "permissions",
+            "events",
             "entrypoints",
             "states",
             "error_types",
+            "enum_types",
             "error_messages",
             "kotoba",
             "provenance",
@@ -7563,13 +7823,24 @@ class ContractManifest:
                 ),
             }
 
+        permissions = tuple(ContractPermissionDescriptorV1.from_payload(item) for item in _contract_array(payload.get("permissions"), "manifest.permissions"))
+        names = [item.name for item in permissions]
+        if names != sorted(set(names), key=lambda name: name.encode("utf-8")):
+            raise TypeError("manifest.permissions must be sorted and unique by name")
         entrypoints = optional_descriptors("entrypoints", ContractEntrypointDescriptor.from_payload)
         states = optional_descriptors("states", ContractStateDescriptor.from_payload)
         error_types = optional_descriptors("error_types", ContractErrorTypeDescriptor.from_payload)
+        enum_types = tuple(ContractEnumTypeDescriptor.from_payload(item) for item in _contract_array(payload.get("enum_types"), "manifest.enum_types"))
+        events = tuple(ContractEventDescriptor.from_payload(item) for item in _contract_array(payload.get("events"), "manifest.events"))
+        for label, keys in (("enum_types", [item.identity for item in enum_types]), ("events", [item.name for item in events])):
+            if len(keys) > 256 or keys != sorted(set(keys), key=lambda key: key.encode("utf-8")):
+                raise TypeError(f"manifest.{label} must contain at most 256 sorted unique declarations")
         error_messages = optional_descriptors("error_messages", ContractErrorMessage.from_payload)
         kotoba = optional_descriptors("kotoba", ContractKotobaTranslationEntry.from_payload)
 
         if entrypoints is not None:
+            if any(entry.authorization.kind == "Permission" and entry.authorization.value not in names for entry in entrypoints):
+                raise TypeError("entrypoint authorization refers to an undeclared permission")
             entrypoint_names = [entrypoint.name for entrypoint in entrypoints]
             lifecycle_kinds = [
                 entrypoint.kind
@@ -7607,6 +7878,9 @@ class ContractManifest:
         catalog = {error.identity: error for error in error_types or ()}
         if len(catalog) != len(error_types or ()) or len(catalog) > 256:
             raise TypeError("manifest error_types must contain at most 256 unique identities")
+        enum_catalog = {item.identity: item for item in enum_types}
+        if set(catalog) & set(enum_catalog):
+            raise TypeError("enum_types and error_types identities must not overlap")
         previous_message = None
         for entry in error_messages or ():
             key = (entry.error_type.encode("utf-8"), entry.code)
@@ -7617,16 +7891,20 @@ class ContractManifest:
                 raise TypeError("error messages must be sorted and unique by identity and code")
             previous_message = key
         for state in states or ():
-            if not _canonical_kotodama_state_type_name(state.type_name, set(catalog)):
-                raise TypeError("state nominal error identity is not declared in the error_types catalog")
+            if not _canonical_kotodama_state_type_name(state.type_name, set(catalog) | set(enum_catalog)):
+                raise TypeError("state nominal identity is not declared in an enum or error catalog")
+        schemas = [event.payload_type for event in events]
         for entrypoint in entrypoints or ():
-            schemas = [field.type for field in entrypoint.argument_schema.fields] if entrypoint.argument_schema else []
+            if entrypoint.argument_schema:
+                schemas.extend(field.type for field in entrypoint.argument_schema.fields)
             if entrypoint.return_schema is not None:
                 schemas.append(entrypoint.return_schema)
-            for schema in schemas:
-                for node in schema.nodes:
-                    if node.kind is EntrypointValueTypeNodeKindV1.ERROR and catalog.get(node.value.identity) != node.value:
-                        raise TypeError("boundary error schema does not match the error_types catalog")
+        for schema in schemas:
+            for node in schema.nodes:
+                if node.kind is EntrypointValueTypeNodeKindV1.ERROR and catalog.get(node.value.identity) != node.value:
+                    raise TypeError("boundary error schema does not match the error_types catalog")
+                if node.kind is EntrypointValueTypeNodeKindV1.ENUM and enum_catalog.get(node.value.identity) != node.value:
+                    raise TypeError("boundary enum schema does not match the enum_types catalog")
         if kotoba is not None:
             message_ids = [entry.message_id for entry in kotoba]
             if len(set(message_ids)) != len(message_ids):
@@ -7643,9 +7921,12 @@ class ContractManifest:
             compiler_fingerprint=compiler_fingerprint,
             features_bitmap=features_bitmap,
             access_set_hints=access_set_hints,
+            permissions=permissions,
+            events=events,
             entrypoints=entrypoints,
             states=states,
             error_types=error_types,
+            enum_types=enum_types,
             error_messages=error_messages,
             kotoba=kotoba,
             provenance=provenance,
@@ -8155,6 +8436,47 @@ class PipelineRecoverySidecar:
         return cls(format=format_label, height=height, dag=dag, txs=txs)
 
 
+def _normalize_ivm_fault(value: Any) -> Mapping[str, Any]:
+    def record(item: Any, fields: set[str], context: str) -> Mapping[str, Any]:
+        if not isinstance(item, Mapping) or set(item) != fields:
+            raise ValueError(f"{context} must contain exactly {', '.join(sorted(fields))}")
+        return item
+
+    def unsigned(item: Any, bits: int, context: str) -> int:
+        if isinstance(item, bool) or not isinstance(item, int) or not 0 <= item < (1 << bits):
+            raise ValueError(f"{context} must be u{bits}")
+        return item
+
+    def unit(item: Any, allowed: set[str], context: str) -> Mapping[str, Any]:
+        tag = record(item, {"kind", "value"}, context)
+        if not isinstance(tag["kind"], str) or tag["kind"] not in allowed or tag["value"] is not None:
+            raise ValueError(f"{context} must be a known unit fault tag")
+        return dict(tag)
+
+    fault = record(value, {"kind", "site"}, "IVM fault")
+    kind = record(fault["kind"], {"kind", "value"}, "IVM fault.kind")
+    if kind["kind"] == "Numeric":
+        kind = {"kind": "Numeric", "value": unit(kind["value"], {'ScaleOverflow', 'ExactDivisionScaleOverflow', 'QuantityUnderflow', 'NegativeSquareRoot', 'InvalidRoundingMode', 'InvalidFailureMode', 'NegativeQuantity', 'ReservedRegisterNonZero', 'RepeatingDecimal', 'InexactConversion', 'InvalidScale', 'DivisionByZero', 'MantissaOverflow'}, "IVM numeric fault")}
+    elif kind["kind"] == "PointerAbi":
+        kind = {"kind": "PointerAbi", "value": unit(kind["value"], {'OversizedLength', 'TruncatedEnvelope', 'WrongType', 'InvalidAddress', 'NonCanonical', 'TypeNotAllowed', 'MalformedFrame', 'PayloadHashMismatch', 'SchemaMismatch', 'UnknownType', 'InvalidEnvelopeVersion'}, "IVM pointer fault")}
+    else:
+        kind = unit(kind, {'VectorExtensionDisabled', 'InvalidVectorLength', 'ReentrantCall', 'AssertionFailed', 'MemoryLimitExceeded', 'AmxBudgetExceeded', 'OutOfGas', 'MissingHalt', 'GasCostOverflow', 'MemoryOutOfBounds', 'PrivacyViolation', 'DecodeError', 'InvalidOpcode', 'CallDepthExceeded', 'UnsupportedSyscall', 'ExceededMaxCycles', 'InvalidMetadata', 'NoritoInvalid', 'UnknownSyscall', 'PermissionDenied', 'ZkExtensionDisabled', 'HostOutputItemsExceeded', 'MemoryAccessViolation', 'AbiTypeNotAllowed', 'NullifierAlreadyUsed', 'MisalignedAccess', 'RegisterOutOfBounds', 'HostOutputBytesExceeded'}, "IVM fault.kind")
+    site = record(fault["site"], {"code_hash", "selector", "position"}, "IVM fault.site")
+    code_hash = _normalize_32_byte_hex(site["code_hash"], "IVM fault.site.code_hash")
+    selector = record(site["selector"], {"kind", "value"}, "IVM fault.site.selector")
+    if selector["kind"] == "Entrypoint":
+        selector = {"kind": "Entrypoint", "value": unsigned(selector["value"], 32, "IVM entrypoint ordinal")}
+    else:
+        selector = unit(selector, {"Generic"}, "IVM fault.site.selector")
+    position = record(site["position"], {"kind", "value"}, "IVM fault.site.position")
+    if position["kind"] == "Execute":
+        location = record(position["value"], {"pc_offset"}, "IVM fault PC")
+        position = {"kind": "Execute", "value": {"pc_offset": unsigned(location["pc_offset"], 64, "IVM fault PC")}}
+    else:
+        position = unit(position, {"Initialization", "ReturnValidation"}, "IVM fault.site.position")
+    return {"kind": dict(kind), "site": {"code_hash": code_hash, "selector": dict(selector), "position": dict(position)}}
+
+
 @dataclass(frozen=True)
 class VerifiedCommittedTransaction:
     """A selected full output authenticated by a rooted consensus finality chain.
@@ -8183,6 +8505,7 @@ class VerifiedCommittedTransaction:
     rejection_code: Optional[str]
     rejection_message: Optional[str]
     contract_rejection: Optional[Mapping[str, Any]]
+    ivm_fault: Optional[Mapping[str, Any]]
     batch_outcomes: Tuple[Mapping[str, Any], ...]
     committed_transaction: Mapping[str, Any]
 
@@ -8214,6 +8537,7 @@ class VerifiedCommittedTransaction:
             "rejection_code",
             "rejection_message",
             "contract_rejection",
+            "ivm_fault",
             "batch_outcomes",
             "committed_transaction",
         }
@@ -8311,6 +8635,11 @@ class VerifiedCommittedTransaction:
                 rejection_message_value,
                 "verified transaction rejection message",
             )
+        ivm_fault = None if payload["ivm_fault"] is None else _normalize_ivm_fault(payload["ivm_fault"])
+        if (rejection_code == "IvmFault") != (ivm_fault is not None):
+            raise ValueError("verified transaction IvmFault rejection requires its typed fault detail")
+        if ivm_fault is not None and (result_ok or payload["contract_rejection"] is not None):
+            raise ValueError("IVM fault is separate from success and contract rejection")
         if "contract_rejection" not in payload:
             raise ValueError("verified transaction contract_rejection field is required")
         contract_rejection_value = payload["contract_rejection"]
@@ -8493,6 +8822,7 @@ class VerifiedCommittedTransaction:
             rejection_code=rejection_code,
             rejection_message=rejection_message,
             contract_rejection=contract_rejection,
+            ivm_fault=ivm_fault,
             batch_outcomes=tuple(batch_outcomes),
             committed_transaction=dict(committed),
         )
@@ -16174,6 +16504,54 @@ class ToriiClient(
         draft.register_asset_definition(
             definition_id,
             owning_domain=owning_domain,
+            name=name,
+            description=description,
+            alias=alias,
+            scale=scale,
+            mintable=mintable,
+            balance_scope_policy=balance_scope_policy,
+            metadata=asset_metadata,
+        )
+        return self._submit_transaction_draft_result(
+            draft,
+            private_key=private_key,
+            private_key_hex=private_key_hex,
+            wait=wait,
+            timeout=timeout,
+            interval=interval,
+        )
+
+    def register_dataspace_asset_definition_and_wait(
+        self,
+        *,
+        authority: str,
+        fee_payment: Mapping[str, Any],
+        private_key: Optional[bytes] = None,
+        private_key_hex: Optional[str] = None,
+        definition_id: str,
+        dataspace_id: int,
+        balance_scope_policy: str,
+        name: str,
+        description: Optional[str] = None,
+        alias: Optional[str] = None,
+        scale: Optional[Union[int, str]] = None,
+        mintable: Optional[str] = "Infinitely",
+        asset_metadata: Optional[Mapping[str, Any]] = None,
+        transaction_metadata: Optional[Mapping[str, Any]] = None,
+        wait: bool = True,
+        timeout: Optional[float] = 30.0,
+        interval: float = 1.0,
+    ) -> Mapping[str, Any]:
+        """Register directly in an exact dataspace and optionally wait for commit."""
+
+        draft = self._transaction_draft(
+            authority=authority,
+            fee_payment=fee_payment,
+            metadata=transaction_metadata,
+        )
+        draft.register_dataspace_asset_definition(
+            definition_id,
+            dataspace_id=dataspace_id,
             name=name,
             description=description,
             alias=alias,

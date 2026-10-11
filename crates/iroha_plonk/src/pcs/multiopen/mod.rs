@@ -113,6 +113,8 @@ impl OpeningQuery {
 /// A multiopen operation failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MultiopenError {
+    /// The caller cancelled this operation; it has no completed proof result.
+    Cancelled,
     /// The plan has no queries.
     NoQueries,
     /// The plan has more than [`MAX_QUERIES`] queries.
@@ -153,9 +155,21 @@ pub enum ShapeItem {
     Coefficients,
 }
 
+impl MultiopenError {
+    /// Whether this failure is cooperative cancellation, never an invalid proof.
+    pub fn is_cancelled(&self) -> bool {
+        match self {
+            Self::Cancelled => true,
+            Self::Ipa(error) => error.is_cancelled(),
+            _ => false,
+        }
+    }
+}
+
 impl fmt::Display for MultiopenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Cancelled => f.write_str("operation cancelled"),
             Self::NoQueries => f.write_str("the opening has no queries"),
             Self::TooManyQueries => f.write_str("the opening has too many queries"),
             Self::Shape {
@@ -178,9 +192,19 @@ impl fmt::Display for MultiopenError {
 
 impl std::error::Error for MultiopenError {}
 
+impl From<iroha_pasta::Cancelled> for MultiopenError {
+    fn from(_: iroha_pasta::Cancelled) -> Self {
+        Self::Cancelled
+    }
+}
+
 impl From<IpaError> for MultiopenError {
     fn from(error: IpaError) -> Self {
-        Self::Ipa(error)
+        if matches!(error, IpaError::Cancelled) {
+            Self::Cancelled
+        } else {
+            Self::Ipa(error)
+        }
     }
 }
 

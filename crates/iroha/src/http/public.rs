@@ -31,20 +31,19 @@ pub enum PublicHttpError {
 
 /// Isolated native transport for unsigned public material such as release checkpoints.
 /// It has no ledger identity, credentials, default-header input, cookies or redirect policy.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct PublicHttpClient {
     transport: DefaultHttpTransport,
 }
 
 impl PublicHttpClient {
-    /// Construct isolated native SDK connection pools with no redirects or automatic retries.
-    ///
-    /// # Errors
-    /// The native transport could not be constructed.
-    pub fn new() -> Result<Self, PublicHttpError> {
-        Ok(Self {
-            transport: DefaultHttpTransport::new().map_err(|_| PublicHttpError::Transport)?,
-        })
+    /// Retain isolated lazy SDK pools with no redirects or automatic retries.
+    /// Native transport construction occurs on the first request and can fail there.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            transport: DefaultHttpTransport::new(),
+        }
     }
 
     /// Inject a trusted transport while retaining this owner's URL, deadline and byte policies.
@@ -74,6 +73,45 @@ impl PublicHttpClient {
             .send_blocking(request)
             .map_err(|_| transport_error(deadline))?;
         response_bytes(response, deadline, maximum)
+    }
+
+    /// Read one canonical Norito object without ledger credentials on a blocking worker.
+    ///
+    /// The request advertises only the fixed Norito media type. The response must select that
+    /// same media type; this method grants no trust to decoded contents or their source.
+    ///
+    /// # Errors
+    /// The same URL, deadline, status, response-size and blocking-context refusals as the
+    /// ordinary public read, or a missing/foreign response media type.
+    pub fn get_norito_bytes_blocking(
+        &self,
+        url: &Url,
+        deadline: Instant,
+        maximum: usize,
+    ) -> Result<Vec<u8>, PublicHttpError> {
+        let mut request = request(url, deadline, maximum)?;
+        request.headers.push((
+            http::header::ACCEPT,
+            http::HeaderValue::from_static("application/x-norito"),
+        ));
+        crate::blocking::reject_inside_async_runtime().map_err(|_| PublicHttpError::Transport)?;
+        let response = self
+            .transport
+            .with_deadline(deadline)
+            .send_blocking(request)
+            .map_err(|_| transport_error(deadline))?;
+        // Keep the original deadline/status/size precedence before inspecting media headers.
+        let valid_media = response
+            .headers()
+            .get(http::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            == Some("application/x-norito");
+        let bytes = response_bytes(response, deadline, maximum)?;
+        // SDK1 restores foreign-media acceptance only in the owning unit-test build.
+        if !valid_media && !cfg!(all(test, sumeragi_sdk_mutation = "SDK1")) {
+            return Err(PublicHttpError::Invalid);
+        }
+        Ok(bytes)
     }
 
     /// Read one public HTTPS object asynchronously under the same finite policies.

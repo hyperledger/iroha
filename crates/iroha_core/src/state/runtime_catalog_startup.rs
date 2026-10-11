@@ -2,9 +2,10 @@ impl State {
     /// Install a frozen manifest source against the startup or replay catalog.
     ///
     /// The caller must supply the catalog reconstructed from configured genesis
-    /// authority or the authenticated replay state. Validation and publication
-    /// share the State write generation, so a rejected source changes neither
-    /// the manifest nor the derived privacy registry.
+    /// authority or the authenticated replay state. Validation holds the State writer.
+    /// An identical complete authority retains the original State handles and generation,
+    /// including during the post-replay Queue handoff. Only an actual source change begins
+    /// a publication; refused sources leave the certified World cut unchanged.
     ///
     /// # Errors
     /// Rejects status-only registries, altered source bodies or digests,
@@ -19,8 +20,7 @@ impl State {
         let mut releases = LaneLifecycleReleases::new(self);
         let mut state_write_release = self.state_write_lock.defer_notifications();
         let _state_write_lock = state_write_release.lock();
-        let publication = publication_notice.begin();
-        manifests
+        let candidate_bytes = manifests
             .canonical_materialized_authority_preimage(catalog, governance)
             .map_err(runtime_catalog_invalid)?;
         manifests
@@ -29,7 +29,17 @@ impl State {
                 lane: error.lane,
                 reason: error.message(),
             })?;
+        {
+            let current = releases.manifests.read();
+            if current
+                .canonical_materialized_authority_preimage(catalog, governance)
+                .is_ok_and(|current_bytes| current_bytes == candidate_bytes)
+            {
+                return Ok(());
+            }
+        }
         let privacy = Arc::new(LanePrivacyRegistry::from_manifest_registry(manifests));
+        let publication = publication_notice.begin();
         self.install_prepared_lane_manifests_in_publication(
             Arc::clone(manifests),
             privacy,
@@ -39,18 +49,19 @@ impl State {
         Ok(())
     }
 
-    /// Install a semantic-preserving manifest refresh without racing a catalog publication.
+    /// Accept a semantic-preserving refresh without replacing installed State authority.
+    ///
+    /// Queue and telemetry own refreshed local paths and diagnostics. State retains the
+    /// original immutable sources after authenticating the candidate's complete materialized
+    /// authority under its writer. Neither acceptance nor refusal publishes a new State
+    /// generation: an unchanged manifest must not invalidate the certified World cut.
     pub(crate) fn install_lane_manifests_if_consensus_compatible(
         &self,
         manifests: &LaneManifestRegistryHandle,
     ) -> bool {
-        let privacy = Arc::new(LanePrivacyRegistry::from_manifest_registry(manifests));
-        let manifests = Arc::clone(manifests);
-        let mut publication_notice = self.state_view_publication();
         let mut releases = LaneLifecycleReleases::new(self);
         let mut state_write_release = self.state_write_lock.defer_notifications();
         let _state_write_lock = state_write_release.lock();
-        let publication = publication_notice.begin();
         let nexus = self
             .canonical_runtime
             .view()
@@ -61,24 +72,13 @@ impl State {
         else {
             return false;
         };
-        {
-            let current = releases.manifests.read();
-            let Ok(current_bytes) = current
-                .canonical_materialized_authority_preimage(&nexus.lane_catalog, &nexus.governance)
-            else {
-                return false;
-            };
-            if current_bytes != candidate_bytes {
-                return false;
-            }
-        }
-        self.install_prepared_lane_manifests_in_publication(
-            manifests,
-            privacy,
-            &publication,
-            &mut releases,
-        );
-        true
+        let current = releases.manifests.read();
+        let Ok(current_bytes) = current
+            .canonical_materialized_authority_preimage(&nexus.lane_catalog, &nexus.governance)
+        else {
+            return false;
+        };
+        current_bytes == candidate_bytes
     }
 
     /// Derive effective dataspaces from the configured baseline and protected committed catalog.

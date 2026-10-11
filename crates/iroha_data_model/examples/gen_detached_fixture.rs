@@ -4,8 +4,8 @@ use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair, Signature};
 use iroha_data_model::{
     NetworkId,
     account::AccountId,
-    asset::AssetDefinitionId,
     block::BlockHeader,
+    parameter::system::SumeragiNposParameters,
     smart_contract::ContractAddress,
     transaction::{
         Executable, FeeChargeKind, FeeChargeLimit, FeePaymentIntent,
@@ -42,7 +42,9 @@ fn main() {
         "contract_payload".parse().expect("metadata key"),
         Json::new(payload),
     );
-    let fee_asset: AssetDefinitionId = "xor#universal".parse().expect("canonical fee asset");
+    let fee_asset = SumeragiNposParameters::default()
+        .xor_asset_definition_id()
+        .clone();
     let fee_payment = FeePaymentIntent::authority(
         vec![
             FeeChargeLimit::new(
@@ -58,14 +60,12 @@ fn main() {
         ],
         NonZeroU64::new(500_000),
     );
-    let invocation = ContractInvocation {
+    let invocation = ContractInvocation::new(
         contract_address,
         expected_code_hash,
-        entrypoint: "spend_to_merchant".to_owned(),
-        arguments: Some(
-            ContractArgumentRecord::try_new(vec![0x01]).expect("bounded contract arguments"),
-        ),
-    };
+        "spend_to_merchant".to_owned(),
+        Some(ContractArgumentRecord::try_new(vec![0x01]).expect("bounded contract arguments")),
+    );
     let mut builder = TransactionBuilder::new(
         NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(Hash::new(
             b"swift-detached-contract-fixture",
@@ -113,4 +113,14 @@ fn main() {
         hex::encode(signed.hash_as_entrypoint().as_ref())
     );
     println!("signed_b64={}", STANDARD.encode(signed.encode_versioned()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detached_fixture_uses_current_fee_identity_and_verifies_native_signatures() {
+        main();
+    }
 }

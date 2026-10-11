@@ -1,8 +1,8 @@
 //! SCCP v1 route registry state (`specs/sccp.md` §2.3, §4.14.1, §4.14.2).
 //!
-//! Each external network has one route (`taira_eth_xor`, `taira_bsc_xor`, `taira_tron_xor`,
-//! `taira_ton_xor`) with one escrow account and a map of revisions. Each revision binds one
-//! destination deployment and carries its own liability, nonces and activation state.
+//! Each external network has one route (`taira_eth_xor`, `taira_bsc_xor`, `taira_ton_xor`) with
+//! one escrow account and a map of revisions. Each revision binds one destination deployment and
+//! carries its own liability, nonces and activation state.
 
 use super::{control::SCCP_FIRST_CONTROL_NONCE_V1, deployment::SccpDeploymentV1};
 use crate::{
@@ -16,8 +16,6 @@ use std::collections::BTreeMap;
 pub const SCCP_ROUTE_ID_TAIRA_ETH_XOR_V1: &str = "taira_eth_xor";
 /// Route id of Taira XOR on BSC.
 pub const SCCP_ROUTE_ID_TAIRA_BSC_XOR_V1: &str = "taira_bsc_xor";
-/// Route id of Taira XOR on TRON.
-pub const SCCP_ROUTE_ID_TAIRA_TRON_XOR_V1: &str = "taira_tron_xor";
 /// Route id of Taira XOR on TON.
 pub const SCCP_ROUTE_ID_TAIRA_TON_XOR_V1: &str = "taira_ton_xor";
 
@@ -28,16 +26,14 @@ pub const fn route_id_for(network: SccpNetworkV1) -> Option<&'static str> {
         SccpNetworkV1::SoraTaira => None,
         SccpNetworkV1::EthereumMainnet => Some(SCCP_ROUTE_ID_TAIRA_ETH_XOR_V1),
         SccpNetworkV1::BscMainnet => Some(SCCP_ROUTE_ID_TAIRA_BSC_XOR_V1),
-        SccpNetworkV1::TronMainnet => Some(SCCP_ROUTE_ID_TAIRA_TRON_XOR_V1),
         SccpNetworkV1::TonMainnet => Some(SCCP_ROUTE_ID_TAIRA_TON_XOR_V1),
     }
 }
 
-/// The four external networks with a route, in registry order (§4.14.1).
-pub const SCCP_ROUTE_NETWORKS_V1: [SccpNetworkV1; 4] = [
+/// The three external networks with a route, in registry order (§2.3, §4.14.1).
+pub const SCCP_ROUTE_NETWORKS_V1: [SccpNetworkV1; 3] = [
     SccpNetworkV1::EthereumMainnet,
     SccpNetworkV1::BscMainnet,
-    SccpNetworkV1::TronMainnet,
     SccpNetworkV1::TonMainnet,
 ];
 
@@ -116,6 +112,9 @@ impl SccpRouteActivationV1 {
 }
 
 /// One route revision (§4.14.1).
+///
+/// TODO: WP-S4: add `initial_committee: SccpCommitteePinV1`, pinned at registration (§4.14.3
+/// P1). Until then a revision names no committee, and Core refuses to register one.
 #[derive(
     Debug,
     Clone,
@@ -143,10 +142,6 @@ pub struct SccpRouteRevisionV1 {
     pub deployment: SccpDeploymentV1,
     /// §3.4 destination word of the deployment.
     pub destination_word: [u8; 32],
-    /// Roster generation the deployment was constructed with.
-    pub initial_roster_generation: u64,
-    /// Digest of that generation, pinned at registration.
-    pub initial_roster_digest: [u8; 32],
     /// Activation state.
     pub activation: SccpRouteActivationV1,
     /// Set by a proven frozen void (§4.16).
@@ -176,16 +171,12 @@ impl SccpRouteRevisionV1 {
         revision: u32,
         deployment: SccpDeploymentV1,
         max_wrapped_supply: u128,
-        initial_roster_generation: u64,
-        initial_roster_digest: [u8; 32],
         registered_at_height: u64,
     ) -> Self {
         Self {
             revision,
             destination_word: deployment.destination_word(),
             deployment,
-            initial_roster_generation,
-            initial_roster_digest,
             activation: SccpRouteActivationV1::Staged,
             destination_frozen: false,
             destination_paused: false,
@@ -314,8 +305,6 @@ mod tests {
                 number,
                 evm(u8::try_from(number).expect("small")),
                 10_000,
-                3,
-                [4; 32],
                 50,
             )
         }
@@ -333,10 +322,6 @@ mod tests {
             Some("taira_bsc_xor")
         );
         assert_eq!(
-            route_id_for(SccpNetworkV1::TronMainnet),
-            Some("taira_tron_xor")
-        );
-        assert_eq!(
             route_id_for(SccpNetworkV1::TonMainnet),
             Some("taira_ton_xor")
         );
@@ -344,6 +329,22 @@ mod tests {
             SCCP_ROUTE_NETWORKS_V1
                 .iter()
                 .all(|network| network.is_external() && route_id_for(*network).is_some())
+        );
+    }
+
+    #[test]
+    fn route_networks_are_ethereum_bsc_ton() {
+        assert_eq!(
+            SCCP_ROUTE_NETWORKS_V1,
+            [
+                SccpNetworkV1::EthereumMainnet,
+                SccpNetworkV1::BscMainnet,
+                SccpNetworkV1::TonMainnet,
+            ]
+        );
+        assert_eq!(
+            SCCP_ROUTE_NETWORKS_V1.map(|network| route_id_for(network).expect("route")),
+            ["taira_eth_xor", "taira_bsc_xor", "taira_ton_xor"]
         );
     }
 
@@ -388,7 +389,7 @@ mod tests {
     #[test]
     fn staged_revision_defaults() {
         let deployment = evm(9);
-        let staged = SccpRouteRevisionV1::staged(2, deployment, 1_000, 7, [8; 32], 99);
+        let staged = SccpRouteRevisionV1::staged(2, deployment, 1_000, 99);
         assert_eq!(staged.revision, 2);
         assert_eq!(staged.destination_word, deployment.destination_word());
         assert_eq!(staged.activation, SccpRouteActivationV1::Staged);
@@ -398,8 +399,6 @@ mod tests {
         assert!(!staged.destination_frozen);
         assert!(!staged.destination_paused);
         assert!(!staged.ever_activated);
-        assert_eq!(staged.initial_roster_generation, 7);
-        assert_eq!(staged.initial_roster_digest, [8; 32]);
         assert_eq!(staged.registered_at_height, 99);
         assert_eq!(staged.headroom(), 1_000);
         let over = SccpRouteRevisionV1 {
@@ -456,6 +455,18 @@ mod tests {
         roundtrip(&route);
         assert_rejects_unknown_field(&route, &[]);
         assert_rejects_unknown_field(&route, &["revisions", "1"]);
+        // The roster pin of the attestation transport is not a field of a revision.
+        let mut value =
+            norito::json::to_value(&revision(1, SccpRouteActivationV1::Staged)).expect("value");
+        let object = value.as_object_mut().expect("object");
+        assert!(!object.contains_key("initial_roster_generation"));
+        assert!(!object.contains_key("initial_roster_digest"));
+        object.insert(
+            "initial_roster_generation".to_owned(),
+            norito::json::Value::from(3_u64),
+        );
+        let hostile = norito::json::to_json(&value).expect("json");
+        assert!(norito::json::from_json::<SccpRouteRevisionV1>(&hostile).is_err());
         let json = norito::json::to_json(&route).expect("json");
         assert!(
             json.contains(&format!("\"stranded\":\"{}\"", u128::MAX)),

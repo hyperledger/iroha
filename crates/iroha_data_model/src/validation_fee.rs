@@ -39,6 +39,9 @@ pub const VALIDATION_FEE_REGISTRY_SNAPSHOT_HASH_DOMAIN: &[u8] =
 pub const VALIDATION_FEE_POLICY_SNAPSHOT_VERSION_V1: u16 = 1;
 /// Exact sparse-tree depth of the execution-witness proof.
 pub const VALIDATION_FEE_POLICY_WITNESS_SIBLINGS_V1: usize = 256;
+/// Maximum canonical protected registry bytes retained in every fee evidence corpus.
+/// Optional governance appends must preserve room for automatic reward materialization.
+pub const MAX_VALIDATION_FEE_REGISTRY_BYTES: usize = 1024 * 1024;
 pub use crate::execution_witness::VALIDATION_FEE_POLICY_WITNESS_KEY_V1;
 /// Retired custom-parameter identifier for the pre-release governance keyset.
 pub const RETIRED_VALIDATION_FEE_GOVERNANCE_KEYSET_PARAMETER_ID: &str =
@@ -59,6 +62,10 @@ pub fn is_reserved_validation_fee_parameter_id(id: &CustomParameterId) -> bool {
 /// Error returned when a validation-fee policy registry is malformed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValidationFeePolicyRegistryError {
+    /// Canonical registry serialization failed.
+    RegistryEncoding,
+    /// The complete authenticated history exceeds its per-block evidence budget.
+    RegistryByteLimit,
     /// No registered policy entries were supplied.
     EmptyRegistry,
     /// A policy entry did not continue the monotonic version chain.
@@ -114,6 +121,11 @@ pub enum ValidationFeePolicyRegistryError {
 impl core::fmt::Display for ValidationFeePolicyRegistryError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::RegistryEncoding => write!(f, "validation-fee registry could not be encoded"),
+            Self::RegistryByteLimit => write!(
+                f,
+                "validation-fee registry exceeds its canonical byte limit"
+            ),
             Self::EmptyRegistry => write!(f, "validation-fee policy registry is empty"),
             Self::UnexpectedPolicyVersion { expected, found } => write!(
                 f,
@@ -372,6 +384,15 @@ impl ValidationFeePolicyRegistryV1 {
     /// Returns an error when the registry is empty, non-monotonic, broken, unauthenticated, or
     /// contains a policy whose stored hash differs from its payload.
     pub fn validate(&self) -> Result<(), ValidationFeePolicyRegistryError> {
+        // TODO: authenticate compact historical registry checkpoints before
+        // admitting revisions beyond this bound; never discard signed evidence.
+        if norito::to_bytes(self)
+            .map_err(|_| ValidationFeePolicyRegistryError::RegistryEncoding)?
+            .len()
+            > MAX_VALIDATION_FEE_REGISTRY_BYTES
+        {
+            return Err(ValidationFeePolicyRegistryError::RegistryByteLimit);
+        }
         self.payout_policies.validate().map_err(|_| {
             ValidationFeePolicyRegistryError::InvalidPayoutLifecycleReference { policy_version: 0 }
         })?;
@@ -918,6 +939,17 @@ impl ValidationFeeTreasuryPayoutBindingV1 {
     /// Return a stable policy invariant violation, if any.
     #[must_use]
     pub fn invariant_error(&self) -> Option<&'static str> {
+        if [
+            &self.treasury_account_id,
+            &self.pool_vault_account_id,
+            &self.reward_pool_account_id,
+        ]
+        .into_iter()
+        .chain(self.reference_provider_accounts.iter())
+        .any(|account| crate::validation_fee_rewards::validate_reward_identity(account).is_err())
+        {
+            return Some("payout account identity exceeds the canonical reward byte bound");
+        }
         if self.code_hash == [0; 32] || self.pool_code_hash == [0; 32] {
             return Some("conversion wrapper and pool code hashes must be non-zero");
         }
@@ -1771,6 +1803,65 @@ mod parliament_tests {
                 "malformed payout binding must be rejected"
             );
         }
+    }
+    #[test]
+    fn payout_binding_rejects_oversized_reward_custody_and_provider_identity() {
+        use crate::account::{MultisigMember, MultisigPolicy};
+        let mut binding = payout_binding();
+        assert_eq!(binding.invariant_error(), None);
+        let oversized = AccountId::new_multisig(
+            MultisigPolicy::new(
+                1,
+                (0u8..16)
+                    .map(|seed| {
+                        MultisigMember::new(
+                            iroha_crypto::KeyPair::from_seed(
+                                vec![seed; 32],
+                                iroha_crypto::Algorithm::Ed25519,
+                            )
+                            .public_key()
+                            .clone(),
+                            1,
+                        )
+                        .unwrap()
+                    })
+                    .collect(),
+            )
+            .unwrap(),
+        );
+        binding.reward_pool_account_id = oversized.clone();
+        assert_eq!(
+            binding.invariant_error(),
+            Some("payout account identity exceeds the canonical reward byte bound")
+        );
+        binding = payout_binding();
+        binding.reference_provider_accounts[0] = oversized;
+        assert_eq!(
+            binding.invariant_error(),
+            Some("payout account identity exceeds the canonical reward byte bound")
+        );
+        assert_eq!(payout_binding().invariant_error(), None);
+    }
+    #[test]
+    fn complete_registry_byte_limit_reserves_automatic_reward_evidence_capacity() {
+        let mut registry = ValidationFeePolicyRegistryV1 {
+            registered_policies: Vec::new(),
+            payout_policies: payout_registry(),
+        };
+        registry.validate().unwrap();
+        let retained = registry.payout_policies.entries[0].clone();
+        while norito::to_bytes(&registry).unwrap().len() <= MAX_VALIDATION_FEE_REGISTRY_BYTES {
+            let length = registry.payout_policies.entries.len();
+            registry
+                .payout_policies
+                .entries
+                .extend(vec![retained.clone(); length]);
+        }
+        assert!(norito::to_bytes(&registry).unwrap().len() > MAX_VALIDATION_FEE_REGISTRY_BYTES);
+        assert_eq!(
+            registry.validate(),
+            Err(ValidationFeePolicyRegistryError::RegistryByteLimit)
+        );
     }
     #[test]
     fn lifecycle_seal_and_fingerprint_bind_exact_binding_and_operator() {

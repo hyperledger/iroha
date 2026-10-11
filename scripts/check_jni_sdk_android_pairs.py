@@ -14,12 +14,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 JNI_SOURCE = REPO_ROOT / "crates/connect_norito_bridge/src/platform_jni/part_3.rs"
 SDK_PREFIX = "Java_org_hyperledger_iroha_sdk_"
 ANDROID_PREFIX = "Java_org_hyperledger_iroha_android_"
-EXPECTED_GOVERNANCE_SOURCE_DIGEST = "d8e413b1478089114c52d3877bf5442328d5c7a933f09bdb1cebcdda470ef4c2"
+EXPECTED_GOVERNANCE_SOURCE_DIGEST = "a13b0664abdf988946a4b48740c44f7352b815d16faf981ca06fec2d52a483fa"
 EXPECTED_GOVERNANCE_METHODS = (
     "nativeBridgeAbiVersion", "nativeVerifyCastingProofV1", "nativeVerifyCastingProofPageV1",
     "nativeRegistrationFromProofV1", "nativeBallotFromProofV1",
 )
-EXPECTED_ABI_DIGEST = "406c64c8e153cc2c31bc96d344c3aeba6960ec722b0cbf75e04e85aa3cd64a85"
+EXPECTED_ABI_DIGEST = "dc78a30d4283897a423abcba22ee6a9e4f1cf4e372ffe05c48f22a5e48ccad66"
 EXPECTED_ATTRIBUTE_DIGEST = "c80e87e1a878a1263dd1cb7708bc8ec335cb7e4e5461934708561466f7a2d795"
 
 EXPECTED_METHODS = {

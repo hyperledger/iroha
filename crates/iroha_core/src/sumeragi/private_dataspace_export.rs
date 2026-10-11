@@ -9,7 +9,7 @@ use iroha_data_model::{
     private_dataspace::{
         PrivateDataspaceAnchor, PrivateDataspaceAnchorError, PrivateDataspaceRegistration,
     },
-    sumeragi_finality::{genesis_epoch, signed_genesis_consensus_metadata},
+    sumeragi_finality::{authenticated_genesis, signed_genesis_consensus_metadata},
 };
 
 use super::{
@@ -85,14 +85,16 @@ fn registration_from_chain<V: StateReadOnly>(
     }
     // `committed` reads the original executed receipt, not a replaceable result-only journal.
     let genesis = chain.committed(1)?;
-    let epoch = genesis_epoch(chain.genesis()).map_err(|error| {
-        match crate::execution_attempt::genesis_read_attempt_error(error, |error| {
-            ExportError::Scope(error.to_string())
-        }) {
-            ExecutionAttemptError::Rejected(error) => error,
-            ExecutionAttemptError::Deferred(reason) => ExportError::Deferred(reason),
-        }
-    })?;
+    let epoch = authenticated_genesis(chain.genesis())
+        .map(|genesis| genesis.into_parts().0)
+        .map_err(|error| {
+            match crate::execution_attempt::genesis_read_attempt_error(error, |error| {
+                ExportError::Scope(error.to_string())
+            }) {
+                ExecutionAttemptError::Rejected(error) => error,
+                ExecutionAttemptError::Deferred(reason) => ExportError::Deferred(reason),
+            }
+        })?;
     let registration = PrivateDataspaceRegistration::new(
         scope,
         view.chain_id().clone(),

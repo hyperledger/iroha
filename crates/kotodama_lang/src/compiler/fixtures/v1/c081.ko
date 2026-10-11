@@ -1,5 +1,5 @@
 
-seiyaku CompilerFixture {
+seiyaku CompilerFixture { permission FixtureAccess;
 
 fn verify(bytes payload) {
   crypto::zk::verify_batch(request: payload);
@@ -13,7 +13,7 @@ fn verify_namespaced(bytes payload) {
   ledger::governance::verify_tally(request: payload);
 }
 
-kotoage fn main() authorize("CompilerFixture") {
+kotoage fn main() authorize(FixtureAccess) {
   let payload = b"\x01\x02\x03";
   verify(payload: payload);
   verify_namespaced(payload: payload);

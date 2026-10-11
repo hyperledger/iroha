@@ -9,6 +9,7 @@ use iroha_core::beacon::ceremony::{
 };
 use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::block::BlockHeader;
+use iroha_model_base::peer::PeerId;
 use std::{
     fs,
     os::unix::fs::{PermissionsExt as _, symlink},
@@ -251,90 +252,6 @@ fn runtime_signer_rejects_a_mismatched_public_binding() {
     }
 }
 
-fn mint_roster(network_id: NetworkId) -> KagemushaMintFinalityAuthorityGenerationV1 {
-    let mut peers = (1_u8..=4)
-        .map(|index| PeerId::new(signer_key(index).public_key().clone()))
-        .collect::<Vec<_>>();
-    peers.sort();
-    KagemushaMintFinalityAuthorityGenerationV1 {
-        version: iroha_data_model::isi::kagemusha_v1::KAGEMUSHA_CHAIN_VERSION_V1,
-        network_id,
-        generation: 0,
-        validators: peers
-            .into_iter()
-            .enumerate()
-            .map(|(index, validator)| {
-                iroha_core_zk::kagemusha_v1_recursion::derive_kagemusha_mint_finality_validator_keys_v1(
-                    &[0x70 + u8::try_from(index).expect("four validators"); 32],
-                    0,
-                    validator,
-                )
-                .expect("derive fixture roster keys")
-            })
-            .collect(),
-    }
-}
-
-#[test]
-fn mint_finality_seed_binds_a_named_peer_or_an_unseated_candidate() {
-    let network_id = network(b"node-secrets mint roster");
-    let roster = mint_roster(network_id);
-    let local = roster.validators[2].validator.clone();
-    let authority =
-        bind_mint_finality_seed(network_id, &local, &roster, Zeroizing::new([0x72; 32]))
-            .expect("bind named validator");
-    assert_eq!(
-        authority
-            .signer()
-            .expect("named validator gets its genesis signer")
-            .validator_index(),
-        2
-    );
-    assert_eq!(authority.authority(), Some(&roster));
-
-    let candidate = PeerId::new(signer_key(0x99).public_key().clone());
-    let unseated =
-        bind_mint_finality_seed(network_id, &candidate, &roster, Zeroizing::new([0xA5; 32]))
-            .expect("an unnamed peer retains its seed as a candidate");
-    assert!(unseated.authority().is_none());
-    assert!(unseated.signer().is_none());
-
-    assert!(matches!(
-        bind_mint_finality_seed(network_id, &local, &roster, Zeroizing::new([0x70; 32])),
-        Err(NodeSecretsErrorV1::BindingMismatch {
-            file: NodeSecretFile::MintFinalitySeed,
-            ..
-        })
-    ));
-    assert!(matches!(
-        bind_mint_finality_seed(
-            network(b"another network"),
-            &local,
-            &roster,
-            Zeroizing::new([0x72; 32])
-        ),
-        Err(NodeSecretsErrorV1::BindingMismatch { .. })
-    ));
-}
-
-#[test]
-fn mint_finality_seed_file_has_the_exact_raw_size() {
-    let fixture = SecretsFixture::new();
-    let path = fixture.write(NodeSecretFile::MintFinalitySeed, &[0x72; 32]);
-    assert_eq!(
-        *load_mint_finality_seed(&path).expect("exact seed"),
-        [0x72; 32]
-    );
-    fixture.write(NodeSecretFile::MintFinalitySeed, &[0x72; 33]);
-    assert_eq!(
-        load_mint_finality_seed(&path).err(),
-        Some(NodeSecretsErrorV1::Custody {
-            file: NodeSecretFile::MintFinalitySeed,
-            error: RuntimeCredentialErrorV1::InvalidLength,
-        })
-    );
-}
-
 struct DealtSeat {
     network_id: NetworkId,
     handle: String,
@@ -378,9 +295,14 @@ fn dealt_seat(network_id: NetworkId) -> DealtSeat {
     }
 }
 
+/// Parse the ordinary node configuration used by the native custody tests.
+fn minimal_parser_config() -> Config {
+    Config::from_toml_source(TomlSource::inline(minimal_config_table()))
+        .expect("ordinary node parser fixture")
+}
+
 fn validator_sumeragi() -> Sumeragi {
-    let config = Config::from_toml_source(TomlSource::inline(minimal_config_table()))
-        .expect("minimal config parses");
+    let config = minimal_parser_config();
     assert_eq!(config.sumeragi.role, NodeRole::Validator);
     config.sumeragi
 }
@@ -523,16 +445,15 @@ fn onboarding_authority_key_must_match_the_authority() {
 
 /// A parsed minimal configuration whose `data_dir` is the fixture.
 fn data_dir_config(fixture: &SecretsFixture) -> Config {
-    let mut config = Config::from_toml_source(TomlSource::inline(minimal_config_table()))
-        .expect("minimal config parses");
+    let mut config = minimal_parser_config();
     config.data_dir = Some(fixture.data_dir.clone());
     config
 }
 
 #[test]
 fn open_without_data_dir_touches_no_secret() {
-    let config = Config::from_toml_source(TomlSource::inline(minimal_config_table()))
-        .expect("minimal config parses");
+    let config = minimal_parser_config();
+    // An ordinary node with no data directory opens no runtime custody source.
     assert!(config.data_dir.is_none());
     assert!(
         secret_result(NodeSecretsV1::open(&config, &credential_test_budget()))
@@ -566,8 +487,6 @@ fn opened_secrets_resolve_the_configured_catalog() {
         *key_pair.public_key()
     );
     assert!(dependencies.sumeragi_global_beacon_partial_signer.is_some());
-    assert!(dependencies.kagemusha_mint_finality_authority.is_none());
-    assert!(!secrets.has_mint_finality_seed().expect("inspect seed"));
 
     // A configured beacon binding is resolved through the catalog instead.
     config.sumeragi.global_beacon_partial_signer_provider_handle = Some(seat.handle.clone());

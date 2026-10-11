@@ -6,7 +6,7 @@
 //!
 //! | Modules | Owner |
 //! |---|---|
-//! | [`init`], [`params`], [`bridge_keys`], [`attestations`], [`faults`], [`admission`], [`fees`] | ws31 |
+//! | [`init`], [`params`], [`bridge_keys`], [`attestations`], [`faults`], [`admission`], [`fees`] | ws31 (inbound eligibility arms: ws41) |
 //! | [`hook`], [`roster`], [`commitment`], [`subjects`], [`prune`] | ws30 |
 //! | [`outbound`], [`escrow`], [`recipients`] | ws32 |
 //! | [`registry`], [`governance`], [`controls`], [`light_clients`] (Parliament half) | ws33 |
@@ -45,6 +45,8 @@ pub mod subjects;
 pub mod voids;
 pub mod witness;
 
+#[cfg(test)]
+mod eligibility_tests;
 #[cfg(test)]
 pub(crate) mod test_support;
 

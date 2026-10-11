@@ -10,7 +10,6 @@ struct Fields<'target, Admission> {
     external_event_buf: Option<Vec<EventBox>>,
     shells: Option<WorldJournalShellReservation>,
     admission: Option<Admission>,
-    operation_index_scope: Option<iroha_allocation::OwnedAllocationScope>,
 }
 
 enum Phase<'target, Admission> {
@@ -34,7 +33,6 @@ pub(in crate::state) struct WorldPublicationSlot<'target, Admission, Installatio
 
 impl<Admission> DetachedWorld<Admission> {
     /// Move the exact World into its caller without probing or allocating.
-    /// The captured pool scope accompanies every original through publication.
     pub(in crate::state) fn publication_slot<'target, Installation>(
         self,
         target: &'target World,
@@ -86,19 +84,6 @@ impl<'target, Admission, Installation> WorldPublicationSlot<'target, Admission, 
             }
         };
         self.installation = Some(installation);
-        let operation_index_scope = match self
-            .original()
-            .operation_index_budget
-            .try_owned_refund_scope()
-        {
-            Ok(scope) => scope,
-            Err(error) => {
-                self.retryable = true;
-                return Err(WorldPublicationError::Scope(
-                    mv::storage::AdmittedStorageError::Allocation(error),
-                ));
-            }
-        };
         // This is the existing admitted prepared Vec. The original stays in the
         // caller while allocating; its allocation becomes the exact retry Vec.
         let fields = PreparedWorldFields(Vec::with_capacity(self.original().fields.len()));
@@ -112,7 +97,6 @@ impl<'target, Admission, Installation> WorldPublicationSlot<'target, Admission, 
             external_event_buf,
             shells,
             admission,
-            operation_index_budget: _,
         } = original;
         self.phase = Some(Phase::Fields(Fields {
             mode,
@@ -122,22 +106,13 @@ impl<'target, Admission, Installation> WorldPublicationSlot<'target, Admission, 
             external_event_buf: Some(external_event_buf),
             shells: Some(shells),
             admission: Some(admission),
-            operation_index_scope: Some(operation_index_scope),
         }));
         let Some(Phase::Fields(fields)) = self.phase.as_mut() else {
             unreachable!("installed original World fields");
         };
         fields.retry.reverse();
         while let Some(original) = fields.retry.pop() {
-            fields.fields.push(
-                original.publication_slot(
-                    self.target,
-                    fields
-                        .operation_index_scope
-                        .as_ref()
-                        .expect("original operation index scope"),
-                ),
-            );
+            fields.fields.push(original.publication_slot(self.target));
         }
         // Every shell and its original journal is already in this caller before
         // the first physical acquisition or a native field preparation can panic.
@@ -187,12 +162,6 @@ impl<'target, Admission, Installation> WorldPublicationSlot<'target, Admission, 
             external_event_buf: fields.external_event_buf.take().expect("original events"),
             shells: fields.shells.take().expect("original shell capacity"),
             admission: fields.admission.take().expect("original capture admission"),
-            operation_index_budget: fields
-                .operation_index_scope
-                .as_ref()
-                .expect("original operation index scope")
-                .allocation_budget()
-                .clone(),
         }
     }
 
@@ -231,9 +200,6 @@ impl<'target, Admission, Installation> WorldPublicationSlot<'target, Admission, 
                 .expect("original shell installation"),
             admission: fields.admission.expect("original capture admission"),
             installation: self.installation.take().expect("original installation"),
-            operation_index_scope: fields
-                .operation_index_scope
-                .expect("original operation index scope"),
         }
     }
 
@@ -248,15 +214,14 @@ impl<'target, Admission, Installation> WorldPublicationSlot<'target, Admission, 
             );
         }
         let fields = match self.phase.take() {
-            Some(Phase::Fields(fields)) => (fields.fields, fields.operation_index_scope),
-            None => (PreparedWorldFields(Vec::new()), None),
+            Some(Phase::Fields(fields)) => fields.fields,
+            None => PreparedWorldFields(Vec::new()),
             Some(Phase::Original(_)) => panic!("original World is not cleanup"),
         };
         AbortedWorld {
-            _fields: fields.0,
+            _fields: fields,
             _installation: self.installation.take(),
             _shell_installation: self.shell_installation.take(),
-            _operation_index_scope: fields.1,
         }
     }
 }

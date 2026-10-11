@@ -38,7 +38,7 @@ public sealed class ConfidentialProof
             var backend = value.GetProperty("backend").GetString();
             // ProofBox.backend identifies the proof system. The native producer
             // chooses and self-verifies the exact circuit carried in its envelope.
-            const string expectedBackend = "halo2/ipa";
+            const string expectedBackend = "pipa-r/pasta";
             byte[] Hex(JsonElement item, int? length = null)
             {
                 var text = item.GetString() ?? throw new ConfidentialProverException(-100);

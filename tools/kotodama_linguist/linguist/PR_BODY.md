@@ -5,7 +5,10 @@ the TextMate scope `source.kotodama`.
 
 ## Why
 
-Kotodama is the smart-contract language used by the Iroha Virtual Machine.
+Kotodama is the smart-contract language of the Iroha Virtual Machine; its
+sources compile to IVM bytecode. Its declaration keywords have romanized and
+Japanese spellings (`seiyaku`/`誓約`, `kotoage`/`言挙げ`, `hajimari`/`始まり`,
+`kaizen`/`改善`) that the grammar highlights identically.
 Public repositories already store contract sources as `.ko` files, but GitHub
 currently treats them as plain text or requires repository-local overrides to
 force an unrelated language.
@@ -17,13 +20,15 @@ force an unrelated language.
 
 ## Usage evidence
 
-- Authenticated GitHub code-search query:
-  - `extension:ko contract NOT is:fork`
-- Result count:
+- Authenticated GitHub code-search queries (each deployable file declares its
+  unit with `seiyaku` or the equal Japanese spelling `誓約`):
+  - `extension:ko seiyaku NOT is:fork`
+  - `extension:ko 誓約 NOT is:fork`
+- Result counts:
   - `<fill in>`
 - Additional supporting queries:
-  - `extension:ko entry NOT is:fork`
-  - `extension:ko "register_trigger" NOT is:fork`
+  - `extension:ko kotoage NOT is:fork`
+  - `extension:ko 言挙げ NOT is:fork`
 - Distribution check across unique repositories:
   - `<fill in>`
 

@@ -2,6 +2,8 @@
 //!
 //! This crate exposes the reusable SDK surface used by applications and by the workspace CLI. The
 //! `iroha` command-line binary itself is built by the separate `iroha_cli` crate.
+mod sdk_mutation_guard;
+
 pub mod account_address;
 pub mod account_bootstrap;
 pub mod blocking;
@@ -12,6 +14,7 @@ pub mod da;
 mod error;
 pub mod http;
 mod http_default;
+pub mod kagemusha_enrollment;
 pub mod nexus_app;
 pub mod privacy_issuance;
 pub mod query;

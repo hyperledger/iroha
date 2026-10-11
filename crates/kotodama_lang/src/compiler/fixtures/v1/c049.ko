@@ -2,7 +2,7 @@
 seiyaku CompilerFixture {
 
 fn main() {
-  ledger::role::create(role: Name::parse("auditor"), permissions: Name::parse("read_blocks"));
+  ledger::role::register(role: Name::parse("auditor"), permissions: Name::parse("read_blocks"));
 }
 
 }

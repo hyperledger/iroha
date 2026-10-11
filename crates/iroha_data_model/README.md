@@ -16,9 +16,11 @@ preserve their declared frame identities across this compilation boundary.
 ## Dependency boundary
 
 The model and its tests must remain independent of node execution, node
-configuration, telemetry implementations and storage runtimes. Tests that need
-ABI hashes, pointer validation or AXT policy records use the owning `ivm_abi`
-crate. Engine execution tests belong in IVM or Core.
+configuration, telemetry implementations and storage runtimes. ABI hash, pointer
+validation and AXT interoperability tests belong in the owning
+`ivm_abi` crate, which depends on Model. Model codec tests use the shared test-only
+ABI-v1 golden authenticated there; Model has no reverse development dependency.
+Engine execution tests belong in IVM or Core.
 
 Run `python3 scripts/check_dependency_budget.py --check-boundaries --offline`
 from the repository root to validate the feature-resolved normal/build graph

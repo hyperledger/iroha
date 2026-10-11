@@ -6,7 +6,7 @@ const LIMIT: usize = 128 * 1024 * 1024;
 
 fn artifact() -> Vec<u8> {
     kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku Funded { view fn main() -> bool { true } }")
+        .compile_source("seiyaku Funded { view fn main() authorize(anyone) -> bool { true } }")
         .unwrap()
 }
 

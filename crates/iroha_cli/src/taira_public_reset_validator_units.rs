@@ -1,7 +1,7 @@
 //! Four exact public validator units for one fresh Taira reset run.
 //!
 //! The same-release, source-closed Python renderer remains the sole definition
-//! of FD198/199/200 custody. Its bytes are embedded in the signed native CLI;
+//! of FD198/200 custody. Its bytes are embedded in the signed native CLI;
 //! this command never opens or prints a retained signer or beacon credential.
 //!
 //! The renderer also defines the one-shot Sumeragi first boot (record provenance,
@@ -26,9 +26,9 @@ const PYTHON: &str = "/usr/bin/python3";
 const RENDER_WRAPPER: &str = r#"import sys
 namespace = {"__name__": "_taira_signed_renderer"}
 exec(compile(sys.stdin.buffer.read(), "<signed-taira-validator-unit>", "exec"), namespace)
-role, runtime_key, mint_seed, beacon_credential, config_file = sys.argv[1:]
+role, runtime_key, beacon_credential, config_file = sys.argv[1:]
 sys.stdout.write(namespace["render"](
-    role, runtime_key, mint_seed, beacon_credential or None, config_file=config_file
+    role, runtime_key, beacon_credential or None, config_file=config_file
 ))
 "#;
 
@@ -189,16 +189,12 @@ fn check_run_paths(args: &PrepareValidatorUnits) -> Result<()> {
 fn render_one(
     role: &str,
     runtime_key: &Path,
-    mint_seed: &Path,
     beacon_credential: Option<&str>,
     config_file: &str,
 ) -> Result<Vec<u8>> {
     let runtime_key = runtime_key
         .to_str()
         .ok_or_else(|| eyre!("runtime signer path is not UTF-8"))?;
-    let mint_seed = mint_seed
-        .to_str()
-        .ok_or_else(|| eyre!("mint-finality seed path is not UTF-8"))?;
     let mut child = Command::new(PYTHON)
         .args([
             "-I",
@@ -206,7 +202,6 @@ fn render_one(
             RENDER_WRAPPER,
             role,
             runtime_key,
-            mint_seed,
             beacon_credential.unwrap_or(""),
             config_file,
         ])
@@ -355,13 +350,9 @@ pub(super) fn prepare(args: &PrepareValidatorUnits, output: &mut impl Write) -> 
         let runtime_key = args.network_dir.join(format!(
             "runtime/taira-runtime-signers/peer{index}.private_key"
         ));
-        let mint_seed = args
-            .network_dir
-            .join(format!("runtime/mint-finality-signers/peer{index}.seed"));
         let bytes = render_one(
             slug,
             &runtime_key,
-            &mint_seed,
             credentials[index].as_deref(),
             config_file,
         )?;
@@ -453,19 +444,16 @@ mod tests {
             let base = "/private/runtime/taira-public-reset/run/network/runtime";
             let runtime =
                 Path::new(&base).join(format!("taira-runtime-signers/peer{index}.private_key"));
-            let mint = Path::new(&base).join(format!("mint-finality-signers/peer{index}.seed"));
-            let initial = render_one(slug, &runtime, &mint, None, "config.toml").unwrap();
+            let initial = render_one(slug, &runtime, None, "config.toml").unwrap();
             let initial = String::from_utf8(initial).unwrap();
             assert!(initial.contains(&format!("Description=Taira {slug}\n")));
-            assert!(initial.contains("reserved_fds = (198, 199, 200)"));
+            assert!(initial.contains("reserved_fds = (198, 200)"));
             assert!(initial.contains("stage_signer(runtime_key, 198, 71"));
-            assert!(initial.contains("stage_signer(mint_finality_seed, 199, 32"));
             assert!(initial.contains("/config/config.toml"));
             assert!(!initial.contains("/config/beacon.toml"));
             let beacon = render_one(
                 slug,
                 &runtime,
-                &mint,
                 Some("/var/lib/taira/beacon/credential.norito"),
                 "beacon.toml",
             )
@@ -484,7 +472,6 @@ mod tests {
         for (index, slug) in VALIDATOR_SLUGS.iter().enumerate() {
             let runtime =
                 Path::new(base).join(format!("taira-runtime-signers/peer{index}.private_key"));
-            let mint = Path::new(base).join(format!("mint-finality-signers/peer{index}.seed"));
             let state = format!("/var/lib/taira/{slug}");
             let current = format!("/srv/taira/{slug}/current");
             for (credential, config_file) in [
@@ -494,10 +481,9 @@ mod tests {
                     "beacon.toml",
                 ),
             ] {
-                let unit = String::from_utf8(
-                    render_one(slug, &runtime, &mint, credential, config_file).unwrap(),
-                )
-                .unwrap();
+                let unit =
+                    String::from_utf8(render_one(slug, &runtime, credential, config_file).unwrap())
+                        .unwrap();
                 // The token and the configured Sumeragi history share the unit's state root.
                 assert!(unit.contains(&format!("WorkingDirectory={state}\n")));
                 assert!(unit.contains(&format!("state_root = '{state}'")));

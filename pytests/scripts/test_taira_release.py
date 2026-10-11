@@ -2666,5 +2666,149 @@ class TairaPrepareTests(unittest.TestCase):
 
 
 
+    def test_canonical_mode_compiles_checkout_and_keeps_capture_as_authority(self):
+        self.args.source_mode = "canonical-checkout"
+        root = self.args.repo_root
+        roots = {"irohad": root / "crates/irohad"}
+        def build(source, command, environment, log):
+            self.assertEqual(source, root)
+            self.assertEqual(command[command.index("--manifest-path") + 1], str(root / "Cargo.toml"))
+            self.assertEqual(command[command.index("--config") + 1], str(root / ".cargo/config.toml"))
+            self.assertNotIn(str(self.source / "Cargo.toml"), command)
+            self.assertEqual(environment["IROHA_GIT_COMMIT_HASH"], self.args.expected_commit)
+            with self.assertRaisesRegex(release.PrepareError, "still running"):
+                with release.cargo_lane(root, self.target, "release"):
+                    self.fail("canonical build lost the release lane lock")
+            self.binaries()
+            log.write_bytes(b"canonical fixture compiler output\n")
+        tracked = [{"path": "Cargo.toml", "kind": "regular"},
+                   {"path": "source-link", "kind": "symlink"}]
+        def admit(source, target, triple, names, **options):
+            self.assertEqual(options["package_roots"], roots)
+            self.assertEqual(options["source_paths"], {root / "Cargo.toml"})
+            return []
+        with patch.object(release, "canonical_source_snapshot", return_value=tracked) as snapshot, \
+             patch.object(release, "local_package_roots", return_value=roots) as packages:
+            result, gate, compile = self.prepare(build=build, cache_admission=admit)
+        self.assertGreaterEqual(snapshot.call_count, 5)
+        packages.assert_called_once()
+        self.assertEqual(packages.call_args.args[0], root)
+        self.assertEqual(packages.call_args.kwargs["source_paths"], {root / "Cargo.toml"})
+        self.assertEqual(result["source_root"], str(self.source))
+        self.assertEqual(result["source_snapshot_sha256"], hashlib.sha256(release.canonical_json_bytes([])).hexdigest())
+        self.assertEqual(result["jobs"], 6)
+        self.assertEqual(len(result["artifacts"]), 4)
+        self.assertTrue(result["source_unchanged"])
+        self.assertEqual(compile.call_count, 1)
+        gate.assert_not_called()
+
+    def test_canonical_mode_drift_after_build_cannot_publish_result(self):
+        self.args.source_mode = "canonical-checkout"
+        current = []
+        def build(_source, _command, _environment, log):
+            self.binaries()
+            log.write_bytes(b"completed fixture build\n")
+            current.append({"path": "Cargo.toml", "sha256": "f" * 64})
+        with patch.object(release, "canonical_source_snapshot", side_effect=lambda *_: list(current)), \
+             patch.object(release, "local_package_roots", return_value={}):
+            with self.assertRaisesRegex(release.PrepareError, "canonical compiler source changed"):
+                self.prepare(build=build)
+        self.assertFalse((self.out / "result.json").exists())
+        self.assertTrue((self.out / "attempts/000001/cargo.log").exists())
+
+    def test_canonical_mode_does_not_skip_signed_source_authentication(self):
+        self.args.source_mode = "canonical-checkout"
+        with patch.object(release, "verify_signed_source", side_effect=release.PrepareError("signature refused")), \
+             patch.object(release, "capture_source") as capture, \
+             patch.object(release, "run_build") as build:
+            with self.assertRaisesRegex(release.PrepareError, "signature refused"):
+                release.prepare(self.args)
+        capture.assert_not_called()
+        build.assert_not_called()
+
+    def test_canonical_snapshot_rejects_dirty_bytes_head_index_and_extra_source(self):
+        source = self.root / "canonical-fixture"
+        source.mkdir()
+        item = source / "Cargo.toml"
+        body = b"[workspace]\n"
+        item.write_bytes(body)
+        item.chmod(0o644)
+        blob = hashlib.sha1(b"blob " + str(len(body)).encode() + b"\0" + body).hexdigest()
+        entries = ("100644 " + blob + " 0\tCargo.toml\0").encode()
+        replies = {("rev-parse", "HEAD"): self.args.expected_commit.encode(),
+                   ("branch", "--show-current"): b"optimizations",
+                   ("ls-files", "--stage", "-z"): entries,
+                   ("ls-files", "--others", "--exclude-standard", "-z"): b""}
+        with patch.object(release, "git", side_effect=lambda _root, *args: replies[args]):
+            baseline = release.canonical_source_snapshot(source, self.args.expected_commit, entries)
+            self.assertEqual(baseline[0]["sha256"], hashlib.sha256(body).hexdigest())
+            item.write_bytes(b"dirty source\n")
+            with self.assertRaisesRegex(release.PrepareError, "tracked source bytes differ"):
+                release.canonical_source_snapshot(source, self.args.expected_commit, entries)
+            item.write_bytes(body)
+            for command, wrong, reason in [
+                    (("rev-parse", "HEAD"), b"b" * 40, "HEAD differs"),
+                    (("branch", "--show-current"), b"main", "requires optimizations"),
+                    (("ls-files", "--stage", "-z"), entries + b"extra", "index differs"),
+                    (("ls-files", "--others", "--exclude-standard", "-z"), b"extra.rs\0", "untracked source")]:
+                with self.subTest(reason=reason):
+                    old = replies[command]
+                    replies[command] = wrong
+                    with self.assertRaisesRegex(release.PrepareError, reason):
+                        release.canonical_source_snapshot(source, self.args.expected_commit, entries)
+                    replies[command] = old
+
+    def test_canonical_snapshot_rechecks_head_after_reading_source(self):
+        entries = b""
+        heads = iter([self.args.expected_commit.encode(), b"b" * 40])
+        def answer(_root, *args):
+            if args == ("rev-parse", "HEAD"):
+                return next(heads)
+            if args == ("branch", "--show-current"):
+                return b"optimizations"
+            return b""
+        with patch.object(release, "git", side_effect=answer):
+            with self.assertRaisesRegex(release.PrepareError, "HEAD differs"):
+                release.canonical_source_snapshot(self.root, self.args.expected_commit, entries)
+
+    def test_canonical_snapshot_rejects_escaping_symlink(self):
+        link = self.root / "external-source"
+        link.symlink_to(self.root.parent / "outside")
+        entries = b"120000 " + b"a" * 40 + b" 0\texternal-source\0"
+        def answer(_root, *args):
+            return {("rev-parse", "HEAD"): self.args.expected_commit.encode(),
+                    ("branch", "--show-current"): b"optimizations",
+                    ("ls-files", "--stage", "-z"): entries,
+                    ("ls-files", "--others", "--exclude-standard", "-z"): b""}[args]
+        with patch.object(release, "git", side_effect=answer):
+            with self.assertRaisesRegex(release.PrepareError, "symlink escapes"):
+                release.canonical_source_snapshot(self.root, self.args.expected_commit, entries)
+
+    def test_canonical_mode_is_explicit_for_each_prepare_command(self):
+        options = ["--expected-commit", self.args.expected_commit,
+                   "--expected-signer", self.args.expected_signer,
+                   "--output-dir", str(self.out), "--zig", str(self.zig),
+                   "--zig-sha256", self.args.zig_sha256,
+                   "--cargo-zigbuild", str(self.zigbuild),
+                   "--cargo-zigbuild-sha256", self.args.cargo_zigbuild_sha256]
+        native_options = ["--expected-commit", self.args.expected_commit,
+                          "--expected-signer", self.args.expected_signer,
+                          "--output-dir", str(self.out)]
+        for command, arguments in (
+            ("prepare", options),
+            ("prepare-native-runtime", native_options),
+            ("prepare-client", [*native_options, "--bin", "iroha"]),
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(release.parser().parse_args([command, *arguments]).source_mode,
+                                 "captured")
+                self.assertEqual(release.parser().parse_args(
+                    [command, "--source-mode", "canonical-checkout", *arguments]).source_mode,
+                    "canonical-checkout")
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    release.parser().parse_args(
+                        [command, "--source-mode", "unchecked", *arguments])
+
+
 if __name__ == "__main__":
     unittest.main()

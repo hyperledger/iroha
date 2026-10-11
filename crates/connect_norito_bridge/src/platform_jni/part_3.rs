@@ -63,7 +63,12 @@ pub unsafe extern "system" fn Java_org_hyperledger_iroha_sdk_crypto_NativeSigner
     fee_payment_json: jni::objects::JByteArray<'_>,
 ) -> jni::sys::jbyteArray {
     java_native_account_read_permission_multisig_payload_hash(
-        &mut env, network_id, authority, reporting_account, change, creation_time_ms,
+        &mut env,
+        network_id,
+        authority,
+        reporting_account,
+        change,
+        creation_time_ms,
         fee_payment_json,
     )
 }
@@ -80,8 +85,14 @@ pub unsafe extern "system" fn Java_org_hyperledger_iroha_sdk_crypto_NativeSigner
     signature: jni::objects::JByteArray<'_>,
 ) -> jni::sys::jobjectArray {
     java_native_finalize_account_read_permission_multisig(
-        &mut env, network_id, authority, reporting_account, change, creation_time_ms,
-        fee_payment_json, signature,
+        &mut env,
+        network_id,
+        authority,
+        reporting_account,
+        change,
+        creation_time_ms,
+        fee_payment_json,
+        signature,
     )
 }
 #[allow(clippy::too_many_arguments)]
@@ -478,7 +489,6 @@ pub unsafe extern "system" fn Java_org_hyperledger_iroha_sdk_sorafs_SorafsRefere
     )
 }
 
-
 // Canonical privacy JNI exports are owned only by the Kotlin SDK.
 /// Return the native bridge ABI version for Kotlin/JVM privacy callers.
 #[unsafe(no_mangle)]
@@ -696,10 +706,10 @@ pub unsafe extern "system" fn Java_org_hyperledger_iroha_sdk_governance_Parliame
     }))
     .ok()
     .flatten();
-    if let Some(checkpoint) = checkpoint {
-        if let Ok(array) = env.byte_array_from_slice(&checkpoint) {
-            return array.into_raw();
-        }
+    if let Some(checkpoint) = checkpoint
+        && let Ok(array) = env.byte_array_from_slice(&checkpoint)
+    {
+        return array.into_raw();
     }
     clear_parliament_jni_exception(&mut env);
     std::ptr::null_mut()

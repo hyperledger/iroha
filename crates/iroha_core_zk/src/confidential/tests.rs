@@ -307,9 +307,9 @@ fn canonical_wallet_proves_transfer_full_redemption_and_private_change() {
         }
         .unwrap();
         let policy = crate::ZkVerifyGuardrails {
-            halo2_enabled: true,
-            halo2_max_envelope_bytes: 192 * 1024,
-            halo2_max_proof_bytes: 192 * 1024,
+            pipa_r_enabled: true,
+            pipa_r_max_envelope_bytes: 8 * 1024 * 1024,
+            pipa_r_max_proof_bytes: 8 * 1024 * 1024,
             stark_enabled: false,
             stark_max_envelope_bytes: 0,
             stark_max_proof_bytes: 0,

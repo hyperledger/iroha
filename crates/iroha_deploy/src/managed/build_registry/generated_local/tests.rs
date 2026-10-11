@@ -176,13 +176,13 @@ fn managed_factory_selects_published_generated_registry_without_parent_profile_o
     let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
     let bundle = PrivateDirectory::open_or_create(temporary.path().join("bundle")).unwrap();
     for name in ["kagami", "iroha3d"] {
-        bundle
-            .write_atomic(
-                &format!("{name}{}", std::env::consts::EXE_SUFFIX),
-                b"never executed",
-                PublishMode::CreateNew,
-            )
-            .unwrap();
+        std::fs::copy(
+            std::env::current_exe().unwrap(),
+            bundle
+                .path()
+                .join(format!("{name}{}", std::env::consts::EXE_SUFFIX)),
+        )
+        .unwrap();
     }
     let runtime = InstalledRuntime::from_directory(bundle.path()).unwrap();
     let request = runtime.localnet_request("registry", Duration::from_secs(30));

@@ -1,4 +1,5 @@
 //! Validate the V1 hard cut for the retired local storage-pin admission policy.
+
 use iroha_config::parameters::{actual::Root as ActualConfig, user::Root as UserConfig};
 use iroha_config_base::{env::MockEnv, read::ConfigReader, toml::TomlSource};
 use std::path::PathBuf;

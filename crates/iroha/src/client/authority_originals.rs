@@ -23,6 +23,7 @@ impl Client {
     /// network, exact typed selector and fresh nonzero entropy. Torii separately requires
     /// that holder's current native `CanReadAllLedgerData` grant. The listener token is a
     /// distinct configured transport credential; an FI application bearer is rejected.
+    /// The configured provider path prefix is preserved in the final URI.
     /// The canonical POST signs the entire original body plus exact URI/timestamp/nonce.
     /// Its body-derived challenge is echoed once in the finality header and native statement.
     ///
@@ -51,14 +52,14 @@ impl Client {
             native_authority_originals_request_digests_v1(&request_wire)
                 .map_err(|_| eyre!("native authority originals request digest was refused"))?;
         if self.torii_url.scheme() != "https"
-            || self.torii_url.path() != "/"
+            || !self.torii_url.path().ends_with('/')
             || self.torii_url.query().is_some()
             || self.torii_url.fragment().is_some()
             || !self.torii_url.username().is_empty()
             || self.torii_url.password().is_some()
         {
             return Err(eyre!(
-                "native private authority originals provider requires a canonical HTTPS root"
+                "native private authority originals provider requires a canonical HTTPS root ending in a slash"
             ));
         }
         let mut names = std::collections::HashSet::new();

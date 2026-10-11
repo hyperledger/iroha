@@ -230,8 +230,9 @@ pub(super) fn explicit(
         options.deadline,
         |attempt| {
             account
-                .inspect_provider_credit_upsert_preparation(
-                    &attempt.wallet_path(),
+                .inspect_provider_credit_upsert_preparation_in_parent(
+                    attempt.directory(),
+                    std::ffi::OsStr::new("transaction"),
                     &original.request(attempt.terms(), options.deadline),
                 )
                 .map_err(|_| invalid("funding attempt differs from original wallet request"))

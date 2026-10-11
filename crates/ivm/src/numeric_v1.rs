@@ -407,19 +407,22 @@ pub fn execute(number: u32, vm: &mut IVM) -> Result<u64, VMError> {
             charge_unary(vm, &value)?;
             publish_int(vm, &value)?;
         }
-        syscalls::SYSCALL_INT_TRY_TO_I64 | syscalls::SYSCALL_INT_TRY_TO_U64 => {
+        syscalls::SYSCALL_INT_TO_I64 | syscalls::SYSCALL_INT_TO_U64 => {
             let value = decode_int_register(vm, 10)?;
+            let mode = failure_mode(vm, &[11, 12, 13])?;
             charge_unary(vm, &value)?;
-            let result = if number == syscalls::SYSCALL_INT_TRY_TO_I64 {
+            let result = if number == syscalls::SYSCALL_INT_TO_I64 {
                 value.try_to_i64().map(|value| value as u64)
             } else {
                 value.try_to_u64()
             };
-            if let Some(result) = result {
+            if let Some(result) = resolve_failure(
+                vm,
+                mode,
+                result.ok_or(NumericOperationError::InexactConversion),
+            )? {
                 vm.set_register(NUMERIC_RESULT_REGISTER, result);
                 vm.set_register(NUMERIC_STATUS_REGISTER, 0);
-            } else {
-                recover(vm, NumericFaultV1::InexactConversion)?;
             }
         }
         syscalls::SYSCALL_INT_NEG => {
@@ -600,10 +603,15 @@ pub fn execute(number: u32, vm: &mut IVM) -> Result<u64, VMError> {
             charge_decimal_comparison(vm, &lhs, &rhs)?;
             publish_bool(vm, comparison(number, lhs.cmp(&rhs)));
         }
-        syscalls::SYSCALL_DECIMAL_TRY_TO_INT_EXACT
+        syscalls::SYSCALL_DECIMAL_TO_INT_EXACT
         | syscalls::SYSCALL_DECIMAL_TO_INT_TRUNC
         | syscalls::SYSCALL_DECIMAL_TO_INT_ROUND => {
             let value = decode_decimal_register(vm, 10)?;
+            let mode = if number == syscalls::SYSCALL_DECIMAL_TO_INT_EXACT {
+                failure_mode(vm, &[11, 12, 13])?
+            } else {
+                FailureMode::Status
+            };
             let rounded_mode = if number == syscalls::SYSCALL_DECIMAL_TO_INT_ROUND {
                 require_zero_registers(vm, &[11, 12])?;
                 Some(rounding_mode(vm)?)
@@ -611,7 +619,7 @@ pub fn execute(number: u32, vm: &mut IVM) -> Result<u64, VMError> {
                 None
             };
             let result = match number {
-                syscalls::SYSCALL_DECIMAL_TRY_TO_INT_EXACT => {
+                syscalls::SYSCALL_DECIMAL_TO_INT_EXACT => {
                     value.try_decimal_to_int_exact_observed(&mut |step| observe_work(vm, step))
                 }
                 syscalls::SYSCALL_DECIMAL_TO_INT_TRUNC => {
@@ -622,27 +630,29 @@ pub fn execute(number: u32, vm: &mut IVM) -> Result<u64, VMError> {
                     &mut |step| observe_work(vm, step),
                 ),
             };
-            match result {
-                Ok(result) => publish_int(vm, &result)?,
-                Err(ObservedNumericError::Observer(error)) => return Err(error),
-                Err(ObservedNumericError::Numeric(error)) => recover(vm, numeric_fault(error)?)?,
+            if let Some(result) = resolve_observed(vm, mode, result)? {
+                publish_int(vm, &result)?;
             }
         }
-        syscalls::SYSCALL_QUANTITY_TRY_FROM_INT => {
+        syscalls::SYSCALL_QUANTITY_FROM_INT => {
             let value = decode_int_register(vm, 10)?;
+            let mode = failure_mode(vm, &[11, 12, 13])?;
             charge_unary(vm, &value)?;
             let decimal = Numeric::new(value, 0);
-            match Quantity::from_canonical_numeric(decimal) {
-                Ok(quantity) => publish_quantity(vm, &quantity)?,
-                Err(error) => recover(vm, numeric_fault(error)?)?,
+            if let Some(quantity) =
+                resolve_failure(vm, mode, Quantity::from_canonical_numeric(decimal))?
+            {
+                publish_quantity(vm, &quantity)?;
             }
         }
-        syscalls::SYSCALL_QUANTITY_TRY_FROM_DECIMAL => {
+        syscalls::SYSCALL_QUANTITY_FROM_DECIMAL => {
             let value = decode_decimal_register(vm, 10)?;
+            let mode = failure_mode(vm, &[11, 12, 13])?;
             charge_unary(vm, value.mantissa())?;
-            match Quantity::from_canonical_numeric(value) {
-                Ok(quantity) => publish_quantity(vm, &quantity)?,
-                Err(error) => recover(vm, numeric_fault(error)?)?,
+            if let Some(quantity) =
+                resolve_failure(vm, mode, Quantity::from_canonical_numeric(value))?
+            {
+                publish_quantity(vm, &quantity)?;
             }
         }
         syscalls::SYSCALL_QUANTITY_TO_DECIMAL => {

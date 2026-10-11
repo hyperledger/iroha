@@ -102,7 +102,7 @@ class IrohaPeerNfcReceiverSingleFlightV1Test {
             IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1,
             kind,
             IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1.requiredSchemaVersion,
-            bytes,
+            IrohaPeerRequestFixtureV1.payload(kind, bytes),
         )).encode()
     }
 
@@ -139,7 +139,7 @@ class IrohaPeerNfcReceiverSingleFlightV1Test {
      * [field]; the envelope CRC64 is refreshed so the frame stays structurally valid.
      */
     private fun rewrap(encoded: ByteArray, kind: IrohaPeerPayloadKind, field: Int): ByteArray {
-        val frame = IrohaPeerWireMessageV1.decode(encoded).canonicalPayload.bytes
+        val frame = IrohaPeerKagemushaWalletAdapterV1.decode(IrohaPeerWireMessageV1.decode(encoded))
         val payloadOffset = NoritoHeader.HEADER_LENGTH + KagemushaWalletWireV1.ENVELOPE_PADDING_BYTES
         var cursor = Varint.decode(frame, payloadOffset).nextOffset + 2
         cursor = Varint.decode(frame, cursor).nextOffset + 4
@@ -158,7 +158,7 @@ class IrohaPeerNfcReceiverSingleFlightV1Test {
             IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1,
             kind,
             1,
-            frame,
+            IrohaPeerRequestFixtureV1.payload(kind, frame),
         )).encode()
     }
 

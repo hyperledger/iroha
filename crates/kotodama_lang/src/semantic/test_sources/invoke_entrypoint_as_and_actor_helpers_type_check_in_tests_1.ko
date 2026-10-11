@@ -1,13 +1,13 @@
 
-            seiyaku Demo {
-                kotoage fn run(int count) -> int authorize("Run") { return count + 1; }
+            seiyaku Demo { permission Run;
+                kotoage fn run(int count) authorize(Run) -> int { return count + 1; }
 
                 #[test]
                 fn drive_run() {
                     let next = test::invoke_kotoage_as(
                         actor: "issuer",
                         kotoage: "run",
-                        arguments: Json::parse("{\"count\":7}"),
+                        arguments: {count: 7},
                     );
                     let acct = test::actor_account("issuer");
                     let pk = test::actor_public_key("issuer");
@@ -15,7 +15,7 @@
                     test::expect_any_reject_as(
                         actor: "issuer",
                         kotoage: "run",
-                        arguments: Json::parse("{\"count\":-1}"),
+                        arguments: {count: -1},
                     );
                     let _ = (next, acct, pk, sig);
                 }

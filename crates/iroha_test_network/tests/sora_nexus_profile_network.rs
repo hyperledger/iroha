@@ -380,7 +380,6 @@ struct Seat {
     peer: toml::Table,
     key_pair: KeyPair,
     runtime_signer: PathBuf,
-    mint_finality_seed: PathBuf,
 }
 
 impl Seat {
@@ -398,8 +397,6 @@ impl Seat {
             runtime_signer: kagami.join(format!(
                 "runtime/taira-runtime-signers/peer{index}.private_key"
             )),
-            mint_finality_seed: kagami
-                .join(format!("runtime/mint-finality-signers/peer{index}.seed")),
             peer,
         })
     }
@@ -453,10 +450,6 @@ impl Seat {
         private_file(
             &data_dir.secret(NodeSecretFile::RuntimeSigner),
             &fs::read(&self.runtime_signer)?,
-        )?;
-        private_file(
-            &data_dir.secret(NodeSecretFile::MintFinalitySeed),
-            &fs::read(&self.mint_finality_seed)?,
         )?;
         Ok(())
     }
@@ -979,7 +972,6 @@ fn verify_pulse(
             &config.common.chain,
             &network,
             native_finality_limits(),
-            cursor.attestations(),
             cursor.allocation_budget(),
             |reader| {
                 reader

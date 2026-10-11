@@ -16,7 +16,7 @@ REGIONS = {
     "verifier_record": (
         '#[derive(Clone, Copy)]\nenum FullBootstrapVerifierRecordMetadataTamper',
         '#[cfg(feature = "zk-stark")]\n#[test]\nfn soracloud_fhe_full_bootstrap_execution_proof_helper_rejects_empty_input_slots',
-        "af88ea2f858b029354ac78825c9b3e9f2a4cf40c6a869b2da02957c8de19b106",
+        "e6561ab6eedd4281ead704f6895e6e467b324fd4a0abc9bc02354a9e1c25f63a",
     ),
     "release_verifier": (
         '#[cfg(feature = "zk-stark")]\n#[derive(Clone, Copy)]\nenum FullBootstrapReleaseVerifierCase',
@@ -135,7 +135,7 @@ REQUIRED_TOKENS = {
         '"out-of-window full-bootstrap execution verifier must fail closed"',
         "verifying_keys_by_circuit.remove",
         'record.namespace = "other".to_string()',
-        "record.backend = BackendTag::Halo2IpaPasta",
+        "record.backend = BackendTag::NativePipaRPasta",
         'record.curve = "bn254".to_string()',
         "record.public_inputs_schema_hash = [0xA7; Hash::LENGTH]",
         '"soracloud_fhe_full_bootstrap_execution_v2".to_string()',

@@ -616,8 +616,9 @@ fn phase_audit(
     // Restoration re-derives the public generators and verifies every signed
     // record. Only this public DTO is encoded or hashed; no private share enters it.
     GlobalThresholdBeaconDkgStateV1::from_snapshot(
-        snapshot.clone(),
+        snapshot,
         &AdaptiveGlobalThresholdBeaconDkgCryptoV1,
+        &iroha_allocation::AllocationBudget::new(usize::try_from(FILE_BOUND)?),
     )?;
     let bytes = norito::encode_canonical(snapshot)?;
     ensure!(

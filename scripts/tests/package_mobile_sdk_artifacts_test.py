@@ -174,12 +174,16 @@ class MobileSdkPackagePublisherTests(unittest.TestCase):
         provenance.parent.mkdir(parents=True)
         core_jar.write_bytes(b"canonical core fixture\n")
         provenance_payload = json.dumps(
-            {"privacy_production_enabled": True},
+            {"privacy_production_enabled": True, "libraries": {
+                abi: {"aar_path": f"jni/{abi}/libconnect_norito_bridge.so",
+                      "bytes": len(f"canonical {abi} fixture\n".encode("ascii")),
+                      "sha256": hashlib.sha256(f"canonical {abi} fixture\n".encode("ascii")).hexdigest()}
+                for abi in ("arm64-v8a", "armeabi-v7a", "x86_64")}},
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8") + b"\n"
         provenance.write_bytes(provenance_payload)
-        for abi in ("arm64-v8a", "x86_64"):
+        for abi in ("arm64-v8a", "armeabi-v7a", "x86_64"):
             library = native_root / abi / "libconnect_norito_bridge.so"
             library.parent.mkdir(parents=True)
             library.write_bytes(f"canonical {abi} fixture\n".encode("ascii"))
@@ -190,7 +194,7 @@ class MobileSdkPackagePublisherTests(unittest.TestCase):
             )
             archive.writestr("AndroidManifest.xml", "<manifest />")
             archive.writestr("classes.jar", b"managed client fixture")
-            for abi in ("arm64-v8a", "x86_64"):
+            for abi in ("arm64-v8a", "armeabi-v7a", "x86_64"):
                 archive.writestr(f"jni/{abi}/libconnect_norito_bridge.so", (native_root / abi / "libconnect_norito_bridge.so").read_bytes())
 
         self._write_android_publications(VERSION)
@@ -582,6 +586,13 @@ class MobileSdkPackagePublisherTests(unittest.TestCase):
         result = self._package(PACKAGE_TEST_MUTATE_AND_RESTORE_SOURCE="1")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("package source identity differs", result.stderr)
+        self.assertFalse(self.output.exists())
+
+    def test_missing_armv7_generated_original_refuses_package(self):
+        native = self.artifacts / "gradle-build/iroha_kotlin_sdk/client-android/generated/jniLibs/production/armeabi-v7a/libconnect_norito_bridge.so"
+        native.unlink()
+        result = self._package()
+        self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.output.exists())
 
     def test_generated_native_original_mismatch_refuses_client_correlation(self):

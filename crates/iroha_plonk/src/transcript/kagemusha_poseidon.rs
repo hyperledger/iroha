@@ -20,8 +20,7 @@
 //!   `[x mod |F|, [x >= |F|] + 2 (y mod 2)]`. The Pasta moduli satisfy
 //!   `|B| < 2|F|`, so `x` is recovered from the two elements and `y` from its
 //!   parity: the encoding is injective and costs the same two elements.
-//! - `PointAbsorption::FeToFe` (oracle mode, `cfg(test)` or
-//!   `--cfg iroha_plonk_oracle` only): `[x mod |F|, y mod |F|]`, snark-verifier
+//! - `PointAbsorption::FeToFe` (historical reference, `cfg(test)` only): `[x mod |F|, y mod |F|]`, snark-verifier
 //!   `fe_to_fe`. It is not injective on Vesta, where `q > p`.
 //!
 //! On Pallas (`B = Fp`, `F = Fq`, `p < q`) both encodings keep `x` unchanged;
@@ -43,7 +42,7 @@ pub enum PointAbsorption {
     /// `[x mod |F|, [x >= |F|] + 2 (y mod 2)]` (production, injective).
     Injective,
     /// `[x mod |F|, y mod |F|]`, snark-verifier `fe_to_fe` (oracle mode only).
-    #[cfg(any(test, iroha_plonk_oracle))]
+    #[cfg(test)]
     FeToFe,
 }
 
@@ -75,7 +74,7 @@ pub fn point_elements<C: PastaCurve>(
             let parity = u64::from(bool::from(y.is_odd()));
             Ok([x_reduced, C::ScalarExt::from(high + 2 * parity)])
         }
-        #[cfg(any(test, iroha_plonk_oracle))]
+        #[cfg(test)]
         PointAbsorption::FeToFe => Ok([x_reduced, reduce_into::<C::Base, C::ScalarExt>(&y)]),
     }
 }
@@ -111,8 +110,8 @@ where
     }
 
     /// A fresh oracle-mode state (`fe_to_fe` point absorption, spec 6.4).
-    /// Test and oracle builds only.
-    #[cfg(any(test, iroha_plonk_oracle))]
+    /// Unit tests only.
+    #[cfg(test)]
     #[doc(hidden)]
     #[must_use]
     pub fn new_oracle() -> Self {

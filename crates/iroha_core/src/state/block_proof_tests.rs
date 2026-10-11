@@ -3,7 +3,7 @@ use crate::kura::tests::CommittedNetworkProofFixture;
 use iroha_crypto::MerkleTree as CanonMerkleTree;
 use iroha_data_model::{
     block::{
-        BlockPayload, BlockResult, BlockSignature, execution_output::*,
+        BlockPayload, BlockResult, execution_output::*,
         proofs::TrustedBlockProofAnchor,
     },
     events::time::Schedule,

@@ -7,7 +7,19 @@
 //! remaining native proof graph and
 //! receipt/tree scratch before allocation; this scoped write owner does not fund those graphs.
 
+mod amx_intents;
+mod amx_read;
+pub use amx_intents::{
+    NativeAmxPreparedRelayErrorV1, NativeAmxPreparedRelayPollV1, NativeAmxPreparedRelayReadV1,
+    prepared_amx_relays,
+};
 mod ordinary_writes;
+mod reward_history;
+pub use amx_read::{
+    NativeAmxRecordProofErrorV1, NativeAmxRecordProofIssuedV1, NativeAmxRecordProofOwnedV1,
+    NativeAmxRecordProofPollV1, NativeAmxRecordProofReadV1,
+};
+pub(crate) use reward_history::{committed_fee_evidence, committed_reward_exposure};
 
 pub(crate) mod lane_payload;
 
@@ -17,9 +29,7 @@ use crate::{
 };
 use iroha_data_model::{
     block::{consensus::ExecWitness, decode_framed_signed_block},
-    sumeragi_amx::{
-        AmxCertifiedBlockV1, AmxRecordKind, AmxRecordProofV1, AmxRecordV1, amx_record_witness_key,
-    },
+    sumeragi_amx::AmxRecordKind,
     sumeragi_finality::{NativeLaneStateProof, SumeragiFinalityProof},
     validation_fee::ValidationFeePolicyWitnessProofV1,
 };
@@ -91,60 +101,19 @@ fn original_source(
 
 /// Prove one AMX record from its original persisted native execution.
 ///
-/// An absent record returns `None` only after the complete archived write set and its carrier
-/// have been authenticated. Missing or corrupt history never becomes record absence, and
-/// current World values cannot replace records pruned after the AMX deadline. The caller's
-/// immutable State view pins the history cut throughout construction.
+/// The original archive job, decoded witness and certified carrier survive every refusal.
+/// The completed proof retains all concrete field allocations from that same execution pool.
+/// This API creates no target transaction, monetary authority or relayer policy.
 ///
-/// Archive input and decoded ordinary writes use the original execution pool. As for the
-/// other native receipt readers, portable proof graphs and downstream tree scratch still
-/// require complete resource qualification; this API does not grant monetary authority.
-///
-/// # Errors
-/// Uncertified height, missing or corrupt native history, original-pool refusal, inconsistent
-/// archive identity/root, or a malformed record.
-pub fn amx_record_proof(
-    view: &impl StateReadOnly,
+/// Acquisition is lazy. Call `poll` or `complete` on the returned job; either retains the
+/// original descriptor, partial prefix and completed fields when a typed refusal is returned.
+pub fn amx_record_proof<'v, V: StateReadOnly>(
+    view: &'v V,
     height: u64,
     kind: AmxRecordKind,
     transaction: [u8; 32],
-) -> Result<Option<AmxRecordProofV1>, String> {
-    let source = original_source(view, height)?;
-    let key = amx_record_witness_key(kind, transaction);
-    let Some(written) = source
-        .witness
-        .get()
-        .writes
-        .iter()
-        .rev()
-        .find(|write| write.key == key)
-    else {
-        return Ok(None);
-    };
-    let record = AmxRecordV1::from_witness(&written.key, &written.value)
-        .map_err(|error| error.to_string())?;
-    // Decode the exact portable carrier already authenticated by original_source, never a
-    // second Kura read which could substitute certificate bytes after source verification.
-    let block = norito::core::with_decode_limits_scope(
-        norito::canonical_decode_limits(source.finality.block_wire.len()),
-        || decode_framed_signed_block(&source.finality.block_wire),
-    )
-    .map_err(|error| error.to_string())?;
-    let certificate = block
-        .commit_certificate()
-        .ok_or("authenticated AMX carrier has no native certificate")?;
-    AmxRecordProofV1::from_writes(
-        AmxCertifiedBlockV1::from_certificate(certificate),
-        source
-            .witness
-            .get()
-            .writes
-            .iter()
-            .map(|write| (write.key.as_slice(), write.value.as_slice())),
-        record,
-    )
-    .map(Some)
-    .map_err(|error| error.to_string())
+) -> NativeAmxRecordProofReadV1<'v, V> {
+    NativeAmxRecordProofReadV1::new(view, height, kind, transaction)
 }
 
 /// Prove one private-root registration or cursor from its exact original parent execution.

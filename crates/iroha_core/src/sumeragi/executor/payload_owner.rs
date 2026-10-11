@@ -1,4 +1,4 @@
-//! Original completed global payload custody under an exact physical parent and Queue lease.
+//! Original global payload custody under an exact physical parent, lane plan and Queue lease.
 
 use super::*;
 use crate::state::NativeExecutionTip;
@@ -80,7 +80,6 @@ pub(super) struct CompletedPayload {
     pub(super) scope: OriginalPayloadScope,
     pending_inputs: crate::queue::PendingPayloadLease,
     payload: PayloadBytes,
-    attest: bool,
 }
 
 /// Preserve the real original pool/allocator refusal before the payload source is constructed.
@@ -97,7 +96,7 @@ pub(super) fn lease_admission_error(
 }
 
 impl Worker<'_> {
-    /// Resume a partial job only under its fresh physical parent, exact current lane
+    /// Resume a partial or completed job only under its fresh physical parent, exact current lane
     /// proposal and original Queue admission. A transient refusal preserves the paid job.
     pub(super) fn retained_payload_build_is_current(
         &mut self,
@@ -234,7 +233,7 @@ impl Worker<'_> {
         scope: OriginalPayloadScope,
         physical_parent: &SignedBlock,
         current_view: &crate::state::StateView<'_>,
-    ) -> Result<Option<(Option<PayloadBytes>, bool)>, PublicationError> {
+    ) -> Result<Option<Option<PayloadBytes>>, PublicationError> {
         let reusable = match self.completed_payload.as_ref() {
             None => return Ok(None),
             Some(original) => {
@@ -277,7 +276,7 @@ impl Worker<'_> {
             .completed_payload
             .as_ref()
             .expect("exact owner checked above");
-        Ok(Some((Some(original.payload.clone()), original.attest)))
+        Ok(Some(Some(original.payload.clone())))
     }
 
     /// Keep the original nonempty funded output only while its captured queue inputs remain live.
@@ -286,7 +285,6 @@ impl Worker<'_> {
         scope: OriginalPayloadScope,
         pending_inputs: Option<crate::queue::PendingPayloadLease>,
         payload: &PayloadBytes,
-        attest: bool,
     ) {
         let current = pending_inputs.as_ref().is_some_and(|lease| {
             if payload.as_slice().len() > scope.max_bytes as usize
@@ -319,7 +317,6 @@ impl Worker<'_> {
                 scope,
                 pending_inputs: pending_inputs.expect("exact original lease checked above"),
                 payload: payload.clone(),
-                attest,
             })
         } else {
             None
@@ -334,6 +331,13 @@ impl Worker<'_> {
             .is_some_and(|original| original.scope.height == height)
         {
             self.completed_payload = None;
+        }
+        if self
+            .payload_build
+            .as_ref()
+            .is_some_and(|original| original.scope.height == height && original.job.is_completed())
+        {
+            self.payload_build = None;
         }
     }
 }
@@ -391,15 +395,18 @@ mod tests {
         *const u8,
         iroha_crypto::HashOf<iroha_data_model::transaction::TransactionEntrypoint>,
     ) {
-        let state = worker.state;
-        let budget = state.ivm_execution_budget();
-        let current_view = state.view();
-        let generation = state.state_view_generation();
         let height = worker
             .applied
             .0
             .checked_add(1)
             .expect("actual next global height");
+        // Test staging replaces only a retired completion, before any original
+        // State view or Queue guard is acquired. Refused partial work is unchanged.
+        worker.retire_completed_payload(height);
+        let state = worker.state;
+        let budget = state.ivm_execution_budget();
+        let current_view = state.view();
+        let generation = state.state_view_generation();
         assert_eq!(current_view.height() as u64, worker.applied.0);
         let parent = current_view
             .canonical_history()
@@ -440,14 +447,14 @@ mod tests {
             &merges,
         )
         .unwrap();
-        let attest = height == scheduled.epoch.authorization.last_height;
+
         let wire_len = block.resultless_proposal_wire_len().unwrap();
         worker.payload_build = Some(GlobalPayloadBuild {
             scope,
             job: super::super::super::driver::payload_build::PayloadBuild::new(
                 GlobalPayloadSource {
                     block,
-                    attest,
+
                     pending_inputs: Some(lease),
                 },
                 budget.clone(),
@@ -505,6 +512,8 @@ mod tests {
 
     #[test]
     fn retained_partial_payload_refuses_missing_original_parent_and_resumes_same_paid_wire() {
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
+        let _fixture_epoch = crossbeam_epoch::pin();
         struct OriginalJournal {
             path: std::path::PathBuf,
             saved: std::path::PathBuf,
@@ -557,7 +566,7 @@ mod tests {
                 assert!(queue.contains_entrypoint_hash(hash));
             }
             drop(missing);
-            let (Some(output), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(output) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("the restored actual original source must release its same first output");
             };
             assert_eq!(output.as_slice().as_ptr(), pointer);
@@ -610,7 +619,7 @@ mod tests {
             assert_eq!(chain.kura().canonical_query_reads_for_test(), (0, 0));
             assert!(queue.contains_pending_hash(hash, worker.state));
             drop(replacement);
-            let (Some(output), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(output) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("only the original journal object restores first-output custody");
             };
             assert_eq!(output.as_slice().as_ptr(), pointer);
@@ -693,7 +702,7 @@ mod tests {
                 Poll::Ready(())
             );
             drop(pending);
-            let (Some(output), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(output) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("both actual physical releases permit the same paid original wire");
             };
             assert_eq!(output.as_slice().as_ptr(), pointer);
@@ -705,6 +714,8 @@ mod tests {
 
     #[test]
     fn retained_partial_payload_preserves_actual_publication_release_until_source_withdrawal() {
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
+        let _fixture_epoch = crossbeam_epoch::pin();
         use std::{
             future::Future,
             task::{Context, Poll, Waker},
@@ -776,24 +787,33 @@ mod tests {
 
     #[test]
     fn retained_partial_payload_withdraws_original_queue_admission_on_mutation_or_expiry() {
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
+        let _fixture_epoch = crossbeam_epoch::pin();
         for expire in [false, true] {
             super::super::publication_tests::with_worker(move |chain, worker, _blocks, _events| {
-                let (queue, clock, time) = attach_queue(chain, worker);
                 let budget = worker.state.ivm_execution_budget();
+                let empty_queue_baseline = budget.reserved_bytes();
+                let (queue, clock, time) = attach_queue(chain, worker);
                 let baseline = budget.reserved_bytes();
                 let (_pointer, original_hash) = stage_original_partial(worker, &queue);
                 if expire {
                     clock.advance(queue.tx_time_to_live + Duration::from_secs(1));
-                    assert_eq!(worker.build(2, 0, 1 << 20, 100).unwrap(), (None, false));
+                    assert_eq!(worker.build(2, 0, 1 << 20, 100).unwrap(), None);
                     assert!(worker.payload_build.is_none());
                     assert!(worker.completed_payload.is_none());
-                    assert_eq!(budget.reserved_bytes(), baseline);
+                    assert_eq!(queue.queued_len(), 0);
+                    // Expiry drops the accepted-input shell. The live Queue
+                    // still owns its original resident ledger, so the entire
+                    // pre-admission baseline returns only after its last owner.
+                    worker.queue = None;
+                    drop(queue);
+                    assert_eq!(budget.reserved_bytes(), empty_queue_baseline);
                 } else {
                     queue.clear_all();
                     clock.advance(Duration::from_millis(1));
                     queue_work(chain, 2_001, &queue, &time);
                     assert!(!queue.contains_entrypoint_hash(original_hash));
-                    let (Some(output), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+                    let Some(output) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                         panic!("the current actual admission must replace the withdrawn selection");
                     };
                     let block = payload::decode(output.as_slice()).unwrap();
@@ -815,6 +835,8 @@ mod tests {
 
     #[test]
     fn retained_partial_payload_idle_expiry_refunds_while_original_parent_stays_unavailable() {
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
+        let _fixture_epoch = crossbeam_epoch::pin();
         struct OriginalJournal {
             path: std::path::PathBuf,
             saved: std::path::PathBuf,
@@ -888,7 +910,7 @@ mod tests {
                 ),
                 "byte-identical signed inputs belong to a different actual admission boundary"
             );
-            let (Some(output), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(output) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("the fresh actual admission must create its own selected-input owner");
             };
             let fresh = worker.completed_payload.as_ref().expect(
@@ -939,8 +961,7 @@ mod tests {
                                 .is_none()
                         );
                         let first_hash = certify(1, parent_height, vec![first]);
-                        let (Some(output), _) = worker.build(height, 0, 1 << 20, 100).unwrap()
-                        else {
+                        let Some(output) = worker.build(height, 0, 1 << 20, 100).unwrap() else {
                             panic!(
                                 "newly certified mandatory lane work must rebuild the old Queue-only plan"
                             );
@@ -954,7 +975,7 @@ mod tests {
                             worker.completed_payload.is_none(),
                             "mixed work grants no completed Queue-only lease"
                         );
-                        assert!(worker.payload_build.is_none());
+                        assert!(worker.payload_build.as_ref().unwrap().job.is_completed());
                         assert!(queue.contains_pending_hash(original_hash, worker.state));
                         drop((output, block));
 
@@ -974,8 +995,7 @@ mod tests {
                             height,
                         )
                         .unwrap();
-                        let (Some(output), _) = worker.build(height, 0, 1 << 20, 100).unwrap()
-                        else {
+                        let Some(output) = worker.build(height, 0, 1 << 20, 100).unwrap() else {
                             panic!(
                                 "growth of the real certified journal must rebuild the old mixed range"
                             );
@@ -996,8 +1016,7 @@ mod tests {
                         clock.advance(Duration::from_millis(1));
                         queue_work(chain, 2_001, &queue, &time);
                         assert!(!queue.contains_entrypoint_hash(original_hash));
-                        let (Some(output), _) = worker.build(height, 0, 1 << 20, 100).unwrap()
-                        else {
+                        let Some(output) = worker.build(height, 0, 1 << 20, 100).unwrap() else {
                             panic!(
                                 "current mixed work must preserve the mandatory lane plan and new actual admission"
                             );
@@ -1011,7 +1030,7 @@ mod tests {
                                 .all(|entry| entry.hash() != original_hash)
                         );
                         assert!(worker.completed_payload.is_none());
-                        assert!(worker.payload_build.is_none());
+                        assert!(worker.payload_build.as_ref().unwrap().job.is_completed());
                         assert_eq!(queue.queued_len(), 1);
                         assert_eq!(
                             worker.state.view().height(),
@@ -1027,14 +1046,16 @@ mod tests {
 
     #[test]
     fn completed_original_payload_reuses_actual_funded_backing_for_a_new_request() {
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
+        let _fixture_epoch = crossbeam_epoch::pin();
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, _clock, _time) = attach_queue(chain, worker);
             let budget = worker.state.ivm_execution_budget();
             let baseline = budget.reserved_bytes();
-            let (Some(original), attest) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(original) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("original real signed work must produce nonempty funded custody");
             };
-            assert!(!attest);
+
             let pointer = original.as_slice().as_ptr();
             let retained = budget.reserved_bytes();
             assert!(retained > baseline);
@@ -1043,7 +1064,7 @@ mod tests {
             chain.kura().reset_canonical_query_reads_for_test();
             // A second request for the same actual applied source lends its completed owner.
             // Keeping the first output live also makes a replacement allocation observable.
-            let (Some(retried), false) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(retried) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("the new request must lend the actual completed original");
             };
             assert_eq!(
@@ -1083,7 +1104,7 @@ mod tests {
     fn completed_original_payload_retires_on_actual_queue_mutation_expiry_or_rejection() {
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, clock, time) = attach_queue(chain, worker);
-            let (Some(original), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(original) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("original")
             };
             let original_hash = {
@@ -1094,7 +1115,7 @@ mod tests {
             };
             let added_hash = queue_work(chain, 2_001, &queue, &time);
             assert_ne!(added_hash, original_hash);
-            let (Some(next), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(next) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("next input")
             };
             assert_ne!(next.as_slice().as_ptr(), original.as_slice().as_ptr());
@@ -1122,11 +1143,11 @@ mod tests {
                 "actual proposal rejection withdraws reuse authority"
             );
             drop(next);
-            let (Some(expiring), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(expiring) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("expiring original")
             };
             clock.advance(queue.tx_time_to_live + Duration::from_secs(1));
-            assert_eq!(worker.build(2, 0, 1 << 20, 100).unwrap(), (None, false));
+            assert_eq!(worker.build(2, 0, 1 << 20, 100).unwrap(), None);
             assert!(
                 worker.completed_payload.is_none(),
                 "no completed image can survive real input expiry"
@@ -1140,21 +1161,21 @@ mod tests {
     fn completed_original_payload_never_crosses_view_limit_budget_or_queue_attachment() {
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (_queue, _clock, _time) = attach_queue(chain, worker);
-            let (Some(original), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(original) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("original")
             };
-            let (Some(other_view), _) = worker.build(2, 1, 1 << 20, 100).unwrap() else {
+            let Some(other_view) = worker.build(2, 1, 1 << 20, 100).unwrap() else {
                 panic!("view")
             };
             assert_ne!(other_view.as_slice().as_ptr(), original.as_slice().as_ptr());
-            let (Some(other_limit), _) = worker.build(2, 1, (1 << 20) - 1, 100).unwrap() else {
+            let Some(other_limit) = worker.build(2, 1, (1 << 20) - 1, 100).unwrap() else {
                 panic!("limit")
             };
             assert_ne!(
                 other_limit.as_slice().as_ptr(),
                 other_view.as_slice().as_ptr()
             );
-            let (Some(other_budget), _) = worker.build(2, 1, (1 << 20) - 1, 101).unwrap() else {
+            let Some(other_budget) = worker.build(2, 1, (1 << 20) - 1, 101).unwrap() else {
                 panic!("budget")
             };
             assert_ne!(
@@ -1168,7 +1189,7 @@ mod tests {
                 worker.completed_payload.is_none(),
                 "even same-object explicit queue attachment retires original custody"
             );
-            let (Some(reattached), _) = worker.build(2, 1, (1 << 20) - 1, 101).unwrap() else {
+            let Some(reattached) = worker.build(2, 1, (1 << 20) - 1, 101).unwrap() else {
                 panic!("reattached")
             };
             assert_ne!(
@@ -1223,13 +1244,13 @@ mod tests {
                 &selected,
             )
             .unwrap();
-            let attest = 2 == scheduled.epoch.authorization.last_height;
+
             worker.payload_build = Some(GlobalPayloadBuild {
                 scope,
                 job: super::super::super::driver::payload_build::PayloadBuild::new(
                     GlobalPayloadSource {
                         block,
-                        attest,
+
                         pending_inputs: Some(lease),
                     },
                     worker.state.ivm_execution_budget(),
@@ -1243,7 +1264,7 @@ mod tests {
             assert_eq!(queue.queued_len(), 1);
             assert!(queue.contains_entrypoint_hash(hash));
             assert!(queue.contains_pending_hash(hash, worker.state));
-            let (Some(payload), _) = worker.finish_payload_build().unwrap() else {
+            let Some(payload) = worker.finish_payload_build().unwrap() else {
                 panic!("original funded completion");
             };
             assert!(
@@ -1267,7 +1288,7 @@ mod tests {
         super::super::publication_tests::with_worker(|chain, worker, blocks, _events| {
             let (_queue, _clock, _time) = attach_queue(chain, worker);
             let generation = worker.state.state_view_generation();
-            let (Some(original), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(original) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("original")
             };
             let original_scope = worker.completed_payload.as_ref().unwrap().scope;
@@ -1282,7 +1303,7 @@ mod tests {
             assert_eq!(worker.state.view().height(), 2);
             assert_ne!(worker.state.state_view_generation(), generation);
             assert!(!original_scope.is_current(worker.state, &worker.state.view(), worker.applied));
-            assert_eq!(worker.build(2, 0, 1 << 20, 100).unwrap(), (None, false));
+            assert_eq!(worker.build(2, 0, 1 << 20, 100).unwrap(), None);
             assert!(
                 worker.completed_payload.is_none(),
                 "old parent never returns its retained output"
@@ -1293,11 +1314,13 @@ mod tests {
 
     #[test]
     fn completed_original_payload_idle_expiry_reclaims_the_actual_original_pool() {
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
+        let _fixture_epoch = crossbeam_epoch::pin();
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, clock, _time) = attach_queue(chain, worker);
             let budget = worker.state.ivm_execution_budget();
             let baseline = budget.reserved_bytes();
-            let (Some(original), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(original) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("original")
             };
             drop(original);
@@ -1318,6 +1341,8 @@ mod tests {
     #[test]
     fn completed_original_payload_preserves_actual_publisher_release_and_expires_while_it_is_held()
     {
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
+        let _fixture_epoch = crossbeam_epoch::pin();
         use std::{
             future::Future,
             task::{Context, Poll, Waker},
@@ -1365,13 +1390,13 @@ mod tests {
                     &selected,
                 )
                 .unwrap();
-                let attest = 2 == scheduled.epoch.authorization.last_height;
+
                 worker.payload_build = Some(GlobalPayloadBuild {
                     scope,
                     job: super::super::super::driver::payload_build::PayloadBuild::new(
                         GlobalPayloadSource {
                             block,
-                            attest,
+
                             pending_inputs: Some(lease),
                         },
                         budget.clone(),
@@ -1387,7 +1412,7 @@ mod tests {
                     let mut pending =
                         std::pin::pin!(release.clone().wait_for_release(&mut registration));
                     assert_eq!(pending.as_mut().poll(context), Poll::Pending);
-                    let (Some(original), _) = worker.finish_payload_build().unwrap() else {
+                    let Some(original) = worker.finish_payload_build().unwrap() else {
                         panic!(
                             "the real original funded builder completes while publication is busy"
                         );
@@ -1490,6 +1515,8 @@ mod tests {
 
     #[test]
     fn completed_original_payload_retries_the_same_backing_after_actual_header_reader_release() {
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
+        let _fixture_epoch = crossbeam_epoch::pin();
         use std::{
             future::Future,
             task::{Context, Poll, Waker},
@@ -1500,7 +1527,7 @@ mod tests {
             let budget = state.ivm_execution_budget();
             let mut registration = crate::unit_test_support::release_registration(&budget);
             let baseline = budget.reserved_bytes();
-            let (Some(original), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(original) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("original")
             };
             let pointer = original.as_slice().as_ptr();
@@ -1539,7 +1566,7 @@ mod tests {
                 Poll::Ready(())
             );
             drop(released);
-            let (Some(retried), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(retried) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("retry")
             };
             assert_eq!(retried.as_slice().as_ptr(), pointer);
@@ -1588,7 +1615,7 @@ mod tests {
             let (queue, _clock, time) = attach_queue(chain, worker);
             let budget = worker.state.ivm_execution_budget();
             let mut registration = crate::unit_test_support::release_registration(&budget);
-            let (Some(original), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(original) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("original signed input");
             };
             let original_hash = {
@@ -1633,7 +1660,7 @@ mod tests {
             assert_eq!(queue.queued_len(), 1);
             // The execution-budget change withdraws the actual old completed owner.
             // Its original source/view and all Queue guards live inside the refund scope.
-            let (Some(next), _) = worker.build(2, 0, 1 << 20, 101).unwrap() else {
+            let Some(next) = worker.build(2, 0, 1 << 20, 101).unwrap() else {
                 panic!("original source must build under the changed request");
             };
             {
@@ -1653,7 +1680,7 @@ mod tests {
             assert_eq!(pending.as_mut().poll(context), Poll::Ready(()));
             assert_eq!(queue.queued_len(), 2);
             assert!(queue.contains_entrypoint_hash(new_hash));
-            let (Some(after_wake), _) = worker.build(2, 0, 1 << 20, 101).unwrap() else {
+            let Some(after_wake) = worker.build(2, 0, 1 << 20, 101).unwrap() else {
                 panic!("the next request must see actual newly admitted signed work");
             };
             {
@@ -1699,7 +1726,7 @@ mod tests {
         }
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (_queue, _clock, _time) = attach_queue(chain, worker);
-            let (Some(original), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(original) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("original");
             };
             let path = crate::kura::Kura::canonical_storage_path(&chain.kura().store_root())
@@ -1715,7 +1742,7 @@ mod tests {
             );
             assert_eq!(chain.kura().canonical_query_reads_for_test(), (0, 0));
             drop(missing);
-            let (Some(restored), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(restored) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("restored");
             };
             assert_ne!(restored.as_slice().as_ptr(), original.as_slice().as_ptr());
@@ -1729,7 +1756,7 @@ mod tests {
     fn completed_original_payload_refuses_changed_real_parent_frame_without_substitution() {
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (_queue, _clock, _time) = attach_queue(chain, worker);
-            let (Some(original), _) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
+            let Some(original) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("original")
             };
             chain
@@ -1743,5 +1770,319 @@ mod tests {
             assert_eq!(worker.state.view().height(), 1);
             drop(original);
         });
+    }
+
+    #[test]
+    fn completed_certified_lane_payload_keeps_original_output_across_same_scope_build_retry() {
+        lanes::merge::with_original_lane_merge_fixture(
+            |chain, lane_blocks, certify, [first, _second]| {
+                super::super::publication_tests::with_worker_chain(
+                    chain,
+                    ConsensusMode::Permissioned,
+                    lane_blocks,
+                    |chain, worker, _blocks, _events| {
+                        let parent_height = chain.height();
+                        assert_eq!(parent_height, 3, "actual fixed-lane activation source");
+                        let height = parent_height.checked_add(1).unwrap();
+                        let (_, time) = iroha_primitives::time::TimeSource::new_mock(
+                            Duration::from_millis(2_001),
+                        );
+                        let queue = Arc::new(Queue::test(
+                            iroha_config::parameters::actual::Queue::default(),
+                            &time,
+                        ));
+                        worker.queue = Some(Arc::clone(&queue));
+                        let lane_hash = certify(1, parent_height, vec![first]);
+                        let budget = worker.state.ivm_execution_budget();
+                        let original = worker
+                            .build(height, 0, 1 << 20, 100)
+                            .unwrap()
+                            .expect("genuine certified lane work");
+                        assert!(original.admitted_to(&budget));
+                        let decoded = payload::decode(original.as_slice()).unwrap();
+                        assert_eq!(decoded.network_entrypoint_count(), 0);
+                        let section = decoded.lane_merge().expect("actual certified lane range");
+                        assert_eq!(section.merges.len(), 1);
+                        assert_eq!(section.merges[0].to, 1);
+                        assert_eq!(section.merges[0].tip_hash, lane_hash.0);
+                        drop(decoded);
+                        assert_eq!(queue.queued_len(), 0);
+
+                        // A deadline retry creates a new Core request, but the Worker request
+                        // still names this exact height/view/parent and complete build policy.
+                        // Keep the first public output alive: a newly encoded allocation cannot
+                        // coincidentally reuse its address and satisfy the retention assertion.
+                        let retry = worker
+                            .build(height, 0, 1 << 20, 100)
+                            .unwrap()
+                            .expect("same original certified lane work remains mandatory");
+                        assert!(
+                            std::ptr::eq(original.as_slice().as_ptr(), retry.as_slice().as_ptr()),
+                            "completed certified lane payload must retain its exact output across build deadline retry"
+                        );
+                        assert_eq!(retry.as_slice(), original.as_slice());
+                        assert!(retry.admitted_to(&budget));
+                        assert_eq!(queue.queued_len(), 0);
+                        worker.retire_completed_payload(height);
+                        assert!(worker.payload_build.is_none());
+                        drop((retry, original));
+                    },
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn completed_certified_lane_payload_rechecks_actual_journal_and_mixed_queue_admission() {
+        lanes::merge::with_original_lane_merge_fixture(
+            |chain, lane_blocks, certify, [first, second]| {
+                super::super::publication_tests::with_worker_chain(
+                    chain,
+                    ConsensusMode::Permissioned,
+                    lane_blocks,
+                    |chain, worker, _blocks, _events| {
+                        let parent_height = chain.height();
+                        let height = parent_height.checked_add(1).unwrap();
+                        let (queue, clock, time) = attach_queue(chain, worker);
+                        let first_hash = certify(1, parent_height, vec![first]);
+                        let original = worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();
+                        let budget = worker.state.ivm_execution_budget();
+                        let source = worker.payload_build.as_ref().unwrap().job.source();
+                        assert!(source.block.signatures_admitted_to(&budget));
+                        assert!(source.pending_inputs.as_ref().unwrap().belongs_to(&budget));
+                        let original_range = source.block.lane_merge().unwrap().merges.as_ptr();
+                        let original_hash = {
+                            let block = payload::decode(original.as_slice()).unwrap();
+                            assert_eq!(block.network_entrypoint_count(), 1);
+                            assert_eq!(
+                                block.lane_merge().unwrap().merges[0].tip_hash,
+                                first_hash.0
+                            );
+                            block.network_entrypoints().next().unwrap().hash()
+                        };
+                        let held = budget.reserved_bytes();
+                        let retry = worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();
+                        assert!(std::ptr::eq(
+                            original.as_slice().as_ptr(),
+                            retry.as_slice().as_ptr()
+                        ));
+                        assert_eq!(
+                            worker
+                                .payload_build
+                                .as_ref()
+                                .unwrap()
+                                .job
+                                .source()
+                                .block
+                                .lane_merge()
+                                .unwrap()
+                                .merges
+                                .as_ptr(),
+                            original_range
+                        );
+                        assert_eq!(budget.reserved_bytes(), held);
+                        drop(retry);
+
+                        // The actual certified journal changes without changing global
+                        // height or generation. Its new exact range and time floor revoke
+                        // the old complete source; copied tip scalars grant no reuse.
+                        let second_hash = certify(2, parent_height, vec![second]);
+                        let expected = lanes::merge::propose(
+                            &worker.state.view(),
+                            &*worker.context.lane_blocks,
+                            height,
+                        )
+                        .unwrap();
+                        let grown = worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();
+                        assert!(!std::ptr::eq(
+                            original.as_slice().as_ptr(),
+                            grown.as_slice().as_ptr()
+                        ));
+                        {
+                            let block = payload::decode(grown.as_slice()).unwrap();
+                            let section = block.lane_merge().unwrap();
+                            assert_eq!(section.merges, expected.merges);
+                            assert_eq!(section.time_floor_ms, expected.time_floor_ms);
+                            assert_eq!(section.merges[0].to, 2);
+                            assert_eq!(section.merges[0].tip_hash, second_hash.0);
+                        }
+                        assert!(worker.payload_build.as_ref().unwrap().job.is_completed());
+
+                        // Exact current lane work does not hide withdrawal/readmission
+                        // of the independently funded original Queue selection.
+                        queue.clear_all();
+                        clock.advance(Duration::from_millis(1));
+                        let new_hash = queue_work(chain, 2_001, &queue, &time);
+                        assert_ne!(new_hash, original_hash);
+                        let replaced = worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();
+                        assert!(!std::ptr::eq(
+                            grown.as_slice().as_ptr(),
+                            replaced.as_slice().as_ptr()
+                        ));
+                        {
+                            let block = payload::decode(replaced.as_slice()).unwrap();
+                            assert_eq!(block.network_entrypoint_count(), 1);
+                            assert_eq!(
+                                block.network_entrypoints().next().unwrap().hash(),
+                                new_hash
+                            );
+                            assert_eq!(block.lane_merge().unwrap().merges, expected.merges);
+                            assert_eq!(
+                                block.lane_merge().unwrap().time_floor_ms,
+                                expected.time_floor_ms
+                            );
+                        }
+                        assert!(replaced.admitted_to(&budget));
+                        assert!(worker.completed_payload.is_none());
+                        assert_eq!(queue.queued_len(), 1);
+                        assert!(!queue.contains_entrypoint_hash(original_hash));
+                        clock.advance(queue.tx_time_to_live + Duration::from_secs(1));
+                        assert!(worker.payload_storage_wait().is_none());
+                        assert!(
+                            worker.payload_build.is_none(),
+                            "completed mixed work retires at actual input expiry"
+                        );
+                        assert_eq!(
+                            queue.queued_len(),
+                            1,
+                            "storage retirement never removes signed Queue work"
+                        );
+                        drop((replaced, grown, original));
+                    },
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn completed_certified_lane_payload_preserves_original_busy_source_and_retires_on_request_or_execution()
+     {
+        lanes::merge::with_original_lane_merge_fixture(
+            |chain, lane_blocks, certify, [first, _second]| {
+                super::super::publication_tests::with_worker_chain(
+                    chain,
+                    ConsensusMode::Permissioned,
+                    lane_blocks,
+                    |chain, worker, blocks, _events| {
+                        let height = chain.height().checked_add(1).unwrap();
+                        let (_, time) = iroha_primitives::time::TimeSource::new_mock(
+                            Duration::from_millis(2_001),
+                        );
+                        worker.queue = Some(Arc::new(Queue::test(
+                            iroha_config::parameters::actual::Queue::default(),
+                            &time,
+                        )));
+                        certify(1, chain.height(), vec![first]);
+                        let original = worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();
+                        let state = worker.state;
+                        let budget = state.ivm_execution_budget();
+                        let scope = worker.payload_build.as_ref().unwrap().scope;
+                        let range = worker
+                            .payload_build
+                            .as_ref()
+                            .unwrap()
+                            .job
+                            .source()
+                            .block
+                            .lane_merge()
+                            .unwrap()
+                            .merges
+                            .as_ptr();
+                        let held = budget.reserved_bytes();
+                        state.with_held_header_for_reader_test(|release| {
+                            let PublicationError::Deferred(PublicationDeferral::StateViewBusy(
+                                actual,
+                            )) = worker.build(height, 0, 1 << 20, 100).unwrap_err()
+                            else {
+                                panic!("actual State reader must preserve its original release");
+                            };
+                            assert_eq!(actual, release);
+                            assert!(
+                                worker.payload_storage_wait().is_none(),
+                                "lane-only work borrows no Queue expiry"
+                            );
+                            assert_eq!(worker.payload_build.as_ref().unwrap().scope, scope);
+                            assert_eq!(
+                                worker
+                                    .payload_build
+                                    .as_ref()
+                                    .unwrap()
+                                    .job
+                                    .source()
+                                    .block
+                                    .lane_merge()
+                                    .unwrap()
+                                    .merges
+                                    .as_ptr(),
+                                range
+                            );
+                            assert_eq!(budget.reserved_bytes(), held);
+                        });
+                        let retry = worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();
+                        assert!(std::ptr::eq(
+                            original.as_slice().as_ptr(),
+                            retry.as_slice().as_ptr()
+                        ));
+                        assert_eq!(budget.reserved_bytes(), held);
+                        drop(retry);
+                        let new_view = worker.build(height, 1, 1 << 20, 100).unwrap().unwrap();
+                        assert!(!std::ptr::eq(
+                            original.as_slice().as_ptr(),
+                            new_view.as_slice().as_ptr()
+                        ));
+                        assert_eq!(worker.payload_build.as_ref().unwrap().scope.view, 1);
+                        let new_policy = worker.build(height, 1, 1 << 20, 101).unwrap().unwrap();
+                        assert!(!std::ptr::eq(
+                            new_view.as_slice().as_ptr(),
+                            new_policy.as_slice().as_ptr()
+                        ));
+                        let new_cap = worker
+                            .build(height, 1, (1 << 20) - 1, 101)
+                            .unwrap()
+                            .unwrap();
+                        assert!(!std::ptr::eq(
+                            new_policy.as_slice().as_ptr(),
+                            new_cap.as_slice().as_ptr()
+                        ));
+                        worker.reject(height, 1, Hash32::ZERO);
+                        assert!(
+                            worker.payload_build.is_none(),
+                            "explicit original-view rejection retires completion"
+                        );
+                        let rebuilt = worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();
+                        worker.discard(height, &[]);
+                        assert!(
+                            worker.payload_build.is_none(),
+                            "explicit original-height discard retires completion"
+                        );
+                        let before_execution =
+                            worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();
+                        let (block, qc) = super::super::publication_tests::executed(chain, worker);
+                        assert!(
+                            worker.payload_build.is_none(),
+                            "actual native execution retires the completed lane owner"
+                        );
+                        worker.prepare(&block, &qc).unwrap();
+                        blocks.append(&block, &qc).unwrap();
+                        worker.commit(&block, &qc).unwrap();
+                        assert_eq!(
+                            worker.state.view().height(),
+                            usize::try_from(height).unwrap()
+                        );
+                        assert_ne!(state.state_view_generation(), scope.generation);
+                        assert_eq!(worker.build(height, 0, 1 << 20, 100).unwrap(), None);
+                        assert!(worker.payload_build.is_none());
+                        drop((
+                            before_execution,
+                            rebuilt,
+                            new_cap,
+                            new_policy,
+                            new_view,
+                            original,
+                        ));
+                    },
+                );
+            },
+        );
     }
 }

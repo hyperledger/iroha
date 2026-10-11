@@ -5,7 +5,6 @@ use crate::sumeragi::runtime_availability::history::payload_error;
 use iroha_allocation::{AllocationBudget, ChargedBuffer};
 use iroha_sumeragi::{
     api::CommittedTip,
-    crypto::NoAttestation,
     evidence::{EvidenceContext, verify_evidence},
     message::Evidence,
     types::Hash32,
@@ -18,8 +17,7 @@ use crate::sumeragi::lanes::evidence::frame::{
 use crate::{
     query::native_receipts::lane_payload::{LaneAuthority, LanePayload, LanePayloadError},
     sumeragi::{
-        crypto::{BlsCrypto, iroha_key},
-        lanes::evidence::LaneAncestry,
+        crypto::BlsCrypto, lanes::evidence::LaneAncestry,
         runtime_availability::history::LaneEvidenceContext,
     },
 };
@@ -191,7 +189,7 @@ impl LaneProofRead {
             let original = self.ready.as_ref().expect("original complete body custody");
             // Every frame above the interval is authenticated too; a file QC cannot select a branch.
             self.cursor
-                .advance(&self.crypto, &NoAttestation, &original.body, &original.qc)
+                .advance(&self.crypto, &original.body, &original.qc)
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
             self.frame = None;
             let original = self.ready.take().expect("validated same original frame");
@@ -242,7 +240,7 @@ impl LaneProofRead {
             demotion_window: self.cursor.configuration_owner().demotion_window(),
             demotion_headers: self.headers.as_slice(),
         };
-        let attribution = verify_evidence(&self.crypto, &NoAttestation, &context, evidence)?;
+        let attribution = verify_evidence(&self.crypto, &context, evidence)?;
         let row = self
             .payload
             .custody_record(&self.scope.incarnation)
@@ -250,10 +248,11 @@ impl LaneProofRead {
             .ok_or_else(|| {
                 super::NativeEvidenceError::Context("original custody disappeared".into())
             })?;
-        let offenders = attribution
-            .offenders()
-            .ones()
-            .map(|signer| {
+        let offenders = super::funded_attribution::FundedOffenders::collect(
+            attribution.offenders().ones().count(),
+            attribution.offenders().ones(),
+            &self.budget,
+            |signer, budget| {
                 let key = config
                     .committee
                     .members()
@@ -263,20 +262,27 @@ impl LaneProofRead {
                             "verified native signer is outside its pinned committee".into(),
                         )
                     })?;
-                let peer_id = iroha_model_base::peer::PeerId::new(
-                    iroha_key(key)
-                        .map_err(|error| super::NativeEvidenceError::Context(error.to_string()))?,
-                );
+                let peer_key = iroha_crypto::PreparedPublicKeyDecode::try_from_material(
+                    iroha_crypto::Algorithm::BlsNormal,
+                    key.as_bytes(),
+                    budget,
+                )
+                .map_err(|error| match error {
+                    iroha_crypto::PublicKeyDecodeAdmissionError::Allocation(error) => {
+                        super::NativeEvidenceError::Preparation(
+                            crate::state::EvidencePreparationError::from(error),
+                        )
+                    }
+                    iroha_crypto::PublicKeyDecodeAdmissionError::Codec(error) => {
+                        super::NativeEvidenceError::Context(error.to_string())
+                    }
+                })?;
                 let lane_stake = row.binding(signer).map_err(|error| {
                     super::NativeEvidenceError::Source(payload_error(error.into()))
                 })?;
-                Ok(iroha_data_model::block::consensus::EvidenceOffender {
-                    signer,
-                    peer_id,
-                    lane_stake,
-                })
-            })
-            .collect::<Result<Vec<_>, super::NativeEvidenceError>>()?;
+                Ok((peer_key, lane_stake))
+            },
+        )?;
         Ok(super::VerifiedNativeEvidence {
             scope: iroha_data_model::block::consensus::EvidenceScope::Lane(self.scope),
             tip: self.tip,

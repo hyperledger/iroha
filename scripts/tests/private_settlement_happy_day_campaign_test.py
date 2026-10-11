@@ -50,7 +50,7 @@ class HappyDayEvidenceTests(unittest.TestCase):
     def test_scope_is_bound_to_request_and_terminal_marker(self):
         with self.assertRaises(H.CampaignError):
             H.validate_request(F.request(0), F.COMMIT, 0)
-        output = "running 1 test\nAPS happy_day completed: synthetic\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1s\n"
+        output = f"running 1 test\ntest {H.TEST_NAME} ... APS happy_day completed: synthetic\nok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1s\n"
         H.terminal_success(output)
         for bad in (output.replace("happy_day", "smoke"), output + "APS smoke completed: synthetic\n",
                     output.replace("1 passed", "0 passed")):

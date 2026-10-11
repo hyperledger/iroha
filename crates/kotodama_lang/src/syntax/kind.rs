@@ -12,12 +12,16 @@ pub enum SyntaxKind {
     IncludeItem,
     /// Namespaced local-module import.
     ImportItem,
+    /// A permission declaration or explicit chain permission import.
+    PermissionItem,
     /// Function or lifecycle declaration.
     FunctionItem,
     /// Structure declaration.
     StructItem,
-    /// Stable error enumeration.
-    ErrorEnumItem,
+    /// Contract-owned native event declaration.
+    EventItem,
+    /// Ordinary or raisable-error enumeration.
+    EnumItem,
     /// Constant declaration.
     ConstItem,
     /// State declaration.
@@ -38,6 +42,8 @@ pub enum SyntaxKind {
     NamedArgument,
     /// Named struct construction expression.
     StructLiteral,
+    /// Closed record supplying the typed parameters of a test target.
+    ArgumentRecord,
     /// Bounded list literal expression.
     ListExpr,
     /// Capacity-proven bounded list comprehension expression.
@@ -88,6 +94,8 @@ pub enum SyntaxKind {
     Whitespace,
     /// `//` comment.
     LineComment,
+    /// Authored `///` documentation attached to the next declaration.
+    DocComment,
     /// `/* ... */` comment.
     BlockComment,
     /// Identifier.
@@ -124,12 +132,18 @@ pub enum SyntaxKind {
     KwState,
     /// `struct`.
     KwStruct,
+    /// `event`.
+    KwEvent,
+    /// `emit`.
+    KwEmit,
     /// `error`.
     KwError,
     /// `enum`.
     KwEnum,
     /// `authorize`.
     KwAuthorize,
+    /// `permission`.
+    KwPermission,
     /// `trigger`.
     KwTrigger,
     /// `if`.
@@ -240,12 +254,17 @@ pub enum SyntaxKind {
     Hash,
 }
 impl SyntaxKind {
-    /// Return whether the kind is source trivia.
+    /// Return whether the kind is an ordinary or authored line comment.
+    #[must_use]
+    pub const fn is_line_comment(self) -> bool {
+        matches!(self, Self::LineComment | Self::DocComment)
+    }
+    /// Return whether this token is non-significant source trivia.
     #[must_use]
     pub const fn is_trivia(self) -> bool {
         matches!(
             self,
-            Self::Whitespace | Self::LineComment | Self::BlockComment
+            Self::Whitespace | Self::LineComment | Self::DocComment | Self::BlockComment
         )
     }
     /// Return whether the kind begins a source-unit item.
@@ -259,11 +278,14 @@ impl SyntaxKind {
                 | Self::KwHajimari
                 | Self::KwKaizen
                 | Self::KwStruct
+                | Self::KwEvent
+                | Self::KwEmit
                 | Self::KwError
                 | Self::KwConst
                 | Self::KwState
                 | Self::KwTrigger
                 | Self::KwInclude
+                | Self::KwPermission
                 | Self::KwImport
                 | Self::KwExport
                 | Self::Hash

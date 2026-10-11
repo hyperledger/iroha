@@ -1,4 +1,4 @@
-//! Fault scenarios F1–F38 of §13.3, each a function of the seed. Committee sizes rotate over
+//! Fault scenarios F1–F39 of §13.3, each a function of the seed. Committee sizes rotate over
 //! `n ∈ {1, 4, 5, 7, 22}` where meaningful (small sizes first, so that the few default seeds of
 //! a debug run stay fast); every other random choice is drawn from a side stream of the seed.
 
@@ -8,7 +8,7 @@ use super::{
     net::{Partition, Spike},
     oracle::leader_turns_bound,
     rng::{Rng, seed_of},
-    scenario::{Authority, Churn, CrashPoint, Fault, Perf, Profile, Scenario, Workload},
+    scenario::{Churn, ClockGuard, CrashPoint, Fault, Perf, Profile, Scenario, Workload},
     world::preview,
 };
 use crate::{pacemaker::t_req_nominal, types::Millis};
@@ -54,8 +54,9 @@ pub const ALL: &[(&str, Builder)] = &[
     ("F34", f34),
     ("F35", f35),
     ("F36", f36),
-    ("F37", f37),
+    ("exact-quorum", exact_quorum_adversary),
     ("F38", f38),
+    ("F39", f39),
 ];
 
 fn pick<T: Copy>(seed: u64, options: &[T]) -> T {
@@ -1559,78 +1560,6 @@ pub fn f36(seed: u64) -> Scenario {
     sc
 }
 
-/// F37: commit attestation (§3.7). Every eighth transaction needs mint finality, so a share of
-/// the blocks is flagged. Every authority attests only blocks its node executed (`Pending`
-/// before, as KAGEMUSHA needs `R`'s preimage). Up to `f` Byzantine members send forged or
-/// stripped attestations — one of them, as proxy tail, also strips the attestations of the
-/// `CommitQC`s it forms and clears their flag every other time, and over-aggregates genuine
-/// attested votes into `q + 1`-signer `CommitQC`s — and one honest member may hold no
-/// authority, or a misconfigured one that its own verifier rejects, while at least `q` members
-/// still attest. On every other seed one attesting honest member executes non-empty blocks
-/// slowly, so the `PrepareQC` of a flagged block often reaches it before its execution ends.
-/// Flagged blocks commit, every committed flagged block's `CommitQC` carries exactly `q` valid
-/// attestations (O-ATT), and liveness holds.
-pub fn f37(seed: u64) -> Scenario {
-    let n = pick(seed, &[4, 7, 5, 10]);
-    let mut sc = sized("F37", seed, n);
-    let mut rng = side("F37", seed);
-    sc.workload = Some(Workload {
-        mint_every: 8,
-        ..Workload::default()
-    });
-    let f = f_of(n);
-    // `b` Byzantine members and `u` honest members without a working authority, `b + u ≤ f`
-    // (so at least `q` members attest); n = 4 and 5 alternate between the two kinds.
-    let (b, u) = match (f, (seed / 4) % 2) {
-        (1, 0) => (1, 0),
-        (1, _) => (0, 1),
-        (f, 0) => (f, 0),
-        (f, _) => (f - 1, 1),
-    };
-    let chosen = distinct(&mut rng, n, b + u);
-    let (byz, unattested) = chosen.split_at(b);
-    sc.byz = byz
-        .iter()
-        .enumerate()
-        .map(|(i, m)| {
-            let mut strategies = vec![Strategy::ForgeAttestations];
-            if i == 0 {
-                strategies.push(Strategy::StripAttestations);
-                strategies.push(Strategy::OverAggregate);
-            }
-            (*m, strategies)
-        })
-        .collect();
-    // A slow executor among the attesting honest members (its Commit waits for its execution).
-    if seed % 2 == 1
-        && let Some(slow) = (0..n).find(|m| !chosen.contains(m))
-    {
-        sc.set_profile(
-            slow,
-            Profile {
-                exec_nonempty: 400,
-                ..Profile::default()
-            },
-        );
-    }
-    for m in unattested {
-        let authority = if (seed / 8).is_multiple_of(2) {
-            Authority::Missing
-        } else {
-            Authority::Forging
-        };
-        sc.set_profile(
-            *m,
-            Profile {
-                authority,
-                ..Profile::default()
-            },
-        );
-    }
-    sc.checks.progress = 10;
-    sc
-}
-
 /// F38: a lane instance next to the global one (`specs/sumeragi_lanes.md` §4.1). The lane's
 /// pinned committee is four of the global validators; every other machine follows the lane as an
 /// observer. The lane stalls for a while and the global instance keeps finalizing; a lane
@@ -1656,5 +1585,107 @@ pub fn f38(seed: u64) -> Scenario {
     sc.heal_at = 22_000;
     sc.duration = 60_000;
     sc.checks.progress = 5;
+    sc
+}
+
+/// F39: the application clock guard (§4.5) under skewed honest wall clocks. Every honest wall
+/// clock is within `[0, max_clock_drift_ms]` of real time (the liveness assumption
+/// `2ε ≤ max_clock_drift_ms`), a third of the transactions apply due work (CT5), and `f`
+/// Byzantine members run no guard and build blocks post-dated by up to `2·max_clock_drift_ms`,
+/// far-future or back-dated past `due_work_max_lag_ms`, in turn. By variant (`seed % 3`): (0)
+/// the Byzantine members vote or withhold every vote; (1) as (0), and one honest wall clock
+/// jumps 30 s ahead (outside the assumption) for 15 s, then converges back; (2) a Byzantine
+/// proxy tail hides `PrepareQC`s (F33) of blocks that all apply due work, so their
+/// re-proposals are older than the lag and execute only as certified (§4.5 "Certified
+/// re-proposals", MS51). Oracles: O-TIME, O-LIVE, O-AGR, O-FAULT (the guard's refusals are
+/// local faults).
+pub fn f39(seed: u64) -> Scenario {
+    let n = pick(seed / 3, &[4, 7, 10]);
+    let mut sc = sized("F39", seed, n);
+    let mut rng = side("F39", seed);
+    let f = f_of(n);
+    let drift: Millis = 1_000;
+    let lag = 2 * drift + 4 * sc.params.block_time;
+    let drift_ms = i64::try_from(drift).unwrap_or(i64::MAX);
+    let lag_ms = i64::try_from(lag).unwrap_or(i64::MAX);
+    let variant = seed % 3;
+    let byz = if variant == 2 {
+        vec![role(&sc, 2 + seed % 4, 0, true)]
+    } else {
+        distinct(&mut rng, n, f)
+    };
+    sc.byz = byz
+        .iter()
+        .map(|m| {
+            let strategies = match variant {
+                2 => vec![Strategy::HiddenPqc],
+                _ if rng.chance(500_000) => vec![Strategy::WithholdVotes],
+                _ => Vec::new(),
+            };
+            (*m, strategies)
+        })
+        .collect();
+    let wall_offsets: Vec<i64> = (0..n)
+        .map(|_| i64::try_from(rng.range(0, drift)).unwrap_or(0))
+        .collect();
+    let leads = if variant == 2 {
+        Vec::new()
+    } else {
+        byz.iter()
+            .map(|m| {
+                let lead = |rng: &mut Rng| i64::try_from(rng.range(0, drift)).unwrap_or(0);
+                let leads = vec![
+                    lead(&mut rng),
+                    3_600_000,
+                    -lag_ms - 2_000,
+                    drift_ms + lead(&mut rng),
+                ];
+                (*m, leads)
+            })
+            .collect()
+    };
+    if variant == 1 {
+        let honest: Vec<usize> = (0..n).filter(|m| !byz.contains(m)).collect();
+        if let Some(&fast) = rng.pick(&honest) {
+            let back = wall_offsets[fast];
+            for (at, offset) in [(15_000, 30_000), (30_000, back)] {
+                sc.script.push((
+                    at,
+                    Fault::Custom(Box::new(move |w| w.set_wall_offset(fast, offset))),
+                ));
+            }
+        }
+    }
+    sc.workload = Some(Workload {
+        due_every: if variant == 2 { 1 } else { 3 },
+        ..Workload::default()
+    });
+    sc.clock_guard = Some(ClockGuard {
+        max_clock_drift_ms: drift,
+        due_work_max_lag_ms: lag,
+        wall_offsets,
+        leads,
+    });
+    sc.checks.may_fault = (0..n).collect();
+    sc.demotion_window = 8;
+    if variant == 2 {
+        sc.heal_at = 45_000;
+        sc.duration = 95_000;
+    }
+    sc.checks.progress = 5;
+    sc
+}
+
+/// Genuine signer supersets remain invalid while an honest quorum makes progress.
+pub fn exact_quorum_adversary(seed: u64) -> Scenario {
+    let n = pick(seed, &[4, 7, 10]);
+    let mut sc = sized("exact-quorum", seed, n);
+    let mut rng = side("exact-quorum", seed);
+    sc.byz = distinct(&mut rng, n, f_of(n))
+        .into_iter()
+        .map(|machine| (machine, vec![Strategy::OverAggregate]))
+        .collect();
+    sc.workload = Some(Workload::default());
+    sc.checks.progress = 10;
     sc
 }

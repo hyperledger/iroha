@@ -160,71 +160,50 @@ fn genesis_preexecution_preserves_selected_profile_across_threads() {
     assert_eq!(chain_discriminant(), 777, "worker changed caller profile");
 }
 
-#[cfg(unix)]
-fn assert_signed_pasta_authority_matches_held_voters(network: &Network) {
-    let signed = consensus_handshake_metadata(&network.genesis())
-        .expect("genesis must commit canonical consensus metadata");
-    let mut ordered = network.validators().iter().collect::<Vec<_>>();
-    ordered.sort_by_key(|peer| peer.id());
-    let expected = ordered
+fn assert_signed_generation_zero_is_the_voter_roster(network: &Network) {
+    let epoch = iroha_data_model::sumeragi_finality::authenticated_genesis(&network.genesis().0)
+        .map(|genesis| genesis.into_parts().0)
+        .expect("genesis must commit a canonical native epoch");
+    let mut expected = network
+        .validators()
         .iter()
         .map(|peer| {
-            assert_eq!(
+            assert!(
                 get_nested_value(
                     &peer.base_config_table(),
                     &["sumeragi", "mint_finality_seed_fd"]
                 )
-                .and_then(Value::as_integer),
-                Some(199),
-                "each signed voter must launch with its own fixed private seed descriptor"
+                .is_none(),
+                "no voter launches with a retired seed descriptor"
             );
-            peer.disposable_mint_finality_keys(0).expect("held seed")
+            peer.id()
         })
         .collect::<Vec<_>>();
+    expected.sort();
+    assert_eq!(epoch.authorization.authority_generation, 0);
     assert_eq!(
-        signed
-            .kagemusha_mint_finality
-            .authority_generation
-            .validators,
+        epoch.generation().validators,
         expected,
-        "signed genesis must use every voter's retained owner-private Pasta seed"
+        "signed generation zero is exactly the ordered voter roster"
+    );
+    assert_eq!(
+        epoch.authorization.authority_id,
+        epoch.generation().generation_id().unwrap()
     );
 }
 
-#[cfg(unix)]
 #[test]
-fn generated_genesis_pasta_authority_matches_each_held_validator_seed_by_default() {
+fn generated_genesis_generation_zero_is_the_signed_voter_roster() {
     let network =
         build_with_isolated_permit(NetworkBuilder::new().with_peers(4).with_npos_consensus());
-    assert_signed_pasta_authority_matches_held_voters(&network);
-    let mut ordered = network.validators().iter().collect::<Vec<_>>();
-    ordered.sort_by_key(|peer| peer.id());
-    for peer in ordered {
-        let (keys, proof) = peer
-            .disposable_mint_finality_candidate(network.network_id(), 1)
-            .expect("later generation possession from the same held seed");
-        assert_eq!(keys.validator, peer.id());
-        iroha_core_zk::kagemusha_v1_recursion::verify_kagemusha_mint_finality_candidate_possession_v1(
-            network.network_id(),
-            1,
-            &keys,
-            &proof,
-        )
-        .expect("same held seed proves its independently scheduled generation");
-        assert!(
-            peer.disposable_mint_finality_seed_descriptor(0)
-                .unwrap()
-                .is_some()
-        );
-    }
+    assert_signed_generation_zero_is_the_voter_roster(&network);
 }
 
-#[cfg(unix)]
 #[test]
-fn permissioned_and_custom_npos_genesis_bind_their_held_pasta_seeds() {
+fn permissioned_and_custom_npos_genesis_sign_their_voter_roster() {
     init_instruction_registry();
     let permissioned = build_with_isolated_permit(NetworkBuilder::new().with_peers(4));
-    assert_signed_pasta_authority_matches_held_voters(&permissioned);
+    assert_signed_generation_zero_is_the_voter_roster(&permissioned);
     let custom_npos = build_with_isolated_permit(
         NetworkBuilder::new()
             .with_peers(4)
@@ -238,5 +217,5 @@ fn permissioned_and_custom_npos_genesis_bind_their_held_pasta_seeds() {
                 )
             }),
     );
-    assert_signed_pasta_authority_matches_held_voters(&custom_npos);
+    assert_signed_generation_zero_is_the_voter_roster(&custom_npos);
 }

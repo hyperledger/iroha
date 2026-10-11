@@ -6,7 +6,7 @@ fn norito_roundtrip_open_verify_envelope() {
     vk[0] = 1;
     vk[31] = 2;
     let env = OpenVerifyEnvelope {
-        backend: BackendTag::Halo2IpaPasta,
+        backend: BackendTag::NativePipaRPasta,
         circuit_id: "poly-open".to_string(),
         vk_hash: vk,
         public_inputs: vec![1, 2, 3, 4, 5],
@@ -22,7 +22,7 @@ fn norito_roundtrip_open_verify_envelope() {
 #[test]
 fn json_roundtrip_open_verify_envelope() {
     let env = OpenVerifyEnvelope::new(
-        BackendTag::Halo2IpaPasta,
+        BackendTag::NativePipaRPasta,
         "plonk-std",
         [0u8; 32],
         vec![0xAA, 0xBB],

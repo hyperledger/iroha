@@ -431,3 +431,488 @@ fn pair_exact_stream_and_ordered_limits_cover_both_sides_before_work() {
         assert!(storage.try_membership_observation().is_ok());
     }
 }
+
+fn original_state() -> State {
+    use crate::{kura::Kura, query::store::LiveQueryStore, state::World};
+    let state = State::new_for_testing(
+        World::new(),
+        Kura::blank_kura_for_testing(),
+        LiveQueryStore::start_test(),
+    );
+    commit(&state.transactions, 1, &[key(1)]);
+    commit(&state.transactions, 2, &[key(2)]);
+    state
+}
+
+fn original_header() -> iroha_data_model::block::BlockHeader {
+    iroha_data_model::block::BlockHeader::new(
+        std::num::NonZeroU64::new(3).unwrap(),
+        None,
+        None,
+        1,
+        0,
+    )
+}
+
+fn freeze_membership_fixture(block: &mut crate::state::StateBlock<'_>) {
+    block.transactions.insert_block(
+        [key(3)].into_iter().collect(),
+        NonZeroUsize::new(3).unwrap(),
+    );
+    block.transactions.try_prepare_publication().unwrap();
+    block.world.begin_freeze();
+    block.world.finish_freeze();
+    block.world.retire_frozen_cleanup();
+}
+
+fn original_work() -> MembershipWorkLimits {
+    MembershipWorkLimits {
+        max_row_visits: limits().max_row_visits,
+        max_streamed_bytes: limits().max_total_streamed_bytes,
+        max_ordered_bytes: limits().max_total_ordered_bytes,
+    }
+}
+
+#[test]
+fn original_prepared_membership_reads_staged_pair_without_a_committed_observation() {
+    let state = original_state();
+    let pool = state.ivm_execution_budget();
+    let committed = capture_from_storage(&state.transactions, &pool, limits()).unwrap();
+    assert_eq!(committed.frontier, 2);
+    let committed_root = committed.current.root();
+    drop(committed);
+    let mut refunds = pool.deferred_refund_batch();
+    let mut block = state.block(original_header());
+    freeze_membership_fixture(&mut block);
+    let baseline = pool.reserved_bytes();
+    assert!(matches!(
+        capture_from_storage(&state.transactions, &pool, limits()),
+        Err(MembershipCaptureError::Acquisition(
+            crate::state::storage_transactions::MembershipAdmissionError::Busy(_)
+        ))
+    ));
+    let captured = refunds
+        .with_scope(|scope| {
+            super::super::table_capture::frozen::capture_original_membership_once(
+                &block,
+                scope,
+                limits().tables,
+                original_work(),
+                limits().max_total_rows,
+            )
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(captured.frontier, 3);
+    assert!(captured.matches_original_writer(&block.transactions));
+    assert_ne!(committed_root, captured.current.root());
+    let oracle = AllocationBudget::new(1 << 20);
+    assert_eq!(
+        captured.current.root(),
+        expected(CURRENT, &[(key(1), 1), (key(2), 2), (key(3), 3)], &oracle).root()
+    );
+    assert_eq!(
+        captured.rollback.root(),
+        expected(ROLLBACK, &[(key(1), 1), (key(2), 2)], &oracle).root()
+    );
+    assert!(pool.reserved_bytes() > baseline);
+    let (current, rollback, companion) = captured.into_group(0);
+    assert_eq!(companion.frontier(), 3);
+    assert_eq!(
+        companion.original_surface(),
+        &block
+            .transactions
+            .prepared_membership_writer()
+            .unwrap()
+            .publication_surface()
+    );
+    let mut nodes = [current, rollback];
+    assert!(companion.matches_nodes(&nodes));
+    assert!(!companion.matches_nodes(&nodes[..1]));
+    nodes.swap(0, 1);
+    assert!(!companion.matches_nodes(&nodes));
+    nodes.swap(0, 1);
+    assert!(companion.matches_nodes(&nodes));
+    refunds.with_scope(|_| {
+        drop(nodes);
+        drop(companion);
+    });
+    assert_eq!(pool.reserved_bytes(), baseline);
+    refunds.with_scope(|_| drop(block));
+    drop(refunds);
+}
+
+#[test]
+fn original_membership_refusal_retries_same_source_and_refunds_only_actual_nodes() {
+    let state = original_state();
+    let pool = state.ivm_execution_budget();
+    let mut refunds = pool.deferred_refund_batch();
+    let mut block = state.block(original_header());
+    freeze_membership_fixture(&mut block);
+    let identity = block
+        .transactions
+        .prepared_membership_writer()
+        .unwrap()
+        .publication_surface();
+    let baseline = pool.reserved_bytes();
+    let limit = pool.limit_bytes();
+    let occupied = pool.try_reserve_bytes(limit - baseline).unwrap();
+    let peak = pool.peak_reserved_bytes();
+    let Err(error) = refunds.with_scope(|scope| {
+        super::super::table_capture::frozen::capture_original_membership_once(
+            &block,
+            scope,
+            limits().tables,
+            original_work(),
+            limits().max_total_rows,
+        )
+    }) else {
+        panic!("occupied original pool must preserve its physical refusal")
+    };
+    let Some(MembershipCaptureError::Table(LeafError::Admission(refusal))) =
+        error.membership_error()
+    else {
+        panic!("original typed capacity cause")
+    };
+    let AllocationRefusal::Capacity { release, .. } = refusal else {
+        panic!("original capacity")
+    };
+    let AllocationRefusal::Capacity {
+        release: actual, ..
+    } = pool.try_reserve_bytes(1).unwrap_err()
+    else {
+        panic!("same occupied pool")
+    };
+    assert_eq!(*release, actual);
+    assert_eq!(pool.peak_reserved_bytes(), peak);
+    assert_eq!(
+        identity,
+        block
+            .transactions
+            .prepared_membership_writer()
+            .unwrap()
+            .publication_surface()
+    );
+    drop(occupied);
+    let failed = refunds.with_scope(|scope| {
+        capture_original_membership_group_once(&block, scope, limits().tables, original_work(), 1)
+    });
+    assert!(matches!(
+        failed,
+        Err(MembershipCaptureError::AggregateLimit)
+    ));
+    assert_eq!(pool.reserved_bytes(), baseline);
+    assert_eq!(
+        identity,
+        block
+            .transactions
+            .prepared_membership_writer()
+            .unwrap()
+            .publication_surface()
+    );
+    let retained = refunds
+        .with_scope(|scope| {
+            capture_original_membership_group_once(
+                &block,
+                scope,
+                limits().tables,
+                original_work(),
+                limits().max_total_rows,
+            )
+        })
+        .unwrap()
+        .unwrap();
+    assert!(retained.matches_original_writer(&block.transactions));
+    let actual_bytes = pool.reserved_bytes();
+    assert!(actual_bytes > baseline);
+    pool.set_limit_bytes(0);
+    assert!(
+        refunds
+            .with_scope(|scope| {
+                capture_original_membership_group_once(
+                    &block,
+                    scope,
+                    limits().tables,
+                    original_work(),
+                    limits().max_total_rows,
+                )
+            })
+            .is_err()
+    );
+    assert_eq!(pool.reserved_bytes(), actual_bytes);
+    assert_eq!(retained.current.row_count(), 3);
+    refunds.with_scope(|_| drop(retained));
+    assert_eq!(pool.reserved_bytes(), baseline);
+    pool.set_limit_bytes(limit);
+    refunds.with_scope(|_| drop(block));
+    drop(refunds);
+}
+
+#[test]
+fn original_membership_scope_partial_foreign_and_released_owners_refuse() {
+    use crate::state::storage_transactions::TransactionsBlockField;
+    let state = original_state();
+    let foreign = original_state();
+    let pool = state.ivm_execution_budget();
+    let mut refunds = pool.deferred_refund_batch();
+    let mut block = state.block(original_header());
+    assert!(
+        refunds
+            .with_scope(|scope| {
+                capture_original_membership_group_once(
+                    &block,
+                    scope,
+                    limits().tables,
+                    original_work(),
+                    32,
+                )
+            })
+            .unwrap()
+            .is_none()
+    );
+    block.transactions.insert_block(
+        [key(3)].into_iter().collect(),
+        NonZeroUsize::new(3).unwrap(),
+    );
+    block.world.begin_freeze();
+    block.world.finish_freeze();
+    block.world.retire_frozen_cleanup();
+    assert!(
+        refunds
+            .with_scope(|scope| {
+                capture_original_membership_group_once(
+                    &block,
+                    scope,
+                    limits().tables,
+                    original_work(),
+                    32,
+                )
+            })
+            .unwrap()
+            .is_none()
+    );
+    block.transactions.try_prepare_publication().unwrap();
+    let other_pool = AllocationBudget::new(pool.limit_bytes());
+    let mut other_refunds = other_pool.deferred_refund_batch();
+    let peak = pool.peak_reserved_bytes();
+    assert!(matches!(
+        other_refunds.with_scope(|scope| {
+            capture_original_membership_group_once(
+                &block,
+                scope,
+                limits().tables,
+                original_work(),
+                32,
+            )
+        }),
+        Err(MembershipCaptureError::ForeignRefundScope)
+    ));
+    assert_eq!(pool.peak_reserved_bytes(), peak);
+    let original = refunds
+        .with_scope(|scope| {
+            capture_original_membership_group_once(
+                &block,
+                scope,
+                limits().tables,
+                original_work(),
+                32,
+            )
+        })
+        .unwrap()
+        .unwrap();
+    let mut substituted = TransactionsBlockField::new(foreign.transactions.block());
+    substituted.insert_block(
+        [key(3)].into_iter().collect(),
+        NonZeroUsize::new(3).unwrap(),
+    );
+    substituted.try_prepare_publication().unwrap();
+    let held = std::mem::replace(&mut block.transactions, substituted);
+    assert!(!original.matches_original_writer(&block.transactions));
+    assert!(
+        refunds
+            .with_scope(|scope| {
+                capture_original_membership_group_once(
+                    &block,
+                    scope,
+                    limits().tables,
+                    original_work(),
+                    32,
+                )
+            })
+            .unwrap()
+            .is_none()
+    );
+    let foreign_field = std::mem::replace(&mut block.transactions, held);
+    assert!(original.matches_original_writer(&block.transactions));
+    block.transactions.release_writers();
+    assert!(!original.matches_original_writer(&block.transactions));
+    assert!(
+        refunds
+            .with_scope(|scope| {
+                capture_original_membership_group_once(
+                    &block,
+                    scope,
+                    limits().tables,
+                    original_work(),
+                    32,
+                )
+            })
+            .unwrap()
+            .is_none()
+    );
+    // Physical release retains the original predecessor loan until its owner
+    // retires. Keep the existing foreign field as a temporary slot while the
+    // released original field drops under its original refund scope.
+    let released_field = std::mem::replace(&mut block.transactions, foreign_field);
+    refunds.with_scope(|_| drop(released_field));
+    // Same storage and original pool are insufficient when a field was acquired
+    // in replacement mode while its actual frozen World is ordinary.
+    let mut wrong_mode = TransactionsBlockField::new(state.transactions.block_and_revert());
+    wrong_mode.insert_block(
+        [key(3)].into_iter().collect(),
+        NonZeroUsize::new(2).unwrap(),
+    );
+    wrong_mode.try_prepare_publication().unwrap();
+    let foreign_field = std::mem::replace(&mut block.transactions, wrong_mode);
+    assert!(
+        block
+            .transactions
+            .prepared_membership_writer()
+            .unwrap()
+            .belongs_to(&state.transactions)
+    );
+    assert_eq!(
+        block
+            .transactions
+            .prepared_membership_writer()
+            .unwrap()
+            .mode(),
+        mv::BlockMode::Replace
+    );
+    assert!(
+        refunds
+            .with_scope(|scope| {
+                capture_original_membership_group_once(
+                    &block,
+                    scope,
+                    limits().tables,
+                    original_work(),
+                    32,
+                )
+            })
+            .unwrap()
+            .is_none()
+    );
+    refunds.with_scope(|_| {
+        drop(original);
+        drop(block);
+        drop(foreign_field);
+    });
+    drop(refunds);
+}
+
+struct OriginalStateWake {
+    state: Arc<State>,
+    wakes: AtomicUsize,
+    busy: AtomicUsize,
+}
+
+impl Wake for OriginalStateWake {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+    fn wake_by_ref(self: &Arc<Self>) {
+        let observation = self.state.transactions.try_membership_observation();
+        self.busy
+            .fetch_add(usize::from(observation.is_err()), Ordering::SeqCst);
+        self.wakes.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[test]
+fn original_publisher_refund_batch_keeps_success_error_and_unwind_wakes_after_writer_retirement() {
+    for mode in 0..3 {
+        let state = Arc::new(original_state());
+        let pool = state.ivm_execution_budget();
+        let mut block = state.block(original_header());
+        freeze_membership_fixture(&mut block);
+        let original = block
+            .transactions
+            .prepared_membership_writer()
+            .unwrap()
+            .publication_surface();
+        let mut registration = crate::unit_test_support::release_registration(&pool);
+        let probe = Arc::new(OriginalStateWake {
+            state: state.clone(),
+            wakes: AtomicUsize::new(0),
+            busy: AtomicUsize::new(0),
+        });
+        let waker = Waker::from(probe.clone());
+        let occupied = pool
+            .try_reserve_bytes(pool.limit_bytes() - pool.reserved_bytes())
+            .unwrap();
+        let AllocationRefusal::Capacity { release, .. } = pool.try_reserve_bytes(1).unwrap_err()
+        else {
+            panic!("actual occupied original pool")
+        };
+        assert!(
+            registration
+                .poll_wait(&release, &mut Context::from_waker(&waker))
+                .is_pending()
+        );
+        let mut refunds = pool.deferred_refund_batch();
+        refunds.with_scope(|_| drop(occupied));
+        let baseline = pool.reserved_bytes();
+        let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            refunds.with_scope(|scope| {
+                let captured = capture_original_membership_group_once(
+                    &block,
+                    scope,
+                    limits().tables,
+                    original_work(),
+                    if mode == 1 {
+                        1
+                    } else {
+                        limits().max_total_rows
+                    },
+                );
+                if mode == 1 {
+                    assert!(matches!(
+                        captured,
+                        Err(MembershipCaptureError::AggregateLimit)
+                    ));
+                } else {
+                    let captured = captured.unwrap().unwrap();
+                    assert!(captured.matches_original_writer(&block.transactions));
+                    assert!(pool.reserved_bytes() > baseline);
+                    if mode == 2 {
+                        panic!("unwind after actual original pair capture")
+                    }
+                    drop(captured);
+                }
+            });
+        }));
+        assert_eq!(attempt.is_err(), mode == 2);
+        assert_eq!(pool.reserved_bytes(), baseline);
+        assert_eq!(probe.wakes.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            original,
+            block
+                .transactions
+                .prepared_membership_writer()
+                .unwrap()
+                .publication_surface()
+        );
+        refunds.with_scope(|_| drop(block));
+        assert_eq!(probe.wakes.load(Ordering::SeqCst), 0);
+        drop(refunds);
+        assert!(probe.wakes.load(Ordering::SeqCst) > 0);
+        assert_eq!(probe.busy.load(Ordering::SeqCst), 0);
+        assert!(
+            registration
+                .poll_wait(&release, &mut Context::from_waker(Waker::noop()))
+                .is_ready()
+        );
+        drop(registration);
+    }
+}

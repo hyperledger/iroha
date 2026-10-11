@@ -429,11 +429,14 @@ fn all_browser_contract_deployment_instructions_roundtrip_exact_native_bytes() {
         compiler_fingerprint: Some("codec-fixture".to_owned()),
         features_bitmap: Some(0),
         access_set_hints: None,
+        permissions: Vec::new(),
+        events: Vec::new(),
         entrypoints: None,
         states: None,
         kotoba: None,
         error_messages: None,
         error_types: None,
+        enum_types: Vec::new(),
         provenance: None,
     };
     let instructions: Vec<InstructionBox> = vec![
@@ -1080,11 +1083,14 @@ fn register_code_payload() -> Value {
         compiler_fingerprint: Some("codec-fixture".to_owned()),
         features_bitmap: Some(0),
         access_set_hints: None,
+        permissions: Vec::new(),
+        events: Vec::new(),
         entrypoints: None,
         states: None,
         kotoba: None,
         error_messages: None,
         error_types: None,
+        enum_types: Vec::new(),
         provenance: None,
     };
     object([
@@ -1316,6 +1322,129 @@ fn alias_and_zk_ballot_instructions_roundtrip_through_infallible_renderers() {
     );
 }
 
+fn direct_dataspace_registration_fixture(
+    dataspace_id: u64,
+    balance_policy: iroha_data_model::asset::AssetBalancePolicy,
+) -> RegisterDataspaceAssetDefinition {
+    let id = AssetDefinitionId::from_uuid_bytes([
+        0x91, 0x21, 0x63, 0x05, 0x0a, 0xb8, 0x46, 0x22, 0xab, 0x0d, 0x09, 0x0c, 0x31, 0x41, 0x51,
+        0x61,
+    ])
+    .expect("public synthetic UUIDv4");
+    RegisterDataspaceAssetDefinition::new(
+        DataSpaceId::new(dataspace_id),
+        AssetDefinition::numeric(id, "Native unit", balance_policy, None),
+    )
+    .expect("explicit direct-dataspace registration")
+}
+
+#[test]
+fn direct_dataspace_registration_codec_preserves_native_u64_and_definition_bytes() {
+    use iroha_data_model::asset::AssetBalancePolicy;
+    for dataspace in [(1_u64 << 53) + 1, u64::MAX] {
+        for policy in [
+            AssetBalancePolicy::Global,
+            AssetBalancePolicy::DataspaceRestricted,
+        ] {
+            let registration = direct_dataspace_registration_fixture(dataspace, policy);
+            let original_definition = registration.object.encode();
+            let instruction = InstructionBox::from(registration);
+            let value = assert_native_json_roundtrip(&instruction);
+            assert_eq!(
+                value["RegisterDataspaceAssetDefinition"]["dataspace_id"].as_u64(),
+                Some(dataspace)
+            );
+            let decoded = value_to_instruction(value).expect("strict direct envelope");
+            let typed = decoded
+                .as_any()
+                .downcast_ref::<RegisterDataspaceAssetDefinition>()
+                .expect("standalone instruction type");
+            assert_eq!(typed.dataspace_id.as_u64(), dataspace);
+            assert_eq!(typed.object.balance_scope_policy, policy);
+            assert_eq!(typed.object.encode(), original_definition);
+            assert_eq!(typed.object.owning_domain, None);
+        }
+    }
+}
+
+#[test]
+fn direct_dataspace_registration_codec_rejects_conflicting_or_ambiguous_inputs() {
+    let registration = direct_dataspace_registration_fixture(
+        42,
+        iroha_data_model::asset::AssetBalancePolicy::DataspaceRestricted,
+    );
+    let payload = json::to_value(&registration).expect("native typed fields");
+    for invalid_dataspace in [
+        Value::from(0_u64),
+        Value::String("42".to_owned()),
+        Value::from(-1_i64),
+        Value::Null,
+    ] {
+        let mut invalid = payload.clone();
+        invalid
+            .as_object_mut()
+            .unwrap()
+            .insert("dataspace_id".to_owned(), invalid_dataspace);
+        assert_strict_rejection(&instruction_envelope(
+            "RegisterDataspaceAssetDefinition",
+            invalid,
+        ));
+    }
+    for missing in ["dataspace_id", "object"] {
+        let mut invalid = payload.clone();
+        invalid.as_object_mut().unwrap().remove(missing);
+        assert_strict_rejection(&instruction_envelope(
+            "RegisterDataspaceAssetDefinition",
+            invalid,
+        ));
+    }
+    let mut conflicting = registration.clone();
+    conflicting.object.owning_domain = Some(DomainId::try_new("issuer", "public").expect("domain"));
+    assert_strict_rejection(&instruction_envelope(
+        "RegisterDataspaceAssetDefinition",
+        json::to_value(&conflicting).expect("conflicting fields"),
+    ));
+    assert!(instruction_to_json_value(&InstructionBox::from(conflicting)).is_err());
+
+    let mut unexpected = payload.clone();
+    unexpected
+        .as_object_mut()
+        .unwrap()
+        .insert("owning_dataspace".to_owned(), Value::from(43_u64));
+    assert_strict_rejection(&instruction_envelope(
+        "RegisterDataspaceAssetDefinition",
+        unexpected,
+    ));
+    for direct in [payload.clone(), Value::Null] {
+        assert_strict_rejection(&object([
+            ("RegisterDataspaceAssetDefinition", direct),
+            ("Mint", object([])),
+        ]));
+    }
+    assert_strict_rejection(&instruction_envelope(
+        "registerdataspaceassetdefinition",
+        payload,
+    ));
+    let boxed = InstructionBox::from(registration);
+    let base64_envelope = json::to_value(&boxed).expect("native base64 instruction form");
+    assert_strict_rejection(&base64_envelope);
+}
+
+#[test]
+fn direct_dataspace_registration_codec_rejects_u64_overflow_before_native_construction() {
+    let registration = direct_dataspace_registration_fixture(
+        u64::MAX,
+        iroha_data_model::asset::AssetBalancePolicy::DataspaceRestricted,
+    );
+    let canonical =
+        text(&instruction_to_json_value(&registration.into()).expect("canonical envelope"));
+    let overflow = canonical.replace("18446744073709551615", "18446744073709551616");
+    assert_ne!(overflow, canonical);
+    for encode in [encode_instruction_frame, encode_instruction_archive] {
+        assert!(encode(&overflow, FIXTURE_NETWORK_PREFIX).is_err());
+    }
+}
+
 #[test]
 fn artifact_instruction_codecs_preserve_exact_dataspace_and_reject_alternate_envelopes() {
     let code_hash = Hash::new(b"dataspace-scoped-codec-artifact");
@@ -1329,11 +1458,14 @@ fn artifact_instruction_codecs_preserve_exact_dataspace_and_reject_alternate_env
             compiler_fingerprint: None,
             features_bitmap: None,
             access_set_hints: None,
+            permissions: Vec::new(),
+            events: Vec::new(),
             entrypoints: None,
             states: None,
             kotoba: None,
             error_messages: None,
             error_types: None,
+            enum_types: Vec::new(),
             provenance: None,
         };
         let instructions: [InstructionBox; 6] = [

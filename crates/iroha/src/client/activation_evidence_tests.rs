@@ -138,8 +138,6 @@ fn synthetic_executed_commitment(
         parent_state_root: Hash::new(b"fixture parent state"),
         post_state_root: Hash::new(b"fixture post state"),
         ordinary_writes_root: Hash::new(b"fixture ordinary writes"),
-        kagemusha_top_up_root: None,
-        kagemusha_top_up_count: 0,
         parent_world_state_root: Hash::new(b"fixture parent world state"),
         world_state_root: Hash::new(b"fixture world state"),
         event_commitment: None,

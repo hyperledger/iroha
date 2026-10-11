@@ -2678,7 +2678,7 @@
    "function": "iroha_contracts_activity_query_tool",
    "name": "iroha.contracts.activity.query",
    "effect": "read",
-   "description": "Query committed contract calls, newest first (descending block_height, block_index). Fields: authority, entrypoint_hash, contract_address, contract_alias, contract_entrypoint, timestamp_ms, block_height, block_index, result_ok, contract_payload, fee_payment. Use filter, select, limit, cursor; sort, include_total, aggregate are rejected. Example: {\"filter\":\"result_ok = true\",\"select\":[\"entrypoint_hash\",\"contract_entrypoint\"]}. Page: {items, next_cursor}; pass `next_cursor` as `cursor` until null, even after empty pages.",
+   "description": "Query committed top-level ContractCall transactions (contract_alias and contract_payload only for successful calls), newest first (descending block_height, block_index). Fields: authority, entrypoint_hash, contract_address, contract_alias, contract_entrypoint, timestamp_ms, block_height, block_index, result_ok, contract_payload, fee_payment. Use filter, select, limit, cursor; sort, include_total, aggregate are rejected. Example: {\"filter\":\"result_ok = true\",\"select\":[\"entrypoint_hash\",\"contract_entrypoint\"]}. Page: {items, next_cursor}; pass `next_cursor` as `cursor` until null, even after empty pages.",
    "method": "POST",
    "path_template": "/v1/contracts/activity/query",
    "input_schema": {
@@ -2702,7 +2702,7 @@
    "function": "iroha_contracts_events_query_tool",
    "name": "iroha.contracts.events.query",
    "effect": "read",
-   "description": "Query committed contract events, newest first (descending block_height, block_index). Fields: event_id, provenance, authority, tx_hash_hex, block_hash_hex, contract_address, contract_alias, module, event_kind, schema_version, timestamp_ms, block_height, block_index, result_ok, participants, asset_ids, numeric_fields, payload, fee_payment. Use filter, select, limit, cursor; sort, include_total, aggregate are rejected. Example: {\"filter\":\"result_ok = true\",\"select\":[\"event_id\",\"event_kind\"]}. Page: {items, next_cursor}; pass `next_cursor` as `cursor` until null, even after empty pages.",
+   "description": "Query call-derived contract events (one per committed top-level ContractCall; provenance is always derived, contracts emit none), newest first (descending block_height, block_index). Fields: event_id, provenance, authority, tx_hash_hex, block_hash_hex, contract_address, contract_alias, module, event_kind, schema_version, timestamp_ms, block_height, block_index, result_ok, participants, asset_ids, numeric_fields, payload, fee_payment. Use filter, select, limit, cursor; sort, include_total, aggregate are rejected. Example: {\"filter\":\"result_ok = true\",\"select\":[\"event_id\",\"event_kind\"]}. Page: {items, next_cursor}; pass `next_cursor` as `cursor` until null, even after empty pages.",
    "method": "POST",
    "path_template": "/v1/contracts/events/query",
    "input_schema": {

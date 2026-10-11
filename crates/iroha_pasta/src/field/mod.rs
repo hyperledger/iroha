@@ -30,6 +30,38 @@ pub use fq::Fq;
 
 use ff::{FromUniformBytes, PrimeField, PrimeFieldBits, WithSmallOrderMulGroup};
 
+/// Storage for the canonical 256-bit little-endian field view on 64-bit targets.
+#[cfg(target_pointer_width = "64")]
+pub type PastaReprBits = [u64; 4];
+
+/// Storage for the same canonical 256 bits when `bitvec` does not support `u64`.
+#[cfg(not(target_pointer_width = "64"))]
+pub type PastaReprBits = [u32; 8];
+
+fn field_bits_repr(limbs: [u64; 4]) -> PastaReprBits {
+    #[cfg(target_pointer_width = "64")]
+    {
+        limbs
+    }
+    #[cfg(not(target_pointer_width = "64"))]
+    {
+        field_bits_u32(limbs)
+    }
+}
+
+// Keep the non-64-bit conversion available to host tests as well. Numeric
+// low/high words preserve Lsb0 order independently of the machine's byte order.
+#[cfg(any(test, not(target_pointer_width = "64")))]
+fn field_bits_u32(limbs: [u64; 4]) -> [u32; 8] {
+    let mut words = [0; 8];
+    for (pair, limb) in words.chunks_exact_mut(2).zip(limbs) {
+        let bytes = limb.to_le_bytes();
+        pair[0] = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        pair[1] = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+    }
+    words
+}
+
 mod sealed {
     /// Seals [`super::PastaField`] to the two Pasta fields.
     pub trait Sealed {}
@@ -43,7 +75,7 @@ mod sealed {
 pub trait PastaField:
     sealed::Sealed
     + PrimeField<Repr = [u8; 32]>
-    + PrimeFieldBits<ReprBits = [u64; 4]>
+    + PrimeFieldBits<ReprBits = PastaReprBits>
     + FromUniformBytes<64>
     + WithSmallOrderMulGroup<3>
     + Ord
@@ -90,23 +122,42 @@ pub trait PastaField:
 /// selections per element plus one Fermat inversion). Returns the number of
 /// elements processed.
 pub fn batch_invert<F: PastaField>(values: &mut [F]) -> usize {
-    let mut scratch = Vec::with_capacity(values.len());
-    let mut acc = F::ONE;
-    for v in values.iter() {
-        scratch.push(acc);
-        let next = acc * v;
-        acc = F::conditional_select(&next, &acc, v.is_zero());
+    batch_invert_cancellable(values, None).expect("no cancellation signal")
+}
+
+/// Inverts a column with the same constant-time field arithmetic and an explicit
+/// cancellation signal. A cancelled in-place column must be discarded.
+/// # Errors
+/// Explicit cancellation after zeroizing the scratch and joining caller tasks.
+pub fn batch_invert_cancellable<F: PastaField>(
+    values: &mut [F],
+    cancellation: Option<&crate::CancellationToken>,
+) -> Result<usize, crate::Cancelled> {
+    crate::CancellationToken::checkpoint(cancellation)?;
+    let mut scratch = zeroize::Zeroizing::new(Vec::with_capacity(values.len()));
+    let mut acc = zeroize::Zeroizing::new(F::ONE);
+    for (index, v) in values.iter().enumerate() {
+        if index % 1024 == 0 {
+            crate::CancellationToken::checkpoint(cancellation)?;
+        }
+        scratch.push(*acc);
+        let next = *acc * v;
+        *acc = F::conditional_select(&next, &acc, v.is_zero());
     }
     // `acc` is a product of nonzero elements, so it is invertible.
-    let mut inv = acc.invert().unwrap_or(F::ZERO);
-    for (v, prefix) in values.iter_mut().zip(scratch.iter()).rev() {
+    let mut inv = zeroize::Zeroizing::new(acc.invert().unwrap_or(F::ZERO));
+    for (index, (v, prefix)) in values.iter_mut().zip(scratch.iter()).rev().enumerate() {
+        if index % 1024 == 0 {
+            crate::CancellationToken::checkpoint(cancellation)?;
+        }
         let is_zero = v.is_zero();
-        let new_v = inv * prefix;
-        let next_inv = inv * *v;
-        inv = F::conditional_select(&next_inv, &inv, is_zero);
+        let new_v = *inv * prefix;
+        let next_inv = *inv * *v;
+        *inv = F::conditional_select(&next_inv, &inv, is_zero);
         *v = F::conditional_select(&new_v, v, is_zero);
     }
-    values.len()
+    crate::CancellationToken::checkpoint(cancellation)?;
+    Ok(values.len())
 }
 
 /// Inverts every element of `values` in place with one variable-time
@@ -500,14 +551,14 @@ macro_rules! impl_pasta_field {
         }
 
         impl PrimeFieldBits for $name {
-            type ReprBits = [u64; 4];
+            type ReprBits = crate::field::PastaReprBits;
 
             fn to_le_bits(&self) -> FieldBits<Self::ReprBits> {
-                FieldBits::new(self.to_canonical())
+                FieldBits::new(crate::field::field_bits_repr(self.to_canonical()))
             }
 
             fn char_le_bits() -> FieldBits<Self::ReprBits> {
-                FieldBits::new(MODULUS.m)
+                FieldBits::new(crate::field::field_bits_repr(MODULUS.m))
             }
         }
 
@@ -631,7 +682,76 @@ pub(crate) fn limbs_to_le_bytes(limbs: &[u64; 4]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ff::Field;
+    use ff::{Field, FieldBits};
+
+    fn check_field_bits<F: PastaField>(modulus: [u64; 4]) {
+        let modulus_bytes = limbs_to_le_bytes(&modulus);
+        let characteristic = F::char_le_bits();
+        let characteristic_u32 = FieldBits::new(field_bits_u32(modulus));
+        assert_eq!(characteristic.len(), 256);
+        assert_eq!(characteristic_u32.len(), 256);
+        for bit in 0..256 {
+            let expected = modulus_bytes[bit / 8] & (1 << (bit % 8)) != 0;
+            assert_eq!(characteristic[bit], expected, "modulus bit {bit}");
+            assert_eq!(characteristic_u32[bit], expected, "u32 modulus bit {bit}");
+        }
+        assert!(bool::from(F::from_repr(modulus_bytes).is_none()));
+
+        let mut values = vec![F::ZERO, F::ONE, -F::ONE];
+        // Every canonical one-hot value, including both sides of all limb
+        // boundaries; the noncanonical 2^255 encoding must still be rejected.
+        for bit in 0..256 {
+            let mut repr = [0; 32];
+            repr[bit / 8] = 1 << (bit % 8);
+            let decoded = Option::<F>::from(F::from_repr(repr));
+            if bit == 255 {
+                assert!(decoded.is_none());
+            } else {
+                let value = decoded.expect("2^0 through 2^254 are canonical");
+                assert_eq!(value.to_repr(), repr);
+                values.push(value);
+            }
+        }
+        for value in values {
+            let repr = value.to_repr();
+            let native = value.to_le_bits();
+            let words32 = FieldBits::new(field_bits_u32(value.to_canonical_limbs()));
+            assert_eq!(native.len(), 256);
+            assert_eq!(words32.len(), 256);
+            for bit in 0..256 {
+                let expected = repr[bit / 8] & (1 << (bit % 8)) != 0;
+                assert_eq!(native[bit], expected, "canonical bit {bit}");
+                assert_eq!(words32[bit], expected, "u32 canonical bit {bit}");
+            }
+        }
+        let mut minus_one = modulus_bytes;
+        // Both Pasta moduli have low byte 1.
+        minus_one[0] -= 1;
+        assert_eq!((-F::ONE).to_repr(), minus_one);
+    }
+
+    #[test]
+    fn prime_field_bits_fp_canonical() {
+        check_field_bits::<Fp>(fp::MODULUS.m);
+    }
+
+    #[test]
+    fn prime_field_bits_fq_canonical() {
+        check_field_bits::<Fq>(fq::MODULUS.m);
+    }
+
+    #[test]
+    fn prime_field_bits_u32_all_positions() {
+        for selected in 0..256 {
+            let mut limbs = [0; 4];
+            limbs[selected / 64] = 1 << (selected % 64);
+            let bits = FieldBits::new(field_bits_u32(limbs));
+            assert_eq!(bits.len(), 256);
+            for bit in 0..256 {
+                assert_eq!(bits[bit], bit == selected, "selected {selected}, bit {bit}");
+            }
+        }
+    }
 
     #[test]
     fn limb_byte_round_trip() {

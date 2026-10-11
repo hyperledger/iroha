@@ -13,8 +13,9 @@ use std::{
 
 use ff::Field;
 use iroha_kagemusha_proof::{
-    CONTROL_BLACKLIST, Mutation, PrefixMode, ProofFormat, RelationShape, ShapePolicy, SigmaCircuit,
-    SigmaProver, SigmaRelation, SigmaShape, StepDigests, StepPublic, StepWitness, select_shape,
+    CONTROL_ATTESTATION_LEASE, CONTROL_BLACKLIST, CONTROL_QUOTAS, CONTROLS_DEFINED, Mutation,
+    PrefixMode, RelationShape, ShapePolicy, SigmaCircuit, SigmaProver, SigmaRelation, SigmaShape,
+    StepDigests, StepPublic, StepWitness, select_shape,
 };
 use iroha_pasta::{Eq, Fp, PastaCurve, poseidon::PoseidonField};
 use iroha_plonk::{
@@ -28,21 +29,37 @@ use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
 
 /// `sigma_send` with the blacklist control.
 pub const SEND_BLACKLIST: SigmaRelation = SigmaRelation::send(CONTROL_BLACKLIST);
+/// `sigma_send` with the attestation-lease control.
+pub const SEND_LEASE: SigmaRelation = SigmaRelation::send(CONTROL_ATTESTATION_LEASE);
+/// `sigma_send` with the quota control.
+pub const SEND_QUOTAS: SigmaRelation = SigmaRelation::send(CONTROL_QUOTAS);
+/// `sigma_send` with every control (the full mask).
+pub const SEND_EVERY: SigmaRelation = SigmaRelation::send(CONTROLS_DEFINED);
+/// `sigma_recv` with the blacklist bit.
+pub const RECEIVE_BLACKLIST: SigmaRelation = SigmaRelation::receive(CONTROL_BLACKLIST);
 
-/// The relations under test: `sigma_send` without and with the blacklist
-/// control, and `sigma_recv`.
-pub const RELATIONS: [SigmaRelation; 3] =
-    [SigmaRelation::SEND, SEND_BLACKLIST, SigmaRelation::RECEIVE];
+/// The relations of the k12 class under test: `sigma_send` without a
+/// control, with the blacklist control and with the lease control, and
+/// `sigma_recv` without and with the blacklist bit. The quota relations
+/// (`tests/controls.rs`) are a k12-k14 class.
+pub const RELATIONS: [SigmaRelation; 5] = [
+    SigmaRelation::SEND,
+    SEND_BLACKLIST,
+    SEND_LEASE,
+    SigmaRelation::RECEIVE,
+    RECEIVE_BLACKLIST,
+];
 
 /// The relation checks whose rejection is a range check: each relation
 /// accepts an honest witness; `sigma_send` rejects an overdraft, a balance
 /// that covers `amount + fee` only while ignoring the lineage
 /// `burned_total`, a newer Request policy epoch and an accepted time below
 /// the floor; with the blacklist control it rejects a list older than the
-/// maximum age or issued after the accepted upper time; `sigma_recv`
-/// rejects a `u128` overflow. (The M7 relation checks plus the
-/// `burned_total` and blacklist-age cases.)
-pub const RELATION_CASES: [(SigmaRelation, Mutation, bool); 10] = [
+/// maximum age or issued after the accepted upper time; with the lease
+/// control a Send at the lease expiry; `sigma_recv` rejects a `u128`
+/// overflow, also with the blacklist bit. (The M7 relation checks plus the
+/// `burned_total`, blacklist-age and lease cases.)
+pub const RELATION_CASES: [(SigmaRelation, Mutation, bool); 15] = [
     (SigmaRelation::SEND, Mutation::None, true),
     (SigmaRelation::SEND, Mutation::Overdraft, false),
     (SigmaRelation::SEND, Mutation::Burned, false),
@@ -51,8 +68,13 @@ pub const RELATION_CASES: [(SigmaRelation, Mutation, bool); 10] = [
     (SEND_BLACKLIST, Mutation::None, true),
     (SEND_BLACKLIST, Mutation::StaleBlacklist, false),
     (SEND_BLACKLIST, Mutation::FutureBlacklist, false),
+    (SEND_LEASE, Mutation::None, true),
+    (SEND_LEASE, Mutation::LeaseExpired, false),
+    (SEND_LEASE, Mutation::Overdraft, false),
     (SigmaRelation::RECEIVE, Mutation::None, true),
     (SigmaRelation::RECEIVE, Mutation::Overflow, false),
+    (RECEIVE_BLACKLIST, Mutation::None, true),
+    (RECEIVE_BLACKLIST, Mutation::Overflow, false),
 ];
 
 /// The relation-check cases over every relation shape (both prefix modes).
@@ -199,7 +221,7 @@ pub fn vesta_params(k: u32) -> PinnedParams<Eq> {
 
 /// Keys of `shape` on Vesta in the KAGEMUSHA step format.
 pub fn vesta_prover(shape: SigmaShape) -> SigmaProver<Eq> {
-    SigmaProver::keygen_with_params(shape, ProofFormat::default(), vesta_params(shape.k))
+    SigmaProver::keygen_with_params(shape, vesta_params(shape.k))
         .unwrap_or_else(|error| panic!("keygen: {error}"))
 }
 

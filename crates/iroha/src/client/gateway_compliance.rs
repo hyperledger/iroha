@@ -13,6 +13,7 @@ use sorafs_manifest::gateway_compliance::{
     MAX_GATEWAY_COMPLIANCE_CATALOG_BYTES_V1,
 };
 
+#[derive(Clone, Copy)]
 enum ControlAction {
     Stage,
     Acknowledge,

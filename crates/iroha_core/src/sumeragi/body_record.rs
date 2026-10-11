@@ -30,6 +30,7 @@ pub(super) struct BodyRecord {
 
 impl BodyRecord {
     /// Untrusted metadata for diagnostics; never a source of historical authority.
+    #[cfg(test)]
     pub(super) fn header(&self) -> &BlockHeader {
         &self.header
     }

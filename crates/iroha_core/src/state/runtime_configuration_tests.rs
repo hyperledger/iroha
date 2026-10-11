@@ -744,7 +744,6 @@ fn restore_adopts_original_startup_pool_before_runtime_configuration() {
         let snapshot = norito::json::to_value(&state).unwrap();
         let restore = |execution_budget, snapshot| {
             deserialize::KuraSeed {
-                operation_index_budget: state.world.operation_index_budget().clone(),
                 execution_budget,
                 lane_manifests: state.lane_manifests.read().clone(),
                 kura: state.kura_handle(),

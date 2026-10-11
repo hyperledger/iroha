@@ -329,7 +329,7 @@ fn det_r4_stage_entry_resend_restarts_schedule() {
     let b = h.block(0, b"B");
     prop(&mut h, 0, &b, None);
     let out = h.exec_all();
-    let mine = votes_of(&out, VoteKind::Prepare)[0].clone();
+    let mine = votes_of(&out, VoteKind::Prepare)[0];
     let t_retx = h.core.pm.t_retx(0);
     h.now = 100;
     // Contagion: verified votes of view 0 (another value) from f + 1 = 2 non-P signers.
@@ -483,7 +483,7 @@ fn det_r4_restore_recommits_identical() {
     let b = h.block(0, b"B");
     let pqc = h.qc_q(VoteKind::Prepare, 0, &b);
     let out = qc_msg(&mut h, pqc);
-    let commit = votes_of(&out, VoteKind::Commit)[0].clone();
+    let commit = votes_of(&out, VoteKind::Commit)[0];
     let out = h.restart();
     let again = votes_of(&out, VoteKind::Commit);
     assert_eq!(again, vec![commit], "identical bytes");

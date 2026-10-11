@@ -65,6 +65,21 @@ checked constructors directly. Their private field carriers serve strict JSON
 decoding only; binary decoding retains the public owners' declared identities
 and does not cast archived values to a second wire type.
 
+## KAGEMUSHA ledger verifier installation
+
+The first-release `KagemushaWalletLedgerActionV1` includes the closed
+`InstallVerifierPack { asset: [u8; 32], manifest_digest: [u8; 32], pack: Vec<u8> }`
+action. The enclosing instruction retains its original exact scheme identity.
+These fields carry an installation request, not a native proof verdict. Core
+requires the real registered reserve account and asset permission, independently
+pins the signed manifest identity, authenticates every native original, and
+stores one immutable canonical World row. The row's fixed key tag is 14; its
+value schema and bounds are specified in
+[`kagemusha_wallet_wire_v1.md`](specs/kagemusha_wallet_wire_v1.md#310-ledger-native-verifier-installation).
+Existing proof-consuming actions use that same-overlay installed owner and
+retain native proof quotas and complete accumulator decisions. No alternative
+or compatibility action accepts retired artifact layouts.
+
 ## Contract error presentation metadata
 
 The V1 `EmbeddedContractInterfaceV1` payload appends `error_messages` after
@@ -379,10 +394,16 @@ Canonical artifact admission uses `decode_canonical_for_admission` for the compl
 single decode and exact canonical-byte comparison. Its opaque result distinguishes
 actual allocator failure, an original enclosing admission-budget refusal, and invalid
 input. Canonical/default/schema budgets are checked before enclosing operational budgets
-at each resource check. The original emitting layer and fresh attempt family are carried
-privately in the Rust error, so equal numeric ceilings, cumulative consumption and nested
-attempts do not guess provenance. Reconstructing a resource error from copied fields, or
-returning one retained from an earlier attempt, cannot establish current local origin.
+at each resource check. The original emitting layer, counter family and process-unique
+observer root/boundary are carried privately in the Rust error, so equal numeric ceilings,
+cumulative consumption and nested attempts do not guess provenance. Direct JSON parsers
+and checked writers retain the actual refusing caller layer even without an inner framed
+scope. Immediate descendant errors can return to their active parent; an earlier direct
+attempt, an earlier sibling or another thread cannot acquire a later boundary, including
+under the same shared counters after a fresh refusal was swallowed. Reconstructing a
+resource error from copied fields also cannot establish current local origin. Observer
+identities never wrap; after finite identity exhaustion, later budget-layer errors fail
+local classification closed. The counter context and prepared attempt sequence are unchanged.
 The numeric active-limit helper never relabels a carried protocol error. Canonical
 re-encoding failures without decoder provenance remain invalid input. This adds no wire
 fields, second decode, allocation-pool owner or release notification. IVM `CNTR` and
@@ -390,7 +411,12 @@ fields, second decode, allocation-pool owner or release notification. IVM `CNTR`
 and schema limits remain deterministic artifact rejections. The JSON parser and bounded
 canonical writer preserve the same opaque refusal across binary `Json` fields, including
 trigger metadata; copying diagnostic fields or formatting JSON errors cannot replace its
-scope identity. JSON body, nesting, and arithmetic-overflow bounds remain protocol failures.
+scope identity. Unscoped binary/JSON conversions retain the complete `DecodeResourceError`
+fields in `json::Error::DecodeResource`; only `ScopedDecodeResource` carries private observer
+provenance. The fieldless `DecodeResourceLimit` remains an anonymous checked-bound or fieldless-owner
+category, never a substitute for an actual recorded decoder refusal. Non-resource core
+errors remain terminal JSON diagnostics and cannot become allocator refusals. JSON body,
+intrinsic nesting, and arithmetic-overflow bounds remain protocol failures.
 
 
 Closed named and tuple records can opt into `#[norito(decode_fields)]`. Their ordinary
@@ -401,6 +427,34 @@ Fixed byte-array fields retain their raw-field framing;
 other fields use the canonical child decoder relationship. Generic, skipped,
 flattened and whole-value validation-hook records are rejected by this initial
 opt-in rather than silently changing their contracts. No schema or V1 bytes change.
+The shared positional and Option prefix kernels bound and borrow each declared
+payload without charging its byte length as an allocation. Element-framed
+`[u8; N]` decoding likewise checks borrowed element prefixes while filling fixed
+stack storage without a heap charge. Generic fixed arrays always use their
+encoder's element-framed layout; explicit raw fields and nominal raw-byte types
+retain their fixed-width decoders. Input length never selects an array layout.
+Manual record walks use `framed_byte_array_field` for direct byte-array fields,
+and prepared destinations honor the decoder selected by that field constructor.
+Optional and sequence-element arrays keep the generic element-framed value
+format; raw record-field bytes cannot be passed to that value decoder.
+Archived generic arrays charge each actual element copy once. Their owning
+element decoder also requires `SerializePayload`: partial or unreported child
+access uses the same allocation-free canonical byte comparison as other fields,
+without imposing an additional deserialization lifetime bound. Actual archived
+realignment buffers and owned child storage retain their own allocation charges;
+field, flags, bounds, depth and complete-consumption checks remain active.
+
+`ChargedElementSequence` constructs exact span backing from the original finite
+pool during that same sequence walk. It borrows the original input and exposes
+the existing prepared element visitor without a second framing pass. Crypto's
+`PreparedPublicKeyDecode::try_decode_payload` and the numeric
+`PreparedQuantityDecode::try_decode_payload` similarly admit their final compact
+key or native-digit backing at the canonical field's allocation point. Later
+field failures destroy that backing before returning physical credit; consumed
+logical decode work is never reset or refunded. These owners cover their stated
+allocations only. Enclosing source, diagnostics and retained execution through
+worker refusal remain separate obligations. V1 bytes and validation order are
+unchanged.
 
 `PreparedDecodeWorkspace` preadmits its two reusable physical counter controls
 from an explicit original `iroha_allocation` reservation. Active scopes borrow
@@ -1441,19 +1495,6 @@ time. The signed payload's schema identity is
 attestation's is
 `iroha_data_model::identifier::PhoneRetailCanonicalityAttestationV1`.
 
-### KAGEMUSHA release network binding
-
-`KagemushaReleaseManifestV1` encodes its exact genesis-derived `NetworkId`
-immediately after `version`, before `release_id`. Its private
-`KagemushaReleaseSubjectV1` uses the same placement. The domain-separated
-release ID therefore commits to the network, and threshold release approvals
-sign both that ID and the complete manifest digest. A node rejects a release
-whose signed network differs from its configured genesis identity before Kura
-replay; mobile enrollment, concrete mint/state/payment/terminal and Guard
-verification, hardware transaction admission, and testnet proof observation
-enforce the same release-to-operation network match. There is one first-release
-layout and no decoder for the networkless pre-release shape.
-
 ### Sumeragi execution-result schedule projection
 
 The sole `iroha_data_model::sumeragi_finality::ExecutionResultCommitment` frame
@@ -1509,3 +1550,10 @@ Generic per-node enum wrappers and the previous vector body are retired; no
 alternate decoder remains. This changes the authenticated V1 semantic ABI hash,
 so all native artifact captures and generated ABI hash material must be produced
 from the changed compiler before their mandatory consumers pass.
+
+
+The JSON parser's `parse_string_with_buffer` and typed map/sequence callbacks share
+ordinary parsing, framing and logical-quota kernels. A caller can admit an exact
+original-pool string/key destination before copying without replacing a resource
+refusal with syntax. These callbacks do not fund enclosing maps, crypto validation
+scratch or retained retry state, and do not change canonical JSON or binary layouts.

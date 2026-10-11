@@ -106,9 +106,6 @@ impl Bytes {
     pub(super) fn reset(&mut self) {
         self.ready = false;
     }
-    pub(super) fn ready(&self) -> bool {
-        self.ready
-    }
 }
 impl SerializePayload for Bytes {
     fn serialize(&self, writer: &mut Encoder<'_>) -> Result<(), norito::Error> {

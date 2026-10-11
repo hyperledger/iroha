@@ -14,6 +14,7 @@ import { normalizeContractErrorMessagesV1, normalizeContractErrorTypeV1, normali
 import { analyzeEntrypointValueTypeV1 } from "../src/entrypointSchema.js";
 import { isCanonicalKotodamaStateTypeName, isCanonicalKotodamaStructName } from "../src/kotodamaIdentifiers.js";
 import { noritoEncodeInstruction, noritoDecodeInstruction } from "../src/norito.js";
+import { encodeContractMetadataValueV1, decodeContractMetadataValueV1 } from "../src/noritoContractMetadata.js";
 
 const error = { identity: "example/vault@1.0.0::金庫::拒否", variants: [{ name: "不足", code: 1 }, { name: "CapacityExceeded", code: 2 }] };
 const returnSchema = { nodes: [{ kind: "Result", value: null }, { kind: "Unit", value: null }, { kind: "Error", value: error }] };
@@ -22,16 +23,16 @@ test("state-only nominal identities require the exact manifest catalog", async (
   const fixture = JSON.parse(await readFile(new URL("../../../fixtures/kotodama/nominal_errors_v1.json", import.meta.url), "utf8"));
   const manifest = { ...fixture.manifest, entrypoints: [] };
   validateManifestErrorTypeBindingsV1(manifest);
-  assert.throws(() => validateManifestErrorTypeBindingsV1({ ...manifest, error_types: [] }), /error_types catalog/u);
+  assert.throws(() => validateManifestErrorTypeBindingsV1({ ...manifest, error_types: [] }), /catalog/u);
   for (const typeName of [
     "missing/package@1::Vault::Failure",
     "Result<(), missing/package@1::Vault::Failure>",
     "StateMap<int, List<Option<missing/package@1::Vault::Failure>, 8>>",
-    "Record{status: missing/package@1::Vault::Failure}",
+    "Fixture::Record{status: missing/package@1::Vault::Failure}",
   ]) {
     assert.throws(() => validateManifestErrorTypeBindingsV1({
       ...manifest, states: [{ name: "status", type_name: typeName }],
-    }), /error_types catalog/u);
+    }), /catalog/u);
   }
 });
 
@@ -50,9 +51,9 @@ test("shared SDK nominal fixture binds the same Japanese error and Unit schemas"
   assert.equal(analyzeEntrypointValueTypeV1(page).wordCount, 2);
   assert.equal(isCanonicalKotodamaStateTypeName(fixture.manifest.states[2].type_name), true);
   const forged = structuredClone(page);
-  forged.nodes[6].value.kind = "Bool";
+  forged.nodes[6].value.nodes[0].value.kind = "Bool";
   assert.throws(() => analyzeEntrypointValueTypeV1(forged), /forged StatePage/u);
-  assert.throws(() => analyzeEntrypointValueTypeV1({ nodes: [{ kind: "StateCursor", value: { kind: "Json", value: null } }] }), /Json/u);
+  assert.throws(() => analyzeEntrypointValueTypeV1({ nodes: [{ kind: "StateCursor", value: { nodes: [{ kind: "Leaf", value: { kind: "Json", value: null } }] } }] }), /scalar|Json/u);
 });
 
 test("nominal catalogs allow enum-local codes and reject malformed or duplicate schemas", () => {
@@ -72,7 +73,7 @@ test("Unit and nominal errors compose into exact public and state types", () => 
   assert.equal(analyzeEntrypointValueTypeV1(returnSchema).wordCount, 1);
   assert.equal(isCanonicalKotodamaStateTypeName(`Result<(), ${error.identity}>`), true);
   assert.equal(isCanonicalKotodamaStateTypeName(`StateMap<${error.identity}, bool>`), false);
-  const manifest = { error_types: [error], entrypoints: [{ return_schema: returnSchema }] };
+  const manifest = { enum_types: [], events: [], error_types: [error], entrypoints: [{ return_schema: returnSchema }] };
   validateManifestErrorTypeBindingsV1(manifest);
   assert.throws(() => validateManifestErrorTypeBindingsV1({ ...manifest, error_types: [{ ...error, variants: [{ name: "Different", code: 1 }] }] }), /does not match/u);
 });
@@ -96,7 +97,7 @@ test("native Norito manifest codecs roundtrip Unit and nominal error schemas", a
 test("canonical Norito manifest codec preserves nominal state cursor key schemas", async () => {
   const fixture = JSON.parse(await readFile(new URL("./fixtures/contract_manifest_v1.json", import.meta.url), "utf8"));
   const manifest = structuredClone(fixture.manifest);
-  const schema = { nodes: [{ kind: "Option", value: null }, { kind: "StateCursor", value: { kind: "Int", value: null } }] };
+  const schema = { nodes: [{ kind: "Option", value: null }, { kind: "StateCursor", value: { nodes: [{ kind: "Leaf", value: { kind: "Int", value: null } }] } }] };
   manifest.entrypoints[0].return_type = "Option<StateCursor<int>>";
   manifest.entrypoints[0].return_schema = schema;
   const encoded = noritoEncodeInstruction(universalArtifactInstruction({ RegisterSmartContractCode: { manifest } }), 753);
@@ -173,7 +174,7 @@ test("exported structs retain locked identity in public and durable schemas", as
   assert.deepEqual(decoded.RegisterSmartContractCode.manifest.states, fixture.manifest.states);
   assert.deepEqual(noritoEncodeInstruction(decoded, 753), encoded);
   manifest.error_types = [];
-  assert.throws(() => validateManifestErrorTypeBindingsV1(manifest), /error_types catalog/u);
+  assert.throws(() => validateManifestErrorTypeBindingsV1(manifest), /catalog/u);
 });
 
 
@@ -186,6 +187,7 @@ test("manifest instruction encoding and decoding reject unavailable native bindi
     const script = `
       import assert from "node:assert/strict";
       import { noritoEncodeInstruction, noritoDecodeInstruction } from "./src/norito.js";
+import { encodeContractMetadataValueV1, decodeContractMetadataValueV1 } from "./src/noritoContractMetadata.js";
       const instruction = ${JSON.stringify(instruction)};
       const encoded = Buffer.from(${JSON.stringify(encoded.toString("base64"))}, "base64");
       for (const operation of [
@@ -221,7 +223,27 @@ test("static error messages bind declared variants without changing nominal sche
   ]) assert.throws(() => normalizeContractErrorMessagesV1([mutation], [error]), TypeError);
   assert.throws(() => normalizeContractErrorMessagesV1([entry, entry], [error]), /sorted and unique/u);
   assert.deepEqual(normalizeContractErrorMessagesV1([{ ...entry, message: "é".repeat(2048) }], [error])[0].message.length, 2048);
-  const manifest = { error_types: [error], error_messages: [entry] };
+  const manifest = { enum_types: [], events: [], error_types: [error], error_messages: [entry] };
   validateManifestErrorTypeBindingsV1(manifest);
   assert.deepEqual(manifest.error_types, [error]);
+});
+
+test("tuple cursors bind the exact full key schema and share the public node budget", () => {
+  const leaf = (kind) => ({ kind: "Leaf", value: { kind, value: null } });
+  const key = { nodes: [{ kind: "Tuple", value: 2 }, leaf("AccountId"), { kind: "Tuple", value: 2 }, leaf("Int"), leaf("Name")] };
+  const cursor = { kind: "StateCursor", value: key };
+  const frame = encodeContractMetadataValueV1("value_type", { nodes: [cursor] });
+  assert.deepEqual(decodeContractMetadataValueV1("value_type", frame), { nodes: [cursor] });
+  assert.deepEqual(encodeContractMetadataValueV1("value_type", decodeContractMetadataValueV1("value_type", frame)), frame);
+  assert.equal(analyzeEntrypointValueTypeV1({ nodes: [cursor] }).canonicalName, "StateCursor<(AccountId, (int, Name))>");
+  const page = { nodes: [{ kind: "Struct", value: { name: "kotodama::StatePage", fields: ["items", "next"] } }, { kind: "List", value: { capacity: 8 } }, { kind: "Tuple", value: 2 }, ...key.nodes, leaf("Bool"), { kind: "Option", value: null }, cursor] };
+  assert.equal(analyzeEntrypointValueTypeV1(page).canonicalName, "StatePage<(AccountId, (int, Name)), bool, 8>");
+  const wrong = structuredClone(page); wrong.nodes.at(-1).value.nodes[3] = leaf("Bool");
+  assert.throws(() => analyzeEntrypointValueTypeV1(wrong), /forged StatePage/u);
+  for (const invalid of [{ kind: "Int", value: null }, { nodes: [{ kind: "StateCursor", value: key }] }, { nodes: [leaf("Json")] }]) assert.throws(() => analyzeEntrypointValueTypeV1({ nodes: [{ kind: "StateCursor", value: invalid }] }));
+  for (const [arity, valid] of [[254, true], [255, false]]) {
+    const schema = { nodes: [{ kind: "StateCursor", value: { nodes: [{ kind: "Tuple", value: arity }, ...Array.from({ length: arity }, () => leaf("Int"))] } }] };
+    if (valid) assert.equal(analyzeEntrypointValueTypeV1(schema).nodeCount, 256);
+    else assert.throws(() => analyzeEntrypointValueTypeV1(schema), /budget/u);
+  }
 });

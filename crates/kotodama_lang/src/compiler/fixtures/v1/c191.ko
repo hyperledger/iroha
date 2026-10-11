@@ -1,14 +1,14 @@
 
         seiyaku BranchOptimization {
-            view fn choose(bool flag) -> int {
+            view fn choose(bool flag) authorize(anyone) -> int {
                 if flag { return 1; } else { return 2; }
             }
 
-            view fn ordered(int left, int right) -> int {
+            view fn ordered(int left, int right) authorize(anyone) -> int {
                 if left < right { return 1; } else { return 0; }
             }
 
-            view fn copied_length() -> int {
+            view fn copied_length() authorize(anyone) -> int {
                 let List<int, 4> values = [1, 2, 3];
                 let List<int, 4> copied = [value for value in values];
                 return copied.len();

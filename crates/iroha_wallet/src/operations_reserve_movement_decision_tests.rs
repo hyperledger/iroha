@@ -673,7 +673,7 @@ fn expired_original_is_readable_but_fresh_prepare_and_dispatch_cannot_renew_it()
             .resume_reserve_movement_decision(&path, &request)
             .unwrap()
             .status,
-        OperationStatus::Absent
+        OperationStatus::Expired
     );
     assert_eq!(
         service
@@ -988,4 +988,155 @@ fn retain_reserve_movement_decision_request_is_a_real_unsigned_zero_http_boundar
         transport.requests.load(std::sync::atomic::Ordering::SeqCst),
         before
     );
+}
+
+#[test]
+fn retained_parent_inspection_keeps_exact_signed_preparation_and_offline_refusals() {
+    let (service, transport) = service();
+    let request = request(&service.config, current_unix_ms().unwrap());
+    let root = tempfile::tempdir().unwrap();
+    let parent = iroha_fs::PrivateDirectory::open_or_create(root.path().join("parent")).unwrap();
+    let name = std::ffi::OsStr::new("transaction");
+    let path = parent.path().join(name);
+    assert_eq!(
+        service
+            .inspect_reserve_movement_decision_preparation_in_parent(&parent, name, &request)
+            .unwrap()
+            .phase(),
+        NativePreparationPhase::Missing
+    );
+    assert!(!path.exists());
+    assert_eq!(transport.requests.load(Ordering::SeqCst), 0);
+
+    assert_eq!(
+        service
+            .prepare_reserve_movement_decision(&request, &path)
+            .unwrap()
+            .status,
+        OperationStatus::Prepared
+    );
+    let calls = transport.requests.load(Ordering::SeqCst);
+    let before = ["preparation.json", "payload.json", "operation.json"]
+        .map(|record| std::fs::read(path.join(record)).unwrap());
+    let absolute = service
+        .inspect_reserve_movement_decision_preparation(&path, &request)
+        .unwrap();
+    let retained = service
+        .inspect_reserve_movement_decision_preparation_in_parent(&parent, name, &request)
+        .unwrap();
+    assert_eq!(retained.phase(), NativePreparationPhase::Signed);
+    assert_eq!(retained.phase(), absolute.phase());
+    assert_eq!(retained.request_sha256(), absolute.request_sha256());
+    assert_eq!(
+        retained.signed_transaction().unwrap().encode_versioned(),
+        absolute.signed_transaction().unwrap().encode_versioned()
+    );
+    let mut changed = request.clone();
+    changed.deadline_unix_ms -= 1;
+    assert!(
+        service
+            .inspect_reserve_movement_decision_preparation_in_parent(&parent, name, &changed)
+            .is_err()
+    );
+    assert_eq!(
+        service
+            .inspect_reserve_movement_decision_preparation_in_parent(&parent, name, &request)
+            .unwrap()
+            .into_signed_transaction()
+            .unwrap()
+            .encode_versioned(),
+        absolute
+            .into_signed_transaction()
+            .unwrap()
+            .encode_versioned()
+    );
+    assert_eq!(transport.requests.load(Ordering::SeqCst), calls);
+    assert!(!path.join("submission.json").exists());
+    assert_eq!(
+        ["preparation.json", "payload.json", "operation.json"]
+            .map(|record| std::fs::read(path.join(record)).unwrap()),
+        before
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn retained_parent_inspection_refuses_missing_and_replaced_parent_then_retries_original() {
+    let (service, transport) = service();
+    let request = request(&service.config, current_unix_ms().unwrap());
+    let root = tempfile::tempdir().unwrap();
+    let ancestor =
+        iroha_fs::PrivateDirectory::open_or_create(root.path().join("ancestor")).unwrap();
+    let parent = ancestor.create_child("parent").unwrap();
+    let path = parent.path().join("transaction");
+    service
+        .prepare_reserve_movement_decision(&request, &path)
+        .unwrap();
+    let calls = transport.requests.load(Ordering::SeqCst);
+    let original = parent.open_child("transaction").unwrap();
+    let operation = original.open_read("operation.json").unwrap();
+    let parent_id = parent.identity().unwrap();
+    let directory_id = original.identity().unwrap();
+    let operation_id = iroha_fs::FileIdentity::of(&operation).unwrap();
+    let bytes = std::fs::read(path.join("operation.json")).unwrap();
+    let wire = service
+        .inspect_reserve_movement_decision_preparation_in_parent(
+            &parent,
+            std::ffi::OsStr::new("transaction"),
+            &request,
+        )
+        .unwrap()
+        .into_signed_transaction()
+        .unwrap()
+        .encode_versioned();
+    let held = root.path().join("held-parent");
+    std::fs::rename(parent.path(), &held).unwrap();
+    for name in ["transaction", "absent"] {
+        assert!(
+            service
+                .inspect_reserve_movement_decision_preparation_in_parent(
+                    &parent,
+                    std::ffi::OsStr::new(name),
+                    &request,
+                )
+                .is_err()
+        );
+    }
+    drop(ancestor.create_child("parent").unwrap());
+    for name in ["transaction", "absent"] {
+        assert!(
+            service
+                .inspect_reserve_movement_decision_preparation_in_parent(
+                    &parent,
+                    std::ffi::OsStr::new(name),
+                    &request,
+                )
+                .is_err()
+        );
+    }
+    assert!(!parent.path().join("transaction").exists());
+    std::fs::remove_dir(parent.path()).unwrap();
+    std::fs::rename(&held, parent.path()).unwrap();
+    assert_eq!(parent.identity().unwrap(), parent_id);
+    assert_eq!(original.identity().unwrap(), directory_id);
+    assert_eq!(
+        iroha_fs::FileIdentity::of(&original.open_read("operation.json").unwrap()).unwrap(),
+        operation_id
+    );
+    assert_eq!(
+        service
+            .inspect_reserve_movement_decision_preparation_in_parent(
+                &parent,
+                std::ffi::OsStr::new("transaction"),
+                &request,
+            )
+            .unwrap()
+            .into_signed_transaction()
+            .unwrap()
+            .encode_versioned(),
+        wire
+    );
+    assert_eq!(std::fs::read(path.join("operation.json")).unwrap(), bytes);
+    assert!(!path.join("submission.json").exists());
+    assert_eq!(transport.requests.load(Ordering::SeqCst), calls);
 }

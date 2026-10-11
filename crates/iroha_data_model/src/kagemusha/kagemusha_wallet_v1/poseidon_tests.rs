@@ -1,4 +1,4 @@
-//! σ-field Poseidon, packed-byte and indexed-map witness tests.
+//! σ-field Poseidon, packed-byte, integer-order and indexed-tree tests.
 
 use super::*;
 use crate::kagemusha::kagemusha_wallet_v1::{
@@ -31,19 +31,33 @@ fn key(seed: u8) -> [u8; 32] {
     value
 }
 
-/// Leaf value of a stand-in leaf.
-fn leaf(seed: u8) -> [u8; 32] {
+/// A stand-in map value.
+fn value(seed: u8) -> [u8; 32] {
     kagemusha_wallet_poseidon_v1(
         KAGEMUSHA_WALLET_CREDIT_DIGEST_VALUE_DOMAIN_V1,
         &[int(seed.into())],
     )
+    .expect("value")
+}
+
+/// Node over canonical children.
+fn node(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
+    kagemusha_wallet_indexed_node_v1(left, right).expect("node")
+}
+
+/// Leaf hash of `(key, value, next_key)`.
+fn leaf_hash(key: &[u8; 32], value: &[u8; 32], next_key: &[u8; 32]) -> [u8; 32] {
+    KagemushaWalletIndexedLeafV1 {
+        key: *key,
+        value: *value,
+        next_key: *next_key,
+    }
+    .hash()
     .expect("leaf")
 }
 
-fn flip(value: &[u8; 32], height: usize) -> [u8; 32] {
-    let mut flipped = *value;
-    flipped[height / 8] ^= 1 << (height % 8);
-    flipped
+fn empty(height: usize) -> [u8; 32] {
+    kagemusha_wallet_indexed_empty_subtree_v1(height).expect("empty subtree")
 }
 
 #[test]
@@ -71,9 +85,19 @@ fn kagemusha_wallet_v1_poseidon_domains_are_distinct_ascii_words() {
             b"kgwpout1",
         ),
         (KAGEMUSHA_WALLET_LOAD_VALUE_DOMAIN_V1, b"kgwload1"),
+        (KAGEMUSHA_WALLET_LOAD_RECEIPT_DOMAIN_V1, b"kgwolod1"),
         (KAGEMUSHA_WALLET_REDEEM_VALUE_DOMAIN_V1, b"kgwrdm_1"),
         (KAGEMUSHA_WALLET_FEE_CLAIM_VALUE_DOMAIN_V1, b"kgwfee_1"),
-        (KAGEMUSHA_WALLET_QUOTA_USAGE_VALUE_DOMAIN_V1, b"kgwquse1"),
+        (KAGEMUSHA_WALLET_QUOTA_USAGE_LEAF_DOMAIN_V1, b"kgwquse1"),
+        (KAGEMUSHA_WALLET_QUOTA_USAGE_NODE_DOMAIN_V1, b"kgwqusn1"),
+        (
+            KAGEMUSHA_WALLET_BLACKLIST_HISTORY_VALUE_DOMAIN_V1,
+            b"kgwbhst1",
+        ),
+        (KAGEMUSHA_WALLET_CERTIFICATE_SET_DOMAIN_V1, b"kgwcset1"),
+        (KAGEMUSHA_WALLET_PACKAGE_DOMAIN_V1, b"kgwpkg_1"),
+        (KAGEMUSHA_WALLET_NULLIFIER_DOMAIN_V1, b"kgwnull1"),
+        (KAGEMUSHA_WALLET_OPERATION_ID_DOMAIN_V1, b"kgwopid1"),
         (KAGEMUSHA_WALLET_CREDIT_DIGEST_VALUE_DOMAIN_V1, b"kgwcdig1"),
         (KAGEMUSHA_WALLET_INDEXED_LEAF_DOMAIN_V1, b"kgwimlf1"),
         (KAGEMUSHA_WALLET_INDEXED_NODE_DOMAIN_V1, b"kgwimnd1"),
@@ -97,6 +121,11 @@ fn kagemusha_wallet_v1_poseidon_domains_are_distinct_ascii_words() {
         );
     }
     assert_eq!(seen.len(), KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1.len());
+    assert_eq!(seen.len(), 33);
+    // The superseded sparse-tree domains are gone.
+    for retired in [*b"kgwsmte1", *b"kgwsmtn1"] {
+        assert!(!seen.contains(&u64::from_le_bytes(retired)));
+    }
 }
 
 /// `P` reproduces the KAGEMUSHA domain-hash vectors of the vendored sponge
@@ -144,8 +173,7 @@ fn kagemusha_wallet_v1_poseidon_reproduces_the_native_prover_kats() {
         );
         assert_eq!(poseidon_items_v1(domain, &inputs), output, "{ascii}");
     }
-    // This vendored generic-P known-answer fixture uses a separate 256-round domain pair.
-    // It is not the wallet indexed-map construction, which has depth 32 and a sentinel.
+    // The empty depth-256 replay root of the same construction (another domain pair).
     let empty = u64::from_le_bytes(*b"kgmemp_1");
     let node = u64::from_le_bytes(*b"kgmnode1");
     let mut root = kagemusha_wallet_poseidon_v1(empty, &[]).expect("empty");
@@ -232,34 +260,6 @@ fn kagemusha_wallet_v1_packed_bytes_rule() {
 }
 
 #[test]
-fn kagemusha_wallet_v1_indexed_tree_defaults_and_empty_root() {
-    let empty_leaf = kagemusha_wallet_indexed_empty_subtree_v1(0).expect("empty slot");
-    assert_eq!(empty_leaf, [0; 32]);
-    let mut node = empty_leaf;
-    for height in 1..=KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1 {
-        node = kagemusha_wallet_indexed_node_v1(&node, &node).expect("node");
-        assert_eq!(
-            kagemusha_wallet_indexed_empty_subtree_v1(height).ok(),
-            Some(node)
-        );
-    }
-    let tree = KagemushaWalletIndexedTreeV1::new();
-    let sentinel = KagemushaWalletIndexedLeafV1::SENTINEL;
-    assert_eq!(tree.leaf_at(0), Some(sentinel));
-    assert_eq!(tree.opening(0).leaf_root(&sentinel).ok(), Some(tree.root()));
-    assert_eq!(kagemusha_wallet_empty_map_root_v1(), tree.root());
-    assert_ne!(tree.root(), node, "an empty map authenticates its sentinel");
-    assert_invalid(
-        kagemusha_wallet_indexed_empty_subtree_v1(33),
-        "indexed_tree.height",
-    );
-    assert_invalid(
-        kagemusha_wallet_indexed_node_v1(&[0xff; 32], &node),
-        "poseidon.item",
-    );
-}
-
-#[test]
 fn kagemusha_wallet_v1_pair_keys_are_canonical_and_injective() {
     let key = kagemusha_wallet_pair_key_v1(2, 0x0102);
     let mut expected = [0_u8; 32];
@@ -281,299 +281,490 @@ fn kagemusha_wallet_v1_pair_keys_are_canonical_and_injective() {
     );
 }
 
+/// Integer order of 32-byte little-endian values, at the limb boundary and against the
+/// unsigned byte order (owner answer A4).
 #[test]
-fn kagemusha_wallet_v1_indexed_tree_root_by_hand() {
-    let a = key(0x10);
-    let b = flip(&a, 0);
-    let mut tree = KagemushaWalletIndexedTreeV1::new();
-    let before_a = tree.root();
-    let insert_a = tree.insert(a, leaf(1)).expect("insert a");
+fn kagemusha_wallet_v1_integer_order_is_the_limb_order() {
+    use core::cmp::Ordering::{Equal, Greater, Less};
+    let mut low_limb_one = [0_u8; 32];
+    low_limb_one[0] = 1;
+    let mut high_limb_one = [0_u8; 32];
+    high_limb_one[16] = 1;
+    // Byte 0 decides the unsigned byte order; the high limb decides the integer order.
+    assert_eq!(low_limb_one.cmp(&high_limb_one), Greater);
     assert_eq!(
-        insert_a.verify(&before_a, &a, &leaf(1)).ok(),
-        Some(tree.root())
+        kagemusha_wallet_integer_cmp_v1(&low_limb_one, &high_limb_one),
+        Less
     );
-    let before_b = tree.root();
-    let insert_b = tree.insert(b, leaf(2)).expect("insert b");
+    // `lo = 2^128 − 1, hi = 0` is just below `lo = 0, hi = 1`.
+    let mut max_low = [0_u8; 32];
+    max_low[..16].copy_from_slice(&[0xff; 16]);
     assert_eq!(
-        insert_b.verify(&before_b, &b, &leaf(2)).ok(),
-        Some(tree.root())
+        kagemusha_wallet_integer_cmp_v1(&max_low, &high_limb_one),
+        Less
     );
-    assert_eq!(tree.len(), 2);
-    assert!(!tree.is_empty());
-    assert_eq!(tree.next_free_slot(), 3);
-    let sentinel = KagemushaWalletIndexedLeafV1 {
-        next_key: a,
-        ..KagemushaWalletIndexedLeafV1::SENTINEL
-    };
-    let a_leaf = KagemushaWalletIndexedLeafV1 {
-        key: a,
-        value: leaf(1),
-        next_key: b,
-    };
-    let b_leaf = KagemushaWalletIndexedLeafV1 {
-        key: b,
-        value: leaf(2),
-        next_key: [0; 32],
-    };
-    assert_eq!(tree.leaf_at(0), Some(sentinel));
-    assert_eq!(tree.leaf_at(1), Some(a_leaf));
-    assert_eq!(tree.leaf_at(2), Some(b_leaf));
-    let left = kagemusha_wallet_indexed_node_v1(
-        &sentinel.hash().expect("sentinel"),
-        &a_leaf.hash().expect("a"),
-    )
-    .expect("left");
-    let right =
-        kagemusha_wallet_indexed_node_v1(&b_leaf.hash().expect("b"), &[0; 32]).expect("right");
-    let mut node = kagemusha_wallet_indexed_node_v1(&left, &right).expect("subtree");
-    for height in 2..KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1 {
-        node = kagemusha_wallet_indexed_node_v1(
-            &node,
-            &kagemusha_wallet_indexed_empty_subtree_v1(height).expect("default"),
-        )
-        .expect("node");
+    // Equal high limbs compare by the low limb, most significant byte first.
+    let mut a = [0x11_u8; 32];
+    let mut b = a;
+    a[15] = 0x10;
+    b[0] = 0x00;
+    assert_eq!(kagemusha_wallet_integer_cmp_v1(&a, &b), Less);
+    assert_eq!(a.cmp(&b), Greater);
+    assert_eq!(kagemusha_wallet_integer_cmp_v1(&a, &a), Equal);
+    // The sentinels are the extremes.
+    for value in [low_limb_one, high_limb_one, max_low, a, b] {
+        assert_eq!(kagemusha_wallet_integer_cmp_v1(&[0; 32], &value), Less);
+        assert_eq!(kagemusha_wallet_integer_cmp_v1(&value, &[0xff; 32]), Less);
     }
-    assert_eq!(tree.root(), node);
-    let update = tree.update(&a, leaf(3)).expect("update");
-    assert_eq!(update.leaf.value, leaf(1));
-    assert_eq!(update.verify(&node, &leaf(3)).ok(), Some(tree.root()));
-    assert_ne!(tree.root(), node);
-    assert_eq!(tree.get(&a), Some(leaf(3)));
-    let before_remove = tree.root();
-    let remove = tree.remove(&a).expect("remove a");
-    assert_eq!(remove.leaf.value, leaf(3));
-    assert_eq!(remove.verify(&before_remove, &a).ok(), Some(tree.root()));
-    assert_eq!(tree.get(&a), None);
-    let before_remove = tree.root();
-    let remove = tree.remove(&b).expect("remove b");
-    assert_eq!(remove.leaf.value, leaf(2));
-    assert_eq!(remove.verify(&before_remove, &b).ok(), Some(tree.root()));
-    assert_eq!(tree.root(), kagemusha_wallet_empty_map_root_v1());
-    assert_eq!(tree.next_free_slot(), 3, "deleted slots remain consumed");
-    let new = tree.insert(a, leaf(1)).expect("reinsert");
-    assert_eq!(new.slot_opening.slot, 3, "removed slots are never reused");
-    assert_eq!(tree.leaf_at(1), None);
-    assert_eq!(tree.leaf_at(2), None);
-    assert_invalid(tree.insert([0xff; 32], leaf(1)), "indexed_tree.key");
-    assert_invalid(tree.insert([0; 32], leaf(1)), "indexed_tree.key");
-    assert_invalid(tree.insert(b, [0xff; 32]), "indexed_tree.value");
-    assert_invalid(tree.insert(b, [0; 32]), "indexed_tree.value");
-    assert_invalid(tree.insert(a, leaf(3)), "indexed_tree.present");
+    // Pair keys order by kind, then ordinal.
+    assert_eq!(
+        kagemusha_wallet_integer_cmp_v1(
+            &kagemusha_wallet_pair_key_v1(1, u128::MAX),
+            &kagemusha_wallet_pair_key_v1(2, 0)
+        ),
+        Less
+    );
 }
 
+/// The empty subtrees, the sentinel leaf and the empty-tree root, and their pinned values.
 #[test]
-fn kagemusha_wallet_v1_indexed_tree_membership_and_absence_openings() {
-    let base = key(0x5a);
+fn kagemusha_wallet_v1_indexed_tree_empty_root() {
+    assert_eq!(empty(0), [0; 32]);
+    for height in 0..KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1 {
+        assert_eq!(empty(height + 1), node(&empty(height), &empty(height)));
+    }
+    assert_invalid(
+        kagemusha_wallet_indexed_empty_subtree_v1(KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1 + 1),
+        "indexed_tree.height",
+    );
+    let sentinel = KagemushaWalletIndexedLeafV1::SENTINEL
+        .hash()
+        .expect("sentinel");
+    assert_eq!(
+        sentinel,
+        kagemusha_wallet_poseidon_v1(
+            KAGEMUSHA_WALLET_INDEXED_LEAF_DOMAIN_V1,
+            &[[0; 32], [0; 32], [0; 32]]
+        )
+        .expect("sentinel")
+    );
+    let mut root = sentinel;
+    for height in 0..KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1 {
+        root = node(&root, &empty(height));
+    }
+    let tree = KagemushaWalletIndexedTreeV1::new();
+    assert_eq!(tree.root(), root);
+    assert_eq!(kagemusha_wallet_empty_map_root_v1(), root);
+    assert_eq!(tree.len(), 0);
+    assert!(tree.is_empty());
+    assert_eq!(tree.next_free_slot(), 1);
+    assert_eq!(
+        tree.leaf_at(0),
+        Some(KagemushaWalletIndexedLeafV1::SENTINEL)
+    );
+    assert_eq!(hex::encode(sentinel), SENTINEL_LEAF_HEX);
+    assert_eq!(hex::encode(root), EMPTY_ROOT_HEX);
+    assert_invalid(
+        kagemusha_wallet_indexed_node_v1(&[0xff; 32], &root),
+        "poseidon.item",
+    );
+}
+
+/// Pinned sentinel leaf `P(kgwimlf1, [0, 0, 0])`.
+const SENTINEL_LEAF_HEX: &str = "d3f1ff2c55cd0da336138793d486261211bfdbc7a4b6e9be336b8b09bc0e3a1c";
+/// Pinned empty-tree root.
+const EMPTY_ROOT_HEX: &str = "e1844c5683af83c12383e719e37a29a9b1867d1c171e77e1d060bafc401d5118";
+
+/// A two-insertion tree recomputed by hand: slots 0, 1, 2 and the sorted links.
+#[test]
+fn kagemusha_wallet_v1_indexed_tree_root_by_hand() {
+    let (low, high) = (key(0x05), key(0x09));
     let mut tree = KagemushaWalletIndexedTreeV1::new();
-    tree.insert(base, leaf(1)).expect("base");
-    for (seed, height) in [(2, 0_usize), (3, 7), (4, 200)] {
-        tree.insert(flip(&base, height), leaf(seed))
-            .expect("neighbour");
+    // Insert the larger key first: slot 1 holds it, slot 2 the smaller one.
+    tree.insert(high, value(1)).expect("high");
+    tree.insert(low, value(2)).expect("low");
+    assert_eq!(tree.len(), 2);
+    assert_eq!(tree.next_free_slot(), 3);
+    let slot0 = leaf_hash(&[0; 32], &[0; 32], &low);
+    let slot1 = leaf_hash(&high, &value(1), &[0; 32]);
+    let slot2 = leaf_hash(&low, &value(2), &high);
+    let mut root = node(&node(&slot0, &slot1), &node(&slot2, &empty(0)));
+    for height in 2..KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1 {
+        root = node(&root, &empty(height));
+    }
+    assert_eq!(tree.root(), root);
+    assert_eq!(tree.get(&high), Some(value(1)));
+    assert_eq!(tree.get(&low), Some(value(2)));
+    assert_eq!(tree.get(&key(0x07)), None);
+    assert_eq!(tree.get(&[0; 32]), None);
+    // The root depends on insertion order (slots), not only on the key set.
+    let mut other = KagemushaWalletIndexedTreeV1::new();
+    other.insert(low, value(2)).expect("low");
+    other.insert(high, value(1)).expect("high");
+    assert_ne!(other.root(), tree.root());
+}
+
+/// Successive insertions at slots 1, 2, 3, … keep one list sorted by key.
+#[test]
+fn kagemusha_wallet_v1_indexed_tree_insertions_link_sorted_leaves() {
+    let keys = [key(0x20), key(0x08), key(0x30), key(0x10), key(0x01)];
+    let mut tree = KagemushaWalletIndexedTreeV1::new();
+    for (index, key) in keys.iter().enumerate() {
+        let before = tree.root();
+        let slot = tree.next_free_slot();
+        let seed = u8::try_from(index).expect("seed");
+        let witness = tree.insert(*key, value(seed)).expect("insert");
+        assert_eq!(
+            witness.slot_opening.slot,
+            u32::try_from(slot).expect("slot")
+        );
+        assert_eq!(
+            witness.verify(&before, key, &value(seed)).ok(),
+            Some(tree.root())
+        );
+        assert_eq!(
+            tree.leaf_at(witness.slot_opening.slot).map(|leaf| leaf.key),
+            Some(*key)
+        );
+    }
+    // Walk the list from the sentinel.
+    let mut sorted = keys;
+    sorted.sort_by(kagemusha_wallet_integer_cmp_v1);
+    let mut current = tree.leaf_at(0).expect("sentinel");
+    for expected in sorted {
+        assert_eq!(current.next_key, expected);
+        let (leaf, _) = tree.membership(&expected).expect("member");
+        current = leaf;
+    }
+    assert_eq!(current.next_key, [0; 32]);
+    // Inserting a present key, a zero or noncanonical key, or a zero value is rejected.
+    let root = tree.root();
+    assert_invalid(tree.insert(keys[0], value(9)), "indexed_tree.present");
+    assert_invalid(tree.insert([0; 32], value(9)), "indexed_tree.key");
+    assert_invalid(tree.insert([0xff; 32], value(9)), "indexed_tree.key");
+    assert_invalid(tree.insert(key(0x02), [0; 32]), "indexed_tree.value");
+    assert_invalid(tree.insert(key(0x02), [0xff; 32]), "indexed_tree.value");
+    assert_eq!(tree.root(), root);
+}
+
+/// Membership and non-membership openings, through the sentinel, an interior low leaf and the
+/// largest key.
+#[test]
+fn kagemusha_wallet_v1_indexed_tree_membership_and_non_membership() {
+    let mut tree = KagemushaWalletIndexedTreeV1::new();
+    for (seed, key) in [(1, key(0x10)), (2, key(0x20)), (3, key(0x30))] {
+        tree.insert(key, value(seed)).expect("insert");
     }
     let root = tree.root();
-    let (member, opening) = tree.membership(&base).expect("member");
-    assert_eq!(opening.siblings.len(), 32);
-    assert_eq!(
-        opening.slot, 1,
-        "path is allocated slot, independent of key bits"
-    );
-    assert_eq!((member.key, member.value), (base, leaf(1)));
-    kagemusha_wallet_indexed_verify_membership_v1(&root, &member, &opening).expect("membership");
-    assert_eq!(opening.leaf_root(&member).ok(), Some(root));
-    assert_eq!(opening.leaf_transcript(&member).len(), 1_124);
-    assert_eq!(opening.empty_transcript().len(), 1_028);
-    for height in [0_usize, 7, 200] {
-        let other = flip(&base, height);
-        let (leaf, witness) = tree.membership(&other).expect("neighbour");
+    for member in [key(0x10), key(0x20), key(0x30)] {
+        let (leaf, opening) = tree.membership(&member).expect("membership");
+        assert_eq!(leaf.key, member);
+        kagemusha_wallet_indexed_verify_membership_v1(&root, &leaf, &opening).expect("member");
         assert_eq!(
-            (leaf.key, leaf.value),
-            (other, tree.get(&other).expect("value"))
+            opening.leaf_transcript(&leaf).len(),
+            KAGEMUSHA_WALLET_INDEXED_LEAF_OPENING_TRANSCRIPT_BYTES_V1
         );
-        assert!(witness.slot >= 2);
-        kagemusha_wallet_indexed_verify_membership_v1(&root, &leaf, &witness)
-            .expect("neighbour membership");
     }
-    let absent = flip(&base, 3);
-    let (low, absence) = tree.non_membership(&absent).expect("absence");
-    assert!(low.brackets(&absent));
-    kagemusha_wallet_indexed_verify_non_membership_v1(&root, &absent, &low, &absence)
-        .expect("absence");
-    assert_invalid(tree.membership(&absent), "indexed_tree.absent");
-    assert_invalid(tree.non_membership(&base), "indexed_tree.present");
-    assert_invalid(
-        kagemusha_wallet_indexed_verify_non_membership_v1(&root, &base, &member, &opening),
-        "indexed_tree.low_leaf",
-    );
-    let wrong_value = KagemushaWalletIndexedLeafV1 {
-        value: leaf(9),
-        ..member
-    };
-    assert_invalid(
-        kagemusha_wallet_indexed_verify_membership_v1(&root, &wrong_value, &opening),
-        "indexed_opening.root",
-    );
-    let wrong_key = KagemushaWalletIndexedLeafV1 {
-        key: flip(&base, 100),
-        next_key: [0; 32],
-        ..member
-    };
-    assert_invalid(
-        kagemusha_wallet_indexed_verify_membership_v1(&root, &wrong_key, &opening),
-        "indexed_opening.root",
-    );
-    let mut sibling = opening;
-    sibling.siblings[1] = leaf(7);
-    assert_invalid(
-        kagemusha_wallet_indexed_verify_membership_v1(&root, &member, &sibling),
-        "indexed_opening.root",
-    );
-    let bytes = opening.sibling_bytes();
+    for (absent, low_key) in [
+        (key(0x01), [0; 32]),
+        (key(0x18), key(0x10)),
+        (key(0x3e), key(0x30)),
+    ] {
+        let (low, opening) = tree.non_membership(&absent).expect("non-membership");
+        assert_eq!(low.key, low_key);
+        assert!(low.brackets(&absent));
+        kagemusha_wallet_indexed_verify_non_membership_v1(&root, &absent, &low, &opening)
+            .expect("absent");
+        // The same low leaf proves nothing about a key it does not bracket.
+        assert_invalid(
+            kagemusha_wallet_indexed_verify_non_membership_v1(&root, &key(0x20), &low, &opening),
+            "indexed_tree.low_leaf",
+        );
+    }
+    assert_eq!(tree.non_membership(&key(0x01)).expect("low").1.slot, 0);
+    assert_invalid(tree.membership(&key(0x18)), "indexed_tree.absent");
+    assert_invalid(tree.non_membership(&key(0x20)), "indexed_tree.present");
+    assert_invalid(tree.membership(&[0; 32]), "indexed_tree.key");
+    assert_invalid(tree.non_membership(&[0xff; 32]), "indexed_tree.key");
+    // An empty slot never opens as a leaf.
+    let empty_slot = tree.opening(9);
+    assert_eq!(empty_slot.empty_root().ok(), Some(root));
     assert_eq!(
-        KagemushaWalletIndexedOpeningV1::from_sibling_bytes(opening.slot, &bytes).ok(),
-        Some(opening)
+        empty_slot.empty_transcript().len(),
+        KAGEMUSHA_WALLET_INDEXED_EMPTY_OPENING_TRANSCRIPT_BYTES_V1
     );
     assert_invalid(
-        KagemushaWalletIndexedOpeningV1::from_sibling_bytes(opening.slot, &bytes[..992]),
-        "indexed_opening.siblings",
-    );
-    assert_invalid(
-        KagemushaWalletIndexedOpeningV1::from_sibling_bytes(
-            opening.slot,
-            &[bytes.clone(), vec![0; 32]].concat(),
+        kagemusha_wallet_indexed_verify_membership_v1(
+            &root,
+            &KagemushaWalletIndexedLeafV1 {
+                key: key(0x40),
+                value: value(4),
+                next_key: [0; 32],
+            },
+            &empty_slot,
         ),
-        "indexed_opening.siblings",
-    );
-    let mut moved = opening;
-    moved.slot = 2;
-    assert_invalid(
-        kagemusha_wallet_indexed_verify_membership_v1(&root, &member, &moved),
         "indexed_opening.root",
     );
-    let mut reordered = opening;
-    reordered.siblings.swap(0, 1);
+}
+
+/// Tampered openings, forged low leaves and noncanonical siblings are rejected.
+#[test]
+fn kagemusha_wallet_v1_indexed_tree_rejects_tampered_openings() {
+    let mut tree = KagemushaWalletIndexedTreeV1::new();
+    for (seed, key) in [(1, key(0x10)), (2, key(0x20)), (3, key(0x30))] {
+        tree.insert(key, value(seed)).expect("insert");
+    }
+    let root = tree.root();
+    let (leaf, opening) = tree.membership(&key(0x20)).expect("membership");
+    for height in [0_usize, 1, 5, 31] {
+        let mut tampered = opening;
+        tampered.siblings[height][0] ^= 1;
+        assert_invalid(
+            kagemusha_wallet_indexed_verify_membership_v1(&root, &leaf, &tampered),
+            "indexed_opening.root",
+        );
+        let mut moved = opening;
+        moved.slot ^= 1 << height;
+        assert_invalid(
+            kagemusha_wallet_indexed_verify_membership_v1(&root, &leaf, &moved),
+            "indexed_opening.root",
+        );
+    }
+    for forged in [
+        KagemushaWalletIndexedLeafV1 {
+            value: value(9),
+            ..leaf
+        },
+        KagemushaWalletIndexedLeafV1 {
+            next_key: key(0x28),
+            ..leaf
+        },
+    ] {
+        assert_invalid(
+            kagemusha_wallet_indexed_verify_membership_v1(&root, &forged, &opening),
+            "indexed_opening.root",
+        );
+    }
+    // A forged low leaf that brackets the key but is not in the tree.
+    let forged_low = KagemushaWalletIndexedLeafV1 {
+        key: key(0x10),
+        value: value(1),
+        next_key: key(0x30),
+    };
+    let (_, low_opening) = tree.non_membership(&key(0x18)).expect("low");
     assert_invalid(
-        kagemusha_wallet_indexed_verify_membership_v1(&root, &member, &reordered),
+        kagemusha_wallet_indexed_verify_non_membership_v1(
+            &root,
+            &key(0x20),
+            &forged_low,
+            &low_opening,
+        ),
         "indexed_opening.root",
     );
-    let mut noncanonical = opening;
-    noncanonical.siblings[0] = [0xff; 32];
-    assert_invalid(noncanonical.leaf_root(&member), "indexed_opening.sibling");
+    // A next key not above the key, and a noncanonical sibling.
     assert_invalid(
         KagemushaWalletIndexedLeafV1 {
-            key: [0xff; 32],
-            ..member
-        }
-        .hash(),
-        "indexed_leaf.field",
-    );
-    assert_invalid(
-        KagemushaWalletIndexedLeafV1 {
-            value: [0xff; 32],
-            ..member
-        }
-        .hash(),
-        "indexed_leaf.field",
-    );
-    assert_invalid(
-        KagemushaWalletIndexedLeafV1 {
-            next_key: member.key,
-            ..member
+            next_key: key(0x01),
+            ..leaf
         }
         .hash(),
         "indexed_leaf.next_key",
     );
-    assert_invalid(tree.membership(&[0xff; 32]), "indexed_tree.key");
-    let empty = KagemushaWalletIndexedTreeV1::new();
-    let (sentinel, opening) = empty.non_membership(&base).expect("empty absence");
-    assert_eq!(sentinel, KagemushaWalletIndexedLeafV1::SENTINEL);
-    assert_eq!(opening.slot, 0);
-    assert_eq!(opening.siblings.len(), 32);
-    kagemusha_wallet_indexed_verify_non_membership_v1(&empty.root(), &base, &sentinel, &opening)
-        .expect("empty absence");
-}
-
-#[test]
-fn kagemusha_wallet_v1_indexed_tree_commits_insertion_order_and_replays_deterministically() {
-    let keys: Vec<[u8; 32]> = (1..=6_u8).map(key).collect();
-    let mut forward = KagemushaWalletIndexedTreeV1::new();
-    let mut replay = KagemushaWalletIndexedTreeV1::new();
-    let mut backward = KagemushaWalletIndexedTreeV1::new();
-    for (index, key) in keys.iter().enumerate() {
-        let value = leaf(u8::try_from(index).expect("seed"));
-        let previous = forward.root();
-        let witness = forward.insert(*key, value).expect("insert");
-        replay.insert(*key, value).expect("same ordered insertion");
-        assert_eq!(
-            witness.verify(&previous, key, &value).ok(),
-            Some(forward.root())
-        );
-        assert_eq!(forward.root(), replay.root());
-    }
-    for (index, key) in keys.iter().enumerate().rev() {
-        backward
-            .insert(*key, leaf(u8::try_from(index).expect("seed")))
-            .expect("insert");
-    }
-    assert_ne!(
-        forward.root(),
-        backward.root(),
-        "allocated slots commit to insertion order"
+    let mut noncanonical = opening;
+    noncanonical.siblings[3] = [0xff; 32];
+    assert_invalid(noncanonical.leaf_root(&leaf), "indexed_opening.sibling");
+    assert_invalid(
+        KagemushaWalletIndexedOpeningV1::from_sibling_bytes(1, &[0; 1023]),
+        "indexed_opening.siblings",
     );
-    assert_eq!(forward.len(), backward.len());
-    assert_eq!(forward.next_free_slot(), backward.next_free_slot());
-    for (index, key) in keys.iter().enumerate() {
-        let (left, left_opening) = forward.membership(key).expect("forward");
-        let (right, right_opening) = backward.membership(key).expect("backward");
-        assert_eq!(
-            left, right,
-            "both linked maps retain identical key/value/next-key state"
-        );
-        assert_eq!(left.value, leaf(u8::try_from(index).expect("seed")));
-        assert_ne!(left_opening.slot, right_opening.slot);
-        kagemusha_wallet_indexed_verify_membership_v1(&forward.root(), &left, &left_opening)
-            .expect("forward membership");
-        kagemusha_wallet_indexed_verify_membership_v1(&backward.root(), &right, &right_opening)
-            .expect("backward membership");
-    }
+    assert_invalid(
+        KagemushaWalletIndexedOpeningV1::from_sibling_bytes(1, &[0xff; 1024]),
+        "indexed_opening.sibling",
+    );
+    let round_trip =
+        KagemushaWalletIndexedOpeningV1::from_sibling_bytes(opening.slot, &opening.sibling_bytes())
+            .expect("round trip");
+    assert_eq!(round_trip, opening);
 }
 
+/// Opening transcripts (§3.2, owner answer A2) parse back to their leaf and opening: a leaf
+/// opening is exactly 1,124 bytes, an empty-slot opening exactly 1,028, each with 32 canonical
+/// siblings; every other length, an invalid leaf and a noncanonical value are rejected.
 #[test]
-fn kagemusha_wallet_v1_indexed_transition_witnesses_reject_wrong_roots_and_links() {
+fn kagemusha_wallet_v1_indexed_opening_transcripts_round_trip() {
     let mut tree = KagemushaWalletIndexedTreeV1::new();
-    let a = int(5);
-    let b = int(9);
-    let previous = tree.root();
-    let insert = tree.insert(a, leaf(1)).expect("insert");
-    let inserted = tree.root();
-    assert_eq!(insert.verify(&previous, &a, &leaf(1)).ok(), Some(inserted));
-    assert_invalid(insert.verify(&previous, &a, &[0; 32]), "indexed_tree.value");
-    let mut wrong_slot = insert;
-    wrong_slot.slot_opening.slot = 0;
-    assert_invalid(
-        wrong_slot.verify(&previous, &a, &leaf(1)),
-        "indexed_tree.slot",
+    for (seed, key) in [(1, key(0x10)), (2, key(0x20))] {
+        tree.insert(key, value(seed)).expect("insert");
+    }
+    let root = tree.root();
+    let (leaf, opening) = tree.membership(&key(0x20)).expect("membership");
+    let leaf_bytes = opening.leaf_transcript(&leaf);
+    assert_eq!(
+        leaf_bytes.len(),
+        KAGEMUSHA_WALLET_INDEXED_LEAF_OPENING_TRANSCRIPT_BYTES_V1
     );
-    let mut wrong_low = insert;
-    wrong_low.low.next_key = a;
+    let (parsed_leaf, parsed) =
+        KagemushaWalletIndexedOpeningV1::from_transcript(&leaf_bytes).expect("leaf opening");
+    assert_eq!((parsed_leaf, parsed), (Some(leaf), opening));
+    kagemusha_wallet_indexed_verify_membership_v1(&root, &leaf, &parsed).expect("verifies");
+    // The sentinel, linked to the smallest key, is a valid low leaf.
+    let (low, low_opening) = tree.non_membership(&key(0x08)).expect("low");
+    assert_eq!(
+        low,
+        KagemushaWalletIndexedLeafV1 {
+            next_key: key(0x10),
+            ..KagemushaWalletIndexedLeafV1::SENTINEL
+        }
+    );
+    assert_eq!(
+        KagemushaWalletIndexedOpeningV1::from_transcript(&low_opening.leaf_transcript(&low))
+            .expect("sentinel opening"),
+        (Some(low), low_opening)
+    );
+    let empty_slot = tree.opening(u32::try_from(tree.next_free_slot()).expect("slot"));
+    let empty_bytes = empty_slot.empty_transcript();
+    assert_eq!(
+        empty_bytes.len(),
+        KAGEMUSHA_WALLET_INDEXED_EMPTY_OPENING_TRANSCRIPT_BYTES_V1
+    );
+    let (no_leaf, parsed_empty) =
+        KagemushaWalletIndexedOpeningV1::from_transcript(&empty_bytes).expect("empty opening");
+    assert_eq!((no_leaf, parsed_empty), (None, empty_slot));
+    assert_eq!(parsed_empty.empty_root().expect("empty root"), root);
+    // Other lengths, a noncanonical field or sibling and a next key not above the key.
+    for length in [0, 4, 32, 1_027, 1_029, 1_123, 1_125, 1_156] {
+        assert_invalid(
+            KagemushaWalletIndexedOpeningV1::from_transcript(&vec![0; length]),
+            "indexed_opening.transcript",
+        );
+    }
+    let mut sibling = leaf_bytes.clone();
+    sibling[1_124 - 32..].fill(0xff);
     assert_invalid(
-        wrong_low.verify(&previous, &a, &leaf(1)),
+        KagemushaWalletIndexedOpeningV1::from_transcript(&sibling),
+        "indexed_opening.sibling",
+    );
+    let mut empty_sibling = empty_bytes.clone();
+    empty_sibling[4..36].fill(0xff);
+    assert_invalid(
+        KagemushaWalletIndexedOpeningV1::from_transcript(&empty_sibling),
+        "indexed_opening.sibling",
+    );
+    let mut field = leaf_bytes.clone();
+    field[32..64].fill(0xff);
+    assert_invalid(
+        KagemushaWalletIndexedOpeningV1::from_transcript(&field),
+        "indexed_leaf.field",
+    );
+    let mut next = leaf_bytes;
+    next.copy_within(0..32, 64);
+    assert_invalid(
+        KagemushaWalletIndexedOpeningV1::from_transcript(&next),
+        "indexed_leaf.next_key",
+    );
+}
+
+/// Insertion witnesses: an occupied target slot and a forged low leaf are rejected.
+#[test]
+fn kagemusha_wallet_v1_indexed_tree_insert_witness_rejects_forgeries() {
+    let mut tree = KagemushaWalletIndexedTreeV1::new();
+    tree.insert(key(0x10), value(1)).expect("first");
+    let before = tree.root();
+    let mut after = tree.clone();
+    let witness = after.insert(key(0x20), value(2)).expect("second");
+    assert_eq!(
+        witness.verify(&before, &key(0x20), &value(2)).ok(),
+        Some(after.root())
+    );
+    // Another value or key yields another root or fails.
+    assert_ne!(
+        witness.verify(&before, &key(0x20), &value(3)).ok(),
+        Some(after.root())
+    );
+    assert_invalid(
+        witness.verify(&before, &key(0x05), &value(2)),
         "indexed_tree.low_leaf",
     );
-    tree.insert(b, leaf(2)).expect("insert b");
-    let previous = tree.root();
-    let update = tree.update(&a, leaf(3)).expect("update");
-    assert_eq!(update.verify(&previous, &leaf(3)).ok(), Some(tree.root()));
-    assert_invalid(update.verify(&inserted, &leaf(3)), "indexed_opening.root");
-    assert_invalid(update.verify(&previous, &[0xff; 32]), "indexed_tree.value");
-    let previous = tree.root();
-    let remove = tree.remove(&a).expect("remove");
-    assert_eq!(remove.verify(&previous, &a).ok(), Some(tree.root()));
-    let mut wrong_link = remove;
-    wrong_link.predecessor.next_key = b;
-    assert_invalid(wrong_link.verify(&previous, &a), "indexed_tree.remove");
+    assert_invalid(
+        witness.verify(&before, &key(0x20), &[0; 32]),
+        "indexed_tree.value",
+    );
+    // The written slot must be empty in the intermediate root: slot 1 is occupied.
+    let mut occupied = witness;
+    occupied.slot_opening = tree.opening(1);
+    assert_invalid(
+        occupied.verify(&before, &key(0x20), &value(2)),
+        "indexed_tree.slot",
+    );
+    // A slot opening taken before the low leaf's update is not against the intermediate root.
+    let mut stale = witness;
+    stale.slot_opening = tree.opening(2);
+    assert_invalid(
+        stale.verify(&before, &key(0x20), &value(2)),
+        "indexed_tree.slot",
+    );
+}
+
+/// The `ArchiveSent` removal relinks the predecessor and clears the slot, which is never reused
+/// (technical decision Q2); no indexed map updates a value in place; the tree is full at `2^32`
+/// slots and slot `2^32 − 1` is valid (technical decision Q1).
+#[test]
+fn kagemusha_wallet_v1_indexed_tree_remove_and_capacity() {
+    let mut tree = KagemushaWalletIndexedTreeV1::new();
+    for (seed, key) in [(1, key(0x10)), (2, key(0x20)), (3, key(0x30))] {
+        tree.insert(key, value(seed)).expect("insert");
+    }
+    // A present key cannot be re-inserted with another value: there is no in-place update.
+    assert_invalid(tree.insert(key(0x20), value(7)), "indexed_tree.present");
+    assert_eq!(tree.get(&key(0x20)), Some(value(2)));
+
+    let before = tree.root();
+    let remove = tree.remove(&key(0x20)).expect("remove");
+    assert_eq!(remove.predecessor.key, key(0x10));
+    assert_eq!(remove.predecessor.next_key, key(0x20));
+    assert_eq!(remove.leaf.next_key, key(0x30));
+    assert_eq!(remove.verify(&before, &key(0x20)).ok(), Some(tree.root()));
+    assert_eq!(tree.get(&key(0x20)), None);
+    assert_eq!(tree.len(), 2);
+    assert_eq!(tree.leaf_at(remove.leaf_opening.slot), None);
+    assert_eq!(
+        tree.membership(&key(0x10)).expect("relinked").0.next_key,
+        key(0x30)
+    );
+    assert_invalid(tree.remove(&key(0x20)), "indexed_tree.absent");
+    // A forged removal: the predecessor must link the removed key.
+    let mut forged = remove;
+    forged.predecessor.next_key = key(0x30);
+    assert_invalid(forged.verify(&before, &key(0x20)), "indexed_tree.remove");
     let mut same_slot = remove;
-    same_slot.leaf_opening.slot = same_slot.predecessor_opening.slot;
-    assert_invalid(same_slot.verify(&previous, &a), "indexed_tree.remove");
-    assert_invalid(remove.verify(&inserted, &a), "indexed_opening.root");
-    assert_invalid(remove.verify(&previous, &b), "indexed_tree.remove");
+    same_slot.leaf_opening = remove.predecessor_opening;
+    assert_invalid(same_slot.verify(&before, &key(0x20)), "indexed_tree.remove");
+    // Unlinking without clearing would leave an orphan whose membership still opens: the
+    // removal's result clears the slot, so the removed leaf no longer opens.
+    assert_invalid(
+        kagemusha_wallet_indexed_verify_membership_v1(
+            &tree.root(),
+            &remove.leaf,
+            &remove.leaf_opening,
+        ),
+        "indexed_opening.root",
+    );
+    // A removal frees no slot: the next insertion takes slot 4.
+    assert_eq!(tree.next_free_slot(), 4);
+    let witness = tree.insert(key(0x20), value(8)).expect("reinsert");
+    assert_eq!(witness.slot_opening.slot, 4);
+
+    // The last slot is 2^32 − 1; an insertion at 2^32 is rejected.
+    let mut full = KagemushaWalletIndexedTreeV1::new();
+    full.next_free = KAGEMUSHA_WALLET_INDEXED_TREE_SLOTS_V1 - 1;
+    let before = full.root();
+    let last = full.insert(key(0x01), value(1)).expect("last slot");
+    assert_eq!(last.slot_opening.slot, u32::MAX);
+    assert_eq!(
+        last.verify(&before, &key(0x01), &value(1)).ok(),
+        Some(full.root())
+    );
+    let root = full.root();
+    assert_invalid(full.insert(key(0x02), value(2)), "indexed_tree.full");
+    assert_eq!(full.root(), root);
 }

@@ -175,6 +175,7 @@ pub fn json_value_schema_is_supported(schema: &StateValueSchemaV1) -> bool {
                 }
                 StateValueNodeV1::Unit
                 | StateValueNodeV1::Error(_)
+                | StateValueNodeV1::Enum(_)
                 | StateValueNodeV1::StateCursor(_) => {
                     if index != nodes.len() {
                         return false;

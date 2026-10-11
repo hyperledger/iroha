@@ -2,7 +2,7 @@
             seiyaku ZeroSizedElements {
                 struct Empty {}
 
-                view fn main() -> int {
+                view fn main() authorize(anyone) -> int {
                     let List<Empty, 1> values = [Empty {}];
                     values.len()
                 }

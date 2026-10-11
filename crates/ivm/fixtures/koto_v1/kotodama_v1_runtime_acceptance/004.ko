@@ -1,5 +1,5 @@
 
-seiyaku StateMapOptionAcceptance {
+seiyaku StateMapOptionAcceptance { permission WriteState;
   error enum StateMapError {
     MissingReportedPresent = 1,
     MissingFallbackIgnored = 2,
@@ -11,7 +11,7 @@ seiyaku StateMapOptionAcceptance {
 
   state StateMap<int, int> Values;
 
-  kotoage fn run() -> int authorize("WriteState") {
+  kotoage fn run() authorize(WriteState) -> int {
     let missing = Values.get(7);
     require(missing.is_none(), StateMapError::MissingReportedPresent);
     require(missing.unwrap_or(91) == 91, StateMapError::MissingFallbackIgnored);

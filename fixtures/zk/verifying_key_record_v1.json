@@ -1,30 +1,30 @@
 {
-  "schema_version": 1,
-  "wire_name": "iroha.instruction.v1::verifying_keys::RegisterVerifyingKey",
-  "rust_record_type": "iroha_data_model::confidential::VerifyingKeyRecord",
-  "request": {
-    "backend": "halo2/ipa",
-    "name": "x",
-    "version": 1,
-    "circuit_id": "c",
-    "public_inputs_schema_hash_hex": "0000000000000000000000000000000000000000000000000000000000000000",
-    "commitment_hex": "1111111111111111111111111111111111111111111111111111111111111111",
-    "vk_len": 1,
-    "status": "Withdrawn"
-  },
-  "expected_inner_frame_bytes": 176,
-  "expected_inner_frame_hex": "4E525430000061C13E70EDE9A90BACEF2FCFB64574460088000000000000007A977F288FF1FE0F020E0A0968616C6F322F69706102017878040100000002016301000504636F726504000000000807756E6B6E6F776E200000000000000000000000000000000000000000000000000000000000000000201111111111111111111111111111111111111111111111111111111111111111040100000004000000000100010001000100010001000102",
   "backend_tag_frame": {
-    "offset": 72,
     "hex": "0400000000",
+    "offset": 75,
     "width_bits": 32
   },
+  "expected_inner_frame_bytes": 182,
+  "expected_inner_frame_hex": "4E525430000061C13E70EDE9A90BACEF2FCFB6457446008E000000000000001BF5E5F3D13C37BB02110D0C706970612D722F70617374610201787B040100000002016301000504636F726504000000000807756E6B6E6F776E200000000000000000000000000000000000000000000000000000000000000000201111111111111111111111111111111111111111111111111111111111111111040100000004000000000100010001000100010001000402000000",
+  "request": {
+    "backend": "pipa-r/pasta",
+    "circuit_id": "c",
+    "commitment_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+    "name": "x",
+    "public_inputs_schema_hash_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+    "status": "Withdrawn",
+    "version": 1,
+    "vk_len": 1
+  },
+  "rust_record_type": "iroha_data_model::proof::VerifyingKeyRecord",
+  "schema_version": 1,
   "status_boundary": {
-    "offset": 172,
-    "hex": "01000102",
+    "hex": "01000402000000",
+    "offset": 175,
     "preceding_absent_key_frame_hex": "0100",
-    "status_frame_hex": "0102",
     "status_discriminant": 2,
-    "status_width_bits": 8
-  }
+    "status_frame_hex": "0402000000",
+    "status_width_bits": 32
+  },
+  "wire_name": "iroha.instruction.v1::verifying_keys::RegisterVerifyingKey"
 }

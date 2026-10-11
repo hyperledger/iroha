@@ -26,7 +26,7 @@ promotion.
 | Item | Owner(s) | Coverage |
 |------|----------|----------|
 | Attestation capture & verification | Android Crypto TL · Hardware Lab Lead | `scripts/android_keystore_attestation.sh`, `scripts/android_strongbox_attestation_ci.sh`, and the readiness artefacts under `specs/sdk/android/readiness/`. |
-| Device inventory & loaners | Hardware Lab · Partner Engineering | `android_strongbox_device_matrix.md`, `android_strongbox_capture_status.md`, loaner rotation in the support playbook. |
+| Device inventory & loaners | Hardware Lab · Partner Engineering | Device-lab lanes in `specs/compliance/android/device_lab_reservation.md`, `android_strongbox_capture_status.md`, loaner rotation in the support playbook. |
 | Tamper-proof logs & telemetry | Telemetry/SRE · Support Engineering | `android_strongbox_attestation_run_log.md`, `telemetry_redaction.md`, associated Grafana dashboards. |
 | Disclosure packs & retention | Program Lead · Compliance/Legal | `android_support_playbook.md` Sections 5–9, partner advisory templates, incident retros stored under `specs/compliance/android/`. |
 
@@ -53,8 +53,9 @@ physical bundle.
    - Keep the submitted evidence (`chain.pem`, `result.json`, and optional notes)
      separate from the authenticated expectations inventory (alias, challenge,
      leaf-SPKI digest, trust roots, and snapshot commitment).
-   - Note the `fleet_tag` from `android_strongbox_device_matrix.md`; this value
-     is referenced by CI and partner playbooks.
+   - Note the device-lab lane (for example `pixel8pro-strongbox-a`) from
+     `specs/compliance/android/device_lab_reservation.md`; this value is
+     referenced by CI and partner playbooks.
 2. **Verification**
    - `scripts/android_strongbox_attestation_ci.sh --bundles-root ... --expectations-root ... --trust-root ...` is the offline-friendly guard used in Buildkite. The expectations tree mirrors bundle paths and is authenticated independently. It validates:
      - Certificate chain rooted in the vendor trust anchor.
@@ -75,14 +76,14 @@ physical bundle.
 
 ## 4. Device-Matrix Coverage
 
-- The authoritative matrix lives in
-  `readiness/android_strongbox_device_matrix.md`; update the table whenever a
-  device is provisioned, retired, or repurposed.
+- Device-lab lanes and owners are listed in
+  `specs/compliance/android/device_lab_reservation.md` §2; update that table
+  whenever a device is provisioned, retired, or repurposed.
 - `readiness/android_strongbox_capture_status.md` tracks per-device capture
   progress and is the checklist referenced during weekly readiness calls.
 - Hardware additions/rotations require:
   1. Capture + verify attestation bundles as above.
-  2. Log provisioning notes (firmware level, enrolment status) inside the matrix.
+  2. Log provisioning notes (firmware level, enrolment status) in the reservation ticket.
   3. Announce in the `#android-foundations` channel with a link to the diff.
 - Partner loaners (AND8 dependency) must also appear in the `Loaner Rotation`
   table inside `android_support_playbook.md`.
@@ -146,7 +147,7 @@ physical bundle.
 ## 8. Related References
 
 - `strongbox_attestation_harness_plan.md` — bundle layout and naming.
-- `readiness/android_strongbox_device_matrix.md` — hardware coverage + owners.
+- `../../compliance/android/device_lab_reservation.md` — device-lab lanes + owners.
 - `readiness/android_strongbox_attestation_run_log.md` — tamper-proof logbook.
 - `readiness/android_strongbox_capture_status.md` — progress checklist + TODOs.
 - `networking.md` Section 5 — Torii telemetry hooks referenced by AND4/AND7.

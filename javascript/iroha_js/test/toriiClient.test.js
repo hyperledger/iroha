@@ -4,7 +4,31 @@ import { canonicalHashLiteral } from "../src/instructionBuilderPrimitives.js";
 import { universalArtifactInput } from "./contractArtifactTestHelpers.js";
 
 async function normalizeArtifactManifestFixture(input) {
-  return buildRegisterSmartContractCodeInstruction(universalArtifactInput(input)).RegisterSmartContractCode;
+  // Give transport/type fixtures an explicit policy. Invalid policy tests retain
+  // any explicitly supplied field, including undefined, for production validation.
+  const manifest = { events: [], enum_types: [], ...input.manifest };
+  if (Array.isArray(manifest.entrypoints)) {
+    manifest.entrypoints = manifest.entrypoints.map((entry) => {
+      if (Object.hasOwn(entry, "authorization")) return entry;
+      const kind = typeof entry.kind === "string" ? entry.kind : entry.kind?.kind;
+      return {
+        ...entry,
+        authorization: {
+          kind: kind === "Hajimari" || kind === "Kaizen" ? "RuntimeLifecycle" : "Anyone",
+          value: null,
+        },
+      };
+    });
+  }
+  if (!Object.hasOwn(manifest, "permissions")) {
+    const names = new Set((manifest.entrypoints ?? [])
+      .filter((entry) => entry.authorization?.kind === "Permission")
+      .map((entry) => entry.authorization.value));
+    manifest.permissions = [...names].sort().map((name) => ({
+      name, scope: { kind: "Instance", value: null },
+    }));
+  }
+  return buildRegisterSmartContractCodeInstruction(universalArtifactInput({ ...input, manifest })).RegisterSmartContractCode;
 }
 
 import { sorafsReplicationProjectionFixture, sorafsReplicationAttestationFixture } from "./helpers/sorafsReplicationProjection.js";
@@ -885,10 +909,10 @@ function createLaneBlockSession(overrides = {}) {
 function sampleVerifyingKeyRegisterPayload() {
   return {
     authority: SAMPLE_ACCOUNT_ID,
-    backend: "halo2/ipa",
+    backend: "pipa-r/pasta",
     name: "vk_main",
     version: 1,
-    circuit_id: "halo2/ipa::transfer_v1",
+    circuit_id: "pipa-r/pasta::transfer_v1",
     public_inputs_schema_hash_hex: "11".repeat(32),
     gas_schedule_id: "default",
     vk_bytes: Buffer.from("abc"),
@@ -954,7 +978,7 @@ function verifyingKeyInstructionForRequest(
           namespace: "core",
           backend: request.backend.startsWith("stark/")
             ? "stark"
-            : "halo2-ipa-pasta",
+            : "native-pipa-r-pasta",
           curve: request.curve ?? "unknown",
           public_inputs_schema_hash: Array.from(
             Buffer.from(request.public_inputs_schema_hash_hex, "hex"),
@@ -8466,16 +8490,13 @@ test("submitTransaction never retries a network failure after dispatch", async (
   assert.equal(attempts, 1);
 });
 
-test("submitTransaction never retries its authenticated capability preflight", async () => {
+test("submitTransaction stops after its public capability preflight exhausts retries", async () => {
   let capabilityAttempts = 0;
   let submissionAttempts = 0;
   const fetchImpl = async (url, init) => {
     if (url === `${BASE_URL}/v1/node/capabilities`) {
       capabilityAttempts += 1;
-      if (capabilityAttempts === 1) {
-        return createResponse({ status: 503, jsonData: { error: "busy" } });
-      }
-      return createBatchCapabilitiesResponse();
+      return createResponse({ status: 503, jsonData: { error: "busy" } });
     }
     submissionAttempts += 1;
     assert.equal(url, `${BASE_URL}/v1/pipeline/transactions`);
@@ -8497,7 +8518,7 @@ test("submitTransaction never retries its authenticated capability preflight", a
     () => client.submitTransaction(Uint8Array.of(0x01, 0xad)),
     (error) => error instanceof ToriiHttpError && error.status === 503,
   );
-  assert.equal(capabilityAttempts, 1);
+  assert.equal(capabilityAttempts, 3);
   assert.equal(submissionAttempts, 0);
 });
 
@@ -10346,7 +10367,7 @@ test("getHealth reads the plain-text /health probe", async () => {
   assert.deepEqual(payload, { status: "Healthy" });
 });
 
-test("getHealth rejects non-JSON protocol responses", async () => {
+test("getHealth trims CRLF from the plain-text probe", async () => {
   const fetchImpl = async () =>
     createResponse({
       status: 200,
@@ -10354,22 +10375,22 @@ test("getHealth rejects non-JSON protocol responses", async () => {
       headers: { "content-type": "text/plain; charset=utf-8" },
     });
   const client = new ToriiClient(BASE_URL, { fetchImpl });
-  await assert.rejects(
-    () => client.getHealth(),
-    /must use application\/json/u,
-  );
+  assert.deepEqual(await client.getHealth(), { status: "Healthy" });
 });
 
-test("getHealth returns null when the body is empty", async () => {
+test("getHealth rejects an empty plain-text probe", async () => {
   const fetchImpl = async () =>
     createResponse({
       status: 200,
-      jsonData: null,
-      headers: { "content-type": "application/json" },
+      textBody: "",
+      headers: { "content-type": "text/plain" },
     });
   const client = new ToriiClient(BASE_URL, { fetchImpl });
-  const payload = await client.getHealth();
-  assert.equal(payload, null);
+  await assert.rejects(() => client.getHealth(), {
+    name: "ValidationError",
+    code: ValidationErrorCode.INVALID_STRING,
+    path: "health response",
+  });
 });
 
 test("getHealth rejects non-object options", async () => {
@@ -12098,8 +12119,13 @@ test("accountPermissions validates full rows while explicit projections preserve
 
 test("contract history collections reject retired row fields and preserve block coordinates", async () => {
   const activity = { entrypoint_hash: "tx1", result_ok: true, contract_address: "irohac1router", block_height: 4, block_index: 2 };
-  const event = { event_id: "tx1:0", schema_version: 1, provenance: "derived", tx_hash_hex: "aa".repeat(32), block_height: 4, block_index: 2,
-    block_hash_hex: "deadbeef", result_ok: true, contract_address: "irohac1router", module: "router", event_kind: "route_swap" };
+  // Canonical Iroha hashes end in an odd nibble (the hash marker bit).
+  const blockHash = "11".repeat(32);
+  const event = { event_id: `${blockHash}:2:0`, schema_version: 1, provenance: "emitted", execution_hash_hex: `${"aa".repeat(31)}ab`, block_height: 4,
+    output_index: 2, emission_index: 0, block_hash_hex: blockHash, result_ok: true, contract_address: "irohac1router", authority: FIXTURE_ALICE_ID, event_kind: "Changed", payload: {},
+    emission: { contract: "irohac1router", code_hash: canonicalHashLiteral(Buffer.from(blockHash, "hex")), entrypoint: 0, event: 0, caller: FIXTURE_ALICE_ID,
+      definition: { name: "Changed", payload_type: { nodes: [{ kind: "Struct", value: { name: "Fixture::Changed", fields: [] } }] } }, payload: { schema_hash: Array(32).fill(1), atoms: [] } } };
+
   for (const [property, base] of [["contractActivity", activity], ["contractEvents", event]]) {
     for (const [field, value] of [["gas_asset_id", "xor#universal"], ["fee_sponsor", FIXTURE_ALICE_ID], ["gas_limit", 100000]]) {
       const client = new ToriiClient(BASE_URL, { fetchImpl: async () => createResponse({ status: 200,
@@ -12110,13 +12136,30 @@ test("contract history collections reject retired row fields and preserve block 
       jsonData: { items: [base], next_cursor: "older" }, headers: { "content-type": "application/json" } }) });
     const page = await client[property].list();
     assert.equal(page.items[0].block_height, 4);
-    assert.equal(page.items[0].block_index, 2);
+    assert.equal(page.items[0][property === "contractEvents" ? "output_index" : "block_index"], 2);
     assert.equal(page.nextCursor, "older");
   }
 });
 
-test("getGovernanceContract reads one governed binding", async () => {
+test("contract event rows and stream filters accept only committed emitted provenance", async () => {
+  const forged = { provenance: "derived" };
+  const client = new ToriiClient(BASE_URL, { fetchImpl: async () => createResponse({ status: 200,
+    jsonData: { items: [forged], next_cursor: null }, headers: { "content-type": "application/json" } }) });
+  await assert.rejects(() => client.contractEvents.list(), /contract event row\.provenance must be emitted/u);
+  let calls = 0;
+  const offline = new ToriiClient(BASE_URL, {
+    fetchImpl: async () => {
+      calls += 1;
+      throw new Error("should not fetch");
+    },
+  });
+  assert.throws(() => offline.streamContractEvents({ provenance: "derived" }), /provenance must be emitted/u);
+  assert.equal(calls, 0);
+});
+
+test("getGovernanceContract reads active and suspended governed bindings", async () => {
   let calledUrl;
+  let suspended = false;
   const fetchImpl = async (url) => {
     calledUrl = url;
     return createResponse({
@@ -12126,7 +12169,7 @@ test("getGovernanceContract reads one governed binding", async () => {
         contract_address: "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw",
         contract_subject_account: FIXTURE_ALICE_ID,
         dataspace: "universal",
-        active: true,
+        active: !suspended,
         lifecycle: {
           version: 1,
           origin: "direct",
@@ -12136,14 +12179,17 @@ test("getGovernanceContract reads one governed binding", async () => {
           owner: FIXTURE_ALICE_ID,
           pending_owner: "parliament",
           parliament_delegated: true,
-          active_code_hash_hex: fakeHashHex(0xaa),
+          active_code_hash_hex: suspended ? null : fakeHashHex(0xaa),
+          retained_code_hash_hex: fakeHashHex(0xaa),
           revision: 7,
           emergency_hold: null,
         },
         emergency_hold_active: false,
-        code_hash_hex: fakeHashHex(0xaa),
-        abi_hash_hex: fakeHashHex(0xbb),
-        public_entrypoints: ["transfer", "view_balance"],
+        ...(suspended ? {} : {
+          code_hash_hex: fakeHashHex(0xaa),
+          abi_hash_hex: fakeHashHex(0xbb),
+          public_entrypoints: ["transfer", "view_balance"],
+        }),
       },
       headers: { "content-type": "application/json" },
     });
@@ -12165,6 +12211,10 @@ test("getGovernanceContract reads one governed binding", async () => {
   assert.equal(result.lifecycle.active_code_hash_hex, fakeHashHex(0xaa));
   assert.equal(result.lifecycle.pending_owner, "parliament");
   assert.deepEqual(result.public_entrypoints, ["transfer", "view_balance"]);
+  suspended = true;
+  const inactive = await client.getGovernanceContract(result.contract_address, canonicalReadOptions());
+  assert.equal(inactive.lifecycle.active_code_hash_hex, null);
+  assert.equal(inactive.lifecycle.retained_code_hash_hex, fakeHashHex(0xaa));
 });
 
 test("iterateTriggers paginates list endpoint", async () => {
@@ -12608,8 +12658,8 @@ test("ToriiClient retries retryable statuses", async () => {
     }
     return createResponse({
       status: 200,
-      jsonData: { status: "OK" },
-      headers: { "content-type": "application/json" },
+      textBody: "OK\n",
+      headers: { "content-type": "text/plain" },
     });
   };
   const client = new ToriiClient(BASE_URL, {
@@ -12632,8 +12682,8 @@ test("ToriiClient emits retry telemetry events", async () => {
     }
     return createResponse({
       status: 200,
-      jsonData: { status: "OK" },
-      headers: { "content-type": "application/json" },
+      textBody: "OK\n",
+      headers: { "content-type": "text/plain" },
     });
   };
   const client = new ToriiClient(BASE_URL, {
@@ -12787,7 +12837,7 @@ test("streamContractEvents encodes selector params", async () => {
   const fetchImpl = async (url, init) => {
     const parsed = new URL(url);
     assert.equal(parsed.pathname, "/v1/contracts/events/sse");
-    assert.equal(parsed.searchParams.get("contract_alias"), "dlmm_router");
+    assert.equal(parsed.searchParams.get("contract_address"), "irohac1router");
     assert.equal(parsed.searchParams.get("event_kind"), "route_swap");
     assert.equal(parsed.searchParams.get("authority"), FIXTURE_ALICE_ID);
     assert.equal(parsed.searchParams.get("asset_id"), "xor#universal");
@@ -12802,7 +12852,7 @@ test("streamContractEvents encodes selector params", async () => {
   const client = new ToriiClient(BASE_URL, { fetchImpl });
   const iterator = client.streamContractEvents({
     authority: FIXTURE_ALICE_ID,
-    contractAlias: "dlmm_router",
+    contractAddress: "irohac1router",
     eventKind: "route_swap",
     assetId: "xor#universal",
   });
@@ -12907,7 +12957,7 @@ test("streamEvents rejects unsupported filter types", () => {
   const client = new ToriiClient(BASE_URL, { fetchImpl });
   assert.throws(
     () => client.streamEvents({ filter: 42 }),
-    /string or plain object/,
+    { name: "ListQueryError", code: "invalid_filter", parameter: "filter" },
   );
 });
 
@@ -15210,6 +15260,9 @@ test("local manifest builder normalizes a scoped manifest without forwarding cre
           },
         ],
       },
+      permissions: [],
+      events: [],
+      enum_types: [],
       entrypoints: [
         {
           name: "kaizen",
@@ -15218,7 +15271,7 @@ test("local manifest builder normalizes a scoped manifest without forwarding cre
           argument_schema: null,
           return_type: "()",
           return_schema: { nodes: [{ kind: "Unit", value: null }] },
-          permission: null,
+          authorization: { kind: "RuntimeLifecycle", value: null },
           read_keys: [],
           write_keys: [],
           access_hints_complete: null,
@@ -15472,7 +15525,7 @@ test("local manifest builder preserves branded romanized and Japanese lifecycle 
         {
           name: "transfer",
           kind: "Kotoage",
-          permission: "TransferAsset",
+          authorization: { kind: "Permission", value: "TransferAsset" },
           params: [{ name: "amount", typeName: "Option<int>" }],
           argumentSchema: {
             fields: [
@@ -15499,7 +15552,7 @@ test("local manifest builder preserves branded romanized and Japanese lifecycle 
         { name: "balance", kind: "View", ...UNIT_RETURN_DESCRIPTOR },
       ],
       states: [
-        { name: "amount", typeName: "Transfer{amount: quantity}" },
+        { name: "amount", typeName: "Fixture::Transfer{amount: quantity}" },
       ],
       errorTypes: [
         { identity: "LedgerError", variants: [{ name: "amount", code: 7 }] },
@@ -15517,7 +15570,7 @@ test("local manifest builder preserves branded romanized and Japanese lifecycle 
     ],
   );
   assert.deepEqual(body.manifest.states, [
-    { name: "amount", type_name: "Transfer{amount: quantity}" },
+    { name: "amount", type_name: "Fixture::Transfer{amount: quantity}" },
   ]);
   assert.equal(body.manifest.error_types[0].variants[0].name, "amount");
 });
@@ -15616,7 +15669,7 @@ function queryViewNodes(name) {
       : [entrypointLeaf(child)],
   );
   return [
-    { kind: "Struct", value: { name, fields: layout.fields } },
+    { kind: "Struct", value: { name: `kotodama::${name}`, fields: layout.fields } },
     ...children,
   ];
 }
@@ -15625,7 +15678,7 @@ function queryPageNodes(name) {
   return [
     {
       kind: "Struct",
-      value: { name: "QueryPage", fields: ["items", "next_offset"] },
+      value: { name: "kotodama::QueryPage", fields: ["items", "next_offset"] },
     },
     { kind: "List", value: { capacity: 64 } },
     ...queryViewNodes(name),
@@ -15659,12 +15712,12 @@ test("local manifest builder accepts all exact query views, pages, and ordinary 
   entrypoints.push({
     name: "pair",
     kind: "View",
-    returnType: "struct Pair",
+    returnType: "struct Fixture::Pair",
     returnSchema: {
       nodes: [
         {
           kind: "Struct",
-          value: { name: "Pair", fields: ["left", "right"] },
+          value: { name: "Fixture::Pair", fields: ["left", "right"] },
         },
         entrypointLeaf("Int"),
         entrypointLeaf("Bool"),
@@ -15681,7 +15734,7 @@ test("local manifest builder accepts all exact query views, pages, and ordinary 
   assert.equal(body.manifest.entrypoints.length, QUERY_VIEW_LAYOUTS.size * 2 + 1);
   assert.deepEqual(
     body.manifest.entrypoints.at(-1).return_schema.nodes[0].value,
-    { name: "Pair", fields: ["left", "right"] },
+    { name: "Fixture::Pair", fields: ["left", "right"] },
   );
 });
 
@@ -15891,7 +15944,7 @@ test("local manifest builder rejects forged branded manifest declarations before
     );
   }
   await assert.rejects(
-    submit({ entrypoints: [{ name: "hajimari", kind: "Kotoage", permission: "Init" }] }),
+    submit({ entrypoints: [{ name: "hajimari", kind: "Kotoage", authorization: { kind: "Permission", value: "Init" } }] }),
     /kind does not match its branded lifecycle selector/u,
   );
   await assert.rejects(
@@ -15899,18 +15952,18 @@ test("local manifest builder rejects forged branded manifest declarations before
     /kind does not match its branded lifecycle selector/u,
   );
   await assert.rejects(
-    submit({ entrypoints: [{ name: "kaizen", kind: "Kaizen", permission: "Upgrade" }] }),
-    /permission must be null for hajimari\/始まり and kaizen\/改善/u,
+    submit({ entrypoints: [{ name: "kaizen", kind: "Kaizen", authorization: { kind: "Permission", value: "Upgrade" } }] }),
+    /authorization must use RuntimeLifecycle exactly for lifecycle hooks/u,
   );
   await assert.rejects(
-    submit({ entrypoints: [{ name: "mutate", kind: "Kotoage" }] }),
-    /permission is required for kotoage\/言挙げ/u,
+    submit({ entrypoints: [{ name: "mutate", kind: "Kotoage", authorization: undefined }] }),
+    /authorization requires exactly kind, value/u,
   );
   await assert.rejects(
     submit({
       entrypoints: [
         { name: "same", kind: "View", ...UNIT_RETURN_DESCRIPTOR },
-        { name: "same", kind: "Kotoage", permission: "Same", ...UNIT_RETURN_DESCRIPTOR },
+        { name: "same", kind: "Kotoage", authorization: { kind: "Permission", value: "Same" }, ...UNIT_RETURN_DESCRIPTOR },
       ],
     }),
     /entrypoints contains duplicate name same/u,
@@ -15936,7 +15989,7 @@ test("local manifest builder rejects forged branded manifest declarations before
         {
           name: "schedule",
           kind: "Kotoage",
-          permission: "Schedule",
+          authorization: { kind: "Permission", value: "Schedule" },
           ...UNIT_RETURN_DESCRIPTOR,
           triggers: [
             {
@@ -15957,7 +16010,7 @@ test("local manifest builder rejects forged branded manifest declarations before
         {
           name: "mutate",
           kind: "Kotoage",
-          permission: "Mutate",
+          authorization: { kind: "Permission", value: "Mutate" },
           params: [{ name: "value", typeName: "int" }],
         },
       ],
@@ -15970,7 +16023,7 @@ test("local manifest builder rejects forged branded manifest declarations before
         {
           name: "mutate",
           kind: "Kotoage",
-          permission: "Mutate",
+          authorization: { kind: "Permission", value: "Mutate" },
           params: [{ name: "match", typeName: "int" }],
         },
       ],
@@ -16132,7 +16185,13 @@ test("contract mutation drafts reject retired inline private-key fields", async 
 test("prepareContractCall posts a secret-free payload and normalizes the draft", async () => {
   let captured;
   const feePayment = sponsorFeePayment(FIXTURE_BOB_ID, 42, 3);
-  const payload = { value: 7, labels: ["a", "b"] };
+  const payload = { value: "7", labels: ["a", "b"] };
+  const argumentSchema = {
+    fields: [
+      { name: "value", ty: { nodes: [{ kind: "Leaf", value: { kind: "Int", value: null } }] } },
+      { name: "labels", ty: { nodes: [{ kind: "Leaf", value: { kind: "Json", value: null } }] } },
+    ],
+  };
   const draft = contractDraftForBindings({
     authority: FIXTURE_ALICE_ID,
     feePayment,
@@ -16186,7 +16245,8 @@ test("prepareContractCall posts a secret-free payload and normalizes the draft",
     authority: FIXTURE_ALICE_ID,
     contractAddress: "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw",
     entrypoint: "increment",
-    payload,
+    payload: { value: 7n, labels: ["a", "b"] },
+    argumentSchema,
     metadata: { caller_note: "trusted" },
     creationTimeMs: 42,
     feePayment,
@@ -16234,6 +16294,35 @@ test("prepareContractCall posts a secret-free payload and normalizes the draft",
     signing_message_b64: draft.signing_message_b64,
     operation_receipt: responsePayload.operation_receipt,
   });
+});
+
+test("prepareContractCall validates schema arguments before sending or trusting a digest", async () => {
+  let requests = 0;
+  const client = new ContractToriiClient(BASE_URL, {
+    fetchImpl: async () => { requests += 1; throw new Error("unexpected request"); },
+    localSigningContext: new LocalSigningContext(VK_SIGNING_NETWORK_ID, 753),
+  });
+  const argumentSchema = {
+    fields: [{ name: "value", ty: { nodes: [{ kind: "Leaf", value: { kind: "Int", value: null } }] } }],
+  };
+  const draft = contractDraftForBindings({ authority: FIXTURE_ALICE_ID });
+  const request = {
+    authority: FIXTURE_ALICE_ID,
+    contractAddress: "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw",
+    entrypoint: "increment",
+    argumentSchema,
+    feePayment: sponsorFeePayment(FIXTURE_BOB_ID, 42, 3),
+    draftIntent: contractDraftIntentForDraft(draft, { payload: { value: 7 } }),
+  };
+  await assert.rejects(
+    client.prepareContractCall({ ...request, payload: { value: 0.5 } }),
+    /value.*int/iu,
+  );
+  await assert.rejects(
+    client.prepareContractCall({ ...request, payload: { value: 7 } }),
+    /payloadDigestHex must match the exact request payload/u,
+  );
+  assert.equal(requests, 0);
 });
 
 test("prepareContractCall rejects submitted and unmarked response state", async () => {
@@ -17743,6 +17832,7 @@ test("IVM contract simulation returns the bounded typed result", async () => {
           queued_instructions: [],
           result: null,
           error: null,
+          fault: null,
           vm_diagnostic: null,
         },
         headers: { "content-type": "application/json" },
@@ -17815,6 +17905,27 @@ test("IVM simulation bounded responses reject invalid UTF-8 and malformed JSON",
   }
 });
 
+test("simulateContractCall preserves typed fault origin and rejects malformed fault shapes", async () => {
+  const fault = {kind: {kind: "Numeric", value: {kind: "DivisionByZero", value: null}}, site: {code_hash: "33".repeat(32), selector: {kind: "Entrypoint", value: 7}, position: {kind: "Execute", value: {pc_offset: 12}}}};
+  const response = {ok: false, dataspace: "universal", contract_address: null, code_hash_hex: "11".repeat(32), abi_hash_hex: "22".repeat(32), entrypoint: "call_child", normalized_payload: null, gas_limit: 5000, gas_used: 80, queued_instructions: [], result: null, error: "nested arithmetic failure", vm_diagnostic: null, fault};
+  const invoke = (jsonData) => new ToriiClient(BASE_URL, {fetchImpl: async () => createStreamedJsonResponse({status: 200, jsonData, headers: {"content-type": "application/json"}})}).simulateContractCall({authority: SAMPLE_ACCOUNT_ID, contractAlias: "dlmm_router::dlmm.universal", gasLimit: 5000});
+  assert.deepEqual((await invoke(response)).fault, fault);
+  for (const alter of [
+    (value) => { delete value.fault; },
+    (value) => { value.fault.kind.kind = "UnknownFault"; },
+    (value) => { value.fault.kind.value.kind = "WrongType"; },
+    (value) => { value.fault.site.selector.value = 0x100000000; },
+    (value) => { value.fault.site.position.value.pc_offset = -1; },
+    (value) => { value.fault.site.position.kind = "ReturnValidation"; },
+    (value) => { value.fault.site.host_address = 123; },
+    (value) => { value.ok = true; value.error = null; },
+  ]) {
+    const malformed = structuredClone(response);
+    alter(malformed);
+    await assert.rejects(() => invoke(malformed), /fault|u32/);
+  }
+});
+
 test("simulateContractCall rejects fail-open ok coercion and inconsistent errors", async () => {
   const baseResponse = {
     dataspace: "universal",
@@ -17827,6 +17938,7 @@ test("simulateContractCall rejects fail-open ok coercion and inconsistent errors
     gas_used: 0,
     queued_instructions: [],
     result: null,
+    fault: null,
     vm_diagnostic: null,
   };
   const request = {
@@ -17873,7 +17985,7 @@ test("getContractManifest returns normalized payload", async () => {
     createStreamedJsonResponse({
       status: 200,
       jsonData: withArtifactResponseIdentity({
-        manifest: {
+        manifest: { events: [], enum_types: [], permissions: [],
           seiyaku_name: "Ledger",
           code_hash:
             "hash:1111111111111111111111111111111111111111111111111111111111111111#4667",
@@ -17936,7 +18048,7 @@ test("getContractManifest rejects noncanonical or inconsistent hash projections"
   await assert.rejects(
     () =>
       makeClient({
-        manifest: { code_hash: canonical.toLowerCase(), abi_hash: null },
+        manifest: { events: [], enum_types: [], permissions: [], code_hash: canonical.toLowerCase(), abi_hash: null },
         code_hash: "bb".repeat(32),
         abi_hash: null,
       }).getContractManifest({ dataspaceId: "0", codeHash: "bb".repeat(32) }, canonicalReadOptions()),
@@ -17945,7 +18057,7 @@ test("getContractManifest rejects noncanonical or inconsistent hash projections"
   await assert.rejects(
     () =>
       makeClient({
-        manifest: { code_hash: canonical, abi_hash: null },
+        manifest: { events: [], enum_types: [], permissions: [], code_hash: canonical, abi_hash: null },
         code_hash: "dd".repeat(32),
         abi_hash: null,
       }).getContractManifest({ dataspaceId: "0", codeHash: "bb".repeat(32) }, canonicalReadOptions()),
@@ -17954,7 +18066,7 @@ test("getContractManifest rejects noncanonical or inconsistent hash projections"
   await assert.rejects(
     () =>
       makeClient({
-        manifest: { code_hash: canonical, abi_hash: null },
+        manifest: { events: [], enum_types: [], permissions: [], code_hash: canonical, abi_hash: null },
         code_hash: "bb".repeat(32),
         abi_hash: null,
         code_bytes: null,
@@ -17964,7 +18076,7 @@ test("getContractManifest rejects noncanonical or inconsistent hash projections"
   await assert.rejects(
     () =>
       makeClient({
-        manifest: {
+        manifest: { events: [], enum_types: [], permissions: [],
           code_hash:
             "hash:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA#0E5B",
           abi_hash: null,
@@ -18000,12 +18112,15 @@ test("getContractManifest rejects retired trigger sources, aliases, unknown fiel
         ],
         dynamic_writes: [],
       },
+      events: [],
+      enum_types: [],
+      permissions: [{ name: "CanMutate", scope: { kind: "Instance", value: null } }],
       entrypoints: [
         {
           name: "mutate",
           kind: { kind: "Kotoage", value: null },
           params: [
-            { name: "request", type_name: "struct Transfer" },
+            { name: "request", type_name: "struct Fixture::Transfer" },
             { name: "tags", type_name: "List<Name, 4>" },
           ],
           argument_schema: {
@@ -18016,7 +18131,7 @@ test("getContractManifest rejects retired trigger sources, aliases, unknown fiel
                   nodes: [
                     {
                       kind: "Struct",
-                      value: { name: "Transfer", fields: ["amount"] },
+                      value: { name: "Fixture::Transfer", fields: ["amount"] },
                     },
                     {
                       kind: "Leaf",
@@ -18042,7 +18157,7 @@ test("getContractManifest rejects retired trigger sources, aliases, unknown fiel
               { kind: "Leaf", value: { kind: "Quantity", value: null } },
             ],
           },
-          permission: "CanMutate",
+          authorization: { kind: "Permission", value: "CanMutate" },
           read_keys: [],
           write_keys: [],
           access_hints_complete: true,
@@ -18167,7 +18282,7 @@ test("getContractManifest rejects retired trigger sources, aliases, unknown fiel
       payload.manifest.entrypoints[0].kind.legacy = true;
     }],
     ["camelCase parameter alias", (payload) => {
-      payload.manifest.entrypoints[0].params[0].typeName = "struct Transfer";
+      payload.manifest.entrypoints[0].params[0].typeName = "struct Fixture::Transfer";
     }],
     ["unknown argument-schema field", (payload) => {
       payload.manifest.entrypoints[0].argument_schema.legacy = true;
@@ -19098,6 +19213,7 @@ test("getGovernanceContract mirrors response handling", async () => {
           pending_owner: null,
           parliament_delegated: false,
           active_code_hash_hex: "1".repeat(64),
+          retained_code_hash_hex: "1".repeat(64),
           revision: 1,
           emergency_hold: null,
         },
@@ -19143,6 +19259,7 @@ test("getGovernanceContract preserves u64 lifecycle tokens and rejects lossy wir
       pending_owner: null,
       parliament_delegated: false,
       active_code_hash_hex: "1".repeat(64),
+      retained_code_hash_hex: "1".repeat(64),
       revision: "__REVISION__",
       emergency_hold: {
         incident_digest_hex: "4".repeat(64),
@@ -19223,6 +19340,7 @@ test("getGovernanceContract rejects coercible, non-canonical, or unexpected fiel
       pending_owner: null,
       parliament_delegated: false,
       active_code_hash_hex: "1".repeat(64),
+      retained_code_hash_hex: "1".repeat(64),
       revision: 1,
       emergency_hold: null,
     },
@@ -19258,10 +19376,20 @@ test("getGovernanceContract rejects coercible, non-canonical, or unexpected fiel
       /unsupported fields: ignored/,
     ],
     [
+      "missing retained binding",
+      { ...activeResponse, lifecycle: Object.fromEntries(Object.entries(activeResponse.lifecycle).filter(([key]) => key !== "retained_code_hash_hex")) },
+      /retained_code_hash_hex/,
+    ],
+    [
+      "mismatched retained binding",
+      { ...activeResponse, lifecycle: { ...activeResponse.lifecycle, retained_code_hash_hex: "3".repeat(64) } },
+      /retained_code_hash_hex must match active_code_hash_hex/,
+    ],
+    [
       "mismatched lifecycle code hash",
       {
         ...activeResponse,
-        lifecycle: { ...activeResponse.lifecycle, active_code_hash_hex: "3".repeat(64) },
+        lifecycle: { ...activeResponse.lifecycle, active_code_hash_hex: "3".repeat(64), retained_code_hash_hex: "3".repeat(64) },
       },
       /active_code_hash_hex must match code_hash_hex/,
     ],

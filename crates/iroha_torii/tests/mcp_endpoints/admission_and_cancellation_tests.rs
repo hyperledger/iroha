@@ -601,7 +601,7 @@ async fn mcp_jsonrpc_enforces_rate_limit() {
     cfg.torii.mcp.rate_per_minute = Some(NonZeroU32::new(1).expect("nonzero rate"));
     cfg.torii.mcp.burst = Some(NonZeroU32::new(1).expect("nonzero burst"));
     let app = build_router(cfg);
-    let request = initialize_request(1);
+    let request = modern_request("rate-limit", "server/discover", norito::json!({}));
     let (status, _) = post_mcp(&app, request.clone()).await;
     assert_eq!(status, StatusCode::OK);
     let (status, body) = post_mcp(&app, request).await;

@@ -239,7 +239,7 @@ impl Checker {
                 self.visit_expr(target, origin);
                 self.visit_expr(index, origin);
             }
-            ExprKind::ErrorValue(_)
+            ExprKind::VariantCode(_)
             | ExprKind::IntLiteral(_)
             | ExprKind::DecimalLiteral { .. }
             | ExprKind::OptionNone
@@ -317,6 +317,7 @@ fn display_type(ty: &Type) -> String {
         Type::SoracloudResponse => "SoracloudResponse".to_string(),
         Type::Json => "Json".to_string(),
         Type::Unit => "()".to_string(),
+        Type::Enum(descriptor) => descriptor.identity.clone(),
         Type::ErrorEnum(descriptor) => descriptor.identity.clone(),
         Type::Secret(inner) => format!("Secret<{}>", display_type(&inner)),
         Type::StateMap(k, v) => format!("StateMap<{}, {}>", display_type(&k), display_type(&v)),
@@ -331,6 +332,7 @@ fn display_type(ty: &Type) -> String {
             format!("({})", parts.join(", "))
         }
         Type::Struct { name, .. } => format!("struct {name}"),
+        Type::ContractRef(contract) => format!("contract {}", contract.interface.seiyaku_name),
         Type::NamedStruct(name) => name,
     }
 }

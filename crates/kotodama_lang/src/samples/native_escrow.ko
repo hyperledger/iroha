@@ -1,13 +1,16 @@
 // Native asset escrow sample for off-chain fiat settlement flows.
 // Custody is held by the ledger-managed escrow ISIs, not by a seiyaku account.
 seiyaku NativeEscrowAitai {
+    permission Admin;
     error enum EscrowError {
         NonPositiveAmount = 1,
     }
 
-    kotoage fn open_offer(Name offer, AssetDefinitionId asset_definition, quantity amount) authorize(
-        "Admin"
-    ) {
+    kotoage fn open_offer(
+        Name offer,
+        AssetDefinitionId asset_definition,
+        quantity amount,
+    ) authorize(Admin) {
         require(amount > 0, EscrowError::NonPositiveAmount);
         ledger::escrow::open_offer(
             offer: offer,
@@ -16,29 +19,31 @@ seiyaku NativeEscrowAitai {
         );
     }
 
-    kotoage fn accept(Name offer) authorize("Admin") {
+    kotoage fn accept(Name offer) authorize(Admin) {
         ledger::escrow::accept(offer: offer);
     }
 
-    kotoage fn mark_payment_sent(Name offer) authorize("Admin") {
+    kotoage fn mark_payment_sent(Name offer) authorize(Admin) {
         ledger::escrow::mark_payment_sent(offer: offer);
     }
 
-    kotoage fn release(Name offer) authorize("Admin") {
+    kotoage fn release(Name offer) authorize(Admin) {
         ledger::escrow::release(offer: offer);
     }
 
-    kotoage fn cancel(Name offer) authorize("Admin") {
+    kotoage fn cancel(Name offer) authorize(Admin) {
         ledger::escrow::cancel(offer: offer);
     }
 
-    kotoage fn dispute(Name offer) authorize("Admin") {
+    kotoage fn dispute(Name offer) authorize(Admin) {
         ledger::escrow::open_dispute(offer: offer);
     }
 
-    kotoage fn resolve_dispute(Name offer, quantity buyer_amount, quantity seller_amount) authorize(
-        "Admin"
-    ) {
+    kotoage fn resolve_dispute(
+        Name offer,
+        quantity buyer_amount,
+        quantity seller_amount,
+    ) authorize(Admin) {
         ledger::escrow::resolve_dispute(
             offer: offer,
             buyer_amount: buyer_amount,

@@ -151,7 +151,7 @@ fn check_current_claim_identity_refusal(owner_revision: bool) {
             .unwrap()
             .as_ptr();
         let refused = norito::with_decode_limits_scope(limits(prefix_bytes), || {
-            prepare_fee_reward_claim(&stx, &claimant, lane, Some(&plan))
+            prepare_fee_reward_claim(&stx, &claimant, lane, &plan)
         });
         assert!(refused.is_err());
         let deferred = stx
@@ -210,9 +210,7 @@ fn check_current_claim_identity_refusal(owner_revision: bool) {
         );
         assert_eq!(block.world.assets.get(&source).cloned(), before_balance);
         let retry = block.transaction();
-        let prepared = prepare_fee_reward_claim(&retry, &claimant, lane, Some(&plan))
-            .unwrap()
-            .unwrap();
+        let prepared = prepare_fee_reward_claim(&retry, &claimant, lane, &plan).unwrap();
         assert_eq!(prepared.plan, plan);
         assert!(retry.execution_deferral().is_none());
     });

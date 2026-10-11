@@ -3,10 +3,7 @@ use ivm::{CoreHost, IVM};
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
 mod common;
 fn encoded_state_path(name: &str, key: i64) -> String {
-    let key = ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(
-        i128::from(key),
-    ))
-    .expect("encode canonical pointer-backed StateMap key");
+    let key = common::encode_int_state_value(key);
     format!("{name}/{}", hex::encode(key))
 }
 #[test]
@@ -17,14 +14,14 @@ fn kotodama_host_state_calls_run() {
     // We do not attempt to decode the bytes to ints here; the purpose is to
     // ensure pointer-ABI plumbing and syscalls are wired end-to-end.
     let src = r#"
-        seiyaku StateHostCalls {
+        seiyaku StateHostCalls { permission FixtureAccess;
           state StateMap<int, bytes> demo;
 
           hajimari() {
             demo[1] = b"";
           }
 
-          kotoage fn main() authorize("StateHostCalls") {
+          kotoage fn main() authorize(FixtureAccess) {
             demo[1] = b"hello";
             let path = Name::parse("demo").path(1);
             let encoded = state::get(path);

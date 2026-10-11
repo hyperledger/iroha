@@ -784,11 +784,8 @@ mod tests {
             view: rng.random_range(0..10),
             block_hash: h(rng),
             result: h(rng),
-            attest: false,
             signers: Bitmap::new(rng.random_range(1..20)),
             agg_sig: AggregateSignature([rng.random(); SIGNATURE_LEN]),
-            attestations: Vec::new(),
-            attestation_witness: None,
         }
     }
 
@@ -808,7 +805,6 @@ mod tests {
                 proposer: 0,
                 skipped_leaders: Vec::new(),
                 control_witness: Default::default(),
-                attest: false,
             },
             availability: AvailabilityFrame::from_untrusted(vec![rng.random(); 100]).unwrap(),
         }
@@ -843,10 +839,8 @@ mod tests {
                 view,
                 block_hash: h(rng),
                 result: h(rng),
-                attest: false,
                 signer: rng.random_range(0..10),
                 sig: sig(rng),
-                attestation: None,
             }),
             2 => WireMessage::Qc(qc(rng, instance)),
             3 => WireMessage::Timeout(Box::new(TimeoutVote {

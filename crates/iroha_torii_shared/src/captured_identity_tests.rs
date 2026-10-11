@@ -137,7 +137,7 @@ where
 
 #[test]
 fn captured_fixture_has_complete_unique_owner_directions() {
-    assert_eq!(fixture()["records"].as_array().unwrap().len(), 318);
+    assert_eq!(fixture()["records"].as_array().unwrap().len(), 316);
     assert_eq!(fixture()["manual_records"].as_array().unwrap().len(), 12);
     let mut identities = std::collections::BTreeSet::new();
     for row in fixture()["records"].as_array().unwrap() {
@@ -146,7 +146,7 @@ fn captured_fixture_has_complete_unique_owner_directions() {
             row["direction"].as_str().unwrap()
         )));
     }
-    assert_eq!(identities.len(), 318);
+    assert_eq!(identities.len(), 316);
     let mut manual = std::collections::BTreeSet::new();
     for row in fixture()["manual_records"].as_array().unwrap() {
         assert!(manual.insert(row["nominal"].as_str().unwrap()));

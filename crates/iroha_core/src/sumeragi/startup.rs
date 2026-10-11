@@ -11,6 +11,7 @@ use iroha_data_model::{
     account::AccountId,
     block::{CommitCertificate, SignedBlock},
     parameter::system::ConsensusMode,
+    sumeragi::epoch::ValidatorEpochContextV1,
 };
 use iroha_model_base::peer::PeerId;
 use iroha_primitives::time::TimeSource;
@@ -21,7 +22,10 @@ use super::{
     network_topology::Topology,
     schedule,
 };
-use crate::{block::ValidBlock, state::State};
+use crate::{
+    block::ValidBlock,
+    state::{State, StateBlock},
+};
 
 /// The genesis height: iroha's genesis block is height 1.
 pub const GENESIS_HEIGHT: u64 = 1;
@@ -105,20 +109,22 @@ pub fn apply_genesis(
     consensus_mode: ConsensusMode,
     stored: Option<&CommitCertificate>,
 ) -> Result<GenesisTip, StartupError> {
-    let signed_epoch = super::epoch::genesis_epoch(&genesis).map_err(|error| {
-        match crate::execution_attempt::genesis_read_attempt_error(error, |error| {
-            StartupError::Schedule(error.to_string())
-        }) {
-            crate::execution_attempt::ExecutionAttemptError::Rejected(error) => error,
-            crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
-                StartupError::Deferred(reason)
+    let signed_epoch = super::epoch::authenticated_genesis(&genesis)
+        .map(|genesis| genesis.into_parts().0)
+        .map_err(|error| {
+            match crate::execution_attempt::genesis_read_attempt_error(error, |error| {
+                StartupError::Schedule(error.to_string())
+            }) {
+                crate::execution_attempt::ExecutionAttemptError::Rejected(error) => error,
+                crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                    StartupError::Deferred(reason)
+                }
             }
-        }
-    })?;
+        })?;
     let committee = genesis_committee_peers(&genesis)?;
     let topology = Topology::new(committee.clone());
     let block_hash = core_hash_of(&genesis);
-    let (valid, mut overlay) = ValidBlock::validate_signed_genesis(
+    let (valid, overlay) = ValidBlock::validate_signed_genesis(
         genesis,
         &topology,
         genesis_account,
@@ -128,10 +134,34 @@ pub fn apply_genesis(
     )
     .unpack(|_| {})
     .map_err(|(_, error)| StartupError::InvalidGenesis(error))?;
+    finish_genesis(
+        state,
+        committee,
+        valid,
+        overlay,
+        &signed_epoch,
+        block_hash,
+        stored,
+    )
+}
+
+/// Retire validation before reserving the late result, certificate and publication frame.
+/// The same existing boxed overlay and valid block move once; the caller retains its signed
+/// epoch and topology until this original publication finishes. No owner is recreated.
+#[inline(never)]
+fn finish_genesis(
+    state: &State,
+    committee: Vec<PeerId>,
+    valid: ValidBlock,
+    mut overlay: Box<StateBlock<'_>>,
+    signed_epoch: &ValidatorEpochContextV1,
+    block_hash: Hash32,
+    stored: Option<&CommitCertificate>,
+) -> Result<GenesisTip, StartupError> {
     let inputs = overlay
         .take_sumeragi_execution_inputs()
         .map_err(|error| StartupError::Schedule(error.to_string()))?;
-    if inputs.get().schedule.current != signed_epoch
+    if inputs.get().schedule.current != *signed_epoch
         || inputs.get().beacon.is_some()
         || inputs.get().schedule.boundary.is_some()
     {

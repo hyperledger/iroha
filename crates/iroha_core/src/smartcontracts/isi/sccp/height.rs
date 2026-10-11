@@ -209,7 +209,9 @@ mod tests {
             5,
             false,
         );
-        let epoch = crate::sumeragi::epoch::genesis_epoch(&signed).unwrap();
+        let epoch = crate::sumeragi::epoch::authenticated_genesis(&signed)
+            .map(|genesis| genesis.into_parts().0)
+            .unwrap();
         let roster = epoch
             .committee
             .iter()

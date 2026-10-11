@@ -102,7 +102,7 @@ Verification status
 - Stateless ZK pre‑verification and non‑forking diagnostic consistency checks of traces are implemented and gated by config/feature flags. Background proving and attachments remain out‑of‑pipeline and are optional.
 
 Acceptance (ZK verification)
-- Feature gates: `zk-preverify` (compile‑time) controls diagnostic trace checks, while `halo2.enabled` of the committed `zk_validity_policy_v1` parameter controls cryptographic pre‑verification. Hosts additionally gate by the policy's `halo2.max_k` and curve. These are chain policy, identical on every validator, not node configuration.
+- Native PIPA-R and STARK admission use their exact compiled relations and the `pipa_r` / `stark` bounds of the committed `zk_validity_policy_v1` parameter. `zk-preverify` controls advisory pre-verification; node-local `zk.trace` controls diagnostic scheduling. Diagnostics never grant ledger authority.
 - Authority boundary: pre‑verification and deduplication are advisory diagnostics only. Their results cannot be installed into execution state or substitute for the normal guarded cryptographic verifier.
 - Determinism: ordering and proposal selection remain unaffected; pre‑verification failures do not reorder transactions. Diagnostic trace checks report via Pipeline warnings and do not persist artifacts in block sidecars.
 - Safety: proofs and envelopes are bounded (size, k) and verified deterministically; accelerators must produce bit‑exact results to scalar.
@@ -581,27 +581,14 @@ ZK verification placement
 
 Implementation notes (current)
 - Executor performs stateless pre‑verification for `SignedTransaction::WithProofs` attachments: backend tag sanity, and per‑block dedup by `(proof hash, vk_commitment?)` when `vk_commitment` is present in the attachment or `vk_ref` resolves a registry commitment; falls back to `(proof hash, backend)`.
-- Stateful path provides `VerifyProof` ISI that records verification outcome into WSV (`proofs` storage). The real Halo2 backend is always linked; proofs are verified using `plonk::verify_proof` with the appropriate `Params<C>` and verifying key derived from the backend tag’s `<circuit-id>`.
-  - Transparent Halo2 (IPA over Pasta): proofs are verified using `plonk::verify_proof` with IPA PCS and `Params::<EqAffine>` derived transparently.
-    - VK/Params encoding (ZK1):
-      - Production `ZK1` envelopes contain exactly `IPAK(k)`, `CID1`, and
-        `H2VK` (Halo2 verifying key bytes), in that order.
-    - Proof encoding (ZK1):
-      - `ZK1` contains `PROF` (raw transcript) followed by optional instance
-        columns `I10P` (Pasta Fp).
-    - `VerifyingKeyBox.bytes`: canonical production key envelope above.
-    - `ProofBox.bytes`: canonical proof envelope above.
-    - Built‑in circuit ids:
-      - `tiny-add-v1`: enforces 2 + 2 = 4
-      - `tiny-mul-v1`: enforces 3 × 2 = 6
-      Example backend tags: `halo2/pasta/tiny-add-v1`, `halo2/pasta/tiny-mul-v1`.
-  - Helpers (for producers/tests):
-    - `zk1::wrap_start()` → begin a ZK1 buffer; `zk1::wrap_append_proof(..)`; `zk1::wrap_append_instances_pasta_fp(..)`.
-
-  - BN254 KZG verifier support has been removed; only transparent Pasta/IPA backends remain.
-    - Proof encoding (ZK1 preferred): `ZK1` with `PROF` and instance columns `I10P` (Pasta Fp).
-    - Built‑in circuit ids include tiny smoke circuits used in tests: `tiny-add-v1`, `tiny-add-2rows-v1`, `tiny-add-public-v1`, `tiny-id-public-v1`.
-    - See `specs/zk1_envelope.md` for the canonical ZK1 TLV layout and safety bounds.
+- `VerifyProof` records the outcome of the exact native PIPA-R or STARK
+  relation in WSV. Native PIPA-R verifies the five compiled Kaigi/confidential
+  relations against their canonical descriptor and processed key, using
+  transparently derived pinned Pasta parameters. The data-model
+  `OpenVerifyEnvelope` contains a Norito `NativePipaRProofV1` with one ordered
+  public column and exact proof bytes. Unqualified demo, governance and IVM
+  execution relations are rejected. See `specs/zk_envelopes.md` for current
+  proof/key framing; the retired ZK1 decoder and helper APIs are deleted.
 - VK lifecycle and registry are managed via `RegisterVerifyingKey`, `UpdateVerifyingKey`, and `DeprecateVerifyingKey` ISIs. Proof attachments reference registered VK records by `vk_ref`; verifying-key bytes are stored only in registry/external records and are not carried inline.
 
 DoS hardening
@@ -785,9 +772,9 @@ Security and DoS
   system. Require declared size/curve in the envelope for constant‑time
   admission checks. Optionally fee‑gate large verifications based on scalar
   worst‑case cost to protect validator resources.
-  - Configuration: `zk_preverify_budget_ms`, `zk_preverify_tickets_per_peer`,
-    `zk_preverify_max_bytes`, `zk_preverify_allowed_curves`.
-  - Reject codes: `ProofTooBig`, `CurveNotAllowed`, `PreverifyBudgetExceeded`,
+  - Current byte limits: `zk.preverify_max_bytes` and `zk.preverify_budget_bytes`.
+    Native PIPA-R and STARK bind their curves through admitted proof profiles.
+  - Reject codes: `ProofTooBig`, `UnsupportedBackend`, `PreverifyBudgetExceeded`,
     `MalformedProof`. Stateless pre‑verify ordering is deterministic and does
     not affect proposal ordering.
 
@@ -1866,50 +1853,12 @@ CRDT/commutative precompiles (optional)
 
 ---
 
-## KAGEMUSHA V1 (protocol-bound aggregate balance)
-
-> **Superseded design authority (2026-10-03).** The
-> [single implementation draft](kagemusha_single_design_proposal.md) §6 defines
-> load, unload and fee settlement. The text below describes the instructions
-> that exist today and is replaced together with the implementing change.
+## KAGEMUSHA (offline wallet settlement)
 
 The first release does not expose generic deposit, transfer, or withdrawal
-instructions. Its sole KAGEMUSHA settlement surface is:
-
-- `TopUpKagemushaV1`, which atomically debits the payer, credits the sole
-  reserve for `(network, asset)`, and fixes one hardware-bound mint credit;
-- device-to-device `SendSplit` and singular `ReceiveFold`, which move value
-  between recursively proven aggregate balances without touching consensus
-  state; and
-- `RedeemKagemushaV1`, which verifies a hardware-bound full or partial
-  redemption voucher, consumes one terminal nullifier, debits the reserve, and
-  credits the beneficiary atomically.
-
-The top-up Torii adapter accepts only a canonical versioned
-`SignedTransaction` containing exactly one `TopUpKagemushaV1`. It verifies the
-network and transaction signature, requires `authority == request.payer`, and
-binds the HTTP idempotency key to the embedded operation ID before submitting
-the same signed transaction through strict durable ingress. Torii never
-substitutes its configured redemption issuer as the payer. The bounded embedded
-request is at most 16 KiB; enabled nodes reserve at least 32 KiB of ordinary
-signed-transaction ingress capacity for its framing.
-
-Each hardware lane and asset has one hidden `u128` balance, policy and device
-binding, hardware epoch, logical sequence, consumed-credit sparse-Merkle root,
-nonce, and public commitment. The fixed-shape paired-Pasta recursion implements
-`Bootstrap`, `MintFold`, `SendSplit`, `ReceiveFold`, `RedeemSplit`, and
-hardware-only `Rotate`. Each `ReceiveFold` consumes exactly one durably staged
-credit, proves its ID was absent from the sparse-Merkle replay root, and updates
-that root. Wallets may stage any number of credits and perform these serialized
-folds continuously or synchronously before spending. The relation verifies the
-normalized GuardBundle and folds every prior proof obligation into constant-size
-history accumulators. No hop, note, input, origin, fan-in, ancestry, receipt
-count, historical transition count, or proof-depth field participates in
-admission.
-
-Conservation is enforced twice: circuits prove exact balance arithmetic, while
-the ledger maintains `reserve = total_topups - total_redemptions` with checked
-`u128` arithmetic and idempotent operation records. Peer transfers do not alter
-the reserve. Top-up finality is verified inside the mint helper and redemption
-proofs are terminally decided against the authenticated release artifacts; a
-host-side certificate check alone grants no monetary authority.
+instructions. The KAGEMUSHA V1 `TopUpKagemushaV1`, `TopUpKagemushaOrdinaryV1`
+and `RedeemKagemushaV1` instructions, their Torii adapter, the reserve and the
+hardware-bound recursion were deleted on 2026-10-05. The
+[single implementation draft](kagemusha_single_design_proposal.md) §6 defines
+load, unload and fee settlement; no ledger instruction implements it yet.
+Device-to-device payments never touch consensus state.

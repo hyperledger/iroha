@@ -658,6 +658,28 @@ fn signed_genesis_mount(settings: &GenesisArtifactSettings) -> Value {
     mount.insert("read_only".into(), Value::Bool(true));
     Value::Object(mount)
 }
+fn private_file_mount(source: String, target: &str) -> Value {
+    let mut bind = Map::new();
+    bind.insert("create_host_path".into(), Value::Bool(false));
+    let mut mount = Map::new();
+    mount.insert("bind".into(), Value::Object(bind));
+    mount.insert("type".into(), Value::String("bind".into()));
+    mount.insert("source".into(), Value::String(source));
+    mount.insert("target".into(), Value::String(target.to_owned()));
+    mount.insert("read_only".into(), Value::Bool(true));
+    Value::Object(mount)
+}
+fn private_config_mounts(runtime: Option<&PreparedRuntimeConfig>, peer_index: u16) -> Vec<Value> {
+    if runtime.is_some() {
+        return Vec::new();
+    }
+    vec![private_file_mount(
+        format!(
+            "${{IROHA_PEER{peer_index}_CONFIG_FILE:?set IROHA_PEER{peer_index}_CONFIG_FILE to this nodes existing owner-0600 TOML}}"
+        ),
+        CONTAINER_PEER_CONFIG,
+    )]
+}
 fn prepared_storage_name(runtime: &PreparedRuntimeConfig) -> String {
     format!("{}_data", runtime.compose_name_prefix)
 }
@@ -753,7 +775,8 @@ fn lowercase_hex(bytes: &[u8]) -> String {
 fn load_signed_genesis_and_run(runtime: Option<&PreparedRuntimeConfig>) -> String {
     let launch = runtime.map_or_else(
         || {
-            "export GENESIS_PUBLIC_KEY GENESIS GENESIS_EXPECTED_HASH_FILE && exec iroha3d"
+            "export GENESIS_PUBLIC_KEY GENESIS GENESIS_EXPECTED_HASH_FILE && \
+             exec iroha3d --config /config/peer.toml"
                 .to_owned()
         },
         |runtime| {
@@ -790,6 +813,19 @@ fn load_signed_genesis_and_run(runtime: Option<&PreparedRuntimeConfig>) -> Strin
             )
         },
     );
+    // Local Compose file binds retain host ownership and mode. Require originals and private
+    // projected TOML to be native owner-0600 files for the actual daemon UID; never pretend
+    // Compose secret uid/mode fields perform a cross-UID custody transfer.
+    let custody_checks = format!(
+        r#"require_private_file() {{
+        test -f \"$$1\" && test ! -L \"$$1\" && test -r \"$$1\" && test -s \"$$1\" &&
+        test \"$$(stat -c '%u:%a:%h' \"$$1\")\" = \"$$(id -u):600:1\" &&
+        test \"$$(wc -c < \"$$1\")\" -le \"$$2\" || {{
+            printf '%s\n' 'required configuration original is absent or lacks native owner-0600 single-link custody' >&2; exit 1;
+        }};
+    }} &&
+    require_private_file /config/peer.toml 8388608 &&"#
+    );
     format!(
         r#"/bin/sh -eu -c "
     GENESIS_PUBLIC_KEY_FILE=/run/secrets/iroha_genesis_public_key && \\
@@ -807,6 +843,7 @@ fn load_signed_genesis_and_run(runtime: Option<&PreparedRuntimeConfig>) -> Strin
     test -z \"$$(tail -c 1 < \"$$GENESIS_EXPECTED_HASH_FILE\")\" && \\
     IFS= read -r GENESIS_NETWORK_ID < \"$$GENESIS_EXPECTED_HASH_FILE\" && \\
     printf '%s\n' \"$$GENESIS_NETWORK_ID\" | grep -Eq '^hash:[0-9A-F]{{63}}[13579BDF]#[0-9A-F]{{4}}$$' && \\
+    {custody_checks}
     {launch}
 ""#
     )
@@ -823,6 +860,7 @@ where
     healthcheck: Option<Healthcheck>,
     genesis: &'a GenesisArtifactSettings,
     runtime: Option<&'a PreparedRuntimeConfig>,
+    peer_index: u16,
 }
 impl<'a, Image> Irohad<'a, Image>
 where
@@ -835,6 +873,7 @@ where
         healthcheck: bool,
         genesis: &'a GenesisArtifactSettings,
         runtime: Option<&'a PreparedRuntimeConfig>,
+        peer_index: u16,
     ) -> Self {
         Self {
             image,
@@ -846,6 +885,7 @@ where
             healthcheck: healthcheck.then_some(Healthcheck { port: port_api }),
             genesis,
             runtime,
+            peer_index,
         }
     }
     fn into_map(self) -> norito::json::Map {
@@ -865,6 +905,7 @@ where
             ),
         );
         let mut volumes = vec![signed_genesis_mount(self.genesis)];
+        volumes.extend(private_config_mounts(self.runtime, self.peer_index));
         if let Some(runtime) = self.runtime {
             volumes.push(prepared_storage_mount(runtime));
         }
@@ -955,6 +996,7 @@ impl<'a> BuildOrPull<'a> {
                     topology,
                     &trusted_peers_pop,
                     primary_info,
+                    *primary_index,
                 ),
             )),
             irohads: peers
@@ -970,6 +1012,7 @@ impl<'a> BuildOrPull<'a> {
                             topology,
                             &trusted_peers_pop,
                             info,
+                            *index,
                         ),
                     )
                 })
@@ -989,6 +1032,7 @@ impl<'a> BuildOrPull<'a> {
         topology: &'a std::collections::BTreeSet<iroha_data_model::peer::Peer>,
         trusted_peers_pop: &std::collections::BTreeMap<iroha_crypto::PublicKey, Vec<u8>>,
         peer_info: &'a peer::PeerInfo,
+        peer_index: u16,
     ) -> Irohad<'a, Image> {
         Irohad::new(
             image,
@@ -1005,6 +1049,7 @@ impl<'a> BuildOrPull<'a> {
             healthcheck,
             genesis,
             runtime,
+            peer_index,
         )
     }
     #[expect(
@@ -1035,6 +1080,7 @@ impl<'a> BuildOrPull<'a> {
                         topology,
                         trusted_peers_pop,
                         info,
+                        *index,
                     ),
                 )
             })
@@ -1267,7 +1313,7 @@ mod tests {
                 .expect("config in env should be exhaustive");
             let admitted = config
                 .parse()
-                .expect("generated environment must pass canonical config admission");
+                .expect("generated peer environment must pass config parsing");
             assert_eq!(
                 admitted.streaming.key_material.identity().public_key(),
                 &streaming_identity.0,

@@ -1,15 +1,20 @@
 # Generated instruction record identities
 
 `instruction_record_generated_identity_frames.json` contains immutable captures
-for the current instruction records and concrete generic instantiations. Its 332
-type rows preserve 375 populated values and 1,500 complete root, vector, option
+for the current instruction records and concrete generic instantiations. Its 327
+type rows preserve 370 populated values and 1,480 complete root, vector, option
 and map frames.
 
 The fixture SHA-256 is
-`fda9d3efe685fda3f368d5858fa80c6e00b2098965ead928a5446a5f84d81373`.
-`ClaimPublicLaneRewards` uses the required explicit fee-claim field and canonical
-XOR custody. Its native producer checks all four frame roundtrips; the nominal
-and directional identity hashes are unchanged.
+`4dcc87d9f3fd55847fb3a9609a2868c287d18254dcd822048c87bc9254c0a8ba`.
+`ClaimPublicLaneRewards` contains one mandatory exact authenticated fee claim
+against funded XOR custody. The manual recipient instruction and its record-ledger
+claim fields are removed. The external `staking_reward_identity_capture` native
+producer checks all four current claim frame roundtrips; the nominal and directional
+identity hashes are unchanged. The paired current codec-owner fixture removes the
+three retired reward-record models and retains 102 owners with 1,469 nominal
+identities. Current typed captures confirm unchanged identities for the revised
+validator and pending-reward records; the original 2026-09-27 report stays exact.
 The inventory excludes the three unimplemented citizen-bond operations; all
 other captured frame bytes remain unchanged except for the explicitly recorded
 current-protocol recaptures below. Names and directional hashes come from actual compiler captures before adding
@@ -73,13 +78,6 @@ unshield cases and printed the actual root, vector, option and map frames. The
 fixture proposal changed only those two cases; the temporary test was removed.
 The type's directional identity hashes and the other 320 rows are unchanged.
 
-`RedeemKagemushaV1` and `TopUpKagemushaV1` were recaptured on 2026-09-25
-after the terminal-body commitment and hardware credential binding changed.
-The temporary typed maintenance test identified exactly these two changed
-populated rows among the 51 missing-record producers. It supplied all four
-current frame forms for each row; the row identities, other 319 rows, and
-inventory counts are unchanged. The temporary test was removed after capture.
-
 `RegisterIdentifierPolicy`, both `ClaimIdentifier` cases, and
 `FinalizeElection` were recaptured on 2026-09-25 after first-release policy,
 receipt and exact `u128` tally changes. The two Claim cases were matched by
@@ -133,7 +131,7 @@ consensus effect that cancels that penalty. The merged first-release inventory r
 the current registry has 388 instructions (21 governance and 367 non-governance).
 These totals combine existing captures and are not a new native qualification run.
 
-The current capture contains 332 rows, 375 populated cases and 1,500 frame forms.
+That earlier checkpoint contains 332 rows, 375 populated cases and 1,500 frame forms.
 Earlier dated counts and checksums above describe only their original candidates.
 
 The completion-authority instruction cases bind distinct provider-owner and
@@ -169,3 +167,41 @@ exactly, including their container roundtrips. The digest assertion uses these
 authenticated fixture bytes. The post-correction native run passes all 335
 ordinary generated-record controls and repeats each complete capture identically.
 Integrated consumers and release qualification remain separate checks.
+
+The KAGEMUSHA `RedeemKagemushaV1` and `TopUpKagemushaV1` instructions left the
+built-in registry and the generated-record inventory on 2026-10-05. Their two
+rows were deleted from this fixture; no other row or byte changed. The fixture
+now holds 330 rows and 373 cases, and the missing-record producers number 50.
+
+On 2026-10-08, both `ClaimIdentifier` cases were recaptured after the signed
+identifier receipt gained its mandatory `network_id`. The maintained native
+`print_current_claim_identifier_fixture_cases` producer preserves the exact
+original outer accounts and case order, constructs current typed receipts, and
+verifies root, vector, option and map decode/compare/exact re-encode roundtrips.
+The two networkless root frames remain only as explicit negative controls in
+`claim_identifier_networkless_rejected_frames.json`; the current decoder rejects
+both. No networkless receipt decoder or production fallback is introduced.
+Only these two positive cases changed; all nominal and directional identities,
+the other 330 rows, and the 331-row, 374-case inventory remain unchanged.
+
+On 2026-10-11, the `SubmitSccpOutboundVoidV1` case was recaptured after the TRON
+profile left SCCP v1: its populated value named `SccpNetworkV1::TronMainnet`
+(tag `0x43`), which no longer decodes, and now names `BscMainnet` (tag `0x42`).
+The maintained `print_sccp_instruction_record_fixture_rows` producer printed all
+ten SCCP rows from the current typed samples with root, vector, option and map
+roundtrips; only this row's four frames differ from the earlier capture (the
+network tag and the frame checksum). Its nominal and directional identities, the
+other 329 rows and the 330-row, 373-case inventory are unchanged. The retired
+tag is covered by the negative decode tests of `SccpNetworkV1`.
+
+Later on 2026-10-11, the SCCP attestation transport was removed (`specs/sccp.md`
+revision 5): the rows of `SetSccpBridgeKeyV1`, `SubmitSccpAttestationsV1` and
+`SubmitSccpAttestationFaultV1` were deleted with their instructions, and the
+`InitializeSccpV1` case was recaptured because `SccpParametersV1` became the
+complete fifteen-field table of §4.1. The same producer printed the seven
+remaining SCCP rows; the four `InitializeSccpV1` frames are the only frames that
+differ, and its nominal and directional identities are unchanged. The rows were
+applied by script (three deletions and one replacement, with the fixture's own
+JSON formatting) rather than by a complete native capture. The other 326 rows
+are byte-identical, and the inventory holds 327 rows and 370 cases. The retired
+wire identifiers are covered by `retired_sccp_wire_ids_are_unregistered`.

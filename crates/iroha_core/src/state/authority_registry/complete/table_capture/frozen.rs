@@ -8,8 +8,9 @@
 //! domain-owner, account-identity, account-alias, asset-definition, asset-balance,
 //! escrow, repo-agreement, NFT/RWA, account-rekey and trigger action/contract adapters check bounded relations.
 //!
-//! TODO: adapt every remaining semantic group and Musubi semantic source
-//! and membership pair/frontier. Then retain every canonical cell and history
+//! TODO: adapt every remaining semantic group and Musubi source. The grouped
+//! membership successor retains its exact admitted original pair/frontier and
+//! awaits complete publication integration. Then retain every canonical cell and history
 //! owner, jointly verify all original owners/modes/predecessors, and integrate
 //! with the sole StatePublication owner. There is deliberately no aggregate
 //! success, publication hook, complete root, finality token or alternate policy.
@@ -32,6 +33,9 @@ enum Failure {
     /// The table still needs its actual original structural/semantic/group owner.
     #[error("original frozen State table adapter is incomplete: {0}")]
     MissingAdapter(&'static str),
+    /// The indivisible membership pair and frontier use the grouped API.
+    #[error("original membership requires its complete grouped capture")]
+    MembershipGroupRequired,
     /// Static catalog identity/group requirements failed before any source access.
     #[error(transparent)]
     Catalog(#[from] TableCaptureError),
@@ -187,8 +191,11 @@ pub(in crate::state) fn capture_original_table_once(
             id: "triggers.contracts",
             ..
         } => super::super::frozen_trigger_contracts::capture(block, limits, max_relation_work),
-        // The two membership outputs must eventually come from one original
-        // owner together with its frontier, never independent raw callbacks.
+        // A per-table response must not detach either root from the actual frontier.
+        TableMaterializer::TransactionMembership => {
+            return Err(Failure::MembershipGroupRequired.into());
+        }
+        // Remaining semantic/structural groups need their own original frozen sources.
         // The same rule applies to all semantic/structural checked groups.
         _ => {
             let identity = owner
@@ -213,6 +220,57 @@ pub(in crate::state) fn capture_original_table_once(
         }
     }
     Ok(result)
+}
+
+/// A grouped refusal never exposes a partial root or drops its frontier.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error(transparent)]
+pub(in crate::state) struct FrozenMembershipCaptureError(#[from] MembershipFailure);
+
+impl FrozenMembershipCaptureError {
+    /// Borrow the exact original local capture error without changing its cause or scope.
+    pub(in crate::state) fn membership_error(
+        &self,
+    ) -> Option<&super::super::transaction_membership::MembershipCaptureError> {
+        match &self.0 {
+            MembershipFailure::Source(error) => Some(error),
+            MembershipFailure::Catalog(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum MembershipFailure {
+    #[error(transparent)]
+    Catalog(#[from] TableCaptureError),
+    #[error(transparent)]
+    Source(#[from] super::super::transaction_membership::MembershipCaptureError),
+}
+
+/// Encode both membership maps and the frontier from the existing original publisher.
+/// Uses its exact State execution-pool refund scope; no committed writer is reopened.
+/// Partial/unprepared, foreign and terminal source phases return no usable group.
+/// No complete-State commitment, finalized anchor or restoration capability is issued.
+pub(in crate::state) fn capture_original_membership_once(
+    block: &StateBlock<'_>,
+    scope: &iroha_allocation::AllocationScope<'_>,
+    limits: LeafLimits,
+    work: super::super::transaction_membership::MembershipWorkLimits,
+    remaining_rows: u64,
+) -> Result<
+    Option<super::super::transaction_membership::CapturedMembershipTables>,
+    FrozenMembershipCaptureError,
+> {
+    require_exact_table_materializers(STATE_FIELDS, TABLE_MATERIALIZERS)
+        .map_err(|error| FrozenMembershipCaptureError(MembershipFailure::Catalog(error)))?;
+    super::super::transaction_membership::capture_original_membership_group_once(
+        block,
+        scope,
+        limits,
+        work,
+        remaining_rows,
+    )
+    .map_err(|error| FrozenMembershipCaptureError(MembershipFailure::Source(error)))
 }
 
 #[cfg(test)]

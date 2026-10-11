@@ -259,8 +259,8 @@ impl ManagedStore {
         let lock = directory.open_lock("call.lock")?;
         lock.try_lock()
             .map_err(|_| Error::Busy(selected.name.clone()))?;
-        match directory.read("active-journal", 64) {
-            Ok(bytes) => {
+        match directory.read_optional("active-journal", 64)? {
+            Some(bytes) => {
                 let id = std::str::from_utf8(&bytes).map_err(invalid)?;
                 journal_id(id)?;
                 if matches!(
@@ -275,8 +275,7 @@ impl ManagedStore {
                     )));
                 }
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
+            None => {}
         }
         let (intent, payload) = trusted_contract_intent(
             contract.artifact(),

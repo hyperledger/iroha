@@ -1,12 +1,9 @@
 //! Cryptographic custody evidence for an exact prepared beacon seat.
 
 use iroha_crypto::Hash;
-use iroha_data_model::sumeragi::epoch::BeaconEpochBindingV1;
 use iroha_data_model::{
-    consensus::GlobalThresholdBeaconPartialSignatureV1,
-    isi::kagemusha_v1::{
-        KagemushaMintFinalityAuthorityGenerationV1, KagemushaMintFinalitySeatReadinessContextV1,
-    },
+    consensus::GlobalThresholdBeaconPartialSignatureV1, nexus::ValidatorSeatReadinessContextV1,
+    sumeragi::epoch::ValidatorGenerationV1,
 };
 use thiserror::Error;
 
@@ -20,7 +17,7 @@ const READINESS_DOMAIN: &[u8] = b"iroha.global-threshold-beacon.prepared-seat-re
 /// Closed errors for proof-bearing prepared-seat custody checks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum GlobalThresholdBeaconSeatReadinessErrorV1 {
-    /// The authority, preparation context, session or exact seat is inconsistent.
+    /// The generation, preparation context, session or exact seat is inconsistent.
     #[error("prepared beacon seat readiness binding is invalid")]
     InvalidBinding,
     /// The exact live share is unavailable or its owner cannot produce a proof.
@@ -39,35 +36,23 @@ pub enum GlobalThresholdBeaconSeatReadinessErrorV1 {
 /// Rejects malformed contexts and mismatched network, committee, session, transcript or seat.
 pub fn global_threshold_beacon_seat_readiness_challenge_v1(
     session: &ValidatedGlobalThresholdBeaconSessionV1,
-    authority: &KagemushaMintFinalityAuthorityGenerationV1,
-    context: &KagemushaMintFinalitySeatReadinessContextV1,
+    generation: &ValidatorGenerationV1,
+    context: &ValidatorSeatReadinessContextV1,
 ) -> Result<(Hash, u16), GlobalThresholdBeaconSeatReadinessErrorV1> {
     use GlobalThresholdBeaconSeatReadinessErrorV1::InvalidBinding;
-    authority.validate().map_err(|_| InvalidBinding)?;
     context.validate().map_err(|_| InvalidBinding)?;
-    if context.network_id != authority.network_id
-        || context.authority_generation != authority.generation
-        || context.authority_id != authority.authority_id().map_err(|_| InvalidBinding)?
+    if context.network_id != generation.network_id
+        || context.authority_generation != generation.generation
+        || context.authority_id != generation.generation_id().map_err(|_| InvalidBinding)?
         || session.record().network_id != context.network_id
+        || context.beacon.session_id != session.record().session_id
+        || context.beacon.transcript_hash != session.record().transcript_hash
     {
         return Err(InvalidBinding);
     }
-    let BeaconEpochBindingV1::Installed(binding) = context.beacon else {
-        return Err(InvalidBinding);
-    };
-    if binding.session_id != session.record().session_id
-        || binding.transcript_hash != session.record().transcript_hash
-    {
-        return Err(InvalidBinding);
-    }
-    let peers = authority
-        .validators
-        .iter()
-        .map(|keys| keys.validator.clone())
-        .collect::<Vec<_>>();
-    authenticated_global_threshold_beacon_roster_hash_v1(session.record(), &peers)
+    authenticated_global_threshold_beacon_roster_hash_v1(session.record(), &generation.validators)
         .map_err(|_| InvalidBinding)?;
-    let keys = authority
+    let validator = generation
         .validators
         .get(usize::try_from(context.validator_index).map_err(|_| InvalidBinding)?)
         .ok_or(InvalidBinding)?;
@@ -75,7 +60,9 @@ pub fn global_threshold_beacon_seat_readiness_challenge_v1(
         .ok()
         .and_then(|index| index.checked_add(1))
         .ok_or(InvalidBinding)?;
-    let context_digest = context.signing_digest(keys).map_err(|_| InvalidBinding)?;
+    let context_digest = context
+        .signing_digest(validator)
+        .map_err(|_| InvalidBinding)?;
     let challenge = Hash::new_from_chunks(&[READINESS_DOMAIN, &context_digest]);
     Ok((challenge, signer_index))
 }
@@ -84,7 +71,7 @@ pub fn global_threshold_beacon_seat_readiness_challenge_v1(
 /// Prove actual threshold-share custody for one exact target seat and frozen attempt.
 ///
 /// The challenge is disjoint from pulse payloads and binds the full scheduling/readiness context,
-/// both Pasta public keys and the exact ordered DKG roster. This proof neither activates a session
+/// the seat occupant and the exact ordered DKG roster. This proof neither activates a session
 /// nor authorizes a pulse. The incumbent transition certificate must authenticate its context.
 ///
 /// # Errors
@@ -92,24 +79,24 @@ pub fn global_threshold_beacon_seat_readiness_challenge_v1(
 pub fn prove_global_threshold_beacon_seat_readiness_v1(
     provider: &dyn GlobalThresholdBeaconPartialSignerV1,
     session: &ValidatedGlobalThresholdBeaconSessionV1,
-    authority: &KagemushaMintFinalityAuthorityGenerationV1,
-    context: &KagemushaMintFinalitySeatReadinessContextV1,
+    generation: &ValidatorGenerationV1,
+    context: &ValidatorSeatReadinessContextV1,
 ) -> Result<GlobalThresholdBeaconPartialSignatureV1, GlobalThresholdBeaconSeatReadinessErrorV1> {
-    global_threshold_beacon_seat_readiness_challenge_v1(session, authority, context)?;
-    let proof = provider.prove_seat_readiness(session, authority, context)?;
-    verify_global_threshold_beacon_seat_readiness_v1(session, authority, context, &proof)?;
+    global_threshold_beacon_seat_readiness_challenge_v1(session, generation, context)?;
+    let proof = provider.prove_seat_readiness(session, generation, context)?;
+    verify_global_threshold_beacon_seat_readiness_v1(session, generation, context, &proof)?;
     Ok(proof)
 }
 
 pub(super) fn prove_with_partial_signer<P: GlobalThresholdBeaconPartialSignerV1 + ?Sized>(
     provider: &P,
     session: &ValidatedGlobalThresholdBeaconSessionV1,
-    authority: &KagemushaMintFinalityAuthorityGenerationV1,
-    context: &KagemushaMintFinalitySeatReadinessContextV1,
+    generation: &ValidatorGenerationV1,
+    context: &ValidatorSeatReadinessContextV1,
 ) -> Result<GlobalThresholdBeaconPartialSignatureV1, GlobalThresholdBeaconSeatReadinessErrorV1> {
     use GlobalThresholdBeaconSeatReadinessErrorV1::CustodyUnavailable;
     let (challenge, index) =
-        global_threshold_beacon_seat_readiness_challenge_v1(session, authority, context)?;
+        global_threshold_beacon_seat_readiness_challenge_v1(session, generation, context)?;
     let capability = provider
         .attest_partial_signing_capability(session, index)
         .map_err(|_| CustodyUnavailable)?;
@@ -119,7 +106,7 @@ pub(super) fn prove_with_partial_signer<P: GlobalThresholdBeaconPartialSignerV1 
     let proof = provider
         .sign_partial(session, challenge.as_ref())
         .map_err(|_| CustodyUnavailable)?;
-    verify_global_threshold_beacon_seat_readiness_v1(session, authority, context, &proof)?;
+    verify_global_threshold_beacon_seat_readiness_v1(session, generation, context, &proof)?;
     Ok(proof)
 }
 
@@ -132,13 +119,13 @@ pub(super) fn prove_with_partial_signer<P: GlobalThresholdBeaconPartialSignerV1 
 /// Rejects wrong contexts, sessions, rosters, seats and malformed or replayed custody proofs.
 pub fn verify_global_threshold_beacon_seat_readiness_v1(
     session: &ValidatedGlobalThresholdBeaconSessionV1,
-    authority: &KagemushaMintFinalityAuthorityGenerationV1,
-    context: &KagemushaMintFinalitySeatReadinessContextV1,
+    generation: &ValidatorGenerationV1,
+    context: &ValidatorSeatReadinessContextV1,
     proof: &GlobalThresholdBeaconPartialSignatureV1,
 ) -> Result<(), GlobalThresholdBeaconSeatReadinessErrorV1> {
     use GlobalThresholdBeaconSeatReadinessErrorV1::InvalidProof;
     let (challenge, index) =
-        global_threshold_beacon_seat_readiness_challenge_v1(session, authority, context)?;
+        global_threshold_beacon_seat_readiness_challenge_v1(session, generation, context)?;
     if proof.session_id != session.record().session_id || proof.signer_index != index {
         return Err(InvalidProof);
     }
@@ -161,7 +148,7 @@ mod tests {
     use iroha_crypto::{Algorithm, KeyPair};
     use iroha_data_model::sumeragi::epoch::InstalledBeaconEpochBindingV1;
     use iroha_data_model::{
-        block::consensus::ValidatorPower, isi::kagemusha_v1::KAGEMUSHA_CHAIN_VERSION_V1,
+        block::consensus::ValidatorPower, testing::sumeragi_epoch::validator_generation,
     };
     use iroha_model_base::peer::PeerId;
 
@@ -191,22 +178,21 @@ mod tests {
                 power: 1,
             })
             .collect::<Vec<_>>();
-        let authority =
-            crate::kagemusha_v1_test_fixtures::mint_finality_authority(dkg.network_id, 1, &roster);
-        let context = KagemushaMintFinalitySeatReadinessContextV1 {
-            version: KAGEMUSHA_CHAIN_VERSION_V1,
+        let authority = validator_generation(dkg.network_id, 1, &roster);
+        let context = ValidatorSeatReadinessContextV1 {
+            version: 1,
             network_id: dkg.network_id,
             transition_id: [0xA1; 32],
             target_epoch: 2,
             authority_generation: 1,
-            authority_id: authority.authority_id().unwrap(),
+            authority_id: authority.generation_id().unwrap(),
             first_height: 201,
             last_height: 300,
             validator_index: 0,
-            beacon: BeaconEpochBindingV1::Installed(InstalledBeaconEpochBindingV1 {
+            beacon: InstalledBeaconEpochBindingV1 {
                 session_id: fixture.session.record().session_id,
                 transcript_hash: fixture.session.record().transcript_hash,
-            }),
+            },
         };
         let custody = RuntimeGlobalThresholdBeaconShareCustodyV1::new();
         assert_eq!(
@@ -266,13 +252,7 @@ mod tests {
                 4 => changed.authority_generation += 1,
                 5 => changed.authority_id[0] ^= 1,
                 6 => changed.validator_index = 1,
-                _ => {
-                    changed.beacon =
-                        BeaconEpochBindingV1::Installed(InstalledBeaconEpochBindingV1 {
-                            session_id: fixture.session.record().session_id,
-                            transcript_hash: [0xA2; 32],
-                        })
-                }
+                _ => changed.beacon.transcript_hash = [0xA2; 32],
             }
             assert!(
                 verify_global_threshold_beacon_seat_readiness_v1(
@@ -309,7 +289,7 @@ mod tests {
             .is_err()
         );
         let mut other_authority = authority.clone();
-        other_authority.validators[0].eq_proof_public_key[0] ^= 1;
+        other_authority.generation += 1;
         assert!(
             verify_global_threshold_beacon_seat_readiness_v1(
                 &fixture.session,

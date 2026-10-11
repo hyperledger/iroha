@@ -33,7 +33,7 @@ use curve25519_dalek::edwards::CompressedEdwardsY;
 use ed25519_dalek::SigningKey;
 use iroha_config::parameters::actual::SccpTonLiteserver;
 use iroha_sccp_rpc::{
-    endpoints::{Backoff, FailoverPolicy, Sleeper},
+    endpoints::{Backoff, FailoverPolicy, PollBudget, Sleeper, start_index},
     ton::{
         AccountId, AdnlConnection, AdnlError, BlockId, BlockIdExt, LiteAnswer, LiteClient,
         LiteClientConfig, LiteClientError, LiteQuery, LiteServer, LiteServerSet, LookupKey, Stage,
@@ -938,7 +938,8 @@ fn lite_server_errors_are_typed_and_fail_over_by_code() {
     let second = replay_server(&recording, "errors second");
     let client = client(&[&first, &second], config(Duration::from_secs(10)), 1);
 
-    // A rejected external message is an answer: the second server is not asked.
+    // A rejected external message is an answer: the second server is not
+    // asked, but the next query starts there.
     let error = client
         .send_message(vec![0, 1, 2])
         .expect_err("rejected message");
@@ -948,6 +949,7 @@ fn lite_server_errors_are_typed_and_fail_over_by_code() {
     assert_eq!(answer.code, 0);
     assert!(answer.message.contains("cannot deserialize bag-of-cells"));
     assert_eq!(second.stats.connections.load(Ordering::SeqCst), 0);
+    assert_eq!(client.servers().preferred(), 1);
 
     // "Not ready" (651) moves on to the next liteserver, which knows no more.
     let missing = &recording.exchange("error_block_not_found").request;
@@ -959,11 +961,23 @@ fn lite_server_errors_are_typed_and_fail_over_by_code() {
         panic!("unexpected {error:?}");
     };
     assert_eq!(failures.len(), 2);
+    let order: Vec<&str> = failures
+        .iter()
+        .map(|failure| failure.server.as_str())
+        .collect();
+    assert_eq!(
+        order,
+        [second.server().label(), first.server().label()],
+        "the query started at the second liteserver"
+    );
     assert_eq!(error.lite_server_error().map(|error| error.code), Some(651));
     assert!(error.to_string().contains("651"));
-    // liteServer.error answers keep the sessions open.
-    assert_eq!(first.stats.connections.load(Ordering::SeqCst), 1);
+    // liteServer.error answers keep the session open; the one session moved
+    // from the first liteserver to the second and back.
+    assert_eq!(first.stats.connections.load(Ordering::SeqCst), 2);
     assert_eq!(second.stats.connections.load(Ordering::SeqCst), 1);
+    assert_eq!(first.stats.queries().len(), 2);
+    assert_eq!(second.stats.queries().len(), 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -1024,6 +1038,90 @@ fn timeouts_fail_over_and_drop_the_session() {
         }
     )));
     assert!(!alone.is_connected());
+}
+
+#[test]
+fn answers_above_the_query_cap_fail_over_unread() {
+    let recording = Arc::new(Recording::load());
+    // A `getTime` answer far above its cap (but within the packet bound).
+    let bloated = MockLiteServer::start(
+        signing_key("bloated"),
+        Arc::new(|_: &[u8]| Reply::Answer(vec![0; schema::SMALL_ANSWER_BYTES + 1_024])),
+    );
+    let healthy = replay_server(&recording, "after bloat");
+    let client = client(&[&bloated, &healthy], config(Duration::from_secs(10)), 1);
+    assert!(LiteQuery::GetTime.max_answer_bytes() < client.config().max_packet_bytes);
+    let time = client.get_time().expect("second liteserver");
+    assert!(time.now > 1_700_000_000);
+    assert_eq!(client.servers().preferred(), 1);
+
+    let (error, connected) = only_failure(&bloated, config(Duration::from_secs(10)));
+    assert!(
+        matches!(
+            error,
+            LiteClientError::Adnl {
+                stage: Stage::Query,
+                error: AdnlError::PacketTooLarge { limit, .. },
+                ..
+            } if limit == adnl::answer_packet_bytes(schema::SMALL_ANSWER_BYTES)
+        ),
+        "{error:?}"
+    );
+    assert!(!connected, "the unread packet breaks the session");
+}
+
+#[test]
+fn poll_budgets_bound_liteserver_queries() {
+    let recording = Arc::new(Recording::load());
+    let stalled = MockLiteServer::start(
+        signing_key("budget stalled"),
+        Arc::new(|_: &[u8]| Reply::Stall(Duration::from_secs(1))),
+    );
+    let healthy = replay_server(&recording, "budget healthy");
+    let budget = PollBudget::new();
+    let client = client(&[&stalled, &healthy], config(Duration::from_secs(5)), 2)
+        .with_budget(budget.clone());
+    {
+        let _poll = budget.start(Duration::from_millis(300));
+        let started = Instant::now();
+        let error = client.get_time().expect_err("budget runs out");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
+        let LiteClientError::BudgetExhausted { failures } = &error else {
+            panic!("unexpected {error:?}");
+        };
+        assert_eq!(failures.len(), 1);
+        assert!(
+            healthy.stats.queries().is_empty(),
+            "no attempt past the budget"
+        );
+    }
+    // Without a deadline the query fails over as usual.
+    assert!(client.get_time().expect("second liteserver").now > 1_700_000_000);
+}
+
+#[test]
+fn keeper_lists_start_at_seeded_liteservers() {
+    let recording = Arc::new(Recording::load());
+    let servers: Vec<MockLiteServer> = (0..3)
+        .map(|index| replay_server(&recording, &format!("seeded {index}")))
+        .collect();
+    let mut seeds = [None; 3];
+    for seed in 0_u64..256 {
+        seeds[start_index(seed, 3)].get_or_insert(seed);
+    }
+    for (index, seed) in seeds.into_iter().enumerate() {
+        let seed = seed.expect("every index is some seed's start");
+        let set = LiteServerSet::new(servers.iter().map(MockLiteServer::server))
+            .expect("servers")
+            .with_seeded_start(seed);
+        let client = LiteClient::new(set, config(Duration::from_secs(10)), policy(1));
+        client.get_time().expect("seeded liteserver");
+        assert_eq!(servers[index].stats.queries().len(), 1, "seed {seed}");
+    }
 }
 
 /// A single-server client whose only attempt fails; returns that failure.

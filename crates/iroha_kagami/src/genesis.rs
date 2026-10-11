@@ -1,105 +1,48 @@
-//! Genesis authority provisioning, validation, and signing commands.
+//! Genesis generation, materialization, validation, and signing commands.
 use crate::{Outcome, RunArgs};
 use clap::Subcommand;
 use color_eyre::eyre::eyre;
 use iroha_genesis::RawGenesisTransaction;
 use std::io::{BufWriter, Write};
 
-pub fn ensure_kagemusha_mint_finality_generation_zero_authority_matches_topology(
-    manifest: &RawGenesisTransaction,
-    topology: &[iroha_model_base::peer::PeerId],
-) -> color_eyre::Result<()> {
-    iroha_core_zk::kagemusha_v1_recursion::validate_kagemusha_mint_finality_genesis_parameter_keys_v1(
-        manifest.kagemusha_mint_finality_genesis_parameters(),
-    )
-    .map_err(|error| eyre!("invalid KAGEMUSHA mint-finality public parameters: {error}"))?;
-    let mut expected = topology.to_vec();
-    expected.sort();
-    let parameters = manifest.kagemusha_mint_finality_genesis_parameters();
-    let current = parameters
-        .authority_generation
-        .validators
-        .iter()
-        .map(|entry| entry.validator.clone())
-        .collect::<Vec<_>>();
-    if current != expected {
-        return Err(eyre!(
-            "signed KAGEMUSHA mint-finality generation-zero authority does not match the exact genesis topology"
-        ));
-    }
-    Ok(())
-}
-
-pub fn ensure_kagemusha_mint_finality_schedule_matches_consensus(
+/// Check the signed scheduling parameters against the manifest's consensus mode.
+///
+/// # Errors
+/// Returns an error when NPoS parameters disagree with the consensus mode or the initial epoch
+/// cannot contain its committed beacon anchor and pulse.
+pub fn ensure_genesis_schedule_matches_consensus(
     manifest: &RawGenesisTransaction,
 ) -> color_eyre::Result<()> {
     manifest.validate_mode_specific_consensus_parameters()
+}
+
+/// Check that a nonempty genesis topology is an exact supported committee.
+///
+/// The ordered BLS roster of this topology is validator generation zero.
+///
+/// # Errors
+/// Returns an error when the topology is not an exact `3f + 1` committee or repeats a peer.
+pub fn ensure_genesis_topology_is_generation_zero(
+    manifest: &RawGenesisTransaction,
+) -> color_eyre::Result<()> {
+    manifest.validate_genesis_topology()
 }
 
 #[cfg(test)]
 fn complete_test_genesis_builder(
     builder: iroha_genesis::GenesisBuilder,
 ) -> iroha_genesis::GenesisBuilder {
-    use iroha_crypto::{Algorithm, KeyPair};
-    use iroha_model_base::peer::PeerId;
-
-    let validators = (0_u8..4)
-        .map(|index| {
-            PeerId::new(
-                KeyPair::try_from_seed(vec![0x20_u8.wrapping_add(index); 32], Algorithm::BlsNormal)
-                    .expect("derive deterministic Kagami test validator")
-                    .public_key()
-                    .clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    complete_test_genesis_builder_for_peers(builder, validators)
+    builder.with_sumeragi_context_parameters(
+        iroha_data_model::block::consensus::SumeragiGenesisContextParameters::recommended(),
+    )
 }
 
 #[cfg(test)]
-/// Complete fixture context and mint-finality authority for the exact supplied peers.
-pub fn complete_test_genesis_builder_for_peers(
-    builder: iroha_genesis::GenesisBuilder,
-    mut validators: Vec<iroha_model_base::peer::PeerId>,
-) -> iroha_genesis::GenesisBuilder {
-    use iroha_data_model::{
-        block::consensus::SumeragiGenesisContextParameters,
-        isi::kagemusha_v1::{
-            KAGEMUSHA_CHAIN_VERSION_V1, KagemushaMintFinalityAuthorityGenerationTemplateV1,
-            KagemushaMintFinalityGenesisParametersV1,
-        },
-    };
-
-    validators.sort();
-    let validators = validators
-        .into_iter()
-        .enumerate()
-        .map(|(index, validator)| {
-            iroha_core_zk::kagemusha_v1_recursion::derive_kagemusha_mint_finality_validator_keys_v1(
-                &[0xA0_u8.wrapping_add(u8::try_from(index).expect("small test roster")); 32],
-                0,
-                validator,
-            )
-            .expect("derive deterministic Kagami test Pasta keys")
-        })
-        .collect();
-    builder
-        .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-        .with_kagemusha_mint_finality_genesis_parameters(KagemushaMintFinalityGenesisParametersV1 {
-            authority_generation: KagemushaMintFinalityAuthorityGenerationTemplateV1 {
-                version: KAGEMUSHA_CHAIN_VERSION_V1,
-                generation: 0,
-                validators,
-            },
-        })
-}
-
-#[cfg(test)]
-/// Complete test genesis builders with the required first-release authority.
+/// Complete test genesis builders with the required signed Sumeragi context.
 pub trait CompleteTestGenesisBuilder {
-    /// Install required context and authority for a deterministic four-validator fixture.
+    /// Install the required signed context for a deterministic fixture.
     fn complete_for_test(self) -> Self;
-    /// Install the supplied topology and its matching context and mint-finality authority.
+    /// Install the supplied topology and the required signed context.
     fn set_topology_for_test(self, topology: Vec<iroha_genesis::GenesisTopologyEntry>) -> Self;
 }
 
@@ -110,8 +53,7 @@ impl CompleteTestGenesisBuilder for iroha_genesis::GenesisBuilder {
     }
 
     fn set_topology_for_test(self, topology: Vec<iroha_genesis::GenesisTopologyEntry>) -> Self {
-        let validators = topology.iter().map(|entry| entry.peer.clone()).collect();
-        complete_test_genesis_builder_for_peers(self.set_topology(topology), validators)
+        complete_test_genesis_builder(self.set_topology(topology))
     }
 }
 
@@ -123,117 +65,47 @@ mod authority_tests {
         Parameter,
         system::{SumeragiConsensusMode, SumeragiNposParameters},
     };
-    use iroha_genesis::GenesisBuilder;
+    use iroha_genesis::{GenesisBuilder, GenesisTopologyEntry};
     use iroha_model_base::chain::ChainId;
     use iroha_model_base::peer::PeerId;
     use std::{num::NonZeroU64, path::PathBuf};
 
-    fn test_peers(seed_prefix: u8) -> Vec<PeerId> {
-        let mut peers = (0_u8..4)
+    fn test_topology(seed_prefix: u8, count: u8) -> Vec<GenesisTopologyEntry> {
+        let mut topology = (0_u8..count)
             .map(|index| {
-                PeerId::new(
-                    KeyPair::try_from_seed(
-                        vec![seed_prefix.wrapping_add(index); 32],
-                        Algorithm::BlsNormal,
-                    )
-                    .expect("derive deterministic authority test validator")
-                    .public_key()
-                    .clone(),
+                let key = KeyPair::try_from_seed(
+                    vec![seed_prefix.wrapping_add(index); 32],
+                    Algorithm::BlsNormal,
                 )
+                .expect("derive deterministic genesis test validator");
+                let pop = iroha_crypto::bls_normal_pop_prove(key.private_key())
+                    .expect("derive deterministic genesis test PoP");
+                GenesisTopologyEntry::new(PeerId::new(key.public_key().clone()), pop)
             })
             .collect::<Vec<_>>();
-        peers.sort();
-        peers
+        topology.sort_by(|left, right| left.peer.cmp(&right.peer));
+        topology
     }
 
     #[test]
-    fn genesis_topology_checks_generation_zero_independently_of_epoch_length() {
-        let current = test_peers(0x30);
-        for epoch_length in [3, 3_600] {
-            let npos = SumeragiNposParameters {
-                epoch_length_blocks: NonZeroU64::new(epoch_length).unwrap(),
-                evidence_horizon_blocks: 1,
-                slashing_delay_blocks: 1,
-                ..SumeragiNposParameters::default()
-            };
-            let manifest = complete_test_genesis_builder_for_peers(
-                GenesisBuilder::new_without_executor(
-                    ChainId::from("generation-zero-authority"),
-                    PathBuf::from("."),
-                )
-                .append_parameter(Parameter::Custom(npos.into_custom_parameter()))
-                .append_parameter(Parameter::Sumeragi(
-                    iroha_data_model::parameter::system::SumeragiParameter::EpochLengthBlocks(
-                        NonZeroU64::new(epoch_length).unwrap(),
-                    ),
-                )),
-                current.clone(),
-            )
-            .build_raw()
-            .expect("complete generation-zero fixture")
-            .with_consensus_mode(SumeragiConsensusMode::Npos);
-            ensure_kagemusha_mint_finality_generation_zero_authority_matches_topology(
-                &manifest, &current,
-            )
-            .expect("generation-zero authority matches the genesis topology");
-            ensure_kagemusha_mint_finality_schedule_matches_consensus(&manifest)
-                .expect("scheduling epochs do not create extra key generations");
-        }
-    }
-
-    #[test]
-    fn genesis_topology_check_rejects_another_authority() {
-        let current = test_peers(0x70);
-        let manifest = complete_test_genesis_builder_for_peers(
-            GenesisBuilder::new_without_executor(
-                ChainId::from("wrong-genesis-authority"),
-                PathBuf::from("."),
-            ),
-            current,
+    fn genesis_topology_is_generation_zero_only_as_an_exact_committee() {
+        let manifest = GenesisBuilder::new_without_executor(
+            ChainId::from("generation-zero-topology"),
+            PathBuf::from("."),
         )
-        .build_raw()
-        .expect("complete authority fixture");
-        let _ = ensure_kagemusha_mint_finality_generation_zero_authority_matches_topology(
-            &manifest,
-            &test_peers(0x90),
-        )
-        .expect_err("another committee cannot replace the genesis authority");
-    }
-
-    #[test]
-    fn generation_zero_topology_requires_the_exact_initial_authority() {
-        let current = test_peers(0x30);
-        let manifest = complete_test_genesis_builder_for_peers(
-            GenesisBuilder::new_without_executor(
-                ChainId::from("initial-authority"),
-                PathBuf::from("."),
-            ),
-            current.clone(),
-        )
+        .set_topology_for_test(test_topology(0x30, 4))
         .build_raw()
         .expect("complete generation-zero manifest");
-        ensure_kagemusha_mint_finality_generation_zero_authority_matches_topology(
-            &manifest, &current,
+        ensure_genesis_topology_is_generation_zero(&manifest)
+            .expect("an exact 3f+1 topology is generation zero");
+        let short = GenesisBuilder::new_without_executor(
+            ChainId::from("generation-zero-short-topology"),
+            PathBuf::from("."),
         )
-        .expect("the exact initial committee owns the generation-zero keys");
-        assert!(
-            ensure_kagemusha_mint_finality_generation_zero_authority_matches_topology(
-                &manifest,
-                &test_peers(0x50)
-            )
-            .is_err()
-        );
-        let mut parameters = manifest
-            .kagemusha_mint_finality_genesis_parameters()
-            .clone();
-        parameters.authority_generation.generation = 1;
-        let invalid = manifest.with_kagemusha_mint_finality_genesis_parameters(parameters);
-        assert!(
-            ensure_kagemusha_mint_finality_generation_zero_authority_matches_topology(
-                &invalid, &current
-            )
-            .is_err()
-        );
+        .set_topology_for_test(test_topology(0x30, 3))
+        .build_raw()
+        .expect("complete short manifest");
+        assert!(ensure_genesis_topology_is_generation_zero(&short).is_err());
     }
 
     #[test]
@@ -245,23 +117,21 @@ mod authority_tests {
                 slashing_delay_blocks: length,
                 ..SumeragiNposParameters::default()
             };
-            let manifest = complete_test_genesis_builder_for_peers(
-                GenesisBuilder::new_without_executor(
-                    ChainId::from("initial-beacon-window"),
-                    PathBuf::from("."),
-                )
-                .append_parameter(Parameter::Custom(npos_parameters.into_custom_parameter()))
-                .append_parameter(Parameter::Sumeragi(
-                    iroha_data_model::parameter::system::SumeragiParameter::EpochLengthBlocks(
-                        NonZeroU64::new(length).unwrap(),
-                    ),
-                )),
-                test_peers(0x70),
+            let manifest = GenesisBuilder::new_without_executor(
+                ChainId::from("initial-beacon-window"),
+                PathBuf::from("."),
             )
+            .append_parameter(Parameter::Custom(npos_parameters.into_custom_parameter()))
+            .append_parameter(Parameter::Sumeragi(
+                iroha_data_model::parameter::system::SumeragiParameter::EpochLengthBlocks(
+                    NonZeroU64::new(length).unwrap(),
+                ),
+            ))
+            .set_topology_for_test(test_topology(0x70, 4))
             .build_raw()
-            .expect("complete authority manifest")
+            .expect("complete schedule manifest")
             .with_consensus_mode(SumeragiConsensusMode::Npos);
-            let result = ensure_kagemusha_mint_finality_schedule_matches_consensus(&manifest);
+            let result = ensure_genesis_schedule_matches_consensus(&manifest);
             if length < 3 {
                 assert!(
                     result
@@ -270,9 +140,7 @@ mod authority_tests {
                         .contains("epoch_length_blocks >= 3")
                 );
             } else {
-                result.expect(
-                    "initial authority does not require a precomputed successor generation",
-                );
+                result.expect("the initial epoch reserves its committed beacon anchor");
             }
         }
     }
@@ -313,7 +181,7 @@ fn require_native_wire_protocol(manifest: &RawGenesisTransaction) -> color_eyre:
 pub enum Args {
     Sign(sign::Args),
     Generate(generate::Args),
-    /// Materialize an incomplete source template with operator-provisioned public authority
+    /// Materialize an incomplete source template with its explicit NPoS XOR selection
     Materialize(materialize::Args),
     /// Validate a genesis JSON file and report invalid identifiers
     Validate(validate::Args),

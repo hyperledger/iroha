@@ -1,9 +1,9 @@
 
-        seiyaku C {
+        seiyaku C { permission WriteState;
             state StateMap<int, int> Counter;
             state StateMap<Name, int> Foo;
 
-            kotoage fn main() -> int authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) -> int {
                 let key = Name::parse("alice");
                 Foo[key] = 1;
 

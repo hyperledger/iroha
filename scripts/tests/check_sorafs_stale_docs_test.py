@@ -48,9 +48,9 @@ def test_hedging_plan_uses_the_current_bridge_abi() -> None:
     assert source_match is not None
     assert canonical_match is not None
     assert header_match is not None
-    assert canonical_match.group(1) == header_match.group(1) == "25"
+    assert canonical_match.group(1) == header_match.group(1) == "29"
     assert "bridge source ABI is now 12" not in plan
-    assert "sole first-release ABI, version 25" in plan
+    assert "sole first-release ABI, version 29" in plan
 
 
 def test_reference_sdk_plan_does_not_reopen_native_orderbook_work() -> None:
@@ -122,7 +122,7 @@ def test_fixture_readmes_do_not_claim_native_or_provider_qualification() -> None
         in provider
     )
     assert (
-        "It is not evidence of clean ABI-25 builds for all five native release "
+        "It is not evidence of clean ABI-29 builds for all five native release "
         "targets, skip-free SDK parity, published packages, external software signing, "
         "a qualified provider deployment, or L1/L2 promotion."
         in cookbook
@@ -241,6 +241,10 @@ def test_stream_token_runtime_has_separate_trust_and_one_body_recovery_owners() 
     prefix = "crates/iroha_torii/src/sorafs/token/"
     transport = read(prefix + "signer_transport.rs")
     lifecycle = read(prefix + "signer_lifecycle.rs")
+    assert '#[path = "signer_completed_phase.rs"]' in lifecycle
+    assert "mod completed_phase;" in lifecycle
+    assert "completed_phase::Received::new(" in lifecycle
+    completed = read(prefix + "signer_completed_phase.rs")
     finality = read(prefix + "signer_finality.rs")
     pins = read(prefix + "signer_pins.rs")
     issuer = read("crates/iroha_torii/src/sorafs/token.rs")
@@ -265,8 +269,9 @@ def test_stream_token_runtime_has_separate_trust_and_one_body_recovery_owners() 
     for verifier in ("verify_stream_token_signer_current_evidence_v1", "verify_stream_token_signer_completed_observation_v1",
                      "verify_stream_token_signer_evidence_v1"):
         assert verifier in lifecycle
-    assert "continues_active_state" in lifecycle
-    assert "HistoricalFinalityV1::Custody(signing_anchor)" in lifecycle
+    assert ".continues_active_state(self.inputs.original)" in completed
+    assert "HistoricalFinalityV1::Custody(marker.custody().statement().anchor)" in completed
+    assert "HistoricalFinalityV1::Custody(phase.inputs.signing_anchor)" in completed
     core_finality = read("crates/iroha_core/src/query/signer_finality.rs")
     for marker in (
         "struct VerifiedFinalityTargetsV1<'view, V: StateReadOnly>",
@@ -289,18 +294,23 @@ def test_stream_token_runtime_has_separate_trust_and_one_body_recovery_owners() 
     assert "CertifiedChain::new(view)" in core_finality and ".certified(height)" in core_finality
     assert "block.block_hash().as_ref() != block_hash" in core_finality
     certified_tokens = "".join(rust_tokens(certified_chain))
+    assert "".join(rust_tokens("read_durable_pinned_block(view.kura(), index, *expected, &view.execution_budget())")) in certified_tokens
+    durable_start = certified_chain.index("\nfn read_durable_pinned_block_bounded(")
+    durable_end = certified_chain.index("\npub struct CertifiedChain", durable_start)
+    durable_tokens = "".join(rust_tokens(certified_chain[durable_start:durable_end]))
     for contract in (
-        "read_durable_pinned_block(view.kura(), index, *expected)",
+        ".read(wire_len, budget)",
         ".native_frame_read(height, expected)",
         "iroha_data_model::block::decode_framed_signed_block(&bytes)",
         "block.hash() != expected || block.header().height().get() != height",
     ):
-        assert "".join(rust_tokens(contract)) in certified_tokens
+        assert "".join(rust_tokens(contract)) in durable_tokens
     assert "index.get() <= view.block_hashes().len()" in certified_chain
     for contract in (
         "iroha_sumeragi::crypto::Verifier::new(",
-        "&authority.crypto", "&authority.committee", ".verify_qc(verifier, &commit_qc)",
+        "&authority.crypto", "&authority.committee", ".verify_qc(verifier, commit_qc)",
         "commit_qc.height != height", "commit_qc.block_hash != committed.core_hash",
+        "self.verify_commit_qc_original(&committed, authority, &commit_qc)?",
         "verify_availability(&committed, config, &authority.crypto, availability, admit_scratch,)?",
     ):
         assert "".join(rust_tokens(contract)) in certified_tokens
@@ -371,19 +381,31 @@ def test_future_dated_seaglass_reports_are_not_readiness_evidence() -> None:
 
 
 @pytest.mark.parametrize("old,new", (
+    ("read_durable_pinned_block(view.kura(), index, *expected, &view.execution_budget())", "read_durable_pinned_block(view.kura(), index, *expected, &other_budget)"),
+    (".read(wire_len, budget)", ".read(wire_len, other_budget)"),
+    ("self.verify_commit_qc_original(&committed, authority, &commit_qc)?", "skip_commit_qc_original(&committed, authority, &commit_qc)?"),
     (".native_frame_read(height, expected)", ".native_frame_read(height, other_hash)"),
     ("iroha_data_model::block::decode_framed_signed_block(&bytes)", "decode_local_cached_body(&bytes)"),
     ("block.hash() != expected || block.header().height().get() != height", "block.hash() != expected"),
-    (".verify_qc(verifier, &commit_qc)", ".skip_qc(verifier, &commit_qc)"),
+    (".verify_qc(verifier, commit_qc)", ".skip_qc(verifier, commit_qc)"),
     ("verify_availability(\n            &committed,", "skip_availability(\n            &committed,"),
 ))
 def test_stream_token_finality_requires_actual_durable_certificate_and_signed_availability(monkeypatch, old, new):
     """A source guard must refuse dropped native frame, exact height, QC or availability checks."""
+    test_stream_token_runtime_has_separate_trust_and_one_body_recovery_owners()
     original_read = read
     path = "crates/iroha_core/src/sumeragi/certified_chain.rs"
     source = original_read(path)
     assert old in source
-    changed = source.replace(old, new, 1)
+    if old.startswith((".native_frame_read(", ".read(wire_len,", "iroha_data_model::block::decode_framed_signed_block(", "block.hash() !=")):
+        start = source.index("\nfn read_durable_pinned_block_bounded(")
+        end = source.index("\npub struct CertifiedChain", start)
+        owner = source[start:end]
+        assert owner.count(old) == 1
+        changed = source[:start] + owner.replace(old, new, 1) + source[end:]
+    else:
+        assert source.count(old) == 1
+        changed = source.replace(old, new, 1)
     monkeypatch.setattr(__import__(__name__, fromlist=["read"]), "read",
                         lambda relative: changed if relative == path else original_read(relative))
     with pytest.raises(AssertionError):

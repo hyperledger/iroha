@@ -1,13 +1,5 @@
 //! Source files, byte ranges, and fixed first-release frontend budgets.
-use std::{
-    collections::BTreeMap,
-    error::Error,
-    fmt,
-    fs::File,
-    io::{self, Read},
-    path::Path,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, error::Error, fmt, io, path::Path, sync::Arc};
 /// Maximum UTF-8 source size accepted for one Kotodama V1 source file.
 pub const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 /// Maximum number of non-trivia lexical tokens, including end-of-file.
@@ -70,22 +62,30 @@ impl Error for SourceReadError {
 }
 /// Read one UTF-8 Kotodama source without ever buffering beyond the V1 limit.
 ///
-/// The limit is enforced while reading rather than after `read_to_string`, so
-/// an attacker-controlled local path cannot force an unbounded allocation in
-/// the compiler driver. The extra byte distinguishes an exactly-full source
-/// from an oversized one even when the file changes while it is being read.
+/// Native immutable-file custody is checked before allocation and after the bounded
+/// descriptor read. The original length rejects oversized input before buffering, and
+/// changed files cannot replace a captured source or evade the mandatory V1 limit.
 pub fn read_source_file(path: impl AsRef<Path>) -> Result<String, SourceReadError> {
-    let path = path.as_ref();
-    let file = File::open(path).map_err(SourceReadError::Io)?;
-    let mut bytes = Vec::with_capacity(MAX_SOURCE_BYTES.min(64 * 1024));
-    file.take((MAX_SOURCE_BYTES as u64).saturating_add(1))
-        .read_to_end(&mut bytes)
-        .map_err(SourceReadError::Io)?;
-    if bytes.len() > MAX_SOURCE_BYTES {
+    let selected = iroha_fs::SelectedRegularFile::capture(path).map_err(SourceReadError::Io)?;
+    read_selected_source(&selected)
+}
+
+/// Read an already selected native source without resolving another file.
+/// The original immutable descriptor survives intervening work; its byte limit and UTF-8
+/// diagnostic fields remain the same as [`read_source_file`].
+/// # Errors
+/// Refuses changed native custody, oversized source and invalid UTF-8.
+pub fn read_selected_source(
+    selected: &iroha_fs::SelectedRegularFile,
+) -> Result<String, SourceReadError> {
+    if selected.len().map_err(SourceReadError::Io)? > MAX_SOURCE_BYTES as u64 {
         return Err(SourceReadError::TooLarge {
             limit: MAX_SOURCE_BYTES,
         });
     }
+    let bytes = selected
+        .read(MAX_SOURCE_BYTES)
+        .map_err(SourceReadError::Io)?;
     String::from_utf8(bytes).map_err(|error| {
         let error = error.utf8_error();
         SourceReadError::InvalidUtf8 {
@@ -175,6 +175,9 @@ pub struct SourceFile {
     text: Arc<str>,
     original_len: usize,
     line_starts: Arc<[u32]>,
+    // Sparse byte-offset / Unicode-scalar-count pairs bound column lookup work
+    // even when an entire contract is written on one line.
+    character_checkpoints: Arc<[(u32, u32)]>,
 }
 impl SourceFile {
     /// Construct a source file without applying frontend budgets.
@@ -226,6 +229,13 @@ impl SourceFile {
                 line_starts.push(next);
             }
         }
+        let mut character_checkpoints = vec![(0_u32, 0_u32)];
+        for (characters, (offset, _)) in text.char_indices().enumerate() {
+            if offset - character_checkpoints.last().expect("initial checkpoint").0 as usize >= 256
+            {
+                character_checkpoints.push((offset as u32, characters as u32));
+            }
+        }
         Self {
             id,
             package_identity,
@@ -233,6 +243,7 @@ impl SourceFile {
             text,
             original_len,
             line_starts: line_starts.into(),
+            character_checkpoints: character_checkpoints.into(),
         }
     }
     /// Return the stable source identifier.
@@ -285,10 +296,15 @@ impl SourceFile {
         while byte_offset > line_start && !self.text.is_char_boundary(byte_offset) {
             byte_offset -= 1;
         }
-        let column = self
-            .text
-            .get(line_start..byte_offset)
-            .map_or(1, |prefix| prefix.chars().count().saturating_add(1));
+        let characters_before = |offset: usize| {
+            let index = self
+                .character_checkpoints
+                .partition_point(|(byte, _)| *byte as usize <= offset)
+                .saturating_sub(1);
+            let (byte, characters) = self.character_checkpoints[index];
+            characters as usize + self.text[byte as usize..offset].chars().count()
+        };
+        let column = characters_before(byte_offset) - characters_before(line_start) + 1;
         LineColumn {
             line: line_index.saturating_add(1),
             column,
@@ -402,6 +418,29 @@ mod tests {
         fs::remove_file(path).expect("remove temporary source");
     }
     #[test]
+    fn sparse_column_index_preserves_unicode_and_interior_byte_offsets() {
+        let text = format!("{}\n{}\n", "ab日本😀".repeat(180), "é文字x".repeat(180));
+        let source = SourceFile::new(SourceId(0), "unicode.ko", &text);
+        for offset in 0..=text.len() + 2 {
+            let mut boundary = offset.min(text.len());
+            while !text.is_char_boundary(boundary) {
+                boundary -= 1;
+            }
+            let prefix = &text[..boundary];
+            let position = source.line_column(offset as u32);
+            assert_eq!(
+                position.line,
+                prefix.bytes().filter(|byte| *byte == b'\n').count() + 1
+            );
+            assert_eq!(
+                position.column,
+                prefix.rsplit('\n').next().unwrap().chars().count() + 1
+            );
+        }
+        assert!(source.character_checkpoints.len() < text.len() / 200);
+    }
+
+    #[test]
     fn bounded_reader_accepts_exact_limit_and_rejects_one_extra_byte() {
         let exact = vec![b' '; MAX_SOURCE_BYTES];
         with_temp_source(&exact, |path| {
@@ -444,6 +483,55 @@ mod tests {
             ));
         });
     }
+    #[test]
+    fn selected_reader_preserves_exact_utf8_and_byte_limit_diagnostics() {
+        with_temp_source(b"seiyaku Selected {}", |path| {
+            let selected = iroha_fs::SelectedRegularFile::capture(path).expect("selected source");
+            assert_eq!(
+                super::read_selected_source(&selected).expect("first read"),
+                "seiyaku Selected {}"
+            );
+            assert_eq!(
+                super::read_selected_source(&selected).expect("repeat read"),
+                "seiyaku Selected {}"
+            );
+        });
+        with_temp_source(&vec![b' '; MAX_SOURCE_BYTES + 1], |path| {
+            let selected =
+                iroha_fs::SelectedRegularFile::capture(path).expect("selected oversized source");
+            assert!(matches!(
+                super::read_selected_source(&selected),
+                Err(SourceReadError::TooLarge {
+                    limit: MAX_SOURCE_BYTES
+                })
+            ));
+        });
+        with_temp_source(&[b'a', 0xc2], |path| {
+            let selected =
+                iroha_fs::SelectedRegularFile::capture(path).expect("selected invalid source");
+            assert!(matches!(
+                super::read_selected_source(&selected),
+                Err(SourceReadError::InvalidUtf8 {
+                    valid_up_to: 1,
+                    error_len: None
+                })
+            ));
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn selected_reader_refuses_changed_original_source_before_utf8_parsing() {
+        with_temp_source(b"seiyaku Selected {}", |path| {
+            let selected = iroha_fs::SelectedRegularFile::capture(path).expect("selected source");
+            fs::write(path, [0xff]).expect("change original source");
+            assert!(matches!(
+                super::read_selected_source(&selected),
+                Err(SourceReadError::Io(_))
+            ));
+        });
+    }
+
     #[test]
     fn source_file_retains_only_a_bounded_prefix_of_oversized_input() {
         let source = "é".repeat(MAX_SOURCE_BYTES);

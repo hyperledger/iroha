@@ -87,7 +87,7 @@ fn verify_manifest(
 ) -> Result<VerificationReport> {
     let defaults = profile_defaults(profile);
     ensure_chain_id(manifest, &defaults)?;
-    crate::genesis::ensure_kagemusha_mint_finality_schedule_matches_consensus(manifest)?;
+    crate::genesis::ensure_genesis_schedule_matches_consensus(manifest)?;
     let normalized = manifest.clone().with_consensus_meta()?;
     let params = normalized.effective_parameters()?;
     let sumeragi: SumeragiParameters = params.sumeragi().clone();
@@ -142,10 +142,6 @@ fn verify_manifest(
             unique_peers.len()
         ));
     }
-    crate::genesis::ensure_kagemusha_mint_finality_generation_zero_authority_matches_topology(
-        manifest,
-        &peers_with_pops,
-    )?;
     let fingerprint = normalized
         .consensus_fingerprint()
         .ok_or_else(|| eyre!("consensus fingerprint missing after normalization"))?
@@ -474,6 +470,7 @@ mod tests {
             manifest
         };
         manifest
+            .clear_topology()
             .into_builder()
             .next_transaction()
             .set_topology_for_test(
@@ -491,13 +488,14 @@ mod tests {
         builder: GenesisBuilder,
         peers: &[(PublicKey, Vec<u8>)],
     ) -> GenesisBuilder {
-        crate::genesis::complete_test_genesis_builder_for_peers(
-            builder,
-            peers
-                .iter()
-                .map(|(public_key, _)| PeerId::new(public_key.clone()))
-                .collect(),
-        )
+        builder
+            .set_topology(
+                peers
+                    .iter()
+                    .map(|(public_key, _)| PeerId::new(public_key.clone()))
+                    .collect(),
+            )
+            .complete_for_test()
     }
     fn generate_peer_pop() -> (PublicKey, Vec<u8>) {
         let kp = KeyPair::try_random_with_algorithm(Algorithm::BlsNormal)
@@ -802,8 +800,12 @@ mod tests {
             "synthetic currency must fail the typed NPoS parameter decoder"
         );
         assert!(
-            err.to_string()
-                .contains("malformed `sumeragi_npos_parameters`"),
+            matches!(
+                err.downcast_ref::<norito::json::Error>(),
+                Some(norito::json::Error::InvalidField { field, message })
+                    if field == "SumeragiNposParameters"
+                        && message == "NPoS must use the network's canonical XOR asset, not synthetic nexus.universal/xor"
+            ),
             "unexpected error: {err}"
         );
     }

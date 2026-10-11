@@ -925,7 +925,7 @@
         "Bind exact successful source execution, ordered transaction set and transfer occurrence through D7/WG/certified-result openings; specify current destination issuer authority separately from historical anchors."
       ],
       "acceptance": [
-        "ordinary new_root is ordinary_writes_root, not combined post_state_root; test mixed KAGEMUSHA top-ups. Bind current transaction-view policy/key/asset incarnation/code/ABI/counter/generation/expiry/pending transitions, fresh issuer signature and atomic nonce/source-occurrence/budget consumption."
+        "ordinary new_root is ordinary_writes_root, not combined post_state_root; test blocks that mix ordinary and other certified writes. Bind current transaction-view policy/key/asset incarnation/code/ABI/counter/generation/expiry/pending transitions, fresh issuer signature and atomic nonce/source-occurrence/budget consumption."
       ],
       "status": "planned"
     },

@@ -1,6 +1,6 @@
 
 seiyaku PoseidonForms {
-    view fn main() -> (int, int) {
+    view fn main() authorize(anyone) -> (int, int) {
         let pair = crypto::poseidon2(left: 123456789, right: 987654321);
         let sextet = crypto::poseidon6(a: 3, b: 5, c: 8, d: 13, e: 21, f: 34);
         return (pair, sextet);

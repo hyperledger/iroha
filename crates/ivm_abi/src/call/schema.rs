@@ -1,9 +1,14 @@
 //! Complete flat callable type tapes, without recursive wire containers or references.
 
-use iroha_data_model::smart_contract::manifest::ContractErrorTypeDescriptor;
+use iroha_data_model::smart_contract::manifest::{
+    ContractEnumTypeDescriptorV1, ContractErrorTypeDescriptor,
+};
 
 use crate::entrypoint::type_structure::{FlatTypeNodeV1, TypeNodeViewV1};
-use crate::{entrypoint::EntrypointValueKindV1, pointer_abi::PointerType};
+use crate::{
+    entrypoint::{EntrypointValueKindV1, EntrypointValueTypeV1},
+    pointer_abi::PointerType,
+};
 
 mod analysis;
 mod codec;
@@ -38,14 +43,16 @@ pub enum CallTypeNodeV1 {
     Unit,
     /// Exact nominal error identity and permitted enum-local codes.
     Error(ContractErrorTypeDescriptor),
-    /// Canonical cursor bound to one scalar map-key kind.
-    StateCursor(EntrypointValueKindV1),
+    /// Canonical cursor bound to one complete scalar-or-tuple map-key schema.
+    StateCursor(EntrypointValueTypeV1),
     /// Compiler-owned durable-state root handle.
     StateRoot,
     /// Internal pointer type with no public boundary leaf representation.
     Pointer(u16),
     /// Private numeric handle for Int, Decimal, or Quantity.
     SecretNumeric(u16),
+    /// Exact ordinary enum identity and permitted enum-local codes.
+    Enum(ContractEnumTypeDescriptorV1),
 }
 impl CallTypeNodeV1 {
     /// Number of inline child subtrees immediately following this node.
@@ -94,9 +101,10 @@ impl FlatTypeNodeV1 for CallTypeNodeV1 {
             Self::Result => TypeNodeViewV1::Result,
             Self::List { capacity } => TypeNodeViewV1::List(*capacity),
             Self::Leaf(kind) => TypeNodeViewV1::Leaf(*kind),
-            Self::StateCursor(key) => TypeNodeViewV1::StateCursor(*key),
+            Self::StateCursor(key) => TypeNodeViewV1::StateCursor(key),
             Self::Unit
             | Self::Error(_)
+            | Self::Enum(_)
             | Self::StateRoot
             | Self::Pointer(_)
             | Self::SecretNumeric(_) => TypeNodeViewV1::Other,

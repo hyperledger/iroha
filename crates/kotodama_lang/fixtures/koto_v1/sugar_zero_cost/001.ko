@@ -1,6 +1,6 @@
 
         seiyaku ResultPropagation {
-            view fn main(Result<int, bool> value) -> Result<(int, int), bool> {
+            view fn main(Result<int, bool> value) authorize(anyone) -> Result<(int, int), bool> {
                 let payload = value?;
                 Result::ok((payload, payload))
             }

@@ -2,7 +2,8 @@
 // Loops from `a` up to `b` and
 // uses different checked arithmetic depending on the condition.
 seiyaku Example {
-    kotoage fn control(int a, int b) authorize("Entry") {
+    permission Entry;
+    kotoage fn control(int a, int b) authorize(Entry) {
         for offset in range(64) {
             let i = a + offset;
             if i > b {

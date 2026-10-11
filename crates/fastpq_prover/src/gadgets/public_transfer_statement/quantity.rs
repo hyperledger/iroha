@@ -40,12 +40,16 @@ pub(super) fn quantity_value_frame(value: &FastpqQuantityUnits) -> QuantityValue
 /// The complete scale and fixed limbs are retained, including high zero limbs.
 ///
 /// # Errors
-/// Returns an error if canonical bounded Norito encoding fails.
+/// Returns an error if canonical bounded Norito encoding fails. Underlying Norito
+/// resource errors are retained so callers can recognize terminal budget refusals.
 pub fn encode_quantity_units_v1(value: &FastpqQuantityUnits) -> Result<Vec<u8>> {
     let frame = quantity_value_frame(value);
     let _canonical = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
-    norito::core::to_bytes_bounded(&frame, QUANTITY_VALUE_MAX_BYTES_V1)
-        .map_err(|error| invariant(&format!("quantity value encoding failed: {error}")))
+    norito::core::to_bytes_bounded(&frame, QUANTITY_VALUE_MAX_BYTES_V1).map_err(|error| match error
+    {
+        norito::core::BoundedEncodeError::Serialization(error) => error.into(),
+        error => invariant(&format!("quantity value encoding failed: {error}")),
+    })
 }
 
 /// Decode an exact canonical V1 frame and validate its full ledger quantity.

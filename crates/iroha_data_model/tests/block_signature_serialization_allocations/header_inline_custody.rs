@@ -195,10 +195,10 @@ fn header_original_nonzero_height_enclosing_cause_keeps_prepaid_counter_reader_t
         })
     });
     assert_eq!(allocations, 0);
-    let decoded = retry.unwrap().unwrap();
-    assert_eq!(decoded, original);
-    assert_eq!(decoded.hash(), original.hash());
-    assert_eq!(bare_bytes(&decoded, flags), bytes);
+    let recovered = retry.unwrap().unwrap();
+    assert_eq!(recovered, original);
+    assert_eq!(recovered.hash(), original.hash());
+    assert_eq!(bare_bytes(&recovered, flags), bytes);
     assert_eq!(cause.kind(), DecodeAttemptErrorKind::EnclosingLimit);
     assert_eq!(input.as_slice().as_ptr(), pointer);
     assert_eq!(Hash::new(input.as_slice()), hash);

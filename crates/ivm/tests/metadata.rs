@@ -15,6 +15,8 @@ fn minimal_contract_artifact() -> Vec<u8> {
         abi_version: 1,
     };
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        permissions: Vec::new(),
+        events: Vec::new(),
         callables: vec![common::unit_callable(0)],
         seiyaku_name: "TestContract".to_owned(),
         compiler_fingerprint: "metadata-tests".to_owned(),
@@ -31,7 +33,8 @@ fn minimal_contract_artifact() -> Vec<u8> {
             return_schema: Some(ivm_abi::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![ivm_abi::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: None,
+            authorization:
+                iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -41,6 +44,7 @@ fn minimal_contract_artifact() -> Vec<u8> {
         }],
         error_messages: Vec::new(),
         error_types: Vec::new(),
+        enum_types: Vec::new(),
         states: Vec::new(),
     };
     let mut bytes = meta.encode();
@@ -60,6 +64,8 @@ fn minimal_contract_artifact_with_debug() -> Vec<u8> {
         abi_version: 1,
     };
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        permissions: Vec::new(),
+        events: Vec::new(),
         callables: vec![common::unit_callable(0)],
         seiyaku_name: "TestContract".to_owned(),
         compiler_fingerprint: "metadata-tests".to_owned(),
@@ -76,7 +82,8 @@ fn minimal_contract_artifact_with_debug() -> Vec<u8> {
             return_schema: Some(ivm_abi::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![ivm_abi::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: None,
+            authorization:
+                iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -86,6 +93,7 @@ fn minimal_contract_artifact_with_debug() -> Vec<u8> {
         }],
         error_messages: Vec::new(),
         error_types: Vec::new(),
+        enum_types: Vec::new(),
         states: Vec::new(),
     };
     let debug = ivm::EmbeddedContractDebugInfoV1 {

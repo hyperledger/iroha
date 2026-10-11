@@ -7,7 +7,7 @@ mod common;
 fn compile_large_positive_constant_executes() {
     let src = r#"
         seiyaku LargePositiveConstant {
-            view fn main() -> int {
+            view fn main() authorize(anyone) -> int {
                 let int x = 123_456_789_012;
                 return x;
             }
@@ -28,7 +28,7 @@ fn compile_large_positive_constant_executes() {
 fn compile_large_negative_constant_executes() {
     let src = r#"
         seiyaku LargeNegativeConstant {
-            view fn main() -> int {
+            view fn main() authorize(anyone) -> int {
                 let int x = -987_654_321_098;
                 return x;
             }
@@ -49,13 +49,13 @@ fn compile_large_negative_constant_executes() {
 fn signed_512_bit_boundary_constants_are_canonical_and_deterministic() {
     let source = r#"
         seiyaku IndexedConstants {
-            view fn minimum() -> int {
+            view fn minimum() authorize(anyone) -> int {
                 return -6703903964971298549787012499102923063739682910296196688861780721860882015036773488400937149083451713845015929093243025426876941405973284973216824503042048;
             }
-            view fn maximum() -> int {
+            view fn maximum() authorize(anyone) -> int {
                 return 6703903964971298549787012499102923063739682910296196688861780721860882015036773488400937149083451713845015929093243025426876941405973284973216824503042047;
             }
-            view fn maximum_again() -> int {
+            view fn maximum_again() authorize(anyone) -> int {
                 return 6703903964971298549787012499102923063739682910296196688861780721860882015036773488400937149083451713845015929093243025426876941405973284973216824503042047;
             }
         }

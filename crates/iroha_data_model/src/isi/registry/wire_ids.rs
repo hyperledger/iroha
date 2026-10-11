@@ -1,6 +1,6 @@
 //! Explicit wire identifiers for the built-in instruction registry.
 use super::*;
-use crate::isi::{kagemusha_v1, retail_daily_limit};
+use crate::isi::retail_daily_limit;
 type TypeName = fn() -> &'static str;
 /// One built-in instruction's Rust type and path-independent wire identity.
 #[derive(Clone, Copy)]
@@ -57,6 +57,8 @@ macro_rules! governance_wire_id {
 /// Complete canonical wire-ID inventory for built-in instructions.
 pub(super) const ALL: &[BuiltInWireId] = &[
     built_in_wire_id!(RegisterBox => "iroha.register"),
+    built_in_wire_id!(crate::isi::register_dataspace_asset_definition::RegisterDataspaceAssetDefinition => "iroha.asset_definition.dataspace.register.v1"),
+    built_in_wire_id!(crate::isi::kagemusha_wallet::KagemushaWalletLedgerV1 => "iroha.kagemusha.wallet.ledger.v1", register),
     built_in_wire_id!(UnregisterBox => "iroha.unregister"),
     built_in_wire_id!(MintBox => "iroha.mint"),
     built_in_wire_id!(BurnBox => "iroha.burn"),
@@ -93,9 +95,6 @@ pub(super) const ALL: &[BuiltInWireId] = &[
     built_in_wire_id!(RemoveAssetKeyValue => "iroha.instruction.v1::transparent::RemoveAssetKeyValue"),
     built_in_wire_id!(GrantBox => "iroha.grant"),
     built_in_wire_id!(RevokeBox => "iroha.revoke"),
-    built_in_wire_id!(kagemusha_v1::TopUpKagemushaV1 => "iroha.kagemusha.v1.top_up", register),
-    built_in_wire_id!(kagemusha_v1::TopUpKagemushaOrdinaryV1 => "iroha.kagemusha.v1.ordinary_top_up", register),
-    built_in_wire_id!(kagemusha_v1::RedeemKagemushaV1 => "iroha.kagemusha.v1.redeem", register),
     built_in_wire_id!(crate::isi::staking::RegisterPublicLaneCandidate => "iroha.staking.register_public_lane_candidate"),
     built_in_wire_id!(crate::isi::staking::RegisterPublicLaneValidator => "iroha.instruction.v1::staking::RegisterPublicLaneValidator"),
     built_in_wire_id!(crate::isi::staking::RebindPublicLaneValidatorPeer => "iroha.staking.rebind_public_lane_validator_peer"),
@@ -105,7 +104,6 @@ pub(super) const ALL: &[BuiltInWireId] = &[
     built_in_wire_id!(crate::isi::staking::SchedulePublicLaneUnbond => "iroha.instruction.v1::staking::SchedulePublicLaneUnbond", register),
     built_in_wire_id!(crate::isi::staking::FinalizePublicLaneUnbond => "iroha.instruction.v1::staking::FinalizePublicLaneUnbond", register),
     built_in_wire_id!(crate::isi::staking::SlashPublicLaneValidator => "iroha.instruction.v1::staking::SlashPublicLaneValidator", register),
-    built_in_wire_id!(crate::isi::staking::RecordPublicLaneRewards => "iroha.instruction.v1::staking::RecordPublicLaneRewards", register),
     built_in_wire_id!(crate::isi::staking::ClaimPublicLaneRewards => "iroha.instruction.v1::staking::ClaimPublicLaneRewards", register),
     built_in_wire_id!(nexus::RegisterVerifiedFeeSponsorVaultAllocation => "nexus::RegisterVerifiedFeeSponsorVaultAllocation"),
     built_in_wire_id!(nexus::CreateFeeSponsorProgram => "nexus::CreateFeeSponsorProgram"),
@@ -417,9 +415,6 @@ pub(super) const ALL: &[BuiltInWireId] = &[
     built_in_wire_id!(bridge::SubmitBridgeProof => "iroha.instruction.v1::bridge::SubmitBridgeProof"),
     built_in_wire_id!(bridge::RecordBridgeReceipt => "iroha.instruction.v1::bridge::RecordBridgeReceipt"),
     built_in_wire_id!(sccp::InitializeSccpV1 => "iroha.instruction.v1::sccp::InitializeSccpV1"),
-    built_in_wire_id!(sccp::SetSccpBridgeKeyV1 => "iroha.instruction.v1::sccp::SetSccpBridgeKeyV1"),
-    built_in_wire_id!(sccp::SubmitSccpAttestationsV1 => "iroha.instruction.v1::sccp::SubmitSccpAttestationsV1"),
-    built_in_wire_id!(sccp::SubmitSccpAttestationFaultV1 => "iroha.instruction.v1::sccp::SubmitSccpAttestationFaultV1"),
     built_in_wire_id!(sccp::RecordSccpMessage => "iroha.instruction.v1::sccp::RecordSccpMessage"),
     built_in_wire_id!(sccp::SubmitSccpInboundMessageV1 => "iroha.instruction.v1::sccp::SubmitSccpInboundMessageV1"),
     built_in_wire_id!(sccp::SettleSccpV1 => "iroha.instruction.v1::sccp::SettleSccpV1"),

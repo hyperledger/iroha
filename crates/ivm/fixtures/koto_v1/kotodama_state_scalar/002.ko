@@ -1,5 +1,5 @@
 
-        seiyaku StructState {
+        seiyaku StructState { permission WriteState;
             struct Ledger { int counter, bool flag }
             state Ledger ledger;
 
@@ -19,7 +19,7 @@
                 return value;
             }
 
-            kotoage fn main() -> int authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) -> int {
                 ledger = Ledger { counter: 7, flag: true };
                 return score(entry: ledger);
             }

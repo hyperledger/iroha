@@ -1,8 +1,8 @@
-//! Original remote witness ownership under actual pool pressure and bounded driver retry.
+//! Original remote availability-row ownership under actual pool pressure and bounded driver retry.
 
 use super::*;
 use iroha_allocation::{AllocationBudget, ChargedBuffer};
-use iroha_sumeragi::message::ResultWitness;
+use iroha_sumeragi::{availability::RowBytes, message::PayloadChunk};
 
 fn wake_bytes() -> usize {
     iroha_allocation::ChargedShared::<ThreadWake>::allocation_layout().size()
@@ -18,8 +18,13 @@ fn fixture(
         Hash32([2; 32]),
         iroha_sumeragi::sim::driver::encode_tx(0, false, 0),
     );
-    let mut qc = tests::commit_qc(&block, Hash32([3; 32]));
-    qc.attestation_witness = Some(ResultWitness::from_untrusted(vec![7; 200]).unwrap());
+    let chunk = PayloadChunk {
+        instance: block.header().instance,
+        height: block.header().height,
+        block_hash: block.hash(&iroha_sumeragi::testing::FakeCrypto::new()),
+        index: 0,
+        bytes: RowBytes::from_untrusted(vec![7; 200]).unwrap(),
+    };
     let shared = Arc::new(Shared {
         node_gate: Arc::new(NodeGate::new()),
         allocation_budget: budget.clone(),
@@ -32,6 +37,8 @@ fn fixture(
         backlog: Mutex::new(Backlog::default()),
         wake: ThreadWake::admit(budget).unwrap(),
         transactions_pending: AtomicBool::new(false),
+        empty_waiting: std::sync::atomic::AtomicBool::new(false),
+        empty_epoch: std::sync::atomic::AtomicU64::new(0),
         alive: AtomicBool::new(true),
         stopped: Mutex::new(None),
         metrics: None,
@@ -45,15 +52,15 @@ fn fixture(
         DriverHandle { shared, inputs },
         rx,
         PublicKey::new(vec![9; 48]).unwrap(),
-        WireMessage::Qc(qc),
+        WireMessage::PayloadChunk(chunk),
     )
 }
 
-fn witness(message: &WireMessage) -> &ResultWitness {
-    let WireMessage::Qc(qc) = message else {
-        panic!("fixture QC")
+fn witness(message: &WireMessage) -> &RowBytes {
+    let WireMessage::PayloadChunk(chunk) = message else {
+        panic!("fixture row")
     };
-    qc.attestation_witness.as_ref().unwrap()
+    &chunk.bytes
 }
 
 #[test]
@@ -317,11 +324,11 @@ fn original_pool_release_before_ingress_registration_is_not_lost() {
 fn source_less_ingress_admission_retains_typed_error_and_bounded_deadline() {
     let budget = AllocationBudget::new(4096 + wake_bytes());
     let (handle, _rx, peer, mut message) = fixture(&budget);
-    let WireMessage::Qc(qc) = &mut message else {
+    let WireMessage::PayloadChunk(chunk) = &mut message else {
         unreachable!()
     };
     let length = budget.limit_bytes() + 1;
-    qc.attestation_witness = Some(ResultWitness::from_untrusted(vec![7; length]).unwrap());
+    chunk.bytes = RowBytes::from_untrusted(vec![7; length]).unwrap();
     assert!(handle.deliver_message(peer, message));
     assert!(!handle.shared.retry_pending_message(100));
     assert_eq!(handle.shared.pending_message_wakeup(), 110);
@@ -372,7 +379,7 @@ fn pending_shutdown_cancels_source_before_retained_handle_and_last_owner_refund(
 
 #[test]
 fn ingress_waiter_one_byte_short_refuses_spawn_before_any_worker() {
-    use iroha_sumeragi::{crypto::NoAttestation, testing::FakeValidators, types::ChainParams};
+    use iroha_sumeragi::{testing::FakeValidators, types::ChainParams};
     use tests::fakes::{
         FakeBlocks, FakeBodies, FakeClock, FakeExecutor, FakeNet, FakeRecords, RecordingObserver,
     };
@@ -434,8 +441,6 @@ fn ingress_waiter_one_byte_short_refuses_spawn_before_any_worker() {
             },
             signers: vec![Arc::new(validators.signer(0).clone())],
             crypto: Arc::new(validators.crypto),
-            attestor: Box::new(NoAttestation),
-            verifier: Box::new(NoAttestation),
         },
     );
     assert!(

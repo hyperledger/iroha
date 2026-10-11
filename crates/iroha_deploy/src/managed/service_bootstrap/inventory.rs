@@ -7,14 +7,14 @@ impl ManagedServiceBootstrap {
     /// Inspect the retained parent and its child purposes without granting dispatch authority.
     pub(super) fn validate_dependency_inventory(
         &self,
-        progress: &ServiceBootstrapProgress,
+        dependencies: &DependencyFrontiers,
     ) -> Result<()> {
         let original = read_original(
             &self.authority.directory.open_child("initial")?,
             &self.authority,
         )?
         .ok_or_else(|| invalid("original bootstrap intent is absent"))?;
-        self.validate_child_inventory(&original.policies, Some(progress))
+        self.validate_child_inventory(&original.policies, Some(dependencies))
     }
 
     // None means no parent exists: all child purposes must be absent or exactly empty.
@@ -22,117 +22,125 @@ impl ManagedServiceBootstrap {
     pub(super) fn validate_child_inventory(
         &self,
         policies: &GeneratedServicePolicies,
-        progress: Option<&ServiceBootstrapProgress>,
+        dependencies: Option<&DependencyFrontiers>,
     ) -> Result<()> {
         let inventory = ServiceChildInventory::begin(&self.authority)?;
-        let mut stages = Vec::with_capacity(20);
-        stages.push(ServiceBootstrapStep::ReservePolicy);
-        for selected in &policies.providers {
+        let reserve_complete = dependencies.is_some_and(|value| value.reserve_complete);
+        let complete = dependencies.is_some_and(|value| value.reputation_complete);
+        if let Some(frontiers) = dependencies {
+            if frontiers.reputation_complete
+                && (!frontiers.reserve_complete || frontiers.providers.iter().any(Option::is_some))
+            {
+                return Err(invalid("bootstrap dependency frontiers disagree"));
+            }
+        }
+        self.census_network(
+            &inventory,
+            NetworkPurpose::InitialReservePolicy,
+            "set",
+            dependencies.is_none(),
+        )?;
+        for (slot, selected) in policies.providers.iter().enumerate() {
             let provider_id = selected.provider_id;
-            stages.extend([
+            let stages = [
                 ServiceBootstrapStep::CustodyPolicy { provider_id },
                 ServiceBootstrapStep::CustodyEnrollment { provider_id },
                 ServiceBootstrapStep::ReserveAccount { provider_id },
                 ServiceBootstrapStep::ProviderFunding { provider_id },
                 ServiceBootstrapStep::ProviderIngest { provider_id },
                 ServiceBootstrapStep::Gateway { provider_id },
-            ]);
-        }
-        stages.push(ServiceBootstrapStep::Reputation);
-        let pending = match progress {
-            Some(ServiceBootstrapProgress::Pending { step, .. }) => Some(*step),
-            Some(ServiceBootstrapProgress::Funding { provider_id, .. }) => {
-                Some(ServiceBootstrapStep::ProviderFunding {
-                    provider_id: *provider_id,
+            ];
+            let pending = dependencies.and_then(|value| value.providers[slot]);
+            let first_incomplete = pending
+                .map(|step| {
+                    stages
+                        .iter()
+                        .position(|selected| selected == &step)
+                        .ok_or_else(|| invalid("bootstrap progress selected another dependency"))
                 })
+                .transpose()?;
+            if !reserve_complete && dependencies.is_some() && first_incomplete != Some(0) {
+                return Err(invalid(
+                    "bootstrap provider frontier precedes reserve finality",
+                ));
             }
-            Some(ServiceBootstrapProgress::Complete(_)) | None => None,
-        };
-        let first_incomplete = pending
-            .map(|step| {
-                stages
-                    .iter()
-                    .position(|selected| selected == &step)
-                    .ok_or_else(|| invalid("bootstrap progress selected another dependency"))
-            })
-            .transpose()?;
-        for (index, step) in stages.iter().enumerate() {
-            let later = progress.is_none() || first_incomplete.is_some_and(|first| index > first);
-            match *step {
-                ServiceBootstrapStep::ReservePolicy => self.census_network(
-                    &inventory,
-                    NetworkPurpose::InitialReservePolicy,
-                    "set",
-                    later,
-                )?,
-                ServiceBootstrapStep::CustodyPolicy { provider_id } => self.census_provider(
-                    &inventory,
-                    provider_id,
-                    ProviderPurpose::Custody,
-                    "configure",
-                    later,
-                    progress.is_none() || first_incomplete.is_some(),
-                )?,
-                ServiceBootstrapStep::CustodyEnrollment { provider_id } => self.census_provider(
-                    &inventory,
-                    provider_id,
-                    ProviderPurpose::Custody,
-                    "enroll",
-                    later,
-                    progress.is_none() || first_incomplete.is_some(),
-                )?,
-                ServiceBootstrapStep::ReserveAccount { provider_id } => self.census_provider(
-                    &inventory,
-                    provider_id,
-                    ProviderPurpose::ReserveAccountRegistration,
-                    "register",
-                    later,
-                    false,
-                )?,
-                ServiceBootstrapStep::ProviderFunding { provider_id } => {
-                    // Nested incomplete stage ordering is checked by the composite's exact native
-                    // recovery. Only wholly later funding must have all five purpose roots empty.
-                    for (purpose, operation) in [
-                        (ProviderPurpose::ProviderFundingBootstrap, "funding"),
-                        (ProviderPurpose::ReserveTopUpRequest, "request"),
-                        (ProviderPurpose::ReserveTopUpApproval, "approval"),
-                        (ProviderPurpose::InitialProviderCredit, "install"),
-                        (ProviderPurpose::ProviderCapacityDeclaration, "declare"),
-                    ] {
-                        self.census_provider(
-                            &inventory,
-                            provider_id,
-                            purpose,
-                            operation,
-                            later,
-                            false,
-                        )?;
+            for (index, step) in stages.iter().enumerate() {
+                let later =
+                    !reserve_complete || first_incomplete.is_some_and(|first| index > first);
+                match *step {
+                    ServiceBootstrapStep::CustodyPolicy { .. } => self.census_provider(
+                        &inventory,
+                        provider_id,
+                        ProviderPurpose::Custody,
+                        "configure",
+                        later,
+                        !complete,
+                    )?,
+                    ServiceBootstrapStep::CustodyEnrollment { .. } => self.census_provider(
+                        &inventory,
+                        provider_id,
+                        ProviderPurpose::Custody,
+                        "enroll",
+                        later,
+                        !complete,
+                    )?,
+                    ServiceBootstrapStep::ReserveAccount { .. } => self.census_provider(
+                        &inventory,
+                        provider_id,
+                        ProviderPurpose::ReserveAccountRegistration,
+                        "register",
+                        later,
+                        false,
+                    )?,
+                    ServiceBootstrapStep::ProviderFunding { .. } => {
+                        // The composite validates its own nested unfinished stage. Wholly later
+                        // funding still requires all five original purpose roots exactly empty.
+                        for (purpose, operation) in [
+                            (ProviderPurpose::ProviderFundingBootstrap, "funding"),
+                            (ProviderPurpose::ReserveTopUpRequest, "request"),
+                            (ProviderPurpose::ReserveTopUpApproval, "approval"),
+                            (ProviderPurpose::InitialProviderCredit, "install"),
+                            (ProviderPurpose::ProviderCapacityDeclaration, "declare"),
+                        ] {
+                            self.census_provider(
+                                &inventory,
+                                provider_id,
+                                purpose,
+                                operation,
+                                later,
+                                false,
+                            )?;
+                        }
                     }
+                    ServiceBootstrapStep::ProviderIngest { .. } => self.census_provider(
+                        &inventory,
+                        provider_id,
+                        ProviderPurpose::InitialProviderIngestAuthority,
+                        "setup",
+                        later,
+                        false,
+                    )?,
+                    ServiceBootstrapStep::Gateway { .. } => self.census_provider(
+                        &inventory,
+                        provider_id,
+                        ProviderPurpose::InitialGatewaySetup,
+                        "setup",
+                        later,
+                        false,
+                    )?,
+                    _ => unreachable!("closed provider dependency stage"),
                 }
-                ServiceBootstrapStep::ProviderIngest { provider_id } => self.census_provider(
-                    &inventory,
-                    provider_id,
-                    ProviderPurpose::InitialProviderIngestAuthority,
-                    "setup",
-                    later,
-                    false,
-                )?,
-                ServiceBootstrapStep::Gateway { provider_id } => self.census_provider(
-                    &inventory,
-                    provider_id,
-                    ProviderPurpose::InitialGatewaySetup,
-                    "setup",
-                    later,
-                    false,
-                )?,
-                ServiceBootstrapStep::Reputation => self.census_network(
-                    &inventory,
-                    NetworkPurpose::InitialReputationPolicy,
-                    "setup",
-                    later,
-                )?,
             }
         }
+        let providers_complete = dependencies.is_some_and(|value| {
+            value.reserve_complete && value.providers.iter().all(Option::is_none)
+        });
+        self.census_network(
+            &inventory,
+            NetworkPurpose::InitialReputationPolicy,
+            "setup",
+            !providers_complete,
+        )?;
         inventory.finish()
     }
     fn census_network(
@@ -217,12 +225,11 @@ fn census(
         ));
     }
     if later {
-        match directory.open_child(operation) {
-            Ok(child) => require_empty(&child).map_err(|_| {
+        match directory.open_child_optional(operation)? {
+            Some(child) => require_empty(&child).map_err(|_| {
                 invalid("later bootstrap material exists behind an incomplete prerequisite")
             })?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
+            None => {}
         }
     }
     if directory.entries(if custody { 131 } else { 66 })? != names {
@@ -259,10 +266,8 @@ mod tests {
     fn dependency_inventory_refuses_absent_original_without_creating_parent_material() {
         let _guard = crate::managed::native_test_guard();
         let (_temporary, owner) = fixture("inventory-missing-original");
-        let progress = ServiceBootstrapProgress::Pending {
-            step: ServiceBootstrapStep::ReservePolicy,
-            status: iroha_wallet::operations::OperationStatus::Absent,
-        };
+        let policies = GeneratedServicePolicies::select(&owner.authority).unwrap();
+        let progress = DependencyFrontiers::before_reserve(&policies);
         let before = owner.authority.directory.entries(4).unwrap();
         assert!(matches!(owner.validate_dependency_inventory(&progress),
             Err(crate::managed::Error::Io(error)) if error.kind() == io::ErrorKind::NotFound));
@@ -296,13 +301,7 @@ mod tests {
             .unwrap();
         drop(later);
         let original_parent_names = owner.authority.directory.entries(4).unwrap();
-        for progress in [
-            None,
-            Some(ServiceBootstrapProgress::Pending {
-                step: ServiceBootstrapStep::ReservePolicy,
-                status: iroha_wallet::operations::OperationStatus::Absent,
-            }),
-        ] {
+        for progress in [None, Some(DependencyFrontiers::before_reserve(&policies))] {
             assert!(
                 owner
                     .validate_child_inventory(&policies, progress.as_ref())
@@ -317,12 +316,11 @@ mod tests {
                 b"retained child"
             );
         }
-        let foreign = ServiceBootstrapProgress::Pending {
-            step: ServiceBootstrapStep::Gateway {
-                provider_id: ProviderId::new([0xFA; 32]),
-            },
-            status: iroha_wallet::operations::OperationStatus::Absent,
-        };
+        let mut foreign = DependencyFrontiers::before_reserve(&policies);
+        foreign.reserve_complete = true;
+        foreign.providers[0] = Some(ServiceBootstrapStep::Gateway {
+            provider_id: ProviderId::new([0xFA; 32]),
+        });
         assert!(
             owner
                 .validate_child_inventory(&policies, Some(&foreign))

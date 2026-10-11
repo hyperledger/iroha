@@ -8,7 +8,18 @@ const STAGING: &str = ".preparing";
 
 /// A missing generation may be prepared; a visible generation without its manifest is corrupt.
 pub(super) fn read(directory: &PrivateDirectory) -> Result<RetainedLocalnet> {
-    let generation = directory.open_child(DIRECTORY)?;
+    read_generation(&directory.open_child(DIRECTORY)?)
+}
+
+/// Only definite initial child absence permits preparing a new generation.
+pub(super) fn read_optional(directory: &PrivateDirectory) -> Result<Option<RetainedLocalnet>> {
+    directory
+        .open_child_optional(DIRECTORY)?
+        .map(|generation| read_generation(&generation))
+        .transpose()
+}
+
+fn read_generation(generation: &PrivateDirectory) -> Result<RetainedLocalnet> {
     let bytes = generation.read(MANIFEST, MAX_METADATA).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             Error::Invalid("published managed generation is missing its immutable manifest".into())
@@ -21,13 +32,12 @@ pub(super) fn read(directory: &PrivateDirectory) -> Result<RetainedLocalnet> {
 
 /// Discard only a never-published stage while the caller exclusively owns the context operation.
 fn fresh_stage(directory: &PrivateDirectory) -> Result<PrivateDirectory> {
-    match directory.open_child(STAGING) {
-        Ok(stage) => {
+    match directory.open_child_optional(STAGING)? {
+        Some(stage) => {
             stage.clear_contents_preserving(&[])?;
             stage.remove_empty()?;
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
+        None => {}
     }
     Ok(directory.create_child(STAGING)?)
 }
@@ -39,6 +49,38 @@ pub(super) fn prepare(
     launcher: BinaryPin,
     daemon: BinaryPin,
     ports: &LocalnetPorts,
+) -> Result<RetainedLocalnet> {
+    prepare_selected(directory, request, root_kind, launcher, daemon, ports, None)
+}
+
+pub(super) fn prepare_with_amx(
+    directory: &PrivateDirectory,
+    request: &LocalnetRequest,
+    root_kind: RootKind,
+    launcher: BinaryPin,
+    daemon: BinaryPin,
+    ports: &LocalnetPorts,
+    sources: &crate::bootstrap::ParentBootstrapSources,
+) -> Result<RetainedLocalnet> {
+    prepare_selected(
+        directory,
+        request,
+        root_kind,
+        launcher,
+        daemon,
+        ports,
+        Some(sources),
+    )
+}
+
+fn prepare_selected(
+    directory: &PrivateDirectory,
+    request: &LocalnetRequest,
+    root_kind: RootKind,
+    launcher: BinaryPin,
+    daemon: BinaryPin,
+    ports: &LocalnetPorts,
+    amx: Option<&crate::bootstrap::ParentBootstrapSources>,
 ) -> Result<RetainedLocalnet> {
     if matches!(root_kind, RootKind::Private { .. })
         && request.service_profile != crate::localnet::LocalnetServiceProfile::Standard
@@ -57,13 +99,23 @@ pub(super) fn prepare(
             request.service_profile,
             Some(&published_path),
         )?,
-        RootKind::Private { spec } => crate::localnet::prepare_private_root_at(
-            &request.name,
-            stage.path(),
-            ports,
-            spec,
-            Some(&published_path),
-        )?,
+        RootKind::Private { spec } => match amx {
+            Some(sources) => crate::localnet::prepare_private_root_with_amx_at(
+                &request.name,
+                stage.path(),
+                ports,
+                spec,
+                Some(&published_path),
+                sources,
+            )?,
+            None => crate::localnet::prepare_private_root_at(
+                &request.name,
+                stage.path(),
+                ports,
+                spec,
+                Some(&published_path),
+            )?,
+        },
     };
     let retained = RetainedLocalnet {
         root_kind,

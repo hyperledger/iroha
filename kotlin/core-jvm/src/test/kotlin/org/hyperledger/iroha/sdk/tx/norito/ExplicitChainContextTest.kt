@@ -229,7 +229,7 @@ class ExplicitChainContextTest {
 
         assertTrue(
             NativeSignerBridge.isNativeAvailable(),
-            "connect_norito_bridge ABI 25 is required",
+            "connect_norito_bridge ABI 29 is required",
         )
         val (privateKey, publicKey) = NativeSignerBridge.keypairFromSeed(
             SigningAlgorithm.ED25519,

@@ -14,7 +14,7 @@ namespace Hyperledger.Iroha.Zk;
 /// </remarks>
 public enum VerifyingKeyBackendTag : uint
 {
-    Halo2IpaPasta = 0,
+    NativePipaRPasta = 0,
     Stark = 1,
 }
 
@@ -35,14 +35,15 @@ public static class VerifyingKeyBackendTags
             "stark/fri/poseidon-x7-goldilocks-6x64-v1",
         };
 
-    private static readonly HashSet<string> ProductionNativeHalo2PastaBackends =
+    private static readonly HashSet<string> ProductionNativePipaRPastaBackends =
         new(StringComparer.Ordinal)
         {
-            "halo2/pasta/kaigi-authorization-v1",
-            "halo2/pasta/kaigi-usage-v1",
-            "halo2/pasta/confidential-transfer-2x2-merkle16-axiom-poseidon-v3",
-            "halo2/pasta/confidential-unshield-full-merkle16-axiom-poseidon-v3",
-            "halo2/pasta/confidential-unshield-change-merkle16-axiom-poseidon-v4",
+            "pipa-r/pasta",
+            "pipa-r/pasta/kaigi-authorization-v1",
+            "pipa-r/pasta/kaigi-usage-v1",
+            "pipa-r/pasta/confidential-transfer-v1",
+            "pipa-r/pasta/confidential-unshield-full-v1",
+            "pipa-r/pasta/confidential-unshield-change-v1",
         };
 
     private static readonly HashSet<string> TrustedSetupBackendSegments =
@@ -73,6 +74,15 @@ public static class VerifyingKeyBackendTags
         "releaseready", "releaseapproved", "releasecertified",
     };
 
+    /// <summary>Resolve one exact registry profile to its canonical wire engine.</summary>
+    public static VerifyingKeyBackendTag? RegistryTag(string? label)
+    {
+        if (label is null) return null;
+        if (StarkFriProductionBackends.Contains(label)) return VerifyingKeyBackendTag.Stark;
+        if (ProductionNativePipaRPastaBackends.Contains(label)) return VerifyingKeyBackendTag.NativePipaRPasta;
+        return null;
+    }
+
     public static uint NoritoDiscriminant(this VerifyingKeyBackendTag tag)
     {
         EnsureDefined(tag);
@@ -81,8 +91,8 @@ public static class VerifyingKeyBackendTags
 
     public static string CanonicalLabel(this VerifyingKeyBackendTag tag) => tag switch
     {
-        VerifyingKeyBackendTag.Halo2IpaPasta => "halo2-ipa-pasta",
         VerifyingKeyBackendTag.Stark => "stark",
+        VerifyingKeyBackendTag.NativePipaRPasta => "native-pipa-r-pasta",
         _ => throw new ArgumentOutOfRangeException(
             nameof(tag),
             tag,
@@ -95,11 +105,11 @@ public static class VerifyingKeyBackendTags
     {
         switch (label)
         {
-            case "halo2-ipa-pasta":
-                tag = VerifyingKeyBackendTag.Halo2IpaPasta;
-                return true;
             case "stark":
                 tag = VerifyingKeyBackendTag.Stark;
+                return true;
+            case "native-pipa-r-pasta":
+                tag = VerifyingKeyBackendTag.NativePipaRPasta;
                 return true;
             default:
                 tag = default;
@@ -115,7 +125,7 @@ public static class VerifyingKeyBackendTags
         {
             throw new ArgumentException(
                 $"{context} must be one of the exact canonical backend labels: "
-                    + "\"halo2-ipa-pasta\" or \"stark\".",
+                    + "\"stark\" or \"native-pipa-r-pasta\".",
                 context);
         }
 
@@ -162,9 +172,8 @@ public static class VerifyingKeyBackendTags
         {
             return false;
         }
-        return backend == "halo2/ipa"
-            || StarkFriProductionBackends.Contains(backend)
-            || ProductionNativeHalo2PastaBackends.Contains(backend);
+        return StarkFriProductionBackends.Contains(backend)
+            || ProductionNativePipaRPastaBackends.Contains(backend);
     }
 
     public static string RequireProductionVerifyBackendLabel(
@@ -355,8 +364,8 @@ public static class VerifyingKeyBackendTags
 
     private static void EnsureDefined(VerifyingKeyBackendTag tag)
     {
-        if (tag is not VerifyingKeyBackendTag.Halo2IpaPasta
-            and not VerifyingKeyBackendTag.Stark)
+        if (tag is not VerifyingKeyBackendTag.Stark
+            and not VerifyingKeyBackendTag.NativePipaRPasta)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(tag),

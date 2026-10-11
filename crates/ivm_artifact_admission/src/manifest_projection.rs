@@ -50,10 +50,13 @@ impl<'a> ContractManifestProjection<'a> {
                 .access_set_hints
                 .as_ref()
                 .map(BorrowedManifestValue),
+            permissions: BorrowedManifestValue(&self.interface.permissions),
+            events: BorrowedManifestValue(&self.interface.events),
             entrypoints: Some(BorrowedEntrypoints(self)),
             states: Some(BorrowedStates(self)),
             error_types: (!self.interface.error_types.is_empty())
                 .then_some(BorrowedManifestValue(&self.interface.error_types)),
+            enum_types: BorrowedManifestValue(&self.interface.enum_types),
             error_messages: (!self.interface.error_messages.is_empty())
                 .then_some(BorrowedManifestValue(&self.interface.error_messages)),
             kotoba: (!self.interface.kotoba.is_empty())
@@ -96,8 +99,11 @@ impl<'a> ContractManifestProjection<'a> {
                 != Some(self.interface.compiler_fingerprint.as_str())
             || manifest.features_bitmap != Some(self.interface.features_bitmap)
             || manifest.access_set_hints.as_ref() != self.interface.access_set_hints.as_ref()
+            || manifest.permissions != self.interface.permissions
+            || manifest.events != self.interface.events
             || manifest.error_types.as_ref()
                 != (!self.interface.error_types.is_empty()).then_some(&self.interface.error_types)
+            || manifest.enum_types != self.interface.enum_types
             || manifest.error_messages.as_ref()
                 != (!self.interface.error_messages.is_empty())
                     .then_some(&self.interface.error_messages)
@@ -151,7 +157,7 @@ impl ManifestEntrypointSequenceV1 for ContractManifestProjection<'_> {
             argument_schema: BorrowedManifestValue(&entry.argument_schema),
             return_type: entry.return_type.as_deref(),
             return_schema: BorrowedManifestValue(&entry.return_schema),
-            permission: entry.permission.as_deref(),
+            authorization: BorrowedManifestValue(&entry.authorization),
             read_keys: BorrowedManifestValue(&entry.read_keys),
             write_keys: BorrowedManifestValue(&entry.write_keys),
             access_hints_complete: entry.access_hints_complete,
@@ -184,7 +190,7 @@ mod tests {
         let source = r#"seiyaku Projection {
             state int count;
             hajimari() { count = 0; }
-            view fn value() -> int { return count; }
+            view fn value() authorize(anyone) -> int { return count; }
         }"#;
         let artifact = kotodama_lang::compiler::Compiler::new()
             .compile_source(source)
@@ -220,7 +226,10 @@ mod tests {
                 .unwrap(),
         );
         let mut changed = verified.manifest.clone();
-        changed.entrypoints.as_mut().unwrap()[0].permission = Some("CanSubstitute".into());
+        changed.entrypoints.as_mut().unwrap()[0].authorization =
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "CanSubstitute".parse().unwrap(),
+            );
         assert!(!projection.same_signed_content(&changed).unwrap());
         changed = verified.manifest.clone();
         changed.states.as_mut().unwrap()[0].type_name = "decimal".into();

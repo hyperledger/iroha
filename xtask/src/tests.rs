@@ -489,18 +489,15 @@ fn development_vote_fixture_math_identity_and_reproducibility() {
         .expect("meta entry present");
     assert!(meta_entry.0 > 0);
     let proof_entry = artifact_map
-        .get("dev_vote_membership_proof.zk1")
+        .get("dev_vote_membership_proof.norito")
         .expect("proof entry present");
     assert_eq!(proof_entry.0, summary.proof_len as u64);
     let vk_entry = artifact_map
-        .get("dev_vote_membership_vk.zk1")
+        .get("dev_vote_membership_vk.norito")
         .expect("vk entry present");
     assert_eq!(vk_entry.0, summary.vk_len as u64);
-    assert_eq!(summary.backend, "halo2/ipa");
-    assert_eq!(
-        summary.circuit_id,
-        "halo2/pasta/ipa/vote-bool-commit-merkle8"
-    );
+    assert_eq!(summary.backend, "pipa-r/pasta");
+    assert_eq!(summary.circuit_id, "pipa-r/pasta/dev-vote-membership-v1");
     assert_eq!(
         summary.commit_hex,
         "20574662a58708e02e0000000000000000000000000000000000000000000000"
@@ -515,7 +512,7 @@ fn development_vote_fixture_math_identity_and_reproducibility() {
     );
     let key = iroha_data_model::proof::VerifyingKeyBox::new(
         summary.backend.clone(),
-        std::fs::read(temp.path().join("dev_vote_membership_vk.zk1")).unwrap(),
+        std::fs::read(temp.path().join("dev_vote_membership_vk.norito")).unwrap(),
     );
     assert_eq!(
         summary.vk_commit_hex,
@@ -548,7 +545,7 @@ fn attestation_verification_rejects_proof_digest_drift() {
     {
         for entry in artifacts {
             if let Some(map) = entry.as_object_mut()
-                && map.get("file") == Some(&norito::json!("dev_vote_membership_proof.zk1"))
+                && map.get("file") == Some(&norito::json!("dev_vote_membership_proof.norito"))
             {
                 map.insert(
                     "blake2b_256".into(),
@@ -570,7 +567,7 @@ fn attestation_verification_rejects_proof_digest_drift() {
     )
     .expect_err("proof digest drift must be rejected");
     assert!(
-        err.to_string().contains("dev_vote_membership_proof.zk1"),
+        err.to_string().contains("dev_vote_membership_proof.norito"),
         "error must cite proof artefact"
     );
 }

@@ -18,7 +18,8 @@ use norito::{
 use num_bigint::{BigInt as UnboundedBigInt, BigUint as UnboundedBigUint, Sign as UnboundedSign};
 use num_traits::{One as _, Signed as _, Zero as _};
 pub use prepared_quantity::{
-    ChargedQuantity, PreparedQuantityDecode, QuantityDecodePlan, QuantityDestinationError,
+    ChargedQuantity, PreparedQuantityDecode, QuantityBackingError, QuantityDecodeAdmissionError,
+    QuantityDecodePlan, QuantityDestinationError, QuantityJsonAdmissionError,
 };
 use std::{
     alloc::Layout,
@@ -1321,37 +1322,38 @@ fn invalid_quantity_json(message: &'static str) -> json::Error {
 /// shape again so callers cannot reach an allocation with excess width.
 ///
 /// # Safety
-/// If `allocate` returns non-null, it must return an owned pointer allocated
+/// If `allocate` succeeds with non-null, it must return an owned pointer allocated
 /// with the requested `Layout`, aligned for `NativeBigDigit`, that can be
 /// transferred to `Vec` and deallocated by the global allocator. A null
-/// pointer is allowed. The callback is not called for invalid or zero layouts.
+/// pointer is allowed. A typed refusal supplies no pointer. The callback is not
+/// called for invalid or zero layouts.
 #[allow(unsafe_code)]
-unsafe fn quantity_mantissa_from_canonical_le_bytes_with(
+unsafe fn quantity_mantissa_from_canonical_le_bytes_with<E: From<json::Error>>(
     bytes: &[u8],
-    allocate: impl FnOnce(Layout) -> *mut u8,
-) -> Result<BigInt, json::Error> {
+    allocate: impl FnOnce(Layout) -> Result<*mut u8, E>,
+) -> Result<BigInt, E> {
     let Some(&high_byte) = bytes.last() else {
-        return Err(invalid_quantity_json("noncanonical quantity"));
+        return Err(invalid_quantity_json("noncanonical quantity").into());
     };
     if high_byte == 0
         || bytes.len() > MAX_MANTISSA_BYTES
         || (bytes.len() == MAX_MANTISSA_BYTES && high_byte & 0x80 != 0)
     {
-        return Err(invalid_quantity_json(
-            "quantity mantissa exceeds the signed 512-bit domain",
-        ));
+        return Err(
+            invalid_quantity_json("quantity mantissa exceeds the signed 512-bit domain").into(),
+        );
     }
     let digit_count = bytes.len().div_ceil(UNBOUNDED_BIGINT_DIGIT_BYTES);
     let layout = Layout::array::<NativeBigDigit>(digit_count)
         .map_err(|_| json::Error::DecodeResourceLimit)?;
     if layout.size() == 0 {
-        return Err(json::Error::DecodeResourceLimit);
+        return Err(json::Error::DecodeResourceLimit.into());
     }
     norito::core::reserve_decode_allocation(layout.size())
         .map_err(json::Error::from_decode_resource)?;
-    let pointer = allocate(layout);
+    let pointer = allocate(layout)?;
     if pointer.is_null() {
-        return Err(json::Error::AllocationFailed);
+        return Err(json::Error::AllocationFailed.into());
     }
     let digit_pointer = core::ptr::NonNull::new(pointer)
         .expect("the allocation pointer was checked non-null")
@@ -1375,14 +1377,15 @@ unsafe fn quantity_mantissa_from_canonical_le_bytes_with(
         UnboundedSign::Plus,
         UnboundedBigUint::from_native_digits(digits),
     );
-    BigInt::from_inner(inner)
-        .map_err(|_| invalid_quantity_json("quantity mantissa exceeds the signed 512-bit domain"))
+    BigInt::from_inner(inner).map_err(|_| {
+        invalid_quantity_json("quantity mantissa exceeds the signed 512-bit domain").into()
+    })
 }
 #[allow(unsafe_code)]
 fn quantity_mantissa_from_canonical_le_bytes(bytes: &[u8]) -> Result<BigInt, json::Error> {
     // SAFETY: `std::alloc::alloc` returns a global-allocator-owned pointer for
     // exactly the requested nonzero layout, or null on refusal.
-    let allocate = |layout| unsafe { std::alloc::alloc(layout) };
+    let allocate = |layout| Ok::<_, json::Error>(unsafe { std::alloc::alloc(layout) });
     unsafe { quantity_mantissa_from_canonical_le_bytes_with(bytes, allocate) }
 }
 // Each nonnegative 512-bit-domain mantissa is below 2^511. Aligning at most 28
@@ -1425,30 +1428,39 @@ fn aligned_quantity_sum_limbs(
 
 impl Quantity {
     fn from_canonical_json_text(source: &str) -> Result<Self, json::Error> {
+        Self::from_canonical_json_text_with(source, quantity_mantissa_from_canonical_le_bytes)
+    }
+
+    // Ordinary and admitted JSON share every decimal syntax/domain check. Only
+    // the final exact native-digit destination differs; no second parser runs.
+    fn from_canonical_json_text_with<E: From<json::Error>>(
+        source: &str,
+        make_mantissa: impl FnOnce(&[u8]) -> Result<BigInt, E>,
+    ) -> Result<Self, E> {
         if source.len() > MAX_CANONICAL_QUANTITY_TEXT_BYTES {
-            return Err(invalid_quantity_json(
-                "quantity text exceeds the signed 512-bit domain",
-            ));
+            return Err(
+                invalid_quantity_json("quantity text exceeds the signed 512-bit domain").into(),
+            );
         }
         let (integer, fraction) = match source.split_once('.') {
             Some((integer, fraction)) => (integer, Some(fraction)),
             None => (source, None),
         };
         if integer.is_empty() || !integer.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Err(invalid_quantity_json("malformed quantity"));
+            return Err(invalid_quantity_json("malformed quantity").into());
         }
         if integer.len() > 1 && integer.starts_with('0') {
-            return Err(invalid_quantity_json("noncanonical quantity"));
+            return Err(invalid_quantity_json("noncanonical quantity").into());
         }
         let scale = if let Some(fraction) = fraction {
             if fraction.is_empty() || !fraction.bytes().all(|byte| byte.is_ascii_digit()) {
-                return Err(invalid_quantity_json("malformed quantity"));
+                return Err(invalid_quantity_json("malformed quantity").into());
             }
             if fraction.len() > MAX_DECIMAL_SCALE as usize {
-                return Err(invalid_quantity_json("quantity scale exceeds 28 digits"));
+                return Err(invalid_quantity_json("quantity scale exceeds 28 digits").into());
             }
             if fraction.ends_with('0') {
-                return Err(invalid_quantity_json("noncanonical quantity"));
+                return Err(invalid_quantity_json("noncanonical quantity").into());
             }
             u32::try_from(fraction.len()).expect("validated quantity scale fits u32")
         } else {
@@ -1461,7 +1473,8 @@ impl Quantity {
         if digit_count > MAX_QUANTITY_MANTISSA_DECIMAL_DIGITS {
             return Err(invalid_quantity_json(
                 "quantity mantissa exceeds the signed 512-bit domain",
-            ));
+            )
+            .into());
         }
         if integer == "0" && fraction.is_none() {
             return Ok(Self::zero());
@@ -1487,7 +1500,8 @@ impl Quantity {
                 if magnitude_len == magnitude.len() {
                     return Err(invalid_quantity_json(
                         "quantity mantissa exceeds the signed 512-bit domain",
-                    ));
+                    )
+                    .into());
                 }
                 let [low, high] = carry.to_le_bytes();
                 magnitude[magnitude_len] = low;
@@ -1498,14 +1512,15 @@ impl Quantity {
         if magnitude_len == MAX_MANTISSA_BYTES && magnitude[MAX_MANTISSA_BYTES - 1] & 0x80 != 0 {
             return Err(invalid_quantity_json(
                 "quantity mantissa exceeds the signed 512-bit domain",
-            ));
+            )
+            .into());
         }
         debug_assert!(magnitude_len != 0, "canonical nonzero quantity");
 
         // Charge and create the exact native-digit allocation before handing it
         // to the pinned bigint fork; byte-slice constructors do not promise an
         // exact-capacity Vec or a fallible allocator path.
-        let mantissa = quantity_mantissa_from_canonical_le_bytes(&magnitude[..magnitude_len])?;
+        let mantissa = make_mantissa(&magnitude[..magnitude_len])?;
         Ok(Self(Numeric { mantissa, scale }))
     }
     /// Zero quantity.

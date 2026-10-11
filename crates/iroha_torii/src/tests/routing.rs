@@ -621,10 +621,15 @@ mod tests {
     #[cfg(feature = "app_api")]
     #[test]
     fn average_block_time_handles_empty_chain() {
-        let kura = iroha_core::kura::Kura::blank_kura_for_testing();
-        let budget = iroha_allocation::AllocationBudget::new(0);
+        let state = CoreState::new_for_testing(
+            World::default(),
+            Kura::blank_kura_for_testing(),
+            LiveQueryStore::start_test(),
+        );
+        let owner = crate::history_producer::HistoryProducerOwner::for_test();
+        let budget = owner.canonical_history_budget();
         assert!(
-            super::average_block_time_ms(&kura, 0, 10, &budget)
+            super::average_block_time_ms(&state, 0, 10, &budget)
                 .expect("empty history needs no body admission")
                 .is_none()
         );
@@ -638,9 +643,14 @@ mod tests {
             LiveQueryStore::start_test(),
         );
         assert!(
-            super::latest_block_created_at(&state, 0)
-                .expect("height zero needs no body admission")
-                .is_none()
+            super::latest_block_created_at(
+                &state,
+                0,
+                &crate::history_producer::HistoryProducerOwner::for_test()
+                    .canonical_history_budget()
+            )
+            .expect("height zero needs no body admission")
+            .is_none()
         );
     }
     #[cfg(feature = "app_api")]
@@ -769,6 +779,7 @@ mod tests {
                         .path(),
                     axum::routing::get(crate::handler_bridge_finality_attestation_latest),
                 )
+                .layer(axum::middleware::from_fn(crate::enforce_route_timeout))
                 .layer(axum::middleware::from_fn(crate::capture_response_format))
                 .layer(axum::middleware::from_fn(crate::coalesce_accept_headers))
                 .layer(axum::middleware::from_fn(
@@ -857,6 +868,42 @@ mod tests {
                 assert!(failure.tip_mismatch.is_none());
             }
             failure
+        }
+
+        #[tokio::test]
+        async fn finality_attestation_direct_http_admission_reaches_inactive_native_worker() {
+            let fixture = ReadinessNode::start_at_tip(true);
+            let app = &fixture.app;
+            for route in [
+                iroha_torii_shared::route_catalog::sumeragi::BRIDGE_FINALITY,
+                iroha_torii_shared::route_catalog::sumeragi::BRIDGE_FINALITY_ATTESTATION,
+                iroha_torii_shared::route_catalog::sumeragi::BRIDGE_FINALITY_ATTESTATION_LATEST,
+            ] {
+                assert!(crate::app_routed_read_http_endpoint(route.stable_route_id()).is_none());
+            }
+            // Exercise the same real public handler's admission and physical worker boundary.
+            // An inactive-only native producer must not silently become unreachable here.
+            let admission = crate::acquire_query_admission(app.as_ref(), true)
+                .await
+                .unwrap();
+            let active =
+                crate::routing::run_admitted_blocking(admission, "attestation scope check", || {
+                    Ok(norito::core::decode_limits_active())
+                })
+                .await
+                .unwrap();
+            assert!(!active);
+            let response = router(app).oneshot(request(2, [0x63; 32])).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024 * 1024)
+                .await
+                .unwrap();
+            let attestation: SumeragiFinalityAttestation = norito::decode_canonical_with_limits(
+                &bytes,
+                norito::canonical_decode_limits(bytes.len()),
+            )
+            .unwrap();
+            attestation.verify().unwrap();
         }
 
         #[tokio::test]

@@ -851,12 +851,21 @@ fn ivm_trigger_respects_pipeline_cycle_cap() {
     let err = stx
         .execute_called_trigger(&trigger_id, &evt)
         .expect_err("trigger should exhaust the configured gas budget");
-    match err {
-        TransactionRejectionReason::Validation(ValidationFail::NotPermitted(msg)) => {
-            assert!(msg.contains("max cycles"), "unexpected error: {msg}");
-        }
-        other => panic!("unexpected rejection: {other:?}"),
-    }
+    let TransactionRejectionReason::Validation(ValidationFail::IvmFault(fault)) = err else {
+        panic!("cycle exhaustion must retain its structured execution fault: {err:?}");
+    };
+    assert_eq!(
+        fault.kind,
+        iroha_data_model::executor::fault::IvmFaultKindV1::ExceededMaxCycles
+    );
+    assert_eq!(
+        fault.site.selector,
+        iroha_data_model::executor::fault::IvmInvocationSelectorV1::Generic
+    );
+    assert_eq!(
+        fault.site.position,
+        iroha_data_model::executor::fault::IvmFaultPositionV1::Execute { pc_offset: 4 }
+    );
 }
 #[test]
 fn generic_trigger_resolution_retains_original_allocation_refusal() {
@@ -1042,6 +1051,9 @@ fn contract_query_cache_isolated_and_reuses_owned_runtime() {
     let state = State::new(World::default(), kura, query_handle);
     let mut program = ivm::ProgramMetadata::default().encode();
     let interface = ivm::EmbeddedContractInterfaceV1 {
+        events: Vec::new(),
+        enum_types: Vec::new(),
+        permissions: Vec::new(),
         callables: vec![crate::ivm_test_support::unit_callable(0)],
         seiyaku_name: "QueryCacheFixture".to_owned(),
         compiler_fingerprint: "iroha-core-state-tests".to_owned(),
@@ -1058,7 +1070,7 @@ fn contract_query_cache_isolated_and_reuses_owned_runtime() {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: None,
+            authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -1150,8 +1162,8 @@ fn execute_called_trigger_fails_closed_on_missing_bytecode_with_warm_prepared_ar
     let program = kotodama_lang::compiler::Compiler::new()
         .compile_source(
             r#"
-seiyaku MissingBytecodeTrigger {
-  kotoage fn main(int marker) authorize("missing_bytecode_probe") {
+seiyaku MissingBytecodeTrigger { permission missing_bytecode_probe;
+  kotoage fn main(int marker) authorize(missing_bytecode_probe) {
 let _marker = marker;
   }
 }

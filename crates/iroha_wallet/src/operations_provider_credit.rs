@@ -267,6 +267,28 @@ impl AccountService {
             )),
         )
     }
+    /// Inspect this exact request beneath its original retained native parent.
+    ///
+    /// The child and original lock receive fresh admission; only ancestor descriptors are shared.
+    /// Every record, signature, request and fee check uses the same canonical inspector as the
+    /// absolute-path entry. This neither reuses an earlier verdict nor grants dispatch authority.
+    /// # Errors
+    /// Refuses invalid names, missing or replaced parents, unsafe custody and changed preparation.
+    pub fn inspect_provider_credit_upsert_preparation_in_parent(
+        &self,
+        parent: &iroha_fs::PrivateDirectory,
+        name: &std::ffi::OsStr,
+        expected: &ProviderCreditUpsertRequest,
+    ) -> Result<VerifiedNativePreparation> {
+        self.inspect_preparation_in_parent(
+            parent,
+            name,
+            NativeOperationKind::ProviderCreditUpsert,
+            Some(OperationExpectation::ProviderCredit(
+                ProviderCreditExpectation(expected),
+            )),
+        )
+    }
     /// Retire only this exact retained request before any payload or dispatch evidence exists.
     /// # Errors
     /// Refuses missing, changed, malformed, payload-retained or signed histories and unsafe custody.

@@ -2,7 +2,6 @@
 #![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "zk-tests")]
 //! The first release exposes protocol-specific Halo2 routes only.
-#![cfg(feature = "zk-ipa-native")]
 use iroha_core_zk::verify_backend;
 use iroha_data_model::proof::ProofBox;
 #[test]

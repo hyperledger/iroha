@@ -20,17 +20,14 @@ categories = ["network-programming", "data-structures"]
 
 [features]
 default = ["std"]
+# Required by this native-only fork; retained for dependency feature selection.
 std = []
 
 [dependencies]
 serde = { version = "1.0.60", optional = true, default-features = false, features = ["alloc"] }
-# Use portable-atomic crate to support platforms without atomic CAS.
-# See "no_std support" section in readme for more information.
-#
-# Enable require-cas feature to provide a better error message if the end user forgets to use the cfg or feature.
-extra-platforms = { package = "portable-atomic", version = "1.3", optional = true, default-features = false, features = ["require-cas"] }
 
 [dev-dependencies]
+criterion = { workspace = true }
 serde_test = "1.0"
 
 [target.'cfg(loom)'.dev-dependencies]
@@ -43,3 +40,18 @@ rustdoc-args = ["--cfg", "docsrs"]
 unexpected_cfgs = { level = "warn", check-cfg = [
   'cfg(loom)',
 ] }
+
+[[bench]]
+name = "buf"
+path = "benches/buf.rs"
+harness = false
+
+[[bench]]
+name = "bytes"
+path = "benches/bytes.rs"
+harness = false
+
+[[bench]]
+name = "bytes_mut"
+path = "benches/bytes_mut.rs"
+harness = false

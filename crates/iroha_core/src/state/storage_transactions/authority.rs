@@ -6,13 +6,16 @@
 //! finalized anchor; the complete State publisher must retain authenticated nodes
 //! and their original storage through publication and recovery.
 
-use super::{Key, MembershipAdmissionError, TransactionsBlock, TransactionsStorage, Value};
+use super::{
+    Key, MembershipAdmissionError, PreparedTransactionsBlock, TransactionsBlock,
+    TransactionsMembershipTransition, TransactionsPublicationSurface, TransactionsStorage, Value,
+};
 
 #[path = "authority/observation.rs"]
 mod observation;
 pub(in crate::state) use observation::CommittedMembershipObservation;
 
-/// Which exact committed map emitted a borrowed row.
+/// Which exact map of one inseparable membership pair emitted a borrowed row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::state) enum TransactionMembershipSide {
     /// Latest-set precedence over historical values, after the committed tip.
@@ -67,6 +70,86 @@ pub(in crate::state) struct TransactionMembershipCut<'block, 'storage> {
     owner: &'block TransactionsBlock<'storage>,
     frontier_height: u64,
     row_visits: usize,
+}
+
+/// Complete successor pair borrowed from an already admitted original publisher.
+/// The lifetime retains its exact prepared writer; this has no finalized/root capability.
+pub(in crate::state) struct TransactionMembershipPublicationCut<'block> {
+    transition: TransactionsMembershipTransition<'block>,
+    frontier_height: u64,
+    row_visits: usize,
+}
+
+impl PreparedTransactionsBlock<'_> {
+    /// Bind the actual original storage family, including physically prepared detached slots.
+    pub(in crate::state) fn belongs_to(&self, storage: &TransactionsStorage) -> bool {
+        self.unpublished_membership_block().belongs_to(storage)
+    }
+
+    /// Return this admitted original's replacement mode.
+    pub(in crate::state) fn mode(&self) -> mv::BlockMode {
+        self.unpublished_membership_block().mode()
+    }
+
+    /// Retain predecessor and staged-row allocation identity without cloning row contents.
+    pub(in crate::state) fn publication_surface(&self) -> TransactionsPublicationSurface {
+        self.unpublished_membership_block().publication_surface()
+    }
+
+    /// Admit both successor streams once before encoding or constructing any nodes.
+    pub(in crate::state) fn membership_publication_authority_cut(
+        &self,
+        max_row_visits: usize,
+    ) -> Result<TransactionMembershipPublicationCut<'_>, TransactionMembershipAuthorityError> {
+        let transition = self.membership_transition();
+        let frontier_height = u64::try_from(transition.staged_height().get())
+            .map_err(|_| TransactionMembershipAuthorityError::HeightOverflow)?;
+        let row_visits = transition
+            .successor_row_visits()
+            .ok_or(TransactionMembershipAuthorityError::TraversalOverflow)?;
+        if row_visits > max_row_visits {
+            return Err(TransactionMembershipAuthorityError::TraversalRefused {
+                required: row_visits,
+                limit: max_row_visits,
+            });
+        }
+        Ok(TransactionMembershipPublicationCut {
+            transition,
+            frontier_height,
+            row_visits,
+        })
+    }
+}
+
+impl TransactionMembershipPublicationCut<'_> {
+    /// Exact successor frontier shared by both maps.
+    pub(in crate::state) fn frontier_height(&self) -> u64 {
+        self.frontier_height
+    }
+
+    /// Physical source-entry inspections admitted before either stream starts.
+    pub(in crate::state) fn row_visits(&self) -> usize {
+        self.row_visits
+    }
+
+    /// Emit current then rollback from this same immutable original transition.
+    /// Error discards all provisional consumer output and changes no publication source.
+    pub(in crate::state) fn visit<E>(
+        self,
+        mut visit: impl FnMut(TransactionMembershipSide, &Key, u64) -> Result<(), E>,
+    ) -> Result<(), TransactionMembershipVisitError<E>> {
+        self.transition.visit_staged_membership(|key, height| {
+            let height = canonical_height(height, self.frontier_height)?;
+            visit(TransactionMembershipSide::Current, key, height)
+                .map_err(TransactionMembershipVisitError::Consumer)
+        })?;
+        self.transition
+            .visit_staged_predecessor_membership(|key, height| {
+                let height = canonical_height(height, self.frontier_height.saturating_sub(1))?;
+                visit(TransactionMembershipSide::Rollback, key, height)
+                    .map_err(TransactionMembershipVisitError::Consumer)
+            })
+    }
 }
 
 fn canonical_height(

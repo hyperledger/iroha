@@ -15,9 +15,9 @@ fn struct_fields_lower_to_syscall_args() {
     }
     // Define a struct with pointer-ABI fields and use it to call a builtin.
     let src = r#"
-        seiyaku C {
+        seiyaku C { permission TransferDomain;
             struct TransferArgs { DomainId domain; AccountId to; }
-            kotoage fn main() authorize("TransferDomain") {
+            kotoage fn main() authorize(TransferDomain) {
                 let args = TransferArgs {
                     domain: DomainId::parse("wonderland.universal"),
                     to: AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"),

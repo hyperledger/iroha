@@ -3,7 +3,6 @@
 use ::bytes::{Buf, Bytes, BytesMut};
 use core::{cmp, mem};
 use std::collections::VecDeque;
-#[cfg(feature = "std")]
 use std::io::IoSlice;
 
 // A random 64-byte ascii string, with the first 8 bytes altered to
@@ -79,7 +78,6 @@ macro_rules! buf_tests {
         }
 
         #[test]
-        #[cfg(feature = "std")]
         fn chunks_vectored_empty() {
             let  buf = $make_input(&[]);
             let mut bufs = [IoSlice::new(&[]); 16];
@@ -90,7 +88,6 @@ macro_rules! buf_tests {
         }
 
         #[test]
-        #[cfg(feature = "std")]
         fn chunks_vectored_is_complete() {
             let buf = $make_input(INPUT);
             let mut bufs = [IoSlice::new(&[]); 16];
@@ -356,7 +353,6 @@ mod vec_deque {
     buf_tests!(make_input, true);
 }
 
-#[cfg(feature = "std")]
 mod cursor {
     use std::io::Cursor;
 

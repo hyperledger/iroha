@@ -3,6 +3,7 @@
 //! Metadata, decoded result/schedule graphs and cryptographic/RS16 scratch retain their own
 //! accounting obligations. This job funds only the exact table, witness and proposal owners.
 
+#[cfg(test)]
 use std::io;
 
 use iroha_allocation::AllocationBudget;
@@ -99,6 +100,7 @@ pub(in crate::sumeragi) enum PrefixArtifactsError {
     Consumed,
 }
 impl PrefixArtifactsError {
+    #[cfg(test)]
     pub(in crate::sumeragi) fn kind(&self) -> io::ErrorKind {
         match self {
             Self::Certificate(CertificateReadError::Admission(error))

@@ -8,7 +8,6 @@ public enum ConfidentialEncryptedPayloadError: Error, Sendable, Equatable {
     case invalidNonceLength(Int)
     case emptyCiphertext
     case ciphertextTooLarge
-    case bridgeUnavailable
     case truncatedPayload
     case varintOverflow
     case trailingBytes(Int)
@@ -29,10 +28,6 @@ extension ConfidentialEncryptedPayloadError: LocalizedError {
             return "Ciphertext must not be empty."
         case .ciphertextTooLarge:
             return "Ciphertext length exceeds supported range."
-        case .bridgeUnavailable:
-            return NoritoNativeBridge.bridgeUnavailableMessage(
-                "NoritoBridge confidential payload encoder is unavailable."
-            )
         case .truncatedPayload:
             return "Encrypted payload bytes ended unexpectedly."
         case .varintOverflow:
@@ -81,11 +76,6 @@ public struct ConfidentialEncryptedPayload: Equatable, Sendable {
     public func serializedPayload() throws -> Data {
         guard ciphertext.count <= Int(UInt32.max) else {
             throw ConfidentialEncryptedPayloadError.ciphertextTooLarge
-        }
-        if let native = NoritoNativeBridge.shared.encodeConfidentialPayload(ephemeralPublicKey: ephemeralPublicKey,
-                                                                             nonce: nonce,
-                                                                             ciphertext: ciphertext) {
-            return native
         }
         var payload = Data()
         payload.reserveCapacity(1 + ephemeralPublicKey.count + nonce.count + 5 + ciphertext.count)

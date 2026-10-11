@@ -3,7 +3,7 @@ seiyaku CompilerFixture {
 
 fn main() {
   let payload = b"\x01\x02\x03";
-  let _bad = crypto::verify_signature(message: payload, signature: payload, public_key: payload, scheme: Name::parse("scheme"));
+  let _bad = crypto::verify_signature(message: payload, signature: payload, public_key: Name::parse("key"), scheme: SignatureScheme::Secp256k1);
 }
 
 }

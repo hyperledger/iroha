@@ -21,6 +21,22 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+/// Background scheduling decision, distinct from an authenticated empty pending result.
+#[derive(Debug)]
+pub enum StreamTokenGatewayReconciliationReadV1 {
+    /// Complete native preparation found no local work. No Check was signed or consumed.
+    Idle,
+    /// Pending readback authenticated by the original signed native Check.
+    Checked(StreamTokenGatewayAdmissionReadbackV1),
+}
+/// Outcome of one background callback-recovery tick; neither variant grants serving authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamTokenReconciliationOutcomeV1 {
+    /// No work was scheduled; this is not proof of delivery or authenticated emptiness.
+    Idle,
+    /// One fully checked bounded batch completed, with this many delivered records.
+    Reconciled(u32),
+}
 /// Pinned native quota, sealed sequence, and ordered-outbox boundary.
 ///
 /// The local handle and configured qualification identify the selected owner; neither grants
@@ -63,6 +79,16 @@ pub trait StreamTokenGatewayAdmissionProviderV1: Send + Sync + fmt::Debug {
         max_items: u32,
         deadline: Instant,
     ) -> Result<StreamTokenGatewayAdmissionReadbackV1, StreamTokenGatewayAdmissionErrorV1>;
+    /// Prepare background recovery under the original deadline, without signing an empty poll.
+    ///
+    /// Idle requires complete native preparation, including finality and current permissions;
+    /// a preparation error must remain an error. Pending work requires the same signed Check
+    /// as `pending`. This scheduling-only method must never replace startup or request proofs.
+    fn pending_for_background(
+        &self,
+        max_items: u32,
+        deadline: Instant,
+    ) -> Result<StreamTokenGatewayReconciliationReadV1, StreamTokenGatewayAdmissionErrorV1>;
     /// Durably acknowledge one callback only after reputation admission succeeds.
     fn acknowledge(
         &self,
@@ -261,6 +287,28 @@ impl StreamTokenAdmissionCaptureV1 {
         self.reconcile_one_batch(None, self.begin_operation()?)
             .map(|outcome| outcome.delivered)
     }
+    /// Run one background tick, allowing native preparation to leave an empty poll unsigned.
+    ///
+    /// # Errors
+    /// Preserves preparation, binding, deadline, readback, callback and acknowledgement errors.
+    pub fn reconcile_background(
+        &self,
+    ) -> Result<StreamTokenReconciliationOutcomeV1, StreamTokenGatewayAdmissionErrorV1> {
+        let deadline = self.begin_operation()?;
+        self.ensure_configured_binding(deadline)?;
+        let pending = self
+            .provider
+            .pending_for_background(self.reconcile_max_items, deadline)?;
+        self.ensure_configured_binding(deadline)?;
+        match pending {
+            StreamTokenGatewayReconciliationReadV1::Idle => {
+                Ok(StreamTokenReconciliationOutcomeV1::Idle)
+            }
+            StreamTokenGatewayReconciliationReadV1::Checked(pending) => self
+                .reconcile_readback(None, deadline, pending)
+                .map(|outcome| StreamTokenReconciliationOutcomeV1::Reconciled(outcome.delivered)),
+        }
+    }
     /// Release an accepted external concurrency lease idempotently.
     ///
     /// # Errors
@@ -310,6 +358,14 @@ impl StreamTokenAdmissionCaptureV1 {
     ) -> Result<StreamTokenReconcileBatchV1, StreamTokenGatewayAdmissionErrorV1> {
         self.ensure_configured_binding(deadline)?;
         let pending = self.provider.pending(self.reconcile_max_items, deadline)?;
+        self.reconcile_readback(required_record, deadline, pending)
+    }
+    fn reconcile_readback(
+        &self,
+        required_record: Option<StreamTokenGatewayAdmissionRecordV1>,
+        deadline: Instant,
+        pending: StreamTokenGatewayAdmissionReadbackV1,
+    ) -> Result<StreamTokenReconcileBatchV1, StreamTokenGatewayAdmissionErrorV1> {
         pending.validate(self.reconcile_max_items, self.expected_qualification)?;
         self.ensure_configured_binding(deadline)?;
         let mut delivery_count = pending.records.len();

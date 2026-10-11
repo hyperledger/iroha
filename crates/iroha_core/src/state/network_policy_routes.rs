@@ -282,11 +282,13 @@ impl CapturedNetworkPolicyRoutes {
         let root_scope = if genesis {
             // A height-one header alone is not genesis authority. Reuse the canonical
             // original-signature/domain/committee verifier before reading its scope.
-            iroha_data_model::sumeragi_finality::genesis_epoch(source).map_err(|error| {
-                crate::execution_attempt::genesis_read_attempt_error(error, |_| {
-                    "Network genesis has no authenticated original authority".into()
-                })
-            })?;
+            iroha_data_model::sumeragi_finality::authenticated_genesis(source)
+                .map(|genesis| genesis.into_parts().0)
+                .map_err(|error| {
+                    crate::execution_attempt::genesis_read_attempt_error(error, |_| {
+                        "Network genesis has no authenticated original authority".into()
+                    })
+                })?;
             Some(
                 iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(source)
                     .map_err(|error| {

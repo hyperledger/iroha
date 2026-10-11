@@ -123,9 +123,19 @@ pub fn macos_info_plist(version: &str) -> Result<String> {
 
 /// Use application resources for desktop packages and colocated profiles for CLI/loose runtimes.
 pub(super) fn runtime_profiles_path(directory: &Path) -> Result<PathBuf> {
-    let application = directory
-        .ancestors()
-        .find(|path| path.extension().is_some_and(|ext| ext == "app"));
+    runtime_profiles_path_for(NativeBundleLayout::current(), directory)
+}
+
+// The runtime location is already selected. Only macOS gives an `.app` ancestor
+// package meaning; Windows and Linux keep their colocated installation artifact.
+fn runtime_profiles_path_for(layout: NativeBundleLayout, directory: &Path) -> Result<PathBuf> {
+    let application = if layout == NativeBundleLayout::MacOs {
+        directory
+            .ancestors()
+            .find(|path| path.extension().is_some_and(|ext| ext == "app"))
+    } else {
+        None
+    };
     if let Some(application) = application {
         if directory != application.join("Contents/MacOS") {
             return Err(Error::Invalid(
@@ -184,6 +194,83 @@ mod tests {
             NativeBundleLayout::MacOs.profiles_path(root),
             root.join("Mochi.app/Contents/Resources/network-profiles.nrt")
         );
+    }
+
+    #[test]
+    fn non_macos_app_ancestors_keep_colocated_runtime_profiles() {
+        use crate::bootstrap::NETWORK_PROFILES_FILENAME;
+
+        // All inputs are lexical paths, so both layout choices run on any host. Even a
+        // macOS-shaped directory on Windows/Linux must not redirect installation trust.
+        for directory in [
+            Path::new("alice.app").join("Iroha 開発 space/bin"),
+            Path::new("Renamed Mochi.app").join("Contents/MacOS"),
+            Path::new("Iroha 開発 space").join("bin"),
+        ] {
+            let expected = directory.join(NETWORK_PROFILES_FILENAME);
+            for layout in [NativeBundleLayout::Windows, NativeBundleLayout::Linux] {
+                assert_eq!(
+                    runtime_profiles_path_for(layout, &directory).unwrap(),
+                    expected
+                );
+            }
+            if NativeBundleLayout::current() != NativeBundleLayout::MacOs {
+                assert_eq!(runtime_profiles_path(&directory).unwrap(), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn macos_app_ancestors_still_refuse_noncanonical_runtime_paths() {
+        for directory in [
+            Path::new("Mochi.app").join("bin"),
+            Path::new("Mochi.app").join("Contents"),
+            Path::new("Mochi.app").join("Contents/Resources"),
+        ] {
+            assert!(matches!(
+                runtime_profiles_path_for(NativeBundleLayout::MacOs, &directory),
+                Err(Error::Invalid(message))
+                    if message == "Mochi application runtime has a noncanonical layout"
+            ));
+            if NativeBundleLayout::current() == NativeBundleLayout::MacOs {
+                assert!(runtime_profiles_path(&directory).is_err());
+            }
+        }
+        let loose = Path::new("Iroha 開発 space").join("bin");
+        assert_eq!(
+            runtime_profiles_path_for(NativeBundleLayout::MacOs, &loose).unwrap(),
+            loose.join(crate::bootstrap::NETWORK_PROFILES_FILENAME)
+        );
+    }
+
+    #[test]
+    fn macos_profile_location_still_requires_original_bundle_custody() {
+        use crate::bootstrap::NETWORK_PROFILES_FILENAME;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let application = temporary.path().join("Renamed Mochi 開発.app");
+        let directory = application.join("Contents/MacOS");
+        let resources = application.join("Contents/Resources");
+        let metadata = application.join("Contents/Info.plist");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join(NETWORK_PROFILES_FILENAME), b"adjacent").unwrap();
+        // A neighboring profile never substitutes for missing bundle custody.
+        assert!(runtime_profiles_path_for(NativeBundleLayout::MacOs, &directory).is_err());
+        std::fs::create_dir(&resources).unwrap();
+        assert!(runtime_profiles_path_for(NativeBundleLayout::MacOs, &directory).is_err());
+        std::fs::write(&metadata, macos_info_plist("0.1.0").unwrap()).unwrap();
+        assert_eq!(
+            runtime_profiles_path_for(NativeBundleLayout::MacOs, &directory).unwrap(),
+            resources.join(NETWORK_PROFILES_FILENAME)
+        );
+        std::fs::remove_file(&metadata).unwrap();
+        std::fs::create_dir(&metadata).unwrap();
+        assert!(runtime_profiles_path_for(NativeBundleLayout::MacOs, &directory).is_err());
+        std::fs::remove_dir(&metadata).unwrap();
+        std::fs::write(&metadata, macos_info_plist("0.1.0").unwrap()).unwrap();
+        std::fs::remove_dir(&resources).unwrap();
+        std::fs::write(&resources, b"not a directory").unwrap();
+        assert!(runtime_profiles_path_for(NativeBundleLayout::MacOs, &directory).is_err());
     }
 
     #[test]

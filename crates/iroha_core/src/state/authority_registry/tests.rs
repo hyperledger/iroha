@@ -54,7 +54,15 @@ fn check_schema(schema: Schema) {
 fn authority_registry_declares_every_owner_and_typed_canonical_schema() {
     // The declaration macro also emits a no-`..` typed destructure. Adding an
     // actual field without a role fails Rust compilation before this test runs.
-    assert_eq!(WORLD_FIELDS.len(), 315);
+    let expected_world = super::inventory_test_support::world_field_ids();
+    assert_eq!(WORLD_FIELDS.len(), expected_world.len());
+    assert_eq!(
+        WORLD_FIELDS
+            .iter()
+            .map(|field| field.id.to_owned())
+            .collect::<BTreeSet<_>>(),
+        expected_world,
+    );
     let Role::Canonical(Canonical::Cell(Schema::Norito { nominal_name, .. })) =
         fields()["world.sumeragi_amx_participant"].role
     else {
@@ -67,7 +75,7 @@ fn authority_registry_declares_every_owner_and_typed_canonical_schema() {
     assert_eq!(super::runtime::RUNTIME_FIELDS.len(), 10);
     assert_eq!(
         STATE_FIELDS.len(),
-        64 + usize::from(cfg!(feature = "telemetry"))
+        63 + usize::from(cfg!(feature = "telemetry"))
     );
     assert_eq!(
         crate::smartcontracts::isi::triggers::set::AUTHORITY_FIELDS.len(),

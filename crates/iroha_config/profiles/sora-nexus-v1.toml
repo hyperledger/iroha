@@ -1,5 +1,10 @@
 # Compiled network profile `sora-nexus-v1`: the public Taira shape.
 #
+# KAGEMUSHA finalized-load publication is required in every role. The node file may
+# bind only its two private custody-file paths; otherwise data_dir completes them
+# under secrets/. Finite publication policy inherits the mandatory typed defaults.
+# Custody must be supplied by its owner; the profile never generates signer keys.
+#
 # Compiled into `iroha_config::profile` with `include_str!`. Values are taken from what
 # deploys Taira today (Kagami's Taira localnet branch, the public-reset validator projection,
 # `iroha_config::parameters::defaults::taira` and the `iroha3d_taira` launcher guards), with

@@ -2,7 +2,7 @@
 
 The casting-proof response is intentionally returned as opaque canonical
 Norito.  This module validates its transport frame and size, but only the
-native ABI-25 verifier can authenticate finality, membership, and the embedded
+native ABI-29 verifier can authenticate finality, membership, and the embedded
 Core archive before a wallet accesses secret ballot material.
 """
 
@@ -373,7 +373,7 @@ class ParliamentTimedOvnCastingContextResponseV1:
 
     This projection is not consensus-authenticated and must never authorize
     secret-local preparation. Use the finality-bound casting-proof route and
-    ABI-25 native verifier for that purpose.
+    ABI-29 native verifier for that purpose.
     """
 
     current_height: int
@@ -2732,7 +2732,7 @@ class ParliamentApiV1Mixin:
         The request is derived from the externally trusted nonzero checkpoint
         height. This validates only request/response framing and byte bounds.
         The returned bytes MUST be passed with the external network, checkpoint
-        context, and ballot ID to the ABI-25 native proof verifier before secret
+        context, and ballot ID to the ABI-29 native proof verifier before secret
         seed material is accessed.
         """
 

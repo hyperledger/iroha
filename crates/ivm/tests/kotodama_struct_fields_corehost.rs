@@ -9,9 +9,9 @@ fn struct_fields_lower_to_corehost_syscall_args() {
     // Field access uses named fields and should lower to numeric field indices
     // and ultimately to correct TLVs in r10/r11 for the syscall.
     let src = r#"
-        seiyaku C {
+        seiyaku C { permission TransferDomain;
             struct TransferArgs { DomainId domain; AccountId to; }
-            kotoage fn main() authorize("TransferDomain") {
+            kotoage fn main() authorize(TransferDomain) {
                 let args = TransferArgs {
                     domain: DomainId::parse("wonderland.universal"),
                     to: AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"),

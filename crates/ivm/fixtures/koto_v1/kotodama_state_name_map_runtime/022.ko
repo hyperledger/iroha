@@ -1,8 +1,8 @@
 
-        seiyaku C {
+        seiyaku C { permission WriteState;
             state StateMap<Name, AccountId> Foo;
 
-            kotoage fn main() authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) {
                 Foo[Name::parse("alice")] = context::authority();
             }
         }

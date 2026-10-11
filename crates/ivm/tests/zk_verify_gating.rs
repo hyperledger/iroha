@@ -1,8 +1,9 @@
+//! Canonical standalone proof syscall bounds and authority rejection.
 use iroha_data_model::zk::{BackendTag, OpenVerifyEnvelope};
 use ivm::{
     IVM, IVMHost, Memory, PointerType,
     gas::ZkGasScheduleV1,
-    host::{self, DefaultHost, ZkHalo2Backend, ZkHalo2Config},
+    host::{self, DefaultHost, ZkVerifyLimits},
     syscalls,
 };
 fn make_tlv(type_id: u16, payload: &[u8]) -> Vec<u8> {
@@ -42,31 +43,13 @@ const VERIFY_SYSCALLS: [u32; 2] = [
     syscalls::SYSCALL_ZK_VOTE_VERIFY_TALLY,
 ];
 #[test]
-fn verify_syscalls_gating_returns_status_when_disabled() {
-    let mut vm = IVM::new(u64::MAX);
-    let mut host = DefaultHost::new().with_zk_halo2_config(ZkHalo2Config {
-        enabled: false,
-        ..ZkHalo2Config::default()
-    });
-    for number in VERIFY_SYSCALLS {
-        let envelope = canonical_envelope(BackendTag::Halo2IpaPasta, label_for_syscall(number));
-        let payload = encode_envelope(&envelope);
-        let gas = run_verify(number, &mut host, &mut vm, &payload);
-        assert_eq!(gas, actual_verify_gas(&envelope, payload.len()));
-        assert_eq!(vm.register(10), 0, "disabled host must reject {number:x}");
-        assert_eq!(vm.register(11), host::ERR_DISABLED);
-    }
-}
-#[test]
 fn default_host_fails_closed_for_canonical_pasta_envelopes() {
     let mut vm = IVM::new(u64::MAX);
-    let mut host = DefaultHost::new().with_zk_halo2_config(ZkHalo2Config {
-        enabled: true,
-        backend: ZkHalo2Backend::Ipa,
-        ..ZkHalo2Config::default()
+    let mut host = DefaultHost::new().with_zk_verify_limits(ZkVerifyLimits {
+        ..ZkVerifyLimits::default()
     });
     for number in VERIFY_SYSCALLS {
-        let envelope = canonical_envelope(BackendTag::Halo2IpaPasta, label_for_syscall(number));
+        let envelope = canonical_envelope(BackendTag::NativePipaRPasta, label_for_syscall(number));
         let payload = encode_envelope(&envelope);
         let gas = run_verify(number, &mut host, &mut vm, &payload);
         assert_eq!(gas, actual_verify_gas(&envelope, payload.len()));
@@ -79,52 +62,11 @@ fn default_host_fails_closed_for_canonical_pasta_envelopes() {
     }
 }
 #[test]
-fn verify_syscalls_gating_returns_backend_error_when_not_ipa() {
-    let mut vm = IVM::new(u64::MAX);
-    let mut host = DefaultHost::new().with_zk_halo2_config(ZkHalo2Config {
-        enabled: true,
-        backend: ZkHalo2Backend::Unsupported,
-        ..ZkHalo2Config::default()
-    });
-    let envelope = canonical_envelope(BackendTag::Halo2IpaPasta, host::LABEL_VOTE_BALLOT);
-    let payload = encode_envelope(&envelope);
-    let gas = run_verify(
-        syscalls::SYSCALL_ZK_VOTE_VERIFY_BALLOT,
-        &mut host,
-        &mut vm,
-        &payload,
-    );
-    assert_eq!(gas, actual_verify_gas(&envelope, payload.len()));
-    assert_eq!(vm.register(10), 0);
-    assert_eq!(vm.register(11), host::ERR_BACKEND);
-}
-#[test]
-fn max_k_configuration_does_not_replace_registered_verifier_admission() {
-    let mut vm = IVM::new(u64::MAX);
-    let mut host = DefaultHost::new().with_zk_halo2_config(ZkHalo2Config {
-        enabled: true,
-        backend: ZkHalo2Backend::Ipa,
-        max_k: 2,
-        ..ZkHalo2Config::default()
-    });
-    let envelope = canonical_envelope(BackendTag::Halo2IpaPasta, host::LABEL_VOTE_BALLOT);
-    let payload = encode_envelope(&envelope);
-    let gas = run_verify(
-        syscalls::SYSCALL_ZK_VOTE_VERIFY_BALLOT,
-        &mut host,
-        &mut vm,
-        &payload,
-    );
-    assert_eq!(gas, actual_verify_gas(&envelope, payload.len()));
-    assert_eq!(vm.register(10), 0);
-    assert_eq!(vm.register(11), host::ERR_BACKEND);
-}
-#[test]
 fn verify_syscalls_publish_only_defined_fail_closed_statuses() {
     let mut vm = IVM::new(u64::MAX);
     let mut host = DefaultHost::new();
     for number in VERIFY_SYSCALLS {
-        let envelope = canonical_envelope(BackendTag::Halo2IpaPasta, label_for_syscall(number));
+        let envelope = canonical_envelope(BackendTag::NativePipaRPasta, label_for_syscall(number));
         let payload = encode_envelope(&envelope);
         run_verify(number, &mut host, &mut vm, &payload);
         assert_eq!(vm.register(10), 0);
@@ -135,7 +77,7 @@ fn verify_syscalls_publish_only_defined_fail_closed_statuses() {
 fn verify_syscalls_backend_tag_matrix_is_fail_closed() {
     let mut vm = IVM::new(u64::MAX);
     let mut host = DefaultHost::new();
-    for backend in [BackendTag::Halo2IpaPasta, BackendTag::Stark] {
+    for backend in [BackendTag::NativePipaRPasta, BackendTag::Stark] {
         let envelope = canonical_envelope(backend, host::LABEL_VOTE_BALLOT);
         let payload = encode_envelope(&envelope);
         run_verify(
@@ -152,7 +94,7 @@ fn verify_syscalls_backend_tag_matrix_is_fail_closed() {
 fn verify_syscalls_reject_nonportable_circuit_id() {
     let mut vm = IVM::new(u64::MAX);
     let mut host = DefaultHost::new();
-    let envelope = canonical_envelope(BackendTag::Halo2IpaPasta, "bad label");
+    let envelope = canonical_envelope(BackendTag::NativePipaRPasta, "bad label");
     let payload = encode_envelope(&envelope);
     let gas = run_verify(
         syscalls::SYSCALL_ZK_VOTE_VERIFY_BALLOT,
@@ -166,13 +108,13 @@ fn verify_syscalls_reject_nonportable_circuit_id() {
 }
 #[test]
 fn verify_syscalls_reject_over_envelope_and_proof_limits() {
-    let envelope = canonical_envelope(BackendTag::Halo2IpaPasta, host::LABEL_VOTE_BALLOT);
+    let envelope = canonical_envelope(BackendTag::NativePipaRPasta, host::LABEL_VOTE_BALLOT);
     let payload = encode_envelope(&envelope);
     assert!(payload.len() > 16);
     let mut vm = IVM::new(u64::MAX);
-    let mut host = DefaultHost::new().with_zk_halo2_config(ZkHalo2Config {
+    let mut host = DefaultHost::new().with_zk_verify_limits(ZkVerifyLimits {
         max_envelope_bytes: 16,
-        ..ZkHalo2Config::default()
+        ..ZkVerifyLimits::default()
     });
     let gas = run_verify(
         syscalls::SYSCALL_ZK_VOTE_VERIFY_BALLOT,
@@ -184,13 +126,13 @@ fn verify_syscalls_reject_over_envelope_and_proof_limits() {
     assert_eq!(vm.register(10), 0);
     assert_eq!(vm.register(11), host::ERR_ENVELOPE_SIZE);
     let mut oversized_proof =
-        canonical_envelope(BackendTag::Halo2IpaPasta, host::LABEL_VOTE_BALLOT);
+        canonical_envelope(BackendTag::NativePipaRPasta, host::LABEL_VOTE_BALLOT);
     oversized_proof.proof_bytes = vec![7; 65];
     let payload = encode_envelope(&oversized_proof);
     let mut vm = IVM::new(u64::MAX);
-    let mut host = DefaultHost::new().with_zk_halo2_config(ZkHalo2Config {
+    let mut host = DefaultHost::new().with_zk_verify_limits(ZkVerifyLimits {
         max_proof_bytes: 64,
-        ..ZkHalo2Config::default()
+        ..ZkVerifyLimits::default()
     });
     let gas = run_verify(
         syscalls::SYSCALL_ZK_VOTE_VERIFY_BALLOT,

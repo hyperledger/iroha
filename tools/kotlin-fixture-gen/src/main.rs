@@ -38,6 +38,7 @@ use iroha_model_base::name::Name;
 use iroha_model_base::topology::DataSpaceId;
 use std::env;
 mod fastpq_balance_keys;
+mod identifier_owner_execute;
 mod multisig_accounts;
 mod native_sumeragi_lanes;
 mod native_sumeragi_status;
@@ -53,12 +54,13 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
         eprintln!(
-            "Usage: {} <register-account|transfer-asset|transfer-asset-scoped|claim-identifier|contract-lifecycle|hidden-ram-fhe-program|multisig-accounts-v1|fastpq-balance-keys-v1|native-sumeragi-status-v1|native-sumeragi-lanes-v1>",
+            "Usage: {} <register-account|transfer-asset|transfer-asset-scoped|claim-identifier|contract-lifecycle|hidden-ram-fhe-program|multisig-accounts-v1|fastpq-balance-keys-v1|native-sumeragi-status-v1|native-sumeragi-lanes-v1|identifier-owner-execute-v1>",
             args[0]
         );
         std::process::exit(1);
     }
     match args[1].as_str() {
+        "identifier-owner-execute-v1" => identifier_owner_execute::emit(),
         "register-account" => emit_register_account(),
         "transfer-asset" => emit_transfer_asset(),
         "transfer-asset-scoped" => emit_transfer_asset_scoped(),
@@ -221,13 +223,19 @@ fn emit_claim_identifier() {
         output_hash: dummy_hash,
         associated_data_hash: dummy_hash,
         executed_at_ms: 1_735_000_000_000,
-        expires_at_ms: None,
+        expires_at_ms: Some(1_735_000_120_000),
     };
     let opaque_id = OpaqueAccountId::from_hash(dummy_hash);
     let uaid = UniversalAccountId::from_hash(dummy_hash);
     // Deterministic signature bytes (64 bytes of 0xCD).
     let signature_bytes = [0xCD_u8; 64];
+    let network_id = iroha_data_model::NetworkId::from_genesis_hash(
+        iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(
+            b"kotlin-identifier-component-network",
+        )),
+    );
     let receipt_payload = IdentifierResolutionReceiptPayload {
+        network_id,
         policy_id,
         execution,
         opening: RamLfeOutputOpening {
@@ -239,7 +247,7 @@ fn emit_claim_identifier() {
                 evaluation_key_digest: dummy_hash,
                 opened_output_hash: dummy_hash,
                 opened_at_ms: 1_735_000_000_000,
-                expires_at_ms: None,
+                expires_at_ms: Some(1_735_000_120_000),
             },
             signature: iroha_crypto::Signature::try_from_bytes(&signature_bytes)
                 .expect("Kotlin fixture opening signature is non-empty and nonzero"),
@@ -269,4 +277,6 @@ fn emit_claim_identifier() {
     println!("{}", hex::encode(signature_bytes));
     // Line 4: canonical hash hex used by receipt fields
     println!("{}", hex::encode(&dummy_hash.as_ref()[..]));
+    // Line 5: exact DATA network used by the signed receipt payload.
+    println!("{}", hex::encode(network_id.as_bytes()));
 }

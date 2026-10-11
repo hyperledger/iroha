@@ -34,10 +34,10 @@ class KotodamaCallTableTest {
 
     @Test
     fun emptyNamedProductsKeepNominalIdentityAndOneWord() {
-        val empty = "struct Empty" to listOf(mapOf<String, Any?>(
-            "kind" to "Struct", "value" to mapOf("name" to "Empty", "fields" to emptyList<String>()),
+        val empty = "struct Fixture::Empty" to listOf(mapOf<String, Any?>(
+            "kind" to "Struct", "value" to mapOf("name" to "Fixture::Empty", "fields" to emptyList<String>()),
         ))
-        val list = "List<struct Empty, 2>" to
+        val list = "List<struct Fixture::Empty, 2>" to
             (listOf(mapOf<String, Any?>("kind" to "List", "value" to mapOf("capacity" to 2))) + empty.second)
         val value = parse(listOf(empty), list)
         assertEquals(1, value.argumentSchema!!.wordCount)
@@ -51,6 +51,7 @@ class KotodamaCallTableTest {
     ): ContractEntrypointDescriptor {
         val descriptor = linkedMapOf<String, Any?>(
             "name" to "inspect",
+            "authorization" to mapOf("kind" to "Anyone", "value" to null),
             "kind" to mapOf("kind" to "View", "value" to null),
             "params" to fields.mapIndexed { index, type ->
                 mapOf("name" to "arg_$index", "type_name" to type.first)
@@ -63,7 +64,12 @@ class KotodamaCallTableTest {
             "return_type" to returns.first,
             "return_schema" to mapOf("nodes" to returns.second),
         )
-        return ContractManifestJsonParser.parseManifest(mapOf("entrypoints" to listOf(descriptor)))
+        return ContractManifestJsonParser.parseManifest(mapOf(
+            "permissions" to emptyList<Any?>(),
+            "enum_types" to emptyList<Any?>(),
+            "events" to emptyList<Any?>(),
+            "entrypoints" to listOf(descriptor),
+        ))
             .entrypoints!!.single()
     }
 

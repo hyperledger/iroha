@@ -1,6 +1,6 @@
 
-seiyaku Test {
-  kotoage fn run() authorize("Entry") {}
+seiyaku Test { permission Entry;
+  kotoage fn run() authorize(Entry) {}
   trigger block_wake -> run {
     on pipeline block approved;
   }

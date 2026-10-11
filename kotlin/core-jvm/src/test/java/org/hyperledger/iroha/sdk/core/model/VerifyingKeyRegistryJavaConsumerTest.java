@@ -16,19 +16,19 @@ final class VerifyingKeyRegistryJavaConsumerTest {
   @Test
   void canonicalRegistryIsExactAndImmutable() {
     final Set<String> expected = new LinkedHashSet<>(Arrays.asList(
-        "halo2/ipa",
-        "halo2/pasta/kaigi-authorization-v1",
-        "halo2/pasta/kaigi-usage-v1",
-        "halo2/pasta/confidential-transfer-2x2-merkle16-axiom-poseidon-v3",
-        "halo2/pasta/confidential-unshield-full-merkle16-axiom-poseidon-v3",
-        "halo2/pasta/confidential-unshield-change-merkle16-axiom-poseidon-v4",
+        "pipa-r/pasta",
+        "pipa-r/pasta/kaigi-authorization-v1",
+        "pipa-r/pasta/kaigi-usage-v1",
+        "pipa-r/pasta/confidential-transfer-v1",
+        "pipa-r/pasta/confidential-unshield-full-v1",
+        "pipa-r/pasta/confidential-unshield-change-v1",
         "stark/fri/poseidon-x7-goldilocks-6x64-v1"));
     assertEquals(7, expected.size());
     assertEquals(expected, VerifyingKeyBackendTag.VERIFIER_BACKEND_REGISTRY_LABELS_V1);
     for (final String label : expected) {
       assertEquals(label, VerifyingKeyBackendTag.requireVerifierBackendRegistryLabelV1(label));
-      assertEquals(label.startsWith("halo2/")
-              ? VerifyingKeyBackendTag.HALO2_IPA_PASTA : VerifyingKeyBackendTag.STARK,
+      assertEquals(label.startsWith("pipa-r/") ? VerifyingKeyBackendTag.NATIVE_PIPA_R_PASTA
+              : VerifyingKeyBackendTag.STARK,
           VerifyingKeyBackendTag.verifierBackendRegistryTagV1(label));
     }
     assertThrows(UnsupportedOperationException.class,
@@ -38,7 +38,11 @@ final class VerifyingKeyRegistryJavaConsumerTest {
   @Test
   void retiredRosterAndUnsupportedFoldCannotBecomeVerifierProfiles() {
     for (final String label : Arrays.asList(
+        "halo2/ipa",
         "halo2/pasta/ivm-execution-v1",
+        "halo2/pasta/kaigi-authorization-v1",
+        "halo2/pasta/kaigi-usage-v1",
+        "pipa-r/ipa/pasta/kaigi-authorization-v1",
         "halo2/pasta/kaigi-roster-v1",
         "halo2/pasta/kagemusha-v1-mint-fold-merkle16-axiom-poseidon-v1")) {
       assertNull(VerifyingKeyBackendTag.verifierBackendRegistryTagV1(label));

@@ -1,7 +1,8 @@
-import { validateManifestDeclarationsV1, validateManifestEntrypointIdentityV1, validateManifestFieldsV1 } from "./contractManifestRules.js";
-import { normalizeContractErrorMessagesV1, normalizeContractErrorTypeV1, normalizeContractErrorTypesV1, validateManifestErrorTypeBindingsV1 } from "./contractErrorTypes.js";
+import { normalizeContractEventsV1 } from "./contractDeclarations.js";
+import { normalizeEntrypointAuthorizationV1, normalizeContractPermissionsV1, validateManifestDeclarationsV1, validateManifestEntrypointIdentityV1, validateManifestFieldsV1 } from "./contractManifestRules.js";
+import { normalizeContractErrorMessagesV1, normalizeContractErrorTypeV1, normalizeContractEnumTypeV1, normalizeContractEnumTypesV1, normalizeContractErrorTypesV1, validateManifestErrorTypeBindingsV1 } from "./contractErrorTypes.js";
 import { Buffer } from "buffer";
-import { analyzeEntrypointValueTypeV1, MAX_ENTRYPOINT_CALL_TABLE_WORDS_V1 } from "./entrypointSchema.js";
+import { analyzeEntrypointValueTypeV1, analyzeStateKeyTypeV1, MAX_ENTRYPOINT_CALL_TABLE_WORDS_V1 } from "./entrypointSchema.js";
 import { assertString, parseHashLiteralToBuffer } from "./instructionBuilderPrimitives.js";
 import { canonicalizeMultihashHex } from "./normalizers.js";
 import { getCurveEntryByPublicKeyMulticodec } from "./curveRegistry.js";
@@ -131,6 +132,9 @@ export function createContractManifestNormalizer(
         source.access_set_hints ?? source.accessSetHints,
         "manifest.accessSetHints",
       ),
+      permissions: normalizeContractPermissionsV1(source.permissions, "manifest.permissions"),
+      events: normalizeContractEventsV1(source.events, "manifest.events"),
+      enum_types: normalizeContractEnumTypesV1(source.enum_types ?? source.enumTypes, "manifest.enum_types"),
       entrypoints: normalizeEntrypoints(entrypoints, "manifest.entrypoints"),
       states: normalizeManifestStates(source.states, "manifest.states"),
       error_types: normalizeManifestErrorTypes(
@@ -340,16 +344,13 @@ export function createContractManifestNormalizer(
         `${name}.name`,
       );
     }
-    const rawPermission = source.permission;
-    const permission =
-      rawPermission === undefined || rawPermission === null
-        ? null
-        : assertString(rawPermission, `${name}.permission`).trim();
+    if (Object.hasOwn(source, "permission")) throw new TypeError(`${name}.permission is retired; use authorization`);
+    const authorization = normalizeEntrypointAuthorizationV1(source.authorization, `${name}.authorization`);
     const kind = normalizeEntrypointKind(
       source.kind,
       `${name}.kind`,
     );
-    validateManifestEntrypointIdentityV1(entrypointName, kind.kind, permission, name);
+    validateManifestEntrypointIdentityV1(entrypointName, kind.kind, authorization, name);
     const params = normalizeEntrypointParams(source.params, `${name}.params`);
     const argumentSchema = normalizeEntrypointArgumentSchema(
       source.argument_schema ?? source.argumentSchema,
@@ -377,7 +378,7 @@ export function createContractManifestNormalizer(
       argument_schema: argumentSchema,
       return_type: returnType,
       return_schema: returnSchema,
-      permission,
+      authorization,
       read_keys: normalizeManifestStringArray(
         source.read_keys ?? source.readKeys,
         `${name}.read_keys`,
@@ -703,6 +704,11 @@ export function createContractManifestNormalizer(
       }
       case "Error":
         return { kind, value: normalizeContractErrorTypeV1(source.value, `${name}.value`) };
+      case "Enum":
+        return { kind, value: normalizeContractEnumTypeV1(source.value, `${name}.value`) };
+      case "StateCursor":
+        analyzeStateKeyTypeV1(source.value, `${name}.value`);
+        return { kind, value: normalizeRequiredEntrypointValueType(source.value, `${name}.value`) };
       case "Leaf":
         return {
           kind,

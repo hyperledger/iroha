@@ -1,7 +1,7 @@
 
         seiyaku StateIntrospection {
         state StateMap<int, bytes> Orders;
-        view fn f() -> (List<(int, bytes), 2>, bool, int, int) {
+        view fn f() authorize(anyone) -> (List<(int, bytes), 2>, bool, int, int) {
             let prefix = Name::parse("Orders").path(0);
             let keys = Orders.take(2);
             let present = state::contains(prefix);

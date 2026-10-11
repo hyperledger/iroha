@@ -1,0 +1,26 @@
+[package]
+name = "iroha_plonk_recursion"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+description = "Native KAGEMUSHA PIPA-AS-v1 accumulator construction, folding, and decision"
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories = ["cryptography"]
+
+[lints]
+workspace = true
+
+[dependencies]
+iroha_pasta = { workspace = true }
+iroha_plonk = { workspace = true }
+iroha_plonk_gadgets = { workspace = true }
+ff = "0.13.1"
+group = "0.13"
+
+[dev-dependencies]
+sha2 = "0.10.9"
+rayon = { workspace = true }

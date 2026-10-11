@@ -721,7 +721,6 @@ fn det_s16_cross_instance_replay_core() {
         0,
         &value.0,
         &value.1,
-        false,
     );
     let signers = h.others(3, &[]);
     let sigs: Vec<Signature> = signers

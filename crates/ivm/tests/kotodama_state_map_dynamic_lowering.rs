@@ -5,9 +5,9 @@ mod common;
 #[test]
 fn dynamic_map_set_uses_durable_state() {
     let src = r#"
-        seiyaku C {
+        seiyaku C { permission WriteState;
             state StateMap<int, int> M;
-            kotoage fn main() authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) {
                 let k = 2;
                 let v = 5;
                 M[k] = v;

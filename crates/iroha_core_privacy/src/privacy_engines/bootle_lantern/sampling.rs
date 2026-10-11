@@ -144,8 +144,15 @@ impl BootleSamplingProfileV1 {
         GAUSSIAN_TRUNCATION_BOUNDS_V1[self.index()]
     }
     fn rejection_m_q256(self) -> U512 {
-        let [a, b, c, d, e] = REJECTION_M_Q256_LIMBS_V1[self.index()];
-        U512::from_words([a, b, c, d, e, 0, 0, 0])
+        // The profile limbs are fixed u64 values, not target-sized bigint words.
+        let mut bytes = [0_u8; 64];
+        for (chunk, limb) in bytes
+            .chunks_exact_mut(8)
+            .zip(REJECTION_M_Q256_LIMBS_V1[self.index()])
+        {
+            chunk.copy_from_slice(&limb.to_le_bytes());
+        }
+        U512::from_le_bytes(bytes)
     }
     const fn fraction_domain(self) -> &'static [u8] {
         match self {

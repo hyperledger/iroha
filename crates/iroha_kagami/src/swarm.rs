@@ -69,6 +69,10 @@ pub struct Args {
     /// their canonical wire, signer, semantic manifest binding, exact hash, validator roster, and
     /// PoPs together. With `--seed`, only `genesis.json` is read and runtime artifact paths are
     /// supplied explicitly through the generated manifest's `IROHA_GENESIS_*_FILE` variables.
+    /// Development mode additionally requires per-node `IROHA_PEER<N>_CONFIG_FILE` mount
+    /// sources at Compose startup. These existing owner-0600 TOML files contain ordinary
+    /// validator configuration; private inputs must be readable as their owner by the image
+    /// daemon UID.
     #[arg(long, short, value_name = "DIR")]
     config_dir: PathBuf,
     /// Optional TOML file describing peer names and port mappings.
@@ -1049,7 +1053,6 @@ fn validate_runtime_projection_policy(
         source.sumeragi.local == projected.sumeragi.local
             && source.sumeragi.keys == projected.sumeragi.keys
             && source.sumeragi.retired_keys == projected.sumeragi.retired_keys
-            && source.sumeragi.mint_finality_seed_fd == projected.sumeragi.mint_finality_seed_fd
             && source.sumeragi.global_beacon_partial_signer_provider_handle
                 == projected
                     .sumeragi
@@ -1392,14 +1395,94 @@ fn materialize_container_readable_file(
     ensure_container_projection_directory(&projection_dir)?;
     materialize_read_only_file_at(&projection_dir, name, content)
 }
+fn materialize_private_projection(
+    projection_root: &Path,
+    namespace: &str,
+    name: &str,
+    content: &[u8],
+) -> color_eyre::Result<PathBuf> {
+    ensure!(
+        !content.is_empty()
+            && content.len() <= 8 * 1024 * 1024
+            && !namespace.is_empty()
+            && namespace
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+            && !name.is_empty()
+            && name != "."
+            && name != ".."
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')),
+        "private prepared projection requires bounded bytes and portable names"
+    );
+    ensure_container_projection_directory(projection_root)?;
+    let directory = projection_root.join(format!(
+        "{namespace}-{}",
+        hex::encode(Hash::new(content).as_ref())
+    ));
+    ensure_container_projection_directory(&directory)?;
+    let path = directory.join(name);
+    match fs::symlink_metadata(&path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let mut staged = tempfile::Builder::new()
+                .prefix(".kagami-private-")
+                .tempfile_in(&directory)
+                .wrap_err("create private prepared projection stage")?;
+            #[cfg(unix)]
+            {
+                use rustix::fs::{Mode, fchmod};
+                fchmod(staged.as_file(), Mode::from_raw_mode(0o600))
+                    .map_err(std::io::Error::from)
+                    .wrap_err("protect private prepared projection stage")?;
+            }
+            staged
+                .write_all(content)
+                .wrap_err("write private prepared projection")?;
+            staged
+                .as_file()
+                .sync_all()
+                .wrap_err("sync private prepared projection")?;
+            match staged.persist_noclobber(&path) {
+                Ok(file) => file
+                    .sync_all()
+                    .wrap_err("sync published private projection")?,
+                Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    drop(error.file);
+                }
+                Err(error) => {
+                    return Err(error.error).wrap_err("publish private prepared projection");
+                }
+            }
+            #[cfg(unix)]
+            fs::File::open(&directory)
+                .and_then(|file| file.sync_all())
+                .wrap_err("sync private prepared projection directory")?;
+        }
+        Err(error) => return Err(error).wrap_err("inspect private prepared projection"),
+    }
+    let captured = Zeroizing::new(read_owner_only_runtime_file_bounded(
+        &path,
+        "private prepared projection",
+        u64::try_from(content.len()).unwrap_or(u64::MAX),
+    )?);
+    ensure!(
+        captured.as_slice() == content,
+        "private prepared projection bytes changed"
+    );
+    Ok(fs::canonicalize(&directory)
+        .wrap_err("canonicalize private prepared projection directory")?
+        .join(name))
+}
 fn materialize_runtime_projection(
     projection_root: &Path,
     index: usize,
     content: &str,
 ) -> color_eyre::Result<PathBuf> {
-    materialize_container_readable_file(
+    materialize_private_projection(
         projection_root,
-        &format!("peer{index}"),
+        &format!("peer{index}-private-config"),
         &format!("peer{index}.toml"),
         content.as_bytes(),
     )
@@ -1928,7 +2011,7 @@ fn project_prepared_runtime_config(
                 "account-onboarding private key",
                 64 * 1024,
             )?);
-            let captured = materialize_container_readable_file(
+            let captured = materialize_private_projection(
                 projection_root,
                 &format!("peer{index}-onboarding-secret"),
                 "private.key",
@@ -1958,7 +2041,7 @@ fn project_prepared_runtime_config(
                 "faucet private key",
                 64 * 1024,
             )?);
-            let captured = materialize_container_readable_file(
+            let captured = materialize_private_projection(
                 projection_root,
                 &format!("peer{index}-faucet-secret"),
                 "private.key",
@@ -3017,6 +3100,40 @@ mod tests {
             .expect_err("content-addressed projection must not be replaced");
         assert_eq!(fs::read(path).expect("read preserved projection"), content);
     }
+    #[cfg(unix)]
+    #[test]
+    fn private_config_projection_is_exact_and_never_relaxes_custody() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = tempfile::tempdir().expect("private projection root");
+        let stage = root.path().join("stage");
+        let raw = b"# private runtime configuration fixture";
+        let path =
+            super::materialize_private_projection(&stage, "private-config-test", "peer.toml", raw)
+                .expect("capture exact TEST bytes");
+        assert_eq!(fs::read(&path).unwrap(), raw);
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            super::materialize_private_projection(&stage, "private-config-test", "peer.toml", raw)
+                .unwrap(),
+            path
+        );
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(
+            super::materialize_private_projection(&stage, "private-config-test", "peer.toml", raw)
+                .is_err(),
+            "an existing public projection must never be normalized into custody"
+        );
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(&path, b"substituted bytes").unwrap();
+        assert!(
+            super::materialize_private_projection(&stage, "private-config-test", "peer.toml", raw)
+                .is_err(),
+            "stale capture bytes must fail, not overwrite"
+        );
+    }
     fn generate_prepared_bundle(root: &Path) -> PathBuf {
         let bundle = root.join("prepared-bundle");
         let options = LocalnetOptions {
@@ -3048,6 +3165,103 @@ mod tests {
             iroha_genesis::RawGenesisTransaction::from_path(config_dir.join("genesis.json"))?;
         load_prepared_bundle(config_dir, projection_root, count, &manifest)
     }
+    #[test]
+    fn generated_validator_bundle_preserves_private_config_custody() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_dir = generate_prepared_bundle(temp_dir.path());
+        for index in 0..4 {
+            let table = fs::read_to_string(config_dir.join(format!("peer{index}.toml")))
+                .unwrap()
+                .parse::<toml::Table>()
+                .unwrap();
+            assert!(!table.contains_key("kagemusha_load_authorizer"));
+        }
+        let deployment_dir = temp_dir.path().join("prepared-validator-deployment");
+        fs::create_dir_all(&deployment_dir).unwrap();
+        let args = Args {
+            peers: NonZeroU16::new(4).unwrap(),
+            seed: None,
+            healthcheck: false,
+            config_dir,
+            peer_config: None,
+            image: "hyperledger/iroha:dev".to_owned(),
+            build: None,
+            no_cache: false,
+            out_file: deployment_dir.join("docker-compose.yml"),
+            print: true,
+            force: false,
+            no_banner: true,
+        };
+        let mut output = Vec::new();
+        let mut writer = BufWriter::new(&mut output);
+        args.run(&mut writer)
+            .expect("genuine generated bundle needs no issuer-role secrets");
+        writer.flush().unwrap();
+        drop(writer);
+        let output = String::from_utf8(output).unwrap();
+        assert_eq!(output.matches("--config-blake3 ").count(), 4);
+        assert_eq!(
+            output
+                .matches("require_private_file /config/peer.toml 8388608")
+                .count(),
+            4
+        );
+        assert!(!output.contains("UNADMITTED"));
+    }
+
+    #[test]
+    fn development_command_keeps_private_config_custody() {
+        let temp_dir = tempfile::tempdir().expect("development Compose regression directory");
+        let config_dir = temp_dir.path().join("cfg");
+        fs::create_dir_all(&config_dir).expect("create development config directory");
+        let genesis_path = config_dir.join("genesis.json");
+        write_minimal_genesis(&genesis_path);
+        let original = fs::read(&genesis_path).expect("read original development manifest");
+        let args = Args {
+            peers: NonZeroU16::new(4).unwrap(),
+            seed: Some("ordinary-validator-development".to_owned()),
+            healthcheck: false,
+            config_dir,
+            peer_config: None,
+            image: "hyperledger/iroha:dev".to_owned(),
+            build: None,
+            no_cache: false,
+            out_file: temp_dir.path().join("docker-compose.yml"),
+            print: true,
+            force: false,
+            no_banner: true,
+        };
+        let mut output = Vec::new();
+        let mut writer = BufWriter::new(&mut output);
+        args.run(&mut writer)
+            .expect("render ordinary development command");
+        writer.flush().unwrap();
+        drop(writer);
+        let output = String::from_utf8(output).unwrap();
+        for index in 0..4 {
+            assert!(output.contains(&format!("${{IROHA_PEER{index}_CONFIG_FILE:?")));
+        }
+        assert_eq!(output.matches("--config /config/peer.toml").count(), 4);
+        assert_eq!(
+            output
+                .matches("require_private_file /config/peer.toml 8388608")
+                .count(),
+            4
+        );
+        assert_eq!(output.matches("create_host_path: false").count(), 4);
+        assert!(output.contains("stat -c '%u:%a:%h'"));
+        for required in [
+            "IROHA_GENESIS_SIGNED_FILE:?",
+            "IROHA_GENESIS_PUBLIC_KEY_FILE:?",
+            "IROHA_GENESIS_EXPECTED_HASH_FILE:?",
+        ] {
+            assert!(output.contains(required));
+        }
+        assert!(!output.contains("KAGEMUSHA_LOAD"));
+        assert!(!temp_dir.path().join(".kagami-compose").exists());
+        assert_eq!(fs::read(genesis_path).unwrap(), original);
+    }
+
     #[test]
     fn banner_is_optional_and_never_discloses_the_development_seed() {
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
@@ -3314,6 +3528,7 @@ mod tests {
             "the mounted checked identity file must be the sole validator trust-root source"
         );
         assert!(!table_at("genesis").contains_key("manifest_json"));
+        assert!(!projected.contains_key("kagemusha_load_authorizer"));
         assert_eq!(
             table_at("kura")
                 .get("store_dir")
@@ -3472,8 +3687,8 @@ mod tests {
                     .permissions()
                     .mode()
                     & 0o777,
-                0o444,
-                "immutable bind-mounted configs must be readable by the container UID; owner-only projection parents above protect host confidentiality"
+                0o600,
+                "secret-bearing projected TOML retains native private custody; runtime UID must match its owner"
             );
         }
         for forbidden in [
@@ -3576,6 +3791,8 @@ mod tests {
             .expect("prepared fixture has consensus metadata");
         let parsed = parse_prepared_peer_config(&config_dir.join("peer0.toml"))
             .expect("parse prepared peer0 fixture");
+        validate_runtime_projection_policy(&parsed.actual, &parsed.actual, &metadata)
+            .expect("unchanged validator configuration preserves projection policy");
         let mut drifted = parsed.actual.clone();
         drifted.sumeragi.local.t_base = Some(std::time::Duration::from_millis(987));
         let projection_error =

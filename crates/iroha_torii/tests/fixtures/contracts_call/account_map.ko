@@ -1,6 +1,8 @@
 seiyaku ContractCallConfigureAccountMapTest {
+    permission CanEnactGovernance;
     error enum ConfigureError {
-        UnauthorizedExisting = 1, UnauthorizedInitial = 2
+        UnauthorizedExisting = 1,
+        UnauthorizedInitial = 2,
     }
 
     state StateMap<Name, AccountId> ConfigAccount;
@@ -18,16 +20,17 @@ seiyaku ContractCallConfigureAccountMapTest {
     }
 
     fn initialize_config_defaults() {
-        if (!ConfigInt.contains(key_paused())) {
+        if !ConfigInt.contains(key_paused()) {
             ConfigInt[key_paused()] = 0;
         }
     }
 
-    kotoage fn configure(AccountId admin_account, AccountId inori_account) authorize(
-        "CanEnactGovernance"
-    ) {
+    kotoage fn configure(
+        AccountId admin_account,
+        AccountId inori_account,
+    ) authorize(CanEnactGovernance) {
         let has_admin = ConfigAccount.contains(key_admin());
-        if (has_admin) {
+        if has_admin {
             require(
                 context::authority() == ConfigAccount.get(key_admin()).unwrap_or(admin_account),
                 ConfigureError::UnauthorizedExisting,
@@ -40,15 +43,15 @@ seiyaku ContractCallConfigureAccountMapTest {
         initialize_config_defaults();
     }
 
-    view fn admin() -> AccountId {
+    view fn admin() authorize(anyone) -> AccountId {
         return ConfigAccount.get(key_admin()).unwrap_or(context::authority());
     }
 
-    view fn inori() -> AccountId {
+    view fn inori() authorize(anyone) -> AccountId {
         return ConfigAccount.get(key_inori()).unwrap_or(context::authority());
     }
 
-    view fn paused() -> int {
+    view fn paused() authorize(anyone) -> int {
         return ConfigInt.get(key_paused()).unwrap_or(0);
     }
 }

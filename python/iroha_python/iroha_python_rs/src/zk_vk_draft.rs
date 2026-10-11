@@ -203,7 +203,7 @@ mod tests {
         let mut record = VerifyingKeyRecord::new(
             1,
             "transfer-v1",
-            BackendTag::Halo2IpaPasta,
+            BackendTag::NativePipaRPasta,
             "pasta",
             [0x11; 32],
             [0x22; 32],
@@ -212,7 +212,7 @@ mod tests {
         record.max_proof_bytes = 4096;
         record.gas_schedule_id = Some("default".to_owned());
         record.key = Some(VerifyingKeyBox::new(
-            "halo2/ipa".parse().expect("valid backend identifier"),
+            "pipa-r/pasta".parse().expect("valid backend identifier"),
             vec![1, 2, 3],
         ));
         record.status = ConfidentialStatus::Active;
@@ -220,13 +220,13 @@ mod tests {
     }
     fn register() -> RegisterVerifyingKey {
         RegisterVerifyingKey {
-            id: VerifyingKeyId::new("halo2/ipa", "vk-transfer"),
+            id: VerifyingKeyId::new("pipa-r/pasta", "vk-transfer"),
             record: record(),
         }
     }
     fn update() -> UpdateVerifyingKey {
         UpdateVerifyingKey {
-            id: VerifyingKeyId::new("halo2/ipa", "vk-transfer"),
+            id: VerifyingKeyId::new("pipa-r/pasta", "vk-transfer"),
             record: record(),
         }
     }

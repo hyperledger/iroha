@@ -132,7 +132,7 @@ where
             0 => Self::SignedGenesisAuthorization {
                 genesis_hash: <D as DecodeField<0, [u8; 32]>>::decode_field(
                     destination,
-                    norito::core::framed_field(bytes, &mut offset)?,
+                    norito::core::framed_byte_array_field::<32>(bytes, &mut offset)?,
                 )?,
             },
             1 => Self::ExecutedNativeTip {
@@ -142,15 +142,15 @@ where
                 )?,
                 block_hash: <D as DecodeField<2, [u8; 32]>>::decode_field(
                     destination,
-                    norito::core::framed_field(bytes, &mut offset)?,
+                    norito::core::framed_byte_array_field::<32>(bytes, &mut offset)?,
                 )?,
                 core_hash: <D as DecodeField<3, [u8; 32]>>::decode_field(
                     destination,
-                    norito::core::framed_field(bytes, &mut offset)?,
+                    norito::core::framed_byte_array_field::<32>(bytes, &mut offset)?,
                 )?,
                 result_hash: <D as DecodeField<4, [u8; 32]>>::decode_field(
                     destination,
-                    norito::core::framed_field(bytes, &mut offset)?,
+                    norito::core::framed_byte_array_field::<32>(bytes, &mut offset)?,
                 )?,
             },
             _ => return Err(norito::Error::Message("invalid enum discriminant".into()).into()),

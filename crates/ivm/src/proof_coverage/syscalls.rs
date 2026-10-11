@@ -19,6 +19,8 @@ pub enum SyscallRelation {
     Diagnostic,
     /// Queues one canonical ledger instruction or administrative effect.
     LedgerEffect,
+    /// Emits a typed event bound to the authenticated invocation and signed schema.
+    ContractEvent,
     /// Reads contract-owned durable state.
     ContractStateRead,
     /// Writes contract-owned durable state.
@@ -67,13 +69,14 @@ use Obligation::{
 
 impl SyscallRelation {
     /// Number of relation classes.
-    pub const COUNT: usize = 22;
+    pub const COUNT: usize = 23;
 
     /// Every relation class in stable order.
     pub const ALL: [Self; Self::COUNT] = [
         Self::Terminal,
         Self::Diagnostic,
         Self::LedgerEffect,
+        Self::ContractEvent,
         Self::ContractStateRead,
         Self::ContractStateWrite,
         Self::LedgerQuery,
@@ -102,6 +105,7 @@ impl SyscallRelation {
             Self::Terminal => "terminal",
             Self::Diagnostic => "diagnostic",
             Self::LedgerEffect => "ledger_effect",
+            Self::ContractEvent => "contract_event",
             Self::ContractStateRead => "contract_state_read",
             Self::ContractStateWrite => "contract_state_write",
             Self::LedgerQuery => "ledger_query",
@@ -136,6 +140,18 @@ impl SyscallRelation {
                 Gas,
                 Faults,
                 HostResult,
+                StateEffect,
+                StatementBinding,
+            ],
+            Self::ContractEvent => &[
+                TypedValues,
+                Initialization,
+                MemoryOrdering,
+                Pointers,
+                Gas,
+                Faults,
+                HostResult,
+                StateRead,
                 StateEffect,
                 StatementBinding,
             ],
@@ -237,6 +253,9 @@ impl SyscallRelation {
             ],
             Self::PublicOutput => &[Gas, Faults, HostResult, StateEffect, StatementBinding],
             Self::NestedInvocation => &[
+                TypedValues,
+                Initialization,
+                MemoryOrdering,
                 Pointers,
                 Calls,
                 Copyback,
@@ -274,9 +293,10 @@ impl SyscallRelation {
             Self::LedgerQuery | Self::VrfEpochSeed => &[SyscallAccess::LedgerRead],
             Self::SoraCloud => &[SyscallAccess::LedgerRead, SyscallAccess::LedgerWrite],
             Self::GuestProofVerification => &[SyscallAccess::None, SyscallAccess::LedgerWrite],
-            Self::PublicOutput | Self::NestedInvocation | Self::DynamicInstruction => {
-                &[SyscallAccess::Dynamic]
-            }
+            Self::PublicOutput
+            | Self::NestedInvocation
+            | Self::DynamicInstruction
+            | Self::ContractEvent => &[SyscallAccess::Dynamic],
         }
     }
 }
@@ -359,7 +379,7 @@ macro_rules! sc {
 }
 
 /// Number of ABI V1 syscalls.
-pub const SYSCALL_COUNT: usize = 226;
+pub const SYSCALL_COUNT: usize = 232;
 
 /// Every ABI V1 syscall in ascending number order.
 pub const SYSCALLS: &[SyscallEntry; SYSCALL_COUNT] = &[
@@ -398,8 +418,8 @@ pub const SYSCALLS: &[SyscallEntry; SYSCALL_COUNT] = &[
     sc!(SYSCALL_REVOKE_ROLE, LedgerEffect),
     sc!(SYSCALL_GRANT_PERMISSION, LedgerEffect),
     sc!(SYSCALL_REVOKE_PERMISSION, LedgerEffect),
-    sc!(SYSCALL_GRANT_CONTRACT_ENTRYPOINT, LedgerEffect),
-    sc!(SYSCALL_REVOKE_CONTRACT_ENTRYPOINT, LedgerEffect),
+    sc!(SYSCALL_GRANT_CONTRACT_PERMISSION, LedgerEffect),
+    sc!(SYSCALL_REVOKE_CONTRACT_PERMISSION, LedgerEffect),
     sc!(SYSCALL_CREATE_TRIGGER, LedgerEffect),
     sc!(SYSCALL_REMOVE_TRIGGER, LedgerEffect),
     sc!(SYSCALL_SET_TRIGGER_ENABLED, LedgerEffect),
@@ -466,6 +486,7 @@ pub const SYSCALLS: &[SyscallEntry; SYSCALL_COUNT] = &[
     sc!(SYSCALL_RESOLVE_ACCOUNT_ALIAS, LedgerQuery),
     sc!(SYSCALL_CURRENT_TIME_MS, ExecutionContext),
     sc!(SYSCALL_CALL_CONTRACT, NestedInvocation),
+    sc!(SYSCALL_EMIT_CONTRACT_EVENT, ContractEvent),
     sc!(SYSCALL_AXT_BEGIN, Axt),
     sc!(SYSCALL_AXT_TOUCH, Axt),
     sc!(SYSCALL_AXT_COMMIT, Axt),
@@ -514,7 +535,6 @@ pub const SYSCALLS: &[SyscallEntry; SYSCALL_COUNT] = &[
     sc!(SYSCALL_DECODE_ARGUMENT_RECORD, TypedCodec),
     sc!(SYSCALL_SYSVAR_CONTRACT_SUBJECT, ExecutionContext),
     sc!(SYSCALL_NORMALIZE_NORITO_BYTES, TypedCodec),
-    sc!(SYSCALL_CALL_CONTRACT_QUANTITY2, NestedInvocation),
     sc!(SYSCALL_STATE_HAS, ContractStateRead),
     sc!(SYSCALL_STATE_LEN, ContractStateRead),
     sc!(SYSCALL_STATE_COUNT, ContractStateRead),
@@ -524,10 +544,14 @@ pub const SYSCALLS: &[SyscallEntry; SYSCALL_COUNT] = &[
     sc!(SYSCALL_STATE_PATH_FROM_NAME, TypedCodec),
     sc!(SYSCALL_STATE_SCAN, ContractStateRead),
     sc!(SYSCALL_JSON_BUILD, TypedCodec),
+    sc!(SYSCALL_VALUE_ENCODE, TypedCodec),
+    sc!(SYSCALL_BLOB_CONCAT, TypedCodec),
+    sc!(SYSCALL_UTF8_VALIDATE, TypedCodec),
+    sc!(SYSCALL_VALUE_TO_STRING, TypedCodec),
     sc!(SYSCALL_INT_FROM_I64, Numeric),
     sc!(SYSCALL_INT_FROM_U64, Numeric),
-    sc!(SYSCALL_INT_TRY_TO_I64, Numeric),
-    sc!(SYSCALL_INT_TRY_TO_U64, Numeric),
+    sc!(SYSCALL_INT_TO_I64, Numeric),
+    sc!(SYSCALL_INT_TO_U64, Numeric),
     sc!(SYSCALL_INT_NEG, Numeric),
     sc!(SYSCALL_INT_ADD, Numeric),
     sc!(SYSCALL_INT_SUB, Numeric),
@@ -564,12 +588,12 @@ pub const SYSCALLS: &[SyscallEntry; SYSCALL_COUNT] = &[
     sc!(SYSCALL_DECIMAL_LE, Numeric),
     sc!(SYSCALL_DECIMAL_GT, Numeric),
     sc!(SYSCALL_DECIMAL_GE, Numeric),
-    sc!(SYSCALL_DECIMAL_TRY_TO_INT_EXACT, Numeric),
+    sc!(SYSCALL_DECIMAL_TO_INT_EXACT, Numeric),
     sc!(SYSCALL_DECIMAL_TO_INT_TRUNC, Numeric),
     sc!(SYSCALL_DECIMAL_TO_INT_ROUND, Numeric),
     sc!(SYSCALL_DECIMAL_MUL_DIV_ROUND, Numeric),
-    sc!(SYSCALL_QUANTITY_TRY_FROM_INT, Numeric),
-    sc!(SYSCALL_QUANTITY_TRY_FROM_DECIMAL, Numeric),
+    sc!(SYSCALL_QUANTITY_FROM_INT, Numeric),
+    sc!(SYSCALL_QUANTITY_FROM_DECIMAL, Numeric),
     sc!(SYSCALL_QUANTITY_TO_DECIMAL, Numeric),
     sc!(SYSCALL_QUANTITY_ADD, Numeric),
     sc!(SYSCALL_QUANTITY_SUB, Numeric),
@@ -588,6 +612,8 @@ pub const SYSCALLS: &[SyscallEntry; SYSCALL_COUNT] = &[
     sc!(SYSCALL_JSON_GET_INT, TypedCodec),
     sc!(SYSCALL_JSON_GET_DECIMAL, TypedCodec),
     sc!(SYSCALL_JSON_GET_QUANTITY, TypedCodec),
+    sc!(SYSCALL_JSON_GET_STRING, TypedCodec),
+    sc!(SYSCALL_JSON_GET_BOOL, TypedCodec),
     sc!(SYSCALL_SET_ASSET_TRANSFER_AVAILABILITY, LedgerEffect),
     sc!(SYSCALL_SET_ASSET_TRANSFER_DAILY_LIMIT, LedgerEffect),
     sc!(SYSCALL_SET_ASSET_HOLDING_LIMIT, LedgerEffect),
@@ -643,4 +669,9 @@ pub const HOST_PRIVATE_SYSCALLS: &[HostPrivateSyscall] = &[
     host_private!(SYSCALL_KOTO_TEST_ACTOR_SIGN),
     host_private!(SYSCALL_KOTO_TEST_INVOKE_ENTRYPOINT_AS),
     host_private!(SYSCALL_KOTO_TEST_EXPECT_REJECT_AS),
+    host_private!(SYSCALL_KOTO_TEST_ASSERT_FAILED),
+    host_private!(SYSCALL_KOTO_TEST_SET_BLOCK_HEIGHT),
+    host_private!(SYSCALL_KOTO_TEST_ADVANCE_BLOCKS),
+    host_private!(SYSCALL_KOTO_TEST_SET_TRANSACTION_TIME_MS),
+    host_private!(SYSCALL_KOTO_TEST_CALL_SITE),
 ];

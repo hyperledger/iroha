@@ -1364,7 +1364,7 @@ mod query_errors_handling {
             key_pair,
             request_timeout: crate::config::DEFAULT_TORII_REQUEST_TIMEOUT,
             accept_header: APPLICATION_NORITO,
-            transport: DefaultHttpTransport::new().expect("test HTTP transport"),
+            transport: DefaultHttpTransport::new(),
         };
         let cursor = ForwardCursor {
             query: "cursor".into(),
@@ -1418,7 +1418,7 @@ mod query_errors_handling {
                 DataModelCompatibility::SubmitCompatible,
             )),
             compatibility_probe: Arc::new(CompatibilityProbeCoordinator::new()),
-            http_transport: DefaultHttpTransport::new().expect("test HTTP transport"),
+            http_transport: DefaultHttpTransport::new(),
             stream_transport: std::sync::Arc::new(crate::stream::DefaultStreamTransport),
             wire_format_preference: crate::client::WireFormatPreference::default(),
         };
@@ -1484,7 +1484,7 @@ mod query_errors_handling {
             rollout_phase: RolloutPhase::Default,
             data_model_compatibility: Arc::new(Mutex::new(DataModelCompatibility::Unchecked)),
             compatibility_probe: Arc::new(CompatibilityProbeCoordinator::new()),
-            http_transport: DefaultHttpTransport::new().expect("test HTTP transport"),
+            http_transport: DefaultHttpTransport::new(),
             stream_transport: std::sync::Arc::new(crate::stream::DefaultStreamTransport),
             wire_format_preference: crate::client::WireFormatPreference::default(),
         };
@@ -1560,7 +1560,7 @@ mod query_errors_handling {
                 rollout_phase: RolloutPhase::Default,
                 data_model_compatibility: Arc::new(Mutex::new(DataModelCompatibility::Unchecked)),
                 compatibility_probe: Arc::new(CompatibilityProbeCoordinator::new()),
-                http_transport: DefaultHttpTransport::new().expect("test HTTP transport"),
+                http_transport: DefaultHttpTransport::new(),
                 stream_transport: std::sync::Arc::new(crate::stream::DefaultStreamTransport),
                 wire_format_preference: crate::client::WireFormatPreference::default(),
             };
@@ -1634,7 +1634,7 @@ mod query_errors_handling {
                 DataModelCompatibility::SubmitCompatible,
             )),
             compatibility_probe: Arc::new(CompatibilityProbeCoordinator::new()),
-            http_transport: DefaultHttpTransport::new().expect("test HTTP transport"),
+            http_transport: DefaultHttpTransport::new(),
             stream_transport: std::sync::Arc::new(crate::stream::DefaultStreamTransport),
             wire_format_preference: crate::client::WireFormatPreference::default(),
         }

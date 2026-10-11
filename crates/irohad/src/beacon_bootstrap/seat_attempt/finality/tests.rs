@@ -531,3 +531,89 @@ fn durable_native_replay_rejects_foreign_source_pool_without_pinning_or_advancin
     drop(foreign_source);
     assert_eq!(foreign_pool.reserved_bytes(), 0);
 }
+
+#[test]
+fn aggregate_restart_replays_complete_original_history_before_next_phase_and_keeps_cutoff() {
+    use iroha_core::{
+        state::World,
+        sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
+    };
+    let config = TestChainConfig::new(World::default(), 10_000);
+    let chain_id = config.chain_id.clone();
+    let mut chain = CertifiedTestChain::start(config).unwrap();
+    for timestamp in [20_000, 30_000, 40_000] {
+        chain.commit_at(timestamp, Vec::new());
+    }
+    let pool = AllocationBudget::new(64 * 1024 * 1024);
+    let original_frame = |height| {
+        let journal = NativeFinalityJournal {
+            blocks: (1..=height)
+                .map(|n| {
+                    iroha_data_model::sumeragi::finality::NativeFinalityArtifact::from_block(
+                        chain.committed(n).block(),
+                        limits(),
+                    )
+                    .unwrap()
+                })
+                .collect(),
+        };
+        let wire = norito::encode_canonical(&journal).unwrap();
+        let mut frame = ChargedBuffer::new(wire.len(), &pool).unwrap();
+        frame.append(&wire).unwrap();
+        frame
+    };
+    let accepted = original_frame(3);
+    let final_session = original_frame(4);
+    let source_bytes = pool.reserved_bytes();
+    let (_writer, mut input) = source(chain_id, chain.network_id(), &pool);
+    assert!(matches!(
+        input.restore_target_from_original_frame(&accepted, 3, 3),
+        Err(AttemptError::Height)
+    ));
+    assert_eq!(input.height(), 1);
+    assert!(input.clock().tip().is_none());
+    assert!(input.restored_source.is_none());
+    input
+        .restore_target_from_original_frame(&accepted, 3, 5)
+        .expect("aggregate restart must verify complete original H3 history from genesis");
+    assert_eq!(input.height(), 3);
+    assert_eq!(
+        input.clock().tip().unwrap().result(),
+        chain.committed(3).result()
+    );
+    // Reusing exactly the authenticated source does not re-execute its history.
+    assert!(matches!(
+        input.restore_target_from_original_frame(&accepted, 3, 3),
+        Err(AttemptError::Height)
+    ));
+    input
+        .restore_target_from_original_frame(&accepted, 3, 5)
+        .unwrap();
+    assert!(matches!(
+        input.restore_target_from_original_frame(&final_session, 4, 4),
+        Err(AttemptError::Height)
+    ));
+    assert_eq!(input.height(), 3);
+    input
+        .restore_target_from_original_frame(&final_session, 4, 5)
+        .unwrap();
+    assert_eq!(input.height(), 4);
+    assert_eq!(
+        input.clock().tip().unwrap().result(),
+        chain.committed(4).result()
+    );
+    assert!(matches!(
+        input.restore_target_from_original_frame(&accepted, 3, 5),
+        Err(AttemptError::Height)
+    ));
+    assert_eq!(
+        input.generation(),
+        0,
+        "durable replay never consumes a live FIFO frame"
+    );
+    drop(input);
+    assert_eq!(pool.reserved_bytes(), source_bytes);
+    drop(accepted);
+    drop(final_session);
+    assert_eq!(pool.reserved_bytes(), 0);
+}

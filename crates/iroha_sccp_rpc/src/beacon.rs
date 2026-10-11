@@ -5,6 +5,11 @@
 //! sync-committee period updates and finality updates) are fetched as JSON by
 //! [`crate::builders::ethereum`] through [`BeaconClient::transport`].
 //!
+//! Answers are bounded by their route's byte cap
+//! ([`crate::limits::http_response_cap`]: the `light_client/updates` cap grows
+//! with the requested count) and the header answer is decoded inside its
+//! attempt, so an endpoint that answers with malformed data is discredited.
+//!
 //! Nothing is verified here: fork handling and sync-committee verification
 //! belong to `iroha_sccp`.
 
@@ -107,10 +112,10 @@ impl BeaconClient {
     /// # Errors
     /// Any [`RpcError`]; an unknown block is an HTTP 404 [`RpcError::Status`].
     pub fn header(&self, block: &BeaconBlockId) -> Result<BeaconHeader, RpcError> {
-        let value = self
-            .transport
-            .get_json(&format!("/eth/v1/beacon/headers/{}", block.as_str()))?;
-        parse_header_response(&value)
+        self.transport.get_json_then(
+            &format!("/eth/v1/beacon/headers/{}", block.as_str()),
+            |value| parse_header_response(&value),
+        )
     }
 }
 

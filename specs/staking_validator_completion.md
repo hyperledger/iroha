@@ -8,7 +8,7 @@ No live deployment or release readiness is established by this record.
 
 The complete first-release implementation and qualification goal is active.
 Implementation and validation use only the `optimizations` branch in
-`/Users/takemiyamakoto/soramitsudev/iroha`. Results from another checkout do not
+`/Users/takemiyamakoto/dev/iroha`. Results from another checkout do not
 qualify this candidate; all outstanding gates must run against this source.
 The selected design replaces retired layouts and paths; backward-compatible
 decoders, aliases, shims and parallel implementations are prohibited.
@@ -18,23 +18,27 @@ decoders, aliases, shims and parallel implementations are prohibited.
 | Custody and lifecycle | All focused staking, reserve, snapshot and restoration controls pass | Earlier focused Core custody, rollback, fee and restoration controls passed; the current shared beacon custody API and typed restoration errors await fresh compilation and runtime checks, followed by unchanged-candidate network qualification |
 | Canonical XOR | Genesis-pinned network XOR funds bonds, rewards and withdrawals; no synthetic staking definition or implicit production minting | Immutable network XOR pin, global scale-nine genesis/operator validation and early staking/reward custody checks implemented; production implicit minting removed; current-candidate component and integration validation pending |
 | Authority and election | Separate key generations and scheduling epochs; freeze E+2 membership at E and prepare through E+1 | Generation/authorization, authenticated native epoch graph and pristine E+2 boundary capture are integrated; current Core, runtime and network qualification remains open |
-| Atomic transition | All target seats ready; current exact quorum certifies activation or retention and cancellation; restart preserves both sessions | Native prepare/activate/retain source capture, signed control/Pasta, atomic application barrier and current/predecessor restore join are integrated; snapshot chain/network identity is checked before typed restore, but positive-height startup and real restart/transition qualification remain open |
+| Atomic transition | All target seats ready; current exact quorum certifies activation or retention and cancellation; restart preserves both sessions | Native prepare/activate/retain source capture, BLS-authenticated control, atomic application barrier and current/predecessor restore join are integrated; snapshot chain/network identity is checked before typed restore, but positive-height startup and real restart/transition qualification remain open |
 | Monetary fees | Exact signed effects, bounded claims with retained dust, and principal distinct from assessed fees | Monetary plans and native effect checks are present. Required explicit fee-reward claim bindings and additive shared custody are implemented; canonical reward-currency admission, current-policy integration, multisig/proved execution and paid network coverage remain under validation |
 | Production progress | One funded original execution reaches durable Apply; native lane runner is the sole production owner | Native execution/context retention, deterministic history and Kura's fail-stop gate are integrated. Complete original-pool funding through World/DA/proof graphs, publication, replay and retained-generation reclamation remains open |
 | Operator/client delivery | Canonical signing, provisioning, status, SDK and fixture workflows | Candidate and credential commands and native evidence readers are present. Same-source native artifacts, regenerated fixtures, complete SDK consumers and operator network qualification remain open |
 | Unchanged network qualification | Real 4→7→4 network, faults, replay, restart, penalties, rewards and full withdrawal; maintained formal/DA/workspace/SDK gates | Pending |
 
-Rewards remain explicit treasury-funded distributions. Committee preparation
+Rewards automatically accrue from authenticated funded XOR conversion using
+historical validator and nominator exposure. Committee preparation
 takes one full epoch. Every boundary advances the scheduling epoch; certified
 retention keeps the current key generation without claiming forward security.
 Missing target readiness cannot change the frozen roster in place. Missing the
 current quorum does not authorize weakened voting rules.
 
-The latest recorded compiler artifact of the production DLMM pool is 58,457 bytes,
-including 32,360 bytes of code. Direct CS1 callable metadata compaction removes
-1,360 bytes from the 59,817-byte artifact after numeric operand staging removed
-168 bytes from the 59,985-byte artifact. Complete schemas, permissions, access
-hints, literal payloads, callable frames and original metered consumers remain.
+The freshly compiled full Iroha DLMM fixture is 59,961 bytes, including 33,800
+bytes of code. Removing private forwarding functions and selecting the swap
+direction once before a common call removes 344 bytes from the 60,305-byte
+baseline: 272 code bytes and 72 metadata bytes. The public manifest changes only
+its code hash; schemas, permissions, access hints and ABI hash remain unchanged.
+This measurement covers the full current Iroha fixture. The sibling SoraSwap
+source still needs its current-language and shared-traversal migration;
+cross-repository source or artifact parity remains unqualified.
 Seven codec, three allocation and two compiler controls pass for CS1, together
 with both JavaScript tape controls. Complete genuine native outputs are recorded;
 mandatory reproduction rejects the obsolete captures, whose replacement awaits
@@ -47,30 +51,27 @@ The current IVM run passed seven of eight local cases; the map recorder's exact
 diagnostic allocation was underfunded before execution and its repaired fixture
 awaits a fresh run. Full compiler and VM candidate qualification remain open.
 
-The artifact's nested byte charge alone is 3,741,248 gas at the unchanged
-64-gas-per-byte price, leaving 258,752 gas within the default four-million-gas
-block limit. A state read requires at least 524,304 gas before its path prefix to
-escrow the unchanged maximum 512-KiB value allowance. Refunded actual consumption
-does not establish that this original temporary reservation fits. Further artifact
-reduction is required before the maintained default-limit gate can pass.
-The latest actual default-limit Core preview, using the 59,985-byte artifact,
-failed with `OutOfGas` before the signed callback. An explicit ignored diagnostic
-using that artifact measured 3,983,636 gas with an eight-million-gas VM against the
-same default-policy signed genesis and discarded all effects and overlays. That
-diagnostic cannot qualify the signed callback or change the default allowance;
-the fresh 58,457-byte artifact still requires the actual default-limit gate.
+The full current Iroha DLMM fixture passes the production native wrapper and
+effect-owner test under the unchanged default four-million-gas limit. Both the
+full DLMM and funded-pool cases preserve nested pool authorities and exact
+output through the signed callback. The artifact's nested byte charge remains
+3,837,504 gas at the unchanged 64-gas-per-byte price; no metering or policy
+allowance was relaxed. Focused native integration tests pass scheduled full-DLMM
+and funded-pool conversion, automatic accrual for multiple validators and
+nominators, authenticated signed claims and certified suffix replay. Real
+four-peer network qualification remains open.
 The strict workspace source inventory refuses an unsafe nested checkout path;
 component measurements do not establish candidate or network qualification.
 TODO: qualify the actual enacted payout under the default policy on the
 disposable network, including all original byte and execution charges.
 
 Canonical XOR means the asset authenticated for the particular network, not a
-second token named XOR. Taira's public identity and an operator-provisioned Nexus
+second token named XOR. Taira's public identity and an operator-provisioned SORA Nexus
 identity are not interchangeable. Disposable-network allocations are explicit
 genesis test allocations and are not claims of mainnet monetary value.
 
 Kagami generation and profile verification require global scale-nine XOR for
-both Taira and an operator-provisioned Nexus identity. Core's shared
+both Taira and an operator-provisioned SORA Nexus identity. Core's shared
 `state/network_xor.rs` guard binds the committed currency before staking deposits,
 reward claims and fee-policy use. Retained custody and current/predecessor
 stake/reward restoration reject incompatible definitions and scoped asset IDs
@@ -174,7 +175,7 @@ readers must retain actual release owners, with callbacks outside enclosing fenc
   Restored windows also validate retained entries and canonical signer order.
   The schedule retains the original authenticated proofs and roster after genesis;
   mutable candidate registrations and key expiry cannot change voting authority.
-  The native epoch graph, pristine election capture, signed control/Pasta paths
+  The native epoch graph, pristine election capture, BLS-authenticated control paths
   and boundary barrier require current-candidate component and real transition
   qualification.
 - Account-owned lifecycle and signed peer consent: `isi/staking.rs` in the data
@@ -186,13 +187,64 @@ readers must retain actual release owners, with callbacks outside enclosing fenc
   the authenticated roster and original proofs instead of promoting live
   Validator-role registrations; its candidate-pool and retention tests await Core
   validation. The integrated pristine boundary producer freezes the exact E+2
-  target for a complete E+1 preparation interval; its signed control/Pasta and
+  target for a complete E+1 preparation interval; its BLS-authenticated control and
   network gates remain open. Requested election exit and actual end of service are distinct fields;
   retention extends pending-unbond slashing and release heights.
 - CLI candidate registration, signed rebinding, bond/delegation, scheduled and
-  finalized unbond, reward recording and claiming. Runtime peer signing inputs
+  finalized unbond and authenticated reward claiming. Runtime peer signing inputs
   use the existing owner-private file loader and remain outside the repository.
-- Treasury-owned fee-funded reward distributions. Exact source-asset reserves
+- Automatic funded validator/nominator rewards use authenticated service and
+  historical eligible exposure, with zero commission. Chronological exposure
+  pages are bounded to 128 KiB, 256 recipients, 1,024 cohorts and
+  4,096 stake entries. Each earning month admits at most 4,096 distinct validator
+  beneficiary roots. Capture creates at most one new page per serviced validator
+  per block, bounded by the global committee ceiling of 31; adjacent identical
+  exposure only increments its existing cohort. Staking participant and recovered
+  reward-owner identities
+  must fit 256 canonical Norito bytes; this does not limit the general account
+  identity model. Account recovery while reward custody is retained must fit
+  that bound for both the old beneficiary identity and the new owner.
+  Registration, nomination, recovery and payout-lifecycle admission
+  enforce that bound before creating an obligation. A full page rolls over even
+  during mandatory slashing, without limiting the number of earning changes.
+  Payout custody/provider identities have the same 256-byte cap. The complete
+  signed fee-policy registry is limited to 1 MiB; an optional governance append
+  exceeding that bound is refused atomically. Signed history is not pruned to
+  admit a new revision. TODO: authenticated registry-history compaction is
+  required before admitting revisions beyond that limit.
+  Retained signed oracle reports are limited to 16 KiB each and a funded
+  allocation to 3 MiB before conversion mutates any reserves. Together with the
+  identity, registry and page limits, these bounds keep a mandatory page and
+  its independent evidence sources within the 8 MiB block corpus. Mandatory
+  accrual runs before the optional idle-wallet sweep, whose complete batch
+  rolls back when its additional receipts exceed the remaining budget.
+  Before customer instructions, each committed block advances at most one funded
+  exposure page per retained payout binding. Reward cursors create no blocks or
+  transactions; a completely idle chain waits for ordinary submitted Network
+  work or certified lane merges to produce the next block.
+  Each changed tail also enters the original block's independent native archive
+  projection. At most 31 tails, each with a bounded predecessor reference, fit
+  within 4 MiB alongside the monetary corpus inside the 16 MiB native archive
+  budget. World retains at most one mutable tail and a fixed-size head per outstanding
+  validator/month. Rollover removes the previous tail body after its original
+  certified archive is available. Every predecessor link binds the complete
+  canonical archive wrapper. Accrual follows those links newest first while
+  preserving each page's exact chronological service offsets and cumulative
+  quotient allocation. An unavailable original archive defers the complete
+  transaction; it cannot erase a source or change an entitlement.
+  Closed-month maintenance authenticates and cools resident tails to their head
+  references, including months awaiting delayed funding. After all original-month
+  wallet fees are settled, its closure seal forbids new credits; with no pending
+  funding or active allocation, bounded maintenance retires the month summary and
+  heads. A native monetary checkpoint compacts original funded allocations,
+  entitlement and claim receipts into exact lifetime totals and outstanding
+  original-beneficiary balances; the active allocation and uncompacted block
+  remain hot. Retirement journals require the original authenticated evidence
+  before removing any receipt. Beneficiary revisions and original native archives
+  retain the audit trail. These bounds limit resident bodies and work per block;
+  cold chain custody and outstanding month or beneficiary roots have no fixed
+  lifetime disk cap. Entitlements never expire.
+  Exact source-asset reserves
   protect unpaid rewards through transfers, burns, aggregate batches and
   snapshot current/predecessor restoration. Per-validator custody pins the exact
   scoped source asset; an aggregate index reserves all bonded and pending-unbond
@@ -201,9 +253,9 @@ readers must retain actual release owners, with callbacks outside enclosing fenc
   bonded escrow, including a shared fee/stake account. Restore validates both
   ledger reconciliation and combined backing; deletion and account migration
   preserve the retained source. Configuration and alias drift cannot redirect a
-  withdrawal, and incompatible new deposits are rejected. Epoch-zero and
-  deferred small claims remain payable; changing fee policy cannot change an
-  existing entitlement's source.
+  withdrawal, and incompatible new deposits are rejected. Funded balances below
+  the current claim threshold remain accrued, and exit preserves captured
+  entitlements. Changing fee policy cannot change an existing entitlement's source.
 - Beacon startup authenticates the exact installed session and checks the local
   provider's non-signing capability for its actual seat. A present provider
   handle alone does not establish usable custody.
@@ -213,9 +265,10 @@ readers must retain actual release owners, with callbacks outside enclosing fenc
   custody, and real-XOR 4→7→4 transitions. They use the native finality journal
   and restart all peers while provisioning pending credentials. Setup without
   an actual network fails the qualification. The scenarios explicitly exclude
-  an enacted retail validation-fee policy. The complete rotation now includes
-  funded treasury rewards, exact signed claims and full withdrawal after retained
-  liability expiry, with separately settled native fees. The connected Parliament
+  an enacted retail validation-fee policy. The complete rotation includes full
+  withdrawal after retained liability expiry, with separately settled native
+  fees. TODO: qualify positive automatic funded conversion and signed nominator
+  claims across a monthly boundary on a real four-peer network. The connected Parliament
   helper requests and consumes a genuine sortition pulse during E+1 while current
   and pending credentials coexist; it separately verifies the fresh epoch-boundary
   scheduling pulse and rejects early activation. These scenarios require compilation
@@ -238,9 +291,9 @@ readers must retain actual release owners, with callbacks outside enclosing fenc
   an existing external submission command. Keep mandatory-slash simulator and
   component evidence separate from network qualification; do not add a manual
   authority or node fault switch to make that gate pass.
-- Candidate keys require BLS peer consent plus possession of both generation-bound
-  Pasta keys. Every prepared seat additionally proves custody of its exact beacon
-  share under the finalized DKG transcript and complete transition context. A
+- Candidate keys require BLS peer consent and the exact BLS proof of possession
+  bound into the validator generation. Every prepared seat additionally proves
+  custody of its exact beacon share under the finalized DKG transcript and complete transition context. A
   lifecycle certificate finalizes a pending beacon; only certified committee
   activation retires the old key and activates the new one. Genesis bootstrap
   requires the exact current genesis authority.
@@ -271,11 +324,12 @@ node's own certificates (certificates are per node, `specs/sumeragi.md` §12.7):
   epoch and must follow it (selection at the preceding epoch's end, contiguous
   start). Global-lane tenure uses these intervals; other lanes use the epochs
   alone.
-- The initial KAGEMUSHA authority is the signed generation-zero authority of
-  the genesis handshake metadata bound to the network. The native schedule
-  carries the complete authority-generation and epoch-authorization graph;
-  certified boundary application advances that graph atomically. The shared
-  proof reader and Pasta signing integration remain under qualification.
+- The initial validator generation is the ordered BLS committee and original
+  proofs of possession in the signed genesis, bound to the network. The native
+  schedule carries the complete validator-generation and epoch-authorization
+  graph; certified boundary application advances that graph atomically. The
+  shared proof reader and BLS-authenticated transition integration remain under
+  qualification.
 - A threshold-key lifecycle certificate at height `h` is signed by the committee
   World's lag-2 consensus schedule holds for `h` (committed in `R_{h−2}`), in the
   core's canonical order; Torii admission checks the next height against the
@@ -285,12 +339,12 @@ node's own certificates (certificates are per node, `specs/sumeragi.md` §12.7):
 
 | Outcome | Exact dependency and completion criterion | Owners |
 | --- | --- | --- |
-| Dynamic election and mint-finality keys | The native E+2 selector/producer, retained epoch graph, signed control/Pasta paths and immediate next-epoch application barrier are integrated. TODO: qualify complete preparation and certified retention without fresh incumbent keys on actual networks. Registration alone must never add voting authority. | Core/data model, KAGEMUSHA and deployment |
-| Prepared beacon transition | The signed encrypted all-edge DKG model and reducer bind the frozen exact roster and fail closed before finalization if an edge or acceptance is absent. The deterministic Core fixture still constructs secrets centrally; daemon per-seat custody, authenticated exchange, genesis orchestration, current/pending session restart and atomic activation need qualification. Parliament can require an early pulse independently of the next epoch-end election pulse. Do not bypass finalized pulse or certificate checks. | Beacon, Parliament, Sumeragi and daemon |
+| Dynamic validator election | The native E+2 selector/producer, retained epoch graph, BLS-authenticated control paths and immediate next-epoch application barrier are integrated. TODO: qualify complete preparation and certified retention with the exact authenticated BLS committee on actual networks. Registration alone must never add voting authority. | Core/data model, Sumeragi and deployment |
+| Prepared beacon transition | The signed encrypted all-edge DKG model and reducer bind the frozen exact roster and fail closed before finalization if an edge or acceptance is absent. The deterministic Core fixture still constructs secrets centrally; daemon per-seat custody, authenticated exchange, genesis orchestration, current/pending session restart and atomic activation need qualification. Parliament creates no pulse demand: its sortition waits governance-locally for the consensus-native epoch-end pulse ([ballot design](parliament_private_ballot_design.md) section 9). Do not bypass finalized pulse or certificate checks. | Beacon, Parliament, Sumeragi and daemon |
 | Staking under the enacted validation-fee policy | `RetailMonthlyAllowance` is the canonical policy: calendar maintenance, included retail payments and overage, with an institutional per-payment fee and separate immutable reward custody. Native assessment checks qualifying payments of the enacted fee asset. TODO: complete and qualify staking integration, distinct fee-asset accounting, bounded claims, multisig/proved overlays and signed payer bounds through original execution. Staking principal cannot satisfy a fee obligation. | Core/native execution and fees |
 | Production liveness | Complete the original Validate-to-Apply owner, admitted resources, durable publication and autonomous lane runner together. TODO: qualify silent authors, saturation, final-transaction progress and retirement/restart cuts, with named deterministic regressions and mutation controls. | Core/Sumeragi, Queue, Kura and formal owners |
-| Reward allocation | The selected policy is explicit treasury-funded canonical-XOR distributions. TODO: qualify funding, signed recording and bounded payment together. Automatic participation formulas, commission and issuance programs are outside this implementation. | Treasury/governance and Core |
-| Network qualification | TODO: one unchanged candidate proves admission, prepared 4→7→4 rotation, queued Parliament pulse, missing target signer, all-seat restart, replay rejection, rewards, slashing and final withdrawal. Run the maintained fault/DA/formal gates and complete workspace checks. | Integration, release and subsystem owners |
+| Reward allocation | Funded canonical-XOR conversion preserves validator service-count gross rewards and automatically divides them using historical eligible stake cohorts, with zero commission. TODO: qualify monthly funding, multiple nominator claims and restart together on a real four-peer network. | Core finalized service, fee conversion and staking custody |
+| Network qualification | TODO: one unchanged candidate proves admission, prepared 4→7→4 rotation, Parliament sortition consuming the boundary pulse after rotation, missing target signer, all-seat restart, replay rejection, rewards, slashing and final withdrawal. Run the maintained fault/DA/formal gates and complete workspace checks. | Integration, release and subsystem owners |
 
 The current fee owners are `iroha_data_model::validation_fee`,
 `iroha_core::retail_fee` and the common numeric-asset mutation path. The native
@@ -314,13 +368,13 @@ active-policy staking requires an authentically aged chain or the actual elapsed
 interval. Do not seed an enacted registry or substitute a fabricated chain clock
 for that network gate.
 
-The canonical reward plan requires `fee_claim` as
-`Option<PublicLaneFeeRewardClaimV1>`. Its complete lifecycle, beneficiary revision,
-source and destination assets, positive amount and receipt sequence bind an
-independently accrued fee reward before execution. Missing fields fail decoding;
-explicit `None` performs no fee claim work. Shared custody protects the sum of
-fee obligations, public rewards and stake. Current execution, restoration, client
-and fixture qualification must establish this behavior together.
+The canonical reward plan requires one positive `fee_claim` with exact lifecycle,
+beneficiary revision, global XOR source and destination, amount and next claim
+sequence. Network scope and expiry are authenticated. Absent or null claims and
+stale signed state reject before payment. One bounded claim consumes only its
+funded entitlement; additive custody preserves all remaining fee and stake
+obligations. Current execution, restoration, client and fixture qualification
+must establish this behavior together.
 
 The beacon producer also retains an explicit allocation TODO: its lower
 transcript/reducer must use original-pool admission for nested allocations before
@@ -355,8 +409,8 @@ slashing remains executable; voluntary withdrawals and rebinding cannot release
 the boundary's retained obligations. The native selector ranks already eligible
 candidates uniformly using network, selection epoch, target epoch, authenticated
 seed and canonical peer identity, then freezes the largest allowed exact `3f+1`
-committee. Stake gates eligibility and does not multiply votes. Future Pasta
-keys and beacon shares are prepared during E+1.
+committee. Stake gates eligibility and does not multiply votes. Target BLS
+credentials and beacon shares are prepared during E+1.
 
 The unimplemented concentration, seat-band and entity-correlation settings have
 been removed from canonical parameters, profiles and genesis templates. Their
@@ -369,8 +423,8 @@ ordered roster and original PoPs, network, mode and fresh leader seed. Every
 signature must consume its epoch/context binding, and topology must consume the
 fresh seed even when membership is retained. Idle chains produce no blocks.
 Any protocol-authorized boundary block must retain its authenticated witness
-and mandatory Pasta seals. Replay, restart, formal and network qualification
-remains open.
+and certified BLS committee decision. Replay, restart, formal and network
+qualification remains open.
 
 ### Distributed beacon ceremony cutover
 

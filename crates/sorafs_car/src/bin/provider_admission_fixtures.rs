@@ -6,6 +6,7 @@ use norito::json::{Map, Value, to_string_pretty};
 use sorafs_car::set_no_follow_flag;
 use sorafs_car::{CarBuildPlan, fetch_plan::try_chunk_fetch_plan_to_json};
 use sorafs_chunker::ChunkProfile;
+use sorafs_manifest::provider_admission::ProviderAdmissionSerializationContext;
 use sorafs_manifest::{
     AdmissionRecord, AdvertEndpoint, AdvertSignature, AvailabilityTier, CapabilityTlv,
     CapabilityType, CouncilSignature, ENDPOINT_ATTESTATION_VERSION_V1, EndpointAdmissionV1,
@@ -458,13 +459,13 @@ fn build_envelope(
     };
     let proposal_digest = compute_proposal_digest(&proposal).map_err(|source| {
         ProviderAdmissionEnvelopeError::Serialization {
-            context: "proposal",
+            context: ProviderAdmissionSerializationContext::Proposal,
             source,
         }
     })?;
     let advert_digest = compute_advert_body_digest(&advert_body).map_err(|source| {
         ProviderAdmissionEnvelopeError::Serialization {
-            context: "advert_body",
+            context: ProviderAdmissionSerializationContext::AdvertBody,
             source,
         }
     })?;
@@ -488,7 +489,7 @@ fn build_envelope(
     let authorization_digest =
         compute_envelope_authorization_digest(&envelope).map_err(|source| {
             ProviderAdmissionEnvelopeError::Serialization {
-                context: "envelope authorization",
+                context: ProviderAdmissionSerializationContext::EnvelopeAuthorization,
                 source,
             }
         })?;

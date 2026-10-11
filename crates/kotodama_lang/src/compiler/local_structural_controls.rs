@@ -94,10 +94,13 @@ fn implementation_ir(source: &str, declaration: &str) -> ir::Function {
             })
             .expect("original declaration");
         let compiler = Compiler::new();
-        let lowered = compiler.lower_typed_program(typed, None).unwrap();
+        let lowered = compiler.lower_typed_program(typed.clone(), None).unwrap();
         let ssa = compiler.construct_ssa_program(lowered).unwrap();
         let optimized = compiler.optimize_ssa_program(ssa).unwrap();
-        let codegen = compiler.destroy_ssa_program(optimized).unwrap();
+        let mut codegen = compiler.destroy_ssa_program(optimized).unwrap();
+        // The production compiler detaches debug-only provenance before physical
+        // instruction positions become inputs to layout and register allocation.
+        statement_sources::Sources::take(&mut codegen.ir_program, &typed);
         let mut function = codegen
             .ir_program
             .functions

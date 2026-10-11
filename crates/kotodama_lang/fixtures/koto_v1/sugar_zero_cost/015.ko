@@ -1,5 +1,5 @@
 
-        seiyaku NamedStruct {
+        seiyaku NamedStruct { permission WriteState;
             struct Pair { int first, int second }
             state int trace;
 
@@ -10,7 +10,7 @@
                 value
             }
 
-            kotoage fn main() -> int authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) -> int {
                 let pair = Pair {
                     second: record(value: 2),
                     first: record(value: 1),

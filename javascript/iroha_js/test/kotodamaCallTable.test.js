@@ -21,8 +21,10 @@ function tuple(width) {
 function manifest(fields, returns = unit) {
   return {
     code_hash: codeHash,
+    permissions: [], events: [], enum_types: [],
     entrypoints: [{
       name: "inspect", kind: { kind: "View", value: null },
+      authorization: { kind: "Anyone", value: null },
       params: fields.map(([typeName], index) => ({ name: `arg_${index}`, type_name: typeName })),
       argument_schema: fields.length === 0 ? null : {
         fields: fields.map(([, nodes], index) => ({ name: `arg_${index}`, ty: { nodes } })),
@@ -68,18 +70,18 @@ for (const [label, normalize] of [["builder", normalizeBuilder], ["Torii", norma
   });
 
   test(`${label} gives empty named products one word`, async () => {
-    const empty = ["struct Empty", [{ kind: "Struct", value: { name: "Empty", fields: [] } }]];
-    const list = ["List<struct Empty, 2>", [{ kind: "List", value: { capacity: 2 } }, ...empty[1]]];
+    const empty = ["struct Fixture::Empty", [{ kind: "Struct", value: { name: "Fixture::Empty", fields: [] } }]];
+    const list = ["List<struct Fixture::Empty, 2>", [{ kind: "List", value: { capacity: 2 } }, ...empty[1]]];
     const value = await normalize(manifest([empty], list));
     const argument = analyzeEntrypointValueTypeV1(value.entrypoints[0].argument_schema.fields[0].ty, "argument");
     assert.equal(argument.wordCount, 1);
-    assert.equal(argument.canonicalName, "struct Empty");
+    assert.equal(argument.canonicalName, "struct Fixture::Empty");
     assert.equal(analyzeEntrypointValueTypeV1(value.entrypoints[0].return_schema, "result").wordCount, 1);
   });
 }
 
 test("Norito contract records roundtrip wide and empty named return schemas", () => {
-  const empty = ["struct Empty", [{ kind: "Struct", value: { name: "Empty", fields: [] } }]];
+  const empty = ["struct Fixture::Empty", [{ kind: "Struct", value: { name: "Fixture::Empty", fields: [] } }]];
   for (const returns of [tuple(64), empty]) {
     const instruction = buildRegisterSmartContractCodeInstruction(universalArtifactInput({ manifest: manifest([empty], returns) }));
     const encoded = noritoEncodeInstruction(instruction, 753);

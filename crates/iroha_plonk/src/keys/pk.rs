@@ -47,7 +47,9 @@
 
 use std::borrow::Cow;
 
-use ff::{BatchInvert, Field, PrimeField, WithSmallOrderMulGroup};
+pub mod artifact;
+
+use ff::{BatchInvert, Field, WithSmallOrderMulGroup};
 use iroha_pasta::{PastaCurve, PastaField, fft::FftDomain};
 
 use super::{DescriptorBinding, KeyError, check_shape, vk::VerifyingKey};
@@ -179,9 +181,22 @@ impl<F: PastaField> QuotientDomain<F> {
         coeffs: &[F],
         coset: usize,
     ) -> Result<Vec<F>, KeyError> {
+        self.evaluate_cancellable(domain, coeffs, coset, None)
+    }
+    /// Evaluate a coset with an explicit operation signal.
+    /// # Errors
+    /// As [`Self::evaluate`], or cooperative cancellation.
+    pub fn evaluate_cancellable(
+        &self,
+        domain: &FftDomain<F>,
+        coeffs: &[F],
+        coset: usize,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Vec<F>, KeyError> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         let shift = self.shift(coset).ok_or(KeyError::CosetIndex)?;
         let mut values = coeffs.to_vec();
-        domain.coset_fft(&mut values, shift)?;
+        domain.coset_fft_cancellable(&mut values, shift, cancellation)?;
         Ok(values)
     }
 
@@ -197,25 +212,38 @@ impl<F: PastaField> QuotientDomain<F> {
         domain: &FftDomain<F>,
         coset_values: Vec<Vec<F>>,
     ) -> Result<Vec<F>, KeyError> {
-        check_shape("coset evaluations", self.pieces(), coset_values.len())?;
-        let mut residues = Vec::with_capacity(self.pieces());
-        for (values, shift) in coset_values.into_iter().zip(&self.shifts) {
+        self.recombine_cancellable(domain, coset_values, None)
+    }
+
+    /// Recombines quotient cosets with an explicit operation signal.
+    ///
+    /// # Errors
+    /// As [`Self::recombine`], or [`KeyError::Cancelled`].
+    pub fn recombine_cancellable(
+        &self,
+        domain: &FftDomain<F>,
+        coset_values: Vec<Vec<F>>,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Vec<F>, KeyError> {
+        let mut residues = crate::secret::SecretColumns::new(coset_values);
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+        check_shape("coset evaluations", self.pieces(), residues.len())?;
+        for (values, shift) in residues.iter_mut().zip(&self.shifts) {
             check_shape("coset values", self.n, values.len())?;
-            let mut values = values;
-            domain.coset_ifft(&mut values, *shift)?;
-            residues.push(values);
+            domain.coset_ifft_cancellable(values, *shift, cancellation)?;
         }
         let pieces = self.pieces();
-        let mut coeffs = vec![F::ZERO; pieces * self.n];
+        let mut coeffs = crate::secret::SecretPolynomial::new(vec![F::ZERO; pieces * self.n]);
         for (t, row) in self.recombination.iter().enumerate() {
             let out = &mut coeffs[t * self.n..(t + 1) * self.n];
-            for (weight, residue) in row.iter().zip(&residues) {
+            for (weight, residue) in row.iter().zip(residues.iter()) {
                 for (target, value) in out.iter_mut().zip(residue) {
                     *target += *weight * value;
                 }
             }
         }
-        Ok(coeffs)
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+        Ok(coeffs.into_vec())
     }
 
     /// `lambda_c = s_c^n`.
@@ -336,12 +364,13 @@ pub struct ProvingKey<C: PastaCurve> {
 fn interpolate_all<F: PastaField>(
     domain: &FftDomain<F>,
     columns: &[Vec<F>],
+    cancellation: Option<&iroha_pasta::CancellationToken>,
 ) -> Result<Vec<Vec<F>>, KeyError> {
     columns
         .iter()
         .map(|column| {
             let mut coeffs = column.clone();
-            domain.ifft(&mut coeffs)?;
+            domain.ifft_cancellable(&mut coeffs, cancellation)?;
             Ok(coeffs)
         })
         .collect()
@@ -353,9 +382,10 @@ impl<C: PastaCurve> ProvingKey<C> {
     /// # Errors
     ///
     /// [`KeyError::Shape`] when the columns do not match the descriptor;
-    /// [`KeyError::UnsupportedDegree`] or [`KeyError::Fft`] from the domains.
+    /// [`KeyError::UnsupportedDegree`] or [`KeyError::Fft`] from the domains,
+    /// or [`KeyError::Cancelled`] after all arithmetic tasks join.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
+    pub(crate) fn new_cancellable(
         vk: VerifyingKey<C>,
         binding: DescriptorBinding,
         constraint_system: KeyConstraintSystem<C::ScalarExt>,
@@ -364,7 +394,9 @@ impl<C: PastaCurve> ProvingKey<C> {
         copy_digest: [u8; 32],
         policy: CosetCachePolicy,
         tables: CommitmentTables<C>,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Self, KeyError> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         let descriptor = binding.descriptor();
         let k = u32::from(descriptor.k);
         let n = binding.n();
@@ -383,8 +415,8 @@ impl<C: PastaCurve> ProvingKey<C> {
         }
         let domain = FftDomain::new(k)?;
         let quotient = QuotientDomain::new(k, usize::from(descriptor.degree))?;
-        let fixed_polys = interpolate_all(&domain, &fixed_values)?;
-        let permutation_polys = interpolate_all(&domain, &permutation_values)?;
+        let fixed_polys = interpolate_all(&domain, &fixed_values, cancellation)?;
+        let permutation_polys = interpolate_all(&domain, &permutation_values, cancellation)?;
 
         let blinding_rows = usize::from(descriptor.blinding_factors);
         let last = n - blinding_rows - 1;
@@ -413,6 +445,7 @@ impl<C: PastaCurve> ProvingKey<C> {
                 mask_values.l_last.clone(),
                 mask_values.l_active.clone(),
             ],
+            cancellation,
         )?;
         let [l0, l_last, l_active]: [Vec<C::ScalarExt>; 3] =
             polys.try_into().map_err(|_| KeyError::CosetIndex)?;
@@ -443,12 +476,16 @@ impl<C: PastaCurve> ProvingKey<C> {
             for poly in key.cache_order() {
                 let coeffs = key.coefficients(poly)?;
                 let cosets = (0..key.quotient.pieces())
-                    .map(|coset| key.quotient.evaluate(&key.domain, coeffs, coset))
+                    .map(|coset| {
+                        key.quotient
+                            .evaluate_cancellable(&key.domain, coeffs, coset, cancellation)
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 cache.push(cosets);
             }
             key.cache = Some(cache);
         }
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         Ok(key)
     }
 
@@ -742,8 +779,21 @@ mod tests {
             evaluations.push(values);
         }
         assert_eq!(
-            quotient.recombine(&domain, evaluations).expect("recombine"),
+            quotient
+                .recombine(&domain, evaluations.clone())
+                .expect("recombine"),
             coeffs
+        );
+        let cancelled = iroha_pasta::CancellationToken::new();
+        cancelled.cancel();
+        assert_eq!(
+            quotient.recombine_cancellable(&domain, evaluations.clone(), Some(&cancelled)),
+            Err(KeyError::Cancelled)
+        );
+        let fresh = iroha_pasta::CancellationToken::new();
+        assert_eq!(
+            quotient.recombine_cancellable(&domain, evaluations, Some(&fresh)),
+            Ok(coeffs.clone())
         );
         // Evaluating an n-coefficient polynomial matches direct evaluation.
         let short: Vec<F> = coeffs[..n].to_vec();

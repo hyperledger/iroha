@@ -159,7 +159,8 @@ mod tests {
                 .expect("test block bound must be non-zero"),
             mode: ConsensusGenesisModeParams::Permissioned,
             protocol_version: PROTO_VERSION,
-            sumeragi_context: crate::kagemusha_v1_test_fixtures::genesis_context_parameters(),
+            sumeragi_context:
+                iroha_data_model::block::consensus::SumeragiGenesisContextParameters::recommended(),
         }
     }
     #[test]

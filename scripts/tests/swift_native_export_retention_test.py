@@ -66,7 +66,7 @@ class SwiftNativeExportRetentionTests(unittest.TestCase):
         self.assertFalse(inventory & set(policy.RETIRED_PROTOCOL_SYMBOLS["c-jni"]))
         self.assertFalse({
             symbol for symbol in inventory
-            if symbol.startswith(policy.RETIRED_KAGEMUSHA_EXPORT_PREFIXES)
+            if policy.is_retired_kagemusha_export(symbol)
         })
 
     def test_mldsa_declarations_match_the_canonical_owner(self) -> None:

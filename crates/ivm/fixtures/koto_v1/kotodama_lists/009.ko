@@ -4,6 +4,6 @@
                     let _values = values;
                 }
 
-                view fn main() -> int { 0 }
+                view fn main() authorize(anyone) -> int { 0 }
             }
             

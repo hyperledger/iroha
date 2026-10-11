@@ -2725,3 +2725,6 @@ mod capture;
 
 #[path = "frozen_reads.rs"]
 mod frozen_reads;
+
+#[path = "frozen_pair.rs"]
+mod frozen_pair;

@@ -1,5 +1,5 @@
 
         seiyaku TailExpression {
-            view fn main(int value) -> int { value + 1 }
+            view fn main(int value) authorize(anyone) -> int { value + 1 }
         }
     

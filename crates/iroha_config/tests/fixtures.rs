@@ -99,6 +99,75 @@ impl Drop for AddressRuntimeGuard {
 #[derive(Error, Debug)]
 #[error("failed to load config from fixtures")]
 struct FixtureConfigLoadError;
+// The streaming fixtures select this exact checked-in public tables artifact.
+// This exact bounded source never falls back to native files.
+struct BundleFixtureFiles;
+impl iroha_config_base::file_source::ConfigFileSource for BundleFixtureFiles {
+    fn read(
+        &self,
+        path: &Path,
+        request: iroha_config_base::file_source::ConfigFileRequest,
+    ) -> std::io::Result<zeroize::Zeroizing<Vec<u8>>> {
+        use iroha_config_base::file_source::ConfigFileAccess;
+        if request.access != ConfigFileAccess::Public
+            || path != Path::new("codec/rans/tables/rans_seed0.toml")
+        {
+            return Err(std::io::ErrorKind::NotFound.into());
+        }
+        let bytes = include_bytes!("../../../codec/rans/tables/rans_seed0.toml");
+        if bytes.len() > request.maximum {
+            return Err(std::io::ErrorKind::InvalidData.into());
+        }
+        Ok(zeroize::Zeroizing::new(bytes.to_vec()))
+    }
+}
+
+#[test]
+fn bundle_fixture_source_keeps_the_exact_public_artifact_and_bound() {
+    use iroha_config_base::file_source::{ConfigFileAccess, ConfigFileRequest, ConfigFileSource};
+    let path = Path::new("codec/rans/tables/rans_seed0.toml");
+    let bytes = include_bytes!("../../../codec/rans/tables/rans_seed0.toml");
+    let request = ConfigFileRequest {
+        access: ConfigFileAccess::Public,
+        maximum: bytes.len(),
+    };
+    assert_eq!(
+        BundleFixtureFiles.read(path, request).unwrap().as_slice(),
+        bytes
+    );
+    for (selected, request, error) in [
+        (
+            path,
+            ConfigFileRequest {
+                maximum: bytes.len() - 1,
+                ..request
+            },
+            std::io::ErrorKind::InvalidData,
+        ),
+        (
+            path,
+            ConfigFileRequest {
+                access: ConfigFileAccess::Private,
+                ..request
+            },
+            std::io::ErrorKind::NotFound,
+        ),
+        (
+            Path::new("another-tables.toml"),
+            request,
+            std::io::ErrorKind::NotFound,
+        ),
+    ] {
+        assert_eq!(
+            BundleFixtureFiles
+                .read(selected, request)
+                .unwrap_err()
+                .kind(),
+            error
+        );
+    }
+}
+
 include!("fixtures/soranet_transport_identity_tests.rs");
 #[path = "fixtures/snapshot_read_buffer_tests.rs"]
 mod snapshot_read_buffer_tests;
@@ -109,7 +178,7 @@ fn load_config_from_fixtures(path: impl AsRef<Path>) -> Result<Config, FixtureCo
         .change_context(FixtureConfigLoadError)?
         .read_and_complete::<UserConfig>()
         .change_context(FixtureConfigLoadError)?
-        .parse()
+        .parse_with_file_source(&BundleFixtureFiles)
         .change_context(FixtureConfigLoadError)?;
     Ok(config)
 }
@@ -202,6 +271,7 @@ fn minimal_config_inherits_large_application_rate_budgets() {
         assert_eq!(rate.map(std::num::NonZeroU32::get), Some(60_000_000));
     }
     assert_eq!(torii.recipient_lookup.requests_per_minute, 60_000_000);
+    assert!(torii.kagemusha_enrollment.is_none());
     assert_eq!(
         torii
             .proof_api
@@ -351,7 +421,14 @@ fn portable_production_capabilities_default_to_enabled() {
 
     assert!(config.confidential.enabled);
     assert!(!config.confidential.assume_valid);
-    assert!(config.zk.halo2.enabled);
+    assert!(config.zk.pipa_r.enabled);
+    assert!(config.zk.trace.enabled);
+    assert_eq!(config.zk.trace.max_batch, 16);
+    assert_eq!(config.zk.max_verify_batch, 16);
+    assert_eq!(config.zk.ipa_commitment.max_k, 16);
+    assert_eq!(config.zk.ipa_commitment.max_transcript_label_len, 64);
+    assert_eq!(config.zk.ipa_commitment.max_envelope_bytes, 256 * 1024);
+    assert!(config.zk.ipa_commitment.enforce_transcript_label_ascii);
     assert!(config.zk.stark.enabled);
     assert!(config.gov.plain_voting_enabled);
     assert!(config.streaming.sync.enabled);
@@ -738,6 +815,26 @@ fn retired_plan_journal_toggle_fails_during_config_parse_before_runtime_storage(
     let message = strip_ansi_codes(&format!("{report:?}"));
     assert_contains!(message, "unknown parameter: `queue.plan_journal_enabled`");
 }
+
+#[test]
+fn retired_kagemusha_finality_prover_configuration_is_rejected() {
+    for field in ["proving_cache", "verifier_originals", "journal_dir"] {
+        let table = format!("[torii.kagemusha_load_finality]\n{field} = '/retired/finality'\n")
+            .parse()
+            .expect("retired finality TOML should parse");
+        let error = ConfigReader::new()
+            .read_toml_with_extends(fixtures_dir().join("base.toml"))
+            .expect("base config should load")
+            .with_toml_source(TomlSource::inline(table))
+            .read_and_complete::<UserConfig>()
+            .expect_err("the retired finality prover must not be configurable");
+        let report = strip_ansi_codes(&format!("{error:?}"));
+        assert!(
+            report.contains("unknown parameter: `torii.kagemusha_load_finality"),
+            "{report}"
+        );
+    }
+}
 #[test]
 fn nexus_storage_weights_require_full_budget() {
     use iroha_config::parameters::user::{Nexus, NexusStorage, NexusStorageWeights};
@@ -763,29 +860,14 @@ fn nexus_storage_weights_require_full_budget() {
 }
 
 #[test]
-fn kagemusha_operation_index_pool_is_finite_and_preserves_operator_limit() {
-    use iroha_config::parameters::user::{Nexus, NexusStorage};
-    use iroha_config_base::util::{Bytes, Emitter};
-    for bytes in [0, 128 * 1024 * 1024] {
-        let nexus = Nexus {
-            storage: NexusStorage {
-                kagemusha_operation_index_bytes: Bytes(bytes),
-                ..NexusStorage::default()
-            },
-            ..Nexus::default()
-        };
-        let mut emitter = Emitter::<ParseError>::new();
-        let actual = nexus.parse(&mut emitter);
-        if bytes == 0 {
-            assert!(actual.is_none());
-            let error = emitter.into_result().expect_err("zero is not unlimited");
-            assert_contains!(format!("{error:?}"), "kagemusha_operation_index_bytes");
-        } else {
-            let actual = actual.expect("finite configured pool");
-            emitter.into_result().expect("valid configured pool");
-            assert_eq!(actual.storage.kagemusha_operation_index_bytes.get(), bytes);
-        }
-    }
+fn retired_kagemusha_operation_index_pool_fails_during_config_parse() {
+    let report = load_config_from_fixtures("bad.retired_kagemusha_operation_index_bytes.toml")
+        .expect_err("the first release has no fixed KAGEMUSHA operation-index pool");
+    let message = strip_ansi_codes(&format!("{report:?}"));
+    assert_contains!(
+        message,
+        "unknown parameter: `nexus.storage.kagemusha_operation_index_bytes`"
+    );
 }
 #[test]
 fn nexus_storage_weights_require_positive_subsystem_shares() {
@@ -821,6 +903,10 @@ fn nexus_profile_template_enables_multilane_defaults() {
         .join("defaults/nexus/config.toml");
     let source = fs::read_to_string(&config_path).expect("read Nexus signing profile");
     let mut table: toml::Table = toml::from_str(&source).expect("parse Nexus signing profile");
+    assert!(
+        !table.contains_key("kagemusha_load_authorizer"),
+        "ordinary Nexus profile uses finalized transactions for wallet loads"
+    );
 
     let validator_private_key_file = table
         .remove("private_key_file")
@@ -2510,35 +2596,33 @@ fn nexus_stake_index_pool_is_finite_and_admits_one_share_group_and_account_keys(
 }
 
 #[test]
-fn sumeragi_seed_custody_and_local_overrides_are_validated_together() {
+fn sumeragi_local_overrides_parse_and_the_retired_seed_descriptor_is_unknown() {
     use iroha_config::parameters::user::Root as User;
 
-    let parse = |role: &str, descriptor: u16| {
-        let overrides = format!(
-            "[sumeragi]\nrole = {role:?}\nmint_finality_seed_fd = {descriptor}\nview_timeout_base_ms = 250\n"
-        )
-        .parse::<Table>()
-        .expect("custody and timing overrides");
+    let read = |overrides: &str| {
         ConfigReader::new()
             .read_toml_with_extends(fixtures_dir().join("base.toml"))
             .expect("base fixture")
-            .with_toml_source(TomlSource::inline(overrides))
+            .with_toml_source(TomlSource::inline(
+                overrides.parse::<Table>().expect("sumeragi overrides"),
+            ))
             .read_and_complete::<User>()
-            .expect("user config")
-            .parse()
     };
-    let config = parse("validator", 199).expect("validator custody and override");
-    assert_eq!(config.sumeragi.mint_finality_seed_fd, Some(199));
+    let config = read("[sumeragi]\nrole = \"validator\"\nview_timeout_base_ms = 250\n")
+        .expect("user config")
+        .parse()
+        .expect("validator timing override");
     assert_eq!(
         config.sumeragi.local.t_base,
         Some(Duration::from_millis(250))
     );
 
-    let error = parse("validator", 198).expect_err("wrong private descriptor");
-    assert!(format!("{error:?}").contains("fixed private descriptor 199"));
-
-    let error = parse("observer", 199).expect_err("observer cannot hold a validator seed");
-    assert!(format!("{error:?}").contains("observer must not configure a mint-finality seed"));
+    let error = read("[sumeragi]\nrole = \"validator\"\nmint_finality_seed_fd = 199\n")
+        .expect_err("the retired seed descriptor is not a configuration parameter");
+    assert_contains!(
+        strip_ansi_codes(&format!("{error:?}")),
+        "unknown parameter: `sumeragi.mint_finality_seed_fd`"
+    );
 }
 
 #[test]
@@ -2550,7 +2634,7 @@ fn credential_registry_memory_budget_is_configured_and_nonzero() {
             .unwrap()
             .with_toml_source(TomlSource::inline(extra.parse().unwrap()))
             .read_and_complete::<UserConfig>()
-            .map(|user| user.parse())
+            .map(UserConfig::parse)
     };
     let default = parse("").unwrap().unwrap();
     assert_eq!(
@@ -2565,7 +2649,7 @@ fn credential_registry_memory_budget_is_configured_and_nonzero() {
             .runtime_provider_broker
             .credential_max_memory_bytes
             .get(),
-        123456
+        123_456
     );
     assert!(parse("[runtime_provider_broker]\ncredential_max_memory_bytes = 0\n").is_err());
 }

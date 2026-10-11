@@ -1,9 +1,9 @@
 
-seiyaku Test {
+seiyaku Test { permission Entry;
   error enum PaymentError {
     Unauthorized = 1001,
   }
-  kotoage fn main()  authorize("Entry") {
+  kotoage fn main() authorize(Entry) {
     require(1 == 1, PaymentError::Unauthorized);
   }
 }

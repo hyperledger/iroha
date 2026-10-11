@@ -1,6 +1,8 @@
 # Swift native framework completion goals
 
-The Swift SDK requires the real ABI-25 NoritoBridge native implementation.
+The current Swift SDK requires the real ABI-29 NoritoBridge native implementation.
+The ABI-25 artifact and test results below are historical component evidence;
+the typed-wallet ABI-29 candidate requires a fresh build and consumer qualification.
 The build and artifact contract is [NoritoBridge release packaging](../../../docs/norito_bridge_release.md).
 
 | Goal | Owner | State | Completion criteria |
@@ -17,7 +19,7 @@ Implementation and current artifacts are authoritative. Routine validation
 commands and results belong in the change report; generated artifacts stay
 untracked.
 
-Current state: SW1 has produced the genuine five-target ABI-25 XCFramework and
+Historical ABI-25 state: SW1 produced the genuine five-target ABI-25 XCFramework and
 authenticated ZIP from signed, frozen source, reusing the fixed warm Cargo
 build lane. The macOS universal archive passes the arm64 native consumer and
 the x86_64 consumer under Rosetta. SW2 is complete: SwiftPM is the sole delivery

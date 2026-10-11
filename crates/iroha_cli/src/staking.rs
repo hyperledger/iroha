@@ -9,7 +9,7 @@ use iroha::data_model::{
     isi::staking::{
         ActivatePublicLaneValidator, BondPublicLaneStake, ClaimPublicLaneRewards,
         ExitPublicLaneValidator, FinalizePublicLaneUnbond, PublicLaneCandidateAuthorization,
-        PublicLanePeerBindingAuthorization, RebindPublicLaneValidatorPeer, RecordPublicLaneRewards,
+        PublicLanePeerBindingAuthorization, RebindPublicLaneValidatorPeer,
         RegisterPublicLaneCandidate, RegisterPublicLaneValidator, SchedulePublicLaneUnbond,
     },
     nexus::{
@@ -59,8 +59,6 @@ pub enum Command {
     FinalizeUnbond(FinalizeUnbondArgs),
     /// Process and pay rewards using an exact bounded claim plan
     ClaimRewards(ClaimRewardsArgs),
-    /// Record a fee-funded epoch distribution as the configured fee-sink authority
-    RecordRewards(RecordRewardsArgs),
 }
 impl Run for Command {
     fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
@@ -75,7 +73,6 @@ impl Run for Command {
             Command::ScheduleUnbond(args) => args.run(context),
             Command::FinalizeUnbond(args) => args.run(context),
             Command::ClaimRewards(args) => args.run(context),
-            Command::RecordRewards(args) => args.run(context),
         }
     }
 }
@@ -464,7 +461,7 @@ pub struct ClaimRewardsArgs {
     /// Reward recipient (defaults to the configured transaction authority)
     #[arg(long, value_name = "ACCOUNT_ID")]
     pub account: Option<String>,
-    /// Norito JSON PublicLaneRewardClaimPlanV1 with bounded records and explicit fee-reward consent
+    /// Norito JSON PublicLaneRewardClaimPlanV1 binding the exact automatic XOR entitlement
     #[arg(long, value_name = "PATH")]
     pub claim_plan: PathBuf,
 }
@@ -485,25 +482,6 @@ impl Run for ClaimRewardsArgs {
         }
         .into();
         context.finish(vec![instruction])
-    }
-}
-#[derive(clap::Args, Debug)]
-pub struct RecordRewardsArgs {
-    /// Norito JSON RecordPublicLaneRewards object with exact per-account allocations
-    #[arg(long, value_name = "PATH")]
-    pub file: PathBuf,
-}
-impl Run for RecordRewardsArgs {
-    fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
-        let raw = fs::read_to_string(&self.file).wrap_err_with(|| {
-            format!(
-                "failed to read reward distribution from {}",
-                self.file.display()
-            )
-        })?;
-        let instruction: RecordPublicLaneRewards = norito::json::from_str(&raw)
-            .wrap_err("--file must contain a valid Norito JSON RecordPublicLaneRewards object")?;
-        context.finish(vec![InstructionBox::from(instruction)])
     }
 }
 /// Decode one exact staking request or monetary plan within fixed resource bounds.
@@ -741,41 +719,19 @@ mod tests {
         );
         plan
     }
-    fn reward_claim_plan(recipient: AccountId, lane_id: LaneId) -> PublicLaneRewardClaimPlanV1 {
-        use iroha::data_model::nexus::{
-            PublicLaneRewardClaimSourceV1, PublicLaneRewardClaimStateV1, PublicLaneRewardRecord,
-            PublicLaneRewardRecordRefV1, PublicLaneRewardRole, PublicLaneRewardShare,
-            public_lane_reward_record_commitment,
-        };
-        let record = PublicLaneRewardRecord {
-            lane_id,
-            epoch: 12,
-            asset: plan_asset(BOB_ID.clone()),
-            total_reward: 1_u64.into(),
-            shares: vec![PublicLaneRewardShare {
-                account: recipient.clone(),
-                role: PublicLaneRewardRole::Validator,
-                amount: 1_u64.into(),
-            }],
-            metadata: Metadata::default(),
-        };
+    fn reward_claim_plan(recipient: AccountId, _lane_id: LaneId) -> PublicLaneRewardClaimPlanV1 {
         PublicLaneRewardClaimPlanV1 {
             network_scope: PublicLaneMonetaryScopeV1::Network(crate::fallback_config().network_id),
             valid_until_height: 3600,
-            expected_state: Some(PublicLaneRewardClaimStateV1 {
-                through_epoch: Some(11),
-            }),
-            records: vec![PublicLaneRewardRecordRefV1 {
-                epoch: 12,
-                record_hash: public_lane_reward_record_commitment(&record).unwrap(),
-            }],
-            sources: vec![PublicLaneRewardClaimSourceV1 {
-                source_asset: record.asset,
+            fee_claim: iroha::data_model::nexus::PublicLaneFeeRewardClaimV1 {
+                lifecycle_seal: [1; 32],
+                beneficiary_id: recipient.clone(),
+                beneficiary_revision: 0,
+                source_asset: plan_asset(BOB_ID.clone()),
                 destination_asset: plan_asset(recipient),
-                expected_accrued: None,
-                payout: 1_u64.into(),
-            }],
-            fee_claim: None,
+                amount: 1_u64.into(),
+                expected_claim_sequence: 0,
+            },
         }
     }
     #[test]
@@ -1107,9 +1063,9 @@ mod tests {
         assert_eq!(context.submitted, Some(vec![expected]));
     }
     #[test]
-    fn claim_rewards_preserves_account_exact_records_and_fee_reward_consent() {
+    fn claim_rewards_preserves_exact_automatic_entitlement_consent() {
         let mut plan = reward_claim_plan(ALICE_ID.clone(), LaneId::new(4));
-        plan.fee_claim = Some(iroha::data_model::nexus::PublicLaneFeeRewardClaimV1 {
+        plan.fee_claim = iroha::data_model::nexus::PublicLaneFeeRewardClaimV1 {
             lifecycle_seal: [1; 32],
             beneficiary_id: ALICE_ID.clone(),
             beneficiary_revision: 2,
@@ -1117,7 +1073,7 @@ mod tests {
             destination_asset: plan_asset(ALICE_ID.clone()),
             amount: 3_u64.into(),
             expected_claim_sequence: 4,
-        });
+        };
         let file = plan_file(&plan);
         let command = parse_command(&[
             "claim-rewards",
@@ -1140,69 +1096,10 @@ mod tests {
         assert_eq!(context.submitted, Some(vec![expected]));
     }
     #[test]
-    fn record_rewards_preserves_exact_distribution() {
-        use iroha::data_model::{
-            asset::{AssetDefinitionId, AssetId},
-            nexus::{PublicLaneRewardRole, PublicLaneRewardShare},
-        };
-
-        let asset_definition = AssetDefinitionId::from_uuid_bytes([
-            1, 2, 3, 4, 5, 6, 0x47, 8, 0x89, 10, 11, 12, 13, 14, 15, 16,
-        ])
-        .expect("fixture asset definition");
-        let instruction = RecordPublicLaneRewards {
-            lane_id: LaneId::SINGLE,
-            epoch: 0,
-            reward_asset: AssetId::new(asset_definition, ALICE_ID.clone()),
-            total_reward: "0.000000001".parse().expect("exact reward"),
-            shares: vec![PublicLaneRewardShare {
-                account: ALICE_ID.clone(),
-                role: PublicLaneRewardRole::Validator,
-                amount: "0.000000001".parse().expect("exact reward"),
-            }],
-            metadata: norito::json::from_str(r#"{"allocation":"approved-epoch-0"}"#)
-                .expect("reward metadata"),
-        };
-        let distribution = tempfile::NamedTempFile::new().expect("reward file");
-        fs::write(
-            distribution.path(),
-            norito::json::to_json(&instruction).expect("encode distribution"),
-        )
-        .expect("write distribution");
-        let command = parse_command(&[
-            "record-rewards",
-            "--file",
-            distribution.path().to_str().expect("distribution path"),
-        ])
-        .expect("record-rewards command should parse");
-        let mut context = TestContext::new();
-        command
-            .run(&mut context)
-            .expect("distribution should submit");
-        assert_eq!(context.submitted, Some(vec![instruction.into()]));
-    }
-    #[test]
-    fn record_rewards_requires_valid_distribution_file() {
-        let error = parse_command(&["record-rewards"]).expect_err("file is required");
-        assert_eq!(
-            error.kind(),
-            clap::error::ErrorKind::MissingRequiredArgument
-        );
-        assert!(error.to_string().contains("--file"));
-        let distribution = tempfile::NamedTempFile::new().expect("reward file");
-        fs::write(distribution.path(), r#"{"epoch":1}"#).expect("write incomplete distribution");
-        let command = parse_command(&[
-            "record-rewards",
-            "--file",
-            distribution.path().to_str().expect("distribution path"),
-        ])
-        .expect("command should parse");
-        let mut context = TestContext::new();
-        let error = command
-            .run(&mut context)
-            .expect_err("incomplete distribution must fail");
-        assert!(error.to_string().contains("RecordPublicLaneRewards"));
-        assert!(context.submitted.is_none());
+    fn manual_reward_publication_is_not_a_command() {
+        let error = parse_command(&["record-rewards", "--file", "rewards.json"])
+            .expect_err("automatic accrual has no public payout-list command");
+        assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
     }
     #[test]
     fn stake_commands_reject_zero_before_submission() {
@@ -1836,20 +1733,14 @@ mod tests {
     }
 
     #[test]
-    fn claim_rejects_recipient_network_ordering_and_size_mismatches() {
+    fn claim_rejects_recipient_network_custody_amount_and_expiry_mismatches() {
         let valid = reward_claim_plan(ALICE_ID.clone(), LaneId::SINGLE);
         let mut wrong_recipient = valid.clone();
-        wrong_recipient.sources[0].destination_asset = plan_asset(BOB_ID.clone());
-        let mut repeated_record = valid.clone();
-        repeated_record.records.push(repeated_record.records[0]);
-        let mut repeated_source = valid.clone();
-        repeated_source
-            .sources
-            .push(repeated_source.sources[0].clone());
-        let mut too_many_records = valid.clone();
-        too_many_records.records = vec![valid.records[0]; 65];
-        let mut too_many_sources = valid.clone();
-        too_many_sources.sources = vec![valid.sources[0].clone(); 65];
+        wrong_recipient.fee_claim.destination_asset = plan_asset(BOB_ID.clone());
+        let mut zero_amount = valid.clone();
+        zero_amount.fee_claim.amount = Quantity::zero();
+        let mut zero_seal = valid.clone();
+        zero_seal.fee_claim.lifecycle_seal = [0; 32];
         let mut genesis = valid.clone();
         genesis.network_scope = PublicLaneMonetaryScopeV1::Genesis;
         let mut foreign_network = valid.clone();
@@ -1857,22 +1748,14 @@ mod tests {
             PublicLaneMonetaryScopeV1::Network(NetworkId::from_genesis_hash(
                 iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(b"foreign reward network")),
             ));
-        let mut stale_cursor = valid.clone();
-        stale_cursor.expected_state =
-            Some(iroha::data_model::nexus::PublicLaneRewardClaimStateV1 {
-                through_epoch: Some(valid.records[0].epoch),
-            });
         let mut expired = valid;
         expired.valid_until_height = 0;
         for plan in [
             wrong_recipient,
-            repeated_record,
-            repeated_source,
-            too_many_records,
-            too_many_sources,
+            zero_amount,
+            zero_seal,
             genesis,
             foreign_network,
-            stale_cursor,
             expired,
         ] {
             let file = plan_file(&plan);
@@ -1887,66 +1770,14 @@ mod tests {
         }
     }
     #[test]
-    fn claim_plan_reader_accepts_the_full_model_record_and_source_bounds() {
-        use iroha::data_model::nexus::{
-            MAX_PUBLIC_LANE_REWARD_CLAIM_RECORDS, MAX_PUBLIC_LANE_REWARD_CLAIM_SOURCES,
-            PublicLaneRewardClaimSourceV1, PublicLaneRewardRecord, PublicLaneRewardRecordRefV1,
-            PublicLaneRewardRole, PublicLaneRewardShare, public_lane_reward_record_commitment,
-        };
-        assert_eq!(
-            MAX_PUBLIC_LANE_REWARD_CLAIM_RECORDS,
-            MAX_PUBLIC_LANE_REWARD_CLAIM_SOURCES
-        );
+    fn claim_plan_reader_preserves_full_width_sequence_and_revision() {
         let mut plan = reward_claim_plan(ALICE_ID.clone(), LaneId::SINGLE);
-        plan.expected_state = None;
-        plan.records.clear();
-        plan.sources.clear();
-        for epoch in 0..MAX_PUBLIC_LANE_REWARD_CLAIM_RECORDS {
-            let key = KeyPair::try_from_seed(
-                vec![u8::try_from(epoch + 1).unwrap(); 32],
-                Algorithm::Ed25519,
-            )
-            .unwrap();
-            let source = plan_asset(AccountId::new(key.public_key().clone()));
-            let record = PublicLaneRewardRecord {
-                lane_id: LaneId::SINGLE,
-                epoch: u64::try_from(epoch).unwrap(),
-                asset: source.clone(),
-                total_reward: 1_u64.into(),
-                shares: vec![PublicLaneRewardShare {
-                    account: ALICE_ID.clone(),
-                    role: PublicLaneRewardRole::Validator,
-                    amount: 1_u64.into(),
-                }],
-                metadata: Metadata::default(),
-            };
-            plan.records.push(PublicLaneRewardRecordRefV1 {
-                epoch: record.epoch,
-                record_hash: public_lane_reward_record_commitment(&record).unwrap(),
-            });
-            plan.sources.push(PublicLaneRewardClaimSourceV1 {
-                source_asset: source,
-                destination_asset: plan_asset(ALICE_ID.clone()),
-                expected_accrued: None,
-                payout: 1_u64.into(),
-            });
-        }
-        plan.sources
-            .sort_by(|left, right| left.source_asset.cmp(&right.source_asset));
-        assert!(plan.has_canonical_shape(&ALICE_ID));
+        plan.fee_claim.expected_claim_sequence = u64::MAX;
+        plan.fee_claim.beneficiary_revision = u64::MAX;
         let file = plan_file(&plan);
         assert_eq!(
             load_staking_json::<PublicLaneRewardClaimPlanV1>(file.path(), "--claim-plan").unwrap(),
             plan
-        );
-        plan.records.push(plan.records[0].clone());
-        let oversized = plan_file(&plan);
-        let error =
-            load_staking_json::<PublicLaneRewardClaimPlanV1>(oversized.path(), "--claim-plan")
-                .unwrap_err();
-        assert!(
-            error.to_string().contains("JSON resource bounds"),
-            "committee proof admission must not enlarge the reward record bound"
         );
     }
 }

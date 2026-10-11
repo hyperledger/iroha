@@ -2,6 +2,15 @@
 
 use super::*;
 
+/// Reconcile durable reward history as well as live staking and fee backing at a restore cut.
+pub(crate) fn validate_public_lane_stake_reserves_for_restore(
+    world: &impl WorldReadOnly,
+) -> Result<(), crate::execution_attempt::ExecutionAttemptError<String>> {
+    crate::validation_fee_rewards::validate_fee_reward_history(world)
+        .map_err(|error| error.map_rejection(|error| error.to_string()))?;
+    validate_public_lane_stake_reserves(world)
+}
+
 /// Reconcile pinned custody with all bonded and pending shares and exact asset backing.
 pub(crate) fn validate_public_lane_stake_reserves(
     world: &impl WorldReadOnly,
@@ -113,14 +122,6 @@ pub(crate) fn validate_public_lane_stake_reserves(
     {
         return Err("staking reserves do not match pinned validator custody".to_owned());
     }
-    for (asset, rewards) in world.public_lane_reward_reserves().iter() {
-        let total = expected_reserves
-            .entry(asset.clone())
-            .or_insert_with(Quantity::zero);
-        *total = total
-            .checked_add(rewards)
-            .map_err(|_| "combined staking and reward reserve total overflowed".to_owned())?;
-    }
     for (asset, reserved) in expected_reserves {
         let balance = world
             .assets()
@@ -155,10 +156,10 @@ mod tests {
                 .into_key_value();
             world.accounts.insert(id, value);
         }
-        let mut world = super::super::reward_reserves::registered_custody_world_for_test(
+        let mut world = super::super::custody_fixture::registered_custody_world_for_test(
             world,
             &asset,
-            Quantity::from(225_u64),
+            Quantity::from(125_u64),
         );
         {
             let mut parameters = world.parameters.block();
@@ -187,7 +188,6 @@ mod tests {
                 activation_height: 1,
                 election_exit_height: None,
                 deactivation_height: None,
-                last_reward_epoch: Some(0),
             },
         );
         world.public_lane_stake_shares.insert(
@@ -228,24 +228,6 @@ mod tests {
         world
             .public_lane_stake_reserves
             .insert(asset.clone(), Quantity::from(125_u64));
-        world.public_lane_rewards.insert(
-            (LaneId::SINGLE, 0),
-            PublicLaneRewardRecord {
-                lane_id: LaneId::SINGLE,
-                epoch: 0,
-                asset: asset.clone(),
-                total_reward: Quantity::from(100_u64),
-                shares: vec![iroha_data_model::nexus::PublicLaneRewardShare {
-                    account: BOB_ID.clone(),
-                    role: iroha_data_model::nexus::PublicLaneRewardRole::Validator,
-                    amount: Quantity::from(100_u64),
-                }],
-                metadata: Metadata::default(),
-            },
-        );
-        world
-            .public_lane_reward_reserves
-            .insert(asset.clone(), Quantity::from(100_u64));
         (world, asset)
     }
 
@@ -254,7 +236,6 @@ mod tests {
             execution_budget: iroha_allocation::AllocationBudget::new(
                 iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
             ),
-            operation_index_budget: crate::state::kagemusha_operation_indexes::default_budget(),
             lane_manifests: Arc::new(LaneManifestRegistry::empty()),
             kura: Kura::blank_kura_for_testing(),
             query_handle: crate::query::store::LiveQueryStore::start_test(),
@@ -265,17 +246,17 @@ mod tests {
     }
 
     #[test]
-    fn pinned_stake_custody_requires_exact_liabilities_and_additive_backing() {
+    fn pinned_stake_custody_requires_exact_liabilities_and_backing() {
         let (mut world, asset) = fixture();
         assert!(validate_public_lane_stake_reserves(&world.view()).is_ok());
-        // Escrow-owned self stake and outstanding rewards cannot promise the same funds.
-        let (id, value) = Asset::new(asset.clone(), Quantity::from(125_u64)).into_key_value();
+        // Every bonded and pending-unbond unit must remain backed.
+        let (id, value) = Asset::new(asset.clone(), Quantity::from(124_u64)).into_key_value();
         world.assets.insert(id, value);
         let error = validate_public_lane_stake_reserves(&world.view())
             .map_err(crate::execution_attempt::expect_completed_rejection)
             .unwrap_err();
         assert!(error.contains("below combined reserves"), "{error}");
-        let (id, value) = Asset::new(asset.clone(), Quantity::from(225_u64)).into_key_value();
+        let (id, value) = Asset::new(asset.clone(), Quantity::from(125_u64)).into_key_value();
         world.assets.insert(id, value);
         world.public_lane_stake_custody.insert(
             (LaneId::SINGLE, ALICE_ID.clone()),
@@ -428,7 +409,7 @@ mod tests {
             block
                 .public_lane_stake_reserves
                 .insert(asset.clone(), Quantity::from(115_u64));
-            **block.assets.get_mut(&asset).unwrap() = Quantity::from(215_u64);
+            **block.assets.get_mut(&asset).unwrap() = Quantity::from(115_u64);
             block.commit();
         }
         let value = json::to_value(&state).unwrap();
@@ -458,7 +439,7 @@ mod tests {
         }
         for invalid_previous in [false, true] {
             let (mut world, asset) = fixture();
-            let initial = if invalid_previous { 224_u64 } else { 225 };
+            let initial = if invalid_previous { 124_u64 } else { 125 };
             let (id, balance) = Asset::new(asset.clone(), Quantity::from(initial)).into_key_value();
             world.assets.insert(id, balance);
             let state = State::new(
@@ -468,7 +449,7 @@ mod tests {
             );
             let mut block = state.world.block();
             **block.assets.get_mut(&asset).unwrap() =
-                Quantity::from(if invalid_previous { 225_u64 } else { 224 });
+                Quantity::from(if invalid_previous { 125_u64 } else { 124 });
             block.commit();
             let error = restore(json::to_value(&state).unwrap())
                 .err()

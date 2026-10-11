@@ -97,28 +97,25 @@ get fun `test operations throw before init`() {
         canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster),
     );
     val user = testing.treasury("user");
-    val deploy = minter.sendSccpDeployBuckets(
-        user.address,
-        0,
-        user.address,
-        1,
-        { value: grams("2"), bounce: true },
-    );
+    val value: SendParams = { value: grams("2"), bounce: true };
+    val notInitialized = SccpErrors.NotInitialized as int;
     expect(
-        deploy,
-    ).toHaveFailedTx<SccpDeployBuckets>({ to: minter.address, exitCode: SccpErrors.NotInitialized as int });
-    val frozen = minter.sendSccpVoidFrozen(
-        user.address,
-        0,
-        user.address,
-        0,
-        1,
-        { value: grams("2"), bounce: true },
-    );
+        minter.sendSccpDeployBuckets(user.address, 0, user.address, 1, value),
+    ).toHaveFailedTx<SccpDeployBuckets>({ to: minter.address, exitCode: notInitialized });
     expect(
-        frozen,
-    ).toHaveFailedTx<SccpVoidFrozen>({ to: minter.address, exitCode: SccpErrors.NotInitialized as int });
-    // finalize with a well-formed but irrelevant body
+        minter.sendSccpVoidFrozen(
+            user.address,
+            0,
+            user.address,
+            0,
+            1,
+            value,
+        ),
+    ).toHaveFailedTx<SccpVoidFrozen>({ to: minter.address, exitCode: notInitialized });
+    expect(
+        minter.sendSccpRetry(user.address, 0, user.address, 0, value),
+    ).toHaveFailedTx<SccpRetry>({ to: minter.address, exitCode: notInitialized });
+    // proof-carrying operations with well-formed but irrelevant bodies
     val env: Env = {
         minter,
         deployer: user.address,
@@ -126,10 +123,98 @@ get fun `test operations throw before init`() {
         roster,
     };
     val d = deliverDefault(env, 0, 1000, user.address);
-    val fin = sendFinalize(env, user.address, d, grams("2"));
+    expect(sendFinalize(env, user.address, d, grams("2"))).toHaveFailedTx<SccpFinalize>({
+        to: minter.address,
+        exitCode: notInitialized,
+    });
+    val history: HistoryProof = {
+        height: 1,
+        sccpRoot: 1,
+        messageCount: 1,
+        leafIndex: 0,
+        pathLen: 0,
+        path: null,
+    };
     expect(
-        fin,
-    ).toHaveFailedTx<SccpFinalize>({ to: minter.address, exitCode: SccpErrors.NotInitialized as int });
+        minter.sendSccpFinalizeHistorical(
+            user.address,
+            0,
+            user.address,
+            d.statement.attestation(),
+            d.signatures,
+            history,
+            d.proof,
+            value,
+        ),
+    ).toHaveFailedTx<SccpFinalizeHistorical>({ to: minter.address, exitCode: notInitialized });
+    expect(sendVoidExpired(env, user.address, 0, d, grams("2"))).toHaveFailedTx<SccpVoidExpired>({
+        to: minter.address,
+        exitCode: notInitialized,
+    });
+    expect(
+        minter.sendSccpVoidExpiredHistorical(
+            user.address,
+            0,
+            user.address,
+            0,
+            d.statement.attestation(),
+            d.signatures,
+            history,
+            d.proof,
+            value,
+        ),
+    ).toHaveFailedTx<SccpVoidExpiredHistorical>({ to: minter.address, exitCode: notInitialized });
+    val c = deliverControl(env, 1, true);
+    expect(
+        minter.sendSccpApplyControl(
+            user.address,
+            0,
+            user.address,
+            c.statement.attestation(),
+            c.signatures,
+            c.proof,
+            value,
+        ),
+    ).toHaveFailedTx<SccpApplyControl>({ to: minter.address, exitCode: notInitialized });
+    expect(
+        minter.sendSccpApplyControlHistorical(
+            user.address,
+            0,
+            user.address,
+            c.statement.attestation(),
+            c.signatures,
+            history,
+            c.proof,
+            value,
+        ),
+    ).toHaveFailedTx<SccpApplyControlHistorical>({ to: minter.address, exitCode: notInitialized });
+    val next = nextRoster(roster, 4, 4, T0 * 1000);
+    val statement = rotationStatement(env, roster, next, 300);
+    expect(
+        minter.sendSccpRotate(
+            user.address,
+            0,
+            user.address,
+            statement.attestation(),
+            signByThreshold(roster, statement.digest(env.networkId)),
+            next.spec(),
+            value,
+        ),
+    ).toHaveFailedTx<SccpRotate>({ to: minter.address, exitCode: notInitialized });
+    // a burn notification from the owner's canonical wallet (forged sender)
+    val wallet = minter.getWalletAddress(user.address);
+    expect(
+        minter.sendBurnNotificationForMinter(
+            wallet,
+            0,
+            10,
+            user.address,
+            user.address,
+            { recipient: snakeOfLength(8) },
+            value,
+        ),
+    ).toHaveFailedTx<BurnNotificationForMinter>({ to: minter.address, exitCode: notInitialized });
+    expect(minter.getSccpState().initialized).toBeFalse();
     // top-ups are accepted before init
     val topUp = minter.sendTopUpTons(user.address, 0, { value: grams("1") });
     expect(topUp).toHaveSuccessfulTx<TopUpTons>({ to: minter.address });
@@ -299,7 +384,8 @@ get fun `test canonical storage matches the documented bit layout`() {
     val roster = defaultRoster(4, 0);
     val storage = canonicalStorage(VEC_NETWORK_ID, TEST_REVISION, TEST_MAX_SUPPLY, roster);
     val root = storage.toCell().beginParse();
-    // initialized(1) total(4) pending(4) outbound(64) op(64) control(64) paused(1) deployed(64) prev-maybe(1)
-    expect(root.remainingBitsCount()).toEqual(267);
+    // initialized(1) total(4) pending(4) outbound(64) op(64) control(64) paused(1) deployed(64)
+    // prev-maybe(1) retries-dict(1)
+    expect(root.remainingBitsCount()).toEqual(268);
     expect(root.remainingRefsCount()).toEqual(2);
 }

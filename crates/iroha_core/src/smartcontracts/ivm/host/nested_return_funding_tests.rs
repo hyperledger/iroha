@@ -1,4 +1,4 @@
-// Production nested dispatch controls for prepaid return-envelope admission and cleanup.
+// Production typed nested-call funding, completed-work metering, and rollback controls.
 
 fn nested_return_funding_fixture() -> (State, AccountId, ContractAddress, ContractAddress) {
     let authority = fixture_account("alice");
@@ -9,7 +9,7 @@ fn nested_return_funding_fixture() -> (State, AccountId, ContractAddress, Contra
         r#"
 seiyaku Caller {
   error enum CalleeError { ForcedFailure = 1 }
-  view fn main() -> int { return 0; }
+  kotoage fn main() authorize(anyone) -> int { return 0; }
 }
 "#,
         0,
@@ -18,15 +18,15 @@ seiyaku Caller {
         &state,
         &authority,
         r#"
-seiyaku Callee {
+seiyaku Callee { permission AssetOps;
   error enum CalleeError { ForcedFailure = 1 }
   state int counter;
   hajimari() { counter = 0; }
-  kotoage fn write() -> int authorize("AssetOps") {
+  kotoage fn write() authorize(AssetOps) -> int {
     counter = 9;
     return counter;
   }
-  kotoage fn fail_after_write() -> int authorize("AssetOps") {
+  kotoage fn fail_after_write() authorize(AssetOps) -> int {
     counter = 9;
     require(false, CalleeError::ForcedFailure);
     return 0;
@@ -40,7 +40,7 @@ seiyaku Callee {
 }
 
 #[test]
-fn prepaid_nested_return_refuses_before_checkout_effects_and_gas_then_retries() {
+fn nested_call_funding_refuses_without_effects_then_retries() {
     let (state, authority, caller, callee) = nested_return_funding_fixture();
     let budget = iroha_allocation::AllocationBudget::new(0);
     let cache = PreparedContractCache::with_execution_budget(1, budget.clone());
@@ -53,8 +53,12 @@ fn prepaid_nested_return_refuses_before_checkout_effects_and_gas_then_retries() 
         Json::new(()),
         cache.clone(),
     );
-    let error = refused.expect_err("return allowance cannot fit a zero pool");
-    assert!(matches!(error, ivm::VMError::AllocationDeferred(_)));
+    let error = refused.expect_err("cold nested execution cannot fit a zero pool");
+    assert!(matches!(
+        error.as_unmetered(),
+        ivm::VMError::AllocationDeferred(_)
+    ));
+    assert!(error.execution_deferral().is_some());
     assert_eq!(error.metered_gas(), None);
     assert_eq!(vm.remaining_gas(), 1_000_000);
     assert_eq!(
@@ -86,8 +90,8 @@ fn prepaid_nested_return_refuses_before_checkout_effects_and_gas_then_retries() 
         "only successful retry publishes the child write"
     );
     assert_eq!(
-        decode_nested_return(
-            vm.validate_tlv(vm.register(10)).unwrap().payload,
+        render_nested_result(
+            &vm,
             iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1::Int,
         ),
         norito::json!("9")
@@ -95,7 +99,7 @@ fn prepaid_nested_return_refuses_before_checkout_effects_and_gas_then_retries() 
     let after_success = cache.stats();
     let idle_bytes = budget.reserved_bytes();
     // Concurrent aggregate-cache pressure may evict idle storage. Zero still refuses the next
-    // return allowance without depending on whether that optional retention survived.
+    // nested allocation without depending on whether that optional retention survived.
     budget.set_limit_bytes(0);
     let (refused, vm, effects) = call_contract_syscall_with_prepared_cache(
         &state,
@@ -106,10 +110,49 @@ fn prepaid_nested_return_refuses_before_checkout_effects_and_gas_then_retries() 
         Json::new(()),
         cache.clone(),
     );
-    assert!(matches!(refused, Err(ivm::VMError::AllocationDeferred(_))));
-    assert_eq!(vm.remaining_gas(), 1_000_000);
+    let error = refused.expect_err("zero pool refuses original nested allocation custody");
+    assert!(matches!(
+        error.as_unmetered(),
+        ivm::VMError::AllocationDeferred(_)
+    ));
+    assert!(error.execution_deferral().is_some());
+    assert_eq!(error.metered_gas(), None);
+    // An idle cached child may survive optional cache pressure. Its empty input
+    // installation charges 32 + one eight-byte result word before allocation
+    // refuses. If it was evicted, checkout refuses before this work begins.
+    let input_installation_gas = 32 + core::mem::size_of::<u64>() as u64;
+    let installation_spent = 1_000_000 - vm.remaining_gas();
+    let after_refusal = cache.stats();
+    if installation_spent == 0 {
+        assert_eq!(after_refusal.runtime_hits, after_success.runtime_hits);
+        assert!(
+            after_refusal.runtime_misses == after_success.runtime_misses
+                || after_refusal.runtime_misses == after_success.runtime_misses + 1,
+            "eviction refuses either artifact preparation or the single cold checkout"
+        );
+    } else {
+        assert_eq!(installation_spent, input_installation_gas);
+        assert_eq!(
+            after_refusal.runtime_hits,
+            after_success.runtime_hits + 1,
+            "reusing an idle VM is counted before its input installation can refuse"
+        );
+        assert_eq!(after_refusal.runtime_misses, after_success.runtime_misses);
+    }
+    assert_eq!(
+        after_refusal.runtime_prepared_loads, after_success.runtime_prepared_loads,
+        "zero capacity never loads another runtime"
+    );
+    assert_eq!(
+        after_refusal.runtime_template_builds, after_success.runtime_template_builds,
+        "zero capacity never admits a fresh runtime baseline"
+    );
+    // The shared dispatcher also asserts all six input descriptors are unchanged.
+    assert_eq!(
+        vm.validate_tlv(vm.register(10)).unwrap().payload,
+        callee.as_ref().as_bytes()
+    );
     assert!(effects.is_empty());
-    assert_eq!(cache.stats().runtime_hits, after_success.runtime_hits);
     assert!(budget.reserved_bytes() <= idle_bytes);
 
     budget.set_limit_bytes(128 * 1024 * 1024);
@@ -129,8 +172,8 @@ fn prepaid_nested_return_refuses_before_checkout_effects_and_gas_then_retries() 
     );
     assert!(!effects.is_empty());
     assert_eq!(
-        decode_nested_return(
-            vm.validate_tlv(vm.register(10)).unwrap().payload,
+        render_nested_result(
+            &vm,
             iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1::Int,
         ),
         norito::json!("9")

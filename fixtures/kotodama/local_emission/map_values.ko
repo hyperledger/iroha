@@ -1,4 +1,4 @@
-seiyaku LocalMapValues {
+seiyaku LocalMapValues { permission WriteState;
     state StateMap<Name, quantity> Balances;
     state quantity Total;
     hajimari() {
@@ -15,7 +15,7 @@ seiyaku LocalMapValues {
         Balances[destination] = received + amount;
     }
 
-    kotoage fn main() -> (quantity, quantity, quantity) authorize("WriteState") {
+    kotoage fn main() authorize(WriteState) -> (quantity, quantity, quantity) {
         let left = Name::parse("left");
         let right = Name::parse("right");
         let quantity zero = 0;

@@ -544,20 +544,6 @@ impl BoundProgressAppendIntentV1 {
         Ok(())
     }
 }
-impl BoundProgressPair {
-    fn sidecar(&self) -> Option<&BoundProgressSidecar> {
-        match self {
-            Self::Absent(_) => None,
-            Self::Present(sidecar) => Some(sidecar),
-        }
-    }
-    fn sidecar_mut(&mut self) -> Option<&mut BoundProgressSidecar> {
-        match self {
-            Self::Absent(_) => None,
-            Self::Present(sidecar) => Some(sidecar),
-        }
-    }
-}
 /// Raw and independently scanned Kura disk-usage state exposed only to crate tests.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

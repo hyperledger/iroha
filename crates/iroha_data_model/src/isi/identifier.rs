@@ -174,6 +174,11 @@ mod tests {
             payload: opening_payload,
         };
         let payload = crate::identifier::IdentifierResolutionReceiptPayload {
+            network_id: crate::NetworkId::from_genesis_hash(
+                iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(
+                    b"identifier-component-network",
+                )),
+            ),
             policy_id: policy_id(),
             execution: RamLfeExecutionReceiptPayload {
                 program_id: program_id(),
@@ -262,6 +267,59 @@ mod tests {
                 policy_id: policy_id(),
                 opaque_id: OpaqueAccountId::from_hash(Hash::new(b"opaque")),
             },
+        );
+    }
+
+    fn current_claim_fixture_cases() -> Vec<norito::json::Value> {
+        let rejected: norito::json::Value = norito::json::from_str(include_str!(
+            "../../tests/fixtures/claim_identifier_networkless_rejected_frames.json"
+        ))
+        .expect("networkless ClaimIdentifier negative controls");
+        let frames = rejected.get("frames").unwrap().as_array().unwrap();
+        assert_eq!(frames.len(), 2, "preserve both original account cases");
+        frames
+            .iter()
+            .map(|frame| {
+                let retired = hex::decode(frame.as_str().unwrap()).unwrap();
+                assert!(norito::decode_from_bytes::<ClaimIdentifier>(&retired).is_err());
+                // Inspect only the unchanged outer account field through its
+                // current codec; no networkless receipt decoder is introduced.
+                let view = norito::core::from_bytes_view(&retired).unwrap();
+                assert_eq!(
+                    view.schema(),
+                    norito::schema::identity::frame_hash::<ClaimIdentifier>()
+                );
+                let mut offset = 0;
+                let original_account =
+                    super::super::read_aos_field(view.as_bytes(), &mut offset, view.flags())
+                        .unwrap();
+                let account = super::super::decode_aos_canonical_field::<AccountId>(
+                    original_account,
+                    view.flags(),
+                )
+                .unwrap();
+                // Preserve the captured account itself, rather than assuming
+                // a historical keypair generator reproduces its bytes.
+                super::super::generated_record_identity_tests::capture(ClaimIdentifier {
+                    account,
+                    receipt: receipt(),
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn current_claim_cases_preserve_accounts_and_reject_networkless_receipts() {
+        assert_eq!(current_claim_fixture_cases().len(), 2);
+    }
+
+    #[test]
+    #[ignore = "explicit native capture after the mandatory signed receipt network change"]
+    fn print_current_claim_identifier_fixture_cases() {
+        let cases = norito::json::Value::Array(current_claim_fixture_cases());
+        println!(
+            "CURRENT_IDENTIFIER_CLAIM_CASES_V1\t{}",
+            norito::json::to_json(&cases).expect("current ClaimIdentifier capture")
         );
     }
 }

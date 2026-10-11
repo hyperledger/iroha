@@ -3005,33 +3005,62 @@ private_key = "{}"
         );
     }
     #[test]
-    fn authenticated_config_requires_alias_scope_without_changing_account_identity() {
-        let path = Path::new("authenticated-reader-scope-test.toml");
-        let source = authenticated_reader_config("http://127.0.0.1:9/");
+    fn authenticated_config_requires_network_context_without_changing_universal_identity() {
+        let path = Path::new("authenticated-reader-network-context-test.toml");
+        let listener = TcpListener::bind("127.0.0.1:0").expect("loopback listener");
+        listener
+            .set_nonblocking(true)
+            .expect("nonblocking refusal observer");
+        let url = format!(
+            "http://{}/",
+            listener.local_addr().expect("loopback address")
+        );
+        let source = authenticated_reader_config(&url);
         let reader = RegistryReadClientV1::load_from_config_bytes(path, source.as_bytes())
-            .expect("explicit canonical account alias scope");
-        let other_scope = source.replace("packages.universal", "dex.universal");
-        let other = RegistryReadClientV1::load_from_config_bytes(path, other_scope.as_bytes())
-            .expect("another canonical alias scope for the same universal account");
+            .expect("explicit account network profile");
+        let signer = KeyPair::try_from_seed(vec![0x59; 32], Algorithm::Ed25519)
+            .expect("authenticated reader key");
+        assert_eq!(
+            reader.client.account(),
+            &AccountId::new(signer.public_key().clone())
+        );
+        let explicit = source.replace("profile = \"taira\"", "chain_discriminant = 369");
+        assert_ne!(source, explicit);
+        let other = RegistryReadClientV1::load_from_config_bytes(path, explicit.as_bytes())
+            .expect("equivalent explicit discriminant for the same universal account");
         assert_eq!(reader.client.account(), other.client.account());
         assert_eq!(reader.client.network_id(), other.client.network_id());
         assert_eq!(reader.account_chain_discriminant(), 369);
         assert_eq!(other.account_chain_discriminant(), 369);
         for invalid in [
-            source.replace("domain = \"packages.universal\"\n", ""),
-            source.replace("packages.universal", " "),
+            source.replace("[account]", "[account]\ndomain = \"packages.universal\""),
+            source.replace("profile = \"taira\"\n", ""),
+            source.replace("profile = \"taira\"", "profile = \" \""),
             source.replace(
                 "torii_request_timeout_ms = 2000",
                 "torii_request_timeout_ms = 60001",
             ),
         ] {
+            assert_ne!(source, invalid);
             let error = RegistryReadClientV1::load_from_config_bytes(path, invalid.as_bytes())
                 .expect_err(
-                    "missing scope, invalid scope, or excessive deadline must fail before dispatch",
+                    "retired account scope, missing network context, or excessive deadline must fail before dispatch",
                 );
             assert_eq!(error.class(), RegistryFailureClassV1::Permanent);
             assert_eq!(error.code(), "MUSUBI_REGISTRY_PUBLIC_CONFIG_INVALID");
         }
+        let retry = RegistryReadClientV1::load_from_config_bytes(path, source.as_bytes())
+            .expect("the same original bytes remain valid after rejected configurations");
+        assert_eq!(retry.client.account(), reader.client.account());
+        assert_eq!(retry.client.network_id(), reader.client.network_id());
+        assert_eq!(retry.account_chain_discriminant(), 369);
+        assert_eq!(
+            listener
+                .accept()
+                .expect_err("configuration validation must not dispatch HTTP")
+                .kind(),
+            std::io::ErrorKind::WouldBlock,
+        );
     }
     #[cfg(unix)]
     #[test]

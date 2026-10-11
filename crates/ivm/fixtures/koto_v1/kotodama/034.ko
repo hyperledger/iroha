@@ -3,7 +3,7 @@
         struct A { int x }
         struct B { A a }
         struct D { (B, int) c }
-        view fn f() -> int {
+        view fn f() authorize(anyone) -> int {
             let a = A { x: 7 };
             let b = B { a };
             let d = D { c: (b, 99) };

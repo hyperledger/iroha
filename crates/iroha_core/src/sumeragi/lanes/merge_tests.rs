@@ -284,7 +284,6 @@ impl Fixture {
             proposer: 0,
             skipped_leaders: Vec::new(),
             control_witness: iroha_sumeragi::types::ControlWitness::empty(),
-            attest: false,
         };
         let budget = self.chain.state().ivm_execution_budget();
         let mut original = iroha_allocation::ChargedBuffer::new(payload.len(), &budget).unwrap();
@@ -328,10 +327,8 @@ impl Fixture {
                     view: block.header().origin_view,
                     block_hash,
                     result,
-                    attest: false,
                     signer: u32::try_from(index).unwrap(),
                     sig: Signature([0; SIGNATURE_LEN]),
-                    attestation: None,
                 };
                 vote.sig = KeyPairSigner::new(key).unwrap().sign(&vote.preimage());
                 vote
@@ -344,7 +341,7 @@ impl Fixture {
             &config.epoch.id,
             &config.committee,
         )
-        .verify_qc_signatures(&qc)
+        .verify_qc(&qc)
         .expect("original exact quorum signatures");
         assert_eq!(executor.prepare(&block, &qc).unwrap(), Some(result));
         store
@@ -800,7 +797,6 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
         payload_len: u32::try_from(bytes.len()).unwrap(),
         proposer: 0,
         skipped_leaders: Vec::new(),
-        attest: height == scheduled.epoch.authorization.last_height,
         control_witness: Default::default(),
     };
     // The negative changes only the global cadence; availability uses the original

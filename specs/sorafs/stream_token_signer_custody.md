@@ -39,7 +39,12 @@ and its scope without prescribing the operator's key-storage implementation.
   pending originals, or governance must explicitly cancel them. Recovery never changes
   their payloads. This callback is independent of general reputation publication and PoR.
 - `admission_reconcile_interval_ms` defaults to 1,000 and accepts 1–60,000. It
-  schedules bounded native callback recovery without enabling unrelated services.
+  schedules bounded native callback recovery without enabling unrelated services. Each background
+  tick completes native finality, policy, permission and pending-prefix preparation. An empty
+  prefix leaves that tick unsigned and reports only an idle scheduling outcome, never an
+  authenticated empty result or readiness. Pending work still requires its original signed Check
+  and complete delivery/acknowledgement proofs; startup qualification and reconciliation always
+  perform their signed Checks. No empty result is cached between ticks or across restart.
 - `admission_operation_timeout_ms` defaults to 30,000 and accepts 1–60,000. One
   absolute monotonic deadline begins before the admission worker queue and covers
   native transactions, callbacks, acknowledgements and final serving confirmation.
@@ -143,7 +148,13 @@ challenge-bound current/completed observations. Torii retains its exact prepared
 body, original custody and authenticated-operator quota across the operation.
 
 1. Startup requires a fresh `CurrentCustody` observation with phase `Startup`.
-   It contains no invented token or completed row.
+   It contains no invented token or completed row and grants no signing or serving
+   authority. If unrelated committed work advances the local tip while the signed
+   reply is in flight, Torii certifies that newer tip in the same fresh State view
+   and requires identical complete custody control and revision digest. The signed
+   candidate remains the observed anchor; the original floor, minimum and historical
+   anchors still apply. Changed custody, missing certificates or a removed provider
+   refuse startup. All live operation and admission phases retain the exact-tip rule.
 2. Each issuance has a separate fresh `BeforeProvider` observation. The service
    derives the same operation from its own pinned provider binding and exact
    canonical body before reading state or calling the signer.

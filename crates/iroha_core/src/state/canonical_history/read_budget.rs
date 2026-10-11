@@ -37,7 +37,7 @@ impl CanonicalHistoryReadBudget {
     }
 
     /// Exact original pool used by the canonical source, never the node execution cache.
-    pub(super) fn frames(&self) -> &AllocationBudget {
+    pub(crate) fn frames(&self) -> &AllocationBudget {
         &self.frames
     }
 

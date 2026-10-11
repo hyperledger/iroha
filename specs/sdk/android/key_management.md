@@ -144,7 +144,8 @@ hardware-backed alias in that profile must publish attestation artefacts:
    never reuse an existing alias when the verifier issued a new challenge.
 2. **Archive** the resulting PEM chain under
    `specs/sdk/android/strongbox_attestation_harness_plan.md` and
-   log the device in `android_strongbox_device_matrix.md`.
+   record the device-lab lane from
+   `specs/compliance/android/device_lab_reservation.md`.
 3. **Verify** locally via `IrohaKeyManager.verifyAttestation(...)` or the
    `scripts/android_keystore_attestation.sh --bundle-dir <dir>` helper. Supply
    the alias, challenge, expected leaf-SPKI SHA-256, and trust roots from a
@@ -214,7 +215,7 @@ SignedTransaction tx = builder.encodeAndSign(payload, "governance-primary",
 | Scenario | Checklist |
 |----------|-----------|
 | Emulator / Desktop regression | Run `make android-tests && ci/run_android_tests.sh`. Ensure `hasHardwareBackedProvider()` returns `false` and `SOFTWARE_ONLY` paths pass. |
-| Optional device lab StrongBox sweep | When qualifying that integration, execute `scripts/android_strongbox_attestation_bundle.sh` across the device matrix, update `android_strongbox_device_matrix.md`, and archive outputs per device. |
+| Optional device lab StrongBox sweep | When qualifying that integration, execute `scripts/android_strongbox_attestation_bundle.sh` across the reserved device-lab lanes (`specs/compliance/android/device_lab_reservation.md`) and archive outputs per device. |
 | Override / telemetry chaos | Follow `specs/sdk/android/telemetry_chaos_checklist.md` Scenario 2 to confirm attestation-dependent overrides propagate correctly. |
 | Sample app smoke | Once AND5 samples land, gate CI via `ci/check_android_samples.sh` so Managed Device runs fail when aliases or preferences regress. |
 

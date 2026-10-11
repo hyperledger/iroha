@@ -9,14 +9,14 @@ const fields = [
 ];
 function definitionNodes() {
   return [
-    { kind: "Struct", value: { name: "AssetDefinitionView", fields: [...fields] } },
+    { kind: "Struct", value: { name: "kotodama::AssetDefinitionView", fields: [...fields] } },
     leaf("AssetDefinitionId"), leaf("String"), option(), leaf("String"),
     leaf("AccountId"), leaf("Quantity"), option(), leaf("Int"), leaf("Json"),
   ];
 }
 function pageNodes(nodes) {
   return [
-    { kind: "Struct", value: { name: "QueryPage", fields: ["items", "next_offset"] } },
+    { kind: "Struct", value: { name: "kotodama::QueryPage", fields: ["items", "next_offset"] } },
     { kind: "List", value: { capacity: 64 } },
     ...nodes, option(), leaf("Int"),
   ];

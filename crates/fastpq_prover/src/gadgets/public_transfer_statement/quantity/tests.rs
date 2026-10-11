@@ -74,6 +74,24 @@ fn canonical_decoder_rejects_wrong_schema_domain_and_framing() {
 }
 
 #[test]
+fn canonical_encoder_preserves_an_enclosing_allocation_refusal() {
+    let units = FastpqQuantityUnits::from_quantity(&maximum(), 28).unwrap();
+    let expected = encode_quantity_units_v1(&units).unwrap();
+    let exhausted = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 32);
+    let rejected =
+        norito::core::with_decode_limits_scope(exhausted, || encode_quantity_units_v1(&units));
+    assert!(matches!(
+        rejected,
+        Err(crate::Error::Encode(norito::Error::TotalAllocationExceeded {
+            attempted,
+            limit: 0,
+        })) if attempted > 0
+    ));
+    assert_eq!(encode_quantity_units_v1(&units).unwrap(), expected);
+    assert_eq!(decode_quantity_units_v1(&expected).unwrap(), units);
+}
+
+#[test]
 fn canonical_decoder_respects_an_enclosing_resource_budget() {
     let units = FastpqQuantityUnits::from_quantity(&maximum(), 28).unwrap();
     let encoded = encode_quantity_units_v1(&units).unwrap();

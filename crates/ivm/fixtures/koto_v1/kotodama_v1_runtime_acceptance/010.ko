@@ -1,6 +1,6 @@
 
 seiyaku DefaultHostNativeJsonAcceptance {
-  view fn run() -> int {
+  view fn run() authorize(anyone) -> int {
     let Json payload = json { value: 7 };
     match payload.get_int(Name::parse("value")) {
       Option::some(value) => value,

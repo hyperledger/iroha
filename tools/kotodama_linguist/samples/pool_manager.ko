@@ -1,47 +1,51 @@
 // Representative liquidity-pool seiyaku for Kotodama grammar validation.
 seiyaku PoolManager {
+    permission Admin;
     state StateMap<Name, AccountId> PoolAccount;
     state StateMap<Name, quantity> ReserveA;
     state StateMap<Name, quantity> ReserveB;
     fn min_value(quantity a, quantity b) -> quantity {
-        if (a < b) {
+        if a < b {
             return a;
         } else {
             return b;
         }
     }
 
-    kotoage fn quote_or_deposit(AccountId trader, Name pool, quantity amount_a, quantity amount_b) -> quantity authorize(
-        "Admin"
-    ) {
+    kotoage fn quote_or_deposit(
+        AccountId trader,
+        Name pool,
+        quantity amount_a,
+        quantity amount_b,
+    ) authorize(Admin) -> quantity {
         let quantity zero = 0;
-        let reserve_a = ReserveA.ensure(key: pool, default: zero);
-        let reserve_b = ReserveB.ensure(key: pool, default: zero);
+        let reserve_a = ReserveA.get_or_insert(pool, zero);
+        let reserve_b = ReserveB.get_or_insert(pool, zero);
         let pool_account = PoolAccount.get(pool).unwrap_or(trader);
         // Sample settlement policy: round the asset-B quote down to 18 decimal places.
-        let quoted = (reserve_a == zero) ? amount_b : min_value(
-            a: reserve_b.mul_div_round(
-                multiplier: decimal::from_quantity(amount_a),
-                divisor: decimal::from_quantity(reserve_a),
-                scale: 18,
-                mode: Rounding::floor,
-            ),
-            b: amount_b,
-        );
-        if (quoted > zero) {
+        let quoted = (reserve_a == zero)
+            ? amount_b
+            : min_value(
+                a: reserve_b.mul_div_round(
+                    multiplier: decimal::from_quantity(amount_a),
+                    divisor: decimal::from_quantity(reserve_a),
+                    scale: 18,
+                    mode: Rounding::floor,
+                ),
+                b: amount_b,
+            );
+        if quoted > zero {
             ledger::asset::transfer(
                 source: trader,
                 destination: pool_account,
                 asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"),
                 amount: amount_a,
-                dataspace: DataSpaceId::parse("0"),
             );
             ledger::asset::transfer(
                 source: trader,
                 destination: pool_account,
                 asset_definition: AssetDefinitionId::parse("6pEP9RjNoZ7beWkT3pLfKoM1dyfi"),
                 amount: quoted,
-                dataspace: DataSpaceId::parse("0"),
             );
         }
         ReserveA[pool] = reserve_a + amount_a;

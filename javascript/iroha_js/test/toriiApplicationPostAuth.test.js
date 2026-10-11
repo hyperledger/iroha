@@ -46,11 +46,11 @@ test("application POST signatures separate same-label foreign genesis contexts",
   };
 
   await client(0xa5, fetchImpl).executeRamLfeProgram("lookup", {
-    encryptedInput: "ABCD",
+    normalizedInput: "alice@example.test", inputNonce: "a1".repeat(32),
     canonicalAuth: AUTH,
   });
   await client(0xa7, fetchImpl).executeRamLfeProgram("lookup", {
-    encryptedInput: "ABCD",
+    normalizedInput: "alice@example.test", inputNonce: "a1".repeat(32),
     canonicalAuth: AUTH,
   });
 
@@ -87,24 +87,21 @@ test("application POST failures are dispatched once without retry", async () => 
   assert.equal(calls, 1);
 });
 
-test("claim path substitution and precomputed canonical headers fail before dispatch", async () => {
-  let calls = 0;
-  const fetchImpl = async () => {
-    calls += 1;
-    return new Response(null, { status: 500 });
+test("owner authentication permits a foreign beneficiary and forbids injected headers", async () => {
+  const requests = [];
+  const fetchImpl = async (url, init) => {
+    requests.push({ url: new URL(url), init });
+    return new Response(null, { status: 404 });
   };
   const torii = client(0xa5, fetchImpl);
-  await assert.rejects(
-    () => torii.issueIdentifierClaimReceipt(FOREIGN_ACCOUNT, { canonicalAuth: AUTH }),
-    /must equal the exact canonical I105 authority/u,
-  );
+  assert.equal(await torii.prepareIdentifierClaimReceipt(FOREIGN_ACCOUNT, {
+    policyId: "email#retail", normalizedInput: "alice@example.test", inputNonce: "a1".repeat(32), canonicalAuth: AUTH,
+  }), null);
+  assert.equal(requests[0].url.pathname, `/v1/accounts/${encodeURIComponent(FOREIGN_ACCOUNT)}/identifiers/claim-receipt`);
+  assert.equal(requests[0].init.headers["X-Iroha-Account"], AccountAddress.parseEncoded(AUTH_ACCOUNT).address.canonicalHex());
   const injected = client(0xa5, fetchImpl, { "X-Iroha-Signature": "precomputed" });
-  await assert.rejects(
-    () => injected.executeRamLfeProgram("lookup", {
-      encryptedInput: "ABCD",
-      canonicalAuth: AUTH,
-    }),
-    /cannot be precomputed/u,
-  );
-  assert.equal(calls, 0);
+  await assert.rejects(() => injected.executeRamLfeProgram("lookup", {
+    normalizedInput: "alice@example.test", inputNonce: "a1".repeat(32), canonicalAuth: AUTH,
+  }), /cannot be precomputed/u);
+  assert.equal(requests.length, 1);
 });

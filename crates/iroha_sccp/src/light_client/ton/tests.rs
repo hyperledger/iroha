@@ -11,6 +11,8 @@ use crate::{
 };
 use iroha_data_model::sccp::light_client::SccpLcInitExpectationV1;
 
+use crate::v1::payload::SccpTransferPayloadV1;
+
 const T0: u32 = 1_790_000_000;
 const UNTIL0: u32 = T0 + 65_536;
 const MINTER: [u8; 32] = [0x4d; 32];
@@ -19,7 +21,7 @@ const OWNER: [u8; 32] = [0x0a; 32];
 const LATER_MS: u64 = (T0 as u64 + 2_000) * 1_000;
 
 fn profiles() -> SccpChainProfilesV1 {
-    *SccpChainProfilesV1::compiled()
+    *SccpChainProfilesV1::genesis()
 }
 
 fn params() -> SccpLightClientParamsV1 {
@@ -137,13 +139,24 @@ fn hops_need_a_quorum_and_the_next_key_block() {
     ));
 }
 
+/// The payload the minter builds for a burn of `amount` by `OWNER` under `nonce` (§5.3.4).
+fn burn_payload(nonce: u64, amount: u128) -> Vec<u8> {
+    let mut sender = vec![0_u8; 4];
+    sender.extend_from_slice(&OWNER);
+    let mut recipient = vec![0x02, 0x01, 0x20];
+    recipient.extend_from_slice(&[0x5a; 32]);
+    SccpTransferPayloadV1::inbound(NETWORK, nonce, 1, amount, sender, recipient)
+        .and_then(|payload| payload.encode())
+        .expect("valid payload")
+}
+
 fn transfer() -> SyntheticTonEventV1 {
     SyntheticTonEventV1::Transfer {
         message_id: [7; 32],
         nonce: 3,
         sender: OWNER,
         amount: 5_000_000_000,
-        payload: (0..200_u8).collect(),
+        payload: burn_payload(3, 5_000_000_000),
     }
 }
 
@@ -210,7 +223,7 @@ fn proofs_walk_the_shard_chain_to_the_minter_transaction() {
     assert_eq!(nonce, 3);
     assert_eq!(sender.codec, CODEC_TON_ACCOUNT36);
     assert_eq!(&sender.bytes[4..], &OWNER);
-    assert_eq!(hash, payload_hash(&(0..200_u8).collect::<Vec<_>>()));
+    assert_eq!(hash, payload_hash(&burn_payload(3, 5_000_000_000)));
     assert_eq!(locator.source_height, 10);
     let mut swapped = proof.clone();
     swapped.shard_blocks.reverse();
@@ -317,4 +330,142 @@ fn conflicting_signed_blocks_freeze_the_light_client() {
     );
     let work = evidence_work(&TonLcEvidenceV1 { block: a });
     assert_eq!(work.ed25519_signature_checks, 4);
+}
+
+#[test]
+fn transfer_events_must_carry_their_own_payload_fields() {
+    let chain = SyntheticTonChainV1::new([8; 32]);
+    let (memory, _) = installed(&chain);
+    let now = LATER_MS;
+    let mismatched = |nonce: u64, sender: [u8; 32], amount: u128, payload: Vec<u8>| {
+        SyntheticTonEventV1::Transfer {
+            message_id: [7; 32],
+            nonce,
+            sender,
+            amount,
+            payload,
+        }
+    };
+    for (label, event) in [
+        (
+            "amount",
+            mismatched(3, OWNER, 4_999_999_999, burn_payload(3, 5_000_000_000)),
+        ),
+        (
+            "nonce",
+            mismatched(4, OWNER, 5_000_000_000, burn_payload(3, 5_000_000_000)),
+        ),
+        (
+            "sender",
+            mismatched(3, [0x0b; 32], 5_000_000_000, burn_payload(3, 5_000_000_000)),
+        ),
+        (
+            "payload",
+            mismatched(3, OWNER, 5_000_000_000, (0..200_u8).collect()),
+        ),
+    ] {
+        assert_eq!(
+            verify(&memory, &event_proof(&chain, event, true), now),
+            Err(TonLcError::MalformedEvent.into()),
+            "{label}"
+        );
+    }
+    assert!(verify(&memory, &event_proof(&chain, transfer(), true), now).is_ok());
+}
+
+#[test]
+fn captured_mainnet_key_block_bootstraps_and_its_epoch_verifies_a_signed_block() {
+    use crate::test_support::ton_capture::{
+        CAPTURED_ACCOUNT, CAPTURED_BLOCK_SEQNO, CAPTURED_KEY_BLOCK_SEQNO, CAPTURED_TRANSACTION_LT,
+        forward_link, full_block, key_block_bootstrap, transaction,
+    };
+    let link = forward_link("get_block_proof_forward");
+    assert_eq!(link.to.seqno, CAPTURED_BLOCK_SEQNO);
+    let block = TonSignedBlockV1 {
+        block_id: link.to,
+        header_proof: link.dest_proof.clone(),
+        signatures: link.signatures.clone(),
+    };
+    let (header, _) =
+        ton_open_masterchain_block(block.block_id, &block.header_proof, None).expect("header");
+    let now = u64::from(header.gen_utime) * 1_000 + 60_000;
+    let bootstrap = crate::light_client::SccpLcBootstrapDataV1::Ton(key_block_bootstrap())
+        .to_bootstrap()
+        .expect("frame");
+    let mut memory = SccpLcMemoryStateV1::new();
+    let initial = initialize_light_client_with_profiles(
+        &profiles(),
+        &memory,
+        NETWORK,
+        SccpLcInitExpectationV1::Absent,
+        &params(),
+        &bootstrap,
+        now,
+    )
+    .expect("the captured key block bootstraps");
+    memory.install(NETWORK, &initial);
+    let light_client = memory.light_client(NETWORK).expect("installed");
+    assert_eq!(
+        light_client.head.latest_set_id,
+        u64::from(CAPTURED_KEY_BLOCK_SEQNO)
+    );
+    // Fresh until (utime_until + stake_held_for) · 1000 − 1 h.
+    assert_eq!(
+        weak_subjectivity_deadline_ms(&profiles().ton, &memory, &light_client),
+        (1_790_529_288 + 32_768) * 1_000 - 3_600_000
+    );
+
+    // Two records of the same block with different header proofs (the liteserver's pruned
+    // header proof and the full block): both verify under the stored epoch and do not conflict.
+    let (full_id, full) = full_block();
+    assert_eq!(full_id, block.block_id);
+    let record = |block: TonSignedBlockV1| {
+        SccpLcEvidenceV1::Ton(TonLcEvidenceV1 { block })
+            .to_bytes()
+            .expect("bounded")
+    };
+    let pruned = record(block.clone());
+    let complete = record(TonSignedBlockV1 {
+        header_proof: full.clone(),
+        ..block.clone()
+    });
+    assert_eq!(
+        verify_equivocation_with_profiles(&profiles(), &memory, NETWORK, &pruned, &complete, now),
+        Err(SccpLcError::EvidenceNotConflicting)
+    );
+    let TonBlockSignaturesV1::Simplex(mut forged) = link.signatures.clone() else {
+        panic!("mainnet signs under Simplex");
+    };
+    forged.signatures[0].signature[1] ^= 1;
+    let forged = record(TonSignedBlockV1 {
+        signatures: TonBlockSignaturesV1::Simplex(forged),
+        ..block.clone()
+    });
+    assert_eq!(
+        verify_equivocation_with_profiles(&profiles(), &memory, NETWORK, &pruned, &forged, now),
+        Err(TonLcError::Native(TonNativeSourceError::InvalidSignatures).into())
+    );
+
+    // A proof anchored at the signed full block passes the signatures and the shard
+    // registration; the recorded transaction's block is not the shard's top block in `B`.
+    let transaction = transaction();
+    let proof = TonSourceProofV1 {
+        masterchain: TonMasterchainAnchorV1::Signed(TonSignedBlockV1 {
+            header_proof: full,
+            ..block
+        }),
+        shard_blocks: vec![TonShardLinkV1 {
+            block_id: transaction.block,
+            header_proof: transaction.proof.clone(),
+        }],
+        event_block_proof: transaction.proof,
+        transaction: transaction.transaction,
+        transaction_lt: CAPTURED_TRANSACTION_LT,
+        message_index: 0,
+        minter: CAPTURED_ACCOUNT,
+    };
+    assert_eq!(
+        verify(&memory, &proof, now),
+        Err(TonLcError::BrokenShardWalk { index: 0 }.into())
+    );
 }

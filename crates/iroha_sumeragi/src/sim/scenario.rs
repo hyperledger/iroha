@@ -59,21 +59,6 @@ pub struct Profile {
     pub block_write_extra: Millis,
     /// Ingress without priority lanes (FIFO; only to show that `det_l12` detects ML12).
     pub fifo_ingress: bool,
-    /// The machine's commit-attestation authority (§3.7, F37).
-    pub authority: Authority,
-}
-
-/// A machine's commit-attestation authority (§3.7, F37).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Authority {
-    /// Attests genuinely for every key.
-    #[default]
-    Full,
-    /// Holds no authority: attests nothing (so it does not Commit-vote on flagged blocks).
-    Missing,
-    /// A broken authority whose attestations never verify (the node's own verifier rejects
-    /// them, so it does not Commit-vote on flagged blocks either).
-    Forging,
 }
 
 impl Default for Profile {
@@ -98,7 +83,6 @@ impl Default for Profile {
             apply_ms: 5,
             block_write_extra: 0,
             fifo_ingress: false,
-            authority: Authority::Full,
         }
     }
 }
@@ -227,15 +211,20 @@ pub struct Workload {
     /// Bit mask of the machines that receive transactions (0 = all; F35 local-queue
     /// asymmetry).
     pub targets: u64,
-    /// Every `mint_every`-th transaction needs mint finality, so the block holding it is
-    /// flagged (§3.7, F37); 0 = none.
-    pub mint_every: u64,
+    /// Every `due_every`-th transaction applies due application work, so the block holding it
+    /// is subject to the stale-due-work guard of a [`ClockGuard`] world (§4.5 CT5); 0 = none.
+    pub due_every: u64,
 }
 
 impl Workload {
-    /// Whether transaction `id` needs mint finality.
-    pub fn mints(&self, id: u64) -> bool {
-        self.mint_every > 0 && id.is_multiple_of(self.mint_every)
+    /// Whether transaction `id` applies due work (§4.5 CT5).
+    pub fn due(&self, id: u64) -> bool {
+        self.due_every > 0 && id.is_multiple_of(self.due_every)
+    }
+
+    /// The encoding of transaction `id` with this workload's flags and padding.
+    pub fn tx(&self, id: u64, poison: bool) -> Vec<u8> {
+        super::driver::encode_tx_with_due(id, poison, self.due(id), self.pad)
     }
 }
 
@@ -248,9 +237,35 @@ impl Default for Workload {
             poison_ppm: 0,
             until: Millis::MAX,
             targets: 0,
-            mint_every: 0,
+            due_every: 0,
         }
     }
+}
+
+/// The application clock guard of the simulator's toy application (§4.5), the model of the node
+/// driver's executor rules CT1, CT3 and CT5. Without it (the default) payloads carry no block
+/// time and no execution consults a clock, as F12 requires of the core.
+///
+/// With it, every payload builder stamps its payload with a block time `t = wall + lead`
+/// (honest builders: `lead = 0`, CT3), and every honest executor answers
+/// `Failed(ClockAhead)` for an execution with `certified = false` while
+/// `t > wall + max_clock_drift_ms` (CT1), and `Failed(StaleDueWork)` for an uncertified
+/// execution of a block that applies due work while `wall − t > due_work_max_lag_ms` (CT5).
+/// Byzantine executors run no guard. Apply and replay never consult the clock (CT2). A
+/// machine's wall clock is its monotonic clock plus a wall offset that scripts may step
+/// ([`World::set_wall_offset`]), so a wall clock can converge without moving the core's time.
+#[derive(Clone, Debug, Default)]
+pub struct ClockGuard {
+    /// `max_clock_drift_ms`, the committed chain parameter of CT1 (CT4).
+    pub max_clock_drift_ms: Millis,
+    /// `gov.due_work_max_lag_ms`, the committed governance parameter of CT5.
+    pub due_work_max_lag_ms: Millis,
+    /// Initial wall offsets (ms) per machine, relative to its monotonic clock (missing: 0).
+    pub wall_offsets: Vec<i64>,
+    /// Builder leads (ms) per machine: the `k`-th payload the machine builds is stamped
+    /// `wall + leads[k % len]`. Missing or empty: `[0]` (an honest builder, CT3); a Byzantine
+    /// builder may post-date (positive) or back-date (negative) its blocks.
+    pub leads: Vec<(usize, Vec<i64>)>,
 }
 
 /// Performance bound checked by O-PERF (§8.2).
@@ -385,6 +400,8 @@ pub struct Scenario {
     pub workload: Option<Workload>,
     /// Optional toy AMX application over the same unmodified consensus instances.
     pub amx: Option<super::amx::AmxConfig>,
+    /// Optional application clock guard (§4.5) with per-machine wall clocks and block times.
+    pub clock_guard: Option<ClockGuard>,
     /// Committee schedule: from height → members as `(machine, key slot)`; the first entry
     /// must start at height 0 (it is the genesis committee).
     pub committees: CommitteeSchedule,
@@ -434,6 +451,7 @@ impl Scenario {
             io_kill: None,
             workload: Some(Workload::default()),
             amx: None,
+            clock_guard: None,
             committees: vec![(0, (0..n).map(|m| (m, 0)).collect())],
             instance_committees: Vec::new(),
             follow_all_instances: false,

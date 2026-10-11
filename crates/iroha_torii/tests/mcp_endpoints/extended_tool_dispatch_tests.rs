@@ -31,7 +31,16 @@ async fn mcp_jsonrpc_tools_call_agent_alias_subscriptions_plans_create_accepts_b
     let _data_dir = test_utils::TestDataDirGuard::new();
     let mut cfg = test_utils::mk_minimal_root_cfg();
     enable_writer_mcp(&mut cfg);
+    let authority_key_pair = cfg.common.key_pair.clone();
     let app = build_router(cfg);
+    let arguments = authenticated_mcp_target_arguments(
+        &app,
+        &authority_key_pair,
+        "POST",
+        "/v1/subscriptions/plans",
+        norito::json!({ "body": {} }),
+        McpTargetAuthentication::CanonicalAccount,
+    );
     let (status, call) = post_mcp(
         &app,
         norito::json!({
@@ -40,19 +49,19 @@ async fn mcp_jsonrpc_tools_call_agent_alias_subscriptions_plans_create_accepts_b
             "method": "tools/call",
             "params": {
                 "name": "iroha.subscriptions.plans.create",
-                "arguments": {
-                    "body": {}
-                }
+                "arguments": arguments
             }
         }),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     let structured = structured_content(&call);
+    assert_mcp_target_authentication_not_rejected(structured, "iroha.subscriptions.plans.create");
     assert!(
         structured.get("status").and_then(Value::as_u64).is_some(),
         "subscriptions plans create alias should dispatch and return a status code"
     );
+    app.shutdown().await;
 }
 #[tokio::test]
 async fn mcp_jsonrpc_tools_call_agent_alias_subscriptions_list_accepts_flat_query_fields() {
@@ -87,7 +96,16 @@ async fn mcp_jsonrpc_tools_call_agent_alias_subscriptions_create_accepts_body() 
     let _data_dir = test_utils::TestDataDirGuard::new();
     let mut cfg = test_utils::mk_minimal_root_cfg();
     enable_writer_mcp(&mut cfg);
+    let authority_key_pair = cfg.common.key_pair.clone();
     let app = build_router(cfg);
+    let arguments = authenticated_mcp_target_arguments(
+        &app,
+        &authority_key_pair,
+        "POST",
+        "/v1/subscriptions",
+        norito::json!({ "body": {} }),
+        McpTargetAuthentication::CanonicalAccount,
+    );
     let (status, call) = post_mcp(
         &app,
         norito::json!({
@@ -96,19 +114,19 @@ async fn mcp_jsonrpc_tools_call_agent_alias_subscriptions_create_accepts_body() 
             "method": "tools/call",
             "params": {
                 "name": "iroha.subscriptions.create",
-                "arguments": {
-                    "body": {}
-                }
+                "arguments": arguments
             }
         }),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     let structured = structured_content(&call);
+    assert_mcp_target_authentication_not_rejected(structured, "iroha.subscriptions.create");
     assert!(
         structured.get("status").and_then(Value::as_u64).is_some(),
         "subscriptions create alias should dispatch and return a status code"
     );
+    app.shutdown().await;
 }
 mcp_alias_dispatch_test! {
     #[tokio::test]
@@ -445,7 +463,16 @@ async fn mcp_jsonrpc_tools_call_agent_aliases_resolve_index_dispatches_body() {
     let _data_dir = test_utils::TestDataDirGuard::new();
     let mut cfg = test_utils::mk_minimal_root_cfg();
     enable_writer_mcp(&mut cfg);
+    let authority_key_pair = cfg.common.key_pair.clone();
     let app = build_router(cfg);
+    let arguments = authenticated_mcp_target_arguments(
+        &app,
+        &authority_key_pair,
+        "POST",
+        "/v1/aliases/resolve-index",
+        norito::json!({ "body": { "index": 0 } }),
+        McpTargetAuthentication::CanonicalAccount,
+    );
     let (status, call) = post_mcp(
         &app,
         norito::json!({
@@ -454,15 +481,14 @@ async fn mcp_jsonrpc_tools_call_agent_aliases_resolve_index_dispatches_body() {
             "method": "tools/call",
             "params": {
                 "name": "iroha.aliases.resolve_index",
-                "arguments": {
-                    "body": { "index": 0 }
-                }
+                "arguments": arguments
             }
         }),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     let structured = structured_content(&call);
+    assert_mcp_target_authentication_not_rejected(structured, "iroha.aliases.resolve_index");
     let http_status = structured.get("status").and_then(Value::as_u64);
     assert!(
         http_status.is_some(),
@@ -480,6 +506,7 @@ async fn mcp_jsonrpc_tools_call_agent_aliases_resolve_index_dispatches_body() {
             "alias resolve-index alias should return HTTP 200 when alias index lookup succeeds"
         );
     }
+    app.shutdown().await;
 }
 #[tokio::test]
 async fn mcp_jsonrpc_tools_call_canonical_transaction_submit_dispatches_binary_payload() {

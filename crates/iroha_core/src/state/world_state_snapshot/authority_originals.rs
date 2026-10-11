@@ -12,12 +12,14 @@ use iroha_data_model::{
         rekey::{AccountAlias, AccountAliasDomain, AccountRekeyRecord},
     },
     alias_setup::AccountAliasName,
-    asset::{AssetBalancePolicy, AssetBalanceScope, AssetDefinition, AssetId, AssetValue},
+    asset::{AssetBalancePolicy, AssetBalanceScope, AssetId, AssetValue},
+    identifier::{IdentifierPolicy, IdentifierPolicyId},
     nexus::{
         FeeSponsorBudgetCounterKey, FeeSponsorEnrollment, FeeSponsorEnrollmentKey,
         FeeSponsorProgram, FeeSponsorProgramId, FeeSponsorProgramRevision,
         FeeSponsorProgramRevisionKey, FeeSponsorVault, FeeSponsorVaultKey,
     },
+    ram_lfe::RamLfeProgramPolicy,
 };
 use iroha_model_base::topology::DataSpaceId;
 
@@ -370,7 +372,78 @@ fn consume_fee<T>(
     )
 }
 
+fn consume_identifier<T>(
+    snapshot: &WorldStateSnapshotV1,
+    world: &WorldBlock<'_>,
+    policy_id: &IdentifierPolicyId,
+    budget: &AllocationBudget,
+    consume: impl FnOnce(
+        &WorldStateSnapshotV1,
+        &IdentifierPolicy,
+        &RamLfeProgramPolicy,
+    ) -> Result<T, String>,
+) -> Result<T, String> {
+    // Two bounded native Names, their canonical literal and parse temporaries.
+    // Keep this reservation through the borrowed callback/response encoding.
+    let _selector_charge = budget.try_reserve_bytes(4096).map_err(|e| e.to_string())?;
+    let parsed = policy_id
+        .to_string()
+        .parse::<IdentifierPolicyId>()
+        .map_err(|e| e.to_string())?;
+    if &parsed != policy_id {
+        return Err("World authority identifier policy id is not canonical".into());
+    }
+    let policy = world
+        .identifier_policies
+        .get(policy_id)
+        .ok_or("World authority selected identifier policy original is absent")?;
+    if &policy.id != policy_id {
+        return Err("World authority identifier policy differs from its actual key".into());
+    }
+    let program = world
+        .ram_lfe_program_policies
+        .get(&policy.program_id)
+        .ok_or("World authority selected identifier program original is absent")?;
+    if program.program_id != policy.program_id {
+        return Err("World authority identifier program differs from its actual key".into());
+    }
+    require_row(snapshot, "world.identifier_policies", policy_id, policy)?;
+    require_row(
+        snapshot,
+        "world.ram_lfe_program_policies",
+        &policy.program_id,
+        program,
+    )?;
+    consume(snapshot, policy, program)
+}
+
 impl State {
+    /// Borrow only the exact identifier policy and its referenced program from
+    /// the same certified World cut under the existing ledger-wide read root.
+    /// Active-policy and program-use decisions remain with the native consumer.
+    /// # Errors
+    /// Missing/revoked read permission, changed cut, missing or substituted rows,
+    /// noncanonical selector, oversized originals or exhausted finite budget.
+    pub fn with_native_identifier_policy_originals_v1<T>(
+        &self,
+        tip: &CommittedBlock,
+        authority: &AccountId,
+        policy_id: &IdentifierPolicyId,
+        budget: &AllocationBudget,
+        consume: impl FnOnce(
+            &WorldStateSnapshotV1,
+            &IdentifierPolicy,
+            &RamLfeProgramPolicy,
+        ) -> Result<T, String>,
+    ) -> Result<T, WorldStateSnapshotError> {
+        self.with_native_world_state_snapshot_cut_v1(
+            tip,
+            Some(authority),
+            budget,
+            |snapshot, world| consume_identifier(snapshot, world, policy_id, budget, consume),
+        )
+    }
+
     /// Borrow complete canonical account binding keys and only one alias's actual
     /// account/rekey/SNS originals at the retained native certified pre-tail cut.
     /// The signed HTTP corridor independently authenticates `authority`; this

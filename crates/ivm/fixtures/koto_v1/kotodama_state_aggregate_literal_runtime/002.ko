@@ -1,5 +1,5 @@
 
-        seiyaku MixedAggregate {
+        seiyaku MixedAggregate { permission WriteState;
             struct Value {
                 Name label,
                 bool enabled,
@@ -12,7 +12,7 @@
 
             state StateMap<Name, Value> Values;
 
-            kotoage fn main() -> bool authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) -> bool {
                 let Name key = Name::parse("mixed");
                 Values[key] = Value {
                     label: Name::parse("literal-label"),

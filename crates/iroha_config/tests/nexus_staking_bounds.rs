@@ -51,3 +51,29 @@ fn staking_work_bounds_parse_from_toml() {
     assert_eq!(staking.max_stake_shares_per_validator.get(), 17);
     assert_eq!(staking.max_pending_unbonds_per_share.get(), 5);
 }
+
+#[test]
+fn staking_snapshot_must_fit_one_bounded_reward_exposure() {
+    let cap = iroha_data_model::validation_fee_rewards::MAX_REWARD_RECIPIENTS;
+    let accepted = parse_actual_config(&format!(
+        "[nexus.staking]\nmax_stake_shares_per_validator = {cap}\n"
+    ));
+    assert_eq!(
+        accepted.nexus.staking.max_stake_shares_per_validator.get() as usize,
+        cap
+    );
+    let table: toml::Table = format!(
+        "[nexus.staking]\nmax_stake_shares_per_validator = {}\n",
+        cap + 1
+    )
+    .parse()
+    .expect("configuration TOML");
+    let config = base_reader()
+        .with_toml_source(TomlSource::inline(table))
+        .read_and_complete::<UserConfig>()
+        .expect("configuration input");
+    assert!(
+        config.parse().is_err(),
+        "oversized live stake snapshots must be refused before chain execution"
+    );
+}

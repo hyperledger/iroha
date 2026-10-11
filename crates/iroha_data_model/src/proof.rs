@@ -101,7 +101,7 @@ fn decode_byte_box_fields(
 }
 /// Opaque zero-knowledge proof bytes tagged with a backend identifier.
 ///
-/// - `backend`: schema identifier for the proof backend (e.g., "halo2/ipa",
+/// - `backend`: schema identifier for the proof backend (e.g., "pipa-r/pasta",
 ///   "groth16/bn254", "stark/fri"). The exact strings are out of scope for
 ///   this container and are treated as application-level identifiers.
 /// - `bytes`: proof payload as produced by the backend. Consumers interpret the
@@ -357,7 +357,7 @@ pub struct VerifyingKeyRecord {
     pub owner_manifest_id: Option<String>,
     /// Namespace that this verifier is bound to (e.g., contract namespace or ISI namespace).
     pub namespace: String,
-    /// Proving backend tag (e.g., Halo2 IPA).
+    /// Proving engine tag (native PIPA-R or STARK).
     pub backend: BackendTag,
     /// Curve name used by the backend (human readable; e.g., "pasta", "pallas").
     pub curve: String,
@@ -1757,7 +1757,7 @@ impl<'a> ncore::DecodeFromSlice<'a> for ProofAttachment {
 pub const PROOF_ATTACHMENT_LIST_MAX_CANONICAL_FRAME_BYTES_V1: usize = 8 * 1024 * 1024;
 /// Maximum attachments carried by one first-release proof attachment list.
 ///
-/// This matches the governed `zk.halo2.verifier_max_batch` default.
+/// This matches the governed `zk.max_verify_batch` default.
 pub const PROOF_ATTACHMENT_LIST_MAX_ATTACHMENTS_V1: usize = 16;
 #[cfg(test)]
 std::thread_local! {

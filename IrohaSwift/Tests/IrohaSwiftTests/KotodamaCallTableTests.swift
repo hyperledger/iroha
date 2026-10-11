@@ -4,6 +4,25 @@ import XCTest
 
 /// The native public schema consumer shares the compiler's final V1 table bounds.
 final class KotodamaCallTableTests: XCTestCase {
+    func testAuthorizationRequiresDeclaredCanonicalScopes() throws {
+        let decoder = JSONDecoder()
+        let permissions = #"[{"name":"Admin","scope":{"kind":"Instance","value":null}},{"name":"Operator","scope":{"kind":"Chain","value":{"permission_name":"SharedOperators"}}}]"#
+        func payload(_ table: String, _ authorization: String) -> Data {
+            Data("""
+            {"events":[],"enum_types":[],"permissions":\(table),"entrypoints":[{"name":"inspect","kind":{"kind":"View","value":null},"params":[],"return_type":"()","return_schema":{"nodes":[{"kind":"Unit","value":null}]},"authorization":\(authorization)}]}
+            """.utf8)
+        }
+        let role = #"{"kind":"Permission","value":"Admin"}"#
+        let manifest = try decoder.decode(ToriiContractManifest.self, from: payload(permissions, role))
+        XCTAssertEqual(manifest.permissions[1].scope, .chain(permissionName: "SharedOperators"))
+        XCTAssertEqual(manifest.entrypoints?.first?.authorization, .permission("Admin"))
+        XCTAssertNoThrow(try decoder.decode(ToriiContractManifest.self, from: payload("[]", #"{"kind":"Anyone","value":null}"#)))
+        for (table, authorization) in [("null", role), ("[]", role), (permissions, "null"), (permissions, #""Admin""#), (permissions, #"{"kind":"RuntimeLifecycle","value":null}"#)] {
+            XCTAssertThrowsError(try decoder.decode(ToriiContractManifest.self, from: payload(table, authorization)))
+        }
+        XCTAssertThrowsError(try decoder.decode(ToriiContractManifest.self, from: Data(#"{"entrypoints":[]}"#.utf8)))
+    }
+
     func testWideArgumentsAndReturnsUseTableWords() throws {
         let value = descriptor(fields: Array(repeating: boolean, count: 64), returns: tuple(64))
         let decoded = try roundtrip(value)
@@ -37,11 +56,11 @@ final class KotodamaCallTableTests: XCTestCase {
     }
 
     func testEmptyNamedProductsKeepNominalIdentityAndOneWord() throws {
-        let empty = ToriiEntrypointValueTypeV1(nodes: [.structType(.init(name: "Empty", fields: []))])
+        let empty = ToriiEntrypointValueTypeV1(nodes: [.structType(.init(name: "CallTable::Empty", fields: []))])
         let list = ToriiEntrypointValueTypeV1(nodes: [.list(.init(capacity: 2))] + empty.nodes)
         let value = try roundtrip(descriptor(fields: [empty], returns: list))
         XCTAssertEqual(value.argumentSchema?.fields.first?.type.wordCount, 1)
-        XCTAssertEqual(value.argumentSchema?.fields.first?.type.canonicalTypeName, "struct Empty")
+        XCTAssertEqual(value.argumentSchema?.fields.first?.type.canonicalTypeName, "struct CallTable::Empty")
         XCTAssertEqual(value.returnSchema?.wordCount, 1)
     }
 
@@ -63,7 +82,7 @@ final class KotodamaCallTableTests: XCTestCase {
             argumentSchema: fields.isEmpty ? nil : .init(fields: fields.enumerated().map { index, type in
                 .init(name: "arg_\(index)", type: type)
             }),
-            returnType: returns.canonicalTypeName ?? "invalid", returnSchema: returns
+            returnType: returns.canonicalTypeName ?? "invalid", returnSchema: returns, authorization: .anyone
         )
     }
 

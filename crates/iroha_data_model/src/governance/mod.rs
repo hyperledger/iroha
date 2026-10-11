@@ -7,8 +7,11 @@
 pub mod types {
     pub use crate::parliament_types::*;
 }
+/// Block-start anchors of governance transitions, shared by the Parliament ballot and SCCP.
+pub mod anchor;
 /// Exact frozen economics for the existing public standalone conviction ballot.
 pub mod conviction;
+pub use anchor::GovernanceAnchorV1;
 /// Maximum encoded length of a canonical V1 governance selector.
 pub const GOVERNANCE_SELECTOR_V1_MAX_BYTES: usize = 128;
 /// OpenAPI/SDK grammar for canonical V1 governance selectors.

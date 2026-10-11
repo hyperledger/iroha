@@ -1,3 +1,4 @@
+mod amx;
 use super::require_native_wire_protocol;
 use crate::{Outcome, RunArgs, genesis::reject_retired_public_chain_id, tui};
 use clap::Parser;
@@ -16,7 +17,7 @@ use iroha_data_model::{
     sumeragi::epoch::MAX_VALIDATORS,
 };
 use iroha_deploy::genesis::staging::{
-    bind_and_sign_staged_sumeragi_context, configured_npos_bootstrap_stake_asset_id,
+    bind_and_sign_staged_sumeragi_context_with_preimage, configured_npos_bootstrap_stake_asset_id,
     ensure_peer_config_matches_manifest, staged_default_nexus, staged_genesis_chain_discriminant,
 };
 #[cfg(test)]
@@ -65,10 +66,14 @@ pub struct Args {
     /// `network_id_file`, respectively.
     #[clap(long, value_name = "PATH")]
     expected_hash_out: Option<PathBuf>,
+    /// Publish the exact Nexus/AMX context preimage whose hash the signed genesis commits
+    /// (`nexus-amx-context.v1.bin`). Validators and public reset inputs consume these bytes.
+    #[clap(long, value_name = "PATH")]
+    nexus_context_output: Option<PathBuf>,
     /// Replace the expected-hash file only if it still contains this exact prior NetworkId.
-    /// Requires all three output paths. The identity is published last as the bundle's commit
+    /// Requires all four output paths. The identity is published last as the bundle's commit
     /// marker; interrupted publication must be retried with the same prior identity.
-    #[clap(long, value_name = "NETWORK_ID", requires_all = ["expected_hash_out", "out_file", "bound_manifest_out"])]
+    #[clap(long, value_name = "NETWORK_ID", requires_all = ["expected_hash_out", "out_file", "bound_manifest_out", "nexus_context_output"])]
     replace_expected_hash: Option<NetworkId>,
     /// Use this topology instead of specified in genesis.json.
     /// JSON-serialized vector of `PeerId`. For use in `iroha_swarm`.
@@ -96,6 +101,9 @@ pub struct Args {
     /// set it so repeated signing produces identical canonical wire bytes.
     #[clap(long, value_name = "MILLISECONDS")]
     creation_time_ms: Option<u64>,
+    /// Explicit complete global source pair for native AMX participant bootstrap.
+    #[clap(flatten)]
+    amx: amx::Args,
     /// Optional peer config TOML used to derive the DA proof-policy bundle embedded into genesis.
     #[clap(long, value_name = "PATH")]
     config: Option<PathBuf>,
@@ -107,6 +115,28 @@ struct ResolvedArtifactPaths {
     signed_output: Option<PathBuf>,
     bound_manifest_output: Option<PathBuf>,
     expected_hash_output: Option<PathBuf>,
+    nexus_context_output: Option<PathBuf>,
+}
+
+impl ResolvedArtifactPaths {
+    /// Every requested output, labelled for alias diagnostics.
+    fn outputs(&self) -> [(&'static str, Option<&Path>); 4] {
+        [
+            ("signed genesis output", self.signed_output.as_deref()),
+            (
+                "bound manifest output",
+                self.bound_manifest_output.as_deref(),
+            ),
+            (
+                "genesis expected-hash output",
+                self.expected_hash_output.as_deref(),
+            ),
+            (
+                "Nexus AMX context output",
+                self.nexus_context_output.as_deref(),
+            ),
+        ]
+    }
 }
 
 fn artifact_paths_alias(left: &Path, right: &Path) -> bool {
@@ -139,10 +169,11 @@ fn resolve_artifact_paths(args: &Args) -> Result<ResolvedArtifactPaths, color_ey
     if args.replace_expected_hash.is_some()
         && (args.expected_hash_out.is_none()
             || args.out_file.is_none()
-            || args.bound_manifest_out.is_none())
+            || args.bound_manifest_out.is_none()
+            || args.nexus_context_output.is_none())
     {
         return Err(eyre!(
-            "--replace-expected-hash requires --expected-hash-out, --out-file, and --bound-manifest-out"
+            "--replace-expected-hash requires --expected-hash-out, --out-file, --bound-manifest-out, and --nexus-context-output"
         ));
     }
     let genesis_input = fs::canonicalize(&args.genesis_file).wrap_err_with(|| {
@@ -151,55 +182,45 @@ fn resolve_artifact_paths(args: &Args) -> Result<ResolvedArtifactPaths, color_ey
             args.genesis_file.display()
         )
     })?;
-    let signed_output = args
-        .out_file
-        .as_deref()
-        .map(crate::atomic_output::resolve_output_file)
-        .transpose()
-        .wrap_err("resolve signed genesis output")?;
-    let bound_manifest_output = args
-        .bound_manifest_out
-        .as_deref()
-        .map(crate::atomic_output::resolve_output_file)
-        .transpose()
-        .wrap_err("resolve config-bound genesis manifest output")?;
-    let expected_hash_output = args
-        .expected_hash_out
-        .as_deref()
-        .map(crate::atomic_output::resolve_output_file)
-        .transpose()
-        .wrap_err("resolve genesis expected-hash output")?;
+    let resolve = |path: Option<&Path>, label: &str| {
+        path.map(crate::atomic_output::resolve_output_file)
+            .transpose()
+            .wrap_err_with(|| format!("resolve {label}"))
+    };
+    let resolved = ResolvedArtifactPaths {
+        genesis_input,
+        signed_output: resolve(args.out_file.as_deref(), "signed genesis output")?,
+        bound_manifest_output: resolve(
+            args.bound_manifest_out.as_deref(),
+            "config-bound genesis manifest output",
+        )?,
+        expected_hash_output: resolve(
+            args.expected_hash_out.as_deref(),
+            "genesis expected-hash output",
+        )?,
+        nexus_context_output: resolve(
+            args.nexus_context_output.as_deref(),
+            "Nexus AMX context output",
+        )?,
+    };
 
-    reject_artifact_alias(
-        "signed genesis output",
-        signed_output.as_deref(),
-        "input genesis manifest",
-        Some(&genesis_input),
-    )?;
-    reject_artifact_alias(
-        "genesis expected-hash output",
-        expected_hash_output.as_deref(),
-        "input genesis manifest",
-        Some(&genesis_input),
-    )?;
-    reject_artifact_alias(
-        "signed genesis output",
-        signed_output.as_deref(),
-        "bound manifest output",
-        bound_manifest_output.as_deref(),
-    )?;
-    reject_artifact_alias(
-        "signed genesis output",
-        signed_output.as_deref(),
-        "genesis expected-hash output",
-        expected_hash_output.as_deref(),
-    )?;
-    reject_artifact_alias(
-        "bound manifest output",
-        bound_manifest_output.as_deref(),
-        "genesis expected-hash output",
-        expected_hash_output.as_deref(),
-    )?;
+    let outputs = resolved.outputs();
+    // The bound manifest may intentionally replace its input; every other output may not.
+    for (label, output) in outputs {
+        if label != "bound manifest output" {
+            reject_artifact_alias(
+                label,
+                output,
+                "input genesis manifest",
+                Some(&resolved.genesis_input),
+            )?;
+        }
+    }
+    for (index, (left_label, left)) in outputs.iter().enumerate() {
+        for (right_label, right) in &outputs[index + 1..] {
+            reject_artifact_alias(left_label, *left, right_label, *right)?;
+        }
+    }
 
     for (label, input) in [
         ("genesis signing key", Some(args.private_key_file.as_path())),
@@ -210,24 +231,12 @@ fn resolve_artifact_paths(args: &Args) -> Result<ResolvedArtifactPaths, color_ey
         };
         let input = fs::canonicalize(input)
             .wrap_err_with(|| format!("resolve protected {label} input {}", input.display()))?;
-        for (output_label, output) in [
-            ("signed genesis output", signed_output.as_deref()),
-            ("bound manifest output", bound_manifest_output.as_deref()),
-            (
-                "genesis expected-hash output",
-                expected_hash_output.as_deref(),
-            ),
-        ] {
+        for (output_label, output) in outputs {
             reject_artifact_alias(output_label, output, label, Some(&input))?;
         }
     }
 
-    Ok(ResolvedArtifactPaths {
-        genesis_input,
-        signed_output,
-        bound_manifest_output,
-        expected_hash_output,
-    })
+    Ok(resolved)
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum GenesisNetworkIdentityTarget {
@@ -509,7 +518,7 @@ fn stage_genesis_output(
 fn publish_guarded_genesis_bundle(
     guard: &mut GenesisNetworkIdentityGuard,
     identity_path: &Path,
-    outputs: [(&Path, tempfile::NamedTempFile, &str); 2],
+    outputs: [(&Path, tempfile::NamedTempFile, &str); 3],
     identity: tempfile::NamedTempFile,
 ) -> Outcome {
     for (path, temporary, label) in outputs {
@@ -694,22 +703,72 @@ pub(super) fn load_peer_config_bytes(
     })?;
     let description = format!("peer config {}", config_path.display());
     let table = crate::secret_toml::parse_table(source_text, &description)?;
-    load_peer_config_source(
-        config_path,
-        TomlSource::new_sensitive(
-            config_path.to_path_buf(),
-            table,
-            crate::secret_toml::zeroize_table,
-        ),
-    )
+    load_peer_config_user(config_path, table)?
+        .parse()
+        .map_err(|_| eyre!("peer config {} is invalid", config_path.display()))
 }
 
-fn load_peer_config_source(
+/// Use the node's loader for the exact retained source, including profile and data-dir layout.
+fn load_peer_config_user(
     config_path: &Path,
-    source: TomlSource,
+    table: toml::Table,
+) -> Result<iroha_config::parameters::user::Root, color_eyre::eyre::Error> {
+    use iroha_config::node_config::{NodeConfigOptions, open_node_config_source};
+    let source = TomlSource::new_sensitive(
+        config_path.to_path_buf(),
+        table,
+        crate::secret_toml::zeroize_table,
+    );
+    let node = open_node_config_source(source, NodeConfigOptions::default()).map_err(|_| {
+        eyre!(
+            "peer config {} has an invalid node layout",
+            config_path.display()
+        )
+    })?;
+    let (user, _) = node
+        .read()
+        .map_err(|_| eyre!("peer config {} is invalid", config_path.display()))?;
+    Ok(user)
+}
+/// Load one complete signing input. Absence of both runtime identity fields selects the
+/// distinct unpublished context; a supplied identity is always parsed by the strict runtime
+/// parser. A failed runtime parse never falls back to an unpublished context.
+fn load_peer_config_for_signing(
+    config_path: &Path,
+    genesis: &RawGenesisTransaction,
+    key: &KeyPair,
+    creation_time_ms: Option<u64>,
 ) -> Result<actual::Root, color_eyre::eyre::Error> {
-    actual::Root::from_toml_source(source)
-        .map_err(|_| eyre!("peer config {} is invalid", config_path.display()))
+    let config_bytes = Zeroizing::new(
+        crate::secure_fs::read_private_file(config_path)
+            .wrap_err("read owner-only complete genesis signing config")?,
+    );
+    let text = std::str::from_utf8(&config_bytes)
+        .map_err(|_| eyre!("genesis signing config is not UTF-8"))?;
+    let table = crate::secret_toml::parse_table(text, "genesis signing config")?;
+    let user = load_peer_config_user(config_path, table)?;
+    if user.has_genesis_identity() {
+        let config = user
+            .parse()
+            .map_err(|_| eyre!("runtime genesis signing config is invalid"))?;
+        return Ok(config);
+    }
+    let context = user
+        .parse_for_genesis_signing()
+        .map_err(|_| eyre!("unpublished genesis signing policy is invalid"))?;
+    let provisional = iroha_deploy::genesis::staging::build_signed_genesis(
+        genesis.clone(),
+        key,
+        Some(iroha_core::da::proof_policy_bundle(
+            &context.nexus().lane_config,
+        )),
+        iroha_core::state::compute_genesis_confidential_policy_hash(context.zk()),
+        creation_time_ms,
+    )
+    .wrap_err("construct original provisional signed genesis for policy binding")?;
+    context
+        .bind_signed_genesis(&provisional.0)
+        .map_err(|message| eyre!(message))
 }
 /// Execute an independently prepared genesis with its exact original node configuration and
 /// known fixture custody. No provisional block, alternate epoch, or synthetic result enters
@@ -720,7 +779,6 @@ pub fn prepared_native_test_chain(
     manifest: &RawGenesisTransaction,
     config: &actual::Root,
     validator_keys: Vec<KeyPair>,
-    pasta_seeds: Vec<zeroize::Zeroizing<[u8; 32]>>,
     clock: KeyPair,
     lane_blocks: Arc<dyn iroha_core::sumeragi::lanes::merge::LaneBlockSource>,
 ) -> Result<iroha_core::sumeragi::test_chain::CertifiedTestChain, color_eyre::eyre::Error> {
@@ -745,7 +803,6 @@ pub fn prepared_native_test_chain(
             state: Arc::new(state),
             kura,
             validator_keys,
-            pasta_seeds,
             clock,
             lane_blocks,
         },
@@ -790,7 +847,7 @@ pub(super) fn prepare_genesis_for_signing(
     if topology_override.is_some() {
         genesis = genesis.clear_topology();
     }
-    super::ensure_kagemusha_mint_finality_schedule_matches_consensus(&genesis)?;
+    super::ensure_genesis_schedule_matches_consensus(&genesis)?;
     let mut final_topology =
         topology_override.map_or_else(|| collect_topology_peers(&genesis), <[PeerId]>::to_vec);
     ensure_valid_genesis_committee(&final_topology)?;
@@ -803,10 +860,6 @@ pub(super) fn prepare_genesis_for_signing(
     let topology_entries = topology_override
         .map(|topology| build_topology_entries(topology, peer_pops))
         .transpose()?;
-    super::ensure_kagemusha_mint_finality_generation_zero_authority_matches_topology(
-        &genesis,
-        &final_topology,
-    )?;
 
     let uses_npos = matches!(consensus_mode, SumeragiConsensusMode::Npos);
     let topology_peers = if uses_npos {
@@ -870,10 +923,8 @@ pub(super) fn prepare_genesis_for_signing(
             .with_consensus_meta()?
     };
     prepared
-        .validate_kagemusha_mint_finality_topology()
-        .wrap_err(
-            "refusing to sign a genesis whose final topology lacks its exact provisioned KAGEMUSHA authority; Kagami never derives or rewrites production Pasta keys",
-        )?;
+        .validate_genesis_topology()
+        .wrap_err("refusing to sign a genesis whose final topology is not an exact committee")?;
     Ok(prepared)
 }
 
@@ -882,6 +933,18 @@ impl<T: Write> RunArgs<T> for Args {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome {
         tui::status("Signing genesis manifest");
         let artifact_paths = resolve_artifact_paths(&self)?;
+        for input in self.amx.source_paths() {
+            let canonical = fs::canonicalize(input).wrap_err("resolve AMX global source")?;
+            reject_artifact_alias(
+                "AMX global source",
+                Some(&canonical),
+                "input genesis manifest",
+                Some(&artifact_paths.genesis_input),
+            )?;
+            for (label, output) in artifact_paths.outputs() {
+                reject_artifact_alias("AMX global source", Some(&canonical), label, output)?;
+            }
+        }
         let mut identity_guard = artifact_paths
             .expected_hash_output
             .as_deref()
@@ -898,6 +961,7 @@ impl<T: Write> RunArgs<T> for Args {
         }
         let genesis = RawGenesisTransaction::from_path(&artifact_paths.genesis_input)?;
         reject_retired_public_chain_id(genesis.chain_id().as_str())?;
+        let genesis = self.amx.append_to(genesis)?;
         // Keep every same-thread rebuild, config parse, and bound-manifest
         // serialization on the manifest's network. Staged execution re-enters
         // this discriminant on its worker thread.
@@ -905,7 +969,20 @@ impl<T: Write> RunArgs<T> for Args {
         // Parse the peer configuration exactly once. Every policy projection
         // below borrows this immutable snapshot, so replacing the source file
         // concurrently cannot create a mixed genesis generation.
-        let peer_config = self.config.as_deref().map(load_peer_config).transpose()?;
+        let genesis_key_pair = load_genesis_key_file(&self.private_key_file)?;
+        ensure_expected_public_key(&genesis_key_pair, self.expected_public_key.as_ref())?;
+        let peer_config = self
+            .config
+            .as_deref()
+            .map(|path| {
+                load_peer_config_for_signing(
+                    path,
+                    &genesis,
+                    &genesis_key_pair,
+                    self.creation_time_ms,
+                )
+            })
+            .transpose()?;
         let manifest_consensus_mode = genesis.consensus_mode();
         let consensus_mode = manifest_consensus_mode;
         let topology_override = if let Some(raw) = self.topology.as_deref() {
@@ -920,8 +997,6 @@ impl<T: Write> RunArgs<T> for Args {
             topology_override.as_deref(),
             &self.peer_pops,
         )?;
-        let genesis_key_pair = load_genesis_key_file(&self.private_key_file)?;
-        ensure_expected_public_key(&genesis_key_pair, self.expected_public_key.as_ref())?;
         let da_proof_policies = resolve_da_proof_policies(peer_config.as_ref());
         let confidential_policy_hash = resolve_confidential_policy_hash();
         if let Some(config) = peer_config.as_ref()
@@ -931,14 +1006,15 @@ impl<T: Write> RunArgs<T> for Args {
                 "genesis signing key does not match the public key pinned by --config"
             ));
         }
-        let (bound_manifest, genesis_block) = bind_and_sign_staged_sumeragi_context(
-            prepared_genesis,
-            &genesis_key_pair,
-            peer_config.as_ref(),
-            da_proof_policies,
-            confidential_policy_hash,
-            self.creation_time_ms,
-        )?;
+        let (bound_manifest, genesis_block, nexus_context) =
+            bind_and_sign_staged_sumeragi_context_with_preimage(
+                prepared_genesis,
+                &genesis_key_pair,
+                peer_config.as_ref(),
+                da_proof_policies,
+                confidential_policy_hash,
+                self.creation_time_ms,
+            )?;
         let bound_manifest_json = self
             .bound_manifest_out
             .as_ref()
@@ -987,6 +1063,11 @@ impl<T: Write> RunArgs<T> for Args {
             (None, None) => None,
             _ => unreachable!("bound manifest bytes exist exactly when an output path was set"),
         };
+        let staged_nexus_context = artifact_paths
+            .nexus_context_output
+            .as_deref()
+            .map(|path| stage_genesis_output(path, &nexus_context, "Nexus AMX context output"))
+            .transpose()?;
         let staged_identity = if self.replace_expected_hash.is_some() {
             Some(stage_genesis_output(
                 artifact_paths
@@ -1045,6 +1126,14 @@ impl<T: Write> RunArgs<T> for Args {
                         staged_bound_manifest.expect("replacement manifest staged"),
                         "config-bound genesis manifest",
                     ),
+                    (
+                        artifact_paths
+                            .nexus_context_output
+                            .as_deref()
+                            .expect("replacement output checked"),
+                        staged_nexus_context.expect("replacement Nexus AMX context staged"),
+                        "Nexus AMX context output",
+                    ),
                 ],
                 identity,
             )?;
@@ -1073,6 +1162,16 @@ impl<T: Write> RunArgs<T> for Args {
             }
             (None, None) => {}
             _ => unreachable!("bound manifest staging follows the requested output path"),
+        }
+        match (
+            artifact_paths.nexus_context_output.as_deref(),
+            staged_nexus_context,
+        ) {
+            (Some(path), Some(temporary)) => {
+                publish_staged_genesis_output(temporary, path, "Nexus AMX context output")?
+            }
+            (None, None) => {}
+            _ => unreachable!("Nexus AMX context staging follows the requested output path"),
         }
         tui::success("Genesis block signed");
         Ok(())
@@ -1225,6 +1324,7 @@ pub mod tests {
         },
         transaction::Executable,
     };
+    use iroha_deploy::genesis::staging::bind_and_sign_staged_sumeragi_context;
     use iroha_genesis::{GenesisBuilder, GenesisTopologyEntry};
     use iroha_model_base::chain::ChainId;
     use std::{
@@ -1369,9 +1469,6 @@ pub mod tests {
                 &fixture.manifest,
                 &fixture.config,
                 keys,
-                (0..4)
-                    .map(|seat| zeroize::Zeroizing::new([0xA0 + seat; 32]))
-                    .collect(),
                 KeyPair::from_seed(vec![0x7D; 32], Algorithm::Ed25519),
                 Arc::new(iroha_core::sumeragi::lanes::merge::NoLanes),
             )
@@ -1971,15 +2068,19 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             assert_eq!(
                 object.get("consensus_fingerprint"),
                 Some(&norito::json::Value::Null),
-                "{path} must not advertise a fingerprint before authority materialization"
+                "{path} must not advertise a fingerprint before materialization"
             );
-            assert!(
-                !object.contains_key("kagemusha_mint_finality"),
-                "{path} must leave operator authority unmaterialized"
+            let manifest = RawGenesisTransaction::from_path(&full_path)
+                .expect("bounded source JSON must remain parseable before materialization");
+            assert_eq!(
+                manifest.consensus_fingerprint(),
+                None,
+                "{path} must remain unbound"
             );
+            let mode = manifest.consensus_mode();
             assert!(
-                RawGenesisTransaction::from_path(&full_path).is_err(),
-                "{path} must not be accepted by the signing path"
+                prepare_genesis_for_signing(manifest, None, mode, None, &[]).is_err(),
+                "{path} must not enter signing without its required NPoS XOR selection"
             );
         }
     }
@@ -2005,6 +2106,86 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         assert!(
             load_peer_config_bytes(&path, source.as_bytes()).is_err(),
             "unrendered Taira production template must not be runnable"
+        );
+    }
+    #[test]
+    fn unpublished_signing_context_binds_original_signature() {
+        let manifest = RawGenesisTransaction::from_path(minimal_genesis_file()).unwrap();
+        let key = test_genesis_key_pair();
+        let table = checked_in_consensus_config_table(
+            &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../defaults/kagami/iroha3-dev/peer0.toml"),
+        );
+        let path = runtime_test_peer_config(table, &manifest, &key);
+        let mut table: toml::Table = fs::read_to_string(&path).unwrap().parse().unwrap();
+        let genesis = table.get_mut("genesis").unwrap().as_table_mut().unwrap();
+        genesis.remove("expected_hash");
+        genesis.remove("expected_hash_file");
+        let source = || TomlSource::new(path.clone(), table.clone());
+        assert!(actual::Root::from_toml_source(source()).is_err());
+        let context = actual::GenesisSigningContext::from_toml_source(source()).unwrap();
+        let signed = build_signed_genesis(
+            manifest.clone(),
+            &key,
+            None,
+            iroha_core::state::default_genesis_confidential_policy_hash(),
+            Some(1_700_000_000_000),
+        )
+        .unwrap();
+        let bound = context.bind_signed_genesis(&signed.0).unwrap();
+        assert_eq!(bound.genesis.expected_hash, signed.0.hash());
+        assert_eq!(bound.genesis.public_key, *key.public_key());
+        let wrong_key = checked_genesis_sign_keypair_with_algorithm(Algorithm::Ed25519);
+        let wrong = build_signed_genesis(
+            manifest,
+            &wrong_key,
+            None,
+            iroha_core::state::default_genesis_confidential_policy_hash(),
+            Some(1_700_000_000_000),
+        )
+        .unwrap();
+        assert!(
+            actual::GenesisSigningContext::from_toml_source(source())
+                .unwrap()
+                .bind_signed_genesis(&wrong.0)
+                .is_err()
+        );
+        let mut runtime_claim = table.clone();
+        runtime_claim
+            .get_mut("genesis")
+            .unwrap()
+            .as_table_mut()
+            .unwrap()
+            .insert(
+                "expected_hash".into(),
+                NetworkId::from_genesis_hash(signed.0.hash())
+                    .to_string()
+                    .into(),
+            );
+        assert!(
+            actual::GenesisSigningContext::from_toml_source(TomlSource::new(
+                path.clone(),
+                runtime_claim
+            ),)
+            .is_err()
+        );
+        let mut referenced_claim = table.clone();
+        referenced_claim
+            .get_mut("genesis")
+            .unwrap()
+            .as_table_mut()
+            .unwrap()
+            .insert(
+                "expected_hash_file".into(),
+                "unavailable-identity-DATA-only".into(),
+            );
+        // Structural presence refuses unpublished selection before any identity file read.
+        assert!(
+            actual::GenesisSigningContext::from_toml_source(TomlSource::new(
+                path.clone(),
+                referenced_claim,
+            ))
+            .is_err()
         );
     }
     #[test]
@@ -2136,7 +2317,7 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         divergent.zk.max_proof_size_bytes = 1;
         divergent.zk.max_verify_calls_per_block = 1;
         divergent.zk.gas.proof_base = 1;
-        divergent.zk.halo2.max_k = 5;
+        divergent.zk.max_verify_batch = 5;
         divergent.pipeline.overlay_max_instructions = 1;
         divergent.pipeline.query_max_fetch_size = 1;
         divergent.pipeline.ivm_max_cycles_upper_bound =
@@ -2479,16 +2660,15 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         let _chain_discriminant = staged_genesis_chain_discriminant(&manifest);
         let consensus_mode = manifest.consensus_mode();
         let chain_discriminant = manifest.chain_discriminant();
-        let manifest = super::super::complete_test_genesis_builder_for_peers(
-            manifest.into_builder(),
-            topology.to_vec(),
-        )
-        .build_raw()
-        .expect("complete topology-bound signing fixture")
-        .with_consensus_mode(consensus_mode)
-        .with_chain_discriminant(chain_discriminant)
-        .with_consensus_meta()
-        .expect("valid fixture consensus parameters");
+        let manifest = manifest
+            .into_builder()
+            .complete_for_test()
+            .build_raw()
+            .expect("complete topology-bound signing fixture")
+            .with_consensus_mode(consensus_mode)
+            .with_chain_discriminant(chain_discriminant)
+            .with_consensus_meta()
+            .expect("valid fixture consensus parameters");
         let manifest = with_explicit_test_xor_allocations(manifest, topology);
         fs::write(
             &path,
@@ -2527,12 +2707,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
                 out_file: None,
                 bound_manifest_out: None,
                 expected_hash_out: None,
+                nexus_context_output: None,
                 replace_expected_hash: None,
                 topology: None,
                 peer_pops: Vec::new(),
                 private_key_file: test_private_key_file(),
                 expected_public_key: None,
                 creation_time_ms: None,
+                amx: amx::Args::default(),
                 config: None,
             };
             let error = args
@@ -2553,12 +2735,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         current_args
@@ -2575,12 +2759,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
                 out_file: None,
                 bound_manifest_out: None,
                 expected_hash_out: None,
+                nexus_context_output: None,
                 replace_expected_hash: None,
                 topology: None,
                 peer_pops: Vec::new(),
                 private_key_file: test_private_key_file(),
                 expected_public_key: None,
                 creation_time_ms: None,
+                amx: amx::Args::default(),
                 config: None,
             };
             let error = args.run(&mut BufWriter::new(Vec::new())).expect_err(
@@ -2604,12 +2790,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
                 out_file: None,
                 bound_manifest_out: None,
                 expected_hash_out: None,
+                nexus_context_output: None,
                 replace_expected_hash: None,
                 topology: None,
                 peer_pops: Vec::new(),
                 private_key_file: private_key_file.clone(),
                 expected_public_key: None,
                 creation_time_ms: Some(1_700_000_000_000),
+                amx: amx::Args::default(),
                 config: None,
             };
             let mut writer = BufWriter::new(Vec::new());
@@ -2640,12 +2828,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: vec!["pk=00".to_string()],
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut sink = BufWriter::new(Vec::new());
@@ -2668,12 +2858,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut sink = BufWriter::new(Vec::new());
@@ -2757,12 +2949,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: Some(bound_manifest_path.clone()),
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: Some(norito::json::to_json(&topology).expect("serialize topology override")),
             peer_pops,
             private_key_file: test_private_key_file_for(&genesis_key_pair),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: Some(config_path),
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -2830,12 +3024,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: Some(bound_manifest_path.clone()),
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: Some("not valid json".to_owned()),
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let _ = args
@@ -2858,12 +3054,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: Some(temp.path().join("missing-parent/genesis.signed.nrt")),
             bound_manifest_out: Some(bound_manifest_path.clone()),
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let _ = args
@@ -2886,12 +3084,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: Some(output_path.clone()),
             bound_manifest_out: Some(output_path.clone()),
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let error = args
@@ -2916,12 +3116,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: Some(genesis_file.clone()),
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let error = args
@@ -2948,12 +3150,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: Some(canonical_parent.join("same-output")),
             bound_manifest_out: Some(parent_alias.join("same-output")),
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let error = args
@@ -2971,12 +3175,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: Some(signed.clone()),
             bound_manifest_out: Some(manifest.clone()),
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let error = args
@@ -3010,12 +3216,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: Some(signed_path.clone()),
             bound_manifest_out: Some(bound_manifest_path.clone()),
             expected_hash_out: Some(identity_path.clone()),
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let error = args
@@ -3058,12 +3266,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: Some(directory.join("genesis.signed.nrt")),
             bound_manifest_out: Some(directory.join("genesis.bound.json")),
             expected_hash_out: Some(directory.join("genesis.expected_hash")),
+            nexus_context_output: Some(directory.join("nexus-amx-context.v1.bin")),
             replace_expected_hash: Some(prior),
             topology: None,
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: Some(1_700_000_000_000),
+            amx: amx::Args::default(),
             config: None,
         }
     }
@@ -3081,6 +3291,7 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         let identity = args.expected_hash_out.clone().unwrap();
         let signed = args.out_file.clone().unwrap();
         let manifest = args.bound_manifest_out.clone().unwrap();
+        let context = args.nexus_context_output.clone().unwrap();
         publish_genesis_network_identity(&identity, prior).unwrap();
         let mut writer = BufWriter::new(Vec::new());
         args.run(&mut writer).unwrap();
@@ -3088,6 +3299,16 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         let block = decode_framed_signed_block(&fs::read(&signed).unwrap()).unwrap();
         let current = NetworkId::from_genesis_hash(block.hash());
         assert_ne!(current, prior);
+        let published_context = fs::read(&context).unwrap();
+        assert_eq!(
+            Hash::new(&published_context),
+            Hash::prehashed(
+                consensus_handshake_meta(&block)
+                    .sumeragi_context
+                    .nexus_amx_context_hash
+            ),
+            "replacement must publish the exact AMX preimage committed by the signed genesis"
+        );
         assert_eq!(
             fs::read(&identity).unwrap(),
             genesis_network_identity_body(current).as_bytes()
@@ -3119,9 +3340,11 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             let mut replacement = replacement_args(temp.path(), prior);
             let signed = replacement.out_file.clone().unwrap();
             let manifest = replacement.bound_manifest_out.clone().unwrap();
+            let context = replacement.nexus_context_output.clone().unwrap();
             let identity = replacement.expected_hash_out.clone().unwrap();
             fs::write(&signed, b"prior signed").unwrap();
             fs::write(&manifest, b"prior manifest").unwrap();
+            fs::write(&context, b"prior context").unwrap();
             if defect != "missing" {
                 publish_genesis_network_identity(
                     &identity,
@@ -3158,6 +3381,7 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             assert!(!error.contains("private-key"), "{defect}: {error}");
             assert_eq!(fs::read(&signed).unwrap(), b"prior signed", "{defect}");
             assert_eq!(fs::read(&manifest).unwrap(), b"prior manifest", "{defect}");
+            assert_eq!(fs::read(&context).unwrap(), b"prior context", "{defect}");
             assert_eq!(fs::read(&identity).ok(), before, "{defect}");
             assert!(fs::read_dir(temp.path()).unwrap().all(|e| {
                 !e.unwrap()
@@ -3233,6 +3457,7 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         let identity = temp.path().join("genesis.expected_hash");
         let signed = temp.path().join("signed");
         let manifest = temp.path().join("manifest");
+        let context = temp.path().join("context");
         publish_genesis_network_identity(&identity, prior).unwrap();
         let mut guard = GenesisNetworkIdentityGuard::acquire(&identity)
             .unwrap()
@@ -3248,6 +3473,11 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
                     manifest.as_path(),
                     stage_genesis_output(&manifest, b"new manifest", "manifest").unwrap(),
                     "manifest",
+                ),
+                (
+                    context.as_path(),
+                    stage_genesis_output(&context, b"new context", "context").unwrap(),
+                    "context",
                 ),
             ]
         };
@@ -3283,6 +3513,7 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         .unwrap();
         publish_guarded_genesis_bundle(&mut retry, &identity, stage(), next_identity).unwrap();
         assert_eq!(fs::read(&manifest).unwrap(), b"new manifest");
+        assert_eq!(fs::read(&context).unwrap(), b"new context");
         assert_eq!(
             fs::read(&identity).unwrap(),
             genesis_network_identity_body(next).as_bytes()
@@ -3310,8 +3541,9 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             ("--expected-hash-out", "identity"),
             ("--out-file", "signed"),
             ("--bound-manifest-out", "manifest"),
+            ("--nexus-context-output", "context"),
         ];
-        for omitted in 0..3 {
+        for omitted in 0..flags.len() {
             let mut argv = base.to_vec();
             for (index, (flag, value)) in flags.iter().enumerate() {
                 if index != omitted {
@@ -3324,7 +3556,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             match omitted {
                 0 => replacement.expected_hash_out = None,
                 1 => replacement.out_file = None,
-                _ => replacement.bound_manifest_out = None,
+                2 => replacement.bound_manifest_out = None,
+                _ => replacement.nexus_context_output = None,
             }
             assert!(resolve_artifact_paths(&replacement).is_err());
         }
@@ -3346,12 +3579,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: Some(expected_hash_path.clone()),
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -3368,6 +3603,52 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             fs::read_to_string(expected_hash_path).expect("read expected hash output"),
             format!("{network_id}\n"),
         );
+    }
+    #[test]
+    fn nexus_context_output_is_the_exact_committed_amx_preimage() {
+        let temp = tempfile::tempdir().expect("nexus context output temp dir");
+        let context_path = temp.path().join("nexus-amx-context.v1.bin");
+        let signed_path = temp.path().join("genesis.signed.nrt");
+        let mut args = replacement_args(temp.path(), identity_fixture(b"unused prior"));
+        args.replace_expected_hash = None;
+        args.expected_hash_out = None;
+        args.bound_manifest_out = None;
+        args.out_file = Some(signed_path.clone());
+        args.nexus_context_output = Some(context_path.clone());
+        args.run(&mut BufWriter::new(Vec::new()))
+            .expect("sign genesis with context export");
+        let signed = decode_framed_signed_block(&fs::read(&signed_path).expect("read signed"))
+            .expect("decode signed genesis");
+        let preimage = fs::read(&context_path).expect("read exported context");
+        let committed =
+            iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(&signed)
+                .expect("signed genesis metadata")
+                .sumeragi_context
+                .nexus_amx_context_hash;
+        assert_eq!(Hash::new(&preimage), Hash::prehashed(committed));
+        iroha_data_model::nexus::decode_nexus_amx_context_v1(&preimage)
+            .expect("exported context decodes strictly");
+
+        // The context output may not alias any other output, the input, or protected inputs.
+        for target in ["signed", "input", "key"] {
+            let mut aliased = replacement_args(temp.path(), identity_fixture(b"unused prior"));
+            aliased.replace_expected_hash = None;
+            aliased.nexus_context_output = Some(match target {
+                "signed" => aliased.out_file.clone().unwrap(),
+                "input" => aliased.genesis_file.clone(),
+                _ => aliased.private_key_file.clone(),
+            });
+            let error = format!(
+                "{:#}",
+                resolve_artifact_paths(&aliased)
+                    .err()
+                    .expect("aliased context output must be rejected")
+            );
+            assert!(
+                error.contains("must use different paths"),
+                "{target}: {error}"
+            );
+        }
     }
     #[test]
     fn network_identity_publication_is_idempotent_and_refuses_drift() {
@@ -3468,12 +3749,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: Some("not valid json".to_owned()),
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -3487,12 +3770,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -3515,12 +3800,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops: vec![peer_pops[0].clone()],
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -3539,17 +3826,15 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             .expect("generate BLS PoP");
         let (new_peers, peer_pops) = valid_test_topology(4);
         let genesis_file = tempfile::NamedTempFile::new().expect("create temp genesis file");
-        let manifest = super::super::complete_test_genesis_builder_for_peers(
-            GenesisBuilder::new_without_executor(
-                ChainId::from("topology-override"),
-                PathBuf::from("."),
-            )
-            .append_parameter(Parameter::Custom(
-                SumeragiNposParameters::default().into_custom_parameter(),
-            ))
-            .set_topology(vec![GenesisTopologyEntry::new(existing_peer, existing_pop)]),
-            new_peers.clone(),
+        let manifest = GenesisBuilder::new_without_executor(
+            ChainId::from("topology-override"),
+            PathBuf::from("."),
         )
+        .append_parameter(Parameter::Custom(
+            SumeragiNposParameters::default().into_custom_parameter(),
+        ))
+        .set_topology(vec![GenesisTopologyEntry::new(existing_peer, existing_pop)])
+        .complete_for_test()
         .build_raw()
         .expect("complete topology-override fixture")
         .with_consensus_mode(SumeragiConsensusMode::Npos)
@@ -3564,12 +3849,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -3634,12 +3921,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: vec![],
             private_key_file: test_private_key_file_for(&key_pair),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -3755,12 +4044,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: vec![],
             private_key_file: test_private_key_file_for(&genesis_key_pair),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: Some(config_path),
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -3940,12 +4231,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
             private_key_file,
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -4236,12 +4529,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: Some(config_path),
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -4339,12 +4634,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: Some(bound_manifest.path().to_path_buf()),
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -4410,12 +4707,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -4440,12 +4739,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: Some(config_path),
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -4470,12 +4771,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -4499,12 +4802,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: Some(config_path),
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -4538,12 +4843,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -4600,12 +4907,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -4624,12 +4933,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -4722,12 +5033,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file_for(&key_pair),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: Some(config_path),
         };
         let mut writer = BufWriter::new(Vec::new());
@@ -4752,12 +5065,14 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             out_file: None,
             bound_manifest_out: None,
             expected_hash_out: None,
+            nexus_context_output: None,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
             private_key_file: test_private_key_file(),
             expected_public_key: None,
             creation_time_ms: None,
+            amx: amx::Args::default(),
             config: None,
         };
         let mut writer = BufWriter::new(Vec::new());

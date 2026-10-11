@@ -1,4 +1,5 @@
 seiyaku ContractViewBytesTest {
+    permission CanEnactGovernance;
     state AssetDefinitionId Asset;
     state bytes Target;
     fn configure_impl(AssetDefinitionId asset_input, bytes target_bytes) {
@@ -11,21 +12,22 @@ seiyaku ContractViewBytesTest {
         Target = b"";
     }
 
-    kotoage fn configure(AssetDefinitionId asset_input, bytes target_bytes) authorize(
-        "CanEnactGovernance"
-    ) {
+    kotoage fn configure(
+        AssetDefinitionId asset_input,
+        bytes target_bytes,
+    ) authorize(CanEnactGovernance) {
         configure_impl(asset_input: asset_input, target_bytes: target_bytes);
     }
 
-    view fn literal() -> bytes {
+    view fn literal() authorize(anyone) -> bytes {
         return b"risk";
     }
 
-    view fn target() -> bytes {
+    view fn target() authorize(anyone) -> bytes {
         return Target;
     }
 
-    view fn config() -> (AssetDefinitionId, bytes) {
+    view fn config() authorize(anyone) -> (AssetDefinitionId, bytes) {
         return (Asset, Target);
     }
 }

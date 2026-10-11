@@ -370,7 +370,6 @@ fn permission_cache_rebuilds_after_restart_impl() {
         let captured = crate::snapshot::CapturedStateSnapshot::capture(live).unwrap();
         let projected = super::deserialize::KuraSeed {
             execution_budget: live.ivm_execution_budget(),
-            operation_index_budget: live.world.operation_index_budget().clone(),
             kura: Arc::clone(fixture.kura()),
             lane_manifests: live.lane_manifests.read().clone(),
             query_handle: crate::query::store::LiveQueryStore::start_test(),

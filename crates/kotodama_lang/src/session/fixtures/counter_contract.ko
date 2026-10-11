@@ -2,5 +2,5 @@ seiyaku Counter {
                 state int counter;
                 hajimari() { counter = 0; }
                 fn current() -> int { return counter; }
-                view fn value() -> int { return current(); }
+                view fn value() authorize(anyone) -> int { return current(); }
             }

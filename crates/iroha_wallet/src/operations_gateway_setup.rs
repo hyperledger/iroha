@@ -192,6 +192,28 @@ impl AccountService {
             ))),
         )
     }
+
+    /// Inspect the exact preparation under an already retained private parent without signing or network I/O.
+    ///
+    /// Fresh child, lock, native ancestry and record checks remain mandatory. Only the original
+    /// parent ancestry owners are shared; initial child absence creates no journal.
+    /// # Errors
+    /// Rejects invalid names, changed parent custody, unsafe journals or changed request and fee terms.
+    pub fn inspect_initial_gateway_setup_preparation_in_parent(
+        &self,
+        parent: &iroha_fs::PrivateDirectory,
+        name: &std::ffi::OsStr,
+        expected: &InitialGatewaySetupRequest,
+    ) -> Result<VerifiedNativePreparation> {
+        self.inspect_preparation_in_parent(
+            parent,
+            name,
+            NativeOperationKind::InitialGatewaySetup,
+            Some(OperationExpectation::GatewaySetup(GatewaySetupExpectation(
+                expected,
+            ))),
+        )
+    }
     /// Retire only this exact retained request before any payload or dispatch evidence exists.
     /// # Errors
     /// Refuses missing, changed, malformed, payload-retained or signed histories and unsafe custody.

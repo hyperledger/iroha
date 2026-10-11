@@ -55,9 +55,9 @@ macro_rules! capture_world_table_once {
                 if !rows.belongs_to(&fields.state_ref.world.$field) {
                     return Ok(None);
                 }
-                // Preserve the exact native storage mode (including prepaid
-                // OperationIndex trees) and original private current image. Do
-                // not acquire State views, refresh the source or accept a pool.
+                // Preserve the exact native storage mode and original private
+                // current image. Do not acquire State views, refresh the source
+                // or accept a pool.
                 // This singleton does not certify other fields' identities or
                 // acquisition modes; complete publication must bind them jointly.
                 CanonicalTableLeafSet::paired_table_from_rows(

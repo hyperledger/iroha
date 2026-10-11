@@ -277,8 +277,8 @@ impl<'a> CheckedElectionView<'a> {
     }
 
     /// Rank every custody-eligible candidate without allocating a pool-sized ranking buffer.
-    /// E+1 prepares generation-specific paired and beacon keys after this E election; selection
-    /// requires the exact consented BLS identity and real PoP, never future paired readiness.
+    /// E+1 prepares the target beacon transcript after this E election; selection requires
+    /// the exact consented BLS identity and real PoP, never future beacon-share readiness.
     pub(super) fn select(
         &self,
         network: NetworkId,
@@ -506,7 +506,8 @@ pub(super) fn authenticated_boundary_entropy(
     record.validate().map_err(|error| error.to_string())?;
     if !record.is_active_at(pulse_height)
         || !record.is_active_at(boundary_height)
-        || record.session.adaptive_dkg.session.authority_generation != current.authority.generation
+        || record.session.adaptive_dkg.session.authority_generation
+            != current.authorization.authority_generation
     {
         return Err("incumbent beacon is not active through its boundary".into());
     }

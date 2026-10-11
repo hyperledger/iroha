@@ -11,6 +11,7 @@ import "@contracts/sccp-addresses"
 import "@contracts/sccp-cells"
 import "@contracts/sccp-constants"
 import "@contracts/sccp-errors"
+import "@contracts/sccp-fees"
 import "@contracts/sccp-messages"
 import "@contracts/sccp-verify"
 import "@wrappers/SccpConsumedBucket.gen"
@@ -73,8 +74,15 @@ get fun `test void deadline edge and nonce argument`() {
         to: env.minter.address,
         exitCode: SccpErrors.BadNonce as int,
     });
+    // the entry minimum is the quote minus the storage grace (the minter is above its floor)
     expect(
-        sendVoidExpired(env, env.deployer, 0, d, env.minter.voidRequiredValue(0) - 1),
+        sendVoidExpired(
+            env,
+            env.deployer,
+            0,
+            d,
+            env.minter.voidRequiredValue(0) - sccpMinterStorageGrace() - 1,
+        ),
     ).toHaveFailedTx<SccpVoidExpired>({
         to: env.minter.address,
         exitCode: SccpErrors.NotEnoughValue as int,
@@ -267,8 +275,13 @@ get fun `test void frozen range rules`() {
     });
     // up to four ahead deploys the missing buckets
     val ahead = sendVoidFrozen(env, 4 * 512, 512, env.minter.voidFrozenRequiredValue(4 * 512));
-    expect(ahead).toHaveSuccessfulDeploy<TopUpTons>({ to: env.minter.getBucketAddress(1) });
-    expect(ahead).toHaveSuccessfulDeploy<SccpConsumeRange>({ to: env.minter.getBucketAddress(4) });
+    expect(ahead).toHaveSuccessfulDeploy<SccpActivateBucket>({ to: env
+            .minter
+            .getBucketAddress(1) });
+    expect(ahead).toHaveSuccessfulDeploy<SccpActivateBucket>({ to: env
+            .minter
+            .getBucketAddress(4) });
+    expect(ahead).toHaveSuccessfulTx<SccpConsumeRange>({ to: env.minter.getBucketAddress(4) });
     expect(env.minter.getSccpState().deployedBuckets).toEqual(5);
     expect(env.minter.getSccpState().opCount).toEqual(4);
 }

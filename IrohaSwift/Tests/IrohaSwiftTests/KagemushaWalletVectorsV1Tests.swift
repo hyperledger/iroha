@@ -7,29 +7,89 @@ import XCTest
 /// `kagemusha_wallet_v1` vector test, and checks the Swift wallet wire helpers against it.
 ///
 /// Poseidon values are computed only by the native Rust core; these tests never recompute one.
-/// They check every SHA-256 role, frame, envelope and signature vector, the σ-field element lists
-/// and the `P_bytes` packing, and that each Poseidon value is a canonical σ-field encoding placed
-/// consistently in the frames and SHA transcripts that carry it.
+/// They check every SHA-256 role (the 20 roles, including NEW unsigned E1 policies, with every retired role rejected), frame,
+/// envelope and signature vector (each over its 32-byte Poseidon signing message), the σ-field
+/// element lists, the `P_bytes` packing of every large-input digest and signing message, the
+/// depth-32 indexed-tree openings, the limb-ordered blacklist and the verifying-key allowlist,
+/// and that each Poseidon value is a canonical σ-field encoding placed consistently in the frames
+/// and transcripts that carry it.
 final class KagemushaWalletVectorsV1Tests: XCTestCase {
   private typealias Wire = KagemushaWalletWireV1
 
-  /// Signed objects whose digest is `H(role, e || signature)` over the matching `-body` role.
-  private static let signedObjectRoles: [KagemushaWalletDigestRoleV1] = [
-    .certificate, .credential, .schemePolicy, .feeSchedule, .blacklist, .quotaShare,
-    .timeAnchor, .request, .receipt, .voucher, .artifactManifest, .chargeQuote,
-  ]
-
-  /// The 22 Poseidon domains of wire record §3.2, in table order.
+  /// The 59 domains: 33 protocol hashes, 16 signing messages, 10 signed objects.
   private static let poseidonDomains = [
-    "kgwcore1", "kgwrest1", "kgwstmt1", "kgwcrdt1", "kgwschn1", "kgwrchn1", "kgwccrd1",
-    "kgwpout1", "kgwload1", "kgwrdm_1", "kgwfee_1", "kgwquse1", "kgwcdig1", "kgwsmte1",
-    "kgwsmtn1", "kgwblkl1", "kgwblkn1", "kgwqwin1", "kgwqwnd1", "kgwprf_1", "kgwstep1",
+    "kgwcore1",
+    "kgwrest1",
+    "kgwstmt1",
+    "kgwcrdt1",
+    "kgwschn1",
+    "kgwrchn1",
+    "kgwccrd1",
+    "kgwpout1",
+    "kgwload1",
+    "kgwolod1",
+    "kgwrdm_1",
+    "kgwfee_1",
+    "kgwbhst1",
+    "kgwcset1",
+    "kgwpkg_1",
+    "kgwnull1",
+    "kgwcdig1",
+    "kgwimlf1",
+    "kgwimnd1",
+    "kgwblkl1",
+    "kgwblkn1",
+    "kgwqwin1",
+    "kgwqwnd1",
+    "kgwquse1",
+    "kgwqusn1",
+    "kgwprf_1",
+    "kgwstep1",
     "kgwpay_1",
+    "kgwlin_1",
+    "kgwcopn1",
+    "kgwcsts1",
+    "kgwcrdd1",
+    "kgwopid1",
+    "kgwcert1",
+    "kgwcred1",
+    "kgwrnch1",
+    "kgwrnkb1",
+    "kgwartf1",
+    "kgwrcpt1",
+    "kgwspol1",
+    "kgwfsch1",
+    "kgwblst1",
+    "kgwqshr1",
+    "kgwtanc1",
+    "kgwchgq1",
+    "kgwoffr1",
+    "kgwsctl1",
+    "kgwrqst1",
+    "kgwlctl1",
+    "kgwocrt1",
+    "kgwocrd1",
+    "kgworcp1",
+    "kgwopol1",
+    "kgwofee1",
+    "kgwoblk1",
+    "kgwoqsh1",
+    "kgwotim1",
+    "kgwochg1",
+    "kgworeq1",
   ]
 
-  /// Empty depth-256 sparse-tree root pinned by wire record §3.2.
-  private static let emptySparseRootHex =
-    "1450223519c41ddd33c971fb997ddca6344588e5f5b7411d310cb55136b4711b"
+  /// Operation tags of Send and Receive, and the tags whose packages carry Ω(pred).
+  private static let sendTag: UInt32 = 3
+  private static let receiveTag: UInt32 = 4
+  private static let lineageConsumingTags: Set<UInt32> = [3, 6, 8]
+  /// Bit 0 of `enabled_controls`: BLACKLIST.
+  private static let blacklistControl: UInt32 = 1
+  /// Request-body field positions of the wallets and account digests (owner answer A5).
+  private static let requestPayerWallet = 3
+  private static let requestPayerAccount = 4
+  private static let requestReceiverWallet = 5
+  private static let requestReceiverAccount = 6
 
   // MARK: Constants and bounds
 
@@ -49,18 +109,50 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     XCTAssertEqual(Wire.messageTextMaximumBytes, 13_339)
     XCTAssertEqual(
       try int(bounds, "lineage_max_bytes"), KagemushaWalletMessageKindV1.lineage.maximumFrameBytes)
-    // σ and Ω carry no separate byte caps: their exact lengths come from the frozen
-    // verifying-key allowlist, jointly bounded by the Payment budget (owner answer Q6, R9).
+    // Exact σ and Ω lengths come from the frozen verifying-key allowlist and must fit
+    // their complete carrying envelopes.
     XCTAssertNil(bounds["proof_max_bytes"])
     XCTAssertNil(bounds["credit_status_proof_max_bytes"])
     XCTAssertFalse(try string(bounds, "proof_caps").isEmpty)
+    XCTAssertEqual(
+      Set(bounds.keys),
+      [
+        "certificate_set_max", "credential_max_bytes", "credit_opening_bytes",
+        "credited_receive_fixed_bytes", "credited_receive_proof_budget_bytes",
+        "credited_status_fixed_bytes", "fold_record_max_bytes", "indexed_tree_depth",
+        "lineage_max_bytes", "lineage_proof_cap_bytes", "message_max_bytes",
+        "quota_tree_depth", "quota_usage_slots",
+        "message_text_max_bytes", "payment_fixed_bytes", "payment_proof_budget_bytes",
+        "proof_caps", "session_max_bytes", "session_text_max_bytes", "text_prefix",
+        "verifying_key_allowlist_max_bytes", "verifying_key_entries_max", "version",
+      ])
     XCTAssertEqual(try int(bounds, "payment_fixed_bytes"), Wire.paymentFixedBytes)
     XCTAssertEqual(try int(bounds, "payment_proof_budget_bytes"), Wire.paymentProofBudgetBytes)
-    XCTAssertEqual(Wire.paymentFixedBytes, 1_615)
-    XCTAssertEqual(Wire.paymentProofBudgetBytes, 8_385)
-    XCTAssertEqual(try int(bounds, "verifying_key_entries_max"), Wire.verifyingKeyEntriesMaximum)
+    XCTAssertEqual(Wire.paymentFixedBytes, 1_723)
+    XCTAssertEqual(Wire.paymentProofBudgetBytes, 8_277)
+    XCTAssertEqual(try int(bounds, "credited_receive_fixed_bytes"), Wire.creditedReceiveFixedBytes)
     XCTAssertEqual(
-      try int(bounds, "credit_opening_siblings_max"), Wire.creditOpeningSiblingsMaximum)
+      try int(bounds, "credited_receive_proof_budget_bytes"), Wire.creditedReceiveProofBudgetBytes)
+    XCTAssertEqual(Wire.creditedReceiveFixedBytes, 679)
+    XCTAssertEqual(Wire.creditedReceiveProofBudgetBytes, 9_321)
+    XCTAssertEqual(
+      Wire.creditedReceiveFixedBytes + Wire.creditedReceiveProofBudgetBytes, Wire.messageMaximumBytes)
+    XCTAssertTrue(try string(bounds, "proof_caps").contains("credited_receive_proof_budget_bytes"))
+    // Credited::Status carries Ω(h) and the fixed 32-sibling opening: F_status + Ω cap = 10,000.
+    XCTAssertEqual(try int(bounds, "credited_status_fixed_bytes"), Wire.creditedStatusFixedBytes)
+    XCTAssertEqual(try int(bounds, "lineage_proof_cap_bytes"), Wire.lineageProofCapBytes)
+    XCTAssertEqual(Wire.lineageProofCapBytes, 7_812)
+    XCTAssertEqual(Wire.creditedStatusFixedBytes + Wire.lineageProofCapBytes, 10_000)
+    XCTAssertTrue(try string(bounds, "proof_caps").contains("lineage_proof_cap_bytes"))
+    XCTAssertEqual(try int(bounds, "verifying_key_entries_max"), Wire.verifyingKeyEntriesMaximum)
+    XCTAssertEqual(Wire.verifyingKeyEntriesMaximum, 16)
+    // Indexed maps have depth 32; quota usage follows the depth-six window array.
+    XCTAssertEqual(try int(bounds, "indexed_tree_depth"), Wire.indexedTreeDepth)
+    XCTAssertEqual(Wire.indexedTreeDepth, 32)
+    XCTAssertEqual(try int(bounds, "quota_tree_depth"), Wire.quotaTreeDepth)
+    XCTAssertEqual(try int(bounds, "quota_usage_slots"), Wire.quotaUsageSlots)
+    XCTAssertEqual(try int(bounds, "credit_opening_bytes"), Wire.creditOpeningBytes)
+    XCTAssertEqual(Wire.creditOpeningBytes, 1_125)
     XCTAssertEqual(try int(bounds, "certificate_set_max"), 3)
     let frameCaps = try Dictionary(
       uniqueKeysWithValues: objects(fixture, "frames").map {
@@ -136,14 +228,17 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
 
   func testFrameSchemaHashesFollowFrameNames() throws {
     let frames = try objects(loadFixture(), "frames")
-    XCTAssertEqual(frames.count, 26)
+    XCTAssertEqual(frames.count, 28)
     var sawEnvelope = false
     for frame in frames {
       let name = try string(frame, "frame_name")
       XCTAssertEqual(
         noritoSchemaHash(forTypeName: name), try bytes(frame, "frame_hash_hex"), name)
-      XCTAssertEqual(
-        name, "iroha_data_model::kagemusha::kagemusha_wallet_v1::" + (try string(frame, "type")))
+      let type = try string(frame, "type")
+      let namespace = type == "KagemushaWalletLoadReceiptV1"
+        ? "iroha_data_model::isi::kagemusha_wallet::"
+        : "iroha_data_model::kagemusha::kagemusha_wallet_v1::"
+      XCTAssertEqual(name, namespace + type)
       if name == Wire.envelopeFrameName {
         sawEnvelope = true
         XCTAssertEqual(try int(frame, "max_bytes"), Wire.messageMaximumBytes)
@@ -156,21 +251,30 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
 
   func testDigestVectorsRecomputeEveryRole() throws {
     let vectors = try objects(loadFixture(), "digests")
-    // Rust's current ALL table has 55 SHA-256 roles; step-relation values use Poseidon.
-    XCTAssertEqual(KagemushaWalletDigestRoleV1.allCases.count, 55)
-    XCTAssertEqual(vectors.count, KagemushaWalletDigestRoleV1.allCases.count)
-    XCTAssertEqual(
-      Set(try vectors.map { try string($0, "role") }),
-      Set(KagemushaWalletDigestRoleV1.allCases.map(\.rawValue)))
+    XCTAssertEqual(KagemushaWalletDigestRoleV1.allCases.count, 20)
+    // One vector per role, in the order of the Rust `KagemushaWalletDigestRoleV1::ALL`.
     XCTAssertEqual(
       try vectors.map { try string($0, "role") },
       KagemushaWalletDigestRoleV1.allCases.map(\.rawValue))
-    // Pre-split and superseded SHA-256 roles are gone; current step values use Poseidon.
+    // Roles of earlier revisions are gone, not aliased: the pre-split roles; the SHA roles whose
+    // values are now Poseidon σ-field values (owner answers Q1, Q2 and Q9); every signed-body
+    // role, now a Poseidon signing message (A1); and the lineage, credit-opening, credit-status
+    // and credited digests, now `P_bytes` values (A3).
+    let labels = Set(try vectors.map { try string($0, "role") })
     for retired in [
       "dependencies", "credit-status-statement", "credit", "proof", "step-proof", "payment",
-      "blacklist-leaf", "blacklist-node", "quota-window", "quota-node",
+      "blacklist-leaf", "blacklist-node", "quota-window", "quota-node", "certificate-body",
+      "credential-body", "scheme-policy-body", "fee-schedule-body", "blacklist-body",
+      "quota-share-body", "time-anchor-body", "offer-body", "session-control-body",
+      "request-body", "receipt-body", "voucher-body", "ledger-control-body",
+      "artifact-manifest-body", "charge-quote-body", "renewal-challenge", "renewal-key-binding",
+      "lineage", "credit-opening", "credit-status", "credited",
+      "certificate", "credential", "receipt", "scheme-policy", "fee-schedule", "blacklist",
+      "quota-share", "time-anchor", "charge-quote", "request", "voucher",
+      "certificate-set", "package", "statement", "operation-id", "unload-nullifier",
     ] {
       XCTAssertNil(KagemushaWalletDigestRoleV1(rawValue: retired), retired)
+      XCTAssertFalse(labels.contains(retired), retired)
     }
     for vector in vectors {
       let roleName = try string(vector, "role")
@@ -195,54 +299,80 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     }
   }
 
-  func testSignedObjectDigestsBindBodyDigestAndSignature() throws {
+  func testArtifactManifestIsTheOnlySHA256SignedObjectDigest() throws {
     let fixture = try loadFixture()
-    let digests = try digestVectors(fixture)
-    // A role may sign more than one vector object (the Send and the Receive receipt).
-    let signatures = try Dictionary(
-      grouping: objects(fixture, "signatures"), by: { try string($0, "role") })
-    XCTAssertEqual(signatures["receipt-body"]?.count, 2)
-    for role in Self.signedObjectRoles {
-      let bodyRoleName = role.rawValue + "-body"
-      let bodyRole = try XCTUnwrap(KagemushaWalletDigestRoleV1(rawValue: bodyRoleName))
-      let objectVector = try XCTUnwrap(digests[role.rawValue], role.rawValue)
-      let bodyVector = try XCTUnwrap(digests[bodyRoleName], bodyRoleName)
-
-      let transcript = try hexData(string(objectVector, "body_hex"))
-      XCTAssertEqual(transcript.count, 96, role.rawValue)
-      let bodyDigest = Data(transcript.prefix(32))
-      let signature = Data(transcript.suffix(64))
-      let signatureVector = try XCTUnwrap(
-        signatures[bodyRoleName]?.first {
-          (try? hexData(string($0, "signature_hex"))) == signature
-        },
-        bodyRoleName)
-      let body = try hexData(string(bodyVector, "body_hex"))
-      XCTAssertEqual(bodyDigest, Wire.digest(role: bodyRole, body: body), role.rawValue)
-      XCTAssertEqual(bodyDigest, try hexData(string(signatureVector, "e_hex")), role.rawValue)
-      XCTAssertEqual(signature, try hexData(string(signatureVector, "signature_hex")))
-      XCTAssertTrue(
-        Wire.verifySignature(
-          publicKey: try hexData(string(signatureVector, "public_key_hex")),
-          role: bodyRole, body: body, signature: signature),
-        role.rawValue)
-      XCTAssertEqual(
-        try Wire.signedObjectDigest(role: role, bodyDigest: bodyDigest, signature: signature),
-        try hexData(string(objectVector, "digest_hex")),
-        role.rawValue)
-
-      let twin = try hexData(string(object(signatureVector, "high_s_twin"), "signature_hex"))
-      assertWireError(
-        try Wire.signedObjectDigest(role: role, bodyDigest: bodyDigest, signature: twin),
-        .invalidField("signature"))
-      assertWireError(
-        try Wire.signedObjectDigest(
-          role: role, bodyDigest: bodyDigest.prefix(31), signature: signature),
-        .invalidField("body_digest"))
+    let vector = try signatureVector(fixture, object: "artifact manifest")
+    let expected = try XCTUnwrap(digestVectors(fixture)["artifact-manifest"])
+    let message = try hexData(string(vector, "message_hex"))
+    let signature = try hexData(string(vector, "signature_hex"))
+    XCTAssertEqual(message + signature, try hexData(string(expected, "body_hex")))
+    XCTAssertEqual(try Wire.artifactManifestDigest(message: message, signature: signature),
+                   try hexData(string(expected, "digest_hex")))
+    for bad in [message.prefix(31), message + Data([0]), Data(Wire.fieldModulus)] {
+      assertWireError(try Wire.artifactManifestDigest(message: Data(bad), signature: signature),
+                      .invalidField("signing_message"))
     }
+    let twin = try hexData(string(object(vector, "high_s_twin"), "signature_hex"))
+    assertWireError(try Wire.artifactManifestDigest(message: message, signature: twin),
+                    .invalidField("signature"))
   }
 
   // MARK: Signatures
+
+  func testOrdinaryLoadReceiptUsesUnsignedFixedTranscript() throws {
+    let fixture = try loadFixture()
+    let receipt = try object(fixture, "ordinary_load_receipt")
+    let transcript = try hexData(string(receipt, "transcript_hex"))
+    XCTAssertEqual(transcript.count, 282)
+    XCTAssertEqual(try string(receipt, "domain_ascii"), "kgwolod1")
+    XCTAssertNil(KagemushaWalletSigningDomainV1(rawValue: "kgwolod1"))
+    XCTAssertEqual(try fieldElements(receipt, "packed_items"), packedFieldElements(transcript))
+    let values = try object(object(fixture, "poseidon"), "map_values")
+    let load = try fieldElements(object(values, "load"), "items")
+    XCTAssertEqual(load[1], try hexData(string(receipt, "digest_hex")))
+    assertPoseidonValue(load[1], "ordinary receipt digest")
+  }
+
+  func testSigningDomainsMirrorTheRustTableAndEveryVectorSignsItsMessage() throws {
+    let fixture = try loadFixture()
+    // 16 signing domains in Rust declaration order, each with its exact transcript length.
+    let domains = KagemushaWalletSigningDomainV1.allCases
+    XCTAssertEqual(domains.count, 16)
+    XCTAssertEqual(domains.map(\.rawValue), Array(Self.poseidonDomains[33..<49]))
+    for domain in domains {
+      XCTAssertEqual(domain.rawValue.utf8.count, 8, domain.rawValue)
+    }
+    XCTAssertNil(KagemushaWalletSigningDomainV1(rawValue: "kgwprf_1"))
+    XCTAssertTrue(
+      try string(fixture, "signature_rule")
+        .hasPrefix("ECDSA-P256-SHA256 over the 32-byte message_hex"))
+
+    let signatures = try objects(fixture, "signatures")
+    let messages = try objects(object(fixture, "poseidon"), "signing_messages")
+    XCTAssertEqual(signatures.count, 17)
+    XCTAssertEqual(
+      try signatures.map { try string($0, "object") }, try messages.map { try string($0, "object") }
+    )
+    XCTAssertEqual(Set(try signatures.map(signingDomain)), Set(domains))
+    for (vector, row) in zip(signatures, messages) {
+      let label = try string(vector, "object")
+      let domain = try signingDomain(vector)
+      let transcript = try hexData(string(vector, "transcript_hex"))
+      XCTAssertEqual(transcript.count, domain.transcriptBytes, label)
+      // m = P_bytes(d, transcript): the packed element count re-derives; m itself is opaque.
+      XCTAssertEqual(try int(vector, "elements"), packedFieldElements(transcript).count, label)
+      XCTAssertEqual(try string(row, "domain"), domain.rawValue, label)
+      XCTAssertEqual(try hexData(string(row, "body_hex")), transcript, label)
+      XCTAssertEqual(try int(row, "elements"), try int(vector, "elements"), label)
+      let message = try hexData(string(vector, "message_hex"))
+      XCTAssertEqual(try hexData(string(row, "digest_hex")), message, label)
+      XCTAssertEqual(message.count, Wire.signingMessageBytes, label)
+      assertPoseidonValue(message, label)
+    }
+    XCTAssertEqual(
+      Set(try signatures.map { try string($0, "message_hex") }).count, signatures.count,
+      "distinct messages")
+  }
 
   func testFixedKeysDeriveFromScalars() throws {
     let keys = try objects(loadFixture(), "keys")
@@ -272,35 +402,34 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     let fixture = try loadFixture()
     XCTAssertEqual(
       try string(fixture, "signature_rule"),
-      "ECDSA-P256-SHA256 over preimage_hex; RFC 6979 from the fixed scalars, frozen to low S; "
+      "ECDSA-P256-SHA256 over the 32-byte message_hex = P_bytes(domain, transcript_hex); "
+        + "RFC 6979 from the fixed scalars, frozen to low S; "
         + "a consumer accepts iff codec_ok and verify_ok")
     let keys = try objects(fixture, "keys").map { try hexData(string($0, "public_key_hex")) }
     let vectors = try objects(fixture, "signatures")
-    XCTAssertEqual(vectors.count, 18)
+    XCTAssertEqual(vectors.count, 17)
     for vector in vectors {
       let label = try string(vector, "object")
-      let role = try XCTUnwrap(KagemushaWalletDigestRoleV1(rawValue: string(vector, "role")))
       let publicKey = try hexData(string(vector, "public_key_hex"))
-      let preimage = try hexData(string(vector, "preimage_hex"))
+      let message = try hexData(string(vector, "message_hex"))
+      let transcript = try hexData(string(vector, "transcript_hex"))
       let signature = try hexData(string(vector, "signature_hex"))
       let codecOK = try bool(vector, "codec_ok")
       let verifyOK = try bool(vector, "verify_ok")
       XCTAssertTrue(codecOK && verifyOK, label)
 
-      // The preimage is exactly prefix || role || 0x00 || LE64(len) || body.
-      let body = try bodyOfPreimage(preimage, role: role)
-      XCTAssertEqual(Wire.preimage(role: role, body: body), preimage, label)
-      let e = try hexData(string(vector, "e_hex"))
-      XCTAssertEqual(Data(SHA256.hash(data: preimage)), e, label)
-      XCTAssertEqual(Wire.digest(role: role, body: body), e, label)
-
       XCTAssertTrue(Wire.isValidPublicKey(publicKey), label)
       XCTAssertEqual(Wire.isCanonicalLowSSignature(signature), codecOK, label)
-      XCTAssertEqual(cryptoKitEquation(publicKey, preimage, signature), verifyOK, label)
+      XCTAssertEqual(cryptoKitEquation(publicKey, message, signature), verifyOK, label)
       XCTAssertTrue(
-        Wire.verifySignature(publicKey: publicKey, preimage: preimage, signature: signature), label)
+        Wire.verifySignature(publicKey: publicKey, message: message, signature: signature), label)
+      // The ECDSA hash is SHA-256(m): the signature binds the 32-byte message, never the
+      // transcript or a SHA-256 preimage of it.
       XCTAssertTrue(
-        Wire.verifySignature(publicKey: publicKey, role: role, body: body, signature: signature),
+        cryptoKitDigestEquation(publicKey, SHA256.hash(data: message), signature), label)
+      XCTAssertFalse(cryptoKitEquation(publicKey, transcript, signature), label)
+      XCTAssertFalse(
+        Wire.verifySignature(publicKey: publicKey, message: transcript, signature: signature),
         label)
 
       // CryptoKit accepts the high-S twin; the raw low-S check rejects it first.
@@ -309,11 +438,9 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
       XCTAssertFalse(try bool(twinVector, "codec_ok"), label)
       XCTAssertTrue(try bool(twinVector, "verify_ok"), label)
       XCTAssertFalse(Wire.isCanonicalLowSSignature(twin), label)
-      XCTAssertTrue(cryptoKitEquation(publicKey, preimage, twin), label)
+      XCTAssertTrue(cryptoKitEquation(publicKey, message, twin), label)
       XCTAssertFalse(
-        Wire.verifySignature(publicKey: publicKey, preimage: preimage, signature: twin), label)
-      XCTAssertFalse(
-        Wire.verifySignature(publicKey: publicKey, role: role, body: body, signature: twin), label)
+        Wire.verifySignature(publicKey: publicKey, message: message, signature: twin), label)
       XCTAssertEqual(
         try P256.Signing.ECDSASignature(
           derRepresentation: hexData(string(twinVector, "der_hex"))
@@ -324,35 +451,56 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
       XCTAssertEqual(
         addBigEndian(Array(signature.suffix(32)), Array(twin.suffix(32))), Wire.groupOrder, label)
 
-      // The signature binds the exact preimage and key.
-      var tampered = preimage
-      tampered[tampered.index(before: tampered.endIndex)] ^= 0x01
+      // The signature binds the exact message and key; the message is one canonical value.
+      var tampered = message
+      tampered[tampered.startIndex] ^= 0x01
       XCTAssertFalse(
-        Wire.verifySignature(publicKey: publicKey, preimage: tampered, signature: signature),
+        Wire.verifySignature(publicKey: publicKey, message: tampered, signature: signature),
         label)
       for other in keys where other != publicKey {
         XCTAssertFalse(
-          Wire.verifySignature(publicKey: other, preimage: preimage, signature: signature), label)
+          Wire.verifySignature(publicKey: other, message: message, signature: signature), label)
       }
       XCTAssertFalse(
         Wire.verifySignature(
-          publicKey: publicKey, preimage: preimage, signature: signature.prefix(63)),
+          publicKey: publicKey, message: message, signature: signature.prefix(63)),
+        label)
+      XCTAssertFalse(
+        Wire.verifySignature(
+          publicKey: publicKey, message: message.prefix(31), signature: signature),
+        label)
+      XCTAssertFalse(
+        Wire.verifySignature(
+          publicKey: publicKey, message: message + Data([0]), signature: signature),
+        label)
+      XCTAssertFalse(
+        Wire.verifySignature(
+          publicKey: publicKey, message: Data(Wire.fieldModulus), signature: signature),
         label)
     }
   }
 
   func testSignatureBoundaryCasesSeparateCodecFromEquation() throws {
     let boundary = try object(loadFixture(), "signature_boundaries")
-    let role = try XCTUnwrap(KagemushaWalletDigestRoleV1(rawValue: string(boundary, "role")))
-    let body = try hexData(string(boundary, "body_hex"))
-    let preimage = try hexData(string(boundary, "preimage_hex"))
+    // The boundary signs the receipt-domain message of a fixed 338-byte transcript.
+    let domain = try XCTUnwrap(KagemushaWalletSigningDomainV1(rawValue: string(boundary, "domain")))
+    XCTAssertEqual(domain, .receipt)
+    XCTAssertEqual(try hexData(string(boundary, "transcript_hex")).count, domain.transcriptBytes)
+    let message = try hexData(string(boundary, "message_hex"))
+    assertPoseidonValue(message, "boundary message")
+    XCTAssertEqual(Data(SHA256.hash(data: message)), try hexData(string(boundary, "e_hex")))
     let publicKey = try hexData(string(boundary, "public_key_hex"))
-    XCTAssertEqual(Wire.preimage(role: role, body: body), preimage)
-    XCTAssertEqual(Data(SHA256.hash(data: preimage)), try hexData(string(boundary, "e_hex")))
     XCTAssertEqual(
       try P256.Signing.PrivateKey(rawRepresentation: hexData(string(boundary, "d_hex")))
         .publicKey.x963Representation,
       publicKey)
+    // r = x(kG) mod n: x(kG) is r or r + n.
+    let kG = try [UInt8](
+      P256.Signing.PrivateKey(rawRepresentation: hexData(string(boundary, "k_hex")))
+        .publicKey.x963Representation)
+    let x = Array(kG[1..<33])
+    let r = try bytes(boundary, "r_hex")
+    XCTAssertTrue(x == r || addBigEndian(r, Wire.groupOrder) == x)
     let half = try bytes(boundary, "half_order_hex")
     let halfPlusOne = try bytes(boundary, "half_order_plus_one_hex")
     XCTAssertEqual(addBigEndian(half, halfPlusOne), Wire.groupOrder)
@@ -376,15 +524,12 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
       XCTAssertEqual(codecOK, pinned.0, name)
       XCTAssertEqual(verifyOK, pinned.1, name)
       XCTAssertEqual(Wire.isCanonicalLowSSignature(signature), codecOK, name)
-      XCTAssertEqual(cryptoKitEquation(publicKey, preimage, signature), verifyOK, name)
+      XCTAssertEqual(cryptoKitEquation(publicKey, message, signature), verifyOK, name)
       XCTAssertEqual(
-        Wire.verifySignature(publicKey: publicKey, preimage: preimage, signature: signature),
-        codecOK && verifyOK, name)
-      XCTAssertEqual(
-        Wire.verifySignature(publicKey: publicKey, role: role, body: body, signature: signature),
+        Wire.verifySignature(publicKey: publicKey, message: message, signature: signature),
         codecOK && verifyOK, name)
       if name == "s_half_order" {
-        XCTAssertEqual(Array(signature.prefix(32)), try bytes(boundary, "r_hex"))
+        XCTAssertEqual(Array(signature.prefix(32)), r)
         XCTAssertEqual(Array(signature.suffix(32)), half)
       }
     }
@@ -713,7 +858,10 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
       types.insert(type)
       _ = try XCTUnwrap(vector["stand_in_proof"] as? Bool, label)
       let name = try string(vector, "frame_name")
-      XCTAssertEqual(name, "iroha_data_model::kagemusha::kagemusha_wallet_v1::" + type, label)
+      let namespace = type == "KagemushaWalletLoadReceiptV1"
+        ? "iroha_data_model::isi::kagemusha_wallet::"
+        : "iroha_data_model::kagemusha::kagemusha_wallet_v1::"
+      XCTAssertEqual(name, namespace + type, label)
       let frame = try hexData(string(vector, "canonical_hex"))
       XCTAssertEqual(frame.count, try int(vector, "frame_len"), label)
       if let cap = caps[type] {
@@ -747,6 +895,61 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
         "KagemushaWalletRecoveryCapsuleV1", "KagemushaWalletCompletionRecordV1",
         "KagemushaWalletFoldRecordV1", "KagemushaWalletVerifyingKeyAllowlistV1",
       ]))
+  }
+
+  func testQuotaRefreshRetainsCanonicalFullPredecessorUsageWitness() throws {
+    let fixture = try loadFixture()
+    let type = "KagemushaWalletQuotaRefreshWitnessV1"
+    let identity = try XCTUnwrap(objects(fixture, "frames").first { $0["type"] as? String == type })
+    XCTAssertEqual(try int(identity, "max_bytes"), 8_192)
+    let witness = try XCTUnwrap(objects(fixture, "objects").first { $0["type"] as? String == type })
+    XCTAssertFalse(try bool(witness, "stand_in_proof"))
+    let original = try hexData(string(witness, "canonical_hex"))
+    XCTAssertLessThanOrEqual(original.count, try int(identity, "max_bytes"))
+    let decoded = try XCTUnwrap(noritoDecodeFrame(original))
+    XCTAssertEqual(
+      decoded.header.schema, try noritoSchemaHash(forTypeName: string(identity, "frame_name")))
+    XCTAssertEqual(decoded.paddingLength, 8)
+    let frame = try VectorFrame(original)
+    let fields = try frame.fields(frame.root)
+    XCTAssertEqual(fields.count, 2)
+    XCTAssertEqual(frame.data(fields[0]), Data([1, 0]))
+    // Fixed arrays have exactly 64 length-prefixed Option values, without a Vec count.
+    let slots = try frame.fields(fields[1])
+    XCTAssertEqual(slots.count, 64)
+    var previousEnd: UInt64 = 0
+    for (index, slot) in slots.enumerated() {
+      XCTAssertEqual(frame.payload[slot.lowerBound], 1, "occupied slot \(index)")
+      let value = try frame.fields((slot.lowerBound + 1)..<slot.upperBound)
+      XCTAssertEqual(value.count, 1)
+      let leaf = try frame.fields(value[0])
+      XCTAssertEqual(leaf.map(\.count), [4, 8, 8, 16])
+      let start = readLE64(frame.payload, at: leaf[1].lowerBound)
+      let end = readLE64(frame.payload, at: leaf[2].lowerBound)
+      XCTAssertTrue(start >= previousEnd && end > start, "ordered window \(index)")
+      XCTAssertEqual(
+        try unsignedElement(frame.data(leaf[3]) + Data(count: 16)), UInt64(100 + index))
+      previousEnd = end
+    }
+    let tags = try objects(object(fixture, "enum_tags"), "KagemushaWalletRetainedInputRoleV1")
+    let role = try XCTUnwrap(tags.first { $0["variant"] as? String == "QuotaRefreshWitness" })
+    XCTAssertEqual(try int(role, "tag"), 10)
+    let capsuleVector = try XCTUnwrap(
+      objects(fixture, "objects").first {
+        $0["type"] as? String == "KagemushaWalletRecoveryCapsuleV1"
+          && $0["variant"] as? String == "QuotaShare, 64 retained predecessor slots"
+      })
+    XCTAssertTrue(
+      try bool(capsuleVector, "stand_in_proof"), "structural sample is not proof acceptance")
+    let capsule = try VectorFrame(hexData(string(capsuleVector, "canonical_hex")))
+    let capsuleFields = try capsule.fields(capsule.root)
+    XCTAssertEqual(capsuleFields.count, 14, "capsule field layout is unchanged")
+    let retained = try capsule.sequence(capsuleFields[12]).map { try capsule.fields($0) }
+    XCTAssertEqual(retained.count, 3)
+    let input = try XCTUnwrap(
+      retained.first { readLE32(capsule.payload, at: $0[0].lowerBound) == 10 })
+    XCTAssertEqual(input.count, 2)
+    XCTAssertEqual(try capsule.byteVector(input[1]), original)
   }
 
   // MARK: Field encodings
@@ -788,7 +991,7 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     XCTAssertEqual(
       layouts.map { $0.reduce(0) { $0 + $1.width } }, [64, 80, 160, 80, 64, 112, 41, 0])
     XCTAssertEqual(
-      layouts.map { $0.reduce(0) { $0 + $1.elementCount } }, [4, 5, 10, 4, 3, 7, 4, 0])
+      layouts.map { $0.reduce(0) { $0 + $1.elementCount } }, [4, 4, 9, 4, 2, 5, 3, 0])
     XCTAssertEqual(statementEffectLayouts.count, 8)
   }
 
@@ -807,11 +1010,65 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     let domains = try objects(encodings, "domains")
     // The current Rust Poseidon domain uses, in declaration order (poseidon.rs).
     let expectedUses = [
-      "core", "rest", "statement", "credit_id", "send_chain", "recv_chain",
-      "consumed_credit_leaf", "pending_outgoing_leaf", "load_recovery_leaf",
-      "redeem_recovery_leaf", "fee_claim_leaf", "quota_usage_leaf", "credit_digest_leaf",
-      "sparse_empty_leaf", "sparse_node", "blacklist_leaf", "blacklist_node",
-      "quota_window_leaf", "quota_node", "proof_digest", "step_proof_digest", "payment_digest",
+      "core",
+      "rest",
+      "statement",
+      "credit_id",
+      "send_chain",
+      "recv_chain",
+      "consumed_credit_value",
+      "pending_outgoing_value",
+      "load_value",
+      "load_receipt",
+      "redeem_value",
+      "fee_claim_value",
+      "blacklist_history_value",
+      "certificate_set",
+      "package",
+      "nullifier",
+      "credit_digest_value",
+      "indexed_leaf",
+      "indexed_node",
+      "blacklist_leaf",
+      "blacklist_node",
+      "quota_window_leaf",
+      "quota_node",
+      "quota_usage_leaf",
+      "quota_usage_node",
+      "proof_digest",
+      "step_proof_digest",
+      "payment_digest",
+      "lineage_digest",
+      "credit_opening_digest",
+      "credit_status_digest",
+      "credited_digest",
+      "operation_id",
+      "signing_certificate",
+      "signing_credential",
+      "signing_renewal_challenge",
+      "signing_renewal_key_binding",
+      "signing_artifact_manifest",
+      "signing_receipt",
+      "signing_scheme_policy",
+      "signing_fee_schedule",
+      "signing_blacklist",
+      "signing_quota_share",
+      "signing_time_anchor",
+      "signing_charge_quote",
+      "signing_offer",
+      "signing_session_control",
+      "signing_request",
+      "signing_ledger_control",
+      "object_certificate",
+      "object_credential",
+      "object_receipt",
+      "object_scheme_policy",
+      "object_fee_schedule",
+      "object_blacklist",
+      "object_quota_share",
+      "object_time_anchor",
+      "object_charge_quote",
+      "object_request",
     ]
     XCTAssertEqual(domains.count, expectedUses.count)
     XCTAssertEqual(try domains.map { try string($0, "use") }, expectedUses)
@@ -832,15 +1089,23 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     let rest = try fieldElements(state, "rest_items")
     let sendChain = try fieldElements(encodings, "send_chain_append_from_empty")
     let recvChain = try fieldElements(encodings, "recv_chain_append")
-    let consumed = try fieldElements(encodings, "consumed_credit_leaf")
-    let pending = try fieldElements(encodings, "pending_outgoing_leaf")
-    let feeClaim = try fieldElements(encodings, "fee_claim_leaf")
-    let creditDigest = try fieldElements(encodings, "credit_digest_leaf")
+    // The map value element lists (owner answer A2: each map leaf hashes its key, this value
+    // and the next key).
+    let consumed = try fieldElements(encodings, "consumed_credit_value")
+    let pending = try fieldElements(encodings, "pending_outgoing_value")
+    let feeClaim = try fieldElements(encodings, "fee_claim_value")
+    let creditDigest = try fieldElements(encodings, "credit_digest_value")
+    XCTAssertTrue(try string(encodings, "indexed_leaf_rule").hasPrefix("leaf = P(kgwimlf1"))
+    for retired in [
+      "consumed_credit_leaf", "pending_outgoing_leaf", "fee_claim_leaf", "credit_digest_leaf",
+    ] {
+      XCTAssertNil(encodings[retired], retired)
+    }
     let lists: [(String, [Data], Int)] = [
-      ("send_statement", send, 28), ("receive_statement", receive, 28), ("core", core, 32),
-      ("rest", rest, 13), ("send_chain", sendChain, 9), ("recv_chain", recvChain, 5),
-      ("consumed_credit_leaf", consumed, 3), ("pending_outgoing_leaf", pending, 8),
-      ("fee_claim_leaf", feeClaim, 4), ("credit_digest_leaf", creditDigest, 3),
+      ("send_statement", send, 26), ("receive_statement", receive, 26), ("core", core, 33),
+      ("rest", rest, 8), ("send_chain", sendChain, 8), ("recv_chain", recvChain, 5),
+      ("consumed_credit_value", consumed, 3), ("pending_outgoing_value", pending, 7),
+      ("fee_claim_value", feeClaim, 3), ("credit_digest_value", creditDigest, 3),
     ]
     for (name, items, count) in lists {
       XCTAssertEqual(items.count, count, name)
@@ -860,13 +1125,12 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
       XCTAssertTrue(Wire.isCanonicalFieldValue(value), name)
     }
 
-    // Statement items: the element rule applied to the exact 440-byte statement transcript;
-    // the Send statement is the `statement` digest vector.
-    let sendTranscript = try hexData(string(sendStatement, "statement_hex"))
-    XCTAssertEqual(try statementFieldElements(sendTranscript), send)
-    XCTAssertEqual(
-      try statementFieldElements(hexData(string(receiveStatement, "statement_hex"))), receive)
-    XCTAssertEqual(sendTranscript, try digestBody(digests, "statement"))
+    // Statement field elements are re-derived from the canonical package records.
+    let paymentFrame = try VectorFrame(envelopeFrame(fixture, "Payment"))
+    let sendPackage = try paymentFrame.envelopeMessage().fields[4]
+    XCTAssertEqual(try statementFieldElements(paymentFrame, paymentFrame.field(sendPackage, 1)), send)
+    let receiveFrame = try VectorFrame(objectFrame(fixture, "KagemushaWalletPackageV1", variant: "Receive"))
+    XCTAssertEqual(try statementFieldElements(receiveFrame, receiveFrame.field(receiveFrame.root, 1)), receive)
 
     // Core and rest items: the element rule applied to the state frame `{version, core, rest}`,
     // whose field order is the element order.
@@ -885,42 +1149,51 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     XCTAssertEqual(try frameFieldElements(stateFrame, stateFields[1], stateCoreLayout), core)
     XCTAssertEqual(try frameFieldElements(stateFrame, stateFields[2], stateRestLayout), rest)
     // The five map roots and the state nonce are nonzero canonical values.
-    for index in [17, 18, 19, 20, 21, 31] {
+    for index in [16, 17, 18, 19, 20, 32] {
       XCTAssertNotEqual(core[index], Data(count: 32), "core[\(index)]")
     }
     // The Receive statement's successor is the successor state's commitment.
-    XCTAssertEqual(receive[16], try hexData(string(state, "commitment_hex")))
+    XCTAssertEqual(receive[15], try hexData(string(state, "commitment_hex")))
 
     // One credit throughout: credit_id and the Payment digest are one element each.
     let poseidon = try object(fixture, "poseidon")
     let credit = try hexData(
       string(object(object(poseidon, "credit_id"), "poseidon"), "digest_hex"))
-    let paymentDigest = try hexData(string(object(poseidon, "payment_digest"), "digest_hex"))
-    let sendDescriptor = Array(send[18..<26])
-    XCTAssertEqual(send[18], credit)
-    XCTAssertEqual(receive[18], credit)
-    XCTAssertEqual(Array(send[24..<26]), fieldDigestLimbs(try digestValue(digests, "request")))
-    XCTAssertEqual(Array(receive[19..<21]), fieldDigestLimbs(try digestValue(digests, "wallet-id")))
-    XCTAssertEqual(receive[21], send[22])
+    let paymentDigest = try hexData(string(largeInput(fixture, "kgwpay_1"), "digest_hex"))
+    let sendDescriptor = Array(send[17..<24])
+    XCTAssertEqual(send[17], credit)
+    XCTAssertEqual(receive[17], credit)
+    let paymentBody = try hexData(string(largeInput(fixture, "kgwpay_1"), "body_hex"))
+    XCTAssertEqual(send[23], Data(paymentBody[2..<34]))
+    XCTAssertEqual(Array(receive[18..<20]), fieldDigestLimbs(try digestValue(digests, "wallet-id")))
+    XCTAssertEqual(receive[20], send[21])
     XCTAssertEqual(pending, sendDescriptor)
     XCTAssertEqual(sendChain, [Data(count: 32)] + sendDescriptor)
-    XCTAssertEqual(Array(recvChain.dropFirst()), Array(receive[18..<22]))
-    XCTAssertEqual(consumed, [credit, receive[21], receive[10]])
-    XCTAssertEqual(Array(feeClaim.prefix(2)), [credit, send[23]])
-    XCTAssertEqual(
-      Array(feeClaim.suffix(2)), fieldDigestLimbs(try digestValue(digests, "fee-schedule")))
+    XCTAssertEqual(Array(recvChain.dropFirst()), Array(receive[17..<21]))
+    assertStandInField(recvChain[0], seed: 0x2c, "recv_chain before the append")
+    XCTAssertEqual(consumed, [credit, receive[20], receive[9]])
+    XCTAssertEqual(Array(feeClaim.prefix(2)), [credit, send[22]])
+    let requestFrame = try VectorFrame(envelopeFrame(fixture, "Request"))
+    let requestBody = try requestFrame.envelopeMessage().fields[0]
+    XCTAssertEqual(feeClaim[2], try requestFrame.data(requestFrame.field(requestBody, 10)))
     XCTAssertEqual(creditDigest, [credit, paymentDigest, Data(count: 32)])
-
-    // The receiver's successor core agrees with its Receive statement and the Send's receiver.
-    XCTAssertEqual(core[0], receive[9])
+    XCTAssertEqual(core[0], receive[8])
     XCTAssertEqual(Array(core[1..<3]), Array(receive[3..<5]))
     XCTAssertEqual(Array(core[3..<5]), Array(receive[5..<7]))
-    XCTAssertEqual(Array(core[5..<7]), Array(send[19..<21]))
-    XCTAssertEqual(Array(core[7..<9]), Array(receive[7..<9]))
-    XCTAssertEqual(core[11], receive[10])
-    XCTAssertEqual(core[13], receive[11])
-    XCTAssertEqual(core[22], receive[12])
-    XCTAssertEqual(core[10], receive[13])
+    XCTAssertEqual(Array(core[5..<7]), Array(send[18..<20]))
+    XCTAssertEqual(core[7], receive[7])
+    XCTAssertEqual(core[10], receive[9])
+    XCTAssertEqual(core[12], receive[10])
+    XCTAssertEqual(core[21], receive[11])
+    XCTAssertEqual(core[9], receive[12])
+
+    // Stand-in field values follow their labelled rule; empty map roots are computed.
+    let standIns = try object(fixture, "stand_ins")
+    XCTAssertNil(standIns["empty_roots_hex"])
+    for key in ["credit_digest_root_hex", "lineage_pending_outgoing_root_hex"] {
+      let value = try hexData(string(standIns, key))
+      assertStandInField(value, seed: value[value.startIndex], key)
+    }
   }
 
   func testControlledStateBindsEveryPositionToItsField() throws {
@@ -931,8 +1204,8 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     let controlled = try object(encodings, "controlled_state")
     let core = try fieldElements(controlled, "core_items")
     let rest = try fieldElements(controlled, "rest_items")
-    XCTAssertEqual(core.count, 32)
-    XCTAssertEqual(rest.count, 13)
+    XCTAssertEqual(core.count, 33)
+    XCTAssertEqual(rest.count, 8)
     XCTAssertEqual(Set(core).count, core.count, "distinct core elements")
     XCTAssertEqual(Set(rest).count, rest.count, "distinct rest elements")
     for item in core + rest {
@@ -950,21 +1223,21 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
 
     let coreOrder: [(String, FrameSlotV1)] = [
       ("lifecycle", .tag), ("scheme_id", .digest), ("asset_digest", .digest),
-      ("wallet_id", .digest), ("credential_digest", .digest), ("balance", .integer),
+      ("wallet_id", .digest), ("credential_digest", .field), ("balance", .integer),
       ("burned_total", .integer), ("sequence", .integer), ("next_send", .integer),
       ("next_load", .integer), ("next_redeem", .integer), ("send_chain", .field),
       ("recv_chain", .field), ("consumed_credit_root", .field), ("pending_outgoing_root", .field),
       ("load_redeem_recovery_root", .field), ("fee_claim_root", .field),
       ("quota_usage_root", .field), ("enabled_controls", .integer),
-      ("quota_windows_root", .field), ("blacklist_version", .integer), ("blacklist_root", .field),
+      ("quota_windows_root", .field), ("quota_share_expires_at_ms", .integer), ("blacklist_version", .integer), ("blacklist_root", .field),
       ("blacklist_issued_at_ms", .integer), ("blacklist_max_age_ms", .integer),
-      ("lease_expires_at_ms", .integer), ("policy_epoch", .integer),
+      ("time_anchor_max_response_ms", .integer), ("lease_expires_at_ms", .integer), ("policy_epoch", .integer),
       ("accepted_time_floor_ms", .integer), ("state_nonce", .field),
     ]
     let restOrder: [(String, FrameSlotV1)] = [
-      ("permitted_controls", .integer), ("time_anchor_max_response_ms", .integer),
-      ("scheme_policy", .digest), ("fee_schedule", .digest), ("blacklist", .digest),
-      ("quota_share", .digest), ("quota_share_id", .integer), ("time_anchor", .digest),
+      ("permitted_controls", .integer), ("scheme_policy", .field), ("fee_schedule", .field),
+      ("blacklist", .field), ("quota_share", .field), ("quota_share_id", .integer),
+      ("time_anchor", .field), ("blacklist_history_root", .field),
     ]
     XCTAssertEqual(coreOrder.map { $0.1 }, stateCoreLayout)
     XCTAssertEqual(restOrder.map { $0.1 }, stateRestLayout)
@@ -990,6 +1263,20 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
   }
 
   // MARK: Poseidon values
+
+  func testIndexedKeyOrderUsesLittleEndianIntegers() {
+    let zero = Data(count: 32)
+    let byteMaximum = Data([0xff]) + Data(count: 31)
+    let nextByte = Data([0, 1]) + Data(count: 30)
+    let lowLimbMaximum = Data(repeating: 0xff, count: 16) + Data(count: 16)
+    let nextLimb = Data(count: 16) + Data([1]) + Data(count: 15)
+    XCTAssertLessThan(compareLittleEndian(zero, byteMaximum), 0)
+    XCTAssertLessThan(compareLittleEndian(byteMaximum, nextByte), 0)
+    XCTAssertGreaterThan(compareLittleEndian(nextByte, byteMaximum), 0)
+    XCTAssertLessThan(compareLittleEndian(lowLimbMaximum, nextLimb), 0)
+    XCTAssertGreaterThan(compareLittleEndian(nextLimb, lowLimbMaximum), 0)
+    XCTAssertEqual(compareLittleEndian(nextLimb, nextLimb), 0)
+  }
 
   func testPoseidonKnownAnswersAndPackingFollowTheRules() throws {
     let poseidon = try object(loadFixture(), "poseidon")
@@ -1033,31 +1320,91 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
 
   func testCreditIDIsOneValueOverTheRequestBodyElements() throws {
     let fixture = try loadFixture()
-    let digests = try digestVectors(fixture)
     let creditID = try object(object(fixture, "poseidon"), "credit_id")
     let body = try hexData(string(creditID, "request_body_hex"))
-    XCTAssertEqual(body, try digestBody(digests, "request-body"))
-    XCTAssertEqual(body.count, 354)
+    // credit_id = P(kgwcrdt1, the 26 Request-body elements in transcript order) (owner answers
+    // Q1 and A5: both account digests are inside the preimage).
+    XCTAssertEqual(body, try signedBody(fixture, object: "Request"))
+    XCTAssertEqual(body.count, KagemushaWalletSigningDomainV1.request.transcriptBytes)
+    XCTAssertEqual(body.count, 458)
     let hashed = try object(creditID, "poseidon")
     XCTAssertEqual(try string(hashed, "domain"), "kgwcrdt1")
     let items = try fieldElements(hashed, "items")
-    XCTAssertEqual(items.count, 24)
+    XCTAssertEqual(items.count, 26)
     XCTAssertEqual(items, try transcriptFieldElements([UInt8](body), requestBodyLayout))
-    let credit = try hexData(string(hashed, "digest_hex"))
-    XCTAssertTrue(Wire.isCanonicalFieldValue(credit))
-    XCTAssertNotEqual(credit, Data(count: 32))
+    assertPoseidonValue(try hexData(string(hashed, "digest_hex")), "credit_id")
     // The Request envelope's body record is these fixed-width fields in transcript order.
     let request = try VectorFrame(envelopeFrame(fixture, "Request"))
     let message = try request.envelopeMessage()
     XCTAssertEqual(message.tag, 2)
     let bodyFields = try request.fields(XCTUnwrap(message.fields.first))
-    XCTAssertEqual(bodyFields.count, 15)
+    XCTAssertEqual(bodyFields.count, 19)
     XCTAssertEqual(bodyFields.reduce(Data()) { $0 + request.data($1) }, body)
+  }
+
+  func testRequestAccountDigestsNameBothCredentialsInsideTheCreditIDPreimage() throws {
+    // Request body (19 fields, owner answer A5): payer_account_digest and
+    // receiver_account_digest, so the payer's and the receiver's blacklist checks are provable
+    // against the same credit_id.
+    let fixture = try loadFixture()
+    let request = try VectorFrame(envelopeFrame(fixture, "Request"))
+    let requestMessage = try request.envelopeMessage()
+    XCTAssertEqual(requestMessage.fields.count, 5)
+    let body = try request.fields(requestMessage.fields[0]).map { request.data($0) }
+    XCTAssertEqual(body.count, 19)
+    guard body.count == 19 else { return }
+
+    // The payer's digest is the Offer credential's, the receiver's the Request credential's.
+    let offer = try VectorFrame(envelopeFrame(fixture, "Offer"))
+    let offerMessage = try offer.envelopeMessage()
+    XCTAssertEqual(offerMessage.fields.count, 4)
+    let offerBody = try offer.fields(offerMessage.fields[0])
+    let payerCredential = try offer.fields(offer.field(offerMessage.fields[1], 0))
+    let receiverCredential = try request.fields(request.field(requestMessage.fields[1], 0))
+    XCTAssertEqual(offer.data(offerBody[3]), body[Self.requestPayerWallet])
+    XCTAssertEqual(offer.data(payerCredential[3]), body[Self.requestPayerWallet])
+    XCTAssertEqual(offer.data(payerCredential[4]), body[Self.requestPayerAccount])
+    XCTAssertEqual(
+      try digestValue(digestVectors(fixture), "account"), body[Self.requestPayerAccount])
+    XCTAssertEqual(request.data(receiverCredential[3]), body[Self.requestReceiverWallet])
+    XCTAssertEqual(request.data(receiverCredential[4]), body[Self.requestReceiverAccount])
+    XCTAssertNotEqual(body[Self.requestPayerAccount], body[Self.requestReceiverAccount])
+    for account in [body[Self.requestPayerAccount], body[Self.requestReceiverAccount]] {
+      XCTAssertEqual(account.count, 32)
+      XCTAssertNotEqual(account, Data(count: 32), "nonzero account digest")
+    }
+
+    // Both digests are limb pairs of the 26 credit_id elements.
+    let items = try fieldElements(
+      object(object(object(fixture, "poseidon"), "credit_id"), "poseidon"), "items")
+    XCTAssertEqual(items.count, 26)
+    XCTAssertEqual(Array(items[7..<9]), fieldDigestLimbs(body[Self.requestPayerAccount]))
+    XCTAssertEqual(Array(items[11..<13]), fieldDigestLimbs(body[Self.requestReceiverAccount]))
+  }
+
+  func testLargeInputDigestsPackTheirExactBodiesUnderTheirDomains() throws {
+    // The P_bytes digests over large inputs (owner answer A3): both proof_digest domains, the
+    // Payment digest, the lineage digest over Ω, the credit-opening and credit-status digests
+    // and the Credited digest of both evidence forms. Swift re-derives each packed element
+    // count; the values themselves are opaque canonical σ-field values.
+    let inputs = try objects(object(loadFixture(), "poseidon"), "large_input_digests")
+    XCTAssertEqual(
+      try inputs.map { try string($0, "domain") },
+      [
+        "kgwprf_1", "kgwstep1", "kgwpay_1", "kgwlin_1", "kgwcopn1", "kgwcsts1", "kgwcrdd1",
+        "kgwcrdd1",
+      ])
+    for row in inputs {
+      let domain = try string(row, "domain")
+      XCTAssertTrue(Self.poseidonDomains.contains(domain), domain)
+      _ = try packedDigest(row, domain: domain)
+    }
+    XCTAssertEqual(
+      Set(try inputs.map { try string($0, "digest_hex") }).count, inputs.count, "distinct values")
   }
 
   func testProofAndPaymentDigestsBindTheCarriedBytes() throws {
     let fixture = try loadFixture()
-    let poseidon = try object(fixture, "poseidon")
     let digests = try digestVectors(fixture)
 
     // The Payment's Send package carries Ω(pred) and σ_send.
@@ -1071,32 +1418,64 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     XCTAssertEqual(slot.tag, 1)
     let omega = try paymentFrame.fields(XCTUnwrap(slot.fields.first))
     XCTAssertEqual(omega.count, 2)
-    let omegaBytes =
-      try lineagePublicTranscript(paymentFrame, omega[0]) + paymentFrame.byteVector(omega[1])
-    // `lineage` is the SHA digest of exactly these Ω bytes.
-    XCTAssertEqual(omegaBytes, try digestBody(digests, "lineage"))
+    let omegaPublic = try lineagePublicTranscript(paymentFrame, omega[0])
+    let omegaBytes = try omegaPublic + paymentFrame.byteVector(omega[1])
+    // The lineage digest is P_bytes(kgwlin_1, Ω bytes) over exactly these bytes (owner answer A3).
+    let lineage = try largeInput(fixture, "kgwlin_1")
+    XCTAssertEqual(try hexData(string(lineage, "body_hex")), omegaBytes)
+    _ = try packedDigest(lineage, domain: "kgwlin_1")
     let sigmaSend = try paymentFrame.byteVector(paymentFrame.field(send[3], 0))
+    assertSigmaStandIn(sigmaSend, "σ_send")
 
     // proof_digest: P_bytes(kgwprf_1, LE32 len(Ω) ‖ Ω ‖ LE32 len(σ) ‖ σ) for Send.
-    let proofDigests = try objects(poseidon, "proof_digests")
-    XCTAssertEqual(proofDigests.count, 2)
-    guard proofDigests.count == 2 else { return }
+    let sendProofRow = try largeInput(fixture, "kgwprf_1")
     XCTAssertEqual(
-      try hexData(string(proofDigests[0], "body_hex")), lengthPrefixed([omegaBytes, sigmaSend]))
-    let sendProof = try packedDigest(proofDigests[0], domain: "kgwprf_1")
+      try hexData(string(sendProofRow, "body_hex")), lengthPrefixed([omegaBytes, sigmaSend]))
+    let sendProof = try packedDigest(sendProofRow, domain: "kgwprf_1")
+
+    // Ω's 320-byte public transcript: version, scheme, relation, head, wallet, credential, payment
+    // key, lifecycle, policy epoch, enabled controls, burned total and the two lineage roots.
+    let exposed = [UInt8](omegaPublic)
+    XCTAssertEqual(exposed.count, 320)
+    guard exposed.count == 320 else { return }
+    XCTAssertEqual(Array(exposed[0..<2]), [1, 0])
+    XCTAssertEqual(Data(exposed[2..<34]), try digestValue(digests, "scheme"))
+    XCTAssertEqual(Data(exposed[34..<66]), try digestValue(digests, "relation"))
+    let head = Data(exposed[66..<98])
+    assertPoseidonValue(head, "Ω head")
+    XCTAssertEqual(Data(exposed[98..<130]), try digestValue(digests, "wallet-id"))
+    XCTAssertEqual(Data(exposed[130..<162]), try fieldElements(object(object(fixture, "field_encodings"), "send_statement"), "items")[7])
+    XCTAssertEqual(Data(exposed[162..<227]), try fixedKey(fixture, "payer_payment"))
+    XCTAssertTrue((1...2).contains(exposed[227]), "lifecycle Active or Retiring")
+    let burned = Array(exposed[240..<256])
+    let pendingRoot = Data(exposed[256..<288])
+    let standIns = try object(fixture, "stand_ins")
+    XCTAssertEqual(pendingRoot, try hexData(string(standIns, "lineage_pending_outgoing_root_hex")))
+    XCTAssertEqual(
+      Data(exposed[288..<320]), try hexData(string(standIns, "credit_digest_root_hex")))
+    // The transport proof follows the labelled stand-in rule.
+    let transport = [UInt8](omegaBytes.dropFirst(320))
+    XCTAssertFalse(transport.isEmpty)
+    XCTAssertTrue(transport.indices.allSatisfy { Int(transport[$0]) == ($0 + 7) % 251 })
+    // The Send statement consumes this Ω(pred): its lineage fields are Ω's burned total and
+    // pending-outgoing root and its predecessor is Ω's head (consumer checks, §3.2).
+    let sendItems = try fieldElements(
+      object(object(fixture, "field_encodings"), "send_statement"), "items")
+    XCTAssertEqual(Array(sendItems[12..<15]), [fieldInteger(burned), pendingRoot, head])
 
     // The Send receipt body, package digest and statement place it by position (§3.2).
     let sendReceipt = [UInt8](try signedBody(fixture, object: "Send receipt"))
-    XCTAssertEqual(Data(sendReceipt), try digestBody(digests, "receipt-body"))
     XCTAssertEqual(sendReceipt.count, 338)
     guard sendReceipt.count == 338 else { return }
     XCTAssertEqual(Data(sendReceipt[242..<274]), sendProof)
     XCTAssertEqual(Data(sendReceipt[306..<338]), Data(count: 32))
-    let package = [UInt8](try digestBody(digests, "package"))
-    XCTAssertEqual(package.count, 96)
-    XCTAssertEqual(Data(package[0..<32]), try digestValue(digests, "statement"))
-    XCTAssertEqual(Data(package[32..<64]), sendProof)
-    XCTAssertEqual(Data(package[64..<96]), try digestValue(digests, "receipt"))
+    let packageVector = try object(object(fixture, "poseidon"), "package")
+    let package = try fieldElements(packageVector, "items")
+    XCTAssertEqual(try string(packageVector, "domain"), "kgwpkg_1")
+    XCTAssertEqual(package.count, 3)
+    XCTAssertEqual(package[0], try hexData(string(object(object(fixture, "field_encodings"), "send_statement"), "digest_hex")))
+    XCTAssertEqual(package[1], sendProof)
+    assertPoseidonValue(package[2], "Send receipt object digest")
 
     // proof_digest: P_bytes(kgwstep1, LE32 len(σ) ‖ σ) for the Receive package of Credited.
     let receiveFrame = try VectorFrame(envelopeFrame(fixture, "Credited::Receive"))
@@ -1107,27 +1486,29 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     let receivePackage = try receiveFrame.fields(XCTUnwrap(evidence.fields.first))
     XCTAssertEqual(receivePackage.count, 5)
     let sigmaReceive = try receiveFrame.byteVector(receiveFrame.field(receivePackage[3], 0))
-    XCTAssertEqual(try hexData(string(proofDigests[1], "body_hex")), lengthPrefixed([sigmaReceive]))
-    let receiveProof = try packedDigest(proofDigests[1], domain: "kgwstep1")
+    let receiveProofRow = try largeInput(fixture, "kgwstep1")
+    XCTAssertEqual(
+      try hexData(string(receiveProofRow, "body_hex")), lengthPrefixed([sigmaReceive]))
+    let receiveProof = try packedDigest(receiveProofRow, domain: "kgwstep1")
     XCTAssertNotEqual(receiveProof, sendProof)
 
     // Payment digest: P_bytes(kgwpay_1, payment transcript), binding Ω(pred), σ_send and τ_send
     // through the Send package digest (owner answer Q9).
-    let paymentDigest = try object(poseidon, "payment_digest")
-    let transcript = [UInt8](try hexData(string(paymentDigest, "body_hex")))
+    let paymentRow = try largeInput(fixture, "kgwpay_1")
+    let transcript = [UInt8](try hexData(string(paymentRow, "body_hex")))
     XCTAssertEqual(transcript.count, 163)
     guard transcript.count == 163 else { return }
     XCTAssertEqual(Array(transcript[0..<2]), [1, 0])
-    XCTAssertEqual(Data(transcript[2..<34]), try digestValue(digests, "request"))
+    XCTAssertEqual(Data(transcript[2..<34]), try fieldElements(object(fixture, "field_encodings"), "pending_outgoing_value")[6])
     XCTAssertEqual(Data(transcript[34..<99]), paymentFrame.data(payment.fields[2]))
     XCTAssertEqual(Data(transcript[99..<131]), paymentFrame.data(payment.fields[3]))
-    XCTAssertEqual(Data(transcript[99..<131]), try digestValue(digests, "credential"))
-    XCTAssertEqual(Data(transcript[131..<163]), try digestValue(digests, "package"))
-    let paymentValue = try packedDigest(paymentDigest, domain: "kgwpay_1")
-    XCTAssertEqual(try int(paymentDigest, "elements"), 7)
+    XCTAssertEqual(Data(transcript[99..<131]), try fieldElements(object(object(fixture, "field_encodings"), "send_statement"), "items")[7])
+    XCTAssertEqual(Data(transcript[131..<163]), try hexData(string(packageVector, "digest_hex")))
+    let paymentValue = try packedDigest(paymentRow, domain: "kgwpay_1")
+    XCTAssertEqual(try int(paymentRow, "elements"), 7)
 
     // The Receive receipt binds σ_recv's proof_digest and the Payment digest; the Receive
-    // package's receipt, its output descriptor and the Credited transcript carry the same value.
+    // package's receipt and its output descriptor carry the same value.
     let receiveReceipt = [UInt8](
       try signedBody(fixture, object: "Receive receipt binding the Payment digest"))
     XCTAssertEqual(receiveReceipt.count, 338)
@@ -1140,22 +1521,38 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     XCTAssertEqual(output.count, 97)
     guard output.count == 97 else { return }
     XCTAssertEqual(output[0], 4)
-    let receiveStatement = try hexData(
-      string(object(object(fixture, "field_encodings"), "receive_statement"), "statement_hex"))
-    XCTAssertEqual(Data(output[1..<33]), Wire.digest(role: .statement, body: receiveStatement))
+    let receiveStatementDigest = try hexData(string(
+      object(object(fixture, "field_encodings"), "receive_statement"), "digest_hex"))
+    XCTAssertEqual(Data(output[1..<33]), receiveStatementDigest)
     XCTAssertEqual(Data(output[33..<65]), receiveProof)
     XCTAssertEqual(Data(output[65..<97]), paymentValue)
-    let creditedBody = [UInt8](try digestBody(digests, "credited"))
-    XCTAssertEqual(creditedBody.count, 99)
-    guard creditedBody.count == 99 else { return }
-    XCTAssertEqual(Array(creditedBody[0..<3]), [1, 0, 1])
+
+    // The Credited digest P_bytes(kgwcrdd1, LE16 version ‖ tag evidence ‖ credit_id ‖
+    // payment_digest ‖ evidence digest) of both forms (owner answer A3).
+    let creditedRows = try largeInputs(fixture, "kgwcrdd1")
+    XCTAssertEqual(creditedRows.count, 2)
+    guard creditedRows.count == 2 else { return }
+    let credit = try hexData(
+      string(object(object(object(fixture, "poseidon"), "credit_id"), "poseidon"), "digest_hex"))
+    var evidenceDigests: [Data] = []
+    for (index, row) in creditedRows.enumerated() {
+      let label = try string(row, "object")
+      let body = [UInt8](try hexData(string(row, "body_hex")))
+      XCTAssertEqual(body.count, 99, label)
+      guard body.count == 99 else { return }
+      XCTAssertEqual(Array(body[0..<3]), [1, 0, UInt8(index + 1)], label)
+      XCTAssertEqual(Data(body[3..<35]), credit, label)
+      XCTAssertEqual(Data(body[35..<67]), paymentValue, label)
+      evidenceDigests.append(Data(body[67..<99]))
+    }
+    // Receive form carries the native Poseidon package digest.
+    assertPoseidonValue(evidenceDigests[0], "Receive package digest")
+    // Status form: the evidence digest is the credit-status digest.
     XCTAssertEqual(
-      Data(creditedBody[3..<35]),
-      try hexData(string(object(object(poseidon, "credit_id"), "poseidon"), "digest_hex")))
-    XCTAssertEqual(Data(creditedBody[35..<67]), paymentValue)
+      evidenceDigests[1], try hexData(string(largeInput(fixture, "kgwcsts1"), "digest_hex")))
   }
 
-  func testMapLeavesAndSparseOpeningsFollowTheKeyRules() throws {
+  func testMapValuesFollowTheirDomainsAndKeyRules() throws {
     let fixture = try loadFixture()
     let poseidon = try object(fixture, "poseidon")
     let encodings = try object(fixture, "field_encodings")
@@ -1163,199 +1560,361 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     let credit = try hexData(
       string(object(object(poseidon, "credit_id"), "poseidon"), "digest_hex"))
 
-    // Every map leaf: its domain, element list and key; `credit_id` keys the credit maps.
-    let leaves = try object(poseidon, "leaves")
-    let expectations: [(name: String, domain: String, list: String?)] = [
-      ("consumed_credit", "kgwccrd1", "consumed_credit_leaf"),
-      ("pending_outgoing", "kgwpout1", "pending_outgoing_leaf"),
-      ("fee_claim", "kgwfee_1", "fee_claim_leaf"),
-      ("load_recovery", "kgwload1", nil),
-      ("redeem_recovery", "kgwrdm_1", nil),
-      ("quota_usage", "kgwquse1", nil),
+    // Every map value: its domain, element list and key; `credit_id` keys the credit maps.
+    let values = try object(poseidon, "map_values")
+    let expectations: [(name: String, domain: String)] = [
+      ("consumed_credit", "kgwccrd1"), ("pending_outgoing", "kgwpout1"), ("load", "kgwload1"),
+      ("redeem", "kgwrdm_1"), ("fee_claim", "kgwfee_1"),
     ]
-    XCTAssertEqual(Set(leaves.keys), Set(expectations.map { $0.name }))
+    XCTAssertEqual(Set(values.keys), Set(expectations.map { $0.name }))
     for expectation in expectations {
-      let leaf = try object(leaves, expectation.name)
-      XCTAssertEqual(try string(leaf, "domain"), expectation.domain, expectation.name)
-      let items = try fieldElements(leaf, "items")
-      for value in items + [try hexData(string(leaf, "key_hex"))] {
-        XCTAssertTrue(Wire.isCanonicalFieldValue(value), expectation.name)
+      let value = try object(values, expectation.name)
+      XCTAssertEqual(try string(value, "domain"), expectation.domain, expectation.name)
+      let key = try hexData(string(value, "key_hex"))
+      assertPoseidonValue(key, "\(expectation.name) key")
+      for item in try fieldElements(value, "items") {
+        XCTAssertTrue(Wire.isCanonicalFieldValue(item), expectation.name)
       }
-      let value = try hexData(string(leaf, "digest_hex"))
-      XCTAssertTrue(Wire.isCanonicalFieldValue(value), expectation.name)
-      if let list = expectation.list {
-        XCTAssertEqual(items, try fieldElements(encodings, list), expectation.name)
-        XCTAssertEqual(try hexData(string(leaf, "key_hex")), credit, expectation.name)
-      }
+      assertPoseidonValue(try hexData(string(value, "digest_hex")), expectation.name)
+    }
+    for name in ["consumed_credit", "pending_outgoing", "fee_claim"] {
+      let value = try object(values, name)
+      XCTAssertEqual(try hexData(string(value, "key_hex")), credit, name)
+      XCTAssertEqual(
+        try fieldElements(value, "items"), try fieldElements(encodings, name + "_value"), name)
     }
 
     // One load/redeem recovery map keyed by (kind, ordinal) = kind · 2^128 + ordinal (owner
-    // answer Q3): Load 1 {ordinal, voucher (2), amount}, Redeem 2 {ordinal, nullifier (2),
-    // amount, online_charge}, whose nullifier recomputes from the vector's scheme and wallet.
-    let load = try object(leaves, "load_recovery")
+    // answer Q3): ordinary receipt and nullifier digests each occupy one field element.
+    let load = try object(values, "load")
     let loadItems = try fieldElements(load, "items")
-    XCTAssertEqual(loadItems.count, 4)
-    let loadKey = try hexData(string(load, "key_hex"))
-    XCTAssertEqual(loadKey, pairKey(high: 1, low: loadItems[0]))
-    XCTAssertEqual(Array(loadItems[1..<3]), fieldDigestLimbs(try digestValue(digests, "voucher")))
-    let redeem = try object(leaves, "redeem_recovery")
+    XCTAssertEqual(loadItems.count, 3)
+    XCTAssertEqual(try hexData(string(load, "key_hex")), pairKey(high: 1, low: loadItems[0]))
+    assertPoseidonValue(loadItems[1], "ordinary receipt digest")
+    let redeem = try object(values, "redeem")
     let redeemItems = try fieldElements(redeem, "items")
-    XCTAssertEqual(redeemItems.count, 5)
-    let redeemKey = try hexData(string(redeem, "key_hex"))
-    XCTAssertEqual(redeemKey, pairKey(high: 2, low: redeemItems[0]))
-    let nullifierBody = try digestBody(digests, "unload-nullifier")
-    XCTAssertEqual(nullifierBody.count, 80)
-    let nullifier = Wire.digest(
-      role: .unloadNullifier, body: nullifierBody.prefix(64) + redeemItems[0].prefix(16))
-    XCTAssertEqual(Array(redeemItems[1..<3]), fieldDigestLimbs(nullifier))
-    // Quota usage keyed by window kind · 2^128 + window start.
-    let usage = try object(leaves, "quota_usage")
-    let usageItems = try fieldElements(usage, "items")
-    XCTAssertEqual(usageItems.count, 4)
-    XCTAssertEqual(
-      try hexData(string(usage, "key_hex")),
-      pairKey(high: usageItems[0].first ?? 0, low: usageItems[1]))
-
-    // The depth-256 sparse tree: the pinned empty root and known default subtrees.
-    let sparse = try object(poseidon, "sparse_tree")
-    let emptyLeaf = try hexData(string(sparse, "empty_leaf_hex"))
-    let heightOne = try hexData(string(sparse, "default_height_1_hex"))
-    let emptyRoot = try hexData(string(sparse, "empty_root_hex"))
-    XCTAssertEqual(hex(emptyRoot), Self.emptySparseRootHex)
-    XCTAssertEqual(Set([emptyLeaf, heightOne, emptyRoot]).count, 3)
-    for value in [emptyLeaf, heightOne, emptyRoot] {
-      XCTAssertTrue(Wire.isCanonicalFieldValue(value))
-    }
-    let defaults = [emptyLeaf, heightOne]
-
-    // A one-leaf consumed-credit map: the member opens with no siblings; the key that differs
-    // in bit 0 is absent, opens to the empty leaf, and its only sibling is the member's leaf.
-    let membership = try object(sparse, "consumed_credit_membership")
-    let absence = try object(sparse, "consumed_credit_absence")
-    let member = try checkedOpening(membership, defaults: defaults, label: "membership")
-    let absent = try checkedOpening(absence, defaults: defaults, label: "absence")
-    XCTAssertEqual(try hexData(string(membership, "key_hex")), credit)
-    XCTAssertEqual(
-      try hexData(string(membership, "leaf_hex")),
-      try hexData(string(object(leaves, "consumed_credit"), "digest_hex")))
-    XCTAssertEqual(member.siblings, [])
-    XCTAssertEqual(member.bitmap, Data(count: 32))
-    var flipped = [UInt8](credit)
-    flipped[0] ^= 0x01
-    XCTAssertEqual(try hexData(string(absence, "key_hex")), Data(flipped))
-    XCTAssertEqual(try hexData(string(absence, "leaf_hex")), emptyLeaf)
-    XCTAssertEqual(try string(absence, "root_hex"), try string(membership, "root_hex"))
-    XCTAssertEqual(absent.bitmap, Data([1]) + Data(count: 31))
-    XCTAssertEqual(absent.siblings, [try hexData(string(membership, "leaf_hex"))])
-
-    // The load and redeem leaves share one recovery root. Their keys first differ at bit 129
-    // (kinds 1 and 2), so the load opening's only sibling sits at that height.
-    let loadOpening = try object(sparse, "load_membership")
-    let opened = try checkedOpening(loadOpening, defaults: defaults, label: "load")
-    XCTAssertEqual(try hexData(string(loadOpening, "key_hex")), loadKey)
-    XCTAssertEqual(
-      try hexData(string(loadOpening, "leaf_hex")), try hexData(string(load, "digest_hex")))
-    XCTAssertEqual(
-      try string(loadOpening, "root_hex"), try string(sparse, "load_redeem_recovery_root_hex"))
-    let height = try XCTUnwrap(highestDifferingBit(loadKey, redeemKey))
-    XCTAssertEqual(height, 129)
-    var bitmap = [UInt8](repeating: 0, count: 32)
-    bitmap[height / 8] |= 1 << UInt8(height % 8)
-    XCTAssertEqual(opened.bitmap, Data(bitmap))
-    XCTAssertEqual(opened.siblings.count, 1)
+    XCTAssertEqual(redeemItems.count, 4)
+    XCTAssertEqual(try hexData(string(redeem, "key_hex")), pairKey(high: 2, low: redeemItems[0]))
+    let nullifier = try object(poseidon, "unload_nullifier")
+    XCTAssertEqual(try string(nullifier, "domain"), "kgwnull1")
+    let nullifierItems = try fieldElements(nullifier, "items")
+    XCTAssertEqual(nullifierItems.count, 5)
+    XCTAssertEqual(Array(nullifierItems.prefix(2)), fieldDigestLimbs(try digestValue(digests, "scheme")))
+    let requestFrame = try VectorFrame(envelopeFrame(fixture, "Request"))
+    let requestBody = try requestFrame.envelopeMessage().fields[0]
+    XCTAssertEqual(Array(nullifierItems[2..<4]), try fieldDigestLimbs(requestFrame.data(requestFrame.field(requestBody, Self.requestPayerWallet))))
+    XCTAssertEqual(try unsignedElement(nullifierItems[4]), 2)
+    assertPoseidonValue(try hexData(string(nullifier, "digest_hex")), "unload nullifier")
+    assertPoseidonValue(redeemItems[1], "recovery nullifier")
+    XCTAssertLessThanOrEqual(try unsignedElement(redeemItems[3]), try unsignedElement(redeemItems[2]))
   }
 
-  func testCreditStatusOpeningMatchesItsCreditDigestLeaf() throws {
+  func testIndexedTreeInsertionsOpeningsAndRemovalLinkSortedLeaves() throws {
+    // Indexed maps are depth-32 Poseidon trees (owner answer A2): sorted linked
+    // leaves (key, value, next_key), an empty slot is zero, and the empty tree is the zero
+    // sentinel leaf in slot 0.
+    let fixture = try loadFixture()
+    let poseidon = try object(fixture, "poseidon")
+    let tree = try object(poseidon, "indexed_tree")
+    XCTAssertEqual(try hexData(string(tree, "empty_slot_hex")), Data(count: 32))
+    let sentinel = try object(tree, "sentinel_leaf")
+    XCTAssertEqual(try string(sentinel, "domain"), "kgwimlf1")
+    XCTAssertEqual(
+      try fieldElements(sentinel, "items"), Array(repeating: Data(count: 32), count: 3))
+    assertPoseidonValue(try hexData(string(sentinel, "digest_hex")), "sentinel leaf")
+    let heightOne = try object(tree, "empty_subtree_height_1")
+    XCTAssertEqual(try string(heightOne, "domain"), "kgwimnd1")
+    XCTAssertEqual(
+      try fieldElements(heightOne, "items"), Array(repeating: Data(count: 32), count: 2))
+    let heightOneValue = try hexData(string(heightOne, "digest_hex"))
+    assertPoseidonValue(heightOneValue, "empty subtree of height 1")
+    assertPoseidonValue(try hexData(string(tree, "empty_root_hex")), "empty root")
+    let empties = EmptySubtreesV1(heightOne: heightOneValue)
+    let values = try object(poseidon, "map_values")
+
+    // Successive insertions write the next free slots 1, 2, 3: the low leaf that brackets the
+    // new key is relinked to it, then the new leaf takes the low leaf's old next key.
+    let insertions = try objects(tree, "load_redeem_insertions")
+    XCTAssertEqual(insertions.count, 3)
+    var root = try hexData(string(tree, "empty_root_hex"))
+    for (index, insertion) in insertions.enumerated() {
+      let slot = index + 1
+      let label = "insertion at slot \(slot)"
+      XCTAssertEqual(try int(insertion, "slot"), slot, label)
+      XCTAssertEqual(try hexData(string(insertion, "old_root_hex")), root, label)
+      let key = try hexData(string(insertion, "key_hex"))
+      let lowVector = try object(insertion, "low")
+      XCTAssertEqual(try hexData(string(lowVector, "root_hex")), root, label)
+      let low = try checkedLeafOpening(
+        lowVector, occupiedThrough: slot - 1, empties: empties, label: "\(label) low leaf")
+      assertBrackets(low, key, label)
+      let linked = try object(insertion, "linked_low")
+      XCTAssertEqual(try hexData(string(linked, "key_hex")), low.key, label)
+      XCTAssertEqual(try hexData(string(linked, "value_hex")), low.value, label)
+      XCTAssertEqual(try hexData(string(linked, "next_key_hex")), key, label)
+      assertPoseidonValue(try hexData(string(linked, "leaf_hex")), label)
+      assertPoseidonValue(try hexData(string(insertion, "intermediate_root_hex")), label)
+      let emptySiblings = try checkedEmptySlotOpening(
+        object(insertion, "empty_slot_opening"), slot: slot, occupiedThrough: slot - 1,
+        empties: empties, label: label)
+      // The relinked low leaf sits beside the written slot when their slots are siblings.
+      if low.slot == slot ^ 1, let first = emptySiblings.first {
+        XCTAssertEqual(try hexData(string(linked, "leaf_hex")), first, label)
+      }
+      let leaf = try object(insertion, "leaf")
+      XCTAssertEqual(try hexData(string(leaf, "key_hex")), key, label)
+      XCTAssertEqual(
+        try hexData(string(leaf, "value_hex")), try hexData(string(insertion, "value_hex")), label)
+      XCTAssertEqual(try hexData(string(leaf, "next_key_hex")), low.nextKey, label)
+      assertPoseidonValue(try hexData(string(leaf, "leaf_hex")), label)
+      root = try hexData(string(insertion, "root_hex"))
+      assertPoseidonValue(root, label)
+    }
+    guard insertions.count == 3 else { return }
+    // The recovery map receives the Redeem and Load values of the map_values section.
+    let redeem = try object(values, "redeem")
+    let load = try object(values, "load")
+    XCTAssertEqual(try string(insertions[0], "key_hex"), try string(redeem, "key_hex"))
+    XCTAssertEqual(try string(insertions[0], "value_hex"), try string(redeem, "digest_hex"))
+    XCTAssertEqual(try string(insertions[1], "key_hex"), try string(load, "key_hex"))
+    XCTAssertEqual(try string(insertions[1], "value_hex"), try string(load, "digest_hex"))
+    XCTAssertEqual(
+      try hexData(string(insertions[2], "key_hex")), pairKey(high: 1, low: fieldInteger([1])))
+
+    // Membership opens the leaf at its slot; non-membership opens the low leaf whose key and
+    // next key bracket the absent key: through the sentinel, an interior leaf and the largest.
+    let membership = try object(tree, "membership")
+    XCTAssertEqual(try hexData(string(membership, "root_hex")), root)
+    let member = try checkedLeafOpening(
+      membership, occupiedThrough: 3, empties: empties, label: "membership")
+    XCTAssertEqual(member.key, try hexData(string(load, "key_hex")))
+    XCTAssertEqual(member.value, try hexData(string(load, "digest_hex")))
+    let presentKeys = Set(try insertions.map { try string($0, "key_hex") })
+    var lows: [LeafOpeningV1] = []
+    for name in [
+      "non_membership_through_sentinel", "non_membership_through_interior_low_leaf",
+      "non_membership_above_the_largest_key",
+    ] {
+      let vector = try object(tree, name)
+      let absent = try hexData(string(vector, "absent_key_hex"))
+      XCTAssertFalse(presentKeys.contains(hex(absent)), name)
+      let lowVector = try object(vector, "low")
+      XCTAssertEqual(try hexData(string(lowVector, "root_hex")), root, name)
+      let low = try checkedLeafOpening(
+        lowVector, occupiedThrough: 3, empties: empties, label: name)
+      assertBrackets(low, absent, name)
+      lows.append(low)
+    }
+    XCTAssertEqual(lows[0].key, Data(count: 32), "the sentinel is the low leaf below every key")
+    XCTAssertEqual(lows[0].slot, 0)
+    XCTAssertNotEqual(lows[1].key, Data(count: 32), "interior low leaf")
+    XCTAssertNotEqual(lows[1].nextKey, Data(count: 32), "interior low leaf")
+    XCTAssertEqual(lows[2].nextKey, Data(count: 32), "the largest key has a zero next key")
+
+    // A removal unlinks the leaf from its predecessor, then clears its slot; slots are not
+    // reused, so the next free slot stays above it.
+    let removal = try object(tree, "pending_outgoing_removal")
+    let removedKey = try hexData(string(removal, "removed_key_hex"))
+    XCTAssertEqual(
+      removedKey,
+      try hexData(string(object(object(poseidon, "credit_id"), "poseidon"), "digest_hex")))
+    let nextFree = try int(removal, "next_free_slot")
+    let predecessorVector = try object(removal, "predecessor")
+    XCTAssertEqual(
+      try string(predecessorVector, "root_hex"), try string(removal, "old_root_hex"))
+    let predecessor = try checkedLeafOpening(
+      predecessorVector, occupiedThrough: nextFree - 1, empties: empties,
+      label: "removal predecessor")
+    XCTAssertEqual(predecessor.nextKey, removedKey)
+    let removedVector = try object(removal, "removed")
+    XCTAssertEqual(
+      try string(removedVector, "root_hex"), try string(removal, "intermediate_root_hex"))
+    let removed = try checkedLeafOpening(
+      removedVector, occupiedThrough: nextFree - 1, empties: empties, label: "removed leaf")
+    XCTAssertEqual(removed.key, removedKey)
+    XCTAssertEqual(
+      removed.value, try hexData(string(object(values, "pending_outgoing"), "digest_hex")))
+    XCTAssertLessThan(removed.slot, nextFree)
+    XCTAssertLessThan(predecessor.slot, nextFree)
+    let relinked = try object(removal, "relinked_predecessor")
+    XCTAssertEqual(try hexData(string(relinked, "key_hex")), predecessor.key)
+    XCTAssertEqual(try hexData(string(relinked, "value_hex")), predecessor.value)
+    XCTAssertEqual(try hexData(string(relinked, "next_key_hex")), removed.nextKey)
+    assertPoseidonValue(try hexData(string(removal, "root_hex")), "root after removal")
+
+    // Every learned empty subtree is one value per height across all openings.
+    XCTAssertEqual(empties.count, Wire.indexedTreeDepth, "an empty subtree at every height")
+  }
+
+  func testQuotaUsageChargesItsAlignedDepthSixArraySlot() throws {
+    let array = try object(object(loadFixture(), "poseidon"), "quota_usage_array")
+    XCTAssertEqual(try int(array, "depth"), Wire.quotaTreeDepth)
+    XCTAssertEqual(try int(array, "slots"), Wire.quotaUsageSlots)
+    let leaves = try fieldElements(array, "leaf_values")
+    XCTAssertEqual(leaves.count, 64)
+    let usage = try object(array, "usage")
+    let charged = try object(array, "charged_usage")
+    for value in [usage, charged] { XCTAssertEqual(try string(value, "domain"), "kgwquse1") }
+    let before = try fieldElements(usage, "items")
+    let after = try fieldElements(charged, "items")
+    XCTAssertEqual(before.count, 4)
+    XCTAssertEqual(after.count, 4)
+    XCTAssertEqual(Array(before.prefix(3)), Array(after.prefix(3)))
+    let gross = try XCTUnwrap(UInt64(string(array, "gross")))
+    XCTAssertEqual(try unsignedElement(before[3]) + gross, try unsignedElement(after[3]))
+    let window = try fieldElements(object(array, "window"), "items")
+    XCTAssertEqual(Array(before.prefix(3)), Array(window.prefix(3)))
+    XCTAssertLessThanOrEqual(try unsignedElement(after[3]), try unsignedElement(window[3]))
+    XCTAssertEqual(leaves[0], try hexData(string(usage, "digest_hex")))
+    let padding = try object(array, "padding_leaf")
+    XCTAssertEqual(try fieldElements(padding, "items"), Array(repeating: Data(count: 32), count: 4))
+    let paddingValue = try hexData(string(padding, "digest_hex"))
+    for leaf in leaves.dropFirst(2) { XCTAssertEqual(leaf, paddingValue) }
+    let node = try object(array, "padding_node_height_1")
+    XCTAssertEqual(try string(node, "domain"), "kgwqusn1")
+    XCTAssertEqual(try fieldElements(node, "items"), [paddingValue, paddingValue])
+    for (name, slot) in [("usage_opening", 0), ("window_opening", 0), ("padding_opening", 63)] {
+      let opening = try object(array, name)
+      XCTAssertEqual(try int(opening, "slot"), slot)
+      let siblings = try fieldElements(opening, "siblings")
+      XCTAssertEqual(siblings.count, 6)
+      for value in siblings { assertPoseidonValue(value, name) }
+    }
+    for name in ["old_root_hex", "root_hex", "empty_root_hex", "windows_root_hex"] {
+      assertPoseidonValue(try hexData(string(array, name)), name)
+    }
+    XCTAssertNotEqual(try string(array, "old_root_hex"), try string(array, "root_hex"))
+    XCTAssertNotEqual(try string(usage, "digest_hex"), try string(charged, "digest_hex"))
+  }
+
+  func testCreditStatusOpeningIsAFixed32SiblingLeafOpening() throws {
     let fixture = try loadFixture()
     let poseidon = try object(fixture, "poseidon")
     let digests = try digestVectors(fixture)
     let credit = try hexData(
       string(object(object(poseidon, "credit_id"), "poseidon"), "digest_hex"))
-    let paymentValue = try hexData(string(object(poseidon, "payment_digest"), "digest_hex"))
-    let sparse = try object(poseidon, "sparse_tree")
-    let defaults = try ["empty_leaf_hex", "default_height_1_hex"].map {
-      try hexData(string(sparse, $0))
-    }
+    let paymentValue = try hexData(string(largeInput(fixture, "kgwpay_1"), "digest_hex"))
 
-    // The credit-digest leaf P(kgwcdig1, [credit_id, payment_digest, burned]) keyed by credit_id
-    // (owner answer Q7).
+    // The credit-digest value P(kgwcdig1, [credit_id, payment_digest, burned]) keyed by
+    // credit_id in the depth-32 indexed credit-digest tree (owner answers Q7 and A2).
     let vector = try object(poseidon, "credit_digest_opening")
-    let leaf = try object(vector, "leaf")
-    XCTAssertEqual(try string(leaf, "domain"), "kgwcdig1")
-    XCTAssertEqual(try fieldElements(leaf, "items"), [credit, paymentValue, Data(count: 32)])
-    XCTAssertEqual(try hexData(string(leaf, "key_hex")), credit)
-    let opening = try object(vector, "opening")
-    let checked = try checkedOpening(opening, defaults: defaults, label: "credit digest")
-    XCTAssertEqual(try hexData(string(opening, "key_hex")), credit)
-    XCTAssertEqual(try string(opening, "leaf_hex"), try string(leaf, "digest_hex"))
+    let value = try object(vector, "value")
+    XCTAssertEqual(try string(value, "domain"), "kgwcdig1")
+    XCTAssertEqual(try hexData(string(value, "key_hex")), credit)
+    let valueItems = try fieldElements(value, "items")
+    XCTAssertEqual(
+      valueItems, try fieldElements(object(fixture, "field_encodings"), "credit_digest_value"))
+    XCTAssertEqual(valueItems, [credit, paymentValue, Data(count: 32)])
+    guard valueItems.count == 3 else { return }
+    let valueDigest = try hexData(string(value, "digest_hex"))
+    assertPoseidonValue(valueDigest, "credit-digest value")
+    let membership = try object(vector, "membership")
+    let leaf = try checkedLeafOpening(
+      membership, occupiedThrough: nil, empties: nil, label: "credit-digest membership")
+    XCTAssertEqual(leaf.key, credit)
+    XCTAssertEqual(leaf.value, valueDigest)
+    XCTAssertGreaterThanOrEqual(leaf.slot, 1, "slot 0 holds only the sentinel")
 
-    // Credited::Status carries the same compressed opening, and Ω(h) exposes its root.
+    // Its credit-opening transcript (1,125): credit_id ‖ payment_digest ‖ u8 burned ‖ next_key
+    // ‖ LE32 slot ‖ 32 siblings; the credit-opening digest packs it.
+    let burned = UInt8(try unsignedElement(valueItems[2]))
+    var opening = credit + paymentValue + Data([burned]) + leaf.nextKey
+    opening.append(contentsOf: le32(UInt32(leaf.slot)))
+    opening.append(leaf.siblings.reduce(Data(), +))
+    XCTAssertEqual(opening.count, Wire.creditOpeningBytes)
+    XCTAssertEqual(try hexData(string(vector, "credit_opening_hex")), opening)
+    let openingRow = try largeInput(fixture, "kgwcopn1")
+    XCTAssertEqual(try hexData(string(openingRow, "body_hex")), opening)
+    let openingDigest = try packedDigest(openingRow, domain: "kgwcopn1")
+
+    // Credited::Status carries this opening against Ω(h)'s credit_digest_root, and Ω(h) names
+    // the Request's receiver by wallet_id and payment key (owner answer Q8).
     let frame = try VectorFrame(envelopeFrame(fixture, "Credited::Status"))
     let credited = try frame.envelopeMessage()
     XCTAssertEqual(credited.tag, 4)
+    XCTAssertEqual(credited.fields.count, 3)
     let evidence = try frame.variant(credited.fields[2])
     XCTAssertEqual(evidence.tag, 2)
     let status = try frame.fields(XCTUnwrap(evidence.fields.first))
     XCTAssertEqual(status.count, 6)
     guard status.count == 6 else { return }
     let carried = try frame.fields(status[5])
-    XCTAssertEqual(carried.count, 5)
-    guard carried.count == 5 else { return }
+    XCTAssertEqual(carried.count, 6)
+    guard carried.count == 6 else { return }
     XCTAssertEqual(frame.data(carried[0]), credit)
     XCTAssertEqual(frame.data(carried[1]), paymentValue)
-    XCTAssertEqual(frame.data(carried[2]), Data([0]))
-    XCTAssertEqual(frame.data(carried[3]), checked.bitmap)
-    let siblingBytes = try frame.byteVector(carried[4])
-    XCTAssertEqual(siblingBytes, checked.siblings.reduce(Data(), +))
+    XCTAssertEqual(frame.data(carried[2]), Data([burned]))
+    XCTAssertEqual(frame.data(carried[3]), leaf.nextKey)
+    XCTAssertEqual(frame.data(carried[4]), Data(le32(UInt32(leaf.slot))))
+    let siblingBytes = try frame.byteVector(carried[5])
+    XCTAssertEqual(siblingBytes.count, Wire.indexedTreeDepth * 32)
+    XCTAssertEqual(siblingBytes, leaf.siblings.reduce(Data(), +))
     let omega = try frame.fields(status[4])
     XCTAssertEqual(omega.count, 2)
-    let omegaPublic = try lineagePublicTranscript(frame, omega[0])
-    XCTAssertEqual(Data(omegaPublic.suffix(32)), try hexData(string(opening, "root_hex")))
+    let omegaPublic = [UInt8](try lineagePublicTranscript(frame, omega[0]))
+    XCTAssertEqual(
+      Data(omegaPublic.suffix(32)), try hexData(string(membership, "root_hex")),
+      "Ω(h) credit_digest_root")
+    let requestFrame = try VectorFrame(envelopeFrame(fixture, "Request"))
+    let requestBody = try requestFrame.fields(
+      XCTUnwrap(requestFrame.envelopeMessage().fields.first))
+    XCTAssertEqual(
+      Data(omegaPublic[98..<130]), requestFrame.data(requestBody[Self.requestReceiverWallet]),
+      "Ω(h) wallet is the Request receiver")
+    XCTAssertEqual(
+      Data(omegaPublic[162..<227]), try fixedKey(fixture, "receiver_payment"),
+      "Ω(h) payment key is the receiver's")
     let statusProof = frame.data(status[2])
-    XCTAssertTrue(Wire.isCanonicalFieldValue(statusProof))
-    XCTAssertNotEqual(statusProof, Data(count: 32))
+    assertPoseidonValue(statusProof, "CreditStatus proof_digest")
 
-    // The `credit-opening` and `credit-status` SHA transcripts carry these values by position.
-    var openingTranscript = credit + paymentValue + Data([0]) + checked.bitmap
-    openingTranscript.append(contentsOf: le32(UInt32(checked.siblings.count)))
-    openingTranscript.append(siblingBytes)
-    XCTAssertEqual(openingTranscript, try digestBody(digests, "credit-opening"))
-    XCTAssertEqual(openingTranscript.count, 101 + 32 * checked.siblings.count)
-    let statusBody = [UInt8](try digestBody(digests, "credit-status"))
+    // The credit-status transcript (162): LE16 version ‖ statement_digest ‖ proof_digest ‖
+    // receipt_digest ‖ lineage_digest ‖ opening_digest; its lineage digest is the P_bytes value
+    // of Ω(h)'s bytes and its opening digest the credit-opening digest.
+    let statusBody = [UInt8](try hexData(string(largeInput(fixture, "kgwcsts1"), "body_hex")))
     XCTAssertEqual(statusBody.count, 162)
     guard statusBody.count == 162 else { return }
+    XCTAssertEqual(Array(statusBody[0..<2]), [1, 0])
     XCTAssertEqual(Data(statusBody[34..<66]), statusProof)
-    let omegaBytes = try omegaPublic + frame.byteVector(omega[1])
-    XCTAssertEqual(Data(statusBody[98..<130]), Wire.digest(role: .lineage, body: omegaBytes))
-    XCTAssertEqual(Data(statusBody[130..<162]), try digestValue(digests, "credit-opening"))
+    assertPoseidonValue(Data(statusBody[98..<130]), "Ω(h) lineage digest")
+    XCTAssertEqual(Data(statusBody[130..<162]), openingDigest)
+    // No SHA role carries the lineage, opening, status or Credited digests (owner answer A3).
+    for retired in ["lineage", "credit-opening", "credit-status", "credited"] {
+      XCTAssertNil(digests[retired], retired)
+    }
   }
 
   func testBlacklistAndQuotaTreesBindTheirSignedFrames() throws {
     let fixture = try loadFixture()
     let poseidon = try object(fixture, "poseidon")
-    let digests = try digestVectors(fixture)
 
-    // Blacklist {body, signature, entries: [{account_digest}]}: strictly ascending entries
-    // strictly between the 00…00 and FF…FF sentinels.
-    let blacklistFrame = try VectorFrame(objectFrame(fixture, "KagemushaWalletBlacklistV1"))
+    // Blacklist {body, signature, entries: [{account_digest}]}: entries strictly ascending in
+    // limb order (owner answer A4), here unlike their unsigned byte order, strictly between the
+    // 00…00 and FF…FF sentinels.
+    let blacklistFrame = try VectorFrame(
+      objectFrame(fixture, "KagemushaWalletBlacklistV1", variant: "3 entries"))
     let blacklistFields = try blacklistFrame.fields(blacklistFrame.root)
     XCTAssertEqual(blacklistFields.count, 3)
     guard blacklistFields.count == 3 else { return }
     let entries = try blacklistFrame.sequence(blacklistFields[2]).map {
       try blacklistFrame.data(blacklistFrame.field($0, 0))
     }
-    XCTAssertFalse(entries.isEmpty)
+    XCTAssertEqual(entries.count, 3)
+    let blacklist = try object(poseidon, "blacklist")
+    XCTAssertTrue(try string(blacklist, "order").hasPrefix("limb order"))
+    XCTAssertEqual(try fieldElements(blacklist, "entries"), entries)
     let low = Data(count: 32)
     let high = Data(repeating: 0xff, count: 32)
     let sentinels = [low] + entries + [high]
     for (lower, upper) in zip(sentinels, sentinels.dropFirst()) {
-      XCTAssertTrue(lower.lexicographicallyPrecedes(upper))
+      XCTAssertLessThan(compareLittleEndian(lower, upper), 0)
     }
-    let blacklist = try object(poseidon, "blacklist")
+    let byteOrder = try fieldElements(blacklist, "entries_in_unsigned_byte_order")
+    XCTAssertEqual(byteOrder, entries.sorted { $0.lexicographicallyPrecedes($1) })
+    XCTAssertNotEqual(byteOrder, entries, "the orders differ")
     let root = try hexData(string(blacklist, "entries_root_hex"))
-    XCTAssertTrue(Wire.isCanonicalFieldValue(root))
-    XCTAssertNotEqual(root, Data(count: 32))
-    let body = [UInt8](try digestBody(digests, "blacklist-body"))
+    assertPoseidonValue(root, "blacklist root")
+    XCTAssertEqual(try blacklistFrame.data(blacklistFrame.field(blacklistFields[0], 5)), root)
+    let body = [UInt8](try signedBody(fixture, object: "blacklist"))
     XCTAssertEqual(body.count, 118)
     guard body.count == 118, let firstEntry = entries.first else { return }
     XCTAssertEqual(readLE32(body, at: 50), UInt32(entries.count))
@@ -1366,41 +1925,49 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     XCTAssertEqual(try string(leaf0, "domain"), "kgwblkl1")
     XCTAssertEqual(
       try fieldElements(leaf0, "items"), fieldDigestLimbs(low) + fieldDigestLimbs(firstEntry))
+    let leaf0Value = try hexData(string(leaf0, "digest_hex"))
+    assertPoseidonValue(leaf0Value, "gap leaf 0")
     let node = try object(blacklist, "node_0_1")
     XCTAssertEqual(try string(node, "domain"), "kgwblkn1")
     let nodeItems = try fieldElements(node, "items")
     XCTAssertEqual(nodeItems.count, 2)
-    XCTAssertEqual(nodeItems.first, try hexData(string(leaf0, "digest_hex")))
-    for value in nodeItems + [try hexData(string(node, "digest_hex"))] {
-      XCTAssertTrue(Wire.isCanonicalFieldValue(value))
-    }
+    XCTAssertEqual(nodeItems.first, leaf0Value)
+    assertPoseidonValue(try hexData(string(node, "digest_hex")), "blacklist node")
 
-    // A gap opening of an unlisted account: its leaf's bounds enclose it, with 16 siblings.
+    // A non-membership witness: one gap leaf with lower < x < upper in limb order and its 16
+    // siblings. The unsigned byte order would not bracket this account.
     let gap = try object(blacklist, "gap_opening")
     let account = try hexData(string(gap, "account_digest_hex"))
     XCTAssertEqual(account, Wire.digest(role: .account, body: Data("unlisted".utf8)))
     let index = try int(gap, "leaf_index")
-    XCTAssertTrue(sentinels.indices.dropLast().contains(index))
+    XCTAssertEqual(index, 1)
     guard sentinels.indices.dropLast().contains(index) else { return }
     let lower = try hexData(string(gap, "lower_hex"))
     let upper = try hexData(string(gap, "upper_hex"))
     XCTAssertEqual(lower, sentinels[index])
     XCTAssertEqual(upper, sentinels[index + 1])
-    XCTAssertTrue(lower.lexicographicallyPrecedes(account))
-    XCTAssertTrue(account.lexicographicallyPrecedes(upper))
+    XCTAssertLessThan(compareLittleEndian(lower, account), 0, "lower < account")
+    XCTAssertLessThan(compareLittleEndian(account, upper), 0, "account < upper")
+    XCTAssertFalse(
+      lower.lexicographicallyPrecedes(account) && account.lexicographicallyPrecedes(upper),
+      "the byte order does not bracket it")
     let gapSiblings = try fieldElements(gap, "siblings")
     XCTAssertEqual(gapSiblings.count, 16)
-    XCTAssertTrue(gapSiblings.allSatisfy(Wire.isCanonicalFieldValue))
+    for sibling in gapSiblings {
+      assertPoseidonValue(sibling, "gap sibling")
+    }
+    XCTAssertEqual(gapSiblings.first, leaf0Value, "gap leaf 1 sits beside leaf 0")
     XCTAssertEqual(try hexData(string(gap, "root_hex")), root)
 
     // Quota share {body, windows, signature}: window {kind, start_ms, end_ms, limit}; leaf
     // P(kgwqwin1, [tag kind, start, end, limit]) and node P(kgwqwnd1, [left, right]).
-    let quotaFrame = try VectorFrame(objectFrame(fixture, "KagemushaWalletQuotaShareV1"))
+    let quotaFrame = try VectorFrame(
+      objectFrame(fixture, "KagemushaWalletQuotaShareV1", variant: "2 windows"))
     let quotaFields = try quotaFrame.fields(quotaFrame.root)
     XCTAssertEqual(quotaFields.count, 3)
     guard quotaFields.count == 3 else { return }
     let windows = try quotaFrame.sequence(quotaFields[1])
-    XCTAssertTrue((1...64).contains(windows.count))
+    XCTAssertEqual(windows.count, 2)
     guard let firstWindow = windows.first else { return }
     let window = try quotaFrame.fields(firstWindow)
     XCTAssertEqual(window.count, 4)
@@ -1414,24 +1981,33 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     let window0 = try object(quota, "window_0")
     XCTAssertEqual(try string(window0, "domain"), "kgwqwin1")
     XCTAssertEqual(try fieldElements(window0, "items"), expectedWindow)
+    let window0Value = try hexData(string(window0, "digest_hex"))
+    assertPoseidonValue(window0Value, "window 0")
     let quotaNode = try object(quota, "node_0_1")
     XCTAssertEqual(try string(quotaNode, "domain"), "kgwqwnd1")
     let quotaNodeItems = try fieldElements(quotaNode, "items")
     XCTAssertEqual(quotaNodeItems.count, 2)
-    XCTAssertEqual(quotaNodeItems.first, try hexData(string(window0, "digest_hex")))
+    XCTAssertEqual(quotaNodeItems.first, window0Value)
+    assertPoseidonValue(try hexData(string(quotaNode, "digest_hex")), "window node")
     let emptyWindow = try hexData(string(quota, "empty_window_hex"))
-    XCTAssertTrue(Wire.isCanonicalFieldValue(emptyWindow))
-    XCTAssertNotEqual(emptyWindow, try hexData(string(window0, "digest_hex")))
+    assertPoseidonValue(emptyWindow, "empty window slot")
+    XCTAssertNotEqual(emptyWindow, window0Value)
     let windowsRoot = try hexData(string(quota, "windows_root_hex"))
-    XCTAssertTrue(Wire.isCanonicalFieldValue(windowsRoot))
-    let shareBody = [UInt8](try digestBody(digests, "quota-share-body"))
+    assertPoseidonValue(windowsRoot, "quota windows root")
+    XCTAssertEqual(try quotaFrame.data(quotaFrame.field(quotaFields[0], 7)), windowsRoot)
+    let shareBody = [UInt8](try signedBody(fixture, object: "quota share"))
     XCTAssertEqual(shareBody.count, 190)
     guard shareBody.count == 190 else { return }
     XCTAssertEqual(Data(shareBody[122..<154]), windowsRoot)
     XCTAssertEqual(readLE32(shareBody, at: 154), UInt32(windows.count))
+    // The quota-usage value counts against the first window.
+    let usage = try fieldElements(object(object(poseidon, "quota_usage_array"), "usage"), "items")
+    XCTAssertEqual(Array(usage.prefix(3)), Array(expectedWindow.prefix(3)))
+    XCTAssertLessThanOrEqual(
+      try unsignedElement(usage[3]), try unsignedElement(expectedWindow[3]), "usage within limit")
   }
 
-  func testVerifyingKeyAllowlistSelectsExactProofLengths() throws {
+  func testVerifyingKeyAllowlistBindsTheManifestAndEveryVectoredProofLength() throws {
     let fixture = try loadFixture()
     let digests = try digestVectors(fixture)
     let vector = try object(object(fixture, "poseidon"), "verifying_key_set")
@@ -1446,55 +2022,151 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     let allowlist = try parseAllowlist(transcript)
     XCTAssertEqual(allowlist.version, 1)
     XCTAssertTrue((8...Wire.verifyingKeyEntriesMaximum).contains(allowlist.steps.count))
-    // Strictly ascending by (tag, mask); every operation once with mask 0; only Send repeats,
-    // once per supported mask of defined control bits; nonzero keys; lengths within a frame.
+    // Strictly ascending by (tag, mask); every operation once with mask 0; Send repeats once
+    // per supported mask of defined control bits, and Receive once with the blacklist bit
+    // exactly when some Send mask has it; nonzero stand-in keys; lengths within a frame.
     let selectors = allowlist.steps.map { UInt64($0.kind) << 32 | UInt64($0.mask) }
     XCTAssertEqual(selectors, selectors.sorted())
     XCTAssertEqual(Set(selectors).count, selectors.count)
     for kind in UInt8(1)...8 {
       XCTAssertTrue(allowlist.steps.contains { $0.kind == kind && $0.mask == 0 }, "kind \(kind)")
     }
+    var lengths: [UInt64: Int] = [:]
     for step in allowlist.steps {
       XCTAssertTrue((1...8).contains(step.kind))
       XCTAssertEqual(step.mask & ~UInt32(0b111), 0)
-      if step.mask != 0 {
-        XCTAssertEqual(step.kind, 3)
-      }
-      XCTAssertNotEqual(step.key, Data(count: 32))
+      XCTAssertTrue(
+        step.mask == 0 || UInt32(step.kind) == Self.sendTag
+          || (UInt32(step.kind) == Self.receiveTag && step.mask == Self.blacklistControl),
+        "selector \(step.kind)/\(step.mask)")
+      let keyByte = 0x80 | step.kind << 3 | UInt8(step.mask)
+      XCTAssertEqual(step.key, Data(repeating: keyByte, count: 32), "stand-in key")
       XCTAssertTrue((1...Wire.messageMaximumBytes).contains(Int(step.proofBytes)))
+      if UInt32(step.kind) == Self.receiveTag {
+        XCTAssertLessThanOrEqual(Int(step.proofBytes), Wire.creditedReceiveProofBudgetBytes)
+      }
+      lengths[UInt64(step.kind) << 32 | UInt64(step.mask)] = Int(step.proofBytes)
     }
-    XCTAssertNotEqual(allowlist.lineageKey, Data(count: 32))
-    XCTAssertGreaterThanOrEqual(allowlist.lineageProofBytes, 1)
-    let largestSend = allowlist.steps.filter { $0.kind == 3 }.map(\.proofBytes).max() ?? 0
-    XCTAssertLessThanOrEqual(
-      Int(allowlist.lineageProofBytes) + Int(largestSend), Wire.paymentProofBudgetBytes)
+    XCTAssertEqual(
+      allowlist.steps.contains {
+        UInt32($0.kind) == Self.sendTag && $0.mask & Self.blacklistControl != 0
+      },
+      allowlist.steps.contains {
+        UInt32($0.kind) == Self.receiveTag && $0.mask == Self.blacklistControl
+      })
+    XCTAssertEqual(allowlist.lineageKey, Data(repeating: 0xc4, count: 32), "stand-in Ω key")
+    let lineageProofBytes = Int(allowlist.lineageProofBytes)
+    let largestSend =
+      allowlist.steps.filter { UInt32($0.kind) == Self.sendTag }.map { Int($0.proofBytes) }.max()
+      ?? 0
+    XCTAssertLessThanOrEqual(lineageProofBytes + largestSend, Wire.paymentProofBudgetBytes)
+    XCTAssertTrue((1...Wire.lineageProofCapBytes).contains(lineageProofBytes), "Ω cap")
 
     // The standalone frame {version, steps, lineage_verifying_key_digest, lineage_proof_bytes}
     // carries exactly this transcript.
     let frame = try VectorFrame(objectFrame(fixture, "KagemushaWalletVerifyingKeyAllowlistV1"))
+    XCTAssertLessThanOrEqual(
+      try objectFrame(fixture, "KagemushaWalletVerifyingKeyAllowlistV1").count,
+      Wire.verifyingKeyAllowlistMaximumBytes)
     XCTAssertEqual(try allowlistTranscript(frame), transcript)
 
-    // Selection: σ_send by Send and Ω(pred).enabled_controls, Ω by the transport length, and
-    // σ_recv by Receive; each vector proof has exactly the listed length.
-    let paymentFrame = try VectorFrame(envelopeFrame(fixture, "Payment"))
-    let send = try paymentFrame.fields(paymentFrame.envelopeMessage().fields[4])
-    let slot = try paymentFrame.variant(send[2])
-    let omega = try paymentFrame.fields(XCTUnwrap(slot.fields.first))
-    let mask = readLE32(
-      [UInt8](paymentFrame.data(try paymentFrame.field(omega[0], 9))), at: 0)
-    let sendEntry = try XCTUnwrap(allowlist.steps.first { $0.kind == 3 && $0.mask == mask })
+    // The vectors are self-consistent (defect d1): the relation identity and the signed
+    // artifact manifest bind this computed digest, so the allowlist decodes against the
+    // manifest; no separate stand-in digest exists.
+    XCTAssertEqual(try hexData(string(vector, "manifest_verifying_key_set_digest_hex")), digest)
+    XCTAssertNil(try object(fixture, "stand_ins")["verifying_key_set_digest_hex"])
+    let relation = [UInt8](try digestBody(digests, "relation"))
+    XCTAssertEqual(relation.count, 162)
+    guard relation.count == 162 else { return }
+    XCTAssertEqual(Data(relation[98..<130]), digest, "the relation binds the allowlist")
+    let manifest = [UInt8](try signedBody(fixture, object: "artifact manifest"))
+    XCTAssertEqual(manifest.count, KagemushaWalletSigningDomainV1.artifactManifest.transcriptBytes)
+    guard manifest.count == 290 else { return }
+    XCTAssertEqual(Data(manifest[34..<66]), try digestValue(digests, "relation"))
+    XCTAssertEqual(Array(manifest[66..<162]), Array(relation[2..<98]), "manifest bindings")
+    XCTAssertEqual(Data(manifest[162..<194]), digest, "the manifest binds the allowlist")
+    XCTAssertEqual(Array(manifest[194..<226]), Array(relation[130..<162]), "artifact inventory")
+    let manifestFrame = try VectorFrame(objectFrame(fixture, "KagemushaWalletArtifactManifestV1"))
     XCTAssertEqual(
-      Int(sendEntry.proofBytes),
-      try paymentFrame.byteVector(paymentFrame.field(send[3], 0)).count)
+      try manifestFrame.data(manifestFrame.field(manifestFrame.root, 0, 6)), digest,
+      "the manifest frame binds the allowlist")
+
+    // Every vectored package has exactly its selector's σ length and every Ω(pred) the
+    // allowlist's transport length (defect d2): σ_send by Ω's mask, σ_recv by the statement's
+    // blacklist bit, every other operation by its tag.
+    let payment = try VectorFrame(envelopeFrame(fixture, "Payment"))
+    let receive = try VectorFrame(envelopeFrame(fixture, "Credited::Receive"))
+    let receiveEvidence = try receive.variant(receive.envelopeMessage().fields[2])
+    let paymentObject = try VectorFrame(objectFrame(fixture, "KagemushaWalletPaymentV1"))
+    let packageObject = try VectorFrame(objectFrame(fixture, "KagemushaWalletPackageV1"))
+    let unloadClaim = try VectorFrame(objectFrame(fixture, "KagemushaWalletUnloadClaimV1"))
+    let closeLoads = try VectorFrame(objectFrame(fixture, "KagemushaWalletCloseLoadsV1"))
+    let feeClaim = try VectorFrame(objectFrame(fixture, "KagemushaWalletFeeClaimV1"))
+    let activation = try VectorFrame(objectFrame(fixture, "KagemushaWalletActivationV1"))
+    let packages: [(String, VectorFrame, Range<Int>)] = try [
+      ("Payment envelope Send", payment, payment.envelopeMessage().fields[4]),
+      ("Credited::Receive", receive, XCTUnwrap(receiveEvidence.fields.first)),
+      ("Payment object Send", paymentObject, paymentObject.field(paymentObject.root, 4)),
+      ("Receive package object", packageObject, packageObject.root),
+      ("Unload claim", unloadClaim, unloadClaim.field(unloadClaim.root, 2)),
+      ("Close loads Retiring", closeLoads, closeLoads.field(closeLoads.root, 3)),
+      ("Fee claim Send", feeClaim, feeClaim.field(feeClaim.root, 1, 4)),
+      ("Activation Bootstrap", activation, activation.field(activation.root, 3)),
+    ]
+    var tags = Set<UInt32>()
+    var omegas: [(String, Data)] = []
+    for (label, carrier, record) in packages {
+      let proofs = try packageProofs(carrier, record)
+      tags.insert(proofs.tag)
+      XCTAssertEqual(
+        lengths[UInt64(proofs.tag) << 32 | UInt64(proofs.mask)], proofs.sigma.count, "\(label) σ")
+      assertSigmaStandIn(proofs.sigma, label)
+      XCTAssertEqual(
+        Self.lineageConsumingTags.contains(proofs.tag), proofs.omega != nil,
+        "\(label) Ω(pred) slot")
+      if let omega = proofs.omega {
+        omegas.append((label, omega))
+      }
+    }
+    XCTAssertEqual(tags, [Self.sendTag, Self.receiveTag, 6, 8, 1])
+    // Ω carried alone: the Lineage message and the fold record.
+    let lineage = try VectorFrame(envelopeFrame(fixture, "Lineage"))
+    try omegas.append(
+      ("Lineage envelope", omegaBytes(lineage, lineage.envelopeMessage().fields[1])))
+    let fold = try VectorFrame(objectFrame(fixture, "KagemushaWalletFoldRecordV1"))
+    try omegas.append(("fold record", omegaBytes(fold, fold.field(fold.root, 7))))
+    for (label, omega) in omegas {
+      XCTAssertEqual(omega.count - 320, lineageProofBytes, "\(label) Ω length")
+      let transport = [UInt8](omega.dropFirst(320))
+      XCTAssertTrue(
+        transport.indices.allSatisfy { Int(transport[$0]) == ($0 + 7) % 251 }, "\(label) Ω rule")
+    }
+    // The CreditStatus Ω(h) has the same length under its own stand-in byte rule.
+    let status = try VectorFrame(envelopeFrame(fixture, "Credited::Status"))
+    let statusEvidence = try status.variant(status.envelopeMessage().fields[2])
+    let statusOmega = try omegaBytes(
+      status, status.field(XCTUnwrap(statusEvidence.fields.first), 4))
+    XCTAssertEqual(statusOmega.count - 320, lineageProofBytes, "CreditStatus Ω(h) length")
+    let statusTransport = [UInt8](statusOmega.dropFirst(320))
+    XCTAssertTrue(
+      statusTransport.indices.allSatisfy { Int(statusTransport[$0]) == ($0 + 11) % 251 },
+      "Ω(h) rule")
+
+    // The large-input proof digests pack these same lengths.
+    let sendParts = try le32Parts(hexData(string(largeInput(fixture, "kgwprf_1"), "body_hex")))
+    XCTAssertEqual(sendParts.count, 2)
+    guard sendParts.count == 2 else { return }
+    XCTAssertEqual(sendParts[0].count - 320, lineageProofBytes)
+    let sendMask = readLE32([UInt8](sendParts[0]), at: 236)
+    XCTAssertEqual(lengths[UInt64(Self.sendTag) << 32 | UInt64(sendMask)], sendParts[1].count)
+    let receiveItems = try fieldElements(
+      object(object(fixture, "field_encodings"), "receive_statement"), "items")
+    let receiveMask = UInt32(try unsignedElement(receiveItems[11])) & Self.blacklistControl
+    let receiveParts = try le32Parts(
+      hexData(string(largeInput(fixture, "kgwstep1"), "body_hex")))
+    XCTAssertEqual(receiveParts.count, 1)
     XCTAssertEqual(
-      Int(allowlist.lineageProofBytes), try paymentFrame.byteVector(omega[1]).count)
-    let receiveFrame = try VectorFrame(envelopeFrame(fixture, "Credited::Receive"))
-    let evidence = try receiveFrame.variant(receiveFrame.envelopeMessage().fields[2])
-    let receivePackage = try receiveFrame.fields(XCTUnwrap(evidence.fields.first))
-    let receiveEntry = try XCTUnwrap(allowlist.steps.first { $0.kind == 4 && $0.mask == 0 })
-    XCTAssertEqual(
-      Int(receiveEntry.proofBytes),
-      try receiveFrame.byteVector(receiveFrame.field(receivePackage[3], 0)).count)
+      lengths[UInt64(Self.receiveTag) << 32 | UInt64(receiveMask)], receiveParts.first?.count)
   }
 
   // MARK: Text
@@ -1895,62 +2567,52 @@ private func transcriptFieldElements(
   return items
 }
 
-/// Effect fields by operation tag (wire record §3.2): `credit_id` is one σ-field value, every
-/// other 32-byte field a digest.
+/// Effect fields by operation tag; circuit hashes are one field element.
 private let statementEffectLayouts: [UInt8: [TranscriptSlotV1]] = [
   1: [.digest, .digest],
-  2: [.digest, .integer(16), .integer(16), .integer(16)],
-  3: [
-    .field, .digest, .integer(16), .integer(16), .integer(16), .digest, .integer(8),
-    .integer(8),
-  ],
+  2: [.field, .integer(16), .integer(16), .integer(16)],
+  3: [.field, .digest, .integer(16), .integer(16), .integer(16), .field, .integer(8), .integer(8)],
   4: [.field, .digest, .integer(16)],
-  5: [.field, .digest],
-  6: [.digest, .integer(16), .integer(16), .integer(16), .digest],
-  7: [.integer(1), .digest, .integer(8)],
+  5: [.field, .field],
+  6: [.field, .integer(16), .integer(16), .integer(16), .field],
+  7: [.integer(1), .field, .integer(8)],
   8: [],
 ]
 
-/// The 354-byte `request-body` transcript, whose 24 elements `credit_id` hashes (owner answer Q1).
+/// The 458-byte Request transcript hashes to 26 field elements, including its recorded blacklist.
 private let requestBodyLayout: [TranscriptSlotV1] = [
-  .integer(2), .digest, .digest, .digest, .digest, .integer(16), .digest, .integer(16), .digest,
-  .integer(16), .integer(8), .digest, .integer(8), .digest, .digest,
+  .integer(2), .digest, .digest, .digest, .digest, .digest, .digest, .integer(16), .field,
+  .integer(16), .field, .integer(16), .integer(8), .field, .integer(8), .integer(8), .field, .field, .digest,
 ]
 
-/// The 28 σ-field elements of one 440-byte `statement` transcript, in the Rust `field_items`
-/// order: version; relation, scheme, asset and credential limbs; successor lifecycle, sequence
-/// and `next_load`; enabled controls; lineage `burned_total`; lineage pending-outgoing root,
-/// predecessor and successor as one element each; the effect tag; and the effect's elements
-/// zero-filled to 10.
-private func statementFieldElements(_ transcript: Data) throws -> [Data] {
-  let bytes = [UInt8](transcript)
-  guard bytes.count == 440 else { throw WalletFixtureFailure.malformed("statement length") }
-  // Transcript order is version, scheme, relation, credential, asset; the element order puts
-  // the relation first and the asset before the credential.
-  let scheme = Data(bytes[2..<34])
-  let relation = Data(bytes[34..<66])
-  let credential = Data(bytes[66..<98])
-  let asset = Data(bytes[98..<130])
-  var items = [fieldInteger(Array(bytes[0..<2]))]
-  for digest in [relation, scheme, asset, credential] {
-    items += fieldDigestLimbs(digest)
+/// Re-derive the 26 field elements from the canonical statement record.
+private func statementFieldElements(_ frame: VectorFrame, _ record: Range<Int>) throws -> [Data] {
+  let fields = try frame.fields(record)
+  guard fields.count == 14 else { throw WalletFixtureFailure.malformed("statement fields") }
+  var items = [fieldInteger([UInt8](frame.data(fields[0])))]
+  for index in [2, 1, 4] { items += fieldDigestLimbs(frame.data(fields[index])) }
+  items.append(frame.data(fields[3]))
+  for index in 5..<10 { items.append(fieldInteger([UInt8](frame.data(fields[index])))) }
+  items.append(frame.data(fields[10]))
+  for index in 11..<13 {
+    items.append(try frame.data(frame.field(fields[index], 0)))
   }
-  items += try transcriptFieldElements(
-    Array(bytes[130..<279]),
-    [.integer(1), .integer(16), .integer(16), .integer(4), .integer(16), .field, .field, .field])
-  let tag = bytes[279]
-  items.append(fieldInteger([tag]))
-  guard let layout = statementEffectLayouts[tag] else {
-    throw WalletFixtureFailure.malformed("effect tag")
+  let effect = try frame.variant(fields[13])
+  items.append(fieldInteger(le32(effect.tag)))
+  guard let layout = statementEffectLayouts[UInt8(effect.tag)], layout.count == effect.fields.count else {
+    throw WalletFixtureFailure.malformed("effect fields")
   }
-  let width = layout.reduce(0) { $0 + $1.width }
-  let union = Array(bytes[280..<440])
-  guard union[width...].allSatisfy({ $0 == 0 }) else {
-    throw WalletFixtureFailure.malformed("effect fill")
+  var effectItems: [Data] = []
+  for (slot, field) in zip(layout, effect.fields) {
+    let bytes = frame.data(field)
+    switch slot {
+    case .digest: effectItems += fieldDigestLimbs(bytes)
+    case .field: effectItems.append(bytes)
+    case .integer: effectItems.append(fieldInteger([UInt8](bytes)))
+    }
   }
-  let effect = try transcriptFieldElements(Array(union[..<width]), layout)
-  guard effect.count <= 10 else { throw WalletFixtureFailure.malformed("effect elements") }
-  return items + effect + Array(repeating: Data(count: 32), count: 10 - effect.count)
+  guard effectItems.count <= 9 else { throw WalletFixtureFailure.malformed("effect elements") }
+  return items + effectItems + Array(repeating: Data(count: 32), count: 9 - effectItems.count)
 }
 
 /// One field of a Norito record under the element rule.
@@ -1965,20 +2627,12 @@ private enum FrameSlotV1 {
   case field
 }
 
-/// The 28 fields of the state core `{lifecycle, scheme_id, …, state_nonce}` (32 elements).
+/// The current canonical state core and rest field layouts.
 private let stateCoreLayout: [FrameSlotV1] = [
-  .tag, .digest, .digest, .digest, .digest,
-  .integer, .integer, .integer, .integer, .integer, .integer,
-  .field, .field,
-  .field, .field, .field, .field, .field,
-  .integer, .field,
-  .integer, .field, .integer, .integer,
-  .integer, .integer, .integer, .field,
+  .tag, .digest, .digest, .digest, .field, .integer, .integer, .integer, .integer, .integer, .integer, .field, .field, .field, .field, .field, .field, .field, .integer, .field, .integer, .integer, .field, .integer, .integer, .integer, .integer, .integer, .integer, .field
 ]
-
-/// The 8 fields of the state rest `{permitted_controls, …, time_anchor}` (13 elements).
 private let stateRestLayout: [FrameSlotV1] = [
-  .integer, .integer, .digest, .digest, .digest, .digest, .integer, .digest,
+  .integer, .field, .field, .field, .field, .integer, .field, .field
 ]
 
 /// σ-field elements of the record at `record`, field by field.
@@ -2042,18 +2696,6 @@ private func pairKey(high: UInt8, low: Data) -> Data {
   Data([UInt8](low.prefix(16)) + [high] + [UInt8](repeating: 0, count: 15))
 }
 
-/// Height of the most significant bit in which two 32-byte little-endian keys differ.
-private func highestDifferingBit(_ lhs: Data, _ rhs: Data) -> Int? {
-  let left = [UInt8](lhs)
-  let right = [UInt8](rhs)
-  guard left.count == 32, right.count == 32 else { return nil }
-  for height in stride(from: 255, through: 0, by: -1)
-  where (left[height / 8] ^ right[height / 8]) >> UInt8(height % 8) & 1 == 1 {
-    return height
-  }
-  return nil
-}
-
 /// Checks one `P_bytes` vector row (domain, element count and encoding) and returns its value.
 private func packedDigest(
   _ row: [String: Any],
@@ -2073,41 +2715,284 @@ private func packedDigest(
   return value
 }
 
-/// Checks one compressed sparse-tree opening vector and returns its bitmap and siblings: the
-/// bitmap's population count is the sibling count, every value is canonical, and a present
-/// sibling is never the default subtree of its height (for the `defaults` known by height).
-private func checkedOpening(
+/// Order of two 32-byte little-endian integers: a σ-field value, or an account digest in limb
+/// order `hi · 2^128 + lo` (owner answer A4). Negative, zero or positive.
+private func compareLittleEndian(_ lhs: Data, _ rhs: Data) -> Int {
+  let left = [UInt8](lhs)
+  let right = [UInt8](rhs)
+  precondition(left.count == 32 && right.count == 32)
+  for index in stride(from: 31, through: 0, by: -1) where left[index] != right[index] {
+    return left[index] < right[index] ? -1 : 1
+  }
+  return 0
+}
+
+/// The small integer one σ-field element encodes: its bytes 8 through 31 are zero.
+private func unsignedElement(_ element: Data) throws -> UInt64 {
+  let bytes = [UInt8](element)
+  guard bytes.count == 32, bytes[8...].allSatisfy({ $0 == 0 }) else {
+    throw WalletFixtureFailure.malformed("small element")
+  }
+  return readLE64(bytes, at: 0)
+}
+
+/// `value` is a Poseidon value of the native core: a canonical, nonzero σ-field value. Swift
+/// never recomputes it.
+private func assertPoseidonValue(
+  _ value: Data,
+  _ label: String,
+  file: StaticString = #filePath,
+  line: UInt = #line
+) {
+  XCTAssertEqual(value.count, 32, label, file: file, line: line)
+  XCTAssertTrue(
+    KagemushaWalletWireV1.isCanonicalFieldValue(value), label, file: file, line: line)
+  XCTAssertNotEqual(value, Data(count: 32), label, file: file, line: line)
+}
+
+/// A labelled stand-in field value of seed `seed`: 31 bytes `seed`, then `seed & 0x3f`.
+private func assertStandInField(
+  _ value: Data,
+  seed: UInt8,
+  _ label: String,
+  file: StaticString = #filePath,
+  line: UInt = #line
+) {
+  XCTAssertEqual(
+    value, Data(repeating: seed, count: 31) + Data([seed & 0x3f]), label, file: file, line: line)
+  assertPoseidonValue(value, label, file: file, line: line)
+}
+
+/// A stand-in σ: non-empty, byte `i` is `i mod 251`.
+private func assertSigmaStandIn(
+  _ sigma: Data,
+  _ label: String,
+  file: StaticString = #filePath,
+  line: UInt = #line
+) {
+  let bytes = [UInt8](sigma)
+  XCTAssertFalse(bytes.isEmpty, label, file: file, line: line)
+  XCTAssertTrue(
+    bytes.indices.allSatisfy { Int(bytes[$0]) == $0 % 251 }, label, file: file, line: line)
+}
+
+/// The `LE32 len ‖ bytes` parts that make up `bytes` exactly.
+private func le32Parts(_ bytes: Data) throws -> [Data] {
+  let input = [UInt8](bytes)
+  var parts: [Data] = []
+  var offset = 0
+  while offset < input.count {
+    guard offset + 4 <= input.count else { throw WalletFixtureFailure.malformed("LE32 part") }
+    let length = Int(readLE32(input, at: offset))
+    offset += 4
+    guard length <= input.count - offset else { throw WalletFixtureFailure.malformed("part") }
+    parts.append(Data(input[offset..<(offset + length)]))
+    offset += length
+  }
+  return parts
+}
+
+/// Exact leaf-opening transcript: key, value and next key, LE32 slot and 32 siblings (1,124).
+private let leafOpeningBytes = 3 * 32 + 4 + 32 * 32
+
+/// Exact empty-slot opening transcript: LE32 slot and 32 siblings (1,028).
+private let emptySlotOpeningBytes = 4 + 32 * 32
+
+/// One opened indexed-tree leaf `(key, value, next_key)` at `slot` with its siblings, height 0
+/// first.
+private struct LeafOpeningV1 {
+  let key: Data
+  let value: Data
+  let nextKey: Data
+  let slot: Int
+  let siblings: [Data]
+}
+
+/// Empty-subtree values learned per height across openings: height 0 is the empty slot (zero),
+/// height 1 the vectored empty subtree, and every other height must agree across openings.
+private final class EmptySubtreesV1 {
+  private var known: [Int: Data]
+
+  init(heightOne: Data) {
+    known = [0: Data(count: 32), 1: heightOne]
+  }
+
+  /// Heights whose empty subtree is known.
+  var count: Int { known.count }
+
+  /// Siblings of `slot` whose subtree lies entirely above `occupiedThrough` (the highest slot
+  /// ever written) are the empty subtree of their height.
+  func check(
+    slot: Int,
+    siblings: [Data],
+    occupiedThrough: Int,
+    label: String,
+    file: StaticString,
+    line: UInt
+  ) {
+    for (height, sibling) in siblings.enumerated() {
+      let first = ((slot >> height) ^ 1) << height
+      guard first > occupiedThrough else { continue }
+      if let expected = known[height] {
+        XCTAssertEqual(
+          sibling, expected, "\(label) empty subtree at height \(height)", file: file, line: line)
+      } else {
+        known[height] = sibling
+      }
+    }
+  }
+}
+
+/// The 32 canonical siblings of an opening `{slot, siblings}`, height 0 first.
+private func openingSiblings(
   _ opening: [String: Any],
-  defaults: [Data],
+  label: String,
+  file: StaticString,
+  line: UInt
+) throws -> [Data] {
+  let siblings = try fieldElements(opening, "siblings")
+  XCTAssertEqual(
+    siblings.count, KagemushaWalletWireV1.indexedTreeDepth, "\(label) sibling count", file: file,
+    line: line)
+  for sibling in siblings {
+    XCTAssertTrue(
+      KagemushaWalletWireV1.isCanonicalFieldValue(sibling), label, file: file, line: line)
+  }
+  return siblings
+}
+
+/// Structural checks of one indexed-tree leaf opening `{leaf, opening, root_hex,
+/// transcript_hex}` (owner answer A2): canonical key, value and next key with `next_key = 0` or
+/// above the key; a Poseidon leaf and root; exactly 32 siblings; and its transcript `key ‖ value
+/// ‖ next_key ‖ LE32 slot ‖ siblings`. With `empties`, siblings over subtrees entirely above
+/// `occupiedThrough` are the empty subtree of their height.
+private func checkedLeafOpening(
+  _ vector: [String: Any],
+  occupiedThrough: Int?,
+  empties: EmptySubtreesV1?,
   label: String,
   file: StaticString = #filePath,
   line: UInt = #line
-) throws -> (bitmap: Data, siblings: [Data]) {
-  let bitmap = try hexData(string(opening, "path_bitmap_hex"))
-  let siblings = try fieldElements(opening, "siblings")
-  let bits = [UInt8](bitmap)
-  XCTAssertEqual(bits.count, 32, label, file: file, line: line)
-  XCTAssertEqual(
-    bits.reduce(0) { $0 + $1.nonzeroBitCount }, siblings.count, label, file: file, line: line)
-  XCTAssertLessThanOrEqual(
-    siblings.count, KagemushaWalletWireV1.creditOpeningSiblingsMaximum, label, file: file,
-    line: line)
-  for key in ["key_hex", "leaf_hex", "root_hex"] {
-    XCTAssertTrue(
-      KagemushaWalletWireV1.isCanonicalFieldValue(try hexData(string(opening, key))), label,
-      file: file, line: line)
+) throws -> LeafOpeningV1 {
+  let leaf = try object(vector, "leaf")
+  let opening = try object(vector, "opening")
+  let key = try hexData(string(leaf, "key_hex"))
+  let value = try hexData(string(leaf, "value_hex"))
+  let nextKey = try hexData(string(leaf, "next_key_hex"))
+  for item in [key, value, nextKey] {
+    XCTAssertTrue(KagemushaWalletWireV1.isCanonicalFieldValue(item), label, file: file, line: line)
   }
-  guard bits.count == 32 else { return (bitmap, siblings) }
-  var next = siblings.makeIterator()
-  for height in 0..<256 where bits[height / 8] >> UInt8(height % 8) & 1 == 1 {
-    guard let sibling = next.next() else { break }
-    XCTAssertTrue(
-      KagemushaWalletWireV1.isCanonicalFieldValue(sibling), label, file: file, line: line)
-    if height < defaults.count {
-      XCTAssertNotEqual(sibling, defaults[height], label, file: file, line: line)
-    }
+  guard key.count == 32, nextKey.count == 32 else {
+    throw WalletFixtureFailure.malformed("\(label) leaf width")
   }
-  return (bitmap, siblings)
+  XCTAssertTrue(
+    nextKey == Data(count: 32) || compareLittleEndian(key, nextKey) < 0,
+    "\(label) next key above key", file: file, line: line)
+  assertPoseidonValue(
+    try hexData(string(leaf, "leaf_hex")), "\(label) leaf", file: file, line: line)
+  assertPoseidonValue(
+    try hexData(string(vector, "root_hex")), "\(label) root", file: file, line: line)
+  let slot = try int(opening, "slot")
+  let siblings = try openingSiblings(opening, label: label, file: file, line: line)
+  var expected = key + value + nextKey
+  expected.append(contentsOf: le32(UInt32(slot)))
+  expected.append(siblings.reduce(Data(), +))
+  let transcript = try hexData(string(vector, "transcript_hex"))
+  XCTAssertEqual(transcript, expected, label, file: file, line: line)
+  XCTAssertEqual(transcript.count, leafOpeningBytes, label, file: file, line: line)
+  if let empties = empties, let occupiedThrough = occupiedThrough {
+    empties.check(
+      slot: slot, siblings: siblings, occupiedThrough: occupiedThrough, label: label, file: file,
+      line: line)
+  }
+  return LeafOpeningV1(key: key, value: value, nextKey: nextKey, slot: slot, siblings: siblings)
+}
+
+/// Structural checks of one empty-slot opening `{opening, transcript_hex}` of `slot`: its
+/// transcript `LE32 slot ‖ siblings`. Returns the siblings.
+private func checkedEmptySlotOpening(
+  _ vector: [String: Any],
+  slot: Int,
+  occupiedThrough: Int,
+  empties: EmptySubtreesV1,
+  label: String,
+  file: StaticString = #filePath,
+  line: UInt = #line
+) throws -> [Data] {
+  let opening = try object(vector, "opening")
+  XCTAssertEqual(try int(opening, "slot"), slot, label, file: file, line: line)
+  let siblings = try openingSiblings(opening, label: label, file: file, line: line)
+  var expected = Data(le32(UInt32(slot)))
+  expected.append(siblings.reduce(Data(), +))
+  let transcript = try hexData(string(vector, "transcript_hex"))
+  XCTAssertEqual(transcript, expected, label, file: file, line: line)
+  XCTAssertEqual(transcript.count, emptySlotOpeningBytes, label, file: file, line: line)
+  empties.check(
+    slot: slot, siblings: siblings, occupiedThrough: occupiedThrough,
+    label: "\(label) empty slot", file: file, line: line)
+  return siblings
+}
+
+/// The low leaf `low` brackets the absent `key`: `low.key < key` and (`next = 0` or
+/// `key < next`).
+private func assertBrackets(
+  _ low: LeafOpeningV1,
+  _ key: Data,
+  _ label: String,
+  file: StaticString = #filePath,
+  line: UInt = #line
+) {
+  guard key.count == 32 else { return XCTFail("\(label) key width", file: file, line: line) }
+  XCTAssertNotEqual(key, Data(count: 32), "\(label) nonzero key", file: file, line: line)
+  XCTAssertLessThan(
+    compareLittleEndian(low.key, key), 0, "\(label) low key below", file: file, line: line)
+  XCTAssertTrue(
+    low.nextKey == Data(count: 32) || compareLittleEndian(key, low.nextKey) < 0,
+    "\(label) next key above", file: file, line: line)
+}
+
+/// Ω bytes of a `KagemushaWalletLineageV1 {public, proof}` record: the 320-byte public
+/// transcript followed by the transport proof bytes.
+private func omegaBytes(_ frame: VectorFrame, _ record: Range<Int>) throws -> Data {
+  let fields = try frame.fields(record)
+  guard fields.count == 2 else { throw WalletFixtureFailure.malformed("lineage fields") }
+  return try lineagePublicTranscript(frame, fields[0]) + frame.byteVector(fields[1])
+}
+
+/// σ selector, σ bytes and Ω(pred) bytes of one Package record `{version, statement, lineage
+/// slot, step_proof, receipt}`: the statement's effect tag, its σ selector mask (Send:
+/// `enabled_controls`; Receive: the blacklist bit; otherwise 0), σ and Ω(pred) when the slot is
+/// Present.
+private func packageProofs(
+  _ frame: VectorFrame,
+  _ record: Range<Int>
+) throws -> (tag: UInt32, mask: UInt32, sigma: Data, omega: Data?) {
+  let fields = try frame.fields(record)
+  guard fields.count == 5 else { throw WalletFixtureFailure.malformed("package fields") }
+  let statement = try frame.fields(fields[1])
+  guard statement.count == 14, statement[13].count >= 4, statement[8].count == 4 else {
+    throw WalletFixtureFailure.malformed("statement fields")
+  }
+  let tag = readLE32(frame.payload, at: statement[13].lowerBound)
+  let controls = readLE32(frame.payload, at: statement[8].lowerBound)
+  let slot = try frame.variant(fields[2])
+  let omega: Data?
+  switch slot.tag {
+  case 0 where slot.fields.isEmpty:
+    omega = nil
+  case 1 where slot.fields.count == 1:
+    omega = try omegaBytes(frame, slot.fields[0])
+  default:
+    throw WalletFixtureFailure.malformed("lineage slot")
+  }
+  let sigma = try frame.byteVector(frame.field(fields[3], 0))
+  let mask: UInt32
+  switch tag {
+  case 3: mask = controls
+  case 4: mask = controls & 1
+  default: mask = 0
+  }
+  return (tag, mask, sigma, omega)
 }
 
 /// One σ entry of the verifying-key allowlist.
@@ -2272,31 +3157,31 @@ private func hex(_ data: Data) -> String {
   data.map { String(format: "%02x", $0) }.joined()
 }
 
-/// Body of a wallet preimage `prefix || role || 0x00 || LE64(len) || body`, checking the frame.
-private func bodyOfPreimage(_ preimage: Data, role: KagemushaWalletDigestRoleV1) throws -> Data {
-  let bytes = [UInt8](preimage)
-  let head = [UInt8](KagemushaWalletWireV1.digestPrefix) + Array(role.rawValue.utf8) + [0]
-  guard bytes.count >= head.count + 8, Array(bytes[0..<head.count]) == head else {
-    throw WalletFixtureFailure.malformed("preimage head")
-  }
-  var length: UInt64 = 0
-  for (shift, byte) in bytes[head.count..<(head.count + 8)].enumerated() {
-    length |= UInt64(byte) << UInt64(8 * shift)
-  }
-  let body = Array(bytes[(head.count + 8)...])
-  guard length == UInt64(body.count) else { throw WalletFixtureFailure.malformed("preimage len") }
-  return Data(body)
-}
-
-/// The ECDSA equation as CryptoKit checks it, scalars taken as they are (high S accepted).
-private func cryptoKitEquation(_ publicKey: Data, _ preimage: Data, _ signature: Data) -> Bool {
+/// The ECDSA equation as CryptoKit checks it over `message` (hash `SHA-256(message)`), scalars
+/// taken as they are (high S accepted).
+private func cryptoKitEquation(_ publicKey: Data, _ message: Data, _ signature: Data) -> Bool {
   guard
     let key = try? P256.Signing.PublicKey(x963Representation: publicKey),
     let parsed = try? P256.Signing.ECDSASignature(rawRepresentation: signature)
   else {
     return false
   }
-  return key.isValidSignature(parsed, for: preimage)
+  return key.isValidSignature(parsed, for: message)
+}
+
+/// The ECDSA equation as CryptoKit checks it over a precomputed SHA-256 `digest`.
+private func cryptoKitDigestEquation(
+  _ publicKey: Data,
+  _ digest: SHA256.Digest,
+  _ signature: Data
+) -> Bool {
+  guard
+    let key = try? P256.Signing.PublicKey(x963Representation: publicKey),
+    let parsed = try? P256.Signing.ECDSASignature(rawRepresentation: signature)
+  else {
+    return false
+  }
+  return key.isValidSignature(parsed, for: digest)
 }
 
 /// Big-endian sum of two equal-width integers, or `nil` on a carry out.
@@ -2353,17 +3238,34 @@ private func envelopeFrame(_ fixture: [String: Any], _ variant: String) throws -
   return try hexData(string(vector, "canonical_hex"))
 }
 
-/// Canonical frame of the first object vector of `type`.
-private func objectFrame(_ fixture: [String: Any], _ type: String) throws -> Data {
-  guard let vector = try objects(fixture, "objects").first(where: { $0["type"] as? String == type })
+/// Canonical frame of the first object vector of `type` (and `variant`, when given).
+private func objectFrame(
+  _ fixture: [String: Any],
+  _ type: String,
+  variant: String? = nil
+) throws -> Data {
+  guard
+    let vector = try objects(fixture, "objects").first(where: {
+      $0["type"] as? String == type && (variant == nil || $0["variant"] as? String == variant)
+    })
   else {
     throw WalletFixtureFailure.malformed(type)
   }
   return try hexData(string(vector, "canonical_hex"))
 }
 
-/// Signed transcript of the signature vector of `label`, taken from its preimage.
-private func signedBody(_ fixture: [String: Any], object label: String) throws -> Data {
+/// Signing domain of one signature vector.
+private func signingDomain(_ vector: [String: Any]) throws -> KagemushaWalletSigningDomainV1 {
+  let label = try string(vector, "domain")
+  guard let domain = KagemushaWalletSigningDomainV1(rawValue: label) else {
+    throw WalletFixtureFailure.malformed(label)
+  }
+  return domain
+}
+
+/// The signature vector of `label`.
+private func signatureVector(_ fixture: [String: Any], object label: String) throws -> [String: Any]
+{
   guard
     let vector = try objects(fixture, "signatures").first(where: {
       $0["object"] as? String == label
@@ -2371,9 +3273,39 @@ private func signedBody(_ fixture: [String: Any], object label: String) throws -
   else {
     throw WalletFixtureFailure.malformed(label)
   }
-  let roleName = try string(vector, "role")
-  guard let role = KagemushaWalletDigestRoleV1(rawValue: roleName) else {
-    throw WalletFixtureFailure.malformed(roleName)
+  return vector
+}
+
+/// Signed transcript of the signature vector of `label`, of its domain's exact length.
+private func signedBody(_ fixture: [String: Any], object label: String) throws -> Data {
+  let vector = try signatureVector(fixture, object: label)
+  let transcript = try hexData(string(vector, "transcript_hex"))
+  guard try signingDomain(vector).transcriptBytes == transcript.count else {
+    throw WalletFixtureFailure.malformed("\(label) transcript length")
   }
-  return try bodyOfPreimage(hexData(string(vector, "preimage_hex")), role: role)
+  return transcript
+}
+
+/// The large-input `P_bytes` digest vectors under `domain`, in vector order.
+private func largeInputs(_ fixture: [String: Any], _ domain: String) throws -> [[String: Any]] {
+  try objects(object(fixture, "poseidon"), "large_input_digests").filter {
+    try string($0, "domain") == domain
+  }
+}
+
+/// The single large-input `P_bytes` digest vector under `domain`.
+private func largeInput(_ fixture: [String: Any], _ domain: String) throws -> [String: Any] {
+  let rows = try largeInputs(fixture, domain)
+  guard rows.count == 1 else { throw WalletFixtureFailure.malformed(domain) }
+  return rows[0]
+}
+
+/// SEC1 public key of the fixed key `name`.
+private func fixedKey(_ fixture: [String: Any], _ name: String) throws -> Data {
+  guard
+    let vector = try objects(fixture, "keys").first(where: { $0["name"] as? String == name })
+  else {
+    throw WalletFixtureFailure.malformed(name)
+  }
+  return try hexData(string(vector, "public_key_hex"))
 }

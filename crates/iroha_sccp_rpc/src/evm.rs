@@ -16,6 +16,12 @@
 //! followed by at least one digit and no leading zero (`0x0` for zero); data is
 //! `0x` followed by an even number of digits; fixed-size data must have exactly
 //! its size. Anything else is an [`RpcError::InvalidResponse`].
+//!
+//! Every answer is decoded inside its attempt
+//! ([`HttpTransport::json_rpc_then`]) under its method's byte cap
+//! ([`crate::limits::json_rpc_response_cap`]), so an endpoint that answers
+//! with malformed data is discredited and the next call starts at the next
+//! endpoint.
 
 use std::fmt;
 
@@ -567,8 +573,10 @@ impl EvmClient {
     /// # Errors
     /// Any [`RpcError`].
     pub fn chain_id(&self) -> Result<u64, RpcError> {
-        let value = self.transport.json_rpc("eth_chainId", Vec::new())?;
-        value_hex(&value, "eth_chainId", parse_quantity_u64)
+        self.transport
+            .json_rpc_then("eth_chainId", Vec::new(), |value| {
+                value_hex(&value, "eth_chainId", parse_quantity_u64)
+            })
     }
 
     /// `eth_blockNumber`.
@@ -576,8 +584,10 @@ impl EvmClient {
     /// # Errors
     /// Any [`RpcError`].
     pub fn block_number(&self) -> Result<u64, RpcError> {
-        let value = self.transport.json_rpc("eth_blockNumber", Vec::new())?;
-        value_hex(&value, "eth_blockNumber", parse_quantity_u64)
+        self.transport
+            .json_rpc_then("eth_blockNumber", Vec::new(), |value| {
+                value_hex(&value, "eth_blockNumber", parse_quantity_u64)
+            })
     }
 
     /// `eth_getBlockByNumber`; `None` if the endpoint does not know the block.
@@ -585,11 +595,11 @@ impl EvmClient {
     /// # Errors
     /// Any [`RpcError`].
     pub fn block_by_number(&self, block: BlockTag) -> Result<Option<EvmBlock>, RpcError> {
-        let value = self.transport.json_rpc(
+        self.transport.json_rpc_then(
             "eth_getBlockByNumber",
             vec![Value::from(block.to_param()), Value::from(false)],
-        )?;
-        parse_block(value)
+            parse_block,
+        )
     }
 
     /// `eth_getBlockByNumber` for up to [`crate::http::MAX_JSON_RPC_BATCH`]
@@ -607,11 +617,12 @@ impl EvmClient {
                 )
             })
             .collect();
-        self.transport
-            .json_rpc_batch(calls)?
-            .into_iter()
-            .map(|result| result.and_then(parse_block))
-            .collect()
+        self.transport.json_rpc_batch_then(calls, |results| {
+            results
+                .into_iter()
+                .map(|result| result.and_then(parse_block))
+                .collect()
+        })
     }
 
     /// `eth_getTransactionReceipt`; `None` for an unknown or pending
@@ -620,35 +631,43 @@ impl EvmClient {
     /// # Errors
     /// Any [`RpcError`].
     pub fn transaction_receipt(&self, hash: &[u8; 32]) -> Result<Option<EvmReceipt>, RpcError> {
-        let value = self.transport.json_rpc(
+        self.transport.json_rpc_then(
             "eth_getTransactionReceipt",
             vec![Value::from(format_data(hash))],
-        )?;
-        if value.is_null() {
-            return Ok(None);
-        }
-        parse_receipt(&value).map(Some)
+            |value| {
+                if value.is_null() {
+                    return Ok(None);
+                }
+                parse_receipt(&value).map(Some)
+            },
+        )
     }
 
     /// `eth_getBlockReceipts`; `None` if the endpoint does not know the block.
     ///
     /// # Errors
     /// Any [`RpcError`].
+    // TODO(WP9): an adversarially log-filled block answers with more receipt
+    // JSON than the transport ceiling admits; proving events in such blocks
+    // needs a streaming receipt decoder instead of a `Value` tree.
     pub fn block_receipts(&self, block: BlockId) -> Result<Option<Vec<EvmReceipt>>, RpcError> {
-        let value = self
-            .transport
-            .json_rpc("eth_getBlockReceipts", vec![block.to_block_param()])?;
-        if value.is_null() {
-            return Ok(None);
-        }
-        let receipts = value
-            .as_array()
-            .ok_or_else(|| invalid_response("eth_getBlockReceipts result is not an array"))?;
-        receipts
-            .iter()
-            .map(parse_receipt)
-            .collect::<Result<_, _>>()
-            .map(Some)
+        self.transport.json_rpc_then(
+            "eth_getBlockReceipts",
+            vec![block.to_block_param()],
+            |value| {
+                if value.is_null() {
+                    return Ok(None);
+                }
+                let receipts = value.as_array().ok_or_else(|| {
+                    invalid_response("eth_getBlockReceipts result is not an array")
+                })?;
+                receipts
+                    .iter()
+                    .map(parse_receipt)
+                    .collect::<Result<_, _>>()
+                    .map(Some)
+            },
+        )
     }
 
     /// `eth_getProof` of `address` and `storage_keys` at `block`.
@@ -666,32 +685,34 @@ impl EvmClient {
             .iter()
             .map(|key| Value::from(format_data(key)))
             .collect();
-        let value = self.transport.json_rpc(
+        self.transport.json_rpc_then(
             "eth_getProof",
             vec![
                 Value::from(format_data(address)),
                 Value::Array(keys),
                 block.to_state_param(),
             ],
-        )?;
-        let proof = parse_account_proof(&value)?;
-        if proof.address != *address {
-            return Err(invalid_response(
-                "eth_getProof answered for another address",
-            ));
-        }
-        if proof.storage_proof.len() != storage_keys.len()
-            || proof
-                .storage_proof
-                .iter()
-                .zip(storage_keys)
-                .any(|(slot, key)| slot.key != *key)
-        {
-            return Err(invalid_response(
-                "eth_getProof answered for other storage keys",
-            ));
-        }
-        Ok(proof)
+            |value| {
+                let proof = parse_account_proof(&value)?;
+                if proof.address != *address {
+                    return Err(invalid_response(
+                        "eth_getProof answered for another address",
+                    ));
+                }
+                if proof.storage_proof.len() != storage_keys.len()
+                    || proof
+                        .storage_proof
+                        .iter()
+                        .zip(storage_keys)
+                        .any(|(slot, key)| slot.key != *key)
+                {
+                    return Err(invalid_response(
+                        "eth_getProof answered for other storage keys",
+                    ));
+                }
+                Ok(proof)
+            },
+        )
     }
 
     /// `eth_getCode` of `address` at `block`.
@@ -699,11 +720,11 @@ impl EvmClient {
     /// # Errors
     /// Any [`RpcError`].
     pub fn code(&self, address: &[u8; 20], block: BlockId) -> Result<Vec<u8>, RpcError> {
-        let value = self.transport.json_rpc(
+        self.transport.json_rpc_then(
             "eth_getCode",
             vec![Value::from(format_data(address)), block.to_state_param()],
-        )?;
-        value_hex(&value, "eth_getCode", parse_data)
+            |value| value_hex(&value, "eth_getCode", parse_data),
+        )
     }
 
     /// `eth_call` at `block`; returns the return data.
@@ -712,10 +733,11 @@ impl EvmClient {
     /// Any [`RpcError`]; a revert is a [`RpcError::JsonRpc`] whose `data`
     /// carries the revert payload.
     pub fn call(&self, request: &EvmCallRequest, block: BlockId) -> Result<Vec<u8>, RpcError> {
-        let value = self
-            .transport
-            .json_rpc("eth_call", vec![request.to_param(), block.to_state_param()])?;
-        value_hex(&value, "eth_call", parse_data)
+        self.transport.json_rpc_then(
+            "eth_call",
+            vec![request.to_param(), block.to_state_param()],
+            |value| value_hex(&value, "eth_call", parse_data),
+        )
     }
 
     /// `eth_estimateGas` against the latest state.
@@ -723,10 +745,10 @@ impl EvmClient {
     /// # Errors
     /// Any [`RpcError`].
     pub fn estimate_gas(&self, request: &EvmCallRequest) -> Result<u64, RpcError> {
-        let value = self
-            .transport
-            .json_rpc("eth_estimateGas", vec![request.to_param()])?;
-        value_hex(&value, "eth_estimateGas", parse_quantity_u64)
+        self.transport
+            .json_rpc_then("eth_estimateGas", vec![request.to_param()], |value| {
+                value_hex(&value, "eth_estimateGas", parse_quantity_u64)
+            })
     }
 
     /// `eth_getTransactionCount` (the account nonce) at `block`.
@@ -734,11 +756,11 @@ impl EvmClient {
     /// # Errors
     /// Any [`RpcError`].
     pub fn transaction_count(&self, address: &[u8; 20], block: BlockId) -> Result<u64, RpcError> {
-        let value = self.transport.json_rpc(
+        self.transport.json_rpc_then(
             "eth_getTransactionCount",
             vec![Value::from(format_data(address)), block.to_state_param()],
-        )?;
-        value_hex(&value, "eth_getTransactionCount", parse_quantity_u64)
+            |value| value_hex(&value, "eth_getTransactionCount", parse_quantity_u64),
+        )
     }
 
     /// `eth_maxPriorityFeePerGas`.
@@ -746,10 +768,10 @@ impl EvmClient {
     /// # Errors
     /// Any [`RpcError`].
     pub fn max_priority_fee_per_gas(&self) -> Result<U256, RpcError> {
-        let value = self
-            .transport
-            .json_rpc("eth_maxPriorityFeePerGas", Vec::new())?;
-        value_hex(&value, "eth_maxPriorityFeePerGas", parse_quantity_u256)
+        self.transport
+            .json_rpc_then("eth_maxPriorityFeePerGas", Vec::new(), |value| {
+                value_hex(&value, "eth_maxPriorityFeePerGas", parse_quantity_u256)
+            })
     }
 
     /// `eth_sendRawTransaction`; returns the transaction hash the endpoint
@@ -763,11 +785,11 @@ impl EvmClient {
                 "a raw transaction must not be empty".to_owned(),
             ));
         }
-        let value = self.transport.json_rpc(
+        self.transport.json_rpc_then(
             "eth_sendRawTransaction",
             vec![Value::from(format_data(raw))],
-        )?;
-        value_hex(&value, "eth_sendRawTransaction", parse_data_array::<32>)
+            |value| value_hex(&value, "eth_sendRawTransaction", parse_data_array::<32>),
+        )
     }
 }
 

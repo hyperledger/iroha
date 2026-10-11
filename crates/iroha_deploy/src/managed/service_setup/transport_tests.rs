@@ -191,13 +191,9 @@ fn all_closed_wallet_dispatches_keep_exact_wire_once_only_after_ambiguous_http_a
             checkpoint: vec![1],
         };
         let directory = owner.authority.directory.ensure_child("setup").unwrap();
-        let original = super::tests::retain_explicit_request(
-            &owner,
-            &directory,
-            &original,
-            now_ms().unwrap() + 600_000,
-            &opts,
-        );
+        let utc = now_ms().unwrap() + 600_000;
+        let original =
+            super::tests::retain_explicit_request(&owner, &directory, &original, || utc, &opts);
         let original_bytes = std::fs::read(directory.path().join("original.nrt")).unwrap();
         let path = original.directory().path().join("transaction");
         let mut http = WalletHttp::start_config(&owner.wallet_config().unwrap(), path.clone());

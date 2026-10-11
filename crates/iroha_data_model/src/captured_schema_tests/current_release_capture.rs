@@ -4,17 +4,9 @@
 
 use super::Case;
 
-const CASES: &[Case] = &[
-    Case::bidirectional::<crate::fastpq::FastpqTransitionBatch>(
-        "iroha_data_model::fastpq::FastpqTransitionBatch",
-    ),
-    Case::bidirectional::<crate::kagemusha::KagemushaGovernedVerifierReleaseV1>(
-        "iroha:kagemusha:governed-verifier-release:v1",
-    ),
-    Case::bidirectional::<crate::kagemusha::KagemushaGovernedVerifierRegistryV1>(
-        "iroha:kagemusha:governed-verifier-registry:v1",
-    ),
-];
+const CASES: &[Case] = &[Case::bidirectional::<crate::fastpq::FastpqTransitionBatch>(
+    "iroha_data_model::fastpq::FastpqTransitionBatch",
+)];
 
 super::native_capture::owner_printer!(CASES);
 

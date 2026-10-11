@@ -373,7 +373,12 @@ mod tests {
             norito::core::with_decode_limits_measured(allocation_limit(backend_bytes - 1), || {
                 <crate::proof::ProofId as JsonObjectKeyOwned>::from_json_key_text(&key)
             });
-        assert!(matches!(rejected, Err(json::Error::DecodeResourceLimit)));
+        assert!(matches!(
+            rejected,
+            Err(json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
+        ));
         assert_eq!(usage.total_allocated_bytes(), 0);
 
         let escaped_key = format!("back\"end:{}", "CD".repeat(32));

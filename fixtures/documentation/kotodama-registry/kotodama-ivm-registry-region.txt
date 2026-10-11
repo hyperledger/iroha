@@ -117,7 +117,7 @@ compile_cases! {
     "for_each_map_snapshot_allows_mutation", Production,
         CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/030.ko"));
     "string_equality_compiles", Production,
-        CaseSource::Exact("seiyaku StringEquality { view fn f() { let _x = \"hi\" == \"hi\"; } }");
+        CaseSource::Exact("seiyaku StringEquality { view fn f() authorize(anyone) { let _x = \"hi\" == \"hi\"; } }");
     "irohaswap_sample_compiles", Test,
         CaseSource::Exact(include_str!("../../kotodama_lang/src/samples/irohaswap.ko"));
     "prediction_market_demo_compiles", Test,
@@ -131,7 +131,7 @@ compile_cases! {
     "public_function_with_permission_is_allowed", Production,
         CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/012.ko"));
     "compile_unary_ops", Production,
-        CaseSource::Exact("seiyaku UnaryOps { view fn f(int a, bool b) { let c = -a; let d = !b; } }");
+        CaseSource::Exact("seiyaku UnaryOps { view fn f(int a, bool b) authorize(anyone) { let c = -a; let d = !b; } }");
 }
 
 compile_rejection_cases! {
@@ -143,7 +143,7 @@ compile_rejection_cases! {
         &["E_NEGATIVE_QUANTITY"], &[];
     "implicit_quantity_to_int_conversion_is_rejected", Production,
         CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/006.ko")),
-        &["expected int, got quantity"], &[];
+        &["expected `int`, found `quantity`"], &[];
     "public_function_without_authorization_rejected", Production,
         CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/008.ko")),
         &["authorize"], &[];
@@ -164,7 +164,7 @@ compile_rejection_cases! {
         &["query_execute_norito"], &[];
     "raw_query_and_authority_sysvar_helpers_are_not_source_apis/authority", Test,
         CaseSource::Exact(
-            r#"seiyaku RawAuthority { view fn caller() -> AccountId { return sysvar_authority(); } }"#,
+            r#"seiyaku RawAuthority { view fn caller() authorize(anyone) -> AccountId { return sysvar_authority(); } }"#,
         ),
         &["sysvar_authority"], &[];
     "dynamic_state_map_take_is_rejected", Production,
@@ -180,7 +180,7 @@ compile_rejection_cases! {
         CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/056.ko")),
         &["while"], &[];
     "compile_pubkgen_and_valcom", Production,
-        CaseSource::Exact("seiyaku Commitments { view fn main() -> (int, int) { let p = crypto::pubkgen(9); let c = crypto::valcom(left: 9, right: 4); return (p, c); } }"),
+        CaseSource::Exact("seiyaku Commitments { view fn main() authorize(anyone) -> (int, int) { let p = crypto::pubkgen(9); let c = crypto::valcom(left: 9, right: 4); return (p, c); } }"),
         &["crypto::pubkgen"], &[];
     "raw_json_codec_aliases_are_rejected", Production,
         CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/059.ko")),
@@ -237,7 +237,7 @@ compile_rejection_cases! {
 
 semantic_rejection_cases! {
     "decimal_literal_rejects_int_annotation", CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/005.ko")),
-        Some("E_TYPE_ANNOTATION_MISMATCH"), "expected int, got decimal";
+        Some("E_TYPE_ANNOTATION_MISMATCH"), "expected `int`, found `decimal`";
     "semantic_rejects_extended_sysvar_helper_args", CaseSource::Exact(r#"module InvalidContext { fn f() { let _chain = context::chain_id(1); } }"#),
         Some("K2003"), "call `context::chain_id` expects at most 0 arguments, got 1";
     "semantic_rejects_extended_query_and_authority_sysvar_helper_args/query", CaseSource::Exact(r#"module InvalidQuery { fn f() { let _response = query_execute_norito(1); } }"#),
@@ -248,8 +248,8 @@ semantic_rejection_cases! {
         None, "ledger::query::account";
     "semantic_rejects_typed_query_get_helper_args/instance", CaseSource::Exact(r#"module InvalidQuery { fn f() { let _instance = ledger::query::seiyaku_instance(1); } }"#),
         None, "ledger::query::seiyaku_instance";
-    "semantic_rejects_zk_vrf_read_helper_args", CaseSource::Exact(r#"module InvalidVrfRequest { fn f() { let _seed = crypto::vrf::epoch_seed(value: 1); } }"#),
-        None, "crypto::vrf::epoch_seed expects (bytes) pointer to NoritoBytes VrfEpochSeedRequest";
+    "semantic_rejects_zk_vrf_read_helper_args", CaseSource::Exact(r#"module InvalidVrfRequest { fn f() { let _seed = crypto::vrf::epoch_seed(epoch: bytes("0x00")); } }"#),
+        None, "crypto::vrf::epoch_seed expects (int epoch) and returns Option<bytes>";
     "semantic_rejects_state_introspection_helper_args", CaseSource::Exact(r#"seiyaku C { fn f() { let _length = state::len(1); } }"#),
         None, "state::len expects (bytes StatePath)";
     "semantic_rejects_legacy_name_state_path_carriers", CaseSource::Exact(r#"seiyaku C { fn f() { let _count = state::count(Name::parse("Orders")); } }"#),
@@ -257,7 +257,7 @@ semantic_rejection_cases! {
     "semantic_rejects_extended_hash_non_bytes_arg", CaseSource::Exact(r#"module InvalidHash { fn f() { let digest = crypto::keccak256(1); } }"#),
         None, "crypto::keccak256 expects (bytes)";
     "semantic_type_error", CaseSource::Exact("module InvalidArithmetic { fn bad() { let a = 1 + \"hi\"; } }"),
-        None, "operator Add is not defined for int and string";
+        None, "operator `+` is not defined for `int` and `string`";
     "invalid_numeric_on_struct_reports_error", CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/035.ko")),
         None, "unknown field '0' on struct A";
     "invalid_named_on_tuple_reports_error", CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/036.ko")),
@@ -287,15 +287,15 @@ semantic_rejection_cases! {
     "ephemeral_keys_values_take2_helper_is_rejected", CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/069.ko")),
         None, "Map";
     "semantic_return_value_without_declared_type_is_rejected", CaseSource::Exact("module ReturnMismatch { fn f() { return 1; } }"),
-        Some("E_RETURN_TYPE_MISMATCH"), "expected (), got int";
+        Some("E_RETURN_TYPE_MISMATCH"), "expected `()`, found `int`";
     "semantic_rejects_unbounded_state_map_for_each", CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/014.ko")),
         Some("E_UNBOUNDED_ITERATION"), "for iteration requires a bounded List";
 }
 
 vm_result_cases! {
-    "tuple_destructure_and_field_access", CaseSource::Exact("seiyaku TupleDestructure { view fn sum() -> int { let (a,b) = (3,4); let c = (1,2).1; return a + b + c; } }"),
+    "tuple_destructure_and_field_access", CaseSource::Exact("seiyaku TupleDestructure { view fn sum() authorize(anyone) -> int { let (a,b) = (3,4); let c = (1,2).1; return a + b + c; } }"),
         "sum", 9;
-    "tuple_var_member_access", CaseSource::Exact("seiyaku TupleMember { view fn f() -> int { let t = (5,6); return t.0 + t.1; } }"),
+    "tuple_var_member_access", CaseSource::Exact("seiyaku TupleMember { view fn f() authorize(anyone) -> int { let t = (5,6); return t.0 + t.1; } }"),
         "f", 11;
     "call_function_with_tuple_return", CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/001.ko")),
         "main", 56;
@@ -307,7 +307,7 @@ vm_result_cases! {
         "f", 7;
     "method_call_sugar_receiver_and_arg", CaseSource::Fixture(include_str!("../fixtures/koto_v1/kotodama/043.ko")),
         "main", 12;
-    "compile_and_run_modulo", CaseSource::Exact("seiyaku Modulo { view fn main() -> int { return 17 % 5; } }"),
+    "compile_and_run_modulo", CaseSource::Exact("seiyaku Modulo { view fn main() authorize(anyone) -> int { return 17 % 5; } }"),
         "main", 2;
 }
 

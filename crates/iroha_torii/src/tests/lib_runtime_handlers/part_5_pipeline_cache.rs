@@ -118,7 +118,13 @@ async fn pipeline_status_cache_refreshes_pending_block() {
         .record_block_event(&event, &unavailable.state);
     assert!(app.pipeline_status_cache.lookup(&tx_hash).is_none());
     assert_eq!(app.pipeline_status_cache.pending_blocks.len(), 1);
-    app.pipeline_status_cache.refresh_pending_blocks(&app.state);
+    let outcome = reconcile_pending_pipeline_transaction(&app, &tx_hash)
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        outcome,
+        CanonicalTransactionOutcome::Applied { .. }
+    ));
     let stored = app.pipeline_status_cache.lookup(&tx_hash).expect("entry");
     assert_eq!(stored.kind, PipelineStatusKind::Committed);
     assert_eq!(stored.block_height, NonZeroU64::new(2));
@@ -138,7 +144,11 @@ async fn pipeline_status_cache_rejects_uncertified_block_custody() {
     };
     app.pipeline_status_cache
         .record_block_event(&event, &app.state);
-    app.pipeline_status_cache.refresh_pending_blocks(&app.state);
+    assert!(
+        reconcile_pending_pipeline_transaction(&app, &tx_hash)
+            .unwrap()
+            .is_none()
+    );
     assert!(app.pipeline_status_cache.lookup(&tx_hash).is_none());
     assert_eq!(app.pipeline_status_cache.pending_blocks.len(), 1);
 }
@@ -373,7 +383,7 @@ async fn original_history_pool_refusal_preserves_pending_status_and_refuses_visi
         "refusal cannot poison or delete original history"
     );
 
-    let cache = PipelineStatusCache::new();
+    let cache = &app.pipeline_status_cache;
     cache.record_block_event(
         &BlockEvent {
             header,
@@ -447,7 +457,14 @@ async fn original_history_pool_refusal_preserves_pending_status_and_refuses_visi
 
     drop(occupied);
     drop(occupied_cold);
-    cache.refresh_pending_blocks(&app.state);
+    let outcome = owner
+        .scope(|| reconcile_pending_pipeline_transaction(&app, &tx_hash))
+        .expect("retry uses the original admitted query owner and exact pending source")
+        .unwrap();
+    assert!(matches!(
+        outcome,
+        CanonicalTransactionOutcome::Applied { .. }
+    ));
     assert!(cache.pending_blocks.is_empty());
     assert_eq!(
         cache.lookup(&tx_hash).unwrap().kind,
@@ -468,4 +485,135 @@ async fn original_history_pool_refusal_preserves_pending_status_and_refuses_visi
             .status(),
         StatusCode::OK
     );
+}
+
+#[tokio::test]
+async fn pipeline_block_event_reads_recent_original_carrier_and_preserves_refused_event() {
+    let (app, _, mut chain) = canonical_outcome_test_fixture(false);
+    chain.commit(Vec::new());
+    chain.commit(Vec::new());
+    let key = checked_torii_test_ed25519_keypair(0x24, "native history authority");
+    let mut builder = TransactionBuilder::new(
+        chain.network_id(),
+        AccountId::new(key.public_key().clone()),
+        iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+    );
+    builder.set_creation_time(Duration::from_millis(5_000));
+    let transaction = builder
+        .with_instructions([Log::new(
+            Level::INFO,
+            "original recent block-event carrier".into(),
+        )])
+        .sign(key.private_key());
+    let hash = transaction.hash();
+    assert_eq!(chain.commit(vec![transaction]), [true]);
+    assert_eq!(chain.height(), 5);
+    let original = chain.committed(5).block().clone();
+    let event = BlockEvent {
+        header: original.header(),
+        status: BlockStatus::Applied,
+    };
+    let pool = app.state.ivm_execution_budget();
+    let reserved = pool.reserved_bytes();
+    let blocker = pool
+        .try_reserve_bytes(pool.limit_bytes() - reserved)
+        .unwrap();
+    app.pipeline_status_cache
+        .record_block_event(&event, &app.state);
+    assert!(app.pipeline_status_cache.lookup(&hash).is_none());
+    let pending = app
+        .pipeline_status_cache
+        .pending_blocks
+        .get(&NonZeroU64::new(5).unwrap())
+        .unwrap();
+    assert_eq!(pending.block_hash, original.hash());
+    assert_eq!(pending.kind, PipelineStatusKind::Applied);
+    assert!(pending.deferred.is_some());
+    let observed_at = pending.observed_at;
+    drop(pending);
+    assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+    drop(blocker);
+    // Re-delivery of the actual event retries the same immutable source; the
+    // event projection grants no query admission, output authority or State mutation.
+    app.pipeline_status_cache
+        .record_block_event(&event, &app.state);
+    let stored = app
+        .pipeline_status_cache
+        .lookup(&hash)
+        .expect("actual recent Network result");
+    assert_eq!(stored.kind, PipelineStatusKind::Applied);
+    assert_eq!(stored.block_height, NonZeroU64::new(5));
+    assert!(stored.observed_at >= observed_at);
+    assert!(app.pipeline_status_cache.pending_blocks.is_empty());
+    assert!(stored.rejection.is_none());
+    assert_eq!(pool.reserved_bytes(), reserved);
+}
+
+#[tokio::test]
+async fn pipeline_block_event_keeps_exact_writer_refusal_and_returns_before_publication() {
+    let (app, hash, chain) = canonical_outcome_test_fixture(false);
+    let original = chain.committed(2).block().clone();
+    let event = BlockEvent {
+        header: original.header(),
+        status: BlockStatus::Applied,
+    };
+    let state = app.state.clone();
+    let cache = app.pipeline_status_cache.clone();
+    let unrelated_height = NonZeroU64::new(99).unwrap();
+    let unrelated_hash =
+        HashOf::from_untyped_unchecked(Hash::new(b"unrelated event writer refusal source"));
+    let observed_at = Instant::now();
+    cache.record_pending_block(
+        unrelated_height,
+        PendingBlockStatus {
+            kind: PipelineStatusKind::Committed,
+            block_hash: unrelated_hash,
+            observed_at,
+            deferred: None,
+        },
+    );
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let mut job = None;
+    let (expected, returned) = state.with_held_view_publication_for_reader_test(|wait| {
+        let source = state.clone();
+        let pending = cache.clone();
+        job = Some(std::thread::spawn(move || {
+            pending.record_block_event(&event, &source);
+            done_tx.send(()).unwrap();
+        }));
+        (wait, done_rx.recv_timeout(Duration::from_secs(2)))
+    });
+    job.unwrap().join().unwrap();
+    assert!(
+        returned.is_ok(),
+        "pending block event must return its original writer refusal"
+    );
+    assert!(cache.lookup(&hash).is_none());
+    let height = NonZeroU64::new(2).unwrap();
+    let pending = cache.pending_blocks.get(&height).unwrap();
+    assert_eq!(pending.kind, PipelineStatusKind::Applied);
+    assert_eq!(pending.block_hash, original.hash());
+    assert_eq!(
+        pending.deferred,
+        Some(PendingBlockDeferral::StateViewBusy(expected))
+    );
+    let original_observed_at = pending.observed_at;
+    drop(pending);
+    let unrelated = cache.pending_blocks.get(&unrelated_height).unwrap();
+    assert_eq!(unrelated.block_hash, unrelated_hash);
+    assert_eq!(unrelated.observed_at, observed_at);
+    assert!(unrelated.deferred.is_none());
+    drop(unrelated);
+    cache.record_block_event(
+        &BlockEvent {
+            header: original.header(),
+            status: BlockStatus::Applied,
+        },
+        &state,
+    );
+    let stored = cache.lookup(&hash).unwrap();
+    assert_eq!(stored.kind, PipelineStatusKind::Applied);
+    assert!(stored.observed_at >= original_observed_at);
+    assert!(cache.pending_blocks.get(&height).is_none());
+    assert!(cache.pending_blocks.get(&unrelated_height).is_some());
 }

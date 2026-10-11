@@ -55,6 +55,19 @@ impl Directory {
         };
         Ok(bytes.to_vec())
     }
+    fn read_optional(
+        &self,
+        name: &OsStr,
+        maximum: usize,
+        private: bool,
+    ) -> io::Result<Option<Vec<u8>>> {
+        let bytes = match self {
+            Self::Project(dir) if private => dir.read_private_optional(name, maximum)?,
+            Self::Project(dir) => dir.read_regular_optional(name, maximum)?,
+            Self::Private(dir) => dir.read_optional(name, maximum)?,
+        };
+        Ok(bytes.map(|bytes| bytes.to_vec()))
+    }
     fn write(&self, name: &OsStr, bytes: &[u8], mode: PublishMode) -> io::Result<()> {
         match self {
             Self::Project(dir) => dir.write_atomic(name, bytes, mode),
@@ -186,11 +199,9 @@ impl AtomicWriteRoot {
     ) -> Result<Option<Vec<u8>>, AtomicWriteError> {
         let parent = self.parent(relative)?;
         let name = relative.file_name().expect("validated filename");
-        let bytes = match parent.read(name, maximum, private) {
-            Ok(bytes) => Some(bytes),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-            Err(error) => return Err(native_error(relative, "read immutable bytes", error)),
-        };
+        let bytes = parent
+            .read_optional(name, maximum, private)
+            .map_err(|error| native_error(relative, "read immutable bytes", error))?;
         parent
             .revalidate()
             .and_then(|()| self.directory.revalidate())

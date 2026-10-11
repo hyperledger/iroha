@@ -938,7 +938,7 @@ mod tests {
         }
     }
     #[test]
-    fn generic_privacy_types_are_absent_but_specialized_flows_remain_registered() {
+    fn generic_privacy_types_and_retired_kagemusha_instructions_are_absent() {
         let registry = instruction_registry::default();
         let specs = gather_instruction_specs(&registry, None);
         assert_eq!(specs.len(), 80, "first-release generated instruction count");
@@ -1003,13 +1003,14 @@ mod tests {
                 "retired generic privacy type must not remain in exporter inventory: {type_name}"
             );
         }
-        for specialized_type in [
-            std::any::type_name::<iroha_data_model::isi::kagemusha_v1::TopUpKagemushaV1>(),
-            std::any::type_name::<iroha_data_model::isi::kagemusha_v1::RedeemKagemushaV1>(),
+        for retired_wire_id in [
+            "iroha.kagemusha.v1.top_up",
+            "iroha.kagemusha.v1.ordinary_top_up",
+            "iroha.kagemusha.v1.redeem",
         ] {
             assert!(
-                registry.wire_id(specialized_type).is_some(),
-                "specialized privacy instruction must remain registered for encoding: {specialized_type}"
+                !registry.contains(retired_wire_id),
+                "retired KAGEMUSHA instruction must not be registered: {retired_wire_id}"
             );
         }
     }

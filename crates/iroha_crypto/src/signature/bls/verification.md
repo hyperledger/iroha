@@ -39,3 +39,27 @@ exact upstream message points and allocation observation. Permanent
 diagnostics, facade precedence, every compressed-flag family, field boundaries,
 suffixes, typed subgroup tripwires and retained-cache bypass. Shipping source
 contains no copied retired parser or single-signature verifier.
+
+## Consensus suite
+
+`consensus.rs` (`iroha_crypto::bls::consensus`) is the only BLS API that signs
+under the IETF min-pk proof-of-possession tag `DST_SIG`
+(`specs/sumeragi.md` §1 item 6); the verify-only Ethereum sync-committee API
+shares only its hash-to-curve. It signs `SHA-256(P)` only for a preimage `P`
+that matches one allowlist row exactly (Sumeragi kinds `0x01`–`0x05` and the
+RS16 availability statements); `ConsensusDigest` has no other constructor.
+Signing reuses the checked scalar decoding and blinded split of `signing.rs`
+with no augmentation. Verification requires canonical, in-subgroup,
+non-identity points, a non-identity aggregate key, PoP-admitted keys without
+repetition (per group) or keys from an authenticated committee root, and
+distinct digests across `AggregateVerify` groups. Every consensus verifier runs
+on one `blst` pairing context; `ConsensusAggregateScratch` admits its exact
+backing before allocation like `BlsNormalAggregateScratch` and then verifies
+without heap allocation, and the free functions use an unfunded context. The
+w3f transcript above and the w3f proof of possession are unchanged, so neither
+suite's signatures verify in the other.
+`fixtures/sccp/bls_consensus_rust_v1.json` holds the shared vectors; its unit
+test regenerates the file and fails on any difference.
+`consensus/tests/python_reference.rs` reproduces every row of the independent
+Python reference `bls_consensus_v1.json` (`scripts/sccp_reference`), including
+RFC 9380 vectors and a captured Ethereum mainnet sync-committee aggregate.

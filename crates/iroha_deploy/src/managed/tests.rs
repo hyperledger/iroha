@@ -112,14 +112,7 @@ pub(super) fn fixture(
         },
         peers,
     };
-    directory
-        .write_atomic(
-            "fixture-executable",
-            b"retained binary",
-            PublishMode::CreateNew,
-        )
-        .unwrap();
-    let pin = store::pin_binary(&directory.path().join("fixture-executable")).unwrap();
+    let pin = store::pin_binary(&std::env::current_exe().unwrap()).unwrap();
     let retained = RetainedLocalnet {
         root_kind: RootKind::Global,
         prepared: prepared.clone(),
@@ -157,7 +150,61 @@ fn names_cannot_escape_the_context_root() {
     for name in ["local", "Acme_2", "private-test"] {
         validate_name(name).unwrap();
     }
-    assert!(validate_name(&"x".repeat(49)).is_err());
+    for length in [48, 49, 63] {
+        validate_name(&"x".repeat(length)).unwrap();
+    }
+    assert!(validate_name(&"x".repeat(64)).is_err());
+}
+
+#[test]
+fn full_length_dataspace_names_retain_distinct_native_directory_identity() {
+    let _resources = super::native_test_guard();
+    let temporary = tempfile::tempdir().unwrap();
+    let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
+    let networks = PrivateDirectory::open(store.root().join("networks")).unwrap();
+    for length in [49, 63] {
+        let prefix = "a".repeat(length - 1);
+        let names = [format!("{prefix}b"), format!("{prefix}c")];
+        assert_eq!(&names[0][..48], &names[1][..48]);
+        for name in &names {
+            iroha_wallet::namespace::resolve_private_owner_alias(name, "admin").unwrap();
+            let network = networks.ensure_child(name).unwrap();
+            network
+                .write_atomic("identity", name.as_bytes(), PublishMode::CreateNew)
+                .unwrap();
+            let attachment = store
+                .publish_attachment(name, &[("identity", name.as_bytes())])
+                .unwrap();
+            assert_eq!(attachment.path().file_name().unwrap(), name.as_str());
+        }
+        for name in &names {
+            let reopened = store.directory(name).unwrap();
+            assert_eq!(reopened.path().file_name().unwrap(), name.as_str());
+            assert_eq!(
+                reopened.read("identity", 64).unwrap().as_slice(),
+                name.as_bytes()
+            );
+            let attachment = store
+                .attachments_directory()
+                .unwrap()
+                .unwrap()
+                .open_child(name)
+                .unwrap();
+            assert_eq!(
+                attachment.read("identity", 64).unwrap().as_slice(),
+                name.as_bytes()
+            );
+        }
+    }
+    let invalid = "a".repeat(64);
+    assert!(iroha_wallet::namespace::resolve_private_owner_alias(&invalid, "admin").is_err());
+    assert!(store.directory(&invalid).is_err());
+    assert!(
+        store
+            .publish_attachment(&invalid, &[("identity", b"invalid")])
+            .is_err()
+    );
+    assert!(!store.root().join("attachments").join(&invalid).exists());
 }
 
 #[test]
@@ -170,7 +217,7 @@ fn retained_root_kind_is_mandatory_and_private_identity_cannot_replace_global() 
     value.as_object_mut().unwrap().remove("root_kind");
     assert!(decode::<RetainedLocalnet>(&norito::json::to_vec(&value).unwrap()).is_err());
     let spec = private_spec();
-    let binary = directory.path().join("fixture-executable");
+    let binary = std::env::current_exe().unwrap();
     let request = LocalnetRequest::private_root(binary.clone(), binary);
     let error = store.up_private_root(&request, &spec).unwrap_err();
     assert!(
@@ -216,14 +263,7 @@ fn incomplete_managed_preparation_never_creates_a_replacement_generation() {
             PublishMode::CreateNew,
         )
         .unwrap();
-    directory
-        .write_atomic(
-            "not-executable",
-            b"not a native worker",
-            PublishMode::CreateNew,
-        )
-        .unwrap();
-    let binary = directory.path().join("not-executable");
+    let binary = std::env::current_exe().unwrap();
     let mut request = LocalnetRequest::private_root(binary.clone(), binary);
     request.name = "private".into();
     assert!(store.up_private_root(&request, &private_spec()).is_err());
@@ -251,14 +291,7 @@ fn managed_private_preparation_retains_owner_scope_and_listener_token_after_spaw
     let _resources = super::native_test_guard();
     let temporary = tempfile::tempdir().unwrap();
     let directory = PrivateDirectory::open_or_create(&temporary.path().join("managed")).unwrap();
-    directory
-        .write_atomic(
-            "not-executable",
-            b"not a native worker",
-            PublishMode::CreateNew,
-        )
-        .unwrap();
-    let binary = directory.path().join("not-executable");
+    let binary = std::env::current_exe().unwrap();
     let store = ManagedStore::open(directory.path()).unwrap();
     let mut request = LocalnetRequest::private_root(binary.clone(), binary);
     request.name = "private".into();
@@ -266,8 +299,8 @@ fn managed_private_preparation_retains_owner_scope_and_listener_token_after_spaw
     let spec = private_spec();
     let error = store.up_private_root(&request, &spec).unwrap_err();
     assert!(
-        matches!(error, Error::Io(_)),
-        "expected native spawn failure after genuine preparation: {error}"
+        matches!(error, Error::Timeout(timeout) if timeout == request.startup_timeout),
+        "expected original-budget worker-start failure after genuine preparation: {error}"
     );
     let prepared = store
         .prepared("private")
@@ -290,7 +323,7 @@ fn managed_private_preparation_retains_owner_scope_and_listener_token_after_spaw
             .to_string()
             .contains("different immutable root identity")
     );
-    assert!(store.up_retained(&request).is_err());
+    assert!(store.up_retained(&request, &prepared.context).is_err());
     assert_eq!(store.prepared("private").unwrap(), prepared);
     assert_eq!(
         &*iroha_fs::read_private(&prepared.context.client_config, MAX_METADATA).unwrap(),
@@ -350,6 +383,17 @@ fn stopped_context_selection_retains_identity_and_never_exposes_keys() {
     assert_eq!(restored.context(None).unwrap(), selected);
 }
 
+// These selection-only controls supply a status DTO, not native readiness evidence. The
+// deadline/identity observer itself is exercised by the dedicated startup-selection tests.
+fn selection_ready(context: &ManagedContext) -> ManagedStatus {
+    ManagedStatus {
+        context: context.clone(),
+        phase: ManagedPhase::Ready,
+        running_peers: 4,
+        failure: None,
+    }
+}
+
 #[test]
 fn explicit_deployment_startup_preserves_absent_and_existing_workspace_selection() {
     let _resources = super::native_test_guard();
@@ -362,7 +406,9 @@ fn explicit_deployment_startup_preserves_absent_and_existing_workspace_selection
     // Exercise the actual selection owner used after either startup Ready exit. These
     // retained contexts do not claim live validators or substitute a readiness proof.
     let target = store::StartupSelection::for_requested_context(Some("b"));
-    target.apply(&store, "b").unwrap();
+    target
+        .apply(&store, &b.context, || Ok(selection_ready(&b.context)))
+        .unwrap();
     assert!(matches!(store.context(None), Err(Error::NoSelection)));
     assert!(!store.root().join("active.json").exists());
 
@@ -370,7 +416,9 @@ fn explicit_deployment_startup_preserves_absent_and_existing_workspace_selection
     let original = private.read("active.json", MAX_METADATA).unwrap();
     for _ in 0..2 {
         // A fresh deployment and exact-journal resume use the same explicit-target policy.
-        target.apply(&store, "b").unwrap();
+        target
+            .apply(&store, &b.context, || Ok(selection_ready(&b.context)))
+            .unwrap();
         assert_eq!(private.read("active.json", MAX_METADATA).unwrap(), original);
         assert_eq!(store.context(None).unwrap(), a.context);
     }
@@ -385,7 +433,9 @@ fn explicit_deployment_startup_preserves_absent_and_existing_workspace_selection
     let target = store::StartupSelection::for_requested_context(Some("a"));
     store.select("b").unwrap();
     let current = private.read("active.json", MAX_METADATA).unwrap();
-    target.apply(&store, "a").unwrap();
+    target
+        .apply(&store, &a.context, || Ok(selection_ready(&a.context)))
+        .unwrap();
     assert_eq!(private.read("active.json", MAX_METADATA).unwrap(), current);
     assert_eq!(store.context(None).unwrap(), b.context);
 }
@@ -399,15 +449,17 @@ fn ordinary_and_default_startup_still_select_the_ready_environment() {
     let (_, _, b) = fixture(&root, "b");
     // Default auto-creation has no previous selection and must persist its ready context.
     store::StartupSelection::for_requested_context(None)
-        .apply(&store, "a")
+        .apply(&store, &a.context, || Ok(selection_ready(&a.context)))
         .unwrap();
     assert_eq!(store.context(None).unwrap(), a.context);
     // Ordinary local/private up and explicit up_retained use Select, independently of the
     // deployment override. These checks concern selection, not native startup qualification.
-    store::StartupSelection::Select.apply(&store, "b").unwrap();
+    store::StartupSelection::Select
+        .apply(&store, &b.context, || Ok(selection_ready(&b.context)))
+        .unwrap();
     assert_eq!(store.context(None).unwrap(), b.context);
     store::StartupSelection::for_requested_context(None)
-        .apply(&store, "a")
+        .apply(&store, &a.context, || Ok(selection_ready(&a.context)))
         .unwrap();
     assert_eq!(store.context(None).unwrap(), a.context);
 }
@@ -418,7 +470,7 @@ fn create_only_rejects_retained_global_and_private_names_under_the_operation_loc
     for private_root in [false, true] {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path().join("managed");
-        let (store, selected_directory, selected) = fixture(&root, "selected");
+        let (store, _, selected) = fixture(&root, "selected");
         store.select("selected").unwrap();
         let owner = PrivateDirectory::open(store.root()).unwrap();
         let active = owner.read("active.json", MAX_METADATA).unwrap();
@@ -427,7 +479,7 @@ fn create_only_rejects_retained_global_and_private_names_under_the_operation_loc
         let directory = if private_root {
             let networks = PrivateDirectory::open(root.join("networks")).unwrap();
             let directory = networks.create_child("concurrent").unwrap();
-            let binary = selected_directory.path().join("fixture-executable");
+            let binary = std::env::current_exe().unwrap();
             let mut request = LocalnetRequest::private_root(binary.clone(), binary);
             request.name = "concurrent".into();
             let _operation = store::acquire(&directory, "operation.lock", &request.name).unwrap();
@@ -608,8 +660,14 @@ fn foreground_expiry_uses_failed_startup_action_and_rejects_late_ready_or_other_
             late_observation.clone(),
             expired_start,
             timeout,
+            0,
             true,
         ),
+        Err(Error::Timeout(value)) if value == timeout
+    ));
+    assert!(matches!(
+        store::observe_startup_status(&directory, &prepared.context, late_observation.clone(),
+            std::time::Instant::now(), timeout, 0, true),
         Err(Error::Timeout(value)) if value == timeout
     ));
     // The same late proof during this invocation's actual startup must cancel that
@@ -619,8 +677,9 @@ fn foreground_expiry_uses_failed_startup_action_and_rejects_late_ready_or_other_
             &directory,
             &prepared.context,
             late_observation,
-            expired_start,
+            std::time::Instant::now(),
             timeout,
+            0,
             false,
         )
         .unwrap(),
@@ -742,10 +801,16 @@ fn changed_binary_is_rejected_before_launch() {
     let _resources = super::native_test_guard();
     let temporary = tempfile::tempdir().unwrap();
     let binary = temporary.path().join("daemon");
-    std::fs::write(&binary, b"candidate-one").unwrap();
+    std::fs::copy(std::env::current_exe().unwrap(), &binary).unwrap();
     let pin = store::pin_binary(&binary).unwrap();
     store::verify_binary(&pin).unwrap();
-    std::fs::write(binary, b"candidate-two").unwrap();
+    use std::io::Write as _;
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(binary)
+        .unwrap()
+        .write_all(b"changed native contents")
+        .unwrap();
     assert!(store::verify_binary(&pin).is_err());
 }
 
@@ -792,7 +857,7 @@ fn retained_service_profile_mismatch_and_private_selection_refuse_before_generat
         .unwrap()
         .read(MANIFEST, MAX_METADATA)
         .unwrap();
-    let binary = directory.path().join("fixture-executable");
+    let binary = std::env::current_exe().unwrap();
     let mut request = LocalnetRequest::new(binary.clone(), binary);
     request.service_profile = crate::localnet::LocalnetServiceProfile::StreamTokenAuthorities;
     assert!(
@@ -853,4 +918,21 @@ fn retained_standard_profile_requires_original_signed_genesis_and_identity() {
         .write_atomic("genesis.signed.nrt", &genesis, PublishMode::CreateNew)
         .unwrap();
     assert!(prepared.stream_token_authorities().unwrap().is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn optional_store_selection_refuses_lost_parent_and_restores_original_absence() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("managed");
+    let store = ManagedStore::open(&path).unwrap();
+    assert!(matches!(store.context(None), Err(Error::NoSelection)));
+    let displaced = temporary.path().join("original-managed");
+    std::fs::rename(&path, &displaced).unwrap();
+    assert!(
+        matches!(store.context(None), Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound)
+    );
+    std::fs::rename(&displaced, &path).unwrap();
+    assert!(matches!(store.context(None), Err(Error::NoSelection)));
+    assert!(!path.join("active.json").exists());
 }

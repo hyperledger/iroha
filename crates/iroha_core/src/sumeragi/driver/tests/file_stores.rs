@@ -14,7 +14,7 @@ use std::{
 
 use iroha_sumeragi::{
     api::LocalParams,
-    crypto::{NoAttestation, Signer},
+    crypto::Signer,
     safety::{RecordState, SafetyRecord},
     testing::{FakeCrypto, FakeSigner},
     types::{ChainParams, Committee, Hash32, HeightConfig},
@@ -180,8 +180,6 @@ fn file_stores_survive_disk_errors() {
             init,
             signers: vec![Arc::new(signer)],
             crypto: Arc::clone(&crypto),
-            attestor: Box::new(NoAttestation),
-            verifier: Box::new(NoAttestation),
         },
     )
     .unwrap();

@@ -30,11 +30,11 @@ public sealed class ToriiEventStreamTests
 
             data: {"category":"Pipeline","event":"Witness","block_hash":"{{HashB}}","height":12,"view":1,"epoch":2,"read_count":40,"write_count":5}
 
-            data: {"category":"Data","event":"ProofVerified","backend":"halo2/ipa","proof_hash":"{{HashC}}","call_hash":"{{HashA}}","envelope_hash":null,"vk_ref":"halo2/ipa::vk_main","vk_commitment":"{{HashB}}"}
+            data: {"category":"Data","event":"ProofVerified","backend":"pipa-r/pasta","proof_hash":"{{HashC}}","call_hash":"{{HashA}}","envelope_hash":null,"vk_ref":"pipa-r/pasta::vk_main","vk_commitment":"{{HashB}}"}
 
-            data: {"category":"Data","event":"ProofRejected","backend":"halo2/ipa","proof_hash":"{{HashC}}","call_hash":null,"envelope_hash":null,"vk_ref":null,"vk_commitment":null}
+            data: {"category":"Data","event":"ProofRejected","backend":"pipa-r/pasta","proof_hash":"{{HashC}}","call_hash":null,"envelope_hash":null,"vk_ref":null,"vk_commitment":null}
 
-            data: {"category":"Data","event":"ProofPruned","backend":"halo2/ipa","removed_count":1,"remaining":3,"cap":32,"grace_blocks":64,"prune_batch":8,"pruned_at_height":777,"pruned_by":"sorau1","origin":"Insert","removed":[{"backend":"halo2/ipa","proof_hash":"{{HashC}}"}]}
+            data: {"category":"Data","event":"ProofPruned","backend":"pipa-r/pasta","removed_count":1,"remaining":3,"cap":32,"grace_blocks":64,"prune_batch":8,"pruned_at_height":777,"pruned_by":"sorau1","origin":"Insert","removed":[{"backend":"pipa-r/pasta","proof_hash":"{{HashC}}"}]}
 
             data: {"category":"Data","event":"Asset","summary":"Added(...)"}
 
@@ -73,11 +73,11 @@ public sealed class ToriiEventStreamTests
         var verified = Assert.IsType<ToriiProofVerificationEvent>(events[6]);
         Assert.Equal(("Data", "ProofVerified"), (verified.Category, verified.Event));
         Assert.True(verified.Verified);
-        Assert.Equal("halo2/ipa", verified.Backend);
+        Assert.Equal("pipa-r/pasta", verified.Backend);
         Assert.Equal(HashC, verified.ProofHash);
         Assert.Equal(HashA, verified.CallHash);
         Assert.Null(verified.EnvelopeHash);
-        Assert.Equal("halo2/ipa::vk_main", verified.VerifyingKeyReference);
+        Assert.Equal("pipa-r/pasta::vk_main", verified.VerifyingKeyReference);
         Assert.Equal(HashB, verified.VerifyingKeyCommitment);
 
         var proofRejected = Assert.IsType<ToriiProofVerificationEvent>(events[7]);
@@ -90,7 +90,7 @@ public sealed class ToriiEventStreamTests
         Assert.Equal((3UL, 32UL, 64UL, 8UL, 777UL), (pruned.Remaining, pruned.Cap, pruned.GraceBlocks, pruned.PruneBatch, pruned.PrunedAtHeight));
         Assert.Equal("sorau1", pruned.PrunedBy);
         Assert.Equal(ToriiProofPruneOrigin.Insert, pruned.Origin);
-        Assert.Equal(new ToriiPrunedProof { Backend = "halo2/ipa", ProofHash = HashC }, Assert.Single(pruned.Removed));
+        Assert.Equal(new ToriiPrunedProof { Backend = "pipa-r/pasta", ProofHash = HashC }, Assert.Single(pruned.Removed));
 
         var data = Assert.IsType<ToriiDataEvent>(events[9]);
         Assert.Equal(("Data", "Asset", "Added(...)"), (data.Category, data.Event, data.Summary));

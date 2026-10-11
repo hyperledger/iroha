@@ -1137,6 +1137,26 @@ mod block {
             }
         }
 
+        /// Terminal publication markers never grant a fresh capture borrow.
+        fn is_unpublished_for_capture(&self) -> bool {
+            #[cfg(all(test, sumeragi_core_mutation = "HC155"))]
+            {
+                true
+            }
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC155")))]
+            {
+                !self.publication_started && !self.published
+            }
+        }
+
+        /// Borrow only the logically admitted unpublished original membership writer.
+        pub(in crate::state::storage_transactions) fn unpublished_membership_block(
+            &self,
+        ) -> &TransactionsBlock<'storage> {
+            self.assert_unpublished();
+            &self.block
+        }
+
         fn assert_unpublished(&self) {
             assert!(
                 !self.publication_started && !self.published,
@@ -1625,10 +1645,33 @@ mod membership_projection {
                 .current_block
                 .as_deref()
                 .ok_or(TransactionsBlockError::MissingInsertBlock)?;
-            Ok(TransactionsMembershipTransition {
+            Ok(self.transition_from_admitted_row(current))
+        }
+
+        fn transition_from_admitted_row<'block>(
+            &'block self,
+            current: &'block BlockInfo,
+        ) -> TransactionsMembershipTransition<'block> {
+            TransactionsMembershipTransition {
                 before: self.membership_snapshot(),
                 current,
-            })
+            }
+        }
+    }
+
+    impl PreparedTransactionsBlock<'_> {
+        /// Borrow the same row and predecessor that logical publication already admitted.
+        /// No writer, staged payload or latest generation is reacquired here.
+        pub(in crate::state) fn membership_transition(
+            &self,
+        ) -> TransactionsMembershipTransition<'_> {
+            let block = self.unpublished_membership_block();
+            block.transition_from_admitted_row(
+                block
+                    .current_block
+                    .as_deref()
+                    .expect("admitted staged membership"),
+            )
         }
     }
 
@@ -1667,6 +1710,44 @@ mod membership_projection {
     }
 
     impl TransactionsMembershipTransition<'_> {
+        /// Admit every physical entry inspection in both successor streams.
+        /// Staged/current and predecessor/rollback visitors share this same cut.
+        pub(in crate::state) fn successor_row_visits(&self) -> Option<usize> {
+            let latest = self
+                .before
+                .latest
+                .as_ref()
+                .map_or(0, |tip| tip.transactions.len());
+            let promoted = if self.before.revert { 0 } else { latest };
+            let rollback =
+                if self.before.revert || self.staged_height().get() == self.committed_height() {
+                    0
+                } else {
+                    latest
+                };
+            self.before
+                .history
+                .len()
+                .checked_mul(2)?
+                .checked_add(self.current.transactions.len())?
+                .checked_add(promoted)?
+                .checked_add(rollback)
+        }
+
+        /// Exact rollback of the staged successor, including a repeated publication.
+        /// Ordinary advance retains the former tip; replacement and repetition exclude it.
+        pub(in crate::state) fn visit_staged_predecessor_membership<E>(
+            &self,
+            visit: impl FnMut(&Key, Value) -> Result<(), E>,
+        ) -> Result<(), E> {
+            #[cfg(all(test, sumeragi_core_mutation = "HC154"))]
+            let undo_latest = self.before.revert;
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC154")))]
+            let undo_latest =
+                self.before.revert || self.staged_height().get() == self.committed_height();
+            self.before.visit(undo_latest, visit)
+        }
+
         /// Height of the committed tip before this publication; zero if empty.
         pub(in crate::state) fn committed_height(&self) -> usize {
             self.before
@@ -1699,6 +1780,9 @@ mod membership_projection {
             &self,
             mut visit: impl FnMut(&Key, Value) -> Result<(), E>,
         ) -> Result<(), E> {
+            if cfg!(all(test, sumeragi_core_mutation = "HC153")) {
+                return self.before.visit(false, visit);
+            }
             for key in &self.current.transactions {
                 visit(key, self.current.height)?;
             }
@@ -1774,7 +1858,6 @@ mod membership_projection {
         }
     }
 }
-#[cfg(test)]
 pub(in crate::state) use membership_projection::TransactionsMembershipTransition;
 
 #[cfg_attr(

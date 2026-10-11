@@ -88,6 +88,18 @@ impl FieldDestination for Transcript {
     type Error = DestinationError;
 }
 macro_rules! scalar {
+    ($owner:ty, $index:literal, $name:ident, [u8; $length:expr]) => {
+        impl DecodeField<$index, [u8; $length]> for $owner {
+            type Value = ();
+            fn decode_field(
+                &mut self,
+                field: CanonicalField<'_, [u8; $length]>,
+            ) -> DecodeResult<()> {
+                self.$name = field.decode_owned()?;
+                Ok(())
+            }
+        }
+    };
     ($owner:ty, $index:literal, $name:ident, $ty:ty) => {
         impl DecodeField<$index, $ty> for $owner {
             type Value = ();
@@ -321,7 +333,7 @@ scalar!(Session, 9, dkg_contribution_hash, [u8; 32]);
 impl DecodeField<10, [u8; 32]> for Session {
     type Value = ();
     fn decode_field(&mut self, field: CanonicalField<'_, [u8; 32]>) -> DecodeResult<()> {
-        self.transcript_hash = field.with_payload(<[u8; 32] as InlineValue>::decode_payload)?;
+        self.transcript_hash = field.decode_owned()?;
         self.ready = true;
         Ok(())
     }

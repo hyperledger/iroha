@@ -89,9 +89,9 @@ pilots that claim the profile.
    - Inspect the annotation; it lists every bundle with the alias, security levels, and any failures.
    - Download the artifact if additional details are required. Failed entries emit structured log
      lines (also printed to stderr by the report script).
-4. **Update the matrix and status.**
-   - Record the Buildkite run URL and attestation date in
-     `specs/sdk/android/readiness/android_strongbox_device_matrix.md`.
+4. **Update the reservation record and status.**
+   - Record the Buildkite run URL and attestation date in the device-lab
+     reservation ticket (`specs/compliance/android/device_lab_reservation.md`).
    - Note any remediation or outstanding bundles in `status.md` under the Android foundations
      section so governance can track readiness.
 

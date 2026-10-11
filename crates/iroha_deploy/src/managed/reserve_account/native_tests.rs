@@ -492,6 +492,17 @@ fn generated_native_registration_retains_exact_reserve_operator_wallet_and_disti
             crate::managed::native_operation::test_support::provider_id(&prepared, 0),
         )
         .unwrap();
+        crate::managed::native_operation::test_support::assert_optional_current(
+            &unavailable,
+            &committed,
+            |verifier| {
+                recovered_coordinator.read_current(
+                    &policy,
+                    verifier,
+                    Instant::now() + Duration::from_secs(30),
+                )
+            },
+        );
         let selected_options = original
             .terms
             .options(Instant::now() + Duration::from_secs(30));
@@ -573,8 +584,15 @@ fn generated_native_registration_retains_exact_reserve_operator_wallet_and_disti
                 .as_slice(),
             original_bytes.as_slice()
         );
+        let recovered_original = journal::required_original(&directory).unwrap();
         assert_eq!(
-            directory
+            recovered_original.directory().identity().unwrap(),
+            original.directory().identity().unwrap(),
+            "offline recovery must retain the exact committed attempt directory"
+        );
+        assert_eq!(
+            recovered_original
+                .directory()
                 .read("carrier.nrt", carrier_bytes.len())
                 .unwrap()
                 .as_slice(),

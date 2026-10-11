@@ -497,6 +497,7 @@ fn faucet_recovery_binds_original_trusted_request_before_network_or_submission()
     let expired = OnboardingService {
         config,
         deadline: Some(Instant::now()),
+        cancellation: None,
     };
     let fresh = temporary.path().join("not-created");
     assert!(
@@ -742,6 +743,7 @@ fn expired_saved_bootstrap_is_terminal_only_without_a_dispatch_marker() {
                         submit,
                         token: None,
                         expected_faucet: None,
+                        cancellation: None,
                     },
                     || Ok(client),
                 )
@@ -834,3 +836,6 @@ fn submitted_envelope_waits_read_only_for_applied_and_timeout_stays_pending() {
         // The closed mock rejects every non-read route, including any second submit.
     }
 }
+
+#[path = "onboarding_cancellation_tests.rs"]
+mod cancellation_tests;

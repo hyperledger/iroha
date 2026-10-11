@@ -5,11 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "iroha-app-attestation"
 version = "0.1.0"
-description = "Server-side verification of Apple App Attest, Android KeyMint and Play Integrity evidence for app-owned Iroha keys."
+description = "Server-side verification of Apple App Attest and Android KeyMint attestation evidence for KAGEMUSHA wallet enrollment."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 dependencies = []
+
+[project.scripts]
+iroha-wallet-e1-store-init = "iroha_app_attestation.wallet_enrollment_install:main"
+iroha-wallet-e1-denylist = "iroha_app_attestation.wallet_enrollment_install:denylist_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

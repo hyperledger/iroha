@@ -11,11 +11,17 @@ use std::{
 
 /// Load the deterministic client configuration shared by deployment fixtures.
 fn fixture_config() -> Result<Config> {
+    fixture_config_at("http://127.0.0.1:8080/")
+}
+
+/// Load the deterministic fixture configuration bound to one Torii URL.
+fn fixture_config_at(torii_url: &str) -> Result<Config> {
     // Public deterministic SDK test identity; never a runtime deployment account.
-    let source = br#"
+    let source = format!(
+        r#"
 chain = "00000000-0000-0000-0000-000000000000"
 network_id = "hash:32C903E5B3497E34C2B844EBFE8A39C19E6CF8F95D44C1FFB8BA9DCB42F91149#A2F0"
-torii_url = "http://127.0.0.1:8080/"
+torii_url = "{torii_url}"
 [account]
 chain_discriminant = 753
 public_key = "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03"
@@ -24,10 +30,13 @@ private_key = "802620CCF31D85E3B32A4BEA59987CE0C78E3B8E2DB93881468AB2435FE45D5C9
 time_to_live_ms = 100000
 status_timeout_ms = 100000
 nonce = false
-"#;
-    let (config, _) =
-        Config::load_bytes_with_musubi_publication(Path::new("deployment-test.toml"), source)
-            .map_err(|error| eyre!(format!("{error:?}")))?;
+"#
+    );
+    let (config, _) = Config::load_bytes_with_musubi_publication(
+        Path::new("deployment-test.toml"),
+        source.as_bytes(),
+    )
+    .map_err(|error| eyre!(format!("{error:?}")))?;
     Ok(config)
 }
 
@@ -50,9 +59,15 @@ fn accepted_quote(fee: &FeePaymentIntent, transaction: &SignedTransaction) -> Fe
 }
 
 pub fn fixture() -> Result<(Config, PlanRecord)> {
+    fixture_with_source(
+        "seiyaku Coffee { view fn points(int cups) authorize(anyone) -> int { return cups * 10; } }",
+    )
+}
+
+fn fixture_with_source(source: &str) -> Result<(Config, PlanRecord)> {
     let config = fixture_config()?;
     let artifact = kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku Coffee { view fn points(int cups) -> int { return cups * 10; } }")
+        .compile_source(source)
         .map_err(|error| eyre!(error))?;
     let verified = ivm_artifact_admission::verify_contract_artifact(&artifact)?;
     let fee = FeePaymentIntent::authority(Vec::new(), Some(NonZeroU64::new(1_000_000).unwrap()));
@@ -250,6 +265,7 @@ impl DeploymentTransport for MockTransport {
             block_height: 2,
             scope: "global".to_owned(),
             resolved_from: "state".to_owned(),
+            charge: None,
         })
     }
 }
@@ -262,20 +278,20 @@ fn ambiguous_submit_recovers_exact_hash_and_never_replays() -> Result<()> {
     let journal = Journal::open(&temporary.path().join("journal"), true)?;
     journal.put_exact("plan.json", &record)?;
     let transport = MockTransport::new(true);
-    let error = execute_transactions(&record, &journal, &transport, &mut |_| {}).unwrap_err();
+    let error = execute_transactions(&record, &journal, &transport, &mut |_| Ok(())).unwrap_err();
     assert!(
         matches!(error, DeploymentError::Pending { hash, .. } if hash == record.transactions[0].hash)
     );
     assert!(journal.exists("attempt-0000.json")?);
     assert_eq!(transport.submitted.borrow().len(), 1);
-    let evidence = execute_transactions(&record, &journal, &transport, &mut |_| {})?;
+    let evidence = execute_transactions(&record, &journal, &transport, &mut |_| Ok(()))?;
     assert_eq!(evidence.len(), record.transactions.len());
     assert_eq!(
         transport.submitted.borrow().len(),
         record.transactions.len()
     );
     assert_eq!(transport.submitted.borrow()[0], record.transactions[0].hash);
-    execute_transactions(&record, &journal, &transport, &mut |_| {})?;
+    execute_transactions(&record, &journal, &transport, &mut |_| Ok(()))?;
     assert_eq!(
         transport.submitted.borrow().len(),
         record.transactions.len()
@@ -299,7 +315,7 @@ fn crash_before_dispatch_and_wrong_finality_never_create_another_attempt() -> Re
     let transport = MockTransport::new(false);
     transport.wrong_hash.set(true);
     assert!(matches!(
-        execute_transactions(&record, &journal, &transport, &mut |_| {}),
+        execute_transactions(&record, &journal, &transport, &mut |_| Ok(())),
         Err(DeploymentError::Pending { .. })
     ));
     assert!(transport.submitted.borrow().is_empty());
@@ -326,17 +342,23 @@ fn prepared_persistence_and_completion_require_authenticated_plan_and_receipt() 
     };
     assert_eq!(prepared.preflight().code_hash, record.preflight.code_hash);
     service.persist(&prepared, &path)?;
-    assert!(service.completed_receipt(&path)?.is_none());
+    assert!(
+        service
+            .completed_receipt(&path, &prepared.record.preflight)?
+            .is_none()
+    );
     assert_eq!(receipt_path(&path), path.join(RECEIPT_FILE_NAME));
     let mut wrong_config = config;
     wrong_config.account_chain_discriminant ^= 1;
     assert!(
         DeploymentService::new(wrong_config)?
-            .resume(&path, &mut |_| {})
+            .resume(&path, &mut |_| Ok(()))
             .is_err()
     );
     let journal = Journal::open(&path, false)?;
-    let stages = execute_transactions(&record, &journal, &MockTransport::new(false), &mut |_| {})?;
+    let stages = execute_transactions(&record, &journal, &MockTransport::new(false), &mut |_| {
+        Ok(())
+    })?;
     let context = &record.preflight;
     let mut receipt = completed_receipt_fixture(&record, stages);
     journal.put_exact(RECEIPT_FILE_NAME, &receipt)?;
@@ -392,6 +414,7 @@ fn prepared_persistence_and_completion_require_authenticated_plan_and_receipt() 
 #[test]
 fn retained_preflight_and_current_completion_require_original_authenticated_plan() -> Result<()> {
     let (config, record) = fixture()?;
+    let expected_code_hash = record.preflight.code_hash;
     let service = DeploymentService::new(config.clone())?;
     let temporary = tempfile::tempdir()?;
     let path = temporary.path().join("journal");
@@ -408,20 +431,95 @@ fn retained_preflight_and_current_completion_require_original_authenticated_plan
         retained.transaction_hashes,
         record.preflight.transaction_hashes
     );
-    assert!(service.current_completed_receipt(&path)?.is_none());
+    assert!(
+        service
+            .current_completed_receipt(&path, &retained)?
+            .is_none()
+    );
+    assert!(
+        service
+            .retained_lifecycle_hook(&path, expected_code_hash)?
+            .is_none()
+    );
 
     let mut other = config;
     other.key_pair = KeyPair::try_from_seed(vec![0x78; 32], iroha_crypto::Algorithm::Ed25519)?;
     other.account = AccountId::of(other.key_pair.public_key().clone());
     let other = DeploymentService::new(other)?;
     assert!(other.retained_preflight(&path).is_err());
-    assert!(other.current_completed_receipt(&path).is_err());
+    assert!(
+        other
+            .retained_lifecycle_hook(&path, expected_code_hash)
+            .is_err()
+    );
+    assert!(other.current_completed_receipt(&path, &retained).is_err());
 
     let mut substituted = record;
     substituted.preflight.code_hash = Hash::new(b"substituted artifact");
     std::fs::write(path.join("plan.json"), norito::json::to_vec(&substituted)?)?;
     assert!(service.retained_preflight(&path).is_err());
-    assert!(service.current_completed_receipt(&path).is_err());
+    assert!(
+        service
+            .retained_lifecycle_hook(&path, expected_code_hash)
+            .is_err()
+    );
+    assert!(service.current_completed_receipt(&path, &retained).is_err());
+    Ok(())
+}
+
+#[test]
+fn retained_lifecycle_guidance_rejects_a_valid_alternate_plan_for_the_same_authority() -> Result<()>
+{
+    let (config, original) = fixture()?;
+    let (_, alternate) = fixture_with_source(
+        "seiyaku Coffee { state int value; hajimari(int start) { value = start; } view fn points(int cups) authorize(anyone) -> int { return cups + value; } }",
+    )?;
+    validate_plan(&original, &config)?;
+    validate_plan(&alternate, &config)?;
+    assert_eq!(original.preflight.authority, alternate.preflight.authority);
+    assert_ne!(original.preflight.code_hash, alternate.preflight.code_hash);
+    let expected_code_hash = original.preflight.code_hash;
+    let alternate_code_hash = alternate.preflight.code_hash;
+    let service = DeploymentService::new(config)?;
+    let temporary = tempfile::tempdir()?;
+    let path = temporary.path().join("original");
+    let other = temporary.path().join("alternate");
+    service.persist(&PreparedDeployment { record: original }, &path)?;
+    service.persist(&PreparedDeployment { record: alternate }, &other)?;
+    assert!(
+        service
+            .retained_lifecycle_hook(&path, expected_code_hash)?
+            .is_none()
+    );
+    std::fs::write(
+        path.join("plan.json"),
+        std::fs::read(other.join("plan.json"))?,
+    )?;
+    assert_eq!(
+        service.retained_preflight(&path)?.code_hash,
+        alternate_code_hash,
+        "the replacement is independently authenticated, not malformed fixture data"
+    );
+    let advisory = service.retained_lifecycle_hook(&path, expected_code_hash);
+    assert!(
+        matches!(&advisory, Err(DeploymentError::InvalidRequest(reason))
+        if reason == "retained initialization artifact differs from completed deployment")
+    );
+    assert!(
+        advisory.ok().flatten().is_none(),
+        "optional presentation omits the mismatch"
+    );
+    let hook = service
+        .retained_lifecycle_hook(&path, alternate_code_hash)?
+        .unwrap();
+    assert_eq!(hook.name, "hajimari");
+    assert_eq!(
+        hook.params,
+        [LifecycleParameter {
+            name: "start".into(),
+            type_name: "int".into()
+        }]
+    );
     Ok(())
 }
 
@@ -520,7 +618,7 @@ fn confirmed_rejection_or_expiry_is_durable_and_allows_only_explicit_new_work() 
         journal.put_exact("plan.json", &record)?;
         let transport = MockTransport::new(false);
         transport.failure_kind.set(Some(kind));
-        let failure = match execute_transactions(&record, &journal, &transport, &mut |_| {}) {
+        let failure = match execute_transactions(&record, &journal, &transport, &mut |_| Ok(())) {
             Err(DeploymentError::Failed(failure)) => failure,
             result => panic!("expected typed fixed failure, got {result:?}"),
         };
@@ -568,8 +666,9 @@ fn service_journal_and_review_use_configured_discriminant_without_ambient_state(
             .and_then(norito::json::Value::as_str),
         Some(expected_authority.as_str())
     );
+    let expected = record.preflight.clone();
     service.persist(&PreparedDeployment { record }, &path)?;
-    assert!(service.completed_receipt(&path)?.is_none());
+    assert!(service.completed_receipt(&path, &expected)?.is_none());
     assert_eq!(
         iroha::data_model::account::address::chain_discriminant(),
         73
@@ -628,7 +727,7 @@ fn historical_inspection_accepts_a_new_reader_but_never_a_new_deployment_signer(
         let reader = MockTransport::new(false);
         match disposition {
             "Completed" => {
-                let stages = execute_transactions(&record, &journal, &writer, &mut |_| {})?;
+                let stages = execute_transactions(&record, &journal, &writer, &mut |_| Ok(()))?;
                 journal.put_exact(
                     RECEIPT_FILE_NAME,
                     &completed_receipt_fixture(&record, stages),
@@ -637,14 +736,14 @@ fn historical_inspection_accepts_a_new_reader_but_never_a_new_deployment_signer(
             "Rejected" => {
                 writer.failure_kind.set(Some("Rejected"));
                 assert!(matches!(
-                    execute_transactions(&record, &journal, &writer, &mut |_| {}),
+                    execute_transactions(&record, &journal, &writer, &mut |_| Ok(())),
                     Err(DeploymentError::Failed(_))
                 ));
                 reader.failure_kind.set(Some("Rejected"));
             }
             "Pending" => {
                 assert!(matches!(
-                    execute_transactions(&record, &journal, &writer, &mut |_| {}),
+                    execute_transactions(&record, &journal, &writer, &mut |_| Ok(())),
                     Err(DeploymentError::Pending { .. })
                 ));
                 reader.pending.set(true);
@@ -672,10 +771,10 @@ fn historical_inspection_accepts_a_new_reader_but_never_a_new_deployment_signer(
         assert!(reader_service.persist(&prepared, &path).is_err());
         assert!(
             reader_service
-                .execute(&prepared, &path, &mut |_| {})
+                .execute(&prepared, &path, &mut |_| Ok(()))
                 .is_err()
         );
-        assert!(reader_service.resume(&path, &mut |_| {}).is_err());
+        assert!(reader_service.resume(&path, &mut |_| Ok(())).is_err());
     }
     Ok(())
 }
@@ -690,14 +789,26 @@ fn only_unattempted_plans_can_be_cancelled_and_cancelled_plans_cannot_resume() -
         record: record.clone(),
     };
     service.persist(&prepared, &path)?;
-    let cancelled = service.cancel(&path)?;
+    let cancelled = service.cancel(&path, &record.preflight)?;
     assert_eq!(
         cancelled.transaction_hashes,
         record.preflight.transaction_hashes
     );
-    assert_eq!(service.cancel(&path)?, cancelled);
-    assert!(service.resume(&path, &mut |_| {}).is_err());
-    assert!(service.execute(&prepared, &path, &mut |_| {}).is_err());
+    assert_eq!(service.cancel(&path, &record.preflight)?, cancelled);
+    assert!(
+        service
+            .resume(&path, &mut |_| panic!(
+                "cancelled plan cannot reach progress"
+            ))
+            .is_err()
+    );
+    assert!(
+        service
+            .execute(&prepared, &path, &mut |_| panic!(
+                "cancelled plan cannot reach progress"
+            ))
+            .is_err()
+    );
     let journal = Journal::open(&path, false)?;
     let reader = MockTransport::new(false);
     assert!(matches!(
@@ -706,7 +817,7 @@ fn only_unattempted_plans_can_be_cancelled_and_cancelled_plans_cannot_resume() -
     ));
     assert!(reader.waited.borrow().is_empty());
     assert!(reader.submitted.borrow().is_empty());
-    assert!(execute_transactions(&record, &journal, &reader, &mut |_| {}).is_err());
+    assert!(execute_transactions(&record, &journal, &reader, &mut |_| Ok(())).is_err());
     assert!(reader.submitted.borrow().is_empty());
 
     for marker in [
@@ -722,7 +833,7 @@ fn only_unattempted_plans_can_be_cancelled_and_cancelled_plans_cannot_resume() -
         journal.put_exact(marker, &norito::json!({ "unexpected": true }))?;
         drop(journal);
         assert!(
-            service.cancel(&path).is_err(),
+            service.cancel(&path, &record.preflight).is_err(),
             "execution evidence must prevent cancellation: {marker}"
         );
         assert!(!Journal::open(&path, false)?.exists("cancelled.json")?);
@@ -761,6 +872,7 @@ fn deployment_progress_follows_durable_attempt_and_applied_records_in_exact_orde
             other => panic!("unexpected initial transaction progress: {other:?}"),
         }
         events.push(event);
+        Ok(())
     })?;
     assert_eq!(events.len(), record.transactions.len() * 2);
     for (index, pair) in events.chunks_exact(2).enumerate() {
@@ -787,8 +899,10 @@ fn ambiguous_or_rejected_progress_never_claims_applied_and_recovery_never_resubm
         }
         let mut events = Vec::new();
         assert!(
-            execute_transactions(&record, &journal, &transport, &mut |event| events
-                .push(event))
+            execute_transactions(&record, &journal, &transport, &mut |event| {
+                events.push(event);
+                Ok(())
+            })
             .is_err()
         );
         assert_eq!(events.len(), 1);
@@ -799,7 +913,8 @@ fn ambiguous_or_rejected_progress_never_claims_applied_and_recovery_never_resubm
         if failure == "ambiguous" {
             events.clear();
             execute_transactions(&record, &journal, &transport, &mut |event| {
-                events.push(event)
+                events.push(event);
+                Ok(())
             })?;
             assert!(
                 matches!(&events[0], DeploymentProgress::Recovering(stage) if stage.hash == record.transactions[0].hash)
@@ -830,5 +945,367 @@ fn fee_quote_route_requires_the_exact_full_width_deployment_dataspace() -> Resul
     native::validate_quote_route(&quote, dataspace)?;
     assert!(native::validate_quote_route(&quote, DataSpaceId::UNIVERSAL).is_err());
     assert!(native::validate_quote_route(&quote, DataSpaceId::new(u64::MAX - 1)).is_err());
+    Ok(())
+}
+
+#[test]
+fn persist_and_execute_refuse_incomplete_plan_publication_before_progress() -> Result<()> {
+    let (config, record) = fixture()?;
+    let service = DeploymentService::new(config)?;
+    let prepared = PreparedDeployment { record };
+    let temporary = tempfile::tempdir()?;
+    for state in ["empty", "lock-only", "partial-plan"] {
+        let path = temporary.path().join(state);
+        let directory = iroha_fs::PrivateDirectory::open_or_create(&path)?;
+        if state != "empty" {
+            directory.open_lock("lock")?;
+        }
+        if state == "partial-plan" {
+            directory.write_atomic(
+                "plan.json",
+                b"partial original",
+                iroha_fs::PublishMode::CreateNew,
+            )?;
+        }
+        let before = directory.entries(4)?;
+        assert!(matches!(
+            service.persist(&prepared, &path),
+            Err(DeploymentError::Journal(_))
+        ));
+        assert!(matches!(
+            service.execute(&prepared, &path, &mut |_| panic!(
+                "incomplete persistence cannot dispatch"
+            )),
+            Err(DeploymentError::Journal(_)),
+        ));
+        assert_eq!(directory.entries(4)?, before);
+        if state == "partial-plan" {
+            assert_eq!(
+                directory.read("plan.json", 64)?.as_slice(),
+                b"partial original"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn service_persistence_reopens_the_same_complete_original_plan() -> Result<()> {
+    let (config, record) = fixture()?;
+    let service = DeploymentService::new(config)?;
+    let prepared = PreparedDeployment { record };
+    let temporary = tempfile::tempdir()?;
+    let path = temporary.path().join("journal");
+    service.persist(&prepared, &path)?;
+    let original = std::fs::read(path.join("plan.json"))?;
+    let lock = std::fs::File::open(path.join("lock"))?;
+    let identity = iroha_fs::FileIdentity::of(&lock)?;
+    service.persist(&prepared, &path)?;
+    assert_eq!(std::fs::read(path.join("plan.json"))?, original);
+    assert_eq!(
+        iroha_fs::FileIdentity::of(&std::fs::File::open(path.join("lock"))?)?,
+        identity
+    );
+    assert_eq!(
+        service.retained_preflight(&path)?.transaction_hashes,
+        prepared.preflight().transaction_hashes
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+fn submitting_callback_lock_replacement_retains_attempt_without_dispatch_or_replay() -> Result<()> {
+    let (config, record) = fixture()?;
+    validate_plan(&record, &config)?;
+    let temporary = tempfile::tempdir()?;
+    let path = temporary.path().join("journal");
+    let journal = Journal::persist_plan(&path, &record)?;
+    let original_plan = std::fs::read(path.join("plan.json"))?;
+    let transport = MockTransport::new(false);
+    let mut submitting = 0;
+    let error = execute_transactions(&record, &journal, &transport, &mut |event| {
+        if matches!(event, DeploymentProgress::Submitting(_)) {
+            submitting += 1;
+            assert_eq!(submitting, 1);
+            assert!(path.join("attempt-0000.json").is_file());
+            std::fs::rename(path.join("lock"), path.join("retired-lock")).unwrap();
+            iroha_fs::PrivateDirectory::open(&path)
+                .unwrap()
+                .open_lock("lock")
+                .unwrap();
+        }
+        Ok(())
+    })
+    .unwrap_err();
+    assert!(matches!(error, DeploymentError::Journal(_)));
+    assert_eq!(submitting, 1);
+    assert!(transport.submitted.borrow().is_empty());
+    assert!(transport.waited.borrow().is_empty());
+    let original_attempt = std::fs::read(path.join("attempt-0000.json"))?;
+    let attempt: TransactionAttempt = norito::json::from_slice(&original_attempt)?;
+    assert_eq!(attempt.hash, record.transactions[0].hash);
+    assert_eq!(attempt.name, record.transactions[0].name);
+    drop(journal);
+
+    // A later owner must honor the retained attempt as uncertain even though this caller
+    // observed refusal before submit. Recovery cannot re-sign or dispatch the exact step.
+    let reopened = Journal::open(&path, false)?;
+    let recovery = MockTransport::new(false);
+    recovery.pending.set(true);
+    let mut recovering = 0;
+    let error = execute_transactions(&record, &reopened, &recovery, &mut |event| {
+        assert!(!matches!(event, DeploymentProgress::Submitting(_)));
+        if matches!(event, DeploymentProgress::Recovering(_)) {
+            recovering += 1;
+        }
+        Ok(())
+    })
+    .unwrap_err();
+    assert!(
+        matches!(error, DeploymentError::Pending { hash, .. } if hash == record.transactions[0].hash)
+    );
+    assert_eq!(recovering, 1);
+    assert!(recovery.submitted.borrow().is_empty());
+    assert_eq!(
+        &*recovery.waited.borrow(),
+        &[record.transactions[0].hash.clone()]
+    );
+    assert_eq!(std::fs::read(path.join("plan.json"))?, original_plan);
+    assert_eq!(
+        std::fs::read(path.join("attempt-0000.json"))?,
+        original_attempt
+    );
+    assert!(!reopened.exists("applied-0000.json")?);
+    assert!(!reopened.exists("attempt-0001.json")?);
+    Ok(())
+}
+
+#[test]
+fn fallible_progress_stops_native_work_without_erasing_original_evidence() -> Result<()> {
+    let (config, record) = fixture()?;
+    let service = DeploymentService::new(config)?;
+    let prepared = PreparedDeployment {
+        record: record.clone(),
+    };
+    let temporary = tempfile::tempdir()?;
+    for refused in ["prepared", "submitting", "recovering", "applied"] {
+        let path = temporary.path().join(refused);
+        service.persist(&prepared, &path)?;
+        let original_plan = std::fs::read(path.join("plan.json"))?;
+        let transport = MockTransport::new(false);
+        let mut calls = 0;
+        let mut observer = |event: DeploymentProgress| -> DeploymentResult<()> {
+            let stop = matches!(
+                (refused, event),
+                ("prepared", DeploymentProgress::Prepared(_))
+                    | ("submitting", DeploymentProgress::Submitting(_))
+                    | ("recovering", DeploymentProgress::Recovering(_))
+                    | ("applied", DeploymentProgress::Applied { .. })
+            );
+            if stop {
+                calls += 1;
+                Err(DeploymentError::Journal(eyre!(
+                    "observer refused continued custody"
+                )))
+            } else {
+                Ok(())
+            }
+        };
+        let error = if refused == "prepared" {
+            let error = service
+                .execute(&prepared, &path, &mut observer)
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("observer refused continued custody")
+            );
+            // The same fallible boundary also applies to the public exact resume API.
+            service.resume(&path, &mut observer).unwrap_err()
+        } else {
+            let journal = Journal::open(&path, false)?;
+            if refused == "recovering" {
+                journal.put_exact(
+                    "attempt-0000.json",
+                    &TransactionAttempt {
+                        name: record.transactions[0].name.clone(),
+                        hash: record.transactions[0].hash.clone(),
+                    },
+                )?;
+            }
+            execute_transactions(&record, &journal, &transport, &mut observer).unwrap_err()
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("observer refused continued custody")
+        );
+        assert_eq!(calls, if refused == "prepared" { 2 } else { 1 });
+        let journal = Journal::open(&path, false)?;
+        assert_eq!(std::fs::read(path.join("plan.json"))?, original_plan);
+        assert_eq!(journal.exists("attempt-0000.json")?, refused != "prepared");
+        assert_eq!(journal.exists("applied-0000.json")?, refused == "applied");
+        assert!(!journal.exists("attempt-0001.json")?);
+        let expected_dispatches = usize::from(refused == "applied");
+        assert_eq!(transport.submitted.borrow().len(), expected_dispatches);
+        assert_eq!(transport.waited.borrow().len(), expected_dispatches);
+    }
+    Ok(())
+}
+#[test]
+fn applied_charge_reporting_never_fails_an_applied_transaction() -> Result<()> {
+    // A port with no listener: the transaction-details read fails and reports no charge.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")?
+        .local_addr()?
+        .port();
+    let config = fixture_config_at(&format!("http://127.0.0.1:{port}/"))?;
+    let client = Client::new(config)?;
+    let hash = HashOf::<SignedTransaction>::from_untyped_unchecked(Hash::prehashed([7; 32]));
+    assert_eq!(read_applied_charge(&client, hash), None);
+    Ok(())
+}
+#[test]
+fn applied_evidence_reconciles_by_finality_and_keeps_the_first_charge() -> Result<()> {
+    let temporary = tempfile::tempdir()?;
+    let journal = Journal::open(&temporary.path().join("journal"), true)?;
+    let unreported = AppliedEvidence {
+        hash: "a".repeat(64),
+        terminal_kind: "Applied".to_owned(),
+        block_height: 9,
+        scope: "global".to_owned(),
+        resolved_from: "state".to_owned(),
+        charge: None,
+    };
+    let charged = AppliedEvidence {
+        charge: Some(AppliedCharge {
+            gas_used: 4_321,
+            fee_asset: AssetDefinitionId::derive_from_components(
+                iroha_model_base::domain::DomainId::parse_fully_qualified("wonderland.universal")?,
+                "xor".parse()?,
+            ),
+            fee_amount: iroha_primitives::numeric::Quantity::from(3_u32),
+        }),
+        ..unreported.clone()
+    };
+    assert!(charged.same_finality(&unreported));
+    assert_ne!(charged, unreported);
+    let later_height = AppliedEvidence {
+        block_height: 10,
+        ..unreported.clone()
+    };
+    assert!(!later_height.same_finality(&unreported));
+    // Nothing retained yet: the read-only reconciliation returns the current observation.
+    assert_eq!(
+        retained_applied_evidence(&journal, 0, unreported.clone())?,
+        unreported
+    );
+    assert!(!journal.exists("applied-0000.json")?);
+    // The first observation is retained; a later one without its charge still recovers it.
+    assert_eq!(
+        retain_applied_evidence(&journal, 0, charged.clone())?,
+        charged
+    );
+    assert_eq!(
+        retain_applied_evidence(&journal, 0, unreported.clone())?,
+        charged
+    );
+    assert_eq!(retained_applied_evidence(&journal, 0, unreported)?, charged);
+    assert!(retain_applied_evidence(&journal, 0, later_height).is_err());
+    Ok(())
+}
+
+#[test]
+fn original_review_equality_preserves_quotes_context_and_ordered_signed_hashes() -> Result<()> {
+    let (config, original) = fixture()?;
+    let (_, alternate) = fixture_with_source(
+        "seiyaku Coffee { view fn points(int cups) authorize(anyone) -> int { return cups + 1; } }",
+    )?;
+    validate_plan(&original, &config)?;
+    validate_plan(&alternate, &config)?;
+    original
+        .preflight
+        .require_same_plan(&original.preflight.clone())?;
+    assert!(
+        alternate
+            .preflight
+            .require_same_plan(&original.preflight)
+            .is_err()
+    );
+    for field in 0..4 {
+        let mut changed = original.preflight.clone();
+        match field {
+            0 => changed.transaction_hashes.swap(0, 1),
+            1 => changed.observed_block_height += 1,
+            2 => changed.fee_quotes[0].observation.ledger_time_ms += 1,
+            3 => changed.authorization.account_exists = false,
+            _ => unreachable!(),
+        }
+        assert!(matches!(changed.require_same_plan(&original.preflight),
+            Err(DeploymentError::InvalidRequest(reason))
+            if reason == "retained deployment differs from the original reviewed plan"));
+    }
+    Ok(())
+}
+
+#[test]
+fn cancellation_refuses_a_valid_replacement_before_publishing_another_plans_hashes() -> Result<()> {
+    let (config, original) = fixture()?;
+    let (_, alternate) = fixture_with_source(
+        "seiyaku Coffee { view fn points(int cups) authorize(anyone) -> int { return cups + 1; } }",
+    )?;
+    validate_plan(&original, &config)?;
+    validate_plan(&alternate, &config)?;
+    assert_eq!(original.preflight.authority, alternate.preflight.authority);
+    assert_eq!(
+        original.preflight.contract_alias,
+        alternate.preflight.contract_alias
+    );
+    assert_ne!(
+        original.preflight.transaction_hashes,
+        alternate.preflight.transaction_hashes
+    );
+    let service = DeploymentService::new(config)?;
+    let temporary = tempfile::tempdir()?;
+    let path = temporary.path().join("original");
+    let other = temporary.path().join("alternate");
+    service.persist(
+        &PreparedDeployment {
+            record: original.clone(),
+        },
+        &path,
+    )?;
+    service.persist(
+        &PreparedDeployment {
+            record: alternate.clone(),
+        },
+        &other,
+    )?;
+    let expected = service.retained_preflight(&path)?;
+    let replacement = std::fs::read(other.join("plan.json"))?;
+    std::fs::write(path.join("plan.json"), &replacement)?;
+    assert_eq!(
+        service.retained_preflight(&path)?.to_json()?,
+        alternate.preflight.to_json()?,
+        "the substituted plan remains independently authenticated for the same authority"
+    );
+    assert!(
+        matches!(service.cancel(&path, &expected), Err(DeploymentError::InvalidRequest(reason))
+        if reason == "retained deployment differs from the original reviewed plan")
+    );
+    assert!(!path.join("cancelled.json").exists());
+    assert_eq!(std::fs::read(path.join("plan.json"))?, replacement);
+    assert_eq!(
+        std::fs::read_dir(&path)?.count(),
+        2,
+        "only original lock and replaced plan remain"
+    );
+    let cancelled = service.cancel(&other, &alternate.preflight)?;
+    assert_eq!(
+        cancelled.transaction_hashes,
+        alternate.preflight.transaction_hashes
+    );
+    assert_eq!(service.cancel(&other, &alternate.preflight)?, cancelled);
+    assert!(!other.join("attempt-0000.json").exists());
     Ok(())
 }

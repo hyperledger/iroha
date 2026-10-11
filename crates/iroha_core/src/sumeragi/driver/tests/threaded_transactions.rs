@@ -14,8 +14,8 @@ use parking_lot::Mutex;
 
 use super::super::{
     super::{
-        Backlog, Backoff, DriverHandle, DriverInputs, Input, NodeGate, Op, PendingAdmission,
-        Shared, Worker, Workers,
+        Backlog, Backoff, DriverHandle, DriverInputs, Input, LoopGuard, NodeGate, Op,
+        PendingAdmission, Shared, Worker, Workers,
         exec::ExecOp,
         persist::Write,
         run_loop,
@@ -75,6 +75,8 @@ fn spawn_loop_fixture(reached: mpsc::Sender<()>, release: mpsc::Receiver<()>) ->
             backlog: Mutex::new(Backlog::default()),
             wake: ThreadWake::admit(&budget).unwrap(),
             transactions_pending: std::sync::atomic::AtomicBool::new(false),
+            empty_waiting: std::sync::atomic::AtomicBool::new(false),
+            empty_epoch: std::sync::atomic::AtomicU64::new(0),
             alive: std::sync::atomic::AtomicBool::new(true),
             stopped: Mutex::new(None),
             metrics: None,
@@ -139,6 +141,10 @@ fn spawn_loop_fixture(reached: mpsc::Sender<()>, release: mpsc::Receiver<()>) ->
         kernel
             .exec
             .bind_release_waker(shared.wake.clone().into_waker());
+        let _loop_guard = LoopGuard {
+            shared: Arc::clone(&shared),
+            observer: Arc::new(NoObserver),
+        };
         run_loop(kernel, &receiver, &shared, &*clock, &workers)
     });
     LoopSession {
@@ -190,9 +196,18 @@ fn actual_run_loop_bounds_transactions_before_due_tick_dispatch() {
     let original_bytes = fixture.original_bytes;
     let due = fixture.due;
     assert!(due < Millis::MAX);
+    let queue_wake = fixture.handle.queue_wake();
+    assert!(queue_wake.is_live());
+    assert!(queue_wake.same_original(&fixture.handle.queue_wake()));
+    let original_wake_charge = budget.reserved_bytes();
     for _ in 0..4_096 {
-        fixture.handle.transactions_available();
+        queue_wake.notify();
     }
+    assert_eq!(
+        budget.reserved_bytes(),
+        original_wake_charge,
+        "coalesced notifications preserve the original wake charge"
+    );
     let message = WireMessage::Status(Box::new(Status {
         instance: fixture.initial_status.instance,
         height: fixture.initial_status.height,
@@ -287,6 +302,12 @@ fn actual_run_loop_bounds_transactions_before_due_tick_dispatch() {
             })
             .collect::<Vec<_>>()
     );
+    assert!(
+        !queue_wake.is_live(),
+        "the stopped original driver cannot notify again"
+    );
+    queue_wake.notify();
+    drop(queue_wake);
     drop(session.fixture);
     drop((oracle, expected));
     drop((
@@ -322,7 +343,6 @@ fn start_leader_kernel() -> (
     };
     use iroha_sumeragi::{
         api::{CommittedTip, Init, LocalParams},
-        crypto::Attestation,
         safety::{RecordState, SafetyRecord},
         testing::{FakeValidators, TEST_EPOCH},
         types::{ChainParams, ConfigSlot, Hash32, HeightConfig},
@@ -375,7 +395,6 @@ fn start_leader_kernel() -> (
         signers: vec![Arc::new(validators.signer(leader).clone())],
         crypto: Box::new(validators.crypto.clone()),
         hasher: Box::new(validators.crypto.clone()),
-        attestation: Attestation::none(),
         now: 0,
         ingress: Arc::new(Mutex::new(Ingress::new(IngressLimits::default()))),
         config: DriverConfig::default(),
@@ -450,6 +469,8 @@ fn spawn_leader_loop(recovery_in_flight: bool) -> LeaderLoop {
             backlog: Mutex::new(Backlog::default()),
             wake: ThreadWake::admit(&super::super::test_budget()).unwrap(),
             transactions_pending: std::sync::atomic::AtomicBool::new(false),
+            empty_waiting: std::sync::atomic::AtomicBool::new(false),
+            empty_epoch: std::sync::atomic::AtomicU64::new(0),
             alive: std::sync::atomic::AtomicBool::new(true),
             stopped: Mutex::new(None),
             metrics: None,
@@ -537,9 +558,7 @@ fn actual_run_loop_reopens_transactions_before_build_and_preserves_empty_arrival
         fixture
             .handle
             .inputs
-            .send(Input::Done(Completion::Exec(ExecDone::Built(Ok((
-                None, false,
-            ))))))
+            .send(Input::Done(Completion::Exec(ExecDone::Built(Ok(None)))))
             .unwrap();
         second = fixture.executed.recv_timeout(Duration::from_secs(5));
         if matches!(second, Ok(ExecOp::DriveApplicationControl(_))) {
@@ -741,6 +760,8 @@ fn actual_run_loop_retains_build_arrival_before_dispatch_turn_finishes() {
             backlog: Mutex::new(Backlog::default()),
             wake: ThreadWake::admit(&budget).unwrap(),
             transactions_pending: std::sync::atomic::AtomicBool::new(false),
+            empty_waiting: std::sync::atomic::AtomicBool::new(false),
+            empty_epoch: std::sync::atomic::AtomicU64::new(0),
             alive: std::sync::atomic::AtomicBool::new(true),
             stopped: Mutex::new(None),
             metrics: None,
@@ -803,9 +824,7 @@ fn actual_run_loop_retains_build_arrival_before_dispatch_turn_finishes() {
         }
         handle
             .inputs
-            .send(Input::Done(Completion::Exec(ExecDone::Built(Ok((
-                None, false,
-            ))))))
+            .send(Input::Done(Completion::Exec(ExecDone::Built(Ok(None)))))
             .unwrap();
     }
     let released = release.send(());

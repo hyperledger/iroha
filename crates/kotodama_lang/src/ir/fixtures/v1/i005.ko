@@ -1,5 +1,5 @@
 
-            seiyaku Demo {
-                kotoage fn run(int count) -> int authorize("Entry") { return count; }
+            seiyaku Demo { permission Entry;
+                kotoage fn run(int count) authorize(Entry) -> int { return count; }
             }
         

@@ -64,12 +64,12 @@ persists deployment signing material.
 
 Contents
 - `01_hajimari.ko`: Minimal `始まり` declaration inside an `誓約`.
-- `02_kotoage_public_fn.ko`: Authorized public `言挙げ fn` form.
+- `02_view_public_fn.ko`: Explicitly open public `view fn` form.
 - `03_kaizen_permission.ko`: `改善` lifecycle hook.
 - `04_foreach_map.ko`: For-each syntax (unbounded form is rejected by semantics).
 - `05_range_for.ko`: Range sugar lowered to C-style loop.
 - `06_map_ops.ko`: Durable `StateMap` operations.
-- `07_set_detail_authority.ko`: Write account detail for `context::authority()`.
+- `07_set_detail_authority.ko`: Write account metadata for `context::authority()` with `ledger::account::set_metadata`.
 - `08_call_transfer_asset.ko`: Namespaced asset transfer from a seiyaku kotoage.
 - `09_struct_and_state.ko`: Parsed-only examples for struct/state declarations.
 - `10_meta_header.ko`: Compiler-derived ZK capability metadata and build-selected cycle ceiling.
@@ -79,6 +79,9 @@ Contents
 - `14_map_sum_take2.ko`: Deterministic two-iteration map sum via `.take(2)` on a state map.
 - `15_modulo.ko`: `%` modulo operator, returns `a % b`.
 - `18_ternary.ko`: Ternary conditional `cond ? then : else` expression.
+- `19_contract_flow.ko` and `.test.ko`: Typed calls, scoped permissions and lifecycle fixtures.
+- `20_commit_reveal.ko` and `.test.ko`: Schema-bound commitments, separate commit/reveal deadlines,
+  participant binding and replay rejection. See the [determinism and randomness tutorial](https://docs.iroha.tech/guide/tutorials/randomness).
 
 Notes
 - Kotodama targets the Iroha Virtual Machine (IVM) and produces `.to` bytecode. Its canonical executable encoding uses fixed-width 32-bit IVM words and is not a hardware RISC-V target.
@@ -87,10 +90,9 @@ Notes
   variants are not source APIs.
 - ABI v1 is unconditional. The compiler derives capability bits from emitted
   instructions and uses the configured/default cycle ceiling.
-- First-release Kotodama accepts only compiler-proven literal bounds for
-  durable `StateMap<K, V>` `.take(n)` and `.range(start, end)` iteration. The
-  span must be no greater than the fixed 64-item cap; dynamic bounds are
-  rejected during semantic analysis.
+- Durable `StateMap<K, V>` iteration uses `.take(n)` with a compiler-proven
+  constant limit of at most 64 items. Use the map's typed `page` method and
+  opaque cursor for pagination; `.range(start, end)` is not a map method.
 - In-memory maps are not a V1 language type.
 - Run `koto check` to review all parser, resolver, type, effect, and lint
   diagnostics without writing build outputs.

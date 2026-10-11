@@ -173,7 +173,6 @@ trait Backend {
 }
 
 struct Native {
-    config: iroha::config::Config,
     clients: Vec<Client>,
     deadline: Instant,
     fee_payment: FeePaymentIntent,
@@ -194,12 +193,7 @@ impl Backend for Native {
     }
 
     fn submit_and_confirm(&mut self, remaining: Duration) -> Result<Self::Hash, ()> {
-        self.config.transaction_status_timeout = remaining;
-        let native = iroha::client::Client::builder(self.config.clone())
-            .build()
-            .map_err(|_| ())?
-            .with_request_deadline(self.deadline);
-        let submitter = Client::from_client(native).map_err(|_| ())?;
+        let submitter = self.submitter(remaining)?;
         let signed = smoke_transaction(submitter.account_client(), self.fee_payment.clone())?;
         submitter
             .submit_transaction_and_wait(&signed)
@@ -222,6 +216,24 @@ impl Backend for Native {
             )
             .map(|_| hash)
             .map_err(|_| ())
+    }
+}
+
+impl Native {
+    fn submitter(&self, remaining: Duration) -> Result<Client, ()> {
+        // Peer 0 owns the original submission settings and its already-warmed transport.
+        // Rebuilding revalidates that immutable context with fresh compatibility/probe state;
+        // only this call's remaining confirmation budget changes.
+        if remaining.is_zero() || Instant::now() >= self.deadline {
+            return Err(());
+        }
+        let mut builder = self.clients.first().ok_or(())?.client().to_builder();
+        builder.transaction_status_timeout = remaining;
+        let native = builder
+            .build()
+            .map_err(|_| ())?
+            .with_request_deadline(self.deadline);
+        Client::from_client(native).map_err(|_| ())
     }
 }
 
@@ -329,19 +341,16 @@ fn native(
     config.torii_request_timeout = Duration::from_millis(750);
     config.transaction_status_timeout = budget.timeout;
     config.transaction_ttl = budget.timeout.max(Duration::from_secs(60));
-    let mut clients = Vec::with_capacity(4);
-    for peer in &prepared.peers {
-        let mut peer_config = config.clone();
-        peer_config.torii_api_url = peer.torii_url.parse().map_err(|_| budget.unconfirmed())?;
-        let native = iroha::client::Client::builder(peer_config)
-            .build()
-            .map_err(|_| budget.unconfirmed())?
-            .with_request_deadline(deadline);
-        clients.push(Client::from_client(native).map_err(|_| budget.unconfirmed())?);
-    }
+    let endpoints = prepared
+        .peers
+        .iter()
+        .map(|peer| peer.torii_url.parse())
+        .collect::<Result<Vec<url::Url>, _>>()
+        .map_err(|_| budget.unconfirmed())?;
+    let clients = readiness_clients(iroha::client::Client::builder(config), &endpoints, deadline)
+        .map_err(|()| budget.unconfirmed())?;
     Ok((
         Native {
-            config,
             clients,
             deadline,
             fee_payment: selected.payment,
@@ -349,6 +358,45 @@ fn native(
         selected.genesis_hash,
     ))
 }
+
+// One readiness session retains its first peer's native transport. Rebuilding each selected
+// peer context still validates its endpoint/account and starts independent compatibility probes;
+// only the connection pools and original deadline are shared. Every runtime owner stays alive
+// until the whole session returns, including connections first driven by another peer's runtime.
+fn readiness_clients(
+    mut selected: iroha::client::ClientBuilder,
+    endpoints: &[url::Url],
+    deadline: Instant,
+) -> Result<Vec<Client>, ()> {
+    if endpoints.len() != 4 {
+        return Err(());
+    }
+    let submission_endpoint = selected.torii_url.clone();
+    selected.torii_url = endpoints[0].clone();
+    let first = selected
+        .build()
+        .map_err(|_| ())?
+        .with_request_deadline(deadline);
+    // The loader and SDK builder apply the same canonical endpoint normalization.
+    if first.endpoint() != &submission_endpoint {
+        return Err(());
+    }
+    let mut clients = vec![Client::from_client(first).map_err(|_| ())?];
+    for endpoint in &endpoints[1..] {
+        let mut builder = clients[0].client().to_builder();
+        builder.torii_url = endpoint.clone();
+        let peer = builder
+            .build()
+            .map_err(|_| ())?
+            .with_request_deadline(deadline);
+        clients.push(Client::from_client(peer).map_err(|_| ())?);
+    }
+    Ok(clients)
+}
+
+#[cfg(test)]
+#[path = "readiness/client_tests.rs"]
+mod client_tests;
 
 fn wait_status(backend: &mut impl Backend, budget: &Budget<'_>, mesh: bool) -> Result<(), Failure> {
     loop {
@@ -873,3 +921,7 @@ mod tests {
 #[cfg(test)]
 #[path = "readiness/fee_tests.rs"]
 mod fee_tests;
+
+#[cfg(test)]
+#[path = "readiness/transport_tests.rs"]
+mod transport_tests;

@@ -6,7 +6,7 @@ import { createVerifyingKeyClient as createDistVerifyingKeyClient } from "../dis
 import { ToriiClient } from "../src/toriiClient.js";
 import { ToriiClient as DistToriiClient } from "../dist/toriiClient.js";
 
-const current = "halo2/pasta/kaigi-usage-v1";
+const current = "pipa-r/pasta/kaigi-usage-v1";
 const retiredReplay = "halo2/pasta/ivm-replay-binding-v1";
 const retired = "halo2/pasta/ivm-execution-v1";
 
@@ -16,7 +16,7 @@ test("source and packaged verifier registries reject retired IVM binding labels"
     // execution. Exercise the actual validator without a mocked native addon.
     const registry = create();
     assert.equal(registry.backend(current, "backend"), current);
-    for (const backend of [retired, retiredReplay, `${current}/`, current.toUpperCase(), `${current}\0`]) {
+    for (const backend of [retired, retiredReplay, "halo2/pasta/kaigi-usage-v1", "halo2/pasta/kaigi-authorization-v1", "pipa-r/ipa/pasta/kaigi-usage-v1", `${current}/`, current.toUpperCase(), `${current}\0`]) {
       assert.throws(() => registry.backend(backend, "backend"), /unsupported production verifier backend/);
     }
   }

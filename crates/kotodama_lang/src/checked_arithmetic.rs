@@ -124,13 +124,16 @@ pub(crate) fn evaluate(
             )?))),
             _ => Err(ConstantNumericError::InvalidTypedOperation),
         },
-        ExprKind::Call { name, args } | ExprKind::NamedCall { name, args, .. } => {
-            let unary = match Builtin::from_name(name) {
+        ExprKind::Call { target: name, args }
+        | ExprKind::NamedCall {
+            target: name, args, ..
+        } => {
+            let unary = match name.builtin() {
                 Some(Builtin::Isqrt) => Some(IntUnaryOperation::Isqrt),
                 Some(Builtin::Abs) => Some(IntUnaryOperation::Abs),
                 _ => None,
             };
-            let binary = match Builtin::from_name(name) {
+            let binary = match name.builtin() {
                 Some(Builtin::Min) => Some(IntBinaryOperation::Min),
                 Some(Builtin::Max) => Some(IntBinaryOperation::Max),
                 Some(Builtin::DivCeil) => Some(IntBinaryOperation::DivCeil),
@@ -365,7 +368,9 @@ mod tests {
         ] {
             let expression = TypedExpr {
                 expr: ExprKind::Call {
-                    name: name.to_owned(),
+                    target: crate::semantic::CallTarget::Builtin(
+                        Builtin::from_name(name).expect("test builtin"),
+                    ),
                     args: arguments,
                 },
                 ty: Type::Int,
@@ -378,7 +383,7 @@ mod tests {
         }
         let negative = TypedExpr {
             expr: ExprKind::Call {
-                name: "isqrt".to_owned(),
+                target: crate::semantic::CallTarget::Builtin(Builtin::Isqrt),
                 args: vec![int(BigInt::from(-1_i64))],
             },
             ty: Type::Int,

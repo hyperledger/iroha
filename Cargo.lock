@@ -1367,8 +1367,8 @@ checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
 name = "bytes"
 version = "1.11.1"
 dependencies = [
+ "criterion",
  "loom",
- "portable-atomic",
  "serde",
  "serde_test",
 ]
@@ -1803,7 +1803,12 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "iroha_executor_data_model",
+ "iroha_fs",
+ "iroha_genesis",
+ "iroha_kagemusha_proof",
  "iroha_model_base",
+ "iroha_pasta",
+ "iroha_plonk",
  "iroha_primitives",
  "iroha_torii_shared",
  "iroha_version",
@@ -1811,6 +1816,7 @@ dependencies = [
  "jni 0.21.1",
  "libc",
  "norito",
+ "p256",
  "rand 0.9.4",
  "sorafs_car",
  "sorafs_chunker",
@@ -2112,19 +2118,6 @@ name = "critical-section"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
-
-[[package]]
-name = "crossbeam"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1137cd7e7fc0fb5d3c5a8678be38ec56e819125d8d7907411fe24ccb943faca8"
-dependencies = [
- "crossbeam-channel",
- "crossbeam-deque",
- "crossbeam-epoch",
- "crossbeam-queue",
- "crossbeam-utils",
-]
 
 [[package]]
 name = "crossbeam-channel"
@@ -3835,64 +3828,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "halo2-axiom"
-version = "0.5.1"
-dependencies = [
- "blake2b_simd",
- "crossbeam",
- "ff",
- "group",
- "halo2curves-axiom",
- "itertools 0.11.0",
- "maybe-rayon",
- "pairing",
- "rand 0.8.7",
- "rand_core 0.6.4",
- "rayon",
- "rustc-hash 1.1.0",
- "sha3",
- "tracing",
-]
-
-[[package]]
-name = "halo2-base"
-version = "0.5.3"
-dependencies = [
- "getset",
- "halo2-axiom",
- "itertools 0.11.0",
- "log",
- "num-bigint 0.4.6",
- "num-integer",
- "num-traits",
- "poseidon-primitives",
- "rand_chacha 0.3.1",
- "rayon",
- "rustc-hash 1.1.0",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "halo2-ecc"
-version = "0.5.3"
-source = "git+https://github.com/axiom-crypto/halo2-lib.git?tag=v0.5.3#c54cbac60da598e8e484b8aea858e0bf3c51a857"
-dependencies = [
- "halo2-base",
- "itertools 0.11.0",
- "num-bigint 0.4.6",
- "num-integer",
- "num-traits",
- "rand 0.8.7",
- "rand_chacha 0.3.1",
- "rand_core 0.6.4",
- "rayon",
- "serde",
- "serde_json",
- "test-case",
-]
-
-[[package]]
 name = "halo2_gadgets"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3969,32 +3904,6 @@ dependencies = [
  "sha2",
  "static_assertions",
  "subtle",
-]
-
-[[package]]
-name = "halo2curves-axiom"
-version = "0.7.0"
-dependencies = [
- "blake2b_simd",
- "digest 0.10.7",
- "ff",
- "group",
- "hex",
- "lazy_static",
- "num-bigint 0.4.6",
- "num-traits",
- "pairing",
- "pasta_curves",
- "paste",
- "rand 0.8.7",
- "rand_core 0.6.4",
- "rayon",
- "serde",
- "serde_arrays",
- "sha2",
- "static_assertions",
- "subtle",
- "unroll",
 ]
 
 [[package]]
@@ -4140,9 +4049,6 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "hex-conservative"
@@ -4830,6 +4736,7 @@ dependencies = [
  "iroha_genesis",
  "iroha_i18n",
  "iroha_model_base",
+ "iroha_operation_journal",
  "iroha_petal",
  "iroha_primitives",
  "iroha_sccp",
@@ -4966,8 +4873,6 @@ dependencies = [
  "fastpq_prover",
  "ff",
  "futures",
- "halo2-axiom",
- "halo2-base",
  "hex",
  "http",
  "incrementalmerkletree",
@@ -4982,6 +4887,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_executor_data_model",
  "iroha_file_mmap",
+ "iroha_fs",
  "iroha_futures",
  "iroha_genesis",
  "iroha_logger",
@@ -5016,7 +4922,6 @@ dependencies = [
  "rustix 1.1.4",
  "settlement_router",
  "sha2",
- "snark-verifier",
  "sorafs_manifest",
  "soranet_pq",
  "tempfile",
@@ -5092,23 +4997,21 @@ version = "2.0.0-rc.2.0"
 dependencies = [
  "base64 0.22.1",
  "blake3",
- "ciborium",
- "der-parser",
  "fastpq_isi",
  "fastpq_prover",
  "ff",
- "halo2-axiom",
- "halo2-base",
- "halo2-ecc",
  "hex",
  "iroha_crypto",
  "iroha_data_model",
  "iroha_fs",
- "iroha_model_base",
- "iroha_panic_hook",
+ "iroha_kagemusha_proof",
+ "iroha_pasta",
+ "iroha_plonk",
+ "iroha_plonk_gadgets",
+ "iroha_plonk_recursion",
  "iroha_primitives",
- "iroha_test_samples",
- "iroha_torii_shared",
+ "iroha_sumeragi",
+ "iroha_version",
  "iroha_zkp_halo2",
  "iroha_zkp_poseidon",
  "ivm_abi",
@@ -5119,11 +5022,9 @@ dependencies = [
  "rand_core 0.6.4",
  "rustix 1.1.4",
  "sha2",
- "snark-verifier",
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
- "url",
  "zeroize",
 ]
 
@@ -5226,7 +5127,6 @@ dependencies = [
  "iroha_sumeragi",
  "iroha_version",
  "iroha_zkp_poseidon",
- "ivm_abi",
  "mv",
  "nonzero_ext",
  "norito",
@@ -5241,6 +5141,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "trybuild",
+ "zeroize",
 ]
 
 [[package]]
@@ -5268,7 +5169,6 @@ dependencies = [
  "blake3",
  "color-eyre",
  "error-stack",
- "halo2curves",
  "hex",
  "humantime",
  "iroha",
@@ -5463,7 +5363,6 @@ version = "2.0.0-rc.2.0"
 dependencies = [
  "base64 0.22.1",
  "blake3",
- "halo2-axiom",
  "hex",
  "iroha",
  "iroha_allocation",
@@ -5515,7 +5414,6 @@ dependencies = [
  "iroha_contract_deploy",
  "iroha_core",
  "iroha_core_privacy",
- "iroha_core_zk",
  "iroha_crypto",
  "iroha_data_model",
  "iroha_deploy",
@@ -5546,13 +5444,20 @@ name = "iroha_kagemusha_proof"
 version = "2.0.0-rc.2.0"
 dependencies = [
  "ff",
+ "group",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_genesis",
  "iroha_pasta",
  "iroha_plonk",
  "iroha_plonk_gadgets",
+ "iroha_plonk_recursion",
+ "iroha_sumeragi",
  "norito",
  "rand_chacha 0.3.1",
  "rayon",
  "rustix 1.1.4",
+ "sha2",
 ]
 
 [[package]]
@@ -5737,39 +5642,48 @@ dependencies = [
  "blake2",
  "ff",
  "group",
+ "iroha_measurement",
  "iroha_pasta",
  "norito",
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
  "rayon",
  "sha2",
+ "zeroize",
 ]
 
 [[package]]
 name = "iroha_plonk_gadgets"
 version = "2.0.0-rc.2.0"
 dependencies = [
+ "ark-bls12-381",
+ "ark-ec",
+ "ark-ff",
+ "ark-serialize",
  "ff",
+ "iroha_crypto",
+ "iroha_measurement",
  "iroha_pasta",
  "iroha_plonk",
  "norito",
+ "num-bigint 0.4.6",
+ "p256",
  "rand_chacha 0.3.1",
+ "rayon",
+ "sha2",
 ]
 
 [[package]]
-name = "iroha_plonk_oracle"
+name = "iroha_plonk_recursion"
 version = "2.0.0-rc.2.0"
 dependencies = [
- "halo2-axiom",
- "halo2-base",
+ "ff",
+ "group",
  "iroha_pasta",
  "iroha_plonk",
- "norito",
- "rand_chacha 0.3.1",
- "rand_core 0.6.4",
+ "iroha_plonk_gadgets",
  "rayon",
  "sha2",
- "snark-verifier",
 ]
 
 [[package]]
@@ -5861,6 +5775,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_model_base",
  "iroha_sccp",
+ "iroha_sumeragi",
  "norito",
  "sha2",
  "tiny-keccak",
@@ -5902,7 +5817,6 @@ dependencies = [
  "iroha_wallet",
  "norito",
  "rustix 1.1.4",
- "sha2",
  "tempfile",
  "zeroize",
 ]
@@ -5984,6 +5898,7 @@ dependencies = [
  "iroha_primitives",
  "iroha_schema",
  "norito",
+ "sha2",
 ]
 
 [[package]]
@@ -6094,6 +6009,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "blake3",
+ "bytes",
  "ciborium",
  "criterion",
  "dashmap",
@@ -6133,7 +6049,6 @@ dependencies = [
  "iroha_sumeragi",
  "iroha_telemetry",
  "iroha_test_samples",
- "iroha_torii",
  "iroha_torii_shared",
  "iroha_version",
  "iroha_zkp_halo2",
@@ -6177,6 +6092,7 @@ dependencies = [
  "url",
  "urlencoding",
  "x509-parser",
+ "zeroize",
  "zstd",
 ]
 
@@ -6267,9 +6183,8 @@ name = "iroha_zkp_poseidon"
 version = "2.0.0-rc.2.0"
 dependencies = [
  "halo2curves",
- "halo2curves-axiom",
+ "iroha_pasta",
  "once_cell",
- "poseidon-primitives",
  "sha2",
  "zeroize",
 ]
@@ -6346,6 +6261,7 @@ dependencies = [
  "ivm",
  "mv",
  "norito",
+ "p256",
  "parking_lot",
  "rand 0.9.4",
  "rcgen",
@@ -6385,15 +6301,6 @@ name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
 dependencies = [
  "either",
 ]
@@ -6472,7 +6379,6 @@ dependencies = [
  "objc2-metal 0.3.2",
  "pairing",
  "parking_lot",
- "poseidon-primitives",
  "pqcrypto-mldsa",
  "pqcrypto-traits",
  "rand_core 0.9.5",
@@ -6481,6 +6387,7 @@ dependencies = [
  "sha2",
  "sha3",
  "signature",
+ "thiserror 2.0.18",
  "tiny-keccak",
 ]
 
@@ -6489,6 +6396,7 @@ name = "ivm_abi"
 version = "2.0.0-rc.2.0"
 dependencies = [
  "hex",
+ "hex-literal",
  "iroha_allocation",
  "iroha_crypto",
  "iroha_data_model",
@@ -6704,10 +6612,10 @@ dependencies = [
 name = "kaigi_zk"
 version = "2.0.0-rc.2.0"
 dependencies = [
- "halo2-axiom",
+ "ff",
  "iroha_crypto",
- "poseidon-primitives",
- "rand_core 0.6.4",
+ "iroha_pasta",
+ "iroha_plonk",
  "zeroize",
 ]
 
@@ -6773,6 +6681,7 @@ dependencies = [
  "iroha_model_base",
  "iroha_primitives",
  "ivm_abi",
+ "ivm_artifact_admission",
  "kotodama_surface",
  "norito",
 ]
@@ -6789,6 +6698,7 @@ dependencies = [
 name = "kotodama_toolchain"
 version = "2.0.0-rc.2.0"
 dependencies = [
+ "clap",
  "ed25519-dalek",
  "hex",
  "iroha_allocation",
@@ -7319,6 +7229,7 @@ dependencies = [
  "sorafs_manifest",
  "tempfile",
  "toml 0.9.12+spec-1.1.0",
+ "toml_edit",
  "url",
  "zeroize",
 ]
@@ -7633,7 +7544,6 @@ version = "0.4.6"
 dependencies = [
  "num-integer",
  "num-traits",
- "rand 0.8.7",
 ]
 
 [[package]]
@@ -8785,21 +8695,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a106d1259c23fac8e543272398ae0e3c0b8d33c88ed73d0cc71b0f1d902618"
 dependencies = [
  "portable-atomic",
-]
-
-[[package]]
-name = "poseidon-primitives"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e4aaeda7a092e21165cc5f0cbc738e72a46f31c03c3cbd87b71ceae9d2d93bc"
-dependencies = [
- "bitvec",
- "ff",
- "lazy_static",
- "log",
- "rand 0.8.7",
- "rand_xorshift",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -10028,15 +9923,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_arrays"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38636132857f68ec3d5f3eb121166d2af33cb55174c4d5ff645db6165cbef0fd"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10503,24 +10389,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "snark-verifier"
-version = "0.2.5"
-source = "git+https://github.com/axiom-crypto/snark-verifier.git?rev=bbfcc721d714bea0d44a27c8fc6c4736e73ca853#bbfcc721d714bea0d44a27c8fc6c4736e73ca853"
-dependencies = [
- "halo2-base",
- "halo2-ecc",
- "hex",
- "itertools 0.11.0",
- "lazy_static",
- "num-bigint 0.4.6",
- "num-integer",
- "num-traits",
- "pairing",
- "rand 0.8.7",
- "serde",
-]
-
-[[package]]
 name = "socket2"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10651,16 +10519,17 @@ dependencies = [
  "blake3",
  "chacha20poly1305 0.11.0-rc.3",
  "ed25519-dalek",
- "halo2-axiom",
+ "ff",
  "hex",
  "iroha_crypto",
+ "iroha_pasta",
+ "iroha_plonk",
+ "iroha_plonk_gadgets",
  "iroha_primitives",
  "iroha_schema",
  "norito",
- "poseidon-primitives",
  "rand 0.9.4",
  "rand_chacha 0.9.0",
- "rand_core 0.6.4",
  "sorafs_chunker",
  "soranet_pq",
  "tempfile",
@@ -11316,39 +11185,6 @@ dependencies = [
  "wezterm-dynamic",
  "wezterm-input-types",
  "winapi",
-]
-
-[[package]]
-name = "test-case"
-version = "3.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb2550dd13afcd286853192af8601920d959b14c401fcece38071d53bf0768a8"
-dependencies = [
- "test-case-macros",
-]
-
-[[package]]
-name = "test-case-core"
-version = "3.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adcb7fd841cd518e279be3d5a3eb0636409487998a4aff22f3de87b81e88384f"
-dependencies = [
- "cfg-if",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "test-case-macros"
-version = "3.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c89e72a01ed4c579669add59014b9a524d609c0c88c6a585ce37485879f6ffb"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
- "test-case-core",
 ]
 
 [[package]]
@@ -12057,16 +11893,6 @@ checksum = "f4987bdc12753382e0bec4a65c50738ffaabc998b9cdd1f952fb5f39b0048a96"
 dependencies = [
  "crypto-common 0.2.2",
  "ctutils",
-]
-
-[[package]]
-name = "unroll"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ad948c1cb799b1a70f836077721a92a35ac177d4daddf4c20a633786d4cf618"
-dependencies = [
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]
@@ -13342,7 +13168,7 @@ dependencies = [
  "ed25519-dalek",
  "eyre",
  "fastpq_isi",
- "halo2-axiom",
+ "ff",
  "hex",
  "integration_tests",
  "iroha",
@@ -13355,6 +13181,8 @@ dependencies = [
  "iroha_fs",
  "iroha_genesis",
  "iroha_model_base",
+ "iroha_pasta",
+ "iroha_plonk",
  "iroha_primitives",
  "iroha_service_model",
  "iroha_storage_client",

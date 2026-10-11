@@ -8,8 +8,9 @@
 //! JSON integer invariant.
 //!
 //! Stored state is [`SccpLightClientV1`] (params, head, freeze reason and CAS state hash),
-//! [`SccpLcConsensusSetV1`] and [`SccpLcCheckpointV1`]. Advances and equivocation evidence are
-//! the bounded opaque wrappers [`SccpLcAdvanceBytesV1`] and [`SccpLcEvidenceBytesV1`].
+//! [`SccpLcConsensusSetV1`], [`SccpLcCheckpointV1`] and the Parliament-activated compiled
+//! profile versions ([`SccpLcProfileActivationV1`]). Advances and equivocation evidence are the
+//! bounded opaque wrappers [`SccpLcAdvanceBytesV1`] and [`SccpLcEvidenceBytesV1`].
 
 use super::{bounded_bytes::impl_sccp_bounded_bytes, governance::SCCP_JSON_SAFE_U64_MAX_V1};
 use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, bridge::SccpNetworkV1};
@@ -26,25 +27,17 @@ pub const SCCP_LC_DEFAULT_CHECKPOINT_PRUNE_AFTER_MS_V1: u64 = 2_592_000_000;
 pub const SCCP_LC_ETHEREUM_WS_BOUND_MS_V1: u64 = 1_209_600_000;
 /// Default weak-subjectivity bound for BSC (5 d; BSC unbonding is 7 d).
 pub const SCCP_LC_BSC_WS_BOUND_MS_V1: u64 = 432_000_000;
-/// Default weak-subjectivity bound for TRON (7 d; TRON unstaking is 14 d).
-pub const SCCP_LC_TRON_WS_BOUND_MS_V1: u64 = 604_800_000;
 /// Permanent-checkpoint stride for Ethereum and BSC, in source blocks.
 pub const SCCP_LC_EVM_CHECKPOINT_STRIDE_V1: u64 = 8_192;
-/// Permanent-checkpoint stride for TRON, in source blocks.
-pub const SCCP_LC_TRON_CHECKPOINT_STRIDE_V1: u64 = 1_200;
 /// Default bound on finality updates in one advance (Ethereum `LightClientUpdate`s, BSC set
-/// transitions, TRON header segments, TON key-block hops).
+/// transitions, TON key-block hops).
 pub const SCCP_LC_DEFAULT_MAX_UPDATES_PER_ADVANCE_V1: u32 = 16;
 /// Default bound on parent-linked headers in one Ethereum or BSC segment.
 pub const SCCP_LC_EVM_MAX_SEGMENT_HEADERS_V1: u32 = 256;
-/// Default bound on headers in one TRON segment.
-pub const SCCP_LC_TRON_MAX_SEGMENT_HEADERS_V1: u32 = 128;
 /// Default bound on the TON shard-block `prev_ref` walk.
 pub const SCCP_LC_TON_MAX_SEGMENT_HEADERS_V1: u32 = 32;
 /// Default bound on ancestry headers in one Ethereum or BSC proof.
 pub const SCCP_LC_EVM_MAX_ANCESTRY_HEADERS_V1: u32 = 256;
-/// Default bound on `raw_data` ancestry headers in one TRON proof.
-pub const SCCP_LC_TRON_MAX_ANCESTRY_HEADERS_V1: u32 = 1_200;
 /// Default bound on TON ancestry blocks in one proof.
 pub const SCCP_LC_TON_MAX_ANCESTRY_HEADERS_V1: u32 = 32;
 /// Default bound on headers in one `Backfill` segment.
@@ -56,10 +49,13 @@ pub const SCCP_LC_DEFAULT_MAX_ADVANCE_BYTES_V1: u32 = 1_048_576;
 /// Default bound on the canonical bytes of one inbound or void proof.
 pub const SCCP_LC_DEFAULT_MAX_PROOF_BYTES_V1: u32 = 1_048_576;
 
+/// Compiled light-client profile version every network runs before any activation (§4.13.2).
+pub const SCCP_LC_GENESIS_PROFILE_VERSION_V1: u32 = 1;
+
 /// Stored parameters of one light client (§4.13.1).
 ///
-/// The source-chain fork schedule and its `supported_until` are compiled into the running
-/// release's chain profile and are deliberately not stored here (§4.13.2).
+/// The source-chain fork schedule and its `supported_until` belong to a compiled chain profile
+/// version, selected by Parliament activation (§4.13.2), and are deliberately not stored here.
 #[derive(
     Debug,
     Clone,
@@ -150,12 +146,6 @@ impl SccpLightClientParamsV1 {
                     SCCP_LC_EVM_CHECKPOINT_STRIDE_V1,
                     SCCP_LC_EVM_MAX_SEGMENT_HEADERS_V1,
                     SCCP_LC_EVM_MAX_ANCESTRY_HEADERS_V1,
-                ),
-                SccpNetworkV1::TronMainnet => (
-                    SCCP_LC_TRON_WS_BOUND_MS_V1,
-                    SCCP_LC_TRON_CHECKPOINT_STRIDE_V1,
-                    SCCP_LC_TRON_MAX_SEGMENT_HEADERS_V1,
-                    SCCP_LC_TRON_MAX_ANCESTRY_HEADERS_V1,
                 ),
                 SccpNetworkV1::TonMainnet => (
                     0,
@@ -329,7 +319,7 @@ pub struct SccpLcCheckpointDataV1 {
     /// State root, when the chain exposes one.
     #[norito(required)]
     pub state_root: Option<[u8; 32]>,
-    /// Receipts root (EVM) or transaction root (TRON, TON).
+    /// Receipts root (EVM) or transaction root (TON).
     pub receipts_or_tx_root: [u8; 32],
     /// Source-chain block time in milliseconds.
     pub source_time_ms: u64,
@@ -727,8 +717,8 @@ impl SccpLightClientV1 {
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_data_model::sccp::light_client::SccpLcConsensusSetV1")]
 pub struct SccpLcConsensusSetV1 {
-    /// Set id (sync-committee period, BSC epoch checkpoint, TRON maintenance period or TON
-    /// key-block seqno, as the chain profile defines it).
+    /// Set id (sync-committee period, BSC epoch checkpoint or TON key-block seqno, as the chain
+    /// profile defines it).
     pub set_id: u64,
     /// First source height the set covers.
     pub valid_from_source_height: u64,
@@ -748,6 +738,43 @@ impl SccpLcConsensusSetV1 {
     }
 }
 
+/// Parliament activation of one compiled light-client profile version
+/// (`sccp_light_client_profiles[(network, version)]`, §4.13.2), written by an enacted
+/// `ActivateLightClientProfile`.
+///
+/// Version 1 of every network is active from genesis without a record. At Taira height `h` the
+/// active version of a network is its highest recorded version whose `activation_height ≤ h`
+/// (version 1 when none is). Records are append-only: versions and activation heights only grow.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+)]
+#[norito(no_fast_from_json)]
+#[norito(decode_from_slice)]
+#[norito(deny_unknown_fields)]
+#[derive(norito::NoritoSchema)]
+#[norito_schema(name = "iroha_data_model::sccp::light_client::SccpLcProfileActivationV1")]
+pub struct SccpLcProfileActivationV1 {
+    /// Keccak-256 of the version's canonical profile bytes, as the enacted action named it.
+    pub profile_hash: [u8; 32],
+    /// First Taira height whose blocks verify under the version: the enacting block plus one,
+    /// so the enacting block itself still runs the previous version.
+    pub activation_height: u64,
+    /// Parliament proposal that enacted the activation.
+    pub proposal_id: [u8; 32],
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -760,10 +787,9 @@ mod tests {
 
     const JSON_MAX: u64 = (1_u64 << 53) - 1;
     const DAY_MS: u64 = 86_400_000;
-    const EXTERNAL: [SccpNetworkV1; 4] = [
+    const EXTERNAL: [SccpNetworkV1; 3] = [
         SccpNetworkV1::EthereumMainnet,
         SccpNetworkV1::BscMainnet,
-        SccpNetworkV1::TronMainnet,
         SccpNetworkV1::TonMainnet,
     ];
 
@@ -794,13 +820,6 @@ mod tests {
         let bsc = params(SccpNetworkV1::BscMainnet);
         assert_eq!(bsc.ws_bound_ms, 5 * DAY_MS);
         assert_eq!(bsc.checkpoint_stride, 8_192);
-        {
-            let defaults = params(SccpNetworkV1::TronMainnet);
-            assert_eq!(defaults.ws_bound_ms, 7 * DAY_MS);
-            assert_eq!(defaults.checkpoint_stride, 1_200);
-            assert_eq!(defaults.max_segment_headers, 128);
-            assert_eq!(defaults.max_ancestry_headers, 1_200);
-        }
         {
             let defaults = params(SccpNetworkV1::TonMainnet);
             assert_eq!(defaults.ws_bound_ms, 0);
@@ -1042,6 +1061,27 @@ mod tests {
         assert_rejects_unknown_field(&set, &[]);
         roundtrip(&SccpLcAdvanceBytesV1::new(vec![1, 2]).expect("bounded"));
         roundtrip(&SccpLcEvidenceBytesV1::new(vec![3]).expect("bounded"));
+    }
+
+    #[test]
+    fn profile_activation_roundtrips_with_a_fixed_layout() {
+        let activation = SccpLcProfileActivationV1 {
+            profile_hash: [0x71; 32],
+            activation_height: 9_007_199_254_740_991,
+            proposal_id: [0x72; 32],
+        };
+        roundtrip(&activation);
+        assert_rejects_unknown_field(&activation, &[]);
+        // Two fixed 32-byte arrays around one u64: the bare layout has no length prefixes.
+        let encoded = activation.encode();
+        assert!(encoded.len() >= 72, "{}", encoded.len());
+        let value = norito::json::to_value(&activation).expect("value");
+        let object = value.as_object().expect("object");
+        assert_eq!(object.len(), 3);
+        for field in ["profile_hash", "activation_height", "proposal_id"] {
+            assert!(object.contains_key(field), "{field}");
+        }
+        assert_eq!(SCCP_LC_GENESIS_PROFILE_VERSION_V1, 1);
     }
 
     #[test]

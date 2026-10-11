@@ -11,30 +11,14 @@ use iroha_data_model::parameter::{
 use iroha_primitives::json::Json;
 use std::num::NonZeroU64;
 
-fn roster(size: u8) -> Vec<ValidatorPower> {
-    let mut roster = (1..=size)
-        .map(|seed| ValidatorPower {
-            validator: PeerId::new(
-                KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal)
-                    .public_key()
-                    .clone(),
-            ),
-            power: 1,
-        })
-        .collect::<Vec<_>>();
-    roster.sort_by(|left, right| left.validator.cmp(&right.validator));
-    roster
-}
-
-fn handshake_metadata(roster: &[ValidatorPower]) -> Parameter {
+fn handshake_metadata() -> Parameter {
     let metadata = ConsensusHandshakeMetadata {
         mode: SumeragiConsensusMode::Permissioned,
         block_cadence_ms: NonZeroU64::new(1_000).unwrap(),
         wire_protocol_version: u32::from(iroha_data_model::sumeragi::PROTOCOL_VERSION),
         consensus_fingerprint: ConsensusFingerprint::new([0xA5; 32]),
-        kagemusha_mint_finality:
-            crate::kagemusha_v1_test_fixtures::mint_finality_genesis_parameters(roster),
-        sumeragi_context: crate::kagemusha_v1_test_fixtures::genesis_context_parameters(),
+        sumeragi_context:
+            iroha_data_model::block::consensus::SumeragiGenesisContextParameters::recommended(),
     };
     metadata.validate().unwrap();
     let value = norito::json::value::to_value(&metadata).unwrap();
@@ -67,7 +51,7 @@ fn incumbent_authority_is_the_authenticated_genesis_generation_bound_to_this_net
     let (authority, authorization) = current_authority(&view).unwrap();
     let scheduled = view.world().consensus_schedule().ready(2).unwrap();
     assert_eq!(authority.network_id, chain.network_id());
-    assert_eq!(authority, scheduled.epoch.authority);
+    assert_eq!(authority, scheduled.epoch.generation());
     assert_eq!(authorization, scheduled.epoch.authorization);
     assert_eq!(authorization.beacon, BeaconEpochBindingV1::Bootstrap);
 }
@@ -78,7 +62,7 @@ fn incumbent_authority_requires_authenticated_history_even_with_local_metadata()
         let world = World::new();
         if with_metadata {
             let mut parameters = world.parameters.block();
-            parameters.set_parameter(handshake_metadata(&roster(4)));
+            parameters.set_parameter(handshake_metadata());
             parameters.commit();
         }
         let state = state_on(network_id_of(b"uncertified-metadata"), world);

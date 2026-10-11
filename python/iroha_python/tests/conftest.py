@@ -170,7 +170,7 @@ else:
     native_root = _SOURCE_ROOTS["iroha_native"]
     native_spec = importlib.machinery.PathFinder.find_spec("iroha_native._crypto", [str(native_root)])
     # Explicit native absence remains available to anonymous transport tests.
-    # Account qualification obtains ABI25 through the unchanged strict loader.
+    # Account qualification obtains ABI29 through the unchanged strict loader.
     if native_spec is not None:
         if type(native_spec) is not importlib.machinery.ModuleSpec or type(native_spec.origin) is not str:
             raise RuntimeError("source native extension must have a filesystem origin")

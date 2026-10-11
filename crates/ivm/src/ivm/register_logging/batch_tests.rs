@@ -110,7 +110,9 @@ fn input_host(contract: &PreparedContract, prepared: bool) -> InputHost {
     InputHost {
         prepared: prepared.then_some(owner),
         inner: DefaultHost::default().with_public_inputs(BTreeMap::from([(
-            "trigger_event_json".parse().unwrap(),
+            ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+                .parse()
+                .unwrap(),
             tlv,
         )])),
         foreign,
@@ -128,9 +130,9 @@ fn actual_empty_prepared_and_default_roots_refuse_before_gas_heap_or_register_ef
         let empty = matches!(route, RootArguments::Empty);
         let contract = artifact(
             if empty {
-                "seiyaku RootRows { view fn main() { } }"
+                "seiyaku RootRows { view fn main() authorize(anyone) { } }"
             } else {
-                "seiyaku RootRows { view fn main(bool ready) -> bool { ready } }"
+                "seiyaku RootRows { view fn main(bool ready) authorize(anyone) -> bool { ready } }"
             },
             128,
         );
@@ -274,7 +276,7 @@ fn ordinary_instruction_shortage_precedes_gas_cycles_registers_and_shared_allowa
 #[test]
 fn compiled_strict_children_and_returns_share_prepaid_rows_and_snapshot_custody() {
     let contract = artifact(
-        "seiyaku NestedRows { fn inner(bool value) -> bool { value } fn outer(bool value) -> bool { inner(value: value) } view fn main(bool ready) -> bool { outer(value: ready) } }",
+        "seiyaku NestedRows { fn inner(bool value) -> bool { value } fn outer(bool value) -> bool { inner(value: value) } view fn main(bool ready) authorize(anyone) -> bool { outer(value: ready) } }",
         512,
     );
     for prepared in [false, true] {
@@ -407,7 +409,10 @@ fn actual_reserved_syscalls_prepay_restore_and_all_255_host_net_writes() {
 
 #[test]
 fn native_delayed_finish_uses_original_batch_and_preserves_every_original_packet() {
-    let contract = artifact("seiyaku NativeEventRows { view fn main() { } }", 64);
+    let contract = artifact(
+        "seiyaku NativeEventRows { view fn main() authorize(anyone) { } }",
+        64,
+    );
     let original = AllocationBudget::new(LIMIT);
     let run = || {
         let mut parent =
@@ -496,7 +501,10 @@ fn native_delayed_finish_uses_original_batch_and_preserves_every_original_packet
 
 #[test]
 fn syscall_shell_refusal_precedes_reserved_output_and_staged_entry_effects() {
-    let contract = artifact("seiyaku ShellRows { view fn main() { } }", 64);
+    let contract = artifact(
+        "seiyaku ShellRows { view fn main() authorize(anyone) { } }",
+        64,
+    );
     for number in [syscalls::SYSCALL_ABORT, syscalls::SYSCALL_INT_ADD] {
         let original = AllocationBudget::new(LIMIT);
         let mut vm = loaded(&contract, &original);
@@ -619,7 +627,7 @@ fn syscall_instruction_shell_refusal_precedes_base_gas_and_cycle_allowance() {
 #[test]
 fn default_root_shell_refusal_precedes_argument_gas_heap_and_descriptors() {
     let contract = artifact(
-        "seiyaku RootShell { view fn main(bool ready) -> bool { ready } }",
+        "seiyaku RootShell { view fn main(bool ready) authorize(anyone) -> bool { ready } }",
         128,
     );
     let original = AllocationBudget::new(LIMIT);

@@ -1788,7 +1788,6 @@ mod tests {
                 activation_height: 1,
                 election_exit_height: None,
                 deactivation_height: None,
-                last_reward_epoch: None,
             },
         );
         let pulse = FinalizedGlobalThresholdBeaconPulseV1 {

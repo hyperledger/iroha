@@ -143,10 +143,10 @@ pub fn verify_for_relation(
     let tag = super::production_verify_backend_tag(backend)
         .ok_or(ProofVerificationError::UnsupportedBackend)?;
     let (enabled, maximum, proof_maximum) = match tag {
-        BackendTag::Halo2IpaPasta => (
-            policy.halo2_enabled,
-            policy.halo2_max_envelope_bytes,
-            policy.halo2_max_proof_bytes,
+        BackendTag::NativePipaRPasta => (
+            policy.pipa_r_enabled,
+            policy.pipa_r_max_envelope_bytes,
+            policy.pipa_r_max_proof_bytes,
         ),
         BackendTag::Stark => (
             policy.stark_enabled,
@@ -196,21 +196,22 @@ pub fn verify_for_relation(
 }
 
 fn compiled_relation(backend: &str, circuit: &str) -> Option<ProofRelation> {
-    if super::halo2_open_verify_circuit_id_matches_backend(backend, circuit) {
-        return match super::canonical_halo2_ipa_circuit_id(circuit)?.as_str() {
-            "halo2/pasta/ipa/kaigi-authorization-v1" => Some(ProofRelation::KaigiAuthorization),
-            "halo2/pasta/ipa/kaigi-usage-v1" => Some(ProofRelation::KaigiUsage),
-            "halo2/pasta/ipa/confidential-transfer-2x2-merkle16-axiom-poseidon-v3" => {
-                Some(ProofRelation::ConfidentialTransfer)
+    if let Some(kind) = super::native_pipa_r::relation(backend, circuit) {
+        return Some(match kind {
+            super::native_pipa_r::NativeRelationV1::KaigiAuthorization => {
+                ProofRelation::KaigiAuthorization
             }
-            "halo2/pasta/ipa/confidential-unshield-full-merkle16-axiom-poseidon-v3" => {
-                Some(ProofRelation::ConfidentialFullUnshield)
+            super::native_pipa_r::NativeRelationV1::KaigiUsage => ProofRelation::KaigiUsage,
+            super::native_pipa_r::NativeRelationV1::ConfidentialTransfer => {
+                ProofRelation::ConfidentialTransfer
             }
-            "halo2/pasta/ipa/confidential-unshield-change-merkle16-axiom-poseidon-v4" => {
-                Some(ProofRelation::ConfidentialChangeUnshield)
+            super::native_pipa_r::NativeRelationV1::ConfidentialFullUnshield => {
+                ProofRelation::ConfidentialFullUnshield
             }
-            _ => None,
-        };
+            super::native_pipa_r::NativeRelationV1::ConfidentialChangeUnshield => {
+                ProofRelation::ConfidentialChangeUnshield
+            }
+        });
     }
     if !super::stark_open_verify_circuit_id_matches_backend(backend, circuit)
         || super::canonical_circuit_is_zk_ace_relation_for_backend(backend, circuit)

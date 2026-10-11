@@ -186,8 +186,9 @@ pub(super) fn explicit(
         options.deadline,
         |attempt| {
             account
-                .inspect_reserve_account_registration_preparation(
-                    &attempt.wallet_path(),
+                .inspect_reserve_account_registration_preparation_in_parent(
+                    attempt.directory(),
+                    std::ffi::OsStr::new("transaction"),
                     &original.request(attempt.terms(), options.deadline),
                 )
                 .map_err(|_| {

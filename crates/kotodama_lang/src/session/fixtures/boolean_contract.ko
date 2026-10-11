@@ -2,7 +2,7 @@
                 seiyaku BooleanContract {
                     struct Shared { bool value; }
                     fn make() -> Shared { return Shared { value: true }; }
-                    view fn read() -> bool {
+                    view fn read() authorize(anyone) -> bool {
                         let record = make();
                         return record.value;
                     }

@@ -71,8 +71,7 @@ fn status_carrier_is_only_a_bounded_hint_and_elapsed_budget_fails_before_io() {
 fn parent_context_and_fresh_quorum_are_required_before_preparation_or_dispatch() {
     use iroha_crypto::{Algorithm, ExposedPrivateKey, KeyPair};
     use iroha_data_model::{
-        sumeragi_finality::{SumeragiFinalityAttestation, SumeragiFinalityProof},
-        transaction::FeePaymentIntent,
+        sumeragi_finality::SumeragiFinalityProof, transaction::FeePaymentIntent,
     };
     use iroha_model_base::peer::PeerId;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -91,7 +90,8 @@ fn parent_context_and_fresh_quorum_are_required_before_preparation_or_dispatch()
             &self,
             _: &PeerId,
             _: &[u8; 32],
-        ) -> std::result::Result<SumeragiFinalityAttestation, Self::Error> {
+        ) -> std::result::Result<crate::verify::finality::FinalityAttestation, Self::Error>
+        {
             self.0.fetch_add(1, Ordering::Relaxed);
             Err(std::io::Error::other("offline fixture"))
         }
@@ -216,4 +216,131 @@ fn failed_atomic_completion_preserves_old_receipt_and_pending_then_reopens_exact
         .confirm_completed_operation(receipt, &verifier)
         .unwrap();
     assert!(!store.progress(None).pending);
+}
+
+#[test]
+fn cancelled_attachment_refuses_new_parent_work_but_preserves_pending_reconciliation() {
+    use iroha_crypto::{Algorithm, ExposedPrivateKey, KeyPair};
+    use iroha_data_model::{
+        sumeragi_finality::SumeragiFinalityProof, transaction::FeePaymentIntent,
+    };
+    use iroha_model_base::peer::PeerId;
+    use std::cell::Cell;
+    struct Offline(Cell<usize>);
+    impl crate::verify::finality::FinalitySource for Offline {
+        type Error = std::io::Error;
+        fn finality_proof(
+            &self,
+            _: NonZeroU64,
+        ) -> std::result::Result<SumeragiFinalityProof, Self::Error> {
+            self.0.set(self.0.get() + 1);
+            Err(std::io::Error::other("offline cancellation fixture"))
+        }
+        fn latest_attestation(
+            &self,
+            _: &PeerId,
+            _: &[u8; 32],
+        ) -> std::result::Result<crate::verify::finality::FinalityAttestation, Self::Error>
+        {
+            self.0.set(self.0.get() + 1);
+            Err(std::io::Error::other("offline cancellation fixture"))
+        }
+    }
+    struct NoLocalRead;
+    impl PrivateRootSource for NoLocalRead {
+        fn anchor(&self, _: NonZeroU64) -> Result<Option<PrivateDataspaceAnchor>> {
+            panic!("cancelled new relay must not read a child successor")
+        }
+    }
+    let mut fixture = Fixture::new();
+    fixture.parent_receipt();
+    let dir = tempfile::tempdir().unwrap();
+    let bootstrap = fixture.bootstrap(&dir.path().join("release"));
+    let mut parent = ParentFinalityStore::open(&dir.path().join("parent"), &bootstrap).unwrap();
+    let path = dir.path().join("attachment");
+    let mut store = AttachmentStore::open(&path, fixture.identity.clone()).unwrap();
+    let signal = Arc::new(AtomicBool::new(true));
+    store.bind_cancellation(Arc::clone(&signal)).unwrap();
+    store.bind_cancellation(Arc::clone(&signal)).unwrap();
+    assert!(
+        store
+            .bind_cancellation(Arc::new(AtomicBool::new(false)))
+            .is_err()
+    );
+    let key = KeyPair::from_seed(vec![47; 32], Algorithm::Ed25519);
+    let config = Config::load_table(
+        "attachment-tests.toml",
+        toml::toml! {
+            chain = (fixture.parent.chain_id())
+            network_id = (fixture.parent.network_id().to_string())
+            torii_url = "https://parent.example/"
+            [account]
+            chain_discriminant = 753
+            public_key = (key.public_key().to_string())
+            private_key = (ExposedPrivateKey(key.private_key().clone()).to_string())
+        },
+    )
+    .unwrap();
+    let options = BoundedTransactionOptions {
+        fee_payment: FeePaymentIntent::authority(vec![], None),
+        max_total_fees: Default::default(),
+        deadline: Instant::now() + std::time::Duration::from_secs(10),
+    };
+    let source = Offline(Cell::new(0));
+    assert!(matches!(
+        store.advance_parent(&config, &bootstrap, &mut parent, &source, &options, None),
+        Err(AttachmentError::Cancelled)
+    ));
+    assert!(matches!(
+        store.relay_once(
+            &NoLocalRead,
+            RelayParent {
+                config: &config,
+                bootstrap: &bootstrap,
+                finality: &mut parent,
+                source: &source,
+                options: &options
+            }
+        ),
+        Err(AttachmentError::Cancelled)
+    ));
+    assert_eq!(source.0.get(), 0);
+    assert!(!store.progress(None).pending);
+    assert!(!store.directory.path().join("transactions").exists());
+    // Existing exact operation state still enters independent read-only reconciliation.
+    store
+        .publish_pending(PendingOperation {
+            kind: PendingKind::Registration,
+            checkpoint: fixture.parent.checkpoint().encode_canonical().unwrap(),
+            replay: None,
+        })
+        .unwrap();
+    let original = store
+        .directory
+        .read("attachment.nrt", MAX_RECORD_BYTES)
+        .unwrap();
+    assert!(!matches!(
+        store.advance_parent(&config, &bootstrap, &mut parent, &source, &options, None),
+        Ok(_) | Err(AttachmentError::Cancelled)
+    ));
+    assert!(source.0.get() >= 3);
+    assert_eq!(
+        store
+            .directory
+            .read("attachment.nrt", MAX_RECORD_BYTES)
+            .unwrap(),
+        original
+    );
+    assert!(!store.directory.path().join("transactions").exists());
+    drop(store);
+    let reopened = AttachmentStore::open(&path, fixture.identity.clone()).unwrap();
+    assert_eq!(
+        reopened
+            .directory
+            .read("attachment.nrt", MAX_RECORD_BYTES)
+            .unwrap(),
+        original
+    );
+    assert!(reopened.progress(None).pending);
+    assert!(signal.load(Ordering::Acquire));
 }

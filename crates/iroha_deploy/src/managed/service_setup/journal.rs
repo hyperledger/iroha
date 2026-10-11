@@ -374,7 +374,7 @@ pub(super) fn explicit(
         |attempt| {
             original
                 .request(attempt.terms(), options.deadline)
-                .inspect(account, &attempt.wallet_path())
+                .inspect_in_parent(account, attempt.directory())
         },
         |attempt, _, deadline| {
             original

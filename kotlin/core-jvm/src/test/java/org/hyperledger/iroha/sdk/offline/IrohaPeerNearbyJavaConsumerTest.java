@@ -42,8 +42,12 @@ final class IrohaPeerNearbyJavaConsumerTest {
       assertTrue(pair.receiverKey.isDestroyed());
 
       final IrohaPeerWireMessageV1 request = exchange(pair.receiver, pair.sender, fixtures.request, 0);
-      final byte[] requestEnvelope = request.getCanonicalPayload().getBytes();
-      assertArrayEquals(fixtures.request.getCanonicalPayload().getBytes(), requestEnvelope);
+      final byte[] requestPayload = request.getCanonicalPayload().getBytes();
+      assertArrayEquals(fixtures.request.getCanonicalPayload().getBytes(), requestPayload);
+      final IrohaPeerWalletRequestV1 walletRequest = IrohaPeerWalletRequestV1.decode(requestPayload);
+      assertArrayEquals(IrohaPeerRequestFixtureV1.INSTANCE.account(),
+          walletRequest.destinationAccountOriginal());
+      final byte[] requestEnvelope = walletRequest.requestEnvelope();
       assertEquals(KagemushaWalletMessageKindV1.REQUEST,
           KagemushaWalletWireV1.inspectEnvelope(requestEnvelope).kind);
 
@@ -310,7 +314,19 @@ final class IrohaPeerNearbyJavaConsumerTest {
           canonical[index] = (byte) ((high << 4) | low);
         }
         assertEquals(canonical.length, ((Number) record.get("frame_len")).intValue());
-        return new IrohaPeerWireMessageV1(new IrohaPeerCanonicalPayload(PROFILE, kind, 1, canonical));
+        final byte[] payload;
+        if (kind == IrohaPeerPayloadKind.REQUEST) {
+          final byte[] account = IrohaPeerRequestFixtureV1.INSTANCE.account();
+          payload = new IrohaPeerWalletRequestV1(canonical, account).encode();
+          final IrohaPeerWalletRequestV1 recovered = IrohaPeerWalletRequestV1.decode(payload);
+          assertArrayEquals(canonical, recovered.requestEnvelope());
+          assertArrayEquals(account, recovered.destinationAccountOriginal());
+          assertThrows(IllegalArgumentException.class,
+              () -> new IrohaPeerCanonicalPayload(PROFILE, kind, 1, canonical));
+        } else {
+          payload = canonical;
+        }
+        return new IrohaPeerWireMessageV1(new IrohaPeerCanonicalPayload(PROFILE, kind, 1, payload));
       }
       throw new AssertionError("wallet envelope vector " + variant + " was not found");
     }

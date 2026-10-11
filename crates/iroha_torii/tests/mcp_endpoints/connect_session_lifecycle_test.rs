@@ -5,8 +5,8 @@ async fn mcp_jsonrpc_connect_session_lifecycle_dispatches_routes() {
     let mut cfg = test_utils::mk_minimal_root_cfg();
     enable_writer_mcp(&mut cfg);
     cfg.torii.connect.enabled = true;
-    let network_id = test_utils::signed_query_network_id().to_string();
     let app = build_router(cfg);
+    let network_id = app.network_id().to_string();
     let (status, create_call) = post_mcp(
         &app,
         norito::json!({

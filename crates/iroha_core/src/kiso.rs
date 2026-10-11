@@ -1079,6 +1079,7 @@ mod tests {
                 ram_lfe: None,
                 tx_history: None,
                 recipient_lookup: iroha_config::parameters::actual::ToriiRecipientLookup::default(),
+                kagemusha_enrollment: None,
                 public_dataspace_upstreams: Vec::new(),
                 events_buffer_capacity: NonZeroUsize::new(
                     iroha_config::parameters::defaults::torii::EVENTS_BUFFER_CAPACITY,
@@ -1599,15 +1600,10 @@ mod tests {
             },
         },
             zk: iroha_config::parameters::actual::Zk {
-                halo2: iroha_config::parameters::actual::Halo2 {
-                    enabled: false,
-                    curve: iroha_config::parameters::actual::ZkCurve::Pallas,
-                    backend: iroha_config::parameters::actual::Halo2Backend::Ipa,
-                    max_k: 16,
-                    verifier_budget_ms: 1000,
-                    verifier_max_batch: 8,
-                    ..iroha_config::parameters::actual::Halo2::default()
-                },
+                pipa_r: iroha_config::parameters::actual::PipaR::default(),
+                trace: iroha_config::parameters::actual::DiagnosticTrace::default(),
+        ipa_commitment: iroha_config::parameters::actual::IpaCommitment::default(),
+            max_verify_batch: iroha_config::parameters::defaults::zk::MAX_VERIFY_BATCH,
                 fastpq: iroha_config::parameters::actual::Fastpq {
                     execution_mode: iroha_config::parameters::actual::FastpqExecutionMode::Cpu,
                     poseidon_mode: iroha_config::parameters::actual::FastpqPoseidonMode::Cpu,

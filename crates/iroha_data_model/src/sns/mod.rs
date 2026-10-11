@@ -24,6 +24,22 @@ pub const ACCOUNT_ALIAS_SUFFIX_ID: SuffixId = 0x1001;
 pub const DOMAIN_NAME_SUFFIX_ID: SuffixId = 0x1002;
 /// Fixed suffix id for dataspace-alias lease records.
 pub const DATASPACE_ALIAS_SUFFIX_ID: SuffixId = 0x1003;
+/// Reserved dataspace alias of the universal dataspace (`DataSpaceId::UNIVERSAL`).
+pub const RESERVED_UNIVERSAL_DATASPACE_ALIAS: &str = "universal";
+/// Derive the deterministic dataspace id for a SNS dataspace alias.
+///
+/// The identity is the full dataspace-alias name hash, so every peer and light client derives
+/// the same id without a catalog. The reserved universal alias maps to the universal dataspace.
+/// Returns `None` when the alias is not a canonical SNS label.
+#[must_use]
+pub fn dataspace_id_for_alias(alias: &str) -> Option<iroha_model_base::topology::DataSpaceId> {
+    use iroha_model_base::topology::DataSpaceId;
+    let selector = NameSelectorV1::new(DATASPACE_ALIAS_SUFFIX_ID, alias.trim()).ok()?;
+    if selector.label == RESERVED_UNIVERSAL_DATASPACE_ALIAS {
+        return Some(DataSpaceId::UNIVERSAL);
+    }
+    Some(DataSpaceId::from_hash(&selector.name_hash()))
+}
 /// Canonical native World storage key for an exact SNS record selector.
 #[must_use]
 pub fn record_storage_key(selector: &NameSelectorV1) -> iroha_model_base::state_path::StatePath {

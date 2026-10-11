@@ -304,7 +304,7 @@ fn genuine_complete_scalar_and_compact_artifacts_both_pass_canonical_admission_w
                         .is_some_and(|variant| variant.name == name))
             ),
             cases::Outcome::Permission => {
-                assert_eq!(main.permission.as_deref(), Some("ManageRoles"))
+                assert_eq!(main.authorization, iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission("ManageRoles".parse().unwrap()))
             }
             cases::Outcome::DivisionByZero | cases::Outcome::InvalidScale => assert!(
                 after
@@ -408,7 +408,10 @@ fn complete_shared_abort_artifact_retains_dispatch_authorization_and_entrypoint_
         .unwrap()
         .entry_pc;
     let mut unauthenticated = interface.clone();
-    unauthenticated.entrypoints[main].permission = None;
+    unauthenticated.entrypoints[main].authorization =
+        iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+            "Undeclared".parse().unwrap(),
+        );
     assert!(
         validate_contract_interface(
             &parsed.metadata,
@@ -418,7 +421,7 @@ fn complete_shared_abort_artifact_retains_dispatch_authorization_and_entrypoint_
         )
         .unwrap_err()
         .to_string()
-        .contains("missing caller authorization")
+        .contains("must use explicit declared authorization")
     );
     let mut view = interface.clone();
     view.entrypoints[main].kind = EntryPointKind::View;

@@ -15,7 +15,8 @@ fn many_locals_force_spills_and_compute() {
         body.push_str(&format!("let a{} = a{} + 1;\n", i, i - 1));
     }
     body.push_str("return a39;\n");
-    let src = format!("seiyaku SpillChain {{ view fn main() -> int {{\n{body}\n}} }}");
+    let src =
+        format!("seiyaku SpillChain {{ view fn main() authorize(anyone) -> int {{\n{body}\n}} }}");
     let code = KotodamaCompiler::new()
         .compile_source(&src)
         .expect("compile spills");
@@ -28,10 +29,12 @@ fn many_locals_force_spills_and_compute() {
 #[test]
 fn literal_heavy_set_account_detail_compiles_under_spill_pressure() {
     const COUNT: usize = 256;
-    let mut src = String::from("seiyaku SpillLiterals { kotoage fn main() authorize(\"Test\") {\n");
+    let mut src = String::from(
+        "seiyaku SpillLiterals { permission Test;  kotoage fn main() authorize(Test) {\n",
+    );
     for i in 0..COUNT {
         src.push_str(&format!(
-            "  ledger::account::set_detail(account: context::authority(), key: Name::parse(\"literal{i}\"), value: Json::parse(\"{{\\\"value\\\":{i}}}\"));\n"
+            "  ledger::account::set_metadata(account: context::authority(), key: Name::parse(\"literal{i}\"), value: Json::parse(\"{{\\\"value\\\":{i}}}\"));\n"
         ));
     }
     src.push_str("}\n}\n");
@@ -45,7 +48,7 @@ fn odd_eight_byte_nested_call_frame_is_padded_and_restored() {
         seiyaku NestedFrameAlignment {
             fn leaf() {}
             fn middle() { leaf(); }
-            view fn main() { middle(); }
+            view fn main() authorize(anyone) { middle(); }
         }
     "#;
     let (artifact, _manifest, report) = KotodamaCompiler::new()
@@ -87,7 +90,8 @@ fn frame_and_spill_offsets_above_four_kib_are_bounded_and_execute() {
         body.push_str(&format!("total = total + value{index};\n"));
     }
     body.push_str("return total;\n");
-    let source = format!("seiyaku WideFrame {{ view fn main() -> int {{\n{body}}}\n}}");
+    let source =
+        format!("seiyaku WideFrame {{ view fn main() authorize(anyone) -> int {{\n{body}}}\n}}");
     let compiler = KotodamaCompiler::new();
     let (artifact, _manifest, report) = compiler
         .compile_source_with_manifest_and_report(&source)

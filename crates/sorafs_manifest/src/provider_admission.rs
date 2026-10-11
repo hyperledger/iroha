@@ -497,14 +497,14 @@ impl ProviderAdmissionGenesisMaterialV1 {
             proposal: self.proposal.clone(),
             proposal_digest: compute_proposal_digest(&self.proposal).map_err(|source| {
                 ProviderAdmissionEnvelopeError::Serialization {
-                    context: "genesis proposal",
+                    context: ProviderAdmissionSerializationContext::GenesisProposal,
                     source,
                 }
             })?,
             advert_body: self.advert_body.clone(),
             advert_body_digest: compute_advert_body_digest(&self.advert_body).map_err(
                 |source| ProviderAdmissionEnvelopeError::Serialization {
-                    context: "genesis advert",
+                    context: ProviderAdmissionSerializationContext::GenesisAdvert,
                     source,
                 },
             )?,
@@ -582,7 +582,7 @@ impl ProviderAdmissionEnvelopeV1 {
         let expected_proposal_digest =
             compute_proposal_digest(&self.proposal).map_err(|source| {
                 ProviderAdmissionValidationError::SerializationError {
-                    context: "proposal",
+                    context: ProviderAdmissionSerializationContext::Proposal,
                     source,
                 }
             })?;
@@ -592,7 +592,7 @@ impl ProviderAdmissionEnvelopeV1 {
         let expected_advert_digest =
             compute_advert_body_digest(&self.advert_body).map_err(|source| {
                 ProviderAdmissionValidationError::SerializationError {
-                    context: "advert_body",
+                    context: ProviderAdmissionSerializationContext::AdvertBody,
                     source,
                 }
             })?;
@@ -802,7 +802,7 @@ impl AdmissionRecord {
         let advert_body_digest = verify_envelope(&envelope, policy)?;
         let envelope_digest = compute_envelope_digest(&envelope).map_err(|source| {
             ProviderAdmissionEnvelopeError::Serialization {
-                context: "retained envelope",
+                context: ProviderAdmissionSerializationContext::RetainedEnvelope,
                 source,
             }
         })?;
@@ -858,7 +858,7 @@ impl AdmissionRecord {
         }
         let envelope_digest = compute_envelope_digest(&envelope).map_err(|err| {
             ProviderAdmissionEnvelopeError::Serialization {
-                context: "envelope",
+                context: ProviderAdmissionSerializationContext::Envelope,
                 source: err,
             }
         })?;
@@ -998,7 +998,7 @@ impl AdmissionRecord {
         }
         let computed_digest = compute_envelope_digest(&renewal.envelope).map_err(|err| {
             ProviderAdmissionRenewalError::Envelope(ProviderAdmissionEnvelopeError::Serialization {
-                context: "envelope",
+                context: ProviderAdmissionSerializationContext::Envelope,
                 source: err,
             })
         })?;
@@ -1126,7 +1126,7 @@ pub fn verify_envelope(
         .map_err(ProviderAdmissionEnvelopeError::Validation)?;
     let digest = compute_envelope_authorization_digest(envelope).map_err(|source| {
         ProviderAdmissionEnvelopeError::Serialization {
-            context: "envelope authorization",
+            context: ProviderAdmissionSerializationContext::EnvelopeAuthorization,
             source,
         }
     })?;
@@ -1146,7 +1146,7 @@ pub fn verify_envelope_untrusted_signers(
         .map_err(ProviderAdmissionEnvelopeError::Validation)?;
     let digest = compute_envelope_authorization_digest(envelope).map_err(|source| {
         ProviderAdmissionEnvelopeError::Serialization {
-            context: "envelope authorization",
+            context: ProviderAdmissionSerializationContext::EnvelopeAuthorization,
             source,
         }
     })?;
@@ -1281,6 +1281,40 @@ fn verify_council_signatures_inner(
     }
     Ok(())
 }
+/// Canonical admission value whose serialization was refused.
+///
+/// The closed set keeps diagnostics inline beside their original codec cause;
+/// constructing an error never needs a new allocation for its context.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProviderAdmissionSerializationContext {
+    /// Initial proposal in a genesis admission.
+    GenesisProposal,
+    /// Initial advert in a genesis admission.
+    GenesisAdvert,
+    /// Provider admission proposal.
+    Proposal,
+    /// Provider advertisement body.
+    AdvertBody,
+    /// Authenticated retained admission envelope.
+    RetainedEnvelope,
+    /// Provider admission envelope.
+    Envelope,
+    /// Council-signed envelope authorization preimage.
+    EnvelopeAuthorization,
+}
+impl std::fmt::Display for ProviderAdmissionSerializationContext {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::GenesisProposal => "genesis proposal",
+            Self::GenesisAdvert => "genesis advert",
+            Self::Proposal => "proposal",
+            Self::AdvertBody => "advert_body",
+            Self::RetainedEnvelope => "retained envelope",
+            Self::Envelope => "envelope",
+            Self::EnvelopeAuthorization => "envelope authorization",
+        })
+    }
+}
 /// Errors raised during proposal and envelope validation.
 #[derive(Debug, Error)]
 pub enum ProviderAdmissionValidationError {
@@ -1362,7 +1396,7 @@ pub enum ProviderAdmissionValidationError {
     AdvertDigestMismatch,
     #[error("validation failed to serialize {context} for digest computation: {source}")]
     SerializationError {
-        context: &'static str,
+        context: ProviderAdmissionSerializationContext,
         #[source]
         source: NoritoError,
     },
@@ -1391,12 +1425,12 @@ pub enum ProviderAdmissionEnvelopeError {
     #[error("admission revision {revision} requires its exact signed predecessor event")]
     NonInitialEvent { revision: u64 },
     #[error("envelope validation failed: {0}")]
-    Validation(ProviderAdmissionValidationError),
+    Validation(#[source] ProviderAdmissionValidationError),
     #[error("council signature validation failed: {0}")]
-    Signature(ProviderAdmissionSignatureError),
+    Signature(#[source] ProviderAdmissionSignatureError),
     #[error("failed to serialize {context}: {source}")]
     Serialization {
-        context: &'static str,
+        context: ProviderAdmissionSerializationContext,
         #[source]
         source: NoritoError,
     },
@@ -1593,7 +1627,7 @@ pub enum ProviderAdmissionRevocationError {
     #[error("revocation requires at least one council signature")]
     MissingSignatures,
     #[error("revocation signature verification failed: {0}")]
-    Signature(ProviderAdmissionSignatureError),
+    Signature(#[source] ProviderAdmissionSignatureError),
     #[error("failed to serialize revocation body: {0}")]
     Serialization(#[from] NoritoError),
     #[error("envelope digest mismatch (expected {expected:02x?}, provided {provided:02x?})")]
@@ -1766,6 +1800,109 @@ mod tests {
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         0xff, 0x7f,
     ];
+    #[test]
+    fn admission_serialization_errors_preserve_context_and_original_source() {
+        use std::error::Error as _;
+        for (context, label) in [
+            (
+                ProviderAdmissionSerializationContext::GenesisProposal,
+                "genesis proposal",
+            ),
+            (
+                ProviderAdmissionSerializationContext::GenesisAdvert,
+                "genesis advert",
+            ),
+            (ProviderAdmissionSerializationContext::Proposal, "proposal"),
+            (
+                ProviderAdmissionSerializationContext::AdvertBody,
+                "advert_body",
+            ),
+            (
+                ProviderAdmissionSerializationContext::RetainedEnvelope,
+                "retained envelope",
+            ),
+            (ProviderAdmissionSerializationContext::Envelope, "envelope"),
+            (
+                ProviderAdmissionSerializationContext::EnvelopeAuthorization,
+                "envelope authorization",
+            ),
+        ] {
+            let resource = norito::core::DecodeResourceError::AllocationFailed { bytes: 97 };
+            let error = ProviderAdmissionRenewalError::Envelope(
+                ProviderAdmissionEnvelopeError::Validation(
+                    ProviderAdmissionValidationError::SerializationError {
+                        context,
+                        source: resource.into(),
+                    },
+                ),
+            );
+            assert_eq!(context.to_string(), label);
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "renewal envelope validation failed: envelope validation failed: validation failed to serialize {label} for digest computation: {}",
+                    NoritoError::from(resource),
+                )
+            );
+            let ProviderAdmissionRenewalError::Envelope(
+                ProviderAdmissionEnvelopeError::Validation(
+                    ProviderAdmissionValidationError::SerializationError { source, .. },
+                ),
+            ) = &error
+            else {
+                panic!("original typed validation cause")
+            };
+            let returned = error
+                .source()
+                .expect("envelope")
+                .source()
+                .expect("validation")
+                .source()
+                .expect("original codec")
+                .downcast_ref::<NoritoError>()
+                .expect("typed codec cause");
+            assert!(core::ptr::eq(returned, source));
+            assert_eq!(returned.decode_resource_error(), Some(resource));
+
+            let error = ProviderAdmissionEnvelopeError::Serialization {
+                context,
+                source: resource.into(),
+            };
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "failed to serialize {label}: {}",
+                    NoritoError::from(resource)
+                )
+            );
+            assert_eq!(
+                error
+                    .source()
+                    .expect("codec")
+                    .downcast_ref::<NoritoError>()
+                    .expect("typed codec cause")
+                    .decode_resource_error(),
+                Some(resource)
+            );
+        }
+        let error = ProviderAdmissionEnvelopeError::Signature(
+            ProviderAdmissionSignatureError::ThresholdNotMet {
+                required: 3,
+                verified: 2,
+            },
+        );
+        let ProviderAdmissionEnvelopeError::Signature(source) = &error else {
+            panic!("signature cause")
+        };
+        assert!(core::ptr::eq(
+            error
+                .source()
+                .expect("signature")
+                .downcast_ref::<ProviderAdmissionSignatureError>()
+                .expect("typed signature cause"),
+            source
+        ));
+    }
     fn council_signature() -> CouncilSignature {
         CouncilSignature {
             signer: [0xAA; 32],

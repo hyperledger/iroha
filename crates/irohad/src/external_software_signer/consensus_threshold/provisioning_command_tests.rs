@@ -187,7 +187,6 @@ fn provisioning_decoder_retains_original_scope_and_retries_unchanged_public_byte
             target_epoch: 2,
             latest_finality: artifact.clone(),
             selected: None,
-            candidate_keys: Vec::new(),
             pending_beacon_session: None,
         },
         finality_journal: NativeFinalityJournal {

@@ -95,7 +95,7 @@ impl KeyExchangeScheme for X25519Sha256 {
         let mut array = [0u8; Self::PUBLIC_KEY_SIZE];
         array.copy_from_slice(bytes);
         let public_key = PublicKey::from(array);
-        if is_x25519_low_order_public_key(&public_key) {
+        if super::is_x25519_low_order_public_key(&public_key) {
             return Err(ParseError("x25519 public key is low-order".into()));
         }
         Ok(public_key)

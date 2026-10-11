@@ -519,6 +519,9 @@ mod tests {
     }
     fn manifest() -> ContractManifest {
         ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(code_hash()),
             abi_hash: Some(Hash::new(b"abi-policy")),

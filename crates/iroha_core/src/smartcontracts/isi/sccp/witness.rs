@@ -78,7 +78,6 @@ mod tests {
             Tag::RolePermission,
             Tag::ValidationFeePolicy,
             Tag::ParliamentTimedOvnCasting,
-            Tag::KagemushaReserveReceipt,
             Tag::FastpqOrdinarySourceStatements,
         ];
         assert!(
@@ -159,8 +158,7 @@ mod tests {
         assert!(state_block.take_fastpq_witness_context().is_none());
     }
 
-    /// `(ordinary_writes_root, post_state_root)` as `crate::sumeragi::commitment` derives them
-    /// for a block without KAGEMUSHA top-ups.
+    /// `(ordinary_writes_root, post_state_root)` as `crate::sumeragi::commitment` derives them.
     fn certified_roots(witness: &ExecWitness) -> (Hash, Hash) {
         let (reads, writes) = witness_pairs(witness);
         let root = compute_post_state_root(&reads, &writes);

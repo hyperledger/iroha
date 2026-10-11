@@ -1,6 +1,6 @@
 
         seiyaku MatchExpression {
-            view fn main(Option<int> value, int fallback) -> int {
+            view fn main(Option<int> value, int fallback) authorize(anyone) -> int {
                 value.unwrap_or(fallback)
             }
         }

@@ -1,6 +1,6 @@
 
 seiyaku Branches {
-    view fn branch(bool b) -> int {
+    view fn branch(bool b) authorize(anyone) -> int {
         if b {
             return 1;
         } else {

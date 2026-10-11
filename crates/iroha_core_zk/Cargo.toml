@@ -20,9 +20,9 @@ categories.workspace = true
 workspace = true
 
 [[bin]]
-name = "kagemusha_real_proof"
-path = "src/bin/kagemusha_real_proof.rs"
-required-features = ["kagemusha-real-proof-harness"]
+name = "kagemusha_wallet_artifacts"
+path = "src/bin/kagemusha_wallet_artifacts.rs"
+required-features = ["dev-tools"]
 
 [[example]]
 name = "confidential_redemption"
@@ -32,76 +32,59 @@ name = "iroha_core_zk_group"
 path = "tests/grouped.rs"
 required-features = ["zk-tests"]
 
-[[test]]
-name = "kagemusha_recovery_storage"
-path = "tests/kagemusha_recovery_storage.rs"
-
 [features]
-# Every build includes genuine Halo2/Pasta IPA proving and verification. Defaults
-# additionally select STARK and advisory pre-verification; test fixtures and the
-# externally guarded real-proof harness remain separately selected.
+# Offline packaging generators are built only through explicit artifact selection.
+dev-tools = []
+# Every build includes native PIPA-R proving and verification. Defaults also
+# select STARK and advisory pre-verification; test fixtures remain separate.
 default = ["proofs-stark", "zk-preverify"]
 proofs-stark = ["zk-stark"]
-# Halo2, Pasta IPA and Native opening/proving are mandatory in every build.
+# Native PIPA-R opening/proving is mandatory in every build.
 # STARK remains a separately selected algorithm.
 zk-stark = ["dep:fastpq_prover"]
 # Enable stateless advisory pre-verification, deduplication, and trace diagnostics.
 zk-preverify = []
-# Enable developer Halo2 test vectors (heavy tooling, opt-in only).
-halo2-dev-tests = []
 # Non-shipping helpers and fixtures for iroha_core's test builds; forbidden in
 # shipping library evidence (scripts/taira_release_check.py).
 test-utils = []
 # Gate zk-heavy tests; enable with `--features zk-tests` when needed.
 zk-tests = ["test-utils"]
-# Non-shipping entrypoint for the single externally memory-guarded Kagemusha real-proof
-# qualification. Keeping it out of `cfg(test)` avoids code-generating the full unit-test
-# harness merely to execute this one proof.
-kagemusha-real-proof-harness = []
 
 [dependencies]
+# Genuine wallet sigma/Q/A/W producers; this crate adds the G1/native custody adapter.
+iroha_kagemusha_proof = { path = "../iroha_kagemusha_proof", default-features = false }
+iroha_plonk_gadgets = { path = "../iroha_plonk_gadgets", default-features = false }
+iroha_plonk = { path = "../iroha_plonk", default-features = false }
+iroha_plonk_recursion = { path = "../iroha_plonk_recursion", default-features = false }
+iroha_pasta = { path = "../iroha_pasta", default-features = false }
 iroha_fs = { workspace = true }
 iroha_primitives = { workspace = true }
-iroha_model_base = { workspace = true }
 norito = { workspace = true, default-features = false, features = ["node-codec"] }
 iroha_data_model = { workspace = true, default-features = false, features = ["transparent_api", "governance", "http"] }
+iroha_sumeragi = { workspace = true }
+iroha_version = { workspace = true }
 iroha_crypto = { workspace = true, default-features = false, features = ["consensus", "pqc"] }
-iroha_panic_hook = { workspace = true }
-iroha_torii_shared = { workspace = true }
 ivm_abi = { workspace = true }
 fastpq_prover = { workspace = true, optional = true }
 fastpq_isi = { path = "../fastpq_isi" }
 tracing = { workspace = true }
 sha2 = { version = "0.10.9", default-features = false, features = ["compress"] }
-halo2_proofs = { version = "0.5.1", package = "halo2-axiom", features = ["batch", "multicore", "circuit-params"] }
 ff = "0.13.1"
-# Kagemusha V1's paired-Pasta recursive backend uses the Axiom Poseidon
-# transcript and IPA verifier in production. These revisions are pinned by the
-# workspace lockfile so consensus verification never depends on a test-only
-# feature surface.
-halo2-base = { git = "https://github.com/axiom-crypto/halo2-lib.git", tag = "v0.5.3", default-features = false, features = ["halo2-axiom"] }
-halo2-ecc = { git = "https://github.com/axiom-crypto/halo2-lib.git", tag = "v0.5.3", default-features = false, features = ["halo2-axiom"] }
-snark-verifier = { git = "https://github.com/axiom-crypto/snark-verifier.git", rev = "bbfcc721d714bea0d44a27c8fc6c4736e73ca853", default-features = false, features = ["loader_halo2", "halo2-axiom"] }
 iroha_zkp_halo2 = { workspace = true }
-iroha_zkp_poseidon = { workspace = true }
 kaigi_zk = { path = "../kaigi_zk" }
 base64 = { workspace = true }
 blake3 = "1.8.2"
-ciborium = { version = "0.2.2", default-features = false, features = ["std"] }
-# `bigint` exposes `der_parser::num_bigint` for the Pasta-cycle loaders.
-der-parser = { version = "10.0.0", features = ["bigint"] }
 hex = { workspace = true }
 p256 = { version = "0.13.2", default-features = false, features = ["std", "ecdsa", "pkcs8", "hash2curve", "expose-field"] }
 rand = { workspace = true }
 rand_core_06 = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
-url = { workspace = true }
 zeroize = { version = "1.8.2", default-features = false, features = ["alloc", "std"] }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.4", features = ["fs", "process", "time"] }
 
 [dev-dependencies]
+iroha_zkp_poseidon = { workspace = true }
 iroha_data_model = { workspace = true, default-features = false, features = ["transparent_api", "test-fixtures"] }
-iroha_test_samples = { workspace = true }

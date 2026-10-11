@@ -10,7 +10,6 @@ use iroha_data_model::{
     prelude::Registrable,
 };
 use iroha_test_samples::ALICE_ID;
-use mv::storage::StorageReadOnly;
 
 pub(in crate::state) fn domain() -> DomainId {
     DomainId::try_new("definitiongroups", "universal").unwrap()

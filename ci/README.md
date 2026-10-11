@@ -14,6 +14,13 @@ workspace reverse-dependency graph. The PR workflow runs locked Clippy, build,
 test, and documentation commands for the resulting package sets, then exposes
 one required aggregate result.
 
+Torii integration tests require its explicit `test-fixtures` feature. The routed
+test command enables it whenever Torii is selected; a direct full Torii run uses
+`cargo test -p iroha_torii --features test-fixtures`. Owning mutation checks use
+`python3 scripts/sumeragi_mutation_gate.py --torii --strict --jobs 1`. Torii has
+no self dev-dependency: that edge would compile the mutation feature into a
+non-test library, which its shipping guard rejects. Unit fixtures use `cfg(test)`.
+
 Package-level `package_binaries` requirements split each selected lane into
 binary-free and network package sets. The first set starts immediately after
 classification; only the second waits for release artifacts. The network
@@ -145,7 +152,7 @@ deliberately described as a reproducible source graph: use the compile-unit
 guard or an actual Cargo profile when compiler-unit or fully resolved
 registry-package evidence is needed.
 
-After an intentional dependency reduction, refresh the exact limits with:
+After reviewing an intentional dependency change, refresh the exact limits with:
 
 ```sh
 python3 scripts/check_dependency_budget.py \
@@ -160,19 +167,23 @@ stacks listed in `denied_required_packages` cannot be blessed by a refresh.
 Any manifest-fingerprint drift fails closed until that dependency change and
 the refreshed exact limits are reviewed together.
 
-The foundational model extraction adds one local compilation unit and direct
-consumer ownership edges. Its reviewed graph adds no external package and keeps
-shared `derive_more` and `sha2` declarations in both owners where they are used.
-The base scope has 13 required local packages, 30 external packages and 72
-required declaration edges. Four separately resolved base feature selections
-reject aggregate, privacy/service, HTTP, storage and node execution paths;
-normal and build dependencies are both checked.
+The foundational model's default and transparent API selections reject
+aggregate, privacy/service, HTTP, storage, proof primitive and node execution
+paths. Native Pasta/PLONK primitives are shared by the aggregate model and SoraFS
+proof-of-possession verifier; wallet relation and recursive proof execution stay
+owned by `iroha_kagemusha_proof` and `iroha_plonk_recursion`. Model, SDK, wire and
+service selections reject those wallet execution owners. The daemon retains its
+mandatory Core ZK verification dependencies. Normal and build dependencies are
+both checked; only the explicit aggregate-model test selection includes its root
+development dependencies.
 
 `python3 scripts/check_dependency_budget.py --check-boundaries` additionally
 enforces the `architecture` layer ownership and shipping configurations in
 the same policy file. Each configuration resolves its own Cargo package and
-feature selection with `--locked`, includes normal and build dependencies,
-and excludes development dependencies. The `all` target selection covers
+feature selection with `--locked` and includes normal and build dependencies.
+Shipping selections exclude development dependencies; the explicit model test
+selection includes only its root's development dependencies. The `all` target
+selection covers
 platform-specific dependencies. The check reports a concrete transitive path
 for every forbidden layer or proof-execution feature; a resolution error is
 a failure. Use `--offline` after dependencies have been fetched and
@@ -348,3 +359,24 @@ build closure. After an approved graph change, replace the sole digest and
 provision a fresh external snapshot; previous graph snapshots remain historical
 evidence and cannot authorize new builds. Retain locked metadata validation and
 independent root/external identity checks before and after it.
+
+The Python privacy guard includes the five original installed confidential-wallet
+native cases before its final artifact/source verification. For retained local
+CI evidence, set `PRIVACY_PYTHON_SDK_EVIDENCE_DIR` to a fresh absolute child of
+`target/qualification`. The guard copies the original wheels, installed native
+extension, artifact manifest, Cargo invocation transcript and JUnit result there
+before deleting its disposable build/venv. The receipt reports exact test results;
+the outer guard exit also includes final cleanup revalidation. Retention does not
+relax the clean committed source requirement or confer independent release or
+deployment authority. A missing, skipped or failed native case cannot produce a
+passing retained test receipt.
+
+The affected-lane Clippy and Rustdoc checks select every declared feature and
+implicit optional-dependency feature through `scripts/rust_ci.py`. The four
+`mutation-testing` owners are excluded from non-test compilation because their
+selectors belong to the dedicated Sumeragi, Core, Model and daemon mutation jobs.
+The same feature matrix serves workspace diagnostics. Defaults, governance,
+fixture helpers, simulator coverage and explicitly isolated test-network features
+remain selected; this diagnostic matrix does not qualify a shipping feature graph.
+A supported feature or dependency that forwards a mutation selector fails before
+Cargo starts and requires an explicit ownership review.

@@ -1,6 +1,5 @@
 //! Cross-implementation encoding KATs: `iroha_pasta`, `pasta_curves` 0.5.2
-//! and `halo2curves` 0.9 (the Pasta implementation behind the consensus
-//! paired-key check in `iroha_zkp_poseidon::pasta_keys`).
+//! and the `halo2curves` 0.9 Pasta implementation.
 //!
 //! Scalars and points must encode identically in all three, and every
 //! 32-byte string must be accepted or rejected identically, so that keys and

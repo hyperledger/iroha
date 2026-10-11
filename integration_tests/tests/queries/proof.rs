@@ -1,6 +1,6 @@
 #![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests for proof queries.
-//! The mixed Halo2/STARK network scenario requires the `zk-stark` feature and daemon.
+//! The mixed native PIPA-R/STARK network scenario requires the `zk-stark` feature and daemon.
 #[cfg(feature = "zk-stark")]
 use eyre::Result;
 #[cfg(feature = "zk-stark")]
@@ -57,7 +57,7 @@ fn active_vk_record(
     record.status = ConfidentialStatus::Active;
     record
 }
-fn halo2_attachment_and_registration(
+fn native_attachment_and_registration(
     statement: &str,
     vk_name: &str,
 ) -> (ProofAttachment, verifying_keys::RegisterVerifyingKey) {
@@ -159,19 +159,19 @@ fn proof_query_network_builder(
     }
     builder
 }
-fn halo2_attachment(statement: &str) -> ProofAttachment {
-    halo2_attachment_and_registration(
+fn native_attachment(statement: &str) -> ProofAttachment {
+    native_attachment_and_registration(
         statement,
-        &format!("hash_only_{}", statement.replace(['/', ':'], "_")),
+        &format!("confidential_{}", statement.replace(['/', ':'], "_")),
     )
     .0
 }
 #[test]
 #[cfg(feature = "zk-stark")]
 fn proof_query_scenarios() -> Result<()> {
-    let (find_attachment, find_vk) = halo2_attachment_and_registration("query-find", "query_vk");
-    let (backend_attachment, _) = halo2_attachment_and_registration("query-backend", "query_vk");
-    let (verified_attachment, _) = halo2_attachment_and_registration("query-status", "query_vk");
+    let (find_attachment, find_vk) = native_attachment_and_registration("query-find", "query_vk");
+    let (backend_attachment, _) = native_attachment_and_registration("query-backend", "query_vk");
+    let (verified_attachment, _) = native_attachment_and_registration("query-status", "query_vk");
     let rejected_attachment = rejected_confidential_attachment("query-rejected", "query_vk");
     let (stark_backend_attachment, stark_backend_vk) =
         rejected_stark_attachment_and_registration("query_stark_vk");
@@ -211,19 +211,19 @@ fn proof_query_scenarios() -> Result<()> {
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )?;
         rt.block_on(async { network.ensure_blocks(1).await })?;
-        let halo2 = retry_records_by_backend(&client, "halo2/ipa")?;
+        let native = retry_records_by_backend(&client, "pipa-r/pasta")?;
         let stark = retry_records_by_backend(&client, "stark/fri/poseidon-x7-goldilocks-6x64-v1")?;
-        let halo2_backends = proof_record_backends(&halo2);
+        let native_backends = proof_record_backends(&native);
         let stark_backends = proof_record_backends(&stark);
         assert!(
-            !halo2.is_empty(),
-            "expected at least one halo2/ipa proof record"
+            !native.is_empty(),
+            "expected at least one pipa-r/pasta proof record"
         );
         assert!(
-            halo2
+            native
                 .iter()
-                .all(|record| record.id.backend.as_str() == "halo2/ipa"),
-            "backend query should only return halo2/ipa proof records, got {halo2_backends:?}"
+                .all(|record| record.id.backend.as_str() == "pipa-r/pasta"),
+            "backend query should only return pipa-r/pasta proof records, got {native_backends:?}"
         );
         assert!(
             !stark.is_empty(),
@@ -337,33 +337,27 @@ fn proof_record_backends(records: &[iroha::data_model::proof::ProofRecord]) -> V
         .collect()
 }
 #[test]
-fn halo2_attachment_statement_changes_proof_hash() {
+fn native_attachment_statement_changes_proof_hash() {
     use iroha_core_zk::confidential_v2::CONFIDENTIAL_UNSHIELD_V2_PUBLIC_INPUT_ORDER_V1;
 
-    let a = halo2_attachment("statement-a");
-    let b = halo2_attachment("statement-b");
+    let a = native_attachment("statement-a");
+    let b = native_attachment("statement-b");
     let inputs = |attachment: &ProofAttachment| {
         let envelope: OpenVerifyEnvelope =
             norito::decode_canonical(&attachment.proof.bytes).expect("canonical proof envelope");
-        let carrier = &envelope.proof_bytes;
-        assert_eq!(&carrier[..8], b"ZK1\0PROF");
-        let native_length = u32::from_le_bytes(carrier[8..12].try_into().unwrap()) as usize;
-        let public = &carrier[12 + native_length..];
-        assert_eq!(&public[..4], b"I10P");
-        let length = u32::from_le_bytes(public[4..8].try_into().unwrap()) as usize;
-        assert_eq!(public.len(), 8 + length, "exact public-input TLV extent");
-        let columns = u32::from_le_bytes(public[8..12].try_into().unwrap()) as usize;
-        let rows = u32::from_le_bytes(public[12..16].try_into().unwrap()) as usize;
         assert_eq!(
-            columns,
+            envelope.backend,
+            iroha_data_model::zk::BackendTag::NativePipaRPasta
+        );
+        let carrier: iroha_data_model::zk::NativePipaRProofV1 =
+            norito::decode_canonical(&envelope.proof_bytes)
+                .expect("canonical native PIPA-R carrier");
+        assert!(!carrier.proof.is_empty());
+        assert_eq!(
+            carrier.public_inputs.len(),
             CONFIDENTIAL_UNSHIELD_V2_PUBLIC_INPUT_ORDER_V1.len()
         );
-        assert_eq!(rows, 1);
-        assert_eq!(length, 8 + columns * 32);
-        public[16..]
-            .chunks_exact(32)
-            .map(|value| <[u8; 32]>::try_from(value).unwrap())
-            .collect::<Vec<_>>()
+        carrier.public_inputs
     };
     let inputs_a = inputs(&a);
     let inputs_b = inputs(&b);
@@ -371,12 +365,12 @@ fn halo2_attachment_statement_changes_proof_hash() {
         .iter()
         .enumerate()
     {
-        // The network also domains the active spend nullifier. The absent
-        // second input remains zero and all note/tree/asset fields stay fixed.
-        if matches!(*name, "network_tag" | "nullifier_0") {
+        // The statement selects rho, binding the input commitment, nullifier
+        // and tree root. The absent second input, asset, amount and network stay fixed.
+        if matches!(*name, "input_commitment_0" | "nullifier_0" | "root") {
             assert_ne!(
                 inputs_a[column], inputs_b[column],
-                "{name} must bind the network"
+                "{name} must bind the note opening"
             );
         } else {
             assert_eq!(inputs_a[column], inputs_b[column], "{name} must stay fixed");
@@ -391,7 +385,7 @@ fn halo2_attachment_statement_changes_proof_hash() {
 }
 
 #[test]
-fn halo2_attachment_circuit_changes_proof_hash() {
+fn native_attachment_circuit_changes_proof_hash() {
     let (attachment, registration) =
         confidential_attachment("circuit-identity", "circuit_identity_vk");
     let mut envelope: OpenVerifyEnvelope =

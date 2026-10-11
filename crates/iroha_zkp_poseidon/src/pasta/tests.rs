@@ -2,7 +2,7 @@
 
 use super::*;
 use halo2curves::ff::Field;
-use halo2curves_axiom::pasta::{Fp as CoreFp, Fq as CoreFq};
+use iroha_pasta::{Fp as CoreFp, Fq as CoreFq};
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
 

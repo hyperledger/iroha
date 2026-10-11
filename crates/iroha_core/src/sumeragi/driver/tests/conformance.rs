@@ -4,8 +4,8 @@
 //! host. Scenarios F9 (loss, duplication, reordering), F13 (crash-restart churn at action
 //! boundaries and write completions), F14 (whole-cluster restarts), F27 (failed writes retried
 //! by the driver, store tail loss, key-store rollback), F29 (CPU flood, Tick lateness P6), F32
-//! (cluster restarts around a lock or a `CommitQC`) and F37 (flagged blocks with commit
-//! attestations); and the O2 kill of a replica at each of its write completions.
+//! (cluster restarts around a lock or a `CommitQC`) and F37 (genuine signer supersets
+//! rejected by exact-quorum checks); and the O2 kill of a replica at each write completion.
 //!
 //! Seeds: `SUMERAGI_SIM_SEEDS` (count per scenario, default 3 in debug, 8 in release) from
 //! `SUMERAGI_SIM_SEED_BASE`, or `SUMERAGI_SIM_SEED` for exactly one.
@@ -81,18 +81,9 @@ fn f32_cluster_restart_lock_or_cqc() {
 }
 
 #[test]
-fn f37_flagged_blocks() {
-    let worlds = conformance("F37", scenarios::f37);
-    let flagged: usize = worlds
-        .iter()
-        .map(|w| {
-            w.oracle.refs[0]
-                .values()
-                .filter(|b| b.header.attest)
-                .count()
-        })
-        .sum();
-    assert!(flagged > 0, "flagged blocks committed through the driver");
+fn exact_quorum_adversary_commits_through_driver() {
+    let worlds = conformance("exact-quorum", scenarios::exact_quorum_adversary);
+    assert!(worlds.iter().all(|world| !world.oracle.refs[0].is_empty()));
 }
 
 /// O2 on the driver: a replica killed at each of its first write completions — just before the

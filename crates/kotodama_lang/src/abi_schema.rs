@@ -3,9 +3,34 @@
 //! Keeping ABI-shape validation independent of instruction emission ensures
 //! `check` and `build` reject the same oversized or unsupported typed values.
 use crate::semantic::{ExprKind, Type, TypedExpr};
-pub(crate) fn state_cursor_key_kind(
+pub(crate) fn state_map_key_schema(
     ty: &Type,
-) -> Option<ivm_abi::entrypoint::EntrypointValueKindV1> {
+) -> Option<ivm_abi::entrypoint::EntrypointValueTypeV1> {
+    use ivm_abi::entrypoint::{EntrypointValueTypeNodeV1 as Node, EntrypointValueTypeV1};
+    let mut nodes = Vec::new();
+    let mut pending = vec![ty];
+    while let Some(ty) = pending.pop() {
+        if nodes.len()
+            >= iroha_data_model::smart_contract::entrypoint::MAX_ENTRYPOINT_ARGUMENT_TYPE_NODES
+        {
+            return None;
+        }
+        let leaf = match ty {
+            Type::Tuple(items) if items.len() >= 2 => {
+                nodes.push(Node::Tuple(u16::try_from(items.len()).ok()?));
+                pending.extend(items.iter().rev());
+                continue;
+            }
+            leaf => public_value_kind(leaf)?,
+        };
+        nodes.push(Node::Leaf(leaf));
+    }
+    let schema = EntrypointValueTypeV1 { nodes };
+    iroha_data_model::smart_contract::entrypoint::validate_state_key_schema_v1(&schema)
+        .then_some(schema)
+}
+/// Exact public leaf kind, independent of container and durable-key policy.
+pub(crate) fn public_value_kind(ty: &Type) -> Option<ivm_abi::entrypoint::EntrypointValueKindV1> {
     use ivm_abi::entrypoint::EntrypointValueKindV1 as Kind;
     Some(match ty {
         Type::Int => Kind::Int,
@@ -21,6 +46,7 @@ pub(crate) fn state_cursor_key_kind(
         Type::NftId => Kind::NftId,
         Type::Name => Kind::Name,
         Type::DataSpaceId => Kind::DataSpaceId,
+        Type::Json => Kind::Json,
         _ => return None,
     })
 }
@@ -49,6 +75,7 @@ pub(crate) fn state_value_kind_for_type(
         Type::SoracloudResponse => Kind::SoracloudResponse,
         Type::Unit
         | Type::StateCursor(_)
+        | Type::Enum(_)
         | Type::ErrorEnum(_)
         | Type::Secret(_)
         | Type::StateMap(_, _)
@@ -58,7 +85,8 @@ pub(crate) fn state_value_kind_for_type(
         | Type::List(_, _)
         | Type::Tuple(_)
         | Type::Struct { .. }
-        | Type::NamedStruct(_) => return None,
+        | Type::NamedStruct(_)
+        | Type::ContractRef(_) => return None,
     })
 }
 fn state_value_schema_nodes(ty: &Type) -> Option<Vec<ivm_abi::state_value::StateValueNodeV1>> {
@@ -98,8 +126,11 @@ fn state_value_schema_nodes(ty: &Type) -> Option<Vec<ivm_abi::state_value::State
             Pending::Visit { ty, target } => match ty {
                 Type::StateCursor(key) => node_streams
                     .get_mut(target)?
-                    .push(Node::StateCursor(state_cursor_key_kind(key)?)),
+                    .push(Node::StateCursor(state_map_key_schema(key)?)),
                 Type::Unit => node_streams.get_mut(target)?.push(Node::Unit),
+                Type::Enum(descriptor) => node_streams
+                    .get_mut(target)?
+                    .push(Node::Enum(descriptor.as_ref().clone())),
                 Type::ErrorEnum(descriptor) => node_streams
                     .get_mut(target)?
                     .push(Node::Error(descriptor.as_ref().clone())),

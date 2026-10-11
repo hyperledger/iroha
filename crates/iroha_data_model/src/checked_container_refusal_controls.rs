@@ -2,16 +2,16 @@
 
 use norito::json::{BoundedJsonError, JsonSerialize, JsonWriteSink};
 
-pub(crate) const ORIGINAL_DEPTH: usize = 7;
-pub(crate) struct OriginalSink {
-    pub(crate) text: String,
-    pub(crate) depth: usize,
+pub const ORIGINAL_DEPTH: usize = 7;
+pub struct OriginalSink {
+    pub text: String,
+    pub depth: usize,
     cap: usize,
     deny_entry: Option<usize>,
     entries: usize,
 }
 impl OriginalSink {
-    pub(crate) fn new(cap: usize) -> Self {
+    pub fn new(cap: usize) -> Self {
         Self {
             text: String::new(),
             depth: ORIGINAL_DEPTH,
@@ -54,7 +54,7 @@ impl JsonWriteSink for OriginalSink {
     }
 }
 /// Retain exact bytes/errors/depth on every byte cap and every actual entry refusal.
-pub(crate) fn audit_write(
+pub fn audit_write(
     ordinary: &str,
     write: impl Fn(&mut dyn JsonWriteSink) -> Result<(), BoundedJsonError>,
 ) {
@@ -99,7 +99,7 @@ pub(crate) fn audit_write(
     assert_eq!(retry.depth, ORIGINAL_DEPTH);
 }
 /// Observe the same owning object via ordinary and checked canonical writers.
-pub(crate) fn audit<T: JsonSerialize + ?Sized>(value: &T) {
+pub fn audit<T: JsonSerialize + ?Sized>(value: &T) {
     let original = std::ptr::from_ref(value);
     let mut ordinary = String::new();
     value.json_serialize(&mut ordinary);
@@ -107,25 +107,25 @@ pub(crate) fn audit<T: JsonSerialize + ?Sized>(value: &T) {
     assert!(std::ptr::eq(std::ptr::from_ref(value), original));
 }
 /// Fixture authority seeded before any alias or domain context.
-pub(crate) fn account(seed: u8) -> crate::account::AccountId {
+pub fn account(seed: u8) -> crate::account::AccountId {
     let key = iroha_crypto::KeyPair::from_seed(vec![seed; 32], iroha_crypto::Algorithm::Ed25519);
     crate::account::AccountId::new(key.public_key().clone())
 }
 /// Canonical inline definition used only to construct original test objects.
-pub(crate) fn definition() -> crate::asset::AssetDefinitionId {
+pub fn definition() -> crate::asset::AssetDefinitionId {
     crate::asset::AssetDefinitionId::derive_from_components(
         iroha_model_base::domain::DomainId::try_new("cleanup", "test").unwrap(),
         "xor".parse().unwrap(),
     )
 }
 /// Original authority asset for instruction writer controls.
-pub(crate) fn asset() -> crate::asset::AssetId {
+pub fn asset() -> crate::asset::AssetId {
     crate::asset::AssetId::new(definition(), account(61))
 }
 
-/// Manual leaf has neither FastJsonWrite nor Clone; its exact refusal must propagate.
+/// Manual leaf has neither `FastJsonWrite` nor `Clone`; its exact refusal must propagate.
 #[derive(Debug)]
-pub(crate) struct RefusingLeaf(pub(crate) std::cell::Cell<usize>);
+pub struct RefusingLeaf(pub std::cell::Cell<usize>);
 impl JsonSerialize for RefusingLeaf {
     fn json_serialize(&self, out: &mut String) {
         out.push_str("null");
@@ -136,7 +136,7 @@ impl JsonSerialize for RefusingLeaf {
     }
 }
 /// Inspect the original inherited depth after the exact manual leaf error.
-pub(crate) fn audit_leaf_refusal(
+pub fn audit_leaf_refusal(
     expected_prefix: &str,
     write: impl FnOnce(&mut dyn JsonWriteSink) -> Result<(), BoundedJsonError>,
 ) {

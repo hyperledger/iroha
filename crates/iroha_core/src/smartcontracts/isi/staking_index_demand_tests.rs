@@ -531,7 +531,6 @@ fn stake_index_quantity_state(
                 activation_height: 1,
                 election_exit_height: None,
                 deactivation_height: None,
-                last_reward_epoch: None,
             },
         );
         validators.commit();
@@ -696,7 +695,10 @@ fn stake_index_exposure_overflow_preserves_canonical_index_and_read_refusal() {
     let budget = AllocationBudget::new(bytes);
     let index = PublicLaneStakeIndex::from_world(view.world(), 1, 1, &budget).unwrap();
     assert_eq!(budget.reserved_bytes(), bytes);
-    assert_eq!(index.share_keys(LaneId::SINGLE, &validator), std::slice::from_ref(&key));
+    assert_eq!(
+        index.share_keys(LaneId::SINGLE, &validator),
+        std::slice::from_ref(&key)
+    );
     assert!(matches!(
         index.total_exposure(LaneId::SINGLE, &validator),
         Err(Error::Math(MathError::Overflow))

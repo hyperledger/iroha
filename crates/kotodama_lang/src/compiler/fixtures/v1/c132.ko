@@ -12,5 +12,5 @@ seiyaku ReachableHints {
     }
   }
 
-  view fn counter() -> int { return Counter; }
+  view fn counter() authorize(anyone) -> int { return Counter; }
 }

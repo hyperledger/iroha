@@ -3,6 +3,16 @@
 use iroha_data_model::ValidationFail;
 use ivm::error::{ExecutionDeferral, VMError};
 
+/// Native Core boundary at which an unfinished execution returned to its caller.
+///
+/// This is non-wire diagnostic context. It grants no retry, execution or finality
+/// authority and does not replace the original refusal or its release source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionPhase {
+    /// Lane preparation refused inside the native output finalizer, before sealing.
+    NativeLaneFinalizer,
+}
+
 /// An unfinished local execution, retaining the original capacity refusal owner.
 ///
 /// This type has no wire codec. A capacity release observation survives cache
@@ -12,9 +22,21 @@ use ivm::error::{ExecutionDeferral, VMError};
 pub struct ExecutionDeferred {
     reason: ExecutionDeferral,
     allocation: Option<iroha_allocation::AllocationRefusal>,
+    phase: Option<ExecutionPhase>,
 }
 
 impl ExecutionDeferred {
+    /// Native boundary provenance, independent of the original resource category.
+    pub const fn phase(&self) -> Option<ExecutionPhase> {
+        self.phase
+    }
+
+    /// Record the actual lane-finalizer boundary without replacing its refusal owner.
+    pub(crate) fn at_native_lane_finalizer(mut self) -> Self {
+        self.phase = Some(ExecutionPhase::NativeLaneFinalizer);
+        self
+    }
+
     /// The VM-facing local reason, without erasing this owner's retry evidence.
     pub const fn reason(&self) -> ExecutionDeferral {
         self.reason
@@ -29,16 +51,18 @@ impl ExecutionDeferred {
         self.allocation.as_ref()
     }
 
-    /// Preserve the complete local owner across a VM/host error boundary.
+    /// Preserve the original refusal across a VM/host error boundary.
+    /// Native finalizer provenance is Core context, not a VM error category.
     pub fn from_vm_error(error: &VMError) -> Option<Self> {
         match error.as_unmetered() {
             VMError::AllocationDeferred(refusal) => Some(refusal.clone().into()),
             VMError::ExecutionDeferred(reason) => Some((*reason).into()),
-            _ => None,
+            other => other.execution_deferral().map(Into::into),
         }
     }
 
-    /// Move this owner back through a VM host boundary without losing its release source.
+    /// Move this owner through a VM host boundary without losing its release source.
+    /// Native finalizer provenance stays outside the VM error surface.
     pub fn into_vm_error(self) -> VMError {
         match self.allocation {
             Some(refusal) => VMError::AllocationDeferred(refusal),
@@ -52,6 +76,7 @@ impl From<ExecutionDeferral> for ExecutionDeferred {
         Self {
             reason,
             allocation: None,
+            phase: None,
         }
     }
 }
@@ -61,6 +86,7 @@ impl From<iroha_allocation::AllocationRefusal> for ExecutionDeferred {
         Self {
             reason: ExecutionDeferral::ActiveMemoryCapacity,
             allocation: Some(refusal),
+            phase: None,
         }
     }
 }
@@ -83,6 +109,9 @@ impl From<iroha_data_model::block::SharedBlockAdmissionError> for ExecutionDefer
 
 impl core::fmt::Display for ExecutionDeferred {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if self.phase == Some(ExecutionPhase::NativeLaneFinalizer) {
+            formatter.write_str("native lane finalizer: ")?;
+        }
         match &self.allocation {
             Some(refusal) => refusal.fmt(formatter),
             None => self.reason.fmt(formatter),
@@ -291,6 +320,17 @@ pub(crate) fn canonical_decode_attempt_error<E>(
     error: norito::core::DecodeAttemptError,
     rejected: impl FnOnce(norito::core::DecodeAttemptError) -> E,
 ) -> ExecutionAttemptError<E> {
+    if let Some(original) = canonical_decode_deferral(&error) {
+        return ExecutionAttemptError::Deferred(original);
+    }
+    ExecutionAttemptError::Rejected(rejected(error))
+}
+
+/// Borrow the decoder's captured origin while its actual error owner stays retained for retry.
+/// This shares the consuming boundary's classification and invents no pool release source.
+pub(crate) fn canonical_decode_deferral(
+    error: &norito::core::DecodeAttemptError,
+) -> Option<ExecutionDeferred> {
     let reason = match error.kind() {
         norito::core::DecodeAttemptErrorKind::Allocator => {
             Some(ExecutionDeferral::AllocationUnavailable)
@@ -300,29 +340,82 @@ pub(crate) fn canonical_decode_attempt_error<E>(
         }
         norito::core::DecodeAttemptErrorKind::Invalid => None,
     };
-    if !cfg!(all(test, sumeragi_core_mutation = "HC32"))
-        && let Some(reason) = reason
-    {
-        return ExecutionAttemptError::Deferred(reason.into());
+    if cfg!(all(test, sumeragi_core_mutation = "HC32")) {
+        return None;
     }
-    ExecutionAttemptError::Rejected(rejected(error))
+    reason.map(Into::into)
+}
+
+/// Preserve an original native storage/decode refusal before its caller formats a rejection.
+///
+/// Kura's durable metadata and body decoder share the active cumulative codec scope.
+/// Physical buffer refusals retain their original pool owner; malformed bytes and
+/// changed source slots remain completed errors chosen by the existing caller.
+pub(crate) fn kura_read_attempt_error<E>(
+    error: crate::kura::Error,
+    rejected: impl FnOnce(crate::kura::Error) -> E,
+) -> ExecutionAttemptError<E> {
+    #[cfg(all(test, sumeragi_core_mutation = "HC206"))]
+    return ExecutionAttemptError::Rejected(rejected(error));
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC206")))]
+    {
+        use crate::kura::Error;
+        match error {
+            Error::NoritoFrame(error) => {
+                norito_decode_attempt_error(error, |error| rejected(Error::NoritoFrame(error)))
+            }
+            Error::BlockDecode(error) => {
+                canonical_decode_attempt_error(error, |error| rejected(Error::BlockDecode(error)))
+            }
+            Error::NativeFrameAllocation(error) => {
+                let original = match error {
+                    iroha_allocation::ChargedBufferError::Admission(original) => original.into(),
+                    iroha_allocation::ChargedBufferError::Allocator { .. } => {
+                        ExecutionDeferral::AllocationUnavailable.into()
+                    }
+                };
+                ExecutionAttemptError::Deferred(original)
+            }
+            error => ExecutionAttemptError::Rejected(rejected(error)),
+        }
+    }
 }
 
 /// Classify original JSON decoding before a diagnostic can discard local retry identity.
 ///
-/// JSON's resource-limit error is emitted by the active decoder budget. Malformed input,
-/// intrinsic parser bounds and recursive depth remain completed errors.
+/// Scoped JSON errors delegate to the existing exact active-observer classifier. Rejected
+/// scope tags remain unchanged; a saved sibling error cannot gain retry authority from a fresh
+/// refusal. Malformed input, intrinsic parser bounds and recursive depth remain completed errors.
 pub(crate) fn json_decode_attempt_error<E>(
     error: norito::json::Error,
     rejected: impl FnOnce(norito::json::Error) -> E,
 ) -> ExecutionAttemptError<E> {
     match error {
-        norito::json::Error::DecodeResourceLimit => {
-            ExecutionAttemptError::Deferred(ExecutionDeferral::ActiveMemoryCapacity.into())
+        norito::json::Error::ScopedDecodeResource(original) => {
+            match norito_decode_attempt_error(
+                norito::Error::ScopedDecodeResource(original),
+                std::convert::identity,
+            ) {
+                ExecutionAttemptError::Deferred(original) => {
+                    ExecutionAttemptError::Deferred(original)
+                }
+                ExecutionAttemptError::Rejected(original) => ExecutionAttemptError::Rejected(
+                    rejected(norito::json::Error::from_decode_resource(original)),
+                ),
+            }
         }
-        norito::json::Error::AllocationFailed => {
-            ExecutionAttemptError::Deferred(ExecutionDeferral::AllocationUnavailable.into())
-        }
+        norito::json::Error::DecodeResourceLimit
+        | norito::json::Error::DecodeResource(
+            norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+            | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+            | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+            | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+            | norito::core::DecodeResourceError::TotalAllocationExceeded { .. },
+        ) => ExecutionAttemptError::Deferred(ExecutionDeferral::ActiveMemoryCapacity.into()),
+        norito::json::Error::AllocationFailed
+        | norito::json::Error::DecodeResource(
+            norito::core::DecodeResourceError::AllocationFailed { .. },
+        ) => ExecutionAttemptError::Deferred(ExecutionDeferral::AllocationUnavailable.into()),
         error => ExecutionAttemptError::Rejected(rejected(error)),
     }
 }
@@ -356,10 +449,15 @@ impl crate::state::WorldTransaction<'_, '_> {
     /// Retain the first original local retry owner at the common mutation boundary.
     /// This journal field has no serialization or monetary authority.
     pub(crate) fn defer_execution(&self, reason: impl Into<ExecutionDeferred>) -> ValidationFail {
+        self.record_execution_deferral(reason);
+        ValidationFail::InternalError("local execution attempt did not complete".into())
+    }
+
+    /// Keep the first retry owner without constructing a diagnostic that a caller discards.
+    fn record_execution_deferral(&self, reason: impl Into<ExecutionDeferred>) {
         self.execution_deferral
             .borrow_mut()
             .get_or_insert_with(|| reason.into());
-        ValidationFail::InternalError("local execution attempt did not complete".into())
     }
 
     /// Bridge an ISI-owned signature while keeping its original local refusal.
@@ -370,7 +468,7 @@ impl crate::state::WorldTransaction<'_, '_> {
         match error {
             ExecutionAttemptError::Rejected(error) => error,
             ExecutionAttemptError::Deferred(reason) => {
-                let _ = self.defer_execution(reason);
+                self.record_execution_deferral(reason);
                 iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(
                     "local execution attempt did not complete".into(),
                 )
@@ -413,7 +511,7 @@ impl crate::state::StateTransaction<'_, '_> {
         match error {
             ExecutionAttemptError::Rejected(error) => error,
             ExecutionAttemptError::Deferred(reason) => {
-                let _ = self.defer_execution(reason);
+                self.world.record_execution_deferral(reason);
                 iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(
                     "local instruction read did not complete".into(),
                 )
@@ -447,6 +545,48 @@ impl crate::state::StateTransaction<'_, '_> {
 
 #[cfg(test)]
 mod tests {
+    include!("execution_attempt/json_scoped_tests.rs");
+    #[test]
+    fn kura_storage_attempt_keeps_original_refusal_and_deterministic_source_error() {
+        let pool = iroha_allocation::AllocationBudget::new(8);
+        let occupied = pool.try_reserve_bytes(8).unwrap();
+        let original = pool.try_reserve_bytes(1).unwrap_err();
+        let error = crate::kura::Error::NativeFrameAllocation(
+            iroha_allocation::ChargedBufferError::Admission(original.clone()),
+        );
+        let ExecutionAttemptError::<()>::Deferred(retained) =
+            super::kura_read_attempt_error(error, |_| {
+                panic!("original pool refusal cannot be rejected")
+            })
+        else {
+            panic!("original storage refusal");
+        };
+        assert_eq!(retained.allocation_refusal(), Some(&original));
+        let error = crate::kura::Error::NativeFrameAllocation(
+            iroha_allocation::ChargedBufferError::Allocator { requested_bytes: 8 },
+        );
+        let ExecutionAttemptError::<()>::Deferred(retained) =
+            super::kura_read_attempt_error(error, |_| {
+                panic!("physical allocation cannot be rejected")
+            })
+        else {
+            panic!("original storage allocation refusal");
+        };
+        assert_eq!(retained.reason(), ExecutionDeferral::AllocationUnavailable);
+        assert!(retained.allocation_refusal().is_none());
+        assert!(matches!(
+            super::kura_read_attempt_error(
+                crate::kura::Error::CanonicalBlockWireMismatch { height: 3 },
+                std::convert::identity,
+            ),
+            ExecutionAttemptError::Rejected(crate::kura::Error::CanonicalBlockWireMismatch {
+                height: 3
+            })
+        ));
+        drop(occupied);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+
     #[test]
     fn prepared_signature_attempt_keeps_original_pool_refusal_and_source_invariants() {
         use iroha_data_model::block::{BlockSignatureCustodyError, PreparedSignatureBlockError};
@@ -596,12 +736,17 @@ mod tests {
     fn prepared_commitment_attempt_preserves_original_generated_capacity_and_enclosing_cause_through_retry()
      {
         use iroha_allocation::{AllocationBudget, ChargedBuffer};
+        use iroha_crypto::{Hash, Signature};
         use iroha_data_model::{
             block::PreparedSignatureBlockError,
             da::commitment::{
-                DaCommitmentBundle, DaCommitmentCustodyError, PreparedDaCommitmentBundle,
+                DaCommitmentBundle, DaCommitmentCustodyError, DaCommitmentRecord, DaProofScheme,
+                PreparedDaCommitmentBundle, RetentionClass,
             },
+            da::types::{BlobDigest, StorageTicketId},
+            sorafs::pin_registry::ManifestDigest,
         };
+        use iroha_model_base::topology::LaneId;
         use norito::core::{
             DecodeAttemptErrorKind, DecodeFlagsGuard, DecodeLimits, SequenceSpan,
             with_decode_limits_scope,
@@ -656,9 +801,43 @@ mod tests {
         assert_eq!(admitted, value);
         drop(admitted);
         assert_eq!(pool.reserved_bytes(), bytes.len());
-        // The sole generated walk first reads the u16 version field. A caller
-        // total-allocation ceiling of one refuses that exact two-byte field
-        // before the empty commitment count or any ordinary owning graph.
+        // A stack scalar and borrowed empty framing consume no owning-body charge.
+        // Exercise the enclosing ceiling with a real canonical commitment element;
+        // the sole sequence walker charges its actual serialized body length.
+        let record = DaCommitmentRecord {
+            lane_id: LaneId::new(7),
+            epoch: 42,
+            sequence: 3,
+            client_blob_id: BlobDigest::new([0x11; 32]),
+            manifest_hash: ManifestDigest::new([0x22; 32]),
+            proof_scheme: DaProofScheme::MerkleSha256,
+            chunk_root: Hash::prehashed([0x33; 32]),
+            proof_digest: Some(Hash::prehashed([0x55; 32])),
+            retention_class: RetentionClass::default(),
+            storage_ticket: StorageTicketId::new([0x66; 32]),
+            acknowledgement_sig: Signature::try_from_bytes(&[0x77; 64])
+                .expect("checked canonical commitment acknowledgement fixture"),
+        };
+        let mut record_bytes = Vec::new();
+        norito::core::SerializePayload::serialize(
+            &record,
+            &mut norito::core::Encoder::for_buffer(&mut record_bytes),
+        )
+        .unwrap();
+        let record_body_charge = u64::try_from(record_bytes.len()).unwrap();
+        assert!(record_body_charge > 1);
+        let owning_value = DaCommitmentBundle::new(vec![record]);
+        let mut owning_bytes = Vec::new();
+        norito::core::SerializePayload::serialize(
+            &owning_value,
+            &mut norito::core::Encoder::for_buffer(&mut owning_bytes),
+        )
+        .unwrap();
+        let owning_pool = AllocationBudget::new(owning_bytes.len());
+        let mut owning_source = ChargedBuffer::new(owning_bytes.len(), &owning_pool).unwrap();
+        owning_source.append(&owning_bytes).unwrap();
+        let owning_pointer = owning_source.as_slice().as_ptr();
+        let owning_hash = Hash::new(owning_source.as_slice());
         let caller = DecodeLimits::new(4096, 4096, 4096, 1, 64);
         let protocol = DecodeLimits::new(4096, 4096, 4096, 4096, 64);
         let cause = with_decode_limits_scope(caller, || {
@@ -666,12 +845,12 @@ mod tests {
                 with_decode_limits_scope(
                     protocol,
                     || match PreparedDaCommitmentBundle::from_source(
-                        &source,
+                        &owning_source,
                         SequenceSpan {
                             start: 0,
-                            end: bytes.len(),
+                            end: owning_bytes.len(),
                         },
-                        &pool,
+                        &owning_pool,
                     ) {
                         Err(DaCommitmentCustodyError::Decode(original)) => {
                             Err::<(), _>(original.into_error())
@@ -693,13 +872,34 @@ mod tests {
                 .expect("actual sole Norito error")
                 .decode_resource_error(),
             Some(norito::core::DecodeResourceError::TotalAllocationExceeded {
-                attempted: std::mem::size_of::<u16>() as u64,
+                attempted: record_body_charge,
                 limit: 1,
             })
         );
         assert!(
             matches!(prepared_signature_block_attempt_error(PreparedSignatureBlockError::Commitments(DaCommitmentCustodyError::Decode(cause)),|_|panic!("original caller refusal cannot invalidate commitment bytes")),ExecutionAttemptError::<String>::Deferred(reason) if reason.reason()==ExecutionDeferral::ActiveMemoryCapacity)
         );
+        assert_eq!(owning_source.as_slice().as_ptr(), owning_pointer);
+        assert_eq!(Hash::new(owning_source.as_slice()), owning_hash);
+        assert_eq!(owning_pool.reserved_bytes(), owning_bytes.len());
+        let owning_retry = with_decode_limits_scope(protocol, || {
+            PreparedDaCommitmentBundle::from_source(
+                &owning_source,
+                SequenceSpan {
+                    start: 0,
+                    end: owning_bytes.len(),
+                },
+                &owning_pool,
+            )
+        })
+        .expect("same canonical owning-body source retries after caller scope retirement");
+        assert!(owning_retry.belongs_to(&owning_pool));
+        assert_eq!(owning_source.as_slice().as_ptr(), owning_pointer);
+        assert_eq!(Hash::new(owning_source.as_slice()), owning_hash);
+        assert_eq!(owning_pool.reserved_bytes(), owning_bytes.len());
+        drop(owning_retry);
+        drop(owning_source);
+        assert_eq!(owning_pool.reserved_bytes(), 0);
         assert_eq!(source.as_slice().as_ptr(), pointer);
         assert_eq!(iroha_crypto::Hash::new(source.as_slice()), hash);
         drop(source);
@@ -1031,7 +1231,21 @@ mod tests {
         let owner = ExecutionDeferred::from(refusal.clone());
         assert_eq!(owner.reason(), ExecutionDeferral::ActiveMemoryCapacity);
         assert_eq!(owner.allocation_refusal(), Some(&refusal));
-        let cloned = owner.clone();
+        assert_eq!(owner.phase(), None);
+        let finalizer = owner.clone().at_native_lane_finalizer();
+        assert_eq!(
+            finalizer.phase(),
+            Some(super::ExecutionPhase::NativeLaneFinalizer)
+        );
+        assert_eq!(finalizer.reason(), owner.reason());
+        assert_eq!(finalizer.allocation_refusal(), Some(&refusal));
+        assert_eq!(
+            ExecutionDeferred::from_vm_error(&finalizer.clone().into_vm_error()),
+            Some(owner.clone()),
+            "Core phase is not a VM category; the original refusal still crosses intact"
+        );
+        let cloned = finalizer.clone();
+        drop(finalizer);
         drop(owner);
         drop(budget);
         let Some(iroha_allocation::AllocationRefusal::Capacity { release, .. }) =
@@ -1054,13 +1268,23 @@ mod tests {
         let allocator = ExecutionDeferred::from(ExecutionDeferral::AllocationUnavailable);
         assert_eq!(allocator.reason(), ExecutionDeferral::AllocationUnavailable);
         assert!(allocator.allocation_refusal().is_none());
+        assert_eq!(allocator.phase(), None);
+        let finalizer = allocator.clone().at_native_lane_finalizer();
+        assert_eq!(
+            finalizer.phase(),
+            Some(super::ExecutionPhase::NativeLaneFinalizer)
+        );
+        assert_eq!(finalizer.reason(), allocator.reason());
+        assert!(finalizer.allocation_refusal().is_none());
         let overflow = ExecutionDeferred::from(iroha_allocation::AllocationRefusal::DemandOverflow);
+        assert_eq!(overflow.phase(), None);
         assert!(matches!(
             overflow.allocation_refusal(),
             Some(iroha_allocation::AllocationRefusal::DemandOverflow)
         ));
         let budget = iroha_allocation::AllocationBudget::new(0);
         let impossible = ExecutionDeferred::from(budget.try_reserve_bytes(1).unwrap_err());
+        assert_eq!(impossible.phase(), None);
         assert!(matches!(
             impossible.allocation_refusal(),
             Some(iroha_allocation::AllocationRefusal::ExceedsLimit { .. })

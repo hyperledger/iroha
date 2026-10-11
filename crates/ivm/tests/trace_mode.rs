@@ -8,7 +8,7 @@ fn runtime_trace_mode_collects_pcs_and_register_deltas() {
         .compile_source(
             r#"
             seiyaku TraceMode {
-                view fn main() -> int {
+                view fn main() authorize(anyone) -> int {
                     let a = 1;
                     let b = a + 2;
                     return b;

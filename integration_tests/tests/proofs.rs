@@ -123,7 +123,7 @@ fn is_duplicate_tx_error(err: &Report) -> bool {
         NEEDLES.iter().any(|needle| text.contains(needle))
     })
 }
-fn active_halo2_vk_registration(
+fn active_native_vk_registration(
     vk_name: &str,
 ) -> (ProofAttachment, verifying_keys::RegisterVerifyingKey) {
     confidential_attachment("proof-record", vk_name)
@@ -179,7 +179,7 @@ async fn fetch_proof_snapshot(url: reqwest::Url) -> Result<(String, [u8; 32], Pr
 }
 #[tokio::test]
 async fn submit_proof_and_query_record() -> Result<()> {
-    let (attachment, vk_registration) = active_halo2_vk_registration("proof_vk");
+    let (attachment, vk_registration) = active_native_vk_registration("proof_vk");
     // Start a minimal network
     let Some(network) = sandbox::start_network_async_or_skip(
         NetworkBuilder::new()
@@ -204,7 +204,7 @@ async fn submit_proof_and_query_record() -> Result<()> {
     if peer_clients.is_empty() {
         peer_clients.push(client.clone());
     }
-    let backend = "halo2/ipa";
+    let backend = iroha_core_zk::ZK_BACKEND_NATIVE_PIPA_R;
     let proof_bytes = attachment.proof.bytes.clone();
     let isi = iroha_data_model::isi::zk::VerifyProof::new(attachment);
     // Submit the transaction to all peers so one healthy peer can accept it

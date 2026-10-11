@@ -25,12 +25,12 @@ fn typed_literal_constants_compile_without_wrapper_functions() {
         const Failure MISSING = Failure::Missing;
         const int ACTIVE = 1;
         state StateMap<Name, int> Values;
-        view fn value() -> int { Values.get(KEY).expect(MISSING) + ACTIVE }
+        view fn value() authorize(anyone) -> int { Values.get(KEY).expect(MISSING) + ACTIVE }
     }"#;
     let explicit = r#"seiyaku Constants {
         error enum Failure { Missing = 1 }
         state StateMap<Name, int> Values;
-        view fn value() -> int { Values.get(Name::parse("counter")).expect(Failure::Missing) + 1 }
+        view fn value() authorize(anyone) -> int { Values.get(Name::parse("counter")).expect(Failure::Missing) + 1 }
     }"#;
     assert_eq!(code(source), code(explicit));
 }
@@ -41,19 +41,19 @@ fn typed_constants_reject_runtime_initializers_and_invalid_literals() {
         r#"seiyaku Invalid {
             fn key() -> string { "counter" }
             const Name KEY = Name::parse(key());
-            view fn value() -> Name { KEY }
+            view fn value() authorize(anyone) -> Name { KEY }
         }"#,
         r#"seiyaku Invalid {
             const Name KEY = Name::parse(1);
-            view fn value() -> Name { KEY }
+            view fn value() authorize(anyone) -> Name { KEY }
         }"#,
         r#"seiyaku Invalid {
             const Name KEY = Name::parse("");
-            view fn value() -> Name { KEY }
+            view fn value() authorize(anyone) -> Name { KEY }
         }"#,
         r#"seiyaku Invalid {
             const AccountId ACTOR = AccountId::parse("admin@universal");
-            view fn value() -> AccountId { ACTOR }
+            view fn value() authorize(anyone) -> AccountId { ACTOR }
         }"#,
     ] {
         Compiler::new()
@@ -66,7 +66,7 @@ fn typed_constants_reject_runtime_initializers_and_invalid_literals() {
 fn ordinary_positional_and_named_calls_have_identical_code() {
     let positional = r#"seiyaku Calls {
         fn combine(int left, int right) -> int { left * 10 + right }
-        view fn value() -> int { combine(2, 3) }
+        view fn value() authorize(anyone) -> int { combine(2, 3) }
     }"#;
     let named = positional.replace("combine(2, 3)", "combine(left: 2, right: 3)");
     let mixed = positional.replace("combine(2, 3)", "combine(2, right: 3)");
@@ -80,7 +80,6 @@ fn option_expect_rejects_untyped_errors_wrong_receivers_and_arity() {
         "let Option<int> value = Option::some(1); value.expect(1);",
         "let Option<int> value = Option::some(1); value.expect(\"missing\");",
         "let value = 1; value.expect(Failure::Missing);",
-        "let Result<int, Failure> value = Result::ok(1); value.expect(Failure::Missing);",
         "let Option<int> value = Option::some(1); value.expect();",
         "let Option<int> value = Option::some(1); value.expect(Failure::Missing, Failure::Missing);",
     ] {
@@ -120,12 +119,34 @@ fn expect_lowers_one_nominal_abort() {
 }
 
 #[test]
+fn sum_error_bridges_compile_identically_with_named_error_arguments() {
+    let positional = r#"seiyaku Bridges {
+        error enum Previous { Denied = 1 }
+        error enum Failure { Missing = 7 }
+        view fn convert(Option<(int, bool)> value) authorize(anyone) -> Result<(int, bool), Failure> {
+            value.ok_or(Failure::Missing)
+        }
+        view fn replace(Result<int, Previous> value) authorize(anyone) -> Result<int, Failure> {
+            value.or_err(Failure::Missing)
+        }
+        view fn extract(Result<int, Previous> value) authorize(anyone) -> int {
+            value.expect(Failure::Missing)
+        }
+    }"#;
+    let named = positional
+        .replace(".ok_or(", ".ok_or(error: ")
+        .replace(".or_err(", ".or_err(error: ")
+        .replace(".expect(", ".expect(error: ");
+    assert_eq!(code(positional), code(&named));
+}
+
+#[test]
 fn mutable_nested_records_and_tuples_compile() {
     compile(
         r#"seiyaku Records {
         struct Inner { int amount, bytes commitment }
         struct Record { int nonce, Inner inner }
-        view fn update() -> Record {
+        view fn update() authorize(anyone) -> Record {
             var record = Record { nonce: 1, inner: Inner { amount: 2, commitment: b"before" } };
             record.inner.amount += 3;
             record.inner.commitment = b"after";
@@ -181,7 +202,7 @@ fn temporary_product_fields_cannot_be_assignment_targets() {
 fn sequential_record_updates_have_no_executable_scaffolding() {
     let records = r#"seiyaku Updates {
         struct Record { int count, bytes proof, int second }
-        view fn update(int count, bytes proof) -> (int, bytes, int) {
+        view fn update(int count, bytes proof) authorize(anyone) -> (int, bytes, int) {
             var record = Record { count, proof: b"unused", second: 0 };
             record.count += 1;
             record.proof = proof;
@@ -190,7 +211,7 @@ fn sequential_record_updates_have_no_executable_scaffolding() {
         }
     }"#;
     let scalar = r#"seiyaku Updates {
-        view fn update(int count, bytes proof) -> (int, bytes, int) {
+        view fn update(int count, bytes proof) authorize(anyone) -> (int, bytes, int) {
             let next = count + 1;
             let second = next + 2;
             (next, proof, second)

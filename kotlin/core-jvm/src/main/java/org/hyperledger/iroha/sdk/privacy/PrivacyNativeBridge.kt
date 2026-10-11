@@ -23,7 +23,7 @@ class PrivacyNativeBridge private constructor() {
         INVALID_CATALOG(8),
     }
 
-    /** Stable ABI-25 result of validating the Rust-derived exact-12 fixture bundle. */
+    /** Stable ABI-29 result of validating the Rust-derived exact-12 fixture bundle. */
     enum class Exact12FixtureValidationStatusV1(val code: Int) {
         VALID(0),
         NULL_POINTER(1),
@@ -50,7 +50,7 @@ class PrivacyNativeBridge private constructor() {
     }
 
     companion object {
-        const val REQUIRED_BRIDGE_ABI_VERSION: Int = 25
+        const val REQUIRED_BRIDGE_ABI_VERSION: Int = 29
         const val CONFIDENTIAL_DERIVATION_CONTRACT_REVISION_V3: Int = 1
         const val EXACT12_CAPABILITY_MANIFEST_MAX_BYTES: Int = 256 * 1024
         const val COMPILED_PROFILE_CATALOG_ARCHIVE_MAX_BYTES: Int = 256 * 1024

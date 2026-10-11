@@ -2,7 +2,7 @@
 seiyaku CompilerFixture {
 
 fn main(AccountId account) {
-  ledger::asset::transfer(source: account, destination: account, asset_definition: Name::parse("not_asset"), amount: 1, dataspace: DataSpaceId::parse("0"));
+  ledger::asset::transfer(source: account, destination: account, asset_definition: Name::parse("not_asset"), amount: 1);
 }
 
 }

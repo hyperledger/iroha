@@ -51,9 +51,11 @@ Terminology
   so permissions, invariants, events, and telemetry remain identical to native
   execution. Helper syscalls that do not touch WSV still delegate to the VM host
   layer.
-- Contract dispatch consumes manifest entrypoint metadata for both direct
-  `ContractCall` and nested `CALL_CONTRACT`; callers must hold the named
-  permission directly or through an assigned role before the callee runs.
+- Contract dispatch consumes the signed authorization policy and permission
+  declaration table for both direct `ContractCall` and nested `CALL_CONTRACT`.
+  `Anyone` permits invocation; declared roles require the exact instance or
+  imported chain token, held directly or through an assigned role. Lifecycle
+  hooks require their exact runtime address-and-hook token.
 - `executor.rs` continues to run built-in ISI natively; the VM host adapter is
   the bridge for IVM contracts, not a replacement for the native executor.
 - Executor validation and migration inputs and results use an eight-byte
@@ -82,8 +84,9 @@ Terminology
     contract lifecycle helpers, and selected query/sysvar helpers follow the
     same pointer-ABI convention.
 - Test helpers such as `test::invoke_kotoage_as(...)` use the test-host
-  intrinsic surface and support scalar, unit, pointer, and tuple-returning
-  public or lifecycle declarations.
+  intrinsic surface, accept a JSON argument payload for a literal target, and
+  return that declaration's statically resolved type. Runtime arguments and
+  returns are validated against the complete signed callable schemas.
 
 ---
 
@@ -143,19 +146,51 @@ semantics.
 6. Kotodama language surface vs. ledger semantics
 
 Kotodama wires contract bodies, `StateMap` handles, structs, tuples, triggers,
-typed parameters/returns, dynamic contract calls, and namespaced capabilities
-into the IVM host model. Every mutating public entrypoint declares
-`authorize("PermissionName")`; runtime caller authorization remains separate
+typed parameters/returns, and namespaced capabilities into the IVM host model.
+The current source call helper has an exact two-quantity argument and quantity
+result shape; the generic `CALL_CONTRACT` record ABI is a runtime surface and
+does not provide arbitrary typed external calls in source. Every `kotoage fn`
+and `view fn` declares
+`authorize(anyone)` or `authorize(DeclaredPermission)` before its return type;
+the signed declaration table binds each name to an instance role or an explicit
+chain import. Runtime caller authorization remains separate
 from operation-specific host authorization. `view fn` declarations reject
 stateful effects across the complete call graph.
 
+Nested calls use the calling contract's subject as their immediate caller;
+they do not inherit the originating transaction signer's permissions. Calls
+share staged durable storage, while ledger queries use the invocation snapshot
+and queued ledger instructions apply only after root success. Re-entry into
+any active contract address, including a view, is rejected. A canonical outer
+`Result::err` preserves its return value, consumed gas and read dependencies
+while discarding the frame's writes and queued effects, including successful
+descendants. Root execution, local runs and noncommitting simulations follow
+the same rule; an inner Result inside another returned value is ordinary data.
+
 Lifecycle authorization cannot be weakened in source. ABI V1 maps both
 `hajimari`/`始まり` and `kaizen`/`改善` to the runtime-defined
-`CanInvokeContractEntrypoint` permission, while views remain public unless they
-explicitly declare authorization. This hook permission is separate from
+exact address-and-hook `CanInvokeContractEntrypoint` permission. This hook permission is separate from
 revisioned address lifecycle admission: only the current account owner or the
 certified Parliament corridor may activate or deactivate an existing address,
-and raw activation cannot create one.
+and raw activation cannot create one. Suspension retains the last artifact
+identity and unfinished hook; resumption never replays a completed initializer.
+Every prepared call binds the lifecycle revision. Both active and suspended
+replacements preserve all existing complete durable schemas, and added scalar
+values must pass canonical runtime validation before `kaizen` completes.
+
+An instance permission name identifies the same role across replacements.
+Only the current account owner or a holder of the exact scoped token may grant
+or revoke a currently declared instance role. Executing the contract's grant
+helper does not confer that token on its subject, and a general code-management
+permission does not authorize scoped delegation. An explicit chain import
+matches only the named token with canonical JSON `null` payload, never a typed
+built-in permission payload.
+Removing its declaration makes outstanding tokens unusable while absent; it
+does not delete those tokens. Redeclaring the same name restores that same role
+identity. Revocation remains an explicit permission operation.
+While suspended, the current owner and exact holders may grant or revoke roles
+declared by the retained artifact. Those grants cannot authorize invocation
+until the instance resumes; undeclared names remain invalid in either state.
 
 ---
 
@@ -275,4 +310,4 @@ Notes
 - Keep ABI hash and syscall-list golden tests in sync with any syscall-surface
   change.
 - Preserve pointer-ABI round-trip fixtures in
-  `crates/iroha_data_model/tests/norito_pointer_abi_roundtrip.rs`.
+  `crates/ivm_abi/tests/norito_pointer_abi_roundtrip.rs`.

@@ -48,7 +48,7 @@ def execution_commands(*, source_root: PurePosixPath, work: PurePosixPath,
     _path(base, absolute=True)
     native = (python, "-I", "-B", str(source_root / "scripts/check_native_sdk_artifact.py"),
               "verify", "--artifact", str(work / "native" / native_filename),
-              "--manifest", str(work / "inputs/native-abi25.json"), "--source-root", str(source_root),
+              "--manifest", str(work / "inputs/native-abi29.json"), "--source-root", str(source_root),
               "--python", python)
     probe = (python, "-I", "-B", "-c", RUNTIME_PROBE)
     return (

@@ -48,7 +48,6 @@ async fn signed_snapshot_restore_keeps_configured_governance_catalog() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::new(<_>::default(), true),
         &snapshot_read_budget_for_testing(),
-        state.world.operation_index_budget(),
     )
     .expect("signed restart must retain configured static governance before manifest binding");
     assert!(
@@ -168,7 +167,6 @@ async fn signed_snapshot_restore_accepts_configured_governed_lane() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::default(),
         &snapshot_read_budget_for_testing(),
-        state.world.operation_index_budget(),
     )
     .expect("signed restore must rebind the governed lane from configured policy");
     restored
@@ -200,7 +198,6 @@ async fn signed_snapshot_restore_accepts_configured_governed_lane() {
             #[cfg(feature = "telemetry")]
             StateTelemetry::default(),
             &snapshot_read_budget_for_testing(),
-            state.world.operation_index_budget(),
         )
         .is_err(),
         "a local configuration missing the governed module must fail closed"
@@ -234,7 +231,6 @@ async fn can_read_snapshot_after_writing() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::new(<_>::default(), true),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     )
     .unwrap();
     assert_eq!(snapshot_state.chain_id, expected_chain_id);
@@ -263,18 +259,11 @@ async fn normal_snapshot_restore_rejects_overdue_pending_consensus_evidence() {
     let mut chain = CertifiedTestChain::start(config).expect("actual signed native genesis");
     chain.commit(Vec::new());
     let native = NativeEvidence::ConflictingCertificates(
-        chain.commit_qc(
-            2,
-            Hash32([0x31; 32]),
-            Hash32([0x32; 32]),
-            false,
-            Signers::Quorum,
-        ),
+        chain.commit_qc(2, Hash32([0x31; 32]), Hash32([0x32; 32]), Signers::Quorum),
         chain.commit_qc(
             2,
             Hash32([0x33; 32]),
             Hash32([0x34; 32]),
-            false,
             Signers::LastThree,
         ),
     );
@@ -307,7 +296,11 @@ async fn normal_snapshot_restore_rejects_overdue_pending_consensus_evidence() {
     );
     let invalid_lifecycle = crate::sumeragi::evidence::validate_persisted_records(&state)
         .expect_err("an overdue restored pending penalty must be rejected");
-    assert!(invalid_lifecycle.to_string().contains("restored penalty lifecycle is impossible"));
+    assert!(
+        invalid_lifecycle
+            .to_string()
+            .contains("restored penalty lifecycle is impossible")
+    );
     let snapshot_bytes = exact_snapshot_payload_bytes(state);
     let key_pair = checked_random_snapshot_keypair();
     write_snapshot_bundle_from_bytes(&store_dir, &snapshot_bytes, &key_pair);
@@ -330,13 +323,14 @@ async fn normal_snapshot_restore_rejects_overdue_pending_consensus_evidence() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::new(<_>::default(), true),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) {
         Ok(_) => panic!("normal snapshot restore must reject overdue pending evidence"),
         Err(error) => error,
     };
-    assert!(matches!(error, TryReadError::NativeExecutionReplayRequired),
-        "a local export cannot bypass original replay even before lifecycle validation: {error:?}");
+    assert!(
+        matches!(error, TryReadError::NativeExecutionReplayRequired),
+        "a local export cannot bypass original replay even before lifecycle validation: {error:?}"
+    );
 }
 #[tokio::test]
 async fn generated_snapshot_passes_restart_validation_before_publication() {
@@ -533,7 +527,6 @@ async fn signed_snapshot_restore_preserves_ordered_election_corpus_and_rollback(
         #[cfg(feature = "telemetry")]
         StateTelemetry::new(<_>::default(), true),
         &snapshot_read_budget_for_testing(),
-        state.world.operation_index_budget(),
     )
     .expect("verify signed snapshot and restore both typed election views");
     assert_eq!(
@@ -734,7 +727,6 @@ async fn signed_snapshot_roundtrip_preserves_authoritative_alias_revert_maps() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::new(<_>::default(), true),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     )
     .expect("read signed snapshot without canonical payload drift");
     let roundtrip = CapturedStateSnapshot::capture(&restored)
@@ -845,7 +837,6 @@ async fn signed_snapshot_rejects_unknown_root_and_world_fields() {
             #[cfg(feature = "telemetry")]
             StateTelemetry::new(<_>::default(), true),
             &snapshot_read_budget_for_testing(),
-            &crate::state::kagemusha_operation_indexes::default_budget(),
         ) {
             Ok(_) => panic!("signed snapshot with an unknown field must fail closed"),
             Err(error) => error,
@@ -941,7 +932,6 @@ async fn signed_native_snapshot_caches_and_tampered_accounts_require_original_re
                 #[cfg(feature = "telemetry")]
                 StateTelemetry::new(<_>::default(), true),
                 &snapshot_read_budget_for_testing(),
-                &crate::state::kagemusha_operation_indexes::default_budget(),
             );
             assert!(matches!(
                 result,
@@ -1013,7 +1003,6 @@ async fn snapshot_read_rejects_wrong_key_signature_for_matching_digest() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::default(),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) else {
         panic!("snapshot with wrong-key signature should be rejected")
     };
@@ -1048,7 +1037,6 @@ async fn snapshot_read_rejects_noncanonical_uppercase_signature_hex() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::default(),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) else {
         panic!("uppercase signature hex must not be accepted");
     };
@@ -1084,7 +1072,6 @@ async fn snapshot_read_rejects_all_zero_signature_sidecar_before_verification() 
         #[cfg(feature = "telemetry")]
         StateTelemetry::default(),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) else {
         panic!("snapshot with all-zero signature should be rejected")
     };
@@ -1132,7 +1119,6 @@ async fn snapshot_read_rejects_malformed_ed25519_signature_r_before_verification
             #[cfg(feature = "telemetry")]
             StateTelemetry::default(),
             &snapshot_read_budget_for_testing(),
-            &crate::state::kagemusha_operation_indexes::default_budget(),
         ) else {
             panic!("snapshot with malformed Ed25519 signature R should be rejected")
         };
@@ -1190,7 +1176,6 @@ async fn snapshot_read_rejects_malformed_mldsa_signature_lengths_before_verifica
             #[cfg(feature = "telemetry")]
             StateTelemetry::default(),
             &snapshot_read_budget_for_testing(),
-            &crate::state::kagemusha_operation_indexes::default_budget(),
         ) else {
             panic!("snapshot with malformed ML-DSA signature length should be rejected")
         };
@@ -1234,7 +1219,6 @@ async fn snapshot_roundtrip_preserves_space_directory_manifests_and_rebuilds_bin
         #[cfg(feature = "telemetry")]
         StateTelemetry::new(<_>::default(), true),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     )
     .expect("snapshot read");
     let manifests = snapshot_state.world.space_directory_manifests.view();
@@ -1286,7 +1270,6 @@ async fn snapshot_missing_space_directory_section_rejects_even_with_kura_history
         #[cfg(feature = "telemetry")]
         StateTelemetry::new(<_>::default(), true),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) {
         Ok(_) => panic!("missing canonical manifest section must not be reconstructed"),
         Err(error) => error,
@@ -1325,7 +1308,6 @@ async fn snapshot_missing_space_directory_section_rejects_without_manifest_histo
         #[cfg(feature = "telemetry")]
         StateTelemetry::new(<_>::default(), true),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     ) {
         Ok(_) => panic!("non-empty snapshot must carry its canonical manifest section"),
         Err(error) => error,
@@ -1371,7 +1353,6 @@ async fn signed_snapshot_roundtrip_preserves_every_sccp_map() {
         #[cfg(feature = "telemetry")]
         StateTelemetry::new(<_>::default(), true),
         &snapshot_read_budget_for_testing(),
-        &crate::state::kagemusha_operation_indexes::default_budget(),
     )
     .expect("snapshot with SCCP state reads back");
     assert_eq!(
@@ -1428,7 +1409,6 @@ async fn signed_snapshot_without_the_sccp_envelope_is_rejected() {
             #[cfg(feature = "telemetry")]
             StateTelemetry::new(<_>::default(), true),
             &snapshot_read_budget_for_testing(),
-            &crate::state::kagemusha_operation_indexes::default_budget(),
         )
         .is_err(),
         "a snapshot must carry its SCCP envelope"

@@ -66,9 +66,8 @@ use iroha_data_model::{
         AxtSourceSuccessReceiptV1, AxtSourceTransferOccurrenceV1, AxtSpendNonceV1,
         DataSpaceCatalog, DataSpaceMetadata, GroupBinding, HandleBudget, HandleSubject,
         LaneCatalog, LaneConfig, LaneSchedulerPolicy, LaneSettlementBufferPolicy,
-        LaneStorageProfile, LaneVisibility, ManifestVersion, PublicLaneRewardClaimStateV1,
-        PublicLaneRewardRole, PublicLaneRewardShare, PublicLaneUnbonding, RemoteSpendIntent,
-        SpendOp,
+        LaneStorageProfile, LaneVisibility, ManifestVersion, PublicLaneUnbonding,
+        RemoteSpendIntent, SpendOp,
     },
     proof::{ProofId, ProofRecord, ProofStatus},
     query::{
@@ -794,6 +793,18 @@ state_test! { sync musubi_resolver_checkpoints_are_sparse_block_final_and_reorg_
 }
 state_test! { sync test_state_constructor_installs_default_lane_manifest
     let state = blank_state();
+    // The shared fixture intentionally has no publisher custody configuration.
+    // Constructing an in-process State still uses its exact chain/network IDs.
+    assert_eq!(
+        state.chain_id_ref().to_string(),
+        "00000000-0000-0000-0000-000000000000",
+    );
+    assert_eq!(
+        state.network_id_ref(),
+        &"hash:0000000000000000000000000000000000000000000000000000000000000001#C50E"
+            .parse::<NetworkId>()
+            .expect("canonical fixture network identity"),
+    );
     state
         .lane_manifests
         .read()
@@ -1413,8 +1424,8 @@ state_test! { sync trigger_batch_contract_calls_advance_nft_sequence
     };
     use iroha_test_samples::ALICE_KEYPAIR;
     let_row! { (program, manifest) = kotodama_lang::compiler::Compiler::new() .compile_source_with_manifest( r#"
-seiyaku SequentialNfts {
-  kotoage fn run() authorize("CanInvokeContractEntrypoint") {
+seiyaku SequentialNfts { permission CanInvokeContractEntrypoint;
+  kotoage fn run() authorize(CanInvokeContractEntrypoint) {
 ledger::nft::create_for_all_users();
   }
 }
@@ -1442,8 +1453,8 @@ ledger::nft::create_for_all_users();
     );
     Register::account(Account::new(contract_authority.clone()))
         .execute(&authority, &mut state_transaction).expect("register exact native-network contract subject");
-    let_row! { entrypoint_permission: Permission = iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
-        contract: contract_address.clone(), entrypoint: "run".to_owned(),
+    let_row! { entrypoint_permission: Permission = iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+        contract: contract_address.clone(), permission: "CanInvokeContractEntrypoint".parse().expect("valid contract permission name"),
     }.into() };
     state_transaction.world.account_permissions.insert(
         contract_authority.clone(), BTreeSet::from([entrypoint_permission]),
@@ -1601,11 +1612,10 @@ state_test! { sync merge_write_set_encoder_mentions_every_persisted_world_block_
     let_row! { encoder_end = encoder_tail .find("pub struct WorldTransaction") .expect("merge write-set encoder terminator must remain discoverable") };
     let encoder = &encoder_tail[..encoder_end];
     let_row! { fields = struct_body.lines().filter_map(|line| { if !line.starts_with("    ") || line.starts_with("        ") { return None; } let declaration = line .trim() .strip_prefix("pub(crate) ") .or_else(|| line.trim().strip_prefix("pub ")) .unwrap_or_else(|| line.trim()); let (field, _) = declaration.split_once(':')?; field .chars() .all(|character| character == '_' || character.is_ascii_alphanumeric()) .then_some(field) }) };
-    assert!(struct_body.contains("operation_index_scope: iroha_allocation::OwnedAllocationScope"));
     for field in fields {
-        // This original allocation owner is process-local custody, not WSV
-        // content. Every persisted and derived ledger field remains checked.
-        if matches!(field, "dataspace_catalog" | "external_event_buf" | "operation_index_scope") {
+        // Block-local extras are not WSV content. Every persisted and derived
+        // ledger field remains checked.
+        if matches!(field, "dataspace_catalog" | "external_event_buf") {
             continue;
         }
         assert!(
@@ -1943,7 +1953,6 @@ fn deserialize_state_snapshot_value_with_kura(
     kura: Arc<Kura>,
 ) -> Result<Box<State>, deserialize::StateRestoreError> {
     deserialize::KuraSeed {
-        operation_index_budget: crate::state::kagemusha_operation_indexes::default_budget(),
         execution_budget: iroha_allocation::AllocationBudget::new(
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         ),
@@ -1983,6 +1992,7 @@ state_test! { sync contract_lifecycle_survives_state_snapshot_and_preserves_cano
         Some(ContractLifecycleOwnerV1::Account(pending_owner.clone()));
     binding.lifecycle.parliament_delegation = ContractParliamentDelegationV1::Lifecycle;
     binding.lifecycle.active_code_hash = Some(active_code_hash);
+    binding.lifecycle.retained_code_hash = Some(active_code_hash);
     binding.lifecycle.revision = 7;
     binding.lifecycle.emergency_hold = Some(ContractEmergencyHoldV1 {
         incident_digest: [0xA1; 32],
@@ -3402,7 +3412,7 @@ fn public_lane_staking_invariant_fixture() -> PublicLaneStakingInvariantFixture 
         .build(&nominator)
         .into_key_value();
     world.accounts.insert(account_id, account);
-    world = reward_reserves::registered_custody_world_for_test(
+    world = custody_fixture::registered_custody_world_for_test(
         world,
         &stake_asset,
         Quantity::from(34_u32),
@@ -3433,7 +3443,6 @@ fn public_lane_staking_invariant_fixture() -> PublicLaneStakingInvariantFixture 
             activation_height: 1,
             election_exit_height: None,
             deactivation_height: None,
-            last_reward_epoch: None,
         },
     );
     world.public_lane_stake_shares.insert(
@@ -4385,8 +4394,7 @@ state_test! { sync account_alias_bindings_roundtrip_through_state_json
             "derived account index `{derived_field}` must not be serialized"
         );
     }
-    let_row! { seed = deserialize::KuraSeed { operation_index_budget: crate::state::kagemusha_operation_indexes::default_budget(),
-execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), lane_manifests: state.lane_manifests.read().clone(), kura: Kura::blank_kura_for_testing(), query_handle: LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] telemetry: crate::telemetry::StateTelemetry::default(), } };
+    let_row! { seed = deserialize::KuraSeed { execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), lane_manifests: state.lane_manifests.read().clone(), kura: Kura::blank_kura_for_testing(), query_handle: LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] telemetry: crate::telemetry::StateTelemetry::default(), } };
     let_row! { restored = seed .into_state_from_json(json_value) .expect("deserialize state") };
     let view = restored.world_view();
     assert_eq!(
@@ -4657,8 +4665,7 @@ state_test! { sync asset_definition_alias_bindings_roundtrip_through_state_json
     seed_snapshot_asset_incarnations(&mut world);
     let_row! { state = State::new( world, Kura::blank_kura_for_testing(), LiveQueryStore::start_test(), ) };
     let json_value = norito::json::to_value(&state).expect("serialize state");
-    let_row! { seed = deserialize::KuraSeed { operation_index_budget: crate::state::kagemusha_operation_indexes::default_budget(),
-execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), lane_manifests: state.lane_manifests.read().clone(), kura: Kura::blank_kura_for_testing(), query_handle: LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] telemetry: crate::telemetry::StateTelemetry::default(), } };
+    let_row! { seed = deserialize::KuraSeed { execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), lane_manifests: state.lane_manifests.read().clone(), kura: Kura::blank_kura_for_testing(), query_handle: LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] telemetry: crate::telemetry::StateTelemetry::default(), } };
     let_row! { restored = seed .into_state_from_json(json_value) .expect("deserialize state") };
     let view = restored.world_view();
     assert_eq!(
@@ -4766,8 +4773,7 @@ state_test! { sync asset_escrow_record_roundtrips_through_state_json
     world.asset_escrows.insert(public_id, public_record.clone());
     let_row! { state = State::new( world, Kura::blank_kura_for_testing(), LiveQueryStore::start_test(), ) };
     let json_value = norito::json::to_value(&state).expect("serialize state");
-    let_row! { seed = deserialize::KuraSeed { operation_index_budget: crate::state::kagemusha_operation_indexes::default_budget(),
-execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), lane_manifests: state.lane_manifests.read().clone(), kura: Kura::blank_kura_for_testing(), query_handle: LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] telemetry: crate::telemetry::StateTelemetry::default(), } };
+    let_row! { seed = deserialize::KuraSeed { execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), lane_manifests: state.lane_manifests.read().clone(), kura: Kura::blank_kura_for_testing(), query_handle: LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] telemetry: crate::telemetry::StateTelemetry::default(), } };
     let_row! { restored = seed .into_state_from_json(json_value) .expect("deserialize state") };
     let view = restored.world_view();
     assert_eq!(
@@ -4790,7 +4796,7 @@ state_test! { sync public_lane_staking_roundtrip_through_state_json
         let (id, value) = Account::new(account.clone()).build(&account).into_key_value();
         world.accounts.insert(id, value);
     }
-    world = reward_reserves::registered_custody_world_for_test(
+    world = custody_fixture::registered_custody_world_for_test(
         world,
         &reward_asset,
         Quantity::from(1_480_u64),
@@ -4807,7 +4813,6 @@ state_test! { sync public_lane_staking_roundtrip_through_state_json
         ));
         parameters.commit();
     }
-    let mismatched_lane = LaneId::new(99);
     let request_id = Hash::new("unbond-request");
     world.public_lane_validators.insert(
         (LaneId::SINGLE, validator.clone()),
@@ -4823,7 +4828,6 @@ state_test! { sync public_lane_staking_roundtrip_through_state_json
             activation_height: 1,
             election_exit_height: None,
             deactivation_height: None,
-            last_reward_epoch: Some(7),
         },
     );
     world.public_lane_stake_shares.insert(
@@ -4857,55 +4861,6 @@ state_test! { sync public_lane_staking_roundtrip_through_state_json
             metadata: Metadata::default(),
         },
     );
-    world.public_lane_rewards.insert(
-        (LaneId::SINGLE, 7),
-        PublicLaneRewardRecord {
-            lane_id: LaneId::SINGLE,
-            epoch: 7,
-            asset: reward_asset.clone(),
-            total_reward: iroha_primitives::numeric::Quantity::from(77_u32),
-            shares: vec![PublicLaneRewardShare {
-                account: validator.clone(),
-                role: PublicLaneRewardRole::Validator,
-                amount: iroha_primitives::numeric::Quantity::from(77_u32),
-            }],
-            metadata: Metadata::default(),
-        },
-    );
-    let mismatched_record =
-        PublicLaneRewardRecord {
-            lane_id: mismatched_lane,
-            epoch: 9,
-            asset: reward_asset.clone(),
-            total_reward: iroha_primitives::numeric::Quantity::from(88_u32),
-            shares: vec![PublicLaneRewardShare {
-                account: validator.clone(),
-                role: PublicLaneRewardRole::Validator,
-                amount: iroha_primitives::numeric::Quantity::from(88_u32),
-            }],
-            metadata: Metadata::default(),
-        };
-    world
-        .public_lane_reward_claims
-        .insert((LaneId::SINGLE, validator.clone()), PublicLaneRewardClaimStateV1 { through_epoch: Some(6) });
-    let accrual_key = (LaneId::SINGLE, validator.clone(), reward_asset.clone());
-    world.public_lane_reward_accruals.insert(accrual_key.clone(), Quantity::from(3_u32));
-    world.public_lane_reward_reserves.insert(reward_asset.clone(), Quantity::from(80_u32));
-    world.public_lane_rewards.insert(
-        (LaneId::SINGLE, 6),
-        PublicLaneRewardRecord {
-            lane_id: LaneId::SINGLE,
-            epoch: 6,
-            asset: reward_asset.clone(),
-            total_reward: Quantity::from(3_u32),
-            shares: vec![PublicLaneRewardShare {
-                account: validator.clone(),
-                role: PublicLaneRewardRole::Validator,
-                amount: Quantity::from(3_u32),
-            }],
-            metadata: Metadata::default(),
-        },
-    );
     world.public_lane_stake_custody.insert((LaneId::SINGLE, validator.clone()), (reward_asset.clone(), Quantity::from(1_400_u32)));
     world.public_lane_stake_reserves.insert(reward_asset.clone(), Quantity::from(1_400_u32));
     let state = State::new(world, kura, query_handle);
@@ -4918,24 +4873,16 @@ state_test! { sync public_lane_staking_roundtrip_through_state_json
         let key = (LaneId::SINGLE, validator.clone(), staker.clone());
         let record = block.public_lane_stake_shares.get(&key).unwrap().clone();
         block.public_lane_stake_shares.insert(key, record);
-        let prior = block.public_lane_rewards.get(&(LaneId::SINGLE, 6)).unwrap().clone();
-        block.public_lane_rewards.insert((LaneId::SINGLE, 6), prior);
-        let record = block.public_lane_rewards.get(&(LaneId::SINGLE, 7)).unwrap().clone();
-        block.public_lane_rewards.insert((LaneId::SINGLE, 7), record);
-        block.public_lane_reward_claims.insert((LaneId::SINGLE, validator.clone()), PublicLaneRewardClaimStateV1 { through_epoch: Some(6) });
-        block.public_lane_reward_accruals.insert(accrual_key.clone(), Quantity::from(3_u32));
-        block.public_lane_reward_reserves.insert(reward_asset.clone(), Quantity::from(80_u32));
         block.public_lane_stake_custody.insert((LaneId::SINGLE, validator.clone()), (reward_asset.clone(), Quantity::from(1_400_u32)));
         block.public_lane_stake_reserves.insert(reward_asset.clone(), Quantity::from(1_400_u32));
         block.space_directory_manifests.remove(UniversalAccountId::from_hash(Hash::new(b"absent snapshot manifest")));
         block.commit();
     }
     let json_value = norito::json::to_value(&state).expect("serialize state");
-    let_row! { seed = deserialize::KuraSeed { operation_index_budget: crate::state::kagemusha_operation_indexes::default_budget(),
-execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), lane_manifests: state.lane_manifests.read().clone(), kura: Kura::blank_kura_for_testing(), query_handle: LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] telemetry: crate::telemetry::StateTelemetry::default(), } };
+    let_row! { seed = deserialize::KuraSeed { execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), lane_manifests: state.lane_manifests.read().clone(), kura: Kura::blank_kura_for_testing(), query_handle: LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] telemetry: crate::telemetry::StateTelemetry::default(), } };
     let_row! { restored = seed .into_state_from_json(json_value.clone()) .expect("deserialize state") };
     let roundtrip = norito::json::to_value(&restored).unwrap();
-    for field in ["public_lane_validators", "public_lane_stake_shares", "public_lane_rewards", "public_lane_reward_claims", "public_lane_reward_accruals", "public_lane_reward_reserves", "public_lane_stake_custody", "public_lane_stake_reserves", "space_directory_manifests"] {
+    for field in ["public_lane_validators", "public_lane_stake_shares", "public_lane_stake_custody", "public_lane_stake_reserves", "space_directory_manifests"] {
         assert_eq!(roundtrip.as_object().unwrap().get(field), json_value.as_object().unwrap().get(field),
             "{field} retains its exact current entries, preimages and absence markers");
         assert!(!json_value.as_object().unwrap().get(field).unwrap().as_object().unwrap()
@@ -4958,7 +4905,6 @@ execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::paramete
             activation_height: 1,
             election_exit_height: None,
             deactivation_height: None,
-            last_reward_epoch: Some(7),
         }
     );
     assert_eq!(
@@ -4968,55 +4914,6 @@ execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::paramete
             .bonded,
         Quantity::from(900_u32)
     );
-    assert_eq!(
-        view.public_lane_rewards()
-            .get(&(LaneId::SINGLE, 7))
-            .expect("reward")
-            .total_reward,
-        Quantity::from(77_u32)
-    );
-    assert_eq!(
-        view.public_lane_reward_claims()
-            .get(&(LaneId::SINGLE, validator)),
-        Some(&PublicLaneRewardClaimStateV1 { through_epoch: Some(6) })
-    );
-    assert_eq!(
-        view.public_lane_reward_accruals().get(&accrual_key),
-        Some(&Quantity::from(3_u32)),
-        "restoring the processing cursor must retain unpaid exact-source accruals",
-    );
-    assert_eq!(view.public_lane_reward_reserves().get(&reward_asset), Some(&Quantity::from(80_u32)),
-        "reserve covers 77 unprocessed units plus 3 accrued unpaid units");
-    assert!(
-        view.public_lane_rewards()
-            .get(&(LaneId::SINGLE, 8))
-            .is_none(),
-        "snapshot restore must not preserve stale reward storage key rows"
-    );
-    assert!(
-        view.public_lane_rewards()
-            .get(&(mismatched_lane, 9))
-            .is_none(),
-        "snapshot restore must not normalize mismatched reward rows to embedded keys"
-    );
-    drop(view);
-    // Neither an invalid current row nor an invalid retained preimage may be
-    // silently filtered or normalized during authenticated restoration.
-    {
-        let mut block = restored.world.public_lane_rewards.block();
-        block.insert((LaneId::SINGLE, 8), mismatched_record);
-        block.commit();
-    }
-    for retained_undo in [false, true] {
-        if retained_undo {
-            let mut block = restored.world.public_lane_rewards.block();
-            block.remove((LaneId::SINGLE, 8));
-            block.commit();
-        }
-        let error = deserialize_state_snapshot_value(norito::json::to_value(&restored).unwrap())
-            .err().expect("mismatched reward record must reject the whole snapshot");
-        assert!(error.to_string().contains("public_lane_rewards"), "{error}");
-    }
 
 }
 use crate::{
@@ -5613,7 +5510,7 @@ state_test! { sync rwas_status_and_frozen_iters_use_secondary_indexes
     );
 }
 state_test! { sync proofs_by_backend_iter_uses_backend_range
-    let backend = "halo2/ipa";
+    let backend = "pipa-r/pasta";
     let other_backend = "stark/fri";
     let_row! { first_id = ProofId { backend: backend.into(), proof_hash: [0x11; 32], } };
     let_row! { second_id = ProofId { backend: backend.into(), proof_hash: [0x22; 32], } };
@@ -5643,7 +5540,7 @@ state_test! { sync proofs_by_backend_iter_uses_backend_range
     );
 }
 state_test! { sync find_proof_records_by_status_uses_status_index_updates
-    let backend = "halo2/ipa";
+    let backend = "pipa-r/pasta";
     let_row! { verified_id = ProofId { backend: backend.into(), proof_hash: [0x11; 32], } };
     let_row! { rejected_id = ProofId { backend: backend.into(), proof_hash: [0x22; 32], } };
     let_row! { updated_id = ProofId { backend: backend.into(), proof_hash: [0x33; 32], } };
@@ -5678,7 +5575,7 @@ state_test! { sync find_proof_records_by_status_uses_status_index_updates
     assert_eq!(generic_by_backend_and_status, vec![rejected_id]);
 }
 state_test! { sync proof_status_index_roundtrips_through_state_json
-    let backend = "halo2/ipa";
+    let backend = "pipa-r/pasta";
     let_row! { verified_id = ProofId { backend: backend.into(), proof_hash: [0x11; 32], } };
     let_row! { rejected_id = ProofId { backend: backend.into(), proof_hash: [0x22; 32], } };
     let_row! { record = |id: &ProofId, status: ProofStatus| ProofRecord { id: id.clone(), vk_ref: None, vk_commitment: None, status, verified_at_height: Some(1), bridge: None, } };
@@ -5693,8 +5590,7 @@ state_test! { sync proof_status_index_roundtrips_through_state_json
     );
     let_row! { state = State::new( world, Kura::blank_kura_for_testing(), LiveQueryStore::start_test(), ) };
     let json_value = norito::json::to_value(&state).expect("serialize state");
-    let_row! { seed = deserialize::KuraSeed { operation_index_budget: crate::state::kagemusha_operation_indexes::default_budget(),
-execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), lane_manifests: state.lane_manifests.read().clone(), kura: Kura::blank_kura_for_testing(), query_handle: LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] telemetry: crate::telemetry::StateTelemetry::default(), } };
+    let_row! { seed = deserialize::KuraSeed { execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), lane_manifests: state.lane_manifests.read().clone(), kura: Kura::blank_kura_for_testing(), query_handle: LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] telemetry: crate::telemetry::StateTelemetry::default(), } };
     let_row! { restored = seed .into_state_from_json(json_value) .expect("deserialize state") };
     let view = restored.view();
     let_row! { verified_ids = FindProofRecordsByStatus { status: ProofStatus::Verified, } .execute(CompoundPredicate::PASS, &view) .expect("query verified proof records") .map(|record| record.id) .collect::<Vec<_>>() };
@@ -6725,10 +6621,21 @@ state_test! { sync autoscale_runtime_elastic_range_rejects_profile_drift_and_res
         LaneLifecycleError::InvalidAutoscaleManagedLane { lane, reason }
             if lane == LaneId::new(1) && reason == AUTOSCALE_PROFILE_DRIFT_REASON
     ));
+    let restricted_dataspace = DataSpaceId::new(1);
     let mut restricted_base = base_lane;
+    restricted_base.dataspace_id = restricted_dataspace;
     restricted_base.visibility = LaneVisibility::Restricted;
-    let restricted = autoscale_transition_test_nexus(vec![restricted_base, valid_lane], 1, 3, 100);
-    let_row! { err = ensure_autoscale_runtime_elastic_range(&restricted) .expect_err("runtime autoscale precheck must reject a restricted routing base") };
+    let mut restricted = autoscale_transition_test_nexus(vec![restricted_base], 1, 3, 100);
+    restricted.dataspace_catalog = dataspace_catalog_with_extra(restricted_dataspace);
+    restricted.configured_dataspace_catalog = restricted.dataspace_catalog.clone();
+    restricted.configured_lane_catalog = restricted.lane_catalog.clone();
+    restricted.routing_policy.default_dataspace = restricted_dataspace;
+    let mut prospective_lane = valid_lane;
+    prospective_lane.dataspace_id = restricted_dataspace;
+    // A canonical catalog cannot mix a restricted base and public managed lane
+    // in one dataspace. Test the same profile predicate before adding the lane.
+    let_row! { err = ensure_autoscale_managed_lane_inherits_default_profile(&prospective_lane, &restricted)
+        .expect_err("autoscale profile precheck must reject a restricted routing base") };
     assert!(matches!(
         err,
         LaneLifecycleError::InvalidAutoscaleManagedLane { lane, reason }
@@ -8284,9 +8191,9 @@ state_test! { sync da_pin_intent_index_prune_keys_select_embedded_and_index_lane
 fn build_state_with_vk_order(order: &[(&str, &str)]) -> State {
     let mut world = World::new();
     for &(name, circuit) in order {
-        let id = iroha_data_model::proof::VerifyingKeyId::new("halo2/ipa", name);
+        let id = iroha_data_model::proof::VerifyingKeyId::new("pipa-r/pasta", name);
         let_row! { (schema_hash, commitment) = match name { "vk_alpha" => ([0xA1; 32], [0xB1; 32]), "vk_beta" => ([0xA2; 32], [0xB2; 32]), other => { let mut schema = [0u8; 32]; let mut commit = [0u8; 32]; let bytes = other.as_bytes(); let len = bytes.len().min(32); schema[..len].copy_from_slice(&bytes[..len]); commit[..len].copy_from_slice(&bytes[..len]); (schema, commit) } } };
-        let_row! { mut record = iroha_data_model::proof::VerifyingKeyRecord::new_with_owner( 1, circuit, None, "core", iroha_data_model::zk::BackendTag::Halo2IpaPasta, "pallas", schema_hash, commitment, ) };
+        let_row! { mut record = iroha_data_model::proof::VerifyingKeyRecord::new_with_owner( 1, circuit, None, "core", iroha_data_model::zk::BackendTag::NativePipaRPasta, "vesta", schema_hash, commitment, ) };
         record.status = iroha_data_model::confidential::ConfidentialStatus::Active;
         record.public_inputs_schema_hash = schema_hash;
         record.gas_schedule_id = Some(format!("sched_{name}"));
@@ -8738,8 +8645,8 @@ state_test! { sync lanes_requiring_state_reset_tracks_shard_mapping_changes
 state_test! { sync lanes_requiring_state_reset_tracks_storage_profile_and_visibility_changes
     let storage_lane_id = LaneId::new(1);
     let visibility_lane_id = LaneId::new(2);
-    let_row! { previous_catalog = LaneCatalog::new( nonzero!(3_u32), vec![ LaneConfig::default(), LaneConfig { id: storage_lane_id, alias: "storage-policy".to_string(), storage: LaneStorageProfile::FullReplica, ..LaneConfig::default() }, LaneConfig { id: visibility_lane_id, alias: "visibility-policy".to_string(), visibility: LaneVisibility::Public, ..LaneConfig::default() }, ], ) .expect("previous catalog") };
-    let_row! { current_catalog = LaneCatalog::new( nonzero!(3_u32), vec![ LaneConfig::default(), LaneConfig { id: storage_lane_id, alias: "storage-policy".to_string(), storage: LaneStorageProfile::SplitReplica, ..LaneConfig::default() }, LaneConfig { id: visibility_lane_id, alias: "visibility-policy".to_string(), visibility: LaneVisibility::Restricted, ..LaneConfig::default() }, ], ) .expect("current catalog") };
+    let_row! { previous_catalog = LaneCatalog::new( nonzero!(3_u32), vec![ LaneConfig::default(), LaneConfig { id: storage_lane_id, alias: "storage-policy".to_string(), storage: LaneStorageProfile::FullReplica, ..LaneConfig::default() }, LaneConfig { id: visibility_lane_id, dataspace_id: DataSpaceId::new(2), alias: "visibility-policy".to_string(), visibility: LaneVisibility::Public, ..LaneConfig::default() }, ], ) .expect("previous catalog") };
+    let_row! { current_catalog = LaneCatalog::new( nonzero!(3_u32), vec![ LaneConfig::default(), LaneConfig { id: storage_lane_id, alias: "storage-policy".to_string(), storage: LaneStorageProfile::SplitReplica, ..LaneConfig::default() }, LaneConfig { id: visibility_lane_id, dataspace_id: DataSpaceId::new(2), alias: "visibility-policy".to_string(), visibility: LaneVisibility::Restricted, ..LaneConfig::default() }, ], ) .expect("current catalog") };
     let previous = RuntimeLaneConfig::from_catalog(&previous_catalog);
     let current = RuntimeLaneConfig::from_catalog(&current_catalog);
     assert_eq!(
@@ -8786,18 +8693,10 @@ state_test! { sync public_lane_economic_cleanup_keys_treat_key_or_record_lane_as
     let key_owned_staker = AccountId::new(crate::state::checked_keypair().public_key().clone());
     let record_owned_staker = AccountId::new(crate::state::checked_keypair().public_key().clone());
     let retained_staker = AccountId::new(crate::state::checked_keypair().public_key().clone());
-    let_row! { reward_asset_definition = AssetDefinitionId::derive_from_components( DomainId::try_new("publiclane", "universal").expect("reward asset domain"), "resetcheck".parse().expect("reward asset name"), ) };
-    let reward_asset = AssetId::new(reward_asset_definition, validator.clone());
     let_row! { stake_record_for = |lane_id: LaneId, staker: AccountId| PublicLaneStakeShare { lane_id, validator: validator.clone(), staker, bonded: iroha_primitives::numeric::Quantity::from(100_u32), pending_unbonds: BTreeMap::new(), metadata: Metadata::default(), } };
-    let_row! { reward_record_for = |lane_id: LaneId, epoch: u64| PublicLaneRewardRecord { lane_id, epoch, asset: reward_asset.clone(), total_reward: iroha_primitives::numeric::Quantity::from(epoch.saturating_add(1)), shares: vec![PublicLaneRewardShare { account: validator.clone(), role: PublicLaneRewardRole::Validator, amount: iroha_primitives::numeric::Quantity::from(epoch.saturating_add(1)), }], metadata: Metadata::default(), } };
     let stake_key_owned = (reset_lane, validator.clone(), key_owned_staker.clone());
     let_row! { stake_record_owned = ( retained_lane, validator.clone(), record_owned_staker.clone(), ) };
     let stake_retained = (retained_lane, validator.clone(), retained_staker.clone());
-    let reward_key_owned = (reset_lane, 1);
-    let reward_record_owned = (retained_lane, 2);
-    let reward_retained = (retained_lane, 3);
-    let claim_reset = (reset_lane, validator.clone());
-    let claim_retained = (retained_lane, retained_staker.clone());
     {
         let mut stake_tx = world.public_lane_stake_shares.block();
         stake_tx.insert(
@@ -8814,38 +8713,14 @@ state_test! { sync public_lane_economic_cleanup_keys_treat_key_or_record_lane_as
         );
         stake_tx.commit();
     }
-    {
-        let mut reward_tx = world.public_lane_rewards.block();
-        reward_tx.insert(reward_key_owned, reward_record_for(retained_lane, 1));
-        reward_tx.insert(reward_record_owned, reward_record_for(reset_lane, 2));
-        reward_tx.insert(reward_retained, reward_record_for(retained_lane, 3));
-        reward_tx.commit();
-    }
-    {
-        let mut claim_tx = world.public_lane_reward_claims.block();
-        claim_tx.insert(claim_reset.clone(), PublicLaneRewardClaimStateV1 { through_epoch: Some(1) });
-        claim_tx.insert(claim_retained.clone(), PublicLaneRewardClaimStateV1 { through_epoch: Some(3) });
-        claim_tx.commit();
-    }
     let lanes_to_reset = BTreeSet::from([reset_lane]);
     let_row! { stake_keys = State::public_lane_stake_share_keys_for_lanes( &world.public_lane_stake_shares.view(), &lanes_to_reset, ) };
-    let_row! { reward_keys = State::public_lane_reward_keys_for_lanes( &world.public_lane_rewards.view(), &lanes_to_reset, ) };
-    let_row! { claim_keys = State::public_lane_reward_claim_keys_for_lanes( &world.public_lane_reward_claims.view(), &lanes_to_reset, ) };
     assert_eq!(
         stake_keys.into_iter().collect::<BTreeSet<_>>(),
         BTreeSet::from([stake_key_owned, stake_record_owned]),
         "stake-share cleanup must include key-owned and embedded-record-owned reset rows"
     );
-    assert_eq!(
-        reward_keys.into_iter().collect::<BTreeSet<_>>(),
-        BTreeSet::from([reward_key_owned, reward_record_owned]),
-        "reward cleanup must include key-owned and embedded-record-owned reset rows"
-    );
-    assert_eq!(
-        claim_keys.into_iter().collect::<BTreeSet<_>>(),
-        BTreeSet::from([claim_reset]),
-        "reward claims have no embedded lane and remain key-owned only"
-    );
+
 }
 state_test! { sync apply_lane_geometry_updates_preserve_instance_across_alias_changes
     let temp_dir = tempfile::tempdir().expect("temp dir");
@@ -8914,7 +8789,7 @@ fn seed_public_lane_validator_with_key_and_record_lanes_for_lifecycle_test(
         | PublicLaneValidatorStatus::Slashed(_) => Some(activation_height.saturating_add(1)),
         PublicLaneValidatorStatus::PendingActivation(_) | PublicLaneValidatorStatus::Active => None,
     };
-    let_row! { record = PublicLaneValidatorRecord { lane_id: record_lane_id, validator: validator.clone(), peer_id: peer_id.clone(), stake_account: validator.clone(), total_stake: iroha_primitives::numeric::Quantity::from(1_000_u32), self_stake: iroha_primitives::numeric::Quantity::from(1_000_u32), metadata: Metadata::default(), status, activation_height, election_exit_height: deactivation_height, deactivation_height, last_reward_epoch: None, } };
+    let_row! { record = PublicLaneValidatorRecord { lane_id: record_lane_id, validator: validator.clone(), peer_id: peer_id.clone(), stake_account: validator.clone(), total_stake: iroha_primitives::numeric::Quantity::from(1_000_u32), self_stake: iroha_primitives::numeric::Quantity::from(1_000_u32), metadata: Metadata::default(), status, activation_height, election_exit_height: deactivation_height, deactivation_height, } };
     let mut block = state.world.block();
     block
         .public_lane_validators
@@ -8935,35 +8810,25 @@ fn seed_public_lane_validator_with_key_and_record_lanes_for_lifecycle_test(
     block.commit();
     (validator, peer_id)
 }
-type PublicLaneEconomicKeys = (
-    (LaneId, AccountId, AccountId),
-    (LaneId, u64),
-    (LaneId, AccountId),
-);
+type PublicLaneEconomicKeys = ((LaneId, AccountId, AccountId),);
 fn seed_public_lane_economic_state_for_lifecycle_test(
     state: &State,
     lane_id: LaneId,
-    epoch: u64,
+    _fixture_seed: u64,
 ) -> PublicLaneEconomicKeys {
     seed_public_lane_economic_state_with_key_and_record_lanes_for_lifecycle_test(
-        state, lane_id, lane_id, epoch,
+        state, lane_id, lane_id,
     )
 }
 fn seed_public_lane_economic_state_with_key_and_record_lanes_for_lifecycle_test(
     state: &State,
     key_lane_id: LaneId,
     record_lane_id: LaneId,
-    epoch: u64,
 ) -> PublicLaneEconomicKeys {
     let validator_keypair = crate::state::checked_keypair_with_algorithm(Algorithm::BlsNormal);
     let validator = AccountId::new(validator_keypair.public_key().clone());
     let staker = AccountId::new(crate::state::checked_keypair().public_key().clone());
-    let_row! { reward_asset_definition = AssetDefinitionId::derive_from_components( DomainId::try_new("publiclane", "universal").expect("reward asset domain"), format!("reward{epoch}").parse().expect("reward asset name"), ) };
-    let reward_asset = AssetId::new(reward_asset_definition, validator.clone());
     let stake_key = (key_lane_id, validator.clone(), staker.clone());
-    let reward_key = (key_lane_id, epoch);
-    let claim_key = (key_lane_id, validator.clone());
-    let reward_amount = Quantity::from(epoch.saturating_add(1));
     let mut block = state.world.block();
     if key_lane_id == record_lane_id {
         block.public_lane_validators.insert(
@@ -8980,7 +8845,6 @@ fn seed_public_lane_economic_state_with_key_and_record_lanes_for_lifecycle_test(
                 activation_height: 1,
                 election_exit_height: Some(2),
                 deactivation_height: Some(2),
-                last_reward_epoch: None,
             },
         );
     }
@@ -8995,36 +8859,8 @@ fn seed_public_lane_economic_state_with_key_and_record_lanes_for_lifecycle_test(
             metadata: Metadata::default(),
         },
     );
-    block.public_lane_rewards.insert(
-        reward_key,
-        PublicLaneRewardRecord {
-            lane_id: record_lane_id,
-            epoch,
-            asset: reward_asset.clone(),
-            total_reward: reward_amount.clone(),
-            shares: vec![PublicLaneRewardShare {
-                account: validator.clone(),
-                role: PublicLaneRewardRole::Validator,
-                amount: reward_amount,
-            }],
-            metadata: Metadata::default(),
-        },
-    );
-    block.public_lane_reward_claims.insert(
-        claim_key.clone(),
-        PublicLaneRewardClaimStateV1 {
-            through_epoch: epoch.checked_sub(1),
-        },
-    );
-    if let Some(previous_epoch) = epoch.checked_sub(1) {
-        let mut processed = block.public_lane_rewards.get(&reward_key).unwrap().clone();
-        processed.epoch = previous_epoch;
-        block
-            .public_lane_rewards
-            .insert((key_lane_id, previous_epoch), processed);
-    }
     block.commit();
-    (stake_key, reward_key, claim_key)
+    (stake_key,)
 }
 fn assert_public_lane_economic_state_presence(
     state: &State,
@@ -9037,18 +8873,6 @@ fn assert_public_lane_economic_state_presence(
         expected_present,
         "public lane stake-share presence mismatch for {:?}",
         keys.0
-    );
-    assert_eq!(
-        view.public_lane_rewards().get(&keys.1).is_some(),
-        expected_present,
-        "public lane reward-record presence mismatch for {:?}",
-        keys.1
-    );
-    assert_eq!(
-        view.public_lane_reward_claims().get(&keys.2).is_some(),
-        expected_present,
-        "public lane reward-claim presence mismatch for {:?}",
-        keys.2
     );
 }
 fn record_public_lane_staking_status_for_test(lane_id: LaneId, bonded: &Quantity) {
@@ -9209,7 +9033,6 @@ state_test! { sync apply_lane_lifecycle_rejects_exited_validator_before_deactiva
             activation_height: 1,
             election_exit_height: Some(100),
             deactivation_height: Some(100),
-            last_reward_epoch: None,
         },
     );
     world_block.commit();
@@ -9381,7 +9204,7 @@ state_test! { sync apply_lane_lifecycle_rejects_economic_custody_with_embedded_r
             retire: Vec::new(),
         })
         .expect("seed lifecycle lanes");
-    let_row! { embedded_reset_keys = seed_public_lane_economic_state_with_key_and_record_lanes_for_lifecycle_test( &state, retained_lane, retired_lane, 179, ) };
+    let_row! { embedded_reset_keys = seed_public_lane_economic_state_with_key_and_record_lanes_for_lifecycle_test( &state, retained_lane, retired_lane, ) };
     let_row! { retained_keys = seed_public_lane_economic_state_for_lifecycle_test(&state, retained_lane, 180) };
     let error = state
         .apply_lane_lifecycle(&iroha_data_model::nexus::LaneLifecyclePlan {
@@ -9400,18 +9223,6 @@ state_test! { sync apply_lane_lifecycle_rejects_economic_custody_with_embedded_r
             .get(&embedded_reset_keys.0)
             .is_some(),
         "rejected lifecycle reset must preserve embedded-lane stake custody"
-    );
-    assert!(
-        view.public_lane_rewards()
-            .get(&embedded_reset_keys.1)
-            .is_some(),
-        "rejected lifecycle reset must preserve embedded-lane rewards"
-    );
-    assert!(
-        view.public_lane_reward_claims()
-            .get(&embedded_reset_keys.2)
-            .is_some(),
-        "reward claims carry no embedded lane and must remain owned by their storage key"
     );
     assert_public_lane_economic_state_presence(&state, &retained_keys, true);
     crate::status::reset_nexus_economics_for_tests();
@@ -11169,7 +10980,6 @@ state_test! { sync certified_runtime_snapshot_replay_preserves_lane_history
     let state = original.state();
     let snapshot = norito::json::to_value(state.as_ref()).expect("original native snapshot projection");
     assert!(matches!(deserialize::KuraSeed {
-        operation_index_budget: state.world.operation_index_budget().clone(),
         execution_budget: state.ivm_execution_budget(),
         lane_manifests: Arc::clone(&state.lane_manifests.read()),
         kura: Arc::clone(original.kura()),
@@ -11292,7 +11102,7 @@ state_test! { sync emergency_fast_restored_config_preserves_staking_owner_and_cu
             .build(&validator)
             .into_key_value();
         world.accounts.insert(id, account);
-        world = reward_reserves::registered_custody_world_for_test(
+        world = custody_fixture::registered_custody_world_for_test(
             world,
             &custody_asset,
             Quantity::from(100_u64),
@@ -12629,7 +12439,7 @@ state_test! { sync configured_lane_lifecycle_rejects_economic_custody_with_embed
     let_row! { initial_lane_catalog = LaneCatalog::new( nonzero!(3_u32), vec![ LaneConfig::default(), LaneConfig { id: reset_lane, alias: "embedded-reset".to_string(), ..LaneConfig::default() }, LaneConfig { id: retained_lane, dataspace_id: retained, alias: "embedded-retained".to_string(), ..LaneConfig::default() }, ], ) .expect("initial lane catalog") };
     let_row! { initial_nexus = iroha_config::parameters::actual::Nexus { lane_config: iroha_config::parameters::actual::LaneConfig::from_catalog( &initial_lane_catalog, ), lane_catalog: initial_lane_catalog, dataspace_catalog: dataspace_catalog.clone(), ..Default::default() } };
     let_row! { state = State::new_with_nexus_for_testing(World::default(), initial_nexus, query_handle) };
-    let_row! { embedded_reset_keys = seed_public_lane_economic_state_with_key_and_record_lanes_for_lifecycle_test( &state, retained_lane, reset_lane, 177, ) };
+    let_row! { embedded_reset_keys = seed_public_lane_economic_state_with_key_and_record_lanes_for_lifecycle_test( &state, retained_lane, reset_lane, ) };
     let_row! { retained_keys = seed_public_lane_economic_state_for_lifecycle_test(&state, retained_lane, 178) };
     let_row! { updated_lane_catalog = LaneCatalog::new( nonzero!(3_u32), vec![ LaneConfig::default(), LaneConfig { id: reset_lane, dataspace_id: rebound, alias: "embedded-reset".to_string(), ..LaneConfig::default() }, LaneConfig { id: retained_lane, dataspace_id: retained, alias: "embedded-retained".to_string(), ..LaneConfig::default() }, ], ) .expect("updated lane catalog") };
     let_row! { updated_nexus = iroha_config::parameters::actual::Nexus { lane_config: iroha_config::parameters::actual::LaneConfig::from_catalog( &updated_lane_catalog, ), lane_catalog: updated_lane_catalog, dataspace_catalog, ..Default::default() } };
@@ -12651,18 +12461,6 @@ state_test! { sync configured_lane_lifecycle_rejects_economic_custody_with_embed
             .get(&embedded_reset_keys.0)
             .is_some(),
         "rejected set_nexus reset must preserve embedded-lane stake custody"
-    );
-    assert!(
-        view.public_lane_rewards()
-            .get(&embedded_reset_keys.1)
-            .is_some(),
-        "rejected set_nexus reset must preserve embedded-lane rewards"
-    );
-    assert!(
-        view.public_lane_reward_claims()
-            .get(&embedded_reset_keys.2)
-            .is_some(),
-        "reward claims carry no embedded lane and must remain owned by their storage key"
     );
     assert_public_lane_economic_state_presence(&state, &retained_keys, true);
     crate::status::reset_nexus_economics_for_tests();
@@ -13464,10 +13262,7 @@ fn configure_restricted_lane_for_manifest_binding_test(
         },
     );
 }
-fn configure_two_universal_authority_lanes_for_test(
-    state: &mut State,
-    second_visibility: LaneVisibility,
-) {
+fn configure_two_universal_authority_lanes_for_test(state: &mut State) {
     configure_pre_genesis_nexus_fixture(
         state,
         iroha_config::parameters::actual::Nexus {
@@ -13479,7 +13274,7 @@ fn configure_two_universal_authority_lanes_for_test(
                         id: LaneId::new(1),
                         alias: "universal-secondary".to_owned(),
                         dataspace_id: DataSpaceId::UNIVERSAL,
-                        visibility: second_visibility,
+                        visibility: LaneVisibility::Public,
                         ..LaneConfig::default()
                     },
                 ],
@@ -13512,7 +13307,6 @@ fn insert_active_public_lane_validator_for_test(
             activation_height: 0,
             election_exit_height: None,
             deactivation_height: None,
-            last_reward_epoch: None,
         },
     );
     world_block.public_lane_stake_shares.insert(
@@ -13765,7 +13559,6 @@ state_test! { sync lane_relay_validator_pool_uses_stake_when_no_manifest
             activation_height: 0,
             election_exit_height: None,
             deactivation_height: None,
-            last_reward_epoch: None,
         },
     );
     wb.commit();
@@ -13779,11 +13572,11 @@ state_test! { sync lane_relay_validator_pool_uses_stake_when_no_manifest
         vec![validator]
     );
 }
-state_test! { sync same_dataspace_stake_authority_projects_to_restricted_sibling_lane
+state_test! { sync same_dataspace_stake_authority_projects_to_public_sibling_lane
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(World::default(), kura, query_handle);
-    configure_two_universal_authority_lanes_for_test(&mut state, LaneVisibility::Restricted);
+    configure_two_universal_authority_lanes_for_test(&mut state);
 
     let source_lane = LaneId::SINGLE;
     let target_lane = LaneId::new(1);
@@ -13821,7 +13614,7 @@ state_test! { sync same_dataspace_stake_authority_projects_to_restricted_sibling
             .expect("shared-dataspace stake authority must resolve")
             .into_validators(),
         expected_peers,
-        "a restricted lane must inherit its physical dataspace's live stake-elected peers"
+        "a sibling lane must inherit its physical dataspace's live stake-elected peers"
     );
 }
 
@@ -13881,7 +13674,7 @@ state_test! { sync same_dataspace_manifest_authority_projects_to_policy_only_sib
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(World::default(), kura, query_handle);
-    configure_two_universal_authority_lanes_for_test(&mut state, LaneVisibility::Restricted);
+    configure_two_universal_authority_lanes_for_test(&mut state);
 
     let source_lane = LaneId::SINGLE;
     let target_lane = LaneId::new(1);
@@ -13976,7 +13769,7 @@ state_test! { sync singleton_non_owner_same_dataspace_stake_projection_fails_clo
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(World::default(), kura, query_handle);
-    configure_two_universal_authority_lanes_for_test(&mut state, LaneVisibility::Public);
+    configure_two_universal_authority_lanes_for_test(&mut state);
 
     let canonical_lane = LaneId::SINGLE;
     let non_owner_lane = LaneId::new(1);
@@ -14014,7 +13807,7 @@ state_test! { sync conflicting_same_dataspace_stake_projections_fail_closed
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(World::default(), kura, query_handle);
-    configure_two_universal_authority_lanes_for_test(&mut state, LaneVisibility::Public);
+    configure_two_universal_authority_lanes_for_test(&mut state);
 
     let lane_a = LaneId::SINGLE;
     let lane_b = LaneId::new(1);
@@ -14060,7 +13853,7 @@ state_test! { sync duplicate_same_dataspace_stake_projections_fail_closed
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(World::default(), kura, query_handle);
-    configure_two_universal_authority_lanes_for_test(&mut state, LaneVisibility::Public);
+    configure_two_universal_authority_lanes_for_test(&mut state);
 
     let lane_a = LaneId::SINGLE;
     let lane_b = LaneId::new(1);
@@ -14261,7 +14054,6 @@ state_test! { sync lifecycle_rejects_full_dataspace_retirement_with_exited_pendi
                 activation_height: 0,
                 election_exit_height: Some(2),
                 deactivation_height: Some(2),
-                last_reward_epoch: None,
             },
         );
         world.public_lane_stake_shares.insert(
@@ -14396,16 +14188,17 @@ state_test! { sync set_nexus_rejects_two_step_staking_mode_toggle_with_live_shar
     let prospective_owner = LaneId::new(1);
     let current_owner = LaneId::new(2);
     let shared_dataspace = DataSpaceId::new(9);
-    let initial_nexus = iroha_config::parameters::actual::Nexus {
+    let prospective_dataspace = DataSpaceId::new(10);
+    let mut initial_nexus = iroha_config::parameters::actual::Nexus {
         lane_catalog: LaneCatalog::new(
             nonzero!(3_u32),
             vec![
                 LaneConfig::default(),
                 LaneConfig {
                     id: prospective_owner,
-                    alias: "restricted-prospective-owner".to_owned(),
-                    dataspace_id: shared_dataspace,
-                    visibility: LaneVisibility::Restricted,
+                    alias: "public-prospective-owner".to_owned(),
+                    dataspace_id: prospective_dataspace,
+                    visibility: LaneVisibility::Public,
                     ..LaneConfig::default()
                 },
                 LaneConfig {
@@ -14417,7 +14210,7 @@ state_test! { sync set_nexus_rejects_two_step_staking_mode_toggle_with_live_shar
                 },
             ],
         )
-        .expect("mixed-visibility shared-dataspace catalog"),
+        .expect("public lanes in separate registered dataspaces"),
         dataspace_catalog: DataSpaceCatalog::new(vec![
             DataSpaceMetadata::default(),
             DataSpaceMetadata {
@@ -14426,10 +14219,17 @@ state_test! { sync set_nexus_rejects_two_step_staking_mode_toggle_with_live_shar
                 description: None,
                 fault_tolerance: 1,
             },
+            DataSpaceMetadata {
+                id: prospective_dataspace,
+                alias: "prospective-staking".to_owned(),
+                description: None,
+                fault_tolerance: 1,
+            },
         ])
-        .expect("shared-dataspace lifecycle dataspace catalog"),
+        .expect("both prospective and current staking dataspaces are registered"),
         ..iroha_config::parameters::actual::Nexus::default()
     };
+    initial_nexus.lane_config = RuntimeLaneConfig::from_catalog(&initial_nexus.lane_catalog);
     let mut state = State::new_with_nexus_for_testing(
         World::default(), initial_nexus, LiveQueryStore::start_test(),
     );
@@ -14446,6 +14246,14 @@ state_test! { sync set_nexus_rejects_two_step_staking_mode_toggle_with_live_shar
     assert_eq!(
         nexus_staking_authority_lane_at_height(current_owner, &nexus_before, 0),
         Some(current_owner)
+    );
+    assert_eq!(
+        nexus_active_lane_dataspace_at_height(prospective_owner, &nexus_before, 0),
+        Some(prospective_dataspace)
+    );
+    assert_eq!(
+        nexus_active_lane_dataspace_at_height(current_owner, &nexus_before, 0),
+        Some(shared_dataspace)
     );
     let validator_before = state
         .world
@@ -14476,6 +14284,9 @@ state_test! { sync set_nexus_rejects_two_step_staking_mode_toggle_with_live_shar
         nexus_after.staking.restricted_validator_mode,
         nexus_before.staking.restricted_validator_mode
     );
+    assert_eq!(nexus_after.lane_catalog, nexus_before.lane_catalog);
+    assert_eq!(nexus_after.dataspace_catalog, nexus_before.dataspace_catalog);
+    assert!(lane_config_entries_match(&nexus_after.lane_config, &nexus_before.lane_config));
     let world = state.world.view();
     assert_eq!(
         world
@@ -14502,13 +14313,46 @@ state_test! { sync set_nexus_rejects_two_step_staking_mode_toggle_with_live_shar
         None,
         "the restored intermediate configuration has no staking owner"
     );
-    let mut reenabled = all_admin;
-    reenabled.staking.restricted_validator_mode =
+    let mut reenabled = all_admin.clone();
+    reenabled.staking.public_validator_mode =
         iroha_config::parameters::actual::LaneValidatorMode::StakeElected;
+    // Visibility is uniform within each dataspace. The valid lower-lane takeover
+    // moves only the prospective owner into the current public dataspace.
+    reenabled.lane_catalog = LaneCatalog::new(
+        all_admin.lane_catalog.lane_count(),
+        all_admin.lane_catalog.lanes().iter().map(|lane| {
+            if lane.id == prospective_owner {
+                LaneConfig { dataspace_id: shared_dataspace, ..lane.clone() }
+            } else {
+                lane.clone()
+            }
+        }).collect(),
+    ).expect("reenabled shared dataspace remains uniformly public");
+    reenabled.lane_config = RuntimeLaneConfig::from_catalog(&reenabled.lane_catalog);
+    assert_eq!(
+        nexus_staking_authority_lane_at_height(current_owner, &reenabled, 0),
+        Some(prospective_owner),
+        "the lower public sibling would replace the restored no-owner configuration"
+    );
+    assert_eq!(
+        nexus_active_lane_dataspace_at_height(prospective_owner, &reenabled, 0),
+        Some(shared_dataspace)
+    );
+    let mut reset_lanes = lanes_requiring_state_reset(&all_admin.lane_config, &reenabled.lane_config);
+    reset_lanes.extend(lanes_requiring_consensus_reset(&all_admin.lane_catalog, &reenabled.lane_catalog));
+    assert_eq!(reset_lanes, BTreeSet::from([prospective_owner]));
     let mut restored = restored;
+    assert!(matches!(
+        restored.set_nexus(reenabled.clone()),
+        Err(LaneLifecycleError::ConfiguredCatalogBaseline(_))
+    ));
+    // The ordinary setter retains the immutable configured baseline. Exercise the
+    // same inner publication guard before any geometry change, independently of
+    // that earlier refusal; only the unoccupied prospective lane needs a reset.
+    let configured_catalog = restored.nexus_snapshot().configured_lane_catalog;
     let err = restored
-        .set_nexus(reenabled)
-        .expect_err("re-enabling a different owner must reject legacy live state");
+        .set_nexus_with_configured_lane_catalog(reenabled, configured_catalog, None)
+        .expect_err("re-enabling a different owner must reject restored live state");
     assert!(matches!(
         err,
         LaneLifecycleError::UnsafeRetirement { lane, reason }
@@ -14517,9 +14361,26 @@ state_test! { sync set_nexus_rejects_two_step_staking_mode_toggle_with_live_shar
     ));
     let restored_nexus = restored.nexus_snapshot();
     assert_eq!(
-        restored_nexus.staking.restricted_validator_mode,
+        restored_nexus.staking.public_validator_mode,
         iroha_config::parameters::actual::LaneValidatorMode::AdminManaged,
         "rejected owner re-enable must preserve the no-owner configuration"
+    );
+    assert_eq!(
+        restored_nexus.staking.restricted_validator_mode,
+        all_admin.staking.restricted_validator_mode
+    );
+    assert_eq!(restored_nexus.lane_catalog, all_admin.lane_catalog);
+    assert_eq!(restored_nexus.dataspace_catalog, all_admin.dataspace_catalog);
+    assert!(lane_config_entries_match(&restored_nexus.lane_config, &all_admin.lane_config));
+    assert_eq!(
+        nexus_staking_authority_lane_at_height(current_owner, &restored_nexus, 0),
+        None
+    );
+    let world = restored.world.view();
+    assert_eq!(
+        world.public_lane_validators().get(&(current_owner, validator_before.validator.clone())),
+        Some(&validator_before),
+        "rejected re-enable must preserve the exact restored live owner row"
     );
 }
 
@@ -14575,34 +14436,65 @@ state_test! { sync set_nexus_rejects_live_single_lane_stake_owner_reassignment
         &keypair,
         1_000_000,
     );
+    let nexus_before = state.nexus_snapshot();
+    let validator_before = state
+        .world
+        .public_lane_validators
+        .view()
+        .get(&(LaneId::SINGLE, validator.clone()))
+        .expect("live single-lane validator")
+        .clone();
+    let replacement_dataspace = DataSpaceId::new(1);
     let mut prospective = iroha_config::parameters::actual::Nexus {
         lane_catalog: LaneCatalog::new(
             nonzero!(2_u32),
             vec![
-                LaneConfig::default(),
+                LaneConfig {
+                    dataspace_id: replacement_dataspace,
+                    ..LaneConfig::default()
+                },
                 LaneConfig {
                     id: LaneId::new(1),
                     alias: "prospective-staking-owner".to_owned(),
                     dataspace_id: DataSpaceId::UNIVERSAL,
-                    visibility: LaneVisibility::Restricted,
+                    visibility: LaneVisibility::Public,
                     ..LaneConfig::default()
                 },
             ],
         )
-        .expect("prospective shared-dataspace catalog"),
+        .expect("prospective public dataspace catalogs"),
+        dataspace_catalog: DataSpaceCatalog::new(vec![
+            DataSpaceMetadata::default(),
+            DataSpaceMetadata {
+                id: replacement_dataspace,
+                alias: "retained-single-lane".to_owned(),
+                description: None,
+                fault_tolerance: 1,
+            },
+        ])
+        .expect("prospective registered dataspaces"),
         ..Default::default()
     };
-    prospective.staking.public_validator_mode =
-        iroha_config::parameters::actual::LaneValidatorMode::AdminManaged;
-    prospective.staking.restricted_validator_mode =
-        iroha_config::parameters::actual::LaneValidatorMode::StakeElected;
+    prospective.lane_config = RuntimeLaneConfig::from_catalog(&prospective.lane_catalog);
+    prospective.routing_policy.default_lane = LaneId::new(1);
+    assert_eq!(
+        nexus_staking_authority_lane_at_height(LaneId::SINGLE, &nexus_before, 0),
+        Some(LaneId::SINGLE)
+    );
+    assert_eq!(
+        nexus_staking_authority_lane_at_height(LaneId::new(1), &prospective, 0),
+        Some(LaneId::new(1)),
+        "the prospective universal dataspace has a different staking owner"
+    );
 
     assert!(matches!(
         state.set_nexus(prospective.clone()),
         Err(LaneLifecycleError::ConfiguredCatalogBaseline(_))
     ));
     let configured_catalog = state.nexus_snapshot().configured_lane_catalog;
-    // Validate the semantic restriction independently of the earlier immutable-baseline guard.
+    // Universal lanes are public and share their validator mode, so moving its
+    // lowest owner requires changing SINGLE's physical dataspace. Validate the
+    // live-custody reset guard independently of the immutable-baseline guard.
     let err = state
         .set_nexus_with_configured_lane_catalog(prospective, configured_catalog, None)
         .expect_err("assigning a different owner must not strand live SINGLE stake");
@@ -14610,9 +14502,18 @@ state_test! { sync set_nexus_rejects_live_single_lane_stake_owner_reassignment
         err,
         LaneLifecycleError::UnsafeRetirement { lane, reason }
             if lane == LaneId::SINGLE
-                && reason == LIVE_SHARED_DATASPACE_STAKING_OWNER_CHANGE_REASON
+                && reason == LIVE_LANE_STAKING_CUSTODY_REASON
     ));
+    assert_eq!(state.nexus_snapshot().lane_catalog, nexus_before.lane_catalog);
+    assert_eq!(state.nexus_snapshot().dataspace_catalog, nexus_before.dataspace_catalog);
     let world = state.world.view();
+    assert_eq!(
+        world
+            .public_lane_validators()
+            .get(&(LaneId::SINGLE, validator.clone())),
+        Some(&validator_before),
+        "rejected physical owner reassignment must preserve the exact live row"
+    );
     assert!(
         world
             .public_lane_validators()
@@ -14660,7 +14561,6 @@ state_test! { sync authoritative_lane_peers_for_stake_elected_lane_require_prese
                     activation_height: 0,
                     election_exit_height: None,
                     deactivation_height: None,
-                    last_reward_epoch: None,
                 },
             );
         }
@@ -15496,7 +15396,6 @@ state_test! { sync authoritative_lane_validators_ignore_stale_stake_records_for_
             activation_height: 1,
             election_exit_height: None,
             deactivation_height: None,
-            last_reward_epoch: None,
         },
     );
     wb.commit();
@@ -15716,7 +15615,7 @@ state_test! { sync same_dataspace_authority_rejects_rebound_active_sibling_manif
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(World::default(), kura, query_handle);
-    configure_two_universal_authority_lanes_for_test(&mut state, LaneVisibility::Restricted);
+    configure_two_universal_authority_lanes_for_test(&mut state);
 
     let target_lane = LaneId::SINGLE;
     let sibling_lane = LaneId::new(1);
@@ -17212,8 +17111,7 @@ state_test! { sync both_state_constructors_account_exactly_for_distinct_journal_
         let temp_dir = tempfile::tempdir().expect("temp dir");
         let kura = state_journal_test_kura(temp_dir.path().join("kura").as_path());
         let expected = seed_distinct_state_journal_main_and_temp_files(&kura);
-        let_row! { state = if deserialize_snapshot { deserialize::KuraSeed { operation_index_budget: crate::state::kagemusha_operation_indexes::default_budget(),
-execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), lane_manifests: Arc::new(LaneManifestRegistry::empty()), kura: Arc::clone(&kura), query_handle: LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] telemetry: crate::telemetry::StateTelemetry::default(), } .into_state_from_json(snapshot_value.clone()) .expect("deserialize state through snapshot constructor") } else { Box::new(State::new_for_testing( World::default(), Arc::clone(&kura), LiveQueryStore::start_test(), )) } };
+        let_row! { state = if deserialize_snapshot { deserialize::KuraSeed { execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES), lane_manifests: Arc::new(LaneManifestRegistry::empty()), kura: Arc::clone(&kura), query_handle: LiveQueryStore::start_test(), #[cfg(feature = "telemetry")] telemetry: crate::telemetry::StateTelemetry::default(), } .into_state_from_json(snapshot_value.clone()) .expect("deserialize state through snapshot constructor") } else { Box::new(State::new_for_testing( World::default(), Arc::clone(&kura), LiveQueryStore::start_test(), )) } };
         assert_eq!(state.query_index_status_snapshot(), expected.query_index);
         assert_eq!(
             state.query_projection_checkpoint_snapshot(),
@@ -20514,16 +20412,23 @@ state_test! { sync compute_confidential_digest_uses_config_defaults
         digest.zk_policy_hash,
         Some(combine_zk_and_sccp_policy_hashes(
             compute_zk_consensus_policy_hash(&view.zk),
-            sccp_policy_hash_v1(),
+            sccp_policy_hash_v1(view.world(), height),
         ))
     );
+}
+state_test! { sync default_test_identities_do_not_require_runtime_publisher_custody
+    assert_eq!(DEFAULT_TEST_CHAIN_ID.as_str(), "00000000-0000-0000-0000-000000000000");
+    let expected = "hash:0000000000000000000000000000000000000000000000000000000000000001#C50E"
+        .parse::<iroha_data_model::NetworkId>()
+        .expect("fixture's canonical network identity");
+    assert_eq!(*DEFAULT_TEST_NETWORK_ID, expected);
 }
 state_test! { sync default_genesis_confidential_policy_hash_uses_default_zk_and_sccp_v1_policy
     assert_eq!(
         default_genesis_confidential_policy_hash(),
         combine_zk_and_sccp_policy_hashes(
             compute_zk_consensus_policy_hash(&default_zk_config()),
-            sccp_policy_hash_v1(),
+            sccp_genesis_policy_hash_v1(),
         )
     );
     assert_eq!(
@@ -20538,7 +20443,7 @@ state_test! { sync pure_zk_and_sccp_policy_hashes_are_independent_and_domain_sep
         compute_genesis_confidential_policy_hash(&base),
         combine_zk_and_sccp_policy_hashes(
             compute_zk_consensus_policy_hash(&base),
-            sccp_policy_hash_v1(),
+            sccp_genesis_policy_hash_v1(),
         ),
         "genesis policy must bind the fixed SCCP v1 policy input"
     );
@@ -20555,7 +20460,7 @@ state_test! { sync pure_zk_and_sccp_policy_hashes_are_independent_and_domain_sep
     assert_ne!(
         combine_zk_and_sccp_policy_hashes(
             compute_zk_consensus_policy_hash(&base),
-            sccp_policy_hash_v1(),
+            sccp_genesis_policy_hash_v1(),
         ),
         combine_zk_and_sccp_policy_hashes(compute_zk_consensus_policy_hash(&base), [0; 32]),
         "effective policy must bind the SCCP policy input"
@@ -20567,33 +20472,36 @@ state_test! { sync pure_zk_and_sccp_policy_hashes_are_independent_and_domain_sep
         "ZK consensus configuration must remain bound into genesis"
     );
 }
-state_test! { sync sccp_policy_hash_v1_binds_the_compiled_light_client_profiles
+state_test! { sync sccp_policy_hash_v1_binds_the_active_light_client_profiles
+    let catalog = iroha_sccp::light_client::profile::SccpLcProfileCatalogV1::compiled();
     let expected: [u8; 32] = {
         let mut hasher = Sha256::new();
         zk_policy_put_bytes(&mut hasher, b"iroha:sccp:policy:v1");
-        zk_policy_put_bytes(
-            &mut hasher,
-            &iroha_sccp::light_client::profile::policy_hash_contribution(),
-        );
+        zk_policy_put_bytes(&mut hasher, &catalog.genesis().policy_hash());
         Sha2Digest::finalize(hasher).into()
     };
-    assert_eq!(sccp_policy_hash_v1(), expected);
-    assert_eq!(sccp_policy_hash_v1(), sccp_policy_hash_v1());
-    assert_ne!(sccp_policy_hash_v1(), [0; 32]);
+    assert_eq!(sccp_genesis_policy_hash_v1(), expected);
+    assert_ne!(sccp_genesis_policy_hash_v1(), [0; 32]);
+    // A state without activations runs version 1 at every height.
+    let world = World::default();
+    let view = world.view();
+    for height in [0, 1, u64::MAX] {
+        assert_eq!(sccp_policy_hash_v1(&view, height), expected);
+    }
 }
 state_test! { sync zk_policy_hash_ignores_operator_only_timing_and_workers
     let base = default_zk();
     let mut changed = base.clone();
     changed.verify_timeout = std::time::Duration::from_nanos(1);
-    changed.halo2.verifier_budget_ms = changed.halo2.verifier_budget_ms.saturating_add(1);
-    changed.halo2.verifier_worker_threads = changed.halo2.verifier_worker_threads.saturating_add(1);
-    changed.halo2.verifier_queue_cap = changed.halo2.verifier_queue_cap.saturating_add(1);
-    changed.halo2.verifier_enqueue_wait_ms =
-        changed.halo2.verifier_enqueue_wait_ms.saturating_add(1);
-    changed.halo2.verifier_retry_ring_cap = changed.halo2.verifier_retry_ring_cap.saturating_add(1);
-    changed.halo2.verifier_retry_max_attempts =
-        changed.halo2.verifier_retry_max_attempts.saturating_add(1);
-    changed.halo2.verifier_retry_tick_ms = changed.halo2.verifier_retry_tick_ms.saturating_add(1);
+    changed.trace.max_batch = changed.trace.max_batch.saturating_add(1);
+    changed.trace.worker_threads = changed.trace.worker_threads.saturating_add(1);
+    changed.trace.queue_cap = changed.trace.queue_cap.saturating_add(1);
+    changed.trace.enqueue_wait_ms =
+        changed.trace.enqueue_wait_ms.saturating_add(1);
+    changed.trace.retry_ring_cap = changed.trace.retry_ring_cap.saturating_add(1);
+    changed.trace.retry_max_attempts =
+        changed.trace.retry_max_attempts.saturating_add(1);
+    changed.trace.retry_tick_ms = changed.trace.retry_tick_ms.saturating_add(1);
     assert_eq!(
         compute_zk_consensus_policy_hash(&base),
         compute_zk_consensus_policy_hash(&changed)
@@ -20602,7 +20510,7 @@ state_test! { sync zk_policy_hash_ignores_operator_only_timing_and_workers
 state_test! { sync zk_policy_hash_tracks_consensus_limits
     let base = default_zk();
     let mut changed = base.clone();
-    changed.halo2.max_proof_bytes = changed.halo2.max_proof_bytes.saturating_add(1);
+    changed.pipa_r.max_proof_bytes = changed.pipa_r.max_proof_bytes.saturating_add(1);
     assert_ne!(
         compute_zk_consensus_policy_hash(&base),
         compute_zk_consensus_policy_hash(&changed)
@@ -20668,14 +20576,6 @@ state_test! { sync zk_policy_hash_tracks_every_sccp_resource_limit
         core::num::NonZeroU64::new(33 * 1024 * 1024).expect("33 MiB is nonzero")
     );
     assert_field_bound!(
-        max_secp256k1_recoveries_per_transaction,
-        core::num::NonZeroU32::new(1_004).expect("1,004 is nonzero")
-    );
-    assert_field_bound!(
-        max_secp256k1_recoveries_per_block,
-        core::num::NonZeroU32::new(4_021).expect("4,021 is nonzero")
-    );
-    assert_field_bound!(
         max_ed25519_signature_checks_per_transaction,
         core::num::NonZeroU32::new(65_535).expect("65,535 is nonzero")
     );
@@ -20693,7 +20593,6 @@ state_test! { sync zk_policy_hash_tracks_every_sccp_resource_limit
     );
 }
 
-#[cfg(feature = "zk-halo2-ipa")]
 state_test! { sync confidential_digest_reflects_registry_commit
     let kura = Kura::blank_kura_for_testing();
     let query = LiveQueryStore::start_test();
@@ -20723,7 +20622,7 @@ state_test! { sync confidential_digest_reflects_registry_commit
     let mut block2 = state.block(header2);
     {
         let mut stx = block2.transaction();
-        let id = VerifyingKeyId::new("halo2/ipa", "vk_cache");
+        let id = VerifyingKeyId::new("pipa-r/pasta", "vk_cache");
         let rec = crate::zk::confidential_v2::confidential_transfer_v2_vk_record("test", 1)
             .expect("canonical confidential-transfer verifier key");
         verifying_keys::RegisterVerifyingKey { id, record: rec }
@@ -22843,8 +22742,7 @@ state_test! { sync emergency_fast_manifest_constructor_binds_boundary_and_maps_h
         &lane_config,
     )
     .expect("reopen Fast Kura fixture");
-    let seed = || deserialize::KuraSeed { operation_index_budget: crate::state::kagemusha_operation_indexes::default_budget(),
-execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES),
+    let seed = || deserialize::KuraSeed { execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES),
         lane_manifests: Arc::new(LaneManifestRegistry::empty()),
         kura: Arc::clone(&fast_kura),
         query_handle: LiveQueryStore::start_test(),
@@ -22907,7 +22805,6 @@ execution_budget: iroha_allocation::AllocationBudget::new(iroha_config::paramete
         &empty_config, &lane_config,
     ).expect("reopen the initialized empty Fast Kura with the same catalog");
     let empty_seed = deserialize::KuraSeed {
-        operation_index_budget: crate::state::kagemusha_operation_indexes::default_budget(),
         execution_budget: iroha_allocation::AllocationBudget::new(
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         ),
@@ -24249,7 +24146,7 @@ state_test! { large_stack mailbox_and_receipt_restore_validates_consensus_execut
             .build(&ALICE_ID)
             .into_key_value();
         world.accounts.insert(account_id, account);
-        world = reward_reserves::registered_custody_world_for_test(
+        world = custody_fixture::registered_custody_world_for_test(
             world,
             &stake_asset,
             Quantity::from(1_u64),
@@ -24282,7 +24179,6 @@ state_test! { large_stack mailbox_and_receipt_restore_validates_consensus_execut
                 activation_height: 1,
                 election_exit_height: None,
                 deactivation_height: None,
-                last_reward_epoch: None,
             },
         );
         world.public_lane_stake_shares.insert(
@@ -25186,6 +25082,7 @@ state_test! { sync emergency_fast_snapshot_index_finalization_defers_vpn_network
 
     let error = state
         .finalize_snapshot_derived_state_indexes(false)
+        .map_err(crate::execution_attempt::expect_completed_rejection)
         .expect_err("Strict snapshot restore must validate every retained VPN network");
     assert!(error.contains("different exact network"));
     state
@@ -25244,6 +25141,7 @@ state_test! { sync strict_snapshot_index_finalization_rejects_mis_homed_kaigi_re
 
     let error = state
         .finalize_snapshot_derived_state_indexes(false)
+        .map_err(crate::execution_attempt::expect_completed_rejection)
         .expect_err("Strict snapshot restore must validate rebuilt Kaigi relay homes");
     assert!(error.contains("outside its persisted home domain"));
     state
@@ -25307,6 +25205,7 @@ state_test! { sync derived_state_rebuild_rejects_future_kaigi_relay_feedback
 
     let error = state
         .rebuild_derived_state_indexes()
+        .map_err(crate::execution_attempt::expect_completed_rejection)
         .expect_err("future relay feedback must fail authenticated state restoration");
     assert!(error.contains("exceeds restored ledger time 20"), "{error}");
 }
@@ -26861,6 +26760,9 @@ state_test! { sync authenticated_generic_ivm_trigger_executes_without_contract_i
     assert!(step.0.is_empty());
     transaction.world.contract_manifests.insert(iroha_data_model::smart_contract::ContractArtifactId::new(iroha_model_base::topology::DataSpaceId::UNIVERSAL, generic_code_hash),
         iroha_data_model::smart_contract::manifest::ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(generic_code_hash),
             abi_hash: Some(Hash::prehashed(ivm::syscalls::compute_abi_hash(
@@ -26942,13 +26844,13 @@ state_test! { sync raw_ivm_trigger_enforces_entrypoint_authorization_before_argu
     const REQUIRED_PERMISSION: &str = "raw_trigger_run";
     let trigger_id: TriggerId = "protected_raw_callback".parse().expect("trigger id");
     let_row! { src = r#"
-        seiyaku ProtectedRawTrigger {
-          kotoage fn main(int marker, Json event) authorize("raw_trigger_run") {
+        seiyaku ProtectedRawTrigger { permission raw_trigger_run;
+          kotoage fn main(int marker, Json firing_event) authorize(raw_trigger_run) {
             let _marker = marker;
-            ledger::account::set_detail(
+            ledger::account::set_metadata(
               account: context::seiyaku_subject(),
               key: Name::parse("raw_trigger_marker"),
-              value: event
+              value: firing_event
             );
           }
         }
@@ -27018,10 +26920,10 @@ state_test! { sync raw_ivm_trigger_enforces_entrypoint_authorization_before_argu
             trigger_id: trigger_id.clone(),
             authority: ALICE_ID.clone(),
             // Trigger event arguments use the same named-field object as direct
-            // contract calls. The `event` field itself remains arbitrary JSON.
+            // contract calls. The `firing_event` field itself remains arbitrary JSON.
             args: Json::from(norito::json!({
                 "marker": "7",
-                "event": { "marker": "authorized" }
+                "firing_event": { "marker": "authorized" }
             })),
         };
         let denied_events_before = stx.world.external_event_buf.len();
@@ -27059,7 +26961,12 @@ state_test! { sync raw_ivm_trigger_enforces_entrypoint_authorization_before_argu
             1,
             "a missing cached artifact must be authenticated and prepared exactly once from authoritative trigger storage"
         );
-        let callback_permission = Permission::new(REQUIRED_PERMISSION.into(), Json::new(()));
+        let callback_permission: Permission =
+            iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                contract: contract_address.clone(),
+                permission: REQUIRED_PERMISSION.parse().unwrap(),
+            }
+            .into();
         Grant::account_permission(callback_permission.clone(), ALICE_ID.clone())
             .execute(&ALICE_ID, &mut stx)
             .expect("grant raw IVM trigger entrypoint permission");
@@ -27104,6 +27011,8 @@ state_test! { sync raw_ivm_trigger_enforces_entrypoint_authorization_before_argu
             "warm trigger dispatch must check out the retained runtime"
         );
         let_row! { authorized_marker = stx .world .account(&contract_subject) .expect("raw trigger contract subject account") .metadata() .get(&metadata_marker) .cloned() .expect("authorized raw trigger writes its metadata marker") };
+        assert_eq!(authorized_marker, Json::from(norito::json!({"marker": "authorized"})),
+            "the callback must receive its exact typed JSON argument");
         {
             let binding = stx
                 .world
@@ -27328,8 +27237,8 @@ state_test! { sync identityless_raw_trigger_rejects_before_event_argument_decode
     let state = blank_state();
     let trigger_id: TriggerId = "identityless_raw_callback".parse().expect("trigger id");
     let_row! { program = kotodama_lang::compiler::Compiler::new() .compile_source( r#"
-seiyaku IdentitylessRawCallback {
-  kotoage fn main(Json ev) authorize("identityless_raw_callback_run") {
+seiyaku IdentitylessRawCallback { permission identityless_raw_callback_run;
+  kotoage fn main(Json ev) authorize(identityless_raw_callback_run) {
 let _ev = ev;
   }
 }
@@ -27394,43 +27303,42 @@ state_test! { sync contract_call_trigger_enforces_entrypoint_and_hold_before_arg
     });
     use crate::smartcontracts::code::{activate_instance, register_code_bytes, register_manifest};
     use iroha_data_model::{
-        events::execute_trigger::{ExecuteTriggerEvent, ExecuteTriggerEventFilter},
+        events::execute_trigger::ExecuteTriggerEvent,
         smart_contract::ContractAddress,
-        transaction::{
-            Executable,
-            executable::{ContractArgumentRecord, ContractInvocation},
-        },
-        trigger::{
-            Trigger,
-            action::{Action, Repeats},
-        },
     };
     use iroha_test_samples::ALICE_KEYPAIR;
     use kotodama_lang::compiler::Compiler as KotodamaCompiler;
     let state = authenticate_trigger_fixture(blank_state());
     const REQUIRED_PERMISSION: &str = "contract_trigger_run";
     let_row! { src = r#"
-        seiyaku ProtectedContractCallTrigger {
-          kotoage fn run(int marker) authorize("contract_trigger_run") {
-            let _marker = marker;
-            ledger::account::set_detail(
+        seiyaku ProtectedContractCallTrigger { permission contract_trigger_run;
+          error enum TriggerProbeError { UnexpectedMarker = 1 }
+          kotoage fn run(int marker) authorize(contract_trigger_run) {
+            require(marker == 9, TriggerProbeError::UnexpectedMarker);
+            ledger::account::set_metadata(
               account: context::seiyaku_subject(),
               key: Name::parse("contract_trigger_marker"),
-              value: Json::parse("{\"authorized\":true}")
+              value: context::trigger_event()
             );
           }
 
           trigger protected_contract_callback -> run {
             on execute trigger protected_contract_callback;
           }
+          kotoage fn capture() authorize(anyone) {
+            ledger::account::set_metadata(
+              account: context::seiyaku_subject(),
+              key: Name::parse("zero_parameter_event"),
+              value: context::trigger_event()
+            );
+          }
+          trigger capture_contract_callback -> capture {
+            on execute trigger capture_contract_callback;
+          }
         }
     "# };
     let_row! { (code, mut manifest) = KotodamaCompiler::new() .compile_source_with_manifest(src) .expect("compile contract-call trigger probe") };
-    let parsed = ivm::ProgramMetadata::parse(&code).expect("parse trigger contract artifact");
-    let_row! { argument_schema = parsed .contract_interface .as_ref() .and_then(|interface| { interface .entrypoints .iter() .find(|entrypoint| entrypoint.name == "run") }) .and_then(|entrypoint| entrypoint.argument_schema.as_ref()) .expect("parameterized trigger callback schema") };
-    let_row! { callback_arguments = ivm_abi::arguments::encode_argument_record_from_json( argument_schema, &Json::from(norito::json!({ "marker": "9" })), ) .expect("encode trigger callback arguments") };
-    let_row! { callback_arguments = ContractArgumentRecord::try_new(callback_arguments) .expect("bounded trigger callback arguments") };
-    let trigger_id: TriggerId = "contract_call_payload_probe".parse().unwrap();
+    let trigger_id: TriggerId = "protected_contract_callback".parse().unwrap();
     let_row! { contract_address = ContractAddress::derive(state.network_id_ref(), &ALICE_ID, 0, DataSpaceId::UNIVERSAL) .expect("derive contract address") };
     let contract_subject = contract_address.subject_id();
     let_row! { block1 = ValidBlock::new_unverified_for_tests(state.view().latest_block().expect("completed original State read").expect("original trigger parent").as_ref().clone()) };
@@ -27461,10 +27369,13 @@ state_test! { sync contract_call_trigger_enforces_entrypoint_and_hold_before_arg
         );
         activate_instance(&ALICE_ID, contract_address.clone(), 1, code_hash, &mut stx)
             .expect("activate contract instance");
-        let_row! { trigger = Trigger::new( trigger_id.clone(), Action::new( Executable::ContractCall(ContractInvocation { contract_address: contract_address.clone(), expected_code_hash: code_hash, entrypoint: "run".to_owned(), arguments: Some(callback_arguments), }), Repeats::Indefinitely, ALICE_ID.clone(), ExecuteTriggerEventFilter::new() .for_trigger(trigger_id.clone()) .under_authority(ALICE_ID.clone()), ) .expect("trigger action fixture satisfies validation invariants"), ) };
-        Register::trigger(trigger)
-            .execute(&ALICE_ID, &mut stx)
-            .unwrap();
+        let callback = stx.world.triggers.by_call_triggers().get(&trigger_id)
+            .expect("activation registers the signed manifest callback");
+        let ExecutableRef::ContractCall(invocation) = callback.executable() else {
+            panic!("activated callback is a typed contract invocation");
+        };
+        assert!(invocation.arguments.is_none());
+        assert_eq!(callback.authority(), &contract_subject);
         stx.apply_callback_for_testing().expect("capture successful component callbacks");
         state_block.commit_world_overlay_for_testing().unwrap();
     }
@@ -27473,7 +27384,7 @@ state_test! { sync contract_call_trigger_enforces_entrypoint_and_hold_before_arg
         let mut state_block = state.block(block2.as_ref().header());
         let mut stx = state_block.transaction_for_callback_testing();
         let_row! { metadata_marker: Name = "contract_trigger_marker" .parse() .expect("valid ContractCall trigger metadata marker") };
-        let_row! { event = ExecuteTriggerEvent { trigger_id: trigger_id.clone(), authority: ALICE_ID.clone(), args: Json::from_raw_json(r#"{"condition_code":7}"#.to_owned()) .expect("valid trigger arguments JSON"), } };
+        let_row! { event = ExecuteTriggerEvent { trigger_id: trigger_id.clone(), authority: contract_subject.clone(), args: Json::from_raw_json(r#"{"marker":"9"}"#.to_owned()) .expect("valid trigger arguments JSON"), } };
         let denied_events_before = stx.world.external_event_buf.len();
         ivm::reset_argument_record_decode_count();
         let_row! { denied = stx .execute_called_trigger(&trigger_id, &event) .expect_err("trigger authority without the entrypoint permission must be denied") };
@@ -27504,10 +27415,18 @@ state_test! { sync contract_call_trigger_enforces_entrypoint_and_hold_before_arg
             denied_events_before,
             "denied ContractCall trigger must emit no completion event"
         );
-        let callback_permission = Permission::new(REQUIRED_PERMISSION.into(), Json::new(()));
-        Grant::account_permission(callback_permission.clone(), ALICE_ID.clone())
+        let callback_permission: Permission = iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+            contract: contract_address.clone(),
+            permission: REQUIRED_PERMISSION.parse().unwrap(),
+        }.into();
+        Grant::account_permission(callback_permission.clone(), contract_subject.clone())
             .execute(&ALICE_ID, &mut stx)
             .expect("grant trigger entrypoint permission");
+        let mut malformed_event = event.clone();
+        malformed_event.args = Json::from(norito::json!({"marker": 9}));
+        assert!(stx.execute_called_trigger(&trigger_id, &malformed_event).is_err(),
+            "typed callback arguments reject noncanonical numeric JSON");
+        ivm::reset_argument_record_decode_count();
         stx.execute_called_trigger(&trigger_id, &event)
             .expect("granted contract-call trigger should consume its canonical arguments");
         assert_eq!(
@@ -27516,6 +27435,17 @@ state_test! { sync contract_call_trigger_enforces_entrypoint_and_hold_before_arg
             "authorized ContractCall trigger arguments must be prepared exactly once"
         );
         let_row! { authorized_marker = stx .world .account(&contract_subject) .expect("ContractCall trigger contract subject account") .metadata() .get(&metadata_marker) .cloned() .expect("authorized trigger writes its metadata marker") };
+        assert_eq!(authorized_marker, event.args, "context retains the exact firing payload");
+        let capture_id: TriggerId = "capture_contract_callback".parse().unwrap();
+        let capture_event = ExecuteTriggerEvent {
+            trigger_id: capture_id.clone(), authority: contract_subject.clone(),
+            args: Json::from(norito::json!({"note": "no callback parameters"})),
+        };
+        stx.execute_called_trigger(&capture_id, &capture_event)
+            .expect("zero-parameter callback preserves its event context");
+        assert_eq!(stx.world.account(&contract_subject).unwrap().metadata()
+            .get(&"zero_parameter_event".parse::<Name>().unwrap()), Some(&capture_event.args));
+
         {
             let binding = stx
                 .world
@@ -27580,7 +27510,7 @@ state_test! { sync contract_call_trigger_enforces_entrypoint_and_hold_before_arg
                 .checked_add(1)
                 .expect("test lifecycle revision advances");
         }
-        Revoke::account_permission(callback_permission.clone(), ALICE_ID.clone())
+        Revoke::account_permission(callback_permission.clone(), contract_subject.clone())
             .execute(&ALICE_ID, &mut stx)
             .expect("revoke trigger entrypoint permission");
         let revoked_events_before = stx.world.external_event_buf.len();
@@ -27613,7 +27543,7 @@ state_test! { sync contract_call_trigger_enforces_entrypoint_and_hold_before_arg
             revoked_events_before,
             "revoked ContractCall trigger must emit no completion event"
         );
-        Grant::account_permission(callback_permission, ALICE_ID.clone())
+        Grant::account_permission(callback_permission, contract_subject.clone())
             .execute(&ALICE_ID, &mut stx)
             .expect("restore trigger entrypoint permission");
         stx.world
@@ -27681,7 +27611,7 @@ state_test! { sync execute_data_trigger_supports_alias_resolve_and_json_amount_t
     let trigger_id: TriggerId = "alias_json_transfer".parse().unwrap();
     let_row! { banking_label = AccountAlias::new( "banking".parse().expect("banking label"), Some(AccountAliasDomain::new(domain_id.name().clone())), DataSpaceId::UNIVERSAL, ) };
     let_row! { src = r#"
-        seiyaku AliasTransfer {
+        seiyaku AliasTransfer { permission alias_transfer_run;
           error enum AliasTransferError {
             UnexpectedKind = 1,
             UnexpectedOperation = 2,
@@ -27698,7 +27628,7 @@ state_test! { sync execute_data_trigger_supports_alias_resolve_and_json_amount_t
             AccountId account_id,
             DomainId account_domain,
             quantity amount,
-          ) authorize("alias_transfer_run") {
+          ) authorize(alias_transfer_run) {
             require(kind == Name::parse("asset_change"), AliasTransferError::UnexpectedKind);
             require(op == Name::parse("added"), AliasTransferError::UnexpectedOperation);
             require(amount > 0, AliasTransferError::NonPositiveAmount);
@@ -27777,7 +27707,12 @@ state_test! { sync execute_data_trigger_supports_alias_resolve_and_json_amount_t
             .execute(&ALICE_ID, &mut stx)
             .unwrap();
         Grant::account_permission(
-            Permission::new("alias_transfer_run".into(), Json::new(())),
+            Permission::from(
+                iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                    contract: contract_address.clone(),
+                    permission: "alias_transfer_run".parse().unwrap(),
+                },
+            ),
             ALICE_ID.clone(),
         )
         .execute(&ALICE_ID, &mut stx)
@@ -28604,10 +28539,19 @@ fn parliament_certified_enactment_index_tracks_rebuild_transition_and_removal() 
     );
 }
 
-#[test]
-fn parliament_required_beacon_slot_index_tracks_lifecycle_and_removal() {
+/// Fixture attempt whose complete initial generation awaits `pulse_height`, with the
+/// governance sizing that draws it.
+fn parliament_pending_sortition_slot_fixture(
+    network_tag: u8,
+    pulse_height: u64,
+) -> (
+    iroha_data_model::NetworkId,
+    GovernanceAttemptId,
+    ParliamentAttemptStateV1,
+    iroha_config::parameters::actual::Governance,
+) {
     let network_id = iroha_data_model::NetworkId::from_genesis_hash(
-        HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xD9; 32])),
+        HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([network_tag; 32])),
     );
     let roster = (1_u8..=4)
         .map(|marker| {
@@ -28616,9 +28560,21 @@ fn parliament_required_beacon_slot_index_tracks_lifecycle_and_removal() {
                 .expect("derive deterministic Parliament candidate")
         })
         .collect::<Vec<_>>();
-    let pulse_height = 41;
-    let (governance_attempt_id, _, mut attempt) =
+    let (governance_attempt_id, _, attempt) =
         crate::beacon::tests::pending_batched_sortition_attempt(&network_id, &roster, pulse_height);
+    let governance = iroha_config::parameters::actual::Governance {
+        rules_committee_size: 2,
+        policy_jury_size: 3,
+        ..iroha_config::parameters::actual::Governance::default()
+    };
+    (network_id, governance_attempt_id, attempt, governance)
+}
+
+#[test]
+fn parliament_required_beacon_slot_index_tracks_lifecycle_and_removal() {
+    let pulse_height = 41;
+    let (network_id, governance_attempt_id, mut attempt, governance) =
+        parliament_pending_sortition_slot_fixture(0xD9, pulse_height);
     let election_attempt_id = iroha_data_model::governance::types::BodyElectionAttemptId::derive_v1(
         governance_attempt_id,
         iroha_data_model::governance::types::ParliamentBody::RulesCommittee,
@@ -28642,28 +28598,49 @@ fn parliament_required_beacon_slot_index_tracks_lifecycle_and_removal() {
         Some(&BTreeSet::from([governance_attempt_id]))
     );
 
-    attempt
-        .fail_body_election_no_roster(
+    // The wait has no expiry: the election cannot be failed far past its slot, and writing
+    // the unchanged attempt again keeps exactly the same awaited slot.
+    assert_eq!(
+        attempt.fail_body_election_no_roster(
             governance_attempt_id,
             election_attempt_id,
-            false,
+            pulse_height + 1_000_000,
+        ),
+        Err(ParliamentReducerErrorV1::InvalidLifecycleTransition(
+            crate::governance::parliament::ParliamentReducerEntityV1::BodyElection
+        ))
+    );
+    transaction
+        .put_parliament_attempt(attempt.clone())
+        .expect("rewrite the unchanged pulse wait");
+    assert_eq!(
+        transaction
+            .parliament_required_beacon_pulse_slots
+            .iter()
+            .map(|(slot, attempts)| (*slot, attempts.clone()))
+            .collect::<BTreeMap<_, _>>(),
+        BTreeMap::from([(pulse_slot, BTreeSet::from([governance_attempt_id]))])
+    );
+
+    // Consuming the pulse of the exact slot is the only lifecycle step that ends the wait.
+    attempt
+        .fail_sortition_generation_with_empty_roster_for_tests(
+            election_attempt_id,
+            iroha_data_model::governance::types::BeaconPulseId::new([0xDA; 32]),
+            &network_id,
+            &governance,
             pulse_height + 1,
         )
-        .expect("terminally classify the unavailable sortition slot");
+        .expect("consume the exact slot pulse and close the empty invitation window");
     transaction
         .put_parliament_attempt(attempt)
-        .expect("replace the live request with its terminal transcript");
+        .expect("replace the live request with its drawn transcript");
     assert!(
         transaction
             .parliament_required_beacon_pulse_slots
-            .get(&pulse_slot)
+            .iter()
+            .next()
             .is_none()
-    );
-    assert_eq!(
-        transaction
-            .parliament_unavailable_beacon_pulse_slots
-            .get(&pulse_slot),
-        Some(&BTreeSet::from([governance_attempt_id]))
     );
 
     assert!(
@@ -28673,44 +28650,26 @@ fn parliament_required_beacon_slot_index_tracks_lifecycle_and_removal() {
     );
     assert!(
         transaction
-            .parliament_unavailable_beacon_pulse_slots
-            .get(&pulse_slot)
+            .parliament_required_beacon_pulse_slots
+            .iter()
+            .next()
             .is_none()
     );
 }
 
 #[test]
-fn parliament_unavailable_beacon_slot_index_rebuilds_and_tracks_removal() {
-    let network_id = iroha_data_model::NetworkId::from_genesis_hash(
-        HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xD4; 32])),
-    );
-    let roster = (1_u8..=4)
-        .map(|marker| {
-            KeyPair::try_from_seed(vec![marker; 32], Algorithm::Ed25519)
-                .map(|key| PeerId::new(key.public_key().clone()))
-                .expect("derive deterministic Parliament candidate")
-        })
-        .collect::<Vec<_>>();
+fn parliament_required_beacon_slot_index_rebuilds_and_tracks_removal() {
     let pulse_height = 41;
-    let (governance_attempt_id, _, mut attempt) =
-        crate::beacon::tests::pending_batched_sortition_attempt(&network_id, &roster, pulse_height);
-    let election_attempt_id = iroha_data_model::governance::types::BodyElectionAttemptId::derive_v1(
-        governance_attempt_id,
-        iroha_data_model::governance::types::ParliamentBody::RulesCommittee,
-        0,
-    );
-    attempt
-        .fail_body_election_no_roster(
-            governance_attempt_id,
-            election_attempt_id,
-            false,
-            pulse_height + 1,
-        )
-        .expect("terminally classify the unavailable sortition slot");
+    let (network_id, governance_attempt_id, attempt, _) =
+        parliament_pending_sortition_slot_fixture(0xD4, pulse_height);
     let pulse_slot = (
         iroha_data_model::governance::types::BeaconSessionId::for_network_v1(&network_id),
         pulse_height,
     );
+    // A wait on a slot far below the restored height is ordinary restorable state.
+    attempt
+        .validate_restored_height_v1(pulse_height + 1_000_000)
+        .expect("an old awaited slot restores cleanly");
 
     let mut world = World::new();
     world
@@ -28718,22 +28677,22 @@ fn parliament_unavailable_beacon_slot_index_rebuilds_and_tracks_removal() {
         .insert(governance_attempt_id, attempt);
     world
         .rebuild_governance_read_indexes()
-        .expect("rebuild unavailable Parliament pulse slots");
+        .expect("rebuild awaited Parliament pulse slots");
     assert_eq!(
         world
-            .parliament_unavailable_beacon_pulse_slots
+            .parliament_required_beacon_pulse_slots
             .view()
             .get(&pulse_slot),
         Some(&BTreeSet::from([governance_attempt_id]))
     );
 
-    world.parliament_unavailable_beacon_pulse_slots = Storage::default();
+    world.parliament_required_beacon_pulse_slots = Storage::default();
     world
         .rebuild_governance_read_indexes()
-        .expect("repeating unavailable-slot rebuild succeeds");
+        .expect("repeating the awaited-slot rebuild succeeds");
     assert_eq!(
         world
-            .parliament_unavailable_beacon_pulse_slots
+            .parliament_required_beacon_pulse_slots
             .view()
             .get(&pulse_slot),
         Some(&BTreeSet::from([governance_attempt_id]))
@@ -28748,53 +28707,132 @@ fn parliament_unavailable_beacon_slot_index_rebuilds_and_tracks_removal() {
     );
     assert!(
         transaction
-            .parliament_unavailable_beacon_pulse_slots
+            .parliament_required_beacon_pulse_slots
             .get(&pulse_slot)
             .is_none()
     );
 }
 
 #[test]
-fn parliament_attempt_rejects_unavailable_slot_after_pulse_finalization_atomically() {
+fn parliament_sortition_slot_never_conflicts_with_a_finalized_pulse() {
     let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
-    let network_id = iroha_data_model::NetworkId::from_genesis_hash(
-        HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xD5; 32])),
-    );
+    let (network_id, governance_attempt_id, pending, governance) =
+        parliament_pending_sortition_slot_fixture(0xD5, 41);
     let (_, pulse) =
         crate::beacon::signed_persisted_pulse_fixture_for_world(network_id, 41, &budget);
-    let roster = (1_u8..=4)
-        .map(|marker| {
-            KeyPair::try_from_seed(vec![marker; 32], Algorithm::Ed25519)
-                .map(|key| PeerId::new(key.public_key().clone()))
-                .expect("derive deterministic Parliament candidate")
-        })
-        .collect::<Vec<_>>();
-    let (governance_attempt_id, _, mut attempt) =
-        crate::beacon::tests::pending_batched_sortition_attempt(&network_id, &roster, pulse.height);
     let election_attempt_id = iroha_data_model::governance::types::BodyElectionAttemptId::derive_v1(
         governance_attempt_id,
         iroha_data_model::governance::types::ParliamentBody::RulesCommittee,
         0,
     );
-    attempt
-        .fail_body_election_no_roster(
-            governance_attempt_id,
+    let pulse_slot = (
+        iroha_data_model::governance::types::BeaconSessionId::for_network_v1(&network_id),
+        pulse.height,
+    );
+    let mut failed = pending.clone();
+    failed
+        .fail_sortition_generation_with_empty_roster_for_tests(
             election_attempt_id,
-            false,
+            iroha_data_model::governance::types::BeaconPulseId::new(pulse.pulse_id),
+            &network_id,
+            &governance,
             pulse.height + 1,
         )
-        .expect("terminally classify the unavailable sortition slot");
+        .expect("consume the exact slot pulse and close the empty invitation window");
+    assert!(pending.unavailable_release_pulse_slots_v1().is_empty());
+    assert!(failed.unavailable_release_pulse_slots_v1().is_empty());
 
-    let mut world = World::new();
-    world.global_beacon_pulses.insert(pulse.pulse_id, pulse);
-    world
-        .rebuild_global_beacon_pulse_slots()
-        .expect("rebuild finalized logical beacon slots");
+    // A finalized pulse sits at the slot. Neither the pending wait nor the failed election
+    // that names it is rejected on write, and the derived indexes rebuild either way.
+    for (attempt, awaited) in [(pending, true), (failed, false)] {
+        let mut world = World::new();
+        world.global_beacon_pulses.insert(pulse.pulse_id, pulse);
+        world
+            .rebuild_global_beacon_pulse_slots()
+            .expect("rebuild finalized logical beacon slots");
+        {
+            let mut block = world.block();
+            let mut transaction =
+                block.transaction_without_telemetry(RuntimeLaneConfig::default(), 0);
+            assert_eq!(transaction.put_parliament_attempt(attempt.clone()), Ok(()));
+            assert_eq!(
+                transaction
+                    .parliament_required_beacon_pulse_slots
+                    .get(&pulse_slot)
+                    .is_some(),
+                awaited
+            );
+        }
+        world
+            .parliament_attempts
+            .insert(governance_attempt_id, attempt);
+        world
+            .rebuild_governance_read_indexes()
+            .expect("a finalized pulse never contradicts a sortition slot");
+        assert_eq!(
+            world
+                .parliament_required_beacon_pulse_slots
+                .view()
+                .get(&pulse_slot)
+                .is_some(),
+            awaited
+        );
+    }
+}
+
+#[test]
+fn parliament_attempt_rejects_release_unavailable_ballot_at_a_finalized_pulse_slot_atomically() {
+    use iroha_data_model::governance::types::BeaconSessionId;
+
+    let release_session = BeaconSessionId::new([0x49; 32]);
+    let other_session = BeaconSessionId::new([0x4A; 32]);
+    let (attempt, release_slot) =
+        crate::governance::parliament::tests::release_pulse_unavailable_attempt_fixture_v1(
+            release_session,
+        );
+    let governance_attempt_id = attempt.attempt().id;
+    let (_, release_height) = release_slot;
+    assert_eq!(
+        attempt.unavailable_release_pulse_slots_v1(),
+        BTreeSet::from([release_slot])
+    );
+    let world_with_pulse_slots = |slots: &[(BeaconSessionId, u64)]| {
+        let mut world = World::new();
+        for (index, slot) in slots.iter().enumerate() {
+            let marker = u8::try_from(index + 1).expect("few fixture slots");
+            world.global_beacon_pulse_slots.insert(*slot, [marker; 32]);
+        }
+        world
+    };
+
+    // No finalized pulse anywhere, or pulses only at another height of the release session
+    // and at the release height of another session: the classification is consistent and
+    // the write is accepted.
+    for slots in [
+        Vec::new(),
+        vec![
+            (release_session, release_height - 1),
+            (release_session, release_height + 1),
+            (other_session, release_height),
+        ],
+    ] {
+        let world = world_with_pulse_slots(&slots);
+        let mut block = world.block();
+        let mut transaction = block.transaction_without_telemetry(RuntimeLaneConfig::default(), 0);
+        assert_eq!(transaction.put_parliament_attempt(attempt.clone()), Ok(()));
+        assert_eq!(
+            transaction.parliament_attempts.get(&governance_attempt_id),
+            Some(&attempt)
+        );
+    }
+
+    // A finalized pulse sits at exactly the release slot: the classification contradicts
+    // committed state, the write is refused and nothing is published.
+    let world = world_with_pulse_slots(&[release_slot]);
     let mut block = world.block();
     let mut transaction = block.transaction_without_telemetry(RuntimeLaneConfig::default(), 0);
-
     assert_eq!(
-        transaction.put_parliament_attempt(attempt),
+        transaction.put_parliament_attempt(attempt.clone()),
         Err(ParliamentReducerErrorV1::BeaconPulseAlreadyAvailable)
     );
     assert!(
@@ -28805,77 +28843,31 @@ fn parliament_attempt_rejects_unavailable_slot_after_pulse_finalization_atomical
     );
     assert!(
         transaction
-            .parliament_unavailable_beacon_pulse_slots
+            .parliament_required_beacon_pulse_slots
             .iter()
             .next()
-            .is_none(),
-        "rejection must not publish a partial unavailable-slot index"
+            .is_none()
     );
-}
-
-#[test]
-fn parliament_unavailable_slot_rebuild_rejects_finalized_pulse_fail_atomically() {
-    let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
-    let network_id = iroha_data_model::NetworkId::from_genesis_hash(
-        HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xD6; 32])),
-    );
-    let (_, pulse) =
-        crate::beacon::signed_persisted_pulse_fixture_for_world(network_id, 41, &budget);
-    let roster = (1_u8..=4)
-        .map(|marker| {
-            KeyPair::try_from_seed(vec![marker; 32], Algorithm::Ed25519)
-                .map(|key| PeerId::new(key.public_key().clone()))
-                .expect("derive deterministic Parliament candidate")
-        })
-        .collect::<Vec<_>>();
-    let (governance_attempt_id, _, mut attempt) =
-        crate::beacon::tests::pending_batched_sortition_attempt(&network_id, &roster, pulse.height);
-    let election_attempt_id = iroha_data_model::governance::types::BodyElectionAttemptId::derive_v1(
-        governance_attempt_id,
-        iroha_data_model::governance::types::ParliamentBody::RulesCommittee,
-        0,
-    );
-    attempt
-        .fail_body_election_no_roster(
-            governance_attempt_id,
-            election_attempt_id,
-            false,
-            pulse.height + 1,
-        )
-        .expect("terminally classify the unavailable sortition slot");
-
-    let sentinel_slot = (
-        iroha_data_model::governance::types::BeaconSessionId::new([0xD7; 32]),
-        99,
-    );
-    let sentinel_attempt = GovernanceAttemptId::new([0xD8; 32]);
-    let sentinel = BTreeMap::from([(sentinel_slot, BTreeSet::from([sentinel_attempt]))]);
-    let mut world = World::new();
-    world.global_beacon_pulses.insert(pulse.pulse_id, pulse);
-    world
-        .rebuild_global_beacon_pulse_slots()
-        .expect("rebuild finalized logical beacon slots");
-    world
-        .parliament_attempts
-        .insert(governance_attempt_id, attempt);
-    world.parliament_unavailable_beacon_pulse_slots = sentinel.clone().into_iter().collect();
-
-    let error = world
-        .rebuild_governance_read_indexes()
-        .expect_err("a finalized pulse cannot also be terminally unavailable");
     assert!(
-        error.contains("classifies finalized logical beacon slot"),
-        "unexpected rebuild rejection: {error}"
-    );
-    assert_eq!(
-        world
-            .parliament_unavailable_beacon_pulse_slots
-            .view()
+        transaction
+            .parliament_member_reference_counts
             .iter()
-            .map(|(slot, attempts)| (*slot, attempts.clone()))
-            .collect::<BTreeMap<_, _>>(),
-        sentinel,
-        "a failed rebuild must retain the previously published derived index"
+            .next()
+            .is_none()
+    );
+    assert!(
+        transaction
+            .parliament_timed_ovn_resource_reservations
+            .iter()
+            .next()
+            .is_none()
+    );
+    assert!(
+        transaction
+            .parliament_tle_key_session_retention_deadlines
+            .iter()
+            .next()
+            .is_none()
     );
 }
 
@@ -29898,13 +29890,6 @@ fn parliament_derived_indexes_are_snapshot_skipped_and_rebuilt() {
             valid_until_height_exclusive: 20,
         },
     );
-    world.parliament_unavailable_beacon_pulse_slots.insert(
-        (
-            iroha_data_model::governance::types::BeaconSessionId::new([0xA3; 32]),
-            41,
-        ),
-        BTreeSet::from([GovernanceAttemptId::new([0xA4; 32])]),
-    );
     world.parliament_required_beacon_pulse_slots.insert(
         (
             iroha_data_model::governance::types::BeaconSessionId::new([0xA5; 32]),
@@ -29929,7 +29914,6 @@ fn parliament_derived_indexes_are_snapshot_skipped_and_rebuilt() {
     assert!(!encoded.contains("parliament_timed_ovn_casting_candidates"));
     assert!(!encoded.contains("parliament_required_beacon_pulse_slots"));
     assert!(!encoded.contains("parliament_certified_enactments"));
-    assert!(!encoded.contains("parliament_unavailable_beacon_pulse_slots"));
     assert!(!encoded.contains("parliament_tle_key_session_retention_deadlines"));
     assert!(!encoded.contains("tle_key_session_selection_intervals"));
 
@@ -29975,14 +29959,6 @@ fn parliament_derived_indexes_are_snapshot_skipped_and_rebuilt() {
     assert!(
         world
             .parliament_certified_enactments
-            .view()
-            .iter()
-            .next()
-            .is_none()
-    );
-    assert!(
-        world
-            .parliament_unavailable_beacon_pulse_slots
             .view()
             .iter()
             .next()

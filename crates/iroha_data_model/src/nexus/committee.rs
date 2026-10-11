@@ -8,144 +8,21 @@ use crate::{
     asset::{AssetBalanceScope, AssetDefinitionId},
     block::BlockHeader,
     consensus::GlobalThresholdBeaconPartialSignatureV1,
-    isi::kagemusha_v1::{
-        KagemushaMintFinalityAuthorityGenerationV1, KagemushaMintFinalityPairedPossessionProofV1,
-        KagemushaMintFinalitySeatReadinessContextV1, KagemushaMintFinalityValidatorKeysV1,
-    },
     parameter::{CustomParameter, CustomParameterId, system::SumeragiNposParameters},
     sumeragi::epoch::{
-        BeaconEpochBindingV1, InstalledBeaconEpochBindingV1, ValidatorCommitteeMemberV1,
-        ValidatorEpochAuthorizationV1, ValidatorEpochDecisionV1, validate_committee,
+        BeaconEpochBindingV1, InstalledBeaconEpochBindingV1, MAX_VALIDATORS,
+        ValidatorCommitteeMemberV1, ValidatorEpochAuthorizationV1, ValidatorEpochDecisionV1,
+        ValidatorGenerationV1, validate_committee,
     },
 };
-use iroha_crypto::{Hash, HashOf, SignatureOf};
+use iroha_crypto::{Hash, HashOf};
+use iroha_model_base::peer::PeerId;
 use iroha_primitives::{
     json::Json,
     numeric::{Quantity, XOR_QUANTITY_SCALE},
 };
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
-
-/// Candidate-owned public keys for one network and signing generation.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Encode,
-    Decode,
-    IntoSchema,
-    crate::DeriveJsonSerialize,
-    crate::DeriveJsonDeserialize,
-    norito::NoritoSchema,
-)]
-#[norito_schema(name = "iroha_data_model::nexus::ValidatorCandidateKeysV1")]
-#[norito(deny_unknown_fields)]
-pub struct ValidatorCandidateKeysV1 {
-    /// Exact genesis-derived network identity.
-    pub network_id: NetworkId,
-    /// Generation to which both public keys belong.
-    pub generation: u64,
-    /// Consensus peer and both generation-derived Pasta public keys.
-    pub keys: KagemushaMintFinalityValidatorKeysV1,
-    /// Proof of actual possession under the candidate-publication challenge.
-    pub possession: KagemushaMintFinalityPairedPossessionProofV1,
-    /// Consent signed by the exact consensus peer over the complete publication challenge.
-    pub peer_signature: SignatureOf<ValidatorCandidateKeyAuthorizationV1>,
-}
-
-/// Domain-separated consensus-peer consent to one exact candidate key publication.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Encode,
-    Decode,
-    IntoSchema,
-    crate::DeriveJsonSerialize,
-    crate::DeriveJsonDeserialize,
-    norito::NoritoSchema,
-)]
-#[norito_schema(name = "iroha_data_model::nexus::ValidatorCandidateKeyAuthorizationV1")]
-#[norito(deny_unknown_fields)]
-pub struct ValidatorCandidateKeyAuthorizationV1 {
-    /// Fixed protocol domain; consumers reconstruct this challenge from the candidate.
-    domain: String,
-    /// Exact network whose future authority may consume these keys.
-    pub network_id: NetworkId,
-    /// Authenticated signing generation, independent of scheduling epoch.
-    pub generation: u64,
-    /// Exact consensus identity and paired Pasta public keys.
-    pub keys: KagemushaMintFinalityValidatorKeysV1,
-    /// Actual possession of both Pasta signing keys.
-    pub possession: KagemushaMintFinalityPairedPossessionProofV1,
-}
-
-impl ValidatorCandidateKeyAuthorizationV1 {
-    /// Build the only message accepted as candidate key consent.
-    #[must_use]
-    pub fn new(
-        network_id: NetworkId,
-        generation: u64,
-        keys: KagemushaMintFinalityValidatorKeysV1,
-        possession: KagemushaMintFinalityPairedPossessionProofV1,
-    ) -> Self {
-        Self {
-            domain: "iroha:validator-candidate-key-consent:v1".to_owned(),
-            network_id,
-            generation,
-            keys,
-            possession,
-        }
-    }
-}
-
-impl ValidatorCandidateKeysV1 {
-    /// Reconstruct the exact signed peer-consent challenge.
-    #[must_use]
-    pub fn authorization(&self) -> ValidatorCandidateKeyAuthorizationV1 {
-        ValidatorCandidateKeyAuthorizationV1::new(
-            self.network_id,
-            self.generation,
-            self.keys.clone(),
-            self.possession,
-        )
-    }
-    /// Canonical store identity; public keys cannot change the one publication slot.
-    #[must_use]
-    pub fn key_id(
-        network_id: NetworkId,
-        generation: u64,
-        peer: &iroha_model_base::peer::PeerId,
-    ) -> [u8; 32] {
-        Hash::new_from_chunks(&[
-            b"iroha:validator-candidate-key-slot:v1",
-            network_id.as_bytes(),
-            &generation.to_le_bytes(),
-            &peer.encode(),
-        ])
-        .into()
-    }
-
-    /// Check the published key and proof encodings before cryptographic verification.
-    ///
-    /// # Errors
-    /// Rejects genesis generations, missing network identities and empty signing material.
-    pub fn validate(&self) -> Result<(), String> {
-        if self.network_id.as_bytes() == &[0; 32]
-            || self.generation == 0
-            || self.keys.eq_proof_public_key == [0; 32]
-            || self.keys.ep_proof_public_key == [0; 32]
-            || self.keys.validator.public_key().algorithm() != iroha_crypto::Algorithm::BlsNormal
-        {
-            return Err("invalid candidate generation publication".to_owned());
-        }
-        self.possession
-            .validate()
-            .map_err(|error| error.to_string())
-    }
-}
 
 /// Signed eligibility policy frozen with one immutable committee selection.
 ///
@@ -205,6 +82,28 @@ impl ValidatorElectionPolicyV1 {
         Ok(policy)
     }
 
+    /// Validate the signed eligibility fields without constructing an owned snapshot.
+    ///
+    /// This borrows the original parameters and supplies the same Global XOR precision
+    /// as [`Self::from_npos_parameters`]. It grants no network or execution authority.
+    ///
+    /// # Errors
+    /// Preserves signed-parameter validation before the frozen eligibility bounds.
+    pub(crate) fn validate_npos_parameters(
+        parameters: &SumeragiNposParameters,
+    ) -> Result<(), String> {
+        parameters.validate().map_err(str::to_owned)?;
+        validate_election_policy_fields(
+            &parameters.xor_asset_definition_id,
+            AssetBalanceScope::Global,
+            XOR_QUANTITY_SCALE,
+            &parameters.min_self_bond,
+            &parameters.min_nomination_bond,
+            parameters.max_validators,
+            parameters.epoch_length_blocks.get(),
+        )
+    }
+
     /// Validate the exact first-release monetary and scheduling bounds.
     ///
     /// The network-specific XOR identity is authenticated by the selecting execution and
@@ -213,29 +112,53 @@ impl ValidatorElectionPolicyV1 {
     /// # Errors
     /// Rejects synthetic stake, scoped custody, wrong precision, fractional dust, or bad bounds.
     pub fn validate(&self) -> Result<(), String> {
-        let synthetic_stake = AssetDefinitionId::derive_from_components(
-            iroha_model_base::domain::DomainId::parse_fully_qualified("nexus.universal")
-                .expect("fixed rejected synthetic staking domain"),
-            "xor"
-                .parse()
-                .expect("fixed rejected synthetic staking name"),
-        );
-        if self.xor_asset_definition_id == synthetic_stake
-            || self.asset_scope != AssetBalanceScope::Global
-            || self.asset_scale != XOR_QUANTITY_SCALE
-            || self.min_self_bond.is_zero()
-            || self.min_nomination_bond.is_zero()
-            || self.min_self_bond.scale() > self.asset_scale
-            || self.min_nomination_bond.scale() > self.asset_scale
-            || self.max_validators < 4
-            || self.max_validators > 31
-            || !(self.max_validators - 1).is_multiple_of(3)
-            || self.epoch_length_blocks < 3
-        {
-            return Err("invalid frozen validator election policy".to_owned());
-        }
-        Ok(())
+        validate_election_policy_fields(
+            &self.xor_asset_definition_id,
+            self.asset_scope,
+            self.asset_scale,
+            &self.min_self_bond,
+            &self.min_nomination_bond,
+            self.max_validators,
+            self.epoch_length_blocks,
+        )
     }
+}
+
+// One predicate serves the owned snapshot and the original borrowed signed policy.
+// The fixed identity comparison and later complete epoch validation remain unchanged.
+fn validate_election_policy_fields(
+    xor_asset_definition_id: &AssetDefinitionId,
+    asset_scope: AssetBalanceScope,
+    asset_scale: u32,
+    min_self_bond: &Quantity,
+    min_nomination_bond: &Quantity,
+    max_validators: u32,
+    epoch_length_blocks: u64,
+) -> Result<(), String> {
+    // DM17 restores only fixed synthetic-identity reconstruction.
+    #[cfg(not(all(test, sumeragi_model_mutation = "DM17")))]
+    let synthetic_bytes = SumeragiNposParameters::REJECTED_SYNTHETIC_XOR_ASSET_BYTES;
+    #[cfg(all(test, sumeragi_model_mutation = "DM17"))]
+    let synthetic_bytes = AssetDefinitionId::derive_from_components(
+        iroha_model_base::domain::DomainId::parse_fully_qualified("nexus.universal")
+            .expect("fixed synthetic domain"),
+        "xor".parse().expect("fixed synthetic asset name"),
+    )
+    .aid_bytes();
+    if xor_asset_definition_id.aid_bytes() == synthetic_bytes
+        || asset_scope != AssetBalanceScope::Global
+        || asset_scale != XOR_QUANTITY_SCALE
+        || min_self_bond.is_zero()
+        || min_nomination_bond.is_zero()
+        || min_self_bond.scale() > asset_scale
+        || min_nomination_bond.scale() > asset_scale
+        || !(4..=31).contains(&max_validators)
+        || !(max_validators - 1).is_multiple_of(3)
+        || epoch_length_blocks < 3
+    {
+        return Err("invalid frozen validator election policy".to_owned());
+    }
+    Ok(())
 }
 
 /// Immutable result of the election at the end of epoch E for epoch E+2.
@@ -367,12 +290,28 @@ impl ValidatorCommitteePreparationV1 {
         ])
         .into())
     }
+
+    /// Project the immutable target roster into its successor validator generation.
+    ///
+    /// An activation authorization must select exactly this generation's identity.
+    #[must_use]
+    pub fn generation(&self) -> ValidatorGenerationV1 {
+        ValidatorGenerationV1::from_committee(
+            self.network_id,
+            self.authority_generation,
+            &self.committee,
+        )
+    }
 }
 
 /// Complete public credentials prepared for the immutable target committee.
+///
+/// The target generation is the frozen preparation roster itself; only the finalized target
+/// threshold-beacon transcript is installed separately.
 #[derive(
     Debug,
     Clone,
+    Copy,
     PartialEq,
     Eq,
     Encode,
@@ -385,13 +324,11 @@ impl ValidatorCommitteePreparationV1 {
 #[norito_schema(name = "iroha_data_model::nexus::ValidatorCommitteeCredentialsV1")]
 #[norito(deny_unknown_fields)]
 pub struct ValidatorCommitteeCredentialsV1 {
-    /// Complete generation, built only from authenticated candidate key publications.
-    pub authority: KagemushaMintFinalityAuthorityGenerationV1,
     /// Exact finalized target DKG transcript, retained separately from the incumbent session.
     pub beacon: InstalledBeaconEpochBindingV1,
 }
 
-/// Actual possession evidence for every signing role of one target seat.
+/// Actual threshold-share possession evidence for one target seat.
 #[derive(
     Debug,
     Clone,
@@ -409,10 +346,108 @@ pub struct ValidatorCommitteeCredentialsV1 {
 pub struct ValidatorCommitteeSeatReadinessV1 {
     /// Zero-based index in the immutable ordered target roster.
     pub validator_index: u32,
-    /// Possession of both Pasta generation keys under the exact attempt context.
-    pub pasta: KagemushaMintFinalityPairedPossessionProofV1,
     /// Adaptive threshold proof of the exact beacon share under a separate readiness domain.
     pub beacon: GlobalThresholdBeaconPartialSignatureV1,
+}
+
+/// Exact preparation attempt and target interval acknowledged by one prospective seat.
+///
+/// The incumbent certificate must additionally authenticate the frozen transition, and the
+/// seat's adaptive beacon proof over [`Self::signing_digest`] establishes possession of that
+/// seat's exact threshold share. The context grants no activation authority by itself.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Encode,
+    Decode,
+    IntoSchema,
+    crate::DeriveJsonSerialize,
+    crate::DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito_schema(name = "iroha_data_model::nexus::ValidatorSeatReadinessContextV1")]
+#[norito(deny_unknown_fields)]
+pub struct ValidatorSeatReadinessContextV1 {
+    /// Sole first-release layout version.
+    pub version: u16,
+    /// Exact genesis-derived network identity.
+    pub network_id: NetworkId,
+    /// Unique frozen preparation attempt, including its finalized election context.
+    #[norito(json = "crate::json_helpers::fixed_bytes")]
+    pub transition_id: [u8; 32],
+    /// Scheduling epoch in which the prepared generation may first activate.
+    pub target_epoch: u64,
+    /// Successor validator generation whose seat this readiness acknowledges.
+    pub authority_generation: u64,
+    /// Exact [`ValidatorGenerationV1`] identity of the ordered target roster.
+    #[norito(json = "crate::json_helpers::fixed_bytes")]
+    pub authority_id: [u8; 32],
+    /// First target height, inclusive.
+    pub first_height: u64,
+    /// Last target height, inclusive.
+    pub last_height: u64,
+    /// Exact zero-based position in the target generation.
+    pub validator_index: u32,
+    /// Exact installed target beacon session and complete transcript.
+    pub beacon: InstalledBeaconEpochBindingV1,
+}
+
+impl ValidatorSeatReadinessContextV1 {
+    /// Validate a complete prospective-seat challenge without granting activation authority.
+    ///
+    /// # Errors
+    /// Rejects empty identities, invalid intervals, or an index outside the committee bound.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.version != 1
+            || self.network_id.as_bytes() == &[0; 32]
+            || self.transition_id == [0; 32]
+            || self.authority_id == [0; 32]
+            || self.target_epoch == 0
+            || self.first_height <= 1
+            || self.last_height < self.first_height
+            || usize::try_from(self.validator_index)
+                .ok()
+                .is_none_or(|index| index >= MAX_VALIDATORS)
+            || self.beacon.session_id == [0; 32]
+            || self.beacon.transcript_hash == [0; 32]
+        {
+            return Err("invalid validator seat readiness context".to_owned());
+        }
+        Ok(())
+    }
+
+    /// Derive the domain-separated readiness digest for the exact seat occupant.
+    ///
+    /// # Errors
+    /// Rejects a malformed context or a non-canonical peer identity. The caller verifies that
+    /// `validator` occupies [`Self::validator_index`] in the authenticated target roster.
+    pub fn signing_digest(&self, validator: &PeerId) -> Result<[u8; 32], String> {
+        self.validate()?;
+        let identity = norito::encode_canonical(validator).map_err(|error| error.to_string())?;
+        Ok(Hash::new_from_chunks(&[
+            b"iroha:validator-seat-readiness:v1",
+            &[0],
+            &self.version.to_le_bytes(),
+            self.network_id.as_bytes(),
+            &self.transition_id,
+            &self.target_epoch.to_le_bytes(),
+            &self.authority_generation.to_le_bytes(),
+            &self.authority_id,
+            &self.first_height.to_le_bytes(),
+            &self.last_height.to_le_bytes(),
+            &self.validator_index.to_le_bytes(),
+            &self.beacon.session_id,
+            &self.beacon.transcript_hash,
+            &u64::try_from(identity.len())
+                .map_err(|error| error.to_string())?
+                .to_le_bytes(),
+            &identity,
+        ])
+        .into())
+    }
 }
 
 /// Retained preparation progress and its incumbent-certified terminal disposition.
@@ -446,6 +481,7 @@ pub struct ValidatorCommitteeTransitionV1 {
 #[derive(
     Debug,
     Clone,
+    Copy,
     PartialEq,
     Eq,
     Encode,
@@ -460,7 +496,7 @@ pub struct PrepareValidatorCommitteeCredentialsV1 {
     pub transition_id: [u8; 32],
     /// Target scheduling epoch identifying the retained preparation.
     pub target_epoch: u64,
-    /// Complete target generation and finalized beacon transcript.
+    /// Finalized target beacon transcript.
     pub credentials: ValidatorCommitteeCredentialsV1,
 }
 
@@ -482,7 +518,7 @@ pub struct AdmitValidatorCommitteeSeatV1 {
     pub transition_id: [u8; 32],
     /// Target scheduling epoch identifying the retained preparation.
     pub target_epoch: u64,
-    /// Exact seat, paired-Pasta possession and adaptive beacon-share possession.
+    /// Exact seat and adaptive beacon-share possession.
     pub readiness: ValidatorCommitteeSeatReadinessV1,
 }
 
@@ -507,12 +543,11 @@ pub struct AdmitValidatorCommitteeSeatV1 {
 #[norito(tag = "kind", content = "value", deny_unknown_fields)]
 #[expect(
     clippy::large_enum_variant,
+    variant_size_differences,
     reason = "boxing a variant would change the reviewed Norito operation layout"
 )]
 pub enum ValidatorCommitteeOperationV1 {
-    /// Publish generation keys after proving possession of both keys.
-    PublishCandidate(ValidatorCandidateKeysV1),
-    /// Bind every target's published keys to the immutable target DKG transcript.
+    /// Bind the immutable target roster to its finalized target DKG transcript.
     PrepareCredentials(PrepareValidatorCommitteeCredentialsV1),
     /// Record actual possession for one exact target seat.
     AdmitSeat(AdmitValidatorCommitteeSeatV1),
@@ -554,21 +589,7 @@ impl ValidatorCommitteeTransitionV1 {
             .credentials
             .as_ref()
             .ok_or("committee credentials are not prepared")?;
-        let preparation = &self.preparation;
-        credentials
-            .authority
-            .validate()
-            .map_err(|error| error.to_string())?;
-        if credentials.authority.network_id != preparation.network_id
-            || credentials.authority.generation != preparation.authority_generation
-            || credentials.authority.validators.len() != preparation.committee.len()
-            || credentials
-                .authority
-                .validators
-                .iter()
-                .zip(&preparation.committee)
-                .any(|(keys, voter)| keys.validator != voter.validator)
-            || credentials.beacon.session_id != preparation.beacon_session_id()?
+        if credentials.beacon.session_id != self.preparation.beacon_session_id()?
             || credentials.beacon.transcript_hash == [0; 32]
         {
             return Err("prepared credentials differ from the immutable target".to_owned());
@@ -583,7 +604,7 @@ impl ValidatorCommitteeTransitionV1 {
     pub fn readiness_context(
         &self,
         validator_index: u32,
-    ) -> Result<KagemushaMintFinalitySeatReadinessContextV1, String> {
+    ) -> Result<ValidatorSeatReadinessContextV1, String> {
         let credentials = self.validated_credentials()?;
         if usize::try_from(validator_index)
             .ok()
@@ -591,22 +612,29 @@ impl ValidatorCommitteeTransitionV1 {
         {
             return Err("target validator seat is out of range".to_owned());
         }
-        let context = KagemushaMintFinalitySeatReadinessContextV1 {
+        let context = ValidatorSeatReadinessContextV1 {
             version: 1,
             network_id: self.preparation.network_id,
             transition_id: self.preparation.transition_id()?,
             target_epoch: self.preparation.target_epoch,
             authority_generation: self.preparation.authority_generation,
-            authority_id: credentials
-                .authority
-                .authority_id()
-                .map_err(|error| error.to_string())?,
+            authority_id: {
+                #[cfg(not(all(test, sumeragi_model_mutation = "DM18")))]
+                let identity = ValidatorGenerationV1::generation_id_from_committee(
+                    self.preparation.network_id,
+                    self.preparation.authority_generation,
+                    &self.preparation.committee,
+                );
+                #[cfg(all(test, sumeragi_model_mutation = "DM18"))]
+                let identity = self.preparation.generation().generation_id();
+                identity.map_err(|error| error.to_string())?
+            },
             first_height: self.preparation.first_height,
             last_height: self.preparation.last_height,
             validator_index,
-            beacon: BeaconEpochBindingV1::Installed(credentials.beacon),
+            beacon: credentials.beacon,
         };
-        context.validate().map_err(|error| error.to_string())?;
+        context.validate()?;
         Ok(context)
     }
 
@@ -634,7 +662,6 @@ impl ValidatorCommitteeTransitionV1 {
             let credentials = self.validated_credentials()?;
             for ready in &self.readiness {
                 self.readiness_context(ready.validator_index)?;
-                ready.pasta.validate().map_err(|_| invalid())?;
                 if ready.beacon.session_id != credentials.beacon.session_id
                     || u32::from(ready.beacon.signer_index) != ready.validator_index + 1
                 {
@@ -660,9 +687,18 @@ impl ValidatorCommitteeTransitionV1 {
                     let credentials = self.credentials.as_ref().ok_or_else(invalid)?;
                     if self.readiness.len() != preparation.committee.len()
                         || outcome.beacon != BeaconEpochBindingV1::Installed(credentials.beacon)
-                        || outcome
-                            .validate_against_authority(&credentials.authority)
-                            .is_err()
+                        || {
+                            #[cfg(not(all(test, sumeragi_model_mutation = "DM19")))]
+                            let relation = outcome.validate_against_committee(
+                                preparation.network_id,
+                                preparation.authority_generation,
+                                &preparation.committee,
+                            );
+                            #[cfg(all(test, sumeragi_model_mutation = "DM19"))]
+                            let relation =
+                                outcome.validate_against_generation(&preparation.generation());
+                            relation.is_err()
+                        }
                     {
                         return Err(invalid());
                     }
@@ -684,46 +720,40 @@ impl ValidatorCommitteeTransitionV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        consensus::GlobalThresholdBeaconPartialSignatureProofV1,
-        isi::kagemusha_v1::KagemushaPastaSchnorrSignatureV1,
-    };
+    use crate::consensus::GlobalThresholdBeaconPartialSignatureProofV1;
     use iroha_crypto::{Algorithm, KeyPair};
-    use iroha_model_base::peer::PeerId;
 
-    fn authority(generation: u64) -> KagemushaMintFinalityAuthorityGenerationV1 {
-        let mut validators = (1_u8..=4)
-            .map(|seed| KagemushaMintFinalityValidatorKeysV1 {
-                validator: PeerId::new(
-                    KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal)
-                        .public_key()
-                        .clone(),
-                ),
-                eq_proof_public_key: [seed; 32],
-                ep_proof_public_key: [seed + 16; 32],
+    fn network() -> NetworkId {
+        NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+            b"committee-model-test",
+        )))
+    }
+
+    fn members(seeds: std::ops::RangeInclusive<u8>) -> Vec<ValidatorCommitteeMemberV1> {
+        let mut members = seeds
+            .map(|seed| {
+                let pair = KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal);
+                ValidatorCommitteeMemberV1 {
+                    validator: PeerId::new(pair.public_key().clone()),
+                    proof_of_possession: iroha_crypto::bls_normal_pop_prove(pair.private_key())
+                        .unwrap(),
+                }
             })
             .collect::<Vec<_>>();
-        validators.sort_by(|a, b| a.validator.cmp(&b.validator));
-        KagemushaMintFinalityAuthorityGenerationV1 {
-            version: 1,
-            network_id: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
-                b"committee-model-test",
-            ))),
-            generation,
-            validators,
-        }
+        members.sort_by(|a, b| a.validator.cmp(&b.validator));
+        members
     }
 
     fn preparing() -> ValidatorEpochAuthorizationV1 {
-        let authority = authority(0);
+        let incumbent = ValidatorGenerationV1::from_committee(network(), 0, &members(5..=8));
         ValidatorEpochAuthorizationV1 {
             version: 1,
-            network_id: authority.network_id,
+            network_id: incumbent.network_id,
             epoch: 1,
             first_height: 11,
             last_height: 20,
             authority_generation: 0,
-            authority_id: authority.authority_id().unwrap(),
+            authority_id: incumbent.generation_id().unwrap(),
             beacon: BeaconEpochBindingV1::Installed(InstalledBeaconEpochBindingV1 {
                 session_id: [7; 32],
                 transcript_hash: [8; 32],
@@ -756,42 +786,12 @@ mod tests {
                     )
                     .unwrap()
                 },
-            committee: {
-                let mut members = (1_u8..=4)
-                    .map(|seed| {
-                        let pair = KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal);
-                        ValidatorCommitteeMemberV1 {
-                            validator: PeerId::new(pair.public_key().clone()),
-                            proof_of_possession: iroha_crypto::bls_normal_pop_prove(
-                                pair.private_key(),
-                            )
-                            .unwrap(),
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                members.sort_by(|a, b| a.validator.cmp(&b.validator));
-                members
-            },
-        }
-    }
-
-    // These are structural codec fixtures. Core tests generate and verify actual curve proofs.
-    fn possession() -> KagemushaMintFinalityPairedPossessionProofV1 {
-        KagemushaMintFinalityPairedPossessionProofV1 {
-            eq_proof_signature: KagemushaPastaSchnorrSignatureV1 {
-                nonce_commitment: [1; 32],
-                response: [2; 32],
-            },
-            ep_proof_signature: KagemushaPastaSchnorrSignatureV1 {
-                nonce_commitment: [3; 32],
-                response: [4; 32],
-            },
+            committee: members(1..=4),
         }
     }
 
     fn transition() -> ValidatorCommitteeTransitionV1 {
         let credentials = ValidatorCommitteeCredentialsV1 {
-            authority: authority(1),
             beacon: InstalledBeaconEpochBindingV1 {
                 session_id: preparation().beacon_session_id().unwrap(),
                 transcript_hash: [6; 32],
@@ -802,7 +802,6 @@ mod tests {
             readiness: (0..4)
                 .map(|index| ValidatorCommitteeSeatReadinessV1 {
                     validator_index: index,
-                    pasta: possession(),
                     beacon: GlobalThresholdBeaconPartialSignatureV1 {
                         session_id: credentials.beacon.session_id,
                         signer_index: u16::try_from(index).unwrap() + 1,
@@ -820,6 +819,30 @@ mod tests {
             credentials: Some(credentials),
             outcome: None,
         }
+    }
+
+    #[test]
+    fn frozen_policy_validation_borrows_fixed_synthetic_identity_without_allocation() {
+        use crate::amx_prepare_streaming_allocations::PhysicalObservation;
+
+        let mut policy =
+            ValidatorElectionPolicyV1::from_npos_parameters(&SumeragiNposParameters::default())
+                .unwrap();
+        let observation = PhysicalObservation::start();
+        let result = policy.validate();
+        let requests = observation.snapshot().requests();
+        drop(observation);
+        assert_eq!(requests, [0; 3]);
+        assert_eq!(result, Ok(()));
+
+        policy.xor_asset_definition_id = AssetDefinitionId::derive_from_components(
+            iroha_model_base::domain::DomainId::parse_fully_qualified("nexus.universal").unwrap(),
+            "xor".parse().unwrap(),
+        );
+        assert_eq!(
+            policy.validate().unwrap_err(),
+            "invalid frozen validator election policy"
+        );
     }
 
     #[test]
@@ -875,6 +898,75 @@ mod tests {
             frozen,
             norito::decode_canonical::<ValidatorElectionPolicyV1>(&wire).unwrap()
         );
+    }
+
+    #[test]
+    fn borrowed_npos_policy_matches_owned_validation_order_and_exact_bounds() {
+        for mutation in 0..9 {
+            let mut parameters = SumeragiNposParameters::default();
+            let expected = match mutation {
+                0 => None,
+                1 => {
+                    parameters.min_self_bond = "0.0000000001".parse().unwrap();
+                    Some("invalid frozen validator election policy")
+                }
+                2 => {
+                    parameters.min_nomination_bond = "0.0000000001".parse().unwrap();
+                    Some("invalid frozen validator election policy")
+                }
+                3 => {
+                    parameters.epoch_length_blocks = std::num::NonZeroU64::new(2).unwrap();
+                    parameters.evidence_horizon_blocks = 1;
+                    parameters.slashing_delay_blocks = 1;
+                    parameters.validate().unwrap();
+                    Some("invalid frozen validator election policy")
+                }
+                4 => {
+                    parameters.xor_asset_definition_id = AssetDefinitionId::derive_from_components(
+                        iroha_model_base::domain::DomainId::parse_fully_qualified(
+                            "nexus.universal",
+                        )
+                        .unwrap(),
+                        "xor".parse().unwrap(),
+                    );
+                    parameters.epoch_seed = [0; 32];
+                    parameters.min_self_bond = "0.0000000001".parse().unwrap();
+                    Some(
+                        "NPoS must use the network's canonical XOR asset, not synthetic nexus.universal/xor",
+                    )
+                }
+                5 => {
+                    parameters.epoch_seed = [0; 32];
+                    parameters.min_self_bond = "0.0000000001".parse().unwrap();
+                    Some("epoch_seed must not be all zero")
+                }
+                6 => {
+                    parameters.max_validators = 5;
+                    parameters.min_self_bond = "0.0000000001".parse().unwrap();
+                    Some("max_validators must be a bounded 3f + 1 committee size (4..=31)")
+                }
+                7 => {
+                    parameters.min_self_bond = Quantity::zero();
+                    parameters.min_nomination_bond = "0.0000000001".parse().unwrap();
+                    Some("NPoS minimum bond values must be greater than zero")
+                }
+                _ => {
+                    parameters.finality_margin_blocks = 0;
+                    parameters.min_self_bond = "0.0000000001".parse().unwrap();
+                    Some("NPoS finality and reconfiguration bounds must be greater than zero")
+                }
+            };
+            let original = parameters.clone();
+            let owned = ValidatorElectionPolicyV1::from_npos_parameters(&parameters).map(|_| ());
+            let borrowed = ValidatorElectionPolicyV1::validate_npos_parameters(&parameters);
+            assert_eq!(borrowed, owned, "mutation {mutation}");
+            assert_eq!(
+                borrowed,
+                expected.map_or(Ok(()), |error| Err(error.to_owned())),
+                "mutation {mutation}"
+            );
+            assert_eq!(parameters, original);
+        }
     }
 
     #[test]
@@ -988,7 +1080,7 @@ mod tests {
             first_height: 21,
             last_height: 30,
             authority_generation: 1,
-            authority_id: credentials.authority.authority_id().unwrap(),
+            authority_id: transition.preparation.generation().generation_id().unwrap(),
             beacon: BeaconEpochBindingV1::Installed(credentials.beacon),
             previous_authorization_id: preparing().authorization_id().unwrap(),
             transition_id: transition.preparation.transition_id().unwrap(),
@@ -1051,68 +1143,44 @@ mod tests {
         let first = transition.readiness_context(0).unwrap();
         assert_ne!(first, transition.readiness_context(1).unwrap());
         assert!(transition.readiness_context(4).is_err());
+        assert_eq!(
+            first.authority_id,
+            transition.preparation.generation().generation_id().unwrap()
+        );
+        let seat = &transition.preparation.committee[0].validator;
+        let other = &transition.preparation.committee[1].validator;
+        let digest = first.signing_digest(seat).unwrap();
+        assert_ne!(digest, first.signing_digest(other).unwrap());
+        for coordinate in 0..7 {
+            let mut changed = first;
+            match coordinate {
+                0 => changed.transition_id[0] ^= 1,
+                1 => changed.target_epoch += 1,
+                2 => changed.authority_generation += 1,
+                3 => changed.authority_id[0] ^= 1,
+                4 => changed.first_height += 1,
+                5 => changed.validator_index = 1,
+                _ => changed.beacon.transcript_hash[0] ^= 1,
+            }
+            assert_ne!(
+                changed.signing_digest(seat).unwrap(),
+                digest,
+                "coordinate {coordinate}"
+            );
+        }
+        let mut empty = first;
+        empty.beacon.transcript_hash = [0; 32];
+        assert!(empty.signing_digest(seat).is_err());
         let mut changed = transition.clone();
         changed.preparation.election_seed[0] ^= 1;
         assert!(changed.readiness_context(0).is_err());
-        changed
-            .credentials
-            .as_mut()
-            .unwrap()
-            .authority
-            .validators
-            .swap(0, 1);
+        changed = transition;
+        changed.credentials.as_mut().unwrap().beacon.transcript_hash = [0; 32];
         assert!(changed.readiness_context(0).is_err());
     }
 
     #[test]
-    fn committee_candidate_and_transition_roundtrip_canonical_codecs() {
-        let authority = authority(1);
-        let keys = authority.validators[0].clone();
-        let signer = (1_u8..=4)
-            .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
-            .find(|pair| pair.public_key() == keys.validator.public_key())
-            .unwrap();
-        let authorization = ValidatorCandidateKeyAuthorizationV1::new(
-            authority.network_id,
-            authority.generation,
-            keys.clone(),
-            possession(),
-        );
-        let candidate = ValidatorCandidateKeysV1 {
-            network_id: authority.network_id,
-            generation: authority.generation,
-            keys,
-            possession: possession(),
-            peer_signature: SignatureOf::new(signer.private_key(), &authorization),
-        };
-        candidate.validate().unwrap();
-        candidate
-            .peer_signature
-            .verify(
-                candidate.keys.validator.public_key(),
-                &candidate.authorization(),
-            )
-            .unwrap();
-        let key_id = ValidatorCandidateKeysV1::key_id(
-            candidate.network_id,
-            candidate.generation,
-            &candidate.keys.validator,
-        );
-        assert_ne!(
-            key_id,
-            ValidatorCandidateKeysV1::key_id(
-                candidate.network_id,
-                candidate.generation + 1,
-                &candidate.keys.validator
-            )
-        );
-        let mut invalid = candidate.clone();
-        invalid.generation = 0;
-        assert!(invalid.validate().is_err());
-        assert_eq!(
-            candidate,
-            ValidatorCandidateKeysV1::decode(&mut candidate.encode().as_slice()).unwrap()
-        );
+    fn committee_transition_and_operations_roundtrip_canonical_codecs() {
         let transition = transition();
         transition.validate().unwrap();
         assert_eq!(
@@ -1121,11 +1189,245 @@ mod tests {
         );
         let json = norito::json::to_json(&transition).unwrap();
         assert_eq!(transition, norito::json::from_json(&json).unwrap());
-        let operation = ValidatorCommitteeOperationV1::PublishCandidate(candidate);
-        let parameter = operation.clone().into_custom_parameter();
+        let context = transition.readiness_context(2).unwrap();
         assert_eq!(
-            Some(operation),
-            ValidatorCommitteeOperationV1::from_custom_parameter(&parameter).unwrap()
+            context,
+            ValidatorSeatReadinessContextV1::decode(&mut context.encode().as_slice()).unwrap()
         );
+        for operation in [
+            ValidatorCommitteeOperationV1::PrepareCredentials(
+                PrepareValidatorCommitteeCredentialsV1 {
+                    transition_id: transition.preparation.transition_id().unwrap(),
+                    target_epoch: transition.preparation.target_epoch,
+                    credentials: transition.credentials.unwrap(),
+                },
+            ),
+            ValidatorCommitteeOperationV1::AdmitSeat(AdmitValidatorCommitteeSeatV1 {
+                transition_id: transition.preparation.transition_id().unwrap(),
+                target_epoch: transition.preparation.target_epoch,
+                readiness: transition.readiness[0].clone(),
+            }),
+        ] {
+            let parameter = operation.clone().into_custom_parameter();
+            assert_eq!(
+                Some(operation),
+                ValidatorCommitteeOperationV1::from_custom_parameter(&parameter).unwrap()
+            );
+        }
+    }
+
+    fn original_committee_storage(
+        committee: &[ValidatorCommitteeMemberV1],
+    ) -> [(*const u8, usize, *const u8, usize); 4] {
+        assert_eq!(committee.len(), 4);
+        std::array::from_fn(|index| {
+            let member = &committee[index];
+            let (algorithm, key) = member.validator.public_key().try_to_bytes().unwrap();
+            assert_eq!(algorithm, Algorithm::BlsNormal);
+            (
+                key.as_ptr(),
+                key.len(),
+                member.proof_of_possession.as_ptr(),
+                member.proof_of_possession.len(),
+            )
+        })
+    }
+
+    fn activated_original_transition() -> ValidatorCommitteeTransitionV1 {
+        let mut original = transition();
+        let credentials = original.credentials.as_ref().unwrap();
+        original.outcome = Some(ValidatorEpochAuthorizationV1 {
+            epoch: original.preparation.target_epoch,
+            first_height: original.preparation.first_height,
+            last_height: original.preparation.last_height,
+            authority_generation: original.preparation.authority_generation,
+            authority_id: original.preparation.generation().generation_id().unwrap(),
+            beacon: BeaconEpochBindingV1::Installed(credentials.beacon),
+            previous_authorization_id: original.preparation.preparing_authorization_id,
+            transition_id: original.preparation.transition_id().unwrap(),
+            decision: ValidatorEpochDecisionV1::Activate,
+            ..preparing()
+        });
+        original
+    }
+
+    #[test]
+    fn public_readiness_borrows_original_roster_with_only_canonical_transcript_work() {
+        use crate::amx_prepare_streaming_allocations::measured;
+
+        let original = transition();
+        let original_wire = original.encode();
+        let original_storage = original_committee_storage(&original.preparation.committee);
+        let original_generation = original.preparation.generation();
+        let expected_authority = original_generation.generation_id().unwrap();
+        let expected_transition = original.preparation.transition_id().unwrap();
+        let credentials = original.credentials.as_ref().unwrap();
+        let expected = ValidatorSeatReadinessContextV1 {
+            version: 1,
+            network_id: original.preparation.network_id,
+            transition_id: expected_transition,
+            target_epoch: original.preparation.target_epoch,
+            authority_generation: original.preparation.authority_generation,
+            authority_id: expected_authority,
+            first_height: original.preparation.first_height,
+            last_height: original.preparation.last_height,
+            validator_index: 0,
+            beacon: credentials.beacon,
+        };
+        expected.validate().unwrap();
+        let seat_digest = expected
+            .signing_digest(&original.preparation.committee[0].validator)
+            .unwrap();
+        // Measure only the two existing public canonical transcript operations required
+        // by this challenge. Their real wire scratch is permitted, without guessed counts.
+        let (transcripts, required_requests) = measured(|| {
+            (
+                original.preparation.beacon_session_id(),
+                original.preparation.transition_id(),
+            )
+        });
+        assert_eq!(transcripts.0.unwrap(), credentials.beacon.session_id);
+        assert_eq!(transcripts.1.unwrap(), expected_transition);
+        assert!(required_requests.iter().any(|count| *count != 0));
+        let (actual, actual_requests) = measured(|| original.readiness_context(0));
+        let actual = actual.unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(
+            actual
+                .signing_digest(&original.preparation.committee[0].validator)
+                .unwrap(),
+            seat_digest
+        );
+        assert_eq!(original.encode(), original_wire);
+        assert_eq!(
+            original_committee_storage(&original.preparation.committee),
+            original_storage
+        );
+        assert_eq!(
+            actual_requests, required_requests,
+            "public readiness must borrow the original roster beyond its independently measured canonical transcript work"
+        );
+    }
+
+    #[test]
+    fn public_activation_borrows_original_generation_beyond_existing_readiness_work() {
+        use crate::amx_prepare_streaming_allocations::measured;
+
+        let original = activated_original_transition();
+        let original_wire = original.encode();
+        let original_storage = original_committee_storage(&original.preparation.committee);
+        let generation = original.preparation.generation();
+        let outcome = original.outcome.as_ref().unwrap();
+        outcome.validate_against_generation(&generation).unwrap();
+        outcome.validate_successor(&preparing()).unwrap();
+        let mut without_outcome = original.clone();
+        without_outcome.outcome = None;
+        // The genuine public readiness path and one extra canonical transition transcript
+        // remain mandatory. Compare the actual same-shape calls; no implementation estimate.
+        let (readiness, readiness_requests) = measured(|| without_outcome.validate());
+        readiness.unwrap();
+        let (transcript, transcript_requests) = measured(|| original.preparation.transition_id());
+        assert_eq!(transcript.unwrap(), outcome.transition_id);
+        let required_requests: [usize; 3] = std::array::from_fn(|route| {
+            readiness_requests[route]
+                .checked_add(transcript_requests[route])
+                .unwrap()
+        });
+        let (actual, actual_requests) = measured(|| original.validate());
+        actual.unwrap();
+        assert_eq!(original.encode(), original_wire);
+        assert_eq!(
+            original_committee_storage(&original.preparation.committee),
+            original_storage
+        );
+        assert_eq!(
+            original.outcome.as_ref().unwrap().authority_id,
+            generation.generation_id().unwrap()
+        );
+        assert_eq!(
+            actual_requests, required_requests,
+            "public activation must borrow the original target generation beyond existing readiness and canonical transcript work"
+        );
+    }
+
+    #[test]
+    fn borrowed_readiness_and_activation_preserve_original_error_order_and_identity() {
+        let original = activated_original_transition();
+        let expected_id = original.preparation.generation().generation_id().unwrap();
+        for seat in 0..4 {
+            let context = original.readiness_context(seat).unwrap();
+            assert_eq!(context.authority_id, expected_id);
+            assert_eq!(context.validator_index, seat);
+        }
+        assert_eq!(original.validate(), Ok(()));
+        let mut changed = original.clone();
+        changed.preparation.eligibility.asset_scale = 10;
+        changed.preparation.committee[0].proof_of_possession.clear();
+        changed.credentials = None;
+        assert_eq!(
+            changed.readiness_context(4).unwrap_err(),
+            "invalid frozen validator election policy"
+        );
+        assert_eq!(
+            changed.validate().unwrap_err(),
+            "invalid frozen validator election policy"
+        );
+        changed = original.clone();
+        changed.preparation.committee[0].proof_of_possession.clear();
+        changed.preparation.version = 0;
+        changed.credentials = None;
+        assert_eq!(
+            changed.readiness_context(4).unwrap_err(),
+            "native committee key order or proof shape is invalid"
+        );
+        changed = original.clone();
+        changed.preparation.version = 0;
+        changed.credentials = None;
+        assert_eq!(
+            changed.readiness_context(4).unwrap_err(),
+            "invalid frozen validator committee preparation"
+        );
+        changed = original.clone();
+        changed.credentials = None;
+        assert_eq!(
+            changed.readiness_context(4).unwrap_err(),
+            "committee credentials are not prepared"
+        );
+        changed = original.clone();
+        changed.credentials.as_mut().unwrap().beacon.session_id[0] ^= 1;
+        assert_eq!(
+            changed.readiness_context(4).unwrap_err(),
+            "prepared credentials differ from the immutable target"
+        );
+        assert_eq!(
+            original.readiness_context(4).unwrap_err(),
+            "target validator seat is out of range"
+        );
+        for coordinate in 0..5 {
+            let mut changed = original.clone();
+            match coordinate {
+                0 => {
+                    changed.outcome.as_mut().unwrap().network_id =
+                        NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(
+                            Hash::new(b"foreign preparation network"),
+                        ))
+                }
+                1 => changed.outcome.as_mut().unwrap().authority_generation += 1,
+                2 => changed.outcome.as_mut().unwrap().authority_id[0] ^= 1,
+                3 => {
+                    changed.outcome.as_mut().unwrap().beacon =
+                        BeaconEpochBindingV1::Installed(InstalledBeaconEpochBindingV1 {
+                            session_id: [7; 32],
+                            transcript_hash: [8; 32],
+                        })
+                }
+                _ => changed.readiness.pop().map(|_| ()).unwrap(),
+            }
+            assert_eq!(
+                changed.validate().unwrap_err(),
+                "invalid validator committee transition progress",
+                "coordinate {coordinate}"
+            );
+        }
     }
 }

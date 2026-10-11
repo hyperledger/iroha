@@ -17,10 +17,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import private_settlement_smoke_campaign as shared
 
-TEST_NAME = (
-    "nexus::atomic_private_settlement_localnet::"
-    "atomic_private_settlement_n3_happy_day"
-)
+TEST_NAME = shared.HAPPY_DAY_TEST_NAME
 PROTOCOL = shared.PROTOCOL
 EVIDENCE_NAMES = shared.HAPPY_DAY_EVIDENCE_NAMES
 RAYON_WORKER_THREADS = shared.RAYON_WORKER_THREADS

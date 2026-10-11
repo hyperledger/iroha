@@ -6,15 +6,20 @@
 //! Windows uses protected current-user DACLs, retained non-delete-sharing ancestor handles,
 //! reparse rejection, file IDs and write-through native publication. No codec or network policy
 //! belongs in this crate. Filesystem/media honesty remains an operating-system assumption.
+//! A separate read-only build-input owner retains Cargo's legitimate initial hardlink count;
+//! it supplies no private-file or installed-program authority and refuses later source changes.
 
 use std::{
     ffi::OsStr,
     fs::File,
-    io::{self, Read},
+    io::{self, Read, Seek, SeekFrom},
     path::{Component, Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
 use zeroize::Zeroizing;
+
+mod custody_io;
+pub use custody_io::CustodyEntryKind;
 
 mod private_files;
 pub use private_files::{BorrowedPendingPrivateFile, BorrowedSealedPrivateFile};
@@ -54,7 +59,30 @@ impl FileIdentity {
     pub fn of(file: &File) -> io::Result<Self> {
         platform::identity(file)
     }
+
+    /// Project native volume and object values for an owner-private local custody record.
+    ///
+    /// These machine-local values identify this object across a directory rename and reopen.
+    /// They do not authenticate record contents, confer filesystem authority, or belong in
+    /// signed consensus artifacts. The record owner supplies its canonical encoding and must
+    /// independently validate the current native object and private-directory custody. The
+    /// first value identifies Unix (1) or Windows (2); values are not portable between hosts
+    /// and do not prevent reuse of a native object identifier after all handles close.
+    #[must_use]
+    pub const fn local_parts(self) -> (u8, u64, [u8; 16]) {
+        (if cfg!(unix) { 1 } else { 2 }, self.volume, self.object)
+    }
 }
+
+/// Primitive projection of a native file snapshot for owner-private local records.
+///
+/// Values are host kind (Unix 1 or Windows 2), native volume/object identity, length,
+/// custody metadata, last modification and last change. Unix custody is mode/user/group/link
+/// count and timestamps are seconds/nanoseconds; Windows custody is attributes/link count/0/0
+/// and timestamps are native ticks/0. No codec or authentication policy is supplied here.
+/// Native identifiers and timestamps may be reused after handles close; filesystem/media
+/// honesty and a private unchanged record remain the caller's trust assumptions.
+pub type LocalFileSnapshot = (u8, (u64, [u8; 16]), u64, [u64; 4], [i64; 2], [i64; 2]);
 
 /// Exact native file snapshot for comparing separately retained opens without retaining all files.
 ///
@@ -66,6 +94,14 @@ pub struct FileSnapshot {
 }
 
 impl FileSnapshot {
+    /// Project all existing native snapshot fields without allocating or adding authority.
+    ///
+    /// See [`LocalFileSnapshot`] for the host-local field meanings and trust limits. This is
+    /// not a permanent non-reusable physical identifier or a cryptographic commitment.
+    #[must_use]
+    pub fn local_parts(self) -> LocalFileSnapshot {
+        self.inner.local_parts()
+    }
     /// Capture exact writable private journal custody (Unix mode 0600, or the actual
     /// protected current-user Windows DACL and non-read-only native object).
     /// # Errors
@@ -125,10 +161,302 @@ pub fn read_exact_at(file: &File, mut buffer: &mut [u8], mut offset: u64) -> io:
     Ok(())
 }
 
+/// One original private-file byte comparison, borrowed only for its closed read transaction.
+///
+/// The transaction checks each leaf name in request order. This record grants no descriptor,
+/// returned bytes, current-state authority or reusable validation result.
+#[derive(Clone, Copy)]
+pub struct PrivateFileComparison<'a> {
+    /// One portable direct child name, validated by the comparison before its native open.
+    pub name: &'a OsStr,
+    /// The original maximum byte extent for this file's private native read.
+    pub maximum: usize,
+    /// Independently captured original bytes; they are borrowed without copying plaintext.
+    pub expected: &'a [u8],
+}
+
 /// An owner-private directory and the retained authority for all of its ancestors.
 #[derive(Debug)]
 pub struct PrivateDirectory {
     inner: platform::Directory,
+}
+
+// Only the first named child open can establish absence. Preserve its genuine native error
+// for required callers; parent and admitted-child failures never construct this outcome.
+enum NativeChildOutcome<T> {
+    InitialAbsence(io::Error),
+    Present(T),
+}
+
+/// A borrowed read-only view inside one private-directory read transaction.
+///
+/// This view exposes no pathname, descriptor, retention or mutation operation. [`Self::read`]
+/// and [`Self::read_optional`] consume borrowed bytes before their original native owners
+/// and zeroized buffer drop.
+/// [`Self::read_admitted`] instead returns the caller's one original owned `Vec`, preserving
+/// its allocation and ownership semantics. The view cannot leave [`PrivateDirectory::read_scope`]
+/// or [`PrivateReadTreeScope::read_scope`].
+pub struct PrivateReadScope<'scope> {
+    directory: &'scope platform::Directory,
+    // An actual mutable lexical lease makes this view non-Copy without a heap owner.
+    _lease: &'scope mut (),
+}
+
+impl PrivateReadScope<'_> {
+    /// Consume one bounded private single-link file through the original native read body.
+    ///
+    /// The consumer runs only after the complete per-file custody, metadata, namespace and
+    /// extent checks. Its return value can contain a semantic result, preserving the caller's
+    /// decoder errors without remapping them. Borrowed plaintext cannot leave this consumer.
+    /// Only one native read and zeroized buffer are owned by this call at a time.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe leaf custody, oversized or changing files and native
+    /// I/O errors. Use [`Self::read_optional`] for optional inputs: required reads can
+    /// return `NotFound` from initial absence or a later native custody check.
+    pub fn read<T>(
+        &mut self,
+        name: impl AsRef<OsStr>,
+        maximum: usize,
+        consume: impl FnOnce(&[u8]) -> T,
+    ) -> io::Result<T> {
+        self.directory
+            .read_native(checked_name(name.as_ref())?, maximum, true, |bytes| {
+                Ok(consume(bytes.as_slice()))
+            })
+    }
+
+    /// Consume one optional private file, recognizing only its first native open as absence.
+    ///
+    /// Present files use the same zeroized allocation and leaf checks as [`Self::read`], with
+    /// native owners held through the borrowed consumer. Missing later named admission, changed
+    /// metadata, unsafe custody and read/EOF errors remain errors. The enclosing scope closes
+    /// directory custody before an ordinary result can leave, including `None` and errors.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe or changing leaves, oversized files and all late native errors.
+    pub fn read_optional<T>(
+        &mut self,
+        name: impl AsRef<OsStr>,
+        maximum: usize,
+        consume: impl FnOnce(&[u8]) -> T,
+    ) -> io::Result<Option<T>> {
+        self.directory
+            .read_optional_native(checked_name(name.as_ref())?, maximum, true, |bytes| {
+                Ok(consume(bytes.as_slice()))
+            })
+    }
+
+    /// List a bounded native inventory within this enclosing read scope.
+    ///
+    /// The sole native census retains its original name, count and metadata checks and sorting.
+    /// Directory custody is closed by the enclosing scope on every ordinary result, including
+    /// a census error or a caller's comparison refusal. No intermediate ancestry observation
+    /// is added by this method; the scope is not an atomic snapshot.
+    ///
+    /// # Errors
+    /// Refuses invalid native names, excessive entry counts, changed metadata and native I/O.
+    pub fn entries(&self, maximum: usize) -> io::Result<Vec<std::ffi::OsString>> {
+        self.directory.entries_native(maximum, |mut names| {
+            names.sort();
+            Ok(names)
+        })
+    }
+
+    /// Compare ordered original private bytes through the sole lazy comparison recipe.
+    ///
+    /// Every file retains the original bounded private leaf checks and one zeroized buffer
+    /// through its consumer. The first stable mismatch stops later reads; empty inputs do no
+    /// leaf I/O. The enclosing read scope closes native directory custody before returning
+    /// a match, mismatch or ordinary error. No plaintext or validation verdict is retained.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe or changed private leaves, excessive extents and native I/O.
+    pub fn compare_files(&mut self, inputs: &[PrivateFileComparison<'_>]) -> io::Result<bool> {
+        for input in inputs {
+            if !self.read(input.name, input.maximum, |current| {
+                current == input.expected
+            })? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// Freshly join one private name to the actual borrowed original file.
+    ///
+    /// Uses the original readonly-open native admission without a new ancestry pass. The
+    /// enclosing scope retains ancestry; this check returns no descriptor or identity verdict.
+    /// `changed` constructs the caller's original typed ownership-refusal error.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe native custody, missing names or different original identity.
+    pub fn require_same_file<E>(
+        &self,
+        name: impl AsRef<OsStr>,
+        original: &File,
+        changed: impl FnOnce() -> E,
+    ) -> Result<(), E>
+    where
+        E: From<io::Error>,
+    {
+        let current = self
+            .directory
+            .open_readonly_native(checked_name(name.as_ref())?, false)?
+            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+        if FileIdentity::of(&current)? != FileIdentity::of(original)? {
+            return Err(changed());
+        }
+        Ok(())
+    }
+
+    /// Read one admitted record into the caller's original owned allocation.
+    ///
+    /// The admission tuple converts the fresh length then allocates exactly that many bytes;
+    /// both retain caller error types and allocation charging. The maximum independently bounds
+    /// the admitted length before allocation. `mid` runs after exact read/EOF/snapshot checks and
+    /// before the final named snapshot. The error tuple maps only initial-open errors and constructs
+    /// original changed-read (`false`) or changed-namespace (`true`) errors. These factories cannot
+    /// accept a failed native check. Only the first raw native open can yield `None`.
+    ///
+    /// This method returns the same single `Vec`, with no copy or zeroization change. The caller
+    /// must close per-record ownership before decoding these bytes. Enclosing directory scope
+    /// closes every ordinary result. No file, pathname, descriptor or writer is returned; callers
+    /// keep batches read-only, without signing, publication, network effects or a validation cache.
+    ///
+    /// # Errors
+    /// Preserves admission, allocation, original native I/O and caller custody errors. Refuses an
+    /// inadmissible length/buffer, truncation, extension, changed snapshots or changed named objects.
+    pub fn read_admitted<E>(
+        &mut self,
+        name: impl AsRef<OsStr>,
+        maximum: usize,
+        admission: (
+            impl FnOnce(u64) -> Result<usize, E>,
+            impl FnOnce(usize) -> Result<Vec<u8>, E>,
+        ),
+        mid: impl FnOnce(&Self) -> Result<(), E>,
+        errors: (impl FnOnce(io::Error) -> E, impl FnOnce(bool) -> E),
+    ) -> Result<Option<Vec<u8>>, E>
+    where
+        E: From<io::Error>,
+    {
+        let (initial_error, changed_error) = errors;
+        let mut file = match checked_name(name.as_ref())
+            .and_then(|name| self.directory.open_readonly_native(name, true))
+            .map_err(initial_error)?
+        {
+            Some(file) => file,
+            None => return Ok(None),
+        };
+        let before = FileSnapshot::of(&file, true)?;
+        let extent = file.metadata()?.len();
+        let (admit, allocate) = admission;
+        let length = admit(extent)?;
+        if length > maximum || u64::try_from(length).ok() != Some(extent) {
+            return Err(
+                io::Error::other("record length admission differs from its native extent").into(),
+            );
+        }
+        let mut bytes = allocate(length)?;
+        if bytes.len() != length {
+            return Err(
+                io::Error::other("record allocation differs from its admitted length").into(),
+            );
+        }
+        file.read_exact(&mut bytes)?;
+        let mut tail = [0_u8; 1];
+        if !(file.read(&mut tail)? == 0 && FileSnapshot::of(&file, true)? == before) {
+            return Err(changed_error(false));
+        }
+        mid(self)?;
+        let current = self
+            .directory
+            .open_readonly_native(checked_name(name.as_ref())?, false)?
+            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+        if FileSnapshot::of(&current, true)? != before {
+            return Err(changed_error(true));
+        }
+        Ok(Some(bytes))
+    }
+}
+
+/// Borrowed read-only tree transaction over one retained native ancestry.
+///
+/// A descendant may omit only an identical complete shared native-handle prefix. Its own
+/// directory suffix and every leaf retain fresh checks. No path, descriptor, writer or
+/// validation verdict can be obtained from this view.
+pub struct PrivateReadTreeScope<'tree> {
+    directory: &'tree platform::Directory,
+    _lease: &'tree mut (),
+}
+
+impl PrivateReadTreeScope<'_> {
+    /// Consume one directory's lazy records and inventory in a closed tree read transaction.
+    ///
+    /// The existing shared-prefix admission checks the directory at entry and on every
+    /// ordinary-result exit. Strict descendants omit only the complete identical native
+    /// prefix; the anchor and nonshared owners retain full checks. Each file and census uses
+    /// the original native producer. The borrowed reader cannot leave this callback.
+    ///
+    /// This synchronous callback is for read-only inspection, not writes, signing, publication
+    /// or network actions. Intermediate suffix observations from nested read/entries brackets
+    /// are consolidated: a change wholly restored within this bracket may be unseen. This is
+    /// not an atomic snapshot, unwind guarantee, cache or currentness capability.
+    ///
+    /// # Errors
+    /// Refuses unsafe native custody at entry or exit. Exit refusal takes precedence over
+    /// every ordinary callback result, including a typed body error or observed absence.
+    pub fn read_scope<T, E>(
+        &mut self,
+        directory: &PrivateDirectory,
+        read: impl for<'scope> FnOnce(&mut PrivateReadScope<'scope>) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<io::Error>,
+    {
+        self.with_directory_custody(directory, || {
+            let mut lease = ();
+            read(&mut PrivateReadScope {
+                directory: &directory.inner,
+                _lease: &mut lease,
+            })
+        })
+    }
+
+    /// Revalidate one retained directory within this closed read-only tree transaction.
+    ///
+    /// This empty read operation checks the original directory at entry and again at exit.
+    /// Strict descendants share only the complete identical native prefix. The anchor,
+    /// independently reopened and unrelated owners retain full ancestry checks.
+    /// No reader, native owner or validation verdict is returned or retained.
+    ///
+    /// # Errors
+    /// Refuses changed or unsafe native custody at either observation. This does not promise
+    /// an atomic snapshot or detection of an interior change restored between observations.
+    pub fn revalidate_directory(&self, directory: &PrivateDirectory) -> io::Result<()> {
+        self.with_directory_custody(directory, || Ok(()))
+    }
+
+    // One closed owner for both actual reads and empty directory checks. Keep the native
+    // relationship admission and all-result exit in this private recipe; no public nested
+    // directory view or parallel read/entries/comparison implementation is retained.
+    fn with_directory_custody<T, E>(
+        &self,
+        directory: &PrivateDirectory,
+        read: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<io::Error>,
+    {
+        directory.inner.revalidate_in_tree(self.directory)?;
+        let result = read();
+        if let Err(error) = directory.inner.revalidate_in_tree(self.directory) {
+            drop(result);
+            return Err(error.into());
+        }
+        result
+    }
 }
 
 impl PrivateDirectory {
@@ -227,6 +555,20 @@ impl PrivateDirectory {
         })
     }
 
+    /// Open an optional private child, accepting absence only at its first native open.
+    ///
+    /// Parent custody is checked before admission and after every ordinary failure or absence.
+    /// A successful child closes the same full native ancestry as [`Self::open_child`]. Missing
+    /// ancestors, replaced parents, and disappearance after child admission remain errors.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe or changed custody and all post-admission native errors.
+    pub fn open_child_optional(&self, name: impl AsRef<OsStr>) -> io::Result<Option<Self>> {
+        self.inner
+            .child_optional(checked_name(name.as_ref())?)
+            .map(|child| child.map(|inner| Self { inner }))
+    }
+
     /// Create one private child directory, failing if its name already exists.
     ///
     /// # Errors
@@ -236,6 +578,26 @@ impl PrivateDirectory {
         Ok(Self {
             inner: self.inner.child(name, true, true)?,
         })
+    }
+
+    /// Atomically publish a complete private child through this retained directory authority.
+    ///
+    /// This delegates the same closed publication as [`OwnerDirectory::publish_private_child`]
+    /// while sharing this owner's native handles and preserving all private ancestor policies.
+    /// It does not reopen the parent pathname or weaken existing custody. Existing destinations
+    /// are never replaced; a failure after publication requires reconciliation before retry.
+    ///
+    /// # Errors
+    /// Refuses invalid or duplicate names, file-count bounds, changed custody and native errors.
+    pub fn publish_private_child(
+        &self,
+        name: impl AsRef<OsStr>,
+        files: &[(&str, &[u8])],
+    ) -> io::Result<Self> {
+        OwnerDirectory {
+            inner: self.inner.clone(),
+        }
+        .publish_private_child(name, files)
     }
 
     /// Read one private single-link regular file under an explicit byte limit.
@@ -248,6 +610,136 @@ impl PrivateDirectory {
     pub fn read(&self, name: impl AsRef<OsStr>, maximum: usize) -> io::Result<Zeroizing<Vec<u8>>> {
         let name = checked_name(name.as_ref())?;
         self.inner.read(name, maximum, true)
+    }
+
+    /// Read one optional private file with absence restricted to its first native open.
+    ///
+    /// Present bytes retain the same sole zeroized allocation and native leaf admission as
+    /// [`Self::read`]. Later disappearance or other native refusal remains an error. Directory
+    /// custody is checked once at entry and once after every ordinary result; present native
+    /// file owners remain live through the exit check. Exit refusal takes precedence.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe or changed custody, oversized files and native errors.
+    /// Returns `None` only for initial native absence under stable directory custody.
+    pub fn read_optional(
+        &self,
+        name: impl AsRef<OsStr>,
+        maximum: usize,
+    ) -> io::Result<Option<Zeroizing<Vec<u8>>>> {
+        self.inner.read_optional(name.as_ref(), maximum, true)
+    }
+
+    /// Inspect consecutive retained directories inside one closed ancestry transaction.
+    ///
+    /// The full original anchor chain is checked at entry and unconditionally after every
+    /// ordinary callback result. Shared native-handle prefixes are checked by those fences;
+    /// each descendant's remaining suffix and each leaf retain fresh checks in original
+    /// order. Nonshared owners fall back to full validation rather than trusting path text.
+    ///
+    /// Intermediate common-prefix observations are consolidated. Changes completely restored
+    /// inside this callback may go unobserved; this is not an atomic tree snapshot or an
+    /// unwind guarantee. Callbacks must stay read-only, without signing, publication, network
+    /// effects or plaintext retention. Captured side effects cannot be excluded by Rust.
+    /// Complete source inventories and independent later graph/currentness checks remain
+    /// caller-owned. No descriptor, scope capability or validation cache leaves the bracket.
+    ///
+    /// # Errors
+    /// Refuses unsafe or changed full anchor custody. Exit refusal drops and takes precedence
+    /// over every ordinary body result, including semantic errors or an observed absence.
+    pub fn read_tree_scope<T, E>(
+        &self,
+        read: impl for<'tree> FnOnce(&mut PrivateReadTreeScope<'tree>) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<io::Error>,
+    {
+        self.revalidate()?;
+        let mut lease = ();
+        let result = read(&mut PrivateReadTreeScope {
+            directory: &self.inner,
+            _lease: &mut lease,
+        });
+        if let Err(error) = self.revalidate() {
+            drop(result);
+            return Err(error.into());
+        }
+        result
+    }
+
+    /// Consume ordered private records inside one read-only directory transaction.
+    ///
+    /// The callback reads and validates records lazily through an opaque borrowed view.
+    /// Every leaf retains fresh private native admission, snapshot, namespace and extent checks;
+    /// an admitted owned result also preserves the caller's allocation order. Directory and ancestor
+    /// custody are checked at entry and unconditionally after every ordinary callback result;
+    /// an exit refusal takes precedence over a semantic error, absence or completed result.
+    /// This Result boundary does not promise an exit check during unwinding.
+    ///
+    /// Intermediate ancestry observations are intentionally replaced by the closed entry
+    /// and exit observations. Changes completely restored inside the callback need not be
+    /// detected; this is not an atomic multi-file snapshot. Callers must keep the callback
+    /// read-only, without signing, publication, network effects or retaining additional plaintext copies.
+    /// The callback's captured values cannot be prevented from causing such effects by Rust's
+    /// type system. Source inventories and later freshness boundaries remain caller-owned.
+    ///
+    /// # Errors
+    /// Refuses unsafe or changed directory custody and native entry/exit errors. Otherwise
+    /// returns the callback's original typed error; empty callbacks still check custody.
+    pub fn read_scope<T, E>(
+        &self,
+        read: impl for<'scope> FnOnce(&mut PrivateReadScope<'scope>) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<io::Error>,
+    {
+        self.revalidate()?;
+        let mut lease = ();
+        let result = read(&mut PrivateReadScope {
+            directory: &self.inner,
+            _lease: &mut lease,
+        });
+        if let Err(error) = self.revalidate() {
+            drop(result);
+            return Err(error.into());
+        }
+        result
+    }
+
+    /// Compare ordered original bytes using one closed private-directory read transaction.
+    ///
+    /// Each file independently passes the same native private ownership, link, metadata,
+    /// namespace and byte-bound checks as [`Self::read`]. Only one zeroized transient read is
+    /// owned at a time; no descriptor, plaintext or validation capability leaves this method.
+    /// The first stable byte mismatch returns `false` without reading later records.
+    ///
+    /// Directory and ancestor custody are checked at entry and unconditionally at exit,
+    /// including a mismatch or ordinary read error. An exit custody failure takes precedence.
+    /// Intermediate ancestry observations between files are not retained: this is a closed
+    /// read transaction, not an atomic simultaneous snapshot of all original inputs.
+    ///
+    /// # Errors
+    /// Refuses invalid leaf names, unsafe or changed native custody, oversized or changing
+    /// files, allocation refusal and native I/O errors. Empty slices still check custody.
+    pub fn compare_files(&self, inputs: &[PrivateFileComparison<'_>]) -> io::Result<bool> {
+        self.with_read_custody(|| {
+            let mut lease = ();
+            PrivateReadScope {
+                directory: &self.inner,
+                _lease: &mut lease,
+            }
+            .compare_files(inputs)
+        })
+    }
+
+    // The closed shipping comparison supplies its entire body internally. No caller callback,
+    // file descriptor or bytes capability can cross this private bracket. Keep ordinary body
+    // failure separate from the unconditional exit: changed custody always wins.
+    fn with_read_custody(&self, read: impl FnOnce() -> io::Result<bool>) -> io::Result<bool> {
+        self.revalidate()?;
+        let result = read();
+        self.revalidate()?;
+        result
     }
 
     /// Stage, sync and atomically publish bytes with private access from the first write.
@@ -296,6 +788,29 @@ impl PrivateDirectory {
         }
         self.inner
             .reconcile_atomic_staging(required_names, maximum_staged, maximum_bytes)
+    }
+
+    /// Remove one exact writable private regular file and durably publish its absence.
+    ///
+    /// Returns `false` only when the first native open observes absence under stable retained
+    /// directory custody. The caller must hold its exclusive operation and runtime ownership
+    /// gates so cooperative writers cannot replace the selected name during removal. Every
+    /// admitted file must remain owner-private, regular and single-linked; no bytes are read.
+    /// This is not an atomic Unix check-and-unlink against hostile same-user replacement.
+    /// Windows compatible read handles may retain native pending deletion until they close.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe or changed files/ancestors and native I/O errors. Late
+    /// disappearance is an error. An error after removal can mean durability is uncertain;
+    /// deletion is never rolled back. Exit custody refusal overrides every ordinary result.
+    pub fn remove_private(&self, name: impl AsRef<OsStr>) -> io::Result<bool> {
+        let name = checked_name(name.as_ref())?;
+        self.revalidate()?;
+        let result = self.inner.remove_private_native(name);
+        #[cfg(test)]
+        private_remove_tests::before_exit();
+        self.revalidate()?;
+        result
     }
 
     /// Open or create a private read/write lock file without truncation or taking its lock.
@@ -452,6 +967,19 @@ impl ReaderDirectory {
     pub fn path(&self) -> &Path {
         self.inner.path()
     }
+    /// Retain one existing directory child using this reader's original ancestor handles.
+    ///
+    /// This opens only one read-only directory handle. No writable directory capability,
+    /// file or namespace is created, and every original ancestor remains revalidated.
+    ///
+    /// # Errors
+    /// Refuses invalid names, links, unsafe custody, changed ancestors and native errors.
+    pub fn open_child(&self, name: impl AsRef<OsStr>) -> io::Result<Self> {
+        Ok(Self {
+            inner: self.inner.child_reader(checked_name(name.as_ref())?)?,
+        })
+    }
+
     /// Retain one private child while sharing this reader's existing ancestor handles.
     /// # Errors
     /// Refuses invalid names, unsafe private custody, replaced paths and native errors.
@@ -586,6 +1114,39 @@ impl OwnerDirectory {
         })
     }
 
+    /// Open an existing private child through this retained project parent.
+    ///
+    /// The child's native owner shares every original ancestor descriptor with this parent;
+    /// no absolute path is reopened. The parent keeps its existing reader policy, while the
+    /// child independently requires current-user private custody.
+    ///
+    /// # Errors
+    /// Refuses invalid names, missing children, unsafe custody and native observation errors.
+    pub fn open_private_child(&self, name: impl AsRef<OsStr>) -> io::Result<PrivateDirectory> {
+        Ok(PrivateDirectory {
+            inner: self
+                .inner
+                .child(checked_name(name.as_ref())?, false, false)?,
+        })
+    }
+
+    /// Open an optional private child through the original retained project parent.
+    ///
+    /// Only its first native child open admits absence. Success closes the complete shared
+    /// ancestry; every native admission failure or absence closes the original parent. Missing
+    /// ancestors, replaced parents and loss after admission remain errors.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe custody and all post-admission native errors.
+    pub fn open_private_child_optional(
+        &self,
+        name: impl AsRef<OsStr>,
+    ) -> io::Result<Option<PrivateDirectory>> {
+        self.inner
+            .child_optional(checked_name(name.as_ref())?)
+            .map(|child| child.map(|inner| PrivateDirectory { inner }))
+    }
+
     /// Create a private child under this retained safe owner directory.
     ///
     /// # Errors
@@ -622,15 +1183,11 @@ impl OwnerDirectory {
                 return Err(invalid("duplicate completed private directory filename"));
             }
         }
-        match self.inner.child(name, false, false) {
-            Ok(_) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::AlreadyExists,
-                    "private destination already exists",
-                ));
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
+        if self.inner.child_optional(name)?.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "private destination already exists",
+            ));
         }
         let mut staging = None;
         for _ in 0..32 {
@@ -648,7 +1205,8 @@ impl OwnerDirectory {
         for (file, bytes) in files {
             directory.write_atomic(file, bytes, PublishMode::CreateNew)?;
         }
-        directory.sync()?;
+        // The nonempty loop's final atomic write already synced this staging directory.
+        // No owner mutation intervenes before the native rename revalidates and publishes it.
         directory.rename_to_sibling(name, PublishMode::CreateNew)
     }
 
@@ -663,6 +1221,37 @@ impl OwnerDirectory {
     ) -> io::Result<Zeroizing<Vec<u8>>> {
         self.inner
             .read(checked_name(name.as_ref())?, maximum, false)
+    }
+
+    /// Read an optional regular child through this retained project authority.
+    ///
+    /// Only its first native open can admit absence. The original regular-file policy and
+    /// sole zeroized allocation remain; custody closes after every ordinary result.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe or changed custody, excessive extents and late native errors.
+    pub fn read_regular_optional(
+        &self,
+        name: impl AsRef<OsStr>,
+        maximum: usize,
+    ) -> io::Result<Option<Zeroizing<Vec<u8>>>> {
+        self.inner.read_optional(name.as_ref(), maximum, false)
+    }
+
+    /// Read an optional private child through this retained project authority.
+    ///
+    /// The project directory retains its reader policy; the file independently requires the
+    /// same owner-private native custody as [`read_private`]. No directory is reopened.
+    /// Only initial native leaf absence yields `None`, after the ordinary-result custody exit.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe private custody, excessive extents and late native errors.
+    pub fn read_private_optional(
+        &self,
+        name: impl AsRef<OsStr>,
+        maximum: usize,
+    ) -> io::Result<Option<Zeroizing<Vec<u8>>>> {
+        self.inner.read_optional(name.as_ref(), maximum, true)
     }
 
     /// Publish private bytes atomically, optionally replacing one safe owned regular file.
@@ -723,6 +1312,184 @@ impl OwnerDirectory {
 #[derive(Debug)]
 pub struct RetainedFile {
     inner: platform::RetainedFile,
+}
+
+/// Read-only native custody for an explicitly selected Cargo build input.
+///
+/// Cargo may publish a native executable with a hardlink to its dependency output. This
+/// owner accepts that initial link count while retaining the complete native snapshot,
+/// selected name and ancestors. Every later link-count, content, metadata or custody change
+/// is refused. It supplies no publication or private-file authority and exposes no raw file.
+/// Installed programs and ordinary/private retained files remain single-link owners.
+#[derive(Debug)]
+pub struct RetainedBuildInput {
+    inner: platform::RetainedFile,
+}
+
+impl RetainedBuildInput {
+    /// Retain a regular build input through read-only, no-follow native custody.
+    /// # Errors
+    /// Refuses unsafe ownership or permissions, indirect files, changing custody and native errors.
+    pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
+        let path = absolute(path.as_ref())?;
+        let name = checked_name(
+            path.file_name()
+                .ok_or_else(|| invalid("build input has no name"))?,
+        )?;
+        let directory = platform::Directory::open_reader(
+            path.parent()
+                .ok_or_else(|| invalid("build input has no parent"))?,
+        )?;
+        Ok(Self {
+            inner: directory.open_build_input(name)?,
+        })
+    }
+
+    /// Recheck the original descriptor, exact link count, selected name and all ancestors.
+    /// # Errors
+    /// Refuses any captured native custody or metadata change and genuine native errors.
+    pub fn revalidate(&self) -> io::Result<()> {
+        self.inner.revalidate()
+    }
+
+    /// Capture complete native metadata after independently checking original custody.
+    /// # Errors
+    /// Refuses changed originals, names or ancestors and native errors.
+    pub fn snapshot(&self) -> io::Result<FileSnapshot> {
+        Ok(FileSnapshot {
+            inner: self.inner.snapshot()?,
+        })
+    }
+
+    /// Read the length of the revalidated original build input.
+    /// # Errors
+    /// Refuses changed native custody or metadata and native errors.
+    pub fn len(&self) -> io::Result<u64> {
+        self.revalidate()?;
+        let length = self.inner.file().metadata()?.len();
+        self.revalidate()?;
+        Ok(length)
+    }
+
+    /// Whether the revalidated original build input is empty.
+    /// # Errors
+    /// Refuses changed custody or native errors.
+    pub fn is_empty(&self) -> io::Result<bool> {
+        self.len().map(|length| length == 0)
+    }
+
+    /// Read permissions for native executable admission while preserving original custody.
+    /// # Errors
+    /// Refuses changed custody or native errors.
+    pub fn permissions(&self) -> io::Result<std::fs::Permissions> {
+        self.revalidate()?;
+        let permissions = self.inner.file().metadata()?.permissions();
+        self.revalidate()?;
+        Ok(permissions)
+    }
+}
+
+// Streaming never transfers the raw descriptor or its namespace authority. The caller must
+// finish each bounded/hash operation with snapshot/revalidate before accepting its bytes.
+impl Read for RetainedBuildInput {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        self.inner.file_mut().read(buffer)
+    }
+}
+
+impl Seek for RetainedBuildInput {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        self.inner.file_mut().seek(position)
+    }
+}
+
+/// One explicitly selected regular file and its original native custody.
+///
+/// Selection resolves the parent directory while leaving the final component unfollowed.
+/// The retained file, its resolved name and every native ancestor remain inseparable across
+/// later work. This type retains no plaintext and cannot be cloned into a second selection.
+#[derive(Debug)]
+pub struct SelectedRegularFile {
+    path: PathBuf,
+    original: RetainedFile,
+}
+
+impl SelectedRegularFile {
+    /// Capture a direct regular file before work which must preserve its original identity.
+    /// Relative paths and parent components are resolved at selection time. A final-component
+    /// link, unsafe custody or a nonregular object is refused by the native owner.
+    /// # Errors
+    /// Returns genuine native path, ownership, identity or access failures.
+    pub fn capture(path: impl AsRef<Path>) -> io::Result<Self> {
+        let path = path.as_ref();
+        let name = path
+            .file_name()
+            .ok_or_else(|| invalid("selected file has no name"))?;
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let path = parent.canonicalize()?.join(name);
+        let original = RetainedFile::open_regular(&path)?;
+        original.revalidate()?;
+        Ok(Self { path, original })
+    }
+
+    /// The original resolved path, never a caller-supplied replacement for its descriptor.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Recheck the original immutable regular file and every retained ancestor.
+    /// # Errors
+    /// Refuses replacement, mutation, changed custody and genuine native errors.
+    pub fn revalidate(&self) -> io::Result<()> {
+        self.original.revalidate()
+    }
+
+    /// Read the original descriptor from offset zero within an exact byte limit.
+    /// Every call uses explicit offsets; repeated or concurrent reads do not rely on the
+    /// descriptor's shared cursor. A single stack byte probes EOF at the original extent
+    /// before the final native fence. The returned buffer is ordinary owned file input,
+    /// suitable for a compiler or public artifact, rather than private secret storage.
+    /// # Errors
+    /// Refuses an oversized or changing original, truncation and genuine native errors.
+    pub fn read(&self, maximum: usize) -> io::Result<Vec<u8>> {
+        self.revalidate()?;
+        let length = self.original.file().metadata()?.len();
+        let length =
+            usize::try_from(length).map_err(|_| invalid("selected file exceeds its bound"))?;
+        if length > maximum {
+            return Err(invalid("selected file exceeds its bound"));
+        }
+        let mut bytes = vec![0; length];
+        read_exact_at(self.original.file(), &mut bytes, 0)?;
+        let mut extra = [0_u8; 1];
+        if read_at(self.original.file(), &mut extra, length as u64)? != 0 {
+            return Err(invalid(
+                "selected file changed while its bounded bytes were read",
+            ));
+        }
+        self.revalidate()?;
+        Ok(bytes)
+    }
+
+    /// Observe the original length after rechecking native immutable custody.
+    /// # Errors
+    /// Refuses a changed original or genuine native errors.
+    pub fn len(&self) -> io::Result<u64> {
+        self.revalidate()?;
+        let length = self.original.file().metadata()?.len();
+        self.revalidate()?;
+        Ok(length)
+    }
+
+    /// Whether the original immutable file is empty.
+    /// # Errors
+    /// Refuses a changed original or genuine native errors.
+    pub fn is_empty(&self) -> io::Result<bool> {
+        self.len().map(|length| length == 0)
+    }
 }
 
 impl RetainedFile {
@@ -984,6 +1751,13 @@ fn validate_atomic_staging_inventory(
     Ok(())
 }
 
+// Only the first raw leaf open can produce this absence. Retain its original native error
+// so required readers preserve the complete error, including errno and message.
+enum NativeReadOutcome<T> {
+    InitialAbsence(io::Error),
+    Present(T),
+}
+
 fn bounded_read(file: &mut File, length: u64, maximum: usize) -> io::Result<Zeroizing<Vec<u8>>> {
     let length = usize::try_from(length).map_err(|_| invalid("file exceeds the read bound"))?;
     if length > maximum {
@@ -1060,3 +1834,33 @@ mod native_offset_custody_tests {
         assert_eq!(original.snapshot().unwrap(), before);
     }
 }
+
+#[cfg(test)]
+mod comparison_tests;
+
+#[cfg(test)]
+mod build_input_tests;
+
+#[cfg(test)]
+mod read_scope_tests;
+
+#[cfg(test)]
+mod tree_scope_tests;
+
+#[cfg(test)]
+mod admitted_read_tests;
+
+#[cfg(test)]
+mod optional_read_tests;
+
+#[cfg(test)]
+mod optional_child_tests;
+
+#[cfg(test)]
+mod tree_read_producer_tests;
+
+#[cfg(test)]
+mod owner_private_child_tests;
+
+#[cfg(test)]
+mod private_remove_tests;

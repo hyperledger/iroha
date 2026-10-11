@@ -2,7 +2,7 @@
 
 use super::{CanonicalParts, DaCommitmentBundle, DaCommitmentRecord, Storage};
 use crate::da::commitment::{DaProofScheme, PreparationPhase};
-use crate::inline_fields::DecodedField;
+use crate::inline_fields::{DecodedField, InlineLeaf};
 use crate::{
     da::types::{BlobDigest, GovernanceTag, RetentionPolicy, StorageTicketId},
     sorafs::pin_registry::{ManifestDigest, StorageClass},
@@ -142,20 +142,14 @@ struct Inline<T>(Option<T>);
 impl<T> FieldDestination for Inline<T> {
     type Error = std::convert::Infallible;
 }
-impl<T: for<'a> DecodeFromSlice<'a>> DecodeField<0, T> for Inline<T> {
+impl<T: InlineLeaf> DecodeField<0, T> for Inline<T> {
     type Value = ();
     fn decode_field(
         &mut self,
         field: CanonicalField<'_, T>,
     ) -> Result<(), DecodeIntoError<Self::Error>> {
-        field.with_payload(|bytes| {
-            let (value, used) = T::decode_from_slice(bytes)?;
-            if used != bytes.len() {
-                return Err(norito::Error::LengthMismatch.into());
-            }
-            self.0 = Some(value);
-            Ok(())
-        })
+        self.0 = Some(T::read_field(field)?);
+        Ok(())
     }
 }
 fn inline_lane(bytes: &[u8]) -> Result<LaneId, norito::Error> {

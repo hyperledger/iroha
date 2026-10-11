@@ -31,7 +31,7 @@ async fn zk_vk_get_returns_record_with_key() {
     let header = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
     let mut block = state.block(header);
     let stx = block.transaction();
-    let backend = "halo2/ipa";
+    let backend = "pipa-r/pasta";
     let name = "vk_add".to_string();
     let vk_bytes = vec![1, 2, 3, 4, 5];
     let vk = VerifyingKeyBox::new(backend.into(), vk_bytes.clone());
@@ -39,8 +39,8 @@ async fn zk_vk_get_returns_record_with_key() {
     let mut rec = VerifyingKeyRecord::new(
         1,
         format!("{backend}:{name}"),
-        BackendTag::Halo2IpaPasta,
-        "pallas",
+        BackendTag::NativePipaRPasta,
+        "vesta",
         [0x11; 32],
         commitment,
     );
@@ -48,8 +48,8 @@ async fn zk_vk_get_returns_record_with_key() {
     rec.key = Some(vk);
     rec.status = ConfidentialStatus::Active;
     rec.gas_schedule_id = Some("test_schedule".into());
-    rec.namespace = "kagemusha_v1".into();
-    rec.owner_manifest_id = Some("builtin:confidential-unshield-v3".into());
+    rec.namespace = "confidential".into();
+    rec.owner_manifest_id = Some("builtin:pipa-r/pasta/confidential-unshield-change-v1".into());
     rec.activation_height = Some(10);
     rec.withdraw_height = Some(20);
     let expected_record = rec.clone();
@@ -181,7 +181,7 @@ async fn zk_vk_get_not_found() {
             }
         }),
     );
-    let backend_enc = urlencoding::encode("halo2/ipa");
+    let backend_enc = urlencoding::encode("pipa-r/pasta");
     let uri = format!("/v1/zk/vk/{}/{}", backend_enc, "missing");
     let req = http::Request::builder()
         .method("GET")

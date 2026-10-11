@@ -2777,8 +2777,8 @@ where
             let mut profiles: Vec<String> = Vec::new();
             let mut kagami: Option<PathBuf> = None;
             let mut nexus_xor_asset_definition_id: Option<String> = None;
-            let mut kagemusha_mint_finality_parameters_dir: Option<PathBuf> = None;
             let mut xor_allocations_dir: Option<PathBuf> = None;
+            let mut genesis_creation_time_ms: Option<u64> = None;
             let mut pending = args.peekable();
             while let Some(arg) = pending.next() {
                 match arg.as_str() {
@@ -2809,21 +2809,30 @@ where
                         };
                         nexus_xor_asset_definition_id = Some(asset_definition_id);
                     }
+                    "--genesis-creation-time-ms" => {
+                        if genesis_creation_time_ms.is_some() {
+                            return Err(
+                                "--genesis-creation-time-ms may be supplied only once".into()
+                            );
+                        }
+                        let record = pending
+                            .next()
+                            .ok_or("expected milliseconds after --genesis-creation-time-ms")?;
+                        let value: u64 = record
+                            .parse()
+                            .map_err(|_| "genesis creation time must be a canonical u64")?;
+                        if value == 0 || value.to_string() != record {
+                            return Err(
+                                "genesis creation time must be one canonical nonzero u64".into()
+                            );
+                        }
+                        genesis_creation_time_ms = Some(value);
+                    }
                     "--xor-allocations-dir" => {
                         let path = pending
                             .next()
                             .ok_or("expected path after --xor-allocations-dir")?;
                         xor_allocations_dir = Some(normalize_path(Path::new(&path))?);
-                    }
-                    "--kagemusha-mint-finality-parameters-dir" => {
-                        let Some(path) = pending.next() else {
-                            return Err(
-                                "expected path after --kagemusha-mint-finality-parameters-dir"
-                                    .into(),
-                            );
-                        };
-                        kagemusha_mint_finality_parameters_dir =
-                            Some(normalize_path(Path::new(&path))?);
                     }
                     flag => {
                         return Err(format!("unknown flag for kagami-profiles: {flag}").into());
@@ -2833,17 +2842,17 @@ where
             let output = output
                 .map(Ok)
                 .unwrap_or_else(|| normalize_path(Path::new("defaults/kagami")))?;
-            let kagemusha_mint_finality_parameters_dir = kagemusha_mint_finality_parameters_dir
-                .ok_or("kagami-profiles requires --kagemusha-mint-finality-parameters-dir <DIR>")?;
             Ok(CommandKind::KagamiProfiles {
                 options: kagami_profiles::KagamiProfileOptions {
                     output,
                     profiles,
                     kagami_override: kagami,
                     nexus_xor_asset_definition_id,
-                    kagemusha_mint_finality_parameters_dir,
                     xor_allocations_dir: xor_allocations_dir
                         .ok_or("kagami-profiles requires --xor-allocations-dir <DIR>")?,
+                    genesis_creation_time_ms: genesis_creation_time_ms.ok_or(
+                        "kagami-profiles requires --genesis-creation-time-ms <MILLISECONDS>",
+                    )?,
                 },
             })
         }
@@ -11539,6 +11548,63 @@ fn update_sha256_os_str_component(hasher: &mut Sha256, label: &[u8], value: &OsS
         update_sha256_component(hasher, label, value.to_string_lossy().as_bytes());
     }
 }
+#[cfg(test)]
+mod kagami_profiles_cli_tests {
+    use super::*;
+
+    fn arguments() -> Vec<String> {
+        [
+            "xtask",
+            "kagami-profiles",
+            "--profile",
+            "iroha3-dev",
+            "--xor-allocations-dir",
+            "allocations",
+            "--genesis-creation-time-ms",
+            "1700000000000",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect()
+    }
+
+    #[test]
+    fn profiles_require_explicit_genesis_creation_time() {
+        let CommandKind::KagamiProfiles { options } =
+            parse_command(arguments().into_iter()).expect("ordinary profile selection")
+        else {
+            panic!("expected profile generation");
+        };
+        assert_eq!(options.genesis_creation_time_ms, 1_700_000_000_000);
+    }
+
+    #[test]
+    fn creation_time_cannot_be_supplied_twice() {
+        let mut args = arguments();
+        args.extend(["--genesis-creation-time-ms".into(), "1700000000000".into()]);
+        let error = match parse_command(args.into_iter()) {
+            Ok(_) => panic!("duplicate creation time must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error.to_string(),
+            "--genesis-creation-time-ms may be supplied only once"
+        );
+    }
+
+    #[test]
+    fn creation_time_is_required_canonical_nonzero_and_bounded() {
+        let mut args = arguments();
+        args.truncate(args.len() - 2);
+        assert!(parse_command(args.into_iter()).is_err());
+        for record in ["0", "01", "+1", " 1", "18446744073709551616", "１２"] {
+            let mut args = arguments();
+            *args.last_mut().unwrap() = record.into();
+            assert!(parse_command(args.into_iter()).is_err(), "{record}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod acceleration_state_tests {
     use super::*;

@@ -1,6 +1,6 @@
 
             seiyaku ListGetGasControl {
-                view fn main(int index) -> int {
+                view fn main(int index) authorize(anyone) -> int {
                     return 0;
                 }
             }

@@ -28,7 +28,7 @@ FUNCTION_CONTRACTS = {'soracloud_status_uses_live_torii_control_plane': ('4e4817
                                                       0,
                                                       4,
                                                       True),
- 'soracloud_scr_host_admission_rejects_invalid_manifests_live_torii_control_plane': ('183c8fd821509953809415f7ca90379da86dcff0056e05cfb60675a82c171f94',
+ 'soracloud_scr_host_admission_rejects_invalid_manifests_live_torii_control_plane': ('06b3e11efa89201ed28bf3aa3ec915e18c70e51ab64fee3210552a4f9357ef60',
                                                                                      0,
                                                                                      2,
                                                                                      0,

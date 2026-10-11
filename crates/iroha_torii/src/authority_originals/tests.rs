@@ -364,3 +364,73 @@ fn intake_budget_follows_actual_decoded_and_wire_owner_until_drop() {
     drop(owner);
     assert_eq!(budget.reserved_bytes(), 0);
 }
+
+#[test]
+fn identifier_selector_requires_exact_signed_body_and_existing_full_read_root() {
+    let (app, account, key, _, uri) = native_auth_fixture();
+    let mut selected = request(47);
+    selected.network_id = *app.state.network_id_ref();
+    selected.selector =
+        NativeAuthorityOriginalsSelectorV1::IdentifierPolicy("email#retail".parse().unwrap());
+    let body = selected.canonical_wire().unwrap();
+    assert!(
+        authenticate_body(
+            &app,
+            &signed(&app, &account, &key, &body, &uri),
+            &Method::POST,
+            &uri,
+            &body
+        )
+        .is_err()
+    );
+    grant(
+        &app,
+        &account,
+        CanReadAccountData {
+            account: account.clone(),
+        }
+        .into(),
+    );
+    assert!(
+        authenticate_body(
+            &app,
+            &signed(&app, &account, &key, &body, &uri),
+            &Method::POST,
+            &uri,
+            &body
+        )
+        .is_err()
+    );
+    grant(&app, &account, CanReadAllLedgerData.into());
+    let mut other = selected.clone();
+    other.selector =
+        NativeAuthorityOriginalsSelectorV1::IdentifierPolicy("other#retail".parse().unwrap());
+    assert!(
+        authenticate_body(
+            &app,
+            &signed(&app, &account, &key, &body, &uri),
+            &Method::POST,
+            &uri,
+            &other.canonical_wire().unwrap()
+        )
+        .is_err()
+    );
+    other = selected.clone();
+    other.challenge = [48; 32];
+    assert!(
+        authenticate_body(
+            &app,
+            &signed(&app, &account, &key, &body, &uri),
+            &Method::POST,
+            &uri,
+            &other.canonical_wire().unwrap()
+        )
+        .is_err()
+    );
+    let headers = signed(&app, &account, &key, &body, &uri);
+    assert_eq!(
+        authenticate_body(&app, &headers, &Method::POST, &uri, &body).unwrap(),
+        account
+    );
+    assert!(authenticate_body(&app, &headers, &Method::POST, &uri, &body).is_err());
+}

@@ -70,12 +70,6 @@ impl StartupRecovery {
             }
         }
     }
-
-    pub(crate) fn unavailable() -> Self {
-        let (owner, receiver) = channel();
-        drop(owner);
-        receiver
-    }
 }
 
 /// Only the consensus worker owns the ability to publish successful recovery.

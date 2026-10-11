@@ -308,6 +308,7 @@ impl StateBlock<'_> {
     /// The caller still owes source/finality and non-output resource admission.
     /// The sealed output owner does not grant commit authority by itself: the
     /// original witness, durable finality and publication surface must join it.
+    #[cfg(test)]
     pub(crate) fn execute_and_seal_ordinary_outputs<E>(
         &mut self,
         block: &mut SignedBlock,
@@ -318,8 +319,22 @@ impl StateBlock<'_> {
             &[RoutingDecision],
         ) -> Result<ExecutionOutputSealMetadata, E>,
     ) -> Result<(), ExecutionOutputSealError<E>> {
+        self.execute_and_seal_ordinary_outputs_with_amx(block, genesis, finalize, None)
+    }
+
+    pub(crate) fn execute_and_seal_ordinary_outputs_with_amx<E>(
+        &mut self,
+        block: &mut SignedBlock,
+        genesis: Option<&crate::block::AuthenticatedGenesisOutputSource>,
+        finalize: impl FnOnce(
+            &mut Self,
+            &SignedBlock,
+            &[RoutingDecision],
+        ) -> Result<ExecutionOutputSealMetadata, E>,
+        amx_legs: Option<&mut crate::sumeragi::amx::NativeAmxLegPreparations>,
+    ) -> Result<(), ExecutionOutputSealError<E>> {
         self.reserve_ordinary_execution_outputs(block)?;
-        let execution = self.execute_ordinary_output_plan(block, genesis);
+        let execution = self.execute_ordinary_output_plan_with_amx(block, genesis, amx_legs);
         self.require_storage_admission()
             .map_err(ExecutionOutputSealError::Storage)?;
         execution?;
@@ -440,6 +455,22 @@ impl StateBlock<'_> {
             }
             // Borrow the actual World journals after every finalizer effect.
             // Encoding failure is a local ownership error before attachment.
+            // Retain inclusion paths from this exact event cut before World and
+            // witness capture. No carrier/QC hash enters these deterministic rows.
+            let budget = state.state_ref.ivm_execution_budget();
+            let height = state._curr_block.height().get();
+            crate::kagemusha_wallet_v1::event_evidence::retain(&mut state.world, height, &budget)
+                .map_err(|error| match error {
+                crate::kagemusha_wallet_v1::event_evidence::PreparationError::Invalid(reason) => {
+                    ExecutionOutputSealError::Owner(reason)
+                }
+                crate::kagemusha_wallet_v1::event_evidence::PreparationError::Deferred(reason) => {
+                    ExecutionOutputSealError::Deferred(reason)
+                }
+            })?;
+            state
+                .require_storage_admission()
+                .map_err(ExecutionOutputSealError::Storage)?;
             let world_delta = state.world.net_state_delta()?;
             block
                 .set_execution_outputs(
@@ -458,7 +489,7 @@ impl StateBlock<'_> {
             Ok(SealedExecutionOutputs {
                 witness_hash: None,
                 witness_surface: None,
-                sources,
+                _sources: sources,
                 world_delta,
                 proposal: block.hash(),
                 wire_hash,

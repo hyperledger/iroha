@@ -1070,6 +1070,33 @@ test("exact canonical ROOT/target is admitted as the generated cache", (t) => {
   }), 0);
 });
 
+test("canonical qualification child builds the original manifest and lock", (t) => {
+  const fixture = createFixture(t);
+  fixture.targetRoot = path.join(fixture.repoRoot, "target", "qualification", "native-consumer");
+  fixture.env.CARGO_TARGET_DIR = fixture.targetRoot;
+  fixture.nativePath = nativeBuildOutputPath({ repoRoot: fixture.repoRoot, sourceState: sourceState(), cargoProfile: fixture.profile, env: fixture.env, platform: "linux" });
+  assert.equal(buildFixture(fixture, {
+    runCargo(_cargo, args, { cargoEnv }) {
+      assert.equal(args[args.indexOf("--manifest-path") + 1], path.join(fixture.repoRoot, "Cargo.toml"));
+      assert.equal(cargoEnv.IROHA_JS_CARGO_LOCKFILE_PATH, path.join(fixture.repoRoot, "Cargo.lock"));
+      assert.equal(cargoEnv.CARGO_TARGET_DIR, path.dirname(path.dirname(fixture.nativePath)));
+      assert.ok(cargoEnv.CARGO_TARGET_DIR.startsWith(fixture.targetRoot + path.sep));
+      writeNativeOutput(fixture);
+      return { status: 0, stdout: successfulCargoJson(fixture) };
+    },
+  }), 0);
+});
+
+for (const relative of ["target/qualification", "target/qualification-other/lane", "crates/native-target"]) {
+  test("qualification path exception rejects " + relative, (t) => {
+    const fixture = createFixture(t);
+    fixture.env.CARGO_TARGET_DIR = path.join(fixture.repoRoot, relative);
+    assert.throws(() => buildFixture(fixture, {
+      runCargo() { assert.fail("unadmitted source descendants must fail before Cargo"); },
+    }), /must not contain or be contained by the build source/u);
+  });
+}
+
 test("privacy native build uses the original root lock and a disjoint target with stock Cargo", (t) => {
   const fixture = createFixture(t);
   const corridor = realpathSync(

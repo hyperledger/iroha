@@ -41,44 +41,11 @@ fn complete_test_genesis_builder_for_topology(
         !topology.is_empty(),
         "integration-test genesis topology must contain validators"
     );
-    let mut validators = topology
-        .iter()
-        .map(|entry| entry.peer.clone())
-        .collect::<Vec<_>>();
-    validators.sort();
-    let validators = validators
-        .into_iter()
-        .enumerate()
-        .map(|(index, validator)| {
-            let seed_byte = 0xA0_u8.wrapping_add(
-                u8::try_from(index).expect("integration-test validator index fits in one byte"),
-            );
-            iroha_core_zk::kagemusha_v1_recursion::derive_kagemusha_mint_finality_validator_keys_v1(
-                &[seed_byte; 32],
-                0,
-                validator,
-            )
-            .expect("derive deterministic paired-Pasta integration-test validator keys")
-        })
-        .collect();
-    let parameters =
-        iroha::data_model::isi::kagemusha_v1::KagemushaMintFinalityGenesisParametersV1 {
-            authority_generation:
-                iroha::data_model::isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationTemplateV1 {
-                    version: iroha::data_model::isi::kagemusha_v1::KAGEMUSHA_CHAIN_VERSION_V1,
-                    generation: 0,
-                    validators,
-                },
-        };
-    parameters
-        .validate()
-        .expect("integration-test topology must form a canonical mint-finality roster");
     builder
         .set_topology(topology)
         .with_sumeragi_context_parameters(
             iroha::data_model::block::consensus::SumeragiGenesisContextParameters::recommended(),
         )
-        .with_kagemusha_mint_finality_genesis_parameters(parameters)
 }
 
 fn complete_test_genesis_builder(builder: GenesisBuilder) -> GenesisBuilder {

@@ -6,13 +6,7 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as B64};
 use http_body_util::BodyExt as _;
-use iroha_core::{
-    kiso::KisoHandle,
-    kura::Kura,
-    query::store::LiveQueryStore,
-    queue::Queue,
-    state::{State, World},
-};
+use iroha_core::{kiso::KisoHandle, query::store::LiveQueryStore, queue::Queue, state::World};
 use iroha_data_model::{
     account::AccountId,
     isi::musubi::SetMusubiReleaseYankV1,
@@ -30,25 +24,35 @@ use std::{
     time::Duration,
 };
 use tower::ServiceExt as _;
+#[path = "fixtures.rs"]
+mod fixtures;
 const TEST_ACCOUNT_I105: &str = "sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE";
 const TOOL_LIST_PAGE_LIMIT: usize = 128;
-fn build_router(cfg: iroha_config::parameters::actual::Root) -> iroha_torii::TestApiRouterRuntime {
-    let (kiso, _child) = KisoHandle::start(cfg.clone());
-    let kura = Kura::blank_kura_for_testing();
-    let state = Arc::new(State::new_with_chain_and_network_id_for_testing(
+fn build_router(
+    mut cfg: iroha_config::parameters::actual::Root,
+) -> fixtures::CommittedToriiRouterRuntime {
+    let native_chain = fixtures::commit_genesis_fixture(
         World::default(),
-        kura.clone(),
-        LiveQueryStore::start_test(),
         cfg.common.chain.clone(),
-        iroha_data_model::NetworkId::from_genesis_hash(cfg.genesis.expected_hash),
-    ));
+        &cfg.common.key_pair,
+        Vec::new(),
+        None,
+        iroha_primitives::time::TimeSource::new_system(),
+    );
+    let state = native_chain.state().clone();
+    let kura = native_chain.kura().clone();
+    let network_id = native_chain.network_id();
+    let local_peer_id = native_chain.validators()[0].0.clone();
+    cfg.genesis.expected_hash = native_chain.genesis().hash();
+    cfg.genesis.public_key = cfg.common.key_pair.public_key().clone();
+    let (kiso, _child) = KisoHandle::start(cfg.clone());
     let queue_cfg = iroha_config::parameters::actual::Queue::default();
     let events_sender: iroha_core::EventsSender = tokio::sync::broadcast::channel(1).0;
     let queue = Arc::new(Queue::from_config(queue_cfg, events_sender));
     let (_peers_tx, peers_rx) = tokio::sync::watch::channel(<_>::default());
     let torii = Torii::new_with_handle(
         cfg.common.chain.clone(),
-        *state.network_id_ref(),
+        network_id,
         kiso,
         cfg.torii.clone(),
         queue,
@@ -64,10 +68,148 @@ fn build_router(cfg: iroha_config::parameters::actual::Root) -> iroha_torii::Tes
             MaybeTelemetry::disabled(),
         ),
     )
-    .expect("valid Torii MCP fixture");
-    torii
-        .api_router_for_tests()
-        .expect("test Torii router initializes")
+    .expect("valid Torii MCP fixture")
+    .with_local_peer_id(local_peer_id);
+    fixtures::CommittedToriiRouterRuntime::new(
+        torii
+            .api_router_for_tests()
+            .expect("test Torii router initializes"),
+        native_chain,
+    )
+}
+#[tokio::test]
+async fn mcp_fixture_has_applied_global_root_authority() {
+    use iroha_core::state::StateReadOnly as _;
+    let _data_dir = test_utils::TestDataDirGuard::new();
+    let app = build_router(test_utils::mk_minimal_root_cfg());
+    assert_eq!(app.state().view().height(), 1);
+    assert_eq!(
+        iroha_core::sumeragi::lanes::routing::committed_root_scope(app.state().view().world()),
+        Some(iroha_data_model::block::consensus::SumeragiRootScope::Global),
+    );
+    app.shutdown().await;
+}
+/// Exact proof family required by the explicitly selected target route.
+enum McpTargetAuthentication {
+    /// Registered canonical account proof over the actual network and forwarded request.
+    CanonicalAccount,
+    /// Node-authorized operator proof over the actual network and forwarded request.
+    Operator,
+}
+/// Add target proof headers while retaining the original tool arguments and body.
+fn authenticated_mcp_target_arguments(
+    app: &fixtures::CommittedToriiRouterRuntime,
+    key_pair: &iroha_crypto::KeyPair,
+    method: &str,
+    target: &str,
+    mut arguments: Value,
+    authentication: McpTargetAuthentication,
+) -> Value {
+    use iroha_core::state::{StateReadOnly as _, WorldReadOnly as _};
+    let account = AccountId::new(key_pair.public_key().clone());
+    assert!(
+        app.state().view().world().account(&account).is_ok(),
+        "target signer is registered by the original signed-genesis fixture",
+    );
+    let body_bytes = arguments
+        .get("body")
+        .map(|body| {
+            // Use the same Value writer as MCP forwarding, with a finite fixture limit.
+            norito::json::to_json_bounded_boxed(body, 64 * 1024)
+                .expect("target fixture body fits its finite encoding allowance")
+                .into_vec()
+        })
+        .unwrap_or_default();
+    let request = Request::builder()
+        .method(method)
+        .uri(target)
+        .body(Body::empty())
+        .expect("exact target request");
+    let (request, header_names): (_, &[&str]) = match authentication {
+        McpTargetAuthentication::CanonicalAccount => (
+            fixtures::app_signed_request(
+                &app.network_id(),
+                &account,
+                key_pair,
+                request,
+                &body_bytes,
+            ),
+            &[
+                "X-Iroha-Account",
+                "X-Iroha-Signature",
+                "X-Iroha-Timestamp-Ms",
+                "X-Iroha-Nonce",
+            ],
+        ),
+        McpTargetAuthentication::Operator => (
+            app.operator_signed_request(key_pair, request, &body_bytes),
+            &[
+                "X-Iroha-Operator-Public-Key",
+                "X-Iroha-Operator-Timestamp-Ms",
+                "X-Iroha-Operator-Nonce",
+                "X-Iroha-Operator-Signature",
+            ],
+        ),
+    };
+    let mut headers = norito::json::Map::new();
+    for name in header_names {
+        headers.insert(
+            (*name).to_owned(),
+            Value::String(
+                request.headers()[*name]
+                    .to_str()
+                    .expect("canonical proof headers are ASCII")
+                    .to_owned(),
+            ),
+        );
+    }
+    assert!(
+        arguments
+            .as_object_mut()
+            .expect("target tool arguments are an object")
+            .insert("headers".to_owned(), Value::Object(headers))
+            .is_none(),
+        "dispatch fixture must not replace caller proof headers",
+    );
+    arguments
+}
+/// Identify proof rejection causes without treating business permission refusals as auth failures.
+fn mcp_target_authentication_was_rejected(structured: &norito::json::Map) -> bool {
+    let body = structured.get("body");
+    let code = body
+        .and_then(|body| body.get("code"))
+        .and_then(Value::as_str);
+    let message = body
+        .and_then(|body| body.get("message"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let operator_rejection = code.is_some_and(|code| {
+        code.starts_with("operator_signature_") || code == "operator_key_not_allowed"
+    });
+    let canonical_rejection = code == Some("query_validation_failed")
+        && (message.contains("query signature failed verification")
+            || message.contains("canonical request account is not registered")
+            || message.contains("request verifier NetworkId does not match Core state")
+            || message.contains("request timestamp outside allowed skew window")
+            || message.contains("request nonce already used")
+            || message.contains("signed account does not match request path")
+            || message.contains("canonical request header")
+            || message.contains("canonical request method exceeds")
+            || message.contains("canonical request path exceeds")
+            || message.contains("canonical request query exceeds")
+            || message.contains("X-Iroha-Account")
+            || message.contains("X-Iroha-Signature")
+            || message.contains("X-Iroha-Timestamp-Ms")
+            || message.contains("X-Iroha-Nonce")
+            || message.contains("X-Iroha-Witness"));
+    operator_rejection || canonical_rejection
+}
+/// A broad dispatch-only assertion cannot count an authentication refusal as route execution.
+fn assert_mcp_target_authentication_not_rejected(structured: &norito::json::Map, context: &str) {
+    assert!(
+        !mcp_target_authentication_was_rejected(structured),
+        "{context}: target authentication was rejected: {structured:?}",
+    );
 }
 async fn read_json_body(response: axum::response::Response) -> Value {
     let bytes = response
@@ -473,14 +615,14 @@ fn structured_content(response: &Value) -> &norito::json::Map {
         .get("result")
         .and_then(|value| value.get("structuredContent"))
         .and_then(Value::as_object)
-        .expect("structured content")
+        .unwrap_or_else(|| panic!("expected MCP structured content, got {response:?}"))
 }
 fn tool_is_error(response: &Value) -> bool {
     response
         .get("result")
         .and_then(|value| value.get("isError"))
         .and_then(Value::as_bool)
-        .expect("tool isError flag")
+        .unwrap_or_else(|| panic!("expected MCP tool isError flag, got {response:?}"))
 }
 fn assert_tool_error(response: &Value, context: &str) {
     let result = response
@@ -526,7 +668,7 @@ enum McpAliasDispatchArguments {
     InvalidSubscriptionId,
     InvalidDefinitionId,
     LimitTwo,
-    PageOne,
+    LimitOne,
 }
 impl McpAliasDispatchArguments {
     fn into_json(self) -> Value {
@@ -551,7 +693,7 @@ impl McpAliasDispatchArguments {
                 norito::json!({"path": {"definition_id": "not-a-definition-id"}})
             }
             Self::LimitTwo => norito::json!({"limit": 2}),
-            Self::PageOne => norito::json!({"page": 1}),
+            Self::LimitOne => norito::json!({"limit": 1}),
         }
     }
 }
@@ -2106,7 +2248,7 @@ async fn mcp_jsonrpc_tools_call_agent_alias_da_read_endpoints_dispatch() {
             1047,
             "iroha.da.manifests.get",
             norito::json!({
-                "id": "manifest-ticket-001"
+                "path": { "ticket": "manifest-ticket-001" }
             }),
         ),
     ] {
@@ -2150,7 +2292,16 @@ async fn mcp_jsonrpc_tools_call_agent_alias_da_ingest_accepts_body() {
     let _data_dir = test_utils::TestDataDirGuard::new();
     let mut cfg = test_utils::mk_minimal_root_cfg();
     enable_writer_mcp(&mut cfg);
+    let authority_key_pair = cfg.common.key_pair.clone();
     let app = build_router(cfg);
+    let arguments = authenticated_mcp_target_arguments(
+        &app,
+        &authority_key_pair,
+        "POST",
+        "/v1/da/ingest",
+        norito::json!({ "body": {} }),
+        McpTargetAuthentication::CanonicalAccount,
+    );
     let (status, call) = post_mcp(
         &app,
         norito::json!({
@@ -2159,15 +2310,14 @@ async fn mcp_jsonrpc_tools_call_agent_alias_da_ingest_accepts_body() {
             "method": "tools/call",
             "params": {
                 "name": "iroha.da.ingest",
-                "arguments": {
-                    "body": {}
-                }
+                "arguments": arguments
             }
         }),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     let structured = structured_content(&call);
+    assert_mcp_target_authentication_not_rejected(structured, "iroha.da.ingest");
     let http_status = structured.get("status").and_then(Value::as_u64);
     assert!(
         http_status.is_some(),
@@ -2192,12 +2342,40 @@ async fn mcp_jsonrpc_tools_call_agent_alias_da_commitments_endpoints_accept_body
     let _data_dir = test_utils::TestDataDirGuard::new();
     let mut cfg = test_utils::mk_minimal_root_cfg();
     enable_writer_mcp(&mut cfg);
+    let authority_key_pair = cfg.common.key_pair.clone();
     let app = build_router(cfg);
-    for (id, tool_name) in [
-        (1048, "iroha.da.commitments.list"),
-        (1049, "iroha.da.commitments.prove"),
-        (1050, "iroha.da.commitments.verify"),
+    for (id, tool_name, target, authentication) in [
+        (
+            1048,
+            "iroha.da.commitments.list",
+            "/v1/da/commitments",
+            None,
+        ),
+        (
+            1049,
+            "iroha.da.commitments.prove",
+            "/v1/da/commitments/prove",
+            Some(McpTargetAuthentication::CanonicalAccount),
+        ),
+        (
+            1050,
+            "iroha.da.commitments.verify",
+            "/v1/da/commitments/verify",
+            Some(McpTargetAuthentication::CanonicalAccount),
+        ),
     ] {
+        let arguments = norito::json!({ "body": {} });
+        let arguments = match authentication {
+            Some(authentication) => authenticated_mcp_target_arguments(
+                &app,
+                &authority_key_pair,
+                "POST",
+                target,
+                arguments,
+                authentication,
+            ),
+            None => arguments,
+        };
         let (status, call) = post_mcp(
             &app,
             norito::json!({
@@ -2206,15 +2384,14 @@ async fn mcp_jsonrpc_tools_call_agent_alias_da_commitments_endpoints_accept_body
                 "method": "tools/call",
                 "params": {
                     "name": tool_name,
-                    "arguments": {
-                        "body": {}
-                    }
+                    "arguments": arguments
                 }
             }),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
         let structured = structured_content(&call);
+        assert_mcp_target_authentication_not_rejected(structured, tool_name);
         let http_status = structured.get("status").and_then(Value::as_u64);
         assert!(
             http_status.is_some(),
@@ -2240,12 +2417,40 @@ async fn mcp_jsonrpc_tools_call_agent_alias_da_pin_intents_endpoints_accept_body
     let _data_dir = test_utils::TestDataDirGuard::new();
     let mut cfg = test_utils::mk_minimal_root_cfg();
     enable_writer_mcp(&mut cfg);
+    let authority_key_pair = cfg.common.key_pair.clone();
     let app = build_router(cfg);
-    for (id, tool_name) in [
-        (1058, "iroha.da.pin_intents.list"),
-        (1059, "iroha.da.pin_intents.prove"),
-        (1060, "iroha.da.pin_intents.verify"),
+    for (id, tool_name, target, authentication) in [
+        (
+            1058,
+            "iroha.da.pin_intents.list",
+            "/v1/da/pin-intents",
+            None,
+        ),
+        (
+            1059,
+            "iroha.da.pin_intents.prove",
+            "/v1/da/pin-intents/prove",
+            Some(McpTargetAuthentication::CanonicalAccount),
+        ),
+        (
+            1060,
+            "iroha.da.pin_intents.verify",
+            "/v1/da/pin-intents/verify",
+            Some(McpTargetAuthentication::CanonicalAccount),
+        ),
     ] {
+        let arguments = norito::json!({ "body": {} });
+        let arguments = match authentication {
+            Some(authentication) => authenticated_mcp_target_arguments(
+                &app,
+                &authority_key_pair,
+                "POST",
+                target,
+                arguments,
+                authentication,
+            ),
+            None => arguments,
+        };
         let (status, call) = post_mcp(
             &app,
             norito::json!({
@@ -2254,15 +2459,14 @@ async fn mcp_jsonrpc_tools_call_agent_alias_da_pin_intents_endpoints_accept_body
                 "method": "tools/call",
                 "params": {
                     "name": tool_name,
-                    "arguments": {
-                        "body": {}
-                    }
+                    "arguments": arguments
                 }
             }),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
         let structured = structured_content(&call);
+        assert_mcp_target_authentication_not_rejected(structured, tool_name);
         let http_status = structured.get("status").and_then(Value::as_u64);
         assert!(
             http_status.is_some(),
@@ -2288,13 +2492,42 @@ async fn mcp_jsonrpc_tools_call_agent_alias_runtime_endpoints_dispatch() {
     let _data_dir = test_utils::TestDataDirGuard::new();
     let mut cfg = test_utils::mk_minimal_root_cfg();
     cfg.torii.mcp.enabled = true;
+    let authority_key_pair = cfg.common.key_pair.clone();
     let app = build_router(cfg);
-    for (id, tool_name) in [
-        (1051, "iroha.runtime.abi.active"),
-        (1052, "iroha.runtime.abi.hash"),
-        (1053, "iroha.runtime.metrics"),
-        (1054, "iroha.runtime.upgrades.list"),
+    for (id, tool_name, target, authentication) in [
+        (
+            1051,
+            "iroha.runtime.abi.active",
+            "/v1/runtime/abi/active",
+            Some(McpTargetAuthentication::CanonicalAccount),
+        ),
+        (1052, "iroha.runtime.abi.hash", "/v1/runtime/abi/hash", None),
+        (
+            1053,
+            "iroha.runtime.metrics",
+            "/v1/runtime/metrics",
+            Some(McpTargetAuthentication::CanonicalAccount),
+        ),
+        (
+            1054,
+            "iroha.runtime.upgrades.list",
+            "/v1/runtime/upgrades",
+            Some(McpTargetAuthentication::Operator),
+        ),
     ] {
+        let arguments = authentication.map_or_else(
+            || norito::json!({}),
+            |authentication| {
+                authenticated_mcp_target_arguments(
+                    &app,
+                    &authority_key_pair,
+                    "GET",
+                    target,
+                    norito::json!({}),
+                    authentication,
+                )
+            },
+        );
         let (status, call) = post_mcp(
             &app,
             norito::json!({
@@ -2302,13 +2535,15 @@ async fn mcp_jsonrpc_tools_call_agent_alias_runtime_endpoints_dispatch() {
                 "id": id,
                 "method": "tools/call",
                 "params": {
-                    "name": tool_name
+                    "name": tool_name,
+                    "arguments": arguments
                 }
             }),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
         let structured = structured_content(&call);
+        assert_mcp_target_authentication_not_rejected(structured, tool_name);
         let http_status = structured.get("status").and_then(Value::as_u64);
         assert!(
             http_status.is_some(),
@@ -2334,16 +2569,19 @@ async fn mcp_jsonrpc_tools_call_agent_alias_runtime_upgrade_mutation_endpoints_d
     let _data_dir = test_utils::TestDataDirGuard::new();
     let mut cfg = test_utils::mk_minimal_root_cfg();
     enable_writer_mcp(&mut cfg);
+    let authority_key_pair = cfg.common.key_pair.clone();
     let app = build_router(cfg);
-    for (id, tool_name, arguments) in [
+    for (id, tool_name, target, arguments) in [
         (
             1055,
             "iroha.runtime.upgrades.propose",
+            "/v1/runtime/upgrades/propose",
             norito::json!({ "body": {} }),
         ),
         (
             1056,
             "iroha.runtime.upgrades.activate",
+            "/v1/runtime/upgrades/activate/upgrade-001",
             norito::json!({
                 "path": { "id": "upgrade-001" },
                 "body": {}
@@ -2352,12 +2590,21 @@ async fn mcp_jsonrpc_tools_call_agent_alias_runtime_upgrade_mutation_endpoints_d
         (
             1057,
             "iroha.runtime.upgrades.cancel",
+            "/v1/runtime/upgrades/cancel/upgrade-001",
             norito::json!({
                 "path": { "id": "upgrade-001" },
                 "body": {}
             }),
         ),
     ] {
+        let arguments = authenticated_mcp_target_arguments(
+            &app,
+            &authority_key_pair,
+            "POST",
+            target,
+            arguments,
+            McpTargetAuthentication::Operator,
+        );
         let (status, call) = post_mcp(
             &app,
             norito::json!({
@@ -2373,6 +2620,7 @@ async fn mcp_jsonrpc_tools_call_agent_alias_runtime_upgrade_mutation_endpoints_d
         .await;
         assert_eq!(status, StatusCode::OK);
         let structured = structured_content(&call);
+        assert_mcp_target_authentication_not_rejected(structured, tool_name);
         let http_status = structured.get("status").and_then(Value::as_u64);
         assert!(
             http_status.is_some(),
@@ -2490,7 +2738,10 @@ async fn mcp_jsonrpc_tools_call_agent_alias_gov_endpoints_dispatch() {
     cfg.torii.mcp.enabled = true;
     cfg.torii.mcp.profile = iroha_config::parameters::actual::ToriiMcpProfile::Operator;
     cfg.torii.mcp.expose_operator_routes = true;
+    let authority_key_pair = cfg.common.key_pair.clone();
     let app = build_router(cfg);
+    let authority = AccountId::new(authority_key_pair.public_key().clone()).to_string();
+    let network_id = app.network_id().to_string();
     for (id, tool_name, arguments) in [
         (
             10320,
@@ -2540,21 +2791,43 @@ async fn mcp_jsonrpc_tools_call_agent_alias_gov_endpoints_dispatch() {
             10327,
             "iroha.gov.ballots.zk_v1",
             norito::json!({
-                "body": { "election_id": "election-001" }
+                "body": {
+                    "network_id": (network_id.clone()),
+                    "authority": (authority.clone()),
+                    "election_id": "election-001",
+                    "backend": "fixture-invalid-proof",
+                    "envelope_b64": "AAAA"
+                }
             }),
         ),
         (
             10328,
             "iroha.gov.ballots.zk_v1.ballot_proof",
             norito::json!({
-                "body": { "election_id": "election-001" }
+                "body": {
+                    "network_id": (network_id.clone()),
+                    "authority": (authority.clone()),
+                    "election_id": "election-001",
+                    "ballot": {
+                        "backend": "fixture-invalid-proof",
+                        "envelope_bytes": "AAAA"
+                    }
+                }
             }),
         ),
         (
             10329,
             "iroha.gov.ballots.plain",
             norito::json!({
-                "body": { "referendum_id": "referendum-001" }
+                "body": {
+                    "network_id": (network_id.clone()),
+                    "authority": (authority.clone()),
+                    "referendum_id": "referendum-001",
+                    "owner": (authority.clone()),
+                    "amount": "1",
+                    "duration_blocks": "1",
+                    "direction": "Aye"
+                }
             }),
         ),
         (
@@ -2571,6 +2844,108 @@ async fn mcp_jsonrpc_tools_call_agent_alias_gov_endpoints_dispatch() {
         ),
         (10332, "iroha.gov.unlocks.stats", norito::json!({})),
     ] {
+        // These explicit targets must stay aligned with each alias's canonical dispatch.
+        let (method, target, authentication) = match tool_name {
+            "iroha.gov.contract.get" => (
+                "GET",
+                format!(
+                    "/v1/gov/contracts/{}",
+                    arguments
+                        .pointer("/path/contract_address")
+                        .and_then(Value::as_str)
+                        .unwrap()
+                ),
+                McpTargetAuthentication::CanonicalAccount,
+            ),
+            "iroha.gov.proposals.deploy_contract" => (
+                "POST",
+                "/v1/gov/proposals/deploy-contract".to_owned(),
+                McpTargetAuthentication::CanonicalAccount,
+            ),
+            "iroha.gov.proposals.get" => (
+                "GET",
+                format!(
+                    "/v1/gov/proposals/{}",
+                    arguments
+                        .pointer("/path/id")
+                        .and_then(Value::as_str)
+                        .unwrap()
+                ),
+                McpTargetAuthentication::CanonicalAccount,
+            ),
+            "iroha.gov.locks.get" => (
+                "GET",
+                format!(
+                    "/v1/gov/locks/{}",
+                    arguments
+                        .pointer("/path/rid")
+                        .and_then(Value::as_str)
+                        .unwrap()
+                ),
+                McpTargetAuthentication::CanonicalAccount,
+            ),
+            "iroha.gov.referenda.get" => (
+                "GET",
+                format!(
+                    "/v1/gov/referenda/{}",
+                    arguments
+                        .pointer("/path/id")
+                        .and_then(Value::as_str)
+                        .unwrap()
+                ),
+                McpTargetAuthentication::CanonicalAccount,
+            ),
+            "iroha.gov.tally.get" => (
+                "GET",
+                format!(
+                    "/v1/gov/tally/{}",
+                    arguments
+                        .pointer("/path/id")
+                        .and_then(Value::as_str)
+                        .unwrap()
+                ),
+                McpTargetAuthentication::CanonicalAccount,
+            ),
+            "iroha.gov.ballots.zk_v1" => (
+                "POST",
+                "/v1/gov/ballots/zk-v1".to_owned(),
+                McpTargetAuthentication::CanonicalAccount,
+            ),
+            "iroha.gov.ballots.zk_v1.ballot_proof" => (
+                "POST",
+                "/v1/gov/ballots/zk-v1/ballot-proof".to_owned(),
+                McpTargetAuthentication::CanonicalAccount,
+            ),
+            "iroha.gov.ballots.plain" => (
+                "POST",
+                "/v1/gov/ballots/plain".to_owned(),
+                McpTargetAuthentication::CanonicalAccount,
+            ),
+            "iroha.gov.protected_namespaces.list" => (
+                "GET",
+                "/v1/gov/protected-namespaces".to_owned(),
+                McpTargetAuthentication::CanonicalAccount,
+            ),
+            "iroha.gov.protected_namespaces.update" => (
+                "POST",
+                "/v1/gov/protected-namespaces".to_owned(),
+                McpTargetAuthentication::Operator,
+            ),
+            "iroha.gov.unlocks.stats" => (
+                "GET",
+                "/v1/gov/unlocks/stats".to_owned(),
+                McpTargetAuthentication::CanonicalAccount,
+            ),
+            _ => panic!("unreviewed target fixture {tool_name}"),
+        };
+        let arguments = authenticated_mcp_target_arguments(
+            &app,
+            &authority_key_pair,
+            method,
+            &target,
+            arguments,
+            authentication,
+        );
         let (status, call) = post_mcp(
             &app,
             norito::json!({
@@ -2592,7 +2967,13 @@ async fn mcp_jsonrpc_tools_call_agent_alias_gov_endpoints_dispatch() {
             .unwrap_or_else(|| {
                 panic!("governance alias `{tool_name}` should return structured content: {call:?}")
             });
+        assert_mcp_target_authentication_not_rejected(structured, tool_name);
         let http_status = structured.get("status").and_then(Value::as_u64);
+        assert_ne!(
+            http_status,
+            Some(401),
+            "governance dispatch fixture must not return HTTP 401 for {tool_name}",
+        );
         assert!(
             http_status.is_some(),
             "governance alias `{tool_name}` should return an HTTP status"
@@ -2613,14 +2994,249 @@ async fn mcp_jsonrpc_tools_call_agent_alias_gov_endpoints_dispatch() {
     app.shutdown().await;
 }
 #[tokio::test]
-async fn mcp_jsonrpc_tools_call_agent_alias_contract_call_dispatches() {
+async fn mcp_jsonrpc_canonical_target_proof_accepts_exact_request_and_rejects_wrong_binding() {
+    let _data_dir = test_utils::TestDataDirGuard::new();
+    let mut cfg = test_utils::mk_minimal_root_cfg();
+    cfg.torii.mcp.enabled = true;
+    cfg.torii.mcp.profile = iroha_config::parameters::actual::ToriiMcpProfile::Operator;
+    cfg.torii.mcp.expose_operator_routes = true;
+    let authority_key_pair = cfg.common.key_pair.clone();
+    let app = build_router(cfg);
+    const TOOL: &str = "iroha.gov.protected_namespaces.list";
+    const TARGET: &str = "/v1/gov/protected-namespaces";
+    let arguments = authenticated_mcp_target_arguments(
+        &app,
+        &authority_key_pair,
+        "GET",
+        TARGET,
+        norito::json!({}),
+        McpTargetAuthentication::CanonicalAccount,
+    );
+    let mut nonces = std::collections::BTreeSet::new();
+    assert!(
+        nonces.insert(
+            arguments
+                .pointer("/headers/X-Iroha-Nonce")
+                .and_then(Value::as_str)
+                .unwrap()
+                .to_owned(),
+        )
+    );
+    let (status, call) = post_mcp(
+        &app,
+        norito::json!({
+            "jsonrpc": "2.0",
+            "id": 11406,
+            "method": "tools/call",
+            "params": { "name": TOOL, "arguments": arguments }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !tool_is_error(&call),
+        "the exact target proof must be accepted: {call:?}"
+    );
+    let structured = structured_content(&call);
+    assert_eq!(structured.get("status").and_then(Value::as_u64), Some(200));
+    assert_mcp_target_authentication_not_rejected(structured, TOOL);
+    let body = structured
+        .get("body")
+        .and_then(Value::as_object)
+        .expect("protected namespace response");
+    assert_eq!(body.get("found").and_then(Value::as_bool), Some(false));
+    assert_eq!(body.get("namespaces"), Some(&norito::json!([])));
+
+    // Fresh well-formed signatures bind each wrong dimension independently.
+    // Only the tuple is dispatched; the actual tool target stays GET/TARGET with an empty body.
+    for (id, signed_method, signed_target, signed_arguments) in [
+        (11407, "POST", TARGET, norito::json!({})),
+        (11408, "GET", "/v1/gov/unlocks/stats", norito::json!({})),
+        (
+            11409,
+            "GET",
+            TARGET,
+            norito::json!({ "body": { "proof_scope": "different-body" } }),
+        ),
+    ] {
+        let signed = authenticated_mcp_target_arguments(
+            &app,
+            &authority_key_pair,
+            signed_method,
+            signed_target,
+            signed_arguments,
+            McpTargetAuthentication::CanonicalAccount,
+        );
+        assert!(
+            nonces.insert(
+                signed
+                    .pointer("/headers/X-Iroha-Nonce")
+                    .and_then(Value::as_str)
+                    .unwrap()
+                    .to_owned(),
+            ),
+            "each signature must use fresh replay metadata"
+        );
+        let headers = signed
+            .get("headers")
+            .expect("complete canonical proof tuple")
+            .clone();
+        let (status, call) = post_mcp(
+            &app,
+            norito::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "tools/call",
+                "params": { "name": TOOL, "arguments": { "headers": headers } }
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            tool_is_error(&call),
+            "wrong target binding must be refused: {call:?}"
+        );
+        let structured = structured_content(&call);
+        assert_eq!(structured.get("status").and_then(Value::as_u64), Some(403));
+        let body = structured
+            .get("body")
+            .and_then(Value::as_object)
+            .expect("canonical proof refusal");
+        assert_eq!(
+            body.get("code").and_then(Value::as_str),
+            Some("query_validation_failed")
+        );
+        assert_eq!(
+            body.get("message").and_then(Value::as_str),
+            Some("Operation is not permitted: query signature failed verification"),
+            "wrong binding must fail signature verification, rather than replay or business authorization: {call:?}",
+        );
+        assert!(mcp_target_authentication_was_rejected(structured));
+    }
+    app.shutdown().await;
+}
+#[test]
+fn mcp_target_authentication_guard_preserves_business_permission_refusals() {
+    let response = norito::json!({
+        "status": 403,
+        "body": { "code": "query_validation_failed", "message": "business permission denied" }
+    });
+    assert!(!mcp_target_authentication_was_rejected(
+        response.as_object().unwrap()
+    ));
+}
+#[tokio::test]
+async fn mcp_jsonrpc_target_authentication_is_required_before_dispatch() {
     let _data_dir = test_utils::TestDataDirGuard::new();
     let mut cfg = test_utils::mk_minimal_root_cfg();
     cfg.torii.mcp.enabled = true;
     cfg.torii.mcp.profile = iroha_config::parameters::actual::ToriiMcpProfile::Operator;
     cfg.torii.mcp.expose_operator_routes = true;
     let app = build_router(cfg);
+    for (id, tool_name, arguments) in [
+        (11403, "iroha.contracts.call", norito::json!({ "body": {} })),
+        (
+            11404,
+            "iroha.gov.contract.get",
+            norito::json!({
+                "path": { "contract_address": "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw" }
+            }),
+        ),
+        (
+            11405,
+            "iroha.gov.protected_namespaces.update",
+            norito::json!({ "body": {} }),
+        ),
+    ] {
+        let (status, call) = post_mcp(
+            &app,
+            norito::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "tools/call",
+                "params": { "name": tool_name, "arguments": arguments }
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_tool_schema_error(&call, "target authentication must fail before dispatch");
+        assert_eq!(
+            call.pointer("/error/message").and_then(Value::as_str),
+            Some("arguments.headers is required"),
+        );
+    }
+    app.shutdown().await;
+}
+#[tokio::test]
+async fn mcp_jsonrpc_target_authentication_rejects_the_wrong_proof_family() {
+    let _data_dir = test_utils::TestDataDirGuard::new();
+    let mut cfg = test_utils::mk_minimal_root_cfg();
+    cfg.torii.mcp.enabled = true;
+    cfg.torii.mcp.profile = iroha_config::parameters::actual::ToriiMcpProfile::Operator;
+    cfg.torii.mcp.expose_operator_routes = true;
+    let authority_key_pair = cfg.common.key_pair.clone();
+    let app = build_router(cfg);
+    for (id, tool_name, method, arguments, wrong_family) in [
+        (
+            11410,
+            "iroha.gov.protected_namespaces.update",
+            "POST",
+            norito::json!({ "body": {} }),
+            McpTargetAuthentication::CanonicalAccount,
+        ),
+        (
+            11411,
+            "iroha.gov.protected_namespaces.list",
+            "GET",
+            norito::json!({}),
+            McpTargetAuthentication::Operator,
+        ),
+    ] {
+        let arguments = authenticated_mcp_target_arguments(
+            &app,
+            &authority_key_pair,
+            method,
+            "/v1/gov/protected-namespaces",
+            arguments,
+            wrong_family,
+        );
+        let (status, call) = post_mcp(
+            &app,
+            norito::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "tools/call",
+                "params": { "name": tool_name, "arguments": arguments }
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_tool_schema_error(&call, "target requires its own authentication proof family");
+        assert!(
+            call.get("result").is_none(),
+            "wrong proof family cannot reach route dispatch: {call:?}"
+        );
+    }
+    app.shutdown().await;
+}
+#[tokio::test]
+async fn mcp_jsonrpc_tools_call_agent_alias_contract_call_dispatches() {
+    let _data_dir = test_utils::TestDataDirGuard::new();
+    let mut cfg = test_utils::mk_minimal_root_cfg();
+    cfg.torii.mcp.enabled = true;
+    cfg.torii.mcp.profile = iroha_config::parameters::actual::ToriiMcpProfile::Operator;
+    cfg.torii.mcp.expose_operator_routes = true;
+    let authority_key_pair = cfg.common.key_pair.clone();
+    let app = build_router(cfg);
     for (id, tool_name) in [(10403, "iroha.contracts.call")] {
+        let arguments = authenticated_mcp_target_arguments(
+            &app,
+            &authority_key_pair,
+            "POST",
+            "/v1/contracts/call",
+            norito::json!({ "body": {} }),
+            McpTargetAuthentication::CanonicalAccount,
+        );
         let (status, call) = post_mcp(
             &app,
             norito::json!({
@@ -2629,9 +3245,7 @@ async fn mcp_jsonrpc_tools_call_agent_alias_contract_call_dispatches() {
                 "method": "tools/call",
                 "params": {
                     "name": tool_name,
-                    "arguments": {
-                        "body": {}
-                    }
+                    "arguments": arguments
                 }
             }),
         )
@@ -2642,6 +3256,12 @@ async fn mcp_jsonrpc_tools_call_agent_alias_contract_call_dispatches() {
             "contract alias `{tool_name}` should return a JSON-RPC result, got {call:?}"
         );
         let structured = structured_content(&call);
+        assert_mcp_target_authentication_not_rejected(structured, tool_name);
+        assert_ne!(
+            structured.get("status").and_then(Value::as_u64),
+            Some(401),
+            "contract dispatch fixture must not return HTTP 401",
+        );
         assert!(
             structured.get("status").and_then(Value::as_u64).is_some(),
             "contract alias `{tool_name}` should dispatch and return an HTTP status"
@@ -2656,7 +3276,20 @@ async fn mcp_jsonrpc_tools_call_agent_alias_contract_call_and_wait_surfaces_subm
     cfg.torii.mcp.enabled = true;
     cfg.torii.mcp.profile = iroha_config::parameters::actual::ToriiMcpProfile::Operator;
     cfg.torii.mcp.expose_operator_routes = true;
+    let authority_key_pair = cfg.common.key_pair.clone();
     let app = build_router(cfg);
+    let arguments = authenticated_mcp_target_arguments(
+        &app,
+        &authority_key_pair,
+        "POST",
+        "/v1/contracts/call",
+        norito::json!({
+            "body": {},
+            "timeout_ms": 1000,
+            "poll_interval_ms": 100
+        }),
+        McpTargetAuthentication::CanonicalAccount,
+    );
     let (status, call) = post_mcp(
         &app,
         norito::json!({
@@ -2665,11 +3298,7 @@ async fn mcp_jsonrpc_tools_call_agent_alias_contract_call_and_wait_surfaces_subm
             "method": "tools/call",
             "params": {
                 "name": "iroha.contracts.call_and_wait",
-                "arguments": {
-                    "body": {},
-                    "timeout_ms": 1000,
-                    "poll_interval_ms": 100
-                }
+                "arguments": arguments
             }
         }),
     )
@@ -2680,6 +3309,12 @@ async fn mcp_jsonrpc_tools_call_agent_alias_contract_call_and_wait_surfaces_subm
         "invalid contract call payload should be surfaced as MCP tool error"
     );
     let structured = structured_content(&call);
+    assert_mcp_target_authentication_not_rejected(structured, "iroha.contracts.call_and_wait");
+    assert_ne!(
+        structured.get("status").and_then(Value::as_u64),
+        Some(401),
+        "contract wait dispatch fixture must not return HTTP 401",
+    );
     assert!(
         structured
             .get("status")
@@ -2694,7 +3329,18 @@ async fn mcp_jsonrpc_tools_call_contracts_code_get_accepts_canonical_code_hash_p
     let _data_dir = test_utils::TestDataDirGuard::new();
     let mut cfg = test_utils::mk_minimal_root_cfg();
     cfg.torii.mcp.enabled = true;
+    let authority_key_pair = cfg.common.key_pair.clone();
     let app = build_router(cfg);
+    let code_hash = "00".repeat(32);
+    let target = format!("/v1/contracts/artifacts/0/{code_hash}");
+    let arguments = authenticated_mcp_target_arguments(
+        &app,
+        &authority_key_pair,
+        "GET",
+        &target,
+        norito::json!({ "path": { "dataspace_id": "0", "code_hash": code_hash } }),
+        McpTargetAuthentication::CanonicalAccount,
+    );
     let (status, call) = post_mcp(
         &app,
         norito::json!({
@@ -2703,9 +3349,7 @@ async fn mcp_jsonrpc_tools_call_contracts_code_get_accepts_canonical_code_hash_p
             "method": "tools/call",
             "params": {
                 "name": "iroha.contracts.code.get",
-                "arguments": {
-                    "path": { "code_hash": "not-a-code-hash" }
-                }
+                "arguments": arguments
             }
         }),
     )
@@ -2713,16 +3357,41 @@ async fn mcp_jsonrpc_tools_call_contracts_code_get_accepts_canonical_code_hash_p
     assert_eq!(status, StatusCode::OK);
     assert!(
         tool_is_error(&call),
-        "invalid code hash should be marked as MCP tool error for contract code detail alias"
+        "a missing scoped contract artifact should be marked as an MCP tool error: {call:?}"
     );
     let structured = structured_content(&call);
+    assert_mcp_target_authentication_not_rejected(structured, "iroha.contracts.code.get");
     assert!(
         structured
             .get("status")
             .and_then(Value::as_u64)
             .is_some_and(|status| status >= 400),
-        "expected invalid code hash to be rejected by contract code detail alias"
+        "expected the missing scoped contract artifact to be rejected after target authentication"
     );
+    let arguments = authenticated_mcp_target_arguments(
+        &app,
+        &authority_key_pair,
+        "GET",
+        "/v1/contracts/artifacts/0/not-a-code-hash",
+        norito::json!({ "path": { "dataspace_id": "0", "code_hash": "not-a-code-hash" } }),
+        McpTargetAuthentication::CanonicalAccount,
+    );
+    let (status, call) = post_mcp(
+        &app,
+        norito::json!({
+            "jsonrpc": "2.0",
+            "id": 104061,
+            "method": "tools/call",
+            "params": { "name": "iroha.contracts.code.get", "arguments": arguments }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let message = assert_tool_schema_error(
+        &call,
+        "contract code hash must be canonical before dispatch",
+    );
+    assert!(message.contains("code_hash"), "{message}");
     app.shutdown().await;
 }
 #[tokio::test]
@@ -3640,9 +4309,7 @@ async fn mcp_jsonrpc_tools_call_account_history_uses_path_and_query_arguments() 
                     "path": {
                         "account_id": TEST_ACCOUNT_I105
                     },
-                    "query": {
-                        "limit": 0
-                    }
+                    "limit": 1
                 }
             }
         }),
@@ -3650,17 +4317,48 @@ async fn mcp_jsonrpc_tools_call_account_history_uses_path_and_query_arguments() 
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(
-        tool_is_error(&call),
-        "invalid account history query should be marked as MCP tool error"
+        !tool_is_error(&call),
+        "canonical path and flat query controls should dispatch the history read: {call:?}"
     );
     let structured = structured_content(&call);
-    assert!(
-        structured
-            .get("status")
-            .and_then(Value::as_u64)
-            .is_some_and(|status| status >= 400),
-        "expected invalid `limit=0` account history query argument to be rejected"
-    );
+    assert_eq!(structured.get("status").and_then(Value::as_u64), Some(200));
+    for (id, arguments, field, context) in [
+        (
+            10451,
+            norito::json!({
+                "path": { "account_id": TEST_ACCOUNT_I105 },
+                "query": { "limit": 2 }
+            }),
+            "query",
+            "the retired history query envelope must fail advertised-schema validation",
+        ),
+        (
+            10452,
+            norito::json!({
+                "path": { "account_id": TEST_ACCOUNT_I105 },
+                "limit": 0
+            }),
+            "limit",
+            "the history limit must be at least one before dispatch",
+        ),
+    ] {
+        let (status, call) = post_mcp(
+            &app,
+            norito::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "tools/call",
+                "params": {
+                    "name": "iroha.accounts.history",
+                    "arguments": arguments
+                }
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let message = assert_tool_schema_error(&call, context);
+        assert!(message.contains(field), "{context}: {message}");
+    }
     app.shutdown().await;
 }
 #[tokio::test]
@@ -3843,6 +4541,7 @@ async fn mcp_jsonrpc_tools_call_transactions_get_rejects_retired_path_transactio
                 "name": "iroha.transactions.get",
                 "arguments": {
                     "path": {
+                        "hash": ("00".repeat(32)),
                         "transaction_hash": "not-a-hash"
                     }
                 }
@@ -3915,31 +4614,44 @@ async fn mcp_jsonrpc_tools_call_instructions_get_rejects_retired_flat_aliases() 
     let mut cfg = test_utils::mk_minimal_root_cfg();
     cfg.torii.mcp.enabled = true;
     let app = build_router(cfg);
-    let (status, call) = post_mcp(
-        &app,
-        norito::json!({
-            "jsonrpc": "2.0",
-            "id": 10615,
-            "method": "tools/call",
-            "params": {
-                "name": "iroha.instructions.get",
-                "arguments": {
-                    "transaction_hash": "not-a-hash",
-                    "instruction_index": 1
+    for (id, arguments, field) in [
+        (
+            10615,
+            norito::json!({
+                "path": { "hash": ("00".repeat(32)), "index": 0 },
+                "transaction_hash": "not-a-hash"
+            }),
+            "transaction_hash",
+        ),
+        (
+            106150,
+            norito::json!({
+                "path": { "hash": ("00".repeat(32)), "index": 0 },
+                "instruction_index": 1
+            }),
+            "instruction_index",
+        ),
+    ] {
+        let (status, call) = post_mcp(
+            &app,
+            norito::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "tools/call",
+                "params": {
+                    "name": "iroha.instructions.get",
+                    "arguments": arguments
                 }
-            }
-        }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let message = assert_tool_schema_error(
-        &call,
-        "retired flat instruction aliases must fail advertised-schema validation",
-    );
-    assert!(
-        message.contains("transaction_hash"),
-        "retired flat instruction aliases must be rejected before dispatch"
-    );
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let message = assert_tool_schema_error(
+            &call,
+            "retired flat instruction aliases must fail advertised-schema validation",
+        );
+        assert!(message.contains(field), "retired {field}: {message}");
+    }
     app.shutdown().await;
 }
 #[tokio::test]
@@ -3958,6 +4670,7 @@ async fn mcp_jsonrpc_tools_call_instructions_get_rejects_retired_path_transactio
                 "name": "iroha.instructions.get",
                 "arguments": {
                     "path": {
+                        "hash": ("00".repeat(32)),
                         "transaction_hash": "not-a-hash",
                         "index": 0
                     }
@@ -3982,7 +4695,7 @@ mcp_alias_dispatch_test! {
     async fn mcp_jsonrpc_tools_call_agent_alias_assets_list_accepts_flat_query_fields => success(
         106151,
         "iroha.assets.list",
-        PageOne,
+        LimitOne,
         "assets list alias with flat query fields should dispatch successfully",
     )
 }
@@ -4041,7 +4754,7 @@ mcp_alias_dispatch_test! {
     async fn mcp_jsonrpc_tools_call_agent_alias_nfts_list_accepts_flat_query_fields => success(
         106153,
         "iroha.nfts.list",
-        PageOne,
+        LimitOne,
         "nfts list alias with flat query fields should dispatch successfully",
     )
 }
@@ -4109,7 +4822,7 @@ mcp_alias_dispatch_test! {
     async fn mcp_jsonrpc_tools_call_agent_alias_rwas_list_accepts_flat_query_fields => success(
         106157,
         "iroha.rwas.list",
-        PageOne,
+        LimitOne,
         "rwas list alias with flat query fields should dispatch successfully",
     )
 }
@@ -4646,6 +5359,7 @@ async fn mcp_jsonrpc_tools_call_musubi_v1_yank_instruction_builds_unsigned_paylo
     let _data_dir = test_utils::TestDataDirGuard::new();
     let mut cfg = test_utils::mk_minimal_root_cfg();
     cfg.torii.mcp.enabled = true;
+    let authority_key_pair = cfg.common.key_pair.clone();
     let app = build_router(cfg);
     let instruction = SetMusubiReleaseYankV1::new(
         MusubiReleaseIdV1::new(
@@ -4666,6 +5380,14 @@ async fn mcp_jsonrpc_tools_call_musubi_v1_yank_instruction_builds_unsigned_paylo
         "reason": (norito::json::to_value(&instruction.reason).expect("reason JSON")),
         "expected_yank_revision": (instruction.expected_yank_revision),
     });
+    let arguments = authenticated_mcp_target_arguments(
+        &app,
+        &authority_key_pair,
+        "POST",
+        "/v1/musubi/instructions/release-yank-set",
+        norito::json!({ "body": body }),
+        McpTargetAuthentication::CanonicalAccount,
+    );
     let (status, call) = post_mcp(
         &app,
         norito::json!({
@@ -4674,9 +5396,7 @@ async fn mcp_jsonrpc_tools_call_musubi_v1_yank_instruction_builds_unsigned_paylo
             "method": "tools/call",
             "params": {
                 "name": "iroha.musubi.instructions.release_yank_set",
-                "arguments": {
-                    "body": body
-                }
+                "arguments": arguments
             }
         }),
     )
@@ -4687,6 +5407,10 @@ async fn mcp_jsonrpc_tools_call_musubi_v1_yank_instruction_builds_unsigned_paylo
         "Musubi yank instruction builder should return an unsigned payload"
     );
     let structured = structured_content(&call);
+    assert_mcp_target_authentication_not_rejected(
+        structured,
+        "iroha.musubi.instructions.release_yank_set",
+    );
     assert_eq!(structured.get("status").and_then(Value::as_u64), Some(200));
     let body = structured.get("body").expect("instruction response body");
     let body_object = body.as_object().expect("instruction response body");
@@ -4799,8 +5523,8 @@ async fn mcp_jsonrpc_connect_session_create_derives_sid_from_exact_identity() {
     let mut cfg = test_utils::mk_minimal_root_cfg();
     enable_writer_mcp(&mut cfg);
     cfg.torii.connect.enabled = true;
-    let network_id = test_utils::signed_query_network_id().to_string();
     let app = build_router(cfg);
+    let network_id = app.network_id().to_string();
     for (id, tool_name, app_key_byte, nonce_byte) in
         [(2081, "iroha.connect.session.create", 0x42u8, 0x22u8)]
     {

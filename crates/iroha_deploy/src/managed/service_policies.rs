@@ -2,7 +2,7 @@
 //! These exact public choices alone never authorize current native use or serving.
 
 use super::native_operation::{encode, invalid};
-use super::service_authority::ServiceAuthority;
+use super::service_authority::{OriginalServiceIntent, ServiceAuthority};
 use super::{ManagedCustodyEnrollmentInterval, Result};
 use crate::localnet::service_authorities::{
     NetworkServiceAuthorityRole as NetworkRole, StreamTokenAuthorityRole as Role,
@@ -117,8 +117,16 @@ impl GeneratedServicePolicies {
     }
     /// Derive only from the authenticated whole original profile, never today's UTC/deadline.
     pub(super) fn select(authority: &ServiceAuthority) -> Result<Self> {
-        authority.validate_profile()?;
-        let plans = authority.provider_plans()?;
+        let intent = authority.original_intent()?;
+        // Preserve the standalone producer's original error order: construction failure
+        // returns before its success-only close, including under active decode admission.
+        let selected = Self::select_from_intent(&intent)?;
+        intent.finish()?;
+        Ok(selected)
+    }
+
+    fn select_from_intent(intent: &OriginalServiceIntent<'_>) -> Result<Self> {
+        let plans = intent.provider_plans()?;
         let reserve = ReserveAuthorityPolicyV1 {
             version: RESERVE_AUTHORITY_POLICY_VERSION_V1,
             revision: 1,
@@ -128,12 +136,10 @@ impl GeneratedServicePolicies {
                 crate::genesis::profile::TAIRA_XOR_ASSET_DEFINITION_ID,
             )
             .map_err(|_| invalid("invalid generated reserve asset"))?,
-            custody_account: authority.manifest.network.reserve_accounts.custody.clone(),
-            treasury_account: authority.manifest.network.reserve_accounts.treasury.clone(),
-            operations_authority: authority
-                .network_role(NetworkRole::ReserveOperations)?
-                .clone(),
-            decision_authority: authority.config.account.clone(),
+            custody_account: intent.manifest().network.reserve_accounts.custody.clone(),
+            treasury_account: intent.manifest().network.reserve_accounts.treasury.clone(),
+            operations_authority: intent.network_role(NetworkRole::ReserveOperations)?.clone(),
+            decision_authority: intent.manager_account().clone(),
             grace_period_days: 7,
             default_after_days: 30,
             max_provider_debt: XorQuantity::try_from_micro(1_000_000_000)
@@ -163,7 +169,7 @@ impl GeneratedServicePolicies {
                     "generated provider plans changed original slot order",
                 ));
             }
-            let inventory = authority.manifest.provider(plan.provider_id())?;
+            let inventory = intent.manifest().provider(plan.provider_id())?;
             let role = |role| -> Result<&iroha_data_model::account::AccountId> {
                 Ok(&inventory.authority(role)?.account)
             };
@@ -184,8 +190,8 @@ impl GeneratedServicePolicies {
                 .ok_or_else(|| invalid("original provider end overflows milliseconds"))?;
             let custody = SignerCustodyPolicyV1 {
                 binding: SignerCustodyBindingV1 {
-                    chain_id: authority.config.chain.to_string(),
-                    network_id: *authority.config.network_id.as_bytes(),
+                    chain_id: intent.chain_id().to_owned(),
+                    network_id: *intent.network_id().as_bytes(),
                     runtime_handle: "software://managed/stream-token-runtime".into(),
                     key_handle: "software://managed/stream-token-key".into(),
                     service_id: "managed-stream-signer".into(),
@@ -211,12 +217,12 @@ impl GeneratedServicePolicies {
                 max_anchor_age_ms: 300_000,
             };
             // Labels are scoped by the canonical native network identity, never selected by a peer.
-            let compliance = authority.gateway_compliance_plan(plan.provider_id())?;
+            let compliance = intent.gateway_compliance_plan(plan.provider_id())?;
             let label = compliance.gateway_label();
-            let gateway_id = derive_stream_token_gateway_id_v1(&authority.config.network_id, label)
+            let gateway_id = derive_stream_token_gateway_id_v1(&intent.network_id(), label)
                 .map_err(|_| invalid("invalid generated gateway label"))?;
             let mut gateway = StreamTokenGatewayPolicyV1 {
-                network_id: authority.config.network_id,
+                network_id: intent.network_id(),
                 compliance_gateway_id: label.into(),
                 qualification: StreamTokenGatewayAdmissionQualificationV1 {
                     gateway_id,
@@ -265,7 +271,7 @@ impl GeneratedServicePolicies {
             .map(|p| p.gateway.qualification.gateway_id)
             .collect();
         allowed_gateways.sort();
-        let recorder = authority.network_role(NetworkRole::ReputationRecorder)?;
+        let recorder = intent.network_role(NetworkRole::ReputationRecorder)?;
         let reputation = ReputationJournalAuthorityPolicyV1 {
             version: REPUTATION_JOURNAL_AUTHORITY_POLICY_VERSION_V1,
             revision: 1,
@@ -297,7 +303,7 @@ impl GeneratedServicePolicies {
                 *Hash::new_from_chunks(&[
                     b"iroha:managed-service-policy:v1\0",
                     purpose,
-                    authority.genesis.genesis.hash().as_ref(),
+                    &intent.genesis_hash(),
                     provider.provider_id.as_bytes(),
                     &bytes,
                 ])
@@ -332,9 +338,43 @@ impl GeneratedServicePolicies {
             .reputation
             .validate()
             .map_err(|_| invalid("invalid generated recorder policy"))?;
-        authority.validate_profile()?;
         Ok(selected)
     }
+
+    // The caller holds the exact original intent and closes its full image on every
+    // ordinary result. Only the nested immutable image traversals consolidate; preserve
+    // each operation-lock/scope observation at the standalone producer's boundaries.
+    pub(super) fn validate_projection(&self, intent: &OriginalServiceIntent<'_>) -> Result<()> {
+        let bytes = encode(self, MAX_BYTES)?;
+        intent.validate_policy_custody()?;
+        let selected = Self::select_from_intent(intent)?;
+        intent.validate_policy_custody()?;
+        if bytes != encode(&selected, MAX_BYTES)? {
+            return Err(invalid("original generated service policies changed"));
+        }
+        Ok(())
+    }
+
+    /// Repeat the complete canonical comparison inside a closed runtime original read.
+    /// Active or owned inputs keep the standalone producer and its physical admission order.
+    pub(super) fn validate_in_runtime(
+        &self,
+        authority: &ServiceAuthority,
+        read: &super::service_authority::RuntimeOriginalRead<'_>,
+    ) -> Result<()> {
+        if !read.eligible(authority)? {
+            return self.validate(authority);
+        }
+        let bytes = encode(self, MAX_BYTES)?;
+        let intent = authority.original_intent_in_runtime(read)?;
+        let selected = Self::select_from_intent(&intent)?;
+        intent.finish_in_runtime(read)?;
+        if bytes != encode(&selected, MAX_BYTES)? {
+            return Err(invalid("original generated service policies changed"));
+        }
+        Ok(())
+    }
+
     /// Compare complete original semantic intent; decoded bytes grant no current authority.
     pub(super) fn validate(&self, authority: &ServiceAuthority) -> Result<()> {
         let bytes = encode(self, MAX_BYTES)?;

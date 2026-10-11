@@ -3,6 +3,18 @@ set -euo pipefail
 umask 077
 PATH=/usr/bin:/bin
 export PATH
+# One independently selected public signer root is embedded in every Native slice.
+WALLET_RUNTIME_AUTHORITY="${MOBILE_SDK_WALLET_RUNTIME_AUTHORITY:-}"
+case "$WALLET_RUNTIME_AUTHORITY" in bpng-taira-v7|cbsi-release-v1) ;; *)
+  echo "[-] MOBILE_SDK_WALLET_RUNTIME_AUTHORITY must be bpng-taira-v7 or cbsi-release-v1" >&2
+  exit 1
+  ;;
+esac
+WALLET_RUNTIME_TRUST_PUBLIC_HEX="${MOBILE_SDK_WALLET_RUNTIME_TRUST_ED25519_HEX:-}"
+if [[ ! "$WALLET_RUNTIME_TRUST_PUBLIC_HEX" =~ ^[0-9a-f]{64}$ || "$WALLET_RUNTIME_TRUST_PUBLIC_HEX" == "0000000000000000000000000000000000000000000000000000000000000000" ]]; then
+  echo "[-] MOBILE_SDK_WALLET_RUNTIME_TRUST_ED25519_HEX must be one nonzero lowercase 32-byte public key" >&2
+  exit 1
+fi
 unset \
   DYLD_INSERT_LIBRARIES \
   DYLD_LIBRARY_PATH \
@@ -1198,6 +1210,8 @@ if [[ -n "$CI_APPLE_SLICE" || -n "$CI_ASSEMBLE_APPLE_SLICES" ]]; then
     "schema": "iroha.mobile-native-build-environment.v1",
     "hermetic_runner_schema": "iroha.mobile-hermetic-command.v1",
     "hermetic_runner_sha256": "$HERMETIC_RUNNER_SHA256",
+    "wallet_runtime_authority": "$WALLET_RUNTIME_AUTHORITY",
+    "wallet_runtime_trust_ed25519_hex": "$WALLET_RUNTIME_TRUST_PUBLIC_HEX",
     "cargo_build_jobs": 1,
     "cargo_incremental": 0,
     "cargo_net_offline": true,
@@ -1472,6 +1486,8 @@ run_hermetic_apple_cargo() {
       --set "IROHA_GIT_COMMIT_HASH=$EMBEDDED_SOURCE_COMMIT" \
       --set "LANG=C.UTF-8" \
       --set "LC_ALL=C.UTF-8" \
+      --set "MOBILE_SDK_WALLET_RUNTIME_AUTHORITY=$WALLET_RUNTIME_AUTHORITY" \
+      --set "MOBILE_SDK_WALLET_RUNTIME_TRUST_ED25519_HEX=$WALLET_RUNTIME_TRUST_PUBLIC_HEX" \
       --set "NORITO_SKIP_BINDINGS_SYNC=1" \
       --set "PATH=${CARGO_BINARY%/*}:${RUSTC_BINARY%/*}:${RUSTDOC_BINARY%/*}:/usr/bin:/bin" \
       --set "RUSTC=$RUSTC_BINARY" \
@@ -1763,8 +1779,8 @@ protocol_abis = re.findall(
     protocol.read_text(encoding="utf-8"),
     re.MULTILINE,
 )
-if header_abis != ["25"]:
-    raise SystemExit("authoritative NoritoBridge public header ABI is not exact 25")
+if header_abis != ["29"]:
+    raise SystemExit("authoritative NoritoBridge public header ABI is not exact 29")
 if bridge_aliases != ["PRIVACY_BRIDGE_ABI_VERSION_V1"]:
     raise SystemExit("NoritoBridge Rust ABI alias is not exact")
 if protocol_abis != header_abis:
@@ -1790,6 +1806,8 @@ cat > "$PUBLISH_MANIFEST" <<EOF
     "schema": "iroha.mobile-native-build-environment.v1",
     "hermetic_runner_schema": "iroha.mobile-hermetic-command.v1",
     "hermetic_runner_sha256": "$HERMETIC_RUNNER_SHA256",
+    "wallet_runtime_authority": "$WALLET_RUNTIME_AUTHORITY",
+    "wallet_runtime_trust_ed25519_hex": "$WALLET_RUNTIME_TRUST_PUBLIC_HEX",
     "environment_profiles": {
       "apple-ios-device": [
         "CARGO",
@@ -1805,6 +1823,8 @@ cat > "$PUBLISH_MANIFEST" <<EOF
         "IROHA_GIT_COMMIT_HASH",
         "LANG",
         "LC_ALL",
+        "MOBILE_SDK_WALLET_RUNTIME_AUTHORITY",
+        "MOBILE_SDK_WALLET_RUNTIME_TRUST_ED25519_HEX",
         "NORITO_SKIP_BINDINGS_SYNC",
         "PATH",
         "RUSTC",
@@ -1829,6 +1849,8 @@ cat > "$PUBLISH_MANIFEST" <<EOF
         "IROHA_GIT_COMMIT_HASH",
         "LANG",
         "LC_ALL",
+        "MOBILE_SDK_WALLET_RUNTIME_AUTHORITY",
+        "MOBILE_SDK_WALLET_RUNTIME_TRUST_ED25519_HEX",
         "NORITO_SKIP_BINDINGS_SYNC",
         "PATH",
         "RUSTC",
@@ -1852,6 +1874,8 @@ cat > "$PUBLISH_MANIFEST" <<EOF
         "LANG",
         "LC_ALL",
         "MACOSX_DEPLOYMENT_TARGET",
+        "MOBILE_SDK_WALLET_RUNTIME_AUTHORITY",
+        "MOBILE_SDK_WALLET_RUNTIME_TRUST_ED25519_HEX",
         "NORITO_SKIP_BINDINGS_SYNC",
         "PATH",
         "RUSTC",
@@ -1936,7 +1960,34 @@ cat > "$PUBLISH_MANIFEST" <<EOF
     "connect_norito_private_settlement_committee_proof_response_verify_v1",
     "connect_norito_private_settlement_auditor_capsule_response_verify_with_request_v1",
     "connect_norito_private_settlement_audit_approval_response_verify_v1",
-    "connect_norito_sorafs_reference_validate_appeal_finance_cancel_asset_lock_json"
+    "connect_norito_sorafs_reference_validate_appeal_finance_cancel_asset_lock_json",
+    "connect_norito_kagemusha_wallet_revision_v1",
+    "connect_norito_kagemusha_wallet_open_begin_v1",
+    "connect_norito_kagemusha_wallet_open_finish_v1",
+    "connect_norito_kagemusha_wallet_open_cancel_v1",
+    "connect_norito_kagemusha_wallet_close_v1",
+    "connect_norito_kagemusha_wallet_activity_v1",
+    "connect_norito_kagemusha_wallet_setup_v1",
+    "connect_norito_kagemusha_wallet_execute_v1",
+    "connect_norito_kagemusha_wallet_load_original_validate_v1",
+    "connect_norito_kagemusha_wallet_request_status_v1",
+    "connect_norito_kagemusha_wallet_retry_v1",
+    "connect_norito_kagemusha_wallet_resume_v1",
+    "connect_norito_kagemusha_wallet_fold_v1",
+    "connect_norito_kagemusha_wallet_credit_status_v1",
+    "connect_norito_kagemusha_wallet_snapshot_v1",
+    "connect_norito_kagemusha_wallet_review_v1",
+    "connect_norito_kagemusha_wallet_execute_reviewed_v1",
+    "connect_norito_kagemusha_wallet_discard_review_v1",
+    "connect_norito_kagemusha_wallet_installation_begin_v1",
+    "connect_norito_kagemusha_wallet_installation_register_v1",
+    "connect_norito_kagemusha_wallet_installation_close_v1",
+    "connect_norito_kagemusha_wallet_registration_source_relocate_v1",
+    "connect_norito_kagemusha_wallet_observe_v1",
+    "connect_norito_kagemusha_wallet_account_original_v1",
+    "connect_norito_kagemusha_wallet_account_display_v1",
+    "connect_norito_kagemusha_wallet_enrollment_v1",
+    "connect_norito_kagemusha_wallet_enrollment_refusal_v1"
   ],
   "forbidden_symbols": [
     "connect_norito_kagemusha_v1_payment_request_validate",
@@ -2103,8 +2154,8 @@ for root, directories, files in os.walk(xcframework, followlinks=False):
 
 with manifest_path.open("r", encoding="utf-8") as handle:
     manifest = json.load(handle, object_pairs_hook=object_without_duplicates)
-if manifest.get("native_bridge_abi_version") != 25:
-    raise SystemExit("staged NoritoBridge manifest does not bind exact ABI 25")
+if manifest.get("native_bridge_abi_version") != 29:
+    raise SystemExit("staged NoritoBridge manifest does not bind exact ABI 29")
 hashes = manifest.get("hashes")
 if not isinstance(hashes, dict) or set(hashes) != set(expected_slices):
     raise SystemExit("staged NoritoBridge manifest has a non-canonical slice inventory")

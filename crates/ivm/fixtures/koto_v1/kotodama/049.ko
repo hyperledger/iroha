@@ -1,6 +1,6 @@
 
-        seiyaku Demo {
-            kotoage fn run() authorize("Trigger") {}
+        seiyaku Demo { permission Trigger;
+            kotoage fn run() authorize(Trigger) {}
 
             trigger wake -> run {
                 on time pre_commit;

@@ -57,11 +57,11 @@
     },
     {
       "key": "proof_system",
-      "value": "halo2_ipa_pasta_v1"
+      "value": "native_pipa_r_v1"
     },
     {
       "key": "membership_circuit_id",
-      "value": "sorafs-pop-membership-halo2-ipa-pasta-v1"
+      "value": "sorafs-pop-membership-pipa-r-v1"
     },
     {
       "key": "membership_parameter_digest_hex",

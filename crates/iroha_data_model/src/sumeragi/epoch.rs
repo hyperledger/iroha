@@ -1,14 +1,16 @@
 //! Complete native validator epochs and the boundary results authorized by their incumbents.
 //!
-//! A generation owns signing keys; a scheduling authorization owns an epoch and its bounds.
-//! These bodies contain no certificate and therefore cannot authenticate themselves.
+//! A generation owns the ordered BLS roster; a scheduling authorization owns an epoch and its
+//! bounds. These bodies contain no certificate and therefore cannot authenticate themselves.
 
 mod authorization;
+mod generation;
 
 pub use authorization::{
     BeaconEpochBindingV1, InstalledBeaconEpochBindingV1, ValidatorEpochAuthorizationErrorV1,
     ValidatorEpochAuthorizationV1, ValidatorEpochDecisionV1,
 };
+pub use generation::ValidatorGenerationV1;
 
 use iroha_crypto::{Algorithm, Hash, HashOf};
 use iroha_model_base::peer::PeerId;
@@ -17,7 +19,6 @@ use norito::codec::{Decode, Encode};
 
 use crate::{
     DeriveJsonDeserialize, DeriveJsonSerialize, NetworkId, block::BlockHeader,
-    isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1,
     nexus::ValidatorCommitteePreparationV1, parameter::system::ConsensusMode,
 };
 
@@ -72,9 +73,7 @@ pub struct ValidatorEpochContextV1 {
     pub network_id: NetworkId,
     /// Authenticated committee-selection policy.
     pub mode: ConsensusMode,
-    /// Immutable generation of consensus and paired-Pasta keys.
-    pub authority: KagemushaMintFinalityAuthorityGenerationV1,
-    /// Exact scheduling epoch, bounds, predecessor, and installed beacon binding.
+    /// Exact scheduling epoch, bounds, validator generation, predecessor and beacon binding.
     pub authorization: ValidatorEpochAuthorizationV1,
     /// Canonically ordered, equal-vote committee and original BLS proofs.
     pub committee: Vec<ValidatorCommitteeMemberV1>,
@@ -84,7 +83,7 @@ pub struct ValidatorEpochContextV1 {
 }
 
 impl ValidatorEpochContextV1 {
-    /// Validate complete authority shape, real public keys, and every ordered BLS proof.
+    /// Validate the complete roster, every ordered BLS proof and its authorized generation.
     ///
     /// This does not establish finality. The caller must authenticate signed genesis or the
     /// exact predecessor boundary's native certificate before accepting the context.
@@ -100,12 +99,20 @@ impl ValidatorEpochContextV1 {
         if self.version != 1 || self.leader_seed == [0; 32] {
             return Err("invalid native epoch version or leader seed".into());
         }
+        validate_committee(&self.committee)?;
+        #[cfg(not(all(test, sumeragi_model_mutation = "DM16")))]
         self.authorization
-            .validate_against_authority(&self.authority)
+            .validate_against_committee(
+                self.network_id,
+                self.authorization.authority_generation,
+                &self.committee,
+            )
             .map_err(|error| error.to_string())?;
-        if self.network_id != self.authority.network_id {
-            return Err("native epoch belongs to another network".into());
-        }
+        // DM16 restores only the former owning projection for this exact relation.
+        #[cfg(all(test, sumeragi_model_mutation = "DM16"))]
+        self.authorization
+            .validate_against_generation(&self.generation())
+            .map_err(|error| error.to_string())?;
         let length = self
             .authorization
             .last_height
@@ -115,21 +122,20 @@ impl ValidatorEpochContextV1 {
         if self.mode == ConsensusMode::Npos && length < 3 {
             return Err("native NPoS epoch must leave a real preboundary pulse and parent".into());
         }
-        validate_committee(&self.committee)?;
-        if self.authority.validators.len() != self.committee.len() {
-            return Err("native epoch consensus and Pasta rosters differ".into());
-        }
-        for (member, keys) in self.committee.iter().zip(&self.authority.validators) {
-            if member.validator != keys.validator {
-                return Err("native epoch consensus and Pasta roster order differs".into());
-            }
-            iroha_zkp_poseidon::pasta_keys::validate_paired_public_keys(
-                &keys.eq_proof_public_key,
-                &keys.ep_proof_public_key,
-            )
-            .map_err(str::to_owned)?;
-        }
         Ok(())
+    }
+
+    /// Project this context's network, authorized generation number and ordered roster.
+    ///
+    /// The projection is authority only after [`Self::validate`] and the caller's separate
+    /// authentication of this context.
+    #[must_use]
+    pub fn generation(&self) -> ValidatorGenerationV1 {
+        ValidatorGenerationV1::from_committee(
+            self.network_id,
+            self.authorization.authority_generation,
+            &self.committee,
+        )
     }
 
     /// Hash the complete canonical body, independently of any certificate or signer subset.
@@ -171,7 +177,7 @@ impl ValidatorEpochContextV1 {
         if matches!(
             self.authorization.decision,
             ValidatorEpochDecisionV1::Retain | ValidatorEpochDecisionV1::RetainAndCancel
-        ) && (self.authority != previous.authority || self.committee != previous.committee)
+        ) && self.committee != previous.committee
         {
             return Err("native epoch retention substitutes original credentials".into());
         }

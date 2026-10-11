@@ -20,6 +20,7 @@
 //! The output is therefore exactly `G[i] + u * G[i + h]`, normalised to affine,
 //! for every input, identical to the vendored collapse.
 
+use crate::{CancellationToken, Cancelled};
 use ff::Field;
 use group::prime::PrimeCurveAffine;
 use rayon::prelude::*;
@@ -275,13 +276,28 @@ pub fn fold_generators_with<C: PastaCurve>(
     g: &mut [C::AffineExt],
     challenge: &FoldChallenge<C::ScalarExt>,
 ) -> usize {
-    fold_blocks::<C>(g, &challenge.scalar(), Some(challenge))
+    fold_blocks::<C>(g, &challenge.scalar(), Some(challenge), None).expect("no cancellation signal")
 }
 
 /// The fold with the complete projective formulas only (the fallback path of
 /// [`fold_generators_vartime`]); the result is identical.
 pub fn fold_generators_reference<C: PastaCurve>(g: &mut [C::AffineExt], u: &C::ScalarExt) -> usize {
-    fold_blocks::<C>(g, u, None)
+    fold_blocks::<C>(g, u, None, None).expect("no cancellation signal")
+}
+
+/// Folds generators with an explicit operation signal.
+///
+/// # Errors
+/// Returns [`Cancelled`] only after all Rayon tasks have joined. The caller
+/// must discard the partially folded buffer after cancellation.
+pub fn fold_generators_cancellable<C: PastaCurve>(
+    g: &mut [C::AffineExt],
+    u: &C::ScalarExt,
+    cancellation: Option<&CancellationToken>,
+) -> Result<usize, Cancelled> {
+    CancellationToken::checkpoint(cancellation)?;
+    let challenge = FoldChallenge::new::<C>(u);
+    fold_blocks::<C>(g, u, challenge.as_ref(), cancellation)
 }
 
 /// Folds every block in lockstep when `challenge` (the recoding of `u`) is
@@ -290,11 +306,13 @@ fn fold_blocks<C: PastaCurve>(
     g: &mut [C::AffineExt],
     u: &C::ScalarExt,
     challenge: Option<&FoldChallenge<C::ScalarExt>>,
-) -> usize {
+    cancellation: Option<&CancellationToken>,
+) -> Result<usize, Cancelled> {
+    CancellationToken::checkpoint(cancellation)?;
     debug_assert!(challenge.is_none_or(|ch| ch.scalar() == *u));
     let half = g.len() / 2;
     if half == 0 {
-        return 0;
+        return Ok(0);
     }
     let (lo, rest) = g.split_at_mut(half);
     let hi = &rest[..half];
@@ -303,12 +321,16 @@ fn fold_blocks<C: PastaCurve>(
     lo.par_chunks_mut(block)
         .zip(hi.par_chunks(block))
         .for_each(|(l, h)| {
+            if CancellationToken::checkpoint(cancellation).is_err() {
+                return;
+            }
             let done = challenge.is_some_and(|ch| fold_block::<C>(l, h, ch));
             if !done {
                 fold_block_reference::<C>(l, h, u);
             }
         });
-    half
+    CancellationToken::checkpoint(cancellation)?;
+    Ok(half)
 }
 
 #[cfg(test)]

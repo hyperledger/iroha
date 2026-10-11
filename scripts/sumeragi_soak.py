@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import math
 import os
 import random
 import re
@@ -629,14 +630,16 @@ class Localnet:
         peer = self.peers[index]
         pid = peer.pid
         if pid is None:
-            return
+            raise RuntimeError(f"peer{index} is not running before kill injection")
         try:
             os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        except ProcessLookupError as error:
+            raise RuntimeError(f"peer{index} exited before kill injection") from error
         deadline = time.monotonic() + 30
         while self.alive(index) and time.monotonic() < deadline:
             time.sleep(0.05)
+        if self.alive(index):
+            raise RuntimeError(f"peer{index} remained alive after the 30 s kill bound")
         with self.lock:
             self._end_boot(index, "killed")
 
@@ -1052,20 +1055,35 @@ def enter_namespace_if_needed(options: Options, argv: Sequence[str]) -> None:
     os.execvpe(unshare, command, env)
 
 
+def require_fault_plan(plan: Sequence[faults.Fault], options: Options) -> None:
+    """Refuse invalid or incomplete requested fault coverage before startup."""
+    previous_end = options.warmup_s
+    for fault in plan:
+        if (
+            fault.kind not in options.kinds
+            or any(node not in range(options.validators) for node in fault.nodes)
+            or len(set(fault.nodes)) != len(fault.nodes)
+            or (fault.kind == "kill" and not 1 <= len(fault.nodes) <= options.max_kill)
+            or (fault.kind == "disk" and fault.nodes != (options.disk_node,))
+            or (fault.kind == "net" and bool(fault.nodes))
+            or not all(math.isfinite(value) for value in (fault.start_s, fault.duration_s, fault.end_s))
+            or fault.duration_s <= 0
+            or fault.start_s < previous_end
+            or fault.end_s + options.final_quiet_s > options.duration_s
+        ):
+            raise SystemExit("invalid fault plan: kind or positive ordered timing outside the configured run")
+        previous_end = fault.end_s
+    missing = logs.missing_requested_faults(options.kinds, (fault.kind for fault in plan))
+    if missing:
+        raise SystemExit(
+            "fault plan does not cover requested kinds within the configured duration: "
+            + ", ".join(missing)
+        )
+
+
 def run_soak(args: argparse.Namespace, argv: Sequence[str]) -> int:
     """Generate, run, inject and judge."""
     options = resolve_options(args)
-    if args.seed is None:
-        # Record the drawn seed so that a namespace re-execution keeps it.
-        argv = [*argv, "--seed", str(options.seed)]
-    enter_namespace_if_needed(options, argv)
-    if args.out is None:
-        raise SystemExit("--out is required")
-    run_dir = args.out.resolve()
-    if run_dir.exists() and any(run_dir.iterdir()):
-        raise SystemExit(f"{run_dir} is not empty")
-    run_dir.mkdir(parents=True, exist_ok=True)
-    bins = resolve_bins(args.bin_dir)
     rng = random.Random(options.seed)
     plan = faults.plan_faults(
         faults.PlanOptions(
@@ -1082,6 +1100,18 @@ def run_soak(args: argparse.Namespace, argv: Sequence[str]) -> int:
         ),
         rng,
     )
+    require_fault_plan(plan, options)
+    if args.seed is None:
+        # Record the drawn seed so that a namespace re-execution keeps it.
+        argv = [*argv, "--seed", str(options.seed)]
+    enter_namespace_if_needed(options, argv)
+    if args.out is None:
+        raise SystemExit("--out is required")
+    run_dir = args.out.resolve()
+    if run_dir.exists() and any(run_dir.iterdir()):
+        raise SystemExit(f"{run_dir} is not empty")
+    run_dir.mkdir(parents=True, exist_ok=True)
+    bins = resolve_bins(args.bin_dir)
     base_proxy = args.base_proxy_port if args.base_proxy_port is not None else args.base_p2p_port + 100
     ports = [args.base_api_port + index for index in range(options.validators)]
     ports += [args.base_p2p_port + index for index in range(options.validators)]
@@ -1256,10 +1286,14 @@ def run_fault(
     names = [net.node(index) for index in fault.nodes]
     print(f"[{time.strftime('%H:%M:%S')}] fault {fault.kind} {names or ''} loss {fault.loss:.2f} for {fault.duration_s:.0f} s")
     end = started + fault.end_s
+    if time.monotonic() >= end:
+        raise RuntimeError(f"fault window {fault.kind} expired before injection")
     tolerated: set[int] = set()
     if fault.kind == "kill":
         for index in fault.nodes:
             net.kill(index)
+        if time.monotonic() >= end:
+            raise RuntimeError(f"fault window {fault.kind} expired before injection completed")
         tolerated = set(fault.nodes)
         supervise_until(net, end, tolerated)
         for index in fault.nodes:
@@ -1269,6 +1303,8 @@ def run_fault(
         assert volume is not None
         filled = volume.fill()
         print(f"  disk of peer{fault.nodes[0]} filled with {filled // (1024 * 1024)} MiB")
+        if time.monotonic() >= end:
+            raise RuntimeError(f"fault window {fault.kind} expired before injection completed")
         tolerated = set(fault.nodes)
         supervise_until(net, end, tolerated)
         volume.free()
@@ -1279,6 +1315,8 @@ def run_fault(
         base = faults.net_condition(fault.loss, rng, float(options.extra["reset_ratio"]))
         spikes = faults.spike_plan(rng, fault.duration_s)
         current = None
+        applied = False
+        application_late = False
         while True:
             now = time.monotonic()
             if now >= end:
@@ -1291,10 +1329,19 @@ def run_fault(
                 if netem is not None:
                     netem.apply(condition)
                 current = condition
+                if condition != faults.CLEAR:
+                    applied = True
+                    if time.monotonic() >= end:
+                        application_late = True
+                        break
             supervise_until(net, min(end, now + 0.25), set())
         conditions.set(faults.CLEAR)
         if netem is not None:
             netem.apply(faults.CLEAR)
+        if application_late:
+            raise RuntimeError("network fault condition application completed at or after its endpoint")
+        if not applied:
+            raise RuntimeError("network fault window ended without applying a non-clear condition")
     return {"start_ms": window_start, "end_ms": now_ms(), "kind": fault.kind, "nodes": names}
 
 

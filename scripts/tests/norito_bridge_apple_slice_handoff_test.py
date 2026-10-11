@@ -52,6 +52,8 @@ class NoritoBridgeAppleSliceHandoffTests(unittest.TestCase):
             "cargo_features": ["privacy-production-enabled"],
             "build_environment": {
                 "schema": "iroha.mobile-native-build-environment.v1",
+                "wallet_runtime_authority": "cbsi-release-v1",
+                "wallet_runtime_trust_ed25519_hex": "3" * 64,
                 "hermetic_runner_schema": "iroha.mobile-hermetic-command.v1",
                 "hermetic_runner_sha256": digest,
                 "cargo_build_jobs": 1,
@@ -83,6 +85,23 @@ class NoritoBridgeAppleSliceHandoffTests(unittest.TestCase):
                 "macosx_deployment_target": "12.0",
             },
         }
+
+    def test_public_runtime_root_is_mandatory_exact_build_data(self):
+        for invalid in [None, "", "0"*64, "A"*64, "3"*63, "3"*65, 1, True]:
+            common=self.valid_common();common["build_environment"]["wallet_runtime_trust_ed25519_hex"]=invalid
+            with self.assertRaises(handoff.HandoffError):handoff.validate_common(common)
+        common=self.valid_common();del common["build_environment"]["wallet_runtime_trust_ed25519_hex"]
+        with self.assertRaises(handoff.HandoffError):handoff.validate_common(common)
+
+    def test_application_authority_is_exact_and_cannot_be_omitted(self):
+        for authority in ["bpng-taira-v7", "cbsi-release-v1"]:
+            common=self.valid_common();common["build_environment"]["wallet_runtime_authority"]=authority
+            handoff.validate_common(common)
+        for authority in [None, "", "bpng", "bpng-taira-v6", "BPNG-TAIRA-V7", "bpng-taira-v7\n", 1, True, {}, []]:
+            common=self.valid_common();common["build_environment"]["wallet_runtime_authority"]=authority
+            with self.assertRaises(handoff.HandoffError):handoff.validate_common(common)
+        common=self.valid_common();del common["build_environment"]["wallet_runtime_authority"]
+        with self.assertRaises(handoff.HandoffError):handoff.validate_common(common)
 
     def test_disabled_native_support_and_missing_feature_are_rejected(self) -> None:
         for value in (False, 0, 1, "true", None):

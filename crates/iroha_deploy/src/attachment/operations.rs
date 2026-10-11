@@ -122,9 +122,13 @@ impl AttachmentStore {
         self.revalidate()?;
         require_deadline(options.deadline)?;
         self.validate_parent_context(parent_config, bootstrap, parent)?;
+        if self.record.pending.is_none() {
+            self.require_active()?;
+        }
         let challenge = rand::random::<[u8; 32]>();
         parent.observe(source, &challenge)?;
         if self.record.pending.is_none() {
+            self.require_active()?;
             let kind = if self.confirmed().is_none() {
                 PendingKind::Registration
             } else if let Some(anchor) = next_anchor {
@@ -163,6 +167,10 @@ impl AttachmentStore {
         let transaction_root = self.directory.ensure_child("transactions")?;
         let journal = transaction_root.path().join(pending.journal_name()?);
         let account = AccountService::new(parent_config.clone())
+            .and_then(|account| match &self.cancellation {
+                Some(signal) => account.with_cancellation(Arc::clone(signal)),
+                None => Ok(account),
+            })
             .and_then(|account| account.with_deadline(options.deadline))
             .map_err(|_| {
                 AttachmentError::Operation("cannot open the exact parent wallet context")
@@ -367,7 +375,7 @@ impl AttachmentStore {
     }
 }
 
-fn require_deadline(deadline: Instant) -> Result<()> {
+pub(super) fn require_deadline(deadline: Instant) -> Result<()> {
     if deadline <= Instant::now() {
         return Err(AttachmentError::Operation(
             "attachment deadline elapsed; retained work remains resumable",
@@ -376,7 +384,7 @@ fn require_deadline(deadline: Instant) -> Result<()> {
     Ok(())
 }
 
-fn carrier_height(report: &OperationReport) -> Result<NonZeroU64> {
+pub(super) fn carrier_height(report: &OperationReport) -> Result<NonZeroU64> {
     report
         .data
         .get("evidence")

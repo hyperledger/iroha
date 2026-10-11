@@ -161,6 +161,8 @@ pub struct PreparedStreamTokenGatewayCheckV1 {
     instruction: MutateSorafsStreamTokenGateway,
     chain_id: String,
     round: NativeCheckRoundV1,
+    // Same-cut scheduling hint only. It cannot authenticate empty readback or grant authority.
+    pending_is_empty: Option<bool>,
     // A successful observation establishes this floor for every later local retry.
     accepted_earliest_unix_ms: Option<u64>,
 }
@@ -379,7 +381,12 @@ pub fn begin_stream_token_gateway_check_v1(
         },
     };
     instruction.request.validate().map_err(|_| Error::Invalid)?;
-    check::evaluate_current(&view, &instruction.request, now_ms).map_err(|_| Error::Authority)?;
+    let current = check::evaluate_current(&view, &instruction.request, now_ms)
+        .map_err(|_| Error::Authority)?;
+    let pending_is_empty = match current.value {
+        Value::Pending(readback) => Some(readback.records.is_empty()),
+        _ => None,
+    };
     let chain_id = view.chain_id().to_string();
     round.ensure_live()?;
     drop(view);
@@ -389,6 +396,7 @@ pub fn begin_stream_token_gateway_check_v1(
         instruction,
         chain_id,
         round,
+        pending_is_empty,
         accepted_earliest_unix_ms: None,
     })
 }
@@ -481,6 +489,19 @@ impl VerifiedStreamTokenReputationDeliveryV1<'_> {
 }
 
 impl PreparedStreamTokenGatewayCheckV1 {
+    /// Same-cut pending emptiness, solely for deciding whether to schedule background recovery.
+    ///
+    /// `Some(true)` permits dropping this unsent preparation without claiming an authenticated
+    /// empty result. It cannot qualify startup, acknowledge delivery, or authorize serving.
+    /// Other selectors return `None`. Nonempty work still requires this exact signed Check.
+    ///
+    /// # Errors
+    /// Refuses the hint after this original preparation's deadline has expired.
+    pub fn pending_is_empty(&self) -> Result<Option<bool>, Error> {
+        self.ensure_live()?;
+        Ok(self.pending_is_empty)
+    }
+
     /// Original absolute HTTP/operation deadline, unchanged by capture or signing.
     #[must_use]
     pub fn deadline(&self) -> Instant {

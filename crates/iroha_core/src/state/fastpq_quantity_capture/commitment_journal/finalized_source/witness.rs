@@ -207,6 +207,18 @@ impl CapturedExecWitness {
         Ok(execution)
     }
 
+    /// Match the same original native execution without decoding or copying its witness.
+    /// This local binding does not authenticate a certificate or grant relay authority.
+    pub(crate) fn matches_original_native_execution(
+        &self,
+        executed: &iroha_data_model::block::SignedBlock,
+        execution: iroha_data_model::sumeragi_finality::ExecutionCommitment,
+    ) -> bool {
+        std::ptr::eq(self.wire(), self.wire.get())
+            && self.native == Some((executed.hash(), execution))
+            && self.wire.belongs_to(&self.source.pool)
+    }
+
     /// Validate this protected original against the actual authenticated native result.
     /// No new root materialization, allocations or supplied expected digest are used.
     pub(crate) fn verify_finalized_source(

@@ -94,13 +94,15 @@ state_test! { sync height_mismatch_does_not_publish_staged_commit_topology
 state_test! { sync apply_without_execution_keeps_world_peer_append_scoped_to_checkpoint_lanes
     use iroha_config::parameters::actual::LaneValidatorMode;
     use iroha_data_model::nexus::{LaneCatalog, LaneConfig as CatalogLaneConfig, LaneVisibility};
+    let restricted_dataspace = DataSpaceId::new(1);
     let query = LiveQueryStore::start_test();
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
     {
-        let_row! { lane_catalog = LaneCatalog::new( NonZeroU32::new(2).expect("nonzero lane count"), vec![ CatalogLaneConfig::default(), CatalogLaneConfig { id: LaneId::new(1), alias: "restricted".to_string(), visibility: LaneVisibility::Restricted, ..CatalogLaneConfig::default() }, ], ) .expect("lane catalog") };
+        let_row! { lane_catalog = LaneCatalog::new( NonZeroU32::new(2).expect("nonzero lane count"), vec![ CatalogLaneConfig::default(), CatalogLaneConfig { id: LaneId::new(1), dataspace_id: restricted_dataspace, alias: "restricted".to_string(), visibility: LaneVisibility::Restricted, ..CatalogLaneConfig::default() }, ], ) .expect("lane catalog") };
         nexus.lane_catalog = lane_catalog.clone();
         nexus.lane_config =
             iroha_config::parameters::actual::LaneConfig::from_catalog(&lane_catalog);
+        nexus.dataspace_catalog = dataspace_catalog_with_extra(restricted_dataspace);
         nexus.staking.public_validator_mode = LaneValidatorMode::StakeElected;
         nexus.staking.restricted_validator_mode = LaneValidatorMode::StakeElected;
         nexus.staking.min_validator_stake = 100_u64.into();
@@ -146,7 +148,6 @@ state_test! { sync apply_without_execution_keeps_world_peer_append_scoped_to_che
                     activation_height: 1,
                     election_exit_height: None,
                     deactivation_height: None,
-                    last_reward_epoch: None,
                 },
             );
         }
@@ -166,7 +167,6 @@ state_test! { sync apply_without_execution_keeps_world_peer_append_scoped_to_che
                     activation_height: 1,
                     election_exit_height: None,
                     deactivation_height: None,
-                    last_reward_epoch: None,
                 },
             );
         }
@@ -281,7 +281,6 @@ state_test! { sync apply_without_execution_keeps_active_candidate_outside_suppli
                     activation_height: 1,
                     election_exit_height: None,
                     deactivation_height: None,
-                    last_reward_epoch: None,
                 },
             );
         }

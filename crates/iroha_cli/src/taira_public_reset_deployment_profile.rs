@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::taira_dataspace_deploy::{
-    DeploymentPeerV1, DeploymentTrustV1, validate_deployment_trust,
+    DeploymentPeerV1, DeploymentTrustV1, validate_deployment_peer_routes, validate_deployment_trust,
 };
 use iroha_data_model::NetworkId;
 
@@ -107,6 +107,7 @@ pub(super) fn derive_admitted_profile(
         peers,
     };
     validate_deployment_trust(&profile, public.network_id)?;
+    validate_deployment_peer_routes(&profile)?;
     Ok(profile)
 }
 
@@ -197,6 +198,7 @@ mod tests {
             network_id: NetworkId::from_genesis_hash(genesis.hash()),
             genesis_hash: genesis_hash.clone(),
             signed_genesis_sha256: sha256_hex(&wire),
+            nexus_amx_context_sha256: "11".repeat(32),
             raw_manifest_sha256: "1".repeat(64),
             genesis_public_key: key.public_key().clone(),
             canary_public_key: canary.public_key().clone(),
@@ -298,6 +300,10 @@ mod tests {
                 .to_string()
                 .contains("deployment profile validator slots differ"),
         );
+        let mut wrong = inventory.clone();
+        wrong.validator_clients[1].torii_origin = wrong.validator_clients[0].torii_origin.clone();
+        wrong.artifact_closure_sha256 = artifact_closure_sha256(&wrong);
+        assert!(admitted_inventory_profile(&wrong, &public, &wire).is_err());
         let mut wrong = inventory;
         let foreign =
             iroha_crypto::KeyPair::try_from_seed(vec![99; 32], Algorithm::BlsNormal).unwrap();
@@ -309,7 +315,7 @@ mod tests {
             admitted_inventory_profile(&wrong, &public, &wire)
                 .unwrap_err()
                 .to_string()
-                .contains("validator profile must bind four distinct genesis peers and endpoints"),
+                .contains("validator profile must bind four distinct genesis peers and their selected endpoints"),
         );
     }
 

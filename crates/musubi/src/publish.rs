@@ -3936,13 +3936,11 @@ impl PublicationJournalStore {
         #[cfg(all(test, unix))]
         substitute_publication_read_target_with_fifo_for_test(&self.directory.path().join(&name))
             .map_err(PublicationError::JournalIo)?;
-        let bytes = match self.directory.read(&name, MAX_JOURNAL_BYTES_USIZE) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Err(PublicationError::NotFound(operation_id));
-            }
-            Err(error) => return Err(journal_custody_error(error)),
-        };
+        let bytes = self
+            .directory
+            .read_optional(&name, MAX_JOURNAL_BYTES_USIZE)
+            .map_err(journal_custody_error)?
+            .ok_or(PublicationError::NotFound(operation_id))?;
         let journal = decode_publication_journal(&bytes)?;
         if journal.operation_id != operation_id {
             return Err(PublicationError::InvalidJournal(
@@ -4260,6 +4258,34 @@ fn substitute_publication_read_target_with_fifo_for_test(path: &Path) -> io::Res
 }
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn missing_retained_publication_directory_is_not_an_absent_operation() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("operations");
+        let _outer = iroha_fs::PrivateDirectory::open_or_create(&root).unwrap();
+        let store = super::PublicationJournalStore::open(&root).unwrap();
+        let operation = super::PublicationOperationIdV1([0x37; 32]);
+        assert!(matches!(
+            store.load(operation),
+            Err(super::PublicationError::NotFound(actual)) if actual == operation
+        ));
+        let path = store.directory.path().to_path_buf();
+        let moved = root.join("original-publication");
+        std::fs::rename(&path, &moved).unwrap();
+        let result = store.load(operation);
+        std::fs::rename(&moved, &path).unwrap();
+        assert!(matches!(
+            result,
+            Err(super::PublicationError::JournalIo(error))
+                if error.kind() == std::io::ErrorKind::NotFound
+        ));
+        assert!(matches!(
+            store.load(operation),
+            Err(super::PublicationError::NotFound(actual)) if actual == operation
+        ));
+    }
+
     #[test]
     fn existing_publication_journal_open_never_recreates_missing_custody() {
         let temporary = tempfile::tempdir().unwrap();

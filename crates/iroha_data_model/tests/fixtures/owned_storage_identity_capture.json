@@ -7,10 +7,13 @@
   },
   "selected_inputs": {
     "path": "owned_storage_identity_capture_inputs.json",
-    "count": 999,
-    "sha256": "f88b9d6182a5a68be784ce40e65c5b615991963edaefe8de1c0c631e60c853c0",
+    "count": 988,
+    "sha256": "e9f3dd3e334ff1642482e9e70b58026372335ebb6c21da1e938101f1a7486157",
     "changed_during_capture": [],
-    "coverage": "Recorded Rust sources, selected fixtures, root Cargo.toml, Cargo.lock and rust-toolchain.toml. Package manifests, all transitive inputs and the full compiler environment were not sealed."
+    "coverage": "Retained capture-time hashes of Rust sources, selected fixtures, root Cargo.toml, Cargo.lock and rust-toolchain.toml. Eleven retired source paths were removed after capture; surviving hashes are unchanged. Package manifests, all transitive inputs and the full compiler environment were not sealed.",
+    "original_count": 999,
+    "original_sha256": "f88b9d6182a5a68be784ce40e65c5b615991963edaefe8de1c0c631e60c853c0",
+    "pruned_inputs_count": 11
   },
   "execution": {
     "artifact": "target/cargo-fast/root-stack-fix/debug/deps/iroha_data_model-72afff554129b552",

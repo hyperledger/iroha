@@ -1,4 +1,4 @@
-seiyaku PrivateDivisionTrap {
+seiyaku PrivateDivisionTrap { permission WriteState;
     state int trace;
     hajimari() {
         trace = 0;
@@ -9,7 +9,7 @@ seiyaku PrivateDivisionTrap {
         return 5 / divisor;
     }
 
-    kotoage fn main() -> int authorize("WriteState") {
+    kotoage fn main() authorize(WriteState) -> int {
         trace = 40;
         return checked(0);
     }

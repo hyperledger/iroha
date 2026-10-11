@@ -1,4 +1,5 @@
 //! Validate the exact non-secret Governance DAG runtime-signer binding.
+
 use iroha_config::parameters::{actual::Root as ActualConfig, defaults, user::Root as UserConfig};
 use iroha_config_base::{env::MockEnv, read::ConfigReader, toml::TomlSource};
 use iroha_crypto::{Algorithm, KeyPair};

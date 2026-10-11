@@ -8,7 +8,7 @@ use super::{
         MAX_CHECKPOINT_BYTES, ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid,
         now_ms, read_optional, require_deadline, require_empty,
     },
-    service_authority::{ProviderPurpose, ServiceAuthority},
+    service_authority::{CheckpointImportScope, ProviderPurpose, ServiceAuthority},
 };
 use crate::{
     localnet::service_authorities::StreamTokenAuthorityRole, verify::finality::FinalityVerifier,
@@ -96,6 +96,21 @@ impl ManagedInitialProviderCredit {
         })
     }
 
+    /// Borrow the immutable original profile while admitting this provider's own purpose lock.
+    /// Active decode admission and owned parents retain the full standalone capture recipe.
+    pub(super) fn open_from_original(
+        parent: &ServiceAuthority,
+        provider: iroha_data_model::sorafs::capacity::ProviderId,
+    ) -> Result<Self> {
+        Ok(Self {
+            authority: ServiceAuthority::open_provider_from_original(
+                parent,
+                provider,
+                ProviderPurpose::InitialProviderCredit,
+            )?,
+        })
+    }
+
     /// Retain one exact initial projection after fresh native absence/predecessor proof.
     /// # Errors
     /// Refuses changed intent, roles, fees or UTC terms, unavailable proof, or existing credit.
@@ -146,6 +161,7 @@ impl ManagedInitialProviderCredit {
         Ok(original)
     }
 
+    #[cfg(test)]
     pub(super) fn open_existing(
         prepared: &PreparedLocalnet,
         provider: iroha_data_model::sorafs::capacity::ProviderId,
@@ -154,6 +170,22 @@ impl ManagedInitialProviderCredit {
             prepared,
             provider,
             ProviderPurpose::InitialProviderCredit,
+        )
+        .map(|authority| authority.map(|authority| Self { authority }))
+    }
+
+    /// Retain fresh purpose custody using the immutable original read-only parent profile.
+    /// Optional lexical import work supplies no source, transaction or current-state verdict.
+    pub(super) fn open_existing_from_original(
+        parent: &ServiceAuthority,
+        provider: iroha_data_model::sorafs::capacity::ProviderId,
+        scope: Option<&CheckpointImportScope>,
+    ) -> Result<Option<Self>> {
+        ServiceAuthority::open_provider_existing_from_original(
+            parent,
+            provider,
+            ProviderPurpose::InitialProviderCredit,
+            scope,
         )
         .map(|authority| authority.map(|authority| Self { authority }))
     }
@@ -185,8 +217,9 @@ impl ManagedInitialProviderCredit {
             None,
             |attempt| {
                 account
-                    .inspect_provider_credit_upsert_preparation(
-                        &attempt.wallet_path(),
+                    .inspect_provider_credit_upsert_preparation_in_parent(
+                        attempt.directory(),
+                        std::ffi::OsStr::new("transaction"),
                         &original.request(attempt.terms(), deadline),
                     )
                     .map_err(|_| invalid("funding attempt differs from exact wallet request"))
@@ -266,10 +299,8 @@ impl ManagedInitialProviderCredit {
         require_deadline(deadline)?;
         self.authority.validate_profile()?;
         self.validate_intent(intent)?;
-        let directory = match self.authority.directory.open_child("install") {
-            Ok(directory) => directory,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
+        let Some(directory) = self.authority.directory.open_child_optional("install")? else {
+            return Ok(None);
         };
         let Some(original) = journal::read_intent(&directory)? else {
             require_empty(&directory)?;
@@ -306,16 +337,34 @@ impl ManagedInitialProviderCredit {
         let verify_custody = || {
             original.verify_wallets(|intent, attempt| {
                 account
-                    .inspect_provider_credit_upsert_preparation(
-                        &attempt.wallet_path(),
+                    .inspect_provider_credit_upsert_preparation_in_parent(
+                        attempt.directory(),
+                        std::ffi::OsStr::new("transaction"),
                         &intent.request(attempt.terms(), deadline),
                     )
-                    .map_err(|_| invalid("retained funding attempt history changed"))
+                    .map_err(|_error| {
+                        #[cfg(test)]
+                        {
+                            use std::io::Write as _;
+                            let mut output = std::io::stderr().lock();
+                            for (index, cause) in _error.chain().enumerate() {
+                                let _ = writeln!(
+                                    output,
+                                    "retained funding wallet inspection: purpose=FundingCredit; cause[{index}]={cause}",
+                                );
+                            }
+                        }
+                        invalid("retained funding attempt history changed")
+                    })
             })
         };
         verify_custody()?;
         let preparation = account
-            .inspect_provider_credit_upsert_preparation(&path, &original.request(deadline))
+            .inspect_provider_credit_upsert_preparation_in_parent(
+                directory,
+                std::ffi::OsStr::new("transaction"),
+                &original.request(deadline),
+            )
             .map_err(|_| invalid("wallet preparation differs from the exact original request"))?;
         let unprepared_expired = preparation.unprepared_status() == Some(OperationStatus::Expired);
         let retained = match preparation.phase() {
@@ -449,7 +498,7 @@ impl ManagedInitialProviderCredit {
                     &original.checkpoint,
                     &transaction,
                     &report,
-                    observed.checkpoint().height(),
+                    observed,
                     deadline,
                 )?
             } else {
@@ -461,9 +510,11 @@ impl ManagedInitialProviderCredit {
         if let Some(finalized) = &finalized {
             self.validate_carrier(&original, finalized)?;
         }
-        let current = observed
-            .as_ref()
-            .and_then(|verifier| self.read_current(&original.policy, verifier, deadline).ok());
+        let current = super::native_operation::optional_current(
+            observe_current,
+            observed.as_ref(),
+            |verifier| self.read_current(&original.policy, verifier, deadline),
+        );
         verify_custody()?;
         Ok(progress(report.status, finalized, current))
     }
@@ -534,7 +585,7 @@ impl ManagedInitialProviderCredit {
         }
         self.authority
             .decode_checkpoint(&original.checkpoint)?
-            .verified_tip()
+            .verified_tip_ref()
             .map_err(|_| invalid("invalid original initial provider credit checkpoint"))?
             .verify_global_scope(
                 self.authority.config.network_id,

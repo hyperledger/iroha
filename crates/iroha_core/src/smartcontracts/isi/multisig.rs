@@ -1,5 +1,14 @@
 //! Built-in handling for multisig instructions without requiring an executor upgrade.
+#[path = "multisig_fee_proposal.rs"]
+mod fee_proposal;
 mod parliament_rekey;
+pub(crate) use fee_proposal::{
+    fee_proposal_key_is_unused, read_pending_fee_proposal, read_registered_account_state,
+    read_settled_fee_proposal,
+};
+
+#[cfg(test)]
+pub(crate) use fee_proposal::install_executed_fee_proposal_fixture;
 
 use crate::{
     execution_attempt::{
@@ -8,9 +17,8 @@ use crate::{
     smartcontracts::Execute,
     smartcontracts::isi::domain::isi::ensure_controller_capabilities,
     state::{
-        StateTransaction, WorldReadOnly, public_lane_reward_record_matches_key,
-        public_lane_stake_share_matches_key, public_lane_validator_record_matches_key,
-        retail_daily_limit_state as retail_state,
+        StateTransaction, WorldReadOnly, public_lane_stake_share_matches_key,
+        public_lane_validator_record_matches_key, retail_daily_limit_state as retail_state,
     },
 };
 use iroha_crypto::{Hash, HashOf};
@@ -1342,121 +1350,6 @@ fn replace_account_id_in_public_lane(
                 .insert(new_key, record);
         }
     }
-    let reward_keys: Vec<_> = state_transaction
-        .world
-        .public_lane_rewards
-        .iter()
-        .map(|(key, _)| key.clone())
-        .collect();
-    for key in reward_keys {
-        if let Some(record) = state_transaction.world.public_lane_rewards.get_mut(&key)
-            && public_lane_reward_record_matches_key(&key, record)
-        {
-            record.asset = replace_account_id_in_asset_id(&record.asset, old, new);
-            for share in &mut record.shares {
-                replace_account_id(&mut share.account, old, new);
-            }
-        }
-    }
-    let claim_updates = state_transaction
-        .world
-        .public_lane_reward_claims
-        .iter()
-        .filter(|((_, recipient), _)| recipient == old)
-        .map(|(key, state)| (key.clone(), (key.0, new.clone()), *state))
-        .collect::<Vec<_>>();
-    for (old_key, new_key, state) in claim_updates {
-        state_transaction
-            .world
-            .public_lane_reward_claims
-            .remove(old_key);
-        state_transaction
-            .world
-            .public_lane_reward_claims
-            .insert(new_key, state);
-    }
-    // Processing progress is per recipient; unpaid entitlements separately retain
-    // their exact custody asset. Rotate each identity without changing any amount.
-    let accrual_updates = state_transaction
-        .world
-        .public_lane_reward_accruals
-        .iter()
-        .filter(|((_, recipient, source), _)| recipient == old || source.account() == old)
-        .map(|(key, amount)| {
-            let recipient = if &key.1 == old {
-                new.clone()
-            } else {
-                key.1.clone()
-            };
-            let source = replace_account_id_in_asset_id(&key.2, old, new);
-            (key.clone(), (key.0, recipient, source), amount.clone())
-        })
-        .collect::<Vec<_>>();
-    for (old_key, new_key, amount) in accrual_updates {
-        state_transaction
-            .world
-            .public_lane_reward_accruals
-            .remove(old_key);
-        state_transaction
-            .world
-            .public_lane_reward_accruals
-            .insert(new_key, amount);
-    }
-    let accrual_updates: Vec<_> = state_transaction
-        .world
-        .public_lane_reward_accruals
-        .iter()
-        .filter(|((_, account, asset), _)| account == old || asset.account() == old)
-        .map(|(key, value)| {
-            let recipient = if &key.1 == old {
-                new.clone()
-            } else {
-                key.1.clone()
-            };
-            (
-                key.clone(),
-                (
-                    key.0,
-                    recipient,
-                    replace_account_id_in_asset_id(&key.2, old, new),
-                ),
-                value.clone(),
-            )
-        })
-        .collect();
-    for (old_key, new_key, value) in accrual_updates {
-        state_transaction
-            .world
-            .public_lane_reward_accruals
-            .remove(old_key);
-        state_transaction
-            .world
-            .public_lane_reward_accruals
-            .insert(new_key, value);
-    }
-    let reserve_updates = state_transaction
-        .world
-        .public_lane_reward_reserves
-        .iter()
-        .filter(|(asset, _)| asset.account() == old)
-        .map(|(asset, amount)| {
-            (
-                asset.clone(),
-                replace_account_id_in_asset_id(asset, old, new),
-                amount.clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    for (old_asset, new_asset, amount) in reserve_updates {
-        state_transaction
-            .world
-            .public_lane_reward_reserves
-            .remove(old_asset);
-        state_transaction
-            .world
-            .public_lane_reward_reserves
-            .insert(new_asset, amount);
-    }
     let custody_updates = state_transaction
         .world
         .public_lane_stake_custody
@@ -1776,6 +1669,7 @@ fn execute_register(
         account: multisig_account_id,
         home_domain,
         spec,
+        uaid,
     } = instruction;
     validate_registration(state_transaction, &multisig_account_id, &spec)?;
     if account_exists(state_transaction, &multisig_account_id)? {
@@ -1785,6 +1679,17 @@ fn execute_register(
         if expected_account != multisig_account_id {
             return Err(ValidationFail::NotPermitted(format!(
                 "multisig account `{multisig_account_id}` already exists and cannot be rekeyed to `{expected_account}` by registration"
+            )));
+        }
+        let existing_uaid = state_transaction
+            .world
+            .account(&multisig_account_id)
+            .map_err(|error| ValidationFail::InstructionFailed(error.into()))?
+            .uaid()
+            .copied();
+        if existing_uaid != uaid {
+            return Err(ValidationFail::NotPermitted(format!(
+                "multisig account `{multisig_account_id}` already exists with a different immutable universal identity"
             )));
         }
         let previous_state = load_multisig_account_state_optional(
@@ -1818,7 +1723,8 @@ fn execute_register(
         )?;
         return Ok(());
     }
-    let register_account = iroha_data_model::account::NewAccount::new(multisig_account_id.clone());
+    let register_account =
+        iroha_data_model::account::NewAccount::new(multisig_account_id.clone()).with_uaid(uaid);
     Register::account(register_account)
         .execute(authority, state_transaction)
         .map_err(ValidationFail::InstructionFailed)?;
@@ -2983,70 +2889,8 @@ fn load_multisig_account_state_optional(
     multisig_account: &AccountId,
 ) -> Result<Option<MultisigAccountState>, ValidationFail> {
     let resolved_account = resolve_signatory_account(state_transaction, multisig_account)?;
-    let key = multisig_account_state_key(&resolved_account);
-    let Some(bytes) = state_transaction.world.smart_contract_state.get(&key) else {
-        return Ok(None);
-    };
-    let state = norito::decode_from_bytes::<MultisigAccountState>(bytes).map_err(|error| {
-        retain_multisig_read_attempt(state_transaction, multisig_decode_attempt(error))
-    })?;
-    if state.account_id != resolved_account {
-        return Err(ValidationFail::QueryFailed(QueryExecutionFail::Conversion(
-            format!(
-                "native multisig account state is bound to `{}`, not `{resolved_account}`",
-                state.account_id
-            ),
-        )));
-    }
-    ensure_quorum_reachable(&state.spec)?;
-    ensure_signatories_are_single(&state.spec)?;
-    let expected_account = AccountId::new_multisig(
-        multisig_policy_from_spec(&state.spec).map_err(ValidationFail::InstructionFailed)?,
-    );
-    if expected_account != resolved_account {
-        return Err(ValidationFail::QueryFailed(QueryExecutionFail::Conversion(
-            format!(
-                "native multisig account state policy derives `{expected_account}`, not `{resolved_account}`"
-            ),
-        )));
-    }
-    let account = state_transaction
-        .world
-        .account(&resolved_account)
-        .map_err(map_find_error)?;
-    if let Some(metadata_spec) = account.metadata().get(&spec_key()).cloned() {
-        let metadata_spec = metadata_spec
-            .try_into_any_norito::<MultisigSpec>()
-            .map_err(|err| {
-                ValidationFail::QueryFailed(QueryExecutionFail::Conversion(format!(
-                    "invalid multisig/spec metadata for `{resolved_account}`: {err}"
-                )))
-            })?;
-        if metadata_spec != state.spec {
-            return Err(ValidationFail::QueryFailed(QueryExecutionFail::Conversion(
-                format!(
-                    "multisig/spec metadata disagrees with canonical native account state for `{resolved_account}`"
-                ),
-            )));
-        }
-    }
-    if let Some(metadata_home_domain) = account.metadata().get(&home_domain_key()).cloned() {
-        let metadata_home_domain = metadata_home_domain
-            .try_into_any_norito::<Option<iroha_model_base::domain::DomainId>>()
-            .map_err(|err| {
-                ValidationFail::QueryFailed(QueryExecutionFail::Conversion(format!(
-                    "invalid multisig home-domain metadata for `{resolved_account}`: {err}"
-                )))
-            })?;
-        if metadata_home_domain != state.home_domain {
-            return Err(ValidationFail::QueryFailed(QueryExecutionFail::Conversion(
-                format!(
-                    "multisig home-domain metadata disagrees with canonical native account state for `{resolved_account}`"
-                ),
-            )));
-        }
-    }
-    Ok(Some(state))
+    read_registered_account_state(&state_transaction.world, &resolved_account)
+        .map_err(|error| retain_multisig_read_attempt(state_transaction, error))
 }
 fn load_multisig_account_state(
     state_transaction: &StateTransaction<'_, '_>,
@@ -3528,6 +3372,7 @@ fn map_validation_fail(err: ValidationFail) -> InstructionExecutionError {
 mod tests {
     mod cancellation;
     mod proposal_attempt;
+    mod sccp_record;
     use super::*;
     use crate::{
         executor::Executor,
@@ -5843,14 +5688,8 @@ mod tests {
         }
     }
     #[test]
-    fn replace_account_controller_preserves_reward_cursors_accruals_and_exact_reserves() {
-        use iroha_data_model::{
-            asset::{Asset, AssetBalanceScope},
-            nexus::{
-                PublicLaneRewardClaimStateV1, PublicLaneRewardRecord, PublicLaneRewardRole,
-                PublicLaneRewardShare,
-            },
-        };
+    fn replace_account_controller_preserves_principal_custody_and_exact_reserves() {
+        use iroha_data_model::asset::{Asset, AssetBalanceScope};
         use iroha_model_base::topology::LaneId;
 
         let old = new_account_id(&checked_keypair());
@@ -5868,7 +5707,7 @@ mod tests {
             ],
             [],
         );
-        tx!(state, block, tx, world, "controller-reward-custody");
+        tx!(state, block, tx, world, "controller-principal-custody");
         let definition = AssetDefinitionId::derive_from_components(
             DomainId::try_new("rewards", "universal").unwrap(),
             "token".parse().unwrap(),
@@ -5880,55 +5719,18 @@ mod tests {
             AssetBalanceScope::Dataspace(DataSpaceId::new(7)),
         );
         let external = AssetId::new(definition, other.clone());
-        let accruals = [
-            (LaneId::new(1), old.clone(), global.clone(), 3_u32),
-            (LaneId::new(2), other.clone(), global.clone(), 4),
-            (LaneId::new(3), old.clone(), external.clone(), 5),
-            (LaneId::new(4), other.clone(), scoped.clone(), 6),
-            (LaneId::new(5), other.clone(), external.clone(), 7),
-        ];
-        for (lane, recipient, asset, amount) in &accruals {
-            tx.world.public_lane_reward_claims.insert(
-                (*lane, recipient.clone()),
-                PublicLaneRewardClaimStateV1 {
-                    through_epoch: Some(2),
-                },
-            );
-            tx.world.public_lane_reward_accruals.insert(
-                (*lane, recipient.clone(), asset.clone()),
-                Quantity::from(*amount),
-            );
-            tx.world.public_lane_rewards.insert(
-                (*lane, 2),
-                PublicLaneRewardRecord {
-                    lane_id: *lane,
-                    epoch: 2,
-                    asset: asset.clone(),
-                    total_reward: Quantity::from(*amount),
-                    shares: vec![PublicLaneRewardShare {
-                        account: recipient.clone(),
-                        role: PublicLaneRewardRole::Validator,
-                        amount: Quantity::from(*amount),
-                    }],
-                    metadata: Metadata::default(),
-                },
-            );
-        }
-        for (asset, reward, stake) in [
+        for (asset, available, stake) in [
             (global.clone(), 7_u32, 3_u32),
             (scoped.clone(), 6, 2),
             (external.clone(), 12, 0),
         ] {
-            tx.world
-                .public_lane_reward_reserves
-                .insert(asset.clone(), Quantity::from(reward));
             if stake != 0 {
                 tx.world
                     .public_lane_stake_reserves
                     .insert(asset.clone(), Quantity::from(stake));
             }
             let (_, value) =
-                Asset::new(asset.clone(), Quantity::from(reward + stake)).into_key_value();
+                Asset::new(asset.clone(), Quantity::from(available + stake)).into_key_value();
             tx.world.assets.insert(asset.clone(), value);
             tx.world.track_asset_holder(&asset);
         }
@@ -5957,10 +5759,6 @@ mod tests {
                 };
             }
             [
-                capture!(public_lane_reward_claims),
-                capture!(public_lane_reward_accruals),
-                capture!(public_lane_rewards),
-                capture!(public_lane_reward_reserves),
                 capture!(public_lane_stake_custody),
                 capture!(public_lane_stake_reserves),
                 capture!(assets),
@@ -6003,55 +5801,8 @@ mod tests {
         );
         assert!(tx.world.accounts.get(&old).is_none());
         assert!(tx.world.accounts.get(&new).is_some());
-        let mut expected_claims = BTreeMap::new();
-        let mut expected_accruals = BTreeMap::new();
-        for (lane, recipient, source, amount) in accruals {
-            let recipient = if recipient == old {
-                new.clone()
-            } else {
-                recipient
-            };
-            let source = replace_account_id_in_asset_id(&source, &old, &new);
-            expected_claims.insert(
-                (lane, recipient.clone()),
-                PublicLaneRewardClaimStateV1 {
-                    through_epoch: Some(2),
-                },
-            );
-            expected_accruals.insert(
-                (lane, recipient.clone(), source.clone()),
-                Quantity::from(amount),
-            );
-            let record = tx.world.public_lane_rewards.get(&(lane, 2)).unwrap();
-            assert_eq!(record.asset, source);
-            assert_eq!(record.shares[0].account, recipient);
-            assert_eq!(record.shares[0].amount, Quantity::from(amount));
-        }
-        assert!(
-            tx.world
-                .public_lane_reward_claims
-                .iter()
-                .eq(expected_claims.iter())
-        );
-        assert!(
-            tx.world
-                .public_lane_reward_accruals
-                .iter()
-                .eq(expected_accruals.iter())
-        );
         let new_global = replace_account_id_in_asset_id(&global, &old, &new);
         let new_scoped = replace_account_id_in_asset_id(&scoped, &old, &new);
-        let expected_reserves = BTreeMap::from([
-            (new_global.clone(), Quantity::from(7_u32)),
-            (new_scoped.clone(), Quantity::from(6_u32)),
-            (external.clone(), Quantity::from(12_u32)),
-        ]);
-        assert!(
-            tx.world
-                .public_lane_reward_reserves
-                .iter()
-                .eq(expected_reserves.iter())
-        );
         let expected_stake = BTreeMap::from([
             (new_global.clone(), Quantity::from(3_u32)),
             (new_scoped.clone(), Quantity::from(2_u32)),
@@ -6163,87 +5914,6 @@ mod tests {
             Some(&(external, Quantity::from(6_u32)))
         );
     }
-    #[test]
-    fn rekey_public_lane_reward_cursors_and_unpaid_sources_preserve_scope_and_quantity() {
-        tx!(
-            state,
-            block,
-            tx,
-            World::new(),
-            "multisig-rekey-reward-accrual"
-        );
-        let old = new_account_id(&checked_keypair());
-        let new = new_account_id(&checked_keypair());
-        let other = new_account_id(&checked_keypair());
-        let lane = iroha_model_base::topology::LaneId::SINGLE;
-        let definition = AssetDefinitionId::derive_from_components(
-            DomainId::try_new("rewards", "universal").unwrap(),
-            "fee".parse().unwrap(),
-        );
-        let old_source = AssetId::with_scope(
-            definition.clone(),
-            old.clone(),
-            iroha_data_model::asset::AssetBalanceScope::Dataspace(
-                iroha_model_base::topology::DataSpaceId::new(7),
-            ),
-        );
-        let new_source = AssetId::with_scope(
-            definition.clone(),
-            new.clone(),
-            iroha_data_model::asset::AssetBalanceScope::Dataspace(
-                iroha_model_base::topology::DataSpaceId::new(7),
-            ),
-        );
-        let external = AssetId::new(definition, other.clone());
-        let cursor = iroha_data_model::nexus::PublicLaneRewardClaimStateV1 {
-            through_epoch: Some(3),
-        };
-        for recipient in [&old, &other] {
-            tx.world
-                .public_lane_reward_claims
-                .insert((lane, recipient.clone()), cursor);
-        }
-        for (recipient, source, amount) in [
-            (old.clone(), old_source.clone(), 2_u32),
-            (other.clone(), old_source.clone(), 3),
-            (old.clone(), external.clone(), 4),
-            (other.clone(), external.clone(), 5),
-        ] {
-            tx.world
-                .public_lane_reward_accruals
-                .insert((lane, recipient, source), Quantity::from(amount));
-        }
-        replace_account_id_in_public_lane(&mut tx, &old, &new);
-        assert_eq!(
-            tx.world.public_lane_reward_claims.get(&(lane, old.clone())),
-            None
-        );
-        assert_eq!(
-            tx.world.public_lane_reward_claims.get(&(lane, new.clone())),
-            Some(&cursor)
-        );
-        assert_eq!(
-            tx.world
-                .public_lane_reward_claims
-                .get(&(lane, other.clone())),
-            Some(&cursor)
-        );
-        let expected = BTreeMap::from([
-            (
-                (lane, new.clone(), new_source.clone()),
-                Quantity::from(2_u32),
-            ),
-            ((lane, other.clone(), new_source), Quantity::from(3_u32)),
-            ((lane, new, external.clone()), Quantity::from(4_u32)),
-            ((lane, other, external), Quantity::from(5_u32)),
-        ]);
-        assert!(
-            tx.world
-                .public_lane_reward_accruals
-                .iter()
-                .eq(expected.iter())
-        );
-    }
 
     #[test]
     fn rekey_public_lane_validators_ignores_mismatched_rows() {
@@ -6270,10 +5940,6 @@ mod tests {
             reward_asset_definition.clone(),
             old_account.clone(),
         );
-        let new_reward_asset = iroha_data_model::asset::AssetId::new(
-            reward_asset_definition.clone(),
-            new_account.clone(),
-        );
         tx.world.public_lane_validators.insert(
             (valid_lane, old_account.clone()),
             iroha_data_model::nexus::PublicLaneValidatorRecord {
@@ -6290,7 +5956,6 @@ mod tests {
                 activation_height: 1,
                 election_exit_height: None,
                 deactivation_height: None,
-                last_reward_epoch: None,
             },
         );
         tx.world.public_lane_validators.insert(
@@ -6309,7 +5974,6 @@ mod tests {
                 activation_height: 1,
                 election_exit_height: None,
                 deactivation_height: None,
-                last_reward_epoch: None,
             },
         );
         tx.world.public_lane_stake_shares.insert(
@@ -6334,39 +5998,6 @@ mod tests {
                 metadata: Metadata::default(),
             },
         );
-        tx.world.public_lane_rewards.insert(
-            (valid_lane, 2),
-            iroha_data_model::nexus::PublicLaneRewardRecord {
-                lane_id: valid_lane,
-                epoch: 2,
-                asset: old_reward_asset.clone(),
-                total_reward: iroha_primitives::numeric::Quantity::from(5_u32),
-                shares: vec![iroha_data_model::nexus::PublicLaneRewardShare {
-                    account: old_account.clone(),
-                    role: iroha_data_model::nexus::PublicLaneRewardRole::Validator,
-                    amount: iroha_primitives::numeric::Quantity::from(5_u32),
-                }],
-                metadata: Metadata::default(),
-            },
-        );
-        tx.world.public_lane_rewards.insert(
-            (malformed_lane, 3),
-            iroha_data_model::nexus::PublicLaneRewardRecord {
-                lane_id: malformed_lane,
-                epoch: 4,
-                asset: old_reward_asset.clone(),
-                total_reward: iroha_primitives::numeric::Quantity::from(6_u32),
-                shares: vec![iroha_data_model::nexus::PublicLaneRewardShare {
-                    account: old_account.clone(),
-                    role: iroha_data_model::nexus::PublicLaneRewardRole::Validator,
-                    amount: iroha_primitives::numeric::Quantity::from(6_u32),
-                }],
-                metadata: Metadata::default(),
-            },
-        );
-        tx.world
-            .public_lane_reward_reserves
-            .insert(old_reward_asset.clone(), Quantity::from(5_u32));
         tx.world.public_lane_stake_custody.insert(
             (valid_lane, old_account.clone()),
             (old_reward_asset.clone(), Quantity::from(3_u32)),
@@ -6399,23 +6030,6 @@ mod tests {
             tx.world.public_lane_stake_reserves.get(&new_custody_asset),
             Some(&Quantity::from(3_u32))
         );
-        assert!(
-            tx.world
-                .public_lane_reward_reserves
-                .get(&old_reward_asset)
-                .is_none()
-        );
-        assert_eq!(
-            tx.world
-                .public_lane_reward_reserves
-                .get(&replace_account_id_in_asset_id(
-                    &old_reward_asset,
-                    &old_account,
-                    &new_account
-                )),
-            Some(&Quantity::from(5_u32))
-        );
-
         assert!(
             tx.world
                 .public_lane_validators
@@ -6471,23 +6085,6 @@ mod tests {
                 .is_none(),
             "malformed stake-share row must not be moved into a live matching key"
         );
-        let moved_reward = tx
-            .world
-            .public_lane_rewards
-            .get(&(valid_lane, 2))
-            .expect("matching reward row should remain present");
-        assert_eq!(moved_reward.asset, new_reward_asset);
-        assert_eq!(moved_reward.shares[0].account, new_account);
-        let malformed_reward = tx
-            .world
-            .public_lane_rewards
-            .get(&(malformed_lane, 3))
-            .expect("malformed reward row should remain present");
-        assert_eq!(
-            malformed_reward.asset, old_reward_asset,
-            "mismatched reward row asset must not be rewritten"
-        );
-        assert_eq!(malformed_reward.shares[0].account, old_account);
     }
     #[test]
     fn rekey_account_id_moves_asset_holder_index_to_new_account() {
@@ -6777,6 +6374,116 @@ mod tests {
         assert_eq!(register.home_domain.as_ref(), Some(&source_domain));
         assert_eq!(signer_in_spec.controller(), signer.controller());
     }
+    #[test]
+    fn multisig_register_uaid_rekeys_index_and_rejects_identity_changes_or_adoption() {
+        use iroha_data_model::nexus::UniversalAccountId;
+        tx!(state, block, tx, World::new(), "multisig-uaid-registration");
+        let domain_id = DomainId::try_new("bsp", "cbsi").expect("domain");
+        let owner = new_account_id(&checked_keypair());
+        domain!(tx, owner, domain_id, "domain registration");
+        account!(tx, owner, domain_id, owner, "owner registration");
+        let signer = new_account_id(&checked_keypair());
+        account!(tx, owner, domain_id, signer, "signer registration");
+        let spec = spec(BTreeMap::from([(signer.clone(), 1)]), 1);
+        let seed = new_account_id(&checked_keypair());
+        let canonical = AccountId::new_multisig(multisig_policy_from_spec(&spec).unwrap());
+        let uaid = UniversalAccountId::from_hash(Hash::new(b"native-multisig-uaid"));
+        execute_register(
+            &mut tx,
+            &owner,
+            MultisigRegister::with_account(seed.clone(), domain_id.clone(), spec.clone())
+                .with_uaid(Some(uaid)),
+        )
+        .expect("fresh bound registration");
+        assert!(tx.world.accounts.get(&seed).is_none());
+        assert_eq!(tx.world.account(&canonical).unwrap().uaid(), Some(&uaid));
+        assert_eq!(tx.world.uaid_accounts.get(&uaid), Some(&canonical));
+        let before = load_multisig_account_state_optional(&tx, &canonical)
+            .unwrap()
+            .unwrap();
+        execute_register(
+            &mut tx,
+            &owner,
+            MultisigRegister::with_account(canonical.clone(), domain_id.clone(), spec.clone())
+                .with_uaid(Some(uaid)),
+        )
+        .expect("same identity retry");
+        for different in [
+            None,
+            Some(UniversalAccountId::from_hash(Hash::new(
+                b"different-multisig-uaid",
+            ))),
+        ] {
+            let error = execute_register(
+                &mut tx,
+                &owner,
+                MultisigRegister::with_account(canonical.clone(), domain_id.clone(), spec.clone())
+                    .with_uaid(different),
+            )
+            .expect_err("immutable identity mismatch");
+            assert!(error.to_string().contains("immutable universal identity"));
+            assert_eq!(tx.world.account(&canonical).unwrap().uaid(), Some(&uaid));
+            assert_eq!(tx.world.uaid_accounts.get(&uaid), Some(&canonical));
+            assert_eq!(
+                load_multisig_account_state_optional(&tx, &canonical)
+                    .unwrap()
+                    .unwrap(),
+                before
+            );
+        }
+        let other_signer = new_account_id(&checked_keypair());
+        account!(
+            tx,
+            owner,
+            domain_id,
+            other_signer,
+            "other signer registration"
+        );
+        let mut other_spec = spec.clone();
+        other_spec.signatories = BTreeMap::from([(other_signer, 1)]);
+        let unbound = AccountId::new_multisig(multisig_policy_from_spec(&other_spec).unwrap());
+        execute_register(
+            &mut tx,
+            &owner,
+            MultisigRegister::with_account(unbound.clone(), domain_id.clone(), other_spec.clone()),
+        )
+        .expect("registration without UAID remains supported");
+        let error = execute_register(
+            &mut tx,
+            &owner,
+            MultisigRegister::with_account(unbound.clone(), domain_id.clone(), other_spec)
+                .with_uaid(Some(UniversalAccountId::from_hash(Hash::new(
+                    b"retroactive-multisig-uaid",
+                )))),
+        )
+        .expect_err("cannot retrofit an existing immutable identity");
+        assert!(error.to_string().contains("immutable universal identity"));
+        assert_eq!(tx.world.account(&unbound).unwrap().uaid(), None);
+        // Removing canonical native state does not make an already registered
+        // account adoptable, even when its immutable identity exactly matches.
+        tx.world
+            .smart_contract_state
+            .remove(multisig_account_state_key(&canonical));
+        let error = execute_register(
+            &mut tx,
+            &owner,
+            MultisigRegister::with_account(canonical.clone(), domain_id, spec)
+                .with_uaid(Some(uaid)),
+        )
+        .expect_err("no native state adoption");
+        assert!(
+            error
+                .to_string()
+                .contains("without canonical native account state")
+        );
+        assert!(
+            load_multisig_account_state_optional(&tx, &canonical)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(tx.world.account(&canonical).unwrap().uaid(), Some(&uaid));
+    }
+
     #[test]
     fn multisig_metadata_cannot_reconstruct_missing_native_account_state() {
         tx!(
@@ -7318,13 +7025,13 @@ mod tests {
             })
             .compile_source_with_manifest(
                 r#"
-seiyaku TriggerDispatch {
-  kotoage fn main() authorize("Admin") {
-    ledger::account::set_detail(account: context::authority(), key: Name::parse("entrypoint"), value: Json::parse("1"));
+seiyaku TriggerDispatch { permission Admin;
+  kotoage fn main() authorize(Admin) {
+    ledger::account::set_metadata(account: context::authority(), key: Name::parse("entrypoint"), value: Json::parse("1"));
   }
 
-  kotoage fn alternate() authorize("Admin") {
-    ledger::account::set_detail(account: context::authority(), key: Name::parse("entrypoint"), value: Json::parse("2"));
+  kotoage fn alternate() authorize(Admin) {
+    ledger::account::set_metadata(account: context::authority(), key: Name::parse("entrypoint"), value: Json::parse("2"));
   }
 }
 "#,
@@ -7869,7 +7576,7 @@ seiyaku TriggerDispatch {
         .expect("grant staged mint permission");
         let src = format!(
             r#"
-            seiyaku StagedMintRequest {{
+            seiyaku StagedMintRequest {{ permission staged_mint_request_run;
               // Runtime trigger authority: {multisig_id}
               error enum StagedMintError {{
                 DuplicateRequest = 1,
@@ -7901,7 +7608,7 @@ seiyaku TriggerDispatch {
                   StagedMintError::DestinationAccountMismatch,
                 );
                 let amount = ev.get_quantity(Name::parse("amount"))?;
-                let requested_by_actor = ev.get_blob_hex(Name::parse("requested_by_actor_hex"))?;
+                let requested_by_actor = ev.get_bytes_hex(Name::parse("requested_by_actor_hex"))?;
                 let created_at_ms = ev.get_int(Name::parse("created_at_ms"))?;
                 let expires_at_ms = ev.get_int(Name::parse("expires_at_ms"))?;
                 require(amount > 0, StagedMintError::InvalidAmount);
@@ -7915,7 +7622,7 @@ seiyaku TriggerDispatch {
                 Option::some(true)
               }}
 
-              kotoage fn run(Json ev) authorize("staged_mint_request_run") {{
+              kotoage fn run(Json ev) authorize(staged_mint_request_run) {{
                 require(run_impl(ev: ev).is_some(), StagedMintError::MissingOrInvalidField);
               }}
             }}

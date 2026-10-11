@@ -13,6 +13,10 @@
 //! bodies, `StateInit`s and external messages) and [`cell_from_boc`] reads one back (contract
 //! code artifacts).
 //!
+//! The storage-rent constants mirror `contracts/ton/sccp/contracts/sccp-fees.tolk` (§5.3.5; a
+//! unit test compares them), so tooling can fund a minter deployment before the minter's own
+//! `minter_floor()` get method exists.
+//!
 //! TODO(ws3A): deduplicate the cell hashing with the `BoC` cell hashing of `crate::ton_native`.
 
 use std::sync::Arc;
@@ -582,7 +586,8 @@ pub struct TonMinterDataV1 {
 }
 
 /// Build the canonical initial minter data (§5.3.1): uninitialized, zero counters and supply,
-/// not paused, no deployed buckets, no previous roster; the config holds the network id,
+/// not paused, no deployed buckets, no previous roster, no recorded retries; the config holds
+/// the network id,
 /// revision, cap, pinned generation and digest and both code references; the roster holds the
 /// digest, generation, validity window, `n`, `t` and the members in maximal 6-address chunks.
 ///
@@ -662,7 +667,8 @@ fn minter_initial_data_with_code(
         .store_uint(0, 64)? // deployed_buckets
         .store_ref(config.clone())?
         .store_ref(roster.clone())?
-        .store_maybe_ref(None::<Cell>)?; // prev_roster
+        .store_maybe_ref(None::<Cell>)? // prev_roster
+        .store_bit(false)?; // retries: empty HashmapE 64
     Ok(TonMinterDataV1 {
         root: root.build(),
         config,
@@ -722,7 +728,9 @@ pub fn wallet_account_id(
     Ok(*state_init(wallet_code, data.build())?.hash())
 }
 
-/// Account id of consumption bucket `index` (all 512 flags clear) under the minter.
+/// Account id of consumption bucket `index` under the minter: the hash of its canonical
+/// `StateInit`, `bucket_data` with `activated = false` and all 512 flags clear (§5.3.3). Anyone
+/// can deploy that state, but only the minter's `sccp_activate_bucket` makes it accept flags.
 ///
 /// # Errors
 ///
@@ -735,8 +743,54 @@ pub fn bucket_account_id(
     let mut data = CellBuilder::new();
     data.store_address_std(0, minter_account)?
         .store_uint(u128::from(index), 64)?
+        .store_bit(false)? // activated
         .store_bytes(&[0; 64])?;
     Ok(*state_init(bucket_code, data.build())?.hash())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Storage rent (§5.3.5)
+// ---------------------------------------------------------------------------------------------
+
+/// Upper bound of the minter's account state in bits (code and maximal data), the size
+/// `MINTER_FLOOR` is computed for (`SCCP_MINTER_STATE_BITS`).
+pub const TON_MINTER_STATE_BITS: u64 = 102_000;
+/// Upper bound of the minter's account state in cells (`SCCP_MINTER_STATE_CELLS`).
+pub const TON_MINTER_STATE_CELLS: u64 = 205;
+/// Storage period of `MINTER_FLOOR` and `BUCKET_FLOOR`: 100 years (`SCCP_FLOOR_SECONDS`).
+pub const TON_FLOOR_SECONDS: u64 = 3_153_600_000;
+/// TON mainnet basechain storage price per bit and 2^16 seconds (`ConfigParam 18`).
+pub const TON_MAINNET_BIT_PRICE_PS: u64 = 1;
+/// TON mainnet basechain storage price per cell and 2^16 seconds (`ConfigParam 18`).
+pub const TON_MAINNET_CELL_PRICE_PS: u64 = 500;
+
+/// `GETSTORAGEFEE`: nanotons for storing `bits` and `cells` for `seconds` at the given
+/// per-2^16-second prices, rounded up as the TON storage phase rounds.
+#[must_use]
+pub fn ton_storage_fee(
+    seconds: u64,
+    bits: u64,
+    cells: u64,
+    bit_price_ps: u64,
+    cell_price_ps: u64,
+) -> u128 {
+    let per_period =
+        u128::from(bits) * u128::from(bit_price_ps) + u128::from(cells) * u128::from(cell_price_ps);
+    (per_period * u128::from(seconds)).div_ceil(1 << 16)
+}
+
+/// `MINTER_FLOOR` at TON mainnet storage prices. The minter computes its floor from the live
+/// `ConfigParam 18` (get method `minter_floor()`); this is the same value at the prices pinned
+/// above, for funding a deployment before the minter exists.
+#[must_use]
+pub fn ton_minter_floor_at_mainnet_prices() -> u128 {
+    ton_storage_fee(
+        TON_FLOOR_SECONDS,
+        TON_MINTER_STATE_BITS,
+        TON_MINTER_STATE_CELLS,
+        TON_MAINNET_BIT_PRICE_PS,
+        TON_MAINNET_CELL_PRICE_PS,
+    )
 }
 
 #[cfg(test)]
@@ -936,13 +990,13 @@ mod tests {
                 depth: 4,
             },
             bucket_code: SccpTonCodeRefV1 {
-                hash: from_hex("e36819d3c7c4f489c9a0b1bc7ad520ff90f388263db19dafb4eab95c90e426b1"),
+                hash: from_hex("636f93d7b6d9fbf1c4756453654eea4d8fa9a474b461e642d501299737cd0450"),
                 depth: 6,
             },
         };
         let minter_code = SccpTonCodeRefV1 {
-            hash: from_hex("d3afa6f2a007603bb32c5f7d34c0e537f8fb245a658a91e10a49695e523c02eb"),
-            depth: 16,
+            hash: from_hex("4557a9b6df6a72104fcb8ef3337106f4d6a43ba7f0a825990641552e0d6554e4"),
+            depth: 15,
         };
         (init, minter_code)
     }
@@ -955,7 +1009,7 @@ mod tests {
         assert_eq!(data.config.bit_len(), 676);
         assert_eq!(
             hex(data.config.hash()),
-            "5b3619e6faf5c00f662c5e75485431d730e8820eb7446f8b0367b611a9033ce2"
+            "97abb649f4e1e5e72c64a5fd6d5d300cb4278e149c761aa0bad02515ae45882c"
         );
         assert_eq!(data.config.depth(), 7);
         assert_eq!(data.members.bit_len(), 641);
@@ -968,29 +1022,186 @@ mod tests {
             hex(data.roster.hash()),
             "f0e8dc1f221010d8407e023420ce004d6259cc632652f397993a418e83b05ab1"
         );
-        assert_eq!(data.root.bit_len(), 267);
+        // 267 bits of counters and flags, the `prev_roster` Maybe bit and the empty `retries`
+        assert_eq!(data.root.bit_len(), 268);
         assert_eq!(data.root.depth(), 8);
         assert_eq!(
             hex(data.root.hash()),
-            "bdc1e98dab57b453e3bbb2f2f5efbd69e6880579445c53c32b6aa96a54c4f862"
+            "6a26fb09952d20b8623ffc1625be3a0de55f575bbfb3e0068a7dbdf75820389d"
         );
         let minter = minter_account_id(&init, minter_code).unwrap();
         assert_eq!(
             hex(&minter),
-            "492a5e8cc18da55f53963484998aa731f830c89a8ddd5eeea9b78018fd13cd75"
+            "2df158214cff298e678f9b15f50dd20aa4f30bbed5e570cfdf0524c6209a10a7"
         );
         assert_eq!(
             hex(&bucket_account_id(&minter, 0, init.bucket_code).unwrap()),
-            "37b5bb0f4fcda15fb878ae92ac79df24fbde27887e028ab4f6e5a75bf27c73fa"
+            "99be6871b79cb5cd7fdde27c8b11bc6b4314a179f5db7146894259b751a0da7a"
         );
         assert_eq!(
             hex(&bucket_account_id(&minter, 1, init.bucket_code).unwrap()),
-            "94a4f9868c368381bfb7eae16fd81204cc61bdcd91169aec671adebc3963322b"
+            "921d14d62f1496963af0a3c3e5a7ca9344b5342badaad02d5dc877db7d1dbb32"
         );
         assert_eq!(
             hex(&wallet_account_id(0, &[0xab; 32], &minter, init.wallet_code).unwrap()),
-            "71c8c39c326c04e722b9a546f1a021d494439db770093a1efcd1a515436811f7"
+            "a961afd4c4a4491cbcf46cbd80976bb4b62dd4e103c156f0cd0cdc01dc0c9aae"
         );
+    }
+
+    fn fixture_text(value: &norito::json::Value, key: &str) -> String {
+        value
+            .get(key)
+            .and_then(norito::json::Value::as_str)
+            .unwrap_or_else(|| panic!("fixture field `{key}`"))
+            .to_owned()
+    }
+
+    fn fixture_u64(value: &norito::json::Value, key: &str) -> u64 {
+        value
+            .get(key)
+            .and_then(norito::json::Value::as_u64)
+            .unwrap_or_else(|| panic!("fixture field `{key}`"))
+    }
+
+    fn fixture_code(fixture: &norito::json::Value, name: &str) -> SccpTonCodeRefV1 {
+        let record = &fixture["code"][name];
+        SccpTonCodeRefV1 {
+            hash: from_hex(&fixture_text(record, "hash")),
+            depth: u16::try_from(fixture_u64(record, "depth")).unwrap(),
+        }
+    }
+
+    #[test]
+    fn every_stateinit_fixture_vector_reproduces_from_code_references() {
+        // Taira's `RegisterRoute` recomputes the minter address from these inputs alone; the
+        // fixture is emitted by the Tolk contracts and recomputed in Python.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/sccp/ton_stateinit_v1.json");
+        let text = std::fs::read_to_string(path).expect("fixture");
+        let fixture: norito::json::Value = norito::json::from_str(&text).expect("fixture parses");
+        let minter_code = fixture_code(&fixture, "minter");
+        let wallet_code = fixture_code(&fixture, "wallet");
+        let bucket_code = fixture_code(&fixture, "bucket");
+        let vectors = fixture["vectors"].as_array().expect("vectors");
+        assert_eq!(vectors.len(), 2);
+        for vector in vectors {
+            let members: Vec<[u8; 20]> = vector["members"]
+                .as_array()
+                .expect("members")
+                .iter()
+                .map(|member| {
+                    let mut out = [0_u8; 20];
+                    let text = member.as_str().expect("member");
+                    for (index, slot) in out.iter_mut().enumerate() {
+                        *slot = u8::from_str_radix(&text[2 * index..2 * index + 2], 16).unwrap();
+                    }
+                    out
+                })
+                .collect();
+            let init = TonMinterInitV1 {
+                taira_network_id: from_hex(&fixture_text(vector, "taira_network_id")),
+                route_revision: u32::try_from(fixture_u64(vector, "route_revision")).unwrap(),
+                max_supply: fixture_text(vector, "max_supply").parse().unwrap(),
+                roster: RosterV1 {
+                    generation: fixture_u64(vector, "generation"),
+                    valid_from_ms: fixture_u64(vector, "valid_from_ms"),
+                    valid_until_ms: fixture_u64(vector, "valid_until_ms"),
+                    members,
+                },
+                wallet_code,
+                bucket_code,
+            };
+            let label = fixture_text(vector, "label");
+            let data = minter_initial_data(&init).unwrap();
+            assert_eq!(
+                hex(&data.roster_digest),
+                fixture_text(vector, "roster_digest"),
+                "{label}"
+            );
+            let initial = &vector["initial_data"];
+            assert_eq!(
+                hex(data.root.hash()),
+                fixture_text(initial, "hash"),
+                "{label}"
+            );
+            assert_eq!(
+                u64::from(data.root.depth()),
+                fixture_u64(initial, "depth"),
+                "{label}"
+            );
+            assert_eq!(
+                data.root.bit_len() as u64,
+                fixture_u64(&initial["root"], "bit_len"),
+                "{label}"
+            );
+            let minter = minter_account_id(&init, minter_code).unwrap();
+            assert_eq!(
+                hex(&minter),
+                fixture_text(&vector["address"], "account_id"),
+                "{label}"
+            );
+            let children = &vector["children"];
+            assert_eq!(
+                hex(&bucket_account_id(&minter, 0, bucket_code).unwrap()),
+                fixture_text(children, "bucket_0_account_id"),
+                "{label}"
+            );
+            assert_eq!(
+                hex(&bucket_account_id(&minter, 1, bucket_code).unwrap()),
+                fixture_text(children, "bucket_1_account_id"),
+                "{label}"
+            );
+            assert_eq!(
+                hex(&wallet_account_id(0, &[0xab; 32], &minter, wallet_code).unwrap()),
+                fixture_text(children, "wallet_account_id"),
+                "{label}"
+            );
+        }
+    }
+
+    #[test]
+    fn storage_fees_follow_the_tvm_formula() {
+        // (bits · 1 + cells · 500) · seconds / 2^16, rounded up
+        assert_eq!(ton_storage_fee(65_536, 1, 0, 1, 500), 1);
+        assert_eq!(ton_storage_fee(1, 1, 0, 1, 500), 1);
+        assert_eq!(ton_storage_fee(0, 1, 1, 1, 500), 0);
+        assert_eq!(ton_storage_fee(65_536, 2, 3, 1, 500), 1_502);
+        // MINTER_FLOOR at mainnet prices: 204 500 units per 2^16 s over 100 years
+        assert_eq!(
+            ton_minter_floor_at_mainnet_prices(),
+            (204_500_u128 * 3_153_600_000).div_ceil(65_536)
+        );
+        assert_eq!(ton_minter_floor_at_mainnet_prices(), 9_840_563_965);
+    }
+
+    /// The value of `const <name> = <integer>` in a Tolk source.
+    fn tolk_const(source: &str, name: &str) -> u64 {
+        let prefix = format!("const {name} = ");
+        source
+            .lines()
+            .find_map(|line| line.trim().strip_prefix(prefix.as_str()))
+            .unwrap_or_else(|| panic!("`{name}` is not declared"))
+            .trim()
+            .parse()
+            .unwrap_or_else(|_| panic!("`{name}` is not an integer literal"))
+    }
+
+    #[test]
+    fn rent_constants_match_the_tolk_fee_module() {
+        // `ton_minter_floor_at_mainnet_prices` funds a deployment before the minter's own
+        // `minter_floor()` exists, so its inputs must be the contract's.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../contracts/ton/sccp/contracts/sccp-fees.tolk");
+        let source = std::fs::read_to_string(path).expect("sccp-fees.tolk");
+        assert_eq!(
+            tolk_const(&source, "SCCP_MINTER_STATE_BITS"),
+            TON_MINTER_STATE_BITS
+        );
+        assert_eq!(
+            tolk_const(&source, "SCCP_MINTER_STATE_CELLS"),
+            TON_MINTER_STATE_CELLS
+        );
+        assert_eq!(tolk_const(&source, "SCCP_FLOOR_SECONDS"), TON_FLOOR_SECONDS);
     }
 
     #[test]

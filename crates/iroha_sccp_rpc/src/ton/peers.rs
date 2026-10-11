@@ -22,6 +22,7 @@ use iroha_config::parameters::{
 };
 
 use super::adnl::{key_id, server_x25519_key};
+use crate::endpoints::start_index;
 
 /// Why a liteserver list or entry was rejected.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -249,6 +250,15 @@ impl LiteServerSet {
         self.preferred.load(Ordering::Relaxed) % self.servers.len().max(1)
     }
 
+    /// The same list with queries starting at [`start_index`]`(seed, len)`
+    /// instead of the first liteserver, so callers with different seeds
+    /// spread over a shared list.
+    #[must_use]
+    pub fn with_seeded_start(self, seed: u64) -> Self {
+        self.set_preferred(start_index(seed, self.len()));
+        self
+    }
+
     /// Moves the preferred liteserver to the next one, for callers whose
     /// verification rejected the data of the current one.
     pub fn rotate_preferred(&self) {
@@ -336,5 +346,20 @@ mod tests {
         set.set_preferred(1);
         assert_eq!(set.clone().preferred(), 1);
         assert!(format!("{set:?}").contains("preferred"));
+    }
+
+    #[test]
+    fn seeded_lists_start_at_the_seeded_index() {
+        let defaults = LiteServerSet::compiled_defaults();
+        let len = defaults.len();
+        assert_eq!(defaults.preferred(), 0);
+        let starts: std::collections::BTreeSet<usize> = (0..64)
+            .map(|seed| {
+                let seeded = defaults.clone().with_seeded_start(seed);
+                assert_eq!(seeded.preferred(), start_index(seed, len));
+                seeded.preferred()
+            })
+            .collect();
+        assert!(starts.len() > 1, "seeds spread the start: {starts:?}");
     }
 }

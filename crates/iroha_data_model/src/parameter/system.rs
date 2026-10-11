@@ -17,6 +17,9 @@ use norito::json::{self, JsonDeserialize, JsonSerialize};
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
+
+mod npos_json;
+pub use npos_json::{AdmittedSumeragiNposParameters, SumeragiNposJsonAdmissionError};
 /// Maximum governed IVM heap size in bytes for ABI V1.
 ///
 /// The ABI V1 address map reserves the half-open range `0x0010_0000..0x0020_0000` for the heap.
@@ -228,6 +231,7 @@ impl From<ConsensusMode> for SumeragiConsensusMode {
 #[derive(
     Debug,
     Clone,
+    Copy,
     PartialEq,
     Eq,
     norito::derive::JsonSerialize,
@@ -246,11 +250,6 @@ pub struct ConsensusHandshakeMetadata {
     pub wire_protocol_version: u32,
     /// Canonical consensus fingerprint.
     pub consensus_fingerprint: ConsensusFingerprint,
-    /// Signed network-independent KAGEMUSHA mint-finality genesis authority.
-    ///
-    /// Core binds the final genesis-derived network identity to these
-    /// templates before constructing the first height context.
-    pub kagemusha_mint_finality: crate::isi::kagemusha_v1::KagemushaMintFinalityGenesisParametersV1,
     /// Signed inputs for the first Sumeragi height context.
     pub sumeragi_context: crate::block::consensus::SumeragiGenesisContextParameters,
 }
@@ -260,8 +259,7 @@ impl ConsensusHandshakeMetadata {
     /// # Errors
     ///
     /// Returns an error when the wire version is not the first-release version
-    /// or the signed Sumeragi context/KAGEMUSHA genesis authority is
-    /// invalid.
+    /// or the signed Sumeragi context is invalid.
     pub fn validate(&self) -> Result<(), String> {
         let expected_version = u32::from(crate::sumeragi::PROTOCOL_VERSION);
         if self.wire_protocol_version != expected_version {
@@ -270,9 +268,6 @@ impl ConsensusHandshakeMetadata {
             );
         }
         self.sumeragi_context
-            .validate()
-            .map_err(|error| error.to_string())?;
-        self.kagemusha_mint_finality
             .validate()
             .map_err(|error| error.to_string())?;
         Ok(())
@@ -521,6 +516,14 @@ mod model {
     impl SumeragiNposParameters {
         /// Identifier used for the custom parameter storing `NPoS` tunables.
         pub const PARAMETER_ID_STR: &'static str = "sumeragi_npos_parameters";
+        /// Exact UUID of the rejected `xor#nexus.universal` fixture.
+        ///
+        /// Validation compares these canonical bytes without constructing temporary
+        /// domain, name or formatted seed allocations inside an admitted decode.
+        pub(crate) const REJECTED_SYNTHETIC_XOR_ASSET_BYTES: [u8; 16] = [
+            0x5e, 0xcd, 0x1e, 0x80, 0xac, 0x7d, 0x4d, 0x18, 0xb2, 0x27, 0x72, 0x09, 0x1a, 0x73,
+            0xfc, 0x13,
+        ];
         /// Construct the [`CustomParameterId`] associated with this payload.
         #[must_use]
         pub fn parameter_id() -> CustomParameterId {
@@ -617,14 +620,17 @@ mod model {
         /// Returns a stable diagnostic when a seed, bond,
         /// or reconfiguration bound is invalid.
         pub fn validate(&self) -> Result<(), &'static str> {
-            let synthetic_stake = crate::asset::AssetDefinitionId::derive_from_components(
+            // DM17 restores only fixed synthetic-identity reconstruction.
+            #[cfg(not(all(test, sumeragi_model_mutation = "DM17")))]
+            let synthetic_bytes = Self::REJECTED_SYNTHETIC_XOR_ASSET_BYTES;
+            #[cfg(all(test, sumeragi_model_mutation = "DM17"))]
+            let synthetic_bytes = crate::asset::AssetDefinitionId::derive_from_components(
                 iroha_model_base::domain::DomainId::parse_fully_qualified("nexus.universal")
-                    .expect("fixed rejected synthetic staking domain"),
-                "xor"
-                    .parse()
-                    .expect("fixed rejected synthetic staking name"),
-            );
-            if self.xor_asset_definition_id == synthetic_stake {
+                    .expect("fixed synthetic domain"),
+                "xor".parse().expect("fixed synthetic asset name"),
+            )
+            .aid_bytes();
+            if self.xor_asset_definition_id.aid_bytes() == synthetic_bytes {
                 return Err(
                     "NPoS must use the network's canonical XOR asset, not synthetic nexus.universal/xor",
                 );
@@ -960,8 +966,7 @@ impl core::fmt::Display for Parameter {
     }
 }
 
-#[derive(norito::derive::JsonSerialize, norito::derive::JsonDeserialize)]
-#[norito(deny_unknown_fields)]
+#[derive(norito::derive::JsonSerialize)]
 struct SumeragiNposParametersJson {
     xor_asset_definition_id: crate::asset::AssetDefinitionId,
     epoch_seed: [u8; 32],
@@ -977,23 +982,6 @@ struct SumeragiNposParametersJson {
 
 impl From<SumeragiNposParameters> for SumeragiNposParametersJson {
     fn from(value: SumeragiNposParameters) -> Self {
-        Self {
-            xor_asset_definition_id: value.xor_asset_definition_id,
-            epoch_seed: value.epoch_seed,
-            max_validators: value.max_validators,
-            min_self_bond: value.min_self_bond,
-            min_nomination_bond: value.min_nomination_bond,
-            finality_margin_blocks: value.finality_margin_blocks,
-            evidence_horizon_blocks: value.evidence_horizon_blocks,
-            activation_lag_blocks: value.activation_lag_blocks,
-            slashing_delay_blocks: value.slashing_delay_blocks,
-            epoch_length_blocks: value.epoch_length_blocks,
-        }
-    }
-}
-
-impl From<SumeragiNposParametersJson> for SumeragiNposParameters {
-    fn from(value: SumeragiNposParametersJson) -> Self {
         Self {
             xor_asset_definition_id: value.xor_asset_definition_id,
             epoch_seed: value.epoch_seed,
@@ -1076,13 +1064,8 @@ impl JsonSerialize for SumeragiNposParameters {
 
 impl JsonDeserialize for SumeragiNposParameters {
     fn json_deserialize(parser: &mut json::Parser<'_>) -> Result<Self, json::Error> {
-        let value = Self::from(SumeragiNposParametersJson::json_deserialize(parser)?);
-        value
-            .validate()
-            .map_err(|message| json::Error::InvalidField {
-                field: "SumeragiNposParameters".to_owned(),
-                message: message.to_owned(),
-            })?;
+        let value = npos_json::decode_ordinary(parser)?;
+        npos_json::validate_outer(&value)?;
         Ok(value)
     }
 }
@@ -1237,6 +1220,21 @@ impl JsonDeserialize for SumeragiConsensusMode {
 }
 // (Codecs are provided by derives and candidate decoders. Tests use wrappers where needed.)
 impl SumeragiParameters {
+    /// Maximum canonical block size in bytes.
+    #[must_use]
+    pub fn max_block_bytes(&self) -> NonZeroU32 {
+        self.max_block_bytes
+    }
+    /// Execution time budget in milliseconds.
+    #[must_use]
+    pub fn exec_budget_ms(&self) -> NonZeroU64 {
+        self.exec_budget_ms
+    }
+    /// Apply time budget in milliseconds.
+    #[must_use]
+    pub fn apply_budget_ms(&self) -> NonZeroU64 {
+        self.apply_budget_ms
+    }
     /// Signed, immutable block cadence in milliseconds.
     #[must_use]
     pub fn block_cadence_ms(&self) -> NonZeroU64 {
@@ -3220,7 +3218,12 @@ mod tests {
             SumeragiNposParameters::from_custom_parameter(&custom)
         })
         .unwrap_err();
-        assert!(matches!(error, norito::json::Error::DecodeResourceLimit));
+        assert!(matches!(
+            error,
+            norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { limit: 0, .. }
+            )
+        ));
         assert_eq!(custom.payload().get(), &original);
         assert_eq!(
             SumeragiNposParameters::from_custom_parameter(&custom).unwrap(),
@@ -3239,7 +3242,7 @@ mod tests {
             CustomParameter::new(SumeragiNposParameters::parameter_id(), Json::new(false));
         assert!(
             matches!(SumeragiNposParameters::from_custom_parameter(&malformed), Err(error)
-            if !matches!(error, norito::json::Error::DecodeResourceLimit | norito::json::Error::AllocationFailed))
+            if !error.is_decode_resource_limit())
         );
         let invalid = SumeragiNposParameters {
             max_validators: 5,
@@ -3249,6 +3252,51 @@ mod tests {
             SumeragiNposParameters::from_custom_parameter(&invalid.into_custom_parameter()),
             Err(norito::json::Error::InvalidField { .. })
         ));
+    }
+
+    #[test]
+    fn sumeragi_npos_synthetic_identity_is_exact_and_validation_never_allocates() {
+        use crate::{
+            amx_prepare_streaming_allocations::PhysicalObservation, asset::AssetDefinitionId,
+        };
+
+        let synthetic = AssetDefinitionId::derive_from_components(
+            iroha_model_base::domain::DomainId::parse_fully_qualified("nexus.universal").unwrap(),
+            "xor".parse().unwrap(),
+        );
+        assert_eq!(
+            AssetDefinitionId::from_uuid_bytes(
+                SumeragiNposParameters::REJECTED_SYNTHETIC_XOR_ASSET_BYTES,
+            )
+            .unwrap(),
+            synthetic
+        );
+        let valid = SumeragiNposParameters::default();
+        let zero_seed = SumeragiNposParameters {
+            epoch_seed: [0; 32],
+            ..valid.clone()
+        };
+        let synthetic_and_zero_seed = SumeragiNposParameters {
+            xor_asset_definition_id: synthetic,
+            ..zero_seed.clone()
+        };
+        for (parameters, expected) in [
+            (&valid, Ok(())),
+            (&zero_seed, Err("epoch_seed must not be all zero")),
+            (
+                &synthetic_and_zero_seed,
+                Err(
+                    "NPoS must use the network's canonical XOR asset, not synthetic nexus.universal/xor",
+                ),
+            ),
+        ] {
+            let observation = PhysicalObservation::start();
+            let result = parameters.validate();
+            let requests = observation.snapshot().requests();
+            drop(observation);
+            assert_eq!(requests, [0; 3]);
+            assert_eq!(result, expected);
+        }
     }
 
     #[test]
@@ -3465,8 +3513,6 @@ mod tests {
             block_cadence_ms: NonZeroU64::new(1_000).unwrap(),
             wire_protocol_version: u32::from(crate::sumeragi::PROTOCOL_VERSION),
             consensus_fingerprint: ConsensusFingerprint::new([0xab; 32]),
-            kagemusha_mint_finality:
-                crate::block::consensus::test_kagemusha_mint_finality_genesis_parameters(),
             sumeragi_context:
                 crate::block::consensus::SumeragiGenesisContextParameters::recommended(),
         }
@@ -3485,15 +3531,23 @@ mod tests {
     }
 
     #[test]
-    fn handshake_metadata_requires_kagemusha_genesis_authority() {
-        let mut value = norito::json::to_value(&handshake_metadata_fixture())
-            .expect("serialize handshake metadata");
-        value
+    fn handshake_metadata_requires_signed_sumeragi_context_and_rejects_retired_authority() {
+        let fixture = handshake_metadata_fixture();
+        let value = norito::json::to_value(&fixture).expect("serialize handshake metadata");
+        let mut missing = value.clone();
+        missing
             .as_object_mut()
             .expect("metadata object")
-            .remove("kagemusha_mint_finality");
-        norito::json::value::from_value::<ConsensusHandshakeMetadata>(value)
-            .expect_err("signed KAGEMUSHA genesis authority must be mandatory");
+            .remove("sumeragi_context");
+        norito::json::value::from_value::<ConsensusHandshakeMetadata>(missing)
+            .expect_err("signed Sumeragi context must be mandatory");
+        let mut retired = value;
+        retired.as_object_mut().expect("metadata object").insert(
+            "kagemusha_mint_finality".to_owned(),
+            Value::Object(std::collections::BTreeMap::default()),
+        );
+        norito::json::value::from_value::<ConsensusHandshakeMetadata>(retired)
+            .expect_err("the retired mint-finality authority is an unknown field");
     }
 
     #[test]
@@ -3501,7 +3555,7 @@ mod tests {
         let baseline = handshake_metadata_fixture();
         baseline.validate().expect("canonical metadata");
         for version in [0, 2, 3, 4, 5, 7, 8, 99] {
-            let mut bad_version = baseline.clone();
+            let mut bad_version = baseline;
             bad_version.wire_protocol_version = version;
             assert!(
                 bad_version.validate().is_err(),
@@ -3511,13 +3565,6 @@ mod tests {
         let mut bad_context = baseline;
         bad_context.sumeragi_context.da_layout.parity_shards = 0;
         assert!(bad_context.validate().is_err());
-
-        let mut bad_kagemusha = handshake_metadata_fixture();
-        bad_kagemusha
-            .kagemusha_mint_finality
-            .authority_generation
-            .generation = 1;
-        assert!(bad_kagemusha.validate().is_err());
     }
 
     #[test]

@@ -15,13 +15,19 @@
 //! or crossbeam library components.
 //! If you need accurate memory reclaim, use the Arc (`CowCell`) implementation.
 
+mod frozen;
+pub use frozen::{EbrCellFrozen, EbrCellFrozenRead};
+
 mod results;
 use results::CloneAdmissionResult;
 
 use crossbeam_epoch as epoch;
 use crossbeam_epoch::{Atomic, Guard, Owned, Shared};
 use std::alloc::Layout;
-use std::sync::atomic::Ordering::{AcqRel, Acquire};
+use std::sync::atomic::{
+    AtomicUsize,
+    Ordering::{AcqRel, Acquire},
+};
 
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
@@ -47,6 +53,8 @@ pub struct Untracked;
 #[repr(C)]
 struct Allocation<T, Charge> {
     value: T,
+    // Inline in the original admitted allocation, never a separately allocated wrapper.
+    frozen_owners: AtomicUsize,
     // Never release custody through automatic field drop: the enclosing Box has
     // not yet been deallocated then, and a payload destructor may unwind.
     charge: ManuallyDrop<Charge>,
@@ -87,6 +95,7 @@ impl<T, Charge> ReservedEbrCell<T, Charge> {
         };
         // SAFETY: only the charge becomes initialized. No T reference is formed.
         unsafe {
+            std::ptr::addr_of_mut!((*pointer.as_ptr()).frozen_owners).write(AtomicUsize::new(1));
             std::ptr::addr_of_mut!((*pointer.as_ptr()).charge).write(ManuallyDrop::new(charge));
         }
         Ok(Self { pointer })
@@ -264,6 +273,7 @@ impl<'a, T: Clone + Send + Sync + 'static, Charge: Send + Sync + 'static>
         };
         let allocation = Owned::new(Allocation {
             value: current.value.clone(),
+            frozen_owners: AtomicUsize::new(1),
             charge,
         });
         Ok((
@@ -804,6 +814,7 @@ where
             write: initialized_writer_mutex(),
             active: Atomic::new(Allocation {
                 value: data,
+                frozen_owners: AtomicUsize::new(1),
                 charge: ManuallyDrop::new(charge),
             }),
         }
@@ -887,12 +898,8 @@ where
     /// epoch guard protects both pointers from reclamation during comparison.
     /// The caller must retain its joint publication boundary across comparisons
     /// when more than one cell belongs to a single logical observation.
-    /// Zero-sized backing has no unique allocation address and always returns
-    /// false; a dangling pointer must never authenticate a foreign generation.
+    /// Even an empty payload has a unique allocated ownership header.
     pub fn matches_read(&self, read: &EbrCellReadTxn<T>) -> bool {
-        if Self::allocation_layout().size() == 0 {
-            return false;
-        }
         let active = self.active.load(Acquire, &read._guard);
         // SAFETY: a live cell always has an initialized allocation, protected
         // by the exact guard already retained in read. No reference escapes.

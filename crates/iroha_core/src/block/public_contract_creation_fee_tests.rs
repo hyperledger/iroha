@@ -11,7 +11,7 @@ mod public_contract_creation_fees {
             .expect("fee status lock");
         let (artifact, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
-                "seiyaku PublicQuote { view fn quote(int count) -> int { return count * 10; } }",
+                "seiyaku PublicQuote { view fn quote(int count) authorize(anyone) -> int { return count * 10; } }",
             )
             .expect("valid immutable artifact");
         let code_hash = manifest.code_hash.expect("artifact hash");

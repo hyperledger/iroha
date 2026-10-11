@@ -204,7 +204,7 @@ public sealed class ToriiIdentifierReceiptTests
     [InlineData("""{"attestation":{"kind":"Signed","signature":"ABCD"}}""", "attestation.kind", "signed or proof")]
     [InlineData("""{"attestation":{"kind":"signed","signature":"0XABCD"}}""", "attestation.signature", "exact hex string")]
     [InlineData("""{"attestation":{"kind":"signed","proof_b64":"AQID"}}""", "attestation signed attestations", "proof fields")]
-    [InlineData("""{"attestation":{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":"@@@"}}""", "attestation.proof_b64", "valid base64")]
+    [InlineData("""{"attestation":{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":"@@@"}}""", "attestation.proof_b64", "valid base64")]
     [InlineData("""{"attestation":{"kind":"proof","proof_b64":"AQID"}}""", "attestation.proof_backend", "required")]
     public void IdentifierResolveResponseRejectsMalformedNestedEnvelopePatch(
         string patchJson,
@@ -349,7 +349,7 @@ public sealed class ToriiIdentifierReceiptTests
     public void IdentifierResolveResponseDeserializesNestedProofReceiptEnvelope()
     {
         var receipt = JsonSerializer.Deserialize<ToriiIdentifierResolveResponse>(
-            NestedIdentifierResolveResponse("""{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":"AQID"}"""));
+            NestedIdentifierResolveResponse("""{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":"AQID"}"""));
 
         Assert.NotNull(receipt);
         Assert.Equal("phone#retail", receipt.PolicyId);
@@ -369,14 +369,14 @@ public sealed class ToriiIdentifierReceiptTests
     [InlineData("""{"kind":"signed","signature":"ABCG"}""", "attestation.signature", "exact hex string")]
     [InlineData("""{"kind":"signed","signature":"0XABCD"}""", "attestation.signature", "exact hex string")]
     [InlineData("""{"kind":"proof","proof_b64":"AQID"}""", "attestation.proof_backend", "required")]
-    [InlineData("""{"kind":"proof","proof_backend":"halo2/ipa"}""", "attestation.proof_b64", "required")]
-    [InlineData("""{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":"AQID","signature":"ABCD"}""", "proof attestations", "signature")]
-    [InlineData("""{"kind":"proof","proof_backend":"halo2 /ipa","proof_b64":"AQID"}""", "attestation.proof_backend", "whitespace")]
-    [InlineData("""{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":"@@@"}""", "attestation.proof_b64", "valid base64")]
-    [InlineData("""{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":"AR=="}""", "attestation.proof_b64", "canonical base64")]
-    [InlineData("""{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":" AQID"}""", "attestation.proof_b64", "whitespace")]
-    [InlineData("""{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":"AQ ID"}""", "attestation.proof_b64", "whitespace")]
-    [InlineData("""{"kind":"proof","proof_backend":"halo2/ipa","proof_b64":""}""", "attestation.proof_b64", "empty")]
+    [InlineData("""{"kind":"proof","proof_backend":"pipa-r/pasta"}""", "attestation.proof_b64", "required")]
+    [InlineData("""{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":"AQID","signature":"ABCD"}""", "proof attestations", "signature")]
+    [InlineData("""{"kind":"proof","proof_backend":"pipa-r /pasta","proof_b64":"AQID"}""", "attestation.proof_backend", "whitespace")]
+    [InlineData("""{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":"@@@"}""", "attestation.proof_b64", "valid base64")]
+    [InlineData("""{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":"AR=="}""", "attestation.proof_b64", "canonical base64")]
+    [InlineData("""{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":" AQID"}""", "attestation.proof_b64", "whitespace")]
+    [InlineData("""{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":"AQ ID"}""", "attestation.proof_b64", "whitespace")]
+    [InlineData("""{"kind":"proof","proof_backend":"pipa-r/pasta","proof_b64":""}""", "attestation.proof_b64", "empty")]
     public void IdentifierResolveResponseRejectsMalformedNestedAttestation(
         string attestationJson,
         string expectedField,

@@ -1,4 +1,4 @@
-seiyaku PrivateOrderedArguments {
+seiyaku PrivateOrderedArguments { permission WriteState;
     state int trace;
     hajimari() {
         trace = 0;
@@ -13,7 +13,7 @@ seiyaku PrivateOrderedArguments {
         return left * 10 + right;
     }
 
-    kotoage fn main() -> (int, int) authorize("WriteState") {
+    kotoage fn main() authorize(WriteState) -> (int, int) {
         let result = combine(next(), next());
         return (result, trace);
     }

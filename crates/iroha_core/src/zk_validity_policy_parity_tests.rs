@@ -62,9 +62,9 @@ fn next_block_gas(state: &State) -> iroha_config::parameters::actual::Confidenti
 /// values a node must not decide, and local resources it may.
 fn divergent_node_zk() -> Zk {
     let mut node = default_zk_config();
-    node.halo2.enabled = false;
-    node.halo2.max_k = 5;
-    node.halo2.max_proof_bytes = 17;
+    node.pipa_r.enabled = false;
+    node.max_verify_batch = 5;
+    node.pipa_r.max_proof_bytes = 17;
     node.stark.enabled = false;
     node.stark.max_proof_bytes = 19;
     node.sccp.max_proofs_per_block = core::num::NonZeroU32::new(1).expect("nonzero");
@@ -85,14 +85,14 @@ fn divergent_node_zk() -> Zk {
     node.gas.proof_base = 1;
     node.gas.per_proof_byte = 1_000;
     node.kaigi_authorization_vk = Some(iroha_config::parameters::actual::VerifyingKeyRef {
-        backend: "halo2/ipa".to_owned(),
+        backend: "pipa-r/pasta".to_owned(),
         name: "node-local-kaigi".to_owned(),
     });
     // Local resources: scarce on purpose.
-    node.halo2.verifier_worker_threads = 1;
-    node.halo2.verifier_queue_cap = 1;
-    node.halo2.verifier_budget_ms = 1;
-    node.halo2.verifier_enqueue_wait_ms = 1;
+    node.trace.worker_threads = 1;
+    node.trace.queue_cap = 1;
+    node.ipa_commitment.max_k = 1;
+    node.trace.enqueue_wait_ms = 1;
     node.verify_timeout = core::time::Duration::from_nanos(1);
     node
 }
@@ -195,8 +195,8 @@ fn node_local_zk_configuration_cannot_change_roots_effects_or_gas() {
         compute_zk_consensus_policy_hash(&divergent_zk)
     );
     assert!(node_validity_overrides(&divergent_zk).is_empty());
-    assert_eq!(divergent_zk.halo2.verifier_worker_threads, 1);
-    assert_eq!(divergent_zk.halo2.verifier_queue_cap, 1);
+    assert_eq!(divergent_zk.trace.worker_threads, 1);
+    assert_eq!(divergent_zk.trace.queue_cap, 1);
     assert_eq!(
         divergent_zk.verify_timeout,
         core::time::Duration::from_nanos(1)

@@ -155,7 +155,7 @@ remove_compose_dev_root() {
 }
 
 # `kagami docker --seed` reads a complete `genesis.json` from `--config-dir`. Complete manifests
-# carry operator-provisioned KAGEMUSHA mint-finality authority and are never checked in, so the
+# carry the exact signed consensus context and are never checked in, so the
 # snapshots render against a disposable localnet bundle derived from the same development seed.
 # The manifest only selects the consensus mode: the Compose bytes depend on the seed, peer count,
 # image, build context and output path, never on this temporary directory.

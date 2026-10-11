@@ -1,13 +1,28 @@
-// Quote 10 reward points per coffee; negative counts quote zero.
-seiyaku CoffeeClub {
-    fn points(int coffees) -> int {
-        if coffees < 0 {
-            return 0;
-        }
-        return coffees * 10;
+// A counter that callers holding its entrypoint permission raise.
+// seiyaku/誓約, kotoage/言挙げ and hajimari/始まり are the same keywords in either
+// spelling, and both spellings may be mixed in one file.
+seiyaku Scaffold {
+    permission Increment;
+    error enum ScaffoldError {
+        ZeroStep = 1,
     }
 
-    view fn quote(int coffees) -> int {
-        return points(coffees: coffees);
+    state int count;
+    // hajimari runs once to activate a deployed instance; until it runs, every
+    // other call and view is rejected.
+    hajimari() {
+        count = 0;
+    }
+
+    // A kotoage changes durable state and always states who may invoke it.
+    // The instance owner grants Increment before the caller invokes this entrypoint.
+    kotoage fn increment(int step) authorize(Increment) {
+        require(step > 0, ScaffoldError::ZeroStep);
+        count = count + step;
+    }
+
+    // Views are read-only and public.
+    view fn current() authorize(anyone) -> int {
+        return count;
     }
 }

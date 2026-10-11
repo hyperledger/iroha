@@ -1,7 +1,7 @@
 
 seiyaku CompilerFixture {
 
-view fn read_input() -> bytes {
+view fn read_input() authorize(anyone) -> bytes {
   return context::public_input(name: Name::parse("proof_payload"));
 }
 

@@ -58,7 +58,10 @@ impl RestorationRead {
             frame
                 .append(record.evidence.native_frame())
                 .map_err(|_| EvidencePreparationError::Invariant)?;
-            let native = super::witness_custody::decode(&record.evidence, budget)?;
+            let native = record
+                .evidence
+                .decode_native()
+                .map_err(EvidenceAdmissionError::from)?;
             let height = super::super::evidence_history::subject(&native).1;
             lanes
                 .try_push(RestoredLane {
@@ -162,7 +165,6 @@ pub(super) fn validate(state: &State) -> Result<(), EvidenceAdmissionError> {
     }
     let result = super::validate_persisted_records_inner(
         &view,
-        state.evidence_preparation_budget(),
         cache
             .restore
             .as_ref()

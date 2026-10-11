@@ -1,9 +1,10 @@
 //! Stake-backed public-lane validator admission, custody, and rewards.
 use super::*;
+#[cfg(test)]
+use crate::asset::AssetId;
 use crate::{
     account::AccountId,
-    asset::AssetId,
-    nexus::{PublicLaneMonetaryPlanV1, PublicLaneRewardClaimPlanV1, PublicLaneRewardShare},
+    nexus::{PublicLaneMonetaryPlanV1, PublicLaneRewardClaimPlanV1},
 };
 use iroha_crypto::{Hash, SignatureOf};
 use iroha_model_base::metadata::Metadata;
@@ -57,7 +58,8 @@ isi! {
         pub stake_account: AccountId,
         /// Amount of stake bonded during registration.
         pub initial_stake: Quantity,
-        /// Metadata documenting commission, jurisdiction flags, telemetry ids, etc.
+        /// Descriptive metadata such as jurisdiction flags and telemetry ids.
+        /// Commission is zero; metadata cannot change reward allocation.
         pub metadata: Metadata,
         /// Signed exact transfer, custody effect, and current-state precondition.
         pub monetary_plan: PublicLaneMonetaryPlanV1,
@@ -280,8 +282,7 @@ mod tests {
         asset::AssetDefinitionId,
         nexus::{
             PublicLaneMonetaryPreconditionV1, PublicLaneMonetaryRegistrationV1,
-            PublicLaneMonetaryScopeV1, PublicLaneRewardClaimSourceV1, PublicLaneRewardClaimStateV1,
-            PublicLaneRewardRecordRefV1,
+            PublicLaneMonetaryScopeV1,
         },
         prelude::{AccountId, Algorithm, KeyPair},
     };
@@ -508,40 +509,18 @@ mod tests {
     fn reward_claim_fixture() -> ClaimPublicLaneRewards {
         let (_, network) = candidate_fixture();
         let transfer = registration_plan(network, Quantity::from(10_u64), 13);
-        let state = PublicLaneRewardClaimStateV1 {
-            through_epoch: Some(11),
-        };
-        let record = PublicLaneRewardRecordRefV1 {
-            epoch: 12,
-            record_hash: Hash::new(b"immutable reward fixture"),
-        };
-        let source = PublicLaneRewardClaimSourceV1 {
-            source_asset: AssetId::new(
-                crate::parameter::system::SumeragiNposParameters::default().xor_asset_definition_id,
-                transfer.destination_asset.account().clone(),
-            ),
-            destination_asset: AssetId::new(
-                crate::parameter::system::SumeragiNposParameters::default().xor_asset_definition_id,
-                transfer.source_asset.account().clone(),
-            ),
-            expected_accrued: Some(Quantity::from(2_u64)),
-            payout: Quantity::from(12_u64),
-        };
         let plan = PublicLaneRewardClaimPlanV1 {
             network_scope: transfer.network_scope,
             valid_until_height: 13,
-            expected_state: Some(state),
-            records: vec![record],
-            sources: vec![source.clone()],
-            fee_claim: Some(crate::nexus::PublicLaneFeeRewardClaimV1 {
+            fee_claim: crate::nexus::PublicLaneFeeRewardClaimV1 {
                 lifecycle_seal: [0x81; 32],
                 beneficiary_id: sample_account(),
                 beneficiary_revision: 3,
-                source_asset: source.source_asset.clone(),
-                destination_asset: source.destination_asset.clone(),
+                source_asset: transfer.destination_asset.clone(),
+                destination_asset: transfer.source_asset.clone(),
                 amount: Quantity::from(7_u64),
                 expected_claim_sequence: 17,
-            }),
+            },
         };
         assert!(plan.has_canonical_shape(&sample_account()));
         ClaimPublicLaneRewards {
@@ -562,10 +541,7 @@ mod tests {
     #[test]
     fn reward_claim_records_require_closed_complete_json_and_roundtrip() {
         let instruction = reward_claim_fixture();
-        assert_closed_claim_json(&instruction.claim_plan.expected_state.unwrap());
-        assert_closed_claim_json(&instruction.claim_plan.records[0]);
-        assert_closed_claim_json(&instruction.claim_plan.sources[0]);
-        assert_closed_claim_json(instruction.claim_plan.fee_claim.as_ref().unwrap());
+        assert_closed_claim_json(&instruction.claim_plan.fee_claim);
         assert_closed_claim_json(&instruction.claim_plan);
         let boxed = crate::isi::InstructionBox::from(instruction.clone());
         let bytes = norito::encode_canonical(&boxed).expect("canonical claim instruction frame");
@@ -576,31 +552,20 @@ mod tests {
         let decoded: ClaimPublicLaneRewards = norito::json::from_str(&json).expect("claim decode");
         assert_eq!(decoded, instruction);
 
-        let mut no_prior_state = instruction.claim_plan;
-        no_prior_state.expected_state = None;
-        no_prior_state.sources[0].expected_accrued = None;
-        no_prior_state.fee_claim = None;
-        let value = norito::json::to_value(&no_prior_state).expect("explicit absence JSON");
-        assert_eq!(
-            value.get("expected_state"),
-            Some(&norito::json::Value::Null)
-        );
-        assert_eq!(value.get("fee_claim"), Some(&norito::json::Value::Null));
-        assert_eq!(
-            norito::json::from_value::<PublicLaneRewardClaimPlanV1>(value)
-                .expect("explicit absence"),
-            no_prior_state
-        );
-        assert_closed_claim_json(&no_prior_state);
-        assert_closed_claim_json(&PublicLaneRewardClaimStateV1 {
-            through_epoch: None,
-        });
-        assert_closed_claim_json(&no_prior_state.sources[0]);
+        let mut value = norito::json::to_value(&instruction.claim_plan).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .insert("fee_claim".into(), norito::json::Value::Null);
+        assert!(norito::json::from_value::<PublicLaneRewardClaimPlanV1>(value).is_err());
     }
     #[test]
     fn fee_reward_claim_shape_requires_exact_global_positive_recipient_payment() {
         let instruction = reward_claim_fixture();
-        let fee = instruction.claim_plan.fee_claim.unwrap();
+        let mut expired = instruction.claim_plan.clone();
+        expired.valid_until_height = 0;
+        assert!(!expired.has_canonical_shape(&instruction.account));
+        let fee = instruction.claim_plan.fee_claim;
         assert!(fee.has_canonical_shape(&instruction.account));
         for change in 0..5 {
             let mut invalid = fee.clone();
@@ -726,26 +691,7 @@ isi! {
     }
 }
 isi! {
-    /// Record a reward distribution for a public lane epoch.
-    #[derive(crate::DeriveJsonSerialize, crate::DeriveJsonDeserialize)]
-    #[norito_schema(name = "iroha_data_model::isi::staking::RecordPublicLaneRewards")]
-    pub struct RecordPublicLaneRewards {
-        /// Lane identifier.
-        pub lane_id: LaneId,
-        /// Epoch identifier generated by consensus.
-        pub epoch: u64,
-        /// Asset used for payouts.
-        pub reward_asset: AssetId,
-        /// Total reward minted or transferred into the pool.
-        pub total_reward: Quantity,
-        /// Individual reward shares per validator/delegator.
-        pub shares: Vec<PublicLaneRewardShare>,
-        /// Optional metadata for audit reports (tx hashes, ceremony notes).
-        pub metadata: Metadata,
-    }
-}
-isi! {
-    /// Process a bounded signed reward prefix and pay exact accrued entitlements.
+    /// Withdraw one signed exact funded automatic reward entitlement.
     #[derive(crate::DeriveJsonSerialize, crate::DeriveJsonDeserialize)]
     #[norito_schema(name = "iroha_data_model::isi::staking::ClaimPublicLaneRewards")]
     pub struct ClaimPublicLaneRewards {
@@ -753,7 +699,7 @@ isi! {
         pub lane_id: LaneId,
         /// Account receiving the rewards.
         pub account: AccountId,
-        /// Exact bounded reward records, retained accruals, and payments authorized by the recipient.
+        /// Exact funded reward payment authorized by the recipient.
         pub claim_plan: PublicLaneRewardClaimPlanV1,
     }
 }
@@ -765,7 +711,6 @@ impl crate::seal::Instruction for BondPublicLaneStake {}
 impl crate::seal::Instruction for SchedulePublicLaneUnbond {}
 impl crate::seal::Instruction for FinalizePublicLaneUnbond {}
 impl crate::seal::Instruction for SlashPublicLaneValidator {}
-impl crate::seal::Instruction for RecordPublicLaneRewards {}
 impl crate::seal::Instruction for ClaimPublicLaneRewards {}
 fn staking_decode_flags() -> u8 {
     norito::core::effective_decode_flags().unwrap_or_else(norito::core::default_encode_flags)

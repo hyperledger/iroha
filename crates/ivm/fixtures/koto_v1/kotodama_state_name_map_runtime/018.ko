@@ -1,17 +1,11 @@
 
-        seiyaku C {
+        seiyaku C { permission WriteState;
             struct Entry { int amount, bool active }
             state StateMap<Name, Entry> Entries;
 
-            kotoage fn main() -> bool authorize("WriteState") {
-                let first = Entries.ensure(
-                    key: Name::parse("alice"),
-                    default: Entry { amount: 41, active: true },
-                );
-                let second = Entries.ensure(
-                    key: Name::parse("alice"),
-                    default: Entry { amount: 99, active: false },
-                );
+            kotoage fn main() authorize(WriteState) -> bool {
+                let first = Entries.get_or_insert(Name::parse("alice"), Entry { amount: 41, active: true });
+                let second = Entries.get_or_insert(Name::parse("alice"), Entry { amount: 99, active: false });
                 return first.amount == 41
                     && first.active
                     && second.amount == 41

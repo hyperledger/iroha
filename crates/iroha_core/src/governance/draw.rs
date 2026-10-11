@@ -476,6 +476,14 @@ fn ranked_body_candidates(
     candidates: &[AccountId],
     body: ParliamentBody,
 ) -> Vec<AccountId> {
+    // The seed binds the network, the pulse (height and output) and the body role only.
+    // Requests of different governance attempts that share a pulse, candidate snapshot, body
+    // set and sizing configuration therefore receive identical rankings, and slot alignment
+    // makes every request of one epoch window share one pulse.
+    // TODO: open selection-policy decision (owner decision pending): binding
+    // `governance_attempt_id` into this seed would remove the correlated capture across the
+    // proposals of one epoch window, at the price of a proposal-multiplicity grinding
+    // channel (submit many proposals, keep the favourable draw). Unchanged until decided.
     let seed = sortition::compute_seed(network_id, epoch, beacon, body_seed_domain(body));
     let mut scored: Vec<([u8; 32], AccountId)> = Vec::new();
     for account_id in candidates {
@@ -561,6 +569,62 @@ mod tests {
         }
         assert_eq!(loads.values().copied().max(), Some(plan.assignment_cap));
         assert_eq!(loads.values().copied().min(), Some(plan.assignment_cap));
+    }
+
+    #[test]
+    fn requests_sharing_pulse_snapshot_bodies_and_sizing_receive_identical_draws() {
+        // The draw takes no governance-attempt input, so nothing at this level can tell two
+        // attempts apart: the cross-attempt equality (two distinct attempt ids consuming one
+        // pulse) is asserted where attempts exist, in
+        // `governance::parliament::tests::attempts_consuming_the_same_pulse_over_the_same_snapshot_receive_identical_rosters`.
+        // This test pins the inputs the draw does depend on: the plan is drawn from exactly
+        // the candidate snapshot, and another pulse output or pulse height changes both the
+        // per-body rankings and the plan.
+        // See the TODO at the seed derivation for the open selection-policy decision.
+        let network_id = network_id(b"correlated-draw-demo");
+        let accounts: Vec<_> = (1..=12).map(mk_account).collect();
+        let cfg = Governance {
+            rules_committee_size: 3,
+            policy_jury_size: 3,
+            parliament_alternate_size: 2,
+            ..Governance::default()
+        };
+        let bodies = [ParliamentBody::RulesCommittee, ParliamentBody::PolicyJury];
+        let pulse = [0xC3; 32];
+        let first_attempt =
+            derive_attempt_body_plan_v1(&cfg, &network_id, 29, &pulse, &accounts, &bodies);
+        let snapshot: BTreeSet<_> = accounts.iter().cloned().collect();
+        for body in bodies {
+            let ranking = ranked_body_candidates(&network_id, 29, &pulse, &accounts, body);
+            assert_eq!(ranking.len(), accounts.len());
+            assert_eq!(ranking.iter().cloned().collect::<BTreeSet<_>>(), snapshot);
+            let roster = first_attempt.rosters.get(&body).expect("planned body");
+            assert_eq!(roster.members.len(), 3);
+            assert!(
+                roster
+                    .members
+                    .iter()
+                    .all(|member| snapshot.contains(member))
+            );
+        }
+
+        let other_output =
+            derive_attempt_body_plan_v1(&cfg, &network_id, 29, &[0xC4; 32], &accounts, &bodies);
+        let other_height =
+            derive_attempt_body_plan_v1(&cfg, &network_id, 32, &pulse, &accounts, &bodies);
+        assert_ne!(first_attempt, other_output);
+        assert_ne!(first_attempt, other_height);
+        for body in bodies {
+            let ranking = ranked_body_candidates(&network_id, 29, &pulse, &accounts, body);
+            assert_ne!(
+                ranking,
+                ranked_body_candidates(&network_id, 29, &[0xC4; 32], &accounts, body)
+            );
+            assert_ne!(
+                ranking,
+                ranked_body_candidates(&network_id, 32, &pulse, &accounts, body)
+            );
+        }
     }
 
     #[test]

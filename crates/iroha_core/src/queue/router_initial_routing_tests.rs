@@ -1,3 +1,8 @@
+/// Canonical storage and autoscale routing controls colocated with their original private owner.
+mod multilane_storage_and_routing_tests {
+    include!("router_multilane_storage_and_routing_tests.rs");
+}
+
 #[test]
 fn asset_definition_alias_dataspace_permission_grant_routes_by_scope() {
     let (submitter_id, submitter_keypair) = gen_account_in("wonderland");
@@ -210,8 +215,10 @@ fn default_route_elastic_candidates_require_autoscale_metadata() {
     false_managed
         .metadata
         .insert(AUTOSCALE_META_MANAGED.to_string(), "TRUE".to_string());
+    // A restricted corruption candidate needs its own nonuniversal disclosure scope.
+    let restricted_dataspace = DataSpaceId::new(10);
     let mut restricted_lane =
-        autoscale_elastic_lane_config(LaneId::new(8), DataSpaceId::UNIVERSAL, 7);
+        autoscale_elastic_lane_config(LaneId::new(8), restricted_dataspace, 7);
     restricted_lane.visibility = LaneVisibility::Restricted;
     let valid_lane_catalog = lane_catalog_from_configs(vec![default_lane_config(), valid]);
     assert_eq!(
@@ -282,6 +289,42 @@ fn default_route_elastic_candidates_require_autoscale_metadata() {
         ),
         vec![LaneId::SINGLE],
         "corrupted lanes inside the active elastic range must fail closed to the base default lane"
+    );
+    // Isolate visibility from the wrong-dataspace guard: both descriptors inhabit
+    // one valid restricted dataspace, but otherwise-valid elastic metadata must
+    // still never make its restricted candidate selectable by autoscale routing.
+    let restricted_policy = LaneRoutingPolicy {
+        default_dataspace: restricted_dataspace,
+        ..policy.clone()
+    };
+    let mut restricted_candidate =
+        autoscale_elastic_lane_config(LaneId::new(1), restricted_dataspace, 7);
+    restricted_candidate.visibility = LaneVisibility::Restricted;
+    let restricted_catalog = lane_catalog_from_configs(vec![
+        LaneConfig {
+            dataspace_id: restricted_dataspace,
+            visibility: LaneVisibility::Restricted,
+            ..default_lane_config()
+        },
+        restricted_candidate,
+    ]);
+    assert_eq!(
+        default_route_elastic_candidates(&restricted_policy, &restricted_catalog, None),
+        vec![LaneId::SINGLE]
+    );
+    assert_eq!(
+        default_route_elastic_candidates(
+            &restricted_policy,
+            &restricted_catalog,
+            Some(AutoscaleElasticRange {
+                min_lane_id: 1,
+                max_lane_id_exclusive: 2,
+                current_height: Some(7),
+                required_active_height: Some(7),
+            }),
+        ),
+        vec![LaneId::SINGLE],
+        "restricted elastic candidates with matching dataspace and valid metadata must fail closed"
     );
     let mismatched_default_catalog = lane_catalog_from_configs(vec![
         LaneConfig {

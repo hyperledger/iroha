@@ -15,11 +15,13 @@ use iroha_data_model::{
         AssetBalancePolicy, AssetBalanceScope, AssetDefinition, AssetDefinitionId, AssetId,
         AssetValue,
     },
+    identifier::{IdentifierPolicy, IdentifierPolicyId},
     nexus::{
         FeeSponsorBudgetCounterKey, FeeSponsorEnrollment, FeeSponsorEnrollmentKey,
         FeeSponsorProgram, FeeSponsorProgramId, FeeSponsorProgramRevision,
         FeeSponsorProgramRevisionKey, FeeSponsorVault, FeeSponsorVaultKey,
     },
+    ram_lfe::RamLfeProgramPolicy,
     sumeragi_finality::{
         MAX_WORLD_STATE_SNAPSHOT_ENTRIES_V1, SumeragiFinalityAttestation, WorldStateSnapshotV1,
     },
@@ -61,7 +63,7 @@ pub struct NativeAuthorityOriginalsRequestV1 {
     pub network_id: NetworkId,
     /// Caller fresh nonzero entropy, included in the signed original body.
     pub challenge: [u8; 32],
-    /// Only the canonical alias or exact native sponsor/fee definition may be selected.
+    /// Only a fixed canonical native authority family may be selected.
     pub selector: NativeAuthorityOriginalsSelectorV1,
 }
 
@@ -96,6 +98,8 @@ pub enum NativeAuthorityOriginalsSelectorV1 {
         /// Exact native definition for the derived Global funding bucket.
         fee_asset: AssetDefinitionId,
     },
+    /// Exact identifier policy and the RAM-LFE program named by that original.
+    IdentifierPolicy(IdentifierPolicyId),
 }
 
 /// One selected family; unrelated private values are never added to this carrier.
@@ -126,6 +130,8 @@ pub enum NativeAuthorityOriginalsFamilyV1 {
     AccountAlias(NativeAccountAliasStateV1),
     /// Complete six-table fee keys and selected originals.
     GlobalFeeProgram(NativeGlobalFeeProgramStateV1),
+    /// Actual policy and its referenced program from the same certified World cut.
+    IdentifierPolicy(NativeIdentifierPolicyStateV1),
 }
 
 fn refused(message: &str) -> norito::Error {
@@ -151,6 +157,20 @@ impl NativeAuthorityOriginalsRequestV1 {
                 if &parsed != program_id {
                     return Err(refused(
                         "authority originals program id changed canonical identity",
+                    ));
+                }
+                Ok(())
+            }
+            NativeAuthorityOriginalsSelectorV1::IdentifierPolicy(policy_id) => {
+                let parsed = policy_id
+                    .to_string()
+                    .parse::<IdentifierPolicyId>()
+                    .map_err(|_| {
+                        refused("authority originals identifier policy id is not canonical")
+                    })?;
+                if &parsed != policy_id {
+                    return Err(refused(
+                        "authority originals identifier policy identity changed",
                     ));
                 }
                 Ok(())
@@ -385,6 +405,20 @@ impl NativeAuthorityOriginalsV1 {
                     bounded_row(row)?;
                 }
             }
+            (
+                NativeAuthorityOriginalsSelectorV1::IdentifierPolicy(policy_id),
+                NativeAuthorityOriginalsFamilyV1::IdentifierPolicy(state),
+            ) => {
+                if &state.policy.id != policy_id
+                    || state.policy.program_id != state.program.program_id
+                {
+                    return Err(refused(
+                        "authority originals identifier policy/program changed",
+                    ));
+                }
+                bounded_row(&state.policy)?;
+                bounded_row(&state.program)?;
+            }
             _ => {
                 return Err(refused(
                     "authority originals response changed selected family",
@@ -465,6 +499,28 @@ pub struct NativeAccountAliasOriginalV1 {
     pub account_value: AccountValue,
     /// Bare native `NameRecord` bytes at the server-derived account lease `StatePath`.
     pub lease_value: Vec<u8>,
+}
+
+/// Exact original policy and only its referenced original RAM-LFE program.
+/// These values grant no active-policy, execution, permission or World membership claim.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    JsonSerialize,
+    JsonDeserialize,
+    NoritoSerialize,
+    NoritoDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(deny_unknown_fields, no_fast_from_json)]
+#[norito_schema(name = "iroha_torii_shared::authority_originals::NativeIdentifierPolicyStateV1")]
+pub struct NativeIdentifierPolicyStateV1 {
+    /// Original `world.identifier_policies` row for the exact selector.
+    pub policy: IdentifierPolicy,
+    /// Original `world.ram_lfe_program_policies` row selected by that policy.
+    pub program: RamLfeProgramPolicy,
 }
 
 /// Complete native fee keys and only selected program/funding original values.
@@ -596,6 +652,23 @@ impl<'a> NativeAccountAliasStateRefV1<'a> {
     }
 }
 
+/// Borrowed exact encoder of the selected policy/program originals.
+#[derive(NoritoSerialize, JsonSerialize)]
+pub struct NativeIdentifierPolicyStateRefV1<'a> {
+    policy: FieldRef<'a, IdentifierPolicy>,
+    program: FieldRef<'a, RamLfeProgramPolicy>,
+}
+impl<'a> NativeIdentifierPolicyStateRefV1<'a> {
+    /// Borrow actual same-cut rows without cloning either private value.
+    #[must_use]
+    pub fn new(policy: &'a IdentifierPolicy, program: &'a RamLfeProgramPolicy) -> Self {
+        Self {
+            policy: FieldRef(policy),
+            program: FieldRef(program),
+        }
+    }
+}
+
 /// Borrowed exact encoder of `NativeGlobalFeeProgramStateV1`; allocations stay with the original finite owner.
 #[derive(NoritoSerialize, JsonSerialize)]
 pub struct NativeGlobalFeeProgramStateRefV1<'a> {
@@ -694,6 +767,8 @@ pub enum NativeAuthorityOriginalsFamilyRefV1<'a> {
     AccountAlias(NativeAccountAliasStateRefV1<'a>),
     /// Borrowed Global program/funding originals.
     GlobalFeeProgram(NativeGlobalFeeProgramStateRefV1<'a>),
+    /// Borrowed identifier policy and its referenced program originals.
+    IdentifierPolicy(NativeIdentifierPolicyStateRefV1<'a>),
 }
 impl norito::NoritoSchema for NativeAuthorityOriginalsRefV1<'_> {
     fn nominal_name() -> String {

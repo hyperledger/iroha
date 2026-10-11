@@ -57,7 +57,6 @@ fn commit_contract_operator_genesis(
     use iroha_data_model::prelude::Grant;
     use iroha_executor_data_model::permission::{
         account::{AccountAliasPermissionScope, CanManageAccountAlias},
-        governance::CanEnactGovernance,
         smart_contract::CanManageSmartContractCode,
     };
 
@@ -67,7 +66,6 @@ fn commit_contract_operator_genesis(
         signer,
         vec![
             Grant::account_permission(CanManageSmartContractCode, authority.clone()).into(),
-            Grant::account_permission(CanEnactGovernance, authority.clone()).into(),
             Grant::account_permission(
                 CanManageAccountAlias {
                     scope: AccountAliasPermissionScope::Dataspace(
@@ -91,7 +89,7 @@ fn contract_call_noop_program() -> Vec<u8> {
 fn contract_call_dispatch_program() -> Vec<u8> {
     let src = format!(
         r#"
-seiyaku ContractCallDispatchTest {{
+seiyaku ContractCallDispatchTest {{ permission CanEnactGovernance;
 
   state int call_amount;
   state AssetDefinitionId call_asset;
@@ -101,15 +99,15 @@ seiyaku ContractCallDispatchTest {{
     call_asset = asset_definition_id;
   }}
 
-  kotoage fn credit_by_payload(int amount) authorize("CanEnactGovernance") {{
+  kotoage fn credit_by_payload(int amount) authorize(CanEnactGovernance) {{
     call_amount = amount;
   }}
 
-  kotoage fn record_asset_by_payload(AssetDefinitionId asset_definition_id) authorize("CanEnactGovernance") {{
+  kotoage fn record_asset_by_payload(AssetDefinitionId asset_definition_id) authorize(CanEnactGovernance) {{
     call_asset = asset_definition_id;
   }}
 
-  view fn call_state() -> (int, AssetDefinitionId) {{
+  view fn call_state() authorize(anyone) -> (int, AssetDefinitionId) {{
     return (call_amount, call_asset);
   }}
 }}
@@ -122,7 +120,7 @@ seiyaku ContractCallDispatchTest {{
 fn contract_call_declared_state_program() -> Vec<u8> {
     let src = format!(
         r#"
-seiyaku ContractCallDeclaredStateTest {{
+seiyaku ContractCallDeclaredStateTest {{ permission CanEnactGovernance;
 
   state int CallAmount;
   state AssetDefinitionId CallAsset;
@@ -132,15 +130,15 @@ seiyaku ContractCallDeclaredStateTest {{
     CallAsset = asset_definition_id;
   }}
 
-  kotoage fn credit_by_payload(int amount) authorize("CanEnactGovernance") {{
+  kotoage fn credit_by_payload(int amount) authorize(CanEnactGovernance) {{
     CallAmount = amount;
   }}
 
-  kotoage fn record_asset_by_payload(AssetDefinitionId asset_definition_id) authorize("CanEnactGovernance") {{
+  kotoage fn record_asset_by_payload(AssetDefinitionId asset_definition_id) authorize(CanEnactGovernance) {{
     CallAsset = asset_definition_id;
   }}
 
-  view fn declared_state() -> (int, AssetDefinitionId) {{
+  view fn declared_state() authorize(anyone) -> (int, AssetDefinitionId) {{
     return (CallAmount, CallAsset);
   }}
 }}
@@ -153,7 +151,7 @@ seiyaku ContractCallDeclaredStateTest {{
 fn contract_call_declared_state_with_isi_program() -> Vec<u8> {
     let src = format!(
         r#"
-seiyaku ContractCallDeclaredStateWithIsiTest {{
+seiyaku ContractCallDeclaredStateWithIsiTest {{ permission CanEnactGovernance;
 
   state int CallAmount;
 
@@ -161,12 +159,12 @@ seiyaku ContractCallDeclaredStateWithIsiTest {{
     CallAmount = 0;
   }}
 
-  kotoage fn write_with_isi(int amount) authorize("CanEnactGovernance") {{
-    ledger::account::set_detail(account: context::authority(), key: Name::parse("cursor"), value: Json::parse("{{\"phase\":\"write_with_isi\"}}"));
+  kotoage fn write_with_isi(int amount) authorize(CanEnactGovernance) {{
+    ledger::account::set_metadata(account: context::authority(), key: Name::parse("cursor"), value: Json::parse("{{\"phase\":\"write_with_isi\"}}"));
     CallAmount = amount;
   }}
 
-  view fn declared_state() -> int {{
+  view fn declared_state() authorize(anyone) -> int {{
     return CallAmount;
   }}
 }}
@@ -179,7 +177,7 @@ seiyaku ContractCallDeclaredStateWithIsiTest {{
 fn contract_call_declared_state_with_mint_program() -> Vec<u8> {
     let src = format!(
         r#"
-seiyaku ContractCallDeclaredStateWithMintTest {{
+seiyaku ContractCallDeclaredStateWithMintTest {{ permission CanEnactGovernance;
 
   state int CallAmount;
 
@@ -189,12 +187,12 @@ seiyaku ContractCallDeclaredStateWithMintTest {{
 
   kotoage fn write_with_mint(int amount,
                            AccountId user,
-                           AssetDefinitionId asset_definition_id) authorize("CanEnactGovernance") {{
+                           AssetDefinitionId asset_definition_id) authorize(CanEnactGovernance) {{
     ledger::asset::mint(account: user, asset_definition: asset_definition_id, amount: 1);
     CallAmount = amount;
   }}
 
-  view fn declared_state() -> int {{
+  view fn declared_state() authorize(anyone) -> int {{
     return CallAmount;
   }}
 }}
@@ -207,7 +205,7 @@ seiyaku ContractCallDeclaredStateWithMintTest {{
 fn contract_call_n3x_like_program() -> Vec<u8> {
     let src = format!(
         r#"
-seiyaku ContractCallN3xLikeTest {{
+seiyaku ContractCallN3xLikeTest {{ permission CanEnactGovernance;
 
   error enum HubError {{
     NotInitialized = 1,
@@ -235,7 +233,7 @@ seiyaku ContractCallN3xLikeTest {{
     init_impl();
   }}
 
-  kotoage fn init_hub() authorize("CanEnactGovernance") {{
+  kotoage fn init_hub() authorize(CanEnactGovernance) {{
     init_impl();
   }}
 
@@ -257,7 +255,7 @@ seiyaku ContractCallN3xLikeTest {{
                         AssetDefinitionId asset_definition_id,
                         quantity usdt_in,
                         quantity usdc_in,
-                        quantity kusd_in) authorize("CanEnactGovernance") {{
+                        quantity kusd_in) authorize(CanEnactGovernance) {{
     deposit_impl(
       user: user,
       asset: asset_definition_id,
@@ -269,7 +267,7 @@ seiyaku ContractCallN3xLikeTest {{
 
   kotoage fn burn_like(AccountId user,
                      AssetDefinitionId asset_definition_id,
-                     quantity n3x_amount) authorize("CanEnactGovernance") {{
+                     quantity n3x_amount) authorize(CanEnactGovernance) {{
     let total = TotalN3x;
     require(total > 0, HubError::EmptyHub);
     require(n3x_amount > 0, HubError::InvalidAmount);
@@ -287,7 +285,7 @@ seiyaku ContractCallN3xLikeTest {{
     TotalN3x = total - n3x_amount;
   }}
 
-  view fn state_snapshot() -> (int, quantity, quantity, quantity, quantity) {{
+  view fn state_snapshot() authorize(anyone) -> (int, quantity, quantity, quantity, quantity) {{
     return (HubInitialized, BasketUsdt, BasketUsdc, BasketKusd, TotalN3x);
   }}
 }}
@@ -708,12 +706,16 @@ async fn contracts_call_prepares_exact_payload_and_requires_durable_admission() 
     let (queue, _chain_id, app) = contract_test_queue_and_app(&state, &kura, &creds);
     let program = contract_call_noop_program();
     let (contract_address, code_hash_hex, abi_hash_hex) =
-        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment(
+        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment_with_permissions(
             &state,
             &queue,
             &creds.account,
             &creds.private_key,
             &program,
+            std::iter::empty(),
+            ["CanEnactGovernance"
+                .parse()
+                .expect("declared fixture permission")],
         );
     let contract_address = contract_address.to_string();
     let applied_deploy =
@@ -936,12 +938,16 @@ async fn contracts_view_decodes_literal_and_persisted_bytes_returns() {
     let (queue, _chain_id, app) = contract_test_queue_and_app(&state, &kura, &creds);
     let program = contract_view_bytes_program();
     let (contract_address, _, _) =
-        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment(
+        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment_with_permissions(
             &state,
             &queue,
             &creds.account,
             &creds.private_key,
             &program,
+            std::iter::empty(),
+            ["CanEnactGovernance"
+                .parse()
+                .expect("declared fixture permission")],
         );
     let contract_address = contract_address.to_string();
     let applied_deploy =
@@ -1015,12 +1021,16 @@ async fn contracts_call_honors_requested_entrypoint_and_payload() {
     let (queue, _chain_id, app) = contract_test_queue_and_app(&state, &kura, &creds);
     let program = contract_call_dispatch_program();
     let (contract_address, _, _) =
-        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment(
+        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment_with_permissions(
             &state,
             &queue,
             &creds.account,
             &creds.private_key,
             &program,
+            std::iter::empty(),
+            ["CanEnactGovernance"
+                .parse()
+                .expect("declared fixture permission")],
         );
     let contract_address = contract_address.to_string();
     let applied_deploy =
@@ -1100,12 +1110,16 @@ async fn contracts_view_roundtrips_account_id_literals_and_persisted_state() {
     let (queue, _chain_id, app) = contract_test_queue_and_app(&state, &kura, &creds);
     let program = contract_view_account_id_program();
     let (contract_address, _, _) =
-        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment(
+        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment_with_permissions(
             &state,
             &queue,
             &creds.account,
             &creds.private_key,
             &program,
+            std::iter::empty(),
+            ["CanEnactGovernance"
+                .parse()
+                .expect("declared fixture permission")],
         );
     let initial_account = contract_address.subject_id().to_string();
     let contract_address = contract_address.to_string();
@@ -1184,12 +1198,16 @@ async fn contracts_call_configure_roundtrips_account_id_map_state() {
     let (queue, _chain_id, app) = contract_test_queue_and_app(&state, &kura, &creds);
     let program = contract_call_configure_account_map_program();
     let (contract_address, _, _) =
-        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment(
+        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment_with_permissions(
             &state,
             &queue,
             &creds.account,
             &creds.private_key,
             &program,
+            std::iter::empty(),
+            ["CanEnactGovernance"
+                .parse()
+                .expect("declared fixture permission")],
         );
     let contract_address = contract_address.to_string();
     let applied_deploy =
@@ -1260,12 +1278,16 @@ async fn contracts_call_persists_declared_state_fields_across_calls() {
     let (queue, _chain_id, app) = contract_test_queue_and_app(&state, &kura, &creds);
     let program = contract_call_declared_state_program();
     let (contract_address, _, _) =
-        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment(
+        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment_with_permissions(
             &state,
             &queue,
             &creds.account,
             &creds.private_key,
             &program,
+            std::iter::empty(),
+            ["CanEnactGovernance"
+                .parse()
+                .expect("declared fixture permission")],
         );
     let contract_address = contract_address.to_string();
     let applied_deploy =
@@ -1337,13 +1359,16 @@ async fn contracts_call_persists_declared_state_after_emitting_isi() {
     let (queue, _chain_id, app) = contract_test_queue_and_app(&state, &kura, &creds);
     let program = contract_call_declared_state_with_isi_program();
     let (contract_address, _, _) =
-        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment_with_subject_permissions(
+        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment_with_permissions(
             &state,
             &queue,
             &creds.account,
             &creds.private_key,
             &program,
             [can_modify_account_metadata(&creds.account)],
+            ["CanEnactGovernance"
+                .parse()
+                .expect("declared fixture permission")],
         );
     let contract_address = contract_address.to_string();
     let applied_deploy =
@@ -1412,13 +1437,16 @@ async fn contracts_call_persists_declared_state_after_mint_asset() {
     let (queue, _chain_id, app) = contract_test_queue_and_app(&state, &kura, &creds);
     let program = contract_call_declared_state_with_mint_program();
     let (contract_address, _, _) =
-        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment_with_subject_permissions(
+        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment_with_permissions(
             &state,
             &queue,
             &creds.account,
             &creds.private_key,
             &program,
             [can_mint_asset_definition(&asset_definition_id)],
+            ["CanEnactGovernance"
+                .parse()
+                .expect("declared fixture permission")],
         );
     let contract_address = contract_address.to_string();
     let applied_deploy =
@@ -1491,13 +1519,16 @@ async fn contracts_call_persists_n3x_like_state_after_mint_asset() {
     let (queue, _chain_id, app) = contract_test_queue_and_app(&state, &kura, &creds);
     let program = contract_call_n3x_like_program();
     let (contract_address, _, _) =
-        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment_with_subject_permissions(
+        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment_with_permissions(
             &state,
             &queue,
             &creds.account,
             &creds.private_key,
             &program,
             [can_mint_asset_definition(&asset_definition_id)],
+            ["CanEnactGovernance"
+                .parse()
+                .expect("declared fixture permission")],
         );
     let contract_address = contract_address.to_string();
     let applied_deploy =
@@ -1585,7 +1616,7 @@ async fn contracts_call_executes_n3x_like_burn_after_mint_asset() {
     let (queue, _chain_id, app) = contract_test_queue_and_app(&state, &kura, &creds);
     let program = contract_call_n3x_like_program();
     let (contract_address, _, _) =
-        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment_with_subject_permissions(
+        iroha_torii::test_utils::enqueue_locally_signed_contract_deployment_with_permissions(
             &state,
             &queue,
             &creds.account,
@@ -1595,6 +1626,9 @@ async fn contracts_call_executes_n3x_like_burn_after_mint_asset() {
                 can_mint_asset_definition(&asset_definition_id),
                 can_burn_asset_definition(&asset_definition_id),
             ],
+            ["CanEnactGovernance"
+                .parse()
+                .expect("declared fixture permission")],
         );
     let contract_address = contract_address.to_string();
     let applied_deploy =

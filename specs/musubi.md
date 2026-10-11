@@ -363,7 +363,11 @@ metadata, a configurable library directory, explicit exports, optional local
 contract targets, tests, readme, license, repository, keywords, and positive
 include additions.
 
-`musubi new` creates a contract package with one rewards quote and four tests.
+`musubi new` creates a contract package named after its directory: a counter
+seiyaku with state, `hajimari`, an authorized `kotoage fn`, a `view fn` and an error
+enum, four standalone tests, a README and `.gitignore`. `--namespace` defaults to
+`local`, which `musubi publish` refuses until `[package] namespace` names a
+registry namespace.
 `--template library` creates a library module with a TODO-marked unit-returning
 function for each requested export. Export names must be canonical Kotodama
 identifiers permitted for those generated declarations. `musubi init` preserves
@@ -662,7 +666,9 @@ publication explicitly require registry context, even for dependency-free packag
 
 Local compilation uses the selected network's account-address profile: the
 explicitly selected client's public account profile, the built-in profile of a
-named network (Taira when no network is selected), or `--chain-discriminant`.
+named network, or `--chain-discriminant`. Without a selected network or a
+workspace default binding, `check`, `build` and `test` use the data-model default
+profile (SORA, `0x02F1` = 753), the same default `koto` uses.
 `--chain-discriminant` selects a local compiler input and must agree with an
 explicitly supplied client configuration or the authenticated registry profile.
 A local graph resolved without any of these, as by `fetch` or `update` without a

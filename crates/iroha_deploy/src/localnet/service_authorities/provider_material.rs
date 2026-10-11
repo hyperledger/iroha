@@ -9,7 +9,7 @@ use iroha_data_model::sorafs::{
     pin_registry::StorageClass,
     pricing::PricingScheduleRecord,
     provider_admission::governance::InitialProviderAdmissionV1,
-    reserve::{ReserveDuration, ReserveProviderTermsV1, ReserveTier},
+    reserve::{ReserveDuration, ReservePolicyV1, ReserveProviderTermsV1, ReserveTier},
 };
 use sorafs_manifest::{
     capacity::{CapacityDeclarationV1, CapacityMetadataEntry, ChunkerCommitmentV1},
@@ -389,6 +389,13 @@ impl GeneratedProvider {
         encode(&plan)?;
         Ok(Self { plan, _port: port })
     }
+    /// Original principal and finite setup fee headroom, never current reserve backing.
+    pub(super) fn initial_issuer_endowment(
+        &self,
+        pricing: &PricingScheduleRecord,
+    ) -> Result<Quantity> {
+        self.plan.initial_issuer_endowment(pricing)
+    }
     pub(super) fn attestation_policy_digest(&self) -> [u8; 32] {
         self.plan.attestation_journal_policy_digest
     }
@@ -407,6 +414,36 @@ impl GeneratedProvider {
 }
 
 impl ProviderServicePlanV1 {
+    // Both callers have validated this exact original plan. This projects genesis funding only;
+    // the native current policy and partition still derive and enforce every actual movement.
+    fn initial_issuer_endowment(&self, pricing: &PricingScheduleRecord) -> Result<Quantity> {
+        let terms = &self.reserve_terms;
+        let reserve = ReservePolicyV1::default()
+            .quote(
+                terms.storage_class,
+                terms.capacity_gib,
+                terms.duration,
+                terms.tier,
+                XorQuantity::zero(),
+            )?
+            .reserve_requirement;
+        // A fresh provider has no prior credit: the original launch collateral uses age zero,
+        // exactly as the later observed native cut does, without consulting today's clock.
+        let bond = XorQuantity::try_from_quantity(pricing.required_collateral(
+            terms.storage_class,
+            terms.capacity_gib,
+            self.material.issued_at,
+            self.material.issued_at,
+        )?)?;
+        let principal = reserve
+            .max(bond)
+            .max(self.declaration.stake.stake_amount.clone());
+        principal
+            .into_quantity()
+            .checked_add(&Quantity::from(LOCALNET_ALIAS_SETUP_PAYER_BALANCE))
+            .map_err(Into::into)
+    }
+
     fn validate(
         &self,
         provider: ProviderId,
@@ -501,7 +538,7 @@ pub(super) fn validate_retained(
     network: &network_material::NetworkServicePlanV1,
     keys: &mut BTreeSet<iroha_crypto::PublicKey>,
     tls_keys: &mut BTreeSet<Hash>,
-) -> Result<()> {
+) -> Result<Quantity> {
     let plan = decode(&selected.provider_plan)?;
     plan.validate(
         selected.provider_id,
@@ -533,7 +570,7 @@ pub(super) fn validate_retained(
         tls_keys,
     )?;
     directory.revalidate()?;
-    Ok(())
+    plan.initial_issuer_endowment(&network.pricing)
 }
 
 pub(super) fn retained(

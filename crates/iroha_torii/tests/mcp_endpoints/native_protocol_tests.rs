@@ -309,7 +309,7 @@ async fn mcp_native_2026_resources_read_routes_through_torii() {
     let result = body
         .get("result")
         .and_then(Value::as_object)
-        .expect("resources/read result object");
+        .unwrap_or_else(|| panic!("expected resources/read result object, got {body:?}"));
     assert_eq!(
         result.get("resultType").and_then(Value::as_str),
         Some("complete")
@@ -371,7 +371,7 @@ async fn mcp_native_2026_resources_reject_unknown_uris_and_unissued_cursors() {
         ],
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(status, StatusCode::OK);
     assert_jsonrpc_error_code(&body, -32602);
 
     let (status, body) = post_mcp_with_exact_headers(
@@ -387,7 +387,7 @@ async fn mcp_native_2026_resources_reject_unknown_uris_and_unissued_cursors() {
         ],
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(status, StatusCode::OK);
     assert_jsonrpc_error_code(&body, -32602);
     app.shutdown().await;
 }

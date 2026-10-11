@@ -26,17 +26,18 @@ fn project<'a>(
     assets: impl Iterator<Item = (&'a AssetId, &'a AssetValue)>,
     domain_exists: impl Fn(&DomainId) -> bool,
     definition_exists: impl Fn(&AssetDefinitionId) -> bool,
+    home: impl Fn(&AssetDefinitionId) -> Option<AssetDefinitionDirectHomeV1>,
+    incarnation: impl Fn(&AssetDefinitionId) -> Option<AxtAssetIncarnationV1>,
 ) -> Result<Image, String> {
     let mut image = Image::default();
     for (id, definition) in definitions {
         let domain = definition.owning_domain().as_ref();
-        if definition.balance_scope_policy() == AssetBalancePolicy::DataspaceRestricted
-            && domain.is_none()
-        {
-            return Err(format!(
-                "restricted asset definition {id} has no authoritative owning domain"
-            ));
-        }
+        let incarnation = incarnation(id);
+        let direct =
+            direct_home_dataspace(home(id).as_ref(), Some(definition), incarnation.as_ref())
+                .map_err(|error| error.to_string())?;
+        iroha_data_model::asset::AssetDefinitionHome::from_definition(definition, direct)
+            .map_err(|error| error.to_string())?;
         if let Some(domain) = domain {
             if !domain_exists(domain) {
                 return Err(format!(
@@ -175,17 +176,50 @@ pub(super) fn assets(world: &mut World) -> Result<(), String> {
     let definitions = world.asset_definitions.history();
     let domains = world.domains.history();
     let balances = world.assets.history();
+    let incarnations = world.axt_asset_incarnations.history();
+    let homes = world.asset_definition_direct_homes.history();
+    // A row is immutable for one incarnation and disappears only with that incarnation.
+    for (id, before) in homes.revert_map().iter() {
+        validate_direct_home_transition(
+            before.as_ref(),
+            homes.current().get(id),
+            incarnations.get_before_block(id),
+            incarnations.current().get(id),
+        )
+        .map_err(|error| format!("snapshot direct home of {id}: {error}"))?;
+    }
+    // Check every row in both images, including orphans absent from the definition iterator.
+    for (id, row) in homes.current().iter() {
+        direct_home_dataspace(
+            Some(row),
+            definitions.current().get(id),
+            incarnations.current().get(id),
+        )
+        .map_err(|error| format!("snapshot direct home of {id}: {error}"))?;
+    }
+    for (id, row) in homes.iter_before_block() {
+        direct_home_dataspace(
+            Some(row),
+            definitions.get_before_block(id),
+            incarnations.get_before_block(id),
+        )
+        .map_err(|error| format!("snapshot predecessor direct home of {id}: {error}"))?;
+    }
     let current = project(
         definitions.current().iter(),
         balances.current().iter(),
         |id| domains.current().get(id).is_some(),
         |id| definitions.current().get(id).is_some(),
+        |id| homes.current().get(id).copied(),
+        |id| incarnations.current().get(id).copied(),
     )?;
     let previous = project(
         definitions.iter_before_block(),
         balances.iter_before_block(),
         |id| domains.get_before_block(id).is_some(),
         |id| definitions.get_before_block(id).is_some(),
+        |id| homes.get_before_block(id).copied(),
+        |id| incarnations.get_before_block(id).copied(),
     )?;
     let touched = Touches::sources(&definitions, &balances);
     drop((definitions, domains, balances));

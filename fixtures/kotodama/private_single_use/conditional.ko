@@ -9,7 +9,7 @@ seiyaku PrivateConditional {
         return 23;
     }
 
-    view fn main() -> int {
+    view fn main() authorize(anyone) -> int {
         var total = 0;
         for value in range(3) {
             total = total + choose(value);

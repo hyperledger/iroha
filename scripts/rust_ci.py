@@ -24,7 +24,7 @@ import subprocess
 import sys
 import tempfile
 from collections import defaultdict, deque
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -780,8 +780,119 @@ def default_base(root: Path = ROOT) -> str | None:
     return None
 
 
+# These owning features select spec §13.4 mutations and are deliberately rejected
+# by ordinary non-test Model/Core/daemon/SDK/Deploy/Torii compilation (Sumeragi isolates its cfg
+# through build.rs). Dedicated nightly mutation jobs own their valid libtests.
+MUTATION_FEATURE_OWNERS = frozenset(
+    {"iroha_data_model", "iroha_core", "irohad_lib", "iroha_sumeragi", "iroha", "iroha_deploy", "iroha_torii", "norito"}
+)
+
+
+def workspace_check_features(root: Path = ROOT) -> dict[str, tuple[str, ...]]:
+    """Read every supported lint/doc feature, including implicit optional edges.
+
+    Only owning ``mutation-testing`` features are excluded. Fixture constructors,
+    simulator and isolated test-network features remain part of these diagnostic
+    checks; this matrix does not qualify a shipping feature graph. A new feature
+    forwarding a mutation switch is refused rather than silently losing coverage.
+    """
+
+    workspace = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]
+    excluded = {(root / path).resolve() for path in workspace.get("exclude", ())}
+    workspace_dependencies = workspace.get("dependencies", {})
+    inventory: dict[str, tuple[str, ...]] = {}
+    for pattern in workspace["members"]:
+        for directory in sorted(root.glob(pattern)):
+            manifest = directory / "Cargo.toml"
+            if directory.resolve() in excluded or not manifest.is_file():
+                continue
+            payload = tomllib.loads(manifest.read_text())
+            package = payload["package"]["name"]
+            if package in inventory:
+                raise ClassificationError(f"duplicate workspace feature owner: {package}")
+            features = payload.get("features", {})
+            if not isinstance(features, dict) or any(
+                not isinstance(name, str) or not isinstance(values, list)
+                or not all(isinstance(value, str) for value in values)
+                for name, values in features.items()
+            ):
+                raise ClassificationError(f"invalid feature table: {manifest}")
+            if "mutation-testing" in features and package not in MUTATION_FEATURE_OWNERS:
+                raise ClassificationError(f"unreviewed mutation feature owner: {package}")
+            for name, values in features.items():
+                if name == "mutation-testing":
+                    continue
+                if any(value == "mutation-testing" or value.endswith("/mutation-testing")
+                       for value in values):
+                    raise ClassificationError(
+                        f"supported feature forwards a test-only mutation: {package}/{name}"
+                    )
+            dependency_tables = [payload]
+            dependency_tables.extend(payload.get("target", {}).values())
+            optional = set()
+            for table in dependency_tables:
+                for kind in ("dependencies", "build-dependencies", "dev-dependencies"):
+                    for alias, spec in table.get(kind, {}).items():
+                        if not isinstance(spec, dict):
+                            continue
+                        inherited = {}
+                        if spec.get("workspace", False):
+                            inherited = workspace_dependencies.get(alias)
+                            if isinstance(inherited, str):
+                                inherited = {}
+                            elif not isinstance(inherited, dict):
+                                raise ClassificationError(f"missing workspace dependency: {alias}")
+                            selected_features = (*inherited.get("features", ()), *spec.get("features", ()))
+                        else:
+                            selected_features = spec.get("features", ())
+                        dependency_owner = spec.get("package", inherited.get("package", alias))
+                        if (kind == "dev-dependencies" and dependency_owner == package
+                                and package in MUTATION_FEATURE_OWNERS):
+                            raise ClassificationError(
+                                f"self dev-dependency defeats owning mutation libtests: {package}/{alias}"
+                            )
+                        if "mutation-testing" in selected_features:
+                            raise ClassificationError(
+                                f"dependency forwards a test-only mutation: {package}/{alias}"
+                            )
+                        if spec.get("optional", False):
+                            optional.add(alias)
+            # `dep:alias` anywhere disables Cargo's implicit alias feature. Explicit
+            # [features] keys still exist, even when their name equals that alias.
+            hidden_optional = {value[4:] for values in features.values() for value in values
+                               if value.startswith("dep:")}
+            supported = set(features) | (optional - hidden_optional)
+            supported.discard("mutation-testing")
+            inventory[package] = tuple(sorted(supported))
+    if not inventory:
+        raise ClassificationError("workspace feature inventory is empty")
+    return inventory
+
+
+def _supported_feature_args(
+    packages: Sequence[str], inventory: Mapping[str, Sequence[str]]
+) -> list[str]:
+    """Select the complete supported matrix without a non-test mutation switch."""
+
+    missing = sorted(set(packages) - set(inventory))
+    if missing:
+        raise ClassificationError(f"missing workspace feature owners: {missing}")
+    features = []
+    for package in packages:
+        names = inventory[package]
+        if len(names) != len(set(names)) or any(
+            not name or not set(name) <= PACKAGE_NAME_CHARACTERS or name == "mutation-testing"
+            for name in names
+        ):
+            raise ClassificationError(f"invalid supported feature matrix: {package}")
+        features.extend(f"{package}/{name}" for name in sorted(names))
+    return ["--features", ",".join(features)] if features else []
+
+
 def commands_for_checks(
-    packages: Sequence[str], checks: Sequence[str]
+    packages: Sequence[str], checks: Sequence[str],
+    *, features_by_package: Mapping[str, Sequence[str]] | None = None,
+    workspace: bool = False,
 ) -> list[list[str]]:
     """Build locked, package-scoped Cargo validation commands."""
 
@@ -794,9 +905,13 @@ def commands_for_checks(
     ]
     if invalid_packages:
         raise ClassificationError(f"invalid Cargo package names: {invalid_packages}")
-    package_args = [
+    package_args = (["--workspace"] if workspace else [
         argument for package in packages for argument in ("-p", package)
-    ]
+    ])
+    feature_args = []
+    if any(check in ("clippy", "doc") for check in checks):
+        inventory = workspace_check_features() if features_by_package is None else features_by_package
+        feature_args = _supported_feature_args(packages, inventory)
     commands: list[list[str]] = []
     for check in checks:
         if check == "clippy":
@@ -806,7 +921,7 @@ def commands_for_checks(
                     "clippy",
                     "--locked",
                     "--all-targets",
-                    "--all-features",
+                    *feature_args,
                     *package_args,
                     "--",
                     "-D",
@@ -816,8 +931,12 @@ def commands_for_checks(
         elif check == "build":
             commands.append(["cargo", "build", "--locked", *package_args])
         elif check == "test":
+            # Torii integration targets explicitly opt into fixture entry points. A self
+            # dev-dependency would also compile its owning mutation feature as a library.
+            test_features = (["--features", "iroha_torii/test-fixtures"]
+                             if "iroha_torii" in packages else [])
             commands.append(
-                ["cargo", "test", "--locked", "--no-fail-fast", *package_args]
+                ["cargo", "test", "--locked", "--no-fail-fast", *test_features, *package_args]
             )
         elif check == "doc":
             commands.append(
@@ -826,7 +945,7 @@ def commands_for_checks(
                     "doc",
                     "--locked",
                     "--no-deps",
-                    "--all-features",
+                    *feature_args,
                     *package_args,
                 ]
             )
@@ -843,10 +962,16 @@ def run_checks(
     *,
     root: Path = ROOT,
     dry_run: bool = False,
+    workspace: bool = False,
 ) -> None:
     """Execute locked Cargo checks for a deterministic package set."""
 
-    commands = commands_for_checks(packages, checks)
+    inventory = workspace_check_features(root)
+    if workspace:
+        packages = tuple(sorted(inventory))
+    commands = commands_for_checks(
+        packages, checks, features_by_package=inventory, workspace=workspace
+    )
     if not commands:
         print("No affected Rust packages; Cargo validation is not required.")
         return
@@ -927,9 +1052,12 @@ def build_binaries(
 
 
 def _parse_packages(raw: str) -> tuple[str, ...]:
-    """Parse a comma-separated package list from a trusted classifier result."""
+    """Require at least one package in an explicit comma-separated selection."""
 
-    return tuple(sorted({package.strip() for package in raw.split(",") if package.strip()}))
+    packages = tuple(sorted({package.strip() for package in raw.split(",") if package.strip()}))
+    if not packages:
+        raise ClassificationError("packages must select at least one Cargo package")
+    return packages
 
 
 def _parse_checks(raw: str) -> tuple[str, ...]:
@@ -1029,8 +1157,12 @@ def build_parser() -> argparse.ArgumentParser:
     run = subparsers.add_parser(
         "run", help="run locked Cargo checks for a classifier package list"
     )
-    run.add_argument(
-        "--packages", required=True, help="comma-separated Cargo package names"
+    selection = run.add_mutually_exclusive_group(required=True)
+    selection.add_argument(
+        "--packages", help="comma-separated Cargo package names"
+    )
+    selection.add_argument(
+        "--workspace", action="store_true", help="check every workspace feature owner"
     )
     run.add_argument(
         "--checks",
@@ -1078,9 +1210,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _write_github_output(Path(args.github_output), result)
         elif args.command == "run":
             run_checks(
-                _parse_packages(args.packages),
+                () if args.workspace else _parse_packages(args.packages),
                 _parse_checks(args.checks),
                 dry_run=args.dry_run,
+                workspace=args.workspace,
             )
         elif args.command == "build-binaries":
             build_binaries(_parse_packages(args.binaries), args.output_dir)

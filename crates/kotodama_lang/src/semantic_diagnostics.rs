@@ -39,12 +39,45 @@ pub(crate) enum SemanticFix {
     Replace {
         replacement: String,
     },
+    /// Rewrite one complete expression statement `expr;` as `let _ = expr;`.
+    DiscardStatement,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SemanticDiagnostic {
     pub(crate) primary: SourceRange,
     pub(crate) labels: Vec<SemanticDiagnosticLabel>,
     pub(crate) fix: Option<SemanticFix>,
+    /// Site-specific help that replaces the registry fallback for the code.
+    pub(crate) help: Option<String>,
+    /// Additional context rendered as notes.
+    pub(crate) notes: Vec<String>,
+}
+impl SemanticDiagnostic {
+    /// Structured metadata with a primary range and optional fix.
+    pub(crate) fn at(primary: SourceRange, fix: Option<SemanticFix>) -> Self {
+        Self {
+            primary,
+            labels: Vec::new(),
+            fix,
+            help: None,
+            notes: Vec::new(),
+        }
+    }
+    /// Add one secondary label.
+    #[must_use]
+    pub(crate) fn with_label(mut self, source: Option<SourceRange>, message: String) -> Self {
+        if let Some(source) = source {
+            self.labels
+                .push(SemanticDiagnosticLabel { source, message });
+        }
+        self
+    }
+    /// Replace the registry help with site-specific guidance.
+    #[must_use]
+    pub(crate) fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help = Some(help.into());
+        self
+    }
 }
 fn source_span(source: &SourceFile, range: SourceRange) -> Option<SourceSpan> {
     (source.id() == range.source).then(|| SourceSpan::from_range(source, range.range))
@@ -133,6 +166,14 @@ fn materialize_fix(
         SemanticFix::Replace { replacement } => {
             safe_slice(source, primary)?;
             replacement
+        }
+        SemanticFix::DiscardStatement => {
+            let text = safe_slice(source, primary)?.trim_end();
+            let expression = text.strip_suffix(';').unwrap_or(text).trim_end();
+            if expression.is_empty() {
+                return None;
+            }
+            format!("let _ = {expression};")
         }
     };
     Some(DiagnosticFix {
@@ -226,6 +267,10 @@ pub(crate) fn from_semantic_failures(
                         owner_source(semantic.primary)
                             .and_then(|source| materialize_fix(source, semantic.primary, fix))
                     });
+                    if let Some(help) = semantic.help {
+                        diagnostic.help = Some(help);
+                    }
+                    diagnostic.notes.extend(semantic.notes);
                 }
                 if let Some(resolved) = resolved {
                     for source in resolved.source_files() {
@@ -282,7 +327,7 @@ mod tests {
     #[test]
     fn independent_trigger_failures_retain_their_exact_name_spans() {
         let source = r#"seiyaku Timers {
-  view fn inspect() {}
+  view fn inspect() authorize(anyone) {}
   trigger morning -> inspect { on time pre_commit; }
   trigger evening -> inspect { on time pre_commit; }
 }"#;
@@ -436,5 +481,334 @@ mod tests {
         .expect("exact type replacement");
         assert_eq!(fix.span.byte_range, Some(primary.range));
         assert_eq!(fix.replacement, "Option<AccountView>");
+    }
+
+    fn check_errors(source: &str) -> Vec<crate::diagnostic::Diagnostic> {
+        CompilerSession::default()
+            .check(CompileRequest {
+                source,
+                source_name: Some("probe.ko"),
+            })
+            .expect_err("probe must fail")
+            .diagnostics
+    }
+    fn primary_text<'a>(source: &'a str, diagnostic: &crate::diagnostic::Diagnostic) -> &'a str {
+        let range = diagnostic
+            .primary_span
+            .as_ref()
+            .and_then(|span| span.byte_range)
+            .expect("diagnostic must carry an exact range");
+        &source[range.start as usize..range.end as usize]
+    }
+    fn label_texts<'a>(
+        source: &'a str,
+        diagnostic: &crate::diagnostic::Diagnostic,
+    ) -> Vec<&'a str> {
+        diagnostic
+            .labels
+            .iter()
+            .map(|label| {
+                let range = label.span.byte_range.expect("label range");
+                &source[range.start as usize..range.end as usize]
+            })
+            .collect()
+    }
+    #[test]
+    fn discard_statement_fix_wraps_only_complete_statements() {
+        let source_id = SourceId(14);
+        let text = "  record(value);";
+        let source = SourceFile::new(source_id, "discard.ko", text);
+        let primary = range(source_id, text, "record(value);");
+        let fix = materialize_fix(&source, primary, SemanticFix::DiscardStatement)
+            .expect("expression statement fix");
+        assert_eq!(fix.replacement, "let _ = record(value);");
+        let empty = range(source_id, text, ";");
+        assert!(materialize_fix(&source, empty, SemanticFix::DiscardStatement).is_none());
+    }
+    #[test]
+    fn every_view_violation_is_reported_at_the_offending_statement() {
+        let source = r#"seiyaku Views {
+    state int count;
+    hajimari() {
+        count = 0;
+    }
+    fn bump_inner() {
+        count += 1;
+    }
+    view fn bump() authorize(anyone) -> int {
+        count += 1;
+        return count;
+    }
+    view fn peek() authorize(anyone) -> int {
+        bump_inner();
+        return count;
+    }
+}"#;
+        let diagnostics = check_errors(source);
+        let views = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == "K2004")
+            .collect::<Vec<_>>();
+        assert_eq!(views.len(), 2, "{diagnostics:?}");
+        assert_eq!(primary_text(source, views[0]), "count += 1;");
+        assert_eq!(label_texts(source, views[0]), ["bump"]);
+        assert_eq!(primary_text(source, views[1]), "bump_inner();");
+        assert_eq!(label_texts(source, views[1]), ["peek", "count += 1;"]);
+        let help = views[1].help.as_deref().expect("site help");
+        assert!(help.contains("kotoage (言挙げ)"), "{help}");
+    }
+    #[test]
+    fn view_violations_inside_destructuring_loops_point_at_the_write() {
+        // The loop pattern lowers to binding statements prepended to the body;
+        // provenance must stay aligned so the write, not the loop, is primary.
+        let source = r#"seiyaku Loops {
+    state int last;
+    state StateMap<Name, int> scores;
+    hajimari() {
+        last = 0;
+    }
+    view fn scan() authorize(anyone) -> int {
+        let items = scores.take(4);
+        for (key, value) in items {
+            last = value;
+        }
+        return 0;
+    }
+}"#;
+        let diagnostics = check_errors(source);
+        let view = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == "K2004")
+            .expect("view violation");
+        assert_eq!(primary_text(source, view), "last = value;");
+    }
+    #[test]
+    fn unknown_member_fields_list_the_declared_fields() {
+        let source = r#"seiyaku Fields {
+    struct Point { int x; int y; }
+    view fn read() authorize(anyone) -> int {
+        let point = Point { x: 1, y: 2 };
+        return point.yy;
+    }
+}"#;
+        let diagnostics = check_errors(source);
+        let field = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.message.contains("unknown field 'yy'"))
+            .expect("unknown field");
+        assert_eq!(primary_text(source, field), "point.yy");
+        assert_eq!(
+            field.help.as_deref(),
+            Some("struct `Fields::Point` declares `x`, `y`; read one of those fields.")
+        );
+    }
+    #[test]
+    fn direct_calls_to_public_functions_explain_the_private_helper_pattern() {
+        let source = r#"seiyaku Calls {
+    view fn quote(int x) authorize(anyone) -> int {
+        return x;
+    }
+    view fn twice() authorize(anyone) -> int {
+        return quote(1);
+    }
+}"#;
+        let diagnostics = check_errors(source);
+        let call = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.message.contains("cannot be called directly"))
+            .expect("direct runtime call");
+        assert_eq!(primary_text(source, call), "quote(1)");
+        let help = call.help.as_deref().expect("site help");
+        assert!(help.contains("private `fn`"), "{help}");
+    }
+    #[test]
+    fn dropped_results_point_at_the_statement_or_binding() {
+        let source = r#"seiyaku Results {
+    error enum E { Bad = 1 }
+    fn g(int x) -> Result<int, E> {
+        if x > 0 { Result::ok(x) } else { Result::err(E::Bad) }
+    }
+    fn f(int x) -> int {
+        g(x);
+        x
+    }
+    fn h(int x) -> int {
+        let r = g(x);
+        x
+    }
+}"#;
+        let diagnostics = check_errors(source);
+        let must_use = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == "E_RESULT_MUST_USE")
+            .collect::<Vec<_>>();
+        assert_eq!(must_use.len(), 2, "{diagnostics:?}");
+        assert_eq!(primary_text(source, must_use[0]), "g(x);");
+        assert_eq!(
+            must_use[0].fix.as_ref().map(|fix| fix.replacement.as_str()),
+            Some("let _ = g(x);")
+        );
+        assert_eq!(primary_text(source, must_use[1]), "let r = g(x);");
+        assert!(must_use[1].fix.is_none());
+    }
+    #[test]
+    fn independent_statement_errors_in_one_function_are_all_reported() {
+        let source = r#"seiyaku Many {
+    fn f() -> int {
+        let int y = true;
+        let bool z = 5;
+        if z { return y; }
+        return y;
+    }
+}"#;
+        let diagnostics = check_errors(source);
+        let primaries = diagnostics
+            .iter()
+            .map(|diagnostic| primary_text(source, diagnostic))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            primaries,
+            ["let int y = true;", "let bool z = 5;"],
+            "{diagnostics:?}"
+        );
+    }
+    #[test]
+    fn numeric_operator_errors_use_source_symbols_and_inferred_labels() {
+        let source = r#"seiyaku Acc {
+    state StateMap<AccountId, quantity> Balances;
+    view fn total() authorize(anyone) -> quantity {
+        var sum = 0;
+        for (who, amount) in Balances.take(16) {
+            sum += amount;
+        }
+        let _ = sum;
+        return 2 * Balances.get(context::authority()).expect(E::Missing);
+    }
+    error enum E { Missing = 1 }
+}"#;
+        let diagnostics = check_errors(source);
+        let compound = &diagnostics[0];
+        assert_eq!(
+            compound.message,
+            "operator `+=` is not defined for `int` and `quantity`"
+        );
+        assert_eq!(primary_text(source, compound), "sum += amount;");
+        assert_eq!(label_texts(source, compound), ["var sum = 0;"]);
+        assert!(
+            compound
+                .help
+                .as_deref()
+                .is_some_and(|help| help.contains("quantity::try_from_int"))
+        );
+    }
+    #[test]
+    fn require_with_a_message_string_explains_error_enums() {
+        let source = r#"seiyaku Req { permission CanDeposit;
+    kotoage fn deposit(int amount) authorize(CanDeposit) {
+        require(amount > 0, "amount must be positive");
+    }
+}"#;
+        let diagnostics = check_errors(source);
+        assert_eq!(diagnostics[0].code, "K2003");
+        assert_eq!(
+            primary_text(source, &diagnostics[0]),
+            "\"amount must be positive\""
+        );
+        let help = diagnostics[0].help.as_deref().expect("require help");
+        assert!(help.contains("error enum"), "{help}");
+    }
+    #[test]
+    fn unknown_argument_labels_list_declared_parameters() {
+        let source = r#"seiyaku Pay { permission CanPay;
+    kotoage fn pay(AccountId to) authorize(CanPay) {
+        ledger::asset::transfer(
+            from: context::authority(),
+            to: to,
+            asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"),
+            amount: 1,
+            dataspace: DataSpaceId::parse("0"),
+        );
+    }
+}"#;
+        let diagnostics = check_errors(source);
+        assert_eq!(diagnostics[0].code, "E_UNKNOWN_NAMED_ARGUMENT");
+        assert_eq!(
+            diagnostics[0].message,
+            "call `ledger::asset::transfer` has no parameters named `from` or `to`"
+        );
+        let help = diagnostics[0].help.as_deref().expect("label help");
+        assert!(help.contains("`from:` is spelled `source:`"), "{help}");
+        assert!(help.contains("`to:` is spelled `destination:`"), "{help}");
+    }
+    #[test]
+    fn invalid_identifier_literals_are_semantic_errors_on_the_literal() {
+        let source = r#"seiyaku Ids {
+    view fn space() authorize(anyone) -> DataSpaceId {
+        return DataSpaceId::parse("zero");
+    }
+}"#;
+        let diagnostics = check_errors(source);
+        assert_eq!(diagnostics[0].code, "E_INVALID_ID_LITERAL");
+        assert_eq!(primary_text(source, &diagnostics[0]), "\"zero\"");
+        assert!(
+            diagnostics[0]
+                .help
+                .as_deref()
+                .is_some_and(|help| help.contains("decimal integers"))
+        );
+    }
+    #[test]
+    fn resolution_errors_do_not_hide_type_errors_in_other_functions() {
+        let source = r#"seiyaku Mixed {
+    fn a() -> bool {
+        return 1;
+    }
+    fn b() -> int {
+        return missing_name;
+    }
+    fn c() {
+        let int x = true;
+    }
+}"#;
+        let diagnostics = check_errors(source);
+        let codes = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            codes,
+            [
+                "K2002",
+                "E_RETURN_TYPE_MISMATCH",
+                "E_TYPE_ANNOTATION_MISMATCH"
+            ],
+            "{diagnostics:?}"
+        );
+        assert_eq!(primary_text(source, &diagnostics[0]), "missing_name");
+        assert_eq!(primary_text(source, &diagnostics[2]), "let int x = true;");
+    }
+    #[test]
+    fn arity_and_argument_type_errors_name_the_parameters() {
+        let source = r#"seiyaku Calls {
+    fn add(int a, int b) -> int {
+        return a + b;
+    }
+    view fn many() authorize(anyone) -> int {
+        return add(1, 2, 3);
+    }
+    view fn wrong() authorize(anyone) -> int {
+        return add(a: 1, b: true);
+    }
+}"#;
+        let diagnostics = check_errors(source);
+        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+        let arity = diagnostics[0].help.as_deref().expect("arity help");
+        assert!(arity.contains("`a`, `b`"), "{arity}");
+        assert_eq!(diagnostics[1].code, "K2003");
+        assert_eq!(
+            diagnostics[1].message,
+            "argument `b` of `add`: expected `int`, found `bool`"
+        );
+        assert_eq!(primary_text(source, &diagnostics[1]), "true");
     }
 }

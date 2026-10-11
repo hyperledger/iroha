@@ -101,6 +101,9 @@ def test_retired_build_modes_are_rejected_before_cargo(tmp_path: Path) -> None:
     ):
         environment = os.environ.copy()
         environment["MOBILE_SDK_PYTHON_BINARY"] = str(python)
+        # Public test inputs satisfy the earlier wallet-runtime trust gate.
+        environment["MOBILE_SDK_WALLET_RUNTIME_AUTHORITY"] = "bpng-taira-v7"
+        environment["MOBILE_SDK_WALLET_RUNTIME_TRUST_ED25519_HEX"] = "3" * 64
         environment["NORITO_BRIDGE_BUILD_DIR"] = str(tmp_path / f"{retired}-build")
         environment["NORITO_BRIDGE_OUT_DIR"] = str(tmp_path / f"{retired}-out")
         environment[retired] = ""

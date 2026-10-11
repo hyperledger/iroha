@@ -189,9 +189,15 @@ whose marker appears on another route is replaced by the ordinary typed
 envelope. Errors after a stream has started follow that stream's terminal
 framing instead of the finite HTTP envelope.
 
-Torii serves no `/v1/kagemusha/*` routes. Clients must not use `/health` or
-`/readyz` as a wallet-feature admission gate, and Torii has no per-asset
-readiness response or selector query.
+The current KAGEMUSHA wallet route is the canonically authenticated private
+`GET /v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}` issuance read. It
+returns only the payer's finalized canonical Norito load body and voucher,
+requires `Accept: application/x-norito`, and keeps responses private with
+`Cache-Control: private, no-store`. The route is enabled by `app_api` and projected to
+the SDK; it has no OpenAPI or MCP projection. The retired readiness, top-up,
+redeem, operation-status and ordinary-wallet routes remain absent. Clients
+must not use `/health` or `/readyz` as a wallet-feature admission gate; Torii
+has no per-asset readiness response or selector query.
 
 Every HTTP response carries `X-Request-Id`. A client may supply an identifier
 containing 1–128 ASCII letters, digits, `-`, `_`, `.`, or `:`; Torii echoes it.
@@ -213,14 +219,7 @@ finite `429` or `503` response includes both `Retry-After` and a matching typed
 retry hint.
 
 Connection-level pre-authentication capacity and rate gates run before
-credential validation. For KAGEMUSHA command routes admitted by that bounded
-gate, API-token authentication is completed before request media-type,
-idempotency-key, or body validation. An unauthenticated or duplicate-token
-request therefore receives the authentication failure even if its
-`Content-Type`, idempotency key, and body are also malformed; no command body
-extractor or handler runs. After a valid singleton token, Torii applies
-route-level access/rate policy, then exact `Content-Type` validation, then
-command-header validation, and only then decodes the body.
+credential validation.
 
 Every typed `POST /v1/soracloud/*` operation has its own sealed route-local
 canonical-account boundary. Torii bounds the exact body and authenticates its
@@ -458,6 +457,17 @@ These unsigned observations never authenticate readiness or finality. Every
 response is `no-store`, carries `X-Content-Type-Options: nosniff`, and varies by
 `X-Iroha-Finality-Challenge, Accept`.
 
+For current-tip attestations past H2, the ordinary State-backed producer joins the
+current certificate and H2's genesis execution anchor through every original native
+ancestry frame in one captured State history. It verifies the exact current and H2
+quorums and signed availability; the response does not assert the health of every
+intermediate local quorum witness. The separately returned genesis proof must match
+that exact H2 parent execution. Standalone proof and checkpoint exports retain their
+full-prefix certificate checks. A typed unavailable body or height outside the
+captured native snapshot maps to `FinalityUnavailable`; other original-execution
+rejections map to `ConflictingState`. Neither failure permits startup retries, and
+diagnostic text never determines classification.
+
 Exact committed details use `POST /v1/pipeline/transactions/details`. The body
 is a canonical `SignedQuery` containing `FindTransactions` with exactly one
 `entrypoint_hash` equality predicate and default query parameters and selector.
@@ -525,59 +535,6 @@ schema name.
 Internal wire and consensus types may keep implementation version suffixes.
 Those names do not create nested route versions and do not provide a second
 public response schema.
-
-## KAGEMUSHA operation locality
-
-The top-up command accepts only the canonical versioned Norito encoding of one
-caller-signed `SignedTransaction`. Its effective body limit is the ordinary
-transaction-ingress `torii.max_content_len`; enabling KAGEMUSHA commands
-requires that limit to be at least 32 KiB, and the protocol/configuration upper
-bound remains 64,000,000 bytes. The embedded fixed-shape top-up request is
-independently capped at 16 KiB. Redemption accepts one canonical request and is
-capped at the smaller of `torii.max_content_len` and 8 KiB. A declared or
-streamed body above the effective route limit fails with typed `413`
-`request_payload_too_large` before decoding.
-
-Top-up validation requires the outer transaction and embedded request to name
-the exact runtime `NetworkId`, a valid signature over the canonical nine-field
-transaction payload, exactly one direct native
-`TopUpKagemushaV1` instruction, and transaction authority equal to the embedded
-payer. Torii submits those exact caller-signed bytes through strict durable
-ingress; it neither rebuilds nor signs a top-up. The optional configured issuer
-key is used only to construct redemption transactions.
-
-`Idempotency-Key` is the 64-character lowercase hexadecimal `operation_id`.
-That identifier is globally unique across both operation kinds. An admitted
-binding includes the kind and canonical request digest; top-up additionally
-binds the canonical signed transaction payload/entrypoint hash. Reusing an
-operation ID for another request, kind, or top-up carrier returns
-`409 operation_id_conflict`. The process-local in-flight/admission registry is
-bounded by `operation_registry_max_entries` and
-`operation_registry_max_bytes`; it retains fixed-size bindings rather than
-proof-bearing request objects. A new unique operation fails closed with
-`503 kagemusha_operation_capacity_exhausted` when full.
-
-Before applying mutable snapshot, amount, balance, or signer-readiness policy,
-Torii recovers an existing consensus operation and checks the complete binding.
-It then checks an already-admitted local binding before evaluating those live
-policies for a genuinely new operation. Consequently an exact replay remains
-observable after policy or ledger state changes. Consensus `operation_id`
-uniqueness is the final cross-instance economic-effect guard; pending
-coordination and the bounded registry remain process-local.
-
-The first successful submission of a pending operation, and an exact pending
-POST replay, return `202 Accepted` with the canonical `Location` and a positive
-`Retry-After`. An exact replay whose state is terminal (`Applied` or `Rejected`)
-returns `200 OK` with the same `Location` and no `Retry-After`. The status GET
-returns `200 OK`; pending GET responses retain `Retry-After`. Every response is
-`Cache-Control: no-store`. Top-up does not return `202` until the signed
-transaction has a durable queue-plan admission certificate.
-
-An Applied body is not its own trust anchor. Maintained clients decode POST
-responses into a restricted unverified wrapper that exposes only operation ID,
-kind, lifecycle state, and finality-coordinate hints. They release the monetary
-result only after validation against a caller-pinned finality anchor; polling
-with that anchor remains the trusted terminal-result path.
 
 ## Sharp cutover and release gates
 

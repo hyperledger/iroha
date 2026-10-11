@@ -675,8 +675,8 @@
       "kind": "pop_membership_proof",
       "encoding": "norito",
       "expectation": "valid_structural_only",
-      "byte_length": 459,
-      "sha256": "b0c0a95de3599ecf240ffba3420bc708e604b23ee7954c5d04f1334094d90dd3"
+      "byte_length": 450,
+      "sha256": "9af74a080ec3e8ba20235ce1c4b03879d4749e074c8c8e1b398a919ad3844a02"
     },
     {
       "path": "reference_sdk/pop_membership_missing_binding_v1.to",
@@ -684,8 +684,8 @@
       "kind": "pop_membership_proof",
       "encoding": "norito",
       "expectation": "invalid_missing_presentation_binding",
-      "byte_length": 426,
-      "sha256": "762e8594bb8a9db0ce5f36c810324412a09e40c7a344a47a058d932212448f53"
+      "byte_length": 417,
+      "sha256": "128e62f091c1224cca01fe97efc3ee48d2b8381a54f6a1d5630bd8ceb2424f32"
     },
     {
       "path": "reference_sdk/pop_membership_zero_binding_v1.to",
@@ -693,8 +693,8 @@
       "kind": "pop_membership_proof",
       "encoding": "norito",
       "expectation": "invalid_zero_presentation_binding",
-      "byte_length": 459,
-      "sha256": "9eb0aa32a787209be6db0afb8cfac49e7fe9650c292da40f4fdef3b4dd5a88e3"
+      "byte_length": 450,
+      "sha256": "e6acc673da6338569749121c9f0fdbd65568ad4c2bdeec19af8f5d4dca1220d0"
     },
     {
       "path": "repair/negative/task_manifest_mismatch_v1.json",
@@ -1064,8 +1064,8 @@
       "scenario": "membership_current_structural_only",
       "status": "Ok",
       "code": "SFS-OK-000",
-      "byte_length": 2194,
-      "sha256": "605383a5e1cbd4357b1fa952882bf09ab6194ed513873ae5c48785bcd1cdbc4e"
+      "byte_length": 2183,
+      "sha256": "dea0fac3f6e0f3eb721654215d698fe92d213ca9361687b04114b797b2bcbf12"
     },
     {
       "path": "reference_sdk/pop_membership_missing_binding_v1_validation_outcome.json",
@@ -1082,8 +1082,8 @@
       "scenario": "membership_zero_presentation_binding",
       "status": "Error",
       "code": "SFS-VAL-001",
-      "byte_length": 2480,
-      "sha256": "559bb866a12807589aadf4745c2b1cbcc361993c054ad2758026e0a91c98cc75"
+      "byte_length": 2469,
+      "sha256": "bb37f8dd977fe4f55eac460b66e90ab8ae219a71651e94095da81647e1209c5b"
     }
   ],
   "signature": {
@@ -1091,6 +1091,6 @@
     "key_usage": "test_only_reference_sdk_fixture",
     "public_key_hex": "d5af25e204ad03d0a26e236996404f1be51a60948bcc026cd084a83690b756d3",
     "public_key_fingerprint_sha256": "1a09a6a1b85cec77787ba6ce26f18500a2434865cee04d79c69a481888f52fff",
-    "signature_hex": "51229228fa7ba11d5ba0f6e9456706275f08be963e52f1e4ab30db40e591c22d795160dd1ddc2a205565ed7ecefa978bd72d2e74d7c4afdfcac62e93cf45910d"
+    "signature_hex": "2f809aa17492c1bdd0d1e03d3e36defdca521fe77bdf35f55d1bab3c1b2dddb61b1fcdf2073d59208c13f9e11bad0cd4f78c7e2342749a9b3606cb36a9834d04"
   }
 }

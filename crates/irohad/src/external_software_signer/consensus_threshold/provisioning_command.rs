@@ -3,7 +3,7 @@
 use super::*;
 use crate::beacon_bootstrap::{Directory, FinalityLimitsArgs, read_public_bytes_bounded};
 use clap::Parser;
-use iroha_core::sumeragi::native_journal::{NativeJournalCursor, NativeJournalError};
+use iroha_core::sumeragi::native_journal::NativeJournalError;
 use iroha_core::validator_committee_evidence::{
     COMMITTEE_PROVISIONING_EVIDENCE_MAX_BYTES_V1, ValidatorCommitteeProvisioningEvidenceError,
     ValidatorCommitteeProvisioningEvidenceV1, verify_validator_committee_provisioning_evidence_v1,
@@ -179,13 +179,6 @@ fn run(args: Args) -> Result<(), PreparationError> {
         .map_err(|_| "invalid chain identifier")?;
     let credential_max_memory_bytes = args.credential_max_memory_bytes.get();
     let credential_budget = AllocationBudget::new(credential_max_memory_bytes);
-    let cursor = NativeJournalCursor::new(
-        chain_id.clone(),
-        args.network_id,
-        iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        limits,
-        &credential_budget,
-    )?;
     let transition_id: [u8; 32] = hex::decode(&args.transition_id)
         .map_err(|_| "invalid transition identifier")?
         .try_into()
@@ -205,7 +198,6 @@ fn run(args: Args) -> Result<(), PreparationError> {
         args.target_epoch,
         transition_id,
         limits,
-        cursor.attestations(),
         &credential_budget,
     )?;
     // No private descriptor is opened until every public authorization and target binding passes.
@@ -242,7 +234,7 @@ fn run(args: Args) -> Result<(), PreparationError> {
         .incumbent_authority()
         .validators
         .iter()
-        .position(|seat| seat.validator == args.local_validator)
+        .position(|seat| seat == &args.local_validator)
         .map(|index| u16::try_from(index + 1).map_err(|_| "invalid incumbent index"))
         .transpose()?;
     if incumbent_index.is_some() && binding.is_none() {

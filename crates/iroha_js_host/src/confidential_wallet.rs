@@ -561,7 +561,7 @@ mod tests {
         use iroha_core_zk::ProofRelation;
         let actual = envelope(ConfidentialProof {
             relation: ProofRelation::ConfidentialTransfer,
-            proof: iroha_data_model::proof::ProofBox::new("halo2/ipa".into(), vec![7, 8]),
+            proof: iroha_data_model::proof::ProofBox::new("pipa-r/pasta".into(), vec![7, 8]),
             root: [3; 32],
             nullifiers: vec![[4; 32], [5; 32]],
             output_commitments: vec![[6; 32]],

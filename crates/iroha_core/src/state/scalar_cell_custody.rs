@@ -57,11 +57,8 @@ impl ScalarCellFixtureBlock for Cell<u64, AllocationCharge> {
         let mut original = budget
             .try_reserve_layouts(layouts)
             .expect("fixture scalar writer capacity");
-        let scope = budget
-            .try_owned_refund_scope()
-            .expect("fixture scalar refund scope");
         let mut slot = self
-            .original_acquisition(&scope, &budget, &mut original)
+            .original_acquisition(&budget, &mut original)
             .expect("fixture scalar original pool");
         slot.try_initialize(mv::BlockMode::Ordinary)
             .expect("fixture scalar writer");

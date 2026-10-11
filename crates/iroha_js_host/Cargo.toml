@@ -44,7 +44,6 @@ iroha = { workspace = true }
 iroha_storage_client = { workspace = true }
 kotodama_lang = { workspace = true }
 kaigi_zk = { path = "../kaigi_zk" }
-halo2_proofs = { version = "0.5.1", package = "halo2-axiom", features = ["batch", "multicore", "circuit-params"] }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.4", features = ["fs", "process"] }

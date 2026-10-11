@@ -1,0 +1,96 @@
+name: Native prover instruction-target parity
+
+# Native correctness and retained independent reference coverage after retirement.
+# These correctness jobs do not qualify timing, RSS or physical phones.
+on:
+  pull_request:
+    paths:
+      - "crates/iroha_pasta/**"
+      - "crates/iroha_plonk/**"
+      - "crates/kaigi_zk/**"
+      - "crates/iroha_core_zk/src/lib.rs"
+      - "crates/iroha_kagemusha_proof/src/lib.rs"
+      - "crates/sorafs_manifest/src/lib.rs"
+      - "crates/connect_norito_bridge/src/lib.rs"
+      - "crates/iroha_allocation/**"
+      - "crates/iroha_audio/**"
+      - "crates/iroha_derive*/**"
+      - "crates/iroha_schema*/**"
+      - "crates/norito*/**"
+      - "vendor/**"
+      - "fixtures/native_prover/**"
+      - "fixtures/poseidon/**"
+      - "scripts/check_poseidon_reference.py"
+      - "pytests/scripts/poseidon_reference_test.py"
+      - "pytests/scripts/native_prover_reference_test.py"
+      - "specs/plonk_ipa_v1.md"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - "scripts/tests/native_prover_retirement_source_test.py"
+      - ".github/workflows/native_prover_parity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-prover-parity-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  independent-reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+      - name: Verify every full proof with the standard library alone
+        run: python3 -I -B -S fixtures/native_prover/verify_reference_v1.py
+      - name: Install the test runner only
+        run: python3 -m pip install --disable-pip-version-check pytest==9.0.3
+      - name: Exercise independent proof, parser and decision mutations
+        run: python3 -B -m pytest -q pytests/scripts/native_prover_reference_test.py pytests/scripts/poseidon_reference_test.py
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+          target: ${{ matrix.target }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+      - name: Check complete proof-stack retirement
+        run: |
+          python3 -I -B scripts/tests/native_prover_retirement_source_test.py
+          python3 -I -B scripts/check_no_vendored_halo2.py
+      - name: Run native arithmetic, proof, captured transcript and mutation suites
+        shell: bash
+        run: |
+          mkdir -p target/qualification/native-prover/${{ matrix.target }}
+          cargo test --release --locked --target '${{ matrix.target }}' -p iroha_pasta -p iroha_plonk --lib -- --test-threads=2 2>&1 | tee target/qualification/native-prover/${{ matrix.target }}/native.log
+          cargo test --release --locked --target '${{ matrix.target }}' -p iroha_plonk --lib pcs::ipa::commit::tests::glv_path_matches_the_unsigned_path_on_random_inputs -- --ignored --exact --test-threads=1 2>&1 | tee target/qualification/native-prover/${{ matrix.target }}/glv.log
+          cargo test --release --locked --target '${{ matrix.target }}' -p iroha_plonk --doc 2>&1 | tee target/qualification/native-prover/${{ matrix.target }}/public-api.log
+      - name: Retain native test records
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-prover-${{ matrix.target }}-${{ github.run_id }}
+          path: target/qualification/native-prover/${{ matrix.target }}
+          if-no-files-found: error
+          retention-days: 14

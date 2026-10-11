@@ -1,15 +1,18 @@
 //! The relation checks in the strict constraint checker, on every relation
-//! shape: `sigma_send` without and with the blacklist control, `sigma_recv`,
-//! and both Poseidon prefix modes (the analogue of M7's two Poseidon
-//! backends: two different circuits computing identical digests).
+//! shape of the k12 class: `sigma_send` without a control, with the
+//! blacklist control and with the lease control, `sigma_recv` without and
+//! with the blacklist bit, and both Poseidon prefix modes (the analogue of
+//! M7's two Poseidon backends: two different circuits computing identical
+//! digests). The quota relations are covered by `tests/controls.rs`.
 //!
-//! - The 20 range-check cases (`RELATION_CASES`): each honest witness is
+//! - The 30 range-check cases (`RELATION_CASES`): each honest witness is
 //!   accepted; an overdraft, a balance that covers `amount + fee` only while
 //!   ignoring the lineage `burned_total`, a newer Request policy epoch, an
 //!   accepted time below the floor, a blacklist older than the maximum age
-//!   or issued after the accepted upper time, and a `u128` overflow are
-//!   rejected, and every rejection is a limb lookup of a range check (the
-//!   relation's checked arithmetic), never a digest or copy mismatch.
+//!   or issued after the accepted upper time, a Send at the lease expiry
+//!   and a `u128` overflow are rejected, and every rejection is a limb
+//!   lookup of a range check (the relation's checked arithmetic), never a
+//!   digest or copy mismatch.
 //! - Every other relation rule, broken alone, is rejected, and the integer
 //!   boundaries are accepted exactly up to the limit, on all six shapes.
 //! - A wrong public input is rejected by the instance copy.
@@ -23,12 +26,14 @@
 mod common;
 
 use common::{
-    CHECK_SEED, RELATION_CASES, RELATION_CHECK_CASES, SEND_BLACKLIST, case_label, check_witness,
-    check_witness_of, folded, relation_shapes, smallest_shape,
+    CHECK_SEED, RECEIVE_BLACKLIST, RELATION_CASES, RELATION_CHECK_CASES, SEND_BLACKLIST,
+    case_label, check_witness, check_witness_of, folded, relation_shapes, smallest_shape,
 };
+use ff::PrimeField;
 use iroha_kagemusha_proof::{
-    CONTROL_BLACKLIST, LIFECYCLE_RETIRING, Mutation, RelationShape, SigmaCircuit, SigmaRelation,
-    StepInputs, StepRelation, StepWitness, Violation, sample_witness,
+    CONTROL_ATTESTATION_LEASE, CONTROL_BLACKLIST, CONTROL_QUOTAS, LIFECYCLE_RETIRING, Mutation,
+    RelationShape, SigmaCircuit, SigmaRelation, StepInputs, StepRelation, StepWitness, Violation,
+    sample_witness,
 };
 use iroha_pasta::{Fp, Fq, poseidon::PoseidonField};
 use iroha_plonk::check::CheckFailure;
@@ -45,6 +50,10 @@ const fn expected_violation(mutation: Mutation) -> Option<Violation> {
         Mutation::SelfPayment => Some(Violation::SelfPayment),
         Mutation::ControlsMismatch => Some(Violation::ControlsMismatch),
         Mutation::StaleBlacklist | Mutation::FutureBlacklist => Some(Violation::BlacklistTooOld),
+        Mutation::Listed => Some(Violation::BlacklistListed),
+        Mutation::LeaseExpired => Some(Violation::LeaseExpired),
+        Mutation::QuotaExceeded => Some(Violation::QuotaExceeded),
+        Mutation::QuotaUntouched => Some(Violation::QuotaKindUntouched),
     }
 }
 
@@ -104,7 +113,7 @@ fn relation_checks_in_the_constraint_checker() {
 }
 
 #[test]
-#[ignore = "the 20 cases on the Pallas scalar field; run in release"]
+#[ignore = "the 30 cases on the Pallas scalar field; run in release"]
 fn relation_checks_on_the_other_field() {
     assert_eq!(relation_checks::<Fq>(), RELATION_CHECK_CASES);
 }
@@ -247,7 +256,7 @@ fn send_boundary_edits() -> Vec<(&'static str, Edit)> {
 /// Rule edits of the blacklist control's maximum-age rule (on the
 /// blacklist relation only; the relation without the control accepts them
 /// unless they also change its mask).
-fn blacklist_rule_edits() -> Vec<(&'static str, Vec<Violation>, Edit)> {
+fn blacklist_age_edits() -> Vec<(&'static str, Vec<Violation>, Edit)> {
     vec![
         (
             "one millisecond too old",
@@ -276,6 +285,67 @@ fn blacklist_rule_edits() -> Vec<(&'static str, Vec<Violation>, Edit)> {
             },
         ),
     ]
+}
+
+/// Rule edits of the blacklist control's gap opening (on the relations with
+/// the control): the counterparty's account at the gap's lower bound.
+fn blacklist_gap_edits() -> Vec<(&'static str, Vec<Violation>, Edit)> {
+    vec![
+        (
+            "the counterparty's account is the gap's lower bound",
+            vec![Violation::BlacklistListed],
+            |w| match &mut w.inputs {
+                StepInputs::Send(send) => send.receiver_account_digest = send.blacklist.lower,
+                StepInputs::Receive(receive) => {
+                    receive.payer_account_digest = receive.blacklist.lower;
+                }
+            },
+        ),
+        (
+            "another gap leaf index",
+            vec![Violation::BlacklistListed],
+            |w| match &mut w.inputs {
+                StepInputs::Send(send) => send.blacklist.leaf_index ^= 1,
+                StepInputs::Receive(receive) => receive.blacklist.leaf_index ^= 1,
+            },
+        ),
+    ]
+}
+
+/// Edits of the relations with the blacklist control that stay honest:
+/// no list held refuses no account (owner answer A5).
+fn blacklist_gap_boundary_edits() -> Vec<(&'static str, Edit)> {
+    vec![("the list source follows the step", |w| {
+        w.predecessor.core.controls.blacklist_version = 0;
+        match &mut w.inputs {
+            StepInputs::Send(send) => send.receiver_account_digest = send.blacklist.lower,
+            StepInputs::Receive(_) => {
+                // The recorded Request list and opening remain authoritative
+                // after the current list is dropped.
+                w.predecessor.core.controls.enabled = 0;
+            }
+        }
+    })]
+}
+
+/// Rule edits of the lease control: a Send at the lease expiry.
+fn lease_rule_edits() -> Vec<(&'static str, Vec<Violation>, Edit)> {
+    vec![(
+        "the upper time at the lease expiry",
+        vec![Violation::LeaseExpired],
+        |w| {
+            let upper = send_inputs(w).accepted_upper;
+            w.predecessor.core.controls.lease_expires_at_ms = upper;
+        },
+    )]
+}
+
+/// Edits of the lease relation at the limit that stay honest.
+fn lease_boundary_edits() -> Vec<(&'static str, Edit)> {
+    vec![("the upper time one before the lease expiry", |w| {
+        let upper = send_inputs(w).accepted_upper;
+        w.predecessor.core.controls.lease_expires_at_ms = upper + 1;
+    })]
 }
 
 /// Edits of the blacklist relation at the age limits that stay honest.
@@ -311,6 +381,17 @@ fn blacklist_boundary_edits() -> Vec<(&'static str, Edit)> {
 /// Rule edits of `sigma_recv`.
 fn receive_rule_edits() -> Vec<(&'static str, Vec<Violation>, Edit)> {
     vec![
+        (
+            "the Request blacklist version does not match the relation",
+            vec![Violation::ControlsMismatch],
+            |w| {
+                let version = receive_inputs(w).request.receiver_blacklist_version;
+                let root = w.predecessor.core.controls.blacklist_root.to_repr();
+                let terms = &mut receive_inputs(w).request;
+                terms.receiver_blacklist_version = u64::from(version == 0);
+                terms.receiver_blacklist_root = if version == 0 { root } else { [0; 32] };
+            },
+        ),
         ("lifecycle", vec![Violation::Lifecycle], |w| {
             w.predecessor.core.lifecycle = 0;
         }),
@@ -341,9 +422,10 @@ fn receive_boundary_edits() -> Vec<(&'static str, Edit)> {
         ("sequence = 2^128 - 2", |w| {
             w.predecessor.core.sequence = u128::MAX - 1;
         }),
-        ("controls enabled", |w| {
-            // A Receive carries the mask; only Send enforces it.
-            w.predecessor.core.controls.enabled = CONTROL_BLACKLIST;
+        ("other controls enabled", |w| {
+            // A Receive is selected by its Request snapshot; the current
+            // mask controls only subsequent Sends.
+            w.predecessor.core.controls.enabled |= CONTROL_QUOTAS | CONTROL_ATTESTATION_LEASE;
         }),
         ("a Retiring receiver", |w| {
             w.predecessor.core.lifecycle = LIFECYCLE_RETIRING;
@@ -365,13 +447,29 @@ fn rule_sweep(relation: RelationShape) -> usize {
         StepRelation::Send => (send_rule_edits(), send_boundary_edits()),
         StepRelation::Receive => (receive_rule_edits(), receive_boundary_edits()),
     };
+    let is_send = case.step() == StepRelation::Send;
     if case.enforces(CONTROL_BLACKLIST) {
-        rules.extend(blacklist_rule_edits());
-        boundaries.extend(blacklist_boundary_edits());
-    } else if case.step() == StepRelation::Send {
+        rules.extend(blacklist_gap_edits());
+        boundaries.extend(blacklist_gap_boundary_edits());
+        if is_send {
+            rules.extend(blacklist_age_edits());
+            boundaries.extend(blacklist_boundary_edits());
+        }
+    } else if is_send {
         // Without the control, the age rule's rejections are honest.
         boundaries.extend(
-            blacklist_rule_edits()
+            blacklist_age_edits()
+                .into_iter()
+                .map(|(name, _, edit)| (name, edit)),
+        );
+    }
+    if case.enforces(CONTROL_ATTESTATION_LEASE) {
+        rules.extend(lease_rule_edits());
+        boundaries.extend(lease_boundary_edits());
+    } else if is_send {
+        // Without the control, a Send at the lease expiry is honest.
+        boundaries.extend(
+            lease_rule_edits()
                 .into_iter()
                 .map(|(name, _, edit)| (name, edit)),
         );
@@ -421,8 +519,15 @@ fn every_relation_rule_is_enforced_on_every_shape() {
     let checks: usize = relation_shapes().into_iter().map(rule_sweep).sum();
     println!("M12_RULES checks={checks}");
     // Per prefix mode: sigma_send 13 rules + 7 boundaries + 3 unenforced age
-    // edits; with the blacklist control 16 + 12; sigma_recv 5 + 5.
-    assert_eq!(checks, 2 * ((13 + 7 + 3) + (16 + 12) + (5 + 5)));
+    // edits + 1 unenforced lease edit; with the blacklist control 13 + 2
+    // gap + 3 age rules, 7 + 1 gap + 5 age boundaries and the lease edit;
+    // with the lease control 13 + 1 rules, 7 + 1 boundaries and the 3 age
+    // edits; sigma_recv 6 + 5; with the blacklist bit 6 + 2 rules and 5 + 1
+    // boundaries.
+    assert_eq!(
+        checks,
+        2 * ((13 + 7 + 3 + 1) + (18 + 13 + 1) + (14 + 8 + 3) + (6 + 5) + (8 + 6))
+    );
 }
 
 #[test]
@@ -464,6 +569,21 @@ fn rule_failures_have_their_kinds() {
     let mut unmasked = check_witness_of(SEND_BLACKLIST, Mutation::None);
     unmasked.predecessor.core.controls.enabled = 0;
     let report = check_witness(&blacklist, &unmasked);
+    assert!(
+        report
+            .failures()
+            .iter()
+            .any(|failure| matches!(failure, CheckFailure::CopyMismatch { .. }))
+    );
+    // The Receive blacklist relation refuses a Request recording no list
+    // (the derived selector's constant copy).
+    let receive_blacklist = smallest_shape(folded(RECEIVE_BLACKLIST));
+    let mut cleared = check_witness_of(RECEIVE_BLACKLIST, Mutation::None);
+    receive_inputs(&mut cleared)
+        .request
+        .receiver_blacklist_version = 0;
+    receive_inputs(&mut cleared).request.receiver_blacklist_root = [0; 32];
+    let report = check_witness(&receive_blacklist, &cleared);
     assert!(
         report
             .failures()

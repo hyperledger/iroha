@@ -20,7 +20,7 @@ public sealed partial class ToriiClientTests
     {
         var vkBytes = "abc"u8.ToArray();
         var expectedVkBytes = vkBytes.ToArray();
-        var commitmentHex = VerifyingKeyCommitmentHex("halo2/ipa", expectedVkBytes);
+        var commitmentHex = VerifyingKeyCommitmentHex("pipa-r/pasta", expectedVkBytes);
         using var handler = new RecordingHandler(request =>
         {
             Assert.Equal("/v1/zk/vk/register", request.RequestUri!.AbsolutePath);
@@ -28,7 +28,7 @@ public sealed partial class ToriiClientTests
             var root = body.RootElement;
             Assert.Equal(VerifyingKeyAuthorityAccountId, root.GetProperty("authority").GetString());
             Assert.False(root.TryGetProperty("private_key", out _));
-            Assert.Equal("halo2/ipa", root.GetProperty("backend").GetString());
+            Assert.Equal("pipa-r/pasta", root.GetProperty("backend").GetString());
             Assert.Equal("vk_main", root.GetProperty("name").GetString());
             Assert.Equal(1u, root.GetProperty("version").GetUInt32());
             Assert.Equal(new string('a', 64), root.GetProperty("public_inputs_schema_hash_hex").GetString());
@@ -43,12 +43,12 @@ public sealed partial class ToriiClientTests
         var registerRequest = new ToriiVerifyingKeyRegisterRequest
         {
             Authority = VerifyingKeyAuthorityAccountId,
-            Backend = "halo2/ipa",
+            Backend = "pipa-r/pasta",
             Name = "vk_main",
             Version = 1,
-            CircuitId = "halo2/ipa::transfer_v1",
+            CircuitId = "pipa-r/pasta/confidential-transfer-v1",
             PublicInputsSchemaHashHex = "0x" + new string('A', 64),
-            GasScheduleId = "halo2_default",
+            GasScheduleId = "native_default",
             VerifyingKeyBytes = vkBytes,
             CommitmentHex = commitmentHex.ToUpperInvariant(),
             Status = "active",
@@ -70,7 +70,7 @@ public sealed partial class ToriiClientTests
     {
         var vkBytes = "abcd"u8.ToArray();
         var expectedVkBytes = vkBytes.ToArray();
-        var commitmentHex = VerifyingKeyCommitmentHex("halo2/ipa", expectedVkBytes);
+        var commitmentHex = VerifyingKeyCommitmentHex("pipa-r/pasta", expectedVkBytes);
         var expectedDraftRequest = ValidVerifyingKeyUpdateRequest() with
         {
             GasScheduleId = null,
@@ -83,7 +83,7 @@ public sealed partial class ToriiClientTests
             var root = body.RootElement;
             Assert.Equal(VerifyingKeyAuthorityAccountId, root.GetProperty("authority").GetString());
             Assert.False(root.TryGetProperty("private_key", out _));
-            Assert.Equal("halo2/ipa", root.GetProperty("backend").GetString());
+            Assert.Equal("pipa-r/pasta", root.GetProperty("backend").GetString());
             Assert.Equal("vk_main", root.GetProperty("name").GetString());
             Assert.Equal(2u, root.GetProperty("version").GetUInt32());
             Assert.Equal(new string('b', 64), root.GetProperty("public_inputs_schema_hash_hex").GetString());
@@ -99,10 +99,10 @@ public sealed partial class ToriiClientTests
         var updateRequest = new ToriiVerifyingKeyUpdateRequest
         {
             Authority = VerifyingKeyAuthorityAccountId,
-            Backend = "halo2/ipa",
+            Backend = "pipa-r/pasta",
             Name = "vk_main",
             Version = 2,
-            CircuitId = "halo2/ipa::transfer_v2",
+            CircuitId = "pipa-r/pasta/confidential-transfer-v1",
             PublicInputsSchemaHashHex = "0x" + new string('B', 64),
             VerifyingKeyBytes = vkBytes,
             CommitmentHex = commitmentHex.ToUpperInvariant(),
@@ -131,11 +131,11 @@ public sealed partial class ToriiClientTests
             new Uri("https://torii.example"),
             new HttpClient(handler));
 
-        using var response = await client.GetVerifyingKeyAsync("halo2/ipa", "vk_main", cancellationToken: TestContext.Current.CancellationToken);
+        using var response = await client.GetVerifyingKeyAsync("pipa-r/pasta", "vk_main", cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.Equal("halo2/ipa", response.RootElement.GetProperty("id").GetProperty("backend").GetString());
+        Assert.Equal("pipa-r/pasta", response.RootElement.GetProperty("id").GetProperty("backend").GetString());
         Assert.Equal("Active", response.RootElement.GetProperty("record").GetProperty("status").GetString());
-        Assert.Contains("/v1/zk/vk/halo2%2Fipa/vk_main", handler.LastRequest!.RequestUri!.AbsoluteUri);
+        Assert.Contains("/v1/zk/vk/pipa-r%2Fpasta/vk_main", handler.LastRequest!.RequestUri!.AbsoluteUri);
     }
 
     [Fact]
@@ -148,10 +148,10 @@ public sealed partial class ToriiClientTests
             client.UpdateVerifyingKeyAsync(new ToriiVerifyingKeyUpdateRequest
             {
                 Authority = VerifyingKeyAuthorityAccountId,
-                Backend = "halo2/ipa",
+                Backend = "pipa-r/pasta",
                 Name = "vk_main",
                 Version = 2,
-                CircuitId = "halo2/ipa::transfer_v2",
+                CircuitId = "pipa-r/pasta/confidential-transfer-v1",
                 PublicInputsSchemaHashHex = new string('b', 64),
                 VerifyingKeyBytes = "abc"u8.ToArray(),
                 CommitmentHex = new string('0', 64),
@@ -166,7 +166,7 @@ public sealed partial class ToriiClientTests
         yield return new object?[]
         {
             "id.backend",
-            VerifyingKeyDetailResponseJson("id.backend", " halo2/ipa"),
+            VerifyingKeyDetailResponseJson("id.backend", " pipa-r/pasta"),
             "surrounding whitespace",
         };
         yield return new object?[]
@@ -186,7 +186,7 @@ public sealed partial class ToriiClientTests
         yield return new object?[]
         {
             "record.circuit_id",
-            VerifyingKeyDetailResponseJson("record.circuit_id", "halo2/ipa::transfer v2"),
+            VerifyingKeyDetailResponseJson("record.circuit_id", "pipa-r/pasta/confidential-transfer v2"),
             "whitespace",
         };
         yield return new object?[]
@@ -223,7 +223,7 @@ public sealed partial class ToriiClientTests
         yield return new object?[]
         {
             "record.gas_schedule_id",
-            VerifyingKeyDetailResponseJson("record.gas_schedule_id", "halo2 default"),
+            VerifyingKeyDetailResponseJson("record.gas_schedule_id", "native default"),
             "whitespace",
         };
         yield return new object?[]
@@ -290,11 +290,11 @@ public sealed partial class ToriiClientTests
             new HttpClient(handler));
 
         var error = await Assert.ThrowsAsync<JsonException>(() =>
-            client.GetVerifyingKeyAsync("halo2/ipa", "vk_main", cancellationToken: TestContext.Current.CancellationToken));
+            client.GetVerifyingKeyAsync("pipa-r/pasta", "vk_main", cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Contains(expectedField, error.Message);
         Assert.Contains(expectedMessage, error.Message);
-        Assert.Contains("/v1/zk/vk/halo2%2Fipa/vk_main", handler.LastRequest!.RequestUri!.AbsoluteUri);
+        Assert.Contains("/v1/zk/vk/pipa-r%2Fpasta/vk_main", handler.LastRequest!.RequestUri!.AbsoluteUri);
     }
 
     public static IEnumerable<object?[]> InvalidVerifyingKeyWriteResponses()
@@ -558,10 +558,10 @@ public sealed partial class ToriiClientTests
         {
             (register with { Authority = " " + VerifyingKeyAuthorityAccountId }, "Authority"),
             (register with { Name = " vk_main" }, "Name"),
-            (register with { CircuitId = "halo2/ipa::transfer v1" }, "CircuitId"),
+            (register with { CircuitId = "pipa-r/pasta/confidential-transfer v1" }, "CircuitId"),
             (register with { PublicInputsSchemaHashHex = "0x " + new string('a', 64) }, "PublicInputsSchemaHashHex"),
             (register with { Curve = " bn254" }, "Curve"),
-            (register with { GasScheduleId = " halo2_default" }, "GasScheduleId"),
+            (register with { GasScheduleId = " native_default" }, "GasScheduleId"),
             (register with { MetadataUriCid = " bafymeta" }, "MetadataUriCid"),
             (register with { VerifyingKeyBytesCid = "bafyvk " }, "VerifyingKeyBytesCid"),
             (register with { CommitmentHex = register.CommitmentHex + " " }, "CommitmentHex"),
@@ -585,10 +585,10 @@ public sealed partial class ToriiClientTests
         {
             (update with { Authority = VerifyingKeyAuthorityAccountId + " " }, "Authority"),
             (update with { Name = "vk_main " }, "Name"),
-            (update with { CircuitId = "halo2/ipa::transfer v2" }, "CircuitId"),
+            (update with { CircuitId = "pipa-r/pasta/confidential-transfer v2" }, "CircuitId"),
             (update with { PublicInputsSchemaHashHex = "0x" + new string('b', 64) + " " }, "PublicInputsSchemaHashHex"),
             (update with { Curve = " bn254" }, "Curve"),
-            (update with { GasScheduleId = "halo2_default " }, "GasScheduleId"),
+            (update with { GasScheduleId = "native_default " }, "GasScheduleId"),
             (update with { MetadataUriCid = "bafymeta " }, "MetadataUriCid"),
             (update with { VerifyingKeyBytesCid = " bafyvk" }, "VerifyingKeyBytesCid"),
             (update with { CommitmentHex = update.CommitmentHex + "\u0001" }, "CommitmentHex"),
@@ -639,7 +639,9 @@ public sealed partial class ToriiClientTests
         var valid = ValidVerifyingKeyRegisterRequest();
         ToriiVerifyingKeyRegisterRequest[] invalid =
         {
+            valid with { Backend = "halo2/ipa" },
             valid with { Backend = " halo2/ipa" },
+            valid with { Backend = " pipa-r/pasta" },
             valid with { Backend = "halo2/ipa/orchard" },
             valid with { Backend = "halo2/\u200Bipa" },
             valid with { Name = "vk:main" },
@@ -661,23 +663,23 @@ public sealed partial class ToriiClientTests
             Assert.Null(handler.LastRequest);
         }
 
-        foreach (var backend in new[] { "halo2/ipa ", "halo2\uFF0Fipa", "mock/dev" })
+        foreach (var backend in new[] { "halo2/ipa", "halo2/ipa ", "pipa-r/pasta ", "halo2\uFF0Fipa", "mock/dev" })
         {
             await Assert.ThrowsAnyAsync<ArgumentException>(() => client.GetVerifyingKeyAsync(backend, "vk_main", cancellationToken: TestContext.Current.CancellationToken));
             Assert.Null(handler.LastRequest);
         }
 
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => client.GetVerifyingKeyAsync("halo2/ipa", " vk_main", cancellationToken: TestContext.Current.CancellationToken));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => client.GetVerifyingKeyAsync("pipa-r/pasta", " vk_main", cancellationToken: TestContext.Current.CancellationToken));
         Assert.Null(handler.LastRequest);
 
         await Assert.ThrowsAnyAsync<ArgumentException>(() =>
             client.UpdateVerifyingKeyAsync(new ToriiVerifyingKeyUpdateRequest
             {
                 Authority = VerifyingKeyAuthorityAccountId,
-                Backend = "halo2/ipa",
+                Backend = "pipa-r/pasta",
                 Name = "vk_main",
                 Version = 2,
-                CircuitId = "halo2/ipa::transfer_v2",
+                CircuitId = "pipa-r/pasta/confidential-transfer-v1",
                 PublicInputsSchemaHashHex = new string('b', 64),
                 MaxProofBytes = 0,
                 CommitmentHex = new string('c', 64),
@@ -688,10 +690,10 @@ public sealed partial class ToriiClientTests
             client.UpdateVerifyingKeyAsync(new ToriiVerifyingKeyUpdateRequest
             {
                 Authority = VerifyingKeyAuthorityAccountId,
-                Backend = "halo2/ipa",
+                Backend = "pipa-r/pasta",
                 Name = "vk_main",
                 Version = 2,
-                CircuitId = "halo2/ipa::transfer_v2",
+                CircuitId = "pipa-r/pasta/confidential-transfer-v1",
                 PublicInputsSchemaHashHex = new string('b', 64),
                 ActivationHeight = 10,
                 WithdrawHeight = 9,

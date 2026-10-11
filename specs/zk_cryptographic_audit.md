@@ -1200,18 +1200,17 @@ cargo test -p iroha_zkp_halo2
 cargo test -p fastpq_prover
 ```
 
-The broad `zk::` library slice keeps heavyweight KAGEMUSHA V1 non-native
-MockProver subtests behind `#[ignore]`; run those explicitly with `--ignored`
-when circuit-synthesis evidence is required. The default slice still exercises
-the fast builder, preflight, public-input substitution, transcript, range, and
-metadata-binding negative paths.
+The broad `zk::` library slice exercises the fast builder, preflight,
+public-input substitution, transcript, range, and metadata-binding negative
+paths. The heavyweight KAGEMUSHA V1 MockProver subtests were deleted with the
+old KAGEMUSHA circuits on 2026-10-05.
 
 Audit-driven regression coverage includes the retired ZK-ACE trust-flag
 bypass, diagnostic success not creating ledger proof records, continued
 backend-label rejection, compiled-profile substitution, typed-statement
 mutation, governed-policy drift, and malformed dedicated STARK proofs.
-Additional trust-boundary regressions cover tampered KAGEMUSHA V1 and
-confidential-transfer proofs when committed-result trust is set. Add further
+Additional trust-boundary regressions cover tampered confidential-transfer
+proofs when committed-result trust is set. Add further
 regressions only for newly confirmed gaps.
 
 ## Conclusion

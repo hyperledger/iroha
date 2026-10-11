@@ -16,12 +16,6 @@ fastpq_isi = { path = "../../fastpq_isi" }
 [workspace]
 members = ["."]
 
-# This nested workspace does not inherit the repository root's patches. Keep
-# FastPQ fuzzing on the same reviewed Halo2 sources as normal workspace builds.
-[patch.crates-io]
-halo2-axiom = { path = "../../../vendor/halo2-axiom" }
-halo2curves-axiom = { path = "../../../vendor/halo2curves-axiom" }
-
 [[bin]]
 name = "trace_builder"
 path = "fuzz_targets/trace_builder.rs"

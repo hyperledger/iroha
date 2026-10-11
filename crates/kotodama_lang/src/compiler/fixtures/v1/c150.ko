@@ -1,6 +1,6 @@
 
-seiyaku Test {
-  kotoage fn mint(NftId nft, AccountId owner) authorize("NftAuthority") {
+seiyaku Test { permission NftAuthority;
+  kotoage fn mint(NftId nft, AccountId owner) authorize(NftAuthority) {
     ledger::nft::mint(nft: nft, owner: owner);
   }
 }

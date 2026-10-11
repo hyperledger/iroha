@@ -1133,6 +1133,37 @@ final class ToriiCollectionClientTests: XCTestCase {
         XCTAssertEqual(transaction.metadata["k"], .number(1))
     }
 
+    func testDirectAssetDefinitionHomesPreserveExactUnsignedIdentity() throws {
+        let decoder = JSONDecoder()
+        for home in ["1", "9007199254740993", "8648377547929788715", "18446744073709551615"] {
+            let definition = try decoder.decode(ToriiAssetDefinition.self, from: Data(#"{"id":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM","owning_domain":null,"owning_dataspace":"\#(home)"}"#.utf8))
+            XCTAssertEqual(definition.owningDataspace, home)
+            XCTAssertNil(definition.owningDomain)
+        }
+        for row in [
+            #"{"id":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM"}"#,
+            #"{"id":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM","owning_domain":null,"owning_dataspace":null}"#,
+            #"{"id":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM","owning_domain":"treasury.bpng","owning_dataspace":null}"#,
+        ] {
+            let definition = try decoder.decode(ToriiAssetDefinition.self, from: Data(row.utf8))
+            XCTAssertNil(definition.owningDataspace)
+        }
+        let selected = try decoder.decode(ToriiAssetDefinition.self, from: Data(#"{"id":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM","owning_dataspace":"7"}"#.utf8))
+        XCTAssertEqual(selected.owningDataspace, "7", "selected rows need not repeat an absent domain field")
+        XCTAssertNil(selected.owningDomain)
+    }
+
+    func testDirectAssetDefinitionHomesRejectNoncanonicalAndConflictingValues() throws {
+        let decoder = JSONDecoder()
+        for home in ["0", "00", "01", "18446744073709551616", "184467440737095516150", "", "+1", "-1", "1.0", "1e0", " 1", "1 ", "１"] {
+            XCTAssertThrowsError(try decoder.decode(ToriiAssetDefinition.self, from: Data(#"{"id":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM","owning_dataspace":"\#(home)"}"#.utf8)), home)
+        }
+        for home in ["0", "7", "9007199254740992", "true", "{}", "[]"] {
+            XCTAssertThrowsError(try decoder.decode(ToriiAssetDefinition.self, from: Data(#"{"id":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM","owning_dataspace":\#(home)}"#.utf8)), home)
+        }
+        XCTAssertThrowsError(try decoder.decode(ToriiAssetDefinition.self, from: Data(#"{"id":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM","owning_domain":"treasury.bpng","owning_dataspace":"7"}"#.utf8)))
+    }
+
     func testOnlyIdentityFieldsAreRequired() throws {
         let decoder = JSONDecoder()
         let domain = try decoder.decode(ToriiDomain.self, from: Data(#"{"id":"wonderland","owned_by":null}"#.utf8))
@@ -1141,6 +1172,8 @@ final class ToriiCollectionClientTests: XCTestCase {
         let definition = try decoder.decode(ToriiAssetDefinition.self, from: Data(#"{"id":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM","alias_binding":{"alias":null}}"#.utf8))
         XCTAssertNil(definition.name)
         XCTAssertNil(definition.mintable)
+        XCTAssertNil(definition.owningDomain)
+        XCTAssertNil(definition.owningDataspace)
         XCTAssertNil(definition.aliasBinding?.boundAtMs)
         let rwa = try decoder.decode(ToriiRwa.self, from: Data(#"{"id":"lot-1","quantity":null}"#.utf8))
         XCTAssertNil(rwa.quantity)
@@ -1509,23 +1542,23 @@ final class ToriiEventDecodingTests: XCTestCase {
     func testProofEventsDecode() throws {
         let hash = String(repeating: "a", count: 64)
         let verified = try decode("""
-        {"category":"Data","event":"ProofVerified","backend":"halo2/ipa","proof_hash":"\(hash)","call_hash":null,
-         "envelope_hash":null,"vk_ref":"halo2/ipa::vk_main","vk_commitment":null}
+        {"category":"Data","event":"ProofVerified","backend":"pipa-r/pasta","proof_hash":"\(hash)","call_hash":null,
+         "envelope_hash":null,"vk_ref":"pipa-r/pasta::vk_main","vk_commitment":null}
         """)
         XCTAssertEqual(verified, .proof(.verified(ToriiProofEventBody(
-            id: ToriiProofId(backend: "halo2/ipa", proofHashHex: hash),
-            verifyingKeyRef: "halo2/ipa::vk_main"
+            id: ToriiProofId(backend: "pipa-r/pasta", proofHashHex: hash),
+            verifyingKeyRef: "pipa-r/pasta::vk_main"
         ))))
         XCTAssertEqual(verified.name, "ProofVerified")
         guard case let .proof(.pruned(pruned)) = try decode("""
-        {"category":"Data","event":"ProofPruned","backend":"halo2/ipa","removed_count":0,"remaining":4,"cap":4,
+        {"category":"Data","event":"ProofPruned","backend":"pipa-r/pasta","removed_count":0,"remaining":4,"cap":4,
          "grace_blocks":0,"prune_batch":8,"pruned_at_height":2,"pruned_by":"a","origin":"Scheduled","removed":[]}
         """) else {
             return XCTFail("expected a pruning event")
         }
         XCTAssertEqual(pruned.origin, .other("Scheduled"))
         XCTAssertEqual(pruned.removed, [])
-        XCTAssertThrowsError(try decode(#"{"category":"Data","event":"ProofRejected","backend":"halo2/ipa"}"#))
+        XCTAssertThrowsError(try decode(#"{"category":"Data","event":"ProofRejected","backend":"pipa-r/pasta"}"#))
     }
 
     func testUnknownEventsDoNotFailTheStream() throws {
@@ -1554,7 +1587,7 @@ final class ToriiEventDecodingTests: XCTestCase {
     func testProofFilterMatchesPrunedEventsLikeTorii() throws {
         let removedHash = String(repeating: "e", count: 64)
         let pruned = ToriiProofEvent.pruned(ToriiProofPrunedEvent(
-            backend: "halo2/ipa",
+            backend: "pipa-r/pasta",
             removedCount: 1,
             remaining: 0,
             cap: 1,
@@ -1563,10 +1596,10 @@ final class ToriiEventDecodingTests: XCTestCase {
             prunedAtHeight: 3,
             prunedBy: "a",
             origin: .manual,
-            removed: [ToriiProofId(backend: "halo2/ipa", proofHashHex: removedHash)]
+            removed: [ToriiProofId(backend: "pipa-r/pasta", proofHashHex: removedHash)]
         ))
         XCTAssertTrue(ToriiProofEventFilter().matches(pruned))
-        XCTAssertTrue(ToriiProofEventFilter(backend: "halo2/ipa", proofHashHex: removedHash).matches(pruned))
+        XCTAssertTrue(ToriiProofEventFilter(backend: "pipa-r/pasta", proofHashHex: removedHash).matches(pruned))
         XCTAssertFalse(ToriiProofEventFilter(proofHashHex: String(repeating: "f", count: 64)).matches(pruned))
         XCTAssertFalse(ToriiProofEventFilter(callHashHex: removedHash).matches(pruned))
         XCTAssertFalse(ToriiProofEventFilter(includePruned: false).matches(pruned))

@@ -161,13 +161,19 @@ fn fixed_byte_array_decode_reports_prefix_used() {
         decode_field_canonical::<[u8; 4]>(&with_tail),
         Err(Error::LengthMismatch)
     ));
+    let decode_raw = |bytes: &[u8]| {
+        let _context = PayloadCtxGuard::enter(bytes);
+        let mut used = 0;
+        let decoded = decode_context_byte_array::<4>(bytes.as_ptr(), &mut used)?;
+        finish_context_fields(bytes.as_ptr(), used)?;
+        Ok::<_, Error>((decoded, used))
+    };
     assert_eq!(
-        <[u8; 4] as DecodeFromSlice>::decode_from_slice(&value)
-            .expect("decode raw fixed byte-array field"),
+        decode_raw(&value).expect("decode explicit raw fixed byte-array field"),
         (value, value.len())
     );
     assert!(matches!(
-        <[u8; 4] as DecodeFromSlice>::decode_from_slice(&value[..3]),
+        decode_raw(&value[..3]),
         Err(Error::LengthMismatch)
     ));
     reset_decode_state();
@@ -976,6 +982,8 @@ fn decode_field_canonical_handles_misaligned_payload() {
     assert_eq!(decoded, value);
     assert_eq!(used, encoded.len());
 }
+#[path = "borrowed_field_framing_tests.rs"]
+mod borrowed_field_framing_tests;
 #[path = "prepared_slice_prefix_tests.rs"]
 mod prepared_slice_prefix_tests;
 

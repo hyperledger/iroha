@@ -15,20 +15,9 @@ fn account_from_public_key(public_key: &str) -> AccountId {
     AccountId::new(public_key.parse().expect("public key must be valid"))
 }
 fn resolve_state_value(host: &WsvHost, base: &Name, key: i64) -> Option<Vec<u8>> {
-    let key = ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(
-        i128::from(key),
-    ))
-    .expect("encode canonical pointer-backed StateMap key");
+    let key = common::encode_int_state_value(key);
     let expected_path = format!("{}/{}", base.as_ref(), hex::encode(key));
-    if let Some(bytes) = host.wsv.sc_get(&expected_path) {
-        return Some(bytes.to_vec());
-    }
-    // Namespace sentinel (0x01 + seven zero bytes) used by durable map helpers.
-    let namespaced_path = format!("{}\0\0\0\0\0\0\0{}", char::from(0x01), expected_path);
-    if let Some(bytes) = host.wsv.sc_get(&namespaced_path) {
-        return Some(bytes.to_vec());
-    }
-    None
+    host.wsv.sc_get(&expected_path)
 }
 #[test]
 fn pointer_map_default_roundtrip() {
@@ -81,10 +70,10 @@ fn pointer_asset_state_storage_wraps_inner_pointer() {
     const ASSET_DEFINITION: &str = "62Fk4FPcMuLvW5QjDGNF2a4jAmjM";
     let src = format!(
         r#"
-        seiyaku PointerAssetStorage {{
+        seiyaku PointerAssetStorage {{ permission WriteState;
             state StateMap<int, AssetDefinitionId> Assets;
 
-            kotoage fn main() authorize("WriteState") {{
+            kotoage fn main() authorize(WriteState) {{
                 Assets[7] = AssetDefinitionId::parse("{asset_definition}");
             }}
         }}

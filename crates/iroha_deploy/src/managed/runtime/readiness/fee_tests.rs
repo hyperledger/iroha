@@ -85,57 +85,98 @@ fn all_generated_profiles_select_their_original_bounded_asset_without_services_o
 fn fee_policy_or_peer_identity_substitution_refuses_despite_unchanged_expected_hash() {
     let _guard = crate::managed::native_test_guard();
     let temporary = tempfile::tempdir().unwrap();
-    let ports = LocalnetPorts::reserve().unwrap();
-    let prepared = crate::localnet::prepare_localnet_at(
-        "readiness-substitution",
-        &temporary.path().join("generation"),
-        &ports,
+    for (index, profile) in [
         LocalnetServiceProfile::Standard,
-        None,
-    )
-    .unwrap();
-    let client = prepared.context.load_client_config().unwrap();
-    let root =
-        PrivateDirectory::open_exact(prepared.context.client_config.parent().unwrap()).unwrap();
-    let original = root.read("peer3.toml", 1024 * 1024).unwrap();
-    fees::select(&prepared, &client).unwrap();
-    let mut table = crate::secret_toml::Table::new(
-        crate::secret_toml::parse_table(
-            std::str::from_utf8(&original).unwrap(),
-            "readiness mutation control",
+        LocalnetServiceProfile::StreamTokenAuthorities,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let ports = LocalnetPorts::reserve().unwrap();
+        let prepared = crate::localnet::prepare_localnet_at(
+            "readiness-substitution",
+            &temporary.path().join(format!("generation{index}")),
+            &ports,
+            profile,
+            None,
         )
-        .unwrap(),
-    );
-    table
-        .get_mut("nexus")
-        .unwrap()
-        .get_mut("fees")
-        .unwrap()
-        .as_table_mut()
-        .unwrap()
-        .insert(
-            "per_instruction_fee".into(),
-            toml::Value::String("0".into()),
+        .unwrap();
+        let client = prepared.context.load_client_config().unwrap();
+        let root =
+            PrivateDirectory::open_exact(prepared.context.client_config.parent().unwrap()).unwrap();
+        let original = root.read("peer3.toml", 1024 * 1024).unwrap();
+        let selected = fees::select(&prepared, &client).unwrap();
+        let original_text = std::str::from_utf8(&original).unwrap();
+        let original_config = crate::localnet::parse_localnet_peer_config(
+            original_text,
+            Some(&prepared.peers[3].config_path),
+        )
+        .unwrap();
+        assert!(original_config.nexus.fees.per_instruction_fee > Quantity::zero());
+        assert_eq!(original_config.genesis.expected_hash, selected.genesis_hash);
+        let original_policy =
+            crate::localnet::service_authorities::configured_execution_policy(&original_config)
+                .unwrap();
+        let mut table = crate::secret_toml::Table::new(
+            crate::secret_toml::parse_table(original_text, "readiness mutation control").unwrap(),
         );
-    let altered = toml::to_string(&*table).unwrap();
-    root.write_atomic("peer3.toml", altered.as_bytes(), PublishMode::Replace)
+        // Standard omits the default fee table; the explicit profile already supplies it.
+        // Both must refuse a valid changed schedule rather than a malformed configuration.
+        table
+            .get_mut("nexus")
+            .unwrap()
+            .as_table_mut()
+            .unwrap()
+            .entry("fees".to_owned())
+            .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+            .as_table_mut()
+            .unwrap()
+            .insert(
+                "per_instruction_fee".into(),
+                toml::Value::String("0".into()),
+            );
+        let altered = toml::to_string(&*table).unwrap();
+        let altered_config = crate::localnet::parse_localnet_peer_config(
+            &altered,
+            Some(&prepared.peers[3].config_path),
+        )
         .unwrap();
-    assert!(fees::select(&prepared, &client).is_err());
-    root.write_atomic("peer3.toml", &original, PublishMode::Replace)
-        .unwrap();
-    let restored = fees::select(&prepared, &client).unwrap();
-    let mut wrong = prepared.clone();
-    wrong.peers[3] = prepared.peers[2].clone();
-    assert!(fees::select(&wrong, &client).is_err());
-    let mut foreign = client.clone();
-    foreign.network_id = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
-        b"other readiness network",
-    )));
-    assert!(fees::select(&prepared, &foreign).is_err());
-    assert_eq!(
-        restored.payment.charge_limits()[0].max_amount,
-        Quantity::from(1u64)
-    );
+        assert_eq!(
+            altered_config.nexus.fees.per_instruction_fee,
+            Quantity::zero()
+        );
+        assert_ne!(
+            altered_config.nexus.fees.per_instruction_fee,
+            original_config.nexus.fees.per_instruction_fee
+        );
+        assert_eq!(
+            altered_config.genesis.expected_hash,
+            original_config.genesis.expected_hash
+        );
+        assert_ne!(
+            crate::localnet::service_authorities::configured_execution_policy(&altered_config)
+                .unwrap(),
+            original_policy
+        );
+        root.write_atomic("peer3.toml", altered.as_bytes(), PublishMode::Replace)
+            .unwrap();
+        assert!(fees::select(&prepared, &client).is_err());
+        root.write_atomic("peer3.toml", &original, PublishMode::Replace)
+            .unwrap();
+        let restored = fees::select(&prepared, &client).unwrap();
+        let mut wrong = prepared.clone();
+        wrong.peers[3] = prepared.peers[2].clone();
+        assert!(fees::select(&wrong, &client).is_err());
+        let mut foreign = client.clone();
+        foreign.network_id = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+            Hash::new(b"other readiness network"),
+        ));
+        assert!(fees::select(&prepared, &foreign).is_err());
+        assert_eq!(
+            restored.payment.charge_limits()[0].max_amount,
+            Quantity::from(1u64)
+        );
+    }
 }
 
 #[test]

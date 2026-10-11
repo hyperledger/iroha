@@ -553,8 +553,8 @@ fn split_candidate_uses<F: FnMut(Temp)>(instruction: &Instr, mut visit: F) {
         Instr::Unary { operand, .. } | Instr::WrappingNeg { operand, .. } => visit(*operand),
         Instr::IntFromI64 { value, .. }
         | Instr::IntFromU64 { value, .. }
-        | Instr::IntTryToI64 { value, .. }
-        | Instr::IntTryToU64 { value, .. }
+        | Instr::IntToI64 { value, .. }
+        | Instr::IntToU64 { value, .. }
         | Instr::NumericConvert { value, .. }
         | Instr::NumericTryConvert { value, .. }
         | Instr::NumericNeg { value, .. } => visit(*value),
@@ -613,7 +613,15 @@ fn split_candidate_uses<F: FnMut(Temp)>(instruction: &Instr, mut visit: F) {
             visit(*after);
             visit(*limit);
         }
-        Instr::CoreQueryPage { offset, limit, .. } => {
+        Instr::CoreQueryPage {
+            account,
+            offset,
+            limit,
+            ..
+        } => {
+            if let Some(account) = account {
+                visit(*account);
+            }
             visit(*offset);
             visit(*limit);
         }
@@ -1060,6 +1068,7 @@ fn compute_liveness(
 pub(crate) fn visit_instr_uses<F: FnMut(Temp)>(instr: &Instr, mut f: F) {
     use Instr::*;
     match instr {
+        Source(_) => {}
         Const { .. }
         | StringConst { .. }
         | LoadVar { .. }
@@ -1083,7 +1092,6 @@ pub(crate) fn visit_instr_uses<F: FnMut(Temp)>(instr: &Instr, mut f: F) {
         | TransferBatchBegin
         | TransferBatchEnd
         | CommitOutput => {}
-        TransferBatchApply { payload } => f(*payload),
         Binary { left, right, .. } | WrappingBinary { left, right, .. } => {
             f(*left);
             f(*right);
@@ -1091,8 +1099,8 @@ pub(crate) fn visit_instr_uses<F: FnMut(Temp)>(instr: &Instr, mut f: F) {
         Unary { operand, .. } | WrappingNeg { operand, .. } => f(*operand),
         IntFromI64 { value, .. }
         | IntFromU64 { value, .. }
-        | IntTryToI64 { value, .. }
-        | IntTryToU64 { value, .. }
+        | IntToI64 { value, .. }
+        | IntToU64 { value, .. }
         | NumericConvert { value, .. }
         | NumericTryConvert { value, .. }
         | NumericNeg { value, .. } => f(*value),
@@ -1135,6 +1143,16 @@ pub(crate) fn visit_instr_uses<F: FnMut(Temp)>(instr: &Instr, mut f: F) {
             f(*num);
             f(*denom);
         }
+        CallContract {
+            contract,
+            binding,
+            payload,
+            ..
+        } => {
+            f(*contract);
+            f(*binding);
+            f(*payload);
+        }
         InvokeEntrypointAs {
             actor,
             entrypoint,
@@ -1158,6 +1176,7 @@ pub(crate) fn visit_instr_uses<F: FnMut(Temp)>(instr: &Instr, mut f: F) {
             entrypoint,
             payload,
             expectation,
+            ..
         } => {
             f(*actor);
             f(*entrypoint);
@@ -1188,26 +1207,13 @@ pub(crate) fn visit_instr_uses<F: FnMut(Temp)>(instr: &Instr, mut f: F) {
         }
         RegisterAsset {
             asset,
-            symbol,
-            quantity,
+            name,
+            spec,
             mintable,
         } => {
             f(*asset);
-            f(*symbol);
-            f(*quantity);
-            f(*mintable);
-        }
-        CreateNewAsset {
-            asset,
-            symbol,
-            quantity,
-            account,
-            mintable,
-        } => {
-            f(*asset);
-            f(*symbol);
-            f(*quantity);
-            f(*account);
+            f(*name);
+            f(*spec);
             f(*mintable);
         }
         TransferAsset {
@@ -1381,16 +1387,16 @@ pub(crate) fn visit_instr_uses<F: FnMut(Temp)>(instr: &Instr, mut f: F) {
             f(*account);
             f(*token);
         }
-        GrantContractEntrypoint {
+        GrantContractPermission {
             account,
-            entrypoint,
+            permission,
         }
-        | RevokeContractEntrypoint {
+        | RevokeContractPermission {
             account,
-            entrypoint,
+            permission,
         } => {
             f(*account);
-            f(*entrypoint);
+            f(*permission);
         }
         GrantRole { account, name } | RevokeRole { account, name } => {
             f(*account);
@@ -1505,11 +1511,19 @@ pub(crate) fn visit_instr_uses<F: FnMut(Temp)>(instr: &Instr, mut f: F) {
         | Instr::SmartContractLifecycle { payload, .. }
         | Instr::ZkRootsGet { payload, .. }
         | Instr::ZkVoteGetTally { payload, .. }
-        | Instr::VrfEpochSeed { payload, .. }
+        | Instr::VrfEpochSeed { epoch: payload, .. }
         | Instr::SoracloudHostCall {
             request: payload, ..
         } => f(*payload),
-        Instr::CoreQueryPage { offset, limit, .. } => {
+        Instr::CoreQueryPage {
+            account,
+            offset,
+            limit,
+            ..
+        } => {
+            if let Some(account) = account {
+                f(*account);
+            }
             f(*offset);
             f(*limit);
         }
@@ -1611,7 +1625,9 @@ pub(crate) fn visit_instr_uses<F: FnMut(Temp)>(instr: &Instr, mut f: F) {
         | JsonGetAccountId { json, key, .. }
         | JsonGetAssetDefinitionId { json, key, .. }
         | JsonGetNftId { json, key, .. }
-        | JsonGetBlobHex { json, key, .. } => {
+        | JsonGetBlobHex { json, key, .. }
+        | JsonGetString { json, key, .. }
+        | JsonGetBool { json, key, .. } => {
             f(*json);
             f(*key);
         }
@@ -1619,7 +1635,7 @@ pub(crate) fn visit_instr_uses<F: FnMut(Temp)>(instr: &Instr, mut f: F) {
             f(*schema);
             f(*blob);
         }
-        EncodeBoolKey { value, .. } | PointerToNorito { value, .. } => f(*value),
+        PointerToNorito { value, .. } => f(*value),
         PointerFromNorito { blob, .. } => f(*blob),
         StatePathFromName { name, .. } => f(*name),
         PathMapKeyNorito { base, key_blob, .. } => {
@@ -1689,6 +1705,7 @@ pub(crate) fn visit_terminator_uses<F: FnMut(Temp)>(term: &Terminator, mut f: F)
 }
 fn dest_temp(instr: &Instr) -> Option<Temp> {
     match instr {
+        Instr::Source(_) => None,
         Instr::PointerEq { dest, .. }
         | Instr::Const { dest, .. }
         | Instr::StringConst { dest, .. }
@@ -1748,8 +1765,8 @@ fn dest_temp(instr: &Instr) -> Option<Temp> {
         | Instr::StateCount { dest, .. }
         | Instr::IntFromI64 { dest, .. }
         | Instr::IntFromU64 { dest, .. }
-        | Instr::IntTryToI64 { dest, .. }
-        | Instr::IntTryToU64 { dest, .. }
+        | Instr::IntToI64 { dest, .. }
+        | Instr::IntToU64 { dest, .. }
         | Instr::NumericConvert { dest, .. }
         | Instr::NumericTryConvert { dest, .. }
         | Instr::NumericStatus { dest }
@@ -1782,7 +1799,6 @@ fn dest_temp(instr: &Instr) -> Option<Temp> {
         Instr::VrfVerifyBatch { dest, .. } => Some(*dest),
         Instr::MapGet { dest, .. } => Some(*dest),
         Instr::TlvLen { dest, .. } => Some(*dest),
-        Instr::EncodeBoolKey { dest, .. } => Some(*dest),
         Instr::JsonObject { dest, .. } => Some(*dest),
         Instr::JsonSetInt { dest, .. } => Some(*dest),
         Instr::JsonSetAccountId { dest, .. } => Some(*dest),
@@ -1795,7 +1811,9 @@ fn dest_temp(instr: &Instr) -> Option<Temp> {
         | Instr::JsonGetAccountId { dest, .. }
         | Instr::JsonGetAssetDefinitionId { dest, .. }
         | Instr::JsonGetNftId { dest, .. }
-        | Instr::JsonGetBlobHex { dest, .. } => Some(*dest),
+        | Instr::JsonGetBlobHex { dest, .. }
+        | Instr::JsonGetString { dest, .. }
+        | Instr::JsonGetBool { dest, .. } => Some(*dest),
         Instr::NameDecode { dest, .. } => Some(*dest),
         Instr::SchemaEncode { dest, .. } => Some(*dest),
         Instr::SchemaDecode { dest, .. } => Some(*dest),
@@ -1806,10 +1824,9 @@ fn dest_temp(instr: &Instr) -> Option<Temp> {
         Instr::Call { dest, .. } | Instr::InvokeEntrypointAs { dest, .. } => dest.as_ref().copied(),
         Instr::GrantPermission { .. }
         | Instr::RevokePermission { .. }
-        | Instr::GrantContractEntrypoint { .. }
-        | Instr::RevokeContractEntrypoint { .. }
+        | Instr::GrantContractPermission { .. }
+        | Instr::RevokeContractPermission { .. }
         | Instr::RegisterAsset { .. }
-        | Instr::CreateNewAsset { .. }
         | Instr::TransferAsset { .. }
         | Instr::TransferBatchAsset { .. }
         | Instr::EscrowOpenOffer { .. }
@@ -1869,11 +1886,11 @@ fn dest_temp(instr: &Instr) -> Option<Temp> {
         | Instr::AxtCommit
         | Instr::TransferBatchBegin
         | Instr::TransferBatchEnd
-        | Instr::TransferBatchApply { .. }
         | Instr::CommitOutput
         | Instr::SmartContractLifecycle { .. }
         | Instr::ExpectRejectAs { .. } => None,
         Instr::CallMulti { .. }
+        | Instr::CallContract { .. }
         | Instr::InvokeEntrypointAsMulti { .. }
         | Instr::MapLoadPair { .. }
         | Instr::StateScan { .. }
@@ -1904,7 +1921,9 @@ pub(crate) fn visit_instr_defs<F: FnMut(Temp)>(instruction: &Instr, mut visit: F
             visit(*dest_key);
             visit(*dest_val);
         }
-        Instr::CallMulti { dests, .. } | Instr::InvokeEntrypointAsMulti { dests, .. } => {
+        Instr::CallMulti { dests, .. }
+        | Instr::CallContract { dests, .. }
+        | Instr::InvokeEntrypointAsMulti { dests, .. } => {
             for dest in dests {
                 visit(*dest);
             }

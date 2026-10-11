@@ -34,7 +34,8 @@
 //! constants `c` are part of the circuit description: the raw sponge state
 //! `[2^64, 0, 0]` and any configured domain-prefixed state.
 //!
-//! Every gate has degree at most 6. The columns are queried at rotations 0
+//! Ordinary gates have degree at most six; compact phase enables raise the
+//! maximum to nine. The columns are queried at rotations 0
 //! and +1, inside the default blinding budget.
 //!
 //! # Native reference
@@ -51,7 +52,10 @@ use iroha_plonk::{
     frontend::{Error, Region, Value},
 };
 
-use crate::cells::{Word, assign_constant, assign_word, copy_word};
+use crate::{
+    cells::{Word, assign_constant, assign_word, copy_word},
+    phase::{Enable, PhaseColumns},
+};
 
 /// Rows of one permutation block: 4 full, 28 pair, 1 partial, 4 full.
 pub const ROWS_PER_PERMUTATION: usize = 37;
@@ -165,11 +169,48 @@ pub struct RoundConstantColumns {
 }
 
 impl RoundConstantColumns {
+    /// Uses six existing fixed columns (`a0..a2`, then `b0..b2`). A caller
+    /// sharing them with another gated chip must use disjoint assignment rows.
+    #[must_use]
+    pub const fn from_columns(columns: [Column<Fixed>; 6]) -> Self {
+        Self {
+            a: [columns[0], columns[1], columns[2]],
+            b: [columns[3], columns[4], columns[5]],
+        }
+    }
+
     /// Allocates six new fixed columns.
     pub fn allocate<F: PastaField>(meta: &mut ConstraintSystem<F>) -> Self {
+        Self::from_columns(core::array::from_fn(|_| meta.fixed_column()))
+    }
+}
+
+/// Four round selectors that aligned Pow5 lanes may share.
+///
+/// Every participating lane must enable absorption, full rounds, paired
+/// partial rounds and single partial rounds on the same rows. In particular,
+/// the lanes need matching permutation spans, absorption modes and
+/// squeeze/continuation boundaries. Sharing activates every lane's round
+/// constraints wherever any participant enables the selector; it does not
+/// pad missing work. Start-state and squeeze selectors remain lane-local.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SharedRoundSelectors {
+    absorb: Selector,
+    full: Selector,
+    pair: Selector,
+    partial: Selector,
+}
+
+impl SharedRoundSelectors {
+    /// Allocates one set of round selectors in the participating lanes'
+    /// constraint system. Reusing this bundle is an explicit opt-in to the
+    /// common row schedule documented on [`Self`].
+    pub fn allocate<F: PastaField>(meta: &mut ConstraintSystem<F>) -> Self {
         Self {
-            a: core::array::from_fn(|_| meta.fixed_column()),
-            b: core::array::from_fn(|_| meta.fixed_column()),
+            absorb: meta.selector(),
+            full: meta.selector(),
+            pair: meta.selector(),
+            partial: meta.selector(),
         }
     }
 }
@@ -177,7 +218,7 @@ impl RoundConstantColumns {
 /// A start gate: its selector and the state it pins.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Start<F> {
-    selector: Selector,
+    selector: Enable,
     state: [F; WIDTH],
 }
 
@@ -186,11 +227,11 @@ struct Start<F> {
 pub struct Pow5Config<F> {
     lane: Pow5Columns,
     round_constants: RoundConstantColumns,
-    q_absorb: Selector,
-    q_full: Selector,
-    q_pair: Selector,
-    q_partial: Selector,
-    q_squeeze: Selector,
+    q_absorb: Enable,
+    q_full: Enable,
+    q_pair: Enable,
+    q_partial: Enable,
+    q_squeeze: Enable,
     starts: Vec<Start<F>>,
 }
 
@@ -205,12 +246,76 @@ impl<F: PoseidonField> Pow5Config<F> {
         initial_states: &[[F; WIDTH]],
     ) -> Self {
         meta.enable_equality(lane.aux);
+        let shared = SharedRoundSelectors::allocate(meta);
+        Self::configure_with_shared_round_selectors(
+            meta,
+            lane,
+            round_constants,
+            initial_states,
+            shared,
+        )
+    }
+
+    /// Configures a lane using four explicitly shared round selectors.
+    ///
+    /// All lanes receiving `shared` must have the common row schedule
+    /// documented on [`SharedRoundSelectors`]. Each lane keeps its own
+    /// squeeze and start-state selectors, constraints and witnesses. Use
+    /// [`Self::configure`] when lane schedules may differ.
+    pub fn configure_with_shared_round_selectors(
+        meta: &mut ConstraintSystem<F>,
+        lane: Pow5Columns,
+        round_constants: RoundConstantColumns,
+        initial_states: &[[F; WIDTH]],
+        shared: SharedRoundSelectors,
+    ) -> Self {
+        let enables = [
+            shared.absorb.into(),
+            shared.full.into(),
+            shared.pair.into(),
+            shared.partial.into(),
+            meta.selector().into(),
+        ];
+        Self::configure_enabled(meta, lane, round_constants, initial_states, &enables, None)
+    }
+
+    /// Shares the compact phase payloads with Glue and ECC on disjoint rows.
+    /// Only the supplied raw initial state is configured; domain framing is
+    /// absorbed explicitly. The resulting gates have degree at most nine.
+    pub fn configure_phased(
+        meta: &mut ConstraintSystem<F>,
+        lane: Pow5Columns,
+        phases: PhaseColumns,
+        initial: [F; WIDTH],
+    ) -> Self {
+        let enables = [
+            phases.enable(2, Some((3, 1, 2))),
+            phases.enable(2, Some((3, 2, 2))),
+            phases.enable(3, None),
+            phases.enable(2, Some((4, 1, 2))),
+            phases.enable(2, Some((4, 2, 2))),
+        ];
+        Self::configure_enabled(
+            meta,
+            lane,
+            RoundConstantColumns::from_columns(phases.coefficients()),
+            &[initial],
+            &enables,
+            Some(phases.enable(2, Some((5, 1, 2)))),
+        )
+    }
+
+    fn configure_enabled(
+        meta: &mut ConstraintSystem<F>,
+        lane: Pow5Columns,
+        round_constants: RoundConstantColumns,
+        initial_states: &[[F; WIDTH]],
+        enables: &[Enable; 5],
+        start_enable: Option<Enable>,
+    ) -> Self {
+        meta.enable_equality(lane.aux);
         let mds = *F::rp57().mds();
-        let q_absorb = meta.selector();
-        let q_full = meta.selector();
-        let q_pair = meta.selector();
-        let q_partial = meta.selector();
-        let q_squeeze = meta.selector();
+        let [q_absorb, q_full, q_pair, q_partial, q_squeeze] = *enables;
         let Pow5Columns { state, aux } = lane;
         let RoundConstantColumns { a: rc_a, b: rc_b } = round_constants;
 
@@ -219,7 +324,7 @@ impl<F: PoseidonField> Pow5Config<F> {
             ("pow5 full round", q_full, false),
         ] {
             meta.create_gate(name, |cells| {
-                let q = cells.query_selector(selector);
+                let q = selector.query(cells);
                 let s = state.map(|column| cells.query_advice(column, Rotation::cur()));
                 let next = state.map(|column| cells.query_advice(column, Rotation::next()));
                 let a = rc_a.map(|column| cells.query_fixed(column, Rotation::cur()));
@@ -239,7 +344,7 @@ impl<F: PoseidonField> Pow5Config<F> {
             });
         }
         meta.create_gate("pow5 two partial rounds", |cells| {
-            let q = cells.query_selector(q_pair);
+            let q = q_pair.query(cells);
             let s = state.map(|column| cells.query_advice(column, Rotation::cur()));
             let next = state.map(|column| cells.query_advice(column, Rotation::next()));
             let a = rc_a.map(|column| cells.query_fixed(column, Rotation::cur()));
@@ -259,7 +364,7 @@ impl<F: PoseidonField> Pow5Config<F> {
             polys
         });
         meta.create_gate("pow5 partial round", |cells| {
-            let q = cells.query_selector(q_partial);
+            let q = q_partial.query(cells);
             let s = state.map(|column| cells.query_advice(column, Rotation::cur()));
             let next = state.map(|column| cells.query_advice(column, Rotation::next()));
             let a = rc_a.map(|column| cells.query_fixed(column, Rotation::cur()));
@@ -271,7 +376,7 @@ impl<F: PoseidonField> Pow5Config<F> {
                 .collect::<Vec<_>>()
         });
         meta.create_gate("pow5 squeeze round", |cells| {
-            let q = cells.query_selector(q_squeeze);
+            let q = q_squeeze.query(cells);
             let s = state.map(|column| cells.query_advice(column, Rotation::cur()));
             let a = rc_a.map(|column| cells.query_fixed(column, Rotation::cur()));
             let output = cells.query_advice(aux, Rotation::cur());
@@ -285,10 +390,10 @@ impl<F: PoseidonField> Pow5Config<F> {
             if starts.iter().any(|start| start.state == *initial) {
                 continue;
             }
-            let selector = meta.selector();
+            let selector = start_enable.unwrap_or_else(|| meta.selector().into());
             let initial = *initial;
             meta.create_gate("pow5 start state", |cells| {
-                let q = cells.query_selector(selector);
+                let q = selector.query(cells);
                 (0..WIDTH)
                     .map(|i| {
                         let s = cells.query_advice(state[i], Rotation::cur());
@@ -428,6 +533,9 @@ fn block_trace<F: PastaField>(
 pub struct Pow5Chip<F: PoseidonField> {
     config: Pow5Config<F>,
     next_block: usize,
+    start_row: usize,
+    end_row: usize,
+    constant_source: Option<crate::GlueChip<F>>,
 }
 
 impl<F: PoseidonField> Pow5Chip<F> {
@@ -437,7 +545,56 @@ impl<F: PoseidonField> Pow5Chip<F> {
         Self {
             config,
             next_block: 0,
+            start_row: 0,
+            end_row: usize::MAX,
+            constant_source: None,
         }
+    }
+
+    /// Uses fixed coefficient gates in the caller's shared arithmetic lane
+    /// for absorbed constants. That lane must own disjoint rows.
+    ///
+    /// # Errors
+    /// The source is not a bounded shared coefficient-only lane containing
+    /// this lane's copy port, or a permutation was already reserved.
+    pub fn set_constant_source(&mut self, source: crate::GlueChip<F>) -> Result<(), Error> {
+        if self.next_block != 0 || !source.coefficient_source_for(&[self.config.lane.aux]) {
+            return Err(Error::Synthesis);
+        }
+        self.constant_source = Some(source);
+        Ok(())
+    }
+
+    /// Restricts the lane to `[0,end_row)` before any block is reserved.
+    ///
+    /// # Errors
+    /// The lane already contains a reserved block.
+    pub fn bound_rows(&mut self, end_row: usize) -> Result<(), Error> {
+        if self.next_block != 0 {
+            return Err(Error::Synthesis);
+        }
+        self.end_row = end_row;
+        Ok(())
+    }
+
+    /// Reserves a disjoint prefix before an otherwise empty lane.
+    ///
+    /// # Errors
+    /// A block already exists or the start exceeds the fixed end bound.
+    pub fn start_at(&mut self, start_row: usize) -> Result<(), Error> {
+        if self.next_block != 0 || start_row > self.end_row {
+            return Err(Error::Synthesis);
+        }
+        self.start_row = start_row;
+        Ok(())
+    }
+
+    fn admit_block(&self, block: usize) -> Result<(), Error> {
+        self.block_row(block)?
+            .checked_add(ROWS_PER_PERMUTATION)
+            .filter(|end| *end <= self.end_row)
+            .ok_or(Error::BoundsFailure)?;
+        Ok(())
     }
 
     /// The configuration.
@@ -452,16 +609,18 @@ impl<F: PoseidonField> Pow5Chip<F> {
         self.next_block
     }
 
-    /// The rows the lane has reserved (`37` per block).
+    /// The absolute next row, including a reserved prefix (`37` per block).
     #[must_use]
     pub const fn rows_used(&self) -> usize {
-        self.next_block.saturating_mul(ROWS_PER_PERMUTATION)
+        self.start_row
+            .saturating_add(self.next_block.saturating_mul(ROWS_PER_PERMUTATION))
     }
 
     /// Row 0 of `block`.
-    fn block_row(block: usize) -> Result<usize, Error> {
+    pub(crate) fn block_row(&self, block: usize) -> Result<usize, Error> {
         block
             .checked_mul(ROWS_PER_PERMUTATION)
+            .and_then(|offset| self.start_row.checked_add(offset))
             .ok_or(Error::BoundsFailure)
     }
 
@@ -485,8 +644,9 @@ impl<F: PoseidonField> Pow5Chip<F> {
             .map(|start| start.selector)
             .ok_or(Error::Synthesis)?;
         let block = self.next_block;
+        self.admit_block(block)?;
         self.next_block = block.checked_add(1).ok_or(Error::BoundsFailure)?;
-        let row = Self::block_row(block)?;
+        let row = self.block_row(block)?;
         selector.enable(region, row)?;
         for (column, value) in self.config.lane.state.into_iter().zip(initial) {
             assign_word(region, column, row, Value::known(value))?;
@@ -515,10 +675,11 @@ impl<F: PoseidonField> Pow5Chip<F> {
         absorb: Absorb<'_, F>,
     ) -> Result<Pow5State<F>, Error> {
         let Pow5State { block, value } = state;
-        let trace = self.lay_out(region, block, value, absorb, false)?;
         let next = block.checked_add(1).ok_or(Error::BoundsFailure)?;
+        self.admit_block(next)?;
+        let trace = self.lay_out(region, block, value, absorb, false)?;
         self.next_block = next.checked_add(1).ok_or(Error::BoundsFailure)?;
-        let next_row = Self::block_row(next)?;
+        let next_row = self.block_row(next)?;
         let output = trace
             .as_ref()
             .map(|trace| trace.state[ROWS_PER_PERMUTATION]);
@@ -529,6 +690,42 @@ impl<F: PoseidonField> Pow5Chip<F> {
             block: next,
             value: output,
         })
+    }
+
+    /// Permute and expose the resulting word 1 while retaining continuation.
+    ///
+    /// Ordinary lanes can enable both the full final-round gate and its
+    /// squeeze projection on the same row. This binds the output without a
+    /// new column or witness-selected gate, allowing a fixed maximum-length
+    /// transcript to select its constrained final permutation output.
+    ///
+    /// # Errors
+    /// Compact phase lanes cannot enable both final-round codes; they are
+    /// rejected before assignment. Otherwise the errors of [`Self::permute`].
+    pub fn permute_with_output(
+        &mut self,
+        region: &mut Region<'_, F>,
+        state: Pow5State<F>,
+        absorb: Absorb<'_, F>,
+    ) -> Result<(Pow5State<F>, Word<F>), Error> {
+        if !matches!(self.config.q_full, Enable::Selector(_))
+            || !matches!(self.config.q_squeeze, Enable::Selector(_))
+        {
+            return Err(Error::Synthesis);
+        }
+        let row = self
+            .block_row(state.block)?
+            .checked_add(LAST_ROUND)
+            .ok_or(Error::BoundsFailure)?;
+        let next = self.permute(region, state, absorb)?;
+        self.config.q_squeeze.enable(region, row)?;
+        let output = assign_word(
+            region,
+            self.config.lane.aux,
+            row,
+            next.value.map(|state| state[1]),
+        )?;
+        Ok((next, output))
     }
 
     /// Permutes `state` after absorbing `absorb` and returns word 1 of the
@@ -550,7 +747,8 @@ impl<F: PoseidonField> Pow5Chip<F> {
     ) -> Result<Word<F>, Error> {
         let Pow5State { block, value } = state;
         let trace = self.lay_out(region, block, value, absorb, true)?;
-        let row = Self::block_row(block)?
+        let row = self
+            .block_row(block)?
             .checked_add(LAST_ROUND)
             .ok_or(Error::BoundsFailure)?;
         assign_word(
@@ -576,7 +774,7 @@ impl<F: PoseidonField> Pow5Chip<F> {
             return Err(Error::Synthesis);
         }
         let params = F::rp57();
-        let base = Self::block_row(block)?;
+        let base = self.block_row(block)?;
         let rows_end = base
             .checked_add(ROWS_PER_PERMUTATION)
             .ok_or(Error::BoundsFailure)?;
@@ -590,7 +788,12 @@ impl<F: PoseidonField> Pow5Chip<F> {
                     match input {
                         AbsorbInput::Word(word) => copy_word(region, word, lane.aux, row)?,
                         AbsorbInput::Constant(constant) => {
-                            assign_constant(region, lane.aux, row, constant)?
+                            if let Some(mut source) = self.constant_source.clone() {
+                                let word = source.constant(region, constant)?;
+                                copy_word(region, &word, lane.aux, row)?
+                            } else {
+                                assign_constant(region, lane.aux, row, constant)?
+                            }
                         }
                     };
                 }
@@ -689,6 +892,76 @@ mod tests {
         iroha_pasta::poseidon::permute(&mut plain);
         assert_eq!(permute_native([F::ZERO; WIDTH], [F::ZERO; 2]), plain);
         assert_eq!(pow5(F::from(2u64)), F::from(32u64));
+    }
+
+    #[derive(Clone)]
+    struct Bounded<F: PoseidonField>(core::marker::PhantomData<F>);
+    impl<F: PoseidonField> iroha_plonk::frontend::Circuit<F> for Bounded<F> {
+        type Config = (Pow5Config<F>, Column<iroha_plonk::cs::Instance>);
+        type FloorPlanner = iroha_plonk::frontend::SimpleFloorPlanner;
+        type Params = ();
+        fn without_witnesses(&self) -> Self {
+            self.clone()
+        }
+        fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+            let columns = Pow5Columns::allocate(meta);
+            let constants = RoundConstantColumns::allocate(meta);
+            let config = Pow5Config::configure(meta, columns, constants, &[[F::ZERO; WIDTH]]);
+            let public = meta.instance_column(1);
+            meta.enable_equality(public);
+            (config, public)
+        }
+        fn synthesize(
+            &self,
+            (config, public): Self::Config,
+            mut layouter: impl iroha_plonk::frontend::Layouter<F>,
+        ) -> Result<(), Error> {
+            let mut chip = Pow5Chip::new(config);
+            let result = layouter.assign_region(
+                || "bounded complete block",
+                |mut region| {
+                    chip.bound_rows(ROWS_PER_PERMUTATION - 1)?;
+                    assert!(chip.start(&mut region, [F::ZERO; WIDTH]).is_err());
+                    assert_eq!(chip.rows_used(), 0);
+                    chip.bound_rows(ROWS_PER_PERMUTATION + 16)?;
+                    chip.start_at(16)?;
+                    assert_eq!(chip.rows_used(), 16);
+                    let state = chip.start(&mut region, [F::ZERO; WIDTH])?;
+                    assert!(chip.bound_rows(2 * ROWS_PER_PERMUTATION).is_err());
+                    // A refused continuation must reserve/assign nothing. The
+                    // private reconstructed state lets this test finish the exact
+                    // existing block and check for partial writes after refusal.
+                    let original = Pow5State {
+                        block: state.block,
+                        value: state.value,
+                    };
+                    assert!(chip.permute(&mut region, state, Absorb::Nothing).is_err());
+                    assert_eq!(chip.rows_used(), ROWS_PER_PERMUTATION + 16);
+                    assert!(chip.start_at(0).is_err());
+                    chip.squeeze(&mut region, original, Absorb::Nothing)
+                },
+            )?;
+            layouter.constrain_instance(result.cell(), public, 0)
+        }
+    }
+    fn bounded_case<F: PoseidonField>() {
+        let expected = permute_native([F::ZERO; WIDTH], [F::ZERO; 2])[1];
+        let circuit = Bounded::<F>(core::marker::PhantomData);
+        assert!(
+            iroha_plonk::check::check_circuit(
+                &circuit,
+                7,
+                &[vec![expected]],
+                iroha_plonk::check::CheckMode::Strict
+            )
+            .unwrap()
+            .is_satisfied()
+        );
+    }
+    #[test]
+    fn bounded_lane_refuses_before_assigning_or_reserving() {
+        bounded_case::<Fp>();
+        bounded_case::<Fq>();
     }
 
     #[test]

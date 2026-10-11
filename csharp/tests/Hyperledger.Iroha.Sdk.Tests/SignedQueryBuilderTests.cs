@@ -592,14 +592,14 @@ public sealed class SignedQueryBuilderTests
     public void BuildSignedEncodesProofAndTwitterBindingQueries()
     {
         var proofEnvelope = new SignedQueryBuilder(FixtureAccountId, FixtureNetworkId)
-            .FindProofRecordById("halo2/ipa", FixtureProofHash)
+            .FindProofRecordById("pipa-r/pasta", FixtureProofHash)
             .BuildSigned(Convert.FromHexString(FixtureSeedHex));
         var (proofDiscriminant, proofPayload) = ReadSingularQuery(proofEnvelope);
         Assert.Equal(6u, proofDiscriminant);
         var proofStruct = ReadField(ReadField(proofPayload, out _), out _);
         var proofBackend = ReadNoritoString(ReadField(proofStruct, out var proofOffsetAfterBackend));
         var proofHash = ReadField(proofStruct[proofOffsetAfterBackend..], out _);
-        Assert.Equal("halo2/ipa", proofBackend);
+        Assert.Equal("pipa-r/pasta", proofBackend);
         Assert.Equal(Convert.FromHexString(FixtureProofHash[2..]), proofHash);
 
         var twitterEnvelope = new SignedQueryBuilder(FixtureAccountId, FixtureNetworkId)
@@ -625,6 +625,11 @@ public sealed class SignedQueryBuilderTests
         var validHash = new string('a', 64);
         foreach (var backend in new[]
         {
+            "halo2/ipa",
+            " pipa-r/pasta",
+            "pipa-r/pasta ",
+            "\tpipa-r/pasta",
+            "pipa-r/pasta\n",
             " halo2/ipa",
             "halo2/ipa ",
             "\thalo2/ipa",
@@ -635,8 +640,9 @@ public sealed class SignedQueryBuilderTests
             "mock/dev",
         })
         {
-            Assert.Throws<ArgumentException>(
+            var error = Assert.Throws<ArgumentException>(
                 () => new SignedQueryBuilder(FixtureAccountId, FixtureNetworkId).FindProofRecordById(backend, validHash));
+            Assert.Equal("backend", error.ParamName);
         }
 
         foreach (var proofHash in new[]
@@ -652,8 +658,9 @@ public sealed class SignedQueryBuilderTests
             "0x0x" + new string('a', 64),
         })
         {
-            Assert.Throws<ArgumentException>(
-                () => new SignedQueryBuilder(FixtureAccountId, FixtureNetworkId).FindProofRecordById("halo2/ipa", proofHash));
+            var error = Assert.Throws<ArgumentException>(
+                () => new SignedQueryBuilder(FixtureAccountId, FixtureNetworkId).FindProofRecordById("pipa-r/pasta", proofHash));
+            Assert.Equal("proofHash", error.ParamName);
         }
     }
 

@@ -1308,6 +1308,7 @@ pub struct IVM {
     last_staged_syscall: Option<StagedSyscallContext>,
     /// Exact canonical entrypoint-argument gas escrowed before guest execution.
     argument_decode_prepaid_gas: Option<u64>,
+    pub(crate) captured_root_tables: Option<call_runtime::CapturedRootTables>,
     cycles: u64,
     /// Scoped shared cycle allowance; runtime resets cannot replenish it.
     active_cycle_budget: Option<Arc<SharedVmCycleBudget>>,
@@ -1428,6 +1429,13 @@ impl IVM {
         budget: &AllocationBudget,
     ) -> Result<Self, VMError> {
         Self::try_new_from_config_with_memory_budget(IvmConfig::adaptive(gas_limit), Some(budget))
+    }
+    /// Borrow the original allocation pool for host scratch associated with this VM.
+    ///
+    /// Hosts must retain each admitted scratch reservation until its owned graph is
+    /// destroyed. A standalone VM returns `None`; hosts must not substitute another pool.
+    pub fn allocation_budget(&self) -> Option<&AllocationBudget> {
+        self.memory.allocation_budget()
     }
     /// Construct an independent default VM funded by this VM's original pool.
     ///
@@ -1683,6 +1691,7 @@ impl IVM {
             staged_syscall: None,
             last_staged_syscall: None,
             argument_decode_prepaid_gas: None,
+            captured_root_tables: None,
             cycles: 0,
             active_cycle_budget: None,
             halted: false,
@@ -1974,6 +1983,7 @@ impl IVM {
             .transpose()?;
         self.scrub_private_state()?;
         self.memory.call_frames.clear();
+        self.captured_root_tables = None;
         self.call_layouts = call_layouts;
         self.metadata = image.metadata.clone();
         self.contract_interface = image.contract_interface;
@@ -2045,14 +2055,18 @@ impl IVM {
         self.staged_syscall = None;
         self.last_staged_syscall = None;
         self.argument_decode_prepaid_gas = None;
+        self.captured_root_tables = None;
     }
     pub(crate) fn prepay_argument_decode(&mut self, gas: u64) -> Result<(), VMError> {
-        if self.argument_decode_prepaid_gas.is_some() {
+        if self.argument_decode_prepaid_gas.is_some() || self.captured_root_tables.is_some() {
             return Err(VMError::DecodeError);
         }
         self.debit_gas(gas)?;
         self.argument_decode_prepaid_gas = Some(gas);
         Ok(())
+    }
+    pub(crate) fn has_prepaid_argument_decode(&self) -> bool {
+        self.argument_decode_prepaid_gas.is_some()
     }
     pub(crate) fn argument_decode_is_prepaid(&self, gas: u64) -> bool {
         self.argument_decode_prepaid_gas == Some(gas)
@@ -2358,6 +2372,7 @@ impl IVM {
             self.contract_return_stack.clear();
             self.contract_outer_return_pc = None;
             self.memory.call_frames.clear();
+            self.captured_root_tables = None;
             Ok(())
         } else {
             Err(VMError::DecodeError)
@@ -2794,6 +2809,7 @@ impl IVM {
         self.staged_syscall = None;
         self.last_staged_syscall = None;
         self.argument_decode_prepaid_gas = None;
+        self.captured_root_tables = None;
         self.vector_length = if self.metadata.vector_length == 0 {
             default_vector_length()
         } else {
@@ -4022,7 +4038,9 @@ impl IVM {
         self.clear_zk_trace_logs();
         if !self.zk_mode && (self.registers.has_private() || !self.private_memory_bytes.is_empty())
         {
-            return Err(VMError::PrivacyViolation);
+            return Err(VMError::ExecutionDeferred(
+                crate::error::ExecutionDeferral::LocalInvariantViolation,
+            ));
         }
         let invocation_trace = self.begin_trace_invocation()?;
         self.last_diagnostic = None;
@@ -4036,6 +4054,8 @@ impl IVM {
         self.contract_outer_return_pc = None;
         self.memory.call_frames.clear();
         let mut pending_step: Option<PendingDiagnosticStep> = None;
+        let mut fault_position =
+            iroha_data_model::executor::fault::IvmFaultPositionV1::Initialization;
         let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _pointer_policy_guard =
                 PointerPolicyGuard::install(self.syscall_policy(), self.abi_version());
@@ -4045,6 +4065,9 @@ impl IVM {
             let mut pending_register_batch = None;
             // Fetch-Decode-Execute loop
             loop {
+                fault_position = iroha_data_model::executor::fault::IvmFaultPositionV1::Execute {
+                    pc_offset: self.pc.saturating_sub(self.program_prefix_len),
+                };
                 if let Some((before, reservation)) = pending_cycles.take() {
                     reservation.complete(self.cycles.checked_sub(before))?;
                 }
@@ -6186,6 +6209,7 @@ impl IVM {
                 // unwind behavior for the caller.
                 self.abort_host_register_log_isolation(None);
                 self.memory.call_frames.clear();
+                self.captured_root_tables = None;
                 std::panic::resume_unwind(payload);
             }
         };
@@ -6227,9 +6251,10 @@ impl IVM {
         }
         if let Err(err) = &result {
             self.memory.call_frames.clear();
+            self.captured_root_tables = None;
             // Inline semantic context masks its register read; local refusals
             // retain only the returned error and never publish a diagnostic.
-            self.capture_trap(err);
+            self.capture_trap_at(err, fault_position);
         }
         result
     }
@@ -6636,7 +6661,12 @@ mod tests {
             .try_insert(invalid..invalid + 1)
             .unwrap();
         let before = vm.private_memory_bytes.try_clone().unwrap();
-        assert_eq!(vm.scrub_private_memory(), Err(VMError::PrivacyViolation));
+        assert_eq!(
+            vm.scrub_private_memory(),
+            Err(VMError::ExecutionDeferred(
+                crate::error::ExecutionDeferral::LocalInvariantViolation
+            ))
+        );
         assert_eq!(vm.private_memory_bytes, before);
         assert_eq!(vm.memory.load_u8(start).unwrap(), 0xA5);
     }
@@ -7218,6 +7248,9 @@ mod tests {
     }
     fn program_with_unaligned_contract_prefix() -> (Vec<u8>, usize) {
         let interface = crate::metadata::EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             callables: vec![ivm_abi::call::EmbeddedCallableV1 {
                 entry_pc: 0,
                 frame_bytes: 0,
@@ -7239,7 +7272,8 @@ mod tests {
                 return_schema: Some(ivm_abi::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![ivm_abi::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: None,
+                authorization:
+                    iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: Some(true),

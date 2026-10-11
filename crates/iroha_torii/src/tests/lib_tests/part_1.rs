@@ -1822,13 +1822,7 @@ fn sample_program_id(policy_id: &IdentifierPolicyId) -> RamLfeProgramId {
         .parse()
         .expect("program id")
 }
-// Public serialization fixture only; this is not encrypted data or an execution.
-fn synthetic_ciphertext_hex() -> String {
-    hex::encode(
-        norito::encode_canonical(&iroha_crypto::BfvIdentifierCiphertext { slots: Vec::new() })
-            .expect("encode typed parser fixture"),
-    )
-}
+
 fn identifier_fixture_error_message(error: &Error) -> &str {
     match error {
         Error::AppServiceUnavailable { code, message } => {
@@ -1860,14 +1854,20 @@ fn registered_hkdf_identifier_app(
         ))))
         .build(&authority);
     let world = World::with([Domain::new(domain_id).build(&authority)], [account], []);
-    let mut app = mk_app_state_for_tests_with_world(world);
+    let mut app = crate::tests_runtime_handlers::native_ingress_app_with_world_for_test(world);
     let policy_id = "string#retail".parse().expect("policy id");
     let (policy, program_policy) = sample_identifier_policy(&authority, &signer, &policy_id);
+    let resolver = identifier_resolution::IdentifierResolutionService::new();
+    resolver.register_program_runtime(
+        program_policy.program_id.clone(),
+        iroha_crypto::RamLfeSecret::try_from(b"resolver-secret".to_vec()).expect("test secret"),
+        iroha_crypto::default_bfv_programmed_hidden_program(),
+        signer.clone(),
+        Some(30_000),
+    );
     Arc::get_mut(&mut app)
         .expect("unique app")
-        .identifier_resolver = Some(Arc::new(
-        identifier_resolution::IdentifierResolutionService::new(),
-    ));
+        .identifier_resolver = Some(Arc::new(resolver));
     let header = BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
     let mut block = app.state.block(header);
     let mut tx = block.transaction();

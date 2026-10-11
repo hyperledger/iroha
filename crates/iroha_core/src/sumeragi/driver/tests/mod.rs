@@ -75,7 +75,6 @@ pub(super) fn block(
         payload_len: u32::try_from(payload.len()).unwrap(),
         proposer: 0,
         skipped_leaders: Vec::new(),
-        attest: false,
     };
     iroha_sumeragi::testing::author_body(
         header,
@@ -102,11 +101,8 @@ pub(super) fn commit_qc(block: &AvailableBody, result: Hash32) -> Qc {
         view: 0,
         block_hash: hash(block),
         result,
-        attest: false,
         signers: Bitmap::new(4),
         agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
-        attestations: Vec::new(),
-        attestation_witness: None,
     }
 }
 

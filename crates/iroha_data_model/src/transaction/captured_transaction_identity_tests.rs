@@ -144,11 +144,6 @@ fn captured_error_transaction_owner_identities() {
         "926cc4dc9d097148920b6e3eddaed440",
         "926cc4dc9d097148920b6e3eddaed440",
     );
-    check::<super::error::IvmExecutionFail>(
-        "iroha_data_model::transaction::error::model::IvmExecutionFail",
-        "2ab07d32e4cc4d3cb34de99847253a7a",
-        "2ab07d32e4cc4d3cb34de99847253a7a",
-    );
     check::<super::error::TriggerExecutionFail>(
         "iroha_data_model::transaction::error::model::TriggerExecutionFail",
         "fddfff69f087d2b2ce030b5c9f880bce",

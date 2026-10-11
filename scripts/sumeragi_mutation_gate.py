@@ -20,19 +20,36 @@ Purpose
       killed_by_scenario_only  its named tests passed, a listed scenario failed;
       survived                 nothing failed;
       error                    build/execution failed, timed out, or a filter matched no
-                               executed test. A process failure is not a mutation kill.
+                               declared control. A process failure is not a mutation kill.
 
     Deadlines classify execution as an error. After a deadline the runner waits for
     its owned Cargo child to exit naturally and retains the output without sending
     termination signals. A late completed result never counts as a mutation kill.
+    Each step discovers its actual filtered test names first and accounts for every
+    terminal result and the complete libtest summary. Discovery and execution share
+    the original step deadline; ignored or incomplete controls cannot establish a kill.
+    A named step is a mutation's exact selector tuple. Baselines run each distinct
+    tuple once; baseline and mutant randomized steps run one distinct scenario each.
+    Qualified selectors require their exact full test path; leaf selectors require
+    every exact final path segment in discovery. Cargo substring-selected extras
+    remain fully accounted, but their failures cannot replace a declared control.
+    These independent invocations retain the configured per-step deadlines, and any
+    step error prevents the aggregate result from qualifying.
 
-    The table MUTATIONS mirrors §13.4 (MS*/ML* rows, the MA* rows of the commit-attestation
-    extension, §3.7, and the MX* rows of the simulator's toy AMX application, §11) plus ME*
+    The table MUTATIONS mirrors §13.4 (MS*/ML* rows and the MX* rows of the simulator's toy AMX application, §11) plus ME*
     (the as-built rules E1-E7 of Appendix E, with their regression tests) and MR-* (revision-4
     rules with det_r4 tests).
 
-    `--core` selects the Core unit-test owner and `SUMERAGI_CORE_MUTATION`;
+    `--core` selects the Core unit-test owner in the test profile and
+    `SUMERAGI_CORE_MUTATION`;
     `--daemon` selects the daemon unit-test owner and `SUMERAGI_DAEMON_MUTATION`.
+    `--model` selects DataModel unit tests in the test profile and its separate `SUMERAGI_MODEL_MUTATION`.
+    `--sdk` and `--deploy` select their own unit-test crates in the test profile, with
+    `SUMERAGI_SDK_MUTATION` and `SUMERAGI_DEPLOY_MUTATION`.
+    `--torii` selects Torii canonical-outcome custody unit tests in the test profile
+    with `SUMERAGI_TORII_MUTATION`.
+    `--norito` selects canonical decode-origin unit tests in the test profile
+    with `SUMERAGI_NORITO_MUTATION`.
     Each test-only feature guards only its own crate, without mutating dependencies.
 
 Prerequisites
@@ -57,6 +74,8 @@ Examples
     scripts/sumeragi_mutation_gate.py --list
     scripts/sumeragi_mutation_gate.py --core --strict --jobs 1
     scripts/sumeragi_mutation_gate.py --daemon --only HC93 --strict --jobs 1
+    scripts/sumeragi_mutation_gate.py --torii --only TOR1 --strict --jobs 1
+    scripts/sumeragi_mutation_gate.py --norito --strict --jobs 1
 """
 
 from __future__ import annotations
@@ -116,7 +135,8 @@ SCENARIOS = {
     "f34": "sim::tests::f34_late_entrants",
     "f35": "sim::tests::f35_local_queue_asymmetry",
     "f36": "sim::tests::f36_late_leaders",
-    "f37": "sim::tests::f37_commit_attestation",
+    "f39": "sim::tests::f39_clock_guard",
+    "exact-quorum": "sim::tests::exact_quorum_under_genuine_superset_attack",
     # F9 variant for ML5a: a vote blackout ending at GST (sim/mutation_group_2.rs).
     "f09r": "sim::mutation_group_2::f09r_vote_blackout_until_gst",
     # F32 with up to f proposers of the needed blocks kept down after the restart (ML10).
@@ -246,7 +266,7 @@ MUTATIONS = [
       ["det_s37_conflicting_commitqc_halts"], []),
     m("MS38", "on_vote: pooled without the signature check",
       ["det_s38_forged_votes_never_pooled"], ["f18"]),
-    m("MS39", "verify_qc_signatures accepts more than q genuine signers",
+    m("MS39", "verify_qc accepts more than q genuine signers",
       ["det_s39_qc_exact_signer_count"], []),
     m("MS40", "verify_tc accepts more than q genuine timeout entries",
       ["det_s40_tc_exact_signer_count"], []),
@@ -257,6 +277,15 @@ MUTATIONS = [
        "codec_resource_errors_survive_lossless_norito_conversion"], []),
     m("MS50", "static byte-domain bounds become retryable local decode refusals",
       ["protocol_byte_lengths_are_terminal_codec_errors"], []),
+    # The application clock guard of §4.5: the core's `Execute.certified` flag (MS51) and the
+    # simulator's model of the node executor's CT1 (MS52, a fake-driver mutation; the
+    # production guard is the planned Core case SC5).
+    m("MS51", "request_exec: emits Execute{certified: false} for a block a held PrepareQC certifies",
+      ["f33_hidden_prepareqc_due_work_block_commits_after_lag",
+       "det_s51_execute_certified_flag"], ["f39"]),
+    m("MS52", "fake driver executor: the application clock guard CT1 deleted",
+      ["clock_guard_certified_time_within_two_drifts",
+       "clock_guard_liveness_with_f_plus_one_slow_clocks"], ["f39"]),
     # ---- liveness rules
     m("ML1", "level returns start(h)", ["det_l1_levels_grow"], ["f15"]),
     m("ML2", "on_tick rebroadcast 1 deleted", ["det_l2_lost_timeout_resent"], ["f09"]),
@@ -315,37 +344,11 @@ MUTATIONS = [
       ["det_s42_original_publication_recovery_halts"], []),
     m("MS43", "signing domains omit epoch identity and complete context", ["det_s43_every_signature_binds_epoch_and_complete_context"], []),
     m("MS44", "ordinary lag-two scheduling installs a future epoch", ["det_s44_lag_two_cannot_install_next_epoch_early"], []),
-    m("MS45", "request_authoring imposes a mandatory epoch-boundary attestation flag",
-      ["det_s45_unflagged_boundary_commits_without_attestation",
-       "det_s45_boundary_proposal_carries_only_the_builders_flag"], []),
     m("MS46", "header signatures omit application control", ["det_s46_control_witness_is_bound_by_header_hash_and_proposal_signature"], []),
-    m("MS47", "real work invents an absent authenticated control response", ["det_s47_nonempty_work_waits_for_independent_control_and_preserves_attestation"], []),
+    m("MS47", "real work invents an absent authenticated control response", ["det_s47_nonempty_work_waits_for_independent_control_and_preserves_original_payload"], []),
     m("MS48", "control response accepts another exact source", ["det_s48_control_response_requires_exact_request_epoch_view_and_parent_source"], []),
-    # ---- commit-attestation rules (§3.7, SR39-SR42)
-    m("MA1", "on_vote (attested): a flagged Commit vote is pooled without a verifying attestation",
-      ["det_a2_unattested_commit_votes_not_counted"], ["f37"]),
-    m("MA2", "verify_qc: the attestation check of a flagged CommitQC skipped",
-      ["det_a4_commitqc_attestations_checked"], ["f37"]),
-    m("MA3", "att_preimage omits R", ["det_a3_attestation_binds_result"], []),
-    m("MA4", "att_preimage omits h", ["golden_attestation_preimage"], []),
-    m("MA5", "try_commit: a node without authority Commit-votes without an attestation",
-      ["det_a5_no_authority_abstains_from_commit_only"], ["f37"]),
-    m("MA6", "vote_preimage omits the flag", ["det_a6_flag_is_signed"], ["f37"]),
-    m("MA7", "propose_fresh: the builder's flag is dropped",
-      ["det_a1_flagged_block_commits_with_attestations"], ["f37"]),
-    m("MA8", "on_proposal: zero-payload signed-defect rejection omitted",
-      ["det_a7_empty_proposals_are_rejected_at_every_view"], []),
-    m("MA9", "restore_round: the recorded Prepare is rebuilt unflagged",
-      ["det_a8_restart_resends_identical_attested_votes"], []),
-    m("MA10", "try_commit: an attestation the node's own verifier rejects is used anyway",
-      ["det_a5_no_authority_abstains_from_commit_only"], ["f37"]),
-    m("MA11", "verify_attestations: a flagged CommitQC with more than q signers accepted",
-      ["det_a4_flagged_commitqc_has_exactly_q_signers", "det_a4_commitqc_attestations_checked"],
-      ["f37"]),
-    m("MA12", "on_outcome: no try_commit after the lock's block executes (Pending attestor)",
-      ["det_a9_pending_attestor_commits_after_execution"], []),
-    m("MA13", "form_qc accepts distinct shared result witnesses",
-      ["form_qc_carries_attestations"], []),
+    m("MS53", "on_proposal: zero-payload signed-defect rejection omitted",
+      ["empty_proposals_are_rejected_at_every_view"], []),
     # ---- as-built rules of Appendix E (E1-E7) and their regression tests
     m("ME1", "on_status: rate-limited Status drops its fresh CommitQC (E1)",
       ["rate_limited_status_still_delivers_a_fresh_commit_qc"], ["f03"]),
@@ -448,18 +451,16 @@ CORE_MUTATIONS = [
        "sumeragi::evidence::codec_tests::persisted_root_decode_refusal_retains_original_validation_cut_for_retry"]),
     m("HC8", "executor: classify local payload decode refusal as cached invalid data",
       ["sumeragi::executor::publication_tests::payload_decode_refusal_retains_available_owner_without_negative_cache"]),
-    m("HC9", "evidence: retain native result witnesses without original-pool admission",
-      ["sumeragi::evidence::admission::witness_tests::retained_native_evidence_witnesses_belong_to_original_preparation_pool"]),
-    m("HC10", "history: skip original query scratch admission before signed RS16 reconstruction",
-      ["sumeragi::certified_chain::tests::state_certificate::state_certificate_signed_availability_scratch_uses_original_query_allowance"]),
+    m("HC10", "history: skip original caller scratch admission before proposal/RS16 reconstruction",
+      ["sumeragi::certified_chain::tests::state_certificate::state_certificate_signed_availability_scratch_uses_original_query_allowance",
+       "sumeragi::certified_chain::terminal_selection::tests::terminal_amx_prefix_refuses_original_payload_scratch_without_advancing",
+       "sumeragi::certified_chain::terminal_selection::tests::terminal_amx_prefix_refuses_original_rs16_scratch_without_advancing"]),
     m("HC11", "history: use a warm decoded body instead of rereading the pinned durable certificate",
       ["sumeragi::certified_chain::tests::durable_certificate_read_rejects_checksum_valid_corruption_after_cache_warm"]),
     m("HC12", "beacon: allocate children before complete original prepaid session admission",
       ["beacon::validation::tests::beacon_verification_reserves_exact_buffers_and_refuses_before_unfunded_work"]),
     m("HC13", "certificate query: construct aggregate pairing scratch without original request admission",
       ["sumeragi::certified_chain::tests::state_certificate::state_certificate_pairing_constructor_refusal_preserves_original_source_for_retry"]),
-    m("HC14", "certificate reader: reuse an original decoded result for different witness bytes",
-      ["sumeragi::certified_chain::artifacts::tests::original_result_witness_rejects_foreign_canonical_bytes_before_borrowing_graph"]),
     m("HC15", "committed body reader: duplicate the original decoded quorum certificate at handoff",
       ["sumeragi::block_store::committed_read::tests::committed_read_returns_original_qc_backing_after_projection_refusal_and_retry"]),
     m("HC16", "lane custody: clone decoded signers without original-pool admission",
@@ -513,9 +514,26 @@ CORE_MUTATIONS = [
        'validation_fee::tests::registry_refusal_tests::signed_fee_runtime_read_does_not_turn_scope_refusal_into_a_nonmatching_origin',
        'validation_fee::tests::registry_refusal_tests::original_retained_fee_registry_does_not_publish_local_decode_refusal_as_malformed',
        'smartcontracts::isi::world::isi::tests::signed_payout_scope_refusal_cannot_publish_a_parliament_terminal_outcome']),
-    m("HC32", "reward credit readers: turn original alias or owner decode refusal into malformed durable leaves",
+    m("HC32", "original decode refusals: erase reward-credit, native worker and Kaigi retryability",
       ["validation_fee_rewards::tests::original_fee_credit_alias_decode_refusal_preserves_balance_and_retries",
-       "validation_fee_rewards::tests::original_fee_credit_owner_decode_refusal_preserves_exact_binding_and_retries"]),
+       "validation_fee_rewards::tests::original_fee_credit_owner_decode_refusal_preserves_exact_binding_and_retries",
+       "sumeragi::executor::publication_tests::context_proof_decoder_refusal_retains_original_inputs_and_retries",
+       "sumeragi::executor::publication_tests::native_context_archive_decoder_refusal_retains_original_execution_and_retries",
+       'smartcontracts::isi::kaigi::typed_deferral_tests::stored_record_refusal_is_sticky_and_retries_original_json_without_publication',
+       'smartcontracts::isi::kaigi::typed_deferral_tests::indexed_record_refusal_preserves_unregister_guard_and_original_retry',
+       'state::deserialize::kaigi_typed_deferral_tests::restored_kaigi_record_refusal_is_deferred_and_retries_original_snapshot',
+       'smartcontracts::isi::kaigi::relay_typed_deferral_tests::registration_refusal_preserves_original_relay_retirement_and_retry',
+       'smartcontracts::isi::kaigi::relay_typed_deferral_tests::feedback_refusal_preserves_both_original_relay_rows_and_retry',
+       'smartcontracts::isi::kaigi::relay_typed_deferral_tests::allowlist_refusal_prevents_domain_metadata_publication_and_retries_original_json',
+       'smartcontracts::isi::kaigi::relay_typed_deferral_tests::checked_record_writer_refusal_keeps_original_create_unpublished_and_retries',
+       'state::deserialize::kaigi_relay_typed_deferral_tests::restored_registration_refusal_retains_original_snapshot_and_retry',
+       'state::deserialize::kaigi_relay_typed_deferral_tests::restored_allowlist_refusal_retains_original_snapshot_and_retry',
+       'state::world_construction_tests::world_constructor_registration_refusal_is_fallible_and_retries_original_source',
+       'state::world_construction_tests::world_constructor_record_refusal_is_fallible_and_retries_original_source',
+       'smartcontracts::isi::kaigi::relay_typed_deferral_tests::lineage_refusal_preserves_original_relay_retirement_and_retry',
+       'smartcontracts::isi::kaigi::relay_typed_deferral_tests::primary_alias_refusal_preserves_original_registration_and_retry',
+       'execution_attempt::tests::json_scoped_refusal_preserves_original_context_source_and_retry',
+       'smartcontracts::isi::kaigi::relay_typed_deferral_tests::live_manifest_dependency_refusal_preserves_original_route_and_retry']),
     m("HC33", "credit refusal classifier: borrow any active scope for a global or inner format limit",
       ["execution_attempt::tests::norito_global_archive_cap_is_terminal_inside_an_outer_decode_scope",
        "execution_attempt::tests::norito_inner_format_limits_are_terminal_under_a_wider_outer_scope"]),
@@ -577,7 +595,7 @@ CORE_MUTATIONS = [
     m("HC53", "network time: omit host suspension from admission time and probe custody",
       ['time::tests::suspend_inclusive_clock_advances_admission_and_expires_retained_probes', 'time::tests::suspend_inclusive_clock_counts_entire_probe_round_trip']),
     m("HC48", "incumbent authority and key lifecycle: turn local read refusal into completed instruction failure",
-      ['state::validator_committee::tests::refusal::original_incumbent_history_refusal_keeps_authority_and_same_source_retry', 'state::validator_committee::tests::refusal::original_candidate_authority_refusal_keeps_command_and_same_source_retry', 'state::validator_committee::tests::refusal::original_candidate_command_decode_refusal_has_no_publication_and_retries', 'state::validator_committee::tests::refusal::original_beacon_public_state_decode_refusal_defers_before_installation', 'state::validator_committee::tests::refusal::original_tle_public_state_decode_refusal_defers_before_installation', 'state::validator_committee::tests::refusal::original_staking_authority_refusal_keeps_exit_overlay_and_same_signed_retry']),
+      ['state::validator_committee::tests::refusal::original_incumbent_history_refusal_keeps_authority_and_same_source_retry', 'state::validator_committee::tests::refusal::original_credentials_authority_refusal_keeps_command_and_same_source_retry', 'state::validator_committee::tests::refusal::original_credentials_command_decode_refusal_has_no_publication_and_retries', 'state::validator_committee::tests::refusal::original_beacon_public_state_decode_refusal_defers_before_installation', 'state::validator_committee::tests::refusal::original_tle_public_state_decode_refusal_defers_before_installation', 'state::validator_committee::tests::refusal::original_staking_authority_refusal_keeps_exit_overlay_and_same_signed_retry']),
     m("HC50", "original NPoS policy: erase local decoder refusal as absent authority",
       ['state::validator_committee::tests::refusal::original_npos_parameter_refusal_does_not_become_missing_staking_policy', 'state::validator_committee::tests::refusal::original_npos_exit_policy_refusal_keeps_stake_and_same_signed_retry', 'state::validator_committee::tests::refusal::original_npos_reserve_validation_refuses_without_changing_current_or_undo', 'smartcontracts::ivm::host::return_resource_tests::original_npos_policy_refusal_preserves_host_seed_projection_and_retries', 'sumeragi::evidence::tests::original_npos_policy_refusal_cannot_prune_retained_evidence', 'state::validator_committee::tests::refusal::late_original_npos_activation_read_refusal_rolls_back_and_same_signed_retry', 'sumeragi::evidence_history::lane::tests::original_lane_observer_late_policy_refusal_retains_observation_and_retries']),
 
@@ -597,7 +615,7 @@ CORE_MUTATIONS = [
       ['validation_fee_rewards::tests::canonical_network_xor_is_required_before_fee_reward_state_changes',
        'state::network_xor::tests::network_xor_rejects_wrong_definition_scope_and_precision',
        'smartcontracts::isi::staking::tests::staking_registration_rejects_wrong_xor_shape_with_transaction_rollback',
-       'smartcontracts::isi::staking::tests::reward_claim_rejects_wrong_xor_shape_with_transaction_rollback']),
+       'validation_fee_rewards::tests::public_fee_reward_claim_rejects_wrong_network_xor_without_writes_and_retries_original_plan']),
     m("HC59", "beacon reducer: retain a well-formed but unverified partial signature",
       ['beacon::tests::threshold_beacon_inline_reducer_rejects_invalid_share_without_losing_original_slots']),
     m("HC60", "publication preparation: erase the original pool refusal at scheduler handoff",
@@ -620,9 +638,9 @@ CORE_MUTATIONS = [
       ['executor::opaque_monetary_tests::raw_ivm_staking_trigger_requires_signed_monetary_plan',
        'executor::opaque_monetary_tests::supplied_proved_staking_effects_require_signed_monetary_plan']),
     m("HC67", "live multisig proposal: classify a local decoder refusal as malformed authority",
-      ['smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_decode_refusal_retries_original_signed_xor_claim']),
+      ['smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_decode_refusal_retries_original_signed_xor_transfer']),
     m("HC68", "retained multisig proposal: accept an unapproved body or rebound physical row",
-      ['smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_body_binding_rolls_back_original_signed_xor_claim',
+      ['smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_body_binding_rolls_back_original_signed_xor_transfer',
        'smartcontracts::isi::multisig::tests::proposal_attempt::proposal_migration_validates_original_physical_key_and_body_before_writes',
        'queue::router::tests::persisted_multisig_body_binding_and_local_refusal_reach_signed_queue_admission',
        'state::deserialize::decode_tests::restored_multisig_proposals_require_exact_body_and_preserve_local_read_refusal']),
@@ -741,8 +759,322 @@ CORE_MUTATIONS = [
 
     m("HC129", "native validation: retry after a consuming unwind lost its original graph",
       ["sumeragi::executor::tests::consuming_validation_unwind_requires_recovery_after_original_owner_is_lost"]),
-    m("HC132", "native proposal: omit the required top-up seal outside an epoch boundary",
-      ["sumeragi::executor::attestation_policy_tests::native_top_up_proposal_requires_attestation_before_an_epoch_boundary"]),
+    m("HC133", "native lane finalizer: finish the output seal after original lane preparation refused",
+      ["sumeragi::executor::validation_refusal_tests::original_lane_finalizer_refusal_returns_same_graph_before_seal_and_publishes_after_retry"]),
+    m("HC134", "native witness handoff: promise retry after the original witness owner is absent or source-invalid",
+      ["sumeragi::executor::validation_refusal_tests::validated_witness_guard_failure_requires_recovery_without_reexecuting_original_source"]),
+
+    m("HC135", "borrowed transaction custody: deep-copy the original accepted entrypoint graph",
+      ["sumeragi::amx::native::tests::paid_borrowed_custody::native_amx_persisted_paid_borrowed_prepared_proof_clone_retains_original_graph_and_lifetime"]),
+
+    m("HC136", "native lane admission: erase the original signer or sample finite-pool refusal",
+      ["sumeragi::lanes::custody::tests::original_signer_pinning_refuses_then_retries_the_same_pool_and_stake_cut",
+       "sumeragi::lanes::step::sample_owner_tests::sample_finalizer_refusal_preserves_exact_source_and_retry_funds_only_suffix"]),
+
+    m("HC137", "Queue resident custody: refund original accepted residence before its last shared owner",
+      ["queue::tests::resident_owner_tests::removed_pending_owner_retains_original_resident_credit_until_last_reader"]),
+
+    m("HC138", "Queue cold custody: inspect absent resident owner without the original mutation fence",
+      ["queue::tests::resident_owner_tests::cold_queue_retirement_holds_original_fence_until_first_admission_can_publish"]),
+
+    m("HC139", "native root selection: rewalk executed ancestry for signed-genesis identity on each successor",
+      ["sumeragi::executor::validation_refusal_tests::prepared_certificate_uses_bounded_signed_root_without_rewalking_execution_history",
+       "sumeragi::executor::validation_refusal_tests::successor_context_uses_original_parent_and_bounded_signed_root_without_history_rewalk"]),
+
+    m("HC140", "Queue payload lease: permit original inputs after a different committed State generation",
+      ["queue::payload_leases::tests::pending_payload_lease_retires_on_actual_certified_state_publication"]),
+
+    m("HC141", "Queue payload lease: adopt clear/readmission during the original selection",
+      ["queue::payload_leases::tests::pending_payload_selection_cannot_adopt_clear_and_readmission_during_selection"]),
+
+    m("HC142", "Queue payload lease: lend original selected inputs through a different Queue",
+      ["queue::payload_leases::tests::pending_payload_lease_uses_original_backing_and_retires_on_expiry_withdrawal_or_foreign_queue"]),
+
+    m("HC143", "Queue payload lease: treat actual expired inputs as currently lendable",
+      ["queue::payload_leases::tests::pending_payload_lease_uses_original_backing_and_retires_on_expiry_withdrawal_or_foreign_queue"]),
+
+    m("HC144", "Queue payload lease: erase original capture admission refusal as absent work",
+      ["queue::payload_leases::tests::pending_payload_lease_preserves_original_capacity_refusal_and_refuses_generation_wrap"]),
+
+    m("HC145", "Queue payload lease: wrap the original ownership generation instead of latching refusal",
+      ["queue::payload_leases::tests::pending_payload_lease_preserves_original_capacity_refusal_and_refuses_generation_wrap"]),
+
+    m("HC146", "State preverify: omit exact compiled native descriptor/key admission before dedup publication",
+      ["state::state_preverify_backend_admission_tests::unsupported_retired_and_claimed_backends_fail_state_admission",
+       "state::state_preverify_backend_admission_tests::native_compiled_descriptor_refusal_preserves_key_admission_and_original_retry"]),
+
+    m("HC147", "native AMX record acquisition: erase the original ordinary-write pool refusal",
+      ["sumeragi::amx::proof_tests::persisted_amx_original_read_retains_acquired_inode_and_exact_pool_through_decode_refusal"]),
+
+    m("HC148", "native AMX record acquisition: drop the acquired original archive after decode refusal",
+      ["sumeragi::amx::proof_tests::persisted_amx_original_read_retains_acquired_inode_and_exact_pool_through_decode_refusal"]),
+
+    m("HC149", "native AMX leg decode: substitute a foreign pool for the actual execution owner",
+      ["sumeragi::amx::native::tests::native_leg_decode_refuses_occupied_original_pool_before_any_copy_and_retries_exact_source"]),
+
+    m("HC150", "native AMX Worker retry: retire the completed original leg and decoder controls",
+      ["sumeragi::executor::amx_retry_tests::original_paid_amx_post_decode_refusal_retains_worker_leg_and_exact_retry"]),
+
+    m("HC151", "native AMX Worker retry: accept a physically replaced original SignedBlock graph",
+      ["sumeragi::executor::amx_retry_tests::completed_amx_worker_bank_refuses_replaced_source_parent_and_foreign_pool"]),
+
+    m("HC152", "native AMX Worker retry: collapse distinct equal Prepare instruction occurrences",
+      ["sumeragi::executor::amx_retry_tests::completed_amx_worker_bank_preserves_equal_occurrences_and_metadata_refusal"]),
+
+    m("HC153", "State membership capture: substitute the committed view for the staged original successor",
+      ["state::storage_transactions::authority::tests::original_publication_pair_matches_real_advance_replace_and_repeat"]),
+
+    m("HC154", "State membership capture: retain the repeated tip in the original successor rollback",
+      ["state::storage_transactions::authority::tests::original_publication_pair_matches_real_advance_replace_and_repeat"]),
+
+    m("HC155", "State membership capture: lend a terminal prepared publication writer",
+      ["state::storage_transactions::block::capture::publication_capture_phase_tests::original_membership_cut_refuses_started_published_unwind_and_completed_phases",
+       "state::storage_transactions::block::detached_publication::publication_capture_phase_tests::detached_membership_cut_refuses_started_published_unwind_and_released_phases"]),
+
+    m("HC156", "State membership capture: accept a refund scope belonging to another original pool",
+      ["state::authority_registry::complete::transaction_membership::tests::original_membership_scope_partial_foreign_and_released_owners_refuse"]),
+
+    m("HC157", "State membership capture: accept a prepared writer from foreign membership storage",
+      ["state::authority_registry::complete::transaction_membership::tests::original_membership_scope_partial_foreign_and_released_owners_refuse"]),
+
+    m("HC158", "State membership capture: accept a membership replacement beside an ordinary frozen World",
+      ["state::authority_registry::complete::transaction_membership::tests::original_membership_scope_partial_foreign_and_released_owners_refuse"]),
+    m("HC159", "native AMX outbound proof: discard the completed original graph after final namespace refusal",
+      ["sumeragi::amx::proof_tests::persisted_amx_completed_proof_retains_exact_graph_through_final_namespace_refusal"]),
+    m("HC160", "pending consensus penalty: erase the original physical compact-key allocator refusal",
+      ["sumeragi::penalties::tests::pending_penalty_peer_key_allocator_refusal_preserves_original_source_and_retries"]),
+
+    m("HC161", "AMX deadline publication: erase the original typed record resource refusal",
+      ["sumeragi::amx::tests::amx_deadline_record_refusal_keeps_original_pending_state_and_typed_retry"]),
+
+    m("HC162", "AMX deadline finalizer: turn local resource refusal into protocol rejection",
+      ["block::valid::tests::amx_deadline_finalizer_preserves_exact_local_refusal_without_rejection"]),
+
+    m("HC167", "native AMX Worker retry: bind immutable decoded legs to a stale State visibility publication",
+      ["sumeragi::executor::amx_retry_tests::original_paid_amx_post_decode_refusal_retains_worker_leg_and_exact_retry"]),
+
+    m("HC168", "retained State package read: reset cumulative traversal work on retry",
+      ["state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::retained_package_read_tests::original_package_read_same_limit_retry_preserves_monotonic_work_and_exact_source"]),
+    m("HC169", "retained State package read: discard completed current positions on later undo allocation refusal",
+      ["state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::retained_package_read_tests::original_package_read_retains_completed_current_index_on_later_physical_refusal"]),
+    m("HC170", "retained State reader retirement: report success while actual original readers remain",
+      ["state::block_field::retained_read::tests::retained_field_readers_and_positions_refuse_thaw_without_a_writer_wait"]),
+    m("HC171", "retained State group callback: return a result after the original State source changes",
+      ["state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::retained_musubi_group_tests::original_musubi_group_callback_state_publication_refuses_and_drops_exact_result"]),
+
+    m("HC172", "retained State revision: accept equal staged allocations under the same predecessor",
+      ["state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::retained_musubi_group_tests::original_musubi_group_equal_same_predecessor_revision_substitution_retains_original_pair"]),
+    m("HC173", "retained State Cell retirement: report success while actual original revision readers remain",
+      ["state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::retained_musubi_group_tests::original_musubi_group_revision_reader_refusal_retains_completed_tables_and_exact_scope"]),
+
+    m("HC174", "retained State predecessor merge: select current instead of undo at an equal key",
+      ["state::publication::retained_rows::predecessor::tests::retained_predecessor_ordered_merge_matches_exact_original_before_rows_in_both_modes"]),
+    m("HC175", "retained State predecessor retry: discard completed descriptor backing and frontiers on later work refusal",
+      ["state::publication::retained_rows::predecessor::tests::retained_predecessor_later_work_refusal_preserves_descriptor_heads_frontiers_and_pool"]),
+
+    m("HC176", "retained semantic capture: discard original completed canonical rows on later local refusal",
+      ["state::authority_registry::leaf::paired::retained_semantic::tests::retained_semantic_original_rows_and_cursor_survive_later_refusal"]),
+
+    m("HC177", "retained State publication: discard successful Musubi validation on later writer refusal",
+      ["state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::retained_state_successful_musubi_validation_survives_late_writer_refusal"]),
+
+    m("HC178", "retained State publication: discard successful live validation after universal scratch refuses",
+      ["state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::retained_state_live_musubi_success_survives_universal_capacity_refusal"]),
+
+    m("HC179", "retained World cut: discard completed original tail after final shared control refusal",
+      ["sumeragi::executor::publication_tests::original_worker_world_cut_retains_completed_tail_after_final_control_refusal"]),
+    m("HC180", "verified evidence attribution: substitute a fresh pool for the original offender graph",
+      ["sumeragi::evidence_history::lane::tests::lane_verified_offender_graph_refuses_occupied_original_pool_and_retries"]),
+    m("HC181", "World evidence COW: recopy the original proof and offender graph instead of sharing its immutable body",
+      ["sumeragi::evidence::lifecycle_tests::world_evidence_current_undo_and_cow_retain_original_proof_and_offender_allocations"]),
+    m("HC182", "detached native AMX source: discard its original acquired archive frame on transfer",
+      ["sumeragi::amx::proof_tests::persisted_amx_detached_source_keeps_original_frame_pool_and_retry_after_view_drop"]),
+    m("HC183", "native Prepared publication: acknowledge the original commit without its durable outbound intent",
+      ["sumeragi::executor::amx_intent_tests::original_paid_prepared_commit_captures_durable_intent_before_acknowledgement"]),
+    m("HC184", "off-chain G1 status source: substitute the State execution pool for the original admitted query frame pool",
+      ["smartcontracts::isi::tx::native_carrier_reader_tests::genesis_status_prefix_retains_original_admitted_pool_and_cumulative_refusal_work"]),
+    m("HC185", "owned native AMX issuer: reopen the original archive descriptor after its first refused poll",
+      ["query::native_receipts::amx_read::issuer_tests::owned_issuer_retains_first_refused_archive_descriptor_after_original_view_drop"]),
+    m("HC186", "terminal native AMX source: discard acquired original frame after shared body-control refusal",
+      ["query::native_receipts::amx_read::certification_tests::terminal_amx_raw_frame_survives_original_shared_shell_refusal"]),
+    m("HC187", "original native slot: ignore captured start during same-inode relocation",
+      ["kura::native_execution_read_tests::native_frame_original_start_refuses_same_inode_relocation_before_body_admission"]),
+    m("HC188", "terminal native AMX selection: forget decoded original target after a later predecessor refusal",
+      ["query::native_receipts::amx_read::certification_tests::terminal_amx_target_survives_original_later_gap_capacity_and_proof_retry"]),
+    m("HC189", "native queue admission: omit original global driver wake",
+      ["sumeragi::node::tests::queue_wake_tests::native_queue_admission_wakes_original_global_driver_after_empty"]),
+    m("HC190", "native queue admission: omit original live lane runner wake",
+      ["sumeragi::node::tests::queue_wake_tests::native_queue_admission_wakes_original_live_lane_after_empty"]),
+    m("HC191", "native queue startup: omit early exclusive original-owner refusal",
+      ["sumeragi::node::tests::queue_wake_tests::native_queue_owner_refuses_duplicate_prepared_start_and_requires_fresh_queue_restart"]),
+    m("HC192", "native queue startup: omit cold reserved original-pool admission binding",
+      ["queue::sumeragi_wake::tests::reserved_original_pool_refuses_foreign_resident_admission_before_allocation"]),
+    m("HC193", "native queue startup: omit existing resident original-pool binding",
+      ["sumeragi::node::tests::queue_wake_tests::native_queue_reservation_refuses_foreign_funded_pool_without_changing_original_pending"]),
+    m("HC194", "native queue retirement: omit terminal admission refusal",
+      ["sumeragi::node::tests::queue_wake_tests::native_queue_owner_refuses_duplicate_prepared_start_and_requires_fresh_queue_restart"]),
+    m("HC195", "durable lane publication: omit original global merge wake",
+      ["sumeragi::node::tests::queue_wake_tests::native_queue_admission_wakes_original_live_lane_after_empty"]),
+    m("HC196", "durable lane merge source: omit original cold State pool binding",
+      ["sumeragi::lanes::store::publication_tests::lane_merge_wake_binding_preserves_original_queue_and_pool_across_retry"]),
+    m("HC197", "durable lane merge source: accept a foreign original Queue identity",
+      ["sumeragi::lanes::store::publication_tests::lane_merge_wake_binding_preserves_original_queue_and_pool_across_retry"]),
+    m("HC199", "completed certified lane payload: discard original source and output on same-scope build retry",
+      ["sumeragi::executor::payload_owner::tests::completed_certified_lane_payload_keeps_original_output_across_same_scope_build_retry"]),
+    m("HC201", "block-event execution source: repeat the completed genesis prefix under the original finite allowance",
+      ["smartcontracts::isi::tx::native_carrier_reader_tests::event_carrier_reads_recent_certified_source_under_original_finite_work"]),
+    m("HC202", "block-event State capture: spin across original publication instead of returning its actual release",
+      ["state::event_carrier_tests::event_carrier_returns_from_original_writer_refusal_without_waiting"]),
+
+
+
+
+    m("HC203", "status actor prelude: spin on original State publication instead of returning its local refusal",
+      ["telemetry::tests::classified_status_tests::status_prelude_refuses_original_publication_before_service_deadline",
+       "telemetry::tests::classified_status_tests::status_final_world_sample_refuses_publication_after_verified_chunk"]),
+    m("HC204", "initial native AMX certification: discard the original genesis acquisition on constructor refusal",
+      ["query::native_receipts::amx_read::issuer_tests::public_amx_initial_shell_refusal_retains_original_genesis_frame_without_reread"]),
+    m("HC205", "authenticated genesis scope: repeat completed metadata decoding after canonical epoch validation",
+      ["sumeragi::certified_chain::tests::signed_genesis_initialization_does_not_repeat_completed_scope_decode"]),
+
+    m("HC206", "native carrier preflight: erase original cumulative durable metadata refusal",
+      ["smartcontracts::isi::tx::native_carrier_reader_tests::full_prefix_carrier_preserves_original_cumulative_metadata_refusal",
+       "smartcontracts::isi::tx::native_carrier_reader_tests::event_carrier_preserves_original_cumulative_metadata_refusal",
+       "smartcontracts::isi::tx::native_carrier_reader_tests::bounded_native_extent_preserves_original_cumulative_metadata_refusal",
+       "state::block_proofs::native_proof_reader_tests::native_block_proof_preserves_original_cumulative_metadata_refusal",
+       "sumeragi::finality::compact_source::tests::compact_source_preserves_original_cumulative_metadata_refusal_before_body_io"]),
+
+    m("HC207", "restricted home admission: omit original authenticated private-root binding",
+      ["smartcontracts::isi::domain::isi::private_root_home_tests::restricted_home_requires_original_private_root_not_global_missing_or_foreign_scope"]),
+    m("HC208", "restricted private home admission: omit both original captured route coordinates",
+      ["smartcontracts::isi::domain::isi::private_root_home_tests::original_private_home_requires_both_exact_captured_routes"]),
+    m("HC209", "restricted private home admission: omit canonical original physical geometry",
+      ["smartcontracts::isi::domain::isi::private_root_home_tests::original_private_home_requires_canonical_single_root_geometry"]),
+    m("HC210", "finite finality interval: discard completed original prefix between consecutive outputs",
+      ["sumeragi::finality::proof_reader_tests::finite_finality_interval_under_original_codec_checks_each_real_quorum_once"]),
+    m("HC211", "finite finality interval: omit final original raw source join",
+      ["sumeragi::finality::interval::tests::finite_interval_rejects_earlier_real_qc_changed_after_verification_before_publication"]),
+    m("HC212", "finite finality interval: omit original deadline and cancellation stop",
+      ["sumeragi::finality::interval::tests::finite_interval_stop_retires_real_original_cursor_without_next_native_read"]),
+    m("HC213", "portable proof destination: omit actual original compact public-key backing charge",
+      ["sumeragi::finality::proof_destination::tests::original_proof_destination_charges_each_actual_compact_key_before_clone_and_refunds"]),
+    m("HC214", "finite finality State source: omit final one-shot captured-generation membership join",
+      ["state::finality_proof_interval::tests::interval_post_read_writer_refusal_retires_response_and_preserves_original_release"]),
+
+    m("HC215", "native AMX original policy: discard completed signed policy on metadata refusal retry",
+      ["query::native_receipts::amx_read::issuer_tests::public_amx_signed_policy_retains_completed_npos_stage_on_metadata_refusal"]),
+    m("HC216", "native execution tip restore: erase original history deferral into a schema rejection",
+      ["state::native_execution_tip::tests::restore_preserves_original_pool_refusal_release_and_same_source_retry",
+       "state::native_execution_tip::tests::restore_preserves_cumulative_prefix_decode_refusal_and_same_source_retry"]),
+    m("HC217", "restarted native Prepared intent: omit final original namespace join after instruction admission",
+      ["sumeragi::amx::native::tests::paid_borrowed_custody::restarted_paid_intent_delivers_exact_native_prepared_relay_and_refunds_original_pool",
+       "sumeragi::amx::native::tests::paid_borrowed_custody::restarted_paid_intent_final_namespace_refusal_retains_exact_funded_instruction_until_original_retry"]),
+    m("HC218", "restarted native Prepared intent: omit authenticated full-witness completeness before delivery",
+      ["sumeragi::amx::native::tests::paid_borrowed_custody::restarted_paid_intent_refuses_authenticated_row_subset_before_any_delivery"]),
+    m("HC219", "returned native AMX context: replace original-pool retained graph with the uncharged epoch clone",
+      ["sumeragi::amx::native::tests::returned_context::native_amx_returned_global_context_keeps_every_original_graph_charge_until_retirement"]),
+
+    m("HC220", "Core upload account key: erase original decoder refusal into a terminal diagnostic",
+      ["state::account_key_refusal_tests::upload_account_key_preserves_original_refusal_fields_scope_and_same_source_retry"]),
+
+    m("HC221", "Fallible World construction: restore expect on the original shared initializer result",
+      ['state::world_construction_tests::world_constructor_registration_refusal_is_fallible_and_retries_original_source',
+       'state::world_construction_tests::world_constructor_record_refusal_is_fallible_and_retries_original_source',
+       'state::world_construction_tests::world_constructor_rejects_malformed_kaigi_without_panicking']),
+
+    m("HC222", "partial native AMX Worker decode: retire original controls and member prefix after refusal",
+      ["sumeragi::executor::amx_retry_tests::partial_amx_worker_leg_refusal_retains_original_controls_and_release_wait",
+       "sumeragi::executor::amx_retry_tests::partial_amx_worker_leg_refusal_retains_completed_source_prefix_without_reallocation",
+       "sumeragi::executor::amx_retry_tests::partial_amx_worker_leg_refusal_retains_original_multisig_member_prefix_without_reallocation"]),
+
+    m("HC223", "original AMX Worker replay: omit resumption of a preceding parked original occurrence",
+      ["sumeragi::executor::amx_retry_tests::rejected_amx_worker_occurrence_retains_source_prefix_and_replays_before_later_partial_occurrence"]),
+
+    m("HC224", "native pulse demand: treat a committed Parliament slot row as mandatory control",
+      ["sumeragi::epoch_beacon::producer::tests::execution_tests::pending_parliament_slots_create_no_native_control_demand_and_never_block_unrelated_work"]),
+
+]
+
+
+# Model resource-custody rules execute only in the owning DataModel unit-test crate.
+MODEL_MUTATIONS = [
+    m("DM1", "AMX instruction custody: deep-copy the original funded instruction graph",
+      ["isi::amx_owner::tests::original_amx_instruction_clone_retains_exact_graph_and_pool_through_last_reader"]),
+    m("DM2", "AMX proof custody: omit the actual Begin participant allocation from admission",
+      ["isi::amx_owner::tests::original_amx_instruction_admits_complete_actual_layouts_before_copy_and_retries_same_pool"]),
+    m("DM3", "AMX instruction custody: retain the final additional ledger instead of refunding its exact credit",
+      ["isi::amx_owner::tests::original_amx_instruction_last_owner_destroys_fields_and_refunds_exact_ledger"]),
+    m("DM4", "AMX Begin source scan: skip the canonical participant field payload context",
+      ["sumeragi_amx::allocation::tests::original_begin_record_scan_preserves_canonical_depth_refusal_and_exact_retry"]),
+    m("DM5", "AMX transaction identity: reconstruct the canonical frame as heap scratch",
+      ["amx_prepare_streaming_allocations::observer_counts_all_three_allocation_routes_and_resets_after_unwind",
+       "amx_prepare_streaming_allocations::transaction_id_streaming_matches_canonical_frames_without_heap_allocations"]),
+    m("DM6", "AMX Begin matching: reconstruct a heap-owning Begin instead of borrowing its original fields",
+      ["amx_prepare_streaming_allocations::observer_counts_all_three_allocation_routes_and_resets_after_unwind",
+       "amx_prepare_streaming_allocations::begin_matches_borrows_original_graph_without_heap_allocations"]),
+    m("DM7", "Native AMX monetary effects: materialize the canonical leg frame as unfunded heap scratch",
+      ["amx_prepare_streaming_allocations::observer_counts_all_three_allocation_routes_and_resets_after_unwind",
+       "amx_prepare_streaming_allocations::native_transfer_effects_stream_exact_monetary_fields_without_heap_allocations"]),
+    m("DM8", "AMX deadline custody: consume pending source before every decision record succeeds",
+      ["sumeragi_amx::tests::sumeragi_amx_expiry_refusal_and_unwind_preserve_original_pending_graph"]),
+    m("DM9", "AMX record encoding: erase the original physical allocation refusal",
+      ["sumeragi_amx::tests::sumeragi_amx_encoding_keeps_exact_physical_allocator_refusal"]),
+    m("DM10", "pinned genesis: repeat completed canonical authentication over the original body",
+      ["sumeragi_finality::genesis_dataspace::tests::pinned_signed_genesis_uses_one_original_decode_and_retains_metadata"]),
+    m("DM11", "pinned genesis: erase original binary decoder refusal provenance",
+      ["sumeragi_finality::genesis_dataspace::tests::pinned_signed_genesis_preserves_original_binary_refusal"]),
+    m("DM12", "pinned genesis: erase original signed JSON decoder refusal provenance",
+      ["sumeragi_finality::genesis_dataspace::tests::pinned_signed_genesis_preserves_original_json_refusal_and_retry"]),
+    m("DM13", "consensus fingerprint: reopen completed authenticated metadata",
+      ["sumeragi_finality::tests::consensus_fingerprint_reuses_original_authenticated_metadata_under_one_pass_budget"]),
+    m("DM14", "initial chain parameters: reopen constructor-authenticated metadata",
+      ["sumeragi_finality::tests::initial_chain_parameters_reuses_constructor_authenticated_metadata_under_one_pass_budget"]),
+
+
+    m("DM15", "original signed genesis policy: repeat completed exact instruction decoding",
+      ["sumeragi_finality::genesis::original_policy::tests::original_completed_policy_survives_metadata_refusal_without_another_decode"]),
+
+    m("DM16", "signed epoch validation: reconstruct a temporary owning generation roster",
+      ["sumeragi::epoch::tests::epoch_validation_retains_original_signed_roster_without_generation_allocation"]),
+    m("DM17", "NPoS validation: reconstruct fixed synthetic identity during original record transfer",
+      ["parameter::system::npos_json::tests::admitted_npos_record_moves_exact_original_quantity_backing_and_funded_charge_ledger",
+       "parameter::system::tests::sumeragi_npos_synthetic_identity_is_exact_and_validation_never_allocates",
+       "nexus::committee::tests::frozen_policy_validation_borrows_fixed_synthetic_identity_without_allocation"]),
+
+    m("DM18", "committee readiness: reconstruct a temporary owning generation roster",
+      ["nexus::committee::tests::public_readiness_borrows_original_roster_with_only_canonical_transcript_work"]),
+    m("DM19", "committee Activate validation: reconstruct a temporary owning generation roster",
+      ["nexus::committee::tests::public_activation_borrows_original_generation_beyond_existing_readiness_work"]),
+    m("DM20", "multisig contract recognition: turn original scoped JSON refusal into nonmatch",
+      ["smart_contract::multisig_call::tests::canonical_recognition_preserves_original_scoped_refusal_and_same_envelope_retry"]),
+    m("DM21", "canonical address decoder: erase original scoped and unscoped resource causes",
+      ["account::address::tests::canonical_address_json_preserves_original_refusal_fields_scope_and_retry", "account::address::tests::account_address_value_and_map_key_json_decoders_are_borrowed_and_measured", "account::address::tests::address_resource_conversions_preserve_fields_and_anonymous_bounds_without_minting_scope"]),
+    m("DM22", "canonical account parser: replace original address cause with a fieldless bound",
+      ["account::json_tests::canonical_account_json_preserves_original_refusal_fields_scope_and_retry", "account::json_tests::account_id_json_roundtrips_large_multisig_as_canonical_i105", "account::json_tests::account_id_value_and_map_key_json_decoders_are_borrowed_and_measured", "account::json_tests::canonical_account_public_parser_preserves_original_address_cause_and_diagnostics"]),
+    m("DM23", "numeric I105 resource refusal: continue later canonical candidates",
+      ["account::address::tests::numeric_i105_resource_refusal_stops_at_original_candidate_without_later_allocations"]),
+    m("DM24", "expected I105 prefix diagnostics: retry a terminal resource refusal",
+      ["account::address::tests::expected_i105_prefix_diagnostics_do_not_retry_original_resource_refusal"]),
+
+    m("DM25", "persisted AccountId storage keys: erase original typed refusal at canonical delegation",
+      ["json_key_codec::tests::account_storage_keys_preserve_original_refusal_fields_scope_and_retry"]),
+    m("DM26", "persisted role assignment keys: erase original account refusal at canonical delegation",
+      ["role::native_assignment_tests::role_assignment_storage_keys_preserve_original_account_refusal_and_retry"]),
+    m("DM27", "Kaigi participant metadata: erase original typed refusal at canonical map delegation",
+      ["kaigi::tests::kaigi_participant_metadata_preserves_original_account_refusal_and_canonical_map"]),
+    m("DM28", "instruction archive: retry after original borrowed-pair refusal",
+      ["isi::instruction_decode_refusal_tests::archived_instruction_refusal_stops_without_allocating_an_owned_pair_retry"]),
+    m("DM29", "instruction slice: erase original scoped resource refusal",
+      ["isi::instruction_decode_refusal_tests::instruction_slice_retains_original_scoped_refusal_and_retry"]),
+    m("DM30", "instruction JSON: stringify original nested binary refusal",
+      ["isi::instruction_decode_refusal_tests::instruction_json_retains_original_scoped_refusal_and_retry"]),
+    m("DM31", "instruction base64: omit cumulative scratch admission",
+      ["isi::instruction_decode_refusal_tests::instruction_base64_scratch_is_admitted_before_decode_and_retries_original_input"]),
+    m("DM32", "structured asset instructions: erase original canonical account refusal",
+      ["isi::instruction_decode_refusal_tests::structured_asset_instructions_preserve_original_account_refusal_and_retry"]),
+    m("DM33", "native AMX multisig semantic cause: allocate a String on original retained replay",
+      ["sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_threshold_replay_preserves_original_cause_without_diagnostic_allocations",
+       "sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_member_replay_preserves_original_cause_without_diagnostic_allocations"]),
 
 ]
 
@@ -769,6 +1101,39 @@ DAEMON_MUTATIONS = [
       ["beacon_bootstrap::seat_attempt::finality::tests::durable_native_replay_rejects_foreign_source_pool_without_pinning_or_advancing"]),
     m("HC93", "broker beacon operation: reconstruct the authenticated session at every phase",
       ["runtime_provider_broker::protocol::platform::tests::beacon_operation_reuses_original_graph_across_ingress_dispatch_and_response"]),
+    m("HC198", "DKG file publication: omit exact original creation mode initialization before public bytes",
+      ["beacon_bootstrap::seat_export::tests::public_output_initializes_exact_original_creation_mode_before_publication_and_restore"]),
+    m("HC200", "DKG aggregate restore: require adjacent live phase height while rebuilding complete original certified history",
+      ["beacon_bootstrap::seat_attempt::finality::tests::aggregate_restart_replays_complete_original_history_before_next_phase_and_keeps_cutoff"]),
+]
+
+
+SDK_MUTATIONS = [
+    m("SDK1", "Public Norito reads: accept missing or foreign response media",
+      ["http::public::tests::public_norito_reads_refuse_missing_foreign_media_and_elapsed_requests",
+       "http::public::tests::public_norito_reads_select_only_fixed_media_and_retain_original_public_policies"]),
+]
+
+DEPLOY_MUTATIONS = [
+    m("DEP1", "Managed AMX sources: reconstruct a lost published capsule over HTTP",
+      ["bootstrap::amx_sources::tests::managed_amx_sources_refuse_partial_removed_and_substituted_custody_without_http_repair",
+       "bootstrap::amx_sources::tests::managed_amx_sources_keep_original_g1_h2_across_advanced_checkpoint_and_reopen",
+       "bootstrap::amx_sources::tests::managed_amx_sources_refuse_incomplete_staging_without_refetch_or_new_deadline"]),
+    m("DEP2", "Managed AMX sources: accept same bytes from a replaced original file inode",
+      ["bootstrap::amx_sources::tests::managed_amx_sources_bind_original_file_identity_and_exact_capsule_inventory",
+       "bootstrap::amx_sources::tests::managed_amx_sources_feed_real_private_staging_and_exact_retained_generation"]),
+    m("DEP3", "Managed AMX sources: omit the live-release check after retained authentication",
+      ["bootstrap::amx_sources::tests::managed_amx_sources_recheck_release_after_retained_authentication_without_refetch"]),
+    m("DEP4", "Managed AMX sources: publish a new capsule after original acquisition expires",
+      ["bootstrap::amx_sources::tests::managed_amx_sources_refuse_wrong_parent_height_and_expired_reads_before_publication"]),
+    m("DEP5", "Managed AMX sources: reopen replaced G1/H2 from an unchanged local record",
+      ["bootstrap::amx_sources::tests::managed_amx_sources_reopen_refuses_identical_g1_h2_replacement_without_http_repair",
+       "bootstrap::amx_sources::tests::managed_amx_sources_reopen_preserves_original_native_pair_and_directory_without_new_reads"]),
+    m("DEP6", "Administrative AMX registration: accept a substituted original child or signer",
+      ["attachment::amx_registration::tests::original_amx_administrator_child_fees_time_and_checkpoint_survive_reopen_and_refuse_substitution"]),
+    m("DEP7", "signed service profile: reconstruct completed original authenticated genesis metadata",
+      ["localnet::private_root::tests::private_root_preparation_executes_signed_genesis_and_retains_owner_on_reopen"]),
+
 ]
 
 
@@ -786,16 +1151,93 @@ BY_ID = index_mutations(MUTATIONS)
 
 
 
+TORII_MUTATIONS = [
+    m("TOR1", "Pipeline cache: accept a block outcome without its exact canonical transaction binding",
+      ["tests_runtime_handlers::pipeline_status_cached_applied_refuses_removed_original_membership",
+       "tests_runtime_handlers::prepared_submit_outcome_cached_applied_refuses_removed_original_membership"]),
+    m("TOR2", "Pipeline pending refresh: use execution capacity before original query admission and mutate the cache on refusal",
+      ["tests_runtime_handlers::pipeline_status_pending_refresh_retains_original_query_refusal_and_pending_source"]),
+    m("TOR3", "Finite finality HTTP stop control: retire original query credit before an unpolled worker error or deadline result",
+      ["finality_interval::tests::failed_and_timed_out_workers_keep_original_credit_until_unpolled_stop_control_retires"]),
+
+]
+
+
+NORITO_MUTATIONS = [
+    m("NC1", "Direct canonical JSON: omit original active-counter family capture",
+      ["core::decode_attempt::tests::direct_json_refusal_keeps_original_context_and_retry"]),
+    m("NC2", "Decode provenance: accept a saved refusal without its observer root and boundary",
+      ["core::decode_attempt::tests::direct_attempt_replay_under_same_counter_owner_is_invalid",
+       "core::decode_attempt::tests::direct_attempt_cross_thread_replay_with_original_shared_context_is_invalid",
+       "core::decode_attempt::tests::direct_nested_attempts_preserve_parent_origin_and_refuse_old_sibling",
+       "core::decode_attempt::tests::already_active_direct_attempt_rejects_later_foreign_thread_root"]),
+    m("NC3", "Decode provenance: wrap an exhausted observer identity sequence",
+      ["core::decode_attempt::tests::observer_boundary_sequence_exhaustion_never_wraps"]),
+    m("NC4", "JSON resource conversion: discard original unscoped decoder fields",
+      ["json::tests::core_resource_errors_roundtrip_exact_fields_without_fresh_scope",
+       "json::tests::direct_json_parser_retains_unscoped_fields_and_same_input_retry"]),
+    m("NC5", "JSON resource conversion: turn malformed input into allocator refusal",
+      ["json::tests::non_resource_core_errors_cannot_become_json_allocator_refusals"]),
+]
+
+
 def package_options(args):
     """Select the actual implementation owner without propagating a mutation to dependencies."""
+    if getattr(args, "norito", False):
+        return "norito", "mutation-testing", "SUMERAGI_NORITO_MUTATION"
+    if getattr(args, "torii", False):
+        return "iroha_torii", "mutation-testing", "SUMERAGI_TORII_MUTATION"
+    if getattr(args, "sdk", False):
+        return "iroha", "mutation-testing", "SUMERAGI_SDK_MUTATION"
+    if getattr(args, "deploy", False):
+        return "iroha_deploy", "mutation-testing", "SUMERAGI_DEPLOY_MUTATION"
+    if getattr(args, "model", False):
+        return "iroha_data_model", "mutation-testing", "SUMERAGI_MODEL_MUTATION"
     if getattr(args, "daemon", False):
         return "irohad_lib", "mutation-testing", "SUMERAGI_DAEMON_MUTATION"
     if getattr(args, "core", False):
         return "iroha_core", "mutation-testing,iroha-core-tests", "SUMERAGI_CORE_MUTATION"
     return CRATE, FEATURES, "SUMERAGI_MUTATION"
 
-TEST_LINE = re.compile(r"^test (\S+) \.\.\. (ok|FAILED|ignored)", re.M)
-TEST_COMPLETION = re.compile(r"^test result: (ok|FAILED)\. \d+ passed; \d+ failed;", re.M)
+TEST_COMPLETION = re.compile(
+    r"^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; "
+    r"(\d+) measured; (\d+) filtered out; finished in \d+(?:\.\d+)?s$", re.M)
+TEST_RUNNING = re.compile(r"^running (\d+) tests?$", re.M)
+TEST_LIST = re.compile(r"^(\S+): test$", re.M)
+TEST_LIST_COMPLETION = re.compile(r"^(\d+) tests?, (\d+) benchmarks?$", re.M)
+
+
+def serial_test_terminals(output):
+    """Bind each inline or logger-split status to its one serial libtest owner.
+
+    The caller also checks discovery, process exit, counts and header/summary
+    order. An orphan, duplicate or unfinished terminal never qualifies a result.
+    """
+    results = []
+    pending = None
+    valid = True
+    offset = 0
+    for line in output.splitlines(keepends=True):
+        text = line.rstrip("\r\n")
+        start = re.fullmatch(r"test (\S+)(?: - should panic)? \.\.\.(?: (.*))?", text)
+        if start:
+            if pending is not None:
+                valid = False
+            pending = (start.group(1), offset)
+            status = start.group(2) or ""
+        else:
+            status = text
+        if re.fullmatch(r"ok|FAILED|ignored(?:, .*?)?", status):
+            if pending is None:
+                valid = False
+            else:
+                name, begin = pending
+                results.append((name, status, begin, offset + len(text)))
+                pending = None
+        if text.startswith("test result:") and pending is not None:
+            valid = False
+        offset += len(line)
+    return results, valid and pending is None
 
 
 @dataclass
@@ -806,6 +1248,8 @@ class Step:
     ran: list = field(default_factory=list)
     detail: list = field(default_factory=list)
     log: str = ""
+    selected: list = field(default_factory=list)
+    discovery_log: str = ""
 
 
 def cargo_test(args, target_dir, mutation, filters, seeds, timeout, log_path, no_run=False):
@@ -814,6 +1258,11 @@ def cargo_test(args, target_dir, mutation, filters, seeds, timeout, log_path, no
     env.pop("SUMERAGI_MUTATION", None)
     env.pop("SUMERAGI_CORE_MUTATION", None)
     env.pop("SUMERAGI_DAEMON_MUTATION", None)
+    env.pop("SUMERAGI_MODEL_MUTATION", None)
+    env.pop("SUMERAGI_SDK_MUTATION", None)
+    env.pop("SUMERAGI_DEPLOY_MUTATION", None)
+    env.pop("SUMERAGI_TORII_MUTATION", None)
+    env.pop("SUMERAGI_NORITO_MUTATION", None)
     crate, features, mutation_env = package_options(args)
     env.pop("SUMERAGI_SIM_SEED", None)
     env.pop("SUMERAGI_SIM_SEED_BASE", None)
@@ -824,7 +1273,8 @@ def cargo_test(args, target_dir, mutation, filters, seeds, timeout, log_path, no
     else:
         env.pop("SUMERAGI_SIM_SEEDS", None)
     env["CARGO_TARGET_DIR"] = str(target_dir)
-    profile = getattr(args, "core_profile", None) if getattr(args, "core", False) else None
+    profile = ("test" if any(getattr(args, owner, False) for owner in ("model", "sdk", "deploy", "torii", "norito")) else
+               (getattr(args, "core_profile", None) or "test") if getattr(args, "core", False) else None)
     profile_options = ["--profile", profile] if profile else ["--release"]
     cmd = ["cargo", "test", "--locked", "-p", crate, *profile_options, "--features", features, "--lib"]
     if no_run:
@@ -857,15 +1307,59 @@ def cargo_test(args, target_dir, mutation, filters, seeds, timeout, log_path, no
     return code, out or "", elapsed
 
 
+def test_selector_matches(selector, name):
+    """Resolve a full test path or every exact leaf, without a substring substitute."""
+    return name == selector if "::" in selector else name.rsplit("::", 1)[-1] == selector
+
+
+def required_test_failures(filters, failed):
+    """Retain only failures of declared controls, separately from selected extras."""
+    return sorted(name for name in failed
+                  if any(test_selector_matches(selector, name) for selector in filters))
+
+
 def run_step(args, target_dir, mutation, filters, seeds, timeout, log_path):
-    code, out, elapsed = cargo_test(args, target_dir, mutation, filters, seeds, timeout, log_path)
-    results = TEST_LINE.findall(out)
-    ran = sorted({name for name, verdict in results if verdict != "ignored"})
+    """Account for the actual substring selection within one original deadline."""
+    started = time.monotonic()
+    discovery_log = log_path.with_name(log_path.stem + ".discovery" + log_path.suffix)
+    discovery_code, listing, discovery_elapsed = cargo_test(
+        args, target_dir, mutation, [*filters, "--list", "--format", "pretty", "--color", "never"],
+        seeds, timeout, discovery_log)
+    selected = TEST_LIST.findall(listing)
+    declared = TEST_LIST_COMPLETION.findall(listing)
+    elapsed = max(time.monotonic() - started, discovery_elapsed)
+    step = Step(status="pass", seconds=round(elapsed, 1), selected=selected,
+                log=str(log_path), discovery_log=str(discovery_log))
+    if discovery_code is None or (timeout and elapsed >= timeout):
+        step.status = "timeout"
+        step.detail.append(f"discovery exhausted the original {timeout}s deadline")
+        return step
+    if discovery_code != 0 or declared != [(str(len(selected)), "0")] or len(selected) != len(set(selected)):
+        step.status = "execution-error"
+        step.detail.append("test discovery did not complete exactly one unique libtest inventory")
+        return step
+    missing = [selector for selector in filters
+               if not any(test_selector_matches(selector, name) for name in selected)]
+    if missing:
+        step.status = "missing-test"
+        step.detail.append(f"no discovered declared control: {missing}")
+        return step
+    required = {name for name in selected
+                if any(test_selector_matches(selector, name) for selector in filters)}
+    remaining = max(0.0, timeout - elapsed) if timeout else 0
+    code, out, runtime_elapsed = cargo_test(
+        args, target_dir, mutation,
+        [*filters, "--test-threads=1", "--format", "pretty", "--color", "never"],
+        seeds, remaining, log_path)
+    elapsed = max(time.monotonic() - started, discovery_elapsed + runtime_elapsed)
+    terminals, terminal_owners_valid = serial_test_terminals(out)
+    results = [(name, verdict) for name, verdict, _, _ in terminals]
+    ran = sorted({name for name, verdict in results if not verdict.startswith("ignored")})
     failed = sorted({name for name, verdict in results if verdict == "FAILED"})
     step = Step(status="pass", seconds=round(elapsed, 1), failed=failed, ran=ran,
-                log=str(log_path))
-    missing = [flt for flt in filters if not any(flt in name for name in ran)]
-    if code is None:
+                selected=selected, log=str(log_path), discovery_log=str(discovery_log))
+    missing = sorted(required - set(ran))
+    if code is None or (timeout and elapsed > timeout):
         step.status = "timeout"
         step.detail.append(f"timed out after {timeout}s")
     elif "error[E" in out or "could not compile" in out:
@@ -881,13 +1375,28 @@ def run_step(args, target_dir, mutation, filters, seeds, timeout, log_path):
         panics = re.findall(r"panicked at [^\n]*\n([^\n]*)", out)
         step.detail = (seeds_failed[:3] + violations[:3] + panics[:3])[:6]
     if missing and step.status in ("pass", "fail"):
-        step.detail.append(f"no executed test matched: {missing}")
+        step.detail.append(f"no executed declared control: {missing}")
         step.status = "missing-test"
     if step.status in ("pass", "fail"):
         expected = "FAILED" if step.status == "fail" else "ok"
-        if TEST_COMPLETION.findall(out) != [expected] or code != (101 if failed else 0):
+        passed = sum(verdict == "ok" for _, verdict in results)
+        summaries = TEST_COMPLETION.findall(out)
+        summary_lines = re.findall(r"^test result:.*$", out, re.M)
+        running = list(TEST_RUNNING.finditer(out))
+        completions = list(TEST_COMPLETION.finditer(out))
+        ordered = (len(running) == len(completions) == 1 and bool(terminals)
+                   and running[0].end() < terminals[0][2]
+                   and terminals[-1][3] < completions[0].start())
+        exact = (len(summary_lines) == len(summaries) == 1
+                 and [match.group(1) for match in running] == [str(len(selected))]
+                 and ordered and terminal_owners_valid
+                 and summaries[0][0] == expected
+                 and tuple(map(int, summaries[0][1:5])) == (passed, len(failed), 0, 0)
+                 and len(results) == len(selected) and len(ran) == len(results)
+                 and set(ran) == set(selected))
+        if not exact or code != (101 if failed else 0):
             step.status = "execution-error"
-            step.detail.append("cargo did not complete exactly one expected test harness")
+            step.detail.append("cargo did not complete every discovered test exactly once with a matching summary")
     return step
 
 
@@ -901,10 +1410,20 @@ def build(args, target_dir, mutation, log_path):
                 detail=detail, log=str(log_path))
 
 
-def has_switch(mid, *, core=False, daemon=False):
-    if core and daemon:
+def has_switch(mid, *, core=False, daemon=False, model=False, sdk=False, deploy=False, torii=False, norito=False):
+    if sum((core, daemon, model, sdk, deploy, torii, norito)) > 1:
         raise ValueError("a mutation has exactly one implementation owner")
-    if daemon:
+    if norito:
+        cfg, source = "sumeragi_norito_mutation", REPO / "crates" / "norito" / "src"
+    elif torii:
+        cfg, source = "sumeragi_torii_mutation", REPO / "crates" / "iroha_torii" / "src"
+    elif sdk:
+        cfg, source = "sumeragi_sdk_mutation", REPO / "crates" / "iroha" / "src"
+    elif deploy:
+        cfg, source = "sumeragi_deploy_mutation", REPO / "crates" / "iroha_deploy" / "src"
+    elif model:
+        cfg, source = "sumeragi_model_mutation", REPO / "crates" / "iroha_data_model" / "src"
+    elif daemon:
         cfg, source = "sumeragi_daemon_mutation", REPO / "crates" / "irohad" / "src"
     else:
         cfg = "sumeragi_core_mutation" if core else "sumeragi_mutation"
@@ -913,12 +1432,50 @@ def has_switch(mid, *, core=False, daemon=False):
     return any(needle in p.read_text() for p in source.rglob("*.rs"))
 
 
+
+def run_grouped_steps(args, target_dir, mutation, groups, seeds, timeout, logs, stem):
+    """Retain every invocation and refuse an aggregate pass or kill on any step error."""
+    steps = []
+    for index, filters in enumerate(groups):
+        log = logs / f"{stem}.{index:03d}.log"
+        if not filters:
+            step = Step(status="missing-test", detail=["no selectors for this invocation"], log=str(log))
+        else:
+            step = run_step(args, target_dir, mutation, filters, seeds, timeout, log)
+        steps.append({"filters": list(filters), "deadline_seconds": timeout,
+                      "seeds": seeds, **step.__dict__,
+                      "required_failed": required_test_failures(filters, step.failed)})
+    errors = [step["status"] for step in steps if step["status"] not in ("pass", "fail")]
+    status = (errors[0] if errors else "fail" if any(step["status"] == "fail" for step in steps)
+              else "pass" if steps else "missing-test")
+    return {"status": status,
+            "seconds": round(sum(step["seconds"] for step in steps), 1),
+            "failed": sorted({name for step in steps for name in step["failed"]}),
+            "required_failed": sorted({name for step in steps for name in step["required_failed"]}),
+            "ran": sorted({name for step in steps for name in step["ran"]}),
+            "selected": sorted({name for step in steps for name in step["selected"]}),
+            "steps": steps}
+
+
 def evaluate(args, target_dir, mu):
     logs = args.target_dir / "logs"
     result = {"id": mu.id, "site": mu.site, "named_tests": list(mu.tests),
               "scenarios": [SCENARIOS[s] for s in mu.scenarios]}
+    if not mu.tests:
+        result.update(verdict="error", reason="no named test selectors")
+        return result
     started = time.monotonic()
-    if getattr(args, "daemon", False):
+    if getattr(args, "norito", False):
+        present = has_switch(mu.id, norito=True)
+    elif getattr(args, "torii", False):
+        present = has_switch(mu.id, torii=True)
+    elif getattr(args, "sdk", False):
+        present = has_switch(mu.id, sdk=True)
+    elif getattr(args, "deploy", False):
+        present = has_switch(mu.id, deploy=True)
+    elif getattr(args, "model", False):
+        present = has_switch(mu.id, model=True)
+    elif getattr(args, "daemon", False):
         present = has_switch(mu.id, daemon=True)
     else:
         present = has_switch(mu.id, core=True) if getattr(args, "core", False) else has_switch(mu.id)
@@ -932,19 +1489,25 @@ def evaluate(args, target_dir, mu):
         return result
     named = run_step(args, target_dir, mu.id, mu.tests, None, args.timeout_test,
                      logs / f"{mu.id}.named.log")
-    result["named"] = named.__dict__
-    killed_by_test = named.status == "fail"
+    named_failed = required_test_failures(mu.tests, named.failed)
+    result["named"] = {**named.__dict__, "required_failed": named_failed}
+    killed_by_test = named.status == "fail" and bool(named_failed)
     scen = None
     if mu.scenarios and not args.fast:
-        filters = [SCENARIOS[s] for s in mu.scenarios]
-        scen = run_step(args, target_dir, mu.id, filters, args.seeds, args.timeout_scenario,
-                        logs / f"{mu.id}.scenario.log")
-        result["scenario"] = scen.__dict__
-    killed_by_scenario = scen is not None and scen.status == "fail"
+        groups = [(scenario,) for scenario in dict.fromkeys(SCENARIOS[s] for s in mu.scenarios)]
+        scen = run_grouped_steps(args, target_dir, mu.id, groups, args.seeds,
+                                 args.timeout_scenario, logs, f"{mu.id}.scenario")
+        result["scenario"] = scen
+    killed_by_scenario = scen is not None and scen["status"] == "fail" and bool(scen["required_failed"])
     if named.status not in ("pass", "fail"):
         result.update(verdict="error", reason=f"named tests: {named.status}")
-    elif scen is not None and scen.status not in ("pass", "fail"):
-        result.update(verdict="error", reason=f"scenarios: {scen.status}")
+    elif named.status == "fail" and not killed_by_test:
+        result.update(verdict="error", reason="named tests: only additional substring-selected tests failed")
+    elif scen is not None and scen["status"] not in ("pass", "fail"):
+        result.update(verdict="error", reason=f"scenarios: {scen['status']}")
+    elif scen is not None and any(step["status"] == "fail" and not step["required_failed"]
+                                  for step in scen["steps"]):
+        result.update(verdict="error", reason="scenarios: only additional substring-selected tests failed")
     elif killed_by_test:
         result["verdict"] = "killed_by_test"
     elif killed_by_scenario:
@@ -963,18 +1526,19 @@ def evaluate_baseline(args, target_dir, mutations):
     if b.status != "pass":
         result["verdict"] = "error"
         return result
-    tests = sorted({t for mu in mutations for t in mu.tests})
-    named = run_step(args, target_dir, None, tests, None, args.timeout_test,
-                     logs / "baseline.named.log")
-    result["named"] = named.__dict__
-    ok = named.status == "pass"
-    scenarios = sorted({s for mu in mutations for s in mu.scenarios})
+    # Preserve each mutation's exact named-selector tuple as its original step.
+    # The baseline de-duplicates tuples, rather than merging unrelated steps.
+    groups = sorted({tuple(mu.tests) for mu in mutations})
+    named = run_grouped_steps(args, target_dir, None, groups, None, args.timeout_test,
+                             logs, "baseline.named")
+    result["named"] = named
+    ok = named["status"] == "pass"
+    scenarios = sorted({SCENARIOS[s] for mu in mutations for s in mu.scenarios})
     if scenarios and not args.fast:
-        filters = [SCENARIOS[s] for s in scenarios]
-        scen = run_step(args, target_dir, None, filters, args.seeds,
-                        args.timeout_scenario, logs / "baseline.scenario.log")
-        result["scenario"] = scen.__dict__
-        ok = ok and scen.status == "pass"
+        scen = run_grouped_steps(args, target_dir, None, [(s,) for s in scenarios],
+                                 args.seeds, args.timeout_scenario, logs, "baseline.scenario")
+        result["scenario"] = scen
+        ok = ok and scen["status"] == "pass"
     result["verdict"] = "pass" if ok else "fail"
     return result
 
@@ -990,6 +1554,16 @@ def main():
                        help="qualify registered production iroha_core rules with their Core tests")
     owner.add_argument("--daemon", action="store_true",
                        help="qualify registered irohad_lib integration rules with daemon unit tests")
+    owner.add_argument("--model", action="store_true",
+                       help="qualify registered DataModel resource-custody rules with Model unit tests in the test profile")
+    owner.add_argument("--sdk", action="store_true",
+                       help="qualify registered SDK public-read rules with owning unit tests in the test profile")
+    owner.add_argument("--deploy", action="store_true",
+                       help="qualify registered Deploy managed-bootstrap custody rules with owning unit tests in the test profile")
+    owner.add_argument("--torii", action="store_true",
+                       help="qualify registered Torii canonical-outcome custody rules with owning unit tests in the test profile")
+    owner.add_argument("--norito", action="store_true",
+                       help="qualify registered Norito decode-origin rules with owning unit tests in the test profile")
     parser.add_argument("--only", help="comma-separated mutation ids (default: all)")
     parser.add_argument("--jobs", type=int, default=1,
                         help="parallel jobs, each with its own target sub-directory")
@@ -998,32 +1572,43 @@ def main():
     parser.add_argument("--seeds", type=int, default=200,
                         help="SUMERAGI_SIM_SEEDS for the scenarios (default 200)")
     parser.add_argument("--target-dir", type=Path,
-                        help="dedicated target root (default: target/sumeragi-mutants; --core: target/sumeragi-core-mutants; --daemon: target/sumeragi-daemon-mutants)")
+                        help="dedicated target root (default: target/sumeragi-mutants; --core: target/sumeragi-core-mutants; --daemon: target/sumeragi-daemon-mutants; --model: target/sumeragi-model-mutants; --sdk: target/sumeragi-sdk-mutants; --deploy: target/sumeragi-deploy-mutants; --torii: target/sumeragi-torii-mutants; --norito: target/sumeragi-norito-mutants)")
     parser.add_argument("--skip-baseline", action="store_true",
                         help="do not run the unmutated build")
     parser.add_argument("--strict", action="store_true",
                         help="also fail when a mutation is killed only by its scenario "
                              "(the literal §13.4 CI rule)")
     parser.add_argument("--core-profile", choices=("release", "test"),
-                        help="Core-only build profile (default: release); identical for baseline and mutant")
+                        help="Core-only build profile (default: test); identical for baseline and mutant")
     parser.add_argument("--timeout-build", type=int, default=1200,
                         help="seconds per build deadline (0 disables its deadline)")
     parser.add_argument("--timeout-test", type=int, default=900,
-                        help="seconds per named-test deadline (0 disables its deadline)")
+                        help="seconds per named-selector tuple deadline (0 disables its deadline)")
     parser.add_argument("--timeout-scenario", type=int, default=3600,
                         help="seconds per scenario deadline (0 disables its deadline)")
     parser.add_argument("--list", action="store_true", help="print the mutation table and exit")
     args = parser.parse_args()
+    if args.jobs < 1:
+        parser.error("--jobs must be positive")
+    if not 1 <= args.seeds <= (1 << 64) - 1:
+        parser.error("--seeds must be a positive u64 count")
     if args.strict and args.skip_baseline:
         parser.error("--strict requires the unmutated baseline")
     if args.target_dir is None:
-        name = ("sumeragi-daemon-mutants" if args.daemon else
+        name = ("sumeragi-norito-mutants" if args.norito else
+                "sumeragi-torii-mutants" if args.torii else
+                "sumeragi-sdk-mutants" if args.sdk else
+                "sumeragi-deploy-mutants" if args.deploy else
+                "sumeragi-model-mutants" if args.model else
+                "sumeragi-daemon-mutants" if args.daemon else
                 "sumeragi-core-mutants" if args.core else "sumeragi-mutants")
         args.target_dir = REPO / "target" / name
     args.target_dir = args.target_dir.resolve()
     if args.core_profile is not None and not args.core:
         parser.error("--core-profile requires --core; protocol and daemon qualification use release")
-    table = DAEMON_MUTATIONS if args.daemon else CORE_MUTATIONS if args.core else MUTATIONS
+    table = (NORITO_MUTATIONS if args.norito else TORII_MUTATIONS if args.torii else SDK_MUTATIONS if args.sdk else DEPLOY_MUTATIONS if args.deploy else
+             MODEL_MUTATIONS if args.model else DAEMON_MUTATIONS if args.daemon else
+             CORE_MUTATIONS if args.core else MUTATIONS)
     by_id = index_mutations(table)
     if min(args.timeout_build, args.timeout_test, args.timeout_scenario) < 0:
         parser.error("timeouts must be nonnegative; 0 waits without terminating a command")
@@ -1035,8 +1620,12 @@ def main():
         return 0
 
     selected = table
-    if args.only:
+    if args.only is not None:
         wanted = [x.strip() for x in args.only.split(",") if x.strip()]
+        if not wanted:
+            parser.error("--only must select at least one mutation id")
+        if len(wanted) != len(set(wanted)):
+            parser.error("--only contains duplicate mutation ids")
         unknown = [x for x in wanted if x not in by_id]
         if unknown:
             parser.error(f"unknown mutation id(s): {', '.join(unknown)}")
@@ -1060,10 +1649,17 @@ def main():
                 kind, mu = work.get_nowait()
             except queue.Empty:
                 return
-            if kind == "baseline":
-                res = evaluate_baseline(args, target_dir, selected)
-            else:
-                res = evaluate(args, target_dir, mu)
+            try:
+                if kind == "baseline":
+                    res = evaluate_baseline(args, target_dir, selected)
+                else:
+                    res = evaluate(args, target_dir, mu)
+            except Exception as error:
+                # A local guard/build/reader failure is an error for this original
+                # work item, never a test kill. Do not catch process interrupts.
+                res = {"id": "baseline" if kind == "baseline" else mu.id,
+                       "verdict": "error",
+                       "reason": f"worker evaluation raised {type(error).__name__}: {error}"}
             with lock:
                 results[res["id"]] = res
                 done[0] += 1
@@ -1084,7 +1680,7 @@ def main():
         verdicts.setdefault(results[mu.id]["verdict"], []).append(mu.id)
     baseline = results.get("baseline")
     summary = {
-        "baseline": baseline["verdict"] if baseline else "skipped",
+        "baseline": baseline["verdict"] if baseline else ("skipped" if args.skip_baseline else "error"),
         "mutations": len(selected),
         "killed_by_test": verdicts.get("killed_by_test", []),
         "killed_by_scenario_only": verdicts.get("killed_by_scenario_only", []),
@@ -1097,7 +1693,8 @@ def main():
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "command": sys.argv,
         "package": package_options(args)[0],
-        "profile": (args.core_profile or "release") if args.core else "release",
+        "profile": ("test" if args.model or args.sdk or args.deploy or args.torii or args.norito else
+                    (args.core_profile or "test") if args.core else "release"),
         "seeds": None if args.fast else args.seeds,
         "fast": args.fast,
         "summary": summary,

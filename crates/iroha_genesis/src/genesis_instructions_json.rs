@@ -723,8 +723,13 @@ where
         .map_err(|err| json::Error::Message(format!("invalid {label}: {err}")))
 }
 fn parse_account_id(value: &str, label: &'static str) -> Result<AccountId, json::Error> {
-    AccountId::parse_encoded(value)
-        .map_err(|err| json::Error::Message(format!("invalid {label}: {err}")))
+    <AccountId as json::JsonObjectKeyOwned>::from_json_key_text(value).map_err(|error| {
+        if error.is_decode_resource_limit() {
+            error
+        } else {
+            json::Error::Message(format!("invalid {label}: {error}"))
+        }
+    })
 }
 fn parse_domain_id(value: &str, label: &'static str) -> Result<DomainId, json::Error> {
     DomainId::parse_fully_qualified(value)

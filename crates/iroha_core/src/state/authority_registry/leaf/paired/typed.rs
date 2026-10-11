@@ -46,7 +46,7 @@ impl TypedPairedRowError {
 pub(in crate::state) struct TypedPairedTableBuilder<'budget, K, V> {
     table: &'static str,
     selection: CanonicalTableLeafSet,
-    encoded: StagedRows<'budget>,
+    encoded: StagedRows,
     key_schema: Schema,
     value_schema: Schema,
     limits: LeafLimits,

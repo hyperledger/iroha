@@ -167,7 +167,6 @@ const TRANSACTION_ACCEPTANCE_BAD_REQUEST_REJECT_CODES: &[&str] = &[
     "PRTRY:TX_SIGNATURE_UNKNOWN_SIGNER",
     "PRTRY:TX_SIGNATURE_INSUFFICIENT",
     "ED07",
-    "PRTRY:KAGEMUSHA_V1_OPERATION_CARRIER_REJECTED",
     "PRTRY:ROUTE_UNRESOLVED",
 ];
 const TRANSACTION_SUBMISSION_FORBIDDEN_REJECT_CODES: &[&str] = &[
@@ -176,11 +175,8 @@ const TRANSACTION_SUBMISSION_FORBIDDEN_REJECT_CODES: &[&str] = &[
     "PRTRY:QUEUE_LANE_PRIVACY_PROOF_REJECTED",
     "PRTRY:NEXUS_FEE_ADMISSION_REJECTED",
 ];
-const TRANSACTION_SUBMISSION_CONFLICT_REJECT_CODES: &[&str] = &[
-    "PRTRY:ALREADY_COMMITTED",
-    "PRTRY:ALREADY_ENQUEUED",
-    "PRTRY:KAGEMUSHA_V1_OPERATION_ID_CONFLICT",
-];
+const TRANSACTION_SUBMISSION_CONFLICT_REJECT_CODES: &[&str] =
+    &["PRTRY:ALREADY_COMMITTED", "PRTRY:ALREADY_ENQUEUED"];
 const TRANSACTION_SUBMISSION_RATE_LIMIT_REJECT_CODES: &[&str] = &[
     "PRTRY:QUEUE_FULL",
     "PRTRY:QUEUE_LATENCY",
@@ -190,7 +186,6 @@ const TRANSACTION_SUBMISSION_UNAVAILABLE_REJECT_CODES: &[&str] = &[
     "transaction_admission_worker_failed",
     "route_unavailable",
     "transaction_dispatch_outcome_unknown",
-    "PRTRY:KAGEMUSHA_V1_OPERATION_INDEX_INCONSISTENT",
 ];
 fn transaction_submission_bad_request_reject_codes() -> Vec<&'static str> {
     let mut codes = vec!["invalid_transaction_payload"];
@@ -532,6 +527,7 @@ fn expected_read_operation(method: &str, path: &str) -> bool {
                     | "/v1/retail/recipients/lookup"
                     | "/v1/retail/recipients/route"
                     | "/v1/fee-sponsor-programs/by-id"
+                    | "/v1/fee-sponsor-enrollments/by-id"
                     | "/v1/fees/quote"
                     | "/v1/validation-fee/accounts/{account_id}/statement"
                     | "/v1/validation-fee/quote"
@@ -2014,14 +2010,7 @@ fn public_lane_reward_claim_schema_requires_exact_fee_consent() {
     use iroha_test_samples::{ALICE_ID, BOB_ID};
 
     let schemas = openapi_schemas();
-    let plan_fields = [
-        "network_scope",
-        "valid_until_height",
-        "expected_state",
-        "records",
-        "sources",
-        "fee_claim",
-    ];
+    let plan_fields = ["network_scope", "valid_until_height", "fee_claim"];
     let claim_fields = [
         "lifecycle_seal",
         "beneficiary_id",
@@ -2034,11 +2023,8 @@ fn public_lane_reward_claim_schema_requires_exact_fee_consent() {
     assert_strict_object_schema(&schemas, "PublicLaneRewardClaimPlanV1", &plan_fields, &[]);
     assert_strict_object_schema(&schemas, "PublicLaneFeeRewardClaimV1", &claim_fields, &[]);
     assert_eq!(
-        schemas["PublicLaneRewardClaimPlanV1"]["properties"]["fee_claim"]["anyOf"],
-        norito::json!([
-            {"$ref": "#/components/schemas/PublicLaneFeeRewardClaimV1"},
-            {"type": "null"}
-        ])
+        schemas["PublicLaneRewardClaimPlanV1"]["properties"]["fee_claim"],
+        norito::json!({"$ref": "#/components/schemas/PublicLaneFeeRewardClaimV1"})
     );
     assert_eq!(
         schemas["PublicLaneFeeRewardClaimV1"]["properties"]["lifecycle_seal"],
@@ -2058,13 +2044,11 @@ fn public_lane_reward_claim_schema_requires_exact_fee_consent() {
         expected_claim_sequence: u64::MAX,
     };
     assert!(claim.has_canonical_shape(&ALICE_ID));
-    for fee_claim in [None, Some(claim)] {
+    {
+        let fee_claim = claim;
         let plan = PublicLaneRewardClaimPlanV1 {
             network_scope: PublicLaneMonetaryScopeV1::Genesis,
             valid_until_height: 1,
-            expected_state: None,
-            records: Vec::new(),
-            sources: Vec::new(),
             fee_claim,
         };
         let encoded = norito::json::to_value(&plan).unwrap();
@@ -2077,7 +2061,7 @@ fn public_lane_reward_claim_schema_requires_exact_fee_consent() {
                 .collect::<BTreeSet<_>>(),
             BTreeSet::from(plan_fields)
         );
-        if plan.fee_claim.is_some() {
+        {
             assert_eq!(
                 encoded["fee_claim"]
                     .as_object()
@@ -2091,8 +2075,6 @@ fn public_lane_reward_claim_schema_requires_exact_fee_consent() {
                 encoded["fee_claim"]["lifecycle_seal"],
                 Value::String("A5".repeat(32))
             );
-        } else {
-            assert_eq!(encoded["fee_claim"], Value::Null);
         }
         assert_eq!(
             norito::json::from_value::<PublicLaneRewardClaimPlanV1>(encoded.clone()).unwrap(),

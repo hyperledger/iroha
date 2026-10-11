@@ -6,7 +6,7 @@ seiyaku CanonicalSchemas {
         stored = 0;
     }
 
-    view fn inspect(int marker) -> Json {
+    view fn inspect(int marker) authorize(anyone) -> Json {
         return json { marker: marker, stored: stored };
     }
 }

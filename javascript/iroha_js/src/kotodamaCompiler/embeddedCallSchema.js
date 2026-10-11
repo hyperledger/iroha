@@ -1,7 +1,9 @@
+import { decodeContractMetadataValueV1 } from "../noritoContractMetadata.js";
+import { analyzeStateKeyTypeV1 } from "../entrypointSchema.js";
 // Complete V1 callable type tapes. Public record limits remain independently
 // enforced by entrypointSchema.js; private callable forests have their own bound.
 import { isCanonicalKotodamaIdentifier, isCanonicalKotodamaStructName } from "../kotodamaIdentifiers.js";
-import { normalizeContractErrorTypeV1 } from "../contractErrorTypes.js";
+import { normalizeContractErrorTypeV1, normalizeContractEnumTypeV1 } from "../contractErrorTypes.js";
 import { readU32Le, readU64Le, readCompactField, decodeEmbeddedString, visitEmbeddedVector } from "./embeddedNorito.js";
 
 const MAX_NODES = 250_000;
@@ -9,11 +11,11 @@ const MAX_DEPTH = 256;
 const MAX_WORDS = 8192;
 const INTERNAL_POINTERS = new Set([0x0b, 0x0d, 0x0e, 0x0f, 0x13]);
 const CORE_VIEWS = new Map([
-  ["AccountView", [["id", "metadata"], [7, 5]]],
-  ["AssetView", [["id", "amount"], [9, 2]]],
-  ["AssetDefinitionView", [["id", "name", "description", "owned_by", "total_quantity", "numeric_scale", "metadata"], [8, 4, "option", 4, 7, 2, "option", 0, 5]]],
-  ["DomainView", [["id", "owned_by", "metadata"], [10, 7, 5]]],
-  ["NftView", [["id", "owned_by", "content"], [11, 7, 5]]],
+  ["kotodama::AccountView", [["id", "metadata"], [7, 5]]],
+  ["kotodama::AssetView", [["id", "amount"], [9, 2]]],
+  ["kotodama::AssetDefinitionView", [["id", "name", "description", "owned_by", "total_quantity", "numeric_scale", "metadata"], [8, 4, "option", 4, 7, 2, "option", 0, 5]]],
+  ["kotodama::DomainView", [["id", "owned_by", "metadata"], [10, 7, 5]]],
+  ["kotodama::NftView", [["id", "owned_by", "content"], [11, 7, 5]]],
 ]);
 
 function fail(label, reason) { throw new TypeError(`${label} ${reason}`); }
@@ -28,15 +30,15 @@ function integer(bytes, width, label) {
   if (width === 4) return readU32Le(bytes, 0, label);
   return bytes[0] + (width === 2 ? bytes[1] * 256 : 0);
 }
-function nominalError(bytes, label, catalog) {
+function nominalType(bytes, label, catalog, normalize) {
   const [identityBytes, variantsBytes] = fields(bytes, 2, label);
   const variants = [];
   visitEmbeddedVector(variantsBytes, `${label}.variants`, 256, (bytes, variantLabel) => {
     const [name, code] = fields(bytes, 2, variantLabel);
     variants.push({ name: decodeEmbeddedString(name, variantLabel), code: integer(code, 4, variantLabel) });
   });
-  const descriptor = normalizeContractErrorTypeV1({ identity: decodeEmbeddedString(identityBytes, label), variants }, label);
-  if (catalog.get(descriptor.identity) !== JSON.stringify(descriptor)) fail(label, "does not match its declared nominal error catalog");
+  const descriptor = normalize({ identity: decodeEmbeddedString(identityBytes, label), variants }, label);
+  if (catalog.get(descriptor.identity) !== JSON.stringify(descriptor)) fail(label, "does not match its declared nominal catalog");
 }
 function take(bytes, state, width, label) {
   const start = state.offset;
@@ -50,7 +52,7 @@ function string(bytes, state, label) {
   readCompactField(bytes, state, label);
   return decodeEmbeddedString(bytes.subarray(start, state.offset), label);
 }
-function node(bytes, state, label, zk, catalog) {
+function node(bytes, state, label, zk, catalog, enums) {
   const kind = integer(take(bytes, state, 1, label), 1, label);
   const result = { kind, children: 0, resource: false };
   if ([2, 3, 6, 9].includes(kind)) {
@@ -67,7 +69,7 @@ function node(bytes, state, label, zk, catalog) {
     for (let index = 0; index < Number(count); index += 1) {
       result.fields.push(decodeEmbeddedString(readCompactField(bytes, state, `${label}.field${index}`), label));
     }
-    const reserved = CORE_VIEWS.has(result.name) || result.name === "QueryPage" || result.name === "StatePage";
+    const reserved = CORE_VIEWS.has(result.name) || result.name === "kotodama::QueryPage" || result.name === "kotodama::StatePage";
     if ((!reserved && !isCanonicalKotodamaStructName(result.name)) ||
         result.fields.some((name) => !isCanonicalKotodamaIdentifier(name)) ||
         new Set(result.fields).size !== result.fields.length) fail(label, "has a noncanonical nominal product");
@@ -85,12 +87,18 @@ function node(bytes, state, label, zk, catalog) {
       result.children = 1;
       break;
     case 5:
-    case 8:
       result.leaf = integer(take(bytes, state, 1, label), 1, label);
-      if (result.leaf > 13 || (kind === 8 && result.leaf === 5)) fail(label, "has an invalid scalar or cursor key kind");
+      if (result.leaf > 13) fail(label, "has an invalid scalar or cursor key kind");
+      break;
+    case 8:
+      result.key = decodeContractMetadataValueV1("value_type", readCompactField(bytes, state, label));
+      result.keyAnalysis = analyzeStateKeyTypeV1(result.key, label);
       break;
     case 7:
-      nominalError(readCompactField(bytes, state, label), label, catalog);
+      nominalType(readCompactField(bytes, state, label), label, catalog, normalizeContractErrorTypeV1);
+      break;
+    case 12:
+      nominalType(readCompactField(bytes, state, label), label, enums, normalizeContractEnumTypeV1);
       break;
     case 10:
     case 11:
@@ -123,36 +131,48 @@ function reservedShapes(nodes, ends, label) {
     if (root.kind !== 0) return;
     if (CORE_VIEWS.has(root.name)) {
       if (!coreView(nodes, start, ends)) fail(label, "contains a forged reserved query view");
-    } else if (root.name === "QueryPage") {
+    } else if (root.name === "kotodama::QueryPage") {
       const after = ends[start + 2];
       if (!sameNames(root.fields, ["items", "next_offset"]) || nodes[start + 1]?.kind !== 4 || nodes[start + 1].capacity !== 64 ||
           !coreView(nodes, start + 2, ends) || nodes[after]?.kind !== 2 || nodes[after + 1]?.kind !== 5 || nodes[after + 1].leaf !== 0 || ends[start] !== after + 2) {
         fail(label, "contains a forged QueryPage");
       }
-    } else if (root.name === "StatePage") {
-      const after = ends[start + 4];
-      const key = nodes[start + 3];
+    } else if (root.name === "kotodama::StatePage") {
+      const keyStart = start + 3;
+      const keyEnd = ends[keyStart];
+      const after = ends[keyEnd];
+      const expected = nodes[after + 1]?.key?.nodes;
+      const leaves = ["Int", "Decimal", "Quantity", "Bool", "String", "Json", "Name", "AccountId", "AssetDefinitionId", "AssetId", "DomainId", "NftId", "DataSpaceId", "Blob"];
+      const sameKey = expected?.length === keyEnd - keyStart && expected.every((item, offset) => {
+        const actual = nodes[keyStart + offset];
+        return item.kind === "Tuple" ? actual.kind === 1 && actual.children === item.value : actual.kind === 5 && leaves[actual.leaf] === item.value.kind;
+      });
       if (!sameNames(root.fields, ["items", "next"]) || nodes[start + 1]?.kind !== 4 || nodes[start + 2]?.kind !== 1 || nodes[start + 2].children !== 2 ||
-          key?.kind !== 5 || key.leaf === 5 || nodes[after]?.kind !== 2 || nodes[after + 1]?.kind !== 8 || nodes[after + 1].leaf !== key.leaf || ends[start] !== after + 2) {
+          !sameKey || nodes[after]?.kind !== 2 || nodes[after + 1]?.kind !== 8 || ends[start] !== after + 2) {
         fail(label, "contains a forged StatePage");
       }
     }
   });
 }
 
-function schema(bytes, label, zk, catalog) {
+function schema(bytes, label, zk, catalog, enums) {
   if (bytes.length < 12 || bytes[0] !== 0x43 || bytes[1] !== 0x53 || bytes[2] !== 0x31 || bytes[3] !== 0) fail(label, "requires the canonical CS1 callable tape");
   const count = readU64Le(bytes, 4, `${label}.nodes.count`);
   const state = { offset: 12 };
   if (count > BigInt(MAX_NODES) || count > BigInt(bytes.length - state.offset)) fail(label, "has an impossible callable node count");
   const nodes = [];
-  for (let index = 0; index < Number(count); index += 1) nodes.push(node(bytes, state, `${label}.nodes[${index}]`, zk, catalog));
+  for (let index = 0; index < Number(count); index += 1) nodes.push(node(bytes, state, `${label}.nodes[${index}]`, zk, catalog, enums));
   if (state.offset !== bytes.length) fail(label, "has trailing callable tape bytes");
   const ends = new Uint32Array(nodes.length);
   const stack = [];
   let roots = 0;
   let words = 0;
+  let totalNodes = nodes.length;
   nodes.forEach((current, index) => {
+    if (current.keyAnalysis) {
+      totalNodes += current.keyAnalysis.nodeCount;
+      if (totalNodes > MAX_NODES || stack.length + 1 + current.keyAnalysis.maxDepth > MAX_DEPTH) fail(label, "exceeds complete cursor key schema budget");
+    }
     if (stack.length + 1 > MAX_DEPTH || current.children > nodes.length - index - 1) fail(label, "has an incomplete or over-depth callable type forest");
     if (current.children !== 0) {
       stack.push({ index, remaining: current.children, words: 0, resource: false });
@@ -189,7 +209,8 @@ function schema(bytes, label, zk, catalog) {
   return { roots, words };
 }
 
-export function validateEmbeddedCallables(bytes, headerMode, minimumCount, label, errorTypes) {
+export function validateEmbeddedCallables(bytes, headerMode, minimumCount, label, errorTypes, enumTypes) {
+  const enums = new Map(enumTypes.map((value) => { const descriptor = normalizeContractEnumTypeV1(value); return [descriptor.identity, JSON.stringify(descriptor)]; }));
   const catalog = new Map(errorTypes.map((value) => {
     const descriptor = normalizeContractErrorTypeV1(value);
     return [descriptor.identity, JSON.stringify(descriptor)];
@@ -202,8 +223,8 @@ export function validateEmbeddedCallables(bytes, headerMode, minimumCount, label
     const frameBytes = integer(frame, 4, itemLabel);
     if (entryPc <= lastEntryPc || entryPc % 4n !== 0n || frameBytes % 16 !== 0 || frameBytes > 4 * 1024 * 1024) fail(itemLabel, "requires ordered aligned roots and bounded aligned frames");
     lastEntryPc = entryPc;
-    schema(argumentsBytes, `${itemLabel}.arguments`, (headerMode & 1) !== 0, catalog);
-    const results = schema(resultsBytes, `${itemLabel}.results`, (headerMode & 1) !== 0, catalog);
+    schema(argumentsBytes, `${itemLabel}.arguments`, (headerMode & 1) !== 0, catalog, enums);
+    const results = schema(resultsBytes, `${itemLabel}.results`, (headerMode & 1) !== 0, catalog, enums);
     if (results.roots !== 1 || results.words === 0) fail(itemLabel, "requires one nonempty result type tree");
   });
   if (count < minimumCount) fail(label, "must cover every public entrypoint");

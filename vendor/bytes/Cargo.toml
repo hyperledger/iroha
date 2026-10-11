@@ -46,6 +46,7 @@ rustdoc-args = [
 
 [features]
 default = ["std"]
+# Required by this native-only fork; retained for dependency feature selection.
 std = []
 
 [lib]
@@ -107,27 +108,26 @@ path = "tests/test_take.rs"
 [[bench]]
 name = "buf"
 path = "benches/buf.rs"
+harness = false
 
 [[bench]]
 name = "bytes"
 path = "benches/bytes.rs"
+harness = false
 
 [[bench]]
 name = "bytes_mut"
 path = "benches/bytes_mut.rs"
-
-[dependencies.extra-platforms]
-version = "1.3"
-features = ["require-cas"]
-optional = true
-default-features = false
-package = "portable-atomic"
+harness = false
 
 [dependencies.serde]
 version = "1.0.60"
 features = ["alloc"]
 optional = true
 default-features = false
+
+[dev-dependencies.criterion]
+workspace = true
 
 [dev-dependencies.serde_test]
 version = "1.0"

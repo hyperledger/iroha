@@ -92,8 +92,8 @@ fn rematerializes_use(instruction: &Instr, temp: Temp, kind: DataRefKind) -> boo
         Instr::NumericConvert { source, .. } | Instr::NumericTryConvert { source, .. } => {
             is_kind(kind, *source)
         }
-        Instr::IntTryToI64 { .. }
-        | Instr::IntTryToU64 { .. }
+        Instr::IntToI64 { .. }
+        | Instr::IntToU64 { .. }
         | Instr::WrappingBinary { .. }
         | Instr::WrappingNeg { .. } => kind == DataRefKind::Int,
         // The fused and non-fused emitters rematerialize all pointer operands.

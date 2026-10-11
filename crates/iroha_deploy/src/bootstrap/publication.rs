@@ -222,10 +222,7 @@ impl FinalitySource for OfflineProofSource {
         &self,
         _: &iroha_model_base::peer::PeerId,
         _: &[u8; 32],
-    ) -> std::result::Result<
-        iroha_data_model::sumeragi_finality::SumeragiFinalityAttestation,
-        Self::Error,
-    > {
+    ) -> std::result::Result<crate::verify::finality::FinalityAttestation, Self::Error> {
         Err(std::io::Error::other(
             "offline publication does not claim fresh readiness",
         ))

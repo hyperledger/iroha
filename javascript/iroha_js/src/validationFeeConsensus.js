@@ -26,7 +26,7 @@ export const VALIDATION_FEE_VERIFIED_POLICY_PROJECTION_SCHEMA =
 export const VALIDATION_FEE_CURRENT_POLICY_PROOF_PATH =
   "/v1/validation-fee/policy/current/proof";
 export const VALIDATION_FEE_POLICY_PROOF_MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
-export const VALIDATION_FEE_REQUIRED_BRIDGE_ABI_VERSION = 25;
+export const VALIDATION_FEE_REQUIRED_BRIDGE_ABI_VERSION = 29;
 
 const VERIFIED_PAGE_KEYS = Object.freeze(["projectionJson", "promotedCheckpointNorito"]);
 const PROJECTION_KEYS = Object.freeze([

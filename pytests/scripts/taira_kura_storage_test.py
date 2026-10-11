@@ -18,6 +18,8 @@ spec.loader.exec_module(guest)
 def journals(tmp_path, monkeypatch):
     monkeypatch.setattr(guest, "STATE_ROOT", tmp_path, raising=False)
     monkeypatch.setattr(guest, "ROLES", ("validator",), raising=False)
+    monkeypatch.setattr(guest, "KURA_HASH_JOURNAL",
+                        "storage/kura/blocks/canonical/blocks.hashes", raising=False)
     # These disposable files belong to the test user. Deployment owner/mode
     # authorization remains separately enforced by the unmodified guest stamp.
     def local_stamp(path, directory=False):

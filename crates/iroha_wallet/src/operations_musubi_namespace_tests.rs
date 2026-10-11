@@ -476,7 +476,7 @@ fn expired_namespace_original_recovers_its_original_utc_without_dispatch() {
             .resume_musubi_namespace_binding(&path, &request)
             .unwrap()
             .status,
-        OperationStatus::Absent
+        OperationStatus::Expired
     );
     assert_eq!(
         service

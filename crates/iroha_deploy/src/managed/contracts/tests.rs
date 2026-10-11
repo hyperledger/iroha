@@ -65,14 +65,7 @@ fn private_call_cap_uses_native_child_currency_and_never_parent_fee_asset() {
     let ports = LocalnetPorts::reserve().unwrap();
     let prepared =
         crate::localnet::prepare_private_root("private", bundle.path(), &ports, &spec).unwrap();
-    directory
-        .write_atomic(
-            "fixture-executable",
-            b"native fixture executable",
-            PublishMode::CreateNew,
-        )
-        .unwrap();
-    let pin = store::pin_binary(&directory.path().join("fixture-executable")).unwrap();
+    let pin = store::pin_binary(&std::env::current_exe().unwrap()).unwrap();
     let retained = RetainedLocalnet {
         root_kind: RootKind::Private { spec: spec.clone() },
         prepared,

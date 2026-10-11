@@ -65,9 +65,6 @@ impl DetachedBlockHashes {
     }
 }
 impl<'target, Installation> PreparedBlockHashes<'target, Installation> {
-    pub(crate) fn state_owner(&self) -> NativeLaneStateOwner {
-        self.owner.clone()
-    }
     /// Release physical locks and return the same private tree for retry.
     pub(crate) fn abort(self) -> (DetachedBlockHashes, AbortedBlockHashes<Installation>) {
         let Self {

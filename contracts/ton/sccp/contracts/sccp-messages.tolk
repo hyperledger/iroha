@@ -1,30 +1,63 @@
 // Message and cell layouts of the SCCP v1 TON contracts (§5.3.2, §5.3.3).
 //
 // Field order is serialization order; every struct is the exact TL-B of the
-// spec. Variable-shape cells (`SnakeBytes`, `HashChunk`, `MemberChunk`,
-// `Signatures`) are typed as `cell` and parsed by `sccp-cells.tolk`, which
-// rejects every non-canonical shape.
+// spec. The minter never reads a referenced cell of a message through these
+// types: the automatic parser resolves library cells and throws exit code 9
+// on a shape mismatch. The certificate cells (`TairaCert`, `QcFixed`,
+// `XHead`, `XTail`, `CheckpointRef`) are opened by `sccp-finality.tolk`, the
+// proof cells (`BlockRef`, `MessageProof`, `ControlProof`) by
+// `sccp-verify.tolk` and the variable-shape cells (`SnakeBytes`, `HashChunk`,
+// `KeyChunk`) by `sccp-cells.tolk`. Each of them checks that the cell is
+// ordinary and has exactly the bit and reference counts of its layout, with
+// the exit codes listed in `sccp-errors.tolk`.
 
-/// Second cell of an attestation statement (768 bits).
-struct AttestationTail {
-    historyRoot: uint256
-    rosterDigest: uint256
-    nextRosterDigest: uint256
-}
-
-/// Attestation statement of §3.6.1 in its TON cell form (800 bits + tail).
-struct Attestation {
-    height: uint64
+/// `qc_fixed#_` — `QC_FIXED` without its trailing `signers` word (896 bits).
+struct QcFixed {
     epoch: uint64
-    timestampMs: uint64
-    messageCount: uint32
-    historySize: uint64
+    epochContext: uint256
+    view: uint64
     blockHash: uint256
-    sccpRoot: uint256
-    tail: Cell<AttestationTail>
+    resultBody: uint256
 }
 
-/// Position of a transfer leaf in a block commitment tree plus its payload.
+/// `x_tail#_` — `X[109..221)` (896 bits).
+struct XTail {
+    bytes: bits896
+}
+
+/// `x_head#_` — `X[0..109)` (872 bits) and its tail.
+struct XHead {
+    bytes: bits872
+    tail: Cell<XTail>
+}
+
+/// `taira_cert#_` — a `CommitQC` of the current generation over `X` (§5.3.2).
+struct TairaCert {
+    /// Compressed G2 aggregate signature (96 bytes).
+    signature: bits768
+    /// `be32(Σ_j bitmap[j] << 8j)`: bit `i` is canonical index `i` (§3.7).
+    signers: uint32
+    qc: Cell<QcFixed>
+    x: Cell<XHead>
+}
+
+/// `checkpoint_ref#_` — a stored checkpoint, named by its `X` (§5.1.3).
+struct CheckpointRef {
+    x: Cell<XHead>
+}
+
+/// `block_ref#_` (`BlockRefV1`, §5.1.5; 425 data bits).
+struct BlockRef {
+    height: uint64
+    sccpRoot: uint256
+    messageCount: uint32
+    historyIndex: uint64
+    pathLen: uint8
+    /// `(Maybe ^HashChunk)`, present iff `pathLen > 0`.
+    path: cell?
+}
+
+/// `message_proof#_` (`MessageProofV1`, §5.1.5; 41 data bits).
 struct MessageProof {
     leafIndex: uint32
     pathLen: uint8
@@ -32,36 +65,21 @@ struct MessageProof {
     payload: cell
     /// `(Maybe ^HashChunk)`, present iff `pathLen > 0`.
     path: cell?
+    block: Cell<BlockRef>
 }
 
-/// Block `{height, sccpRoot, messageCount}` and its history path (§3.5).
-struct HistoryProof {
-    height: uint64
-    sccpRoot: uint256
-    messageCount: uint32
-    leafIndex: uint64
-    pathLen: uint8
-    path: cell?
-}
-
-/// Next roster generation supplied to `sccp_rotate`.
-struct RosterSpec {
-    generation: uint64
-    validFromMs: uint64
-    validUntilMs: uint64
-    n: uint8
-    t: uint8
-    /// `^MemberChunk`.
-    members: cell
-}
-
-/// Parliament control proof (§5.1.6).
+/// `control_proof#_` (`ControlProofV1`, §5.1.6; 690 data bits).
 struct ControlProof {
     controlNonce: uint64
-    paused: bool
+    track: uint8
+    parliamentPaused: bool
+    fastPauseUntilMs: uint64
+    certificateId: uint256
+    effectHash: uint256
     leafIndex: uint32
     pathLen: uint8
     path: cell?
+    block: Cell<BlockRef>
 }
 
 /// `consume_tail#_` of every bucket consume round trip.
@@ -88,21 +106,28 @@ struct (0x53434930) SccpInit {
     queryId: uint64
 }
 
+/// One certificate of `submitCheckpoints` (§5.1.2–§5.1.3). `nextKeys` is
+/// required iff a rotation applies with `X.next_committee_root ≠ cur.root`;
+/// otherwise it is ignored and not read.
+struct (0x53434b31) SccpCheckpoint {
+    queryId: uint64
+    response: address
+    cert: Cell<TairaCert>
+    /// `(Maybe ^KeyChunk)`.
+    nextKeys: cell?
+}
+
 struct (0x53434631) SccpFinalize {
     queryId: uint64
     response: address
-    attestation: Cell<Attestation>
-    /// `^Signatures`.
-    signatures: cell
+    cert: Cell<TairaCert>
     message: Cell<MessageProof>
 }
 
-struct (0x53434632) SccpFinalizeHistorical {
+struct (0x53434632) SccpFinalizeCheckpoint {
     queryId: uint64
     response: address
-    attestation: Cell<Attestation>
-    signatures: cell
-    history: Cell<HistoryProof>
+    ref: Cell<CheckpointRef>
     message: Cell<MessageProof>
 }
 
@@ -110,18 +135,15 @@ struct (0x53435631) SccpVoidExpired {
     queryId: uint64
     response: address
     nonce: uint64
-    attestation: Cell<Attestation>
-    signatures: cell
+    cert: Cell<TairaCert>
     message: Cell<MessageProof>
 }
 
-struct (0x53435632) SccpVoidExpiredHistorical {
+struct (0x53435632) SccpVoidExpiredCheckpoint {
     queryId: uint64
     response: address
     nonce: uint64
-    attestation: Cell<Attestation>
-    signatures: cell
-    history: Cell<HistoryProof>
+    ref: Cell<CheckpointRef>
     message: Cell<MessageProof>
 }
 
@@ -132,28 +154,17 @@ struct (0x53435633) SccpVoidFrozen {
     count: uint16
 }
 
-struct (0x53435231) SccpRotate {
-    queryId: uint64
-    response: address
-    attestation: Cell<Attestation>
-    signatures: cell
-    next: Cell<RosterSpec>
-}
-
 struct (0x53434d31) SccpApplyControl {
     queryId: uint64
     response: address
-    attestation: Cell<Attestation>
-    signatures: cell
+    cert: Cell<TairaCert>
     control: Cell<ControlProof>
 }
 
-struct (0x53434d32) SccpApplyControlHistorical {
+struct (0x53434d32) SccpApplyControlCheckpoint {
     queryId: uint64
     response: address
-    attestation: Cell<Attestation>
-    signatures: cell
-    history: Cell<HistoryProof>
+    ref: Cell<CheckpointRef>
     control: Cell<ControlProof>
 }
 
@@ -171,7 +182,7 @@ struct (0x53434332) SccpConsumed {
     tail: Cell<ConsumeTail>
 }
 
-/// Bucket reply: the nonce was already consumed (non-bounceable).
+/// Bucket reply: the nonce was already consumed (bounceable).
 struct (0x53434336) SccpAlreadyConsumed {
     queryId: uint64
     nonce: uint64
@@ -191,6 +202,22 @@ struct (0x53434337) SccpRangeRejected {
     queryId: uint64
     first: uint64
     count: uint16
+}
+
+/// Bucket report: the minter bounced `sccp_consumed` or
+/// `sccp_already_consumed` for `nonce`, so its pending `amount` is released
+/// (bounceable; the bucket ignores its bounce).
+struct (0x53434339) SccpConsumeReverted {
+    queryId: uint64
+    nonce: uint64
+    amount: uint96
+}
+
+/// Re-runs the recorded asynchronous step keyed by `nonce` (§5.3.4).
+struct (0x53435931) SccpRetry {
+    queryId: uint64
+    response: address
+    nonce: uint64
 }
 
 /// TEP-74 burn notification extended with the SCCP recipient (§5.3.3).
@@ -223,6 +250,13 @@ struct (0xd1735400) ResponseWalletAddress {
 
 // ---------------------------------------------------------------------------
 // Messages to a consumption bucket (sender MUST be the minter).
+
+/// Sent with the canonical `StateInit`; the only way a bucket becomes
+/// active (§5.3.4 step 2).
+struct (0x53434338) SccpActivateBucket {
+    queryId: uint64
+    index: uint64
+}
 
 /// The first 256 body bits are `op ‖ query_id ‖ nonce ‖ amount`, so a bounce
 /// returns the nonce and amount to the minter.
@@ -269,7 +303,41 @@ struct (0x53435454) SccpTransferToTairaEvent {
 
 struct (0x5343434e) SccpControlAppliedEvent {
     controlNonce: uint64
-    paused: bool
+    track: uint8
+    parliamentPaused: bool
+    fastPauseUntilMs: uint64
+    certificateId: uint256
+}
+
+/// The newly installed generation (§5.1.2 update 3).
+struct (0x53435252) SccpCommitteeRotatedEvent {
+    generation: uint64
+    root: uint256
+    untilMs: uint64
+    start: uint64
+}
+
+/// A newly recorded checkpoint; `id = keccak256(X)`.
+struct (0x53434b4e) SccpCheckpointedEvent {
+    height: uint64
+    id: uint256
+}
+
+/// A V1–V3 latch (§5.1.2): reason 1 carries the stored and the new id,
+/// reasons 2 and 3 `X.committee_root` and `keccak256(X)`.
+struct (0x53434c54) SccpLatchedEvent {
+    reason: uint8
+    generation: uint64
+    height: uint64
+    a: uint256
+    b: uint256
+}
+
+/// Every full-path verification publishes its certificate (§5.1.3 step 12).
+struct (0x53434346) SccpCertificateEvent {
+    height: uint64
+    generation: uint64
+    cert: Cell<TairaCert>
 }
 
 // ---------------------------------------------------------------------------

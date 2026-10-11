@@ -1,17 +1,19 @@
 // Representative ZK bridge sample for Kotodama grammar validation.
 seiyaku ZkBridge {
+    permission Admin;
     error enum VerificationError {
         InvalidFlags = 1,
+        EmptyEnvelope = 2,
     }
 
-    kotoage fn verify(bytes proof_env, bytes instruction) authorize("Admin") {
-        let payload = b"ENV-BALLOT";
+    kotoage fn verify(bytes proof_env, bytes instruction) authorize(Admin) {
+        let domain = b"ENV-BALLOT";
         let label = br#"proof-bytes"#;
-        let vk = b"vk-bytes";
-        let flags = 17;
+        let flags = bytes::len(domain) + bytes::len(label);
+        require(flags > 0, VerificationError::InvalidFlags);
+        require(bytes::len(proof_env) > 0, VerificationError::EmptyEnvelope);
         ledger::governance::verify_ballot(request: proof_env);
         ledger::governance::submit_ballot(value: instruction);
-        require(flags > 0, VerificationError::InvalidFlags);
         debug::info("verified");
     }
 }

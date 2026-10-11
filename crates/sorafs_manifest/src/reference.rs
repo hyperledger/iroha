@@ -2267,7 +2267,7 @@ fn pop_signature_algorithm_label(algorithm: PopSignatureAlgorithmV1) -> &'static
 }
 fn pop_membership_proof_system_label(system: PopMembershipProofSystemV1) -> &'static str {
     match system {
-        PopMembershipProofSystemV1::Halo2IpaPastaV1 => "halo2_ipa_pasta_v1",
+        PopMembershipProofSystemV1::NativePipaRV1 => "native_pipa_r_v1",
     }
 }
 fn order_side_label(side: OrderSideV1) -> &'static str {
@@ -3341,7 +3341,7 @@ fn hedging_decode_error(
 /// Validates a Norito-encoded PoP credential payload and emits a reference outcome.
 ///
 /// Membership-proof validation checks canonical wire shape and bounded metadata,
-/// including the required presentation binding. It does not verify the Halo2
+/// including the required presentation binding. It does not verify the PIPA-R
 /// transcript, authenticate a recipient, or consume a replay nullifier.
 #[must_use]
 pub fn validate_pop_payload_bytes(
@@ -7241,9 +7241,9 @@ mod tests {
             challenge_digest: pop_digest(0x43),
             verifier_context: "jury-case-1".to_owned(),
             presentation_binding_digest: pop_digest(0x46),
-            proof_system: crate::PopMembershipProofSystemV1::Halo2IpaPastaV1,
+            proof_system: crate::PopMembershipProofSystemV1::NativePipaRV1,
             verifier_material: crate::pop_credentials::PopMembershipVerifierMaterialV1 {
-                circuit_id: "sorafs-pop-membership-halo2-ipa-pasta-v1".to_owned(),
+                circuit_id: "sorafs-pop-membership-pipa-r-v1".to_owned(),
                 circuit_k: 14,
                 credential_tree_depth: crate::pop_credentials::POP_CREDENTIAL_TREE_DEPTH_V1,
                 revocation_tree_depth: crate::pop_credentials::POP_REVOCATION_TREE_DEPTH_V1,

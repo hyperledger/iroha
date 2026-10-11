@@ -6,7 +6,7 @@ fn verify(bytes payload) {
   let _batch = crypto::vrf::verify_batch(request: payload);
 }
 
-view fn main() {
+view fn main() authorize(anyone) {
   verify(payload: b"\x01\x02\x03");
 }
 

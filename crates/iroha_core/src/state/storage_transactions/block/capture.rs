@@ -424,6 +424,24 @@ impl<'storage> TransactionsBlockField<'storage> {
         self.slot.try_prepare()
     }
 
+    /// Borrow the existing logically admitted writer without reopening committed storage.
+    /// Detached captures become readable only after the original publication slot reacquires
+    /// and fully prepares that same source; released or terminal phases never grant a cut.
+    pub(in crate::state) fn prepared_membership_writer(
+        &self,
+    ) -> Option<&PreparedTransactionsBlock<'storage>> {
+        if self.slot.released {
+            return None;
+        }
+        match &self.slot.phase {
+            MembershipCapturePhase::Prepared(prepared) if prepared.is_unpublished_for_capture() => {
+                Some(prepared)
+            }
+            MembershipCapturePhase::FrozenPublishing(slot) => slot.prepared_membership_writer(),
+            _ => None,
+        }
+    }
+
     /// Nonblocking physical admission after the enclosing State writer and before
     /// its visibility interval; snapshots acquire those owners in this same order.
     pub(crate) fn try_prepare_physical(&mut self) -> Result<(), TransactionsBlockError> {
@@ -563,5 +581,58 @@ impl JsonSerializeTrait for TransactionsBlockField<'_> {
 impl mv::BlockRetirement for TransactionsBlockField<'_> {
     fn release_writers(&mut self) {
         self.slot.release();
+    }
+}
+
+#[cfg(test)]
+mod publication_capture_phase_tests {
+    use super::*;
+
+    #[test]
+    fn original_membership_cut_refuses_started_published_unwind_and_completed_phases() {
+        for terminal in 0..3 {
+            let storage = TransactionsStorage::new();
+            let mut field = TransactionsBlockField::new(storage.block());
+            field.insert_block(
+                std::collections::HashSet::from([Key::from_untyped_unchecked(
+                    iroha_crypto::Hash::new(b"original-membership-terminal-phase"),
+                )]),
+                std::num::NonZeroUsize::new(1).unwrap(),
+            );
+            field.try_prepare_publication().unwrap();
+            assert!(field.prepared_membership_writer().is_some());
+            match terminal {
+                0 => {
+                    // This is the exact terminal marker a kernel unwind may retain,
+                    // not an injected consensus fault or successful publication.
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let MembershipCapturePhase::Prepared(prepared) = &mut field.slot.phase
+                        else {
+                            panic!("original prepared phase")
+                        };
+                        prepared.publication_started = true;
+                        panic!("caught unwind after original publication marker");
+                    }));
+                    assert!(result.is_err());
+                }
+                1 => {
+                    let MembershipCapturePhase::Prepared(prepared) = &mut field.slot.phase else {
+                        panic!("original prepared phase")
+                    };
+                    prepared.published = true;
+                }
+                _ => {
+                    field.try_prepare_physical().unwrap();
+                    field.publish_prepared();
+                    assert!(matches!(
+                        &field.slot.phase,
+                        MembershipCapturePhase::Published(_)
+                    ));
+                }
+            }
+            assert!(field.prepared_membership_writer().is_none());
+            field.release_writers();
+            assert!(field.prepared_membership_writer().is_none());
+        }
     }
 }

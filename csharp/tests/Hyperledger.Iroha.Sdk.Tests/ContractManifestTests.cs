@@ -1,10 +1,55 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Hyperledger.Iroha.Torii;
 
 namespace Hyperledger.Iroha.Sdk.Tests;
 
 public sealed class ContractManifestTests
 {
+    private static JsonObject OrdinaryEnumManifest() => JsonNode.Parse("""
+        {"permissions":[],"enum_types":[{"identity":"Demo::Status","variants":[{"name":"Pending","code":1},{"name":"Done","code":7}]}],
+         "events":[{"name":"Changed","payload_type":{"nodes":[{"kind":"Struct","value":{"name":"Demo::Changed","fields":["status"]}},{"kind":"Enum","value":{"identity":"Demo::Status","variants":[{"name":"Pending","code":1},{"name":"Done","code":7}]}}]}}],
+         "states":[{"name":"status","type_name":"Demo::Status"}]}
+        """)!.AsObject();
+
+    [Fact]
+    public void OrdinaryEnumsAndEventsBindExactNominalSchemas()
+    {
+        var parsed = OrdinaryEnumManifest().Deserialize<ToriiContractManifest>()!;
+        Assert.Equal(7U, parsed.EnumTypes.Single().Variants[1].Code);
+        var node = parsed.Events.Single().PayloadType.Nodes[1];
+        Assert.Equal(ToriiEntrypointValueTypeNodeKindV1.Enum, node.Kind);
+        Assert.Equal("Demo::Status", node.EnumValue!.Identity);
+        Assert.Null(node.ErrorValue);
+        var roundtrip = JsonSerializer.Deserialize<ToriiContractManifest>(JsonSerializer.Serialize(parsed))!;
+        Assert.Equal(1, roundtrip.Events.Single().PayloadType.WordCount);
+        foreach (Action<JsonObject> mutate in new Action<JsonObject>[] {
+            root => root.Remove("enum_types"),
+            root => root.Remove("events"),
+            root => root["enum_types"] = null,
+            root => root["events"] = null,
+            root => root["enum_types"]!.AsArray().Add(root["enum_types"]![0]!.DeepClone()),
+            root => root["enum_types"]![0]!["variants"]![0]!["code"] = 0,
+            root => root["error_types"] = root["enum_types"]!.DeepClone(),
+            root => root["events"]![0]!["payload_type"]!["nodes"]![1]!["value"]!["variants"]![1]!["code"] = 8,
+            root => root["events"]![0]!["payload_type"]!["nodes"]![1]!["kind"] = "Error",
+            root => root["events"]![0]!["name"] = "Other",
+            root => root["events"]![0]!["payload_type"]!["nodes"]![1] = JsonNode.Parse("""{"kind":"Leaf","value":{"kind":"Json","value":null}}"""),
+            root => root["events"]![0]!["payload_type"]!["nodes"]![1] = JsonNode.Parse("""{"kind":"StateCursor","value":{"kind":"Int","value":null}}"""),
+            root => root["events"]!.AsArray().Add(root["events"]![0]!.DeepClone()),
+        }) {
+            var invalid = OrdinaryEnumManifest();
+            mutate(invalid);
+            Assert.Throws<JsonException>(() => invalid.Deserialize<ToriiContractManifest>());
+        }
+        var forged = parsed with { Events = [parsed.Events.Single() with {
+            PayloadType = parsed.Events.Single().PayloadType with { Nodes = [
+                parsed.Events.Single().PayloadType.Nodes[0], node with { ErrorValue = new() { Identity = "Demo::Status" } },
+            ] },
+        }] };
+        Assert.Throws<JsonException>(() => JsonSerializer.Serialize(forged));
+    }
+
     private const string FilterBase64 =
         "TlJUMAAAl9+YQQ4oJZjALRf6FAto0QAKAAAAAAAAANzCjydU9+jNAgIAAAAFBAAAAAA=";
 
@@ -21,7 +66,7 @@ public sealed class ContractManifestTests
         var entrypoint = manifest.Entrypoints!.Single();
         Assert.Equal(ToriiContractEntrypointKind.Kotoage, entrypoint.Kind);
         Assert.Equal(2, entrypoint.ArgumentSchema!.Fields[0].ValueType.WordCount);
-        Assert.Equal("struct Transfer", entrypoint.ArgumentSchema.Fields[0].ValueType.CanonicalTypeName);
+        Assert.Equal("struct Fixture::Transfer", entrypoint.ArgumentSchema.Fields[0].ValueType.CanonicalTypeName);
         Assert.Equal("List<Name, 64>", entrypoint.ArgumentSchema.Fields[1].ValueType.CanonicalTypeName);
         Assert.Equal(2, entrypoint.ArgumentSchema.Fields[1].ValueType.Nodes.Count);
         Assert.Equal(
@@ -133,12 +178,12 @@ public sealed class ContractManifestTests
         var (_, pair) = ParseReturnSchema(
             new[]
             {
-                StructNode("Pair", new[] { "left", "right" }),
+                StructNode("Fixture::Pair", new[] { "left", "right" }),
                 Leaf("Int"),
                 Leaf("Bool"),
             },
-            "struct Pair");
-        Assert.Equal("struct Pair", pair.CanonicalTypeName);
+            "struct Fixture::Pair");
+        Assert.Equal("struct Fixture::Pair", pair.CanonicalTypeName);
     }
 
     [Fact]
@@ -231,7 +276,7 @@ public sealed class ContractManifestTests
                     Kind = ToriiEntrypointValueTypeNodeKindV1.Struct,
                     StructValue = new ToriiEntrypointStructTypeNodeV1
                     {
-                        Name = "AccountView",
+                        Name = "kotodama::AccountView",
                         Fields = new[] { "id", "metadata" },
                     },
                 },
@@ -247,14 +292,18 @@ public sealed class ContractManifestTests
                 },
             },
             WordCount = 2,
-            CanonicalTypeName = "AccountView",
+            CanonicalTypeName = "kotodama::AccountView",
         };
         var forgedManifest = new ToriiContractManifest
         {
+            Permissions = Array.Empty<ToriiContractPermissionDescriptorV1>(),
+            Events = [],
+            EnumTypes = [],
             Entrypoints = new[]
             {
                 new ToriiContractEntrypointDescriptor
                 {
+                    Authorization = new ToriiEntrypointAuthorizationV1.Anyone(),
                     Name = "inspect",
                     Kind = ToriiContractEntrypointKind.View,
                     ReturnType = "AccountView",
@@ -265,7 +314,7 @@ public sealed class ContractManifestTests
         };
         var encodingError = Assert.Throws<JsonException>(
             () => JsonSerializer.Serialize(forgedManifest));
-        Assert.Contains("forged", encodingError.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("return_type and return_schema", encodingError.Message, StringComparison.Ordinal);
 
         var atLimitNodes = Enumerable.Repeat(ListNode(1), 255)
             .Append(Leaf("Int"))
@@ -327,11 +376,11 @@ public sealed class ContractManifestTests
             ReplaceFirst(
                 response,
                 "StateMap<AccountId, quantity>",
-                "Transfer{value: Result<int, Amount: quantity>}"),
+                "Fixture::Transfer{value: Result<int, Amount: quantity>}"),
             ReplaceFirst(
                 response,
                 "StateMap<AccountId, quantity>",
-                "Transfer{amount: Amount}"),
+                "Fixture::Transfer{amount: Amount}"),
             ReplaceFirst(
                 response,
                 "StateMap<AccountId, quantity>",
@@ -359,12 +408,12 @@ public sealed class ContractManifestTests
     public void ManifestAllowsAmountAsStructFieldIdentifier()
     {
         var manifest = JsonSerializer.Deserialize<ToriiContractManifest>(
-            StateManifestJson("Transfer{amount: quantity}"))!;
+            StateManifestJson("Fixture::Transfer{amount: quantity}"))!;
 
-        Assert.Equal("Transfer{amount: quantity}", manifest.States!.Single().TypeName);
+        Assert.Equal("Fixture::Transfer{amount: quantity}", manifest.States!.Single().TypeName);
         var encoded = JsonSerializer.Serialize(manifest);
         var decoded = JsonSerializer.Deserialize<ToriiContractManifest>(encoded)!;
-        Assert.Equal("Transfer{amount: quantity}", decoded.States!.Single().TypeName);
+        Assert.Equal("Fixture::Transfer{amount: quantity}", decoded.States!.Single().TypeName);
     }
 
     [Fact]
@@ -385,9 +434,9 @@ public sealed class ContractManifestTests
                 {
                     "(int, decimal)",
                     "Option<Result<quantity, string>>",
-                    "List<Transfer{amount: quantity}, 64>",
-                    "StateMap<AccountId, Transfer{amount: quantity}>",
-                    "StateMap<Name, Transfer{amount: quantity, memo: Option<string>}>",
+                    "List<Fixture::Transfer{amount: quantity}, 64>",
+                    "StateMap<AccountId, Fixture::Transfer{amount: quantity}>",
+                    "StateMap<Name, Fixture::Transfer{amount: quantity, memo: Option<string>}>",
                 });
         foreach (var typeName in canonical)
         {
@@ -401,19 +450,19 @@ public sealed class ContractManifestTests
         {
             "Amount",
             "amount",
-            "Transfer{amount: amount}",
-            "Transfer{Amount: quantity}",
-            "Transfer{amount:: quantity}",
-            "Transfer{amount:quantity}",
-            "Transfer{amount:  quantity}",
+            "Fixture::Transfer{amount: amount}",
+            "Fixture::Transfer{Amount: quantity}",
+            "Fixture::Transfer{amount:: quantity}",
+            "Fixture::Transfer{amount:quantity}",
+            "Fixture::Transfer{amount:  quantity}",
             "Transfer {amount: quantity}",
-            "Transfer{ }",
-            "Transfer{amount: quantity, amount: int}",
-            "Transfer{__kotodama_link_amount: quantity}",
+            "Fixture::Transfer{ }",
+            "Fixture::Transfer{amount: quantity, amount: int}",
+            "Fixture::Transfer{__kotodama_link_amount: quantity}",
             "(int)",
             "(int,decimal)",
             "Option<quantity",
-            "Transfer{amount: Option<quantity>}}",
+            "Fixture::Transfer{amount: Option<quantity>}}",
             "Option<StateMap<AccountId, quantity>>",
             "StateMap<AccountId, StateMap<Name, quantity>>",
             "StateMap<Json, quantity>",
@@ -423,7 +472,7 @@ public sealed class ContractManifestTests
             "List<quantity, 01>",
             "List<quantity, 65>",
             "Trаnsfer{amount: quantity}",
-            "Transfer{amount: quаntity}",
+            "Fixture::Transfer{amount: quаntity}",
         };
         foreach (var typeName in noncanonical)
         {
@@ -433,6 +482,9 @@ public sealed class ContractManifestTests
 
             var forged = new ToriiContractManifest
             {
+            Permissions = Array.Empty<ToriiContractPermissionDescriptorV1>(),
+            Events = [],
+            EnumTypes = [],
                 States =
                 [
                     new ToriiContractStateDescriptor
@@ -836,6 +888,9 @@ public sealed class ContractManifestTests
     {
         return new ToriiContractManifest
         {
+            Permissions = Array.Empty<ToriiContractPermissionDescriptorV1>(),
+            Events = [],
+            EnumTypes = [],
             AccessSetHints = new ToriiContractAccessSetHints
             {
                 DynamicReads = reads,
@@ -852,6 +907,56 @@ public sealed class ContractManifestTests
         };
     }
 
+    [Fact]
+    public void SourceViewEntrypointsUseTheSameClosedAuthorization()
+    {
+        var root = JsonNode.Parse("""
+            {"name":"inspect","kind":"view","params":[],"return_type":"int",
+             "authorization":{"kind":"Permission","value":"Reader"},
+             "read_keys":[],"write_keys":[],"access_hints_complete":true,
+             "access_hints_skipped":[],"triggers":[]}
+            """)!.AsObject();
+        var entrypoint = root.Deserialize<ToriiContractViewEntrypoint>()!;
+        Assert.Equal("Reader", Assert.IsType<ToriiEntrypointAuthorizationV1.Permission>(entrypoint.Authorization).Name);
+        Assert.NotNull(JsonSerializer.Deserialize<ToriiContractViewEntrypoint>(JsonSerializer.Serialize(entrypoint)));
+        var unknown = root.DeepClone().AsObject();
+        unknown["permission"] = "Reader";
+        Assert.Throws<JsonException>(() => unknown.Deserialize<ToriiContractViewEntrypoint>());
+        root.Remove("authorization");
+        Assert.Throws<JsonException>(() => root.Deserialize<ToriiContractViewEntrypoint>());
+        Assert.Throws<ArgumentException>(() => entrypoint with
+        {
+            Authorization = new ToriiEntrypointAuthorizationV1.Permission("invalid role"),
+        });
+    }
+
+    [Fact]
+    public void AuthorizationUsesRequiredCanonicalDeclarations()
+    {
+        JsonObject Manifest() => JsonNode.Parse(FullResponse())!["manifest"]!.AsObject();
+        var root = Manifest();
+        var parsed = root.Deserialize<ToriiContractManifest>()!;
+        Assert.IsType<ToriiEntrypointAuthorizationV1.Permission>(parsed.Entrypoints![0].Authorization);
+        Assert.IsType<ToriiContractPermissionScopeV1.Instance>(parsed.Permissions[0].Scope);
+        root["permissions"]![0]!["scope"] = JsonNode.Parse("""{"kind":"Chain","value":{"permission_name":"SharedOperators"}}""");
+        Assert.Equal("SharedOperators", Assert.IsType<ToriiContractPermissionScopeV1.Chain>(root.Deserialize<ToriiContractManifest>()!.Permissions[0].Scope).PermissionName);
+        foreach (var mutate in new Action<JsonObject>[]
+        {
+            value => value.Remove("permissions"),
+            value => value["permissions"] = new JsonArray(),
+            value => value["permissions"]!.AsArray().Add(value["permissions"]![0]!.DeepClone()),
+            value => value["entrypoints"]![0]!["authorization"] = "TransferAsset",
+            value => value["entrypoints"]![0]!["authorization"] = JsonNode.Parse("""{"kind":"RuntimeLifecycle","value":null}"""),
+            value => value["entrypoints"]![0]!["permission"] = "TransferAsset",
+            value => value["permissions"]![0]!["scope"]!["value"] = "unexpected",
+        })
+        {
+            var invalid = Manifest();
+            mutate(invalid);
+            Assert.Throws<JsonException>(() => invalid.Deserialize<ToriiContractManifest>());
+        }
+    }
+
     private static string DynamicManifestJson(
         IReadOnlyList<ToriiContractDynamicAccessHint> reads,
         IReadOnlyList<ToriiContractDynamicAccessHint> writes,
@@ -866,7 +971,7 @@ public sealed class ContractManifestTests
                 + $"\"max_keys\":{hint.MaxKeys}}}";
         }
 
-        return "{\"access_set_hints\":{\"read_keys\":[],\"write_keys\":[],"
+        return "{\"events\":[],\"enum_types\":[],\"permissions\":[],\"access_set_hints\":{\"read_keys\":[],\"write_keys\":[],"
             + $"\"dynamic_reads\":[{string.Join(",", reads.Select(HintJson))}],"
             + $"\"dynamic_writes\":[{string.Join(",", writes.Select(HintJson))}]"
             + "},\"states\":[{\"name\":"
@@ -878,7 +983,7 @@ public sealed class ContractManifestTests
 
     private static string StateManifestJson(string typeName)
     {
-        return "{\"states\":[{\"name\":\"Balances\",\"type_name\":"
+        return "{\"events\":[],\"enum_types\":[],\"permissions\":[],\"states\":[{\"name\":\"Balances\",\"type_name\":"
             + JsonSerializer.Serialize(typeName)
             + "}]}";
     }
@@ -944,6 +1049,7 @@ public sealed class ContractManifestTests
     {
         return $$$"""
         {
+          "events":[],"enum_types":[],"permissions":[],
           "entrypoints":[{
             "name":"inspect",
             "kind":{"kind":"View","value":null},
@@ -951,7 +1057,7 @@ public sealed class ContractManifestTests
             "argument_schema":null,
             "return_type":{{{JsonSerializer.Serialize(typeName)}}},
             "return_schema":{"nodes":[{{{string.Join(",", nodes)}}}]},
-            "permission":null,
+            "authorization":{"kind":"Anyone","value":null},
             "read_keys":[],
             "write_keys":[],
             "access_hints_complete":true,
@@ -1002,6 +1108,7 @@ public sealed class ContractManifestTests
 
     private static string StructNode(string name, IEnumerable<string> fields)
     {
+        if (name is "AccountView" or "AssetView" or "AssetDefinitionView" or "DomainView" or "NftView" or "QueryPage" or "StatePage") name = "kotodama::" + name;
         return $$$"""
         {"kind":"Struct","value":{"name":{{{JsonSerializer.Serialize(name)}}},"fields":[{{{string.Join(",", fields.Select(field => JsonSerializer.Serialize(field)))}}}]}}
         """;
@@ -1045,16 +1152,17 @@ public sealed class ContractManifestTests
               }],
               "dynamic_writes":[]
             },
-            "entrypoints":[{
+            "events":[],"enum_types":[],"permissions":[{"name":"TransferAsset","scope":{"kind":"Instance","value":null}}],
+          "entrypoints":[{
               "name":"transfer",
               "kind":{"kind":"Kotoage","value":null},
               "params":[
-                {"name":"request","type_name":"struct Transfer"},
+                {"name":"request","type_name":"struct Fixture::Transfer"},
                 {"name":"tags","type_name":"List<Name, 64>"}
               ],
               "argument_schema":{"fields":[
                 {"name":"request","ty":{"nodes":[
-                  {"kind":"Struct","value":{"name":"Transfer","fields":["amount","memo"]}},
+                  {"kind":"Struct","value":{"name":"Fixture::Transfer","fields":["amount","memo"]}},
                   {"kind":"Leaf","value":{"kind":"Quantity","value":null}},
                   {"kind":"Option","value":null},
                   {"kind":"Leaf","value":{"kind":"String","value":null}}
@@ -1072,7 +1180,7 @@ public sealed class ContractManifestTests
                 {"kind":"Leaf","value":{"kind":"Int","value":null}},
                 {"kind":"Leaf","value":{"kind":"String","value":null}}
               ]},
-              "permission":"TransferAsset",
+              "authorization":{"kind":"Permission","value":"TransferAsset"},
               "read_keys":["state:Balances"],
               "write_keys":["state:Balances"],
               "access_hints_complete":true,

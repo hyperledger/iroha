@@ -824,9 +824,22 @@ fn assert_genesis_source_template_parses_structured_instructions(relative_path: 
         }
     }
     assert_eq!(parameter_blocks, 1, "one authoritative parameter block");
+    let unbound = super::RawGenesisTransaction::from_path(&path)
+        .expect("bounded structured source JSON must remain parseable before materialization");
+    assert_eq!(unbound.consensus_fingerprint(), None);
     assert!(
-        super::RawGenesisTransaction::from_path(&path).is_err(),
-        "{} must remain an incomplete source template until an operator supplies mint-finality authority",
+        unbound
+            .validate_mode_specific_consensus_parameters()
+            .is_err(),
+        "{} must require its explicit NPoS XOR selection",
+        path.display()
+    );
+    assert!(
+        super::super::GenesisSourceTemplate::from_path(&path)
+            .expect("read the original unbound source template")
+            .materialize(None)
+            .is_err(),
+        "{} must not materialize without its NPoS XOR selection",
         path.display()
     );
 }
@@ -871,10 +884,7 @@ fn dev_source_template_prefunds_exact_canonical_staking_plans() {
     // The NPoS source leaves its XOR pin to the operator: materialize it with the dev XOR.
     let manifest = super::super::GenesisSourceTemplate::from_path(&path)
         .unwrap()
-        .materialize(
-            &super::super::deterministic_test_kagemusha_mint_finality_genesis_parameters(),
-            Some(definition.clone()),
-        )
+        .materialize(Some(definition.clone()))
         .unwrap();
     let escrow = parse_account_id(&staking::stake_escrow_account_id(), "staking escrow").unwrap();
     let mut registered = false;
@@ -966,13 +976,6 @@ fn parse_allows_null_executor_in_canonical_manifest() {
             .expect("serialize Sumeragi genesis context"),
     );
     manifest_fields.insert(
-        "kagemusha_mint_finality".to_string(),
-        norito::json::value::to_value(
-            &super::super::deterministic_test_kagemusha_mint_finality_genesis_parameters(),
-        )
-        .expect("serialize mint-finality authority"),
-    );
-    manifest_fields.insert(
         "transactions".to_string(),
         Value::Array(vec![Value::Object(norito::json::Map::new())]),
     );
@@ -1022,10 +1025,7 @@ fn supported_genesis_templates_fit_frozen_source_bootstrap() {
         };
         let manifest = super::super::GenesisSourceTemplate::from_path(root.join(path))
             .unwrap_or_else(|error| panic!("{path}: {error:?}"))
-            .materialize(
-                &super::super::deterministic_test_kagemusha_mint_finality_genesis_parameters(),
-                Some(xor),
-            )
+            .materialize(Some(xor))
             .unwrap_or_else(|error| panic!("{path}: {error:?}"));
         let sources = manifest
             .parse()
@@ -1078,10 +1078,7 @@ fn generated_genesis_group_shapes_have_finite_source_capacity() {
             super::super::GenesisBuilder::new_without_executor(chain, root.join("defaults"))
         };
         let mut builder = builder
-            .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
-            .with_kagemusha_mint_finality_genesis_parameters(
-                super::super::deterministic_test_kagemusha_mint_finality_genesis_parameters(),
-            );
+            .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended());
         for index in 0..groups {
             if index != 0 {
                 builder = builder.next_transaction();
@@ -1175,4 +1172,55 @@ fn unsigned_taira_fixture_declares_complete_finite_block_parameters() {
         .fastpq_source()
         .validate(block.execution_output())
         .unwrap();
+}
+
+#[test]
+fn canonical_genesis_account_reader_preserves_original_resource_fields_and_retry() {
+    let literal = ALICE_ID.canonical_i105().unwrap();
+    let source_pointer = literal.as_ptr();
+    let limits =
+        |bytes| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX);
+    let (baseline, usage) = norito::core::with_decode_limits_measured(limits(usize::MAX), || {
+        parse_account_id(&literal, "register account")
+    });
+    assert_eq!(baseline.unwrap(), *ALICE_ID);
+    let demand = usage.total_allocated_bytes();
+    assert!(demand > 1);
+    for limit in [0, 1, demand - 1] {
+        let context =
+            norito::core::DecodeBudgetContext::new(limits(demand.checked_mul(4).unwrap()));
+        let error = context
+            .with(|| {
+                norito::core::with_decode_limits_measured(limits(limit), || {
+                    parse_account_id(&literal, "register account")
+                })
+            })
+            .0
+            .expect_err("original genesis account decode must refuse its inner allocation limit");
+        let original = error.into_core_error();
+        let Some(norito::core::DecodeResourceError::TotalAllocationExceeded {
+            attempted,
+            limit: actual_limit,
+        }) = original.decode_resource_error()
+        else {
+            panic!("genesis account reader erased original resource fields: {original:?}");
+        };
+        assert_eq!(actual_limit, u64::try_from(limit).unwrap());
+        assert!(attempted > actual_limit);
+        let before_retry = context.consumed_allocated_bytes();
+        assert_eq!(
+            context
+                .with(|| parse_account_id(&literal, "register account"))
+                .unwrap(),
+            *ALICE_ID
+        );
+        assert_eq!(
+            context.consumed_allocated_bytes() - before_retry,
+            u64::try_from(demand).unwrap()
+        );
+        assert_eq!(literal.as_ptr(), source_pointer);
+    }
+    let error = parse_account_id("invalid-account", "register account").unwrap_err();
+    assert!(!error.is_decode_resource_limit());
+    assert!(error.to_string().contains("invalid register account:"));
 }

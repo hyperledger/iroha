@@ -961,7 +961,8 @@ class CoordinatorTests(unittest.TestCase):
                     record.assert_not_called(); stop.assert_not_called()
                 self.assertEqual(contents, {str(path): path.read_bytes() for path in root.rglob('*.json')})
 
-    def simulate(self, failure=None, *, recovery=False, same_artifacts=False, failed_chain_depth=1):
+    def simulate(self, failure=None, *, recovery=False, same_artifacts=False, failed_chain_depth=1,
+                 retirement_changed=True, modern=True):
         build, metadata = fixture()
         if recovery:
             with tempfile.TemporaryDirectory() as temporary:
@@ -973,9 +974,16 @@ class CoordinatorTests(unittest.TestCase):
                 plan = plan_for(build, metadata, failed_start=reference)
         else:
             plan = plan_for(build, metadata)
+        if modern and not recovery:
+            plan['schema'] = 'taira.daemon-update.plan.v2'
+            plan['deployment'].update(schema='taira.runtime-deployment.v2', config_filename='config.toml',
+                                      kura_hash_journal='storage/kura/blocks/canonical/blocks.hashes')
+            plan['deployment']['current']['kind'] = 'completed-update'
         events = []
         records = {}
         units = {row['role']: base64.b64decode(row['before']) for row in plan['units']}
+        original_config = [1, 4, 0o100600, 0, 0, 1, 100, 90, 90]
+        configs = {role: list(original_config) for role in guest.ROLES}
 
         def running(role):
             index = guest.ROLES.index(role) + 1
@@ -1002,7 +1010,7 @@ class CoordinatorTests(unittest.TestCase):
             need_raw = base64.b64decode(row['after' if after else 'before'])
             self.assertEqual(units[row['role']], need_raw)
             return {'role': row['role'], 'unit_stamp': [1, 2, 0o100600, 0, 0, 1, 3, 4, 5],
-                    'config_stamp': [1, 4], 'config_sha256': 'same', 'state_root_identity': [1, 8],
+                    'config_stamp': list(configs[row['role']]), 'config_sha256': 'same', 'state_root_identity': [1, 8],
                     'current_target': 'unchanged',
                     'systemd': running(row['role']),
                     'executable': str(guest.DAEMON if after else guest.PREVIOUS_DAEMON),
@@ -1073,7 +1081,49 @@ class CoordinatorTests(unittest.TestCase):
             stack.enter_context(patch.object(guest.time, 'monotonic', side_effect=lambda: now[0]))
             stack.enter_context(patch.object(guest.time, 'sleep',
                 side_effect=lambda seconds: now.__setitem__(0, now[0] + seconds)))
-            stack.enter_context(patch.object(guest, 'native_private_command', side_effect=lambda *a, **k: events.append(k['name'])))
+            def check_config(argv, **kwargs):
+                events.append(kwargs['name'])
+                if plan['schema'].endswith('.v2'):
+                    self.assertIn('config-retirement-prepared.json', records)
+                    self.assertIn(str(argv[2]), [row['staged_path'] for row in records['config-retirement-prepared.json']['rows']])
+                else:
+                    self.assertNotIn('config-retirement-prepared.json', records)
+                    self.assertIn(argv[2], [guest.retained_config(role) for role in guest.ROLES])
+                if failure == 'config-check':
+                    raise RuntimeError('candidate configuration validation failed')
+            stack.enter_context(patch.object(guest, 'native_private_command', side_effect=check_config))
+            def retire_configs(operation, action, before, prepared=None):
+                events.append('config-retirement-' + action)
+                self.assertEqual(operation, plan['operation'])
+                if action == 'prepare':
+                    self.assertIn('retained-entry.json', records)
+                    self.assertNotIn('stop-all', events)
+                    if failure == 'config-prepare':
+                        raise RuntimeError('native configuration retirement preparation failed')
+                    rows = [{'role': row['role'], 'before_stamp': list(row['config_stamp']),
+                             'staged_path': '/fixture/staged/' + row['role'],
+                             'changed': retirement_changed} for row in before]
+                    report = {'rows': rows}
+                else:
+                    self.assertIn('stopped-owner-maintenance', events)
+                    self.assertNotIn('start-intent.json', records)
+                    rows = copy.deepcopy(prepared['rows'])
+                    for index, row in enumerate(rows):
+                        value = list(row['before_stamp'])
+                        if retirement_changed:
+                            value[1] += (100 if action == 'install' else 200) + index
+                        configs[row['role']] = value
+                        row['installed_stamp' if action == 'install' else 'restored_stamp'] = value
+                        if failure == 'config-install' and action == 'install' and index == 1:
+                            raise RuntimeError('native configuration installation failed after partial rename')
+                    if action == 'restore':
+                        for unit in plan['units']:
+                            self.assertEqual(units[unit['role']], base64.b64decode(unit['before']))
+                    report = {'rows': rows}
+                stage = {'prepare': 'prepared', 'install': 'installed', 'restore': 'restored'}[action]
+                records['config-retirement-' + stage + '.json'] = report
+                return report
+            stack.enter_context(patch.object(guest, 'retire_validator_configs', side_effect=retire_configs))
             stack.enter_context(patch.object(guest, 'observe', side_effect=observe))
             def observing_owner():
                 self.assertIn('start', events)
@@ -1126,7 +1176,7 @@ class CoordinatorTests(unittest.TestCase):
                 return ('d' if failure == 'final-observation-hash' and 'checkpoint-restored' in events
                         and role == guest.ROLES[2] else 'c') * 64
             stack.enter_context(patch.object(guest, 'native_kura_hash', side_effect=kura_hash))
-            stack.enter_context(patch.object(guest, 'verify_restored_checkpoint', side_effect=lambda row, cp:
+            stack.enter_context(patch.object(guest, 'verify_restored_checkpoint', side_effect=lambda row, cp, **kwargs:
                 {'role': row['role'], 'restored_height': 199, 'native_strict_checkpoint_verified': True}))
             stack.enter_context(patch.object(guest, 'install_unit', side_effect=install))
             stack.enter_context(patch.object(Path, 'read_bytes', read))
@@ -1137,6 +1187,60 @@ class CoordinatorTests(unittest.TestCase):
                 else:
                     guest.apply(plan, CAPACITY_SOURCE)
         return events, records, units, plan
+
+    def test_native_config_retirement_order_and_noop_complete_without_renderer_changes(self):
+        for changed in (False, True):
+            with self.subTest(changed=changed):
+                events, records, units, plan = self.simulate(retirement_changed=changed)
+                self.assertLess(events.index('config-retirement-prepare'), events.index('check-config-1'))
+                self.assertLess(events.index('check-config-4'), events.index('stop-all'))
+                self.assertLess(events.index('stopped-owner-maintenance'), events.index('config-retirement-install'))
+                self.assertLess(events.index('config-retirement-install'), events.index('install-' + guest.ROLES[0]))
+                self.assertLess(events.index('install-' + guest.ROLES[-1]), events.index('start'))
+                self.assertNotIn('config-retirement-restore', events)
+                for original, row, final in zip(records['retained-entry.json'],
+                        records['config-retirement-installed.json']['rows'], records['after.json']):
+                    self.assertEqual(original['config_stamp'], row['before_stamp'])
+                    self.assertEqual(final['config_stamp'], row['installed_stamp'])
+                    self.assertEqual(row['before_stamp'] != row['installed_stamp'], changed)
+
+    def test_v1_corridor_keeps_original_configuration_and_never_calls_v2_native_adapter(self):
+        events, records, _, _ = self.simulate(modern=False)
+        self.assertFalse(any(event.startswith('config-retirement-') for event in events))
+        self.assertNotIn('config-retirement-prepared.json', records)
+        self.assertEqual([row['config_stamp'] for row in records['retained-entry.json']],
+                         [row['config_stamp'] for row in records['after.json']])
+
+    def test_config_preparation_or_validation_failure_never_stops_or_mutates_live_cohort(self):
+        for failure in ('config-prepare', 'config-check'):
+            with self.subTest(failure=failure):
+                events, records, units, plan = self.simulate(failure)
+                for event in ('stop-all', 'config-retirement-install', 'config-retirement-restore', 'start'):
+                    self.assertNotIn(event, events)
+                for row in plan['units']:
+                    self.assertEqual(units[row['role']], base64.b64decode(row['before']))
+
+    def test_partial_config_install_or_unit_failure_restores_configs_after_old_units(self):
+        for failure in ('config-install', 'partial-install', 'daemon-reload'):
+            with self.subTest(failure=failure):
+                events, records, units, plan = self.simulate(failure)
+                self.assertIn('config-retirement-restore', events)
+                self.assertLess(events.index('config-retirement-restore'), events.index('rollback-reload'))
+                self.assertNotIn('start-intent.json', records)
+                self.assertNotIn('start', events)
+                self.assertTrue(records['rollback.json']['restored_previous_stopped_cohort'])
+                self.assertTrue(records['rollback.json']['config_identity_reconciliation_required'])
+                self.assertFalse(records['rollback.json']['old_daemons_restarted'])
+                self.assertEqual(records['rollback.json']['config_retirement_restored_receipt'],
+                                 'config-retirement-restored.json')
+                for row in plan['units']:
+                    self.assertEqual(units[row['role']], base64.b64decode(row['before']))
+
+    def test_failed_start_retains_candidate_configs_and_never_restores_old_configuration(self):
+        events, records, _, _ = self.simulate('start')
+        self.assertIn('start-intent.json', records)
+        self.assertIn('failed-start-stop', events)
+        self.assertNotIn('config-retirement-restore', events)
 
     def test_capacity_is_rechecked_before_any_validator_stop(self):
         events, records, _, _ = self.simulate('capacity-before-stop')
@@ -1745,6 +1849,163 @@ class CohortProgressTests(unittest.TestCase):
         deadline = next(keyword.value for keyword in remote[0].keywords if keyword.arg == 'timeout')
         self.assertIsInstance(deadline, ast.Name)
         self.assertEqual(deadline.id, 'GUEST_OPERATION_TIMEOUT_SECONDS')
+
+
+class ConfigRetirementReceiptTests(unittest.TestCase):
+    def setUp(self):
+        self.plan = plan_for()
+        self.before = [{'role': role, 'config_stamp': [1, 10 + index, 0o100600, 0, 0, 1, 100, 90, 90],
+                        'state_root_identity': [1, 200 + index], 'current_target': 'unchanged'}
+                       for index, role in enumerate(guest.ROLES)]
+        self.prepared = {'schema': 'taira.validator-config-retirement.prepared.v1',
+                         'operation': self.plan['operation'], 'source_commit': self.plan['commit'],
+                         'network_id': self.plan['network_id'], 'rows': []}
+        for index, original in enumerate(self.before):
+            source = guest.retained_config(original['role'])
+            self.prepared['rows'].append({'role': original['role'], 'source_path': str(source),
+                'staged_path': str(source.with_name('.' + source.name + '.' + OPERATION + '.retirement-next')),
+                'original_path': str(source.with_name('.' + source.name + '.' + OPERATION + '.retirement-original')),
+                'changed': True, 'source_sha256': 'a' * 64, 'output_sha256': 'b' * 64,
+                'before_stamp': list(original['config_stamp']),
+                'staged_stamp': [1, 30 + index, 0o100600, 0, 0, 1, 70, 95, 95]})
+
+    def report(self, action, *, changed=True):
+        value = copy.deepcopy(self.prepared)
+        stage = {'prepare': 'prepared', 'install': 'installed', 'restore': 'restored'}[action]
+        value['schema'] = 'taira.validator-config-retirement.' + stage + '.v1'
+        for row in value['rows']:
+            if not changed:
+                row['changed'] = False
+                row['output_sha256'] = row['source_sha256']
+            if action != 'prepare':
+                row[stage + '_stamp'] = list(row['staged_stamp'] if action == 'install' and changed
+                                            else row['before_stamp'])
+                if action == 'restore' and changed:
+                    row['restored_stamp'][1] += 100
+        return value
+
+    def invoke_validation(self, report, action, prepared=None):
+        metadata = {}
+        for row in report['rows']:
+            metadata[row['source_path']] = row[{'prepare': 'before', 'install': 'installed', 'restore': 'restored'}[action] + '_stamp']
+            metadata[row['staged_path']] = row['staged_stamp']
+        with patch.object(guest, 'stamp', side_effect=lambda path: metadata[str(path)]):
+            return guest.validate_config_retirement(report, OPERATION, action, self.before, prepared)
+
+    def test_config_allocation_is_explicit_for_v2_and_does_not_change_v1(self):
+        plan = copy.deepcopy(self.plan)
+        original = admission_for(plan, 'apply')['guest_plan']['allocations']
+        self.assertFalse(any(row['label'] == 'native config retirement and rollback' for row in original))
+        plan['schema'] = 'taira.daemon-update.plan.v2'
+        plan['deployment'].update(schema='taira.runtime-deployment.v2', config_filename='config.toml',
+                                  kura_hash_journal='storage/kura/blocks/canonical/blocks.hashes')
+        plan['deployment']['current']['kind'] = 'completed-update'
+        guest.validate_update_plan_shape(plan)
+        rows = admission_for(plan, 'apply')['guest_plan']['allocations']
+        config = next(row for row in rows if row['label'] == 'native config retirement and rollback')
+        self.assertEqual(config['path'], plan['deployment']['config_root'])
+        self.assertGreaterEqual(config['bytes'], 12 * 1024**2)
+        self.assertGreaterEqual(config['inodes'], 12)
+
+    def test_exact_prepared_installed_restored_and_noop_receipts_bind_native_stamps(self):
+        for changed in (False, True):
+            prepared = self.report('prepare', changed=changed)
+            self.invoke_validation(prepared, 'prepare')
+            for action in ('install', 'restore'):
+                self.invoke_validation(self.report(action, changed=changed), action, prepared)
+        self.assertFalse(guest.valid_config_stamp([1, 2]))
+        self.assertFalse(guest.valid_config_stamp([1, 2, 0o100622, 0, 0, 1, 1, 1, 1]))
+
+    def test_foreign_receipt_and_row_or_stamp_tamper_are_not_config_transition_authority(self):
+        for kind in ('operation', 'source_commit', 'network_id', 'schema', 'extra', 'role', 'path',
+                     'before', 'digest', 'changed', 'staged', 'installed', 'noop'):
+            with self.subTest(kind=kind):
+                report = self.report('install')
+                row = report['rows'][0]
+                if kind in ('operation', 'source_commit', 'network_id', 'schema'):
+                    report[kind] += 'foreign'
+                elif kind == 'extra': report['extra'] = True
+                elif kind == 'role': row['role'] = guest.ROLES[1]
+                elif kind == 'path': row['source_path'] += '.foreign'
+                elif kind == 'before': row['before_stamp'][1] += 1
+                elif kind == 'digest': row['output_sha256'] = 'c' * 64
+                elif kind == 'changed': row['changed'] = False
+                elif kind == 'staged': row['staged_stamp'][1] += 1
+                elif kind == 'installed': row['installed_stamp'][2] |= 0o022
+                elif kind == 'noop': row['installed_stamp'] = list(row['before_stamp'])
+                with self.assertRaises(RuntimeError):
+                    self.invoke_validation(report, 'install', self.prepared)
+        report = self.report('install')
+        with patch.object(guest, 'stamp', return_value=report['rows'][0]['before_stamp']):
+            with self.assertRaisesRegex(RuntimeError, 'metadata changed'):
+                guest.validate_config_retirement(report, OPERATION, 'install', self.before, self.prepared)
+
+    def test_only_bound_transition_changes_config_identity_and_never_state_or_selector(self):
+        report = self.report('install')
+        old = self.before[0]
+        new = dict(old, config_stamp=report['rows'][0]['installed_stamp'])
+        with patch.object(guest, 'CONFIG_RETIREMENT', report):
+            guest.compare_retained_identity(old, new, allow_config_retirement=True)
+            with self.assertRaises(RuntimeError): guest.compare_retained_identity(old, new)
+            for key, value in (('config_stamp', old['config_stamp']),
+                               ('state_root_identity', [9, 9]), ('current_target', 'foreign')):
+                with self.subTest(key=key), self.assertRaises(RuntimeError):
+                    guest.compare_retained_identity(old, dict(new, **{key: value}), allow_config_retirement=True)
+
+    def test_adapter_uses_public_readonly_fd_closes_it_and_requires_native_published_receipt(self):
+        owner = {'pid': 991, 'start_time_ticks': 1234,
+                 'argv': ['/usr/bin/python3', '-I', '-'], 'lock': {'device': 1, 'inode': 9}}
+        for malformed, mismatch in ((False, False), (True, False), (False, True)):
+            with self.subTest(malformed=malformed, mismatch=mismatch), tempfile.TemporaryDirectory() as directory,                  patch.object(guest, 'ATTEMPT', Path(directory)), patch.object(guest, 'stamp'),                  patch.object(guest, 'cohort_observation_owner', return_value=owner),                  patch.object(guest, 'validate_config_retirement') as validate,                  patch.object(guest, 'retained_public_record', return_value={} if mismatch else self.prepared):
+                descriptors = []
+                def command(argv, **kwargs):
+                    fd, = kwargs['pass_fds']; descriptors.append(fd)
+                    self.assertEqual(argv, [guest.CLI, 'taira', 'retire-validator-config', '--action', 'prepare',
+                                           '--request-fd', str(fd)])
+                    self.assertEqual(fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE, os.O_RDONLY)
+                    request = json.loads(os.read(fd, 16384))
+                    self.assertEqual(request, {'schema': 'taira.validator-config-retirement.request.v1',
+                                              'operation_directory': directory, 'owner': owner})
+                    return b'private-malformed-body' if malformed else json.dumps(self.prepared).encode()
+                with patch.object(guest, 'command', side_effect=command) as native:
+                    if malformed or mismatch:
+                        with self.assertRaises(RuntimeError) as error:
+                            guest.retire_validator_configs(OPERATION, 'prepare', self.before)
+                        self.assertNotIn('private-malformed-body', str(error.exception))
+                    else:
+                        self.assertEqual(guest.retire_validator_configs(OPERATION, 'prepare', self.before), self.prepared)
+                    native.assert_called_once()
+                if malformed: validate.assert_not_called()
+                else: validate.assert_called_once_with(self.prepared, OPERATION, 'prepare', self.before, None)
+                with self.assertRaises(OSError): os.fstat(descriptors[0])
+
+
+class RetainedRendererSourceTests(unittest.TestCase):
+    def test_explicit_predecessor_renderer_is_digest_bound_without_source_or_deployment_rewrite(self):
+        build, prior = fixture()
+        value = deployment()
+        before = copy.deepcopy(value)
+        with tempfile.TemporaryDirectory() as directory:
+            retained = Path(directory).resolve() / 'retained-renderer.py'
+            retained.write_bytes((ROOT / 'scripts/taira_validator_unit.py').read_bytes())
+            retained.chmod(0o600)
+            with patch.object(runner, 'ROOT', Path(directory) / 'different-controller'):
+                plan = runner.make_plan(build, value, prior, fresh_guest(), OPERATION,
+                                        retained_renderer=retained)
+            self.assertEqual(plan['retained_renderer_path'], str(retained))
+            self.assertEqual(plan['renderer_sha256'], value['renderer_sha256'])
+            self.assertEqual(value, before)
+            retained.write_bytes(b'changed source')
+            with self.assertRaisesRegex(RuntimeError, 'renderer changed'):
+                runner.make_plan(build, value, prior, fresh_guest(), OPERATION,
+                                 retained_renderer=retained)
+            retained.unlink(); retained.symlink_to(ROOT / 'scripts/taira_validator_unit.py')
+            with self.assertRaises((RuntimeError, runner.retry.RetryError)):
+                runner.make_plan(build, value, prior, fresh_guest(), OPERATION,
+                                 retained_renderer=retained)
+        for path in ('relative.py', '/a/../renderer.py', '/a/renderer.py\n'):
+            with self.subTest(path=path), self.assertRaises(RuntimeError):
+                guest.validate_update_plan_shape(dict(plan, retained_renderer_path=path))
 
 
 class StoppedOwnerMaintenanceTests(unittest.TestCase):
@@ -2657,8 +2918,8 @@ class StorageAdmissionTests(unittest.TestCase):
                 def child(argv, **kwargs):
                     self.assertEqual(argv, ['pinned'])
                     self.assertEqual(kwargs['timeout'], runner.GUEST_OPERATION_TIMEOUT_SECONDS)
-                    self.assertEqual(kwargs['input'][:len((SCRIPTS / 'taira_update_guest.py').read_bytes())],
-                                     (SCRIPTS / 'taira_update_guest.py').read_bytes())
+                    self.assertEqual(kwargs['input'][:len(GUEST_FILE.read_bytes())],
+                                     GUEST_FILE.read_bytes())
                     kwargs['stderr'].write(b'private-secret\n')
                     self.assertTrue(heartbeat_seen.wait(2), 'heartbeat did not fire while guest was running')
                     if timeout:
@@ -2826,6 +3087,50 @@ class BackingRecordAuthoringTests(unittest.TestCase):
                     with self.assertRaisesRegex(RuntimeError, 'backing authoring requires only'):
                         runner.main()
                 author.assert_not_called()
+
+
+class NativeReplayTokenBoundaryTests(unittest.TestCase):
+    @staticmethod
+    def events(error='error=NativeExecutionReplayRequired', separator=' ', suffix='', height_separator=' '):
+        return [
+            {'time_us': 1, 'message': 'Failed to load state snapshot' + separator + error + suffix},
+            {'time_us': 2, 'message': 'Kura retains the configured-primary replay floor; rebuilding state from blocks'},
+            {'time_us': 3, 'message': 'Sumeragi rebuilt the state from genesis and Kura' + height_separator + 'height=146'},
+        ]
+
+    def test_every_rust_unicode_whitespace_boundary_and_suffix_is_accepted(self):
+        guest = fresh_guest()
+        spaces = ' \t\n\r\v\f\u0085\u00a0\u1680' + ''.join(chr(n) for n in range(0x2000, 0x200b)) + '\u2028\u2029\u202f\u205f\u3000'
+        for value in spaces:
+            with self.subTest(codepoint=ord(value)):
+                self.assertEqual(guest.authenticated_kura_replay_height(self.events(separator=value, suffix=value, height_separator=value)), 146)
+
+    def test_prefixed_quoted_extended_or_nonfinal_error_tokens_are_rejected(self):
+        guest = fresh_guest()
+        for error in ['other:error=NativeExecutionReplayRequired', 'xerror=NativeExecutionReplayRequired',
+                      '"error=NativeExecutionReplayRequired"', 'error=NativeExecutionReplayRequired.extra',
+                      'error=NativeExecutionReplayRequired trailing=1']:
+            with self.subTest(error=error), self.assertRaises(RuntimeError):
+                guest.authenticated_kura_replay_height(self.events(error=error))
+
+    def test_python_only_c0_spaces_and_bom_are_not_rust_boundaries(self):
+        guest = fresh_guest()
+        for value in ['\x1c', '\x1d', '\x1e', '\x1f', '\ufeff', '\u200b']:
+            for selection in ['separator', 'suffix', 'height_separator']:
+                with self.subTest(codepoint=ord(value), selection=selection), self.assertRaises(RuntimeError):
+                    guest.authenticated_kura_replay_height(self.events(**{selection: value}))
+
+    def test_exact_token_and_existing_order_and_positive_height_guards_remain(self):
+        guest = fresh_guest()
+        self.assertTrue(guest.native_replay_required_error('error=NativeExecutionReplayRequired'))
+        self.assertFalse(guest.native_replay_required_error(''))
+        for mutation in ['order', 'zero-height', 'duplicate-height']:
+            events = self.events()
+            if mutation == 'order': events[1]['time_us'] = 4
+            if mutation == 'zero-height': events[2]['message'] = events[2]['message'].replace('height=146', 'height=0')
+            if mutation == 'duplicate-height': events[2]['message'] += ' height=146'
+            with self.subTest(mutation=mutation), self.assertRaises(RuntimeError):
+                guest.authenticated_kura_replay_height(events)
 
 
 if __name__ == '__main__':

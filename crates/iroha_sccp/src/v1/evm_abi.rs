@@ -4,28 +4,28 @@
 //! (`finalizeFromTaira`, `finalizeFromTairaHistorical`, `rotateRosters`, `applyControl`,
 //! `applyControlHistorical`, `voidExpired`, `voidExpiredHistorical`, `voidFrozen` and the
 //! canonical `transferToTaira`), encoders and strict decoders of the view calls, strict decoders
-//! of the calldata Taira proves on TRON (`transferToTaira`, `voidExpired*`, `voidFrozen`), and
-//! strict encoders and decoders of the `SccpTransferToTaira` and `SccpVoided` logs.
+//! of the `transferToTaira`, `voidExpired*` and `voidFrozen` calldata, and strict encoders and
+//! decoders of the `SccpTransferToTaira` and `SccpVoided` logs.
 //!
 //! The encoders produce exactly the calldata Solidity's own encoder produces: heads in argument
 //! order, dynamic values as offsets into the tail relative to the start of their enclosing
 //! sequence, `bytes` length-prefixed and zero-padded to 32 bytes. The decoders are strict: they
 //! accept only that canonical form (canonical offsets, clean integer words, zero padding and no
-//! trailing bytes), which is the only form a destination accepts (§5.1.7).
+//! trailing bytes), which is the only form a destination accepts for those calls (§5.1.7,
+//! §5.1.8, §5.2.2).
 //!
-//! The same calldata runs on ETH, BSC and TRON; TRON addresses are the 20-byte form without the
-//! `0x41` prefix.
+//! The same calldata runs on ETH and BSC.
 
 use iroha_data_model::bridge::SccpNetworkV1;
 
 use super::{
     constants::{
-        MAX_TAIRA_ACCOUNT_BYTES, SELECTOR_APPLY_CONTROL, SELECTOR_APPLY_CONTROL_HISTORICAL,
-        SELECTOR_CONTROL_NONCE, SELECTOR_DOMAIN_SEPARATOR, SELECTOR_FINALIZE_FROM_TAIRA,
-        SELECTOR_FINALIZE_FROM_TAIRA_HISTORICAL, SELECTOR_INITIAL_ROSTER_DIGEST,
-        SELECTOR_INITIAL_ROSTER_GENERATION, SELECTOR_IS_CONSUMED, SELECTOR_MAX_ROSTER_VALIDITY_MS,
-        SELECTOR_MAX_WRAPPED_SUPPLY, SELECTOR_MINTING_PAUSED, SELECTOR_OP_COUNT,
-        SELECTOR_ROSTER_STATE, SELECTOR_ROTATE_ROSTERS, SELECTOR_ROUTE_REVISION,
+        MAX_TAIRA_ACCOUNT_BYTES, MAX_VOID_FROZEN_RANGE_EVM, SELECTOR_APPLY_CONTROL,
+        SELECTOR_APPLY_CONTROL_HISTORICAL, SELECTOR_CONTROL_NONCE, SELECTOR_DOMAIN_SEPARATOR,
+        SELECTOR_FINALIZE_FROM_TAIRA, SELECTOR_FINALIZE_FROM_TAIRA_HISTORICAL,
+        SELECTOR_INITIAL_ROSTER_DIGEST, SELECTOR_INITIAL_ROSTER_GENERATION, SELECTOR_IS_CONSUMED,
+        SELECTOR_MAX_ROSTER_VALIDITY_MS, SELECTOR_MAX_WRAPPED_SUPPLY, SELECTOR_MINTING_PAUSED,
+        SELECTOR_OP_COUNT, SELECTOR_ROSTER_STATE, SELECTOR_ROTATE_ROSTERS, SELECTOR_ROUTE_REVISION,
         SELECTOR_TAIRA_NETWORK_ID, SELECTOR_TRANSFER_NONCES, SELECTOR_TRANSFER_TO_TAIRA,
         SELECTOR_VOID_EXPIRED, SELECTOR_VOID_EXPIRED_HISTORICAL, SELECTOR_VOID_FROZEN,
         TOPIC_TRANSFER_TO_TAIRA, TOPIC_VOIDED,
@@ -63,6 +63,8 @@ unit_error! {
         BadRecipientLength => "tairaRecipient must be 1..=1024 bytes",
         /// `tokenAmount` is zero or at least `2^128`.
         BadAmount => "tokenAmount must be in 1..2^128",
+        /// A `voidFrozen` count is outside 1..=256 or the range passes `2^64 - 1`.
+        BadVoidRange => "voidFrozen count must be 1..=256 and the range must end at most at 2^64 - 1",
         /// A log carries the wrong number of topics.
         WrongTopicCount => "log has the wrong number of topics",
         /// A log's `topic0` is not the expected event.
@@ -504,20 +506,20 @@ impl TransferToTairaCallV1 {
     }
 
     /// The inbound payload Taira rebuilds from this call (§4.12.2): `source` → Taira with
-    /// `nonce = expectedNonce`, `amount = tokenAmount`, the caller as sender (20 bytes, or the
-    /// 21-byte `0x41` form on TRON) and the route constants.
+    /// `nonce = expectedNonce`, `amount = tokenAmount`, the caller as sender (20 bytes) and the
+    /// route constants.
     ///
     /// # Errors
     ///
-    /// Returns [`AbiError::PayloadMismatch`] when `source` is not an EVM-family profile or the
-    /// payload rules fail.
+    /// Returns [`AbiError::PayloadMismatch`] when `source` is not an EVM profile or the payload
+    /// rules fail.
     pub fn inbound_payload(
         &self,
         source: SccpNetworkV1,
         route_revision: u32,
         caller: &[u8; 20],
     ) -> Result<SccpTransferPayloadV1, AbiError> {
-        let sender = evm_family_account(source, caller)?;
+        let sender = evm_account(source, caller)?;
         SccpTransferPayloadV1::inbound(
             source,
             self.expected_nonce,
@@ -530,21 +532,167 @@ impl TransferToTairaCallV1 {
     }
 }
 
-/// The payload account bytes of a 20-byte EVM-family address on `network` (codec 2 or 5).
-fn evm_family_account(network: SccpNetworkV1, address: &[u8; 20]) -> Result<Vec<u8>, AbiError> {
+/// The payload account bytes of a 20-byte address on the EVM profile `network` (codec 2).
+fn evm_account(network: SccpNetworkV1, address: &[u8; 20]) -> Result<Vec<u8>, AbiError> {
     match external_account_codec(network) {
         Some(super::constants::CODEC_EVM_ADDRESS20) => Ok(address.to_vec()),
-        Some(super::constants::CODEC_TRON_ADDRESS21) => {
-            let mut bytes = Vec::with_capacity(21);
-            bytes.push(super::constants::TRON_ADDRESS_PREFIX);
-            bytes.extend_from_slice(address);
-            Ok(bytes)
-        }
         _ => Err(AbiError::PayloadMismatch),
     }
 }
 
-/// A decoded void call (TRON void proofs are transaction-based, §4.16).
+// ---------------------------------------------------------------------------------------------
+// Canonical-encoding check of the void calls
+// ---------------------------------------------------------------------------------------------
+
+/// The ABI type of one value, as far as the canonical-encoding check needs it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AbiShape {
+    /// A static word holding an unsigned integer of the given byte width (`uint64` is 8,
+    /// `bytes32` is 32).
+    Uint(usize),
+    /// Dynamic `bytes`.
+    Bytes,
+    /// Dynamic `bytes32[]`.
+    Words,
+    /// A tuple; dynamic iff any member is.
+    Tuple(&'static [AbiShape]),
+}
+
+const SHAPE_U8: AbiShape = AbiShape::Uint(1);
+const SHAPE_U32: AbiShape = AbiShape::Uint(4);
+const SHAPE_U64: AbiShape = AbiShape::Uint(8);
+const SHAPE_B32: AbiShape = AbiShape::Uint(WORD);
+/// `AttestationV1` (§5.2.2).
+const SHAPE_ATTESTATION: AbiShape = AbiShape::Tuple(&[
+    SHAPE_U64, SHAPE_U64, SHAPE_U64, SHAPE_B32, SHAPE_B32, SHAPE_U32, SHAPE_B32, SHAPE_U64,
+    SHAPE_B32, SHAPE_B32,
+]);
+/// `RosterV1`.
+const SHAPE_ROSTER: AbiShape =
+    AbiShape::Tuple(&[SHAPE_U64, SHAPE_U64, SHAPE_U64, SHAPE_U8, AbiShape::Bytes]);
+/// `SignaturesV1`.
+const SHAPE_SIGNATURES: AbiShape = AbiShape::Tuple(&[SHAPE_U32, AbiShape::Bytes]);
+/// `MessageProofV1`.
+const SHAPE_MESSAGE_PROOF: AbiShape =
+    AbiShape::Tuple(&[AbiShape::Bytes, SHAPE_U32, AbiShape::Words]);
+/// `HistoryProofV1`.
+const SHAPE_HISTORY_PROOF: AbiShape =
+    AbiShape::Tuple(&[SHAPE_U64, SHAPE_B32, SHAPE_U32, SHAPE_U64, AbiShape::Words]);
+/// Arguments of `voidExpired`.
+const VOID_EXPIRED_ARGS: &[AbiShape] = &[
+    SHAPE_U64,
+    SHAPE_ATTESTATION,
+    SHAPE_ROSTER,
+    SHAPE_SIGNATURES,
+    SHAPE_MESSAGE_PROOF,
+];
+/// Arguments of `voidExpiredHistorical`.
+const VOID_EXPIRED_HISTORICAL_ARGS: &[AbiShape] = &[
+    SHAPE_U64,
+    SHAPE_ATTESTATION,
+    SHAPE_ROSTER,
+    SHAPE_SIGNATURES,
+    SHAPE_HISTORY_PROOF,
+    SHAPE_MESSAGE_PROOF,
+];
+/// Arguments of `voidFrozen`.
+const VOID_FROZEN_ARGS: &[AbiShape] = &[SHAPE_U64, SHAPE_U64];
+
+impl AbiShape {
+    /// Whether the value is encoded in the tail (behind an offset).
+    fn is_dynamic(self) -> bool {
+        match self {
+            Self::Uint(_) => false,
+            Self::Bytes | Self::Words => true,
+            Self::Tuple(members) => members.iter().any(|member| member.is_dynamic()),
+        }
+    }
+
+    /// Bytes the value occupies in the head of its enclosing sequence.
+    fn head_len(self) -> usize {
+        match self {
+            Self::Tuple(members) if !self.is_dynamic() => {
+                members.iter().map(|member| member.head_len()).sum()
+            }
+            _ => WORD,
+        }
+    }
+
+    /// Check the value's own canonical encoding at `data[at..]` (inline for a static value,
+    /// the tail content for a dynamic one) and return its encoded size.
+    fn canonical_size(self, data: &[u8], at: usize) -> Result<usize, AbiError> {
+        match self {
+            Self::Uint(bytes) => read_uint(data, at, bytes).map(|_| WORD),
+            Self::Bytes => {
+                let len = read_usize(data, at)?;
+                let start = at + WORD;
+                let end = start
+                    .checked_add(len)
+                    .and_then(|end| end.checked_add(padding(len)))
+                    .filter(|end| *end <= data.len())
+                    .ok_or(AbiError::BadLength)?;
+                if data[start + len..end].iter().any(|byte| *byte != 0) {
+                    return Err(AbiError::DirtyPadding);
+                }
+                Ok(end - at)
+            }
+            Self::Words => {
+                let count = read_usize(data, at)?;
+                count
+                    .checked_mul(WORD)
+                    .and_then(|bytes| bytes.checked_add(WORD))
+                    .filter(|size| at.checked_add(*size).is_some_and(|end| end <= data.len()))
+                    .ok_or(AbiError::BadLength)
+            }
+            Self::Tuple(members) => canonical_sequence_size(members, data, at),
+        }
+    }
+}
+
+/// Check the canonical encoding of the sequence `members` whose head starts at `data[base..]`
+/// and return its encoded size. Every dynamic offset must be the position at which the
+/// canonical encoder places that member's tail; the offsets are compared, never followed.
+fn canonical_sequence_size(
+    members: &[AbiShape],
+    data: &[u8],
+    base: usize,
+) -> Result<usize, AbiError> {
+    let mut head = base;
+    let mut tail = members
+        .iter()
+        .map(|member| member.head_len())
+        .sum::<usize>();
+    for member in members {
+        if member.is_dynamic() {
+            let offset = read_usize(data, head).map_err(|error| match error {
+                AbiError::DirtyWord => AbiError::BadOffset,
+                other => other,
+            })?;
+            if offset != tail {
+                return Err(AbiError::BadOffset);
+            }
+            tail += member.canonical_size(data, base + tail)?;
+            head += WORD;
+        } else {
+            head += member.canonical_size(data, head)?;
+        }
+    }
+    Ok(tail)
+}
+
+/// Require `args` (calldata after the selector) to be exactly the canonical ABI encoding of
+/// `members`: canonical offsets, integer words within their widths, zero `bytes` padding and no
+/// trailing bytes. `SccpTairaXor` reverts with `NonCanonicalCalldata` (or in the ABI decoder) on
+/// every other encoding of a void (§5.1.8, §5.2.2), so this is exactly its accepted set.
+fn check_canonical_args(args: &[u8], members: &[AbiShape]) -> Result<(), AbiError> {
+    if canonical_sequence_size(members, args, 0)? == args.len() {
+        Ok(())
+    } else {
+        Err(AbiError::BadLength)
+    }
+}
+
+/// A decoded void call (§5.1.8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VoidCallV1 {
     /// `voidExpired` or `voidExpiredHistorical` of one nonce (the first static head word).
@@ -564,30 +712,42 @@ pub enum VoidCallV1 {
 }
 
 impl VoidCallV1 {
-    /// Decode the void-relevant part of a void call. For `voidExpired*` only the selector and the
-    /// clean `uint64` nonce word are read (the contract itself checks the rest); `voidFrozen`
-    /// must be exactly `4 + 64` bytes of clean `uint64` words.
+    /// Strictly decode a void call. The calldata must be exactly the canonical ABI encoding of
+    /// `voidExpired`, `voidExpiredHistorical` or `voidFrozen` (canonical offsets, integer words
+    /// within their widths, zero `bytes` padding, no trailing bytes), and a `voidFrozen` range
+    /// must hold 1..=256 nonces ending at most at `2^64 - 1`. The destination reverts on every
+    /// other call (§5.1.8), so this is exactly the set of successful void calls Taira can see.
     ///
     /// # Errors
     ///
-    /// Returns [`AbiError::WrongSelector`] for any other function, or a strict decoding error.
+    /// Returns [`AbiError::WrongSelector`] for any other function, [`AbiError::BadVoidRange`]
+    /// for an out-of-range `voidFrozen`, or the first violated encoding rule.
     pub fn decode(calldata: &[u8]) -> Result<Self, AbiError> {
         let selector = selector_of(calldata)?;
         let args = &calldata[4..];
-        if selector == SELECTOR_VOID_FROZEN {
-            if args.len() != 2 * WORD {
-                return Err(AbiError::BadLength);
-            }
-            return Ok(Self::Frozen {
-                first_nonce: read_u64(args, 0)?,
-                count: read_u64(args, WORD)?,
-            });
-        }
         let historical = match selector {
+            SELECTOR_VOID_FROZEN => {
+                check_canonical_args(args, VOID_FROZEN_ARGS)?;
+                let first_nonce = read_u64(args, 0)?;
+                let count = read_u64(args, WORD)?;
+                if count == 0
+                    || count > MAX_VOID_FROZEN_RANGE_EVM
+                    || first_nonce.checked_add(count - 1).is_none()
+                {
+                    return Err(AbiError::BadVoidRange);
+                }
+                return Ok(Self::Frozen { first_nonce, count });
+            }
             SELECTOR_VOID_EXPIRED => false,
             SELECTOR_VOID_EXPIRED_HISTORICAL => true,
             _ => return Err(AbiError::WrongSelector),
         };
+        let members = if historical {
+            VOID_EXPIRED_HISTORICAL_ARGS
+        } else {
+            VOID_EXPIRED_ARGS
+        };
+        check_canonical_args(args, members)?;
         Ok(Self::Expired {
             nonce: read_u64(args, 0)?,
             historical,
@@ -813,7 +973,7 @@ pub fn encode_roster_state_return(state: &RosterStateV1) -> Vec<u8> {
 pub struct TransferToTairaLogV1 {
     /// `message_id` of the inbound payload.
     pub message_id: [u8; 32],
-    /// The burning caller (20 bytes; TRON without the `0x41` prefix).
+    /// The burning caller (20 bytes).
     pub sender: [u8; 20],
     /// The caller's per-sender nonce.
     pub nonce: u64,
@@ -893,7 +1053,7 @@ impl TransferToTairaLogV1 {
     ) -> Result<SccpTransferPayloadV1, AbiError> {
         let payload =
             SccpTransferPayloadV1::decode(&self.payload).map_err(|_| AbiError::PayloadMismatch)?;
-        let sender = evm_family_account(source, &self.sender)?;
+        let sender = evm_account(source, &self.sender)?;
         let bound = payload.source() == Some(source)
             && payload.target() == Some(SccpNetworkV1::SoraTaira)
             && payload.route_revision == route_revision
@@ -1271,6 +1431,319 @@ mod tests {
         assert_eq!(VoidCallV1::decode(&dirty_nonce), Err(AbiError::DirtyWord));
     }
 
+    /// `calldata` with a zero word inserted at argument offset `at`.
+    fn with_gap(calldata: &[u8], at: usize) -> Vec<u8> {
+        let mut out = calldata[..4 + at].to_vec();
+        out.extend_from_slice(&[0; WORD]);
+        out.extend_from_slice(&calldata[4 + at..]);
+        out
+    }
+
+    /// Adds `delta` to the `u64` word at argument offset `at`.
+    fn bump(calldata: &mut [u8], at: usize, delta: u64) {
+        let low = 4 + at + 24..4 + at + WORD;
+        let value = u64::from_be_bytes(calldata[low.clone()].try_into().expect("8 bytes")) + delta;
+        calldata[low].copy_from_slice(&value.to_be_bytes());
+    }
+
+    fn void_fixture() -> (
+        RosterV1,
+        AttestationFieldsV1,
+        SignatureSetV1,
+        MessageProofV1,
+        HistoryProofV1,
+    ) {
+        let proof = MessageProofV1 {
+            payload: vec![0x02; 133],
+            leaf_index: 1,
+            path: vec![[0x77; 32], [0x88; 32]],
+        };
+        let history = HistoryProofV1 {
+            block: HistoryBlockV1 {
+                height: 3,
+                sccp_root: [1; 32],
+                message_count: 2,
+            },
+            leaf_index: 5,
+            path: vec![[2; 32], [3; 32], [4; 32]],
+        };
+        (roster(), attestation(), signatures(), proof, history)
+    }
+
+    #[test]
+    fn abi_shapes_measure_the_canonical_encoding() {
+        assert!(!SHAPE_ATTESTATION.is_dynamic());
+        assert_eq!(SHAPE_ATTESTATION.head_len(), 10 * WORD);
+        assert!(SHAPE_ROSTER.is_dynamic());
+        assert_eq!(SHAPE_ROSTER.head_len(), WORD);
+        assert!(AbiShape::Bytes.is_dynamic() && AbiShape::Words.is_dynamic());
+        assert!(!SHAPE_U64.is_dynamic());
+        let (roster, attestation, signatures, proof, history) = void_fixture();
+        let attested = AttestedV1 {
+            attestation: &attestation,
+            roster: &roster,
+            signatures: &signatures,
+        };
+        // The same shapes measure the finalize calls, which share every argument struct.
+        let direct = finalize_from_taira_calldata(attested, &proof);
+        let direct_args = [
+            SHAPE_ATTESTATION,
+            SHAPE_ROSTER,
+            SHAPE_SIGNATURES,
+            SHAPE_MESSAGE_PROOF,
+        ];
+        assert_eq!(check_canonical_args(&direct[4..], &direct_args), Ok(()));
+        assert_eq!(
+            canonical_sequence_size(&direct_args, &direct[4..], 0),
+            Ok(direct.len() - 4)
+        );
+        let historical = finalize_from_taira_historical_calldata(attested, &history, &proof);
+        let historical_args = [
+            SHAPE_ATTESTATION,
+            SHAPE_ROSTER,
+            SHAPE_SIGNATURES,
+            SHAPE_HISTORY_PROOF,
+            SHAPE_MESSAGE_PROOF,
+        ];
+        assert_eq!(
+            check_canonical_args(&historical[4..], &historical_args),
+            Ok(())
+        );
+        assert_eq!(
+            check_canonical_args(&historical[4..], &direct_args),
+            Err(AbiError::BadOffset)
+        );
+        let bytes = encode_tokens(&[AbiToken::Bytes(vec![9; 33])]);
+        assert_eq!(AbiShape::Bytes.canonical_size(&bytes, WORD), Ok(3 * WORD));
+        assert_eq!(
+            AbiShape::Bytes.canonical_size(&bytes[..3 * WORD - 1], WORD),
+            Err(AbiError::BadLength)
+        );
+        let words = encode_tokens(&[path_token(&[[5; 32]; 3])]);
+        assert_eq!(AbiShape::Words.canonical_size(&words, WORD), Ok(4 * WORD));
+        assert_eq!(
+            AbiShape::Words.canonical_size(&words[..4 * WORD - 1], WORD),
+            Err(AbiError::BadLength)
+        );
+        assert_eq!(
+            SHAPE_U8.canonical_size(&word_u64(0x100), 0),
+            Err(AbiError::DirtyWord)
+        );
+        assert_eq!(SHAPE_B32.canonical_size(&[0xff; 32], 0), Ok(WORD));
+    }
+
+    #[test]
+    fn void_expired_decodes_only_the_canonical_encoding() {
+        let (roster, attestation, signatures, proof, _) = void_fixture();
+        let attested = AttestedV1 {
+            attestation: &attestation,
+            roster: &roster,
+            signatures: &signatures,
+        };
+        let canonical = void_expired_calldata(9, attested, &proof);
+        let expired = Ok(VoidCallV1::Expired {
+            nonce: 9,
+            historical: false,
+        });
+        assert_eq!(VoidCallV1::decode(&canonical), expired);
+        let args = &canonical[4..];
+        let roster_at = read_usize(args, 11 * WORD).expect("roster offset");
+        let proof_at = read_usize(args, 13 * WORD).expect("proof offset");
+        let path_at = proof_at + read_usize(args, proof_at + 2 * WORD).expect("path offset");
+        let edit = |change: &dyn Fn(&mut Vec<u8>)| {
+            let mut calldata = canonical.clone();
+            change(&mut calldata);
+            VoidCallV1::decode(&calldata)
+        };
+        assert_eq!(edit(&|data| data.push(0)), Err(AbiError::BadLength));
+        assert_eq!(
+            edit(&|data| data.extend_from_slice(&[0; WORD])),
+            Err(AbiError::BadLength)
+        );
+        assert_eq!(
+            edit(&|data| {
+                data.pop();
+            }),
+            Err(AbiError::BadLength)
+        );
+        // Attestation height (uint64), messageCount (uint32), roster threshold (uint8) and the
+        // message leaf index (uint32) with one bit above their width.
+        assert_eq!(
+            edit(&|data| data[4 + WORD + 23] = 1),
+            Err(AbiError::DirtyWord)
+        );
+        assert_eq!(
+            edit(&|data| data[4 + 6 * WORD + 27] = 1),
+            Err(AbiError::DirtyWord)
+        );
+        assert_eq!(
+            edit(&|data| data[4 + roster_at + 3 * WORD + 30] = 1),
+            Err(AbiError::DirtyWord)
+        );
+        assert_eq!(
+            edit(&|data| data[4 + proof_at + WORD + 27] = 1),
+            Err(AbiError::DirtyWord)
+        );
+        // Offsets: high bits, and a zero word inserted before the roster tail, before the
+        // members bytes and before the path, with every enclosing offset moved accordingly.
+        // Solidity's own decoder reads each of these as the same arguments.
+        assert_eq!(
+            edit(&|data| data[4 + 11 * WORD] = 1),
+            Err(AbiError::BadOffset)
+        );
+        assert_eq!(
+            edit(&|data| {
+                *data = with_gap(data, roster_at);
+                for head in 11..14 {
+                    bump(data, head * WORD, 0x20);
+                }
+            }),
+            Err(AbiError::BadOffset)
+        );
+        assert_eq!(
+            edit(&|data| {
+                *data = with_gap(data, roster_at + 5 * WORD);
+                bump(data, roster_at + 4 * WORD, 0x20);
+                bump(data, 12 * WORD, 0x20);
+                bump(data, 13 * WORD, 0x20);
+            }),
+            Err(AbiError::BadOffset)
+        );
+        assert_eq!(
+            edit(&|data| {
+                *data = with_gap(data, path_at);
+                bump(data, proof_at + 2 * WORD, 0x20);
+            }),
+            Err(AbiError::BadOffset)
+        );
+        // Nonzero payload padding (133 bytes padded to 160) and a path count past the data.
+        let payload_end = proof_at + 4 * WORD + 160;
+        assert_eq!(
+            edit(&|data| data[4 + payload_end - 1] = 1),
+            Err(AbiError::DirtyPadding)
+        );
+        assert_eq!(
+            edit(&|data| bump(data, path_at, 1)),
+            Err(AbiError::BadLength)
+        );
+    }
+
+    #[test]
+    fn void_expired_historical_decodes_only_the_canonical_encoding() {
+        let (roster, attestation, signatures, proof, history) = void_fixture();
+        let attested = AttestedV1 {
+            attestation: &attestation,
+            roster: &roster,
+            signatures: &signatures,
+        };
+        let canonical = void_expired_historical_calldata(u64::MAX, attested, &history, &proof);
+        assert_eq!(
+            VoidCallV1::decode(&canonical),
+            Ok(VoidCallV1::Expired {
+                nonce: u64::MAX,
+                historical: true,
+            })
+        );
+        let history_at = read_usize(&canonical[4..], 13 * WORD).expect("history offset");
+        let mut dirty_leaf_index = canonical.clone();
+        dirty_leaf_index[4 + history_at + 3 * WORD + 23] = 1;
+        assert_eq!(
+            VoidCallV1::decode(&dirty_leaf_index),
+            Err(AbiError::DirtyWord)
+        );
+        let mut gap = with_gap(&canonical, history_at + 5 * WORD);
+        bump(&mut gap, history_at + 4 * WORD, 0x20);
+        bump(&mut gap, 14 * WORD, 0x20);
+        assert_eq!(VoidCallV1::decode(&gap), Err(AbiError::BadOffset));
+        // The direct layout is not a historical encoding and vice versa.
+        let mut swapped = void_expired_calldata(1, attested, &proof);
+        swapped[..4].copy_from_slice(&SELECTOR_VOID_EXPIRED_HISTORICAL);
+        assert_eq!(VoidCallV1::decode(&swapped), Err(AbiError::BadOffset));
+        let mut trailing = canonical;
+        trailing.push(0);
+        assert_eq!(VoidCallV1::decode(&trailing), Err(AbiError::BadLength));
+    }
+
+    /// Every integer at the maximum of its declared width is canonical: a shape narrower than
+    /// the Solidity type would refuse a void the destination lets succeed.
+    #[test]
+    fn void_expired_accepts_every_integer_at_its_full_width() {
+        let (mut roster, mut attestation, mut signatures, mut proof, mut history) = void_fixture();
+        attestation.height = u64::MAX;
+        attestation.epoch = u64::MAX;
+        attestation.timestamp_ms = u64::MAX;
+        attestation.message_count = u32::MAX;
+        attestation.history_size = u64::MAX;
+        roster.generation = u64::MAX;
+        roster.valid_from_ms = u64::MAX;
+        roster.valid_until_ms = u64::MAX;
+        signatures.signer_bitmap = u32::MAX;
+        proof.leaf_index = u32::MAX;
+        history.block.height = u64::MAX;
+        history.block.message_count = u32::MAX;
+        history.leaf_index = u64::MAX;
+        let attested = AttestedV1 {
+            attestation: &attestation,
+            roster: &roster,
+            signatures: &signatures,
+        };
+        // The encoder derives the `uint8` threshold from n, so its low byte is set directly.
+        let max_threshold = |mut calldata: Vec<u8>| {
+            let roster_at = read_usize(&calldata[4..], 11 * WORD).expect("roster offset");
+            calldata[4 + roster_at + 4 * WORD - 1] = 0xff;
+            calldata
+        };
+        let direct = max_threshold(void_expired_calldata(u64::MAX, attested, &proof));
+        assert_eq!(
+            VoidCallV1::decode(&direct),
+            Ok(VoidCallV1::Expired {
+                nonce: u64::MAX,
+                historical: false,
+            })
+        );
+        let historical = max_threshold(void_expired_historical_calldata(
+            u64::MAX,
+            attested,
+            &history,
+            &proof,
+        ));
+        assert_eq!(
+            VoidCallV1::decode(&historical),
+            Ok(VoidCallV1::Expired {
+                nonce: u64::MAX,
+                historical: true,
+            })
+        );
+    }
+
+    #[test]
+    fn void_frozen_decodes_only_admitted_ranges() {
+        for (first_nonce, count) in [(0, 1), (0, 256), (u64::MAX, 1), (u64::MAX - 255, 256)] {
+            assert_eq!(
+                VoidCallV1::decode(&void_frozen_calldata(first_nonce, count)),
+                Ok(VoidCallV1::Frozen { first_nonce, count })
+            );
+        }
+        for (first_nonce, count) in [(0, 0), (0, 257), (u64::MAX, 2), (u64::MAX - 254, 256)] {
+            assert_eq!(
+                VoidCallV1::decode(&void_frozen_calldata(first_nonce, count)),
+                Err(AbiError::BadVoidRange),
+                "{first_nonce} + {count}"
+            );
+        }
+        let canonical = void_frozen_calldata(4, 3);
+        let mut dirty_count = canonical.clone();
+        dirty_count[4 + WORD + 23] = 1;
+        assert_eq!(VoidCallV1::decode(&dirty_count), Err(AbiError::DirtyWord));
+        assert_eq!(
+            VoidCallV1::decode(&canonical[..canonical.len() - 1]),
+            Err(AbiError::BadLength)
+        );
+        let mut trailing_word = canonical;
+        trailing_word.extend_from_slice(&[0; WORD]);
+        assert_eq!(VoidCallV1::decode(&trailing_word), Err(AbiError::BadLength));
+    }
+
     #[test]
     fn rotate_rosters_layout() {
         let roster = roster();
@@ -1383,14 +1856,14 @@ mod tests {
             expected_nonce: 7,
         };
         let caller = [0x33; 20];
-        let tron = call
-            .inbound_payload(SccpNetworkV1::TronMainnet, 2, &caller)
+        let bsc = call
+            .inbound_payload(SccpNetworkV1::BscMainnet, 2, &caller)
             .unwrap();
-        assert_eq!(tron.sender.bytes[0], 0x41);
-        assert_eq!(tron.sender.bytes[1..], caller);
-        assert_eq!(tron.nonce, 7);
-        assert_eq!(tron.amount, 1_000_000_000);
-        assert_eq!(tron.route_id, "taira_tron_xor");
+        assert_eq!(bsc.sender.bytes, caller);
+        assert_eq!(bsc.nonce, 7);
+        assert_eq!(bsc.route_revision, 2);
+        assert_eq!(bsc.amount, 1_000_000_000);
+        assert_eq!(bsc.route_id, "taira_bsc_xor");
         let eth = call
             .inbound_payload(SccpNetworkV1::EthereumMainnet, 1, &caller)
             .unwrap();
@@ -1628,15 +2101,16 @@ mod tests {
     }
 
     #[test]
-    fn evm_family_helpers() {
-        assert_eq!(
-            evm_family_account(SccpNetworkV1::BscMainnet, &[1; 20]),
-            Ok(vec![1; 20])
-        );
-        assert_eq!(
-            evm_family_account(SccpNetworkV1::SoraTaira, &[1; 20]),
-            Err(AbiError::PayloadMismatch)
-        );
+    fn evm_helpers() {
+        for network in [SccpNetworkV1::EthereumMainnet, SccpNetworkV1::BscMainnet] {
+            assert_eq!(evm_account(network, &[1; 20]), Ok(vec![1; 20]));
+        }
+        for network in [SccpNetworkV1::SoraTaira, SccpNetworkV1::TonMainnet] {
+            assert_eq!(
+                evm_account(network, &[1; 20]),
+                Err(AbiError::PayloadMismatch)
+            );
+        }
         assert_eq!(selector_of(&[1, 2, 3]), Err(AbiError::BadLength));
         assert_eq!(read_bool(&word_u64(1), 0), Ok(true));
         assert_eq!(read_address(&word_address(&[5; 20]), 0), Ok([5; 20]));

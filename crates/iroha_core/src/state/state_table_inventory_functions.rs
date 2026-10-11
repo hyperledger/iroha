@@ -29,6 +29,7 @@ const EXPECTED_VALUE: &str = "Canonical hash of one State value (the protected r
 const TEST_ONLY: &str =
     "Table accessors and fixtures compiled for tests or under a test-only feature";
 const CERTIFIED_IDENTITY: &str = "Carries the certified block identity and R of a committed height (the execution tip or a finality proof): it binds the listed roots and digests no State content of its own";
+const ORIGINAL_WIRE_FENCE: &str = "Hashes or returns the exact original native block-wire prefix identity used only to invalidate a local finality-proof cursor; no State root or independent finality authority";
 const BLOCK_PROOF: &str =
     "Merkle proofs of a transaction entrypoint and its result inside their block: block content";
 const TABLE_ACCESSOR: &str = "Borrows a table whose key type is the content hash of one record (a pin manifest, contract bytecode): a table accessor that computes no digest";
@@ -69,16 +70,16 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         UseOwner::Other(Use::Seed, DERIVED_SEED),
     ),
     function(
-        "crates/iroha_core/src/query/musubi_pin_outbox/mod.rs",
-        "consume_attempt",
+        "crates/iroha_core/src/kagemusha_wallet_v1/wsv.rs",
+        "transaction_hash",
         1,
         UseOwner::Other(Use::Record, RECORD_IDENTITY),
     ),
     function(
-        "crates/iroha_core/src/query/native_receipts.rs",
-        "amx_record_proof",
+        "crates/iroha_core/src/query/musubi_pin_outbox/mod.rs",
+        "consume_attempt",
         1,
-        UseOwner::Roots(&["execution_witness_roots"]),
+        UseOwner::Other(Use::Record, RECORD_IDENTITY),
     ),
     function(
         "crates/iroha_core/src/query/native_receipts.rs",
@@ -118,6 +119,18 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         "validation_fee_policy_witness",
         1,
         UseOwner::Roots(&["execution_witness_roots", "validation_fee_policy_snapshot"]),
+    ),
+    function(
+        "crates/iroha_core/src/query/native_receipts/amx_read.rs",
+        "complete",
+        1,
+        UseOwner::Roots(&["execution_witness_roots"]),
+    ),
+    function(
+        "crates/iroha_core/src/query/native_receipts/reward_history.rs",
+        "committed_fee_evidence",
+        1,
+        UseOwner::Roots(&["execution_witness_roots", "fee_evidence_record_root"]),
     ),
     function(
         "crates/iroha_core/src/query/topology_authority.rs",
@@ -254,6 +267,30 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     function(
         "crates/iroha_core/src/smartcontracts/isi/sccp/read.rs",
         "message_proof",
+        1,
+        UseOwner::Accumulator("sccp_message_accumulator"),
+    ),
+    function(
+        "crates/iroha_core/src/smartcontracts/isi/sccp/read/history.rs",
+        "leaves",
+        1,
+        UseOwner::Accumulator("sccp_message_accumulator"),
+    ),
+    function(
+        "crates/iroha_core/src/smartcontracts/isi/sccp/read/history.rs",
+        "peaks",
+        1,
+        UseOwner::Accumulator("sccp_message_accumulator"),
+    ),
+    function(
+        "crates/iroha_core/src/smartcontracts/isi/sccp/read/history.rs",
+        "root_and_path",
+        1,
+        UseOwner::Accumulator("sccp_message_accumulator"),
+    ),
+    function(
+        "crates/iroha_core/src/smartcontracts/isi/sccp/read/views.rs",
+        "history_proof",
         1,
         UseOwner::Accumulator("sccp_message_accumulator"),
     ),
@@ -655,6 +692,12 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     ),
     function(
         "crates/iroha_core/src/state.rs",
+        "sccp_policy_hash_v1",
+        1,
+        UseOwner::Roots(&["confidential_feature_digest"]),
+    ),
+    function(
+        "crates/iroha_core/src/state.rs",
         "soracloud_hf_shared_lease_pools_mut_for_testing",
         1,
         UseOwner::Other(Use::Test, TEST_ONLY),
@@ -955,6 +998,12 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     ),
     function(
         "crates/iroha_core/src/state/authority_registry/complete/table_capture/frozen.rs",
+        "capture_original_membership_once",
+        1,
+        UseOwner::Roots(&["state_table_substrate", "transaction_membership_root"]),
+    ),
+    function(
+        "crates/iroha_core/src/state/authority_registry/complete/table_capture/frozen.rs",
         "capture_original_table_once",
         1,
         UseOwner::Roots(&["state_table_substrate"]),
@@ -974,6 +1023,12 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     function(
         "crates/iroha_core/src/state/authority_registry/complete/transaction_membership.rs",
         "capture_observed",
+        1,
+        UseOwner::Roots(&["state_table_substrate", "transaction_membership_root"]),
+    ),
+    function(
+        "crates/iroha_core/src/state/authority_registry/complete/transaction_membership.rs",
+        "capture_original_membership_group_once",
         1,
         UseOwner::Roots(&["state_table_substrate", "transaction_membership_root"]),
     ),
@@ -1099,6 +1154,18 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     ),
     function(
         "crates/iroha_core/src/state/world_state_accumulator.rs",
+        "apply_block",
+        1,
+        UseOwner::Roots(&["world_state_root"]),
+    ),
+    function(
+        "crates/iroha_core/src/state/world_state_accumulator.rs",
+        "capture",
+        1,
+        UseOwner::Roots(&["world_state_root"]),
+    ),
+    function(
+        "crates/iroha_core/src/state/world_state_accumulator.rs",
         "run",
         1,
         UseOwner::Roots(&["world_state_root"]),
@@ -1128,6 +1195,12 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         UseOwner::Other(Use::Seed, DERIVED_SEED),
     ),
     function(
+        "crates/iroha_core/src/sumeragi/certified_chain.rs",
+        "proof_source_cut",
+        1,
+        UseOwner::Other(Use::Record, ORIGINAL_WIRE_FENCE),
+    ),
+    function(
         "crates/iroha_core/src/sumeragi/evidence.rs",
         "committed_evidence_prune_keys_from_state",
         1,
@@ -1141,7 +1214,31 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     ),
     function(
         "crates/iroha_core/src/sumeragi/finality.rs",
+        "attestation_genesis_proof",
+        1,
+        UseOwner::Other(Use::ResultBinding, CERTIFIED_IDENTITY),
+    ),
+    function(
+        "crates/iroha_core/src/sumeragi/finality.rs",
         "build_proof",
+        1,
+        UseOwner::Other(Use::ResultBinding, CERTIFIED_IDENTITY),
+    ),
+    function(
+        "crates/iroha_core/src/sumeragi/finality.rs",
+        "current_execution_proof",
+        1,
+        UseOwner::Other(Use::ResultBinding, CERTIFIED_IDENTITY),
+    ),
+    function(
+        "crates/iroha_core/src/sumeragi/finality.rs",
+        "current_prefix_source",
+        1,
+        UseOwner::Other(Use::Record, ORIGINAL_WIRE_FENCE),
+    ),
+    function(
+        "crates/iroha_core/src/sumeragi/finality.rs",
+        "proof",
         1,
         UseOwner::Other(Use::ResultBinding, CERTIFIED_IDENTITY),
     ),

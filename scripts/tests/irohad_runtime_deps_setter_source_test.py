@@ -17,9 +17,9 @@ from zk_source_tokens import rust_tokens, token_hash
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_PATH = Path("crates/irohad/src/main/runtime_deps.rs")
 SOURCE = ROOT / SOURCE_PATH
-SETTER_COUNT = 61
-INVENTORY_SHA256 = "a9886e8cb2cb12406772d4d751a5dec9dcd4ff5dcad45f570c1e6259ce4a84d1"
-OUTSIDE_PRODUCTION_SHA256 = "8580383465e0f4584ce931a14eaa7f50f451cec0a07308f736467063afebec97"
+SETTER_COUNT = 60
+INVENTORY_SHA256 = "93540ddc9bdafbbbcd87ff58c1d133d563c0d3d8e088dc1f5b1dded63376c099"
+OUTSIDE_PRODUCTION_SHA256 = "25b21b74fcf192624dbba145233dbd3b945a2da24ec7968492c09d4cd1ab8541"
 MACRO = """macro_rules! define_runtime_dep_setters_v1 {
     (
         $(
@@ -200,7 +200,6 @@ class RuntimeDepsSetterSourceTest(unittest.TestCase):
         methods = (
             "with_sumeragi_global_beacon_partial_signer",
             "with_parliament_tle_partial_release_signer",
-            "with_kagemusha_mint_finality_authority",
             "with_sorafs_stream_token_signer_client",
             "with_sorafs_stream_token_state_observer",
             "with_sorafs_stream_token_approved_anchor",
@@ -214,6 +213,10 @@ class RuntimeDepsSetterSourceTest(unittest.TestCase):
                 changed = self.source[:match.start()] + self.source[match.end():]
                 with self.assertRaises(AssertionError):
                     _validate_source(changed)
+
+    def test_retired_mint_finality_dependency_is_absent(self) -> None:
+        self.assertNotIn("kagemusha_mint_finality_authority", self.source)
+        self.assertNotIn("KagemushaMintFinalityLocalAuthorityV1", self.source)
 
     def test_production_outside_the_family_is_sealed(self) -> None:
         for old, new in (

@@ -259,3 +259,131 @@ fn publication_tab_never_invokes_contract_deployment_or_claims_ready() {
     );
     assert!(View::ALL.contains(&View::Packages));
 }
+
+#[test]
+fn completed_publication_survives_automatic_observation_until_explicit_selection() {
+    let mut desktop = Desktop::model(PathBuf::from("unused"));
+    // Capture a genuine task completion from the earlier presentation epoch. No managed
+    // network, signed outcome, native runtime or HTTP response is fabricated here.
+    desktop.spawn_task(|| Message::SelectionObserved(Err("stale observation refusal".into())));
+    let stale = desktop
+        .receiver
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(stale.0, desktop.epoch);
+    desktop.epoch = desktop.epoch.wrapping_add(1);
+    let epoch = desktop.epoch;
+    let original_operation = "31".repeat(32);
+    let original_input = format!("  {original_operation}  ");
+    desktop.publication.operation_id = original_input.clone();
+    desktop.receipt = Some("unrelated contract receipt".into());
+    desktop.notice = Some("original presentation notice".into());
+
+    desktop.spawn_task(|| Message::Published {
+        // Exit status and output are presentation bytes, not authenticated publication success.
+        result: Ok(PublicationOutput {
+            exit_code: 7,
+            stdout: "original publication output\n".into(),
+            stderr: "original pending diagnostic\n".into(),
+        }),
+        refreshed: Err("original workspace observation unavailable".into()),
+    });
+    let completed = desktop
+        .receiver
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(completed.0, epoch);
+    desktop.sender.send(completed).unwrap();
+    desktop.poll();
+    assert!(!desktop.busy);
+    let output = desktop.publication_output.as_ref().unwrap();
+    assert_eq!(output.exit_code, 7);
+    assert_eq!(output.stdout, "original publication output\n");
+    assert_eq!(output.stderr, "original pending diagnostic\n");
+    assert_eq!(desktop.publication.operation_id, original_input);
+    assert_eq!(
+        desktop.error.as_deref(),
+        Some("Workspace refresh failed: original workspace observation unavailable.")
+    );
+    desktop.peer = 3;
+    desktop.logs = "original context log".into();
+    desktop.activity.push_back("original context event".into());
+    desktop.reset_intent = true;
+
+    desktop.spawn_task(|| {
+        Message::SelectionObserved(Err("automatic original context refusal".into()))
+    });
+    let observed = desktop
+        .receiver
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(observed.0, epoch);
+    desktop.sender.send(observed).unwrap();
+    desktop.poll();
+    assert!(!desktop.busy);
+    assert_eq!(desktop.epoch, epoch);
+    assert!(desktop.selected.is_none());
+    assert!(desktop.blocks.is_none());
+    assert!(desktop.events.is_none());
+    assert_eq!(desktop.peer, 0);
+    assert!(desktop.logs.is_empty());
+    assert!(desktop.activity.is_empty());
+    assert!(!desktop.reset_intent);
+    let output = desktop.publication_output.as_ref().unwrap();
+    assert_eq!(output.exit_code, 7);
+    assert_eq!(output.stdout, "original publication output\n");
+    assert_eq!(output.stderr, "original pending diagnostic\n");
+    assert_eq!(desktop.publication.operation_id, original_input);
+    assert_eq!(
+        desktop.receipt.as_deref(),
+        Some("unrelated contract receipt")
+    );
+    assert_eq!(
+        desktop.notice.as_deref(),
+        Some("original presentation notice")
+    );
+    assert_eq!(
+        desktop.error.as_deref(),
+        Some("automatic original context refusal")
+    );
+    match desktop
+        .publication
+        .action(PublicationAction::Resume)
+        .unwrap()
+    {
+        GeneratedPublishAction::Resume { operation_id } => {
+            assert_eq!(operation_id.to_string(), original_operation);
+        }
+        _ => panic!("original recovery operation expected"),
+    }
+
+    desktop.sender.send(stale).unwrap();
+    desktop.poll();
+    let output = desktop.publication_output.as_ref().unwrap();
+    assert_eq!(output.exit_code, 7);
+    assert_eq!(output.stdout, "original publication output\n");
+    assert_eq!(output.stderr, "original pending diagnostic\n");
+    assert_eq!(desktop.publication.operation_id, original_input);
+    assert_eq!(
+        desktop.error.as_deref(),
+        Some("automatic original context refusal")
+    );
+    assert_eq!(desktop.epoch, epoch);
+
+    // Explicit selection retains the original clearing path, even when that selection refuses.
+    desktop.spawn_task(|| Message::Selected(Err("explicit selection refused".into())));
+    let selected = desktop
+        .receiver
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(selected.0, epoch);
+    desktop.sender.send(selected).unwrap();
+    desktop.poll();
+    assert!(!desktop.busy);
+    assert!(desktop.publication_output.is_none());
+    assert!(desktop.publication.operation_id.is_empty());
+    assert!(desktop.receipt.is_none());
+    assert!(desktop.notice.is_none());
+    assert_eq!(desktop.error.as_deref(), Some("explicit selection refused"));
+    assert_eq!(desktop.epoch, epoch);
+}

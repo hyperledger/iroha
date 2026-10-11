@@ -22,12 +22,12 @@ fn public_key_account() -> ivm::mock_wsv::AccountId {
 #[test]
 fn kotodama_create_and_grant_role_enables_mint() {
     let src = r#"
-        seiyaku RoleBootstrap {
-        kotoage fn main() authorize("ManageRoles") {
+        seiyaku RoleBootstrap { permission ManageRoles;
+        kotoage fn main() authorize(ManageRoles) {
           // Bootstrap the asset definition used by the role permission.
-          ledger::asset::register(asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), name: "ROSE", scale: 0, mintable: 1);
+          ledger::asset::register(asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), name: "ROSE", spec: NumericSpec::integer(), mintable: Mintable::Once);
           // Create role with mint permission and grant it to the caller.
-          ledger::role::create(role: Name::parse("minter"), permissions: Json::parse("{\"perms\":[\"mint_asset:62Fk4FPcMuLvW5QjDGNF2a4jAmjM\"]}"));
+          ledger::role::register(role: Name::parse("minter"), permissions: Json::parse("{\"perms\":[\"mint_asset:62Fk4FPcMuLvW5QjDGNF2a4jAmjM\"]}"));
           ledger::role::grant(account: context::authority(), role: Name::parse("minter"));
           // Mint using role permission
           ledger::asset::mint(account: context::authority(), asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), amount: 1);
@@ -51,13 +51,13 @@ fn kotodama_create_and_grant_role_enables_mint() {
 #[test]
 fn kotodama_grant_role_accepts_runtime_account_argument() {
     let src = r#"
-        seiyaku RuntimeRoleGrant {
+        seiyaku RuntimeRoleGrant { permission ManageRoles;
         fn grant_it(AccountId who) {
           ledger::role::grant(account: who, role: Name::parse("minter"));
         }
 
-        kotoage fn main() authorize("ManageRoles") {
-          ledger::role::create(role: Name::parse("minter"), permissions: Json::parse("{\"perms\":[\"mint_asset:62Fk4FPcMuLvW5QjDGNF2a4jAmjM\"]}"));
+        kotoage fn main() authorize(ManageRoles) {
+          ledger::role::register(role: Name::parse("minter"), permissions: Json::parse("{\"perms\":[\"mint_asset:62Fk4FPcMuLvW5QjDGNF2a4jAmjM\"]}"));
           let who = AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV");
           grant_it(who: who);
         }
@@ -83,12 +83,12 @@ fn kotodama_grant_role_accepts_runtime_account_argument() {
 #[test]
 fn kotodama_grant_permission_accepts_runtime_account_argument() {
     let src = r#"
-        seiyaku RuntimePermissionGrant {
+        seiyaku RuntimePermissionGrant { permission ManagePermissions;
         fn grant_it(AccountId who) {
           ledger::permission::grant(account: who, permission: Name::parse("BenefitSpend"));
         }
 
-        kotoage fn main() authorize("ManagePermissions") {
+        kotoage fn main() authorize(ManagePermissions) {
           let who = AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV");
           grant_it(who: who);
         }
@@ -111,13 +111,13 @@ fn kotodama_grant_permission_accepts_runtime_account_argument() {
 #[test]
 fn kotodama_runtime_account_argument_survives_syscall_before_grant_permission() {
     let src = r#"
-        seiyaku RuntimePermissionGrantAfterSyscall {
+        seiyaku RuntimePermissionGrantAfterSyscall { permission ManagePermissions;
         fn grant_it(AccountId who) {
-          let _now = context::current_time_ms();
+          let _now = context::transaction_time_ms();
           ledger::permission::grant(account: who, permission: Name::parse("BenefitSpend"));
         }
 
-        kotoage fn main() authorize("ManagePermissions") {
+        kotoage fn main() authorize(ManagePermissions) {
           let who = AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV");
           grant_it(who: who);
         }
@@ -142,7 +142,7 @@ fn kotodama_runtime_account_argument_survives_syscall_before_grant_permission() 
 fn kotodama_authority_matches_domainless_account_literal() {
     let src = r#"
         seiyaku AuthorityIdentity {
-        view fn main() -> bool {
+        view fn main() authorize(anyone) -> bool {
           let who = AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV");
           return context::authority() == who;
         }

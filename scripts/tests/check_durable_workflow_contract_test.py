@@ -96,6 +96,35 @@ class Mutations(unittest.TestCase):
     def scenario(self, name: str, change) -> None:
         self.tree.edit(f"scenarios/{name}", change)
 
+    def test_effect_trigger_must_be_an_external_effect(self) -> None:
+        self.scenario("cancel_during_round_recovery_prevents_restart.json", lambda value:
+                      value["calls"][1]["concurrent"].update(when="effect:concurrent:cancel:cancelling"))
+        self.assert_problem("malformed `concurrent`")
+
+    def test_concurrent_actor_must_be_an_object(self) -> None:
+        for actor in (None, [], "cancel"):
+            with self.subTest(actor=actor):
+                self.scenario("cancel_during_round_recovery_prevents_restart.json", lambda value:
+                              value["calls"][1].update(concurrent=actor))
+                self.assert_problem("malformed `concurrent`")
+
+    def test_effect_trigger_must_be_reached(self) -> None:
+        self.scenario("cancel_during_round_recovery_prevents_restart.json", lambda value:
+                      value["calls"][1]["concurrent"].update(when="effect:round_recover:1"))
+        self.assert_problem("effect-triggered concurrency never reaches its trigger")
+
+    def test_effect_actor_must_act_inside_the_call(self) -> None:
+        def change(value):
+            effects = value["calls"][1]["expect"]["effects"]
+            effects[1], effects[2] = effects[2], effects[1]
+        self.scenario("cancel_during_round_recovery_prevents_restart.json", change)
+        self.assert_problem("effect-triggered actor must act immediately inside its call")
+
+    def test_round_cannot_restart_after_effect_triggered_cancellation(self) -> None:
+        self.scenario("cancel_during_round_recovery_prevents_restart.json", lambda value:
+                      value["calls"][1]["expect"]["effects"].append("round_start:0"))
+        self.assert_problem("an effect after concurrent cancellation caused `round_start:0`")
+
     # ---- state machine
     def test_state_that_may_commit_must_not_be_cancellable(self) -> None:
         def change(machine):

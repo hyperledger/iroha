@@ -11,7 +11,9 @@ use sorafs_manifest::gateway_compliance::{
 /// Generated catalogs live for at most one day, within the original material interval.
 pub(crate) const GENERATED_CATALOG_VALIDITY_SECONDS: u64 = 86_400;
 
-impl PreparedLocalnet {
+// These operations expose no unvalidated output: the live ServiceAuthority performs complete
+// original-profile and operation-lock validation before and after each successful call.
+impl RetainedServiceProfile {
     /// Sign an empty-feed catalog using the fixed original governance quorum.
     ///
     /// The publisher must authenticate the actual promoted predecessor and retain the returned
@@ -24,8 +26,8 @@ impl PreparedLocalnet {
         now_seconds: u64,
     ) -> crate::managed::Result<GatewayComplianceCatalogV1> {
         let invalid = || Error::Invalid("invalid original generated compliance catalog".into());
-        let manifest = self.stream_token_authorities()?.ok_or_else(invalid)?;
-        let plan = retained(&manifest, provider).map_err(|_| invalid())?;
+        let manifest = &self.manifest;
+        let plan = retained(manifest, provider).map_err(|_| invalid())?;
         if now_seconds < plan.issued_at_unix() || now_seconds >= plan.expires_at_unix() {
             return Err(invalid());
         }
@@ -69,11 +71,8 @@ impl PreparedLocalnet {
         };
         validate_generated_payload(&payload, &plan).map_err(|_| invalid())?;
         let digest = payload.signing_digest().map_err(|_| invalid())?;
-        let root = self.context.client_config.parent().ok_or_else(invalid)?;
-        let generation = iroha_fs::PrivateDirectory::open_exact(root)?;
-        let directory = generation
-            .open_child(LOCALNET_RUNTIME_DIRECTORY)?
-            .open_child(DIRECTORY)?;
+        // Read fresh private key bytes under the same retained original runtime ancestry.
+        let directory = self.runtime().open_child(DIRECTORY)?;
         let directory = open_provider_directory(&directory, manifest.provider(provider)?.slot)?;
         let mut approvals = Vec::with_capacity(2);
         for (filename, signer) in CATALOG_KEYS[..2]
@@ -99,9 +98,6 @@ impl PreparedLocalnet {
         validate_catalog_transition(previous, &catalog).map_err(|_| invalid())?;
         encode(&catalog).map_err(|_| invalid())?;
         directory.revalidate()?;
-        if self.stream_token_authorities()?.as_ref() != Some(&manifest) {
-            return Err(invalid());
-        }
         Ok(catalog)
     }
 
@@ -113,12 +109,9 @@ impl PreparedLocalnet {
         catalog: &GatewayComplianceCatalogV1,
     ) -> crate::managed::Result<()> {
         let invalid = || Error::Invalid("invalid retained generated compliance catalog".into());
-        let manifest = self.stream_token_authorities()?.ok_or_else(invalid)?;
-        let plan = retained(&manifest, provider).map_err(|_| invalid())?;
+        let manifest = &self.manifest;
+        let plan = retained(manifest, provider).map_err(|_| invalid())?;
         validate_generated_catalog(catalog, &plan).map_err(|_| invalid())?;
-        if self.stream_token_authorities()?.as_ref() != Some(&manifest) {
-            return Err(invalid());
-        }
         Ok(())
     }
 
@@ -131,8 +124,8 @@ impl PreparedLocalnet {
         catalog: &GatewayComplianceCatalogV1,
     ) -> crate::managed::Result<GatewayComplianceAcknowledgementV1> {
         let invalid = || Error::Invalid("invalid original gateway reload observation".into());
-        let manifest = self.stream_token_authorities()?.ok_or_else(invalid)?;
-        let plan = retained(&manifest, provider).map_err(|_| invalid())?;
+        let manifest = &self.manifest;
+        let plan = retained(manifest, provider).map_err(|_| invalid())?;
         validate_generated_catalog(catalog, &plan).map_err(|_| invalid())?;
         let now = crate::managed::native_operation::now_ms()? / 1_000;
         if observation.network() != plan.network_id()
@@ -151,11 +144,8 @@ impl PreparedLocalnet {
         catalog
             .verify(plan.trust_policy(), now, 0)
             .map_err(|_| invalid())?;
-        let root = self.context.client_config.parent().ok_or_else(invalid)?;
-        let generation = iroha_fs::PrivateDirectory::open_exact(root)?;
-        let directory = generation
-            .open_child(LOCALNET_RUNTIME_DIRECTORY)?
-            .open_child(DIRECTORY)?;
+        // Read fresh private key bytes under the same retained original runtime ancestry.
+        let directory = self.runtime().open_child(DIRECTORY)?;
         let directory = open_provider_directory(&directory, manifest.provider(provider)?.slot)?;
         let key = read_service_private_key(&directory, ACK_KEYS[0])?;
         let signer = plan
@@ -195,9 +185,6 @@ impl PreparedLocalnet {
             .map_err(|_| invalid())?;
         encode(&acknowledgement).map_err(|_| invalid())?;
         directory.revalidate()?;
-        if self.stream_token_authorities()?.as_ref() != Some(&manifest) {
-            return Err(invalid());
-        }
         Ok(acknowledgement)
     }
 }

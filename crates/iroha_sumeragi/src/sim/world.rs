@@ -8,10 +8,13 @@
 //! handled event costs virtual CPU time (per pairing counted by the crypto wrapper), during
 //! which the replica is busy; its actions take effect at the end of that time.
 
+mod clock_guard;
 mod progress;
+mod seed_config;
 mod storage;
 mod transport;
 
+pub use clock_guard::{CertifiedTime, GuardEvent, GuardRule, GuardState};
 pub use transport::SharedWire;
 
 use std::{
@@ -23,26 +26,23 @@ use std::{
 use super::{
     byz::Adversary,
     crypto::{SharedLog, SimCrypto, SimSigner},
-    driver::{
-        Clock, Executor, Io, OwnedWrite, Write, decode_txs, divergent_exec, encode_tx_flagged,
-        payload_mints,
-    },
+    driver::{Clock, Executor, Io, OwnedWrite, Write, decode_txs, divergent_exec},
     host::{Done, Host, Op, Start, fake_host},
     net::{Fate, NetConfig, Nic, Packet, approx_size, class_of, lane},
     oracle::Oracle,
     records::{KeyStore, StoreId},
     rng::{Rng, seed_of},
-    scenario::{Authority, Checks, Churn, CrashPoint, Fault, IoKill, Profile, Scenario, Workload},
+    scenario::{Checks, Churn, CrashPoint, Fault, IoKill, Profile, Scenario, Workload},
 };
 use crate::{
     api::{Action, CommittedTip, Event, ExecOutcome, HaltReason, Init, LocalParams},
     availability::AvailableBody,
-    crypto::{Attestation, Signer},
+    crypto::Signer,
     message::{
         PayloadChunk, PayloadManifest, PayloadRequest, Qc, SyncEntry, SyncResponse, WireMessage,
     },
     safety::{RecordState, SafetyRecord},
-    testing::{FakeAttestor, fake_attestation_ext, sha256},
+    testing::sha256,
     types::{ChainParams, Committee, Hash32, HeightConfig, Millis, PublicKey},
 };
 
@@ -77,8 +77,11 @@ impl Inst {
         out.unwrap_or_else(|| unreachable!("a schedule has at least one committee"))
     }
 
-    /// The height configuration of `height`.
-    pub fn config(&self, height: u64) -> HeightConfig {
+    /// The scheduled epoch of `height`, without constructing an owned committee.
+    ///
+    /// # Panics
+    /// Panics if the instance's committee schedule is empty.
+    pub fn epoch(&self, height: u64) -> crate::types::EpochConfig {
         let index = self
             .schedule
             .iter()
@@ -89,8 +92,13 @@ impl Inst {
             .schedule
             .get(index + 1)
             .map_or(u64::MAX, |(from, _)| from - 1);
+        crate::testing::scheduled_epoch(index as u64, first, last)
+    }
+
+    /// The height configuration of `height`.
+    pub fn config(&self, height: u64) -> HeightConfig {
         HeightConfig {
-            epoch: Box::new(crate::testing::scheduled_epoch(index as u64, first, last)),
+            epoch: Box::new(self.epoch(height)),
             committee: self.committee(height).clone(),
             params: self.params,
         }
@@ -233,7 +241,6 @@ enum Ev {
         op: u64,
         bh: Hash32,
         height: u64,
-        scheduling_epoch: crate::types::EpochId,
         outcome: ExecOutcome,
     },
     NicFree {
@@ -331,6 +338,8 @@ pub struct World {
     workload: Option<Workload>,
     /// Toy two-phase application and independent O-AMX observations, when configured.
     pub amx: Option<super::amx::AmxWorld>,
+    /// The application clock guard (§4.5) and O-TIME observations, when configured.
+    pub clock_guard: Option<GuardState>,
     /// Submitted transactions per instance.
     pub txs: Vec<TxLog>,
     next_tx: u64,
@@ -565,6 +574,10 @@ impl World {
             .collect();
         let replica_count = replicas.len();
         let adv = Adversary::new(&sc, &machines);
+        let clock_guard = sc
+            .clock_guard
+            .as_ref()
+            .map(|config| GuardState::new(config, machines_n));
         let mut world = Self {
             name: sc.name.clone(),
             seed: sc.seed,
@@ -592,6 +605,7 @@ impl World {
             io_completions: vec![0; machines_n],
             workload: sc.workload,
             amx: None,
+            clock_guard,
             txs: Vec::new(),
             next_tx: 0,
             stats: Stats::default(),
@@ -766,16 +780,12 @@ impl World {
                 op,
                 bh,
                 height,
-                scheduling_epoch,
                 outcome,
             } => {
                 if self.alive(r, epoch) {
                     if let ExecOutcome::Valid(res) = &outcome {
-                        let instance = self.instances[self.replicas[r].inst].id;
                         let exec = &mut self.replicas[r].exec;
                         exec.cache.insert(bh, (height, *res));
-                        exec.executed
-                            .record(&instance, &scheduling_epoch, height, &bh, res);
                     }
                     let outcome = Some(outcome);
                     self.complete_host(r, Done::Executed { op, outcome });
@@ -1016,9 +1026,13 @@ impl World {
                         .write(at, latency, Write::Body(Box::new(block)));
                 self.schedule(done, Ev::IoDone { r, epoch, id });
             }
-            Action::Execute { block, req } => {
+            Action::Execute {
+                block,
+                req,
+                certified,
+            } => {
                 let bh = block.hash(&self.hasher);
-                self.replicas[r].exec.submit(bh, req, block);
+                self.replicas[r].exec.submit(bh, req, block, certified);
                 self.exec_kick(r, at);
             }
             Action::DiscardExecution { height, keep } => {
@@ -1051,7 +1065,6 @@ impl World {
                         req,
                         context,
                         witness: crate::types::ControlWitness::empty(),
-                        attest: false,
                     }),
                 },
             ),
@@ -1287,9 +1300,8 @@ impl World {
         body: &AvailableBody,
         at: Millis,
     ) {
-        let config = self.instances[self.replicas[r].inst].config(body.header().height);
-        let shape = config
-            .epoch
+        let epoch = self.instances[self.replicas[r].inst].epoch(body.header().height);
+        let shape = epoch
             .da_layout
             .shape(body.payload().as_slice().len() as u64)
             .unwrap();
@@ -1682,7 +1694,6 @@ impl World {
         rep.applied = (height, bh, qc.result);
         rep.bodies.retain(|_, b| b.header().height > height);
         rep.exec.cache.retain(|_, (h, _)| *h >= height);
-        rep.exec.executed.prune_through(height);
         for (id, _) in decode_txs(block.payload().as_slice()) {
             rep.txs.remove(&id);
         }
@@ -1726,7 +1737,8 @@ impl World {
                 self.replicas[r].exec.parked.push(job);
                 continue;
             };
-            let (outcome, latency) = self.exec_outcome(r, &job.block, &job.bh, &parent);
+            let (outcome, latency) =
+                self.exec_outcome(r, &job.block, &job.bh, &parent, job.certified);
             job.outcome = Some(outcome);
             let id = job.id;
             let finish = at + latency;
@@ -1738,17 +1750,24 @@ impl World {
     }
 
     /// The executor's outcome for `block` (hash `bh`) on the post-state `parent` under the
-    /// machine profile (injected failures, defects, divergence), and its latency.
+    /// machine profile (injected failures, defects, divergence) and the application clock
+    /// guard of an `Execute` with the given `certified` flag (§4.5), and its latency. A guard
+    /// refusal is answered before execution (1 ms).
     fn exec_outcome(
         &mut self,
         r: usize,
         block: &AvailableBody,
         bh: &Hash32,
         parent: &Hash32,
+        certified: bool,
     ) -> (ExecOutcome, Millis) {
         let m = self.replicas[r].machine;
         let profile = self.machines[m].profile;
-        let outcome = if self.rng.chance(profile.exec_fail_ppm) {
+        let injected = self.rng.chance(profile.exec_fail_ppm);
+        if !injected && let Some(refused) = self.clock_guard_refusal(r, block, bh, certified) {
+            return (refused, 1);
+        }
+        let outcome = if injected {
             ExecOutcome::Failed("injected".to_owned())
         } else if profile.reject_nonempty && !block.payload().as_slice().is_empty() {
             ExecOutcome::Invalid
@@ -1787,7 +1806,6 @@ impl World {
 
     fn exec_done(&mut self, r: usize, job_id: u64) {
         let epoch = self.epoch_of(r);
-        let instance = self.instances[self.replicas[r].inst].id;
         let rep = &mut self.replicas[r];
         let Some((job, _)) = rep.exec.running.take_if(|(job, _)| job.id == job_id) else {
             return;
@@ -1800,9 +1818,6 @@ impl World {
         if let ExecOutcome::Valid(res) = &outcome {
             let height = job.block.header().height;
             rep.exec.cache.insert(job.bh, (height, *res));
-            rep.exec
-                .executed
-                .record(&instance, &job.block.header().epoch, height, &job.bh, res);
         }
         rep.host.deliver(Event::Executed {
             block_hash: job.bh,
@@ -1838,7 +1853,9 @@ impl World {
         } else {
             u64::from(budget_ms).saturating_sub(profile.exec_base) * 1024 / profile.exec_per_kib
         };
-        let limit = u64::from(max_bytes).min(budget_bytes);
+        let limit = u64::from(max_bytes)
+            .min(budget_bytes)
+            .saturating_sub(self.block_time_bytes());
         let rep = &self.replicas[r];
         let mut payload = Vec::new();
         for (id, tx) in &rep.txs {
@@ -1852,11 +1869,11 @@ impl World {
             payload.extend_from_slice(tx);
         }
         let inst = rep.inst;
+        self.stamp_block_time(m, &mut payload);
         let hash = crate::preimage::payload_hash(&self.hasher, &payload);
         self.oracle.built.insert((inst, m, hash));
         self.replicas[r].pending_ready = payload.is_empty().then_some(req);
-        // The application flag of this payload (§3.7 A1).
-        let attest = payload_mints(&payload);
+        // Deliver the build result after the selected application latency.
         let latency = self.rng.range(profile.build_min, profile.build_max);
         self.schedule(
             at + latency,
@@ -1873,7 +1890,6 @@ impl World {
                         owned.admit(&self.replicas[r].budget).unwrap();
                         Some(owned)
                     },
-                    attest,
                 }),
             },
         );
@@ -1908,7 +1924,7 @@ impl World {
         self.next_tx += 1;
         let id = self.next_tx;
         let poison = self.rng.chance(workload.poison_ppm);
-        let tx = encode_tx_flagged(id, poison, workload.mints(id), workload.pad);
+        let tx = workload.tx(id, poison);
         self.txs[inst].insert(id, (self.now, poison, None));
         for r in 0..self.replicas.len() {
             let m = self.replicas[r].machine;
@@ -2082,14 +2098,18 @@ impl World {
                         .write(at, latency, Write::Owned { op, ok, write });
                 self.schedule(when, Ev::IoDone { r, epoch, id });
             }
-            Op::Execute { op, block } => {
+            Op::Execute {
+                op,
+                block,
+                certified,
+            } => {
                 self.replicas[r].exec.prepared = None;
                 let bh = block.hash(&self.hasher);
                 let Some(parent) = self.parent_result(r, &block) else {
                     let outcome = None;
                     return done(self, at, Done::Executed { op, outcome });
                 };
-                let (outcome, latency) = self.exec_outcome(r, &block, &bh, &parent);
+                let (outcome, latency) = self.exec_outcome(r, &block, &bh, &parent, certified);
                 let height = block.header().height;
                 self.schedule(
                     at + latency,
@@ -2099,7 +2119,6 @@ impl World {
                         op,
                         bh,
                         height,
-                        scheduling_epoch: block.header().epoch,
                         outcome,
                     },
                 );
@@ -2155,7 +2174,6 @@ impl World {
                 rep.applied = (height, qc.block_hash, qc.result);
                 rep.bodies.retain(|_, b| b.header().height > height);
                 rep.exec.cache.retain(|_, (h, _)| *h >= height);
-                rep.exec.executed.prune_through(height);
                 for (id, _) in decode_txs(block.payload().as_slice()) {
                     rep.txs.remove(&id);
                 }
@@ -2324,7 +2342,6 @@ impl World {
                 signers,
                 crypto: Box::new(crypto),
                 budget: rep.budget.clone(),
-                attestation: self.attestation_for(r),
                 now: local_now,
                 fifo_ingress: self.machines[m].profile.fifo_ingress
                     || cfg!(sumeragi_mutation = "ML12"),
@@ -2375,21 +2392,6 @@ impl World {
         self.trace(m, "RESTART".to_owned());
     }
 
-    /// The commit-attestation extension of replica `r` (§3.7): its machine profile's authority
-    /// (every key, none, or forging) with the ground-truth verifier. Like a KAGEMUSHA authority,
-    /// which needs `R`'s preimage, it attests only blocks the replica executed (`Pending` before,
-    /// A2).
-    pub fn attestation_for(&self, r: usize) -> Attestation {
-        let rep = &self.replicas[r];
-        let m = rep.machine;
-        let attestor = match self.machines[m].profile.authority {
-            Authority::Full => FakeAttestor::new(),
-            Authority::Missing => FakeAttestor::without_authority(self.machines[m].keys.clone()),
-            Authority::Forging => FakeAttestor::forging(),
-        };
-        fake_attestation_ext(attestor.after_execution(rep.exec.executed.clone()))
-    }
-
     /// The start-up check of the store id (§7.4 rule 3), then the installation event of every
     /// `(instance, key)` the log lacks (rule 2): the initial record `{I, K, height: g}` only for
     /// a key generated on this node, never over an existing record file.
@@ -2407,7 +2409,7 @@ impl World {
                 if keystore.install_instance(&mut store_id, &instance, &key, exists, false, id) {
                     let record = SafetyRecord::fresh(
                         instance,
-                        self.instances[inst].config(0).epoch.id,
+                        self.instances[inst].epoch(0).id,
                         key.clone(),
                         0,
                         None,
@@ -2436,7 +2438,7 @@ impl World {
             return;
         };
         for (id, poison) in pending {
-            let tx = encode_tx_flagged(id, poison, workload.mints(id), workload.pad);
+            let tx = workload.tx(id, poison);
             self.offer_tx(r, id, tx);
         }
     }
@@ -2665,7 +2667,7 @@ impl World {
         crate::topology::Topology::compute(
             &self.hasher,
             &instance.id,
-            &instance.config(h).epoch,
+            &instance.epoch(h),
             instance.committee(h),
             h,
             0,
@@ -2692,7 +2694,7 @@ fn describe_op(op: &Op) -> String {
     match op {
         Op::WriteRecord { op, record } => format!("write-record#{op} h{}", record.height),
         Op::WriteBody { op, block } => format!("write-body#{op} h{}", block.header().height),
-        Op::Execute { op, block } => format!("execute#{op} h{}", block.header().height),
+        Op::Execute { op, block, .. } => format!("execute#{op} h{}", block.header().height),
         Op::Discard { op, height, .. } => format!("discard#{op} h{height}"),
         Op::Prepare { op, block, .. } => format!("prepare#{op} h{}", block.header().height),
         Op::Append { op, block, .. } => format!("append#{op} h{}", block.header().height),
@@ -2707,13 +2709,9 @@ fn describe_event(event: &Event) -> String {
     match event {
         Event::Tick => "Tick".to_owned(),
         Event::Message { msg, .. } => describe_msg(msg),
-        Event::PayloadBuilt {
-            req,
-            payload,
-            attest,
-        } => {
+        Event::PayloadBuilt { req, payload } => {
             format!(
-                "PayloadBuilt req{req} {}B attest={attest}",
+                "PayloadBuilt req{req} {}B",
                 payload.as_ref().map_or(0, |value| value.as_slice().len())
             )
         }
@@ -2790,7 +2788,15 @@ fn summarize(actions: &[Action]) -> String {
                 body.header().height,
                 peers.len()
             ),
-            Action::Execute { block, req } => format!("exec(h{} req{req})", block.header().height),
+            Action::Execute {
+                block,
+                req,
+                certified,
+            } => format!(
+                "exec(h{} req{req}{})",
+                block.header().height,
+                if *certified { " certified" } else { "" }
+            ),
             Action::DiscardExecution { height, keep } => {
                 format!("discard(h{height} keep {})", keep.len())
             }
@@ -2855,17 +2861,76 @@ pub fn describe_msg(msg: &WireMessage) -> String {
 
 /// Seeds to run: `SUMERAGI_SIM_SEED` (one seed) or `SUMERAGI_SIM_SEEDS` (count, from
 /// `SUMERAGI_SIM_SEED_BASE`), else `default` seeds from 0.
+///
+/// # Panics
+/// Rejects malformed selected settings, a zero count or a range exceeding `u64`.
 pub fn seeds(default: u64) -> Vec<u64> {
     seed_iter(default).collect()
 }
 
 /// Iterate the same configured seed range without retaining a campaign-sized seed list.
+///
+/// # Panics
+/// Rejects malformed selected settings, a zero count or a range exceeding `u64`.
 pub(super) fn seed_iter(default: u64) -> impl Iterator<Item = u64> {
-    let var = |name: &str| std::env::var(name).ok().and_then(|v| v.parse::<u64>().ok());
-    if let Some(seed) = var("SUMERAGI_SIM_SEED") {
-        return (seed..seed).chain(Some(seed));
+    seed_config::from_env(default)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Captured original owned constructor: the epoch-only projection must preserve every field.
+    fn original_config(instance: &Inst, height: u64) -> HeightConfig {
+        let index = instance
+            .schedule
+            .iter()
+            .rposition(|(from, _)| *from <= height)
+            .unwrap_or(0);
+        let first = instance.schedule[index].0;
+        let last = instance
+            .schedule
+            .get(index + 1)
+            .map_or(u64::MAX, |(from, _)| from - 1);
+        HeightConfig {
+            epoch: Box::new(crate::testing::scheduled_epoch(index as u64, first, last)),
+            committee: instance.committee(height).clone(),
+            params: instance.params,
+        }
     }
-    let base = var("SUMERAGI_SIM_SEED_BASE").unwrap_or(0);
-    let count = var("SUMERAGI_SIM_SEEDS").unwrap_or(default);
-    (base..base + count).chain(None)
+
+    #[test]
+    fn epoch_only_lookup_preserves_complete_configuration_at_rotation_boundaries() {
+        let first = crate::testing::FakeValidators::new(4, 1, None).committee;
+        let second = crate::testing::FakeValidators::new(7, 2, None).committee;
+        let third = crate::testing::FakeValidators::new(4, 3, None).committee;
+        for schedule in [
+            vec![(0, first.clone())],
+            vec![(0, first), (8, second), (19, third)],
+        ] {
+            let instance = Inst {
+                id: Hash32([1; 32]),
+                genesis_hash: Hash32([2; 32]),
+                genesis_result: Hash32([3; 32]),
+                schedule,
+                params: ChainParams::default(),
+                window: 5,
+                local: LocalParams::default(),
+            };
+            for height in [0, 1, 6, 7, 8, 9, 17, 18, 19, 20, u64::MAX - 1, u64::MAX] {
+                let original = original_config(&instance, height);
+                // EpochConfig equality covers layout, full id, generation, both bounds and seed.
+                assert_eq!(instance.epoch(height), *original.epoch, "height {height}");
+                assert_eq!(instance.config(height), original, "height {height}");
+            }
+            for &(boundary, _) in instance.schedule.iter().skip(1) {
+                let previous = instance.epoch(boundary - 1);
+                let successor = instance.epoch(boundary);
+                assert!(previous.contains(boundary - 1));
+                assert!(!previous.contains(boundary));
+                assert!(successor.contains(boundary));
+                assert!(successor.follows(&previous));
+            }
+        }
+    }
 }

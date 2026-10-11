@@ -75,7 +75,7 @@ pub fn evidence_list_snapshot_from_world(world: &impl WorldReadOnly) -> Vec<Evid
     let mut records: Vec<_> = world
         .consensus_evidence()
         .iter()
-        .map(|(_, record)| record.clone())
+        .map(|(_, record)| record.canonical_projection())
         .collect();
     records.sort_by(|a, b| {
         (a.recorded_at_height, a.recorded_at_view, a.recorded_at_ms)
@@ -163,6 +163,9 @@ pub fn insert_evidence_record_for_test(state: &mut crate::state::State, record: 
     let mut block = state.block(header);
     let mut stx = block.transaction();
     let key = crate::sumeragi::evidence::evidence_key(&record.evidence);
+    let record =
+        crate::state::RetainedEvidenceRecord::from_fixture(record, &state.ivm_execution_budget())
+            .expect("query fixture graph is funded by the original execution pool");
     stx.world.consensus_evidence.insert(key, record);
     stx.apply();
     block

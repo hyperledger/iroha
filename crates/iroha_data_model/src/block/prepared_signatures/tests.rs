@@ -9,7 +9,7 @@ fn fixture(count: usize) -> SignedBlock {
             BlockSignature::new(
                 index as u64,
                 SignatureOf::from_signature(
-                    Signature::try_from_bytes(&vec![index as u8 + 1; 64]).unwrap(),
+                    Signature::try_from_bytes(&[u8::try_from(index).unwrap() + 1; 64]).unwrap(),
                 ),
             )
         }))
@@ -540,17 +540,14 @@ fn prepared_certificate_inner_cause_keeps_original_enclosing_reader_through_oute
         leaves.iter().map(|leaf| leaf.len()).sum::<usize>(),
         certificate.payload_len()
     );
-    // The generated field walk charges each Vec<u8> payload length before its
-    // borrowed raw-count metadata. Remove every later field's exact canonical
-    // payload length and count, leaving the original first declared-count charge.
+    // Field framing borrows each payload without charging its encoded length.
+    // Each borrowed raw-byte count still reserves its original metadata charge.
+    // Remove exactly the later counts, leaving the first declared-count charge.
     // Borrowed &[u8] and Vec<u8> share this sole fixed-count wire payload.
     let later_work = leaves
         .iter()
         .skip(1)
-        .try_fold(0usize, |total, leaf| {
-            let payload_length = norito::core::SerializePayload::encoded_len_exact(leaf).unwrap();
-            total.checked_add(payload_length)?.checked_add(leaf.len())
-        })
+        .try_fold(0usize, |total, leaf| total.checked_add(leaf.len()))
         .unwrap();
     let attempted = usage
         .total_allocated_bytes()

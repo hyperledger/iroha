@@ -2,13 +2,12 @@
 //!
 //! Four genesis voters admit separately running candidates into pools of five, eight or
 //! eleven. The public rank freezes exactly four or seven seats two epochs ahead, bounded
-//! by the signed seven-seat ceiling. A selected seat withholds fresh Pasta keys in the
+//! by the signed seven-seat ceiling. A selected seat withholds its beacon share in the
 //! retention cases; the eight-candidate case specifically withholds an incumbent. The
 //! current exact quorum must cancel that immutable attempt without losing finality.
 //! Retention scenarios restart every process, then authenticate a paid successor signed
 //! by the unchanged generation and a fresh, separately identified future attempt.
-//! The complete rotation also reserves existing real XOR for a bounded reward claim
-//! and withdraws a departing seat's full bond only after replacement and liability
+//! The complete rotation withdraws a departing seat's full bond only after replacement and liability
 //! expiry. Its genuine Parliament pulse consumes current credentials while the next
 //! committee remains pending. Retail monthly policy and network slashing remain separate gates.
 
@@ -30,7 +29,6 @@ use iroha::{
             AdmitValidatorCommitteeSeatV1, PrepareValidatorCommitteeCredentialsV1,
             PublicLaneMonetaryPlanV1, PublicLaneMonetaryPreconditionV1,
             PublicLaneMonetaryRegistrationV1, PublicLaneMonetaryScopeV1,
-            ValidatorCandidateKeyAuthorizationV1, ValidatorCandidateKeysV1,
             ValidatorCommitteeCredentialsV1, ValidatorCommitteeOperationV1,
             ValidatorCommitteePreparationV1, ValidatorCommitteeSeatReadinessV1,
         },
@@ -61,7 +59,6 @@ use iroha_core::{
         verify_validator_committee_provisioning_evidence_v1,
     },
 };
-use iroha_core_zk::kagemusha_v1_recursion::verify_kagemusha_mint_finality_candidate_possession_v1;
 use iroha_model_base::{metadata::Metadata, peer::PeerId, topology::LaneId};
 use iroha_test_network::{
     CommitteeValidatorP2pBootstrap, DisposableBeaconProviderBinding, DisposableGenesisDkgOutput,
@@ -99,6 +96,8 @@ struct NativeProviderManifest {
 mod committee_parliament;
 #[path = "support/committee_staking.rs"]
 mod committee_staking;
+#[path = "support/committee_staking_history.rs"]
+mod committee_staking_history;
 #[path = "support/committee_status.rs"]
 mod committee_status;
 #[path = "support/parliament_submission.rs"]
@@ -268,7 +267,7 @@ async fn prove_retained_successor_after_restart(
     ensure!(
         cutoff.height() == CUTOFF
             && boundary.next.authorization.decision == ValidatorEpochDecisionV1::RetainAndCancel
-            && boundary.next.authority == cutoff.commitment().schedule.current.authority
+            && boundary.next.generation() == cutoff.commitment().schedule.current.generation()
             && boundary.next.committee == cutoff.commitment().schedule.current.committee
             && replacement.target_epoch == 3
             && replacement.selection_height == CUTOFF
@@ -324,7 +323,7 @@ async fn prove_retained_successor_after_restart(
                 block.height() == CUTOFF && block.block_hash() == cutoff.block_hash()
             })
             && successor.height() == TARGET_FIRST
-            && current.authority.generation == 0
+            && current.authorization.authority_generation == 0
             && current.authorization.epoch == 2
             && current == &boundary.next,
         "restarted successor must use the exact retained generation and ordered original four seats"
@@ -509,7 +508,12 @@ fn admit_candidates(
             ]
         })
         .collect::<Vec<InstructionBox>>();
-    admin.submit_all(funding, FeePaymentIntent::authority(Vec::new(), None))?;
+    committee_status::submit_and_observe_until(
+        admin.clone(),
+        admin.clone(),
+        Instant::now() + WAIT,
+        |bounded| bounded.submit_all(funding, FeePaymentIntent::authority(Vec::new(), None)),
+    )?;
     for operator in candidates {
         let inclusion_height =
             committee_status::height_until_blocking(admin, Instant::now() + WAIT)? + 1;
@@ -548,63 +552,13 @@ fn admit_candidates(
                 &authorization,
             )?,
         };
-        operator
-            .client
-            .submit(candidate, FeePaymentIntent::authority(Vec::new(), None))
-            .wrap_err_with(|| format!("candidate {} admission failed", operator.peer))?;
-    }
-    Ok(())
-}
-
-fn publish_selected(
-    operators: &BTreeMap<PeerId, Operator>,
-    processes: &BTreeMap<PeerId, NetworkPeer>,
-    selected: &BTreeSet<PeerId>,
-    withheld: Option<&PeerId>,
-    network_id: NetworkId,
-    generation: u64,
-) -> Result<()> {
-    for peer in selected {
-        if withheld == Some(peer) {
-            continue;
-        }
-        let operator = operators
-            .get(peer)
-            .ok_or_else(|| eyre!("selected peer lacks a real operator"))?;
-        let process = processes
-            .get(peer)
-            .ok_or_else(|| eyre!("selected peer lacks held Pasta custody"))?;
-        let (keys, possession) =
-            process.disposable_mint_finality_candidate(network_id, generation)?;
-        verify_kagemusha_mint_finality_candidate_possession_v1(
-            network_id,
-            generation,
-            &keys,
-            &possession,
-        )?;
-        let authorization = ValidatorCandidateKeyAuthorizationV1::new(
-            network_id,
-            generation,
-            keys.clone(),
-            possession.clone(),
-        );
-        let publication = ValidatorCandidateKeysV1 {
-            network_id,
-            generation,
-            keys,
-            possession,
-            peer_signature: SignatureOf::try_new(
-                operator.consensus_key.private_key(),
-                &authorization,
-            )?,
-        };
-        operator.client.submit(
-            SetParameter::new(Parameter::Custom(
-                ValidatorCommitteeOperationV1::PublishCandidate(publication)
-                    .into_custom_parameter(),
-            )),
-            FeePaymentIntent::authority(Vec::new(), None),
-        )?;
+        committee_status::submit_and_observe_until(
+            operator.client.clone(),
+            admin.clone(),
+            Instant::now() + WAIT,
+            |bounded| bounded.submit(candidate, FeePaymentIntent::authority(Vec::new(), None)),
+        )
+        .wrap_err_with(|| format!("candidate {} admission failed", operator.peer))?;
     }
     Ok(())
 }
@@ -650,13 +604,14 @@ async fn advance_to_height(
 ) -> Result<()> {
     let peers = exact_process_roster(network, voters)?;
     let deadline = Instant::now() + WAIT;
+    let clients = peers
+        .iter()
+        .map(|peer| peer.client().client().clone())
+        .collect::<Vec<_>>();
     let mut tick = 0_u64;
     let mut pending_height = None;
     loop {
-        let mut heights = Vec::new();
-        for peer in &peers {
-            heights.push(committee_status::height_until(peer.client().client(), deadline).await?);
-        }
+        let heights = committee_status::heights_until(&clients, deadline).await?;
         ensure!(
             Instant::now() < deadline,
             "current validator quorum stalled before height {target}; heights={heights:?}"
@@ -666,35 +621,39 @@ async fn advance_to_height(
             ProgressAction::AwaitCatchup => {}
             ProgressAction::SubmitAt(height) => {
                 let client = peers[usize::try_from(tick)? % peers.len()].client();
-                let account = client.account_client();
                 let message = format!("committee transition progress {target}:{tick}");
                 pending_height = Some(height);
-                tokio::time::timeout_at(deadline.into(), async {
-                    let mut payload = account.prepare_transaction(
-                        iroha::client::AccountTransactionDraft::new(
-                            vec![Log::new(Level::INFO, message)],
-                            FeePaymentIntent::authority(Vec::new(), None),
-                            Metadata::default(),
-                        ),
-                    )?;
-                    let quote = account
-                        .quote_fees(iroha::client::FeeQuoteRequest::AccountSignature {
-                            payload: &payload,
-                        })
-                        .await?;
-                    ensure!(
-                        payload
-                            .fee_payment
-                            .has_same_payer_and_gas_bound(&quote.intent),
-                        "progress fee quote changed the signed payer"
-                    );
-                    payload.fee_payment = quote.intent;
-                    let transaction = account.sign_transaction(payload)?;
-                    account.submit_transaction_and_wait(&transaction).await?;
-                    Ok::<_, eyre::Report>(())
-                })
+                committee_status::submit_async_until(
+                    client.client().clone(),
+                    deadline,
+                    |bounded| async move {
+                        let account = bounded.account_client()?;
+                        let mut payload = account.prepare_transaction(
+                            iroha::client::AccountTransactionDraft::new(
+                                vec![Log::new(Level::INFO, message)],
+                                FeePaymentIntent::authority(Vec::new(), None),
+                                Metadata::default(),
+                            ),
+                        )?;
+                        let quote = account
+                            .quote_fees(iroha::client::FeeQuoteRequest::AccountSignature {
+                                payload: &payload,
+                            })
+                            .await?;
+                        ensure!(
+                            payload
+                                .fee_payment
+                                .has_same_payer_and_gas_bound(&quote.intent),
+                            "progress fee quote changed the signed payer"
+                        );
+                        payload.fee_payment = quote.intent;
+                        let transaction = account.sign_transaction(payload)?;
+                        account.submit_transaction_and_wait(&transaction).await?;
+                        Ok::<_, eyre::Report>(())
+                    },
+                )
                 .await
-                .wrap_err("progress transaction exceeded its original deadline")??;
+                .wrap_err("committee progress transaction failed")?;
                 tick += 1;
             }
         }
@@ -824,41 +783,6 @@ async fn advance_exact_genesis_phase(
     }
 }
 
-fn read_finality_chain(
-    client: &Client,
-    network_id: NetworkId,
-    genesis_voters: &BTreeSet<PeerId>,
-    end: u64,
-) -> Result<(CertifiedBlock, CertifiedBlock)> {
-    let (_, blocks) =
-        read_contiguous_finality_chain(client, network_id, network_id.into_genesis_hash(), end)?;
-    let genesis = blocks
-        .first()
-        .ok_or_else(|| eyre!("missing signed genesis"))?;
-    let epoch = &genesis.commitment().schedule.current;
-    ensure!(
-        epoch.authority.generation == 0
-            && epoch
-                .committee
-                .iter()
-                .map(|seat| seat.validator.clone())
-                .collect::<BTreeSet<_>>()
-                == *genesis_voters,
-        "actual signed genesis differs from independently built initial authority"
-    );
-    let selection = blocks
-        .iter()
-        .find(|block| block.height() == SELECTION)
-        .ok_or_else(|| eyre!("missing native selecting boundary"))?
-        .clone();
-    let cutoff = blocks
-        .iter()
-        .find(|block| block.height() == CUTOFF)
-        .ok_or_else(|| eyre!("missing native cutoff"))?
-        .clone();
-    Ok((selection, cutoff))
-}
-
 fn read_genesis_dkg_finality_chain(
     client: &Client,
     network_id: NetworkId,
@@ -911,8 +835,64 @@ fn read_contiguous_finality_chain_until(
         signed_genesis_hash,
         end,
         deadline,
-        |height| source.get_sumeragi_finality_proof(height),
+        interval_finality_fetch(&source, end),
     )
+}
+
+// Each request retains at most 64 actual full-proof DTOs. Consumed rows move into
+// the existing native journal; they are never copied to a second authority graph.
+// TODO: close the fixture's existing SDK DTO/journal metadata funding obligation.
+fn interval_finality_fetch<'a>(
+    client: &'a iroha::client::Client,
+    end: u64,
+) -> impl FnMut(NonZeroU64) -> Result<iroha::data_model::sumeragi_finality::SumeragiFinalityProof> + 'a
+{
+    interval_finality_fetch_with(end, move |from, to| {
+        client.get_sumeragi_finality_interval(from, to)
+    })
+}
+fn interval_finality_fetch_with<'a>(
+    end: u64,
+    mut fetch: impl FnMut(
+        NonZeroU64,
+        NonZeroU64,
+    )
+        -> Result<Vec<iroha::data_model::sumeragi_finality::SumeragiFinalityProof>>
+    + 'a,
+) -> impl FnMut(NonZeroU64) -> Result<iroha::data_model::sumeragi_finality::SumeragiFinalityProof> + 'a
+{
+    let mut rows = Vec::new().into_iter();
+    let mut next = None;
+    move |height| {
+        ensure!(
+            height.get() <= end,
+            "interval source exceeds original final target"
+        );
+        if let Some(expected) = next {
+            ensure!(
+                height.get() == expected,
+                "interval source requires its exact next original row"
+            );
+        }
+        if rows.len() == 0 {
+            let to = height.get().saturating_add(63).min(end);
+            let batch = fetch(height, NonZeroU64::new(to).expect("positive final target"))?;
+            ensure!(
+                batch.len() as u64 == to - height.get() + 1,
+                "interval source must retain every exact original row"
+            );
+            rows = batch.into_iter();
+        }
+        let proof = rows
+            .next()
+            .ok_or_else(|| eyre!("interval source has no original next row"))?;
+        ensure!(
+            proof.height() == height.get(),
+            "interval source substituted its original row"
+        );
+        next = height.get().checked_add(1);
+        Ok(proof)
+    }
 }
 
 fn finality_chain_from_proofs(
@@ -936,7 +916,7 @@ fn finality_chain_from_proofs(
     let limits = finality_limits();
     let mut journal = NativeFinalityJournal { blocks: Vec::new() };
     let mut source_bytes = 0_usize;
-    // Fetch each exact canonical carrier through the bounded public proof endpoint.
+    // Move each exact canonical carrier from the bounded public interval endpoint.
     // Candidate proof metadata never chooses the committee or substitutes for the
     // complete, independently genesis-anchored journal verification below.
     for height in 1..=end {
@@ -965,6 +945,20 @@ fn finality_chain_from_proofs(
             block_wire: proof.block_wire,
         });
     }
+    let blocks = authenticate_finality_journal(&journal, chain_id, network_id, end, deadline)?;
+    Ok((journal, blocks))
+}
+
+// Both the original fresh reader and the growing journal run the same complete
+// native verifier. Earlier rows never acquire authority from being retained.
+fn authenticate_finality_journal(
+    journal: &NativeFinalityJournal,
+    chain_id: &iroha_model_base::chain::ChainId,
+    network_id: NetworkId,
+    end: u64,
+    deadline: Instant,
+) -> Result<Vec<CertifiedBlock>> {
+    let limits = finality_limits();
     let cursor = NativeJournalCursor::new(
         chain_id.clone(),
         network_id,
@@ -974,11 +968,10 @@ fn finality_chain_from_proofs(
     )
     .map_err(|error| eyre!(error))?;
     let blocks = with_verified_native_journal(
-        (&journal).into(),
+        journal.into(),
         chain_id,
         &network_id,
         limits,
-        cursor.attestations(),
         cursor.allocation_budget(),
         |reader| {
             reader
@@ -992,6 +985,139 @@ fn finality_chain_from_proofs(
         Instant::now() < deadline,
         "committee proof verification deadline elapsed"
     );
+    Ok(blocks)
+}
+
+// A terminal ceremony callback owns its original base and every acquired suffix
+// row. Only actual new heights are requested; failure drops those original owners
+// rather than resetting quotas, truncating for retry or refetching old frames.
+// TODO: fund HTTP/DTO graphs and journal metadata/codec scratch independently;
+// unchanged source bounds and native decoder counters are not full pool custody.
+fn append_contiguous_finality_chain_until(
+    client: &Client,
+    network_id: NetworkId,
+    signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
+    journal: NativeFinalityJournal,
+    end: u64,
+    deadline: Instant,
+) -> Result<NativeFinalityJournal> {
+    let source = client.client().with_request_deadline(deadline);
+    append_finality_chain_from_proofs(
+        client.client().chain(),
+        network_id,
+        signed_genesis_hash,
+        journal,
+        end,
+        deadline,
+        interval_finality_fetch(&source, end),
+    )
+}
+
+fn append_finality_chain_from_proofs(
+    chain_id: &iroha_model_base::chain::ChainId,
+    network_id: NetworkId,
+    signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
+    journal: NativeFinalityJournal,
+    end: u64,
+    deadline: Instant,
+    fetch: impl FnMut(NonZeroU64) -> Result<iroha::data_model::sumeragi_finality::SumeragiFinalityProof>,
+) -> Result<NativeFinalityJournal> {
+    let base = u64::try_from(journal.blocks.len())?;
+    ensure!(
+        base >= 2 && base < end,
+        "rotation phase must extend an original H2+ journal"
+    );
+    extend_finality_chain_from_proofs(
+        chain_id,
+        network_id,
+        signed_genesis_hash,
+        journal,
+        end,
+        deadline,
+        fetch,
+    )
+    .map(|(journal, _)| journal)
+}
+
+// Staking observations may name the same immutable tip. Every observation still runs
+// the complete native verifier; only already acquired physical source rows are retained.
+fn extend_finality_chain_from_proofs(
+    chain_id: &iroha_model_base::chain::ChainId,
+    network_id: NetworkId,
+    signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
+    mut journal: NativeFinalityJournal,
+    end: u64,
+    deadline: Instant,
+    mut fetch: impl FnMut(
+        NonZeroU64,
+    ) -> Result<iroha::data_model::sumeragi_finality::SumeragiFinalityProof>,
+) -> Result<(NativeFinalityJournal, Vec<CertifiedBlock>)> {
+    ensure!(
+        (2..=MAX_QUALIFICATION_HEIGHT).contains(&end),
+        "committee proof cut exceeds its explicit disposable bound"
+    );
+    ensure!(
+        network_id.into_genesis_hash() == signed_genesis_hash,
+        "network differs from independent signed genesis"
+    );
+    ensure!(
+        Instant::now() < deadline,
+        "committee proof retrieval deadline elapsed"
+    );
+    let limits = finality_limits();
+    journal
+        .validate_source(limits)
+        .map_err(|error| eyre!(error))?;
+    let base = u64::try_from(journal.blocks.len())?;
+    ensure!(
+        base >= 2 && base <= end,
+        "retained observation must preserve or extend its original H2+ journal"
+    );
+    eprintln!(
+        "rotation finality prefix acquisition: base={base} target={end} planned_new_rows={}",
+        end - base
+    );
+    let mut source_bytes = journal.blocks.iter().try_fold(0_usize, |count, artifact| {
+        count
+            .checked_add(artifact.block_wire.len())
+            .ok_or_else(|| eyre!("committee proof source size overflow"))
+    })?;
+    for height in base + 1..=end {
+        ensure!(
+            Instant::now() < deadline,
+            "committee proof retrieval deadline elapsed"
+        );
+        let proof = fetch(NonZeroU64::new(height).expect("successors are nonzero"))?;
+        ensure!(
+            proof.height() == height,
+            "committee proof differs from requested height"
+        );
+        ensure!(
+            !proof.block_wire.is_empty() && proof.block_wire.len() <= limits.block_bytes,
+            "committee proof exceeds its block source bound"
+        );
+        source_bytes = source_bytes
+            .checked_add(proof.block_wire.len())
+            .ok_or_else(|| eyre!("committee proof source size overflow"))?;
+        ensure!(
+            source_bytes <= limits.journal_bytes,
+            "committee proof exceeds its journal source bound"
+        );
+        proof.decode_checked()?;
+        journal
+            .blocks
+            .try_reserve(1)
+            .map_err(|error| eyre!(error))?;
+        journal.blocks.push(NativeFinalityArtifact {
+            block_wire: proof.block_wire,
+        });
+    }
+    eprintln!(
+        "rotation finality prefix acquired: base={base} target={end} actual_new_rows={}",
+        end - base
+    );
+    let blocks = authenticate_finality_journal(&journal, chain_id, network_id, end, deadline)?;
+    eprintln!("rotation finality prefix verified: tip={end}");
     Ok((journal, blocks))
 }
 
@@ -1158,10 +1284,6 @@ fn prove_exact_target_readiness(
     let context = transition
         .readiness_context(index)
         .map_err(|error| eyre!(error))?;
-    let credentials = transition
-        .credentials
-        .as_ref()
-        .ok_or_else(|| eyre!("readiness requires complete prepared credentials"))?;
     let roster = transition
         .preparation
         .committee
@@ -1201,13 +1323,12 @@ fn prove_exact_target_readiness(
     custody.import_components(validated.clone(), output.signer_index, components)?;
     ensure!(
         process.id() == output.validator,
-        "Pasta seed belongs to another process"
+        "beacon share belongs to another process"
     );
-    let pasta = process.disposable_mint_finality_readiness(&credentials.authority, &context)?;
     let beacon = prove_global_threshold_beacon_seat_readiness_v1(
         &custody,
         &validated,
-        &credentials.authority,
+        &transition.preparation.generation(),
         &context,
     )?;
     Ok(AdmitValidatorCommitteeSeatV1 {
@@ -1218,7 +1339,6 @@ fn prove_exact_target_readiness(
         target_epoch: transition.preparation.target_epoch,
         readiness: ValidatorCommitteeSeatReadinessV1 {
             validator_index: index,
-            pasta,
             beacon,
         },
     })
@@ -1308,11 +1428,11 @@ async fn execute_rotation_preparation(
     let dkg = run_disposable_rotation_dkg(
         &target_seats,
         &authorizing_seats,
-        &selection_evidence,
+        selection_evidence,
         input,
         provider_revision,
         certificate_height,
-        |height, deadline| {
+        |height, deadline, journal| {
             let admin = admin.clone();
             let voters = current_roster.clone();
             async move {
@@ -1330,14 +1450,14 @@ async fn execute_rotation_preparation(
                     "rotation DKG public phase missed exact h{height} observation"
                 );
                 read_on_dedicated_thread(move || {
-                    Ok(read_contiguous_finality_chain_until(
+                    append_contiguous_finality_chain_until(
                         &admin,
                         network_id,
                         signed_genesis_hash,
+                        journal,
                         height,
                         deadline,
-                    )?
-                    .0)
+                    )
                 })
                 .await
                 .wrap_err("rotation phase finality worker failed")
@@ -1371,7 +1491,13 @@ async fn execute_rotation_preparation(
     );
     read_on_dedicated_thread({
         let admin = admin.clone();
-        move || admin.submit_all(finalize, FeePaymentIntent::authority(Vec::new(), None))
+        let observer = admin.clone();
+        let deadline = Instant::now() + WAIT;
+        move || {
+            committee_status::submit_and_observe_until(admin, observer, deadline, |bounded| {
+                bounded.submit_all(finalize, FeePaymentIntent::authority(Vec::new(), None))
+            })
+        }
     })
     .await
     .wrap_err("rotation finalization worker failed")?;
@@ -1384,25 +1510,7 @@ async fn execute_rotation_preparation(
         session == dkg.public_session.record(),
         "on-chain pending beacon differs from the all-seat native transcript"
     );
-    let authority =
-        iroha::data_model::isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1 {
-            version: 1,
-            network_id,
-            generation: preparation.authority_generation,
-            validators: target
-                .iter()
-                .map(|peer| {
-                    finalized_status
-                        .candidate_keys
-                        .iter()
-                        .find(|row| row.keys.validator == *peer)
-                        .map(|row| row.keys.clone())
-                        .ok_or_else(|| eyre!("target seat has no exact published generation keys"))
-                })
-                .collect::<Result<Vec<_>>>()?,
-        };
     let credentials = ValidatorCommitteeCredentialsV1 {
-        authority,
         beacon: iroha::data_model::sumeragi::epoch::InstalledBeaconEpochBindingV1 {
             session_id: session.session_id,
             transcript_hash: session.transcript_hash,
@@ -1419,11 +1527,17 @@ async fn execute_rotation_preparation(
         .ok_or_else(|| eyre!("first target seat lacks an owning operator"))?
         .client
         .clone();
-    read_on_dedicated_thread(move || {
-        owner.submit(
-            SetParameter::new(Parameter::Custom(prepare.into_custom_parameter())),
-            FeePaymentIntent::authority(Vec::new(), None),
-        )
+    read_on_dedicated_thread({
+        let observer = admin.clone();
+        let deadline = Instant::now() + WAIT;
+        move || {
+            committee_status::submit_and_observe_until(owner, observer, deadline, |bounded| {
+                bounded.submit(
+                    SetParameter::new(Parameter::Custom(prepare.into_custom_parameter())),
+                    FeePaymentIntent::authority(Vec::new(), None),
+                )
+            })
+        }
     })
     .await
     .wrap_err("rotation credential preparation worker failed")?;
@@ -1477,7 +1591,6 @@ async fn execute_rotation_preparation(
         target_epoch,
         preparation.transition_id().map_err(|error| eyre!(error))?,
         finality_limits(),
-        proof_cursor.attestations(),
         &credential_budget,
     )
     .wrap_err("native custody evidence was not independently authorized")?;
@@ -1494,7 +1607,7 @@ async fn execute_rotation_preparation(
             .iter()
             .chain(network.committee_validators())
             .find(|peer| peer.id() == seat.validator)
-            .ok_or_else(|| eyre!("prepared seat has no owner-private Pasta seed process"))?;
+            .ok_or_else(|| eyre!("prepared seat has no owner-private beacon share process"))?;
         // Bind the public proof to this exact prepared challenge before native import
         // consumes the one-shot share. Only public evidence survives the restart.
         let admission = prove_exact_target_readiness(
@@ -1555,13 +1668,20 @@ async fn execute_rotation_preparation(
             .ok_or_else(|| eyre!("prepared seat lacks a real owning operator"))?
             .client
             .clone();
-        read_on_dedicated_thread(move || {
-            owner.submit(
-                SetParameter::new(Parameter::Custom(
-                    ValidatorCommitteeOperationV1::AdmitSeat(admission).into_custom_parameter(),
-                )),
-                FeePaymentIntent::authority(Vec::new(), None),
-            )
+        read_on_dedicated_thread({
+            let observer = admin.clone();
+            let deadline = Instant::now() + WAIT;
+            move || {
+                committee_status::submit_and_observe_until(owner, observer, deadline, |bounded| {
+                    bounded.submit(
+                        SetParameter::new(Parameter::Custom(
+                            ValidatorCommitteeOperationV1::AdmitSeat(admission)
+                                .into_custom_parameter(),
+                        )),
+                        FeePaymentIntent::authority(Vec::new(), None),
+                    )
+                })
+            }
         })
         .await
         .wrap_err("target seat readiness admission worker failed")?;
@@ -1576,7 +1696,13 @@ async fn execute_rotation_preparation(
             selected.transition.readiness.len()
                 == target.len() - usize::from(missing_custody.is_some())
         }),
-        "on-chain seat readiness does not match actual provisioned target custody"
+        "on-chain seat readiness does not match actual provisioned target custody: epoch {target_epoch}, observer {}, expected {}, observed {:?}",
+        admin.client().endpoint(),
+        target.len() - usize::from(missing_custody.is_some()),
+        readiness
+            .selected
+            .as_ref()
+            .map(|selected| selected.transition.readiness.len()),
     );
     Ok(PreparedRotation {
         target,
@@ -1598,23 +1724,34 @@ async fn run_custody_or_activation_scenario(
     signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
     parliament_proposal: Option<iroha::data_model::governance::types::ProposalKind>,
 ) -> Result<()> {
-    ensure!(
-        !scenario.withholds_keys(),
-        "custody scenario cannot withhold fresh generation keys"
-    );
-    let missing = if scenario == QualificationScenario::MissingTargetCustody {
-        first_preparation
+    let missing = match scenario {
+        QualificationScenario::ActivateSevenThenReturnFour => None,
+        QualificationScenario::MissingTargetCustody => first_preparation
             .committee
             .iter()
             .map(|seat| &seat.validator)
             .find(|peer| !genesis_voters.contains(*peer))
-            .cloned()
-    } else {
-        None
+            .cloned(),
+        _ => first_preparation
+            .committee
+            .iter()
+            .map(|seat| &seat.validator)
+            .find(|peer| genesis_voters.contains(*peer))
+            .or_else(|| {
+                (scenario != QualificationScenario::WithheldIncumbentCustody)
+                    .then(|| {
+                        first_preparation
+                            .committee
+                            .first()
+                            .map(|seat| &seat.validator)
+                    })
+                    .flatten()
+            })
+            .cloned(),
     };
     ensure!(
-        scenario != QualificationScenario::MissingTargetCustody || missing.is_some(),
-        "missing-custody scenario requires a genuine new target process"
+        scenario == QualificationScenario::ActivateSevenThenReturnFour || missing.is_some(),
+        "retention scenario requires its exact missing target custodian"
     );
     let first_current = genesis_current_custody(genesis_dkg, genesis_catalogs)?;
     let first = execute_rotation_preparation(
@@ -1629,19 +1766,19 @@ async fn run_custody_or_activation_scenario(
     )
     .await?;
     ensure!(
-        first.target.len() == 7 && first.prepared.len() == 7 - usize::from(missing.is_some()),
-        "first target custody preparation did not preserve exact seven-seat membership"
+        first.target.len() == scenario.selected_seats()
+            && first.prepared.len() == first.target.len() - usize::from(missing.is_some()),
+        "first target custody preparation did not preserve the exact selected membership"
     );
-    let governance_pulse = if scenario == QualificationScenario::ActivateSevenThenReturnFour {
+    // The request is registered inside E+1 and stays pending: its slot is the boundary
+    // pulse at CUTOFF - 1, which the chain finalizes for its own committee election.
+    let pending_sortition = if scenario == QualificationScenario::ActivateSevenThenReturnFour {
         Some(
-            committee_parliament::exercise(
-                network,
+            committee_parliament::request(
                 admin,
-                genesis_voters,
                 first_preparation,
                 genesis_dkg.public_session.record(),
                 first._dkg.public_session.record(),
-                signed_genesis_hash,
                 parliament_proposal.ok_or_else(|| {
                     eyre!("complete rotation lacks its admitted Parliament proposal")
                 })?,
@@ -1676,14 +1813,23 @@ async fn run_custody_or_activation_scenario(
                 .get(peer)
                 .ok_or_else(|| eyre!("exiting candidate lacks a real owner"))?
                 .clone();
+            let deadline = Instant::now() + WAIT;
+            let observer = admin.clone();
             read_on_dedicated_thread(move || {
-                owner.client.submit(
-                    ExitPublicLaneValidator {
-                        lane_id: LaneId::SINGLE,
-                        validator: owner.account,
-                        release_at_ms: committee_staking::finite_release_deadline()?,
+                committee_status::submit_and_observe_until(
+                    owner.client,
+                    observer,
+                    deadline,
+                    |bounded| {
+                        bounded.submit(
+                            ExitPublicLaneValidator {
+                                lane_id: LaneId::SINGLE,
+                                validator: owner.account,
+                                release_at_ms: committee_staking::finite_release_deadline()?,
+                            },
+                            FeePaymentIntent::authority(Vec::new(), None),
+                        )
                     },
-                    FeePaymentIntent::authority(Vec::new(), None),
                 )
             })
             .await
@@ -1716,13 +1862,65 @@ async fn run_custody_or_activation_scenario(
     })
     .await
     .wrap_err("first cutoff finality worker failed")?;
-    if let Some(pulse) = &governance_pulse {
-        committee_parliament::verify_boundary(
-            &cutoff_chain,
-            pulse,
-            genesis_dkg.public_session.record(),
-        )?;
-    }
+    let governance_pulse = pending_sortition
+        .as_ref()
+        .map(|pending| {
+            committee_parliament::verify_boundary(
+                &cutoff_chain,
+                pending,
+                genesis_dkg.public_session.record(),
+                genesis_voters,
+                &first_preparation.eligibility.xor_asset_definition_id,
+            )
+        })
+        .transpose()?;
+    let genesis = cutoff_chain
+        .first()
+        .ok_or_else(|| eyre!("missing authenticated signed genesis"))?;
+    ensure!(
+        genesis
+            .commitment()
+            .schedule
+            .current
+            .authorization
+            .authority_generation
+            == 0,
+        "actual signed genesis must establish the initial validator generation"
+    );
+    let genesis_roster = genesis
+        .commitment()
+        .schedule
+        .current
+        .committee
+        .iter()
+        .map(|seat| seat.validator.clone())
+        .collect::<BTreeSet<_>>();
+    ensure!(
+        genesis_roster == *genesis_voters,
+        "signed genesis differs from the independently built roster"
+    );
+    let selection = cutoff_chain
+        .iter()
+        .find(|block| block.height() == SELECTION)
+        .ok_or_else(|| eyre!("missing native selecting boundary"))?;
+    verify_equal_vote_context(selection, genesis_voters)?;
+    ensure!(
+        selection
+            .commitment()
+            .schedule
+            .boundary
+            .as_ref()
+            .is_some_and(|boundary| { boundary.preparation.as_ref() == Some(first_preparation) }),
+        "the complete selected preparation must be frozen in the incumbent boundary QC"
+    );
+    let selection_status = read_validator_committee(admin, first_preparation.target_epoch).await?;
+    ensure!(
+        selection_status.selected.as_ref().is_some_and(|selected| {
+            NativeFinalityArtifact::from_block(selection.block(), finality_limits())
+                .is_ok_and(|artifact| artifact == selected.selecting_finality)
+        }),
+        "committee status must retain the exact authenticated selecting certificate"
+    );
     let cutoff = cutoff_chain
         .last()
         .ok_or_else(|| eyre!("first cutoff lacks authenticated finality"))?;
@@ -1740,7 +1938,7 @@ async fn run_custody_or_activation_scenario(
                 == first_preparation
                     .transition_id()
                     .map_err(|error| eyre!(error))?,
-        "first cutoff does not decide the exact frozen seven-seat attempt"
+        "first cutoff does not decide the exact frozen committee attempt"
     );
     if let Some(withheld) = missing {
         ensure!(
@@ -1762,7 +1960,7 @@ async fn run_custody_or_activation_scenario(
             .ok_or_else(|| eyre!("terminal status lost the frozen attempt"))?
             .transition;
         ensure!(
-            transition.readiness.len() == 6
+            transition.readiness.len() == first.target.len() - 1
                 && !transition.readiness.iter().any(|row| {
                     usize::try_from(row.validator_index)
                         .ok()
@@ -1810,9 +2008,31 @@ async fn run_custody_or_activation_scenario(
     let seven_set = first.target.iter().cloned().collect::<BTreeSet<_>>();
     verify_equal_vote_context(seven, &seven_set)?;
     ensure!(
-        seven.commitment().schedule.current.authority.generation == 1,
-        "seven-seat activation did not publish the new Pasta generation"
+        seven
+            .commitment()
+            .schedule
+            .current
+            .authorization
+            .authority_generation
+            == 1,
+        "seven-seat activation did not publish the new validator generation"
     );
+    // Real-peer exercise of the rotation rule: the draw is consumed only now, under the
+    // seven-seat committee and its new key session, against the retained boundary session.
+    if let (Some(pending), Some(pulse)) = (&pending_sortition, &governance_pulse) {
+        committee_parliament::consume_after_rotation(
+            network,
+            admin,
+            &seven_set,
+            pending,
+            pulse,
+            genesis_dkg.public_session.record(),
+            first._dkg.public_session.record(),
+            signed_genesis_hash,
+            &first_preparation.eligibility.xor_asset_definition_id,
+        )
+        .await?;
+    }
     let status = read_validator_committee(&admin, 3).await?;
     let return_preparation = status
         .selected
@@ -1840,7 +2060,7 @@ async fn run_custody_or_activation_scenario(
         .difference(&return_target)
         .next()
         .ok_or_else(|| eyre!("seven-seat committee has no departing validator"))?;
-    let lifecycle = committee_staking::fund_rewards_and_schedule_withdrawal(
+    let lifecycle = committee_staking::schedule_retained_withdrawal(
         network,
         admin,
         operators
@@ -1851,20 +2071,6 @@ async fn run_custody_or_activation_scenario(
         signed_genesis_hash,
     )
     .await?;
-    read_on_dedicated_thread({
-        let operators = operators.clone();
-        let processes = network
-            .validators()
-            .iter()
-            .chain(network.committee_validators())
-            .map(|peer| (peer.id(), peer.clone()))
-            .collect::<BTreeMap<_, _>>();
-        let return_target = return_target.clone();
-        let network_id = network.network_id();
-        move || publish_selected(&operators, &processes, &return_target, None, network_id, 2)
-    })
-    .await
-    .wrap_err("return generation key worker failed")?;
     let seven_current = prepared_current_custody(&first.prepared)?;
     let second = execute_rotation_preparation(
         network,
@@ -1935,7 +2141,12 @@ async fn run_custody_or_activation_scenario(
         .ok_or_else(|| eyre!("four-seat return lacks finality"))?;
     verify_equal_vote_context(four, &return_target)?;
     ensure!(
-        four.commitment().schedule.current.authority.generation == 2,
+        four.commitment()
+            .schedule
+            .current
+            .authorization
+            .authority_generation
+            == 2,
         "4→7→4 did not complete the second authenticated signing generation"
     );
     lifecycle
@@ -1946,7 +2157,7 @@ async fn run_custody_or_activation_scenario(
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum QualificationScenario {
-    WithheldIncumbentKeys,
+    WithheldIncumbentCustody,
     FiveCandidateRetention,
     ElevenCandidateRetention,
     MissingTargetCustody,
@@ -1962,15 +2173,6 @@ impl QualificationScenario {
         }
     }
 
-    fn withholds_keys(self) -> bool {
-        matches!(
-            self,
-            Self::WithheldIncumbentKeys
-                | Self::FiveCandidateRetention
-                | Self::ElevenCandidateRetention
-        )
-    }
-
     fn selected_seats(self) -> usize {
         let available = self.pool_size().min(7);
         3 * ((available - 1) / 3) + 1
@@ -1978,7 +2180,7 @@ impl QualificationScenario {
 
     fn seed(self) -> &'static str {
         match self {
-            Self::WithheldIncumbentKeys => "npos-eight-candidates-withheld-keys",
+            Self::WithheldIncumbentCustody => "npos-eight-candidates-withheld-custody",
             Self::FiveCandidateRetention => "npos-five-candidates-retention",
             Self::ElevenCandidateRetention => "npos-eleven-candidates-retention",
             Self::MissingTargetCustody => "npos-eight-candidates-missing-custody",
@@ -2010,7 +2212,6 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
         .with_max_validator_capacity(7)
         .with_auto_populated_trusted_peers()
         .with_npos_consensus()
-        .with_disposable_mint_finality_custody()
         .with_npos_genesis_bootstrap(1_000_u64.into())
         .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
             SumeragiParameter::EpochLengthBlocks(NonZeroU64::new(EPOCH).expect("nonzero epoch")),
@@ -2061,7 +2262,9 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
                     advance_exact_genesis_phase(network_ref, height, deadline).await?;
                     let observed = read_on_dedicated_thread({
                         let admin = admin.clone();
-                        move || -> Result<u64> { Ok(committee_status::height_until_blocking(&admin, deadline)?) }
+                        move || -> Result<u64> {
+                            Ok(committee_status::height_until_blocking(&admin, deadline)?)
+                        }
                     })
                     .await
                     .wrap_err("genesis phase status worker failed")?;
@@ -2070,7 +2273,9 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
                         "genesis DKG public phase missed exact h{height} observation"
                     );
                     read_on_dedicated_thread(move || {
-                        read_genesis_dkg_finality_chain(&admin, network_id, block_hash, height, deadline)
+                        read_genesis_dkg_finality_chain(
+                            &admin, network_id, block_hash, height, deadline,
+                        )
                     })
                     .await
                     .wrap_err("genesis phase finality worker failed")
@@ -2080,10 +2285,15 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
         .await?;
         let install: Vec<InstructionBox> =
             norito::json::from_slice(&fs::read(&genesis_dkg.install_instruction_path)?)?;
-        ensure!(install.len() == 1, "native genesis install must emit one instruction");
+        ensure!(
+            install.len() == 1,
+            "native genesis install must emit one instruction"
+        );
         let next_height = read_on_dedicated_thread({
             let admin = admin.clone();
-            move || -> Result<u64> { Ok(committee_status::height_until_blocking(&admin, Instant::now() + WAIT)? + 1) }
+            move || -> Result<u64> {
+                Ok(committee_status::height_until_blocking(&admin, Instant::now() + WAIT)? + 1)
+            }
         })
         .await
         .wrap_err("genesis install height worker failed")?;
@@ -2102,7 +2312,8 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
         network.start_all().await?;
         network.ensure_blocks(5).await?;
         ensure!(
-            network.validators().len() == 4 && network.committee_validators().len() == supplementary,
+            network.validators().len() == 4
+                && network.committee_validators().len() == supplementary,
             "fixture must start four genesis voters and the exact separate candidate pool"
         );
         let network_id = network.network_id();
@@ -2117,25 +2328,15 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
             .chain(network.committee_validators())
             .map(|peer| peer.id())
             .collect::<BTreeSet<_>>();
-        ensure!(pool.len() == pool_size, "all candidate BLS keys must be distinct");
-        let pasta = network
-            .validators()
-            .iter()
-            .chain(network.committee_validators())
-            .map(|peer| peer.disposable_mint_finality_keys(0))
-            .collect::<Result<Vec<_>>>()?;
         ensure!(
-            pasta.iter().map(|keys| keys.eq_proof_public_key).collect::<BTreeSet<_>>().len() == pool_size
-                && pasta
-                    .iter()
-                    .map(|keys| keys.ep_proof_public_key)
-                    .collect::<BTreeSet<_>>()
-                    .len()
-                    == pool_size,
-            "all processes must hold independent real Pasta signing custody"
+            pool.len() == pool_size,
+            "all candidate BLS keys must be distinct"
         );
         let escrow = validator_xor_escrow(&network.genesis(), &xor)?;
-        ensure!(escrow.definition == xor, "genesis escrow must hold actual XOR");
+        ensure!(
+            escrow.definition == xor,
+            "genesis escrow must hold actual XOR"
+        );
         let operators = network
             .validators()
             .iter()
@@ -2143,10 +2344,8 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
             .map(|peer| {
                 let account = peer.account_id();
                 let client = rebind_blocking_client(
-                    &network.validators()[0].client_for(
-                        &account,
-                        peer.streaming_key_pair().private_key().clone(),
-                    ),
+                    &network.validators()[0]
+                        .client_for(&account, peer.streaming_key_pair().private_key().clone()),
                     |builder| builder.transaction_status_timeout = WAIT,
                 );
                 Ok((
@@ -2154,8 +2353,14 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
                     Operator {
                         account,
                         peer: peer.id(),
-                        consensus_key: peer.bls_key_pair().ok_or_else(|| eyre!("missing real BLS candidate key"))?.clone(),
-                        pop: peer.bls_pop().ok_or_else(|| eyre!("missing real BLS possession proof"))?.to_vec(),
+                        consensus_key: peer
+                            .bls_key_pair()
+                            .ok_or_else(|| eyre!("missing real BLS candidate key"))?
+                            .clone(),
+                        pop: peer
+                            .bls_pop()
+                            .ok_or_else(|| eyre!("missing real BLS possession proof"))?
+                            .to_vec(),
                         client,
                     },
                 ))
@@ -2168,7 +2373,11 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
             .collect::<Vec<_>>();
         let candidates = fresh_peers
             .iter()
-            .map(|peer| operators.get(peer).ok_or_else(|| eyre!("missing candidate operator")))
+            .map(|peer| {
+                operators
+                    .get(peer)
+                    .ok_or_else(|| eyre!("missing candidate operator"))
+            })
             .collect::<Result<Vec<_>>>()?;
         let initial_height = read_on_dedicated_thread({
             let admin = admin.clone();
@@ -2180,24 +2389,46 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
                 .collect::<Vec<_>>();
             move || -> Result<u64> {
                 admit_candidates(&admin, &candidates, network_id, &xor, &escrow)?;
-                Ok(committee_status::height_until_blocking(&admin, Instant::now() + WAIT)?)
+                Ok(committee_status::height_until_blocking(
+                    &admin,
+                    Instant::now() + WAIT,
+                )?)
             }
         })
         .await
         .wrap_err("candidate admission worker failed")?;
-        ensure!(initial_height < SELECTION, "candidate pool did not enter the selecting prestate");
-        let parliament_proposal = if scenario == QualificationScenario::ActivateSevenThenReturnFour {
+        ensure!(
+            initial_height < SELECTION,
+            "candidate pool did not enter the selecting prestate"
+        );
+        let parliament_proposal = if scenario == QualificationScenario::ActivateSevenThenReturnFour
+        {
             committee_parliament::fund_and_register_citizens(
-                &network, &admin, &xor, genesis_bundle.block_hash,
-            ).await?;
+                &network,
+                &admin,
+                &xor,
+                genesis_bundle.block_hash,
+            )
+            .await?;
             Some(committee_parliament::stage_proposal(&admin).await?)
         } else {
             None
         };
-        let initial_roster = network.validators().iter().map(|peer| peer.id()).collect::<Vec<_>>();
-        advance_to_height(&network, &initial_roster, SELECTION).await?;
+        let initial_roster = network
+            .validators()
+            .iter()
+            .map(|peer| peer.id())
+            .collect::<Vec<_>>();
+        // Selection is certified at the final height of E. Preparation evidence
+        // must also certify an E+1 block under the preparing authorization. The
+        // progress helper stops exactly at its target, so pay for that successor
+        // explicitly instead of relying on an accidental boundary overshoot.
+        advance_to_height(&network, &initial_roster, SELECTION + 1).await?;
         let before = read_validator_committee(&admin, 2).await?;
-        let selected = before.selected.as_ref().ok_or_else(|| eyre!("boundary did not freeze E+2"))?;
+        let selected = before
+            .selected
+            .as_ref()
+            .ok_or_else(|| eyre!("boundary did not freeze E+2"))?;
         let preparation = selected.transition.preparation.clone();
         preparation.validate().map_err(|error| eyre!(error))?;
         let target = preparation
@@ -2224,127 +2455,24 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
         );
         for seat in &preparation.committee {
             ensure!(
-                operators.get(&seat.validator).is_some_and(|operator| operator.pop == seat.proof_of_possession),
+                operators
+                    .get(&seat.validator)
+                    .is_some_and(|operator| operator.pop == seat.proof_of_possession),
                 "frozen seat must carry its real BLS possession proof"
             );
         }
-        let withheld = if scenario.withholds_keys() {
-            Some(
-                target
-                    .intersection(&genesis_voters)
-                    .next()
-                    .or_else(|| {
-                        (scenario != QualificationScenario::WithheldIncumbentKeys)
-                            .then(|| target.iter().next())
-                            .flatten()
-                    })
-                    .cloned()
-                    .ok_or_else(|| eyre!("selected target lacks the required withholding seat"))?,
-            )
-        } else {
-            None
-        };
-        let selected_id = preparation.transition_id().map_err(|error| eyre!(error))?;
-        read_on_dedicated_thread({
-            let target = target.clone();
-            let withheld = withheld.clone();
-            let operators = operators.clone();
-            let processes = network
-                .validators()
-                .iter()
-                .chain(network.committee_validators())
-                .map(|peer| (peer.id(), peer.clone()))
-                .collect::<BTreeMap<_, _>>();
-            move || publish_selected(
-                &operators,
-                &processes,
-                &target,
-                withheld.as_ref(),
-                network_id,
-                1,
-            )
-        })
-        .await
-        .wrap_err("candidate key publication worker failed")?;
-        let progress = read_validator_committee(&admin, 2).await?;
-        ensure!(
-            progress.candidate_keys.len() == seats - usize::from(withheld.is_some())
-                && progress.selected.as_ref().is_some_and(|row| row.transition.preparation == preparation),
-            "selected key publications differ from the exact frozen committee"
-        );
-        if let Some(withheld) = &withheld {
-            ensure!(
-                progress.candidate_keys.iter().all(|row| row.keys.validator != *withheld),
-                "the selected withholding seat must genuinely lack its fresh generation keys"
-            );
-        } else {
-            return run_custody_or_activation_scenario(
-                scenario,
-                &network,
-                &admin,
-                &genesis_dkg,
-                &genesis_catalogs,
-                &operators,
-                &genesis_voters,
-                &pool,
-                &preparation,
-                genesis_bundle.block_hash,
-                parliament_proposal,
-            )
-            .await;
-        }
-        advance_to_height(&network, &initial_roster, CUTOFF).await?;
-        let (selection_proof, cutoff_proof) = read_on_dedicated_thread({
-            let admin = admin.clone();
-            let voters = genesis_voters.clone();
-            move || read_finality_chain(&admin, network_id, &voters, CUTOFF)
-        })
-        .await
-        .wrap_err("boundary finality worker failed")?;
-        verify_equal_vote_context(&selection_proof, &genesis_voters)?;
-        verify_equal_vote_context(&cutoff_proof, &genesis_voters)?;
-        ensure!(
-            NativeFinalityArtifact::from_block(selection_proof.block(), finality_limits()).map_err(|error| eyre!(error))? == selected.selecting_finality,
-            "committee status must attach the exact authenticated selecting certificate"
-        );
-        let selected_snapshot = selection_proof
-            .commitment().schedule.boundary
-            .as_ref()
-            .ok_or_else(|| eyre!("selection boundary lacks a finalized next-epoch snapshot"))?;
-        ensure!(
-            selected_snapshot.preparation.as_ref() == Some(&preparation),
-            "the complete selected preparation must be frozen in the incumbent boundary QC"
-        );
-        let cutoff_snapshot = cutoff_proof
-            .commitment().schedule.boundary
-            .as_ref()
-            .ok_or_else(|| eyre!("cutoff lacks an incumbent-certified next epoch"))?;
-        let authorization = &cutoff_snapshot.next.authorization;
-        ensure!(
-            authorization.decision == ValidatorEpochDecisionV1::RetainAndCancel
-                && authorization.epoch == 2
-                && authorization.authority_generation == 0
-                && authorization.transition_id == selected_id
-                && cutoff_snapshot.next.authority
-                    == selection_proof.commitment().schedule.current.authority
-                && cutoff_snapshot.next.committee == selection_proof.commitment().schedule.current.committee,
-            "a missing target key must cancel this exact attempt while retaining all four incumbent seats"
-        );
-        let terminal = read_validator_committee(&admin, 2).await?;
-        ensure!(
-            terminal.selected.as_ref().is_some_and(|row| {
-                row.transition.preparation == preparation
-                    && row.transition.outcome.as_ref() == Some(authorization)
-            }),
-            "retained transition outcome must match its finality-certified body"
-        );
-        prove_retained_successor_after_restart(
+        run_custody_or_activation_scenario(
+            scenario,
             &network,
             &admin,
+            &genesis_dkg,
+            &genesis_catalogs,
+            &operators,
             &genesis_voters,
+            &pool,
             &preparation,
-            &cutoff_proof,
             genesis_bundle.block_hash,
+            parliament_proposal,
         )
         .await
     }
@@ -2354,9 +2482,9 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn overfull_pool_freezes_seven_then_missing_incumbent_keys_certify_four_retained()
+async fn overfull_pool_freezes_seven_then_missing_incumbent_custody_certifies_four_retained()
 -> Result<()> {
-    run_overfull_qualification(QualificationScenario::WithheldIncumbentKeys).await
+    run_overfull_qualification(QualificationScenario::WithheldIncumbentCustody).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2370,7 +2498,7 @@ async fn eleven_candidates_freeze_exact_seven_and_certify_retention_without_rero
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn complete_keys_and_dkg_but_missing_target_custody_certifies_four_retained() -> Result<()> {
+async fn complete_dkg_but_missing_target_custody_certifies_four_retained() -> Result<()> {
     run_overfull_qualification(QualificationScenario::MissingTargetCustody).await
 }
 
@@ -2530,6 +2658,224 @@ fn committee_history_public_proofs_require_the_exact_genesis_anchored_prefix() -
         )
         .is_err()
     );
+    Ok(())
+}
+
+#[test]
+fn committee_rotation_history_queries_only_successors_and_reuses_original_frames() -> Result<()> {
+    use iroha_core::{
+        state::{StateReadOnly as _, World},
+        sumeragi::{
+            finality::build_proof,
+            test_chain::{CertifiedTestChain, TestChainConfig},
+        },
+    };
+    let mut chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 30_000))
+        .map_err(|error| eyre!("native history fixture startup failed: {error:?}"))?;
+    // commit_at supplies actual clock-account Log work; these are not empty blocks.
+    for at in 30_001..=30_004 {
+        chain.commit_at(at, Vec::new());
+    }
+    let view = chain.state().view();
+    let chain_id = view.chain_id().clone();
+    let proofs = (1..=5)
+        .map(|height| build_proof(&view, height))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let fetch = |height: NonZeroU64| Ok(proofs[usize::try_from(height.get() - 1)?].clone());
+    let (mut journal, _) = finality_chain_from_proofs(
+        &chain_id,
+        chain.network_id(),
+        chain.genesis().hash(),
+        2,
+        Instant::now() + WAIT,
+        fetch,
+    )?;
+    let mut original = journal
+        .blocks
+        .iter()
+        .map(|artifact| {
+            (
+                artifact.block_wire.as_ptr(),
+                artifact.block_wire.capacity(),
+                artifact.block_wire.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut requested = Vec::new();
+    let deadline = Instant::now() + WAIT;
+    for end in 3..=5 {
+        journal = append_finality_chain_from_proofs(
+            &chain_id,
+            chain.network_id(),
+            chain.genesis().hash(),
+            journal,
+            end,
+            deadline,
+            |height| {
+                requested.push(height.get());
+                fetch(height)
+            },
+        )?;
+        assert_eq!(journal.blocks.len(), usize::try_from(end)?);
+        for (artifact, (pointer, capacity, bytes)) in journal.blocks.iter().zip(&original) {
+            assert_eq!(artifact.block_wire.as_ptr(), *pointer);
+            assert_eq!(artifact.block_wire.capacity(), *capacity);
+            assert_eq!(&artifact.block_wire, bytes);
+        }
+        let retained_count = original.len();
+        original.extend(journal.blocks.iter().skip(retained_count).map(|artifact| {
+            (
+                artifact.block_wire.as_ptr(),
+                artifact.block_wire.capacity(),
+                artifact.block_wire.clone(),
+            )
+        }));
+        let (fresh, _) = finality_chain_from_proofs(
+            &chain_id,
+            chain.network_id(),
+            chain.genesis().hash(),
+            end,
+            deadline,
+            fetch,
+        )?;
+        assert_eq!(
+            norito::encode_canonical(&journal)?,
+            norito::encode_canonical(&fresh)?
+        );
+    }
+    assert_eq!(
+        requested,
+        [3, 4, 5],
+        "old prefix rows must never be fetched again"
+    );
+    Ok(())
+}
+
+#[test]
+fn committee_rotation_history_refuses_changed_prefix_missing_rows_and_expired_deadline()
+-> Result<()> {
+    use iroha_core::{
+        state::{StateReadOnly as _, World},
+        sumeragi::{
+            finality::build_proof,
+            test_chain::{CertifiedTestChain, TestChainConfig},
+        },
+    };
+    let mut chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 40_000))
+        .map_err(|error| eyre!("native history fixture startup failed: {error:?}"))?;
+    chain.commit_at(40_001, Vec::new());
+    chain.commit_at(40_002, Vec::new());
+    let view = chain.state().view();
+    let chain_id = view.chain_id().clone();
+    let proofs = (1..=3)
+        .map(|height| build_proof(&view, height))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let fetch = |height: NonZeroU64| Ok(proofs[usize::try_from(height.get() - 1)?].clone());
+    let (base, _) = finality_chain_from_proofs(
+        &chain_id,
+        chain.network_id(),
+        chain.genesis().hash(),
+        2,
+        Instant::now() + WAIT,
+        fetch,
+    )?;
+    for policy in 0..4 {
+        let mut original = base.clone();
+        let mut end = 3;
+        let mut independent = chain.genesis().hash();
+        let mut deadline = Instant::now() + WAIT;
+        let expected = match policy {
+            0 => {
+                original.blocks.pop();
+                "rotation phase must extend an original H2+ journal"
+            }
+            1 => {
+                end = 2;
+                "rotation phase must extend an original H2+ journal"
+            }
+            2 => {
+                independent = iroha::crypto::HashOf::from_untyped_unchecked(Hash::new(
+                    b"foreign independent genesis",
+                ));
+                "network differs from independent signed genesis"
+            }
+            _ => {
+                deadline = Instant::now();
+                "committee proof retrieval deadline elapsed"
+            }
+        };
+        let error = append_finality_chain_from_proofs(
+            &chain_id,
+            chain.network_id(),
+            independent,
+            original,
+            end,
+            deadline,
+            |_| panic!("invalid prefix/deadline must refuse before fetching"),
+        )
+        .expect_err("terminal admission cannot return a phase journal");
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+    let error = append_finality_chain_from_proofs(
+        &chain_id,
+        chain.network_id(),
+        chain.genesis().hash(),
+        base.clone(),
+        3,
+        Instant::now() + WAIT,
+        |_| Err(eyre!("original successor read refused")),
+    )
+    .expect_err("original source failure terminates the ceremony");
+    assert_eq!(error.to_string(), "original successor read refused");
+    for changed in 0..3 {
+        let mut original = base.clone();
+        let mut successor = proofs[2].clone();
+        match changed {
+            0 => original.blocks[0].block_wire[0] ^= 1,
+            1 => {
+                original.blocks.swap(0, 1);
+            }
+            _ => {
+                successor.committee.pop();
+            }
+        }
+        let mut requested = Vec::new();
+        assert!(
+            append_finality_chain_from_proofs(
+                &chain_id,
+                chain.network_id(),
+                chain.genesis().hash(),
+                original,
+                3,
+                Instant::now() + WAIT,
+                |height| {
+                    requested.push(height.get());
+                    Ok(successor.clone())
+                },
+            )
+            .is_err(),
+            "changed original native prefix/proof metadata must not publish"
+        );
+        assert_eq!(requested, [3]);
+    }
+    let mut requested = Vec::new();
+    assert!(
+        append_finality_chain_from_proofs(
+            &chain_id,
+            chain.network_id(),
+            chain.genesis().hash(),
+            base,
+            3,
+            Instant::now() + WAIT,
+            |height| {
+                requested.push(height.get());
+                Ok(proofs[1].clone())
+            },
+        )
+        .is_err(),
+        "a returned predecessor cannot replace the exact requested successor"
+    );
+    assert_eq!(requested, [3]);
     Ok(())
 }
 

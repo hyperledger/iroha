@@ -824,6 +824,7 @@ impl ExecuteSingularQuery for SingularQueryBox {
             FindAbiVersion,
             FindAssetById,
             FindAssetDefinitionById,
+            FindAssetDefinitionDirectHome,
             FindNftSaleOfferById,
             FindGameSessionById,
             FindExecutionProofVerificationById,
@@ -6314,7 +6315,10 @@ mod tests {
         let third = ranked_asset_definition(names[2], ranks[2]);
         let ids = [first.id().clone(), second.id().clone(), third.id().clone()];
         (
-            World::with([domain], [account], [first, second, third]),
+            with_global_reader(
+                World::with([domain], [account], [first, second, third]),
+                &ALICE_ID,
+            ),
             ids,
         )
     }

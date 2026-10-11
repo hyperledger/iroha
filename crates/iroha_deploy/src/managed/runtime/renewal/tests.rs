@@ -126,6 +126,7 @@ fn backwards_utc_cannot_extend_retained_renewal_timer_across_a_fresh_observation
     let mut budget = Budget {
         started: mono,
         timeout: TURN_MAXIMUM,
+        startup_deadline_ns: None,
         utc_ceiling_unix_ms: None,
         cancelled: Arc::new(AtomicBool::new(false)),
         progress: Arc::new(Progress::default()),
@@ -139,6 +140,7 @@ fn backwards_utc_cannot_extend_retained_renewal_timer_across_a_fresh_observation
     budget.cap_to_expiries([remapped; 3], TURN_MAXIMUM).unwrap();
     assert_eq!((budget.timeout, budget.utc_ceiling_unix_ms), retained);
     let mut expired = Budget {
+        startup_deadline_ns: None,
         utc_ceiling_unix_ms: Some(utc - 1),
         ..budget
     };

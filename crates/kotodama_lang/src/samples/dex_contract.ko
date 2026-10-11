@@ -1,5 +1,6 @@
 // Minimal DEX helpers using supported syntax.
 seiyaku DexContract {
+    permission Admin;
     // Asset precision is settlement policy; choose it explicitly for each pool.
     const int INPUT_PRECISION = 18;
     const int OUTPUT_PRECISION = 18;
@@ -32,7 +33,7 @@ seiyaku DexContract {
         quantity amount_in,
         quantity reserve_in,
         quantity reserve_out,
-    ) -> quantity authorize("Admin") {
+    ) authorize(Admin) -> quantity {
         let out = quote_sell(
             reserve_in: reserve_in,
             reserve_out: reserve_out,
@@ -43,14 +44,12 @@ seiyaku DexContract {
             destination: pool,
             asset_definition: input_asset,
             amount: amount_in,
-            dataspace: DataSpaceId::parse("0"),
         );
         ledger::asset::transfer(
             source: pool,
             destination: trader,
             asset_definition: output_asset,
             amount: out,
-            dataspace: DataSpaceId::parse("0"),
         );
         return out;
     }

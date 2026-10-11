@@ -145,22 +145,10 @@ REQUIRED_SNIPPETS = {
     "crates/iroha_core/src/executor.rs": (
         "iroha_panic_hook::catch_unwind_suppressed",
     ),
-    "crates/iroha_core_zk/src/kagemusha_v1_recursion/accumulation.rs": (
-        "iroha_panic_hook::catch_unwind_suppressed",
-    ),
-    "crates/iroha_core_zk/src/kagemusha_v1_recursion/native_backend.rs": (
-        "iroha_panic_hook::catch_unwind_suppressed",
-    ),
 }
 
 FORBIDDEN_RECOVERY_SNIPPETS = {
     "crates/iroha_core/src/executor.rs": (
-        "std::panic::catch_unwind",
-    ),
-    "crates/iroha_core_zk/src/kagemusha_v1_recursion/accumulation.rs": (
-        "std::panic::catch_unwind",
-    ),
-    "crates/iroha_core_zk/src/kagemusha_v1_recursion/native_backend.rs": (
         "std::panic::catch_unwind",
     ),
     "crates/iroha_torii/src/privacy_issuance_api.rs": (
@@ -177,8 +165,6 @@ REVIEWED_TORII_BOUNDARY_INVENTORY = Path(
 CORE_RECOVERY_SOURCE_PATHS = (
     Path("crates/iroha_core/src/executor.rs"),
     Path("crates/iroha_core_zk/src/lib.rs"),
-    Path("crates/iroha_core_zk/src/kagemusha_v1_recursion/accumulation.rs"),
-    Path("crates/iroha_core_zk/src/kagemusha_v1_recursion/native_backend.rs"),
 )
 CORE_RECOVERY_SUPPORT_PATHS = tuple(
     Path("crates/iroha_core/src") / name
@@ -215,6 +201,10 @@ CORE_RECOVERY_SUPPORT_PATHS = tuple(
         "executor_fastpq_rejection_tail/tests.rs",
         "executor_fastpq_rejection_tail/sponsored_alias_tests.rs",
         "executor_sns_attempt_tests.rs",
+        "executor_dpn_domain_enrollment_tests.rs",
+        "executor_opaque_sccp_record_tests.rs",
+        "executor/fee_sponsor_multisig.rs",
+        "executor/fee_sponsor_multisig_tests.rs",
         "executor_runtime_memory_tests.rs",
         "executor_public_pin_admission_tests.rs",
         "executor_opaque_monetary_tests.rs",
@@ -227,6 +217,7 @@ AUDITED_SOURCE_PATHS = (
     Path("crates/irohad"),
     Path("crates/iroha_panic_hook/src"),
     Path("crates/iroha_core_zk/src"),
+    Path("crates/iroha_kagemusha_proof/tests/common/proof_fixtures/omega_hard_fixture.rs"),
     Path("crates/sorafs_manifest/src/signer/final_promotion/tests/statement_fixture_support.rs"),
     Path("crates/sorafs_manifest/src/signer/final_promotion/tests/statement_fixture.message"),
     *CORE_RECOVERY_SOURCE_PATHS,
@@ -875,39 +866,6 @@ def _rust_path_literal(token: str) -> str | None:
     if raw is not None:
         return raw.group("body")
     return None
-
-
-def _halo2_parameter_source_test_boundary_failures(source: str) -> list[str]:
-    """Keep the sole reviewed raw catch inside the exact test-only module."""
-
-    tokens = _rust_tokens(source)
-    texts = [token.text for token in tokens]
-    name = "halo2_ipa_parameter_source_tests"
-    modules = [
-        index for index in range(len(tokens) - 2)
-        if texts[index:index + 3] == ["mod", name, "{"]
-    ]
-    calls = [
-        index for index, token in enumerate(tokens)
-        if token.text == "catch_unwind" and _is_rust_call(tokens, index)
-    ]
-    if len(modules) != 1 or len(calls) != 1:
-        return ["Halo2 parameter-source boundary requires exactly one module and raw call"]
-    module = modules[0]
-    contexts = _inline_module_contexts(tokens)
-    cfg_test = ["#", "[", "cfg", "(", "test", ")", "]"]
-    brace_depth = sum(token.text == "{" for token in tokens[:module]) - sum(
-        token.text == "}" for token in tokens[:module]
-    )
-    if (
-        module < len(cfg_test)
-        or texts[module - len(cfg_test):module] != cfg_test
-        or contexts[module] != ()
-        or brace_depth != 0
-        or contexts[calls[0]] != (name,)
-    ):
-        return ["reviewed raw catch_unwind must remain inside the top-level cfg(test) Halo2 parameter-source module"]
-    return []
 
 
 def _attribute_end(tokens: list[RustToken], start: int) -> int | None:
@@ -1718,9 +1676,7 @@ def main() -> int:
 
     reviewed_raw_catch_counts = {
         "crates/iroha_core/src/executor.rs": 0,
-        "crates/iroha_core_zk/src/lib.rs": 1,
-        "crates/iroha_core_zk/src/kagemusha_v1_recursion/accumulation.rs": 0,
-        "crates/iroha_core_zk/src/kagemusha_v1_recursion/native_backend.rs": 0,
+        "crates/iroha_core_zk/src/lib.rs": 0,
     }
     for relative, expected_count in reviewed_raw_catch_counts.items():
         source = (ROOT / relative).read_text(encoding="utf-8")
@@ -1731,8 +1687,6 @@ def main() -> int:
                 f"{relative}: raw catch_unwind call count drifted "
                 f"(expected {expected_count}, found {len(lines)} at {rendered})"
             )
-    zk_source = (ROOT / "crates/iroha_core_zk/src/lib.rs").read_text(encoding="utf-8")
-    failures.extend(_halo2_parameter_source_test_boundary_failures(zk_source))
 
     final_audited_paths = torii_audited_files(ROOT)
     final_source_closure = torii_rust_source_closure(ROOT, final_audited_paths)

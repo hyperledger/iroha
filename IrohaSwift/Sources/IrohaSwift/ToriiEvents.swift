@@ -370,7 +370,7 @@ public enum ToriiProofEvent: Sendable, Equatable {
 
 /// A proof record identity: verifier backend and proof hash.
 public struct ToriiProofId: Sendable, Hashable {
-    /// Verifier-registry backend label, e.g. `halo2/ipa`.
+    /// Verifier-registry backend label, e.g. `pipa-r/pasta`.
     public let backend: String
     /// Proof hash: 64 lowercase hexadecimal digits.
     public let proofHashHex: String

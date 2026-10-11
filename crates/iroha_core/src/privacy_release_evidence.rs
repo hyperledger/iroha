@@ -7,7 +7,6 @@
 //! cross the release-evidence boundary so release gates can authenticate, persist, and
 //! exact-compare what production verified.
 /// Pure governed final Kaigi proof fixtures; ledger installation belongs to signed network instructions.
-#[cfg(feature = "zk-halo2")]
 pub mod kaigi;
 mod network_actions;
 mod retained_native;

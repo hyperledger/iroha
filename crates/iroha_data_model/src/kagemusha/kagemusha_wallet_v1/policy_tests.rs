@@ -13,7 +13,7 @@ use crate::kagemusha::kagemusha_wallet_v1::{
             IdentityFixture, identity_fixture, raw_output, signing_key, test_certificate,
         },
     },
-    poseidon::kagemusha_wallet_poseidon_v1,
+    poseidon::{KagemushaWalletIndexedTreeV1, kagemusha_wallet_poseidon_v1},
     state::{KagemushaWalletLifecycleV1, state_tests::field_value},
 };
 
@@ -249,14 +249,48 @@ impl PolicyFixture {
     ) -> KagemushaWalletStateV1 {
         let mut state = self.state();
         let policy = self.scheme_policy(1, KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1, [0; 32]);
-        let updates = [
-            Some(KagemushaWalletPolicyUpdateV1::SchemePolicy { policy: &policy }),
-            list.map(|list| KagemushaWalletPolicyUpdateV1::Blacklist { list }),
-            share.map(|share| KagemushaWalletPolicyUpdateV1::QuotaShare { share, usage: &[] }),
-            anchor.map(|anchor| KagemushaWalletPolicyUpdateV1::TimeAnchor { anchor }),
-        ];
-        for update in updates.into_iter().flatten() {
-            let refresh = state.refresh_policy(update).expect("refresh");
+        let refresh = state
+            .refresh_policy(KagemushaWalletPolicyUpdateV1::SchemePolicy { policy: &policy })
+            .expect("scheme policy");
+        state.core = refresh.core;
+        state.rest = refresh.rest;
+        if let Some(list) = list {
+            let mut history = KagemushaWalletIndexedTreeV1::new();
+            assert_eq!(history.root(), state.rest.blacklist_history_root);
+            let insertion = KagemushaWalletBlacklistHistoryLeafV1 {
+                list_version: list.body.list_version,
+                entries_root: list.body.entries_root,
+            }
+            .insert_into(&mut history)
+            .expect("original blacklist history insertion");
+            let refresh = state
+                .refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist {
+                    list,
+                    history: &insertion,
+                })
+                .expect("blacklist");
+            state.core = refresh.core;
+            state.rest = refresh.rest;
+            assert_eq!(state.rest.blacklist_history_root, history.root());
+        }
+        if let Some(share) = share {
+            let usage = KagemushaWalletQuotaUsageArrayV1::empty();
+            assert_eq!(usage.root(), state.core.quota_usage_root);
+            let refresh = state
+                .refresh_policy(KagemushaWalletPolicyUpdateV1::QuotaShare {
+                    share,
+                    usage: &usage,
+                })
+                .expect("quota share");
+            let rebuilt = refresh.quota_usage.expect("installed native usage array");
+            assert_eq!(rebuilt.root(), refresh.core.quota_usage_root);
+            state.core = refresh.core;
+            state.rest = refresh.rest;
+        }
+        if let Some(anchor) = anchor {
+            let refresh = state
+                .refresh_policy(KagemushaWalletPolicyUpdateV1::TimeAnchor { anchor })
+                .expect("time anchor");
             state.core = refresh.core;
             state.rest = refresh.rest;
         }
@@ -447,7 +481,7 @@ fn kagemusha_wallet_v1_scheme_policy_sign_verify_decode() {
     assert_eq!(
         policy.scheme_policy_digest(),
         kagemusha_wallet_signed_object_digest_v1(
-            Role::SchemePolicy,
+            ObjectDomain::SchemePolicy,
             &kagemusha_wallet_signing_message_v1(Domain::SchemePolicy, &expected),
             &policy.signature
         )
@@ -727,6 +761,296 @@ fn kagemusha_wallet_v1_blacklist_gap_openings() {
         .expect("verify");
 }
 
+/// A digest of `fill` bytes with byte `index` set to `value`.
+fn digest_with(fill: u8, index: usize, value: u8) -> [u8; 32] {
+    let mut digest = [fill; 32];
+    digest[index] = value;
+    digest
+}
+
+/// Entries whose unsigned byte order and limb order differ (owner answer A4): the list is
+/// sorted, the tree built and gaps bracketed in limb order `hi · 2^128 + lo`.
+#[test]
+fn kagemusha_wallet_v1_blacklist_order_is_the_limb_order() {
+    // small_high has the larger byte 0 (byte order) but the smaller high limb (limb order).
+    let small_high = digest_with(0x10, 0, 0xf0);
+    let large_high = digest_with(0x10, 31, 0x11);
+    // At the limb boundary: full_low has the largest low limb, next_high the next high limb.
+    let mut full_low = [0x20_u8; 32];
+    full_low[..16].copy_from_slice(&[0xff; 16]);
+    let mut next_high = [0x20_u8; 32];
+    next_high[..16].copy_from_slice(&[0x00; 16]);
+    next_high[16] = 0x21;
+    assert!(
+        small_high > large_high && full_low > next_high,
+        "byte order puts them the other way"
+    );
+    let sorted = vec![
+        KagemushaWalletBlacklistEntryV1 {
+            account_digest: small_high,
+        },
+        KagemushaWalletBlacklistEntryV1 {
+            account_digest: large_high,
+        },
+        KagemushaWalletBlacklistEntryV1 {
+            account_digest: full_low,
+        },
+        KagemushaWalletBlacklistEntryV1 {
+            account_digest: next_high,
+        },
+    ];
+    let root = kagemusha_wallet_blacklist_root_v1(&sorted).expect("limb-ordered list");
+    assert_eq!(root, naive_blacklist_root(&sorted));
+    let mut byte_ordered = sorted.clone();
+    byte_ordered.sort_by_key(|entry| entry.account_digest);
+    assert!(is_invalid(
+        kagemusha_wallet_blacklist_root_v1(&byte_ordered),
+        "blacklist.order"
+    ));
+    let fixture = policy_fixture();
+    let list = fixture.blacklist(1, T0_MS, sorted);
+    for listed in [small_high, large_high, full_low, next_high] {
+        assert!(list.contains(&listed));
+        assert!(is_invalid(list.gap_opening(&listed), "blacklist.listed"));
+    }
+    // `between` lies between small_high and large_high in limb order but above both in byte
+    // order.
+    let between = digest_with(0x10, 0, 0xf1);
+    assert!(between > small_high && between > large_high);
+    assert!(!list.contains(&between));
+    let opening = list.gap_opening(&between).expect("gap");
+    assert_eq!(
+        (opening.leaf_index, opening.lower, opening.upper),
+        (1, small_high, large_high)
+    );
+    opening.verify(&root, &between).expect("verify");
+    // The byte-order reading would put `between` in the gap (large_high, full_low): limb order
+    // rejects it.
+    let byte_gap = list.gap_opening(&digest_with(0x10, 31, 0x12)).expect("gap");
+    assert_eq!((byte_gap.lower, byte_gap.upper), (large_high, full_low));
+    assert!(is_invalid(
+        byte_gap.verify(&root, &between),
+        "blacklist.listed"
+    ));
+    // full_low and next_high are adjacent integers across the limb boundary
+    // (full_low + 1 = next_high): their gap is empty. Just below full_low (in its low limb) is
+    // the gap (large_high, full_low); just above next_high is the gap (next_high, FF..FF),
+    // although byte 0 orders them the other way.
+    let mut below = full_low;
+    below[0] = 0xfe;
+    assert!(below > next_high);
+    let below = list.gap_opening(&below).expect("gap");
+    assert_eq!(
+        (below.leaf_index, below.lower, below.upper),
+        (2, large_high, full_low)
+    );
+    let mut beyond = next_high;
+    beyond[0] = 0x01;
+    let above = list.gap_opening(&beyond).expect("gap");
+    assert_eq!(
+        (above.leaf_index, above.lower, above.upper),
+        (4, next_high, KAGEMUSHA_WALLET_BLACKLIST_SENTINEL_HIGH_V1)
+    );
+    above.verify(&root, &beyond).expect("verify");
+}
+
+/// Two-sided enforcement (owner answer A5): each phone enforces only its own committed list,
+/// lists differ between phones, and with no list held every account is allowed at issuance.
+#[test]
+fn kagemusha_wallet_v1_two_sided_blacklist_checks() {
+    let f = policy_fixture();
+    let anchor = f.time_anchor(T0_MS);
+    let payer_account = [0x15; 32];
+    let receiver_account = [0x25; 32];
+    let early = interval(T0_MS + 10, T0_MS + 20);
+    let stale = interval(T0_MS, T0_MS + DAY_MS + 1);
+
+    // Phone A lists the receiver; phone B lists the payer; phone C lists neither.
+    let lists_receiver = f.blacklist(1, T0_MS, vec![entry(0x10), entry(0x25)]);
+    let lists_payer = f.blacklist(1, T0_MS, vec![entry(0x15), entry(0x30)]);
+    let lists_neither = f.blacklist(1, T0_MS, vec![entry(0x30)]);
+    let phone_a = f.controlled_state(Some(&lists_receiver), None, Some(&anchor));
+    let phone_b = f.controlled_state(Some(&lists_payer), None, Some(&anchor));
+    let phone_c = f.controlled_state(Some(&lists_neither), None, Some(&anchor));
+    for phone in [&phone_a, &phone_b, &phone_c] {
+        assert!(phone.enforces_blacklist());
+    }
+
+    // Payer side (Send): only the payer's own list counts.
+    assert!(is_invalid(
+        phone_a.check_send_blacklist(Some(&lists_receiver), &receiver_account, &early),
+        "blacklist.listed"
+    ));
+    assert!(
+        phone_b
+            .check_send_blacklist(Some(&lists_payer), &receiver_account, &early)
+            .expect("phone B does not list the receiver")
+            .is_some()
+    );
+    // Receiver side at Request issuance: only the receiver's own list counts.
+    assert!(is_invalid(
+        phone_b.check_request_blacklist(Some(&lists_payer), &payer_account),
+        "blacklist.listed"
+    ));
+    let opening = phone_a
+        .check_request_blacklist(Some(&lists_receiver), &payer_account)
+        .expect("phone A does not list the payer")
+        .expect("enforced");
+    opening
+        .verify(&phone_a.core.blacklist_root, &payer_account)
+        .expect("gap opening");
+    phone_c
+        .check_request_blacklist(Some(&lists_neither), &payer_account)
+        .expect("phone C allows the payer");
+    phone_c
+        .check_send_blacklist(Some(&lists_neither), &receiver_account, &early)
+        .expect("phone C allows the receiver");
+    // The list-age rule applies to Send only.
+    assert!(is_invalid(
+        phone_c.check_send_blacklist(Some(&lists_neither), &receiver_account, &stale),
+        "blacklist.age"
+    ));
+    // Each phone checks against its own committed list only: another phone's list, or none,
+    // is refused while a list is held.
+    assert!(is_invalid(
+        phone_c.check_request_blacklist(Some(&lists_payer), &payer_account),
+        "state.rest.blacklist"
+    ));
+    assert!(is_invalid(
+        phone_c.check_request_blacklist(None, &payer_account),
+        "blacklist.missing"
+    ));
+
+    // No list held (version 0): every account is allowed, with or without the control.
+    let no_list = f.controlled_state(None, None, Some(&anchor));
+    assert!(!no_list.enforces_blacklist());
+    assert_eq!(
+        no_list
+            .check_request_blacklist(None, &payer_account)
+            .expect("no list held"),
+        None
+    );
+    assert_eq!(
+        no_list
+            .check_send_blacklist(None, &receiver_account, &stale)
+            .expect("no list held, no age rule"),
+        None
+    );
+    // A held list without the enabled control is not enforced.
+    let mut disabled = phone_b;
+    disabled.core.enabled_controls &= !KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1;
+    assert!(!disabled.enforces_blacklist());
+    assert_eq!(
+        disabled
+            .check_request_blacklist(Some(&lists_payer), &payer_account)
+            .expect("control disabled"),
+        None
+    );
+}
+
+#[test]
+fn kagemusha_wallet_v1_blacklist_uses_little_endian_integer_order() {
+    let digest = |low: u8, high: u8| {
+        let mut digest = [0; 32];
+        digest[0] = low;
+        digest[31] = high;
+        digest
+    };
+    let entries = [
+        KagemushaWalletBlacklistEntryV1 {
+            account_digest: digest(0xff, 0x80),
+        },
+        KagemushaWalletBlacklistEntryV1 {
+            account_digest: digest(0x01, 0x90),
+        },
+        KagemushaWalletBlacklistEntryV1 {
+            account_digest: digest(0x00, 0xa0),
+        },
+    ];
+    // These stand-in account digests exceed the sigma field, and their byte order
+    // is the reverse of their integer order. Neither field canonicality nor
+    // array comparison is a valid account-ordering rule.
+    for entry in &entries {
+        assert!(
+            !super::super::digest::kagemusha_wallet_is_canonical_field_v1(&entry.account_digest)
+        );
+    }
+    for pair in entries.windows(2) {
+        assert!(pair[0].account_digest > pair[1].account_digest);
+        assert_eq!(pair[0].cmp(&pair[1]), Ordering::Less);
+        assert_eq!(pair[0].partial_cmp(&pair[1]), Some(Ordering::Less));
+    }
+    validate_blacklist_entries_v1(&entries).expect("integer-ordered entries");
+    let mut reversed = entries.to_vec();
+    reversed.reverse();
+    assert!(is_invalid(
+        validate_blacklist_entries_v1(&reversed),
+        "blacklist.order"
+    ));
+    reversed.sort();
+    assert_eq!(reversed, entries);
+    assert!(is_invalid(
+        validate_blacklist_entries_v1(&[entries[0], entries[0]]),
+        "blacklist.order"
+    ));
+
+    let f = policy_fixture();
+    let list = f.blacklist(1, T0_MS, entries.to_vec());
+    list.validate().expect("integer-ordered blacklist");
+    list.verify(f.scheme(), &f.regulator_certificate)
+        .expect("verify list");
+    let frame = norito::encode_canonical(&list).expect("encode");
+    let decoded = KagemushaWalletBlacklistV1::decode_canonical(&frame, &f.scheme_id())
+        .expect("decode integer-ordered list");
+    assert_eq!(decoded, list);
+    for listed in entries {
+        assert!(decoded.contains(&listed.account_digest));
+        assert!(is_invalid(
+            decoded.gap_opening(&listed.account_digest),
+            "blacklist.listed"
+        ));
+    }
+    for (account, leaf_index, lower, upper) in [
+        (digest(0x10, 0x70), 0, [0; 32], entries[0].account_digest),
+        (
+            digest(0x02, 0x85),
+            1,
+            entries[0].account_digest,
+            entries[1].account_digest,
+        ),
+        (
+            digest(0xfe, 0x95),
+            2,
+            entries[1].account_digest,
+            entries[2].account_digest,
+        ),
+        (digest(0x03, 0xb0), 3, entries[2].account_digest, [0xff; 32]),
+    ] {
+        assert!(!decoded.contains(&account));
+        let opening = decoded.gap_opening(&account).expect("integer gap");
+        assert_eq!(
+            (opening.leaf_index, opening.lower, opening.upper),
+            (leaf_index, lower, upper)
+        );
+        opening
+            .verify(&decoded.body.entries_root, &account)
+            .expect("verify integer gap");
+        for boundary in [lower, upper] {
+            assert!(is_invalid(
+                opening.verify(&decoded.body.entries_root, &boundary),
+                "blacklist.listed"
+            ));
+        }
+        let mut inverted = opening;
+        inverted.lower = upper;
+        inverted.upper = lower;
+        assert!(is_invalid(
+            inverted.verify(&decoded.body.entries_root, &account),
+            "blacklist.listed"
+        ));
+    }
+}
+
 #[test]
 fn kagemusha_wallet_v1_blacklist_sign_verify_decode() {
     let f = policy_fixture();
@@ -773,8 +1097,10 @@ fn kagemusha_wallet_v1_maximum_blacklist_fits_its_frame_cap() {
     let entries: Vec<KagemushaWalletBlacklistEntryV1> = (1
         ..=KAGEMUSHA_WALLET_BLACKLIST_ENTRIES_MAX_V1)
         .map(|index| {
+            // Limb order reads the 32 bytes as one little-endian integer, so the index goes
+            // little-endian into the least significant bytes.
             let mut account_digest = [0x01; 32];
-            account_digest[28..].copy_from_slice(&index.to_be_bytes());
+            account_digest[..4].copy_from_slice(&index.to_le_bytes());
             KagemushaWalletBlacklistEntryV1 { account_digest }
         })
         .collect();
@@ -994,51 +1320,107 @@ fn kagemusha_wallet_v1_quota_intersections_and_charges() {
     ));
 
     let share = f.quota_share(1, windows.clone());
+    let mut state = f.controlled_state(None, Some(&share), None);
+    let mut usage = KagemushaWalletQuotaUsageArrayV1::zero_for(&windows).expect("usage");
+    assert_eq!(usage.root(), state.core.quota_usage_root);
+    usage
+        .charge(0, 900, windows[0].limit)
+        .expect("prior charge");
+    // This component test selects the exact predecessor array with its matching head root.
+    // It tests the native pre-check and openings, not a folded monetary proof.
+    state.core.quota_usage_root = usage.root();
+    state.validate().expect("selected charged head");
     // An interval spanning midnight is charged in both daily windows and the month.
     let spanning = interval(T0_MS + DAY_MS - 5, T0_MS + DAY_MS + 5);
-    let touched = share.intersecting_windows(&spanning).expect("windows");
-    assert_eq!(touched.len(), 3);
-    let usage = [KagemushaWalletQuotaUsageLeafV1 {
-        window_kind: KagemushaWalletQuotaWindowKindV1::Daily,
-        window_start_ms: T0_MS,
-        window_end_ms: T0_MS + DAY_MS,
-        used: 900,
-    }];
-    let charged = share.charge_send(&spanning, 100, &usage).expect("charge");
+    let original = state;
+    let (charges, next_usage) = state
+        .check_send_quota(Some(&share), &usage, &spanning, 100)
+        .expect("charge");
+    assert_eq!(charges.len(), 3);
     assert_eq!(
-        charged.iter().map(|leaf| leaf.used).collect::<Vec<_>>(),
+        next_usage
+            .slots()
+            .iter()
+            .flatten()
+            .map(|leaf| leaf.used)
+            .collect::<Vec<_>>(),
         [1_000, 100, 100]
     );
-    assert!(windows[1].matches_usage(&charged[1]));
+    assert!(
+        next_usage
+            .leaf(1)
+            .expect("daily leaf")
+            .matches_window(&windows[1])
+    );
+    assert_eq!(
+        kagemusha_wallet_verify_quota_charges_v1(
+            &share.body.windows_root,
+            &usage.root(),
+            &charges,
+            100,
+        )
+        .expect("exact sequential native openings"),
+        next_usage.root()
+    );
+    assert_eq!(state, original);
     assert!(is_invalid(
-        share.charge_send(&spanning, 101, &usage),
+        state.check_send_quota(Some(&share), &usage, &spanning, 101),
         "quota_window.limit"
     ));
-    let mut moved_end = usage;
-    moved_end[0].window_end_ms += 1;
+    assert_eq!(state, original);
+    // A leaf with another end is not aligned with its authenticated window slot.
+    let mut moved_slots = *usage.slots();
+    moved_slots[0].as_mut().expect("daily usage").window_end_ms += 1;
+    let moved_end = KagemushaWalletQuotaUsageArrayV1::from_slots(moved_slots).expect("array");
     assert!(is_invalid(
-        share.charge_send(&spanning, 1, &moved_end),
-        "quota_usage.window_end_ms"
+        moved_end.validate_aligned(&windows),
+        "quota_usage.alignment"
+    ));
+    let mut moved_head = state;
+    moved_head.core.quota_usage_root = moved_end.root();
+    assert!(is_invalid(
+        moved_head.check_send_quota(Some(&share), &moved_end, &spanning, 1),
+        "quota_usage.alignment"
+    ));
+    // Sparse keyed usage is retired. Duplicate window identity cannot occupy another slot,
+    // and a repeated charge cannot reuse its opening to charge twice.
+    let mut repeated_slots = *usage.slots();
+    repeated_slots[1] = repeated_slots[0];
+    let repeated = KagemushaWalletQuotaUsageArrayV1::from_slots(repeated_slots).expect("array");
+    let mut repeated_head = state;
+    repeated_head.core.quota_usage_root = repeated.root();
+    assert!(is_invalid(
+        repeated_head.check_send_quota(Some(&share), &repeated, &spanning, 1),
+        "quota_usage.alignment"
     ));
     assert!(is_invalid(
-        share.charge_send(&spanning, 1, &[usage[0], usage[0]]),
-        "quota_usage.duplicate"
+        kagemusha_wallet_verify_quota_charges_v1(
+            &share.body.windows_root,
+            &usage.root(),
+            &[charges[0], charges[0]],
+            100,
+        ),
+        "quota_charge.order"
     ));
     // After the last daily window no daily window intersects, so Send is refused.
     let late = interval(T0_MS + 3 * DAY_MS, T0_MS + 3 * DAY_MS);
     assert!(is_invalid(
-        share.intersecting_windows(&late),
+        state.check_send_quota(Some(&share), &usage, &late, 1),
         "quota_share.no_window"
     ));
     let expired = interval(T0_MS, T0_MS + 40 * DAY_MS);
     assert!(is_invalid(
-        share.charge_send(&expired, 1, &[]),
+        state.check_send_quota(Some(&share), &usage, &expired, 1),
         "quota_share.expired"
     ));
-    share.validate_against_usage(&usage).expect("same end");
+    usage.validate_aligned(&windows).expect("same window end");
     assert!(is_invalid(
-        share.validate_against_usage(&moved_end),
-        "quota_usage.window_end_ms"
+        moved_end.validate_aligned(&windows),
+        "quota_usage.alignment"
+    ));
+    assert!(is_invalid(
+        state.check_send_quota(Some(&share), &next_usage, &spanning, 1),
+        "state.core.quota_usage_root"
     ));
 }
 
@@ -1164,11 +1546,11 @@ fn kagemusha_wallet_v1_effective_accepted_time() {
     let mut idle = f.state();
     idle.core.accepted_time_floor_ms = 50;
     assert_eq!(
-        idle.effective_accepted_time(None, &now, 40).expect("idle"),
+        idle.effective_accepted_time(None, None, 40).expect("idle"),
         interval(50, 50)
     );
     assert_eq!(
-        idle.effective_accepted_time(None, &now, 70).expect("idle"),
+        idle.effective_accepted_time(None, None, 70).expect("idle"),
         interval(70, 70)
     );
 
@@ -1178,26 +1560,37 @@ fn kagemusha_wallet_v1_effective_accepted_time() {
     let state = f.controlled_state(None, None, Some(&anchor));
     assert!(state.send_requires_time_anchor());
     assert!(is_invalid(
-        state.effective_accepted_time(None, &now, 0),
+        state.effective_accepted_time(None, None, 0),
         "time_anchor.missing"
+    ));
+    assert!(is_invalid(
+        state.effective_accepted_time(Some(&anchored), None, 0),
+        "time_anchor.observation_missing"
+    ));
+    // A held anchor still requires its observation with all controls disabled.
+    let mut idle_with_anchor = state;
+    idle_with_anchor.core.enabled_controls = 0;
+    assert!(is_invalid(
+        idle_with_anchor.effective_accepted_time(Some(&anchored), None, 0),
+        "time_anchor.observation_missing"
     ));
     // Anchor interval at m = 6_000 is [T + 4_700, T + 5_000].
     assert_eq!(
         state
-            .effective_accepted_time(Some(&anchored), &now, 0)
+            .effective_accepted_time(Some(&anchored), Some(&now), 0)
             .expect("anchored"),
         interval(T0_MS + 4_700, T0_MS + 5_000)
     );
     // The receiver's authenticated time raises L, and U never falls below L.
     assert_eq!(
         state
-            .effective_accepted_time(Some(&anchored), &now, T0_MS + 4_900)
+            .effective_accepted_time(Some(&anchored), Some(&now), T0_MS + 4_900)
             .expect("receiver time"),
         interval(T0_MS + 4_900, T0_MS + 5_000)
     );
     assert_eq!(
         state
-            .effective_accepted_time(Some(&anchored), &now, T0_MS + 9_000)
+            .effective_accepted_time(Some(&anchored), Some(&now), T0_MS + 9_000)
             .expect("receiver time"),
         interval(T0_MS + 9_000, T0_MS + 9_000)
     );
@@ -1212,13 +1605,13 @@ fn kagemusha_wallet_v1_effective_accepted_time() {
     )
     .expect("anchored");
     assert!(is_invalid(
-        state.effective_accepted_time(Some(&uncommitted), &now, 0),
+        state.effective_accepted_time(Some(&uncommitted), Some(&now), 0),
         "state.rest.time_anchor"
     ));
     let mut foreign = f.state();
     foreign.core.wallet_id = [0x0f; 32];
     assert!(is_invalid(
-        foreign.effective_accepted_time(Some(&anchored), &now, 0),
+        foreign.effective_accepted_time(Some(&anchored), Some(&now), 0),
         "time_anchor.wallet_id"
     ));
 }
@@ -1270,23 +1663,56 @@ fn kagemusha_wallet_v1_refresh_policy_rules() {
 
     // Blacklist, quota share and time anchor raise the floor to their signed time.
     let list = f.blacklist(1, T0_MS + 10, vec![entry(0x10)]);
+    let mut history = KagemushaWalletIndexedTreeV1::new();
+    assert_eq!(history.root(), state.rest.blacklist_history_root);
+    let insertion = KagemushaWalletBlacklistHistoryLeafV1 {
+        list_version: list.body.list_version,
+        entries_root: list.body.entries_root,
+    }
+    .insert_into(&mut history)
+    .expect("first history insertion");
+    let mut corrupted = insertion;
+    corrupted.low.value = [0xff; 32];
+    assert!(is_invalid(
+        state.refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist {
+            list: &list,
+            history: &corrupted,
+        }),
+        "blacklist_history.insert"
+    ));
     let refresh = state
-        .refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist { list: &list })
+        .refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist {
+            list: &list,
+            history: &insertion,
+        })
         .expect("blacklist");
     assert_eq!(refresh.core.blacklist_version, 1);
     assert_eq!(refresh.core.blacklist_root, list.body.entries_root);
+    assert_eq!(refresh.rest.blacklist_history_root, history.root());
     assert_eq!(refresh.core.accepted_time_floor_ms, T0_MS + 10);
     let mut listed = state;
     listed.core = refresh.core;
     listed.rest = refresh.rest;
     assert!(is_invalid(
-        listed.refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist { list: &list }),
+        listed.refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist {
+            list: &list,
+            history: &insertion,
+        }),
         "blacklist.list_version"
     ));
     let older = f.blacklist(2, T0_MS, vec![]);
+    let older_insertion = KagemushaWalletBlacklistHistoryLeafV1 {
+        list_version: older.body.list_version,
+        entries_root: older.body.entries_root,
+    }
+    .insert_into(&mut history)
+    .expect("next authentic history insertion");
     assert_eq!(
         listed
-            .refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist { list: &older })
+            .refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist {
+                list: &older,
+                history: &older_insertion,
+            })
             .expect("older issuance never lowers the floor")
             .core
             .accepted_time_floor_ms,
@@ -1294,34 +1720,52 @@ fn kagemusha_wallet_v1_refresh_policy_rules() {
     );
 
     let share = f.quota_share(1, sample_windows());
-    let usage = [KagemushaWalletQuotaUsageLeafV1 {
-        window_kind: KagemushaWalletQuotaWindowKindV1::Daily,
-        window_start_ms: T0_MS,
-        window_end_ms: T0_MS + DAY_MS + 1,
-        used: 1,
-    }];
+    let mut slots = *KagemushaWalletQuotaUsageArrayV1::zero_for(&share.windows)
+        .expect("native usage array")
+        .slots();
+    let leaf = slots[0].as_mut().expect("daily usage");
+    leaf.window_end_ms += 1;
+    leaf.used = 1;
+    let usage = KagemushaWalletQuotaUsageArrayV1::from_slots(slots).expect("native array");
     assert!(is_invalid(
         state.refresh_policy(KagemushaWalletPolicyUpdateV1::QuotaShare {
             share: &share,
-            usage: &usage
+            usage: &usage,
         }),
+        "state.core.quota_usage_root"
+    ));
+    // The original wrong-end control remains at the exact current rebuild relation;
+    // foreign predecessor bytes are independently refused by the head-root gate above.
+    assert!(is_invalid(
+        usage.rebuild_for_share(false, &share.windows, T0_MS, MAX_RESPONSE_MS),
         "quota_usage.window_end_ms"
     ));
+    let empty = KagemushaWalletQuotaUsageArrayV1::empty();
     let refresh = state
         .refresh_policy(KagemushaWalletPolicyUpdateV1::QuotaShare {
             share: &share,
-            usage: &[],
+            usage: &empty,
         })
         .expect("share");
     assert_eq!(refresh.rest.quota_share_id, 1);
-    assert_eq!(refresh.core.quota_usage_root, state.core.quota_usage_root);
+    let installed_usage = refresh.quota_usage.expect("installed array");
+    assert_eq!(refresh.core.quota_usage_root, installed_usage.root());
+    assert_eq!(
+        installed_usage,
+        KagemushaWalletQuotaUsageArrayV1::zero_for(&share.windows).expect("zero array")
+    );
+    assert_ne!(refresh.core.quota_usage_root, state.core.quota_usage_root);
+    assert_eq!(
+        refresh.core.quota_share_expires_at_ms,
+        share.body.expires_at_ms
+    );
     assert_eq!(refresh.core.accepted_time_floor_ms, T0_MS);
     let mut other_wallet = f.state();
     other_wallet.core.wallet_id = [0x0e; 32];
     assert!(is_invalid(
         other_wallet.refresh_policy(KagemushaWalletPolicyUpdateV1::QuotaShare {
             share: &share,
-            usage: &[],
+            usage: &empty,
         }),
         "quota_share.wallet_id"
     ));
@@ -1408,27 +1852,27 @@ fn kagemusha_wallet_v1_send_control_checks() {
 
     // Blacklist.
     let opening = state
-        .check_blacklist(Some(&list), &[0x15; 32], &early)
+        .check_send_blacklist(Some(&list), &[0x15; 32], &early)
         .expect("not listed")
         .expect("enforced");
     opening
         .verify(&state.core.blacklist_root, &[0x15; 32])
         .expect("opening");
     assert!(is_invalid(
-        state.check_blacklist(Some(&list), &[0x20; 32], &early),
+        state.check_send_blacklist(Some(&list), &[0x20; 32], &early),
         "blacklist.listed"
     ));
     assert!(is_invalid(
-        state.check_blacklist(None, &[0x15; 32], &early),
+        state.check_send_blacklist(None, &[0x15; 32], &early),
         "blacklist.missing"
     ));
     let other = f.blacklist(1, T0_MS, vec![entry(0x30)]);
     assert!(is_invalid(
-        state.check_blacklist(Some(&other), &[0x15; 32], &early),
+        state.check_send_blacklist(Some(&other), &[0x15; 32], &early),
         "state.rest.blacklist"
     ));
     assert!(is_invalid(
-        state.check_blacklist(
+        state.check_send_blacklist(
             Some(&list),
             &[0x15; 32],
             &interval(T0_MS, T0_MS + DAY_MS + 1)
@@ -1436,10 +1880,10 @@ fn kagemusha_wallet_v1_send_control_checks() {
         "blacklist.age"
     ));
     state
-        .check_blacklist(Some(&list), &[0x15; 32], &interval(T0_MS, T0_MS + DAY_MS))
+        .check_send_blacklist(Some(&list), &[0x15; 32], &interval(T0_MS, T0_MS + DAY_MS))
         .expect("exactly at the maximum age");
     assert!(matches!(
-        state.check_blacklist(Some(&list), &[0x15; 32], &interval(T0_MS - 2, T0_MS - 1)),
+        state.check_send_blacklist(Some(&list), &[0x15; 32], &interval(T0_MS - 2, T0_MS - 1)),
         Err(KagemushaWalletValidationErrorV1::ArithmeticOverflow {
             field: "blacklist.age"
         })
@@ -1448,54 +1892,75 @@ fn kagemusha_wallet_v1_send_control_checks() {
     let unlisted = f.controlled_state(None, Some(&share), Some(&anchor));
     assert_eq!(
         unlisted
-            .check_blacklist(None, &[0x20; 32], &early)
+            .check_send_blacklist(None, &[0x20; 32], &early)
             .expect("no list held"),
         None
     );
 
-    // Quotas.
-    let usage = state
-        .check_quota(Some(&share), &[], &early, 1_000)
+    // Quotas: the exact native array must open the payer head before any charge.
+    let predecessor = KagemushaWalletQuotaUsageArrayV1::zero_for(&share.windows).expect("usage");
+    assert_eq!(predecessor.root(), state.core.quota_usage_root);
+    let (charges, usage) = state
+        .check_send_quota(Some(&share), &predecessor, &early, 1_000)
         .expect("quota");
-    assert_eq!(usage.len(), 2);
+    assert_eq!(charges.len(), 2);
+    assert_eq!(
+        kagemusha_wallet_verify_quota_charges_v1(
+            &state.core.quota_windows_root,
+            &predecessor.root(),
+            &charges,
+            1_000,
+        )
+        .expect("quota witnesses"),
+        usage.root()
+    );
+    let mut successor_head = state;
+    successor_head.core.quota_usage_root = usage.root();
+    successor_head
+        .validate()
+        .expect("selected successor usage head");
     assert!(is_invalid(
-        state.check_quota(Some(&share), &usage, &early, 1),
+        successor_head.check_send_quota(Some(&share), &usage, &early, 1),
         "quota_window.limit"
     ));
     assert!(is_invalid(
-        state.check_quota(None, &[], &early, 1),
+        state.check_send_quota(None, &predecessor, &early, 1),
         "quota_share.missing"
     ));
     let other_share = f.quota_share(2, sample_windows());
     assert!(is_invalid(
-        state.check_quota(Some(&other_share), &[], &early, 1),
+        state.check_send_quota(Some(&other_share), &predecessor, &early, 1),
         "state.rest.quota_share"
     ));
-    assert!(
-        idle.check_quota(None, &[], &early, u128::MAX)
-            .expect("inactive quota")
-            .is_empty()
-    );
+    let empty = KagemushaWalletQuotaUsageArrayV1::empty();
+    let (inactive_charges, inactive_usage) = idle
+        .check_send_quota(None, &empty, &early, u128::MAX)
+        .expect("inactive quota");
+    assert!(inactive_charges.is_empty());
+    assert_eq!(inactive_usage, empty);
+    assert!(is_invalid(
+        idle.check_send_quota(None, &predecessor, &early, 1),
+        "state.core.quota_usage_root"
+    ));
 
-    // The committed digest binds the body and signature but not the windows: windows edited
-    // under the original body and signature are rejected before any charge.
+    // The committed digest binds body and signature; the signed windows root also binds
+    // every slot. Mutating windows under their original signed body fails before charging.
     let mut raised = share.clone();
     raised.windows[0].limit = u128::MAX;
     assert_eq!(raised.quota_share_digest(), share.quota_share_digest());
     assert!(is_invalid(
-        state.check_quota(Some(&raised), &[], &early, 1_001),
+        state.check_send_quota(Some(&raised), &predecessor, &early, 1_001),
+        "quota_share.windows_root"
+    ));
+    // The former partial share entry points are retired. Test their source checks directly
+    // at the current canonical body/window and native-slot relations as well.
+    assert!(is_invalid(raised.validate(), "quota_share.windows_root"));
+    assert!(is_invalid(
+        raised.body.validate_windows(&raised.windows),
         "quota_share.windows_root"
     ));
     assert!(is_invalid(
-        raised.charge_send(&early, 1_001, &[]),
-        "quota_share.windows_root"
-    ));
-    assert!(is_invalid(
-        raised.intersecting_windows(&early),
-        "quota_share.windows_root"
-    ));
-    assert!(is_invalid(
-        raised.validate_against_usage(&[]),
+        state.check_send_quota(Some(&raised), &predecessor, &early, 0),
         "quota_share.windows_root"
     ));
     let mut swapped = share.clone();
@@ -1506,7 +1971,7 @@ fn kagemusha_wallet_v1_send_control_checks() {
         1_000,
     );
     assert!(is_invalid(
-        state.check_quota(Some(&swapped), &[], &early, 1),
+        state.check_send_quota(Some(&swapped), &predecessor, &early, 1),
         "quota_share.windows_root"
     ));
     let mut dropped = share.clone();
@@ -1514,14 +1979,276 @@ fn kagemusha_wallet_v1_send_control_checks() {
         .windows
         .retain(|window| window.kind != KagemushaWalletQuotaWindowKindV1::Monthly);
     assert!(is_invalid(
-        state.check_quota(Some(&dropped), &[], &early, 1),
+        state.check_send_quota(Some(&dropped), &predecessor, &early, 1),
         "quota_share.window_count"
     ));
     let mut emptied = share.clone();
     emptied.windows.clear();
     assert!(is_invalid(
-        state.check_quota(Some(&emptied), &[], &early, 1),
+        state.check_send_quota(Some(&emptied), &predecessor, &early, 1),
         "quota_share.window_count"
+    ));
+    assert!(is_invalid(
+        state.check_send_quota(
+            Some(&share),
+            &predecessor,
+            &interval(T0_MS, T0_MS + MAX_RESPONSE_MS + 1),
+            1,
+        ),
+        "quota_share.time_span"
+    ));
+}
+
+/// Recorded blacklist decisions are authenticated under the receiving head's retained history;
+/// the current list and enabled control cannot replace the original recorded decision.
+#[test]
+fn kagemusha_wallet_v1_recorded_blacklist_uses_exact_history_and_original_gap() {
+    let f = policy_fixture();
+    let account = [0x15; 32];
+    let list = f.blacklist(1, T0_MS, vec![entry(0x10), entry(0x20)]);
+    list.verify(f.scheme(), &f.regulator_certificate)
+        .expect("signed list");
+    let state = f.controlled_state(Some(&list), None, None);
+    let history_entry = KagemushaWalletBlacklistHistoryLeafV1 {
+        list_version: list.body.list_version,
+        entries_root: list.body.entries_root,
+    };
+    let mut history = KagemushaWalletIndexedTreeV1::new();
+    history_entry
+        .insert_into(&mut history)
+        .expect("native history");
+    assert_eq!(history.root(), state.rest.blacklist_history_root);
+    let (history_leaf, history_opening) = history
+        .membership(&history_entry.key())
+        .expect("history lookup");
+    let proof = KagemushaWalletRecordedBlacklistProofV1 {
+        history_leaf,
+        history_opening,
+        gap: list
+            .gap_opening(&account)
+            .expect("original allowed account gap"),
+    };
+    state
+        .check_recorded_blacklist(1, &list.body.entries_root, &account, Some(&proof))
+        .expect("exact recorded decision");
+    assert!(is_invalid(
+        state.check_recorded_blacklist(1, &list.body.entries_root, &account, None),
+        "blacklist.recorded"
+    ));
+    assert!(is_invalid(
+        state.check_recorded_blacklist(0, &list.body.entries_root, &account, Some(&proof)),
+        "request.receiver_blacklist"
+    ));
+    assert!(is_invalid(
+        state.check_recorded_blacklist(1, &[0; 32], &account, Some(&proof)),
+        "request.receiver_blacklist"
+    ));
+    assert!(is_invalid(
+        state.check_recorded_blacklist(2, &list.body.entries_root, &account, Some(&proof)),
+        "blacklist_history.leaf"
+    ));
+    let foreign = f.blacklist(1, T0_MS, vec![entry(0x30)]);
+    assert!(is_invalid(
+        state.check_recorded_blacklist(1, &foreign.body.entries_root, &account, Some(&proof)),
+        "blacklist_history.leaf"
+    ));
+    let mut wrong_opening = proof;
+    wrong_opening.history_opening.siblings[0] = [0xff; 32];
+    assert!(is_invalid(
+        state.check_recorded_blacklist(1, &list.body.entries_root, &account, Some(&wrong_opening)),
+        "blacklist_history.opening"
+    ));
+    let mut wrong_gap = proof;
+    wrong_gap.gap.siblings[0] = [0xff; 32];
+    assert!(
+        state
+            .check_recorded_blacklist(1, &list.body.entries_root, &account, Some(&wrong_gap))
+            .is_err()
+    );
+    let original = state;
+    let later_list = f.blacklist(2, T0_MS + 1, vec![entry(0x15), entry(0x30)]);
+    let later_insertion = KagemushaWalletBlacklistHistoryLeafV1 {
+        list_version: later_list.body.list_version,
+        entries_root: later_list.body.entries_root,
+    }
+    .insert_into(&mut history)
+    .expect("later history insertion");
+    let refresh = state
+        .refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist {
+            list: &later_list,
+            history: &later_insertion,
+        })
+        .expect("later signed policy");
+    let mut later = state;
+    later.core = refresh.core;
+    later.rest = refresh.rest;
+    assert_eq!(later.rest.blacklist_history_root, history.root());
+    assert!(is_invalid(
+        later.check_request_blacklist(Some(&later_list), &account),
+        "blacklist.listed"
+    ));
+    let (history_leaf, history_opening) = history
+        .membership(&history_entry.key())
+        .expect("retained old pair");
+    let retained = KagemushaWalletRecordedBlacklistProofV1 {
+        history_leaf,
+        history_opening,
+        gap: proof.gap,
+    };
+    later
+        .check_recorded_blacklist(1, &list.body.entries_root, &account, Some(&retained))
+        .expect("original decision survives later listing");
+    assert!(is_invalid(
+        later.check_recorded_blacklist(1, &list.body.entries_root, &account, Some(&proof)),
+        "blacklist_history.opening"
+    ));
+    later.core.enabled_controls &= !KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1;
+    assert!(is_invalid(
+        later.check_recorded_blacklist(1, &list.body.entries_root, &account, None),
+        "blacklist.recorded"
+    ));
+    later
+        .check_recorded_blacklist(1, &list.body.entries_root, &account, Some(&retained))
+        .expect("disabled current control cannot excuse or add a recorded check");
+    later
+        .check_recorded_blacklist(0, &[0; 32], &account, None)
+        .expect("original no-list decision remains unconditionally allowed");
+    assert_eq!(state, original);
+}
+
+/// Quota refresh carries consumed usage by window identity, with original floor and response
+/// bounds. These are exact native component pre-checks, not a claim of folded σ authentication.
+#[test]
+fn kagemusha_wallet_v1_quota_refresh_preserves_consumption_and_original_bounds() {
+    let f = policy_fixture();
+    let windows = sample_windows();
+    let share = f.quota_share(1, windows.clone());
+    let mut state = f.controlled_state(None, Some(&share), None);
+    let usage = KagemushaWalletQuotaUsageArrayV1::zero_for(&windows).expect("usage");
+    assert_eq!(usage.root(), state.core.quota_usage_root);
+    let (charges, next_usage) = state
+        .check_send_quota(Some(&share), &usage, &interval(T0_MS, T0_MS + 10), 400)
+        .expect("original quota charges");
+    assert_eq!(
+        kagemusha_wallet_verify_quota_charges_v1(
+            &share.body.windows_root,
+            &usage.root(),
+            &charges,
+            400
+        )
+        .expect("authentic window and usage openings"),
+        next_usage.root()
+    );
+    state.core.quota_usage_root = next_usage.root();
+    let original = state;
+    let mut lowered = windows.clone();
+    lowered[0].limit = 399;
+    let lower_share = f.quota_share(2, lowered);
+    let refresh = state
+        .refresh_policy(KagemushaWalletPolicyUpdateV1::QuotaShare {
+            share: &lower_share,
+            usage: &next_usage,
+        })
+        .expect("lowering a cap never restores consumed quota");
+    let kept = refresh.quota_usage.expect("rebuilt array");
+    assert_eq!(kept, next_usage);
+    assert_eq!(refresh.core.quota_usage_root, next_usage.root());
+    assert_eq!(refresh.core.time_anchor_max_response_ms, MAX_RESPONSE_MS);
+    let mut lower_head = state;
+    lower_head.core = refresh.core;
+    lower_head.rest = refresh.rest;
+    assert!(is_invalid(
+        lower_head.check_send_quota(Some(&lower_share), &kept, &interval(T0_MS, T0_MS + 10), 1),
+        "quota_window.limit"
+    ));
+    let mut changed_end = windows.clone();
+    changed_end[0].end_ms -= 1;
+    let changed_share = f.quota_share(2, changed_end);
+    assert!(is_invalid(
+        state.refresh_policy(KagemushaWalletPolicyUpdateV1::QuotaShare {
+            share: &changed_share,
+            usage: &next_usage,
+        }),
+        "quota_usage.window_end_ms"
+    ));
+    let omitted_share = f.quota_share(2, windows[1..].to_vec());
+    assert!(is_invalid(
+        state.refresh_policy(KagemushaWalletPolicyUpdateV1::QuotaShare {
+            share: &omitted_share,
+            usage: &next_usage,
+        }),
+        "quota_usage.dropped"
+    ));
+    let mut short = windows.clone();
+    short[0].end_ms = T0_MS + MAX_RESPONSE_MS;
+    let short_share = f.quota_share(2, short);
+    assert!(is_invalid(
+        state.refresh_policy(KagemushaWalletPolicyUpdateV1::QuotaShare {
+            share: &short_share,
+            usage: &next_usage,
+        }),
+        "quota_share.window_length"
+    ));
+    let mut past = vec![window(
+        KagemushaWalletQuotaWindowKindV1::Daily,
+        T0_MS - 10_000,
+        T0_MS,
+        1_000,
+    )];
+    past.extend_from_slice(&windows);
+    let mut past_body = f.share_body(2, &past);
+    past_body.issued_at_ms = T0_MS - 10_000;
+    let past_share = KagemushaWalletQuotaShareV1::sign(
+        past_body,
+        past,
+        &f.regulator_certificate,
+        raw_output(&f.regulator, &past_body.signing_message()),
+    )
+    .expect("signed past window");
+    assert!(is_invalid(
+        state.refresh_policy(KagemushaWalletPolicyUpdateV1::QuotaShare {
+            share: &past_share,
+            usage: &next_usage,
+        }),
+        "quota_share.window_start_ms"
+    ));
+    assert!(is_invalid(
+        state.refresh_policy(KagemushaWalletPolicyUpdateV1::QuotaShare {
+            share: &omitted_share,
+            usage: &usage,
+        }),
+        "state.core.quota_usage_root"
+    ));
+    assert_eq!(state, original);
+    let anchor = f.time_anchor(T0_MS + DAY_MS);
+    let floor_refresh = state
+        .refresh_policy(KagemushaWalletPolicyUpdateV1::TimeAnchor { anchor: &anchor })
+        .expect("signed later accepted floor");
+    let mut ended = state;
+    ended.core = floor_refresh.core;
+    ended.rest = floor_refresh.rest;
+    let refresh = ended
+        .refresh_policy(KagemushaWalletPolicyUpdateV1::QuotaShare {
+            share: &omitted_share,
+            usage: &next_usage,
+        })
+        .expect("ended charged key may leave the array");
+    let ended_usage = refresh.quota_usage.expect("rebuilt ended array");
+    assert_eq!(refresh.core.accepted_time_floor_ms, T0_MS + DAY_MS);
+    assert_eq!(
+        ended_usage.leaf(1).expect("retained monthly window").used,
+        400
+    );
+    let mut readd_head = ended;
+    readd_head.core = refresh.core;
+    readd_head.rest = refresh.rest;
+    let readd = f.quota_share(3, windows);
+    assert!(is_invalid(
+        readd_head.refresh_policy(KagemushaWalletPolicyUpdateV1::QuotaShare {
+            share: &readd,
+            usage: &ended_usage,
+        }),
+        "quota_share.window_start_ms"
     ));
 }
 
@@ -1658,5 +2385,59 @@ fn kagemusha_wallet_v1_charge_quotes() {
         f.charge_body(KagemushaWalletChargeKindV1::Load, u128::MAX, 1)
             .validate(),
         Err(KagemushaWalletValidationErrorV1::ArithmeticOverflow { .. })
+    ));
+}
+
+#[test]
+fn kagemusha_wallet_v1_speculative_send_recheck_keeps_charge_only_inside_same_windows() {
+    let f = policy_fixture();
+    let anchor = f.time_anchor(T0_MS);
+    let list = f.blacklist(1, T0_MS, vec![entry(0x10)]);
+    let share = f.quota_share(1, sample_windows());
+    let state = f.controlled_state(Some(&list), Some(&share), Some(&anchor));
+    let usage = KagemushaWalletQuotaUsageArrayV1::zero_for(&share.windows).unwrap();
+    let original = state
+        .check_send_quota(Some(&share), &usage, &interval(T0_MS + 10, T0_MS + 20), 10)
+        .unwrap();
+    let later = state
+        .check_send_quota(Some(&share), &usage, &interval(T0_MS + 30, T0_MS + 40), 10)
+        .unwrap();
+    assert_eq!(
+        original, later,
+        "elapsed time alone must not invalidate the retained charge"
+    );
+    let crossed = state
+        .check_send_quota(
+            Some(&share),
+            &usage,
+            &interval(T0_MS + DAY_MS + 10, T0_MS + DAY_MS + 20),
+            10,
+        )
+        .unwrap();
+    assert_ne!(
+        original.0, crossed.0,
+        "the original sigma cannot authorize different touched slots"
+    );
+    assert_ne!(original.1, crossed.1);
+    assert!(is_invalid(
+        state.check_send_quota(
+            Some(&share),
+            &usage,
+            &interval(share.body.expires_at_ms - 1, share.body.expires_at_ms),
+            10
+        ),
+        "quota_share.expired"
+    ));
+    assert!(is_invalid(
+        state.check_lease(&interval(LEASE_MS - 1, LEASE_MS)),
+        "state.lease_expired"
+    ));
+    assert!(is_invalid(
+        state.check_send_blacklist(
+            Some(&list),
+            &[0x15; 32],
+            &interval(T0_MS + DAY_MS, T0_MS + DAY_MS + 1)
+        ),
+        "blacklist.age"
     ));
 }

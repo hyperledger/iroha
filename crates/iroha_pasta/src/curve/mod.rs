@@ -54,7 +54,7 @@ use core::ops::{Add, Mul, Neg, Sub};
 use group::prime::{PrimeCurve, PrimeCurveAffine};
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
 
-use crate::field::PastaField;
+use crate::{field::PastaField, poseidon::PoseidonField};
 
 mod sealed {
     /// Seals the curve traits to Pallas and Vesta.
@@ -101,10 +101,10 @@ pub trait PastaCurve:
     + Debug
     + zeroize::Zeroize
 {
-    /// The base field the curve is defined over.
-    type Base: PastaField;
-    /// The scalar field (the group order).
-    type ScalarExt: PastaField;
+    /// The base field, with its pinned RP57 Poseidon parameters.
+    type Base: PastaField + PoseidonField;
+    /// The scalar field (the group order), with pinned RP57 parameters.
+    type ScalarExt: PastaField + PoseidonField;
     /// The affine form.
     type AffineExt: PastaAffine<
             CurveExt = Self,
@@ -179,9 +179,9 @@ pub trait PastaAffine:
     + Mul<<Self as PastaAffine>::ScalarExt, Output = <Self as PastaAffine>::CurveExt>
 {
     /// The base field.
-    type Base: PastaField;
+    type Base: PastaField + PoseidonField;
     /// The scalar field.
-    type ScalarExt: PastaField;
+    type ScalarExt: PastaField + PoseidonField;
     /// The projective form.
     type CurveExt: PastaCurve<
             AffineExt = Self,

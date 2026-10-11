@@ -71,6 +71,9 @@ EXTRA_ZK_SOURCES = frozenset(
     }
 )
 COMPILER_MANIFESTS = {
+    Path("crates/iroha/tests/fixtures/contract_code_readback/code_readback.ko"): Path(
+        "crates/iroha/tests/fixtures/contract_code_readback/code_readback.manifest.json"
+    ),
     Path("demo/authority_probe.ko"): Path("demo/authority_probe.manifest.json"),
     Path("crates/kotodama_lang/src/samples/irohaswap.ko"): Path(
         "demo/irohaswap.manifest.json"
@@ -81,6 +84,7 @@ COMPILER_MANIFESTS = {
     ),
 }
 FORBIDDEN_LEGACY_OUTPUTS = (
+    Path("crates/iroha/tests/fixtures/contract_code_readback/provenance.json"),
     Path("crates/ivm/docs/examples/01_init.to"),
     Path("crates/ivm/docs/examples/02_entry_fn.to"),
     Path("crates/ivm/docs/examples/03_upgrade.to"),
@@ -937,8 +941,8 @@ def validate_additional_test_sources(
         # the template's relative koto_test target without rewriting its source.
         with tempfile.TemporaryDirectory(prefix="musubi-tests.", dir=staging_root) as raw:
             stage = Path(raw)
-            contract = stage / "contracts" / "coffee-club.ko"
-            test = stage / "tests" / "coffee-club.test.ko"
+            contract = stage / "contracts" / "scaffold.ko"
+            test = stage / "tests" / "scaffold.test.ko"
             contract.parent.mkdir()
             test.parent.mkdir()
             contract.write_bytes((root / "crates/musubi/templates/contract.ko").read_bytes())
@@ -1019,14 +1023,16 @@ def validate_contract_test_reports(json_output: str, junit_path: Path) -> None:
         report = json.loads(json_output)
     except json.JSONDecodeError as error:
         raise GoldenError(f"koto test emitted invalid JSON: {error}") from error
-    expected_report_keys = {"target", "seed", "passed", "failed", "tests"}
+    expected_report_keys = {"target", "seiyaku", "seed", "passed", "failed", "tests"}
     if not isinstance(report, dict) or set(report) != expected_report_keys:
         raise GoldenError("koto test JSON has a noncanonical report shape")
     tests = report["tests"]
     if (
         not isinstance(report["target"], str)
         or not report["target"]
-        or isinstance(report["seed"], bool)
+        or not isinstance(report["seiyaku"], str)
+        or not report["seiyaku"]
+        or type(report["seed"]) is not int
         or report["seed"] != 0
         or isinstance(report["passed"], bool)
         or not isinstance(report["passed"], int)
@@ -1039,7 +1045,10 @@ def validate_contract_test_reports(json_output: str, junit_path: Path) -> None:
     ):
         raise GoldenError("koto test JSON does not describe a complete successful run")
 
-    expected_test_keys = {"name", "line", "passed", "duration_ns", "failure"}
+    expected_test_keys = {
+        "name", "file", "line", "column", "passed", "duration_ns", "gas", "cycles",
+        "calls", "failure",
+    }
     names: list[str] = []
     for test in tests:
         if not isinstance(test, dict) or set(test) != expected_test_keys:
@@ -1047,16 +1056,33 @@ def validate_contract_test_reports(json_output: str, junit_path: Path) -> None:
         if (
             not isinstance(test["name"], str)
             or not test["name"]
-            or isinstance(test["line"], bool)
-            or not isinstance(test["line"], int)
-            or test["line"] <= 0
+            or not isinstance(test["file"], str)
+            or not test["file"]
+            or any(
+                type(test[field]) is not int or not 1 <= test[field] <= 2**64 - 1
+                for field in ("line", "column")
+            )
             or test["passed"] is not True
-            or isinstance(test["duration_ns"], bool)
-            or not isinstance(test["duration_ns"], int)
-            or test["duration_ns"] < 0
+            or any(
+                type(test[field]) is not int or not 0 <= test[field] <= 2**64 - 1
+                for field in ("duration_ns", "gas", "cycles")
+            )
+            or not isinstance(test["calls"], list)
             or test["failure"] is not None
         ):
             raise GoldenError("koto test JSON contains an invalid successful test result")
+        for call in test["calls"]:
+            if (
+                not isinstance(call, dict)
+                or set(call) != {"kotoage", "gas", "cycles"}
+                or not isinstance(call["kotoage"], str)
+                or not call["kotoage"]
+                or any(
+                    type(call[field]) is not int or not 0 <= call[field] <= 2**64 - 1
+                    for field in ("gas", "cycles")
+                )
+            ):
+                raise GoldenError("koto test JSON contains a noncanonical call result")
         names.append(test["name"])
     if len(names) != len(set(names)):
         raise GoldenError("koto test JSON contains duplicate test names")
@@ -1076,7 +1102,7 @@ def validate_contract_test_reports(json_output: str, junit_path: Path) -> None:
     if (
         suite.tag != "testsuite"
         or set(suite.attrib) != {"name", "tests", "failures", "time", "seed"}
-        or suite.attrib["name"] != report["target"]
+        or suite.attrib["name"] != report["seiyaku"]
         or junit_tests != len(tests)
         or junit_failures != 0
         or junit_seed != 0
@@ -1085,15 +1111,16 @@ def validate_contract_test_reports(json_output: str, junit_path: Path) -> None:
         or len(cases) != len(tests)
     ):
         raise GoldenError("koto test JUnit does not match the successful JSON run")
-    junit_names: list[str] = []
-    for case in cases:
+    for case, test in zip(cases, tests):
         if (
             case.tag != "testcase"
-            or set(case.attrib) != {"name", "classname", "line", "time"}
-            or case.attrib["classname"] != report["target"]
-            or list(case)
+            or set(case.attrib) != {"name", "classname", "file", "line", "time"}
         ):
             raise GoldenError("koto test JUnit contains a noncanonical test case")
+        if case.attrib["name"] != test["name"]:
+            raise GoldenError("koto test JSON and JUnit test inventories differ")
+        if case.attrib["classname"] != test["file"] or case.attrib["file"] != test["file"]:
+            raise GoldenError("koto test JSON and JUnit source locations differ")
         try:
             line = int(case.attrib["line"])
             duration = float(case.attrib["time"])
@@ -1101,9 +1128,24 @@ def validate_contract_test_reports(json_output: str, junit_path: Path) -> None:
             raise GoldenError("koto test JUnit contains invalid case attributes") from error
         if line <= 0 or not math.isfinite(duration) or duration < 0.0:
             raise GoldenError("koto test JUnit contains invalid case values")
-        junit_names.append(case.attrib["name"])
-    if junit_names != names:
-        raise GoldenError("koto test JSON and JUnit test inventories differ")
+        if line != test["line"]:
+            raise GoldenError("koto test JSON and JUnit source locations differ")
+        children = list(case)
+        if len(children) != 1 or children[0].tag != "properties" or children[0].attrib:
+            raise GoldenError("koto test JUnit contains noncanonical test properties")
+        properties = list(children[0])
+        if len(properties) != 2:
+            raise GoldenError("koto test JUnit contains noncanonical test properties")
+        for entry, field in zip(properties, ("gas", "cycles")):
+            if (
+                entry.tag != "property"
+                or set(entry.attrib) != {"name", "value"}
+                or entry.attrib["name"] != field
+                or list(entry)
+            ):
+                raise GoldenError("koto test JUnit contains noncanonical test properties")
+            if entry.attrib["value"] != str(test[field]):
+                raise GoldenError("koto test JSON and JUnit execution metrics differ")
 
 
 def verify_runtime_manifests(

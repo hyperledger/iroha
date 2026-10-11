@@ -36,7 +36,7 @@ fn minimal_contract_artifact() -> Vec<u8> {
         max_cycles: 1_000,
         ..Default::default()
     })
-    .compile_source("seiyaku TestContract { view fn main() { () } }")
+    .compile_source("seiyaku TestContract { view fn main() authorize(anyone) { () } }")
     .expect("compile the minimal contract with its canonical callable table")
 }
 
@@ -57,7 +57,11 @@ fn minimal_contract_artifact_binds_unit_entrypoint_to_canonical_callable() {
     );
     assert!(entrypoint.params.is_empty());
     assert_eq!(entrypoint.return_type.as_deref(), Some("()"));
-    assert!(entrypoint.permission.is_none());
+    assert_eq!(
+        entrypoint.authorization,
+        iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone
+    );
+    assert!(interface.permissions.is_empty());
     assert_eq!(interface.callables.len(), 1);
     let callable = &interface.callables[0];
     assert_eq!(callable.entry_pc, entrypoint.entry_pc);
@@ -124,7 +128,7 @@ fn contract_v1_probe_block_gas_budget_matches_signed_call_limit() {
 
 fn contract_state_probe_artifact() -> Vec<u8> {
     let src = r#"
-seiyaku ContractStateProbe {
+seiyaku ContractStateProbe { import permission "CanEnactGovernance" as CanEnactGovernance;
   error enum ProbeError {
     NotInitialized = 1;
     WrongValue = 2
@@ -151,7 +155,7 @@ seiyaku ContractStateProbe {
     return sum;
   }
 
-  kotoage fn main() -> int authorize("CanEnactGovernance") {
+  kotoage fn main() authorize(CanEnactGovernance) -> int {
     return 0;
   }
 
@@ -167,7 +171,7 @@ seiyaku ContractStateProbe {
     initialize_impl();
   }
 
-  kotoage fn verify() authorize("CanEnactGovernance") {
+  kotoage fn verify() authorize(CanEnactGovernance) {
     require(Initialized == 1, ProbeError::NotInitialized);
     require(Marker == (), ProbeError::WrongValue);
     match Outcome {
@@ -193,7 +197,7 @@ seiyaku ContractStateProbe {
     probe_readback = StoredValue;
   }
 
-  view fn readback() -> int {
+  view fn readback() authorize(anyone) -> int {
     require(Marker == (), ProbeError::WrongValue);
     match Outcome {
       Result::ok(value) => { require(value == (), ProbeError::WrongValue); },
@@ -800,7 +804,7 @@ fn contract_v1_four_validator_probe_compiles_final_syntax() {
 }
 fn dynamic_access_counter_artifact() -> Vec<u8> {
     let src = r#"
-seiyaku DynamicAccessCounter {
+seiyaku DynamicAccessCounter { import permission "CanEnactGovernance" as CanEnactGovernance;
   state StateMap<int, int> Counters;
 
   fn bump_hidden(int key, int delta) {
@@ -808,12 +812,12 @@ seiyaku DynamicAccessCounter {
     Counters[key] = current + delta;
   }
 
-  kotoage fn bump_direct(int key, int delta) authorize("CanEnactGovernance") {
+  kotoage fn bump_direct(int key, int delta) authorize(CanEnactGovernance) {
     let current = Counters.get(key).unwrap_or(0);
     Counters[key] = current + delta;
   }
 
-  kotoage fn bump_via_helper(int key, int delta) authorize("CanEnactGovernance") {
+  kotoage fn bump_via_helper(int key, int delta) authorize(CanEnactGovernance) {
     bump_hidden(key: key, delta: delta);
   }
 }
@@ -848,23 +852,23 @@ seiyaku DynamicAccessCounter {
 fn typed_core_query_pager_artifact() -> Vec<u8> {
     let source = r#"
 seiyaku TypedCoreQueryPager {
-  view fn accounts(int offset, int limit) -> QueryPage<AccountView> {
+  view fn accounts(int offset, int limit) authorize(anyone) -> QueryPage<AccountView> {
     ledger::query::accounts(offset: offset, limit: limit)
   }
 
-  view fn assets(int offset, int limit) -> QueryPage<AssetView> {
+  view fn assets(int offset, int limit) authorize(anyone) -> QueryPage<AssetView> {
     ledger::query::assets(offset: offset, limit: limit)
   }
 
-  view fn asset_definitions(int offset, int limit) -> QueryPage<AssetDefinitionView> {
+  view fn asset_definitions(int offset, int limit) authorize(anyone) -> QueryPage<AssetDefinitionView> {
     ledger::query::asset_definitions(offset: offset, limit: limit)
   }
 
-  view fn domains(int offset, int limit) -> QueryPage<DomainView> {
+  view fn domains(int offset, int limit) authorize(anyone) -> QueryPage<DomainView> {
     ledger::query::domains(offset: offset, limit: limit)
   }
 
-  view fn nfts(int offset, int limit) -> QueryPage<NftView> {
+  view fn nfts(int offset, int limit) authorize(anyone) -> QueryPage<NftView> {
     ledger::query::nfts(offset: offset, limit: limit)
   }
 }

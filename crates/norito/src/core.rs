@@ -60,8 +60,9 @@ pub use field_destination::{
 };
 pub use prepared_scope::{PreparedDecodeError, PreparedDecodeScopeError, PreparedDecodeWorkspace};
 pub use prepared_sequence::{
-    PreparedElementSequence, SequenceDestinationError, decode_raw_byte_sequence_into,
-    inspect_element_sequence, prepare_element_sequence,
+    ChargedElementSequence, PreparedElementSequence, RetainedElementSequence,
+    RetainedSequenceError, SequenceAdmissionError, SequenceDestinationError,
+    decode_raw_byte_sequence_into, inspect_element_sequence, prepare_element_sequence,
 };
 pub use prepared_string::{StringDestinationError, borrow_canonical_string, decode_string_into};
 mod decode_attempt;
@@ -69,7 +70,7 @@ pub use decode_attempt::classify_decode_attempt;
 pub use decode_attempt::{DecodeAttemptError, DecodeAttemptErrorKind, ScopedDecodeResourceError};
 mod byte_sequence;
 #[doc(hidden)]
-pub use byte_sequence::decode_byte_element_sequence_into;
+pub use byte_sequence::{decode_byte_element_sequence_into, visit_binary_sequence_with_count};
 mod sequence_length;
 pub use sequence_length::SequencePayloadLength;
 mod payload_ref;
@@ -682,6 +683,7 @@ impl DecodeDepthGuard {
                 if relative_depth > layer.budget.limits.max_nesting_depth() {
                     return Err(decode_attempt::budget_error(
                         index,
+                        &layer.budget.counters,
                         Error::NestingDepthExceeded {
                             depth: relative_depth,
                             limit: layer.budget.limits.max_nesting_depth(),
@@ -771,6 +773,7 @@ pub(crate) fn enforce_decode_sequence_length(length: u64) -> Result<(), Error> {
             if length > limit {
                 return Err(decode_attempt::budget_error(
                     index,
+                    &layer.budget.counters,
                     Error::SequenceLengthExceeded { length, limit },
                 ));
             }
@@ -782,6 +785,7 @@ pub(crate) fn enforce_decode_sequence_length(length: u64) -> Result<(), Error> {
             {
                 return Err(decode_attempt::budget_error(
                     index,
+                    &layer.budget.counters,
                     Error::TotalElementsExceeded { attempted, limit },
                 ));
             }
@@ -801,6 +805,7 @@ pub(crate) fn check_decode_sequence_length(length: u64) -> Result<(), Error> {
             if length > limit {
                 return Err(decode_attempt::budget_error(
                     index,
+                    &layer.budget.counters,
                     Error::SequenceLengthExceeded { length, limit },
                 ));
             }
@@ -821,6 +826,7 @@ fn check_decode_field_length(length: u64) -> Result<(), Error> {
             if length > limit {
                 return Err(decode_attempt::budget_error(
                     index,
+                    &layer.budget.counters,
                     Error::FieldLengthExceeded { length, limit },
                 ));
             }
@@ -842,6 +848,7 @@ fn reserve_decode_allocation_u64(length: u64) -> Result<(), Error> {
             {
                 return Err(decode_attempt::budget_error(
                     index,
+                    &layer.budget.counters,
                     Error::TotalAllocationExceeded { attempted, limit },
                 ));
             }
@@ -2648,25 +2655,15 @@ impl<'a> DecodeFromSlice<'a> for &'a [u8] {
 impl<'a, T: DecodeFromSlice<'a> + 'static, const N: usize> DecodeFromSlice<'a> for [T; N] {
     fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), Error> {
         if TypeId::of::<T>() == TypeId::of::<u8>() {
-            if bytes.len() == N {
-                record_slice_access(bytes, N);
-                let mut buf = [0u8; N];
-                buf.copy_from_slice(bytes);
-                let mut arr = core::mem::MaybeUninit::<[T; N]>::uninit();
-                unsafe {
-                    core::ptr::copy_nonoverlapping(
-                        buf.as_ptr() as *const T,
-                        arr.as_mut_ptr() as *mut T,
-                        N,
-                    );
-                    return Ok((arr.assume_init(), N));
-                }
-            }
+            // Generic byte arrays use the same element-framed layout as their encoder.
+            // Raw fixed-width fields use the explicit byte-array field helpers.
             let mut tmp = [0u8; N];
             let mut offset = 0usize;
             for slot in &mut tmp {
                 let remaining = bytes.get(offset..).ok_or(Error::LengthMismatch)?;
-                let (elem_len, elem_hdr) = read_len_dyn_slice(remaining)?;
+                // Each byte is copied directly into the final stack array.
+                // Its borrowed element prefix checks length without a heap charge.
+                let (elem_len, elem_hdr) = inspect_len_from_slice(remaining)?;
                 offset = offset.checked_add(elem_hdr).ok_or(Error::LengthMismatch)?;
                 if elem_len != 1 {
                     return Err(Error::LengthMismatch);
@@ -5277,7 +5274,9 @@ impl<T: SerializePayload, const N: usize> SerializePayload for [T; N] {
     }
 }
 
-impl<'a, T: DeserializePayload<'a> + 'static, const N: usize> DeserializePayload<'a> for [T; N] {
+impl<'a, T: DeserializePayload<'a> + SerializePayload + 'static, const N: usize>
+    DeserializePayload<'a> for [T; N]
+{
     fn deserialize(archived: &'a Archived<[T; N]>) -> Self {
         match Self::try_deserialize(archived) {
             Ok(value) => value,
@@ -5311,7 +5310,9 @@ impl<'a, T: DeserializePayload<'a> + 'static, const N: usize> DeserializePayload
         let ptr = archived as *const _ as *const u8;
         let mut offset = 0usize;
         let (base, total) = payload_ctx().ok_or(Error::MissingPayloadContext)?;
-        let start = (ptr as usize).saturating_sub(base);
+        let start = (ptr as usize)
+            .checked_sub(base)
+            .ok_or(Error::LengthMismatch)?;
         if start > total {
             return Err(Error::LengthMismatch);
         }
@@ -5319,7 +5320,8 @@ impl<'a, T: DeserializePayload<'a> + 'static, const N: usize> DeserializePayload
         let bytes = &payload[start..];
         let out = try_decode_array(|| {
             let remaining = bytes.get(offset..).ok_or(Error::LengthMismatch)?;
-            let (elem_len, hdr) = read_len_dyn_slice(remaining)?;
+            // The prefix borrows this field; alloc_checked charges its actual copy once.
+            let (elem_len, hdr) = inspect_len_from_slice(remaining)?;
             offset = offset.checked_add(hdr).ok_or(Error::LengthMismatch)?;
             let end = offset.checked_add(elem_len).ok_or(Error::LengthMismatch)?;
             let field = bytes.get(offset..end).ok_or(Error::LengthMismatch)?;
@@ -5340,7 +5342,21 @@ impl<'a, T: DeserializePayload<'a> + 'static, const N: usize> DeserializePayload
                     tmp_ptr.cast::<Archived<T>>()
                 };
                 let archived = &*archived_ptr;
-                let result = guarded_try_deserialize(|| T::try_deserialize(archived));
+                let result = guarded_try_deserialize(|| {
+                    let decoded = T::try_deserialize(archived);
+                    let used_ctx = payload_ctx_max_access();
+                    let value = decoded?;
+                    if used_ctx.is_some_and(|used| used > elem_len) {
+                        return Err(Error::LengthMismatch);
+                    }
+                    if used_ctx != Some(elem_len) {
+                        // Preserve custom decoders that report partial or no access,
+                        // while proving the original field is exactly canonical.
+                        match_canonical_payload(&value, field, true)?;
+                    }
+                    Ok(value)
+                });
+                // Both decoder and canonical-validation errors pass this cleanup.
                 dealloc_checked(tmp_ptr, layout, needs_dealloc);
                 let value = result?;
                 offset = end;
@@ -7321,6 +7337,22 @@ trait ErasedFieldSlot {
     unsafe fn try_decode(&mut self, archived: *const u8) -> Result<(), Error>;
     fn canonical_match(&self, expected: &[u8], require_complete: bool) -> Result<usize, Error>;
 }
+fn match_canonical_payload(
+    value: &dyn SerializePayload,
+    expected: &[u8],
+    require_complete: bool,
+) -> Result<usize, Error> {
+    let mut exact = ExactSliceWriter::new(expected);
+    let encode_result = serialize_to_writer(value, &mut exact);
+    if exact.mismatched() {
+        return Err(Error::LengthMismatch);
+    }
+    encode_result?;
+    if require_complete && !exact.is_complete() {
+        return Err(Error::LengthMismatch);
+    }
+    Ok(exact.matched_len())
+}
 struct TypedFieldSlot<T> {
     value: Option<T>,
 }
@@ -7356,16 +7388,7 @@ where
     }
     fn canonical_match(&self, expected: &[u8], require_complete: bool) -> Result<usize, Error> {
         let value = self.value.as_ref().ok_or(Error::LengthMismatch)?;
-        let mut exact = ExactSliceWriter::new(expected);
-        let encode_result = serialize_to_writer(value, &mut exact);
-        if exact.mismatched() {
-            return Err(Error::LengthMismatch);
-        }
-        encode_result?;
-        if require_complete && !exact.is_complete() {
-            return Err(Error::LengthMismatch);
-        }
-        Ok(exact.matched_len())
+        match_canonical_payload(value, expected, require_complete)
     }
 }
 fn invoke_erased_field_decoder(
@@ -7531,7 +7554,9 @@ fn take_length_prefixed_context_field(
 }
 fn take_length_prefixed_field(payload: &[u8], offset: usize) -> Result<(&[u8], usize), Error> {
     let remaining = payload.get(offset..).ok_or(Error::LengthMismatch)?;
-    let (field_len, header_len) = read_len_dyn_slice(remaining)?;
+    // Framing borrows the original payload; it owns no body or alignment buffer.
+    // Concrete child decoders charge the storage they actually construct.
+    let (field_len, header_len) = inspect_len_from_slice(remaining)?;
     let data_start = offset
         .checked_add(header_len)
         .ok_or(Error::LengthMismatch)?;

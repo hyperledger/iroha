@@ -1,13 +1,17 @@
 
-        module CreateAssetHelpers {
+        module RegisterThenMintHelpers {
             fn f() {
-                ledger::asset::create(
-                    asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"),
+                let asset = AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM");
+                ledger::asset::register(
+                    asset_definition: asset,
                     name: "X",
-                    scale: 1,
-                    owner: AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"),
-                    mintable: 0
+                    spec: NumericSpec::fractional(1),
+                    mintable: Mintable::Infinitely,
+                );
+                ledger::asset::mint(
+                    account: AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"),
+                    asset_definition: asset,
+                    amount: 1,
                 );
             }
         }
-    

@@ -19,13 +19,13 @@ internal static class ToriiContractMetadataJson
         ToriiSseEventJson.RequireOptionalExactSizedHex(response.DeclaredCodeHash, $"{context}.declared_code_hash", 32);
         ToriiSseEventJson.RequireOptionalExactSizedHex(response.AbiHash, $"{context}.abi_hash", 32);
         ValidateOptionalExactNonEmptyText(response.CompilerFingerprint, $"{context}.compiler_fingerprint");
-        ValidateTokenList(response.Permissions, $"{context}.permissions");
         if (response.AccessHints is not null)
         {
             ValidateContractViewAccessHints(response.AccessHints, $"{context}.access_hints");
         }
 
         ValidateEntrypoints(response.Entrypoints, $"{context}.entrypoints");
+        ToriiContractManifestJson.ValidatePermissionDeclarations(response.Permissions, response.Entrypoints.Select(entry => entry.Authorization), context);
         if (response.Analysis is not null)
         {
             ValidateContractViewAnalysis(response.Analysis, $"{context}.analysis");
@@ -35,7 +35,7 @@ internal static class ToriiContractMetadataJson
         ValidateExactTokenText(response.RenderedSourceKind, $"{context}.rendered_source_kind");
         ValidateRenderedSourceText(response.RenderedSourceText, $"{context}.rendered_source_text");
         if (response.RenderedSourceKind == "verified_source" || response.SourceFiles.Count != 0
-            || response.SourceImports.Count != 0 || response.SourcePackages.Count != 0)
+            || response.SourceImports.Count != 0 || response.SourcePackages.Count != 0 || response.SourceArtifacts.Count != 0)
         {
             try
             {
@@ -44,6 +44,7 @@ internal static class ToriiContractMetadataJson
                     SourceName = response.VerifiedSourceReference?.SourceName,
                     SourceText = response.RenderedSourceText,
                     Sources = response.SourceFiles,
+                    Artifacts = response.SourceArtifacts,
                     Imports = response.SourceImports,
                     Packages = response.SourcePackages,
                 }, requireRootName: false);
@@ -88,9 +89,13 @@ internal static class ToriiContractMetadataJson
 
         ValidateExactTokenText(response.Name, $"{context}.name");
         ValidateExactTokenText(response.Kind, $"{context}.kind");
+        if (response.Kind is not ("kotoage" or "view" or "hajimari" or "kaizen"))
+            throw new JsonException($"{context}.kind must be kotoage, view, hajimari, or kaizen.");
         ValidateEntrypointParams(response.Parameters, $"{context}.params");
         ValidateOptionalExactNonEmptyText(response.ReturnType, $"{context}.return_type");
-        ValidateOptionalExactTokenText(response.Permission, $"{context}.permission");
+        _ = ToriiContractManifestJson.BuildAuthorization(response.Authorization, $"{context}.authorization");
+        if ((response.Kind is "hajimari" or "kaizen") != (response.Authorization is ToriiEntrypointAuthorizationV1.RuntimeLifecycle))
+            throw new JsonException($"{context}.authorization must use RuntimeLifecycle exactly for lifecycle hooks.");
         ValidateTokenList(response.ReadKeys, $"{context}.read_keys");
         ValidateTokenList(response.WriteKeys, $"{context}.write_keys");
         ValidateTokenList(response.AccessHintsSkipped, $"{context}.access_hints_skipped");
@@ -189,7 +194,7 @@ internal static class ToriiContractMetadataJson
             nameof(ToriiContractViewEntrypointParam.TypeName) => "type_name",
             nameof(ToriiContractViewEntrypoint.Kind) => "kind",
             nameof(ToriiContractViewEntrypoint.ReturnType) => "return_type",
-            nameof(ToriiContractViewEntrypoint.Permission) => "permission",
+            nameof(ToriiContractViewEntrypoint.Authorization) => "authorization",
             nameof(ToriiContractViewEntrypoint.AccessHintsComplete) => "access_hints_complete",
             nameof(ToriiContractViewSyscall.Number) => "number",
             nameof(ToriiContractViewSyscall.Count) => "count",
@@ -284,6 +289,8 @@ internal static class ToriiContractMetadataJson
         string context)
     {
         var payload = ToriiExplorerJson.ReadObject(ref reader, context);
+        ToriiContractManifestJson.EnsureOnly(payload, context, "name", "kind", "params", "return_type",
+            "authorization", "read_keys", "write_keys", "access_hints_complete", "access_hints_skipped", "triggers");
         try
         {
             var response = new ToriiContractViewEntrypoint
@@ -296,7 +303,7 @@ internal static class ToriiContractMetadataJson
                     $"{context}.params",
                     "contract view entrypoint param"),
                 ReturnType = ReadOptionalString(payload, "return_type", $"{context}.return_type"),
-                Permission = ReadOptionalString(payload, "permission", $"{context}.permission"),
+                Authorization = ToriiContractManifestJson.ParseAuthorization(payload["authorization"] as JsonObject ?? throw new JsonException($"{context}.authorization is required."), $"{context}.authorization"),
                 ReadKeys = ReadRequiredStringList(payload, "read_keys", $"{context}.read_keys"),
                 WriteKeys = ReadRequiredStringList(payload, "write_keys", $"{context}.write_keys"),
                 AccessHintsComplete = ReadOptionalBool(
@@ -455,7 +462,7 @@ internal static class ToriiContractMetadataJson
                     "compiler_fingerprint",
                     $"{context}.compiler_fingerprint"),
                 ByteLength = ReadOptionalUInt64(payload, "byte_len", $"{context}.byte_len"),
-                Permissions = ReadRequiredStringList(payload, "permissions", $"{context}.permissions"),
+                Permissions = ReadPermissionDeclarations(payload, context),
                 AccessHints = ReadOptionalObject<ToriiContractViewAccessHints>(
                     payload,
                     "access_hints",
@@ -480,6 +487,7 @@ internal static class ToriiContractMetadataJson
                     payload,
                     "rendered_source_text",
                     $"{context}.rendered_source_text"),
+                SourceArtifacts = ReadRequiredObjectList<ToriiContractSourceArtifact>(payload, "source_artifacts", $"{context}.source_artifacts", "contract source artifact"),
                 SourceFiles = payload.ContainsKey("source_files")
                     ? ReadRequiredObjectList<ToriiContractSourceFile>(payload, "source_files", $"{context}.source_files", "contract source file")
                     : Array.Empty<ToriiContractSourceFile>(),
@@ -547,7 +555,8 @@ internal static class ToriiContractMetadataJson
         }
         writer.WriteEndArray();
         WriteNullableString(writer, "return_type", value.ReturnType);
-        WriteNullableString(writer, "permission", value.Permission);
+        writer.WritePropertyName("authorization");
+        ToriiContractManifestJson.BuildAuthorization(value.Authorization, $"{context}.authorization").WriteTo(writer);
         WriteStringList(writer, "read_keys", value.ReadKeys);
         WriteStringList(writer, "write_keys", value.WriteKeys);
         if (value.AccessHintsComplete is bool complete)
@@ -677,7 +686,11 @@ internal static class ToriiContractMetadataJson
         {
             writer.WriteNull("byte_len");
         }
-        WriteStringList(writer, "permissions", value.Permissions);
+        writer.WritePropertyName("permissions");
+        writer.WriteStartArray();
+        foreach (var permission in value.Permissions)
+            ToriiContractManifestJson.BuildPermissionDeclaration(permission, $"{context}.permissions").WriteTo(writer);
+        writer.WriteEndArray();
         writer.WritePropertyName("access_hints");
         if (value.AccessHints is null)
         {
@@ -706,6 +719,8 @@ internal static class ToriiContractMetadataJson
         WriteStringList(writer, "warnings", value.Warnings);
         writer.WriteString("rendered_source_kind", value.RenderedSourceKind);
         writer.WriteString("rendered_source_text", value.RenderedSourceText);
+        writer.WritePropertyName("source_artifacts");
+        JsonSerializer.Serialize(writer, value.SourceArtifacts);
         if (value.SourceFiles.Count != 0)
         {
             writer.WritePropertyName("source_files");
@@ -811,6 +826,15 @@ internal static class ToriiContractMetadataJson
         {
             ValidateExactNonEmptyText(values[index], $"{context}[{index}]");
         }
+    }
+
+    private static IReadOnlyList<ToriiContractPermissionDescriptorV1> ReadPermissionDeclarations(JsonObject payload, string context)
+    {
+        if (payload["permissions"] is not JsonArray values)
+            throw new JsonException($"{context}.permissions is required and must be an array.");
+        return values.Select((value, index) => ToriiContractManifestJson.ParsePermissionDeclaration(
+            value as JsonObject ?? throw new JsonException($"{context}.permissions[{index}] must be an object."),
+            $"{context}.permissions[{index}]")).ToArray();
     }
 
     private static IReadOnlyList<T> ReadRequiredObjectList<T>(

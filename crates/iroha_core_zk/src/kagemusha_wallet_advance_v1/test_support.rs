@@ -7,13 +7,15 @@
 
 use iroha_data_model::kagemusha::{
     KagemushaDevicePublicKeyV1, KagemushaDeviceSignatureV1, KagemushaWalletCompletionRecordV1,
-    KagemushaWalletEffectV1, KagemushaWalletEnrollmentChallengeV1, KagemushaWalletLifecycleV1,
-    KagemushaWalletLineagePublicV1, KagemushaWalletLineageSlotV1, KagemushaWalletLineageV1,
-    KagemushaWalletMarkerV1, KagemushaWalletOperationKindV1, KagemushaWalletOutputDescriptorV1,
-    KagemushaWalletReceiptV1, KagemushaWalletRecoveryCapsuleV1, KagemushaWalletRetainedInputRoleV1,
+    KagemushaWalletEffectV1, KagemushaWalletEnrollmentChallengeV1, KagemushaWalletIndexedTreeV1,
+    KagemushaWalletLifecycleV1, KagemushaWalletLineagePublicV1, KagemushaWalletLineageSlotV1,
+    KagemushaWalletLineageV1, KagemushaWalletMarkerV1, KagemushaWalletOperationKindV1,
+    KagemushaWalletOutputDescriptorV1, KagemushaWalletReceiptBodyV1, KagemushaWalletReceiptV1,
+    KagemushaWalletRecoveryCapsuleV1, KagemushaWalletRetainedInputRoleV1,
     KagemushaWalletRetainedInputV1, KagemushaWalletStateCommitmentV1, KagemushaWalletStateCoreV1,
     KagemushaWalletStateRestV1, KagemushaWalletStateV1, KagemushaWalletStatementV1,
     KagemushaWalletStepProofV1, kagemusha_wallet_proof_digest_v1,
+    kagemusha_wallet_provider_contract_v1,
 };
 use std::{
     collections::BTreeMap,
@@ -26,12 +28,12 @@ use p256::ecdsa::{
 };
 
 use super::{
-    KagemushaWalletAnchorPolicyV1, KagemushaWalletDurableStoreV1,
-    KagemushaWalletKeyGenerationRequestV1, KagemushaWalletKeyGenerationV1,
-    KagemushaWalletKeyProfileV1, KagemushaWalletMarkerRecordV1, KagemushaWalletNotPublishedV1,
-    KagemushaWalletPlatformSignatureV1, KagemushaWalletPlatformV1, KagemushaWalletProbeV1,
-    KagemushaWalletPublishOutcomeV1, KagemushaWalletRemoveOutcomeV1,
-    KagemushaWalletSigningMessageV1, KagemushaWalletSimFsV1, KagemushaWalletSlotIdV1,
+    KagemushaWalletAnchorPolicyV1, KagemushaWalletDurableStoreV1, KagemushaWalletFreshGenerationV1,
+    KagemushaWalletKeyGenerationPolicyV1, KagemushaWalletKeyGenerationRequestV1,
+    KagemushaWalletKeyGenerationV1, KagemushaWalletKeyProfileV1, KagemushaWalletMarkerRecordV1,
+    KagemushaWalletNotPublishedV1, KagemushaWalletPlatformSignatureV1, KagemushaWalletPlatformV1,
+    KagemushaWalletProbeV1, KagemushaWalletPublishOutcomeV1, KagemushaWalletRemoveOutcomeV1,
+    KagemushaWalletSignMessageV1, KagemushaWalletSimFsV1, KagemushaWalletSlotIdV1,
     KagemushaWalletUnavailableV1, kagemusha_wallet_prepare_root_v1,
     kagemusha_wallet_prepare_slot_dirs_v1,
 };
@@ -191,6 +193,7 @@ fn state_for(
             quota_usage_root: field_value(0x36),
             enabled_controls: 0,
             quota_windows_root: [0; 32],
+            quota_share_expires_at_ms: 0,
             blacklist_version: 0,
             blacklist_root: [0; 32],
             blacklist_issued_at_ms: 0,
@@ -198,14 +201,15 @@ fn state_for(
             lease_expires_at_ms: 0,
             policy_epoch: 0,
             accepted_time_floor_ms: 0,
+            time_anchor_max_response_ms: 0,
             state_nonce: statement.successor.value,
         },
         rest: KagemushaWalletStateRestV1 {
             permitted_controls: 0,
-            time_anchor_max_response_ms: 0,
             scheme_policy: [0; 32],
             fee_schedule: [0; 32],
             blacklist: [0; 32],
+            blacklist_history_root: field_value(0x37),
             quota_share: [0; 32],
             quota_share_id: 0,
             time_anchor: [0; 32],
@@ -220,9 +224,15 @@ fn retained_for(kind: KagemushaWalletOperationKindV1) -> Vec<KagemushaWalletReta
         KagemushaWalletOperationKindV1::Receive => {
             &[R::Request, R::Payment, R::CertificateSet, R::Credential]
         }
-        KagemushaWalletOperationKindV1::ArchiveSent => &[R::Request, R::Payment, R::Credited],
+        KagemushaWalletOperationKindV1::ArchiveSent => &[
+            R::Request,
+            R::Payment,
+            R::Credited,
+            R::Credential,
+            R::CertificateSet,
+        ],
         KagemushaWalletOperationKindV1::Send => &[R::Request],
-        KagemushaWalletOperationKindV1::Load => &[R::LoadVoucher, R::CertificateSet],
+        KagemushaWalletOperationKindV1::Load => &[R::LoadReceipt, R::LoadFinality],
         KagemushaWalletOperationKindV1::RefreshPolicy => &[R::PolicyUpdate, R::CertificateSet],
         _ => &[],
     };
@@ -306,7 +316,9 @@ pub(super) fn capsule_for(
         version: 1,
         scheme_id: f.scheme_id(),
         wallet_id: f.wallet_id(),
-        operation_id: statement.operation_id(&f.wallet_id()),
+        operation_id: statement
+            .operation_id(&f.wallet_id())
+            .expect("operation id"),
         kind,
         predecessor_capsule_digest,
         successor_state,
@@ -314,12 +326,30 @@ pub(super) fn capsule_for(
         predecessor_lineage,
         step_proof,
         payment_digest,
-        map_openings: vec![vec![1, 2, 3]],
+        map_openings: stand_in_map_openings(1),
         retained_inputs: retained_for(kind),
         output,
     };
     capsule.validate().expect("valid capsule");
     capsule
+}
+
+/// Stand-in capsule map openings: the insertion witness of key `seed` into an empty indexed
+/// tree as G1 §3.2 opening transcripts, the sentinel's leaf opening and the written slot's
+/// empty-slot opening, each with exactly 32 siblings (owner answer A2). Distinct seeds give
+/// distinct openings.
+pub(super) fn stand_in_map_openings(seed: u8) -> Vec<Vec<u8>> {
+    let mut key = [seed; 32];
+    key[31] = 0;
+    let mut value = [seed ^ 0x5a; 32];
+    value[31] = 0;
+    let insertion = KagemushaWalletIndexedTreeV1::new()
+        .insert(key, value)
+        .expect("stand-in insertion");
+    vec![
+        insertion.low_opening.leaf_transcript(&insertion.low),
+        insertion.slot_opening.empty_transcript(),
+    ]
 }
 
 /// Bootstrap capsule bound to the fixture's enrollment marker.
@@ -337,7 +367,7 @@ pub(super) fn bootstrap_capsule_variant(
         version: 1,
         scheme_id: f.scheme_id(),
         relation_id: [0x41; 32],
-        credential_digest: [0x42; 32],
+        credential_digest: field_value(0x42),
         asset_digest: f.enrollment.asset_digest,
         lifecycle: KagemushaWalletLifecycleV1::Active,
         sequence: 0,
@@ -377,7 +407,7 @@ pub(super) fn next_capsule_variant(
         successor: commitment(tag),
         effect: KagemushaWalletEffectV1::ArchiveSent {
             credit_id: field_value(tag),
-            credited: [tag.wrapping_add(2).max(1); 32],
+            credited: field_value(tag.wrapping_add(2).max(1)),
         },
         ..previous.statement
     };
@@ -454,14 +484,36 @@ pub(super) struct FakeStateV1 {
     pub(super) anchor_write: AnchorWriteV1,
     /// Boot identity.
     pub(super) boot: Result<[u8; 32], KagemushaWalletUnavailableV1>,
+    /// Test-controlled sleep-inclusive clock result.
+    pub(super) monotonic: Result<u64, KagemushaWalletUnavailableV1>,
+    pub(super) monotonic_script:
+        std::collections::VecDeque<Result<u64, KagemushaWalletUnavailableV1>>,
+    /// Change the boot result during the next clock read to detect mixed observations.
+    pub(super) boot_after_monotonic: Option<Result<[u8; 32], KagemushaWalletUnavailableV1>>,
     /// Storage state answer.
     pub(super) storage: Result<(), KagemushaWalletUnavailableV1>,
     /// Lock storage after this many further successful storage-state answers.
     pub(super) storage_lock_after: Option<usize>,
     /// Key probes answer `Unavailable`.
     pub(super) probe_unavailable: bool,
+    /// Actual generation policy of the simulated OS.
+    pub(super) generation_policy: KagemushaWalletKeyGenerationPolicyV1,
+    /// Number of consumed fresh grants.
+    pub(super) fresh_generation_calls: usize,
     /// Key generation answers `Unavailable` (the key may still be created).
     pub(super) generate_unavailable: Option<bool>,
+    /// Lock protected storage immediately after a successful generation reply (test only).
+    pub(super) lock_after_generation: bool,
+    /// Simulated readback failure after an actual successful key-generation return.
+    pub(super) generation_readback_unavailable: bool,
+    /// Actual returned public key and exact request; never populated from a probe.
+    pub(super) generation_originals: BTreeMap<
+        KagemushaWalletSlotIdV1,
+        (
+            KagemushaWalletKeyGenerationRequestV1,
+            KagemushaDevicePublicKeyV1,
+        ),
+    >,
     /// Signing answers `Unavailable`.
     pub(super) sign_unavailable: bool,
     /// Anchor reads answer `Unavailable`.
@@ -476,6 +528,11 @@ pub(super) struct FakeStateV1 {
     pub(super) delete_calls: usize,
     /// Number of `key_probe` calls.
     pub(super) probe_calls: usize,
+    /// Exact test-only enumeration override; errors remain errors.
+    pub(super) enumerate_override:
+        Option<Result<Vec<KagemushaWalletSlotIdV1>, KagemushaWalletUnavailableV1>>,
+    /// Number of `key_enumerate` calls.
+    pub(super) enumerate_calls: usize,
     /// Number of `storage_state` calls.
     pub(super) storage_calls: usize,
     /// Number of anchor writes (creations and updates).
@@ -514,10 +571,18 @@ impl FakePlatformV1 {
                 policy,
                 anchor_write: AnchorWriteV1::Normal,
                 boot: Ok(BOOT_A),
+                monotonic: Ok(1_000),
+                monotonic_script: std::collections::VecDeque::new(),
+                boot_after_monotonic: None,
                 storage: Ok(()),
                 storage_lock_after: None,
                 probe_unavailable: false,
+                generation_policy: KagemushaWalletKeyGenerationPolicyV1::DefinitiveAbsence,
+                fresh_generation_calls: 0,
                 generate_unavailable: None,
+                lock_after_generation: false,
+                generation_readback_unavailable: false,
+                generation_originals: BTreeMap::new(),
                 sign_unavailable: false,
                 anchor_read_unavailable: false,
                 delete_refused: false,
@@ -525,6 +590,8 @@ impl FakePlatformV1 {
                 generate_calls: 0,
                 delete_calls: 0,
                 probe_calls: 0,
+                enumerate_override: None,
+                enumerate_calls: 0,
                 storage_calls: 0,
                 anchor_writes: 0,
                 sign_fault_at: None,
@@ -562,6 +629,8 @@ impl FakePlatformV1 {
             state.probe_fault_at = None;
             state.anchor_fault_at = None;
             state.storage_lock_after = None;
+            state.lock_after_generation = false;
+            state.generation_readback_unavailable = false;
             state.storage = Ok(());
         });
     }
@@ -614,13 +683,10 @@ impl FakePlatformV1 {
         let Some(fs) = state.guard.as_ref() else {
             return;
         };
+        use iroha_data_model::kagemusha::KagemushaWalletSigningDomainV1 as Domain;
         let expected = match domain {
-            iroha_data_model::kagemusha::KagemushaWalletSigningDomainV1::Receipt => {
-                super::KagemushaWalletMarkerPhaseV1::Selected
-            }
-            iroha_data_model::kagemusha::KagemushaWalletSigningDomainV1::LedgerControl => {
-                super::KagemushaWalletMarkerPhaseV1::Terminal
-            }
+            Domain::Receipt => super::KagemushaWalletMarkerPhaseV1::Selected,
+            Domain::LedgerControl => super::KagemushaWalletMarkerPhaseV1::Terminal,
             _ => return,
         };
         let dir = super::kagemusha_wallet_markers_dir_v1(slot);
@@ -645,6 +711,32 @@ impl FakePlatformV1 {
 }
 
 impl KagemushaWalletPlatformV1 for FakePlatformV1 {
+    fn key_recover_generation_reply(
+        &self,
+        slot: &KagemushaWalletSlotIdV1,
+        request: &KagemushaWalletKeyGenerationRequestV1,
+    ) -> Result<Option<KagemushaDevicePublicKeyV1>, KagemushaWalletUnavailableV1> {
+        self.with(|state| {
+            let Some((original, key)) = state.generation_originals.get(slot) else {
+                return Ok(None);
+            };
+            if original != request || state.generation_readback_unavailable {
+                return Err(KagemushaWalletUnavailableV1::Busy);
+            }
+            Ok(Some(*key))
+        })
+    }
+
+    fn key_enumerate(&self) -> Result<Vec<KagemushaWalletSlotIdV1>, KagemushaWalletUnavailableV1> {
+        self.with(|state| {
+            state.enumerate_calls += 1;
+            state
+                .enumerate_override
+                .clone()
+                .unwrap_or_else(|| Ok(state.keys.keys().copied().collect()))
+        })
+    }
+
     fn key_probe(
         &self,
         slot: &KagemushaWalletSlotIdV1,
@@ -655,12 +747,20 @@ impl KagemushaWalletPlatformV1 for FakePlatformV1 {
             if state.probe_unavailable || state.probe_fault_at == Some(call) {
                 return KagemushaWalletProbeV1::Unavailable(KagemushaWalletUnavailableV1::Locked);
             }
-            state
-                .keys
-                .get(slot)
-                .map_or(KagemushaWalletProbeV1::Absent, |key| {
-                    KagemushaWalletProbeV1::Present(public_key(key))
-                })
+            state.keys.get(slot).map_or_else(
+                || {
+                    if state.generation_policy
+                        == KagemushaWalletKeyGenerationPolicyV1::FreshEnrollmentOnly
+                    {
+                        KagemushaWalletProbeV1::Unavailable(KagemushaWalletUnavailableV1::Platform(
+                            10,
+                        ))
+                    } else {
+                        KagemushaWalletProbeV1::Absent
+                    }
+                },
+                |key| KagemushaWalletProbeV1::Present(public_key(key)),
+            )
         })
     }
 
@@ -669,41 +769,76 @@ impl KagemushaWalletPlatformV1 for FakePlatformV1 {
         slot: &KagemushaWalletSlotIdV1,
         request: &KagemushaWalletKeyGenerationRequestV1,
     ) -> KagemushaWalletKeyGenerationV1 {
+        if self.with(|state| state.generation_policy)
+            == KagemushaWalletKeyGenerationPolicyV1::FreshEnrollmentOnly
+        {
+            return KagemushaWalletKeyGenerationV1::Unavailable(
+                KagemushaWalletUnavailableV1::Platform(9),
+            );
+        }
+        self.generate_key(slot, request)
+    }
+
+    fn key_generation_policy(
+        &self,
+    ) -> Result<KagemushaWalletKeyGenerationPolicyV1, KagemushaWalletUnavailableV1> {
+        self.with(|state| Ok(state.generation_policy))
+    }
+
+    fn key_generate_fresh(
+        &self,
+        grant: KagemushaWalletFreshGenerationV1<'_>,
+    ) -> KagemushaWalletKeyGenerationV1 {
+        let (slot, request) = match grant.consume(self) {
+            Ok(bound) => bound,
+            Err(reason) => return KagemushaWalletKeyGenerationV1::Unavailable(reason),
+        };
         self.with(|state| {
-            state.generate_calls += 1;
-            state.last_generation = Some(*request);
-            Self::check_generation(state, slot);
-            if state.keys.contains_key(slot) {
-                return KagemushaWalletKeyGenerationV1::AlreadyPresent;
-            }
-            let key = signing_key(state.next_key_seed);
-            let public = public_key(&key);
-            match state.generate_unavailable {
-                Some(created) => {
-                    if created {
-                        state.keys.insert(*slot, key);
-                    }
-                    KagemushaWalletKeyGenerationV1::Unavailable(KagemushaWalletUnavailableV1::Io(5))
+            state.fresh_generation_calls += 1;
+            if let Some(fs) = state.guard.as_ref() {
+                // The records must already survive power loss before the provider is called.
+                let durable = fs.fork();
+                durable.power_loss(super::KagemushaWalletSimPowerLossV1::DropUnsynced);
+                let dir = super::kagemusha_wallet_slot_dir_v1(&slot);
+                let intent = durable
+                    .visible_file(&dir, super::KAGEMUSHA_WALLET_INTENT_NAME_V1)
+                    .and_then(|bytes| {
+                        super::decode_envelope_v1::<super::KagemushaWalletIntentV1>(
+                            &bytes,
+                            super::KAGEMUSHA_WALLET_INTENT_MAX_BYTES_V1,
+                        )
+                        .ok()
+                    });
+                let bound = intent.is_some_and(|intent| {
+                    intent.slot == slot.0
+                        && intent.challenge.challenge_digest() == request.challenge_digest
+                        && intent.profile == request.profile.tag()
+                        && intent.key_generation_policy()
+                            == Ok(KagemushaWalletKeyGenerationPolicyV1::FreshEnrollmentOnly)
+                });
+                if !bound
+                    || durable
+                        .visible_file(&dir, super::KAGEMUSHA_WALLET_KEY_GENERATION_ATTEMPT_NAME_V1)
+                        .is_none()
+                {
+                    state
+                        .violations
+                        .push("fresh grant reached generation before durable bound records".into());
                 }
-                None => {
-                    state.keys.insert(*slot, key);
-                    KagemushaWalletKeyGenerationV1::Generated(public)
-                }
             }
-        })
+        });
+        self.generate_key(&slot, &request)
     }
 
     fn key_sign(
         &self,
         slot: &KagemushaWalletSlotIdV1,
-        message: KagemushaWalletSigningMessageV1<'_>,
+        message: KagemushaWalletSignMessageV1<'_>,
     ) -> Result<KagemushaWalletPlatformSignatureV1, KagemushaWalletUnavailableV1> {
-        let domain = message.domain();
-        let message = message.as_bytes();
         self.with(|state| {
             let call = state.sign_calls;
             state.sign_calls += 1;
-            Self::check_signing(state, slot, domain);
+            Self::check_signing(state, slot, message.domain());
             if state.sign_unavailable || state.sign_fault_at == Some(call) {
                 return Err(KagemushaWalletUnavailableV1::KeyUnusable);
             }
@@ -713,7 +848,8 @@ impl KagemushaWalletPlatformV1 for FakePlatformV1 {
                 .ok_or(KagemushaWalletUnavailableV1::KeyUnusable)?;
             // Randomized: a second signature over the same body differs, so byte-identical
             // retries can only come from retained records.
-            let signature: Signature = key.sign_with_rng(&mut rand_core_06::OsRng, message);
+            let signature: Signature =
+                key.sign_with_rng(&mut rand_core_06::OsRng, message.as_bytes());
             Ok(KagemushaWalletPlatformSignatureV1::Der(
                 signature.to_der().as_bytes().to_vec(),
             ))
@@ -787,9 +923,60 @@ impl KagemushaWalletPlatformV1 for FakePlatformV1 {
     fn boot_id(&self) -> Result<[u8; 32], KagemushaWalletUnavailableV1> {
         self.with(|state| state.boot)
     }
+
+    fn monotonic_ms(&self) -> Result<u64, KagemushaWalletUnavailableV1> {
+        self.with(|state| {
+            if let Some(boot) = state.boot_after_monotonic.take() {
+                state.boot = boot;
+            }
+            state
+                .monotonic_script
+                .pop_front()
+                .unwrap_or(state.monotonic)
+        })
+    }
 }
 
 impl FakePlatformV1 {
+    fn generate_key(
+        &self,
+        slot: &KagemushaWalletSlotIdV1,
+        request: &KagemushaWalletKeyGenerationRequestV1,
+    ) -> KagemushaWalletKeyGenerationV1 {
+        self.with(|state| {
+            state.generate_calls += 1;
+            state.last_generation = Some(*request);
+            Self::check_generation(state, slot);
+            if state.keys.contains_key(slot) {
+                return KagemushaWalletKeyGenerationV1::AlreadyPresent;
+            }
+            let key = signing_key(state.next_key_seed);
+            let public = public_key(&key);
+            match state.generate_unavailable {
+                Some(created) => {
+                    if created {
+                        state.keys.insert(*slot, key);
+                    }
+                    KagemushaWalletKeyGenerationV1::Unavailable(KagemushaWalletUnavailableV1::Io(5))
+                }
+                None => {
+                    state.keys.insert(*slot, key);
+                    state.generation_originals.insert(*slot, (*request, public));
+                    if state.lock_after_generation {
+                        state.storage = Err(KagemushaWalletUnavailableV1::Locked);
+                    }
+                    if state.generation_readback_unavailable {
+                        KagemushaWalletKeyGenerationV1::Unavailable(
+                            KagemushaWalletUnavailableV1::Busy,
+                        )
+                    } else {
+                        KagemushaWalletKeyGenerationV1::Generated(public)
+                    }
+                }
+            }
+        })
+    }
+
     /// Record a violation unless `slot` is in the state "intent, no marker, not abandoned"
     /// with no key (design I12).
     fn check_generation(state: &mut FakeStateV1, slot: &KagemushaWalletSlotIdV1) {
@@ -895,8 +1082,8 @@ impl FakePlatformV1 {
     }
 }
 
-/// Transition owner of the tests: a deterministic receipt body over the capsule digest and a
-/// completion record whose output embeds the receipt signature.
+/// Transition owner of the tests: the canonical receipt body over the capsule's frozen
+/// statement, proof and Payment digests, and a completion whose output embeds its signature.
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct TestOwnerV1;
 
@@ -911,18 +1098,20 @@ impl
         capsule: &KagemushaWalletRecoveryCapsuleV1,
         capsule_digest: &[u8; 32],
     ) -> Result<Vec<u8>, super::KagemushaWalletProviderErrorV1> {
-        // Structural fixture only: the production owner must derive the signer from its
-        // authenticated credential. Use the canonical receipt layout for this provider test.
-        Ok(iroha_data_model::kagemusha::KagemushaWalletReceiptBodyV1 {
-            version: capsule.version,
-            scheme_id: capsule.statement.scheme_id,
+        Ok(KagemushaWalletReceiptBodyV1 {
+            version: 1,
+            scheme_id: capsule.scheme_id,
             wallet_id: capsule.wallet_id,
-            provider_contract: [0x14; 32],
+            provider_contract: kagemusha_wallet_provider_contract_v1(),
             sequence: capsule.statement.sequence,
             operation_id: capsule.operation_id,
             predecessor: capsule.statement.predecessor,
             successor: capsule.statement.successor,
-            statement_digest: capsule.statement.statement_digest(),
+            statement_digest: capsule.statement.statement_digest().map_err(|_| {
+                super::KagemushaWalletProviderErrorV1::Invalid {
+                    field: "receipt.statement_digest",
+                }
+            })?,
             proof_digest: capsule.proof_digest().map_err(|_| {
                 super::KagemushaWalletProviderErrorV1::Invalid {
                     field: "receipt.proof_digest",
@@ -1042,7 +1231,14 @@ pub(super) fn enrolled_device(
     let f = wallet_fixture(seed);
     let mut provider = device.open();
     let super::KagemushaWalletEnrollmentStepV1::Enrolled { slot, marker } = provider
-        .begin_enrollment(&enrollment_challenge(seed), PROFILE)
+        .test_begin_enrollment(
+            &enrollment_challenge(seed),
+            PROFILE,
+            crate::kagemusha_wallet_advance_v1::KagemushaWalletEnrollmentDatesV1 {
+                issued_at_ms: 1,
+                expires_at_ms: 600_001,
+            },
+        )
         .expect("begin")
     else {
         panic!("not enrolled");

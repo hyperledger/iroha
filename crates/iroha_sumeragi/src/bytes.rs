@@ -238,7 +238,7 @@ impl<const N: usize, D: ByteDomain> io::Write for ByteSequence<InlineBytes<N, D>
 #[cfg(test)]
 mod tests {
     use crate::{
-        message::{AttestationSignature, ResultWitness},
+        availability::{AvailabilityFrame, MAX_DA_CHUNK_SIZE_BYTES, RowBytes},
         types::ControlWitness,
     };
 
@@ -246,11 +246,11 @@ mod tests {
     fn shared_codec_keeps_all_semantic_frame_domains_distinct() {
         let bytes = [1, 2, 3];
         let control = ControlWitness::try_from_slice(&bytes).unwrap();
-        let signature = AttestationSignature::try_from_slice(&bytes).unwrap();
-        let result = ResultWitness::from_untrusted(bytes.to_vec()).unwrap();
+        let availability = AvailabilityFrame::from_untrusted(bytes.to_vec()).unwrap();
+        let result = RowBytes::from_untrusted(bytes.to_vec()).unwrap();
         let frames = [
             norito::encode_canonical(&control).unwrap(),
-            norito::encode_canonical(&signature).unwrap(),
+            norito::encode_canonical(&availability).unwrap(),
             norito::encode_canonical(&result).unwrap(),
         ];
         for (index, frame) in frames.iter().enumerate() {
@@ -259,11 +259,11 @@ mod tests {
                 index == 0
             );
             assert_eq!(
-                norito::decode_canonical::<AttestationSignature>(frame).is_ok(),
+                norito::decode_canonical::<AvailabilityFrame>(frame).is_ok(),
                 index == 1
             );
             assert_eq!(
-                norito::decode_canonical::<ResultWitness>(frame).is_ok(),
+                norito::decode_canonical::<RowBytes>(frame).is_ok(),
                 index == 2
             );
         }
@@ -284,19 +284,19 @@ mod tests {
                 crate::message::CodecError::Norito(_)
             ));
         }
-        invalid::<ResultWitness>(0);
-        invalid::<ResultWitness>(crate::message::MAX_RESULT_WITNESS_BYTES + 1);
-        invalid::<AttestationSignature>(257);
+        invalid::<RowBytes>(0);
+        invalid::<RowBytes>(MAX_DA_CHUNK_SIZE_BYTES as usize + 1);
+        invalid::<ControlWitness>(crate::types::MAX_CONTROL_WITNESS_BYTES + 1);
     }
 
     #[test]
     fn valid_witness_local_sequence_limit_remains_retryable() {
         use norito::codec::{DecodeAll, Encode};
-        let value = ResultWitness::from_untrusted(vec![9; 8]).unwrap();
+        let value = RowBytes::from_untrusted(vec![9; 8]).unwrap();
         let bytes = value.encode();
         let error = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(7, usize::MAX, usize::MAX, usize::MAX, usize::MAX),
-            || ResultWitness::decode_all(&mut bytes.as_slice()),
+            || RowBytes::decode_all(&mut bytes.as_slice()),
         )
         .unwrap_err();
         assert!(error.is_decode_resource_limit(), "{error:?}");
@@ -304,9 +304,6 @@ mod tests {
             crate::message::CodecError::from(error),
             crate::message::CodecError::Resource(_)
         ));
-        assert_eq!(
-            ResultWitness::decode_all(&mut bytes.as_slice()).unwrap(),
-            value
-        );
+        assert_eq!(RowBytes::decode_all(&mut bytes.as_slice()).unwrap(), value);
     }
 }

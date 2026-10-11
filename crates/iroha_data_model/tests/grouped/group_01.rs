@@ -12,8 +12,6 @@ mod api_exports;
 mod axt_descriptor_fixture;
 #[path = "../axt_envelope_fixture.rs"]
 mod axt_envelope_fixture;
-#[path = "../axt_policy_vectors.rs"]
-mod axt_policy_vectors;
 #[path = "../axt_proof_envelope.rs"]
 mod axt_proof_envelope;
 #[path = "../ballot_proof_json.rs"]

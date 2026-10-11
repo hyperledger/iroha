@@ -7,10 +7,7 @@ use ivm::{
 use kotodama_lang::{compiler::Compiler as KotodamaCompiler, ir, parser, semantic};
 mod common;
 fn encoded_state_path(name: &str, key: i64) -> String {
-    let key = ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(
-        i128::from(key),
-    ))
-    .expect("encode canonical pointer-backed StateMap key");
+    let key = common::encode_int_state_value(key);
     format!("{name}/{}", hex::encode(key))
 }
 fn account(_domain: &str, public_key: &str) -> AccountId {
@@ -20,9 +17,9 @@ fn account(_domain: &str, public_key: &str) -> AccountId {
 #[test]
 fn kotodama_state_map_set_writes_corehost_state() {
     let src = r#"
-        seiyaku C {
+        seiyaku C { permission WriteState;
             state StateMap<int, int> M;
-            kotoage fn main() authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) {
                 M[1] = 7;
                 let _x = M.get(1);
             }
@@ -49,11 +46,11 @@ fn kotodama_state_map_set_writes_corehost_state() {
 #[test]
 fn kotodama_nested_struct_map_roundtrip() {
     let src = r#"
-        seiyaku C {
+        seiyaku C { permission WriteState;
             struct Inner { int value }
             struct Outer { Inner inner }
             state StateMap<int, Outer> state_outer;
-            kotoage fn main() -> int authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) -> int {
                 state_outer[7] = Outer { inner: Inner { value: 33 } };
                 return state_outer.get(7).unwrap_or(Outer { inner: Inner { value: 0 } }).inner.value;
             }
@@ -74,7 +71,7 @@ fn kotodama_foreach_map_lowering_uses_compact_loop() {
     let src = r#"
         seiyaku LoopDemo {
             state StateMap<int, int> M;
-            view fn main() {
+            view fn main() authorize(anyone) {
                 for (k, v) in M.take(16) {
                     let _tmp = k + v;
                 }
@@ -112,10 +109,10 @@ fn kotodama_foreach_map_lowering_uses_compact_loop() {
 #[test]
 fn kotodama_foreach_reads_durable_state_map_entries() {
     let src = r#"
-        seiyaku LoopDemo {
+        seiyaku LoopDemo { permission WriteState;
             state StateMap<int, int> M;
             state StateMap<int, int> Mirror;
-            kotoage fn main() authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) {
                 for (k, v) in M.take(4) {
                     Mirror[k] = v;
                 }

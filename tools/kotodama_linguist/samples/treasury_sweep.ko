@@ -1,5 +1,6 @@
 // Representative trigger sample for Kotodama grammar validation.
 seiyaku TreasurySweep {
+    permission Admin;
     error enum SweepError {
         EmptyTreasury = 1,
     }
@@ -19,7 +20,7 @@ seiyaku TreasurySweep {
         }
     }
 
-    kotoage fn sweep() authorize("Admin") {
+    kotoage fn sweep() authorize(Admin) {
         let balance = 1_000_000;
         require(balance > 0, SweepError::EmptyTreasury);
         LastSweepHeight = LastSweepHeight + 1;

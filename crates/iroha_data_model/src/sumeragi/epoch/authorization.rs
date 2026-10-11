@@ -1,6 +1,6 @@
 //! Incumbent-certified scheduling authorizations for native validator epochs.
 //!
-//! An authorization names one scheduling epoch, its inclusive height bounds, the signing
+//! An authorization names one scheduling epoch, its inclusive height bounds, the validator
 //! generation it selects, its threshold-beacon binding and its predecessor. The body carries no
 //! certificate: the incumbent boundary quorum authenticates it separately, so its identity is
 //! independent of the signer subset.
@@ -9,16 +9,15 @@ use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 use sha2::{Digest as _, Sha256};
 
-use crate::{
-    DeriveJsonDeserialize, DeriveJsonSerialize, NetworkId,
-    isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1,
+use super::{
+    ValidatorCommitteeMemberV1, ValidatorGenerationV1, generation::generation_id_from_roster,
 };
+use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, NetworkId};
+use iroha_model_base::peer::PeerId;
 
 /// Sole first-release scheduling authorization layout version.
 const AUTHORIZATION_VERSION_V1: u16 = 1;
-// TODO(S21): the paired-Pasta mint-finality circuit still recomputes this exact transcript,
-// including its domain. Rename the domain when that authority is removed and the body reshaped.
-const AUTHORIZATION_DOMAIN_V1: &[u8] = b"iroha:kagemusha:v1:mint-finality-epoch-authorization";
+const AUTHORIZATION_DOMAIN_V1: &[u8] = b"iroha:validator-epoch-authorization:v1";
 
 /// Exact authority of an installed threshold-beacon transcript.
 ///
@@ -136,9 +135,9 @@ pub struct ValidatorEpochAuthorizationV1 {
     pub first_height: u64,
     /// Last governed height, inclusive.
     pub last_height: u64,
-    /// Generation whose paired-Pasta keys are authorized.
+    /// Validator generation whose ordered BLS roster is authorized.
     pub authority_generation: u64,
-    /// Exact immutable ordered authority commitment.
+    /// Exact [`ValidatorGenerationV1`] identity of that network, generation and roster.
     #[norito(json = "crate::json_helpers::fixed_bytes")]
     pub authority_id: [u8; 32],
     /// Exact installed beacon authority, or the explicit genesis bootstrap state.
@@ -154,31 +153,66 @@ pub struct ValidatorEpochAuthorizationV1 {
 }
 
 impl ValidatorEpochAuthorizationV1 {
-    /// Construct the initial scheduling authorization from the signed genesis authority.
+    /// Construct the initial scheduling authorization from the signed genesis roster.
     ///
-    /// The network and complete key commitment come from the validated generation-zero
-    /// authority. This constructs the body; callers still authenticate the signed genesis.
+    /// The network and complete roster commitment come from the validated generation-zero
+    /// roster. This constructs the body; callers still authenticate the signed genesis.
     ///
     /// # Errors
-    /// Rejects invalid authorities, nonzero generations, and an empty height interval.
+    /// Rejects invalid rosters, nonzero generations, and an empty height interval.
     pub fn genesis(
-        authority: &KagemushaMintFinalityAuthorityGenerationV1,
+        generation: &ValidatorGenerationV1,
         last_height: u64,
     ) -> Result<Self, ValidatorEpochAuthorizationErrorV1> {
+        Self::genesis_from_roster(
+            generation.network_id,
+            generation.generation,
+            generation.validators.iter(),
+            last_height,
+        )
+    }
+
+    /// Construct the same generation-zero authorization from the original committee.
+    /// No roster graph is copied; this shape relation confers no authentication.
+    ///
+    /// # Errors
+    /// Preserves the original roster-before-authorization refusal order.
+    pub(crate) fn genesis_from_committee(
+        network_id: NetworkId,
+        committee: &[ValidatorCommitteeMemberV1],
+        last_height: u64,
+    ) -> Result<Self, ValidatorEpochAuthorizationErrorV1> {
+        Self::genesis_from_roster(
+            network_id,
+            0,
+            committee.iter().map(|member| &member.validator),
+            last_height,
+        )
+    }
+
+    fn genesis_from_roster<'a, I>(
+        network_id: NetworkId,
+        generation: u64,
+        validators: I,
+        last_height: u64,
+    ) -> Result<Self, ValidatorEpochAuthorizationErrorV1>
+    where
+        I: ExactSizeIterator<Item = &'a PeerId> + Clone,
+    {
         let authorization = Self {
             version: AUTHORIZATION_VERSION_V1,
-            network_id: authority.network_id,
+            network_id,
             epoch: 0,
             first_height: 1,
             last_height,
-            authority_generation: authority.generation,
-            authority_id: signing_generation_id(authority)?,
+            authority_generation: generation,
+            authority_id: generation_id_from_roster(network_id, generation, validators.clone())?,
             beacon: BeaconEpochBindingV1::Bootstrap,
             previous_authorization_id: [0; 32],
             transition_id: [0; 32],
             decision: ValidatorEpochDecisionV1::Genesis,
         };
-        authorization.validate_against_authority(authority)?;
+        authorization.validate_against_roster(network_id, generation, validators)?;
         Ok(authorization)
     }
 
@@ -238,24 +272,54 @@ impl ValidatorEpochAuthorizationV1 {
         Ok(())
     }
 
-    /// Validate the exact generation selected by this authorization.
+    /// Validate the exact validator generation selected by this authorization.
     ///
     /// # Errors
-    /// Rejects any mismatch in network, generation number, or complete authority commitment.
-    pub fn validate_against_authority(
+    /// Rejects any mismatch in network, generation number, or complete roster commitment.
+    pub fn validate_against_generation(
         &self,
-        authority: &KagemushaMintFinalityAuthorityGenerationV1,
+        generation: &ValidatorGenerationV1,
     ) -> Result<(), ValidatorEpochAuthorizationErrorV1> {
+        self.validate_against_roster(
+            generation.network_id,
+            generation.generation,
+            generation.validators.iter(),
+        )
+    }
+
+    /// Check the same authorization relation against the original committee peers.
+    /// No separately copied generation graph participates in the comparison.
+    ///
+    /// # Errors
+    /// Preserves authorization-first validation and network/generation short circuits.
+    pub(crate) fn validate_against_committee(
+        &self,
+        network_id: NetworkId,
+        generation: u64,
+        committee: &[ValidatorCommitteeMemberV1],
+    ) -> Result<(), ValidatorEpochAuthorizationErrorV1> {
+        self.validate_against_roster(
+            network_id,
+            generation,
+            committee.iter().map(|member| &member.validator),
+        )
+    }
+
+    fn validate_against_roster<'a, I>(
+        &self,
+        network_id: NetworkId,
+        generation: u64,
+        validators: I,
+    ) -> Result<(), ValidatorEpochAuthorizationErrorV1>
+    where
+        I: ExactSizeIterator<Item = &'a PeerId> + Clone,
+    {
         self.validate()?;
-        if self.network_id != authority.network_id {
-            return Err(invalid("epoch_authorization.authority"));
-        }
-        // The authorization's authority_generation names this record's generation.
-        if self.authority_generation != authority.generation {
-            return Err(invalid("epoch_authorization.authority"));
-        }
-        if self.authority_id != signing_generation_id(authority)? {
-            return Err(invalid("epoch_authorization.authority"));
+        if self.network_id != network_id
+            || self.authority_generation != generation
+            || self.authority_id != generation_id_from_roster(network_id, generation, validators)?
+        {
+            return Err(invalid("epoch_authorization.generation"));
         }
         Ok(())
     }
@@ -340,8 +404,8 @@ impl ValidatorEpochAuthorizationV1 {
     }
 }
 
-/// Structural failure of a scheduling authorization body or its selected signing generation.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+/// Structural failure of a scheduling authorization body or its selected validator generation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ValidatorEpochAuthorizationErrorV1 {
     /// The body used a version other than the sole first-release layout.
     #[error("unsupported validator epoch authorization version {actual}")]
@@ -355,23 +419,10 @@ pub enum ValidatorEpochAuthorizationErrorV1 {
         /// Stable field label.
         field: &'static str,
     },
-    /// The signing generation selected by the authorization failed its own validation.
-    #[error("invalid validator epoch signing generation: {0}")]
-    InvalidSigningGeneration(String),
 }
 
 fn invalid(field: &'static str) -> ValidatorEpochAuthorizationErrorV1 {
     ValidatorEpochAuthorizationErrorV1::InvalidField { field }
-}
-
-// TODO(S21): replace with the neutral validator-generation commitment once the paired-Pasta
-// mint-finality generation is removed from the authorization.
-fn signing_generation_id(
-    authority: &KagemushaMintFinalityAuthorityGenerationV1,
-) -> Result<[u8; 32], ValidatorEpochAuthorizationErrorV1> {
-    authority.authority_id().map_err(|error| {
-        ValidatorEpochAuthorizationErrorV1::InvalidSigningGeneration(error.to_string())
-    })
 }
 
 #[cfg(test)]

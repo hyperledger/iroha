@@ -82,6 +82,7 @@
 //! ```
 
 mod platform;
+pub mod probe;
 pub mod recorder;
 pub mod report;
 pub mod schema;

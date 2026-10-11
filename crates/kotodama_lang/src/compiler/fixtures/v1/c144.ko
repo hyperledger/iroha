@@ -1,6 +1,6 @@
 
-seiyaku Test {
-  kotoage fn relay(bytes target, Json payload) -> bytes authorize("Admin") {
+seiyaku Test { permission Admin;
+  kotoage fn relay(bytes target, Json payload) authorize(Admin) -> bytes {
     return contract::call(contract: target, entrypoint: "settle", arguments: payload);
   }
 }

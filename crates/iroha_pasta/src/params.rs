@@ -40,6 +40,7 @@
 use ff::Field;
 use group::{GroupEncoding, prime::PrimeCurveAffine};
 use rayon::prelude::*;
+use std::sync::Arc;
 
 use crate::curve::PastaCurve;
 use crate::fft::FftDomain;
@@ -88,11 +89,14 @@ impl core::fmt::Display for ParamsError {
 impl std::error::Error for ParamsError {}
 
 /// IPA commitment parameters for vectors of length `2^k`.
+///
+/// Clones share immutable public generator tables. Derivation and decoding
+/// each allocate their own tables; there is no process-wide parameter cache.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParamsIpa<C: PastaCurve> {
     k: u32,
-    g: Vec<C::AffineExt>,
-    g_lagrange: Vec<C::AffineExt>,
+    g: Arc<[C::AffineExt]>,
+    g_lagrange: Arc<[C::AffineExt]>,
     w: C::AffineExt,
     u: C::AffineExt,
 }
@@ -277,8 +281,8 @@ impl<C: PastaCurve> ParamsIpa<C> {
         }
         Ok(Self {
             k,
-            g,
-            g_lagrange,
+            g: g.into(),
+            g_lagrange: g_lagrange.into(),
             w,
             u,
         })
@@ -390,8 +394,8 @@ impl<C: PastaCurve> ParamsIpa<C> {
             .ok_or(ParamsError::InvalidPoint { index: 2 * n + 1 })?;
         Ok(Self {
             k,
-            g,
-            g_lagrange,
+            g: g.into(),
+            g_lagrange: g_lagrange.into(),
             w,
             u,
         })
@@ -489,6 +493,77 @@ mod tests {
         );
         assert_eq!(generator_message(0x0102_0304), [0, 4, 3, 2, 1]);
         assert_ne!(p.w(), p.u());
+    }
+
+    fn shared_tables_preserve_codec<C: PastaCurve>() {
+        let original = ParamsIpa::<C>::new(3).unwrap();
+        let encoded = original.to_bytes();
+        let clone = original.clone();
+        assert!(Arc::ptr_eq(&original.g, &clone.g));
+        assert!(Arc::ptr_eq(&original.g_lagrange, &clone.g_lagrange));
+        assert_eq!(Arc::strong_count(&original.g), 2);
+        assert_eq!(Arc::strong_count(&original.g_lagrange), 2);
+        assert_eq!(clone.to_bytes(), encoded);
+        drop(original);
+        assert_eq!(Arc::strong_count(&clone.g), 1);
+        assert_eq!(Arc::strong_count(&clone.g_lagrange), 1);
+        assert_eq!(clone.to_bytes(), encoded);
+
+        // Decoding remains independent of existing owners and does not intern
+        // attacker-supplied points. Only an explicit clone shares its tables.
+        let decoded = ParamsIpa::<C>::from_bytes(&encoded).unwrap();
+        assert_eq!(decoded, clone);
+        assert!(!Arc::ptr_eq(&decoded.g, &clone.g));
+        assert!(!Arc::ptr_eq(&decoded.g_lagrange, &clone.g_lagrange));
+        let decoded_clone = decoded.clone();
+        assert!(Arc::ptr_eq(&decoded.g, &decoded_clone.g));
+        assert!(Arc::ptr_eq(&decoded.g_lagrange, &decoded_clone.g_lagrange));
+        drop(decoded);
+        assert_eq!(decoded_clone.to_bytes(), encoded);
+
+        for index in 0..2 * clone.n() + 2 {
+            for point in [[0; 32], [0xff; 32]] {
+                let mut malformed = encoded.clone();
+                let offset = 4 + 32 * index;
+                malformed[offset..offset + 32].copy_from_slice(&point);
+                assert_eq!(
+                    ParamsIpa::<C>::from_bytes(&malformed),
+                    Err(ParamsError::InvalidPoint { index })
+                );
+            }
+        }
+        for length in [0, 3, encoded.len() - 1, encoded.len() + 1] {
+            let mut malformed = encoded.clone();
+            malformed.resize(length, 0);
+            assert_eq!(
+                ParamsIpa::<C>::from_bytes(&malformed),
+                Err(ParamsError::WrongLength {
+                    expected: if length < 4 { 4 } else { encoded.len() },
+                    actual: length,
+                })
+            );
+        }
+        let mut malformed = encoded.clone();
+        malformed[..4].copy_from_slice(&(MAX_K + 1).to_le_bytes());
+        assert_eq!(
+            ParamsIpa::<C>::from_bytes(&malformed),
+            Err(ParamsError::UnsupportedK {
+                k: u64::from(MAX_K + 1)
+            })
+        );
+        // Failed decodes cannot mutate either retained table or its encoding.
+        assert_eq!(clone.to_bytes(), encoded);
+        assert_eq!(decoded_clone.to_bytes(), encoded);
+    }
+
+    #[test]
+    fn pallas_clones_share_immutable_tables_and_preserve_strict_codec() {
+        shared_tables_preserve_codec::<Ep>();
+    }
+
+    #[test]
+    fn vesta_clones_share_immutable_tables_and_preserve_strict_codec() {
+        shared_tables_preserve_codec::<Eq>();
     }
 
     #[test]

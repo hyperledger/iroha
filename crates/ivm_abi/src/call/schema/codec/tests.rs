@@ -43,8 +43,8 @@ fn materialized(schema: &CallSchemaV1) -> Vec<u8> {
             N::Option => bytes.push(2),
             N::Result => bytes.push(3),
             N::List { capacity } => bytes.extend_from_slice(&[4, *capacity]),
-            N::Leaf(kind) | N::StateCursor(kind) => {
-                bytes.push(if matches!(node, N::Leaf(_)) { 5 } else { 8 });
+            N::Leaf(kind) => {
+                bytes.push(5);
                 let encoded = primitive(kind);
                 assert_eq!(encoded.len(), 4);
                 bytes.push(
@@ -53,10 +53,22 @@ fn materialized(schema: &CallSchemaV1) -> Vec<u8> {
                         .unwrap(),
                 );
             }
+            N::StateCursor(key) => {
+                bytes.push(8);
+                let encoded = primitive(key);
+                norito::core::write_len(&mut bytes, encoded.len() as u64).unwrap();
+                bytes.extend(encoded);
+            }
             N::Unit => bytes.push(6),
             N::Error(error) => {
                 bytes.push(7);
                 let encoded = primitive(error);
+                norito::core::write_len(&mut bytes, encoded.len() as u64).unwrap();
+                bytes.extend(encoded);
+            }
+            N::Enum(enumeration) => {
+                bytes.push(12);
+                let encoded = primitive(enumeration);
                 norito::core::write_len(&mut bytes, encoded.len() as u64).unwrap();
                 bytes.extend(encoded);
             }
@@ -78,7 +90,7 @@ fn all_nodes() -> CallSchemaV1 {
     use EntrypointValueKindV1 as K;
     let mut nodes = vec![
         N::Struct {
-            name: "Point".into(),
+            name: "Fixture::Point".into(),
             fields: vec!["first".into(), "second".into()],
         },
         N::Tuple(2),
@@ -90,11 +102,12 @@ fn all_nodes() -> CallSchemaV1 {
         N::Leaf(K::Quantity),
         N::Error(crate::error_types::list_error_type()),
         N::Struct {
-            name: "Empty".into(),
+            name: "Fixture::Empty".into(),
             fields: vec![],
         },
         N::Unit,
         N::StateRoot,
+        N::Enum(crate::enum_tests::descriptor()),
     ];
     for kind in [
         K::Int,
@@ -114,7 +127,9 @@ fn all_nodes() -> CallSchemaV1 {
     ] {
         nodes.push(N::Leaf(kind));
         if kind != K::Json {
-            nodes.push(N::StateCursor(kind));
+            nodes.push(N::StateCursor(crate::entrypoint::EntrypointValueTypeV1 {
+                nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Leaf(kind)],
+            }));
         }
     }
     for pointer in [0x0b, 0x0d, 0x0e, 0x0f, 0x13] {
@@ -173,7 +188,7 @@ fn compact_decoder_rejects_every_truncated_prefix_unknown_tags_counts_and_traili
         bytes[4..12].copy_from_slice(&count.to_le_bytes());
         assert!(decode_payload(&bytes).is_err());
     }
-    for tag in [12, 127, 255] {
+    for tag in [13, 127, 255] {
         let mut bytes = payload(&CallSchemaV1::unit());
         bytes[12] = tag;
         assert!(
@@ -214,7 +229,7 @@ fn compact_decoder_preserves_original_node_depth_nominal_resource_and_table_limi
         vec![N::List { capacity: 1 }, N::StateRoot],
         vec![
             N::Struct {
-                name: "Point".into(),
+                name: "Fixture::Point".into(),
                 fields: vec!["x".into(), "x".into()],
             },
             N::Unit,
@@ -222,7 +237,7 @@ fn compact_decoder_preserves_original_node_depth_nominal_resource_and_table_limi
         ],
         vec![
             N::Struct {
-                name: "AccountView".into(),
+                name: "kotodama::AccountView".into(),
                 fields: vec!["id".into(), "metadata".into()],
             },
             N::Leaf(EntrypointValueKindV1::Blob),
@@ -294,7 +309,7 @@ fn compact_decode_charges_original_sequence_and_node_layout_before_allocation() 
 fn compact_nested_strings_and_nominal_errors_keep_original_field_utf8_and_depth_refusals() {
     let schema = CallSchemaV1 {
         nodes: vec![CallTypeNodeV1::Struct {
-            name: "Point".into(),
+            name: "Fixture::Point".into(),
             fields: vec![],
         }],
     };
@@ -309,10 +324,7 @@ fn compact_nested_strings_and_nominal_errors_keep_original_field_utf8_and_depth_
         .unwrap_err();
     assert!(matches!(
         error,
-        Error::FieldLengthExceeded {
-            length: 5,
-            limit: 4
-        }
+        Error::FieldLengthExceeded { length, limit: 4 } if length == "Fixture::Point".len() as u64
     ));
     let bytes = payload(&CallSchemaV1 {
         nodes: vec![CallTypeNodeV1::Error(crate::error_types::list_error_type())],
@@ -359,10 +371,11 @@ enum OriginalNode {
     Leaf(EntrypointValueKindV1),
     Unit,
     Error(iroha_data_model::smart_contract::manifest::ContractErrorTypeDescriptor),
-    StateCursor(EntrypointValueKindV1),
+    StateCursor(crate::entrypoint::EntrypointValueTypeV1),
     StateRoot,
     Pointer(u16),
     SecretNumeric(u16),
+    Enum(iroha_data_model::smart_contract::manifest::ContractEnumTypeDescriptorV1),
 }
 #[derive(norito::Encode)]
 struct OriginalSchema {
@@ -389,10 +402,11 @@ fn original_materialized_payload(schema: &CallSchemaV1) -> Vec<u8> {
                 N::Leaf(kind) => OriginalNode::Leaf(*kind),
                 N::Unit => OriginalNode::Unit,
                 N::Error(error) => OriginalNode::Error(error.clone()),
-                N::StateCursor(kind) => OriginalNode::StateCursor(*kind),
+                N::StateCursor(kind) => OriginalNode::StateCursor(kind.clone()),
                 N::StateRoot => OriginalNode::StateRoot,
                 N::Pointer(id) => OriginalNode::Pointer(*id),
                 N::SecretNumeric(id) => OriginalNode::SecretNumeric(*id),
+                N::Enum(enumeration) => OriginalNode::Enum(enumeration.clone()),
             }
         })
         .collect();

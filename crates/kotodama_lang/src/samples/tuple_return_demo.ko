@@ -5,7 +5,7 @@ seiyaku TupleReturnDemo {
         return t;
     }
 
-    kotoage fn compute() -> (int, int) authorize("Entry") {
+    view fn compute() authorize(anyone) -> (int, int) {
         let p = pair(a: 3, b: 5);
         // Destructure using numeric field access
         return (p.0, p.1);

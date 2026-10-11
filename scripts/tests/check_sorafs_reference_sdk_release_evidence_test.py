@@ -896,6 +896,41 @@ def test_release_lane_rejects_stale_signed_topology_review(tmp_path: Path) -> No
     )
 
 
+def diagnostic_without_fixture_locations(text: str, fixture_root: Path) -> str:
+    """Exclude known source-location prefixes while retaining diagnostic values."""
+    prefixes = (f"{fixture_root}/", f"- {fixture_root}/")
+    lines = []
+    for line in text.splitlines():
+        for prefix in prefixes:
+            if line.startswith(prefix):
+                line = f"<evidence>/{line[len(prefix):]}"
+                break
+        lines.append(line)
+    return "\n".join(lines)
+
+
+@pytest.mark.parametrize("prefix", ["", "- "])
+@pytest.mark.parametrize("echo_value", [False, True])
+def test_diagnostic_redaction_distinguishes_location_digits_from_echoed_values(
+    prefix: str, echo_value: bool
+) -> None:
+    fixture_root = Path("/fixtures/10")
+    message = "signer_policy_revision must match the trusted signer"
+    if echo_value:
+        message += ": received 10"
+    diagnostic = f"{prefix}{fixture_root}/signed-manifest.json: {message}"
+    normalized = diagnostic_without_fixture_locations(diagnostic, fixture_root)
+    assert ("10" in normalized) is echo_value
+    assert "signed-manifest.json" in normalized
+    assert message in normalized
+
+
+def test_diagnostic_redaction_preserves_paths_embedded_in_error_messages() -> None:
+    fixture_root = Path("/fixtures/10")
+    diagnostic = f"untrusted revision refers to {fixture_root}/signed-manifest.json"
+    assert diagnostic_without_fixture_locations(diagnostic, fixture_root) == diagnostic
+
+
 @pytest.mark.parametrize(
     ("flag", "replacement", "error_fragment"),
     [
@@ -961,8 +996,15 @@ def test_release_lane_rejects_substituted_topology_trust(
     payload = json.loads(summary.read_text(encoding="utf-8"))
     assert payload["topology_qualification"] is None
     assert any(error_fragment in error for error in payload["errors"])
-    assert replacement not in json.dumps(payload["errors"])
-    assert replacement not in capsys.readouterr().err
+    # Temporary-directory digits are source locations, not echoed trust inputs.
+    errors = [
+        diagnostic_without_fixture_locations(error, tmp_path)
+        for error in payload["errors"]
+    ]
+    assert replacement not in json.dumps(errors)
+    assert replacement not in diagnostic_without_fixture_locations(
+        capsys.readouterr().err, tmp_path
+    )
 
 
 def test_bound_fixture_tables_cover_checker_bound_kind_sets() -> None:

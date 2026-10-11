@@ -4,7 +4,7 @@
 //! Proof limits, windows, verifier switches, relation-selecting keys and the
 //! verification gas schedule are committed chain policy
 //! (`zk_validity_policy_v1`). The node schema holds local resource settings of
-//! the ZK verifier lane only, and environment aliases only for those.
+//! diagnostic trace and polynomial-opening services only.
 use iroha_config::parameters::{actual::Root as ActualConfig, defaults, user::Root as UserConfig};
 use iroha_config_base::{env::MockEnv, read::ConfigReader};
 use std::{collections::HashMap, path::PathBuf, sync::Once};
@@ -82,26 +82,13 @@ fn environment_cannot_set_a_zk_validity_value() {
         zk.bridge_proof_max_range_len,
         reference.bridge_proof_max_range_len
     );
-    assert_eq!(zk.halo2.enabled, reference.halo2.enabled);
-    assert_eq!(zk.halo2.curve, reference.halo2.curve);
+    assert_eq!(zk.pipa_r.enabled, reference.pipa_r.enabled);
     assert_eq!(
-        zk.halo2.enforce_transcript_label_ascii,
-        reference.halo2.enforce_transcript_label_ascii
+        zk.pipa_r.max_envelope_bytes,
+        reference.pipa_r.max_envelope_bytes
     );
-    assert_eq!(
-        zk.halo2.max_envelope_bytes,
-        reference.halo2.max_envelope_bytes
-    );
-    assert_eq!(zk.halo2.max_k, reference.halo2.max_k);
-    assert_eq!(zk.halo2.max_proof_bytes, reference.halo2.max_proof_bytes);
-    assert_eq!(
-        zk.halo2.max_transcript_label_len,
-        reference.halo2.max_transcript_label_len
-    );
-    assert_eq!(
-        zk.halo2.verifier_max_batch,
-        reference.halo2.verifier_max_batch
-    );
+    assert_eq!(zk.pipa_r.max_proof_bytes, reference.pipa_r.max_proof_bytes);
+    assert_eq!(zk.max_verify_batch, reference.max_verify_batch);
     assert_eq!(zk.pedersen_params_id, reference.pedersen_params_id);
     assert_eq!(zk.poseidon_params_id, reference.poseidon_params_id);
     assert_eq!(zk.preverify_budget_bytes, reference.preverify_budget_bytes);
@@ -120,8 +107,7 @@ fn environment_cannot_set_a_zk_validity_value() {
     assert_eq!(zk.stark.max_proof_bytes, reference.stark.max_proof_bytes);
 
     // The reference values are the protocol defaults, not the values offered above.
-    assert_eq!(zk.halo2.max_k, defaults::zk::halo2::MAX_K);
-    assert_eq!(zk.halo2.enabled, defaults::zk::halo2::ENABLED);
+    assert_eq!(zk.pipa_r.enabled, defaults::zk::pipa_r::ENABLED);
     assert_eq!(zk.stark.enabled, defaults::zk::stark::ENABLED);
     assert_eq!(
         zk.ballot_history_cap,
@@ -130,7 +116,7 @@ fn environment_cannot_set_a_zk_validity_value() {
 }
 
 #[test]
-fn environment_still_sets_local_verifier_resources() {
+fn retired_environment_cannot_set_diagnostic_resources() {
     let env = MockEnv::with_map(HashMap::from([
         (
             "ZK_HALO2_VERIFIER_WORKER_THREADS".to_owned(),
@@ -139,8 +125,11 @@ fn environment_still_sets_local_verifier_resources() {
         ("ZK_HALO2_VERIFIER_QUEUE_CAP".to_owned(), "17".to_owned()),
     ]));
     let config = load_with_env(env);
-    assert_eq!(config.zk.halo2.verifier_worker_threads, 3);
-    assert_eq!(config.zk.halo2.verifier_queue_cap, 17);
+    assert_eq!(
+        config.zk.trace.worker_threads,
+        defaults::zk::trace::WORKER_THREADS
+    );
+    assert_eq!(config.zk.trace.queue_cap, defaults::zk::trace::QUEUE_CAP);
 }
 
 #[test]
@@ -150,8 +139,8 @@ fn configuration_file_cannot_set_a_zk_validity_value() {
     // One file names several chain-policy values; loading reports every one of
     // them as an unknown parameter in a single aggregated error.
     let table: toml::Table = toml::from_str(
-        "[zk.halo2]\nmax_k = 3\n[zk.stark]\nenabled = false\n[zk.sccp]\nmax_proofs_per_block = 9\n\
-         [zk]\nballot_history_cap = 1\n[confidential]\nmax_proof_size_bytes = 1\n\
+        "[zk.pipa_r]\nmax_proof_bytes = 3\n[zk.stark]\nenabled = false\n[zk.sccp]\nmax_proofs_per_block = 9\n\
+         [zk]\nmax_verify_batch = 1\nballot_history_cap = 1\n[confidential]\nmax_proof_size_bytes = 1\n\
          [confidential.gas]\nproof_base = 1\n",
     )
     .expect("test TOML parses");
@@ -164,7 +153,8 @@ fn configuration_file_cannot_set_a_zk_validity_value() {
     let diagnostic = format!("{error:?}");
     // A removed key is named by itself; a removed section by the section.
     for name in [
-        "`zk.halo2.max_k`",
+        "`zk.pipa_r`",
+        "`zk.max_verify_batch`",
         "`zk.stark`",
         "`zk.sccp`",
         "`zk.ballot_history_cap`",
@@ -177,10 +167,9 @@ fn configuration_file_cannot_set_a_zk_validity_value() {
         );
     }
     // Local resource settings of the same sections still load.
-    let table: toml::Table = toml::from_str(
-        "[zk.halo2]\nverifier_worker_threads = 3\n[confidential]\nverify_timeout_ms = 9\n",
-    )
-    .expect("test TOML parses");
+    let table: toml::Table =
+        toml::from_str("[zk.trace]\nworker_threads = 3\n[confidential]\nverify_timeout_ms = 9\n")
+            .expect("test TOML parses");
     let config = ConfigReader::new()
         .read_toml_with_extends(fixtures_dir().join("base.toml"))
         .expect("fixture should load")
@@ -189,10 +178,13 @@ fn configuration_file_cannot_set_a_zk_validity_value() {
         .expect("local resources are node configuration")
         .parse()
         .expect("config should parse");
-    assert_eq!(config.zk.halo2.verifier_worker_threads, 3);
+    assert_eq!(config.zk.trace.worker_threads, 3);
     assert_eq!(
         config.zk.verify_timeout,
         std::time::Duration::from_millis(9)
     );
-    assert_eq!(config.zk.halo2.max_k, defaults::zk::halo2::MAX_K);
+    assert_eq!(
+        config.zk.pipa_r.max_proof_bytes,
+        defaults::zk::pipa_r::MAX_PROOF_BYTES
+    );
 }

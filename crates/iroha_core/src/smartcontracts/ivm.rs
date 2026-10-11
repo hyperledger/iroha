@@ -304,40 +304,6 @@ pub fn gas_limit_for_meta(meta: &ivm::ProgramMetadata) -> Result<u64, IvmAdmissi
     let cycles = NonZeroU64::new(meta.max_cycles).ok_or(IvmAdmissionError::MissingMaxCycles)?;
     Ok(gas_limit_for_cycles(cycles))
 }
-/// Map a VM execution error into a user-facing validation failure.
-#[must_use]
-fn map_vm_error_to_validation(err: &ivm::VMError) -> ValidationFail {
-    ValidationFail::NotPermitted(err.to_string())
-}
-fn format_vm_diagnostic(diag: ivm::VmExecutionDiagnostic<'_>, error: &ivm::VMError) -> String {
-    let mut message = error.to_string();
-    use std::fmt::Write as _;
-    let _ = write!(&mut message, " at pc=0x{:x}", diag.pc);
-    if let Some(function) = diag
-        .source
-        .as_ref()
-        .and_then(|source| source.function)
-        .or(diag.context.current_function)
-    {
-        let _ = write!(&mut message, " fn={function}");
-    }
-    if let Some(source) = diag.source.as_ref()
-        && let (Some(line), Some(column)) = (source.line, source.column)
-    {
-        if let Some(path) = source.path.as_deref() {
-            let _ = write!(&mut message, " src={path}:{line}:{column}");
-        } else {
-            let _ = write!(&mut message, " src={line}:{column}");
-        }
-    }
-    if let Some(opcode) = diag.context.opcode {
-        let _ = write!(&mut message, " opcode=0x{opcode:02x}");
-    }
-    if let Some(syscall) = diag.context.syscall {
-        let _ = write!(&mut message, " syscall=0x{syscall:02x}");
-    }
-    message
-}
 /// Classify an original VM failure before rendering completed semantic rejection context.
 ///
 /// Local refusals retain their original release owner and never enter diagnostic
@@ -347,6 +313,15 @@ pub fn map_vm_error_with_context_to_validation(
     vm: &ivm::IVM,
     error: ivm::VMError,
 ) -> crate::execution_attempt::ExecutionAttemptError<ValidationFail> {
+    let fault = vm.execution_fault(
+        &error,
+        iroha_data_model::executor::fault::IvmFaultPositionV1::ReturnValidation,
+    );
+    if error.fault_kind().is_some() && fault.is_none() {
+        return crate::execution_attempt::ExecutionAttemptError::Deferred(
+            ivm::error::ExecutionDeferral::LocalInvariantViolation.into(),
+        );
+    }
     crate::execution_attempt::vm_attempt_error(error, |error| {
         // The declared rejection already owns its authenticated strings. Remove
         // metering wrappers only for that variant so all other displays retain
@@ -375,10 +350,9 @@ pub fn map_vm_error_with_context_to_validation(
                 message,
             });
         }
-        if let Some(diagnostic) = vm.last_diagnostic() {
-            ValidationFail::NotPermitted(format_vm_diagnostic(diagnostic, &error))
-        } else {
-            map_vm_error_to_validation(&error)
+        match fault {
+            Some(fault) => ValidationFail::IvmFault(fault),
+            None => program_admission_error(error.into_unmetered()),
         }
     })
 }
@@ -399,6 +373,9 @@ mod tests {
     use iroha_primitives::json::Json;
     fn manifest_with_hashes(code_hash: Option<Hash>, abi_hash: Option<Hash>) -> ContractManifest {
         ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash,
             abi_hash,
@@ -515,11 +492,15 @@ mod tests {
             validate_runtime_upgrade_manifest_abi(&stale),
             Err(IvmAdmissionError::ManifestAbiHashMismatch(_))
         ));
-        let mut unmarked_alias = valid.clone();
-        unmarked_alias.abi_hash[31] ^= 1;
-        assert_eq!(unmarked_alias.abi_hash[31] & 1, 0);
+        let mut normalized_alias = valid.clone();
+        normalized_alias.abi_hash[31] ^= 1;
+        assert_eq!(
+            Hash::prehashed(normalized_alias.abi_hash),
+            Hash::prehashed(valid.abi_hash),
+            "Hash normalization must not erase an ABI descriptor mismatch"
+        );
         assert!(matches!(
-            validate_runtime_upgrade_manifest_abi(&unmarked_alias),
+            validate_runtime_upgrade_manifest_abi(&normalized_alias),
             Err(IvmAdmissionError::ManifestAbiHashMismatch(_))
         ));
         let mut delta = valid.clone();
@@ -724,20 +705,25 @@ mod tests {
     }
     #[test]
     fn vm_error_maps_to_not_permitted() {
-        let err = map_vm_error_to_validation(&ivm::VMError::OutOfGas);
-        assert!(matches!(err, ValidationFail::NotPermitted(msg) if msg.contains("out of gas")));
+        let vm = ivm::IVM::try_new(100).unwrap();
+        let err = crate::execution_attempt::expect_completed_rejection(
+            map_vm_error_with_context_to_validation(&vm, ivm::VMError::OutOfGas),
+        );
+        assert!(
+            matches!(err, ValidationFail::IvmFault(fault) if fault.kind == iroha_data_model::executor::fault::IvmFaultKindV1::OutOfGas)
+        );
     }
     #[test]
     fn declared_contract_abort_maps_to_manifest_authenticated_rejection() {
         let artifact = kotodama_lang::compiler::Compiler::new()
             .compile_source(
                 r#"
-                seiyaku LiquidityPolicy {
+                seiyaku LiquidityPolicy { permission Test;
                     error enum LiquidityError {
                         BelowMinimum = 18,
                     }
 
-                    kotoage fn reject() authorize("Test") {
+                    kotoage fn reject() authorize(Test) {
                         require(false, LiquidityError::BelowMinimum);
                     }
                 }

@@ -189,7 +189,6 @@ impl Fixture {
             payload_len: u32::try_from(payload.len()).unwrap(),
             proposer: 0,
             skipped_leaders: Vec::new(),
-            attest: false,
         };
         let mut charged = iroha_allocation::ChargedBuffer::new(payload.len(), &budget).unwrap();
         charged.append(&payload).unwrap();
@@ -233,11 +232,8 @@ impl Fixture {
             view: 0,
             block_hash: block.hash(&*crypto),
             result,
-            attest: false,
             signers: Bitmap::from_indices(4, [0, 1, 2]).unwrap(),
             agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
-            attestations: Vec::new(),
-            attestation_witness: None,
         };
         let mut fixture = Self {
             record,
@@ -565,24 +561,24 @@ fn anchored_lane_ancestry_walks_every_source_above_the_complete_native_interval(
     let held = fixture.budget.reserved_bytes();
     // A correct interval cannot skip the original anchor's higher frame.
     assert_eq!(
-        cursor.advance(&crypto, &NoAttestation, &frames[1].0, &frames[1].1),
+        cursor.advance(&crypto, &frames[1].0, &frames[1].1),
         Err(LaneAncestryError::Branch)
     );
     assert_eq!(cursor.next_height(), Some(3));
     let mut forged = frames[2].1.clone();
     forged.agg_sig.0[0] ^= 1;
     assert_eq!(
-        cursor.advance(&crypto, &NoAttestation, &frames[2].0, &forged),
+        cursor.advance(&crypto, &frames[2].0, &forged),
         Err(LaneAncestryError::Certificate)
     );
     assert_eq!(cursor.next_height(), Some(3));
     for (body, qc) in frames.iter().rev() {
         assert_eq!(cursor.next_height(), Some(qc.height));
-        cursor.advance(&crypto, &NoAttestation, body, qc).unwrap();
+        cursor.advance(&crypto, body, qc).unwrap();
     }
     assert_eq!(cursor.next_height(), None);
     assert_eq!(
-        cursor.advance(&crypto, &NoAttestation, &frames[0].0, &frames[0].1),
+        cursor.advance(&crypto, &frames[0].0, &frames[0].1),
         Err(LaneAncestryError::Complete)
     );
     assert_eq!(
@@ -613,7 +609,7 @@ fn anchored_lane_ancestry_rejects_a_validly_certified_replacement_branch_and_res
         .is_ok()
     );
     assert_eq!(
-        cursor.advance(&crypto, &NoAttestation, &fixture.body, &fixture.qc),
+        cursor.advance(&crypto, &fixture.body, &fixture.qc),
         Err(LaneAncestryError::Branch)
     );
     assert_eq!(cursor.next_height(), Some(1));
@@ -634,14 +630,12 @@ fn anchored_lane_ancestry_rejects_a_validly_certified_replacement_branch_and_res
         .is_ok()
     );
     assert_eq!(
-        cursor.advance(&crypto, &NoAttestation, &fixture.body, &fixture.qc),
+        cursor.advance(&crypto, &fixture.body, &fixture.qc),
         Err(LaneAncestryError::Branch)
     );
     fixture.qc.result = original_result;
     fixture.resign(3);
-    cursor
-        .advance(&crypto, &NoAttestation, &fixture.body, &fixture.qc)
-        .unwrap();
+    cursor.advance(&crypto, &fixture.body, &fixture.qc).unwrap();
     assert_eq!(cursor.next_height(), None);
 }
 
@@ -698,7 +692,7 @@ fn anchored_lane_ancestry_rejects_broken_parent_links_and_relabelled_source_poli
     certified_successor(&mut fixture, wrong_genesis);
     let mut cursor = ancestry(&fixture, 2, 10).unwrap();
     assert_eq!(
-        cursor.advance(&crypto, &NoAttestation, &fixture.body, &fixture.qc),
+        cursor.advance(&crypto, &fixture.body, &fixture.qc),
         Err(LaneAncestryError::Branch)
     );
     assert_eq!(cursor.next_height(), Some(1));
@@ -712,7 +706,7 @@ fn anchored_lane_ancestry_rejects_broken_parent_links_and_relabelled_source_poli
     fixture.replace_payload(&bytes, &foreign);
     assert_eq!(fixture.body.header(), &original);
     assert_eq!(
-        cursor.advance(&crypto, &NoAttestation, &fixture.body, &fixture.qc),
+        cursor.advance(&crypto, &fixture.body, &fixture.qc),
         Err(LaneAncestryError::Branch)
     );
     assert_eq!(cursor.next_height(), Some(1));

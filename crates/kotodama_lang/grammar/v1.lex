@@ -1,6 +1,7 @@
 // Normative machine-readable Kotodama V1 lexical grammar.
 // Records are tab-separated. This file generates compiler and tooling tables.
 keyword	as	As
+keyword	permission	Permission
 keyword	authorize	Authorize
 keyword	break	Break
 keyword	const	Const
@@ -30,6 +31,8 @@ keyword	seiyaku	Seiyaku
 keyword	誓約	Seiyaku
 keyword	state	State
 keyword	struct	Struct
+keyword	event	Event
+keyword	emit	Emit
 keyword	trigger	Trigger
 keyword	true	True
 keyword	var	Var

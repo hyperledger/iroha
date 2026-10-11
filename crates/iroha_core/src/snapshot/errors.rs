@@ -115,6 +115,8 @@ pub enum TryReadError {
     },
     /// Snapshot boundary identity is invalid (`{0}`)
     InvalidSnapshotBoundary(String),
+    /// Original finite resources refused immutable native evidence restore: {0}
+    StateEvidence(#[source] crate::sumeragi::evidence::record::EvidenceRecordRestoreError),
     /// Snapshot state is incompatible with runtime ZK configuration: {0}
     ZkConfigInstall(#[source] ZkConfigInstallError),
     /// Snapshot is in a non-consistent state. Snapshot has greater height (`{snapshot_height}`) than kura block store (`{kura_height}`)
@@ -178,6 +180,9 @@ impl From<crate::state::deserialize::StateRestoreError> for TryReadError {
             }
             crate::state::deserialize::StateRestoreError::NativeAmx(error) => {
                 Self::StateNativeAmx(error)
+            }
+            crate::state::deserialize::StateRestoreError::Evidence(error) => {
+                Self::StateEvidence(error)
             }
         }
     }
@@ -302,3 +307,41 @@ mod native_lane_sample_tests;
 
 #[cfg(test)]
 mod beacon_session_tests;
+
+#[cfg(test)]
+mod evidence_restore_tests {
+    use super::TryReadError;
+    use crate::{
+        state::{EvidencePreparationError, deserialize::StateRestoreError},
+        sumeragi::evidence::record::EvidenceRecordRestoreError,
+    };
+    use iroha_allocation::AllocationBudget;
+
+    #[test]
+    fn original_evidence_restore_error_retains_typed_capacity_through_snapshot_boundary() {
+        let budget = AllocationBudget::new(64);
+        let original = budget.try_reserve_bytes(64).unwrap();
+        let expected = budget
+            .try_reserve(std::alloc::Layout::array::<u8>(8).unwrap())
+            .unwrap_err();
+        let error = TryReadError::from(StateRestoreError::Evidence(
+            EvidencePreparationError::Admission(expected).into(),
+        ));
+        assert!(matches!(&error, TryReadError::StateEvidence(
+            EvidenceRecordRestoreError::Preparation(EvidencePreparationError::Admission(actual))
+        ) if matches!(actual, iroha_allocation::AllocationRefusal::Capacity {..})));
+        let TryReadError::StateEvidence(EvidenceRecordRestoreError::Preparation(
+            EvidencePreparationError::Admission(actual),
+        )) = error
+        else {
+            panic!("local original funding is not snapshot syntax or protocol invalidity");
+        };
+        let observed = budget
+            .try_reserve(std::alloc::Layout::array::<u8>(8).unwrap())
+            .unwrap_err();
+        assert_eq!(actual, observed);
+        assert_eq!(budget.reserved_bytes(), 64);
+        drop(original);
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+}

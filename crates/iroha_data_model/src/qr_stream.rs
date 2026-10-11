@@ -47,28 +47,17 @@ impl QrStreamFrameKind {
 }
 /// Payload kind tags embedded in the QR stream `IQ` envelope.
 ///
-/// These `u16` tags mirror the canonical KAGEMUSHA V1 peer message order;
-/// they are distinct from the one-byte kind field in the inner `IPM1` message.
+/// No typed payload family is assigned yet; every `u16` tag reads back as
+/// [`QrPayloadKind::Unspecified`] and encoders emit tag `0`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
 pub enum QrPayloadKind {
     /// No specific payload kind.
     Unspecified = 0,
-    /// KAGEMUSHA V1 recipient payment request.
-    KagemushaPaymentRequest = 1,
-    /// KAGEMUSHA V1 payment.
-    KagemushaPayment = 2,
-    /// KAGEMUSHA V1 receiver acknowledgement.
-    KagemushaAcknowledgement = 3,
 }
 impl QrPayloadKind {
-    fn from_u16(value: u16) -> Self {
-        match value {
-            1 => Self::KagemushaPaymentRequest,
-            2 => Self::KagemushaPayment,
-            3 => Self::KagemushaAcknowledgement,
-            _ => Self::Unspecified,
-        }
+    fn from_u16(_value: u16) -> Self {
+        Self::Unspecified
     }
 }
 /// Encoder options controlling chunking and parity.
@@ -871,15 +860,13 @@ mod tests {
             .and_then(norito::json::native::Value::as_u64)
             .and_then(|value| u8::try_from(value).ok())
             .expect("parity_group");
-        let payload_kind = options_value
+        let payload_kind = match options_value
             .get("payload_kind")
             .and_then(|v| v.as_str())
-            .unwrap_or("unspecified");
-        let payload_kind = match payload_kind {
-            "kagemusha_payment_request_v1" => QrPayloadKind::KagemushaPaymentRequest,
-            "kagemusha_payment_v1" => QrPayloadKind::KagemushaPayment,
-            "kagemusha_acknowledgement_v1" => QrPayloadKind::KagemushaAcknowledgement,
-            _ => QrPayloadKind::Unspecified,
+            .unwrap_or("unspecified")
+        {
+            "unspecified" => QrPayloadKind::Unspecified,
+            other => panic!("unknown fixture payload kind {other}"),
         };
         let envelope_hex = value
             .get("envelope_hex")
@@ -959,19 +946,12 @@ mod tests {
         assert_eq!(result, Some(fixture.payload));
     }
     #[test]
-    fn qr_payload_kind_tags_match_kagemusha_peer_protocol() {
-        let expected = [
-            (1, QrPayloadKind::KagemushaPaymentRequest),
-            (2, QrPayloadKind::KagemushaPayment),
-            (3, QrPayloadKind::KagemushaAcknowledgement),
-        ];
-        for (tag, kind) in expected {
-            assert_eq!(kind as u16, tag);
-            assert_eq!(QrPayloadKind::from_u16(tag), kind);
-        }
-    }
-    #[test]
     fn qr_payload_kind_unknown_maps_to_unspecified() {
+        assert_eq!(QrPayloadKind::Unspecified as u16, 0);
+        assert_eq!(QrPayloadKind::from_u16(0), QrPayloadKind::Unspecified);
+        for retired in 1..=3 {
+            assert_eq!(QrPayloadKind::from_u16(retired), QrPayloadKind::Unspecified);
+        }
         assert_eq!(QrPayloadKind::from_u16(4), QrPayloadKind::Unspecified);
         assert_eq!(QrPayloadKind::from_u16(5), QrPayloadKind::Unspecified);
         assert_eq!(QrPayloadKind::from_u16(999), QrPayloadKind::Unspecified);

@@ -26,8 +26,8 @@
     },
     {
       "path": "single_api_contract.ko",
-      "byte_length": 441,
-      "sha256": "9145ec0275153b88ee7ec718d32fc15ab960d9c52baa94f74a9a65e1ebc8a479",
+      "byte_length": 508,
+      "sha256": "e397225f61e6b0778872e8c3759add73b09264d97c1d3e7930adc5aa23a0a5d3",
       "layout": "UTF-8 Soracloud template bytes, preserved verbatim",
       "source_preimages": [
         {
@@ -48,8 +48,8 @@
     },
     {
       "path": "hayahi_app_contract.ko",
-      "byte_length": 4233,
-      "sha256": "5b9888b08963563469e5add9b9c478d77ff9a092eac473d41b44611f6c1351b0",
+      "byte_length": 4839,
+      "sha256": "43e82cddd443e50b4d1e13b3cce5b57898d9cc0fe529405e832899645ed09b4b",
       "layout": "UTF-8 Soracloud template bytes, preserved verbatim",
       "source_preimages": [
         {

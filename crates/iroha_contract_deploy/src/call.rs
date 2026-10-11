@@ -1,15 +1,103 @@
 //! Exact, locally authorized contract calls using the native deployment journal store.
 use super::*;
 use iroha::client::ContractCallDraftIntent;
-use iroha::data_model::{smart_contract::manifest::EntryPointKind, transaction::Executable};
+use iroha::data_model::{
+    smart_contract::manifest::{
+        ContractPermissionScopeV1, EntryPointKind, EntrypointAuthorizationV1,
+    },
+    transaction::Executable,
+};
 use iroha_crypto::Signature;
-use iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint;
+use iroha_executor_data_model::permission::smart_contract::{
+    CanInvokeContractEntrypoint, CanUseContractPermission,
+};
 use norito::json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
 const ARGUMENT_BYTES: usize = 64 * 1024;
 const MAX_CALL_PLAN_BYTES: usize = 2 * MAX_DEPLOYMENT_ARTIFACT_BYTES + 6 * 1024 * 1024;
 const ARGUMENT_LIMITS: norito::DecodeLimits =
     norito::DecodeLimits::new(8192, ARGUMENT_BYTES, 8192, 2 * 1024 * 1024, 128);
+
+/// Largest signature-bound VM gas budget a mutable call may request.
+pub const MAX_CALL_GAS_LIMIT: u64 = 10_000_000;
+/// Gas budget used when simulation cannot run before the call's own self-grant is Applied.
+pub const UNSIMULATED_CALL_GAS_LIMIT: u64 = 1_500_000;
+/// Fixed gas margin added to every simulated budget.
+const GAS_HEADROOM_MARGIN: u64 = 10_000;
+
+/// Signature-bound gas budget for a call whose simulation consumed `gas_used`.
+///
+/// Adds half the simulated gas plus a fixed margin, so ordinary state drift between simulation and
+/// execution does not exhaust the budget, and caps the result at [`MAX_CALL_GAS_LIMIT`].
+#[must_use]
+pub fn gas_limit_with_headroom(gas_used: u64) -> u64 {
+    gas_used
+        .saturating_add(gas_used / 2)
+        .saturating_add(GAS_HEADROOM_MARGIN)
+        .min(MAX_CALL_GAS_LIMIT)
+}
+
+/// Result of executing a mutable call on current state without signing or submitting it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CallSimulation {
+    /// The node executed the call successfully.
+    Executed {
+        /// Gas the simulated execution consumed.
+        gas_used: u64,
+    },
+    /// The node rejected the call; nothing was signed or submitted.
+    Rejected {
+        /// Node-reported rejection, including any VM diagnostic.
+        message: String,
+        /// Gas consumed before the rejection.
+        gas_used: u64,
+    },
+    /// The caller does not hold the scoped entrypoint permission yet. The call grants it first, so
+    /// the node cannot execute the call until that self-grant is Applied.
+    RequiresSelfGrant,
+}
+
+/// Interpret one `/v1/contracts/call/simulate` response for the exact verified intent.
+///
+/// # Errors
+/// Rejects responses bound to another contract code hash or entrypoint, or without gas usage.
+pub fn interpret_call_simulation(
+    response: &Value,
+    intent: &ContractCallDraftIntent,
+) -> Result<CallSimulation> {
+    let expected_code_hash = hex::encode(intent.invocation.expected_code_hash.as_ref());
+    if response.get("code_hash_hex").and_then(Value::as_str) != Some(expected_code_hash.as_str())
+        || response.get("entrypoint").and_then(Value::as_str)
+            != Some(intent.invocation.entrypoint.as_str())
+    {
+        return Err(eyre!(
+            "call simulation answered for a different contract code or entrypoint"
+        ));
+    }
+    let gas_used = response
+        .get("gas_used")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| eyre!("call simulation omitted its gas usage"))?;
+    match response.get("ok").and_then(Value::as_bool) {
+        Some(true) => Ok(CallSimulation::Executed { gas_used }),
+        Some(false) => {
+            let mut message = response
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("the node rejected the simulated call")
+                .to_owned();
+            if let Some(diagnostic) = response
+                .get("vm_diagnostic")
+                .filter(|value| !value.is_null())
+            {
+                message.push_str("; VM diagnostic: ");
+                message.push_str(&norito::json::to_string(diagnostic)?);
+            }
+            Ok(CallSimulation::Rejected { message, gas_used })
+        }
+        None => Err(eyre!("call simulation omitted its outcome")),
+    }
+}
 
 /// Admit bounded ergonomic JSON before allocating a native contract argument value.
 ///
@@ -117,13 +205,14 @@ impl CallAuthorization {
             .map(|remaining| remaining.min(original_ttl_ms))
             .ok_or_else(|| eyre!("original call signing authorization expired"))
     }
-    fn check_fees<'a>(
+    fn check_fees(
         &self,
-        intents: impl IntoIterator<Item = &'a FeePaymentIntent>,
+        intents: impl IntoIterator<Item = impl std::borrow::Borrow<FeePaymentIntent>>,
     ) -> Result<()> {
         self.validate()?;
         let mut totals = BTreeMap::<AssetDefinitionId, Quantity>::new();
         for intent in intents {
+            let intent = intent.borrow();
             intent.validate()?;
             for component in intent.charge_limits() {
                 let total = totals
@@ -149,24 +238,51 @@ impl CallAuthorization {
     }
 }
 
-/// Build an exact native intent from admission-verified local code and its argument schema.
+/// Canonical argument record and retained JSON payload of one checked entrypoint invocation.
+type CheckedArguments = (
+    Option<iroha::data_model::transaction::executable::ContractArgumentRecord>,
+    Option<Value>,
+);
+
+/// Check named arguments against one entrypoint of admission-verified local code.
+///
+/// This is the argument half of [`trusted_contract_intent`]; it needs no contract address, so a
+/// deployment can reject activation arguments before anything is signed.
 ///
 /// # Errors
-/// Rejects unknown or wrong-kind entrypoints, malformed arguments and oversized payloads.
-pub fn trusted_contract_intent(
+/// Rejects unknown or wrong-kind entrypoints, malformed arguments and oversized payloads, naming
+/// the rejected argument path and its expected IVM type.
+pub fn check_contract_arguments(
     artifact: &[u8],
-    address: ContractAddress,
     entrypoint: &str,
-    payload: Value,
+    payload: &Value,
     view: bool,
-) -> Result<(ContractCallDraftIntent, Option<Value>)> {
+) -> Result<()> {
+    let verified = verified_call_artifact(artifact, payload)?;
+    entrypoint_arguments(&verified, entrypoint, payload.clone(), view).map(|_| ())
+}
+
+/// Admit the bounded artifact and argument JSON, then verify the artifact.
+fn verified_call_artifact(
+    artifact: &[u8],
+    payload: &Value,
+) -> Result<ivm_artifact_admission::VerifiedContractArtifact> {
     if artifact.is_empty() || artifact.len() > MAX_DEPLOYMENT_ARTIFACT_BYTES {
         return Err(eyre!(
             "contract intent exceeds fixed artifact or argument bounds"
         ));
     }
-    admit_arguments(&payload)?;
-    let verified = ivm_artifact_admission::verify_contract_artifact(artifact)?;
+    admit_arguments(payload)?;
+    Ok(ivm_artifact_admission::verify_contract_artifact(artifact)?)
+}
+
+/// Encode named arguments for one entrypoint of verified code.
+fn entrypoint_arguments(
+    verified: &ivm_artifact_admission::VerifiedContractArtifact,
+    entrypoint: &str,
+    payload: Value,
+    view: bool,
+) -> Result<CheckedArguments> {
     let descriptor = verified
         .contract_interface
         .entrypoints
@@ -178,11 +294,13 @@ pub fn trusted_contract_intent(
             "entrypoint kind differs from the requested view or mutable call"
         ));
     }
-    let (arguments, payload) = match &descriptor.argument_schema {
+    Ok(match &descriptor.argument_schema {
         Some(schema) => {
             let canonical = Json::from_norito_value_ref(&payload)?;
-            let bytes = ivm_abi::arguments::encode_argument_record_from_json(schema, &canonical)
-                .map_err(|error| {
+            // The detailed form names the rejected argument path and its expected IVM type.
+            let bytes =
+                ivm_abi::arguments::encode_argument_record_from_json_detailed(schema, &canonical)
+                    .map_err(|error| {
                     eyre!("arguments do not match the verified entrypoint schema: {error}")
                 })?;
             (
@@ -204,7 +322,22 @@ pub fn trusted_contract_intent(
                 "zero-parameter entrypoints accept only omitted arguments or {{}}"
             ));
         }
-    };
+    })
+}
+
+/// Build an exact native intent from admission-verified local code and its argument schema.
+///
+/// # Errors
+/// Rejects unknown or wrong-kind entrypoints, malformed arguments and oversized payloads.
+pub fn trusted_contract_intent(
+    artifact: &[u8],
+    address: ContractAddress,
+    entrypoint: &str,
+    payload: Value,
+    view: bool,
+) -> Result<(ContractCallDraftIntent, Option<Value>)> {
+    let verified = verified_call_artifact(artifact, &payload)?;
+    let (arguments, payload) = entrypoint_arguments(&verified, entrypoint, payload, view)?;
     let mut metadata = Metadata::default();
     for (key, value) in [
         ("contract_address", address.to_string()),
@@ -393,6 +526,9 @@ impl PreparedContractCall {
         &self.plan.alias
     }
     /// Exact complete artifact retained by the signature-bound operation.
+    ///
+    /// # Errors
+    /// Returns the hex decoding error for a corrupted retained artifact.
     pub fn artifact(&self) -> Result<Vec<u8>> {
         Ok(hex::decode(&self.plan.artifact_hex)?)
     }
@@ -476,6 +612,46 @@ impl ContractCallService {
         .previous_contract_address
         .ok_or_else(|| eyre!("contract alias `{alias}` is not deployed"))
     }
+    /// Execute the exact verified call on current state without signing or submitting it.
+    ///
+    /// Calls that first grant their own scoped entrypoint permission cannot run before that grant
+    /// is Applied and report [`CallSimulation::RequiresSelfGrant`].
+    /// # Errors
+    /// Rejects artifact/intent mismatches, permission reads, transport failures and responses bound
+    /// to different code.
+    pub fn simulate(
+        &self,
+        artifact: &[u8],
+        intent: &ContractCallDraftIntent,
+        payload: Option<&Value>,
+    ) -> Result<CallSimulation> {
+        let _profile = ChainDiscriminantGuard::enter(self.config.account_chain_discriminant);
+        if artifact.is_empty() || artifact.len() > MAX_DEPLOYMENT_ARTIFACT_BYTES {
+            return Err(eyre!("call artifact exceeds fixed bounds"));
+        }
+        if let Some(payload) = payload {
+            admit_arguments(payload)?;
+        }
+        let verified = ivm_artifact_admission::verify_contract_artifact(artifact)?;
+        if let Some(permission) = required_permission(&verified, intent)?
+            && !authorization::read_effective_permissions(&self.client, &self.config.account)?
+                .contains(&permission)
+        {
+            if permission.name() == "CanInvokeContractEntrypoint" {
+                return Ok(CallSimulation::RequiresSelfGrant);
+            }
+            return Err(missing_call_permission(&permission, &self.config.account));
+        }
+        let response = self.client.client().post_contract_call_simulate_json(
+            &self.config.account,
+            Some(&intent.invocation.contract_address),
+            None,
+            &intent.invocation.entrypoint,
+            payload,
+            MAX_CALL_GAS_LIMIT,
+        )?;
+        interpret_call_simulation(&response, intent)
+    }
     /// Prepare a locally signed immutable call intent and any required exact self-grant.
     /// No transaction is submitted or journal written.
     /// # Errors
@@ -510,10 +686,7 @@ impl ContractCallService {
                 authorization::read_effective_permissions(&self.client, &self.config.account)?;
             if !held.contains(&permission) {
                 if permission.name() != "CanInvokeContractEntrypoint" {
-                    return Err(eyre!(
-                        "contract requires the exact permission `{}`; no broader permission is granted by call",
-                        permission.name()
-                    ));
+                    return Err(missing_call_permission(&permission, &self.config.account));
                 }
                 let metadata = Metadata::default();
                 request.authorization.require_signing()?;
@@ -607,7 +780,7 @@ impl ContractCallService {
                 request.authorization.check_fees(
                     grant_transaction
                         .iter()
-                        .map(|grant| grant.fee_payment_intent())
+                        .map(SignedTransaction::fee_payment_intent)
                         .chain(std::iter::once(&quote.intent)),
                 )?;
                 check_component_limits(&request.fee_payment, &quote.intent)?;
@@ -750,7 +923,7 @@ impl ContractCallService {
             match (CallTransport { service: self }).wait(decode_transaction(&step)?.hash()) {
                 Ok(applied) => {
                     validate_applied(decode_transaction(&step)?.hash(), &applied)?;
-                    validate_retained_evidence(&journal, index, &applied)?;
+                    let applied = reconcile_retained_evidence(&journal, index, applied)?;
                     if index == 0 {
                         grant = Some(applied);
                     } else {
@@ -849,6 +1022,15 @@ fn transaction_record(name: &str, signed: &SignedTransaction) -> TransactionReco
         norito_hex: hex::encode(signed.encode_versioned()),
     }
 }
+fn missing_call_permission(permission: &Permission, account: &AccountId) -> eyre::Report {
+    match norito::json::to_string(permission) {
+        Ok(token) => eyre!(
+            "caller lacks the exact required permission {token}; have an authorized owner or token holder submit this JSON with `iroha account permission grant --id {account}` before calling"
+        ),
+        Err(error) => eyre!("failed to render the required permission: {error}"),
+    }
+}
+
 fn required_permission(
     artifact: &ivm_artifact_admission::VerifiedContractArtifact,
     intent: &ContractCallDraftIntent,
@@ -864,22 +1046,37 @@ fn required_permission(
         .iter()
         .find(|entry| entry.name == intent.invocation.entrypoint)
         .ok_or_else(|| eyre!("entrypoint is absent from the verified local artifact"))?;
-    let permission = match descriptor.kind {
-        EntryPointKind::View => return Err(eyre!("read-only entrypoints use `musubi view`")),
-        EntryPointKind::Kotoage => descriptor.permission.as_deref(),
-        EntryPointKind::Hajimari | EntryPointKind::Kaizen => Some("CanInvokeContractEntrypoint"),
-    };
-    Ok(permission.map(|permission| {
-        if permission == "CanInvokeContractEntrypoint" {
+    if descriptor.kind == EntryPointKind::View {
+        return Err(eyre!("read-only entrypoints use `musubi view`"));
+    }
+    Ok(match &descriptor.authorization {
+        EntrypointAuthorizationV1::Anyone => None,
+        EntrypointAuthorizationV1::RuntimeLifecycle => Some(
             CanInvokeContractEntrypoint {
                 contract: intent.invocation.contract_address.clone(),
                 entrypoint: intent.invocation.entrypoint.clone(),
             }
-            .into()
-        } else {
-            Permission::new(permission.to_owned(), Json::new(()))
+            .into(),
+        ),
+        EntrypointAuthorizationV1::Permission(name) => {
+            let declaration = artifact
+                .contract_interface
+                .permissions
+                .iter()
+                .find(|declaration| declaration.name == *name)
+                .ok_or_else(|| eyre!("entrypoint refers to undeclared permission `{name}`"))?;
+            Some(match &declaration.scope {
+                ContractPermissionScopeV1::Instance => CanUseContractPermission {
+                    contract: intent.invocation.contract_address.clone(),
+                    permission: name.clone(),
+                }
+                .into(),
+                ContractPermissionScopeV1::Chain { permission_name } => {
+                    Permission::new(permission_name.to_string(), Json::new(()))
+                }
+            })
         }
-    }))
+    })
 }
 fn validate_plan(prepared: &PreparedContractCall, config: &Config) -> Result<()> {
     let plan = &prepared.plan;
@@ -989,7 +1186,7 @@ fn validate_call_transaction(plan: &CallPlan, step: &TransactionRecord) -> Resul
     plan.authorization.check_fees(
         grant
             .iter()
-            .map(|grant| grant.fee_payment_intent())
+            .map(SignedTransaction::fee_payment_intent)
             .chain(std::iter::once(signed.fee_payment_intent())),
     )?;
     if step.name != "contract-call"
@@ -1035,16 +1232,15 @@ impl DeploymentTransport for CallTransport<'_> {
             .map(|_| ())
     }
     fn wait(&self, hash: HashOf<SignedTransaction>) -> Result<AppliedEvidence> {
-        applied_evidence(
+        let outcome = self.service.client.wait_for_transaction_applied(
             hash,
-            self.service.client.wait_for_transaction_applied(
-                hash,
-                TransactionWaitOptions {
-                    timeout: self.service.config.transaction_status_timeout,
-                    ..TransactionWaitOptions::default()
-                },
-            )?,
-        )
+            TransactionWaitOptions {
+                timeout: self.service.config.transaction_status_timeout,
+                ..TransactionWaitOptions::default()
+            },
+        )?;
+        let charge = read_applied_charge(&self.service.client, hash);
+        applied_evidence(hash, outcome, charge)
     }
 }
 fn is_cancelled(journal: &Journal, prepared: &PreparedContractCall) -> Result<bool> {
@@ -1091,23 +1287,21 @@ fn validate_stage_layout(journal: &Journal, plan: &CallPlan) -> Result<()> {
     }
     Ok(())
 }
-fn validate_retained_evidence(
+/// Reconcile current Applied evidence of step `index` with the journal without writing.
+///
+/// Rejects a retained failure, and returns the retained Applied evidence (same finality, its
+/// first-read charge) in place of the current observation when one exists.
+fn reconcile_retained_evidence(
     journal: &Journal,
     index: usize,
-    evidence: &AppliedEvidence,
-) -> Result<()> {
+    evidence: AppliedEvidence,
+) -> Result<AppliedEvidence> {
     if journal.exists(&format!("failed-{index:04}.json"))? {
         return Err(eyre!(
             "retained failure conflicts with current Applied evidence"
         ));
     }
-    let path = format!("applied-{index:04}.json");
-    if journal.exists(&path)? && journal.read::<AppliedEvidence>(&path)? != *evidence {
-        return Err(eyre!(
-            "retained Applied evidence differs from current exact-hash evidence"
-        ));
-    }
-    Ok(())
+    retained_applied_evidence(journal, index, evidence)
 }
 fn validate_retained_failure(
     journal: &Journal,
@@ -1171,7 +1365,7 @@ fn execute_step<T: DeploymentTransport>(
         }
         let evidence = transport.wait(signed.hash())?;
         validate_applied(signed.hash(), &evidence)?;
-        validate_retained_evidence(journal, index, &evidence)?;
+        let evidence = reconcile_retained_evidence(journal, index, evidence)?;
         journal.put_exact(&format!("applied-{index:04}.json"), &evidence)?;
         Ok(evidence)
     })();

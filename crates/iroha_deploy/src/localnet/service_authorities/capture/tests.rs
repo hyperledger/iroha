@@ -352,3 +352,64 @@ fn fresh_capture_refuses_external_lane_sources_even_when_the_directory_is_empty(
         image.revalidate().unwrap();
     }
 }
+
+#[test]
+fn directory_boundary_preserves_closed_names_and_live_custody_for_both_policies() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = PrivateDirectory::open_or_create(temporary.path().join("private")).unwrap();
+    for closed in [false, true] {
+        let directory = root
+            .create_child(if closed { "closed" } else { "open" })
+            .unwrap();
+        directory
+            .write_atomic("original.nrt", b"original", PublishMode::CreateNew)
+            .unwrap();
+        let inventory = closed.then(|| vec![OsString::from("original.nrt")]);
+        let captured = CapturedDirectory::new(directory, inventory).unwrap();
+        let identity = captured.directory.identity().unwrap();
+        captured
+            .directory
+            .write_atomic("derived.nrt", b"derived", PublishMode::CreateNew)
+            .unwrap();
+        assert_eq!(captured.revalidate().is_ok(), !closed);
+        std::fs::remove_file(captured.directory.path().join("derived.nrt")).unwrap();
+        captured.revalidate().unwrap();
+
+        let original = captured.directory.path();
+        let moved = original.with_file_name(if closed { "held-closed" } else { "held-open" });
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            std::fs::set_permissions(original, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(captured.revalidate().is_err());
+            std::fs::set_permissions(original, std::fs::Permissions::from_mode(0o700)).unwrap();
+            captured.revalidate().unwrap();
+
+            std::fs::rename(original, &moved).unwrap();
+            let replacement = PrivateDirectory::open_or_create(original).unwrap();
+            replacement
+                .write_atomic("original.nrt", b"original", PublishMode::CreateNew)
+                .unwrap();
+            assert!(captured.revalidate().is_err());
+            drop(replacement);
+            std::fs::remove_dir_all(original).unwrap();
+            std::fs::rename(&moved, original).unwrap();
+        }
+        #[cfg(windows)]
+        {
+            assert!(std::fs::rename(original, &moved).is_err());
+            assert!(!moved.exists());
+        }
+        assert_eq!(captured.directory.identity().unwrap(), identity);
+        captured.revalidate().unwrap();
+        assert_eq!(
+            captured
+                .directory
+                .read("original.nrt", 8)
+                .unwrap()
+                .as_slice(),
+            b"original"
+        );
+    }
+}

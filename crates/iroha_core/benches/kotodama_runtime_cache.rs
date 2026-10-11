@@ -12,7 +12,9 @@ use std::collections::BTreeMap;
 const GAS_LIMIT: u64 = u64::MAX;
 fn benchmark_program() -> Vec<u8> {
     Compiler::new()
-        .compile_source("seiyaku Add { view fn add(int a, int b) -> int { return a + b; } }")
+        .compile_source(
+            "seiyaku Add { view fn add(int a, int b) authorize(anyone) -> int { return a + b; } }",
+        )
         .expect("compile benchmark contract")
 }
 fn entrypoint_pc(program: &[u8], name: &str) -> u64 {
@@ -54,7 +56,7 @@ fn argument_host(program: &[u8]) -> DefaultHost {
     let json = Json::from(norito::json!({"a": "4", "b": "7"}));
     let record = ivm_abi::arguments::encode_argument_record_from_json(schema, &json)
         .expect("encode canonical benchmark argument record");
-    let key: Name = "trigger_event_json"
+    let key: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
         .parse()
         .expect("public input key is a Name");
     DefaultHost::new().with_public_inputs(BTreeMap::from([(

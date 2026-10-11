@@ -33,7 +33,7 @@ const COMPILER_RESPONSE_LABEL = "Kotodama compiler response";
 const DEFAULT_COMPILE_PATH = "/v1/kotodama/compile";
 const DEFAULT_COMPILER_TIMEOUT_MS = 30_000;
 const MAX_COMPILER_TIMEOUT_MS = 120_000;
-const SOURCE_SET_FIELDS = ["sources", "imports", "packages"];
+const SOURCE_SET_FIELDS = ["sources", "imports", "packages", "artifacts"];
 const COMPILER_REQUEST_OPTION_NAMES = new Set(["sourceName", ...SOURCE_SET_FIELDS, "zk"]);
 const COMPILER_CALL_OPTION_NAMES = new Set([
   ...COMPILER_REQUEST_OPTION_NAMES,
@@ -179,17 +179,19 @@ function validateCompilerRequestFields(options) {
     if (options.sourceName === undefined) rejectType("sourceName is required when sources are supplied");
     const names = new Set([canonicalSourcePath(options.sourceName)]);
     if (hasOwn(options, "sources")) options.sources = canonicalSourceFiles(options.sources, names);
+    if (hasOwn(options, "artifacts")) options.artifacts = canonicalContractArtifacts(options.artifacts, names);
     if (hasOwn(options, "imports")) options.imports = canonicalSourceImports(options.imports);
     if (hasOwn(options, "packages")) {
       const identities = new Set();
       options.packages = canonicalDataArray(options.packages, "packages").map((value) => {
-        const pkg = canonicalizeCompilerOptions(value, new Set(["identity", "modules", "sources", "exports", "imports"]));
+        const pkg = canonicalizeCompilerOptions(value, new Set(["identity", "modules", "sources", "exports", "imports", "artifacts"]));
         validateGraphIdentifier(pkg.identity, "package identity");
         if (identities.has(pkg.identity)) rejectType("duplicate package identity");
         identities.add(pkg.identity);
         const paths = new Set();
         const modules = canonicalSourceFiles(pkg.modules, paths);
         const sources = canonicalSourceFiles(pkg.sources ?? [], paths);
+        const artifacts = canonicalContractArtifacts(pkg.artifacts ?? [], paths);
         const exports = canonicalDataArray(pkg.exports, "exports");
         const exported = new Set();
         for (const name of exports) {
@@ -197,10 +199,10 @@ function validateCompilerRequestFields(options) {
           if (exported.has(name)) rejectType("duplicate package export");
           exported.add(name);
         }
-        return { identity: pkg.identity, modules, sources, exports, imports: canonicalSourceImports(pkg.imports ?? []) };
+        return { identity: pkg.identity, modules, sources, artifacts, exports, imports: canonicalSourceImports(pkg.imports ?? []) };
       });
     }
-    const count = 1 + (options.sources?.length ?? 0) + (options.packages ?? []).reduce((total, pkg) => total + pkg.modules.length + pkg.sources.length, 0);
+    const count = 1 + (options.sources?.length ?? 0) + (options.artifacts?.length ?? 0) + (options.packages ?? []).reduce((total, pkg) => total + pkg.modules.length + pkg.sources.length + pkg.artifacts.length, 0);
     if (count > 512) rejectRange("a Kotodama source set permits at most 512 files including its root");
   }
   return options;
@@ -234,6 +236,26 @@ function canonicalSourceFiles(files, names) {
     if (names.has(name)) rejectType(`duplicate Kotodama source path '${name}'`);
     names.add(name);
     return { sourceName: name, source: file.source };
+  });
+}
+
+function canonicalContractArtifacts(artifacts, names) {
+  return canonicalDataArray(artifacts, "artifacts").map((value) => {
+    const record = canonicalizeCompilerOptions(value, new Set(["sourceName", "artifact"]));
+    validateCompilerRequestFields({ sourceName: record.sourceName });
+    if (record.sourceName === undefined) rejectType("each compiled artifact requires sourceName");
+    const sourceName = canonicalSourcePath(record.sourceName);
+    if (!sourceName.endsWith(".to")) rejectType("compiled artifacts require a .to path");
+    if (names.has(sourceName)) rejectType("duplicate source or compiled artifact path");
+    names.add(sourceName);
+    if (!Array.isArray(record.artifact) || record.artifact.length === 0 || record.artifact.length > 16 * 1024 * 1024) rejectType("artifact must be a nonempty bounded byte array");
+    const artifact = [];
+    for (let index = 0; index < record.artifact.length; index += 1) {
+      const descriptor = propertyDescriptor(record.artifact, String(index));
+      if (!descriptor || !hasOwn(descriptor, "value") || !Number.isInteger(descriptor.value) || descriptor.value < 0 || descriptor.value > 255) rejectType("artifact must contain inert byte values");
+      artifact.push(descriptor.value);
+    }
+    return { sourceName, artifact };
   });
 }
 
@@ -333,17 +355,18 @@ export function validateCompilerOptions(options) {
 export function buildCompilerRequest(source, options = {}) {
   validateCompilerSource(source);
   options = validateCompilerRequestOptions(options);
-  const request = { source, zk: options.zk ?? false };
+  const request = { source, artifacts: options.artifacts ?? [], zk: options.zk ?? false };
   if (options.sourceName !== undefined) {
     request.sourceName = options.sourceName;
   }
   if (SOURCE_SET_FIELDS.some((key) => options[key] !== undefined)) {
     const files = [...(options.sources ?? []), ...(options.packages ?? []).flatMap((pkg) => [...pkg.modules, ...pkg.sources])];
+    const artifactBytes = [...(options.artifacts ?? []), ...(options.packages ?? []).flatMap((pkg) => pkg.artifacts)].reduce((total, entry) => total + entry.artifact.length, 0);
     const bytes = [source, ...files.map((file) => file.source)].reduce(
       (total, text) => total + invoke(textEncoderEncode, new TextEncoderIntrinsic(), [text]).length,
       0,
     );
-    if (bytes > 16 * 1024 * 1024) rejectRange("Kotodama source set exceeds the 16777216-byte limit");
+    if (bytes + artifactBytes > 16 * 1024 * 1024) rejectRange("Kotodama source set exceeds the 16777216-byte limit");
     request.sourceName = canonicalSourcePath(request.sourceName);
     for (const key of SOURCE_SET_FIELDS) {
       if (options[key] !== undefined) request[key] = options[key];

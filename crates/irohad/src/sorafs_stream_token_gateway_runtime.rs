@@ -11,7 +11,10 @@ use iroha_data_model::sorafs::stream_token_gateway::{
 use iroha_data_model::{NetworkId, sorafs::reputation::derive_stream_token_gateway_id_v1};
 use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal};
 use iroha_torii::sorafs::StreamTokenReputationDeliveryV1;
-use iroha_torii::sorafs::{StreamTokenAdmissionCaptureV1, StreamTokenGatewayAdmissionProviderV1};
+use iroha_torii::sorafs::{
+    StreamTokenAdmissionCaptureV1, StreamTokenGatewayAdmissionProviderV1,
+    StreamTokenGatewayReconciliationReadV1, StreamTokenReconciliationOutcomeV1,
+};
 use std::{fmt, sync::Arc, time::Duration};
 pub(crate) mod native;
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
@@ -159,8 +162,9 @@ pub fn start_reconciler(
             tokio::select! {
                 _ = interval.tick() => {
                     let tick_capture = Arc::clone(&capture);
-                    match tokio::task::spawn_blocking(move || tick_capture.reconcile_pending()).await {
-                        Ok(Ok(_)) => {}
+                    match tokio::task::spawn_blocking(move || tick_capture.reconcile_background()).await {
+                        Ok(Ok(StreamTokenReconciliationOutcomeV1::Idle
+                            | StreamTokenReconciliationOutcomeV1::Reconciled(_))) => {}
                         Ok(Err(error)) if is_transient(error) => {
                             iroha_logger::warn!(
                                 ?error,
@@ -275,6 +279,15 @@ mod tests {
         ) -> Result<StreamTokenGatewayAdmissionReadbackV1, StreamTokenGatewayAdmissionErrorV1>
         {
             Ok(self.readback.clone())
+        }
+        fn pending_for_background(
+            &self,
+            max_items: u32,
+            deadline: std::time::Instant,
+        ) -> Result<StreamTokenGatewayReconciliationReadV1, StreamTokenGatewayAdmissionErrorV1>
+        {
+            self.pending(max_items, deadline)
+                .map(StreamTokenGatewayReconciliationReadV1::Checked)
         }
         fn acknowledge(
             &self,

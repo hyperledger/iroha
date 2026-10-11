@@ -73,7 +73,7 @@ def _leaf_node(kind: str) -> Dict[str, Any]:
 
 def _query_view_nodes(name: str) -> list[Dict[str, Any]]:
     fields, children = _QUERY_VIEW_LAYOUTS[name]
-    nodes: list[Dict[str, Any]] = [{"kind": "Struct", "value": {"name": name, "fields": fields}}]
+    nodes: list[Dict[str, Any]] = [{"kind": "Struct", "value": {"name": f"kotodama::{name}", "fields": fields}}]
     for child in children:
         if isinstance(child, tuple):
             wrapper, leaf = child
@@ -88,7 +88,7 @@ def _query_page_payload(name: str) -> Dict[str, Any]:
         "nodes": [
             {
                 "kind": "Struct",
-                "value": {"name": "QueryPage", "fields": ["items", "next_offset"]},
+                "value": {"name": "kotodama::QueryPage", "fields": ["items", "next_offset"]},
             },
             {"kind": "List", "value": {"capacity": 64}},
             *_query_view_nodes(name),
@@ -118,12 +118,15 @@ def _full_manifest_payload() -> Dict[str, Any]:
             ],
             "dynamic_writes": [],
         },
+        "events": [],
+        "enum_types": [],
+        "permissions": [{"name": "TransferAsset", "scope": {"kind": "Instance", "value": None}}],
         "entrypoints": [
             {
                 "name": "transfer",
                 "kind": {"kind": "Kotoage", "value": None},
                 "params": [
-                    {"name": "request", "type_name": "struct Transfer"},
+                    {"name": "request", "type_name": "struct Fixture::Transfer"},
                     {"name": "tags", "type_name": "List<Name, 64>"},
                 ],
                 "argument_schema": {
@@ -135,7 +138,7 @@ def _full_manifest_payload() -> Dict[str, Any]:
                                     {
                                         "kind": "Struct",
                                         "value": {
-                                            "name": "Transfer",
+                                            "name": "Fixture::Transfer",
                                             "fields": ["amount", "memo"],
                                         },
                                     },
@@ -190,7 +193,7 @@ def _full_manifest_payload() -> Dict[str, Any]:
                         },
                     ]
                 },
-                "permission": "TransferAsset",
+                "authorization": {"kind": "Permission", "value": "TransferAsset"},
                 "read_keys": ["state:Balances"],
                 "write_keys": ["state:Balances"],
                 "access_hints_complete": True,
@@ -370,7 +373,7 @@ def test_entrypoint_query_page_uses_each_exact_reserved_flat_schema(
 
     for mutate in (
         lambda value: value["nodes"][1]["value"].__setitem__("capacity", 32),
-        lambda value: value["nodes"][2]["value"].__setitem__("name", "UnknownView"),
+        lambda value: value["nodes"][2]["value"].__setitem__("name", "Fixture::UnknownView"),
         lambda value: value["nodes"][-1]["value"].__setitem__("kind", "String"),
     ):
         forged = deepcopy(page)
@@ -404,7 +407,7 @@ def test_entrypoint_reserved_struct_name_does_not_bypass_exact_shape_validation(
         "nodes": [
             {
                 "kind": "Struct",
-                "value": {"name": reserved_name, "fields": ["value"]},
+                "value": {"name": f"kotodama::{reserved_name}", "fields": ["value"]},
             },
             _leaf_node("Int"),
         ]
@@ -439,7 +442,7 @@ def test_entrypoint_ordinary_struct_keeps_its_nominal_struct_prefix() -> None:
         "nodes": [
             {
                 "kind": "Struct",
-                "value": {"name": "Pair", "fields": ["left", "right"]},
+                "value": {"name": "Fixture::Pair", "fields": ["left", "right"]},
             },
             _leaf_node("Int"),
             _leaf_node("Bool"),
@@ -448,7 +451,7 @@ def test_entrypoint_ordinary_struct_keeps_its_nominal_struct_prefix() -> None:
 
     schema = EntrypointValueTypeV1.from_payload(pair)
 
-    assert schema.canonical_type_name == "struct Pair"
+    assert schema.canonical_type_name == "struct Fixture::Pair"
 
 
 @pytest.mark.parametrize(
@@ -481,17 +484,17 @@ def test_manifest_rejects_retired_numeric_type_spellings(retired: str) -> None:
 def test_manifest_allows_amount_as_struct_field_identifier() -> None:
     payload = _full_manifest_payload()
     payload["states"].append(
-        {"name": "TransferShape", "type_name": "Transfer{amount: quantity}"}
+        {"name": "TransferShape", "type_name": "Fixture::Transfer{amount: quantity}"}
     )
 
     manifest = ContractManifest.from_payload(payload)
 
-    assert manifest.states[-1].type_name == "Transfer{amount: quantity}"
+    assert manifest.states[-1].type_name == "Fixture::Transfer{amount: quantity}"
 
 
 @pytest.mark.parametrize("type_name", [
-    "Empty{}", "Other{}", "Transfer{}", "List<Empty{}, 2>", "List<List<Empty{}, 2>, 2>",
-    "Envelope{empty: Empty{}}", "StateMap<int, Empty{}>",
+    "Fixture::Empty{}", "Fixture::Other{}", "Fixture::Transfer{}", "List<Fixture::Empty{}, 2>", "List<List<Fixture::Empty{}, 2>, 2>",
+    "Fixture::Envelope{empty: Fixture::Empty{}}", "StateMap<int, Fixture::Empty{}>",
     "std/math@1.0.0::Math::Empty{}",
 ])
 def test_manifest_preserves_empty_named_state_products(type_name: str) -> None:
@@ -502,9 +505,9 @@ def test_manifest_preserves_empty_named_state_products(type_name: str) -> None:
 
 
 @pytest.mark.parametrize("type_name", [
-    "{}", "Empty{", "Empty{ }", "Empty{,}", "Empty{: int}",
-    "Empty{field: int, }", "Empty{}trailing", "List<Empty{},2>",
-    "List<Empty{}, 0>", "Envelope{empty: Empty{}, empty: Empty{}}",
+    "{}", "Fixture::Empty{", "Fixture::Empty{ }", "Fixture::Empty{,}", "Fixture::Empty{: int}",
+    "Fixture::Empty{field: int, }", "Fixture::Empty{}trailing", "List<Fixture::Empty{},2>",
+    "List<Fixture::Empty{}, 0>", "Fixture::Envelope{empty: Fixture::Empty{}, empty: Fixture::Empty{}}",
     "StatePage{}", "Option{}", "int{}",
 ])
 def test_manifest_rejects_malformed_empty_state_products(type_name: str) -> None:
@@ -517,14 +520,14 @@ def test_manifest_rejects_malformed_empty_state_products(type_name: str) -> None
 def test_manifest_allows_amount_field_in_struct_nested_under_state_map() -> None:
     payload = _full_manifest_payload()
     payload["states"][0]["type_name"] = (
-        "StateMap<AccountId, Transfer{amount: quantity}>"
+        "StateMap<AccountId, Fixture::Transfer{amount: quantity}>"
     )
 
     manifest = ContractManifest.from_payload(payload)
 
     assert (
         manifest.states[0].type_name
-        == "StateMap<AccountId, Transfer{amount: quantity}>"
+        == "StateMap<AccountId, Fixture::Transfer{amount: quantity}>"
     )
 
 
@@ -533,8 +536,8 @@ def test_manifest_allows_amount_field_in_struct_nested_under_state_map() -> None
     [
         "Amount: quantity",
         "StateMap<AccountId, Amount: quantity>",
-        "Transfer{value: Result<int, Amount: quantity>}",
-        "Transfer{amount: Amount}",
+        "Fixture::Transfer{value: Result<int, Amount: quantity>}",
+        "Fixture::Transfer{amount: Amount}",
         "Amount{amount: quantity}",
     ],
 )
@@ -551,11 +554,11 @@ def test_manifest_does_not_exempt_retired_types_outside_struct_field_positions(
 @pytest.mark.parametrize(
     "forged",
     [
-        "Transfer{amount: : quantity}",
-        "Transfer{amount:quantity}",
-        "Transfer{amount: quantity, amount: quantity}",
-        "Transfer{Amount: quantity}",
-        "Transfer{ }",
+        "Fixture::Transfer{amount: : quantity}",
+        "Fixture::Transfer{amount:quantity}",
+        "Fixture::Transfer{amount: quantity, amount: quantity}",
+        "Fixture::Transfer{Amount: quantity}",
+        "Fixture::Transfer{ }",
         "List<quantity, 0>",
         "List<quantity, 65>",
         "StateMap<Json, quantity>",
@@ -826,7 +829,7 @@ def test_manifest_rejects_exact_amount_in_every_identifier_position() -> None:
         ("entrypoint", ("entrypoints", 0, "name"), "Amount"),
         ("parameter", ("entrypoints", 0, "params", 0, "name"), "Amount"),
         ("state", ("states", 0, "name"), "Amount"),
-        ("struct field", ("states", 0, "type_name"), "Transfer{Amount: quantity}"),
+        ("struct field", ("states", 0, "type_name"), "Fixture::Transfer{Amount: quantity}"),
         ("error variant", ("error_types", 0, "variants", 0, "name"), "Amount"),
         (
             "dynamic state base",
@@ -1082,7 +1085,7 @@ def test_contract_manifest_accepts_only_branded_v1_entrypoint_kinds(
     if expected is not ContractEntrypointKind.KOTOAGE:
         payload["entrypoints"][0]["triggers"] = []
     if expected in {ContractEntrypointKind.HAJIMARI, ContractEntrypointKind.KAIZEN}:
-        payload["entrypoints"][0]["permission"] = None
+        payload["entrypoints"][0]["authorization"] = {"kind": "RuntimeLifecycle", "value": None}
 
     manifest = ContractManifest.from_payload(payload)
 
@@ -1099,12 +1102,12 @@ def test_contract_manifest_accepts_only_branded_v1_entrypoint_kinds(
         lambda entrypoint: entrypoint.update(
             {"name": "hajimari", "kind": {"kind": "Kotoage", "value": None}}
         ),
-        lambda entrypoint: entrypoint.update({"permission": None}),
+        lambda entrypoint: entrypoint.update({"authorization": None}),
         lambda entrypoint: entrypoint.update(
             {
                 "name": "kaizen",
                 "kind": {"kind": "Kaizen", "value": None},
-                "permission": "Upgrade",
+                "authorization": {"kind": "Permission", "value": "Upgrade"},
             }
         ),
     ],
@@ -1115,7 +1118,7 @@ def test_contract_manifest_rejects_lifecycle_or_authorization_forgery(
     payload = _full_manifest_payload()
     mutate(payload["entrypoints"][0])
 
-    with pytest.raises(TypeError, match="canonical exact V1 interface"):
+    with pytest.raises(TypeError):
         ContractManifest.from_payload(payload)
 
 
@@ -1142,7 +1145,7 @@ def test_contract_manifest_rejects_retired_or_ambiguous_manifest_fields() -> Non
         lambda payload: payload["entrypoints"][0].__setitem__("returnType", None),
         lambda payload: payload["entrypoints"][0]["kind"].__setitem__("legacy", None),
         lambda payload: payload["entrypoints"][0]["params"][0].__setitem__(
-            "typeName", "struct Transfer"
+            "typeName", "struct Fixture::Transfer"
         ),
         lambda payload: payload["entrypoints"][0]["argument_schema"].__setitem__(
             "legacy", True
@@ -1208,7 +1211,7 @@ def test_contract_manifest_rejects_duplicate_and_unsafe_trigger_metadata() -> No
             "argument_schema": None,
             "return_type": "()",
             "return_schema": {"nodes": [{"kind": "Unit", "value": None}]},
-            "permission": None,
+            "authorization": {"kind": "Anyone", "value": None},
             "read_keys": [],
             "write_keys": [],
             "access_hints_complete": True,
@@ -1372,3 +1375,87 @@ def test_mock_artifacts_keep_equal_hashes_in_separate_dataspaces() -> None:
     for invalid in [f"01/{digest}", f"-1/{digest}", f"18446744073709551616/{digest}", digest]:
         with pytest.raises(ValueError):
             _artifact_fixture_key(invalid)
+
+
+def test_authorization_requires_canonical_declaration_table() -> None:
+    payload = _full_manifest_payload()
+    parsed = ContractManifest.from_payload(payload)
+    assert parsed.entrypoints[0].authorization.kind == "Permission"
+    assert parsed.permissions[0].scope.kind == "Instance"
+    payload["permissions"][0]["scope"] = {
+        "kind": "Chain", "value": {"permission_name": "SharedOperators"}
+    }
+    assert ContractManifest.from_payload(payload).permissions[0].scope.permission_name == "SharedOperators"
+    mutations = [
+        lambda value: value.pop("permissions"),
+        lambda value: value.update(permissions=[]),
+        lambda value: value["permissions"].append(deepcopy(value["permissions"][0])),
+        lambda value: value["entrypoints"][0].update(authorization="TransferAsset"),
+        lambda value: value["entrypoints"][0].update(authorization={"kind": "RuntimeLifecycle", "value": None}),
+        lambda value: value["entrypoints"][0].update(permission="TransferAsset"),
+        lambda value: value["permissions"][0]["scope"].update(value="unexpected"),
+    ]
+    for mutate in mutations:
+        invalid = _full_manifest_payload()
+        mutate(invalid)
+        with pytest.raises(TypeError):
+            ContractManifest.from_payload(invalid)
+
+
+def _ordinary_enum_manifest_payload() -> Dict[str, Any]:
+    payload = _full_manifest_payload()
+    descriptor = {"identity": "Ledger::Status", "variants": [{"name": "Pending", "code": 1}, {"name": "Done", "code": 7}]}
+    payload["enum_types"] = [descriptor]
+    payload["events"] = [{"name": "Changed", "payload_type": {"nodes": [
+        {"kind": "Struct", "value": {"name": "Demo::Changed", "fields": ["status"]}},
+        {"kind": "Enum", "value": deepcopy(descriptor)},
+    ]}}]
+    payload["states"].append({"name": "status", "type_name": "Ledger::Status"})
+    return payload
+
+
+def test_manifest_ordinary_enums_and_events_bind_exact_nominal_descriptors() -> None:
+    parsed = ContractManifest.from_payload(_ordinary_enum_manifest_payload())
+    assert parsed.enum_types[0].variants[1].code == 7
+    node = parsed.events[0].payload_type.nodes[1]
+    assert node.kind is EntrypointValueTypeNodeKindV1.ENUM
+    assert node.value == parsed.enum_types[0]
+    assert parsed.events[0].payload_type.word_count == 1
+    assert EntrypointValueTypeV1((node,)).canonical_type_name == "Ledger::Status"
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda value: value.pop("enum_types"),
+    lambda value: value.pop("events"),
+    lambda value: value.update(enum_types=None),
+    lambda value: value.update(events=None),
+    lambda value: value["enum_types"].append(deepcopy(value["enum_types"][0])),
+    lambda value: value["enum_types"][0]["variants"][0].update(code=0),
+    lambda value: value["enum_types"][0]["variants"][1].update(code=1),
+    lambda value: value["enum_types"][0]["variants"][1].update(name="Pending"),
+    lambda value: value["enum_types"][0].update(extra=True),
+    lambda value: value["error_types"].append(deepcopy(value["enum_types"][0])),
+    lambda value: value["events"][0]["payload_type"]["nodes"][1]["value"]["variants"][1].update(code=8),
+    lambda value: value["events"][0]["payload_type"]["nodes"][1].update(kind="Error"),
+    lambda value: value["events"][0]["payload_type"]["nodes"][0]["value"].update(name="Other"),
+    lambda value: value["events"][0]["payload_type"]["nodes"][1].update(kind="Leaf", value={"kind": "Json", "value": None}),
+    lambda value: value["events"][0]["payload_type"]["nodes"][1].update(kind="StateCursor", value={"nodes": [_leaf_node("Int")]}),
+    lambda value: value["events"].append(deepcopy(value["events"][0])),
+])
+def test_manifest_rejects_incomplete_or_forged_enum_and_event_metadata(mutate: Any) -> None:
+    payload = _ordinary_enum_manifest_payload()
+    mutate(payload)
+    with pytest.raises(TypeError):
+        ContractManifest.from_payload(payload)
+
+def test_durable_builtin_products_require_exact_shapes() -> None:
+    vectors = json.loads((Path(__file__).resolve().parents[3] / "fixtures/kotodama/durable_builtin_shapes_v1.json").read_text())
+    for type_name in vectors["valid"]:
+        payload = _full_manifest_payload()
+        payload["states"].append({"name": "stored", "type_name": type_name})
+        assert ContractManifest.from_payload(payload).states[-1].type_name == type_name
+    for type_name in vectors["invalid"]:
+        payload = _full_manifest_payload()
+        payload["states"].append({"name": "stored", "type_name": type_name})
+        with pytest.raises(TypeError):
+            ContractManifest.from_payload(payload)

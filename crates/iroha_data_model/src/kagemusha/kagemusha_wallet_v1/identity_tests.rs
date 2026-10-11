@@ -11,15 +11,20 @@ use crate::kagemusha::kagemusha_wallet_v1::{
     KAGEMUSHA_WALLET_ARTIFACT_MANIFEST_MAX_BYTES_V1, KAGEMUSHA_WALLET_CERTIFICATE_MAX_BYTES_V1,
     KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1, KAGEMUSHA_WALLET_RENEWAL_REQUEST_MAX_BYTES_V1,
     KAGEMUSHA_WALLET_SCHEME_MAX_BYTES_V1, KAGEMUSHA_WALLET_VERSION_V1,
-    KagemushaWalletValidationErrorV1,
+    KagemushaWalletObjectDigestDomainV1, KagemushaWalletValidationErrorV1,
     codec_tests::{assert_every_flip_rejected_or_rebound, norito_tag},
+    kagemusha_wallet_field_from_u128_v1, kagemusha_wallet_is_canonical_field_v1,
+    kagemusha_wallet_poseidon_v1,
+    verifying_keys::verifying_keys_tests::scheme_verifying_key_set_digest,
 };
 
-/// Relation stand-in bindings; the real values come from the G3 artifact set.
+/// Relation stand-in bindings; the real values come from the G3 artifact set. The
+/// verifying-key-set digest is the computed digest of the stand-in allowlist the vectors carry
+/// ([`scheme_verifying_key_set_digest`]), so that allowlist decodes against the vectored
+/// manifest (defect d1).
 const EQ: [u8; 32] = [0x21; 32];
 const EP: [u8; 32] = [0x22; 32];
 const NATIVE: [u8; 32] = [0x23; 32];
-const VK_SET: [u8; 32] = [0x24; 32];
 const INVENTORY: [u8; 32] = [0x25; 32];
 const ISSUED_AT_MS: u64 = 1_790_000_000_000;
 
@@ -57,7 +62,13 @@ pub(in crate::kagemusha::kagemusha_wallet_v1) fn test_scheme(
         version: KAGEMUSHA_WALLET_VERSION_V1,
         network_id: *Hash::prehashed([11; 32]).as_ref(),
         scheme_root_key: public_key(root),
-        relation_id: kagemusha_wallet_relation_id_v1(&EQ, &EP, &NATIVE, &VK_SET, &INVENTORY),
+        relation_id: kagemusha_wallet_relation_id_v1(
+            &EQ,
+            &EP,
+            &NATIVE,
+            &scheme_verifying_key_set_digest(),
+            &INVENTORY,
+        ),
         provider_contract: kagemusha_wallet_provider_contract_v1(),
     }
 }
@@ -276,7 +287,7 @@ fn artifact_body(
         eq_protocol_digest: EQ,
         ep_protocol_digest: EP,
         native_profile_digest: NATIVE,
-        verifying_key_set_digest: VK_SET,
+        verifying_key_set_digest: scheme_verifying_key_set_digest(),
         artifact_inventory_digest: INVENTORY,
         provider_contract: scheme.provider_contract,
         signer_certificate: certificate.certificate_digest(),
@@ -391,7 +402,13 @@ fn kagemusha_wallet_v1_identity_transcript_lengths_are_pinned() {
             KAGEMUSHA_WALLET_PROVIDER_CONTRACT_TRANSCRIPT_BYTES_V1,
         ),
         (
-            kagemusha_wallet_relation_transcript_v1(&EQ, &EP, &NATIVE, &VK_SET, &INVENTORY),
+            kagemusha_wallet_relation_transcript_v1(
+                &EQ,
+                &EP,
+                &NATIVE,
+                &scheme_verifying_key_set_digest(),
+                &INVENTORY,
+            ),
             KAGEMUSHA_WALLET_RELATION_TRANSCRIPT_BYTES_V1,
         ),
         (
@@ -458,21 +475,45 @@ fn kagemusha_wallet_v1_provider_contract_and_relation_layouts() {
         "52b501e3344547c36579684aafb2b15eb0caf3393e77aebdfbaa14ac57d0cc8d"
     );
 
-    let relation = kagemusha_wallet_relation_transcript_v1(&EQ, &EP, &NATIVE, &VK_SET, &INVENTORY);
+    let relation = kagemusha_wallet_relation_transcript_v1(
+        &EQ,
+        &EP,
+        &NATIVE,
+        &scheme_verifying_key_set_digest(),
+        &INVENTORY,
+    );
     let mut expected = vec![1, 0];
-    for digest in [EQ, EP, NATIVE, VK_SET, INVENTORY] {
+    for digest in [EQ, EP, NATIVE, scheme_verifying_key_set_digest(), INVENTORY] {
         expected.extend_from_slice(&digest);
     }
     assert_eq!(relation, expected);
-    let id = kagemusha_wallet_relation_id_v1(&EQ, &EP, &NATIVE, &VK_SET, &INVENTORY);
+    let id = kagemusha_wallet_relation_id_v1(
+        &EQ,
+        &EP,
+        &NATIVE,
+        &scheme_verifying_key_set_digest(),
+        &INVENTORY,
+    );
     assert_eq!(id, kagemusha_wallet_digest_v1(Role::Relation, &relation));
     assert_ne!(
         id,
-        kagemusha_wallet_relation_id_v1(&EP, &EQ, &NATIVE, &VK_SET, &INVENTORY)
+        kagemusha_wallet_relation_id_v1(
+            &EP,
+            &EQ,
+            &NATIVE,
+            &scheme_verifying_key_set_digest(),
+            &INVENTORY
+        )
     );
     assert_ne!(
         id,
-        kagemusha_wallet_relation_id_v1(&EQ, &EP, &NATIVE, &VK_SET, &[0x26; 32])
+        kagemusha_wallet_relation_id_v1(
+            &EQ,
+            &EP,
+            &NATIVE,
+            &scheme_verifying_key_set_digest(),
+            &[0x26; 32]
+        )
     );
 }
 
@@ -631,6 +672,18 @@ fn kagemusha_wallet_v1_enum_tags_equal_norito_tags() {
     for role in KagemushaWalletSignerRoleV1::ALL {
         assert_eq!(norito_tag(&role), u32::from(role.tag()));
     }
+    let current = norito::encode_canonical(&KagemushaWalletSignerRoleV1::RegulatoryPolicy).unwrap();
+    let payload = super::super::codec_tests::payload_range(&current);
+    assert_eq!(
+        &current[payload.start..payload.start + 4],
+        &3_u32.to_le_bytes()
+    );
+    assert_eq!(
+        decode_frame_v1::<KagemushaWalletSignerRoleV1>(&current, 512).unwrap(),
+        KagemushaWalletSignerRoleV1::RegulatoryPolicy
+    );
+    let retired = super::super::codec_tests::flip_byte(&current, payload.start);
+    assert!(decode_frame_v1::<KagemushaWalletSignerRoleV1>(&retired, 512).is_err());
     for kind in KagemushaWalletEvidenceKindV1::ALL {
         assert_eq!(norito_tag(&kind), u32::from(kind.tag()));
     }
@@ -670,7 +723,7 @@ fn kagemusha_wallet_v1_signer_certificate_sign_verify_and_decode() {
     assert_eq!(
         certificate.certificate_digest(),
         kagemusha_wallet_signed_object_digest_v1(
-            Role::Certificate,
+            KagemushaWalletObjectDigestDomainV1::Certificate,
             &kagemusha_wallet_signing_message_v1(Domain::Certificate, &expected),
             &certificate.signature
         )
@@ -764,14 +817,16 @@ fn kagemusha_wallet_v1_certificate_set_order_digest_and_selection() {
     assert!(!set.is_empty());
     let digests = set.digests();
     assert!(digests.windows(2).all(|pair| pair[0] < pair[1]));
-    let mut transcript = 3_u32.to_le_bytes().to_vec();
-    for digest in &digests {
-        transcript.extend_from_slice(digest);
-    }
-    assert_eq!(set.transcript().expect("transcript"), transcript);
+    // `P(kgwcset1, [count, digests...])`: the count as one element, then each canonical
+    // certificate digest as one element (owner answer B1).
+    let mut items = vec![kagemusha_wallet_field_from_u128_v1(3)];
+    items.extend(digests.iter().copied());
+    assert!(digests.iter().all(kagemusha_wallet_is_canonical_field_v1));
+    assert_eq!(set.field_items(), items);
     assert_eq!(
         set.digest().expect("digest"),
-        kagemusha_wallet_digest_v1(Role::CertificateSet, &transcript)
+        kagemusha_wallet_poseidon_v1(KAGEMUSHA_WALLET_CERTIFICATE_SET_DOMAIN_V1, &items)
+            .expect("canonical")
     );
     set.verify(&f.scheme).expect("verify");
     assert_eq!(
@@ -822,8 +877,15 @@ fn kagemusha_wallet_v1_certificate_set_order_digest_and_selection() {
     assert_eq!(empty.len(), 0);
     assert_eq!(
         empty.digest().expect("digest"),
-        kagemusha_wallet_digest_v1(Role::CertificateSet, &[0, 0, 0, 0])
+        kagemusha_wallet_poseidon_v1(
+            KAGEMUSHA_WALLET_CERTIFICATE_SET_DOMAIN_V1,
+            &[kagemusha_wallet_field_from_u128_v1(0)]
+        )
+        .expect("canonical")
     );
+    let mut oversized = set.clone();
+    oversized.certificates.push(f.enrollment_certificate);
+    assert!(oversized.digest().is_err());
     assert!(empty.validate().is_ok());
 }
 
@@ -1058,7 +1120,7 @@ fn kagemusha_wallet_v1_credential_sign_verify_decode_for_every_kind() {
         assert_eq!(
             credential.credential_digest(),
             kagemusha_wallet_signed_object_digest_v1(
-                Role::Credential,
+                KagemushaWalletObjectDigestDomainV1::Credential,
                 &credential.body.signing_message(),
                 &credential.signature
             )
@@ -1640,13 +1702,11 @@ fn kagemusha_wallet_v1_artifact_manifest_binds_the_scheme() {
         body.signing_message(),
         kagemusha_wallet_signing_message_v1(Domain::ArtifactManifest, &transcript)
     );
+    let mut sha_body = body.signing_message().to_vec();
+    sha_body.extend_from_slice(manifest.signature.as_raw_bytes());
     assert_eq!(
         manifest.manifest_digest(),
-        kagemusha_wallet_signed_object_digest_v1(
-            Role::ArtifactManifest,
-            &body.signing_message(),
-            &manifest.signature
-        )
+        kagemusha_wallet_digest_v1(Role::ArtifactManifest, &sha_body)
     );
 
     let mut bad = body;
@@ -1811,4 +1871,130 @@ fn kagemusha_wallet_v1_identity_frames_fit_their_caps() {
         println!("kagemusha wallet v1 frame {name}: {actual} bytes (cap {cap})");
         assert!(actual <= cap, "{name}: {actual} > {cap}");
     }
+}
+
+// These reuse the explicitly unadmitted Model DATA fixtures. Valid P256 signatures test
+// current challenge admission; stand-in platform items and policies confer no authority.
+#[test]
+fn kagemusha_wallet_v1_credential_enrollment_admission_for_every_kind() {
+    for (kind, seed) in [
+        (KagemushaWalletEvidenceKindV1::AndroidKeyMintTee, 0x44),
+        (KagemushaWalletEvidenceKindV1::AndroidKeyMintStrongBox, 0x47),
+        (KagemushaWalletEvidenceKindV1::AppleAppAttest, 0x45),
+    ] {
+        let f = identity_fixture(kind, seed);
+        let original = f.credential.to_canonical_bytes().expect("original frame");
+        let credential =
+            KagemushaWalletCredentialV1::decode_canonical(&original, &f.scheme.scheme_id())
+                .expect("canonical credential");
+        credential
+            .verify_enrollment(
+                &f.scheme,
+                &f.enrollment_certificate,
+                &f.challenge,
+                &public_key(&f.payment),
+            )
+            .expect("exact retained E1 admission");
+        assert_eq!(credential.to_canonical_bytes().expect("frame"), original);
+    }
+}
+
+#[test]
+fn kagemusha_wallet_v1_credential_enrollment_admission_rejects_other_retained_scope() {
+    let f = android();
+    let key = public_key(&f.payment);
+    // The original signed credential remains valid under its scheme for every rejected
+    // challenge. A valid issuer signature alone does not select an enrollment attempt.
+    f.credential
+        .verify(&f.scheme, &f.enrollment_certificate)
+        .expect("valid signed credential");
+    let mut challenges = [f.challenge; 7];
+    challenges[0].version = 2;
+    challenges[1].scheme_id = [0x61; 32];
+    challenges[2].asset_digest = [0x62; 32];
+    challenges[3].account_digest = [0x63; 32];
+    challenges[4].app_policy = [0x64; 32];
+    challenges[5].enrollment_policy = [0x65; 32];
+    challenges[6].issuer_nonce = [0x66; 32];
+    for challenge in challenges {
+        assert!(
+            f.credential
+                .verify_enrollment(&f.scheme, &f.enrollment_certificate, &challenge, &key)
+                .is_err()
+        );
+    }
+    assert!(is_invalid(
+        f.credential.verify_enrollment(
+            &f.scheme,
+            &f.enrollment_certificate,
+            &f.challenge,
+            &public_key(&signing_key(0x67)),
+        ),
+        "credential.payment_key"
+    ));
+}
+
+#[test]
+fn kagemusha_wallet_v1_credential_enrollment_admission_rejects_signed_other_attempt() {
+    let f = android();
+    let key = public_key(&f.payment);
+    let mut other_challenge = f.challenge;
+    other_challenge.issuer_nonce = [0x68; 32];
+    let mut body = f.credential.body;
+    body.enrollment_id = other_challenge.enrollment_id(&key);
+    body.wallet_id = other_challenge.wallet_id(&key);
+    let other = f
+        .issue(&body)
+        .expect("valid issuer signature for other attempt");
+    other
+        .verify(&f.scheme, &f.enrollment_certificate)
+        .expect("other attempt is a valid credential");
+    other
+        .verify_enrollment(&f.scheme, &f.enrollment_certificate, &other_challenge, &key)
+        .expect("its own retained E1 admits it");
+    assert!(is_invalid(
+        other.verify_enrollment(&f.scheme, &f.enrollment_certificate, &f.challenge, &key),
+        "credential.enrollment_id"
+    ));
+}
+
+#[test]
+fn kagemusha_wallet_v1_credential_enrollment_admission_rejects_renewal_and_bad_issuer() {
+    let f = android();
+    let key = public_key(&f.payment);
+    let mut body = f.credential.body;
+    body.renewal_sequence = 1;
+    body.fresh_evidence.digest = [0x69; 32];
+    body.fresh_evidence.time_ms = ISSUED_AT_MS + 1;
+    body.issued_at_ms = ISSUED_AT_MS + 2;
+    let renewed = f.issue(&body).expect("valid signed renewal");
+    renewed
+        .verify(&f.scheme, &f.enrollment_certificate)
+        .expect("valid credential");
+    renewed
+        .validate_replacement_of(&f.credential)
+        .expect("valid renewal replacement");
+    assert!(is_invalid(
+        renewed.verify_enrollment(&f.scheme, &f.enrollment_certificate, &f.challenge, &key),
+        "credential.renewal_sequence"
+    ));
+    let artifact = test_certificate(
+        &f.scheme,
+        &f.root,
+        KagemushaWalletSignerRoleV1::Artifact,
+        &f.enrollment_signer,
+        2,
+    );
+    assert!(
+        f.credential
+            .verify_enrollment(&f.scheme, &artifact, &f.challenge, &key)
+            .is_err()
+    );
+    let mut signed_body_changed = f.credential;
+    signed_body_changed.body.issued_at_ms += 1;
+    assert!(
+        signed_body_changed
+            .verify_enrollment(&f.scheme, &f.enrollment_certificate, &f.challenge, &key)
+            .is_err()
+    );
 }

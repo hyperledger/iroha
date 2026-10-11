@@ -11,7 +11,7 @@
 - peer 4: public_key=ea0130A9DBBA9104C16C34C4293E68B9A999EE402705F9E7DFD889ED8326730EE7505A96641B1F88D4F93B0B3D0322D02A16FB address=127.0.0.1:1340 pop_hex=a0dc9d607b933fb3e7dcca835e21b5c445da4d063ce6ea73fb48b576b6073a1c0771f965bb4eacc8e455a4c97b69b40b1045a2b783f6fb188abb92ce5249d687dc8e51eb43243ec188d3e4ce341d2f05773926fabeba2f1463a7b5037a0e1a2a
 
 Files:
-- genesis.template.json — non-signable topology source; deployable public Nexus genesis must be generated with explicit operator-provisioned mint-finality public parameters and the canonical XOR asset definition
+- genesis.template.json — non-signable topology source; deployable public Nexus genesis must be generated with the canonical XOR asset definition
 - `sumeragi_context.nexus_amx_context_hash` is the config-only template projection; the production signer replaces it with the exact staged roster commitment only after the operator supplies that XOR identity
 - `sumeragi_context.execution_policy_hash` is likewise a template value; the production signer replaces it with the exact staged V1 execution-policy commitment before refreshing the fingerprint and signing
 - verify.txt — policy note; profile verification requires a regenerated genesis with the operator-supplied canonical XOR id
@@ -22,5 +22,7 @@ Files:
 
 Runtime keys are deliberately absent. A regenerated deployable bundle fails closed until every file named by its validator configs is provisioned by the operator.
 
+Wallet loads are ordinary transactions authenticated by finalized blocks.
+
 Regenerate:
-- cargo xtask kagami-profiles --profile iroha3-nexus --kagemusha-mint-finality-parameters-dir <AUTHORITY_DIR> --nexus-xor-asset-definition-id <BASE58>
+- cargo xtask kagami-profiles --profile iroha3-nexus --nexus-xor-asset-definition-id <BASE58>

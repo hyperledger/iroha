@@ -57,7 +57,7 @@ physical devices, or hardware evidence.
 
 - `specs/sdk/swift/ios4_crypto_api_rfc.md` (multi-algorithm API plan).
 - `specs/sdk/swift/connect_risk_tracker.md` (Connect dependencies).
-- Android AND2 StrongBox readiness deck (`specs/sdk/android/security.md`) and device matrix (`specs/sdk/android/readiness/android_strongbox_device_matrix.md`).
+- Android AND2 StrongBox readiness deck (`specs/sdk/android/security.md`) and device-lab lanes (`specs/compliance/android/device_lab_reservation.md`).
 - Latest device inventory / attestation evidence in `status.md` (Android section).
 - Draft telemetry schema updates for `swift.crypto.signing` and
   `swift.multisig.session`.

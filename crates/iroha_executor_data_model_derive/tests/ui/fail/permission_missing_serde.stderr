@@ -1,23 +1,23 @@
 error[E0277]: the trait bound `MissingSerde: iroha_schema::IntoSchema` is not satisfied
- --> tests/ui/fail/permission_missing_serde.rs:7:8
+ --> tests/ui/fail/permission_missing_serde.rs:5:8
   |
-7 | struct MissingSerde {
+5 | struct MissingSerde {
   |        ^^^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `iroha_schema::IntoSchema` is not implemented for `MissingSerde`
- --> tests/ui/fail/permission_missing_serde.rs:7:1
+ --> tests/ui/fail/permission_missing_serde.rs:5:1
   |
-7 | struct MissingSerde {
+5 | struct MissingSerde {
   | ^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `iroha_schema::IntoSchema`:
             ()
-            AbiVersion
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptAssetEscrow
+            AcceptContractOwnership
+            AcceptMusubiPackageMaintainerV1
+            AcceptSorafsModerationJurorAssignment
             AccessSetHints
-            AccountAddress
-            AccountController
-            AccountDetails
-            AccountEvent
           and $N others
 note: required by a bound in `iroha_executor_data_model::permission::Permission`
  --> $WORKSPACE/crates/iroha_executor_data_model/src/permission.rs
@@ -30,32 +30,32 @@ note: required by a bound in `iroha_executor_data_model::permission::Permission`
             iroha_executor_data_model::isi::multisig::MultisigRegister
             iroha_executor_data_model::isi::multisig::MultisigPropose
             iroha_executor_data_model::isi::multisig::MultisigApprove
-            iroha_executor_data_model::isi::multisig::MultisigSpec
-            iroha_executor_data_model::isi::multisig::MultisigProposalValue
-            iroha_executor_data_model::permission::peer::CanManagePeers
-            iroha_executor_data_model::permission::domain::CanRegisterDomain
+            iroha_executor_data_model::isi::multisig::MultisigCancel
+            iroha_executor_data_model::isi::multisig::MultisigInvalidateOutstanding
+            iroha_executor_data_model::isi::multisig::MultisigAccountState
+            iroha_executor_data_model::isi::multisig::MultisigProposalState
           and $N others
 
 error[E0277]: the trait bound `MissingSerde: JsonDeserialize` is not satisfied
- --> tests/ui/fail/permission_missing_serde.rs:7:8
+ --> tests/ui/fail/permission_missing_serde.rs:5:8
   |
-7 | struct MissingSerde {
+5 | struct MissingSerde {
   |        ^^^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `JsonDeserialize` is not implemented for `MissingSerde`
- --> tests/ui/fail/permission_missing_serde.rs:7:1
+ --> tests/ui/fail/permission_missing_serde.rs:5:1
   |
-7 | struct MissingSerde {
+5 | struct MissingSerde {
   | ^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `JsonDeserialize`:
             ()
-            AbiVersion
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptMusubiPackageMaintainerV1
             AccessSetHints
             AccountAddress
-            AccountController
-            AccountDetails
-            AccountEvent
+            AccountAdmissionDefaultRoleError
+            AccountAdmissionError
           and $N others
   = note: required for `MissingSerde` to implement `DeserializeOwned`
 note: required by a bound in `iroha_executor_data_model::permission::Permission`
@@ -65,25 +65,25 @@ note: required by a bound in `iroha_executor_data_model::permission::Permission`
   |                                       ^^^^^^^^^^^^^^^^^^^^ required by this bound in `Permission`
 
 error[E0277]: the trait bound `MissingSerde: JsonSerialize` is not satisfied
- --> tests/ui/fail/permission_missing_serde.rs:7:8
+ --> tests/ui/fail/permission_missing_serde.rs:5:8
   |
-7 | struct MissingSerde {
+5 | struct MissingSerde {
   |        ^^^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `FastJsonWrite` is not implemented for `MissingSerde`
- --> tests/ui/fail/permission_missing_serde.rs:7:1
+ --> tests/ui/fail/permission_missing_serde.rs:5:1
   |
-7 | struct MissingSerde {
+5 | struct MissingSerde {
   | ^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `FastJsonWrite`:
             &T
             &mut T
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptMusubiPackageMaintainerV1
             AccessSetHints
-            AccountController
-            AccountDetails
-            AccountEvent
-            AccountEventFilter
+            AccountAdmissionDefaultRoleError
+            AccountAdmissionError
           and $N others
   = note: required for `MissingSerde` to implement `JsonSerialize`
 note: required by a bound in `iroha_executor_data_model::permission::Permission`
@@ -93,25 +93,25 @@ note: required by a bound in `iroha_executor_data_model::permission::Permission`
   |                       ^^^^^^^^^^^^^ required by this bound in `Permission`
 
 error[E0277]: the trait bound `MissingSerde: iroha_schema::IntoSchema` is not satisfied
- --> tests/ui/fail/permission_missing_serde.rs:6:10
+ --> tests/ui/fail/permission_missing_serde.rs:4:10
   |
-6 | #[derive(Permission)]
+4 | #[derive(Permission)]
   |          ^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `iroha_schema::IntoSchema` is not implemented for `MissingSerde`
- --> tests/ui/fail/permission_missing_serde.rs:7:1
+ --> tests/ui/fail/permission_missing_serde.rs:5:1
   |
-7 | struct MissingSerde {
+5 | struct MissingSerde {
   | ^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `iroha_schema::IntoSchema`:
             ()
-            AbiVersion
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptAssetEscrow
+            AcceptContractOwnership
+            AcceptMusubiPackageMaintainerV1
+            AcceptSorafsModerationJurorAssignment
             AccessSetHints
-            AccountAddress
-            AccountController
-            AccountDetails
-            AccountEvent
           and $N others
 note: required by a bound in `name`
  --> $WORKSPACE/crates/iroha_executor_data_model/src/permission.rs
@@ -124,25 +124,25 @@ note: required by a bound in `name`
   = note: this error originates in the derive macro `Permission` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: the trait bound `MissingSerde: JsonSerialize` is not satisfied
- --> tests/ui/fail/permission_missing_serde.rs:6:10
+ --> tests/ui/fail/permission_missing_serde.rs:4:10
   |
-6 | #[derive(Permission)]
+4 | #[derive(Permission)]
   |          ^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `FastJsonWrite` is not implemented for `MissingSerde`
- --> tests/ui/fail/permission_missing_serde.rs:7:1
+ --> tests/ui/fail/permission_missing_serde.rs:5:1
   |
-7 | struct MissingSerde {
+5 | struct MissingSerde {
   | ^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `FastJsonWrite`:
             &T
             &mut T
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptMusubiPackageMaintainerV1
             AccessSetHints
-            AccountController
-            AccountDetails
-            AccountEvent
-            AccountEventFilter
+            AccountAdmissionDefaultRoleError
+            AccountAdmissionError
           and $N others
   = note: required for `MissingSerde` to implement `JsonSerialize`
 note: required by a bound in `name`
@@ -156,25 +156,25 @@ note: required by a bound in `name`
   = note: this error originates in the derive macro `Permission` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: the trait bound `MissingSerde: DeserializeOwned` is not satisfied
- --> tests/ui/fail/permission_missing_serde.rs:6:10
+ --> tests/ui/fail/permission_missing_serde.rs:4:10
   |
-6 | #[derive(Permission)]
+4 | #[derive(Permission)]
   |          ^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `JsonDeserialize` is not implemented for `MissingSerde`
- --> tests/ui/fail/permission_missing_serde.rs:7:1
+ --> tests/ui/fail/permission_missing_serde.rs:5:1
   |
-7 | struct MissingSerde {
+5 | struct MissingSerde {
   | ^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `JsonDeserialize`:
             ()
-            AbiVersion
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptMusubiPackageMaintainerV1
             AccessSetHints
             AccountAddress
-            AccountController
-            AccountDetails
-            AccountEvent
+            AccountAdmissionDefaultRoleError
+            AccountAdmissionError
           and $N others
   = note: required for `MissingSerde` to implement `DeserializeOwned`
 note: required by a bound in `name`
@@ -188,25 +188,25 @@ note: required by a bound in `name`
   = note: this error originates in the derive macro `Permission` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: the trait bound `MissingSerde: iroha_schema::IntoSchema` is not satisfied
- --> tests/ui/fail/permission_missing_serde.rs:7:8
+ --> tests/ui/fail/permission_missing_serde.rs:5:8
   |
-7 | struct MissingSerde {
+5 | struct MissingSerde {
   |        ^^^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `iroha_schema::IntoSchema` is not implemented for `MissingSerde`
- --> tests/ui/fail/permission_missing_serde.rs:7:1
+ --> tests/ui/fail/permission_missing_serde.rs:5:1
   |
-7 | struct MissingSerde {
+5 | struct MissingSerde {
   | ^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `iroha_schema::IntoSchema`:
             ()
-            AbiVersion
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptAssetEscrow
+            AcceptContractOwnership
+            AcceptMusubiPackageMaintainerV1
+            AcceptSorafsModerationJurorAssignment
             AccessSetHints
-            AccountAddress
-            AccountController
-            AccountDetails
-            AccountEvent
           and $N others
 note: required by a bound in `name`
  --> $WORKSPACE/crates/iroha_executor_data_model/src/permission.rs
@@ -218,25 +218,25 @@ note: required by a bound in `name`
   |        ---- required by a bound in this associated function
 
 error[E0277]: the trait bound `MissingSerde: JsonSerialize` is not satisfied
- --> tests/ui/fail/permission_missing_serde.rs:7:8
+ --> tests/ui/fail/permission_missing_serde.rs:5:8
   |
-7 | struct MissingSerde {
+5 | struct MissingSerde {
   |        ^^^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `FastJsonWrite` is not implemented for `MissingSerde`
- --> tests/ui/fail/permission_missing_serde.rs:7:1
+ --> tests/ui/fail/permission_missing_serde.rs:5:1
   |
-7 | struct MissingSerde {
+5 | struct MissingSerde {
   | ^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `FastJsonWrite`:
             &T
             &mut T
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptMusubiPackageMaintainerV1
             AccessSetHints
-            AccountController
-            AccountDetails
-            AccountEvent
-            AccountEventFilter
+            AccountAdmissionDefaultRoleError
+            AccountAdmissionError
           and $N others
   = note: required for `MissingSerde` to implement `JsonSerialize`
 note: required by a bound in `name`
@@ -249,25 +249,25 @@ note: required by a bound in `name`
   |        ---- required by a bound in this associated function
 
 error[E0277]: the trait bound `MissingSerde: DeserializeOwned` is not satisfied
- --> tests/ui/fail/permission_missing_serde.rs:7:8
+ --> tests/ui/fail/permission_missing_serde.rs:5:8
   |
-7 | struct MissingSerde {
+5 | struct MissingSerde {
   |        ^^^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `JsonDeserialize` is not implemented for `MissingSerde`
- --> tests/ui/fail/permission_missing_serde.rs:7:1
+ --> tests/ui/fail/permission_missing_serde.rs:5:1
   |
-7 | struct MissingSerde {
+5 | struct MissingSerde {
   | ^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `JsonDeserialize`:
             ()
-            AbiVersion
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptMusubiPackageMaintainerV1
             AccessSetHints
             AccountAddress
-            AccountController
-            AccountDetails
-            AccountEvent
+            AccountAdmissionDefaultRoleError
+            AccountAdmissionError
           and $N others
   = note: required for `MissingSerde` to implement `DeserializeOwned`
 note: required by a bound in `name`

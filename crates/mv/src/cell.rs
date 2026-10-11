@@ -20,8 +20,11 @@ pub use initial::{CellInitialization, CellInitializationError};
 mod generations;
 pub use generations::{CellGenerationBacking, CellGenerationBackingError};
 
+#[path = "cell/frozen_pair.rs"]
+mod frozen_pair;
 #[path = "cell/frozen_read.rs"]
 mod frozen_read;
+pub use frozen_pair::{FrozenDetached, FrozenDetachedRead};
 #[path = "cell/original_read.rs"]
 mod original_read;
 pub use original_read::{CommittedCellReadError, CommittedCellView};

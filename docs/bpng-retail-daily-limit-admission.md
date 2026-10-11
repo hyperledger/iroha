@@ -45,8 +45,8 @@ signing/submitting reserve credit, and must authenticate the exact protocol-4
 transaction tuple and finalized execution before marking top-up applied or
 starting a bank defund credit. The current bank-credit verifier is source-only
 and has no independent production anchor or evidence custody. KAGEMUSHA
-top-up/redemption and other protocol custody need separate owner-approved
-typed treatment; their generic paths remain closed. No live top-up, defund,
+load/unload (not yet implemented) and other protocol custody need separate
+owner-approved typed treatment; their generic paths remain closed. No live top-up, defund,
 protocol-4 or physical-device acceptance follows from this source slice.
 
 ## Finalized activation evidence boundary
@@ -302,7 +302,7 @@ cap. The current source has these distinct mutation surfaces:
 | --- | --- |
 | `asset.rs::PreparedNumericTransferPlan::prepare/apply` and `PreparedNumericAssetMovementBatch` | Resolve each source to the owner-attested identity, aggregate all same-identity legs before applying a batch, and persist one conditional DAY usage update with the balance transcript. Direct Torii and IVM `Transfer` share this native path. |
 | `asset.rs::NumericAssetMovementAuthorization` | Replace implicit cap bypass with a closed typed-purpose decision against the owner-signed institutional exception list. A direct transaction must never request an exception by metadata. |
-| `asset.rs` burn, SCCP release, privacy bridge and KAGEMUSHA top-up/redemption | Specify whether each debit consumes a retail bucket or is an exact institutional exception; reject any uncovered path for a governed asset. |
+| `asset.rs` burn, SCCP release, privacy bridge and the future KAGEMUSHA load/unload | Specify whether each debit consumes a retail bucket or is an exact institutional exception; reject any uncovered path for a governed asset. |
 | `multisig.rs::rekey_account_id` and account recovery | Preserve the same retail identity and its prior usage when the controller changes, or reject before moving the account and balances. Alias reassignment alone never establishes identity continuity. |
 | Asset-definition policy mutation and state snapshot/query | Require the owner-authorized policy revision and preserve dedicated usage across policy changes, restart and signed query. Generic account-control metadata must not become a second usage ledger. |
 

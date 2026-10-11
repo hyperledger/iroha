@@ -5,7 +5,7 @@ Set: 2026-09-26. Execution resumed: 2026-09-30. Reviewed: 2026-10-04. Overall st
 This record owns the remediation requested after the current-source ZK critique.
 It supplements [first-release completion](first_release_completion_goals.md) and
 [privacy closure](privacy_first_release_closure.md). Implementation remains in the
-existing `/Users/takemiyamakoto/devstuff/iroha` checkout on `optimizations`.
+existing `/Users/takemiyamakoto/soramitsudev/iroha` checkout on `optimizations`.
 All further implementation and validation use this checkout; earlier separate
 candidates are historical evidence only. Unrelated changes remain.
 
@@ -214,7 +214,7 @@ Facts it records about the current tree:
   ceiling-sized proof is rejected as too large; two maximum actions per block
   do not fit any payload limit.
 - A 16 MiB payload passes the chain parameter rule but has no feasible
-  `sync_max_bytes`; the largest payload with one is 16,185,312 bytes.
+  `sync_max_bytes`; the largest payload with one is 16,512,992 bytes.
 - Transaction gossip frames are 256 KiB: a larger transaction stays with the
   node that admitted it.
 - 25 limits and charges that decide validity are still read from node
@@ -767,10 +767,12 @@ compiler/native replay and the remaining lifecycle/relation work are required.
 Two genuine native captures execute all 107 owner/wire printers each, with
 identical output. The applied fixture correction preserves all 105 prior owners
 and all 395 prior wire assignments and adds the reserve-policy owner. The
-KAGEMUSHA verifier-governance owners and instructions are removed, so the current
-paired captures have 105 typed owners and 1,551 nominal identities; these
-component passes do not establish integrated, physical-device or release
-qualification.
+KAGEMUSHA verifier-governance owners and instructions and the old KAGEMUSHA data-model
+owners and the three retired manual staking reward-record models are removed;
+the current fixture retains 102 typed owners and 1,469 nominal identities. The
+staking update separately captures its current model identities and claim frames;
+this does not constitute a new complete owner capture. These component passes do not establish integrated,
+physical-device or release qualification.
 
 The earlier seventeen-target Core/Kagami compilation passes with stock Rust 1.93.1 on
 its recorded inputs. The rebuilt aggregate Core library and group04 artifact now
@@ -798,7 +800,7 @@ not rewrite those outcomes. All four lane time-floor/build-count regressions pas
 The fresh lifetime compile-fail doctest passes; the separate Primitives 333 and
 Norito derive 59 unit, 17 strict-JSON and 32 compiler cases in four UI tests pass.
 Full Mint/Guard/receiver, genuine proof/export and full-State authority remain
-incomplete. The separate current fixture captures 105 typed codec owners and 1,551 nominal
+incomplete. The separate current fixture retains 102 typed codec owners and 1,469 nominal
 identities, preserving every still-active historical hash. Its new ordinary,
 publication and reduced-feature controls remain pending; the preceding capture
 and native component runs do not qualify the merged candidate.
@@ -856,9 +858,9 @@ the new local-Applied/height refusal control also passes. This establishes nativ
 finalized transcript custody, not the complete q77 relation or D7 source/spend
 admission.
 
-The rebuilt current host passes its loaded ABI-25 probe and all ten authentic
-fixture modes, each generated twice with identical paired bytes. All eight
-current Kotlin tasks pass: **2,498 tests**, zero failures or skips, including
+The recorded earlier ABI-25 host passed its loaded probe and all ten authentic
+fixture modes, each generated twice with identical paired bytes. Its eight
+Kotlin tasks passed: **2,498 tests**, zero failures or skips, including
 1,859 JVM, 30 tooling, 422 Android client managed, 91 wallet managed, 95 client
 host-JNI and one wallet host-JNI controls. The genuine native confidential
 redemption example and tooling distribution also pass. The native consumers
@@ -866,6 +868,10 @@ load the rebuilt host image. Android ELF audits were not run in this cohort;
 earlier ARM64/x86_64 132-method audits remain scoped to their recorded artifacts.
 The Darwin host's four Android-only absences are explicit. These results do not
 qualify physical devices or later source changes.
+Current KAGEMUSHA ABI-26 source, rebuilt component artifacts and later filesystem
+source refusals are tracked in [the evidence gate](kagemusha_evidence_gate.md) and
+[the native consumer inventory](native_prover_migration_inventory.md); the earlier
+ABI-25 cohort does not qualify those changed consumers.
 
 The physical Android main and instrumentation APKs are genuinely built and pass
 native ZIP, signature, package, permission and complete 3,276-class checks. They

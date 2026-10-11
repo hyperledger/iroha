@@ -53,7 +53,6 @@ mod validator_committee_capability {
             target_epoch: 7,
             latest_finality: artifact,
             selected: None,
-            candidate_keys: vec![],
             pending_beacon_session: None,
         }
     }

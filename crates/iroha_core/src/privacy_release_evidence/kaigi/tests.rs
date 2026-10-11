@@ -1,6 +1,6 @@
 //! Real generated fixture carriers through the same native Core verifier.
 use super::*;
-use iroha_data_model::{kaigi::KaigiPrivacyMode, proof::ProofBox};
+use iroha_data_model::{kaigi::KaigiPrivacyMode, proof::ProofBox, zk::OpenVerifyEnvelope};
 use iroha_model_base::domain::DomainId;
 use iroha_model_base::name::Name;
 
@@ -58,9 +58,9 @@ fn real_kaigi_release_builders_preserve_governed_keys_and_final_carriers() {
         let generated =
             build_kaigi_release_authorization_v1(network, &record, subject, sequence, action);
         assert_eq!(generated.root, record.roster_root());
-        let proof = ProofBox::new("halo2/ipa".into(), generated.proof.clone());
+        let proof = ProofBox::new(ZK_BACKEND_NATIVE_PIPA_R.into(), generated.proof.clone());
         assert!(crate::zk::verify_backend(
-            "halo2/ipa",
+            ZK_BACKEND_NATIVE_PIPA_R,
             &proof,
             keys[0].record.key.as_ref()
         ));
@@ -80,25 +80,25 @@ fn real_kaigi_release_builders_preserve_governed_keys_and_final_carriers() {
         }
     }
     assert!(crate::zk::verify_backend(
-        "halo2/ipa",
-        &ProofBox::new("halo2/ipa".into(), created.proof),
+        ZK_BACKEND_NATIVE_PIPA_R,
+        &ProofBox::new(ZK_BACKEND_NATIVE_PIPA_R.into(), created.proof),
         keys[0].record.key.as_ref()
     ));
     let usage = build_kaigi_release_usage_v1(network, &record);
     assert_eq!(usage.duration_ms, 1200);
     assert_eq!(usage.billed_gas, 345);
-    let proof = ProofBox::new("halo2/ipa".into(), usage.proof.unwrap());
+    let proof = ProofBox::new(ZK_BACKEND_NATIVE_PIPA_R.into(), usage.proof.unwrap());
     assert!(crate::zk::verify_backend(
-        "halo2/ipa",
+        ZK_BACKEND_NATIVE_PIPA_R,
         &proof,
         keys[1].record.key.as_ref()
     ));
     let mut changed: OpenVerifyEnvelope = norito::decode_canonical(&proof.bytes).unwrap();
     changed.aux.push(1);
     assert!(!crate::zk::verify_backend(
-        "halo2/ipa",
+        ZK_BACKEND_NATIVE_PIPA_R,
         &ProofBox::new(
-            "halo2/ipa".into(),
+            ZK_BACKEND_NATIVE_PIPA_R.into(),
             norito::encode_canonical(&changed).unwrap()
         ),
         keys[1].record.key.as_ref()

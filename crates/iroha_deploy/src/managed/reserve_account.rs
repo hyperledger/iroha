@@ -10,7 +10,7 @@ use super::{
         ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid, now_ms,
         read_optional, require_deadline, require_empty,
     },
-    service_authority::{ProviderPurpose, ServiceAuthority},
+    service_authority::{CheckpointImportScope, ProviderPurpose, ServiceAuthority},
 };
 use crate::{
     localnet::service_authorities::StreamTokenAuthorityRole, verify::finality::FinalityVerifier,
@@ -90,6 +90,23 @@ impl ManagedReserveAccountRegistration {
         })
     }
 
+    /// Admit this provider's fixed reserve-registration purpose from immutable original intent.
+    /// The child retains its own native lock; active/owned callers keep full capture.
+    pub(super) fn open_from_original(
+        parent: &ServiceAuthority,
+        provider: iroha_data_model::sorafs::capacity::ProviderId,
+    ) -> Result<Self> {
+        Ok(Self {
+            authority: ServiceAuthority::open_provider_from_original(
+                parent,
+                provider,
+                ProviderPurpose::ReserveAccountRegistration,
+            )?,
+        })
+    }
+
+    // The real standalone producer remains the test baseline for physical admission parity.
+    #[cfg(test)]
     pub(super) fn open_existing(
         prepared: &PreparedLocalnet,
         provider: iroha_data_model::sorafs::capacity::ProviderId,
@@ -98,6 +115,22 @@ impl ManagedReserveAccountRegistration {
             prepared,
             provider,
             ProviderPurpose::ReserveAccountRegistration,
+        )
+        .map(|authority| authority.map(|authority| Self { authority }))
+    }
+
+    /// Retain fresh purpose custody using the immutable original read-only parent profile.
+    /// Optional lexical import work supplies no source, transaction or current-state verdict.
+    pub(super) fn open_existing_from_original(
+        parent: &ServiceAuthority,
+        provider: iroha_data_model::sorafs::capacity::ProviderId,
+        scope: Option<&CheckpointImportScope>,
+    ) -> Result<Option<Self>> {
+        ServiceAuthority::open_provider_existing_from_original(
+            parent,
+            provider,
+            ProviderPurpose::ReserveAccountRegistration,
+            scope,
         )
         .map(|authority| authority.map(|authority| Self { authority }))
     }
@@ -182,8 +215,9 @@ impl ManagedReserveAccountRegistration {
             None,
             |attempt| {
                 account
-                    .inspect_reserve_account_registration_preparation(
-                        &attempt.wallet_path(),
+                    .inspect_reserve_account_registration_preparation_in_parent(
+                        attempt.directory(),
+                        std::ffi::OsStr::new("transaction"),
                         &original.request(attempt.terms(), deadline),
                     )
                     .map_err(|_| {
@@ -265,10 +299,8 @@ impl ManagedReserveAccountRegistration {
         require_deadline(deadline)?;
         self.authority.validate_profile()?;
         self.validate_registration(policy, underwriting)?;
-        let directory = match self.authority.directory.open_child("register") {
-            Ok(directory) => directory,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
+        let Some(directory) = self.authority.directory.open_child_optional("register")? else {
+            return Ok(None);
         };
         let Some(original) = journal::read_intent(&directory)? else {
             return Ok(None);
@@ -304,8 +336,9 @@ impl ManagedReserveAccountRegistration {
         let verify_custody = || {
             original.verify_wallets(|intent, attempt| {
                 account
-                    .inspect_reserve_account_registration_preparation(
-                        &attempt.wallet_path(),
+                    .inspect_reserve_account_registration_preparation_in_parent(
+                        attempt.directory(),
+                        std::ffi::OsStr::new("transaction"),
                         &intent.request(attempt.terms(), deadline),
                     )
                     .map_err(|_| invalid("reserve registration retained attempt history changed"))
@@ -313,7 +346,11 @@ impl ManagedReserveAccountRegistration {
         };
         verify_custody()?;
         let preparation = account
-            .inspect_reserve_account_registration_preparation(&path, &original.request(deadline))
+            .inspect_reserve_account_registration_preparation_in_parent(
+                directory,
+                std::ffi::OsStr::new("transaction"),
+                &original.request(deadline),
+            )
             .map_err(|_| invalid("wallet preparation differs from the exact original request"))?;
         let unprepared_expired = preparation.unprepared_status() == Some(OperationStatus::Expired);
         let retained = match preparation.phase() {
@@ -439,7 +476,7 @@ impl ManagedReserveAccountRegistration {
                     &original.checkpoint,
                     &transaction,
                     &report,
-                    observed.checkpoint().height(),
+                    observed,
                     deadline,
                 )?
             } else {
@@ -451,9 +488,11 @@ impl ManagedReserveAccountRegistration {
         if let Some(finalized) = &finalized {
             self.validate_carrier(&original, finalized)?;
         }
-        let current = observed
-            .as_ref()
-            .and_then(|verifier| self.read_current(&original.policy, verifier, deadline).ok());
+        let current = super::native_operation::optional_current(
+            observe_current,
+            observed.as_ref(),
+            |verifier| self.read_current(&original.policy, verifier, deadline),
+        );
         verify_custody()?;
         Ok(progress(report.status, finalized, current))
     }

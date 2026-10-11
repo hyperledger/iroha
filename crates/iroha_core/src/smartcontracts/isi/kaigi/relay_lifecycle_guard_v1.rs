@@ -29,7 +29,12 @@ pub(super) fn ensure_no_active_manifest_reference(
             continue;
         }
         let IndexedKaigiDependency::ActiveCall(record) =
-            validate_indexed_kaigi_dependency(&state_transaction.world, relay_id, dependency)?
+            validate_indexed_kaigi_dependency(&state_transaction.world, relay_id, dependency)
+                .map_err(|error| {
+                    state_transaction
+                        .world
+                        .attempt_error_to_instruction_error(error)
+                })?
         else {
             return Err(Error::InvariantViolation(
                 "Kaigi active-call dependency changed kind during relay preflight".into(),

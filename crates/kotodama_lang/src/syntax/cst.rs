@@ -337,6 +337,67 @@ mod tests {
         assert_eq!(children, cloned);
         assert_eq!(crate::session::compiler_worker_spawn_count(), 0);
     }
+
+    #[test]
+    fn missing_token_owner_sweep_matches_the_exhaustive_search() {
+        // Deterministic linear congruential generator: small ranges collide
+        // often, which exercises every tie-breaking rule.
+        let mut seed = 0x9e37_79b9_u32;
+        let mut next = |bound: u32| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 8) % bound
+        };
+        for _ in 0..128 {
+            let count = 1 + next(40) as usize;
+            let nodes = (0..count)
+                .map(|_| {
+                    let start = next(100);
+                    SyntaxOutlineNode {
+                        kind: SyntaxKind::Block,
+                        range: TextRange::new(start, start + next(30)),
+                        parent: None,
+                        children: Vec::new(),
+                    }
+                })
+                .collect::<Vec<_>>();
+            let depths = (0..count).map(|_| next(5) as usize).collect::<Vec<_>>();
+            let outline = SyntaxOutline { nodes };
+            let missing = (0..24)
+                .map(|_| MissingSyntax {
+                    offset: next(140),
+                    expected: SyntaxKind::Semicolon,
+                    owner: (next(3) == 0).then(|| next(count as u32 + 2) as usize),
+                })
+                .collect::<Vec<_>>();
+            let exhaustive = missing
+                .iter()
+                .map(|missing| {
+                    let contains = |node: &SyntaxOutlineNode| {
+                        node.range.start <= missing.offset && missing.offset <= node.range.end
+                    };
+                    missing
+                        .owner
+                        .filter(|owner| outline.nodes.get(*owner).is_some_and(contains))
+                        .or_else(|| {
+                            outline
+                                .nodes
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, node)| contains(node))
+                                .max_by_key(|(id, node)| {
+                                    (depths[*id], node.range.start, u32::MAX - node.range.end)
+                                })
+                                .map(|(id, _)| id)
+                        })
+                        .unwrap_or(0)
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                missing_token_owners(&outline, &depths, &missing),
+                exhaustive
+            );
+        }
+    }
 }
 impl<'tree> Iterator for GreenTokenIter<'tree> {
     type Item = &'tree GreenToken;
@@ -451,6 +512,72 @@ impl SyntaxOutlineBuilder {
 }
 /// Build one lossless tree from the structural decisions recorded by the
 /// canonical AST parser and the original trivia-bearing lexer tape.
+/// The outline node that owns each missing token.
+///
+/// A recorded owner is kept when its range contains the missing offset.
+/// Otherwise the owner is the deepest node containing the offset, ties broken
+/// by the latest start, then the earliest end, then the highest node id. That
+/// fallback is answered by one sweep over the offsets in increasing order with
+/// an ordered active set, so recovery-heavy sources stay `O((n + m) log n)`
+/// instead of scanning every node for every missing token.
+fn missing_token_owners(
+    outline: &SyntaxOutline,
+    depths: &[usize],
+    missing: &[MissingSyntax],
+) -> Vec<usize> {
+    use std::{
+        cmp::Reverse,
+        collections::{BTreeSet, BinaryHeap},
+    };
+    let contains = |node: &SyntaxOutlineNode, offset: u32| {
+        node.range.start <= offset && offset <= node.range.end
+    };
+    let mut owners = missing
+        .iter()
+        .map(|missing| {
+            missing.owner.filter(|owner| {
+                outline
+                    .nodes
+                    .get(*owner)
+                    .is_some_and(|node| contains(node, missing.offset))
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut pending = (0..missing.len())
+        .filter(|index| owners[*index].is_none())
+        .collect::<Vec<_>>();
+    if pending.is_empty() {
+        return owners.into_iter().map(|owner| owner.unwrap_or(0)).collect();
+    }
+    pending.sort_by_key(|index| missing[*index].offset);
+    let mut by_start = (0..outline.nodes.len()).collect::<Vec<_>>();
+    by_start.sort_by_key(|id| outline.nodes[*id].range.start);
+    let key = |id: usize| {
+        let node = &outline.nodes[id];
+        (depths[id], node.range.start, u32::MAX - node.range.end, id)
+    };
+    let mut active = BTreeSet::new();
+    let mut expiry = BinaryHeap::new();
+    let mut next = 0_usize;
+    for index in pending {
+        let offset = missing[index].offset;
+        while let Some(&id) = by_start.get(next)
+            && outline.nodes[id].range.start <= offset
+        {
+            active.insert(key(id));
+            expiry.push(Reverse((outline.nodes[id].range.end, id)));
+            next += 1;
+        }
+        while let Some(&Reverse((end, id))) = expiry.peek()
+            && end < offset
+        {
+            expiry.pop();
+            active.remove(&key(id));
+        }
+        owners[index] = active.last().map(|(_, _, _, id)| *id);
+    }
+    owners.into_iter().map(|owner| owner.unwrap_or(0)).collect()
+}
 pub(crate) fn build_tree_from_outline(
     source: SourceId,
     tokens: &[GreenToken],
@@ -475,29 +602,9 @@ pub(crate) fn build_tree_from_outline(
             .unwrap_or_default()
             .saturating_add(usize::from(node.parent.is_some()));
     }
+    let owners = missing_token_owners(outline, &depths, missing);
     let mut direct_missing = vec![Vec::<(u32, SyntaxKind)>::new(); outline.nodes.len()];
-    for missing in missing {
-        let owner = missing
-            .owner
-            .filter(|owner| {
-                outline.nodes.get(*owner).is_some_and(|node| {
-                    node.range.start <= missing.offset && missing.offset <= node.range.end
-                })
-            })
-            .or_else(|| {
-                outline
-                    .nodes
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, node)| {
-                        node.range.start <= missing.offset && missing.offset <= node.range.end
-                    })
-                    .max_by_key(|(id, node)| {
-                        (depths[*id], node.range.start, u32::MAX - node.range.end)
-                    })
-                    .map(|(id, _)| id)
-            })
-            .unwrap_or(0);
+    for (missing, owner) in missing.iter().zip(owners) {
         direct_missing[owner].push((missing.offset, missing.expected));
     }
     for insertions in &mut direct_missing {

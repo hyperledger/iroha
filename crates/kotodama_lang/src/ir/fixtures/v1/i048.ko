@@ -1,5 +1,5 @@
 
-            seiyaku C {
+            seiyaku C { permission WriteState;
                 struct Inner { int value, bytes marker }
                 struct Outer { Inner inner, int version }
                 state StateMap<int, int> Observations;
@@ -13,7 +13,7 @@
                     };
                 }
 
-                kotoage fn main() -> int authorize("WriteState") {
+                kotoage fn main() authorize(WriteState) -> int {
                     let outer = observed_outer();
                     return outer.inner.value + outer.version;
                 }

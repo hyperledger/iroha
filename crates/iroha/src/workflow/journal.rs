@@ -357,7 +357,8 @@ impl WorkflowPlanV1 {
     /// contract; a test encodes maximal reachable journals against this bound.
     #[must_use]
     pub fn journal_bytes_bound(&self) -> usize {
-        let later_fixed = |index: usize| STEP_FIXED_RECORD_BYTES_V1 * (self.steps.len() - index - 1);
+        let later_fixed =
+            |index: usize| STEP_FIXED_RECORD_BYTES_V1 * (self.steps.len() - index - 1);
         let mut earlier_done = 0_usize;
         let mut worst = 0_usize;
         for (index, step) in self.steps.iter().enumerate() {

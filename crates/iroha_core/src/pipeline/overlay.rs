@@ -1,13 +1,7 @@
-//! Transaction overlay scaffolding.
+//! One-shot transaction effects with ordered instructions, native emissions and authorization.
 //!
-//! A `TxOverlay` represents the sequence of stateful operations (ISIs) that a transaction intends
-//! to perform. In the future, overlays will be created in a read-only execution prepass and later
-//! committed in a deterministic order. For now, this module provides a thin wrapper around a list
-//! of `InstructionBox` and an `apply` method that executes them via the executor.
-//!
-//! Future work will extend overlays to be produced by IVM prepasses (draining queued ISIs without
-//! mutating state) and to incorporate trigger side effects. For now the type is mostly a thin
-//! wrapper that keeps chunking logic and admission limits (`pipeline.overlay_max_*`) in one place.
+//! Applying an overlay consumes its original effect owners. Emission graphs retain their
+//! allocation custody through the transaction journal and cannot be cloned for replay.
 #[cfg(any(test, feature = "iroha-core-tests"))]
 use crate::smartcontracts::ivm::cache::{
     ExecutableProgramSummary, GenericProgramSummary, IvmCache,
@@ -25,7 +19,7 @@ use crate::{
         },
         ivm::{
             cache::ProgramSummary,
-            host::{AmxBudgetViolation, QueryStateSource},
+            host::{AmxBudgetViolation, QueryStateSource, QueuedEffectPayload},
         },
     },
     state::{StateReadOnly, StateTransaction, WorldReadOnly},
@@ -132,8 +126,8 @@ fn smart_contract_heap_limit(state: &impl StateReadOnly) -> u64 {
     state.world().parameters().smart_contract().memory().get()
 }
 #[cfg(any(test, feature = "iroha-core-tests"))]
-fn configure_zk_lane_trace_collection(vm: &mut ivm::IVM, halo2_enabled: bool) {
-    vm.set_zk_trace_enabled(halo2_enabled && vm.zk_mode_enabled());
+fn configure_zk_lane_trace_collection(vm: &mut ivm::IVM, trace_enabled: bool) {
+    vm.set_zk_trace_enabled(trace_enabled && vm.zk_mode_enabled());
 }
 fn validate_overlay_contract_runtime_context(
     world: &impl WorldReadOnly,
@@ -208,8 +202,14 @@ impl ContractDispatchSource<'_> {
     fn callable_entrypoint(
         &self,
         selector: &str,
-    ) -> Result<(u64, Option<String>, Option<ivm::EntrypointArgumentSchemaV1>), OverlayBuildError>
-    {
+    ) -> Result<
+        (
+            u64,
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1,
+            Option<ivm::EntrypointArgumentSchemaV1>,
+        ),
+        OverlayBuildError,
+    > {
         match self {
             Self::Bytecode(bytecode) => {
                 let parsed = ivm::ProgramMetadata::parse(bytecode).map_err(|err| {
@@ -234,7 +234,7 @@ impl ContractDispatchSource<'_> {
                         ))
                     })?;
                 let permission =
-                    crate::executor::raw_contract_entrypoint_permission(descriptor, selector)
+                    crate::executor::raw_contract_entrypoint_authorization(descriptor, selector)
                         .map_err(|error| OverlayBuildError::ContractCall(error.to_string()))?;
                 Ok((
                     prefix_len + descriptor.entry_pc,
@@ -255,7 +255,7 @@ impl ContractDispatchSource<'_> {
                     ))
                 })?;
                 let permission =
-                    crate::executor::raw_contract_entrypoint_permission(descriptor, selector)
+                    crate::executor::raw_contract_entrypoint_authorization(descriptor, selector)
                         .map_err(|error| OverlayBuildError::ContractCall(error.to_string()))?;
                 Ok((
                     entrypoint_pc,
@@ -341,7 +341,7 @@ fn parse_contract_call_execution_context_from_source(
         }
     }
     let (entrypoint_pc, argument_schema) = if let Some(selector) = entrypoint.as_deref() {
-        let (entrypoint_pc, _entrypoint_permission, argument_schema) =
+        let (entrypoint_pc, _entrypoint_authorization, argument_schema) =
             source.callable_entrypoint(selector)?;
         (Some(entrypoint_pc), argument_schema)
     } else {
@@ -403,7 +403,7 @@ fn parse_prepared_contract_invocation_execution_context(
         OverlayBuildError::ContractCall(format!("unknown contract entrypoint `{selector}`"))
     })?;
     let _permission =
-        crate::executor::callable_contract_entrypoint_permission(descriptor, selector)
+        crate::executor::callable_contract_entrypoint_authorization(descriptor, selector)
             .map_err(|error| OverlayBuildError::ContractCall(error.to_string()))?;
     let entrypoint_pc = contract.entrypoint_pc(selector).ok_or_else(|| {
         OverlayBuildError::ContractCall(format!(
@@ -1050,13 +1050,13 @@ fn append_verified_contract_metadata_registration_to_queued<R: StateReadOnly>(
     tx: &SignedTransaction,
     summary: &ProgramSummary,
     bytecode: &[u8],
-    queued: &mut Vec<crate::smartcontracts::ivm::host::QueuedInstruction>,
+    queued: &mut Vec<crate::smartcontracts::ivm::host::QueuedEffect>,
     contract_runtime_context: Option<&crate::executor::ContractRuntimeExecutionContext>,
     entrypoint_authorization: &ContractEntrypointAuthorizationSnapshot,
 ) -> Result<(), OverlayBuildError> {
     let mut instructions = queued
         .iter()
-        .map(|queued| queued.instruction.clone())
+        .filter_map(|queued| queued.instruction().cloned())
         .collect::<Vec<_>>();
     let original_len = instructions.len();
     append_verified_contract_metadata_registration(
@@ -1071,8 +1071,10 @@ fn append_verified_contract_metadata_registration_to_queued<R: StateReadOnly>(
             .into_iter()
             .skip(original_len)
             .map(
-                |instruction| crate::smartcontracts::ivm::host::QueuedInstruction {
-                    instruction,
+                |instruction| crate::smartcontracts::ivm::host::QueuedEffect {
+                    payload: crate::smartcontracts::ivm::host::QueuedEffectPayload::Instruction(
+                        instruction,
+                    ),
                     authority: contract_runtime_context.map_or_else(
                         || tx.authority().clone(),
                         |context| context.contract_subject.clone(),
@@ -1229,6 +1231,25 @@ struct OverlayInstructionExecutionContext {
     contract_runtime_context: Option<crate::executor::ContractRuntimeExecutionContext>,
     entrypoint_authorization: Option<ContractEntrypointAuthorizationSnapshot>,
 }
+#[derive(Debug)]
+struct OverlayEffect {
+    payload: QueuedEffectPayload,
+    execution_context: Option<OverlayInstructionExecutionContext>,
+}
+impl OverlayEffect {
+    fn instruction(&self) -> Option<&InstructionBox> {
+        match &self.payload {
+            QueuedEffectPayload::Instruction(instruction) => Some(instruction),
+            QueuedEffectPayload::Emission(_) => None,
+        }
+    }
+    fn plain_instruction(instruction: InstructionBox) -> Self {
+        Self {
+            payload: QueuedEffectPayload::Instruction(instruction),
+            execution_context: None,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum TxOverlaySource {
     #[default]
@@ -1250,10 +1271,9 @@ impl TxOverlaySource {
     }
 }
 /// Overlay of a transaction's intended operations.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct TxOverlay {
-    instructions: Vec<InstructionBox>,
-    execution_contexts: Option<Vec<OverlayInstructionExecutionContext>>,
+    effects: Vec<OverlayEffect>,
     entrypoint_authorization: Option<ContractEntrypointAuthorizationSnapshot>,
     lifecycle_completion: Option<OverlayLifecycleCompletion>,
     ivm_gas_used: Option<u64>,
@@ -1266,7 +1286,7 @@ pub struct TxOverlay {
 }
 #[cfg(test)]
 /// Overlay and prepared runtime inputs retained for scheduler regression tests.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct PreparedTxOverlay {
     /// Built transaction overlay.
     pub(crate) overlay: TxOverlay,
@@ -1520,8 +1540,10 @@ impl TxOverlay {
     /// Create an overlay from a list of instructions.
     pub fn from_instructions(instrs: Vec<InstructionBox>) -> Self {
         Self {
-            instructions: instrs,
-            execution_contexts: None,
+            effects: instrs
+                .into_iter()
+                .map(OverlayEffect::plain_instruction)
+                .collect(),
             entrypoint_authorization: None,
             lifecycle_completion: None,
             ivm_gas_used: None,
@@ -1539,7 +1561,7 @@ impl TxOverlay {
         contract_runtime_context: crate::executor::ContractRuntimeExecutionContext,
         entrypoint_authorization: ContractEntrypointAuthorizationSnapshot,
     ) -> Self {
-        let execution_contexts = instrs
+        let execution_contexts: Vec<_> = instrs
             .iter()
             .map(|_| OverlayInstructionExecutionContext {
                 authority: contract_runtime_context.contract_subject.clone(),
@@ -1548,8 +1570,14 @@ impl TxOverlay {
             })
             .collect();
         Self {
-            instructions: instrs,
-            execution_contexts: Some(execution_contexts),
+            effects: instrs
+                .into_iter()
+                .zip(execution_contexts)
+                .map(|(instruction, context)| OverlayEffect {
+                    payload: QueuedEffectPayload::Instruction(instruction),
+                    execution_context: Some(context),
+                })
+                .collect(),
             entrypoint_authorization: Some(entrypoint_authorization),
             lifecycle_completion: None,
             ivm_gas_used: None,
@@ -1572,8 +1600,10 @@ impl TxOverlay {
             .map(|path| (path, None))
             .collect();
         Self {
-            instructions: instrs,
-            execution_contexts: None,
+            effects: instrs
+                .into_iter()
+                .map(OverlayEffect::plain_instruction)
+                .collect(),
             entrypoint_authorization: None,
             lifecycle_completion: None,
             ivm_gas_used: Some(ivm_gas_used),
@@ -1584,7 +1614,7 @@ impl TxOverlay {
             byte_size: OnceLock::new(),
         }
     }
-    #[cfg(any(test, feature = "iroha-core-tests"))]
+    #[cfg(test)]
     fn from_host_execution(
         instructions: Vec<InstructionBox>,
         execution_contexts: Vec<OverlayInstructionExecutionContext>,
@@ -1596,23 +1626,60 @@ impl TxOverlay {
             Option<ContractEntrypointAuthorizationSnapshot>,
         >,
     ) -> Self {
-        debug_assert_eq!(instructions.len(), execution_contexts.len());
-        Self {
-            instructions,
-            execution_contexts: Some(execution_contexts),
-            entrypoint_authorization: None,
-            lifecycle_completion: None,
-            ivm_gas_used: Some(ivm_gas_used),
+        assert_eq!(instructions.len(), execution_contexts.len());
+        let queued = instructions
+            .into_iter()
+            .zip(execution_contexts)
+            .map(
+                |(instruction, context)| crate::smartcontracts::ivm::host::QueuedEffect {
+                    payload: QueuedEffectPayload::Instruction(instruction),
+                    authority: context.authority,
+                    contract_runtime_context: context.contract_runtime_context,
+                    entrypoint_authorization: context.entrypoint_authorization,
+                },
+            )
+            .collect();
+        Self::from_queued_execution(
+            queued,
+            ivm_gas_used,
             completed_axt,
             durable_state_overlay,
             durable_state_authorizations,
-            source: TxOverlaySource::ContractCall,
+            TxOverlaySource::ContractCall,
+        )
+    }
+    #[cfg(test)]
+    fn instruction_fixture(&self) -> Self {
+        let effects = self
+            .effects
+            .iter()
+            .map(|effect| OverlayEffect {
+                payload: QueuedEffectPayload::Instruction(
+                    effect
+                        .instruction()
+                        .expect(
+                            "only instruction fixtures can be rebuilt without running their host",
+                        )
+                        .clone(),
+                ),
+                execution_context: effect.execution_context.clone(),
+            })
+            .collect();
+        Self {
+            effects,
+            entrypoint_authorization: self.entrypoint_authorization.clone(),
+            lifecycle_completion: self.lifecycle_completion.clone(),
+            ivm_gas_used: self.ivm_gas_used,
+            completed_axt: self.completed_axt.clone(),
+            durable_state_overlay: self.durable_state_overlay.clone(),
+            durable_state_authorizations: self.durable_state_authorizations.clone(),
+            source: self.source,
             byte_size: OnceLock::new(),
         }
     }
     #[cfg(any(test, feature = "iroha-core-tests"))]
     fn from_queued_execution(
-        queued: Vec<crate::smartcontracts::ivm::host::QueuedInstruction>,
+        queued: Vec<crate::smartcontracts::ivm::host::QueuedEffect>,
         ivm_gas_used: u64,
         completed_axt: Vec<ivm::axt::HostAxtState>,
         durable_state_overlay: BTreeMap<StatePath, Option<Vec<u8>>>,
@@ -1622,19 +1689,19 @@ impl TxOverlay {
         >,
         source: TxOverlaySource,
     ) -> Self {
-        let mut instructions = Vec::with_capacity(queued.len());
-        let mut execution_contexts = Vec::with_capacity(queued.len());
-        for queued in queued {
-            instructions.push(queued.instruction);
-            execution_contexts.push(OverlayInstructionExecutionContext {
-                authority: queued.authority,
-                contract_runtime_context: queued.contract_runtime_context,
-                entrypoint_authorization: queued.entrypoint_authorization,
-            });
-        }
+        let effects = queued
+            .into_iter()
+            .map(|queued| OverlayEffect {
+                payload: queued.payload,
+                execution_context: Some(OverlayInstructionExecutionContext {
+                    authority: queued.authority,
+                    contract_runtime_context: queued.contract_runtime_context,
+                    entrypoint_authorization: queued.entrypoint_authorization,
+                }),
+            })
+            .collect();
         Self {
-            instructions,
-            execution_contexts: Some(execution_contexts),
+            effects,
             entrypoint_authorization: None,
             lifecycle_completion: None,
             ivm_gas_used: Some(ivm_gas_used),
@@ -1647,7 +1714,7 @@ impl TxOverlay {
     }
     #[cfg(any(test, feature = "iroha-core-tests"))]
     fn from_ivm_proved_execution(
-        queued: Vec<crate::smartcontracts::ivm::host::QueuedInstruction>,
+        queued: Vec<crate::smartcontracts::ivm::host::QueuedEffect>,
         ivm_gas_used: u64,
         completed_axt: Vec<ivm::axt::HostAxtState>,
         durable_state_overlay: BTreeMap<StatePath, Option<Vec<u8>>>,
@@ -1667,13 +1734,13 @@ impl TxOverlay {
     }
     /// Is this overlay empty?
     pub fn is_empty(&self) -> bool {
-        self.instructions.is_empty()
+        self.effects.is_empty()
             && self.completed_axt.is_empty()
             && self.durable_state_overlay.is_empty()
     }
     /// Number of instructions in this overlay.
     pub fn instruction_count(&self) -> usize {
-        self.instructions.len()
+        self.instructions().count()
     }
     #[cfg(any(test, feature = "iroha-core-tests"))]
     /// Whether this overlay carries durable smart-contract state changes.
@@ -1681,13 +1748,8 @@ impl TxOverlay {
         !self.completed_axt.is_empty() || !self.durable_state_overlay.is_empty()
     }
     /// Iterate over instructions in this overlay.
-    pub fn instructions(&self) -> impl ExactSizeIterator<Item = &InstructionBox> {
-        self.instructions.iter()
-    }
-    #[cfg(any(test, feature = "iroha-core-tests"))]
-    /// Borrow the overlay instructions as a slice.
-    pub fn instruction_slice(&self) -> &[InstructionBox] {
-        &self.instructions
+    pub fn instructions(&self) -> impl Iterator<Item = &InstructionBox> {
+        self.effects.iter().filter_map(OverlayEffect::instruction)
     }
     /// Borrow the durable smart-contract state overlay accumulated during IVM execution.
     pub fn durable_state_overlay(&self) -> &BTreeMap<StatePath, Option<Vec<u8>>> {
@@ -1700,10 +1762,17 @@ impl TxOverlay {
     /// Approximate byte size of this overlay when serialized via Norito TLV.
     pub fn byte_size(&self) -> usize {
         *self.byte_size.get_or_init(|| {
-            self.instructions
+            self.effects
                 .iter()
-                .map(|i| NoritoEncode::encode(i).len())
-                .sum()
+                .map(|effect| match &effect.payload {
+                    QueuedEffectPayload::Instruction(instruction) => {
+                        NoritoEncode::encode(instruction).len()
+                    }
+                    QueuedEffectPayload::Emission(emission) => {
+                        norito::canonical_frame_len(&emission.value).unwrap_or(usize::MAX)
+                    }
+                })
+                .fold(0usize, usize::saturating_add)
         })
     }
     /// Apply the overlay to the given state transaction via the runtime executor.
@@ -1712,11 +1781,11 @@ impl TxOverlay {
     /// # Errors
     /// Returns an error if executing any instruction fails validation or the executor rejects it.
     pub fn apply(
-        &self,
+        self,
         state_tx: &mut StateTransaction<'_, '_>,
         authority: &AccountId,
     ) -> Result<(), ValidationFail> {
-        self.apply_inner(state_tx, authority, self.instructions.len().max(1))
+        self.apply_inner(state_tx, authority)
     }
     #[cfg(any(test, feature = "iroha-core-tests"))]
     /// Apply the overlay with a specific chunk size (number of instructions per chunk).
@@ -1724,12 +1793,12 @@ impl TxOverlay {
     /// # Errors
     /// Returns an error if executing any instruction fails validation or the executor rejects it.
     pub fn apply_with_chunk(
-        &self,
+        self,
         state_tx: &mut StateTransaction<'_, '_>,
         authority: &AccountId,
-        chunk_size: usize,
+        _chunk_size: usize,
     ) -> Result<(), ValidationFail> {
-        self.apply_inner(state_tx, authority, chunk_size.max(1))
+        self.apply_inner(state_tx, authority)
     }
     fn validate_execution_context(
         world: &impl WorldReadOnly,
@@ -1813,10 +1882,9 @@ impl TxOverlay {
         Ok(())
     }
     fn apply_inner(
-        &self,
+        mut self,
         state_tx: &mut StateTransaction<'_, '_>,
         authority: &AccountId,
-        chunk: usize,
     ) -> Result<(), ValidationFail> {
         let result = (|| -> Result<(), ValidationFail> {
             let execution_height = self
@@ -1830,11 +1898,12 @@ impl TxOverlay {
                 )?;
             }
             let has_contract_effect = self.lifecycle_completion.is_some()
-                || self.execution_contexts.as_ref().is_some_and(|contexts| {
-                    contexts.iter().any(|context| {
-                        context.contract_runtime_context.is_some()
-                            || context.entrypoint_authorization.is_some()
-                    })
+                || self.effects.iter().any(|effect| {
+                    matches!(effect.payload, QueuedEffectPayload::Emission(_))
+                        || effect.execution_context.as_ref().is_some_and(|context| {
+                            context.contract_runtime_context.is_some()
+                                || context.entrypoint_authorization.is_some()
+                        })
                 })
                 || self
                     .durable_state_authorizations
@@ -1846,11 +1915,14 @@ impl TxOverlay {
                 ));
             }
             if let Some(completion) = self.lifecycle_completion.as_ref() {
-                code::validate_contract_lifecycle_completion(
+                code::validate_contract_lifecycle_state_completion(
                     &state_tx.world,
+                    &state_tx.execution_budget(),
                     &completion.contract_address,
                     completion.pending,
-                )?;
+                    &self.durable_state_overlay,
+                )
+                .map_err(|error| state_tx.attempt_error_to_validation_fail(error))?;
             }
             if let Some(authorization) = self.entrypoint_authorization.as_ref() {
                 if !authorization.is_root() {
@@ -1867,9 +1939,9 @@ impl TxOverlay {
                 )
                 .map_err(|error| state_tx.attempt_error_to_validation_fail(error))?;
                 let retains_root = self
-                    .execution_contexts
+                    .effects
                     .iter()
-                    .flat_map(|contexts| contexts.iter())
+                    .filter_map(|effect| effect.execution_context.as_ref())
                     .filter_map(|context| context.entrypoint_authorization.as_ref())
                     .chain(
                         self.durable_state_authorizations
@@ -1884,14 +1956,133 @@ impl TxOverlay {
                     ));
                 }
             }
-            if let Some(execution_contexts) = self.execution_contexts.as_ref() {
-                if execution_contexts.len() != self.instructions.len() {
-                    return Err(ValidationFail::InternalError(
-                        "overlay execution context count does not match its instruction count"
-                            .to_owned(),
-                    ));
+            for execution_context in self
+                .effects
+                .iter()
+                .filter_map(|effect| effect.execution_context.as_ref())
+            {
+                Self::validate_execution_context(
+                    &state_tx.world,
+                    execution_context,
+                    execution_height,
+                )
+                .map_err(|error| state_tx.attempt_error_to_validation_fail(error))?;
+            }
+            self.validate_durable_authorizations(&state_tx.world, execution_height)
+                .map_err(|error| state_tx.attempt_error_to_validation_fail(error))?;
+            let executor = state_tx.world.executor.clone();
+            let effects = std::mem::take(&mut self.effects);
+            for effect in effects {
+                if let Some(authorization) = self.entrypoint_authorization.as_ref() {
+                    Self::validate_authorization_snapshot_for_authority(
+                        &state_tx.world,
+                        authorization,
+                        authority,
+                        execution_height,
+                    )
+                    .map_err(|error| state_tx.attempt_error_to_validation_fail(error))?;
                 }
-                for execution_context in execution_contexts {
+                let execution_context = effect.execution_context.as_ref();
+                if let Some(execution_context) = execution_context {
+                    Self::validate_execution_context(
+                        &state_tx.world,
+                        execution_context,
+                        execution_height,
+                    )
+                    .map_err(|error| state_tx.attempt_error_to_validation_fail(error))?;
+                }
+                let effect_authority =
+                    execution_context.map_or(authority, |context| &context.authority);
+                match effect.payload {
+                    QueuedEffectPayload::Emission(emission) => {
+                        crate::smartcontracts::ivm::host::HostExecutionArtifacts::validate_emission_provenance(
+                            &state_tx.world, &emission.value,
+                            execution_context.and_then(|context| context.contract_runtime_context.as_ref()),
+                            execution_context.and_then(|context| context.entrypoint_authorization.as_ref()),
+                        )?;
+                        state_tx.record_contract_emission(emission)?;
+                    }
+                    QueuedEffectPayload::Instruction(instruction) => {
+                        let instr = &instruction;
+                        if let Some(atomic) = instr.as_any().downcast_ref::<SettleAtomic>() {
+                            admission_validate_atomic(effect_authority, state_tx, atomic)
+                                .map_err(ValidationFail::from)?;
+                        } else if let Some(dvp) = instr.as_any().downcast_ref::<DvpIsi>() {
+                            admission_validate_dvp(effect_authority, state_tx, dvp)
+                                .map_err(ValidationFail::from)?;
+                        } else if let Some(pvp) = instr.as_any().downcast_ref::<PvpIsi>() {
+                            admission_validate_pvp(effect_authority, state_tx, pvp)
+                                .map_err(ValidationFail::from)?;
+                        } else if let Some(fx) = instr.as_any().downcast_ref::<SettleFxCorridor>() {
+                            admission_validate_fx_corridor(effect_authority, state_tx, fx)
+                                .map_err(ValidationFail::from)?;
+                        } else if let Some(settlement) =
+                            instr.as_any().downcast_ref::<SettlementInstructionBox>()
+                        {
+                            match settlement {
+                                SettlementInstructionBox::Atomic(atomic) => {
+                                    admission_validate_atomic(effect_authority, state_tx, atomic)
+                                        .map_err(ValidationFail::from)?;
+                                }
+                                SettlementInstructionBox::Dvp(dvp) => {
+                                    admission_validate_dvp(effect_authority, state_tx, dvp)
+                                        .map_err(ValidationFail::from)?;
+                                }
+                                SettlementInstructionBox::Pvp(pvp) => {
+                                    admission_validate_pvp(effect_authority, state_tx, pvp)
+                                        .map_err(ValidationFail::from)?;
+                                }
+                                SettlementInstructionBox::SettleFxCorridor(fx) => {
+                                    admission_validate_fx_corridor(effect_authority, state_tx, fx)
+                                        .map_err(ValidationFail::from)?;
+                                }
+                                SettlementInstructionBox::SetFxCorridorPolicy(_) => {}
+                                SettlementInstructionBox::FundFxCorridorEscrow(_)
+                                | SettlementInstructionBox::RefundFxCorridorEscrow(_) => {}
+                            }
+                        }
+                        if let Some(reg) =
+                            crate::executor::extract_register_dataspace_asset_definition(instr)
+                        {
+                            crate::smartcontracts::isi::domain::isi::ensure_dataspace_asset_definition_registration_allowed(
+                            state_tx, effect_authority, &reg,
+                        ).map_err(ValidationFail::InstructionFailed)?;
+                        }
+                        if let Some(reg_asset_definition) = extract_register_asset_definition(instr)
+                        {
+                            ensure_asset_definition_registration_allowed(
+                                state_tx,
+                                effect_authority,
+                                &reg_asset_definition,
+                            )?;
+                        }
+                        if let Some(execution_context) = execution_context {
+                            executor.execute_borrowed_overlay_instruction(
+                                state_tx,
+                                &execution_context.authority,
+                                instr,
+                                execution_context.contract_runtime_context.as_ref(),
+                            )?;
+                        } else {
+                            executor.execute_borrowed_overlay_instruction(
+                                state_tx, authority, instr, None,
+                            )?;
+                        }
+                    }
+                }
+                // The just-executed leaf may revoke its own permission or mutate its own live
+                // binding. Revalidate both the selected root and this exact leaf immediately,
+                // including after the final queued effect.
+                if let Some(authorization) = self.entrypoint_authorization.as_ref() {
+                    Self::validate_authorization_snapshot_for_authority(
+                        &state_tx.world,
+                        authorization,
+                        authority,
+                        execution_height,
+                    )
+                    .map_err(|error| state_tx.attempt_error_to_validation_fail(error))?;
+                }
+                if let Some(execution_context) = execution_context {
                     Self::validate_execution_context(
                         &state_tx.world,
                         execution_context,
@@ -1900,123 +2091,18 @@ impl TxOverlay {
                     .map_err(|error| state_tx.attempt_error_to_validation_fail(error))?;
                 }
             }
-            self.validate_durable_authorizations(&state_tx.world, execution_height)
-                .map_err(|error| state_tx.attempt_error_to_validation_fail(error))?;
-            let executor = state_tx.world.executor.clone();
-            let mut instruction_index = 0usize;
-            for chunk_instrs in self.instructions.chunks(chunk) {
-                for instr in chunk_instrs {
-                    if let Some(authorization) = self.entrypoint_authorization.as_ref() {
-                        Self::validate_authorization_snapshot_for_authority(
-                            &state_tx.world,
-                            authorization,
-                            authority,
-                            execution_height,
-                        )
-                        .map_err(|error| state_tx.attempt_error_to_validation_fail(error))?;
-                    }
-                    let execution_context = self
-                        .execution_contexts
-                        .as_ref()
-                        .map(|contexts| &contexts[instruction_index]);
-                    if let Some(execution_context) = execution_context {
-                        Self::validate_execution_context(
-                            &state_tx.world,
-                            execution_context,
-                            execution_height,
-                        )
-                        .map_err(|error| state_tx.attempt_error_to_validation_fail(error))?;
-                    }
-                    let effect_authority =
-                        execution_context.map_or(authority, |context| &context.authority);
-                    if let Some(atomic) = instr.as_any().downcast_ref::<SettleAtomic>() {
-                        admission_validate_atomic(effect_authority, state_tx, atomic)
-                            .map_err(ValidationFail::from)?;
-                    } else if let Some(dvp) = instr.as_any().downcast_ref::<DvpIsi>() {
-                        admission_validate_dvp(effect_authority, state_tx, dvp)
-                            .map_err(ValidationFail::from)?;
-                    } else if let Some(pvp) = instr.as_any().downcast_ref::<PvpIsi>() {
-                        admission_validate_pvp(effect_authority, state_tx, pvp)
-                            .map_err(ValidationFail::from)?;
-                    } else if let Some(fx) = instr.as_any().downcast_ref::<SettleFxCorridor>() {
-                        admission_validate_fx_corridor(effect_authority, state_tx, fx)
-                            .map_err(ValidationFail::from)?;
-                    } else if let Some(settlement) =
-                        instr.as_any().downcast_ref::<SettlementInstructionBox>()
-                    {
-                        match settlement {
-                            SettlementInstructionBox::Atomic(atomic) => {
-                                admission_validate_atomic(effect_authority, state_tx, atomic)
-                                    .map_err(ValidationFail::from)?;
-                            }
-                            SettlementInstructionBox::Dvp(dvp) => {
-                                admission_validate_dvp(effect_authority, state_tx, dvp)
-                                    .map_err(ValidationFail::from)?;
-                            }
-                            SettlementInstructionBox::Pvp(pvp) => {
-                                admission_validate_pvp(effect_authority, state_tx, pvp)
-                                    .map_err(ValidationFail::from)?;
-                            }
-                            SettlementInstructionBox::SettleFxCorridor(fx) => {
-                                admission_validate_fx_corridor(effect_authority, state_tx, fx)
-                                    .map_err(ValidationFail::from)?;
-                            }
-                            SettlementInstructionBox::SetFxCorridorPolicy(_) => {}
-                            SettlementInstructionBox::FundFxCorridorEscrow(_)
-                            | SettlementInstructionBox::RefundFxCorridorEscrow(_) => {}
-                        }
-                    }
-                    if let Some(reg_asset_definition) = extract_register_asset_definition(instr) {
-                        ensure_asset_definition_registration_allowed(
-                            state_tx,
-                            effect_authority,
-                            &reg_asset_definition,
-                        )?;
-                    }
-                    if let Some(execution_context) = execution_context {
-                        executor.execute_borrowed_overlay_instruction(
-                            state_tx,
-                            &execution_context.authority,
-                            instr,
-                            execution_context.contract_runtime_context.as_ref(),
-                        )?;
-                    } else {
-                        executor.execute_borrowed_overlay_instruction(
-                            state_tx, authority, instr, None,
-                        )?;
-                    }
-                    // The just-executed leaf may revoke its own permission or mutate its own live
-                    // binding. Revalidate both the selected root and this exact leaf immediately,
-                    // including after the final queued effect.
-                    if let Some(authorization) = self.entrypoint_authorization.as_ref() {
-                        Self::validate_authorization_snapshot_for_authority(
-                            &state_tx.world,
-                            authorization,
-                            authority,
-                            execution_height,
-                        )
-                        .map_err(|error| state_tx.attempt_error_to_validation_fail(error))?;
-                    }
-                    if let Some(execution_context) = execution_context {
-                        Self::validate_execution_context(
-                            &state_tx.world,
-                            execution_context,
-                            execution_height,
-                        )
-                        .map_err(|error| state_tx.attempt_error_to_validation_fail(error))?;
-                    }
-                    instruction_index = instruction_index.saturating_add(1);
-                }
-            }
             // Revalidate immediately before committing the lifecycle tombstone. Queued effects
             // can invoke helper contracts, so the pre-execution check alone cannot detect a
             // deactivate/reactivate ABA staged while hajimari or kaizen is running.
             if let Some(completion) = self.lifecycle_completion.as_ref() {
-                code::validate_contract_lifecycle_completion(
+                code::validate_contract_lifecycle_state_completion(
                     &state_tx.world,
+                    &state_tx.execution_budget(),
                     &completion.contract_address,
                     completion.pending,
-                )?;
+                    &self.durable_state_overlay,
+                )
+                .map_err(|error| state_tx.attempt_error_to_validation_fail(error))?;
             }
             // Queued instructions may revoke the selected permission or change the live contract
             // binding. Recheck after they finish so a stale authorization cannot guard durable
@@ -2034,7 +2120,7 @@ impl TxOverlay {
                 .map_err(|error| state_tx.attempt_error_to_validation_fail(error))?;
             crate::smartcontracts::ivm::host::HostExecutionArtifacts::record_completed_axt_states(
                 state_tx,
-                self.completed_axt.clone(),
+                std::mem::take(&mut self.completed_axt),
             )?;
             for (path, value) in &self.durable_state_overlay {
                 if let Some(authorization) = self
@@ -2084,9 +2170,32 @@ impl TxOverlay {
     }
 }
 #[cfg(any(test, feature = "iroha-core-tests"))]
+fn prune_redundant_queued_effects<R: StateReadOnly>(
+    state: &R,
+    mut queued: Vec<crate::smartcontracts::ivm::host::QueuedEffect>,
+) -> Vec<crate::smartcontracts::ivm::host::QueuedEffect> {
+    let mut instructions: Vec<_> = queued
+        .iter()
+        .filter_map(|effect| effect.instruction().cloned())
+        .collect();
+    let mut positions: Vec<_> = queued
+        .iter()
+        .enumerate()
+        .filter_map(|(index, effect)| effect.instruction().map(|_| index))
+        .collect();
+    prune_redundant_contract_ops_with_metadata(state, &mut instructions, Some(&mut positions));
+    let mut index = 0usize;
+    queued.retain(|effect| {
+        let retain = effect.instruction().is_none() || positions.binary_search(&index).is_ok();
+        index += 1;
+        retain
+    });
+    queued
+}
+#[cfg(any(test, feature = "iroha-core-tests"))]
 fn tx_overlay_from_host_queued<R: StateReadOnly>(
     state_ro: &R,
-    queued: Vec<crate::smartcontracts::ivm::host::QueuedInstruction>,
+    queued: Vec<crate::smartcontracts::ivm::host::QueuedEffect>,
     ivm_gas_used: u64,
     completed_axt: Vec<ivm::axt::HostAxtState>,
     durable_state_overlay: BTreeMap<StatePath, Option<Vec<u8>>>,
@@ -2095,30 +2204,14 @@ fn tx_overlay_from_host_queued<R: StateReadOnly>(
         Option<ContractEntrypointAuthorizationSnapshot>,
     >,
 ) -> TxOverlay {
-    let mut queued_instructions: Vec<_> = queued
-        .iter()
-        .map(|queued| queued.instruction.clone())
-        .collect();
-    let mut execution_contexts: Vec<_> = queued
-        .into_iter()
-        .map(|queued| OverlayInstructionExecutionContext {
-            authority: queued.authority,
-            contract_runtime_context: queued.contract_runtime_context,
-            entrypoint_authorization: queued.entrypoint_authorization,
-        })
-        .collect();
-    prune_redundant_contract_ops_with_metadata(
-        state_ro,
-        &mut queued_instructions,
-        Some(&mut execution_contexts),
-    );
-    TxOverlay::from_host_execution(
-        queued_instructions,
-        execution_contexts,
+    let queued = prune_redundant_queued_effects(state_ro, queued);
+    TxOverlay::from_queued_execution(
+        queued,
         ivm_gas_used,
         completed_axt,
         durable_state_overlay,
         durable_state_authorizations,
+        TxOverlaySource::ContractCall,
     )
 }
 #[cfg(any(test, feature = "iroha-core-tests"))]
@@ -2135,35 +2228,7 @@ fn tx_overlay_from_ivm_proved_replay<R: StateReadOnly>(
             access_log: _,
         gas_used,
     } = replay;
-    let mut queued_instructions: Vec<_> = replay_queued
-        .iter()
-        .map(|queued| queued.instruction.clone())
-        .collect();
-    let mut execution_contexts: Vec<_> = replay_queued
-        .into_iter()
-        .map(|queued| OverlayInstructionExecutionContext {
-            authority: queued.authority,
-            contract_runtime_context: queued.contract_runtime_context,
-            entrypoint_authorization: queued.entrypoint_authorization,
-        })
-        .collect();
-    prune_redundant_contract_ops_with_metadata(
-        state_ro,
-        &mut queued_instructions,
-        Some(&mut execution_contexts),
-    );
-    let queued = queued_instructions
-        .into_iter()
-        .zip(execution_contexts)
-        .map(|(instruction, execution_context)| {
-            crate::smartcontracts::ivm::host::QueuedInstruction {
-                instruction,
-                authority: execution_context.authority,
-                contract_runtime_context: execution_context.contract_runtime_context,
-                entrypoint_authorization: execution_context.entrypoint_authorization,
-            }
-        })
-        .collect();
+    let queued = prune_redundant_queued_effects(state_ro, replay_queued);
     TxOverlay::from_ivm_proved_execution(
         queued,
         gas_used,
@@ -2279,7 +2344,7 @@ where
     run_vm_with_host(&mut vm, &mut host)?;
     let ivm_gas_used = tx_gas_limit.saturating_sub(vm.remaining_gas());
     let _access_log = finish_overlay_access_log(&mut host, capture_access_log)?;
-    let queued = host.drain_queued_instructions_with_contract_runtime_context(None);
+    let queued = host.drain_queued_effects_with_contract_runtime_context(None);
     let (durable_state_overlay, durable_state_authorizations) =
         host.drain_durable_state_overlay_with_authorizations();
     let completed_axt = host.drain_completed_axt_states();
@@ -2381,7 +2446,7 @@ where
             let meta = summary.metadata.clone();
             validate_header_policy(&meta).map_err(OverlayBuildError::HeaderPolicy)?;
             let wants_zk = meta.mode & ivm::ivm_mode::ZK != 0;
-            if wants_zk && !(state_ro.zk().halo2.enabled || state_ro.zk().stark.enabled) {
+            if wants_zk && !(state_ro.zk().pipa_r.enabled || state_ro.zk().stark.enabled) {
                 return Err(OverlayBuildError::HeaderPolicy(
                     IvmAdmissionError::UnsupportedFeatureBits(ivm::ivm_mode::ZK),
                 ));
@@ -2471,18 +2536,19 @@ where
                 .map_err(OverlayBuildError::IvmRun)?;
             vm.set_gas_limit(gas_limit);
             apply_contract_call_execution_context(&mut vm, Some(&contract_call_context))?;
-            configure_zk_lane_trace_collection(&mut vm, state_ro.zk().halo2.enabled);
-            run_vm_with_host(&mut vm, &mut host)?;
+            configure_zk_lane_trace_collection(&mut vm, state_ro.zk().trace.enabled);
+            let returned_error = run_vm_with_host(&mut vm, &mut host)?;
+            let lifecycle_transition = lifecycle_transition.filter(|_| !returned_error);
             let ivm_gas_used = gas_limit.saturating_sub(vm.remaining_gas());
             let transport_caps_snapshot = host.transport_caps_snapshot().copied();
             let negotiated_caps_snapshot = host.negotiated_caps_snapshot().copied();
-            let queued = host.drain_queued_instructions_with_contract_runtime_context(
+            let queued = host.drain_queued_effects_with_contract_runtime_context(
                 contract_runtime_context.clone(),
             );
             let (durable_state_overlay, durable_state_authorizations) =
                 host.drain_durable_state_overlay_with_authorizations();
             let completed_axt = host.drain_completed_axt_states();
-            if state_ro.zk().halo2.enabled && vm.zk_mode_enabled() {
+            if state_ro.zk().pipa_r.enabled && vm.zk_mode_enabled() {
                 let _ = crate::pipeline::zk_lane::capture_and_submit(
                     &vm,
                     state_ro.prepared_contract_cache().execution_budget(),
@@ -2519,7 +2585,7 @@ where
                         ivm_cache,
                         state_ro.accounts_snapshot(),
                         resolve_streaming_metadata(state_ro, tx.authority()),
-                        state_ro.zk().halo2.enabled || state_ro.zk().stark.enabled,
+                        state_ro.zk().pipa_r.enabled || state_ro.zk().stark.enabled,
                         None,
                         false,
                     )?;
@@ -2531,7 +2597,7 @@ where
             validate_header_policy(&meta).map_err(OverlayBuildError::HeaderPolicy)?;
             // ABI gating is handled in validate_header_policy (v1-only release).
             let wants_zk = meta.mode & ivm::ivm_mode::ZK != 0;
-            if wants_zk && !(state_ro.zk().halo2.enabled || state_ro.zk().stark.enabled) {
+            if wants_zk && !(state_ro.zk().pipa_r.enabled || state_ro.zk().stark.enabled) {
                 return Err(OverlayBuildError::HeaderPolicy(
                     IvmAdmissionError::UnsupportedFeatureBits(ivm::ivm_mode::ZK),
                 ));
@@ -2644,19 +2710,19 @@ where
                 .map_err(OverlayBuildError::IvmRun)?;
             vm.set_gas_limit(gas_limit);
             apply_contract_call_execution_context(&mut vm, contract_call_context.as_ref())?;
-            configure_zk_lane_trace_collection(&mut vm, state_ro.zk().halo2.enabled);
+            configure_zk_lane_trace_collection(&mut vm, state_ro.zk().trace.enabled);
             run_vm_with_host(&mut vm, &mut host)?;
             let ivm_gas_used = gas_limit.saturating_sub(vm.remaining_gas());
             let transport_caps_snapshot = host.transport_caps_snapshot().copied();
             let negotiated_caps_snapshot = host.negotiated_caps_snapshot().copied();
-            let mut queued = host.drain_queued_instructions_with_contract_runtime_context(
+            let mut queued = host.drain_queued_effects_with_contract_runtime_context(
                 contract_runtime_context.clone(),
             );
             let (durable_state_overlay, durable_state_authorizations) =
                 host.drain_durable_state_overlay_with_authorizations();
             let completed_axt = host.drain_completed_axt_states();
             // Emit a ZK-lane job with the formal trace (non-forking background verification)
-            if state_ro.zk().halo2.enabled && vm.zk_mode_enabled() {
+            if state_ro.zk().pipa_r.enabled && vm.zk_mode_enabled() {
                 let _ = crate::pipeline::zk_lane::capture_and_submit(
                     &vm,
                     state_ro.prepared_contract_cache().execution_budget(),
@@ -3012,25 +3078,26 @@ where
             }
             vm.set_gas_limit(tx_gas_limit);
             apply_contract_call_execution_context(&mut vm, Some(&contract_call_context))?;
-            configure_zk_lane_trace_collection(&mut vm, state_ro.zk().halo2.enabled);
+            configure_zk_lane_trace_collection(&mut vm, state_ro.zk().trace.enabled);
             #[cfg(feature = "telemetry")]
             observe_overlay_stage_ms(state_ro, "overlay_host_hydrate", host_hydrate_start);
             #[cfg(feature = "telemetry")]
             let vm_run_start = Instant::now();
-            run_vm_with_host(&mut vm, &mut host)?;
+            let returned_error = run_vm_with_host(&mut vm, &mut host)?;
+            let lifecycle_transition = lifecycle_transition.filter(|_| !returned_error);
             #[cfg(feature = "telemetry")]
             observe_overlay_stage_ms(state_ro, "overlay_vm_run", vm_run_start);
             let ivm_gas_used = tx_gas_limit.saturating_sub(vm.remaining_gas());
             let access_log = finish_overlay_access_log(&mut host, capture_access_log)?;
             let transport_caps_snapshot = host.transport_caps_snapshot().copied();
             let negotiated_caps_snapshot = host.negotiated_caps_snapshot().copied();
-            let queued = host.drain_queued_instructions_with_contract_runtime_context(
+            let queued = host.drain_queued_effects_with_contract_runtime_context(
                 contract_runtime_context.clone(),
             );
             let (durable_state_overlay, durable_state_authorizations) =
                 host.drain_durable_state_overlay_with_authorizations();
             let completed_axt = host.drain_completed_axt_states();
-            if state_ro.zk().halo2.enabled && vm.zk_mode_enabled() {
+            if state_ro.zk().pipa_r.enabled && vm.zk_mode_enabled() {
                 let _ = crate::pipeline::zk_lane::capture_and_submit(
                     &vm,
                     state_ro.prepared_contract_cache().execution_budget(),
@@ -3205,7 +3272,7 @@ where
             begin_overlay_access_log(&mut host, capture_access_log)?;
             vm.set_gas_limit(tx_gas_limit);
             apply_contract_call_execution_context(&mut vm, contract_call_context.as_ref())?;
-            configure_zk_lane_trace_collection(&mut vm, state_ro.zk().halo2.enabled);
+            configure_zk_lane_trace_collection(&mut vm, state_ro.zk().trace.enabled);
             #[cfg(feature = "telemetry")]
             observe_overlay_stage_ms(state_ro, "overlay_host_hydrate", host_hydrate_start);
             #[cfg(feature = "telemetry")]
@@ -3217,13 +3284,13 @@ where
             let access_log = finish_overlay_access_log(&mut host, capture_access_log)?;
             let transport_caps_snapshot = host.transport_caps_snapshot().copied();
             let negotiated_caps_snapshot = host.negotiated_caps_snapshot().copied();
-            let mut queued = host.drain_queued_instructions_with_contract_runtime_context(
+            let mut queued = host.drain_queued_effects_with_contract_runtime_context(
                 contract_runtime_context.clone(),
             );
             let (durable_state_overlay, durable_state_authorizations) =
                 host.drain_durable_state_overlay_with_authorizations();
             let completed_axt = host.drain_completed_axt_states();
-            if state_ro.zk().halo2.enabled && vm.zk_mode_enabled() {
+            if state_ro.zk().pipa_r.enabled && vm.zk_mode_enabled() {
                 let _ = crate::pipeline::zk_lane::capture_and_submit(
                     &vm,
                     state_ro.prepared_contract_cache().execution_budget(),
@@ -3494,9 +3561,10 @@ pub(crate) fn build_overlay_for_transaction_quarantine(
             vm.set_max_cycles(eff);
             vm.set_gas_limit(tx_gas_limit);
             apply_contract_call_execution_context(&mut vm, Some(&contract_call_context))?;
-            run_vm_with_host(&mut vm, &mut host)?;
+            let returned_error = run_vm_with_host(&mut vm, &mut host)?;
+            let lifecycle_transition = lifecycle_transition.filter(|_| !returned_error);
             let ivm_gas_used = tx_gas_limit.saturating_sub(vm.remaining_gas());
-            let queued = host.drain_queued_instructions_with_contract_runtime_context(
+            let queued = host.drain_queued_effects_with_contract_runtime_context(
                 contract_runtime_context.clone(),
             );
             let (durable_state_overlay, durable_state_authorizations) =
@@ -3671,7 +3739,7 @@ pub(crate) fn build_overlay_for_transaction_quarantine(
             apply_contract_call_execution_context(&mut vm, contract_call_context.as_ref())?;
             run_vm_with_host(&mut vm, &mut host)?;
             let ivm_gas_used = tx_gas_limit.saturating_sub(vm.remaining_gas());
-            let queued = host.drain_queued_instructions_with_contract_runtime_context(
+            let queued = host.drain_queued_effects_with_contract_runtime_context(
                 contract_runtime_context.clone(),
             );
             let (durable_state_overlay, durable_state_authorizations) =
@@ -4250,8 +4318,9 @@ mod tests_overlay_manifest {
         let authorization = ContractEntrypointAuthorizationSnapshot::new(
             authority.clone(),
             "hajimari".to_owned(),
-            None,
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::RuntimeLifecycle,
             &code::BoundContractIdentity {
+                lifecycle_revision: 1,
                 contract_address: contract_address.clone(),
                 contract_alias: None,
                 contract_alias_binding: None,
@@ -4329,6 +4398,9 @@ mod tests_overlay_manifest {
             abi_version: 1,
         };
         let interface = ivm::EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             callables: vec![crate::ivm_test_support::unit_callable(0)],
             seiyaku_name: "HajimariGuard".to_owned(),
             compiler_fingerprint: "iroha-core-lifecycle-overlay-test".to_owned(),
@@ -4345,7 +4417,7 @@ mod tests_overlay_manifest {
                 return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: None,
+                authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::RuntimeLifecycle,
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: Some(true),
@@ -4468,6 +4540,9 @@ mod tests_overlay_manifest {
             abi_version,
         };
         let interface = ivm::EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: permission.into_iter().map(|name| iroha_data_model::smart_contract::manifest::ContractPermissionDescriptorV1 { name: name.parse().unwrap(), scope: iroha_data_model::smart_contract::manifest::ContractPermissionScopeV1::Instance }).collect(),
             callables: vec![crate::ivm_test_support::unit_callable(0)],
             seiyaku_name: "TestContract".to_owned(),
             compiler_fingerprint: "iroha-core-overlay-test".to_owned(),
@@ -4484,7 +4559,7 @@ mod tests_overlay_manifest {
                 return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: permission.map(str::to_owned),
+                authorization: permission.map_or(iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone, |name| iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(name.parse().unwrap())),
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: None,
@@ -4778,8 +4853,8 @@ mod tests_overlay_manifest {
         let artifact = kotodama_lang::compiler::Compiler::new()
             .compile_source(
                 r#"
-seiyaku RebuildArguments {
-  kotoage fn inspect(int value) -> int authorize("CanInspectRebuildArguments") {
+seiyaku RebuildArguments { permission CanInspectRebuildArguments;
+  kotoage fn inspect(int value) authorize(CanInspectRebuildArguments) -> int {
     return value;
   }
 }
@@ -4860,8 +4935,8 @@ seiyaku RebuildArguments {
         let artifact = kotodama_lang::compiler::Compiler::new()
             .compile_source(
                 r#"
-seiyaku RawRebuildArguments {
-  kotoage fn inspect(int value) authorize("CanInspectRawRebuild") {
+seiyaku RawRebuildArguments { permission CanInspectRawRebuild;
+  kotoage fn inspect(int value) authorize(CanInspectRawRebuild) {
     let _value = value;
   }
 }
@@ -4941,8 +5016,8 @@ seiyaku RawRebuildArguments {
         let program = kotodama_lang::compiler::Compiler::new()
             .compile_source(
                 r#"
-seiyaku QuarantineArguments {
-  kotoage fn inspect(int value) authorize("CanInspectQuarantine") {
+seiyaku QuarantineArguments { permission CanInspectQuarantine;
+  kotoage fn inspect(int value) authorize(CanInspectQuarantine) {
     let _value = value;
   }
 }
@@ -5204,8 +5279,8 @@ seiyaku QuarantineArguments {
         let program = kotodama_lang::compiler::Compiler::new()
             .compile_source(
                 r#"
-seiyaku ProtectedStateFreeOverlay {
-  kotoage fn write(int value) authorize("CanWriteStateFreeOverlay") {
+seiyaku ProtectedStateFreeOverlay { permission CanWriteStateFreeOverlay;
+  kotoage fn write(int value) authorize(CanWriteStateFreeOverlay) {
     let _value = value;
   }
 }
@@ -5253,7 +5328,7 @@ seiyaku ProtectedStateFreeOverlay {
             .compile_source(
                 r#"
 seiyaku PermissionlessStateFreeOverlay {
-  view fn write(int value) -> int {
+  view fn write(int value) authorize(anyone) -> int {
     return value;
   }
 }
@@ -5305,8 +5380,8 @@ seiyaku PermissionlessStateFreeOverlay {
         let program = kotodama_lang::compiler::Compiler::new()
             .compile_source(
                 r#"
-seiyaku ProtectedParameterizedOverlay {
-  kotoage fn write(int value) authorize("CanWriteParameterizedOverlay") {
+seiyaku ProtectedParameterizedOverlay { permission CanWriteParameterizedOverlay;
+  kotoage fn write(int value) authorize(CanWriteParameterizedOverlay) {
     let _value = value;
   }
 }
@@ -5394,8 +5469,8 @@ seiyaku ProtectedParameterizedOverlay {
         let (artifact, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
                 r#"
-seiyaku GuardedOverlay {
-  kotoage fn main(int value) authorize("CanInvokeContractEntrypoint") {
+seiyaku GuardedOverlay { permission CanInvokeContractEntrypoint;
+  kotoage fn main(int value) authorize(CanInvokeContractEntrypoint) {
     let _value = value;
   }
 }
@@ -5433,7 +5508,7 @@ seiyaku GuardedOverlay {
             let contract_address =
                 ContractAddress::derive(&state.network_id, &authority, 92, DataSpaceId::UNIVERSAL)
                     .expect("derive guarded contract address from its signed network");
-            let entrypoint_permission = Permission::from(
+            let entrypoint_authorization = Permission::from(
                 iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
                     contract: contract_address.clone(),
                     entrypoint: "main".to_owned(),
@@ -5463,13 +5538,13 @@ seiyaku GuardedOverlay {
             // The queued revocation executes as the contract subject. Give that subject
             // the exact permission it may revoke so the negative control reaches the
             // subsequent caller-authorization recheck instead of failing issuer policy.
-            assert!(contract_permissions.insert(entrypoint_permission.clone()));
+            assert!(contract_permissions.insert(entrypoint_authorization.clone()));
             world
                 .account_permissions_mut_for_testing()
                 .insert(contract_address.subject_id(), contract_permissions);
             if authorized {
                 let mut permissions = Permissions::new();
-                assert!(permissions.insert(entrypoint_permission.clone()));
+                assert!(permissions.insert(entrypoint_authorization.clone()));
                 world
                     .account_permissions_mut_for_testing()
                     .insert(authority.clone(), permissions);
@@ -5477,7 +5552,7 @@ seiyaku GuardedOverlay {
             (state, contract_address)
         };
         let (unauthorized_state, contract_address) = make_state(false);
-        let entrypoint_permission = Permission::from(
+        let entrypoint_authorization = Permission::from(
             iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
                 contract: contract_address.clone(),
                 entrypoint: "main".to_owned(),
@@ -5511,8 +5586,8 @@ seiyaku GuardedOverlay {
         let (rebound_artifact, rebound_manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
                 r#"
-seiyaku GuardedOverlayRebound {
-  kotoage fn main(int value) authorize("CanInvokeContractEntrypoint") {
+seiyaku GuardedOverlayRebound { permission CanInvokeContractEntrypoint;
+  kotoage fn main(int value) authorize(CanInvokeContractEntrypoint) {
     let _value = value + 1;
   }
 }
@@ -5565,18 +5640,16 @@ seiyaku GuardedOverlayRebound {
             .parse()
             .expect("valid scoped contract state path");
         let queued_key: Name = "guarded_queued".parse().expect("valid metadata key");
-        overlay.instructions.push(
-            iroha_data_model::isi::SetKeyValue::account(
-                authority.clone(),
-                queued_key.clone(),
-                Json::new("queued"),
-            )
-            .into(),
-        );
-        overlay
-            .execution_contexts
-            .get_or_insert_with(Vec::new)
-            .push(OverlayInstructionExecutionContext {
+        overlay.effects.push(OverlayEffect {
+            payload: QueuedEffectPayload::Instruction(
+                iroha_data_model::isi::SetKeyValue::account(
+                    authority.clone(),
+                    queued_key.clone(),
+                    Json::new("queued"),
+                )
+                .into(),
+            ),
+            execution_context: Some(OverlayInstructionExecutionContext {
                 authority: contract_address.subject_id(),
                 contract_runtime_context: Some(crate::executor::ContractRuntimeExecutionContext {
                     contract_subject: contract_address.subject_id(),
@@ -5585,7 +5658,8 @@ seiyaku GuardedOverlayRebound {
                     entrypoint: "main".to_owned(),
                 }),
                 entrypoint_authorization: overlay.entrypoint_authorization.clone(),
-            });
+            }),
+        });
         overlay
             .durable_state_overlay
             .insert(guarded_path.clone(), Some(vec![0xA5]));
@@ -5622,7 +5696,7 @@ seiyaku GuardedOverlayRebound {
             }
         }
         let proved_overlay = TxOverlay::from_ivm_proved_instructions(
-            overlay.instructions.clone(),
+            overlay.instructions().cloned().collect(),
             &authority,
             crate::executor::ContractRuntimeExecutionContext {
                 contract_subject: contract_address.subject_id(),
@@ -5635,9 +5709,9 @@ seiyaku GuardedOverlayRebound {
                 .clone()
                 .expect("protected overlay authorization"),
         );
-        let mut context_only_overlay = overlay.clone();
+        let mut context_only_overlay = overlay.instruction_fixture();
         context_only_overlay.entrypoint_authorization = None;
-        let mut missing_durable_authorization = overlay.clone();
+        let mut missing_durable_authorization = overlay.instruction_fixture();
         missing_durable_authorization
             .durable_state_authorizations
             .remove(&guarded_path);
@@ -5671,6 +5745,7 @@ seiyaku GuardedOverlayRebound {
         let mut revoked_block = execution_block(&unauthorized_state);
         let mut revoked_transaction = revoked_block.transaction();
         let error = overlay
+            .instruction_fixture()
             .apply(&mut revoked_transaction, &authority)
             .expect_err("a revoked permission must invalidate the prepared overlay");
         assert!(matches!(error, ValidationFail::NotPermitted(_)));
@@ -5697,6 +5772,7 @@ seiyaku GuardedOverlayRebound {
         let mut revoked_proved_block = execution_block(&unauthorized_state);
         let mut revoked_proved_transaction = revoked_proved_block.transaction();
         proved_overlay
+            .instruction_fixture()
             .apply(&mut revoked_proved_transaction, &authority)
             .expect_err("a revoked permission must invalidate a proved replay overlay");
         assert!(
@@ -5725,6 +5801,7 @@ seiyaku GuardedOverlayRebound {
             .lifecycle
             .active_code_hash = None;
         proved_overlay
+            .instruction_fixture()
             .apply(&mut deactivated_proved_transaction, &authority)
             .expect_err("a deactivated contract must invalidate a proved replay overlay");
         assert!(
@@ -5742,6 +5819,7 @@ seiyaku GuardedOverlayRebound {
         let mut authorized_proved_block = execution_block(&authorized_state);
         let mut authorized_proved_transaction = authorized_proved_block.transaction();
         proved_overlay
+            .instruction_fixture()
             .apply(&mut authorized_proved_transaction, &authority)
             .expect("live permission and binding must allow the proved replay overlay");
         assert!(
@@ -5771,6 +5849,7 @@ seiyaku GuardedOverlayRebound {
                 ))
         );
         let error = proved_overlay
+            .instruction_fixture()
             .apply(&mut revoked_effect_transaction, &authority)
             .expect_err("live entrypoint permission cannot replace a revoked effect permission");
         assert!(matches!(
@@ -5830,6 +5909,7 @@ seiyaku GuardedOverlayRebound {
             .lifecycle
             .active_code_hash = None;
         let error = overlay
+            .instruction_fixture()
             .apply(&mut deactivated_transaction, &authority)
             .expect_err("deactivation must invalidate a prepared contract overlay");
         assert!(
@@ -5874,7 +5954,15 @@ seiyaku GuardedOverlayRebound {
             .expect("retained rebound lifecycle")
             .lifecycle
             .active_code_hash = Some(changed_code_hash);
+        rebound_transaction
+            .world
+            .contract_subject_bindings
+            .get_mut(&contract_address)
+            .unwrap()
+            .lifecycle
+            .retained_code_hash = Some(changed_code_hash);
         let error = overlay
+            .instruction_fixture()
             .apply(&mut rebound_transaction, &authority)
             .expect_err("a changed code binding must invalidate a prepared contract overlay");
         assert!(
@@ -5918,6 +6006,7 @@ seiyaku GuardedOverlayRebound {
             .bind_contract_alias(&contract_address, replacement_alias, None, None, 1)
             .expect("replace guarded contract alias");
         let error = overlay
+            .instruction_fixture()
             .apply(&mut realias_transaction, &authority)
             .expect_err("a changed alias binding must invalidate a prepared contract overlay");
         assert!(
@@ -5945,17 +6034,18 @@ seiyaku GuardedOverlayRebound {
         );
         drop(realias_transaction);
         drop(realias_block);
-        let mut revoking_overlay = overlay.clone();
-        revoking_overlay.instructions =
-            vec![Revoke::account_permission(entrypoint_permission, authority.clone()).into()];
-        revoking_overlay.execution_contexts = Some(vec![
-            overlay
-                .execution_contexts
-                .as_ref()
-                .and_then(|contexts| contexts.first())
-                .expect("guarded overlay instruction context")
+        let mut revoking_overlay = overlay.instruction_fixture();
+        revoking_overlay.effects = vec![OverlayEffect {
+            payload: QueuedEffectPayload::Instruction(
+                Revoke::account_permission(entrypoint_authorization, authority.clone()).into(),
+            ),
+            execution_context: overlay
+                .effects
+                .first()
+                .expect("guarded effect")
+                .execution_context
                 .clone(),
-        ]);
+        }];
         let mut revoking_block = execution_block(&authorized_state);
         let mut revoking_transaction = revoking_block.transaction();
         let error = revoking_overlay
@@ -5982,6 +6072,7 @@ seiyaku GuardedOverlayRebound {
         let mut authorized_block = execution_block(&authorized_state);
         let mut authorized_transaction = authorized_block.transaction();
         overlay
+            .instruction_fixture()
             .apply(&mut authorized_transaction, &authority)
             .expect("live permission recheck should preserve the authorized path");
         assert_eq!(
@@ -6039,7 +6130,7 @@ seiyaku GuardedOverlayRebound {
                     .expect("derive child contract address from its signed network");
             let root_contract_subject = root_address.subject_id();
             let child_contract_subject = child_address.subject_id();
-            let child_entrypoint_permission = Permission::from(
+            let child_entrypoint_authorization = Permission::from(
                 iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
                     contract: child_address.clone(),
                     entrypoint: "child".to_owned(),
@@ -6086,7 +6177,7 @@ seiyaku GuardedOverlayRebound {
             }
             let mut root_contract_permissions = Permissions::new();
             if grant_child {
-                assert!(root_contract_permissions.insert(child_entrypoint_permission.clone()));
+                assert!(root_contract_permissions.insert(child_entrypoint_authorization.clone()));
             }
             let mut child_contract_permissions = Permissions::new();
             assert!(child_contract_permissions.insert(Permission::from(
@@ -6114,7 +6205,7 @@ seiyaku GuardedOverlayRebound {
         let (authorized_state, root_address, child_address) = make_state(true, true, true);
         let root_contract_subject = root_address.subject_id();
         let child_contract_subject = child_address.subject_id();
-        let child_entrypoint_permission = Permission::from(
+        let child_entrypoint_authorization = Permission::from(
             iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
                 contract: child_address.clone(),
                 entrypoint: "child".to_owned(),
@@ -6123,8 +6214,11 @@ seiyaku GuardedOverlayRebound {
         let root_authorization = ContractEntrypointAuthorizationSnapshot::new(
             authority.clone(),
             "root".to_owned(),
-            Some(ROOT_PERMISSION.to_owned()),
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                ROOT_PERMISSION.parse().unwrap(),
+            ),
             &code::BoundContractIdentity {
+                lifecycle_revision: 1,
                 contract_address: root_address.clone(),
                 contract_alias: Some(root_alias.clone()),
                 contract_alias_binding: Some(crate::state::ContractAliasBindingRecord {
@@ -6139,8 +6233,11 @@ seiyaku GuardedOverlayRebound {
         let child_leaf = ContractEntrypointAuthorizationSnapshot::new(
             root_contract_subject.clone(),
             "child".to_owned(),
-            Some(CHILD_PERMISSION.to_owned()),
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                CHILD_PERMISSION.parse().unwrap(),
+            ),
             &code::BoundContractIdentity {
+                lifecycle_revision: 1,
                 contract_address: child_address.clone(),
                 contract_alias: Some(child_alias.clone()),
                 contract_alias_binding: Some(crate::state::ContractAliasBindingRecord {
@@ -6302,8 +6399,11 @@ seiyaku GuardedOverlayRebound {
         let forged_child = ContractEntrypointAuthorizationSnapshot::new(
             authority.clone(),
             "child".to_owned(),
-            Some(CHILD_PERMISSION.to_owned()),
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                CHILD_PERMISSION.parse().unwrap(),
+            ),
             &code::BoundContractIdentity {
+                lifecycle_revision: 1,
                 contract_address: child_address.clone(),
                 contract_alias: Some(child_alias.clone()),
                 contract_alias_binding: Some(crate::state::ContractAliasBindingRecord {
@@ -6372,7 +6472,7 @@ seiyaku GuardedOverlayRebound {
         let mut self_revoking_tx = self_revoking_block.transaction();
         let error = build_single_effect_overlay(
             Revoke::account_permission(
-                child_entrypoint_permission.clone(),
+                child_entrypoint_authorization.clone(),
                 root_contract_subject.clone(),
             )
             .into(),
@@ -6399,7 +6499,7 @@ seiyaku GuardedOverlayRebound {
                 .world
                 .account_permissions()
                 .get(&root_contract_subject)
-                .is_some_and(|permissions| permissions.contains(&child_entrypoint_permission)),
+                .is_some_and(|permissions| permissions.contains(&child_entrypoint_authorization)),
             "a rejected self-revocation must not persist outside its discarded transaction"
         );
         assert!(
@@ -6807,7 +6907,7 @@ mod tests {
         KeyPair::try_random().expect("overlay fixture key generation should succeed")
     }
     #[test]
-    fn zk_lane_trace_collection_requires_halo2_and_zk_mode() {
+    fn zk_lane_trace_collection_requires_trace_and_zk_mode() {
         let mut vm = ivm::IVM::new(u64::MAX);
 
         configure_zk_lane_trace_collection(&mut vm, true);
@@ -6982,8 +7082,11 @@ mod tests {
         let root_authorization = ContractEntrypointAuthorizationSnapshot::new(
             authority.clone(),
             "run".to_owned(),
-            Some("RootPermission".to_owned()),
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "RootPermission".parse().unwrap(),
+            ),
             &code::BoundContractIdentity {
+                lifecycle_revision: 1,
                 contract_address: root_address.clone(),
                 contract_alias: None,
                 contract_alias_binding: None,
@@ -7005,8 +7108,8 @@ mod tests {
             effect_authority: AccountId,
             contract_runtime_context: Option<crate::executor::ContractRuntimeExecutionContext>,
             entrypoint_authorization: Option<ContractEntrypointAuthorizationSnapshot>,
-        | crate::smartcontracts::ivm::host::QueuedInstruction {
-            instruction: instruction.clone(),
+        | crate::smartcontracts::ivm::host::QueuedEffect {
+            payload: crate::smartcontracts::ivm::host::QueuedEffectPayload::Instruction(instruction.clone()),
             authority: effect_authority,
             contract_runtime_context,
             entrypoint_authorization,
@@ -7026,8 +7129,11 @@ mod tests {
         let child_authorization = ContractEntrypointAuthorizationSnapshot::new(
             root_address.subject_id(),
             "write".to_owned(),
-            Some("ChildPermission".to_owned()),
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(
+                "ChildPermission".parse().unwrap(),
+            ),
             &code::BoundContractIdentity {
+                lifecycle_revision: 1,
                 contract_address: child_address.clone(),
                 contract_alias: None,
                 contract_alias_binding: None,
@@ -7111,8 +7217,8 @@ mod tests {
         let (program, manifest) = compiler
             .compile_source_with_manifest(
                 r#"
-seiyaku ProtectedProved {
-  kotoage fn write(int value) authorize("CanWriteProved") {
+seiyaku ProtectedProved { permission CanWriteProved;
+  kotoage fn write(int value) authorize(CanWriteProved) {
     let _value = value;
   }
 }
@@ -7150,7 +7256,7 @@ seiyaku ProtectedProved {
             ChainId::from("protected-proved-overlay"),
         );
         state
-            .edit_zk_for_testing(|zk| zk.halo2.enabled = true)
+            .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
             .expect("fixture ZK settings install");
         let mut metadata = Metadata::default();
         metadata.insert(
@@ -7222,6 +7328,9 @@ seiyaku ProtectedProved {
     }
     fn sample_contract_interface(features_bitmap: u64) -> ivm::EmbeddedContractInterfaceV1 {
         ivm::EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: vec![iroha_data_model::smart_contract::manifest::ContractPermissionDescriptorV1 {name:"CanInvokeOverlayFixture".parse().unwrap(),scope:iroha_data_model::smart_contract::manifest::ContractPermissionScopeV1::Instance}],
             callables: vec![crate::ivm_test_support::unit_callable(0)],
             seiyaku_name: "OverlayFixture".to_owned(),
             compiler_fingerprint: "iroha-core-overlay-tests".to_owned(),
@@ -7238,7 +7347,7 @@ seiyaku ProtectedProved {
                 return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: Some("CanInvokeOverlayFixture".to_owned()),
+                authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission("CanInvokeOverlayFixture".parse().unwrap()),
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: Some(true),
@@ -7280,10 +7389,13 @@ seiyaku ProtectedProved {
         seed_active_contract(world, &address, code_hash, authority);
         let mut permissions = iroha_data_model::permission::Permissions::new();
         assert!(
-            permissions.insert(iroha_data_model::permission::Permission::new(
-                "CanInvokeOverlayFixture".to_owned(),
-                iroha_primitives::json::Json::new(()),
-            ))
+            permissions.insert(
+                iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                    contract: address.clone(),
+                    permission: "CanInvokeOverlayFixture".parse().unwrap(),
+                }
+                .into()
+            )
         );
         world
             .account_permissions_mut_for_testing()
@@ -7392,6 +7504,9 @@ seiyaku ProtectedProved {
         world.contract_manifests.insert(
             ContractArtifactId::new(DataSpaceId::UNIVERSAL, code_hash),
             ContractManifest {
+                events: Vec::new(),
+                enum_types: Vec::new(),
+                permissions: Vec::new(),
                 seiyaku_name: None,
                 code_hash: Some(code_hash),
                 abi_hash: Some(wrong_abi_hash),
@@ -7451,8 +7566,8 @@ seiyaku ProtectedProved {
         let (program, manifest) = compiler
             .compile_source_with_manifest(
                 r#"
-seiyaku AliasBoundArguments {
-  kotoage fn main(int value) authorize("CanInvokeOverlayFixture") {
+seiyaku AliasBoundArguments { permission CanInvokeOverlayFixture;
+  kotoage fn main(int value) authorize(CanInvokeOverlayFixture) {
     let _value = value;
   }
 }
@@ -7510,7 +7625,7 @@ seiyaku AliasBoundArguments {
             .insert(authority.clone(), permissions);
         let mut state = test_support::state_after_genesis(world);
         state
-            .edit_zk_for_testing(|zk| zk.halo2.enabled = true)
+            .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
             .expect("fixture ZK settings install");
         let summary = IvmCache::new()
             .summarize_program(bytecode.as_ref())
@@ -7654,6 +7769,9 @@ seiyaku AliasBoundArguments {
         world.contract_manifests.insert(
             ContractArtifactId::new(DataSpaceId::UNIVERSAL, code_hash),
             ContractManifest {
+                events: Vec::new(),
+                enum_types: Vec::new(),
+                permissions: Vec::new(),
                 seiyaku_name: None,
                 code_hash: Some(code_hash),
                 abi_hash: Some(abi_hash),
@@ -7850,6 +7968,9 @@ seiyaku AliasBoundArguments {
         world.contract_manifests.insert(
             ContractArtifactId::new(DataSpaceId::UNIVERSAL, code_hash),
             ContractManifest {
+                events: Vec::new(),
+                enum_types: Vec::new(),
+                permissions: Vec::new(),
                 seiyaku_name: None,
                 code_hash: Some(code_hash),
                 abi_hash: Some(abi_hash),
@@ -7949,6 +8070,9 @@ seiyaku AliasBoundArguments {
         world.contract_manifests.insert(
             ContractArtifactId::new(DataSpaceId::UNIVERSAL, code_hash),
             ContractManifest {
+                events: Vec::new(),
+                enum_types: Vec::new(),
+                permissions: Vec::new(),
                 seiyaku_name: None,
                 code_hash: Some(code_hash),
                 abi_hash: None,
@@ -7994,6 +8118,9 @@ seiyaku AliasBoundArguments {
         world.contract_manifests.insert(
             ContractArtifactId::new(DataSpaceId::UNIVERSAL, code_hash),
             ContractManifest {
+                events: Vec::new(),
+                enum_types: Vec::new(),
+                permissions: Vec::new(),
                 seiyaku_name: None,
                 code_hash: Some(code_hash),
                 abi_hash: Some(Hash::prehashed([0u8; 32])),
@@ -8095,6 +8222,9 @@ seiyaku AliasBoundArguments {
         let (code_hash, abi_hash) = super::compute_program_hashes(&meta, header_len, &program);
         let mut world = crate::state::World::default();
         let manifest = ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(code_hash),
             abi_hash: Some(abi_hash),
@@ -8301,10 +8431,12 @@ fn run_vm(vm: &mut ivm::IVM) -> Result<(), OverlayBuildError> {
 fn run_vm_with_host<QS: crate::smartcontracts::ivm::host::QueryStateAccess + Default>(
     vm: &mut ivm::IVM,
     host: &mut crate::smartcontracts::ivm::host::CoreHostImpl<QS>,
-) -> Result<(), OverlayBuildError> {
+) -> Result<bool, OverlayBuildError> {
     host.clear_axt_reject();
     let result = vm.run_with_host(host);
-    finish_vm_run_with_host(host, result)
+    finish_vm_run_with_host(host, result)?;
+    host.finish_contract_result(vm)
+        .map_err(OverlayBuildError::IvmRun)
 }
 
 #[cfg(any(test, feature = "iroha-core-tests"))]
@@ -8582,7 +8714,7 @@ fn expected_ivm_trace_hash(trace_bundle: &IvmTraceBundleV1) -> Result<Hash, Over
 }
 #[cfg(test)]
 fn validate_ivm_proved_queued_authorization(
-    queued: &[crate::smartcontracts::ivm::host::QueuedInstruction],
+    queued: &[crate::smartcontracts::ivm::host::QueuedEffect],
     authority: &AccountId,
     runtime_context: &crate::executor::ContractRuntimeExecutionContext,
     authorization: &ContractEntrypointAuthorizationSnapshot,
@@ -8652,7 +8784,7 @@ pub(crate) fn validate_ivm_proved_durable_authorizations(
 }
 #[derive(Debug)]
 pub(crate) struct IvmProvedReplay {
-    pub(crate) queued: Vec<crate::smartcontracts::ivm::host::QueuedInstruction>,
+    pub(crate) queued: Vec<crate::smartcontracts::ivm::host::QueuedEffect>,
     pub(crate) completed_axt: Vec<ivm::axt::HostAxtState>,
     pub(crate) durable_state_overlay: BTreeMap<StatePath, Option<Vec<u8>>>,
     pub(crate) durable_state_authorizations:

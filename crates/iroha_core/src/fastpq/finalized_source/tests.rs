@@ -94,7 +94,7 @@ fn authority(chain: &CertifiedTestChain, height: u64) -> AuthenticatedExecutionB
 
 #[test]
 fn native_source_join_retains_original_block_and_witness_allocations() {
-    let (chain, joined, bundles, bytes) = original_source();
+    let (_chain, joined, bundles, bytes) = original_source();
     let FinalizedFastpqSource { native, witness } = joined;
     let original_block = native.block().clone();
     let joined = FinalizedFastpqSource::bind(witness, native).unwrap();
@@ -280,7 +280,10 @@ fn later_valid_certificate_cannot_rebind_an_earlier_complete_effect_source() {
 
 #[test]
 fn protected_d7_and_ordinary_writes_remain_bound_after_native_result() {
-    let (_, mut joined, _, _) = original_source();
+    // Keep the original State and its query-store owners alive while observing
+    // their shared pool. Teardown can otherwise refund unrelated live custody
+    // during this synchronous offered-wire check.
+    let (_chain, mut joined, _, _) = original_source();
     let original_pool = joined.pool().clone();
     let reserved = original_pool.reserved_bytes();
     for mutation in 0..4 {

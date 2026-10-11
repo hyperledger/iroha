@@ -16,7 +16,5 @@ once_cell = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
-# Pinned original fixed-parameter generator is a test oracle only.
-poseidon-primitives = "0.2.0"
-halo2curves-axiom = { version = "0.7.0", default-features = false }
+iroha_pasta = { workspace = true }
 sha2 = "0.10.9"

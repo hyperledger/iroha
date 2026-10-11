@@ -1,11 +1,11 @@
 
-seiyaku CompilerFixture {
+seiyaku CompilerFixture { permission InspectContract;
 
 error enum ContractError {
   InvariantViolation = 1001,
 }
 
-kotoage fn inspect() -> int authorize("InspectContract") {
+kotoage fn inspect() authorize(InspectContract) -> int {
   debug::info("ready");
   debug::info(7);
   test::assert(true);

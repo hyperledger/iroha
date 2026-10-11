@@ -15,8 +15,8 @@ fn account(domain: &str, public_key: &str) -> AccountId {
 fn kotodama_register_domain_e2e() {
     // Compile a tiny Kotodama program that registers a domain via typed constructor.
     let src = r#"
-        seiyaku RegisterDomain {
-        kotoage fn main() authorize("RegisterDomain") {
+        seiyaku RegisterDomain { permission FixtureAccess;
+        kotoage fn main() authorize(FixtureAccess) {
             ledger::domain::register(domain: DomainId::parse("e2e_domain.universal"));
         }
         }

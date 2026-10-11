@@ -4,28 +4,20 @@ use super::{
     BlockHashRead, GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, StateBlock, StateReadOnly,
     StateTransaction, WorldReadOnly, public_lane_validator_record_matches_key,
 };
-use crate::execution_attempt::ExecutionAttemptError as Attempt;
-use crate::{
-    beacon::{
-        GlobalThresholdBeaconSessionBindingV1,
-        authenticated_global_threshold_beacon_roster_hash_iter_v1,
-        authenticated_global_threshold_beacon_roster_hash_v1,
-        seat_readiness::verify_global_threshold_beacon_seat_readiness_v1,
-    },
-    zk::kagemusha_v1_recursion::{
-        verify_kagemusha_mint_finality_candidate_possession_v1,
-        verify_kagemusha_mint_finality_seat_readiness_v1,
-    },
+use crate::beacon::{
+    GlobalThresholdBeaconSessionBindingV1,
+    authenticated_global_threshold_beacon_roster_hash_iter_v1,
+    authenticated_global_threshold_beacon_roster_hash_v1,
+    seat_readiness::verify_global_threshold_beacon_seat_readiness_v1,
 };
+use crate::execution_attempt::ExecutionAttemptError as Attempt;
 use iroha_data_model::sumeragi::epoch::{
     BeaconEpochBindingV1, ValidatorEpochAuthorizationV1, ValidatorEpochDecisionV1,
+    ValidatorGenerationV1,
 };
 use iroha_data_model::{
     account::AccountId,
-    isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1,
-    nexus::{
-        ValidatorCandidateKeysV1, ValidatorCommitteeOperationV1, ValidatorCommitteeTransitionV1,
-    },
+    nexus::{ValidatorCommitteeOperationV1, ValidatorCommitteeTransitionV1},
 };
 use iroha_model_base::peer::PeerId;
 use iroha_model_base::topology::LaneId;
@@ -219,26 +211,8 @@ fn validate_retained_staking_obligations(
     Ok(())
 }
 
-/// Check every persisted publication and preparation, including exact storage identities.
+/// Check every persisted preparation, including exact storage identities.
 pub(crate) fn validate_persisted_progress(world: &impl WorldReadOnly) -> Result<(), String> {
-    let mut eq_keys = std::collections::BTreeSet::new();
-    let mut ep_keys = std::collections::BTreeSet::new();
-    for (key, publication) in world.validator_candidate_keys().iter() {
-        verify_candidate(publication)?;
-        if *key
-            != ValidatorCandidateKeysV1::key_id(
-                publication.network_id,
-                publication.generation,
-                &publication.keys.validator,
-            )
-            || !eq_keys.insert(publication.keys.eq_proof_public_key)
-            || !ep_keys.insert(publication.keys.ep_proof_public_key)
-        {
-            return Err(
-                "candidate snapshot changes identity or duplicates signing keys".to_owned(),
-            );
-        }
-    }
     for (epoch, transition) in world.validator_committee_transitions().iter() {
         if *epoch != transition.preparation.target_epoch {
             return Err("committee snapshot key differs from its exact target epoch".to_owned());
@@ -251,12 +225,12 @@ pub(crate) fn validate_persisted_progress(world: &impl WorldReadOnly) -> Result<
 /// Match the currently effective authorization to the exact persisted signing session.
 fn validate_current_beacon(
     world: &impl WorldReadOnly,
-    authority: &KagemushaMintFinalityAuthorityGenerationV1,
+    authority: &ValidatorGenerationV1,
     authorization: &ValidatorEpochAuthorizationV1,
     committed_height: u64,
 ) -> Result<(), String> {
     authorization
-        .validate_against_authority(authority)
+        .validate_against_generation(authority)
         .map_err(|error| error.to_string())?;
     let active = world.active_global_beacon_key_session();
     let (session_id, transcript_hash, latest_activation) = match authorization.beacon {
@@ -314,9 +288,11 @@ fn validate_current_beacon(
     {
         return Err("committee authorization differs from the active beacon lifecycle".to_owned());
     }
-    let peers = authority.validators.iter().map(|keys| &keys.validator);
-    authenticated_global_threshold_beacon_roster_hash_iter_v1(&record.session, peers)
-        .map_err(|error| error.to_string())?;
+    authenticated_global_threshold_beacon_roster_hash_iter_v1(
+        &record.session,
+        authority.validators.iter(),
+    )
+    .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -334,15 +310,9 @@ pub(crate) fn validate_committed_progress(
     use crate::sumeragi::{certified_chain::CertifiedChain, schedule::ConsensusSchedule};
     use iroha_data_model::parameter::system::ConsensusMode;
     validate_persisted_progress(world)?;
-    for (_, candidate) in world.validator_candidate_keys().iter() {
-        if candidate.network_id != network {
-            return Err("candidate snapshot names another network".into());
-        }
-    }
     let height = u64::try_from(hashes.len()).map_err(|_| "committed height overflows")?;
     if height == 0 {
         if !world.consensus_schedule().entries().is_empty()
-            || world.validator_candidate_keys().iter().next().is_some()
             || world
                 .validator_committee_transitions()
                 .iter()
@@ -517,7 +487,7 @@ pub(crate) fn validate_committed_progress(
         .map_err(|error| error.to_string())?;
     validate_current_beacon(
         world,
-        &next.epoch.authority,
+        &next.epoch.generation(),
         &next.epoch.authorization,
         height,
     )?;
@@ -558,18 +528,12 @@ pub(crate) fn validate_committed_progress(
         .map_err(Into::into)
 }
 
-/// Resolve the incumbent KAGEMUSHA signing authority from the authenticated committed result.
+/// Resolve the incumbent validator generation from the authenticated committed result.
 /// The next-height World schedule must agree with the certified boundary decision; mutable
 /// registrations and local certificate caches cannot supply replacement authority.
 pub(crate) fn current_authority(
     state: &impl StateReadOnly,
-) -> Result<
-    (
-        KagemushaMintFinalityAuthorityGenerationV1,
-        ValidatorEpochAuthorizationV1,
-    ),
-    Attempt<String>,
-> {
+) -> Result<(ValidatorGenerationV1, ValidatorEpochAuthorizationV1), Attempt<String>> {
     let height = u64::try_from(state.height()).map_err(|_| "committed height overflows")?;
     let block =
         crate::sumeragi::certified_chain::committed_block(state, height).map_err(|error| {
@@ -598,7 +562,7 @@ pub(crate) fn current_authority(
     }
     // This deterministic reader deliberately does not decode the per-node QC. Its State cut
     // was admitted by original execution/publication, or by authenticated startup recovery.
-    Ok((context.authority.clone(), context.authorization))
+    Ok((context.generation(), context.authorization))
 }
 
 /// Admit a finalized public transcript without giving it independent rotation authority.
@@ -623,13 +587,13 @@ pub(crate) fn validate_beacon_finalization(
 fn validate_beacon_preparation(
     world: &impl WorldReadOnly,
     height: u64,
-    authority: &KagemushaMintFinalityAuthorityGenerationV1,
+    authority: &ValidatorGenerationV1,
     authorization: &ValidatorEpochAuthorizationV1,
     record: &crate::beacon::RetainedFinalizedGlobalThresholdBeaconSessionV1,
     authorizing_roster: &[PeerId],
 ) -> Result<bool, String> {
     authorization
-        .validate_against_authority(authority)
+        .validate_against_generation(authority)
         .map_err(|error| error.to_string())?;
     record.validate().map_err(|error| error.to_string())?;
     if !(authorization.first_height..=authorization.last_height).contains(&height)
@@ -637,11 +601,7 @@ fn validate_beacon_preparation(
         || record.activated_at_height.is_some()
         || record.retired_at_height.is_some()
         || record.session.adaptive_dkg.finalized_at_height > height
-        || !authority
-            .validators
-            .iter()
-            .map(|keys| &keys.validator)
-            .eq(authorizing_roster.iter())
+        || !authority.validators.iter().eq(authorizing_roster.iter())
     {
         return Err(
             "beacon finalization differs from its authenticated execution context".to_owned(),
@@ -770,9 +730,7 @@ impl StateBlock<'_> {
                         .credentials
                         .as_ref()
                         .ok_or("activated committee lacks prepared credentials")?;
-                    if credentials.authority != snapshot.authority
-                        || transition.preparation.committee != snapshot.committee
-                    {
+                    if transition.preparation.committee != snapshot.committee {
                         return Err((
                             "activation substitutes the frozen committee or its exact credentials"
                                 .to_owned()
@@ -872,8 +830,9 @@ impl StateBlock<'_> {
             )
             .transpose()?;
         let staking = prepare_staking_obligations(&self.world, boundary)?;
-        // All checks precede these writes; the carrier publishes membership, Pasta authorization,
-        // the beacon pointer and this same World journal only after exact incumbent finality.
+        // All checks precede these writes; the carrier publishes membership, the generation
+        // authorization, the beacon pointer and this same World journal only after exact
+        // incumbent finality.
         if let Some((old, next)) = beacon_rotation {
             let next_id = next.session.session_id;
             self.world
@@ -913,26 +872,7 @@ fn owns_validator(world: &impl WorldReadOnly, owner: &AccountId, peer: &PeerId) 
     })
 }
 
-/// Verify the full candidate proof before accepting or restoring a publication.
-pub(crate) fn verify_candidate(candidate: &ValidatorCandidateKeysV1) -> Result<(), String> {
-    candidate.validate()?;
-    candidate
-        .peer_signature
-        .verify(
-            candidate.keys.validator.public_key(),
-            &candidate.authorization(),
-        )
-        .map_err(|error| error.to_string())?;
-    verify_kagemusha_mint_finality_candidate_possession_v1(
-        candidate.network_id,
-        candidate.generation,
-        &candidate.keys,
-        &candidate.possession,
-    )
-    .map_err(|error| error.to_string())
-}
-
-/// Reverify prepared keys and every recorded actual-custody proof from public state.
+/// Reverify the prepared transcript and every recorded actual-custody proof from public state.
 pub(crate) fn verify_progress(
     world: &impl WorldReadOnly,
     transition: &ValidatorCommitteeTransitionV1,
@@ -942,20 +882,6 @@ pub(crate) fn verify_progress(
     let Some(credentials) = &transition.credentials else {
         return Ok(());
     };
-    for keys in &credentials.authority.validators {
-        let published = world
-            .validator_candidate_keys()
-            .get(&ValidatorCandidateKeysV1::key_id(
-                credentials.authority.network_id,
-                credentials.authority.generation,
-                &keys.validator,
-            ))
-            .ok_or("prepared authority lacks a candidate key publication")?;
-        if published.network_id != credentials.authority.network_id || &published.keys != keys {
-            return Err("prepared authority substitutes a candidate publication".to_owned());
-        }
-        verify_candidate(published)?;
-    }
     let record = world
         .global_beacon_key_sessions()
         .get(&credentials.beacon.session_id)
@@ -987,17 +913,12 @@ pub(crate) fn verify_progress(
             transcript_hash: credentials.beacon.transcript_hash,
         })
         .map_err(|error| error.to_string())?;
+    let target = preparation.generation();
     for readiness in &transition.readiness {
         let context = transition.readiness_context(readiness.validator_index)?;
-        verify_kagemusha_mint_finality_seat_readiness_v1(
-            &credentials.authority,
-            &context,
-            &readiness.pasta,
-        )
-        .map_err(|error| error.to_string())?;
         verify_global_threshold_beacon_seat_readiness_v1(
             &validated,
-            &credentials.authority,
+            &target,
             &context,
             &readiness.beacon,
         )
@@ -1013,48 +934,8 @@ impl StateTransaction<'_, '_> {
         owner: &AccountId,
         operation: ValidatorCommitteeOperationV1,
     ) -> Result<(), Attempt<String>> {
-        let (incumbent, authorization) = current_authority(self)?;
-        let next_generation = incumbent
-            .generation
-            .checked_add(1)
-            .ok_or("authority generation overflow")?;
+        let (_, authorization) = current_authority(self)?;
         match operation {
-            ValidatorCommitteeOperationV1::PublishCandidate(candidate) => {
-                verify_candidate(&candidate)?;
-                if candidate.network_id != self.network_id
-                    || candidate.generation != next_generation
-                    || !owns_validator(&self.world, owner, &candidate.keys.validator)
-                {
-                    return Err("candidate publication lacks the exact current owner, network or next generation".to_owned().into());
-                }
-                let key = ValidatorCandidateKeysV1::key_id(
-                    candidate.network_id,
-                    candidate.generation,
-                    &candidate.keys.validator,
-                );
-                if self.world.validator_candidate_keys.get(&key).is_some()
-                    || self
-                        .world
-                        .validator_candidate_keys
-                        .iter()
-                        .any(|(_, published)| {
-                            published.keys.eq_proof_public_key == candidate.keys.eq_proof_public_key
-                                || published.keys.ep_proof_public_key
-                                    == candidate.keys.ep_proof_public_key
-                        })
-                    || incumbent.validators.iter().any(|keys| {
-                        keys.eq_proof_public_key == candidate.keys.eq_proof_public_key
-                            || keys.ep_proof_public_key == candidate.keys.ep_proof_public_key
-                    })
-                {
-                    return Err(
-                        "candidate key publication replays or duplicates an existing key"
-                            .to_owned()
-                            .into(),
-                    );
-                }
-                self.world.validator_candidate_keys.insert(key, candidate);
-            }
             ValidatorCommitteeOperationV1::PrepareCredentials(command) => {
                 let mut transition = self.pending_committee_transition(
                     command.target_epoch,

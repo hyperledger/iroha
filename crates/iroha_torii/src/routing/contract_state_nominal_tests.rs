@@ -60,6 +60,26 @@ fn contract_state_nominal_nested_options_preserve_none_and_some_unit() {
     }
 }
 
+fn nominal_state_key_schema(
+    kind: iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1,
+) -> iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
+    use iroha_data_model::smart_contract::entrypoint::{
+        EntrypointValueTypeNodeV1, EntrypointValueTypeV1,
+    };
+    EntrypointValueTypeV1 {
+        nodes: vec![EntrypointValueTypeNodeV1::Leaf(kind)],
+    }
+}
+
+fn nominal_state_key_hash(
+    kind: iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1,
+) -> [u8; 32] {
+    iroha_data_model::smart_contract::entrypoint::state_key_schema_hash_v1(
+        &nominal_state_key_schema(kind),
+    )
+    .unwrap()
+}
+
 fn nominal_state_cursor_fixture() -> iroha_data_model::smart_contract::state_cursor::StateCursorV1 {
     use iroha_data_model::smart_contract::{
         entrypoint::EntrypointValueKindV1 as Kind, state_cursor::StateCursorV1,
@@ -70,7 +90,7 @@ fn nominal_state_cursor_fixture() -> iroha_data_model::smart_contract::state_cur
         instance: "local::projection".to_owned(),
         map: "Balances".parse().unwrap(),
         schema_hash: [7; 32],
-        key_type: Kind::Bool,
+        key_schema_hash: nominal_state_key_hash(Kind::Bool),
         last_key: format!("Balances/{suffix}").parse().unwrap(),
     }
 }
@@ -223,7 +243,7 @@ fn contract_state_nominal_identity_schema_and_codes_are_exact() {
 }
 
 #[test]
-fn contract_state_nominal_page_cursor_roundtrips_without_erasing_key_kind() {
+fn contract_state_nominal_page_cursor_roundtrips_without_erasing_key_schema() {
     use iroha_data_model::smart_contract::entrypoint::{
         EntrypointArgumentFieldV1, EntrypointArgumentSchemaV1, EntrypointListTypeNodeV1,
         EntrypointStructTypeNodeV1, EntrypointValueAtomV1 as PublicAtom,
@@ -234,7 +254,7 @@ fn contract_state_nominal_page_cursor_roundtrips_without_erasing_key_kind() {
     let frame = nominal_state_cursor_fixture().encode_frame().unwrap();
     let envelope = make_tlv(PointerType::NoritoBytes, &frame);
     let ty = Type::Struct {
-        name: "StatePage".to_owned(),
+        name: "kotodama::StatePage".to_owned(),
         fields: vec![
             Field {
                 name: "items".to_owned(),
@@ -245,7 +265,9 @@ fn contract_state_nominal_page_cursor_roundtrips_without_erasing_key_kind() {
             },
             Field {
                 name: "next".to_owned(),
-                ty: Type::Option(Box::new(Type::StateCursor(Kind::Bool))),
+                ty: Type::Option(Box::new(Type::StateCursor(nominal_state_key_schema(
+                    Kind::Bool,
+                )))),
             },
         ],
     };
@@ -271,7 +293,7 @@ fn contract_state_nominal_page_cursor_roundtrips_without_erasing_key_kind() {
             ty: EntrypointValueTypeV1 {
                 nodes: vec![
                     Node::Struct(EntrypointStructTypeNodeV1 {
-                        name: "StatePage".to_owned(),
+                        name: "kotodama::StatePage".to_owned(),
                         fields: vec!["items".to_owned(), "next".to_owned()],
                     }),
                     Node::List(EntrypointListTypeNodeV1 { capacity: 2 }),
@@ -279,7 +301,7 @@ fn contract_state_nominal_page_cursor_roundtrips_without_erasing_key_kind() {
                     Node::Leaf(Kind::Bool),
                     Node::Unit,
                     Node::Option,
-                    Node::StateCursor(Kind::Bool),
+                    Node::StateCursor(nominal_state_key_schema(Kind::Bool)),
                 ],
             },
         }],
@@ -297,7 +319,7 @@ fn contract_state_nominal_page_cursor_roundtrips_without_erasing_key_kind() {
         ]
     );
     let mut malformed = nominal_state_cursor_fixture();
-    malformed.key_type = Kind::Int;
+    malformed.key_schema_hash = nominal_state_key_hash(Kind::Int);
     let malformed = malformed.encode_frame().unwrap();
     let payload = IrohaJson::from_raw_json(format!(
         "{{\"page\":{{\"items\":[],\"next\":{{\"some\":\"0x{}\"}}}}}}",
@@ -311,7 +333,7 @@ fn contract_state_nominal_page_cursor_roundtrips_without_erasing_key_kind() {
 fn contract_state_nominal_cursor_rejects_wrong_pointer_key_and_malformed_frames() {
     use iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1 as Kind;
     use ivm::{EmbeddedStateType as Type, state_value::StateValueAtomV1 as Atom};
-    let ty = Type::StateCursor(Kind::Bool);
+    let ty = Type::StateCursor(nominal_state_key_schema(Kind::Bool));
     let cursor = nominal_state_cursor_fixture();
     let frame = cursor.encode_frame().unwrap();
     let valid = make_state_record(
@@ -320,7 +342,7 @@ fn contract_state_nominal_cursor_rejects_wrong_pointer_key_and_malformed_frames(
     );
     assert!(decode_contract_state_scalar_json(&valid, &ty).is_ok());
     let mut wrong_key = cursor.clone();
-    wrong_key.key_type = Kind::Int;
+    wrong_key.key_schema_hash = nominal_state_key_hash(Kind::Int);
     let mut wrong_map = cursor.clone();
     wrong_map.last_key = "Other/00".parse().unwrap();
     let mut empty_instance = cursor;
@@ -343,5 +365,393 @@ fn contract_state_nominal_cursor_rejects_wrong_pointer_key_and_malformed_frames(
         let record =
             make_unchecked_state_record(&ty, vec![Atom::Pointer(make_tlv(pointer, &malformed))]);
         assert!(decode_contract_state_scalar_json(&record, &ty).is_err());
+    }
+}
+
+#[test]
+fn contract_state_nominal_tuple_cursor_binds_complete_key_schema() {
+    use iroha_data_model::smart_contract::entrypoint::{
+        EntrypointValueKindV1 as Kind, EntrypointValueTypeNodeV1 as Node, EntrypointValueTypeV1,
+        state_key_schema_hash_v1,
+    };
+    use ivm::EmbeddedStateType as Type;
+    let key = EntrypointValueTypeV1 {
+        nodes: vec![
+            Node::Tuple(2),
+            Node::Leaf(Kind::Bool),
+            Node::Leaf(Kind::Name),
+        ],
+    };
+    let mut cursor = nominal_state_cursor_fixture();
+    cursor.key_schema_hash = state_key_schema_hash_v1(&key).unwrap();
+    let suffix = contract_state_stored_map_key_suffix(
+        &Type::Tuple(vec![Type::Bool, Type::Name]),
+        r#"[true,"buyer"]"#,
+    )
+    .unwrap();
+    cursor.last_key = format!("Balances/{suffix}").parse().unwrap();
+    let frame = cursor.encode_frame().unwrap();
+    let envelope = make_tlv(PointerType::NoritoBytes, &frame);
+    assert_eq!(
+        decode_contract_state_pointer_json_fragment(&envelope, &Type::StateCursor(key.clone()))
+            .unwrap(),
+        format!("\"0x{}\"", hex::encode(frame))
+    );
+    let mut changed = key;
+    changed.nodes.swap(1, 2);
+    assert!(
+        decode_contract_state_pointer_json_fragment(&envelope, &Type::StateCursor(changed))
+            .is_err()
+    );
+    let invalid = Type::StateCursor(nominal_state_key_schema(Kind::Json));
+    assert_eq!(
+        decode_contract_state_pointer_json_fragment(&envelope, &invalid).unwrap_err(),
+        "invalid state cursor key schema"
+    );
+}
+
+#[test]
+fn contract_state_nominal_enum_json_preserves_type_and_variant() {
+    use iroha_data_model::smart_contract::{
+        entrypoint::{
+            EntrypointArgumentFieldV1, EntrypointArgumentSchemaV1,
+            EntrypointValueAtomV1 as PublicAtom, EntrypointValueTypeNodeV1 as Node,
+            EntrypointValueTypeV1,
+        },
+        manifest::{ContractEnumTypeDescriptorV1, ContractEnumVariantDescriptorV1},
+    };
+    use ivm::{EmbeddedStateType as Type, state_value::StateValueAtomV1 as Atom};
+    let descriptor = ContractEnumTypeDescriptorV1 {
+        identity: "Fixture::Phase".to_owned(),
+        variants: vec![
+            ContractEnumVariantDescriptorV1 {
+                name: "Open".to_owned(),
+                code: 1,
+            },
+            ContractEnumVariantDescriptorV1 {
+                name: "Closed".to_owned(),
+                code: 7,
+            },
+        ],
+    };
+    let ty = Type::Option(Box::new(Type::Enum(descriptor.clone())));
+    let record = make_state_record(&ty, vec![Atom::Tag(true), Atom::EnumCode(7)]);
+    let projected = decode_contract_state_scalar_json(&record, &ty).unwrap();
+    assert_eq!(projected.get(), "{\"some\":\"Closed\"}");
+    let schema = EntrypointArgumentSchemaV1 {
+        fields: vec![EntrypointArgumentFieldV1 {
+            name: "phase".to_owned(),
+            ty: EntrypointValueTypeV1 {
+                nodes: vec![Node::Option, Node::Enum(descriptor.clone())],
+            },
+        }],
+    };
+    let payload = IrohaJson::from_raw_json(format!("{{\"phase\":{}}}", projected.get())).unwrap();
+    assert_eq!(
+        ivm_abi::arguments::argument_record_from_json(&schema, &payload)
+            .unwrap()
+            .atoms,
+        vec![PublicAtom::Tag(true), PublicAtom::EnumCode(7)]
+    );
+    let mut other = descriptor;
+    other.identity = "Fixture::OtherPhase".to_owned();
+    assert!(
+        decode_contract_state_scalar_json(&record, &Type::Option(Box::new(Type::Enum(other))))
+            .is_err()
+    );
+    for atom in [Atom::EnumCode(99), Atom::ErrorCode(7), Atom::Bool(true)] {
+        let record = make_unchecked_state_record(&ty, vec![Atom::Tag(true), atom]);
+        assert!(decode_contract_state_scalar_json(&record, &ty).is_err());
+    }
+}
+
+#[test]
+fn contract_state_tuple_keys_use_exact_records_and_shared_argument_json() {
+    use ivm::{EmbeddedStateType as Type, state_value::StateValueAtomV1 as Atom};
+    let ty = Type::Tuple(vec![Type::Int, Type::Tuple(vec![Type::Bool, Type::Name])]);
+    let logical = r#"["7",[true,"buyer/first"]]"#;
+    let suffix = contract_state_stored_map_key_suffix(&ty, logical).unwrap();
+    let expected = make_state_record(
+        &ty,
+        vec![
+            Atom::Pointer(encode_contract_state_pointer_tlv_bytes(&Type::Int, "7").unwrap()),
+            Atom::Bool(true),
+            Atom::Pointer(
+                encode_contract_state_pointer_tlv_bytes(&Type::Name, "buyer/first").unwrap(),
+            ),
+        ],
+    );
+    assert_eq!(hex::decode(&suffix).unwrap(), expected);
+    assert_eq!(
+        contract_state_stored_map_key_suffix(&ty, &format!("json-{logical}")),
+        Some(suffix.clone())
+    );
+    let (query_key, stored) =
+        match_contract_state_map_key_suffix("Pairs", &ty, &format!("Pairs/{suffix}"))
+            .unwrap()
+            .unwrap();
+    assert_eq!(query_key, format!("record-{suffix}"));
+    assert_eq!(stored, suffix);
+    assert_eq!(
+        contract_state_stored_map_key_suffix(&ty, &query_key),
+        Some(suffix.clone())
+    );
+    let wrong = Type::Tuple(vec![
+        Type::Quantity,
+        Type::Tuple(vec![Type::Bool, Type::Name]),
+    ]);
+    assert!(contract_state_stored_map_key_suffix(&wrong, &query_key).is_none());
+    for invalid in [
+        r#"[7,[true,"buyer/first"]]"#,
+        r#"["7",[true]]"#,
+        r#"["7",[true,"buyer/first"],false]"#,
+    ] {
+        assert!(contract_state_stored_map_key_suffix(&ty, invalid).is_none());
+    }
+    let value_ty = Type::Bool;
+    let registry = BTreeMap::from([(
+        "Pairs".to_owned(),
+        Some(Type::StateMap {
+            key: Box::new(ty),
+            value: Box::new(value_ty.clone()),
+        }),
+    )]);
+    let storage = BTreeMap::from([(
+        format!("Pairs/{suffix}"),
+        make_state_record(&value_ty, vec![Atom::Bool(true)]),
+    )]);
+    for key in [logical.to_owned(), query_key] {
+        let path = format!("Pairs/{key}");
+        assert!(contract_state_logical_path_exists(
+            &registry,
+            &path,
+            &|path| storage.contains_key(path)
+        ));
+        assert_eq!(
+            decode_contract_state_path_json(&registry, &path, &|path| storage.get(path).cloned())
+                .unwrap()
+                .get(),
+            "true"
+        );
+    }
+}
+
+#[test]
+fn contract_state_map_keys_reject_old_carriers_and_bound_producer_inputs() {
+    use ivm::EmbeddedStateType as Type;
+    for (ty, bytes) in [
+        (Type::Bool, norito::encode_canonical(&0_i64).unwrap()),
+        (Type::Bool, norito::encode_canonical(&1_i64).unwrap()),
+        (
+            Type::Int,
+            encode_contract_state_pointer_tlv_bytes(&Type::Int, "7").unwrap(),
+        ),
+    ] {
+        let suffix = hex::encode(bytes);
+        assert!(validate_contract_state_stored_map_key_suffix(&ty, &suffix).is_err());
+        assert!(contract_state_stored_map_key_suffix(&ty, &format!("record-{suffix}")).is_none());
+        assert!(contract_state_stored_map_key_suffix(&ty, &format!("tlv-{suffix}")).is_none());
+    }
+    let max = ivm::syscalls::STATE_MAP_MAX_KEY_BYTES;
+    assert!(contract_state_stored_map_key_suffix(&Type::String, &"a".repeat(max + 1)).is_none());
+    assert!(
+        contract_state_stored_map_key_suffix(&Type::String, &"a".repeat(max)).is_none(),
+        "framing also fits the 4KiB physical limit"
+    );
+    assert!(
+        validate_contract_state_stored_map_key_suffix(&Type::Bool, &"00".repeat(max + 1)).is_err()
+    );
+    let suffix = contract_state_stored_map_key_suffix(&Type::Int, "7").unwrap();
+    let mut trailing = hex::decode(suffix).unwrap();
+    trailing.push(0);
+    assert!(
+        validate_contract_state_stored_map_key_suffix(&Type::Int, &hex::encode(trailing)).is_err()
+    );
+    for ty in [
+        Type::Tuple(vec![]),
+        Type::Tuple(vec![Type::Bool]),
+        Type::Tuple(vec![Type::Bool, Type::Json]),
+    ] {
+        assert!(contract_state_stored_map_key_suffix(&ty, "[true,false]").is_none());
+    }
+}
+
+#[test]
+fn contract_state_logical_json_keys_canonicalize_whitespace_and_escapes() {
+    use ivm::EmbeddedStateType as Type;
+    let tuple = Type::Tuple(vec![Type::Int, Type::String]);
+    let compact =
+        contract_state_stored_map_key_suffix(&tuple, r#"["7","hello @#$ / world, \"quoted\""]"#)
+            .expect("canonical tuple key");
+    for logical in [
+        r#"[ "7" , "hello @#$ / world, \"quoted\"" ]"#,
+        r#"json-["7", "hello @#$ \/ world, \u0022quoted\u0022"]"#,
+    ] {
+        assert_eq!(
+            contract_state_stored_map_key_suffix(&tuple, logical),
+            Some(compact.clone())
+        );
+    }
+    let compact_string =
+        contract_state_stored_map_key_suffix(&Type::String, r#"json-"hello / world""#)
+            .expect("canonical string key");
+    assert_eq!(
+        contract_state_stored_map_key_suffix(&Type::String, r#"json- "hello \/ world" "#),
+        Some(compact_string),
+    );
+    for invalid in [
+        r#"[7,"hello"]"#,
+        r#"["7","hello"] trailing"#,
+        r#"["7","hello"],"extra":true"#,
+    ] {
+        assert!(contract_state_stored_map_key_suffix(&tuple, invalid).is_none());
+    }
+}
+
+#[test]
+fn contract_state_query_paths_preserve_json_key_commas_and_quotes() {
+    let tuple = r#"Pairs/["7",[true,"buyer"]]"#;
+    let string = r#"Names/json-"record-a,b\"c""#;
+    assert_eq!(
+        contract_state_query_paths(&format!("{tuple},{string},total")).unwrap(),
+        vec![tuple, string, "total"]
+    );
+    assert_eq!(contract_state_query_paths("a,,b,").unwrap(), vec!["a", "b"]);
+    for invalid in [
+        "",
+        "Pairs/[true,false",
+        "Pairs/[true}",
+        "Names/json-\"unterminated",
+    ] {
+        assert!(contract_state_query_paths(invalid).is_err());
+    }
+    assert!(contract_state_query_paths(&format!("Pairs/{}", "[".repeat(257))).is_err());
+    let paths = std::iter::repeat_n("a", CONTRACT_STATE_MAX_EXPLICIT_PATHS_V1 + 1)
+        .collect::<Vec<_>>()
+        .join(",");
+    assert!(contract_state_query_paths(&paths).is_err());
+}
+
+#[test]
+fn contract_state_logical_query_validation_bounds_keys_without_weakening_paths() {
+    let decode = Some(ContractStateDecodeMode::Json);
+    for path in [
+        r#"Pairs/["7", "hello @#$ / world"]"#,
+        r#"Labels/json-"hello @#$ / world""#,
+    ] {
+        assert_eq!(parse_contract_state_query_path(path, decode).unwrap(), path);
+        assert!(parse_contract_state_query_path(path, None).is_err());
+        assert!(StatePath::from_str(path).is_err());
+    }
+    for path in [
+        r#"bad base/json-"key""#,
+        r#"bad@base/json-"key""#,
+        r#"Labels/json-"unterminated"#,
+        r#"Pairs/["7", "key"] trailing"#,
+    ] {
+        assert!(
+            parse_contract_state_query_path(path, decode).is_err(),
+            "{path}"
+        );
+    }
+    let max = ivm::syscalls::STATE_MAP_MAX_KEY_BYTES;
+    // The bound includes the explicit logical-key prefix and JSON quotes.
+    let exact = format!("Labels/json-\"{}\"", "a".repeat(max - 7));
+    assert!(parse_contract_state_query_path(&exact, decode).is_ok());
+    let overflow = format!("Labels/json-\"{}\"", "a".repeat(max - 6));
+    assert!(parse_contract_state_query_path(&overflow, decode).is_err());
+}
+
+routing_test! { async contract_state_endpoint_accepts_schema_bound_json_keys_with_reserved_text
+    use iroha_data_model::{account::Account, block::BlockHeader, permission::Permission};
+    use iroha_executor_data_model::permission::smart_contract::CanManageSmartContractCode;
+    use iroha_model_base::topology::DataSpaceId;
+    use ivm::{EmbeddedStateType as Type, state_value::StateValueAtomV1 as Atom};
+    let key = checked_routing_fixture_keypair(
+        0x71, iroha_crypto::Algorithm::Ed25519, "contract-state logical key fixture",
+    );
+    let authority = AccountId::new(key.public_key().clone());
+    let mut world = World::with([], [Account::new(authority.clone()).build(&authority)], []);
+    world.account_permissions_mut_for_testing().insert(
+        authority.clone(),
+        std::collections::BTreeSet::from([Permission::from(CanManageSmartContractCode)]),
+    );
+    let state = Arc::new(CoreState::new_for_testing(
+        world, Kura::blank_kura_for_testing(), LiveQueryStore::start_test(),
+    ));
+    let address = iroha_data_model::smart_contract::ContractAddress::derive(
+        state.network_id_ref(), &authority, 1, DataSpaceId::UNIVERSAL,
+    ).unwrap();
+    let code = kotodama_lang::compiler::Compiler::new().compile_source(
+        r#"seiyaku QueryKeys {
+            state StateMap<(int, string), bool> Pairs;
+            state StateMap<string, bool> Labels;
+            view fn ready() authorize(anyone) -> bool { return true; }
+        }"#,
+    ).expect("compile real schema-bearing artifact");
+    let pair_key = r#"["7", "hello @#$ / world, \"quoted\""]"#;
+    let label_key = r#"json-"hello @#$ / world, \"quoted\"""#;
+    let pair_path = format!("Pairs/{pair_key}");
+    let label_path = format!("Labels/{label_key}");
+    {
+        let mut block = state.block(BlockHeader::new(
+            core::num::NonZeroU64::new(1).unwrap(), None, None, 0, 0,
+        ));
+        let mut transaction = block.transaction();
+        let hash = iroha_core::smartcontracts::code::register_code_bytes(
+            &authority, DataSpaceId::UNIVERSAL, code, &mut transaction,
+        ).expect("register admitted artifact");
+        transaction.world.bind_active_contract_subject_for_testing(address.clone(), hash);
+        for (base, key_type, key) in [
+            ("Pairs", Type::Tuple(vec![Type::Int, Type::String]), pair_key),
+            ("Labels", Type::String, label_key),
+        ] {
+            let suffix = contract_state_stored_map_key_suffix(&key_type, key)
+                .expect("canonical typed record key");
+            transaction.world.smart_contract_state_mut_for_testing().insert(
+                scoped_state_key(&address, &format!("{base}/{suffix}")),
+                make_state_record(&Type::Bool, vec![Atom::Bool(true)]),
+            );
+        }
+        transaction.apply();
+        block.commit_world_overlay_for_testing().expect("commit query fixture");
+    }
+    for path in [&pair_path, &label_path] {
+        let JsonBody(response) = handle_get_contract_state(state.clone(), NoritoQuery(
+            ContractStateQuery {
+                contract_address: Some(address.to_string()), path: Some(path.clone()),
+                decode: Some("json".to_owned()), ..Default::default()
+            },
+        )).await.expect("typed logical JSON key is queryable");
+        assert_eq!(response.entries.len(), 1);
+        assert_eq!(&response.entries[0].path, path);
+        assert!(response.entries[0].found);
+        assert_eq!(response.entries[0].value_json.as_ref().unwrap().get(), "true");
+    }
+    let JsonBody(response) = handle_get_contract_state(state.clone(), NoritoQuery(
+        ContractStateQuery {
+            contract_address: Some(address.to_string()),
+            paths: Some(format!("{pair_path}, {label_path}")),
+            decode: Some("json".to_owned()), ..Default::default()
+        },
+    )).await.expect("commas inside JSON keys do not split paths");
+    assert_eq!(response.entries.len(), 2);
+    assert!(response.entries.iter().all(|entry| entry.found));
+    for path in [
+        r#"Pairs/["7", "unterminated]"#,
+        r#"Pairs/[true, "wrong type"]"#,
+        r#"Unknown/json-"unbound @#$ / key""#,
+        r#"bad base/json-"key""#,
+    ] {
+        assert!(handle_get_contract_state(state.clone(), NoritoQuery(ContractStateQuery {
+            contract_address: Some(address.to_string()), path: Some(path.to_owned()),
+            decode: Some("json".to_owned()), ..Default::default()
+        })).await.is_err(), "invalid or unbound logical query must reject: {path}");
+    }
+    for decode in [None, Some("json".to_owned())] {
+        assert!(handle_get_contract_state(state.clone(), NoritoQuery(ContractStateQuery {
+            contract_address: Some(address.to_string()), prefix: Some(label_path.clone()),
+            decode, ..Default::default()
+        })).await.is_err(), "prefix selection still requires a physical StatePath");
     }
 }

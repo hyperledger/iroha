@@ -262,27 +262,7 @@ impl crate::seal::Instruction for FinalizeElection {}
 fn zk_decode_flags() -> u8 {
     norito::core::effective_decode_flags().unwrap_or_else(norito::core::default_encode_flags)
 }
-macro_rules! impl_zk_decode_from_slice {
-    ($ty:ty { $($field:ident : $field_ty:ty),+ $(,)? }) => {
-        impl<'a> norito::core::DecodeFromSlice<'a> for $ty {
-            fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
-                let flags = zk_decode_flags();
-                let mut offset = 0usize;
-                $(
-                    let $field = super::decode_aos_canonical_field::<$field_ty>(
-                        super::read_aos_field(bytes, &mut offset, flags)?,
-                        flags,
-                    )?;
-                )+
-                if offset != bytes.len() {
-                    return Err(norito::core::Error::LengthMismatch);
-                }
-                norito::core::note_payload_access(bytes, offset);
-                Ok((Self { $($field),+ }, offset))
-            }
-        }
-    };
-}
+
 impl<'a> norito::core::DecodeFromSlice<'a> for VerifyProof {
     fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
         let flags = zk_decode_flags();
@@ -298,25 +278,25 @@ impl<'a> norito::core::DecodeFromSlice<'a> for VerifyProof {
         Ok((Self { attachment }, offset))
     }
 }
-impl_zk_decode_from_slice!(PruneProofs {
+impl_aos_decode_from_slice!(PruneProofs {
     backend: Option<String>,
 });
-impl_zk_decode_from_slice!(RegisterZkAsset {
+impl_aos_decode_from_slice!(RegisterZkAsset {
     asset: AssetDefinitionId,
     vk_unshield: Option<crate::proof::VerifyingKeyId>,
 });
-impl_zk_decode_from_slice!(ScheduleConfidentialPolicyTransition {
+impl_aos_decode_from_slice!(ScheduleConfidentialPolicyTransition {
     asset: AssetDefinitionId,
     new_mode: ConfidentialPolicyMode,
     effective_height: u64,
     transition_id: Hash,
     conversion_window: Option<u64>,
 });
-impl_zk_decode_from_slice!(CancelConfidentialPolicyTransition {
+impl_aos_decode_from_slice!(CancelConfidentialPolicyTransition {
     asset: AssetDefinitionId,
     transition_id: Hash,
 });
-impl_zk_decode_from_slice!(CreateElection {
+impl_aos_decode_from_slice!(CreateElection {
     election_id: String,
     options: u32,
     eligible_root: [u8; 32],
@@ -326,13 +306,13 @@ impl_zk_decode_from_slice!(CreateElection {
     vk_tally: crate::proof::VerifyingKeyId,
     domain_tag: String,
 });
-impl_zk_decode_from_slice!(SubmitBallot {
+impl_aos_decode_from_slice!(SubmitBallot {
     election_id: String,
     ciphertext: Vec<u8>,
     ballot_proof: crate::proof::ProofAttachment,
     nullifier: [u8; 32],
 });
-impl_zk_decode_from_slice!(FinalizeElection {
+impl_aos_decode_from_slice!(FinalizeElection {
     election_id: String,
     tally: Vec<u128>,
     tally_proof: crate::proof::ProofAttachment,

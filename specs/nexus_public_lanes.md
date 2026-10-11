@@ -1,16 +1,16 @@
 ---
-title: Nexus Public Lane Staking
-description: NX-9 specification for permissionless validator admission, stake accounting, and reward records.
+title: SORA Nexus Public Lane Staking
+description: NX-9 specification for permissionless validator admission, stake accounting, and automatic funded rewards.
 ---
 
-# Nexus Public Lane Staking (NX-9)
+# SORA Nexus Public Lane Staking (NX-9)
 
 Status: In progress; candidate admission and reward custody are implemented, production committee rotation remains unqualified (September 2026).
 Owners: Economics WG / Governance WG / Core Runtime
 Roadmap ref: NX-9 – Public lane staking & reward module
 
 This note captures the canonical data model, instruction surface, governance
-controls, and operational hooks for the Nexus public-lane staking program. The
+controls, and operational hooks for the SORA Nexus public-lane staking program. The
 goal is to let permissionless validators join the public lanes, bond stake,
 service blocks, and receive rewards while governance maintains deterministic
 slashing/runbook levers.
@@ -43,13 +43,12 @@ height have elapsed. A matured pending unbond remains claimable until finalised.
 | `stake_account: AccountId` | Canonical self-bond account; it must equal `validator`. |
 | `total_stake: Quantity` | Self stake + approved delegations. |
 | `self_stake: Quantity` | Stake provided by the validator. |
-| `metadata: Metadata` | Commission %, telemetry ids, jurisdiction flags, contact info. |
+| `metadata: Metadata` | Descriptive telemetry ids, jurisdiction flags and contact info; metadata cannot impose commission. |
 | `status: PublicLaneValidatorStatus` | Lifecycle (pending/active/exiting/exited/slashed). The `PendingActivation` payload encodes the exact activation height. |
 | `activation_height: u64` | Inclusive first height at which the validator may be elected; it is fixed when activation is scheduled. |
 | `deactivation_height: Option<u64>` | Exclusive first height no longer covered by the validator binding; `None` denotes an open tenure. |
-| `last_reward_epoch: Option<u64>` | Epoch that last produced a payout. |
 
-All stake, bond, unbond, slash, and reward amounts use `Quantity`, the canonical nominal non-negative decimal type. Signed `Numeric` values are reserved for genuine rates, ratios, and deltas and enter staking calculations only through explicit arithmetic boundaries.
+Stake and signed monetary amounts use `Quantity`, the canonical nominal non-negative decimal type. Funded reward accounting uses checked integer XOR minor units and retains complete `Quantity` stake weights. Signed `Numeric` values are reserved for genuine rates, ratios, and deltas and enter staking calculations only through explicit arithmetic boundaries.
 
 `PublicLaneValidatorStatus` enumerates lifecycle phases:
 
@@ -57,7 +56,8 @@ All stake, bond, unbond, slash, and reward amounts use `Quantity`, the canonical
   inclusive `activation_height` carried by the tuple payload.
 - `Active` — participates in consensus during its exact-height tenure and can
   collect rewards.
-- `Exiting { releases_at_ms }` — unbonding; rewards stop accruing.
+- `Exiting { releases_at_ms }` — unbonding; prior entitlements remain payable and
+  any retained authenticated service uses its contemporaneous eligible exposure.
 - `Exited` — the release timestamp has passed; the retained tenure and custody
   gates still control consensus removal and pruning.
 - `Slashed { slash_id }` — governance slashing event recorded for audits.
@@ -125,41 +125,73 @@ Lifecycle hooks (runtime enforced):
   record continues to reserve validator capacity and its peer until that height
   is reached and while bonded or pending-unbond custody remains. Only canonical
   pruning after all gates clear frees those reservations.
-- Reward recording rejects validator shares unless the validator is `Active`,
-  keeping pending, exiting, exited, and slashed validators from accruing payouts.
+- Reward entitlement follows authenticated service and historical exposure.
+  Later lifecycle labels cannot revoke an already earned entitlement.
 
-### 1.3 Reward Records
+### 1.3 Automatic funded rewards
 
-Reward distributions use `PublicLaneRewardRecord` and `PublicLaneRewardShare`:
+The finalized-service and funded-conversion path is the sole production reward
+publisher. `process_finalized_service` preserves the existing gross allocation
+by authenticated validator service counts in each Honiara calendar earning month.
+`reserve_conversion` reserves only the actual XOR received by the authenticated
+conversion, then queues automatic materialization of beneficiary entitlements.
+Validators and treasury operators do not supply nominator payout lists.
 
-```norito
-{
-  "lane_id": 1,
-  "epoch": 4242,
-  "asset": "4cuvDVPuLBKJyN6dPbRQhmLh68sU",
-  "total_reward": "250.0000",
-  "shares": [
-    { "account": "sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE", "role": "Validator", "amount": "150" },
-    { "account": "sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSE", "role": "Nominator", "amount": "100" }
-  ],
-  "metadata": {
-    "telemetry_epoch_root": "0x4afe…",
-    "distribution_tx": "0xaabbccdd"
-  }
-}
-```
+For every authenticated service height `H`, exposure is the eligible bonded stake
+in the committed state at the end of `H`, sampled from the pre-block state of
+`H + 1`. Consecutive equal stake maps coalesce into chronological cohorts with
+service counts, held in bounded historical pages. A validator's gross reward
+`G` and total service `T` assign a cohort spanning prior cumulative service `P`
+through cumulative service `C` exactly `floor(G*C/T) - floor(G*P/T)` XOR minor
+units. Within that cohort, self-stake and nominations use complete exact
+`Quantity` values: floor each exact ratio, then assign remaining minor units by
+largest fractional remainder, with canonical account order breaking ties.
+Beneficiary amounts are merged across cohorts and validators. Constant eligible
+stakes of 20 / 30 / 50 receive
+20 / 30 / 50 from a gross reward of 100 XOR. Commission is zero; descriptive
+metadata cannot change the split. A service cohort with zero eligible stake
+assigns its entire reward to the validator that earned that service.
 
-Records give auditors and dashboards deterministic evidence for each payout. The
-reward struct flows into the `RecordPublicLaneRewards` ISI.
+A pending unbond does not earn for its scheduling block or later blocks,
+independently of its continuing slash liability or committee-retention obligation. A slash
+changes eligible exposure from its application block onward; it never rewrites
+an earlier earning cohort. A later deposit first earns for its own committed
+block and cannot capture prior service. Exit, binding changes, delayed funding
+and beneficiary recovery preserve captured exposure and historical beneficiary
+identities. Funded rewards remain separate from staking principal and never
+implicitly mint XOR. Replayed finalized service and conversion allocations do
+not create a second credit.
 
-Runtime guards:
+Conversion reserves its entire funded XOR output and enqueues one durable
+allocation cursor. Before customer instructions, each committed block advances
+at most one funded exposure page per retained payout binding. A subsequent
+conversion for that binding waits until its cursor is exhausted. Reward cursors
+create no blocks or transactions: a completely idle chain waits for ordinary
+submitted Network work or certified lane merges to produce the next block. Page size
+bounds allocation work without limiting the number of stake changes in an earning
+month or blocking mandatory slashing. Sealed exposure pages and monetary receipts
+remain in the authenticated original blockchain archive. Live state retains
+bounded page tails, compact history heads and reconciliation checkpoints, and
+unpaid balances. Once a month has ended, its tail body may also leave live state
+before delayed funding arrives; accrual reads the original authenticated archive.
+The remaining month heads are retired only after the month is fully converted,
+every funded credit is materialized, and the durable unsettled-wallet frontier
+permits the reward-history closure watermark to pass that month. The frontier
+includes open wallets and closed wallets with unsettled active time; queued
+original-month fee credits must also be flushed before closure. An empty
+pending-conversion balance alone never authorizes retiring month heads. The
+watermark rejects later credits and wallet state referring to closed earning
+history. Missing archive data defers processing atomically without expiring
+entitlements. Original archived receipts remain available for restart
+reconciliation and independent verification.
 
-- The distribution is signed by the configured fee-sink account and targets a stake-elected lane.
-- Reward epochs advance monotonically per lane; stale or duplicate epochs are rejected.
-- Reward assets must match the configured fee sink (`nexus.fees.fee_sink_account_id` /
-  `nexus.fees.fee_asset_id`) and the sink balance must fully cover `total_reward`.
-- Each share must be positive and respect the reward asset’s numeric spec; share totals must
-  equal `total_reward`.
+The sole reward claim ledger uses authenticated beneficiary history and signed
+receipt sequences. No public instruction accepts arbitrary-recipient reward
+publication. Restart reconciliation and additive reserve checks cover staking
+principal and validation-fee custody together.
+
+The public [staking rewards guide](https://docs.iroha.tech/blockchain/staking-rewards.html)
+describes earning, automatic accrual and authenticated withdrawal.
 
 ## 2. Instruction Catalog
 
@@ -184,9 +216,9 @@ or arithmetic overflow reject. There is no unsigned monetary layout.
 
 DS validation-fee admission collects these signed principal transfers and charges
 the active policy per positive transfer. Native staking principal cannot serve as
-the fee-coordinate payment. `RecordPublicLaneRewards` reserves existing treasury
-funds and has no transfer fee. Opaque VM/deferred code cannot manufacture native
-DS staking effects, including reserve-only records and zero-payment claims;
+the fee-coordinate payment. Authenticated funded conversion creates reward
+reserves automatically. Opaque VM/deferred code cannot manufacture native
+DS staking effects, including zero-payment claims;
 signed multisig and proved overlays remain subject to execution-time checks.
 Authenticated consensus slashing retains its separate finality-owned capability.
 
@@ -290,8 +322,9 @@ Validation rules:
 
 Bonds additional stake (validator self-bond or delegator contribution).
 
-Key fields: `staker`, `amount`, optional metadata for statements. Runtime must
-enforce lane-specific limits (`max_delegators`, `min_bond`, `commission caps`).
+Key fields: `staker`, `amount`, optional metadata for statements. Runtime
+enforces lane-specific stake limits. Commission is zero; descriptive metadata
+is not an enforced commission policy.
 New stake is accepted only for `PendingActivation` and `Active` validators;
 terminal or exiting records cannot reacquire custody.
 
@@ -321,47 +354,27 @@ Governance uses this instruction to debit stake and eject validators.
 - `metadata` stores hashes of evidence bundles, runbook pointers, or regulator IDs.
 
 Slashes apply through the retained stake-share and pending-unbond custody
-paths; reward records do not authorize slashing.
+paths; reward entitlements do not authorize slashing.
 
-### 2.7 `RecordPublicLaneRewards`
+### 2.7 `ClaimPublicLaneRewards`
 
-Records the payout for an epoch. Fields:
+The recipient signs a required `PublicLaneRewardClaimPlanV1` containing network
+scope, expiry and one mandatory `fee_claim`. The exact global XOR payment binds
+the lifecycle seal, beneficiary identity and revision, source and recipient
+assets, complete positive claimable credit and next receipt sequence. Missing,
+null, stale and no-op claims reject before funds move. Neither validators nor
+operators choose recipients or amounts for accrual.
 
-- `reward_asset`: exact genesis-pinned network XOR held by the configured treasury.
-- `total_reward`: funded amount reserved for the supplied distribution; recording does not mint XOR.
-- `shares`: vector of `PublicLaneRewardShare` entries.
-
-### 2.8 `ClaimPublicLaneRewards`
-
-The recipient signs a required `PublicLaneRewardClaimPlanV1`: network scope and
-expiry, the exact prior processing cursor, at most 64 consecutive chronological
-reward-record commitments, and at most 64 sorted exact source assets. Each source
-binds its prior positive accrual or absence and exact payment to the recipient.
-Sources are exactly those touched by the records plus explicitly selected old
-accruals. Missing records, skipped prefixes, stale cursors or accruals, and wrong
-payouts reject before funds move.
-
-The required `fee_claim` field separately authorizes one independently accrued
-validation-fee reward, or is explicitly `None` for no fee reward effects. Its
-lifecycle seal, beneficiary identity and revision, exact global XOR source and
-recipient assets, complete positive credit and next receipt sequence must match
-the current authenticated entitlement. Omission is not a supported layout.
-All bindings are checked before either reward leg changes state; execution
-failure rolls back both legs in the transaction.
-
-`public_lane_reward_claims[(lane, recipient)]` stores
-`PublicLaneRewardClaimStateV1 { through_epoch: Option<u64> }`.
-`public_lane_reward_accruals[(lane, recipient, source_asset)]` retains positive
-unpaid quantities. Zero-entitlement records and unpaid dust advance processing
-without forfeiture; dust remains reserved. These point rows let clients process
-historical sources in bounded batches. Positive payouts are prepared together
-as one atomic numeric movement batch. Refusal restores reserve preimages and
-leaves cursor and accrual state unchanged. Pending queries expose
-`processed_through_epoch: Option<u64>` without an epoch-zero sentinel.
+Each claim performs bounded point reads and pays one authenticated entitlement.
+Amounts below the enacted fee policy's payment threshold remain reserved and
+accumulate automatically; they are never forfeited. A failed payment restores
+its reserve, claimable balance and receipt sequence. Pending queries report the
+current recovered owner, exact funded amount and whether the payment threshold
+has been reached.
 
 Pinned custody records retain each validator's exact scoped escrow asset and
-held quantity (bonded plus pending unbond). The aggregate stake reserve and unpaid
-reward reserve and fee-custody obligations are additive balance floors for
+held quantity (bonded plus pending unbond). The aggregate stake reserve and funded validation-fee custody
+obligations are additive balance floors for
 ordinary and native debits.
 Deposits reserve real available funds; an escrow account cannot repeatedly bond
 its own already-reserved balance. Matured unbond and verified slash owners release
@@ -424,7 +437,7 @@ account migration and entity deletion preserve these obligations.
   `nexus.staking.max_validators`,
   `nexus.staking.max_stake_shares_per_validator`,
   `nexus.staking.max_pending_unbonds_per_share`,
-  `nexus.staking.max_slash_bps`, `nexus.staking.reward_dust_threshold`, and the
+  `nexus.staking.max_slash_bps` and the
   validator-mode switches above.
   `SumeragiNposParameters.reconfig.epoch_length_blocks` defines the election
   boundary grid. It, `evidence_horizon_blocks`, and
@@ -454,17 +467,20 @@ account migration and entity deletion preserve these obligations.
       `peer_id`, status
       (`PendingActivation`/`Active`/`Exiting`/`Exited`/`Slashed`), activation
       height, exclusive deactivation height, release timers, bonded stake, and
-      last reward epoch.
+      exact tenure boundaries.
       Optional `canonical I105 literal rendering` controls the literal rendering
       (canonical I105 output only).
     - `GET /v1/nexus/public-lanes/{lane}/stake` – stake shares (`validator`,
       `staker`, bonded amount) plus pending unbond timers. Optional
       `?validator=<i105-account-id>` filters the response for dashboards that focus
       on a single validator; `canonical I105 rendering` applies to all literals.
-    - `GET /v1/nexus/public-lanes/{lane}/rewards/pending` – pending rewards per
-      asset for the requested account. Requires `account=<i105-account-id>` and accepts
-      optional `asset_id` and `upto_epoch` filters; `canonical I105 rendering` applies to
-      the account literal in the response.
+    - `GET /v1/nexus/public-lanes/{lane}/rewards/pending` – the requested
+      account's automatic funded XOR entitlement, including amounts below the
+      payment threshold. Requires `account=<i105-account-id>` and accepts an
+      optional exact `asset_id` filter for the source custody balance-bucket
+      `AssetId`. The response uses canonical I105 account literals and includes
+      beneficiary identity and revision, the next claim sequence, the lifecycle
+      seal, the exact amount and a `claimable` threshold flag.
   - Lifecycle ISIs use the standard transaction path (Torii
     `/v1/pipeline/transactions` or the CLI instruction pipeline). Example Norito JSON
     payloads:
@@ -489,11 +505,11 @@ account migration and entity deletion preserve these obligations.
   peers are offline, Torii returns deterministic `503 route_unavailable`
   instead of probing non-authoritative peers and timing out.
 - **Telemetry + runbooks:** metrics expose validator counts, bonded and pending
-  stake, reward totals, and slash counters under the
+  stake, and slash counters under the
   `nexus_public_lane_*` family. Wire dashboards to the same data set used by
   NX-9 acceptance tests so validator deltas and reward/slash evidence remain
-  auditable. Slashing instructions remain governance-only; reward recording must
-  prove payout totals (hash of payout batch).
+  auditable. Slashing instructions remain governance-only; automatic reward
+  allocation retains authenticated funding and historical exposure evidence.
 
 ## 4. Roadmap alignment
 
@@ -523,31 +539,37 @@ transaction overlay. The key activation lead time and next unfrozen election
 boundary determine eligibility. Failed transactions leave no peer, key or stake
 behind. Existing registered peers can consent through the same instruction.
 Candidate consent cannot be reused at a different tenure. Fresh global peers
-outside the frozen topology are refused before peer, key or balance mutation:
-permissionless global eligibility would otherwise allow an election to outpace
-its mandatory mint-finality keys. Signed fresh candidate admission is available
-for independent nonzero stake-elected lanes; serving those lanes grants no global
-vote. See the explicit protocol dependency below.
+enter the future election pool only against an authenticated NPoS schedule,
+with the required BLS proof of possession, key activation lead time and funded
+stake. Registration does not alter the frozen voting roster: authority changes
+only through the certified epoch transition. Signed fresh candidate admission
+also serves independent nonzero stake-elected lanes; serving those lanes grants
+no global vote. See the explicit protocol dependency below.
 
 Activation, exit, bonding and withdrawals authorize the account that owns the
 respective state. Raw peer administration retains its separate permission gate.
 See the [CLI commands](../crates/iroha_cli/README.md#public-lane-staking-commands).
 
-Reward distributions remain explicit fee-funded treasury decisions; the runtime
-does not invent issuance, commission or participation formulas. Recording a
-validated distribution increases `public_lane_reward_reserves` for the exact
-source asset. Numeric transfer and burn admission protects that reserve,
-including aggregate batch debits. If the fee sink also custodies stake, recording
-excludes bonded and pending-unbond funds from the distributable balance.
+Reward accrual uses authenticated service and historical eligible stake as
+specified in §1.3. Funded conversion reserves the exact global XOR source and
+credits nominators automatically. Numeric transfer and burn admission protects
+additive stake and funded fee reserves, including aggregate batch debits.
+Neither bonded nor pending-unbond custody is distributable reward funding.
 
-A recipient's claim releases only its paid entitlement. Epoch zero is claimable,
-replay cannot pay it twice, and amounts below the payment threshold remain owed
-until enough accumulates. A failed payment restores its reserve and claim cursor.
-Recorded source assets remain authoritative after fee-policy or lane-mode
-changes. Snapshot restoration reconciles current and predecessor reserves with
-reward records, processing cursors and retained accruals; lane retirement requires unpaid rewards to be
-settled. The pending-rewards query includes unpaid epoch zero.
+A recipient's claim releases only its paid entitlement. Replay cannot pay it
+twice, and amounts below the payment threshold remain owed until enough
+accumulates. A failed payment restores its reserve and claim sequence. Immutable
+funding receipts and captured beneficiary history remain authoritative through
+delayed conversion, exits and recovery. Snapshot restoration reconciles current
+and predecessor reserves with funded allocations, page receipts, claimable
+balances and exact claim sequences.
 
 TODO: close the protocol and deployment outcomes in
 [validator staking completion](staking_validator_completion.md) before claiming
 permissionless production validator rotation.
+
+TODO: qualify automatic funded conversion and positive signed claims by multiple
+nominators on a real four-peer network, with authenticated reference observations,
+a controllable earning-month boundary, delayed funding and restart. The retained
+committee-transition scenario covers principal custody and withdrawal; its former
+manual treasury-distribution block does not establish automatic reward qualification.

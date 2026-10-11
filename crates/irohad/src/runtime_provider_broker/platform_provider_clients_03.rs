@@ -2779,8 +2779,8 @@ impl iroha_core::beacon::GlobalThresholdBeaconPartialSignerV1 for GlobalBeaconBr
     fn prove_seat_readiness(
         &self,
         session: &iroha_core::beacon::ValidatedGlobalThresholdBeaconSessionV1,
-        authority: &iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalityAuthorityGenerationV1,
-        context: &iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalitySeatReadinessContextV1,
+        authority: &iroha_data_model::sumeragi::epoch::ValidatorGenerationV1,
+        context: &iroha_data_model::nexus::ValidatorSeatReadinessContextV1,
     ) -> Result<
         iroha_data_model::consensus::GlobalThresholdBeaconPartialSignatureV1,
         iroha_core::beacon::seat_readiness::GlobalThresholdBeaconSeatReadinessErrorV1,

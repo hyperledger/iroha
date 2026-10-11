@@ -1680,6 +1680,11 @@ impl TieredStateBackend {
             world.axt_asset_incarnations
         );
         collect_map!(
+            TieredSegment::AssetDefinitionDirectHomes,
+            AssetDefinitionDirectHome,
+            world.asset_definition_direct_homes
+        );
+        collect_map!(
             TieredSegment::AxtReplayLedger,
             AxtReplay,
             world.axt_replay_ledger
@@ -1757,6 +1762,11 @@ impl TieredStateBackend {
             TieredSegment::PrivacyRootHeads,
             PrivacyRootHead,
             world.privacy_root_heads
+        );
+        collect_map!(
+            TieredSegment::KagemushaWalletLedger,
+            KagemushaWalletLedger,
+            world.kagemusha_wallet_ledger
         );
         collect_map!(
             TieredSegment::PrivateSettlementGovernance,
@@ -1917,11 +1927,6 @@ impl TieredStateBackend {
             world.timed_ovn_evidence
         );
         collect_map!(
-            TieredSegment::ValidatorCandidateKeys,
-            ValidatorCandidateKeys,
-            world.validator_candidate_keys
-        );
-        collect_map!(
             TieredSegment::ValidatorCommitteeTransitions,
             ValidatorCommitteeTransition,
             world.validator_committee_transitions
@@ -1950,26 +1955,6 @@ impl TieredStateBackend {
             TieredSegment::GlobalBeaconPulses,
             GlobalBeaconPulse,
             world.global_beacon_pulses
-        );
-        collect_map!(
-            TieredSegment::KagemushaMintCreditOperations,
-            KagemushaMintCreditOperation,
-            world.kagemusha_mint_credit_operations
-        );
-        collect_map!(
-            TieredSegment::KagemushaIssuanceOperations,
-            KagemushaIssuanceOperation,
-            world.kagemusha_issuance_operations
-        );
-        collect_map!(
-            TieredSegment::KagemushaRedemptionIdOperations,
-            KagemushaRedemptionIdOperation,
-            world.kagemusha_redemption_id_operations
-        );
-        collect_map!(
-            TieredSegment::KagemushaTerminalNullifierOperations,
-            KagemushaTerminalNullifierOperation,
-            world.kagemusha_terminal_nullifier_operations
         );
         Ok(())
     }
@@ -2501,7 +2486,7 @@ mod measured_bytes_impls {
             RecoveryGuardian, rekey::AccountAliasDomain,
         },
         asset::{
-            AssetDefinition, AssetDefinitionId, AssetId,
+            AssetDefinition, AssetDefinitionDirectHomeV1, AssetDefinitionId, AssetId,
             definition::{
                 AssetConfidentialPolicy, ConfidentialPolicyMode, ConfidentialPolicyTransition,
                 Mintable,
@@ -2544,10 +2529,11 @@ mod measured_bytes_impls {
         rwa::{RwaControlPolicy, RwaData, RwaId, RwaParentRef},
         smart_contract::ContractAddress,
         smart_contract::manifest::{
-            AccessSetHints, ContractErrorTypeDescriptor, ContractManifest, DynamicAccessHint,
-            EntryPointKind, EntrypointDescriptor, EntrypointParamDescriptor, KotobaTranslation,
-            KotobaTranslationEntry, ManifestProvenance, StateDescriptor, TriggerCallback,
-            TriggerDescriptor,
+            AccessSetHints, ContractErrorTypeDescriptor, ContractManifest,
+            ContractPermissionDescriptorV1, ContractPermissionScopeV1, DynamicAccessHint,
+            EntryPointKind, EntrypointAuthorizationV1, EntrypointDescriptor,
+            EntrypointParamDescriptor, KotobaTranslation, KotobaTranslationEntry,
+            ManifestProvenance, StateDescriptor, TriggerCallback, TriggerDescriptor,
         },
         sorafs_uri::SorafsUri,
         trigger::{TriggerId, action::Repeats},
@@ -2637,6 +2623,7 @@ mod measured_bytes_impls {
         PrivacyRootProvenanceV1,
         PrivacyStateItemRecordV1,
         AxtAssetIncarnationV1,
+        AssetDefinitionDirectHomeV1,
         AxtHandleCounterRecord,
         AxtPolicyEntry,
         PrivateSettlementFinalizationReferenceV1,
@@ -3374,13 +3361,36 @@ mod measured_bytes_impls {
             total = total.saturating_add(self.kind.measured_bytes_extra());
             total = total.saturating_add(self.params.measured_bytes_extra());
             total = total.saturating_add(self.return_type.measured_bytes_extra());
-            total = total.saturating_add(self.permission.measured_bytes_extra());
+            total = total.saturating_add(self.authorization.measured_bytes_extra());
             total = total.saturating_add(self.read_keys.measured_bytes_extra());
             total = total.saturating_add(self.write_keys.measured_bytes_extra());
             total = total.saturating_add(self.access_hints_complete.measured_bytes_extra());
             total = total.saturating_add(self.access_hints_skipped.measured_bytes_extra());
             total = total.saturating_add(self.triggers.measured_bytes_extra());
             total
+        }
+    }
+    impl MeasuredBytes for EntrypointAuthorizationV1 {
+        fn measured_bytes(&self) -> usize {
+            size_of::<Self>().saturating_add(match self {
+                Self::Permission(name) => name.measured_bytes_extra(),
+                Self::Anyone | Self::RuntimeLifecycle => 0,
+            })
+        }
+    }
+    impl MeasuredBytes for ContractPermissionScopeV1 {
+        fn measured_bytes(&self) -> usize {
+            size_of::<Self>().saturating_add(match self {
+                Self::Chain { permission_name } => permission_name.measured_bytes_extra(),
+                Self::Instance => 0,
+            })
+        }
+    }
+    impl MeasuredBytes for ContractPermissionDescriptorV1 {
+        fn measured_bytes(&self) -> usize {
+            size_of::<Self>()
+                .saturating_add(self.name.measured_bytes_extra())
+                .saturating_add(self.scope.measured_bytes_extra())
         }
     }
     impl MeasuredBytes for EntrypointParamDescriptor {
@@ -3452,6 +3462,7 @@ mod measured_bytes_impls {
             total = total.saturating_add(self.compiler_fingerprint.measured_bytes_extra());
             total = total.saturating_add(self.features_bitmap.measured_bytes_extra());
             total = total.saturating_add(self.access_set_hints.measured_bytes_extra());
+            total = total.saturating_add(self.permissions.measured_bytes_extra());
             total = total.saturating_add(self.entrypoints.measured_bytes_extra());
             total = total.saturating_add(self.states.measured_bytes_extra());
             total = total.saturating_add(self.error_types.measured_bytes_extra());
@@ -3771,13 +3782,6 @@ mod measured_bytes_impls {
                 .saturating_add(norito::codec::Encode::encode(self).len())
         }
     }
-    impl MeasuredBytes for iroha_data_model::nexus::ValidatorCandidateKeysV1 {
-        fn measured_bytes(&self) -> usize {
-            size_of::<Self>()
-                .saturating_add(self.keys.validator.measured_bytes_extra())
-                .saturating_add(self.peer_signature.measured_bytes_extra())
-        }
-    }
     impl MeasuredBytes for iroha_data_model::nexus::ValidatorCommitteeTransitionV1 {
         fn measured_bytes(&self) -> usize {
             let preparation = &self.preparation;
@@ -3807,21 +3811,6 @@ mod measured_bytes_impls {
                 bytes = bytes
                     .saturating_add(seat.validator.measured_bytes_extra())
                     .saturating_add(seat.proof_of_possession.measured_bytes_extra());
-            }
-            if let Some(credentials) = &self.credentials {
-                bytes = bytes.saturating_add(
-                    credentials
-                        .authority
-                        .validators
-                        .capacity()
-                        .saturating_mul(size_of::<
-                        iroha_data_model::isi::kagemusha_v1::KagemushaMintFinalityValidatorKeysV1,
-                    >(
-                    )),
-                );
-                for keys in &credentials.authority.validators {
-                    bytes = bytes.saturating_add(keys.validator.measured_bytes_extra());
-                }
             }
             bytes
         }
@@ -3925,6 +3914,7 @@ enum TieredSegment {
     AxtPolicies,
     AxtHandleCounters,
     AxtAssetIncarnations,
+    AssetDefinitionDirectHomes,
     AxtReplayLedger,
     AxtSpendNonceLedger,
     AxtSourceTransferReplayLedger,
@@ -3944,6 +3934,7 @@ enum TieredSegment {
     PrivacyCommitments,
     PrivacyRoots,
     PrivacyRootHeads,
+    KagemushaWalletLedger,
     PrivateSettlementGovernance,
     PrivateSettlementPools,
     PrivateSettlementRoots,
@@ -3976,17 +3967,12 @@ enum TieredSegment {
     TleKeySessionLifecycles,
     TleActiveKeySession,
     TimedOvnEvidence,
-    ValidatorCandidateKeys,
     ValidatorCommitteeTransitions,
     GlobalBeaconDkg,
     GlobalBeaconKeySessions,
     GlobalBeaconActiveSession,
     GlobalBeaconLatestPulse,
     GlobalBeaconPulses,
-    KagemushaMintCreditOperations,
-    KagemushaIssuanceOperations,
-    KagemushaRedemptionIdOperations,
-    KagemushaTerminalNullifierOperations,
 }
 /// Every tiered segment in key-handle declaration order: segment variant, key-handle variant,
 /// on-disk directory name and backing `World` storage field. Each consumer expands its own
@@ -4006,6 +3992,7 @@ macro_rules! tiered_segment_table {
             AxtPolicies, AxtPolicy, "axt_policies", axt_policies;
             AxtHandleCounters, AxtHandleCounter, "axt_handle_counters", axt_handle_counters;
             AxtAssetIncarnations, AxtAssetIncarnation, "axt_asset_incarnations", axt_asset_incarnations;
+            AssetDefinitionDirectHomes, AssetDefinitionDirectHome, "asset_definition_direct_homes", asset_definition_direct_homes;
             AxtReplayLedger, AxtReplay, "axt_replay_ledger", axt_replay_ledger;
             AxtSpendNonceLedger, AxtSpendNonce, "axt_spend_nonce_ledger", axt_spend_nonce_ledger;
             AxtSourceTransferReplayLedger, AxtSourceTransferReplay, "axt_source_transfer_replay_ledger", axt_source_transfer_replay_ledger;
@@ -4025,6 +4012,7 @@ macro_rules! tiered_segment_table {
             PrivacyCommitments, PrivacyCommitment, "privacy_commitments", privacy_commitments;
             PrivacyRoots, PrivacyRoot, "privacy_roots", privacy_roots;
             PrivacyRootHeads, PrivacyRootHead, "privacy_root_heads", privacy_root_heads;
+            KagemushaWalletLedger, KagemushaWalletLedger, "kagemusha_wallet_ledger", kagemusha_wallet_ledger;
             PrivateSettlementGovernance, PrivateSettlementGovernance, "private_settlement_governance", private_settlement_governance;
             PrivateSettlementPools, PrivateSettlementPool, "private_settlement_pools", private_settlement_pools;
             PrivateSettlementRoots, PrivateSettlementRoot, "private_settlement_roots", private_settlement_roots;
@@ -4057,17 +4045,12 @@ macro_rules! tiered_segment_table {
             TleKeySessionLifecycles, TleKeySessionLifecycle, "tle_key_session_lifecycles", tle_key_session_lifecycles;
             TleActiveKeySession, TleActiveKeySession, "tle_active_key_session", tle_active_key_session;
             TimedOvnEvidence, TimedOvnEvidence, "timed_ovn_evidence", timed_ovn_evidence;
-            ValidatorCandidateKeys, ValidatorCandidateKeys, "validator_candidate_keys", validator_candidate_keys;
             ValidatorCommitteeTransitions, ValidatorCommitteeTransition, "validator_committee_transitions", validator_committee_transitions;
             GlobalBeaconDkg, GlobalBeaconDkg, "global_beacon_dkg", global_beacon_dkg;
             GlobalBeaconKeySessions, GlobalBeaconKeySession, "global_beacon_key_sessions", global_beacon_key_sessions;
             GlobalBeaconActiveSession, GlobalBeaconActiveSession, "global_beacon_active_session", global_beacon_active_session;
             GlobalBeaconLatestPulse, GlobalBeaconLatestPulse, "global_beacon_latest_pulse", global_beacon_latest_pulse;
             GlobalBeaconPulses, GlobalBeaconPulse, "global_beacon_pulses", global_beacon_pulses;
-            KagemushaMintCreditOperations, KagemushaMintCreditOperation, "kagemusha_mint_credit_operations", kagemusha_mint_credit_operations;
-            KagemushaIssuanceOperations, KagemushaIssuanceOperation, "kagemusha_issuance_operations", kagemusha_issuance_operations;
-            KagemushaRedemptionIdOperations, KagemushaRedemptionIdOperation, "kagemusha_redemption_id_operations", kagemusha_redemption_id_operations;
-            KagemushaTerminalNullifierOperations, KagemushaTerminalNullifierOperation, "kagemusha_terminal_nullifier_operations", kagemusha_terminal_nullifier_operations;
         }
     };
 }
@@ -4256,6 +4239,7 @@ pub(crate) enum TieredKeyHandle {
     AxtPolicy(iroha_model_base::topology::DataSpaceId),
     AxtHandleCounter(iroha_model_base::topology::DataSpaceId),
     AxtAssetIncarnation(iroha_data_model::asset::AssetDefinitionId),
+    AssetDefinitionDirectHome(iroha_data_model::asset::AssetDefinitionId),
     AxtReplay(iroha_data_model::nexus::AxtHandleReplayKey),
     AxtSpendNonce(iroha_data_model::nexus::AxtAnchoredSpendReplayKeyV1),
     AxtSourceTransferReplay(iroha_data_model::nexus::AxtSourceTransferReplayKeyV1),
@@ -4275,6 +4259,7 @@ pub(crate) enum TieredKeyHandle {
     PrivacyCommitment(crate::privacy_state::PrivacyCommitmentKeyV1),
     PrivacyRoot(crate::privacy_state::PrivacyRootKeyV1),
     PrivacyRootHead(crate::privacy_state::PrivacyRootHeadKeyV1),
+    KagemushaWalletLedger(iroha_data_model::kagemusha::KagemushaWalletLedgerKeyV1),
     PrivateSettlementGovernance(
         crate::private_settlement::global_state::PrivateSettlementPoolKeyV1,
     ),
@@ -4313,17 +4298,12 @@ pub(crate) enum TieredKeyHandle {
     TleKeySessionLifecycle(iroha_data_model::governance::types::TleKeySessionId),
     TleActiveKeySession(u64),
     TimedOvnEvidence(iroha_data_model::governance::types::BallotAttemptId),
-    ValidatorCandidateKeys([u8; 32]),
     ValidatorCommitteeTransition(u64),
     GlobalBeaconDkg([u8; 32]),
     GlobalBeaconKeySession([u8; 32]),
     GlobalBeaconActiveSession(u64),
     GlobalBeaconLatestPulse(u64),
     GlobalBeaconPulse([u8; 32]),
-    KagemushaMintCreditOperation([u8; 32]),
-    KagemushaIssuanceOperation([u8; 32]),
-    KagemushaRedemptionIdOperation([u8; 32]),
-    KagemushaTerminalNullifierOperation([u8; 32]),
 }
 impl TieredKeyHandle {
     fn segment(&self) -> TieredSegment {
@@ -4355,6 +4335,9 @@ impl TieredKeyHandle {
             TieredKeyHandle::AxtPolicy(key) => Ok(norito::codec::Encode::encode(key)),
             TieredKeyHandle::AxtHandleCounter(key) => Ok(norito::codec::Encode::encode(key)),
             TieredKeyHandle::AxtAssetIncarnation(key) => Ok(norito::codec::Encode::encode(key)),
+            TieredKeyHandle::AssetDefinitionDirectHome(key) => {
+                Ok(norito::codec::Encode::encode(key))
+            }
             TieredKeyHandle::AxtReplay(key) => Ok(norito::codec::Encode::encode(key)),
             TieredKeyHandle::AxtSpendNonce(key) => Ok(norito::codec::Encode::encode(key)),
             TieredKeyHandle::AxtSourceTransferReplay(key) => Ok(norito::codec::Encode::encode(key)),
@@ -4374,6 +4357,7 @@ impl TieredKeyHandle {
             TieredKeyHandle::PrivacyCommitment(key) => Ok(norito::codec::Encode::encode(key)),
             TieredKeyHandle::PrivacyRoot(key) => Ok(norito::codec::Encode::encode(key)),
             TieredKeyHandle::PrivacyRootHead(key) => Ok(norito::codec::Encode::encode(key)),
+            TieredKeyHandle::KagemushaWalletLedger(key) => Ok(norito::codec::Encode::encode(key)),
             TieredKeyHandle::PrivateSettlementGovernance(key)
             | TieredKeyHandle::PrivateSettlementPool(key) => Ok(norito::codec::Encode::encode(key)),
             TieredKeyHandle::PrivateSettlementRoot(key) => Ok(norito::codec::Encode::encode(key)),
@@ -4409,7 +4393,6 @@ impl TieredKeyHandle {
             TieredKeyHandle::TleKeySessionLifecycle(key) => Ok(norito::codec::Encode::encode(key)),
             TieredKeyHandle::TleActiveKeySession(key) => Ok(norito::codec::Encode::encode(key)),
             TieredKeyHandle::TimedOvnEvidence(key) => Ok(norito::codec::Encode::encode(key)),
-            TieredKeyHandle::ValidatorCandidateKeys(key) => Ok(norito::codec::Encode::encode(key)),
             TieredKeyHandle::ValidatorCommitteeTransition(key) => {
                 Ok(norito::codec::Encode::encode(key))
             }
@@ -4420,12 +4403,6 @@ impl TieredKeyHandle {
             }
             TieredKeyHandle::GlobalBeaconLatestPulse(key) => Ok(norito::codec::Encode::encode(key)),
             TieredKeyHandle::GlobalBeaconPulse(key) => Ok(norito::codec::Encode::encode(key)),
-            TieredKeyHandle::KagemushaMintCreditOperation(key)
-            | TieredKeyHandle::KagemushaIssuanceOperation(key)
-            | TieredKeyHandle::KagemushaRedemptionIdOperation(key)
-            | TieredKeyHandle::KagemushaTerminalNullifierOperation(key) => {
-                Ok(norito::codec::Encode::encode(key))
-            }
         }
     }
     fn entry_id(&self) -> Result<(TieredEntryId, Vec<u8>)> {
@@ -4504,6 +4481,9 @@ impl fmt::Display for TieredKeyHandle {
             TieredKeyHandle::AxtAssetIncarnation(id) => {
                 write!(f, "axt_asset_incarnation:{id}")
             }
+            TieredKeyHandle::AssetDefinitionDirectHome(id) => {
+                write!(f, "asset_definition_direct_home:{id}")
+            }
             TieredKeyHandle::AxtReplay(id) => write!(
                 f,
                 "axt_replay:{}:{}:{}:{}",
@@ -4557,6 +4537,9 @@ impl fmt::Display for TieredKeyHandle {
             TieredKeyHandle::PrivacyRoot(id) => write!(f, "privacy_root:{id:?}"),
             TieredKeyHandle::PrivacyRootHead(id) => {
                 write!(f, "privacy_root_head:{id:?}")
+            }
+            TieredKeyHandle::KagemushaWalletLedger(id) => {
+                write!(f, "kagemusha_wallet_ledger:{id:?}")
             }
             TieredKeyHandle::PrivateSettlementGovernance(id) => {
                 write!(f, "private_settlement_governance:{id:?}")
@@ -4626,9 +4609,6 @@ impl fmt::Display for TieredKeyHandle {
                 write!(f, "tle_active_key_session:{id}")
             }
             TieredKeyHandle::TimedOvnEvidence(id) => write!(f, "timed_ovn_evidence:{id}"),
-            TieredKeyHandle::ValidatorCandidateKeys(id) => {
-                write!(f, "validator_candidate_keys:{id:?}")
-            }
             TieredKeyHandle::ValidatorCommitteeTransition(id) => {
                 write!(f, "validator_committee_transitions:{id:?}")
             }
@@ -4647,26 +4627,6 @@ impl fmt::Display for TieredKeyHandle {
             TieredKeyHandle::GlobalBeaconPulse(id) => {
                 write!(f, "global_beacon_pulse:{}", id.encode_hex::<String>())
             }
-            TieredKeyHandle::KagemushaMintCreditOperation(id) => write!(
-                f,
-                "kagemusha_mint_credit_operation:{}",
-                id.encode_hex::<String>()
-            ),
-            TieredKeyHandle::KagemushaIssuanceOperation(id) => write!(
-                f,
-                "kagemusha_issuance_operation:{}",
-                id.encode_hex::<String>()
-            ),
-            TieredKeyHandle::KagemushaRedemptionIdOperation(id) => write!(
-                f,
-                "kagemusha_redemption_id_operation:{}",
-                id.encode_hex::<String>()
-            ),
-            TieredKeyHandle::KagemushaTerminalNullifierOperation(id) => write!(
-                f,
-                "kagemusha_terminal_nullifier_operation:{}",
-                id.encode_hex::<String>()
-            ),
         }
     }
 }
@@ -4713,6 +4673,52 @@ include!("tiered_hot_byte_accounting.rs");
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn contract_permission_metadata_accounts_for_every_owned_name() {
+        use iroha_data_model::smart_contract::manifest::{
+            ContractPermissionDescriptorV1, ContractPermissionScopeV1, EntrypointAuthorizationV1,
+        };
+        let declaration = ContractPermissionDescriptorV1 {
+            name: "Operator".parse().unwrap(),
+            scope: ContractPermissionScopeV1::Chain {
+                permission_name: "SharedOperations".parse().unwrap(),
+            },
+        };
+        assert_eq!(
+            declaration.measured_bytes_extra(),
+            "Operator".len() + "SharedOperations".len()
+        );
+        let policy = EntrypointAuthorizationV1::Permission("Operator".parse().unwrap());
+        assert_eq!(policy.measured_bytes_extra(), "Operator".len());
+        assert_eq!(EntrypointAuthorizationV1::Anyone.measured_bytes_extra(), 0);
+        assert_eq!(
+            EntrypointAuthorizationV1::RuntimeLifecycle.measured_bytes_extra(),
+            0
+        );
+        let mut manifest = iroha_data_model::smart_contract::manifest::ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            seiyaku_name: None,
+            code_hash: None,
+            abi_hash: None,
+            compiler_fingerprint: None,
+            features_bitmap: None,
+            access_set_hints: None,
+            permissions: Vec::new(),
+            entrypoints: None,
+            states: None,
+            error_types: None,
+            error_messages: None,
+            kotoba: None,
+            provenance: None,
+        };
+        let before = MeasuredBytes::measured_bytes(&manifest);
+        manifest.permissions = vec![declaration];
+        assert_eq!(
+            MeasuredBytes::measured_bytes(&manifest) - before,
+            manifest.permissions.measured_bytes_extra()
+        );
+    }
     use iroha_config::parameters::actual::LaneConfig as RuntimeLaneConfig;
     use iroha_crypto::{Hash, HashOf};
     use iroha_data_model::{
@@ -5197,6 +5203,52 @@ mod tests {
             "first-release persistence must not default or migrate missing descriptor fields"
         );
     }
+    #[test]
+    fn direct_home_row_roundtrips_through_cold_tier_disk() {
+        use iroha_data_model::asset::AssetDefinitionDirectHomeV1;
+        let temp = tempdir().expect("temporary cold storage");
+        let root = temp.path().to_path_buf();
+        let mut backend = TieredStateBackend::new(true, 0, 1, 0, Some(root.clone()), None, 0, 0);
+        let mut world = World::default();
+        let id = AssetDefinitionId::from_uuid_bytes([
+            0x31, 0x42, 0x53, 0x64, 0x75, 0x86, 0x47, 0x98, 0x80, 0x19, 0x2a, 0x3b, 0x4c, 0x5d,
+            0x6e, 0x7f,
+        ])
+        .unwrap();
+        let home = AssetDefinitionDirectHomeV1 {
+            incarnation: AxtAssetIncarnationV1::try_from_bytes(Hash::new(b"direct home").into())
+                .unwrap(),
+            dataspace_id: DataSpaceId::new((1_u64 << 53) + 7),
+        };
+        world.asset_definition_direct_homes.insert(id.clone(), home);
+        backend.record_world_snapshot(&world).unwrap();
+        let snapshot_index = backend.last_manifest().unwrap().snapshot_index;
+        drop(backend);
+        let manifest: TieredSnapshotManifest = json::from_slice(
+            &fs::read(
+                root.join(format!("{snapshot_index:020}"))
+                    .join("manifest.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let entry = manifest
+            .cold_entries
+            .iter()
+            .find(|entry| entry.segment == TieredSegment::AssetDefinitionDirectHomes)
+            .expect("direct-home authority is present in the persisted snapshot");
+        assert_eq!(entry.key_payload, norito::codec::Encode::encode(&id));
+        let reader = TieredStateBackend::new(true, 0, 1, 0, Some(root), None, 0, 0);
+        let original = reader
+            .read_cold_payload(snapshot_index, entry)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            json::from_slice::<AssetDefinitionDirectHomeV1>(&original).unwrap(),
+            home
+        );
+    }
+
     #[test]
     fn alias_binding_records_roundtrip_through_cold_tier_disk() {
         let temp = tempdir().expect("tmpdir");

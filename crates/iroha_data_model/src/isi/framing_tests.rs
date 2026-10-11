@@ -124,7 +124,7 @@ fn instruction_box_and_const_vec_measure_each_instruction_once() {
     let _registry = RegistryGuard::enter();
     for flags in layouts() {
         let _flags = DecodeFlagsGuard::enter(flags);
-        let boxed = InstructionBox(Box::new(CountedInstruction(0xa5)));
+        let boxed = InstructionBox::from_boxed(Box::new(CountedInstruction(0xa5)));
         let sequence = ConstVec::from(vec![boxed.clone()]);
         let cases: [(&dyn SerializePayload, usize); 2] = [(&boxed, 2), (&sequence, 3)];
         for (value, output_visits) in cases {
@@ -153,7 +153,7 @@ fn instruction_box_preserves_scalar_frame_and_tuple_bytes_in_every_layout() {
     let _registry = RegistryGuard::enter();
     for flags in layouts() {
         let _flags = DecodeFlagsGuard::enter(flags);
-        let boxed = InstructionBox(Box::new(CountedInstruction(0xa5)));
+        let boxed = InstructionBox::from_boxed(Box::new(CountedInstruction(0xa5)));
         // The fixture instruction has the scalar u8 wire/schema contract. This
         // independent buffer encoder pins its embedded header, checksum and body.
         let scalar_frame = to_bytes(&0xa5_u8).expect("canonical scalar frame");

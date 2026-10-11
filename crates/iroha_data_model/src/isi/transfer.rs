@@ -386,7 +386,7 @@ impl<'a> norito::core::DecodeFromSlice<'a> for TransferAssetBatch {
 }
 impl From<TransferAssetBatch> for InstructionBox {
     fn from(instruction: TransferAssetBatch) -> Self {
-        InstructionBox(Box::new(instruction))
+        InstructionBox::from_boxed(Box::new(instruction))
     }
 }
 

@@ -54,8 +54,10 @@ export interface ToriiBrowserExplorerInstruction {
 
 export interface ToriiBrowserExplorerAssetDefinition {
   readonly id: string;
-  /** Null denotes an intentionally unowned global definition. */
+  /** Domain home when present; direct dataspace homes are separate. */
   readonly owning_domain: string | null;
+  /** Exact immutable direct namespace; canonical nonzero u64 decimal text. */
+  readonly owning_dataspace: string | null;
   readonly mintable: string;
   readonly logo: string | null;
   readonly metadata: Readonly<Record<string, unknown>>;

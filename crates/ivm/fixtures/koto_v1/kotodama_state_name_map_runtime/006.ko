@@ -1,5 +1,5 @@
 
-        seiyaku C {
+        seiyaku C { permission WriteState;
             struct Entry { int amount, bool active }
             state StateMap<Name, Entry> Entries;
 
@@ -12,7 +12,7 @@
                 return value;
             }
 
-            kotoage fn main() -> int authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) -> int {
                 Entries[Name::parse("alice")] = Entry { amount: 41, active: true };
                 return read_score(key: Name::parse("alice"));
             }

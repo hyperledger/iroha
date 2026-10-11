@@ -38,8 +38,8 @@ Petal Stream replaces the retired binary-grid prototype (`PS1` over `QrStreamFra
 does not carry `QrStreamFrame` or `IRQR` frames: it is a complete transport with its own framing,
 forward error correction and payload integrity check. KAGEMUSHA payloads use the `kind` byte of
 §5.4 with the same values as `IrohaPeerWireKindV1`, which are the KAGEMUSHA wallet V1 envelope
-message tags (1 Offer, 2 Request, 3 Payment, 4 Credited, 5 SessionControl, 6 PolicyData;
-[wallet wire record](kagemusha_wallet_wire_v1.md) §3.4), and carry the encoded `IPM1` message as
+message tags (1 Offer, 2 Request, 3 Payment, 4 Credited, 5 SessionControl, 6 PolicyData,
+7 Lineage; [wallet wire record](kagemusha_wallet_wire_v1.md) §3.4), and carry the encoded `IPM1` message as
 the payload. Envelopes are at most 10,000 bytes, which the measurements in §8 use; Petal carries
 any such message whole (§5.5: the default receiver limit is 65 536 bytes).
 

@@ -11,7 +11,8 @@ impl Client {
     ///
     /// Torii requires that account's existing native `CanReadAllLedgerData` permission;
     /// owning an API token or an ordinary query signer does not establish that grant.
-    /// The fresh challenge is signed in the final GET URI and echoed in the singleton
+    /// The configured provider path prefix is preserved in the signed final GET URI.
+    /// The fresh challenge is signed in that URI and echoed in the singleton
     /// finality header. Owner-held listener credentials and the bounded no-redirect
     /// transport come from this client's admitted context. This is unverified data:
     /// consumers must still authenticate four current independently selected native
@@ -25,14 +26,14 @@ impl Client {
             return Err(eyre!("native resource names challenge must be nonzero"));
         }
         if self.torii_url.scheme() != "https"
-            || self.torii_url.path() != "/"
+            || !self.torii_url.path().ends_with('/')
             || self.torii_url.query().is_some()
             || self.torii_url.fragment().is_some()
             || !self.torii_url.username().is_empty()
             || self.torii_url.password().is_some()
         {
             return Err(eyre!(
-                "native private resource names provider requires a canonical HTTPS root"
+                "native private resource names provider requires a canonical HTTPS root ending in a slash"
             ));
         }
         let mut names = std::collections::HashSet::new();
@@ -190,6 +191,65 @@ mod tests {
         );
     }
     #[test]
+    fn native_names_provider_preserves_exact_peer_prefix_in_signed_get() {
+        for prefix in [
+            "native-peer-2/",
+            "native-peer-3/",
+            "native-peer-4/",
+            "private/nested/",
+        ] {
+            let client =
+                client_with_base_url(Url::parse(&format!("https://mock.local/{prefix}")).unwrap());
+            let response = Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .body(Vec::new())
+                .unwrap();
+            let (result, snapshots) = capture_requests(response, |transport| {
+                client
+                    .clone()
+                    .with_test_http_transport(transport)
+                    .get_native_resource_names_state_wire([0xab; 32])
+            });
+            assert!(result.is_err());
+            assert_eq!(snapshots.len(), 1);
+            let request = &snapshots[0];
+            let suffix = format!(
+                "{NATIVE_RESOURCE_NAMES_STATE_ROUTE_PREFIX_V1}{}",
+                "ab".repeat(32)
+            );
+            assert_eq!(
+                request.url.path(),
+                format!("/{prefix}{}", suffix.trim_start_matches('/'))
+            );
+            assert!(request.url.query().is_none());
+            assert_canonical_account_signed_request(&client, request);
+            let headers = request
+                .headers
+                .iter()
+                .map(|(key, value)| (key.to_ascii_lowercase(), value))
+                .collect::<std::collections::HashMap<_, _>>();
+            let mut stripped = request.url.clone();
+            stripped.set_path(&suffix);
+            let message = Client::exact_network_request_message(
+                &client.network_id,
+                &request.method,
+                &stripped,
+                &[],
+                headers["x-iroha-timestamp-ms"].parse::<u64>().unwrap(),
+                headers["x-iroha-nonce"],
+            )
+            .unwrap();
+            let signature = base64::engine::general_purpose::STANDARD
+                .decode(headers["x-iroha-signature"])
+                .unwrap();
+            assert!(
+                iroha_crypto::Signature::from_bytes(&signature)
+                    .verify(client.key_pair.public_key(), &message)
+                    .is_err()
+            );
+        }
+    }
+    #[test]
     fn native_names_provider_rejects_fi_bearer_and_cleartext_before_dispatch() {
         let response = Response::builder()
             .status(StatusCode::OK)
@@ -311,8 +371,13 @@ mod tests {
         );
     }
     #[test]
-    fn native_names_provider_rejects_prefixed_root_and_foreign_or_duplicate_headers() {
-        for root in ["https://mock.local/peer1/", "https://mock.local/?query=1"] {
+    fn native_names_provider_rejects_incomplete_root_and_foreign_or_duplicate_headers() {
+        for root in [
+            "https://mock.local/peer1",
+            "https://mock.local/?query=1",
+            "https://mock.local/#fragment",
+            "https://user:secret@mock.local/",
+        ] {
             let client = client_with_base_url(Url::parse("https://mock.local/").unwrap());
             let target = Url::parse(root).unwrap();
             let response = Response::builder()

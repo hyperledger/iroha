@@ -1,6 +1,6 @@
 
-        seiyaku AuthorityDomainTransfer {
-        kotoage fn main() authorize("TransferDomain") {
+        seiyaku AuthorityDomainTransfer { permission TransferDomain;
+        kotoage fn main() authorize(TransferDomain) {
             ledger::domain::transfer(
                 source: AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"),
                 domain: DomainId::parse("wonderland.universal"),

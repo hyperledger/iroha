@@ -356,82 +356,6 @@ enum SwiftTransactionEncoderError: Error, LocalizedError, Sendable {
     }
 }
 
-private struct NativeClaimIdentifierExecutionEnvelope: Encodable, Sendable {
-    let programId: String
-    let programDigest: String
-    let backend: String
-    let verificationMode: String
-    let inputCiphertextHash: String
-    let outputCiphertextHash: String
-    let parameterDigest: String
-    let evaluationKeyDigest: String
-    let outputHash: String
-    let associatedDataHash: String
-    let executedAtMs: UInt64
-    let expiresAtMs: UInt64?
-
-    private enum CodingKeys: String, CodingKey {
-        case programId = "program_id"
-        case programDigest = "program_digest"
-        case backend
-        case verificationMode = "verification_mode"
-        case inputCiphertextHash = "input_ciphertext_hash"
-        case outputCiphertextHash = "output_ciphertext_hash"
-        case parameterDigest = "parameter_digest"
-        case evaluationKeyDigest = "evaluation_key_digest"
-        case outputHash = "output_hash"
-        case associatedDataHash = "associated_data_hash"
-        case executedAtMs = "executed_at_ms"
-        case expiresAtMs = "expires_at_ms"
-    }
-}
-
-private struct NativeClaimIdentifierPayloadEnvelope: Encodable, Sendable {
-    let policyId: String
-    let execution: NativeClaimIdentifierExecutionEnvelope
-    let opening: ToriiRamLfeOutputOpening
-    let opaqueId: String
-    let receiptHash: String
-    let uaid: String
-    let accountId: String
-
-    private enum CodingKeys: String, CodingKey {
-        case policyId = "policy_id"
-        case execution
-        case opening
-        case opaqueId = "opaque_id"
-        case receiptHash = "receipt_hash"
-        case uaid
-        case accountId = "account_id"
-    }
-}
-
-private struct NativeClaimIdentifierAttestationEnvelope: Encodable, Sendable {
-    let kind: String
-    let algorithm: String?
-    let signature: String?
-    let proofBackend: String?
-    let proofB64: String?
-
-    private enum CodingKeys: String, CodingKey {
-        case kind
-        case algorithm
-        case signature
-        case proofBackend = "proof_backend"
-        case proofB64 = "proof_b64"
-    }
-}
-
-private struct NativeClaimIdentifierReceiptEnvelope: Encodable, Sendable {
-    let payload: NativeClaimIdentifierPayloadEnvelope
-    let attestation: NativeClaimIdentifierAttestationEnvelope
-
-    private enum CodingKeys: String, CodingKey {
-        case payload
-        case attestation
-    }
-}
-
 private let signedTransactionWireVersion: UInt8 = 1
 
 private func encodeVersionedSignedTransaction(_ signedTransaction: Data) -> Data {
@@ -440,51 +364,14 @@ private func encodeVersionedSignedTransaction(_ signedTransaction: Data) -> Data
     return bytes
 }
 
-private func encodeNativeClaimIdentifierReceiptJSON(
-    _ receipt: ToriiIdentifierResolutionReceipt
-) throws -> Data {
+func encodeNativeClaimIdentifierReceiptJSON(_ receipt: ToriiIdentifierResolutionReceipt) throws -> Data {
     do {
         _ = try ToriiIdentifierReceiptCanonicalEncoder.canonicalPayloadBytes(for: receipt)
+        try receipt.requireCurrentOwnerScope()
+        return try JSONEncoder().encode(receipt)
     } catch let ToriiClientError.invalidPayload(message) {
         throw SwiftTransactionEncoderError.invalidClaimIdentifierReceipt(message)
     }
-    let execution = receipt.payload.execution
-
-    let payload = NativeClaimIdentifierPayloadEnvelope(
-        policyId: receipt.payload.policyId,
-        execution: NativeClaimIdentifierExecutionEnvelope(
-            programId: execution.programId,
-            programDigest: execution.programDigest,
-            backend: execution.backend,
-            verificationMode: execution.verificationMode,
-            inputCiphertextHash: execution.inputCiphertextHash,
-            outputCiphertextHash: execution.outputCiphertextHash,
-            parameterDigest: execution.parameterDigest,
-            evaluationKeyDigest: execution.evaluationKeyDigest,
-            outputHash: execution.outputHash,
-            associatedDataHash: execution.associatedDataHash,
-            executedAtMs: execution.executedAtMs,
-            expiresAtMs: execution.expiresAtMs
-        ),
-        opening: receipt.payload.opening,
-        opaqueId: receipt.payload.opaqueId,
-        receiptHash: receipt.payload.receiptHash,
-        uaid: receipt.payload.uaid,
-        accountId: receipt.payload.accountId
-    )
-    let attestation = NativeClaimIdentifierAttestationEnvelope(
-        kind: receipt.attestation.kind,
-        algorithm: receipt.attestation.algorithm,
-        signature: receipt.attestation.signature,
-        proofBackend: receipt.attestation.proofBackend,
-        proofB64: receipt.attestation.proofB64
-    )
-    return try JSONEncoder().encode(
-        NativeClaimIdentifierReceiptEnvelope(
-            payload: payload,
-            attestation: attestation
-        )
-    )
 }
 
 enum SingleInstructionSwiftNoritoEncoder {
@@ -540,6 +427,32 @@ enum SingleInstructionSwiftNoritoEncoder {
         transactionPayload.writeField(encodeNoneOption())
 
         return transactionPayload.data
+    }
+
+    /// Ordinary `Executable::Instructions` payload over exact dynamic instruction frames.
+    static func instructionsPayload(
+        networkId: NetworkId,
+        authority: String,
+        creationTimeMs: UInt64,
+        ttlMs: UInt64?,
+        frames: [TransactionInstructionFrame],
+        feePayment: FeePaymentIntent
+    ) throws -> Data {
+        guard !frames.isEmpty else { throw ExecutableBatchInputError.emptyBatch }
+        return try encodeNetworkTransactionPayload(
+            networkId: networkId, authority: authority, creationTimeMs: creationTimeMs,
+            ttlMs: ttlMs, feePayment: feePayment,
+            instructionPayloads: try frames.map { try $0.compactInstructionBoxPayload(expectedNetworkId: networkId) }
+        )
+    }
+
+    /// Versioned signed wire and entrypoint hash for an exact payload and its detached signature.
+    static func signedEnvelope(transactionPayload: Data, signature: Data) -> SignedTransactionEnvelope {
+        let signed = encodeCompactSignedTransaction(signature: signature, transactionPayload: transactionPayload)
+        return SignedTransactionEnvelope(
+            norito: encodeVersionedSignedTransaction(signed), signedTransaction: signed, payload: nil,
+            transactionHash: IrohaHash.hash(encodeTransactionEntrypoint(transactionPayload))
+        )
     }
 
     static func encodeExecutableBatch(
@@ -1087,6 +1000,9 @@ struct SwiftTransactionEncoder {
     static func encodeClaimIdentifier(request: ClaimIdentifierRequest,
                                       signingKey: SigningKey,
                                       creationTimeMs: UInt64) throws -> SignedTransactionEnvelope {
+        guard request.networkId == request.receipt.payload.networkId else {
+            throw SwiftTransactionEncoderError.invalidClaimIdentifierReceipt("Receipt network must equal the independently selected transaction network.")
+        }
         let receiptAccountId = request.receipt.payload.accountId
         let ids = try TransactionInputValidator.validate(networkId: request.networkId,
                                                          authorityId: request.authority,

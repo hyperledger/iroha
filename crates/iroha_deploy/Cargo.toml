@@ -17,7 +17,12 @@ categories.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Owning unit-test selectors only; never forwarded to SDK or Core dependencies.
+mutation-testing = []
+
 [dependencies]
+iroha_allocation = { workspace = true }
 iroha_torii_shared = { workspace = true }
 iroha = { workspace = true }
 iroha_contract_deploy = { workspace = true }
@@ -55,7 +60,7 @@ toml = { workspace = true }
 url = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.4", features = ["process", "net"] }
+rustix = { version = "1.1.4", features = ["process", "net", "event"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
@@ -70,8 +75,6 @@ mv = { workspace = true }
 iroha_test_samples = { workspace = true }
 iroha_version = { workspace = true }
 iroha_core = { workspace = true, default-features = false, features = ["iroha-core-tests"] }
-iroha_allocation = { workspace = true }
-halo2curves = { workspace = true }
 iroha_data_model = { workspace = true, default-features = false, features = ["test-fixtures", "transparent_api"] }
 iroha_sumeragi = { workspace = true }
 kotodama_lang = { workspace = true }

@@ -36,7 +36,7 @@ fn hex(bytes: &[u8]) -> String {
 
 fn unhex(value: &str) -> Result<Vec<u8>> {
     ensure!(
-        value.len() % 2 == 0 && value.is_ascii(),
+        value.len().is_multiple_of(2) && value.is_ascii(),
         "invalid wire hexadecimal"
     );
     let bytes = (0..value.len())
@@ -215,13 +215,12 @@ fn genesis_validator_authorities<'a>(
         if let Some(activation) = instruction
             .as_any()
             .downcast_ref::<ActivatePublicLaneValidator>()
+            && activation.lane_id == LaneId::SINGLE
         {
-            if activation.lane_id == LaneId::SINGLE {
-                ensure!(
-                    activated.insert(activation.validator.clone()),
-                    "duplicate signed core-lane activation"
-                );
-            }
+            ensure!(
+                activated.insert(activation.validator.clone()),
+                "duplicate signed core-lane activation"
+            );
         }
         if let Some(binding) = instruction
             .as_any()

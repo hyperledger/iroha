@@ -35,6 +35,8 @@ use crate::{
 pub struct AppliedWatch {
     tip: Mutex<(u64, Option<HashOf<BlockHeader>>)>,
     changed: Condvar,
+    #[cfg(test)]
+    runner_waiters: std::sync::atomic::AtomicUsize,
 }
 
 impl AppliedWatch {
@@ -44,6 +46,8 @@ impl AppliedWatch {
         Self {
             tip: Mutex::new((height, hash)),
             changed: Condvar::new(),
+            #[cfg(test)]
+            runner_waiters: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -53,6 +57,37 @@ impl AppliedWatch {
         if height >= tip.0 {
             *tip = (height, Some(hash));
             self.changed.notify_all();
+        }
+    }
+
+    /// Wake the existing runner after its atomic queue/stop predicate changes.
+    /// Taking only this short tip lock closes the predicate-to-wait lost-wake edge.
+    pub(super) fn wake_runner(&self) {
+        let _tip = self.tip.lock();
+        self.changed.notify_all();
+    }
+
+    /// The runner waits for height, queue admission or stop under one original Condvar.
+    pub(super) fn wait_for_runner(
+        &self,
+        height: u64,
+        timeout: Duration,
+        pending: &std::sync::atomic::AtomicBool,
+        stopped: &std::sync::atomic::AtomicBool,
+    ) {
+        use std::sync::atomic::Ordering;
+        let deadline = Instant::now() + timeout;
+        let mut tip = self.tip.lock();
+        while tip.0 < height && !pending.load(Ordering::Acquire) && !stopped.load(Ordering::Acquire)
+        {
+            #[cfg(test)]
+            self.runner_waiters.fetch_add(1, Ordering::Release);
+            let timed_out = self.changed.wait_until(&mut tip, deadline).timed_out();
+            #[cfg(test)]
+            self.runner_waiters.fetch_sub(1, Ordering::Release);
+            if timed_out {
+                break;
+            }
         }
     }
 
@@ -170,6 +205,11 @@ impl QueueLaneTransactions {
 }
 
 impl LaneTransactions for QueueLaneTransactions {
+    #[cfg(test)]
+    fn empty_payload_answer(&self) {
+        self.queue.record_empty_lane_payload();
+    }
+
     fn candidates(
         &self,
         height: u64,
@@ -207,6 +247,65 @@ impl LaneTransactions for QueueLaneTransactions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn original_runner_watch_keeps_preexisting_and_concurrent_admission_stop_and_height() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let watch = Arc::new(AppliedWatch::new(3, None));
+        let pending = Arc::new(AtomicBool::new(true));
+        let stopped = Arc::new(AtomicBool::new(false));
+        watch.wait_for_runner(4, Duration::from_secs(5), &pending, &stopped);
+        assert_eq!(watch.height(), 3, "admission never manufactures a height");
+        pending.store(false, Ordering::Release);
+        for stop in [false, true] {
+            let (completed, completion) = std::sync::mpsc::sync_channel(1);
+            let waiter = {
+                let (watch, pending, stopped) = (
+                    Arc::clone(&watch),
+                    Arc::clone(&pending),
+                    Arc::clone(&stopped),
+                );
+                std::thread::spawn(move || {
+                    watch.wait_for_runner(4, Duration::from_secs(5), &pending, &stopped);
+                    completed.send(()).unwrap();
+                })
+            };
+            // This counter is written after the predicate was checked, while the tip
+            // mutex is still held. wake_runner takes that same mutex, so it cannot
+            // overtake the actual Condvar registration/unlock boundary.
+            let entered_deadline = Instant::now() + Duration::from_secs(1);
+            while watch.runner_waiters.load(Ordering::Acquire) == 0
+                && Instant::now() < entered_deadline
+            {
+                std::thread::yield_now();
+            }
+            let entered = watch.runner_waiters.load(Ordering::Acquire) != 0;
+            if stop {
+                stopped.store(true, Ordering::Release);
+            } else {
+                pending.store(true, Ordering::Release);
+            }
+            watch.wake_runner();
+            let woke = completion.recv_timeout(Duration::from_secs(1));
+            // Every test child closes naturally even if the notification was omitted.
+            waiter.join().expect("actual original Condvar waiter");
+            assert!(
+                entered,
+                "actual original runner must enter its Condvar wait"
+            );
+            assert!(
+                woke.is_ok(),
+                "queue/stop wake must precede the original five-second deadline"
+            );
+            assert_eq!(watch.height(), 3);
+            pending.store(false, Ordering::Release);
+        }
+        stopped.store(false, Ordering::Release);
+        let hash = HashOf::from_untyped_unchecked(iroha_crypto::Hash::prehashed([4; 32]));
+        watch.publish(4, hash);
+        watch.wait_for_runner(4, Duration::ZERO, &pending, &stopped);
+        assert_eq!(watch.height(), 4);
+    }
 
     #[test]
     fn the_watch_publishes_monotonically_and_wakes_waiters() {

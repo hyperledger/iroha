@@ -1,3 +1,4 @@
+//! Round-trip coverage for the complete canonical contract manifest.
 use iroha_crypto::Hash;
 use iroha_data_model::smart_contract::manifest::{
     AccessSetHints, ContractErrorMessage, ContractErrorTypeDescriptor,
@@ -6,6 +7,8 @@ use iroha_data_model::smart_contract::manifest::{
 #[test]
 fn contract_manifest_roundtrip_norito() {
     let manifest = ContractManifest {
+        permissions: Vec::new(),
+        events: Vec::new(),
         seiyaku_name: None,
         code_hash: Some(Hash::new(b"code-hash")),
         abi_hash: Some(Hash::new(b"abi-hash")),
@@ -34,6 +37,7 @@ fn contract_manifest_roundtrip_norito() {
                 code: 1,
             }],
         }]),
+        enum_types: Vec::new(),
         provenance: None,
     };
     let bytes = norito::to_bytes(&manifest).expect("encode manifest");

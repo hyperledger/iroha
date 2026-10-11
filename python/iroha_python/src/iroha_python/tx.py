@@ -691,6 +691,61 @@ class TransactionDraft:
         )
         return self
 
+    def register_dataspace_asset_definition(
+        self,
+        definition_id: str,
+        *,
+        dataspace_id: int,
+        balance_scope_policy: str,
+        name: str,
+        description: Optional[str] = None,
+        alias: Optional[str] = None,
+        scale: Optional[Union[int, str]] = None,
+        mintable: Optional[str] = None,
+        metadata: MetadataLike = None,
+    ) -> TransactionDraft:
+        """Append a direct-dataspace definition; namespace authority is checked by the ledger."""
+
+        normalized_scale: Optional[int]
+        if scale is None:
+            normalized_scale = None
+        elif isinstance(scale, int):
+            normalized_scale = scale
+        elif isinstance(scale, str):
+            try:
+                normalized_scale = int(scale)
+            except ValueError as exc:  # pragma: no cover - defensive
+                raise ValueError(f"scale '{scale}' must be an integer value") from exc
+        else:
+            raise TypeError("scale must be an integer or string when provided")
+
+        if isinstance(dataspace_id, bool) or not isinstance(dataspace_id, int):
+            raise TypeError("dataspace_id must be an exact integer")
+        if not 0 < dataspace_id <= (1 << 64) - 1:
+            raise ValueError("dataspace_id must be a nonzero u64")
+        if balance_scope_policy not in {"Global", "DataspaceRestricted"}:
+            raise ValueError(
+                "balance_scope_policy must be Global or DataspaceRestricted"
+            )
+        normalized_name = _require_exact_non_empty_string(name, "name")
+
+        metadata_payload = _normalize_metadata(metadata)
+
+        self.add_instruction(
+            Instruction.register_dataspace_asset_definition(
+                definition_id,
+                dataspace_id=dataspace_id,
+                name=normalized_name,
+                description=description,
+                alias=alias,
+                scale=normalized_scale,
+                mintable=mintable,
+                balance_scope_policy=balance_scope_policy,
+                metadata=metadata_payload,
+            )
+        )
+        return self
+
     def register_zk_asset(
         self,
         asset_definition_id: str,

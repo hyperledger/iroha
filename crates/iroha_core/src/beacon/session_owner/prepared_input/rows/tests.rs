@@ -33,9 +33,10 @@ fn prepared_peer_field_retains_complete_framing_and_crypto_logical_charges() {
         storage[offset..offset + encoded.len()].copy_from_slice(&encoded);
         let bytes = &storage[offset..offset + encoded.len()];
         assert_eq!((bytes.as_ptr() as usize + prefix_bytes) % alignment, 0);
-        // PeerId's field framing charges its complete PublicKey payload. The
-        // child then charges count + each element payload + compact backing.
-        let required = field_bytes + 3 * width;
+        // PeerId's field framing borrows its complete PublicKey payload. The
+        // child charges count + each element payload + compact backing;
+        // borrowed framing contributes no allocation charge.
+        let required = 3 * width;
         let protocol = DecodeLimits::new(4096, 4096, 4096, required, 32);
         let (owned, owned_usage) = with_decode_limits_measured(protocol, || {
             PeerId::decode_fields(bytes, &mut OwnedFields)
@@ -50,13 +51,7 @@ fn prepared_peer_field_retains_complete_framing_and_crypto_logical_charges() {
         assert_eq!(prepared_usage, owned_usage);
         assert_eq!(pool.reserved_bytes(), width);
         let pointer = destination.key.decoded_compact().unwrap().as_ptr();
-        for allowed in [
-            field_bytes - 1,
-            field_bytes,
-            field_bytes + width,
-            field_bytes + 2 * width,
-            required - 1,
-        ] {
+        for allowed in [width - 1, width, 2 * width - 1, 2 * width, required - 1] {
             let outer = DecodeLimits::new(4096, 4096, 4096, allowed, 32);
             let owned = with_decode_limits_scope(outer, || {
                 classify_decode_attempt(|| {

@@ -152,7 +152,7 @@ test("resolveAlias attaches canonical auth when provided", async () => {
   assert.equal(verifyEd25519(message, signature, publicKey), true);
 });
 
-test("resolveAlias returns null for missing aliases and rejects when runtime is disabled", async () => {
+test("resolveAlias returns null for missing aliases and rejects when runtime is unavailable", async () => {
   const client = new ToriiClient("https://example.test", {
     fetchImpl: async (_input, init) => {
       const parsed = JSON.parse(init.body);
@@ -168,7 +168,7 @@ test("resolveAlias returns null for missing aliases and rejects when runtime is 
 
   await assert.rejects(
     () => client.resolveAlias("disabled-alias"),
-    /ISO bridge runtime is disabled/,
+    /ISO bridge runtime is unavailable/,
   );
 });
 
@@ -211,7 +211,7 @@ test("resolveAliasByIndex forwards service errors", async () => {
 
   await assert.rejects(
     () => client.resolveAliasByIndex(9),
-    /ISO bridge runtime is disabled/,
+    /ISO bridge runtime is unavailable/,
   );
 });
 

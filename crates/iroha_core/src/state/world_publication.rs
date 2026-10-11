@@ -31,7 +31,7 @@ pub(in crate::state) struct FieldRefusal {
     pub field: &'static str,
     /// Inner TriggerSet component, when that aggregate refused preparation.
     pub trigger_component: Option<&'static str>,
-    /// Original physical or pool-scope refusal; never a consensus verdict.
+    /// Original physical refusal; never a consensus verdict.
     pub cause: PublicationPreparationError<mv::storage::AdmittedStorageError>,
 }
 
@@ -41,8 +41,6 @@ pub(in crate::state) struct FieldRefusal {
 pub(in crate::state) enum WorldPublicationError<E> {
     /// Complete installation resources were refused before any writer acquisition.
     Admission(E),
-    /// The original finite operation-index pool could not enter its local scope.
-    Scope(mv::storage::AdmittedStorageError),
     /// A previous installation still owns its original delayed cleanup shells.
     ShellsNotRetired(resources::ShellsNotRetired),
     /// One exact original owner could not be prepared.
@@ -164,7 +162,6 @@ where
 pub(super) fn storage_slot<'target, K: Key, V: Value, M: WorldStorageMode<K, V>>(
     mut original: Box<RetainedStorage<K, V, M>>,
     world: &'target World,
-    scope: &iroha_allocation::OwnedAllocationScope,
 ) -> Box<dyn PreparedWorldField + 'target>
 where
     M::Charge: Send + Sync + 'static,
@@ -174,7 +171,7 @@ where
     // Inert shell construction precedes every field's physical preparation.
     Box::new(PreparedStorage {
         original: Some(original),
-        phase: FieldPhase::Preparing(M::publication_slot(journal, target, scope)),
+        phase: FieldPhase::Preparing(M::publication_slot(journal, target)),
         published: None,
         aborted: None,
         released: false,
@@ -458,7 +455,6 @@ pub(in crate::state) struct AbortedWorld<'target, Installation> {
     _fields: PreparedWorldFields<'target>,
     _installation: Option<Installation>,
     _shell_installation: Option<WorldJournalShellInstallation>,
-    _operation_index_scope: Option<iroha_allocation::OwnedAllocationScope>,
 }
 
 /// All original World writers retained together, with no State authorization.
@@ -477,7 +473,6 @@ pub(in crate::state) struct PreparedWorld<'target, Admission, Installation> {
     shell_installation: WorldJournalShellInstallation,
     admission: Admission,
     installation: Installation,
-    operation_index_scope: iroha_allocation::OwnedAllocationScope,
 }
 
 /// Original field boxes and containers retained after physical publication.
@@ -487,7 +482,6 @@ pub(in crate::state) struct WorldRetirement<'target> {
     _retry: Vec<Box<dyn RetainedWorldField>>,
     _shells: WorldJournalShellReservation,
     _shell_installation: WorldJournalShellInstallation,
-    _operation_index_scope: iroha_allocation::OwnedAllocationScope,
 }
 
 #[path = "world_preparation.rs"]
@@ -552,18 +546,15 @@ impl<'target, Admission, Installation> PreparedWorld<'target, Admission, Install
             shell_installation,
             admission: retained_admission,
             installation: retained_installation,
-            operation_index_scope,
         } = self;
         installation = retained_installation;
         admission = retained_admission;
-        let operation_index_budget = operation_index_scope.allocation_budget().clone();
         fields.recover_all();
         retry.extend(fields.iter_mut().map(|field| field.abort()));
         let retirement = AbortedWorld {
             _fields: fields,
             _installation: Some(installation),
             _shell_installation: Some(shell_installation),
-            _operation_index_scope: Some(operation_index_scope),
         };
         (
             DetachedWorld {
@@ -573,7 +564,6 @@ impl<'target, Admission, Installation> PreparedWorld<'target, Admission, Install
                 external_event_buf,
                 shells,
                 admission,
-                operation_index_budget,
             },
             retirement,
         )
@@ -602,7 +592,6 @@ impl<'target, Admission, Installation> PreparedWorld<'target, Admission, Install
             shell_installation,
             admission: retained_admission,
             installation: retained_installation,
-            operation_index_scope,
         } = self;
         installation = retained_installation;
         admission = retained_admission;
@@ -614,7 +603,6 @@ impl<'target, Admission, Installation> PreparedWorld<'target, Admission, Install
             _retry: retry,
             _shells: shells,
             _shell_installation: shell_installation,
-            _operation_index_scope: operation_index_scope,
         };
         (
             dataspace_catalog,

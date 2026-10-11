@@ -7,7 +7,7 @@ use iroha_core::{
     smartcontracts::Execute,
     state::{ElectionState, StandaloneBallotCorpusEntryV1, State, World, WorldReadOnly},
 };
-use iroha_core_zk::{ZK_BACKEND_HALO2_IPA, hash_vk};
+use iroha_core_zk::{hash_vk, native_pipa_r::BACKEND as NATIVE_BACKEND};
 use iroha_data_model::{
     Registrable,
     account::Account,
@@ -49,8 +49,8 @@ fn election_request(options: u32) -> CreateElection {
         eligible_root: [0; 32],
         start_ts: 0,
         end_ts: 0,
-        vk_ballot: VerifyingKeyId::new(ZK_BACKEND_HALO2_IPA, "ballot"),
-        vk_tally: VerifyingKeyId::new(ZK_BACKEND_HALO2_IPA, "tally"),
+        vk_ballot: VerifyingKeyId::new(NATIVE_BACKEND, "ballot"),
+        vk_tally: VerifyingKeyId::new(NATIVE_BACKEND, "tally"),
         domain_tag: "gov:ballot:v1".to_owned(),
     }
 }
@@ -156,13 +156,13 @@ fn unqualified_vote_circuits_cannot_enter_the_production_registry() {
         "halo2/pasta/ipa/vote-tally",
         "halo2/pasta/ipa/vote-bool-commit-merkle8",
     ] {
-        let id = VerifyingKeyId::new(ZK_BACKEND_HALO2_IPA, "unqualified");
-        let key = VerifyingKeyBox::new(ZK_BACKEND_HALO2_IPA.into(), vec![1, 2, 3, 4]);
+        let id = VerifyingKeyId::new(NATIVE_BACKEND, "unqualified");
+        let key = VerifyingKeyBox::new(NATIVE_BACKEND.into(), vec![1, 2, 3, 4]);
         let mut record = VerifyingKeyRecord::new(
             1,
             circuit_id,
-            BackendTag::Halo2IpaPasta,
-            "pallas",
+            BackendTag::NativePipaRPasta,
+            "vesta",
             [0x11; 32],
             hash_vk(&key),
         );
@@ -170,7 +170,7 @@ fn unqualified_vote_circuits_cannot_enter_the_production_registry() {
         record.vk_len = u32::try_from(key.bytes.len()).expect("key length");
         record.key = Some(key);
         record.max_proof_bytes = 1024;
-        record.gas_schedule_id = Some("halo2_default".to_owned());
+        record.gas_schedule_id = Some("native_pipa_r_default".to_owned());
         let error = RegisterVerifyingKey {
             id: id.clone(),
             record,
@@ -181,7 +181,7 @@ fn unqualified_vote_circuits_cannot_enter_the_production_registry() {
         assert_eq!(
             error,
             InstructionExecutionError::InvalidParameter(InvalidParameterError::SmartContract(
-                "Halo2 OpenVerify circuit_id is not in the production circuit registry".to_owned(),
+                "native PIPA-R circuit_id is not in the compiled circuit registry".to_owned(),
             )),
             "unexpected rejection for {circuit_id}"
         );
@@ -202,7 +202,7 @@ fn finalize_rejects_invalid_stored_and_submitted_tally_shapes() {
     Grant::account_permission(permission, ALICE_ID.clone())
         .execute(&ALICE_ID, &mut transaction)
         .expect("grant enact permission");
-    let vk_id = VerifyingKeyId::new(ZK_BACKEND_HALO2_IPA, "tally");
+    let vk_id = VerifyingKeyId::new(NATIVE_BACKEND, "tally");
     for (stored_len, submitted_len, expected_error) in [
         (0, 64, "invalid stored election shape"),
         (65, 64, "invalid stored election shape"),
@@ -224,8 +224,8 @@ fn finalize_rejects_invalid_stored_and_submitted_tally_shapes() {
             election_id: "ref-bounded".to_owned(),
             tally: vec![0; submitted_len],
             tally_proof: ProofAttachment::new_ref(
-                ZK_BACKEND_HALO2_IPA.into(),
-                ProofBox::new(ZK_BACKEND_HALO2_IPA.into(), Vec::new()),
+                NATIVE_BACKEND.into(),
+                ProofBox::new(NATIVE_BACKEND.into(), Vec::new()),
                 vk_id.clone(),
             ),
         }

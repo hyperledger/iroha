@@ -86,7 +86,7 @@ def inputs(root: Path, artifacts: str, maven: Path, version: str, mode: str):
             mapping[path] = "maven/" + path.relative_to(maven).as_posix()
     client = build / "client-android"
     verify_native_originals(runtime[1], client, mode)
-    for abi in ("arm64-v8a", "x86_64"):
+    for abi in ("arm64-v8a", "armeabi-v7a", "x86_64"):
         mapping[client / f"generated/jniLibs/{mode}/{abi}/libconnect_norito_bridge.so"] = f"native/{abi}/libconnect_norito_bridge.so"
     mapping[client / f"generated/nativeProvenance/{mode}/iroha/native-build-provenance-v1.json"] = "native/native-build-provenance-v1.json"
     return mapping
@@ -105,7 +105,14 @@ def verify_native_originals(runtime: Path, client: Path, mode: str):
                 raise ValueError("embedded native provenance exceeds1MiB")
             if hashlib.sha256(archive.read(entry)).hexdigest() != OWNER.file_digest(provenance):
                 raise ValueError("embedded native provenance differs from its generated original")
-            for abi in ("arm64-v8a", "x86_64"):
+            expected = {f"jni/{abi}/libconnect_norito_bridge.so" for abi in ("arm64-v8a", "armeabi-v7a", "x86_64")}
+            actual = {name for name in names if name.startswith("jni/") and name.endswith("/libconnect_norito_bridge.so")}
+            if actual != expected:
+                raise ValueError("client AAR requires exact three-ABI native originals")
+            document = json.loads(provenance.read_bytes())
+            if set(document.get("libraries", {})) != {"arm64-v8a", "armeabi-v7a", "x86_64"}:
+                raise ValueError("native provenance requires exact three-ABI originals")
+            for abi in ("arm64-v8a", "armeabi-v7a", "x86_64"):
                 generated = client / f"generated/jniLibs/{mode}/{abi}/libconnect_norito_bridge.so"
                 entry = f"jni/{abi}/libconnect_norito_bridge.so"
                 if archive.getinfo(entry).file_size != generated.stat().st_size:

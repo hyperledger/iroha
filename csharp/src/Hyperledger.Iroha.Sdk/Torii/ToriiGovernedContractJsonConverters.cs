@@ -31,6 +31,7 @@ internal static class ToriiGovernedContractJson
         "pending_owner",
         "parliament_delegated",
         "active_code_hash_hex",
+        "retained_code_hash_hex",
         "revision",
         "emergency_hold",
     ];
@@ -232,6 +233,7 @@ internal static class ToriiGovernedContractJson
             PendingOwner = ReadNullableToken(root["pending_owner"], $"{context}.pending_owner"),
             ParliamentDelegated = RequireBool(root, "parliament_delegated", context),
             ActiveCodeHashHex = ReadNullableHash(root["active_code_hash_hex"], $"{context}.active_code_hash_hex"),
+            RetainedCodeHashHex = ReadNullableHash(root["retained_code_hash_hex"], $"{context}.retained_code_hash_hex"),
             Revision = RequireUInt64(root, "revision", context),
             EmergencyHold = root["emergency_hold"].ValueKind == JsonValueKind.Null
                 ? null
@@ -269,6 +271,9 @@ internal static class ToriiGovernedContractJson
             lifecycle.ActiveCodeHashHex,
             $"{context}.active_code_hash_hex",
             32);
+        ToriiSseEventJson.RequireOptionalExactSizedHex(lifecycle.RetainedCodeHashHex, $"{context}.retained_code_hash_hex", 32);
+        if (lifecycle.ActiveCodeHashHex is not null && lifecycle.ActiveCodeHashHex != lifecycle.RetainedCodeHashHex)
+            throw new JsonException($"{context}.retained_code_hash_hex must match active_code_hash_hex for an active binding.");
         if (lifecycle.Revision == 0)
         {
             throw new JsonException($"{context}.revision must be non-zero.");
@@ -350,6 +355,7 @@ internal static class ToriiGovernedContractJson
         WriteNullableString(writer, "pending_owner", lifecycle.PendingOwner);
         writer.WriteBoolean("parliament_delegated", lifecycle.ParliamentDelegated);
         WriteNullableString(writer, "active_code_hash_hex", lifecycle.ActiveCodeHashHex);
+        WriteNullableString(writer, "retained_code_hash_hex", lifecycle.RetainedCodeHashHex);
         writer.WriteNumber("revision", lifecycle.Revision);
         writer.WritePropertyName("emergency_hold");
         if (lifecycle.EmergencyHold is null)

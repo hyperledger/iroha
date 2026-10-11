@@ -205,6 +205,12 @@ impl UninitSlice {
     pub fn len(&self) -> usize {
         self.0.len()
     }
+
+    /// Returns whether the slice contains no bytes.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 impl fmt::Debug for UninitSlice {

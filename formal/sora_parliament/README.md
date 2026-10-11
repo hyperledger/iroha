@@ -8,15 +8,21 @@ The model covers these consensus bindings:
 
 - the eligible-citizen snapshot is frozen before a strictly future finalized
   threshold-beacon pulse, and the initially required bodies are consumed as one
-  simultaneous draw batch. Live consensus makes every committed Parliament
-  pulse request mandatory and cannot advance past an absent pulse. The reducer
-  model deliberately over-approximates malformed or restored state: there, a
-  sortition pulse may be classified unavailable only strictly after its exact
-  height and only while no authoritative pulse is known. That fail-closed
-  branch records `NoRoster`; a retry supersedes the
-  complete failed initial generation, freezes a fresh snapshot, uses the exact
-  next sequence no earlier than the failure height, and the final permitted
-  sequence rejects the governance attempt. The model's single sortition
+  simultaneous draw batch. The wait for that pulse is governance-local.
+  Consensus owes Parliament no pulse: a request freezes one slot, the first
+  consensus-native pulse height (`(h + 1) % EpochLengthBlocks = 0`) at or
+  above `request height + SortitionPulseDelayBlocks` and strictly above every
+  earlier generation slot of the attempt. The pulse of a slot is committed in
+  its own block, so it cannot be known before that height; consumption may
+  happen at any later height. An `AwaitingPulse` election leaves that state
+  only by consuming the pulse of exactly its frozen slot. There is no
+  unavailable-pulse classification, fallback pulse, fresh height, redraw or
+  retry for it, and it may wait indefinitely. The only failure before the
+  first consumed pulse is the hidden-capacity evidence described below. It
+  records `NoRoster`; a retry supersedes the
+  complete failed initial generation, freezes a fresh snapshot and a fresh
+  later slot, uses the exact next sequence in a later block, and the final
+  permitted sequence rejects the governance attempt. The model's single sortition
   generation stands for every body whose active generation ended `NoRoster`:
   the reducer admits a retry batch only when it contains every such body,
   before and after the first consumed pulse, so one retry never strands
@@ -75,9 +81,11 @@ The model covers these consensus bindings:
   objectively eligible for `CommitmentDeadlineExpired`. Release consumption
   and aggregate finalization remain inside the inclusive
   `release_height + opening_phase_blocks` window;
-- a missed deadline becomes `NoResult`; the model also retains an objectively
-  absent finalized release pulse as a fail-closed malformed-state
-  over-approximation that fresh consensus cannot reach. Finalized-pulse
+- a missed deadline becomes `NoResult`. The timed-release phases are unchanged
+  in this revision and are replaced in a later one. Their release slot is no
+  longer consensus demand either: a timed ballot opens only if a pulse is
+  committed at exactly its release height, and otherwise ends through the
+  modeled absent-release-pulse `NoResult` branch. Finalized-pulse
   availability is authoritative, a still-awaiting
   or opening ballot becomes eligible for deadline failure after the frozen
   window, an invalid aggregate opening is rejected without mutating state, and
@@ -134,8 +142,9 @@ safety and does not prove that weak-fairness assumption.
 The small configuration uses two abstract bodies, two seated assignments, two
 competing public-finding roots, a two-block public-finding deadline, three TLE
 sessions (two with an authoritative release pulse and one modeling the
-fail-closed malformed-state absent-pulse branch), a two-block commitment
-window, a two-block opening window, and
+absent-release-pulse branch), a two-block commitment
+window, a two-block opening window, a native pulse cadence of three blocks
+with a one-block sortition pulse delay, and
 two permitted sortition retries plus two permitted ballot retries. Its three
 abstract resource reservations include one symmetric conflict pair and an exact
 capacity of two. A shared redraw ceiling of two is explored from both the first
@@ -146,12 +155,33 @@ coordinates immutable within each finite trace; successor attempts are the
 separate bounded `Init` alternatives, not an in-trace reset. It is
 intentionally large enough to explore self-absence, early impossible-root
 rejection, conflicting and quorum-matching endorsements, post-deadline
-non-response rejection, successful and unavailable sortition pulses, fresh
+non-response rejection, consumed and never-known sortition pulses, slot
+alignment and same-window retry slots, fresh
 sortition retries, sub-three hidden-electorate capacity failures,
 exhausted sortition rejection, both terminal and successful atomic
 Policy-to-Confirmation capacity branches, private deadline/release failure,
 exhausted ballot retry rejection, stale-head supersession, and rollback-isolated
 effect-failure paths.
+
+The exact-pulse wait is checked by four state invariants and two action
+properties. `NativeSortitionPulseSlots` requires every frozen slot, including
+the Confirmation request's, to be a native pulse height.
+`StrictlyIncreasingGenerationSlots` requires the generation slots of one
+attempt to increase strictly. `FrozenSortitionRequestSlot` binds the live
+request to its registered, derived slot and a consumed pulse to that slot.
+`ExactPulseWaitIsGovernanceLocal` requires that no failure, redraw or retry
+transition is enabled for an `AwaitingPulse` election and that it cannot be
+consumed while its pulse is not known. The `PROPERTIES` block adds
+`AwaitingPulseLeavesOnlyByExactConsumption` and
+`SortitionSlotNeverChangesAfterRegistration`.
+
+The model is safety-only: it has no fairness condition and runs with
+`CHECK_DEADLOCK FALSE`. An indefinite `AwaitingPulse` is therefore an allowed
+behaviour, not a violation, and the model says nothing about consensus. That a
+missing Parliament pulse never blocks block production, replay or an unrelated
+transaction is evidenced by the Core mutation `HC220` and its named test
+(`specs/sumeragi.md` section 13.4), not by this model.
+
 Run it with a compatible TLA2Tools installation:
 
 ```text
@@ -215,12 +245,16 @@ rather than proof of future liveness. Those operating seams are outside the TLA
 state machine and the check is not a refinement proof.
 For this formal-model corridor, release qualification still requires a settled
 source revision, an exhaustive same-source pinned TLC 2.19 run and archive, and
-qualification of mandatory finalized-pulse production and consensus-enforced
-global-beacon and TLE key-rotation paths. The repository-wide gate inventory in
-the [SORA Parliament hardening roadmap](../../roadmap.md#services-and-deployment)
-additionally requires focused and four-peer execution evidence, a genuine
-authenticated deployment-selected share provider, and independent review of the
-timed-OVN publication manifest. Qualified software custody or an authenticated
-external broker satisfies this provider boundary; hardware custody remains an
-optional deployment choice. Zeroizing software buffers alone are not
-secure-erasure evidence.
+qualification of finalized-pulse production and consensus-enforced
+global-beacon key rotation. The
+[ballot decision](../../specs/parliament_private_ballot_design.md) retires the
+timed-OVN and TLE phases modeled above. The governance-local exact-pulse wait
+already replaces the consensus-mandatory pulse and the unavailable-pulse
+branch. The model must still be revised to cover
+credential sealing, casting open, verified unique-nullifier append,
+deterministic closure and the terminal outcome, while preserving immutable quorum, bounded
+sortition and governance-attempt retries (ballot retries are removed), public
+findings, disjoint Confirmation and atomic capacity failure. The repository-wide gate inventory in the
+[SORA Parliament hardening roadmap](../../roadmap.md#services-and-deployment)
+additionally requires focused and four-peer execution evidence and independent
+review of the anonymous-ballot relation.

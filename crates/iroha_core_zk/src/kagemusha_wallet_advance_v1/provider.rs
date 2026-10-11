@@ -117,6 +117,20 @@ pub struct KagemushaWalletProviderV1<
     pub(super) options: KagemushaWalletProviderOptionsV1,
     pub(super) cache: BTreeMap<KagemushaWalletSlotIdV1, CachedSlotV1>,
     pub(super) pending_reasons: BTreeMap<KagemushaWalletSlotIdV1, KagemushaWalletProviderErrorV1>,
+    pub(super) generation_results:
+        BTreeMap<KagemushaWalletSlotIdV1, super::enrollment::RetainedGeneratedKeyV1>,
+    pub(super) generation_dispatches:
+        BTreeMap<KagemushaWalletSlotIdV1, super::enrollment::RetainedGenerationDispatchV1>,
+    /// Exact bytes this process published or durably adopted on a fresh inode, by directory and
+    /// name. A visible record from an uncertain write authorizes nothing until it is adopted
+    /// here; a sync alone cannot prove durability after a lost writeback.
+    pub(super) adopted:
+        std::cell::RefCell<BTreeMap<(KagemushaWalletCustodyDirV1, String), Vec<u8>>>,
+    /// Request identity and exact phase version this process last verified for each phased
+    /// slot; cached returns re-read the phase and compare.
+    /// Bytes are the phase, Client, Accepted permit and Slot selection, in that order.
+    pub(super) slot_phases:
+        std::cell::RefCell<BTreeMap<KagemushaWalletSlotIdV1, ([u8; 32], [Vec<u8>; 4])>>,
     sentinel: KagemushaWalletRootSentinelV1,
     _lock: F::Lock,
     _frames: PhantomData<fn() -> (C, R)>,
@@ -188,6 +202,10 @@ where
             options,
             cache: BTreeMap::new(),
             pending_reasons: BTreeMap::new(),
+            generation_results: BTreeMap::new(),
+            generation_dispatches: BTreeMap::new(),
+            adopted: std::cell::RefCell::new(BTreeMap::new()),
+            slot_phases: std::cell::RefCell::new(BTreeMap::new()),
             sentinel,
             _lock: lock,
             _frames: PhantomData,
@@ -233,15 +251,40 @@ where
         &self.options
     }
 
-    /// Every slot under the root, ascending.
+    /// Every file slot and, on Keychain platforms, every surviving payment-key slot,
+    /// ascending and unique. A key with no app files is retained for read-only R10 diagnosis;
+    /// listing creates no slot, key, marker or replacement wallet.
     ///
     /// # Errors
     ///
-    /// `Unavailable` on a listing error and `UnexpectedEntry` for a foreign entry.
+    /// `Unavailable` on storage, listing or Keychain enumeration errors, including malformed
+    /// or oversized platform inventories, and `UnexpectedEntry` for a foreign file entry.
     pub fn slots(&self) -> Result<Vec<KagemushaWalletSlotIdV1>, KagemushaWalletProviderErrorV1> {
-        let mut slots = kagemusha_wallet_list_slots_v1(&self.store)?.unwrap_or_default();
-        slots.sort_unstable();
-        Ok(slots)
+        self.require_storage()?;
+        let answer = (|| {
+            let mut slots = kagemusha_wallet_list_slots_v1(&self.store)?.unwrap_or_default();
+            if self.platform.anchor_policy() == super::KagemushaWalletAnchorPolicyV1::Keychain {
+                let keys = self
+                    .platform
+                    .key_enumerate()
+                    .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
+                if keys.len() > super::KAGEMUSHA_WALLET_KEY_ENUMERATION_MAX_SLOTS_V1
+                    || keys.iter().any(|slot| slot.0 == [0; 32])
+                    || !keys.windows(2).all(|pair| pair[0] < pair[1])
+                {
+                    return Err(KagemushaWalletProviderErrorV1::Unavailable(
+                        KagemushaWalletUnavailableV1::Platform(0),
+                    ));
+                }
+                slots.extend(keys);
+            }
+            slots.sort_unstable();
+            slots.dedup();
+            Ok(slots)
+        })();
+        // A successful empty read, or a custody-loss candidate, counts only while storage
+        // remained available. A lock transition never authorizes empty-wallet recreation.
+        self.require_storage().and(answer)
     }
 
     /// Reconcile `slot` without signing: a selected head stays `Pending`.
@@ -273,9 +316,150 @@ where
         self.reconcile_slot(slot, Some(owner))
     }
 
+    /// Read the actual payment key inside protected-storage brackets, without generation.
+    /// Positive lookup remains useful even when the platform cannot prove absence.
+    /// # Errors
+    /// Locked or unavailable storage. An unknown key result remains `Unavailable`.
+    pub fn probe_payment_key(
+        &self,
+        slot: &KagemushaWalletSlotIdV1,
+    ) -> Result<
+        super::KagemushaWalletProbeV1<iroha_data_model::kagemusha::KagemushaDevicePublicKeyV1>,
+        KagemushaWalletProviderErrorV1,
+    > {
+        self.probe_key(slot)
+    }
+
+    /// Read the exact capsule selected by the reconciled current source marker.
+    /// This read capability creates no Selected marker or monetary proof verdict.
+    /// # Errors
+    /// Reconciliation, custody loss or unknown protected-storage/read state; never absence.
+    pub fn current_capsule(
+        &mut self,
+        slot: &KagemushaWalletSlotIdV1,
+    ) -> Result<Option<C>, KagemushaWalletProviderErrorV1> {
+        let status = self.status(slot)?;
+        let record = match status {
+            KagemushaWalletSlotStatusV1::Enrollment(_) => return Ok(None),
+            KagemushaWalletSlotStatusV1::Pending(record)
+            | KagemushaWalletSlotStatusV1::Released(record) => record,
+            KagemushaWalletSlotStatusV1::Terminal(_) => {
+                return Err(KagemushaWalletProviderErrorV1::Terminal);
+            }
+            _ => {
+                return Err(KagemushaWalletProviderErrorV1::Invalid {
+                    field: "current source",
+                });
+            }
+        };
+        self.require_storage()?;
+        let answer = (|| {
+            let selected = record.selected_generation().ok_or(
+                KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                    object: "selected generation",
+                },
+            )?;
+            let (_, _, digest) =
+                record
+                    .head()
+                    .ok_or(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                        object: "selected capsule",
+                    })?;
+            let capsule = super::capsule::kagemusha_wallet_load_capsule_v1::<F, C>(
+                &self.store,
+                slot,
+                selected,
+                &digest,
+                &C::marker_binding(record.marker()),
+            )?;
+            Ok(Some(capsule.into_value()))
+        })();
+        self.require_storage().and(answer)
+    }
+
+    /// Read a native sleep-inclusive clock under the same protected custody lifetime.
+    /// No payment key or store is exposed; unknown time never becomes a zero reading.
+    pub(crate) fn monotonic_reading(
+        &self,
+    ) -> Result<
+        iroha_data_model::kagemusha::KagemushaWalletMonotonicReadingV1,
+        KagemushaWalletProviderErrorV1,
+    > {
+        self.require_storage()?;
+        let answer = (|| {
+            let boot_id = self
+                .boot()
+                .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
+            if boot_id == [0; 32] {
+                return Err(KagemushaWalletProviderErrorV1::Unavailable(
+                    KagemushaWalletUnavailableV1::Platform(0),
+                ));
+            }
+            let monotonic_ms = self
+                .platform
+                .monotonic_ms()
+                .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
+            if self
+                .boot()
+                .map_err(KagemushaWalletProviderErrorV1::Unavailable)?
+                != boot_id
+            {
+                return Err(KagemushaWalletProviderErrorV1::Unavailable(
+                    KagemushaWalletUnavailableV1::Busy,
+                ));
+            }
+            Ok(
+                iroha_data_model::kagemusha::KagemushaWalletMonotonicReadingV1 {
+                    boot_id,
+                    monotonic_ms,
+                },
+            )
+        })();
+        self.require_storage().and(answer)
+    }
+
+    pub(crate) fn prekey_root_identity(&self) -> [u8; 32] {
+        self.sentinel.root_nonce
+    }
+
+    pub(crate) fn enrollment_generation_policy(
+        &self,
+    ) -> Result<super::KagemushaWalletKeyGenerationPolicyV1, KagemushaWalletProviderErrorV1> {
+        self.require_storage()?;
+        self.platform
+            .key_generation_policy()
+            .map_err(KagemushaWalletProviderErrorV1::Unavailable)
+    }
+
     /// Current boot identity.
     pub(super) fn boot(&self) -> Result<[u8; 32], KagemushaWalletUnavailableV1> {
         self.platform.boot_id()
+    }
+
+    /// Free custody storage and memory available to the app now, for the design §5.3 runtime
+    /// capacity check. Free space is read inside the protected-storage bracket.
+    ///
+    /// # Errors
+    ///
+    /// `Unavailable` when protected storage is locked or free space cannot be read. An
+    /// unreadable value is never reported as a shortfall.
+    pub fn runtime_resources(
+        &self,
+    ) -> Result<
+        crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1,
+        KagemushaWalletProviderErrorV1,
+    > {
+        self.require_storage()?;
+        let storage_bytes = self
+            .store
+            .available_bytes()
+            .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
+        Ok(
+            crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1 {
+                storage_bytes,
+                memory_bytes: self.platform.available_memory(),
+            },
+        )
     }
 
     /// Require available protected storage now. Called before and after every answer from
@@ -310,6 +494,55 @@ where
         let answer = self.platform.key_probe(slot);
         self.require_storage()?;
         Ok(answer)
+    }
+
+    /// Durably adopt the exact visible `bytes` of `name`: republished on a fresh inode once per
+    /// process (then remembered), so a record left visible by an uncertain write or a lost
+    /// writeback counts only once it is durable.
+    ///
+    /// # Errors
+    /// `Unavailable`/`Uncertain` when the republication gives no durable answer; `Unavailable`
+    /// (`Busy`) when the name no longer holds exactly `bytes`.
+    pub(super) fn adopt_exact(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        name: &super::layout::KagemushaWalletEntryNameV1,
+        bytes: &[u8],
+    ) -> Result<(), KagemushaWalletProviderErrorV1> {
+        let key = (dir.clone(), name.as_str().to_owned());
+        if self
+            .adopted
+            .borrow()
+            .get(&key)
+            .is_some_and(|adopted| adopted.as_slice() == bytes)
+        {
+            return Ok(());
+        }
+        match self.store.rewrite_same(dir, name, bytes) {
+            super::platform::KagemushaWalletPublishOutcomeV1::NotPublished(
+                super::platform::KagemushaWalletNotPublishedV1::ContentMismatch
+                | super::platform::KagemushaWalletNotPublishedV1::DestinationAbsent,
+            ) => {
+                return Err(KagemushaWalletProviderErrorV1::Unavailable(
+                    KagemushaWalletUnavailableV1::Busy,
+                ));
+            }
+            outcome => super::layout::kagemusha_wallet_require_published_v1(outcome)?,
+        }
+        self.adopted.borrow_mut().insert(key, bytes.to_vec());
+        Ok(())
+    }
+
+    /// Remember exact bytes this process has just published durably.
+    pub(super) fn note_durable(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        name: &super::layout::KagemushaWalletEntryNameV1,
+        bytes: &[u8],
+    ) {
+        self.adopted
+            .borrow_mut()
+            .insert((dir.clone(), name.as_str().to_owned()), bytes.to_vec());
     }
 
     /// Forget the verified state of `slot`; the next operation reconciles it fully.

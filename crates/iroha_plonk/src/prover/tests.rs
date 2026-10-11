@@ -58,6 +58,7 @@ fn round_trip<C, Ci>(circuit: &Ci, instances: &[Vec<C::ScalarExt>])
 where
     C: PastaCurve,
     C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
     Ci: Circuit<C::ScalarExt>,
 {
     for choice in CHOICES {
@@ -90,7 +91,12 @@ where
             let accumulator = succinct.expect("succinct");
             assert_eq!(
                 accumulator.transcript_repr(),
-                setup.pk.vk().transcript_repr()
+                setup
+                    .pk
+                    .vk()
+                    .transcript_repr()
+                    .scalar()
+                    .expect("scalar profile")
             );
             assert_eq!(accumulator.decide(&setup.params, BUDGET), Ok(()));
         } else {
@@ -129,6 +135,7 @@ fn verdicts<C, Ci>(setup: &Setup<C>, circuit: &Ci, instances: &[Vec<C::ScalarExt
 where
     C: PastaCurve,
     C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
     Ci: Circuit<C::ScalarExt>,
 {
     let checked = check_circuit(circuit, K, instances, CheckMode::Strict)
@@ -203,6 +210,7 @@ fn thread_independent<C, Ci>(circuit: &Ci, instances: &[Vec<C::ScalarExt>], choi
 where
     C: PastaCurve,
     C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
     Ci: Circuit<C::ScalarExt> + Sync,
 {
     let setup = setup::<C, _>(circuit, choice);
@@ -225,6 +233,318 @@ fn proofs_do_not_depend_on_the_thread_count() {
     thread_independent::<Ep, _>(&ARITHMETIC, &ARITHMETIC.instances::<Fq>(), CHOICES[0]);
     thread_independent::<Eq, _>(&LOOKUPS, &[], CHOICES[1]);
     thread_independent::<Ep, _>(&PERMUTATIONS, &PERMUTATIONS.instances::<Fq>(), CHOICES[3]);
+}
+
+/// Compares reusable and consuming witnesses under every protocol option,
+/// with a recovery stream bound to the statement and secret witness.
+fn owned_proof_parity<C, Ci>(circuit: &Ci, instances: &[Vec<C::ScalarExt>])
+where
+    C: PastaCurve,
+    C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
+    Ci: Circuit<C::ScalarExt> + Sync,
+{
+    for choice in CHOICES {
+        let setup = setup::<C, _>(circuit, choice);
+        let witness = Witness::from_circuit(&setup.pk, circuit, instances).expect("witness");
+        let context_log = Arc::new(Mutex::new(Vec::new()));
+        let randomness =
+            || ProverRandomness::recovery(recording_derivation([73; 32], Arc::clone(&context_log)));
+        let reference = create_proof(
+            &setup.params,
+            &setup.pk,
+            &witness,
+            randomness(),
+            ProverConfig::default(),
+        )
+        .expect("borrowed proof");
+        let usable_rows = Protocol::new(setup.pk.binding().descriptor())
+            .expect("protocol")
+            .shape()
+            .usable_rows;
+        let digest = witness.digest(usable_rows, None).unwrap();
+        for workers in [1, 4] {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(workers)
+                .build()
+                .expect("pool");
+            let owned = Witness::from_circuit(&setup.pk, circuit, instances).expect("witness");
+            let proof = pool
+                .install(|| {
+                    create_proof_owned(
+                        &setup.params,
+                        &setup.pk,
+                        owned,
+                        randomness(),
+                        ProverConfig::default(),
+                    )
+                })
+                .expect("owned proof");
+            assert_eq!(proof, reference, "{choice:?}, {workers} workers");
+            assert_eq!(setup.verify(instances, &proof), Ok(()));
+        }
+        assert_eq!(witness.digest(usable_rows, None).unwrap(), digest);
+        let contexts = context_log.lock().expect("contexts");
+        assert_eq!(contexts.len(), 3);
+        assert!(contexts.iter().all(|context| *context == contexts[0]));
+    }
+}
+
+#[test]
+fn owned_witness_prover_bytes_identical() {
+    owned_proof_parity::<Ep, _>(&ARITHMETIC, &ARITHMETIC.instances::<Fq>());
+    owned_proof_parity::<Eq, _>(&ARITHMETIC, &ARITHMETIC.instances::<Fp>());
+    owned_proof_parity::<Ep, _>(&LOOKUPS, &[]);
+    owned_proof_parity::<Eq, _>(&LOOKUPS, &[]);
+    owned_proof_parity::<Ep, _>(&PERMUTATIONS, &PERMUTATIONS.instances::<Fq>());
+    owned_proof_parity::<Eq, _>(&PERMUTATIONS, &PERMUTATIONS.instances::<Fp>());
+}
+
+#[test]
+fn reusable_workspace_proof_bytes_and_bound_both_curves() {
+    fn check<C: PastaCurve>()
+    where
+        C::ScalarExt: PoseidonField,
+        C::Base: PoseidonField,
+    {
+        let mut workspace = QuotientWorkspace::new(1 << 20);
+        for profile in 0..=CHOICES.len() {
+            for (policy, k) in [
+                (crate::keys::CosetCachePolicy::Eager, K),
+                (crate::keys::CosetCachePolicy::OnDemand, K + 1),
+                (crate::keys::CosetCachePolicy::Eager, K),
+            ] {
+                let params = PinnedParams::<C>::derive(k).unwrap();
+                let pk = CHOICES.get(profile).map_or_else(
+                    || {
+                        let mut config = crate::keys::KeygenConfigV2::pipa_r(Vec::new());
+                        config.coset_cache = policy;
+                        crate::keys::keygen_pk_v2(&params, &LOOKUPS, &config).unwrap()
+                    },
+                    |choice| {
+                        let mut config = crate::test_circuits::keygen_config(*choice);
+                        config.coset_cache = policy;
+                        crate::keys::keygen_pk(&params, &LOOKUPS, &config).unwrap()
+                    },
+                );
+                let setup = Setup { params, pk };
+                let witness = Witness::from_circuit(&setup.pk, &LOOKUPS, &[]).unwrap();
+                let reference = create_proof(
+                    &setup.params,
+                    &setup.pk,
+                    &witness,
+                    ProverRandomness::fixed_seed_for_tests([91; 32]),
+                    ProverConfig::default(),
+                )
+                .unwrap();
+                for workers in [1, 4, 1] {
+                    let pool = rayon::ThreadPoolBuilder::new()
+                        .num_threads(workers)
+                        .build()
+                        .unwrap();
+                    let owned = Witness::from_circuit(&setup.pk, &LOOKUPS, &[]).unwrap();
+                    let output = pool
+                        .install(|| {
+                            create_proof_owned_with_workspace(
+                                &setup.params,
+                                &setup.pk,
+                                owned,
+                                ProverRandomness::fixed_seed_for_tests([91; 32]),
+                                ProverConfig::default(),
+                                &mut workspace,
+                            )
+                        })
+                        .unwrap();
+                    assert_eq!(output.proof, reference);
+                    assert_eq!(output.opening.decide(&setup.params, BUDGET), Ok(()));
+                    assert_eq!(setup.verify(&[], &output.proof), Ok(()));
+                    assert!(workspace.is_zeroized());
+                    assert!(workspace.allocated_bytes() > 0);
+                    assert!(workspace.allocated_bytes() <= workspace.maximum_bytes());
+                }
+                let required = quotient::workspace_elements(
+                    &setup.pk,
+                    &Protocol::new(setup.pk.binding().descriptor()).unwrap(),
+                )
+                .unwrap()
+                    * size_of::<C::ScalarExt>();
+                let mut short = QuotientWorkspace::new(required - 1);
+                let owned = Witness::from_circuit(&setup.pk, &LOOKUPS, &[]).unwrap();
+                assert!(matches!(
+                    create_proof_owned_with_workspace(
+                        &setup.params,
+                        &setup.pk,
+                        owned,
+                        ProverRandomness::fixed_seed_for_tests([91; 32]),
+                        ProverConfig::default(),
+                        &mut short
+                    ),
+                    Err(ProverError::Workspace(WorkspaceError::Limit { .. }))
+                ));
+                assert_eq!(short.allocated_bytes(), 0);
+            }
+        }
+        workspace.clear();
+        assert_eq!(workspace.allocated_bytes(), 0);
+    }
+    check::<Ep>();
+    check::<Eq>();
+}
+
+#[test]
+fn owned_witness_buffers_are_transformed_in_place() {
+    let setup = setup::<Ep, _>(&ARITHMETIC, CHOICES[1]);
+    let witness = Witness::from_circuit(&setup.pk, &ARITHMETIC, &ARITHMETIC.instances::<Fq>())
+        .expect("witness");
+    let pointers: Vec<_> = witness.advice().iter().map(Vec::as_ptr).collect();
+    let evaluations = witness.advice().to_vec();
+    let mut input = WitnessInput::Owned(witness);
+    let mut advice = Advice {
+        values: input.take_advice(),
+        polys: Vec::new(),
+        blinds: Vec::new(),
+    };
+    assert!(input.witness().advice().is_empty());
+    assert_eq!(
+        advice.values.iter().map(Vec::as_ptr).collect::<Vec<_>>(),
+        pointers
+    );
+    advice
+        .interpolate_in_place(&setup.pk, None)
+        .expect("interpolate");
+    assert!(advice.values.is_empty());
+    assert_eq!(
+        advice.polys.iter().map(Vec::as_ptr).collect::<Vec<_>>(),
+        pointers
+    );
+    for (mut coefficients, expected) in advice.polys.clone().into_iter().zip(evaluations) {
+        setup.pk.domain().fft(&mut coefficients).expect("evaluate");
+        assert_eq!(coefficients, expected);
+    }
+}
+
+#[test]
+fn advice_buffers_remain_owned_on_transform_failure() {
+    let setup = setup::<Ep, _>(&ARITHMETIC, CHOICES[0]);
+    let mut advice = Advice {
+        values: vec![vec![Fq::ONE; 3]],
+        polys: Vec::new(),
+        blinds: vec![Fq::ONE],
+    };
+    let pointer = advice.values[0].as_ptr();
+    assert!(matches!(
+        advice.interpolate_in_place(&setup.pk, None),
+        Err(ProverError::Fft(_))
+    ));
+    // The error does not leak or discard a secret allocation: the same
+    // buffer is still under Advice's zeroizing Drop implementation.
+    assert!(advice.values.is_empty());
+    assert_eq!(advice.polys[0].as_ptr(), pointer);
+    assert_eq!(advice.polys[0], vec![Fq::ONE; 3]);
+}
+
+/// Exercises errors before and after the owned advice moves into the prover.
+fn owned_errors<C: PastaCurve>()
+where
+    C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
+{
+    let setup = setup::<C, _>(&ARITHMETIC, CHOICES[1]);
+    let instances = ARITHMETIC.instances::<C::ScalarExt>();
+    let witness = || Witness::from_circuit(&setup.pk, &ARITHMETIC, &instances).expect("witness");
+    let larger = PinnedParams::<C>::derive(K + 1).expect("parameters");
+    assert_eq!(
+        create_proof_owned(
+            &larger,
+            &setup.pk,
+            witness(),
+            ProverRandomness::fixed_seed_for_tests([1; 32]),
+            ProverConfig::default(),
+        ),
+        Err(ProverError::ParamsMismatch)
+    );
+    for malformed in [
+        Witness {
+            advice: Vec::new(),
+            instances: instances.clone(),
+        },
+        Witness {
+            advice: vec![vec![C::ScalarExt::ONE; 3]; 3],
+            instances: instances.clone(),
+        },
+        Witness {
+            advice: witness().advice().to_vec(),
+            instances: Vec::new(),
+        },
+    ] {
+        let expected = create_proof(
+            &setup.params,
+            &setup.pk,
+            &malformed,
+            ProverRandomness::fixed_seed_for_tests([1; 32]),
+            ProverConfig::default(),
+        );
+        assert!(expected.is_err());
+        assert_eq!(
+            create_proof_owned(
+                &setup.params,
+                &setup.pk,
+                malformed,
+                ProverRandomness::fixed_seed_for_tests([1; 32]),
+                ProverConfig::default(),
+            ),
+            expected
+        );
+    }
+    assert_eq!(
+        create_proof_owned(
+            &setup.params,
+            &setup.pk,
+            witness(),
+            ProverRandomness::recovery(|_: &[u8; 32]| Err::<ChaCha20Rng, _>(())),
+            ProverConfig::default(),
+        ),
+        Err(ProverError::RecoveryStream)
+    );
+    assert!(matches!(
+        create_proof_owned(
+            &setup.params,
+            &setup.pk,
+            witness(),
+            ProverRandomness::fixed_seed_for_tests([1; 32]),
+            ProverConfig {
+                cancellation: None,
+                msm_budget: MemoryBudget::new(0),
+            },
+        ),
+        Err(ProverError::Msm(_))
+    ));
+    let lookup_setup = crate::test_circuits::setup::<C, _>(&LOOKUPS, CHOICES[1]);
+    let bad_lookup = Witness::from_circuit(
+        &lookup_setup.pk,
+        &Lookups {
+            out_of_range: true,
+            ..LOOKUPS
+        },
+        &[],
+    )
+    .expect("witness");
+    assert_eq!(
+        create_proof_owned(
+            &lookup_setup.params,
+            &lookup_setup.pk,
+            bad_lookup,
+            ProverRandomness::fixed_seed_for_tests([1; 32]),
+            ProverConfig::default(),
+        ),
+        Err(ProverError::LookupInputMissing { lookup: 1 })
+    );
+}
+
+#[test]
+fn owned_witness_errors_match_borrowed_and_release_secret_buffers() {
+    owned_errors::<Ep>();
+    owned_errors::<Eq>();
 }
 
 #[test]
@@ -636,8 +956,12 @@ fn equal_advice_commitments_with_different_evaluations_are_rejected() {
     let mut rng = ChaCha20Rng::seed_from_u64(77);
     let mut transcript =
         TranscriptWriter::<Ep, _>::new(DescriptorHash::<Ep>::production(descriptor.transcript));
-    absorb_prelude::<Ep, _>(&mut transcript, pk.vk().transcript_repr(), &[]);
-    let instance = InstanceColumns::new(pk, &[]).expect("instances");
+    absorb_prelude::<Ep, _>(
+        &mut transcript,
+        pk.vk().transcript_repr().scalar().expect("scalar profile"),
+        &[],
+    );
+    let instance = InstanceColumns::new(pk, &[], None).expect("instances");
 
     // Row 1: one blinded column, committed twice.
     let mut values = witness.advice()[0].clone();
@@ -661,7 +985,7 @@ fn equal_advice_commitments_with_different_evaluations_are_rejected() {
     let beta = transcript.squeeze_challenge();
     let gamma = transcript.squeeze_challenge();
     let random =
-        commit_random(params, pk, &shape, &mut rng, &mut transcript, BUDGET).expect("random");
+        commit_random(params, pk, &shape, &mut rng, &mut transcript, BUDGET, None).expect("random");
     let y = transcript.squeeze_challenge();
     let compiled = CompiledExpressions::compile(descriptor, true).expect("compile");
     let h = super::quotient::evaluate(
@@ -683,8 +1007,17 @@ fn equal_advice_commitments_with_different_evaluations_are_rejected() {
         &crate::protocol::AllTerms,
     )
     .expect("quotient");
-    let quotient =
-        commit_quotient(params, pk, &shape, &h, &mut rng, &mut transcript, BUDGET).expect("pieces");
+    let quotient = commit_quotient(
+        params,
+        pk,
+        &shape,
+        h,
+        &mut rng,
+        &mut transcript,
+        BUDGET,
+        None,
+    )
+    .expect("pieces");
     let x = transcript.squeeze_challenge();
     let xn = x.pow_vartime([shape.n as u64]);
     let combined = quotient.combine(xn);
@@ -734,8 +1067,17 @@ fn equal_advice_commitments_with_different_evaluations_are_rejected() {
         random: &random,
         quotient: combined,
     };
-    opened
-        .open(params, pk, &protocol, x, &mut rng, &mut transcript, BUDGET)
+    let _claim = opened
+        .open(
+            params,
+            pk,
+            &protocol,
+            x,
+            &mut rng,
+            &mut transcript,
+            BUDGET,
+            None,
+        )
         .expect("open");
     let proof = transcript.finish();
     assert_eq!(proof.len(), protocol.proof_length());
@@ -830,6 +1172,7 @@ fn forged_lookup_proof<C: PastaCurve>(
 ) -> (Vec<u8>, Vec<ForgedColumns<C::ScalarExt>>)
 where
     C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
 {
     let witness = Witness::from_circuit(&setup.pk, circuit, &[]).expect("witness");
     let mut forged = Forged {
@@ -840,7 +1183,7 @@ where
     let proof = prove(
         &setup.params,
         &setup.pk,
-        &witness,
+        WitnessInput::Borrowed(&witness),
         ProverRandomness::fixed_seed_for_tests([21; 32]),
         ProverConfig::default(),
         Mode {
@@ -904,6 +1247,7 @@ fn forged_lookup_case<C: PastaCurve>(
     expected: &[crate::protocol::LookupConstraint],
 ) where
     C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
 {
     let label = format!("{strategy:?} lookup {target}, {choice:?}");
     let setup = setup::<C, _>(circuit, choice);
@@ -1049,7 +1393,7 @@ fn witness_and_statement_digests_stream_the_documented_bytes() {
         }
     }
     assert_eq!(
-        witness.digest(usable),
+        witness.digest(usable, None).unwrap(),
         crate::cs::descriptor::blake2b_personal::<32>(WITNESS_PERSONA, &[&bytes])
     );
     let repr = Fq::from(5);
@@ -1171,3 +1515,6 @@ fn measure_prove_and_verify() {
         }
     }
 }
+
+#[path = "fixed_only_tests.rs"]
+mod fixed_only;

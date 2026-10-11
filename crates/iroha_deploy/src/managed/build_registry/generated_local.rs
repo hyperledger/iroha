@@ -127,7 +127,10 @@ pub(in crate::managed) fn observe_generated_service(
             "selected enrollment differs from original custody policy",
         ));
     }
-    let mut owner = ServiceAuthority::open_network(prepared, NetworkPurpose::BuildRegistry)?;
+    // A prepared archive transport owns BuildRegistry for its entire client lifetime. The
+    // worker's bounded observations retain a separate exclusive cursor, with the same original
+    // profile admission and native discovery verifier; neither owner can block the other.
+    let mut owner = ServiceAuthority::open_network(prepared, NetworkPurpose::ServiceObservation)?;
     let (current, block) = discover(&mut owner, provider, deadline)
         .map_err(|_| invalid("fresh native generated provider discovery is unavailable"))?;
     // The sole custody owner qualifies the exact retained record at discovery's same

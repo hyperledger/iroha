@@ -2,10 +2,7 @@
 
 use std::ops::Range;
 
-use iroha_sumeragi::{
-    availability::{MAX_AVAILABILITY_FRAME_BYTES, MAX_DA_PAYLOAD_SIZE_BYTES},
-    message::ResultWitness,
-};
+use iroha_sumeragi::availability::{MAX_AVAILABILITY_FRAME_BYTES, MAX_DA_PAYLOAD_SIZE_BYTES};
 use norito::core as ncore;
 
 use super::*;
@@ -17,7 +14,6 @@ struct Layout {
     availability: Range<usize>,
     payload: Range<usize>,
     qc: QcMetadata,
-    witness: Option<Range<usize>>,
 }
 
 /// A retained original-pool raw frame plus actual destination backings and shared controls.
@@ -27,10 +23,8 @@ pub(in crate::sumeragi) struct LaneRecordDecode {
     layout: Option<Layout>,
     table_backing: Option<ChargedBuffer<u8>>,
     payload_backing: Option<ChargedBuffer<u8>>,
-    witness_backing: Option<ChargedBuffer<u8>>,
     table: Option<AvailabilityFrame>,
     payload: Option<PayloadBytes>,
-    witness: Option<ResultWitness>,
 }
 impl LaneRecordDecode {
     /// Retain the exact file backing; no metadata or bulk allocation occurs here.
@@ -40,10 +34,8 @@ impl LaneRecordDecode {
             layout: None,
             table_backing: None,
             payload_backing: None,
-            witness_backing: None,
             table: None,
             payload: None,
-            witness: None,
         }
     }
 
@@ -64,7 +56,7 @@ impl LaneRecordDecode {
             header: layout.header,
             availability: self.table.take().expect("funded original table"),
             payload: self.payload.take().expect("funded original payload"),
-            commit_qc: layout.qc.finish(self.witness.take()),
+            commit_qc: layout.qc.finish(),
         };
         // The source is released only after all actual destination owners exist.
         Ok(record)
@@ -111,26 +103,6 @@ impl LaneRecordDecode {
                 }
             }
         }
-        if let Some(range) = &layout.witness {
-            if self.witness.is_none() {
-                fill(
-                    &mut self.witness_backing,
-                    &self.raw.as_slice()[range.clone()],
-                    budget,
-                )?;
-                let bytes = self
-                    .witness_backing
-                    .take()
-                    .expect("witness backing retained");
-                match ResultWitness::from_charged(bytes, budget) {
-                    Ok(witness) => self.witness = Some(witness),
-                    Err((bytes, error)) => {
-                        self.witness_backing = Some(bytes);
-                        return Err(LaneRecordError::Bytes(error));
-                    }
-                }
-            }
-        }
         Ok(())
     }
 }
@@ -163,7 +135,7 @@ fn parse(raw: &[u8]) -> Result<Layout, norito::Error> {
         .len()
         .checked_sub(bytes.len())
         .ok_or(norito::Error::LengthMismatch)?;
-    let (header, availability, payload, qc, witness) =
+    let (header, availability, payload, qc) =
         ncore::with_decode_limits(norito::canonical_decode_limits(raw.len()), || {
             let _context = ncore::PayloadCtxGuard::enter_with_schema_and_flags(
                 bytes,
@@ -181,16 +153,15 @@ fn parse(raw: &[u8]) -> Result<Layout, norito::Error> {
             // Lanes never persist the separately authenticated result-only global genesis form.
             let availability = byte_range(bytes, table_field, 1, MAX_AVAILABILITY_FRAME_BYTES)?;
             let payload = byte_range(bytes, payload_field, 1, MAX_DA_PAYLOAD_SIZE_BYTES as usize)?;
-            let (qc, witness) = qc::parse(&bytes[qc_field.clone()])?;
-            let witness = witness.map(|r| (qc_field.start + r.start)..(qc_field.start + r.end));
-            Ok((header, availability, payload, qc, witness))
+            let qc = qc::parse(&bytes[qc_field])?;
+            Ok((header, availability, payload, qc))
         })?;
     norito::verify_exact_canonical_frame(
         &LaneRecordRef {
             header: FieldRef(&header),
             availability: BytesRef(&bytes[availability.clone()]),
             payload: BytesRef(&bytes[payload.clone()]),
-            commit_qc: qc.borrowed(witness.as_ref().map(|r| &bytes[r.clone()])),
+            commit_qc: qc.borrowed(),
         },
         raw,
     )?;
@@ -199,7 +170,6 @@ fn parse(raw: &[u8]) -> Result<Layout, norito::Error> {
         availability: (base + availability.start)..(base + availability.end),
         payload: (base + payload.start)..(base + payload.end),
         qc,
-        witness: witness.map(|r| (base + r.start)..(base + r.end)),
     })
 }
 

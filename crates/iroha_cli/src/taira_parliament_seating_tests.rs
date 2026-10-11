@@ -6,10 +6,6 @@ use iroha::data_model::{
     asset::{AssetBalancePolicy, AssetDefinition},
     block::consensus::SumeragiGenesisContextParameters,
     domain::Domain,
-    isi::kagemusha_v1::{
-        KAGEMUSHA_CHAIN_VERSION_V1, KagemushaMintFinalityAuthorityGenerationTemplateV1,
-        KagemushaMintFinalityGenesisParametersV1,
-    },
     parameter::{Parameter, system::SumeragiNposParameters},
 };
 use iroha_model_base::{domain::DomainId, peer::PeerId};
@@ -679,38 +675,22 @@ fn citizen_client_config_signs_from_the_key_file_and_the_published_identity() {
 }
 
 fn generated_genesis(instructions: Vec<InstructionBox>) -> iroha_genesis::RawGenesisTransaction {
-    let mut validators = (110_u8..114)
+    let topology = (110_u8..114)
         .map(|seed| {
-            let peer = PeerId::new(
-                KeyPair::try_from_seed(vec![seed; 32], Algorithm::BlsNormal)
-                    .unwrap()
-                    .public_key()
-                    .clone(),
-            );
-            iroha_core_zk::kagemusha_v1_recursion::derive_kagemusha_mint_finality_validator_keys_v1(
-                &[seed; 32],
-                0,
-                peer,
+            let validator = KeyPair::try_from_seed(vec![seed; 32], Algorithm::BlsNormal).unwrap();
+            iroha_genesis::GenesisTopologyEntry::new(
+                PeerId::new(validator.public_key().clone()),
+                iroha_crypto::bls_normal_pop_prove(validator.private_key()).unwrap(),
             )
-            .expect("mint-finality fixture keys")
         })
-        .collect::<Vec<_>>();
-    validators.sort_by(|a, b| a.validator.cmp(&b.validator));
+        .collect();
     let mut builder =
         iroha_genesis::GenesisBuilder::new_without_executor(TAIRA_CHAIN_ID.into(), ".")
             .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
             .append_parameter(Parameter::Custom(
                 SumeragiNposParameters::default().into_custom_parameter(),
             ))
-            .with_kagemusha_mint_finality_genesis_parameters(
-                KagemushaMintFinalityGenesisParametersV1 {
-                    authority_generation: KagemushaMintFinalityAuthorityGenerationTemplateV1 {
-                        version: KAGEMUSHA_CHAIN_VERSION_V1,
-                        generation: 0,
-                        validators,
-                    },
-                },
-            );
+            .set_topology(topology);
     for instruction in instructions {
         builder = builder.append_instruction(instruction);
     }
@@ -1128,5 +1108,6 @@ fn resign_identity_requires_one_canonical_line() {
     let next = resign_instructions(prior);
     assert!(next.contains(&format!("--replace-expected-hash '{prior}'")));
     assert!(next.contains("--expected-hash-out genesis.expected_hash"));
+    assert!(next.contains("--nexus-context-output nexus-amx-context.v1.bin"));
     assert!(!next.contains(".next"));
 }

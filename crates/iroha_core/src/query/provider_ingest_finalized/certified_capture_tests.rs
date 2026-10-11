@@ -402,3 +402,321 @@ fn certified_retention_requires_exact_result_identity_and_survives_reopen() {
     assert_eq!(qualification.lag_blocks(), 0);
     assert_eq!(qualification.generation(), compacted.generation());
 }
+
+#[test]
+fn qualification_releases_only_certificate_walk_and_detects_concurrent_capture() {
+    let directory = physical_tempdir().unwrap();
+    let mut chain = chain();
+    let archive =
+        ProviderIngestFinalizedArchiveV1::try_open(archive_root(&directory), bounds()).unwrap();
+    archive
+        .capture_certified_view(&chain.state().view(), chain.kura())
+        .unwrap();
+    chain.commit_at(2_000, Vec::new());
+    let state = Arc::clone(chain.state());
+    let view = state.view();
+    let original_generation = archive.health_generation().unwrap();
+    archive
+        .with_index_reader_for_testing(|| {
+            assert!(matches!(
+                archive.capture_certified_view(&view, state.kura()),
+                Err(ProviderIngestFinalizedArchiveErrorV1::IndexBusy { .. })
+            ));
+        })
+        .unwrap();
+    let result =
+        archive.qualify_against_certified_tip_observed(&view, state.kura(), 1, |released| {
+            assert!(released);
+            std::thread::scope(|scope| {
+                scope
+                    .spawn(|| archive.capture_certified_view(&state.view(), state.kura()))
+                    .join()
+                    .unwrap()
+                    .map(|outcome| {
+                        assert_eq!(
+                            outcome,
+                            ProviderIngestFinalizedArchiveInsertOutcomeV1::Inserted
+                        );
+                    })
+            })
+        });
+    assert!(matches!(
+        result,
+        Err(
+            ProviderIngestFinalizedArchiveErrorV1::QualificationBoundaryChanged {
+                boundary: "archive"
+            }
+        )
+    ));
+    assert_eq!(
+        archive.health_generation().unwrap(),
+        original_generation + 1
+    );
+    let current = archive
+        .qualify_against_certified_tip(&view, state.kura(), 0)
+        .unwrap();
+    assert_eq!(current.archive_tip().height, 2);
+    assert_eq!(current.generation(), original_generation + 1);
+
+    let wide = DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 128);
+    let active = norito::core::with_decode_limits_scope(wide, || {
+        archive.qualify_against_certified_tip_observed(&view, state.kura(), 0, |released| {
+            assert!(!released, "active decode scopes keep the physical reader");
+            assert!(matches!(
+                archive.capture_certified_view(&view, state.kura()),
+                Err(ProviderIngestFinalizedArchiveErrorV1::IndexBusy { .. })
+            ));
+            Ok(())
+        })
+    })
+    .unwrap();
+    assert_eq!(active, current);
+    for allowance in [0, 1] {
+        let limits = DecodeLimits::new(usize::MAX, usize::MAX, allowance, allowance, 128);
+        assert!(
+            norito::core::with_decode_limits_scope(limits, || {
+                archive.qualify_against_certified_tip(&view, state.kura(), 0)
+            })
+            .is_err()
+        );
+    }
+    assert_eq!(archive.health_generation().unwrap(), current.generation());
+}
+
+#[test]
+fn qualification_detects_same_generation_compaction_before_returning_authority() {
+    let directory = physical_tempdir().unwrap();
+    let mut chain = chain();
+    let archive =
+        ProviderIngestFinalizedArchiveV1::try_open(archive_root(&directory), bounds()).unwrap();
+    archive
+        .capture_certified_view(&chain.state().view(), chain.kura())
+        .unwrap();
+    chain.commit_at(2_000, Vec::new());
+    archive
+        .capture_certified_view(&chain.state().view(), chain.kura())
+        .unwrap();
+    let state = Arc::clone(chain.state());
+    let view = state.view();
+    let key = authenticate_capture_view(&view, state.kura()).unwrap();
+    let generation = archive.health_generation().unwrap();
+    let fence = ProviderIngestFinalizedArchiveRetentionFenceV1::try_new(
+        key,
+        *chain.committed(2).id().0.as_ref(),
+        generation,
+    )
+    .unwrap();
+    let proposal = archive
+        .prepare_certified_compaction(&fence, &view, state.kura())
+        .unwrap();
+    let authority = TestRetentionAuthority::new();
+    let result =
+        archive.qualify_against_certified_tip_observed(&view, state.kura(), 0, |released| {
+            assert!(released);
+            std::thread::scope(|scope| {
+                scope
+                    .spawn(|| {
+                        archive.approve_and_install_certified_compaction(
+                            &proposal,
+                            &state.view(),
+                            state.kura(),
+                            &authority.binding(),
+                            &authority,
+                        )
+                    })
+                    .join()
+                    .unwrap()
+                    .map(|compacted| {
+                        assert_eq!(
+                            compacted.generation(),
+                            generation,
+                            "compaction preserves this counter"
+                        );
+                        assert_eq!(compacted.pruned_entries(), 2);
+                    })
+            })
+        });
+    assert!(matches!(
+        result,
+        Err(
+            ProviderIngestFinalizedArchiveErrorV1::QualificationBoundaryChanged {
+                boundary: "archive"
+            }
+        )
+    ));
+    assert_eq!(archive.health_generation().unwrap(), generation);
+    let current = archive
+        .qualify_against_certified_tip(&view, state.kura(), 0)
+        .unwrap();
+    assert_eq!(current.activation_floor(), &key);
+    assert_eq!(current.archive_tip(), &key);
+
+    // The handoff never replaces the original physical checkpoint observation.
+    let path = archive
+        .read_index()
+        .unwrap()
+        .virtual_bases
+        .get(view.network_id())
+        .unwrap()
+        .path
+        .clone();
+    let original = fs::read(&path).unwrap();
+    fs::write(&path, [0_u8]).unwrap();
+    assert!(
+        archive
+            .qualify_against_certified_tip(&view, state.kura(), 0)
+            .is_err()
+    );
+    fs::write(&path, original).unwrap();
+    assert_eq!(
+        archive
+            .qualify_against_certified_tip(&view, state.kura(), 0)
+            .unwrap(),
+        current
+    );
+    drop(view);
+    chain.corrupt_local_quorum_for_test(2, Signers::BelowQuorum);
+    assert!(
+        archive
+            .qualify_against_certified_tip(&state.view(), state.kura(), 0)
+            .is_err(),
+        "the compact source inventory never authenticates a corrupted native certificate"
+    );
+}
+
+#[test]
+fn qualification_closes_original_sources_on_physical_and_ordinary_errors() {
+    let directory = physical_tempdir().unwrap();
+    let mut chain = chain();
+    let archive =
+        ProviderIngestFinalizedArchiveV1::try_open(archive_root(&directory), bounds()).unwrap();
+    archive
+        .capture_certified_view(&chain.state().view(), chain.kura())
+        .unwrap();
+    let state = Arc::clone(chain.state());
+    let view = state.view();
+    let key = authenticate_capture_view(&view, state.kura()).unwrap();
+    let path = archive.record_path(&key).unwrap();
+    let original = fs::read(&path).unwrap();
+    fs::write(&path, [0_u8]).unwrap();
+    assert!(matches!(
+        archive.qualify_against_certified_tip(&view, state.kura(), 0),
+        Err(ProviderIngestFinalizedArchiveErrorV1::InvalidStorage { .. })
+    ));
+    fs::write(&path, original).unwrap();
+    let ordinary = || ProviderIngestFinalizedArchiveErrorV1::ArchiveUnavailable {
+        reason: "ordinary observer refusal",
+    };
+    assert!(matches!(
+        archive.qualify_against_certified_tip_observed(&view, state.kura(), 0, |_| Err(ordinary())),
+        Err(ProviderIngestFinalizedArchiveErrorV1::ArchiveUnavailable {
+            reason: "ordinary observer refusal"
+        })
+    ));
+
+    let moved = archive.root.join("original-records");
+    let result =
+        archive.qualify_against_certified_tip_observed(&view, state.kura(), 0, |released| {
+            assert!(released);
+            fs::rename(&archive.records, &moved).unwrap();
+            fs::create_dir(&archive.records).unwrap();
+            Err(ordinary())
+        });
+    assert!(
+        matches!(result, Err(ProviderIngestFinalizedArchiveErrorV1::Read { path, .. }) if path == archive.records),
+        "original native source refusal must supersede ordinary error"
+    );
+    fs::remove_dir(&archive.records).unwrap();
+    fs::rename(&moved, &archive.records).unwrap();
+    let qualification = archive
+        .qualify_against_certified_tip(&view, state.kura(), 0)
+        .unwrap();
+    assert_eq!(qualification.archive_tip(), &key);
+    assert_eq!(qualification.kura_tip_height(), key.height);
+    assert_eq!(qualification.lag_blocks(), 0);
+
+    // Advance the genuine Kura source after selection; its exit also closes an error.
+    let result =
+        archive.qualify_against_certified_tip_observed(&view, state.kura(), 0, |released| {
+            assert!(released);
+            chain.commit_at(2_000, Vec::new());
+            Err(ordinary())
+        });
+    assert!(matches!(
+        result,
+        Err(
+            ProviderIngestFinalizedArchiveErrorV1::QualificationBoundaryChanged {
+                boundary: "certified Kura"
+            }
+        )
+    ));
+}
+
+#[test]
+fn qualification_inventory_is_bounded_and_tracks_every_original_network_source() {
+    let directory = physical_tempdir().unwrap();
+    let mut first = chain();
+    let second = CertifiedTestChain::start(TestChainConfig::new(World::new(), 3_000)).unwrap();
+    assert_ne!(first.network_id(), second.network_id());
+    let archive =
+        ProviderIngestFinalizedArchiveV1::try_open(archive_root(&directory), bounds()).unwrap();
+    archive
+        .capture_certified_view(&first.state().view(), first.kura())
+        .unwrap();
+    archive
+        .capture_certified_view(&second.state().view(), second.kura())
+        .unwrap();
+    let index = archive.read_index().unwrap();
+    let inventory = QualificationInventory::capture(&index, bounds()).unwrap();
+    assert_eq!(inventory.records.len(), 2);
+    inventory.require_same(&index).unwrap();
+    let mut different_path = QualificationInventory::capture(&index, bounds()).unwrap();
+    different_path.records[1].path.push("foreign-record");
+    assert!(different_path.require_same(&index).is_err());
+    let mut different_digest = QualificationInventory::capture(&index, bounds()).unwrap();
+    different_digest.records[1].digest[0] ^= 1;
+    assert!(different_digest.require_same(&index).is_err());
+    let tiny = ProviderIngestFinalizedArchiveBoundsV1::try_new(
+        2 * 1024 * 1024,
+        1,
+        32 * 1024 * 1024,
+        16,
+        16,
+        64,
+        1,
+    )
+    .unwrap();
+    assert!(matches!(
+        QualificationInventory::capture(&index, tiny),
+        Err(
+            ProviderIngestFinalizedArchiveErrorV1::ArchiveCapacityExceeded {
+                observed: 2,
+                maximum: 1
+            }
+        )
+    ));
+    drop(index);
+    // A genuine append for another network invalidates the same inventory too.
+    first.commit_at(2_000, Vec::new());
+    archive
+        .capture_certified_view(&first.state().view(), first.kura())
+        .unwrap();
+    assert!(matches!(
+        inventory.require_same(&archive.read_index().unwrap()),
+        Err(
+            ProviderIngestFinalizedArchiveErrorV1::QualificationBoundaryChanged {
+                boundary: "archive"
+            }
+        )
+    ));
+    let qualification = archive
+        .qualify_against_certified_tip(&second.state().view(), second.kura(), 0)
+        .unwrap();
+    assert_eq!(
+        qualification.archive_tip(),
+        qualification.activation_floor()
+    );
+    assert_eq!(qualification.archive_tip().height, second.height());
+    assert_eq!(qualification.kura_tip_height(), second.height());
+    assert_eq!(qualification.lag_blocks(), 0);
+}

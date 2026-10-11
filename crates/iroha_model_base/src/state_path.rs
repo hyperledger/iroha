@@ -424,7 +424,12 @@ mod tests {
             allocation_limit(expected_allocation - 1),
             || <StatePath as JsonObjectKeyOwned>::from_json_key_text(&key),
         );
-        assert!(matches!(rejected, Err(json::Error::DecodeResourceLimit)));
+        assert!(matches!(
+            rejected,
+            Err(json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
+        ));
         assert_eq!(usage.total_allocated_bytes(), normalization_allocation);
 
         let decomposed = "root/e\u{301}".repeat(4);

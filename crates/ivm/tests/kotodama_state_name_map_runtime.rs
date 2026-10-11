@@ -26,10 +26,7 @@ fn test_subject() -> AccountId {
     )
 }
 fn encoded_int_state_path(name: &str, key: i64) -> String {
-    let key = ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(
-        i128::from(key),
-    ))
-    .expect("encode canonical StateMap int key");
+    let key = common::encode_int_state_value(key);
     format!("{name}/{}", hex::encode(key))
 }
 fn run_program_with_wsv(src: &str, wsv: MockWorldStateView) -> (IVM, MockWorldStateView) {

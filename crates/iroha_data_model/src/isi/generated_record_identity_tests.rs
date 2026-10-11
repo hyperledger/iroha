@@ -85,7 +85,6 @@ pub fn staking_monetary_fixture_rows() -> Vec<Value> {
 fn missing_record_values() -> Vec<Value> {
     let mut records = values::values();
     records.extend(super::musubi::generated_identity_values::values());
-    records.extend(super::kagemusha_v1::generated_identity_values::values());
     records.extend(super::private_settlement::generated_identity_values::values());
     records.push(capture(
         super::privacy::RegisterPrivacyExact12QualificationV1::new(
@@ -94,14 +93,14 @@ fn missing_record_values() -> Vec<Value> {
     ));
     assert_eq!(
         records.len(),
-        52,
+        49,
         "complete missing record fixture inventory"
     );
     let names: std::collections::BTreeSet<_> = records
         .iter()
         .map(|row| row.get("nominal").and_then(Value::as_str).expect("nominal"))
         .collect();
-    assert_eq!(names.len(), 52, "one populated value per missing record");
+    assert_eq!(names.len(), 49, "one populated value per missing record");
     records.sort_by(|a, b| {
         a.get("nominal")
             .and_then(Value::as_str)
@@ -121,13 +120,13 @@ fn captured(nominal: &str) -> &'static Value {
             );
             assert_eq!(
                 hex(&Sha256::digest(source.as_bytes())),
-                "fda9d3efe685fda3f368d5858fa80c6e00b2098965ead928a5446a5f84d81373",
+                "4dcc87d9f3fd55847fb3a9609a2868c287d18254dcd822048c87bc9254c0a8ba",
                 "instruction record capture digest drift"
             );
             let capture: Value =
                 json::from_str(source).expect("immutable instruction record capture");
             let rows = capture.as_array().expect("captured type rows");
-            assert_eq!(rows.len(), 332, "complete instantiated record inventory");
+            assert_eq!(rows.len(), 327, "complete instantiated record inventory");
             let mut previous = None;
             let mut case_count = 0;
             for row in rows {
@@ -145,12 +144,12 @@ fn captured(nominal: &str) -> &'static Value {
                     .expect("captured cases")
                     .len();
             }
-            assert_eq!(case_count, 375, "complete populated record case inventory");
+            assert_eq!(case_count, 370, "complete populated record case inventory");
             capture
         })
         .as_array()
         .expect("captured type rows");
-    assert_eq!(rows.len(), 332, "complete instantiated record inventory");
+    assert_eq!(rows.len(), 327, "complete instantiated record inventory");
     let mut matches = rows
         .iter()
         .filter(|row| row.get("nominal").and_then(Value::as_str) == Some(nominal));
@@ -213,6 +212,24 @@ where
             .unwrap_or_else(|error| panic!("decode captured {nominal}: {error}"));
         let actual = frame_fields(&capture(value));
         fixture_json::assert_json_matches(expected, &actual, nominal);
+    }
+}
+
+#[test]
+fn retired_load_instruction_without_asset_and_ordinal_is_rejected() {
+    // Exact retired root frames before and after the verifier-install variant
+    // was added. The latter uses the current IssueLoad tag but still lacks the
+    // required asset/ordinal fields; neither payload may be decoded.
+    for retired in [
+        "4e52543000008eef66c2b4be9ed7b2604aec85793350007b000000000000000a09ab00d41fc01a020000000000000000200101010101010101010101010101010101010101010101010101010101010101590400000020020202020202020202020202020202020202020202020202020202020202020220030303030303030303030303030303030303030303030303030303030303030310070000000000000000000000000000000100",
+        "4e52543000008eef66c2b4be9ed7b2604aec85793350007b00000000000000d6e8c972dd8bf2a0020000000000000000200101010101010101010101010101010101010101010101010101010101010101590500000020020202020202020202020202020202020202020202020202020202020202020220030303030303030303030303030303030303030303030303030303030303030310070000000000000000000000000000000100",
+    ] {
+        let retired = unhex(retired);
+        assert!(
+            norito::decode_from_bytes::<super::kagemusha_wallet::KagemushaWalletLedgerV1>(&retired)
+                .is_err(),
+            "retired Load instructions must not decode"
+        );
     }
 }
 
@@ -350,66 +367,87 @@ fn print_contract_artifact_record_fixture_rows() {
         hex(abi_hash.as_ref()),
         "18b2577f70fcf90193eff287aacd10b76dd36b99c0f5935fdcc67443f8bc148d"
     );
-    // Match the selected full-width dataspace in the current populated capture.
-    let artifact_id = ContractArtifactId::new(DataSpaceId::new(u64::MAX), code_hash);
-    let values = vec![
-        capture(CancelSmartContractCodeUpload { artifact_id }),
-        capture(FinalizeSmartContractCodeUpload {
-            artifact_id,
-            total_size: 3,
-            chunk_count: 1,
-        }),
-        capture(RegisterSmartContractBytes {
-            artifact_id,
-            code: vec![1, 2, 3],
-        }),
-        capture(RegisterSmartContractCode {
-            artifact_id,
-            manifest: ContractManifest {
-                seiyaku_name: None,
-                code_hash: Some(code_hash),
-                abi_hash: Some(abi_hash),
-                compiler_fingerprint: Some("kotodama-1.2.3".to_owned()),
-                features_bitmap: Some(0),
-                access_set_hints: None,
-                entrypoints: None,
-                states: None,
-                error_types: None,
-                error_messages: None,
-                kotoba: None,
-                provenance: None,
-            },
-        }),
-        capture(RemoveSmartContractBytes {
-            artifact_id,
-            reason: Some("superseded".to_owned()),
-        }),
-        capture(UploadSmartContractCodeChunk {
-            artifact_id,
-            total_size: 3,
-            chunk_index: 0,
-            chunk_count: 1,
-            chunk: vec![1, 2, 3],
-        }),
-    ];
-    let rows: Vec<_> = values
-        .into_iter()
-        .map(|value| {
-            json::object([
-                ("nominal", value.get("nominal").unwrap().clone()),
-                (
-                    "serialize_hash",
-                    value.get("serialize_hash").unwrap().clone(),
-                ),
-                (
-                    "deserialize_hash",
-                    value.get("deserialize_hash").unwrap().clone(),
-                ),
-                ("cases", Value::Array(vec![frame_fields(&value)])),
-            ])
-            .expect("current contract artifact instruction row")
-        })
-        .collect();
+    // Preserve both original cases in their declared order: full-width and universal.
+    // Every frame is constructed and round-tripped by the current native codec.
+    let mut rows = BTreeMap::<String, Value>::new();
+    for dataspace in [DataSpaceId::new(u64::MAX), DataSpaceId::UNIVERSAL] {
+        let artifact_id = ContractArtifactId::new(dataspace, code_hash);
+        let values = vec![
+            capture(CancelSmartContractCodeUpload { artifact_id }),
+            capture(FinalizeSmartContractCodeUpload {
+                artifact_id,
+                total_size: 3,
+                chunk_count: 1,
+            }),
+            capture(RegisterSmartContractBytes {
+                artifact_id,
+                code: vec![1, 2, 3],
+            }),
+            capture(RegisterSmartContractCode {
+                artifact_id,
+                manifest: ContractManifest {
+                    permissions: Vec::new(),
+                    events: Vec::new(),
+                    enum_types: Vec::new(),
+                    seiyaku_name: None,
+                    code_hash: Some(code_hash),
+                    abi_hash: Some(abi_hash),
+                    compiler_fingerprint: Some("kotodama-1.2.3".to_owned()),
+                    features_bitmap: Some(0),
+                    access_set_hints: None,
+                    entrypoints: None,
+                    states: None,
+                    error_types: None,
+                    error_messages: None,
+                    kotoba: None,
+                    provenance: None,
+                },
+            }),
+            capture(RemoveSmartContractBytes {
+                artifact_id,
+                reason: Some("superseded".to_owned()),
+            }),
+            capture(UploadSmartContractCodeChunk {
+                artifact_id,
+                total_size: 3,
+                chunk_index: 0,
+                chunk_count: 1,
+                chunk: vec![1, 2, 3],
+            }),
+        ];
+        for value in values {
+            let name = value
+                .get("nominal")
+                .and_then(Value::as_str)
+                .unwrap()
+                .to_owned();
+            let row = rows.entry(name).or_insert_with(|| {
+                json::object([
+                    ("nominal", value.get("nominal").unwrap().clone()),
+                    (
+                        "serialize_hash",
+                        value.get("serialize_hash").unwrap().clone(),
+                    ),
+                    (
+                        "deserialize_hash",
+                        value.get("deserialize_hash").unwrap().clone(),
+                    ),
+                    ("cases", Value::Array(Vec::new())),
+                ])
+                .expect("current contract artifact instruction row")
+            });
+            let Value::Array(cases) = row.get_mut("cases").expect("cases") else {
+                panic!("native record cases are an array");
+            };
+            cases.push(frame_fields(&value));
+        }
+    }
+    let rows: Vec<_> = rows.into_values().collect();
+    assert_eq!(rows.len(), 6);
+    assert!(
+        rows.iter()
+            .all(|row| row.get("cases").and_then(Value::as_array).unwrap().len() == 2)
+    );
     println!(
         "CONTRACT_ARTIFACT_FIXTURE_ROWS={}",
         json::to_json(&rows).expect("canonical contract artifact instruction rows")

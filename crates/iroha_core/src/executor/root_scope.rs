@@ -34,8 +34,18 @@ pub(crate) fn execution_root_scope(
         )),
         Err(error) => {
             let refusal = match error {
-                norito::json::Error::DecodeResourceLimit => RootScopeDecodeRefusal::Budget,
-                norito::json::Error::AllocationFailed => RootScopeDecodeRefusal::Allocator,
+                norito::json::Error::DecodeResourceLimit
+                | norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+                    | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+                    | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+                    | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+                    | norito::core::DecodeResourceError::TotalAllocationExceeded { .. },
+                ) => RootScopeDecodeRefusal::Budget,
+                norito::json::Error::AllocationFailed
+                | norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::AllocationFailed { .. },
+                ) => RootScopeDecodeRefusal::Allocator,
                 // Intrinsic malformed/depth errors are not a local retry policy.
                 _ => {
                     return Err(denied(
@@ -140,12 +150,18 @@ pub(crate) fn ensure_committed_contract_scope(
         Ok(Some(scope)) => scope,
         Err(error) if !cfg!(all(test, sumeragi_core_mutation = "HC30")) => {
             let reason = match error {
-                norito::json::Error::DecodeResourceLimit => {
-                    ivm::error::ExecutionDeferral::ActiveMemoryCapacity
-                }
-                norito::json::Error::AllocationFailed => {
-                    ivm::error::ExecutionDeferral::AllocationUnavailable
-                }
+                norito::json::Error::DecodeResourceLimit
+                | norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+                    | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+                    | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+                    | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+                    | norito::core::DecodeResourceError::TotalAllocationExceeded { .. },
+                ) => ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
+                norito::json::Error::AllocationFailed
+                | norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::AllocationFailed { .. },
+                ) => ivm::error::ExecutionDeferral::AllocationUnavailable,
                 _ => return Err(denied("contract execution requires immutable root scope").into()),
             };
             return Err(ExecutionAttemptError::Deferred(reason.into()));
@@ -176,12 +192,18 @@ pub(crate) fn ensure_committed_artifact_scope(
             )) =>
         {
             let reason = match error {
-                norito::json::Error::DecodeResourceLimit => {
-                    ivm::error::ExecutionDeferral::ActiveMemoryCapacity
-                }
-                norito::json::Error::AllocationFailed => {
-                    ivm::error::ExecutionDeferral::AllocationUnavailable
-                }
+                norito::json::Error::DecodeResourceLimit
+                | norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+                    | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+                    | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+                    | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+                    | norito::core::DecodeResourceError::TotalAllocationExceeded { .. },
+                ) => ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
+                norito::json::Error::AllocationFailed
+                | norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::AllocationFailed { .. },
+                ) => ivm::error::ExecutionDeferral::AllocationUnavailable,
                 _ => return Err(denied("artifact access requires immutable root scope").into()),
             };
             return Err(ExecutionAttemptError::Deferred(reason.into()));

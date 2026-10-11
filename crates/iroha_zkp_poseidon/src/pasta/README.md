@@ -51,6 +51,6 @@ arithmetic temporaries or compiler copies. Tests observe actual owned cells
 after clearing on normal, partial-decode-error and unwinding paths.
 
 Tests additionally compute the public vectors and odd/even/max-record hashes
-using `halo2curves-axiom::pasta`, the actual field implementation re-exported by
-Core's Halo2 backend. No production dependency on that backend is introduced.
+using `iroha_pasta`, the field implementation used by Core's native proof
+engine. The test-only edge does not introduce a production prover dependency.
 This native parity does not qualify a circuit or protocol relation.

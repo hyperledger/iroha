@@ -507,13 +507,14 @@ public struct ToriiGovernanceSccpRouteProposal: Decodable, Sendable, Equatable {
 
     private static let maximumEntries = 16
     private static let externalNetworks: Set<String> = [
-        "ethereum_mainnet", "bsc_mainnet", "ton_mainnet", "tron_mainnet",
+        "ethereum_mainnet", "bsc_mainnet", "ton_mainnet",
     ]
     private static let actionTags: Set<String> = [
         "register_route", "activate_revision", "switch_revision", "deactivate_outbound",
         "retire_revision", "remove_staged", "release_stranded", "set_taira_paused",
         "set_destination_paused", "initialize_light_client", "install_trusted_checkpoint",
         "freeze_light_client", "set_parameters", "clear_bridge_key_fault",
+        "activate_light_client_profile",
     ]
 
     public init(from decoder: Decoder) throws {

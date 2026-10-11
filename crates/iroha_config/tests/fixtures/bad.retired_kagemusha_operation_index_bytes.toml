@@ -1,0 +1,4 @@
+extends = "base.toml"
+
+[nexus.storage]
+kagemusha_operation_index_bytes = 67108864

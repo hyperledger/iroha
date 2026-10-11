@@ -20,7 +20,6 @@ use iroha_data_model::{
 };
 use iroha_model_base::domain::DomainId;
 use iroha_model_base::topology::LaneId;
-use nonzero_ext::nonzero;
 fn checked_da_authorization(lane_id: LaneId, epoch: u64, sequence: u64) -> DaIngestAuthorizationV1 {
     let key_pair =
         iroha_crypto::KeyPair::try_from_seed(vec![0xE1; 32], iroha_crypto::Algorithm::Ed25519)
@@ -153,17 +152,13 @@ fn iterable_query_response_roundtrips_header_and_json() {
         "alpha".to_owned(),
         "beta".to_owned(),
     ]));
-    let cursor = ForwardCursor {
-        query: "iterable-query".to_owned(),
-        cursor: nonzero!(2u64),
-        gas_budget: Some(5),
-    };
-    let output = QueryOutput {
-        batch: batch.clone(),
-        remaining_items: Some(3),
-        has_more: true,
-        continue_cursor: Some(cursor),
-    };
+    let cursor: ForwardCursor = norito::json::from_value(norito::json!({
+        "query": "iterable-query",
+        "cursor": 2_u64,
+        "gas_budget": 5_u64,
+    }))
+    .expect("decode query cursor fixture");
+    let output = QueryOutput::new(batch.clone(), 3, Some(cursor));
     let resp = QueryResponse::Iterable(output.clone());
     let bytes = norito::to_bytes(&resp).expect("encode iterable QueryResponse");
     let decoded: QueryResponse =
@@ -180,7 +175,7 @@ fn iterable_query_response_roundtrips_header_and_json() {
         "JSON roundtrip must preserve iterable responses"
     );
     // Bare payload path for the batch tuple itself.
-    let bare_batch = norito::codec::Encode::encode(&output.batch);
+    let bare_batch = norito::codec::Encode::encode(&output.into_parts().0);
     let decoded_batch: QueryOutputBatchBoxTuple =
         norito::codec::decode_adaptive(&bare_batch).expect("decode batch tuple");
     assert_eq!(decoded_batch, batch, "Bare batch payload must roundtrip");
@@ -204,12 +199,7 @@ fn rwa_iterable_query_response_roundtrips_header_and_json() {
         checked_random_account_id(),
     );
     let batch = QueryOutputBatchBoxTuple::from_batch(QueryOutputBatchBox::Rwa(vec![rwa.clone()]));
-    let output = QueryOutput {
-        batch: batch.clone(),
-        remaining_items: Some(0),
-        has_more: false,
-        continue_cursor: None,
-    };
+    let output = QueryOutput::new(batch.clone(), 0, None);
     let resp = QueryResponse::Iterable(output.clone());
     let bytes = norito::to_bytes(&resp).expect("encode RWA QueryResponse");
     let decoded: QueryResponse =
@@ -222,7 +212,7 @@ fn rwa_iterable_query_response_roundtrips_header_and_json() {
         decoded_json, resp,
         "JSON roundtrip must preserve RWA iterable responses"
     );
-    let bare_batch = norito::codec::Encode::encode(&output.batch);
+    let bare_batch = norito::codec::Encode::encode(&output.into_parts().0);
     let decoded_batch: QueryOutputBatchBoxTuple =
         norito::codec::decode_adaptive(&bare_batch).expect("decode RWA batch tuple");
     assert_eq!(

@@ -6,7 +6,7 @@ seiyaku StateMapRuntime {
                         Option::none => 0,
                     };
                 }
-                view fn paused() -> int {
+                view fn paused() authorize(anyone) -> int {
                     let observed = current();
                     if observed == 0 { return current(); }
                     return observed;

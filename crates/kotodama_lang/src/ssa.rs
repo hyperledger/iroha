@@ -24,6 +24,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 mod literal_calls;
 mod single_use_calls;
 #[cfg(test)]
+mod statement_source_tests;
+#[cfg(test)]
 pub(crate) use single_use_calls::with_private_calls_retained;
 /// Maximum control-flow blocks accepted in one V1 function.
 ///
@@ -68,11 +70,16 @@ struct Phi {
 /// The payload reuses the exhaustive lowering opcode family so checked and effectful operation
 /// kinds cannot drift. Construction is private to this module; unlike lowering [`Temp`]s, every
 /// payload register is a [`Value`] encoded by [`Value::encoded`].
-#[derive(Debug, PartialEq)]
-struct ValueInstruction(ir::Instr);
+#[derive(Debug)]
+struct ValueInstruction(ir::Instr, Option<crate::source::SourceRange>);
+impl PartialEq for ValueInstruction {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
 impl ValueInstruction {
     fn new(canonical: ir::Instr) -> Self {
-        Self(canonical)
+        Self(canonical, None)
     }
     fn as_ir(&self) -> &ir::Instr {
         &self.0
@@ -85,11 +92,16 @@ impl ValueInstruction {
     }
 }
 /// One canonical control transfer branded as using SSA values.
-#[derive(Debug, PartialEq)]
-struct ValueTerminator(ir::Terminator);
+#[derive(Debug)]
+struct ValueTerminator(ir::Terminator, Option<crate::source::SourceRange>);
+impl PartialEq for ValueTerminator {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
 impl ValueTerminator {
     fn new(canonical: ir::Terminator) -> Self {
-        Self(canonical)
+        Self(canonical, None)
     }
     fn as_ir(&self) -> &ir::Terminator {
         &self.0
@@ -754,13 +766,20 @@ impl Function {
             .blocks
             .into_iter()
             .map(|block| {
-                let mut instructions = block
-                    .instructions
-                    .into_iter()
-                    .map(ValueInstruction::into_ir)
-                    .collect::<Vec<_>>();
+                let mut instructions = Vec::new();
+                let mut source = None;
+                for instruction in block.instructions {
+                    if source != instruction.1 {
+                        source = instruction.1;
+                        instructions.push(ir::Instr::Source(source));
+                    }
+                    instructions.push(instruction.into_ir());
+                }
                 for instruction in &mut instructions {
                     rewrite_instruction_values(instruction, &value_temps)?;
+                }
+                if source != block.terminator.1 {
+                    instructions.push(ir::Instr::Source(block.terminator.1));
                 }
                 let mut terminator = block.terminator.into_ir();
                 rewrite_terminator_values(&mut terminator, &value_temps)?;
@@ -812,7 +831,31 @@ impl Function {
                         "Phi predecessor {predecessor:?} has no edge to {target:?}"
                     ));
                 }
+                // Phi copies are generated edge transport, not execution of the preceding
+                // source statement. Restore the original terminator site after those copies.
+                let source = blocks[predecessor_index]
+                    .instrs
+                    .iter()
+                    .rev()
+                    .find_map(|instruction| {
+                        if let ir::Instr::Source(source) = instruction {
+                            Some(*source)
+                        } else {
+                            None
+                        }
+                    })
+                    .flatten();
+                if source.is_some() {
+                    blocks[predecessor_index]
+                        .instrs
+                        .push(ir::Instr::Source(None));
+                }
                 blocks[predecessor_index].instrs.extend(scheduled);
+                if source.is_some() {
+                    blocks[predecessor_index]
+                        .instrs
+                        .push(ir::Instr::Source(source));
+                }
             }
         }
         Cfg::new(
@@ -1825,7 +1868,13 @@ fn retain_reachable_lowering_blocks(function: &mut ir::Function) -> Result<(), S
 fn enforce_ssa_function_budget(function: &ir::Function) -> Result<(), String> {
     let instructions = function.blocks.iter().try_fold(0usize, |total, block| {
         total
-            .checked_add(block.instrs.len())
+            .checked_add(
+                block
+                    .instrs
+                    .iter()
+                    .filter(|instruction| !matches!(instruction, ir::Instr::Source(_)))
+                    .count(),
+            )
             .ok_or_else(|| "SSA instruction count overflow".to_owned())
     })?;
     validate_ssa_budget_counts(function.blocks.len(), instructions)
@@ -2426,6 +2475,7 @@ fn lowering_liveness(blocks: &[ir::BasicBlock], cfg: &Cfg) -> Vec<BTreeSet<usize
 fn rewrite_instr_uses<F: FnMut(&mut Temp)>(instr: &mut ir::Instr, mut f: F) {
     use ir::Instr::*;
     match instr {
+        Source(_) => {}
         Const { .. }
         | StringConst { .. }
         | LoadVar { .. }
@@ -2449,7 +2499,6 @@ fn rewrite_instr_uses<F: FnMut(&mut Temp)>(instr: &mut ir::Instr, mut f: F) {
         | TransferBatchBegin
         | TransferBatchEnd
         | CommitOutput => {}
-        TransferBatchApply { payload } => f(payload),
         Binary { left, right, .. } | WrappingBinary { left, right, .. } => {
             f(left);
             f(right);
@@ -2457,8 +2506,8 @@ fn rewrite_instr_uses<F: FnMut(&mut Temp)>(instr: &mut ir::Instr, mut f: F) {
         Unary { operand, .. } | WrappingNeg { operand, .. } => f(operand),
         IntFromI64 { value, .. }
         | IntFromU64 { value, .. }
-        | IntTryToI64 { value, .. }
-        | IntTryToU64 { value, .. }
+        | IntToI64 { value, .. }
+        | IntToU64 { value, .. }
         | NumericConvert { value, .. }
         | NumericTryConvert { value, .. }
         | NumericNeg { value, .. } => f(value),
@@ -2501,6 +2550,16 @@ fn rewrite_instr_uses<F: FnMut(&mut Temp)>(instr: &mut ir::Instr, mut f: F) {
             f(num);
             f(denom);
         }
+        CallContract {
+            contract,
+            binding,
+            payload,
+            ..
+        } => {
+            f(contract);
+            f(binding);
+            f(payload);
+        }
         InvokeEntrypointAs {
             actor,
             entrypoint,
@@ -2524,6 +2583,7 @@ fn rewrite_instr_uses<F: FnMut(&mut Temp)>(instr: &mut ir::Instr, mut f: F) {
             entrypoint,
             payload,
             expectation,
+            ..
         } => {
             f(actor);
             f(entrypoint);
@@ -2554,26 +2614,13 @@ fn rewrite_instr_uses<F: FnMut(&mut Temp)>(instr: &mut ir::Instr, mut f: F) {
         }
         RegisterAsset {
             asset,
-            symbol,
-            quantity,
+            name,
+            spec,
             mintable,
         } => {
             f(asset);
-            f(symbol);
-            f(quantity);
-            f(mintable);
-        }
-        CreateNewAsset {
-            asset,
-            symbol,
-            quantity,
-            account,
-            mintable,
-        } => {
-            f(asset);
-            f(symbol);
-            f(quantity);
-            f(account);
+            f(name);
+            f(spec);
             f(mintable);
         }
         TransferAsset {
@@ -2747,16 +2794,16 @@ fn rewrite_instr_uses<F: FnMut(&mut Temp)>(instr: &mut ir::Instr, mut f: F) {
             f(account);
             f(token);
         }
-        GrantContractEntrypoint {
+        GrantContractPermission {
             account,
-            entrypoint,
+            permission,
         }
-        | RevokeContractEntrypoint {
+        | RevokeContractPermission {
             account,
-            entrypoint,
+            permission,
         } => {
             f(account);
-            f(entrypoint);
+            f(permission);
         }
         GrantRole { account, name } | RevokeRole { account, name } => {
             f(account);
@@ -2871,11 +2918,19 @@ fn rewrite_instr_uses<F: FnMut(&mut Temp)>(instr: &mut ir::Instr, mut f: F) {
         | ir::Instr::SmartContractLifecycle { payload, .. }
         | ir::Instr::ZkRootsGet { payload, .. }
         | ir::Instr::ZkVoteGetTally { payload, .. }
-        | ir::Instr::VrfEpochSeed { payload, .. }
+        | ir::Instr::VrfEpochSeed { epoch: payload, .. }
         | ir::Instr::SoracloudHostCall {
             request: payload, ..
         } => f(payload),
-        ir::Instr::CoreQueryPage { offset, limit, .. } => {
+        ir::Instr::CoreQueryPage {
+            account,
+            offset,
+            limit,
+            ..
+        } => {
+            if let Some(account) = account {
+                f(account);
+            }
             f(offset);
             f(limit);
         }
@@ -2981,7 +3036,9 @@ fn rewrite_instr_uses<F: FnMut(&mut Temp)>(instr: &mut ir::Instr, mut f: F) {
         | JsonGetAccountId { json, key, .. }
         | JsonGetAssetDefinitionId { json, key, .. }
         | JsonGetNftId { json, key, .. }
-        | JsonGetBlobHex { json, key, .. } => {
+        | JsonGetBlobHex { json, key, .. }
+        | JsonGetString { json, key, .. }
+        | JsonGetBool { json, key, .. } => {
             f(json);
             f(key);
         }
@@ -2989,7 +3046,7 @@ fn rewrite_instr_uses<F: FnMut(&mut Temp)>(instr: &mut ir::Instr, mut f: F) {
             f(schema);
             f(blob);
         }
-        EncodeBoolKey { value, .. } | PointerToNorito { value, .. } => f(value),
+        PointerToNorito { value, .. } => f(value),
         PointerFromNorito { blob, .. } => f(blob),
         StatePathFromName { name, .. } => f(name),
         PathMapKeyNorito { base, key_blob, .. } => {
@@ -3043,6 +3100,7 @@ fn rewrite_instr_uses<F: FnMut(&mut Temp)>(instr: &mut ir::Instr, mut f: F) {
 }
 fn dest_temp_mut(instr: &mut ir::Instr) -> Option<&mut Temp> {
     match instr {
+        ir::Instr::Source(_) => None,
         ir::Instr::PointerEq { dest, .. }
         | ir::Instr::Const { dest, .. }
         | ir::Instr::StringConst { dest, .. }
@@ -3102,8 +3160,8 @@ fn dest_temp_mut(instr: &mut ir::Instr) -> Option<&mut Temp> {
         | ir::Instr::StateCount { dest, .. }
         | ir::Instr::IntFromI64 { dest, .. }
         | ir::Instr::IntFromU64 { dest, .. }
-        | ir::Instr::IntTryToI64 { dest, .. }
-        | ir::Instr::IntTryToU64 { dest, .. }
+        | ir::Instr::IntToI64 { dest, .. }
+        | ir::Instr::IntToU64 { dest, .. }
         | ir::Instr::NumericConvert { dest, .. }
         | ir::Instr::NumericTryConvert { dest, .. }
         | ir::Instr::NumericStatus { dest }
@@ -3136,7 +3194,6 @@ fn dest_temp_mut(instr: &mut ir::Instr) -> Option<&mut Temp> {
         ir::Instr::VrfVerifyBatch { dest, .. } => Some(dest),
         ir::Instr::MapGet { dest, .. } => Some(dest),
         ir::Instr::TlvLen { dest, .. } => Some(dest),
-        ir::Instr::EncodeBoolKey { dest, .. } => Some(dest),
         ir::Instr::JsonObject { dest, .. } => Some(dest),
         ir::Instr::JsonSetInt { dest, .. } => Some(dest),
         ir::Instr::JsonSetAccountId { dest, .. } => Some(dest),
@@ -3151,7 +3208,9 @@ fn dest_temp_mut(instr: &mut ir::Instr) -> Option<&mut Temp> {
         | ir::Instr::JsonGetAccountId { dest, .. }
         | ir::Instr::JsonGetAssetDefinitionId { dest, .. }
         | ir::Instr::JsonGetNftId { dest, .. }
-        | ir::Instr::JsonGetBlobHex { dest, .. } => Some(dest),
+        | ir::Instr::JsonGetBlobHex { dest, .. }
+        | ir::Instr::JsonGetString { dest, .. }
+        | ir::Instr::JsonGetBool { dest, .. } => Some(dest),
         ir::Instr::NameDecode { dest, .. } => Some(dest),
         ir::Instr::SchemaEncode { dest, .. } => Some(dest),
         ir::Instr::SchemaDecode { dest, .. } => Some(dest),
@@ -3162,10 +3221,9 @@ fn dest_temp_mut(instr: &mut ir::Instr) -> Option<&mut Temp> {
         ir::Instr::Call { dest, .. } | ir::Instr::InvokeEntrypointAs { dest, .. } => dest.as_mut(),
         ir::Instr::GrantPermission { .. }
         | ir::Instr::RevokePermission { .. }
-        | ir::Instr::GrantContractEntrypoint { .. }
-        | ir::Instr::RevokeContractEntrypoint { .. }
+        | ir::Instr::GrantContractPermission { .. }
+        | ir::Instr::RevokeContractPermission { .. }
         | ir::Instr::RegisterAsset { .. }
-        | ir::Instr::CreateNewAsset { .. }
         | ir::Instr::TransferAsset { .. }
         | ir::Instr::TransferBatchAsset { .. }
         | ir::Instr::EscrowOpenOffer { .. }
@@ -3225,11 +3283,11 @@ fn dest_temp_mut(instr: &mut ir::Instr) -> Option<&mut Temp> {
         | ir::Instr::AxtCommit
         | ir::Instr::TransferBatchBegin
         | ir::Instr::TransferBatchEnd
-        | ir::Instr::TransferBatchApply { .. }
         | ir::Instr::CommitOutput
         | ir::Instr::SmartContractLifecycle { .. }
         | ir::Instr::ExpectRejectAs { .. } => None,
         ir::Instr::CallMulti { .. }
+        | ir::Instr::CallContract { .. }
         | ir::Instr::InvokeEntrypointAsMulti { .. }
         | ir::Instr::MapLoadPair { .. }
         | ir::Instr::StateScan { .. }
@@ -3259,7 +3317,9 @@ fn rewrite_instr_definitions<F: FnMut(&mut Temp)>(instruction: &mut ir::Instr, m
             visit(dest_key);
             visit(dest_val);
         }
-        ir::Instr::CallMulti { dests, .. } | ir::Instr::InvokeEntrypointAsMulti { dests, .. } => {
+        ir::Instr::CallMulti { dests, .. }
+        | ir::Instr::CallContract { dests, .. }
+        | ir::Instr::InvokeEntrypointAsMulti { dests, .. } => {
             for destination in dests {
                 visit(destination);
             }
@@ -3360,7 +3420,12 @@ impl Renamer {
             pushed.push(variable);
         }
         let mut instructions = Vec::with_capacity(raw.instrs.len());
+        let mut source = None;
         for mut operation in raw.instrs {
+            if let ir::Instr::Source(next) = operation {
+                source = next;
+                continue;
+            }
             let mut expected_uses = 0usize;
             let mut expected_definitions = 0usize;
             visit_instr_uses(&operation, |_| expected_uses += 1);
@@ -3413,7 +3478,7 @@ impl Renamer {
                     raw.label
                 ));
             }
-            instructions.push(ValueInstruction::new(operation));
+            instructions.push(ValueInstruction(operation, source));
         }
         let mut terminator = raw.terminator;
         let mut expected_terminator_uses = 0usize;
@@ -3460,7 +3525,7 @@ impl Renamer {
             label: raw.label,
             phis: Vec::new(),
             instructions,
-            terminator: ValueTerminator::new(terminator),
+            terminator: ValueTerminator(terminator, source),
         });
         Ok(pushed)
     }
@@ -3879,7 +3944,7 @@ mod tests {
         assert!(program.functions[0].blocks[1].phis.is_empty());
         assert!(matches!(
             program.functions[0].blocks[0].instructions.as_slice(),
-            [ValueInstruction(Instr::LoadVar { name, .. })] if name == "condition"
+            [ValueInstruction(Instr::LoadVar { name, .. }, _)] if name == "condition"
         ));
     }
     #[test]
@@ -4484,7 +4549,7 @@ mod tests {
         assert!(join.phis.is_empty(), "constant Phi must be materialized");
         assert!(matches!(
             join.instructions.as_slice(),
-            [ValueInstruction(Instr::Const { value: 37, .. })]
+            [ValueInstruction(Instr::Const { value: 37, .. }, _)]
         ));
     }
     #[test]
@@ -4663,7 +4728,7 @@ mod tests {
         let block = &program.functions[0].blocks[0];
         assert!(matches!(
             block.instructions.as_slice(),
-            [ValueInstruction(Instr::LoadVar { name, .. })] if name == "value"
+            [ValueInstruction(Instr::LoadVar { name, .. }, _)] if name == "value"
         ));
         assert!(matches!(
             block.terminator.as_ir(),
@@ -4699,7 +4764,7 @@ mod tests {
         let block = &program.functions[0].blocks[0];
         assert!(matches!(
             block.instructions.as_slice(),
-            [ValueInstruction(Instr::LoadVar { name, .. })] if name == "input"
+            [ValueInstruction(Instr::LoadVar { name, .. }, _)] if name == "input"
         ));
         let Terminator::Return(Some(result)) = block.terminator.as_ir() else {
             panic!("copy-chain result must remain the function return");
@@ -4764,7 +4829,7 @@ mod tests {
             .expect("remove unused products");
         assert!(
             matches!(program.functions[0].blocks[0].instructions.as_slice(),
-            [ValueInstruction(Instr::LoadVar { name, .. })] if name == "input")
+            [ValueInstruction(Instr::LoadVar { name, .. }, _)] if name == "input")
         );
     }
     #[test]

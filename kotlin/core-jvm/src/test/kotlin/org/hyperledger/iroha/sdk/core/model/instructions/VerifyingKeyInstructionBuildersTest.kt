@@ -11,15 +11,15 @@ class VerifyingKeyInstructionBuildersTest {
     @Test
     fun `register verifying key builder accepts only exact registry backends`() {
         val instruction = RegisterVerifyingKeyInstruction.builder()
-            .setBackend("halo2/ipa")
+            .setBackend("pipa-r/pasta")
             .setName("treasury-spend")
-            .setRecord(sampleRecord("halo2/ipa"))
+            .setRecord(sampleRecord("pipa-r/pasta"))
             .build()
 
-        assertEquals("halo2/ipa", instruction.backend)
+        assertEquals("pipa-r/pasta", instruction.backend)
         assertEquals("treasury-spend", instruction.name)
         assertEquals("RegisterVerifyingKey", instruction.arguments["action"])
-        assertEquals("halo2/ipa", instruction.arguments["backend"])
+        assertEquals("pipa-r/pasta", instruction.arguments["backend"])
         assertEquals("treasury-spend", instruction.arguments["name"])
         assertEquals(instruction, RegisterVerifyingKeyInstruction.fromArguments(instruction.arguments))
     }
@@ -39,7 +39,7 @@ class VerifyingKeyInstructionBuildersTest {
 
     @Test
     fun `register and update reject unsupported production verifier backends`() {
-        val record = sampleRecord("halo2/ipa")
+        val record = sampleRecord("pipa-r/pasta")
 
         for (backend in unsafeBackends.filter { it.isNotEmpty() }) {
             assertFailsWith<IllegalArgumentException>(backend) {
@@ -63,10 +63,10 @@ class VerifyingKeyInstructionBuildersTest {
         val mismatchedRecord = sampleRecord("stark/fri/poseidon-x7-goldilocks-6x64-v1")
 
         assertFailsWith<IllegalArgumentException> {
-            RegisterVerifyingKeyInstruction("halo2/ipa", "vk", mismatchedRecord)
+            RegisterVerifyingKeyInstruction("pipa-r/pasta", "vk", mismatchedRecord)
         }
         assertFailsWith<IllegalArgumentException> {
-            UpdateVerifyingKeyInstruction("halo2/ipa", "vk", mismatchedRecord)
+            UpdateVerifyingKeyInstruction("pipa-r/pasta", "vk", mismatchedRecord)
         }
     }
 
@@ -85,7 +85,7 @@ class VerifyingKeyInstructionBuildersTest {
 
     @Test
     fun `fromArguments rejects noncanonical record fields before decoding records`() {
-        val canonicalArguments = baseArguments("halo2/ipa")
+        val canonicalArguments = baseArguments("pipa-r/pasta")
         for ((key, value) in listOf(
             "record.circuit_id" to " vk-test",
             "record.circuit_id" to "vk-test ",
@@ -113,12 +113,12 @@ class VerifyingKeyInstructionBuildersTest {
             "record.status" to " Active",
             "record.status" to "active",
         )) {
-            val registerArguments = baseArguments("halo2/ipa").also { it[key] = value }
+            val registerArguments = baseArguments("pipa-r/pasta").also { it[key] = value }
             assertFailsWith<IllegalArgumentException>(key) {
                 RegisterVerifyingKeyInstruction.fromArguments(registerArguments)
             }
 
-            val updateArguments = baseArguments("halo2/ipa").also { it[key] = value }
+            val updateArguments = baseArguments("pipa-r/pasta").also { it[key] = value }
             assertFailsWith<IllegalArgumentException>(key) {
                 UpdateVerifyingKeyInstruction.fromArguments(updateArguments)
             }
@@ -127,29 +127,29 @@ class VerifyingKeyInstructionBuildersTest {
 
     @Test
     fun `register and update reject blank or padded verifying key names`() {
-        val record = sampleRecord("halo2/ipa")
+        val record = sampleRecord("pipa-r/pasta")
 
         for (name in listOf("", "   ", "\t", "\n", " vk", "vk ")) {
             assertFailsWith<IllegalArgumentException>(name) {
                 RegisterVerifyingKeyInstruction.builder()
-                    .setBackend("halo2/ipa")
+                    .setBackend("pipa-r/pasta")
                     .setName(name)
                     .setRecord(record)
                     .build()
             }
             assertFailsWith<IllegalArgumentException>(name) {
-                RegisterVerifyingKeyInstruction("halo2/ipa", name, record)
+                RegisterVerifyingKeyInstruction("pipa-r/pasta", name, record)
             }
             assertFailsWith<IllegalArgumentException>(name) {
-                UpdateVerifyingKeyInstruction("halo2/ipa", name, record)
+                UpdateVerifyingKeyInstruction("pipa-r/pasta", name, record)
             }
 
-            val registerArguments = baseArguments("halo2/ipa").also { it["name"] = name }
+            val registerArguments = baseArguments("pipa-r/pasta").also { it["name"] = name }
             assertFailsWith<IllegalArgumentException>(name) {
                 RegisterVerifyingKeyInstruction.fromArguments(registerArguments)
             }
 
-            val updateArguments = baseArguments("halo2/ipa").also { it["name"] = name }
+            val updateArguments = baseArguments("pipa-r/pasta").also { it["name"] = name }
             assertFailsWith<IllegalArgumentException>(name) {
                 UpdateVerifyingKeyInstruction.fromArguments(updateArguments)
             }
@@ -170,7 +170,7 @@ class VerifyingKeyInstructionBuildersTest {
         )
 
     private fun baseArguments(backend: String): MutableMap<String, String> =
-        RegisterVerifyingKeyInstruction("halo2/ipa", "vk", sampleRecord("halo2/ipa"))
+        RegisterVerifyingKeyInstruction("pipa-r/pasta", "vk", sampleRecord("pipa-r/pasta"))
             .arguments
             .toMutableMap()
             .also { it["backend"] = backend }

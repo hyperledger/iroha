@@ -32,7 +32,9 @@ fn transition(vm: &mut IVM, action: Transition) -> Result<(), VMError> {
         Transition::RawLoad => vm.load_code(&wide::encode_halt().to_le_bytes()),
         Transition::PreparedLoad => {
             let (code, _) = kotodama_lang::compiler::Compiler::new()
-                .compile_source_with_manifest("seiyaku Cleanup { view fn main() -> bool { true } }")
+                .compile_source_with_manifest(
+                    "seiyaku Cleanup { view fn main() authorize(anyone) -> bool { true } }",
+                )
                 .unwrap();
             let prepared = crate::PreparedContract::prepare(std::sync::Arc::from(code)).unwrap();
             vm.load_prepared(&prepared)
@@ -191,7 +193,12 @@ fn invalid_range_rejects_before_zeroing_an_earlier_valid_range() {
         let registers = vm.registers.snapshot();
         let tags = vm.registers.snapshot_tags();
         let root = vm.memory.root();
-        assert_eq!(transition(&mut vm, action), Err(VMError::PrivacyViolation));
+        assert_eq!(
+            transition(&mut vm, action),
+            Err(VMError::ExecutionDeferred(
+                ExecutionDeferral::LocalInvariantViolation,
+            ))
+        );
         assert_secret_bytes(&vm);
         assert_eq!(vm.private_memory_bytes, ranges);
         assert_eq!(vm.registers.snapshot(), registers);

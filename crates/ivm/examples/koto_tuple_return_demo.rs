@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1) Inline Kotodama source: a main that returns a pair (a+1, b+1).
     let src = r#"
         seiyaku TupleReturnDemo {
-            view fn main() -> (int, int) {
+            view fn main() authorize(anyone) -> (int, int) {
                 let int a = 3;
                 let int b = 5;
                 let t = (a + 1, b + 1);

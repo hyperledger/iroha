@@ -34,12 +34,13 @@ changed label or a fabricated successful receipt.
 
 ## Device-specific features
 
-Optional KAGEMUSHA offline-money work has a separate non-forking device-state
-assumption. It is not required for node startup, validator membership, ordinary
-transactions or permissioned dataspaces. Its current device checks cannot be
-deleted or called software checks while retaining the same offline double-spend
-guarantee. Any software-only offline design must state and implement its actual
-settlement, replay and loss assumptions; it cannot impose a server HSM requirement.
+Optional KAGEMUSHA offline-money work has a separate device-state assumption:
+a durable software state provider on a stock, uncompromised OS
+([design](kagemusha_single_design_proposal.md)). It is not required for node
+startup, validator membership, ordinary transactions or permissioned
+dataspaces. It states and implements its settlement, replay and loss
+assumptions and does not claim protection against a compromised OS; it cannot
+impose a server HSM requirement.
 
 ## Remaining implementation and evidence
 

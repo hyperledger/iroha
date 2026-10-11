@@ -371,7 +371,6 @@ mod tests {
     use std::{
         collections::BTreeMap,
         num::{NonZeroU32, NonZeroU64},
-        sync::Arc,
     };
     fn checked_random_keypair_with_algorithm(algorithm: Algorithm, context: &str) -> KeyPair {
         KeyPair::try_random_with_algorithm(algorithm).unwrap_or_else(|err| {

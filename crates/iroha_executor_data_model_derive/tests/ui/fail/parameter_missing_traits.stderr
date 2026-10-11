@@ -1,23 +1,23 @@
 error[E0277]: the trait bound `MissingSerialization: iroha_schema::IntoSchema` is not satisfied
- --> tests/ui/fail/parameter_missing_traits.rs:6:8
+ --> tests/ui/fail/parameter_missing_traits.rs:4:8
   |
-6 | struct MissingSerialization {
+4 | struct MissingSerialization {
   |        ^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `iroha_schema::IntoSchema` is not implemented for `MissingSerialization`
- --> tests/ui/fail/parameter_missing_traits.rs:6:1
+ --> tests/ui/fail/parameter_missing_traits.rs:4:1
   |
-6 | struct MissingSerialization {
+4 | struct MissingSerialization {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `iroha_schema::IntoSchema`:
             ()
-            AbiVersion
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptAssetEscrow
+            AcceptContractOwnership
+            AcceptMusubiPackageMaintainerV1
+            AcceptSorafsModerationJurorAssignment
             AccessSetHints
-            AccountAddress
-            AccountController
-            AccountDetails
-            AccountEvent
           and $N others
 note: required by a bound in `iroha_executor_data_model::parameter::Parameter`
  --> $WORKSPACE/crates/iroha_executor_data_model/src/parameter.rs
@@ -30,32 +30,32 @@ note: required by a bound in `iroha_executor_data_model::parameter::Parameter`
             iroha_executor_data_model::isi::multisig::MultisigRegister
             iroha_executor_data_model::isi::multisig::MultisigPropose
             iroha_executor_data_model::isi::multisig::MultisigApprove
-            iroha_executor_data_model::isi::multisig::MultisigSpec
-            iroha_executor_data_model::isi::multisig::MultisigProposalValue
-            iroha_executor_data_model::permission::peer::CanManagePeers
-            iroha_executor_data_model::permission::domain::CanRegisterDomain
+            iroha_executor_data_model::isi::multisig::MultisigCancel
+            iroha_executor_data_model::isi::multisig::MultisigInvalidateOutstanding
+            iroha_executor_data_model::isi::multisig::MultisigAccountState
+            iroha_executor_data_model::isi::multisig::MultisigProposalState
           and $N others
 
 error[E0277]: the trait bound `MissingSerialization: JsonDeserialize` is not satisfied
- --> tests/ui/fail/parameter_missing_traits.rs:6:8
+ --> tests/ui/fail/parameter_missing_traits.rs:4:8
   |
-6 | struct MissingSerialization {
+4 | struct MissingSerialization {
   |        ^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `JsonDeserialize` is not implemented for `MissingSerialization`
- --> tests/ui/fail/parameter_missing_traits.rs:6:1
+ --> tests/ui/fail/parameter_missing_traits.rs:4:1
   |
-6 | struct MissingSerialization {
+4 | struct MissingSerialization {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `JsonDeserialize`:
             ()
-            AbiVersion
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptMusubiPackageMaintainerV1
             AccessSetHints
             AccountAddress
-            AccountController
-            AccountDetails
-            AccountEvent
+            AccountAdmissionDefaultRoleError
+            AccountAdmissionError
           and $N others
   = note: required for `MissingSerialization` to implement `DeserializeOwned`
 note: required by a bound in `iroha_executor_data_model::parameter::Parameter`
@@ -65,25 +65,25 @@ note: required by a bound in `iroha_executor_data_model::parameter::Parameter`
   |                                ^^^^^^^^^^^^^^^^^^^^ required by this bound in `Parameter`
 
 error[E0277]: the trait bound `MissingSerialization: JsonSerialize` is not satisfied
- --> tests/ui/fail/parameter_missing_traits.rs:6:8
+ --> tests/ui/fail/parameter_missing_traits.rs:4:8
   |
-6 | struct MissingSerialization {
+4 | struct MissingSerialization {
   |        ^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `FastJsonWrite` is not implemented for `MissingSerialization`
- --> tests/ui/fail/parameter_missing_traits.rs:6:1
+ --> tests/ui/fail/parameter_missing_traits.rs:4:1
   |
-6 | struct MissingSerialization {
+4 | struct MissingSerialization {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `FastJsonWrite`:
             &T
             &mut T
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptMusubiPackageMaintainerV1
             AccessSetHints
-            AccountController
-            AccountDetails
-            AccountEvent
-            AccountEventFilter
+            AccountAdmissionDefaultRoleError
+            AccountAdmissionError
           and $N others
   = note: required for `MissingSerialization` to implement `JsonSerialize`
 note: required by a bound in `iroha_executor_data_model::parameter::Parameter`
@@ -93,25 +93,25 @@ note: required by a bound in `iroha_executor_data_model::parameter::Parameter`
   |                                                       ^^^^^^^^^^^^^ required by this bound in `Parameter`
 
 error[E0277]: the trait bound `MissingSerialization: iroha_schema::IntoSchema` is not satisfied
- --> tests/ui/fail/parameter_missing_traits.rs:5:19
+ --> tests/ui/fail/parameter_missing_traits.rs:3:19
   |
-5 | #[derive(Default, Parameter)]
+3 | #[derive(Default, Parameter)]
   |                   ^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `iroha_schema::IntoSchema` is not implemented for `MissingSerialization`
- --> tests/ui/fail/parameter_missing_traits.rs:6:1
+ --> tests/ui/fail/parameter_missing_traits.rs:4:1
   |
-6 | struct MissingSerialization {
+4 | struct MissingSerialization {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `iroha_schema::IntoSchema`:
             ()
-            AbiVersion
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptAssetEscrow
+            AcceptContractOwnership
+            AcceptMusubiPackageMaintainerV1
+            AcceptSorafsModerationJurorAssignment
             AccessSetHints
-            AccountAddress
-            AccountController
-            AccountDetails
-            AccountEvent
           and $N others
 note: required by a bound in `iroha_executor_data_model::parameter::Parameter::id`
  --> $WORKSPACE/crates/iroha_executor_data_model/src/parameter.rs
@@ -124,25 +124,25 @@ note: required by a bound in `iroha_executor_data_model::parameter::Parameter::i
   = note: this error originates in the derive macro `Parameter` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: the trait bound `MissingSerialization: DeserializeOwned` is not satisfied
- --> tests/ui/fail/parameter_missing_traits.rs:5:19
+ --> tests/ui/fail/parameter_missing_traits.rs:3:19
   |
-5 | #[derive(Default, Parameter)]
+3 | #[derive(Default, Parameter)]
   |                   ^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `JsonDeserialize` is not implemented for `MissingSerialization`
- --> tests/ui/fail/parameter_missing_traits.rs:6:1
+ --> tests/ui/fail/parameter_missing_traits.rs:4:1
   |
-6 | struct MissingSerialization {
+4 | struct MissingSerialization {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `JsonDeserialize`:
             ()
-            AbiVersion
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptMusubiPackageMaintainerV1
             AccessSetHints
             AccountAddress
-            AccountController
-            AccountDetails
-            AccountEvent
+            AccountAdmissionDefaultRoleError
+            AccountAdmissionError
           and $N others
   = note: required for `MissingSerialization` to implement `DeserializeOwned`
 note: required by a bound in `iroha_executor_data_model::parameter::Parameter::id`
@@ -156,25 +156,25 @@ note: required by a bound in `iroha_executor_data_model::parameter::Parameter::i
   = note: this error originates in the derive macro `Parameter` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: the trait bound `MissingSerialization: JsonSerialize` is not satisfied
- --> tests/ui/fail/parameter_missing_traits.rs:5:19
+ --> tests/ui/fail/parameter_missing_traits.rs:3:19
   |
-5 | #[derive(Default, Parameter)]
+3 | #[derive(Default, Parameter)]
   |                   ^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `FastJsonWrite` is not implemented for `MissingSerialization`
- --> tests/ui/fail/parameter_missing_traits.rs:6:1
+ --> tests/ui/fail/parameter_missing_traits.rs:4:1
   |
-6 | struct MissingSerialization {
+4 | struct MissingSerialization {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `FastJsonWrite`:
             &T
             &mut T
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptMusubiPackageMaintainerV1
             AccessSetHints
-            AccountController
-            AccountDetails
-            AccountEvent
-            AccountEventFilter
+            AccountAdmissionDefaultRoleError
+            AccountAdmissionError
           and $N others
   = note: required for `MissingSerialization` to implement `JsonSerialize`
 note: required by a bound in `iroha_executor_data_model::parameter::Parameter::id`
@@ -188,25 +188,25 @@ note: required by a bound in `iroha_executor_data_model::parameter::Parameter::i
   = note: this error originates in the derive macro `Parameter` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: the trait bound `MissingSerialization: iroha_schema::IntoSchema` is not satisfied
- --> tests/ui/fail/parameter_missing_traits.rs:6:8
+ --> tests/ui/fail/parameter_missing_traits.rs:4:8
   |
-6 | struct MissingSerialization {
+4 | struct MissingSerialization {
   |        ^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `iroha_schema::IntoSchema` is not implemented for `MissingSerialization`
- --> tests/ui/fail/parameter_missing_traits.rs:6:1
+ --> tests/ui/fail/parameter_missing_traits.rs:4:1
   |
-6 | struct MissingSerialization {
+4 | struct MissingSerialization {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `iroha_schema::IntoSchema`:
             ()
-            AbiVersion
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptAssetEscrow
+            AcceptContractOwnership
+            AcceptMusubiPackageMaintainerV1
+            AcceptSorafsModerationJurorAssignment
             AccessSetHints
-            AccountAddress
-            AccountController
-            AccountDetails
-            AccountEvent
           and $N others
 note: required by a bound in `iroha_executor_data_model::parameter::Parameter::id`
  --> $WORKSPACE/crates/iroha_executor_data_model/src/parameter.rs
@@ -218,25 +218,25 @@ note: required by a bound in `iroha_executor_data_model::parameter::Parameter::i
   |        -- required by a bound in this associated function
 
 error[E0277]: the trait bound `MissingSerialization: DeserializeOwned` is not satisfied
- --> tests/ui/fail/parameter_missing_traits.rs:6:8
+ --> tests/ui/fail/parameter_missing_traits.rs:4:8
   |
-6 | struct MissingSerialization {
+4 | struct MissingSerialization {
   |        ^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `JsonDeserialize` is not implemented for `MissingSerialization`
- --> tests/ui/fail/parameter_missing_traits.rs:6:1
+ --> tests/ui/fail/parameter_missing_traits.rs:4:1
   |
-6 | struct MissingSerialization {
+4 | struct MissingSerialization {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `JsonDeserialize`:
             ()
-            AbiVersion
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptMusubiPackageMaintainerV1
             AccessSetHints
             AccountAddress
-            AccountController
-            AccountDetails
-            AccountEvent
+            AccountAdmissionDefaultRoleError
+            AccountAdmissionError
           and $N others
   = note: required for `MissingSerialization` to implement `DeserializeOwned`
 note: required by a bound in `iroha_executor_data_model::parameter::Parameter::id`
@@ -249,25 +249,25 @@ note: required by a bound in `iroha_executor_data_model::parameter::Parameter::i
   |        -- required by a bound in this associated function
 
 error[E0277]: the trait bound `MissingSerialization: JsonSerialize` is not satisfied
- --> tests/ui/fail/parameter_missing_traits.rs:6:8
+ --> tests/ui/fail/parameter_missing_traits.rs:4:8
   |
-6 | struct MissingSerialization {
+4 | struct MissingSerialization {
   |        ^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
   |
 help: the trait `FastJsonWrite` is not implemented for `MissingSerialization`
- --> tests/ui/fail/parameter_missing_traits.rs:6:1
+ --> tests/ui/fail/parameter_missing_traits.rs:4:1
   |
-6 | struct MissingSerialization {
+4 | struct MissingSerialization {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = help: the following other types implement trait `FastJsonWrite`:
             &T
             &mut T
+            AbortAtomicPrivateSettlementV1
             AbsoluteOutlier
+            AcceptMusubiPackageMaintainerV1
             AccessSetHints
-            AccountController
-            AccountDetails
-            AccountEvent
-            AccountEventFilter
+            AccountAdmissionDefaultRoleError
+            AccountAdmissionError
           and $N others
   = note: required for `MissingSerialization` to implement `JsonSerialize`
 note: required by a bound in `iroha_executor_data_model::parameter::Parameter::id`

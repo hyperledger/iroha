@@ -1,25 +1,26 @@
 // Minimal Kotodama example: logs a greeting and writes a detail for the current authority
 seiyaku Hello {
+    permission Admin;
     // Optional hajimari/始まり hook; the runtime stages it at activation.
     hajimari() {
         debug::info("Hello from Kotodama");
     }
 
     // Named kotoage/言挙げ declaration; callers select `main` explicitly.
-    kotoage fn main() authorize("Admin") {
+    kotoage fn main() authorize(Admin) {
         debug::info("Hello from Kotodama");
         set_example_detail();
     }
 
     // Kotoage/言挙げ declaration that sets an account detail on the caller.
-    kotoage fn write_detail() authorize("Admin") {
+    kotoage fn write_detail() authorize(Admin) {
         set_example_detail();
     }
 
     // Runtime declarations share effects through a private helper, never by
     // bypassing another kotoage declaration's authorization boundary.
     fn set_example_detail() {
-        ledger::account::set_detail(
+        ledger::account::set_metadata(
             account: context::authority(),
             key: Name::parse("example"),
             value: Json::parse("{\"hello\":\"world\"}"),

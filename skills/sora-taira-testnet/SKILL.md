@@ -199,7 +199,7 @@ Prefer curated `iroha.*` tools over raw route wrappers. Use each tool's current
 The first-release public contract is exact:
 
 - chain id: `fc56984b-2be7-431d-840e-21514d1883f0`
-- KAGEMUSHA V1 Digital Shekel asset definition: `7ZepsJTHCVLKsrFFNZGSRGZgvBhv`
+- Digital Shekel asset definition: `7ZepsJTHCVLKsrFFNZGSRGZgvBhv`
 - public Digital Shekel alias: `ds#boi.is`
 - Digital Shekel numeric scale: `2`
 - native/fee XOR asset definition: `6TEAJqbb8oEPmLncoNiMRbLEK6tw`
@@ -207,8 +207,9 @@ The first-release public contract is exact:
 - XOR numeric scale: `9`
 
 Reject the retired `iroha3-taira` chain alias and legacy `<name>#<domain>`
-asset-definition literals in Taira signing inputs. Do not substitute the XOR
-fee asset for Digital Shekel in KAGEMUSHA V1 top-up or redemption inputs.
+asset-definition literals in Taira signing inputs. The KAGEMUSHA V1 top-up and
+redemption commands were deleted from the source; do not build Digital Shekel
+top-up or redemption inputs for the deployed `/v1/kagemusha/*` routes.
 
 ## Public-node triage
 

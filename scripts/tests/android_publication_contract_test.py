@@ -53,13 +53,18 @@ for module,dependency in [('core-jvm',''),('client-android','core-jvm'),('kagemu
   with zipfile.ZipFile(output,'w') as archive:
    archive.writestr('AndroidManifest.xml','<manifest/>');archive.writestr('classes.jar',b'managed fixture')
    if module=='client-android':
-    payload=json.dumps({'schema':'iroha.android-native-build-provenance.v1','build_profile':'release','privacy_production_enabled':True,'cargo_locked':True,'source_tree_dirty':False,'source_commit':commit}).encode()
+    abis=['arm64-v8a','armeabi-v7a','x86_64']
+    if os.environ.get('FIXTURE_OMIT_ARMV7')=='1':abis.remove('armeabi-v7a')
+    native_bytes=b'synthetic native fixture'
+    libraries={abi:{'aar_path':f'jni/{abi}/libconnect_norito_bridge.so','bytes':len(native_bytes),'sha256':hashlib.sha256(native_bytes).hexdigest()}for abi in abis}
+    payload=json.dumps({'schema':'iroha.android-native-build-provenance.v1','build_profile':'release','privacy_production_enabled':True,'cargo_locked':True,'source_tree_dirty':False,'source_commit':commit,'libraries':libraries}).encode()
     provenance=build/module/'generated/nativeProvenance/production/iroha/native-build-provenance-v1.json'
     provenance.parent.mkdir(parents=True,exist_ok=True);provenance.write_bytes(payload)
     archive.writestr('assets/iroha/native-build-provenance-v1.json',payload)
-    for abi in ['arm64-v8a','x86_64']:
+    for abi in abis:
      native=build/module/f'generated/jniLibs/production/{abi}/libconnect_norito_bridge.so'
-     native.parent.mkdir(parents=True,exist_ok=True);native.write_bytes(b'synthetic native fixture')
+     native.parent.mkdir(parents=True,exist_ok=True);native.write_bytes(native_bytes)
+     archive.writestr(f'jni/{abi}/libconnect_norito_bridge.so',native_bytes)
  deps=(f'<dependencies><dependency><groupId>org.hyperledger.iroha.sdk</groupId><artifactId>{dependency}</artifactId><version>{version}</version></dependency></dependencies>' if dependency else '')
  pom=f'<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>org.hyperledger.iroha.sdk</groupId><artifactId>{module}</artifactId><version>{version}</version><packaging>{extension}</packaging>{deps}</project>'
  generated=build/module/'publications/release/pom-default.xml';generated.parent.mkdir(parents=True,exist_ok=True);generated.write_text(pom)
@@ -128,6 +133,12 @@ for module in ['core-jvm','client-android','kagemusha-wallet-android']:
         self.assertEqual(report["modules"], ["core-jvm", "client-android", "kagemusha-wallet-android"])
         self.assertFalse(report["release_qualification"])
         self.assertEqual(report["version"], "1.2.3")
+
+    def test_prior_two_abi_publication_has_no_receipt(self):
+        result = self.run_publisher(FIXTURE_OMIT_ARMV7="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("exact three-ABI native provenance", result.stderr)
+        self.assertFalse((self.artifacts / "publication-1.2.3").exists())
 
     def test_sbom_generation_requires_original_canonical_unit_suites(self):
         source = (ROOT / "scripts/android_sbom_provenance.sh").read_text()

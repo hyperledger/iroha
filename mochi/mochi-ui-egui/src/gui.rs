@@ -127,6 +127,7 @@ fn inspect_workspace(workspace: DeveloperWorkspace) -> UiResult<Opened> {
 enum Message {
     Opened(UiResult<Opened>),
     Selected(UiResult<Selection>),
+    SelectionObserved(UiResult<Selection>),
     LocalnetStarted {
         result: UiResult<Selection>,
         names: UiResult<Vec<String>>,
@@ -369,13 +370,39 @@ impl PublicationOutput {
     }
 }
 
+/// The native workspace identity is separate from editable display text.
+/// Rendering a non-Unicode path must not select its lossy Unicode counterpart.
+struct WorkspacePath {
+    native: PathBuf,
+    text: String,
+}
+
+impl WorkspacePath {
+    fn new(path: PathBuf) -> Self {
+        Self {
+            text: path.to_string_lossy().into_owned(),
+            native: path,
+        }
+    }
+
+    fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
+        let response = ui.add(egui::TextEdit::singleline(&mut self.text).desired_width(520.0));
+        if response.changed() {
+            // A deliberate edit selects the typed path. An untouched display retains the
+            // exact original native argument, including bytes Unicode cannot represent.
+            self.native = PathBuf::from(&self.text);
+        }
+        response
+    }
+}
+
 struct Desktop {
     runtime: Option<tokio::runtime::Runtime>,
     sender: Sender<(u64, Message)>,
     receiver: Receiver<(u64, Message)>,
     epoch: u64,
     busy: bool,
-    workspace_path: String,
+    workspace_path: WorkspacePath,
     workspace: Option<DeveloperWorkspace>,
     names: Vec<String>,
     new_name: String,
@@ -455,7 +482,7 @@ impl Desktop {
             receiver,
             epoch: 0,
             busy: false,
-            workspace_path: path.to_string_lossy().into_owned(),
+            workspace_path: WorkspacePath::new(path),
             workspace: None,
             names: Vec::new(),
             new_name: "local".into(),
@@ -504,6 +531,7 @@ impl Desktop {
 
     fn spawn(&mut self, work: impl FnOnce() -> Message + Send + 'static) {
         self.error = None;
+        self.notice = None;
         self.spawn_task(work);
     }
 
@@ -546,7 +574,7 @@ impl Desktop {
         self.attaching = None;
         self.attachment_progress = None;
         self.attachment_poll_pending = false;
-        let path = PathBuf::from(&self.workspace_path);
+        let path = self.workspace_path.native.clone();
         self.spawn(move || Message::Opened(open_workspace(path)));
     }
 
@@ -575,15 +603,32 @@ impl Desktop {
             |s| s.network.prepared().context.name.clone(),
         );
         self.spawn(move || {
-            Message::Selected(
-                (if start {
-                    workspace.start(&name)
-                } else {
-                    workspace.stop(&name)
-                })
-                .map_err(|e| e.to_string())
-                .and_then(|_| load_selection(&workspace, Some(&name))),
-            )
+            if start {
+                complete_localnet_start(
+                    || {
+                        workspace
+                            .start(&name)
+                            .map(|status| (status.phase, status.failure))
+                            .map_err(|e| e.to_string())
+                    },
+                    || load_selection(&workspace, Some(&name)),
+                    || {
+                        workspace
+                            .contexts()
+                            .map(|contexts| {
+                                contexts.into_iter().map(|context| context.name).collect()
+                            })
+                            .map_err(|e| e.to_string())
+                    },
+                )
+            } else {
+                Message::Selected(
+                    workspace
+                        .stop(&name)
+                        .map_err(|e| e.to_string())
+                        .and_then(|_| load_selection(&workspace, Some(&name))),
+                )
+            }
         });
     }
 
@@ -592,20 +637,21 @@ impl Desktop {
             return;
         };
         self.spawn(move || {
-            let result = workspace
-                .create_localnet(&name)
-                .map_err(|e| e.to_string())
-                .and_then(|status| {
-                    require_ready_localnet(status.phase, status.failure.as_deref())?;
-                    let selection = load_selection(&workspace, Some(&name))?;
-                    require_ready_localnet(selection.phase, selection.failure.as_deref())?;
-                    Ok(selection)
-                });
-            let names = workspace
-                .contexts()
-                .map(|contexts| contexts.into_iter().map(|context| context.name).collect())
-                .map_err(|e| e.to_string());
-            Message::LocalnetStarted { result, names }
+            complete_localnet_start(
+                || {
+                    workspace
+                        .create_localnet(&name)
+                        .map(|status| (status.phase, status.failure))
+                        .map_err(|e| e.to_string())
+                },
+                || load_selection(&workspace, Some(&name)),
+                || {
+                    workspace
+                        .contexts()
+                        .map(|contexts| contexts.into_iter().map(|context| context.name).collect())
+                        .map_err(|e| e.to_string())
+                },
+            )
         });
     }
 
@@ -682,8 +728,10 @@ impl Desktop {
         };
         let name = selected.network.prepared().context.name.clone();
         self.last_poll = Instant::now();
-        // Periodic successful observations must not erase a foreground operation's failure.
-        self.spawn_task(move || Message::Selected(load_selection(&workspace, Some(&name))));
+        // A background failure withdraws live context without erasing completed deployment evidence.
+        self.spawn_task(move || {
+            Message::SelectionObserved(load_selection(&workspace, Some(&name)))
+        });
     }
 
     fn install_selection(&mut self, selection: Selection) {
@@ -769,6 +817,21 @@ impl Desktop {
                     Ok(selected) => self.install_selection(selected),
                     Err(error) => {
                         self.clear_network();
+                        self.error = Some(error);
+                    }
+                },
+                Message::SelectionObserved(result) => match result {
+                    Ok(selected) => self.install_selection(selected),
+                    Err(error) => {
+                        let receipt = self.receipt.take();
+                        let notice = self.notice.take();
+                        let publication_output = self.publication_output.take();
+                        let operation_id = std::mem::take(&mut self.publication.operation_id);
+                        self.clear_network();
+                        self.receipt = receipt;
+                        self.notice = notice;
+                        self.publication_output = publication_output;
+                        self.publication.operation_id = operation_id;
                         self.error = Some(error);
                     }
                 },
@@ -887,7 +950,7 @@ impl Desktop {
         ui.add_enabled_ui(!self.busy, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Workspace");
-                ui.add(egui::TextEdit::singleline(&mut self.workspace_path).desired_width(520.0));
+                self.workspace_path.show(ui);
                 if ui.button("Open").clicked() {
                     self.open();
                 }
@@ -1468,6 +1531,10 @@ impl Desktop {
                 }
                 .map_err(|e| e.to_string())?;
                 let mut result = run.execution_summary();
+                if let Some(lifecycle) = &run.lifecycle {
+                    result.push('\n');
+                    result.push_str(&lifecycle.summary());
+                }
                 if let Some(parent) = run.parent_summary() {
                     result.push('\n');
                     result.push_str(&parent);
@@ -1697,6 +1764,23 @@ fn optional_selector(value: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_owned())
 }
 
+// Both startup controls retain the menu on ordinary failure. Only a Ready return followed
+// by a fresh Ready observation can replace the desktop selection; the shared store owns it.
+fn complete_localnet_start(
+    start: impl FnOnce() -> UiResult<(ManagedPhase, Option<String>)>,
+    observe: impl FnOnce() -> UiResult<Selection>,
+    names: impl FnOnce() -> UiResult<Vec<String>>,
+) -> Message {
+    let result = start().and_then(|(phase, failure)| {
+        require_ready_localnet(phase, failure.as_deref())?;
+        let selection = observe()?;
+        require_ready_localnet(selection.phase, selection.failure.as_deref())?;
+        Ok(selection)
+    });
+    let names = names();
+    Message::LocalnetStarted { result, names }
+}
+
 fn require_ready_localnet(phase: ManagedPhase, failure: Option<&str>) -> UiResult<()> {
     if phase == ManagedPhase::Ready {
         return Ok(());
@@ -1894,6 +1978,72 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn initial_workspace_keeps_native_path_when_its_display_names_another_path() {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt as _};
+
+        let temporary = tempfile::tempdir().unwrap();
+        let original = temporary
+            .path()
+            .join(OsString::from_vec(b"project-\xff".to_vec()));
+        let displayed = PathBuf::from(original.to_string_lossy().as_ref());
+        // Unix paths retain arbitrary bytes, but macOS filesystems reject this filename.
+        // Linux additionally exercises two real directories with distinct native identities.
+        #[cfg(target_os = "linux")]
+        {
+            std::fs::create_dir(&original).unwrap();
+            std::fs::create_dir(&displayed).unwrap();
+            assert_ne!(
+                original.canonicalize().unwrap(),
+                displayed.canonicalize().unwrap()
+            );
+        }
+
+        let mut desktop = Desktop::model(original.clone());
+        assert_eq!(desktop.workspace_path.native, original);
+        let context = egui::Context::default();
+        let _ = render_frame(&context, Vec::new(), &mut |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                desktop.workspace_path.show(ui);
+            });
+        });
+        assert_eq!(desktop.workspace_path.text, displayed.to_string_lossy());
+        assert_eq!(desktop.workspace_path.native, original);
+        #[cfg(target_os = "linux")]
+        assert_eq!(
+            desktop.workspace_path.native.canonicalize().unwrap(),
+            original.canonicalize().unwrap()
+        );
+        assert_ne!(desktop.workspace_path.native, displayed);
+    }
+
+    #[test]
+    fn workspace_editor_selects_the_explicitly_pasted_path() {
+        let mut path = WorkspacePath::new(PathBuf::new());
+        let context = egui::Context::default();
+        let mut editor = None;
+        let _ = render_frame(&context, Vec::new(), &mut |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                editor = Some(path.show(ui).id);
+            });
+        });
+        assert_eq!(path.native, PathBuf::new());
+        context.memory_mut(|memory| memory.request_focus(editor.unwrap()));
+        let selected = "a workspace/with spaces";
+        let _ = render_frame(
+            &context,
+            vec![egui::Event::Paste(selected.into())],
+            &mut |context| {
+                egui::CentralPanel::default().show(context, |ui| {
+                    path.show(ui);
+                });
+            },
+        );
+        assert_eq!(path.text, selected);
+        assert_eq!(path.native, PathBuf::from(selected));
+    }
+
     #[test]
     fn new_localnet_dialog_emits_only_the_explicit_available_name() {
         let names = vec!["local".into(), "local-2".into(), "private".into()];
@@ -1975,6 +2125,127 @@ mod tests {
     }
 
     #[test]
+    fn primary_start_timeout_exposes_retained_name_without_selecting_it() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        // Exercise the production completion owner at the existing UI string-error boundary.
+        // The managed store can retain a generation before returning this original timeout.
+        let timeout = "localnet startup did not complete within 30s";
+        let completion = complete_localnet_start(
+            || {
+                calls.borrow_mut().push("start");
+                Err(timeout.into())
+            },
+            || panic!("a failed start cannot select its observation"),
+            || {
+                calls.borrow_mut().push("names");
+                Ok(vec!["contracts".into()])
+            },
+        );
+        assert_eq!(*calls.borrow(), ["start", "names"]);
+        let mut desktop = Desktop::model(PathBuf::from("unused"));
+        desktop.busy = true;
+        desktop.new_name = "contracts".into();
+        desktop.sender.send((desktop.epoch, completion)).unwrap();
+        desktop.poll();
+        assert!(!desktop.busy);
+        assert_eq!(desktop.names, ["contracts"]);
+        assert_eq!(desktop.new_name, "contracts");
+        assert!(desktop.selected.is_none());
+        assert_eq!(desktop.error.as_deref(), Some(timeout));
+    }
+
+    #[test]
+    fn primary_start_failed_status_keeps_retained_menu_and_prior_observations() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let completion = complete_localnet_start(
+            || {
+                calls.borrow_mut().push("start");
+                Ok((ManagedPhase::Failed, Some("exact readiness failure".into())))
+            },
+            || panic!("Ok(Failed) is not permission to install a selection"),
+            || {
+                calls.borrow_mut().push("names");
+                Ok(vec!["contracts".into(), "original".into()])
+            },
+        );
+        assert_eq!(*calls.borrow(), ["start", "names"]);
+        let mut desktop = Desktop::model(PathBuf::from("unused"));
+        desktop.busy = true;
+        desktop.new_name = "original".into();
+        desktop.names = vec!["original".into()];
+        desktop.logs = "original validator logs".into();
+        desktop.receipt = Some("original deployment receipt".into());
+        desktop.sender.send((desktop.epoch, completion)).unwrap();
+        desktop.poll();
+        assert!(!desktop.busy);
+        assert_eq!(desktop.names, ["contracts", "original"]);
+        assert_eq!(desktop.new_name, "original");
+        assert!(desktop.selected.is_none());
+        assert_eq!(desktop.logs, "original validator logs");
+        assert_eq!(
+            desktop.receipt.as_deref(),
+            Some("original deployment receipt")
+        );
+        let error = desktop.error.as_deref().unwrap();
+        assert!(error.contains("startup ended in Failed"));
+        assert!(error.contains("prepared generation is retained"));
+        assert!(error.contains("exact readiness failure"));
+    }
+
+    #[test]
+    fn primary_start_keeps_original_error_when_retained_name_refresh_also_fails() {
+        for started in [
+            Err("original timeout".into()),
+            Ok((ManagedPhase::Ready, None)),
+        ] {
+            let calls = std::cell::RefCell::new(Vec::new());
+            let expected = if started.is_err() {
+                "original timeout"
+            } else {
+                "original observation failure"
+            };
+            let completion = complete_localnet_start(
+                || {
+                    calls.borrow_mut().push("start");
+                    started
+                },
+                || {
+                    calls.borrow_mut().push("observe");
+                    Err("original observation failure".into())
+                },
+                || {
+                    calls.borrow_mut().push("names");
+                    Err("retained name refresh failure".into())
+                },
+            );
+            assert_eq!(
+                *calls.borrow(),
+                if expected == "original timeout" {
+                    vec!["start", "names"]
+                } else {
+                    vec!["start", "observe", "names"]
+                }
+            );
+            let mut desktop = Desktop::model(PathBuf::from("unused"));
+            desktop.busy = true;
+            desktop.names = vec!["original".into()];
+            desktop.logs = "original validator logs".into();
+            desktop.receipt = Some("original deployment receipt".into());
+            desktop.sender.send((desktop.epoch, completion)).unwrap();
+            desktop.poll();
+            assert!(!desktop.busy);
+            assert_eq!(desktop.names, ["original"]);
+            assert!(desktop.selected.is_none());
+            assert_eq!(desktop.logs, "original validator logs");
+            assert_eq!(
+                desktop.receipt.as_deref(),
+                Some("original deployment receipt")
+            );
+            assert_eq!(desktop.error.as_deref(), Some(expected));
+        }
+    }
+
+    #[test]
     fn new_localnet_selection_requires_ready_even_when_start_returned_a_status() {
         assert!(require_ready_localnet(ManagedPhase::Ready, None).is_ok());
         for phase in [
@@ -1993,6 +2264,7 @@ mod tests {
     fn automatic_observation_keeps_the_foreground_failure_until_another_action() {
         let mut desktop = Desktop::model(PathBuf::from("unused"));
         desktop.error = Some("new localnet failed; prepared generation retained".into());
+        desktop.notice = Some("Original foreground observation".into());
         desktop.last_poll = Instant::now() - Duration::from_secs(6);
         // Exercise the exact task owner used by refresh_selection, without creating a
         // managed context or invoking native filesystem/process services from a UI test.
@@ -2010,11 +2282,16 @@ mod tests {
         assert!(!desktop.busy);
         assert_eq!(desktop.logs, "original context observation");
         assert_eq!(
+            desktop.notice.as_deref(),
+            Some("Original foreground observation")
+        );
+        assert_eq!(
             desktop.error.as_deref(),
             Some("new localnet failed; prepared generation retained")
         );
         desktop.spawn(|| Message::Logs(Ok("explicit action".into())));
         assert!(desktop.error.is_none());
+        assert!(desktop.notice.is_none());
         let completion = desktop
             .receiver
             .recv_timeout(Duration::from_secs(5))
@@ -2157,6 +2434,131 @@ mod tests {
                 .contains("Deployment applied")
         );
         assert!(desktop.selected.is_none());
+    }
+
+    #[test]
+    fn completed_deployment_survives_automatic_selection_failure_until_explicit_selection() {
+        let mut desktop = Desktop::model(PathBuf::from("unused"));
+        let receipt = "Applied on private dataspace original; exact retained receipt";
+        // Drive the real completion and polling owners; this is presentation evidence, not
+        // a synthesized native transaction or managed network.
+        desktop
+            .sender
+            .send((
+                desktop.epoch,
+                Message::Deployed {
+                    result: Ok(receipt.into()),
+                    refreshed: Err("original workspace observation unavailable".into()),
+                },
+            ))
+            .unwrap();
+        desktop.poll();
+        assert_eq!(desktop.receipt.as_deref(), Some(receipt));
+        let notice = desktop.notice.clone();
+        assert!(notice.as_deref().unwrap().contains("Deployment applied"));
+        let epoch = desktop.epoch;
+        desktop.logs = "original context log observation".into();
+        desktop.activity.push_back("original context event".into());
+
+        // Use the same task owner and completion variant as refresh_selection. The context
+        // must withdraw on failure while the original completed result remains inspectable.
+        desktop.spawn_task(|| {
+            Message::SelectionObserved(
+                Err("automatic observation lost its original context".into()),
+            )
+        });
+        assert!(desktop.busy);
+        let completion = desktop
+            .receiver
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        desktop.sender.send(completion).unwrap();
+        desktop.poll();
+        assert!(!desktop.busy);
+        assert_eq!(desktop.epoch, epoch);
+        assert!(desktop.selected.is_none());
+        assert!(desktop.blocks.is_none());
+        assert!(desktop.events.is_none());
+        assert!(desktop.logs.is_empty());
+        assert!(desktop.activity.is_empty());
+        assert_eq!(desktop.receipt.as_deref(), Some(receipt));
+        assert_eq!(desktop.notice, notice);
+        assert_eq!(
+            desktop.error.as_deref(),
+            Some("automatic observation lost its original context")
+        );
+
+        desktop
+            .sender
+            .send((
+                epoch.wrapping_add(1),
+                Message::SelectionObserved(Err("stale context error".into())),
+            ))
+            .unwrap();
+        desktop.poll();
+        assert_eq!(desktop.receipt.as_deref(), Some(receipt));
+        assert_eq!(desktop.notice, notice);
+        assert_eq!(
+            desktop.error.as_deref(),
+            Some("automatic observation lost its original context")
+        );
+
+        // An explicit selection still follows the original clearing path.
+        desktop
+            .sender
+            .send((
+                epoch,
+                Message::Selected(Err("explicit selection failed".into())),
+            ))
+            .unwrap();
+        desktop.poll();
+        assert!(desktop.receipt.is_none());
+        assert!(desktop.notice.is_none());
+        assert_eq!(desktop.error.as_deref(), Some("explicit selection failed"));
+        assert_eq!(desktop.epoch, epoch);
+    }
+
+    #[test]
+    fn a_new_foreground_failure_cannot_keep_an_earlier_deployment_success_notice() {
+        let mut desktop = Desktop::model(PathBuf::from("unused"));
+        desktop
+            .sender
+            .send((
+                0,
+                Message::Deployed {
+                    result: Ok("Original Applied deployment receipt".into()),
+                    refreshed: Err("original workspace observation unavailable".into()),
+                },
+            ))
+            .unwrap();
+        desktop.poll();
+        assert!(
+            desktop
+                .notice
+                .as_deref()
+                .unwrap()
+                .contains("Deployment applied")
+        );
+        // Exercise the real foreground task owner and failed Deployed completion path. No
+        // native deployment or authenticated plan is fabricated by this presentation control.
+        desktop.spawn(|| Message::Deployed {
+            result: Err("new deployment refused before dispatch".into()),
+            refreshed: Err("new workspace observation unavailable".into()),
+        });
+        assert!(desktop.busy);
+        assert!(desktop.notice.is_none());
+        let completion = desktop
+            .receiver
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        desktop.sender.send(completion).unwrap();
+        desktop.poll();
+        assert!(!desktop.busy);
+        assert_eq!(
+            desktop.error.as_deref(),
+            Some("new deployment refused before dispatch")
+        );
+        assert!(desktop.notice.is_none());
     }
 
     #[test]

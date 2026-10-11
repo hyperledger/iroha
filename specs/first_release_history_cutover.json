@@ -210,7 +210,7 @@
   "pinned_history": {
     "manifest": "fixtures/core/first_release_history/manifest.json",
     "format": "iroha.first_release_history.pinned.v1",
-    "history_sha256": "ba98b7ec015e74b679976473f819d5fd78c5b1348598fd8ae6785da0dce35ec7",
+    "history_sha256": "fe6db5a27c5a98387f23cafa330051f2e97926e8e4e02373757102fd8013a9eb",
     "generator": {
       "path": "crates/iroha_core/src/sumeragi/node/tests/history_cutover_tests.rs",
       "test": "capture_pinned_first_release_history"
@@ -293,6 +293,10 @@
     "integration_tests"
   ],
   "retired_identifiers": [
+    {
+      "identifier": "SMARTCONTRACT_INSTRUCTION_TAG_RECORD_SCCP_MESSAGE",
+      "retired": "contract-originated SCCP record operation tag 2; ABI v1 instruction execution admits only SubmitBallot"
+    },
     {
       "identifier": "BlockHeaderForConsensusLegacy",
       "retired": "second consensus header layout hashed for pre-release Taira blocks"
@@ -902,9 +906,9 @@
           "document": true
         },
         {
-          "artifact": "crates/ivm/tests/abi_hash_versions.rs",
+          "artifact": "crates/iroha_data_model/tests/fixtures/abi_v1_hash.rs",
           "generator": "crates/ivm/src/bin/gen_abi_hash_doc.rs",
-          "mention": "crates/ivm/tests/abi_hash_versions.rs",
+          "mention": "crates/iroha_data_model/tests/fixtures/abi_v1_hash.rs",
           "carries": "hex"
         },
         {
@@ -1014,16 +1018,16 @@
           "carries": "ivm_hex_rows"
         },
         {
-          "artifact": "crates/iroha_data_model/tests/fixtures/axt_golden.rs",
-          "generator": "crates/iroha_data_model/tests/axt_policy_vectors.rs",
+          "artifact": "crates/ivm_abi/tests/fixtures/axt_golden.rs",
+          "generator": "crates/ivm_abi/tests/axt_policy_vectors.rs",
           "mention": "print_golden_vectors",
           "carries": "hex_wrapped"
         },
         {
-          "artifact": "crates/iroha/tests/fixtures/contract_code_readback/provenance.json",
-          "generator": "crates/iroha/tests/fixtures/contract_code_readback/README.md",
-          "mention": "provenance.json",
-          "carries": "hex"
+          "artifact": "crates/iroha/tests/fixtures/contract_code_readback/code_readback.manifest.json",
+          "generator": "scripts/regenerate_kotodama_goldens.py",
+          "mention": "crates/iroha/tests/fixtures/contract_code_readback/code_readback.manifest.json",
+          "carries": "HEX"
         }
       ]
     },
@@ -1127,13 +1131,13 @@
   "declared_abi_cutover": {
     "surface": "abi",
     "cutover": "contract_redeployment",
-    "abi_hash": "c7281066ec6f2fb47a2b0051c1d2ac95562f6ca7a576011cf173e07e845fdec1",
+    "abi_hash": "d87449f2ec45628b835c736c9915eaa85bfcb87e544da269fdb7c4889d3db82f",
     "golden": {
-      "path": "crates/ivm/tests/abi_hash_versions.rs",
-      "prefix": "const ABI_V1_HASH_GOLDEN: &str = \""
+      "path": "crates/iroha_data_model/tests/fixtures/abi_v1_hash.rs",
+      "prefix": "pub const ABI_V1_HASH_GOLDEN: &str =\n    \""
     },
-    "change": "Commit a5d2617d6a replaced the body of `CallSchemaV1`, the argument and result schema of every contract callable, with the compact CS1 body (magic `43533100`, a fixed `u64` node count, one-byte node tags) and rewrote the `call_table_layout` clause of the hashed ABI V1 descriptor to describe it. That clause is the only difference between the descriptors before and after the commit; the syscall list, signatures, pointer types and every other clause are unchanged and the ABI version stays 1.",
-    "redeployment": "A contract compiled before the change embeds the former callable body and the former `abi_hash`; the decoder refuses the body and admission refuses the hash. Recompile `.ko` to `.to` with the current compiler and deploy the new manifest. There is no alias for the former hash and no second decoder.",
+    "change": "ABI V1 uses the compact CS1 callable schema, declared permission identities, authenticated native event schemas and typed contract-call argument/result tables. The hashed syscall surface describes the current registers, including generation-bound alias operations, and 0xA0 accepts only SubmitBallot. Retired opaque contract calls and the duplicate DEX call surface are removed. The ABI version remains 1; the current complete descriptor determines this hash.",
+    "redeployment": "Contracts compiled before this surface change carry an obsolete interface or abi_hash and are refused by decoding or admission. Recompile .ko to .to with the current compiler and deploy its manifest. There is no alias for former hashes or compatibility decoder.",
     "fresh_genesis": false,
     "fresh_genesis_reason": "The pinned history holds no contract and no runtime-ABI record: none of its frames contains the ABI hash, which the guard re-checks on every run. A history that holds either needs a fresh genesis with this cutover."
   },
@@ -1176,7 +1180,7 @@
       },
       {
         "path": "crates/iroha_cli/src/taira_public_reset_history.rs",
-        "contains": "Immutable inventory custody for a terminal predecessor, never executable input."
+        "contains": "Immutable custody of a historical inventory, never executable input."
       }
     ]
   },
@@ -1218,13 +1222,6 @@
     }
   ],
   "open_findings": [
-    {
-      "id": "T1-A01",
-      "owner": "I.3",
-      "path": "crates/iroha_core/src/smartcontracts/ivm/host.rs",
-      "anchor": "TODO(ws45): drop 2=RecordSccpMessage from the ivm_abi 0xA0 args text",
-      "summary": "stale operation tag 2 of the generic instruction syscall still described by the ABI text; removing it changes abi_hash"
-    },
     {
       "id": "T1-A02",
       "owner": "I.5",
@@ -1271,14 +1268,14 @@
       "id": "T1-A08",
       "owner": "R.6",
       "path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs",
-      "anchor": "RamLfeVerificationMode::Signed => {",
+      "anchor": "if program_policy.verification_mode == RamLfeVerificationMode::Proof {",
       "summary": "signed-receipt RAM-LFE verification mode is still admitted"
     },
     {
       "id": "T1-A09",
       "owner": "R.6",
       "path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs",
-      "anchor": "RamLfeVerificationMode::Signed => {",
+      "anchor": "execution.verification_mode != RamLfeVerificationMode::Signed",
       "summary": "identifier claims still accept the signed-receipt RAM-LFE mode"
     },
     {

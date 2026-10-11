@@ -3,6 +3,5 @@
 # Regenerate the complete four-validator bundle with:
 #
 # cargo xtask kagami-profiles --profile iroha3-nexus \
-#   --kagemusha-mint-finality-parameters-dir <AUTHORITY_DIR> \
 #   --nexus-xor-asset-definition-id <BASE58>
 services: {}

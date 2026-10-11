@@ -5,12 +5,63 @@ use std::cell::Cell;
 /// One in-place substitution applied to an otherwise valid prepared call.
 type PlanMutation = Box<dyn Fn(&mut PreparedContractCall)>;
 
+#[test]
+fn call_authorization_resolves_only_the_authenticated_permission_declaration() -> Result<()> {
+    let (_, prepared, _) = fixture()?;
+    let address = prepared.plan.intent.invocation.contract_address;
+    for (source, entrypoint, expected) in [
+        (
+            "seiyaku Open { kotoage fn run() authorize(anyone) {} }",
+            "run",
+            None,
+        ),
+        (
+            "seiyaku Scoped { permission Admin; kotoage fn run() authorize(Admin) {} }",
+            "run",
+            Some(Permission::from(CanUseContractPermission {
+                contract: address.clone(),
+                permission: "Admin".parse()?,
+            })),
+        ),
+        (
+            "seiyaku Shared { import permission \"SharedOperators\" as Operator; kotoage fn run() authorize(Operator) {} }",
+            "run",
+            Some(Permission::new("SharedOperators".to_owned(), Json::new(()))),
+        ),
+        (
+            "seiyaku Lifecycle { hajimari() {} }",
+            "hajimari",
+            Some(Permission::from(CanInvokeContractEntrypoint {
+                contract: address.clone(),
+                entrypoint: "hajimari".to_owned(),
+            })),
+        ),
+    ] {
+        let artifact = kotodama_lang::compiler::Compiler::new()
+            .compile_source(source)
+            .map_err(|error| eyre!(error))?;
+        let verified = ivm_artifact_admission::verify_contract_artifact(&artifact)?;
+        let (intent, _) = trusted_contract_intent(
+            &artifact,
+            address.clone(),
+            entrypoint,
+            norito::json!({}),
+            false,
+        )?;
+        assert_eq!(required_permission(&verified, &intent)?, expected);
+        if let Some(expected) = expected {
+            let message = missing_call_permission(&expected, &prepared.plan.authority).to_string();
+            assert!(message.contains(&norito::json::to_string(&expected)?));
+            assert!(message.contains("iroha account permission grant --id"));
+        }
+    }
+    Ok(())
+}
+
 fn fixture() -> Result<(Config, PreparedContractCall, TransactionRecord)> {
     let (config, _) = crate::service_tests::fixture()?;
     let artifact = kotodama_lang::compiler::Compiler::new()
-        .compile_source(
-            "seiyaku Example { kotoage fn run() authorize(\"CanInvokeContractEntrypoint\") {} }",
-        )
+        .compile_source("seiyaku Example { hajimari() {} }")
         .map_err(|error| eyre!(error))?;
     let address = ContractAddress::derive(
         &config.network_id,
@@ -19,7 +70,7 @@ fn fixture() -> Result<(Config, PreparedContractCall, TransactionRecord)> {
         DataSpaceId::UNIVERSAL,
     )?;
     let (intent, payload) =
-        trusted_contract_intent(&artifact, address, "run", norito::json!({}), false)?;
+        trusted_contract_intent(&artifact, address, "hajimari", norito::json!({}), false)?;
     let fee = FeePaymentIntent::authority(Vec::new(), std::num::NonZeroU64::new(1_500_000));
     let transaction_ttl_ms = u64::try_from(config.transaction_ttl.as_millis())?;
     let mut builder =
@@ -71,7 +122,7 @@ fn refresh_prepared_call(
     prepared: &mut PreparedContractCall,
 ) -> Result<TransactionRecord> {
     bind_operation_metadata(&mut prepared.plan)?;
-    let signed = fixture_builder(&config, &prepared)?
+    let signed = fixture_builder(config, prepared)?
         .with_metadata(prepared.plan.intent.metadata.clone())
         .with_executable(Executable::ContractCall(
             prepared.plan.intent.invocation.clone(),
@@ -126,6 +177,7 @@ impl DeploymentTransport for Transport {
             block_height: 42,
             scope: "global".into(),
             resolved_from: "state".into(),
+            charge: None,
         })
     }
 }
@@ -302,7 +354,7 @@ fn contract_arguments_are_admitted_before_decode_and_bind_local_schema() -> Resu
     let many = format!("[{}]", vec!["0"; 8193].join(","));
     assert!(parse_contract_arguments(&many).is_err());
     let (config, prepared, _) = fixture()?;
-    let artifact = kotodama_lang::compiler::Compiler::new().compile_source("seiyaku Example { kotoage fn write(int next) authorize(\"CanInvokeContractEntrypoint\") {} view fn read() -> int { return 1; } }").map_err(|error| eyre!(error))?;
+    let artifact = kotodama_lang::compiler::Compiler::new().compile_source("seiyaku Example { permission Update;  kotoage fn write(int next) authorize(Update) {} view fn read() authorize(anyone) -> int { return 1; } }").map_err(|error| eyre!(error))?;
     let (intent, payload) = trusted_contract_intent(
         &artifact,
         prepared.contract_address().clone(),
@@ -322,15 +374,30 @@ fn contract_arguments_are_admitted_before_decode_and_bind_local_schema() -> Resu
     );
     assert!(intent.invocation.arguments.is_some());
     assert!(payload.is_some());
+    let unexpected = trusted_contract_intent(
+        &artifact,
+        prepared.contract_address().clone(),
+        "write",
+        norito::json!({"wrong":"7"}),
+        false,
+    )
+    .expect_err("undeclared argument name");
     assert!(
-        trusted_contract_intent(
-            &artifact,
-            prepared.contract_address().clone(),
-            "write",
-            norito::json!({"wrong":"7"}),
-            false
-        )
-        .is_err()
+        unexpected.to_string().contains("argument `next`"),
+        "{unexpected:#}"
+    );
+    let number = trusted_contract_intent(
+        &artifact,
+        prepared.contract_address().clone(),
+        "write",
+        norito::json!({"next": 7}),
+        false,
+    )
+    .expect_err("JSON numbers are not int arguments");
+    assert_eq!(
+        number.to_string(),
+        "arguments do not match the verified entrypoint schema: argument `next` expects int as \
+         a canonical decimal integer string such as \"5\", found JSON number 7"
     );
     assert!(
         trusted_contract_intent(
@@ -351,6 +418,33 @@ fn contract_arguments_are_admitted_before_decode_and_bind_local_schema() -> Resu
     )?;
     assert!(payload.is_none());
     validate_plan(&prepared, &config)?;
+    Ok(())
+}
+#[test]
+fn hook_arguments_are_checked_without_a_contract_address() -> Result<()> {
+    let artifact = kotodama_lang::compiler::Compiler::new()
+        .compile_source(
+            "seiyaku Vault { state int limit; hajimari(int start) { limit = start; } view fn current() authorize(anyone) -> int { return limit; } }",
+        )
+        .map_err(|error| eyre!(error))?;
+    check_contract_arguments(&artifact, "hajimari", &norito::json!({"start": "5"}), false)?;
+    let missing = check_contract_arguments(&artifact, "hajimari", &norito::json!({}), false)
+        .expect_err("the hook declares one argument");
+    assert!(
+        missing.to_string().contains("argument `start`"),
+        "{missing:#}"
+    );
+    let number =
+        check_contract_arguments(&artifact, "hajimari", &norito::json!({"start": 5}), false)
+            .expect_err("JSON numbers are not int arguments");
+    assert!(
+        number.to_string().contains("found JSON number 5"),
+        "{number:#}"
+    );
+    assert!(check_contract_arguments(&artifact, "current", &norito::json!({}), true).is_ok());
+    assert!(check_contract_arguments(&artifact, "current", &norito::json!({}), false).is_err());
+    assert!(check_contract_arguments(&artifact, "absent", &norito::json!({}), false).is_err());
+    assert!(check_contract_arguments(b"", "hajimari", &norito::json!({}), false).is_err());
     Ok(())
 }
 #[test]
@@ -445,7 +539,7 @@ fn call_both_signed_stages_are_retained_before_dispatch_and_grant_applies_first(
         .with_instructions([Grant::account_permission(
             CanInvokeContractEntrypoint {
                 contract: prepared.plan.intent.invocation.contract_address.clone(),
-                entrypoint: "run".into(),
+                entrypoint: "hajimari".into(),
             },
             AccountId::new(other.public_key().clone()),
         )])
@@ -699,5 +793,107 @@ fn call_standalone_resolution_uses_configured_discriminant_and_restores_caller()
         .join()
         .map_err(|_| eyre!("resolution fixture panicked"))??;
     assert_eq!(resolved?, expected_address);
+    Ok(())
+}
+#[test]
+fn simulated_gas_gains_bounded_headroom() {
+    assert_eq!(gas_limit_with_headroom(0), 10_000);
+    assert_eq!(gas_limit_with_headroom(100_000), 160_000);
+    assert_eq!(gas_limit_with_headroom(1_000_001), 1_510_001);
+    assert_eq!(gas_limit_with_headroom(9_000_000), MAX_CALL_GAS_LIMIT);
+    assert_eq!(gas_limit_with_headroom(u64::MAX), MAX_CALL_GAS_LIMIT);
+    const { assert!(UNSIMULATED_CALL_GAS_LIMIT <= MAX_CALL_GAS_LIMIT) };
+}
+#[test]
+fn simulation_responses_are_bound_to_the_exact_intent() -> Result<()> {
+    let (_, prepared, _) = fixture()?;
+    let intent = &prepared.plan.intent;
+    let code_hash = hex::encode(intent.invocation.expected_code_hash.as_ref());
+    let executed = norito::json!({
+        "ok": true, "code_hash_hex": (code_hash.clone()), "entrypoint": "hajimari",
+        "gas_used": 1234, "error": null, "vm_diagnostic": null
+    });
+    assert_eq!(
+        interpret_call_simulation(&executed, intent)?,
+        CallSimulation::Executed { gas_used: 1234 }
+    );
+    let rejected = norito::json!({
+        "ok": false, "code_hash_hex": (code_hash.clone()), "entrypoint": "hajimari",
+        "gas_used": 77, "error": "contract rejected: ZeroStep", "vm_diagnostic": null
+    });
+    assert_eq!(
+        interpret_call_simulation(&rejected, intent)?,
+        CallSimulation::Rejected {
+            message: "contract rejected: ZeroStep".to_owned(),
+            gas_used: 77,
+        }
+    );
+    let foreign = norito::json!({
+        "ok": true, "code_hash_hex": ("00".repeat(32)), "entrypoint": "hajimari", "gas_used": 1
+    });
+    assert!(interpret_call_simulation(&foreign, intent).is_err());
+    let other_entrypoint = norito::json!({
+        "ok": true, "code_hash_hex": (code_hash.clone()), "entrypoint": "other", "gas_used": 1
+    });
+    assert!(interpret_call_simulation(&other_entrypoint, intent).is_err());
+    let missing_gas = norito::json!({
+        "ok": true, "code_hash_hex": (code_hash), "entrypoint": "hajimari"
+    });
+    assert!(interpret_call_simulation(&missing_gas, intent).is_err());
+    Ok(())
+}
+#[test]
+fn applied_charge_projects_the_committed_fee_receipt() -> Result<()> {
+    use iroha::data_model::block::consensus::{
+        NexusFeeReceipt, NexusFeeScheduleInputs, NexusFeeSettlementV1,
+    };
+    let (config, _, _) = fixture()?;
+    let asset = AssetDefinitionId::derive_from_components(
+        iroha_model_base::domain::DomainId::parse_fully_qualified("wonderland.universal")?,
+        "xor".parse()?,
+    );
+    let mut result = TransactionResult::new(Ok(Vec::default()));
+    assert_eq!(AppliedCharge::from_result(&result), None);
+    result.set_nexus_fee_receipt(Some(NexusFeeReceipt {
+        version: NexusFeeReceipt::VERSION,
+        source_id: [1; 32],
+        dataspace_id: DataSpaceId::UNIVERSAL,
+        lane_id: iroha_model_base::topology::LaneId::new(0),
+        block_height: 9,
+        debit_source: iroha::data_model::nexus::FeeDebitSource::Account(config.account.clone()),
+        fee_asset_id: asset.clone(),
+        program_revision: None,
+        lease_id: None,
+        fee_amount: Quantity::from(3_u32),
+        settlement: NexusFeeSettlementV1::Burn,
+        schedule: NexusFeeScheduleInputs {
+            tx_bytes_len: 100,
+            instruction_count: 1,
+            gas_used: 4_321,
+            base_fee: Quantity::from(3_u32),
+            per_byte_fee: Quantity::zero(),
+            per_instruction_fee: Quantity::zero(),
+            per_gas_unit_fee: Quantity::zero(),
+        },
+    }));
+    let charge = AppliedCharge::from_result(&result).expect("committed charge");
+    assert_eq!(charge.gas_used, 4_321);
+    assert_eq!(charge.fee_asset, asset);
+    assert_eq!(charge.fee_amount, Quantity::from(3_u32));
+    let evidence = AppliedEvidence {
+        hash: "hash".to_owned(),
+        terminal_kind: "Applied".to_owned(),
+        block_height: 9,
+        scope: "global".to_owned(),
+        resolved_from: "state".to_owned(),
+        charge: Some(charge),
+    };
+    let encoded = norito::json::to_value(&evidence)?;
+    assert_eq!(
+        encoded.pointer("/charge/gas_used").and_then(Value::as_u64),
+        Some(4_321)
+    );
+    let decoded: AppliedEvidence = norito::json::from_value(encoded)?;
+    assert_eq!(decoded, evidence);
     Ok(())
 }

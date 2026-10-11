@@ -1,8 +1,8 @@
 
-            seiyaku ForeachPhi {
+            seiyaku ForeachPhi { permission WriteState;
                 state StateMap<int, int> Values;
 
-                kotoage fn f() -> int authorize("WriteState") {
+                kotoage fn f() authorize(WriteState) -> int {
                     var seen = 0;
                     for (key, value) in Values.take(2) {
                         seen = seen + 1;

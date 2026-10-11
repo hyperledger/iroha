@@ -1,5 +1,4 @@
 //! Grouped Iroha crypto integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #[path = "../bls_batch.rs"]
 mod bls_batch;
 #[path = "../bls_keys_match.rs"]
@@ -50,6 +49,8 @@ mod sm2_fixture_vectors;
 mod sm2_fuzz;
 #[path = "../sm2_keypair.rs"]
 mod sm2_keypair;
+#[path = "../sm2_negative_vector_fixture.rs"]
+mod sm2_negative_vector_fixture;
 #[path = "../sm2_negative_vectors.rs"]
 mod sm2_negative_vectors;
 #[path = "../sm2_openssl_parity.rs"]
@@ -60,6 +61,9 @@ mod sm2_wycheproof;
 mod sm3_sm4_vectors;
 #[path = "../sm4_fuzz.rs"]
 mod sm4_fuzz;
+#[cfg(feature = "sm")]
+#[path = "../sm4_wycheproof_fixture.rs"]
+mod sm4_wycheproof_fixture;
 #[path = "../sm_cli_matrix.rs"]
 mod sm_cli_matrix;
 #[path = "../sm_openssl_smoke.rs"]

@@ -8,7 +8,7 @@ fn validator_committee_openapi_is_closed_and_retires_epoch_roster_fields() {
     for (name, fields) in [
         (
             "ValidatorCommitteeStatusV1",
-            "network_id target_epoch latest_finality selected candidate_keys pending_beacon_session",
+            "network_id target_epoch latest_finality selected pending_beacon_session",
         ),
         (
             "ValidatorCommitteeSelectionStatusV1",
@@ -18,13 +18,15 @@ fn validator_committee_openapi_is_closed_and_retires_epoch_roster_fields() {
             "ValidatorCommitteeTransitionV1",
             "preparation credentials readiness outcome",
         ),
+        ("ValidatorCommitteeCredentialsV1", "beacon"),
+        ("ValidatorGenerationV1", "network_id generation validators"),
         (
-            "ValidatorCandidateKeysV1",
-            "network_id generation keys possession peer_signature",
+            "ValidatorCommitteeSeatReadinessV1",
+            "validator_index beacon",
         ),
         (
-            "KagemushaMintFinalityAuthorityGenerationV1",
-            "version network_id generation validators",
+            "ValidatorSeatReadinessContextV1",
+            "version network_id transition_id target_epoch authority_generation authority_id first_height last_height validator_index beacon",
         ),
         (
             "ValidatorEpochAuthorizationV1",
@@ -86,9 +88,35 @@ fn validator_committee_openapi_is_closed_and_retires_epoch_roster_fields() {
         Some(44_739_244)
     );
     assert_eq!(
-        schemas["ValidatorCommitteeStatusV1"]["properties"]["candidate_keys"]["maxItems"].as_u64(),
+        schemas["ValidatorGenerationV1"]["properties"]["validators"]["maxItems"].as_u64(),
         Some(31)
     );
+    assert_eq!(
+        schemas["ValidatorSeatReadinessContextV1"]["properties"]["beacon"]["$ref"].as_str(),
+        Some("#/components/schemas/InstalledBeaconEpochBindingV1")
+    );
+    assert_eq!(
+        schemas["ValidatorSeatReadinessContextV1"]["properties"]["target_epoch"]["minimum"]
+            .as_u64(),
+        Some(1)
+    );
+    assert_eq!(
+        schemas["ValidatorSeatReadinessContextV1"]["properties"]["first_height"]["minimum"]
+            .as_u64(),
+        Some(2)
+    );
+    assert_eq!(
+        schemas["ValidatorSeatReadinessContextV1"]["properties"]["validator_index"]["maximum"]
+            .as_u64(),
+        Some(30)
+    );
+    assert_eq!(
+        schemas["NativeGlobalFeeProgramStateV1"]["properties"]["fee_asset_definition"]["$ref"]
+            .as_str(),
+        Some("#/components/schemas/AssetDefinition")
+    );
+    assert!(schemas.keys().all(|name| !name.starts_with("Kagemusha")));
+    assert!(!schemas.contains_key("ValidatorCandidateKeysV1"));
     let document = generate_spec();
     let paths = document.get("paths").and_then(Value::as_object).unwrap();
     let operation = paths

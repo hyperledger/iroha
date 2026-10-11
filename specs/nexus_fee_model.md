@@ -251,3 +251,32 @@ arrays are exact-width uppercase hexadecimal in Norito JSON.
   windows, and settlement receipts.
 - For receipt-backed lanes, verify the first post-activation protocol settlement
   before retiring any temporary external reconciler.
+
+
+### Enrolled multisig contract calls
+
+`EnrolledMultisigContractCall` permits only Native multisig `Propose` and
+`Approve` operations. The submitting beneficiary and canonical registered
+controller must both have explicit current enrollment in the same sponsor
+program. Enrollment is controlled by that program's sponsor or its exact
+registrar permission; an application can enroll newly commissioned controllers
+without revising an account whitelist. Route-default eligibility alone does not
+satisfy this selector.
+
+The selected body must be the complete canonical `RegisterTrigger` then
+`ExecuteTrigger` contract-call pair. Its authority, filter, one-shot action,
+attempt identity, arguments, alias, current address/code binding and exact
+allowed entrypoint are verified from Native types and World state. Extra,
+nested, arbitrary native and raw IVM payloads do not match. Existing explicit
+multisig selectors retain their account/operation semantics.
+
+New proposal admission requires both pending and terminal keys to be absent.
+An approval may use an exact earlier proposal in the same signed envelope, or
+an exact live non-relayed pending proposal. Terminal, canceled, expired and
+future pending records never authorize a new admission. At post-execution fee
+settlement only, a standalone approval may use a `Finalized` terminal record
+joined to the current signed entrypoint hash and block through both the Native
+terminal-execution record and its successful `Executed` approval outcome.
+Terminal state alone is insufficient. All typed decode/encoding resource
+refusals remain deferred, and explicit deny rules, program/beneficiary budgets,
+fee limits and isolated vault accounting still apply.

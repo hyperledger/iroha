@@ -38,6 +38,8 @@ mod authorization;
 pub mod call;
 pub use authorization::DeploymentAuthorization;
 mod journal;
+mod lifecycle;
+pub use lifecycle::{DeploymentLifecycleGuidance, LifecycleHook, LifecycleParameter};
 mod manifest_encoding;
 mod native;
 mod progress;
@@ -215,6 +217,28 @@ pub struct DeploymentPreflight {
     pub transaction_hashes: Vec<String>,
 }
 impl DeploymentPreflight {
+    /// Require the same complete review, including the ordered signed transaction hashes.
+    ///
+    /// This compares retained evidence; it does not authenticate either plan. Journal readers
+    /// must first validate their signed plan with the ordinary deployment validation owner.
+    ///
+    /// # Errors
+    /// Rejects a changed review or evidence that cannot be encoded as canonical Norito JSON.
+    pub fn require_same_plan(&self, expected: &Self) -> DeploymentResult<()> {
+        let actual = self
+            .to_json()
+            .map_err(|error| DeploymentError::Journal(error.into()))?;
+        let expected = expected
+            .to_json()
+            .map_err(|error| DeploymentError::Journal(error.into()))?;
+        if actual != expected {
+            return Err(DeploymentError::InvalidRequest(
+                "retained deployment differs from the original reviewed plan".into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Serialize review evidence using its explicit account-address discriminant.
     ///
     /// # Errors
@@ -268,6 +292,105 @@ pub struct AppliedEvidence {
     pub scope: String,
     /// Fixed durable state resolution source.
     pub resolved_from: String,
+    /// Gas and fee actually settled, read from the transaction's committed fee receipt.
+    /// `None` when the node reported no committed fee receipt for the transaction or the
+    /// receipt could not be read. It is reporting evidence only and never gates Applied
+    /// validation or recovery.
+    pub charge: Option<AppliedCharge>,
+}
+/// Gas and fee one Applied transaction actually settled, from its committed fee receipt.
+#[derive(
+    Clone, Debug, PartialEq, Eq, norito::derive::JsonSerialize, norito::derive::JsonDeserialize,
+)]
+#[norito(deny_unknown_fields)]
+pub struct AppliedCharge {
+    /// IVM gas units the transaction consumed, as metered for its fee.
+    pub gas_used: u64,
+    /// Fee asset the settlement charged.
+    pub fee_asset: AssetDefinitionId,
+    /// Exact fee amount settled.
+    pub fee_amount: iroha_primitives::numeric::Quantity,
+}
+impl AppliedCharge {
+    /// Project the committed fee receipt of one transaction result.
+    #[must_use]
+    pub fn from_result(result: &TransactionResult) -> Option<Self> {
+        result.nexus_fee_receipt().map(|receipt| Self {
+            gas_used: receipt.schedule.gas_used,
+            fee_asset: receipt.fee_asset_id.clone(),
+            fee_amount: receipt.fee_amount.clone(),
+        })
+    }
+}
+impl AppliedEvidence {
+    /// Whether two observations describe the same exact-hash Applied finality.
+    ///
+    /// The reporting-only [`Self::charge`] is excluded: it is read on a best-effort basis, so a
+    /// later observation may lack a charge that the first one retained.
+    #[must_use]
+    pub fn same_finality(&self, other: &Self) -> bool {
+        self.hash == other.hash
+            && self.terminal_kind == other.terminal_kind
+            && self.block_height == other.block_height
+            && self.scope == other.scope
+            && self.resolved_from == other.resolved_from
+    }
+}
+/// Return the retained Applied observation of journal step `index`, or `current` when none is
+/// retained. Nothing is written.
+///
+/// A retained observation must describe the same finality as `current`; it stays authoritative,
+/// including its reporting-only charge, so recovery never rewrites immutable Applied evidence.
+///
+/// # Errors
+/// Returns journal failures or a retained observation with different finality.
+pub(crate) fn retained_applied_evidence(
+    journal: &Journal,
+    index: usize,
+    current: AppliedEvidence,
+) -> Result<AppliedEvidence> {
+    let path = format!("applied-{index:04}.json");
+    if !journal.exists(&path)? {
+        return Ok(current);
+    }
+    let retained: AppliedEvidence = journal.read(&path)?;
+    if !retained.same_finality(&current) {
+        return Err(eyre!(
+            "retained Applied evidence differs from current exact-hash evidence"
+        ));
+    }
+    Ok(retained)
+}
+/// Durably retain the first Applied observation of journal step `index` and return the
+/// authoritative one, as [`retained_applied_evidence`] selects it.
+///
+/// # Errors
+/// Returns journal failures or a retained observation with different finality.
+pub(crate) fn retain_applied_evidence(
+    journal: &Journal,
+    index: usize,
+    current: AppliedEvidence,
+) -> Result<AppliedEvidence> {
+    let evidence = retained_applied_evidence(journal, index, current)?;
+    journal.put_exact(&format!("applied-{index:04}.json"), &evidence)?;
+    Ok(evidence)
+}
+/// Read the committed gas and fee of one Applied transaction through the authenticated
+/// transaction-details query.
+///
+/// Finality was already established by the transaction-status wait, so the charge is
+/// best-effort reporting: a node that does not answer the details query, or answers without a
+/// committed fee receipt, yields `None` instead of failing the Applied operation.
+pub(crate) fn read_applied_charge(
+    client: &Client,
+    hash: HashOf<SignedTransaction>,
+) -> Option<AppliedCharge> {
+    let entrypoint = HashOf::<TransactionEntrypoint>::from_untyped_unchecked(Hash::from(hash));
+    let details = client
+        .client()
+        .get_successful_transaction_details(entrypoint)
+        .ok()?;
+    AppliedCharge::from_result(details.transaction.result())
 }
 /// Public receipt emitted only after atomic commit reaches `Applied` and contract readback agrees.
 #[derive(Clone, Debug, norito::derive::JsonSerialize, norito::derive::JsonDeserialize)]
@@ -444,10 +567,11 @@ impl DeploymentService {
         self.prepare(request)
             .map(|prepared| prepared.record.preflight)
     }
-    /// Persist the exact prepared plan without submitting it.
+    /// Atomically publish the exact prepared plan and its journal lock without submitting it.
     ///
     /// # Errors
-    /// Rejects a substituted plan, unsafe/busy journal, or a different plan already at that path.
+    /// Rejects a substituted plan, unsafe/busy or incomplete journal, or a different plan
+    /// already at that path. An existing destination is never repaired or replaced.
     pub fn persist(
         &self,
         prepared: &PreparedDeployment,
@@ -456,42 +580,45 @@ impl DeploymentService {
         let _address_profile =
             ChainDiscriminantGuard::enter(self.config.account_chain_discriminant);
         self.validate_plan(&prepared.record)?;
-        let journal = Journal::open(journal_dir, true).map_err(DeploymentError::Journal)?;
-        journal
-            .put_exact("plan.json", &prepared.record)
+        Journal::persist_plan(journal_dir, &prepared.record)
+            .map(|_| ())
             .map_err(DeploymentError::Journal)
     }
     /// Persist the signed plan, then execute each unattempted step and recover exact attempted hashes.
-    /// The observer receives exact preflight, durable stage progress, and readback events.
+    /// The fallible observer receives exact preflight, durable stage progress, and readback events.
+    /// Observer refusal stops further work; retained attempts still require exact recovery.
     ///
     /// # Errors
-    /// Returns journal, exact-hash pending/failure, and post-commit readback errors. No attempted
+    /// Returns journal, exact-hash pending/failure, and post-commit readback errors. Observer
+    /// refusal stops further work and retains the original journal evidence. No attempted
     /// transaction is signed again or blindly resubmitted, including after an ambiguous failure.
     pub fn execute(
         &self,
         prepared: &PreparedDeployment,
         journal_dir: &Path,
-        progress: &mut dyn FnMut(DeploymentProgress),
+        progress: &mut dyn FnMut(DeploymentProgress) -> DeploymentResult<()>,
     ) -> DeploymentResult<DeploymentReceipt> {
         let _address_profile =
             ChainDiscriminantGuard::enter(self.config.account_chain_discriminant);
-        self.validate_plan(&prepared.record)?;
-        let journal = Journal::open(journal_dir, true).map_err(DeploymentError::Journal)?;
+        self.persist(prepared, journal_dir)?;
+        let journal = Journal::open(journal_dir, false).map_err(DeploymentError::Journal)?;
         journal
-            .put_exact("plan.json", &prepared.record)
+            .require_exact("plan.json", &prepared.record)
             .map_err(DeploymentError::Journal)?;
         self.execute_record(&prepared.record, &journal, progress)
     }
     /// Recover only the exact signed plan retained in the authenticated journal.
-    /// The observer receives the retained preflight and exact-hash recovery progress.
+    /// The fallible observer receives the retained preflight and exact-hash recovery progress.
+    /// Refusal stops subsequent stages without erasing or replaying retained attempts.
     ///
     /// # Errors
-    /// Rejects mismatched client/plan identities or unsafe journal data; unresolved attempted
-    /// transactions remain pending under their original hashes and are never resubmitted.
+    /// Rejects mismatched client/plan identities or unsafe journal data. Observer refusal stops
+    /// further work and retains original evidence; unresolved attempted transactions remain
+    /// pending under their original hashes and are never resubmitted.
     pub fn resume(
         &self,
         journal_dir: &Path,
-        progress: &mut dyn FnMut(DeploymentProgress),
+        progress: &mut dyn FnMut(DeploymentProgress) -> DeploymentResult<()>,
     ) -> DeploymentResult<DeploymentReceipt> {
         let _address_profile =
             ChainDiscriminantGuard::enter(self.config.account_chain_discriminant);
@@ -517,7 +644,38 @@ impl DeploymentService {
         Ok(record.preflight)
     }
 
+    /// Read optional activation guidance from the original authenticated signed plan.
+    ///
+    /// This is presentation metadata, not current lifecycle state. It performs no HTTP,
+    /// signing or submission. `expected_code_hash` must come from that completed receipt;
+    /// an independently valid replacement plan cannot change its guidance. A caller may omit the
+    /// guidance when this separate read fails without changing that receipt.
+    ///
+    /// # Errors
+    /// Rejects unsafe custody, changed plan bytes or a different original signing authority.
+    pub fn retained_lifecycle_hook(
+        &self,
+        journal_dir: &Path,
+        expected_code_hash: Hash,
+    ) -> DeploymentResult<Option<LifecycleHook>> {
+        let _profile = ChainDiscriminantGuard::enter(self.config.account_chain_discriminant);
+        let journal = Journal::open(journal_dir, false).map_err(DeploymentError::Journal)?;
+        let record: PlanRecord = journal
+            .read("plan.json")
+            .map_err(DeploymentError::Journal)?;
+        self.validate_plan(&record)?;
+        if record.preflight.code_hash != expected_code_hash {
+            return Err(DeploymentError::InvalidRequest(
+                "retained initialization artifact differs from completed deployment".into(),
+            ));
+        }
+        let artifact = hex::decode(&record.artifact_hex).map_err(|error| {
+            DeploymentError::Artifact(format!("invalid retained artifact: {error}"))
+        })?;
+        Ok(LifecycleHook::from_artifact(&artifact))
+    }
     /// Verify a completed deployment still names its current alias and exact stored artifact.
+    /// The locked plan must match the caller's original review before any network read.
     /// This is the idempotent deployment check; historical receipt inspection remains available
     /// separately through [`Self::completed_receipt`]. No transaction is submitted.
     ///
@@ -527,6 +685,7 @@ impl DeploymentService {
     pub fn current_completed_receipt(
         &self,
         journal_dir: &Path,
+        expected: &DeploymentPreflight,
     ) -> DeploymentResult<Option<DeploymentReceipt>> {
         let _profile = ChainDiscriminantGuard::enter(self.config.account_chain_discriminant);
         let journal = Journal::open(journal_dir, false).map_err(DeploymentError::Journal)?;
@@ -534,6 +693,7 @@ impl DeploymentService {
             .read("plan.json")
             .map_err(DeploymentError::Journal)?;
         self.validate_plan(&record)?;
+        record.preflight.require_same_plan(expected)?;
         let Some(receipt) = self.verify_completed_receipt(&record, &journal)? else {
             return Ok(None);
         };
@@ -575,10 +735,12 @@ impl DeploymentService {
     ///
     /// # Errors
     /// Rejects malformed evidence, a different network/chain/profile, or unresolved finality. The
-    /// current read account may differ from the historical deployment authority.
+    /// current read account may differ from the historical deployment authority. The locked plan
+    /// must match the caller's original review before any network read.
     pub fn completed_receipt(
         &self,
         journal_dir: &Path,
+        expected: &DeploymentPreflight,
     ) -> DeploymentResult<Option<DeploymentReceipt>> {
         let _address_profile =
             ChainDiscriminantGuard::enter(self.config.account_chain_discriminant);
@@ -587,6 +749,7 @@ impl DeploymentService {
             .read("plan.json")
             .map_err(DeploymentError::Journal)?;
         validate_read_plan(&record, &DeploymentReadContext::from(&self.config))?;
+        record.preflight.require_same_plan(expected)?;
         self.verify_completed_receipt(&record, &journal)
     }
     /// Durably abandon a fully unattempted local plan without submitting any transaction.
@@ -597,8 +760,13 @@ impl DeploymentService {
     ///
     /// # Errors
     /// Rejects a different network/profile, unsafe journal, any execution evidence, or an altered
-    /// cancellation record. The journal stays exclusively locked throughout validation and write.
-    pub fn cancel(&self, journal_dir: &Path) -> DeploymentResult<DeploymentCancellation> {
+    /// cancellation record. The journal stays exclusively locked throughout validation and write;
+    /// its plan must match the caller's original preflight before cancellation is published.
+    pub fn cancel(
+        &self,
+        journal_dir: &Path,
+        expected: &DeploymentPreflight,
+    ) -> DeploymentResult<DeploymentCancellation> {
         let _address_profile =
             ChainDiscriminantGuard::enter(self.config.account_chain_discriminant);
         let journal = Journal::open(journal_dir, false).map_err(DeploymentError::Journal)?;
@@ -606,6 +774,7 @@ impl DeploymentService {
             .read("plan.json")
             .map_err(DeploymentError::Journal)?;
         validate_read_plan(&record, &DeploymentReadContext::from(&self.config))?;
+        record.preflight.require_same_plan(expected)?;
         journal
             .require_unattempted()
             .map_err(DeploymentError::Journal)?;
@@ -637,8 +806,14 @@ impl DeploymentService {
     ///
     /// # Errors
     /// Rejects an unsafe journal, changed context, inconsistent retained evidence, or malformed
-    /// status. Transport uncertainty remains [`JournalDisposition::Pending`], never failure.
-    pub fn inspect_journal(&self, journal_dir: &Path) -> DeploymentResult<JournalDisposition> {
+    /// status. The locked plan must match the caller's original review before any network read or
+    /// failure-marker publication. Transport uncertainty remains [`JournalDisposition::Pending`],
+    /// never failure.
+    pub fn inspect_journal(
+        &self,
+        journal_dir: &Path,
+        expected: &DeploymentPreflight,
+    ) -> DeploymentResult<JournalDisposition> {
         let _address_profile =
             ChainDiscriminantGuard::enter(self.config.account_chain_discriminant);
         let journal = Journal::open(journal_dir, false).map_err(DeploymentError::Journal)?;
@@ -647,6 +822,7 @@ impl DeploymentService {
             .map_err(DeploymentError::Journal)?;
         let context = DeploymentReadContext::from(&self.config);
         validate_read_plan(&record, &context)?;
+        record.preflight.require_same_plan(expected)?;
         self.client
             .refresh_capabilities()
             .map_err(|source| preflight_error("network compatibility", source))?;
@@ -661,12 +837,12 @@ impl DeploymentService {
         &self,
         record: &PlanRecord,
         journal: &Journal,
-        progress: &mut dyn FnMut(DeploymentProgress),
+        progress: &mut dyn FnMut(DeploymentProgress) -> DeploymentResult<()>,
     ) -> DeploymentResult<DeploymentReceipt> {
         reject_cancelled(record, journal)?;
         progress(DeploymentProgress::Prepared(Box::new(
             record.preflight.clone(),
-        )));
+        )))?;
         if journal
             .exists(RECEIPT_FILE_NAME)
             .map_err(DeploymentError::Journal)?
@@ -675,13 +851,13 @@ impl DeploymentService {
             progress(DeploymentProgress::Recovering(progress::stage(
                 record,
                 record.transactions.len() - 1,
-            )));
+            )))?;
         }
         if let Some(receipt) = self.verify_completed_receipt(record, journal)? {
             progress(DeploymentProgress::Applied {
                 stage: progress::stage(record, record.transactions.len() - 1),
                 evidence: receipt.commit.clone(),
-            });
+            })?;
             return Ok(receipt);
         }
         self.client
@@ -697,7 +873,7 @@ impl DeploymentService {
         progress(DeploymentProgress::ReadingBack {
             alias: preflight.contract_alias.clone(),
             address: preflight.contract_address.clone(),
-        });
+        })?;
         let (readback_block_height, readback_block_hash) = self.read_back(record, &commit)?;
         let receipt = DeploymentReceipt {
             version: 1,
@@ -909,12 +1085,14 @@ impl DeploymentTransport for LiveTransport<'_> {
                 ..TransactionWaitOptions::default()
             },
         )?;
-        applied_evidence(hash, outcome)
+        let charge = read_applied_charge(&self.service.client, hash);
+        applied_evidence(hash, outcome, charge)
     }
 }
 fn applied_evidence(
     hash: HashOf<SignedTransaction>,
     outcome: TransactionWaitOutcome,
+    charge: Option<AppliedCharge>,
 ) -> Result<AppliedEvidence> {
     let evidence = AppliedEvidence {
         hash: outcome.hash,
@@ -924,6 +1102,7 @@ fn applied_evidence(
             .ok_or_else(|| eyre!("Applied deployment has no ledger height"))?,
         scope: outcome.scope,
         resolved_from: outcome.resolved_from,
+        charge,
     };
     validate_applied(hash, &evidence)?;
     Ok(evidence)
@@ -945,7 +1124,7 @@ fn execute_transactions<T: DeploymentTransport>(
     record: &PlanRecord,
     journal: &Journal,
     transport: &T,
-    progress: &mut dyn FnMut(DeploymentProgress),
+    progress: &mut dyn FnMut(DeploymentProgress) -> DeploymentResult<()>,
 ) -> DeploymentResult<Vec<AppliedEvidence>> {
     reject_cancelled(record, journal)?;
     let mut stages = Vec::with_capacity(record.transactions.len());
@@ -966,7 +1145,7 @@ fn execute_transactions<T: DeploymentTransport>(
             }
             progress(DeploymentProgress::Recovering(progress::stage(
                 record, index,
-            )));
+            )))?;
         } else {
             journal
                 .put_exact(
@@ -979,7 +1158,10 @@ fn execute_transactions<T: DeploymentTransport>(
                 .map_err(DeploymentError::Journal)?;
             progress(DeploymentProgress::Submitting(progress::stage(
                 record, index,
-            )));
+            )))?;
+            // The observer is arbitrary caller code. Retain the original journal lock
+            // after it returns and before crossing the paid dispatch boundary.
+            journal.revalidate().map_err(DeploymentError::Journal)?;
             if let Err(source) = transport.submit(&signed) {
                 return Err(record_step_failure(step, index, journal, source));
             }
@@ -1000,13 +1182,12 @@ fn execute_transactions<T: DeploymentTransport>(
                 "transaction has conflicting retained failure and current Applied evidence"
             )));
         }
-        journal
-            .put_exact(&format!("applied-{index:04}.json"), &evidence)
-            .map_err(DeploymentError::Journal)?;
+        let evidence =
+            retain_applied_evidence(journal, index, evidence).map_err(DeploymentError::Journal)?;
         progress(DeploymentProgress::Applied {
             stage: progress::stage(record, index),
             evidence: evidence.clone(),
-        });
+        })?;
         stages.push(evidence);
     }
     Ok(stages)
@@ -1144,8 +1325,7 @@ fn inspect_transactions<T: DeploymentTransport>(
                         "retained terminal failure disagrees with current Applied evidence"
                     )));
                 }
-                journal
-                    .put_exact(&format!("applied-{index:04}.json"), &evidence)
+                retain_applied_evidence(journal, index, evidence)
                     .map_err(DeploymentError::Journal)?;
             }
             Err(source) => {
@@ -1222,7 +1402,7 @@ fn verify_completed_record<T: DeploymentTransport>(
             source,
         })?;
     validate_applied(transaction.hash(), &actual).map_err(DeploymentError::Readback)?;
-    if actual != receipt.commit {
+    if !actual.same_finality(&receipt.commit) {
         return Err(DeploymentError::Readback(eyre!(
             "retained completion disagrees with current exact-hash Applied evidence"
         )));

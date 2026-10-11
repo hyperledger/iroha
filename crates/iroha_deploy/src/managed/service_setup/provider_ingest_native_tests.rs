@@ -239,7 +239,7 @@ fn genuine_ingest_original_expiry_never_creates_wallet_or_requests_http() {
         &owner.inner,
         &directory,
         &original,
-        now_ms().unwrap() + 500,
+        || now_ms().unwrap() + 500,
         &options(),
     );
     let bytes = std::fs::read(directory.path().join("original.nrt")).unwrap();
@@ -298,4 +298,34 @@ fn genuine_ingest_original_expiry_never_creates_wallet_or_requests_http() {
         std::fs::read(directory.path().join("original.nrt")).unwrap(),
         bytes
     );
+}
+
+#[test]
+fn original_setup_checkpoint_requires_exact_native_source_and_restoration_retry() {
+    let _guard = crate::managed::native_test_guard();
+    let (_root, prepared) = fixture();
+    let owner = ManagedInitialProviderIngestAuthority::open(
+        &prepared,
+        crate::managed::native_operation::test_support::provider_id(&prepared, 0),
+    )
+    .unwrap();
+    let native = native_fixture(&prepared, &owner.inner);
+    let checkpoint = native.observe(&owner.inner.authority);
+    assert_eq!(checkpoint.checkpoint().height(), 2);
+    let mut original = Original {
+        intent: Intent::provider_ingest(&owner.inner.authority, &ingest(&owner.inner.authority))
+            .unwrap(),
+        checkpoint: checkpoint_bytes(&checkpoint).unwrap(),
+    };
+    let exact_source = original.checkpoint.clone();
+    owner.inner.validate_original(&original).unwrap();
+    // Preserve a genuine original source, offering only its truncated canonical bytes.
+    assert!(original.checkpoint.pop().is_some());
+    original.validate().unwrap();
+    assert!(owner.inner.validate_original(&original).is_err());
+    assert_eq!(native.chain.height(), 2);
+    original.checkpoint = exact_source;
+    owner.inner.validate_original(&original).unwrap();
+    assert_eq!(original.checkpoint, checkpoint_bytes(&checkpoint).unwrap());
+    assert_eq!(native.chain.height(), 2);
 }

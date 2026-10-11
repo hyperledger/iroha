@@ -1,6 +1,6 @@
 
 seiyaku SumJoinFacts {
-  view fn run(Option<int> maybe, Result<int, bool> outcome) -> int {
+  view fn run(Option<int> maybe, Result<int, bool> outcome) authorize(anyone) -> int {
     return maybe.unwrap_or(0) + outcome.unwrap_or(0);
   }
 }

@@ -1366,23 +1366,25 @@ NATIVE_GOVERNANCE_SDK_CONTRACTS: dict[str, tuple[str, ...]] = {
         '- "java/iroha_android/**"',
         '- "fixtures/sorafs_manifest/governance/**"',
         "name: Build host SoraFS reference native bridge",
-        "run: cargo build --locked -p connect_norito_bridge",
+        "cargo build --locked -p connect_norito_bridge --lib --features privacy-production-enabled",
+        "cargo build --locked -p kotlin-fixture-gen --features dev-tools --bin kotlin-fixture-gen",
+        '- "tools/kotlin-fixture-gen/**"',
         "IROHA_NATIVE_LIBRARY_PATH: ${{ github.workspace }}/target/debug",
         JAVA_GOVERNANCE_WORKFLOW_STEP_NAME,
         *JAVA_GOVERNANCE_WORKFLOW_STEP_MARKERS,
     ),
     SWIFT_GOVERNANCE_VALIDATOR_TEST: (
-        "ABI-25 connect_norito_bridge with Governance DAG symbols is required.",
+        "ABI-29 connect_norito_bridge with Governance DAG symbols is required.",
         "guard try requireGovernanceDagNativeBridge() else",
         "XCTFail(\"\\(Self.nativeValidationRequiredMessage) \\(unavailableMessage)\")",
     ),
     KOTLIN_GOVERNANCE_VALIDATOR_TEST: (
-        "ABI-25 connect_norito_bridge with Governance DAG symbols is required.",
+        "ABI-29 connect_norito_bridge with Governance DAG symbols is required.",
         "        requireGovernanceDagNativeBridge()\n",
         "throw AssertionError(requiredMessage)",
     ),
     JAVA_GOVERNANCE_VALIDATOR_TEST: (
-        "ABI-25 connect_norito_bridge with all SoraFS reference symbols is required.",
+        "ABI-29 connect_norito_bridge with all SoraFS reference symbols is required.",
         "  private static void requireNativeBridge() {\n",
         (
             "  private static void "
@@ -2368,10 +2370,43 @@ def _javascript_child_controls_workflow_errors(relative: str, source: str) -> li
     return errors
 
 
+def _mobile_host_jvm_prerequisite_errors(source: str) -> list[str]:
+    """Bind the existing host native build and generator before complete JVM tests."""
+
+    job = _workflow_job(source, "android-mobile-sdk")
+    if job is None:
+        return ["mobile host JVM prerequisites require the existing android-mobile-sdk job"]
+    build = (
+        '      - name: Build host SoraFS reference native bridge\n'
+        '        run: |\n'
+        '          set -euo pipefail\n'
+        '          cargo build --locked -p connect_norito_bridge --lib --features privacy-production-enabled\n'
+        '          cargo build --locked -p kotlin-fixture-gen --features dev-tools --bin kotlin-fixture-gen\n'
+        '          fixture_generator="$CARGO_TARGET_DIR/debug/kotlin-fixture-gen"\n'
+        '          [[ -f "$fixture_generator" && ! -L "$fixture_generator" && -x "$fixture_generator" ]]\n'
+        '          echo "IROHA_KOTLIN_FIXTURE_GEN_BIN=$fixture_generator" >> "$GITHUB_ENV"\n'
+        '      - name: Make reviewed Iroha source read-only\n'
+        '        run: chmod -R a-w "$GITHUB_WORKSPACE"\n'
+    )
+    matches = list(re.finditer("^" + re.escape(build), job, re.MULTILINE))
+    runtime_prefix = (
+        "      - name: Test, lint, publish, and build Android SDK artifacts\n"
+        "        working-directory: kotlin\n"
+        "        run: |\n"
+        "          ./gradlew --no-daemon --no-build-cache --rerun-tasks \\\n"
+    )
+    runtime = list(re.finditer("^" + re.escape(runtime_prefix), job, re.MULTILINE))
+    if len(matches) != 1 or len(runtime) != 1 or matches[0].end() >= runtime[0].start():
+        return ["mobile host JVM prerequisites must build and bind the exact dev-tools executable before the complete suite"]
+    return []
+
+
 def _validate_workflow_source(relative: str, source: str) -> list[str]:
     """Return deterministic contract errors for one workflow source."""
 
     errors: list[str] = []
+    if relative == MOBILE_SDK_ARTIFACTS_WORKFLOW:
+        errors.extend(_mobile_host_jvm_prerequisite_errors(source))
     if "pull_request_target:" in source:
         errors.append(f"{relative}: pull_request_target is forbidden")
     if re.search(r"\b(?:curl|wget)\b", source):
@@ -2529,7 +2564,7 @@ def _validate_workflow_source(relative: str, source: str) -> list[str]:
                 'exit "$sdkmanager_status"',
                 "cargo fetch --locked",
                 'java-version: "21"',
-                "Build and authenticate the exact ABI-25 Kotlin bridge",
+                "Build and authenticate the exact ABI-29 Kotlin bridge",
                 'test ! -e "$native_root"',
                 "cargo build --locked --offline --release -p connect_norito_bridge",
                 "cargo build --locked --offline --release -p kotlin-fixture-gen",
@@ -2540,7 +2575,7 @@ def _validate_workflow_source(relative: str, source: str) -> list[str]:
                 'echo "IROHA_NATIVE_LIBRARY_PATH=$native_dir" >> "$GITHUB_ENV"',
                 'echo "IROHA_KOTLIN_FIXTURE_GEN_BIN=$native_dir/kotlin-fixture-gen" >> "$GITHUB_ENV"',
                 'echo "MOBILE_SDK_ANDROID_ARTIFACT_DIR=$artifact_dir" >> "$GITHUB_ENV"',
-                "Require fresh ABI-25 JNI bridge in complete Kotlin and Java suites",
+                "Require fresh ABI-29 JNI bridge in complete Kotlin and Java suites",
                 "working-directory: kotlin",
                 "./gradlew --no-daemon --no-build-cache --rerun-tasks",
                 "--no-configuration-cache",
@@ -2564,14 +2599,14 @@ def _validate_workflow_source(relative: str, source: str) -> list[str]:
                 "runs-on: ubuntu-24.04",
                 'IROHA_REQUIRE_SORAFS_NATIVE_VALIDATION: "1"',
                 "actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9",
-                "Build and authenticate the exact ABI-25 C# bridge",
+                "Build and authenticate the exact ABI-29 C# bridge",
                 "cargo build --locked --release -p connect_norito_bridge",
-                "native-sdk-abi25.json",
+                "native-sdk-abi29.json",
                 "check_native_sdk_artifact.py record",
                 "check_native_sdk_artifact.py verify",
                 "dotnet restore Hyperledger.Iroha.Sdk.sln",
                 "dotnet build Hyperledger.Iroha.Sdk.sln -c Release --no-restore -warnaserror",
-                "Run complete C# ABI-25 parity suite",
+                "Run complete C# ABI-29 parity suite",
                 "dotnet test Hyperledger.Iroha.Sdk.sln -c Release --no-build",
             ),
         }
@@ -2587,9 +2622,9 @@ def _validate_workflow_source(relative: str, source: str) -> list[str]:
                     )
             if job_name == "mobile-parity":
                 stages = (
-                    "Build and authenticate the exact ABI-25 Kotlin bridge",
+                    "Build and authenticate the exact ABI-29 Kotlin bridge",
                     "Prepare canonical Kotlin test outputs",
-                    "Require fresh ABI-25 JNI bridge in complete Kotlin and Java suites",
+                    "Require fresh ABI-29 JNI bridge in complete Kotlin and Java suites",
                     "Validate every mobile parity test lane",
                     "Reauthenticate the consumed Kotlin bridge",
                     "Upload Kotlin and Java native parity evidence",

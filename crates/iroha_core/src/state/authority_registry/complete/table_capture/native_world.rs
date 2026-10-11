@@ -247,26 +247,6 @@ capture_world_table_once!(
     "world.settlement_receipts"
 );
 capture_world_table_once!(
-    pub(super) capture_kagemusha_mint_credit_operations_once,
-    kagemusha_mint_credit_operations,
-    "world.kagemusha_mint_credit_operations"
-);
-capture_world_table_once!(
-    pub(super) capture_kagemusha_issuance_operations_once,
-    kagemusha_issuance_operations,
-    "world.kagemusha_issuance_operations"
-);
-capture_world_table_once!(
-    pub(super) capture_kagemusha_redemption_id_operations_once,
-    kagemusha_redemption_id_operations,
-    "world.kagemusha_redemption_id_operations"
-);
-capture_world_table_once!(
-    pub(super) capture_kagemusha_terminal_nullifier_operations_once,
-    kagemusha_terminal_nullifier_operations,
-    "world.kagemusha_terminal_nullifier_operations"
-);
-capture_world_table_once!(
     pub(super) capture_public_lane_validators_once,
     public_lane_validators,
     "world.public_lane_validators"
@@ -275,16 +255,6 @@ capture_world_table_once!(
     pub(super) capture_public_lane_stake_shares_once,
     public_lane_stake_shares,
     "world.public_lane_stake_shares"
-);
-capture_world_table_once!(
-    pub(super) capture_public_lane_rewards_once,
-    public_lane_rewards,
-    "world.public_lane_rewards"
-);
-capture_world_table_once!(
-    pub(super) capture_public_lane_reward_claims_once,
-    public_lane_reward_claims,
-    "world.public_lane_reward_claims"
 );
 capture_world_table_once!(
     pub(super) capture_zk_assets_once,
@@ -472,14 +442,6 @@ mod tests {
         soradns_directory_history,
         capture_soradns_directory_history_once,
         (7_u64, [0x23_u8; 32]),
-        |row: &mut [u8; 32]| row[0] ^= 1
-    );
-
-    capture_controls!(
-        mint_credit_reader_rejects_changed_operation_and_omitted_row,
-        kagemusha_mint_credit_operations,
-        capture_kagemusha_mint_credit_operations_once,
-        ([0x24_u8; 32], [0x25_u8; 32]),
         |row: &mut [u8; 32]| row[0] ^= 1
     );
 

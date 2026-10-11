@@ -27,7 +27,6 @@ import java.security.spec.ECPublicKeySpec
 object KagemushaP256Codec {
     const val SCALAR_BYTES: Int = 32
     const val PUBLIC_KEY_BYTES: Int = 65
-    const val COMPRESSED_PUBLIC_KEY_BYTES: Int = 33
     const val RAW_SIGNATURE_BYTES: Int = 64
 
     private val FIELD_PRIME =
@@ -124,29 +123,6 @@ object KagemushaP256Codec {
             .add(CURVE_B)
             .mod(FIELD_PRIME)
         require(lhs == rhs) { "KAGEMUSHA V1 device public key is not a P-256 point" }
-        return value
-    }
-
-    /** Validate and defensively copy one canonical compressed P-256 public key. */
-    @JvmStatic
-    fun requireCompressedPublicKey(sec1Bytes: ByteArray): ByteArray {
-        val value = sec1Bytes.copyOf()
-        require(
-            value.size == COMPRESSED_PUBLIC_KEY_BYTES &&
-                (value[0].toInt() == 0x02 || value[0].toInt() == 0x03),
-        ) { "KAGEMUSHA V1 terminal verification key must be exactly 33-byte compressed P-256 SEC1" }
-        val x = BigInteger(1, value.copyOfRange(1, value.size))
-        require(x < FIELD_PRIME) {
-            "KAGEMUSHA V1 terminal verification key coordinate exceeds the P-256 field"
-        }
-        val rhs = x.modPow(THREE, FIELD_PRIME)
-            .subtract(THREE.multiply(x))
-            .add(CURVE_B)
-            .mod(FIELD_PRIME)
-        val y = rhs.modPow(FIELD_PRIME.add(BigInteger.ONE).shiftRight(2), FIELD_PRIME)
-        require(y.modPow(TWO, FIELD_PRIME) == rhs) {
-            "KAGEMUSHA V1 terminal verification key is not a P-256 point"
-        }
         return value
     }
 

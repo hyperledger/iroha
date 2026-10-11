@@ -1012,23 +1012,15 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
     }
 
     func testDefaultNfcLimitCarriesExactMaximumWalletIPM() throws {
-        let request = try message(
-            kind: .request,
-            byte: 0xBC,
-            count: 100
-        )
-        let payment = try IrohaPeerWireMessageV1(
-            profile: .kagemushaWalletV1,
-            kind: .payment,
-            schemaVersion: 1,
-            canonicalPayload: irohaPeerWalletStructuralEnvelopeV1(
-                kind: .payment,
-                frameBytes: IrohaPeerWireLimitsV1.maximumWalletProfileBytes,
-                filler: { Data(repeating: 0xBD, count: $0) }
-            )
-        )
-        XCTAssertEqual(payment.encoded.count, IrohaPeerNfcV1.maximumMessageBytes)
-        XCTAssertEqual(IrohaPeerNfcV1.maximumMessageBytes, 10_084)
+        // Bounds DATA only: the maximum-size companion does not establish AccountId authority.
+        let request = try IrohaPeerKagemushaWalletAdapterV1.wrap(
+            irohaPeerWalletExchangeEnvelopeV1(kind: .request, frameBytes: 10_000),
+            destinationAccountOriginal: Data(repeating: 0xbc, count: 4_096))
+        let payment = try IrohaPeerKagemushaWalletAdapterV1.wrap(
+            irohaPeerWalletExchangeEnvelopeV1(kind: .payment, frameBytes: 10_000))
+        XCTAssertEqual(request.encoded.count, IrohaPeerNfcV1.maximumMessageBytes)
+        XCTAssertEqual(IrohaPeerNfcV1.maximumMessageBytes, 14_196)
+        XCTAssertEqual(payment.encoded.count, 10_084)
 
         let receiver = try readyReceiver(
             request: request,
@@ -1051,7 +1043,7 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
             schemaVersion: 1,
             canonicalPayload: irohaPeerWalletStructuralEnvelopeV1(
                 kind: .payment,
-                frameBytes: IrohaPeerWireLimitsV1.maximumWalletProfileBytes + 1
+                frameBytes: KagemushaWalletWireV1.messageMaximumBytes + 1
             )
         )) {
             XCTAssertEqual(
@@ -1590,6 +1582,7 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
             context: IrohaPeerNfcCommitContextV1(
                 identity: try identity(for: request),
                 profilePolicy: .init(profile: .kagemushaWalletV1),
+                receiveRequest: request,
                 payment: payment
             ),
             acknowledgement: payment.encoded
@@ -1609,9 +1602,10 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
         count: Int
     ) throws -> IrohaPeerWireMessageV1 {
         let payload = Data(repeating: byte, count: count)
-        let canonicalPayload = profile == .kagemushaWalletV1
-            ? irohaPeerWalletStructuralEnvelopeV1(kind: kind, payload: payload)
-            : payload
+        if profile == .kagemushaWalletV1 {
+            return try irohaPeerWalletExchangeMessageV1(kind: kind, payload: payload)
+        }
+        let canonicalPayload = payload
         return try IrohaPeerWireMessageV1(
             profile: profile,
             kind: kind,

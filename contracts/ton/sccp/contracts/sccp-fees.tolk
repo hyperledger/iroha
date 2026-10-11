@@ -3,50 +3,90 @@
 // Required values are computed at entry from the current price config with
 // `GETGASFEE`, `GETFORWARDFEE` and `GETSTORAGEFEE`; there is no fixed TON
 // amount anywhere, so price-config changes cannot break a flow. The gas
-// limits are the measured per-step maxima (n = 31, t = 21, maximal paths and
+// limits are the per-step maxima (n = 31, q = 21, maximal paths and
 // payloads) with headroom, and the size constants cover the largest message
 // and state of each kind. `tests/unit/sccp-fees.test.tolk` pins every
 // constant against measured gas and actual cell sizes.
+//
+// Minter floor accounting. Every entry step (checkpoint, finalize, void,
+// void_frozen, deploy_buckets, apply_control, retry) requires
+// `value ≥ step + max(0, MINTER_FLOOR − stored)`, where `stored` is the
+// balance the minter had when the transaction started, before its storage
+// phase. A get method sees exactly that balance, so a quote does not go
+// stale while time passes. The quote adds `sccpMinterStorageGrace()` for
+// storage that other minter transactions collect between the quote and the
+// send. The entry reserve tops the minter up to `MINTER_FLOOR` but never
+// takes more than `value − step`, so the step always keeps the value it was
+// checked for. Burns and the bucket replies reserve only the prior balance:
+// they never pay toward the floor.
 
 import "@stdlib/gas-payments"
 import "sccp-constants"
+import "sccp-errors"
 
 /// 100 years (§5.3.5 minter and bucket floors).
 const SCCP_FLOOR_SECONDS = 3153600000
 /// 5 years: TEP-74 reference wallet minimum storage.
 const SCCP_WALLET_MIN_STORAGE_SECONDS = 157680000
+/// 7 days: storage grace added to every minter quote (§5.3.5). It covers the
+/// storage that other minter transactions collect between a quote and the
+/// send, which accrued over the minter's idle time before the quote.
+const SCCP_STORAGE_GRACE_SECONDS = 604800
 
-// Per-step gas limits: measured maxima (Acton 1.2.0 emulator, n = 31,
-// t = 21, block path 9, history path 32, 1024-byte sender or recipient) plus
-// about 20% headroom. `tests/unit/sccp-fees.test.tolk` prints the measured
-// values and fails when one exceeds its limit.
-const SCCP_GAS_MINTER_FINALIZE = 205000
-const SCCP_GAS_MINTER_VOID = 205000
-const SCCP_GAS_MINTER_VOID_FROZEN = 16000
+// Per-step gas limits: maxima (Acton 1.2.0 emulator, n = 31, q = 21, block
+// path 9, history path 32, 1024-byte sender or recipient) plus headroom.
+// `tests/unit/sccp-fees.test.tolk` prints the measured values and fails when
+// one exceeds its limit.
+//
+// The four steps that verify a certificate are estimates. Its full-path
+// check costs about 81k gas at n = 4, 89k at n = 7 and 149k at n = 31, of
+// which `BLS_FASTAGGREGATEVERIFY` is 58 000 + 3 000·q, and a key-changing
+// rotation adds about 47k at n = 31 for the check of `next_keys`. The proof,
+// payload, storage and send work of each step is taken from the retired
+// attestation minter.
+// TODO: WP-TON (map step T7k): measure these four steps on the rewritten
+// minter (n = 4, 7 and 31, worst-case proofs) and pin the limits to the
+// measured maxima.
+const SCCP_GAS_MINTER_CHECKPOINT = 250000
+const SCCP_GAS_MINTER_FINALIZE = 300000
+const SCCP_GAS_MINTER_VOID = 285000
+const SCCP_GAS_MINTER_APPLY_CONTROL = 260000
+const SCCP_GAS_MINTER_VOID_FROZEN = 30000
 const SCCP_GAS_MINTER_DEPLOY_BUCKETS = 60000
+const SCCP_GAS_MINTER_RETRY = 14000
 const SCCP_GAS_MINTER_CONSUMED = 14000
+const SCCP_GAS_MINTER_CONSUME_REVERTED = 6000
 const SCCP_GAS_MINTER_RANGE_REPLY = 8000
 const SCCP_GAS_MINTER_BURN = 48000
+/// The minter's handling of a bounced `internal_transfer` (unconsume or record).
+const SCCP_GAS_MINTER_BOUNCE = 20000
 const SCCP_GAS_BUCKET_CONSUME = 8000
 const SCCP_GAS_BUCKET_CONSUME_RANGE = 9000
-const SCCP_GAS_BUCKET_TOP_UP = 2000
+const SCCP_GAS_BUCKET_ACTIVATE = 3000
 const SCCP_GAS_BUCKET_UNCONSUME = 5000
 const SCCP_GAS_WALLET_RECEIVE = 8000
 const SCCP_GAS_WALLET_TRANSFER = 8000
 const SCCP_GAS_WALLET_BURN = 7000
 
 // Account state sizes (code + data), upper bounds of the compiled contracts
-// and of the maximal minter data (n = 31 current and previous rosters).
-const SCCP_BUCKET_STATE_BITS = 8000
-const SCCP_BUCKET_STATE_CELLS = 24
+// and of the maximal minter data (the 16 `KeyChunk`s of n = 31, three
+// checkpoints, the wallet and bucket code, with room for a few `retries`
+// entries, which only bounced steps create).
+// TODO: WP-TON (map step T7k): `SCCP_MINTER_STATE_BITS` and
+// `SCCP_MINTER_STATE_CELLS` still bound the retired roster minter. Measure
+// the rewritten minter and move them together with their Rust mirror
+// (`TON_MINTER_STATE_BITS`, `TON_MINTER_STATE_CELLS` in
+// `crates/iroha_sccp/src/v1/ton_cell.rs`, WP-TON-RUST).
+const SCCP_BUCKET_STATE_BITS = 9000
+const SCCP_BUCKET_STATE_CELLS = 27
 const SCCP_WALLET_STATE_BITS = 7500
 const SCCP_WALLET_STATE_CELLS = 16
-const SCCP_MINTER_STATE_BITS = 92000
-const SCCP_MINTER_STATE_CELLS = 185
+const SCCP_MINTER_STATE_BITS = 102000
+const SCCP_MINTER_STATE_CELLS = 205
 
 // StateInit sizes attached to deployments (code + data + root), upper bounds.
-const SCCP_BUCKET_STATE_INIT_BITS = 8000
-const SCCP_BUCKET_STATE_INIT_CELLS = 24
+const SCCP_BUCKET_STATE_INIT_BITS = 9000
+const SCCP_BUCKET_STATE_INIT_CELLS = 28
 const SCCP_WALLET_STATE_INIT_BITS = 7500
 const SCCP_WALLET_STATE_INIT_CELLS = 17
 
@@ -59,6 +99,10 @@ const SCCP_MSG_INTERNAL_TRANSFER_BITS = 1600
 const SCCP_MSG_INTERNAL_TRANSFER_CELLS = 2
 const SCCP_MSG_EXT_EVENT_BITS = 1200
 const SCCP_MSG_EXT_EVENT_CELLS = 2
+/// `sccp_certificate`: the external-out header, the 160-bit body and the four
+/// certificate cells it references (800 + 896 + 872 + 896 bits).
+const SCCP_MSG_EXT_CERTIFICATE_BITS = 4200
+const SCCP_MSG_EXT_CERTIFICATE_CELLS = 6
 /// `sccp_transfer_to_taira` with a 1138-byte payload in 10 snake cells.
 const SCCP_MSG_EXT_TRANSFER_BITS = 11000
 const SCCP_MSG_EXT_TRANSFER_CELLS = 13
@@ -106,36 +150,27 @@ fun sccpWalletMinStorage(): coins {
     );
 }
 
-/// Value attached to a bucket deployment that carries no consume.
-fun sccpBucketDeployValue(): coins {
-    return sccpGasFee(SCCP_GAS_BUCKET_TOP_UP) + sccpBucketFloor();
+/// Value attached to `sccp_activate_bucket`: the bucket's gas and its floor.
+fun sccpBucketActivationValue(): coins {
+    return sccpGasFee(SCCP_GAS_BUCKET_ACTIVATE) + sccpBucketFloor();
 }
 
-/// Cost of one extra bucket deployment sent by the minter (value plus
-/// forwarding, paid separately).
-fun sccpExtraBucketDeployCost(): coins {
-    return sccpBucketDeployValue() +
+/// Cost of one bucket activation sent by the minter (value plus forwarding
+/// with the bucket StateInit, paid separately).
+fun sccpBucketActivationCost(): coins {
+    return sccpBucketActivationValue() +
         sccpForwardFee(
             SCCP_MSG_SMALL_BITS + SCCP_BUCKET_STATE_INIT_BITS,
             SCCP_MSG_SMALL_CELLS + SCCP_BUCKET_STATE_INIT_CELLS,
         );
 }
 
-/// Forwarding of `sccp_consume`, with the bucket StateInit when it deploys.
-fun sccpConsumeForwardFee(deploys: bool): coins {
-    if (deploys) {
-        return sccpForwardFee(
-            SCCP_MSG_CONSUME_BITS + SCCP_BUCKET_STATE_INIT_BITS,
-            SCCP_MSG_CONSUME_CELLS + SCCP_BUCKET_STATE_INIT_CELLS,
-        );
-    }
-    return sccpForwardFee(SCCP_MSG_CONSUME_BITS, SCCP_MSG_CONSUME_CELLS);
-}
-
-/// Bucket round trip of one consume: forwarding there and back, bucket gas
-/// and the bucket floor top-up.
-fun sccpConsumeRoundTrip(deploys: bool): coins {
-    return sccpConsumeForwardFee(deploys) + sccpGasFee(SCCP_GAS_BUCKET_CONSUME) +
+/// Bucket round trip of one consume (`sccp_consume` never carries a
+/// StateInit): forwarding there and back, bucket gas and the bucket floor
+/// top-up.
+fun sccpConsumeRoundTrip(): coins {
+    return sccpForwardFee(SCCP_MSG_CONSUME_BITS, SCCP_MSG_CONSUME_CELLS) +
+        sccpGasFee(SCCP_GAS_BUCKET_CONSUME) +
         sccpBucketFloor() +
         sccpForwardFee(SCCP_MSG_CONSUME_BITS, SCCP_MSG_CONSUME_CELLS);
 }
@@ -145,13 +180,40 @@ fun sccpExcessForwardFee(): coins {
     return sccpForwardFee(SCCP_MSG_SMALL_BITS, SCCP_MSG_SMALL_CELLS);
 }
 
-/// `finalize_required_value()` for a finalize that deploys `deployCount`
-/// buckets (0 when the nonce's bucket exists).
+/// External-out event of the minter.
+fun sccpEventForwardFee(): coins {
+    return sccpForwardFee(SCCP_MSG_EXT_EVENT_BITS, SCCP_MSG_EXT_EVENT_CELLS);
+}
+
+/// The `sccp_certificate` external-out message of a full-path verification
+/// (§5.1.3 step 12).
+fun sccpCertificateForwardFee(): coins {
+    return sccpForwardFee(SCCP_MSG_EXT_CERTIFICATE_BITS, SCCP_MSG_EXT_CERTIFICATE_CELLS);
+}
+
+/// Events an inline certificate can add to its step: `sccp_certificate` and
+/// `sccp_checkpointed`. The `*_checkpoint` forms send neither and get the
+/// difference back with the excess.
+fun sccpInlineCertificateFees(): coins {
+    return sccpCertificateForwardFee() + sccpEventForwardFee();
+}
+
+/// Step value of `sccp_checkpoint`: the minter step with a key-changing
+/// rotation, `sccp_certificate`, two events (`sccp_checkpointed` and
+/// `sccp_committee_rotated`, or `sccp_latched` alone) and the excess return.
+fun sccpCheckpointRequiredValue(): coins {
+    return sccpGasFee(SCCP_GAS_MINTER_CHECKPOINT) + sccpCertificateForwardFee() +
+        2 * sccpEventForwardFee() +
+        sccpExcessForwardFee();
+}
+
+/// Step value of a finalize that activates `deployCount` buckets (0 when the
+/// nonce's bucket is active).
 fun sccpFinalizeRequiredValue(deployCount: int): coins {
-    val extra = deployCount > 1 ? deployCount - 1 : 0;
-    return sccpGasFee(SCCP_GAS_MINTER_FINALIZE) + sccpConsumeRoundTrip(deployCount > 0) +
+    return sccpGasFee(SCCP_GAS_MINTER_FINALIZE) + sccpInlineCertificateFees() +
+        sccpConsumeRoundTrip() +
         sccpGasFee(SCCP_GAS_MINTER_CONSUMED) +
-        sccpForwardFee(SCCP_MSG_EXT_EVENT_BITS, SCCP_MSG_EXT_EVENT_CELLS) +
+        sccpEventForwardFee() +
         sccpForwardFee(
             SCCP_MSG_INTERNAL_TRANSFER_BITS + SCCP_WALLET_STATE_INIT_BITS,
             SCCP_MSG_INTERNAL_TRANSFER_CELLS + SCCP_WALLET_STATE_INIT_CELLS,
@@ -159,17 +221,16 @@ fun sccpFinalizeRequiredValue(deployCount: int): coins {
         sccpGasFee(SCCP_GAS_WALLET_RECEIVE) +
         sccpWalletMinStorage() +
         sccpExcessForwardFee() +
-        extra * sccpExtraBucketDeployCost();
+        deployCount * sccpBucketActivationCost();
 }
 
-/// `void_required_value()` for a void that deploys `deployCount` buckets.
+/// Step value of a void that activates `deployCount` buckets.
 fun sccpVoidRequiredValue(deployCount: int): coins {
-    val extra = deployCount > 1 ? deployCount - 1 : 0;
-    return sccpGasFee(SCCP_GAS_MINTER_VOID) + sccpConsumeRoundTrip(deployCount > 0) +
+    return sccpGasFee(SCCP_GAS_MINTER_VOID) + sccpInlineCertificateFees() + sccpConsumeRoundTrip() +
         sccpGasFee(SCCP_GAS_MINTER_CONSUMED) +
-        sccpForwardFee(SCCP_MSG_EXT_EVENT_BITS, SCCP_MSG_EXT_EVENT_CELLS) +
+        sccpEventForwardFee() +
         sccpExcessForwardFee() +
-        extra * sccpExtraBucketDeployCost();
+        deployCount * sccpBucketActivationCost();
 }
 
 /// Value the minter attaches to `sccp_consume_range`: bucket gas and floor,
@@ -178,26 +239,29 @@ fun sccpRangeConsumeValue(): coins {
     return sccpGasFee(SCCP_GAS_BUCKET_CONSUME_RANGE) + sccpBucketFloor() +
         sccpForwardFee(SCCP_MSG_SMALL_BITS, SCCP_MSG_SMALL_CELLS) +
         sccpGasFee(SCCP_GAS_MINTER_RANGE_REPLY) +
-        sccpForwardFee(SCCP_MSG_EXT_EVENT_BITS, SCCP_MSG_EXT_EVENT_CELLS);
+        sccpEventForwardFee();
 }
 
-/// Required value of `sccp_void_frozen` deploying `deployCount` buckets.
+/// Step value of `sccp_void_frozen` activating `deployCount` buckets.
 fun sccpVoidFrozenRequiredValue(deployCount: int): coins {
-    val extra = deployCount > 1 ? deployCount - 1 : 0;
-    val rangeForward = deployCount > 0
-        ? sccpForwardFee(
-            SCCP_MSG_SMALL_BITS + SCCP_BUCKET_STATE_INIT_BITS,
-            SCCP_MSG_SMALL_CELLS + SCCP_BUCKET_STATE_INIT_CELLS,
-        )
-        : sccpForwardFee(SCCP_MSG_SMALL_BITS, SCCP_MSG_SMALL_CELLS);
-    return sccpGasFee(SCCP_GAS_MINTER_VOID_FROZEN) + rangeForward + sccpRangeConsumeValue() +
+    return sccpGasFee(SCCP_GAS_MINTER_VOID_FROZEN) +
+        sccpForwardFee(SCCP_MSG_SMALL_BITS, SCCP_MSG_SMALL_CELLS) +
+        sccpRangeConsumeValue() +
         sccpExcessForwardFee() +
-        extra * sccpExtraBucketDeployCost();
+        deployCount * sccpBucketActivationCost();
 }
 
-/// Required value of `sccp_deploy_buckets` for `count` buckets.
+/// Step value of `sccp_deploy_buckets` for `count` buckets.
 fun sccpDeployBucketsRequiredValue(count: int): coins {
-    return sccpGasFee(SCCP_GAS_MINTER_DEPLOY_BUCKETS) + count * sccpExtraBucketDeployCost() +
+    return sccpGasFee(SCCP_GAS_MINTER_DEPLOY_BUCKETS) + count * sccpBucketActivationCost() +
+        sccpExcessForwardFee();
+}
+
+/// Step value of `sccp_apply_control*`: the minter step, the events of an
+/// inline certificate, the `sccp_control_applied` event and the excess return.
+fun sccpApplyControlRequiredValue(): coins {
+    return sccpGasFee(SCCP_GAS_MINTER_APPLY_CONTROL) + sccpInlineCertificateFees() +
+        sccpEventForwardFee() +
         sccpExcessForwardFee();
 }
 
@@ -206,9 +270,28 @@ fun sccpUnconsumeValue(): coins {
     return sccpGasFee(SCCP_GAS_BUCKET_UNCONSUME);
 }
 
+/// Cost of one `sccp_unconsume` sent by the minter (value plus forwarding).
+fun sccpUnconsumeCost(): coins {
+    return sccpUnconsumeValue() + sccpForwardFee(SCCP_MSG_SMALL_BITS, SCCP_MSG_SMALL_CELLS);
+}
+
+/// Step value of `sccp_retry`: the minter step, the costlier of the two
+/// retried messages and the excess return.
+fun sccpRetryRequiredValue(): coins {
+    return sccpGasFee(SCCP_GAS_MINTER_RETRY) +
+        max(sccpBucketActivationCost(), sccpUnconsumeCost()) +
+        sccpExcessForwardFee();
+}
+
+/// Value a bucket attaches to `sccp_consume_reverted` from its own balance.
+fun sccpConsumeRevertedValue(): coins {
+    return sccpGasFee(SCCP_GAS_MINTER_CONSUME_REVERTED);
+}
+
 /// Minimal value of an SCCP burn sent to a wallet: the wallet step, the
 /// `burn_notification` with a maximal recipient, the minter step, the
-/// `sccp_transfer_to_taira` external message and the excess return.
+/// `sccp_transfer_to_taira` external message and the excess return. The burn
+/// never pays toward the minter floor.
 fun sccpBurnRequiredValue(): coins {
     return sccpGasFee(SCCP_GAS_WALLET_BURN) +
         sccpForwardFee(SCCP_MSG_BURN_NOTIFICATION_BITS, SCCP_MSG_BURN_NOTIFICATION_CELLS) +
@@ -233,16 +316,64 @@ fun sccpTransferRequiredValue(forwardTonAmount: int, fwdFee: int): coins {
 
 /// Reserves `max(floor, balance before this message)` (mode 2): the account
 /// never drops below its floor or its prior balance, and every later
-/// "carry all balance" send forwards only the incoming value.
+/// "carry all balance" send forwards only the incoming value. Buckets only.
 fun sccpReserveFloor(floor: coins, incomingValue: coins) {
     val before = contract.getOriginalBalance() - incomingValue;
     reserveGramsOnBalance(max(floor, before), RESERVE_MODE_AT_MOST);
 }
 
-/// Part of `MINTER_FLOOR` that the incoming value must cover because the
-/// minter's balance before this message is below it.
-fun sccpMinterFloorDeficit(incomingValue: coins): coins {
-    val before = contract.getOriginalBalance() - incomingValue;
+/// Reserves the balance before this message (mode 2): the incoming value pays
+/// the whole step and nothing goes toward a floor (burns and bucket replies).
+fun sccpReservePriorBalance(incomingValue: coins) {
+    reserveGramsOnBalance(contract.getOriginalBalance() - incomingValue, RESERVE_MODE_AT_MOST);
+}
+
+/// Storage the minter would pay for `SCCP_STORAGE_GRACE_SECONDS` at its
+/// maximal size: the slack every quote adds (§5.3.5).
+fun sccpMinterStorageGrace(): coins {
+    return calculateStorageFee(
+        SCCP_WORKCHAIN,
+        SCCP_STORAGE_GRACE_SECONDS,
+        SCCP_MINTER_STATE_BITS,
+        SCCP_MINTER_STATE_CELLS,
+    );
+}
+
+/// Part of `MINTER_FLOOR` that a caller pays when the minter's balance is
+/// `stored`.
+fun sccpMinterFloorDeficit(stored: coins): coins {
     val floor = sccpMinterFloor();
-    return before >= floor ? 0 : floor - before;
+    return stored >= floor ? 0 : floor - stored;
+}
+
+/// The minter's balance when this transaction started, before its storage
+/// phase: the balance a get method sees, so entry checks and quotes agree.
+fun sccpMinterStoredBalance(incomingValue: coins): coins {
+    return contract.getOriginalBalance() - incomingValue + contract.getStoragePaidPayment();
+}
+
+/// Entry value check of a minter step worth `step` (§5.3.5); it runs before
+/// any signature is verified, so an underfunded call fails cheaply.
+fun sccpCheckEntryValue(incomingValue: coins, step: coins) {
+    assert (
+        incomingValue >= step + sccpMinterFloorDeficit(sccpMinterStoredBalance(incomingValue))
+    ) throw SccpErrors.NotEnoughValue;
+}
+
+/// Entry reserve of the minter: `max(MINTER_FLOOR, before)`, but never more
+/// than `before + value − step`, so the step keeps the value it was checked
+/// for; storage drift beyond what the caller attached stays a deficit for the
+/// next caller.
+fun sccpReserveMinterFloor(incomingValue: coins, step: coins) {
+    val before = contract.getOriginalBalance() - incomingValue;
+    reserveGramsOnBalance(
+        min(max(sccpMinterFloor(), before), before + incomingValue - step),
+        RESERVE_MODE_AT_MOST,
+    );
+}
+
+/// Quote of a minter step worth `step` for get methods: the step, the floor
+/// deficit at the stored balance and the storage grace.
+fun sccpMinterQuote(step: coins): coins {
+    return step + sccpMinterFloorDeficit(contract.getOriginalBalance()) + sccpMinterStorageGrace();
 }

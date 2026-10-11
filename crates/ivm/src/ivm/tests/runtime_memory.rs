@@ -716,6 +716,8 @@ fn fallible_worker_trace_copy_preserves_proof_logs_and_independent_buffers() {
 }
 fn sample_worker_diagnostic() -> super::super::diagnostic::TrapSnapshot {
     super::super::diagnostic::TrapSnapshot {
+        fault: None,
+        propagated: false,
         trap_kind: VmTrapKind::MemoryFault,
         pc: 32,
         source_index: Some(0),

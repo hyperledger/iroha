@@ -2116,7 +2116,7 @@ mod tests {
         );
 
         let authority_string = authority.to_string();
-        let mut output = 1_usize as *mut c_uchar;
+        let mut output = ptr::dangling_mut::<c_uchar>();
         let mut output_len = 7;
         let mut checkpoint_output = ptr::null_mut();
         let mut checkpoint_output_len = 0;

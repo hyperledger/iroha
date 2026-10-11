@@ -4,7 +4,8 @@ use super::{CallSchemaV1, CallTypeNodeV1};
 use crate::{
     call::{MAX_CALL_SCHEMA_DEPTH_V1, MAX_CALL_SCHEMA_NODES_V1},
     entrypoint::{
-        EntrypointValueKindV1, is_canonical_kotodama_identifier, is_canonical_kotodama_struct_name,
+        is_canonical_kotodama_identifier, is_canonical_kotodama_struct_name,
+        state_key_schema_depth_v1,
     },
     list::ListLayoutV1,
     pointer_abi::PointerType,
@@ -62,7 +63,8 @@ fn valid_node(node: &CallTypeNodeV1) -> bool {
         CallTypeNodeV1::Tuple(arity) => *arity >= 2,
         CallTypeNodeV1::List { capacity } => (1..=64).contains(capacity),
         CallTypeNodeV1::Error(error) => error.validate(),
-        CallTypeNodeV1::StateCursor(kind) => *kind != EntrypointValueKindV1::Json,
+        CallTypeNodeV1::Enum(enumeration) => enumeration.validate(),
+        CallTypeNodeV1::StateCursor(key) => crate::entrypoint::validate_state_key_schema_v1(key),
         CallTypeNodeV1::Pointer(id) => matches!(
             PointerType::from_u16(*id),
             Some(
@@ -136,8 +138,20 @@ impl CallSchemaV1 {
         self.analysis_reservation_bytes()?;
         let mut stack = [Frame::default(); MAX_CALL_SCHEMA_DEPTH_V1];
         let mut depth = 0_usize;
+        let mut node_count = self.nodes.len();
         let mut summary = CallSchemaSummaryV1::default();
         for (index, node) in self.nodes.iter().enumerate() {
+            if let CallTypeNodeV1::StateCursor(key) = node {
+                node_count = node_count.checked_add(key.nodes.len())?;
+                if node_count > MAX_CALL_SCHEMA_NODES_V1
+                    || depth
+                        .checked_add(1)?
+                        .checked_add(state_key_schema_depth_v1(key)?)?
+                        > MAX_CALL_SCHEMA_DEPTH_V1
+                {
+                    return None;
+                }
+            }
             let children = node.child_count();
             if depth.checked_add(1)? > MAX_CALL_SCHEMA_DEPTH_V1
                 || children > self.nodes.len().checked_sub(index + 1)?

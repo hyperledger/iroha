@@ -34,7 +34,7 @@ class ApplicationPostAuthenticationTest {
                 .setLocalSigningContext(LocalSigningContext(networkId))
                 .build()
             HttpClientTransport(executor, config)
-                .executeRamLfeProgram("lookup", RamLfeExecuteRequest.encrypted("ABCD"), auth())
+                .executeRamLfeProgram("lookup", RamLfeExecuteRequest.ownerInput("private@example.org", "12".repeat(32)), auth())
                 .join()
         }
 

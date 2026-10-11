@@ -75,9 +75,9 @@ boundary remained closed rather than a new public behavior.
   covers four read families, and `CanonicalAccountReadRedirectIsSurfacedWithoutReplay`
   proves that the internally managed transport surfaces redirects after one
   original dispatch without replaying the signed nonce or signature.
-- `R-TOR-66`: the guarded recovery inventory includes the KAGEMUSHA V1
-  aggregate-state and recursive-proof adapters, which use the reviewed suppressed panic
-  boundary and are pinned by `scripts/check_panic_recovery_boundaries.py`.
+- `R-TOR-66`: the KAGEMUSHA V1 aggregate-state and recursive-proof adapters
+  that used the reviewed suppressed panic boundary were deleted on 2026-10-05;
+  `scripts/check_panic_recovery_boundaries.py` pins the remaining inventory.
 
 ## Qualification boundary
 

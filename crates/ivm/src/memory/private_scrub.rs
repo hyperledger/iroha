@@ -15,7 +15,9 @@ impl Memory {
             let heap = start >= Self::HEAP_START && end <= Self::HEAP_START + self.heap_limit;
             let stack = start >= Self::STACK_START && end <= self.stack_top();
             if start >= end || (!heap && !stack) || end > self.data.len() as u64 {
-                return Err(VMError::PrivacyViolation);
+                return Err(VMError::ExecutionDeferred(
+                    crate::error::ExecutionDeferral::LocalInvariantViolation,
+                ));
             }
             previous = Some(start);
         }

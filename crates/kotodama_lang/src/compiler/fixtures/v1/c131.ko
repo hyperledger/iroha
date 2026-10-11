@@ -1,10 +1,10 @@
 
-seiyaku Test {
+seiyaku Test { permission Entry;
   state int counter;
 
   hajimari() { counter = 0; }
 
-  kotoage fn run()  authorize("Entry") {
+  kotoage fn run() authorize(Entry) {
     let current = counter;
     if current > 0 {
       debug::info("tick");

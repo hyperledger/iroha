@@ -264,7 +264,7 @@ absent.
 | UAID manifests | `dataspace_id` (number, *sort*), `dataspace_alias`, `manifest_hash`, `status` (strings, *sort*), `manifest`, `lifecycle` (JSON), `accounts` (list of strings) | `dataspace_id` |
 | account movements | `id`, `source`, `type`, `status`, `direction`, `account_id`, `counterparty_account_id`, `asset_id`, `asset_definition_id`, `tx_hash` (strings), `timestamp_ms`, `block_height`, `block_index`, `movement_index`, `expires_at_ms`, `finalized_at_ms` (numbers), `operation_id`, `requesting_fi_id` (strings), `amount` (decimal), `result_ok` (bool) | newest chain position first, then descending movement index |
 | contract activity | `authority`, `entrypoint_hash`, `contract_address`, `contract_alias`, `contract_entrypoint` (strings), `timestamp_ms`, `block_height`, `block_index` (numbers), `result_ok` (bool), `contract_payload`, `fee_payment` (JSON) | newest first |
-| contract events | `event_id`, `provenance`, `authority`, `tx_hash_hex`, `block_hash_hex`, `contract_address`, `contract_alias`, `module`, `event_kind` (strings), `schema_version`, `timestamp_ms`, `block_height`, `block_index` (numbers), `result_ok` (bool), `participants`, `asset_ids` (lists of strings), `numeric_fields`, `payload`, `fee_payment` (JSON) | newest first |
+| contract events | `event_id`, `provenance` (always `emitted`), `authority`, `execution_hash_hex`, `block_hash_hex`, `contract_address`, `event_kind` (strings), `schema_version`, `timestamp_ms`, `block_height`, `output_index`, `emission_index` (numbers), `result_ok` (always true), `participants`, `asset_ids` (lists of strings), `numeric_fields`, `payload`, `emission`, `fee_payment` (JSON) | descending `block_height`, `output_index`, `emission_index` |
 
 Subscription status is a lower-case string (`active`, `paused`, `past_due`,
 `canceled`, `suspended`). Manifest status is `Pending`, `Active`, `Expired` or
@@ -284,8 +284,10 @@ select rows where none does. Lists cannot be sorted or range-compared.
 Transactions are read in history order, newest first: by `block_height`
 descending, then `block_index` (the transaction's position in its block)
 descending. Account transactions are the committed transactions the account
-signed or that reference it. Contract activity and event pages project the
-committed transaction directly. Account movement pages add a descending
+signed or that reference it. Contract activity projects committed top-level
+contract calls. Native event pages walk committed execution outputs and their
+emissions in descending `(block_height, output_index, emission_index)` order.
+Account movement pages add a descending
 `movement_index` within each transaction, so page boundaries never skip other
 movements from that transaction. History cursors contain only caller-visible
 candidates; exhausting a page budget before finding one returns an explicit
@@ -312,6 +314,35 @@ raw-row budget. These pages do not build a full-history process cache.
   page examines: `block_height >= 1200` ends the walk below height 1200, and
   `block_height <= 1500` starts the walk just above height 1500. `filter=block_height >= 1200 and result_ok = true`
   examines only that range.
+
+### Contract activity and native events
+
+Contract activity projects committed top-level `ContractCall` inputs. The signed
+`ContractInvocation` supplies `contract_address` and `contract_entrypoint`.
+`contract_alias` and `contract_payload` appear only for a successful call whose
+consensus-bound metadata matches its address, code hash and entrypoint. Admission
+binds the payload to canonical arguments and the alias to the invoked address.
+Rejected calls expose neither optional field.
+
+Contract event rows instead project native `ContractEmissionV1` records retained
+in successful committed Network, Pipeline or Time execution outputs. A call or
+transaction metadata alone creates no event. Rolled-back emissions are absent;
+a rejected output retaining emissions is invalid.
+
+- `provenance` is `emitted`, `schema_version` is `1`, and `result_ok` is true.
+  `event_id` is `<block_hash_hex>:<output_index>:<emission_index>`;
+  `execution_hash_hex` identifies the output's root execution call.
+- `emission` contains the authenticated contract address, code hash, entrypoint
+  and event ordinals, caller, complete source event definition and canonical
+  payload record. Historical decoding needs no current artifact or alias lookup.
+- `event_kind` is the declared event name. `payload` renders the canonical record
+  with its retained schema; participant, asset and numeric convenience fields
+  come from that payload and the caller. Fee payment is projected for Network
+  outputs when present. There is no inferred module or contract alias.
+- Visibility requires access to the emitting contract's dataspace. Network
+  outputs and Pipeline callbacks sourced from a Network input also require
+  visibility of that committed input's route legs. Block-approved and Time
+  callbacks use their public source event and the emitting contract's scope.
 
 ## Aggregates
 

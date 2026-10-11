@@ -194,7 +194,7 @@ class ConfidentialProver:
             )
             if (
                 proof.root != arguments["root"]
-                or proof.backend != "halo2/ipa"
+                or proof.backend != "pipa-r/pasta"
                 or not isinstance(proof.proof, bytes)
                 or not proof.proof
             ):

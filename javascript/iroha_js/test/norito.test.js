@@ -1189,6 +1189,7 @@ test("contract manifest codec preserves the canonical seiyaku name", () => {
   const instruction = universalArtifactInstruction({
     RegisterSmartContractCode: {
       manifest: {
+        permissions: [], events: [], enum_types: [],
         seiyaku_name: "Ledger",
         entrypoints: null,
         kotoba: null,
@@ -1202,6 +1203,7 @@ test("contract manifest codec preserves the canonical seiyaku name", () => {
   assert.deepEqual(noritoDecodeInstruction(encoded, 753), universalArtifactInstruction({
     RegisterSmartContractCode: {
       manifest: {
+        permissions: [], events: [], enum_types: [],
         seiyaku_name: "Ledger",
         code_hash: null,
         abi_hash: null,
@@ -1260,6 +1262,7 @@ test("contract manifest codec roundtrips every V1 descriptor field", () => {
     nodes: [{ kind: "Leaf", value: { kind, value: null } }],
   });
   const manifest = {
+    permissions: [{ name: "TransferAsset", scope: { kind: "Instance", value: null } }], events: [], enum_types: [],
     seiyaku_name: "Ledger",
     code_hash: "hash:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB#3E38",
     abi_hash: "hash:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB#ABA2",
@@ -1308,7 +1311,7 @@ test("contract manifest codec roundtrips every V1 descriptor field", () => {
             { kind: "Leaf", value: { kind: "String", value: null } },
           ],
         },
-        permission: "TransferAsset",
+        authorization: { kind: "Permission", value: "TransferAsset" },
         read_keys: ["state:Balances"],
         write_keys: ["state:Balances"],
         access_hints_complete: true,
@@ -1519,7 +1522,7 @@ test("contract manifest codec validates every flat query schema and ordinary str
             kind: { kind: "View", value: null },
             return_type: returnType,
             return_schema: { nodes },
-            permission: null,
+            authorization: { kind: "Anyone", value: null },
             triggers: [],
           },
         ],
@@ -1533,13 +1536,13 @@ test("contract manifest codec validates every flat query schema and ordinary str
   };
 
   for (const [name, fields, children] of layouts) {
-    const view = [{ kind: "Struct", value: { name, fields } }, ...children];
+    const view = [{ kind: "Struct", value: { name: `kotodama::${name}`, fields } }, ...children];
     roundtrip(name, view);
     roundtrip(`Option<${name}>`, [{ kind: "Option", value: null }, ...view]);
     roundtrip(`QueryPage<${name}>`, [
       {
         kind: "Struct",
-        value: { name: "QueryPage", fields: ["items", "next_offset"] },
+        value: { name: "kotodama::QueryPage", fields: ["items", "next_offset"] },
       },
       { kind: "List", value: { capacity: 64 } },
       ...view,
@@ -1547,8 +1550,8 @@ test("contract manifest codec validates every flat query schema and ordinary str
       leaf("Int"),
     ]);
   }
-  roundtrip("struct Pair", [
-    { kind: "Struct", value: { name: "Pair", fields: ["left", "right"] } },
+  roundtrip("struct Fixture::Pair", [
+    { kind: "Struct", value: { name: "Fixture::Pair", fields: ["left", "right"] } },
     leaf("Int"),
     leaf("Bool"),
   ]);
@@ -1571,7 +1574,7 @@ test("contract manifest codec rejects malformed and forged flat schema tapes", (
                 kind: { kind: "View", value: null },
                 return_type: returnType,
                 return_schema: { nodes },
-                permission: null,
+                authorization: { kind: "Anyone", value: null },
                 triggers: [],
               },
             ],
@@ -1609,7 +1612,7 @@ test("contract manifest codec rejects malformed and forged flat schema tapes", (
     ["AssetView", ["id", "amount"], [leaf("AssetId"), leaf("Quantity")]],
     [
       "AssetDefinitionView",
-      ["id", "name", "description", "owned_by", "total_quantity", "metadata"],
+      ["id", "name", "description", "owned_by", "total_quantity", "numeric_scale", "metadata"],
       [
         leaf("AssetDefinitionId"),
         leaf("String"),
@@ -1617,6 +1620,8 @@ test("contract manifest codec rejects malformed and forged flat schema tapes", (
         leaf("String"),
         leaf("AccountId"),
         leaf("Quantity"),
+        { kind: "Option", value: null },
+        leaf("Int"),
         leaf("Json"),
       ],
     ],
@@ -1632,20 +1637,22 @@ test("contract manifest codec rejects malformed and forged flat schema tapes", (
     ],
   ];
   for (const [name, fields, children] of reservedViews) {
-    const forged = [
-      { kind: "Struct", value: { name, fields } },
+    const canonical = [
+      { kind: "Struct", value: { name: `kotodama::${name}`, fields } },
       ...structuredClone(children),
     ];
+    assert.doesNotThrow(() => encodeNodes(canonical, name));
+    const forged = structuredClone(canonical);
     forged[1].value.kind = "Bool";
     assert.throws(() => encodeNodes(forged), { message: "invalid V1 entrypoint value schema" });
 
     const forgedPage = [
       {
         kind: "Struct",
-        value: { name: "QueryPage", fields: ["items", "next_offset"] },
+        value: { name: "kotodama::QueryPage", fields: ["items", "next_offset"] },
       },
       { kind: "List", value: { capacity: 32 } },
-      { kind: "Struct", value: { name, fields } },
+      { kind: "Struct", value: { name: `kotodama::${name}`, fields } },
       ...children,
       { kind: "Option", value: null },
       leaf("Int"),
@@ -1677,18 +1684,20 @@ test("contract manifest codec rejects malformed and forged flat schema tapes", (
     encodeNodes([
       {
         kind: "Struct",
-        value: { name: "AccountViex", fields: ["id", "metadata"] },
+        value: { name: "FixtureX::AccountViex", fields: ["id", "metadata"] },
       },
       leaf("Bool"),
       leaf("Json"),
-    ], "struct AccountViex"),
+    ], "struct FixtureX::AccountViex"),
   );
-  const forgedName = Buffer.from("AccountViex", "utf8");
-  // The canonical return type also names the struct; forge only its schema node.
-  const nameOffset = forgedViewWire.lastIndexOf(forgedName);
+  const originalName = Buffer.from("FixtureX::AccountViex", "utf8");
+  const forgedName = Buffer.from("kotodama::AccountView", "utf8");
+  assert.equal(originalName.length, forgedName.length);
+  // Forge only the schema's identity into the reserved view; its Bool id is invalid.
+  const nameOffset = forgedViewWire.lastIndexOf(originalName);
   assert.notEqual(nameOffset, -1);
-  assert.notEqual(nameOffset, forgedViewWire.indexOf(forgedName));
-  forgedViewWire[nameOffset + forgedName.length - 1] = "w".charCodeAt(0);
+  assert.notEqual(nameOffset, forgedViewWire.indexOf(originalName));
+  forgedName.copy(forgedViewWire, nameOffset);
   rewriteNestedInstructionFrameCrcs(forgedViewWire);
   assert.throws(
     () => boundNoritoDecodeInstruction(forgedViewWire, 753),

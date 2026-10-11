@@ -9,11 +9,18 @@
 //! evidence use this original-history verifier. TODO(S8 release blocker): retain all decoded
 //! evidence/context allocations in the original preparation pool; source-read accounting alone
 //! does not fund that graph. Native lane evidence retains its original source and branch owner;
-//! that owner does not yet fund every decoded proof and cryptographic allocation.
+//! completed offender vectors/compact keys move funded into admission. World record/COW
+//! clones, decoded proofs and cryptographic context allocations remain unfunded TODOs.
 
 use std::num::NonZeroUsize;
 
-use iroha_data_model::block::consensus::{EvidenceOffender, EvidenceScope};
+#[cfg(test)]
+use iroha_data_model::block::consensus::EvidenceOffender;
+use iroha_data_model::block::consensus::EvidenceScope;
+
+mod funded_attribution;
+use funded_attribution::{AttributionFields, FundedOffenders};
+pub(crate) use funded_attribution::{FundedEvidenceAttribution, restore_attribution};
 use iroha_data_model::query::error::QueryExecutionFail;
 use iroha_sumeragi::{
     api::CommittedTip,
@@ -23,10 +30,7 @@ use iroha_sumeragi::{
     types::{EpochId, Hash32},
 };
 
-use super::{
-    attestation::NativePastaVerifier, crypto::BlsCrypto, schedule::ScheduledSlot,
-    startup::GENESIS_HEIGHT,
-};
+use super::{crypto::BlsCrypto, schedule::ScheduledSlot, startup::GENESIS_HEIGHT};
 use crate::state::{NativeExecutionTip, StateReadOnly, WorldReadOnly};
 
 /// Authentication failure keeps local source failures distinct from invalid signed reports.
@@ -38,6 +42,9 @@ pub(crate) enum NativeEvidenceError {
     /// Retained lane source I/O or local capacity refusal; never blame the signed report.
     #[error("native lane evidence source: {0}")]
     Source(crate::execution_attempt::ExecutionAttemptError<std::io::Error>),
+    /// Exact local capacity/allocator refusal while retaining the offender graph.
+    #[error(transparent)]
+    Preparation(#[from] crate::state::EvidencePreparationError),
     /// The requested subject or its authenticated schedule is inconsistent.
     #[error("native evidence context: {0}")]
     Context(String),
@@ -56,7 +63,7 @@ pub(crate) struct VerifiedNativeEvidence {
     epoch: EpochId,
     authority_generation: Hash32,
     height: u64,
-    offenders: Vec<EvidenceOffender>,
+    offenders: FundedOffenders,
     safety_violation: bool,
 }
 impl VerifiedNativeEvidence {
@@ -65,19 +72,26 @@ impl VerifiedNativeEvidence {
         self.scope
     }
     /// Move verified signer owners into the canonical attribution without cloning them.
-    pub(crate) fn into_attribution(
-        self,
-    ) -> iroha_data_model::block::consensus::EvidenceAttribution {
-        iroha_data_model::block::consensus::EvidenceAttribution {
-            scope: self.scope,
-            instance: self.instance.0,
-            height: self.height,
-            epoch: self.epoch.epoch,
-            context_id: self.epoch.context.0,
-            authority_generation: self.authority_generation.0,
-            offenders: self.offenders,
-            safety_violation: self.safety_violation,
-        }
+    pub(crate) fn into_attribution(self) -> FundedEvidenceAttribution {
+        let Self {
+            scope,
+            tip: _,
+            instance,
+            epoch,
+            authority_generation,
+            height,
+            offenders,
+            safety_violation,
+        } = self;
+        offenders.into_attribution(AttributionFields {
+            scope,
+            instance: instance.0,
+            height,
+            epoch: epoch.epoch,
+            context_id: epoch.context.0,
+            authority_generation: authority_generation.0,
+            safety_violation,
+        })
     }
     /// Compare a restored claim with the full verified value without cloning its signer graph.
     pub(crate) fn matches_attribution(
@@ -90,7 +104,7 @@ impl VerifiedNativeEvidence {
             && self.epoch.epoch == claim.epoch
             && self.epoch.context.0 == claim.context_id
             && self.authority_generation.0 == claim.authority_generation
-            && self.offenders == claim.offenders
+            && self.offenders.as_slice() == claim.offenders
             && self.safety_violation == claim.safety_violation
     }
     /// Original execution cut from which all historical authority was authenticated.
@@ -98,26 +112,32 @@ impl VerifiedNativeEvidence {
         self.tip
     }
     /// Exact global instance, derived from signed genesis identity and configured chain.
+    #[cfg(test)]
     pub(crate) fn instance(&self) -> Hash32 {
         self.instance
     }
     /// Scheduling epoch and complete context to which the signed offence belongs.
+    #[cfg(test)]
     pub(crate) fn epoch(&self) -> EpochId {
         self.epoch
     }
     /// Original immutable signing generation, independent of scheduling epoch retention.
+    #[cfg(test)]
     pub(crate) fn authority_generation(&self) -> Hash32 {
         self.authority_generation
     }
     /// Original subject height.
+    #[cfg(test)]
     pub(crate) fn height(&self) -> u64 {
         self.height
     }
     /// Every directly accountable signer in authenticated historical committee order.
+    #[cfg(test)]
     pub(crate) fn offenders(&self) -> &[EvidenceOffender] {
-        &self.offenders
+        self.offenders.as_slice()
     }
     /// Conflicting certified results demand a safety halt, even without attributable overlap.
+    #[cfg(test)]
     pub(crate) fn safety_violation(&self) -> bool {
         self.safety_violation
     }
@@ -309,16 +329,15 @@ pub(crate) fn verify_from_state(
         demotion_window: window,
         demotion_headers: &headers,
     };
-    let attribution = verify_evidence(
-        &crypto,
-        &NativePastaVerifier::new(instance, *state.network_id()),
-        &context,
-        evidence,
-    )?;
-    let offenders = attribution
-        .offenders()
-        .ones()
-        .map(|signer| {
+    // Every native parent certificate requires an exact authenticated BLS quorum.
+    // cannot authorize a proposal; independently signed conflicting values still prove safety.
+    let attribution = verify_evidence(&crypto, &context, evidence)?;
+    let budget = state.execution_budget();
+    let offenders = FundedOffenders::collect(
+        attribution.offenders().ones().count(),
+        attribution.offenders().ones(),
+        &budget,
+        |signer, budget| {
             let member = scheduled
                 .epoch
                 .committee
@@ -326,13 +345,27 @@ pub(crate) fn verify_from_state(
                 .ok_or_else(|| {
                     invalid("verified signer is absent from its historical committee")
                 })?;
-            Ok(EvidenceOffender {
-                signer,
-                peer_id: member.validator.clone(),
-                lane_stake: None,
-            })
-        })
-        .collect::<Result<Vec<_>, NativeEvidenceError>>()?;
+            let source = member.validator.public_key();
+            let layout = source.retained_allocation_layout();
+            let charge = budget
+                .try_reserve(layout)
+                .map_err(crate::state::EvidencePreparationError::Admission)?
+                .try_split(layout)
+                .map_err(|_| crate::state::EvidencePreparationError::Invariant)?;
+            let key =
+                source
+                    .try_clone_from_charge(budget, charge)
+                    .map_err(|(_, error)| match error {
+                        iroha_crypto::PublicKeyAllocationError::Allocation(
+                            iroha_allocation::ChargedBufferFromChargeError::Allocator { layout },
+                        ) => crate::state::EvidencePreparationError::Allocator {
+                            requested_bytes: layout.size(),
+                        },
+                        _ => crate::state::EvidencePreparationError::Invariant,
+                    })?;
+            Ok((key, None))
+        },
+    )?;
     Ok(VerifiedNativeEvidence {
         scope: EvidenceScope::Root,
         tip,

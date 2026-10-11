@@ -2,6 +2,7 @@
 //!
 //! Produces deterministic read/write key sets to feed the conflict-aware
 //! scheduler described in `new_pipeline.md`.
+use iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1;
 mod dynamic_execution;
 
 use core::fmt::Write as _;
@@ -221,7 +222,7 @@ fn manifest_from_metadata(tx: &SignedTransaction) -> Option<ContractManifest> {
 struct ContractCallExecutionContext {
     entrypoint: Option<String>,
     entrypoint_pc: Option<u64>,
-    entrypoint_permission: Option<String>,
+    entrypoint_authorization: EntrypointAuthorizationV1,
     argument_record: Option<ivm::PreparedArgumentRecord>,
     authorization: Option<crate::executor::ContractEntrypointAuthorizationSnapshot>,
 }
@@ -253,11 +254,12 @@ fn add_embedded_entrypoint_authorization_read(
     else {
         return false;
     };
-    let Ok(permission) = crate::executor::raw_contract_entrypoint_permission(descriptor, &selector)
+    let Ok(permission) =
+        crate::executor::raw_contract_entrypoint_authorization(descriptor, &selector)
     else {
         return false;
     };
-    if permission.is_some() {
+    if permission != EntrypointAuthorizationV1::Anyone {
         set.add_read(AUTHORIZATION_EPOCH_KEY.to_owned());
     }
     true
@@ -273,11 +275,12 @@ fn add_prepared_entrypoint_authorization_read(
     let Some(descriptor) = contract.entrypoint_descriptor(&selector) else {
         return false;
     };
-    let Ok(permission) = crate::executor::raw_contract_entrypoint_permission(descriptor, &selector)
+    let Ok(permission) =
+        crate::executor::raw_contract_entrypoint_authorization(descriptor, &selector)
     else {
         return false;
     };
-    if permission.is_some() {
+    if permission != EntrypointAuthorizationV1::Anyone {
         set.add_read(AUTHORIZATION_EPOCH_KEY.to_owned());
     }
     true
@@ -288,7 +291,11 @@ fn resolve_callable_contract_entrypoint(
     interface_required_message: &'static str,
     raw_ivm: bool,
 ) -> Result<
-    (u64, Option<String>, Option<ivm::EntrypointArgumentSchemaV1>),
+    (
+        u64,
+        EntrypointAuthorizationV1,
+        Option<ivm::EntrypointArgumentSchemaV1>,
+    ),
     ExecutionAttemptError<String>,
 > {
     let parsed = ivm::ProgramMetadata::parse(bytecode).map_err(|error| {
@@ -308,9 +315,9 @@ fn resolve_callable_contract_entrypoint(
         .find(|candidate| candidate.name == selector)
         .ok_or_else(|| format!("unknown contract entrypoint `{selector}`"))?;
     let permission = if raw_ivm {
-        crate::executor::raw_contract_entrypoint_permission(descriptor, selector)
+        crate::executor::raw_contract_entrypoint_authorization(descriptor, selector)
     } else {
-        crate::executor::callable_contract_entrypoint_permission(descriptor, selector)
+        crate::executor::callable_contract_entrypoint_authorization(descriptor, selector)
     }
     .map_err(|error| error.to_string())?;
     Ok((
@@ -332,12 +339,12 @@ fn parse_contract_call_execution_context(
 ) -> Result<Option<ContractCallExecutionContext>, ExecutionAttemptError<String>> {
     let entrypoint = requested_contract_entrypoint(metadata);
     let payload = metadata.get("contract_payload").cloned();
-    let (entrypoint, entrypoint_pc, entrypoint_permission, argument_schema) = if let Some(
+    let (entrypoint, entrypoint_pc, entrypoint_authorization, argument_schema) = if let Some(
         selector,
     ) =
         entrypoint.as_deref()
     {
-        let (entrypoint_pc, entrypoint_permission, argument_schema) =
+        let (entrypoint_pc, entrypoint_authorization, argument_schema) =
             resolve_callable_contract_entrypoint(
                 bytecode,
                 selector,
@@ -348,7 +355,7 @@ fn parse_contract_call_execution_context(
             "raw-IVM contract entrypoint prepass requires an authorized live contract binding"
                 .to_owned()
         })?;
-        if selected.entrypoint != selector || selected.permission != entrypoint_permission {
+        if selected.entrypoint != selector || selected.authorization != entrypoint_authorization {
             return Err(
                 ("raw-IVM contract entrypoint authorization changed before argument preparation"
                     .to_owned())
@@ -358,7 +365,7 @@ fn parse_contract_call_execution_context(
         (
             Some(selector.to_owned()),
             Some(entrypoint_pc),
-            entrypoint_permission,
+            entrypoint_authorization,
             argument_schema,
         )
     } else if is_self_describing_contract(bytecode)? {
@@ -370,7 +377,7 @@ fn parse_contract_call_execution_context(
     } else if payload.is_none() {
         return Ok(None);
     } else {
-        (None, None, None, None)
+        (None, None, EntrypointAuthorizationV1::Anyone, None)
     };
     let canonical_record = crate::executor::encode_contract_argument_record(
         argument_schema.as_ref(),
@@ -392,7 +399,7 @@ fn parse_contract_call_execution_context(
     Ok(Some(ContractCallExecutionContext {
         entrypoint,
         entrypoint_pc,
-        entrypoint_permission,
+        entrypoint_authorization,
         argument_record,
         authorization,
     }))
@@ -405,7 +412,7 @@ fn parse_prepared_contract_call_execution_context(
 ) -> Result<Option<ContractCallExecutionContext>, ExecutionAttemptError<String>> {
     let entrypoint = requested_contract_entrypoint(metadata);
     let payload = metadata.get("contract_payload").cloned();
-    let (entrypoint, entrypoint_pc, entrypoint_permission, argument_schema) =
+    let (entrypoint, entrypoint_pc, entrypoint_authorization, argument_schema) =
         if let Some(selector) = entrypoint.as_deref() {
             let descriptor = contract
                 .entrypoint_descriptor(selector)
@@ -413,14 +420,15 @@ fn parse_prepared_contract_call_execution_context(
             let entrypoint_pc = contract.entrypoint_pc(selector).ok_or_else(|| {
                 format!("contract entrypoint `{selector}` has no validated program counter")
             })?;
-            let entrypoint_permission =
-                crate::executor::raw_contract_entrypoint_permission(descriptor, selector)
+            let entrypoint_authorization =
+                crate::executor::raw_contract_entrypoint_authorization(descriptor, selector)
                     .map_err(|error| error.to_string())?;
             let selected = authorization.as_ref().ok_or_else(|| {
                 "raw-IVM contract entrypoint prepass requires an authorized live contract binding"
                     .to_owned()
             })?;
-            if selected.entrypoint != selector || selected.permission != entrypoint_permission {
+            if selected.entrypoint != selector || selected.authorization != entrypoint_authorization
+            {
                 return Err((
                     "raw-IVM contract entrypoint authorization changed before argument preparation"
                         .to_owned()).into());
@@ -428,7 +436,7 @@ fn parse_prepared_contract_call_execution_context(
             (
                 Some(selector.to_owned()),
                 Some(entrypoint_pc),
-                entrypoint_permission,
+                entrypoint_authorization,
                 descriptor.argument_schema.clone(),
             )
         } else {
@@ -458,7 +466,7 @@ fn parse_prepared_contract_call_execution_context(
     Ok(Some(ContractCallExecutionContext {
         entrypoint,
         entrypoint_pc,
-        entrypoint_permission,
+        entrypoint_authorization,
         argument_record,
         authorization,
     }))
@@ -479,11 +487,13 @@ fn parse_contract_invocation_execution_context(
     let entrypoint_pc = contract.entrypoint_pc(selector).ok_or_else(|| {
         format!("contract entrypoint `{selector}` has no validated program counter")
     })?;
-    let entrypoint_permission =
-        crate::executor::callable_contract_entrypoint_permission(descriptor, selector)
+    let entrypoint_authorization =
+        crate::executor::callable_contract_entrypoint_authorization(descriptor, selector)
             .map_err(|error| error.to_string())?;
     let argument_schema = descriptor.argument_schema.clone();
-    if authorization.entrypoint != selector || authorization.permission != entrypoint_permission {
+    if authorization.entrypoint != selector
+        || authorization.authorization != entrypoint_authorization
+    {
         return Err(
             ("deployed contract entrypoint authorization changed before argument preparation"
                 .to_owned())
@@ -512,7 +522,7 @@ fn parse_contract_invocation_execution_context(
     Ok(ContractCallExecutionContext {
         entrypoint: Some(selector.to_owned()),
         entrypoint_pc: Some(entrypoint_pc),
-        entrypoint_permission,
+        entrypoint_authorization,
         argument_record,
         authorization: Some(authorization),
     })
@@ -1186,7 +1196,7 @@ fn entrypoint_access_set_if_safe(
     Some(set)
 }
 fn entrypoint_requires_authorization_read(entrypoint: &EntrypointDescriptor) -> bool {
-    entrypoint.permission.is_some()
+    entrypoint.authorization != EntrypointAuthorizationV1::Anyone
         || matches!(
             entrypoint.kind,
             iroha_data_model::smart_contract::manifest::EntryPointKind::Hajimari
@@ -2436,7 +2446,7 @@ where
         match (&context.entrypoint, &context.authorization) {
             (Some(entrypoint), Some(authorization)) => {
                 if authorization.entrypoint != *entrypoint
-                    || authorization.permission != context.entrypoint_permission
+                    || authorization.authorization != context.entrypoint_authorization
                 {
                     return Err(
                         ("contract prepass authorization does not match the selected entrypoint"
@@ -2537,6 +2547,7 @@ where
     apply_contract_call_execution_context(&mut vm, contract_call_context.as_ref())
         .map_err(|e| format!("ivm.contract_call: {e}"))?;
     vm.run_with_host(&mut host)
+        .and_then(|()| host.finish_contract_result(&vm).map(|_| ()))
         .map_err(|error| dynamic_execution::vm_error("ivm.run", error))?;
     let mut set = AccessSet::new();
     let mut access_log: Option<ivm::host::AccessLog> = None;
@@ -2566,11 +2577,9 @@ where
     if let Some(log) = access_log {
         merge_access_log(&mut set, &log);
     }
-    if contract_call_context
-        .as_ref()
-        .and_then(|context| context.entrypoint_permission.as_ref())
-        .is_some()
-    {
+    if contract_call_context.as_ref().is_some_and(|context| {
+        context.entrypoint_authorization != EntrypointAuthorizationV1::Anyone
+    }) {
         set.add_read(AUTHORIZATION_EPOCH_KEY.to_owned());
     }
     if set.read_keys.is_empty() && set.write_keys.is_empty() {
@@ -2745,7 +2754,7 @@ mod tests {
                 argument_schema: entrypoint.argument_schema.clone(),
                 return_type: entrypoint.return_type.clone(),
                 return_schema: entrypoint.return_schema.clone(),
-                permission: entrypoint.permission.clone(),
+                authorization: entrypoint.authorization.clone(),
                 read_keys: entrypoint.read_keys.clone(),
                 write_keys: entrypoint.write_keys.clone(),
                 access_hints_complete: entrypoint.access_hints_complete,
@@ -2770,6 +2779,17 @@ mod tests {
             callables.insert(target, fixture_callable(&code, target));
         }
         let interface = ivm::EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: entrypoints.iter().filter_map(|entry| match &entry.authorization {
+                EntrypointAuthorizationV1::Permission(name) => Some(name.clone()),
+                _ => None,
+            }).collect::<std::collections::BTreeSet<_>>().into_iter().map(|name|
+                iroha_data_model::smart_contract::manifest::ContractPermissionDescriptorV1 {
+                    name,
+                    scope: iroha_data_model::smart_contract::manifest::ContractPermissionScopeV1::Instance,
+                }
+            ).collect(),
             callables: callables.into_values().collect(),
             seiyaku_name: "TestContract".to_owned(),
             compiler_fingerprint: "access-test".to_owned(),
@@ -2850,7 +2870,7 @@ mod tests {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("ExecuteContract".to_owned()),
+            authorization: EntrypointAuthorizationV1::Permission("ExecuteContract".parse().unwrap()),
             read_keys: Vec::new(),
             write_keys: Vec::new(),
             access_hints_complete: Some(true),
@@ -3179,7 +3199,7 @@ mod tests {
         )
         .0;
         let mut entrypoint = default_test_entrypoint();
-        entrypoint.permission = None;
+        entrypoint.authorization = EntrypointAuthorizationV1::Anyone;
         let empty = entrypoint_access_set_from_bytecode_if_safe(&program, &entrypoint)
             .expect("complete empty hints over effect-free bytecode are verified");
         assert!(empty.read_keys.is_empty());
@@ -3230,7 +3250,8 @@ mod tests {
         )
         .0;
         let mut entrypoint = default_test_entrypoint();
-        entrypoint.permission = Some("CanRunGuardedEntrypoint".to_owned());
+        entrypoint.authorization =
+            EntrypointAuthorizationV1::Permission("CanRunGuardedEntrypoint".parse().unwrap());
         entrypoint.read_keys = vec!["state:guard".to_owned()];
         let set = entrypoint_access_set_from_bytecode_if_safe(&program, &entrypoint)
             .expect("a complete local entrypoint has a static access set");
@@ -3309,6 +3330,9 @@ mod tests {
             entrypoint.access_hints_complete = completion;
             entrypoint.access_hints_skipped = skipped;
             let manifest = ContractManifest {
+                events: Vec::new(),
+                enum_types: Vec::new(),
+                permissions: Vec::new(),
                 seiyaku_name: None,
                 code_hash: Some(code_hash),
                 abi_hash: None,
@@ -3381,6 +3405,9 @@ mod tests {
             ] {
                 assert!(manifest_hint_access_set_from_bytecode_if_safe(&program, &hints).is_none());
                 let manifest = ContractManifest {
+                    events: Vec::new(),
+                    enum_types: Vec::new(),
+                    permissions: Vec::new(),
                     seiyaku_name: Some("DynamicHintsAreAdvisory".to_owned()),
                     code_hash: Some(code_hash),
                     abi_hash: None,
@@ -3405,12 +3432,12 @@ mod tests {
     #[test]
     fn compiler_static_state_map_keys_are_bytecode_verified_and_exact() {
         let source = r#"
-seiyaku StaticAccessCounter {
+seiyaku StaticAccessCounter { permission CanWrite;
   state StateMap<int, int> Counters;
 
-  kotoage fn write_one() authorize("CanWrite") { Counters[1] = 10; }
-  kotoage fn write_two() authorize("CanWrite") { Counters[2] = 20; }
-  kotoage fn write_one_again() authorize("CanWrite") { Counters[1] = 30; }
+  kotoage fn write_one() authorize(CanWrite) { Counters[1] = 10; }
+  kotoage fn write_two() authorize(CanWrite) { Counters[2] = 20; }
+  kotoage fn write_one_again() authorize(CanWrite) { Counters[1] = 30; }
 }
 "#;
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
@@ -3474,10 +3501,10 @@ seiyaku StaticAccessCounter {
     fn repeated_prepared_manifest_access_does_not_reprepare_the_artifact() {
         use crate::smartcontracts::ivm::cache::IvmCache;
         let source = r#"
-seiyaku WarmAccessCounter {
+seiyaku WarmAccessCounter { permission CanWrite;
   state StateMap<int, int> Counters;
 
-  kotoage fn write_one() authorize("CanWrite") { Counters[1] = 10; }
+  kotoage fn write_one() authorize(CanWrite) { Counters[1] = 10; }
 }
 "#;
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
@@ -3529,14 +3556,14 @@ seiyaku WarmAccessCounter {
     #[test]
     fn helper_hidden_static_state_access_retains_state_wildcard_fence() {
         let source = r#"
-seiyaku HelperStaticAccess {
+seiyaku HelperStaticAccess { permission CanWrite;
   state StateMap<int, int> Counters;
 
   fn hidden_write() { Counters[1] = 10; }
-  kotoage fn direct_write() authorize("CanWrite") { Counters[1] = 20; }
-  kotoage fn helper_write() authorize("CanWrite") { hidden_write(); }
+  kotoage fn direct_write() authorize(CanWrite) { Counters[1] = 20; }
+  kotoage fn helper_write() authorize(CanWrite) { hidden_write(); }
   // Two live callers retain the actual private helper edge under single-use inlining.
-  kotoage fn second_helper_write() authorize("CanWrite") { hidden_write(); }
+  kotoage fn second_helper_write() authorize(CanWrite) { hidden_write(); }
 }
 "#;
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
@@ -3646,7 +3673,7 @@ seiyaku HelperStaticAccess {
     #[test]
     fn compiler_dynamic_state_writes_and_helper_writes_fall_back_to_global() {
         let source = r#"
-seiyaku DynamicAccessCounter {
+seiyaku DynamicAccessCounter { permission CanEnactGovernance;
   state StateMap<int, int> Counters;
 
   fn bump_hidden(int key, int delta) {
@@ -3654,12 +3681,12 @@ seiyaku DynamicAccessCounter {
     Counters[key] = current + delta;
   }
 
-  kotoage fn bump_direct(int key, int delta) authorize("CanEnactGovernance") {
+  kotoage fn bump_direct(int key, int delta) authorize(CanEnactGovernance) {
     let current = Counters.get(key).unwrap_or(0);
     Counters[key] = current + delta;
   }
 
-  kotoage fn bump_via_helper(int key, int delta) authorize("CanEnactGovernance") {
+  kotoage fn bump_via_helper(int key, int delta) authorize(CanEnactGovernance) {
     bump_hidden(key: key, delta: delta);
   }
 }
@@ -4946,6 +4973,9 @@ seiyaku DynamicAccessCounter {
             dynamic_writes: Vec::new(),
         };
         let manifest_a = ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(code_hash),
             abi_hash: None,
@@ -4991,6 +5021,9 @@ seiyaku DynamicAccessCounter {
             dynamic_writes: Vec::new(),
         };
         let manifest_b = ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(code_hash),
             abi_hash: None,
@@ -5051,6 +5084,9 @@ seiyaku DynamicAccessCounter {
             dynamic_writes: Vec::new(),
         };
         let manifest = ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(code_hash),
             abi_hash: None,
@@ -5134,7 +5170,7 @@ seiyaku DynamicAccessCounter {
                 return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: Some("ExecuteContract".to_owned()),
+                authorization: EntrypointAuthorizationV1::Permission("ExecuteContract".parse().unwrap()),
                 read_keys: vec!["state:alpha".to_owned()],
                 write_keys: vec!["state:beta".to_owned()],
                 access_hints_complete: Some(true),
@@ -5150,7 +5186,7 @@ seiyaku DynamicAccessCounter {
                 return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: Some("ExecuteContract".to_owned()),
+                authorization: EntrypointAuthorizationV1::Permission("ExecuteContract".parse().unwrap()),
                 read_keys: vec!["state:run-read".to_owned()],
                 write_keys: vec!["state:run-write".to_owned()],
                 access_hints_complete: Some(true),
@@ -5159,6 +5195,9 @@ seiyaku DynamicAccessCounter {
             },
         ];
         let manifest = ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(code_hash),
             abi_hash: None,
@@ -5252,7 +5291,7 @@ seiyaku DynamicAccessCounter {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("ExecuteContract".to_owned()),
+            authorization: EntrypointAuthorizationV1::Permission("ExecuteContract".parse().unwrap()),
             read_keys: vec!["state:alpha".to_owned()],
             write_keys: vec!["state:beta".to_owned()],
             access_hints_complete: Some(true),
@@ -5260,6 +5299,9 @@ seiyaku DynamicAccessCounter {
             triggers: Vec::new(),
         }];
         let manifest = ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(code_hash),
             abi_hash: None,
@@ -5350,7 +5392,7 @@ seiyaku DynamicAccessCounter {
             return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                 nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
             }),
-            permission: Some("ExecuteContract".to_owned()),
+            authorization: EntrypointAuthorizationV1::Permission("ExecuteContract".parse().unwrap()),
             read_keys: vec![format!("account:{alice}")],
             write_keys: vec![format!("asset:{asset_id}")],
             access_hints_complete: Some(true),
@@ -5358,6 +5400,9 @@ seiyaku DynamicAccessCounter {
             triggers: Vec::new(),
         }];
         let manifest = ContractManifest {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             seiyaku_name: None,
             code_hash: Some(code_hash),
             abi_hash: None,

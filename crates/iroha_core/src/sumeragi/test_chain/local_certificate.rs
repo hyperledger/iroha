@@ -12,13 +12,7 @@ impl CertifiedTestChain {
     /// exclusively owned test store cannot install the deliberate local corruption.
     pub fn corrupt_local_quorum_for_test(&self, height: u64, signers: Signers) {
         let (body, original) = self.committed_body(height).unwrap().unwrap();
-        let changed = self.commit_qc(
-            height,
-            original.block_hash,
-            original.result,
-            original.attest,
-            signers,
-        );
+        let changed = self.commit_qc(height, original.block_hash, original.result, signers);
         assert_ne!(
             changed.signers.count_ones(),
             body.source().config().committee.q(),

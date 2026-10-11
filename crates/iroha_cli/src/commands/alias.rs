@@ -143,7 +143,7 @@ impl Run for SetupPlanArgs {
             ));
         }
         let client = context.client_from_config()?;
-        let plan = client.plan_alias_setup(&request)?;
+        let plan = iroha::blocking::Client::from_client(client)?.plan_alias_setup(&request)?;
         if let Some(path) = &self.plan_file {
             write_secret_free_plan_file(path, &plan)?;
         }

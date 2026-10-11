@@ -1,31 +1,21 @@
 {
-  "generated_at": "2026-10-05T02:41:49Z",
+  "generated_at": "2026-10-08T09:49:08Z",
   "command": "python3 scripts/inventory_serde_usage.py --json specs/norito_json_inventory.json --md specs/norito_json_inventory.md",
   "root": "iroha",
   "allowlist": [],
   "summary": {
-    "total": 19,
+    "total": 18,
     "flagged": 0,
     "by_scope": {
-      "test": 17,
+      "test": 16,
       "prod": 2
     },
     "by_category": {
-      "source": 17,
+      "source": 16,
       "dependency": 2
     }
   },
   "matches": [
-    {
-      "category": "source",
-      "kind": "path",
-      "path": "crates/iroha_plonk_oracle/tests/pasta_parity/encoding.rs",
-      "line": 24,
-      "scope": "test",
-      "allowed": true,
-      "reason": "allowed scope",
-      "context": "serde::SerdeObject,"
-    },
     {
       "category": "source",
       "kind": "derive",

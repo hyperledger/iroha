@@ -3,6 +3,7 @@ use crate::source::{SourceFile, TextRange};
 use norito::json::{self, Value};
 use std::{error::Error as StdError, fmt};
 mod source_rendering;
+pub mod suggest;
 /// Maximum number of diagnostics returned for one compilation request.
 ///
 /// The cap bounds memory and renderer work for adversarial source files while
@@ -69,8 +70,41 @@ pub struct DiagnosticExplanation {
     pub phase: DiagnosticPhase,
     /// Short description suitable for command-line help and reference tables.
     pub summary: &'static str,
-    /// Concrete remediation guidance.
+    /// Concrete remediation guidance. Diagnostics with site-specific help use
+    /// this only as a fallback.
     pub help: &'static str,
+    /// Minimal source that triggers the diagnostic, when one is registered.
+    pub bad_example: Option<&'static str>,
+    /// The repaired form of [`Self::bad_example`].
+    pub fixed_example: Option<&'static str>,
+}
+impl DiagnosticExplanation {
+    /// Render the explanation as plain text for `koto explain`.
+    ///
+    /// The layout is deterministic: a header line, the help, and, when
+    /// registered, the bad and repaired examples indented by four spaces.
+    #[must_use]
+    pub fn render_text(&self) -> String {
+        let mut output = format!(
+            "{} [{}]: {}\nhelp: {}",
+            self.code,
+            self.phase.as_str(),
+            self.summary,
+            self.help
+        );
+        for (heading, example) in [("example", self.bad_example), ("fixed", self.fixed_example)] {
+            if let Some(example) = example {
+                output.push_str("\n\n");
+                output.push_str(heading);
+                output.push(':');
+                for line in example.lines() {
+                    output.push_str("\n    ");
+                    output.push_str(line);
+                }
+            }
+        }
+        output
+    }
 }
 include!(concat!(
     env!("OUT_DIR"),
@@ -160,6 +194,20 @@ pub struct DiagnosticFix {
     /// Replacement text.
     pub replacement: String,
 }
+/// Translated presentation of one diagnostic for human readers.
+///
+/// Machine-readable records always carry the canonical English `message`; this
+/// optional companion is rendered for humans only when it translates every
+/// piece of prose in the diagnostic, so one diagnostic never mixes languages.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalizedText {
+    /// BCP 47 language tag of the translation, for example `ja`.
+    pub language: String,
+    /// Translated primary message.
+    pub message: String,
+    /// Translated help, when the diagnostic has help and it is translated.
+    pub help: Option<String>,
+}
 /// One stable, structured compiler diagnostic.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -181,6 +229,12 @@ pub struct Diagnostic {
     pub help: Option<String>,
     /// Optional machine-applicable replacement.
     pub fix: Option<DiagnosticFix>,
+    /// Further machine-applicable replacements that are equally valid
+    /// alternatives to [`Self::fix`], such as the other spelling of a branded
+    /// keyword. They are never applied automatically.
+    pub alternative_fixes: Vec<DiagnosticFix>,
+    /// Optional translated message and help for human rendering.
+    pub localized: Option<LocalizedText>,
     /// Immutable source captured when the primary diagnostic was produced.
     ///
     /// Source text is presentation data and is never added to JSON/SARIF records.
@@ -189,6 +243,32 @@ pub struct Diagnostic {
     pub label_sources: Vec<Option<SourceFile>>,
 }
 impl Diagnostic {
+    fn new(
+        code: String,
+        severity: Severity,
+        phase: DiagnosticPhase,
+        message: String,
+        primary_span: Option<SourceSpan>,
+    ) -> Self {
+        // Registry help is the fallback; emitters with site-specific guidance
+        // replace it through [`Self::with_help`].
+        let help = diagnostic_explanation(&code).map(|entry| entry.help.to_owned());
+        Self {
+            code,
+            severity,
+            phase,
+            message,
+            primary_span,
+            labels: Vec::new(),
+            notes: Vec::new(),
+            help,
+            fix: None,
+            alternative_fixes: Vec::new(),
+            localized: None,
+            primary_source: None,
+            label_sources: Vec::new(),
+        }
+    }
     /// Construct a native compiler error with an explicit stable code and span.
     pub fn error(
         code: impl Into<String>,
@@ -196,21 +276,13 @@ impl Diagnostic {
         message: impl Into<String>,
         primary_span: Option<SourceSpan>,
     ) -> Self {
-        let code = code.into();
-        let help = diagnostic_explanation(&code).map(|entry| entry.help.to_owned());
-        Self {
-            code,
-            severity: Severity::Error,
+        Self::new(
+            code.into(),
+            Severity::Error,
             phase,
-            message: message.into(),
+            message.into(),
             primary_span,
-            labels: Vec::new(),
-            notes: Vec::new(),
-            help,
-            fix: None,
-            primary_source: None,
-            label_sources: Vec::new(),
-        }
+        )
     }
     /// Construct a non-fatal warning with an explicit stable code and span.
     pub fn warning(
@@ -219,21 +291,57 @@ impl Diagnostic {
         message: impl Into<String>,
         primary_span: Option<SourceSpan>,
     ) -> Self {
-        let code = code.into();
-        let help = diagnostic_explanation(&code).map(|entry| entry.help.to_owned());
-        Self {
-            code,
-            severity: Severity::Warning,
+        Self::new(
+            code.into(),
+            Severity::Warning,
             phase,
-            message: message.into(),
+            message.into(),
             primary_span,
-            labels: Vec::new(),
-            notes: Vec::new(),
+        )
+    }
+    /// Replace the registry fallback help with site-specific guidance.
+    #[must_use]
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help = Some(help.into());
+        self
+    }
+    /// Attach a translated presentation.
+    ///
+    /// `message` stays canonical English for JSON, SARIF and tooling. Human
+    /// rendering uses the translation only when it covers the help as well and
+    /// the diagnostic has no untranslated notes or labels.
+    #[must_use]
+    pub fn with_localized(
+        mut self,
+        language: impl Into<String>,
+        message: impl Into<String>,
+        help: Option<String>,
+    ) -> Self {
+        self.localized = Some(LocalizedText {
+            language: language.into(),
+            message: message.into(),
             help,
-            fix: None,
-            primary_source: None,
-            label_sources: Vec::new(),
+        });
+        self
+    }
+    /// The message and help a human reader sees: the translation when it is
+    /// complete for this diagnostic, otherwise the canonical English pair.
+    #[must_use]
+    pub fn presented_text(&self) -> (&str, Option<&str>) {
+        match &self.localized {
+            Some(localized)
+                if (self.help.is_none() || localized.help.is_some())
+                    && self.notes.is_empty()
+                    && self.labels.is_empty() =>
+            {
+                (localized.message.as_str(), localized.help.as_deref())
+            }
+            _ => (self.message.as_str(), self.help.as_deref()),
         }
+    }
+    /// Every machine-applicable fix, primary first.
+    pub fn fixes(&self) -> impl Iterator<Item = &DiagnosticFix> {
+        self.fix.iter().chain(&self.alternative_fixes)
     }
     /// Retain source text for matching primary and related locations.
     ///
@@ -292,18 +400,27 @@ impl Diagnostic {
                 Value::Array(self.notes.iter().cloned().map(Value::from).collect()),
             ),
             json_entry("help", self.help.clone().map_or(Value::Null, Value::from)),
+            json_entry("fix", self.fix.as_ref().map_or(Value::Null, fix_to_json)),
             json_entry(
-                "fix",
-                self.fix.as_ref().map_or(Value::Null, |fix| {
+                "alternative_fixes",
+                Value::Array(self.alternative_fixes.iter().map(fix_to_json).collect()),
+            ),
+            json_entry(
+                "localized",
+                self.localized.as_ref().map_or(Value::Null, |localized| {
                     json_object(vec![
-                        json_entry("span", source_span_to_json(&fix.span)),
-                        json_entry("replacement", Value::from(fix.replacement.clone())),
+                        json_entry("language", Value::from(localized.language.clone())),
+                        json_entry("message", Value::from(localized.message.clone())),
+                        json_entry(
+                            "help",
+                            localized.help.clone().map_or(Value::Null, Value::from),
+                        ),
                     ])
                 }),
             ),
         ])
     }
-    fn to_sarif_result(&self) -> Value {
+    fn to_sarif_result(&self, rule_index: Option<usize>) -> Value {
         let locations = self.primary_span.as_ref().map_or_else(Vec::new, |span| {
             vec![json_object(vec![json_entry(
                 "physicalLocation",
@@ -325,8 +442,12 @@ impl Diagnostic {
                 ])
             })
             .collect();
-        json_object(vec![
-            json_entry("ruleId", Value::from(self.code.clone())),
+        let fixes = self.fixes().map(fix_to_sarif).collect();
+        let mut entries = vec![json_entry("ruleId", Value::from(self.code.clone()))];
+        if let Some(rule_index) = rule_index {
+            entries.push(json_entry("ruleIndex", Value::from(rule_index as u64)));
+        }
+        entries.extend([
             json_entry("level", Value::from(self.severity.sarif_level())),
             json_entry(
                 "message",
@@ -334,14 +455,84 @@ impl Diagnostic {
             ),
             json_entry("locations", Value::Array(locations)),
             json_entry("relatedLocations", Value::Array(related_locations)),
+            json_entry("fixes", Value::Array(fixes)),
             // Keeping the canonical record in SARIF properties guarantees that JSON and
             // SARIF consumers observe exactly the same semantic fields, including fixes.
             json_entry(
                 "properties",
                 json_object(vec![json_entry("kotodama", self.to_json_value())]),
             ),
-        ])
+        ]);
+        json_object(entries)
     }
+}
+fn fix_to_json(fix: &DiagnosticFix) -> Value {
+    json_object(vec![
+        json_entry("span", source_span_to_json(&fix.span)),
+        json_entry("replacement", Value::from(fix.replacement.clone())),
+    ])
+}
+/// One SARIF 2.1.0 `fix` object replacing the fix span with its text.
+fn fix_to_sarif(fix: &DiagnosticFix) -> Value {
+    let artifact_location = sarif_artifact_location(&fix.span);
+    let region = sarif_region(&fix.span);
+    let description = if fix.replacement.is_empty() {
+        "Delete the highlighted source".to_owned()
+    } else {
+        format!("Replace with {}", code_literal(&fix.replacement))
+    };
+    json_object(vec![
+        json_entry(
+            "description",
+            json_object(vec![json_entry("text", Value::from(description))]),
+        ),
+        json_entry(
+            "artifactChanges",
+            Value::Array(vec![json_object(vec![
+                json_entry("artifactLocation", artifact_location),
+                json_entry(
+                    "replacements",
+                    Value::Array(vec![json_object(vec![
+                        json_entry("deletedRegion", region),
+                        json_entry(
+                            "insertedContent",
+                            json_object(vec![json_entry(
+                                "text",
+                                Value::from(fix.replacement.clone()),
+                            )]),
+                        ),
+                    ])]),
+                ),
+            ])]),
+        ),
+    ])
+}
+/// Quote source text for prose: backticks for single-line text without
+/// backticks, a Rust-style escaped string otherwise. Invisible characters
+/// (controls, format characters such as bidirectional overrides, and
+/// non-ASCII spaces) are written as `<U+XXXX>` so they cannot disturb the
+/// terminal, hide in the rendered fix, or be confused with an escape that a
+/// fix inserts.
+fn code_literal(text: &str) -> String {
+    if text.contains(['`', '\n', '\r']) {
+        return format!("{text:?}");
+    }
+    let visible = text
+        .chars()
+        .map(|character| {
+            let invisible = character.is_control()
+                || (!character.is_ascii() && character.is_whitespace())
+                || matches!(character,
+                    '\u{00ad}' | '\u{061c}' | '\u{180e}' | '\u{200b}'..='\u{200f}'
+                    | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}');
+            if invisible {
+                format!("<U+{:04X}>", u32::from(character))
+            } else {
+                character.to_string()
+            }
+        })
+        .collect::<String>();
+    format!("`{visible}`")
 }
 fn json_entry(key: impl Into<String>, value: Value) -> (String, Value) {
     (key.into(), value)
@@ -388,9 +579,17 @@ fn source_span_to_json(span: &SourceSpan) -> Value {
     ])
 }
 fn source_span_to_sarif(span: &SourceSpan) -> Value {
-    let artifact_location = span.source.as_ref().map_or(Value::Null, |source| {
+    json_object(vec![
+        json_entry("artifactLocation", sarif_artifact_location(span)),
+        json_entry("region", sarif_region(span)),
+    ])
+}
+fn sarif_artifact_location(span: &SourceSpan) -> Value {
+    span.source.as_ref().map_or(Value::Null, |source| {
         json_object(vec![json_entry("uri", Value::from(source.clone()))])
-    });
+    })
+}
+fn sarif_region(span: &SourceSpan) -> Value {
     let mut region = vec![
         json_entry("startLine", Value::from(span.start.line as u64)),
         json_entry("startColumn", Value::from(span.start.column as u64)),
@@ -407,10 +606,7 @@ fn source_span_to_sarif(span: &SourceSpan) -> Value {
             Value::from(u64::from(range.len())),
         ));
     }
-    json_object(vec![
-        json_entry("artifactLocation", artifact_location),
-        json_entry("region", json_object(region)),
-    ])
+    json_object(region)
 }
 /// Collection of diagnostics returned by a failed compiler operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -485,49 +681,39 @@ impl DiagnosticBundle {
         Self::new(vec![diagnostic])
     }
     /// Render deterministic human-readable diagnostics.
+    ///
+    /// Locations show line and column ranges; exact byte ranges stay in the
+    /// JSON and SARIF records. A diagnostic's translation is used only when it
+    /// is complete (see [`Diagnostic::presented_text`]).
     pub fn render_human(&self) -> String {
+        use std::fmt::Write as _;
         let mut output = String::new();
         for (index, diagnostic) in self.diagnostics.iter().enumerate() {
             if index != 0 {
                 output.push('\n');
             }
-            use std::fmt::Write as _;
+            let (message, help) = diagnostic.presented_text();
             let _ = write!(
                 output,
                 "{}[{}] {}: {}",
                 diagnostic.severity.as_str(),
                 diagnostic.code,
                 diagnostic.phase.as_str(),
-                diagnostic.message
+                message
             );
             if let Some(span) = &diagnostic.primary_span {
-                let source = display_source_span(span);
-                let _ = write!(
-                    output,
-                    "\n  --> {source}:{}:{}-{}:{}",
-                    span.start.line, span.start.column, span.end.line, span.end.column
-                );
-                if let Some(range) = span.byte_range {
-                    let _ = write!(output, " [bytes {}..{}]", range.start, range.end);
-                }
+                let _ = write!(output, "\n  --> {}", display_position(span));
                 if let Some(source) = &diagnostic.primary_source {
                     source_rendering::render(&mut output, source, span);
                 }
             }
             for (index, label) in diagnostic.labels.iter().enumerate() {
-                let source = display_source_span(&label.span);
                 let _ = write!(
                     output,
-                    "\n  = label: {source}:{}:{}-{}:{}: {}",
-                    label.span.start.line,
-                    label.span.start.column,
-                    label.span.end.line,
-                    label.span.end.column,
+                    "\n  = label: {}: {}",
+                    display_position(&label.span),
                     label.message
                 );
-                if let Some(range) = label.span.byte_range {
-                    let _ = write!(output, " [bytes {}..{}]", range.start, range.end);
-                }
                 if let Some(Some(source)) = diagnostic.label_sources.get(index) {
                     source_rendering::render(&mut output, source, &label.span);
                 }
@@ -535,26 +721,48 @@ impl DiagnosticBundle {
             for note in &diagnostic.notes {
                 let _ = write!(output, "\n  = note: {note}");
             }
-            if let Some(help) = &diagnostic.help {
+            if let Some(help) = help {
                 let _ = write!(output, "\n  = help: {help}");
             }
-            if let Some(fix) = &diagnostic.fix {
-                let source = display_source_span(&fix.span);
-                let _ = write!(
-                    output,
-                    "\n  = fix: replace {source}:{}:{}-{}:{} with {:?}",
-                    fix.span.start.line,
-                    fix.span.start.column,
-                    fix.span.end.line,
-                    fix.span.end.column,
-                    fix.replacement
-                );
-                if let Some(range) = fix.span.byte_range {
-                    let _ = write!(output, " [bytes {}..{}]", range.start, range.end);
-                }
-            }
+            render_fixes(&mut output, diagnostic);
         }
         output
+    }
+    /// Rewrite absolute source paths below `base` as `base`-relative paths.
+    ///
+    /// Command-line tools call this with the working directory so parse and
+    /// semantic diagnostics name files the same way. Logical and package
+    /// paths are left untouched.
+    pub fn relativize_sources(&mut self, base: &std::path::Path) {
+        let relativize = |span: &mut SourceSpan| {
+            let Some(source) = span.source.as_deref() else {
+                return;
+            };
+            let path = std::path::Path::new(source);
+            if !path.is_absolute() {
+                return;
+            }
+            if let Ok(relative) = path.strip_prefix(base)
+                && !relative.as_os_str().is_empty()
+                && let Some(relative) = relative.to_str()
+            {
+                span.source = Some(relative.replace(std::path::MAIN_SEPARATOR, "/"));
+            }
+        };
+        for diagnostic in &mut self.diagnostics {
+            if let Some(span) = &mut diagnostic.primary_span {
+                relativize(span);
+            }
+            for label in &mut diagnostic.labels {
+                relativize(&mut label.span);
+            }
+            if let Some(fix) = &mut diagnostic.fix {
+                relativize(&mut fix.span);
+            }
+            for fix in &mut diagnostic.alternative_fixes {
+                relativize(&mut fix.span);
+            }
+        }
     }
     /// Render the canonical diagnostic array as pretty JSON.
     pub fn render_json(&self) -> Result<String, json::Error> {
@@ -567,26 +775,32 @@ impl DiagnosticBundle {
     }
     /// Render SARIF 2.1.0 while preserving the canonical diagnostic records.
     pub fn render_sarif(&self) -> Result<String, json::Error> {
-        let rules = self
-            .diagnostics
-            .iter()
-            .map(|diagnostic| {
-                json_object(vec![
-                    json_entry("id", Value::from(diagnostic.code.clone())),
-                    json_entry(
-                        "shortDescription",
-                        json_object(vec![json_entry(
-                            "text",
-                            Value::from(diagnostic.message.clone()),
-                        )]),
-                    ),
-                ])
-            })
-            .collect();
+        // One rule per distinct code, in first-occurrence order; results refer
+        // to their rule by index.
+        let mut rule_codes = Vec::<&str>::new();
         let results = self
             .diagnostics
             .iter()
-            .map(Diagnostic::to_sarif_result)
+            .map(|diagnostic| {
+                let index = rule_codes
+                    .iter()
+                    .position(|code| *code == diagnostic.code)
+                    .unwrap_or_else(|| {
+                        rule_codes.push(&diagnostic.code);
+                        rule_codes.len() - 1
+                    });
+                diagnostic.to_sarif_result(Some(index))
+            })
+            .collect();
+        let rules = rule_codes
+            .iter()
+            .map(|code| {
+                let first = self
+                    .diagnostics
+                    .iter()
+                    .find(|diagnostic| diagnostic.code == *code);
+                sarif_rule(code, first)
+            })
             .collect();
         let sarif = json_object(vec![
             json_entry("version", Value::from("2.1.0")),
@@ -612,6 +826,133 @@ impl DiagnosticBundle {
             ),
         ]);
         json::to_string_pretty(&sarif)
+    }
+}
+/// SARIF rule metadata for one diagnostic code, taken from the registry.
+fn sarif_rule(code: &str, first: Option<&Diagnostic>) -> Value {
+    let explanation = diagnostic_explanation(code);
+    let short = explanation.map_or_else(
+        || first.map_or_else(String::new, |diagnostic| diagnostic.message.clone()),
+        |entry| entry.summary.to_owned(),
+    );
+    let mut entries = vec![
+        json_entry("id", Value::from(code.to_owned())),
+        json_entry(
+            "shortDescription",
+            json_object(vec![json_entry("text", Value::from(short))]),
+        ),
+    ];
+    if let Some(explanation) = explanation {
+        entries.push(json_entry(
+            "fullDescription",
+            json_object(vec![json_entry("text", Value::from(explanation.help))]),
+        ));
+        entries.push(json_entry(
+            "help",
+            json_object(vec![json_entry(
+                "text",
+                Value::from(explanation.render_text()),
+            )]),
+        ));
+        entries.push(json_entry(
+            "properties",
+            json_object(vec![json_entry(
+                "phase",
+                Value::from(explanation.phase.as_str()),
+            )]),
+        ));
+    }
+    json_object(entries)
+}
+/// `path:line:column`, the human form of where a span starts.
+///
+/// The underlined excerpt shows the span's extent, so the location names only
+/// its start; JSON and SARIF keep the complete range.
+fn display_position(span: &SourceSpan) -> String {
+    format!(
+        "{}:{}:{}",
+        display_source_span(span),
+        span.start.line,
+        span.start.column
+    )
+}
+/// `path:line:column-line:column`, the human form of a complete span, used
+/// where no excerpt shows the extent (a fix outside the captured source).
+fn display_location(span: &SourceSpan) -> String {
+    format!(
+        "{}:{}:{}-{}:{}",
+        display_source_span(span),
+        span.start.line,
+        span.start.column,
+        span.end.line,
+        span.end.column
+    )
+}
+/// Render the primary fix and its alternatives as `= fix:` lines.
+///
+/// A fix whose span lies on one line of the captured source is shown as an
+/// edit of that text (`replace `contract` with `seiyaku``); alternatives on the
+/// same span are joined with `or`.
+fn render_fixes(output: &mut String, diagnostic: &Diagnostic) {
+    use std::fmt::Write as _;
+    let Some(primary) = &diagnostic.fix else {
+        return;
+    };
+    let source_text = |fix: &DiagnosticFix| -> Option<String> {
+        let source = diagnostic.primary_source.as_ref()?;
+        let owner = diagnostic.primary_span.as_ref()?;
+        if owner.source != fix.span.source || owner.package_identity != fix.span.package_identity {
+            return None;
+        }
+        let text = source.slice(fix.span.byte_range?)?;
+        (!text.contains('\n')).then(|| text.to_owned())
+    };
+    let describe = |fix: &DiagnosticFix, replacements: &[&str]| -> String {
+        // An insertion that starts a new line, such as a missing `}`, reads as
+        // "on a new line" rather than as an escaped string.
+        if let [replacement] = replacements
+            && let Some(rest) = replacement.strip_prefix('\n')
+            && !rest.contains('\n')
+            && !rest.trim().is_empty()
+            && source_text(fix).is_some_and(|original| original.is_empty())
+        {
+            return format!("insert {} on a new line", code_literal(rest.trim_start()));
+        }
+        let quoted = replacements
+            .iter()
+            .map(|replacement| code_literal(replacement))
+            .collect::<Vec<_>>();
+        let joined = match quoted.split_last() {
+            Some((last, rest)) if !rest.is_empty() => format!("{} or {last}", rest.join(", ")),
+            _ => quoted.concat(),
+        };
+        match source_text(fix) {
+            Some(original) if original.is_empty() => format!("insert {joined}"),
+            Some(original) if replacements.iter().all(|r| r.is_empty()) => {
+                format!("delete {}", code_literal(&original))
+            }
+            Some(original) => format!("replace {} with {joined}", code_literal(&original)),
+            None => format!("replace {} with {joined}", display_location(&fix.span)),
+        }
+    };
+    let same_span = diagnostic
+        .alternative_fixes
+        .iter()
+        .all(|alternative| alternative.span == primary.span);
+    if same_span {
+        let replacements = diagnostic
+            .fixes()
+            .map(|fix| fix.replacement.as_str())
+            .collect::<Vec<_>>();
+        let _ = write!(output, "\n  = fix: {}", describe(primary, &replacements));
+    } else {
+        for fix in diagnostic.fixes() {
+            let _ = write!(
+                output,
+                "\n  = fix: {}",
+                describe(fix, &[fix.replacement.as_str()])
+            );
+        }
     }
 }
 impl fmt::Display for DiagnosticBundle {
@@ -699,7 +1040,7 @@ mod tests {
         for (code, source) in [
             (
                 "K2002",
-                "seiyaku Unknown { view fn run() -> int { return missing; } }",
+                "seiyaku Unknown { view fn run() authorize(anyone) -> int { return missing; } }",
             ),
             (
                 "E_DUPLICATE_DECLARATION",
@@ -707,11 +1048,11 @@ mod tests {
             ),
             (
                 "E_RESERVED_DECLARATION",
-                "seiyaku Reserved { fn account_id(string value) -> int { return 1; } }",
+                "seiyaku Reserved { fn __kotodama_list_len() -> int { return 1; } }",
             ),
             (
                 "E_LOCAL_SHADOWING",
-                "seiyaku Shadow { const int limit = 1; view fn run(int limit) -> int { return limit; } }",
+                "seiyaku Shadow { const int limit = 1; view fn run(int limit) authorize(anyone) -> int { return limit; } }",
             ),
         ] {
             let diagnostics = CompilerSession::default()
@@ -878,9 +1219,193 @@ mod tests {
             .pointer("/runs/0/results/0/properties/kotodama")
             .expect("SARIF embeds the canonical diagnostic");
         assert_eq!(canonical, embedded);
+        assert!(human.contains("seiyaku.ko:3:5"));
         assert!(
-            human.contains("seiyaku.ko:3:5-3:6"),
-            "human renderer must preserve the full primary and label range"
+            !human.contains("--> seiyaku.ko:3:5-3:6")
+                && !human.contains("= label: seiyaku.ko:3:5-3:6"),
+            "human primary and label locations name the start"
+        );
+    }
+    fn fixture_diagnostic(text: &str, start: usize, end: usize) -> (SourceFile, Diagnostic) {
+        let source = SourceFile::new(crate::source::SourceId(0), "fix.ko", text);
+        let span = SourceSpan::from_range(&source, TextRange::new(start as u32, end as u32));
+        let diagnostic = Diagnostic::error("K1001", DiagnosticPhase::Parse, "message", Some(span))
+            .with_source(&source);
+        (source, diagnostic)
+    }
+    #[test]
+    fn human_rendering_omits_byte_ranges_and_shows_fixes_as_edits() {
+        let (source, mut diagnostic) = fixture_diagnostic("contract S {}", 0, 8);
+        let span = diagnostic.primary_span.clone().expect("span");
+        diagnostic.fix = Some(DiagnosticFix {
+            span: span.clone(),
+            replacement: "seiyaku".to_owned(),
+        });
+        diagnostic.alternative_fixes.push(DiagnosticFix {
+            span,
+            replacement: "誓約".to_owned(),
+        });
+        let human = DiagnosticBundle::single(diagnostic).render_human();
+        assert!(!human.contains("[bytes"), "{human}");
+        assert!(human.contains("--> fix.ko:1:1"), "{human}");
+        assert!(
+            human.ends_with("= fix: replace `contract` with `seiyaku` or `誓約`"),
+            "{human}"
+        );
+        let insertion = SourceSpan::from_range(&source, TextRange::empty(13));
+        let (_, mut diagnostic) = fixture_diagnostic("contract S {}", 12, 13);
+        diagnostic.fix = Some(DiagnosticFix {
+            span: insertion,
+            replacement: ";".to_owned(),
+        });
+        assert!(
+            DiagnosticBundle::single(diagnostic)
+                .render_human()
+                .ends_with("= fix: insert `;`")
+        );
+        let (source, mut diagnostic) = fixture_diagnostic("a  b", 1, 3);
+        diagnostic.fix = Some(DiagnosticFix {
+            span: SourceSpan::from_range(&source, TextRange::new(1, 3)),
+            replacement: String::new(),
+        });
+        assert!(
+            DiagnosticBundle::single(diagnostic)
+                .render_human()
+                .ends_with("= fix: delete `  `")
+        );
+        // A line-starting insertion is described, not shown as an escaped
+        // string.
+        let (source, mut diagnostic) = fixture_diagnostic("{\n    x;", 8, 8);
+        diagnostic.fix = Some(DiagnosticFix {
+            span: SourceSpan::from_range(&source, TextRange::empty(8)),
+            replacement: "\n    }".to_owned(),
+        });
+        let human = DiagnosticBundle::single(diagnostic).render_human();
+        assert!(
+            human.ends_with("= fix: insert `}` on a new line"),
+            "{human}"
+        );
+    }
+    #[test]
+    fn sarif_lists_one_rule_per_code_and_standard_fixes() {
+        let (_, mut first) = fixture_diagnostic("contract S {}", 0, 8);
+        first.fix = Some(DiagnosticFix {
+            span: first.primary_span.clone().expect("span"),
+            replacement: "seiyaku".to_owned(),
+        });
+        let (_, second) = fixture_diagnostic("contract S {}", 9, 10);
+        let (_, mut third) = fixture_diagnostic("contract S {}", 11, 12);
+        third.code = "E_LET_MUT".to_owned();
+        let sarif: Value = json::from_str(
+            &DiagnosticBundle::new(vec![first, second, third])
+                .render_sarif()
+                .expect("SARIF"),
+        )
+        .expect("decode SARIF");
+        let rules = sarif
+            .pointer("/runs/0/tool/driver/rules")
+            .and_then(Value::as_array)
+            .expect("rules");
+        let ids = rules
+            .iter()
+            .filter_map(|rule| rule.pointer("/id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        assert_eq!(ids, ["K1001", "E_LET_MUT"]);
+        assert_eq!(
+            rules[0]
+                .pointer("/shortDescription/text")
+                .and_then(Value::as_str),
+            Some(diagnostic_explanation("K1001").expect("K1001").summary)
+        );
+        let indices = sarif
+            .pointer("/runs/0/results")
+            .and_then(Value::as_array)
+            .expect("results")
+            .iter()
+            .map(|result| result.pointer("/ruleIndex").and_then(Value::as_u64))
+            .collect::<Vec<_>>();
+        assert_eq!(indices, [Some(0), Some(0), Some(1)]);
+        let replacement = sarif
+            .pointer("/runs/0/results/0/fixes/0/artifactChanges/0/replacements/0")
+            .expect("standard SARIF fix");
+        assert_eq!(
+            replacement
+                .pointer("/insertedContent/text")
+                .and_then(Value::as_str),
+            Some("seiyaku")
+        );
+        assert_eq!(
+            replacement
+                .pointer("/deletedRegion/byteLength")
+                .and_then(Value::as_u64),
+            Some(8)
+        );
+    }
+    #[test]
+    fn relativized_paths_match_between_absolute_and_logical_sources() {
+        let base = std::path::Path::new("/work/project");
+        let span = |source: &str| SourceSpan {
+            package_identity: None,
+            source: Some(source.to_owned()),
+            start: SourcePosition { line: 1, column: 1 },
+            end: SourcePosition { line: 1, column: 2 },
+            byte_range: None,
+        };
+        let mut bundle = DiagnosticBundle::new(vec![
+            Diagnostic::error(
+                "K1001",
+                DiagnosticPhase::Parse,
+                "a",
+                Some(span("/work/project/src/a.ko")),
+            ),
+            Diagnostic::error("K1001", DiagnosticPhase::Parse, "b", Some(span("src/b.ko"))),
+            Diagnostic::error(
+                "K1001",
+                DiagnosticPhase::Parse,
+                "c",
+                Some(span("/elsewhere/c.ko")),
+            ),
+        ]);
+        bundle.relativize_sources(base);
+        let sources = bundle
+            .diagnostics
+            .iter()
+            .filter_map(|diagnostic| diagnostic.primary_span.as_ref()?.source.clone())
+            .collect::<Vec<_>>();
+        assert!(sources.contains(&"src/a.ko".to_owned()), "{sources:?}");
+        assert!(sources.contains(&"src/b.ko".to_owned()));
+        assert!(sources.contains(&"/elsewhere/c.ko".to_owned()));
+    }
+    #[test]
+    fn explanation_text_includes_registered_examples() {
+        let explanation = diagnostic_explanation("E_LET_MUT").expect("registered");
+        let text = explanation.render_text();
+        assert!(text.starts_with("E_LET_MUT [parse]: "), "{text}");
+        assert!(
+            text.contains("\n\nexample:\n    let mut count = 0;"),
+            "{text}"
+        );
+        assert!(text.contains("\n\nfixed:\n    var count = 0;"), "{text}");
+        let without = diagnostic_explanation("K0004").expect("registered");
+        assert!(!without.render_text().contains("example:"));
+    }
+    #[test]
+    fn every_parse_and_lex_code_has_targeted_or_fallback_help_without_boilerplate() {
+        for explanation in DIAGNOSTIC_EXPLANATIONS {
+            assert!(
+                !explanation.help.contains("Use the primary span and labels"),
+                "{} keeps boilerplate help",
+                explanation.code
+            );
+            if matches!(explanation.phase, DiagnosticPhase::Lex) && explanation.code != "K0100" {
+                assert!(!explanation.help.is_empty());
+            }
+        }
+        assert!(
+            !diagnostic_explanation("K0100")
+                .expect("K0100")
+                .help
+                .contains("誓約")
         );
     }
     #[test]

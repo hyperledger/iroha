@@ -216,12 +216,24 @@ fn deployment_peer_clients_reject_runtime_chain_pin_mismatch_before_io() {
         json_lines: false,
         i18n: iroha_i18n::Localizer::new(iroha_i18n::Bundle::Cli, iroha_i18n::Language::English),
     };
-    assert_eq!(peer_clients(&context, &trust).unwrap().len(), 4);
+    assert_eq!(peer_clients(&context, &trust, &[]).unwrap().len(), 4);
+    let routes: Vec<_> = (9100..9104)
+        .map(|port| format!("http://127.0.0.1:{port}/"))
+        .collect();
+    let routed = peer_clients(&context, &trust, &routes).unwrap();
+    for (client, origin) in routed.iter().zip(&routes) {
+        assert_eq!(client.to_builder().torii_url.as_str(), origin);
+    }
+    assert_eq!(
+        context.config.torii_api_url.as_str(),
+        trust.peers[0].torii_origin
+    );
+
     context.config.chain = "other-chain".into();
-    assert!(peer_clients(&context, &trust).is_err());
+    assert!(peer_clients(&context, &trust, &[]).is_err());
     context.config.chain = trust.chain.clone();
     context.config.account_chain_discriminant = 901;
-    assert!(peer_clients(&context, &trust).is_err());
+    assert!(peer_clients(&context, &trust, &[]).is_err());
 }
 
 #[test]
@@ -271,7 +283,18 @@ fn deployment_trust_requires_four_distinct_genesis_peers_and_public_endpoints() 
     assert!(changed.authority(network).is_err());
     let mut changed = trust.clone();
     changed.peers[1].torii_origin = trust.peers[0].torii_origin.clone();
-    assert!(changed.authority(network).is_err());
+    assert!(
+        changed.authority(network).is_ok(),
+        "transport is not validator identity"
+    );
+    assert!(verification_origins(&changed, &[]).is_err());
+    let routes: Vec<_> = trust
+        .peers
+        .iter()
+        .map(|peer| peer.torii_origin.clone())
+        .collect();
+    assert_eq!(verification_origins(&changed, &routes).unwrap(), routes);
+    assert_eq!(changed.peers[1].torii_origin, trust.peers[0].torii_origin);
     let mut changed = trust.clone();
     let unknown =
         KeyPair::try_from_seed(vec![92; 32], Algorithm::BlsNormal).expect("foreign validator");
@@ -717,4 +740,58 @@ fn completion_requires_the_selected_running_native_dataspace_lane() {
         verify_native_lane_snapshot(&manifest, &future_policy, vec![live], &peer, 2, 4).unwrap(),
         PeerRead::Verified(_)
     ));
+}
+
+#[test]
+fn deployment_verification_routes_refuse_partial_duplicate_or_noncanonical_routes() {
+    let trust = test_trust();
+    let routes: Vec<_> = trust
+        .peers
+        .iter()
+        .map(|peer| peer.torii_origin.clone())
+        .collect();
+    assert!(verification_origins(&trust, &routes[..3]).is_err());
+    let mut duplicate = routes.clone();
+    duplicate[1] = duplicate[0].clone();
+    assert!(verification_origins(&trust, &duplicate).is_err());
+    for invalid in [
+        "file:///tmp/",
+        "http://user:secret@localhost/",
+        "http://localhost/?query=1",
+        "http://localhost/#fragment",
+        "http://localhost",
+    ] {
+        let mut changed = routes.clone();
+        changed[0] = invalid.into();
+        assert!(verification_origins(&trust, &changed).is_err(), "{invalid}");
+    }
+}
+
+#[test]
+fn deployment_route_override_is_only_admitted_for_read_only_status() {
+    use clap::Parser as _;
+    let trust = test_trust();
+    let original = json::to_vec(&trust).unwrap();
+    for action in ["plan", "apply", "status"] {
+        let mut argv = vec![
+            "iroha",
+            "dataspace",
+            action,
+            "dpn.toml",
+            "--trust",
+            "trust.json",
+        ];
+        for peer in &trust.peers {
+            argv.extend(["--verification-peer-url", peer.torii_origin.as_str()]);
+        }
+        let args = crate::Args::try_parse_from(argv).unwrap();
+        let crate::Command::Dataspace(command) = args.command else {
+            panic!("dataspace command")
+        };
+        assert_eq!(
+            command.verification_origins(&trust).is_ok(),
+            action == "status"
+        );
+        assert_eq!(json::to_vec(&trust).unwrap(), original);
+    }
 }

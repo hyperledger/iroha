@@ -1,8 +1,10 @@
 //! Bounded generated renewal using the same Enroll instruction, codec and wallet owner.
 
 use super::*;
+use crate::localnet::service_authorities::RetainedProviderServicePlan;
 use iroha_data_model::sorafs::stream_token_custody::StreamTokenCustodyControlRecordV1;
 use sorafs_manifest::signer::custody_control::SignerCustodyControlStateV1;
+use std::borrow::Borrow;
 
 #[path = "renewal/generated.rs"]
 mod generated;
@@ -188,22 +190,87 @@ impl ManagedStreamTokenCustody {
             terms.requested_deadline_unix_ms,
         )?;
         let unsigned = self.unsigned_enrollment(policy, current, verifier, interval, now)?;
-        unsigned.validate(self, CustodyPurpose::Renewal(sequence))?;
-        self.validate_unsigned_renewal_context(&unsigned, deadline)?;
+        unsigned.validate_with_checkpoint(
+            self,
+            CustodyPurpose::Renewal(sequence),
+            verifier,
+            || self.authority.provider_plan(),
+        )?;
+        self.validate_unsigned_renewal_context_at(&unsigned, verifier, deadline)?;
         Ok(unsigned)
     }
 
-    pub(super) fn validate_unsigned_renewal_context(
+    pub(super) fn validate_unsigned_renewal_context_at(
+        &self,
+        unsigned: &body_history::UnsignedEnrollment,
+        verifier: &FinalityVerifier,
+        deadline: Instant,
+    ) -> Result<()> {
+        self.validate_unsigned_renewal_context_with(
+            unsigned,
+            deadline,
+            || self.retained_initial_prerequisite(deadline),
+            || unsigned.matching_checkpoint(self, verifier),
+        )
+    }
+
+    pub(super) fn validate_unsigned_renewal_context_using(
         &self,
         unsigned: &body_history::UnsignedEnrollment,
         deadline: Instant,
+        prerequisite: impl FnOnce() -> Result<enrollment::RetainedInitialPrerequisite>,
     ) -> Result<()> {
-        let (policy, _) = self.retained_configuration(deadline)?;
-        let interval = self.inspect_local_initial_interval(&policy)?;
-        let initial = self.retained_initial_enrollment(&policy, interval, deadline)?;
-        let checkpoint = self.authority.decode_checkpoint(&unsigned.checkpoint)?;
+        self.validate_unsigned_renewal_context_with(unsigned, deadline, prerequisite, || {
+            self.authority.decode_checkpoint(&unsigned.checkpoint)
+        })
+    }
+
+    pub(super) fn validate_unsigned_renewal_context_with_imports(
+        &self,
+        unsigned: &body_history::UnsignedEnrollment,
+        deadline: Instant,
+        imports: &mut crate::managed::service_authority::CheckpointImports<'_, '_>,
+    ) -> Result<()> {
+        let prerequisite = self.retained_initial_prerequisite_with_imports(deadline, imports)?;
+        let policy = prerequisite.policy;
+        let initial = prerequisite.enrollment;
+        let checkpoint = imports.decode(&unsigned.checkpoint)?;
+        self.require_unsigned_renewal_prerequisite(
+            unsigned,
+            &policy,
+            &initial,
+            &checkpoint,
+            deadline,
+        )
+    }
+
+    fn validate_unsigned_renewal_context_with<V: Borrow<FinalityVerifier>>(
+        &self,
+        unsigned: &body_history::UnsignedEnrollment,
+        deadline: Instant,
+        prerequisite: impl FnOnce() -> Result<enrollment::RetainedInitialPrerequisite>,
+        checkpoint: impl FnOnce() -> Result<V>,
+    ) -> Result<()> {
+        let prerequisite = prerequisite()?;
+        let policy = prerequisite.policy;
+        let initial = prerequisite.enrollment;
+        let checkpoint = checkpoint()?;
+        let checkpoint = checkpoint.borrow();
+        self.require_unsigned_renewal_prerequisite(
+            unsigned, &policy, &initial, checkpoint, deadline,
+        )
+    }
+
+    fn require_unsigned_renewal_prerequisite(
+        &self,
+        unsigned: &body_history::UnsignedEnrollment,
+        policy: &SignerCustodyPolicyV1,
+        initial: &RetainedCustodyEnrollment,
+        checkpoint: &FinalityVerifier,
+        deadline: Instant,
+    ) -> Result<()> {
         let selected = body_history::selected_policy(&unsigned.selection)?;
-        if selected != policy || checkpoint.checkpoint().height() < initial.finalized().height {
+        if selected != *policy || checkpoint.checkpoint().height() < initial.finalized().height {
             return Err(invalid(
                 "renewal predecessor differs from original initial enrollment",
             ));
@@ -216,9 +283,9 @@ impl ManagedStreamTokenCustody {
         original: &Original,
         deadline: Instant,
     ) -> Result<()> {
-        let (policy, _) = self.retained_configuration(deadline)?;
-        let interval = self.inspect_local_initial_interval(&policy)?;
-        let initial = self.retained_initial_enrollment(&policy, interval, deadline)?;
+        let prerequisite = self.retained_initial_prerequisite(deadline)?;
+        let policy = prerequisite.policy;
+        let initial = prerequisite.enrollment;
         original.matches_enrollment_policy(&policy)?;
         let checkpoint = self.authority.decode_checkpoint(&original.checkpoint)?;
         if checkpoint.checkpoint().height() < initial.finalized().height {
@@ -228,11 +295,12 @@ impl ManagedStreamTokenCustody {
         require_deadline(deadline)
     }
 
-    pub(super) fn validate_renewal_original(
+    pub(super) fn validate_renewal_original<P: Borrow<RetainedProviderServicePlan>>(
         &self,
         original: &Original,
         control: &SignerCustodyControlStateV1,
         sequence: u64,
+        provider_plan: impl FnOnce() -> Result<P>,
     ) -> Result<()> {
         let Action::Enroll {
             validity,
@@ -247,7 +315,13 @@ impl ManagedStreamTokenCustody {
             .current
             .as_ref()
             .ok_or_else(|| invalid("renewal predecessor absent"))?;
-        let expected = self.renewal_validity(current, control, sequence, *selected_at_unix_ms)?;
+        let expected = validate_renewal_validity(
+            current,
+            control,
+            sequence,
+            *selected_at_unix_ms,
+            provider_plan,
+        )?;
         if *validity != expected {
             return Err(invalid("renewal differs from original finite interval"));
         }
@@ -274,38 +348,55 @@ impl ManagedStreamTokenCustody {
         sequence: u64,
         observed: u64,
     ) -> Result<journal::EnrollmentValidity> {
-        directory_name(sequence)?;
-        control
-            .validate()
-            .map_err(|_| invalid("invalid governed renewal control"))?;
-        if control.signer_revoked || control.attester_revoked || control.next_sequence != sequence {
-            return Err(invalid("renewal requires exact unrevoked native sequence"));
-        }
-        current
-            .validate_active_enrollment(control)
-            .map_err(|_| invalid("renewal active enrollment differs from native head"))?;
-        let previous = enrollment::decode_enrollment(
-            current
-                .active_enrollment
-                .as_deref()
-                .ok_or_else(|| invalid("renewal requires original active enrollment"))?,
-        )?;
-        let plan = self.authority.provider_plan()?;
-        let provider_end = plan
-            .admission_material()
-            .retention_epoch
-            .checked_mul(1_000)
-            .ok_or_else(|| invalid("provider expiry overflows milliseconds"))?;
-        let provider_start = plan
-            .admission_material()
-            .issued_at
-            .checked_mul(1_000)
-            .ok_or_else(|| invalid("provider beginning overflows milliseconds"))?;
-        if observed < provider_start {
-            return Err(invalid("renewal predates original provider interval"));
-        }
-        renewal_validity(&previous.statement, &control.policy, observed, provider_end)
+        validate_renewal_validity(current, control, sequence, observed, || {
+            self.authority.provider_plan()
+        })
     }
+}
+
+// A caller may share its freshly validated immutable provider plan only within the same
+// local validation bundle. Native control, evidence and live clocks remain independently checked.
+pub(super) fn validate_renewal_validity<P: Borrow<RetainedProviderServicePlan>>(
+    current: &StreamTokenCustodyControlRecordV1,
+    control: &SignerCustodyControlStateV1,
+    sequence: u64,
+    observed: u64,
+    provider_plan: impl FnOnce() -> Result<P>,
+) -> Result<journal::EnrollmentValidity> {
+    directory_name(sequence)?;
+    control
+        .validate()
+        .map_err(|_| invalid("invalid governed renewal control"))?;
+    if control.signer_revoked || control.attester_revoked || control.next_sequence != sequence {
+        return Err(invalid("renewal requires exact unrevoked native sequence"));
+    }
+    current
+        .validate_active_enrollment(control)
+        .map_err(|_| invalid("renewal active enrollment differs from native head"))?;
+    let previous = enrollment::decode_enrollment(
+        current
+            .active_enrollment
+            .as_deref()
+            .ok_or_else(|| invalid("renewal requires original active enrollment"))?,
+    )?;
+    // Ordinary callers acquire here, preserving the native validation/error order; a body
+    // parser supplies only its own already-validated plan for this pure comparison bundle.
+    let plan = provider_plan()?;
+    let plan = plan.borrow();
+    let provider_end = plan
+        .admission_material()
+        .retention_epoch
+        .checked_mul(1_000)
+        .ok_or_else(|| invalid("provider expiry overflows milliseconds"))?;
+    let provider_start = plan
+        .admission_material()
+        .issued_at
+        .checked_mul(1_000)
+        .ok_or_else(|| invalid("provider beginning overflows milliseconds"))?;
+    if observed < provider_start {
+        return Err(invalid("renewal predates original provider interval"));
+    }
+    renewal_validity(&previous.statement, &control.policy, observed, provider_end)
 }
 
 pub(super) fn renewal_interval(

@@ -128,6 +128,7 @@ impl<F: PastaField> Circuit<F> for Accumulator {
 fn round_trip<C: PastaCurve>(transcript: TranscriptV1, mode: InstanceModeV1)
 where
     C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
 {
     let circuit = Accumulator {
         steps: vec![3, 7, 0, 5, 1, 6],

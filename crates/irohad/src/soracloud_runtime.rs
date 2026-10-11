@@ -65,7 +65,13 @@ use iroha_data_model::{
     Encode,
     account::AccountId,
     isi::{self, InstructionBox},
-    smart_contract::manifest::ManifestProvenance,
+    smart_contract::{
+        entrypoint::{
+            EntrypointArgumentRecordV1, EntrypointValueKindV1, EntrypointValueTypeNodeV1,
+            entrypoint_argument_schema_hash_v1,
+        },
+        manifest::ManifestProvenance,
+    },
     soracloud::{
         SORA_HTTP_SERVICE_REPLICA_MAX_V1, SORA_INROU_GUEST_IMAGE_MAX_MEMBERS_V1,
         SORA_INROU_HOST_CAPABILITY_RECORD_VERSION_V1, SORA_INROU_HOSTED_REPLICA_CAPACITY_V1,
@@ -106,8 +112,8 @@ use iroha_torii::sorafs::{
     site::{decode_content_cid, encode_content_cid},
 };
 use ivm::{
-    CoreHost, IVM, IVMHost, Memory, PointerType, PreparedContract, RuntimeTemplate, VMError,
-    prepare_contract,
+    CoreHost, IVM, IVMHost, Memory, PointerType, PreparedArgumentRecord, PreparedContract,
+    RuntimeTemplate, VMError, prepare_contract,
     syscalls::{
         self as ivm_syscalls, SYSCALL_SORACLOUD_APPEND_JOURNAL,
         SYSCALL_SORACLOUD_EMIT_MAILBOX_MESSAGE, SYSCALL_SORACLOUD_EMIT_STATE_MUTATION,
@@ -1949,11 +1955,6 @@ struct CachedSoracloudPreparedContract {
     generation: u64,
     prepared: PreparedContract,
 }
-impl CachedSoracloudPreparedContract {
-    fn entrypoint_pc(&self, name: &str) -> Option<u64> {
-        self.prepared.entrypoint_pc(name)
-    }
-}
 #[derive(Default)]
 struct SoracloudPreparedRuntimeCacheState {
     entries: BTreeMap<Hash, SoracloudPreparedContractEntry>,
@@ -2497,13 +2498,17 @@ impl SoracloudRuntime for SoracloudRuntimeManagerHandle {
             .expect("handler presence checked above")
             .entrypoint
             .clone();
-        let Some(entry_pc) = prepared.entrypoint_pc(&entrypoint_name) else {
+        if prepared
+            .prepared
+            .entrypoint_descriptor(&entrypoint_name)
+            .is_none()
+        {
             return Ok(deterministic_mailbox_failure_result(
                 request,
                 "missing_entrypoint",
                 SoraServiceHealthStatusV1::Degraded,
             ));
-        };
+        }
         let mut vm = match self.ivm_runtime_cache.checkout(&prepared) {
             Ok(vm) => vm,
             Err(error) => {
@@ -2531,36 +2536,36 @@ impl SoracloudRuntime for SoracloudRuntimeManagerHandle {
             Ok(public_inputs) => public_inputs,
             Err(error) => return ordered_mailbox_vm_failure(request, &error),
         };
+        let (arguments, output_kind) = match prepare_soracloud_invocation(
+            &mut vm,
+            &prepared.prepared,
+            &entrypoint_name,
+            SoracloudInvocationInput {
+                body_tlv: &mailbox_payload_tlv,
+                metadata_tlv: None,
+                execution_sequence: Some(request.observed_sequence),
+                observed_height: request.observed_height,
+            },
+        ) {
+            Ok(invocation) => invocation,
+            Err(error) => return ordered_mailbox_vm_failure(request, &error),
+        };
         let committed_entries = collect_committed_service_state_entries(
             &self.state.view(),
             request.deployment.service_name.as_ref(),
         );
         let host = SoracloudIvmHost::new(request.clone(), self.state_dir(), committed_entries)
-            .with_public_inputs(public_inputs);
+            .with_public_inputs(public_inputs)
+            .with_prepared_arguments(arguments);
         vm.set_host(host);
-        if let Err(error) = vm.set_program_counter(entry_pc) {
-            return ordered_mailbox_vm_failure(request, &error);
-        }
-        match vm.alloc_host_tlv(&mailbox_payload_tlv) {
-            Ok(ptr) => vm.set_register(10, ptr),
-            Err(error) => return ordered_mailbox_vm_failure(request, &error),
-        };
-        vm.set_register(11, request.observed_sequence);
-        vm.set_register(12, request.observed_height);
         if let Err(error) = vm.run() {
             return ordered_mailbox_vm_failure(request, &error);
         }
-        let (response_bytes, content_type) = match decode_ordered_mailbox_vm_output(&vm, &request) {
-            Ok(response) => response,
-            Err(error) => {
-                return Ok(deterministic_mailbox_failure_result_with_message(
-                    request,
-                    "invalid_response",
-                    error.message,
-                    SoraServiceHealthStatusV1::Degraded,
-                ));
-            }
-        };
+        let (response_bytes, content_type) =
+            match decode_ordered_mailbox_vm_output(&vm, output_kind, &request) {
+                Ok(response) => response,
+                Err(error) => return ordered_mailbox_output_failure(request, error),
+            };
         let Some(host) = vm
             .host_mut_any()
             .and_then(|host| host.downcast_mut::<SoracloudIvmHost>())
@@ -2753,6 +2758,7 @@ struct SoracloudIvmHost {
     state_dir: PathBuf,
     core_host: CoreHost,
     public_inputs: BTreeMap<Name, Vec<u8>>,
+    prepared_arguments: Option<PreparedArgumentRecord>,
     committed_entries: BTreeMap<(String, String), SoraServiceStateEntryV1>,
     binding_totals: BTreeMap<String, u64>,
     observed_local_read_bindings:
@@ -2790,6 +2796,7 @@ impl SoracloudIvmHost {
             state_dir,
             core_host: CoreHost::new(),
             public_inputs: BTreeMap::new(),
+            prepared_arguments: None,
             committed_entries,
             binding_totals,
             observed_local_read_bindings: BTreeMap::new(),
@@ -2805,6 +2812,10 @@ impl SoracloudIvmHost {
     }
     fn with_public_inputs(mut self, public_inputs: BTreeMap<Name, Vec<u8>>) -> Self {
         self.public_inputs = public_inputs;
+        self
+    }
+    fn with_prepared_arguments(mut self, arguments: Option<PreparedArgumentRecord>) -> Self {
+        self.prepared_arguments = arguments;
         self
     }
     fn handler_class(&self) -> SoraServiceHandlerClassV1 {
@@ -3330,6 +3341,9 @@ impl SoracloudIvmHost {
     }
 }
 impl IVMHost for SoracloudIvmHost {
+    fn prepared_entrypoint_arguments(&self) -> Option<PreparedArgumentRecord> {
+        self.prepared_arguments.clone()
+    }
     fn prepare_syscall(&self, number: u32, vm: &IVM) -> Result<u64, VMError> {
         Self::ensure_syscall_available(number)?;
         if number == ivm_syscalls::SYSCALL_GET_PUBLIC_INPUT {
@@ -8924,7 +8938,11 @@ fn execute_query_local_read(
                 ),
             )
         })?;
-    let Some(entry_pc) = prepared.entrypoint_pc(context.handler.entrypoint.as_ref()) else {
+    if prepared
+        .prepared
+        .entrypoint_descriptor(context.handler.entrypoint.as_ref())
+        .is_none()
+    {
         return Err(SoracloudRuntimeExecutionError::new(
             SoracloudRuntimeExecutionErrorKind::Internal,
             format!(
@@ -8935,7 +8953,7 @@ fn execute_query_local_read(
                 context.handler.entrypoint,
             ),
         ));
-    };
+    }
     let mut vm = ivm_runtime_cache.checkout(&prepared).map_err(|error| {
         SoracloudRuntimeExecutionError::new(
             error.kind,
@@ -8947,7 +8965,7 @@ fn execute_query_local_read(
     })?;
     let body_tlv = local_read_request_body_tlv_bytes(request).map_err(|error| {
         SoracloudRuntimeExecutionError::new(
-            SoracloudRuntimeExecutionErrorKind::InvalidRequest,
+            vm_error_kind(&error),
             format!(
                 "encode Soracloud query body for service `{}` handler `{}`: {}",
                 request.service_name,
@@ -8960,7 +8978,7 @@ fn execute_query_local_read(
     let public_inputs = local_read_public_inputs(&body_tlv, &metadata_tlv, request.observed_height)
         .map_err(|error| {
             SoracloudRuntimeExecutionError::new(
-                SoracloudRuntimeExecutionErrorKind::Internal,
+                vm_error_kind(&error),
                 format!(
                     "prepare Soracloud query public inputs for service `{}` handler `{}`: {}",
                     request.service_name,
@@ -8969,6 +8987,28 @@ fn execute_query_local_read(
                 ),
             )
         })?;
+    let (arguments, output_kind) = prepare_soracloud_invocation(
+        &mut vm,
+        &prepared.prepared,
+        context.handler.entrypoint.as_ref(),
+        SoracloudInvocationInput {
+            body_tlv: &body_tlv,
+            metadata_tlv: Some(&metadata_tlv),
+            execution_sequence: None,
+            observed_height: request.observed_height,
+        },
+    )
+    .map_err(|error| {
+        SoracloudRuntimeExecutionError::new(
+            vm_error_kind(&error),
+            format!(
+                "prepare Soracloud query arguments for service `{}` handler `{}`: {}",
+                request.service_name,
+                request.handler_name,
+                vm_error_label(&error),
+            ),
+        )
+    })?;
     let committed_entries =
         collect_committed_service_state_entries(view, request.service_name.as_str());
     let host = SoracloudIvmHost::new(
@@ -8976,45 +9016,9 @@ fn execute_query_local_read(
         state_dir.to_path_buf(),
         committed_entries,
     )
-    .with_public_inputs(public_inputs);
+    .with_public_inputs(public_inputs)
+    .with_prepared_arguments(arguments);
     vm.set_host(host);
-    vm.set_program_counter(entry_pc).map_err(|error| {
-        SoracloudRuntimeExecutionError::new(
-            vm_error_kind(&error),
-            format!(
-                "position Soracloud query bundle entrypoint `{}` for service `{}` revision `{}`: {}",
-                context.handler.entrypoint,
-                request.service_name,
-                request.service_version,
-                vm_error_label(&error),
-            ),
-        )
-    })?;
-    let body_ptr = vm.alloc_host_tlv(&body_tlv).map_err(|error| {
-        SoracloudRuntimeExecutionError::new(
-            vm_error_kind(&error),
-            format!(
-                "stage Soracloud query body for service `{}` handler `{}`: {}",
-                request.service_name,
-                request.handler_name,
-                vm_error_label(&error),
-            ),
-        )
-    })?;
-    let metadata_ptr = vm.alloc_host_tlv(&metadata_tlv).map_err(|error| {
-        SoracloudRuntimeExecutionError::new(
-            vm_error_kind(&error),
-            format!(
-                "stage Soracloud query metadata for service `{}` handler `{}`: {}",
-                request.service_name,
-                request.handler_name,
-                vm_error_label(&error),
-            ),
-        )
-    })?;
-    vm.set_register(10, body_ptr);
-    vm.set_register(11, metadata_ptr);
-    vm.set_register(12, request.observed_height);
     vm.run().map_err(|error| {
         let error_label = vm_error_label(&error);
         let error_detail = vm
@@ -9035,7 +9039,8 @@ fn execute_query_local_read(
             ),
         )
     })?;
-    let (response_bytes, content_type) = decode_local_read_vm_output(&vm, request, context)?;
+    let (response_bytes, content_type) =
+        decode_local_read_vm_output(&vm, output_kind, request, context)?;
     let Some(host) = vm
         .host_mut_any()
         .and_then(|host| host.downcast_mut::<SoracloudIvmHost>())
@@ -9207,33 +9212,41 @@ fn local_read_request_metadata_tlv_bytes(
         ),
     );
     let metadata_value = norito::json::Value::Object(metadata);
-    let metadata_json = Json::from_norito_value_ref(&metadata_value).map_err(|error| {
+    let metadata_json = soracloud_codec_attempt(|| Json::from_norito_value_ref(&metadata_value));
+    let metadata_json = metadata_json.map_err(|error| {
         SoracloudRuntimeExecutionError::new(
-            SoracloudRuntimeExecutionErrorKind::Internal,
+            vm_error_kind(&error),
             format!(
                 "serialize Soracloud query metadata JSON for service `{}` handler `{}`: {error}",
                 request.service_name, request.handler_name
             ),
         )
     })?;
-    let metadata_bytes = norito::to_bytes(&metadata_json).map_err(|error| {
+    let metadata_bytes = soracloud_canonical_frame(
+        &metadata_json,
+        iroha_data_model::smart_contract::entrypoint::MAX_ENTRYPOINT_ARGUMENT_RECORD_BYTES,
+    )
+    .map_err(|error| {
         SoracloudRuntimeExecutionError::new(
-            SoracloudRuntimeExecutionErrorKind::Internal,
+            vm_error_kind(&error),
             format!(
                 "serialize Soracloud query metadata for service `{}` handler `{}`: {error}",
                 request.service_name, request.handler_name
             ),
         )
     })?;
-    Ok(make_pointer_tlv(PointerType::Json, &metadata_bytes))
+    ivm::pointer_abi::encode_tlv(PointerType::Json, &metadata_bytes).map_err(|error| {
+        SoracloudRuntimeExecutionError::new(vm_error_kind(&error), vm_error_label(&error))
+    })
 }
 fn public_input_name(name: &str) -> Result<Name, VMError> {
     Name::from_str(name).map_err(|_| VMError::NoritoInvalid)
 }
 fn public_input_int_tlv(value: u64) -> Result<Vec<u8>, VMError> {
-    let value = i64::try_from(value).unwrap_or(i64::MAX);
-    let bytes = norito::to_bytes(&value).map_err(|_| VMError::NoritoInvalid)?;
-    Ok(make_pointer_tlv(PointerType::NoritoBytes, &bytes))
+    let ivm::EntrypointValueAtomV1::Pointer(bytes) = soracloud_integer_atom(value)? else {
+        return Err(VMError::DecodeError);
+    };
+    Ok(bytes)
 }
 fn insert_public_input(
     inputs: &mut BTreeMap<Name, Vec<u8>>,
@@ -9253,19 +9266,21 @@ fn json_value_from_tlv(tlv_bytes: &[u8]) -> Result<norito::json::Value, VMError>
     if tlv.type_id != PointerType::Json {
         return Err(VMError::DecodeError);
     }
-    let json = norito::decode_from_bytes::<Json>(tlv.payload).map_err(|_| VMError::DecodeError)?;
-    json.try_into_any_norito::<norito::json::Value>()
-        .map_err(|_| VMError::DecodeError)
+    let json = soracloud_codec_attempt(|| norito::decode_canonical::<Json>(tlv.payload))?;
+    soracloud_codec_attempt(|| json.try_into_any_norito::<norito::json::Value>())
 }
 fn json_pointer_response_payload(payload: &[u8]) -> Result<Vec<u8>, VMError> {
-    let json = norito::decode_from_bytes::<Json>(payload).map_err(|_| VMError::DecodeError)?;
-    Ok(json.get().as_bytes().to_vec())
+    let json = soracloud_codec_attempt(|| norito::decode_canonical::<Json>(payload))?;
+    soracloud_copy_bytes(json.get().as_bytes())
 }
 fn trigger_event_json_tlv(fields: norito::json::Map) -> Result<Vec<u8>, VMError> {
     let value = norito::json::Value::Object(fields);
-    let json = Json::from_norito_value_ref(&value).map_err(|_| VMError::DecodeError)?;
-    let bytes = norito::to_bytes(&json).map_err(|_| VMError::NoritoInvalid)?;
-    Ok(make_pointer_tlv(PointerType::Json, &bytes))
+    let json = soracloud_codec_attempt(|| Json::from_norito_value_ref(&value))?;
+    let bytes = soracloud_canonical_frame(
+        &json,
+        iroha_data_model::smart_contract::entrypoint::MAX_ENTRYPOINT_ARGUMENT_RECORD_BYTES,
+    )?;
+    ivm::pointer_abi::encode_tlv(PointerType::Json, &bytes)
 }
 fn local_read_public_inputs(
     body_tlv: &[u8],
@@ -9288,8 +9303,16 @@ fn local_read_public_inputs(
     );
     let trigger_event_tlv = trigger_event_json_tlv(trigger_event)?;
     insert_public_input(&mut inputs, "trigger_event_json", trigger_event_tlv)?;
-    insert_public_input(&mut inputs, "_request_body", body_tlv.to_vec())?;
-    insert_public_input(&mut inputs, "_request_meta", metadata_tlv.to_vec())?;
+    insert_public_input(
+        &mut inputs,
+        "_request_body",
+        soracloud_copy_bytes(body_tlv)?,
+    )?;
+    insert_public_input(
+        &mut inputs,
+        "_request_meta",
+        soracloud_copy_bytes(metadata_tlv)?,
+    )?;
     let observed_height_tlv = public_input_int_tlv(observed_height)?;
     insert_public_input(&mut inputs, "observed_height", observed_height_tlv)?;
     Ok(inputs)
@@ -9315,20 +9338,195 @@ fn ordered_mailbox_public_inputs(
     );
     let trigger_event_tlv = trigger_event_json_tlv(trigger_event)?;
     insert_public_input(&mut inputs, "trigger_event_json", trigger_event_tlv)?;
-    insert_public_input(&mut inputs, "_request_body", payload_tlv.to_vec())?;
+    insert_public_input(
+        &mut inputs,
+        "_request_body",
+        soracloud_copy_bytes(payload_tlv)?,
+    )?;
     let observed_sequence_tlv = public_input_int_tlv(observed_sequence)?;
     insert_public_input(&mut inputs, "observed_sequence", observed_sequence_tlv)?;
     let observed_height_tlv = public_input_int_tlv(observed_height)?;
     insert_public_input(&mut inputs, "observed_height", observed_height_tlv)?;
     Ok(inputs)
 }
+// Native refusal stays local even when it occurs after guest execution. The
+// observer owns the original decoder scope; no wider scope or new pool is used.
+fn soracloud_codec_attempt<T>(
+    operation: impl FnOnce() -> Result<T, norito::Error>,
+) -> Result<T, VMError> {
+    norito::core::classify_decode_attempt(operation).map_err(|error| match error.kind() {
+        norito::core::DecodeAttemptErrorKind::Allocator => {
+            VMError::ExecutionDeferred(ivm::ExecutionDeferral::AllocationUnavailable)
+        }
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit => {
+            VMError::ExecutionDeferred(ivm::ExecutionDeferral::ActiveMemoryCapacity)
+        }
+        norito::core::DecodeAttemptErrorKind::Invalid => VMError::DecodeError,
+    })
+}
+fn soracloud_copy_bytes(bytes: &[u8]) -> Result<Vec<u8>, VMError> {
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(bytes.len())
+        .map_err(|_| VMError::ExecutionDeferred(ivm::ExecutionDeferral::AllocationUnavailable))?;
+    copy.extend_from_slice(bytes);
+    Ok(copy)
+}
+fn soracloud_canonical_frame<T: norito::NoritoSerialize>(
+    value: &T,
+    maximum: usize,
+) -> Result<Vec<u8>, VMError> {
+    let size = soracloud_codec_attempt(|| norito::canonical_frame_len(value))?;
+    if size > maximum {
+        return Err(VMError::DecodeError);
+    }
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(size)
+        .map_err(|_| VMError::ExecutionDeferred(ivm::ExecutionDeferral::AllocationUnavailable))?;
+    bytes.resize(size, 0);
+    let mut writer = std::io::Cursor::new(bytes.as_mut_slice());
+    soracloud_codec_attempt(|| norito::core::write_canonical_to_writer(value, &mut writer))?;
+    if writer.position() != size as u64 {
+        return Err(VMError::DecodeError);
+    }
+    Ok(bytes)
+}
+// Soracloud handlers use the same authenticated public call tables as every
+// Kotodama entrypoint. These are the context fields emitted by the CLI templates;
+// named public-input syscalls remain an independent host surface.
+struct SoracloudInvocationInput<'a> {
+    body_tlv: &'a [u8],
+    metadata_tlv: Option<&'a [u8]>,
+    execution_sequence: Option<u64>,
+    observed_height: u64,
+}
+#[derive(Clone, Copy)]
+enum SoracloudOutputKind {
+    Unit,
+    Json,
+    Blob,
+}
+fn soracloud_output_kind(
+    schema: Option<&ivm::EntrypointValueTypeV1>,
+) -> Result<SoracloudOutputKind, VMError> {
+    match schema.map(|schema| schema.nodes.as_slice()) {
+        Some([EntrypointValueTypeNodeV1::Unit]) => Ok(SoracloudOutputKind::Unit),
+        Some([EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Json)]) => {
+            Ok(SoracloudOutputKind::Json)
+        }
+        Some([EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Blob)]) => {
+            Ok(SoracloudOutputKind::Blob)
+        }
+        _ => Err(VMError::DecodeError),
+    }
+}
+fn soracloud_integer_atom(value: u64) -> Result<ivm::EntrypointValueAtomV1, VMError> {
+    let integer = iroha_primitives::bigint::BigInt::from(value);
+    let frame = iroha_primitives::numeric_abi::IntValueV1::prepare_frame(&integer)
+        .map_err(VMError::from)?
+        .encode_frame()
+        .map_err(VMError::from)?;
+    Ok(ivm::EntrypointValueAtomV1::Pointer(
+        ivm::pointer_abi::encode_tlv(PointerType::Int, &frame)?,
+    ))
+}
+fn prepare_soracloud_invocation(
+    vm: &mut IVM,
+    contract: &PreparedContract,
+    entrypoint_name: &str,
+    input: SoracloudInvocationInput<'_>,
+) -> Result<(Option<PreparedArgumentRecord>, SoracloudOutputKind), VMError> {
+    let entrypoint = contract
+        .entrypoint_descriptor(entrypoint_name)
+        .ok_or(VMError::PermissionDenied)?;
+    let output_kind = soracloud_output_kind(entrypoint.return_schema.as_ref())?;
+    vm.select_entrypoint(entrypoint_name)?;
+    let Some(schema) = entrypoint.argument_schema.as_ref() else {
+        return Ok((None, output_kind));
+    };
+    if !schema.validate() || schema.fields.len() > 4 {
+        return Err(VMError::DecodeError);
+    }
+    let mut atoms = Vec::new();
+    atoms
+        .try_reserve_exact(schema.fields.len())
+        .map_err(|_| VMError::ExecutionDeferred(ivm::ExecutionDeferral::AllocationUnavailable))?;
+    for field in &schema.fields {
+        let atom = match (field.name.as_str(), field.ty.nodes.as_slice()) {
+            ("_request_body", [EntrypointValueTypeNodeV1::Leaf(kind)]) => {
+                let body = ivm::pointer_abi::validate_tlv_bytes(input.body_tlv)
+                    .map_err(|_| VMError::DecodeError)?;
+                if input.body_tlv.len()
+                    > iroha_data_model::smart_contract::entrypoint::MAX_ENTRYPOINT_ARGUMENT_RECORD_BYTES
+                {
+                    return Err(VMError::DecodeError);
+                }
+                let bytes = match kind {
+                    EntrypointValueKindV1::Blob if body.type_id == PointerType::Blob => {
+                        soracloud_copy_bytes(input.body_tlv)?
+                    }
+                    EntrypointValueKindV1::Blob => {
+                        ivm::pointer_abi::encode_tlv(PointerType::Blob, body.payload)?
+                    }
+                    EntrypointValueKindV1::Json if body.type_id == PointerType::Json => {
+                        soracloud_copy_bytes(input.body_tlv)?
+                    }
+                    _ => return Err(VMError::DecodeError),
+                };
+                ivm::EntrypointValueAtomV1::Pointer(bytes)
+            }
+            ("_request_meta", [EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Json)]) => {
+                let metadata = input.metadata_tlv.ok_or(VMError::DecodeError)?;
+                if metadata.len()
+                    > iroha_data_model::smart_contract::entrypoint::MAX_ENTRYPOINT_ARGUMENT_RECORD_BYTES
+                {
+                    return Err(VMError::DecodeError);
+                }
+                ivm::EntrypointValueAtomV1::Pointer(soracloud_copy_bytes(metadata)?)
+            }
+            (
+                "execution_sequence",
+                [EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)],
+            ) => soracloud_integer_atom(input.execution_sequence.ok_or(VMError::DecodeError)?)?,
+            ("observed_height", [EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)]) => {
+                soracloud_integer_atom(input.observed_height)?
+            }
+            _ => return Err(VMError::DecodeError),
+        };
+        atoms.push(atom);
+    }
+    let schema_bytes = soracloud_canonical_frame(
+        schema,
+        iroha_data_model::smart_contract::entrypoint::MAX_ENTRYPOINT_ARGUMENT_SCHEMA_BYTES,
+    )?;
+    let record = EntrypointArgumentRecordV1 {
+        schema_hash: entrypoint_argument_schema_hash_v1(&schema_bytes),
+        atoms,
+    };
+    let canonical = soracloud_canonical_frame(
+        &record,
+        iroha_data_model::smart_contract::entrypoint::MAX_ENTRYPOINT_ARGUMENT_RECORD_BYTES,
+    )?;
+    // TODO: The canonical preparation owner still has unadmitted native Arc/plan
+    // backing. Soracloud's cache has no execution AllocationBudget today; this
+    // migration does not invent one or claim full host-graph funding.
+    let arguments = ivm::prepare_argument_record_with_gas_limit(
+        schema,
+        Arc::from(canonical),
+        vm.remaining_gas(),
+    )?;
+    arguments.precharge_vm(vm)?;
+    Ok((Some(arguments), output_kind))
+}
 fn decode_local_read_vm_output(
     vm: &IVM,
+    output_kind: SoracloudOutputKind,
     request: &SoracloudLocalReadRequest,
     context: &ResolvedLocalReadContext,
 ) -> Result<(Vec<u8>, Option<String>), SoracloudRuntimeExecutionError> {
     decode_vm_output(
         vm,
+        output_kind,
         "query",
         context.handler.handler_name.as_ref(),
         request.service_name.as_str(),
@@ -9337,6 +9535,7 @@ fn decode_local_read_vm_output(
 }
 fn decode_ordered_mailbox_vm_output(
     vm: &IVM,
+    output_kind: SoracloudOutputKind,
     request: &SoracloudOrderedMailboxExecutionRequest,
 ) -> Result<(Vec<u8>, Option<String>), SoracloudRuntimeExecutionError> {
     let handler_name = request
@@ -9356,6 +9555,7 @@ fn decode_ordered_mailbox_vm_output(
     };
     decode_vm_output(
         vm,
+        output_kind,
         execution_kind,
         handler_name,
         request.deployment.service_name.as_ref(),
@@ -9364,29 +9564,52 @@ fn decode_ordered_mailbox_vm_output(
 }
 fn decode_vm_output(
     vm: &IVM,
+    output_kind: SoracloudOutputKind,
     execution_kind: &str,
     handler_name: &str,
     service_name: &str,
     service_version: &str,
 ) -> Result<(Vec<u8>, Option<String>), SoracloudRuntimeExecutionError> {
-    let response_ptr = vm.register(10);
-    if response_ptr == 0 {
-        return Ok((Vec::new(), None));
+    let invalid_table = |error: &VMError| {
+        SoracloudRuntimeExecutionError::new(
+            vm_error_kind(error),
+            format!(
+                "{execution_kind} handler `{handler_name}` on service `{service_name}` revision `{service_version}` returned an invalid completed result table: {}",
+                vm_error_label(error),
+            ),
+        )
+    };
+    if vm
+        .call_result_word_count()
+        .map_err(|error| invalid_table(&error))?
+        != 1
+    {
+        return Err(invalid_table(&VMError::DecodeError));
+    }
+    let response_ptr = vm
+        .public_call_result_word(0)
+        .map_err(|error| invalid_table(&error))?;
+    if matches!(output_kind, SoracloudOutputKind::Unit) {
+        return if response_ptr == 0 {
+            Ok((Vec::new(), None))
+        } else {
+            Err(invalid_table(&VMError::DecodeError))
+        };
     }
     let tlv = vm.validate_tlv(response_ptr).map_err(|error| {
         SoracloudRuntimeExecutionError::new(
-            SoracloudRuntimeExecutionErrorKind::Internal,
+            vm_error_kind(&error),
             format!(
                 "{execution_kind} handler `{handler_name}` on service `{service_name}` revision `{service_version}` returned an invalid pointer: {}",
                 vm_error_label(&error),
             ),
         )
     })?;
-    let (response_bytes, content_type) = match tlv.type_id {
-        PointerType::Json => (
+    let (response_bytes, content_type) = match (output_kind, tlv.type_id) {
+        (SoracloudOutputKind::Json, PointerType::Json) => (
             json_pointer_response_payload(tlv.payload).map_err(|error| {
                 SoracloudRuntimeExecutionError::new(
-                    SoracloudRuntimeExecutionErrorKind::Internal,
+                    vm_error_kind(&error),
                     format!(
                         "{execution_kind} handler `{handler_name}` on service `{service_name}` revision `{service_version}` returned a JSON pointer without canonical Norito JSON framing: {}",
                         vm_error_label(&error),
@@ -9395,15 +9618,11 @@ fn decode_vm_output(
             })?,
             Some("application/json".to_owned()),
         ),
-        PointerType::Blob => (
-            tlv.payload.to_vec(),
+        (SoracloudOutputKind::Blob, PointerType::Blob) => (
+            soracloud_copy_bytes(tlv.payload).map_err(|error| invalid_table(&error))?,
             Some("application/octet-stream".to_owned()),
         ),
-        PointerType::NoritoBytes => (
-            tlv.payload.to_vec(),
-            Some("application/x-norito".to_owned()),
-        ),
-        other => {
+        (_, other) => {
             return Err(SoracloudRuntimeExecutionError::new(
                 SoracloudRuntimeExecutionErrorKind::Internal,
                 format!(
@@ -10967,6 +11186,20 @@ fn ordered_mailbox_vm_failure(
         SoraServiceHealthStatusV1::Degraded,
     ))
 }
+fn ordered_mailbox_output_failure(
+    request: SoracloudOrderedMailboxExecutionRequest,
+    error: SoracloudRuntimeExecutionError,
+) -> Result<SoracloudOrderedMailboxExecutionResult, SoracloudRuntimeExecutionError> {
+    if error.kind == SoracloudRuntimeExecutionErrorKind::Unavailable {
+        return Err(error);
+    }
+    Ok(deterministic_mailbox_failure_result_with_message(
+        request,
+        "invalid_response",
+        error.message,
+        SoraServiceHealthStatusV1::Degraded,
+    ))
+}
 fn deterministic_mailbox_failure_result(
     request: SoracloudOrderedMailboxExecutionRequest,
     outcome_label: &str,
@@ -11168,12 +11401,12 @@ fn authoritative_mailbox_result_commitment(
 }
 fn mailbox_payload_tlv_bytes(payload_bytes: &[u8]) -> Result<Vec<u8>, VMError> {
     if payload_bytes.is_empty() {
-        return Ok(make_pointer_tlv(PointerType::Blob, &[]));
+        return ivm::pointer_abi::encode_tlv(PointerType::Blob, &[]);
     }
     if ivm::pointer_abi::validate_tlv_bytes(payload_bytes).is_ok() {
-        return Ok(payload_bytes.to_vec());
+        return soracloud_copy_bytes(payload_bytes);
     }
-    Ok(make_pointer_tlv(PointerType::Blob, payload_bytes))
+    ivm::pointer_abi::encode_tlv(PointerType::Blob, payload_bytes)
 }
 fn make_pointer_tlv(pointer_type: PointerType, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(7 + payload.len() + Hash::LENGTH);
@@ -11221,6 +11454,8 @@ fn vm_error_label(error: &VMError) -> &'static str {
         VMError::NullifierAlreadyUsed => "nullifier_used",
         VMError::PermissionDenied => "permission_denied",
         VMError::PrivacyViolation => "privacy_violation",
+        VMError::ReentrantCall => "reentrant_call",
+        VMError::CallDepthExceeded => "call_depth_exceeded",
         VMError::RegisterOutOfBounds => "register_out_of_bounds",
         VMError::NoritoInvalid => "norito_invalid",
         VMError::AbiTypeNotAllowed { .. } => "abi_type_not_allowed",

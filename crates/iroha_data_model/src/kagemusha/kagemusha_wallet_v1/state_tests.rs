@@ -10,8 +10,8 @@ use crate::kagemusha::kagemusha_wallet_v1::{
     codec_tests::{assert_every_flip_rejected_or_rebound, norito_tag},
     decode_frame_v1,
     digest::{
-        KAGEMUSHA_WALLET_FIELD_MODULUS_V1, kagemusha_wallet_field_from_u128_v1,
-        kagemusha_wallet_is_canonical_field_v1,
+        KAGEMUSHA_WALLET_FIELD_MODULUS_V1, KagemushaWalletObjectDigestDomainV1,
+        kagemusha_wallet_field_from_u128_v1, kagemusha_wallet_is_canonical_field_v1,
     },
     identity::{
         KagemushaWalletEvidenceKindV1,
@@ -19,7 +19,8 @@ use crate::kagemusha::kagemusha_wallet_v1::{
     },
     poseidon::{
         KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1, KagemushaWalletIndexedTreeV1,
-        kagemusha_wallet_packed_bytes_v1, kagemusha_wallet_poseidon_v1,
+        kagemusha_wallet_indexed_verify_membership_v1, kagemusha_wallet_packed_bytes_v1,
+        kagemusha_wallet_poseidon_v1,
     },
 };
 
@@ -113,7 +114,7 @@ pub(in crate::kagemusha::kagemusha_wallet_v1) fn send_effect() -> KagemushaWalle
         send_ordinal: 4,
         amount: 1_000,
         fee: 10,
-        request: [0x73; 32],
+        request: field_value(0x73),
         accepted_lower_ms: 5,
         accepted_upper_ms: 9,
     }
@@ -128,7 +129,7 @@ fn sample_effects(f: &IdentityFixture) -> [KagemushaWalletEffectV1; 8] {
             enrollment_marker: MARKER,
         },
         KagemushaWalletEffectV1::Load {
-            voucher: [0x62; 32],
+            receipt_digest: field_value(0x62),
             load_ordinal: 0,
             amount: 5_000,
             online_charge: 25,
@@ -148,11 +149,11 @@ fn sample_effects(f: &IdentityFixture) -> [KagemushaWalletEffectV1; 8] {
             redeem_ordinal: 2,
             amount: 700,
             online_charge: 7,
-            charge_quote: [0x79; 32],
+            charge_quote: field_value(0x79),
         },
         KagemushaWalletEffectV1::RefreshPolicy {
             update_kind: KagemushaWalletPolicyUpdateKindV1::SchemePolicy,
-            update: [0x7a; 32],
+            update: field_value(0x7a),
             accepted_time_floor_ms: 12,
         },
         KagemushaWalletEffectV1::Retiring,
@@ -307,13 +308,6 @@ fn is_invalid<T>(result: WalletResult<T>, expected: &str) -> bool {
     )
 }
 
-fn effect_fields_len(effect: &KagemushaWalletEffectV1) -> usize {
-    effect
-        .write_fields(WalletTranscriptV1::with_capacity(0))
-        .finish()
-        .len()
-}
-
 fn int(value: u128) -> [u8; 32] {
     kagemusha_wallet_field_from_u128_v1(value)
 }
@@ -337,35 +331,23 @@ fn kagemusha_wallet_v1_state_transcript_lengths_are_pinned() {
     let f = android();
     for (constant, expected) in [
         (KAGEMUSHA_WALLET_COMMITMENT_TRANSCRIPT_BYTES_V1, 32),
-        (KAGEMUSHA_WALLET_EFFECT_UNION_BYTES_V1, 160),
-        (KAGEMUSHA_WALLET_EFFECT_TRANSCRIPT_BYTES_V1, 161),
-        (KAGEMUSHA_WALLET_STATEMENT_TRANSCRIPT_BYTES_V1, 440),
         (KAGEMUSHA_WALLET_RECEIPT_BODY_TRANSCRIPT_BYTES_V1, 338),
-        (KAGEMUSHA_WALLET_OPERATION_ID_TRANSCRIPT_BYTES_V1, 65),
-        (KAGEMUSHA_WALLET_PACKAGE_TRANSCRIPT_BYTES_V1, 96),
-        (KAGEMUSHA_WALLET_UNLOAD_NULLIFIER_TRANSCRIPT_BYTES_V1, 80),
         (KAGEMUSHA_WALLET_LINEAGE_PUBLIC_TRANSCRIPT_BYTES_V1, 320),
-        (KAGEMUSHA_WALLET_CORE_FIELD_ITEMS_V1, 32),
-        (KAGEMUSHA_WALLET_REST_FIELD_ITEMS_V1, 13),
-        (KAGEMUSHA_WALLET_EFFECT_FIELD_ITEMS_V1, 10),
-        (KAGEMUSHA_WALLET_STATEMENT_FIELD_ITEMS_V1, 28),
+        (KAGEMUSHA_WALLET_CORE_FIELD_ITEMS_V1, 33),
+        (KAGEMUSHA_WALLET_REST_FIELD_ITEMS_V1, 8),
+        (KAGEMUSHA_WALLET_EFFECT_FIELD_ITEMS_V1, 9),
+        (KAGEMUSHA_WALLET_STATEMENT_FIELD_ITEMS_V1, 26),
+        (KAGEMUSHA_WALLET_QUOTA_USAGE_SLOTS_V1, 64),
     ] {
         assert_eq!(constant, expected);
     }
     assert_eq!(max_width_v1(&[]), 0);
     assert_eq!(max_width_v1(&[3, 9, 4]), 9);
-    assert_eq!(
-        KAGEMUSHA_WALLET_EFFECT_UNION_BYTES_V1,
-        *EFFECT_FIELDS_BYTES.iter().max().expect("variants")
-    );
+    // Every `P` value of an effect is one element; the Bootstrap enrollment id and marker are
+    // two limbs each (owner answer B1).
+    assert_eq!(EFFECT_FIELD_ITEMS, [4, 4, 9, 4, 2, 5, 3, 0]);
     let effects = sample_effects(&f);
-    for ((effect, width), items) in effects
-        .iter()
-        .zip(EFFECT_FIELDS_BYTES)
-        .zip(EFFECT_FIELD_ITEMS)
-    {
-        assert_eq!(effect_fields_len(effect), width, "{effect:?}");
-        assert_eq!(effect.fields_bytes(), width);
+    for (effect, items) in effects.iter().zip(EFFECT_FIELD_ITEMS) {
         assert_eq!(effect.field_items_len(), items);
         assert_eq!(
             effect
@@ -373,15 +355,7 @@ fn kagemusha_wallet_v1_state_transcript_lengths_are_pinned() {
                 .len(),
             items
         );
-        assert_eq!(
-            effect.transcript().len(),
-            KAGEMUSHA_WALLET_EFFECT_TRANSCRIPT_BYTES_V1
-        );
         let statement = statement_for(&f, *effect);
-        assert_eq!(
-            statement.transcript().len(),
-            KAGEMUSHA_WALLET_STATEMENT_TRANSCRIPT_BYTES_V1
-        );
         assert_eq!(
             statement.field_items().expect("items").len(),
             KAGEMUSHA_WALLET_STATEMENT_FIELD_ITEMS_V1
@@ -503,52 +477,66 @@ fn kagemusha_wallet_v1_operations_that_consume_lineage() {
 }
 
 #[test]
-fn kagemusha_wallet_v1_effect_transcripts_are_zero_filled_unions() {
+fn kagemusha_wallet_v1_effect_elements_are_one_element_per_p_value() {
     let f = android();
-    for effect in sample_effects(&f) {
-        let transcript = effect.transcript();
-        assert_eq!(transcript[0], effect.tag());
-        let fields = effect_fields_len(&effect);
-        assert!(transcript[1 + fields..].iter().all(|byte| *byte == 0));
-    }
+    // The Send effect: credit_id, receiver wallet (2), ordinal, amount, fee, Request object
+    // digest (one element), L, U.
+    let [receiver_low, receiver_high] = limb_items(&[0x72; 32]);
     assert_eq!(
-        KagemushaWalletEffectV1::Retiring.transcript(),
-        [&[8_u8][..], &[0; 160][..]].concat()
+        send_effect()
+            .write_field_items(WalletFieldItemsV1::with_capacity(9))
+            .finish(),
+        vec![
+            field_value(0x71),
+            receiver_low,
+            receiver_high,
+            int(4),
+            int(1_000),
+            int(10),
+            field_value(0x73),
+            int(5),
+            int(9),
+        ]
     );
-    let mut expected = vec![3_u8];
-    expected.extend_from_slice(&field_value(0x71));
-    expected.extend_from_slice(&[0x72; 32]);
-    expected.extend_from_slice(&4_u128.to_le_bytes());
-    expected.extend_from_slice(&1_000_u128.to_le_bytes());
-    expected.extend_from_slice(&10_u128.to_le_bytes());
-    expected.extend_from_slice(&[0x73; 32]);
-    expected.extend_from_slice(&5_u64.to_le_bytes());
-    expected.extend_from_slice(&9_u64.to_le_bytes());
-    assert_eq!(send_effect().transcript(), expected);
-
     // The Receive effect binds no Payment digest (§3).
     let receive = KagemushaWalletEffectV1::Receive {
         credit_id: field_value(0x75),
         payer_wallet_id: [0x76; 32],
         amount: 300,
     };
-    let mut expected = vec![4_u8];
-    expected.extend_from_slice(&field_value(0x75));
-    expected.extend_from_slice(&[0x76; 32]);
-    expected.extend_from_slice(&300_u128.to_le_bytes());
-    expected.resize(KAGEMUSHA_WALLET_EFFECT_TRANSCRIPT_BYTES_V1, 0);
-    assert_eq!(receive.transcript(), expected);
-
+    let [payer_low, payer_high] = limb_items(&[0x76; 32]);
+    assert_eq!(
+        receive
+            .write_field_items(WalletFieldItemsV1::with_capacity(4))
+            .finish(),
+        vec![field_value(0x75), payer_low, payer_high, int(300)]
+    );
     let refresh = KagemushaWalletEffectV1::RefreshPolicy {
         update_kind: KagemushaWalletPolicyUpdateKindV1::TimeAnchor,
-        update: [0x7b; 32],
+        update: field_value(0x7b),
         accepted_time_floor_ms: 0x0102,
     };
-    let transcript = refresh.transcript();
-    assert_eq!(&transcript[..2], &[7, 5]);
-    assert_eq!(&transcript[2..34], &[0x7b; 32]);
-    assert_eq!(&transcript[34..42], &0x0102_u64.to_le_bytes());
-    assert!(transcript[42..].iter().all(|byte| *byte == 0));
+    assert_eq!(
+        refresh
+            .write_field_items(WalletFieldItemsV1::with_capacity(3))
+            .finish(),
+        vec![int(5), field_value(0x7b), int(0x0102)]
+    );
+    let body = &f.credential.body;
+    let nullifier = kagemusha_wallet_unload_nullifier_v1(&body.scheme_id, &body.wallet_id, 2);
+    let unload = KagemushaWalletEffectV1::Unload {
+        nullifier,
+        redeem_ordinal: 2,
+        amount: 700,
+        online_charge: 0,
+        charge_quote: [0; 32],
+    };
+    assert_eq!(
+        unload
+            .write_field_items(WalletFieldItemsV1::with_capacity(5))
+            .finish(),
+        vec![nullifier, int(2), int(700), int(0), [0; 32]]
+    );
 }
 
 #[test]
@@ -599,6 +587,53 @@ fn kagemusha_wallet_v1_effect_validation_rules() {
         *credit_id = [0x71; 32];
     }
     assert!(is_invalid(wide_credit.validate(), "effect.credit_id"));
+    // Every `P` digest of an effect is a canonical σ-field value (owner answer B1).
+    let mut wide_request = send(1, 0, 1, 1);
+    if let KagemushaWalletEffectV1::Send { request, .. } = &mut wide_request {
+        *request = [0x73; 32];
+    }
+    assert!(is_invalid(wide_request.validate(), "effect.request"));
+    for (effect, field) in [
+        (
+            KagemushaWalletEffectV1::Load {
+                receipt_digest: [0x62; 32],
+                load_ordinal: 0,
+                amount: 1,
+                online_charge: 0,
+            },
+            "effect.receipt_digest",
+        ),
+        (
+            KagemushaWalletEffectV1::Unload {
+                nullifier: [0x77; 32],
+                redeem_ordinal: 0,
+                amount: 1,
+                online_charge: 0,
+                charge_quote: [0; 32],
+            },
+            "effect.nullifier",
+        ),
+        (
+            KagemushaWalletEffectV1::Unload {
+                nullifier: [0x01; 32],
+                redeem_ordinal: 0,
+                amount: 1,
+                online_charge: 1,
+                charge_quote: [0x79; 32],
+            },
+            "effect.charge_quote",
+        ),
+        (
+            KagemushaWalletEffectV1::RefreshPolicy {
+                update_kind: KagemushaWalletPolicyUpdateKindV1::SchemePolicy,
+                update: [0x7a; 32],
+                accepted_time_floor_ms: 0,
+            },
+            "effect.update",
+        ),
+    ] {
+        assert!(is_invalid(effect.validate(), field), "{field}");
+    }
 
     let unload = |amount, online_charge, charge_quote| KagemushaWalletEffectV1::Unload {
         nullifier: [0x01; 32],
@@ -643,12 +678,12 @@ fn kagemusha_wallet_v1_effect_validation_rules() {
         ),
         (
             KagemushaWalletEffectV1::Load {
-                voucher: [0; 32],
+                receipt_digest: [0; 32],
                 load_ordinal: 0,
                 amount: 1,
                 online_charge: 0,
             },
-            "effect.voucher",
+            "effect.receipt_digest",
         ),
         (
             KagemushaWalletEffectV1::Receive {
@@ -678,6 +713,14 @@ fn kagemusha_wallet_v1_effect_validation_rules() {
             KagemushaWalletEffectV1::ArchiveSent {
                 credit_id: [1; 32],
                 credited: [0; 32],
+            },
+            "effect.credited",
+        ),
+        // The Credited digest is a canonical σ-field value (owner answer A3).
+        (
+            KagemushaWalletEffectV1::ArchiveSent {
+                credit_id: [1; 32],
+                credited: [0xff; 32],
             },
             "effect.credited",
         ),
@@ -716,14 +759,14 @@ fn kagemusha_wallet_v1_operation_id_derivation() {
     let wallet_id = f.credential.body.wallet_id;
     let inputs = [
         f.credential.body.enrollment_id,
-        [0x62; 32],
+        field_value(0x62),
         field_value(0x71),
         field_value(0x75),
         // ArchiveSent binds its Credited digest, so a re-archive after a no-op branch is a new
         // operation (§§3.2, 4.1).
-        [0x78; 32],
+        field_value(0x78),
         sample_effects(&f)[5].operation_input(),
-        [0x7a; 32],
+        field_value(0x7a),
         [0; 32],
     ];
     let mut seen = std::collections::BTreeSet::new();
@@ -733,21 +776,29 @@ fn kagemusha_wallet_v1_operation_id_derivation() {
         .zip(inputs)
     {
         assert_eq!(effect.operation_input(), input);
-        let mut transcript = wallet_id.to_vec();
-        transcript.push(kind.tag());
-        transcript.extend_from_slice(&input);
+        // `[wallet_id (2), kind] || input`: the Bootstrap enrollment id is two limbs, every
+        // other input one element (4 elements, 5 for Bootstrap).
+        let mut items = limb_items(&wallet_id).to_vec();
+        items.push(int(u128::from(kind.tag())));
+        if kind == KagemushaWalletOperationKindV1::Bootstrap {
+            items.extend(limb_items(&input));
+        } else {
+            items.push(input);
+        }
         assert_eq!(
-            kagemusha_wallet_operation_id_transcript_v1(&wallet_id, kind, &input),
-            transcript
+            kagemusha_wallet_operation_id_items_v1(&wallet_id, kind, &input).expect("items"),
+            items
         );
-        let operation_id = kagemusha_wallet_operation_id_v1(&wallet_id, kind, &input);
+        let operation_id =
+            kagemusha_wallet_operation_id_v1(&wallet_id, kind, &input).expect("operation id");
         assert_eq!(
             operation_id,
-            kagemusha_wallet_digest_v1(Role::OperationId, &transcript)
+            poseidon_items_v1(KAGEMUSHA_WALLET_OPERATION_ID_DOMAIN_V1, &items)
         );
+        assert!(kagemusha_wallet_is_canonical_field_v1(&operation_id));
         assert_eq!(
-            statement_for(&f, *effect).operation_id(&wallet_id),
-            operation_id
+            statement_for(&f, *effect).operation_id(&wallet_id).ok(),
+            Some(operation_id)
         );
         assert!(seen.insert(operation_id), "{kind:?}");
     }
@@ -764,31 +815,63 @@ fn kagemusha_wallet_v1_operation_id_derivation() {
             &wallet_id,
             KagemushaWalletOperationKindV1::Send,
             &[1; 32]
-        ),
+        )
+        .ok(),
         kagemusha_wallet_operation_id_v1(
             &wallet_id,
             KagemushaWalletOperationKindV1::ArchiveSent,
             &[1; 32]
         )
+        .ok()
     );
+    // A `P` input must be canonical, and Retiring's input is the zero element.
+    assert!(is_invalid(
+        kagemusha_wallet_operation_id_v1(
+            &wallet_id,
+            KagemushaWalletOperationKindV1::Send,
+            &[0xff; 32]
+        ),
+        "operation_id.input"
+    ));
+    assert!(is_invalid(
+        kagemusha_wallet_operation_id_v1(
+            &wallet_id,
+            KagemushaWalletOperationKindV1::Retiring,
+            &[1; 32]
+        ),
+        "operation_id.input"
+    ));
+    // The Bootstrap enrollment id is two limbs, so any 32 bytes are accepted there.
+    kagemusha_wallet_operation_id_v1(
+        &wallet_id,
+        KagemushaWalletOperationKindV1::Bootstrap,
+        &[0xff; 32],
+    )
+    .expect("bootstrap input");
 }
 
 #[test]
 fn kagemusha_wallet_v1_unload_nullifier_layout() {
     let scheme = [0x01; 32];
     let wallet = [0x02; 32];
-    let transcript = kagemusha_wallet_unload_nullifier_transcript_v1(&scheme, &wallet, 0x0304);
-    let mut expected = scheme.to_vec();
-    expected.extend_from_slice(&wallet);
-    expected.extend_from_slice(&0x0304_u128.to_le_bytes());
-    assert_eq!(transcript, expected);
+    let items = kagemusha_wallet_unload_nullifier_items_v1(&scheme, &wallet, 0x0304);
+    let mut expected = limb_items(&scheme).to_vec();
+    expected.extend(limb_items(&wallet));
+    expected.push(int(0x0304));
+    assert_eq!(items, expected);
+    let nullifier = kagemusha_wallet_unload_nullifier_v1(&scheme, &wallet, 0x0304);
     assert_eq!(
-        kagemusha_wallet_unload_nullifier_v1(&scheme, &wallet, 0x0304),
-        kagemusha_wallet_digest_v1(Role::UnloadNullifier, &expected)
+        nullifier,
+        poseidon_items_v1(KAGEMUSHA_WALLET_NULLIFIER_DOMAIN_V1, &expected)
     );
+    assert!(kagemusha_wallet_is_canonical_field_v1(&nullifier));
     assert_ne!(
         kagemusha_wallet_unload_nullifier_v1(&scheme, &wallet, 0),
         kagemusha_wallet_unload_nullifier_v1(&scheme, &wallet, 1)
+    );
+    assert_ne!(
+        kagemusha_wallet_unload_nullifier_v1(&wallet, &scheme, 0),
+        kagemusha_wallet_unload_nullifier_v1(&scheme, &wallet, 0)
     );
 }
 
@@ -797,44 +880,28 @@ fn kagemusha_wallet_v1_statement_layout_and_validation() {
     let f = android();
     let statement = bootstrap_statement(&f);
     statement.validate().expect("bootstrap");
-    let mut expected = 1_u16.to_le_bytes().to_vec();
-    expected.extend_from_slice(&statement.scheme_id);
-    expected.extend_from_slice(&statement.relation_id);
-    expected.extend_from_slice(&statement.credential_digest);
-    expected.extend_from_slice(&statement.asset_digest);
-    expected.push(1);
-    expected.extend_from_slice(&0_u128.to_le_bytes());
-    expected.extend_from_slice(&0_u128.to_le_bytes());
-    expected.extend_from_slice(&0_u32.to_le_bytes());
-    expected.extend_from_slice(&0_u128.to_le_bytes());
-    expected.extend_from_slice(&[0; 32]);
-    expected.extend_from_slice(&[0; 32]);
-    expected.extend_from_slice(&commitment(1).transcript());
-    expected.extend_from_slice(&statement.effect.transcript());
-    assert_eq!(statement.transcript(), expected);
+    // The statement digest is the σ statement digest `P(kgwstmt1, ·)`; there is no byte
+    // transcript (owner answer B1).
     assert_eq!(
-        statement.statement_digest(),
-        kagemusha_wallet_digest_v1(Role::Statement, &expected)
+        statement.statement_digest().ok(),
+        Some(poseidon_items_v1(
+            KAGEMUSHA_WALLET_STATEMENT_DOMAIN_V1,
+            &statement.field_items().expect("items")
+        ))
     );
 
     // A consuming statement carries Ω(pred)'s burned_total and pending-outgoing root.
     let mut send = statement_for(&f, send_effect());
     send.lineage_burned_total = 0x0506;
     send.enabled_controls = 1;
-    let transcript = send.transcript();
-    let lineage_offset = 2 + 4 * 32 + 1 + 32;
-    assert_eq!(
-        &transcript[lineage_offset..lineage_offset + 4],
-        &1_u32.to_le_bytes()
-    );
-    assert_eq!(
-        &transcript[lineage_offset + 4..lineage_offset + 20],
-        &0x0506_u128.to_le_bytes()
-    );
-    assert_eq!(
-        &transcript[lineage_offset + 20..lineage_offset + 52],
-        &LINEAGE_PENDING_ROOT
-    );
+    let items = send.field_items().expect("items");
+    assert_eq!(items[11], int(1));
+    assert_eq!(items[12], int(0x0506));
+    assert_eq!(items[13], LINEAGE_PENDING_ROOT);
+    // The credential digest is a canonical `P` value.
+    let mut wide = bootstrap_statement(&f);
+    wide.credential_digest = [0xff; 32];
+    assert!(is_invalid(wide.validate(), "statement.credential_digest"));
 
     for effect in sample_effects(&f) {
         statement_for(&f, effect)
@@ -920,7 +987,7 @@ fn kagemusha_wallet_v1_statement_layout_and_validation() {
             next_load,
             KagemushaWalletLifecycleV1::Retiring,
             KagemushaWalletEffectV1::Load {
-                voucher: [1; 32],
+                receipt_digest: [1; 32],
                 load_ordinal,
                 amount: 1,
                 online_charge: 0,
@@ -963,7 +1030,7 @@ fn kagemusha_wallet_v1_statement_field_items_layout() {
     expected.extend(limb_items(&statement.relation_id));
     expected.extend(limb_items(&statement.scheme_id));
     expected.extend(limb_items(&statement.asset_digest));
-    expected.extend(limb_items(&statement.credential_digest));
+    expected.push(statement.credential_digest);
     expected.extend([int(1), int(3), int(0), int(1), int(77)]);
     expected.extend([
         LINEAGE_PENDING_ROOT,
@@ -971,16 +1038,17 @@ fn kagemusha_wallet_v1_statement_field_items_layout() {
         commitment(4).value,
     ]);
     expected.push(int(3));
-    // `credit_id` is one σ-field element; every other digest two limbs (§3).
+    // `credit_id` and the Request object digest are one σ-field element each; the receiver
+    // wallet two limbs (§3, owner answer B1).
     expected.push(field_value(0x71));
     expected.extend(limb_items(&[0x72; 32]));
     expected.extend([int(4), int(1_000), int(10)]);
-    expected.extend(limb_items(&[0x73; 32]));
+    expected.push(field_value(0x73));
     expected.extend([int(5), int(9)]);
     assert_eq!(items, expected);
     assert_eq!(items.len(), KAGEMUSHA_WALLET_STATEMENT_FIELD_ITEMS_V1);
     assert_eq!(
-        statement.field_digest().ok(),
+        statement.statement_digest().ok(),
         Some(poseidon_items_v1(
             KAGEMUSHA_WALLET_STATEMENT_DOMAIN_V1,
             &expected
@@ -988,26 +1056,44 @@ fn kagemusha_wallet_v1_statement_field_items_layout() {
     );
     let mut other = statement;
     other.lineage_burned_total = 78;
-    assert_ne!(other.field_digest().ok(), statement.field_digest().ok());
+    assert_ne!(
+        other.statement_digest().ok(),
+        statement.statement_digest().ok()
+    );
 
-    // Every effect is zero-filled to the 10-element union after its tag at element 17.
+    // Every effect is zero-filled to the 9-element union after its tag at element 16.
     for effect in sample_effects(&f) {
         let items = statement_for(&f, effect).field_items().expect("items");
-        assert_eq!(items[17], int(u128::from(effect.tag())));
+        assert_eq!(items[16], int(u128::from(effect.tag())));
         assert!(
-            items[18 + effect.field_items_len()..]
+            items[17 + effect.field_items_len()..]
                 .iter()
                 .all(|item| *item == [0; 32])
         );
     }
+    // ArchiveSent carries `credit_id` and the Credited digest as one element each (owner
+    // answer A3).
+    let archive = statement_for(
+        &f,
+        KagemushaWalletEffectV1::ArchiveSent {
+            credit_id: field_value(0x71),
+            credited: field_value(0x78),
+        },
+    );
+    let items = archive.field_items().expect("items");
+    assert_eq!(items[17..19], [field_value(0x71), field_value(0x78)]);
+    assert!(items[19..].iter().all(|item| *item == [0; 32]));
     let retiring = statement_for(&f, KagemushaWalletEffectV1::Retiring);
     let items = retiring.field_items().expect("items");
-    assert_eq!(items[9], int(2));
-    assert_eq!(items[14], LINEAGE_PENDING_ROOT);
+    assert_eq!(items[8], int(2));
+    assert_eq!(items[13], LINEAGE_PENDING_ROOT);
     let mut invalid = bootstrap_statement(&f);
     invalid.successor = KagemushaWalletStateCommitmentV1::ZERO;
     assert!(is_invalid(invalid.field_items(), "statement.successor"));
-    assert!(is_invalid(invalid.field_digest(), "statement.successor"));
+    assert!(is_invalid(
+        invalid.statement_digest(),
+        "statement.successor"
+    ));
     assert_eq!(
         KAGEMUSHA_WALLET_STATEMENT_DOMAIN_V1.to_le_bytes(),
         *b"kgwstmt1"
@@ -1117,7 +1203,7 @@ fn kagemusha_wallet_v1_statement_successor_rules() {
             ordinal + 1,
             lifecycle,
             KagemushaWalletEffectV1::Load {
-                voucher: [0x62; 32],
+                receipt_digest: field_value(0x62),
                 load_ordinal: ordinal,
                 amount: 1,
                 online_charge: 0,
@@ -1188,7 +1274,7 @@ fn kagemusha_wallet_v1_statement_successor_rules() {
         reverted.validate_successor_of(&retiring),
         "statement.lifecycle"
     ));
-    // A Retiring wallet keeps sending, receiving, loading issued vouchers, archiving,
+    // A Retiring wallet keeps sending, receiving, loading finalized Load receipts, archiving,
     // unloading and refreshing policy (§6.3).
     let body = &f.credential.body;
     for effect in [
@@ -1211,7 +1297,7 @@ fn kagemusha_wallet_v1_statement_successor_rules() {
         },
         KagemushaWalletEffectV1::RefreshPolicy {
             update_kind: KagemushaWalletPolicyUpdateKindV1::SchemePolicy,
-            update: [0x7a; 32],
+            update: field_value(0x7a),
             accepted_time_floor_ms: 0,
         },
     ] {
@@ -1230,7 +1316,7 @@ fn kagemusha_wallet_v1_statement_successor_rules() {
             2,
             KagemushaWalletLifecycleV1::Retiring,
             KagemushaWalletEffectV1::Load {
-                voucher: [0x63; 32],
+                receipt_digest: field_value(0x63),
                 load_ordinal: 1,
                 amount: 1,
                 online_charge: 0,
@@ -1239,7 +1325,7 @@ fn kagemusha_wallet_v1_statement_successor_rules() {
     };
     late_load
         .validate_successor_of(&retiring)
-        .expect("a retiring wallet loads issued vouchers");
+        .expect("a retiring wallet loads finalized Load receipts");
     let mut late_send = reverted;
     late_send.lifecycle = KagemushaWalletLifecycleV1::Retiring;
     let mut stale_load = late_send;
@@ -1249,14 +1335,23 @@ fn kagemusha_wallet_v1_statement_successor_rules() {
         "statement.next_load"
     ));
 
+    let mut noncanonical_credential = late_send;
+    noncanonical_credential.credential_digest = [0x44; 32];
+    assert!(is_invalid(
+        noncanonical_credential.validate_successor_of(&retiring),
+        "statement.credential_digest"
+    ));
     let mut other_credential = late_send;
-    other_credential.credential_digest = [0x44; 32];
+    other_credential.credential_digest = field_value(0x44);
+    other_credential
+        .validate()
+        .expect("canonical changed credential reaches the successor binding");
     assert!(is_invalid(
         other_credential.validate_successor_of(&retiring),
         "statement.credential_digest"
     ));
     let replacement = KagemushaWalletStatementV1 {
-        credential_digest: [0x44; 32],
+        credential_digest: field_value(0x44),
         predecessor: commitment(3),
         ..transition_statement(
             &f,
@@ -1265,7 +1360,7 @@ fn kagemusha_wallet_v1_statement_successor_rules() {
             KagemushaWalletLifecycleV1::Retiring,
             KagemushaWalletEffectV1::RefreshPolicy {
                 update_kind: KagemushaWalletPolicyUpdateKindV1::Credential,
-                update: [0x44; 32],
+                update: field_value(0x44),
                 accepted_time_floor_ms: 0,
             },
         )
@@ -1332,7 +1427,7 @@ fn kagemusha_wallet_v1_statement_consumer_checks_against_lineage() {
     let load = statement_for(
         &f,
         KagemushaWalletEffectV1::Load {
-            voucher: [1; 32],
+            receipt_digest: [1; 32],
             load_ordinal: 0,
             amount: 1,
             online_charge: 0,
@@ -1542,10 +1637,14 @@ fn kagemusha_wallet_v1_receipt_sign_verify_and_bindings() {
     expected.extend_from_slice(&f.credential.body.wallet_id);
     expected.extend_from_slice(&f.credential.body.provider_contract);
     expected.extend_from_slice(&3_u128.to_le_bytes());
-    expected.extend_from_slice(&statement.operation_id(&f.credential.body.wallet_id));
+    expected.extend_from_slice(
+        &statement
+            .operation_id(&f.credential.body.wallet_id)
+            .expect("operation identity"),
+    );
     expected.extend_from_slice(&commitment(3).transcript());
     expected.extend_from_slice(&commitment(4).transcript());
-    expected.extend_from_slice(&statement.statement_digest());
+    expected.extend_from_slice(&statement.statement_digest().expect("statement digest"));
     expected.extend_from_slice(&proof_digest);
     expected.extend_from_slice(&CAPSULE);
     expected.extend_from_slice(&[0; 32]);
@@ -1575,7 +1674,7 @@ fn kagemusha_wallet_v1_receipt_sign_verify_and_bindings() {
     assert_eq!(
         digest,
         kagemusha_wallet_signed_object_digest_v1(
-            Role::Receipt,
+            KagemushaWalletObjectDigestDomainV1::Receipt,
             &body.signing_message(),
             &receipt.signature
         )
@@ -1701,17 +1800,20 @@ fn kagemusha_wallet_v1_package_verify_digest_and_flips() {
     let statement = statement_for(&f, send_effect());
     let package = signed_package(&f, &f.credential, &statement, stand_in_proof(96));
     let digests = package.verify(&f.credential).expect("verify");
-    assert_eq!(digests.statement, statement.statement_digest());
+    assert_eq!(
+        digests.statement,
+        statement.statement_digest().expect("statement digest")
+    );
     assert_eq!(digests.proof, package.proof_digest().expect("proof digest"));
-    let mut transcript = digests.statement.to_vec();
-    transcript.extend_from_slice(&digests.proof);
-    transcript.extend_from_slice(&digests.receipt);
+    let items = [digests.statement, digests.proof, digests.receipt];
     assert_eq!(
         digests.package,
-        kagemusha_wallet_digest_v1(Role::Package, &transcript)
+        kagemusha_wallet_poseidon_v1(KAGEMUSHA_WALLET_PACKAGE_DOMAIN_V1, &items)
+            .expect("package digest")
     );
     assert_eq!(
-        kagemusha_wallet_package_digest_v1(&digests.statement, &digests.proof, &digests.receipt),
+        kagemusha_wallet_package_digest_v1(&digests.statement, &digests.proof, &digests.receipt)
+            .expect("package digest"),
         digests.package
     );
     assert_eq!(
@@ -1723,7 +1825,7 @@ fn kagemusha_wallet_v1_package_verify_digest_and_flips() {
     assert_eq!(consumer, digests);
     assert_eq!(signer.wallet_id, f.credential.body.wallet_id);
     assert_eq!(
-        package.verifying_key_selector(),
+        package.verifying_key_selector(None).expect("send selector"),
         (KagemushaWalletOperationKindV1::Send, 0)
     );
 
@@ -1791,14 +1893,52 @@ fn kagemusha_wallet_v1_package_verify_digest_and_flips() {
 
 #[test]
 fn kagemusha_wallet_v1_receive_package_binds_payment_digest() {
-    let f = android();
-    let statement = statement_for(&f, sample_effects(&f)[3]);
+    let messages = super::super::messages::messages_tests::message_fixture();
+    let request = messages.request(true);
+    let f = messages.receiver;
+    let effect = KagemushaWalletEffectV1::Receive {
+        credit_id: request.credit_id(),
+        payer_wallet_id: request.body.payer_wallet_id,
+        amount: request.body.amount,
+    };
+    let statement = statement_for(&f, effect);
     let package = signed_package(&f, &f.credential, &statement, stand_in_proof(40));
     assert_eq!(package.receipt.payment_digest, RECEIVE_PAYMENT);
     package.verify(&f.credential).expect("receive package");
     assert_eq!(
-        package.verifying_key_selector(),
+        package
+            .verifying_key_selector(Some(&request.body))
+            .expect("receive selector"),
         (KagemushaWalletOperationKindV1::Receive, 0)
+    );
+    assert!(is_invalid(
+        package.verifying_key_selector(None),
+        "package.request"
+    ));
+    let mut foreign = request.body;
+    foreign.nonce[0] ^= 1;
+    assert!(is_invalid(
+        package.verifying_key_selector(Some(&foreign)),
+        "package.request"
+    ));
+    // Receive selects the key for the recorded decision, independently of current controls.
+    let mut recorded = request.body;
+    recorded.receiver_blacklist_version = 1;
+    recorded.receiver_blacklist_root = field_value(0x39);
+    let mut recorded_statement = statement;
+    if let KagemushaWalletEffectV1::Receive { credit_id, .. } = &mut recorded_statement.effect {
+        *credit_id = recorded.credit_id();
+    }
+    let recorded_package =
+        signed_package(&f, &f.credential, &recorded_statement, stand_in_proof(40));
+    assert_eq!(
+        recorded_package
+            .verifying_key_selector(Some(&recorded))
+            .expect("recorded selector"),
+        (
+            KagemushaWalletOperationKindV1::Receive,
+            KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1
+        )
     );
     let mut zero_payment = package.clone();
     zero_payment.receipt.payment_digest = [0; 32];
@@ -1914,8 +2054,8 @@ fn kagemusha_wallet_v1_bootstrap_state_core_and_rest() {
         ),
         (0, 0, 0, 0, 0, 0)
     );
-    // Empty chains are the field zero; every map starts at the empty depth-256 root (§3.2),
-    // with one load/redeem recovery root (owner answer Q3).
+    // Empty chains are field zero. Recovery maps and blacklist history begin at the
+    // depth-32 indexed root; quota usage begins at its all-padding depth-6 array root.
     assert_eq!((core.send_chain, core.recv_chain), ([0; 32], [0; 32]));
     let empty = kagemusha_wallet_empty_map_root_v1();
     for root in [
@@ -1923,10 +2063,20 @@ fn kagemusha_wallet_v1_bootstrap_state_core_and_rest() {
         core.pending_outgoing_root,
         core.load_redeem_recovery_root,
         core.fee_claim_root,
-        core.quota_usage_root,
+        rest.blacklist_history_root,
     ] {
         assert_eq!(root, empty);
     }
+    assert_eq!(
+        core.quota_usage_root,
+        kagemusha_wallet_quota_usage_empty_root_v1()
+    );
+    assert_eq!(
+        core.quota_usage_root,
+        KagemushaWalletQuotaUsageArrayV1::empty().root()
+    );
+    assert_ne!(core.quota_usage_root, empty);
+    assert_eq!(core.quota_share_expires_at_ms, 0);
     assert_eq!(empty, KagemushaWalletIndexedTreeV1::new().root());
     assert_eq!(core.quota_windows_root, [0; 32]);
     assert_eq!((core.blacklist_version, core.blacklist_root), (0, [0; 32]));
@@ -1944,7 +2094,7 @@ fn kagemusha_wallet_v1_bootstrap_state_core_and_rest() {
         body.regulatory_policy.permitted_controls
     );
     assert_eq!(
-        rest.time_anchor_max_response_ms,
+        core.time_anchor_max_response_ms,
         body.regulatory_policy.time_anchor_max_response_ms
     );
     assert_eq!(state.regulatory_policy(), body.regulatory_policy);
@@ -2017,6 +2167,18 @@ fn kagemusha_wallet_v1_bootstrap_state_core_and_rest() {
     );
     reject(&|s| s.rest.quota_share_id = 1, "state.quota_share");
     reject(
+        &|s| s.core.quota_share_expires_at_ms = 1,
+        "state.quota_share",
+    );
+    reject(
+        &|s| s.rest.blacklist_history_root = [0; 32],
+        "state.rest.blacklist_history_root",
+    );
+    reject(
+        &|s| s.rest.blacklist_history_root = [0xff; 32],
+        "state.rest.blacklist_history_root",
+    );
+    reject(
         &|s| s.core.quota_windows_root = [1; 32],
         "state.quota_share",
     );
@@ -2067,6 +2229,7 @@ fn kagemusha_wallet_v1_bootstrap_state_core_and_rest() {
     held.rest.quota_share_id = 5;
     held.rest.quota_share = [5; 32];
     held.core.quota_windows_root = field_value(6);
+    held.core.quota_share_expires_at_ms = held.core.accepted_time_floor_ms + 1;
     held.core.send_chain = field_value(7);
     held.core.recv_chain = field_value(8);
     held.core.burned_total = 9;
@@ -2080,8 +2243,8 @@ fn kagemusha_wallet_v1_bootstrap_state_core_and_rest() {
     ));
 }
 
-/// A stand-in digest of [`controlled_state`] whose two limbs differ: 16 bytes `seed`, then 16
-/// bytes `seed ^ 0x40`.
+/// A canonical nonzero field stand-in of [`controlled_state`], distinct for each `seed`.
+/// Its byte halves differ, while the high byte is bounded below the field modulus.
 const fn controlled_digest(seed: u8) -> [u8; 32] {
     let mut digest = [seed; 32];
     let mut index = 16;
@@ -2089,6 +2252,7 @@ const fn controlled_digest(seed: u8) -> [u8; 32] {
         digest[index] = seed ^ 0x40;
         index += 1;
     }
+    digest[31] &= 0x3f;
     digest
 }
 
@@ -2122,6 +2286,8 @@ pub(in crate::kagemusha::kagemusha_wallet_v1) fn controlled_state(
     core.quota_usage_root = field_value(0x77);
     core.enabled_controls = KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1;
     core.quota_windows_root = field_value(0x78);
+    core.quota_share_expires_at_ms = 1_000_015;
+    core.time_anchor_max_response_ms = 1_000_013;
     core.blacklist_version = 1_000_007;
     core.blacklist_root = field_value(0x79);
     core.blacklist_issued_at_ms = 1_000_008;
@@ -2132,13 +2298,13 @@ pub(in crate::kagemusha::kagemusha_wallet_v1) fn controlled_state(
     core.state_nonce = field_value(0x7a);
     let rest = &mut state.rest;
     rest.permitted_controls = KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1;
-    rest.time_anchor_max_response_ms = 1_000_013;
     rest.scheme_policy = controlled_digest(0x81);
     rest.fee_schedule = controlled_digest(0x82);
     rest.blacklist = controlled_digest(0x83);
     rest.quota_share = controlled_digest(0x84);
     rest.quota_share_id = 1_000_014;
     rest.time_anchor = controlled_digest(0x85);
+    rest.blacklist_history_root = field_value(0x86);
     state.validate().expect("controlled state");
     state
 }
@@ -2152,21 +2318,23 @@ fn kagemusha_wallet_v1_state_core_and_rest_field_items() {
     expected.extend(limb_items(&core.scheme_id));
     expected.extend(limb_items(&core.asset_digest));
     expected.extend(limb_items(&core.wallet_id));
-    expected.extend(limb_items(&core.credential_digest));
+    expected.push(core.credential_digest);
     // balance, burned_total, sequence, next_send, next_load, next_redeem.
     expected.extend((1_000_001..=1_000_006).map(int));
     // send_chain, recv_chain; the consumed-credit, pending-outgoing, load/redeem-recovery,
     // fee-claim and quota-usage roots (one element each).
     expected.extend((0x71..=0x77).map(field_value));
-    // Mask, quota-windows root (one element), blacklist version, root (one element), issue
-    // time and maximum age, lease, epoch, floor, nonce.
+    // Mask, quota-windows root, share expiry, blacklist version and root, issue time,
+    // maximum age and anchor response, lease, epoch, floor, nonce.
     expected.extend([
         int(7),
         field_value(0x78),
+        int(1_000_015),
         int(1_000_007),
         field_value(0x79),
         int(1_000_008),
         int(1_000_009),
+        int(1_000_013),
         int(1_000_010),
         int(1_000_011),
         int(1_000_012),
@@ -2179,12 +2347,13 @@ fn kagemusha_wallet_v1_state_core_and_rest_field_items() {
     assert_eq!(distinct.len(), KAGEMUSHA_WALLET_CORE_FIELD_ITEMS_V1);
     let core_items = expected;
 
-    let mut expected = vec![int(7), int(1_000_013)];
+    let mut expected = vec![int(7)];
     for seed in [0x81, 0x82, 0x83, 0x84] {
-        expected.extend(limb_items(&controlled_digest(seed)));
+        expected.push(controlled_digest(seed));
     }
     expected.push(int(1_000_014));
-    expected.extend(limb_items(&controlled_digest(0x85)));
+    expected.push(controlled_digest(0x85));
+    expected.push(field_value(0x86));
     assert_eq!(state.rest_field_items().expect("rest"), expected);
     assert_eq!(expected.len(), KAGEMUSHA_WALLET_REST_FIELD_ITEMS_V1);
     let distinct: std::collections::BTreeSet<_> = expected.iter().collect();
@@ -2225,7 +2394,7 @@ fn kagemusha_wallet_v1_state_commitment_binds_every_field() {
     let state = controlled_state(&bootstrap_state(&f, 0x5c));
     let base = state.commitment().expect("commitment");
     // One valid mutation per core field (in core order), then per rest field.
-    let core_mutations: [StateMutation; 28] = [
+    let core_mutations: [StateMutation; 30] = [
         ("lifecycle", |s| {
             s.core.lifecycle = KagemushaWalletLifecycleV1::Active;
         }),
@@ -2262,6 +2431,9 @@ fn kagemusha_wallet_v1_state_commitment_binds_every_field() {
         ("quota_windows_root", |s| {
             s.core.quota_windows_root = field_value(0x27);
         }),
+        ("quota_share_expires_at_ms", |s| {
+            s.core.quota_share_expires_at_ms += 1
+        }),
         ("blacklist_version", |s| s.core.blacklist_version += 1),
         ("blacklist_root", |s| {
             s.core.blacklist_root = field_value(0x27);
@@ -2270,6 +2442,9 @@ fn kagemusha_wallet_v1_state_commitment_binds_every_field() {
             s.core.blacklist_issued_at_ms += 1;
         }),
         ("blacklist_max_age_ms", |s| s.core.blacklist_max_age_ms += 1),
+        ("time_anchor_max_response_ms", |s| {
+            s.core.time_anchor_max_response_ms += 1
+        }),
         ("lease_expires_at_ms", |s| s.core.lease_expires_at_ms += 1),
         ("policy_epoch", |s| s.core.policy_epoch += 1),
         ("accepted_time_floor_ms", |s| {
@@ -2285,8 +2460,8 @@ fn kagemusha_wallet_v1_state_commitment_binds_every_field() {
             s.rest.permitted_controls &= !KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1;
             s.core.enabled_controls = s.rest.permitted_controls;
         }),
-        ("rest.time_anchor_max_response_ms", |s| {
-            s.rest.time_anchor_max_response_ms += 1;
+        ("rest.blacklist_history_root", |s| {
+            s.rest.blacklist_history_root = field_value(0x27);
         }),
         ("rest.scheme_policy", |s| s.rest.scheme_policy = [0x2c; 32]),
         ("rest.fee_schedule", |s| s.rest.fee_schedule = [0x2c; 32]),
@@ -2407,7 +2582,7 @@ fn kagemusha_wallet_v1_map_leaves_keys_and_values() {
     let mut descriptor = vec![credit];
     descriptor.extend(limb_items(&[2; 32]));
     descriptor.extend([int(3), int(4), int(5)]);
-    descriptor.extend(limb_items(&[6; 32]));
+    descriptor.push([6; 32]);
     assert_eq!(pending.field_items().ok(), Some(descriptor.clone()));
     assert_eq!(pending.key(), credit);
     assert_eq!(
@@ -2421,15 +2596,15 @@ fn kagemusha_wallet_v1_map_leaves_keys_and_values() {
     // One load/redeem recovery map keyed by (kind, ordinal) (owner answer Q3).
     let load = KagemushaWalletLoadLeafV1 {
         ordinal: 7,
-        voucher_digest: [8; 32],
+        receipt_digest: [8; 32],
         amount: 9,
     };
     let mut items = vec![int(7)];
-    items.extend(limb_items(&[8; 32]));
+    items.push([8; 32]);
     items.push(int(9));
-    assert_eq!(load.field_items(), items);
+    assert_eq!(load.field_items().expect("load items"), items);
     assert_eq!(
-        Some(load.leaf_value()),
+        Some(load.leaf_value().expect("load value")),
         kagemusha_wallet_poseidon_v1(KAGEMUSHA_WALLET_LOAD_VALUE_DOMAIN_V1, &items).ok()
     );
     assert_eq!(load.key(), kagemusha_wallet_pair_key_v1(1, 7));
@@ -2440,11 +2615,11 @@ fn kagemusha_wallet_v1_map_leaves_keys_and_values() {
         online_charge: 4,
     };
     let mut items = vec![int(7)];
-    items.extend(limb_items(&[2; 32]));
+    items.push([2; 32]);
     items.extend([int(3), int(4)]);
-    assert_eq!(redeem.field_items(), items);
+    assert_eq!(redeem.field_items().expect("redeem items"), items);
     assert_eq!(
-        Some(redeem.leaf_value()),
+        Some(redeem.leaf_value().expect("redeem value")),
         kagemusha_wallet_poseidon_v1(KAGEMUSHA_WALLET_REDEEM_VALUE_DOMAIN_V1, &items).ok()
     );
     assert_eq!(redeem.key(), kagemusha_wallet_pair_key_v1(2, 7));
@@ -2456,24 +2631,31 @@ fn kagemusha_wallet_v1_map_leaves_keys_and_values() {
         ),
         (1, 2)
     );
+    // Both kinds share one indexed tree; the load key sorts below every redeem key.
     let mut recovery = KagemushaWalletIndexedTreeV1::new();
     recovery
-        .insert(load.key(), load.leaf_value())
-        .expect("load leaf");
-    recovery
-        .insert(redeem.key(), redeem.leaf_value())
+        .insert(redeem.key(), redeem.leaf_value().expect("redeem value"))
         .expect("redeem leaf");
+    recovery
+        .insert(load.key(), load.leaf_value().expect("load value"))
+        .expect("load leaf");
     let root = recovery.root();
-    for (key, value) in [
-        (load.key(), load.leaf_value()),
-        (redeem.key(), redeem.leaf_value()),
+    for (key, value, next_key) in [
+        (
+            load.key(),
+            load.leaf_value().expect("load value"),
+            redeem.key(),
+        ),
+        (
+            redeem.key(),
+            redeem.leaf_value().expect("redeem value"),
+            [0; 32],
+        ),
     ] {
-        let (leaf, opening) = recovery.membership(&key).expect("membership");
-        assert_eq!((leaf.key, leaf.value), (key, value));
-        crate::kagemusha::kagemusha_wallet_v1::kagemusha_wallet_indexed_verify_membership_v1(
-            &root, &leaf, &opening,
-        )
-        .expect("recovery membership");
+        let (leaf, opening) = recovery.membership(&key).expect("opening");
+        assert_eq!((leaf.value, leaf.next_key), (value, next_key));
+        kagemusha_wallet_indexed_verify_membership_v1(&root, &leaf, &opening)
+            .expect("recovery membership");
     }
     let fee = KagemushaWalletFeeClaimLeafV1 {
         credit_id: credit,
@@ -2481,7 +2663,7 @@ fn kagemusha_wallet_v1_map_leaves_keys_and_values() {
         fee_schedule_digest: [3; 32],
     };
     let mut items = vec![credit, int(2)];
-    items.extend(limb_items(&[3; 32]));
+    items.push([3; 32]);
     assert_eq!(fee.field_items().ok(), Some(items.clone()));
     assert_eq!(fee.key(), credit);
     assert_eq!(
@@ -2495,11 +2677,37 @@ fn kagemusha_wallet_v1_map_leaves_keys_and_values() {
         used: 30,
     };
     assert_eq!(usage.field_items(), vec![int(2), int(10), int(20), int(30)]);
-    assert_eq!(usage.key(), kagemusha_wallet_pair_key_v1(2, 10));
+    let window = KagemushaWalletQuotaWindowV1 {
+        kind: usage.window_kind,
+        start_ms: usage.window_start_ms,
+        end_ms: usage.window_end_ms,
+        limit: 100,
+    };
+    assert!(usage.matches_window(&window));
+    assert!(!usage.matches_window(&KagemushaWalletQuotaWindowV1 {
+        end_ms: 21,
+        ..window
+    }));
+    let mut slots = [None; KAGEMUSHA_WALLET_QUOTA_USAGE_SLOTS_V1];
+    slots[0] = Some(usage);
+    let array = KagemushaWalletQuotaUsageArrayV1::from_slots(slots).expect("usage array");
+    let opening = array.opening(0).expect("occupied slot");
+    assert_eq!(
+        opening.usage_root(&usage.leaf_value()).expect("usage root"),
+        array.root()
+    );
+    let mut wrong_slot = opening;
+    wrong_slot.slot = 1;
+    assert_ne!(
+        wrong_slot
+            .usage_root(&usage.leaf_value())
+            .expect("wrong slot"),
+        array.root()
+    );
     assert_eq!(
         Some(usage.leaf_value()),
         kagemusha_wallet_poseidon_v1(
-            KAGEMUSHA_WALLET_QUOTA_USAGE_VALUE_DOMAIN_V1,
+            KAGEMUSHA_WALLET_QUOTA_USAGE_LEAF_DOMAIN_V1,
             &[int(2), int(10), int(20), int(30)]
         )
         .ok()
@@ -2529,6 +2737,41 @@ fn kagemusha_wallet_v1_map_leaves_keys_and_values() {
             }
             .leaf_value(),
             "fee_claim.credit_id"
+        ));
+    }
+
+    for invalid in [[0; 32], [0xff; 32]] {
+        assert!(is_invalid(
+            KagemushaWalletPendingOutgoingLeafV1 {
+                request_digest: invalid,
+                ..pending
+            }
+            .leaf_value(),
+            "send_descriptor.request_digest"
+        ));
+        assert!(is_invalid(
+            KagemushaWalletLoadLeafV1 {
+                receipt_digest: invalid,
+                ..load
+            }
+            .leaf_value(),
+            "load.receipt_digest"
+        ));
+        assert!(is_invalid(
+            KagemushaWalletRedeemLeafV1 {
+                nullifier: invalid,
+                ..redeem
+            }
+            .leaf_value(),
+            "redeem.nullifier"
+        ));
+        assert!(is_invalid(
+            KagemushaWalletFeeClaimLeafV1 {
+                fee_schedule_digest: invalid,
+                ..fee
+            }
+            .leaf_value(),
+            "fee_claim.fee_schedule_digest"
         ));
     }
 
@@ -2622,7 +2865,7 @@ fn kagemusha_wallet_v1_map_leaves_keys_and_values() {
             KAGEMUSHA_WALLET_LOAD_VALUE_DOMAIN_V1,
             KAGEMUSHA_WALLET_REDEEM_VALUE_DOMAIN_V1,
             KAGEMUSHA_WALLET_FEE_CLAIM_VALUE_DOMAIN_V1,
-            KAGEMUSHA_WALLET_QUOTA_USAGE_VALUE_DOMAIN_V1,
+            KAGEMUSHA_WALLET_QUOTA_USAGE_LEAF_DOMAIN_V1,
             KAGEMUSHA_WALLET_SEND_CHAIN_DOMAIN_V1,
             KAGEMUSHA_WALLET_RECV_CHAIN_DOMAIN_V1,
             KAGEMUSHA_WALLET_CREDIT_DIGEST_VALUE_DOMAIN_V1,
@@ -2674,7 +2917,12 @@ fn kagemusha_wallet_v1_state_objects_round_trip() {
         let frame = norito::encode_canonical(&statement).expect("encode");
         let decoded: KagemushaWalletStatementV1 = decode_frame_v1(&frame, 4_096).expect("decode");
         assert_eq!(decoded, statement);
-        assert_eq!(decoded.statement_digest(), statement.statement_digest());
+        assert_eq!(
+            decoded
+                .statement_digest()
+                .expect("decoded statement digest"),
+            statement.statement_digest().expect("statement digest")
+        );
     }
     let leaf = KagemushaWalletPendingOutgoingLeafV1 {
         credit_id: field_value(1),

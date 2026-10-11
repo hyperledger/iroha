@@ -36,7 +36,7 @@ mod tests {
     fn actual() -> (Vec<u8>, VerifiedContractArtifact) {
         let bytes = kotodama_lang::compiler::Compiler::new()
             .compile_source(
-                "seiyaku VerifiedAnalysis { state int count; hajimari() { count = 0; } view fn main() -> int { return count; } }",
+                "seiyaku VerifiedAnalysis { state int count; hajimari() { count = 0; } view fn main() authorize(anyone) -> int { return count; } }",
             )
             .unwrap();
         let verified = crate::verify_contract_artifact(&bytes).unwrap();

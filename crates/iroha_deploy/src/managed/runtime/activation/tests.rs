@@ -1,7 +1,7 @@
 //! Original profile and clock/refusal controls; these do not fabricate native service readiness.
 
 use super::*;
-use crate::managed::native_operation::test_support::UnavailablePeers;
+use crate::managed::{native_operation::test_support::UnavailablePeers, runtime::progress::Cause};
 use iroha_crypto::{Hash, HashOf};
 
 fn fixture(profile: LocalnetServiceProfile) -> (tempfile::TempDir, PreparedLocalnet) {
@@ -21,6 +21,7 @@ fn budget() -> Budget {
     Budget {
         started: Instant::now(),
         timeout: Duration::from_secs(120),
+        startup_deadline_ns: None,
         utc_ceiling_unix_ms: None,
         cancelled: Arc::new(AtomicBool::new(false)),
         progress: Arc::new(Progress::default()),
@@ -182,32 +183,131 @@ fn observation_uses_both_clocks_and_never_renews_on_wall_clock_rollback() {
 #[test]
 fn phase_failures_and_late_or_cancelled_results_use_only_closed_diagnostics() {
     let selected = budget();
-    for phase in [
-        Phase::Selection,
-        Phase::InitialReadiness,
-        Phase::Bootstrap,
-        Phase::Carrier0,
-        Phase::Carrier1,
-        Phase::Carrier2,
-        Phase::Carrier3,
-        Phase::Catalog,
-        Phase::Restart,
-        Phase::Receipt,
-        Phase::PromotedCatalog,
-        Phase::ProviderAdvertisement,
-        Phase::Discovery,
-        Phase::CustodyRenewal,
+    assert_eq!(
+        selected.progress.deadline(),
+        Failure::Activation {
+            phase: Phase::Selection,
+            cause: Cause::Deadline
+        },
+    );
+    for (phase, description) in [
+        (
+            Phase::Selection,
+            "retaining the original generated service selection",
+        ),
+        (
+            Phase::InitialReadiness,
+            "proving the original readiness transaction",
+        ),
+        (
+            Phase::Bootstrap,
+            "recovering and advancing the original native service bootstrap",
+        ),
+        (
+            Phase::Carrier0,
+            "confirming the original bootstrap carrier on validator 0",
+        ),
+        (
+            Phase::Carrier1,
+            "confirming the original bootstrap carrier on validator 1",
+        ),
+        (
+            Phase::Carrier2,
+            "confirming the original bootstrap carrier on validator 2",
+        ),
+        (
+            Phase::Carrier3,
+            "confirming the original bootstrap carrier on validator 3",
+        ),
+        (
+            Phase::CarrierPeers,
+            "confirming the original bootstrap carrier on all four validators",
+        ),
+        (
+            Phase::Catalog,
+            "publishing the exact generated gateway catalog",
+        ),
+        (
+            Phase::Restart,
+            "restarting the owned validators with the retained service revision",
+        ),
+        (
+            Phase::Receipt,
+            "reproving the same readiness transaction after restart",
+        ),
+        (
+            Phase::PromotedCatalog,
+            "checking the exact promoted catalog after restart",
+        ),
+        (
+            Phase::ProviderAdvertisement,
+            "publishing the original provider advertisement",
+        ),
+        (
+            Phase::Discovery,
+            "authenticating current native provider and signer discovery",
+        ),
+        (
+            Phase::CustodyRenewal,
+            "recovering and advancing the exact bounded custody renewal",
+        ),
+        (
+            Phase::ProgramAdmission,
+            "verifying the installed runtime and opening its control session",
+        ),
+        (
+            Phase::CustodyMaterial,
+            "retaining current native custody material",
+        ),
+        (
+            Phase::StreamTokenRevision,
+            "preparing the current stream-token runtime revision",
+        ),
     ] {
         selected.progress.enter(phase);
-        for failure in [
-            selected.progress.deadline(),
-            selected.progress.unconfirmed(),
-            selected.progress.cancelled(),
+        for (failure, cause, prefix) in [
+            (
+                selected.progress.deadline(),
+                Cause::Deadline,
+                "startup deadline expired",
+            ),
+            (
+                selected.progress.unconfirmed(),
+                Cause::Unconfirmed,
+                "startup could not be confirmed",
+            ),
+            (
+                selected.progress.cancelled(),
+                Cause::Cancelled,
+                "startup was cancelled",
+            ),
         ] {
+            // Exact phase equality catches an incorrect AtomicU8 mapping as well as
+            // a later phase accidentally reusing the preceding stage's safe message.
+            assert_eq!(failure, Failure::Activation { phase, cause });
+            assert_eq!(failure.message(), format!("{prefix} while {description}"));
             assert!(failure.message().starts_with("startup"));
             assert!(failure.message().len() < 180);
             assert!(!failure.message().contains("http"));
         }
+        let mut expired = budget();
+        expired.progress.enter(phase);
+        expired.timeout = Duration::ZERO;
+        assert_eq!(
+            expired.check(),
+            Err(Failure::Activation {
+                phase,
+                cause: Cause::Deadline
+            })
+        );
+        expired.cancelled.store(true, Ordering::Release);
+        assert_eq!(
+            expired.check(),
+            Err(Failure::Activation {
+                phase,
+                cause: Cause::Cancelled
+            })
+        );
     }
     let invoked = std::cell::Cell::new(false);
     selected.cancelled.store(true, Ordering::Release);

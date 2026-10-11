@@ -1,43 +1,43 @@
-kotodama-compile-fail-cases-v1	59
+kotodama-compile-fail-cases-v1	84
 name	source	phase	code	message	line
 duplicate-declaration	seiyaku Duplicate {\nfn repeated() {}\nfn repeated() {}\n}	Resolve	E_DUPLICATE_DECLARATION	declaration name `repeated` is already used by a function	3
 unknown-name	seiyaku UnknownName {\nfn read() -> int { return missing_value; }\n}	Resolve	K2002	unknown value `missing_value`	2
 unknown-type	seiyaku UnknownType {\nfn read() { let Missing value = 1; }\n}	Resolve	K2002	unknown type `Missing`	2
 unknown-call	seiyaku UnknownCall {\nfn run() { missing_call(); }\n}	Resolve	K2002	unknown function or builtin `missing_call`	2
-builtin-collision	seiyaku BuiltinCollision {\nfn account_id(string value) -> int { return 1; }\n}	Resolve	E_RESERVED_DECLARATION	function `account_id` uses a compiler-reserved name	2
-implicit-conversion	seiyaku ImplicitConversion {\nfn run() { let int value = true; }\n}	Semantic	E_TYPE_ANNOTATION_MISMATCH	type annotation mismatch: expected int, got bool	2
-tail-type-mismatch	seiyaku TailMismatch {\nfn value() -> bool { 1 }\n}	Semantic	E_TAIL_TYPE_MISMATCH	block tail type mismatch: type annotation mismatch: expected bool, got int	2
+compiler-internal-collision	seiyaku InternalCollision {\nfn __kotodama_list_len() -> int { return 1; }\n}	Resolve	E_RESERVED_DECLARATION	function `__kotodama_list_len` uses a compiler-reserved name	2
+implicit-conversion	seiyaku ImplicitConversion {\nfn run() { let int value = true; }\n}	Semantic	E_TYPE_ANNOTATION_MISMATCH	type annotation mismatch: expected `int`, found `bool`	2
+tail-type-mismatch	seiyaku TailMismatch {\nfn value() -> bool { 1 }\n}	Semantic	E_TAIL_TYPE_MISMATCH	block tail type mismatch: expected `bool`, found `int`	2
 implicit-int-decimal-arithmetic	seiyaku ImplicitNumericArithmetic {\nfn add(int whole, decimal fraction) -> decimal { return whole + fraction; }\n}	Semantic	E_IMPLICIT_NUMERIC_CONVERSION	`int` and `decimal` operands cannot be mixed implicitly; convert the `int` with `decimal::from_int(value)`	2
 implicit-int-decimal-comparison	seiyaku ImplicitNumericComparison {\nfn less(int whole, decimal fraction) -> bool { return whole < fraction; }\n}	Semantic	E_IMPLICIT_NUMERIC_CONVERSION	`int` and `decimal` operands cannot be mixed implicitly; convert the `int` with `decimal::from_int(value)`	2
 implicit-int-decimal-equality	seiyaku ImplicitNumericEquality {\nfn equal(int whole, decimal fraction) -> bool { return whole == fraction; }\n}	Semantic	E_IMPLICIT_NUMERIC_CONVERSION	`int` and `decimal` operands cannot be mixed implicitly; convert the `int` with `decimal::from_int(value)`	2
 implicit-int-decimal-compound-assignment	seiyaku ImplicitNumericCompound {\nfn add(int delta) -> decimal { var decimal value = 1.5; value += delta; return value; }\n}	Semantic	E_IMPLICIT_NUMERIC_CONVERSION	`int` and `decimal` operands cannot be mixed implicitly; convert the `int` with `decimal::from_int(value)`	2
 implicit-pointer-conversion	seiyaku ImplicitPointerConversion {\nfn run(bytes value) { let id = AccountId::parse(value); }\n}	Semantic	K2003	AccountId::parse expects string	2
-untyped-parameter	seiyaku UntypedParameter {\nfn run(value) {}\n}	Parse	K1001	expected identifier but found RParen	2
-missing-kotoage-authorization	seiyaku MissingAuthorization {\nkotoage fn run() {}\n}	Parse	K1001	kotoage function `run` requires `authorize("Permission")` before its body	2
-retired-parameter-order	seiyaku RetiredParameterOrder {\nfn run(value: int) {}\n}	Parse	E_RETIRED_DECLARATION_ORDER	parameters are type-first: write `int value`	2
-retired-state-order	seiyaku RetiredStateOrder {\nstate value: int;\n}	Parse	E_RETIRED_DECLARATION_ORDER	state declarations are type-first: write `state int value;`	2
-retired-const-order	seiyaku RetiredConstOrder {\nconst limit: int = 1;\n}	Parse	E_RETIRED_DECLARATION_ORDER	constants are type-first: write `const int limit = 1;`	2
-retired-struct-field-order	seiyaku RetiredStructFieldOrder {\nstruct Pair { value: int; }\n}	Parse	E_RETIRED_DECLARATION_ORDER	struct fields are type-first: write `int field;`	2
-retired-local-order	seiyaku RetiredLocalOrder {\nfn run() { let value: int = 1; }\n}	Parse	E_RETIRED_DECLARATION_ORDER	typed locals are type-first: write `let int value = ...;`	2
+untyped-parameter	seiyaku UntypedParameter {\nfn run(value) {}\n}	Parse	E_MISSING_DECLARATION_TYPE	parameter `value` needs a type before its name, for example `int value`	2
+missing-kotoage-authorization	seiyaku MissingAuthorization {\nkotoage fn run() {}\n}	Parse	E_KOTOAGE_AUTHORIZATION_MISSING	kotoage function `run` requires an explicit `authorize(...)` policy	2
+retired-parameter-order	seiyaku RetiredParameterOrder {\nfn run(value: int) {}\n}	Parse	E_RETIRED_DECLARATION_ORDER	parameters are type-first: write `int value`, not `value: int`	2
+retired-state-order	seiyaku RetiredStateOrder {\nstate value: int;\n}	Parse	E_RETIRED_DECLARATION_ORDER	state declarations are type-first: write `state int value;`, not `value: int`	2
+retired-const-order	seiyaku RetiredConstOrder {\nconst limit: int = 1;\n}	Parse	E_RETIRED_DECLARATION_ORDER	constants are type-first: write `const int limit = ...;`, not `limit: int`	2
+retired-struct-field-order	seiyaku RetiredStructFieldOrder {\nstruct Pair { value: int; }\n}	Parse	E_RETIRED_DECLARATION_ORDER	struct fields are type-first: write `int value;`, not `value: int`	2
+retired-local-order	seiyaku RetiredLocalOrder {\nfn run() { let value: int = 1; }\n}	Parse	E_RETIRED_DECLARATION_ORDER	typed locals are type-first: write `let int value = ...;`, not `value: int`	2
 immutable-assignment	seiyaku ImmutableAssignment {\nfn run() { let value = 1; value = 2; }\n}	Semantic	E_IMMUTABLE_ASSIGNMENT	cannot assign to immutable binding `value`	2
-unbounded-loop	seiyaku UnboundedLoop {\nfn run() { while true {} }\n}	Parse	K1001	`while` is not supported in Kotodama V1	2
+unbounded-loop	seiyaku UnboundedLoop {\nfn run() { while true {} }\n}	Parse	E_UNSUPPORTED_LOOP	`while` loops are not part of Kotodama; every loop is a `for` loop with a compiler-proven bound	2
 dynamic-range-loop	seiyaku DynamicRangeLoop {\nfn run(int limit) { for index in range(limit) {} }\n}	Semantic	E_UNBOUNDED_LOOP	range bound must be a non-negative compile-time integer expression	2
 recursion	seiyaku Recursion {\nfn recurse() { recurse(); }\n}	Semantic	K2006	recursive function calls are not supported	2
-non-ascii-identifier	seiyaku Café {\nfn run() {}\n}	Lex	K0100	non-ASCII identifier outside the branded Japanese keyword set	1
-english-declaration-keyword	contract Alias {\nfn run() {}\n}	Parse	K1001	exactly one `seiyaku Name	1
+non-ascii-identifier	seiyaku Café {\nfn run() {}\n}	Lex	K0100	non-ASCII identifier `Café`: identifiers are ASCII	1
+english-declaration-keyword	contract Alias {\nfn run() {}\n}	Parse	E_ENGLISH_DECLARATION_WORD	`contract` is not a Kotodama keyword; a deployable unit is declared with `seiyaku` or `誓約`	1
 numeric-prefix-identifier	seiyaku 1Invalid {\nfn run() {}\n}	Lex	E_RETIRED_NUMERIC_SUFFIX	numeric literal suffixes are not part of Kotodama V1	1
-legacy-macro	seiyaku LegacyMacro {\nfn run() { let id = account!("alice"); }\n}	Parse	K1001	macros are not part of Kotodama V1	2
+legacy-macro	seiyaku LegacyMacro {\nfn run() { let id = account!("alice"); }\n}	Parse	K1001	`account!` looks like a macro call; Kotodama has no macros	2
 raw-allocation	seiyaku RawAllocation {\nfn run() { let pointer = alloc(16); }\n}	Resolve	K2002	unknown function or builtin `alloc`	2
 raw-norito-constructor	seiyaku RawNorito {\nfn run() { let payload = norito_bytes(b"opaque"); }\n}	Resolve	K2002	unknown function or builtin `norito_bytes`	2
 raw-blob-constructor	seiyaku RawBlob {\nfn run() { let payload = blob("opaque"); }\n}	Resolve	K2002	unknown function or builtin `blob`	2
-opaque-instruction-submission	seiyaku OpaqueInstruction {\nkotoage fn run(bytes payload) authorize("Run") { execute_instruction(payload); }\n}	Resolve	K2002	unknown function or builtin `execute_instruction`	2
+opaque-instruction-submission	seiyaku OpaqueInstruction { permission Run; \nkotoage fn run(bytes payload) authorize(Run) { execute_instruction(payload); }\n}	Resolve	K2002	unknown function or builtin `execute_instruction`	2
 cyclic-value-type	seiyaku CyclicValueType {\nstruct Node { Node next; }\n}	Semantic	K2006	cyclic value struct definition: Node -> Node	2
 retired-positional-struct	seiyaku PositionalStruct {\nstruct Pair { int left, int right }\nfn run() { let pair = Pair(1, 2); }\n}	Semantic	E_POSITIONAL_STRUCT	positional construction `Pair(...)` is retired	3
 positional-after-named	seiyaku MixedCall {\nfn target(int first, int second) {}\nfn run() { target(first: 1, 2); }\n}	Parse	E_POSITIONAL_ARGUMENT_ORDER	positional arguments must precede named arguments	3
 unsafe-list-read	seiyaku UnsafeListRead {\nfn read(List<int, 2> values) -> Option<int> { return values[0]; }\n}	Semantic	E_LIST_UNSAFE_INDEX	unchecked List indexing is not part of Kotodama V1	2
 unsafe-list-write	seiyaku UnsafeListWrite {\nfn write() { var List<int, 2> values = [1]; values[0] = 2; }\n}	Semantic	E_LIST_UNSAFE_INDEX	indexed List assignment is unsupported	2
-legacy-option-placeholder	seiyaku LegacyOption {\nfn read() -> Option<int> { option::none(0) }\n}	Parse	E_LEGACY_SUM_CONSTRUCTOR	`option::none` is retired	2
-builtin-call-label	seiyaku NamedOnly {\nfn run(AccountId account, Name key, Json value) { ledger::account::set_detail(account, key, value); }\n}	Semantic	E_NAMED_ARGUMENTS_REQUIRED	requires its declared name	2
+legacy-option-placeholder	seiyaku LegacyOption {\nfn read() -> Option<int> { option::none(0) }\n}	Parse	E_LEGACY_SUM_CONSTRUCTOR	`option::none(...)` is spelled `Option::none` in Kotodama	2
+builtin-call-label	seiyaku NamedOnly {\nfn run(AccountId holder, Name key, Json value) { ledger::account::set_metadata(holder, key, value); }\n}	Semantic	E_NAMED_ARGUMENTS_REQUIRED	parameter `account` of `ledger::account::set_metadata` requires its label	2
 contextless-option-none	seiyaku ContextlessNone {\nfn run() { let value = Option::none; }\n}	Semantic	E_SUM_MISSING_CONTEXT	`Option::none` requires an exact `Option<T>` context	2
 option-propagation-context	seiyaku PropagationContext {\nfn read(Option<int> value) -> int { value? }\n}	Semantic	E_PROPAGATE_CONTEXT	postfix `?` on Option requires an Option-returning function	2
 non-exhaustive-option-match	seiyaku NonExhaustive {\nfn read(Option<int> value) -> int { match value { Option::some(item) => { item }, } }\n}	Semantic	E_MATCH_NON_EXHAUSTIVE	match must cover every namespaced variant	2
@@ -47,7 +47,7 @@ duplicate-native-json-key	seiyaku DuplicateJsonKey {\nfn build() -> Json { json 
 dynamic-json-parse	seiyaku DynamicJsonParse {\nfn decode(string raw) -> Json { Json::parse(raw) }\n}	Semantic	E_JSON_LITERAL_REQUIRED	Json::parse requires a direct string literal so native JSON is validated at compile time	2
 malformed-decimal	seiyaku MalformedDecimal {\nfn value() -> decimal { 1. }\n}	Lex	E_DECIMAL_MALFORMED	decimal literals require at least one digit after `.`	2
 quantity-constant-underflow	seiyaku QuantityUnderflow {\nfn value() -> quantity { 1 - 2 }\n}	Semantic	E_QUANTITY_UNDERFLOW	Quantity subtraction would produce a negative result	2
-implicit-int-to-quantity	seiyaku QuantityConversion {\nfn value() { let int count = 10; let quantity result = count; }\n}	Semantic	E_TYPE_ANNOTATION_MISMATCH	type annotation mismatch: expected quantity, got int	2
+implicit-int-to-quantity	seiyaku QuantityConversion {\nfn value() { let int count = 10; let quantity result = count; }\n}	Semantic	E_TYPE_ANNOTATION_MISMATCH	type annotation mismatch: expected `quantity`, found `int`	2
 retired-amount-type	seiyaku RejectedAmountType {\nfn value(Amount input) { }\n}	Parse	E_RETIRED_NUMERIC_TYPE	numeric type `Amount` is not part of Kotodama V1; use `quantity`	2
 forbidden-amount-identifier	seiyaku RejectedAmountIdentifier {\nfn value(int Amount) { }\n}	Parse	E_FORBIDDEN_SOURCE_IDENTIFIER	source identifier `Amount` is not part of Kotodama V1; choose a different identifier (lowercase `amount` remains available)	2
 retired-i64-type	seiyaku RetiredIntType {\nfn value(i64 input) { }\n}	Parse	E_RETIRED_NUMERIC_TYPE	numeric type `i64` is not part of Kotodama V1; use `int`	2
@@ -56,6 +56,31 @@ retired-quantity-suffix	seiyaku RejectedQuantitySuffix {\nfn value() -> quantity
 retired-u128-suffix	seiyaku RetiredIntSuffix {\nfn value() -> int { 10u128 }\n}	Lex	E_RETIRED_NUMERIC_SUFFIX	numeric literal suffixes are not part of Kotodama V1	2
 retired-scalar-json-setter	seiyaku RetiredJsonSetter {\nfn value() -> Json { json::set_i64(json::object(), Name::parse("n"), 1) }\n}	Parse	E_RETIRED_NUMERIC_HELPER	scalar JSON setters are not part of Kotodama V1	2
 retired-quantity-json-getter	seiyaku RetiredQuantityGetter {\nfn value(Json object, Name key) { object.get_amount(key); }\n}	Parse	E_LEGACY_JSON_GETTER	legacy numeric JSON getters were retired; use `.get_quantity(key)`	2
-typed-query-key-mismatch	seiyaku QueryKeyMismatch {\nview fn account(bytes raw) { let found = ledger::query::account(raw); }\n}	Semantic	E_QUERY_KEY_TYPE	byte-returning core-query compatibility is not part of Kotodama V1	2
-typed-query-result-mismatch	seiyaku QueryResultMismatch {\nview fn account(AccountId id) { let bytes encoded = ledger::query::account(id); }\n}	Semantic	E_QUERY_RESULT_TYPE	byte-returning compatibility is not part of Kotodama V1	2
-argument-table-bound	seiyaku ArgumentTableBound { struct B0 { bool bit; } struct B1 { B0 left; B0 right; } struct B2 { B1 left; B1 right; } struct B3 { B2 left; B2 right; } struct B4 { B3 left; B3 right; } struct B5 { B4 left; B4 right; } struct B6 { B5 left; B5 right; } struct B7 { B6 left; B6 right; } struct B8 { B7 left; B7 right; } struct B9 { B8 left; B8 right; } struct B10 { B9 left; B9 right; } struct B11 { B10 left; B10 right; } struct B12 { B11 left; B11 right; } struct B13 { B12 left; B12 right; } struct B14 { B13 left; B13 right; }\nfn too_wide(B14 value) -> bool { return true; }\nview fn main() -> bool { return true; }\n}	Semantic	K2007	V1 permits at most 8192	2
+typed-query-key-mismatch	seiyaku QueryKeyMismatch {\nview fn account(bytes raw) authorize(anyone) { let found = ledger::query::account(raw); }\n}	Semantic	E_QUERY_KEY_TYPE	byte-returning core-query compatibility is not part of Kotodama V1	2
+typed-query-result-mismatch	seiyaku QueryResultMismatch {\nview fn account(AccountId id) authorize(anyone) { let bytes encoded = ledger::query::account(id); }\n}	Semantic	E_QUERY_RESULT_TYPE	byte-returning compatibility is not part of Kotodama V1	2
+argument-table-bound	seiyaku ArgumentTableBound { struct B0 { bool bit; } struct B1 { B0 left; B0 right; } struct B2 { B1 left; B1 right; } struct B3 { B2 left; B2 right; } struct B4 { B3 left; B3 right; } struct B5 { B4 left; B4 right; } struct B6 { B5 left; B5 right; } struct B7 { B6 left; B6 right; } struct B8 { B7 left; B7 right; } struct B9 { B8 left; B8 right; } struct B10 { B9 left; B9 right; } struct B11 { B10 left; B10 right; } struct B12 { B11 left; B11 right; } struct B13 { B12 left; B12 right; } struct B14 { B13 left; B13 right; }\nfn too_wide(B14 value) -> bool { return true; }\nview fn main() authorize(anyone) -> bool { return true; }\n}	Semantic	K2007	V1 permits at most 8192	2
+english-pub-fn	seiyaku PubFn {\npub fn one() -> int { return 1; }\n}	Parse	E_ENGLISH_DECLARATION_WORD	`pub` is not a Kotodama keyword; a public state-changing function is declared with `kotoage` or `言挙げ`	2
+english-init-hook	seiyaku InitHook {\nstate int total;\ninit() { total = 0; }\n}	Parse	E_ENGLISH_DECLARATION_WORD	`init` is not a Kotodama keyword; the activation hook is declared with `hajimari` or `始まり`	3
+branded-keyword-typo	seiyaku KeywordTypo {\nkaizan() {}\n}	Parse	E_KEYWORD_TYPO	unknown keyword `kaizan`; did you mean `kaizen`/`改善`?	2
+lifecycle-hook-named-fn	seiyaku HookShape {\nstate int total;\nfn hajimari() { total = 0; }\n}	Parse	E_DECLARATION_SHAPE	`hajimari` is a lifecycle hook, not a function name	3
+kotoage-without-fn	誓約 RoleShape {\n言挙げ bump() authorize(anyone) {}\n}	Parse	E_DECLARATION_SHAPE	`言挙げ` modifies a function declaration: write `言挙げ fn bump(...)`	2
+authorize-after-return-type	seiyaku AuthorizeOrder {\nkotoage fn bump(int delta) -> int authorize(anyone) { return delta; }\n}	Parse	E_AUTHORIZE_POSITION	`authorize(...)` comes before the return type	2
+lifecycle-authorization	seiyaku LifecycleAuthorization {\n改善() authorize("Admin") {}\n}	Parse	E_LIFECYCLE_AUTHORIZATION	`改善` cannot declare `authorize(...)`	2
+kanji-kotoage-without-authorization	誓約 KanjiAuthorization {\n言挙げ fn run() {}\n}	Parse	E_KOTOAGE_AUTHORIZATION_MISSING	言挙げ function `run` requires an explicit `authorize(...)` policy	2
+let-mut-binding	seiyaku LetMut {\nview fn f() authorize(anyone) -> int { let mut total = 0; total += 1; return total; }\n}	Parse	E_LET_MUT	a mutable local is declared with `var`, not `let mut`	2
+range-operator-loop	seiyaku RangeLoop {\nview fn f() authorize(anyone) -> int { var total = 0; for i in 0..10 { total += i; } return total; }\n}	Parse	E_RANGE_SYNTAX	Kotodama has no `..` range operator	2
+match-wildcard-arm	seiyaku Wildcard {\nview fn f(Option<int> v) authorize(anyone) -> int { match v { Option::some(x) => x, _ => 0 } }\n}	Parse	E_MATCH_WILDCARD	`match` has no wildcard arm; name every variant	2
+foreign-some-constructor	seiyaku ForeignSome {\nview fn f() authorize(anyone) -> Option<int> { Some(1) }\n}	Parse	E_LEGACY_SUM_CONSTRUCTOR	`Some` is spelled `Option::some` in Kotodama	2
+untyped-state	seiyaku UntypedState {\nstate count;\n}	Parse	E_MISSING_DECLARATION_TYPE	state declaration `count` needs a type before its name	2
+fullwidth-parentheses	seiyaku FullWidth {\n始まり（） {}\n}	Lex	E_FULLWIDTH_ASCII	full-width `（）` (U+FF08) is not Kotodama syntax; write `()`	2
+glued-kanji-keyword	seiyaku Glued {\n言挙げfn bump() authorize(anyone) {}\n}	Lex	E_KEYWORD_SPACING	`言挙げ` and `fn` need a space between them	2
+confusable-kanji-keyword	契約 Confusable {\n}	Lex	E_CONFUSABLE_KEYWORD	`契約` is not a Kotodama keyword; did you mean `誓約`/`seiyaku`?	1
+single-ampersand	seiyaku Ampersand {\nview fn both(bool a, bool b) authorize(anyone) -> bool { a & b }\n}	Lex	E_UNSUPPORTED_OPERATOR	`&` is not a Kotodama operator; boolean AND is `&&`	2
+unknown-builtin-member	seiyaku UnknownBuiltin {\nview fn who() authorize(anyone) -> AccountId { return context::caller(); }\n}	Resolve	E_UNKNOWN_BUILTIN	unknown builtin `context::caller`	2
+retired-english-builtin	seiyaku Retired {\nview fn here() authorize(anyone) -> AccountId { return context::seiyaku_address(); }\nview fn which() authorize(anyone) -> Name { return context::entrypoint(); }\n}	Resolve	E_UNKNOWN_BUILTIN	unknown builtin `context::entrypoint`	3
+unknown-error-variant	seiyaku Variant {\nerror enum VaultError { ZeroDeposit = 1 }\nfn check(int amount) { require(amount > 0, VaultError::ZeroDepsit); }\n}	Resolve	E_UNKNOWN_ENUM_VARIANT	enum `VaultError` has no variant `ZeroDepsit`	3
+parameter-shadows-function	seiyaku Shadow {\nfn amount(quantity amount) -> quantity { return amount; }\n}	Resolve	E_LOCAL_SHADOWING	local binding `amount` shadows fn `amount`	2
+view-writes-state	seiyaku ViewWrite {\nstate int count;\nhajimari() { count = 0; }\nview fn bump() authorize(anyone) -> int {\ncount += 1;\nreturn count;\n}\n}	Semantic	K2004	view function `bump` cannot perform durable state mutation	5
+invalid-dataspace-literal	seiyaku Space {\nview fn space() authorize(anyone) -> DataSpaceId { return DataSpaceId::parse("zero"); }\n}	Semantic	E_INVALID_ID_LITERAL	invalid DataSpaceId literal `zero`	2
+dropped-result-statement	seiyaku Dropped {\nfn check() -> int {\nvar List<int, 4> values = [1, 2];\nvalues.try_push(3);\nvalues.len()\n}\n}	Semantic	E_RESULT_MUST_USE	Result values	4
+quantity-left-int-scale	seiyaku Scale {\nview fn double(quantity q, int n) authorize(anyone) -> quantity { return n * q; }\n}	Semantic	K2003	operator `*` is not defined for `int` and `quantity`	2

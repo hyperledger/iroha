@@ -149,7 +149,9 @@ fn completed_return() -> (IVM, PreparedContractCache, EntrypointValueTypeV1) {
     let cache = PreparedContractCache::with_capacity(0);
     let mut vm = IVM::try_new_with_memory_budget(100_000, cache.execution_budget()).unwrap();
     let program = kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku DebugReturnAttempt { view fn main() -> bool { true } }")
+        .compile_source(
+            "seiyaku DebugReturnAttempt { view fn main() authorize(anyone) -> bool { true } }",
+        )
         .unwrap();
     vm.load_program(&program).unwrap();
     vm.select_entrypoint("main").unwrap();

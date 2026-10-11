@@ -5,17 +5,16 @@
 //! and constrain the remaining bit split. No native hash callback supplies a
 //! relation. Only the returned cells, never a host-computed word, bind consumers.
 //!
-//! Owned host word values clear on drop. Halo2's own assignment/prover buffers
+//! Owned host word values clear on drop. Native assignment/prover buffers
 //! and compiler-created temporaries are outside this owner's erasure claim.
 //! TODO: Complete constrained CRC64, BLAKE3 and Blake2b framing, the BFV machine,
 //! resource qualification and independent review before any proof admission.
 
-use super::halo2_backend::Scalar;
 use ff::Field;
-use halo2_proofs::{
-    circuit::{Cell, Layouter, Region, Value},
-    plonk::{Advice, Column, ConstraintSystem, Error, Expression, Fixed, Selector, TableColumn},
-    poly::Rotation,
+use iroha_pasta::Fp as Scalar;
+use iroha_plonk::{
+    cs::{Advice, Column, ConstraintSystem, Expression, Fixed, Rotation, Selector, TableColumn},
+    frontend::{Cell, Error, Layouter, Region, Value},
 };
 use zeroize::{Zeroize, Zeroizing};
 
@@ -32,6 +31,7 @@ struct WordConfig {
     table: [TableColumn; 7],
     operation: Column<Fixed>,
     add: Selector,
+    active: Selector,
 }
 
 impl WordConfig {
@@ -45,8 +45,11 @@ impl WordConfig {
         let table = std::array::from_fn(|_| meta.lookup_table_column());
         let operation = meta.fixed_column();
         let add = meta.complex_selector();
+        let active = meta.complex_selector();
         meta.lookup("exact integer ARX tuple", |meta| {
-            let not_add = Expression::Constant(Scalar::ONE) - meta.query_selector(add);
+            // Both selectors are fixed by the circuit. Subtraction leaves
+            // unused rows at the zero tuple without increasing lookup degree.
+            let not_add = meta.query_selector(active) - meta.query_selector(add);
             std::iter::once((meta.query_fixed(operation, Rotation::cur()), table[0]))
                 .chain(
                     advice
@@ -58,7 +61,7 @@ impl WordConfig {
                             let value = if matches!(i, 0 | 1 | 2 | 4) {
                                 not_add.clone() * value
                             } else {
-                                value
+                                meta.query_selector(active) * value
                             };
                             (value, table)
                         }),
@@ -85,6 +88,7 @@ impl WordConfig {
             table,
             operation,
             add,
+            active,
         }
     }
 
@@ -251,23 +255,28 @@ impl WordRegion<'_, '_> {
             .unwrap_or_else(|_| unreachable!("sixteen compression words")))
     }
 
-    fn assign(&mut self, row: usize, column: usize, value: u64) -> Cell {
+    fn assign(&mut self, row: usize, column: usize, value: u64) -> Result<Cell, Error> {
         let value = self
             .faults
             .iter()
             .find(|fault| fault.row == row && fault.column == column)
             .map_or(Scalar::from(value), |fault| fault.value);
-        self.region.assign_advice_discarding_value(
-            self.config.advice[column],
-            row,
-            Value::known(value),
-        )
+        Ok(self
+            .region
+            .assign_advice(self.config.advice[column], row, Value::known(value))?
+            .cell())
     }
 
-    fn tuple(&mut self, row: usize, operation: u64, values: [u64; 6]) -> [Cell; 6] {
+    fn tuple(&mut self, row: usize, operation: u64, values: [u64; 6]) -> Result<[Cell; 6], Error> {
         self.region
-            .assign_fixed(self.config.operation, row, Scalar::from(operation));
-        std::array::from_fn(|column| self.assign(row, column, values[column]))
+            .assign_fixed(self.config.operation, row, Scalar::from(operation))?;
+        self.config.active.enable(self.region, row)?;
+        let cells: Vec<_> = values
+            .into_iter()
+            .enumerate()
+            .map(|(column, value)| self.assign(row, column, value))
+            .collect::<Result<_, _>>()?;
+        Ok(cells.try_into().expect("six word cells"))
     }
 
     fn load<const N: usize>(&mut self, value: u64, constant: bool) -> Result<Word<N>, Error> {
@@ -277,7 +286,7 @@ impl WordRegion<'_, '_> {
         let mut cells = Vec::with_capacity(N);
         for i in 0..N {
             let nibble = (value >> (4 * i)) & 15;
-            let cell = self.tuple(self.offset + i, LOAD, [nibble, 0, 0, 0, 0, 0])[0];
+            let cell = self.tuple(self.offset + i, LOAD, [nibble, 0, 0, 0, 0, 0])?[0];
             if constant {
                 self.region.constrain_constant(cell, Scalar::from(nibble))?;
             }
@@ -305,9 +314,9 @@ impl WordRegion<'_, '_> {
                     0,
                     0,
                 ],
-            );
-            self.region.constrain_equal(assigned[0], a.cells[i]);
-            self.region.constrain_equal(assigned[1], b.cells[i]);
+            )?;
+            self.region.constrain_equal(assigned[0], a.cells[i])?;
+            self.region.constrain_equal(assigned[1], b.cells[i])?;
             cells.push(assigned[3]);
         }
         self.offset += N;
@@ -340,12 +349,13 @@ impl WordRegion<'_, '_> {
                 self.offset + i,
                 ADD,
                 [terms[0], terms[1], terms[2], *sum & 15, *carry, *sum >> 4],
-            );
+            )?;
             for (column, word) in [a, b, c].into_iter().enumerate() {
-                self.region.constrain_equal(assigned[column], word.cells[i]);
+                self.region
+                    .constrain_equal(assigned[column], word.cells[i])?;
             }
             if let Some(previous) = previous_carry {
-                self.region.constrain_equal(assigned[4], previous);
+                self.region.constrain_equal(assigned[4], previous)?;
             } else {
                 self.region.constrain_constant(assigned[4], Scalar::ZERO)?;
             }
@@ -428,10 +438,10 @@ impl WordRegion<'_, '_> {
                     next_low,
                     nibble >> remainder,
                 ],
-            );
-            self.region.constrain_equal(assigned[0], a.cells[source]);
+            )?;
+            self.region.constrain_equal(assigned[0], a.cells[source])?;
             if let Some(b) = b {
-                self.region.constrain_equal(assigned[1], b.cells[source]);
+                self.region.constrain_equal(assigned[1], b.cells[source])?;
             } else {
                 self.region.constrain_constant(assigned[1], Scalar::ZERO)?;
             }
@@ -441,7 +451,7 @@ impl WordRegion<'_, '_> {
         }
         for i in 0..N {
             self.region
-                .constrain_equal(next_low_cells[i], low_cells[(i + 1) % N]);
+                .constrain_equal(next_low_cells[i], low_cells[(i + 1) % N])?;
         }
         self.offset += N;
         Ok(Word {

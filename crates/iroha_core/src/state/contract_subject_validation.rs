@@ -255,6 +255,8 @@ fn prepay_lifecycle<'a>(
     work: &mut Work,
 ) -> Result<(), Error<'a>> {
     work.charge(core::mem::size_of::<u16>() + core::mem::size_of::<u64>())?;
+    prepay_optional_hash(&lifecycle.active_code_hash, work)?;
+    prepay_optional_hash(&lifecycle.retained_code_hash, work)?;
     prepay_owner(&lifecycle.owner, work)?;
     work.charge(1)?; // pending-owner option
     if let Some(owner) = &lifecycle.pending_owner {

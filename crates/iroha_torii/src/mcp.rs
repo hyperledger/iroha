@@ -2441,452 +2441,657 @@ async fn handle_named_tool_call(
             .map_or_else(mcp_tool_error, mcp_tool_success);
         return jsonrpc_result_response(id, tool_result);
     }
-    let result: Result<Value, String> = match name {
-        "iroha.connect.ws.ticket" => build_connect_ws_ticket(arguments, inbound_headers),
-        "iroha.connect.session.create" => {
-            dispatch_connect_session_create(&app, inbound_headers, arguments).await
-        }
-        "iroha.connect.session.delete" => {
-            dispatch_connect_session_delete(&app, inbound_headers, arguments).await
-        }
-        "iroha.connect.session.status" => {
-            dispatch_connect_session_status(&app, inbound_headers, arguments).await
-        }
-        "iroha.vpn.profile" => dispatch_iroha_vpn_profile(&app, inbound_headers, arguments).await,
-        "iroha.vpn.quotes.create" => {
-            dispatch_iroha_vpn_quotes_create(&app, inbound_headers, arguments).await
-        }
-        "iroha.vpn.sessions.create" => {
-            dispatch_iroha_vpn_sessions_create(&app, inbound_headers, arguments).await
-        }
-        "iroha.vpn.sessions.get" => {
-            dispatch_iroha_vpn_sessions_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.vpn.receipts.list" => {
-            dispatch_iroha_vpn_receipts_list(&app, inbound_headers, arguments).await
-        }
-        "iroha.vpn.receipts.submit" => {
-            dispatch_iroha_vpn_receipts_submit(&app, inbound_headers, arguments).await
-        }
-        "iroha.health" => dispatch_iroha_health(&app, inbound_headers, arguments).await,
-        "iroha.parameters.get" => {
-            dispatch_iroha_parameters_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.node.capabilities" => {
-            dispatch_iroha_node_capabilities(&app, inbound_headers, arguments).await
-        }
-        "iroha.node.query_projection_shard_catalog" => {
-            dispatch_iroha_node_query_projection_shard_catalog(&app, inbound_headers, arguments)
-                .await
-        }
-        "iroha.node.query_projection_checkpoint" => {
-            dispatch_iroha_node_query_projection_checkpoint(&app, inbound_headers, arguments).await
-        }
-        "iroha.da.ingest" => dispatch_iroha_da_ingest(&app, inbound_headers, arguments).await,
-        "iroha.da.proof_policies" => {
-            dispatch_iroha_da_proof_policies(&app, inbound_headers, arguments).await
-        }
-        "iroha.da.manifests.get" => {
-            dispatch_iroha_da_manifests_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.da.commitments.list" => {
-            dispatch_iroha_da_commitments_list(&app, inbound_headers, arguments).await
-        }
-        "iroha.da.commitments.prove" => {
-            dispatch_iroha_da_commitments_prove(&app, inbound_headers, arguments).await
-        }
-        "iroha.da.commitments.verify" => {
-            dispatch_iroha_da_commitments_verify(&app, inbound_headers, arguments).await
-        }
-        "iroha.da.pin_intents.list" => {
-            dispatch_iroha_da_pin_intents_list(&app, inbound_headers, arguments).await
-        }
-        "iroha.da.pin_intents.prove" => {
-            dispatch_iroha_da_pin_intents_prove(&app, inbound_headers, arguments).await
-        }
-        "iroha.da.pin_intents.verify" => {
-            dispatch_iroha_da_pin_intents_verify(&app, inbound_headers, arguments).await
-        }
-        "iroha.runtime.abi.active" => {
-            dispatch_iroha_runtime_abi_active(&app, inbound_headers, arguments).await
-        }
-        "iroha.runtime.abi.hash" => {
-            dispatch_iroha_runtime_abi_hash(&app, inbound_headers, arguments).await
-        }
-        "iroha.runtime.metrics" => {
-            dispatch_iroha_runtime_metrics(&app, inbound_headers, arguments).await
-        }
-        "iroha.runtime.upgrades.list" => {
-            dispatch_iroha_runtime_upgrades_list(&app, inbound_headers, arguments).await
-        }
-        "iroha.runtime.upgrades.propose" => {
-            dispatch_iroha_runtime_upgrades_propose(&app, inbound_headers, arguments).await
-        }
-        "iroha.runtime.upgrades.activate" => {
-            dispatch_iroha_runtime_upgrades_activate(&app, inbound_headers, arguments).await
-        }
-        "iroha.runtime.upgrades.cancel" => {
-            dispatch_iroha_runtime_upgrades_cancel(&app, inbound_headers, arguments).await
-        }
-        "iroha.bridge.finality.proof" => {
-            dispatch_iroha_bridge_finality_proof(&app, inbound_headers, arguments).await
-        }
-        "iroha.bridge.finality.bundle" => {
-            dispatch_iroha_bridge_finality_bundle(&app, inbound_headers, arguments).await
-        }
-        "iroha.proofs.query" => dispatch_iroha_proofs_query(&app, inbound_headers, arguments).await,
-        "iroha.gov.contract.get" => {
-            dispatch_iroha_gov_contract_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.gov.proposals.deploy_contract" => {
-            dispatch_iroha_gov_proposals_deploy_contract(&app, inbound_headers, arguments).await
-        }
-        "iroha.gov.parliament.attempts.draft" => {
-            dispatch_iroha_gov_parliament_attempt_draft(&app, inbound_headers, arguments).await
-        }
-        "iroha.gov.parliament.attempts.get" => {
-            dispatch_iroha_gov_parliament_attempt_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.gov.parliament.ballots.timed_ovn_casting_context.get" => {
-            dispatch_iroha_gov_parliament_timed_ovn_casting_context_get(
-                &app,
-                inbound_headers,
-                arguments,
-            )
-            .await
-        }
-        "iroha.gov.parliament.ballots.timed_ovn_casting_proof.get" => {
-            dispatch_iroha_gov_parliament_timed_ovn_casting_proof_get(
-                &app,
-                inbound_headers,
-                arguments,
-            )
-            .await
-        }
-        "iroha.gov.parliament.ballots.tle_release_context.get" => {
-            dispatch_iroha_gov_parliament_tle_release_context_get(&app, inbound_headers, arguments)
-                .await
-        }
-        "iroha.gov.parliament.ballots.tle_partial_release.create" => {
-            dispatch_iroha_gov_parliament_tle_partial_release_create(
-                &app,
-                inbound_headers,
-                arguments,
-            )
-            .await
-        }
-        "iroha.gov.parliament.transitions.draft" => {
-            dispatch_iroha_gov_parliament_transition_draft(&app, inbound_headers, arguments).await
-        }
-        "iroha.gov.proposals.get" => {
-            dispatch_iroha_gov_proposals_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.gov.locks.get" => {
-            dispatch_iroha_gov_locks_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.gov.referenda.get" => {
-            dispatch_iroha_gov_referenda_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.gov.tally.get" => {
-            dispatch_iroha_gov_tally_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.gov.ballots.zk_v1" => {
-            dispatch_iroha_gov_ballots_zk_v1(&app, inbound_headers, arguments).await
-        }
-        "iroha.gov.ballots.zk_v1.ballot_proof" => {
-            dispatch_iroha_gov_ballots_zk_v1_ballot_proof(&app, inbound_headers, arguments).await
-        }
-        "iroha.gov.ballots.plain" => {
-            dispatch_iroha_gov_ballots_plain(&app, inbound_headers, arguments).await
-        }
-        "iroha.gov.protected_namespaces.list" => {
-            dispatch_iroha_gov_protected_namespaces_list(&app, inbound_headers, arguments).await
-        }
-        "iroha.gov.protected_namespaces.update" => {
-            dispatch_iroha_gov_protected_namespaces_update(&app, inbound_headers, arguments).await
-        }
-        "iroha.gov.unlocks.stats" => {
-            dispatch_iroha_gov_unlocks_stats(&app, inbound_headers, arguments).await
-        }
-        "iroha.gov.citizens.count" => {
-            dispatch_iroha_gov_citizens_count(&app, inbound_headers, arguments).await
-        }
-        "iroha.aliases.resolve" => {
-            dispatch_iroha_aliases_resolve(&app, inbound_headers, arguments).await
-        }
-        "iroha.aliases.resolve_index" => {
-            dispatch_iroha_aliases_resolve_index(&app, inbound_headers, arguments).await
-        }
-        "iroha.aliases.by_account" => {
-            dispatch_iroha_aliases_by_account(&app, inbound_headers, arguments).await
-        }
-        "iroha.contracts.code.get" => {
-            dispatch_iroha_contracts_code_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.contracts.code.bytes.get" => {
-            dispatch_iroha_contracts_code_bytes_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.contracts.call" => {
-            dispatch_iroha_contracts_call(&app, inbound_headers, arguments).await
-        }
-        "iroha.contracts.view" => dispatch_contract_view(&app, inbound_headers, arguments).await,
-        "iroha.contracts.call_and_wait" => {
-            dispatch_iroha_contracts_call_and_wait(&app, inbound_headers, arguments).await
-        }
-        "iroha.contracts.state.get" => {
-            dispatch_iroha_contracts_state_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.list" => {
-            dispatch_iroha_accounts_list(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.get" => dispatch_iroha_accounts_get(&app, inbound_headers, arguments).await,
-        "iroha.accounts.qr" => dispatch_iroha_accounts_qr(&app, inbound_headers, arguments).await,
-        "iroha.accounts.query" => {
-            dispatch_iroha_accounts_query(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.onboard.submit" => {
-            dispatch_iroha_accounts_onboard_submit(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.onboard.plan" => {
-            dispatch_iroha_accounts_onboard_plan(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.onboard.prepare" => {
-            dispatch_iroha_accounts_onboard_prepare(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.faucet.policy" => {
-            dispatch_iroha_accounts_faucet_policy(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.faucet.prepare" => {
-            dispatch_iroha_accounts_faucet_prepare(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.faucet.submit" => {
-            dispatch_iroha_accounts_faucet_submit(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.transactions" => {
-            dispatch_iroha_account_transactions(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.history" => {
-            dispatch_iroha_account_history(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.transactions.query" => {
-            dispatch_iroha_account_transactions_query(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.history.query" => {
-            dispatch_iroha_account_history_query(&app, inbound_headers, arguments).await
-        }
-        "iroha.contracts.activity.query" => {
-            dispatch_iroha_contracts_activity_query(&app, inbound_headers, arguments).await
-        }
-        "iroha.contracts.events.query" => {
-            dispatch_iroha_contracts_events_query(&app, inbound_headers, arguments).await
-        }
-        "iroha.transactions.query" => {
-            dispatch_iroha_transactions_query(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.assets" => {
-            dispatch_iroha_account_assets(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.assets.query" => {
-            dispatch_iroha_account_assets_query(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.permissions.query" => {
-            dispatch_iroha_account_permissions_query(&app, inbound_headers, arguments).await
-        }
-        "iroha.subscriptions.plans.query" => {
-            dispatch_iroha_subscriptions_plans_query(&app, inbound_headers, arguments).await
-        }
-        "iroha.subscriptions.query" => {
-            dispatch_iroha_subscriptions_query(&app, inbound_headers, arguments).await
-        }
-        "iroha.space_directory.manifests" => {
-            dispatch_iroha_uaid_manifests(&app, inbound_headers, arguments).await
-        }
-        "iroha.space_directory.manifests.query" => {
-            dispatch_iroha_uaid_manifests_query(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.permissions" => {
-            dispatch_iroha_account_permissions(&app, inbound_headers, arguments).await
-        }
-        "iroha.accounts.portfolio" => {
-            dispatch_iroha_account_portfolio(&app, inbound_headers, arguments).await
-        }
-        "iroha.domains.list" => dispatch_iroha_domains_list(&app, inbound_headers, arguments).await,
-        "iroha.domains.get" => dispatch_iroha_domains_get(&app, inbound_headers, arguments).await,
-        "iroha.domains.query" => {
-            dispatch_iroha_domains_query(&app, inbound_headers, arguments).await
-        }
-        name if musubi_v1_tool_definition(name).is_some() => {
-            dispatch_iroha_musubi_v1(&app, inbound_headers, name, arguments).await
-        }
-        "iroha.subscriptions.plans.list" => {
-            dispatch_iroha_subscriptions_plans_list(&app, inbound_headers, arguments).await
-        }
-        "iroha.subscriptions.plans.create" => {
-            dispatch_iroha_subscriptions_plans_create(&app, inbound_headers, arguments).await
-        }
-        "iroha.subscriptions.list" => {
-            dispatch_iroha_subscriptions_list(&app, inbound_headers, arguments).await
-        }
-        "iroha.subscriptions.create" => {
-            dispatch_iroha_subscriptions_create(&app, inbound_headers, arguments).await
-        }
-        "iroha.subscriptions.get" => {
-            dispatch_iroha_subscriptions_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.subscriptions.pause" => {
-            dispatch_iroha_subscriptions_pause(&app, inbound_headers, arguments).await
-        }
-        "iroha.subscriptions.resume" => {
-            dispatch_iroha_subscriptions_resume(&app, inbound_headers, arguments).await
-        }
-        "iroha.subscriptions.cancel" => {
-            dispatch_iroha_subscriptions_cancel(&app, inbound_headers, arguments).await
-        }
-        "iroha.subscriptions.keep" => {
-            dispatch_iroha_subscriptions_keep(&app, inbound_headers, arguments).await
-        }
-        "iroha.subscriptions.usage" => {
-            dispatch_iroha_subscriptions_usage(&app, inbound_headers, arguments).await
-        }
-        "iroha.subscriptions.charge_now" => {
-            dispatch_iroha_subscriptions_charge_now(&app, inbound_headers, arguments).await
-        }
-        "iroha.assets.definitions" => {
-            dispatch_iroha_asset_definitions(&app, inbound_headers, arguments).await
-        }
-        "iroha.assets.definitions.get" => {
-            dispatch_iroha_asset_definitions_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.assets.definitions.query" => {
-            dispatch_iroha_asset_definitions_query(&app, inbound_headers, arguments).await
-        }
-        "iroha.assets.holders" => {
-            dispatch_iroha_asset_holders(&app, inbound_headers, arguments).await
-        }
-        "iroha.assets.holders.query" => {
-            dispatch_iroha_asset_holders_query(&app, inbound_headers, arguments).await
-        }
-        "iroha.assets.list" => dispatch_iroha_assets_list(&app, inbound_headers, arguments).await,
-        "iroha.assets.get" => dispatch_iroha_assets_get(&app, inbound_headers, arguments).await,
-        "iroha.nfts.chain.list" => {
-            dispatch_iroha_nfts_chain_list(&app, inbound_headers, arguments).await
-        }
-        "iroha.nfts.list" => dispatch_iroha_nfts_list(&app, inbound_headers, arguments).await,
-        "iroha.nfts.get" => dispatch_iroha_nfts_get(&app, inbound_headers, arguments).await,
-        "iroha.nfts.query" => dispatch_iroha_nfts_query(&app, inbound_headers, arguments).await,
-        "iroha.rwas.chain.list" => {
-            dispatch_iroha_rwas_chain_list(&app, inbound_headers, arguments).await
-        }
-        "iroha.rwas.list" => dispatch_iroha_rwas_list(&app, inbound_headers, arguments).await,
-        "iroha.rwas.get" => dispatch_iroha_rwas_get(&app, inbound_headers, arguments).await,
-        "iroha.rwas.query" => dispatch_iroha_rwas_query(&app, inbound_headers, arguments).await,
-        "iroha.iso20022.pacs008.submit" => {
-            dispatch_iroha_iso20022_pacs008_submit(&app, inbound_headers, arguments).await
-        }
-        "iroha.iso20022.pacs009.submit" => {
-            dispatch_iroha_iso20022_pacs009_submit(&app, inbound_headers, arguments).await
-        }
-        "iroha.iso20022.pacs002.submit" => {
-            dispatch_iroha_iso20022_lifecycle_submit(
-                &app,
-                inbound_headers,
-                arguments,
-                "/v1/iso20022/pacs002",
-            )
-            .await
-        }
-        "iroha.iso20022.pacs004.submit" => {
-            dispatch_iroha_iso20022_lifecycle_submit(
-                &app,
-                inbound_headers,
-                arguments,
-                "/v1/iso20022/pacs004",
-            )
-            .await
-        }
-        "iroha.iso20022.camt056.submit" => {
-            dispatch_iroha_iso20022_lifecycle_submit(
-                &app,
-                inbound_headers,
-                arguments,
-                "/v1/iso20022/camt056",
-            )
-            .await
-        }
-        "iroha.iso20022.sese023.submit" => {
-            dispatch_iroha_iso20022_lifecycle_submit(
-                &app,
-                inbound_headers,
-                arguments,
-                "/v1/iso20022/sese023",
-            )
-            .await
-        }
-        "iroha.iso20022.sese024.submit" => {
-            dispatch_iroha_iso20022_lifecycle_submit(
-                &app,
-                inbound_headers,
-                arguments,
-                "/v1/iso20022/sese024",
-            )
-            .await
-        }
-        "iroha.iso20022.sese025.submit" => {
-            dispatch_iroha_iso20022_lifecycle_submit(
-                &app,
-                inbound_headers,
-                arguments,
-                "/v1/iso20022/sese025",
-            )
-            .await
-        }
-        "iroha.iso20022.colr012.submit" => {
-            dispatch_iroha_iso20022_lifecycle_submit(
-                &app,
-                inbound_headers,
-                arguments,
-                "/v1/iso20022/colr012",
-            )
-            .await
-        }
-        "iroha.iso20022.status.get" => {
-            dispatch_iroha_iso20022_status_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.queries.submit" => {
-            dispatch_iroha_queries_submit(&app, inbound_headers, arguments).await
-        }
-        "iroha.transactions.list" => {
-            dispatch_iroha_transactions_list(&app, inbound_headers, arguments).await
-        }
-        "iroha.transactions.get" => {
-            dispatch_iroha_transactions_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.instructions.list" => {
-            dispatch_iroha_instructions_list(&app, inbound_headers, arguments).await
-        }
-        "iroha.instructions.get" => {
-            dispatch_iroha_instructions_get(&app, inbound_headers, arguments).await
-        }
-        "iroha.blocks.list" => dispatch_iroha_blocks_list(&app, inbound_headers, arguments).await,
-        "iroha.blocks.get" => dispatch_iroha_blocks_get(&app, inbound_headers, arguments).await,
-        "iroha.transactions.submit" => {
-            dispatch_iroha_transactions_submit(&app, inbound_headers, arguments).await
-        }
-        "iroha.transactions.submit_and_wait" => {
-            dispatch_iroha_transactions_submit_and_wait(&app, inbound_headers, arguments).await
-        }
-        "iroha.transactions.wait" => {
-            dispatch_iroha_transactions_wait(&app, inbound_headers, arguments).await
-        }
-        "iroha.transactions.status" => {
-            dispatch_iroha_transactions_status(&app, inbound_headers, arguments).await
-        }
-        _ => Err(format!(
-            "purpose-built dispatch contract `{name}` has no implementation"
-        )),
-    };
+    let result = select_purpose_built_tool_dispatch(&app, inbound_headers, name, arguments).await;
     let tool_result = result.map_or_else(mcp_tool_error, mcp_tool_success);
     jsonrpc_result_response(id, tool_result)
+}
+/// Select one heap-owned handler before polling its forwarded HTTP route.
+/// Selection scratch space is released before the nested router and Core reader run.
+fn select_purpose_built_tool_dispatch<'a>(
+    app: &'a SharedAppState,
+    inbound_headers: &'a HeaderMap,
+    name: &'a str,
+    arguments: &'a Map,
+) -> std::pin::Pin<Box<dyn Future<Output = Result<Value, String>> + Send + 'a>> {
+    match name {
+        "iroha.connect.ws.ticket" => {
+            Box::pin(async move { build_connect_ws_ticket(arguments, inbound_headers) })
+        }
+        "iroha.connect.session.create" => Box::pin(dispatch_connect_session_create(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.connect.session.delete" => Box::pin(dispatch_connect_session_delete(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.connect.session.status" => Box::pin(dispatch_connect_session_status(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.vpn.profile" => {
+            Box::pin(dispatch_iroha_vpn_profile(app, inbound_headers, arguments))
+        }
+        "iroha.vpn.quotes.create" => Box::pin(dispatch_iroha_vpn_quotes_create(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.vpn.sessions.create" => Box::pin(dispatch_iroha_vpn_sessions_create(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.vpn.sessions.get" => Box::pin(dispatch_iroha_vpn_sessions_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.vpn.receipts.list" => Box::pin(dispatch_iroha_vpn_receipts_list(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.vpn.receipts.submit" => Box::pin(dispatch_iroha_vpn_receipts_submit(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.health" => Box::pin(dispatch_iroha_health(app, inbound_headers, arguments)),
+        "iroha.parameters.get" => Box::pin(dispatch_iroha_parameters_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.node.capabilities" => Box::pin(dispatch_iroha_node_capabilities(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.node.query_projection_shard_catalog" => Box::pin(
+            dispatch_iroha_node_query_projection_shard_catalog(app, inbound_headers, arguments),
+        ),
+        "iroha.node.query_projection_checkpoint" => Box::pin(
+            dispatch_iroha_node_query_projection_checkpoint(app, inbound_headers, arguments),
+        ),
+        "iroha.da.ingest" => Box::pin(dispatch_iroha_da_ingest(app, inbound_headers, arguments)),
+        "iroha.da.proof_policies" => Box::pin(dispatch_iroha_da_proof_policies(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.da.manifests.get" => Box::pin(dispatch_iroha_da_manifests_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.da.commitments.list" => Box::pin(dispatch_iroha_da_commitments_list(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.da.commitments.prove" => Box::pin(dispatch_iroha_da_commitments_prove(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.da.commitments.verify" => Box::pin(dispatch_iroha_da_commitments_verify(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.da.pin_intents.list" => Box::pin(dispatch_iroha_da_pin_intents_list(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.da.pin_intents.prove" => Box::pin(dispatch_iroha_da_pin_intents_prove(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.da.pin_intents.verify" => Box::pin(dispatch_iroha_da_pin_intents_verify(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.runtime.abi.active" => Box::pin(dispatch_iroha_runtime_abi_active(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.runtime.abi.hash" => Box::pin(dispatch_iroha_runtime_abi_hash(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.runtime.metrics" => Box::pin(dispatch_iroha_runtime_metrics(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.runtime.upgrades.list" => Box::pin(dispatch_iroha_runtime_upgrades_list(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.runtime.upgrades.propose" => Box::pin(dispatch_iroha_runtime_upgrades_propose(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.runtime.upgrades.activate" => Box::pin(dispatch_iroha_runtime_upgrades_activate(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.runtime.upgrades.cancel" => Box::pin(dispatch_iroha_runtime_upgrades_cancel(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.bridge.finality.proof" => Box::pin(dispatch_iroha_bridge_finality_proof(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.bridge.finality.bundle" => Box::pin(dispatch_iroha_bridge_finality_bundle(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.proofs.query" => {
+            Box::pin(dispatch_iroha_proofs_query(app, inbound_headers, arguments))
+        }
+        "iroha.gov.contract.get" => Box::pin(dispatch_iroha_gov_contract_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.gov.proposals.deploy_contract" => Box::pin(
+            dispatch_iroha_gov_proposals_deploy_contract(app, inbound_headers, arguments),
+        ),
+        "iroha.gov.parliament.attempts.draft" => Box::pin(
+            dispatch_iroha_gov_parliament_attempt_draft(app, inbound_headers, arguments),
+        ),
+        "iroha.gov.parliament.attempts.get" => Box::pin(dispatch_iroha_gov_parliament_attempt_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.gov.parliament.ballots.timed_ovn_casting_context.get" => {
+            Box::pin(dispatch_iroha_gov_parliament_timed_ovn_casting_context_get(
+                app,
+                inbound_headers,
+                arguments,
+            ))
+        }
+        "iroha.gov.parliament.ballots.timed_ovn_casting_proof.get" => {
+            Box::pin(dispatch_iroha_gov_parliament_timed_ovn_casting_proof_get(
+                app,
+                inbound_headers,
+                arguments,
+            ))
+        }
+        "iroha.gov.parliament.ballots.tle_release_context.get" => Box::pin(
+            dispatch_iroha_gov_parliament_tle_release_context_get(app, inbound_headers, arguments),
+        ),
+        "iroha.gov.parliament.ballots.tle_partial_release.create" => {
+            Box::pin(dispatch_iroha_gov_parliament_tle_partial_release_create(
+                app,
+                inbound_headers,
+                arguments,
+            ))
+        }
+        "iroha.gov.parliament.transitions.draft" => Box::pin(
+            dispatch_iroha_gov_parliament_transition_draft(app, inbound_headers, arguments),
+        ),
+        "iroha.gov.proposals.get" => Box::pin(dispatch_iroha_gov_proposals_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.gov.locks.get" => Box::pin(dispatch_iroha_gov_locks_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.gov.referenda.get" => Box::pin(dispatch_iroha_gov_referenda_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.gov.tally.get" => Box::pin(dispatch_iroha_gov_tally_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.gov.ballots.zk_v1" => Box::pin(dispatch_iroha_gov_ballots_zk_v1(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.gov.ballots.zk_v1.ballot_proof" => Box::pin(
+            dispatch_iroha_gov_ballots_zk_v1_ballot_proof(app, inbound_headers, arguments),
+        ),
+        "iroha.gov.ballots.plain" => Box::pin(dispatch_iroha_gov_ballots_plain(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.gov.protected_namespaces.list" => Box::pin(
+            dispatch_iroha_gov_protected_namespaces_list(app, inbound_headers, arguments),
+        ),
+        "iroha.gov.protected_namespaces.update" => Box::pin(
+            dispatch_iroha_gov_protected_namespaces_update(app, inbound_headers, arguments),
+        ),
+        "iroha.gov.unlocks.stats" => Box::pin(dispatch_iroha_gov_unlocks_stats(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.gov.citizens.count" => Box::pin(dispatch_iroha_gov_citizens_count(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.aliases.resolve" => Box::pin(dispatch_iroha_aliases_resolve(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.aliases.resolve_index" => Box::pin(dispatch_iroha_aliases_resolve_index(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.aliases.by_account" => Box::pin(dispatch_iroha_aliases_by_account(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.contracts.code.get" => Box::pin(dispatch_iroha_contracts_code_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.contracts.code.bytes.get" => Box::pin(dispatch_iroha_contracts_code_bytes_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.contracts.call" => Box::pin(dispatch_iroha_contracts_call(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.contracts.view" => Box::pin(dispatch_contract_view(app, inbound_headers, arguments)),
+        "iroha.contracts.call_and_wait" => Box::pin(dispatch_iroha_contracts_call_and_wait(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.contracts.state.get" => Box::pin(dispatch_iroha_contracts_state_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.list" => Box::pin(dispatch_iroha_accounts_list(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.get" => {
+            Box::pin(dispatch_iroha_accounts_get(app, inbound_headers, arguments))
+        }
+        "iroha.accounts.qr" => {
+            Box::pin(dispatch_iroha_accounts_qr(app, inbound_headers, arguments))
+        }
+        "iroha.accounts.query" => Box::pin(dispatch_iroha_accounts_query(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.onboard.submit" => Box::pin(dispatch_iroha_accounts_onboard_submit(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.onboard.plan" => Box::pin(dispatch_iroha_accounts_onboard_plan(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.onboard.prepare" => Box::pin(dispatch_iroha_accounts_onboard_prepare(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.faucet.policy" => Box::pin(dispatch_iroha_accounts_faucet_policy(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.faucet.prepare" => Box::pin(dispatch_iroha_accounts_faucet_prepare(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.faucet.submit" => Box::pin(dispatch_iroha_accounts_faucet_submit(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.transactions" => Box::pin(dispatch_iroha_account_transactions(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.history" => Box::pin(dispatch_iroha_account_history(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.transactions.query" => Box::pin(dispatch_iroha_account_transactions_query(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.history.query" => Box::pin(dispatch_iroha_account_history_query(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.contracts.activity.query" => Box::pin(dispatch_iroha_contracts_activity_query(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.contracts.events.query" => Box::pin(dispatch_iroha_contracts_events_query(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.transactions.query" => Box::pin(dispatch_iroha_transactions_query(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.assets" => Box::pin(dispatch_iroha_account_assets(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.assets.query" => Box::pin(dispatch_iroha_account_assets_query(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.permissions.query" => Box::pin(dispatch_iroha_account_permissions_query(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.subscriptions.plans.query" => Box::pin(dispatch_iroha_subscriptions_plans_query(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.subscriptions.query" => Box::pin(dispatch_iroha_subscriptions_query(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.space_directory.manifests" => Box::pin(dispatch_iroha_uaid_manifests(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.space_directory.manifests.query" => Box::pin(dispatch_iroha_uaid_manifests_query(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.permissions" => Box::pin(dispatch_iroha_account_permissions(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.accounts.portfolio" => Box::pin(dispatch_iroha_account_portfolio(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.domains.list" => {
+            Box::pin(dispatch_iroha_domains_list(app, inbound_headers, arguments))
+        }
+        "iroha.domains.get" => {
+            Box::pin(dispatch_iroha_domains_get(app, inbound_headers, arguments))
+        }
+        "iroha.domains.query" => Box::pin(dispatch_iroha_domains_query(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        name if musubi_v1_tool_definition(name).is_some() => Box::pin(dispatch_iroha_musubi_v1(
+            app,
+            inbound_headers,
+            name,
+            arguments,
+        )),
+        "iroha.subscriptions.plans.list" => Box::pin(dispatch_iroha_subscriptions_plans_list(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.subscriptions.plans.create" => Box::pin(dispatch_iroha_subscriptions_plans_create(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.subscriptions.list" => Box::pin(dispatch_iroha_subscriptions_list(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.subscriptions.create" => Box::pin(dispatch_iroha_subscriptions_create(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.subscriptions.get" => Box::pin(dispatch_iroha_subscriptions_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.subscriptions.pause" => Box::pin(dispatch_iroha_subscriptions_pause(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.subscriptions.resume" => Box::pin(dispatch_iroha_subscriptions_resume(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.subscriptions.cancel" => Box::pin(dispatch_iroha_subscriptions_cancel(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.subscriptions.keep" => Box::pin(dispatch_iroha_subscriptions_keep(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.subscriptions.usage" => Box::pin(dispatch_iroha_subscriptions_usage(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.subscriptions.charge_now" => Box::pin(dispatch_iroha_subscriptions_charge_now(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.assets.definitions" => Box::pin(dispatch_iroha_asset_definitions(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.assets.definitions.get" => Box::pin(dispatch_iroha_asset_definitions_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.assets.definitions.query" => Box::pin(dispatch_iroha_asset_definitions_query(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.assets.holders" => Box::pin(dispatch_iroha_asset_holders(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.assets.holders.query" => Box::pin(dispatch_iroha_asset_holders_query(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.assets.list" => {
+            Box::pin(dispatch_iroha_assets_list(app, inbound_headers, arguments))
+        }
+        "iroha.assets.get" => Box::pin(dispatch_iroha_assets_get(app, inbound_headers, arguments)),
+        "iroha.nfts.chain.list" => Box::pin(dispatch_iroha_nfts_chain_list(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.nfts.list" => Box::pin(dispatch_iroha_nfts_list(app, inbound_headers, arguments)),
+        "iroha.nfts.get" => Box::pin(dispatch_iroha_nfts_get(app, inbound_headers, arguments)),
+        "iroha.nfts.query" => Box::pin(dispatch_iroha_nfts_query(app, inbound_headers, arguments)),
+        "iroha.rwas.chain.list" => Box::pin(dispatch_iroha_rwas_chain_list(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.rwas.list" => Box::pin(dispatch_iroha_rwas_list(app, inbound_headers, arguments)),
+        "iroha.rwas.get" => Box::pin(dispatch_iroha_rwas_get(app, inbound_headers, arguments)),
+        "iroha.rwas.query" => Box::pin(dispatch_iroha_rwas_query(app, inbound_headers, arguments)),
+        "iroha.iso20022.pacs008.submit" => Box::pin(dispatch_iroha_iso20022_pacs008_submit(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.iso20022.pacs009.submit" => Box::pin(dispatch_iroha_iso20022_pacs009_submit(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.iso20022.pacs002.submit" => Box::pin(dispatch_iroha_iso20022_lifecycle_submit(
+            app,
+            inbound_headers,
+            arguments,
+            "/v1/iso20022/pacs002",
+        )),
+        "iroha.iso20022.pacs004.submit" => Box::pin(dispatch_iroha_iso20022_lifecycle_submit(
+            app,
+            inbound_headers,
+            arguments,
+            "/v1/iso20022/pacs004",
+        )),
+        "iroha.iso20022.camt056.submit" => Box::pin(dispatch_iroha_iso20022_lifecycle_submit(
+            app,
+            inbound_headers,
+            arguments,
+            "/v1/iso20022/camt056",
+        )),
+        "iroha.iso20022.sese023.submit" => Box::pin(dispatch_iroha_iso20022_lifecycle_submit(
+            app,
+            inbound_headers,
+            arguments,
+            "/v1/iso20022/sese023",
+        )),
+        "iroha.iso20022.sese024.submit" => Box::pin(dispatch_iroha_iso20022_lifecycle_submit(
+            app,
+            inbound_headers,
+            arguments,
+            "/v1/iso20022/sese024",
+        )),
+        "iroha.iso20022.sese025.submit" => Box::pin(dispatch_iroha_iso20022_lifecycle_submit(
+            app,
+            inbound_headers,
+            arguments,
+            "/v1/iso20022/sese025",
+        )),
+        "iroha.iso20022.colr012.submit" => Box::pin(dispatch_iroha_iso20022_lifecycle_submit(
+            app,
+            inbound_headers,
+            arguments,
+            "/v1/iso20022/colr012",
+        )),
+        "iroha.iso20022.status.get" => Box::pin(dispatch_iroha_iso20022_status_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.queries.submit" => Box::pin(dispatch_iroha_queries_submit(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.transactions.list" => Box::pin(dispatch_iroha_transactions_list(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.transactions.get" => Box::pin(dispatch_iroha_transactions_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.instructions.list" => Box::pin(dispatch_iroha_instructions_list(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.instructions.get" => Box::pin(dispatch_iroha_instructions_get(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.blocks.list" => {
+            Box::pin(dispatch_iroha_blocks_list(app, inbound_headers, arguments))
+        }
+        "iroha.blocks.get" => Box::pin(dispatch_iroha_blocks_get(app, inbound_headers, arguments)),
+        "iroha.transactions.submit" => Box::pin(dispatch_iroha_transactions_submit(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.transactions.submit_and_wait" => Box::pin(
+            dispatch_iroha_transactions_submit_and_wait(app, inbound_headers, arguments),
+        ),
+        "iroha.transactions.wait" => Box::pin(dispatch_iroha_transactions_wait(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        "iroha.transactions.status" => Box::pin(dispatch_iroha_transactions_status(
+            app,
+            inbound_headers,
+            arguments,
+        )),
+        _ => Box::pin(async move {
+            Err(format!(
+                "purpose-built dispatch contract `{name}` has no implementation"
+            ))
+        }),
+    }
 }
 fn validate_tool_arguments(tool: &ToolSpec, arguments: &Map) -> Result<(), String> {
     let schema = sanitize_tool_input_schema(&tool.input_schema);

@@ -6,7 +6,7 @@ use iroha_allocation::AllocationRefusal;
 fn prepared() -> PreparedContract {
     let bytes = kotodama_lang::compiler::Compiler::new()
         .compile_source(
-            "seiyaku FundedState { state StateMap<int, int> Values; kotoage fn write_one() authorize(\"CanWrite\") { Values[1] = 10; } }",
+            "seiyaku FundedState { permission CanWrite;  state StateMap<int, int> Values; kotoage fn write_one() authorize(CanWrite) { Values[1] = 10; } }",
         )
         .unwrap();
     crate::prepare_contract(std::sync::Arc::from(bytes.as_slice())).unwrap()

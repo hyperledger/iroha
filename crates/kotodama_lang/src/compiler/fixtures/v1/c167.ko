@@ -1,6 +1,6 @@
 
-seiyaku Test {
-  kotoage fn relay(bytes target, quantity amount, quantity minimum) -> quantity authorize("Entry") {
+seiyaku Test { permission Entry;
+  kotoage fn relay(bytes target, quantity amount, quantity minimum) authorize(Entry) -> quantity {
     return contract::invoke(
       contract: target,
       entrypoint: "swap_exact_in_quote_public",

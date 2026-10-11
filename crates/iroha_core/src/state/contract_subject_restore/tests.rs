@@ -233,11 +233,7 @@ fn prior_only_source_failure_does_not_replace_index_or_consume_any_source_undo()
 
 #[test]
 fn actual_kura_seed_roundtrip_preserves_both_images_and_rejects_prior_only_corruption() {
-    use crate::{
-        kura::Kura,
-        query::store::LiveQueryStore,
-        state::{deserialize, kagemusha_operation_indexes},
-    };
+    use crate::{kura::Kura, query::store::LiveQueryStore, state::deserialize};
     let mut state = state();
     {
         let mut block = state.world.contract_subject_bindings.block();
@@ -251,7 +247,6 @@ fn actual_kura_seed_roundtrip_preserves_both_images_and_rejects_prior_only_corru
     let lane_manifests = state.lane_manifests.read().clone();
     let restore = |value| {
         deserialize::KuraSeed {
-            operation_index_budget: kagemusha_operation_indexes::default_budget(),
             execution_budget: execution_budget.clone(),
             lane_manifests: lane_manifests.clone(),
             kura: Kura::blank_kura_for_testing(),

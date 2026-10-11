@@ -17,13 +17,20 @@
 //! The client keeps one ADNL session open to the liteserver that answered
 //! last. Each query starts there and walks the list round-robin; a server that
 //! cannot be reached, fails the handshake, times out, breaks framing, sends an
-//! undecodable or mismatched answer, or answers `liteServer.error` with a
+//! undecodable or mismatched answer, sends an answer above the query's cap
+//! ([`LiteQuery::max_answer_bytes`]), or answers `liteServer.error` with a
 //! [`LITE_SERVER_FAILOVER_CODES`](super::schema::LITE_SERVER_FAILOVER_CODES)
 //! code hands the query to the next one. Other `liteServer.error` codes are
-//! answers about the query and are returned at once. After a fully failed
-//! round the next one starts after the [`FailoverPolicy`] backoff. A session
-//! idle for [`LiteClientConfig::keepalive_interval`] is probed with
-//! `tcp.ping` before reuse and replaced when the probe fails.
+//! answers about the query and are returned at once, and the next query
+//! starts at the next liteserver. After a fully failed round the next one
+//! starts after the [`FailoverPolicy`] backoff. A session idle for
+//! [`LiteClientConfig::keepalive_interval`] is probed with `tcp.ping` before
+//! reuse and replaced when the probe fails.
+//!
+//! Every connect, probe and query has one wall-clock deadline: its timeout
+//! from its start, or the caller's [`PollBudget`] deadline when that comes
+//! first. The keeper's list starts at a seeded index
+//! ([`LiteClient::from_keeper_config`]).
 
 use std::{
     fmt,
@@ -43,7 +50,9 @@ use super::{
         TransactionInfo, TransactionList, WaitMasterchainSeqno, wrap_query,
     },
 };
-use crate::endpoints::{FailoverPolicy, Sleeper, ThreadSleeper};
+use crate::endpoints::{
+    FailoverPolicy, PollBudget, Sleeper, ThreadSleeper, attempt_deadline, within_budget,
+};
 
 /// Default idle time after which a session is probed with `tcp.ping` before
 /// reuse.
@@ -52,14 +61,16 @@ pub const DEFAULT_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
 /// Transport limits of one [`LiteClient`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LiteClientConfig {
-    /// Timeout of connecting and the ADNL handshake (and of a keep-alive
-    /// probe) before failing over.
+    /// Total wall-clock time of connecting and the ADNL handshake (and of a
+    /// keep-alive probe) before failing over.
     pub connect_timeout: Duration,
-    /// Timeout of one query on one liteserver before failing over.
+    /// Total wall-clock time of one query on one liteserver, answer included,
+    /// before failing over.
     pub request_timeout: Duration,
     /// Idle time after which a session is probed before reuse.
     pub keepalive_interval: Duration,
-    /// Largest accepted ADNL packet.
+    /// Largest accepted ADNL packet; each query's answer cap
+    /// ([`LiteQuery::max_answer_bytes`]) is clipped to it.
     pub max_packet_bytes: usize,
 }
 
@@ -154,6 +165,11 @@ pub enum LiteClientError {
         /// Each failed attempt, in order.
         failures: Vec<LiteAttemptFailure>,
     },
+    /// The caller's [`PollBudget`] ran out before an attempt answered.
+    BudgetExhausted {
+        /// Each failed attempt, in order.
+        failures: Vec<LiteAttemptFailure>,
+    },
 }
 
 impl LiteClientError {
@@ -164,8 +180,18 @@ impl LiteClientError {
         match self {
             Self::Adnl { .. } | Self::InvalidResponse { .. } => true,
             Self::LiteServer { error, .. } => error.is_failover(),
-            Self::Peers(_) | Self::InvalidRequest(_) | Self::Exhausted { .. } => false,
+            Self::Peers(_)
+            | Self::InvalidRequest(_)
+            | Self::Exhausted { .. }
+            | Self::BudgetExhausted { .. } => false,
         }
+    }
+
+    /// Whether this answer is a reason to start the next query at another
+    /// liteserver: a `liteServer.error` that answers the query (failover
+    /// errors move on anyway). The answer itself is still returned.
+    pub fn discredits_server(&self) -> bool {
+        matches!(self, Self::LiteServer { error, .. } if !error.is_failover())
     }
 
     /// Whether the session that produced this error must be dropped (its
@@ -174,10 +200,13 @@ impl LiteClientError {
         matches!(self, Self::Adnl { .. })
     }
 
-    /// The last attempt's error for [`Self::Exhausted`], otherwise `self`.
+    /// The last attempt's error for [`Self::Exhausted`] and
+    /// [`Self::BudgetExhausted`], otherwise `self`.
     pub fn last_failure(&self) -> &Self {
         match self {
-            Self::Exhausted { failures } => failures.last().map_or(self, |last| &last.error),
+            Self::Exhausted { failures } | Self::BudgetExhausted { failures } => {
+                failures.last().map_or(self, |last| &last.error)
+            }
             _ => self,
         }
     }
@@ -210,6 +239,17 @@ impl fmt::Display for LiteClientError {
                 write!(
                     formatter,
                     "every TON liteserver failed ({} attempts)",
+                    failures.len()
+                )?;
+                if let Some(last) = failures.last() {
+                    write!(formatter, "; last: {last}")?;
+                }
+                Ok(())
+            }
+            Self::BudgetExhausted { failures } => {
+                write!(
+                    formatter,
+                    "the poll budget ran out after {} failed liteserver attempt(s)",
                     failures.len()
                 )?;
                 if let Some(last) = failures.last() {
@@ -258,6 +298,7 @@ pub struct LiteClient {
     config: LiteClientConfig,
     policy: FailoverPolicy,
     sleeper: Arc<dyn Sleeper>,
+    budget: PollBudget,
     session: Mutex<Option<Session>>,
 }
 
@@ -273,19 +314,23 @@ impl fmt::Debug for LiteClient {
 }
 
 impl LiteClient {
-    /// A client over `servers`.
+    /// A client over `servers`, without a poll budget. Queries start at the
+    /// list's preferred liteserver (the first one, unless the list was
+    /// seeded).
     pub fn new(servers: LiteServerSet, config: LiteClientConfig, policy: FailoverPolicy) -> Self {
         Self {
             servers,
             config,
             policy,
             sleeper: Arc::new(ThreadSleeper),
+            budget: PollBudget::new(),
             session: Mutex::new(None),
         }
     }
 
-    /// The in-node keeper's client: its liteserver list and limits, with
-    /// backoff jitter seeded by `seed`.
+    /// The in-node keeper's client: its liteserver list and limits. `seed`
+    /// seeds both the backoff jitter and the starting liteserver, so
+    /// validators sharing the compiled list start at different liteservers.
     ///
     /// # Errors
     /// If the configured list is invalid.
@@ -294,7 +339,7 @@ impl LiteClient {
         seed: u64,
     ) -> Result<Self, LiteClientError> {
         Ok(Self::new(
-            LiteServerSet::from_keeper_config(keeper)?,
+            LiteServerSet::from_keeper_config(keeper)?.with_seeded_start(seed),
             LiteClientConfig::from_keeper_config(keeper),
             FailoverPolicy::with_seed(seed),
         ))
@@ -305,6 +350,29 @@ impl LiteClient {
     pub fn with_sleeper(mut self, sleeper: Arc<dyn Sleeper>) -> Self {
         self.sleeper = sleeper;
         self
+    }
+
+    /// Bounds every query by `budget` (see [`PollBudget`]).
+    #[must_use]
+    pub fn with_budget(mut self, budget: PollBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+
+    /// The poll budget.
+    pub fn budget(&self) -> &PollBudget {
+        &self.budget
+    }
+
+    /// Moves the next query to the liteserver after the one that answered
+    /// last, for callers whose verification rejected that liteserver's data.
+    /// `TonBuilder::rotate_endpoints` calls it, and the keeper does so after a
+    /// build that failed.
+    // TODO(WP9): the keeper does not observe on-chain rejections of its
+    // submitted advances, and the wallet and CLI do not rotate after a local
+    // verification failure yet.
+    pub fn rotate_preferred(&self) {
+        self.servers.rotate_preferred();
     }
 
     /// The liteserver list.
@@ -341,7 +409,7 @@ impl LiteClient {
         if session.connection.idle_for() < self.config.keepalive_interval {
             return Ok(false);
         }
-        let deadline = Instant::now() + self.config.connect_timeout;
+        let deadline = self.deadline(self.config.connect_timeout);
         match session.connection.ping(deadline) {
             Ok(()) => Ok(true),
             Err(error) => {
@@ -369,7 +437,8 @@ impl LiteClient {
         wait: Option<WaitMasterchainSeqno>,
     ) -> Result<Vec<u8>, LiteClientError> {
         let wrapped = wrapped(query, wait)?;
-        self.run(|connection, server| self.exchange(connection, server, &wrapped))
+        let cap = query.max_answer_bytes();
+        self.run(|connection, server| self.exchange(connection, server, &wrapped, cap))
     }
 
     /// Sends `query` and decodes the answer as `T`, without checking that it
@@ -618,8 +687,9 @@ impl LiteClient {
         check: impl Fn(&T) -> Result<(), String>,
     ) -> Result<T, LiteClientError> {
         let wrapped = wrapped(query, wait)?;
+        let cap = query.max_answer_bytes();
         self.run(|connection, server| {
-            let answer = self.exchange(connection, server, &wrapped)?;
+            let answer = self.exchange(connection, server, &wrapped, cap)?;
             let invalid = |detail: String| LiteClientError::InvalidResponse {
                 server: server.label().to_owned(),
                 detail,
@@ -636,22 +706,29 @@ impl LiteClient {
         })
     }
 
-    /// One query on one session: the raw answer, or its `liteServer.error`.
+    /// The deadline of an operation of at most `timeout` starting now,
+    /// clipped to the poll budget.
+    fn deadline(&self, timeout: Duration) -> Instant {
+        attempt_deadline(Instant::now(), timeout, self.budget.deadline())
+    }
+
+    /// One query on one session, with an answer of at most `cap` bytes: the
+    /// raw answer, or its `liteServer.error`.
     fn exchange(
         &self,
         connection: &mut AdnlConnection,
         server: &LiteServer,
         wrapped: &[u8],
+        cap: usize,
     ) -> Result<Vec<u8>, LiteClientError> {
-        let deadline = Instant::now() + self.config.request_timeout;
-        let answer =
-            connection
-                .query(wrapped, deadline)
-                .map_err(|error| LiteClientError::Adnl {
-                    server: server.label().to_owned(),
-                    stage: Stage::Query,
-                    error,
-                })?;
+        let deadline = self.deadline(self.config.request_timeout);
+        let answer = connection
+            .query_bounded(wrapped, deadline, cap)
+            .map_err(|error| LiteClientError::Adnl {
+                server: server.label().to_owned(),
+                stage: Stage::Query,
+                error,
+            })?;
         if let Some(error) = LiteServerError::from_answer(&answer) {
             return Err(LiteClientError::LiteServer {
                 server: server.label().to_owned(),
@@ -673,12 +750,20 @@ impl LiteClient {
         let mut slot = self.lock_session();
         let count = self.servers.len();
         let mut failures = Vec::new();
+        let budget = self.budget.deadline();
         for round in 0..self.policy.rounds.get() {
             if round > 0 {
-                self.sleeper.sleep(self.policy.round_delay(round - 1, None));
+                let delay = self.policy.round_delay(round - 1, None);
+                if !within_budget(budget, Instant::now().checked_add(delay)) {
+                    return Err(LiteClientError::BudgetExhausted { failures });
+                }
+                self.sleeper.sleep(delay);
             }
             let start = self.servers.preferred();
             for offset in 0..count {
+                if !within_budget(budget, Some(Instant::now())) {
+                    return Err(LiteClientError::BudgetExhausted { failures });
+                }
                 let index = (start + offset) % count;
                 let server = &self.servers.servers()[index];
                 let result = self
@@ -694,6 +779,9 @@ impl LiteClient {
                             *slot = None;
                         }
                         if !error.is_failover() {
+                            if error.discredits_server() {
+                                self.servers.set_preferred((index + 1) % count);
+                            }
                             return Err(error);
                         }
                         failures.push(LiteAttemptFailure {
@@ -717,7 +805,7 @@ impl LiteClient {
     ) -> Result<&'s mut AdnlConnection, LiteClientError> {
         let mut current = slot.take().filter(|session| session.index == index);
         if let Some(session) = current.as_mut() {
-            let deadline = Instant::now() + self.config.connect_timeout;
+            let deadline = self.deadline(self.config.connect_timeout);
             if session.connection.idle_for() >= self.config.keepalive_interval
                 && session.connection.ping(deadline).is_err()
             {
@@ -737,7 +825,7 @@ impl LiteClient {
     /// A new session with liteserver `index`.
     fn connect(&self, index: usize) -> Result<AdnlConnection, LiteClientError> {
         let server = &self.servers.servers()[index];
-        let deadline = Instant::now() + self.config.connect_timeout;
+        let deadline = self.deadline(self.config.connect_timeout);
         AdnlConnection::connect(
             server.address(),
             server.public_key(),
@@ -819,6 +907,22 @@ mod tests {
             client.servers().len(),
             defaults::sccp::endpoints::TON_LITESERVERS.len()
         );
+        assert_eq!(
+            client.servers().preferred(),
+            crate::endpoints::start_index(7, client.servers().len()),
+            "the keeper's list starts at the seeded index"
+        );
+        assert_eq!(client.budget().deadline(), None);
+        let budget = PollBudget::new();
+        let client = client.with_budget(budget.clone());
+        let _guard = budget.start(Duration::from_secs(1));
+        assert!(client.budget().deadline().is_some());
+        let before = client.servers().preferred();
+        client.rotate_preferred();
+        assert_eq!(
+            client.servers().preferred(),
+            (before + 1) % client.servers().len()
+        );
         assert_eq!(client.config(), &config);
         assert!(!client.is_connected());
         assert!(format!("{client:?}").contains("LiteClient"));
@@ -850,6 +954,12 @@ mod tests {
             },
         };
         assert!(!rejected.is_failover());
+        assert!(rejected.discredits_server());
+        assert!(
+            !not_ready.discredits_server(),
+            "failover errors move on anyway"
+        );
+        assert!(!adnl.discredits_server());
         assert_eq!(
             rejected.lite_server_error().map(|error| error.code),
             Some(0)
@@ -874,6 +984,17 @@ mod tests {
             Some(651)
         );
         assert!(exhausted.to_string().contains("last: round 0"));
+        let spent = LiteClientError::BudgetExhausted {
+            failures: vec![LiteAttemptFailure {
+                server: "s".to_owned(),
+                round: 0,
+                error: not_ready.clone(),
+            }],
+        };
+        assert!(!spent.is_failover());
+        assert!(!spent.discredits_server());
+        assert_eq!(spent.last_failure(), &not_ready);
+        assert!(spent.to_string().contains("poll budget"));
         for error in [
             adnl,
             not_ready,
@@ -924,6 +1045,26 @@ mod tests {
         assert!(!client.is_connected());
         assert_eq!(client.keep_alive(), Ok(false));
         client.disconnect();
+    }
+
+    #[test]
+    fn spent_budgets_stop_queries_before_connecting() {
+        let entries: Vec<String> = closed_ports(2)
+            .into_iter()
+            .map(|port| format!("127.0.0.1:{port}:{KEY}"))
+            .collect();
+        let entries: Vec<&str> = entries.iter().map(String::as_str).collect();
+        let servers = LiteServerSet::parse(&entries).expect("servers");
+        let budget = PollBudget::new();
+        let client = LiteClient::new(servers, LiteClientConfig::default(), policy(3))
+            .with_budget(budget.clone());
+        budget.set_deadline(Some(Instant::now()));
+        let error = client.get_time().expect_err("spent budget");
+        assert!(
+            matches!(&error, LiteClientError::BudgetExhausted { failures } if failures.is_empty()),
+            "{error:?}"
+        );
+        assert!(!client.is_connected());
     }
 
     #[test]

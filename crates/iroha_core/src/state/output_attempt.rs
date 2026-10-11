@@ -61,30 +61,11 @@ mod tests {
 
     #[test]
     fn output_attempt_and_seal_preserve_original_storage_capacity_release() {
-        let state = crate::state::State::new_for_testing(
-            crate::state::World::default(),
-            crate::kura::Kura::blank_kura_for_testing(),
-            crate::query::store::LiveQueryStore::start_test(),
-        );
-        let budget = state.world.operation_index_budget().clone();
-        let mut block = state
-            .try_block(iroha_data_model::block::BlockHeader::new(
-                std::num::NonZeroU64::MIN,
-                None,
-                None,
-                1,
-                0,
-            ))
-            .unwrap();
-        let mut transaction = block.try_transaction().unwrap();
-        let occupied = budget
-            .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
-            .unwrap();
-        let (_, original) = transaction
-            .world
-            .kagemusha_mint_credit_operations
-            .try_insert_admitted([9; 32], [8; 32])
-            .unwrap_err();
+        // A full original pool refuses with a release observation.
+        let budget = iroha_allocation::AllocationBudget::new(1);
+        let occupied = budget.try_reserve_bytes(1).unwrap();
+        let original =
+            mv::storage::AdmittedStorageError::Allocation(budget.try_reserve_bytes(1).unwrap_err());
         let expected = StateStorageAdmissionError::World(original);
         assert!(expected.release_wait().is_some());
         let output: ExecutionOutputAttemptError = expected.clone().into();
@@ -94,7 +75,6 @@ mod tests {
         };
         assert_eq!(observed, expected);
         assert!(observed.release_wait().is_some());
-        drop(transaction);
         drop(occupied);
         assert!(budget.try_reserve_bytes(1).is_ok());
     }

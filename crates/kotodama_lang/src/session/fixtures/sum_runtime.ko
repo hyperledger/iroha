@@ -1,5 +1,5 @@
 seiyaku SumRuntime {
-                view fn exercise_sum_intrinsics(int fallback) -> int {
+                view fn exercise_sum_intrinsics(int fallback) authorize(anyone) -> int {
                     let Option<int> present = Option::some(5);
                     let Option<int> missing = Option::none;
                     let Result<int, string> success = Result::ok(7);

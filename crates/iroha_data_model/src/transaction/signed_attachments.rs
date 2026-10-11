@@ -40,6 +40,7 @@
 use crate::{account::AccountId, proof::ProofAttachment};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use iroha_schema::IntoSchema;
+use norito::core::DecodeFromSlice as _;
 use norito::{
     codec::{Decode, Encode},
     core as ncore,
@@ -376,9 +377,9 @@ pub struct AttachmentReferenceV1 {
 
 /// One ordered action of the signed intent descriptor.
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, IntoSchema, norito::NoritoSchema,
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, IntoSchema, norito::NoritoSchema,
 )]
-#[norito(decode_from_slice)]
+#[norito(reuse_archived)]
 #[norito_schema(name = "iroha_data_model::transaction::signed_attachments::ActionIntentV1")]
 pub struct ActionIntentV1 {
     /// Committed ordinal; equal to the action's position.
@@ -565,6 +566,18 @@ pub enum SignedAttachmentErrorV1 {
         /// Declared path length.
         actual: usize,
         /// First-release maximum.
+        maximum: usize,
+    },
+    /// An action declares more references than the transaction can carry occurrences.
+    #[error(
+        "action {action_index} declares {actual} attachment references, more than the maximum of {maximum}"
+    )]
+    TooManyReferences {
+        /// Action ordinal.
+        action_index: u32,
+        /// Declared reference count.
+        actual: usize,
+        /// First-release occurrence maximum.
         maximum: usize,
     },
     /// An action's public-input digest is zero.
@@ -1632,6 +1645,13 @@ impl SignedAttachmentsV1 {
             if action.statement_digest.is_zero() {
                 return Err(SignedAttachmentErrorV1::ZeroStatementDigest { action_index });
             }
+            if action.attachments.len() > SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1 {
+                return Err(SignedAttachmentErrorV1::TooManyReferences {
+                    action_index,
+                    actual: action.attachments.len(),
+                    maximum: SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1,
+                });
+            }
             for reference in &action.attachments {
                 let index = reference.index;
                 let occurrence = usize::try_from(index)
@@ -1731,6 +1751,92 @@ fn decode_exact_field<'a, T: ncore::DecodeFromSlice<'a>>(
 
 fn schema_error(error: &SignedAttachmentErrorV1) -> ncore::Error {
     ncore::Error::Message(error.to_string())
+}
+
+/// Inspect variable action fields before their string or vector decoders allocate.
+fn preflight_action_fields(
+    action_index: u32,
+    operation: &[u8],
+    invocation: &[u8],
+    references: &[u8],
+) -> Result<(), ncore::Error> {
+    let (operation_tag, mut operation_offset) = u32::decode_from_slice(operation)?;
+    if operation_tag == 0 {
+        let wire_id = take_field(operation, &mut operation_offset, operation.len())?;
+        let (length, _) = ncore::read_len_dyn_slice(wire_id)?;
+        if length > ACTION_OPERATION_MAX_WIRE_ID_BYTES_V1 {
+            return Err(schema_error(&SignedAttachmentErrorV1::MalformedOperation {
+                action_index,
+            }));
+        }
+    }
+    let (invocation_tag, mut invocation_offset) = u32::decode_from_slice(invocation)?;
+    if invocation_tag == 2 {
+        let _root = take_field(invocation, &mut invocation_offset, invocation.len())?;
+        let path = take_field(invocation, &mut invocation_offset, invocation.len())?;
+        let (depth, _) = ncore::inspect_seq_len_slice(path)?;
+        if depth > ACTION_INVOCATION_MAX_CALL_PATH_DEPTH_V1 {
+            return Err(schema_error(&SignedAttachmentErrorV1::CallPathTooDeep {
+                action_index,
+                actual: depth,
+                maximum: ACTION_INVOCATION_MAX_CALL_PATH_DEPTH_V1,
+            }));
+        }
+    }
+    let (count, _) = ncore::inspect_seq_len_slice(references)?;
+    if count > SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1 {
+        return Err(schema_error(&SignedAttachmentErrorV1::TooManyReferences {
+            action_index,
+            actual: count,
+            maximum: SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1,
+        }));
+    }
+    Ok(())
+}
+
+impl<'de> norito::DeserializePayload<'de> for ActionIntentV1 {
+    fn deserialize(archived: &'de ncore::Archived<Self>) -> Self {
+        Self::try_deserialize(archived)
+            .expect("ActionIntentV1 deserialization requires a canonical bounded archive")
+    }
+
+    fn try_deserialize(archived: &'de ncore::Archived<Self>) -> Result<Self, ncore::Error> {
+        let ptr = core::ptr::from_ref(archived).cast::<u8>();
+        let bytes = ncore::payload_slice_from_ptr(ptr)?;
+        decode_exact_field::<Self>(bytes)
+    }
+}
+
+impl<'a> ncore::DecodeFromSlice<'a> for ActionIntentV1 {
+    fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), ncore::Error> {
+        let mut offset = 0_usize;
+        let mut fields = [&[][..]; 8];
+        for field in &mut fields {
+            *field = take_field(bytes, &mut offset, bytes.len())?;
+        }
+        if offset != bytes.len() {
+            return Err(ncore::Error::LengthMismatch);
+        }
+        let action_index = decode_exact_field::<u32>(fields[0])?;
+        // The enclosing frame limit is not a bound on these allocations: a
+        // valid frame could otherwise spend its entire proof allowance on a
+        // wire identifier, invocation path or reference table. Inspect their
+        // protocol bounds before any owned action field is decoded.
+        preflight_action_fields(action_index, fields[1], fields[4], fields[7])?;
+        Ok((
+            Self {
+                action_index,
+                operation: decode_exact_field(fields[1])?,
+                role: decode_exact_field(fields[2])?,
+                authority: decode_exact_field(fields[3])?,
+                invocation: decode_exact_field(fields[4])?,
+                public_inputs_digest: decode_exact_field(fields[5])?,
+                statement_digest: decode_exact_field(fields[6])?,
+                attachments: decode_exact_field(fields[7])?,
+            },
+            offset,
+        ))
+    }
 }
 
 impl<'de> norito::DeserializePayload<'de> for SignedAttachmentOccurrenceV1 {

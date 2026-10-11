@@ -1,4 +1,4 @@
 
-seiyaku AxtLiteralValidation {
-    kotoage fn run() authorize("AxtLiteralValidation") {}
+seiyaku AxtLiteralValidation { permission FixtureAccess;
+    kotoage fn run() authorize(FixtureAccess) {}
 }

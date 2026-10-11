@@ -1,0 +1,16 @@
+// 誓約 and seiyaku are the same keyword; both spellings may be mixed.
+誓約 Branding {
+    permission Admin;
+    permission Run;
+    state int value; // 状態
+    始まり() { value = 0; }
+    kotoage fn grant(AccountId holder) authorize(Admin) {
+        ledger::seiyaku::grant_permission(account: holder, permission: Run);
+    }
+    言挙げ fn run() authorize(Run) {
+        let string a = context::kotoage ();
+        let string b = context::言挙げ();
+        value = value + 1; // 加算
+    }
+    kaizen() {}
+}

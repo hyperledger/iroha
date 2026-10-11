@@ -155,7 +155,11 @@ fn original_canonical_account_matcher_preserves_decode_refusal_and_retry() {
     assert!(
         matches!(
             producer,
-            Err(iroha_data_model::account::address::AccountAddressError::DecodeResourceLimit)
+            Err(
+                iroha_data_model::account::address::AccountAddressError::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { limit: 0, .. }
+                )
+            )
         ),
         "{producer:?}"
     );

@@ -1,21 +1,18 @@
-// Register a new asset and mint some to the specified account.
+// Register a fixed-supply asset definition, then mint its supply.
 seiyaku RegisterAndMint {
-    kotoage fn register_and_mint() authorize("AssetManager") {
-        // name, symbol, quantity (precision or supply depending on host), mintable flag
+    permission AssetManager;
+    kotoage fn register_and_mint() authorize(AssetManager) {
         let asset = AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM");
-        let symbol = "ROSE";
-        let supply_scale = 1000;
-        // interpretation depends on data model (example only)
-        let mintable = 1;
-        // 1 = mintable, 0 = fixed
+        // The display name, numeric spec and mintability are exactly what the
+        // host registers: whole units only, and a single mint.
         ledger::asset::register(
             asset_definition: asset,
-            name: symbol,
-            scale: supply_scale,
-            mintable: mintable,
+            name: "ROSE",
+            spec: NumericSpec::integer(),
+            mintable: Mintable::Once,
         );
-        // Mint 250 ROSE to Alice
-        let to = AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", );
+        // Mint 250 ROSE to Alice; `Mintable::Once` rejects any later mint.
+        let to = AccountId::parse("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV");
         ledger::asset::mint(account: to, asset_definition: asset, amount: 250);
     }
 }

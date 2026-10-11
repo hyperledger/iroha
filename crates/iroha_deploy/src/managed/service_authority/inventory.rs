@@ -29,20 +29,40 @@ impl Branch {
 
     fn revalidate(&self) -> Result<()> {
         self.directory.revalidate()?;
-        if self.directory.entries(MAX_BRANCH_NAMES)? != self.names {
+        let names = self.directory.entries(MAX_BRANCH_NAMES)?;
+        #[cfg(test)]
+        tree_tests::observe(&self.directory, tree_tests::Recipe::Full);
+        if names != self.names {
             return Err(invalid("service child namespace changed during inventory"));
         }
         self.directory.revalidate()?;
         Ok(())
     }
+
+    fn revalidate_in_tree(&self, tree: &mut iroha_fs::PrivateReadTreeScope<'_>) -> Result<()> {
+        tree.read_scope(&self.directory, |reader| {
+            let names = reader.entries(MAX_BRANCH_NAMES)?;
+            #[cfg(test)]
+            tree_tests::observe(&self.directory, tree_tests::Recipe::Tree);
+            if names != self.names {
+                return Err(invalid("service child namespace changed during inventory"));
+            }
+            Ok(())
+        })
+    }
 }
 
 /// Borrowed original parent and retained branch identities for one read-only census.
 ///
-/// Only present purpose custody reaches the ordinary full authority constructor. No decoded
-/// profile, directory name, or absence observation becomes signing or native state evidence.
+/// Present purpose custody borrows only the parent's immutable original constructor bundle,
+/// after fresh whole-profile admission. Active decode limits retain the full capture recipe.
+/// A separate cold three-slot import memo lives only for this census; child owners still read
+/// their fresh sources, and every namespace, profile and lock check remains independent.
+/// Names and absence observations never become signing or native state evidence.
 pub(in crate::managed) struct ServiceChildInventory<'a> {
     parent: &'a ServiceAuthority,
+    checkpoint_import_scope: Option<CheckpointImportScope>,
+    share_ancestry: bool,
     branches: Vec<Branch>,
     network: usize,
     providers: [Option<usize>; 3],
@@ -102,6 +122,11 @@ impl<'a> ServiceChildInventory<'a> {
         }
         let value = Self {
             parent,
+            checkpoint_import_scope: CheckpointImportScope::for_original(parent),
+            // An inventory admitted under active limits or from an owned original keeps its
+            // physical recipe even when a later observation occurs outside those limits.
+            share_ancestry: !norito::core::decode_limits_active()
+                && matches!(&parent.profile, AuthorityProfile::Shared(_)),
             branches,
             network: 2,
             providers,
@@ -113,11 +138,34 @@ impl<'a> ServiceChildInventory<'a> {
 
     fn revalidate(&self) -> Result<()> {
         self.parent.validate_operation_custody()?;
-        for branch in &self.branches {
-            branch.revalidate()?;
-        }
-        for prefix in self.empty_prefixes.borrow().iter() {
-            prefix.revalidate()?;
+        if self.share_ancestry && !norito::core::decode_limits_active() {
+            let (runtime, descendants) = self
+                .branches
+                .split_first()
+                .ok_or_else(|| invalid("service inventory runtime is absent"))?;
+            // Only this consecutive read-only census shares the original runtime ancestry.
+            // The native tree owner closes it on every ordinary result, including a name
+            // mismatch. Exact shared native prefixes qualify; independent owners fall back
+            // to full checks. Keep the anchor's original full recipe and the census order.
+            // Intermediate prefix/suffix observations consolidate: changes restored inside
+            // the bracket may be unseen. This is not an atomic snapshot or retained verdict.
+            runtime.directory.read_tree_scope(|tree| -> Result<()> {
+                runtime.revalidate()?;
+                for branch in descendants {
+                    branch.revalidate_in_tree(tree)?;
+                }
+                for prefix in self.empty_prefixes.borrow().iter() {
+                    prefix.revalidate_in_tree(tree)?;
+                }
+                Ok(())
+            })?;
+        } else {
+            for branch in &self.branches {
+                branch.revalidate()?;
+            }
+            for prefix in self.empty_prefixes.borrow().iter() {
+                prefix.revalidate()?;
+            }
         }
         self.parent.validate_operation_custody()?;
         Ok(())
@@ -158,7 +206,12 @@ impl<'a> ServiceChildInventory<'a> {
             return Ok(None);
         }
         let retained = branch.directory.open_child(purpose)?;
-        let result = ServiceAuthority::open(&self.parent.prepared, provider, purpose, false);
+        let result = ServiceAuthority::open_existing_from_original(
+            self.parent,
+            provider,
+            purpose,
+            self.checkpoint_import_scope.as_ref(),
+        );
         retained.revalidate()?;
         self.revalidate()?;
         let owner = result?;
@@ -185,6 +238,66 @@ impl<'a> ServiceChildInventory<'a> {
         retained.revalidate()?;
         self.revalidate()?;
         Ok(owner)
+    }
+
+    /// Observe only genuine first-reserve purpose absence within this fresh parent census.
+    /// Present names retain their ordinary standalone owner, including empty pre-lock prefixes.
+    /// Consume every native namespace and whole-profile exit check before returning; this
+    /// supplies neither a child lock, persistent absence nor native dispatch authority.
+    pub(in crate::managed) fn initial_reserve_policy_absent(self) -> Result<bool> {
+        self.revalidate()?;
+        let absent = !self.branches[self.network]
+            .names
+            .iter()
+            .any(|name| name == NetworkPurpose::InitialReservePolicy.directory_name());
+        self.finish()?;
+        Ok(absent)
+    }
+
+    /// A fresh closed name observation used only to select bounded bootstrap scheduling.
+    /// Any existing purpose, including an empty pre-lock prefix, selects serial scheduling.
+    /// Ordinary child admission and shared lease fences still decide every action afterwards;
+    /// this observation grants no retained absence, signing or completion authority.
+    pub(in crate::managed) fn bootstrap_provider_purposes_absent(self) -> Result<bool> {
+        self.revalidate()?;
+        let absent = self.providers.iter().all(|branch| {
+            branch.is_none_or(|index| {
+                !self.branches[index].names.iter().any(|name| {
+                    [
+                        ProviderPurpose::Custody,
+                        ProviderPurpose::ReserveAccountRegistration,
+                        ProviderPurpose::ProviderFundingBootstrap,
+                        ProviderPurpose::ReserveTopUpRequest,
+                        ProviderPurpose::ReserveTopUpApproval,
+                        ProviderPurpose::InitialProviderCredit,
+                        ProviderPurpose::ProviderCapacityDeclaration,
+                        ProviderPurpose::InitialProviderIngestAuthority,
+                        ProviderPurpose::InitialGatewaySetup,
+                    ]
+                    .into_iter()
+                    .any(|purpose| name == purpose.directory_name())
+                })
+            })
+        });
+        self.finish()?;
+        Ok(absent)
+    }
+
+    /// Scheduling only: every catalog purpose must be absent in this closed original census.
+    /// A present empty purpose still selects serial recovery; each later owner independently
+    /// admits its original files, profile and lock before observing or publishing anything.
+    pub(in crate::managed) fn gateway_catalog_purposes_absent(self) -> Result<bool> {
+        self.revalidate()?;
+        let absent = self.providers.iter().all(|branch| {
+            branch.is_none_or(|index| {
+                !self.branches[index]
+                    .names
+                    .iter()
+                    .any(|name| name == ProviderPurpose::GatewayCompliance.directory_name())
+            })
+        });
+        self.finish()?;
+        Ok(absent)
     }
 
     pub(in crate::managed) fn finish(self) -> Result<()> {
@@ -231,3 +344,7 @@ impl ServiceChildInventory<'_> {
 #[cfg(test)]
 #[path = "inventory_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "inventory_tree_tests.rs"]
+mod tree_tests;

@@ -77,11 +77,7 @@ fn fixture() -> (
 fn restore(world: &World) -> Result<World, json::Error> {
     let encoded = json::to_json(world).unwrap();
     let ivm = IVM::new(0);
-    let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-    let operation_index_refusal = std::cell::RefCell::new(None);
     let seed = IvmSeed {
-        operation_index_budget: &operation_index_budget,
-        operation_index_refusal: &operation_index_refusal,
         ivm: &ivm,
         _marker: PhantomData,
     };
@@ -135,11 +131,7 @@ fn endorsement_index_is_a_required_first_release_world_snapshot_field() {
     let mut map = SnapshotJsonMap::parse(&encoded, "world").unwrap();
     assert!(map.remove("domain_endorsements_by_domain").is_some());
     let ivm = IVM::new(0);
-    let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-    let operation_index_refusal = std::cell::RefCell::new(None);
     let seed = IvmSeed {
-        operation_index_budget: &operation_index_budget,
-        operation_index_refusal: &operation_index_refusal,
         ivm: &ivm,
         _marker: PhantomData,
     };

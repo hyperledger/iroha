@@ -1,8 +1,8 @@
 
 seiyaku CompilerFixture {
 
-fn main(AssetDefinitionId asset, AccountId account) {
-  ledger::asset::create(asset_definition: asset, name: Json::parse("{}"), scale: 1, owner: account, mintable: 0);
+fn main(AssetDefinitionId asset) {
+  ledger::asset::register(asset_definition: asset, name: Json::parse("{}"), spec: NumericSpec::integer(), mintable: Mintable::Not);
 }
 
 }

@@ -1,6 +1,6 @@
 
         seiyaku StateContains {
             state StateMap<int, int> m;
-            view fn f(int k) -> bool { return m.contains(k); }
+            view fn f(int k) authorize(anyone) -> bool { return m.contains(k); }
         }
     

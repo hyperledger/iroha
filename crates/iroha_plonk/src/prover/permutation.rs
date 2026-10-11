@@ -15,12 +15,14 @@
 //! commitment. The values `v_j` are the advice columns with their blinding
 //! rows, the fixed columns and the zero-padded instance columns.
 
+use crate::secret::SecretPolynomial;
 use ff::{Field, PrimeField};
-use iroha_pasta::{PastaCurve, field::batch_invert, msm::MemoryBudget};
+use iroha_pasta::CancellationToken;
+use iroha_pasta::{PastaCurve, msm::MemoryBudget};
 use rand_core_06::RngCore;
 use rayon::prelude::*;
 
-use super::{ProverError, random_values, write_point};
+use super::{ProverError, batch::invert_column_cancellable, random_values, write_point};
 use crate::{
     cs::descriptor::ColumnKindV1,
     keys::ProvingKey,
@@ -33,11 +35,17 @@ use crate::{
 const ROWS_PER_TASK: usize = 1 << 10;
 
 /// A committed permutation set.
-pub(super) struct ProductSet<F> {
+pub(super) struct ProductSet<F: iroha_pasta::PastaField> {
     /// `z_s` in coefficient form.
     pub(super) poly: Vec<F>,
     /// Its blind.
     pub(super) blind: F,
+}
+impl<F: iroha_pasta::PastaField> Drop for ProductSet<F> {
+    fn drop(&mut self) {
+        self.poly.iter_mut().for_each(crate::secret::wipe_one);
+        self.blind.zeroize();
+    }
 }
 
 /// The values of one equality column in evaluation form.
@@ -74,6 +82,7 @@ pub(super) fn commit<C, T, R>(
     rng: &mut R,
     transcript: &mut T,
     budget: MemoryBudget,
+    cancellation: Option<&CancellationToken>,
 ) -> Result<Vec<ProductSet<C::ScalarExt>>, ProverError>
 where
     C: PastaCurve,
@@ -107,11 +116,14 @@ where
             })
             .collect::<Result<Vec<_>, _>>()?;
         // Denominators prod_j (v_j + beta sigma_j + gamma).
-        let mut modified = vec![C::ScalarExt::ONE; n];
+        let mut modified = SecretPolynomial::new(vec![C::ScalarExt::ONE; n]);
         modified
             .par_chunks_mut(ROWS_PER_TASK)
             .enumerate()
             .for_each(|(task, out)| {
+                if CancellationToken::checkpoint(cancellation).is_err() {
+                    return;
+                }
                 let start = task * ROWS_PER_TASK;
                 for (offset, value) in out.iter_mut().enumerate() {
                     let row = start + offset;
@@ -120,13 +132,17 @@ where
                     }
                 }
             });
-        batch_invert(&mut modified);
+        CancellationToken::checkpoint(cancellation)?;
+        invert_column_cancellable(&mut modified, cancellation)?;
         // Numerators prod_j (v_j + beta DELTA^j omega^i + gamma).
         let set_delta = delta_power;
         modified
             .par_chunks_mut(ROWS_PER_TASK)
             .enumerate()
             .for_each(|(task, out)| {
+                if CancellationToken::checkpoint(cancellation).is_err() {
+                    return;
+                }
                 let start = task * ROWS_PER_TASK;
                 let start_power = omega.pow_vartime([start as u64]);
                 let mut column_delta = set_delta;
@@ -139,10 +155,11 @@ where
                     column_delta *= <C::ScalarExt as PrimeField>::DELTA;
                 }
             });
+        CancellationToken::checkpoint(cancellation)?;
         for _ in set_columns {
             delta_power *= <C::ScalarExt as PrimeField>::DELTA;
         }
-        let mut product = Vec::with_capacity(n);
+        let mut product = SecretPolynomial::new(Vec::with_capacity(n));
         let mut running = last;
         product.push(running);
         for fraction in &modified[..n - 1] {
@@ -150,17 +167,27 @@ where
             product.push(running);
         }
         let first_blinding_row = n - shape.blinding_factors;
-        let random: Vec<C::ScalarExt> = random_values(rng, shape.blinding_factors);
+        let random = SecretPolynomial::new(random_values::<C::ScalarExt, _>(
+            rng,
+            shape.blinding_factors,
+        ));
         product[first_blinding_row..].copy_from_slice(&random);
         last = product[shape.usable_rows];
         let blind = C::ScalarExt::random(&mut *rng);
         let commitment = tables
-            .commit_lagrange(params.params(), &product, &blind, Secrecy::Secret, budget)?
+            .commit_lagrange_cancellable(
+                params.params(),
+                &product,
+                &blind,
+                Secrecy::Secret,
+                budget,
+                cancellation,
+            )?
             .to_affine();
         write_point(transcript, &commitment)?;
-        pk.domain().ifft(&mut product)?;
+        pk.domain().ifft_cancellable(&mut product, cancellation)?;
         sets.push(ProductSet {
-            poly: product,
+            poly: product.into_vec(),
             blind,
         });
     }

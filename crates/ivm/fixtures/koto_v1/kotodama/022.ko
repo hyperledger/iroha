@@ -1,7 +1,7 @@
 
-        seiyaku TypedPointers {
-            kotoage fn f() authorize("Admin") {
-                ledger::account::set_detail(account: context::authority(), key: Name::parse("k"), value: Json::parse("1"));
+        seiyaku TypedPointers { permission Admin;
+            kotoage fn f() authorize(Admin) {
+                ledger::account::set_metadata(account: context::authority(), key: Name::parse("k"), value: Json::parse("1"));
             }
         }
     

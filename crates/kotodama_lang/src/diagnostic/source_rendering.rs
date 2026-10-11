@@ -31,8 +31,16 @@ pub(super) fn render(output: &mut String, source: &SourceFile, span: &SourceSpan
                 output.push_str("\n      | ...");
                 break;
             }
-            let local_start = start.saturating_sub(offset).min(line.len());
+            let mut local_start = start.saturating_sub(offset).min(line.len());
             let local_end = end.saturating_sub(offset).min(line.len());
+            // Continuation lines of a multi-line span underline their code,
+            // not their indentation.
+            if start < offset {
+                let indentation = line.len() - line.trim_start_matches([' ', '\t']).len();
+                if indentation < local_end {
+                    local_start = local_start.max(indentation);
+                }
+            }
             render_line(output, index + 1, line, local_start, local_end);
             shown += 1;
         }
@@ -50,10 +58,14 @@ fn display_character(character: char, column: usize, at_left_edge: bool) -> (Str
     }
     let width = widths::width(character);
     // Joining, direction, and variation controls must not reinterpret neighbouring cells.
+    // Unicode line separators and non-ASCII spaces other than the
+    // ideographic space are shown escaped too: they are rejected source
+    // characters that would otherwise look like ordinary spacing.
     let changes_layout = matches!(character,
         '\u{00ad}' | '\u{061c}' | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}'
         | '\u{2060}'..='\u{206f}' | '\u{fe00}'..='\u{fe0f}' | '\u{feff}'
-        | '\u{e0000}'..='\u{e0fff}');
+        | '\u{e0000}'..='\u{e0fff}')
+        || (character.is_whitespace() && !character.is_ascii() && character != '\u{3000}');
     if character.is_control() || changes_layout || at_left_edge && width == 0 {
         let escaped = character.escape_unicode().to_string();
         let width = escaped.len();
@@ -194,6 +206,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn continuation_lines_do_not_underline_indentation() {
+        let text = "call(\n    first,\n)";
+        assert_eq!(
+            excerpt(text, 0, text.len()),
+            "\n    1 | call(\n      | ^^^^^\n    2 |     first,\n      |     ^^^^^^\n    3 | )\n      | ^"
+        );
+    }
+    #[test]
+    fn rejected_unicode_spacing_is_shown_escaped_but_ideographic_space_is_not() {
+        assert_eq!(
+            excerpt("a\u{2028}b", 0, 1),
+            "\n    1 | a\\u{2028}b\n      | ^"
+        );
+        assert_eq!(excerpt("a\u{a0}b", 0, 1), "\n    1 | a\\u{a0}b\n      | ^");
+        assert_eq!(
+            excerpt("a\u{3000}b", 0, 1),
+            "\n    1 | a\u{3000}b\n      | ^"
+        );
+    }
     #[test]
     fn terminal_controls_are_visible_and_cannot_move_underlines() {
         let text = "\u{1b}[31m日本";

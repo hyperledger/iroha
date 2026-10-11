@@ -166,7 +166,7 @@ public final class HttpClientTransportTests {
     vpnSessionAndReceiptRequestsUseNativeLeaseDtos();
     verifierKeyRegisterAndUpdateReturnUnsignedDrafts();
     verifierKeyRequestsRejectMalformedInputsBeforeRequest();
-    verifierKeyDraftCanonicalInstructionUsesU8StatusDiscriminant();
+    verifierKeyDraftCanonicalInstructionUsesU32StatusDiscriminant();
     verifierKeyDraftParserRejectsNonExactOrTamperedResponses();
     verifyingKeyDraftRejectsGenesisTransactionDomain();
     verifierKeyDraftRejectsSemanticSubstitutionBeforeSigning();
@@ -3467,7 +3467,7 @@ public final class HttpClientTransportTests {
         "VK register must reject u32 overflow proof limits");
   }
 
-  private static void verifierKeyDraftCanonicalInstructionUsesU8StatusDiscriminant()
+  private static void verifierKeyDraftCanonicalInstructionUsesU32StatusDiscriminant()
       throws Exception {
     final Map<String, Object> fixture =
         loadSharedFixture("fixtures/zk/verifying_key_record_v1.json");
@@ -3499,7 +3499,7 @@ public final class HttpClientTransportTests {
             hex(
                 Arrays.copyOfRange(
                     bytes, statusOffset, statusOffset + statusHex.length() / 2)))
-        : "absent inline key must end immediately before the one-byte status field";
+        : "absent inline key must end immediately before the four-byte status field";
   }
 
   private static void verifierKeyDraftParserRejectsNonExactOrTamperedResponses() throws Exception {

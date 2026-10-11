@@ -165,6 +165,28 @@ impl AccountService {
             )),
         )
     }
+    /// Inspect this exact request beneath its original retained native parent.
+    ///
+    /// Shares native ancestor custody while freshly admitting the named journal, its original
+    /// lock and every bounded preparation record; this does not submit or grant authority.
+    /// # Errors
+    /// Rejects a missing or replaced parent, unsafe child or lock, changed request, fees,
+    /// malformed durable stages and signature/UTC violations exactly as the path inspector.
+    pub fn inspect_initial_reserve_policy_preparation_in_parent(
+        &self,
+        parent: &iroha_fs::PrivateDirectory,
+        name: &std::ffi::OsStr,
+        expected: &InitialReservePolicyRequest,
+    ) -> Result<VerifiedNativePreparation> {
+        self.inspect_preparation_in_parent(
+            parent,
+            name,
+            NativeOperationKind::InitialReservePolicy,
+            Some(OperationExpectation::ReservePolicy(
+                ReservePolicyExpectation(expected),
+            )),
+        )
+    }
     /// Retire only this exact retained request before any payload or dispatch evidence exists.
     /// # Errors
     /// Refuses missing, changed, malformed, payload-retained or signed histories and unsafe custody.

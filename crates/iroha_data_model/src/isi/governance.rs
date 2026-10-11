@@ -577,7 +577,7 @@ mod tests {
             name: "runtime-upgrade".to_string(),
             description: "isi roundtrip".to_string(),
             abi_version: 1,
-            abi_hash: ivm_abi::syscalls::compute_abi_hash(ivm_abi::SyscallPolicy::AbiV1),
+            abi_hash: crate::abi_v1_fixture::abi_v1_hash(),
             added_syscalls: Vec::new(),
             added_pointer_types: Vec::new(),
             start_height: 100,

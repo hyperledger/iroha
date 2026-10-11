@@ -3117,7 +3117,7 @@
    "component": "Backend selection, policy commitments and the BFV affine and programmed evaluators",
    "tasks": ["R.6", "R.0", "R.3"],
    "executes": ["key_generation", "evaluation", "decryption"],
-   "note": "`require_production_support` accepts only the HKDF backend and refuses both BFV backends; every encrypted consumer then rejects HKDF, so no backend has an effect. `evaluate_bfv_affine` derives identifier key material from a seed and decrypts the affine outputs.",
+   "note": "`require_production_support` accepts only HKDF and refuses both BFV backends. Torii executes the plaintext HKDF PRF only through its authenticated owner path. The diagnostic BFV affine evaluator derives identifier key material from a seed and decrypts affine outputs; it remains refused for production.",
    "path": "crates/iroha_crypto/src/ram_lfe.rs",
    "symbols": [
     {"symbol": "RamLfeBackend"},
@@ -3138,7 +3138,7 @@
    "component": "Plaintext HKDF-SHA3-512 PRF backend that R.6 retires",
    "tasks": ["R.6"],
    "executes": ["plaintext_prf"],
-   "note": "Recorded under hkdf.ram_lfe_backend. It evaluates a keyed PRF on plaintext input and returns the normalized input as output.",
+   "note": "Recorded under hkdf.ram_lfe_backend. It evaluates a keyed PRF on plaintext input and returns an input echo alongside the opaque digest; the authenticated Torii owner consumer clears the echo before exposing its opaque output.",
    "path": "crates/iroha_crypto/src/ram_lfe.rs",
    "symbols": [{"symbol": "evaluate_hkdf_prf"}, {"symbol": "hkdf_request_transcript"}, {"symbol": "policy_commitment"}]
   },
@@ -5317,7 +5317,7 @@
      "keygen_bounded_noise_from_seed",
      "keygen_bounded_noise_with_relinearization_from_seed"
     ],
-    "bfv.inline_unit_tests": ["mod first_release_hard_cut_tests", "mod shared_arithmetic_adapter_tests"],
+    "bfv.inline_unit_tests": ["mod bfv_goldilocks_digest_raw_wire_tests", "mod first_release_hard_cut_tests", "mod shared_arithmetic_adapter_tests"],
     "bfv.test_gated_helpers": [
      "bfv_full_bootstrap_goldilocks_add_v1",
      "bfv_full_bootstrap_raw_sample_coefficient_zero_repack_bounded_noise_output_bound_v1",
@@ -10636,9 +10636,16 @@
   "ram_lfe_backend": {
    "disposition": "retire",
    "retired_by": "R.6",
-   "summary": "`HkdfSha3_512PrfV1` is a plaintext keyed PRF backend. It is the only backend `require_production_support` accepts and Core registers its policies, yet every encrypted consumer rejects it, so it is accepted without effect. `evaluate_hkdf_prf` returns the normalized input as its output. It is not encrypted evaluation and not a live Torii fallback.",
-   "replacement": "The canonical class-bound V1 policy from R.0 replaces `RamLfeBackend`; the old tag then rejects at Norito and JSON decoding and at registration, without an alias.",
+   "summary": "`HkdfSha3_512PrfV1` is the only backend `require_production_support` accepts. It evaluates a plaintext keyed PRF in the authenticated Torii owner path. Core validates pinned signed policy and receipt metadata, original openings, bounded leases and independent phone attestations. The low-level evaluator echoes normalized input, but the Torii owner path clears that echo and returns only the opaque PRF digest. This path provides neither encrypted evaluation nor a program-execution proof; both BFV backends remain refused for production.",
+   "replacement": "R.6 still requires genuine class-bound replacements before retiring this current plaintext owner-PRF consumer, its backend tag and Signed mode. Retirement must reject old tags at Norito/JSON decoding and registration without an alias; an empty census is not replacement evidence.",
    "users": [
+    {"path": "artifacts/openapi/torii.json", "kind": "source_anchor", "literals": ["hkdf-sha3-512-prf-v1"]},
+    {"path": "artifacts/openapi/versions/current/torii.json", "kind": "source_anchor", "literals": ["hkdf-sha3-512-prf-v1"]},
+    {"path": "crates/iroha_torii/assets/openapi/torii.json", "kind": "source_anchor", "literals": ["hkdf-sha3-512-prf-v1"]},
+    {"path": "crates/iroha/src/client/authority_originals/tests.rs", "kind": "test", "literals": ["HkdfSha3_512PrfV1"], "test_only": true},
+    {"path": "crates/iroha_core/src/state/world_state_snapshot/authority_originals/tests.rs", "kind": "test", "literals": ["HkdfSha3_512PrfV1"], "test_only": true},
+    {"path": "crates/iroha_torii_shared/src/authority_originals/tests.rs", "kind": "test", "literals": ["HkdfSha3_512PrfV1"], "test_only": true},
+    {"path": "scripts/tests/ledger_scoped_originals_openapi_test.py", "kind": "test", "literals": ["hkdf-sha3-512-prf-v1"], "test_only": true},
     {
      "path": "crates/iroha_crypto/src/ram_lfe.rs",
      "kind": "definition",
@@ -10677,11 +10684,7 @@
      "symbols": [{"symbol": "validate_program_policy"}],
      "literals": ["HkdfSha3_512PrfV1"]
     },
-    {
-     "path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs",
-     "kind": "consumer_rejection",
-     "symbols": [{"symbol": "validate_execution_receipt_at"}]
-    },
+    {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "kind": "policy_branch", "symbols": [{"symbol": "validate_execution_receipt_at"}]},
     {
      "path": "crates/iroha_core/src/gossiper.rs",
      "kind": "test",
@@ -10696,11 +10699,7 @@
     {
      "path": "crates/iroha_torii/src/identifier_resolution.rs",
      "kind": "consumer_rejection",
-     "symbols": [
-      {"symbol": "decode_bfv_public_parameters"},
-      {"symbol": "IdentifierResolutionService::execute_encrypted"},
-      {"symbol": "decode_programmed_public_parameters"}
-     ],
+     "symbols": [{"symbol": "decode_bfv_public_parameters"}, {"symbol": "decode_programmed_public_parameters"}],
      "literals": ["HkdfSha3_512PrfV1"]
     },
     {
@@ -10848,44 +10847,136 @@
      "kind": "test",
      "literals": ["HkdfSha3_512PrfV1"],
      "note": "Drift test of task F.1's inventory checker: it removes the backend variant in memory and expects the check to fail.",
+      "test_only": true
+     },
+     {
+     "path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs",
+     "kind": "policy_branch",
+     "symbols": [
+      {"symbol": "isi::validate_program_receipt"},
+      {"symbol": "isi::validate_phone_retail_policy_registration"},
+      {"symbol": "isi::validate_phone_retail_policy"}
+     ]
+    },
+    {
+     "path": "crates/iroha_data_model/src/identifier/hkdf_v1.rs",
+     "kind": "definition",
+     "symbols": [
+      {"symbol": "hkdf_identifier_request_payload_v1"},
+      {"symbol": "hkdf_identifier_input_commitment_v1"},
+      {"symbol": "hkdf_identifier_execution_metadata_v1"}
+     ]
+    },
+    {
+     "path": "crates/iroha_torii/src/identifier_resolution/owner_prf.rs",
+     "kind": "consumer_execution",
+     "symbols": [
+      {"symbol": "IdentifierResolutionService::execute_owner_prf"},
+      {"symbol": "IdentifierResolutionService::owner_prf_opening"},
+      {"symbol": "IdentifierResolutionService::derive_owner_prf"}
+     ]
+    },
+    {"path": "tools/kotlin-fixture-gen/src/identifier_owner_execute.rs", "kind": "generator", "symbols": [{"symbol": "fixture"}, {"symbol": "emit"}]},
+    {"path": "IrohaSwift/Sources/IrohaSwift/ToriiIdentifierOwnerContract.swift", "kind": "wire_tag", "literals": ["hkdf-sha3-512-prf-v1"]},
+    {
+     "path": "IrohaSwift/Tests/IrohaSwiftTests/CurrentIdentifierOwnerContractTests.swift",
+     "kind": "test",
+     "literals": ["hkdf-sha3-512-prf-v1"],
+     "test_only": true
+    },
+    {"path": "IrohaSwift/Tests/IrohaSwiftTests/TxBuilderTests.swift", "kind": "test", "literals": ["hkdf-sha3-512-prf-v1"], "test_only": true},
+    {"path": "javascript/iroha_js/src/identifierOwnerPrf.js", "kind": "wire_tag", "literals": ["hkdf-sha3-512-prf-v1"]},
+    {"path": "fixtures/soracloud/identifier_owner_execute_v1.json", "kind": "source_anchor", "literals": ["hkdf-sha3-512-prf-v1"], "test_only": true},
+    {
+     "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/IdentifierOwnerInputV1.kt",
+     "kind": "wire_tag",
+     "literals": ["hkdf-sha3-512-prf-v1"]
+    },
+    {
+     "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/IdentifierJsonParser.kt",
+     "kind": "wire_tag",
+     "literals": ["current identifier receipt requires signed HKDF metadata"]
+    },
+    {
+     "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamLfeJsonParser.kt",
+     "kind": "wire_tag",
+     "literals": ["ram-lfe execute response.backend requires the current HKDF backend"]
+    },
+    {
+     "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamLfeExecuteResponse.kt",
+     "kind": "wire_tag",
+     "literals": ["Current execute requires HKDF/Signed metadata"]
+    },
+    {
+     "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/ClaimIdentifierWirePayloadEncoder.kt",
+     "kind": "wire_tag",
+     "literals": ["ClaimIdentifier requires current signed HKDF receipt metadata"]
+    },
+    {
+     "path": "kotlin/core-jvm/src/test/java/org/hyperledger/iroha/sdk/client/RamLfeExecuteJavaConsumerTest.java",
+     "kind": "test",
+     "literals": ["hkdf-sha3-512-prf-v1"],
+     "test_only": true
+    },
+    {"path": "crates/iroha_core/src/state/identifier_claim_restore_tests.rs", "kind": "test", "literals": ["HkdfSha3_512PrfV1"], "test_only": true},
+    {
+     "path": "crates/iroha_torii/src/tests/lib_tests/identifier_owner_routes.rs",
+     "kind": "test",
+     "literals": ["registered_hkdf_identifier_app"],
+     "test_only": true
+    },
+    {
+     "path": "crates/iroha_torii/src/tests/lib_tests/owner_prf_routes.rs",
+     "kind": "test",
+     "literals": ["registered_hkdf_identifier_app"],
      "test_only": true
     }
    ],
-   "no_effect_evidence": [
+   "consumer_evidence": [
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs",
      "symbol": "validate_program_policy",
-     "note": "Registration accepts an HKDF policy without further checks."
+     "note": "Policy registration checks backend/commitment equality, rejects unsupported backends and unavailable proof mode, and accepts the current HKDF policy."
     },
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs",
      "symbol": "validate_execution_receipt_at",
-     "note": "Stateless receipt verification accepts only the programmed BFV backend."
+     "note": "Stateless receipt verification checks the current signed HKDF metadata, opaque output and private input commitment, original bounded lease and pinned resolver signature."
     },
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs",
      "symbol": "isi::validate_program_receipt",
-     "note": "Identifier claims and phone-retail policies accept only the programmed BFV backend."
+     "note": "Identifier claims require the current network, owner, policy and signed HKDF program, original opening and lease, independent phone statement and pinned resolver signature."
     },
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs",
-     "symbol": "isi::validate_phone_retail_policy_registration",
-     "note": "Identifier claims and phone-retail policies accept only the programmed BFV backend."
+     "symbol": "isi::validate_phone_retail_policy",
+     "note": "Registration and State restoration share the signed HKDF policy validator: exact program/owner, both diagnostic backend refusals and an independent pinned attestor distinct from resolver and opener."
     },
     {
      "path": "crates/iroha_core/src/state.rs",
      "symbol": "World::validate_identifier_claims",
-     "note": "State validation of identifier claims requires the programmed BFV backend."
+     "note": "State restoration now invokes the same signed HKDF phone policy validator as registration and checks canonical nullifier, receipt and account indexes. The restored-phone correction and regression tests are implemented; Rust execution validation is pending."
+    },
+    {
+     "path": "crates/iroha_torii/src/identifier_resolution/owner_prf.rs",
+     "symbol": "IdentifierResolutionService::execute_owner_prf",
+     "note": "The authenticated owner path validates the supported signed HKDF policy and runtime keys, evaluates the exact network/program/input transcript, clears the echoed input and returns only opaque PRF output."
+    },
+    {
+     "path": "crates/iroha_torii/src/identifier_resolution/owner_prf.rs",
+     "symbol": "IdentifierResolutionService::derive_owner_prf",
+     "note": "Claims re-normalize and re-evaluate the exact input/nonce, verify the original opening and bounded lease, and require the independent phone statement when the policy is phone#retail."
     },
     {
      "path": "crates/iroha_torii/src/identifier_resolution.rs",
-     "symbol": "IdentifierResolutionService::execute_encrypted",
-     "note": "The encrypted Torii routes reject every backend except programmed BFV before evaluation; Torii never evaluates HKDF input."
+     "symbol": "require_supported_program_policy",
+     "note": "Unsupported diagnostic BFV backends are refused before private request work or signing."
     },
     {
      "path": "crates/iroha_torii/src/identifier_resolution.rs",
-     "symbol": "IdentifierResolutionService::derive_phone_retail_encrypted",
-     "note": "The encrypted Torii routes reject every backend except programmed BFV before evaluation; Torii never evaluates HKDF input."
+     "symbol": "decode_bfv_public_parameters",
+     "note": "BFV parameter decoding rejects the plaintext HKDF backend; it is not an encrypted PRF path."
     }
    ]
   },
@@ -10918,6 +11009,9 @@
    "disposition": "preserve",
    "summary": "HKDF key derivation unrelated to RAM-LFE. R.6 must not remove any of it.",
    "entries": [
+    {"path": "contracts/evm/sccp/test/sccp_v1_model.js", "purpose": "Independent SCCP BLS KeyGen reference using HKDF-SHA-256."},
+    {"path": "crates/iroha_sccp/tests/reference_support/bls_support.rs", "purpose": "Independent SCCP BLS KeyGen reference using HKDF-SHA-256."},
+    {"path": "scripts/sccp_reference/bls_sig.py", "purpose": "Independent SCCP BLS KeyGen reference using HKDF-SHA-256."},
     {"path": "Cargo.lock", "purpose": "Lock entry of the hkdf crate."},
     {"path": "IrohaSwift/Sources/IrohaSwift/Confidential.swift", "purpose": "Confidential key hierarchy and note or memo key derivation."},
     {"path": "IrohaSwift/Sources/IrohaSwift/ConfidentialNote.swift", "purpose": "Confidential key hierarchy and note or memo key derivation."},
@@ -10925,7 +11019,6 @@
     {"path": "crates/iroha_cli/bins/tests/taikai_policy.rs", "purpose": "Taikai content-encryption-key rotation salt."},
     {"path": "crates/iroha_cli/src/commands/taikai.rs", "purpose": "Taikai content-encryption-key rotation salt."},
     {"path": "crates/iroha_core_privacy/src/privacy_engines/pq_masp/wire.rs", "purpose": "PQ-MASP labeled key derivation."},
-    {"path": "crates/iroha_core_zk/src/kagemusha_v1_crypto.rs", "purpose": "KAGEMUSHA encrypted-credit envelope and recovery stream keys."},
     {
      "path": "crates/iroha_crypto/Cargo.toml",
      "purpose": "Declaration of the hkdf dependency, shared by the RAM-LFE backend and the preserved users."
@@ -10934,7 +11027,6 @@
     {"path": "crates/iroha_crypto/src/confidential_memo.rs", "purpose": "Confidential key hierarchy and note or memo key derivation."},
     {"path": "crates/iroha_crypto/src/hybrid.rs", "purpose": "Hybrid KEM shared-secret combination."},
     {"path": "crates/iroha_crypto/src/hybrid/fixed_owner_tests.rs", "purpose": "Hybrid KEM shared-secret combination."},
-    {"path": "crates/iroha_crypto/src/kagemusha.rs", "purpose": "KAGEMUSHA encrypted-credit envelope and recovery stream keys."},
     {"path": "crates/iroha_crypto/src/kex/x25519.rs", "purpose": "X25519 session key derivation."},
     {
      "path": "crates/iroha_crypto/src/lib.rs",
@@ -10952,7 +11044,6 @@
     {"path": "crates/iroha_crypto/src/threshold_bls/checkpoint.rs", "purpose": "Threshold BLS beacon seed and checkpoint keys."},
     {"path": "crates/iroha_crypto/src/threshold_bls/tests/message_borrow.rs", "purpose": "Threshold BLS beacon seed and checkpoint keys."},
     {"path": "crates/iroha_crypto/src/tle.rs", "purpose": "Timelock encryption data-encapsulation key."},
-    {"path": "crates/iroha_data_model/src/kagemusha/kagemusha_v1.rs", "purpose": "KAGEMUSHA encrypted-credit envelope and recovery stream keys."},
     {"path": "crates/iroha_data_model/src/taikai.rs", "purpose": "Taikai content-encryption-key rotation salt."},
     {"path": "crates/iroha_torii_shared/Cargo.toml", "purpose": "Connect session direction keys and their dependency."},
     {"path": "crates/iroha_torii_shared/src/connect_sdk.rs", "purpose": "Connect session direction keys and their dependency."},
@@ -11296,6 +11387,12 @@
    "path": "crates/iroha_measurement/fixtures/consumers.json",
    "kind": "source_checked_inventory",
    "evidence": {"path": "crates/iroha_measurement/tests/layering.rs", "literal": "consumers.json"}
+
+  },
+  {
+   "path": "fixtures/soracloud/identifier_owner_execute_v1.json",
+   "kind": "fixture",
+   "evidence": {"path": "IrohaSwift/Tests/IrohaSwiftTests/ToriiClientRamLfeTestSupport.swift", "literal": "identifier_owner_execute_v1.json"}
   }
  ],
  "generated_sdk_code": {
@@ -11318,7 +11415,7 @@
    "component": "workspace",
    "role": "unrelated_hkdf",
    "tasks": [],
-   "summary": "HKDF key derivation that is not the RAM-LFE backend: confidential key hierarchy and memo wrapping, X25519 and hybrid KEM session keys, SoraNet handshake/record/blinding, threshold BLS, timelock encryption, ML-DSA and BLS seed expansion, Taikai CEK rotation, KAGEMUSHA envelopes, Connect direction keys, Norito streaming, key export and peer-nearby transcripts. Preserve.",
+   "summary": "HKDF key derivation that is not the RAM-LFE backend: confidential key hierarchy and memo wrapping, X25519 and hybrid KEM session keys, SoraNet handshake/record/blinding, threshold BLS, timelock encryption, ML-DSA and BLS seed expansion, Taikai CEK rotation, Connect direction keys, Norito streaming, key export and peer-nearby transcripts. Preserve.",
    "files": [
     {"path": "IrohaSwift/Sources/IrohaSwift/Confidential.swift", "patterns": ["hkdf"]},
     {"path": "IrohaSwift/Sources/IrohaSwift/ConfidentialNote.swift", "patterns": ["hkdf"]},
@@ -11326,12 +11423,10 @@
     {"path": "crates/iroha_cli/bins/tests/taikai_policy.rs", "patterns": ["hkdf"], "test_only": true},
     {"path": "crates/iroha_cli/src/commands/taikai.rs", "patterns": ["hkdf"]},
     {"path": "crates/iroha_core_privacy/src/privacy_engines/pq_masp/wire.rs", "patterns": ["hkdf"]},
-    {"path": "crates/iroha_core_zk/src/kagemusha_v1_crypto.rs", "patterns": ["hkdf"], "cfg": ["any(test, unix)"]},
     {"path": "crates/iroha_crypto/src/confidential.rs", "patterns": ["hkdf"]},
     {"path": "crates/iroha_crypto/src/confidential_memo.rs", "patterns": ["hkdf"], "cfg": ["feature = \"pqc\""]},
     {"path": "crates/iroha_crypto/src/hybrid.rs", "patterns": ["hkdf"], "cfg": ["feature = \"pqc\""]},
     {"path": "crates/iroha_crypto/src/hybrid/fixed_owner_tests.rs", "patterns": ["hkdf"], "cfg": ["feature = \"pqc\"", "test"], "test_only": true},
-    {"path": "crates/iroha_crypto/src/kagemusha.rs", "patterns": ["hkdf"]},
     {"path": "crates/iroha_crypto/src/kex/x25519.rs", "patterns": ["hkdf"]},
     {"path": "crates/iroha_crypto/src/mldsa_seed.rs", "patterns": ["hkdf"], "cfg": ["feature = \"pqc\""]},
     {"path": "crates/iroha_crypto/src/signature/bls/implementation.rs", "patterns": ["hkdf"], "cfg": ["feature = \"bls\""]},
@@ -11354,7 +11449,6 @@
      "test_only": true
     },
     {"path": "crates/iroha_crypto/src/tle.rs", "patterns": ["hkdf"], "cfg": ["feature = \"bls\""]},
-    {"path": "crates/iroha_data_model/src/kagemusha/kagemusha_v1.rs", "patterns": ["hkdf"]},
     {"path": "crates/iroha_data_model/src/taikai.rs", "patterns": ["hkdf"]},
     {"path": "crates/iroha_torii_shared/Cargo.toml", "patterns": ["hkdf"]},
     {"path": "crates/iroha_torii_shared/src/connect_sdk.rs", "patterns": ["hkdf"]},
@@ -13351,6 +13445,7 @@
     {"path": "crates/iroha_core_zk/src/ram_lfe_byte_tests.rs", "patterns": ["ram_lfe"], "cfg": ["test"], "test_only": true},
     {"path": "crates/iroha_core_zk/src/ram_lfe_poseidon.rs", "patterns": ["bfv", "ram_lfe"], "cfg": ["test"], "test_only": true},
     {"path": "crates/iroha_core_zk/src/ram_lfe_poseidon_tests.rs", "patterns": ["ram_lfe"], "cfg": ["test"], "test_only": true},
+    {"path": "crates/iroha_core_zk/src/ram_lfe_test_support.rs", "patterns": ["ram_lfe"], "cfg": ["test"], "test_only": true},
     {"path": "crates/iroha_core_zk/src/ram_lfe_word.rs", "patterns": ["bfv", "ram_lfe"], "cfg": ["test"], "test_only": true},
     {"path": "crates/iroha_core_zk/src/ram_lfe_word_tests.rs", "patterns": ["ram_lfe"], "cfg": ["test"], "test_only": true},
     {"path": "crates/iroha_core_zk/src/rns_native_source_v1.rs", "patterns": ["mkhe", "rns"]},
@@ -13375,6 +13470,7 @@
    "files": [
     {"path": "crates/iroha_data_model/Cargo.toml", "patterns": ["bfv", "ram_lfe"]},
     {"path": "crates/iroha_data_model/src/identifier.rs", "patterns": ["bfv", "hkdf", "hkdf_ram_lfe", "ram_lfe"]},
+    {"path": "crates/iroha_data_model/src/identifier/hkdf_v1.rs", "patterns": ["bfv", "hkdf", "hkdf_ram_lfe", "ram_lfe"]},
     {"path": "crates/iroha_data_model/src/isi/generated_record_inventory.rs", "patterns": ["ram_lfe"], "cfg": ["test"], "test_only": true},
     {"path": "crates/iroha_data_model/src/isi/identifier.rs", "patterns": ["bfv", "ram_lfe"]},
     {"path": "crates/iroha_data_model/src/isi/mod.rs", "patterns": ["fhe", "ram_lfe"]},
@@ -13474,7 +13570,7 @@
      "test_only": true
     },
     {"path": "crates/iroha_core/src/kiso.rs", "patterns": ["ram_lfe"]},
-    {"path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs", "patterns": ["bfv", "ram_lfe"]},
+    {"path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs", "patterns": ["bfv", "hkdf", "hkdf_ram_lfe", "ram_lfe"]},
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/identifier_tests.rs",
      "patterns": ["bfv", "hkdf", "hkdf_ram_lfe", "ram_lfe"],
@@ -13483,12 +13579,18 @@
     },
     {"path": "crates/iroha_core/src/smartcontracts/isi/mod.rs", "patterns": ["fhe", "ram_lfe"]},
     {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "patterns": ["bfv", "hkdf", "hkdf_ram_lfe", "ram_lfe"]},
-    {"path": "crates/iroha_core/src/state.rs", "patterns": ["bfv", "ram_lfe"]},
+    {"path": "crates/iroha_core/src/state.rs", "patterns": ["ram_lfe"]},
     {"path": "crates/iroha_core/src/state/authority_registry/complete/table_capture.rs", "patterns": ["ram_lfe"]},
     {"path": "crates/iroha_core/src/state/authority_registry/complete/table_capture/native_world.rs", "patterns": ["fhe"]},
     {"path": "crates/iroha_core/src/state/authority_registry/world.rs", "patterns": ["ram_lfe"]},
     {"path": "crates/iroha_core/src/state/deserialize_core.rs", "patterns": ["ram_lfe"]},
     {"path": "crates/iroha_core/src/state/deserialize_world.rs", "patterns": ["fhe", "ram_lfe"]},
+    {
+     "path": "crates/iroha_core/src/state/identifier_claim_restore_tests.rs",
+     "patterns": ["bfv", "hkdf", "hkdf_ram_lfe", "ram_lfe"],
+     "cfg": ["test"],
+     "test_only": true
+    },
     {
      "path": "crates/iroha_core/src/state/state_table_inventory_domains.rs",
      "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe", "rns"],
@@ -13565,12 +13667,29 @@
      "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe"],
      "cfg": ["feature = \"app_api\""]
     },
+    {
+     "path": "crates/iroha_torii/src/identifier_resolution/owner_prf.rs",
+     "patterns": ["bfv", "hkdf", "hkdf_ram_lfe", "ram_lfe"],
+     "cfg": ["feature = \"app_api\""]
+    },
     {"path": "crates/iroha_torii/src/lib.rs", "patterns": ["bfv", "fhe", "ram_lfe"]},
     {"path": "crates/iroha_torii/src/routing.rs", "patterns": ["bfv", "fhe", "ram_lfe"]},
     {"path": "crates/iroha_torii/src/test_utils.rs", "patterns": ["ram_lfe"], "cfg": ["any(test, feature = \"test-fixtures\")"]},
     {"path": "crates/iroha_torii/src/tests/lib_runtime_handlers/part_1.rs", "patterns": ["bfv", "ram_lfe"], "cfg": ["test"], "test_only": true},
     {"path": "crates/iroha_torii/src/tests/lib_runtime_handlers/part_6.rs", "patterns": ["fhe"], "cfg": ["test"], "test_only": true},
     {"path": "crates/iroha_torii/src/tests/lib_runtime_handlers/part_7.rs", "patterns": ["fhe"], "cfg": ["test"], "test_only": true},
+    {
+     "path": "crates/iroha_torii/src/tests/lib_tests/identifier_owner_routes.rs",
+     "patterns": ["hkdf", "ram_lfe"],
+     "cfg": ["all(test, feature = \"app_api\")"],
+     "test_only": true
+    },
+    {
+     "path": "crates/iroha_torii/src/tests/lib_tests/owner_prf_routes.rs",
+     "patterns": ["hkdf", "ram_lfe"],
+     "cfg": ["all(test, feature = \"app_api\")"],
+     "test_only": true
+    },
     {
      "path": "crates/iroha_torii/src/tests/lib_tests/part_1.rs",
      "patterns": ["bfv", "hkdf", "hkdf_ram_lfe", "ram_lfe"],
@@ -13659,8 +13778,11 @@
    "component": "tools/kotlin-fixture-gen",
    "role": "generator",
    "tasks": ["R.6", "S.3"],
-   "summary": "Rust fixture generator for the Kotlin and Java consumers; emits ClaimIdentifier with the HKDF backend in Signed mode and the hidden RAM-FHE program.",
-   "files": [{"path": "tools/kotlin-fixture-gen/src/main.rs", "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe"]}]
+   "summary": "Rust fixture generator for Kotlin, Java and Swift consumers; emits ClaimIdentifier, hidden RAM-FHE program data and public native owner-PRF execution/signature data.",
+   "files": [
+    {"path": "tools/kotlin-fixture-gen/src/identifier_owner_execute.rs", "patterns": ["hkdf", "hkdf_ram_lfe", "ram_lfe"]},
+    {"path": "tools/kotlin-fixture-gen/src/main.rs", "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe"]}
+   ]
   },
   {
    "id": "schema.openapi",
@@ -13669,9 +13791,9 @@
    "tasks": ["R.6", "C.9"],
    "summary": "Generated Torii OpenAPI documents and the package-local mirror that carry the RAM-LFE, identifier and SoraCloud FHE schemas.",
    "files": [
-    {"path": "artifacts/openapi/torii.json", "patterns": ["bfv", "fhe", "ram_lfe"]},
-    {"path": "artifacts/openapi/versions/current/torii.json", "patterns": ["bfv", "fhe", "ram_lfe"]},
-    {"path": "crates/iroha_torii/assets/openapi/torii.json", "patterns": ["bfv", "fhe", "ram_lfe"]}
+    {"path": "artifacts/openapi/torii.json", "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe"]},
+    {"path": "artifacts/openapi/versions/current/torii.json", "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe"]},
+    {"path": "crates/iroha_torii/assets/openapi/torii.json", "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe"]}
    ]
   },
   {
@@ -13689,6 +13811,7 @@
     {"path": "fixtures/soracloud/fhe_governance_bundle_v1.json", "patterns": ["bfv", "fhe", "rns"], "test_only": true},
     {"path": "fixtures/soracloud/fhe_job_spec_v1.json", "patterns": ["bfv", "fhe"], "test_only": true},
     {"path": "fixtures/soracloud/fhe_param_set_v1.json", "patterns": ["bfv", "fhe", "rns"], "test_only": true},
+    {"path": "fixtures/soracloud/identifier_owner_execute_v1.json", "patterns": ["hkdf", "hkdf_ram_lfe"], "test_only": true},
     {"path": "fixtures/soracloud/identifier_receipt_vectors_v1.json", "patterns": ["bfv"], "test_only": true},
     {"path": "fixtures/soracloud/secret_envelope_v1.json", "patterns": ["fhe"], "test_only": true},
     {"path": "fixtures/soracloud/sora_deployment_bundle_v1.json", "patterns": ["fhe"], "test_only": true},
@@ -13718,11 +13841,16 @@
    "component": "IrohaSwift",
    "role": "sdk",
    "tasks": ["R.6", "S.4"],
-   "summary": "Swift SDK Torii client, RAM-LFE completions, transaction encoder and tests.",
+   "summary": "Swift SDK Torii client, authenticated owner-PRF requests, RAM-LFE completions and tests.",
    "files": [
     {"path": "IrohaSwift/Sources/IrohaSwift/ToriiClient.swift", "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe"]},
     {"path": "IrohaSwift/Sources/IrohaSwift/ToriiClientRamLfeCompletions.swift", "patterns": ["ram_lfe"]},
-    {"path": "IrohaSwift/Sources/IrohaSwift/TransactionEncoder.swift", "patterns": ["ram_lfe"]},
+    {"path": "IrohaSwift/Sources/IrohaSwift/ToriiIdentifierOwnerContract.swift", "patterns": ["hkdf", "hkdf_ram_lfe", "ram_lfe"]},
+    {
+     "path": "IrohaSwift/Tests/IrohaSwiftTests/CurrentIdentifierOwnerContractTests.swift",
+     "patterns": ["hkdf", "hkdf_ram_lfe", "ram_lfe"],
+     "test_only": true
+    },
     {
      "path": "IrohaSwift/Tests/IrohaSwiftTests/DiagnosticIdentifierBfvEnvelopeBuilder.swift",
      "patterns": ["bfv", "fhe", "ram_lfe"],
@@ -13736,7 +13864,7 @@
      "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "negacyclic", "ram_lfe", "rns"],
      "test_only": true
     },
-    {"path": "IrohaSwift/Tests/IrohaSwiftTests/TxBuilderTests.swift", "patterns": ["bfv", "ram_lfe"], "test_only": true}
+    {"path": "IrohaSwift/Tests/IrohaSwiftTests/TxBuilderTests.swift", "patterns": ["hkdf", "hkdf_ram_lfe", "ram_lfe"], "test_only": true}
    ]
   },
   {
@@ -13748,16 +13876,21 @@
    "files": [
     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/HttpClientTransport.kt", "patterns": ["ram_lfe"]},
     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/IdentifierBfvPublicParameters.kt", "patterns": ["bfv"]},
-    {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/IdentifierJsonParser.kt", "patterns": ["bfv", "fhe", "ram_lfe"]},
+    {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/IdentifierJsonParser.kt", "patterns": ["bfv", "fhe", "hkdf", "ram_lfe"]},
+    {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/IdentifierOwnerInputV1.kt", "patterns": ["hkdf", "hkdf_ram_lfe"]},
     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/IdentifierPolicySummary.kt", "patterns": ["bfv", "fhe", "ram_lfe"]},
+    {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/IdentifierPrfPrepareResponse.kt", "patterns": ["ram_lfe"]},
     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/IdentifierReceiptCanonicalEncoder.kt", "patterns": ["ram_lfe"]},
+    {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/IdentifierReceiptVerifier.kt", "patterns": ["ram_lfe"]},
     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/IdentifierResolutionPayload.kt", "patterns": ["ram_lfe"]},
-    {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/IdentifierResolveRequest.kt", "patterns": ["bfv", "ram_lfe"]},
+    {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/IdentifierResolveRequest.kt", "patterns": ["ram_lfe"]},
+    {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/PhoneRetailCanonicalityV1.kt", "patterns": ["ram_lfe"]},
     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamFheProfile.kt", "patterns": ["fhe", "ram_lfe"]},
     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamLfeEncryptionUnavailableException.kt", "patterns": ["bfv", "ram_lfe"]},
+    {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamLfeExecuteConsistencyV1.kt", "patterns": ["ram_lfe"]},
     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamLfeExecuteRequest.kt", "patterns": ["ram_lfe"]},
-    {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamLfeExecuteResponse.kt", "patterns": ["ram_lfe"]},
-    {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamLfeJsonParser.kt", "patterns": ["bfv", "fhe", "ram_lfe"]},
+    {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamLfeExecuteResponse.kt", "patterns": ["hkdf", "ram_lfe"]},
+    {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamLfeJsonParser.kt", "patterns": ["bfv", "fhe", "hkdf", "ram_lfe"]},
     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamLfeOutputOpening.kt", "patterns": ["ram_lfe"]},
     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamLfeProgramPolicyListResponse.kt", "patterns": ["ram_lfe"]},
     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/RamLfeProgramPolicySummary.kt", "patterns": ["bfv", "fhe", "ram_lfe"]},
@@ -13769,8 +13902,12 @@
      "patterns": ["bfv", "hkdf", "hkdf_ram_lfe", "ram_lfe"]
     },
     {
+     "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/ClaimIdentifierWirePayloadEncoder.kt",
+     "patterns": ["hkdf"]
+    },
+    {
      "path": "kotlin/core-jvm/src/test/java/org/hyperledger/iroha/sdk/client/RamLfeExecuteJavaConsumerTest.java",
-     "patterns": ["bfv", "ram_lfe"],
+     "patterns": ["bfv", "hkdf", "hkdf_ram_lfe", "ram_lfe"],
      "test_only": true
     },
     {
@@ -13780,6 +13917,11 @@
     },
     {
      "path": "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/client/ApplicationPostAuthenticationTest.kt",
+     "patterns": ["ram_lfe"],
+     "test_only": true
+    },
+    {
+     "path": "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/client/CurrentIdentifierOwnerContractTest.kt",
      "patterns": ["ram_lfe"],
      "test_only": true
     },
@@ -13906,6 +14048,7 @@
    "summary": "JavaScript SDK Torii client, type declarations and tests.",
    "files": [
     {"path": "javascript/iroha_js/index.d.ts", "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe"]},
+    {"path": "javascript/iroha_js/src/identifierOwnerPrf.js", "patterns": ["hkdf", "hkdf_ram_lfe", "ram_lfe"]},
     {"path": "javascript/iroha_js/src/index.js", "patterns": ["bfv", "ram_lfe"]},
     {"path": "javascript/iroha_js/src/toriiClient.js", "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe"]},
     {"path": "javascript/iroha_js/test/helpers/diagnosticIdentifierBfv.js", "patterns": ["bfv", "fhe", "ram_lfe"], "test_only": true},
@@ -13969,6 +14112,7 @@
     {"path": "Makefile", "patterns": ["bgv", "fhe", "rns"]},
     {"path": "generated-files.toml", "patterns": ["bgv", "fhe"]},
     {"path": "pytests/scripts/qmask_s_stream_lifetime_test.py", "patterns": ["mkhe"], "test_only": true},
+    {"path": "pytests/scripts/workspace_release_gate_test.py", "patterns": ["fhe"], "test_only": true},
     {"path": "scripts/check_cargo_feature_hygiene.py", "patterns": ["bfv", "fhe", "ntt"]},
     {"path": "scripts/check_release_feature_graph.py", "patterns": ["bfv"]},
     {"path": "scripts/check_zk_operation_inventory.py", "patterns": ["fhe", "mkhe", "ram_lfe"]},
@@ -14008,36 +14152,6 @@
     {"path": "crates/iroha_core_privacy/Cargo.toml", "patterns": ["fhe"]},
     {"path": "crates/iroha_fhe/Cargo.toml", "patterns": ["bfv", "bgv", "fhe", "ntt", "rns"]},
     {"path": "crates/iroha_zkp_halo2/Cargo.toml", "patterns": ["fhe"]}
-   ]
-  },
-  {
-   "id": "incidental",
-   "component": "workspace",
-   "role": "incidental",
-   "tasks": [],
-   "summary": "Files that match a detection pattern without consuming ring arithmetic or RAM-LFE: Lagrange and coefficient basis conversions of the KAGEMUSHA polynomial store and of vendored halo2.",
-   "files": [
-    {
-     "path": "crates/iroha_core_zk/src/kagemusha_polynomial_store_v1/quotient_roles.rs",
-     "patterns": ["basis_conversion"],
-     "cfg": ["all(test, unix)"],
-     "test_only": true,
-     "evidence": "quotient_roles_reject_invalid_basis_extension_part_piece_and_domain_before_backend_effects"
-    },
-    {
-     "path": "crates/iroha_core_zk/src/kagemusha_polynomial_store_v1/tests.rs",
-     "patterns": ["basis_conversion"],
-     "cfg": ["all(test, unix)"],
-     "test_only": true,
-     "evidence": "encrypted_basis_conversion_roundtrip"
-    },
-    {
-     "path": "vendor/halo2-axiom/src/poly/stored_advice/transform/tests.rs",
-     "patterns": ["basis_conversion"],
-     "cfg": ["test"],
-     "test_only": true,
-     "evidence": "fp_lookup_roles_preserve_every_basis_conversion"
-    }
    ]
   },
   {
@@ -14133,6 +14247,87 @@
     {"path": "scripts/tests/fhe_bgv_cost_model_test.py", "patterns": ["bgv", "fhe", "ram_lfe", "rns"], "test_only": true},
     {"path": "specs/fhe_bgv_lattice_estimator_output.txt", "patterns": ["bgv", "fhe", "rns"]}
    ]
+  },
+{
+ "id": "native.ownership_and_sccp_references",
+ "component": "shared",
+ "role": "consumer",
+ "tasks": [
+  "R.6"
+ ],
+ "summary": "Retained RAM-LFE authority originals and their tests, plus independent SCCP BLS KeyGen references. SCCP HKDF does not implement RAM-LFE.",
+ "files": [
+  {
+   "path": "crates/iroha/src/client/authority_originals/tests.rs",
+   "patterns": [
+    "hkdf",
+    "hkdf_ram_lfe",
+    "ram_lfe"
+   ],
+   "test_only": true
+  },
+  {
+   "path": "crates/iroha_core/src/state/world_state_snapshot/authority_originals/tests.rs",
+   "patterns": [
+    "hkdf",
+    "hkdf_ram_lfe",
+    "ram_lfe"
+   ],
+   "test_only": true
+  },
+  {
+   "path": "crates/iroha_torii_shared/src/authority_originals/tests.rs",
+   "patterns": [
+    "hkdf",
+    "hkdf_ram_lfe",
+    "ram_lfe"
+   ],
+   "test_only": true
+  },
+  {
+   "path": "scripts/tests/ledger_scoped_originals_openapi_test.py",
+   "patterns": [
+    "bfv",
+    "hkdf",
+    "hkdf_ram_lfe",
+    "ram_lfe"
+   ],
+   "test_only": true
+  },
+  {
+   "path": "crates/iroha_core/src/state/world_state_snapshot/authority_originals.rs",
+   "patterns": [
+    "ram_lfe"
+   ]
+  },
+  {
+   "path": "crates/iroha_torii_shared/src/authority_originals.rs",
+   "patterns": [
+    "ram_lfe"
+   ]
+  },
+  {
+   "path": "contracts/evm/sccp/test/sccp_v1_model.js",
+   "patterns": [
+    "hkdf"
+   ],
+   "test_only": true
+  },
+  {
+   "path": "crates/iroha_sccp/tests/reference_support/bls_support.rs",
+   "patterns": [
+    "hkdf"
+   ],
+   "test_only": true
+  },
+  {
+   "path": "scripts/sccp_reference/bls_sig.py",
+   "patterns": [
+    "hkdf"
+   ],
+   "test_only": true
   }
+ ]
+}
  ]
 }

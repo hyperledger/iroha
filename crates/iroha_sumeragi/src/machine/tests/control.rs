@@ -18,7 +18,6 @@ fn answer(h: &mut H, req: u64, context: ControlWitnessContext) {
         req,
         context,
         witness: ControlWitness::try_from_slice(b"authenticated application input").unwrap(),
-        attest: true,
     });
 }
 #[test]
@@ -50,7 +49,7 @@ fn det_s46_control_witness_is_bound_by_header_hash_and_proposal_signature() {
     }
 }
 #[test]
-fn det_s47_nonempty_work_waits_for_independent_control_and_preserves_attestation() {
+fn det_s47_nonempty_work_waits_for_independent_control_and_preserves_original_payload() {
     let mut h = H::new(4, pick::leader(2));
     h.auto_control = false;
     h.enter_view(2);
@@ -74,13 +73,11 @@ fn det_s47_nonempty_work_waits_for_independent_control_and_preserves_attestation
         .payload
         .as_ref()
         .unwrap()
-        .0
         .as_slice()
         .as_ptr();
     h.fire(Event::PayloadBuilt {
         req,
         payload: h.payload(b"replacement"),
-        attest: false,
     });
     assert_eq!(
         h.core
@@ -90,7 +87,6 @@ fn det_s47_nonempty_work_waits_for_independent_control_and_preserves_attestation
             .payload
             .as_ref()
             .unwrap()
-            .0
             .as_slice()
             .as_ptr(),
         original
@@ -105,7 +101,6 @@ fn det_s47_nonempty_work_waits_for_independent_control_and_preserves_attestation
         proposed.header.control_witness.as_slice(),
         b"authenticated application input"
     );
-    assert!(proposed.header.attest);
     let hash = proposed.block_hash(&h.v.crypto);
     assert_eq!(h.bodies[&hash].payload().as_slice(), b"last transaction");
 }
@@ -131,7 +126,6 @@ fn transaction_timeout_cannot_start_control_or_accept_late_work() {
     h.fire(Event::PayloadBuilt {
         req,
         payload: h.payload(b"too late"),
-        attest: false,
     });
     answer(&mut h, req, context);
     assert!(h.core.mine.proposal.is_none());
@@ -250,7 +244,7 @@ fn every_member_drives_exact_applied_parent_and_partial_ingress_is_bounded() {
 fn locked_reproposal_and_restart_preserve_exact_control_header() {
     let mut h = H::new(4, pick::leader(2));
     h.auto_control = false;
-    let original = h.flagged(&h.block(0, b"locked transactions"));
+    let original = h.block(0, b"locked transactions");
     let mut header = original.header().clone();
     header.control_witness = ControlWitness::try_from_slice(b"original finalized pulse").unwrap();
     let original = h.author(header, original.payload().as_slice());

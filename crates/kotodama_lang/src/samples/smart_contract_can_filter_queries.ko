@@ -1,7 +1,8 @@
 // Minimal sample ensuring a seiyaku can execute a benign metadata write.
 seiyaku FilterQueriesSample {
-    kotoage fn run() authorize("Admin") {
-        ledger::account::set_detail(
+    permission Admin;
+    kotoage fn run() authorize(Admin) {
+        ledger::account::set_metadata(
             account: context::authority(),
             key: Name::parse("noop"),
             value: Json::parse("1"),

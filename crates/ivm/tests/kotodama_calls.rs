@@ -9,7 +9,7 @@ fn nested_function_calls_work() {
         seiyaku NestedCalls {
             fn inc(int x) -> int { return x + 1; }
             fn add_two(int x) -> int { let y = inc(x: x); return inc(x: y); }
-            view fn main() -> int { return add_two(x: 5); }
+            view fn main() authorize(anyone) -> int { return add_two(x: 5); }
         }
     "#;
     let code = KotodamaCompiler::new()
@@ -28,7 +28,7 @@ fn multi_return_call_and_tuple_use() {
         seiyaku MultiReturn {
             fn pair(int x) -> (int, int) { return (x, x + 1); }
             fn sum_pair(int x) -> int { let t = pair(x: x); return t.0 + t.1; }
-            view fn main() -> int { return sum_pair(x: 5); }
+            view fn main() authorize(anyone) -> int { return sum_pair(x: 5); }
         }
     "#;
     let code = KotodamaCompiler::new()

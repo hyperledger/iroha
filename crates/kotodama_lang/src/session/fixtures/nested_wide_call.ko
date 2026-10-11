@@ -1,5 +1,5 @@
 seiyaku NestedWideCall {
   struct Inner { int a, int b, int c, int d, int e, int f, int g }
   struct Outer { Inner left, Inner right }
-  view fn inspect_nested(Outer payload) -> int { return payload.left.a; }
+  view fn inspect_nested(Outer payload) authorize(anyone) -> int { return payload.left.a; }
 }

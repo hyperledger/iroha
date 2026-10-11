@@ -202,10 +202,10 @@ pub fn decode_signed_genesis(bytes: &[u8]) -> Result<SignedBlock> {
             iroha_data_model::block::decode_framed_signed_block(bytes)
         })
     });
-    match decoded {
-        Ok(result) => result.wrap_err("decode canonical signed genesis body"),
-        Err(_) => Err(eyre!("decode canonical signed genesis body panicked")),
-    }
+    decoded.map_or_else(
+        |_| Err(eyre!("decode canonical signed genesis body panicked")),
+        |result| result.wrap_err("decode canonical signed genesis body"),
+    )
 }
 
 fn validate_signed_genesis_size(length: usize) -> Result<()> {
@@ -684,9 +684,6 @@ mod tests {
         )
         .with_sumeragi_context_parameters(
             iroha_data_model::block::consensus::SumeragiGenesisContextParameters::recommended(),
-        )
-        .with_kagemusha_mint_finality_genesis_parameters(
-            crate::deterministic_test_kagemusha_mint_finality_genesis_parameters(),
         )
         .set_topology(crate::deterministic_test_genesis_topology_entries())
         .build_raw()

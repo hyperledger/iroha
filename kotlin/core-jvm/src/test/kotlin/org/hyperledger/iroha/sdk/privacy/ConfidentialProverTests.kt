@@ -37,7 +37,7 @@ class ConfidentialProverTests {
     companion object {
         private fun result(): ByteArray {
             val word = "01".repeat(32)
-            return """{"relation":"confidential_full_unshield","backend":"halo2/ipa","proof_hex":"abcd","root_hex":"$word","nullifiers_hex":["$word"],"output_commitments_hex":[]}""".toByteArray(StandardCharsets.UTF_8)
+            return """{"relation":"confidential_full_unshield","backend":"pipa-r/pasta","proof_hex":"abcd","root_hex":"$word","nullifiers_hex":["$word"],"output_commitments_hex":[]}""".toByteArray(StandardCharsets.UTF_8)
         }
     }
     @Test fun acceptedBackgroundWorkSurvivesCloseAndClearsConsumedInputs() {
@@ -155,6 +155,16 @@ class ConfidentialProverTests {
             val malformed = ByteArray(31) { 9 }
             assertThrows(IllegalArgumentException::class.java) { change.toInputWithDefault(0) { malformed } }
             assertTrue(malformed.all { it == 0.toByte() })
+        }
+    }
+
+    @Test fun nativeResultRejectsRetiredOrAlternateBackend() {
+        val word = "11".repeat(32)
+        val valid = """{"relation":"confidential_full_unshield","backend":"pipa-r/pasta","proof_hex":"01","root_hex":"$word","nullifiers_hex":["$word"],"output_commitments_hex":[]}""".toByteArray()
+        assertEquals("pipa-r/pasta", ConfidentialProof.decode(valid).backend)
+        for (backend in listOf("halo2/ipa", "halo2/pasta/confidential-unshield-full-merkle16-axiom-poseidon-v3", "pipa-r/pasta/confidential-unshield-full-v1", " pipa-r/pasta")) {
+            val changed = String(valid, Charsets.UTF_8).replace("pipa-r/pasta", backend).toByteArray()
+            assertThrows(IllegalArgumentException::class.java) { ConfidentialProof.decode(changed) }
         }
     }
 

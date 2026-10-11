@@ -66,12 +66,8 @@ fn fixture() -> (World, DaPinIntentWithLocation) {
 
 fn restore(world: &World) -> Result<World, json::Error> {
     let encoded = json::to_json(world).unwrap();
-    let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-    let operation_index_refusal = std::cell::RefCell::new(None);
     let ivm = IVM::new(0);
     let seed = IvmSeed {
-        operation_index_budget: &operation_index_budget,
-        operation_index_refusal: &operation_index_refusal,
         ivm: &ivm,
         _marker: PhantomData,
     };
@@ -131,12 +127,8 @@ fn current_and_undo_maps_roundtrip_without_validation_mutating_history() {
 #[test]
 fn every_pin_map_is_a_required_first_release_snapshot_field() {
     let encoded = json::to_json(&World::default()).unwrap();
-    let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-    let operation_index_refusal = std::cell::RefCell::new(None);
     let ivm = IVM::new(0);
     let seed = IvmSeed {
-        operation_index_budget: &operation_index_budget,
-        operation_index_refusal: &operation_index_refusal,
         ivm: &ivm,
         _marker: PhantomData,
     };

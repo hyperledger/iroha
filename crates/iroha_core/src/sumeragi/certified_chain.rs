@@ -24,10 +24,9 @@
 //!   Hash journals and structural frame decoding alone grant no execution authority.
 //! - [`CertifiedChain::certified`]: the committed read **plus the local `CommitQC`**. The
 //!   certificate must certify exactly this header and result (kind, height, block hash, result,
-//!   attestation flag, instance) and verify under the committee of its height (see below). The
-//!   default verifier checks both the exact BLS quorum and source-complete native paired-Pasta
-//!   attestations. A caller may explicitly supply an application verifier; there is no
-//!   signature-only finality fallback. Off-chain consumers use this read.
+//!   instance) and verify under the exact BLS quorum of the committee of its height.
+//!   Native finality also requires
+//!   the authenticated result, schedule and signed availability; signatures alone are insufficient.
 //! - [`CertifiedChain::certified_from_execution`]: the same full certificate checks
 //!   anchored through the captured original native execution tip. A bounded reverse
 //!   walk authenticates the target and its parent; the parent's executed schedule
@@ -39,7 +38,7 @@
 //! The reader verifies the prefix iteratively from the signed genesis context, checks both
 //! parent links and the parent result at every height, and carries a bounded schedule plus
 //! active authority. Chain parameters retain lag two; a successor authority is admitted only
-//! after the incumbent exact quorum certifies the mandatory attested boundary. Every signature
+//! after the incumbent exact quorum certifies the boundary. Every signature
 //! binds the scheduling epoch and complete context identity. The preceding certified pulse
 //! supplies fresh leader randomness, even when an authority generation is retained.
 //! Missing, reordered or invalid authority fails closed even after that committee has rotated
@@ -71,13 +70,12 @@ use iroha_data_model::{
             TrustedBlockProofAnchor, TrustedBlockProofAnchorError, TrustedExecutionOutputAnchor,
         },
     },
-    parameter::system::ConsensusMode,
     sumeragi::epoch::ValidatorEpochContextV1,
     sumeragi_finality::EpochValidationScope,
     transaction::TransactionEntrypoint,
 };
 use iroha_sumeragi::{
-    crypto::{AttestationVerifier, CertError},
+    crypto::CertError,
     message::{BlockHeader, Qc, VoteKind},
     preimage::TAG_PAY,
     types::{Committee, EpochId, Hash32},
@@ -86,7 +84,6 @@ use iroha_sumeragi::{
 use super::{
     commitment::{ExecutionResultCommitment, result_of_preimage},
     crypto::{BlsCrypto, core_key},
-    node::root_instance,
     schedule,
     startup::{GENESIS_HEIGHT, core_hash_of},
 };
@@ -101,7 +98,11 @@ use iroha_model_base::chain::ChainId;
 // Independent ceiling shared by portable verification and funded proposal acquisition.
 const MAX_PROPOSAL_BYTES: usize = 64 * 1024 * 1024;
 
+mod amx_initialization;
 mod artifacts;
+mod native_acquisition;
+pub(crate) use amx_initialization::AmxChainInitialization;
+mod terminal_selection;
 pub(crate) use artifacts::PrefixArtifacts;
 pub(super) use artifacts::{PrefixArtifactsError, PrefixArtifactsRead};
 
@@ -291,10 +292,27 @@ impl CommittedBlock {
     /// parent's block hash and `R`, and the iroha header the parent's iroha hash.
     #[must_use]
     pub fn extends(&self, parent: &Self) -> bool {
-        parent.height.checked_add(1) == Some(self.height)
-            && self.block.header().prev_block_hash() == Some(parent.block_hash())
+        self.extends_link(
+            parent.height,
+            &parent.block,
+            parent.core_hash,
+            parent.result,
+        )
+    }
+
+    // The sole parent-link predicate needs the original block identity and receipt
+    // scalars, not a copy of the parent's complete decoded execution/schedule graph.
+    fn extends_link(
+        &self,
+        parent_height: u64,
+        parent_block: &iroha_data_model::block::SharedSignedBlock,
+        parent_core_hash: Hash32,
+        parent_result: Hash32,
+    ) -> bool {
+        parent_height.checked_add(1) == Some(self.height)
+            && self.block.header().prev_block_hash() == Some(parent_block.hash())
             && self.header.as_ref().is_some_and(|header| {
-                header.parent_hash == parent.core_hash && header.parent_result == parent.result
+                header.parent_hash == parent_core_hash && header.parent_result == parent_result
             })
     }
 
@@ -332,6 +350,30 @@ impl CommittedBlock {
             execution.executed_block_wire_hash,
             output_index,
         )
+    }
+}
+
+// A walk's continuity check retains only the actual original immutable block and
+// already-derived link scalars. This private local projection is neither a source
+// certificate nor an authority capability; every yielded block is still certified.
+struct WalkParentLink {
+    height: u64,
+    block: iroha_data_model::block::SharedSignedBlock,
+    core_hash: Hash32,
+    result: Hash32,
+}
+impl WalkParentLink {
+    fn from_committed(parent: &CommittedBlock) -> Self {
+        Self {
+            height: parent.height,
+            block: parent.block.clone(),
+            core_hash: parent.core_hash,
+            result: parent.result,
+        }
+    }
+
+    fn is_extended_by(&self, child: &CommittedBlock) -> bool {
+        child.extends_link(self.height, &self.block, self.core_hash, self.result)
     }
 }
 
@@ -517,7 +559,7 @@ fn validate_frame_result(
         let epoch = validation
             .core_epoch(&commitment.schedule.current)
             .map_err(|error| malformed(error.to_string()))?;
-        if header.epoch != epoch.id || (commitment.schedule.boundary.is_some() && !header.attest) {
+        if header.epoch != epoch.id {
             return Err(ChainReadError::HeaderMismatch { height }.into());
         }
     }
@@ -730,6 +772,52 @@ fn read_frame_admitted(
     Ok(original)
 }
 
+/// One complete receipt in exact backing admitted by the original history pool.
+/// Nested result graphs and cryptographic scratch retain their separate funding rules.
+pub(crate) struct AdmittedCommittedBlock(iroha_allocation::ChargedBuffer<CommittedBlock>);
+
+impl AdmittedCommittedBlock {
+    /// Use the existing complete frame decoder and original slot-transfer kernel.
+    pub(crate) fn read(
+        block: iroha_data_model::block::SharedSignedBlock,
+        height: u64,
+        validation: &mut EpochValidationScope,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<Self, ExecutionAttemptError<ChainReadError>> {
+        read_frame_admitted(block, height, validation, budget).map(Self)
+    }
+
+    /// Move the original receipt only after its full decode has returned.
+    /// The empty backing is reclaimed before its charge refunds, including on unwind.
+    pub(crate) fn into_owned(mut self) -> CommittedBlock {
+        self.0
+            .pop()
+            .expect("the private admitted reader initialized exactly one receipt")
+    }
+
+    #[cfg(test)]
+    fn belongs_to(&self, budget: &iroha_allocation::AllocationBudget) -> bool {
+        self.0.belongs_to(budget)
+    }
+
+    #[cfg(test)]
+    fn slot_bytes(&self) -> usize {
+        assert_eq!(self.0.capacity(), 1);
+        assert_eq!(self.0.as_slice().len(), 1);
+        std::alloc::Layout::array::<CommittedBlock>(1)
+            .unwrap()
+            .size()
+    }
+}
+
+impl std::ops::Deref for AdmittedCommittedBlock {
+    type Target = CommittedBlock;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0.as_slice()[0]
+    }
+}
+
 /// How the local `CommitQC` of a height was checked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QcVerification {
@@ -892,21 +980,85 @@ struct VerifiedPrefix {
     authority: Arc<VerifiedAuthority>,
     // Bounded exact-value structural reuse ends when this cursor is reset or dropped.
     validation: EpochValidationScope,
+    // An opt-in local byte fence, never a consensus digest or wire field.
+    proof_source: Option<Hash>,
+}
+
+// This constant-size, ordered, certificate-inclusive local source fence is never
+// serialized, persisted or accepted as finality authority. The sole native verifier
+// authenticates each appended receipt; fresh source bytes only govern cursor reuse.
+/// Initial value of the local, non-wire canonical-source fence.
+pub(crate) fn proof_source_start() -> Hash {
+    Hash::new(b"native canonical proof source prefix")
+}
+
+/// Extend the local source fence with one ordered, exact canonical native frame.
+pub(crate) fn proof_source_append(previous: Hash, height: u64, length: u64, wire: Hash) -> Hash {
+    let mut fields = [0_u8; 80];
+    fields[..32].copy_from_slice(previous.as_ref());
+    fields[32..40].copy_from_slice(&height.to_le_bytes());
+    fields[40..48].copy_from_slice(&length.to_le_bytes());
+    fields[48..].copy_from_slice(wire.as_ref());
+    Hash::new(fields)
+}
+
+// A verdict owns only the actual decoded certificate; no result/body graph is cloned.
+struct CertificateVerdict {
+    commit_qc: Option<Qc>,
+    verification: QcVerification,
+    certificate_len: usize,
+}
+impl CertificateVerdict {
+    fn into_certified(self, committed: CommittedBlock) -> CertifiedBlock {
+        CertifiedBlock {
+            committed,
+            commit_qc: self.commit_qc,
+            verification: self.verification,
+            certificate_len: self.certificate_len,
+        }
+    }
+}
+
+// Construction proves all fallible successor checks completed. Only private source owners
+// can consume this state to install a gap or deliver a terminal original target.
+struct PreparedAdvance {
+    certificate: CertificateVerdict,
+    schedule: schedule::ConsensusSchedule,
+    authority: Arc<VerifiedAuthority>,
+    proof_source: Option<Hash>,
 }
 
 /// One crypto context for both random pinned reads and one-pass externally streamed evidence.
-struct PrefixVerifierContext<'a> {
+struct PrefixVerifierContext {
     instance: Hash32,
-    network: NetworkId,
-    attestations: Option<&'a dyn AttestationVerifier>,
 }
-impl PrefixVerifierContext<'_> {
+impl PrefixVerifierContext {
     fn advance_prefix(
         &self,
         prefix: &mut VerifiedPrefix,
         committed: CommittedBlock,
         artifacts: Option<PrefixArtifacts>,
     ) -> Result<CertifiedBlock, ExecutionAttemptError<ChainReadError>> {
+        let prepared = self.prepare_advance(prefix, &committed, artifacts)?;
+        let certified = prepared.certificate.into_certified(committed);
+        // The ordinary returned-receipt API keeps its existing independently retained tip.
+        // Terminal AMX selection instead moves the original gap into this same cursor.
+        prefix.tip = certified.committed.clone();
+        prefix.schedule = prepared.schedule;
+        prefix.authority = prepared.authority;
+        prefix.proof_source = prepared.proof_source;
+        Ok(certified)
+    }
+
+    // Sole fallible successor verifier. The source owner lends its original graph and does
+    // not surrender it until every certificate, availability, boundary and schedule check
+    // succeeds. This preserves the ordinary reader's predicate and refusal ordering.
+    fn prepare_advance(
+        &self,
+        prefix: &mut VerifiedPrefix,
+        committed: &CommittedBlock,
+        artifacts: Option<PrefixArtifacts>,
+    ) -> Result<PreparedAdvance, ExecutionAttemptError<ChainReadError>> {
         let height = committed.height;
         if !committed.extends(&prefix.tip) {
             return Err(ChainReadError::Discontinuous { height }.into());
@@ -933,16 +1085,28 @@ impl PrefixVerifierContext<'_> {
         let config = scheduled
             .height_config_with_validation(&mut prefix.validation)
             .map_err(|error| malformed(error.to_string()))?;
-        let certified = self.verify_certificate(committed, &authority, Some(&config), artifacts)?;
-        verify_boundary_source(&certified.committed, &prefix.tip, &authority)?;
+        let certificate =
+            self.prepare_certificate(committed, &authority, Some(&config), artifacts)?;
+        verify_boundary_source(committed, &prefix.tip, &authority)?;
         let schedule = prefix
             .schedule
-            .advanced_with_validation(&certified.commitment.schedule, &mut prefix.validation)
+            .advanced_with_validation(&committed.commitment.schedule, &mut prefix.validation)
             .map_err(|error| malformed(error.to_string()))?;
-        prefix.tip = certified.committed.clone();
-        prefix.schedule = schedule;
-        prefix.authority = authority;
-        Ok(certified)
+        // A local byte fence is folded only after complete native authentication; it never
+        // supplies finality, and failure of this pure projection merely disables reuse.
+        let proof_source = prefix.proof_source.and_then(|previous| {
+            committed
+                .block()
+                .canonical_wire_identity()
+                .ok()
+                .map(|(length, wire)| proof_source_append(previous, height, length, wire))
+        });
+        Ok(PreparedAdvance {
+            certificate,
+            schedule,
+            authority,
+            proof_source,
+        })
     }
 
     fn verify_certificate(
@@ -952,15 +1116,28 @@ impl PrefixVerifierContext<'_> {
         config: Option<&iroha_sumeragi::types::HeightConfig>,
         artifacts: Option<PrefixArtifacts>,
     ) -> Result<CertifiedBlock, ExecutionAttemptError<ChainReadError>> {
+        let certificate = self.prepare_certificate(&committed, authority, config, artifacts)?;
+        Ok(certificate.into_certified(committed))
+    }
+
+    fn prepare_certificate(
+        &self,
+        committed: &CommittedBlock,
+        authority: &VerifiedAuthority,
+        config: Option<&iroha_sumeragi::types::HeightConfig>,
+        artifacts: Option<PrefixArtifacts>,
+    ) -> Result<CertificateVerdict, ExecutionAttemptError<ChainReadError>> {
         let height = committed.height;
-        // This prefix path has no separate scratch ledger; inherited decoder capacity
-        // and physical refusal still remain unfinished local attempts.
-        self.verify_certificate_with_scratch_admission(
+        // Reuse the original active caller allowance before proposal and RS16 scratch
+        // allocation, as the State-tip verifier does. No scope or pool is installed here.
+        // TODO(S6): this cumulative callback does not fund the nested authority/crypto
+        // graph or provide an independent physical scratch owner for AMX relaying.
+        self.prepare_certificate_with_scratch_admission(
             committed,
             authority,
             config,
             artifacts,
-            &mut |_| Ok(()),
+            &mut state_certificate::query_scratch_admission,
         )
         .map_err(|error| match error {
             VerificationReadError::Source(error) => error.into(),
@@ -991,13 +1168,9 @@ impl PrefixVerifierContext<'_> {
             || commit_qc.epoch != authority.epoch
             || height < authority.material.authorization.first_height
             || height > authority.material.authorization.last_height
-            || (authority.material.mode == ConsensusMode::Npos
-                && height == authority.material.authorization.last_height
-                && !header.attest)
             || commit_qc.kind != VoteKind::Commit
             || commit_qc.height != height
             || commit_qc.block_hash != committed.core_hash
-            || commit_qc.attest != header.attest
         {
             return Err(ChainReadError::HeaderMismatch { height });
         }
@@ -1007,11 +1180,6 @@ impl PrefixVerifierContext<'_> {
         if header.instance != self.instance || commit_qc.instance != self.instance {
             return Err(ChainReadError::WrongInstance { height });
         }
-        let native = OriginalResultVerifier {
-            source: committed,
-            native: super::attestation::NativePastaVerifier::new(self.instance, self.network),
-        };
-        let verifier = self.attestations.unwrap_or(&native);
         #[cfg(test)]
         relation_counts::qc(height);
         let checked = iroha_sumeragi::crypto::Verifier::new(
@@ -1020,7 +1188,7 @@ impl PrefixVerifierContext<'_> {
             &authority.epoch,
             &authority.committee,
         )
-        .verify_qc(verifier, commit_qc);
+        .verify_qc(commit_qc);
         checked.map_err(|error| ChainReadError::Certificate { height, error })?;
         Ok(())
     }
@@ -1033,6 +1201,24 @@ impl PrefixVerifierContext<'_> {
         artifacts: Option<PrefixArtifacts>,
         admit_scratch: &mut dyn FnMut(usize) -> Result<(), norito::core::DecodeResourceError>,
     ) -> Result<CertifiedBlock, VerificationReadError> {
+        let certificate = self.prepare_certificate_with_scratch_admission(
+            &committed,
+            authority,
+            config,
+            artifacts,
+            admit_scratch,
+        )?;
+        Ok(certificate.into_certified(committed))
+    }
+
+    fn prepare_certificate_with_scratch_admission(
+        &self,
+        committed: &CommittedBlock,
+        authority: &VerifiedAuthority,
+        config: Option<&iroha_sumeragi::types::HeightConfig>,
+        artifacts: Option<PrefixArtifacts>,
+        admit_scratch: &mut dyn FnMut(usize) -> Result<(), norito::core::DecodeResourceError>,
+    ) -> Result<CertificateVerdict, VerificationReadError> {
         let height = committed.height;
         let malformed = |reason: String| ChainReadError::Malformed { height, reason };
         let certificate = committed
@@ -1042,8 +1228,7 @@ impl PrefixVerifierContext<'_> {
         let certificate_len = norito::canonical_frame_len(certificate)
             .map_err(|error| malformed(error.to_string()))?;
         let Some(header) = committed.header.as_ref() else {
-            return Ok(CertifiedBlock {
-                committed,
+            return Ok(CertificateVerdict {
                 commit_qc: None,
                 verification: QcVerification::Genesis,
                 certificate_len,
@@ -1057,70 +1242,24 @@ impl PrefixVerifierContext<'_> {
                 .map_err(|error| verification_codec_error(height, error))?;
             (qc, None)
         };
-        self.verify_commit_qc_original(&committed, authority, &commit_qc)?;
+        self.verify_commit_qc_original(committed, authority, &commit_qc)?;
         // Parent-authenticated parameters and authority also bind the original signed row
         // table. A valid CommitQC alone does not certify possession of these payload bytes.
         let config = config.ok_or_else(|| {
             malformed("non-genesis certificate lacks parent-authenticated configuration".into())
         })?;
         verify_availability(
-            &committed,
+            committed,
             config,
             &authority.crypto,
             availability,
             admit_scratch,
         )?;
-        Ok(CertifiedBlock {
-            committed,
+        Ok(CertificateVerdict {
             commit_qc: Some(commit_qc),
             verification: QcVerification::Verified,
             certificate_len,
         })
-    }
-}
-
-/// A certificate-local borrow of the original structurally decoded frame. Only the reader
-/// constructs this capability; equality of caller-supplied bytes and graphs grants no authority.
-/// The exact quorum, independent parent authority and signed availability checks still run.
-struct OriginalResultVerifier<'a> {
-    source: &'a CommittedBlock,
-    native: super::attestation::NativePastaVerifier,
-}
-
-impl AttestationVerifier for OriginalResultVerifier<'_> {
-    fn verify(
-        &self,
-        height: u64,
-        signer: iroha_sumeragi::types::ValidatorIndex,
-        key: &iroha_sumeragi::types::PublicKey,
-        statement: &[u8],
-        witness: &iroha_sumeragi::message::ResultWitness,
-        signature: &[u8],
-    ) -> bool {
-        let Some(statement) = iroha_sumeragi::preimage::AttestationStatement::parse(statement)
-        else {
-            return false;
-        };
-        let Some(certificate) = self.source.block.commit_certificate() else {
-            return false;
-        };
-        if height != self.source.height || statement.result != self.source.result {
-            return false;
-        }
-        #[cfg(not(all(test, sumeragi_core_mutation = "HC14")))]
-        if witness.as_slice() != certificate.result_preimage() {
-            return false;
-        }
-        #[cfg(all(test, sumeragi_core_mutation = "HC14"))]
-        let _ = (witness, certificate);
-        self.native.verify_decoded_share(
-            height,
-            signer,
-            key,
-            statement,
-            &self.source.commitment,
-            signature,
-        )
     }
 }
 
@@ -1288,7 +1427,30 @@ fn make_genesis_prefix(
         schedule,
         authority,
         validation,
+        proof_source: None,
     })
+}
+
+// Keep the opt-in returned prefix owner outside the default genesis-read frame.
+#[inline(never)]
+fn make_genesis_prefix_with_source(
+    tip: CommittedBlock,
+    material: ValidatorEpochContextV1,
+    validation: EpochValidationScope,
+    expected: (u64, Hash),
+) -> Result<VerifiedPrefix, ExecutionAttemptError<ChainReadError>> {
+    let mut prefix = make_genesis_prefix(tip, material, validation)?;
+    // Join the fresh prefix to the exact constructor-authenticated signed source,
+    // including the full local result/certificate representation, before eligibility.
+    if prefix.tip.block().canonical_wire_identity().ok() == Some(expected) {
+        prefix.proof_source = Some(proof_source_append(
+            proof_source_start(),
+            GENESIS_HEIGHT,
+            expected.0,
+            expected.1,
+        ));
+    }
+    Ok(prefix)
 }
 
 /// Genesis execution authenticated by an actual verified height-two successor.
@@ -1346,7 +1508,6 @@ impl CertifiedPrefixStep {
 /// Construction authenticates genesis header/body and its epoch only. No genesis execution
 /// receipt is exported until a real verified H2 binds its result through `parent_result`.
 pub struct CertifiedPrefix {
-    network: NetworkId,
     instance: Hash32,
     prefix: VerifiedPrefix,
 }
@@ -1378,7 +1539,6 @@ impl CertifiedPrefix {
         // finished above. Field writes only move already valid owners; none invokes a
         // destructor or allocates. Every field is initialized before exposing length one.
         unsafe {
-            std::ptr::addr_of_mut!((*pointer).network).write(network);
             std::ptr::addr_of_mut!((*pointer).instance).write(instance);
             // Transfer the already valid receipt without materializing a complete tip value
             // on this stack. The source backing and charge survive the physical transfer;
@@ -1387,6 +1547,7 @@ impl CertifiedPrefix {
             std::ptr::addr_of_mut!((*pointer).prefix.schedule).write(schedule);
             std::ptr::addr_of_mut!((*pointer).prefix.authority).write(authority);
             std::ptr::addr_of_mut!((*pointer).prefix.validation).write(validation);
+            std::ptr::addr_of_mut!((*pointer).prefix.proof_source).write(None);
             original.set_initialized_len(1);
         }
         Ok(original)
@@ -1411,7 +1572,6 @@ impl CertifiedPrefix {
         let mut validation = EpochValidationScope::new();
         let tip = read_frame_with_validation(genesis, GENESIS_HEIGHT, &mut validation)?;
         Ok(Self {
-            network,
             instance,
             prefix: make_genesis_prefix(tip, epoch, validation)?,
         })
@@ -1423,7 +1583,7 @@ impl CertifiedPrefix {
         self.instance
     }
 
-    /// Verify the exact next canonical carrier with full BLS and native paired-Pasta checks.
+    /// Verify the exact next canonical carrier with BLS quorum and signed availability checks.
     ///
     /// # Errors
     /// Rejects changed/skipped parents, result/context substitutions, malformed certificates,
@@ -1511,8 +1671,6 @@ impl CertifiedPrefix {
         let genesis = (self.prefix.tip.height == GENESIS_HEIGHT).then(|| self.prefix.tip.clone());
         let current = PrefixVerifierContext {
             instance: self.instance,
-            network: self.network,
-            attestations: None,
         }
         .advance_prefix(&mut self.prefix, committed, artifacts)?;
         let genesis = genesis.map(|committed| GenesisExecutionAnchor {
@@ -1531,20 +1689,68 @@ fn authenticate_genesis(
     (ValidatorEpochContextV1, Hash32),
     crate::execution_attempt::ExecutionAttemptError<ChainReadError>,
 > {
+    authenticate_genesis_with(genesis, network, chain_id, || {
+        super::epoch::authenticated_genesis(genesis).map_err(|error| {
+            crate::execution_attempt::genesis_read_attempt_error(error, |_| {
+                ChainReadError::ForeignGenesis
+            })
+        })
+    })
+}
+
+// Reuse all original network, signed-body and instance checks for the one canonical
+// authentication kernel, whether its policy destination is ordinary or retained.
+fn authenticate_genesis_with(
+    genesis: &SignedBlock,
+    network: &NetworkId,
+    chain_id: &ChainId,
+    authenticate: impl FnOnce() -> Result<
+        iroha_data_model::sumeragi_finality::AuthenticatedGenesis,
+        ExecutionAttemptError<ChainReadError>,
+    >,
+) -> Result<(ValidatorEpochContextV1, Hash32), ExecutionAttemptError<ChainReadError>> {
     if genesis.hash().as_ref() != network.as_bytes()
         || !genesis.header().is_genesis()
         || genesis.validate_proposal_commitments().is_err()
     {
         return Err(ChainReadError::ForeignGenesis.into());
     }
-    let epoch = super::epoch::genesis_epoch(genesis).map_err(|error| {
-        crate::execution_attempt::genesis_read_attempt_error(error, |_| {
-            ChainReadError::ForeignGenesis
-        })
-    })?;
-    let instance = root_instance(genesis, &chain_id.to_string())
-        .map_err(|error| error.map_rejection(|_| ChainReadError::ForeignGenesis))?;
+    let (epoch, root_scope) = authenticate()?.into_parts();
+    // TODO: This paired projection removes completed metadata redecoding only.
+    // Subsequent partial genesis-result/authority retention and nested graph funding
+    // still belong to their original acquisition and prefix owners.
+    #[cfg(all(test, sumeragi_core_mutation = "HC205"))]
+    let instance = {
+        // Deliberately restore only the completed metadata decode that the paired
+        // canonical result removed. Authentication and the original typed cause remain.
+        let _ = root_scope;
+        super::node::root_instance(genesis, &chain_id.to_string())
+            .map_err(|error| error.map_rejection(|_| ChainReadError::ForeignGenesis))?
+    };
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC205")))]
+    let instance = root_scope
+        .instance_id(
+            &BlsCrypto::new(),
+            NetworkId::from_genesis_hash(genesis.hash()),
+            &chain_id.to_string(),
+        )
+        .map_err(|_| ChainReadError::ForeignGenesis)?;
     Ok((epoch, instance))
+}
+
+// Borrow representations only: both feed the same pinned native decoder and
+// signed-genesis prefix verifier. Neither a journal nor a hash grants authority.
+enum PinnedHashes<'v> {
+    Slice(&'v [HashOf<IrohaHeader>]),
+    Captured(&'v dyn crate::state::BlockHashRead),
+}
+impl PinnedHashes<'_> {
+    fn get(&self, index: usize) -> Option<&HashOf<IrohaHeader>> {
+        match self {
+            Self::Slice(hashes) => hashes.get(index),
+            Self::Captured(hashes) => hashes.get(index),
+        }
+    }
 }
 
 /// The exact source cut being verified. Pinned restoration never supplies a World or roster.
@@ -1559,9 +1765,10 @@ enum ChainSource<'v, V: StateReadOnly + ?Sized> {
     Pinned {
         chain_id: &'v ChainId,
         network: &'v NetworkId,
-        hashes: &'v [HashOf<IrohaHeader>],
+        hashes: PinnedHashes<'v>,
         kura: &'v Kura,
         budget: iroha_allocation::AllocationBudget,
+        maximum_wire_bytes: usize,
     },
 }
 impl<V: StateReadOnly + ?Sized> ChainSource<'_, V> {
@@ -1613,12 +1820,19 @@ impl<V: StateReadOnly + ?Sized> ChainSource<'_, V> {
                 hashes,
                 kura,
                 budget,
+                maximum_wire_bytes,
                 ..
             } => {
                 let expected = hashes
                     .get(index.get() - 1)
                     .ok_or(ChainReadError::NotCommitted { height })?;
-                read_durable_pinned_block(kura, index, *expected, budget)
+                read_durable_pinned_block_bounded(
+                    kura,
+                    index,
+                    *expected,
+                    budget,
+                    *maximum_wire_bytes,
+                )
             }
         }
     }
@@ -1654,7 +1868,11 @@ pub(crate) fn bounded_native_carrier_extent(
     let source = view
         .kura()
         .native_frame_read(height, expected)
-        .map_err(|_| ChainReadError::NotInView { height })?
+        .map_err(|error| {
+            crate::execution_attempt::kura_read_attempt_error(error, |_| {
+                ChainReadError::NotInView { height }
+            })
+        })?
         .ok_or(ChainReadError::NotInView { height })?;
     let length =
         usize::try_from(source.wire_len()).map_err(|_| ChainReadError::NotInView { height })?;
@@ -1701,10 +1919,10 @@ fn read_durable_pinned_block_bounded(
     budget: &iroha_allocation::AllocationBudget,
     maximum_wire_bytes: usize,
 ) -> Result<iroha_data_model::block::SharedSignedBlock, ExecutionAttemptError<ChainReadError>> {
-    let height = index.get() as u64;
-    let unavailable = || ChainReadError::NotInView { height };
     #[cfg(all(test, sumeragi_core_mutation = "HC11"))]
     {
+        let height = index.get() as u64;
+        let unavailable = || ChainReadError::NotInView { height };
         let _ = expected;
         kura.get_block(index, budget)
             .map_err(|error| error.map_rejection(|_| unavailable()))?
@@ -1712,63 +1930,19 @@ fn read_durable_pinned_block_bounded(
     }
     #[cfg(not(all(test, sumeragi_core_mutation = "HC11")))]
     {
-        let source = kura
-            .native_frame_read(height, expected)
-            .map_err(|error| match error {
-                crate::kura::Error::NoritoFrame(error) => read_decode_error(height, error),
-                crate::kura::Error::BlockDecode(error) => {
-                    crate::execution_attempt::canonical_decode_attempt_error(error, |_| {
-                        unavailable()
-                    })
-                }
-                _ => unavailable().into(),
-            })?
-            .ok_or_else(unavailable)?;
-        let wire_len = source.wire_len();
-        if usize::try_from(wire_len).map_or(true, |length| length > maximum_wire_bytes) {
-            return Err(ChainReadError::Malformed {
-                height,
-                reason: "native finality carrier exceeds its bounded extent".into(),
-            }
-            .into());
-        }
-        // NativeFrameRead owns the raw frame's allocation charge; the decoder below
-        // separately charges its graph to the same inherited cumulative scope.
-        let bytes = source
-            .read(wire_len, budget)
-            .map_err(|error| match error {
-                crate::kura::Error::NoritoFrame(error) => read_decode_error(height, error),
-                crate::kura::Error::BlockDecode(error) => {
-                    crate::execution_attempt::canonical_decode_attempt_error(error, |_| {
-                        unavailable()
-                    })
-                }
-                crate::kura::Error::NativeFrameAllocation(error) => {
-                    let deferred = match error {
-                        iroha_allocation::ChargedBufferError::Admission(original) => {
-                            original.into()
-                        }
-                        iroha_allocation::ChargedBufferError::Allocator { .. } => {
-                            ivm::error::ExecutionDeferral::AllocationUnavailable.into()
-                        }
-                    };
-                    ExecutionAttemptError::Deferred(deferred)
-                }
-                _ => unavailable().into(),
-            })?
-            .ok_or_else(unavailable)?;
-        let shell = iroha_data_model::block::SharedSignedBlock::reserve(budget)
-            .map_err(|error| ExecutionAttemptError::Deferred(error.into()))?;
-        let block =
-            iroha_data_model::block::decode_framed_signed_block(&bytes).map_err(|error| {
-                crate::execution_attempt::canonical_decode_attempt_error(error, |_| unavailable())
-            })?;
-        if block.hash() != expected || block.header().height().get() != height {
-            return Err(unavailable().into());
-        }
-        Ok(shell.initialize(block))
+        native_acquisition::NativeCarrierAcquisition::new(
+            kura,
+            index,
+            expected,
+            budget.clone(),
+            maximum_wire_bytes,
+        )
+        .complete()
     }
 }
+
+#[cfg(test)]
+type TerminalProbe<'v> = Box<dyn FnOnce(&CommittedBlock) + Send + Sync + 'v>;
 
 /// Certified history over one immutable State view or explicit pinned restoration cut.
 pub struct CertifiedChain<'v, V: StateReadOnly + ?Sized> {
@@ -1776,8 +1950,19 @@ pub struct CertifiedChain<'v, V: StateReadOnly + ?Sized> {
     genesis: iroha_data_model::block::SharedSignedBlock,
     genesis_epoch: ValidatorEpochContextV1,
     instance: Hash32,
-    attestations: Option<&'v dyn AttestationVerifier>,
     prefix: parking_lot::Mutex<Option<VerifiedPrefix>>,
+    // Only the move-only AMX borrower selects a terminal target. Ordinary read/reset
+    // semantics remain separate; a pending terminal job cannot be silently replaced.
+    terminal: Option<terminal_selection::TerminalSelection<'v>>,
+    #[cfg(test)]
+    terminal_probe: parking_lot::Mutex<Option<TerminalProbe<'v>>>,
+    // Only the scoped portable producer enables original canonical-byte capture.
+    proof_source_genesis: Option<(u64, Hash)>,
+    // Only AMX transfers its actual constructor acquisition into this same reader. The
+    // genesis body/control lives above; raw bytes and original source retire here after
+    // the prefix/terminal graphs at the caller's existing scoped chain drop.
+    _amx_genesis_authentication: Option<iroha_data_model::sumeragi_finality::OriginalGenesisRead>,
+    amx_genesis_source: Option<native_acquisition::NativeCarrierAcquisition<'v>>,
 }
 
 impl<V: StateReadOnly + ?Sized> core::fmt::Debug for CertifiedChain<'_, V> {
@@ -1789,7 +1974,7 @@ impl<V: StateReadOnly + ?Sized> core::fmt::Debug for CertifiedChain<'_, V> {
 }
 
 impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
-    /// A reader over `view` with exact BLS quorum and native paired-Pasta attestation checks.
+    /// A reader over `view` with exact BLS quorum and native source checks.
     ///
     /// # Errors
     /// The view has no genesis, or Kura's genesis is not the view's network genesis.
@@ -1810,31 +1995,40 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
     ) -> Result<Self, ExecutionAttemptError<ChainReadError>> {
         let (genesis_epoch, instance) =
             authenticate_genesis(&genesis, source.network_id(), source.chain_id())?;
-        Ok(Self {
+        Ok(Self::from_authenticated_genesis(
             source,
             genesis,
             genesis_epoch,
             instance,
-            attestations: None,
+        ))
+    }
+
+    // Private construction consumes only the projection returned by the original
+    // guarded authentication above; no public API accepts an unchecked epoch.
+    fn from_authenticated_genesis(
+        source: ChainSource<'v, V>,
+        genesis: iroha_data_model::block::SharedSignedBlock,
+        genesis_epoch: ValidatorEpochContextV1,
+        instance: Hash32,
+    ) -> Self {
+        Self {
+            source,
+            genesis,
+            genesis_epoch,
+            instance,
             prefix: parking_lot::Mutex::new(None),
-        })
+            terminal: None,
+            #[cfg(test)]
+            terminal_probe: parking_lot::Mutex::new(None),
+            proof_source_genesis: None,
+            _amx_genesis_authentication: None,
+            amx_genesis_source: None,
+        }
     }
 
-    /// Verify `CommitQC`s fully with `verifier`, including the attestations of flagged blocks
-    /// (F8 rule H6 (a)). Any previously verified prefix is discarded so the next read checks
-    /// every historical certificate under this verifier too.
-    #[must_use]
-    pub fn with_attestation_verifier(mut self, verifier: &'v dyn AttestationVerifier) -> Self {
-        self.attestations = Some(verifier);
-        *self.prefix.get_mut() = None;
-        self
-    }
-
-    fn verification_context(&self) -> PrefixVerifierContext<'_> {
+    fn verification_context(&self) -> PrefixVerifierContext {
         PrefixVerifierContext {
             instance: self.instance,
-            network: *self.source.network_id(),
-            attestations: self.attestations,
         }
     }
 
@@ -1880,7 +2074,48 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         &self,
         height: u64,
     ) -> Result<CertifiedBlock, ExecutionAttemptError<ChainReadError>> {
+        if self
+            .terminal
+            .as_ref()
+            .is_some_and(|pending| !pending.delivered())
+        {
+            return Err(ChainReadError::NotInView { height }.into());
+        }
         self.check_certificate(self.source.block(height)?, height)
+    }
+
+    /// Borrow the original target/gap kernel with a finite request stop predicate.
+    /// Receipt and authority validation order remains identical to ordinary reads.
+    pub(crate) fn certified_with_progress<E>(
+        &self,
+        height: u64,
+        progress: &mut impl FnMut() -> Result<(), E>,
+    ) -> Result<CertifiedBlock, E>
+    where
+        E: From<ExecutionAttemptError<ChainReadError>>,
+    {
+        progress()?;
+        #[cfg(all(test, sumeragi_core_mutation = "HC210"))]
+        {
+            *self.prefix.lock() = None;
+        }
+        if self
+            .terminal
+            .as_ref()
+            .is_some_and(|pending| !pending.delivered())
+        {
+            return Err(ExecutionAttemptError::from(ChainReadError::NotInView { height }).into());
+        }
+        let block = self.source.block(height)?;
+        progress()?;
+        let mut cursor = self.prefix.lock();
+        progress()?;
+        self.prepare_certificate_prefix(&mut cursor, height)?;
+        progress()?;
+        let prefix = cursor
+            .as_mut()
+            .ok_or_else(|| ExecutionAttemptError::from(ChainReadError::ForeignGenesis))?;
+        self.check_certificate_at_prefix_with_progress(prefix, block, height, progress)
     }
 
     /// The exact authenticated epoch committee and its original proofs of possession.
@@ -1916,36 +2151,72 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         to: u64,
     ) -> impl Iterator<Item = Result<CertifiedBlock, ExecutionAttemptError<ChainReadError>>> + '_
     {
-        let mut parent: Option<CommittedBlock> = None;
+        let mut parent: Option<WalkParentLink> = None;
         let mut failed = false;
         (from..=to).map_while(move |height| {
             if failed {
                 return None;
             }
             let read = self.certified(height).and_then(|block| match &parent {
-                Some(parent) if !block.extends(parent) => {
+                Some(parent) if !parent.is_extended_by(&block) => {
                     Err(ChainReadError::Discontinuous { height }.into())
                 }
                 _ => Ok(block),
             });
             match &read {
-                Ok(block) => parent = Some(block.committed.clone()),
+                Ok(block) => parent = Some(WalkParentLink::from_committed(&block.committed)),
                 Err(_) => failed = true,
             }
             Some(read)
         })
     }
 
+    /// Enable local original-wire capture without issuing any capability.
+    /// Full native/portable authentication and a fresh byte join still precede reuse.
+    pub(crate) fn enable_proof_source_cut(&mut self) {
+        self.proof_source_genesis = self.genesis.canonical_wire_identity().ok();
+    }
+
+    /// Borrow the constant-size source fence from the genuine native prefix.
+    /// This alone conveys no portable admission or continued source availability.
+    pub(crate) fn proof_source_cut(&self) -> Option<(u64, Hash)> {
+        let cursor = self.prefix.lock();
+        let prefix = cursor.as_ref()?;
+        Some((prefix.tip.height(), prefix.proof_source?))
+    }
+
     /// Derive authority exclusively from signed genesis, then check the result graph against it.
     /// The graph's execution/parameter data is not independently final until a successor signs Rg.
     fn genesis_prefix(&self) -> Result<VerifiedPrefix, ExecutionAttemptError<ChainReadError>> {
+        let genesis = if let Some(original) = &self.amx_genesis_source {
+            original.recheck_original_source()?;
+            self.genesis.clone()
+        } else {
+            self.source.block(GENESIS_HEIGHT)?
+        };
+        self.genesis_prefix_from_original(genesis)
+    }
+
+    // The single original result/authority kernel, also used after AMX source retention.
+    fn genesis_prefix_from_original(
+        &self,
+        genesis: iroha_data_model::block::SharedSignedBlock,
+    ) -> Result<VerifiedPrefix, ExecutionAttemptError<ChainReadError>> {
         let mut validation = EpochValidationScope::new();
-        let tip = read_frame_with_validation(
-            self.source.block(GENESIS_HEIGHT)?,
-            GENESIS_HEIGHT,
-            &mut validation,
-        )?;
-        make_genesis_prefix(tip, self.genesis_epoch.clone(), validation)
+        // AMX lends the same constructor body/bytes, but a partial result/authority graph
+        // still retires on failure under the unchanged cumulative decoder context.
+        // TODO(S6): retain completed genesis-result/authority stages in actual admitted
+        // owners before using this borrower as a release-driven Worker recovery job.
+        let tip = read_frame_with_validation(genesis, GENESIS_HEIGHT, &mut validation)?;
+        match self.proof_source_genesis {
+            Some(expected) => make_genesis_prefix_with_source(
+                tip,
+                self.genesis_epoch.clone(),
+                validation,
+                expected,
+            ),
+            None => make_genesis_prefix(tip, self.genesis_epoch.clone(), validation),
+        }
     }
 
     /// Verify the complete prefix with a bounded working set. Sequential reads reuse its
@@ -1985,36 +2256,98 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         block: iroha_data_model::block::SharedSignedBlock,
         height: u64,
     ) -> Result<CertifiedBlock, ExecutionAttemptError<ChainReadError>> {
+        self.check_certificate_at_prefix_with_progress(prefix, block, height, &mut || Ok(()))
+    }
+
+    // The ordinary reader passes a no-op stop predicate. The finite interval
+    // uses this same target-before-gap kernel with checks between actual stages.
+    // Only target decoding occupies this frame: complete receipt/certificate return
+    // temporaries are created after the deep canonical decoder has retired.
+    #[inline(never)]
+    fn check_certificate_at_prefix_with_progress<E>(
+        &self,
+        prefix: &mut VerifiedPrefix,
+        block: iroha_data_model::block::SharedSignedBlock,
+        height: u64,
+        progress: &mut impl FnMut() -> Result<(), E>,
+    ) -> Result<CertifiedBlock, E>
+    where
+        E: From<ExecutionAttemptError<ChainReadError>>,
+    {
+        progress()?;
         let committed = read_frame_with_validation(block, height, &mut prefix.validation)?;
+        progress()?;
+        if height != GENESIS_HEIGHT {
+            self.advance_certificate_gaps_with_progress(prefix, height, progress)?;
+        }
+        self.finish_certificate_at_prefix_with_progress(prefix, committed, height, progress)
+    }
+
+    // This finish phase consumes the same original decoded receipt only after the
+    // target decoder returns. It neither admits another owner nor changes verification.
+    #[inline(never)]
+    fn finish_certificate_at_prefix_with_progress<E>(
+        &self,
+        prefix: &mut VerifiedPrefix,
+        committed: CommittedBlock,
+        height: u64,
+        progress: &mut impl FnMut() -> Result<(), E>,
+    ) -> Result<CertifiedBlock, E>
+    where
+        E: From<ExecutionAttemptError<ChainReadError>>,
+    {
         if height == GENESIS_HEIGHT {
             if committed.core_hash != prefix.tip.core_hash || committed.result != prefix.tip.result
             {
-                return Err(ChainReadError::ForeignGenesis.into());
+                return Err(ExecutionAttemptError::from(ChainReadError::ForeignGenesis).into());
             }
-            return self.verification_context().verify_certificate(
+            let verified = self.verification_context().verify_certificate(
                 committed,
                 &prefix.authority,
                 None,
                 None,
-            );
+            )?;
+            progress()?;
+            return Ok(verified);
         }
+        progress()?;
+        let verified = self
+            .verification_context()
+            .advance_prefix(prefix, committed, None)?;
+        progress()?;
+        Ok(verified)
+    }
+
+    // Gap decoding runs before the finish phase and returns only unit, so its
+    // complete certificate-return temporaries do not occupy the target decode frame.
+    // The same original cursor and predicate order remain intact.
+    #[inline(never)]
+    fn advance_certificate_gaps_with_progress<E>(
+        &self,
+        prefix: &mut VerifiedPrefix,
+        height: u64,
+        progress: &mut impl FnMut() -> Result<(), E>,
+    ) -> Result<(), E>
+    where
+        E: From<ExecutionAttemptError<ChainReadError>>,
+    {
         while prefix
             .tip
             .height
             .checked_add(1)
             .is_some_and(|next| next < height)
         {
+            progress()?;
             let next_height = prefix.tip.height + 1;
-            let next = read_frame_with_validation(
-                self.source.block(next_height)?,
-                next_height,
-                &mut prefix.validation,
-            )?;
+            let block = self.source.block(next_height)?;
+            progress()?;
+            let next = read_frame_with_validation(block, next_height, &mut prefix.validation)?;
+            progress()?;
             self.verification_context()
                 .advance_prefix(prefix, next, None)?;
+            progress()?;
         }
-        self.verification_context()
-            .advance_prefix(prefix, committed, None)
+        Ok(())
     }
 }
 
@@ -2026,9 +2359,8 @@ impl<'v> CertifiedChain<'v, StateView<'v>> {
     /// another storage owner. `network` must be independently configured, never taken from the
     /// supplied journal. It pins signed genesis; `chain_id` pins every successor's instance.
     /// The supplied hash cut must be exactly coextensive with the frames. A hash alone does not
-    /// authenticate a result: consume `certified`/`walk`. Flagged certificates use the full
-    /// source-complete native paired-Pasta verifier by default. An explicitly supplied
-    /// application/test attestation verifier replaces that check for this reader only. H1 has
+    /// authenticate a result: consume `certified`/`walk`, which check every certificate for
+    /// this reader only. H1 has
     /// only signed-body authority until a genuine successor or independent local execution
     /// authenticates its result.
     ///
@@ -2080,9 +2412,30 @@ impl<'v> CertifiedChain<'v, StateView<'v>> {
         Self::from_source(ChainSource::Pinned {
             chain_id,
             network,
-            hashes,
+            hashes: PinnedHashes::Slice(hashes),
             kura,
             budget: budget.clone(),
+            maximum_wire_bytes: usize::MAX,
+        })
+    }
+
+    /// Borrow the original captured hash generation through the same pinned kernel.
+    /// Its actual State owner retains custody; this creates no history copy.
+    pub(crate) fn from_pinned_history(
+        chain_id: &'v ChainId,
+        network: &'v NetworkId,
+        hashes: &'v dyn crate::state::BlockHashRead,
+        kura: &'v Kura,
+        budget: &iroha_allocation::AllocationBudget,
+        maximum_wire_bytes: usize,
+    ) -> Result<Self, ExecutionAttemptError<ChainReadError>> {
+        Self::from_source(ChainSource::Pinned {
+            chain_id,
+            network,
+            hashes: PinnedHashes::Captured(hashes),
+            kura,
+            budget: budget.clone(),
+            maximum_wire_bytes,
         })
     }
 }
@@ -2175,8 +2528,10 @@ fn schedule_source_projection_preserves_every_recovery_variant() {
     }
 }
 
+mod event_execution;
 mod execution_read;
 mod state_certificate;
+pub(crate) use event_execution::read_event_execution;
 pub use execution_read::{
     AuthenticatedExecutionBlock, NativeExecutionRead, NativeExecutionReadError,
     NativeExecutionReadLimits, NativeExecutionReadResource, read_authenticated_execution,

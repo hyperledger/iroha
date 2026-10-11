@@ -353,13 +353,18 @@ pub fn address_space_limit() -> Option<AddressSpaceLimit> {
 
 /// One-minute system load in thousandths; zero when unavailable.
 pub fn load_average_milli() -> u64 {
+    try_load_average_milli().unwrap_or(0)
+}
+
+/// One-minute system load in thousandths, preserving probe unavailability.
+pub fn try_load_average_milli() -> Option<u64> {
     #[cfg(unix)]
     {
-        unix::load_average().and_then(load_to_milli).unwrap_or(0)
+        unix::load_average().and_then(load_to_milli)
     }
     #[cfg(not(unix))]
     {
-        0
+        None
     }
 }
 

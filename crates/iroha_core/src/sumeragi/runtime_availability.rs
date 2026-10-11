@@ -16,7 +16,6 @@ use iroha_model_base::topology::LaneId;
 use iroha_sumeragi::types::{Hash32, HeightConfig};
 
 use super::{
-    attestation::NativePastaVerifier,
     availability_schedule::AvailabilitySchedule,
     certified_chain::{CertifiedChain, committed_block},
     crypto::BlsCrypto,
@@ -278,7 +277,6 @@ impl LaneStoreAuthorities for NativeLaneStoreAuthorities {
                 instance,
                 authority,
             }),
-            verifier: Arc::new(NativePastaVerifier::new(instance, network)),
         }))
     }
 }

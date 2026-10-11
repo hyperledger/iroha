@@ -331,6 +331,7 @@ pub mod isi {
             | DataEventFilter::Social(_)
             | DataEventFilter::Bridge(_)
             | DataEventFilter::Sccp(_)
+            | DataEventFilter::KagemushaLoadCommitted(_)
             | DataEventFilter::Governance(_) => false,
         }
     }
@@ -454,6 +455,11 @@ pub mod isi {
                     ))
                     .into(),
                 );
+            }
+            Executable::ContractCall(invocation) if invocation.arguments.is_some() => {
+                return Err(Error::InvalidParameter(InvalidParameterError::SmartContract(
+                    "contract trigger callbacks take their arguments from the firing event; fixed argument records are not allowed".into(),
+                )).into());
             }
             Executable::Instructions(_) | Executable::ContractCall(_) | Executable::Batch(_) => {
                 return Ok(());
@@ -624,6 +630,19 @@ pub mod isi {
             return Err(Error::InvalidParameter(
                 InvalidParameterError::SmartContract(
                     "trigger repeat count must be greater than zero".into(),
+                ),
+            ));
+        }
+        // An outbound SCCP record is signed-only (`specs/sccp.md` §4.4): a trigger body is an
+        // opaque deferred executable, so refuse the action before it is stored. Execution
+        // re-checks every derived group, including contract outputs and multisig approvals.
+        if crate::deferred_authority::trigger_executable_derives_sccp_outbound_record(
+            new_trigger.action().executable(),
+        ) {
+            return Err(Error::InvalidParameter(
+                InvalidParameterError::SmartContract(
+                    "a trigger action cannot derive `RecordSccpMessage`; an outbound SCCP record must be a signed transaction instruction or an instruction of a multisig proposal approved by signed transactions"
+                        .into(),
                 ),
             ));
         }
@@ -1139,15 +1158,6 @@ pub mod isi {
                             );
                             Error::Conversion(format!("Instruction execution: {fail}"))
                         }
-                        TransactionRejectionReason::IvmExecution(err) => {
-                            iroha_logger::debug!(
-                                ?err,
-                                trigger_id = %id,
-                                authority = %authority,
-                                "trigger rejected due to IVM execution error"
-                            );
-                            Error::Conversion(format!("IVM execution: {err}"))
-                        }
                         TransactionRejectionReason::TriggerExecution(err) => {
                             iroha_logger::debug!(
                                 ?err,
@@ -1303,6 +1313,54 @@ pub mod isi {
                     .expect_err("a bare string of one content byte above the bound is refused"),
                 "Instruction payload too large: 65 > 64 bytes",
             );
+        }
+
+        #[test]
+        fn contract_trigger_registration_requires_event_supplied_arguments() {
+            use crate::execution_attempt::ExecutionAttemptError;
+            use crate::smartcontracts::ivm::cache::PreparedContractCache;
+            use iroha_data_model::{
+                smart_contract::ContractAddress,
+                transaction::executable::{ContractArgumentRecord, ContractInvocation},
+            };
+            use iroha_model_base::topology::DataSpaceId;
+
+            let mut invocation = ContractInvocation {
+                contract_address: ContractAddress::derive(
+                    &iroha_data_model::NetworkId::from_genesis_hash(
+                        iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(
+                            b"contract callback registration test genesis",
+                        )),
+                    ),
+                    &iroha_test_samples::ALICE_ID,
+                    901,
+                    DataSpaceId::UNIVERSAL,
+                )
+                .expect("canonical callback address"),
+                expected_code_hash: iroha_crypto::Hash::new(b"callback artifact"),
+                entrypoint: "on_execute".to_owned(),
+                arguments: Some(
+                    ContractArgumentRecord::try_new(Vec::new()).expect("bounded record"),
+                ),
+            };
+            let bound = core::num::NonZeroU64::new(1).expect("nonzero bound");
+            let check = |invocation| {
+                enforce_ivm_trigger_program_policy(
+                    &Executable::ContractCall(invocation),
+                    &Metadata::default(),
+                    bound,
+                    bound,
+                    PreparedContractCache::with_capacity(0),
+                )
+            };
+            assert!(matches!(
+                check(invocation.clone()),
+                Err(ExecutionAttemptError::Rejected(Error::InvalidParameter(
+                    InvalidParameterError::SmartContract(message)
+                ))) if message.contains("firing event") && message.contains("fixed argument records")
+            ));
+            invocation.arguments = None;
+            check(invocation).expect("callback arguments are supplied by the firing event");
         }
 
         #[test]

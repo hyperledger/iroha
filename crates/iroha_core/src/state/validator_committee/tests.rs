@@ -1,4 +1,4 @@
-//! Real paired-key and threshold-share tests for frozen committee preparation.
+//! Real BLS-generation and adaptive threshold-share tests for frozen committee preparation.
 
 #[path = "tests/generation.rs"]
 mod generation;
@@ -12,18 +12,11 @@ mod restore;
 use super::*;
 use crate::{
     beacon::{
-        RetainedFinalizedGlobalThresholdBeaconSessionV1, prepared_session_and_signers_fixture_v1,
+        RetainedFinalizedGlobalThresholdBeaconSessionV1,
+        prepared_session_and_signers_fixture_for_keys_v1, prepared_session_and_signers_fixture_v1,
         prove_global_threshold_beacon_seat_readiness_v1,
     },
-    kagemusha_v1_test_fixtures::{
-        mint_finality_authority, mint_finality_genesis_for_authority,
-        mint_finality_successor_authorization,
-    },
     state::World,
-    zk::kagemusha_v1_recursion::{
-        prove_kagemusha_mint_finality_candidate_possession_v1,
-        prove_kagemusha_mint_finality_seat_readiness_v1,
-    },
 };
 use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair, SignatureOf};
 use iroha_data_model::{
@@ -31,9 +24,8 @@ use iroha_data_model::{
     consensus::GlobalThresholdBeaconDkgSessionV1,
     nexus::{
         PublicLaneStakeShare, PublicLaneUnbonding, PublicLaneValidatorRecord,
-        PublicLaneValidatorStatus, ValidatorCandidateKeyAuthorizationV1,
-        ValidatorCommitteeCredentialsV1, ValidatorCommitteePreparationV1,
-        ValidatorCommitteeSeatReadinessV1,
+        PublicLaneValidatorStatus, ValidatorCommitteeCredentialsV1,
+        ValidatorCommitteePreparationV1, ValidatorCommitteeSeatReadinessV1,
     },
     parameter::{
         Parameter,
@@ -49,7 +41,7 @@ use iroha_primitives::numeric::Quantity;
 
 pub(crate) struct Fixture {
     pub(crate) world: World,
-    pub(crate) incumbent: KagemushaMintFinalityAuthorityGenerationV1,
+    pub(crate) incumbent: ValidatorGenerationV1,
     pub(crate) authorization: ValidatorEpochAuthorizationV1,
     pub(crate) transition: ValidatorCommitteeTransitionV1,
 }
@@ -105,12 +97,16 @@ pub(crate) fn fixture_with_native_selection(
         })
         .cloned()
         .collect::<Vec<_>>();
-    let incumbent = mint_finality_authority(network, 0, &incumbent_roster);
-    let peers = incumbent
-        .validators
-        .iter()
-        .map(|keys| keys.validator.clone())
-        .collect::<Vec<_>>();
+    let incumbent = ValidatorGenerationV1 {
+        network_id: network,
+        generation: 0,
+        validators: incumbent_roster
+            .iter()
+            .map(|seat| seat.validator.clone())
+            .collect(),
+    };
+    incumbent.validate().unwrap();
+    let peers = incumbent.validators.clone();
     let dkg = |session_id, attempt_id, roster: &[PeerId], start_height| {
         GlobalThresholdBeaconDkgSessionV1 {
             version: 1,
@@ -135,8 +131,8 @@ pub(crate) fn fixture_with_native_selection(
         retired_at_height: None,
     };
     old_record.activate(5).unwrap();
-    let genesis = mint_finality_genesis_for_authority(&incumbent, 10);
-    let authorization = mint_finality_successor_authorization(
+    let genesis = ValidatorEpochAuthorizationV1::genesis(&incumbent, 10).unwrap();
+    let authorization = successor_authorization(
         &genesis,
         &incumbent,
         20,
@@ -182,16 +178,16 @@ pub(crate) fn fixture_with_native_selection(
         .map(|seat| seat.validator.clone())
         .collect::<Vec<_>>();
     // The target ceremony is the preparation's own attempt.
-    let (target, signers) = prepared_session_and_signers_fixture_v1(
+    let (target, signers) = prepared_session_and_signers_fixture_for_keys_v1(
         dkg(
             preparation.beacon_session_id().unwrap(),
             preparation.transition_id().unwrap(),
             &target_peers,
             11,
         ),
+        &keys,
         &budget,
     );
-    let authority = mint_finality_authority(network, 1, &roster);
     let mut world = World::new();
     world
         .global_beacon_key_sessions
@@ -208,36 +204,9 @@ pub(crate) fn fixture_with_native_selection(
             retired_at_height: None,
         },
     );
-    for (index, validator_keys) in authority.validators.iter().enumerate() {
-        let possession = prove_kagemusha_mint_finality_candidate_possession_v1(
-            &[0xA0 + index as u8; 32],
-            network,
-            1,
-            validator_keys,
-        )
-        .unwrap();
-        let authorization = ValidatorCandidateKeyAuthorizationV1::new(
-            network,
-            1,
-            validator_keys.clone(),
-            possession.clone(),
-        );
-        let candidate = ValidatorCandidateKeysV1 {
-            network_id: network,
-            generation: 1,
-            keys: validator_keys.clone(),
-            possession,
-            peer_signature: SignatureOf::new(keys[index].private_key(), &authorization),
-        };
-        world.validator_candidate_keys.insert(
-            ValidatorCandidateKeysV1::key_id(network, 1, &validator_keys.validator),
-            candidate,
-        );
-    }
     let mut transition = ValidatorCommitteeTransitionV1 {
         preparation,
         credentials: Some(ValidatorCommitteeCredentialsV1 {
-            authority,
             beacon: InstalledBeaconEpochBindingV1 {
                 session_id: target.record().session_id,
                 transcript_hash: target.record().transcript_hash,
@@ -248,19 +217,16 @@ pub(crate) fn fixture_with_native_selection(
     };
     for (index, signer) in signers.iter().enumerate() {
         let context = transition.readiness_context(index as u32).unwrap();
-        let authority = &transition.credentials.as_ref().unwrap().authority;
+        let generation = transition.preparation.generation();
         transition
             .readiness
             .push(ValidatorCommitteeSeatReadinessV1 {
                 validator_index: index as u32,
-                pasta: prove_kagemusha_mint_finality_seat_readiness_v1(
-                    &[0xA0 + index as u8; 32],
-                    authority,
-                    &context,
-                )
-                .unwrap(),
                 beacon: prove_global_threshold_beacon_seat_readiness_v1(
-                    signer, &target, authority, &context,
+                    signer,
+                    &target,
+                    &generation,
+                    &context,
                 )
                 .unwrap(),
             });
@@ -274,6 +240,33 @@ pub(crate) fn fixture_with_native_selection(
         authorization,
         transition,
     }
+}
+
+fn successor_authorization(
+    previous: &ValidatorEpochAuthorizationV1,
+    generation: &ValidatorGenerationV1,
+    last_height: u64,
+    beacon: BeaconEpochBindingV1,
+    decision: ValidatorEpochDecisionV1,
+    transition_id: [u8; 32],
+) -> ValidatorEpochAuthorizationV1 {
+    let authorization = ValidatorEpochAuthorizationV1 {
+        epoch: previous.epoch.checked_add(1).unwrap(),
+        first_height: previous.last_height.checked_add(1).unwrap(),
+        last_height,
+        authority_generation: generation.generation,
+        authority_id: generation.generation_id().unwrap(),
+        beacon,
+        previous_authorization_id: previous.authorization_id().unwrap(),
+        transition_id,
+        decision,
+        ..*previous
+    };
+    authorization
+        .validate_against_generation(generation)
+        .unwrap();
+    authorization.validate_successor(previous).unwrap();
+    authorization
 }
 
 fn outcome(fixture: &Fixture, activate: bool) -> ValidatorEpochAuthorizationV1 {
@@ -291,9 +284,14 @@ fn outcome(fixture: &Fixture, activate: bool) -> ValidatorEpochAuthorizationV1 {
         },
         authority_generation: if activate { 1 } else { 0 },
         authority_id: if activate {
-            credentials.authority.authority_id().unwrap()
+            fixture
+                .transition
+                .preparation
+                .generation()
+                .generation_id()
+                .unwrap()
         } else {
-            fixture.incumbent.authority_id().unwrap()
+            fixture.incumbent.generation_id().unwrap()
         },
         beacon: if activate {
             BeaconEpochBindingV1::Installed(credentials.beacon)
@@ -326,29 +324,82 @@ fn committee_progress_authenticates_every_seat_and_rejects_cross_attempt_proofs(
 }
 
 #[test]
-fn committee_candidate_requires_bls_consent_and_rejects_network_generation_replay() {
+fn committee_bls_consent_and_beacon_readiness_reject_network_generation_replay() {
+    use crate::beacon::seat_readiness::verify_global_threshold_beacon_seat_readiness_v1;
+    use iroha_data_model::isi::{PublicLaneCandidateAuthorization, RegisterPublicLaneValidator};
+    use iroha_data_model::nexus::PublicLaneMonetaryPlanV1;
+
     let fixture = fixture(4);
-    let candidate = fixture
-        .world
-        .view()
-        .validator_candidate_keys()
-        .iter()
-        .next()
-        .unwrap()
-        .1
-        .clone();
-    verify_candidate(&candidate).unwrap();
-    let mut bad = candidate.clone();
-    bad.generation += 1;
-    assert!(verify_candidate(&bad).is_err());
-    let mut bad = candidate.clone();
-    bad.network_id = iroha_data_model::NetworkId::from_genesis_hash(
+    let key = KeyPair::from_seed(vec![1; 32], Algorithm::BlsNormal);
+    let owner = iroha_test_samples::ALICE_ID.clone();
+    let asset: iroha_data_model::asset::AssetDefinitionId =
+        iroha_config::parameters::actual::NexusStaking::default()
+            .stake_asset_id
+            .parse()
+            .unwrap();
+    let source = iroha_data_model::asset::AssetId::new(asset.clone(), owner.clone());
+    let escrow = iroha_data_model::asset::AssetId::new(asset, iroha_test_samples::BOB_ID.clone());
+    let registration = RegisterPublicLaneValidator::new(
+        LaneId::SINGLE,
+        owner.clone(),
+        PeerId::new(key.public_key().clone()),
+        owner,
+        Quantity::from(100u64),
+        Metadata::default(),
+        PublicLaneMonetaryPlanV1::genesis_registration(source, escrow, Quantity::from(100u64)),
+    );
+    let consent =
+        PublicLaneCandidateAuthorization::new(fixture.incumbent.network_id, registration, 1);
+    let signature = SignatureOf::new(key.private_key(), &consent);
+    assert!(consent.registration.monetary_plan.has_canonical_shape());
+    signature.verify(key.public_key(), &consent).unwrap();
+    let mut foreign = consent.clone();
+    foreign.network_id = iroha_data_model::NetworkId::from_genesis_hash(
         HashOf::from_untyped_unchecked(Hash::new(b"foreign")),
     );
-    assert!(verify_candidate(&bad).is_err());
-    let mut bad = candidate;
-    bad.possession.eq_proof_signature.response[0] ^= 1;
-    assert!(verify_candidate(&bad).is_err());
+    assert!(signature.verify(key.public_key(), &foreign).is_err());
+    let mut later_tenure = consent;
+    later_tenure.activation_height += 10;
+    assert!(signature.verify(key.public_key(), &later_tenure).is_err());
+    fixture.transition.preparation.validate().unwrap();
+    let mut corrupt_pop = fixture.transition.preparation.clone();
+    corrupt_pop.committee[0].proof_of_possession[0] ^= 1;
+    assert!(corrupt_pop.validate().is_err());
+
+    let generation = fixture.transition.preparation.generation();
+    let context = fixture.transition.readiness_context(0).unwrap();
+    let proof = &fixture.transition.readiness[0].beacon;
+    let view = fixture.world.view();
+    let session = &view
+        .global_beacon_key_sessions()
+        .get(&context.beacon.session_id)
+        .unwrap()
+        .session;
+    verify_global_threshold_beacon_seat_readiness_v1(session, &generation, &context, proof)
+        .unwrap();
+    for coordinate in 0..3 {
+        let mut changed = context;
+        match coordinate {
+            0 => changed.network_id = foreign.network_id,
+            1 => changed.authority_generation += 1,
+            _ => changed.transition_id[0] ^= 1,
+        }
+        assert!(
+            verify_global_threshold_beacon_seat_readiness_v1(session, &generation, &changed, proof)
+                .is_err()
+        );
+    }
+    let mut corrupt_proof = *proof;
+    corrupt_proof.proof.z_s[0] ^= 1;
+    assert!(
+        verify_global_threshold_beacon_seat_readiness_v1(
+            session,
+            &generation,
+            &context,
+            &corrupt_proof
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -358,7 +409,7 @@ fn committee_pending_transcript_cannot_activate_or_escape_its_attempt_cutoff() {
         .incumbent
         .validators
         .iter()
-        .map(|keys| keys.validator.clone())
+        .cloned()
         .collect::<Vec<_>>();
     let view = fixture.world.view();
     let record = view
@@ -427,7 +478,7 @@ fn committee_bootstrap_beacon_requires_the_exact_genesis_authority() {
         .incumbent
         .validators
         .iter()
-        .map(|keys| keys.validator.clone())
+        .cloned()
         .collect::<Vec<_>>();
     let BeaconEpochBindingV1::Installed(binding) = fixture.authorization.beacon else {
         panic!("installed fixture")
@@ -441,7 +492,7 @@ fn committee_bootstrap_beacon_requires_the_exact_genesis_authority() {
         .clone();
     record.activated_at_height = None;
     let world = World::new();
-    let genesis = mint_finality_genesis_for_authority(&fixture.incumbent, 10);
+    let genesis = ValidatorEpochAuthorizationV1::genesis(&fixture.incumbent, 10).unwrap();
     assert_eq!(
         validate_beacon_preparation(
             &world.view(),
@@ -494,7 +545,7 @@ fn committee_bootstrap_beacon_requires_the_exact_genesis_authority() {
 fn committee_retention_extends_exit_and_pending_unbond_liability() {
     let mut fixture = fixture(4);
     let owner = iroha_test_samples::ALICE_ID.clone();
-    let peer = fixture.incumbent.validators[0].validator.clone();
+    let peer = fixture.incumbent.validators[0].clone();
     let key = (LaneId::SINGLE, owner.clone());
     fixture.world.public_lane_validators.insert(
         key.clone(),
@@ -510,7 +561,6 @@ fn committee_retention_extends_exit_and_pending_unbond_liability() {
             activation_height: 1,
             election_exit_height: Some(21),
             deactivation_height: None,
-            last_reward_epoch: None,
         },
     );
     let request = Hash::new(b"retained-unbond");
@@ -551,7 +601,6 @@ fn committee_retention_extends_exit_and_pending_unbond_liability() {
         version: 1,
         network_id: fixture.authorization.network_id,
         mode: ConsensusMode::Npos,
-        authority: fixture.incumbent.clone(),
         authorization: fixture.authorization,
         committee: fixture.transition.preparation.committee.clone(),
         leader_seed: [2; 32],
@@ -592,19 +641,8 @@ fn committee_retention_extends_exit_and_pending_unbond_liability() {
         .next
         .committee
         .sort_by(|a, b| a.validator.cmp(&b.validator));
-    let replacement_roster = boundary
-        .next
-        .committee
-        .iter()
-        .map(|member| ValidatorPower {
-            validator: member.validator.clone(),
-            power: 1,
-        })
-        .collect::<Vec<_>>();
-    boundary.next.authority =
-        mint_finality_authority(fixture.authorization.network_id, 1, &replacement_roster);
     boundary.next.authorization.authority_generation = 1;
-    boundary.next.authorization.authority_id = boundary.next.authority.authority_id().unwrap();
+    boundary.next.authorization.authority_id = boundary.next.generation().generation_id().unwrap();
     boundary.next.authorization.decision = ValidatorEpochDecisionV1::Activate;
     boundary.validate_against(&current).unwrap();
     let released = prepare_staking_obligations(&fixture.world.view(), &boundary).unwrap();

@@ -18,8 +18,8 @@ const fn maximum_global_beacon_decode_profile_v1() -> GlobalBeaconDecodeProfileV
             GlobalThresholdBeaconDkgRecipientKeyV1, GlobalThresholdBeaconDkgShareAcceptanceV1,
             GlobalThresholdBeaconPublicShareV1,
         },
-        isi::kagemusha_v1::KagemushaMintFinalityValidatorKeysV1,
     };
+    use iroha_model_base::peer::PeerId;
     use std::mem::size_of;
 
     // The protocol fixes these counts; malformed larger graphs still face the
@@ -42,16 +42,11 @@ const fn maximum_global_beacon_decode_profile_v1() -> GlobalBeaconDecodeProfileV
     let compact_key = sequence_count + (1 + 48) * (field + 1);
     let peer = field + compact_key;
     let public_share = (field + 2) + (field + 32) + (field + g2);
-    let paired_validator = (field + peer) + 2 * (field + 32);
-    let authority = (field + 2)
-        + (field + 32)
-        + (field + 8)
-        + field
-        + sequence_count
-        + n * (field + paired_validator);
+    // Validator generation: network, generation number and the exact ordered BLS roster.
+    let generation = (field + 32) + (field + 8) + field + sequence_count + n * (field + peer);
     // Twelve positional session fields: three u16, four identities and five u64.
     let dkg_session = 3 * (field + 2) + 4 * (field + 32) + 5 * (field + 8);
-    let installed_beacon = 4 + field + 2 * (field + 32);
+    let installed_beacon = 2 * (field + 32);
     let readiness =
         (field + 2) + 3 * (field + 32) + 4 * (field + 8) + (field + 4) + (field + installed_beacon);
     let pulse = 4 * (field + 32) + (field + 8);
@@ -63,24 +58,24 @@ const fn maximum_global_beacon_decode_profile_v1() -> GlobalBeaconDecodeProfileV
     // (including the root) can request an aligned source copy. Raw byte leaves
     // charge their count and owned backing, at most twice their disjoint wire
     // bytes; signatures/compact keys fit within those same two leaf passes.
-    // Coefficient/proof/peer and authority/readiness children below that path
+    // Coefficient/proof/peer and generation/readiness children below that path
     // are bounded separately by the exact maximum committee geometry above.
     let charged_field_levels = 5;
     let aligned_field_levels = 6;
     let byte_leaf_passes = 2;
     let nested = dkg_session
-        + authority
+        + generation
         + readiness
         + pulse
         + anchor
-        + n * (coefficients + proof + compact_key + peer + public_share + paired_validator);
+        + n * (coefficients + proof + compact_key + peer + public_share + peer);
     let sequence_elements = 5 * n + 2 * edges + n * threshold;
     let typed_rows = n
         * (size_of::<GlobalThresholdBeaconDkgRecipientKeyV1>()
             + size_of::<GlobalThresholdBeaconDkgDealerCommitmentV1>()
             + size_of::<GlobalThresholdBeaconPublicShareV1>()
             + size_of::<u16>()
-            + size_of::<KagemushaMintFinalityValidatorKeysV1>())
+            + size_of::<PeerId>())
         + edges
             * (size_of::<GlobalThresholdBeaconDkgEncryptedShareV1>()
                 + size_of::<GlobalThresholdBeaconDkgShareAcceptanceV1>())

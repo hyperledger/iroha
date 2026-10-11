@@ -5,9 +5,10 @@ pub use crate::execution_witness::FEE_EVIDENCE_WITNESS_KEY_V1;
 use crate::{
     validation_fee::{RetailFeeReceiptV1, ValidationFeeTreasuryPayoutBindingV1},
     validation_fee_rewards::{
-        ValidationFeeConversionAttempt, ValidationFeeRewardAllocation,
+        ValidationFeeConversionAttempt, ValidationFeeExposurePage, ValidationFeeRewardAllocation,
         ValidationFeeRewardBeneficiaryAlias, ValidationFeeRewardBeneficiaryRevision,
-        ValidationFeeRewardClaim, ValidationFeeRewardsState, ValidationFeeServiceSnapshot,
+        ValidationFeeRewardClaim, ValidationFeeRewardEntitlement, ValidationFeeRewardsState,
+        ValidationFeeServiceSnapshot,
     },
 };
 use iroha_crypto::{Hash, HashOf, MerkleProof, MerkleTree, MerkleTreeCommitment};
@@ -76,7 +77,13 @@ pub enum FeeEvidencePayloadV1 {
     RewardService(ValidationFeeServiceSnapshot),
     /// Immutable conversion allocation, including original oracle evidence.
     RewardAllocation(ValidationFeeRewardAllocation),
-    /// Immutable funded validator claim.
+    /// Original funded allocation reattached as a source without new funding.
+    RewardAllocationSource(ValidationFeeRewardAllocation),
+    /// Historical eligible-stake page independently authenticating a distribution.
+    RewardExposure(ValidationFeeExposurePage),
+    /// Automatic claimable entitlement from one funded validator exposure page.
+    RewardEntitlement(ValidationFeeRewardEntitlement),
+    /// Immutable funded staking reward claim.
     RewardClaim(ValidationFeeRewardClaim),
     /// Immutable historical account to original beneficiary mapping.
     RewardBeneficiaryAlias(ValidationFeeRewardBeneficiaryAlias),
@@ -155,23 +162,82 @@ impl FeeEvidenceRecordV1 {
                         .as_ref()
                         .ends_with(&format!("/Service/{:020}", r.earning_period_start_ms))
             }
-            FeeEvidencePayloadV1::RewardAllocation(r) => {
-                r.converted_at_height == self.recorded_at_height
+            FeeEvidencePayloadV1::RewardAllocation(r)
+            | FeeEvidencePayloadV1::RewardAllocationSource(r) => {
+                let source = matches!(
+                    self.payload,
+                    FeeEvidencePayloadV1::RewardAllocationSource(_)
+                );
+                (if source {
+                    r.converted_at_height <= self.recorded_at_height
+                } else {
+                    r.converted_at_height == self.recorded_at_height
+                }) && r.converted_at_height > 0
                     && r.sbd_minor > 0
                     && r.min_xor_minor > 0
+                    && !r.service_blocks.is_empty()
                     && r.service_blocks.len() <= MAX_FEE_EVIDENCE_RECORDS_V1 as usize
-                    && r.shares.len() <= MAX_FEE_EVIDENCE_RECORDS_V1 as usize
-                    && r.beneficiaries.keys().eq(r.shares.keys())
+                    && r.service_blocks.values().all(|weight| *weight > 0)
+                    && r.gross_shares.keys().eq(r.service_blocks.keys())
                     && r.reference_observations.len() <= 5
-                    && r.shares.values().try_fold(0u128, |a, b| a.checked_add(*b))
+                    && crate::validation_fee_rewards::validate_allocation_bytes(r).is_ok()
+                    && r.gross_shares
+                        .values()
+                        .try_fold(0u128, |a, b| a.checked_add(*b))
                         == Some(r.xor_minor)
                     && r.xor_minor >= r.min_xor_minor
                     && self.key.as_ref().contains("/ValidationFeeRewards/")
-                    && self.key.as_ref().contains("/Allocation/")
+                    && self
+                        .key
+                        .as_ref()
+                        .ends_with(&format!("/Allocation/{}", r.sequence))
+            }
+            FeeEvidencePayloadV1::RewardExposure(page) => {
+                crate::validation_fee::honiara_month_bounds(page.earning_period_start_ms)
+                    .is_ok_and(|(start, _)| start == page.earning_period_start_ms)
+                    && crate::validation_fee_rewards::validate_exposure_page(page).is_ok()
+                    && self.key.as_ref().contains("/ValidationFeeRewards/")
+                    && self.key.as_ref().ends_with(&format!(
+                        "/Exposure/{:020}/{}/{:020}",
+                        page.earning_period_start_ms,
+                        hex::encode(Hash::new(page.validator.to_string().as_bytes()).as_ref()),
+                        page.page_index,
+                    ))
+            }
+            FeeEvidencePayloadV1::RewardEntitlement(entitlement) => {
+                entitlement.recorded_at_height == self.recorded_at_height
+                    && entitlement.service_end > entitlement.service_start
+                    && !entitlement.shares.is_empty()
+                    && entitlement.shares.len()
+                        <= crate::validation_fee_rewards::MAX_REWARD_RECIPIENTS
+                    && entitlement
+                        .beneficiaries
+                        .keys()
+                        .eq(entitlement.shares.keys())
+                    && entitlement
+                        .shares
+                        .values()
+                        .try_fold(0u128, |a, b| a.checked_add(*b))
+                        .is_some()
+                    && self.key.as_ref().contains("/ValidationFeeRewards/")
+                    && self.key.as_ref().ends_with(&format!(
+                        "/Entitlement/{:020}/{}/{:020}",
+                        entitlement.allocation_sequence,
+                        hex::encode(
+                            Hash::new(entitlement.validator.to_string().as_bytes()).as_ref()
+                        ),
+                        entitlement.page_index,
+                    ))
             }
             FeeEvidencePayloadV1::RewardAttempt(r) => {
                 r.attempted_at_height == self.recorded_at_height
                     && r.reference_observations.len() <= 5
+                    && r.reference_observations.iter().all(|reference| {
+                        crate::validation_fee_rewards::validate_reference_observation_bytes(
+                            reference,
+                        )
+                        .is_ok()
+                    })
                     && r.sbd_minor > 0
                     && r.min_xor_minor > 0
                     && self.key.as_ref().contains("/ValidationFeeRewards/")
@@ -179,6 +245,11 @@ impl FeeEvidenceRecordV1 {
             }
             FeeEvidencePayloadV1::RewardBeneficiaryAlias(r) => {
                 self.key.as_ref().contains("/ValidationFeeRewards/")
+                    && [&r.account_id, &r.beneficiary_id]
+                        .into_iter()
+                        .all(|account| {
+                            crate::validation_fee_rewards::validate_reward_identity(account).is_ok()
+                        })
                     && self.key.as_ref().ends_with(&format!(
                         "/BeneficiaryAlias/{}",
                         hex::encode(Hash::new(r.account_id.to_string().as_bytes()).as_ref())
@@ -186,6 +257,12 @@ impl FeeEvidenceRecordV1 {
             }
             FeeEvidencePayloadV1::RewardBeneficiaryRevision(r) => {
                 r.authorized_at_height > 0
+                    && [&r.account_id, &r.beneficiary_id]
+                        .into_iter()
+                        .chain(r.previous_account_id.iter())
+                        .all(|account| {
+                            crate::validation_fee_rewards::validate_reward_identity(account).is_ok()
+                        })
                     && r.authorized_at_height <= self.recorded_at_height
                     && ((r.revision == 0
                         && r.account_id == r.beneficiary_id
@@ -301,14 +378,20 @@ impl FeeEvidenceWitnessProofV1 {
     /// Verify the fixed synthetic write against an ordinary-write SMT root.
     #[must_use]
     pub fn verify(&self, expected_ordinary_writes_root: Hash) -> bool {
+        self.verified_commitment(expected_ordinary_writes_root)
+            .is_ok_and(|commitment| commitment.is_some())
+    }
+
+    fn verified_commitment(
+        &self,
+        expected_ordinary_writes_root: Hash,
+    ) -> Result<Option<FeeEvidenceSnapshotV1>, norito::Error> {
         if self.key != FEE_EVIDENCE_WITNESS_KEY_V1 || self.siblings.len() != 256 {
-            return false;
+            return Ok(None);
         }
-        let Ok(commitment) = norito::decode_canonical::<FeeEvidenceSnapshotV1>(&self.value) else {
-            return false;
-        };
+        let commitment = norito::decode_canonical::<FeeEvidenceSnapshotV1>(&self.value)?;
         if !commitment.is_valid() {
-            return false;
+            return Ok(None);
         }
         let path = Hash::new(&self.key);
         let value_hash = Hash::new(&self.value);
@@ -327,7 +410,7 @@ impl FeeEvidenceWitnessProofV1 {
                 fee_ordinary_smt_node_hash(current, sibling)
             };
         }
-        current == expected_ordinary_writes_root
+        Ok((current == expected_ordinary_writes_root).then_some(commitment))
     }
 
     /// Decode and return the exact canonical snapshot commitment.
@@ -381,15 +464,35 @@ pub struct FeeEvidenceBlockProofV1 {
 impl FeeEvidenceBlockProofV1 {
     /// Check complete corpus equality against an authenticated ordinary-write root.
     pub fn verify(&self, root: Hash) -> bool {
-        let Ok(snapshot) = self.snapshot_witness.commitment() else {
-            return false;
+        self.verify_checked(root)
+            .is_ok_and(|snapshot| snapshot.is_some())
+    }
+
+    /// Verify the complete proof and return its authenticated snapshot without
+    /// erasing canonical decoder resource refusals.
+    ///
+    /// `Ok(None)` means a completed structural, membership or corpus mismatch.
+    /// Consensus execution must use this method rather than the boolean
+    /// reporting predicate so local resource exhaustion remains retryable.
+    ///
+    /// # Errors
+    /// Returns the original canonical snapshot decode error, including an active
+    /// decode-budget refusal. A successful snapshot is decoded exactly once.
+    pub fn verify_checked(
+        &self,
+        root: Hash,
+    ) -> Result<Option<FeeEvidenceSnapshotV1>, norito::Error> {
+        let Some(snapshot) = self.snapshot_witness.verified_commitment(root)? else {
+            return Ok(None);
         };
-        self.snapshot_witness.verify(root)
-            && FeeEvidenceSnapshotV1::from_records(snapshot.evaluated_height, &self.records)
+        Ok(
+            FeeEvidenceSnapshotV1::from_records(snapshot.evaluated_height, &self.records)
                 .is_ok_and(|mut observed| {
                     observed.account_heads_root = snapshot.account_heads_root;
                     observed == snapshot
                 })
+                .then_some(snapshot),
+        )
     }
     /// Retrieve the exact retained registry preimage from the complete native corpus.
     pub fn registry(&self) -> Option<&crate::validation_fee::ValidationFeePolicyRegistryV1> {
@@ -589,6 +692,12 @@ impl FeeEvidenceWindowProofV1 {
                 .registry
                 .as_ref()
                 .and_then(|registry| registry.payout_policies.effective_entry_at_height(height));
+            let retained = effective.or_else(|| {
+                block
+                    .registry
+                    .as_ref()
+                    .and_then(|registry| registry.payout_policies.head())
+            });
             let custody = block
                 .evidence
                 .records
@@ -598,7 +707,7 @@ impl FeeEvidenceWindowProofV1 {
                     _ => None,
                 })
                 .collect::<Vec<_>>();
-            match effective {
+            match retained {
                 None if !custody.is_empty() => {
                     return Err("unconfigured fees have reward custody".into());
                 }
@@ -610,7 +719,23 @@ impl FeeEvidenceWindowProofV1 {
                 _ => (),
             }
             if let Some(c) = custody.first() {
+                if effective.is_none()
+                    && block.evidence.records.iter().any(|record| {
+                        matches!(
+                            record.payload,
+                            FeeEvidencePayloadV1::RewardAttempt(_)
+                                | FeeEvidencePayloadV1::RewardAllocation(_)
+                                | FeeEvidencePayloadV1::RewardEntitlement(_)
+                                | FeeEvidencePayloadV1::RewardClaim(_)
+                        )
+                    })
+                {
+                    return Err(
+                        "inactive payout lifecycle contains a monetary reward effect".into(),
+                    );
+                }
                 verify_beneficiary_sources(&block.evidence.records, &c.binding)?;
+                verify_entitlement_sources(&block.evidence.records, &c.binding)?;
                 let attempts = block
                     .evidence
                     .records
@@ -680,7 +805,7 @@ impl FeeEvidenceWindowProofV1 {
                         || crate::validation_fee_rewards::allocate(
                             allocation.xor_minor,
                             &allocation.service_blocks,
-                        )? != allocation.shares
+                        )? != allocation.gross_shares
                         || !block.evidence.records.iter().any(|source| {
                             let FeeEvidencePayloadV1::RewardService(service) = &source.payload
                             else {
@@ -721,7 +846,7 @@ impl FeeEvidenceWindowProofV1 {
 }
 fn retain_immutable_payload(
     record: &FeeEvidenceRecordV1,
-    retained: &mut std::collections::BTreeMap<StatePath, Hash>,
+    retained: &mut std::collections::BTreeMap<StatePath, (Hash, bool)>,
 ) -> Result<(), String> {
     if matches!(
         record.payload,
@@ -732,18 +857,129 @@ fn retain_immutable_payload(
     ) {
         return Ok(());
     }
-    let payload_hash = Hash::new(norito::to_bytes(&record.payload).map_err(|e| e.to_string())?);
-    if let Some(previous) = retained.insert(record.key.clone(), payload_hash) {
-        // Historical identity sources are reattached to every dependent allocation/claim.
-        // They confer no monetary credit and their immutable payload must stay identical.
-        if previous != payload_hash
-            || !matches!(
-                record.payload,
-                FeeEvidencePayloadV1::RewardBeneficiaryAlias(_)
-                    | FeeEvidencePayloadV1::RewardBeneficiaryRevision(_)
-            )
-        {
+    // Original allocation and source copies commit the same underlying receipt.
+    let payload_bytes = match &record.payload {
+        FeeEvidencePayloadV1::RewardAllocation(allocation)
+        | FeeEvidencePayloadV1::RewardAllocationSource(allocation) => norito::to_bytes(allocation),
+        _ => norito::to_bytes(&record.payload),
+    }
+    .map_err(|error| error.to_string())?;
+    let payload_hash = Hash::new(payload_bytes);
+    let monetary = matches!(record.payload, FeeEvidencePayloadV1::RewardAllocation(_));
+    if let Some((previous, seen_monetary)) = retained.get_mut(&record.key) {
+        let repeatable = matches!(
+            record.payload,
+            FeeEvidencePayloadV1::RewardBeneficiaryAlias(_)
+                | FeeEvidencePayloadV1::RewardBeneficiaryRevision(_)
+                | FeeEvidencePayloadV1::RewardExposure(_)
+                | FeeEvidencePayloadV1::RewardAllocationSource(_)
+        ) || (monetary && !*seen_monetary);
+        if *previous != payload_hash || !repeatable {
             return Err("native immutable fee record is replayed or changed across blocks".into());
+        }
+        *seen_monetary |= monetary;
+    } else {
+        retained.insert(record.key.clone(), (payload_hash, monetary));
+    }
+    Ok(())
+}
+
+fn verify_entitlement_sources(
+    records: &[FeeEvidenceRecordV1],
+    binding: &ValidationFeeTreasuryPayoutBindingV1,
+) -> Result<(), String> {
+    use crate::validation_fee_rewards::{
+        allocate, allocate_page, validation_fee_entitlement_key, validation_fee_exposure_page_key,
+        validation_fee_reward_state_key,
+    };
+    use std::collections::BTreeMap;
+    let mut allocations = BTreeMap::new();
+    let mut pages = BTreeMap::new();
+    for record in records {
+        match &record.payload {
+            FeeEvidencePayloadV1::RewardAllocation(allocation)
+            | FeeEvidencePayloadV1::RewardAllocationSource(allocation) => {
+                if validation_fee_reward_state_key(
+                    binding,
+                    &format!("Allocation/{}", allocation.sequence),
+                )? != record.key
+                    || allocate(allocation.xor_minor, &allocation.service_blocks)?
+                        != allocation.gross_shares
+                    || allocations
+                        .insert(allocation.sequence, allocation)
+                        .is_some()
+                {
+                    return Err("invalid or duplicate funded allocation source".into());
+                }
+            }
+            FeeEvidencePayloadV1::RewardExposure(page) => {
+                if validation_fee_exposure_page_key(
+                    binding,
+                    page.earning_period_start_ms,
+                    &page.validator,
+                    page.page_index,
+                )? != record.key
+                    || pages
+                        .insert(
+                            (
+                                page.earning_period_start_ms,
+                                page.validator.clone(),
+                                page.page_index,
+                            ),
+                            page,
+                        )
+                        .is_some()
+                {
+                    return Err("invalid or duplicate historical exposure source".into());
+                }
+            }
+            _ => (),
+        }
+    }
+    for record in records {
+        let FeeEvidencePayloadV1::RewardEntitlement(entitlement) = &record.payload else {
+            continue;
+        };
+        if validation_fee_entitlement_key(
+            binding,
+            entitlement.allocation_sequence,
+            &entitlement.validator,
+            entitlement.page_index,
+        )? != record.key
+        {
+            return Err("automatic reward entitlement key differs from its identity".into());
+        }
+        let allocation = allocations
+            .get(&entitlement.allocation_sequence)
+            .ok_or("automatic reward entitlement has no funded allocation source")?;
+        let page = pages
+            .get(&(
+                allocation.earning_period_start_ms,
+                entitlement.validator.clone(),
+                entitlement.page_index,
+            ))
+            .ok_or("automatic reward entitlement has no historical exposure source")?;
+        let gross = allocation
+            .gross_shares
+            .get(&entitlement.validator)
+            .ok_or("automatic reward entitlement names an unfunded validator")?;
+        let total_service = allocation
+            .service_blocks
+            .get(&entitlement.validator)
+            .ok_or("automatic reward entitlement names a validator without service")?;
+        let count = page
+            .exposure
+            .iter()
+            .try_fold(0u64, |sum, cohort| sum.checked_add(cohort.service_blocks))
+            .ok_or("historical exposure service overflow")?;
+        if allocation.converted_at_height > entitlement.recorded_at_height
+            || entitlement.service_start.checked_add(count) != Some(entitlement.service_end)
+            || allocate_page(*gross, *total_service, entitlement.service_start, page)?
+                != entitlement.shares
+        {
+            return Err(
+                "automatic reward entitlement differs from funded historical exposure".into(),
+            );
         }
     }
     Ok(())
@@ -787,15 +1023,18 @@ fn verify_beneficiary_sources(
     }
     for record in records {
         match &record.payload {
-            FeeEvidencePayloadV1::RewardAllocation(allocation) => {
-                if !allocation.beneficiaries.keys().eq(allocation.shares.keys())
-                    || allocation
+            FeeEvidencePayloadV1::RewardEntitlement(entitlement) => {
+                if !entitlement
+                    .beneficiaries
+                    .keys()
+                    .eq(entitlement.shares.keys())
+                    || entitlement
                         .beneficiaries
                         .iter()
                         .any(|(historical, original)| aliases.get(historical) != Some(original))
                 {
                     return Err(
-                        "historical allocation beneficiary differs from authenticated alias source"
+                        "historical entitlement beneficiary differs from authenticated alias source"
                             .into(),
                     );
                 }
@@ -853,13 +1092,29 @@ where
     };
     let mut blocks = blocks.into_iter();
     let mut expected = state_of(blocks.next().ok_or("missing opening custody")?);
+    let opening_allocation_sequence = expected.next_allocation;
+    // An arbitrary trusted opening checkpoint authenticates aggregate prior
+    // claims and unfinished allocation work. Newly created entitlements below
+    // have exact beneficiaries; only the opening amount can remain unattributed.
+    let mut opening_unattributed = expected.reserved_xor;
+    let mut claimable = BTreeMap::<crate::account::AccountId, u128>::new();
+    let mut exposure_cursors = BTreeMap::<(u64, crate::account::AccountId), (u64, u64)>::new();
     for records in blocks {
+        // Records are grouped by type below, while native claims precede the
+        // scheduled conversion. A valid claim-and-refill block can therefore
+        // have a temporary audit sum above u128 even though every live reserve
+        // remains within u128. Narrow only the final conserved block balance.
+        let mut reserved_xor = iroha_primitives::bigint::BigInt::from(expected.reserved_xor);
         let custody = records.iter().find_map(|r| match &r.payload {
             FeeEvidencePayloadV1::RewardCustody(c) => Some(c),
             _ => None,
         });
         let mut allocations = BTreeMap::new();
+        let mut entitlements = BTreeMap::new();
         let mut claims = BTreeMap::new();
+        if let Some(custody) = custody {
+            verify_entitlement_sources(records, &custody.binding)?;
+        }
         for record in records {
             match &record.payload {
                 FeeEvidencePayloadV1::RetailReceipt(r) => {
@@ -893,6 +1148,16 @@ where
                 FeeEvidencePayloadV1::RewardAllocation(a) => {
                     if allocations.insert(a.sequence, a).is_some() {
                         return Err("duplicate allocation sequence".into());
+                    }
+                }
+                FeeEvidencePayloadV1::RewardEntitlement(entitlement) => {
+                    let key = (
+                        entitlement.allocation_sequence,
+                        entitlement.validator.clone(),
+                        entitlement.page_index,
+                    );
+                    if entitlements.insert(key, entitlement).is_some() {
+                        return Err("duplicate automatic reward entitlement".into());
                     }
                 }
                 FeeEvidencePayloadV1::RewardClaim(c) => {
@@ -933,10 +1198,52 @@ where
                 .pending_sbd_total
                 .checked_sub(u128::from(a.sbd_minor))
                 .ok_or("conversion exceeds authenticated SBD credits")?;
-            expected.reserved_xor = expected
-                .reserved_xor
-                .checked_add(a.xor_minor)
-                .ok_or("XOR allocation credit overflow")?;
+            reserved_xor = reserved_xor
+                .checked_add(&iroha_primitives::bigint::BigInt::from(a.xor_minor))
+                .map_err(|error| format!("XOR allocation audit overflow: {error}"))?;
+            for validator in a.service_blocks.keys() {
+                exposure_cursors.insert((sequence, validator.clone()), (0, 0));
+            }
+        }
+        for ((sequence, validator, page_index), entitlement) in entitlements {
+            if sequence >= expected.next_allocation {
+                return Err("automatic entitlement precedes funded allocation".into());
+            }
+            let cursor = exposure_cursors
+                .entry((sequence, validator))
+                .or_insert_with(|| {
+                    // The trusted checkpoint may lie halfway through an older
+                    // allocation. Preserve its first observed native continuation.
+                    (page_index, entitlement.service_start)
+                });
+            if *cursor != (page_index, entitlement.service_start)
+                || (page_index == 0 && entitlement.service_start != 0)
+            {
+                return Err(
+                    "automatic reward entitlement has a replay or exposure page gap".into(),
+                );
+            }
+            *cursor = (
+                page_index
+                    .checked_add(1)
+                    .ok_or("exposure page index overflow")?,
+                entitlement.service_end,
+            );
+            for (historical, amount) in &entitlement.shares {
+                let beneficiary = entitlement
+                    .beneficiaries
+                    .get(historical)
+                    .ok_or("automatic reward entitlement lacks a beneficiary")?;
+                if sequence < opening_allocation_sequence {
+                    opening_unattributed = opening_unattributed
+                        .checked_sub(*amount)
+                        .ok_or("old entitlement exceeds trusted opening reward reserve")?;
+                }
+                let credit = claimable.entry(beneficiary.clone()).or_default();
+                *credit = credit
+                    .checked_add(*amount)
+                    .ok_or("automatic entitlement balance overflow")?;
+            }
         }
         for (sequence, c) in claims {
             if sequence != expected.next_claim {
@@ -949,12 +1256,28 @@ where
             {
                 return Err("claim violates governed lifecycle or retained-dust threshold".into());
             }
-
-            expected.reserved_xor = expected
-                .reserved_xor
-                .checked_sub(c.xor_minor)
-                .ok_or("claim exceeds reserved XOR")?;
+            let credit = claimable.entry(c.beneficiary_id.clone()).or_default();
+            let from_known = (*credit).min(c.xor_minor);
+            *credit = credit
+                .checked_sub(from_known)
+                .ok_or("claim balance underflow")?;
+            let from_opening = c
+                .xor_minor
+                .checked_sub(from_known)
+                .ok_or("claim amount underflow")?;
+            opening_unattributed = opening_unattributed
+                .checked_sub(from_opening)
+                .ok_or("claim exceeds automatic entitlement and trusted opening reward balance")?;
+            reserved_xor = reserved_xor
+                .checked_sub(&iroha_primitives::bigint::BigInt::from(c.xor_minor))
+                .map_err(|error| format!("XOR claim audit overflow: {error}"))?;
+            if reserved_xor.is_negative() {
+                return Err("claim exceeds reserved XOR".into());
+            }
         }
+        expected.reserved_xor = reserved_xor
+            .try_to_u128()
+            .ok_or("closing XOR reserve exceeds its balance bound")?;
         let actual = state_of(records);
         if expected.pending_sbd_total != actual.pending_sbd_total
             || expected.reserved_xor != actual.reserved_xor
@@ -1175,10 +1498,10 @@ mod tests {
                 min_xor_minor: 99,
                 reference_observations: vec![],
                 service_blocks: BTreeMap::from([(account(1), 1)]),
-                shares: BTreeMap::from([(account(1), 100)]),
-                beneficiaries: BTreeMap::from([(account(1), account(1))]),
+                gross_shares: BTreeMap::from([(account(1), 100)]),
             }),
         };
+        assert!(allocation.is_valid());
         opening.pending_sbd_total = 0;
         opening.reserved_xor = 101;
         opening.next_allocation = 1;
@@ -1187,7 +1510,55 @@ mod tests {
         opening.last_conversion_ms = Some(at);
         opening.conversion_day = (at + 39_600_000) / 86_400_000;
         opening.converted_today_sbd = 50;
-        let converted = vec![attempt(3, at), allocation, custody_record(3, opening)];
+        let exposure = FeeEvidenceRecordV1 {
+            key: crate::validation_fee_rewards::validation_fee_exposure_page_key(
+                &binding(),
+                period,
+                &account(1),
+                0,
+            )
+            .unwrap(),
+            recorded_at_height: 3,
+            payload: FeeEvidencePayloadV1::RewardExposure(ValidationFeeExposurePage {
+                earning_period_start_ms: period,
+                validator: account(1),
+                page_index: 0,
+                exposure: vec![crate::validation_fee_rewards::ValidationFeeRewardExposure {
+                    service_blocks: 1,
+                    stakes: BTreeMap::from([(
+                        account(1),
+                        iroha_primitives::numeric::Quantity::one(),
+                    )]),
+                }],
+            }),
+        };
+        let entitlement = FeeEvidenceRecordV1 {
+            key: crate::validation_fee_rewards::validation_fee_entitlement_key(
+                &binding(),
+                0,
+                &account(1),
+                0,
+            )
+            .unwrap(),
+            recorded_at_height: 3,
+            payload: FeeEvidencePayloadV1::RewardEntitlement(ValidationFeeRewardEntitlement {
+                allocation_sequence: 0,
+                validator: account(1),
+                page_index: 0,
+                service_start: 0,
+                service_end: 1,
+                recorded_at_height: 3,
+                shares: BTreeMap::from([(account(1), 100)]),
+                beneficiaries: BTreeMap::from([(account(1), account(1))]),
+            }),
+        };
+        let converted = vec![
+            attempt(3, at),
+            allocation,
+            custody_record(3, opening),
+            exposure,
+            entitlement,
+        ];
         opening.reserved_xor = 1;
         opening.next_claim = 1;
         let claim = FeeEvidenceRecordV1 {
@@ -1253,6 +1624,144 @@ mod tests {
     }
 
     #[test]
+    fn automatic_entitlement_requires_funded_allocation_and_exact_exposure_sources() {
+        let records = conservation_vectors().remove(2);
+        verify_entitlement_sources(&records, &binding()).unwrap();
+        for missing in [1, 3] {
+            let mut invalid = records.clone();
+            invalid.remove(missing);
+            assert!(verify_entitlement_sources(&invalid, &binding()).is_err());
+        }
+        let mut invalid = records.clone();
+        let FeeEvidencePayloadV1::RewardEntitlement(value) = &mut invalid[4].payload else {
+            unreachable!()
+        };
+        value.shares.insert(account(1), 99);
+        assert!(verify_entitlement_sources(&invalid, &binding()).is_err());
+        let mut invalid = records.clone();
+        let FeeEvidencePayloadV1::RewardExposure(value) = &mut invalid[3].payload else {
+            unreachable!()
+        };
+        value.exposure[0].stakes =
+            BTreeMap::from([(account(2), iroha_primitives::numeric::Quantity::one())]);
+        assert!(verify_entitlement_sources(&invalid, &binding()).is_err());
+        let mut vectors = conservation_vectors();
+        vectors[2].remove(4);
+        assert!(
+            verify_conservation_records(vectors.iter().map(Vec::as_slice)).is_err(),
+            "gross funding alone must not authorize a beneficiary claim"
+        );
+    }
+
+    #[test]
+    fn delayed_allocation_sources_do_not_reserve_twice_or_replay_conversion() {
+        let mut vectors = conservation_vectors();
+        let mut entitlement = vectors[2].remove(4);
+        let mut exposure = vectors[2].remove(3);
+        let mut source = vectors[2][1].clone();
+        let FeeEvidencePayloadV1::RewardAllocation(value) = source.payload else {
+            unreachable!()
+        };
+        source.payload = FeeEvidencePayloadV1::RewardAllocationSource(value);
+        source.recorded_at_height = 4;
+        exposure.recorded_at_height = 4;
+        entitlement.recorded_at_height = 4;
+        let FeeEvidencePayloadV1::RewardEntitlement(value) = &mut entitlement.payload else {
+            unreachable!()
+        };
+        value.recorded_at_height = 4;
+        vectors[3].extend([source.clone(), exposure, entitlement]);
+        verify_conservation_records(vectors.iter().map(Vec::as_slice)).unwrap();
+        let mut retained = BTreeMap::new();
+        retain_immutable_payload(&source, &mut retained).unwrap();
+        retain_immutable_payload(&vectors[2][1], &mut retained).unwrap();
+        retain_immutable_payload(&source, &mut retained).unwrap();
+        assert!(retain_immutable_payload(&vectors[2][1], &mut retained).is_err());
+        let FeeEvidencePayloadV1::RewardAllocationSource(value) = &mut source.payload else {
+            unreachable!()
+        };
+        value.sbd_minor += 1;
+        assert!(retain_immutable_payload(&source, &mut retained).is_err());
+    }
+
+    #[test]
+    fn entitlement_pages_are_contiguous_and_trusted_windows_can_open_mid_allocation() {
+        let mut vectors = conservation_vectors();
+        let FeeEvidencePayloadV1::RewardAllocation(value) = &mut vectors[2][1].payload else {
+            unreachable!()
+        };
+        value.service_blocks.insert(account(1), 2);
+        let mut source = vectors[2][1].clone();
+        let FeeEvidencePayloadV1::RewardAllocation(value) = source.payload else {
+            unreachable!()
+        };
+        source.payload = FeeEvidencePayloadV1::RewardAllocationSource(value);
+        source.recorded_at_height = 4;
+        let FeeEvidencePayloadV1::RewardEntitlement(value) = &mut vectors[2][4].payload else {
+            unreachable!()
+        };
+        value.shares.insert(account(1), 50);
+        let mut exposure = vectors[2][3].clone();
+        let FeeEvidencePayloadV1::RewardExposure(value) = &mut exposure.payload else {
+            unreachable!()
+        };
+        value.page_index = 1;
+        exposure.key = crate::validation_fee_rewards::validation_fee_exposure_page_key(
+            &binding(),
+            value.earning_period_start_ms,
+            &value.validator,
+            1,
+        )
+        .unwrap();
+        exposure.recorded_at_height = 4;
+        let mut entitlement = vectors[2][4].clone();
+        let FeeEvidencePayloadV1::RewardEntitlement(value) = &mut entitlement.payload else {
+            unreachable!()
+        };
+        value.page_index = 1;
+        value.service_start = 1;
+        value.service_end = 2;
+        value.recorded_at_height = 4;
+        entitlement.key = crate::validation_fee_rewards::validation_fee_entitlement_key(
+            &binding(),
+            0,
+            &account(1),
+            1,
+        )
+        .unwrap();
+        entitlement.recorded_at_height = 4;
+        vectors[3].extend([source, exposure, entitlement]);
+        verify_conservation_records(vectors.iter().map(Vec::as_slice)).unwrap();
+        verify_conservation_records(vectors[2..].iter().map(Vec::as_slice)).unwrap();
+        let mut duplicate = vectors.clone();
+        duplicate[3].push(vectors[3][4].clone());
+        assert!(verify_conservation_records(duplicate.iter().map(Vec::as_slice)).is_err());
+        let FeeEvidencePayloadV1::RewardExposure(value) = &mut vectors[3][3].payload else {
+            unreachable!()
+        };
+        value.page_index = 2;
+        vectors[3][3].key = crate::validation_fee_rewards::validation_fee_exposure_page_key(
+            &binding(),
+            value.earning_period_start_ms,
+            &value.validator,
+            2,
+        )
+        .unwrap();
+        let FeeEvidencePayloadV1::RewardEntitlement(value) = &mut vectors[3][4].payload else {
+            unreachable!()
+        };
+        value.page_index = 2;
+        vectors[3][4].key = crate::validation_fee_rewards::validation_fee_entitlement_key(
+            &binding(),
+            0,
+            &account(1),
+            2,
+        )
+        .unwrap();
+        assert!(verify_conservation_records(vectors.iter().map(Vec::as_slice)).is_err());
+    }
+
+    #[test]
     fn native_fee_beneficiary_sources_bind_historical_allocations_and_exact_claim_revision() {
         use crate::validation_fee_rewards::{
             validation_fee_beneficiary_alias_key as alias_key,
@@ -1302,7 +1811,7 @@ mod tests {
             revision(1, middle.clone(), Some(original.clone()), 3),
             revision(2, latest, Some(middle.clone()), 4),
             claim,
-            conservation_vectors()[2][1].clone(),
+            conservation_vectors()[2][4].clone(),
         ];
         assert!(records.iter().all(FeeEvidenceRecordV1::is_valid));
         verify_beneficiary_sources(&records, &binding).unwrap();

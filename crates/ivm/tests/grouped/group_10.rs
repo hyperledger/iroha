@@ -20,8 +20,6 @@ mod zk_verify_batch_gating;
 mod zk_verify_batch_syscall;
 #[path = "../zk_verify_gating.rs"]
 mod zk_verify_gating;
-#[path = "../zk_verify_gating_maxk.rs"]
-mod zk_verify_gating_maxk;
 #[path = "../zk_verify_goldilocks.rs"]
 mod zk_verify_goldilocks;
 #[path = "../zk_verify_pointer_type.rs"]

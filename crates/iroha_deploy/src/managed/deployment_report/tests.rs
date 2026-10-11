@@ -31,14 +31,7 @@ fn private_fixture() -> (tempfile::TempDir, ManagedStore, ManagedDeploymentTarge
     let ports = LocalnetPorts::reserve().unwrap();
     let prepared =
         crate::localnet::prepare_private_root("private", bundle.path(), &ports, &spec).unwrap();
-    directory
-        .write_atomic(
-            "fixture-executable",
-            b"retained fixture executable",
-            PublishMode::CreateNew,
-        )
-        .unwrap();
-    let pin = store::pin_binary(&directory.path().join("fixture-executable")).unwrap();
+    let pin = store::pin_binary(&std::env::current_exe().unwrap()).unwrap();
     let retained = RetainedLocalnet {
         root_kind: RootKind::Private { spec },
         prepared,
@@ -83,6 +76,7 @@ fn receipt(target: &ManagedDeploymentTarget) -> DeploymentReceipt {
         block_height: 8,
         scope: "global".into(),
         resolved_from: "state".into(),
+        charge: None,
     };
     DeploymentReceipt {
         version: 1,
@@ -130,6 +124,46 @@ fn global_report_preserves_service_receipt_without_parent_observation() {
         Some("original-journal")
     );
     target.revalidate_generation(&store).unwrap();
+}
+
+#[test]
+fn lifecycle_guidance_keeps_applied_receipt_and_original_journal_unchanged() {
+    let _guard = super::super::native_test_guard();
+    let (_temporary, _store, target) = global_fixture();
+    let original = receipt(&target);
+    let original_json = original.to_json().unwrap();
+    for recovered in [false, true] {
+        let mut report = target
+            .finish_with(original.clone(), "original-journal".into(), || {
+                panic!("no parent")
+            })
+            .unwrap();
+        report.lifecycle = Some(
+            iroha_contract_deploy::LifecycleHook {
+                name: "hajimari".into(),
+                params: vec![iroha_contract_deploy::LifecycleParameter {
+                    name: "start".into(),
+                    type_name: "int".into(),
+                }],
+            }
+            .guidance(recovered),
+        );
+        let json = report.to_json().unwrap();
+        assert_eq!(
+            json.get("status").and_then(|value| value.as_str()),
+            Some("applied")
+        );
+        assert_eq!(json.get("receipt"), Some(&original_json));
+        assert_eq!(
+            json.get("journal").and_then(|value| value.as_str()),
+            Some("original-journal")
+        );
+        assert_eq!(
+            json.get("lifecycle").unwrap(),
+            &norito::json::to_value(report.lifecycle.as_ref().unwrap()).unwrap()
+        );
+        assert_eq!(report.execution_summary(), "Applied on localnet local");
+    }
 }
 
 #[test]

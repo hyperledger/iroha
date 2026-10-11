@@ -1,7 +1,7 @@
 #[test]
 fn public_entrypoint_loads_one_prepared_table_word_per_parameter() {
     let src = r#"
-            seiyaku Demo {
+            seiyaku Demo { permission Entry;
                 kotoage fn run(
                     int count,
                     int total,
@@ -12,7 +12,7 @@ fn public_entrypoint_loads_one_prepared_table_word_per_parameter() {
                     DomainId domain,
                     DataSpaceId dataspace,
                     bytes bytes
-                ) authorize("Entry") {
+                ) authorize(Entry) {
                     let _count = count;
                     let _total = total;
                     let _ready = ready;
@@ -111,7 +111,7 @@ fn public_aggregate_arguments_cross_internal_calls_as_flat_words() {
                     (int, bool) pair,
                     Option<int> maybe,
                     Result<int, bool> outcome
-                ) -> int {
+                ) authorize(anyone) -> int {
                     return request.count + pair.0
                         + maybe.unwrap_or(0) + outcome.unwrap_or(0);
                 }

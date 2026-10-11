@@ -1,12 +1,12 @@
 
-        seiyaku Counter {
+        seiyaku Counter { permission Admin;
             state int counter;
 
             hajimari() {
                 counter = 0;
             }
 
-            kotoage fn bump(int times) authorize("Admin") {
+            kotoage fn bump(int times) authorize(Admin) {
                 var i = 0;
                 while i < times {
                     counter = counter + 1;

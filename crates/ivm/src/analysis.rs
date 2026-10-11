@@ -505,7 +505,11 @@ fn transfer_static_state_syscall(
     }
     if matches!(
         number,
-        crate::syscalls::SYSCALL_STATE_VALUE_ENCODE
+        crate::syscalls::SYSCALL_VALUE_ENCODE
+            | crate::syscalls::SYSCALL_BLOB_CONCAT
+            | crate::syscalls::SYSCALL_UTF8_VALIDATE
+            | crate::syscalls::SYSCALL_VALUE_TO_STRING
+            | crate::syscalls::SYSCALL_STATE_VALUE_ENCODE
             | crate::syscalls::SYSCALL_STATE_VALUE_DECODE
             | crate::syscalls::SYSCALL_STATE_MAP_KEY_AT
     ) {
@@ -681,7 +685,9 @@ mod tests {
     #[test]
     fn analysis_canonical_metadata_refusal_is_local_and_retryable() {
         let bytes = kotodama_lang::compiler::Compiler::new()
-            .compile_source("seiyaku Analysis { view fn main() -> bool { true } }")
+            .compile_source(
+                "seiyaku Analysis { view fn main() authorize(anyone) -> bool { true } }",
+            )
             .unwrap();
         let error = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
@@ -715,9 +721,9 @@ mod tests {
     #[test]
     fn static_state_analysis_proves_compiler_literal_map_child() {
         let source = r#"
-seiyaku StaticMapAnalysis {
+seiyaku StaticMapAnalysis { permission CanWrite;
   state StateMap<int, int> Counters;
-  kotoage fn write_one() authorize("CanWrite") { Counters[1] = 10; }
+  kotoage fn write_one() authorize(CanWrite) { Counters[1] = 10; }
 }
 "#;
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
@@ -758,12 +764,12 @@ seiyaku StaticMapAnalysis {
         // which would leave a direct, provable write. Two call sites keep
         // `hidden_write` behind an ordinary protected call.
         let source = r#"
-seiyaku HelperMapAnalysis {
+seiyaku HelperMapAnalysis { permission CanWrite;
   state StateMap<int, int> Counters;
   fn hidden_write() { Counters[1] = 10; }
-  kotoage fn helper_write() authorize("CanWrite") { hidden_write(); }
+  kotoage fn helper_write() authorize(CanWrite) { hidden_write(); }
   // Two live call sites retain the helper edge under single-use inlining.
-  kotoage fn second_helper_write() authorize("CanWrite") { hidden_write(); }
+  kotoage fn second_helper_write() authorize(CanWrite) { hidden_write(); }
 }
 "#;
         let program = kotodama_lang::compiler::Compiler::new()
@@ -802,8 +808,8 @@ seiyaku HelperMapAnalysis {
     #[test]
     fn static_state_analysis_marks_reachable_indirect_edge_incomplete() {
         let source = r#"
-seiyaku IndirectStateAnalysis {
-  kotoage fn run() authorize("CanRun") {}
+seiyaku IndirectStateAnalysis { permission CanRun;
+  kotoage fn run() authorize(CanRun) {}
 }
 "#;
         let program = kotodama_lang::compiler::Compiler::new()

@@ -604,7 +604,9 @@ impl<'a> Swarm<'a> {
     /// identities use separate derivation domains, so no key serves two roles.
     ///
     /// The generated manifest requires the signed genesis body, verifier key, and exact hash
-    /// through explicit host-file environment variables. Production callers should use
+    /// through explicit host-file environment variables, as well as a per-node existing
+    /// owner-only TOML. These variables select mount sources, never runtime settings or secret
+    /// bytes. Host private-file ownership must match the container daemon UID. Production callers use
     /// [`Self::from_prepared`] so the validator roster and signed artifacts come from one
     /// authoritative prepared bundle.
     #[allow(clippy::missing_errors_doc)]
@@ -843,16 +845,16 @@ mod tests {
                 .lines()
                 .filter(|line| line.trim() == "type: bind")
                 .count(),
-            peer_count,
-            "every validator must bind the signed genesis body"
+            2 * peer_count,
+            "every validator must bind signed genesis and its real TOML"
         );
         assert_eq!(
             output
                 .lines()
                 .filter(|line| line.trim() == "read_only: true")
                 .count(),
-            peer_count,
-            "every signed genesis bind must be read-only"
+            2 * peer_count,
+            "genesis and per-node config must both be read-only"
         );
         assert!(
             output.contains("export GENESIS_PUBLIC_KEY GENESIS GENESIS_EXPECTED_HASH_FILE"),
@@ -875,7 +877,7 @@ mod tests {
         }
         let shell_content = output
             .lines()
-            .filter(|line| !line.contains("${IROHA_GENESIS_"))
+            .filter(|line| !line.contains("${IROHA_"))
             .collect::<String>();
         let mut chars = shell_content.chars();
         while let Some(character) = chars.next() {
@@ -887,6 +889,31 @@ mod tests {
                 );
             }
         }
+    }
+    #[test]
+    fn development_manifest_requires_existing_per_node_config() {
+        let output = build_as_string(nonzero_ext::nonzero!(4u16), false, None, false, None);
+        for index in 0..4 {
+            assert!(output.contains(&format!("${{IROHA_PEER{index}_CONFIG_FILE:?")));
+            for suffix in ["KAGEMUSHA_LOAD_KEYRING", "KAGEMUSHA_LOAD_SUBMITTER"] {
+                assert!(!output.contains(&format!("IROHA_PEER{index}_{suffix}_FILE")));
+            }
+        }
+        assert_eq!(output.matches("--config /config/peer.toml").count(), 4);
+        assert_eq!(output.matches("create_host_path: false").count(), 4);
+        assert_eq!(output.matches("require_private_file").count(), 8);
+        assert_eq!(
+            output
+                .matches("require_private_file /config/peer.toml 8388608")
+                .count(),
+            4
+        );
+        assert!(output.contains("stat -c '%u:%a:%h'"));
+        assert!(!output.contains("KAGEMUSHA_LOAD_AUTHORIZER_KEYRING"));
+        assert!(
+            !output.contains("user: "),
+            "no unqualified numeric UID override"
+        );
     }
     fn prepared_validator(index: u16) -> PreparedValidator {
         let (key_pair, pop) = peer::generate_bls_key_pair(
@@ -1795,6 +1822,9 @@ mod tests {
         assert_eq!(output.matches("exec env -i").count(), 4);
         assert_eq!(output.matches("--config-blake3 ").count(), 4);
         assert_eq!(output.matches("target: /config/peer.toml").count(), 4);
+        assert!(!output.contains("iroha_kagemusha_load"));
+        assert_eq!(output.matches("create_host_path: false").count(), 0);
+        assert_eq!(output.matches("require_private_file").count(), 8);
         assert_eq!(output.matches("target: /run/secrets/iroha_peer").count(), 4);
         assert!(output.contains("../bundle/peer0.faucet.key"));
         assert!(!output.contains("private-0"));

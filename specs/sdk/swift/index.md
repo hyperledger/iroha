@@ -221,52 +221,17 @@ try archive.enqueue(envelope)
 This archive is storage only. The application remains responsible for inspecting and
 removing entries, and no queue operation transmits bytes to Torii.
 
-### KAGEMUSHA V1
+### KAGEMUSHA wallet
 
-Production offline value flows use the sole KAGEMUSHA V1 aggregate-balance
-protocol for top-up, transfer, and recursive redemption.
-Torii's `GET /v1/kagemusha/readiness` endpoint reports universal
-protocol capability only. Offline UI and peer handoff must remain available
-without making this or any other network discovery call.
-
-Peer transfers exchange a nonce-bound payment request, one constant-size recursive
-spend bundle, and a signed durable acknowledgement over QR or NFC with networking disabled.
-
-### KAGEMUSHA V1 Torii API
-
-Torii exposes the asset-neutral `GET /v1/kagemusha/readiness`
-universal capability endpoint,
-plus payer-signed `POST /v1/kagemusha/top-up`, `POST /v1/kagemusha/redeem`, and
-`GET /v1/kagemusha/operations/{operation_id}` for separate online consensus
-lifecycles. Top-up sends one canonical versioned `SignedTransaction` containing
-exactly one `TopUpKagemushaV1`; Torii verifies that its authority is the
-embedded payer and submits the same transaction without rebuilding or signing
-it. Redemption retains its direct canonical request body. Requests and
-responses use the sole canonical KAGEMUSHA V1 Norito schemas. Operation results
-are monetary authority and must remain
-unusable until verified against the authenticated release artifacts.
-The Swift operation lookup returns `nil` only when Torii's bounded JSON error
-and `X-Iroha-Reject-Code` both identify the exact unknown operation; callers
-may then replay only the retained signed request and original operation ID.
-Capability discovery takes no selector.
-
-Capability discovery is not per-asset or per-dataspace backend readiness. The
-SDK accepts only the exact four-field `kagemusha_handoff_v1` contract with wire
-version `1`, secure-device lifecycle version `1`, and `ready: true`; no hop or
-proof-history ceiling is advertised.
-The native recursion capability must advertise the sole release profile and
-the 6,528-byte paired-proof ceiling. That transport bound is independent of
-transaction history and is not a hop, ancestry, fan-in, or receipt-count cap.
-No asset metadata, escrow catalog, dataspace enrollment, or backend enable flag
-is required for an app to expose offline user interfaces. Apps must not gate
-offline UI on this network discovery call; Torii reachability is not an
-offline-capability prerequisite.
-
-Top-up and redemption derive immutable operation identities from their complete
-canonical V1 request archives. Pending, applied, and rejected responses repeat
-that identity and operation kind; there is no compatibility schema.
-Command-specific proof and verifier material is validated when the operation
-consumes it and never changes universal offline capability.
+The KAGEMUSHA V1 aggregate-balance protocol, its Torii API (`/v1/kagemusha/*`)
+and the Swift top-up, redemption and operation-lookup clients were deleted on
+2026-10-05. The SDK keeps the wallet wire codec (`KagemushaWalletWireV1`), the
+Apple platform adapters (`KagemushaWalletApplePlatformV1`,
+`KagemushaWalletAppleAppAttestV1`, `KagemushaWalletAppleSystemV1`) and the
+generic `IrohaPeer*` QR, NFC and Nearby carriers; see the
+[wallet wire record](../../kagemusha_wallet_wire_v1.md) and the
+[design](../../kagemusha_single_design_proposal.md). Offline UI and peer handoff
+must remain available without any network discovery call.
 
 ## SoraFS orchestrator client
 

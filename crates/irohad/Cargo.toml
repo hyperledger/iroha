@@ -177,6 +177,7 @@ rand = { workspace = true }
 blake3 = { workspace = true }
 
 [dev-dependencies]
+p256 = { version = "0.13.2", default-features = false, features = ["std", "ecdsa"] }
 iroha_deploy = { workspace = true }
 iroha_musubi_service = { workspace = true, features = ["test-fixtures"] }
 iroha_executor_data_model = { workspace = true }

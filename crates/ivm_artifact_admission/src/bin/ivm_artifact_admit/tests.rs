@@ -9,7 +9,9 @@ fn fixture() -> (tempfile::TempDir, Inputs, Vec<u8>) {
         out: directory.path().join("manifest.json"),
     };
     let artifact = kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku Admission { view fn inspect() -> int { return 7; } }")
+        .compile_source(
+            "seiyaku Admission { view fn inspect() authorize(anyone) -> int { return 7; } }",
+        )
         .expect("compile current V1 artifact");
     std::fs::write(&inputs.code_file, &artifact).expect("write source fixture");
     (directory, inputs, artifact)

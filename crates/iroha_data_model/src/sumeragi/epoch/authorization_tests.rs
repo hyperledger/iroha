@@ -1,12 +1,7 @@
 //! Canonical codec, schema and succession coverage for scheduling epoch authorizations.
 
 use super::*;
-use crate::{
-    block::BlockHeader,
-    isi::kagemusha_v1::{
-        KagemushaMintFinalityAuthorityGenerationTemplateV1, KagemushaMintFinalityValidatorKeysV1,
-    },
-};
+use crate::block::BlockHeader;
 use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
 use iroha_model_base::peer::PeerId;
 use norito::codec::DecodeAll as _;
@@ -14,31 +9,33 @@ use std::any::TypeId;
 
 fn network() -> NetworkId {
     NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(Hash::new(
-        b"kagemusha-v1-isi",
+        b"validator-epoch-authorization",
     )))
 }
 
-// TODO(S21): build the neutral validator generation once the paired-Pasta authority is removed.
-fn signing_generation(generation: u64) -> KagemushaMintFinalityAuthorityGenerationV1 {
-    let mut validators = (1_u8..=4)
-        .map(|seed| KagemushaMintFinalityValidatorKeysV1 {
-            validator: PeerId::new(
-                KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519)
+fn signing_generation(generation: u64) -> ValidatorGenerationV1 {
+    signing_generation_with_seeds(generation, 1)
+}
+
+fn signing_generation_with_seeds(generation: u64, first_seed: u8) -> ValidatorGenerationV1 {
+    let mut validators = (first_seed..first_seed + 4)
+        .map(|seed| {
+            PeerId::new(
+                KeyPair::try_from_seed(vec![seed; 32], Algorithm::BlsNormal)
+                    .unwrap()
                     .public_key()
                     .clone(),
-            ),
-            eq_proof_public_key: [seed; 32],
-            ep_proof_public_key: [seed.saturating_add(16); 32],
+            )
         })
         .collect::<Vec<_>>();
-    validators.sort_by(|left, right| left.validator.cmp(&right.validator));
-    KagemushaMintFinalityAuthorityGenerationTemplateV1 {
-        version: 1,
+    validators.sort();
+    let generation = ValidatorGenerationV1 {
+        network_id: network(),
         generation,
         validators,
-    }
-    .bind_network_id(network())
-    .unwrap()
+    };
+    generation.validate().unwrap();
+    generation
 }
 
 fn genesis_authorization() -> ValidatorEpochAuthorizationV1 {
@@ -371,11 +368,11 @@ fn epoch_authorization_binding_keeps_fixed_width_identity() {
     for (authorization, expected) in [
         (
             genesis,
-            "b91c4a12f6d54b0124cb54865be202cdacbd9be78e8b75a6cefb346f90f5e918",
+            "fa3bbadad8f42a6aa870f4305059688a6924fe6acf2264038311187c7ea1fcd3",
         ),
         (
             installed,
-            "08dc4e2662ec63f7d6d18a185a8027120f1a1f6e7d98f9625241a41a9ecfa755",
+            "92e5c8c73b631a0ed5aa1b324c7dfa29d51964de48271d4c5181aa898668db9b",
         ),
     ] {
         let digest = authorization.authorization_id().unwrap();
@@ -409,10 +406,10 @@ fn epoch_authorization_digest_is_independent_of_body_framing() {
         transition_id: [0; 32],
         decision: ValidatorEpochDecisionV1::Retain,
     };
-    // SHA-256 of the fixed 281-byte domain-separated authorization preimage.
+    // SHA-256 of the fixed 267-byte domain-separated authorization preimage.
     assert_eq!(
         hex::encode(authorization.authorization_id().unwrap()),
-        "c44b44f659b5854ccdcd49bbaac9a0a4d26410627ec92ab593225e79042541d0"
+        "4d142785bb835f547fbf31b0fd11fcc78f94328e50445a0f8703c39169b61ccf"
     );
     let json = norito::json::to_json(&authorization).unwrap();
     assert_eq!(
@@ -439,17 +436,17 @@ fn epoch_authorization_uses_sumeragi_schema_identity() {
 }
 
 #[test]
-fn genesis_authorization_binds_authority_network_and_interval() {
+fn genesis_authorization_binds_generation_network_and_interval() {
     let authority = signing_generation(0);
     let authorization =
-        ValidatorEpochAuthorizationV1::genesis(&authority, 10).expect("valid initial authority");
+        ValidatorEpochAuthorizationV1::genesis(&authority, 10).expect("valid initial generation");
     authorization
-        .validate_against_authority(&authority)
+        .validate_against_generation(&authority)
         .unwrap();
     assert_eq!(authorization.network_id, authority.network_id);
     assert_eq!(
         authorization.authority_id,
-        authority.authority_id().unwrap()
+        authority.generation_id().unwrap()
     );
     assert_eq!(
         (
@@ -470,36 +467,44 @@ fn genesis_authorization_binds_authority_network_and_interval() {
     );
     assert_ne!(
         authorization.authorization_id().unwrap(),
-        authority.authority_id().unwrap()
+        authority.generation_id().unwrap()
     );
 }
 
 #[test]
-fn genesis_authorization_rejects_invalid_authority_or_interval() {
+fn genesis_authorization_rejects_invalid_generation_or_interval() {
     let authority = signing_generation(0);
     assert!(ValidatorEpochAuthorizationV1::genesis(&authority, 0).is_err());
-    for mutation in 0..5 {
+    for mutation in 0..4 {
         let mut invalid = authority.clone();
         match mutation {
             0 => invalid.generation = 1,
-            1 => invalid.validators[1].validator = invalid.validators[0].validator.clone(),
-            2 => invalid.version += 1,
-            3 => {
+            1 => invalid.validators[1] = invalid.validators[0].clone(),
+            2 => invalid.validators.swap(0, 1),
+            _ => {
                 invalid.validators.pop();
             }
-            _ => invalid.validators[0].eq_proof_public_key = [0; 32],
         }
         assert!(
             ValidatorEpochAuthorizationV1::genesis(&invalid, 10).is_err(),
             "mutation {mutation}"
         );
     }
-    let mut foreign = authority.clone();
-    foreign.validators[0].eq_proof_public_key = [0; 32];
-    assert!(matches!(
-        genesis_authorization().validate_against_authority(&foreign),
-        Err(ValidatorEpochAuthorizationErrorV1::InvalidSigningGeneration(_))
-    ));
+    let foreign = signing_generation_with_seeds(0, 9);
+    assert_eq!(
+        genesis_authorization().validate_against_generation(&foreign),
+        Err(ValidatorEpochAuthorizationErrorV1::InvalidField {
+            field: "epoch_authorization.generation"
+        })
+    );
+    let mut invalid = authority;
+    invalid.validators.pop();
+    assert_eq!(
+        genesis_authorization().validate_against_generation(&invalid),
+        Err(ValidatorEpochAuthorizationErrorV1::InvalidField {
+            field: "validator_generation"
+        })
+    );
 }
 
 #[test]
@@ -531,7 +536,7 @@ fn scheduling_authorization_retains_keys_without_retaining_epoch() {
         retained.authorization_id().unwrap()
     );
     retained_again
-        .validate_against_authority(&signing_generation(0))
+        .validate_against_generation(&signing_generation(0))
         .unwrap();
 }
 
@@ -570,12 +575,12 @@ fn scheduling_authorization_activation_and_cancellation_bind_attempts() {
     let mut successor = retained_authorization(&current);
     successor.decision = ValidatorEpochDecisionV1::Activate;
     successor.authority_generation = 1;
-    let target = signing_generation(1);
-    successor.authority_id = target.authority_id().unwrap();
+    let target = signing_generation_with_seeds(1, 5);
+    successor.authority_id = target.generation_id().unwrap();
     assert!(successor.validate_successor(&current).is_err());
     successor.transition_id = [4; 32];
     successor.validate_successor(&current).unwrap();
-    successor.validate_against_authority(&target).unwrap();
+    successor.validate_against_generation(&target).unwrap();
     let mut cancelled = retained_authorization(&current);
     cancelled.decision = ValidatorEpochDecisionV1::RetainAndCancel;
     cancelled.transition_id = [4; 32];

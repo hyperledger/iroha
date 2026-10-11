@@ -75,7 +75,7 @@ Implementation notes:
 | Doc | Path | Status | Summary |
 |-----|------|--------|---------|
 | SDK quickstart refresh | `specs/sdk/android/index.md` | Update | Expand setup section with sample app references, Managed Device requirements, and Torii pipeline pointers. |
-| Key management & attestation guide | `specs/sdk/android/key_management.md` | ✅ Published | Explains the software provider baseline, optional StrongBox preferences, alias lifecycle, and conditional attestation bundle handling with references to `android_strongbox_device_matrix.md`. |
+| Key management & attestation guide | `specs/sdk/android/key_management.md` | ✅ Published | Explains the software provider baseline, optional StrongBox preferences, alias lifecycle, and conditional attestation bundle handling with references to the device-lab lanes in `specs/compliance/android/device_lab_reservation.md`. |
 | Offline signing & envelopes | `specs/sdk/android/offline_signing.md` | ✅ Published | Details the envelope schema, Norito payload reuse, recovery workflows, and CLI helpers for verification. |
 | Networking & telemetry guide | `specs/sdk/android/networking.md` | ✅ Published | Captures `/v1/pipeline` HTTP client configuration, retry/queue plumbing, Norito RPC usage, and telemetry observer alignment with `telemetry_redaction.md`. |
 | Configuration & manifest guide | `specs/sdk/android/configuration.md` | ✅ Published | Documents the `iroha_config` → `ClientConfig` pipeline, manifest hashing, telemetry redaction knobs, pending-queue wiring, and the schema diff/override workflows referenced by `android_runbook.md`. |

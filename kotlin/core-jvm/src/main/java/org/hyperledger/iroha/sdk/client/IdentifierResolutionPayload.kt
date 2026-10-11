@@ -1,5 +1,7 @@
 package org.hyperledger.iroha.sdk.client
 
+import org.hyperledger.iroha.sdk.core.model.NetworkId
+
 /** Canonical RAM-LFE execution payload nested inside an identifier-resolution receipt. */
 class IdentifierResolutionExecutionPayload(
     @JvmField val programId: String,
@@ -18,6 +20,7 @@ class IdentifierResolutionExecutionPayload(
 
 /** Canonical payload covered by an identifier-resolution receipt attestation. */
 class IdentifierResolutionPayload(
+    @JvmField val networkId: NetworkId,
     @JvmField val policyId: String,
     @JvmField val execution: IdentifierResolutionExecutionPayload,
     @JvmField val opening: RamLfeOutputOpening,

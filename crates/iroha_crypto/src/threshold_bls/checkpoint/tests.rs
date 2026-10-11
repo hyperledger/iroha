@@ -254,7 +254,7 @@ fn accepted_contributions_restart_preserves_every_original_private_equation_with
     assert!(shares.belongs_to(&budget));
     assert_eq!(shares.as_slice().len(), 4);
     for (i, (share, expected)) in shares.as_slice().iter().zip(&expected).enumerate() {
-        assert_eq!(share.dealer_index(), (i + 1) as u16);
+        assert_eq!(share.dealer_index(), u16::try_from(i + 1).unwrap());
         assert_eq!(share.recipient_index(), 3);
         assert_eq!(*share.components_for_authenticated_encryption(), **expected);
     }
@@ -1053,25 +1053,35 @@ impl FieldDestination for FixedSourceFields {
     type Error = usize;
 }
 macro_rules! fixed_source_field {
-    ($index:literal,$ty:ty) => {
+    ($index:literal, [u8; $len:literal]) => {
+        fixed_source_field!(@impl $index, [u8; $len], field => {
+            field.decode_owned().map_err(DecodeIntoError::Codec)
+        });
+    };
+    ($index:literal, $ty:ty) => {
+        fixed_source_field!(@impl $index, $ty, field => {
+            field.with_payload(|bytes| {
+                let (value, used) = <$ty as DecodeFromSlice>::decode_from_slice(bytes)?;
+                if used != bytes.len() {
+                    return Err(norito::Error::LengthMismatch.into());
+                }
+                Ok(value)
+            })
+        });
+    };
+    (@impl $index:literal, $ty:ty, $field:ident => $decode:expr) => {
         impl DecodeField<$index, $ty> for FixedSourceFields {
             type Value = $ty;
             fn decode_field(
                 &mut self,
-                field: CanonicalField<'_, $ty>,
+                $field: CanonicalField<'_, $ty>,
             ) -> Result<$ty, DecodeIntoError<usize>> {
                 self.visited[self.count] = $index;
                 self.count += 1;
                 if self.refuse == Some($index) {
                     return Err(DecodeIntoError::Destination($index));
                 }
-                field.with_payload(|bytes| {
-                    let (value, used) = <$ty as DecodeFromSlice>::decode_from_slice(bytes)?;
-                    if used != bytes.len() {
-                        return Err(norito::Error::LengthMismatch.into());
-                    }
-                    Ok(value)
-                })
+                $decode
             }
         }
     };
@@ -1216,6 +1226,60 @@ fn checkpoint_source_shared_walk_preserves_each_original_destination_refusal_wit
                 .is_ok()
             );
             assert_eq!(&destination.visited[..destination.count], indices);
+        }
+    }
+}
+
+#[test]
+fn checkpoint_source_raw_hash_fields_reject_wrong_widths_and_generic_array_framing() {
+    for flags in [0, norito::core::header_flags::COMPACT_LEN] {
+        let _flags = norito::core::DecodeFlagsGuard::enter(flags);
+        for (source, _, indices) in fixed_source_rows() {
+            let mut payload = Vec::new();
+            norito::core::serialize_to_writer(&source, &mut payload).unwrap();
+            let mut offset = 4;
+            for (position, &index) in indices.iter().enumerate() {
+                let frame_start = offset;
+                let (length, prefix) =
+                    norito::core::inspect_len_from_slice(&payload[offset..]).unwrap();
+                let body_start = offset + prefix;
+                let end = body_start + length;
+                offset = end;
+                if index == 1 {
+                    continue;
+                }
+                let hash: [u8; 32] = payload[body_start..end].try_into().unwrap();
+                let mut oversized = hash.to_vec();
+                oversized.push(0xaa);
+                let mut generic_array = Vec::new();
+                norito::core::serialize_to_writer(&hash, &mut generic_array).unwrap();
+                assert_ne!(generic_array.len(), hash.len());
+                for body in [hash[..31].to_vec(), oversized, generic_array] {
+                    let mut malformed = payload[..frame_start].to_vec();
+                    norito::core::write_len_header_to_vec(&mut malformed, body.len() as u64);
+                    malformed.extend_from_slice(&body);
+                    malformed.extend_from_slice(&payload[end..]);
+                    let mut destination = FixedSourceFields::default();
+                    assert!(matches!(
+                        without_allocations(|| {
+                            DkgCheckpointSourceV1::decode_fields(&malformed, &mut destination)
+                        }),
+                        Err(DecodeIntoError::Codec(norito::Error::LengthMismatch))
+                    ));
+                    assert_eq!(
+                        &destination.visited[..destination.count],
+                        &indices[..position],
+                        "invalid raw field reached its destination or a later field"
+                    );
+                    assert!(matches!(
+                        DkgCheckpointSourceV1::decode_fields(
+                            &malformed,
+                            &mut norito::core::OwnedFields,
+                        ),
+                        Err(DecodeIntoError::Codec(norito::Error::LengthMismatch))
+                    ));
+                }
+            }
         }
     }
 }

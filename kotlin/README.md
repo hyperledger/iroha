@@ -10,7 +10,7 @@ APIs using the JDK 21 toolchain. Run the Norito consumer suite with:
 ./gradlew :core-jvm:test --tests 'org.hyperledger.iroha.sdk.norito.*' --console=plain
 ```
 
-Account and public-key admission requires the ABI-25 `connect_norito_bridge`
+Account and public-key admission requires the ABI-29 `connect_norito_bridge`
 native library, including `nativeValidateAccountAddressCanonical`. Address
 construction and parsing use Rust to validate every key and complete multisig
 policy, then require identical canonical bytes. The V1 identity catalog includes
@@ -23,8 +23,8 @@ pipeline described in `CLAUDE.md`.
 
 `ValidatorStakingNoritoV1` decodes first-release authority generations, epoch
 authorizations, signed all-edge beacon DKG records, committee transitions,
-typed registration, bond, withdrawal and slash plans, bounded reward claims with an explicit optional fee-custody
-payment, and peer rebinding. Its Rust-authored fixture is
+typed registration, bond, withdrawal and slash plans, bounded reward claims with
+one mandatory exact funded XOR payment, and peer rebinding. Its Rust-authored fixture is
 `fixtures/validator_staking/norito_v1.tsv`; the consumer tests also reject
 truncated records, malformed peer bindings, invalid withdrawal hash widths or markers,
 retired reward-plan layouts, invalid fee custody and
@@ -41,7 +41,7 @@ choice-free conviction update to Kotlin and Java callers. It emits the registere
 transaction encoding reject direction fields, noncanonical selectors, account
 addresses, quantities, durations, and malformed frames. The focused
 `UpdatePlainConviction*` Kotlin/Java-source tests compiled on 2026-09-24, but
-execution still requires a same-source ABI-25 native bridge for account
+execution still requires a same-source ABI-29 native bridge for account
 admission. This SDK slice does not establish Rust fixture parity or complete
 private standalone elections.
 
@@ -255,11 +255,12 @@ wallet's backup and device-transfer set must stay empty. A host that declares
 these attributes (`tools:replace` / `tools:remove`), must not ship resources named
 `kagemusha_wallet_v1_data_extraction_rules` or `kagemusha_wallet_v1_full_backup_content`,
 and must not declare a backup agent. `KagemushaWalletAndroidPlatformV1.create(context)`
-refuses below API 31 (keystore1 reports Keystore errors as absent keys), with backup
-allowed, with a backup agent, with non-exclude-only rule resources, or with a
-device-protected context. It cannot detect a replaced rules attribute. The returned
-handle has no public operation: only the Rust provider's role-checked signers reach
-the payment key through it.
+refuses below API 26, with backup allowed, with a backup agent, with non-exclude-only
+rule resources, or with a device-protected context. On API 26–30 a null key lookup stays
+unknown and initial generation needs Native's one-shot fresh-slot grant. It cannot detect
+a replaced rules attribute. The handle's only public operation, `enrollmentEvidence`,
+exports the E5 chain of the native-selected payment key with the adapter's own pre-E5
+check; only the Rust provider's role-checked signers reach the payment key through it.
 
 ### Android Keystore existence decisions
 
@@ -310,12 +311,13 @@ class output with `--classes MODULE=DIR`, where MODULE is `core-jvm`,
 method descriptors after a successful check. `--help` describes the arguments.
 
 For Android release inputs, add `--platform android --android-abi arm64-v8a`
-(or `x86_64`), `--symbol-tool PATH`, `--symbol-tool-sha256 SHA256`,
+(or `armeabi-v7a` or `x86_64`), `--symbol-tool PATH`, `--symbol-tool-sha256 SHA256`,
 `--symbol-tool-size-bytes SIZE`, and `--inspection-output NEW_DIRECTORY`.
 The tool path must be the canonical absolute reviewed NDK `llvm-nm` executable;
 the checker verifies its exact hash, size and file identity around the fixed
-dynamic-export inspection. The library must be an ELF64 shared object for the
-selected ABI. The fresh output directory retains the actual argv, clean
+dynamic-export inspection. The library must match the selected ABI: ARMv7 uses
+ELF32/machine40; ARM64 and x86_64 use their corresponding ELF64 identities.
+The fresh output directory retains the actual argv, clean
 environment, stdout, stderr and result before file-drift checks, including
 failed attempts. Host mode discovers platform tooling and reports that
 inspection as unpinned. Neither mode executes native code.
@@ -342,10 +344,45 @@ Android native artifacts, StrongBox, or physical devices.
 It covers the software key manager, explicit chain-context codecs, and shared
 SoraFS reference validators through the current canonical Kotlin/native API.
 
-The wallet module currently declares managed platform, payment-key and backup-rule
-unit tests. They check the private platform-upcall descriptors and direct adapter
-behavior. The Rust `KagemushaWalletPlatformV1` JNI adapter and native provider-open
-call remain TODO, so the module has no host-JNI test task or native execution claim.
+The wallet module has separate managed platform, payment-key and backup-rule tests
+and `:kagemusha-wallet-android:testDebugHostNative`, using the same explicit host
+library requirement. Its native checks cover malformed intake, closed handles,
+exact failure results and refusal to open without authenticated proof artifacts.
+They do not establish a working monetary provider, successful wallet operation,
+Android native artifact or physical-device qualification.
+
+Trusted embedding-app native startup calls the Rust bridge's `start_native_wallet`
+with independently provisioned installation pins, authenticated genesis, the signed
+complete producer graph and exclusive provider/original store. Kotlin receives an
+opaque `KagemushaWalletRuntimeV1` handle. `begin` carries only original credential,
+Enrollment CertificateSet, AccountId and asset-scope frames; the existing Ed25519
+account signs its fresh native challenge. `finish` admits the shared wallet owner.
+Failed finish consumes the challenge while retaining runtime custody for a fresh
+begin; closing the pending challenge cancels it. `cancelPendingOpen` handles an
+interrupted begin response, and `retryOpenCompletion` recovers the same live
+admitted handle after interrupted finish delivery without reauthorization. Foreign callers provide no trust
+pins, proof verdicts or payment-key replacement.
+
+Native artifact builds select their application release authority with the paired
+public inputs `MOBILE_SDK_WALLET_RUNTIME_AUTHORITY` and
+`MOBILE_SDK_WALLET_RUNTIME_TRUST_ED25519_HEX`. The authority is exactly
+`bpng-taira-v7` or `cbsi-release-v1`; the key is the independently selected,
+nonzero lowercase Ed25519 public-key hex. Provenance retains
+`wallet_runtime_authority` and `wallet_runtime_trust_ed25519_hex`. Authenticated
+artifact builds require both and the embedding app verifies its exact product
+selection. Partial or unknown selections fail. With both absent, managed-only
+configuration remains possible and Native original installation is unavailable.
+This build selection supplies no runtime or monetary authority by itself;
+installation still verifies the product's genuine signed originals and complete
+proof inventory through the same wallet engine.
+
+Typed setup and lifecycle APIs retain exact native bytes and expose durable status
+separately from fold backlog. Offer/Request setup bytes are canonical object
+frames; peer transports use Envelope frames. Native `envelope`/`original` conversion
+checks the expected kind, native scheme and full-frame bound without monetary
+admission. `cancelTimeExchange` discards only the
+pending native token and does not update an anchor. Native deployment material and
+full real-wallet qualification remain prerequisites for monetary use.
 
 ### Java transaction metadata
 
@@ -551,17 +588,74 @@ Lane observations do not confer finality.
 ### KAGEMUSHA wallet peer transports
 
 `KagemushaWalletWireV1` carries the KAGEMUSHA wallet V1 bounds, domain-separated
-digest roles, envelope header validation and strict `kgm1:` text, matching the
-Rust owner `iroha_data_model::kagemusha::kagemusha_wallet_v1`.
-`KagemushaP256Codec` is the P-256 device-key boundary: uncompressed SEC1 public
-keys and fixed-width low-S `r || s` signatures. The QR, NFC, and Nearby carriers
-(`IrohaPeer*`) move KAGEMUSHA wallet V1 envelope frames
+20 SHA-256 digest roles, including the NEW unsigned app/enrollment policy identities,
+16 signing domains, the unsigned ordinary Load receipt, envelope header validation and strict `kgm1:` text,
+matching the Rust owner `iroha_data_model::kagemusha::kagemusha_wallet_v1`. Every
+signature is ECDSA-P256-SHA256 over the 32-byte Poseidon message of its body, which
+the native core computes; the SDK checks it only as a canonical σ-field value.
+Only `artifactManifestDigest` hashes a signed object with SHA-256. Circuit-visible
+object, package, statement, operation and nullifier digests use the canonical
+60-domain Poseidon table. Requests bind the recorded receiver blacklist; quota
+usage is a depth-6 array.
+`KagemushaP256Codec` is the P-256 device-key boundary: uncompressed SEC1 public keys
+and fixed-width low-S `r || s` signatures. The Android payment key
+(`kagemusha-wallet-android`) is a `DIGEST_SHA256` KeyMint key that signs exactly the
+32-byte message the Rust signer passes with `SHA256withECDSA`. The QR, NFC, and
+Nearby carriers (`IrohaPeer*`) move KAGEMUSHA wallet V1 envelope frames
 (`../specs/kagemusha_wallet_wire_v1.md` §6) and test against
-`../fixtures/kagemusha/wallet_v1_vectors.json`. Envelope inspection is a
-structural transport check: the carried message is not decoded or verified and
-grants no monetary authority. Public wire size and verification work are
-independent of balance history; no hop, input, origin, ancestry, fan-in, or
-proof-depth limit is encoded.
+`../fixtures/kagemusha/wallet_v1_vectors.json`. Envelope inspection is a structural
+transport check: the carried message is not decoded or verified and grants no
+monetary authority. Public wire size and verification work are independent of
+balance history; no hop, input, origin, ancestry, fan-in, or proof-depth limit is
+encoded.
+
+`KagemushaWalletAccountOriginalV1` encodes and renders the bounded complete
+canonical Norito `AccountId` frame used by `KagemushaWalletV1.reviewSend`.
+Supply both the receiver's original Request and destination account frame;
+Native authenticates their binding before returning a review. Display the
+reviewed account under the application's independently selected network and
+bind local confirmation to the whole returned review, including its account
+tail. Encoding or rendering account DATA does not authorize a payment.
+
+### KAGEMUSHA enrollment transport
+
+`ToriiKagemushaWalletEnrollmentRequestV1` exposes `preKey`, `evidence`, `issue`
+and `deliver` factories for the exact native dispatch and evidence originals.
+`HttpClientTransport.enrollKagemushaWalletV1` sends one bounded canonical Norito
+POST with an explicit `ToriiCanonicalRequestAuth` and current-owner callback.
+It checks the direct account controller, response action, deadline and exact
+response provenance. `Pending` retains the consumed attempt: persist the request's
+`canonicalWire()` and recover it with `decodeCanonical`, then explicitly retry
+the same originals with fresh HTTP authentication. There is no automatic retry.
+Returned permit and credential originals remain unverified until admitted by the
+native enrollment owner. The shared Rust envelope fixture is
+`fixtures/kagemusha/enrollment_service_v1_vectors.json`.
+
+### KAGEMUSHA online Load receipt recovery
+
+`HttpClientTransport.getKagemushaWalletLoadIssuanceOriginalV1(selection, canonicalAuth,
+requireCurrentOwner)` performs one bounded account-signed GET to the current
+`/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}` route. It preserves the
+existing application `RequestSigner`, exact local `NetworkId`, original nonzero
+32-byte selectors and unverified response bytes. The owner check must throw if the
+captured actor/account or wallet changes, be safe on the completion thread, and
+be checked again by the consumer before Native admission. Closing the HTTP client
+or cancelling the returned future cancels its scoped call. The request requires
+HTTPS, a positive timeout, fresh canonical authentication and transport-owned
+encoding/cache headers; there is no redirect, retry, JSON or legacy route fallback.
+
+`ToriiKagemushaWalletLoadIssuanceOriginalV1` retains unverified response bytes for
+an unsigned `KagemushaWalletLoadReceiptV1`, including any nonempty malformed binary
+response. Its expected payer, network and selectors do not assert the response's
+identity. Before wallet admission, the consumer must decode the canonical receipt,
+bind its request/payer/scheme/wallet to the expected owner, and independently
+authenticate the original successful transaction, ordinary chain finality and the
+complete recursive Load proof. The receipt and HTTP 200 alone never authorize
+offline value. This transport adds no monetary codec, finality verifier or Native
+wallet admission integration, and exports no account key. Existing canonical request
+signing retains its ordinary account-address admission requirements; this fetch adds
+no account parser. Receipt recovery uses the original request identity; submitting a
+newly signed Load transaction with that identity is rejected.
 
 ### Petal Stream optical transport
 
@@ -856,7 +950,7 @@ The `libconnect_norito_bridge.so` files are **not tracked in git** — they are 
 
 ```bash
 # Install Rust Android targets
-rustup target add --toolchain 1.93.1 aarch64-linux-android x86_64-linux-android
+rustup target add --toolchain 1.93.1 aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 
 # Install cargo-ndk
 cargo install cargo-ndk --version 4.1.2 --locked
@@ -874,10 +968,18 @@ mkdir -p "$MOBILE_SDK_ANDROID_ARTIFACT_DIR"
 ./gradlew :client-android:buildNativeLibs
 ```
 
+For an authenticated source capture, also pass an external `--project-cache-dir`
+to the root Gradle invocation. With `MOBILE_SDK_ANDROID_ARTIFACT_DIR` selected,
+the shared settings script routes Kotlin persistent state below
+`gradle-build/iroha_kotlin_sdk/kotlin-persistent` in that artifact directory,
+including when the SDK is included in an application composite build. This
+Kotlin path takes precedence over caller properties; normal developer builds
+without the artifact directory retain their existing Kotlin cache selection.
+
 This Gradle task (and every `client-android` release assembly):
 1. Reads `iroha.dir` from `local.properties`
 2. Captures the exact Android-target dependency-closure source seal, then runs
-   locked `cargo ndk` separately for `arm64-v8a` and `x86_64`, checking that
+   locked `cargo ndk` separately for `arm64-v8a`, `armeabi-v7a` and `x86_64`, checking that
    seal after every ABI build. Each cargo-ndk destination is transient because
    Cargo can copy unrelated workspace `cdylib` outputs there; only the exact
    `libconnect_norito_bridge.so` name is promoted into the authoritative raw
@@ -900,6 +1002,9 @@ This Gradle task (and every `client-android` release assembly):
    closure `source_fingerprint_sha256`, toolchain identity, and raw/stripped
    sizes and hashes
 
+The isolated Python helpers use `-B` to prevent bytecode cache writes from
+changing the authenticated source inventory during configuration and validation.
+
 AGP 9.0.1 registers both generated directories through
 `addGeneratedSourceDirectory`, so the release AAR preserves those exact bytes
 and embeds the provenance at
@@ -920,7 +1025,7 @@ For local device integration inside this checkout, create the ignored
 `MOBILE_SDK_ANDROID_ARTIFACT_DIR` to that exact absolute canonical path. Set
 `MOBILE_SDK_PYTHON_BINARY` to a canonical Python 3.12 executable and add
 `-PirohaAndroidLocalIntegration=true` to the same normal Gradle command. This
-developer routing keeps the regular locked two-ABI native build, source seal,
+developer routing keeps the regular locked three-ABI native build, source seal,
 stripping, export and byte checks. It requires an owned directory with no tracked
 files and never falls back to source-tree JNI copies. Its embedded provenance
 has `artifact_scope: local-integration`; publication and release packaging reject
@@ -961,11 +1066,16 @@ state remains disabled.
 | ABI | File |
 |-----|------|
 | arm64-v8a | `$MOBILE_SDK_ANDROID_ARTIFACT_DIR/gradle-build/iroha_kotlin_sdk/client-android/generated/jniLibs/<mode>/arm64-v8a/libconnect_norito_bridge.so` |
+| armeabi-v7a | `$MOBILE_SDK_ANDROID_ARTIFACT_DIR/gradle-build/iroha_kotlin_sdk/client-android/generated/jniLibs/<mode>/armeabi-v7a/libconnect_norito_bridge.so` |
 | x86_64 | `$MOBILE_SDK_ANDROID_ARTIFACT_DIR/gradle-build/iroha_kotlin_sdk/client-android/generated/jniLibs/<mode>/x86_64/libconnect_norito_bridge.so` |
 
 `<mode>` is always `production`. There is no disabled native profile.
 
-> **Note:** `armeabi-v7a` (32-bit ARM) is not supported due to an upstream `rkyv` crate incompatibility with 32-bit targets.
+The production source contract requires all three ABIs, including 32-bit
+`armeabi-v7a`. The local ARMv7 diagnostic checks its dedicated build and ELF
+contract; it does not qualify a production artifact or device. Canonical
+32/64-bit runtime parity, ELF/page alignment and physical firmware qualification
+remain required for every supported target.
 
 ### Step 3: Publish to local Maven
 
@@ -1270,3 +1380,61 @@ The Java SDK required defensive null checks at every Kotlin call site (`!!`, `?:
 |-----------|---------|---------|------|
 | `org.bouncycastle:bcprov-jdk18on` | 1.78.1 | `core-jvm` crypto, connect, and deterministic key export | **Binary compatibility** — BouncyCastle releases are not always backward-compatible. Consumer apps that force a different BC version may hit linkage errors at runtime. The SDK links the pinned provider directly and fails clearly when the mandatory implementation is broken; it never probes BouncyCastle through reflection. |
 | `com.github.luben:zstd-jni` | 1.5.7-7 | `core-jvm` (Norito compression) | **Native library** — zstd-jni bundles platform-specific `.so`/`.dylib`. On Android, the JNI natives may conflict with other zstd consumers. Compression requires the native library to be available. |
+
+
+`KagemushaWalletEnrollmentV1` is the thin Android E2–E6 handle registered by trusted
+native startup. `KagemushaWalletEnrollmentSessionOriginalsV1(accessToken, dpopProof)`
+carries no attestation root: the KeyMint chain carries its own root, pinned by SPKI in
+the enrollment policy. `begin` retains the retry identity and returns native-selected
+issuer dispatch DATA; `acceptPermit` verifies the rooted signed pre-key permit before
+returning the existing-account challenge. Native rechecks the same-boot elapsed deadline
+at hardware generation and preserves the original server attempt on retry.
+
+The payment key has one hardware plan (design §2.2): StrongBox where the phone declares
+it, otherwise the TEE. There is no policy-driven selector, StrongBox-only profile or
+refusal plan, so a TEE-only phone enrolls in its TEE. A StrongBox failure before key
+creation spends that slot (its alias is never generated again, on API 26–30 and API 31+
+alike); the app abandons the attempt, and only an in-memory hardware-choice hint carries
+into a fresh slot under a new challenge, which generates in the TEE.
+
+`KagemushaWalletAndroidPlatformV1.enrollmentEvidence(target, policy)` exports the original
+leaf-first DER of the exact native-selected payment key and applies the adapter's own
+pre-E5 check (design §2.4) right after generation. `policy` is
+`AndroidAttestationE1PolicyV1.fromPolicyOriginals(app, enrollment)`, decoded from the exact
+canonical E1 policy originals (`KagemushaWalletAppPolicyV1`,
+`KagemushaWalletEnrollmentPolicyV1`, checked against `fixtures/kagemusha/wallet_enrollment_policy_v1_vectors.json`).
+The check follows the enrollment policy's Android admission order: chain shape, pinned
+root and path, key description placement and the documented attestation/KeyMint version
+pairs, secure hardware, key properties, the app identity (`attestationApplicationId` in
+either list, the package, every signer in the signer set, the version floor) and the
+locked, Verified RootOfTrust. It returns `Eligible(certificates)` or `Ineligible(refusal)`
+with the closed `KagemushaWalletEnrollmentRefusalV1` reason; attestation version 1
+(Keymaster 2) is `ATTESTATION_WITHOUT_APP_IDENTITY`. Revocation and trusted-time validity
+stay with the issuer, which remains authoritative. `prepareRequest(certificates)` sends
+that chain and nothing else: there is no Play Integrity token, vendor verdict or second
+attested key. Native creates/selects the hardware slot, binds existing-account
+authorization to exact E5 originals, and retains E5/E6 before returning bytes.
+`loadRuntime()` performs complete native artifact qualification and transfers to
+`KagemushaWalletRuntimeV1.beginEnrolled()` for a fresh account challenge. This does not
+establish issuer-service, ledger activation or phone qualification. `activation()`
+returns exact retained Activate bytes for ledger submission after Bootstrap.
+
+Issuer refusals carry one closed `u16` code (design §2.4), relayed unchanged:
+`KagemushaWalletEnrollmentRefusalV1.relayed(code, android = true)` names it and its holder
+class (Phone, App, Attempt, Account); zero and unknown codes are protocol errors. The
+host-native test pins this table to Native's `enrollmentRefusal` export.
+`KagemushaWalletEnrollmentOutcomeV1.fromHeaders` reads an Iroha enrollment service
+response and keeps a terminal `Refused` outcome distinct from `DeliveryWithheld` (codes
+11/12 at E6 delivery: keep the slot, marker and retained E5 and retry delivery) and
+`OutcomeUnknown` (recover; never restart as fresh).
+
+The enrollment handle's explicit `abandon` action permanently closes an unused enrollment
+before runtime handoff (design §3.2) and returns an explicit result: `LocalAbandoned` when
+no marker exists (the slot is abandoned on the phone and nothing is submitted) or
+`Abandonment(frame)` with the exact retained signed frame, byte for byte on every retry,
+which the account submits until finalized inclusion is authenticated. A fresh enrollment
+may start as soon as either returns. Native refuses once Bootstrap is selected. Closing the
+handle only releases ownership. The marker frame is published before an immutable digest
+selection, and nothing is returned until both are durable; a missing selected original is
+refused. Recovery may complete a missing selection for a present valid original. This local
+mechanism does not establish protection against complete filesystem rollback.

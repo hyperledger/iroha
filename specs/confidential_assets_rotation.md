@@ -72,9 +72,7 @@ so governance can schedule upgrades via
 - `crates/iroha_core/tests/zk_dedup.rs:1` proves that the `Preverify` cache
   rejects double-spends/double-proofs, including rotation scenarios where
   commitments differ.
-- KAGEMUSHA V1 suites cover proof-bound pooled-reserve top-up/redemption,
-  typed receipts, aggregate device state, and the paired-Pasta recursive
-  verifier. The release-surface regression in
+- The release-surface regression in
   `integration_tests/tests/zk_confidential_localnet.rs` ensures the retired
   generic `zk::Shield`, `zk::ZkTransfer`, and `zk::Unshield` wires, native
   anonymous escrow, and producerless confidential event/filter wires cannot
@@ -86,8 +84,7 @@ so governance can schedule upgrades via
 ## Runbook Ownership
 
 - **DevRel / Wallet SDK Leads:** maintain SDK snippets + quickstarts that show
-  how to surface pending transitions and replay KAGEMUSHA V1
-  top-up → aggregate spend → redemption tests locally (tracked under
+  how to surface pending transitions locally (tracked under
   `specs/project_tracker/confidential_assets_phase_c.md:M3.2`).
 - **Program Mgmt / Confidential Assets TL:** approve transition requests, keep
   `status.md` updated with upcoming rotations, and ensure waivers (if any) are

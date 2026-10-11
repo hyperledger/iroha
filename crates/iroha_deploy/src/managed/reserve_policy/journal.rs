@@ -164,8 +164,9 @@ pub(super) fn explicit(
         options.deadline,
         |attempt| {
             account
-                .inspect_initial_reserve_policy_preparation(
-                    &attempt.wallet_path(),
+                .inspect_initial_reserve_policy_preparation_in_parent(
+                    attempt.directory(),
+                    std::ffi::OsStr::new("transaction"),
                     &original.request(attempt.terms(), options.deadline),
                 )
                 .map_err(|_| {

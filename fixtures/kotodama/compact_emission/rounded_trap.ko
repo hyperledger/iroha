@@ -1,6 +1,7 @@
-seiyaku CompactRoundedTrap {
+seiyaku CompactRoundedTrap { permission WriteState;
     error enum Failure {
-        Low = 3, High = 9
+        Low = 3,
+        High = 9,
     }
 
     state int trace;
@@ -8,7 +9,7 @@ seiyaku CompactRoundedTrap {
         trace = 0;
     }
 
-    kotoage fn main() -> quantity authorize("WriteState") {
+    kotoage fn main() authorize(WriteState) -> quantity {
         trace = 31;
         require(true, Failure::Low);
         let quantity value = 3;

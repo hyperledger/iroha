@@ -62,6 +62,7 @@ internal object TestDerV1 {
     fun utf8(value: String): ByteArray = tlv(0x0c, value.toByteArray(Charsets.UTF_8))
     fun utcTime(value: String): ByteArray = tlv(0x17, value.toByteArray(Charsets.US_ASCII))
     fun bitString(value: ByteArray): ByteArray = tlv(0x03, byteArrayOf(0) + value)
+    fun boolean(value: Boolean): ByteArray = tlv(0x01, byteArrayOf(if (value) -1 else 0))
 
     /** Constructed context-specific `[tagNumber] EXPLICIT`, with the high-tag form above 30. */
     fun explicit(tagNumber: Int, content: ByteArray): ByteArray {
@@ -103,6 +104,26 @@ internal object TestDerV1 {
     }
 }
 
+/** Synthetic app identity of the test app policy: package, attested version and signer. */
+internal object TestAppV1 {
+    const val PACKAGE = "org.example.wallet"
+    const val VERSION = 9L
+    val SIGNER: ByteArray get() = ByteArray(32) { 0x22 }
+
+    /** `attestationApplicationId` (709) content: one package and its signer digests. */
+    fun applicationId(packageName: String = PACKAGE, version: Long = VERSION, signers: List<ByteArray> = listOf(SIGNER)): ByteArray =
+        TestDerV1.octets(TestDerV1.sequence(
+            TestDerV1.set(TestDerV1.sequence(TestDerV1.octets(packageName.toByteArray(Charsets.UTF_8)), TestDerV1.integer(version))),
+            TestDerV1.set(*signers.map { TestDerV1.octets(it) }.toTypedArray()),
+        ))
+
+    /** Locked, Verified RootOfTrust in the KeyMint (four-field) shape. */
+    fun rootOfTrust(locked: Boolean = true, state: Int = 0): ByteArray = TestDerV1.sequence(
+        TestDerV1.octets(ByteArray(32) { 0x11 }), TestDerV1.boolean(locked), TestDerV1.enumerated(state),
+        TestDerV1.octets(ByteArray(32) { 0x12 }),
+    )
+}
+
 /**
  * Original Android `KeyDescription` content of a synthetic attestation. Authorization lists map
  * a KeyMint tag to the DER of its explicit content.
@@ -112,13 +133,18 @@ internal data class TestKeyDescriptionV1(
     val keymasterLevel: Int,
     val software: Map<Int, ByteArray>,
     val hardware: Map<Int, ByteArray>,
+    val attestationVersion: Int = 200,
+    val keymasterVersion: Int = 200,
 ) {
     companion object {
-        /** Hardware-enforced SIGN, EC, 256 bits, SHA-256, P-256 and GENERATED, as KeyMint attests them. */
+        /**
+         * Hardware-enforced SIGN, EC, 256 bits, SHA-256, P-256, GENERATED and a locked Verified
+         * RootOfTrust, with the test app's identity in the software list, as KeyMint attests them.
+         */
         fun hardwareKey(level: Int) = TestKeyDescriptionV1(
             attestationLevel = level,
             keymasterLevel = level,
-            software = emptyMap(),
+            software = mapOf(709 to TestAppV1.applicationId()),
             hardware = mapOf(
                 1 to TestDerV1.set(TestDerV1.integer(2)),
                 2 to TestDerV1.integer(3),
@@ -127,6 +153,7 @@ internal data class TestKeyDescriptionV1(
                 10 to TestDerV1.integer(1),
                 503 to TestDerV1.tlv(0x05, ByteArray(0)),
                 702 to TestDerV1.integer(0),
+                704 to TestAppV1.rootOfTrust(),
             ),
         )
     }
@@ -154,9 +181,9 @@ internal object TestAttestationV1 {
         description: TestKeyDescriptionV1,
     ): List<X509Certificate> {
         val keyDescription = TestDerV1.sequence(
-            TestDerV1.integer(200),
+            TestDerV1.integer(description.attestationVersion.toLong()),
             TestDerV1.enumerated(description.attestationLevel),
-            TestDerV1.integer(200),
+            TestDerV1.integer(description.keymasterVersion.toLong()),
             TestDerV1.enumerated(description.keymasterLevel),
             TestDerV1.octets(challenge),
             TestDerV1.octets(ByteArray(0)),
@@ -165,9 +192,16 @@ internal object TestAttestationV1 {
         )
         val extension = TestDerV1.sequence(TestDerV1.oid(KEY_DESCRIPTION_OID), TestDerV1.octets(keyDescription))
         val leaf = certificate(serial, "attested key", "attestation root", subject, root.private, listOf(extension))
-        val rootCertificate = certificate(1, "attestation root", "attestation root", root.public, root.private, emptyList())
+        // The root is a CA permitted to sign certificates, as the google adapter profile requires.
+        val rootCertificate = certificate(1, "attestation root", "attestation root", root.public, root.private, listOf(
+            TestDerV1.sequence(TestDerV1.oid("2.5.29.19"), TestDerV1.boolean(true), TestDerV1.octets(TestDerV1.sequence(TestDerV1.boolean(true)))),
+            TestDerV1.sequence(TestDerV1.oid("2.5.29.15"), TestDerV1.boolean(true), TestDerV1.octets(TestDerV1.tlv(0x03, byteArrayOf(2, 4)))),
+        ))
         return listOf(leaf, rootCertificate)
     }
+
+    /** SHA-256 of a root key's DER `SubjectPublicKeyInfo`: the enrollment policy's pin form. */
+    fun spkiSha256(root: KeyPair): ByteArray = java.security.MessageDigest.getInstance("SHA-256").digest(root.public.encoded)
 
     private fun certificate(
         serial: Long,
@@ -217,19 +251,36 @@ internal class TestKeyStoreV1 : KagemushaWalletAndroidKeyStoreV1 {
 
     private val root = TestAttestationV1.p256()
     private var serial = 2L
+
+    /** E1 Android admission inputs that admit this store's synthetic chains. */
+    fun policy(minimumVersion: Long = 7, signers: List<ByteArray> = listOf(TestAppV1.SIGNER)) =
+        org.hyperledger.iroha.sdk.crypto.keystore.attestation.AndroidAttestationE1PolicyV1(
+            TestAppV1.PACKAGE, java.math.BigInteger.valueOf(minimumVersion), signers, listOf(
+                org.hyperledger.iroha.sdk.crypto.keystore.attestation.AndroidAttestationE1RootV1(
+                    org.hyperledger.iroha.sdk.crypto.keystore.attestation.AndroidAttestationE1RootV1.Family.GOOGLE_RSA,
+                    TestAttestationV1.spkiSha256(root), null,
+                ),
+            ),
+        )
     val entries = LinkedHashMap<String, Entry>()
     val generated = ArrayList<KagemushaWalletAndroidKeySpecV1>()
     var deleteCalls = 0
     var signCalls = 0
+
+    /** Exact messages handed to [sign], in call order. */
+    val signedMessages = ArrayList<ByteArray>()
     var getKeyCalls = 0
 
+    var apiLevel = 33
     var strongBoxAvailable = true
     var getKeyFailure: Throwable? = null
     var getKeyFailureAfterGenerations: Int = Int.MAX_VALUE
     var getKeyResult: Key? = null
+    var getKeyReturnsNull = false
     var chainFailure: Throwable? = null
     var nullChain = false
     var generateFailure: Throwable? = null
+    var generateFailureAfterWrite: Throwable? = null
     var attestedChallenge: ByteArray? = null
     var descriptionEdit: (TestKeyDescriptionV1) -> TestKeyDescriptionV1 = { it }
     var factsEdit: (KagemushaWalletAndroidKeyFactsV1) -> KagemushaWalletAndroidKeyFactsV1 = { it }
@@ -240,15 +291,15 @@ internal class TestKeyStoreV1 : KagemushaWalletAndroidKeyStoreV1 {
 
     fun facts(strongBox: Boolean): KagemushaWalletAndroidKeyFactsV1 = KagemushaWalletAndroidKeyFactsV1(
         insideSecureHardware = true,
-        securityLevel = if (strongBox) 2 else 1,
-        remainingUsageCount = -1,
+        securityLevel = if (apiLevel >= 31) (if (strongBox) 2 else 1) else null,
+        remainingUsageCount = if (apiLevel >= 31) -1 else null,
         origin = 1,
         purposes = 4,
         digests = setOf("SHA-256"),
         keySize = 256,
         userAuthenticationRequired = false,
-        userPresenceRequired = false,
-        userConfirmationRequired = false,
+        userPresenceRequired = if (apiLevel >= 28) false else null,
+        userConfirmationRequired = if (apiLevel >= 28) false else null,
     )
 
     private fun chain(pair: KeyPair, challenge: ByteArray, strongBox: Boolean) = TestAttestationV1.chain(
@@ -268,6 +319,7 @@ internal class TestKeyStoreV1 : KagemushaWalletAndroidKeyStoreV1 {
         getKeyCalls += 1
         if (generated.size >= getKeyFailureAfterGenerations) throw IllegalStateException("keystore2 binder failure")
         getKeyFailure?.let { throw it }
+        if (getKeyReturnsNull) return null
         getKeyResult?.let { return it }
         return entries[alias]?.key
     }
@@ -278,7 +330,7 @@ internal class TestKeyStoreV1 : KagemushaWalletAndroidKeyStoreV1 {
         return entries[alias]?.chain
     }
 
-    override fun generate(spec: KagemushaWalletAndroidKeySpecV1) {
+    override fun generate(spec: KagemushaWalletAndroidKeySpecV1): KeyPair {
         generated += spec
         generateFailure?.let { throw it }
         if (spec.strongBox && !strongBoxAvailable) throw KagemushaWalletAndroidStrongBoxUnavailableV1(null)
@@ -286,6 +338,8 @@ internal class TestKeyStoreV1 : KagemushaWalletAndroidKeyStoreV1 {
         val challenge = attestedChallenge ?: spec.challengeDigest()
         entries[spec.alias] = Entry(pair, TestNonExportableKeyV1(pair.private),
             chain(pair, challenge, spec.strongBox), factsEdit(facts(spec.strongBox)), spec.strongBox)
+        generateFailureAfterWrite?.let { throw it }
+        return KeyPair(pair.public, entries.getValue(spec.alias).key)
     }
 
     override fun facts(key: PrivateKey): KagemushaWalletAndroidKeyFactsV1 {
@@ -295,9 +349,10 @@ internal class TestKeyStoreV1 : KagemushaWalletAndroidKeyStoreV1 {
 
     override fun sign(key: PrivateKey, message: ByteArray): ByteArray {
         signCalls += 1
+        signedMessages += message.copyOf()
         signFailure?.let { throw it }
         val delegate = (key as TestNonExportableKeyV1).delegate
-        return Signature.getInstance("SHA256withECDSA").run {
+        return Signature.getInstance(KAGEMUSHA_WALLET_ANDROID_SIGNATURE_ALGORITHM_V1).run {
             initSign(delegate)
             update(message)
             sign()

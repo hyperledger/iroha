@@ -42,7 +42,6 @@ fn key(byte: u8) -> PublicKey {
 
 fn qc(kind: VoteKind, height: u64, block_hash: Hash32) -> Qc {
     Qc {
-        attestation_witness: None,
         epoch: crate::testing::TEST_EPOCH.id,
         kind,
         instance: Hash32::ZERO,
@@ -52,8 +51,6 @@ fn qc(kind: VoteKind, height: u64, block_hash: Hash32) -> Qc {
         result: Hash32([7; 32]),
         signers: Bitmap::from_indices(4, [0, 1, 2]).unwrap_or_else(|| Bitmap::new(4)),
         agg_sig: AggregateSignature([1; SIGNATURE_LEN]),
-        attest: false,
-        attestations: Vec::new(),
     }
 }
 
@@ -68,8 +65,6 @@ fn vote(block_hash: Hash32) -> Vote {
         result: Hash32([7; 32]),
         signer: 0,
         sig: Signature([2; SIGNATURE_LEN]),
-        attest: false,
-        attestation: None,
     }
 }
 
@@ -88,7 +83,6 @@ fn block() -> AvailableBody {
             payload_len: 0,
             proposer: 0,
             skipped_leaders: Vec::new(),
-            attest: false,
         },
         &super::driver::encode_tx(1, false, 0),
     )

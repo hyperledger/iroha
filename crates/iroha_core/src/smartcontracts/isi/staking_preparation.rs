@@ -3,12 +3,10 @@
 use super::*;
 use crate::state::StateReadOnly;
 use iroha_data_model::nexus::{
-    PUBLIC_LANE_PREPARATION_LIMIT, PublicLaneMonetaryBondV1, PublicLaneMonetaryRegistrationV1,
-    PublicLaneMonetaryScopeV1, PublicLaneMonetaryUnbondV1, PublicLanePreparationBalanceV1,
-    PublicLanePreparationOperationV1, PublicLanePreparationRequestV1, PublicLanePreparationV1,
-    PublicLanePrepareClaimV1, PublicLanePreparedPlanV1, PublicLaneRewardClaimPlanV1,
-    PublicLaneRewardClaimSourceV1, PublicLaneRewardRecordRefV1,
-    public_lane_reward_record_commitment,
+    PublicLaneMonetaryBondV1, PublicLaneMonetaryRegistrationV1, PublicLaneMonetaryScopeV1,
+    PublicLaneMonetaryUnbondV1, PublicLanePreparationBalanceV1, PublicLanePreparationOperationV1,
+    PublicLanePreparationRequestV1, PublicLanePreparationV1, PublicLanePreparedPlanV1,
+    PublicLaneRewardClaimPlanV1,
 };
 use std::collections::BTreeSet;
 
@@ -21,129 +19,6 @@ fn balance(world: &impl WorldReadOnly, asset: &AssetId) -> Quantity {
         .assets()
         .get(asset)
         .map_or_else(Quantity::zero, |value| value.as_ref().clone())
-}
-
-/// Build the exact bounded claim using the execution owner's entitlement calculation.
-pub(super) fn claim_plan(
-    world: &impl WorldReadOnly,
-    dust: &Quantity,
-    lane_id: LaneId,
-    intent: &PublicLanePrepareClaimV1,
-    scope: PublicLaneMonetaryScopeV1,
-    expiry: u64,
-) -> Result<PublicLaneRewardClaimPlanV1, Error> {
-    if usize::from(intent.max_records) > PUBLIC_LANE_PREPARATION_LIMIT
-        || intent.accrued_sources.len() > PUBLIC_LANE_PREPARATION_LIMIT
-        || !intent
-            .accrued_sources
-            .windows(2)
-            .all(|pair| pair[0] < pair[1])
-    {
-        return Err(invalid(
-            "reward preparation requires at most 64 records and strictly ordered sources",
-        ));
-    }
-    let expected_state = world
-        .public_lane_reward_claims()
-        .get(&(lane_id, intent.recipient.clone()))
-        .cloned();
-    let through = expected_state
-        .as_ref()
-        .and_then(|state| state.through_epoch);
-    if intent
-        .upto_epoch
-        .zip(through)
-        .is_some_and(|(cut, cursor)| cut < cursor)
-    {
-        return Err(invalid(
-            "reward preparation cut precedes the processing cursor",
-        ));
-    }
-    let lower = through.map_or(std::ops::Bound::Included((lane_id, 0)), |epoch| {
-        std::ops::Bound::Excluded((lane_id, epoch))
-    });
-    let mut sources = BTreeSet::new();
-    // Explicit old accrual selection avoids an unbounded scan of all historical sources.
-    for source in &intent.accrued_sources {
-        if world
-            .public_lane_reward_accruals()
-            .get(&(lane_id, intent.recipient.clone(), source.clone()))
-            .is_none_or(Quantity::is_zero)
-        {
-            return Err(invalid(
-                "selected reward source has no retained positive accrual",
-            ));
-        }
-        sources.insert(source.clone());
-    }
-    let mut records = Vec::new();
-    for (key, record) in world
-        .public_lane_rewards()
-        .range((lower, std::ops::Bound::Included((lane_id, u64::MAX))))
-        .take(usize::from(intent.max_records))
-    {
-        if intent.upto_epoch.is_some_and(|cut| key.1 > cut) {
-            break;
-        }
-        if !public_lane_reward_record_matches_key(key, record) {
-            return Err(invalid(
-                "reward preparation found a non-canonical reward record",
-            ));
-        }
-        sources.insert(record.asset.clone());
-        if sources.len() > PUBLIC_LANE_PREPARATION_LIMIT {
-            return Err(invalid(
-                "reward preparation exceeds 64 exact custody sources; request a smaller record prefix",
-            ));
-        }
-        records.push(PublicLaneRewardRecordRefV1 {
-            epoch: key.1,
-            record_hash: public_lane_reward_record_commitment(record).map_err(|error| {
-                Error::InvariantViolation(
-                    format!("reward record commitment failed: {error}").into(),
-                )
-            })?,
-        });
-    }
-    let sources = sources
-        .into_iter()
-        .map(|source_asset| {
-            let expected_accrued = world
-                .public_lane_reward_accruals()
-                .get(&(lane_id, intent.recipient.clone(), source_asset.clone()))
-                .cloned();
-            PublicLaneRewardClaimSourceV1 {
-                destination_asset: AssetId::with_scope(
-                    source_asset.definition().clone(),
-                    intent.recipient.clone(),
-                    *source_asset.scope(),
-                ),
-                source_asset,
-                expected_accrued,
-                payout: Quantity::zero(),
-            }
-        })
-        .collect();
-    let mut plan = PublicLaneRewardClaimPlanV1 {
-        network_scope: scope,
-        valid_until_height: expiry,
-        expected_state,
-        records,
-        sources,
-        fee_claim: None,
-    };
-    if !plan.has_canonical_shape(&intent.recipient) {
-        return Err(invalid("reward preparation produced a non-canonical plan"));
-    }
-    let prepared = effects::evaluate_reward_claim(world, dust, lane_id, &intent.recipient, &plan)?;
-    for (source, _, payout) in prepared.payouts {
-        plan.sources
-            .iter_mut()
-            .find(|entry| entry.source_asset == source)
-            .expect("evaluated source exists")
-            .payout = payout;
-    }
-    Ok(plan)
 }
 
 fn validator_record<'a>(
@@ -324,20 +199,18 @@ pub fn prepare_public_lane_plan(
             )
         }
         PublicLanePreparationOperationV1::ClaimRewards(intent) => {
-            let mut plan = claim_plan(
-                world,
-                &state.nexus().staking.reward_dust_threshold,
-                lane,
-                intent,
-                scope.clone(),
-                expiry,
-            )?;
-            plan.fee_claim = crate::validation_fee_rewards::fee_reward_claim_plan(
+            let fee_claim = crate::validation_fee_rewards::fee_reward_claim_plan(
                 world,
                 assumed_execution_height,
                 &intent.recipient,
                 lane,
-            )?;
+            )?
+            .ok_or_else(|| invalid("no funded reward entitlement is available to claim"))?;
+            let plan = PublicLaneRewardClaimPlanV1 {
+                network_scope: scope.clone(),
+                valid_until_height: expiry,
+                fee_claim,
+            };
             PublicLanePreparedPlanV1::Claim(plan)
         }
     };
@@ -353,14 +226,8 @@ pub fn prepare_public_lane_plan(
             assets.insert(plan.destination_asset.clone());
         }
         PublicLanePreparedPlanV1::Claim(plan) => {
-            for source in &plan.sources {
-                assets.insert(source.source_asset.clone());
-                assets.insert(source.destination_asset.clone());
-            }
-            if let Some(claim) = &plan.fee_claim {
-                assets.insert(claim.source_asset.clone());
-                assets.insert(claim.destination_asset.clone());
-            }
+            assets.insert(plan.fee_claim.source_asset.clone());
+            assets.insert(plan.fee_claim.destination_asset.clone());
         }
     }
     for asset in &assets {
@@ -377,13 +244,8 @@ pub fn prepare_public_lane_plan(
                     .get(&asset)
                     .cloned()
                     .unwrap_or_else(Quantity::zero),
-                rewards_reserved: quantity_add(
-                    world
-                        .public_lane_reward_reserves()
-                        .get(&asset)
-                        .cloned()
-                        .unwrap_or_else(Quantity::zero),
-                    crate::validation_fee_rewards::reserved_fee_custody(world, &asset)?,
+                rewards_reserved: crate::validation_fee_rewards::reserved_fee_custody(
+                    world, &asset,
                 )?,
                 asset,
             })

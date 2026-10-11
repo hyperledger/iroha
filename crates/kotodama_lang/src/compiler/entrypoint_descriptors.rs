@@ -23,19 +23,6 @@ pub(super) fn build_entrypoint_descriptors(
         hints_by_name.insert(&func.name, (&sets.reads, &sets.writes));
         hint_report_by_name.insert(&func.name, report);
     }
-    let trigger_anchor_names = typed
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            TypedItem::Function(func)
-                if entrypoint_kind_from_modifiers(&func.modifiers).is_some() =>
-            {
-                Some(func.name.clone())
-            }
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let namespaced_trigger_anchor = trigger_anchor_names.first().cloned();
     let mut triggers_by_name: HashMap<String, Vec<TriggerDescriptor>> = HashMap::new();
     for trigger in &typed.triggers {
         let descriptor = TriggerDescriptor {
@@ -45,22 +32,12 @@ pub(super) fn build_entrypoint_descriptors(
             authority: trigger.authority.clone(),
             metadata: trigger.metadata.clone(),
             callback: TriggerCallback {
-                namespace: trigger.call.namespace.clone(),
+                namespace: None,
                 entrypoint: trigger.call.entrypoint.clone(),
             },
         };
-        let trigger_anchor = if trigger.call.namespace.is_some() {
-            namespaced_trigger_anchor.clone().ok_or_else(|| {
-                format!(
-                    "trigger `{}` has a namespaced callback but the seiyaku has no entrypoint descriptor to carry it",
-                    trigger.id
-                )
-            })?
-        } else {
-            trigger.call.entrypoint.clone()
-        };
         triggers_by_name
-            .entry(trigger_anchor)
+            .entry(trigger.call.entrypoint.clone())
             .or_default()
             .push(descriptor);
     }
@@ -166,7 +143,14 @@ pub(super) fn build_entrypoint_descriptors(
             argument_schema,
             return_type,
             return_schema,
-            permission: func.modifiers.permission.clone(),
+            authorization: match func.modifiers.kind {
+                crate::ast::FunctionKind::Hajimari | crate::ast::FunctionKind::Kaizen => iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::RuntimeLifecycle,
+                _ => match func.modifiers.authorization.as_deref() {
+                    Some("anyone") => iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
+                    Some(name) => iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Permission(name.parse().map_err(|error| format!("invalid permission name `{name}`: {error}"))?),
+                    None => return Err(format!("public function `{}` has no authorization policy", func.name)),
+                },
+            },
             read_keys: reads,
             write_keys: writes,
             access_hints_complete: include_hints

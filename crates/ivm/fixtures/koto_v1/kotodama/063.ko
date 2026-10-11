@@ -1,7 +1,7 @@
 
         module RegisterAssetHelpers {
             fn f() {
-                ledger::asset::register(asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), name: "X", scale: 1, mintable: 0);
+                ledger::asset::register(asset_definition: AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"), name: "X", spec: NumericSpec::fractional(1), mintable: Mintable::Infinitely);
             }
         }
     

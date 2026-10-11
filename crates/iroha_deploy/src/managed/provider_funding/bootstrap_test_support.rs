@@ -8,6 +8,9 @@ use iroha_wallet::operations::BoundedTransactionOptions;
 use std::sync::Arc;
 
 impl ProviderFundingBootstrap {
+    // Finish all genuine child production before freshly recovering retained originals.
+    // The original fees move once; no current proof or selection graph crosses this boundary.
+    #[inline(never)]
     pub(in crate::managed) fn bootstrap_native(
         &mut self,
         native: &mut NativeFixture,
@@ -15,6 +18,20 @@ impl ProviderFundingBootstrap {
         utc: u64,
         options: &BoundedTransactionOptions,
     ) -> ProviderFundingProgress {
+        let fees = self.bootstrap_native_children(native, policy, utc, options);
+        self.recover_local_selected_if_present(policy, &fees, options.deadline)
+            .unwrap()
+            .unwrap()
+    }
+
+    #[inline(never)]
+    fn bootstrap_native_children(
+        &mut self,
+        native: &mut NativeFixture,
+        policy: &ReserveAuthorityPolicyV1,
+        utc: u64,
+        options: &BoundedTransactionOptions,
+    ) -> Fees {
         self.authority.validate_profile().unwrap();
         self.validate_policy(policy).unwrap();
         let plan = self.plan().unwrap();
@@ -156,8 +173,6 @@ impl ProviderFundingBootstrap {
             .funding_retain(&verifier, options.deadline)
             .unwrap();
         drop(capacity);
-        self.recover_local_selected_if_present(policy, &original.fees, options.deadline)
-            .unwrap()
-            .unwrap()
+        original.fees
     }
 }

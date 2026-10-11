@@ -6,6 +6,8 @@
 //! and the held scheme policy enables it; with every control off, no clock condition, list or
 //! quota blocks payment. Policies never undo completed credit (§7).
 
+use core::cmp::Ordering;
+
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 
@@ -16,7 +18,7 @@ use super::{
     WalletResult, WalletVersionsV1, decode_frame_v1,
     digest::WalletFieldItemsV1,
     digest::{
-        KagemushaWalletDigestRoleV1 as Role, KagemushaWalletSignerOutputV1,
+        KagemushaWalletObjectDigestDomainV1 as ObjectDomain, KagemushaWalletSignerOutputV1,
         KagemushaWalletSigningDomainV1 as Domain, WalletTranscriptV1,
         kagemusha_wallet_freeze_signature_v1, kagemusha_wallet_signed_object_digest_v1,
         kagemusha_wallet_signing_message_v1, kagemusha_wallet_verify_signature_v1,
@@ -28,20 +30,23 @@ use super::{
         KagemushaWalletCredentialV1, KagemushaWalletSchemeV1, KagemushaWalletSignerCertificateV1,
         KagemushaWalletSignerRoleV1,
     },
-    invalid_v1,
+    invalid_v1, is_zero_v1,
     keys::KagemushaDeviceSignatureV1,
     overflow_v1,
     poseidon::{
         KAGEMUSHA_WALLET_BLACKLIST_LEAF_DOMAIN_V1, KAGEMUSHA_WALLET_BLACKLIST_NODE_DOMAIN_V1,
         KAGEMUSHA_WALLET_QUOTA_NODE_DOMAIN_V1, KAGEMUSHA_WALLET_QUOTA_WINDOW_DOMAIN_V1,
-        poseidon_items_v1,
+        KagemushaWalletIndexedInsertV1, KagemushaWalletIndexedLeafV1,
+        KagemushaWalletIndexedOpeningV1, kagemusha_wallet_integer_cmp_v1, poseidon_items_v1,
     },
     require_canonical_field_v1, require_nonzero_field_v1, require_nonzero_v1, require_scheme_v1,
     require_version_v1,
     state::{
-        KagemushaWalletEffectV1, KagemushaWalletPolicyUpdateKindV1,
-        KagemushaWalletQuotaUsageLeafV1, KagemushaWalletStateCoreV1, KagemushaWalletStateRestV1,
-        KagemushaWalletStateV1,
+        KagemushaWalletBlacklistHistoryLeafV1, KagemushaWalletEffectV1,
+        KagemushaWalletPolicyUpdateKindV1, KagemushaWalletQuotaOpeningV1,
+        KagemushaWalletQuotaUsageArrayV1, KagemushaWalletQuotaUsageLeafV1,
+        KagemushaWalletStateCoreV1, KagemushaWalletStateRestV1, KagemushaWalletStateV1,
+        quota_tree_levels_v1, quota_tree_opening_v1,
     },
 };
 
@@ -49,15 +54,15 @@ use super::{
 #[path = "policy_tests.rs"]
 mod policy_tests;
 
-/// Exact `scheme-policy-body` transcript bytes.
+/// Exact scheme-policy body transcript bytes (signed under `kgwspol1`).
 pub const KAGEMUSHA_WALLET_SCHEME_POLICY_BODY_TRANSCRIPT_BYTES_V1: usize =
     2 + 2 * 32 + 8 + 4 + 2 * 32;
-/// Exact `fee-schedule-body` transcript bytes.
+/// Exact fee-schedule body transcript bytes (signed under `kgwfsch1`).
 pub const KAGEMUSHA_WALLET_FEE_SCHEDULE_BODY_TRANSCRIPT_BYTES_V1: usize =
     2 + 2 * 32 + 8 + 32 + 4 + 3 * 16 + 1 + 32;
 /// Basis-point denominator of a proportional fee.
 pub const KAGEMUSHA_WALLET_FEE_BASIS_POINTS_DENOMINATOR_V1: u32 = 10_000;
-/// Exact `blacklist-body` transcript bytes.
+/// Exact blacklist body transcript bytes (signed under `kgwblst1`).
 pub const KAGEMUSHA_WALLET_BLACKLIST_BODY_TRANSCRIPT_BYTES_V1: usize = 2 + 32 + 8 + 8 + 4 + 2 * 32;
 /// Fixed depth of the blacklist gap tree.
 pub const KAGEMUSHA_WALLET_BLACKLIST_TREE_DEPTH_V1: usize = 16;
@@ -69,16 +74,20 @@ pub const KAGEMUSHA_WALLET_BLACKLIST_ENTRIES_MAX_V1: u32 = KAGEMUSHA_WALLET_BLAC
 pub const KAGEMUSHA_WALLET_BLACKLIST_SENTINEL_LOW_V1: [u8; 32] = [0x00; 32];
 /// Upper sentinel of the gap sequence; never a valid entry.
 pub const KAGEMUSHA_WALLET_BLACKLIST_SENTINEL_HIGH_V1: [u8; 32] = [0xff; 32];
-/// Fixed depth of the quota windows tree.
+/// Exact transcript bytes of one retained blacklist gap opening: `lower || upper || LE32
+/// leaf_index || 16 siblings` (580).
+pub const KAGEMUSHA_WALLET_BLACKLIST_GAP_OPENING_TRANSCRIPT_BYTES_V1: usize =
+    2 * 32 + 4 + KAGEMUSHA_WALLET_BLACKLIST_TREE_DEPTH_V1 * 32;
+/// Fixed depth of the quota windows tree and of the quota-usage array.
 pub const KAGEMUSHA_WALLET_QUOTA_TREE_DEPTH_V1: usize = 6;
 /// Window slots of one quota share.
 pub const KAGEMUSHA_WALLET_QUOTA_WINDOWS_MAX_V1: usize = 1 << KAGEMUSHA_WALLET_QUOTA_TREE_DEPTH_V1;
-/// Exact `quota-share-body` transcript bytes.
+/// Exact quota-share body transcript bytes (signed under `kgwqshr1`).
 pub const KAGEMUSHA_WALLET_QUOTA_SHARE_BODY_TRANSCRIPT_BYTES_V1: usize =
     2 + 3 * 32 + 3 * 8 + 32 + 4 + 32;
-/// Exact `time-anchor-body` transcript bytes.
+/// Exact time-anchor body transcript bytes (signed under `kgwtanc1`).
 pub const KAGEMUSHA_WALLET_TIME_ANCHOR_BODY_TRANSCRIPT_BYTES_V1: usize = 2 + 3 * 32 + 8 + 32;
-/// Exact `charge-quote-body` transcript bytes.
+/// Exact charge-quote body transcript bytes (signed under `kgwchgq1`).
 pub const KAGEMUSHA_WALLET_CHARGE_QUOTE_BODY_TRANSCRIPT_BYTES_V1: usize =
     2 + 3 * 32 + 1 + 3 * 16 + 32 + 8 + 32;
 
@@ -94,8 +103,8 @@ pub(super) struct SignerBindingV1<'a> {
     pub(super) certificate: &'a [u8; 32],
     /// Required signer role.
     pub(super) role: KagemushaWalletSignerRoleV1,
-    /// Poseidon domain of the signed body message.
-    pub(super) signing_domain: Domain,
+    /// Signing domain of the body.
+    pub(super) domain: Domain,
 }
 
 impl SignerBindingV1<'_> {
@@ -120,8 +129,8 @@ impl SignerBindingV1<'_> {
         )?;
         kagemusha_wallet_freeze_signature_v1(
             &certificate.body.key,
-            self.signing_domain,
-            &kagemusha_wallet_signing_message_v1(self.signing_domain, transcript),
+            self.domain,
+            &kagemusha_wallet_signing_message_v1(self.domain, transcript),
             signer_output,
         )
     }
@@ -141,8 +150,8 @@ impl SignerBindingV1<'_> {
         certificate.verify_role(scheme, self.role)?;
         kagemusha_wallet_verify_signature_v1(
             &certificate.body.key,
-            self.signing_domain,
-            &kagemusha_wallet_signing_message_v1(self.signing_domain, transcript),
+            self.domain,
+            &kagemusha_wallet_signing_message_v1(self.domain, transcript),
             signature,
         )
     }
@@ -152,7 +161,7 @@ impl SignerBindingV1<'_> {
 // Scheme policy (§7, design §6.1)
 // ---------------------------------------------------------------------------------------
 
-/// Body of a scheme policy, signed by a RegulatoryPolicy-role key under `kgwspol1`.
+/// Body of a scheme policy, signed by a RegulatoryPolicy-role key under `scheme-policy-body`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletSchemePolicyBodyV1"
@@ -189,7 +198,8 @@ impl KagemushaWalletSchemePolicyBodyV1 {
             .finish()
     }
 
-    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
+    /// Signing message `m = P_bytes(kgwspol1, transcript)`: the 32 bytes the RegulatoryPolicy-role signer signs with
+    /// ECDSA-P256-SHA256 (owner answer A1).
     #[must_use]
     pub fn signing_message(&self) -> [u8; 32] {
         kagemusha_wallet_signing_message_v1(Domain::SchemePolicy, &self.transcript())
@@ -205,7 +215,8 @@ impl KagemushaWalletSchemePolicyBodyV1 {
         require_version_v1("scheme_policy.version", self.version)?;
         require_nonzero_v1("scheme_policy.scheme_id", &self.scheme_id)?;
         require_nonzero_v1("scheme_policy.asset_digest", &self.asset_digest)?;
-        require_nonzero_v1("scheme_policy.signer_certificate", &self.signer_certificate)?;
+        require_nonzero_field_v1("scheme_policy.signer_certificate", &self.signer_certificate)?;
+        require_canonical_field_v1("scheme_policy.fee_schedule", &self.fee_schedule)?;
         if self.policy_epoch == 0 {
             return Err(invalid_v1("scheme_policy.policy_epoch"));
         }
@@ -222,7 +233,7 @@ impl KagemushaWalletSchemePolicyBodyV1 {
             scheme_id: &self.scheme_id,
             certificate: &self.signer_certificate,
             role: KagemushaWalletSignerRoleV1::RegulatoryPolicy,
-            signing_domain: Domain::SchemePolicy,
+            domain: Domain::SchemePolicy,
         }
     }
 }
@@ -235,7 +246,7 @@ impl KagemushaWalletSchemePolicyBodyV1 {
 pub struct KagemushaWalletSchemePolicyV1 {
     /// Signed body.
     pub body: KagemushaWalletSchemePolicyBodyV1,
-    /// RegulatoryPolicy-role signature over the `kgwspol1` signing message.
+    /// RegulatoryPolicy-role signature over `scheme-policy-body`.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -258,11 +269,12 @@ impl KagemushaWalletSchemePolicyV1 {
         Ok(Self { body, signature })
     }
 
-    /// Scheme policy digest `H("scheme-policy", m || signature)`.
+    /// Scheme policy object digest `P(kgwopol1, [m, r_lo, r_hi, s_lo, s_hi])` (owner
+    /// answer B1), one canonical σ-field value.
     #[must_use]
     pub fn scheme_policy_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
-            Role::SchemePolicy,
+            ObjectDomain::SchemePolicy,
             &self.body.signing_message(),
             &self.signature,
         )
@@ -379,6 +391,7 @@ impl KagemushaWalletFeeRoundingV1 {
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletFeeScheduleBodyV1"
 )]
+#[repr(align(16))]
 pub struct KagemushaWalletFeeScheduleBodyV1 {
     /// Wire version; exactly [`KAGEMUSHA_WALLET_VERSION_V1`](super::KAGEMUSHA_WALLET_VERSION_V1).
     pub version: u16,
@@ -424,7 +437,8 @@ impl KagemushaWalletFeeScheduleBodyV1 {
             .finish()
     }
 
-    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
+    /// Signing message `m = P_bytes(kgwfsch1, transcript)`: the 32 bytes the RegulatoryPolicy-role signer signs with
+    /// ECDSA-P256-SHA256 (owner answer A1).
     #[must_use]
     pub fn signing_message(&self) -> [u8; 32] {
         kagemusha_wallet_signing_message_v1(Domain::FeeSchedule, &self.transcript())
@@ -454,7 +468,7 @@ impl KagemushaWalletFeeScheduleBodyV1 {
             "fee_schedule.beneficiary_account_digest",
             &self.beneficiary_account_digest,
         )?;
-        require_nonzero_v1("fee_schedule.signer_certificate", &self.signer_certificate)?;
+        require_nonzero_field_v1("fee_schedule.signer_certificate", &self.signer_certificate)?;
         self.validate_terms()
     }
 
@@ -493,7 +507,7 @@ impl KagemushaWalletFeeScheduleBodyV1 {
             scheme_id: &self.scheme_id,
             certificate: &self.signer_certificate,
             role: KagemushaWalletSignerRoleV1::RegulatoryPolicy,
-            signing_domain: Domain::FeeSchedule,
+            domain: Domain::FeeSchedule,
         }
     }
 }
@@ -506,7 +520,7 @@ impl KagemushaWalletFeeScheduleBodyV1 {
 pub struct KagemushaWalletFeeScheduleV1 {
     /// Signed body.
     pub body: KagemushaWalletFeeScheduleBodyV1,
-    /// RegulatoryPolicy-role signature over the `kgwfsch1` signing message.
+    /// RegulatoryPolicy-role signature over `fee-schedule-body`.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -529,11 +543,12 @@ impl KagemushaWalletFeeScheduleV1 {
         Ok(Self { body, signature })
     }
 
-    /// Fee schedule digest `H("fee-schedule", m || signature)`.
+    /// Fee schedule object digest `P(kgwofee1, [m, r_lo, r_hi, s_lo, s_hi])` (owner
+    /// answer B1), one canonical σ-field value.
     #[must_use]
     pub fn fee_schedule_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
-            Role::FeeSchedule,
+            ObjectDomain::FeeSchedule,
             &self.body.signing_message(),
             &self.signature,
         )
@@ -612,20 +627,12 @@ impl KagemushaWalletFeeScheduleV1 {
 // Blacklist and its fixed-depth gap tree (§7, design §6.3)
 // ---------------------------------------------------------------------------------------
 
-/// One listed recipient account digest.
+/// One listed account digest.
+///
+/// Entries order by the limb integer `hi · 2^128 + lo` of the digest's two σ limbs, the 32
+/// bytes read as one little-endian integer (owner answer A4).
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    IntoSchema,
-    norito::NoritoSchema,
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Decode, Encode, IntoSchema, norito::NoritoSchema,
 )]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletBlacklistEntryV1"
@@ -633,6 +640,18 @@ impl KagemushaWalletFeeScheduleV1 {
 pub struct KagemushaWalletBlacklistEntryV1 {
     /// Listed account digest (`H("account", AccountId frame)`).
     pub account_digest: [u8; 32],
+}
+
+impl Ord for KagemushaWalletBlacklistEntryV1 {
+    fn cmp(&self, other: &Self) -> Ordering {
+        kagemusha_wallet_integer_cmp_v1(&self.account_digest, &other.account_digest)
+    }
+}
+
+impl PartialOrd for KagemushaWalletBlacklistEntryV1 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 /// Gap leaf `P(kgwblkl1, limbs(lower) || limbs(upper))` (§7): the two 32-byte account digests
@@ -667,7 +686,7 @@ fn blacklist_node_v1(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
     poseidon_items_v1(KAGEMUSHA_WALLET_BLACKLIST_NODE_DOMAIN_V1, &[*left, *right])
 }
 
-/// Validate entry order: strictly ascending, at most the maximum, no sentinel value.
+/// Validate little-endian integer order: strictly ascending, at most the maximum, no sentinel.
 fn validate_blacklist_entries_v1(entries: &[KagemushaWalletBlacklistEntryV1]) -> WalletResult<()> {
     let count = u32::try_from(entries.len()).map_err(|_| overflow_v1("blacklist.entries"))?;
     if count > KAGEMUSHA_WALLET_BLACKLIST_ENTRIES_MAX_V1 {
@@ -681,7 +700,9 @@ fn validate_blacklist_entries_v1(entries: &[KagemushaWalletBlacklistEntryV1]) ->
         {
             return Err(invalid_v1("blacklist.sentinel"));
         }
-        if previous.is_some_and(|previous| previous >= digest) {
+        if previous.is_some_and(|previous| {
+            kagemusha_wallet_integer_cmp_v1(previous, digest) != Ordering::Less
+        }) {
             return Err(invalid_v1("blacklist.order"));
         }
         previous = Some(digest);
@@ -742,10 +763,10 @@ fn blacklist_levels_v1(
     Ok((levels, padding))
 }
 
-/// Gap-tree root of a sorted entry list: a Poseidon tree of fixed depth 16 over 65,536 gap
-/// leaves (§7); one canonical σ-field value.
+/// Gap-tree root of an entry list sorted by little-endian integer order: a Poseidon tree of
+/// fixed depth 16 over 65,536 gap leaves (§7); one canonical σ-field value.
 ///
-/// Gap `i` lies between the sorted sentinels `s_0 = 00..00`, the entries, and
+/// Gap `i` lies between the limb-ordered sentinels `s_0 = 00..00`, the entries, and
 /// `s_{n+1} = FF..FF`; unused leaves are the gap leaf of `FF..FF || FF..FF`.
 ///
 /// # Errors
@@ -763,7 +784,7 @@ pub fn kagemusha_wallet_blacklist_root_v1(
 }
 
 /// Non-membership opening of one account: the gap leaf `(lower, upper)` with
-/// `lower < account < upper` and its sibling path (§7, design §6.3).
+/// `lower < account < upper` in limb order and its sibling path (§7, design §6.3).
 ///
 /// This is a native helper and in-circuit witness; it is never transmitted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -801,14 +822,66 @@ impl KagemushaWalletBlacklistGapOpeningV1 {
         Ok(node)
     }
 
-    /// Verify that `account_digest` lies strictly inside this gap of the tree `entries_root`.
+    /// Exact retained transcript (580 bytes, owner answer B6): `lower || upper || LE32
+    /// leaf_index || siblings`, height 0 first. The receiver retains it with each Request it
+    /// issues under an enforced list, for its Receive and any `σ_recv` re-proof.
+    #[must_use]
+    pub fn transcript(&self) -> Vec<u8> {
+        let mut transcript = WalletTranscriptV1::with_capacity(
+            KAGEMUSHA_WALLET_BLACKLIST_GAP_OPENING_TRANSCRIPT_BYTES_V1,
+        )
+        .digest(&self.lower)
+        .digest(&self.upper)
+        .u32(self.leaf_index);
+        for sibling in &self.siblings {
+            transcript = transcript.digest(sibling);
+        }
+        transcript.finish()
+    }
+
+    /// Parse one retained transcript ([`Self::transcript`]).
+    ///
+    /// # Errors
+    ///
+    /// Rejects another length, a leaf index outside the tree and a noncanonical sibling.
+    pub fn from_transcript(bytes: &[u8]) -> WalletResult<Self> {
+        if bytes.len() != KAGEMUSHA_WALLET_BLACKLIST_GAP_OPENING_TRANSCRIPT_BYTES_V1 {
+            return Err(invalid_v1("blacklist_gap.transcript"));
+        }
+        let mut lower = [0_u8; 32];
+        let mut upper = [0_u8; 32];
+        let mut index = [0_u8; 4];
+        lower.copy_from_slice(&bytes[..32]);
+        upper.copy_from_slice(&bytes[32..64]);
+        index.copy_from_slice(&bytes[64..68]);
+        let leaf_index = u32::from_le_bytes(index);
+        if leaf_index >= KAGEMUSHA_WALLET_BLACKLIST_LEAVES_V1 {
+            return Err(invalid_v1("blacklist.leaf_index"));
+        }
+        let mut siblings = [[0_u8; 32]; KAGEMUSHA_WALLET_BLACKLIST_TREE_DEPTH_V1];
+        for (sibling, chunk) in siblings.iter_mut().zip(bytes[68..].chunks_exact(32)) {
+            sibling.copy_from_slice(chunk);
+            require_canonical_field_v1("blacklist_gap.sibling", sibling)?;
+        }
+        Ok(Self {
+            leaf_index,
+            lower,
+            upper,
+            siblings,
+        })
+    }
+
+    /// Verify that `account_digest` lies strictly inside this gap of the tree `entries_root`, in
+    /// limb order.
     ///
     /// # Errors
     ///
     /// Rejects an account outside the gap (a listed account or a sentinel) and a path that
     /// does not reach `entries_root`.
     pub fn verify(&self, entries_root: &[u8; 32], account_digest: &[u8; 32]) -> WalletResult<()> {
-        if !(self.lower < *account_digest && *account_digest < self.upper) {
+        if kagemusha_wallet_integer_cmp_v1(&self.lower, account_digest) != Ordering::Less
+            || kagemusha_wallet_integer_cmp_v1(account_digest, &self.upper) != Ordering::Less
+        {
             return Err(invalid_v1("blacklist.listed"));
         }
         if self.root()? != *entries_root {
@@ -855,7 +928,8 @@ impl KagemushaWalletBlacklistBodyV1 {
             .finish()
     }
 
-    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
+    /// Signing message `m = P_bytes(kgwblst1, transcript)`: the 32 bytes the RegulatoryPolicy-role signer signs with
+    /// ECDSA-P256-SHA256 (owner answer A1).
     #[must_use]
     pub fn signing_message(&self) -> [u8; 32] {
         kagemusha_wallet_signing_message_v1(Domain::Blacklist, &self.transcript())
@@ -871,7 +945,7 @@ impl KagemushaWalletBlacklistBodyV1 {
         require_version_v1("blacklist.version", self.version)?;
         require_nonzero_v1("blacklist.scheme_id", &self.scheme_id)?;
         require_nonzero_field_v1("blacklist.entries_root", &self.entries_root)?;
-        require_nonzero_v1("blacklist.signer_certificate", &self.signer_certificate)?;
+        require_nonzero_field_v1("blacklist.signer_certificate", &self.signer_certificate)?;
         if self.list_version == 0 {
             return Err(invalid_v1("blacklist.list_version"));
         }
@@ -907,19 +981,23 @@ impl KagemushaWalletBlacklistBodyV1 {
             scheme_id: &self.scheme_id,
             certificate: &self.signer_certificate,
             role: KagemushaWalletSignerRoleV1::RegulatoryPolicy,
-            signing_domain: Domain::Blacklist,
+            domain: Domain::Blacklist,
         }
     }
 }
 
-/// Complete signed blacklist with its strictly ascending entries (§7).
+/// Complete signed blacklist with its entries strictly ascending in limb order (§7, owner
+/// answer A4).
 ///
 /// The list is not a peer message: a wallet downloads it only while online, from the issuer
 /// or ledger, as one standalone canonical frame of at most
 /// [`KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1`] bytes ([`Self::to_canonical_bytes`],
 /// [`Self::decode_canonical`]), and peers never relay it. Offline, the wallet applies the held
-/// list through `RefreshPolicy` and proves a recipient's non-membership with a local
-/// [`KagemushaWalletBlacklistGapOpeningV1`].
+/// list through `RefreshPolicy` and proves a counterparty's non-membership with a local
+/// [`KagemushaWalletBlacklistGapOpeningV1`]: the payer proves the receiver's account absent
+/// from its own committed list, and the receiver the payer's (owner answer A5). Lists are best
+/// effort: different phones can and will hold different lists, each enforces only its own, and
+/// a later list never invalidates a completed payment.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletBlacklistV1"
@@ -927,9 +1005,9 @@ impl KagemushaWalletBlacklistBodyV1 {
 pub struct KagemushaWalletBlacklistV1 {
     /// Signed body.
     pub body: KagemushaWalletBlacklistBodyV1,
-    /// RegulatoryPolicy-role signature over the `kgwblst1` signing message.
+    /// RegulatoryPolicy-role signature over `blacklist-body`.
     pub signature: KagemushaDeviceSignatureV1,
-    /// Entries in strictly ascending account-digest order.
+    /// Entries strictly ascending in limb order.
     pub entries: Vec<KagemushaWalletBlacklistEntryV1>,
 }
 
@@ -958,11 +1036,12 @@ impl KagemushaWalletBlacklistV1 {
         })
     }
 
-    /// Blacklist digest `H("blacklist", m || signature)`.
+    /// Blacklist object digest `P(kgwoblk1, [m, r_lo, r_hi, s_lo, s_hi])` (owner
+    /// answer B1), one canonical σ-field value.
     #[must_use]
     pub fn blacklist_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
-            Role::Blacklist,
+            ObjectDomain::Blacklist,
             &self.body.signing_message(),
             &self.signature,
         )
@@ -972,7 +1051,9 @@ impl KagemushaWalletBlacklistV1 {
     #[must_use]
     pub fn contains(&self, account_digest: &[u8; 32]) -> bool {
         self.entries
-            .binary_search_by(|entry| entry.account_digest.cmp(account_digest))
+            .binary_search_by(|entry| {
+                kagemusha_wallet_integer_cmp_v1(&entry.account_digest, account_digest)
+            })
             .is_ok()
     }
 
@@ -990,9 +1071,9 @@ impl KagemushaWalletBlacklistV1 {
         {
             return Err(invalid_v1("blacklist.account_digest"));
         }
-        let index = self
-            .entries
-            .partition_point(|entry| entry.account_digest < *account_digest);
+        let index = self.entries.partition_point(|entry| {
+            kagemusha_wallet_integer_cmp_v1(&entry.account_digest, account_digest) == Ordering::Less
+        });
         let upper = self
             .entries
             .get(index)
@@ -1135,7 +1216,7 @@ pub struct KagemushaWalletMonotonicReadingV1 {
     pub monotonic_ms: u64,
 }
 
-/// Body of a time anchor, signed by a TimeAnchor-role key under `kgwtanc1`.
+/// Body of a time anchor, signed by a TimeAnchor-role key under `time-anchor-body`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletTimeAnchorBodyV1"
@@ -1169,7 +1250,8 @@ impl KagemushaWalletTimeAnchorBodyV1 {
             .finish()
     }
 
-    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
+    /// Signing message `m = P_bytes(kgwtanc1, transcript)`: the 32 bytes the TimeAnchor-role signer signs with
+    /// ECDSA-P256-SHA256 (owner answer A1).
     #[must_use]
     pub fn signing_message(&self) -> [u8; 32] {
         kagemusha_wallet_signing_message_v1(Domain::TimeAnchor, &self.transcript())
@@ -1185,7 +1267,7 @@ impl KagemushaWalletTimeAnchorBodyV1 {
         require_nonzero_v1("time_anchor.scheme_id", &self.scheme_id)?;
         require_nonzero_v1("time_anchor.wallet_id", &self.wallet_id)?;
         require_nonzero_v1("time_anchor.nonce", &self.nonce)?;
-        require_nonzero_v1("time_anchor.signer_certificate", &self.signer_certificate)
+        require_nonzero_field_v1("time_anchor.signer_certificate", &self.signer_certificate)
     }
 
     fn binding(&self) -> SignerBindingV1<'_> {
@@ -1195,7 +1277,7 @@ impl KagemushaWalletTimeAnchorBodyV1 {
             scheme_id: &self.scheme_id,
             certificate: &self.signer_certificate,
             role: KagemushaWalletSignerRoleV1::TimeAnchor,
-            signing_domain: Domain::TimeAnchor,
+            domain: Domain::TimeAnchor,
         }
     }
 }
@@ -1208,7 +1290,7 @@ impl KagemushaWalletTimeAnchorBodyV1 {
 pub struct KagemushaWalletTimeAnchorV1 {
     /// Signed body.
     pub body: KagemushaWalletTimeAnchorBodyV1,
-    /// TimeAnchor-role signature over the `kgwtanc1` signing message.
+    /// TimeAnchor-role signature over `time-anchor-body`.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -1231,11 +1313,12 @@ impl KagemushaWalletTimeAnchorV1 {
         Ok(Self { body, signature })
     }
 
-    /// Time anchor digest `H("time-anchor", m || signature)`.
+    /// Time anchor object digest `P(kgwotim1, [m, r_lo, r_hi, s_lo, s_hi])` (owner
+    /// answer B1), one canonical σ-field value.
     #[must_use]
     pub fn time_anchor_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
-            Role::TimeAnchor,
+            ObjectDomain::TimeAnchor,
             &self.body.signing_message(),
             &self.signature,
         )
@@ -1451,6 +1534,7 @@ impl KagemushaWalletQuotaWindowKindV1 {
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletQuotaWindowV1"
 )]
+#[repr(align(16))]
 pub struct KagemushaWalletQuotaWindowV1 {
     /// Window kind.
     pub kind: KagemushaWalletQuotaWindowKindV1,
@@ -1507,14 +1591,6 @@ impl KagemushaWalletQuotaWindowV1 {
         }
         Ok(total)
     }
-
-    /// Whether `leaf` is the usage leaf of this window's key with the same end.
-    #[must_use]
-    pub fn matches_usage(&self, leaf: &KagemushaWalletQuotaUsageLeafV1) -> bool {
-        leaf.window_kind == self.kind
-            && leaf.window_start_ms == self.start_ms
-            && leaf.window_end_ms == self.end_ms
-    }
 }
 
 /// Elements of one window slot.
@@ -1550,6 +1626,26 @@ pub fn kagemusha_wallet_quota_node_v1(left: &[u8; 32], right: &[u8; 32]) -> Wall
     ))
 }
 
+fn quota_window_levels_v1(
+    windows: &[KagemushaWalletQuotaWindowV1],
+) -> WalletResult<Vec<Vec<[u8; 32]>>> {
+    if windows.len() > KAGEMUSHA_WALLET_QUOTA_WINDOWS_MAX_V1 {
+        return Err(invalid_v1("quota_share.windows"));
+    }
+    let empty = kagemusha_wallet_quota_empty_window_leaf_v1();
+    let leaves = (0..KAGEMUSHA_WALLET_QUOTA_WINDOWS_MAX_V1)
+        .map(|slot| {
+            windows
+                .get(slot)
+                .map_or(empty, KagemushaWalletQuotaWindowV1::leaf_value)
+        })
+        .collect();
+    Ok(quota_tree_levels_v1(
+        leaves,
+        KAGEMUSHA_WALLET_QUOTA_NODE_DOMAIN_V1,
+    ))
+}
+
 /// Windows root: a Poseidon tree of fixed depth 6 over 64 slots, windows first, empty slots
 /// after (§7); one canonical σ-field value.
 ///
@@ -1559,29 +1655,120 @@ pub fn kagemusha_wallet_quota_node_v1(left: &[u8; 32], right: &[u8; 32]) -> Wall
 pub fn kagemusha_wallet_quota_windows_root_v1(
     windows: &[KagemushaWalletQuotaWindowV1],
 ) -> WalletResult<[u8; 32]> {
-    if windows.len() > KAGEMUSHA_WALLET_QUOTA_WINDOWS_MAX_V1 {
-        return Err(invalid_v1("quota_share.windows"));
-    }
-    let empty = kagemusha_wallet_quota_empty_window_leaf_v1();
-    let mut level: Vec<[u8; 32]> = (0..KAGEMUSHA_WALLET_QUOTA_WINDOWS_MAX_V1)
-        .map(|slot| {
-            windows
-                .get(slot)
-                .map_or(empty, KagemushaWalletQuotaWindowV1::leaf_value)
-        })
-        .collect();
-    while level.len() > 1 {
-        level = level
-            .chunks_exact(2)
-            .map(|pair| {
-                poseidon_items_v1(KAGEMUSHA_WALLET_QUOTA_NODE_DOMAIN_V1, &[pair[0], pair[1]])
-            })
-            .collect();
-    }
-    level
-        .first()
+    quota_window_levels_v1(windows)?
+        .last()
+        .and_then(|root| root.first())
         .copied()
         .ok_or_else(|| invalid_v1("quota_share.windows"))
+}
+
+/// Opening of window slot `slot` against [`kagemusha_wallet_quota_windows_root_v1`]: exactly 6
+/// siblings, height 0 first (§3.3).
+///
+/// # Errors
+///
+/// Rejects more than 64 windows and a slot outside the tree.
+pub fn kagemusha_wallet_quota_window_opening_v1(
+    windows: &[KagemushaWalletQuotaWindowV1],
+    slot: u8,
+) -> WalletResult<KagemushaWalletQuotaOpeningV1> {
+    quota_tree_opening_v1(&quota_window_levels_v1(windows)?, slot)
+}
+
+/// One in-place quota charge of a Send (§3.3 Time; owner answer B5, technical decision Q7):
+/// the touched window and its usage leaf open at the same slot, the window against the head's
+/// `quota_windows_root` and the usage leaf against the quota-usage root of the preceding charge,
+/// and the slot's `used` grows by the Send's gross amount within the window's limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KagemushaWalletQuotaChargeV1 {
+    /// Touched window.
+    pub window: KagemushaWalletQuotaWindowV1,
+    /// Opening of the window's slot in the quota-window tree.
+    pub window_opening: KagemushaWalletQuotaOpeningV1,
+    /// Usage leaf of the slot before the charge.
+    pub usage: KagemushaWalletQuotaUsageLeafV1,
+    /// Opening of the slot in the quota-usage array before the charge.
+    pub usage_opening: KagemushaWalletQuotaOpeningV1,
+}
+
+impl KagemushaWalletQuotaChargeV1 {
+    /// Slot of the charge.
+    #[must_use]
+    pub const fn slot(&self) -> u8 {
+        self.window_opening.slot
+    }
+
+    /// Verify the charge of `gross` against `windows_root` and the usage root `usage_root`
+    /// before it, and return the usage root after it.
+    ///
+    /// # Errors
+    ///
+    /// Rejects openings at different slots, a window or usage leaf that does not open, a usage
+    /// leaf of another window, and a charge that overflows or exceeds the window's limit.
+    pub fn verify(
+        &self,
+        windows_root: &[u8; 32],
+        usage_root: &[u8; 32],
+        gross: u128,
+    ) -> WalletResult<[u8; 32]> {
+        if self.window_opening.slot != self.usage_opening.slot {
+            return Err(invalid_v1("quota_charge.slot"));
+        }
+        if self.window_opening.window_root(&self.window.leaf_value())? != *windows_root {
+            return Err(invalid_v1("quota_charge.window"));
+        }
+        if !self.usage.matches_window(&self.window) {
+            return Err(invalid_v1("quota_charge.usage"));
+        }
+        if self.usage_opening.usage_root(&self.usage.leaf_value())? != *usage_root {
+            return Err(invalid_v1("quota_charge.usage_root"));
+        }
+        let charged = KagemushaWalletQuotaUsageLeafV1 {
+            used: self.window.charge(self.usage.used, gross)?,
+            ..self.usage
+        };
+        self.usage_opening.usage_root(&charged.leaf_value())
+    }
+}
+
+/// Verify a Send's quota charges in canonical witness order and return the successor
+/// quota-usage root (§3.3 Time; owner answers B5 and B8, technical decision Q7).
+///
+/// Each touched window is charged exactly once, in place at its own slot: slots strictly
+/// ascend (Daily windows precede Monthly ones because windows are sorted by `(kind, start)`, so
+/// this is the order Daily then Monthly, each by ascending slot) and no slot repeats; at most two
+/// windows of each kind are charged; and each usage opening is against the root produced by the
+/// preceding charge. Distinct in-place updates commute, so the successor root does not depend
+/// on the order. Window segment completeness (no touched window outside the charges) is
+/// `σ_send`'s and the native pre-check's.
+///
+/// # Errors
+///
+/// Rejects slots that do not strictly ascend, more than two charges of one kind, and what
+/// [`KagemushaWalletQuotaChargeV1::verify`] rejects.
+pub fn kagemusha_wallet_verify_quota_charges_v1(
+    windows_root: &[u8; 32],
+    usage_root: &[u8; 32],
+    charges: &[KagemushaWalletQuotaChargeV1],
+    gross: u128,
+) -> WalletResult<[u8; 32]> {
+    let mut root = *usage_root;
+    let mut previous: Option<u8> = None;
+    for charge in charges {
+        if previous.is_some_and(|previous| previous >= charge.slot()) {
+            return Err(invalid_v1("quota_charge.order"));
+        }
+        previous = Some(charge.slot());
+        let same_kind = charges
+            .iter()
+            .filter(|other| other.window.kind == charge.window.kind)
+            .count();
+        if same_kind > 2 {
+            return Err(invalid_v1("quota_charge.candidates"));
+        }
+        root = charge.verify(windows_root, &root, gross)?;
+    }
+    Ok(root)
 }
 
 /// Body of a wallet quota share, signed by a RegulatoryPolicy-role key under
@@ -1631,7 +1818,8 @@ impl KagemushaWalletQuotaShareBodyV1 {
             .finish()
     }
 
-    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
+    /// Signing message `m = P_bytes(kgwqshr1, transcript)`: the 32 bytes the RegulatoryPolicy-role signer signs with
+    /// ECDSA-P256-SHA256 (owner answer A1).
     #[must_use]
     pub fn signing_message(&self) -> [u8; 32] {
         kagemusha_wallet_signing_message_v1(Domain::QuotaShare, &self.transcript())
@@ -1649,7 +1837,7 @@ impl KagemushaWalletQuotaShareBodyV1 {
         require_nonzero_v1("quota_share.asset_digest", &self.asset_digest)?;
         require_nonzero_v1("quota_share.wallet_id", &self.wallet_id)?;
         require_nonzero_field_v1("quota_share.windows_root", &self.windows_root)?;
-        require_nonzero_v1("quota_share.signer_certificate", &self.signer_certificate)?;
+        require_nonzero_field_v1("quota_share.signer_certificate", &self.signer_certificate)?;
         if self.share_id == 0 {
             return Err(invalid_v1("quota_share.share_id"));
         }
@@ -1706,28 +1894,38 @@ impl KagemushaWalletQuotaShareBodyV1 {
             scheme_id: &self.scheme_id,
             certificate: &self.signer_certificate,
             role: KagemushaWalletSignerRoleV1::RegulatoryPolicy,
-            signing_domain: Domain::QuotaShare,
+            domain: Domain::QuotaShare,
         }
     }
 }
 
-/// Windows of `windows` that `interval` touches, requiring at least one window of every
-/// kind `windows` defines (design C6).
-fn select_quota_windows_v1<'a>(
-    windows: &'a [KagemushaWalletQuotaWindowV1],
+/// Slots of the windows that `interval` touches (`start ≤ U` and `L < end`), in ascending
+/// order, requiring at least one touched window of every kind `windows` defines and at most two
+/// of each kind (design C6, owner answer B8).
+fn touched_quota_slots_v1(
+    windows: &[KagemushaWalletQuotaWindowV1],
     interval: &KagemushaWalletTimeIntervalV1,
-) -> WalletResult<Vec<&'a KagemushaWalletQuotaWindowV1>> {
-    let selected: Vec<_> = windows
-        .iter()
-        .filter(|window| window.intersects(interval))
-        .collect();
-    for kind in KagemushaWalletQuotaWindowKindV1::ALL {
-        let defined = windows.iter().any(|window| window.kind == kind);
-        if defined && !selected.iter().any(|window| window.kind == kind) {
-            return Err(invalid_v1("quota_share.no_window"));
+) -> WalletResult<Vec<u8>> {
+    let mut slots = Vec::new();
+    for (slot, window) in windows.iter().enumerate() {
+        if window.intersects(interval) {
+            slots.push(u8::try_from(slot).map_err(|_| overflow_v1("quota_share.windows"))?);
         }
     }
-    Ok(selected)
+    for kind in KagemushaWalletQuotaWindowKindV1::ALL {
+        let defined = windows.iter().any(|window| window.kind == kind);
+        let touched = slots
+            .iter()
+            .filter(|slot| windows[usize::from(**slot)].kind == kind)
+            .count();
+        if defined && touched == 0 {
+            return Err(invalid_v1("quota_share.no_window"));
+        }
+        if touched > 2 {
+            return Err(invalid_v1("quota_share.span"));
+        }
+    }
+    Ok(slots)
 }
 
 /// Signed quota share of one wallet with its windows (§7).
@@ -1740,7 +1938,7 @@ pub struct KagemushaWalletQuotaShareV1 {
     pub body: KagemushaWalletQuotaShareBodyV1,
     /// Windows sorted by `(kind, start)`, non-overlapping per kind.
     pub windows: Vec<KagemushaWalletQuotaWindowV1>,
-    /// RegulatoryPolicy-role signature over the `kgwqshr1` signing message.
+    /// RegulatoryPolicy-role signature over `quota-share-body`.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -1769,11 +1967,12 @@ impl KagemushaWalletQuotaShareV1 {
         })
     }
 
-    /// Quota share digest `H("quota-share", m || signature)`.
+    /// Quota share object digest `P(kgwoqsh1, [m, r_lo, r_hi, s_lo, s_hi])` (owner
+    /// answer B1), one canonical σ-field value.
     #[must_use]
     pub fn quota_share_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
-            Role::QuotaShare,
+            ObjectDomain::QuotaShare,
             &self.body.signing_message(),
             &self.signature,
         )
@@ -1839,86 +2038,6 @@ impl KagemushaWalletQuotaShareV1 {
         self.body.validate()?;
         self.body.validate_windows(&self.windows)?;
         Ok(&self.windows)
-    }
-
-    /// Windows that `interval` touches, requiring at least one window of every kind the share
-    /// defines (design C6).
-    ///
-    /// # Errors
-    ///
-    /// Rejects an invalid body, windows that do not match the signed `windows_root`, and an
-    /// interval that touches no window of a kind the share defines.
-    pub fn intersecting_windows(
-        &self,
-        interval: &KagemushaWalletTimeIntervalV1,
-    ) -> WalletResult<Vec<&KagemushaWalletQuotaWindowV1>> {
-        select_quota_windows_v1(self.authenticated_windows()?, interval)
-    }
-
-    /// Require that every usage leaf keyed by one of this share's windows keeps its end
-    /// (design C6).
-    ///
-    /// # Errors
-    ///
-    /// Rejects an invalid body, windows that do not match the signed `windows_root`, and a
-    /// usage leaf whose key matches a window with another end.
-    pub fn validate_against_usage(
-        &self,
-        usage: &[KagemushaWalletQuotaUsageLeafV1],
-    ) -> WalletResult<()> {
-        let windows = self.authenticated_windows()?;
-        for leaf in usage {
-            let conflicting = windows.iter().any(|window| {
-                window.kind == leaf.window_kind
-                    && window.start_ms == leaf.window_start_ms
-                    && window.end_ms != leaf.window_end_ms
-            });
-            if conflicting {
-                return Err(invalid_v1("quota_usage.window_end_ms"));
-            }
-        }
-        Ok(())
-    }
-
-    /// Charge a Send's gross amount against every window `interval` touches and return the
-    /// updated usage leaves (§7, design C6).
-    ///
-    /// `usage` holds the current usage leaves; a window without a leaf has used zero.
-    ///
-    /// # Errors
-    ///
-    /// Rejects windows that do not match the signed `windows_root`, an expired share
-    /// (`U >= expires_at_ms`), an interval missing a window kind, duplicate or inconsistent
-    /// usage leaves, and a charge above any touched window's limit.
-    pub fn charge_send(
-        &self,
-        interval: &KagemushaWalletTimeIntervalV1,
-        gross: u128,
-        usage: &[KagemushaWalletQuotaUsageLeafV1],
-    ) -> WalletResult<Vec<KagemushaWalletQuotaUsageLeafV1>> {
-        let windows = self.authenticated_windows()?;
-        if interval.deadline_passed(self.body.expires_at_ms) {
-            return Err(invalid_v1("quota_share.expired"));
-        }
-        let mut charged = Vec::new();
-        for window in select_quota_windows_v1(windows, interval)? {
-            let mut leaves = usage.iter().filter(|leaf| {
-                leaf.window_kind == window.kind && leaf.window_start_ms == window.start_ms
-            });
-            let used = match (leaves.next(), leaves.next()) {
-                (None, _) => 0,
-                (Some(leaf), None) if window.matches_usage(leaf) => leaf.used,
-                (Some(_), None) => return Err(invalid_v1("quota_usage.window_end_ms")),
-                (Some(_), Some(_)) => return Err(invalid_v1("quota_usage.duplicate")),
-            };
-            charged.push(KagemushaWalletQuotaUsageLeafV1 {
-                window_kind: window.kind,
-                window_start_ms: window.start_ms,
-                window_end_ms: window.end_ms,
-                used: window.charge(used, gross)?,
-            });
-        }
-        Ok(charged)
     }
 
     /// Validate and encode the bounded canonical frame.
@@ -2024,11 +2143,12 @@ pub fn kagemusha_wallet_unload_account_payout_v1(
 }
 
 /// Body of a displayed load or unload charge quote, signed by a RegulatoryPolicy-role key
-/// under `kgwchgq1`.
+/// under `charge-quote-body`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletChargeQuoteBodyV1"
 )]
+#[repr(align(16))]
 pub struct KagemushaWalletChargeQuoteBodyV1 {
     /// Wire version; exactly [`KAGEMUSHA_WALLET_VERSION_V1`](super::KAGEMUSHA_WALLET_VERSION_V1).
     pub version: u16,
@@ -2073,7 +2193,8 @@ impl KagemushaWalletChargeQuoteBodyV1 {
             .finish()
     }
 
-    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
+    /// Signing message `m = P_bytes(kgwchgq1, transcript)`: the 32 bytes the RegulatoryPolicy-role signer signs with
+    /// ECDSA-P256-SHA256 (owner answer A1).
     #[must_use]
     pub fn signing_message(&self) -> [u8; 32] {
         kagemusha_wallet_signing_message_v1(Domain::ChargeQuote, &self.transcript())
@@ -2094,7 +2215,7 @@ impl KagemushaWalletChargeQuoteBodyV1 {
             "charge_quote.beneficiary_account_digest",
             &self.beneficiary_account_digest,
         )?;
-        require_nonzero_v1("charge_quote.signer_certificate", &self.signer_certificate)?;
+        require_nonzero_field_v1("charge_quote.signer_certificate", &self.signer_certificate)?;
         if self.online_charge == 0 {
             return Err(invalid_v1("charge_quote.online_charge"));
         }
@@ -2119,16 +2240,16 @@ impl KagemushaWalletChargeQuoteBodyV1 {
             scheme_id: &self.scheme_id,
             certificate: &self.signer_certificate,
             role: KagemushaWalletSignerRoleV1::RegulatoryPolicy,
-            signing_domain: Domain::ChargeQuote,
+            domain: Domain::ChargeQuote,
         }
     }
 }
 
 /// Signed load or unload charge quote (§6.2, design C7).
 ///
-/// An Unload effect names it by digest ([`Self::require_unload_effect`]); a load voucher names
+/// An Unload effect names it by digest ([`Self::require_unload_effect`]); an ordinary Load receipt names
 /// it by digest and must carry its exact terms
-/// (`KagemushaWalletLoadVoucherV1::require_charge_quote`).
+/// (`KagemushaWalletLoadReceiptV1::require_charge_quote`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletChargeQuoteV1"
@@ -2136,7 +2257,7 @@ impl KagemushaWalletChargeQuoteBodyV1 {
 pub struct KagemushaWalletChargeQuoteV1 {
     /// Signed body.
     pub body: KagemushaWalletChargeQuoteBodyV1,
-    /// RegulatoryPolicy-role signature over the `kgwchgq1` signing message.
+    /// RegulatoryPolicy-role signature over `charge-quote-body`.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -2159,11 +2280,12 @@ impl KagemushaWalletChargeQuoteV1 {
         Ok(Self { body, signature })
     }
 
-    /// Charge quote digest `H("charge-quote", m || signature)`.
+    /// Charge quote object digest `P(kgwochg1, [m, r_lo, r_hi, s_lo, s_hi])` (owner
+    /// answer B1), one canonical σ-field value.
     #[must_use]
     pub fn charge_quote_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
-            Role::ChargeQuote,
+            ObjectDomain::ChargeQuote,
             &self.body.signing_message(),
             &self.signature,
         )
@@ -2316,17 +2438,22 @@ pub enum KagemushaWalletPolicyUpdateV1<'a> {
         /// Signed scheme policy.
         policy: &'a KagemushaWalletSchemePolicyV1,
     },
-    /// Newer blacklist.
+    /// Newer blacklist and its insertion into the blacklist history (owner answer B6).
     Blacklist {
         /// Complete signed blacklist.
         list: &'a KagemushaWalletBlacklistV1,
+        /// Insertion witness of `(list_version, entries_root)` against the predecessor's
+        /// `blacklist_history_root`, from the native history store
+        /// ([`super::KagemushaWalletBlacklistHistoryLeafV1::insert_into`]).
+        history: &'a KagemushaWalletIndexedInsertV1,
     },
-    /// Newer quota share.
+    /// Newer quota share and the predecessor's quota-usage array (owner answers B4, B5).
     QuotaShare {
         /// Signed quota share.
         share: &'a KagemushaWalletQuotaShareV1,
-        /// Current quota-usage leaves.
-        usage: &'a [KagemushaWalletQuotaUsageLeafV1],
+        /// Predecessor's native quota-usage array; its root must be the predecessor's
+        /// `quota_usage_root`.
+        usage: &'a KagemushaWalletQuotaUsageArrayV1,
     },
     /// Time anchor committed after a boot.
     TimeAnchor {
@@ -2353,9 +2480,10 @@ impl KagemushaWalletPolicyUpdateV1<'_> {
 ///
 /// `core` and `rest` are the predecessor's with the update applied to the policy fields
 /// (credential digest, enabled controls, policy epoch, blacklist version, root and issue time,
-/// quota windows root, lease and accepted-time floor in the core; scheme policy, fee schedule,
-/// blacklist, quota share and time anchor in the rest). Sequence, balance, ordinals, chains,
-/// map roots and nonce are unchanged: the transition owner advances them.
+/// quota windows root, share expiry and usage root, lease and accepted-time floor in the core;
+/// scheme policy, fee schedule, blacklist, quota share, time anchor and blacklist-history root
+/// in the rest). Sequence, balance, ordinals, chains, the indexed map roots and nonce are
+/// unchanged: the transition owner advances them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KagemushaWalletPolicyRefreshV1 {
     /// Successor credential digest; it changes only for a replacement credential.
@@ -2364,25 +2492,34 @@ pub struct KagemushaWalletPolicyRefreshV1 {
     pub core: KagemushaWalletStateCoreV1,
     /// Successor rest policy fields.
     pub rest: KagemushaWalletStateRestV1,
+    /// Rebuilt quota-usage array of a quota-share refresh, whose root is `core.quota_usage_root`;
+    /// `None` for every other update kind, which keeps the predecessor's array.
+    pub quota_usage: Option<KagemushaWalletQuotaUsageArrayV1>,
     /// `RefreshPolicy` effect binding the update and the successor floor.
     pub effect: KagemushaWalletEffectV1,
 }
 
 impl KagemushaWalletStateV1 {
-    /// Apply one authenticated policy update (§7, design C5 and C6).
+    /// Apply one authenticated policy update (§7, design C5 and C6; owner answers B4 to B8).
     ///
     /// Epochs, list versions and share ids strictly increase; a time anchor must differ from
     /// the committed one, so no two transitions share an operation ID; a replacement
-    /// credential must be the exact successor of the current one; `quota_usage_root` never
-    /// changes; the new floor is `max(old floor, t)` with `t` the update's signed time (the
-    /// old floor for a scheme policy).
+    /// credential must be the exact successor of the current one; the new floor is
+    /// `F = max(old floor, t)` with `t` the update's signed time (the old floor for a scheme
+    /// policy). A Blacklist update also inserts `(list_version, entries_root)` into the
+    /// blacklist history. A `QuotaShare` update requires every window to be longer than
+    /// `time_anchor_max_response_ms`, sets `quota_share_expires_at_ms` to the share's expiry and
+    /// rebuilds the quota-usage array from the predecessor's
+    /// ([`KagemushaWalletQuotaUsageArrayV1::rebuild_for_share`]); every other update keeps
+    /// `quota_usage_root`.
     ///
     /// # Errors
     ///
     /// Rejects an invalid state or update, an update for another scheme, asset or wallet, a
     /// non-increasing epoch, version or share id, the already committed time anchor, an
-    /// invalid replacement credential, and a quota share that changes the end of an existing
-    /// usage key.
+    /// invalid replacement credential, a history insertion that is not the new list's pair
+    /// under the predecessor's history root, a usage array other than the predecessor's, and
+    /// what the quota-usage rebuild rejects.
     pub fn refresh_policy(
         &self,
         update: KagemushaWalletPolicyUpdateV1<'_>,
@@ -2392,6 +2529,7 @@ impl KagemushaWalletStateV1 {
         let old_rest = self.rest;
         let mut core = old_core;
         let mut rest = old_rest;
+        let mut quota_usage = None;
         let (digest, signed_time_ms) = match update {
             KagemushaWalletPolicyUpdateV1::Credential {
                 previous,
@@ -2425,7 +2563,7 @@ impl KagemushaWalletStateV1 {
                 rest.fee_schedule = scheme_policy.body.fee_schedule;
                 (rest.scheme_policy, old_core.accepted_time_floor_ms)
             }
-            KagemushaWalletPolicyUpdateV1::Blacklist { list } => {
+            KagemushaWalletPolicyUpdateV1::Blacklist { list, history } => {
                 list.validate()?;
                 require_scheme_v1(
                     "blacklist.scheme_id",
@@ -2435,6 +2573,17 @@ impl KagemushaWalletStateV1 {
                 if list.body.list_version <= old_core.blacklist_version {
                     return Err(invalid_v1("blacklist.list_version"));
                 }
+                let entry = KagemushaWalletBlacklistHistoryLeafV1 {
+                    list_version: list.body.list_version,
+                    entries_root: list.body.entries_root,
+                };
+                rest.blacklist_history_root = history
+                    .verify(
+                        &old_rest.blacklist_history_root,
+                        &entry.key(),
+                        &entry.leaf_value()?,
+                    )
+                    .map_err(|_| invalid_v1("blacklist_history.insert"))?;
                 rest.blacklist = list.blacklist_digest();
                 core.blacklist_version = list.body.list_version;
                 core.blacklist_root = list.body.entries_root;
@@ -2451,10 +2600,22 @@ impl KagemushaWalletStateV1 {
                 if share.body.share_id <= old_rest.quota_share_id {
                     return Err(invalid_v1("quota_share.share_id"));
                 }
-                share.validate_against_usage(usage)?;
+                if usage.root() != old_core.quota_usage_root {
+                    return Err(invalid_v1("state.core.quota_usage_root"));
+                }
+                let floor = old_core.accepted_time_floor_ms.max(share.body.issued_at_ms);
+                let rebuilt = usage.rebuild_for_share(
+                    old_rest.quota_share_id == 0,
+                    &share.windows,
+                    floor,
+                    old_core.time_anchor_max_response_ms,
+                )?;
                 rest.quota_share = share.quota_share_digest();
                 rest.quota_share_id = share.body.share_id;
                 core.quota_windows_root = share.body.windows_root;
+                core.quota_share_expires_at_ms = share.body.expires_at_ms;
+                core.quota_usage_root = rebuilt.root();
+                quota_usage = Some(rebuilt);
                 (rest.quota_share, share.body.issued_at_ms)
             }
             KagemushaWalletPolicyUpdateV1::TimeAnchor { anchor } => {
@@ -2483,11 +2644,12 @@ impl KagemushaWalletStateV1 {
             core,
             rest,
         }
-        .validate_controls()?;
+        .validate()?;
         Ok(KagemushaWalletPolicyRefreshV1 {
             credential_digest: core.credential_digest,
             core,
             rest,
+            quota_usage,
             effect: KagemushaWalletEffectV1::RefreshPolicy {
                 update_kind: update.kind(),
                 update: digest,
@@ -2500,17 +2662,18 @@ impl KagemushaWalletStateV1 {
     ///
     /// `L = max(floor, anchor lower, receiver_accepted_time_ms)`; `U = max(anchor upper, L)`
     /// when anchored, else `L`. Pass `anchored` only for a same-boot anchor whose digest the
-    /// state committed; the successor floor is `L`.
+    /// state committed; the successor floor is `L`. A valid anchor implies
+    /// `U − L ≤ time_anchor_max_response_ms` (the Send time span of owner answer B8).
     ///
     /// # Errors
     ///
     /// Rejects a missing anchor while a time-dependent control is active, an anchor for
     /// another scheme or wallet or not committed by the state, and an anchor interval that
     /// is not valid at `now`.
-    pub fn effective_accepted_time(
+    pub(super) fn effective_accepted_time(
         &self,
         anchored: Option<&KagemushaWalletAnchoredTimeV1>,
-        now: &KagemushaWalletMonotonicReadingV1,
+        now: Option<&KagemushaWalletMonotonicReadingV1>,
         receiver_accepted_time_ms: u64,
     ) -> WalletResult<KagemushaWalletTimeIntervalV1> {
         let floor = self
@@ -2535,18 +2698,19 @@ impl KagemushaWalletStateV1 {
         if anchor.time_anchor_digest() != self.rest.time_anchor {
             return Err(invalid_v1("state.rest.time_anchor"));
         }
-        let interval = anchored.interval_at(now, self.rest.time_anchor_max_response_ms)?;
+        let now = now.ok_or_else(|| invalid_v1("time_anchor.observation_missing"))?;
+        let interval = anchored.interval_at(now, self.core.time_anchor_max_response_ms)?;
         let lower = floor.max(interval.lower_ms);
         KagemushaWalletTimeIntervalV1::new(lower, interval.upper_ms.max(lower))
     }
 
-    /// Attestation-lease check for a Send: `U < lease_expires_at_ms` while the lease control
-    /// is active.
+    /// Attestation-lease part of the Send pre-check: `U < lease_expires_at_ms` while the lease
+    /// control is active.
     ///
     /// # Errors
     ///
     /// Rejects a Send after the lease deadline.
-    pub fn check_lease(&self, interval: &KagemushaWalletTimeIntervalV1) -> WalletResult<()> {
+    pub(super) fn check_lease(&self, interval: &KagemushaWalletTimeIntervalV1) -> WalletResult<()> {
         if self.is_active(KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1)
             && interval.deadline_passed(self.core.lease_expires_at_ms)
         {
@@ -2555,32 +2719,72 @@ impl KagemushaWalletStateV1 {
         Ok(())
     }
 
-    /// Blacklist check for a Send to `recipient_account_digest` (§7, design C6).
-    ///
-    /// Enforced only while the control is active and a list is held; returns the gap opening
-    /// that witnesses non-membership, or `None` when the control is not enforced. The list
-    /// issue time and maximum age are core fields, so `σ_send` enforces the age rule too
-    /// (owner answer Q5).
-    ///
-    /// # Errors
-    ///
-    /// Rejects a missing or uncommitted list, a list older than the list-age rule (checked
-    /// subtraction; underflow rejects), and a listed recipient.
-    pub fn check_blacklist(
-        &self,
-        list: Option<&KagemushaWalletBlacklistV1>,
-        recipient_account_digest: &[u8; 32],
-        interval: &KagemushaWalletTimeIntervalV1,
-    ) -> WalletResult<Option<KagemushaWalletBlacklistGapOpeningV1>> {
-        if !self.is_active(KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1)
-            || self.core.blacklist_version == 0
-        {
-            return Ok(None);
+    /// Whether this state enforces its committed blacklist: the BLACKLIST control is enabled
+    /// and a list is held (`blacklist_version ≥ 1`). With version 0 no account is refused and no
+    /// age rule applies (owner answer A5).
+    #[must_use]
+    pub const fn enforces_blacklist(&self) -> bool {
+        self.is_active(KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1) && self.core.blacklist_version != 0
+    }
+
+    /// The receiver blacklist decision a Request issued from this head records (owner answer
+    /// B6): the committed `(blacklist_version, blacklist_root)` while the state enforces its
+    /// list ([`Self::enforces_blacklist`]), and `(0, 0)` otherwise.
+    #[must_use]
+    pub const fn request_blacklist_decision(&self) -> (u64, [u8; 32]) {
+        if self.enforces_blacklist() {
+            (self.core.blacklist_version, self.core.blacklist_root)
+        } else {
+            (0, [0; 32])
         }
+    }
+
+    /// Committed list of an enforcing state: `list` must be the held one.
+    fn committed_blacklist<'a>(
+        &self,
+        list: Option<&'a KagemushaWalletBlacklistV1>,
+    ) -> WalletResult<&'a KagemushaWalletBlacklistV1> {
         let list = list.ok_or_else(|| invalid_v1("blacklist.missing"))?;
         if list.blacklist_digest() != self.rest.blacklist {
             return Err(invalid_v1("state.rest.blacklist"));
         }
+        Ok(list)
+    }
+
+    /// Non-membership of `account_digest` in the committed list, as a verified gap opening
+    /// against the head-committed `blacklist_root`.
+    fn blacklist_gap(
+        &self,
+        list: &KagemushaWalletBlacklistV1,
+        account_digest: &[u8; 32],
+    ) -> WalletResult<KagemushaWalletBlacklistGapOpeningV1> {
+        let opening = list.gap_opening(account_digest)?;
+        opening.verify(&self.core.blacklist_root, account_digest)?;
+        Ok(opening)
+    }
+
+    /// Payer-side blacklist part of the Send pre-check (§7, design C6, owner answer A5): the
+    /// payer's own committed list must not contain the receiver's account.
+    ///
+    /// Enforced only while [`Self::enforces_blacklist`]; returns the gap opening that witnesses
+    /// non-membership (which `σ_send` proves), or `None` when no list is enforced. The list
+    /// issue time and maximum age are core fields, so `σ_send` enforces the age rule too (owner
+    /// answer Q5); the age rule applies to Send only.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a missing or uncommitted list, a list older than the list-age rule (checked
+    /// subtraction; underflow rejects), and a listed receiver.
+    pub(super) fn check_send_blacklist(
+        &self,
+        list: Option<&KagemushaWalletBlacklistV1>,
+        receiver_account_digest: &[u8; 32],
+        interval: &KagemushaWalletTimeIntervalV1,
+    ) -> WalletResult<Option<KagemushaWalletBlacklistGapOpeningV1>> {
+        if !self.enforces_blacklist() {
+            return Ok(None);
+        }
+        let list = self.committed_blacklist(list)?;
         let max_age_ms = self.core.blacklist_max_age_ms;
         if max_age_ms > 0 {
             let age_ms = interval
@@ -2591,45 +2795,159 @@ impl KagemushaWalletStateV1 {
                 return Err(invalid_v1("blacklist.age"));
             }
         }
-        let opening = list.gap_opening(recipient_account_digest)?;
-        opening.verify(&self.core.blacklist_root, recipient_account_digest)?;
-        Ok(Some(opening))
+        self.blacklist_gap(list, receiver_account_digest).map(Some)
     }
 
-    /// Quota check for a Send of gross `amount + fee` (§7, design C6).
+    /// Receiver-side blacklist part of the Request rule (§7; owner answers A5 and B6): the
+    /// receiver's own committed list must not contain the payer's account when it issues a
+    /// Request. This is the only time the receiver's list is judged; Receive checks the decision
+    /// the Request recorded ([`Self::check_recorded_blacklist`]).
     ///
-    /// Returns the updated usage leaves of every touched window, or no leaves when the quota
-    /// control is not active. The committed digest binds only the share's body and signature,
-    /// so the share is revalidated and its windows are checked against the signed
-    /// `windows_root` before any window is charged.
+    /// Enforced only while [`Self::enforces_blacklist`]; no list-age rule applies. Returns the
+    /// gap opening that witnesses non-membership, or `None` when no list is enforced.
     ///
     /// # Errors
     ///
-    /// Rejects a missing, uncommitted or foreign share, an invalid share or windows that do
-    /// not match its signed root, and what [`KagemushaWalletQuotaShareV1::charge_send`]
-    /// rejects.
-    pub fn check_quota(
+    /// Rejects a missing or uncommitted list and a listed payer.
+    pub(super) fn check_request_blacklist(
+        &self,
+        list: Option<&KagemushaWalletBlacklistV1>,
+        payer_account_digest: &[u8; 32],
+    ) -> WalletResult<Option<KagemushaWalletBlacklistGapOpeningV1>> {
+        if !self.enforces_blacklist() {
+            return Ok(None);
+        }
+        let list = self.committed_blacklist(list)?;
+        self.blacklist_gap(list, payer_account_digest).map(Some)
+    }
+
+    /// Receive rule against the blacklist decision a Request recorded (§3.4; owner answer B6,
+    /// technical decision Q9), run on the head that receives.
+    ///
+    /// A recorded `(0, 0)` needs no check. For a nonzero `(version, root)`, `proof` must carry
+    /// the authenticated history lookup of `version` against this head's
+    /// `blacklist_history_root`, finding exactly `root`, and the gap opening retained with the
+    /// Request, showing `payer_account_digest` absent from `root`. The head's current list and
+    /// controls neither excuse the check nor add one.
+    ///
+    /// # Errors
+    ///
+    /// Rejects an inconsistent recorded pair, a missing proof for a nonzero pair, a history
+    /// lookup of another version or root or that does not open under this head's history root,
+    /// and a gap opening that does not show the payer absent from the recorded root.
+    pub(super) fn check_recorded_blacklist(
+        &self,
+        version: u64,
+        root: &[u8; 32],
+        payer_account_digest: &[u8; 32],
+        proof: Option<&KagemushaWalletRecordedBlacklistProofV1>,
+    ) -> WalletResult<()> {
+        if (version == 0) != is_zero_v1(root) {
+            return Err(invalid_v1("request.receiver_blacklist"));
+        }
+        if version == 0 {
+            return Ok(());
+        }
+        let proof = proof.ok_or_else(|| invalid_v1("blacklist.recorded"))?;
+        KagemushaWalletBlacklistHistoryLeafV1 {
+            list_version: version,
+            entries_root: *root,
+        }
+        .verify_membership(
+            &self.rest.blacklist_history_root,
+            &proof.history_leaf,
+            &proof.history_opening,
+        )?;
+        proof.gap.verify(root, payer_account_digest)
+    }
+
+    /// Quota part of the Send pre-check for gross `amount + fee` (§§3.3, 7; owner answers B5,
+    /// B7 and B8, technical decision Q7).
+    ///
+    /// `usage` is the native quota-usage array; its root must be the head's `quota_usage_root`.
+    /// Without an active quota control it returns no charges and `usage` unchanged. Otherwise
+    /// the held share must be the committed one with its windows authenticated against the signed
+    /// root and `usage` aligned with them; `U < quota_share_expires_at_ms`; the Send time span
+    /// `U − L ≤ time_anchor_max_response_ms`; every window kind the share defines is touched and
+    /// at most two windows of each kind; and each touched window is charged in place at its slot,
+    /// in ascending slot order, within its limit. Returns the charges with their openings and the
+    /// successor array.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a usage array other than the head's, a missing, uncommitted or foreign share, an
+    /// invalid share or windows that do not match its signed root, an unaligned array, an expired
+    /// share, a time span above the bound, an interval missing a window kind or touching more
+    /// than two windows of one kind, and a charge above any touched window's limit.
+    pub(super) fn check_send_quota(
         &self,
         share: Option<&KagemushaWalletQuotaShareV1>,
-        usage: &[KagemushaWalletQuotaUsageLeafV1],
+        usage: &KagemushaWalletQuotaUsageArrayV1,
         interval: &KagemushaWalletTimeIntervalV1,
         gross: u128,
-    ) -> WalletResult<Vec<KagemushaWalletQuotaUsageLeafV1>> {
+    ) -> WalletResult<(
+        Vec<KagemushaWalletQuotaChargeV1>,
+        KagemushaWalletQuotaUsageArrayV1,
+    )> {
+        if usage.root() != self.core.quota_usage_root {
+            return Err(invalid_v1("state.core.quota_usage_root"));
+        }
         if !self.is_active(KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1) {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), *usage));
         }
         let share = share.ok_or_else(|| invalid_v1("quota_share.missing"))?;
         if self.rest.quota_share_id == 0 || share.quota_share_digest() != self.rest.quota_share {
             return Err(invalid_v1("state.rest.quota_share"));
         }
-        share.validate()?;
         share.require_wallet(
             &self.core.scheme_id,
             &self.core.asset_digest,
             &self.core.wallet_id,
         )?;
-        share.charge_send(interval, gross, usage)
+        let windows = share.authenticated_windows()?;
+        if share.body.windows_root != self.core.quota_windows_root {
+            return Err(invalid_v1("state.core.quota_windows_root"));
+        }
+        usage.validate_aligned(windows)?;
+        if interval.deadline_passed(self.core.quota_share_expires_at_ms) {
+            return Err(invalid_v1("quota_share.expired"));
+        }
+        let span = interval.upper_ms.saturating_sub(interval.lower_ms);
+        if span > self.core.time_anchor_max_response_ms {
+            return Err(invalid_v1("quota_share.time_span"));
+        }
+        let mut next_usage = *usage;
+        let mut charges = Vec::new();
+        for slot in touched_quota_slots_v1(windows, interval)? {
+            let window = windows[usize::from(slot)];
+            let usage_leaf = next_usage
+                .leaf(slot)
+                .ok_or_else(|| invalid_v1("quota_usage.alignment"))?;
+            let usage_opening = next_usage.opening(slot)?;
+            next_usage.charge(slot, gross, window.limit)?;
+            charges.push(KagemushaWalletQuotaChargeV1 {
+                window,
+                window_opening: kagemusha_wallet_quota_window_opening_v1(windows, slot)?,
+                usage: usage_leaf,
+                usage_opening,
+            });
+        }
+        Ok((charges, next_usage))
     }
+}
+
+/// Native proof of a Request's recorded receiver blacklist decision at Receive (§3.4; owner
+/// answer B6, technical decision Q9): the history lookup of the recorded version in the
+/// receiving head's blacklist history and the gap opening the receiver retained with the
+/// Request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KagemushaWalletRecordedBlacklistProofV1 {
+    /// Blacklist-history leaf of the recorded version.
+    pub history_leaf: KagemushaWalletIndexedLeafV1,
+    /// Opening of that leaf against the receiving head's `blacklist_history_root`.
+    pub history_opening: KagemushaWalletIndexedOpeningV1,
+    /// Gap opening of the payer's account in the recorded root, retained with the Request.
+    pub gap: KagemushaWalletBlacklistGapOpeningV1,
 }
 
 // ---------------------------------------------------------------------------------------

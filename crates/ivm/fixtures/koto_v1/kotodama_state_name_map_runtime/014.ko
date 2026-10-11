@@ -1,7 +1,7 @@
 
-        seiyaku C {
+        seiyaku C { permission WriteState;
             state StateMap<Name, int> Foo;
-            kotoage fn main() authorize("WriteState") {
+            kotoage fn main() authorize(WriteState) {
                 Foo[Name::parse("alice")] = 1;
             }
         }

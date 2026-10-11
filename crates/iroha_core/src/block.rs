@@ -613,7 +613,7 @@ pub(crate) fn parse_account_literal_with_world(
             });
         match parsed {
             Ok(account_id) => return Ok(Some(account_id)),
-            Err(AccountAddressError::DecodeResourceLimit) => {
+            Err(error) if error.is_decode_resource_limit() => {
                 if cfg!(all(test, sumeragi_core_mutation = "HC37")) {
                     return Ok(None);
                 }
@@ -4559,6 +4559,7 @@ pub(crate) mod valid {
                 ConsensusValidationProfile::SumeragiGenesis { consensus_mode },
                 false,
                 None,
+                None,
             )
         }
         /// Execute the exact original nonempty proposal bound by its native consensus header.
@@ -4577,6 +4578,34 @@ pub(crate) mod valid {
             native_payload: &[u8],
             state: &'state State,
         ) -> WithEvents<Result<(ValidBlock, Box<StateBlock<'state>>), Error>> {
+            Self::validate_sumeragi_block_with_amx(
+                block,
+                topology,
+                genesis_account,
+                block_cadence,
+                consensus_mode,
+                expansion,
+                native_header,
+                native_payload,
+                state,
+                None,
+            )
+        }
+
+        /// The same validator borrowing only the original Worker's completed leg owners.
+        #[allow(clippy::too_many_arguments)]
+        pub(crate) fn validate_sumeragi_block_with_amx<'state>(
+            block: SignedBlock,
+            topology: &Topology,
+            genesis_account: &AccountId,
+            block_cadence: Duration,
+            consensus_mode: iroha_data_model::parameter::system::ConsensusMode,
+            expansion: crate::sumeragi::lanes::merge::Expansion<'state>,
+            native_header: &iroha_sumeragi::message::BlockHeader,
+            native_payload: &[u8],
+            state: &'state State,
+            amx_legs: Option<&mut crate::sumeragi::amx::NativeAmxLegPreparations>,
+        ) -> WithEvents<Result<(ValidBlock, Box<StateBlock<'state>>), Error>> {
             if let Err(error) = expansion.validate_publication(state) {
                 return WithEvents::new(Err((
                     Box::new(block),
@@ -4588,6 +4617,8 @@ pub(crate) mod valid {
                     Ok(source) => source,
                     Err(error) => return WithEvents::new(Err((Box::new(block), Box::new(error)))),
                 };
+            // Completed AMX legs retain canonical byte custody only. The fresh native
+            // source and pristine StateBlock authenticate current authority on every attempt.
             if !block.has_consensus_work() {
                 let header = source.header();
                 return WithEvents::new(Err((
@@ -4630,6 +4661,7 @@ pub(crate) mod valid {
                 },
                 true,
                 None,
+                amx_legs,
             )
             .with_authenticated_rejection(
                 authenticated_header,
@@ -4713,6 +4745,7 @@ pub(crate) mod valid {
             mut validation_profile: ConsensusValidationProfile,
             allow_empty_block: bool,
             mut send_events: Option<&mut dyn FnMut(PipelineEventBox)>,
+            amx_legs: Option<&mut crate::sumeragi::amx::NativeAmxLegPreparations>,
         ) -> WithEvents<Result<(ValidBlock, Box<StateBlock<'state>>), Error>> {
             let total_start = Instant::now();
             let stateless_start = Instant::now();
@@ -4929,6 +4962,7 @@ pub(crate) mod valid {
                 timings.as_deref_mut(),
                 genesis.as_ref(),
                 validation_profile.sccp_height_source(),
+                amx_legs,
             ) {
                 drop(state_block);
                 record_timings(&mut timings, stateless_elapsed, Some(execution_start));
@@ -5419,6 +5453,20 @@ pub(crate) mod valid {
                 }
             }
         }
+        fn amx_deadline_error(
+            error: iroha_data_model::sumeragi_amx::AmxError,
+        ) -> BlockValidationError {
+            match error {
+                iroha_data_model::sumeragi_amx::AmxError::Resource(original)
+                    if !cfg!(all(test, sumeragi_core_mutation = "HC162")) =>
+                {
+                    BlockValidationError::StateStorageAdmission(
+                        crate::state::StateStorageAdmissionError::AmxDecode(original),
+                    )
+                }
+                other => Self::execution_context_error(other.to_string()),
+            }
+        }
         fn execution_context_error(message: impl Into<String>) -> BlockValidationError {
             BlockValidationError::ExecutionContextInvalid(message.into())
         }
@@ -5552,11 +5600,13 @@ pub(crate) mod valid {
                 .map(|entrypoint| transactions.get(&entrypoint.hash()))
                 .collect()
         }
-        /// Reject a block that carries more exempt-shaped SCCP transactions than the per-block
-        /// caps allow (`specs/sccp.md` §4.19). The shapes are a pure function of the entry
-        /// points and the caps are the committed parent's parameters, exactly what the
-        /// proposer's queue selection counts (`Queue::bounded_pending_snapshot`), so a block
-        /// its proposer built always passes. Without SCCP nothing is capped.
+        /// Reject a block that carries more fee-exempt SCCP transactions than the per-block
+        /// caps allow (`specs/sccp.md` §4.19). Eligibility is a pure function of the entry
+        /// points and the committed parent World, and the caps are the parent's parameters,
+        /// exactly what the proposer's queue selection counts
+        /// (`Queue::bounded_pending_snapshot`), so a block its proposer built always passes.
+        /// Execution exempts with the same predicate against the same World, so every exempt
+        /// transaction is counted. Without SCCP nothing is capped.
         fn validate_sccp_exempt_cap(
             block: &SignedBlock,
             state_block: &StateBlock<'_>,
@@ -5579,13 +5629,13 @@ pub(crate) mod valid {
             }
             let classes = block
                 .network_entrypoints()
-                .filter_map(admission::exempt_shape_of_entrypoint)
+                .filter_map(|entrypoint| admission::exempt_class_of_entrypoint(parent, entrypoint))
                 .collect::<Vec<_>>();
             if admission::block_exempt_cap_ok(parent, &classes) {
                 Ok(())
             } else {
                 Err(Self::execution_context_error(format!(
-                    "block carries {} exempt-shaped SCCP transactions beyond the per-block caps",
+                    "block carries {} fee-exempt SCCP transactions beyond the per-block caps",
                     classes.len()
                 )))
             }
@@ -6220,6 +6270,7 @@ pub(crate) mod valid {
                 timings,
                 genesis,
                 crate::smartcontracts::isi::sccp::height::SccpHeightSourceV1::Unauthenticated,
+                None,
             )
         }
         /// Execute and seal ordinary outputs. `sccp_height` names the authenticated consensus
@@ -6232,6 +6283,7 @@ pub(crate) mod valid {
             timings: Option<&mut ValidationTimings>,
             genesis: Option<&AuthenticatedGenesisOutputSource>,
             sccp_height: crate::smartcontracts::isi::sccp::height::SccpHeightSourceV1,
+            amx_legs: Option<&mut crate::sumeragi::amx::NativeAmxLegPreparations>,
         ) -> Result<(), BlockValidationError> {
             let start = Instant::now();
             let mut timings = timings;
@@ -6340,8 +6392,6 @@ pub(crate) mod valid {
             }
             // Materialize bounded native fee state before admitting customer outputs.
             // Missing parent finality defers the block; it never fabricates service.
-            crate::retail_fee::process_idle_accounts(state_block)
-                .map_err(BlockValidationError::StateStorageAdmission)?;
             crate::validation_fee_rewards::process_finalized_service(
                 state_block,
                 block,
@@ -6358,6 +6408,24 @@ pub(crate) mod valid {
                     Self::execution_context_error(reason)
                 }
             })?;
+            crate::validation_fee_rewards::process_reward_entitlements(state_block).map_err(
+                |error| match error {
+                    crate::state::ExecutionOutputAttemptError::Storage(error) => {
+                        BlockValidationError::StateStorageAdmission(error)
+                    }
+                    crate::state::ExecutionOutputAttemptError::Deferred(reason) => {
+                        BlockValidationError::ExecutionDeferred(reason)
+                    }
+                    crate::state::ExecutionOutputAttemptError::Owner(reason) => {
+                        Self::execution_context_error(reason)
+                    }
+                },
+            )?;
+            // Reserve evidence space for mandatory historical reward progress
+            // before the optional idle-wallet batch. The sweep's own budget
+            // check rolls its batch back when the remaining corpus is full.
+            crate::retail_fee::process_idle_accounts(state_block)
+                .map_err(BlockValidationError::StateStorageAdmission)?;
             let finalize = |state: &mut StateBlock<'_>,
                             source: &SignedBlock,
                             routes: &[crate::queue::RoutingDecision]| {
@@ -6373,11 +6441,23 @@ pub(crate) mod valid {
                             BlockValidationError::from(error)
                         }
                     })?;
-                state.advance_requested_sumeragi_lanes();
+                let lane_outcome = state.advance_requested_sumeragi_lanes();
+                // A local lane refusal must return the original proposal from validation,
+                // before any successful seal transfers it to the executor's one-shot takes.
+                if !cfg!(all(test, sumeragi_core_mutation = "HC133")) {
+                    lane_outcome.map_err(|error| match error {
+                        crate::sumeragi::lanes::step::LaneStepError::Deferred(original) => {
+                            BlockValidationError::ExecutionDeferred(
+                                original.at_native_lane_finalizer(),
+                            )
+                        }
+                        completed => Self::execution_context_error(completed.to_string()),
+                    })?;
+                }
                 // AMX deadline decisions (`specs/sumeragi.md` §11.5) are World writes too.
                 state
                     .advance_sumeragi_amx()
-                    .map_err(Self::execution_context_error)?;
+                    .map_err(Self::amx_deadline_error)?;
                 Self::validate_native_genesis_policy(source, state)?;
                 Self::finalize_owned_execution_metadata(
                     source,
@@ -6394,7 +6474,8 @@ pub(crate) mod valid {
             state_block
                 .require_original_execution_recorder()
                 .map_err(Self::execution_context_error)?;
-            let result = state_block.execute_and_seal_ordinary_outputs(block, genesis, finalize);
+            let result = state_block
+                .execute_and_seal_ordinary_outputs_with_amx(block, genesis, finalize, amx_legs);
             result.map_err(|error| match error {
                 crate::state::ExecutionOutputSealError::Storage(error) => {
                     BlockValidationError::StateStorageAdmission(error)
@@ -6848,6 +6929,48 @@ pub(crate) mod valid {
         }
         include!("block/post_execution_tail_tests.rs");
         include!("block/sccp_call_site_tests.rs");
+        #[test]
+        fn amx_deadline_finalizer_preserves_exact_local_refusal_without_rejection() {
+            use iroha_data_model::sumeragi_amx::AmxError;
+            use norito::core::DecodeResourceError;
+
+            for original in [
+                DecodeResourceError::AllocationFailed { bytes: 57 },
+                DecodeResourceError::TotalAllocationExceeded {
+                    attempted: 99,
+                    limit: 73,
+                },
+            ] {
+                let mapped = ValidBlock::amx_deadline_error(AmxError::Resource(original));
+                assert!(matches!(
+                    &mapped,
+                    BlockValidationError::StateStorageAdmission(
+                        crate::state::StateStorageAdmissionError::AmxDecode(retained)
+                    ) if *retained == original
+                ));
+                assert_eq!(
+                    map_block_err_to_reason(&mapped),
+                    None,
+                    "unfinished local deadline output cannot emit a protocol rejection"
+                );
+            }
+            for semantic in [
+                AmxError::Encoding("invalid canonical decision".into()),
+                AmxError::Record("malformed decision"),
+            ] {
+                let expected = semantic.to_string();
+                let mapped = ValidBlock::amx_deadline_error(semantic);
+                assert!(matches!(
+                    &mapped,
+                    BlockValidationError::ExecutionContextInvalid(retained) if *retained == expected
+                ));
+                assert_eq!(
+                    map_block_err_to_reason(&mapped),
+                    Some(Reason::TransactionValidationFailed)
+                );
+            }
+        }
+
         fn checked_block_signature(
             private_key: &PrivateKey,
             block_hash: HashOf<BlockHeader>,
@@ -9249,6 +9372,23 @@ pub(crate) mod tests {
             &TimeSource::new_fixed(now),
         )
     }
+    fn encode_fixture_int_map_key(value: i128) -> Vec<u8> {
+        use ivm_abi::state_value::{
+            StateValueAtomV1, StateValueKindV1, StateValueNodeV1, StateValueRecordV1,
+            StateValueSchemaV1, state_value_schema_hash_v1,
+        };
+        let schema = StateValueSchemaV1 {
+            nodes: vec![StateValueNodeV1::Leaf(StateValueKindV1::Int)],
+        };
+        let envelope =
+            ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(value))
+                .unwrap();
+        norito::encode_canonical(&StateValueRecordV1 {
+            schema_hash: state_value_schema_hash_v1(&norito::encode_canonical(&schema).unwrap()),
+            atoms: vec![StateValueAtomV1::Pointer(envelope)],
+        })
+        .unwrap()
+    }
     /// Decode the current schema-bound durable `int` record, including its pointer envelope.
     fn decode_stored_state_int(stored: &[u8]) -> i128 {
         use ivm::state_value::{
@@ -9398,17 +9538,17 @@ pub(crate) mod tests {
 
         let native_chain = crate::block::tests::component_chain(state);
         let state = native_chain.state();
-        let fixture = crate::zk::test_utils::halo2_fixture_envelope(
-            "halo2/pasta/ipa/kaigi-usage-v1",
+        let fixture = crate::zk::test_utils::native_framing_fixture_envelope(
+            crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
             [0_u8; 32],
         );
-        let proof = fixture.proof_box("halo2/ipa");
+        let proof = fixture.proof_box("pipa-r/pasta");
         let proof_bytes = u64::try_from(proof.bytes.len()).expect("proof length fits u64");
         let instruction: InstructionBox = iroha_data_model::isi::zk::VerifyProof::new(
             iroha_data_model::proof::ProofAttachment::new_ref(
-                "halo2/ipa".into(),
+                "pipa-r/pasta".into(),
                 proof,
-                iroha_data_model::proof::VerifyingKeyId::new("halo2/ipa", "missing-overlay-vk"),
+                iroha_data_model::proof::VerifyingKeyId::new("pipa-r/pasta", "missing-overlay-vk"),
             ),
         )
         .into();
@@ -9930,10 +10070,10 @@ pub(crate) mod tests {
         let account = Account::new(authority.clone()).build(&authority);
         let mut world = World::with([domain], [account], []);
         let source = r#"
-seiyaku GuardedOverlay {
+seiyaku GuardedOverlay { permission CanWriteGuardedOverlay;
   state StateMap<int, int> Values;
 
-  kotoage fn write(int value) authorize("CanWriteGuardedOverlay") {
+  kotoage fn write(int value) authorize(CanWriteGuardedOverlay) {
     Values[0] = value;
   }
 }
@@ -10097,20 +10237,8 @@ seiyaku GuardedOverlay {
         let alice_account = Account::new(alice.clone()).build(&alice);
         let bob_account = Account::new(bob.clone()).build(&alice);
         let mut world = World::with([domain], [alice_account, bob_account], []);
-        for authority in [&alice, &bob] {
-            let mut permissions = iroha_data_model::permission::Permissions::new();
-            assert!(
-                permissions.insert(iroha_data_model::permission::Permission::new(
-                    "CanEnactGovernance".to_owned(),
-                    Json::new(()),
-                ))
-            );
-            world
-                .account_permissions_mut_for_testing()
-                .insert(authority.clone(), permissions);
-        }
         let source = r#"
-seiyaku DynamicAccessCounter {
+seiyaku DynamicAccessCounter { permission CanWriteCounters;
   state StateMap<int, int> Counters;
 
   fn bump_hidden(int key, int delta) {
@@ -10118,12 +10246,12 @@ seiyaku DynamicAccessCounter {
     Counters[key] = current + delta;
   }
 
-  kotoage fn bump_direct(int key, int delta) authorize("CanEnactGovernance") {
+  kotoage fn bump_direct(int key, int delta) authorize(CanWriteCounters) {
     let current = Counters.get(key).unwrap_or(0);
     Counters[key] = current + delta;
   }
 
-  kotoage fn bump_via_helper(int key, int delta) authorize("CanEnactGovernance") {
+  kotoage fn bump_via_helper(int key, int delta) authorize(CanWriteCounters) {
     bump_hidden(key: key, delta: delta);
   }
 }
@@ -10145,6 +10273,20 @@ seiyaku DynamicAccessCounter {
             DataSpaceId::UNIVERSAL,
         )
         .expect("derive contract address");
+        // Contract-local declarations require the exact instance and permission grant.
+        for authority in [&alice, &bob] {
+            let mut permissions = iroha_data_model::permission::Permissions::new();
+            assert!(permissions.insert(
+                iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                    contract: contract_address.clone(),
+                    permission: "CanWriteCounters".parse().expect("declared contract permission"),
+                }
+                .into(),
+            ));
+            world
+                .account_permissions_mut_for_testing()
+                .insert(authority.clone(), permissions);
+        }
         let artifact_id = ContractArtifactId::for_address(&contract_address, code_hash)
             .expect("contract address retains its exact artifact dataspace");
         world.contract_code.insert(artifact_id, program);
@@ -10267,9 +10409,7 @@ seiyaku DynamicAccessCounter {
             results.iter().all(Result::is_ok),
             "both co-batched contract calls must succeed: {results:?}"
         );
-        let encoded_key =
-            ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(7))
-                .expect("encode canonical StateMap int key");
+        let encoded_key = encode_fixture_int_map_key(7);
         let logical_path = format!("Counters/{}", hex::encode(encoded_key));
         let scope_id = contract_address.to_string();
         let scope_digest = hex::encode(Hash::new(scope_id.as_bytes()).as_ref());
@@ -10304,20 +10444,8 @@ seiyaku DynamicAccessCounter {
             Account::new(dave.clone()).build(&alice),
         ];
         let mut world = World::with([domain], accounts, []);
-        for authority in [&alice, &bob, &charlie, &dave] {
-            let mut permissions = iroha_data_model::permission::Permissions::new();
-            assert!(
-                permissions.insert(iroha_data_model::permission::Permission::new(
-                    "CanEnactGovernance".to_owned(),
-                    Json::new(()),
-                ))
-            );
-            world
-                .account_permissions_mut_for_testing()
-                .insert(authority.clone(), permissions);
-        }
         let source = r#"
-seiyaku DynamicTarget {
+seiyaku DynamicTarget { permission CanWriteCounters;
   error enum DynamicTargetError {
     SelectorClosed = 1,
   }
@@ -10325,20 +10453,20 @@ seiyaku DynamicTarget {
   state StateMap<int, int> Selector;
   state StateMap<int, int> Counters;
 
-  kotoage fn choose(int key) authorize("CanEnactGovernance") {
+  kotoage fn choose(int key) authorize(CanWriteCounters) {
     Selector[0] = key;
   }
 
-  kotoage fn set_selected(int value) authorize("CanEnactGovernance") {
+  kotoage fn set_selected(int value) authorize(CanWriteCounters) {
     let key = Selector.get(0).unwrap_or(1);
     Counters[key] = value;
   }
 
-  kotoage fn set_direct(int key, int value) authorize("CanEnactGovernance") {
+  kotoage fn set_direct(int key, int value) authorize(CanWriteCounters) {
     Counters[key] = value;
   }
 
-  kotoage fn guarded_set(int value) authorize("CanEnactGovernance") {
+  kotoage fn guarded_set(int value) authorize(CanWriteCounters) {
     require(Selector.get(0).unwrap_or(0) == 2, DynamicTargetError::SelectorClosed);
     Counters[3] = value;
   }
@@ -10361,6 +10489,20 @@ seiyaku DynamicTarget {
             DataSpaceId::UNIVERSAL,
         )
         .expect("derive contract address");
+        // Contract-local declarations require the exact instance and permission grant.
+        for authority in [&alice, &bob, &charlie, &dave] {
+            let mut permissions = iroha_data_model::permission::Permissions::new();
+            assert!(permissions.insert(
+                iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                    contract: contract_address.clone(),
+                    permission: "CanWriteCounters".parse().expect("declared contract permission"),
+                }
+                .into(),
+            ));
+            world
+                .account_permissions_mut_for_testing()
+                .insert(authority.clone(), permissions);
+        }
         let artifact_id = ContractArtifactId::for_address(&contract_address, code_hash)
             .expect("contract address retains its exact artifact dataspace");
         world.contract_code.insert(artifact_id, program);
@@ -10541,9 +10683,7 @@ seiyaku DynamicTarget {
             results.iter().all(Result::is_ok),
             "all dynamic-target calls must succeed: {results:?}"
         );
-        let encoded_key =
-            ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(2))
-                .expect("encode canonical StateMap int key");
+        let encoded_key = encode_fixture_int_map_key(2);
         let logical_path = format!("Counters/{}", hex::encode(encoded_key));
         let scope_digest = hex::encode(Hash::new(contract_address.to_string().as_bytes()).as_ref());
         let scoped_path: StatePath = format!("sc/{scope_digest}/{logical_path}")
@@ -10559,9 +10699,7 @@ seiyaku DynamicTarget {
             counter, 7,
             "a key selected during live re-execution must retain source-order conflict semantics"
         );
-        let guarded_key =
-            ivm_abi::numeric_tlv::encode_int(&iroha_primitives::bigint::BigInt::from_i128(3))
-                .expect("encode canonical guarded StateMap int key");
+        let guarded_key = encode_fixture_int_map_key(3);
         let guarded_path: StatePath =
             format!("sc/{scope_digest}/Counters/{}", hex::encode(guarded_key))
                 .parse()

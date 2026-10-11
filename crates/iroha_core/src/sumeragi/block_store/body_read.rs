@@ -97,7 +97,6 @@ impl StoredBodyRead {
             || qc.epoch != header.epoch
             || qc.height != header.height
             || qc.block_hash != self.source.block_hash()
-            || qc.attest != header.attest
             || qc.result != result
         {
             return Err(BodyReadError::Io(io::Error::new(
@@ -214,7 +213,7 @@ impl BodyReadJob for StoredBodyRead {
             StoredBodyReadPoll::Pending(error) => BodyReadPoll::Pending(error),
             StoredBodyReadPoll::Ready(restoration, qc) => {
                 // This caller requested only a body. Release the original proof owners before
-                // returning, including any last original-pool ResultWitness backing/control.
+                // returning, including its decoded signer bitmap.
                 drop(qc);
                 BodyReadPoll::Ready(restoration)
             }

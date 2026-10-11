@@ -1,13 +1,27 @@
 // Constant-product (XYK) DEX sample with basic pool lifecycle.
 // Pools are keyed by a caller-provided `Name` so multiple pairs can coexist.
 seiyaku IrohaSwap {
+    permission Admin;
     // Example settlement policy: both pool assets and LP tokens use 18 decimal places.
     // Each fee, LP mint, withdrawal and swap output rounds toward the pool explicitly.
     const int INPUT_PRECISION = 18;
     const int OUTPUT_PRECISION = 18;
     const int LP_PRECISION = 18;
     error enum PoolError {
-        UnknownPool = 1, IdenticalAssets = 2, PoolAlreadyExists = 3, InvalidAssetAAmount = 4, InvalidAssetBAmount = 5, ZeroLiquidityMinted = 6, InvalidLiquidityAmount = 7, EmptyPool = 8, ZeroAssetAOutput = 9, ZeroAssetBOutput = 10, InvalidSwapAmount = 11, AssetNotInPool = 12, SlippageExceeded = 13, InsufficientOutput = 14,
+        UnknownPool = 1,
+        IdenticalAssets = 2,
+        PoolAlreadyExists = 3,
+        InvalidAssetAAmount = 4,
+        InvalidAssetBAmount = 5,
+        ZeroLiquidityMinted = 6,
+        InvalidLiquidityAmount = 7,
+        EmptyPool = 8,
+        ZeroAssetAOutput = 9,
+        ZeroAssetBOutput = 10,
+        InvalidSwapAmount = 11,
+        AssetNotInPool = 12,
+        SlippageExceeded = 13,
+        InsufficientOutput = 14,
     }
 
     // Pool metadata
@@ -20,7 +34,7 @@ seiyaku IrohaSwap {
     state StateMap<Name, quantity> ReserveB;
     state StateMap<Name, quantity> LpSupply;
     fn min_value(quantity a, quantity b) -> quantity {
-        if (a < b) {
+        if a < b {
             return a;
         } else {
             return b;
@@ -41,7 +55,7 @@ seiyaku IrohaSwap {
         AssetDefinitionId asset_b,
         AccountId pool_account,
         AssetDefinitionId lp_asset,
-    ) authorize("Admin") {
+    ) authorize(Admin) {
         let quantity zero = 0;
         require(asset_a != asset_b, PoolError::IdenticalAssets);
         // Refuse duplicate pool creation.
@@ -62,41 +76,43 @@ seiyaku IrohaSwap {
         Name pool,
         quantity amount_a,
         quantity amount_b,
-    ) authorize("Admin") {
+    ) authorize(Admin) {
         let quantity zero = 0;
         require(amount_a > zero, PoolError::InvalidAssetAAmount);
         require(amount_b > zero, PoolError::InvalidAssetBAmount);
         ensure_pool(pool: pool);
-        let asset_a = PoolAssetA.get(pool).unwrap_or(
-            AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"),
-        );
-        let asset_b = PoolAssetB.get(pool).unwrap_or(
-            AssetDefinitionId::parse("6pEP9RjNoZ7beWkT3pLfKoM1dyfi"),
-        );
+        let asset_a = PoolAssetA
+            .get(pool)
+            .unwrap_or(AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"));
+        let asset_b = PoolAssetB
+            .get(pool)
+            .unwrap_or(AssetDefinitionId::parse("6pEP9RjNoZ7beWkT3pLfKoM1dyfi"));
         let pool_account = PoolAccount.get(pool).unwrap_or(provider);
         let lp_asset = PoolLpAsset.get(pool).unwrap_or(asset_a);
-        let reserve_a = ReserveA.ensure(key: pool, default: zero);
-        let reserve_b = ReserveB.ensure(key: pool, default: zero);
-        let total_lp = LpSupply.ensure(key: pool, default: zero);
-        let minted = (total_lp == zero) ? min_value(a: amount_a, b: amount_b).mul_div_round(
-            multiplier: 1,
-            divisor: 1,
-            scale: LP_PRECISION,
-            mode: Rounding::floor,
-        ) : min_value(
-            a: total_lp.mul_div_round(
-                multiplier: decimal::from_quantity(amount_a),
-                divisor: decimal::from_quantity(reserve_a),
+        let reserve_a = ReserveA.get_or_insert(pool, zero);
+        let reserve_b = ReserveB.get_or_insert(pool, zero);
+        let total_lp = LpSupply.get_or_insert(pool, zero);
+        let minted = (total_lp == zero)
+            ? min_value(a: amount_a, b: amount_b).mul_div_round(
+                multiplier: 1,
+                divisor: 1,
                 scale: LP_PRECISION,
                 mode: Rounding::floor,
-            ),
-            b: total_lp.mul_div_round(
-                multiplier: decimal::from_quantity(amount_b),
-                divisor: decimal::from_quantity(reserve_b),
-                scale: LP_PRECISION,
-                mode: Rounding::floor,
-            ),
-        );
+            )
+            : min_value(
+                a: total_lp.mul_div_round(
+                    multiplier: decimal::from_quantity(amount_a),
+                    divisor: decimal::from_quantity(reserve_a),
+                    scale: LP_PRECISION,
+                    mode: Rounding::floor,
+                ),
+                b: total_lp.mul_div_round(
+                    multiplier: decimal::from_quantity(amount_b),
+                    divisor: decimal::from_quantity(reserve_b),
+                    scale: LP_PRECISION,
+                    mode: Rounding::floor,
+                ),
+            );
         require(minted > zero, PoolError::ZeroLiquidityMinted);
         // Move tokens into the pool account.
         ledger::asset::transfer(
@@ -104,14 +120,12 @@ seiyaku IrohaSwap {
             destination: pool_account,
             asset_definition: asset_a,
             amount: amount_a,
-            dataspace: DataSpaceId::parse("0"),
         );
         ledger::asset::transfer(
             source: provider,
             destination: pool_account,
             asset_definition: asset_b,
             amount: amount_b,
-            dataspace: DataSpaceId::parse("0"),
         );
         // Mint LP tokens to the provider.
         ledger::asset::mint(account: provider, asset_definition: lp_asset, amount: minted);
@@ -121,23 +135,25 @@ seiyaku IrohaSwap {
     }
 
     // Withdraw liquidity; burns LP and returns proportional reserves.
-    kotoage fn withdraw_liquidity(AccountId provider, Name pool, quantity lp_amount) authorize(
-        "Admin"
-    ) {
+    kotoage fn withdraw_liquidity(
+        AccountId provider,
+        Name pool,
+        quantity lp_amount,
+    ) authorize(Admin) {
         let quantity zero = 0;
         require(lp_amount > zero, PoolError::InvalidLiquidityAmount);
         ensure_pool(pool: pool);
-        let asset_a = PoolAssetA.get(pool).unwrap_or(
-            AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"),
-        );
-        let asset_b = PoolAssetB.get(pool).unwrap_or(
-            AssetDefinitionId::parse("6pEP9RjNoZ7beWkT3pLfKoM1dyfi"),
-        );
+        let asset_a = PoolAssetA
+            .get(pool)
+            .unwrap_or(AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"));
+        let asset_b = PoolAssetB
+            .get(pool)
+            .unwrap_or(AssetDefinitionId::parse("6pEP9RjNoZ7beWkT3pLfKoM1dyfi"));
         let pool_account = PoolAccount.get(pool).unwrap_or(provider);
         let lp_asset = PoolLpAsset.get(pool).unwrap_or(asset_a);
-        let reserve_a = ReserveA.ensure(key: pool, default: zero);
-        let reserve_b = ReserveB.ensure(key: pool, default: zero);
-        let total_lp = LpSupply.ensure(key: pool, default: zero);
+        let reserve_a = ReserveA.get_or_insert(pool, zero);
+        let reserve_b = ReserveB.get_or_insert(pool, zero);
+        let total_lp = LpSupply.get_or_insert(pool, zero);
         require(total_lp > zero, PoolError::EmptyPool);
         let amount_a = reserve_a.mul_div_round(
             multiplier: decimal::from_quantity(lp_amount),
@@ -159,14 +175,12 @@ seiyaku IrohaSwap {
             destination: provider,
             asset_definition: asset_a,
             amount: amount_a,
-            dataspace: DataSpaceId::parse("0"),
         );
         ledger::asset::transfer(
             source: pool_account,
             destination: provider,
             asset_definition: asset_b,
             amount: amount_b,
-            dataspace: DataSpaceId::parse("0"),
         );
         ReserveA[pool] = reserve_a - amount_a;
         ReserveB[pool] = reserve_b - amount_b;
@@ -180,19 +194,19 @@ seiyaku IrohaSwap {
         AssetDefinitionId input_asset,
         quantity amount_in,
         quantity min_output,
-    ) -> quantity authorize("Admin") {
+    ) authorize(Admin) -> quantity {
         let quantity zero = 0;
         require(amount_in > zero, PoolError::InvalidSwapAmount);
         ensure_pool(pool: pool);
-        let asset_a = PoolAssetA.get(pool).unwrap_or(
-            AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"),
-        );
-        let asset_b = PoolAssetB.get(pool).unwrap_or(
-            AssetDefinitionId::parse("6pEP9RjNoZ7beWkT3pLfKoM1dyfi"),
-        );
+        let asset_a = PoolAssetA
+            .get(pool)
+            .unwrap_or(AssetDefinitionId::parse("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"));
+        let asset_b = PoolAssetB
+            .get(pool)
+            .unwrap_or(AssetDefinitionId::parse("6pEP9RjNoZ7beWkT3pLfKoM1dyfi"));
         let pool_account = PoolAccount.get(pool).unwrap_or(trader);
-        let reserve_a = ReserveA.ensure(key: pool, default: zero);
-        let reserve_b = ReserveB.ensure(key: pool, default: zero);
+        let reserve_a = ReserveA.get_or_insert(pool, zero);
+        let reserve_b = ReserveB.get_or_insert(pool, zero);
         let is_a_in = input_asset == asset_a;
         let is_b_in = input_asset == asset_b;
         require(is_a_in || is_b_in, PoolError::AssetNotInPool);
@@ -212,7 +226,7 @@ seiyaku IrohaSwap {
         );
         require(out >= min_output, PoolError::SlippageExceeded);
         require(out > zero, PoolError::InsufficientOutput);
-        if (is_a_in) {
+        if is_a_in {
             ReserveA[pool] = reserve_in + amount_in;
             ReserveB[pool] = reserve_out - out;
             ledger::asset::transfer(
@@ -220,14 +234,12 @@ seiyaku IrohaSwap {
                 destination: pool_account,
                 asset_definition: asset_a,
                 amount: amount_in,
-                dataspace: DataSpaceId::parse("0"),
             );
             ledger::asset::transfer(
                 source: pool_account,
                 destination: trader,
                 asset_definition: asset_b,
                 amount: out,
-                dataspace: DataSpaceId::parse("0"),
             );
         } else {
             ReserveB[pool] = reserve_in + amount_in;
@@ -237,14 +249,12 @@ seiyaku IrohaSwap {
                 destination: pool_account,
                 asset_definition: asset_b,
                 amount: amount_in,
-                dataspace: DataSpaceId::parse("0"),
             );
             ledger::asset::transfer(
                 source: pool_account,
                 destination: trader,
                 asset_definition: asset_a,
                 amount: out,
-                dataspace: DataSpaceId::parse("0"),
             );
         }
         return out;

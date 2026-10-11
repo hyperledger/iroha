@@ -10,9 +10,6 @@ documentation.workspace = true
 license.workspace = true
 keywords.workspace = true
 categories = ["cryptography"]
-# `build.rs` only declares the `iroha_plonk_oracle` cfg for check-cfg (spec
-# section 6.4); it generates nothing and reads no environment.
-build = "build.rs"
 
 [lints]
 workspace = true
@@ -41,3 +38,9 @@ rand_chacha = "0.3.1"
 rayon = { workspace = true }
 # SHA-256 of params bytes against `PINNED_PARAMS_V1` (spec section 3).
 sha2 = "0.10.9"
+# Wipe canonical integer lookup scratch on success and every early return.
+zeroize = { workspace = true }
+
+[dev-dependencies]
+# Fallible OS probes for isolated evaluator diagnostics, never protocol code.
+iroha_measurement = { workspace = true }

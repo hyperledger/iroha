@@ -208,7 +208,7 @@ fn core_queries_return_typed_handles_and_specialists_remain_norito() {
         &authority,
         r#"
 seiyaku DedicatedQueryContract {
-  view fn main() -> int { return 0; }
+  view fn main() authorize(anyone) -> int { return 0; }
 }
 "#,
         0,
@@ -583,7 +583,7 @@ fn core_query_get_respects_user_executor_denial_for_every_entity() {
 #[test]
 fn core_query_page_request_encodes_canonical_account_components() {
     let QueryRequest::Start(query) =
-        CoreHost::core_query_page_request(CoreQueryEntityTagV1::Account, 3, 2)
+        CoreHost::core_query_page_request(CoreQueryEntityTagV1::Account, 3, 2, None)
             .expect("build account page request")
     else {
         panic!("typed account page must use an iterable start request");
@@ -699,7 +699,7 @@ fn core_query_page_is_bounded_ordered_and_validates_arguments() {
     let first_id: AccountId = decode_typed_leaf(&vm, first[0][0], PointerType::AccountId);
     assert_eq!(first_id, expected_ids[0]);
     assert_eq!(read_option_int(&vm, vm.register(11)), Some(1));
-    let request = CoreHost::core_query_page_request(CoreQueryEntityTagV1::Account, 0, 1)
+    let request = CoreHost::core_query_page_request(CoreQueryEntityTagV1::Account, 0, 1, None)
         .expect("page request");
     let gas_ctx = QueryGasContext::from_request(&request);
     let expected_execution = execute_bounded_query_on_state_with_budget(
@@ -842,5 +842,125 @@ fn typed_asset_definition_query_returns_native_constrained_and_unconstrained_sca
                 BigInt::from(scale)
             );
         }
+    }
+}
+
+#[test]
+fn account_asset_pages_filter_before_pagination_and_enforce_account_access() {
+    let alice = fixture_account("alice");
+    let bob = fixture_account("bob");
+    let domain_id = DomainId::try_new("wonderland", "universal").expect("domain");
+    let domain = Domain::new(domain_id.clone()).build(&alice);
+    let mut definitions = Vec::new();
+    let mut assets = Vec::new();
+    let mut expected = Vec::new();
+    for name in ["rose", "tulip", "lily"] {
+        let id = AssetDefinitionId::derive_from_components(
+            domain_id.clone(),
+            name.parse().expect("asset name"),
+        );
+        definitions.push(
+            AssetDefinition::numeric(
+                id.clone(),
+                name.to_owned(),
+                iroha_data_model::asset::AssetBalancePolicy::Global,
+                None,
+            )
+            .build(&alice),
+        );
+        for owner in [&alice, &bob] {
+            let asset_id = AssetId::of(id.clone(), owner.clone());
+            if owner == &alice {
+                expected.push(asset_id.clone());
+            }
+            assets.push(Asset::new(asset_id, Quantity::from(7_u32)));
+        }
+    }
+    expected.sort();
+    let world = World::with_assets(
+        [domain],
+        [
+            build_fixture_account(&alice, &alice),
+            build_fixture_account(&bob, &alice),
+        ],
+        definitions,
+        assets,
+        [],
+    );
+    let state = State::new_for_testing(
+        world,
+        Kura::blank_kura_for_testing(),
+        LiveQueryStore::start_test(),
+    );
+    let view = state.view();
+    let mut host = CoreHostImpl::new(alice.clone());
+    host.set_query_state(&view);
+    let mut vm = IVM::new(1_000_000);
+    let alice_pointer = store_tlv(&mut vm, PointerType::AccountId, &norito_blob(&alice));
+    let bob_pointer = store_tlv(&mut vm, PointerType::AccountId, &norito_blob(&bob));
+    let layout =
+        ivm::list::ListLayoutV1::try_new(QUERY_PAGE_CAPACITY_V1 as u64, CoreHost::ASSET_VIEW_WORDS)
+            .expect("asset page layout");
+    for (offset, expected_id) in expected.iter().enumerate() {
+        vm.set_register(10, CoreQueryEntityTagV1::Asset.as_u64());
+        vm.set_register(11, offset as u64);
+        vm.set_register(12, 1);
+        vm.set_register(13, alice_pointer);
+        host.syscall(ivm_sys::SYSCALL_CORE_QUERY_PAGE, &mut vm)
+            .expect("an account can read its own asset page without all-ledger permission");
+        let rows = ivm::list::read_words(&vm, vm.register(10), layout).expect("asset rows");
+        assert_eq!(rows.len(), 1);
+        let id: AssetId = decode_typed_leaf(&vm, rows[0][0], PointerType::AssetId);
+        assert_eq!(&id, expected_id);
+        assert_eq!(
+            read_option_int(&vm, vm.register(11)),
+            (offset + 1 < expected.len()).then_some((offset + 1) as i64)
+        );
+    }
+    for owner in [0, bob_pointer] {
+        vm.set_register(10, CoreQueryEntityTagV1::Asset.as_u64());
+        vm.set_register(11, 0);
+        vm.set_register(12, 1);
+        vm.set_register(13, owner);
+        assert_eq!(
+            host.syscall(ivm_sys::SYSCALL_CORE_QUERY_PAGE, &mut vm),
+            Err(ivm::VMError::PermissionDenied)
+        );
+        assert_eq!(vm.register(10), CoreQueryEntityTagV1::Asset.as_u64());
+    }
+    vm.set_register(10, CoreQueryEntityTagV1::Account.as_u64());
+    vm.set_register(13, alice_pointer);
+    assert_eq!(
+        host.syscall(ivm_sys::SYSCALL_CORE_QUERY_PAGE, &mut vm),
+        Err(ivm::VMError::DecodeError)
+    );
+}
+
+#[test]
+fn account_asset_page_request_uses_native_scoped_query_and_rejects_other_entities() {
+    let account = fixture_account("alice");
+    let QueryRequest::Start(request) =
+        CoreHost::core_query_page_request(CoreQueryEntityTagV1::Asset, 2, 1, Some(account.clone()))
+            .expect("scoped request")
+    else {
+        panic!("iterable request");
+    };
+    assert_eq!(
+        request.query_payload,
+        norito::codec::Encode::encode(
+            &iroha_data_model::query::asset::prelude::FindAssetsByAccountId::new(account.clone()),
+        )
+    );
+    assert_eq!(request.params.pagination.offset_value(), 2);
+    for tag in [
+        CoreQueryEntityTagV1::Account,
+        CoreQueryEntityTagV1::AssetDefinition,
+        CoreQueryEntityTagV1::Domain,
+        CoreQueryEntityTagV1::Nft,
+    ] {
+        assert!(matches!(
+            CoreHost::core_query_page_request(tag, 0, 1, Some(account.clone())),
+            Err(ivm::VMError::DecodeError)
+        ));
     }
 }

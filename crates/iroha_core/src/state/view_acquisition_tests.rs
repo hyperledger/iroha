@@ -214,3 +214,121 @@ fn snapshot_runtime_adapters_preserve_original_decoder_refusal() {
         TransactionsBlockError::SnapshotProjection
     ));
 }
+
+/// The actual generated owner retains each read-only-excluded table's original notifications
+/// until every enclosing fence is gone. The event cell keeps its original lock-free pin and
+/// zero-sized release slot; no table or cell is retired to avoid an unread-field diagnostic.
+#[test]
+fn generated_world_held_release_slots_keep_exact_sources_beyond_state_fences() {
+    use iroha_allocation::release::ReleaseRegistration;
+    for unwind in [false, true] {
+        let state = state();
+        let budget = state.ivm_execution_budget();
+        let mut registrations: [ReleaseRegistration; 8] =
+            std::array::from_fn(|_| crate::unit_test_support::release_registration(&budget));
+        let sources = [
+            state.world.privacy_pgc_accounts.observe_reader_release(),
+            state
+                .world
+                .privacy_pgc_pool_invariants
+                .observe_reader_release(),
+            state.world.privacy_nullifiers.observe_reader_release(),
+            state.world.privacy_roots.observe_reader_release(),
+            state.world.privacy_root_heads.observe_reader_release(),
+            state
+                .world
+                .confidential_policy_transition_index
+                .observe_reader_release(),
+            state
+                .world
+                .confidential_policy_transition_counts
+                .observe_reader_release(),
+            state
+                .world
+                .parliament_timed_ovn_resource_reservations
+                .observe_reader_release(),
+        ];
+        let probes: [Arc<Probe>; 8] = std::array::from_fn(|_| {
+            Arc::new(Probe {
+                state: state.clone(),
+                called: AtomicBool::new(false),
+            })
+        });
+        let wakers = probes.each_ref().map(|probe| Waker::from(probe.clone()));
+        for ((registration, source), waker) in registrations.iter_mut().zip(&sources).zip(&wakers) {
+            assert_eq!(
+                registration.poll_wait(source, &mut Context::from_waker(waker)),
+                Poll::Pending
+            );
+        }
+        let occupied = budget.reserved_bytes();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut releases = WorldReadReleases::new(&state.world);
+            let _commit = state.state_commit_lock.lock();
+            let _writer = state.state_write_lock.lock();
+            macro_rules! read_original {
+                ($field:ident, $slot:ident) => {
+                    drop(
+                        StateFieldReader::try_read_field(&state.world.$field, &mut releases.$slot)
+                            .expect("generated slot belongs to this exact original table"),
+                    );
+                };
+            }
+            read_original!(privacy_pgc_accounts, _privacy_pgc_accounts);
+            read_original!(privacy_pgc_pool_invariants, _privacy_pgc_pool_invariants);
+            read_original!(privacy_nullifiers, _privacy_nullifiers);
+            read_original!(privacy_roots, _privacy_roots);
+            read_original!(privacy_root_heads, _privacy_root_heads);
+            read_original!(
+                confidential_policy_transition_index,
+                _confidential_policy_transition_index
+            );
+            read_original!(
+                confidential_policy_transition_counts,
+                _confidential_policy_transition_counts
+            );
+            read_original!(
+                parliament_timed_ovn_resource_reservations,
+                _parliament_timed_ovn_resource_reservations
+            );
+            let original = state.world.external_event_buf.view();
+            let actual = StateFieldReader::try_read_field(
+                &state.world.external_event_buf,
+                &mut releases._external_event_buf,
+            )
+            .expect("the original cell needs no table release control");
+            assert!(std::ptr::eq(original.get(), actual.get()));
+            assert!(actual.get().is_empty());
+            assert_eq!(std::mem::size_of_val(&releases._external_event_buf), 0);
+            drop(actual);
+            drop(original);
+            assert!(
+                probes
+                    .iter()
+                    .all(|probe| !probe.called.load(Ordering::SeqCst))
+            );
+            assert_eq!(budget.reserved_bytes(), occupied);
+            if unwind {
+                panic!("retire the exact generated owners after the original fences unwind");
+            }
+        }));
+        assert_eq!(result.is_err(), unwind);
+        assert!(
+            probes
+                .iter()
+                .all(|probe| probe.called.load(Ordering::SeqCst))
+        );
+        for ((registration, source), waker) in registrations.iter_mut().zip(&sources).zip(&wakers) {
+            assert_eq!(
+                registration.poll_wait(source, &mut Context::from_waker(waker)),
+                Poll::Ready(())
+            );
+        }
+        assert_eq!(budget.reserved_bytes(), occupied);
+        drop(registrations);
+        assert_eq!(
+            budget.reserved_bytes(),
+            occupied - 8 * ReleaseRegistration::allocation_layout().size()
+        );
+    }
+}

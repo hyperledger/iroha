@@ -37,14 +37,22 @@ fn lifecycle_rebind_requires_materialized_manifest_source() {
 #[test]
 fn materialized_manifest_install_rejects_status_only_without_publication() {
     run_catalog_test(|| {
-        let state = State::new_for_testing(
+        // Match production's unbound constructor before the first policy installation.
+        let state = State::try_new(
+            AllocationBudget::new(
+                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+            ),
             World::new(),
             Kura::blank_kura_for_testing(),
             LiveQueryStore::start_test(),
-        );
+            #[cfg(feature = "telemetry")]
+            Default::default(),
+        )
+        .unwrap();
         let nexus = state.nexus_snapshot();
         let original_manifests = state.lane_manifests.read().clone();
         let original_privacy = state.lane_privacy_registry.read().clone();
+        let generation = state.state_view_generation();
         let status_only = Arc::new(LaneManifestRegistry::from_statuses(BTreeMap::new()));
         let error = state
             .install_materialized_lane_manifests_for_catalog(
@@ -54,6 +62,7 @@ fn materialized_manifest_install_rejects_status_only_without_publication() {
             )
             .expect_err("status-only registry cannot publish");
         assert!(error.to_string().contains("materialized frozen source"));
+        assert_eq!(state.state_view_generation(), generation);
         assert!(Arc::ptr_eq(
             &state.lane_manifests.read(),
             &original_manifests
@@ -76,6 +85,52 @@ fn materialized_manifest_install_rejects_status_only_without_publication() {
             )
             .expect("matching frozen source publishes");
         assert!(Arc::ptr_eq(&state.lane_manifests.read(), &materialized));
+        assert_eq!(state.state_view_generation(), generation + 2);
+        let installed_privacy = state.lane_privacy_registry.read().clone();
+        let equivalent = Arc::new(materialized.rebind(&nexus.lane_catalog, &nexus.governance));
+        state
+            .install_materialized_lane_manifests_for_catalog(
+                &equivalent,
+                &nexus.lane_catalog,
+                &nexus.governance,
+            )
+            .unwrap();
+        assert_eq!(state.state_view_generation(), generation + 2);
+        assert!(Arc::ptr_eq(&state.lane_manifests.read(), &materialized));
+        assert!(Arc::ptr_eq(
+            &state.lane_privacy_registry.read(),
+            &installed_privacy
+        ));
+
+        // A genuinely different, valid initial source still uses an actual publication.
+        let directory = tempfile::tempdir().unwrap();
+        let alias = &nexus.lane_catalog.lanes()[0].alias;
+        std::fs::write(
+            directory.path().join(format!("{alias}.manifest.json")),
+            norito::json::to_vec(&norito::json!({ "lane": alias })).unwrap(),
+        )
+        .unwrap();
+        let changed = Arc::new(LaneManifestRegistry::from_config(
+            &nexus.lane_catalog,
+            &nexus.governance,
+            &iroha_config::parameters::actual::LaneRegistry {
+                manifest_directory: Some(directory.path().to_path_buf()),
+                ..Default::default()
+            },
+        ));
+        state
+            .install_materialized_lane_manifests_for_catalog(
+                &changed,
+                &nexus.lane_catalog,
+                &nexus.governance,
+            )
+            .unwrap();
+        assert_eq!(state.state_view_generation(), generation + 4);
+        assert!(Arc::ptr_eq(&state.lane_manifests.read(), &changed));
+        assert!(!Arc::ptr_eq(
+            &state.lane_privacy_registry.read(),
+            &installed_privacy
+        ));
     });
 }
 

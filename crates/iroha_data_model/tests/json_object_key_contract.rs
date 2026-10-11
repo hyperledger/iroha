@@ -203,7 +203,12 @@ fn asset_keys_preserve_account_decode_budget_and_resource_errors() {
         let (rejected, _) = norito::core::with_decode_limits_measured(limits(exact - 1), || {
             AssetId::from_json_key_text(&key)
         });
-        assert!(matches!(rejected, Err(json::Error::DecodeResourceLimit)));
+        assert!(matches!(
+            rejected,
+            Err(json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
+        ));
     }
 }
 

@@ -337,7 +337,7 @@ fn concrete_stream_block_header_and_signature_match_capture() {
 }
 
 fn concrete_identity_frames() -> Vec<Value> {
-    let mut rows = vec![
+    let rows = vec![
         family("action-scheduled", scheduled_action(false)),
         family("action-scheduled-retry", scheduled_action(true)),
         family("action-execute-trigger", explicit_action()),
@@ -376,6 +376,8 @@ fn concrete_identity_frames() -> Vec<Value> {
             },
         ),
     ];
+    #[cfg(any(feature = "governance", feature = "http"))]
+    let mut rows = rows;
     #[cfg(feature = "governance")]
     rows.push(family(
         "data-governance-submitted",
@@ -549,6 +551,7 @@ fn data_event_schema_reserves_disabled_capability_discriminants() {
         ("Bridge", 21),
         ("GameSession", 22),
         ("Sccp", 23),
+        ("KagemushaLoadCommitted", 24),
     ]
     .into_iter()
     .filter(|(name, _)| *name != "Governance" || cfg!(feature = "governance"))

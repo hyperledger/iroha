@@ -1,0 +1,688 @@
+//! Source-bound native preparation and exact retry through the existing custody owner.
+
+use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_provider_digest_v1 as digest;
+
+use super::super::preparation_custody::SourceCustodyV1;
+use super::super::transition_custody::PreparedTransitionV1;
+use super::*;
+mod unload;
+
+mod delivery;
+mod projection;
+pub use projection::CreditProjectionV1;
+
+use super::super::capacity::{FROZEN_BOUND, PLAN_BOUND};
+
+#[derive(norito::Encode, norito::Decode, norito::NoritoSchema)]
+#[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::PreparationPlanV1")]
+struct Plan {
+    version: u16,
+    scheme: [u8; 32],
+    wallet: [u8; 32],
+    request_id: [u8; 32],
+    kind: KagemushaWalletOperationKindV1,
+    request: [u8; 32],
+    source: [u8; 32],
+    native: Vec<u8>,
+    request_object: [u8; 32],
+    draft: SourceCustodyV1,
+}
+
+impl Plan {
+    fn require(
+        &self,
+        scheme: &[u8; 32],
+        wallet: &[u8; 32],
+        request: &NativeIntentV1,
+        original: &[u8],
+    ) -> Result<(), Error> {
+        if self.version != 1
+            || self.scheme != *scheme
+            || self.wallet != *wallet
+            || self.request_id != request.request_id()
+            || self.kind != request.kind()
+            || self.request != digest("wallet-preparation-request", original)
+            || self.source == [0; 32]
+            || self.request_object == [0; 32]
+            || self.native.is_empty()
+            || self.native.len() > PREPARATION_MAX_BYTES
+        {
+            return Err(Error::WitnessLost("native preparation binding"));
+        }
+        Ok(())
+    }
+}
+
+fn original(
+    frozen: &FrozenTransition,
+    role: KagemushaWalletRetainedInputRoleV1,
+    bytes: &[u8],
+) -> bool {
+    let mut inputs = frozen
+        .capsule
+        .retained_inputs
+        .iter()
+        .filter(|input| input.role == role);
+    inputs.next().is_some_and(|input| input.bytes == bytes) && inputs.next().is_none()
+}
+
+fn policy_original(
+    frozen: &FrozenTransition,
+    kind: KagemushaWalletPolicyUpdateKindV1,
+    complete: &[u8],
+) -> bool {
+    let mut inputs = frozen
+        .capsule
+        .retained_inputs
+        .iter()
+        .filter(|input| input.role == KagemushaWalletRetainedInputRoleV1::PolicyUpdate);
+    let Some(input) = inputs.next() else {
+        return false;
+    };
+    inputs.next().is_none()
+        && super::super::verify_policy_update_original(
+            kind,
+            &frozen.capsule.scheme_id,
+            &input.bytes,
+            complete,
+        )
+        .is_ok()
+}
+
+fn require_frozen(
+    request: &NativeIntentV1,
+    source: &[u8; 32],
+    frozen: &FrozenTransition,
+) -> Result<(), Error> {
+    use KagemushaWalletRetainedInputRoleV1 as R;
+    frozen.validate()?;
+    let capsule = &frozen.capsule;
+    if capsule.kind != request.kind() || capsule.predecessor_capsule_digest != *source {
+        return Err(Error::Invalid("prepared capsule identity"));
+    }
+    let matches = if let Some(archive) = request.archive_request() {
+        original(frozen, R::Request, &archive.request)
+            && original(frozen, R::Payment, &archive.payment)
+            && original(frozen, R::Credential, &archive.credential)
+            && original(frozen, R::CertificateSet, &archive.certificates)
+            && original(frozen, R::Credited, &archive.credited)
+    } else {
+        match &request
+            .user_request()
+            .ok_or(Error::Invalid("native intent kind"))?
+            .action
+        {
+            OperationActionV1::Load { receipt, finality } => {
+                original(frozen, R::LoadReceipt, receipt)
+                    && original(frozen, R::LoadFinality, finality)
+            }
+            OperationActionV1::Send { request } => original(frozen, R::Request, request),
+            OperationActionV1::Receive {
+                payment,
+                payer_credential,
+                certificates,
+            } => {
+                original(frozen, R::Payment, payment)
+                    && original(frozen, R::Credential, payer_credential)
+                    && original(frozen, R::CertificateSet, certificates)
+            }
+            OperationActionV1::Refresh {
+                kind,
+                update,
+                certificates,
+            } => {
+                policy_original(frozen, *kind, update)
+                    && original(frozen, R::CertificateSet, certificates)
+                    && matches!(capsule.statement.effect, KagemushaWalletEffectV1::RefreshPolicy { update_kind: actual, .. } if actual == *kind)
+            }
+            OperationActionV1::Unload { amount, charge } => {
+                let quote = charge
+                    .as_ref()
+                    .map(|charge| {
+                        KagemushaWalletChargeQuoteV1::decode_canonical(
+                            &charge.quote,
+                            &capsule.scheme_id,
+                        )
+                        .map(|quote| quote.charge_quote_digest())
+                    })
+                    .transpose()
+                    .map_err(|_| Error::Invalid("prepared charge quote"))?;
+                matches!(capsule.statement.effect, KagemushaWalletEffectV1::Unload { amount: actual, charge_quote, .. }
+                if actual == *amount && charge_quote == quote.unwrap_or([0; 32]))
+            }
+            OperationActionV1::Retire => {
+                capsule.statement.effect == KagemushaWalletEffectV1::Retiring
+            }
+        }
+    };
+    if !matches {
+        return Err(Error::Invalid("prepared request originals"));
+    }
+    Ok(())
+}
+
+#[derive(norito::Encode, norito::Decode, norito::NoritoSchema)]
+#[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::PreparationEntryV1")]
+struct Entry {
+    request: [u8; 32],
+    plan: Option<[u8; 32]>,
+    capsule: Option<[u8; 32]>,
+    operation: Option<[u8; 32]>,
+}
+
+impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
+    fn preparation_entry(
+        &mut self,
+        manifest: &manifest::Manifest,
+        request_id: &[u8; 32],
+    ) -> Result<Option<Entry>, Error> {
+        manifest
+            .preparations
+            .get(&mut self.archive, request_id)?
+            .map(|bytes| archive::decode(&bytes))
+            .transpose()
+    }
+
+    fn publish_preparation(
+        &mut self,
+        selected: &mut [u8; 32],
+        manifest: &mut manifest::Manifest,
+        request_id: [u8; 32],
+        entry: &Entry,
+    ) -> Result<(), Error> {
+        manifest.preparations =
+            manifest
+                .preparations
+                .set(&mut self.archive, request_id, &archive::encode(entry)?)?;
+        *selected = self.publish_manifest(*selected, manifest)?;
+        Ok(())
+    }
+
+    pub(in crate::kagemusha_wallet_state_v1) fn transition_preparation(
+        &mut self,
+        manifest: &manifest::Manifest,
+        frozen: &FrozenTransition,
+    ) -> Result<Option<PreparedTransitionV1>, Error> {
+        let capsule = valid(frozen.capsule.capsule_digest())?;
+        let Some(address) = manifest.capsule_plans.get(&mut self.archive, &capsule)? else {
+            return Ok(None);
+        };
+        let address: [u8; 32] = address
+            .try_into()
+            .map_err(|_| Error::WitnessLost("capsule plan address"))?;
+        let plan: Plan = archive::decode(&self.archive.read_object(&address, PLAN_BOUND)?)?;
+        let original = self
+            .archive
+            .read_object(&plan.request_object, REQUEST_MAX_BYTES)?;
+        let (scheme, _) = self.proofs.ledger_scope()?;
+        let request = NativeIntentV1::decode(&original, &scheme)?;
+        plan.require(&self.scheme_id, &self.wallet_id, &request, &original)?;
+        require_frozen(&request, &plan.source, frozen)?;
+        let entry = self
+            .preparation_entry(manifest, &request.request_id())?
+            .ok_or(Error::WitnessLost("capsule request mapping"))?;
+        if entry.request != plan.request_object
+            || entry.plan != Some(address)
+            || entry.capsule != Some(capsule)
+            || entry.operation != Some(frozen.capsule.operation_id)
+        {
+            return Err(Error::WitnessLost("capsule plan mapping"));
+        }
+        Ok(Some(PreparedTransitionV1 {
+            request,
+            native: plan.native,
+            source: plan.source,
+            draft: plan.draft,
+        }))
+    }
+
+    /// Replay through the permanent credit index after old Receive output collection.
+    /// The exact original request and source-selected operation/capsule mapping must agree
+    /// with the first consumed credit; the latest covering native Ω supplies fresh evidence.
+    fn retry_prepared_intent(
+        &mut self,
+        request: &NativeIntentV1,
+        capsule: &[u8; 32],
+        operation: &[u8; 32],
+    ) -> Result<Option<Completion>, Error> {
+        let completion = self.retry(operation)?;
+        if completion != Some(Completion::Archived) {
+            return Ok(completion);
+        }
+        let Some(OperationActionV1::Receive { payment, .. }) =
+            request.user_request().map(|request| &request.action)
+        else {
+            return Ok(completion);
+        };
+        let payment = valid(KagemushaWalletPaymentV1::decode_canonical(
+            payment,
+            &self.scheme_id,
+        ))?;
+        let identity = valid(payment.digests())?;
+        let (_, manifest) = self.sync_manifest()?;
+        let credit = self
+            .indexed_credit(&manifest, &identity.credit_id)?
+            .ok_or(Error::WitnessLost("archived Receive credit"))?;
+        if credit.payment_digest != identity.payment || credit.amount != payment.request.body.amount
+        {
+            return Err(Error::CreditConflict);
+        }
+        let step = self.step_entry(&manifest, credit.sequence)?;
+        if step.operation != *operation
+            || step.capsule != *capsule
+            || step.kind != KagemushaWalletOperationKindV1::Receive
+            || !step.collected
+        {
+            return Err(Error::WitnessLost("archived Receive request mapping"));
+        }
+        let status = self.credit_status(&identity.credit_id, &identity.payment)?;
+        Ok(Some(Completion::CreditStatus(archive::encode(&status)?)))
+    }
+
+    #[cfg(test)]
+    pub(in crate::kagemusha_wallet_state_v1) fn retain_collected_receive_test_request(
+        &mut self,
+        request: OperationRequestV1,
+        frozen: &FrozenTransition,
+    ) -> Result<(), Error> {
+        // Explicit simulator-only mapping: test proofs/custody cannot install a Native owner.
+        let request = NativeIntentV1::user(request);
+        require_frozen(&request, &frozen.capsule.predecessor_capsule_digest, frozen)?;
+        let (mut selected, mut manifest) = self.manifest()?;
+        let entry = Entry {
+            request: self
+                .archive
+                .write_object(&archive::encode(&request)?, REQUEST_MAX_BYTES)?,
+            plan: None,
+            capsule: Some(valid(frozen.capsule.capsule_digest())?),
+            operation: Some(frozen.capsule.operation_id),
+        };
+        self.publish_preparation(&mut selected, &mut manifest, request.request_id(), &entry)
+    }
+
+    // Projection uses this mapping only after authenticating the selected source manifest.
+    // It grants no completion: the caller must re-read the actual custody record/capsule.
+    pub(in crate::kagemusha_wallet_state_v1) fn prepared_output_mapping(
+        &mut self,
+        request_id: &[u8; 32],
+    ) -> Result<([u8; 32], [u8; 32], KagemushaWalletOperationKindV1), Error> {
+        if *request_id == [0; 32] {
+            return Err(Error::Invalid("output request identity"));
+        }
+        let (_, manifest) = self.manifest()?;
+        let entry = self
+            .preparation_entry(&manifest, request_id)?
+            .ok_or(Error::Invalid("unknown output request"))?;
+        let original = self
+            .archive
+            .read_object(&entry.request, REQUEST_MAX_BYTES)?;
+        let (scheme, _) = self.proofs.ledger_scope()?;
+        let request = NativeIntentV1::decode(&original, &scheme)?;
+        if request.request_id() != *request_id
+            || entry.capsule.is_some() != entry.operation.is_some()
+        {
+            return Err(Error::WitnessLost("output request mapping"));
+        }
+        Ok((
+            entry.operation.ok_or(Error::Pending)?,
+            entry.capsule.ok_or(Error::Pending)?,
+            request.kind(),
+        ))
+    }
+
+    /// Resolve a local request identity through its source-selected actual operation mapping.
+    /// An uncommitted preparation has no completion, even when its native plan is durable.
+    ///
+    /// # Errors
+    /// Missing source-bound objects, corrupt mapping or unavailable custody never mean absence.
+    pub fn retry_request(&mut self, request_id: &[u8; 32]) -> Result<RequestStatusV1, Error> {
+        if *request_id == [0; 32] {
+            return Err(Error::Invalid("lifecycle request identity"));
+        }
+        // The selected manifest remains authoritative while Advance is Pending.
+        // Tail synchronization requires Released and would hide the exact operation lookup.
+        let (_, manifest) = self.manifest()?;
+        let Some(entry) = self.preparation_entry(&manifest, request_id)? else {
+            return Ok(RequestStatusV1::Unknown);
+        };
+        let original = self
+            .archive
+            .read_object(&entry.request, REQUEST_MAX_BYTES)?;
+        let (scheme, _) = self.proofs.ledger_scope()?;
+        let request = NativeIntentV1::decode(&original, &scheme)?;
+        if request.request_id() != *request_id {
+            return Err(Error::WitnessLost("lifecycle request key"));
+        }
+        if entry.capsule.is_some() != entry.operation.is_some() {
+            return Err(Error::WitnessLost("prepared operation mapping"));
+        }
+        match entry.operation {
+            Some(operation) => Ok(self
+                .retry_prepared_intent(
+                    &request,
+                    &entry
+                        .capsule
+                        .ok_or(Error::WitnessLost("prepared capsule"))?,
+                    &operation,
+                )?
+                .map_or(RequestStatusV1::Preparing, RequestStatusV1::Outcome)),
+            None => Ok(RequestStatusV1::Preparing),
+        }
+    }
+}
+
+impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
+    /// Execute typed intent through the same installed native preparation/proof owner.
+    ///
+    /// The caller holds exclusive wallet custody for this whole call. The existing
+    /// source-selected manifest binds each request, plan and prepared capsule before the next
+    /// phase starts. Restart reuses original choices and resolves the actual statement-derived
+    /// operation identity before proving. No preparation record grants completion authority.
+    /// Permanent request mappings and pending plans are excluded from proof collection.
+    ///
+    /// # Errors
+    /// Conflicting request, missing native custody, unavailable storage/artifacts, invalid proof
+    /// or uncertain Advance. A stale prepared source returns NotPerformed without rebasing.
+    pub fn execute(&mut self, request: OperationRequestV1) -> Result<Completion, Error> {
+        self.execute_intent(NativeIntentV1::user(request))
+    }
+
+    pub(crate) fn archive_credited(
+        &mut self,
+        credit: &[u8; 32],
+        credited: Vec<u8>,
+    ) -> Result<Completion, Error> {
+        if credited.is_empty() || credited.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
+            return Err(Error::Invalid("Archive evidence size"));
+        }
+        let (send, certificates) = self.archive_send_source(credit)?;
+        self.execute_intent(NativeIntentV1::archive(&send, certificates, credited)?)
+    }
+
+    fn execute_intent(&mut self, request: NativeIntentV1) -> Result<Completion, Error> {
+        let _payment = self.scheduler.payment();
+        let (scheme, _) = self.proofs.ledger_scope()?;
+        request.validate(&scheme)?;
+        let bytes = archive::encode(&request)?;
+        if bytes.len() > REQUEST_MAX_BYTES {
+            return Err(Error::Invalid("lifecycle request size"));
+        }
+        // Resolve the source-selected request before requiring a Released head: Advance may
+        // already have irreversibly selected this operation and still owe its receipt.
+        let (_, selected_manifest) = self.manifest()?;
+        if let Some(entry) = self.preparation_entry(&selected_manifest, &request.request_id())? {
+            if self
+                .archive
+                .read_object(&entry.request, REQUEST_MAX_BYTES)?
+                != bytes
+            {
+                return Err(Error::OperationConflict);
+            }
+            if entry.capsule.is_some() != entry.operation.is_some() {
+                return Err(Error::WitnessLost("prepared operation mapping"));
+            }
+            if let Some(operation) = entry.operation {
+                if let Some(completion) = self.retry_prepared_intent(
+                    &request,
+                    &entry
+                        .capsule
+                        .ok_or(Error::WitnessLost("prepared capsule"))?,
+                    &operation,
+                )? {
+                    return Ok(completion);
+                }
+            }
+        }
+        let (mut selected, mut manifest) = self.sync_manifest()?;
+        if request.kind() == KagemushaWalletOperationKindV1::Load {
+            self.require_ledger_activation(&manifest)?;
+        }
+        // This dispatcher starts from an enrolled/released wallet. Enrollment is a separate
+        // pre-wallet owner; no preparation may manufacture a Bootstrap source.
+        let sequence = manifest.indexed.ok_or(Error::NoHead)?;
+        let mut entry = if let Some(entry) =
+            self.preparation_entry(&manifest, &request.request_id())?
+        {
+            let original = self
+                .archive
+                .read_object(&entry.request, REQUEST_MAX_BYTES)?;
+            if original != bytes {
+                return Err(Error::OperationConflict);
+            }
+            entry
+        } else {
+            let entry = Entry {
+                request: self.archive.write_object(&bytes, REQUEST_MAX_BYTES)?,
+                plan: None,
+                capsule: None,
+                operation: None,
+            };
+            self.publish_preparation(&mut selected, &mut manifest, request.request_id(), &entry)?;
+            entry
+        };
+        // Completion lookup precedes source selection/proof work. A mapping's absence from
+        // authenticated storage is a custody failure, never permission for a second debit.
+        if entry.capsule.is_some() != entry.operation.is_some() {
+            return Err(Error::WitnessLost("prepared operation mapping"));
+        }
+        if let Some(operation) = entry.operation {
+            if let Some(completion) = self.retry_prepared_intent(
+                &request,
+                &entry
+                    .capsule
+                    .ok_or(Error::WitnessLost("prepared capsule"))?,
+                &operation,
+            )? {
+                return Ok(completion);
+            }
+        }
+        let released = self.indexed_step(&manifest, sequence)?;
+        let source_digest = valid(released.frozen.capsule.capsule_digest())?;
+        let held_plan = entry
+            .plan
+            .map(|plan| archive::decode::<Plan>(&self.archive.read_object(&plan, PLAN_BOUND)?))
+            .transpose()?;
+        if let Some(plan) = &held_plan {
+            plan.require(&self.scheme_id, &self.wallet_id, &request, &bytes)?;
+            if plan.source != source_digest {
+                return Ok(Completion::NotPerformed(NotPerformed::StaleHead));
+            }
+        }
+        let folded = self.read_fold(&released)?.map(|fold| fold.record);
+        if request.kind().consumes_lineage() && folded.is_none() {
+            return Err(Error::FoldRequired);
+        }
+        let source = PreparationSourceV1 {
+            released: &released,
+            folded: folded.as_ref(),
+        };
+        let (snapshot, map_state) =
+            self.preparation_source_custody(&manifest, &released, request.kind(), folded.as_ref())?;
+        let refresh = request.refresh();
+        let plan = if let Some(plan) = held_plan {
+            plan
+        } else {
+            let mut custody = PreparationCustodyV1::new(
+                &mut self.archive,
+                &snapshot,
+                &map_state,
+                request.kind(),
+                refresh,
+                manifest.issued_requests,
+                manifest.direct_anchors,
+                manifest.finality_epochs,
+            )?;
+            let native = self
+                .proofs
+                .plan_preparation(&request, &source, &mut custody)?;
+            let draft = custody.snapshot();
+            let plan = Plan {
+                version: 1,
+                scheme: self.scheme_id,
+                wallet: self.wallet_id,
+                request_id: request.request_id(),
+                kind: request.kind(),
+                request: digest("wallet-preparation-request", &bytes),
+                source: source_digest,
+                native,
+                request_object: entry.request,
+                draft,
+            };
+            plan.require(&self.scheme_id, &self.wallet_id, &request, &bytes)?;
+            let original = archive::encode(&plan)?;
+            entry.plan = Some(self.archive.write_object(&original, PLAN_BOUND)?);
+            self.publish_preparation(&mut selected, &mut manifest, request.request_id(), &entry)?;
+            plan
+        };
+        plan.require(&self.scheme_id, &self.wallet_id, &request, &bytes)?;
+        if plan.request_object != entry.request {
+            return Err(Error::WitnessLost("preparation request original"));
+        }
+        if plan.source != source_digest {
+            return Ok(Completion::NotPerformed(NotPerformed::StaleHead));
+        }
+        {
+            // Every derivation gets a fresh source draft; replay must never insert twice.
+            let mut custody = PreparationCustodyV1::new(
+                &mut self.archive,
+                &snapshot,
+                &map_state,
+                request.kind(),
+                refresh,
+                manifest.issued_requests,
+                manifest.direct_anchors,
+                manifest.finality_epochs,
+            )?;
+            self.proofs
+                .validate_preparation(&request, &source, &mut custody, &plan.native)?;
+            if archive::encode(&custody.snapshot())? != archive::encode(&plan.draft)? {
+                return Err(Error::WitnessLost("preparation changed custody draft"));
+            }
+        }
+        let frozen = if let Some(capsule) = entry.capsule {
+            self.frozen(capsule)?
+        } else {
+            // Design §5.3: check this phone before proving; commit checks it again.
+            self.require_runtime_capacity()?;
+            let mut custody = PreparationCustodyV1::new(
+                &mut self.archive,
+                &snapshot,
+                &map_state,
+                request.kind(),
+                refresh,
+                manifest.issued_requests,
+                manifest.direct_anchors,
+                manifest.finality_epochs,
+            )?;
+            let frozen =
+                self.proofs
+                    .prove_preparation(&request, &source, &mut custody, &plan.native)?;
+            if archive::encode(&custody.snapshot())? != archive::encode(&plan.draft)? {
+                return Err(Error::WitnessLost("prover changed custody draft"));
+            }
+            custody.finish(&frozen.capsule.successor_state)?;
+            require_frozen(&request, &source_digest, &frozen)?;
+            let original = archive::encode(&frozen)?;
+            if original.len() > FROZEN_BOUND {
+                return Err(Error::Invalid("prepared capsule size"));
+            }
+            let capsule = valid(frozen.capsule.capsule_digest())?;
+            self.archive.put(ArchiveKey::Capsule(capsule), &original)?;
+            entry.capsule = Some(capsule);
+            entry.operation = Some(frozen.capsule.operation_id);
+            let address = entry
+                .plan
+                .ok_or(Error::WitnessLost("prepared capsule plan"))?;
+            if let Some(previous) = manifest.capsule_plans.get(&mut self.archive, &capsule)? {
+                if previous != address {
+                    return Err(Error::WitnessLost("conflicting capsule plan"));
+                }
+            }
+            manifest.capsule_plans =
+                manifest
+                    .capsule_plans
+                    .set(&mut self.archive, capsule, &address)?;
+            self.publish_preparation(&mut selected, &mut manifest, request.request_id(), &entry)?;
+            frozen
+        };
+        require_frozen(&request, &source_digest, &frozen)?;
+        if entry.operation != Some(frozen.capsule.operation_id) {
+            return Err(Error::WitnessLost("prepared operation identity"));
+        }
+        // Recheck source selection after any preparation/publication work. This is under the
+        // same exclusive owner; commit independently repeats full native and Advance checks.
+        let (_, current) = self.sync_manifest()?;
+        if current.capsule != source_digest {
+            return Ok(Completion::NotPerformed(NotPerformed::StaleHead));
+        }
+        self.commit(frozen)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kagemusha_wallet_state_v1::{BlacklistOriginalReferenceV1, tests::fixture};
+
+    #[test]
+    fn prepared_blacklist_binds_the_complete_original_through_its_retained_reference() {
+        let blacklist: KagemushaWalletBlacklistV1 = fixture("KagemushaWalletBlacklistV1");
+        let complete = blacklist.to_canonical_bytes().unwrap();
+        let reference =
+            BlacklistOriginalReferenceV1::for_original(&blacklist.body.scheme_id, &complete)
+                .unwrap()
+                .to_canonical_bytes()
+                .unwrap();
+        let mut frozen = FrozenTransition {
+            credential: fixture("KagemushaWalletCredentialV1"),
+            capsule: fixture("KagemushaWalletRecoveryCapsuleV1"),
+        };
+        // This test checks original binding only, not capsule or issuer admission.
+        frozen.capsule.scheme_id = blacklist.body.scheme_id;
+        frozen.capsule.retained_inputs = vec![KagemushaWalletRetainedInputV1 {
+            role: KagemushaWalletRetainedInputRoleV1::PolicyUpdate,
+            bytes: reference,
+        }];
+        let kind = KagemushaWalletPolicyUpdateKindV1::Blacklist;
+        assert!(policy_original(&frozen, kind, &complete));
+        let mut changed = complete.clone();
+        *changed.last_mut().unwrap() ^= 1;
+        assert!(!policy_original(&frozen, kind, &changed));
+        frozen.capsule.retained_inputs[0].bytes = complete.clone();
+        assert!(!policy_original(&frozen, kind, &complete));
+    }
+
+    #[test]
+    fn prepared_policy_original_requires_one_exact_retained_input() {
+        let complete = vec![1, 2, 3];
+        let mut frozen = FrozenTransition {
+            credential: fixture("KagemushaWalletCredentialV1"),
+            capsule: fixture("KagemushaWalletRecoveryCapsuleV1"),
+        };
+        frozen.capsule.retained_inputs = vec![KagemushaWalletRetainedInputV1 {
+            role: KagemushaWalletRetainedInputRoleV1::PolicyUpdate,
+            bytes: complete.clone(),
+        }];
+        for kind in [
+            KagemushaWalletPolicyUpdateKindV1::Credential,
+            KagemushaWalletPolicyUpdateKindV1::SchemePolicy,
+            KagemushaWalletPolicyUpdateKindV1::TimeAnchor,
+            KagemushaWalletPolicyUpdateKindV1::QuotaShare,
+        ] {
+            assert!(policy_original(&frozen, kind, &complete));
+            assert!(!policy_original(&frozen, kind, &[1, 2, 4]));
+            frozen
+                .capsule
+                .retained_inputs
+                .push(frozen.capsule.retained_inputs[0].clone());
+            assert!(!policy_original(&frozen, kind, &complete));
+            frozen.capsule.retained_inputs.pop();
+        }
+        frozen.capsule.retained_inputs.clear();
+        assert!(!policy_original(
+            &frozen,
+            KagemushaWalletPolicyUpdateKindV1::Credential,
+            &complete,
+        ));
+    }
+}

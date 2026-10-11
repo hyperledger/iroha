@@ -1,6 +1,6 @@
 
             seiyaku CompilerFixture {
-                view fn wrapping(int left, int right) -> (int, int, int, int) {
+                view fn wrapping(int left, int right) authorize(anyone) -> (int, int, int, int) {
                     return (
                         math::wrapping_neg( left),
                         math::wrapping_add(left: left, right: right),

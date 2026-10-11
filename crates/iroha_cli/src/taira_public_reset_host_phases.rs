@@ -21,15 +21,17 @@ pub(super) fn load_checkpoints(
     let mut missing = false;
     for sequence in 1..=maximum {
         let name = format!("checkpoint-{sequence}.json");
-        let body = match directory.read(&name, super::super::host_pair::MAX_CHECKPOINT_BYTES) {
-            Ok(body) => body,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound && !require_complete => {
-                missing = true;
-                continue;
-            }
-            Err(error) => {
-                return Err(error).wrap_err("retained cross-host checkpoint is unavailable");
-            }
+        let body = if require_complete {
+            directory
+                .read(&name, super::super::host_pair::MAX_CHECKPOINT_BYTES)
+                .map(Some)
+        } else {
+            directory.read_optional(&name, super::super::host_pair::MAX_CHECKPOINT_BYTES)
+        }
+        .wrap_err("retained cross-host checkpoint is unavailable")?;
+        let Some(body) = body else {
+            missing = true;
+            continue;
         };
         if missing {
             return Err(eyre!(

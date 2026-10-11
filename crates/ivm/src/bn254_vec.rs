@@ -130,7 +130,7 @@ pub fn wide_mul(a: FieldElem, b: FieldElem) -> [u64; 8] {
 }
 /// Reduce a 512-bit value modulo the BN254 prime.
 pub fn reduce_wide(val: [u64; 8]) -> [u64; 4] {
-    // Convert to a 512-bit integer and perform a constant-time modulo reduction.
+    // Convert to a 512-bit integer and reduce with the existing variable-time routine.
     use crypto_bigint::{Encoding, NonZero, U256, U512};
     const MOD_BYTES: &str = "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001";
     const MODULUS: U256 = U256::from_be_hex(MOD_BYTES);
@@ -142,8 +142,16 @@ pub fn reduce_wide(val: [u64; 8]) -> [u64; 4] {
     let (lo, hi) = wide.split();
     let modulus_nz = NonZero::new(MODULUS).expect("BN254 modulus must be non-zero");
     let reduced = U256::rem_wide_vartime((lo, hi), &modulus_nz);
-    let limbs = reduced.to_words();
-    [limbs[0], limbs[1], limbs[2], limbs[3]]
+    // crypto_bigint words follow the target pointer width. Preserve our four-u64
+    // representation on both 32-bit and 64-bit targets through its byte encoding.
+    let bytes = reduced.to_le_bytes();
+    let mut limbs = [0u64; 4];
+    for (limb, chunk) in limbs.iter_mut().zip(bytes.chunks_exact(8)) {
+        let mut encoded = [0u8; 8];
+        encoded.copy_from_slice(chunk);
+        *limb = u64::from_le_bytes(encoded);
+    }
+    limbs
 }
 /// Add one field-element pair on the selected CPU/SIMD backend.
 ///

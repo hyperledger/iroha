@@ -57,7 +57,7 @@ public final class PrivacyNativeBridgeJavaConsumerTest {
 
   @Test
   public void exactClosedRegistryIsStable() {
-    assert PrivacyNativeBridge.REQUIRED_BRIDGE_ABI_VERSION == 25;
+    assert PrivacyNativeBridge.REQUIRED_BRIDGE_ABI_VERSION == 29;
     assert PrivacyNativeBridge.protocolsV1().size() == 12;
     assert PrivacyProtocolIdV1.ZK_ACE_PQ_AUTHORIZATION_V1.ordinal() == 0;
     assert PrivacyProtocolIdV1.VEGA_EXISTING_CREDENTIAL_ZK_V1.ordinal() == 4;
@@ -229,7 +229,7 @@ public final class PrivacyNativeBridgeJavaConsumerTest {
     final boolean available = PrivacyNativeBridge.isNativeAvailable();
     if (!available) {
       throw new AssertionError(
-          "ABI-25 connect_norito_bridge with compiled-profile catalog JNI exports is required");
+          "ABI-29 connect_norito_bridge with compiled-profile catalog JNI exports is required");
     }
 
     final byte[] canonical = PrivacyNativeBridge.compiledProfileCatalogV1();
@@ -284,7 +284,7 @@ public final class PrivacyNativeBridgeJavaConsumerTest {
     final boolean available = PrivacyNativeBridge.isNativeAvailable();
     if (!available) {
       throw new AssertionError(
-          "ABI-25 connect_norito_bridge with exact-12 fixture JNI exports is required");
+          "ABI-29 connect_norito_bridge with exact-12 fixture JNI exports is required");
     }
 
     final byte[] fetched = PrivacyNativeBridge.exact12FixtureBundleV1();

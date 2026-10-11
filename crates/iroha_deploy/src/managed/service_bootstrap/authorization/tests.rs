@@ -275,22 +275,34 @@ fn bootstrap_original_policy_and_expiry_do_not_reparse_the_live_authority() {
         });
     assert_eq!(parses, 1);
     let mut peers = UnavailablePeers::start(&prepared);
-    // The distinct child open-existing owner still performs its own canonical capture.
-    // Only repeated reads through this live parent reuse its original parsed profile.
-    let (first, parses) = crate::localnet::service_authorities::count_profile_validations(|| {
-        owner
-            .authorize_generated_startup(deadline, Arc::clone(&cancelled))
-            .unwrap()
-            .unwrap()
-    });
-    assert_eq!(parses, 1);
-    let (second, parses) = crate::localnet::service_authorities::count_profile_validations(|| {
-        owner
-            .authorize_generated_startup(deadline, Arc::clone(&cancelled))
-            .unwrap()
-            .unwrap()
-    });
-    assert_eq!(parses, 1);
+    // This fixture has no child purposes: the fresh census and Local reserve absence probe
+    // use the held original parent without constructing another authority or parsing it.
+    let ((first, opens), parses) =
+        crate::localnet::service_authorities::count_profile_validations(|| {
+            crate::managed::service_authority::ServiceChildInventory::test_count_authority_opens(
+                || {
+                    owner
+                        .authorize_generated_startup(deadline, Arc::clone(&cancelled))
+                        .unwrap()
+                        .unwrap()
+                },
+            )
+        });
+    assert_eq!(opens, 0);
+    assert_eq!(parses, 0);
+    let ((second, opens), parses) =
+        crate::localnet::service_authorities::count_profile_validations(|| {
+            crate::managed::service_authority::ServiceChildInventory::test_count_authority_opens(
+                || {
+                    owner
+                        .authorize_generated_startup(deadline, Arc::clone(&cancelled))
+                        .unwrap()
+                        .unwrap()
+                },
+            )
+        });
+    assert_eq!(opens, 0);
+    assert_eq!(parses, 0);
     let (_, parses) = crate::localnet::service_authorities::count_profile_validations(|| {
         first.original.validate(&owner.authority).unwrap();
         first.original.policies.validate(&owner.authority).unwrap();

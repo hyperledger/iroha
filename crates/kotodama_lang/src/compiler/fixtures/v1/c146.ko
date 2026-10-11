@@ -1,6 +1,6 @@
 
 seiyaku NativeJson {
-  view fn payload(string label) -> Json {
+  view fn payload(string label) authorize(anyone) -> Json {
     json {
       z: true,
       amount: 1.25,

@@ -112,9 +112,9 @@ fn borrowed_merkle_valid_payload_measurement_hints_and_original_destinations_all
                 assert_eq!(buffered, expected);
                 assert_eq!(buffered.as_ptr(), backing);
                 assert_eq!(buffered.capacity(), capacity);
-                let mut fixed = [0_u8; 65_536];
+                let mut fixed = vec![0_u8; 65_536].into_boxed_slice();
                 assert!(expected.len() <= fixed.len());
-                let mut writer = std::io::Cursor::new(fixed.as_mut_slice());
+                let mut writer = std::io::Cursor::new(fixed.as_mut());
                 without_allocations(|| {
                     norito::core::serialize_to_writer(&source, &mut writer).unwrap()
                 });
@@ -131,8 +131,7 @@ fn borrowed_merkle_valid_payload_measurement_hints_and_original_destinations_all
 fn assert_original_refusal(source: &MerkleTree<()>) {
     let original = source
         .serialized_parts()
-        .err()
-        .expect("original malformed-cache refusal");
+        .expect_err("original malformed-cache refusal");
     assert_eq!(source.serialized_view().err(), Some(original.clone()));
     assert_eq!(source.encoded_len_hint(), None);
     assert_eq!(source.encoded_len_exact(), None);
@@ -245,10 +244,10 @@ fn borrowed_merkle_json_preserves_original_bytes_caps_and_removes_only_cache_rec
             let mut expected = String::new();
             original_json(&source, &mut expected);
             let mut original_destination = String::with_capacity(expected.len());
-            let (_, original_allocations) =
+            let ((), original_allocations) =
                 allocations_during(|| original_json(&source, &mut original_destination));
             let mut borrowed_destination = String::with_capacity(expected.len());
-            let (_, borrowed_allocations) =
+            let ((), borrowed_allocations) =
                 allocations_during(|| source.json_serialize(&mut borrowed_destination));
             assert_eq!(original_destination, expected);
             assert_eq!(borrowed_destination, expected);

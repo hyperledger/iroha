@@ -124,6 +124,8 @@ fn visible_complete_original_head_is_synced_before_restored_claim_and_publicatio
     let (_temporary, root) = root();
     let budget = AllocationBudget::new(16 * 1024 * 1024);
     let (mut original, _writers, inherited) = prepare_restartable(&root, &budget).unwrap();
+    let original_deadline = original.deadline;
+    let original_expiry = original.durable.expiry;
     through_publication_encoding(&mut original);
     original.seal_and_publish_checkpoint(1).unwrap();
     original.publish_phase(1).unwrap();
@@ -167,7 +169,6 @@ fn visible_complete_original_head_is_synced_before_restored_claim_and_publicatio
         expected_head
     );
     let original_identity = original.claim_and_fifo_identity().unwrap();
-    let original_deadline = original.deadline;
     let inodes = [
         INTENT_FILES[0],
         HEAD_FILES[0],
@@ -201,6 +202,7 @@ fn visible_complete_original_head_is_synced_before_restored_claim_and_publicatio
     );
     assert_eq!(std::ptr::from_ref(&*restored), receiver);
     assert!(restored.deadline <= original_deadline);
+    assert_eq!(restored.durable.expiry, original_expiry);
     assert_eq!(
         restored.local.as_ref().unwrap().encoded_public_frame(),
         expected_public
@@ -219,7 +221,10 @@ fn visible_complete_original_head_is_synced_before_restored_claim_and_publicatio
         .map(|name| fs::metadata(directory.join(name)).unwrap().ino()),
         inodes
     );
-    assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+    // Successful publication decoding moves the original rows and retires its
+    // prepared row containers. The blocker prevents new admission beforehand;
+    // these genuine refunds do not replace any retained source or file owner.
+    assert!(budget.reserved_bytes() < budget.limit_bytes());
     drop(restored);
     assert_eq!(budget.reserved_bytes(), blocker.remaining_bytes());
     drop(blocker);
@@ -252,6 +257,19 @@ fn original_restore_sync_refusal_keeps_all_descriptors_sources_and_unfinished_ba
         attempt
             .durable
             .load_generation(attempt.claim.read_directory().unwrap())
+            .unwrap();
+    }
+    // Match the production order: publication decoding precedes the durability
+    // barrier and retires its prepared row containers on successful extraction.
+    // Measure sync refusal/retry after that transition, while private adoption
+    // and claim authentication remain unfinished.
+    {
+        let attempt = &mut *restored;
+        let source = attempt.durable.public_source();
+        attempt.original_publications[0]
+            .as_mut()
+            .unwrap()
+            .decode(source, norito::canonical_decode_limits(source.len()))
             .unwrap();
     }
     let fds = restored
@@ -304,7 +322,12 @@ fn original_restore_sync_refusal_keeps_all_descriptors_sources_and_unfinished_ba
     assert_eq!(restored.durable.private_source().as_ptr(), private_pointer);
     assert_eq!(restored.durable.private_source(), expected_private);
     assert_eq!(budget.reserved_bytes(), retained);
+    let blocker = budget
+        .try_reserve_bytes(budget.limit_bytes() - retained)
+        .unwrap();
     restored.step().unwrap();
+    assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+    drop(blocker);
     assert_eq!(restored.phase, Phase::PublicationDurable);
     assert!(restored.durable.loaded.iter().all(|owner| owner.synced));
     assert!(restored.durable.restored_directory_synced);
@@ -333,7 +356,8 @@ fn genuine_later_source_sync_refusal_keeps_all_original_descriptors_bytes_and_un
     use std::os::fd::AsRawFd as _;
     let (_temporary, root) = root();
     let budget = AllocationBudget::new(64 * 1024 * 1024);
-    let (original, _writers, inherited, _chain) = through_original_later_phase(&root, &budget, 2);
+    let (original, _writers, inherited, _chain, _admitted_deadline) =
+        through_original_later_phase(&root, &budget, 2);
     drop(original);
     assert_eq!(budget.reserved_bytes(), 0);
     let mut restored = prepare_with_sources(

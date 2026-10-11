@@ -7,7 +7,7 @@ seiyaku CoffeeClub {
         return coffees * 10;
     }
 
-    view fn quote(int coffees) -> int {
+    view fn quote(int coffees) authorize(anyone) -> int {
         return points(coffees: coffees);
     }
 }

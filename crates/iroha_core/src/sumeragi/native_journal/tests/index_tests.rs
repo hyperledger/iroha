@@ -10,22 +10,32 @@ use std::{
 
 #[test]
 fn native_journal_indexes_retain_exact_backing_and_share_original_blocks_without_allocation() {
-    let (chain, _) = fixture();
-    let pool = chain.state().ivm_execution_budget();
-    let chain_floor = pool.reserved_bytes();
+    let (chain, journal) = fixture();
+    // The original offline read owns a finite pool independent of the fixture's
+    // retired State generations. Its actual shared controls survive the read.
+    let pool = AllocationBudget::new(limits().allocated_bytes);
+    let source_floor = pool.reserved_bytes();
     let count = 3;
-    // Canonical history reads create independent original shared controls. Keep
-    // those exact source owners before measuring the separate index backing.
-    let blocks = [
-        chain.committed(1).block().clone(),
-        chain.committed(2).block().clone(),
-        chain.committed(3).block().clone(),
-    ];
+    let blocks = with_verified_native_journal(
+        (&journal).into(),
+        &ChainId::from("sumeragi-certified-test-chain"),
+        &chain.network_id(),
+        limits(),
+        &pool,
+        |reader| {
+            Ok([
+                reader.certified(1)?.block().clone(),
+                reader.certified(2)?.block().clone(),
+                reader.certified(3)?.block().clone(),
+            ])
+        },
+    )
+    .unwrap();
     let hashes = blocks.each_ref().map(|block| block.hash());
     let floor = pool.reserved_bytes();
     assert_eq!(
         floor,
-        chain_floor + count * SharedSignedBlock::allocation_layout().size()
+        source_floor + count * SharedSignedBlock::allocation_layout().size()
     );
     assert!(blocks.iter().all(|block| block.belongs_to(&pool)));
     let bytes = Layout::array::<SharedSignedBlock>(count).unwrap().size()
@@ -49,7 +59,7 @@ fn native_journal_indexes_retain_exact_backing_and_share_original_blocks_without
     drop(index);
     assert_eq!(pool.reserved_bytes(), floor);
     drop(blocks);
-    assert_eq!(pool.reserved_bytes(), chain_floor);
+    assert_eq!(pool.reserved_bytes(), source_floor);
 }
 
 #[test]
@@ -85,7 +95,8 @@ fn native_journal_index_allocator_refusal_refunds_both_exact_backings() {
 #[test]
 fn native_journal_index_capacity_refusal_keeps_original_release_and_unchanged_cursor() {
     let (chain, journal) = fixture();
-    let pool = chain.state().ivm_execution_budget();
+    // One original offline-reader pool retains every retry owner and refusal.
+    let pool = AllocationBudget::new(limits().allocated_bytes);
     let floor = pool.reserved_bytes();
     let mut observer = crate::unit_test_support::release_registration(&pool);
     let mut cursor = NativeJournalCursor::new(

@@ -164,7 +164,7 @@ Deploys never build and never run regression suites. CI produces a signed releas
 
   `consensus_digest = H(static ‖ derive(n) ‖ genesis recipe)`. `policy_digest = H(policy ‖ roles)`. When a node config sets `profile`, only allowlisted per-node keys may appear in it. It requires `validators` and `data_dir`; `role` defaults to `validator`. The profile owns the discriminant and the role owns the Sumeragi role.
 - **Release bundle.** A signed tar of content-addressed blobs plus a `ReleaseManifestV1`. It is the only thing that changes code on hosts.
-- **Node card.** The public output of on-host key generation: peer id, PoP, account key, transport and streaming public keys, mint-finality public material, gateway certificate, addresses.
+- **Node card.** The public output of on-host key generation: peer id, PoP, account key, transport and streaming public keys, gateway certificate, addresses.
 - **Generation.** One ledger lifetime, identified by its NetworkId. It is recorded in `GENERATION` next to each node's state, outside the Kura store root.
 - **Plan and decision hash.** The diff between desired state (definition, profile, release) and observed state (agent host facts, attested chain facts). The decision hash covers only facts that change decisions: release digests, config and unit hashes, `GENERATION` contents, node cards, host keys, roster, edge config hash and grant set. `apply` refuses if the decision hash changed since the plan. Volatile facts such as heights, lag and blocks-to-pulse are re-validated as gates at action time.
 - **Op journal and host record.** One controller journal per operation. Each touched node gets a host-side `host-record.norito` holding its prior release, config, unit, state location and health class, so rollback works even if the controller is lost.
@@ -677,14 +677,13 @@ $ iroha network apply networks/taira.toml --release 2026.10.0   # shows the plan
    - transport key;
    - streaming key;
    - runtime signer (the validator account and Soracloud signer);
-   - 32-byte mint-finality seed;
    - a self-signed gateway TLS key and certificate.
 
    The edge generates its gateway client key and certificate. Only public node cards and certificates come back to the controller.
 7. **Genesis.** Built in controller memory from:
    - the profile recipe, including `npos.max_validators = 4`, chain id and discriminant;
-   - the node cards: roster, PoPs, lane-0 validator registrations, a Committee-role consensus key for every validator, and the mint-finality generation-0 authority;
-   - fresh network authority keys: faucet, onboarding, SoraFS council, KAGEMUSHA redemption;
+   - the node cards: roster, PoPs, lane-0 validator registrations, a Committee-role consensus key for every validator, with the ordered BLS topology and original PoPs defining validator generation zero;
+   - fresh network authority keys: faucet, onboarding, SoraFS council;
    - the profile's admin grants. These include `CanAdministerDataspaceRegistration` and the genesis parameters `nexus.dataspace_registration = permissioned` and `nexus.max_external_committee_peers = 12`.
    - a fresh VRF epoch seed.
 
@@ -846,7 +845,7 @@ $ iroha dataspace apply dataspaces/acme.toml
 
 1. **Card** as in S2a. The release is the card's release, and its bundle is verified against the compiled signers. The budget check requires `external committee peers + 4 ≤ nexus.max_external_committee_peers`.
 2. **Owner hosts** are converged by the same engine with the `lane_validator` overlay:
-   - Keys generated on each host: BLS+PoP, transport, streaming, account key, gateway certificate. No mint-finality seed, beacon credential, Soracloud production mode or Inrou.
+   - Keys generated on each host: BLS+PoP, transport, streaming, account key, gateway certificate. No beacon credential, Soracloud production mode or Inrou.
    - `validators`, profile and chain values copied from the card. Handshake constants must match byte-for-byte (`peer.rs:11929-11965`).
    - `trusted_peers` = the Taira roster plus sibling owner nodes with PoPs.
    - `genesis.file` = the verified card genesis. `expected_hash` = the pinned NetworkId.
@@ -972,8 +971,8 @@ There is no preinstalled dispatcher, no `guard.json` and no dispatcher transitio
 /etc/iroha/<net>/edge/{client.crt, client.key(0600), validators.pem}            (edge host)
 /var/lib/iroha/<net>/<node>/release -> /opt/iroha/releases/<id>     (+ release.prev)
 /var/lib/iroha/<net>/<node>/secrets/                                0700; files 0600 owned by the service user:
-    validator.key transport.key streaming.key runtime_signer.key mint_finality.seed beacon.cred
-    authority/{faucet,onboarding,sorafs_council,kagemusha_redemption}.key
+    validator.key transport.key streaming.key runtime_signer.key beacon.cred
+    authority/{faucet,onboarding,sorafs_council}.key
 /var/lib/iroha/<net>/<node>/state/                                  Kura, snapshots, SoraFS, Torii, Inrou data
 /var/lib/iroha/<net>/<node>/{GENERATION, host-record.norito, genesis.nrt}
 /var/lib/iroha/<net>/<node>/previous/{<gen>, checkpoint-<op>}/      retired ledgers and upgrade checkpoints
@@ -1098,11 +1097,11 @@ Recommended outside the tool: `restrict,from="<controller IP>"` on the deploy ke
 | Key | Generated where | Custody and rotation |
 |---|---|---|
 | Genesis key | Controller memory, once per generation | Signs once, then zeroized. |
-| Validator BLS+PoP, transport, streaming, runtime signer, mint-finality seed | On the validator host | 0600 in `secrets/`. Never leaves the host except in an identity move (through controller memory, then zeroized). Persists across resets. Rotating it requires a reset (no global validator rotation). |
+| Validator BLS+PoP, transport, streaming, runtime signer | On the validator host | 0600 in `secrets/`. Never leaves the host except in an identity move (through controller memory, then zeroized). Persists across resets. Rotating it requires a reset (no global validator rotation). |
 | Gateway TLS keys (nodes, edge client) | On each host | Only certificates leave the host. `--rotate gateway-certs`; the watch timer warns at 30 days. |
 | Beacon seat credentials | On each validator host (`DealSeat`; its own share only) | Written to `secrets/beacon.cred` by the seat itself. Never leave the host. |
 | Install-certificate signatures | On each host (`SignInstallRange`) | Only signatures leave the host. |
-| Network authority keys (faucet, onboarding, SoraFS council, KAGEMUSHA redemption) | Controller memory at genesis | `WriteSecret` to every validator, then zeroized. Rotation requires a reset in the first release (TODO T10). |
+| Network authority keys (faucet, onboarding, SoraFS council) | Controller memory at genesis | `WriteSecret` to every validator, then zeroized. Rotation requires a reset in the first release (TODO T10). |
 | Admin key | `admin_key`, or generated into `<state>/keys/` | Operator custody; back it up. `--rotate admin`. |
 | Controller operator key | `<state>/keys/operator.key` | Allowlisted on every node; verify never needs it. `--rotate operator`. |
 | Onboarding tokens | Minted by the tool | Plaintext written once to `<state>/credentials/` (0600); only the blake3 hash goes into configs. `--rotate onboarding:<id>`. |
@@ -1112,25 +1111,24 @@ Recommended outside the tool: `restrict,from="<controller IP>"` on the deploy ke
 
 ### 7.3 How secrets reach the daemon
 
-FD 198/199/200 are deleted, together with `take_inherited_private_file` (`taira_runtime_signer.rs:460-486`), the inline-Python launcher (`scripts/taira_validator_unit.py:21-116`) and `iroha3d_taira`.
+The runtime-signer and beacon descriptors 198/200 are deleted, together with `take_inherited_private_file` (`taira_runtime_signer.rs:460-486`), the inline-Python launcher (`scripts/taira_validator_unit.py:21-116`) and `iroha3d_taira`.
 
 The stock `iroha3d` opens fixed names under `<data_dir>/secrets/` through `irohad::node_secrets`, using the existing `load_bounded_runtime_credential_v1` (`runtime_credential.rs`). It checks:
 - `O_NOFOLLOW`, regular file, nlink 1;
 - owner 0 or euid, owner-only mode (no group, other, setuid, setgid or sticky bits; the tool writes 0600);
 - no symlinked, foreign-owned or group/world-writable ancestor directory. The secrets path is walked as written before it is canonicalized: a symlinked component is admitted only when the link and its directory are root-owned and not group- or world-writable (system links such as macOS `/var`), so a symlinked `data_dir`, `secrets` directory or user-owned ancestor is refused;
-- exact size (`runtime_signer.key` 71 bytes, `mint_finality.seed` 32 bytes; `beacon.cred` bounded by the credential ceiling);
+- exact size (`runtime_signer.key` 71 bytes; `beacon.cred` bounded by the credential ceiling);
 - and zeroizes the buffer after parsing.
 
 It then:
 - verifies each loaded key against the public binding in the config:
   - the Soracloud signer (`runtime_signer.key`, required whenever `soracloud_runtime.submission.signer` is set, which `production_mode` requires) must be the binding's Ed25519 key and account, with handle `software://iroha/node-secrets/runtime-signer/<public key hex>`, revision 1 and the compiled policy digest; these live in `iroha_config::parameters::actual::node_runtime_signer::{handle_v1, REVISION_V1, policy_digest_v1}` so the renderer (which never depends on irohad) emits exactly these values;
   - the onboarding authority (`authority/onboarding.key`, when onboarding reads it from that path) must be the signatory of `torii.account_onboarding.authority`;
-- derives the beacon provider binding from the credential header (`iroha_core::beacon::credential::global_beacon_partial_signer_credential_header_v1`); `beacon.cred` is admitted only on a validator, and a configured `sumeragi.global_beacon_partial_signer_provider_*` binding must equal the header;
-- binds the mint-finality seed against the authenticated genesis generation-0 roster through `node_secrets::bind_mint_finality_seed`, which the inherited-descriptor launchers share: a named peer requires the seed, and an unnamed peer that holds one keeps it as an unseated candidate. A node without a local signed genesis refuses to start when `mint_finality.seed` exists, and a `data_dir` node rejects `sumeragi.mint_finality_seed_fd`.
+- derives the beacon provider binding from the credential header (`iroha_core::beacon::credential::global_beacon_partial_signer_credential_header_v1`); `beacon.cred` is admitted only on a validator, and a configured `sumeragi.global_beacon_partial_signer_provider_*` binding must equal the header.
 
 `node_secrets` resolves only the Soracloud signer and beacon provider roles; a `data_dir` node whose configuration requests another runtime-provider role is rejected (TODO: compose the stock broker once a profile enables one). Launchers that bring their own registry (`iroha3d_taira` until P8) do not use it.
 
-The key files the configuration parser reads (`validator.key`, `transport.key`, `streaming.key` and the `authority/*.key` network-authority keys) pass the same custody checks (`node_secrets::verify_config_key_custody`) whenever the node file is loaded, before the parser reads them; `--check-config` and `--check-storage` therefore read those key files, but never open the runtime-only secrets (`runtime_signer.key`, `mint_finality.seed`, `beacon.cred`). The parser reads each key file into a zeroizing buffer. The FD transport's "consumed after load" property is dropped: root can read either form, and that transport caused incident I2-65 and required python3 on every host.
+The key files the configuration parser reads (`validator.key`, `transport.key`, `streaming.key` and the `authority/*.key` network-authority keys) pass the same custody checks (`node_secrets::verify_config_key_custody`) whenever the node file is loaded, before the parser reads them; `--check-config` and `--check-storage` therefore read those key files, but never open the runtime-only secrets (`runtime_signer.key`, `beacon.cred`). The parser reads each key file into a zeroizing buffer. The FD transport's "consumed after load" property is dropped: root can read either form, and that transport caused incident I2-65 and required python3 on every host.
 
 ### 7.4 Network exposure
 
@@ -1252,7 +1250,6 @@ crossing test before deployment.
      - `network.{address,public_address}`;
      - `torii.{address,transport.trusted_proxy_cidrs,operator_signatures.allowed_public_keys,account_onboarding.{authority,credentials}}`;
      - the faucet authority id;
-     - the KAGEMUSHA V1 redemption authority id (`torii.kagemusha_v1_commands.redemption_authority`);
      - `genesis.*`;
      - `soracloud_runtime.submission.signer` (public binding);
      - `soracloud_runtime.inrou.{enabled,portable_vm_uid,portable_vm_gid,trusted_guest_manifest_digest_hex,trusted_guest_content_cid}`;
@@ -1260,12 +1257,12 @@ crossing test before deployment.
      - `node_tunable`.
 
      Anything else is a parse error. Files without `profile` stay ordinary flat configs.
-   - Node-bound templates: the profile's `torii.faucet`, `torii.account_onboarding` and `torii.kagemusha_v1_commands` sections apply only when the node file binds that section's authority (`authority`, or `redemption_authority` for KAGEMUSHA V1). A bound section's key comes from its fixed `<data_dir>/secrets/authority/*.key` file, and the parser rejects a key that does not sign for the bound authority. `sora-nexus-v1` carries Taira's KAGEMUSHA V1 commands (redemption minimum balance 1 XOR, operation registry 4096 entries and 593920 bytes), so the renderer enables them on every validator by emitting the redemption authority it created at genesis.
+   - Node-bound templates: the profile's `torii.faucet` and `torii.account_onboarding` sections apply only when the node file binds that section's `authority`. A bound section's key comes from its fixed `<data_dir>/secrets/authority/*.key` file, and the parser rejects a key that does not sign for the bound authority.
    - `NodeSecretFile::SorafsCouncilAuthority` names `authority/sorafs_council.key` in the fixed layout the deploy engine writes; no node configuration key reads it (the node verifies council signatures with public `trusted_council_keys`), so the node never opens it.
    - Profiles replace the `iroha3d_taira` exact-match guards (`taira_runtime_signer.rs:126-298`). Genesis-bound hashes (checked by `irohad` against the authenticated genesis Sumeragi context) and the `iroha_p2p` peer handshake still catch any divergence.
    - `--config-blake3` stays, because the node file is flat.
-2. **`data_dir`** (user, actual, defaults). A relative `data_dir` resolves against the directory of the file that sets it and is then made absolute against the working directory, so every derived path is absolute; the loader writes the resolved value to its own source, and the parser rejects a `data_dir` read without the loader (`ParseError::InvalidDataDir`). Every state path defaults under `<data_dir>/state/`. Secret paths default to fixed `<data_dir>/secrets/*` names, including `torii.account_onboarding.private_key_file`, the faucet authority key and the KAGEMUSHA V1 redemption key. This replaces the 11 paths rewritten by `validator_config.rs:139-190`.
-3. **`irohad::node_secrets`** (about 500 lines). Builds `IrohaRuntimeDeps` for the Soracloud signer (when `production_mode` is set), the mint-finality authority, and the beacon partial signer (when `beacon.cred` exists). It verifies each against the rendered public binding.
+2. **`data_dir`** (user, actual, defaults). A relative `data_dir` resolves against the directory of the file that sets it and is then made absolute against the working directory, so every derived path is absolute; the loader writes the resolved value to its own source, and the parser rejects a `data_dir` read without the loader (`ParseError::InvalidDataDir`). Every state path defaults under `<data_dir>/state/`. Secret paths default to fixed `<data_dir>/secrets/*` names, including `torii.account_onboarding.private_key_file` and the faucet authority key. This replaces the 11 paths rewritten by `validator_config.rs:139-190`.
+3. **`irohad::node_secrets`** (about 500 lines). Builds `IrohaRuntimeDeps` for the Soracloud signer (when `production_mode` is set) and the beacon partial signer (when `beacon.cred` exists). It verifies each against the rendered public binding.
 4. **Beacon ceremony extraction (P1).**
    - `encode_global_beacon_partial_signer_credential_v1`, `global_beacon_partial_signer_inventory_digest_v1` and `RuntimeGlobalBeaconShareProvisioningV1` move from `irohad/src/external_software_signer/consensus_threshold.rs:116,509` to `iroha_core::beacon::credential`.
    - The Provision, SignInstall and Assemble core moves from `beacon_bootstrap.rs` to `iroha_core::beacon::ceremony`. It is generalized from the hard-coded 4/2/quorum-3 and the Taira chain id (`beacon_bootstrap.rs:241-262, 455-510`) to n, f+1 and 2f+1.
@@ -1275,7 +1272,7 @@ crossing test before deployment.
    - Implementation (`irohad::compatibility_probe`): Kura is opened in emergency-Fast mode, which takes the store-root lock through Kura's own opener, validates the durable commit marker and maps the hash journal without repairing or publishing anything. Every retained block body up to the tip is decoded with this build and checked against the hash journal and its parent. The newest snapshot is checked using a temporary scratch Kura. A positive-height snapshot reports `NativeExecutionReplayRequired`: its signature does not authenticate the complete World against native witnessed-write commitments. Normal Strict startup needs the original signed genesis and complete native certified replay history.
    - The report also carries `snapshot_height` and `snapshot_restore_error`; hashes are lowercase hex; an absent store reports height 0; an absent or disabled snapshot is `ok` with `snapshot_height = null`. The exit status is nonzero when the store cannot be read (no JSON) or the dry run fails (JSON first). Retired snapshot-import markers are rejected rather than converted into a trust root.
    - `--check-config --json` adds `status` (`ready`/`pending`). The genesis-bound values (`config_fingerprint`, `execution_policy_hash`, `nexus_amx_context_hash`) are `null` without a local signed genesis. `nexus_policy_digest` is computed from the rendered configuration's Nexus section with its frozen lane-manifest and compliance digests.
-6. **Signed beacon horizon.** `SumeragiStatus` gains `beacon_horizon: Option<BeaconHorizonStatusV1 {epoch_length_blocks, next_required_pulse_height, active_session_id, session_covers_next_pulse, local_provider_ready}>` (explicit `null` until serialized activation of that exact height has published it; G4 treats `null` as not yet observable; the epoch length and the next pulse both come from the same frozen `HeightContext`, the epoch length being the span of its KAGEMUSHA mint-finality scheduling authorization, so an `NPoS` horizon is published from the genesis height on; validation rejects a zero `NPoS` epoch length and a non-zero permissioned one), filled from `iroha_core/src/beacon/readiness.rs` `HeightBinding`. It is embedded in the signed `BridgeFinalityAttestationBodyV1` (`bridge.rs:746-768`), so G4 works over public routes. Norito roundtrip tests are added.
+6. **Signed beacon horizon.** `SumeragiStatus` gains `beacon_horizon: Option<BeaconHorizonStatusV1 {epoch_length_blocks, next_required_pulse_height, active_session_id, session_covers_next_pulse, local_provider_ready}>` (explicit `null` until serialized activation of that exact height has published it; G4 treats `null` as not yet observable; the epoch length and the next pulse both come from the same frozen `HeightContext`, the epoch length being the span of its authenticated validator epoch authorization, so an `NPoS` horizon is published from the genesis height on; validation rejects a zero `NPoS` epoch length and a non-zero permissioned one), filled from the authenticated beacon height binding. It is embedded in the signed `BridgeFinalityAttestationBodyV1` (`bridge.rs:746-768`), so G4 works over public routes. Norito roundtrip tests are added.
 7. **Torii.**
    - A `latest` selector for `/v1/bridge/finality/attestation/{height|latest}` (`routing.rs:6377-6420`; descriptor `route_catalog.rs:2677-2682`).
    - `/status.build.wire_schema_hash`.
@@ -1292,7 +1289,7 @@ crossing test before deployment.
 11. **Nexus flat configs and `--sora` (out of scope).** Minamoto is untouched. `--sora`, `IROHA_SORA_PROFILE`, `requires_sora_profile` and `Config::apply_sora_profile` stay as they are, together with `defaults/nexus/config.toml` and `configs/soranexus/nexus/config.toml`. Profiles never set `--sora`, and a node file that sets `profile` must not be started with `--sora` (parse error).
 12. **kagami.**
     - `kagami localnet up/status/logs/down/reset` calls the shared native process owner. `kagami localnet generate` is the explicit operator bundle generator; no old positional form or `localnet-wizard` alias remains. The superseded `localnet_tui.rs` and frontend-owned generation implementation are removed.
-    - The canonical genesis and rendering implementation now lives in `iroha_deploy::{genesis, localnet}`. Profile consolidation into `iroha_config::profile::derive`, retirement of the chain-id Taira branch and generated script transport, and complete Committee-role/mint-finality custody remain operator-engine work. Deterministic fixtures retain `--seed` and scaling layouts; managed developer generations use fresh keys.
+    - The canonical genesis and rendering implementation now lives in `iroha_deploy::{genesis, localnet}`. Profile consolidation into `iroha_config::profile::derive`, retirement of the chain-id Taira branch and generated script transport, and complete Committee-role key custody remain operator-engine work. Deterministic fixtures retain `--seed` and scaling layouts; managed developer generations use fresh keys.
     - Delete the `iroha3-taira` `GenesisProfile` and `RETIRED_PUBLIC_CHAIN_ID_ALIASES`.
     - `kagami docker` reads the container render mode.
     - `privacy_bootstrap` `include_bytes!` of the Taira config and template (`privacy_bootstrap/release.rs:55-68`) is re-pointed to the profile files. The privacy plan and NEVO files move to `configs/soranexus/privacy/`.
@@ -1374,7 +1371,7 @@ It also has:
 - Requires 2f+1 distinct current committee members' fresh challenge-bound native attestations. After compact checkpoint import, a member at the immediately preceding height can count only against its exact retained decision and authenticated parent. During an observation, earlier immutable responses also count if their complete original decisions were verified while advancing the contiguous prefix; this preserves progress when reads straddle a boundary. At most one verified outcome per queried peer is retained until that observation ends. An arbitrary proof from the same epoch cannot establish prefix membership.
 - Genesis execution has no QC. Initializing from signed genesis does not authenticate its outputs; a certified successor or independent fresh committee attestations are required. A peer's supplied proof or checkpoint cannot select its own trust root.
 - The current implementation caps an observation at 4,096 successor proofs, 64 MiB of canonical block frames and 124 distinct queried peers (`MAX_OBSERVATION_PEERS`, four times the 31-member committee maximum). Advance and observation publish a checkpoint atomically only after their required verification succeeds. The HTTP source remains TODO(P2).
-- Portable verifier fixtures cover genuine BLS signatures and valid Pasta public points over synthetic execution results, including 4→7→4 proof chains. They do not qualify World execution, XOR custody, beacon DKG, Pasta application seals, or live multi-peer transitions. Verifying native lane evidence against its authenticated owner remains part of the lane route gate (P6).
+- Portable verifier fixtures cover genuine BLS signatures over synthetic execution results, including 4→7→4 proof chains. They do not qualify World execution, XOR custody, beacon DKG, or live multi-peer transitions. Verifying native lane evidence against its authenticated owner remains part of the lane route gate (P6).
 - Drops the node, build and config fingerprint pins and the per-height proof journal.
 
 **D-8. Owner nodes** run stock `iroha3d` with `role = "lane_validator"`, which derives `sumeragi.role = "validator"`.
@@ -1442,7 +1439,7 @@ Line counts come from `wc -l` on this branch unless marked ~. Everything below i
 | `configs/soranexus/taira/*` (config, genesis template, roster example, dns, explorer runtime config, canary client, sorafs sites, install script + mock test, explorer nginx, `__pycache__`); README 815 → ~60 | 3,976 + 755 | Profile, definition, `render::edge`, card | P8 |
 | `scripts/taira_devnet.py`, `taira_retry.py`, `taira_update.py`, `taira_update_guest.py` | 8,399 + 5,608 + 584 + 1,516 | `up`/`verify`/`down`; resume; `apply --release` | P8 |
 | `scripts/taira_release.py`, `taira_release_check.py`, `taira_cargo_cache.py`, `taira_cargo_artifact.py`, `taira_source_observation.py`, `check_taira_initial_executor.py` | 7,401 | `cargo xtask release`; optional nextest diagnostics (CI switched in P0) | P8 |
-| `scripts/taira_release_transfer.py`, `taira_source_capture.py`, `taira_retained_release.py`, `taira_retained_source.py`, `taira_seed_observation.py`, `taira_disk_capacity.py`, `taira_nginx_logrotate.py` | 5,288 | Upload, GC, G0/G11, G1, logrotate | P8 |
+| `scripts/taira_release_transfer.py`, `taira_source_capture.py`, `taira_retained_release.py`, `taira_retained_source.py`, `taira_signer_observation.py`, `taira_disk_capacity.py`, `taira_nginx_logrotate.py` | 5,288 | Upload, GC, G0/G11, G1, logrotate | P8 |
 | `scripts/taira_validator_unit.py` (+ `include_str!` at `taira_public_reset_validator_units.rs:11-12`), `taira_constants.py`, `render_taira_edge_nginx_conf.py` | 209 + 64 + 1,143 | `render::{unit, edge}`, card | P8 |
 | Python tests for all of the above | 28,462 | Rust tests in `iroha_deploy` | P8 |
 | `scripts/deploy_localnet.sh`, `run_local_swarm.sh`, `custom_network_test.py` + tests | ~1,750 | `iroha network up` | P8 |

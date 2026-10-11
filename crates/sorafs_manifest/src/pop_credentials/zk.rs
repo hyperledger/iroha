@@ -1,4 +1,4 @@
-//! Fixed Halo2/IPA backend for first-release SoraFS PoP membership proofs.
+//! Fixed native PIPA-R backend for first-release SoraFS PoP membership proofs.
 //!
 //! The circuit proves two hidden statements at once: membership of a credential leaf in the signed
 //! active credential tree, and non-membership of that leaf's private 128-bit revocation nonce in
@@ -14,45 +14,26 @@ use super::{
     PopRevocationEntryV1, PopRevocationNonMembershipPathV1,
 };
 use blake3::Hasher;
-use halo2_proofs::{
-    SerdeFormat,
-    circuit::{Cell, Layouter, SimpleFloorPlanner, Value},
-    halo2curves::{
-        ff::{Field, PrimeField},
-        pasta::{EqAffine, Fp},
+use ff::{Field, PrimeField};
+use iroha_pasta::{Eq, Fp, msm::MemoryBudget};
+use iroha_plonk::{
+    cs::{Advice, Column, ConstraintSystem, Fixed, Instance, InstanceType, Selector},
+    frontend::{
+        Assigned, AssignedCell, Cell, Circuit, Error as PlonkError, Layouter, Region,
+        SimpleFloorPlanner, Value,
     },
-    plonk::{
-        Advice, Circuit, Column, ConstraintSystem, Error as PlonkError, Fixed, Instance,
-        ProvingKey, Selector, VerifyingKey, create_proof, keygen_pk, keygen_vk, verify_proof,
+    keys::{
+        DescriptorBinding, KeygenConfigV2, ProvingKey, VerifyingKey, keygen_pk_v2,
+        keygen_vk_with_binding_v2,
     },
-    poly::{
-        VerificationStrategy,
-        commitment::{Params as _, ParamsProver as _},
-        ipa::{
-            commitment::{IPACommitmentScheme, ParamsIPA},
-            multiopen::{ProverIPA, VerifierIPA},
-            strategy::SingleStrategy,
-        },
-    },
-    transcript::{
-        Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer as _,
-        TranscriptWriterBuffer as _,
-    },
+    pcs::ipa::PinnedParams,
+    prover::{ProverConfig, ProverRandomness, Witness, create_proof_owned},
+    verifier::verify_full,
 };
-use poseidon_primitives::poseidon::primitives::Spec;
-use rand_core_06::OsRng;
-use std::{
-    collections::BTreeMap,
-    io::{self, Read},
-    sync::{
-        Arc, OnceLock,
-        atomic::{AtomicUsize, Ordering},
-    },
-};
-pub(super) const POP_MEMBERSHIP_CIRCUIT_ID_V1: &str = "sorafs-pop-membership-halo2-ipa-pasta-v1";
+use std::{collections::BTreeMap, sync::OnceLock};
+pub(super) const POP_MEMBERSHIP_CIRCUIT_ID_V1: &str = "sorafs-pop-membership-pipa-r-v1";
 pub(super) const POP_MEMBERSHIP_CIRCUIT_K_V1: u32 = 14;
 const WIDTH: usize = 3;
-const RATE: usize = 2;
 const FULL_ROUNDS: usize = 8;
 const PARTIAL_ROUNDS: usize = 56;
 const ROUND_COUNT: usize = FULL_ROUNDS + PARTIAL_ROUNDS;
@@ -82,22 +63,6 @@ const PI_REVOCATION_LIST_VERSION: usize = 7;
 const PI_NULLIFIER: usize = 8;
 const PI_PRESENTATION_BINDING: usize = 9;
 const PUBLIC_INPUT_COUNT: usize = 10;
-#[derive(Debug)]
-struct PopPoseidonSpec;
-impl Spec<Fp, WIDTH, RATE> for PopPoseidonSpec {
-    fn full_rounds() -> usize {
-        FULL_ROUNDS
-    }
-    fn partial_rounds() -> usize {
-        PARTIAL_ROUNDS
-    }
-    fn sbox(value: Fp) -> Fp {
-        value.pow_vartime([5])
-    }
-    fn secure_mds() -> usize {
-        0
-    }
-}
 struct PoseidonConstants {
     round_constants: Vec<[Fp; WIDTH]>,
     mds: [[Fp; WIDTH]; WIDTH],
@@ -105,7 +70,11 @@ struct PoseidonConstants {
 fn poseidon_constants() -> &'static PoseidonConstants {
     static CONSTANTS: OnceLock<PoseidonConstants> = OnceLock::new();
     CONSTANTS.get_or_init(|| {
-        let (round_constants, mds, _) = <PopPoseidonSpec as Spec<Fp, WIDTH, RATE>>::constants();
+        let (round_constants, mds) = iroha_pasta::poseidon::grain::generate_constants::<Fp, WIDTH>(
+            FULL_ROUNDS,
+            PARTIAL_ROUNDS,
+            0,
+        );
         assert_eq!(round_constants.len(), ROUND_COUNT);
         PoseidonConstants {
             round_constants,
@@ -624,13 +593,38 @@ impl PopMembershipCircuit {
         layouter.assign_region(
             || "PoP scalar",
             |mut region| {
-                let assigned = region.assign_advice(config.input, row, value);
+                let assigned = region.assign_advice(config.input, row, value)?;
                 Ok(ScalarCell {
                     cell: assigned.cell(),
                     value,
                 })
             },
         )
+    }
+    fn assign_empty_revocation_leaf(
+        &self,
+        config: &PopMembershipConfig,
+        layouter: &mut impl Layouter<Fp>,
+        row_cursor: &mut usize,
+    ) -> Result<ScalarCell, PlonkError> {
+        let leaf = self.assign_scalar(config, layouter, row_cursor, Value::known(Fp::ZERO))?;
+        layouter.assign_region(
+            || "PoP empty revocation leaf",
+            |mut region| region.constrain_constant(leaf.cell, Fp::ZERO),
+        )?;
+        Ok(leaf)
+    }
+    fn assign_state_row(
+        region: &mut Region<'_, Fp>,
+        config: &PopMembershipConfig,
+        row: usize,
+        values: [Value<Fp>; WIDTH],
+    ) -> Result<[AssignedCell<Assigned<Fp>, Fp>; WIDTH], PlonkError> {
+        (0..WIDTH)
+            .map(|column| region.assign_advice(config.state[column], row, values[column]))
+            .collect::<Result<Vec<_>, _>>()?
+            .try_into()
+            .map_err(|_| PlonkError::Synthesis)
     }
     fn hash_pair(
         &self,
@@ -648,20 +642,18 @@ impl PopMembershipCircuit {
             || "PoP Poseidon permutation",
             |mut region| {
                 config.q_hash_init.enable(&mut region, base_row)?;
-                region.assign_fixed(config.hash_domain, base_row, Fp::from(domain));
+                region.assign_fixed(config.hash_domain, base_row, Fp::from(domain))?;
                 let mut values = [left.value, right.value, Value::known(Fp::from(domain))];
-                let mut cells: [_; WIDTH] = std::array::from_fn(|column| {
-                    region.assign_advice(config.state[column], base_row, values[column])
-                });
-                region.constrain_equal(cells[0].cell(), left.cell);
-                region.constrain_equal(cells[1].cell(), right.cell);
+                let mut cells = Self::assign_state_row(&mut region, config, base_row, values)?;
+                region.constrain_equal(cells[0].cell(), left.cell)?;
+                region.constrain_equal(cells[1].cell(), right.cell)?;
                 for round in 0..ROUND_COUNT {
                     for column in 0..WIDTH {
                         region.assign_fixed(
                             config.round_constants[column],
                             base_row + round,
                             constants.round_constants[round][column],
-                        );
+                        )?;
                     }
                     let half = FULL_ROUNDS / 2;
                     if round < half || round >= half + PARTIAL_ROUNDS {
@@ -686,13 +678,8 @@ impl PopMembershipCircuit {
                             accumulator + sboxed[column] * Value::known(constants.mds[row][column])
                         })
                     });
-                    cells = std::array::from_fn(|column| {
-                        region.assign_advice(
-                            config.state[column],
-                            base_row + round + 1,
-                            values[column],
-                        )
-                    });
+                    cells =
+                        Self::assign_state_row(&mut region, config, base_row + round + 1, values)?;
                 }
                 Ok(ScalarCell {
                     cell: cells[0].cell(),
@@ -718,15 +705,17 @@ impl PopMembershipCircuit {
             || "PoP Merkle child selection",
             |mut region| {
                 config.q_select.enable(&mut region, row)?;
-                let current_cell = region.assign_advice(config.select_current, row, current.value);
-                let sibling_cell = region.assign_advice(config.select_sibling, row, sibling.value);
+                let current_cell =
+                    region.assign_advice(config.select_current, row, current.value)?;
+                let sibling_cell =
+                    region.assign_advice(config.select_sibling, row, sibling.value)?;
                 let direction_cell =
-                    region.assign_advice(config.select_direction, row, direction.value);
-                region.constrain_equal(current_cell.cell(), current.cell);
-                region.constrain_equal(sibling_cell.cell(), sibling.cell);
-                region.constrain_equal(direction_cell.cell(), direction.cell);
-                let left = region.assign_advice(config.select_left, row, left_value);
-                let right = region.assign_advice(config.select_right, row, right_value);
+                    region.assign_advice(config.select_direction, row, direction.value)?;
+                region.constrain_equal(current_cell.cell(), current.cell)?;
+                region.constrain_equal(sibling_cell.cell(), sibling.cell)?;
+                region.constrain_equal(direction_cell.cell(), direction.cell)?;
+                let left = region.assign_advice(config.select_left, row, left_value)?;
+                let right = region.assign_advice(config.select_right, row, right_value)?;
                 Ok((
                     ScalarCell {
                         cell: left.cell(),
@@ -759,15 +748,15 @@ impl PopMembershipCircuit {
             |mut region| {
                 let mut accumulator_value = Value::known(Fp::ZERO);
                 let first_accumulator =
-                    region.assign_advice(config.accumulator, base_row, accumulator_value);
-                let _ = first_accumulator;
+                    region.assign_advice(config.accumulator, base_row, accumulator_value)?;
+                region.constrain_constant(first_accumulator.cell(), Fp::ZERO)?;
                 let mut bit_cells: Vec<Option<ScalarCell>> =
                     vec![None; usize::from(POP_REVOCATION_TREE_DEPTH_V1)];
                 let mut final_accumulator = None;
                 for row in 0..usize::from(POP_REVOCATION_TREE_DEPTH_V1) {
                     let bit_index = usize::from(POP_REVOCATION_TREE_DEPTH_V1) - 1 - row;
                     let bit_value = optional_value(bit_values[bit_index]);
-                    let bit = region.assign_advice(config.bit, base_row + row, bit_value);
+                    let bit = region.assign_advice(config.bit, base_row + row, bit_value)?;
                     bit_cells[bit_index] = Some(ScalarCell {
                         cell: bit.cell(),
                         value: bit_value,
@@ -778,13 +767,13 @@ impl PopMembershipCircuit {
                         config.accumulator,
                         base_row + row + 1,
                         accumulator_value,
-                    );
+                    )?;
                     final_accumulator = Some(accumulator.cell());
                 }
                 region.constrain_equal(
                     final_accumulator.expect("fixed non-zero revocation depth"),
                     nonce.cell,
-                );
+                )?;
                 Ok(bit_cells
                     .into_iter()
                     .map(|cell| cell.expect("every fixed bit is assigned"))
@@ -808,9 +797,10 @@ impl PopMembershipCircuit {
             || "PoP non-zero private scalar",
             |mut region| {
                 config.q_nonzero.enable(&mut region, row)?;
-                let assigned_value = region.assign_advice(config.nonzero_value, row, value.value);
-                region.constrain_equal(assigned_value.cell(), value.cell);
-                region.assign_advice(config.nonzero_inverse, row, inverse_value);
+                let assigned_value =
+                    region.assign_advice(config.nonzero_value, row, value.value)?;
+                region.constrain_equal(assigned_value.cell(), value.cell)?;
+                region.assign_advice(config.nonzero_inverse, row, inverse_value)?;
                 Ok(())
             },
         )
@@ -824,6 +814,8 @@ impl Circuit<Fp> for PopMembershipCircuit {
         Self::default()
     }
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+        let constants = meta.fixed_column();
+        meta.enable_constant(constants);
         let state = std::array::from_fn(|_| meta.advice_column());
         for column in state {
             meta.enable_equality(column);
@@ -835,8 +827,8 @@ impl Circuit<Fp> for PopMembershipCircuit {
         let q_partial_round = meta.selector();
         meta.create_gate("PoP hash domain", |meta| {
             let enabled = meta.query_selector(q_hash_init);
-            let capacity = meta.query_advice(state[2], halo2_proofs::poly::Rotation::cur());
-            let domain = meta.query_fixed(hash_domain, halo2_proofs::poly::Rotation::cur());
+            let capacity = meta.query_advice(state[2], iroha_plonk::cs::Rotation::cur());
+            let domain = meta.query_fixed(hash_domain, iroha_plonk::cs::Rotation::cur());
             vec![enabled * (capacity - domain)]
         });
         let constants = poseidon_constants();
@@ -845,13 +837,13 @@ impl Circuit<Fp> for PopMembershipCircuit {
             (0..WIDTH)
                 .map(|row| {
                     let expected = (0..WIDTH).fold(
-                        halo2_proofs::plonk::Expression::Constant(Fp::ZERO),
+                        iroha_plonk::cs::Expression::Constant(Fp::ZERO),
                         |accumulator, column| {
-                            let current = meta
-                                .query_advice(state[column], halo2_proofs::poly::Rotation::cur());
+                            let current =
+                                meta.query_advice(state[column], iroha_plonk::cs::Rotation::cur());
                             let round_constant = meta.query_fixed(
                                 round_constants[column],
-                                halo2_proofs::poly::Rotation::cur(),
+                                iroha_plonk::cs::Rotation::cur(),
                             );
                             let shifted = current + round_constant;
                             let square = shifted.clone() * shifted.clone();
@@ -859,21 +851,17 @@ impl Circuit<Fp> for PopMembershipCircuit {
                             accumulator + fifth * constants.mds[row][column]
                         },
                     );
-                    let next = meta.query_advice(state[row], halo2_proofs::poly::Rotation::next());
+                    let next = meta.query_advice(state[row], iroha_plonk::cs::Rotation::next());
                     enabled.clone() * (expected - next)
                 })
                 .collect::<Vec<_>>()
         });
         meta.create_gate("PoP Poseidon partial round", |meta| {
             let enabled = meta.query_selector(q_partial_round);
-            let shifted: [halo2_proofs::plonk::Expression<Fp>; WIDTH] =
-                std::array::from_fn(|column| {
-                    meta.query_advice(state[column], halo2_proofs::poly::Rotation::cur())
-                        + meta.query_fixed(
-                            round_constants[column],
-                            halo2_proofs::poly::Rotation::cur(),
-                        )
-                });
+            let shifted: [iroha_plonk::cs::Expression<Fp>; WIDTH] = std::array::from_fn(|column| {
+                meta.query_advice(state[column], iroha_plonk::cs::Rotation::cur())
+                    + meta.query_fixed(round_constants[column], iroha_plonk::cs::Rotation::cur())
+            });
             let square = shifted[0].clone() * shifted[0].clone();
             let first_fifth = square.clone() * square * shifted[0].clone();
             (0..WIDTH)
@@ -881,7 +869,7 @@ impl Circuit<Fp> for PopMembershipCircuit {
                     let expected = first_fifth.clone() * constants.mds[row][0]
                         + shifted[1].clone() * constants.mds[row][1]
                         + shifted[2].clone() * constants.mds[row][2];
-                    let next = meta.query_advice(state[row], halo2_proofs::poly::Rotation::next());
+                    let next = meta.query_advice(state[row], iroha_plonk::cs::Rotation::next());
                     enabled.clone() * (expected - next)
                 })
                 .collect::<Vec<_>>()
@@ -903,13 +891,12 @@ impl Circuit<Fp> for PopMembershipCircuit {
         let q_select = meta.selector();
         meta.create_gate("PoP private Merkle direction", |meta| {
             let enabled = meta.query_selector(q_select);
-            let current = meta.query_advice(select_current, halo2_proofs::poly::Rotation::cur());
-            let sibling = meta.query_advice(select_sibling, halo2_proofs::poly::Rotation::cur());
-            let direction =
-                meta.query_advice(select_direction, halo2_proofs::poly::Rotation::cur());
-            let left = meta.query_advice(select_left, halo2_proofs::poly::Rotation::cur());
-            let right = meta.query_advice(select_right, halo2_proofs::poly::Rotation::cur());
-            let one = halo2_proofs::plonk::Expression::Constant(Fp::ONE);
+            let current = meta.query_advice(select_current, iroha_plonk::cs::Rotation::cur());
+            let sibling = meta.query_advice(select_sibling, iroha_plonk::cs::Rotation::cur());
+            let direction = meta.query_advice(select_direction, iroha_plonk::cs::Rotation::cur());
+            let left = meta.query_advice(select_left, iroha_plonk::cs::Rotation::cur());
+            let right = meta.query_advice(select_right, iroha_plonk::cs::Rotation::cur());
+            let one = iroha_plonk::cs::Expression::Constant(Fp::ONE);
             vec![
                 enabled.clone() * direction.clone() * (direction.clone() - one),
                 enabled.clone()
@@ -926,13 +913,13 @@ impl Circuit<Fp> for PopMembershipCircuit {
         let q_bit = meta.selector();
         meta.create_gate("PoP 128-bit revocation nonce", |meta| {
             let enabled = meta.query_selector(q_bit);
-            let bit_value = meta.query_advice(bit, halo2_proofs::poly::Rotation::cur());
+            let bit_value = meta.query_advice(bit, iroha_plonk::cs::Rotation::cur());
             let accumulator_current =
-                meta.query_advice(accumulator, halo2_proofs::poly::Rotation::cur());
+                meta.query_advice(accumulator, iroha_plonk::cs::Rotation::cur());
             let accumulator_next =
-                meta.query_advice(accumulator, halo2_proofs::poly::Rotation::next());
-            let one = halo2_proofs::plonk::Expression::Constant(Fp::ONE);
-            let two = halo2_proofs::plonk::Expression::Constant(Fp::from(2));
+                meta.query_advice(accumulator, iroha_plonk::cs::Rotation::next());
+            let one = iroha_plonk::cs::Expression::Constant(Fp::ONE);
+            let two = iroha_plonk::cs::Expression::Constant(Fp::from(2));
             vec![
                 enabled.clone() * bit_value.clone() * (bit_value.clone() - one),
                 enabled * (accumulator_next - (accumulator_current * two + bit_value)),
@@ -944,13 +931,13 @@ impl Circuit<Fp> for PopMembershipCircuit {
         let q_nonzero = meta.selector();
         meta.create_gate("PoP non-zero private scalar", |meta| {
             let enabled = meta.query_selector(q_nonzero);
-            let value = meta.query_advice(nonzero_value, halo2_proofs::poly::Rotation::cur());
-            let inverse = meta.query_advice(nonzero_inverse, halo2_proofs::poly::Rotation::cur());
-            vec![enabled * (value * inverse - halo2_proofs::plonk::Expression::Constant(Fp::ONE))]
+            let value = meta.query_advice(nonzero_value, iroha_plonk::cs::Rotation::cur());
+            let inverse = meta.query_advice(nonzero_inverse, iroha_plonk::cs::Rotation::cur());
+            vec![enabled * (value * inverse - iroha_plonk::cs::Expression::Constant(Fp::ONE))]
         });
         let input = meta.advice_column();
         meta.enable_equality(input);
-        let instance = meta.instance_column();
+        let instance = meta.instance_column(PUBLIC_INPUT_COUNT);
         meta.enable_equality(instance);
         PopMembershipConfig {
             state,
@@ -1067,25 +1054,25 @@ impl Circuit<Fp> for PopMembershipCircuit {
             &mut row_cursor,
             optional_value(self.current_list_version),
         )?;
-        layouter.constrain_instance(tree_version.cell, config.instance, PI_TREE_VERSION);
+        layouter.constrain_instance(tree_version.cell, config.instance, PI_TREE_VERSION)?;
         layouter.constrain_instance(
             eligibility_class.cell,
             config.instance,
             PI_ELIGIBILITY_CLASS,
-        );
-        layouter.constrain_instance(challenge.cell, config.instance, PI_CHALLENGE);
-        layouter.constrain_instance(context.cell, config.instance, PI_CONTEXT);
+        )?;
+        layouter.constrain_instance(challenge.cell, config.instance, PI_CHALLENGE)?;
+        layouter.constrain_instance(context.cell, config.instance, PI_CONTEXT)?;
         layouter.constrain_instance(
             presentation_binding.cell,
             config.instance,
             PI_PRESENTATION_BINDING,
-        );
-        layouter.constrain_instance(expires_at.cell, config.instance, PI_EXPIRY);
+        )?;
+        layouter.constrain_instance(expires_at.cell, config.instance, PI_EXPIRY)?;
         layouter.constrain_instance(
             current_list_version.cell,
             config.instance,
             PI_REVOCATION_LIST_VERSION,
-        );
+        )?;
         let holder_commitment = self.hash_pair(
             &config,
             &mut layouter,
@@ -1157,19 +1144,15 @@ impl Circuit<Fp> for PopMembershipCircuit {
                 &right,
             )?;
         }
-        layouter.constrain_instance(credential_node.cell, config.instance, PI_COMMITMENT_ROOT);
+        layouter.constrain_instance(credential_node.cell, config.instance, PI_COMMITMENT_ROOT)?;
         let nonce_bits = self.decompose_revocation_nonce(
             &config,
             &mut layouter,
             &mut row_cursor,
             &revocation_nonce,
         )?;
-        let mut revocation_node = self.assign_scalar(
-            &config,
-            &mut layouter,
-            &mut row_cursor,
-            Value::known(Fp::ZERO),
-        )?;
+        let mut revocation_node =
+            self.assign_empty_revocation_leaf(&config, &mut layouter, &mut row_cursor)?;
         for (level, direction) in nonce_bits.iter().enumerate() {
             let sibling = self.assign_scalar(
                 &config,
@@ -1194,7 +1177,7 @@ impl Circuit<Fp> for PopMembershipCircuit {
                 &right,
             )?;
         }
-        layouter.constrain_instance(revocation_node.cell, config.instance, PI_REVOCATION_ROOT);
+        layouter.constrain_instance(revocation_node.cell, config.instance, PI_REVOCATION_ROOT)?;
         let challenge_bound = self.hash_pair(
             &config,
             &mut layouter,
@@ -1211,13 +1194,14 @@ impl Circuit<Fp> for PopMembershipCircuit {
             &challenge_bound,
             &context,
         )?;
-        layouter.constrain_instance(nullifier.cell, config.instance, PI_NULLIFIER);
+        layouter.constrain_instance(nullifier.cell, config.instance, PI_NULLIFIER)?;
         Ok(())
     }
 }
 struct CachedVerifierMaterial {
-    params: ParamsIPA<EqAffine>,
-    verifying_key: VerifyingKey<EqAffine>,
+    params: PinnedParams<Eq>,
+    verifying_key: VerifyingKey<Eq>,
+    binding: DescriptorBinding,
     public: PopMembershipVerifierMaterialV1,
 }
 fn digest_with_domain(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
@@ -1226,68 +1210,64 @@ fn digest_with_domain(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
     hasher.update(bytes);
     *hasher.finalize().as_bytes()
 }
+fn backend(error: impl std::fmt::Display) -> PopCredentialValidationError {
+    PopCredentialValidationError::ProofBackend {
+        reason: error.to_string(),
+    }
+}
+fn key_config() -> KeygenConfigV2 {
+    KeygenConfigV2::pipa_r(vec![InstanceType::Field])
+}
 fn initialize_verifier_material() -> Result<CachedVerifierMaterial, PopCredentialValidationError> {
-    let params = ParamsIPA::<EqAffine>::new(POP_MEMBERSHIP_CIRCUIT_K_V1);
-    let verifying_key = keygen_vk(&params, &PopMembershipCircuit::default()).map_err(|error| {
-        PopCredentialValidationError::ProofBackend {
-            reason: format!("failed to generate PoP verifying key: {error}"),
-        }
-    })?;
-    let mut parameter_bytes = Vec::new();
-    params.write(&mut parameter_bytes).map_err(|error| {
-        PopCredentialValidationError::ProofBackend {
-            reason: format!("failed to serialize PoP parameters: {error}"),
-        }
-    })?;
-    let verifying_key_bytes = verifying_key.to_bytes(SerdeFormat::Processed);
+    let params = PinnedParams::<Eq>::derive(POP_MEMBERSHIP_CIRCUIT_K_V1).map_err(backend)?;
+    let (binding, verifying_key) =
+        keygen_vk_with_binding_v2(&params, &PopMembershipCircuit::default(), &key_config())
+            .map_err(backend)?;
+    let mut identity = binding.digest().to_vec();
+    identity.extend_from_slice(verifying_key.to_bytes());
     let public = PopMembershipVerifierMaterialV1 {
         circuit_id: POP_MEMBERSHIP_CIRCUIT_ID_V1.to_owned(),
         circuit_k: POP_MEMBERSHIP_CIRCUIT_K_V1,
         credential_tree_depth: POP_CREDENTIAL_TREE_DEPTH_V1,
         revocation_tree_depth: POP_REVOCATION_TREE_DEPTH_V1,
-        parameter_digest: digest_with_domain(
-            b"sorafs.pop.halo2-ipa.parameters.v1",
-            &parameter_bytes,
-        ),
-        verifying_key_digest: digest_with_domain(
-            b"sorafs.pop.halo2-ipa.verifying-key.v1",
-            &verifying_key_bytes,
-        ),
+        parameter_digest: digest_with_domain(b"sorafs.pop.pipa-r.parameters.v1", &params.digest()),
+        verifying_key_digest: digest_with_domain(b"sorafs.pop.pipa-r.verifying-key.v1", &identity),
     };
     public.validate()?;
     Ok(CachedVerifierMaterial {
         params,
         verifying_key,
+        binding,
         public,
     })
 }
 fn cached_verifier_material()
 -> Result<&'static CachedVerifierMaterial, PopCredentialValidationError> {
     static MATERIAL: OnceLock<Result<CachedVerifierMaterial, String>> = OnceLock::new();
-    match MATERIAL.get_or_init(|| initialize_verifier_material().map_err(|error| error.to_string()))
-    {
-        Ok(material) => Ok(material),
-        Err(reason) => Err(PopCredentialValidationError::ProofBackend {
-            reason: reason.clone(),
-        }),
-    }
+    MATERIAL
+        .get_or_init(|| initialize_verifier_material().map_err(|error| error.to_string()))
+        .as_ref()
+        .map_err(backend)
 }
-fn cached_proving_key() -> Result<&'static ProvingKey<EqAffine>, PopCredentialValidationError> {
-    static PROVING_KEY: OnceLock<Result<ProvingKey<EqAffine>, String>> = OnceLock::new();
+fn cached_proving_key() -> Result<&'static ProvingKey<Eq>, PopCredentialValidationError> {
+    static KEY: OnceLock<Result<ProvingKey<Eq>, String>> = OnceLock::new();
     let verifier = cached_verifier_material()?;
-    match PROVING_KEY.get_or_init(|| {
-        keygen_pk(
+    KEY.get_or_init(|| {
+        let key = keygen_pk_v2(
             &verifier.params,
-            verifier.verifying_key.clone(),
             &PopMembershipCircuit::default(),
+            &key_config(),
         )
-        .map_err(|error| format!("failed to generate PoP proving key: {error}"))
-    }) {
-        Ok(proving_key) => Ok(proving_key),
-        Err(reason) => Err(PopCredentialValidationError::ProofBackend {
-            reason: reason.clone(),
-        }),
-    }
+        .map_err(|e| e.to_string())?;
+        if key.vk().to_bytes() != verifier.verifying_key.to_bytes()
+            || key.binding() != &verifier.binding
+        {
+            return Err("PoP proving/verifying key mismatch".to_owned());
+        }
+        Ok(key)
+    })
+    .as_ref()
+    .map_err(backend)
 }
 pub(super) fn verifier_material_v1()
 -> Result<PopMembershipVerifierMaterialV1, PopCredentialValidationError> {
@@ -1309,64 +1289,24 @@ fn proof_public_inputs(
         presentation_binding_scalar(proof.presentation_binding_digest),
     ])
 }
-struct ExactProofReader<'proof> {
-    bytes: &'proof [u8],
-    position: Arc<AtomicUsize>,
-}
-impl Read for ExactProofReader<'_> {
-    fn read(&mut self, destination: &mut [u8]) -> io::Result<usize> {
-        let start = self.position.load(Ordering::Relaxed);
-        if start >= self.bytes.len() {
-            return Ok(0);
-        }
-        let count = destination.len().min(self.bytes.len() - start);
-        destination[..count].copy_from_slice(&self.bytes[start..start + count]);
-        self.position.store(start + count, Ordering::Relaxed);
-        Ok(count)
-    }
-}
 fn verify_proof_bytes(
     material: &CachedVerifierMaterial,
     proof_bytes: &[u8],
     public_inputs: &[Fp; PUBLIC_INPUT_COUNT],
 ) -> Result<(), PopCredentialValidationError> {
-    let columns: [&[Fp]; 1] = [public_inputs];
-    let proof_instances: [&[&[Fp]]; 1] = [&columns];
-    let position = Arc::new(AtomicUsize::new(0));
-    let reader = ExactProofReader {
-        bytes: proof_bytes,
-        position: Arc::clone(&position),
-    };
-    let mut transcript = Blake2bRead::<_, EqAffine, Challenge255<EqAffine>>::init(reader);
-    let strategy = SingleStrategy::new(&material.params);
-    verify_proof::<
-        IPACommitmentScheme<EqAffine>,
-        VerifierIPA<'_, EqAffine>,
-        Challenge255<EqAffine>,
-        _,
-        _,
-    >(
+    verify_full(
         &material.params,
+        &material.binding,
         &material.verifying_key,
-        strategy,
-        &proof_instances,
-        &mut transcript,
+        &[public_inputs.to_vec()],
+        proof_bytes,
+        MemoryBudget::DEFAULT,
     )
     .map_err(
         |error| PopCredentialValidationError::InvalidMembershipProof {
             reason: error.to_string(),
         },
-    )?;
-    let consumed = position.load(Ordering::Relaxed);
-    if consumed != proof_bytes.len() {
-        return Err(PopCredentialValidationError::InvalidMembershipProof {
-            reason: format!(
-                "Halo2 transcript has {} trailing bytes",
-                proof_bytes.len() - consumed
-            ),
-        });
-    }
-    Ok(())
+    )
 }
 pub(super) fn prove_v1(
     credential: &PopCredentialV1,
@@ -1406,50 +1346,22 @@ pub(super) fn prove_v1(
         challenge_digest: challenge,
         verifier_context: context.to_owned(),
         presentation_binding_digest: presentation_binding,
-        proof_system: PopMembershipProofSystemV1::Halo2IpaPastaV1,
+        proof_system: PopMembershipProofSystemV1::NativePipaRV1,
         verifier_material: material.public.clone(),
         proof_bytes: vec![1],
         expires_at_epoch: credential.expires_at_epoch,
     };
     let public_inputs = proof_public_inputs(&proof)?;
-    #[cfg(test)]
-    {
-        let mock = halo2_proofs::dev::MockProver::run(
-            POP_MEMBERSHIP_CIRCUIT_K_V1,
-            &circuit,
-            vec![public_inputs.to_vec()],
-        )
-        .map_err(|error| PopCredentialValidationError::ProofBackend {
-            reason: format!("failed to construct PoP MockProver: {error}"),
-        })?;
-        mock.verify().map_err(
-            |failures| PopCredentialValidationError::InvalidMembershipProof {
-                reason: format!("PoP circuit witness is unsatisfied: {failures:#?}"),
-            },
-        )?;
-    }
-    let columns: [&[Fp]; 1] = [&public_inputs];
-    let proof_instances: [&[&[Fp]]; 1] = [&columns];
-    let mut transcript = Blake2bWrite::<_, EqAffine, Challenge255<EqAffine>>::init(Vec::new());
-    create_proof::<
-        IPACommitmentScheme<EqAffine>,
-        ProverIPA<'_, EqAffine>,
-        Challenge255<EqAffine>,
-        _,
-        _,
-        _,
-    >(
+    let instances = [public_inputs.to_vec()];
+    let witness = Witness::from_circuit(proving_key, &circuit, &instances).map_err(backend)?;
+    proof.proof_bytes = create_proof_owned(
         &material.params,
         proving_key,
-        &[circuit],
-        &proof_instances,
-        OsRng,
-        &mut transcript,
+        witness,
+        ProverRandomness::hedged(),
+        ProverConfig::default(),
     )
-    .map_err(|error| PopCredentialValidationError::ProofBackend {
-        reason: format!("failed to create PoP membership proof: {error}"),
-    })?;
-    proof.proof_bytes = transcript.finalize();
+    .map_err(backend)?;
     if proof.proof_bytes.is_empty() || proof.proof_bytes.len() > POP_MEMBERSHIP_PROOF_MAX_BYTES_V1 {
         return Err(PopCredentialValidationError::ResourceLimitExceeded {
             resource: "membership proof bytes",
@@ -1514,5 +1426,190 @@ pub(super) fn verify_with_reordered_public_inputs_for_test(
 fn _assert_send_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<CachedVerifierMaterial>();
-    assert_send_sync::<ProvingKey<EqAffine>>();
+    assert_send_sync::<ProvingKey<Eq>>();
+}
+
+#[cfg(test)]
+#[path = "../../../../fixtures/poseidon/reader.rs"]
+mod reference;
+
+#[cfg(test)]
+mod migration_tests {
+    use super::*;
+
+    #[test]
+    fn native_rp56_parameters_match_every_upstream_constant() {
+        let actual = poseidon_constants();
+        let (rounds, mds) = reference::parameters::<3>(include_str!(
+            "../../../../fixtures/poseidon/pasta-fp-w3-rp56.hex"
+        ));
+        let field = |bytes| Fp::from_repr(bytes).unwrap();
+        let rounds = rounds.map(|row| row.map(field));
+        let mds = mds.map(|row| row.map(field));
+        assert_eq!(actual.round_constants.as_slice(), rounds.as_slice());
+        assert_eq!(actual.mds, mds);
+        assert_eq!(rounds.len(), 64);
+    }
+
+    #[test]
+    fn pop_rp56_migration_vectors() {
+        let constants = poseidon_constants();
+        let mut bytes = Vec::new();
+        for row in constants.round_constants.iter().chain(constants.mds.iter()) {
+            for value in row {
+                bytes.extend_from_slice(&scalar_to_bytes(*value));
+            }
+        }
+        assert_eq!(
+            blake3::hash(&bytes).to_hex().as_str(),
+            "d08d900714da0701db7eea47ee6165f81c827249b8642f6509ba942bbf09a396"
+        );
+        for ((domain, left, right), expected) in [
+            (1, Fp::ZERO, Fp::ZERO),
+            (1, Fp::ONE, Fp::from(2)),
+            (4001, -Fp::ONE, Fp::from(100)),
+            (3127, Fp::from(50), -Fp::ONE),
+        ]
+        .into_iter()
+        .zip([
+            "eb352afc5b6e520ccf88fd789b048b4069661f81632c000f065d7775a4f8e801",
+            "9bf594c6aae91d234c37528d0263ff5fd17c86d6fa7509debb8627fb4055632c",
+            "b9ce8c1b94924f56a15126caa174a5a35ace8a06dbd950ce736146c267469b37",
+            "cc3c3f6aec24540caebaae67031a109ef2e1f4b765bde62c91ed98590a68cf0d",
+        ]) {
+            assert_eq!(
+                hex::encode(scalar_to_bytes(poseidon_compress(domain, left, right))),
+                expected
+            );
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum RevocationComponent {
+        Nonce { public_nonce: u128, bit_nonce: u128 },
+        EmptyLeaf,
+    }
+
+    impl Circuit<Fp> for RevocationComponent {
+        type Config = PopMembershipConfig;
+        type FloorPlanner = SimpleFloorPlanner;
+        type Params = ();
+
+        fn without_witnesses(&self) -> Self {
+            *self
+        }
+
+        fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
+            PopMembershipCircuit::configure(meta)
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<Fp>,
+        ) -> Result<(), PlonkError> {
+            let mut circuit = PopMembershipCircuit::default();
+            let mut row = 0;
+            match *self {
+                Self::Nonce {
+                    public_nonce,
+                    bit_nonce,
+                } => {
+                    circuit.revocation_nonce_u128 = Some(bit_nonce);
+                    let nonce = circuit.assign_scalar(
+                        &config,
+                        &mut layouter,
+                        &mut row,
+                        Value::known(u128_scalar(public_nonce)),
+                    )?;
+                    layouter.constrain_instance(nonce.cell, config.instance, 0)?;
+                    circuit.decompose_revocation_nonce(&config, &mut layouter, &mut row, &nonce)?;
+                }
+                Self::EmptyLeaf => {
+                    let leaf =
+                        circuit.assign_empty_revocation_leaf(&config, &mut layouter, &mut row)?;
+                    layouter.constrain_instance(leaf.cell, config.instance, 0)?;
+                }
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn nonce_initial_zero_rejects_consistent_shift_to_another_private_path() {
+        use iroha_plonk::{check::CheckFailure, frontend::configure};
+        use iroha_plonk_gadgets::tamper::{Tamper, check_tampers};
+        let honest = RevocationComponent::Nonce {
+            public_nonce: 64,
+            bit_nonce: 64,
+        };
+        let mut public = vec![Fp::ZERO; PUBLIC_INPUT_COUNT];
+        public[0] = Fp::from(64);
+        assert!(
+            check_tampers(&honest, 8, &[public.clone()], &[])
+                .unwrap()
+                .is_satisfied()
+        );
+        let forged = RevocationComponent::Nonce {
+            public_nonce: 64,
+            bit_nonce: 65,
+        };
+        let (_, config) = configure(&forged).unwrap();
+        let two = Fp::from(2);
+        let shift = -Option::<Fp>::from(two.pow_vartime([128]).invert()).unwrap();
+        // Every recurrence still holds, and the final accumulator becomes 64.
+        // Only the separately constrained initial zero rules this witness out.
+        let tampers: Vec<_> = (0..=128)
+            .map(|index| Tamper {
+                column: config.accumulator.index(),
+                row: 1 + index,
+                delta: shift * two.pow_vartime([index as u64]),
+            })
+            .collect();
+        assert_eq!(Fp::from(65) + tampers[128].delta, Fp::from(64));
+        for pair in tampers.windows(2) {
+            assert_eq!(pair[1].delta, two * pair[0].delta);
+        }
+        let report = check_tampers(&forged, 8, &[public], &tampers).unwrap();
+        assert!(!report.is_satisfied());
+        assert!(
+            report
+                .failures()
+                .iter()
+                .all(|failure| matches!(failure, CheckFailure::CopyMismatch { .. }))
+        );
+    }
+
+    #[test]
+    fn occupied_revocation_leaf_cannot_replace_the_required_empty_leaf() {
+        use iroha_plonk::{check::CheckFailure, frontend::configure};
+        use iroha_plonk_gadgets::tamper::{Tamper, check_tampers};
+        let circuit = RevocationComponent::EmptyLeaf;
+        let mut public = vec![Fp::ZERO; PUBLIC_INPUT_COUNT];
+        assert!(
+            check_tampers(&circuit, 6, &[public.clone()], &[])
+                .unwrap()
+                .is_satisfied()
+        );
+        let (_, config) = configure(&circuit).unwrap();
+        public[0] = Fp::ONE;
+        let report = check_tampers(
+            &circuit,
+            6,
+            &[public],
+            &[Tamper {
+                column: config.input.index(),
+                row: 0,
+                delta: Fp::ONE,
+            }],
+        )
+        .unwrap();
+        assert!(!report.is_satisfied());
+        assert!(
+            report
+                .failures()
+                .iter()
+                .all(|failure| matches!(failure, CheckFailure::CopyMismatch { .. }))
+        );
+    }
 }

@@ -1,10 +1,16 @@
 //! Stable human and machine output contracts for the Musubi V1 CLI.
 //!
 //! Human success is routed to stdout; live progress and human failure go to stderr. JSON mode emits exactly
-//! one versioned document on stdout and leaves stderr empty, including for command failures. Exit
-//! status remains independent of the selected presentation mode.
+//! one versioned document on stdout and leaves stderr empty, including for command failures. SARIF mode
+//! emits exactly one SARIF 2.1.0 document on stdout the same way. Exit status remains independent of
+//! the selected presentation mode.
+//!
+//! Kotodama compiler diagnostics keep their canonical structure: JSON embeds the canonical diagnostic
+//! records (codes, spans, labels, notes, help and fixes) and SARIF uses the compiler's own SARIF
+//! projection, rather than a rendered string.
+use kotodama_lang::diagnostic::DiagnosticBundle;
 use norito::json::{Map, Value};
-use std::{collections::BTreeMap, io::Write};
+use std::{collections::BTreeMap, fmt::Write as _, io::Write};
 /// Stable schema name for one-document Musubi CLI output.
 pub const OUTPUT_SCHEMA: &str = "musubi-cli-output";
 /// First-release Musubi CLI output schema version.
@@ -19,6 +25,8 @@ pub enum OutputFormat {
     Human,
     /// One deterministic, versioned Norito JSON document.
     Json,
+    /// One SARIF 2.1.0 document carrying Kotodama diagnostics or the command failure.
+    Sarif,
 }
 /// Stable Musubi V1 command error code.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -59,6 +67,8 @@ pub enum ErrorCode {
     Governance,
     /// Kotodama compilation or typed-interface validation failed.
     Compiler,
+    /// Kotodama tests compiled and ran, and at least one test failed.
+    TestFailed,
     /// A local filesystem operation failed.
     Io,
     /// An invariant failed without a more specific public classification.
@@ -86,6 +96,7 @@ impl ErrorCode {
         Self::Publish,
         Self::Governance,
         Self::Compiler,
+        Self::TestFailed,
         Self::Io,
         Self::Internal,
     ];
@@ -111,6 +122,7 @@ impl ErrorCode {
             Self::Publish => "MUSUBI_E_PUBLISH",
             Self::Governance => "MUSUBI_E_GOVERNANCE",
             Self::Compiler => "MUSUBI_E_COMPILER",
+            Self::TestFailed => "MUSUBI_E_TEST_FAILED",
             Self::Io => "MUSUBI_E_IO",
             Self::Internal => "MUSUBI_E_INTERNAL",
         }
@@ -128,9 +140,18 @@ impl ErrorCode {
             Self::Compiler => 8,
             Self::Publish => 9,
             Self::Io => 10,
+            Self::TestFailed => 11,
             Self::Internal => 70,
         }
     }
+}
+/// Where human failure details render relative to the one-line summary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DetailPlacement {
+    /// A primary report (test results, compiler output) that the summary line concludes.
+    BeforeSummary,
+    /// An explanatory note following the summary line.
+    AfterSummary,
 }
 /// One structured, secret-redacted command diagnostic.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -140,7 +161,9 @@ pub struct Diagnostic {
     context: BTreeMap<String, String>,
     help: Option<String>,
     /// Boxed so `Result<_, Diagnostic>` stays small on every command path; details are rare.
-    details: Option<Box<(String, Value)>>,
+    details: Option<Box<(String, Value, DetailPlacement)>>,
+    /// Canonical Kotodama compiler diagnostics behind this failure, rendered structurally.
+    compiler: Option<Box<DiagnosticBundle>>,
 }
 impl Diagnostic {
     /// Construct a diagnostic with a stable public code.
@@ -152,7 +175,23 @@ impl Diagnostic {
             context: BTreeMap::new(),
             help: None,
             details: None,
+            compiler: None,
         }
+    }
+    /// Attach the canonical compiler diagnostics that caused this failure.
+    ///
+    /// Human output renders them with source excerpts before the Musubi summary line, JSON embeds
+    /// their canonical records under `error.diagnostics`, and SARIF reports them as results.
+    #[must_use]
+    pub fn with_compiler_diagnostics(mut self, diagnostics: DiagnosticBundle) -> Self {
+        self.compiler = Some(Box::new(diagnostics));
+        self
+    }
+    /// Return the attached canonical compiler diagnostics.
+    #[must_use]
+    #[cfg(test)]
+    pub fn compiler_diagnostics(&self) -> Option<&DiagnosticBundle> {
+        self.compiler.as_deref()
     }
     /// Add deterministic key/value context.
     ///
@@ -183,8 +222,22 @@ impl Diagnostic {
         self.details = Some(Box::new((
             sanitize_diagnostic_text(&human.into()),
             redact_json_value(data),
+            DetailPlacement::AfterSummary,
         )));
         self
+    }
+    /// Preserve the primary report of a failed operation, such as test results or compiler output.
+    ///
+    /// Human output prints the report first and ends with the summary line, as it does for
+    /// compiler diagnostics; JSON carries `data` under `error.details` exactly like
+    /// [`Self::with_details`].
+    #[must_use]
+    pub fn with_report(self, human: impl Into<String>, data: &Value) -> Self {
+        let mut diagnostic = self.with_details(human, data);
+        if let Some(details) = diagnostic.details.as_deref_mut() {
+            details.2 = DetailPlacement::BeforeSummary;
+        }
+        diagnostic
     }
     /// Return the stable public code.
     #[must_use]
@@ -213,14 +266,29 @@ impl Diagnostic {
         if let Some(help) = &self.help {
             diagnostic.insert("help".to_owned(), Value::from(help.clone()));
         }
-        if let Some((_, data)) = self.details.as_deref() {
+        if let Some((_, data, _)) = self.details.as_deref() {
             diagnostic.insert("details".to_owned(), data.clone());
+        }
+        if let Some(bundle) = self.compiler.as_deref() {
+            diagnostic.insert(
+                "diagnostics".to_owned(),
+                redact_json_value(&canonical_diagnostic_records(bundle)),
+            );
         }
         Value::Object(diagnostic)
     }
     pub(crate) fn render_human(&self) -> String {
-        let mut rendered = format!("error[{}]: {}\n", self.code.as_str(), self.message);
-        if let Some((human, _)) = self.details.as_deref() {
+        let mut rendered = String::new();
+        if let Some(bundle) = self.compiler.as_deref() {
+            rendered.push_str(&terminated(&sanitize_diagnostic_text(
+                &bundle.render_human(),
+            )));
+        }
+        if let Some((human, _, DetailPlacement::BeforeSummary)) = self.details.as_deref() {
+            rendered.push_str(&terminated(human));
+        }
+        let _ = writeln!(rendered, "error[{}]: {}", self.code.as_str(), self.message);
+        if let Some((human, _, DetailPlacement::AfterSummary)) = self.details.as_deref() {
             rendered.push_str(&terminated(human));
         }
         for (key, value) in &self.context {
@@ -243,6 +311,8 @@ impl Diagnostic {
 pub struct CommandOutput {
     command: String,
     outcome: CommandOutcome,
+    /// Non-fatal compiler diagnostics (lint warnings) reported by a successful command.
+    warnings: Option<DiagnosticBundle>,
 }
 #[derive(Clone, Debug, PartialEq)]
 enum CommandOutcome {
@@ -265,7 +335,18 @@ impl CommandOutput {
                 message: sanitize_diagnostic_text(&message.into()),
                 data: redact_json_value(&data),
             },
+            warnings: None,
         }
+    }
+    /// Attach non-fatal compiler diagnostics to a successful result for SARIF output.
+    ///
+    /// Human and JSON success bodies already carry these warnings in their message and data.
+    #[must_use]
+    pub fn with_warnings(mut self, warnings: DiagnosticBundle) -> Self {
+        if !warnings.diagnostics.is_empty() {
+            self.warnings = Some(warnings);
+        }
+        self
     }
     /// Construct a failed command result.
     #[must_use]
@@ -273,6 +354,7 @@ impl CommandOutput {
         Self {
             command: sanitize_diagnostic_text(&command.into()),
             outcome: CommandOutcome::Failure(diagnostic),
+            warnings: None,
         }
     }
     /// Return the process exit code independent of presentation format.
@@ -292,7 +374,52 @@ impl CommandOutput {
         match format {
             OutputFormat::Human => Ok(self.render_human()),
             OutputFormat::Json => self.render_json(),
+            OutputFormat::Sarif => self.render_sarif(),
         }
+    }
+    fn render_sarif(&self) -> Result<RenderedOutput, norito::json::Error> {
+        let document = match &self.outcome {
+            CommandOutcome::Success { .. } => match &self.warnings {
+                Some(bundle) => norito::json::from_str::<Value>(&bundle.render_sarif()?)?,
+                None => sarif_document("Kotodama", Vec::new(), Vec::new()),
+            },
+            CommandOutcome::Failure(diagnostic) => {
+                if let Some(bundle) = diagnostic.compiler.as_deref() {
+                    norito::json::from_str::<Value>(&bundle.render_sarif()?)?
+                } else {
+                    let mut text = diagnostic.message.clone();
+                    for (key, value) in &diagnostic.context {
+                        let _ = write!(text, "; {key}: {value}");
+                    }
+                    if let Some(help) = &diagnostic.help {
+                        let _ = write!(text, "; help: {help}");
+                    }
+                    let code = diagnostic.code.as_str();
+                    sarif_document(
+                        "Musubi",
+                        vec![object_value([
+                            ("id", Value::from(code)),
+                            (
+                                "shortDescription",
+                                object_value([("text", Value::from(diagnostic.message.clone()))]),
+                            ),
+                        ])],
+                        vec![object_value([
+                            ("ruleId", Value::from(code)),
+                            ("level", Value::from("error")),
+                            ("message", object_value([("text", Value::from(text))])),
+                        ])],
+                    )
+                }
+            }
+        };
+        let mut stdout = norito::json::to_string(&redact_json_value(&document))?;
+        stdout.push('\n');
+        Ok(RenderedOutput {
+            stdout,
+            stderr: String::new(),
+            exit_code: self.exit_code(),
+        })
     }
     fn render_human(&self) -> RenderedOutput {
         match &self.outcome {
@@ -332,6 +459,47 @@ impl CommandOutput {
             exit_code: self.exit_code(),
         })
     }
+}
+/// Canonical JSON records of every diagnostic in a compiler bundle.
+fn canonical_diagnostic_records(bundle: &DiagnosticBundle) -> Value {
+    Value::Array(
+        bundle
+            .diagnostics
+            .iter()
+            .map(kotodama_lang::diagnostic::Diagnostic::to_json_value)
+            .collect(),
+    )
+}
+fn object_value<const N: usize>(entries: [(&str, Value); N]) -> Value {
+    Value::Object(
+        entries
+            .into_iter()
+            .map(|(key, value)| (key.to_owned(), value))
+            .collect(),
+    )
+}
+/// Minimal SARIF 2.1.0 document with one run.
+fn sarif_document(tool: &str, rules: Vec<Value>, results: Vec<Value>) -> Value {
+    object_value([
+        ("version", Value::from("2.1.0")),
+        (
+            "$schema",
+            Value::from("https://json.schemastore.org/sarif-2.1.0.json"),
+        ),
+        (
+            "runs",
+            Value::Array(vec![object_value([
+                (
+                    "tool",
+                    object_value([(
+                        "driver",
+                        object_value([("name", Value::from(tool)), ("rules", Value::Array(rules))]),
+                    )]),
+                ),
+                ("results", Value::Array(results)),
+            ])]),
+        ),
+    ])
 }
 /// Fully routed bytes and process status for one command result.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -625,6 +793,148 @@ mod tests {
         assert_eq!(ErrorCode::LockfileLegacy.exit_code(), 3);
         assert_eq!(ErrorCode::Internal.exit_code(), 70);
     }
+    fn compiler_bundle() -> DiagnosticBundle {
+        use kotodama_lang::diagnostic::{
+            Diagnostic as KotodamaDiagnostic, DiagnosticPhase, SourcePosition, SourceSpan,
+        };
+        let mut diagnostic = KotodamaDiagnostic::error(
+            "E_RETURN_TYPE_MISMATCH",
+            DiagnosticPhase::Semantic,
+            "returned value has type `bool`, expected `int`",
+            Some(SourceSpan {
+                package_identity: None,
+                source: Some("contracts/hello.ko".to_owned()),
+                start: SourcePosition { line: 7, column: 9 },
+                end: SourcePosition {
+                    line: 7,
+                    column: 20,
+                },
+                byte_range: None,
+            }),
+        );
+        diagnostic.help = Some("return an `int` value".to_owned());
+        DiagnosticBundle::single(diagnostic)
+    }
+    #[test]
+    fn test_failures_have_their_own_code_and_exit_status() {
+        assert_eq!(ErrorCode::TestFailed.as_str(), "MUSUBI_E_TEST_FAILED");
+        assert_eq!(ErrorCode::TestFailed.exit_code(), 11);
+        assert_ne!(
+            ErrorCode::TestFailed.exit_code(),
+            ErrorCode::Compiler.exit_code()
+        );
+        let exit_codes = ErrorCode::ALL
+            .iter()
+            .filter(|code| **code != ErrorCode::TestFailed)
+            .map(|code| code.exit_code())
+            .collect::<BTreeSet<_>>();
+        assert!(!exit_codes.contains(&11));
+    }
+    #[test]
+    fn compiler_failures_keep_canonical_structure_in_every_format() {
+        let diagnostic = Diagnostic::new(
+            ErrorCode::Compiler,
+            "Kotodama rejected the selected sources with 1 error",
+        )
+        .with_compiler_diagnostics(compiler_bundle());
+        assert_eq!(diagnostic.compiler_diagnostics(), Some(&compiler_bundle()));
+        let output = CommandOutput::failure("check", diagnostic);
+        let human = output.render(OutputFormat::Human).expect("human");
+        assert_eq!(human.exit_code(), 8);
+        let stderr = human.stderr();
+        assert!(stderr.starts_with("error[E_RETURN_TYPE_MISMATCH] semantic: "));
+        assert!(stderr.contains("--> contracts/hello.ko:7:9"));
+        assert!(stderr.ends_with(
+            "error[MUSUBI_E_COMPILER]: Kotodama rejected the selected sources with 1 error\n"
+        ));
+        assert_eq!(stderr.matches("error[MUSUBI_E_COMPILER]").count(), 1);
+        assert!(!stderr.contains("compiler failed: error["));
+        let json: Value =
+            norito::json::from_str(output.render(OutputFormat::Json).expect("json").stdout())
+                .expect("one document");
+        assert_eq!(
+            json.pointer("/error/diagnostics/0/code")
+                .and_then(Value::as_str),
+            Some("E_RETURN_TYPE_MISMATCH")
+        );
+        assert_eq!(
+            json.pointer("/error/diagnostics/0/primary_span/start/line")
+                .and_then(Value::as_u64),
+            Some(7)
+        );
+        assert_eq!(
+            json.pointer("/error/diagnostics/0/help")
+                .and_then(Value::as_str),
+            Some("return an `int` value")
+        );
+        assert!(
+            !json
+                .pointer("/error/message")
+                .and_then(Value::as_str)
+                .expect("summary")
+                .contains("error[")
+        );
+        let sarif = output.render(OutputFormat::Sarif).expect("sarif");
+        assert_eq!(sarif.exit_code(), 8);
+        assert!(sarif.stderr().is_empty());
+        let sarif: Value = norito::json::from_str(sarif.stdout()).expect("one SARIF document");
+        assert_eq!(sarif.get("version").and_then(Value::as_str), Some("2.1.0"));
+        assert_eq!(
+            sarif
+                .pointer("/runs/0/results/0/ruleId")
+                .and_then(Value::as_str),
+            Some("E_RETURN_TYPE_MISMATCH")
+        );
+    }
+    #[test]
+    fn sarif_reports_non_compiler_failures_and_successful_warnings() {
+        let failure = CommandOutput::failure(
+            "test",
+            Diagnostic::new(ErrorCode::TestFailed, "Kotodama tests failed: 1 failed")
+                .with_help("inspect the failing case"),
+        )
+        .render(OutputFormat::Sarif)
+        .expect("sarif failure");
+        assert_eq!(failure.exit_code(), 11);
+        let document: Value = norito::json::from_str(failure.stdout()).expect("document");
+        assert_eq!(
+            document
+                .pointer("/runs/0/results/0/ruleId")
+                .and_then(Value::as_str),
+            Some("MUSUBI_E_TEST_FAILED")
+        );
+        assert!(
+            document
+                .pointer("/runs/0/results/0/message/text")
+                .and_then(Value::as_str)
+                .is_some_and(|text| text.contains("help: inspect the failing case"))
+        );
+        let clean = CommandOutput::success("check", "checked", Value::Null)
+            .render(OutputFormat::Sarif)
+            .expect("clean sarif");
+        let clean: Value = norito::json::from_str(clean.stdout()).expect("clean document");
+        assert_eq!(
+            clean
+                .pointer("/runs/0/results")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(0)
+        );
+        let mut warning = compiler_bundle();
+        warning.diagnostics[0].severity = kotodama_lang::diagnostic::Severity::Warning;
+        let warned = CommandOutput::success("check", "checked", Value::Null)
+            .with_warnings(warning)
+            .render(OutputFormat::Sarif)
+            .expect("warning sarif");
+        assert_eq!(warned.exit_code(), 0);
+        let warned: Value = norito::json::from_str(warned.stdout()).expect("warning document");
+        assert_eq!(
+            warned
+                .pointer("/runs/0/results/0/level")
+                .and_then(Value::as_str),
+            Some("warning")
+        );
+    }
     #[test]
     fn human_output_routes_success_and_failure_deterministically() {
         let success = CommandOutput::success("metadata", "package = demo", Value::Null)
@@ -698,6 +1008,44 @@ mod tests {
                 .pointer("/error/details/cases/1/name")
                 .and_then(Value::as_str),
             Some("second")
+        );
+    }
+    #[test]
+    fn reports_precede_the_summary_line_and_notes_follow_it() {
+        let data = norito::json!({"failed": 1});
+        let report = Diagnostic::new(
+            ErrorCode::TestFailed,
+            "Kotodama tests failed: 1 of 2 failed",
+        )
+        .with_report(
+            "PASS first\nFAIL second\ntest completed: 1 passed; 1 failed",
+            &data,
+        )
+        .with_help("fix the failing test");
+        let human = CommandOutput::failure("test", report.clone())
+            .render(OutputFormat::Human)
+            .expect("human report");
+        assert_eq!(human.exit_code(), 11);
+        assert_eq!(
+            human.stderr(),
+            "PASS first\nFAIL second\ntest completed: 1 passed; 1 failed\n\
+             error[MUSUBI_E_TEST_FAILED]: Kotodama tests failed: 1 of 2 failed\n\
+             \x20 help: fix the failing test\n"
+        );
+        let note = Diagnostic::new(ErrorCode::Network, "deployment failed")
+            .with_details("Correct the reported cause.", &data);
+        assert!(note.render_human().starts_with(
+            "error[MUSUBI_E_NETWORK]: deployment failed\nCorrect the reported cause.\n"
+        ));
+        let json = CommandOutput::failure("test", report)
+            .render(OutputFormat::Json)
+            .expect("JSON report");
+        let value: Value = norito::json::from_str(json.stdout()).expect("one document");
+        assert_eq!(
+            value
+                .pointer("/error/details/failed")
+                .and_then(Value::as_u64),
+            Some(1)
         );
     }
     #[test]

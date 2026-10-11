@@ -83,10 +83,7 @@ impl<'a> norito::core::DecodeFromSlice<'a> for SettleVpnLease {
     fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
         let flags = vpn_decode_flags();
         let mut offset = 0usize;
-        let lease_id = super::decode_aos_canonical_field::<[u8; 32]>(
-            super::read_aos_field(bytes, &mut offset, flags)?,
-            flags,
-        )?;
+        let lease_id = super::decode_aos_byte_array_field::<32>(bytes, &mut offset, flags)?;
         let relay_receipt = super::decode_aos_canonical_field::<
             crate::soranet::vpn::VpnSignedSessionReceiptV1,
         >(super::read_aos_field(bytes, &mut offset, flags)?, flags)?;
@@ -111,10 +108,7 @@ impl<'a> norito::core::DecodeFromSlice<'a> for RefundExpiredVpnLease {
     fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
         let flags = vpn_decode_flags();
         let mut offset = 0usize;
-        let lease_id = super::decode_aos_canonical_field::<[u8; 32]>(
-            super::read_aos_field(bytes, &mut offset, flags)?,
-            flags,
-        )?;
+        let lease_id = super::decode_aos_byte_array_field::<32>(bytes, &mut offset, flags)?;
         if offset != bytes.len() {
             return Err(norito::core::Error::LengthMismatch);
         }

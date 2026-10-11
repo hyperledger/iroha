@@ -2,7 +2,7 @@
 use iroha_data_model::zk::{BackendTag, OpenVerifyEnvelope};
 use ivm::{
     IVMHost, PointerType,
-    host::{self, DefaultHost, ZkHalo2Backend, ZkHalo2Config},
+    host::{self, DefaultHost, ZkVerifyLimits},
     syscalls,
 };
 fn make_tlv(payload: &[u8]) -> Vec<u8> {
@@ -25,7 +25,7 @@ fn decode_statuses(vm: &ivm::IVM) -> Vec<u8> {
 }
 fn canonical_envelope(seed: u8) -> OpenVerifyEnvelope {
     OpenVerifyEnvelope::new(
-        BackendTag::Halo2IpaPasta,
+        BackendTag::NativePipaRPasta,
         ivm::host::LABEL_BATCH,
         [seed; 32],
         vec![seed, seed.wrapping_add(1)],
@@ -37,15 +37,12 @@ fn verify_batch_enforces_batch_size_before_per_item_gates() {
     let payload = norito::to_bytes(&vec![canonical_envelope(1), canonical_envelope(5)])
         .expect("encode batch");
     let tlv = make_tlv(&payload);
-    let cfg = ZkHalo2Config {
-        enabled: true,
-        backend: ZkHalo2Backend::Ipa,
-        verifier_budget_ms: 50,
-        verifier_max_batch: 1,
-        ..ZkHalo2Config::default()
+    let cfg = ZkVerifyLimits {
+        max_verify_batch: 1,
+        ..ZkVerifyLimits::default()
     };
     let mut vm = ivm::IVM::new(u64::MAX);
-    let mut host = DefaultHost::new().with_zk_halo2_config(cfg);
+    let mut host = DefaultHost::new().with_zk_verify_limits(cfg);
     let ptr = vm.alloc_input_tlv(&tlv).expect("alloc tlv");
     vm.set_register(10, ptr);
     host.syscall(syscalls::SYSCALL_ZK_VERIFY_BATCH, &mut vm)
@@ -58,15 +55,12 @@ fn verify_batch_enforces_batch_size_before_per_item_gates() {
 fn verify_batch_returns_fail_closed_status_without_verifier_registry() {
     let payload = norito::to_bytes(&vec![canonical_envelope(9)]).expect("encode batch");
     let tlv = make_tlv(&payload);
-    let cfg = ZkHalo2Config {
-        enabled: true,
-        backend: ZkHalo2Backend::Ipa,
-        verifier_budget_ms: 50,
-        verifier_max_batch: 8,
-        ..ZkHalo2Config::default()
+    let cfg = ZkVerifyLimits {
+        max_verify_batch: 8,
+        ..ZkVerifyLimits::default()
     };
     let mut vm = ivm::IVM::new(u64::MAX);
-    let mut host = DefaultHost::new().with_zk_halo2_config(cfg);
+    let mut host = DefaultHost::new().with_zk_verify_limits(cfg);
     let ptr = vm.alloc_input_tlv(&tlv).expect("alloc tlv");
     vm.set_register(10, ptr);
     host.syscall(syscalls::SYSCALL_ZK_VERIFY_BATCH, &mut vm)

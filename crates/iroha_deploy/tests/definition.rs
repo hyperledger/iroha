@@ -915,7 +915,7 @@ fn dataspace_rejects_global_node_and_network_configuration() {
         ("streaming", "enabled = true"),
         ("taikai", "enabled = true"),
         ("oracle", "enabled = true"),
-        ("zk.halo2", "enabled = true"),
+        ("zk.pipa_r", "enabled = true"),
         ("confidential", "enabled = true"),
         ("torii", "address = \"127.0.0.1:8080\""),
         ("pipeline", "signature_batch_max_bls = 4"),

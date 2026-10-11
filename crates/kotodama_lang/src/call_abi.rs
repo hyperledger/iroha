@@ -92,9 +92,10 @@ fn append_nodes(ty: &Type, output: &mut Vec<CallTypeNodeV1>) -> Result<(), Strin
                 }
             }
             Type::Unit => CallTypeNodeV1::Unit,
+            Type::Enum(descriptor) => CallTypeNodeV1::Enum(descriptor.as_ref().clone()),
             Type::ErrorEnum(descriptor) => CallTypeNodeV1::Error(descriptor.as_ref().clone()),
             Type::StateCursor(key) => CallTypeNodeV1::StateCursor(
-                crate::abi_schema::state_cursor_key_kind(key)
+                crate::abi_schema::state_map_key_schema(key)
                     .ok_or("invalid callable state cursor key type")?,
             ),
             Type::StateMap(_, _) => CallTypeNodeV1::StateRoot,
@@ -110,6 +111,9 @@ fn append_nodes(ty: &Type, output: &mut Vec<CallTypeNodeV1>) -> Result<(), Strin
                 }
                 CallTypeNodeV1::SecretNumeric(kind as u16)
             }
+            // References retain their nominal source type, but their private call-table
+            // transport is the same public Blob leaf used for their canonical address.
+            Type::ContractRef(_) => CallTypeNodeV1::Leaf(Kind::Blob),
             Type::Json => CallTypeNodeV1::Leaf(Kind::Json),
             Type::AxtDescriptor => CallTypeNodeV1::Pointer(PointerType::AxtDescriptor as u16),
             Type::AxtAnchoredSpendV1 => {
@@ -121,7 +125,7 @@ fn append_nodes(ty: &Type, output: &mut Vec<CallTypeNodeV1>) -> Result<(), Strin
                 CallTypeNodeV1::Pointer(PointerType::SoracloudResponse as u16)
             }
             leaf => CallTypeNodeV1::Leaf(
-                crate::abi_schema::state_cursor_key_kind(leaf)
+                crate::abi_schema::public_value_kind(leaf)
                     .ok_or_else(|| format!("unresolved callable value type `{leaf:?}`"))?,
             ),
         };
@@ -246,7 +250,9 @@ mod tests {
                 [
                     CallTypeNodeV1::Tuple(2),
                     CallTypeNodeV1::Leaf(ivm_abi::entrypoint::EntrypointValueKindV1::Bool),
-                    CallTypeNodeV1::StateCursor(kind)
+                    CallTypeNodeV1::StateCursor(ivm_abi::entrypoint::EntrypointValueTypeV1 {
+                        nodes: vec![ivm_abi::entrypoint::EntrypointValueTypeNodeV1::Leaf(kind)]
+                    })
                 ]
             );
         }

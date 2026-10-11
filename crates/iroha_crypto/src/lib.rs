@@ -24,8 +24,6 @@ mod hash;
 #[cfg(feature = "pqc")]
 /// Hybrid KEM/DEM helpers used by SoraFS payload envelopes.
 pub mod hybrid;
-/// Qualified-provider cryptography for KAGEMUSHA V1 credit envelopes.
-pub mod kagemusha;
 /// Key exchange protocols.
 pub mod kex;
 mod merkle;
@@ -110,6 +108,19 @@ mod varint;
 ///   `b"iroha:vrf:v1:output" || proof_bytes`.
 pub mod vrf;
 #[cfg(feature = "bls")]
+/// BLS12-381 signing suites that have their own namespace.
+///
+/// [`consensus`](bls::consensus) is the only API that signs under the IETF min-pk
+/// proof-of-possession ciphersuite `DST_SIG`: Sumeragi votes, proposals, timeouts, echoes
+/// and RS16 availability statements (`specs/sumeragi.md` §1 item 6). Every other BLS
+/// signature of this crate keeps the w3f transcript; the verify-only Ethereum
+/// sync-committee API shares only the tag's hash-to-curve.
+pub mod bls {
+    pub use crate::signature::bls::consensus;
+    // Crate-internal `bls::…` paths keep resolving to the shared BLS owner.
+    pub(crate) use crate::signature::bls::*;
+}
+#[cfg(feature = "bls")]
 pub use self::signature::bls::{
     BlsNormal, BlsNormalPrivateKey, BlsNormalPublicKey, BlsSmall, BlsSmallPrivateKey,
     BlsSmallPublicKey, ETHEREUM_BLS_POP_DST, ethereum_bls_pop_fast_aggregate_verify,
@@ -119,6 +130,7 @@ pub use blake2;
 mod prepared_decode;
 pub use prepared_decode::{
     PreparedCryptoDecodeError, PreparedPublicKeyDecode, PreparedSignatureDecode,
+    PublicKeyDecodeAdmissionError, PublicKeyJsonAdmissionError,
 };
 mod public_key_allocation;
 mod public_key_decode;

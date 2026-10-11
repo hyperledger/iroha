@@ -2,11 +2,41 @@
 set -euo pipefail
 
 # Bare-metal 4-node swarm (no Docker). Run from repo root.
+# Prerequisites: Bash, Python 3, Cargo or existing target/release binaries.
+# Required existing paired GENESIS_PUBLIC_KEY_FILE / GENESIS_PRIVATE_KEY_FILE and
+# GENESIS_CREATION_TIME_MS pin the operator-admitted signed network. No fresh
+# genesis signer or implicit wall-clock network identity is generated.
+# See scripts/README.run-local-swarm.md for node configuration and launch prerequisites.
+
+usage() {
+  cat <<'HELP'
+Usage: scripts/run_local_swarm.sh [--help]
+
+Start four bare-metal local Iroha peers from the repository root.
+Required: existing paired GENESIS_PUBLIC_KEY_FILE / GENESIS_PRIVATE_KEY_FILE
+and GENESIS_CREATION_TIME_MS (canonical u64 Unix milliseconds).
+Wallet loads use ordinary transaction validation and finalized blocks.
+Other inputs: BASE, BASE_API_PORT, BASE_P2P_PORT, SKIP_BUILD, RESET_STORAGE.
+RESET_STORAGE defaults to 0; explicitly set it to 1 to delete prior storage.
+HELP
+}
+if [[ $# -ne 0 ]]; then
+  if [[ $# -eq 1 && ( "$1" == "--help" || "$1" == "-h" ) ]]; then
+    usage
+    exit 0
+  fi
+  usage >&2
+  exit 2
+fi
+
+# Generated node and client configs contain existing private demo identities.
+umask 077
+RESET_STORAGE="${RESET_STORAGE-0}"
 
 BASE="${BASE:-/tmp/iroha-bare}"
 GENESIS_PUBLIC_KEY_FILE="${GENESIS_PUBLIC_KEY_FILE:-}"
 GENESIS_PRIVATE_KEY_FILE="${GENESIS_PRIVATE_KEY_FILE:-}"
-KAGEMUSHA_MINT_FINALITY_PARAMETERS_FILE="${KAGEMUSHA_MINT_FINALITY_PARAMETERS_FILE:-}"
+GENESIS_CREATION_TIME_MS="${GENESIS_CREATION_TIME_MS:-}"
 
 PKS=(
   "ea01308A230D5DA9DE92163DDE5F662CD859985ADC53040D9BFE1FA4A091CA7E1D8E88914535FC790CACC077DCC2F2D06FE106"
@@ -89,7 +119,7 @@ pid_is_running() {
 }
 
 write_stop_script() {
-  cat > "$BASE/stop.sh" <<'EOF'
+  write_private_config "$BASE/stop.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -236,6 +266,99 @@ with open(path, "w") as fh:
 PY
 }
 
+validate_genesis_inputs() {
+  if ! python3 - "$GENESIS_CREATION_TIME_MS" <<'PY_TIME'
+import re
+import sys
+
+value = sys.argv[1]
+if (re.fullmatch(r"0|[1-9][0-9]{0,19}", value) is None
+        or int(value) > 2**64 - 1):
+    raise SystemExit("GENESIS_CREATION_TIME_MS must be explicit canonical u64 Unix milliseconds")
+PY_TIME
+  then
+    return 1
+  fi
+  if [[ -z "$GENESIS_PUBLIC_KEY_FILE" || -z "$GENESIS_PRIVATE_KEY_FILE" ]]; then
+    echo "Both existing GENESIS_PUBLIC_KEY_FILE and GENESIS_PRIVATE_KEY_FILE are required for the admitted network." >&2
+    return 1
+  fi
+  [[ -s "$GENESIS_PUBLIC_KEY_FILE" && -s "$GENESIS_PRIVATE_KEY_FILE" ]] || {
+    echo "Both genesis signing input files must already exist and be nonempty." >&2
+    return 1
+  }
+}
+
+validate_storage_reset() {
+  case "$RESET_STORAGE" in
+    0|1) ;;
+    *) echo "RESET_STORAGE must be exactly 0 or 1; deletion requires explicit 1." >&2; return 1 ;;
+  esac
+}
+
+validate_local_swarm_output_targets() {
+  python3 - "$BASE" <<'PY_OUTPUTS'
+import os
+import stat
+import sys
+
+try:
+    directory = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        protected = os.fstat(directory)
+        if (not stat.S_ISDIR(protected.st_mode) or protected.st_uid != os.geteuid()
+                or protected.st_mode & 0o077 or protected.st_mode & 0o700 != 0o700):
+            raise ValueError("BASE must be an owner-only readable, writable, searchable directory")
+        names = ["stop.sh", "client.toml", "genesis.json", "genesis.signed.nrt",
+                 "genesis.expected_hash", "gen.sign.log"]
+        names += [f"peer{index}.{suffix}" for index in range(4)
+                  for suffix in ("toml", "log", "pid", "check-config.log")]
+        for name in names:
+            try:
+                protected = os.stat(name, dir_fd=directory, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if (not stat.S_ISREG(protected.st_mode) or protected.st_uid != os.geteuid()
+                    or protected.st_nlink != 1 or protected.st_mode & 0o022):
+                raise ValueError("existing local-swarm output must be an owner-held single-link regular file without group/other writes")
+            if name in ("client.toml", "stop.sh") or name.endswith(".toml"):
+                if protected.st_mode & 0o077:
+                    raise ValueError("existing local-swarm private config/script must be owner-only")
+    finally:
+        os.close(directory)
+except (OSError, ValueError) as error:
+    raise SystemExit(f"local-swarm output custody is unsafe: {error}") from None
+PY_OUTPUTS
+}
+
+write_private_config() {
+  # Open without truncation and refuse aliases/public files before writing bytes.
+  # BASE preflight separately protects all log, PID and genesis output targets.
+  python3 -c '
+import os
+import shutil
+import stat
+import sys
+
+try:
+    descriptor = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        protected = os.fstat(descriptor)
+        if (not stat.S_ISREG(protected.st_mode) or protected.st_uid != os.geteuid()
+                or protected.st_nlink != 1 or protected.st_mode & 0o077):
+            raise ValueError("private output must be an owner-only single-link regular file")
+        os.ftruncate(descriptor, 0)
+        with os.fdopen(descriptor, "wb", closefd=False) as output:
+            shutil.copyfileobj(sys.stdin.buffer, output)
+            output.flush()
+            os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+except (OSError, ValueError) as error:
+    raise SystemExit(f"private local-swarm output refused: {error}") from None
+' "$1"
+}
+
 validate_transport_identities() {
   local i j
   for i in 0 1 2 3; do
@@ -256,12 +379,15 @@ validate_transport_identities() {
   done
 }
 
+validate_storage_reset
+validate_genesis_inputs
 validate_transport_identities
 mkdir -p "$BASE"
-BASE="$(cd "$BASE" && pwd)"
+BASE="$(cd "$BASE" && pwd -P)"
+validate_local_swarm_output_targets
 write_stop_script
 preflight_existing_pidfiles
-if [ "${RESET_STORAGE:-1}" -ne 0 ]; then
+if [[ "$RESET_STORAGE" == 1 ]]; then
   rm -rf "$BASE/storage"
 fi
 
@@ -273,30 +399,6 @@ IROHAD=target/release/iroha3d
 IROHA=target/release/iroha
 KAGAMI=target/release/kagami
 
-if [[ -n "$GENESIS_PUBLIC_KEY_FILE" || -n "$GENESIS_PRIVATE_KEY_FILE" ]]; then
-  if [[ -z "$GENESIS_PUBLIC_KEY_FILE" || -z "$GENESIS_PRIVATE_KEY_FILE" ]]; then
-    echo "Set both GENESIS_PUBLIC_KEY_FILE and GENESIS_PRIVATE_KEY_FILE, or neither." >&2
-    exit 1
-  fi
-  [[ -s "$GENESIS_PUBLIC_KEY_FILE" ]] || {
-    echo "Genesis public-key file is missing or empty: $GENESIS_PUBLIC_KEY_FILE" >&2
-    exit 1
-  }
-  [[ -s "$GENESIS_PRIVATE_KEY_FILE" ]] || {
-    echo "Genesis private-key file is missing or empty: $GENESIS_PRIVATE_KEY_FILE" >&2
-    exit 1
-  }
-else
-  GENESIS_KEY_DIR="$BASE/genesis-key-custody"
-  GENESIS_PUBLIC_KEY_FILE="$GENESIS_KEY_DIR/public.key"
-  GENESIS_PRIVATE_KEY_FILE="$GENESIS_KEY_DIR/private.key"
-  if [[ -e "$GENESIS_KEY_DIR" ]]; then
-    echo "Refusing to overwrite existing genesis key custody under $BASE." >&2
-    echo "Remove the old local swarm directory or supply both key-file variables explicitly." >&2
-    exit 1
-  fi
-  $KAGAMI keys --out-dir "$GENESIS_KEY_DIR" > "$BASE/genesis-key-custody.log"
-fi
 
 if [[ "$(wc -l < "$GENESIS_PUBLIC_KEY_FILE" | tr -d ' ')" -ne 1 ]] \
   || [[ -n "$(tail -c 1 < "$GENESIS_PUBLIC_KEY_FILE")" ]]; then
@@ -310,13 +412,9 @@ GEN_PUB="$(cat "$GENESIS_PUBLIC_KEY_FILE")"
 }
 
 echo "[1/6] Generate genesis"
-if [[ -z "$KAGEMUSHA_MINT_FINALITY_PARAMETERS_FILE" || ! -s "$KAGEMUSHA_MINT_FINALITY_PARAMETERS_FILE" ]]; then
-  echo "Set KAGEMUSHA_MINT_FINALITY_PARAMETERS_FILE to explicit public authority for this validator topology." >&2
-  exit 1
-fi
+
 $KAGAMI genesis generate --ivm-dir . --genesis-public-key "$GEN_PUB" \
-  --kagemusha-mint-finality-parameters "$KAGEMUSHA_MINT_FINALITY_PARAMETERS_FILE" \
-  default > "$BASE/genesis.json"
+  default | write_private_config "$BASE/genesis.json"
 
 echo "[2/6] Inject topology"
 inject_topology
@@ -327,6 +425,7 @@ $KAGAMI genesis sign "$BASE/genesis.json" \
   --expected-hash-out "$BASE/genesis.expected_hash" \
   --private-key-file "$GENESIS_PRIVATE_KEY_FILE" \
   --expected-public-key "$GEN_PUB" \
+  --creation-time-ms "$GENESIS_CREATION_TIME_MS" \
   2>&1 | tee "$BASE/gen.sign.log"
 echo "Genesis public key: $GEN_PUB"
 if [[ "$(wc -l < "$BASE/genesis.expected_hash" | tr -d ' ')" -ne 1 ]] \
@@ -352,7 +451,7 @@ write_config() {
   local idx=$1
   local store_dir="$BASE/storage/peer${idx}"
   mkdir -p "$store_dir"
-  cat > "$BASE/peer${idx}.toml" <<EOF
+  write_private_config "$BASE/peer${idx}.toml" <<EOF
 chain = "00000000-0000-0000-0000-000000000000"
 public_key = "${PKS[$idx]}"
 private_key = "${SKS[$idx]}"
@@ -406,7 +505,7 @@ EOF
 }
 
 write_client_config() {
-  cat > "$BASE/client.toml" <<EOF
+  write_private_config "$BASE/client.toml" <<EOF
 chain = "00000000-0000-0000-0000-000000000000"
 network_id_file = "$BASE/genesis.expected_hash"
 torii_url = "http://127.0.0.1:${APIS[0]}/"
@@ -430,6 +529,11 @@ EOF
 echo "[4/6] Write configs"
 for i in 0 1 2 3; do write_config "$i"; done
 write_client_config
+
+# Admit every generated node configuration before starting any peer.
+for i in 0 1 2 3; do
+  "$IROHAD" --config "$BASE/peer${i}.toml" --check-config > "$BASE/peer${i}.check-config.log" 2>&1
+done
 
 echo "[5/6] Start peers"
 for i in 0 1 2 3; do

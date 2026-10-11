@@ -1,14 +1,18 @@
 // Minimal over-collateralized stablecoin minting example.
 // Assumes price is given as collateral_value per unit (already normalized to stablecoin units).
 seiyaku StablecoinSimple {
+    permission Admin;
+    permission Entry;
     error enum MintError {
         InsufficientCollateral = 1,
     }
 
     // Return how much stable to mint for given collateral and target ratio (bps).
-    kotoage fn mintable_amount(quantity collateral_amount, decimal price, decimal target_ratio_bps) -> quantity authorize(
-        "Entry"
-    ) {
+    kotoage fn mintable_amount(
+        quantity collateral_amount,
+        decimal price,
+        decimal target_ratio_bps,
+    ) authorize(Entry) -> quantity {
         // collateral_value = collateral_amount * price
         let value = collateral_amount * price;
         // mint limited by target ratio: minted * target_ratio_bps <= value * 10_000
@@ -27,14 +31,13 @@ seiyaku StablecoinSimple {
         decimal price,
         decimal min_ratio_bps,
         quantity mint_amount,
-    ) authorize("Admin") {
+    ) authorize(Admin) {
         // move collateral in
         ledger::asset::transfer(
             source: user,
             destination: vault_account,
             asset_definition: collateral_asset,
             amount: collateral_amount,
-            dataspace: DataSpaceId::parse("0"),
         );
         // health check
         let value = collateral_amount * price;

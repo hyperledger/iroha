@@ -1039,7 +1039,6 @@ fn committee_observation_fixture() -> iroha::data_model::nexus::ValidatorCommitt
         )
         .unwrap(),
         selected: None,
-        candidate_keys: Vec::new(),
         pending_beacon_session: None,
     }
 }
@@ -1107,66 +1106,16 @@ fn committee_operations_fixture() -> Vec<iroha::data_model::nexus::ValidatorComm
         consensus::{
             GlobalThresholdBeaconPartialSignatureProofV1, GlobalThresholdBeaconPartialSignatureV1,
         },
-        isi::kagemusha_v1::*,
         nexus::*,
         sumeragi::epoch::InstalledBeaconEpochBindingV1,
     };
-    use iroha_model_base::peer::PeerId;
-
     // Structural command-dispatch fixtures. Their bytes are never submitted to
     // a network; Core tests own cryptographic possession and finality verification.
-    let signer = KeyPair::try_from_seed(vec![0x71; 32], Algorithm::BlsNormal).unwrap();
-    let network_id = fallback_config().network_id;
-    let keys = KagemushaMintFinalityValidatorKeysV1 {
-        validator: PeerId::new(signer.public_key().clone()),
-        eq_proof_public_key: [1; 32],
-        ep_proof_public_key: [2; 32],
-    };
-    let possession = KagemushaMintFinalityPairedPossessionProofV1 {
-        eq_proof_signature: KagemushaPastaSchnorrSignatureV1 {
-            nonce_commitment: [3; 32],
-            response: [4; 32],
-        },
-        ep_proof_signature: KagemushaPastaSchnorrSignatureV1 {
-            nonce_commitment: [5; 32],
-            response: [6; 32],
-        },
-    };
-    let authorization =
-        ValidatorCandidateKeyAuthorizationV1::new(network_id, 1, keys.clone(), possession);
-    let candidate = ValidatorCandidateKeysV1 {
-        network_id,
-        generation: 1,
-        keys: keys.clone(),
-        possession,
-        peer_signature: iroha_crypto::SignatureOf::try_new(signer.private_key(), &authorization)
-            .unwrap(),
-    };
-    let mut validators = (1_u8..=4)
-        .map(|seed| KagemushaMintFinalityValidatorKeysV1 {
-            validator: PeerId::new(
-                KeyPair::try_from_seed(vec![seed; 32], Algorithm::BlsNormal)
-                    .unwrap()
-                    .public_key()
-                    .clone(),
-            ),
-            eq_proof_public_key: [seed; 32],
-            ep_proof_public_key: [seed + 16; 32],
-        })
-        .collect::<Vec<_>>();
-    validators.sort_by(|left, right| left.validator.cmp(&right.validator));
     vec![
-        ValidatorCommitteeOperationV1::PublishCandidate(candidate),
         ValidatorCommitteeOperationV1::PrepareCredentials(PrepareValidatorCommitteeCredentialsV1 {
             transition_id: [7; 32],
             target_epoch: 2,
             credentials: ValidatorCommitteeCredentialsV1 {
-                authority: KagemushaMintFinalityAuthorityGenerationV1 {
-                    version: 1,
-                    network_id,
-                    generation: 1,
-                    validators,
-                },
                 beacon: InstalledBeaconEpochBindingV1 {
                     session_id: [8; 32],
                     transcript_hash: [9; 32],
@@ -1178,7 +1127,6 @@ fn committee_operations_fixture() -> Vec<iroha::data_model::nexus::ValidatorComm
             target_epoch: 2,
             readiness: ValidatorCommitteeSeatReadinessV1 {
                 validator_index: 0,
-                pasta: possession,
                 beacon: GlobalThresholdBeaconPartialSignatureV1 {
                     session_id: [8; 32],
                     signer_index: 1,
@@ -1199,45 +1147,21 @@ fn committee_operations_fixture() -> Vec<iroha::data_model::nexus::ValidatorComm
 #[test]
 fn committee_submit_dispatch_preserves_every_exact_reviewed_operation() {
     use iroha::data_model::{
-        isi::{SetParameter, kagemusha_v1::KAGEMUSHA_MINT_FINALITY_MAX_VALIDATORS_V1},
-        nexus::ValidatorCommitteeOperationV1,
-        parameter::Parameter,
+        isi::SetParameter, nexus::ValidatorCommitteeOperationV1, parameter::Parameter,
+        sumeragi::epoch::MAX_VALIDATORS,
     };
 
     let mut operations = committee_operations_fixture();
-    let mut maximum_roster = operations
+    let mut maximum_seat = operations
         .iter()
         .find_map(|operation| match operation {
-            ValidatorCommitteeOperationV1::PrepareCredentials(value) => Some(value.clone()),
+            ValidatorCommitteeOperationV1::AdmitSeat(value) => Some(value.clone()),
             _ => None,
         })
         .unwrap();
-    let template = maximum_roster.credentials.authority.validators[0].clone();
-    maximum_roster.credentials.authority.validators = (1
-        ..=KAGEMUSHA_MINT_FINALITY_MAX_VALIDATORS_V1)
-        .map(|index| {
-            let seed = u8::try_from(index).unwrap();
-            let mut keys = template.clone();
-            keys.validator = iroha_model_base::peer::PeerId::new(
-                KeyPair::try_from_seed(vec![seed; 32], Algorithm::BlsNormal)
-                    .unwrap()
-                    .public_key()
-                    .clone(),
-            );
-            keys.eq_proof_public_key = [seed; 32];
-            keys.ep_proof_public_key = [seed + 32; 32];
-            keys
-        })
-        .collect();
-    maximum_roster
-        .credentials
-        .authority
-        .validators
-        .sort_by(|left, right| left.validator.cmp(&right.validator));
-    maximum_roster.credentials.authority.validate().unwrap();
-    operations.push(ValidatorCommitteeOperationV1::PrepareCredentials(
-        maximum_roster,
-    ));
+    maximum_seat.readiness.validator_index = u32::try_from(MAX_VALIDATORS - 1).unwrap();
+    maximum_seat.readiness.beacon.signer_index = u16::try_from(MAX_VALIDATORS).unwrap();
+    operations.push(ValidatorCommitteeOperationV1::AdmitSeat(maximum_seat));
     for operation in operations {
         let file = NamedTempFile::new().unwrap();
         fs::write(file.path(), norito::json::to_json(&operation).unwrap()).unwrap();
@@ -1267,11 +1191,8 @@ fn committee_submit_dispatch_preserves_every_exact_reviewed_operation() {
 }
 
 #[test]
-fn committee_submit_rejects_wrong_network_missing_and_unknown_fields_before_signing() {
+fn committee_submit_rejects_missing_and_unknown_fields_before_signing() {
     use iroha::data_model::nexus::ValidatorCommitteeOperationV1;
-    let foreign_network = iroha::data_model::NetworkId::from_genesis_hash(
-        iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(b"foreign committee")),
-    );
     for operation in committee_operations_fixture() {
         let mut variants = Vec::new();
         let original = norito::json::to_value(&operation).unwrap();
@@ -1345,18 +1266,6 @@ fn committee_submit_rejects_wrong_network_missing_and_unknown_fields_before_sign
             .unwrap()
             .insert("kind".into(), json::Value::String("Activate".into()));
         variants.push(unknown);
-        let mut foreign = operation;
-        match &mut foreign {
-            ValidatorCommitteeOperationV1::PublishCandidate(candidate) => {
-                candidate.network_id = foreign_network;
-                variants.push(norito::json::to_value(&foreign).unwrap());
-            }
-            ValidatorCommitteeOperationV1::PrepareCredentials(preparation) => {
-                preparation.credentials.authority.network_id = foreign_network;
-                variants.push(norito::json::to_value(&foreign).unwrap());
-            }
-            ValidatorCommitteeOperationV1::AdmitSeat(_) => {}
-        }
         for malformed in variants {
             let file = NamedTempFile::new().unwrap();
             fs::write(file.path(), norito::json::to_json(&malformed).unwrap()).unwrap();

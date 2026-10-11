@@ -1115,8 +1115,18 @@ fn full_bound_revalidation_preserves_originals_and_refuses_record_or_directory_s
         retire_missing(&previous, &next).unwrap();
         previous = next;
     }
+    let counter = parse_digest_tests::Counter::begin();
     let history = fixture.history().unwrap();
+    let counts = counter.finish();
+    assert_eq!(counts.computed, MAX_ATTEMPTS);
+    assert_eq!(counts.requested, MAX_ATTEMPTS * 3 - 2);
+    assert_eq!(counts.reads, 3 + MAX_ATTEMPTS * 4);
+    assert_eq!(counts.decoded, MAX_ATTEMPTS * 2);
+    assert!(counts.by_ordinal.iter().all(|count| *count == 1));
+    let counter = parse_digest_tests::Counter::begin();
     let history = history.reread().unwrap();
+    let repeated = counter.finish();
+    assert_eq!(repeated, counts);
     assert_eq!(history.reserved_attempt_count(), MAX_ATTEMPTS);
     assert_eq!(history.cumulative_reserved_count(), MAX_ATTEMPTS);
     history.require_current().unwrap();
@@ -1757,4 +1767,39 @@ fn explicit_owned_history_keeps_genuine_request_and_refuses_inspection_callback_
     assert_eq!(fixture.history().unwrap().reserved_attempt_count(), 1);
     assert!(peers.requests.lock().unwrap().is_empty());
     peers.finish();
+}
+
+#[path = "parse_digest_tests.rs"]
+pub(super) mod parse_digest_tests;
+
+#[path = "entry_fence_tests.rs"]
+mod entry_fence_tests;
+
+#[path = "read_scope_tests.rs"]
+mod read_scope_tests;
+
+#[path = "tree_scope_tests.rs"]
+mod tree_scope_tests;
+
+#[path = "parse_tree_tests.rs"]
+mod parse_tree_tests;
+
+#[path = "row_read_scope_tests.rs"]
+mod row_read_scope_tests;
+
+// Keep actual decoder counters private to the attempts tests while exposing only totals to
+// the genuine multi-body graph regression in the sole BodyHistory test fixture owner.
+pub(super) fn operation_record_work<T>(read: impl FnOnce() -> T) -> (T, [usize; 4]) {
+    let counter = parse_digest_tests::Counter::begin();
+    let result = read();
+    let counts = counter.finish();
+    (
+        result,
+        [
+            counts.reads,
+            counts.decoded,
+            counts.requested,
+            counts.computed,
+        ],
+    )
 }

@@ -16,7 +16,6 @@ use crate::sumeragi::{
 use iroha_allocation::AllocationBudget;
 use iroha_sumeragi::{
     availability::{AvailabilitySource, AvailableBody},
-    crypto::AttestationVerifier,
     message::{PayloadManifest, Qc, SyncEntry},
     types::Hash32,
 };
@@ -25,7 +24,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock, Weak},
     time::{Duration, Instant},
 };
 
@@ -52,7 +51,7 @@ pub struct LaneFrameRead {
 
 impl LaneFrameRead {
     /// Begin inspecting an independently selected path and native height. The historical
-    /// schedule and verifier must come from authenticated authority, never the inspected frame.
+    /// schedule and BLS keys must come from authenticated authority, never the inspected frame.
     ///
     /// # Errors
     /// I/O, a non-regular artifact or an oversized frame.
@@ -62,9 +61,8 @@ impl LaneFrameRead {
         crypto: SharedCrypto,
         budget: AllocationBudget,
         schedule: Arc<dyn AvailabilitySchedule>,
-        verifier: Arc<dyn AttestationVerifier + Send + Sync>,
     ) -> io::Result<Self> {
-        let job = RestoreFrame::open(path, height, budget.clone(), schedule, crypto, verifier)?;
+        let job = RestoreFrame::open(path, height, budget.clone(), schedule, crypto)?;
         Ok(Self { budget, job })
     }
 
@@ -108,10 +106,13 @@ pub struct FileLaneBlockStore {
     faults: Arc<dyn Faults>,
     budget: AllocationBudget,
     schedule: Arc<dyn AvailabilitySchedule>,
-    verifier: Arc<dyn AttestationVerifier + Send + Sync>,
+
     state: Mutex<StoreState>,
     pub(super) batch_read: Mutex<Option<BatchRead>>,
     grown: Condvar,
+    // The same runtime store serves member and observer publication. Only a weak original
+    // Queue is retained; no Store -> State/runner/Queue ownership cycle is introduced.
+    global_queue: OnceLock<Weak<crate::queue::Queue>>,
 }
 impl core::fmt::Debug for FileLaneBlockStore {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -147,6 +148,51 @@ fn lock_instance(dir: &Path) -> io::Result<File> {
 }
 
 impl FileLaneBlockStore {
+    /// Bind this store to the actual original node Queue before its lane driver launches.
+    /// Recovery/reconciliation may repeat this same-owner binding; neither a foreign pool
+    /// nor another Queue can replace it. Historical read-only stores need no notification.
+    ///
+    /// # Errors
+    /// A foreign/unbound/retired original pool or a different original Queue.
+    pub(super) fn bind_global_queue(&self, queue: &Arc<crate::queue::Queue>) -> io::Result<()> {
+        if !queue.belongs_to_sumeragi_pool(&self.budget)
+            && !cfg!(all(test, sumeragi_core_mutation = "HC196"))
+        {
+            return Err(invalid(
+                "lane merge notification belongs to another original State pool",
+            ));
+        }
+        let requested = Arc::downgrade(queue);
+        match self.global_queue.set(requested) {
+            Ok(()) => Ok(()),
+            Err(requested)
+                if cfg!(all(test, sumeragi_core_mutation = "HC197"))
+                    || self
+                        .global_queue
+                        .get()
+                        .is_some_and(|original| Weak::ptr_eq(original, &requested)) =>
+            {
+                Ok(())
+            }
+            Err(_) => Err(invalid(
+                "lane merge notification belongs to another original Queue",
+            )),
+        }
+    }
+
+    // Called only after the complete durable append path returns and its state lock retires.
+    // A final temporary Queue owner may release original residents, so defer its original
+    // pool notifications through the upgrade/notify/drop, outside both store and Queue locks.
+    fn notify_global_queue(&self) {
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC195")))]
+        self.budget.with_deferred_refund_notifications(|_| {
+            if let Some(queue) = self.global_queue.get().and_then(Weak::upgrade) {
+                queue.wake_sumeragi_root(&self.budget);
+                drop(queue);
+            }
+        });
+    }
+
     /// Acquire exclusive ownership and enumerate a canonical contiguous prefix, without reading
     /// or allocating body bytes. Keep the returned owner until recovery completes or is abandoned.
     ///
@@ -158,17 +204,8 @@ impl FileLaneBlockStore {
         crypto: SharedCrypto,
         budget: AllocationBudget,
         schedule: Arc<dyn AvailabilitySchedule>,
-        verifier: Arc<dyn AttestationVerifier + Send + Sync>,
     ) -> io::Result<LaneStoreOpen> {
-        Self::begin_open_with_faults(
-            root,
-            instance,
-            crypto,
-            budget,
-            schedule,
-            verifier,
-            Arc::new(NoFaults),
-        )
+        Self::begin_open_with_faults(root, instance, crypto, budget, schedule, Arc::new(NoFaults))
     }
     /// Begin exclusive recovery with deterministic filesystem fault injection.
     ///
@@ -180,7 +217,7 @@ impl FileLaneBlockStore {
         crypto: SharedCrypto,
         budget: AllocationBudget,
         schedule: Arc<dyn AvailabilitySchedule>,
-        verifier: Arc<dyn AttestationVerifier + Send + Sync>,
+
         faults: Arc<dyn Faults>,
     ) -> io::Result<LaneStoreOpen> {
         if schedule.instance() != *instance {
@@ -229,7 +266,6 @@ impl FileLaneBlockStore {
             faults,
             budget,
             schedule,
-            verifier,
             state: Mutex::new(StoreState {
                 tip: 0,
                 write: None,
@@ -237,6 +273,7 @@ impl FileLaneBlockStore {
             }),
             batch_read: Mutex::new(None),
             grown: Condvar::new(),
+            global_queue: OnceLock::new(),
         };
         Ok(LaneStoreOpen::new(store, tip))
     }
@@ -356,7 +393,6 @@ impl FileLaneBlockStore {
             self.budget.clone(),
             Arc::clone(&self.schedule),
             Arc::clone(&self.crypto),
-            Arc::clone(&self.verifier),
         )
     }
     fn read_prepared<'a>(
@@ -427,23 +463,11 @@ impl BlockStore for FileLaneBlockStore {
         resolve_source(&*self.schedule, self.instance, height, block_hash)
     }
     fn append(&self, body: &AvailableBody, qc: &Qc) -> Result<(), Attempt<io::Error>> {
-        if !body.admitted_to(&self.budget)
-            || qc
-                .attestation_witness
-                .as_ref()
-                .is_some_and(|w| !w.admitted_to(&self.budget))
-        {
+        if !body.admitted_to(&self.budget) {
             return Err(invalid("lane append original pool mismatch").into());
         }
         let height = body.header().height;
-        let source = certified_source(
-            &*self.schedule,
-            &*self.crypto,
-            &*self.verifier,
-            height,
-            body.header(),
-            qc,
-        )?;
+        let source = certified_source(&*self.schedule, &*self.crypto, height, body.header(), qc)?;
         if body.source() != &source {
             return Err(
                 invalid("lane body was authenticated under another historical source").into(),
@@ -461,6 +485,8 @@ impl BlockStore for FileLaneBlockStore {
             let bytes = stored.prepare(&self.budget).map_err(record_error)?;
             durable_artifact::publish(&*self.faults, &self.dir, &frame_name(height), bytes)?;
             state.read = None;
+            drop(state);
+            self.notify_global_queue();
             return Ok(());
         }
         if height != state.tip.saturating_add(1) {
@@ -489,6 +515,8 @@ impl BlockStore for FileLaneBlockStore {
         state.write = None;
         state.tip = height;
         self.grown.notify_all();
+        drop(state);
+        self.notify_global_queue();
         Ok(())
     }
 }

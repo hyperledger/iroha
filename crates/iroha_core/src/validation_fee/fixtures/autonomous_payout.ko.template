@@ -1,6 +1,8 @@
 // Generated conversion wrapper. Pricing, reference feed guards and validator
 // allocation are Parliament-governed native consensus policy.
 seiyaku AutonomousValidationFeePayout {
+    import seiyaku "dlmm_pool.to" as Pool;
+    permission Payout;
     error enum AutonomousPayoutError {
         InvalidInvocationAuthority = 1, InvalidContractSubject = 2, XorOutputBelowBound = 3,
     }
@@ -38,7 +40,7 @@ seiyaku AutonomousValidationFeePayout {
         return AssetDefinitionId::parse("6TEAJqbb8oEPmLncoNiMRbLEK6tw");
     }
 
-    kotoage fn autonomous_validation_fee_tick() -> quantity authorize("CanInvokeContractEntrypoint") {
+    kotoage fn autonomous_validation_fee_tick() authorize(Payout) -> quantity {
         let vault = payout_vault();
         require(context::authority() == vault, AutonomousPayoutError::InvalidInvocationAuthority);
         require(context::seiyaku_subject() == vault, AutonomousPayoutError::InvalidContractSubject);
@@ -58,10 +60,8 @@ seiyaku AutonomousValidationFeePayout {
         // Native consensus requires the exact SBD-to-pool, XOR-to-treasury,
         // XOR-to-reward-pool plan, checks its real output against minimum_out,
         // and reserves/collects funding only in the same successful overlay.
-        let amount_out = contract::invoke(
-            contract: pool_contract(),
-            entrypoint: "swap_exact_in_quote_public",
-            returns: "quantity",
+        let pool = Pool::at(address: pool_contract());
+        let amount_out = pool.swap_exact_in_quote_public(
             amount_in: amount_in,
             min_out: minimum_out,
         );
@@ -71,7 +71,6 @@ seiyaku AutonomousValidationFeePayout {
             destination: reward_pool(),
             asset_definition: xor,
             amount: amount_out,
-            dataspace: DataSpaceId::parse("0"),
         );
         return amount_out;
     }

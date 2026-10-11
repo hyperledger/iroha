@@ -1,7 +1,7 @@
 
 seiyaku CompilerFixture {
 
-view fn check() -> int {
+view fn check() authorize(anyone) -> int {
   let envelope = b"00";
   if crypto::verify_proof(value: envelope) {
     return 1;

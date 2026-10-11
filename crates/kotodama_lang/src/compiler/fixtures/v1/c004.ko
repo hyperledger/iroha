@@ -1,5 +1,5 @@
 
-seiyaku CompactBackend {
+seiyaku CompactBackend { permission Entry;
   fn literal() -> Name { return Name::parse("counter"); }
-  kotoage fn main() -> Name  authorize("Entry") { return literal(); }
+  kotoage fn main() authorize(Entry) -> Name { return literal(); }
 }

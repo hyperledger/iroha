@@ -27,15 +27,6 @@ rand_chacha = { version = "=0.9.0", default-features = false, features = ["std"]
 members = ["."]
 resolver = "2"
 
-# Standalone fuzz resolution must retain the workspace's source overrides.
-# In particular, SoraFS uses the vendored Halo2 serialization implementations.
-[patch.crates-io]
-halo2-axiom = { path = "../vendor/halo2-axiom" }
-halo2curves-axiom = { path = "../vendor/halo2curves-axiom" }
-
-[patch."https://github.com/axiom-crypto/halo2-lib.git"]
-halo2-base = { path = "../vendor/halo2-base" }
-
 [[bin]]
 name = "da_replay_cache"
 path = "da_replay_cache.rs"

@@ -20,7 +20,7 @@ def _registry_literals(path: str, marker: str, end: str) -> frozenset[str]:
     source = (root / path).read_text("utf-8")
     assert source.count(marker) == 1, (path, marker)
     body = source.split(marker, 1)[1].split(end, 1)[0]
-    labels = re.findall(r'"((?:halo2|stark)/[^"\n]*)"', body)
+    labels = re.findall(r'"((?:halo2|stark|pipa-r)/[^"\n]*)"', body)
     assert labels and len(labels) == len(set(labels)), (path, labels)
     return frozenset(labels)
 
@@ -33,24 +33,16 @@ def _registry_literals(path: str, marker: str, end: str) -> frozenset[str]:
             "val VERIFIER_BACKEND_REGISTRY_LABELS_V1:", "),\n        )", "all",
         ),
         (
-            "java/iroha_android/src/main/java/org/hyperledger/iroha/android/model/zk/VerifyingKeyBackendTag.java",
-            "public static final Set<String> VERIFIER_BACKEND_REGISTRY_LABELS_V1 =", ");", "all",
-        ),
-        (
-            "java/iroha_android/src/main/java/org/hyperledger/iroha/android/model/zk/VerifyingKeyBackendTag.java",
-            "private static final Set<String> PRODUCTION_NATIVE_HALO2_PASTA_BACKENDS =", ");", "pasta",
-        ),
-        (
             "csharp/src/Hyperledger.Iroha.Sdk/Zk/VerifierBackendRegistryLabels.cs",
             "private static readonly string[] SupportedLabels =", "];", "all",
         ),
         (
             "csharp/src/Hyperledger.Iroha.Sdk/Zk/VerifyingKeyBackendTag.cs",
-            "private static readonly HashSet<string> ProductionNativeHalo2PastaBackends =", "};", "pasta",
+            "private static readonly HashSet<string> ProductionNativePipaRPastaBackends =", "};", "pipa-r",
         ),
         (
             "IrohaSwift/Sources/IrohaSwift/VerifyingKeyBackendTag.swift",
-            "private static let productionNativeHalo2PastaBackends: Set<String> =", "]", "pasta",
+            "private static let productionNativePipaRPastaBackends: Set<String> =", "]", "pipa-r",
         ),
         (
             "IrohaSwift/Sources/IrohaSwift/VerifyingKeyBackendTag.swift",
@@ -78,8 +70,8 @@ def test_each_sdk_registry_mirror_matches_the_exact_rust_owner(
     assert len(canonical) == 7
     assert _VERIFIER_BACKEND_REGISTRY_LABELS_V1 == canonical
     expected = (
-        frozenset(label for label in canonical if label.startswith("halo2/pasta/"))
-        if subset == "pasta" else canonical
+        frozenset(label for label in canonical if label.startswith("pipa-r/"))
+        if subset == "pipa-r" else canonical
     )
     assert _registry_literals(path, marker, end) == expected, path
 
@@ -87,19 +79,19 @@ def test_each_sdk_registry_mirror_matches_the_exact_rust_owner(
 def test_privacy_verifier_registry_is_closed_exact_and_engine_typed() -> None:
     expected = frozenset(
         {
-            "halo2/ipa",
-            "halo2/pasta/kaigi-authorization-v1",
-            "halo2/pasta/kaigi-usage-v1",
-            "halo2/pasta/confidential-transfer-2x2-merkle16-axiom-poseidon-v3",
-            "halo2/pasta/confidential-unshield-full-merkle16-axiom-poseidon-v3",
-            "halo2/pasta/confidential-unshield-change-merkle16-axiom-poseidon-v4",
+            "pipa-r/pasta",
+            "pipa-r/pasta/kaigi-authorization-v1",
+            "pipa-r/pasta/kaigi-usage-v1",
+            "pipa-r/pasta/confidential-transfer-v1",
+            "pipa-r/pasta/confidential-unshield-full-v1",
+            "pipa-r/pasta/confidential-unshield-change-v1",
             "stark/fri/poseidon-x7-goldilocks-6x64-v1",
         }
     )
     assert len(expected) == 7
     assert _VERIFIER_BACKEND_REGISTRY_LABELS_V1 == expected
     for backend in expected:
-        expected_tag = "halo2-ipa-pasta" if backend.startswith("halo2/") else "stark"
+        expected_tag = ("native-pipa-r-pasta" if backend.startswith("pipa-r/") else "stark")
         assert _verifier_backend_registry_tag_v1(backend) == expected_tag
         assert _is_verifier_backend_registry_label_v1(backend)
         assert (
@@ -111,7 +103,15 @@ def test_privacy_verifier_registry_is_closed_exact_and_engine_typed() -> None:
 def test_privacy_verifier_registry_rejects_aliases_retired_and_hostile_labels() -> None:
     unsupported = (
         "",
+        "halo2/ipa",
         "halo2/pasta/ivm-execution-v1",
+        "halo2/pasta/kaigi-authorization-v1",
+        "halo2/pasta/confidential-transfer-2x2-merkle16-axiom-poseidon-v3",
+        "halo2/pasta/confidential-unshield-full-merkle16-axiom-poseidon-v3",
+        "halo2/pasta/confidential-unshield-change-merkle16-axiom-poseidon-v4",
+        "halo2/pasta/kaigi-usage-v1",
+        "pipa-r/ipa/pasta/kaigi-authorization-v1",
+        "pipa-r/pasta/kaigi-usage-v1/",
         "halo2/pasta/kaigi-roster-v1",
         "halo2/pasta/kagemusha-v1-mint-fold-merkle16-axiom-poseidon-v1",
         "unknown/privacy/backend",

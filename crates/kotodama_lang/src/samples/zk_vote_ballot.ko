@@ -9,6 +9,7 @@
 // proper Norito TLVs (envelopes and InstructionBox bytes) and may preload them
 // into INPUT.
 seiyaku ZkVote {
+    permission Admin;
     // Verify a ballot proof, then enqueue a prebuilt SubmitBallot instruction via the vendor bridge.
     fn verify_and_submit_ballot(bytes proof_env, bytes submit) {
         // 1) Verify the ballot using ZK_VOTE_VERIFY_BALLOT.
@@ -21,7 +22,7 @@ seiyaku ZkVote {
     // Optional demo kotoage: verifies a proof and enqueues a ballot using literal data.
     // The vendor bridge is privileged, so kotoage functions that reach it must
     // declare a permission tag.
-    kotoage fn demo() authorize("Admin") {
+    kotoage fn demo() authorize(Admin) {
         // Mock envelope bytes (opaque here); in practice, pass a Norito-encoded OpenVerifyEnvelope.
         let env_ballot = b"ENV-BALLOT";
         let nullifier = b"0123456789abcdef0123456789abcdef";

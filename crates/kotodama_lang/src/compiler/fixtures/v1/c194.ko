@@ -1,6 +1,6 @@
 
         seiyaku DeadCodeOptimization {
-            view fn answer() -> int {
+            view fn answer() authorize(anyone) -> int {
                 let int unused = 41;
                 return 42;
                 let int unreachable = 43;

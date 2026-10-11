@@ -13,7 +13,7 @@ seiyaku PrivateNestedLoops {
         return total;
     }
 
-    view fn main() -> int {
+    view fn main() authorize(anyone) -> int {
         var total = 0;
         for outer in range(4) {
             total = total + accumulate(outer + 2);

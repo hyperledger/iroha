@@ -1,6 +1,6 @@
 // Simple modulo example demonstrating `%` operator support.
 seiyaku ModuloDemo {
-    kotoage fn remainder(int a, int b) -> int authorize("Entry") {
+    view fn remainder(int a, int b) authorize(anyone) -> int {
         return a % b;
     }
 }

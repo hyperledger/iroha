@@ -59,7 +59,7 @@ fn role_permission_changed_permission_accessor_exposes_inner_permission() {
     );
     let record = RolePermissionChanged::new(role_id.clone(), permission.clone());
     assert_eq!(record.permission(), &permission);
-    assert_eq!(&record.role, &role_id);
+    assert_eq!(record.role(), &role_id);
 }
 #[test]
 fn account_permission_changed_permission_accessor_exposes_inner_permission() {
@@ -72,6 +72,6 @@ fn account_permission_changed_permission_accessor_exposes_inner_permission() {
     );
     let record = AccountPermissionChanged::new(account_id.clone(), permission.clone());
     assert_eq!(record.permission(), &permission);
-    assert_eq!(&record.account, &account_id);
+    assert_eq!(record.account(), &account_id);
 }
 // Removed: depth-limit tests relied on heavy DSL representation.

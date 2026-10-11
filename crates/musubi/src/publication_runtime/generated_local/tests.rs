@@ -185,7 +185,6 @@ network_id = "{network}"
 torii_url = "http://127.0.0.1:8181/"
 torii_request_timeout_ms = 2000
 [account]
-domain = "dev.universal"
 profile = "taira"
 public_key = "{}"
 private_key = "{}"
@@ -396,3 +395,32 @@ fn generated_context_refuses_foreign_readback_root_broker_and_inventory_dns_with
 
 #[path = "../../generated_publication_tests.rs"]
 mod generated_publish;
+
+#[test]
+fn generated_client_configuration_uses_universal_signer_and_rejects_retired_account_domain() {
+    let fixture = Fixture::new();
+    let source = std::str::from_utf8(&fixture.bytes).unwrap();
+    let table = source.parse::<toml::Table>().unwrap();
+    let account = table.get("account").unwrap().as_table().unwrap();
+    assert!(!account.contains_key("domain"));
+    assert_eq!(account.get("profile").unwrap().as_str(), Some("taira"));
+    let (config, _) =
+        iroha::config::Config::load_bytes_with_musubi_publication(&fixture.path, &fixture.bytes)
+            .unwrap();
+    assert_eq!(config.account, fixture.namespace.publisher);
+    assert_eq!(config.account_chain_discriminant, 369);
+    let context = fixture.context().unwrap();
+    assert_eq!(
+        context.namespace_intent().binding,
+        fixture.namespace.binding
+    );
+    let retired = source.replace("[account]\n", "[account]\ndomain = \"dev.universal\"\n");
+    assert!(
+        iroha::config::Config::load_bytes_with_musubi_publication(
+            &fixture.path,
+            retired.as_bytes(),
+        )
+        .is_err()
+    );
+    fixture.no_http();
+}

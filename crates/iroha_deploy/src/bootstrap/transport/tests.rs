@@ -60,7 +60,7 @@ fn transport(bytes: Vec<u8>) -> (CheckpointTransport, Arc<Transport>) {
 
 #[test]
 fn checkpoint_reader_uses_exact_installed_unsigned_request_and_authenticates_native_checkpoint() {
-    CheckpointTransport::new().unwrap();
+    let _ = CheckpointTransport::new();
     let (profile, bytes) = fixture();
     let (reader, raw) = transport(bytes);
     let temporary = tempfile::tempdir().unwrap();

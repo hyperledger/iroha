@@ -127,7 +127,12 @@ fn original_native_signer_roles_are_distinct_funded_and_exactly_scoped_in_execut
                         BTreeSet::from([Permission::from(CanRecordSorafsReputationJournal)])
                     }
                 };
-                expected.push((&entry.account, Json::new(role), permissions));
+                expected.push((
+                    &entry.account,
+                    Json::new(role),
+                    permissions,
+                    Quantity::from(LOCALNET_ALIAS_SETUP_PAYER_BALANCE),
+                ));
             }
             for provider in &manifest.providers {
                 for (role, permissions) in [
@@ -168,6 +173,11 @@ fn original_native_signer_roles_are_distinct_funded_and_exactly_scoped_in_execut
                         &provider.authority(role).unwrap().account,
                         Json::new(role),
                         permissions,
+                        if role == StreamTokenAuthorityRole::IssuerOperator {
+                            Quantity::from(34_u64)
+                        } else {
+                            Quantity::from(LOCALNET_ALIAS_SETUP_PAYER_BALANCE)
+                        },
                     ));
                 }
                 assert_eq!(
@@ -180,7 +190,7 @@ fn original_native_signer_roles_are_distinct_funded_and_exactly_scoped_in_execut
                     )
                 );
             }
-            for (id, role, permissions) in expected {
+            for (id, role, permissions, endowment) in expected {
                 let account =
                     iroha_data_model::query::account::prelude::FindAccountById { id: id.clone() }
                         .execute(staged)
@@ -191,10 +201,7 @@ fn original_native_signer_roles_are_distinct_funded_and_exactly_scoped_in_execut
                 }
                 .execute(staged)
                 .unwrap();
-                assert_eq!(
-                    balance.value(),
-                    &Quantity::from(LOCALNET_ALIAS_SETUP_PAYER_BALANCE)
-                );
+                assert_eq!(balance.value(), &endowment);
                 assert_eq!(
                     staged
                         .world()

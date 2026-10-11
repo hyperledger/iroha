@@ -171,6 +171,14 @@ fn encode_hex(bytes: &[u8]) -> String {
     }
     output
 }
+// These instructions expose their canonical JSON boundary but no public constructor.
+// Keep the fixture inputs independently typed; never read generated fixture output.
+// Raw pin-outbox bytes use the declared fixed_bytes numeric-array adapter,
+// rather than the generic [u8; N] hex-string JSON representation.
+fn fixture_instruction<T: JsonDeserialize>(fields: Value) -> T {
+    json::from_value(fields).expect("typed first-release Musubi instruction fixture fields")
+}
+
 fn render_instruction_case<T>(id: &str, value: T) -> Value
 where
     T: Clone
@@ -318,35 +326,88 @@ pub fn pin_outbox_checks() -> [CheckMusubiPinOutboxV1; 2] {
             MusubiPinOutboxHighWaterV1,
         },
     };
-    let absent = CheckMusubiPinOutboxV1 {
-        network_id: fixture_network_id(),
-        pin_authority: account(INSTRUCTION_PUBLISHER_SEED),
-        session_id: [0xb7; 32],
-        inventory_digest: [0xb8; 32],
-        challenge: [0xb9; 32],
-        floor: MusubiPinOutboxCheckFloorV1 {
+    let absent = {
+        let network_id: NetworkId = fixture_network_id();
+        let pin_authority: AccountId = account(INSTRUCTION_PUBLISHER_SEED);
+        let session_id: [u8; 32] = [0xb7; 32];
+        let inventory_digest: [u8; 32] = [0xb8; 32];
+        let challenge: [u8; 32] = [0xb9; 32];
+        let floor: MusubiPinOutboxCheckFloorV1 = MusubiPinOutboxCheckFloorV1 {
             height: 93,
             block_hash: [0xba; 32],
             context_id: HeightContextId(HashOf::from_untyped_unchecked(Hash::new([0xbb; 32]))),
-        },
-        expected: MusubiPinOutboxCheckExpectationV1::Absent,
+        };
+        let expected: MusubiPinOutboxCheckExpectationV1 = MusubiPinOutboxCheckExpectationV1::Absent;
+        fixture_instruction::<CheckMusubiPinOutboxV1>(norito::json!({
+            "network_id": network_id,
+            "pin_authority": pin_authority,
+            "session_id": (session_id.to_vec()),
+            "inventory_digest": (inventory_digest.to_vec()),
+            "challenge": (challenge.to_vec()),
+            "floor": floor,
+            "expected": expected,
+        }))
     };
-    let mut present = absent.clone();
-    present.challenge = [0xbc; 32];
-    present.expected = MusubiPinOutboxCheckExpectationV1::Present(MusubiPinOutboxHighWaterV1 {
-        version: 1,
-        network_id: absent.network_id,
-        pin_authority: absent.pin_authority.clone(),
-        session_id: absent.session_id,
-        revision: 17,
-        inventory_digest: absent.inventory_digest,
-        recorded_at_height: 81,
-        transaction_hash: [0xbd; 32],
-    });
+    let present = {
+        let network_id: NetworkId = *absent.network_id();
+        let pin_authority: AccountId = absent.pin_authority().clone();
+        let session_id: [u8; 32] = *absent.session_id();
+        let inventory_digest: [u8; 32] = *absent.inventory_digest();
+        let challenge: [u8; 32] = [0xbc; 32];
+        let floor: MusubiPinOutboxCheckFloorV1 = *absent.floor();
+        let expected: MusubiPinOutboxCheckExpectationV1 =
+            MusubiPinOutboxCheckExpectationV1::Present(MusubiPinOutboxHighWaterV1 {
+                version: 1,
+                network_id: *absent.network_id(),
+                pin_authority: absent.pin_authority().clone(),
+                session_id: *absent.session_id(),
+                revision: 17,
+                inventory_digest: *absent.inventory_digest(),
+                recorded_at_height: 81,
+                transaction_hash: [0xbd; 32],
+            });
+        fixture_instruction::<CheckMusubiPinOutboxV1>(norito::json!({
+            "network_id": network_id,
+            "pin_authority": pin_authority,
+            "session_id": (session_id.to_vec()),
+            "inventory_digest": (inventory_digest.to_vec()),
+            "challenge": (challenge.to_vec()),
+            "floor": floor,
+            "expected": expected,
+        }))
+    };
     for check in [&absent, &present] {
         check.validate().expect("typed Check fixture");
     }
     [absent, present]
+}
+
+#[test]
+fn musubi_pin_outbox_json_construction_preserves_declared_byte_arrays() {
+    for check in pin_outbox_checks() {
+        let semantic = json::to_value(&check).expect("encode declared Check JSON");
+        for (field, bytes) in [
+            ("session_id", check.session_id()),
+            ("inventory_digest", check.inventory_digest()),
+            ("challenge", check.challenge()),
+        ] {
+            assert_eq!(semantic[field], norito::json!(bytes.to_vec()));
+        }
+        let decoded: CheckMusubiPinOutboxV1 =
+            json::from_value(semantic.clone()).expect("decode declared Check JSON");
+        assert_eq!(decoded, check);
+        let mut generic_array_json = semantic;
+        *generic_array_json
+            .as_object_mut()
+            .expect("Check JSON object")
+            .get_mut("challenge")
+            .expect("Check challenge field") =
+            json::to_value(check.challenge()).expect("encode generic byte-array JSON");
+        assert!(matches!(
+            json::from_value::<CheckMusubiPinOutboxV1>(generic_array_json),
+            Err(json::Error::ExpectedArrayStart { .. })
+        ));
+    }
 }
 
 /// Construct the typed values needed by the generated-record identity capture.
@@ -402,13 +463,21 @@ fn instruction_document_and_generated_identity_values() -> (Value, MusubiGenerat
     let publisher = account(INSTRUCTION_PUBLISHER_SEED);
     let (receipt_binding, register_archive) =
         fixture_archive_registration(&commitment, &publication, &publisher);
-    let advance_pin_outbox = AdvanceMusubiPinOutboxV1 {
-        network_id: fixture_network_id(),
-        pin_authority: publisher.clone(),
-        session_id: [0xb7; 32],
-        expected_revision: 0,
-        expected_inventory_digest: [0; 32],
-        inventory_digest: [0xb8; 32],
+    let advance_pin_outbox = {
+        let network_id: NetworkId = fixture_network_id();
+        let pin_authority: AccountId = publisher.clone();
+        let session_id: [u8; 32] = [0xb7; 32];
+        let expected_revision: u64 = 0;
+        let expected_inventory_digest: [u8; 32] = [0; 32];
+        let inventory_digest: [u8; 32] = [0xb8; 32];
+        fixture_instruction::<AdvanceMusubiPinOutboxV1>(norito::json!({
+            "network_id": network_id,
+            "pin_authority": pin_authority,
+            "session_id": (session_id.to_vec()),
+            "expected_revision": expected_revision,
+            "expected_inventory_digest": (expected_inventory_digest.to_vec()),
+            "inventory_digest": (inventory_digest.to_vec()),
+        }))
     };
     advance_pin_outbox
         .validate()
@@ -493,22 +562,33 @@ fn instruction_document_and_generated_identity_values() -> (Value, MusubiGenerat
 }
 
 fn fixture_maintainer_acceptance() -> AcceptMusubiPackageMaintainerV1 {
-    AcceptMusubiPackageMaintainerV1 {
-        package: package(7, MusubiPackageScopeV1::DataspaceRoot, "math-utils"),
-        invite_id: MusubiInviteIdV1::new([0x11; 32]),
-        expected_governance_revision: u64::MAX,
+    {
+        let package: MusubiPackageIdV1 =
+            package(7, MusubiPackageScopeV1::DataspaceRoot, "math-utils");
+        let invite_id: MusubiInviteIdV1 = MusubiInviteIdV1::new([0x11; 32]);
+        let expected_governance_revision: u64 = u64::MAX;
+        fixture_instruction::<AcceptMusubiPackageMaintainerV1>(norito::json!({
+            "package": package,
+            "invite_id": invite_id,
+            "expected_governance_revision": expected_governance_revision,
+        }))
     }
 }
 
 fn fixture_invitation_revocation() -> RevokeMusubiPackageMaintainerInvitationV1 {
-    RevokeMusubiPackageMaintainerInvitationV1 {
-        package: package(
+    {
+        let package: MusubiPackageIdV1 = package(
             42,
             MusubiPackageScopeV1::Domain("finance".parse::<Name>().expect("domain name")),
             "oracle-kit",
-        ),
-        invite_id: MusubiInviteIdV1::new([0x22; 32]),
-        expected_governance_revision: 9,
+        );
+        let invite_id: MusubiInviteIdV1 = MusubiInviteIdV1::new([0x22; 32]);
+        let expected_governance_revision: u64 = 9;
+        fixture_instruction::<RevokeMusubiPackageMaintainerInvitationV1>(norito::json!({
+            "package": package,
+            "invite_id": invite_id,
+            "expected_governance_revision": expected_governance_revision,
+        }))
     }
 }
 
@@ -537,14 +617,20 @@ fn fixture_prerelease_assertion() -> AssertMusubiReleaseDigestV1 {
 }
 
 fn fixture_archive_location_retirement() -> RetireMusubiArchiveLocationV1 {
-    RetireMusubiArchiveLocationV1 {
-        archive_id: ArchiveId::new([0xA5; 32]),
-        location_id: MusubiArchiveLocationIdV1::new([0x5A; 32]),
-        expected_location_revision: u64::MAX,
-        reason: MusubiReasonV1::new(
+    {
+        let archive_id: ArchiveId = ArchiveId::new([0xA5; 32]);
+        let location_id: MusubiArchiveLocationIdV1 = MusubiArchiveLocationIdV1::new([0x5A; 32]);
+        let expected_location_revision: u64 = u64::MAX;
+        let reason: MusubiReasonV1 = MusubiReasonV1::new(
             "Provider lease retired after cross-provider readback failed at epoch 9.",
         )
-        .expect("retirement reason"),
+        .expect("retirement reason");
+        fixture_instruction::<RetireMusubiArchiveLocationV1>(norito::json!({
+            "archive_id": archive_id,
+            "location_id": location_id,
+            "expected_location_revision": expected_location_revision,
+            "reason": reason,
+        }))
     }
 }
 
@@ -568,14 +654,20 @@ fn fixture_release_unyank() -> SetMusubiReleaseYankV1 {
 }
 
 fn fixture_maintainer_removal() -> RemoveMusubiPackageMaintainerV1 {
-    RemoveMusubiPackageMaintainerV1 {
-        package: package(0, MusubiPackageScopeV1::DataspaceRoot, "access-control"),
-        account: AccountId::new(
+    {
+        let package: MusubiPackageIdV1 =
+            package(0, MusubiPackageScopeV1::DataspaceRoot, "access-control");
+        let account: AccountId = AccountId::new(
             "ed0120EDF6D7B52C7032D03AEC696F2068BD53101528F3C7B6081BFF05A1662D7FC245"
                 .parse()
                 .expect("public key"),
-        ),
-        expected_governance_revision: u64::MAX - 2,
+        );
+        let expected_governance_revision: u64 = u64::MAX - 2;
+        fixture_instruction::<RemoveMusubiPackageMaintainerV1>(norito::json!({
+            "package": package,
+            "account": account,
+            "expected_governance_revision": expected_governance_revision,
+        }))
     }
 }
 
@@ -594,41 +686,57 @@ fn fixture_namespace_registration() -> RegisterMusubiNamespaceBindingV1 {
 }
 
 fn fixture_maintainer_invitation() -> InviteMusubiPackageMaintainerV1 {
-    InviteMusubiPackageMaintainerV1 {
-        package: package(
+    {
+        let package: MusubiPackageIdV1 = package(
             5_124_095_576_030_430,
             MusubiPackageScopeV1::Domain("security".parse::<Name>().expect("domain name")),
             "key-rotation",
-        ),
-        invite_id: MusubiInviteIdV1::new(core::array::from_fn(|index| {
+        );
+        let invite_id: MusubiInviteIdV1 = MusubiInviteIdV1::new(core::array::from_fn(|index| {
             u8::try_from(index).expect("invite-id index fits u8")
-        })),
-        invited_account: AccountId::new(
+        }));
+        let invited_account: AccountId = AccountId::new(
             "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03"
                 .parse()
                 .expect("public key"),
-        ),
-        role: MusubiPackageRoleV1::Maintainer(MusubiMaintainerPermissionsV1 {
-            publish: true,
-            yank: false,
-            metadata: true,
-            archive_locations: false,
-        }),
-        expires_at_height: u64::MAX,
-        expected_governance_revision: u64::MAX - 3,
+        );
+        let role: MusubiPackageRoleV1 =
+            MusubiPackageRoleV1::Maintainer(MusubiMaintainerPermissionsV1 {
+                publish: true,
+                yank: false,
+                metadata: true,
+                archive_locations: false,
+            });
+        let expires_at_height: u64 = u64::MAX;
+        let expected_governance_revision: u64 = u64::MAX - 3;
+        fixture_instruction::<InviteMusubiPackageMaintainerV1>(norito::json!({
+            "package": package,
+            "invite_id": invite_id,
+            "invited_account": invited_account,
+            "role": role,
+            "expires_at_height": expires_at_height,
+            "expected_governance_revision": expected_governance_revision,
+        }))
     }
 }
 
 fn fixture_maintainer_promotion() -> SetMusubiPackageMaintainerRoleV1 {
-    SetMusubiPackageMaintainerRoleV1 {
-        package: package(1, MusubiPackageScopeV1::DataspaceRoot, "consensus-tools"),
-        account: AccountId::new(
+    {
+        let package: MusubiPackageIdV1 =
+            package(1, MusubiPackageScopeV1::DataspaceRoot, "consensus-tools");
+        let account: AccountId = AccountId::new(
             "ed0120BDF918243253B1E731FA096194C8928DA37C4D3226F97EEBD18CF5523D758D6C"
                 .parse()
                 .expect("public key"),
-        ),
-        role: MusubiPackageRoleV1::Owner,
-        expected_governance_revision: u64::MAX - 4,
+        );
+        let role: MusubiPackageRoleV1 = MusubiPackageRoleV1::Owner;
+        let expected_governance_revision: u64 = u64::MAX - 4;
+        fixture_instruction::<SetMusubiPackageMaintainerRoleV1>(norito::json!({
+            "package": package,
+            "account": account,
+            "role": role,
+            "expected_governance_revision": expected_governance_revision,
+        }))
     }
 }
 
@@ -663,16 +771,22 @@ fn fixture_package_recovery() -> (MusubiParliamentActionV1, RecoverMusubiPackage
             owners: recovery_owners.clone(),
             expected_revision: u64::MAX - 6,
         });
-    let recover = RecoverMusubiPackageV1 {
-        decision: MusubiGovernanceDecisionV1 {
+    let recover = {
+        let decision: MusubiGovernanceDecisionV1 = MusubiGovernanceDecisionV1 {
             decision_id: [0xC1; 32],
             action_digest: recovery_action.action_digest(),
             enacted_at_height: 1,
             execute_after_height: 2,
-        },
-        package: recovery_package,
-        owners: recovery_owners,
-        expected_governance_revision: u64::MAX - 6,
+        };
+        let package: MusubiPackageIdV1 = recovery_package;
+        let owners: Vec<AccountId> = recovery_owners;
+        let expected_governance_revision: u64 = u64::MAX - 6;
+        fixture_instruction::<RecoverMusubiPackageV1>(norito::json!({
+            "decision": decision,
+            "package": package,
+            "owners": owners,
+            "expected_governance_revision": expected_governance_revision,
+        }))
     };
     (recovery_action, recover)
 }
@@ -689,18 +803,24 @@ fn fixture_alias_retarget() -> (MusubiParliamentActionV1, RetargetMusubiAliasV1)
         target: retarget_target.clone(),
         expected_revision: u64::MAX - 7,
     });
-    let retarget = RetargetMusubiAliasV1 {
-        decision: MusubiGovernanceDecisionV1 {
+    let retarget = {
+        let decision: MusubiGovernanceDecisionV1 = MusubiGovernanceDecisionV1 {
             decision_id: core::array::from_fn(|index| {
                 0x40_u8 + u8::try_from(index).expect("decision-id index fits u8")
             }),
             action_digest: retarget_action.action_digest(),
             enacted_at_height: u64::MAX - 2,
             execute_after_height: u64::MAX - 1,
-        },
-        alias: retarget_alias,
-        target: retarget_target,
-        expected_history_revision: u64::MAX - 7,
+        };
+        let alias: MusubiAliasNameV1 = retarget_alias;
+        let target: MusubiPackageIdV1 = retarget_target;
+        let expected_history_revision: u64 = u64::MAX - 7;
+        fixture_instruction::<RetargetMusubiAliasV1>(norito::json!({
+            "decision": decision,
+            "alias": alias,
+            "target": target,
+            "expected_history_revision": expected_history_revision,
+        }))
     };
     (retarget_action, retarget)
 }
@@ -726,16 +846,22 @@ fn fixture_artifact_takedown() -> (MusubiParliamentActionV1, SetMusubiArtifactTa
             reason: takedown_reason.clone(),
             expected_artifact_governance_revision: u64::MAX - 8,
         });
-    let takedown = SetMusubiArtifactTakedownV1 {
-        decision: MusubiGovernanceDecisionV1 {
+    let takedown = {
+        let decision: MusubiGovernanceDecisionV1 = MusubiGovernanceDecisionV1 {
             decision_id: [0xFE; 32],
             action_digest: takedown_action.action_digest(),
             enacted_at_height: u64::MAX - 1,
             execute_after_height: u64::MAX,
-        },
-        release: takedown_release,
-        reason: takedown_reason,
-        expected_artifact_governance_revision: u64::MAX - 8,
+        };
+        let release: MusubiReleaseIdV1 = takedown_release;
+        let reason: MusubiReasonV1 = takedown_reason;
+        let expected_artifact_governance_revision: u64 = u64::MAX - 8;
+        fixture_instruction::<SetMusubiArtifactTakedownV1>(norito::json!({
+            "decision": decision,
+            "release": release,
+            "reason": reason,
+            "expected_artifact_governance_revision": expected_artifact_governance_revision,
+        }))
     };
     (takedown_action, takedown)
 }
@@ -996,15 +1122,25 @@ fn fixture_provider_location(
         &provider_attestation_references,
     )
     .expect("fixture provider attestation set is canonical");
-    let add_location = AddMusubiArchiveLocationV1 {
-        archive_id: commitment.archive_id(),
-        location_id: MusubiArchiveLocationIdV1::new([0xC3; 32]),
-        pin_manifest: ManifestDigest::new([0xC1; 32]),
-        replication_order,
-        provider_attestation_set_digest,
-        renew_after_epoch: 1_000,
-        expires_at_epoch: 2_000,
-        expected_location_revision: u64::MAX - 31,
+    let add_location = {
+        let archive_id: ArchiveId = commitment.archive_id();
+        let location_id: MusubiArchiveLocationIdV1 = MusubiArchiveLocationIdV1::new([0xC3; 32]);
+        let pin_manifest: ManifestDigest = ManifestDigest::new([0xC1; 32]);
+        let replication_order: ReplicationOrderId = replication_order;
+        let provider_attestation_set_digest: iroha_data_model::musubi::MusubiProviderBundleAttestationSetDigestV1 = provider_attestation_set_digest;
+        let renew_after_epoch: u64 = 1_000;
+        let expires_at_epoch: u64 = 2_000;
+        let expected_location_revision: u64 = u64::MAX - 31;
+        fixture_instruction::<AddMusubiArchiveLocationV1>(norito::json!({
+            "archive_id": archive_id,
+            "location_id": location_id,
+            "pin_manifest": pin_manifest,
+            "replication_order": replication_order,
+            "provider_attestation_set_digest": provider_attestation_set_digest,
+            "renew_after_epoch": renew_after_epoch,
+            "expires_at_epoch": expires_at_epoch,
+            "expected_location_revision": expected_location_revision,
+        }))
     };
     (
         provider_attestation_references,
@@ -1067,16 +1203,21 @@ fn fixture_delegated_publication(
 }
 
 fn fixture_package_metadata(root_package: MusubiPackageIdV1) -> SetMusubiPackageMetadataV1 {
-    SetMusubiPackageMetadataV1 {
-        package: root_package,
-        metadata: metadata(
+    {
+        let package: MusubiPackageIdV1 = root_package;
+        let metadata: MusubiReleaseMetadataV1 = metadata(
             "Package metadata replaced after independent source and interface review.",
             "docs/overview.md",
             "LICENSES/Apache-2.0.txt",
             "https://example.invalid/musubi/reviewed-package",
             &["audit-ready", "sorafs", "supply-chain"],
-        ),
-        expected_metadata_revision: u64::MAX - 28,
+        );
+        let expected_metadata_revision: u64 = u64::MAX - 28;
+        fixture_instruction::<SetMusubiPackageMetadataV1>(norito::json!({
+            "package": package,
+            "metadata": metadata,
+            "expected_metadata_revision": expected_metadata_revision,
+        }))
     }
 }
 
@@ -1115,15 +1256,20 @@ fn fixture_registry_policy() -> (
     policy_action
         .validate()
         .expect("fixture policy action is valid");
-    let set_policy = SetMusubiRegistryPolicyV1 {
-        decision: MusubiGovernanceDecisionV1 {
+    let set_policy = {
+        let decision: MusubiGovernanceDecisionV1 = MusubiGovernanceDecisionV1 {
             decision_id: [0xF7; 32],
             action_digest: policy_action.action_digest(),
             enacted_at_height: u64::MAX - 1,
             execute_after_height: u64::MAX,
-        },
-        policy: replacement_policy,
-        expected_policy_revision: current_policy.revision,
+        };
+        let policy: MusubiRegistryPolicyV1 = replacement_policy;
+        let expected_policy_revision: u64 = current_policy.revision;
+        fixture_instruction::<SetMusubiRegistryPolicyV1>(norito::json!({
+            "decision": decision,
+            "policy": policy,
+            "expected_policy_revision": expected_policy_revision,
+        }))
     };
     (current_policy, policy_action, set_policy)
 }
@@ -1136,20 +1282,20 @@ fn verify_revision_and_distinctness_fixtures(
     unyank: &SetMusubiReleaseYankV1,
     remove: &RemoveMusubiPackageMaintainerV1,
 ) {
-    assert_ne!(accept.invite_id, revoke.invite_id);
+    assert_ne!(*accept.invite_id(), *revoke.invite_id());
     assert_ne!(
-        accept.invite_id.as_bytes(),
-        assertion.expected_digest.as_bytes()
+        accept.invite_id().as_bytes(),
+        assertion.expected_digest().as_bytes()
     );
     assert_ne!(
-        revoke.invite_id.as_bytes(),
-        assertion.expected_digest.as_bytes()
+        revoke.invite_id().as_bytes(),
+        assertion.expected_digest().as_bytes()
     );
-    assert!(assertion.release.version.is_prerelease());
-    assert!(!unyank.yanked);
-    assert_eq!(retire.expected_location_revision, u64::MAX);
-    assert_eq!(unyank.expected_yank_revision, u64::MAX - 1);
-    assert_eq!(remove.expected_governance_revision, u64::MAX - 2);
+    assert!(assertion.release().version.is_prerelease());
+    assert!(!*unyank.yanked());
+    assert_eq!(*retire.expected_location_revision(), u64::MAX);
+    assert_eq!(*unyank.expected_yank_revision(), u64::MAX - 1);
+    assert_eq!(*remove.expected_governance_revision(), u64::MAX - 2);
 }
 
 fn verify_namespace_and_maintainer_fixtures(
@@ -1158,18 +1304,18 @@ fn verify_namespace_and_maintainer_fixtures(
     promote: &SetMusubiPackageMaintainerRoleV1,
 ) {
     register_namespace
-        .binding
+        .binding()
         .validate_authority_generation(u64::MAX)
         .expect("namespace binding generation is current");
     assert_eq!(
-        register_namespace.binding.namespace.domain_segment(),
+        register_namespace.binding().namespace.domain_segment(),
         Some("governance")
     );
-    assert_eq!(register_namespace.expected_policy_revision, u64::MAX - 5);
-    assert!(!invite.invite_id.is_zero());
-    assert_eq!(invite.expires_at_height, u64::MAX);
-    assert_eq!(invite.expected_governance_revision, u64::MAX - 3);
-    let MusubiPackageRoleV1::Maintainer(permissions) = invite.role else {
+    assert_eq!(*register_namespace.expected_policy_revision(), u64::MAX - 5);
+    assert!(!invite.invite_id().is_zero());
+    assert_eq!(*invite.expires_at_height(), u64::MAX);
+    assert_eq!(*invite.expected_governance_revision(), u64::MAX - 3);
+    let MusubiPackageRoleV1::Maintainer(permissions) = *invite.role() else {
         panic!("fixture invitation offers a maintainer role");
     };
     assert!(!permissions.is_empty());
@@ -1177,9 +1323,9 @@ fn verify_namespace_and_maintainer_fixtures(
     assert!(!permissions.yank);
     assert!(permissions.metadata);
     assert!(!permissions.archive_locations);
-    assert_ne!(invite.invited_account, promote.account);
-    assert_eq!(promote.role, MusubiPackageRoleV1::Owner);
-    assert_eq!(promote.expected_governance_revision, u64::MAX - 4);
+    assert_ne!(*invite.invited_account(), *promote.account());
+    assert_eq!(*promote.role(), MusubiPackageRoleV1::Owner);
+    assert_eq!(*promote.expected_governance_revision(), u64::MAX - 4);
 }
 
 fn verify_governance_decision_fixtures(
@@ -1189,20 +1335,20 @@ fn verify_governance_decision_fixtures(
     set_policy: &SetMusubiRegistryPolicyV1,
 ) {
     for decision in [
-        recover.decision,
-        retarget.decision,
-        takedown.decision,
-        set_policy.decision,
+        *recover.decision(),
+        *retarget.decision(),
+        *takedown.decision(),
+        *set_policy.decision(),
     ] {
         decision.validate().expect("valid enacted decision anchors");
         assert!(decision.enacted_at_height < decision.execute_after_height);
     }
     assert_eq!(
         BTreeSet::from([
-            recover.decision.decision_id,
-            retarget.decision.decision_id,
-            takedown.decision.decision_id,
-            set_policy.decision.decision_id,
+            recover.decision().decision_id,
+            retarget.decision().decision_id,
+            takedown.decision().decision_id,
+            set_policy.decision().decision_id,
         ])
         .len(),
         4
@@ -1217,8 +1363,8 @@ fn verify_governance_action_bindings(
     retarget_action: &MusubiParliamentActionV1,
     takedown_action: &MusubiParliamentActionV1,
 ) {
-    assert_eq!(recover.owners.len(), 3);
-    assert!(recover.owners.windows(2).all(|pair| pair[0] < pair[1]));
+    assert_eq!(recover.owners().len(), 3);
+    assert!(recover.owners().windows(2).all(|pair| pair[0] < pair[1]));
     recovery_action
         .validate()
         .expect("valid package recovery action");
@@ -1231,46 +1377,49 @@ fn verify_governance_action_bindings(
     let MusubiParliamentActionV1::RecoverPackageOwners(recovery_payload) = recovery_action else {
         panic!("fixture recovery action has the expected variant");
     };
-    assert_eq!(recovery_payload.package, recover.package);
-    assert_eq!(recovery_payload.owners, recover.owners);
+    assert_eq!(recovery_payload.package, *recover.package());
+    assert_eq!(recovery_payload.owners, *recover.owners());
     assert_eq!(
         recovery_payload.expected_revision,
-        recover.expected_governance_revision
+        *recover.expected_governance_revision()
     );
     assert_eq!(
-        recover.decision.action_digest,
+        recover.decision().action_digest,
         recovery_action.action_digest()
     );
     let MusubiParliamentActionV1::RetargetAlias(retarget_payload) = retarget_action else {
         panic!("fixture alias action has the expected variant");
     };
-    assert_eq!(retarget_payload.alias, retarget.alias);
-    assert_eq!(retarget_payload.target, retarget.target);
+    assert_eq!(retarget_payload.alias, *retarget.alias());
+    assert_eq!(retarget_payload.target, *retarget.target());
     assert_eq!(
         retarget_payload.expected_revision,
-        retarget.expected_history_revision
+        *retarget.expected_history_revision()
     );
     assert_eq!(
-        retarget.decision.action_digest,
+        retarget.decision().action_digest,
         retarget_action.action_digest()
     );
     let MusubiParliamentActionV1::TakedownArtifact(takedown_payload) = takedown_action else {
         panic!("fixture takedown action has the expected variant");
     };
-    assert_eq!(takedown_payload.release, takedown.release);
-    assert_eq!(takedown_payload.reason, takedown.reason);
+    assert_eq!(takedown_payload.release, *takedown.release());
+    assert_eq!(takedown_payload.reason, *takedown.reason());
     assert_eq!(
         takedown_payload.expected_artifact_governance_revision,
-        takedown.expected_artifact_governance_revision
+        *takedown.expected_artifact_governance_revision()
     );
     assert_eq!(
-        takedown.decision.action_digest,
+        takedown.decision().action_digest,
         takedown_action.action_digest()
     );
-    assert_eq!(recover.expected_governance_revision, u64::MAX - 6);
-    assert_eq!(retarget.expected_history_revision, u64::MAX - 7);
-    assert_eq!(takedown.expected_artifact_governance_revision, u64::MAX - 8);
-    assert!(takedown.release.version.is_prerelease());
+    assert_eq!(*recover.expected_governance_revision(), u64::MAX - 6);
+    assert_eq!(*retarget.expected_history_revision(), u64::MAX - 7);
+    assert_eq!(
+        *takedown.expected_artifact_governance_revision(),
+        u64::MAX - 8
+    );
+    assert!(takedown.release().version.is_prerelease());
 }
 
 fn verify_archive_publication_binding(
@@ -1280,34 +1429,38 @@ fn verify_archive_publication_binding(
     receipt_binding: &MusubiSeedIngressReceiptBindingV1,
 ) {
     register_archive
-        .commitment
+        .commitment()
         .validate()
         .expect("fixture archive commitment remains valid");
     register_archive
-        .staging_receipt
+        .staging_receipt()
         .verify(receipt_binding, 1_700_000_000_001)
         .expect("fixture staging receipt remains bound and signed");
     assert_eq!(
-        register_archive.commitment.archive_id(),
-        add_location.archive_id
+        register_archive.commitment().archive_id(),
+        *add_location.archive_id()
     );
     assert_eq!(
-        register_archive.commitment.archive_id(),
-        publish.publication.manifest.archive_id
-    );
-    assert_eq!(
-        register_archive.staging_receipt.payload.binding.archive_id,
-        add_location.archive_id
+        register_archive.commitment().archive_id(),
+        publish.publication().manifest.archive_id
     );
     assert_eq!(
         register_archive
-            .staging_receipt
+            .staging_receipt()
+            .payload
+            .binding
+            .archive_id,
+        *add_location.archive_id()
+    );
+    assert_eq!(
+        register_archive
+            .staging_receipt()
             .payload
             .binding
             .semantic_release_manifest_digest,
-        publish.publication.manifest.semantic_digest()
+        publish.publication().manifest.semantic_digest()
     );
-    assert_eq!(register_archive.expected_policy_revision, u64::MAX - 30);
+    assert_eq!(*register_archive.expected_policy_revision(), u64::MAX - 30);
 }
 
 fn verify_provider_location_bindings(
@@ -1325,24 +1478,24 @@ fn verify_provider_location_bindings(
             .windows(2)
             .all(|pair| pair[0].payload.binding.provider_id < pair[1].payload.binding.provider_id)
     );
-    assert!(add_location.renew_after_epoch < add_location.expires_at_epoch);
-    assert_eq!(add_location.expected_location_revision, u64::MAX - 31);
+    assert!(*add_location.renew_after_epoch() < *add_location.expires_at_epoch());
+    assert_eq!(*add_location.expected_location_revision(), u64::MAX - 31);
     register_provider_attestation
         .validate()
         .expect("fixture registered provider attestation remains valid");
     assert_eq!(
-        register_provider_attestation.expected_location_revision,
-        add_location.expected_location_revision
+        *register_provider_attestation.expected_location_revision(),
+        *add_location.expected_location_revision()
     );
     assert_eq!(
-        register_provider_attestation.attestation.reference(),
+        register_provider_attestation.attestation().reference(),
         provider_attestation_references[0]
     );
     assert_eq!(
-        add_location.provider_attestation_set_digest,
+        *add_location.provider_attestation_set_digest(),
         musubi_provider_bundle_attestation_set_digest_v1(
-            add_location.archive_id,
-            add_location.replication_order,
+            *add_location.archive_id(),
+            *add_location.replication_order(),
             provider_attestation_references,
         )
         .expect("fixture provider attestation references remain canonical")
@@ -1352,28 +1505,28 @@ fn verify_provider_location_bindings(
         attestation
             .verify(binding)
             .expect("fixture provider attestation remains bound and signed");
-        assert_eq!(binding.archive_id, add_location.archive_id);
-        assert_eq!(binding.replication_order, add_location.replication_order);
+        assert_eq!(binding.archive_id, *add_location.archive_id());
+        assert_eq!(binding.replication_order, *add_location.replication_order());
         assert_eq!(binding.network_id, receipt_binding.network_id);
         assert_eq!(
             binding.semantic_release_manifest_digest,
-            publish.publication.manifest.semantic_digest()
+            publish.publication().manifest.semantic_digest()
         );
         assert_eq!(
             binding.verification_lock_digest,
-            publish.publication.manifest.verification_lock_digest
+            publish.publication().manifest.verification_lock_digest
         );
         assert_eq!(
             binding.bundle_digest,
-            register_archive.commitment.bundle_digest
+            register_archive.commitment().bundle_digest
         );
         assert_eq!(
             binding.descriptor_digest,
-            register_archive.commitment.descriptor_digest
+            register_archive.commitment().descriptor_digest
         );
         assert_eq!(
             binding.source_tree_digest,
-            register_archive.commitment.source_tree_digest
+            register_archive.commitment().source_tree_digest
         );
     }
 }
@@ -1386,14 +1539,14 @@ fn verify_delegated_publication_binding(
     receipt_binding: &MusubiSeedIngressReceiptBindingV1,
 ) {
     publish
-        .publication
+        .publication()
         .validate()
         .expect("fixture publication remains bound to its exact graph");
-    assert_eq!(publish.namespace, namespace_binding.namespace);
-    assert_eq!(publish.expected_policy_revision, u64::MAX - 29);
-    assert_eq!(publish.expected_governance_revision, None);
+    assert_eq!(*publish.namespace(), namespace_binding.namespace);
+    assert_eq!(*publish.expected_policy_revision(), u64::MAX - 29);
+    assert_eq!(*publish.expected_governance_revision(), None);
     let delegation = publish
-        .namespace_delegation
+        .namespace_delegation()
         .as_ref()
         .expect("fixture publication carries a namespace delegation");
     delegation
@@ -1415,25 +1568,28 @@ fn verify_metadata_and_policy_fixtures(
     policy_action: &MusubiParliamentActionV1,
 ) {
     set_metadata
-        .metadata
+        .metadata()
         .validate()
         .expect("fixture replacement metadata remains canonical");
-    assert_eq!(set_metadata.expected_metadata_revision, u64::MAX - 28);
+    assert_eq!(*set_metadata.expected_metadata_revision(), u64::MAX - 28);
     set_policy
-        .policy
+        .policy()
         .validate_successor(current_policy)
         .expect("fixture replacement policy remains the exact successor");
     let MusubiParliamentActionV1::SetRegistryPolicy(policy_payload) = policy_action else {
         panic!("fixture registry policy action has the expected variant");
     };
-    assert_eq!(policy_payload.policy, set_policy.policy);
+    assert_eq!(policy_payload.policy, *set_policy.policy());
     assert_eq!(
         policy_payload.expected_revision,
-        set_policy.expected_policy_revision
+        *set_policy.expected_policy_revision()
     );
-    assert_eq!(set_policy.expected_policy_revision, current_policy.revision);
     assert_eq!(
-        set_policy.decision.action_digest,
+        *set_policy.expected_policy_revision(),
+        current_policy.revision
+    );
+    assert_eq!(
+        set_policy.decision().action_digest,
         policy_action.action_digest()
     );
 }

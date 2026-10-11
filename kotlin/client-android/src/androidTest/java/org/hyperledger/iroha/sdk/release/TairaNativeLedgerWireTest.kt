@@ -43,7 +43,7 @@ class TairaNativeLedgerWireTest {
         literal: String,
         fieldPath: String,
     ) {
-        // No fallback or alternative codec: fromI105 invokes the Rust ABI-25 validator.
+        // No fallback or alternative codec: fromI105 invokes the Rust ABI-29 validator.
         val native = AccountAddress.fromI105(literal, TAIRA_DISCRIMINANT).toI105(TAIRA_DISCRIMINANT)
         val ledgerBytes = TairaQualificationEvidence.utf8(literal)
         val nativeBytes = TairaQualificationEvidence.utf8(native)

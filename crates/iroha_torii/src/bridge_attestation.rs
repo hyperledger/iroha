@@ -4,7 +4,10 @@ use iroha_core::sumeragi::{
     certified_chain::ChainReadError,
     finality::{AttestationBuildError as BuildError, ProofError, status_is_consistent},
 };
-use iroha_data_model::sumeragi::SumeragiStatus;
+use iroha_data_model::{
+    query::error::{CanonicalHistoryError, QueryExecutionFail},
+    sumeragi::SumeragiStatus,
+};
 use iroha_torii_shared::bridge_attestation::{
     FinalityAttestationFailure, FinalityAttestationFailureReason as Reason,
 };
@@ -44,6 +47,13 @@ pub(crate) fn build_failure(error: BuildError, status_committed_height: u64) -> 
             )
             | ProofError::UnverifiedCommittee(_)
             | ProofError::Chain(ChainReadError::Committee { .. }) => Reason::FinalityUnavailable,
+            ProofError::NativeExecution(QueryExecutionFail::CanonicalHistory(
+                CanonicalHistoryError::BodyUnavailable { .. }
+                | CanonicalHistoryError::HeightOutsideSnapshot { .. },
+            )) => Reason::FinalityUnavailable,
+            // The original execution owner has rejected the captured history or its
+            // selected certificate. No diagnostic string grants startup progress.
+            ProofError::NativeExecution(_) => Reason::ConflictingState,
             _ => Reason::ConflictingState,
         },
         BuildError::HeightOverflow
@@ -541,6 +551,52 @@ mod tests {
             assert_eq!(build_failure(error, 1), Reason::InternalFailure);
         }
     }
+    #[test]
+    fn original_execution_failures_keep_typed_unavailability_and_never_grant_progress() {
+        let expected_hash = iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(
+            b"captured original block",
+        ));
+        for error in [
+            CanonicalHistoryError::BodyUnavailable {
+                height: 3,
+                expected_hash,
+            },
+            CanonicalHistoryError::HeightOutsideSnapshot {
+                height: 3,
+                committed_height: 2,
+            },
+        ] {
+            let proof = ProofError::NativeExecution(QueryExecutionFail::CanonicalHistory(error));
+            assert_eq!(
+                build_failure(BuildError::FinalityProof(proof), 3),
+                Reason::FinalityUnavailable,
+            );
+        }
+        for error in [
+            QueryExecutionFail::CanonicalHistory(CanonicalHistoryError::BlockHashMismatch {
+                height: 3,
+                expected_hash,
+                actual_hash: iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(
+                    b"different block",
+                )),
+            }),
+            QueryExecutionFail::CanonicalHistory(CanonicalHistoryError::BlockHeightMismatch {
+                height: 3,
+                actual_height: 2,
+            }),
+            QueryExecutionFail::Conversion("native execution ancestry differs".into()),
+            QueryExecutionFail::Conversion("canonical history body is unavailable".into()),
+        ] {
+            assert_eq!(
+                build_failure(
+                    BuildError::FinalityProof(ProofError::NativeExecution(error)),
+                    3
+                ),
+                Reason::ConflictingState,
+            );
+        }
+    }
+
     #[tokio::test]
     async fn failure_response_is_bounded_canonical_and_never_cached() {
         let response = failure_response(

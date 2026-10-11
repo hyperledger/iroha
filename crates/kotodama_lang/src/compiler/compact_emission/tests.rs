@@ -125,7 +125,7 @@ fn shared_nominal_abort_scope_preserves_all_original_callable_frames_and_full_er
     );
     assert_eq!(owners[0].function_name, "guarded");
     assert_eq!(compile(source, false).artifact, after.artifact);
-    let single = "seiyaku OneCheck { error enum Failure { Bad = 3 } view fn main() -> int { require(true, Failure::Bad); return 1; } }";
+    let single = "seiyaku OneCheck { error enum Failure { Bad = 3 } view fn main() authorize(anyone) -> int { require(true, Failure::Bad); return 1; } }";
     assert_eq!(
         compile(single, true).artifact,
         compile(single, false).artifact

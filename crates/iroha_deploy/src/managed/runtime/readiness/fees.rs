@@ -8,7 +8,7 @@ use iroha_data_model::{
     account::address::ChainDiscriminantGuard,
     asset::AssetDefinitionId,
     block::{BlockHeader, consensus::SumeragiRootScope},
-    sumeragi_finality::{genesis_epoch, signed_genesis_consensus_metadata},
+    sumeragi_finality::authenticated_genesis,
     transaction::{FeeChargeKind, FeeChargeLimit},
 };
 use iroha_model_base::peer::PeerId;
@@ -60,8 +60,9 @@ pub(super) fn select(
     {
         return Err(invalid());
     }
-    let epoch = genesis_epoch(&block).map_err(|_| invalid())?;
-    let metadata = signed_genesis_consensus_metadata(&block).map_err(|_| invalid())?;
+    let authenticated = authenticated_genesis(&block).map_err(|_| invalid())?;
+    let metadata = authenticated.metadata();
+    let epoch = authenticated.into_parts().0;
     if NetworkId::from_genesis_hash(block.hash()) != client.network_id
         || epoch.network_id != client.network_id
     {

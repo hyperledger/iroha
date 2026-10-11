@@ -2,6 +2,6 @@
         seiyaku Demo {
             state Map<string, int> detail;
 
-            view fn main() {}
+            view fn main() authorize(anyone) {}
         }
     

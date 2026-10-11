@@ -774,6 +774,13 @@ fn generated_capacity_uses_real_economics_and_exact_replacement_carrier_during_o
         crate::managed::native_operation::test_support::provider_id(&prepared, 0),
     )
     .unwrap();
+    crate::managed::native_operation::test_support::assert_optional_current(
+        &outage,
+        &committed,
+        |verifier| {
+            reopened.read_current(&policy, verifier, Instant::now() + Duration::from_secs(30))
+        },
+    );
     let recovered = reopened
         .recover(Instant::now() + Duration::from_secs(30))
         .unwrap();

@@ -1697,6 +1697,10 @@ pub(super) fn java_native_account_read_permission_multisig_payload_hash(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Mirrors the Java native method's signed request arguments."
+)]
 pub(super) fn java_native_finalize_account_read_permission_multisig(
     env: &mut jni::JNIEnv<'_>,
     network_id: jni::objects::JByteArray<'_>,

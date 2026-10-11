@@ -35,6 +35,11 @@ impl PartialEq for Type {
                 | (Self::Name, Self::Name)
                 | (Self::Json, Self::Json)
                 | (Self::Unit, Self::Unit) => {}
+                (Self::Enum(left), Self::Enum(right)) => {
+                    if left != right {
+                        return false;
+                    }
+                }
                 (Self::ErrorEnum(left), Self::ErrorEnum(right)) => {
                     if left != right {
                         return false;
@@ -87,6 +92,7 @@ impl PartialEq for Type {
                         pending.push((left_ty, right_ty));
                     }
                 }
+                (Self::ContractRef(left), Self::ContractRef(right)) if left == right => {}
                 (Self::NamedStruct(left), Self::NamedStruct(right)) => {
                     if left != right {
                         return false;
@@ -117,6 +123,9 @@ impl Clone for Type {
         while let Some(operation) = pending.pop() {
             match operation {
                 Pending::Type(ty) => match ty {
+                    Self::ContractRef(contract) => {
+                        values.push(Self::ContractRef(Arc::clone(contract)))
+                    }
                     Self::Int => values.push(Self::Int),
                     Self::Decimal => values.push(Self::Decimal),
                     Self::Quantity => values.push(Self::Quantity),
@@ -137,6 +146,9 @@ impl Clone for Type {
                     Self::Name => values.push(Self::Name),
                     Self::Json => values.push(Self::Json),
                     Self::Unit => values.push(Self::Unit),
+                    Self::Enum(descriptor) => {
+                        values.push(Self::Enum(Arc::clone(descriptor)));
+                    }
                     Self::ErrorEnum(descriptor) => {
                         values.push(Self::ErrorEnum(Arc::clone(descriptor)));
                     }
@@ -216,7 +228,7 @@ impl Clone for Type {
 impl std::fmt::Debug for ExprKind {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ErrorValue(value) => formatter.debug_tuple("ErrorValue").field(value).finish(),
+            Self::VariantCode(value) => formatter.debug_tuple("VariantCode").field(value).finish(),
             Self::IntLiteral(value) => formatter.debug_tuple("IntLiteral").field(value).finish(),
             Self::DecimalLiteral { value, spelling } => formatter
                 .debug_struct("DecimalLiteral")
@@ -251,7 +263,7 @@ impl std::fmt::Debug for ExprKind {
                 Self::JsonArray(_) => "JsonArray(..)",
                 Self::Member { .. } => "Member(..)",
                 Self::Index { .. } => "Index(..)",
-                Self::ErrorValue(_)
+                Self::VariantCode(_)
                 | Self::IntLiteral(_)
                 | Self::DecimalLiteral { .. }
                 | Self::Bool(_)
@@ -409,11 +421,11 @@ fn typed_semantic_eq(initial: TypedEq<'_>) -> bool {
                 (ExprKind::OptionNone, ExprKind::OptionNone) => {}
                 (
                     ExprKind::Call {
-                        name: left_name,
+                        target: left_name,
                         args: left_args,
                     },
                     ExprKind::Call {
-                        name: right_name,
+                        target: right_name,
                         args: right_args,
                     },
                 ) => {
@@ -430,12 +442,12 @@ fn typed_semantic_eq(initial: TypedEq<'_>) -> bool {
                 }
                 (
                     ExprKind::NamedCall {
-                        name: left_name,
+                        target: left_name,
                         args: left_args,
                         evaluation_order: left_order,
                     },
                     ExprKind::NamedCall {
-                        name: right_name,
+                        target: right_name,
                         args: right_args,
                         evaluation_order: right_order,
                     },
@@ -553,7 +565,7 @@ fn typed_semantic_eq(initial: TypedEq<'_>) -> bool {
                     pending.push(TypedEq::Expr(left_index, right_index));
                     pending.push(TypedEq::Expr(left_target, right_target));
                 }
-                (ExprKind::ErrorValue(left), ExprKind::ErrorValue(right)) => {
+                (ExprKind::VariantCode(left), ExprKind::VariantCode(right)) => {
                     if left != right {
                         return false;
                     }
@@ -799,6 +811,7 @@ enum TypedCloneTask<'a> {
     BuildBlock {
         statement_count: usize,
         has_tail: bool,
+        provenance: &'a crate::semantic::TypedBlockProvenance,
     },
     BuildMatchArm(&'a TypedSumPattern),
 }
@@ -816,8 +829,8 @@ enum TypedKindClone<'a> {
     ResultOk,
     ResultErr,
     Propagate,
-    Call(&'a str, usize),
-    NamedCall(&'a str, usize, &'a [usize]),
+    Call(&'a super::CallTarget, usize),
+    NamedCall(&'a super::CallTarget, usize, &'a [usize]),
     StructLiteral(&'a str, &'a [(String, TypedExpr)]),
     Tuple(usize),
     List(usize),
@@ -1016,7 +1029,7 @@ fn clone_typed_semantic(initial: TypedCloneTask<'_>) -> TypedCloneValue {
                     pending.push(TypedCloneTask::BuildKind(TypedKindClone::Propagate));
                     pending.push(TypedCloneTask::Expr(value));
                 }
-                ExprKind::Call { name, args } => {
+                ExprKind::Call { target: name, args } => {
                     pending.push(TypedCloneTask::BuildKind(TypedKindClone::Call(
                         name,
                         args.len(),
@@ -1024,7 +1037,7 @@ fn clone_typed_semantic(initial: TypedCloneTask<'_>) -> TypedCloneValue {
                     pending.extend(args.iter().rev().map(TypedCloneTask::Expr));
                 }
                 ExprKind::NamedCall {
-                    name,
+                    target: name,
                     args,
                     evaluation_order,
                 } => {
@@ -1100,8 +1113,8 @@ fn clone_typed_semantic(initial: TypedCloneTask<'_>) -> TypedCloneValue {
                     pending.push(TypedCloneTask::Expr(index));
                     pending.push(TypedCloneTask::Expr(target));
                 }
-                ExprKind::ErrorValue(value) => {
-                    values.push(TypedCloneValue::Kind(ExprKind::ErrorValue(*value)));
+                ExprKind::VariantCode(value) => {
+                    values.push(TypedCloneValue::Kind(ExprKind::VariantCode(*value)));
                 }
                 ExprKind::IntLiteral(value) => {
                     values.push(TypedCloneValue::Kind(ExprKind::IntLiteral(value.clone())));
@@ -1232,6 +1245,7 @@ fn clone_typed_semantic(initial: TypedCloneTask<'_>) -> TypedCloneValue {
                 pending.push(TypedCloneTask::BuildBlock {
                     statement_count: block.statements.len(),
                     has_tail: block.tail.is_some(),
+                    provenance: &block.provenance,
                 });
                 if let Some(tail) = &block.tail {
                     pending.push(TypedCloneTask::Expr(tail));
@@ -1322,11 +1336,11 @@ fn clone_typed_semantic(initial: TypedCloneTask<'_>) -> TypedCloneValue {
                         value: Box::new(pop_cloned_expr(&mut values)),
                     },
                     TypedKindClone::Call(name, len) => ExprKind::Call {
-                        name: name.to_owned(),
+                        target: name.to_owned(),
                         args: pop_cloned_exprs(&mut values, len),
                     },
                     TypedKindClone::NamedCall(name, len, evaluation_order) => ExprKind::NamedCall {
-                        name: name.to_owned(),
+                        target: name.to_owned(),
                         args: pop_cloned_exprs(&mut values, len),
                         evaluation_order: evaluation_order.to_vec(),
                     },
@@ -1468,10 +1482,15 @@ fn clone_typed_semantic(initial: TypedCloneTask<'_>) -> TypedCloneValue {
             TypedCloneTask::BuildBlock {
                 statement_count,
                 has_tail,
+                provenance,
             } => {
                 let tail = has_tail.then(|| Box::new(pop_cloned_expr(&mut values)));
                 let statements = pop_cloned_statements(&mut values, statement_count);
-                values.push(TypedCloneValue::Block(TypedBlock { statements, tail }));
+                values.push(TypedCloneValue::Block(TypedBlock {
+                    statements,
+                    tail,
+                    provenance: provenance.clone(),
+                }));
             }
             TypedCloneTask::BuildMatchArm(pattern) => {
                 let body = pop_cloned_block(&mut values);
@@ -1530,7 +1549,8 @@ fn core_query_view_name(ty: &Type) -> Option<&str> {
     let Type::Struct { name, .. } = ty else {
         return None;
     };
-    let builtin = match name.as_str() {
+    let source_name = name.strip_prefix("kotodama::")?;
+    let builtin = match source_name {
         "AccountView" => Builtin::QueryGetAccount,
         "AssetView" => Builtin::QueryGetAsset,
         "AssetDefinitionView" => Builtin::QueryGetAssetDefinition,
@@ -1538,7 +1558,7 @@ fn core_query_view_name(ty: &Type) -> Option<&str> {
         "NftView" => Builtin::QueryGetNft,
         _ => return None,
     };
-    (core_query_view_type(builtin).as_ref() == Some(ty)).then_some(name.as_str())
+    (core_query_view_type(builtin).as_ref() == Some(ty)).then_some(source_name)
 }
 pub(crate) fn type_name(ty: &Type) -> String {
     match ty {
@@ -1562,6 +1582,7 @@ pub(crate) fn type_name(ty: &Type) -> String {
         Type::Name => "Name".into(),
         Type::Json => "Json".into(),
         Type::Unit => "()".into(),
+        Type::Enum(descriptor) => descriptor.identity.clone(),
         Type::ErrorEnum(descriptor) => descriptor.identity.clone(),
         Type::Secret(inner) => format!("Secret<{}>", type_name(inner)),
         Type::StateMap(k, v) => format!("StateMap<{}, {}>", type_name(k), type_name(v)),
@@ -1590,6 +1611,7 @@ pub(crate) fn type_name(ty: &Type) -> String {
                 || core_query_view_name(ty).map_or_else(|| format!("struct {name}"), str::to_owned),
                 |view_name| format!("{QUERY_PAGE_TYPE_NAME}<{view_name}>"),
             ),
+        Type::ContractRef(contract) => format!("contract {}", contract.interface.seiyaku_name),
         Type::NamedStruct(s) => s.clone(),
     }
 }
@@ -1636,6 +1658,13 @@ pub(super) fn render_source_type_name(ty: &Type) -> String {
                 Type::Name => rendered.push_str("Name"),
                 Type::Json => rendered.push_str("Json"),
                 Type::Unit => rendered.push_str("()"),
+                Type::Enum(descriptor) => rendered.push_str(
+                    descriptor
+                        .identity
+                        .rsplit("::")
+                        .next()
+                        .unwrap_or(&descriptor.identity),
+                ),
                 Type::ErrorEnum(descriptor) => rendered.push_str(
                     descriptor
                         .identity
@@ -1699,9 +1728,13 @@ pub(super) fn render_source_type_name(ty: &Type) -> String {
                     }
                     let name = query_page_view_type(ty)
                         .and_then(core_query_view_name)
-                        .map_or_else(|| name.clone(), |view| format!("QueryPage<{view}>"));
+                        .map_or_else(
+                            || core_query_view_name(ty).map_or_else(|| name.clone(), str::to_owned),
+                            |view| format!("QueryPage<{view}>"),
+                        );
                     rendered.push_str(&name);
                 }
+                Type::ContractRef(contract) => rendered.push_str(&contract.interface.seiyaku_name),
                 Type::NamedStruct(name) => rendered.push_str(name),
             },
         }

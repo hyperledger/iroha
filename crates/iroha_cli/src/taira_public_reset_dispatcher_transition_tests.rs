@@ -115,6 +115,7 @@ fn fixture() -> Fixture {
             authorization_nonce: "2".repeat(32),
             native_edge_capture,
             rolled_back: false,
+            unresolved_journal: None,
             completed_next_step: 15,
             sealed_forward_ordinal: 62,
             completed: evidence.clone(),
@@ -476,6 +477,104 @@ fn dispatcher_transition_accepts_exact_sealed_completed_predecessor() {
     let f = fixture();
     let (l, p, t) = sealed_records(&f.plan);
     admission::validate_sealed_records(&f.plan, &l, &p, &t).unwrap();
+}
+#[test]
+fn dispatcher_transition_accepts_explicit_deployment_proven_takeover_without_completion() {
+    let mut f = fixture();
+    f.plan.predecessor.unresolved_journal = Some(f.plan.predecessor.completed.clone());
+    f.plan.predecessor.completed_next_step = 11;
+    let (lease, progress, mut proof) = sealed_records(&f.plan);
+    proof
+        .as_object_mut()
+        .unwrap()
+        .insert("status".into(), Value::String("sealing".into()));
+    proof
+        .as_object_mut()
+        .unwrap()
+        .insert("phase".into(), Value::String("seal".into()));
+    let mut operational = proof.clone();
+    operational.as_object_mut().unwrap().insert(
+        "failure_summary".into(),
+        Value::String("native edge seal bookkeeping failed".into()),
+    );
+    let original = operational.clone();
+    admission::validate_deployment_proven_records(&f.plan, &lease, &progress, &proof, &operational)
+        .unwrap();
+    assert_eq!(operational, original);
+    assert_eq!(proof.get("status").and_then(Value::as_str), Some("sealing"));
+    assert!(admission::validate_sealed_records(&f.plan, &lease, &progress, &proof).is_err());
+    for case in 0..12 {
+        let mut plan = f.plan.clone();
+        let mut lease = lease.clone();
+        let mut progress = progress.clone();
+        let mut proof = proof.clone();
+        let mut operational = operational.clone();
+        match case {
+            0 => plan.predecessor.unresolved_journal = None,
+            1 => plan.predecessor.rolled_back = true,
+            2 => progress.sealed = false,
+            3 => progress.rolling_back = true,
+            4 => lease.execution_expires_at_unix_ms = u64::MAX,
+            5 => {
+                proof
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("status".into(), Value::String("completed".into()));
+            }
+            6 => {
+                operational
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("authorization_nonce".into(), Value::String("f".repeat(32)));
+            }
+            7 => {
+                operational
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("status".into(), Value::String("rolling_back".into()));
+            }
+            8 => {
+                operational
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("next_step".into(), Value::from(12_u64));
+            }
+            9 => {
+                operational
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("failure_summary".into(), Value::String("x".repeat(513)));
+            }
+            10 => {
+                proof.as_object_mut().unwrap().insert(
+                    "failure_summary".into(),
+                    Value::String("unproven failure".into()),
+                );
+            }
+            _ => {
+                plan.predecessor.completed_next_step = 10;
+                proof
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("next_step".into(), Value::from(10_u64));
+                operational
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("next_step".into(), Value::from(10_u64));
+            }
+        }
+        assert!(
+            admission::validate_deployment_proven_records(
+                &plan,
+                &lease,
+                &progress,
+                &proof,
+                &operational,
+            )
+            .is_err(),
+            "case {case}"
+        );
+    }
 }
 #[test]
 fn dispatcher_transition_accepts_only_complete_occupied_rollback() {

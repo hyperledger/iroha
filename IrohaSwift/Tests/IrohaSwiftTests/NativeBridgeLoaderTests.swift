@@ -98,10 +98,10 @@ final class NativeBridgeLoaderTests: XCTestCase {
         XCTAssertEqual(NativeBridgeError.fromStatus(-311), .unknown(-311))
     }
 
-    func testExpectedBridgeAbiVersionIsTwentyFiveForPackagedArtifacts() {
-        XCTAssertEqual(NoritoBridgeLoader.expectedBridgeAbiVersion(for: "macos-arm64_x86_64"), 25)
-        XCTAssertEqual(NoritoBridgeLoader.expectedBridgeAbiVersion(for: "ios-arm64"), 25)
-        XCTAssertEqual(NoritoBridgeLoader.expectedBridgeAbiVersion(for: "ios-arm64_x86_64-simulator"), 25)
+    func testExpectedBridgeAbiVersionIsTwentyNineForPackagedArtifacts() {
+        XCTAssertEqual(NoritoBridgeLoader.expectedBridgeAbiVersion(for: "macos-arm64_x86_64"), 29)
+        XCTAssertEqual(NoritoBridgeLoader.expectedBridgeAbiVersion(for: "ios-arm64"), 29)
+        XCTAssertEqual(NoritoBridgeLoader.expectedBridgeAbiVersion(for: "ios-arm64_x86_64-simulator"), 29)
         XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(20, for: "macos-arm64_x86_64"))
         XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(18, for: "macos-arm64_x86_64"))
         XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(19, for: "macos-arm64_x86_64"))
@@ -110,7 +110,15 @@ final class NativeBridgeLoaderTests: XCTestCase {
         XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(22, for: "macos-arm64_x86_64"))
         XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(23, for: "macos-arm64_x86_64"))
         XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(24, for: "macos-arm64_x86_64"))
-        XCTAssertTrue(NoritoBridgeLoader.isSupportedBridgeAbiVersion(25, for: "macos-arm64_x86_64"))
+        XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(25, for: "macos-arm64_x86_64"))
+        XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(26, for: "macos-arm64_x86_64"))
+        XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(27, for: "macos-arm64_x86_64"))
+        // ABI 29 artifacts refuse ABI 28 callers and ABI 28 artifacts are refused here; there
+        // is no compatibility export in either direction.
+        XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(28, for: "macos-arm64_x86_64"))
+        XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(28, for: "ios-arm64"))
+        XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(30, for: "macos-arm64_x86_64"))
+        XCTAssertTrue(NoritoBridgeLoader.isSupportedBridgeAbiVersion(29, for: "macos-arm64_x86_64"))
         XCTAssertEqual(
             NoritoBridgeLoader.parliamentTimedOvnWalletRequiredSymbols,
             [
@@ -416,7 +424,7 @@ final class NativeBridgeLoaderTests: XCTestCase {
         let manifest = """
         {
           "version": "\(NoritoBridgeLoader.expectedVersion)",
-          "native_bridge_abi_version": 25,
+          "native_bridge_abi_version": 29,
           "hashes": {
             "\(original.identifier)": "\(hashHex)"
           }
@@ -458,7 +466,7 @@ final class NativeBridgeLoaderTests: XCTestCase {
         )
         XCTAssertEqual(
             status,
-            .abiMismatch(path: bridgeURL.path, expected: 25, actual: 19)
+            .abiMismatch(path: bridgeURL.path, expected: 29, actual: 19)
         )
     }
 
@@ -486,7 +494,7 @@ final class NativeBridgeLoaderTests: XCTestCase {
         let manifest = """
         {
           "version": "\(NoritoBridgeLoader.expectedVersion)",
-          "native_bridge_abi_version": 25,
+          "native_bridge_abi_version": 29,
           "hashes": {
             "\(original.identifier)": "\(hashHex)"
           }
@@ -520,34 +528,111 @@ final class NativeBridgeLoaderTests: XCTestCase {
         XCTAssertTrue(full.contains(siblingManifest))
     }
 
-    private func bundledBridgeBinary() throws -> (url: URL, identifier: String) {
-        #if os(macOS)
-        let identifier = "macos-arm64_x86_64"
-        #else
-        #if targetEnvironment(simulator)
-        let identifier = "ios-arm64_x86_64-simulator"
-        #else
-        let identifier = "ios-arm64"
-        #endif
-        #endif
+    func testExplicitArtifactSelectionDoesNotFallBackToRepositoryArchive() throws {
+        let missingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let expectedManifest = missingDirectory
+            .appendingPathComponent("NoritoBridge.xcframework/Info.plist").path
+        for selector in ["MOBILE_SDK_LOCAL_UNIT_ARTIFACT_DIR", "MOBILE_SDK_APPLE_ARTIFACT_DIR"] {
+            XCTAssertThrowsError(try bundledBridgeBinary(environment: [selector: missingDirectory.path])) { error in
+                XCTAssertTrue(error.localizedDescription.contains(expectedManifest))
+            }
+        }
+    }
 
+    func testArtifactSelectionRejectsConflictingAndInvalidExplicitInputs() throws {
+        XCTAssertThrowsError(try bundledBridgeBinary(environment: [
+            "MOBILE_SDK_LOCAL_UNIT_ARTIFACT_DIR": "/selected/local-unit",
+            "MOBILE_SDK_APPLE_ARTIFACT_DIR": "/selected/release"
+        ])) { error in
+            XCTAssertTrue(error.localizedDescription.contains("mutually exclusive"))
+        }
+        for selector in ["MOBILE_SDK_LOCAL_UNIT_ARTIFACT_DIR", "MOBILE_SDK_APPLE_ARTIFACT_DIR"] {
+            for invalidDirectory in ["", "relative/artifact"] {
+                XCTAssertThrowsError(try bundledBridgeBinary(environment: [selector: invalidDirectory])) { error in
+                    XCTAssertTrue(error.localizedDescription.contains("absolute artifact directory"))
+                }
+            }
+        }
+    }
+
+    private func bundledBridgeBinary(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> (url: URL, identifier: String) {
+        let localUnitDirectory = environment["MOBILE_SDK_LOCAL_UNIT_ARTIFACT_DIR"]
+        let releaseDirectory = environment["MOBILE_SDK_APPLE_ARTIFACT_DIR"]
+        try requireNativeTestCapability(
+            localUnitDirectory == nil || releaseDirectory == nil,
+            "Local-unit and release artifact selectors are mutually exclusive"
+        )
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<4 { root.deleteLastPathComponent() }
-        // Match the package's authenticated artifact input when qualification uses
-        // an external XCFramework instead of a repository-local build output.
-        let artifactDirectory = ProcessInfo.processInfo.environment[
-            "MOBILE_SDK_APPLE_ARTIFACT_DIR"
-        ].map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? root.appendingPathComponent("dist", isDirectory: true)
-        let url = stagedBridgeURL(
-            root: artifactDirectory.appendingPathComponent("NoritoBridge.xcframework"),
-            identifier: identifier
+        let artifactDirectory: URL
+        if let selectedDirectory = localUnitDirectory ?? releaseDirectory {
+            try requireNativeTestCapability(
+                selectedDirectory.hasPrefix("/"),
+                "An explicit selector requires an absolute artifact directory"
+            )
+            artifactDirectory = URL(fileURLWithPath: selectedDirectory, isDirectory: true)
+        } else {
+            artifactDirectory = root.appendingPathComponent("dist", isDirectory: true)
+        }
+        let framework = artifactDirectory.appendingPathComponent("NoritoBridge.xcframework", isDirectory: true)
+        let manifestURL = framework.appendingPathComponent("Info.plist")
+        try requireNativeTestCapability(
+            FileManager.default.fileExists(atPath: manifestURL.path),
+            "Selected NoritoBridge.xcframework Info.plist missing at \(manifestURL.path)"
         )
+        let manifest = try PropertyListSerialization.propertyList(
+            from: Data(contentsOf: manifestURL), options: [], format: nil
+        )
+        let libraries = try XCTUnwrap((manifest as? [String: Any])?["AvailableLibraries"] as? [[String: Any]])
+        #if os(macOS)
+        let platform = "macos"
+        let variant: String? = nil
+        #else
+        let platform = "ios"
+        #if targetEnvironment(simulator)
+        let variant: String? = "simulator"
+        #else
+        let variant: String? = nil
+        #endif
+        #endif
+        #if arch(arm64)
+        let architecture = "arm64"
+        #elseif arch(x86_64)
+        let architecture = "x86_64"
+        #else
+        throw RequiredNativeTestCapabilityError.unavailable("Unsupported native test architecture")
+        #endif
+        let matchingLibraries = libraries.filter {
+            $0["SupportedPlatform"] as? String == platform
+                && $0["SupportedPlatformVariant"] as? String == variant
+                && ($0["SupportedArchitectures"] as? [String])?.contains(architecture) == true
+        }
+        try requireNativeTestCapability(
+            matchingLibraries.count == 1,
+            "Selected Info.plist must contain exactly one \(platform)/\(architecture) slice"
+        )
+        let selected = matchingLibraries[0]
+        let sourceIdentifier = try XCTUnwrap(selected["LibraryIdentifier"] as? String)
+        let libraryPath = try XCTUnwrap(selected["LibraryPath"] as? String)
+        try requireNativeTestCapability(
+            !sourceIdentifier.isEmpty && !sourceIdentifier.contains("/")
+                && sourceIdentifier != "." && sourceIdentifier != ".."
+                && libraryPath == "libNoritoBridge.a",
+            "Selected Info.plist must identify one direct native archive slice"
+        )
+        let url = framework.appendingPathComponent(sourceIdentifier, isDirectory: true)
+            .appendingPathComponent(libraryPath)
         try requireNativeTestCapability(
             FileManager.default.fileExists(atPath: url.path),
-            "NoritoBridge.xcframework missing at \(url.path)"
+            "Selected NoritoBridge archive missing at \(url.path)"
         )
-        return (url, identifier)
+        // The source is the package-selected physical host slice. The caller copies
+        // its bytes into a controlled release-layout fixture to exercise hash policy;
+        // that fixture identifier does not relabel or admit the local-unit artifact.
+        return (url, NoritoBridgeLoader.currentIdentifier())
     }
 
     private func stagedBridgeURL(root: URL, identifier: String) -> URL {

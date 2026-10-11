@@ -98,7 +98,7 @@ Operators moving from Ed25519-only networks to SM-enabled deployments should
 follow the staged process in
 [`sm_config_migration.md`](sm_config_migration.md). The guide covers build
 validation, `iroha_config` layering (`defaults` → `user` → `actual`), genesis
-regeneration via `kagami` overrides (for example `kagami genesis generate --kagemusha-mint-finality-parameters <PUBLIC_PARAMETERS.json> --allowed-signing sm2 --default-hash sm3-256`), pre-flight validation, and rollback
+regeneration via `kagami` overrides (for example `kagami genesis generate --allowed-signing sm2 --default-hash sm3-256`), pre-flight validation, and rollback
 planning so configuration snapshots and manifests stay consistent across the
 fleet.
 

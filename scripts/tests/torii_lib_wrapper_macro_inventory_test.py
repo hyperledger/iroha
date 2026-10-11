@@ -48,48 +48,6 @@ class WrapperFamily:
 
 
 FAMILIES = {
-    "contracts_rollup_event_get_handlers": WrapperFamily(
-        parameters=("handler", "routing_handler", "key_hint"),
-        literal_parameters=frozenset({"key_hint"}),
-        invocations=(
-            InvocationGroup(
-                rows=(
-                    (
-                        "handler_contracts_rollups_intents_get",
-                        "handle_v1_contracts_rollups_intents_get",
-                        "contracts-rollups-intents",
-                    ),
-                    (
-                        "handler_contracts_rollups_vault_positions_get",
-                        "handle_v1_contracts_rollups_vault_positions_get",
-                        "contracts-rollups-vaults",
-                    ),
-                    (
-                        "handler_contracts_rollups_operators_status_get",
-                        "handle_v1_contracts_rollups_operators_status_get",
-                        "contracts-rollups-operators",
-                    ),
-                    (
-                        "handler_contracts_rollups_margin_health_get",
-                        "handle_v1_contracts_rollups_margin_health_get",
-                        "contracts-rollups-margin",
-                    ),
-                    (
-                        "handler_contracts_rollups_rwa_lots_get",
-                        "handle_v1_contracts_rollups_rwa_lots_get",
-                        "contracts-rollups-rwa",
-                    ),
-                    (
-                        "handler_contracts_rollups_dlmm_hooks_get",
-                        "handle_v1_contracts_rollups_dlmm_hooks_get",
-                        "contracts-rollups-dlmm-hooks",
-                    ),
-                )
-            ),
-        ),
-        definition_sha256="d687bb8391a1e7cfd16adec2a0f167b6097b9b0c86a1962e08fe9ffba6bd2477",
-        expanded_preimage_sha256="553ff5561e4fa417bfadf417331d78661d90b3b18dbe940a610a5db9991172d9",
-    ),
     "subscription_action_handlers": WrapperFamily(
         parameters=("handler", "routing_handler", "access_context"),
         literal_parameters=frozenset({"access_context"}),
@@ -271,8 +229,8 @@ ROUTE_MACRO_DEFINITION_SHA256 = {
 }
 ROUTE_POLICY_DECLARATIONS_SHA256 = "c9cd5d54a3818e070e662a1406ee781198ed4ab41411acb583a8c475bdfae006"
 ROUTE_POLICY_NAMES = ('canonical_account_delete', 'canonical_account_get', 'canonical_account_proof_get', 'canonical_account_post', 'canonical_account_proof_post', 'canonical_signature_delete', 'canonical_signature_get', 'optional_canonical_signature_get', 'canonical_signature_post', 'canonical_signed_post', 'layered_canonical_account_post', 'layered_canonical_signature_get', 'layered_canonical_signature_post', 'layered_canonical_signed_post', 'layered_public_get', 'limited_canonical_account_get', 'limited_canonical_account_post', 'limited_canonical_signature_post', 'limited_optional_canonical_signature_post', 'limited_canonical_signed_post', 'limited_hardened_canonical_signature_get', 'limited_operator_get', 'limited_operator_post', 'limited_protocol_handshake_get', 'limited_protocol_handshake_post', 'limited_public_get', 'limited_unauthenticated_get', 'limited_public_post', 'private_root_owner_get', 'onboarding_get', 'onboarding_post', 'operator_credential_post', 'operator_delete', 'operator_get', 'operator_post', 'protocol_handshake_post', 'public_get', 'public_post', 'unauthenticated_any', 'unauthenticated_get')
-ROUTE_ROW_COUNT = 593
-ROUTE_TUPLE_SHA256 = "58e1a609d8eefbd5a6f258da7e869b94dfdf3b6fcd0dfe57b433c6f1c1e92a29"
+ROUTE_ROW_COUNT = 599
+ROUTE_TUPLE_SHA256 = "e64d1c7ce3e93b8506f9c390c457070de131023d2b755b23cd7a8654c1c58652"
 
 
 def _normalized_tokens(source: str) -> bytes:
@@ -1076,6 +1034,23 @@ class ToriiWrapperMacroInventoryTest(unittest.TestCase):
         cls.source = SOURCE_PATH.read_text(encoding="utf-8")
         validate_source(cls.source)
 
+    def test_canonical_wallet_issuance_is_an_exact_signed_read(self) -> None:
+        descriptor = "route_catalog::contracts_and_verification_keys::KAGEMUSHA_LOAD_ISSUANCE_GET"
+        rows = [row for row in _route_table_rows(self.source) if row[2] == descriptor]
+        self.assertEqual(rows, [(
+            'feature="app_api"', "GET", descriptor, "kagemusha_wallet::handler",
+            "none", "handler:CanonicalAccountSignature",
+        )])
+        mount = "KAGEMUSHA_LOAD_ISSUANCE_GET => canonical_signature_get(kagemusha_wallet::handler)"
+        self.assertEqual(self.source.count(mount), 1)
+        for changed in (
+            mount.replace("canonical_signature_get", "sdk_get"),
+            mount.replace("kagemusha_wallet::handler", "handler_contracts_get"),
+        ):
+            with self.subTest(changed=changed):
+                with self.assertRaises(GuardError):
+                    validate_source(self.source.replace(mount, changed, 1))
+
     def test_subscription_authority_precedes_every_bypass_and_dispatch(self) -> None:
         definition, _ = _macro_definition(self.source, "subscription_action_handlers")
         extractor = "Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,"
@@ -1204,24 +1179,8 @@ class ToriiWrapperMacroInventoryTest(unittest.TestCase):
     def test_signature_dispatch_inventory_and_order_mutations_fail(self) -> None:
         mutations = (
             (
-                "async fn $handler(\n"
-                "                State(app): State<SharedAppState>,\n"
-                "                headers: axum::http::HeaderMap,\n"
-                "                method: axum::http::Method,\n"
-                "                uri: axum::http::Uri,\n"
-                "                axum::extract::ConnectInfo(remote): "
-                "axum::extract::ConnectInfo<std::net::SocketAddr>,\n"
-                "                AxQuery(params): "
-                "AxQuery<crate::routing::ContractEventGetParams>",
-                "async fn $handler(\n"
-                "                State(app): State<SharedAppState>,\n"
-                "                headers: axum::http::HeaderMap,\n"
-                "                method: axum::http::Method,\n"
-                "                uri: axum::http::Uri,\n"
-                "                axum::extract::ConnectInfo(remote): "
-                "axum::extract::ConnectInfo<std::net::SocketAddr>,\n"
-                "                AxQuery(params): "
-                "AxQuery<crate::routing::TraderRollupAccountParams>",
+                "iroha_torii_shared::subscriptions::SubscriptionActionRequest,",
+                "iroha_torii_shared::subscriptions::SubscriptionCreateRequest,",
             ),
             (
                 "handle_post_v1_subscription_pause",

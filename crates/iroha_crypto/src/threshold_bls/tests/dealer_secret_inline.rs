@@ -61,7 +61,9 @@ pub(super) fn try_inline_coefficients(
     for (target, original) in values.iter_mut().zip(source.iter()) {
         *target = *original;
     }
-    DasRenSecretCoefficientsV1::new(values, source.len())
+    let len = source.len();
+    drop(source);
+    DasRenSecretCoefficientsV1::new(values, len)
 }
 
 pub(super) fn inline_coefficients(
@@ -174,7 +176,7 @@ fn inline_secret_validation_and_partial_rng_failures_erase_original_slots() {
             let parameters = parameters::<P>(n);
             for malformed_scalar in [false, true] {
                 let mut source = coefficients(parameters.session().threshold(), 1);
-                let index = if malformed_scalar { 1 } else { 0 };
+                let index = u16::from(malformed_scalar);
                 if malformed_scalar {
                     source[0][0] = [0xff; 32];
                 }

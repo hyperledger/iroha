@@ -53,7 +53,6 @@ fn fixture_with_instructions(
         None,
         None,
         Some(iroha_core::state::default_genesis_confidential_policy_hash()),
-        None,
     )
 }
 
@@ -109,9 +108,6 @@ fn generated_policy_binding_executes_strictly_and_preserves_original_manifest_in
         .map(|tx| tx.creation_time())
         .collect::<Vec<_>>();
     let original_header = proposal.0.header();
-    let original_authority = manifest
-        .kagemusha_mint_finality_genesis_parameters()
-        .clone();
     let original_policies = proposal.0.da_proof_policies().cloned();
     let mut calls = 0;
     let (executed, staged, bound_manifest) =
@@ -145,10 +141,6 @@ fn generated_policy_binding_executes_strictly_and_preserves_original_manifest_in
         original_header.confidential_features()
     );
     assert_eq!(executed.0.da_proof_policies(), original_policies.as_ref());
-    assert_eq!(
-        bound_manifest.kagemusha_mint_finality_genesis_parameters(),
-        &original_authority
-    );
     let context = bound_manifest.sumeragi_context_parameters();
     assert_eq!(
         Hash::prehashed(context.execution_policy_hash),

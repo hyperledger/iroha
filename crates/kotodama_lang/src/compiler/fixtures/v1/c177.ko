@@ -1,6 +1,6 @@
 
-        seiyaku Demo {
-            kotoage fn run() authorize("Entry") {}
+        seiyaku Demo { permission Entry;
+            kotoage fn run() authorize(Entry) {}
 
             #[test]
             fn smoke() {
@@ -10,12 +10,12 @@
                 test::invoke_kotoage_as(
                     actor: "issuer",
                     kotoage: "run",
-                    arguments: Json::parse("{}"),
+                    arguments: {},
                 );
                 test::expect_any_reject_as(
                     actor: "issuer",
                     kotoage: "run",
-                    arguments: Json::parse("{}"),
+                    arguments: {},
                 );
             }
         }

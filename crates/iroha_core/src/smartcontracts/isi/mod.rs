@@ -16,6 +16,8 @@ pub mod game;
 /// Authorization, signature and error-mapping helpers shared by ISI modules.
 pub(crate) mod helpers;
 pub mod identifier;
+/// KAGEMUSHA wallet ledger execution.
+pub mod kagemusha_wallet;
 pub mod kaigi;
 /// Ministry agenda submission handlers.
 pub mod ministry;
@@ -110,6 +112,50 @@ fn dispatch_instruction<T: Execute + Clone + 'static>(
         .downcast_ref::<T>()
         .map(|isi| isi.clone().execute(authority, state_transaction))
 }
+/// The three retained AMX instructions share their exact registered fields with execution.
+/// Their owned Execute implementations delegate to the same body for ordinary owned callers.
+trait ExecuteOriginalAmx {
+    fn execute_original(
+        &self,
+        authority: &AccountId,
+        state: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), Error>;
+}
+macro_rules! original_amx_execution {
+    ($instruction:ty, $body:path) => {
+        impl ExecuteOriginalAmx for $instruction {
+            fn execute_original(
+                &self,
+                authority: &AccountId,
+                state: &mut StateTransaction<'_, '_>,
+            ) -> Result<(), Error> {
+                $body(self, authority, state)
+            }
+        }
+    };
+}
+original_amx_execution!(
+    iroha_data_model::isi::sumeragi_amx::RelayAmxPreparedV1,
+    crate::sumeragi::amx::execute_relay_prepared_original
+);
+original_amx_execution!(
+    iroha_data_model::isi::sumeragi_amx::PrepareAmxV1,
+    crate::sumeragi::amx::execute_prepare_original
+);
+original_amx_execution!(
+    iroha_data_model::isi::sumeragi_amx::SettleAmxV1,
+    crate::sumeragi::amx::execute_settle_original
+);
+fn dispatch_original_amx<T: ExecuteOriginalAmx + 'static>(
+    instruction: &InstructionBox,
+    authority: &AccountId,
+    state: &mut StateTransaction<'_, '_>,
+) -> Option<Result<(), Error>> {
+    instruction
+        .as_any()
+        .downcast_ref::<T>()
+        .map(|instruction| instruction.execute_original(authority, state))
+}
 /// Fixed rejection for explicitly unavailable native operations, including at genesis.
 pub(crate) const INITIAL_NATIVE_INSTRUCTION_CLOSED_REASON: &str =
     "native instruction is explicitly closed; Core execution is unavailable";
@@ -184,6 +230,7 @@ macro_rules! define_instruction_handlers {
     };
 }
 define_instruction_handlers! {
+    dispatch_instruction::<iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLedgerV1> => CoreAuthorized [asset_effect = MayAffectNumericAssets],
     dispatch_instruction::<iroha_data_model::isi::nft_market::OfferNftV1>,
     dispatch_instruction::<iroha_data_model::isi::nft_market::BuyNftV1>,
     dispatch_instruction::<iroha_data_model::isi::nft_market::CancelNftOfferV1>,
@@ -256,11 +303,11 @@ define_instruction_handlers! {
     dispatch_instruction::<iroha_data_model::isi::private_dataspace::RegisterPrivateDataspace> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::private_dataspace::AnchorPrivateDataspace> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::sumeragi_amx::BeginAmxV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
-    dispatch_instruction::<iroha_data_model::isi::sumeragi_amx::RelayAmxPreparedV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
+    dispatch_original_amx::<iroha_data_model::isi::sumeragi_amx::RelayAmxPreparedV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::sumeragi_amx::RelayAmxHandoffV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::sumeragi_amx::RegisterAmxParticipantV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
-    dispatch_instruction::<iroha_data_model::isi::sumeragi_amx::PrepareAmxV1> => CoreAuthorized [asset_effect = MayAffectNumericAssets],
-    dispatch_instruction::<iroha_data_model::isi::sumeragi_amx::SettleAmxV1> => CoreAuthorized [asset_effect = MayAffectNumericAssets],
+    dispatch_original_amx::<iroha_data_model::isi::sumeragi_amx::PrepareAmxV1> => CoreAuthorized [asset_effect = MayAffectNumericAssets],
+    dispatch_original_amx::<iroha_data_model::isi::sumeragi_amx::SettleAmxV1> => CoreAuthorized [asset_effect = MayAffectNumericAssets],
     dispatch_instruction::<iroha_data_model::isi::sumeragi_amx::RelayGlobalAmxHandoffV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::repo::RepoInstructionBox>,
     dispatch_instruction::<iroha_data_model::isi::repo::RepoIsi>,
@@ -373,9 +420,10 @@ define_instruction_handlers! {
     dispatch_instruction::<iroha_data_model::isi::soradns::AddReleaseSigner>,
     dispatch_instruction::<iroha_data_model::isi::soradns::RemoveReleaseSigner>,
     dispatch_instruction::<iroha_data_model::isi::soradns::SetDirectoryRotationPolicy>,
-    dispatch_instruction::<iroha_data_model::isi::space_directory::PublishSpaceDirectoryManifest>,
-    dispatch_instruction::<iroha_data_model::isi::space_directory::RevokeSpaceDirectoryManifest>,
-    dispatch_instruction::<iroha_data_model::isi::space_directory::ExpireSpaceDirectoryManifest>,
+    // Core requires a current catalog and exact dataspace, UAID or live-domain authority.
+    dispatch_instruction::<iroha_data_model::isi::space_directory::PublishSpaceDirectoryManifest> => CoreAuthorized,
+    dispatch_instruction::<iroha_data_model::isi::space_directory::RevokeSpaceDirectoryManifest> => CoreAuthorized,
+    dispatch_instruction::<iroha_data_model::isi::space_directory::ExpireSpaceDirectoryManifest> => CoreAuthorized,
     dispatch_instruction::<iroha_data_model::isi::account_recovery::ReplaceAccountController>,
     dispatch_instruction::<iroha_data_model::isi::account_recovery::SetAccountRecoveryPolicy>,
     dispatch_instruction::<iroha_data_model::isi::account_recovery::ClearAccountRecoveryPolicy>,
@@ -420,6 +468,7 @@ define_instruction_handlers! {
     dispatch_instruction::<iroha_data_model::isi::ram_lfe::RegisterRamLfeProgramPolicy>,
     dispatch_instruction::<iroha_data_model::isi::ram_lfe::ActivateRamLfeProgramPolicy>,
     dispatch_instruction::<iroha_data_model::isi::ram_lfe::DeactivateRamLfeProgramPolicy>,
+    dispatch_instruction::<iroha_data_model::isi::RegisterDataspaceAssetDefinition>,
     dispatch_instruction::<iroha_data_model::isi::SetAssetDefinitionAlias>,
     dispatch_instruction::<iroha_data_model::isi::social::ClaimTwitterFollowReward>,
     dispatch_instruction::<iroha_data_model::isi::social::SendToTwitter>,
@@ -523,7 +572,6 @@ define_instruction_handlers! {
     dispatch_instruction::<iroha_data_model::isi::staking::SchedulePublicLaneUnbond>,
     dispatch_instruction::<iroha_data_model::isi::staking::FinalizePublicLaneUnbond>,
     dispatch_instruction::<iroha_data_model::isi::staking::SlashPublicLaneValidator>,
-    dispatch_instruction::<iroha_data_model::isi::staking::RecordPublicLaneRewards>,
     dispatch_instruction::<iroha_data_model::isi::staking::ClaimPublicLaneRewards>,
     dispatch_instruction::<iroha_data_model::isi::settlement::SettlementInstructionBox>,
     dispatch_instruction::<iroha_data_model::isi::settlement::DvpIsi>,
@@ -822,6 +870,18 @@ mod registry_dispatch_tests {
         );
     }
     #[test]
+    fn kagemusha_ledger_has_reviewed_authority_and_numeric_effects() {
+        let family = "iroha_data_model::isi::kagemusha_wallet::";
+        assert_reviewed_initial_family(family, BTreeSet::new());
+        assert_reviewed_asset_effect_family(
+            family,
+            1,
+            BTreeSet::from([core::any::type_name::<
+                iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLedgerV1,
+            >()]),
+        );
+    }
+    #[test]
     fn every_soracloud_wire_instruction_has_a_reviewed_initial_disposition() {
         assert_reviewed_initial_family(
             "iroha_data_model::isi::soracloud::",
@@ -846,6 +906,10 @@ mod registry_dispatch_tests {
                 "{instruction:?}"
             );
         }
+    }
+    #[test]
+    fn every_space_directory_wire_instruction_has_a_reviewed_initial_disposition() {
+        assert_reviewed_initial_family("iroha_data_model::isi::space_directory::", BTreeSet::new());
     }
     #[test]
     fn every_sorafs_wire_instruction_has_a_reviewed_initial_disposition() {
@@ -1295,6 +1359,9 @@ mod tests {
             abi_version: 1,
         };
         let interface = ivm::EmbeddedContractInterfaceV1 {
+            events: Vec::new(),
+            enum_types: Vec::new(),
+            permissions: Vec::new(),
             callables: vec![ivm::call::EmbeddedCallableV1 {
                 entry_pc: 0,
                 frame_bytes: 0,
@@ -1316,7 +1383,7 @@ mod tests {
                 return_schema: Some(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: None,
+                authorization: iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: None,

@@ -1,6 +1,6 @@
 
-seiyaku Test {
-  kotoage fn main()  authorize("Entry") {
+seiyaku Test { permission Entry;
+  kotoage fn main() authorize(Entry) {
     test::assert(1 == 1);
   }
 }

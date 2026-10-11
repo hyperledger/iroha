@@ -1,6 +1,6 @@
 
-        seiyaku MutatingStateIteration {
+        seiyaku MutatingStateIteration { permission WriteState;
             state StateMap<int, int> values;
-            kotoage fn f() authorize("WriteState") { for (key, value) in values.take(1) { values[0] = 1; } }
+            kotoage fn f() authorize(WriteState) { for (key, value) in values.take(1) { values[0] = 1; } }
         }
     

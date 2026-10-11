@@ -6,19 +6,21 @@ use crate::{
     state::{StateBlock, WorldReadOnly, public_lane_validator_record_matches_key},
 };
 use iroha_config::parameters::actual::{
-    NexusConsensusPolicyDigestError, SumeragiLaneLifecycleEntry, sumeragi_nexus_amx_context_hash,
+    NexusConsensusPolicyDigestError, SumeragiLaneLifecycleEntry,
+    sumeragi_nexus_amx_context_preimage,
 };
 use iroha_crypto::Hash;
 use mv::storage::StorageReadOnly;
 
-/// Compute the canonical Nexus/AMX commitment from a validated genesis state
+/// Build the canonical Nexus/AMX context preimage from a validated genesis state
 /// block without committing that block. The projection binds every Nexus and
 /// deterministic AMX input used by proposal assembly or validation, plus the
 /// canonically ordered public-lane validator records whose retained tenure
 /// contains height one, and the complete retained lane-incarnation lineage,
-/// including retired lane identifiers.
+/// including retired lane identifiers. Signed genesis commits its hash; light
+/// clients decode the exact bytes with `iroha_data_model::nexus::decode_nexus_amx_context_v1`.
 #[must_use]
-pub fn staged_genesis_nexus_amx_context_hash(staged: &StateBlock<'_>) -> Hash {
+pub fn staged_genesis_nexus_amx_context_preimage(staged: &StateBlock<'_>) -> Vec<u8> {
     const GENESIS_CONTEXT_HEIGHT: u64 = 1;
     let eligible_validators = staged
         .world()
@@ -38,12 +40,20 @@ pub fn staged_genesis_nexus_amx_context_hash(staged: &StateBlock<'_>) -> Hash {
             activation_height: lineage.activation_height,
         })
         .collect::<Vec<_>>();
-    sumeragi_nexus_amx_context_hash(
+    sumeragi_nexus_amx_context_preimage(
         &staged.nexus,
         &staged.pipeline,
         &eligible_validators,
         &retained_lane_lineage,
     )
+}
+
+/// Compute the canonical Nexus/AMX commitment from a validated genesis state
+/// block without committing that block: the hash of
+/// [`staged_genesis_nexus_amx_context_preimage`].
+#[must_use]
+pub fn staged_genesis_nexus_amx_context_hash(staged: &StateBlock<'_>) -> Hash {
+    Hash::new(staged_genesis_nexus_amx_context_preimage(staged))
 }
 
 /// Compute the canonical V1 execution policy from a validated, uncommitted genesis block.
@@ -100,7 +110,6 @@ pub(crate) mod tests {
             activation_height: 1,
             election_exit_height: None,
             deactivation_height: None,
-            last_reward_epoch: None,
         }
     }
 
@@ -258,6 +267,23 @@ pub(crate) mod tests {
             staged_context_hash(&baseline),
             staged_context_hash(&changed_amx),
             "AMX policy changes must alter the signed height context",
+        );
+    }
+
+    #[test]
+    fn staged_preimage_hashes_to_the_staged_context_and_decodes() {
+        let state = lane_hash_world(&[(LaneId::SINGLE, peer(0x65), 4)]);
+        let block = state.block(genesis_header());
+        let preimage = staged_genesis_nexus_amx_context_preimage(&block);
+        assert_eq!(
+            Hash::new(&preimage),
+            staged_genesis_nexus_amx_context_hash(&block)
+        );
+        let catalog = iroha_data_model::nexus::decode_nexus_amx_context_v1(&preimage)
+            .expect("the staged preimage is a canonical context");
+        assert_eq!(
+            catalog.lanes(),
+            block.nexus.lane_catalog.consensus_projection().1.as_slice()
         );
     }
 

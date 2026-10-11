@@ -704,8 +704,8 @@ fn lower_structured_data_filter(
     }
 }
 pub(super) fn analyze_trigger(
+    context: &SemanticContext,
     trigger: &TriggerDecl,
-    fn_modifiers: &HashMap<String, FunctionModifiers>,
 ) -> Result<TypedTrigger, SemanticError> {
     let name =
         <Name as std::str::FromStr>::from_str(&trigger.name).map_err(|err| SemanticError {
@@ -713,33 +713,57 @@ pub(super) fn analyze_trigger(
             message: format!("invalid trigger name `{}`: {}", trigger.name, err),
         })?;
     let id = TriggerId::new(name);
-    if trigger.call.namespace.is_none() {
-        let entry = &trigger.call.entrypoint;
-        let modifiers = fn_modifiers.get(entry).ok_or_else(|| SemanticError {
+    let entry = &trigger.call.entrypoint;
+    if entry.contains("::") {
+        return Err(SemanticError {
+            code: "E_TRIGGER_TARGET_NAMESPACE",
+            message: "trigger callbacks must name a local kotoage function; namespaced callbacks require an authenticated seiyaku interface".into(),
+        });
+    }
+    let modifiers = context
+        .function_modifiers
+        .borrow()
+        .get(entry)
+        .cloned()
+        .ok_or_else(|| SemanticError {
             code: "K2002",
             message: format!(
                 "trigger `{}` targets unknown `kotoage`/`言挙げ` function `{entry}`",
                 trigger.name
             ),
         })?;
-        if modifiers.kind == FunctionKind::View {
-            return Err(SemanticError {
-                code: "E_TRIGGER_VIEW_TARGET",
-                message: format!(
-                    "trigger `{}` cannot target read-only `view fn` function `{entry}`",
-                    trigger.name
-                ),
-            });
-        }
-        if modifiers.kind != FunctionKind::Kotoage {
-            return Err(SemanticError {
-                code: "E_TRIGGER_TARGET_KIND",
-                message: format!(
-                    "trigger `{}` must call a `kotoage`/`言挙げ` function `{entry}`",
-                    trigger.name
-                ),
-            });
-        }
+    if modifiers.kind == FunctionKind::View {
+        return Err(SemanticError {
+            code: "E_TRIGGER_VIEW_TARGET",
+            message: format!(
+                "trigger `{}` cannot target read-only `view fn` function `{entry}`",
+                trigger.name
+            ),
+        });
+    }
+    if modifiers.kind != FunctionKind::Kotoage {
+        return Err(SemanticError {
+            code: "E_TRIGGER_TARGET_KIND",
+            message: format!(
+                "trigger `{}` must call a `kotoage`/`言挙げ` function `{entry}`",
+                trigger.name
+            ),
+        });
+    }
+    let has_parameters = !context
+        .function_params
+        .borrow()
+        .get(entry)
+        .expect("declared trigger callback has a signature")
+        .is_empty();
+    if !matches!(trigger.filter, TriggerFilter::Execute { .. }) && has_parameters {
+        return Err(SemanticError {
+            code: "E_TRIGGER_CALLBACK_PARAMETERS",
+            message: format!(
+                "trigger `{}` requires `{entry}()` without parameters; time, data, and pipeline events do not provide a typed callback argument record; read event data with `context::trigger_event()`",
+                trigger.name
+            ),
+        });
     }
     let filter = match &trigger.filter {
         TriggerFilter::Time(time) => {
@@ -749,20 +773,14 @@ pub(super) fn analyze_trigger(
                     start_ms,
                     period_ms,
                 } => {
-                    if let Some(period) = period_ms
-                        && *period == 0
-                    {
-                        return Err(SemanticError {
-                            code: "E_TRIGGER_SCHEDULE_PERIOD",
-                            message: format!(
-                                "trigger `{}` schedule period_ms must be non-zero",
-                                trigger.name
-                            ),
-                        });
-                    }
+                    let start_ms = schedule_milliseconds(context, start_ms, "start_ms", false)?;
+                    let period_ms = period_ms
+                        .as_ref()
+                        .map(|value| schedule_milliseconds(context, value, "period_ms", true))
+                        .transpose()?;
                     ExecutionTime::Schedule(Schedule {
-                        start_ms: *start_ms,
-                        period_ms: *period_ms,
+                        start_ms,
+                        period_ms,
                     })
                 }
             };
@@ -822,6 +840,42 @@ pub(super) fn analyze_trigger(
         authority,
         metadata,
     })
+}
+fn schedule_milliseconds(
+    context: &SemanticContext,
+    expression: &Expr,
+    label: &str,
+    nonzero: bool,
+) -> Result<u64, SemanticError> {
+    let evaluated = static_integer_constant(context, expression).map_err(|_| SemanticError {
+        code: "E_TRIGGER_SCHEDULE_CONSTANT",
+        message: format!(
+            "schedule `{label}` must be a compile-time int constant expression in milliseconds"
+        ),
+    });
+    let result = evaluated.and_then(|typed| {
+        let ExprKind::IntLiteral(value) = typed.kind() else {
+            unreachable!("constant integer evaluator")
+        };
+        value
+            .try_to_u64()
+            .filter(|value| !nonzero || *value != 0)
+            .ok_or_else(|| SemanticError {
+                code: if nonzero {
+                    "E_TRIGGER_SCHEDULE_PERIOD"
+                } else {
+                    "E_TRIGGER_SCHEDULE_START"
+                },
+                message: format!(
+                    "schedule `{label}` must be in {}..=18446744073709551615 milliseconds",
+                    u8::from(nonzero)
+                ),
+            })
+    });
+    if result.is_err() {
+        context.capture_diagnostic(context.expression_source(expression), None);
+    }
+    result
 }
 fn trigger_metadata_from_entries(
     entries: &[TriggerMetadataEntry],

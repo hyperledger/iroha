@@ -23,6 +23,9 @@ fn serve_inventory_once(
                 Err(error) => panic!("inventory accept failed: {error}"),
             }
         };
+        // Accepted sockets inherit the listener's non-blocking mode on BSD-derived platforms;
+        // reads below must block (bounded by the timeout) instead of failing with WouldBlock.
+        stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(2)))
             .unwrap();

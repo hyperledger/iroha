@@ -1,4 +1,5 @@
-//! Typed local-test rejection expectations shared by compiler and in-process runner.
+//! Typed local-test rejection expectations and assertion sites shared by the compiler and the
+//! in-process runner.
 use iroha_data_model::smart_contract::manifest::ContractErrorTypeDescriptor;
 use ivm_abi::error::VmTrapKind;
 
@@ -77,6 +78,61 @@ rejection_traps! {
     NoritoInvalid => NoritoInvalid, AbiTypeNotAllowed => AbiTypeNotAllowed,
     HostOutputBudgetExceeded => HostOutputBudgetExceeded, AmxBudgetExceeded => AmxBudgetExceeded,
 }
+/// Which local-test assertion failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, norito::Encode, norito::Decode)]
+pub enum AssertionKind {
+    /// `test::assert(condition, message:)`.
+    Assert,
+    /// `test::assert_eq(actual:, expected:, message:)`.
+    AssertEq,
+}
+/// Compiler-emitted description of one `test::assert` or `test::assert_eq` call site.
+///
+/// Test-mode lowering embeds the canonical Norito encoding of this record in the test projection
+/// and hands it to the host-private assertion syscall only when the assertion fails, so the
+/// runner can report the exact source location, the asserted source text, the author's literal
+/// message, and the compared values. The record never appears in production artifacts.
+#[derive(Clone, Debug, PartialEq, Eq, norito::Encode, norito::Decode, norito::NoritoSchema)]
+#[norito_schema(name = "kotodama_lang::testing::AssertionSite")]
+pub struct AssertionSite {
+    /// Which assertion builtin failed.
+    pub kind: AssertionKind,
+    /// Compiler source identity of the file containing the call.
+    pub source_id: u32,
+    /// First UTF-8 byte of the call expression.
+    pub byte_start: u32,
+    /// UTF-8 byte after the call expression.
+    pub byte_end: u32,
+    /// The `message:` argument when it is a string literal.
+    pub message: Option<String>,
+    /// Kotodama type of the compared values for `test::assert_eq`.
+    pub value_type: Option<String>,
+}
+impl AssertionSite {
+    /// Largest encoded site record accepted by the host.
+    pub const MAX_ENCODED_BYTES: usize = 16 * 1024;
+}
+/// Compiler-emitted source location of one `test::` helper call (`invoke_kotoage`,
+/// `expect_reject_as`, `actor_account`, ...).
+///
+/// Test-mode lowering hands the canonical Norito encoding of this record to the host-private
+/// call-site helper immediately before the helper call it describes, so a failing seiyaku call or
+/// a misused fixture actor is reported at the call's own `file:line:column` rather than at the
+/// enclosing test declaration. The record never appears in production artifacts.
+#[derive(Clone, Debug, PartialEq, Eq, norito::Encode, norito::Decode, norito::NoritoSchema)]
+#[norito_schema(name = "kotodama_lang::testing::TestCallSite")]
+pub struct TestCallSite {
+    /// Compiler source identity of the file containing the call.
+    pub source_id: u32,
+    /// First UTF-8 byte of the call expression.
+    pub byte_start: u32,
+    /// UTF-8 byte after the call expression.
+    pub byte_end: u32,
+}
+impl TestCallSite {
+    /// Largest encoded call-site record accepted by the host.
+    pub const MAX_ENCODED_BYTES: usize = 256;
+}
 impl RejectionExpectation {
     /// Compare an observed runtime failure without matching human-readable error text.
     pub fn matches_runtime(&self, error: &ivm_abi::VMError, trap: Option<VmTrapKind>) -> bool {
@@ -119,6 +175,52 @@ impl RejectionExpectation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn assertion_sites_roundtrip_the_canonical_codec() {
+        for site in [
+            AssertionSite {
+                kind: AssertionKind::Assert,
+                source_id: 7,
+                byte_start: 10,
+                byte_end: 40,
+                message: Some("balance should be 5 after init".to_owned()),
+                value_type: None,
+            },
+            AssertionSite {
+                kind: AssertionKind::AssertEq,
+                source_id: 0,
+                byte_start: 0,
+                byte_end: 1,
+                message: None,
+                value_type: Some("Option<int>".to_owned()),
+            },
+        ] {
+            let bytes = ivm_abi::codec::encode_canonical_norito(&site).expect("encode site");
+            assert!(bytes.len() < AssertionSite::MAX_ENCODED_BYTES);
+            let decoded: AssertionSite = norito::decode_canonical(&bytes).expect("decode site");
+            assert_eq!(decoded, site);
+        }
+    }
+    #[test]
+    fn call_sites_roundtrip_the_canonical_codec() {
+        for site in [
+            TestCallSite {
+                source_id: 0,
+                byte_start: 0,
+                byte_end: 0,
+            },
+            TestCallSite {
+                source_id: u32::MAX,
+                byte_start: 1_048_000,
+                byte_end: u32::MAX,
+            },
+        ] {
+            let bytes = ivm_abi::codec::encode_canonical_norito(&site).expect("encode call site");
+            assert!(bytes.len() <= TestCallSite::MAX_ENCODED_BYTES);
+            let decoded: TestCallSite = norito::decode_canonical(&bytes).expect("decode call site");
+            assert_eq!(decoded, site);
+        }
+    }
     #[test]
     fn selector_inventory_is_exact_and_roundtrips_the_canonical_codec() {
         for name in REJECTION_SELECTORS {

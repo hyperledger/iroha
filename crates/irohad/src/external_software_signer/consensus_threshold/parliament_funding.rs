@@ -149,6 +149,12 @@ fn complete(used: usize, bytes: &[u8]) -> FieldResult<()> {
     }
     Ok(())
 }
+// Direct byte-array record fields carry the constructor-selected raw codec.
+// Generic array sequence elements continue through `fixed` below.
+fn raw<const N: usize>(field: CanonicalField<'_, [u8; N]>) -> FieldResult<[u8; N]> {
+    field.decode_owned().map_err(DecodeIntoError::Codec)
+}
+
 fn fixed<T>(field: CanonicalField<'_, T>) -> FieldResult<T>
 where
     for<'a> T: DecodeFromSlice<'a>,
@@ -278,40 +284,40 @@ fn components(
 }
 
 destination!(Header, ConsensusThresholdCredentialHeaderV1, {
-    0 => magic: [u8; 8] = |f, _, _| fixed(f),
+    0 => magic: [u8; 8] = |f, _, _| raw(f),
     1 => version: u16 = |f, _, _| fixed(f),
     2 => slot: u16 = |f, _, _| fixed(f),
     3 => network_id: NetworkId = |f, _, _| fixed(f),
     4 => handle: String = string,
     5 => revision: u64 = |f, _, _| fixed(f),
-    6 => policy_digest: [u8; 32] = |f, _, _| fixed(f),
+    6 => policy_digest: [u8; 32] = |f, _, _| raw(f),
 });
 destination!(Dealer, TleAdaptiveDealerCommitmentV1, {
     0 => dealer_index: u16 = |f, _, _| fixed(f),
     1 => coefficient_commitments: Vec<[u8; 96]> = |f, b, l| sequence::<_, MAX_DEALER_COEFFICIENTS_V1>(f, b, l, |f, _, _| fixed(f)),
-    2 => constant_pok_commitment: [u8; 96] = |f, _, _| fixed(f),
-    3 => constant_pok_response: [u8; 32] = |f, _, _| fixed(f),
+    2 => constant_pok_commitment: [u8; 96] = |f, _, _| raw(f),
+    3 => constant_pok_response: [u8; 32] = |f, _, _| raw(f),
 });
 destination!(PublicShare, TleAdaptivePublicShareV1, {
     0 => index: u16 = |f, _, _| fixed(f),
-    1 => participant_hash: [u8; 32] = |f, _, _| fixed(f),
-    2 => public_key_share: [u8; 96] = |f, _, _| fixed(f),
+    1 => participant_hash: [u8; 32] = |f, _, _| raw(f),
+    2 => public_key_share: [u8; 96] = |f, _, _| raw(f),
 });
 destination!(State, TleKeySessionPublicStateV1, {
     0 => version: u16 = |f, _, _| fixed(f),
     1 => key_session_id: iroha_data_model::governance::types::TleKeySessionId = |f, _, _| key_session(f),
-    2 => network_id: [u8; 32] = |f, _, _| fixed(f),
-    3 => roster_hash: [u8; 32] = |f, _, _| fixed(f),
+    2 => network_id: [u8; 32] = |f, _, _| raw(f),
+    3 => roster_hash: [u8; 32] = |f, _, _| raw(f),
     4 => committee_size: u16 = |f, _, _| fixed(f),
     5 => threshold: u16 = |f, _, _| fixed(f),
-    6 => generator_h: [u8; 96] = |f, _, _| fixed(f),
-    7 => generator_v: [u8; 96] = |f, _, _| fixed(f),
+    6 => generator_h: [u8; 96] = |f, _, _| raw(f),
+    7 => generator_v: [u8; 96] = |f, _, _| raw(f),
     8 => qualified_dealers: Vec<u16> = |f, b, l| sequence::<_, SEATS>(f, b, l, |f, _, _| fixed(f)),
     9 => qualified_dealer_commitments: Vec<TleAdaptiveDealerCommitmentV1> = |f, b, l| sequence::<_, SEATS>(f, b, l, decode_dealer),
-    10 => dkg_event_hash: [u8; 32] = |f, _, _| fixed(f),
-    11 => group_public_key: [u8; 96] = |f, _, _| fixed(f),
+    10 => dkg_event_hash: [u8; 32] = |f, _, _| raw(f),
+    11 => group_public_key: [u8; 96] = |f, _, _| raw(f),
     12 => public_shares: Vec<TleAdaptivePublicShareV1> = |f, b, l| sequence::<_, SEATS>(f, b, l, decode_public_share),
-    13 => transcript_hash: [u8; 32] = |f, _, _| fixed(f),
+    13 => transcript_hash: [u8; 32] = |f, _, _| raw(f),
 });
 destination!(Share, RuntimeParliamentTleShareCredentialWireV1, {
     0 => public_session: TleKeySessionPublicStateV1 = decode_state,
@@ -589,5 +595,196 @@ mod owner_tests {
         // retains the actual original ledger allocation and charges. No new
         // pool or replacement capacity is fabricated by the failed transition.
         assert_eq!(pool.reserved_bytes(), retained);
+    }
+}
+
+#[cfg(test)]
+mod raw_field_adapter_tests {
+    use super::*;
+
+    fn check_raw_record<const N: usize, E: std::fmt::Debug>(
+        value: &impl SerializePayload,
+        raw_indices: &[usize],
+        start: usize,
+        raw_only: bool,
+        mut decode: impl FnMut(&[u8]) -> std::result::Result<usize, DecodeIntoError<E>>,
+    ) {
+        let mut payload = Vec::new();
+        norito::core::serialize_to_writer(value, &mut payload).unwrap();
+        let original = consensus_threshold_credential_decode_limits_v1(payload.len());
+        let (decoded, usage) =
+            norito::core::with_decode_limits_measured(original, || decode(&payload));
+        assert_eq!(decoded.unwrap(), payload.len());
+        let required = usage.total_allocated_bytes();
+        if raw_only {
+            assert_eq!(required, 0);
+        } else {
+            // Borrowed strings and generic coefficient sequences retain their
+            // legitimate logical charges; raw byte fields add no storage charge.
+            assert!(required > 0);
+        }
+        let limits = norito::DecodeLimits::new(
+            16_384,
+            original.max_field_bytes(),
+            original.max_total_elements(),
+            required,
+            64,
+        );
+        let (decoded, usage) =
+            norito::core::with_decode_limits_measured(limits, || decode(&payload));
+        assert_eq!(decoded.unwrap(), payload.len());
+        assert_eq!(usage.total_allocated_bytes(), required);
+        if required > 0 {
+            let short = norito::DecodeLimits::new(
+                16_384,
+                original.max_field_bytes(),
+                original.max_total_elements(),
+                required - 1,
+                64,
+            );
+            let (decoded, _) =
+                norito::core::with_decode_limits_measured(short, || decode(&payload));
+            assert!(matches!(
+                decoded,
+                Err(DecodeIntoError::Codec(
+                    norito::Error::TotalAllocationExceeded { .. }
+                ))
+            ));
+        }
+        for &index in raw_indices {
+            let mut offset = start;
+            let mut frame_start = 0;
+            let mut body_start = 0;
+            for _ in 0..=index {
+                frame_start = offset;
+                let (length, prefix) =
+                    norito::core::inspect_len_from_slice(&payload[offset..]).unwrap();
+                body_start = offset + prefix;
+                offset = body_start + length;
+            }
+            let raw: [u8; N] = payload[body_start..offset].try_into().unwrap();
+            let mut generic = Vec::new();
+            norito::core::serialize_to_writer(&raw, &mut generic).unwrap();
+            assert_ne!(generic.len(), N);
+            let mut long = raw.to_vec();
+            long.push(0xa5);
+            for body in [raw[..N - 1].to_vec(), long, generic] {
+                let mut malformed = payload[..frame_start].to_vec();
+                norito::core::write_len_header_to_vec(&mut malformed, body.len() as u64);
+                malformed.extend_from_slice(&body);
+                malformed.extend_from_slice(&payload[offset..]);
+                let actual = consensus_threshold_credential_decode_limits_v1(malformed.len());
+                let malformed_limits = norito::DecodeLimits::new(
+                    16_384,
+                    actual.max_field_bytes(),
+                    actual.max_total_elements(),
+                    required,
+                    64,
+                );
+                let (decoded, usage) =
+                    norito::core::with_decode_limits_measured(malformed_limits, || {
+                        decode(&malformed)
+                    });
+                assert!(matches!(
+                    decoded,
+                    Err(DecodeIntoError::Codec(norito::Error::LengthMismatch))
+                ));
+                assert!(usage.total_allocated_bytes() <= required);
+            }
+        }
+    }
+
+    fn hash(seed: u8) -> [u8; 32] {
+        std::array::from_fn(|i| (i as u8).wrapping_add(seed))
+    }
+
+    #[test]
+    fn parliament_raw_fields_keep_both_layouts_generic_coefficients_and_exact_retirement() {
+        for flags in [0, norito::core::header_flags::COMPACT_LEN] {
+            let _flags = norito::core::DecodeFlagsGuard::enter(flags);
+            let header = ConsensusThresholdCredentialHeaderV1 {
+                magic: *b"IRTHR001",
+                version: 1,
+                slot: 1,
+                network_id: NetworkId::from_genesis_hash(iroha_crypto::HashOf::<
+                    iroha_data_model::block::BlockHeader,
+                >::from_untyped_unchecked(
+                    iroha_crypto::Hash::prehashed(hash(0x11)),
+                )),
+                handle: "software://iroha/raw-field-test".into(),
+                revision: 7,
+                policy_digest: hash(0x21),
+            };
+            let pool = AllocationBudget::new(1 << 20);
+            let mut decode_header = |bytes: &[u8]| {
+                let result = {
+                    let mut ledger = Ledger::new(&pool).unwrap();
+                    let mut destination = Header::new(&pool, &mut ledger);
+                    ConsensusThresholdCredentialHeaderV1::decode_fields(bytes, &mut destination)
+                        .map(|(_, used)| {
+                            let decoded = destination.finish().unwrap();
+                            assert_eq!(decoded, header);
+                            drop(decoded);
+                            used
+                        })
+                };
+                assert_eq!(pool.reserved_bytes(), 0);
+                result
+            };
+            check_raw_record::<8, _>(&header, &[0], 0, false, &mut decode_header);
+            check_raw_record::<32, _>(&header, &[6], 0, false, &mut decode_header);
+            let dealer = TleAdaptiveDealerCommitmentV1 {
+                dealer_index: 3,
+                coefficient_commitments: vec![
+                    std::array::from_fn(|i| (i as u8).wrapping_add(0x31)),
+                    std::array::from_fn(|i| (i as u8).wrapping_add(0x91)),
+                ],
+                constant_pok_commitment: std::array::from_fn(|i| (i as u8).wrapping_add(0x51)),
+                constant_pok_response: hash(0x71),
+            };
+            let mut decode_dealer = |bytes: &[u8]| {
+                let result = {
+                    let mut ledger = Ledger::new(&pool).unwrap();
+                    let mut destination = Dealer::new(&pool, &mut ledger);
+                    TleAdaptiveDealerCommitmentV1::decode_fields(bytes, &mut destination).map(
+                        |(_, used)| {
+                            let decoded = destination.finish().unwrap();
+                            assert_eq!(decoded, dealer);
+                            assert_eq!(
+                                decoded.coefficient_commitments,
+                                dealer.coefficient_commitments
+                            );
+                            drop(decoded);
+                            used
+                        },
+                    )
+                };
+                assert_eq!(pool.reserved_bytes(), 0);
+                result
+            };
+            check_raw_record::<96, _>(&dealer, &[2], 0, false, &mut decode_dealer);
+            check_raw_record::<32, _>(&dealer, &[3], 0, false, &mut decode_dealer);
+            let share = TleAdaptivePublicShareV1 {
+                index: 3,
+                participant_hash: hash(0x81),
+                public_key_share: std::array::from_fn(|i| (i as u8).wrapping_add(0xa1)),
+            };
+            let mut decode_share = |bytes: &[u8]| {
+                let result = {
+                    let mut ledger = Ledger::new(&pool).unwrap();
+                    let mut destination = PublicShare::new(&pool, &mut ledger);
+                    TleAdaptivePublicShareV1::decode_fields(bytes, &mut destination).map(
+                        |(_, used)| {
+                            assert_eq!(destination.finish().unwrap(), share);
+                            used
+                        },
+                    )
+                };
+                assert_eq!(pool.reserved_bytes(), 0);
+                result
+            };
+            check_raw_record::<32, _>(&share, &[1], 0, true, &mut decode_share);
+            check_raw_record::<96, _>(&share, &[2], 0, true, &mut decode_share);
+        }
     }
 }

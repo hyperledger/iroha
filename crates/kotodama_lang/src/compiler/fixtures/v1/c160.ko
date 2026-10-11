@@ -1,6 +1,6 @@
 
-seiyaku Test {
-  kotoage fn run() authorize("Entry") {}
+seiyaku Test { permission Entry;
+  kotoage fn run() authorize(Entry) {}
   trigger wake -> run {
     on data executor upgraded {}
   }

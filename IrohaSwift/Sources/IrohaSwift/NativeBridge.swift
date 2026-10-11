@@ -100,9 +100,9 @@ enum NoritoBridgeLoader {
         expectedBridgeAbiVersion(for: currentIdentifier())
     }
     private static let expectedHashes: [String: String] = [
-        "macos-arm64_x86_64": "4018b7967ed842dd096ee26d71b20a2e601e80f4c5b609ce72b1e15f3d9e4f54",
-        "ios-arm64": "fe36df91b0a1d2d2e26650f84da8d744634933a872443fe02343f2791a3dcff9",
-        "ios-arm64_x86_64-simulator": "c4b4a7deeb226643a54b11954aa7d6b0df1a5614ffb14fb9330d3eaefe3ff3a8"
+        "macos-arm64_x86_64": "5eb17e6590f1d8a095d57057934f1cf3982128bc03ce4271e56d4dbf7d582a6c",
+        "ios-arm64": "222ff1811cba08aef8751f432e5f4153bdea407454a6c377dc47c564d5e2a924",
+        "ios-arm64_x86_64-simulator": "c698dc664f66e0eca2f44975b00dc8c29cb5bcfccd73aa0cbc65c64a5505ee37"
     ]
     static let parliamentTimedOvnWalletRequiredSymbols = [
         "connect_norito_parliament_timed_ovn_verify_casting_proof_page_v1",
@@ -167,7 +167,7 @@ enum NoritoBridgeLoader {
     }
 
     static func expectedBridgeAbiVersion(for identifier: String) -> UInt32 {
-        return 25
+        return 29
     }
 
     static func isSupportedBridgeAbiVersion(_ actual: UInt32?, for identifier: String = currentIdentifier()) -> Bool {
@@ -726,7 +726,7 @@ public struct ParliamentTimedOvnPublicRecordV1: Equatable, Sendable {
 
 /// Fail-closed errors from secret-local Parliament timed-OVN wallet operations.
 public enum ParliamentTimedOvnNativeWalletError: Error, Equatable, Sendable {
-    /// The exact ABI-25 bridge and all proof-gated V1 wallet symbols are unavailable.
+    /// The exact ABI-29 bridge and all proof-gated V1 wallet symbols are unavailable.
     case bridgeUnavailable
     /// The canonical proof response is empty or exceeds 8 MiB.
     case invalidCastingProof
@@ -791,7 +791,7 @@ public final class NoritoNativeBridge: @unchecked Sendable {
     static let privacyExact12FixtureBundleMaxBytes = 2 * 1024 * 1024
     private static let detachedTransactionNativeMaximumBytes = 16 * 1024 * 1024
     private static let parliamentTimedOvnCastingProofMaximumBytes = 8 * 1024 * 1024
-    /// Exact ABI-25 diagnostic summary width; complete checkpoint bytes are separate.
+    /// Exact ABI-29 diagnostic summary width; complete checkpoint bytes are separate.
     public static let parliamentTimedOvnCastingProofPageSummaryBytes = 41
     private static let parliamentTimedOvnSeedBytes = 32
     private static let parliamentTimedOvnAuthorityMaximumBytes = 8 * 1024
@@ -1271,14 +1271,6 @@ public final class NoritoNativeBridge: @unchecked Sendable {
     ) -> Int32
 
     private typealias EncodeControlPongFn = EncodeControlPingFn
-
-    private typealias EncodeConfidentialPayloadFn = @convention(c) (
-        UnsafePointer<UInt8>?, UInt,
-        UnsafePointer<UInt8>?, UInt,
-        UnsafePointer<UInt8>?, UInt,
-        UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>?,
-        UnsafeMutablePointer<UInt>?
-    ) -> Int32
 
     private typealias AccountAddressParseFn = @convention(c) (
         UnsafePointer<CChar>?, UInt,
@@ -1854,7 +1846,6 @@ public final class NoritoNativeBridge: @unchecked Sendable {
     private var encodeControlCloseFn: EncodeControlCloseFn? = nil
     private var encodeControlPingFn: EncodeControlPingFn? = nil
     private var encodeControlPongFn: EncodeControlPongFn? = nil
-    private var encodeConfidentialPayloadFn: EncodeConfidentialPayloadFn? = nil
     private var accountAddressParseFn: AccountAddressParseFn? = nil
     private var accountAddressRenderFn: AccountAddressRenderFn? = nil
     private var publicKeyFromPrivateFn: PublicKeyFromPrivateFn? = nil
@@ -1982,7 +1973,6 @@ public final class NoritoNativeBridge: @unchecked Sendable {
     private let encodeControlCloseFn: Any? = nil
     private let encodeControlPingFn: Any? = nil
     private let encodeControlPongFn: Any? = nil
-    private let encodeConfidentialPayloadFn: Any? = nil
     private let accountAddressParseFn: Any? = nil
     private let accountAddressRenderFn: Any? = nil
     private let publicKeyFromPrivateFn: Any? = nil
@@ -2191,7 +2181,7 @@ public final class NoritoNativeBridge: @unchecked Sendable {
         }) else {
             self.loadedBridgeAbiVersion = nil
             NSLog(
-                "[NoritoNativeBridge] statically linked bridge is missing mandatory ABI-25 exports"
+                "[NoritoNativeBridge] statically linked bridge is missing mandatory ABI-29 exports"
             )
             return
         }
@@ -2697,11 +2687,6 @@ public final class NoritoNativeBridge: @unchecked Sendable {
             } else {
                 self.encodeControlPongFn = nil
             }
-            if let encodeConfidentialSymbol = dlsym(handle, "connect_norito_encode_confidential_encrypted_payload") {
-                self.encodeConfidentialPayloadFn = unsafeBitCast(encodeConfidentialSymbol, to: EncodeConfidentialPayloadFn.self)
-            } else {
-                self.encodeConfidentialPayloadFn = nil
-            }
             if let accountAddressParseSymbol = dlsym(handle, "connect_norito_account_address_parse") {
                 self.accountAddressParseFn = unsafeBitCast(accountAddressParseSymbol, to: AccountAddressParseFn.self)
             } else {
@@ -3146,7 +3131,6 @@ public final class NoritoNativeBridge: @unchecked Sendable {
             self.privacyExact12FixtureBundleFn = nil
             self.privacyValidateExact12FixtureBundleFn = nil
             self.privacyFreeFn = nil
-            self.encodeConfidentialPayloadFn = nil
             self.accountAddressParseFn = nil
             self.accountAddressRenderFn = nil
             self.sm2DefaultDistidFn = nil
@@ -3306,7 +3290,7 @@ public final class NoritoNativeBridge: @unchecked Sendable {
         #endif
     }
 
-    /// Whether the exact ABI-25 bridge exposes the complete proof-gated Parliament wallet.
+    /// Whether the exact ABI-29 bridge exposes the complete proof-gated Parliament wallet.
     public var isParliamentTimedOvnWalletAvailable: Bool {
         #if canImport(Darwin)
         guard bridgeEnabledForRuntime else { return false }
@@ -7104,36 +7088,6 @@ public final class NoritoNativeBridge: @unchecked Sendable {
                     &outPtr,
                     &outLen
                 )
-            }
-        }
-        guard status == 0, let outPtr else {
-            if status == 0, let outPtr { freeFn(outPtr) }
-            return nil
-        }
-        return takeData(pointer: outPtr, length: outLen)
-        #else
-        return nil
-        #endif
-    }
-
-    func encodeConfidentialPayload(ephemeralPublicKey: Data,
-                                   nonce: Data,
-                                   ciphertext: Data) -> Data? {
-        #if canImport(Darwin)
-        guard let encodeConfidentialPayloadFn, let freeFn else { return nil }
-        var outPtr: UnsafeMutablePointer<UInt8>? = nil
-        var outLen: UInt = 0
-        let status = ephemeralPublicKey.withUnsafeBytes { ep in
-            nonce.withUnsafeBytes { np in
-                ciphertext.withUnsafeBytes { cp in
-                    encodeConfidentialPayloadFn(
-                        ep.bindMemory(to: UInt8.self).baseAddress, UInt(ep.count),
-                        np.bindMemory(to: UInt8.self).baseAddress, UInt(nonce.count),
-                        cp.bindMemory(to: UInt8.self).baseAddress, UInt(ciphertext.count),
-                        &outPtr,
-                        &outLen
-                    )
-                }
             }
         }
         guard status == 0, let outPtr else {

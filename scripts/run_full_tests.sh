@@ -445,6 +445,7 @@ for member in doc["workspace_members"]:
 run_segmented_fast_tests() {
     local package
     local -a packages
+    local -a test_features
 
     while IFS= read -r package; do
         packages+=("${package}")
@@ -457,12 +458,16 @@ run_segmented_fast_tests() {
 
     echo "==> segmented fast suite: ${#packages[@]} package cargo test invocations"
     for package in "${packages[@]}"; do
+        test_features=()
+        if [[ "${package}" == "iroha_torii" ]]; then
+            test_features=(--features iroha_torii/test-fixtures)
+        fi
         if [[ -n "${test_threads}" ]]; then
-            echo "==> cargo test --locked -p ${package} -- --test-threads=${test_threads}"
-            run_cargo test --locked -p "${package}" -- --test-threads="${test_threads}"
+            echo "==> cargo test --locked -p ${package} ${test_features[*]-} -- --test-threads=${test_threads}"
+            run_cargo test --locked -p "${package}" ${test_features[@]+"${test_features[@]}"} -- --test-threads="${test_threads}"
         else
-            echo "==> cargo test --locked -p ${package}"
-            run_cargo test --locked -p "${package}"
+            echo "==> cargo test --locked -p ${package} ${test_features[*]-}"
+            run_cargo test --locked -p "${package}" ${test_features[@]+"${test_features[@]}"}
         fi
     done
 }
@@ -544,22 +549,22 @@ if (( run_fast )); then
     if [[ "${segmented_fast}" == true ]]; then
         run_segmented_fast_tests
     elif [[ -n "${test_threads}" ]]; then
-        echo "==> cargo test --locked --workspace --exclude integration_tests -- --test-threads=${test_threads}"
-        run_cargo test --locked --workspace --exclude integration_tests -- --test-threads="${test_threads}"
+        echo "==> cargo test --locked --workspace --exclude integration_tests --features iroha_torii/test-fixtures -- --test-threads=${test_threads}"
+        run_cargo test --locked --workspace --exclude integration_tests --features iroha_torii/test-fixtures -- --test-threads="${test_threads}"
     else
-        echo "==> cargo test --locked --workspace --exclude integration_tests"
-        run_cargo test --locked --workspace --exclude integration_tests
+        echo "==> cargo test --locked --workspace --exclude integration_tests --features iroha_torii/test-fixtures"
+        run_cargo test --locked --workspace --exclude integration_tests --features iroha_torii/test-fixtures
     fi
 else
     echo "==> skipping fast test suite"
 fi
 
-integration_test_args=("${integration_args[@]}")
-if [[ -n "${test_threads}" ]] && ! has_test_threads_arg "${integration_test_args[@]}"; then
+integration_test_args=(${integration_args[@]+"${integration_args[@]}"})
+if [[ -n "${test_threads}" ]] && ! has_test_threads_arg ${integration_test_args[@]+"${integration_test_args[@]}"}; then
     integration_test_args+=("--test-threads=${test_threads}")
 fi
 
-echo "==> cargo test --locked -p integration_tests ${integration_test_args[*]}"
+echo "==> cargo test --locked -p integration_tests ${integration_test_args[*]-}"
 if ((${#integration_test_args[@]} > 0)); then
     run_cargo test --locked -p integration_tests -- "${integration_test_args[@]}"
 else

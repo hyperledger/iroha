@@ -1,6 +1,5 @@
 //! Explicit materialization of non-signable genesis source templates.
 
-use super::generate::load_kagemusha_mint_finality_parameters;
 use crate::{Outcome, RunArgs, tui};
 use clap::Parser;
 use color_eyre::eyre::WrapErr as _;
@@ -10,14 +9,11 @@ use std::{
     path::PathBuf,
 };
 
-/// Materialize a `.template.json` source with operator-provisioned public authority.
+/// Materialize a `.template.json` source with its explicit NPoS XOR selection.
 #[derive(Clone, Debug, Parser)]
 pub struct Args {
     /// Incomplete genesis source file; the name must end in `.template.json`.
     template_file: PathBuf,
-    /// Explicitly provisioned public KAGEMUSHA mint-finality genesis parameters.
-    #[arg(long, value_name = "PATH")]
-    kagemusha_mint_finality_parameters: PathBuf,
     /// Explicit canonical XOR definition committed by an NPoS source template.
     #[arg(long, value_name = "ASSET_DEFINITION_ID")]
     xor_asset_definition_id: Option<iroha_data_model::asset::AssetDefinitionId>,
@@ -26,22 +22,16 @@ pub struct Args {
 impl<T: Write> RunArgs<T> for Args {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome {
         tui::status("Materializing genesis source template");
-        let parameters =
-            load_kagemusha_mint_finality_parameters(&self.kagemusha_mint_finality_parameters)?;
         let manifest = GenesisSourceTemplate::from_path(&self.template_file)?
-            .materialize(&parameters, self.xor_asset_definition_id)
+            .materialize(self.xor_asset_definition_id)
             .wrap_err("materialize complete genesis manifest")?;
-        super::ensure_kagemusha_mint_finality_schedule_matches_consensus(&manifest)?;
-        let topology = manifest
+        super::ensure_genesis_schedule_matches_consensus(&manifest)?;
+        let has_topology = manifest
             .transactions()
             .iter()
-            .flat_map(iroha_genesis::RawGenesisTx::topology)
-            .map(|entry| entry.peer.clone())
-            .collect::<Vec<_>>();
-        if !topology.is_empty() {
-            super::ensure_kagemusha_mint_finality_generation_zero_authority_matches_topology(
-                &manifest, &topology,
-            )?;
+            .any(|transaction| !transaction.topology().is_empty());
+        if has_topology {
+            super::ensure_genesis_topology_is_generation_zero(&manifest)?;
         }
         let mut json = norito::json::to_json_pretty(&manifest)?;
         json.push('\n');

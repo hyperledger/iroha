@@ -9,6 +9,19 @@ struct StrictInner {
 }
 #[derive(Debug, PartialEq, Eq, JsonDeserialize, JsonSerialize)]
 #[norito(deny_unknown_fields)]
+struct StrictGeneric<'a, 'arena, '__norito_json, '__norito_arena, T, const N: usize> {
+    value: T,
+    #[norito(skip)]
+    marker: core::marker::PhantomData<(
+        &'a (),
+        &'arena (),
+        &'__norito_json (),
+        &'__norito_arena (),
+        [u8; N],
+    )>,
+}
+#[derive(Debug, PartialEq, Eq, JsonDeserialize, JsonSerialize)]
+#[norito(deny_unknown_fields)]
 struct StrictEmpty {}
 #[derive(Debug, PartialEq, Eq, JsonDeserialize, JsonSerialize)]
 #[norito(deny_unknown_fields)]
@@ -137,6 +150,40 @@ fn assert_duplicate_field(error: Error, expected: &str) {
     match error {
         Error::DuplicateField { field } => assert_eq!(field, expected),
         other => panic!("expected duplicate field `{expected}`, got {other:?}"),
+    }
+}
+#[test]
+fn generic_json_fallback_preserves_roundtrip_and_closed_schema() {
+    type Envelope = StrictGeneric<'static, 'static, 'static, 'static, StrictInner, 4>;
+    let value = Envelope {
+        value: StrictInner { value: 7 },
+        marker: core::marker::PhantomData,
+    };
+    let text = json::to_json(&value).expect("serialize generic strict envelope");
+    assert_eq!(
+        json::from_slice::<Envelope>(text.as_bytes()).unwrap(),
+        value
+    );
+    assert_eq!(decode_fast::<Envelope>(&text).unwrap(), value);
+    for (input, expected) in [
+        (r#"{}"#, "missing field `value`"),
+        (
+            r#"{"value":{"value":7},"future":1}"#,
+            "unknown field `future`",
+        ),
+        (
+            r#"{"value":{"value":7},"value":{"value":8}}"#,
+            "duplicate field `value`",
+        ),
+        (
+            r#"{"value":{"value":7,"future":1}}"#,
+            "unknown field `future`",
+        ),
+    ] {
+        let ordinary = json::from_slice::<Envelope>(input.as_bytes()).unwrap_err();
+        let fast = decode_fast::<Envelope>(input).unwrap_err();
+        assert!(ordinary.to_string().contains(expected), "{ordinary}");
+        assert!(fast.to_string().contains(expected), "{fast}");
     }
 }
 #[test]

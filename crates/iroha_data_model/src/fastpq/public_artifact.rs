@@ -971,6 +971,17 @@ mod tests {
 
     #[test]
     fn retired_three_field_transfer_body_cannot_decode_as_complete_effect_artifact() {
+        #[derive(NoritoSerialize, norito::NoritoSchema)]
+        #[norito_schema(
+            name = "test::RelabeledTransferBody",
+            frame = "iroha_data_model::fastpq::FastpqOrdinaryCompactArtifactV1"
+        )]
+        struct RelabeledBody {
+            profile_id: FastpqCompactProfileIdV1,
+            source: FastpqOrdinarySourceStatementLeafV1,
+            statement: FastpqPublicTransferStatementV1,
+            bundle_frame: Vec<u8>,
+        }
         // An adversarial historical body is test data, never an alternate decoder.
         #[derive(NoritoSerialize, norito::NoritoSchema)]
         #[norito_schema(
@@ -993,17 +1004,6 @@ mod tests {
                 .is_err()
         );
         // Even inserting an advertised source cannot relabel the transfer-only statement.
-        #[derive(NoritoSerialize, norito::NoritoSchema)]
-        #[norito_schema(
-            name = "test::RelabeledTransferBody",
-            frame = "iroha_data_model::fastpq::FastpqOrdinaryCompactArtifactV1"
-        )]
-        struct RelabeledBody {
-            profile_id: FastpqCompactProfileIdV1,
-            source: FastpqOrdinarySourceStatementLeafV1,
-            statement: FastpqPublicTransferStatementV1,
-            bundle_frame: Vec<u8>,
-        }
         let relabeled = RelabeledBody {
             profile_id: PROFILE,
             source: ordinary().source,

@@ -146,7 +146,6 @@ fn exact_stake_authority_fixture(
                 activation_height: 1,
                 election_exit_height: None,
                 deactivation_height: None,
-                last_reward_epoch: None,
             },
         );
     }

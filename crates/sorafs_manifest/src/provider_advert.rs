@@ -616,6 +616,7 @@ impl StreamBudgetV1 {
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "sorafs_manifest::provider_advert::TransportHintV1")]
 #[derive(Debug, Clone, Copy, NoritoSerialize, NoritoDeserialize, PartialEq, Eq)]
+#[norito(decode_from_slice)]
 pub struct TransportHintV1 {
     /// Transport protocol identifier.
     pub protocol: TransportProtocol,
@@ -629,17 +630,6 @@ impl TransportHintV1 {
             return Err(TransportHintError::InvalidPriority);
         }
         Ok(())
-    }
-}
-impl<'a> DecodeFromSlice<'a> for TransportHintV1 {
-    fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
-        let (protocol_raw, used_protocol) = <u8 as DecodeFromSlice>::decode_from_slice(bytes)?;
-        let protocol = TransportProtocol::from_u8(protocol_raw).ok_or_else(|| {
-            norito::core::Error::Message(format!("unknown transport protocol {protocol_raw}"))
-        })?;
-        let (priority, used_priority) =
-            <u8 as DecodeFromSlice>::decode_from_slice(&bytes[used_protocol..])?;
-        Ok((Self { protocol, priority }, used_protocol + used_priority))
     }
 }
 /// Transport protocols supported by providers.
@@ -656,17 +646,6 @@ pub enum TransportProtocol {
     SoraNetRelay = 3,
     /// Vendor-reserved protocol identifier.
     VendorReserved = 255,
-}
-impl TransportProtocol {
-    fn from_u8(value: u8) -> Option<Self> {
-        match value {
-            1 => Some(Self::ToriiHttpRange),
-            2 => Some(Self::QuicStream),
-            3 => Some(Self::SoraNetRelay),
-            255 => Some(Self::VendorReserved),
-            _ => None,
-        }
-    }
 }
 /// Errors raised when validating range capability metadata.
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -1733,6 +1712,62 @@ mod tests {
         [0, norito::core::header_flags::COMPACT_LEN]
     }
     include!("provider_advert/canonical_tests.rs");
+
+    #[test]
+    fn transport_hint_slice_decoder_preserves_mandatory_record_fields() {
+        use norito::core::{DecodeFlagsGuard, DecodeFromSlice};
+
+        for flags in supported_layouts() {
+            let _flags = DecodeFlagsGuard::enter(flags);
+            let frame = |body: &[u8]| {
+                let mut bytes = Vec::new();
+                norito::core::write_len_to_vec_with_flags(&mut bytes, body.len() as u64, flags);
+                bytes.extend_from_slice(body);
+                bytes
+            };
+            for (protocol, tag) in [
+                (TransportProtocol::ToriiHttpRange, 1_u32),
+                (TransportProtocol::QuicStream, 2),
+                (TransportProtocol::SoraNetRelay, 3),
+                (TransportProtocol::VendorReserved, 255),
+            ] {
+                let hint = TransportHintV1 {
+                    protocol,
+                    priority: 7,
+                };
+                let wire = encode_bare_with_flags(&hint, flags);
+                let mut expected = frame(&tag.to_le_bytes());
+                expected.extend_from_slice(&frame(&[7]));
+                assert_eq!(wire, expected);
+                assert_eq!(
+                    TransportHintV1::decode_from_slice(&wire).unwrap(),
+                    (hint, wire.len())
+                );
+                for end in 0..wire.len() {
+                    assert!(TransportHintV1::decode_from_slice(&wire[..end]).is_err());
+                }
+                let mut trailing = wire.clone();
+                trailing.push(9);
+                assert_eq!(
+                    TransportHintV1::decode_from_slice(&trailing).unwrap(),
+                    (hint, wire.len())
+                );
+                assert!(
+                    norito::core::decode_field_canonical::<TransportHintV1>(&trailing).is_err()
+                );
+                for protocol_body in [vec![1, 0, 0], vec![1, 0, 0, 0, 0], vec![254, 0, 0, 0]] {
+                    let mut malformed = frame(&protocol_body);
+                    malformed.extend_from_slice(&frame(&[7]));
+                    assert!(TransportHintV1::decode_from_slice(&malformed).is_err());
+                }
+                for priority_body in [Vec::new(), vec![7, 9]] {
+                    let mut malformed = frame(&tag.to_le_bytes());
+                    malformed.extend_from_slice(&frame(&priority_body));
+                    assert!(TransportHintV1::decode_from_slice(&malformed).is_err());
+                }
+            }
+        }
+    }
     fn sample_advert(now: u64) -> ProviderAdvertV1 {
         let issued_at = now;
         let expires_at = now + REFRESH_RECOMMENDATION_SECS * 2;

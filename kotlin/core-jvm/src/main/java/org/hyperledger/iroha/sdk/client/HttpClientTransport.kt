@@ -21,9 +21,13 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.Function
 import org.hyperledger.iroha.sdk.address.requireCanonicalI105Address
+import org.hyperledger.iroha.sdk.address.AccountAddress
+import org.hyperledger.iroha.sdk.address.algorithmForCurveId
 import org.hyperledger.iroha.sdk.crypto.Blake3
 import org.hyperledger.iroha.sdk.crypto.Ed25519PublicKeyAdmission
 import org.hyperledger.iroha.sdk.crypto.IrohaHash
+import org.hyperledger.iroha.sdk.crypto.NativeSignerBridge
+import org.hyperledger.iroha.sdk.crypto.SigningAlgorithm
 import org.hyperledger.iroha.sdk.consensus.SUMERAGI_LANES_JSON_MAX_BYTES
 import org.hyperledger.iroha.sdk.consensus.SUMERAGI_STATUS_JSON_MAX_BYTES
 import org.hyperledger.iroha.sdk.consensus.SumeragiLaneStatus
@@ -649,6 +653,313 @@ class HttpClientTransport private constructor(
     fun getLedgerExecutedBlockWire(height: Long): CompletableFuture<ByteArray> =
         getLedgerExecutedBlockWire(BigInteger.valueOf(height))
 
+    /**
+     * Read one bounded, unverified unsigned Load receipt with the existing account signer.
+     *
+     * [requireCurrentOwner] must throw whenever the captured application actor/account or wallet
+     * incarnation has changed. It is checked before signing, before dispatch and before delivery;
+     * it must be safe to invoke on the completion thread. The consumer must check it again before
+     * passing the original to Native. Request cancellation cancels this client's underlying call.
+     *
+     * This performs one signed empty-body GET without compatibility probes, retries, redirects,
+     * JSON fallback or monetary decoding. The expected payer and network remain immutable; server
+     * authentication owns canonical controller/signer admission. Before wallet admission, the
+     * consumer must bind the canonical receipt to the expected request/payer/scheme/wallet and
+     * independently authenticate the successful receipt event and its native BLS Commit certificate
+     * before signing Advance. This transport supplies no wallet admission or balance
+     * change. A nonempty malformed binary response remains unverified transport data.
+     */
+    fun getKagemushaWalletLoadIssuanceOriginalV1(
+        selection: ToriiKagemushaWalletLoadSelectionV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+        requireCurrentOwner: Runnable,
+    ): CompletableFuture<ToriiKagemushaWalletLoadIssuanceOriginalV1> {
+        requireCurrentOwner.run()
+        val expectedNetwork = config.requireLocalSigningContext().networkId()
+        val expectedPayer = canonicalAuth.accountId
+        val request = buildKagemushaWalletLoadIssuanceRequestV1(selection, canonicalAuth)
+        val result = CompletableFuture<ToriiKagemushaWalletLoadIssuanceOriginalV1>()
+        val upstream = try {
+            requireCurrentOwner.run()
+            notifyRequest(request)
+            // An observer may have changed application ownership while seeing the request.
+            requireCurrentOwner.run()
+            executor.execute(request)
+        } catch (error: Throwable) {
+            try { notifyFailure(request, error) } catch (observerError: Throwable) {
+                if (observerError !== error) error.addSuppressed(observerError)
+            }
+            result.completeExceptionally(error)
+            return result
+        }
+        result.whenComplete { _, _ -> if (result.isCancelled) upstream.cancel(false) }
+        upstream.whenComplete { response, failure ->
+            if (result.isDone) return@whenComplete
+            if (upstream.isCancelled) {
+                result.cancel(false)
+                return@whenComplete
+            }
+            try {
+                if (failure != null) throw unwrapCompletion(failure)
+                requireCurrentOwner.run()
+                requireExactSignedResponseProvenance(request, response, "KAGEMUSHA load issuance")
+                val body = response.body
+                require(body.isNotEmpty() && body.size <= ToriiKagemushaWalletLoadIssuanceOriginalV1.MAXIMUM_BYTES) {
+                    "KAGEMUSHA issuance original is empty or exceeds its bound"
+                }
+                requireExactOptionalContentLength(response.headers, body.size, "KAGEMUSHA load issuance")
+                if (response.statusCode != 200) {
+                    throw ToriiApiException.fromResponse(
+                        response.statusCode, response.headers, body, "KAGEMUSHA load issuance",
+                    )
+                }
+                requireExactHeader(response.headers, "Content-Type", APPLICATION_NORITO, "KAGEMUSHA load issuance")
+                requireAbsentOrIdentityEncoding(response.headers, "KAGEMUSHA load issuance")
+                val original = ToriiKagemushaWalletLoadIssuanceOriginalV1(
+                    selection, expectedPayer, expectedNetwork, body,
+                )
+                notifyResponse(request, ClientResponse(response.statusCode, body, response.message))
+                requireCurrentOwner.run()
+                result.complete(original)
+            } catch (error: Throwable) {
+                try { notifyFailure(request, error) } catch (observerError: Throwable) {
+                    if (observerError !== error) error.addSuppressed(observerError)
+                }
+                result.completeExceptionally(error)
+            }
+        }
+        return result
+    }
+
+    /**
+     * Submit one explicit enrollment action with fresh account authentication and no automatic retry.
+     *
+     * Retain [enrollment] before dispatch. A timeout or Pending preserves the same native attempt:
+     * recovery explicitly resubmits its exact originals with fresh [canonicalAuth]. The callback
+     * must throw when the captured actor/account or enrollment attempt changes, and must be safe
+     * on the completion thread. The caller checks ownership again before Native admits a returned
+     * permit or credential. Neither HTTP success nor a Ready result confers enrollment authority.
+     */
+    fun enrollKagemushaWalletV1(
+        enrollment: ToriiKagemushaWalletEnrollmentRequestV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+        requireCurrentOwner: Runnable,
+    ): CompletableFuture<ToriiKagemushaWalletEnrollmentResponseV1> {
+        val startedAt = System.nanoTime()
+        val timeoutNanos = try { config.requestTimeout().toNanos() } catch (_: ArithmeticException) { Long.MAX_VALUE }
+        fun requireWithinDeadline() {
+            if (System.nanoTime() - startedAt >= timeoutNanos) {
+                throw java.util.concurrent.TimeoutException("KAGEMUSHA enrollment request deadline elapsed")
+            }
+        }
+        requireCurrentOwner.run()
+        val request = buildKagemushaWalletEnrollmentRequestV1(enrollment, canonicalAuth)
+        val result = CompletableFuture<ToriiKagemushaWalletEnrollmentResponseV1>()
+        val upstream = try {
+            requireCurrentOwner.run()
+            notifyRequest(request)
+            requireCurrentOwner.run()
+            requireWithinDeadline()
+            executor.execute(request)
+        } catch (error: Throwable) {
+            try { notifyFailure(request, error) } catch (observerError: Throwable) {
+                if (observerError !== error) error.addSuppressed(observerError)
+            }
+            result.completeExceptionally(error)
+            return result
+        }
+        result.whenComplete { _, _ -> if (result.isCancelled) upstream.cancel(false) }
+        upstream.whenComplete { response, failure ->
+            if (result.isDone) return@whenComplete
+            if (upstream.isCancelled) { result.cancel(false); return@whenComplete }
+            try {
+                if (failure != null) throw unwrapCompletion(failure)
+                requireCurrentOwner.run()
+                requireWithinDeadline()
+                requireExactSignedResponseProvenance(request, response, "KAGEMUSHA enrollment")
+                val body = response.body
+                require(body.isNotEmpty() && body.size <= ToriiKagemushaWalletEnrollmentResponseV1.MAXIMUM_BYTES) {
+                    "KAGEMUSHA enrollment response is empty or exceeds its bound"
+                }
+                requireExactOptionalContentLength(response.headers, body.size, "KAGEMUSHA enrollment")
+                if (response.statusCode != 200) throw ToriiApiException.fromResponse(
+                    response.statusCode, response.headers, body, "KAGEMUSHA enrollment")
+                requireExactHeader(response.headers, "Content-Type", APPLICATION_NORITO, "KAGEMUSHA enrollment")
+                requireAbsentOrIdentityEncoding(response.headers, "KAGEMUSHA enrollment")
+                val decoded = enrollment.decodeResponse(body)
+                notifyResponse(request, ClientResponse(response.statusCode, body, response.message))
+                requireCurrentOwner.run()
+                requireWithinDeadline()
+                result.complete(decoded)
+            } catch (error: Throwable) {
+                try { notifyFailure(request, error) } catch (observerError: Throwable) {
+                    if (observerError !== error) error.addSuppressed(observerError)
+                }
+                result.completeExceptionally(error)
+            }
+        }
+        return result
+    }
+
+    /** Build the exact canonical body and fresh account signature for one issuer operation. */
+    internal fun buildKagemushaWalletEnrollmentRequestV1(
+        enrollment: ToriiKagemushaWalletEnrollmentRequestV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+    ): TransportRequest {
+        config.requireLocalSigningContext()
+        require(config.baseUri().scheme.equals("https", ignoreCase = true)) {
+            "KAGEMUSHA enrollment requires an HTTPS Torii endpoint"
+        }
+        require(config.baseUri().rawUserInfo == null && config.baseUri().rawQuery == null &&
+            config.baseUri().rawFragment == null) {
+            "KAGEMUSHA enrollment base URI must not contain user information, query or fragment"
+        }
+        require(!config.requestTimeout().isZero) { "KAGEMUSHA enrollment requires a positive request timeout" }
+        require(!CanonicalRequestSigner.isCanonicalAsciiAccountAlias(canonicalAuth.accountId)) {
+            "KAGEMUSHA enrollment requires the expected canonical account, not an alias"
+        }
+        val forbiddenHeaders = CANONICAL_AUTH_HEADERS + setOf(
+            "X-Iroha-Witness", "X-Iroha-Operator-Public-Key", "X-Iroha-Operator-Signature",
+            "X-Iroha-Operator-Timestamp-Ms", "X-Iroha-Operator-Nonce", "Content-Type",
+            "Content-Encoding", "Accept", "Accept-Encoding", "Cache-Control",
+        )
+        require(config.defaultHeaders().keys.none { name -> forbiddenHeaders.any { it.equals(name, ignoreCase = true) } }) {
+            "KAGEMUSHA enrollment authentication, encoding and cache headers are owned by the transport"
+        }
+        val controller = requireNotNull(AccountAddress.parseEncoded(canonicalAuth.accountId, null).singleKeyPayload()) {
+            "KAGEMUSHA enrollment requires the direct single account signer"
+        }
+        val request = buildExactNoritoPostRequest(ToriiKagemushaWalletEnrollmentRequestV1.ROUTE,
+            enrollment.canonicalWire(), ToriiKagemushaWalletEnrollmentResponseV1.MAXIMUM_BYTES.toLong(),
+            canonicalAuth, requestNoStore = true)
+        val message = CanonicalRequestSigner.canonicalRequestSignatureMessage(
+            config.requireLocalSigningContext().networkId(), request.method, request.uri, request.body,
+            request.headers.getValue(CanonicalRequestSigner.HEADER_TIMESTAMP_MS).single().toLong(),
+            request.headers.getValue(CanonicalRequestSigner.HEADER_NONCE).single())
+        require(NativeSignerBridge.verifyDetached(
+            SigningAlgorithm.fromAlgorithmName(algorithmForCurveId(controller.curveId)), controller.publicKey,
+            message, Base64.getDecoder().decode(request.headers.getValue(CanonicalRequestSigner.HEADER_SIGNATURE).single()))) {
+            "KAGEMUSHA enrollment signature does not match the direct account controller"
+        }
+        return request
+    }
+
+    /** One native BLS certificate and exact Load event inclusion. The response remains DATA
+     * until Native verifies the signed genesis, epoch transitions and receipt binding. */
+    fun getKagemushaWalletLoadFinalityOriginalV1(
+        selection: ToriiKagemushaWalletLoadSelectionV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+        requireCurrentOwner: Runnable,
+    ): CompletableFuture<ByteArray> {
+        requireCurrentOwner.run()
+        config.requireLocalSigningContext()
+        val request = buildKagemushaWalletLedgerOriginalRequestV1(selection.path + "/finality", 256 * 1024, canonicalAuth)
+        return readKagemushaWalletLedgerOriginalV1(request, requireCurrentOwner)
+    }
+
+    /** One boundary selected by Native's authenticated epoch progress. Only Native's
+     * incumbent BLS verification may accept its successor; this response is DATA. */
+    fun getKagemushaWalletLoadEpochOriginalV1(
+        selection: ToriiKagemushaWalletLoadSelectionV1,
+        boundaryHeight: BigInteger,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+        requireCurrentOwner: Runnable,
+    ): CompletableFuture<ByteArray> {
+        requireCurrentOwner.run()
+        require(boundaryHeight >= BigInteger.valueOf(2) && boundaryHeight.bitLength() <= 64) {
+            "u64 epoch boundary must follow genesis"
+        }
+        config.requireLocalSigningContext()
+        val request = buildKagemushaWalletLedgerOriginalRequestV1(
+            selection.path + "/epochs/$boundaryHeight", 256 * 1024, canonicalAuth)
+        return readKagemushaWalletLedgerOriginalV1(request, requireCurrentOwner)
+    }
+
+    /** One original ordinary finality proof. Height is a locator, never a verified checkpoint. */
+    fun getKagemushaWalletLedgerFinalityOriginalV1(
+        height: BigInteger,
+        requireCurrentOwner: Runnable,
+    ): CompletableFuture<ByteArray> {
+        requireCurrentOwner.run()
+        require(height.signum() > 0 && height.bitLength() <= 64) { "positive u64 finality height required" }
+        config.requireLocalSigningContext()
+        val request = buildKagemushaWalletLedgerOriginalRequestV1("/v1/bridge/finality/$height", 36 * 1024 * 1024, null)
+        return readKagemushaWalletLedgerOriginalV1(request, requireCurrentOwner)
+    }
+
+    private fun readKagemushaWalletLedgerOriginalV1(request: TransportRequest,
+        requireCurrentOwner: Runnable): CompletableFuture<ByteArray> {
+        val result = CompletableFuture<ByteArray>()
+        val upstream = try {
+            requireCurrentOwner.run()
+            notifyRequest(request)
+            requireCurrentOwner.run()
+            executor.execute(request)
+        } catch (error: Throwable) {
+            result.completeExceptionally(error)
+            return result
+        }
+        result.whenComplete { _, _ -> if (result.isCancelled) upstream.cancel(false) }
+        upstream.whenComplete { response, failure ->
+            if (result.isDone) return@whenComplete
+            if (upstream.isCancelled) { result.cancel(false); return@whenComplete }
+            try {
+                if (failure != null) throw unwrapCompletion(failure)
+                requireCurrentOwner.run()
+                requireExactSignedResponseProvenance(request, response, "KAGEMUSHA ledger original")
+                val body = response.body
+                require(body.isNotEmpty() && body.size.toLong() <= requireNotNull(request.maximumResponseBytes))
+                requireExactOptionalContentLength(response.headers, body.size, "KAGEMUSHA ledger original")
+                if (response.statusCode != 200) throw ToriiApiException.fromResponse(
+                    response.statusCode, response.headers, body, "KAGEMUSHA ledger original")
+                requireExactHeader(response.headers, "Content-Type", APPLICATION_NORITO, "KAGEMUSHA ledger original")
+                requireAbsentOrIdentityEncoding(response.headers, "KAGEMUSHA ledger original")
+                notifyResponse(request, ClientResponse(response.statusCode, body, response.message))
+                requireCurrentOwner.run()
+                result.complete(body.copyOf())
+            } catch (error: Throwable) {
+                try { notifyFailure(request, error) } catch (observerError: Throwable) {
+                    if (observerError !== error) error.addSuppressed(observerError)
+                }
+                result.completeExceptionally(error)
+            }
+        }
+        return result
+    }
+
+    /** Build one exact account-signed Load read; retained headers cannot replace its signer. */
+    internal fun buildKagemushaWalletLoadIssuanceRequestV1(
+        selection: ToriiKagemushaWalletLoadSelectionV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+    ): TransportRequest = buildKagemushaWalletLedgerOriginalRequestV1(
+        selection.path, ToriiKagemushaWalletLoadIssuanceOriginalV1.MAXIMUM_BYTES, canonicalAuth)
+
+    private fun buildKagemushaWalletLedgerOriginalRequestV1(path: String, maximumBytes: Int,
+        canonicalAuth: ToriiCanonicalRequestAuth?): TransportRequest {
+        require(config.baseUri().scheme.equals("https", ignoreCase = true)) {
+            "KAGEMUSHA issuance requires an HTTPS Torii endpoint"
+        }
+        require(config.baseUri().rawUserInfo == null && config.baseUri().rawQuery == null &&
+            config.baseUri().rawFragment == null) {
+            "KAGEMUSHA issuance base URI must not contain user information, query or fragment"
+        }
+        require(!config.requestTimeout().isZero) { "KAGEMUSHA issuance requires a positive request timeout" }
+        require(canonicalAuth == null || !CanonicalRequestSigner.isCanonicalAsciiAccountAlias(canonicalAuth.accountId)) {
+            "KAGEMUSHA issuance requires the expected canonical payer account, not an alias"
+        }
+        val forbiddenHeaders = CANONICAL_AUTH_HEADERS + setOf(
+            "X-Iroha-Witness", "X-Iroha-Operator-Public-Key", "X-Iroha-Operator-Signature",
+            "X-Iroha-Operator-Timestamp-Ms", "X-Iroha-Operator-Nonce", "Content-Type",
+            "Content-Encoding", "Accept", "Accept-Encoding", "Cache-Control",
+        )
+        require(config.defaultHeaders().keys.none { name ->
+            forbiddenHeaders.any { it.equals(name, ignoreCase = true) }
+        }) { "KAGEMUSHA issuance request authentication, encoding and cache headers are owned by the transport" }
+        return buildExactNoritoGetRequest(
+            path, maximumBytes.toLong(), canonicalAuth, requestNoStore = true,
+        )
+    }
+
     /** Fetch the exact committed Exact12 manifest with one-shot canonical account authentication. */
     fun getPrivacyCapabilities(
         canonicalAuth: ToriiCanonicalRequestAuth,
@@ -698,18 +1009,13 @@ class HttpClientTransport private constructor(
     fun resolveIdentifier(
         requestBody: IdentifierResolveRequest,
         canonicalAuth: ToriiCanonicalRequestAuth,
-    ): CompletableFuture<Optional<IdentifierResolutionReceipt>> {
-        val body = encodeJsonBody(buildIdentifierResolvePayload(requestBody.policyId, requestBody.encryptedInputHex, requestBody.outputOpening))
-        return fetchJsonAllowingNotFound(buildVpnRequest("POST", "/v1/identifiers/resolve", body, canonicalAuth), IdentifierJsonParser::parseResolutionReceipt, "identifier resolve")
+    ): CompletableFuture<IdentifierResolutionReceipt?> {
+        require(requestBody.phase == "claim") { "resolve requires the exact original claim request" }
+        requireIdentifierPhoneRequestScope(requestBody)
+        val body = encodeJsonBody(requestBody.toJsonMap())
+        return fetchJsonAllowingNotFound(buildVpnRequest("POST", "/v1/identifiers/resolve", body, canonicalAuth, 65_536L), IdentifierJsonParser::parseResolutionReceipt, "identifier resolve")
+            .thenApply { response -> response.orElse(null)?.also { requireIdentifierReceiptScope(it, requestBody, null) } }
     }
-
-    fun resolveIdentifier(
-        policyId: String,
-        encryptedInputHex: String,
-        outputOpening: RamLfeOutputOpening,
-        canonicalAuth: ToriiCanonicalRequestAuth,
-    ): CompletableFuture<Optional<IdentifierResolutionReceipt>> =
-        resolveIdentifier(IdentifierResolveRequest.encrypted(policyId, encryptedInputHex, outputOpening), canonicalAuth)
 
     override fun resolveAccountAlias(alias: String): CompletableFuture<Optional<AccountAliasResolution>> {
         val normalizedAlias = AccountAliasName.parse(alias).canonicalText()
@@ -1136,36 +1442,61 @@ class HttpClientTransport private constructor(
         ) { "account aliases response contains entries outside the requested scope" }
     }
 
-    fun issueIdentifierClaimReceipt(
+    fun prepareIdentifierClaim(
         accountId: String,
         requestBody: IdentifierResolveRequest,
         canonicalAuth: ToriiCanonicalRequestAuth,
-    ): CompletableFuture<Optional<IdentifierResolutionReceipt>> {
-        val normalizedAccountId = org.hyperledger.iroha.sdk.address.requireCanonicalI105Address(accountId, "accountId")
-        require(normalizedAccountId == canonicalAuth.accountId) {
-            "canonicalAuth.accountId must equal the claim-receipt path accountId"
-        }
-        val body = encodeJsonBody(buildIdentifierResolvePayload(requestBody.policyId, requestBody.encryptedInputHex, requestBody.outputOpening))
-        return fetchJsonAllowingNotFound(buildVpnRequest("POST", "/v1/accounts/${encodePathSegment(normalizedAccountId)}/identifiers/claim-receipt", body, canonicalAuth), IdentifierJsonParser::parseResolutionReceipt, "identifier claim receipt")
+    ): CompletableFuture<IdentifierPrfPrepareResponse?> {
+        require(requestBody.phase == "prepare") { "prepare requires a prepare request with no opening or phone proof" }
+        val beneficiary = org.hyperledger.iroha.sdk.address.requireCanonicalI105Address(accountId, "accountId")
+        val body = encodeJsonBody(requestBody.toJsonMap())
+        return fetchJsonAllowingNotFound(buildVpnRequest("POST", "/v1/accounts/${encodePathSegment(beneficiary)}/identifiers/claim-receipt", body, canonicalAuth, 65_536L), IdentifierJsonParser::parsePrepareResponse, "identifier prepare")
+            .thenApply { response -> response.orElse(null)?.also {
+                require(it.networkId == config.requireLocalSigningContext().networkId() && it.policyId == requestBody.policyId && it.accountId == beneficiary) { "prepare response differs from the selected network, policy or beneficiary" }
+                val phone = it.phoneRetailCanonicalityPayload
+                if (requestBody.policyId == "phone#retail") {
+                    requireNotNull(phone) { "phone prepare requires its unsigned independent-attestor projection" }
+                    require(phone.networkId == it.networkId && phone.policyId == it.policyId && phone.accountId == beneficiary && phone.uaid == it.uaid) { "phone projection scope differs from prepare" }
+                    PhoneRetailCanonicalityAttestationV1.requireOpeningFields(phone, it.outputOpening)
+                } else require(phone == null) { "nonphone prepare contains phone projection" }
+            } }
     }
 
     fun issueIdentifierClaimReceipt(
         accountId: String,
-        policyId: String,
-        encryptedInputHex: String,
-        outputOpening: RamLfeOutputOpening,
+        requestBody: IdentifierResolveRequest,
         canonicalAuth: ToriiCanonicalRequestAuth,
-    ): CompletableFuture<Optional<IdentifierResolutionReceipt>> =
-        issueIdentifierClaimReceipt(accountId, IdentifierResolveRequest.encrypted(policyId, encryptedInputHex, outputOpening), canonicalAuth)
+    ): CompletableFuture<IdentifierResolutionReceipt?> {
+        require(requestBody.phase == "claim") { "claim receipt requires its original claim request" }
+        val beneficiary = org.hyperledger.iroha.sdk.address.requireCanonicalI105Address(accountId, "accountId")
+        requireIdentifierPhoneRequestScope(requestBody)
+        requestBody.phoneRetailCanonicality?.let { require(it.payload.accountId == beneficiary) { "phone statement beneficiary differs from selected account" } }
+        val body = encodeJsonBody(requestBody.toJsonMap())
+        return fetchJsonAllowingNotFound(buildVpnRequest("POST", "/v1/accounts/${encodePathSegment(beneficiary)}/identifiers/claim-receipt", body, canonicalAuth, 65_536L), IdentifierJsonParser::parseResolutionReceipt, "identifier claim receipt")
+            .thenApply { response -> response.orElse(null)?.also { requireIdentifierReceiptScope(it, requestBody, beneficiary) } }
+    }
+
+    private fun requireIdentifierPhoneRequestScope(request: IdentifierResolveRequest) {
+        request.phoneRetailCanonicality?.let { require(it.payload.networkId == config.requireLocalSigningContext().networkId()) { "phone statement differs from selected network" } }
+    }
+
+    /** Structural scope/refusal only; server admission authenticates the retained signatures. */
+    private fun requireIdentifierReceiptScope(receipt: IdentifierResolutionReceipt, request: IdentifierResolveRequest, beneficiary: String?) {
+        require(receipt.payload.networkId == config.requireLocalSigningContext().networkId() && receipt.policyId == request.policyId) { "receipt differs from selected network or policy" }
+        if (beneficiary != null) require(receipt.accountId == beneficiary) { "receipt beneficiary differs from selected account" }
+        require(receipt.payload.opening.toJsonMap() == requireNotNull(request.outputOpening).toJsonMap()) { "receipt replaced its exact original opening" }
+        require(receipt.phoneRetailCanonicality?.toJsonMap() == request.phoneRetailCanonicality?.toJsonMap()) { "receipt replaced its original phone statement/signature" }
+    }
 
     fun executeRamLfeProgram(
         programId: String,
         requestBody: RamLfeExecuteRequest,
         canonicalAuth: ToriiCanonicalRequestAuth,
-    ): CompletableFuture<Optional<RamLfeExecuteResponse>> {
-        val normalizedProgramId = normalizeNonBlank(programId, "programId")
-        val body = encodeJsonBody(buildRamLfeExecutePayload(requestBody.encryptedInputHex))
-        return fetchJsonAllowingNotFound(buildVpnRequest("POST", "/v1/ram-lfe/programs/${encodePathSegment(normalizedProgramId)}/execute", body, canonicalAuth), RamLfeJsonParser::parseExecuteResponse, "ram-lfe execute")
+    ): CompletableFuture<RamLfeExecuteResponse?> {
+        val program = IdentifierOwnerInputV1.exactText(programId, "programId")
+        val body = encodeJsonBody(requestBody.toJsonMap())
+        return fetchJsonAllowingNotFound(buildVpnRequest("POST", "/v1/ram-lfe/programs/${encodePathSegment(program)}/execute", body, canonicalAuth, 65_536L), RamLfeJsonParser::parseExecuteResponse, "ram-lfe execute")
+            .thenApply { response -> response.orElse(null)?.also { require(it.programId == program) { "execution program differs from selected program" } } }
     }
 
     fun verifyRamLfeReceipt(
@@ -2847,44 +3178,6 @@ class HttpClientTransport private constructor(
         private fun encodePathSegment(segment: String): String = urlEncode(segment).replace("+", "%20")
         private fun urlEncode(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8.name())
         private fun encodeJsonBody(payload: Map<String, Any>): ByteArray = JsonEncoder.encode(payload).toByteArray(StandardCharsets.UTF_8)
-
-        @JvmStatic internal fun buildIdentifierResolveRequest(
-            policyId: String,
-            encryptedInputHex: String,
-            outputOpening: RamLfeOutputOpening,
-        ): IdentifierResolveRequest {
-            val normalizedPolicyId = normalizeNonBlank(policyId, "policyId")
-            val normalizedEncryptedInput = normalizeEvenLengthHex(encryptedInputHex, "encryptedInputHex")
-            return IdentifierResolveRequest.encrypted(normalizedPolicyId, normalizedEncryptedInput, outputOpening)
-        }
-
-        @JvmStatic internal fun buildRamLfeExecuteRequest(encryptedInputHex: String): RamLfeExecuteRequest {
-            val normalizedEncryptedInput = normalizeEvenLengthHex(encryptedInputHex, "encryptedInputHex")
-            return RamLfeExecuteRequest.encrypted(normalizedEncryptedInput)
-        }
-
-        @JvmStatic internal fun buildIdentifierResolvePayload(
-            policyId: String,
-            encryptedInputHex: String,
-            outputOpening: RamLfeOutputOpening,
-        ): Map<String, Any> {
-            val normalizedPolicyId = normalizeNonBlank(policyId, "policyId")
-            require(normalizedPolicyId != "phone#retail") {
-                "phone#retail requires canonicality attestation support"
-            }
-            val normalizedEncryptedInput = normalizeEvenLengthHex(encryptedInputHex, "encryptedInputHex")
-            val payload = LinkedHashMap<String, Any>(); payload["policy_id"] = normalizedPolicyId
-            payload["encrypted_input"] = normalizedEncryptedInput
-            payload["output_opening"] = outputOpening.toJsonMap()
-            return payload
-        }
-
-        @JvmStatic internal fun buildRamLfeExecutePayload(encryptedInputHex: String): Map<String, Any> {
-            val normalizedEncryptedInput = normalizeEvenLengthHex(encryptedInputHex, "encryptedInputHex")
-            val payload = LinkedHashMap<String, Any>()
-            payload["encrypted_input"] = normalizedEncryptedInput
-            return payload
-        }
 
         @JvmStatic internal fun buildRamLfeReceiptVerifyPayload(receipt: Map<String, Any>, outputHex: String?): Map<String, Any> {
             val payload = LinkedHashMap<String, Any>(); payload["receipt"] = LinkedHashMap(receipt)

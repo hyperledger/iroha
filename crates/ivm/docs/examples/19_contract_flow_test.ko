@@ -1,4 +1,5 @@
 seiyaku ContractFlowExample {
+    permission Entry;
     error enum ExampleError {
         Rejected = 1,
     }
@@ -10,15 +11,15 @@ seiyaku ContractFlowExample {
         last_actor = context::authority();
     }
 
-    kotoage fn increment() authorize("Entry") {
+    kotoage fn increment() authorize(Entry) {
         counter = counter + 4;
     }
 
-    kotoage fn remember_caller() authorize("Entry") {
+    kotoage fn remember_caller() authorize(Entry) {
         last_actor = context::authority();
     }
 
-    kotoage fn reject_me() authorize("Entry") {
+    kotoage fn reject_me() authorize(Entry) {
         require(false, ExampleError::Rejected);
     }
 }

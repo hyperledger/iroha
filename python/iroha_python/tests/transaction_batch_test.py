@@ -304,6 +304,169 @@ def test_native_asset_definition_registration_rejects_owner_override() -> None:
         )
 
 
+@pytest.mark.parametrize("dataspace_id", [(1 << 53) + 1, (1 << 64) - 1])
+@pytest.mark.parametrize("balance_scope_policy", ["Global", "DataspaceRestricted"])
+def test_direct_dataspace_draft_preserves_exact_home_and_definition_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    dataspace_id: int,
+    balance_scope_policy: str,
+) -> None:
+    captured: dict[str, Any] = {}
+    instruction = object()
+
+    class FakeInstruction:
+        @staticmethod
+        def register_dataspace_asset_definition(*args: Any, **kwargs: Any) -> object:
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            return instruction
+
+    monkeypatch.setattr(tx_module, "Instruction", FakeInstruction)
+    draft = TransactionDraft(config())
+    assert draft.register_dataspace_asset_definition(
+        "definition",
+        dataspace_id=dataspace_id,
+        balance_scope_policy=balance_scope_policy,
+        name="coin",
+        description="exact direct namespace",
+        alias="coin#public",
+        scale="2",
+        mintable="Once",
+        metadata={"rate": 1.25},
+    ) is draft
+    assert captured == {
+        "args": ("definition",),
+        "kwargs": {
+            "dataspace_id": dataspace_id,
+            "balance_scope_policy": balance_scope_policy,
+            "name": "coin",
+            "description": "exact direct namespace",
+            "alias": "coin#public",
+            "scale": 2,
+            "mintable": "Once",
+            "metadata": {"rate": 1.25},
+        },
+    }
+    assert tuple(draft.instructions) == (instruction,)
+
+
+@pytest.mark.parametrize("dataspace_id", [True, False, "42", 1.0, None, 0, -1, 1 << 64])
+def test_direct_dataspace_boundaries_reject_noncanonical_home(dataspace_id: Any) -> None:
+    kwargs = {
+        "dataspace_id": dataspace_id,
+        "balance_scope_policy": "Global",
+        "name": "coin",
+    }
+    native = crypto_module._crypto.Instruction
+    with pytest.raises((TypeError, ValueError), match="dataspace_id"):
+        native.register_dataspace_asset_definition("62Fk4FPcMuLvW5QjDGNF2a4jAmjM", **kwargs)
+    draft = TransactionDraft(config())
+    with pytest.raises((TypeError, ValueError), match="dataspace_id"):
+        draft.register_dataspace_asset_definition("definition", **kwargs)
+    assert tuple(draft.instructions) == ()
+
+
+@pytest.mark.parametrize("balance_scope_policy", ["Global", "DataspaceRestricted"])
+def test_native_direct_dataspace_preserves_full_u64_and_native_roundtrip(
+    balance_scope_policy: str,
+) -> None:
+    native = crypto_module._crypto.Instruction
+    encoded = []
+    for dataspace_id in [(1 << 53), (1 << 53) + 1, (1 << 64) - 1]:
+        instruction = native.register_dataspace_asset_definition(
+            "62Fk4FPcMuLvW5QjDGNF2a4jAmjM",
+            dataspace_id=dataspace_id,
+            balance_scope_policy=balance_scope_policy,
+            name="coin",
+            description="exact direct namespace",
+            scale=2,
+            mintable="Once",
+            metadata={"rate": 1.25},
+        )
+        payload = instruction.to_json()
+        assert native.from_json(payload).to_json() == payload
+        encoded.append(payload)
+    assert len(set(encoded)) == 3
+
+
+@pytest.mark.parametrize("field", ["owning_domain", "owner"])
+def test_direct_dataspace_registration_rejects_conflicting_home_or_owner(field: str) -> None:
+    kwargs = {
+        "dataspace_id": 42,
+        "balance_scope_policy": "Global",
+        "name": "coin",
+        field: "issuer.public",
+    }
+    with pytest.raises(TypeError, match=field):
+        crypto_module._crypto.Instruction.register_dataspace_asset_definition(
+            "62Fk4FPcMuLvW5QjDGNF2a4jAmjM", **kwargs
+        )
+    with pytest.raises(TypeError, match=field):
+        TransactionDraft(config()).register_dataspace_asset_definition("definition", **kwargs)
+
+
+def test_direct_dataspace_client_forwards_exact_draft_and_submission_options() -> None:
+    from iroha_python.client import ToriiClient
+
+    captured: dict[str, Any] = {}
+    result = {"status": "committed"}
+
+    class FakeDraft:
+        def register_dataspace_asset_definition(self, *args: Any, **kwargs: Any) -> None:
+            captured["registration"] = (args, kwargs)
+
+    draft = FakeDraft()
+
+    class FakeClient:
+        def _transaction_draft(self, **kwargs: Any) -> FakeDraft:
+            captured["draft"] = kwargs
+            return draft
+
+        def _submit_transaction_draft_result(self, actual: Any, **kwargs: Any) -> dict[str, str]:
+            assert actual is draft
+            captured["submission"] = kwargs
+            return result
+
+    actual = ToriiClient.register_dataspace_asset_definition_and_wait(
+        FakeClient(),  # type: ignore[arg-type]
+        authority=config().authority,
+        fee_payment={"payer": "authority"},
+        private_key=bytes([0x11]) * 32,
+        definition_id="definition",
+        dataspace_id=(1 << 64) - 1,
+        balance_scope_policy="DataspaceRestricted",
+        name="coin",
+        asset_metadata={"rate": 1.25},
+        transaction_metadata={"purpose": "registration"},
+        wait=False,
+        timeout=9.0,
+        interval=0.5,
+    )
+    assert actual is result
+    assert captured["draft"] == {
+        "authority": config().authority,
+        "fee_payment": {"payer": "authority"},
+        "metadata": {"purpose": "registration"},
+    }
+    assert captured["registration"] == (("definition",), {
+        "dataspace_id": (1 << 64) - 1,
+        "balance_scope_policy": "DataspaceRestricted",
+        "name": "coin",
+        "description": None,
+        "alias": None,
+        "scale": None,
+        "mintable": "Infinitely",
+        "metadata": {"rate": 1.25},
+    })
+    assert captured["submission"] == {
+        "private_key": bytes([0x11]) * 32,
+        "private_key_hex": None,
+        "wait": False,
+        "timeout": 9.0,
+        "interval": 0.5,
+    }
+
+
 def test_wallet_transfer_controls_chain_into_one_atomic_draft(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -212,11 +212,13 @@ fn durable_authorization_rejects_foreign_contract_before_registry_or_permission_
     let authorization = crate::executor::ContractEntrypointAuthorizationSnapshot {
         authority: ALICE_ID.clone(),
         entrypoint: "write".into(),
-        permission: None,
+        authorization:
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
         contract_address: foreign,
         contract_alias: None,
         contract_alias_binding: None,
         code_hash: Hash::new(b"foreign-artifact"),
+        lifecycle_revision: 1,
         parent: None,
     };
     let error = authorization.validate(&tx.world).unwrap_err();

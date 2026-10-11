@@ -22,8 +22,6 @@ mod canonical_output_inclusion_tests {
             parent_state_root: Hash::new(b"parent"),
             post_state_root: Hash::new(b"post"),
             ordinary_writes_root: Hash::new(b"writes"),
-            kagemusha_top_up_root: None,
-            kagemusha_top_up_count: 0,
             parent_world_state_root: Hash::new(b"parent world"),
             world_state_root: Hash::new(b"world"),
             event_commitment: None,
@@ -40,8 +38,6 @@ mod canonical_output_inclusion_tests {
             parent_state_root: Hash,
             post_state_root: Hash,
             ordinary_writes_root: Hash,
-            kagemusha_top_up_root: Option<Hash>,
-            kagemusha_top_up_count: u32,
             parent_world_state_root: Hash,
             world_state_root: Hash,
             event_commitment: Option<iroha_crypto::MerkleTreeCommitment<crate::events::EventBox>>,
@@ -56,14 +52,33 @@ mod canonical_output_inclusion_tests {
             >,
             merge_carrier: Option<()>,
         }
+        // The retired monetary top-up slots are not an accepted alternative layout either.
+        #[derive(norito::codec::Encode)]
+        struct RetiredTopUpExecution {
+            parent_state_root: Hash,
+            post_state_root: Hash,
+            ordinary_writes_root: Hash,
+            top_up_root: Option<Hash>,
+            top_up_count: u32,
+            parent_world_state_root: Hash,
+            world_state_root: Hash,
+            event_commitment: Option<iroha_crypto::MerkleTreeCommitment<crate::events::EventBox>>,
+            executed_block_wire_len: u64,
+            executed_block_wire_hash: Hash,
+            transaction_input_commitment:
+                Option<iroha_crypto::MerkleTreeCommitment<TransactionEntrypoint>>,
+            transaction_output_commitment: Option<
+                iroha_crypto::MerkleTreeCommitment<
+                    crate::block::execution_output::ExecutionOutputV1,
+                >,
+            >,
+        }
         let (block, _) = execution_fixture();
         let current = commitment(&block);
         let old = RetiredExecution {
             parent_state_root: current.parent_state_root,
             post_state_root: current.post_state_root,
             ordinary_writes_root: current.ordinary_writes_root,
-            kagemusha_top_up_root: current.kagemusha_top_up_root,
-            kagemusha_top_up_count: current.kagemusha_top_up_count,
             parent_world_state_root: current.parent_world_state_root,
             world_state_root: current.world_state_root,
             event_commitment: current.event_commitment,
@@ -83,6 +98,26 @@ mod canonical_output_inclusion_tests {
         assert!(
             crate::sumeragi_finality::ExecutionCommitment::decode_all(&mut old.encode().as_slice())
                 .is_err()
+        );
+        let top_ups = RetiredTopUpExecution {
+            parent_state_root: current.parent_state_root,
+            post_state_root: current.post_state_root,
+            ordinary_writes_root: current.ordinary_writes_root,
+            top_up_root: None,
+            top_up_count: 0,
+            parent_world_state_root: current.parent_world_state_root,
+            world_state_root: current.world_state_root,
+            event_commitment: current.event_commitment,
+            executed_block_wire_len: current.executed_block_wire_len,
+            executed_block_wire_hash: current.executed_block_wire_hash,
+            transaction_input_commitment: current.transaction_input_commitment,
+            transaction_output_commitment: current.transaction_output_commitment,
+        };
+        assert!(
+            crate::sumeragi_finality::ExecutionCommitment::decode_all(
+                &mut top_ups.encode().as_slice()
+            )
+            .is_err()
         );
     }
     #[test]

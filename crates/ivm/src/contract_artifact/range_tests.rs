@@ -7,7 +7,7 @@ use norito::core::{DecodeLimits, with_decode_limits_measured, with_decode_limits
 
 fn artifact() -> Vec<u8> {
     kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku RangeAdmission { view fn main() {} }")
+        .compile_source("seiyaku RangeAdmission { view fn main() authorize(anyone) {} }")
         .expect("canonical compiled Unit entrypoint")
 }
 
@@ -200,8 +200,8 @@ fn admitted_literal_ranges_preserve_original_index_order_and_backing() {
     };
     let bytes = kotodama_lang::compiler::Compiler::new()
         .compile_source(
-            r#"seiyaku RangeLiteral {
-            kotoage fn run() -> Name authorize("ReadLiteral") {
+            r#"seiyaku RangeLiteral { permission ReadLiteral;
+            kotoage fn run() authorize(ReadLiteral) -> Name {
                 return Name::parse("indexed_literal");
             }
         }"#,

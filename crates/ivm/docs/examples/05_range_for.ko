@@ -1,6 +1,6 @@
 // Compiler-proven bounded range loop within a seiyaku.
 seiyaku RangeFor {
-    kotoage fn sum_to(int n) -> int authorize("Entry") {
+    view fn sum_to(int n) authorize(anyone) -> int {
         var acc = 0;
         for i in range(64) {
             if i >= n {

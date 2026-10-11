@@ -12,7 +12,7 @@ mod shared_vm_cycle_budget_tests {
             &state,
             &authority,
             r#"
-seiyaku CycleCaller { view fn main() -> int { return 0; } }
+seiyaku CycleCaller { view fn main() authorize(anyone) -> int { return 0; } }
 "#,
             0,
         );
@@ -20,7 +20,7 @@ seiyaku CycleCaller { view fn main() -> int { return 0; } }
             &state,
             &authority,
             r#"
-seiyaku CycleCallee { view fn value() -> int { return 42; } }
+seiyaku CycleCallee { view fn value() authorize(anyone) -> int { return 42; } }
 "#,
             1,
         );
@@ -47,13 +47,9 @@ seiyaku CycleCallee { view fn value() -> int { return 42; } }
             let (result, parent, overlay, _) = run(&allowance);
             result.unwrap();
             assert!(overlay.is_empty());
-            let tlv = parent
-                .memory
-                .validate_tlv(authenticated_test_probe_result(&parent))
-                .unwrap();
             assert_eq!(
-                decode_nested_return(
-                    tlv.payload,
+                render_nested_result(
+                    &parent,
                     iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1::Int
                 ),
                 norito::json!("42")
@@ -80,7 +76,7 @@ seiyaku CycleCallee { view fn value() -> int { return 42; } }
             &state,
             &authority,
             r#"
-seiyaku CycleCaller { view fn main() -> int { return 0; } }
+seiyaku CycleCaller { view fn main() authorize(anyone) -> int { return 0; } }
 "#,
             0,
         );
@@ -88,11 +84,11 @@ seiyaku CycleCaller { view fn main() -> int { return 0; } }
             &state,
             &authority,
             r#"
-seiyaku CycleFailure {
+seiyaku CycleFailure { permission AssetOps;
   error enum Failure { Refused = 1 }
   state int counter;
   hajimari() { counter = 0; }
-  kotoage fn fail_after_write() -> int authorize("AssetOps") {
+  kotoage fn fail_after_write() authorize(AssetOps) -> int {
     counter = 9;
     require(false, Failure::Refused);
     return 0;
@@ -103,7 +99,9 @@ seiyaku CycleFailure {
         );
         grant_asset_ops_to_account(&state, &authority, caller.subject_id());
         let prologue_cycles = authenticated_test_probe_prologue().len() as u64;
-        let boundary_only_limit = prologue_cycles + 1;
+        // Six additional moves restore r10..r15 from staged operands before A9.
+        let completed_parent_cycles = prologue_cycles + (10..=15).count() as u64;
+        let boundary_only_limit = completed_parent_cycles + 1;
         for limit in [1_000_000, boundary_only_limit] {
             let allowance = ivm::VmCycleBudget::new(NonZeroU64::new(limit).unwrap());
             let (result, parent, overlay, target) =
@@ -122,7 +120,7 @@ seiyaku CycleFailure {
                 assert_eq!(error.as_unmetered(), &ivm::VMError::ExceededMaxCycles);
                 assert_eq!(
                     allowance.consumed(),
-                    prologue_cycles,
+                    completed_parent_cycles,
                     "after staging, the parent reservation leaves no child cycle available"
                 );
                 assert!(allowance.exhausted());

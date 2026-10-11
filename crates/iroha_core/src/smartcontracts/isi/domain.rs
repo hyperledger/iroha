@@ -16,13 +16,13 @@ pub mod isi {
             authority_can_manage_asset_definition_alias,
         },
         state::{
-            WorldReadOnly as _, account_label_is_pii, public_lane_reward_record_matches_key,
-            public_lane_stake_share_matches_key, public_lane_validator_record_matches_key,
+            WorldReadOnly as _, account_label_is_pii, public_lane_stake_share_matches_key,
+            public_lane_validator_record_matches_key,
         },
     };
     use iroha_crypto::{Algorithm, PublicKey};
     use iroha_data_model::{
-        IntoKeyValue, NetworkId,
+        IntoKeyValue,
         account::{
             AccountController,
             curve::{CurveId, CurveRegistryError},
@@ -36,20 +36,21 @@ pub mod isi {
             AssetBalancePolicy,
         },
         isi::error::{InstructionExecutionError, InvalidParameterError, RepetitionError},
-        nexus::{AxtAssetIncarnationV1, DataSpaceCatalog, LaneVisibility},
+        nexus::{AxtAssetIncarnationV1, DataSpaceCatalog},
     };
     use iroha_logger::prelude::*;
     use iroha_model_base::domain::DomainId;
-    use iroha_model_base::metadata::Metadata;
     use iroha_model_base::name::Name;
     use iroha_model_base::topology::DataSpaceId;
-    use std::{
-        collections::{BTreeSet, btree_map::Entry},
-        str::FromStr,
-    };
+    use std::{collections::BTreeSet, str::FromStr};
     /// Alias grace window after lease expiry (369 hours).
     const ASSET_ALIAS_GRACE_MS: u64 = 369u64 * 60 * 60 * 1_000;
     include!("domain/asset_alias_scope.rs");
+    /// Exact private-root home admission and original refusal controls.
+    #[cfg(test)]
+    mod private_root_home_tests {
+        include!("domain/private_root_home_tests.rs");
+    }
     /// Restore or retarget the continuity record for an already validated alias binding.
     ///
     /// # Errors
@@ -490,20 +491,35 @@ pub mod isi {
         validate_alias_for_asset_definition(asset_definition.alias().as_ref(), asset_definition)?;
         Ok(())
     }
+    /// Check an alias's namespace route against the definition's immutable home.
+    ///
+    /// `home_dataspace` is `None` only when the home cannot be resolved; the caller's
+    /// authoritative-route check then refuses the registration.
     fn validate_asset_definition_alias_route(
         state_transaction: &mut StateTransaction<'_, '_>,
         alias: Option<&AssetDefinitionAlias>,
+        home_dataspace: Option<DataSpaceId>,
     ) -> Result<(), InstructionExecutionError> {
         let Some(alias) = alias else {
             return Ok(());
         };
-        if dataspace_id_for_alias_segment(state_transaction, alias.dataspace_segment())?.is_none() {
+        let Some(alias_dataspace) =
+            dataspace_id_for_alias_segment(state_transaction, alias.dataspace_segment())?
+        else {
             return Err(InstructionExecutionError::InvariantViolation(
                 format!(
                     "asset definition alias `{alias}` references an unknown or inactive dataspace"
                 )
                 .into(),
             ));
+        };
+        if let Some(home_dataspace) = home_dataspace {
+            ensure_alias_namespace_matches_home(
+                state_transaction,
+                alias,
+                alias_dataspace,
+                home_dataspace,
+            )?;
         }
         let Some(domain) = alias.domain_segment() else {
             return Ok(());
@@ -802,6 +818,9 @@ pub mod isi {
         if let Ok(permission) = iroha_executor_data_model::permission::asset_definition::CanModifyAssetDefinitionMetadata::try_from(permission) {
             return &permission.asset_definition == asset_definition_id;
         }
+        if let Ok(permission) = iroha_executor_data_model::permission::asset_definition::CanManageKagemushaWallet::try_from(permission) {
+            return &permission.asset_definition == asset_definition_id;
+        }
         if let Ok(permission) = iroha_executor_data_model::permission::asset_definition::CanManageAssetDefinitionConfidentialPolicy::try_from(permission) {
             return &permission.asset_definition == asset_definition_id;
         }
@@ -1001,6 +1020,96 @@ pub mod isi {
     ) -> Option<AssetDefinitionId> {
         crate::block::parse_asset_definition_literal_with_world(world, raw, now_ms)
     }
+    /// Check, without mutating state, the identity rules `Register<Account>` applies to the
+    /// built `account` before it is inserted: reserved native metadata keys, controller
+    /// capabilities, an already registered id, retired rekey identities, reserved FX corridor
+    /// and SCCP escrow identities, and the UAID and opaque-identifier bindings.
+    ///
+    /// `Register<Account>` runs exactly this check first, and SCCP settlement runs it for an
+    /// absent recipient (`specs/sccp.md` §4.12.3): an identity it refuses can never be
+    /// registered, so the message bounces instead of failing. Metadata sizes and the account
+    /// label (which a bare `Account::new` never carries) are checked by the execution itself.
+    ///
+    /// TODO(ws41): `Register<Account>` ends with `retail_fee::reopen_account`, which can still
+    /// refuse an identity that has retained retail state (no active retail policy, or a
+    /// refused reopen). That refusal is not prechecked here, so SCCP settlement of such a
+    /// recipient fails instead of bouncing or holding.
+    ///
+    /// # Errors
+    ///
+    /// Returns the refusal `Register<Account>` would report.
+    pub(crate) fn precheck_register_account(
+        state_transaction: &StateTransaction<'_, '_>,
+        account: &Account,
+    ) -> Result<(), Error> {
+        if let Some(reserved_key) = [
+            ASSET_TRANSFER_CONTROL_METADATA_KEY,
+            iroha_data_model::validation_fee::RETAIL_FEE_ENROLLMENT_METADATA_KEY,
+            iroha_data_model::smart_contract::CONTRACT_DEPLOY_NONCE_METADATA_KEY,
+        ]
+        .into_iter()
+        .find(|key| account.metadata().get(*key).is_some())
+        {
+            return Err(InstructionExecutionError::InvariantViolation(
+                format!(
+                    "account metadata key `{reserved_key}` is reserved for native state; register the account without it and use the dedicated lifecycle instruction"
+                )
+                .into(),
+            ));
+        }
+        ensure_controller_capabilities(
+            account.controller(),
+            &state_transaction.crypto.allowed_signing,
+            &state_transaction.crypto.allowed_curve_ids,
+        )?;
+        let account_id = account.id();
+        if state_transaction.world.account(account_id).is_ok() {
+            return Err(RepetitionError {
+                instruction: InstructionType::Register,
+                id: IdBox::AccountId(account_id.clone()),
+            }
+            .into());
+        }
+        crate::retail_fee::ensure_not_rekeyed(&state_transaction.world, account_id)?;
+        crate::smartcontracts::isi::kaigi::ensure_account_id_is_not_retired_rekey_predecessor(
+            state_transaction,
+            account_id,
+        )?;
+        if crate::smartcontracts::isi::asset::isi::is_fx_corridor_escrow_account(
+            state_transaction,
+            account_id,
+        )? {
+            return Err(InstructionExecutionError::InvariantViolation(
+                format!(
+                    "cannot register account {account_id}: its identity is reserved for deterministic FX corridor protocol escrow"
+                )
+                .into(),
+            ));
+        }
+        if crate::smartcontracts::isi::sccp::escrow::is_escrow(
+            &*state_transaction.world,
+            account_id,
+        ) {
+            return Err(InstructionExecutionError::InvariantViolation(
+                format!(
+                    "cannot register account {account_id}: its identity is reserved for an SCCP route escrow"
+                )
+                .into(),
+            ));
+        }
+        if let Some(uaid) = account.uaid() {
+            if let Some(existing) = state_transaction.world.uaid_accounts.get(uaid) {
+                return Err(InstructionExecutionError::InvariantViolation(
+                    format!("UAID {uaid} already bound to account {existing}").into(),
+                ));
+            }
+        } else if !account.opaque_ids().is_empty() {
+            return Err(InstructionExecutionError::InvariantViolation(
+                "Opaque identifiers require a UAID".to_owned().into(),
+            ));
+        }
+        Ok(())
+    }
     impl Execute for Register<Account> {
         #[metrics(+"register_account")]
         fn execute(
@@ -1009,79 +1118,12 @@ pub mod isi {
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             let account: Account = self.object().clone().build(authority);
-            if let Some(reserved_key) = [
-                ASSET_TRANSFER_CONTROL_METADATA_KEY,
-                iroha_data_model::validation_fee::RETAIL_FEE_ENROLLMENT_METADATA_KEY,
-                iroha_data_model::smart_contract::CONTRACT_DEPLOY_NONCE_METADATA_KEY,
-            ]
-            .into_iter()
-            .find(|key| account.metadata().get(*key).is_some())
-            {
-                return Err(InstructionExecutionError::InvariantViolation(
-                    format!(
-                        "account metadata key `{reserved_key}` is reserved for native state; register the account without it and use the dedicated lifecycle instruction"
-                    )
-                    .into(),
-                )
-                .into());
-            }
+            precheck_register_account(state_transaction, &account)?;
             crate::smartcontracts::limits::enforce_metadata_value_sizes(
                 state_transaction,
                 account.metadata(),
             )?;
-            ensure_controller_capabilities(
-                account.controller(),
-                &state_transaction.crypto.allowed_signing,
-                &state_transaction.crypto.allowed_curve_ids,
-            )?;
             let (account_id, account_value) = account.clone().into_key_value();
-            if state_transaction.world.account(&account_id).is_ok() {
-                return Err(RepetitionError {
-                    instruction: InstructionType::Register,
-                    id: IdBox::AccountId(account_id),
-                }
-                .into());
-            }
-            crate::retail_fee::ensure_not_rekeyed(&state_transaction.world, &account_id)?;
-            crate::smartcontracts::isi::kaigi::ensure_account_id_is_not_retired_rekey_predecessor(
-                state_transaction,
-                &account_id,
-            )?;
-            if crate::smartcontracts::isi::asset::isi::is_fx_corridor_escrow_account(
-                state_transaction,
-                &account_id,
-            )? {
-                return Err(InstructionExecutionError::InvariantViolation(
-                    format!(
-                        "cannot register account {account_id}: its identity is reserved for deterministic FX corridor protocol escrow"
-                    )
-                    .into(),
-                )
-                .into());
-            }
-            if crate::smartcontracts::isi::sccp::escrow::is_escrow(
-                &*state_transaction.world,
-                &account_id,
-            ) {
-                return Err(InstructionExecutionError::InvariantViolation(
-                    format!(
-                        "cannot register account {account_id}: its identity is reserved for an SCCP route escrow"
-                    )
-                    .into(),
-                )
-                .into());
-            }
-            if let Some(uaid) = account.uaid() {
-                if let Some(existing) = state_transaction.world.uaid_accounts.get(uaid) {
-                    return Err(InstructionExecutionError::InvariantViolation(
-                        format!("UAID {uaid} already bound to account {existing}").into(),
-                    ));
-                }
-            } else if !account.opaque_ids().is_empty() {
-                return Err(InstructionExecutionError::InvariantViolation(
-                    "Opaque identifiers require a UAID".to_owned().into(),
-                ));
-            }
             if let Some(label) = account.label() {
                 if account_label_is_pii(label) {
                     return Err(InstructionExecutionError::InvariantViolation(
@@ -1344,6 +1386,16 @@ pub mod isi {
                     .into(),
                 )
                     .into());
+            }
+            if crate::kagemusha_wallet_v1::custody::is_reserve_account(
+                state_transaction.world(),
+                &account_id,
+            )
+            .map_err(crate::smartcontracts::isi::asset::isi::kagemusha_custody_error)?
+            {
+                return Err(InstructionExecutionError::InvariantViolation(
+                    format!("cannot unregister account {account_id}: it is permanent KAGEMUSHA reserve custody").into(),
+                ).into());
             }
             if crate::smartcontracts::isi::escrow::is_protocol_escrow_custody_account(
                 state_transaction,
@@ -1734,57 +1786,6 @@ pub mod isi {
                 return Err(InstructionExecutionError::InvariantViolation(
                     format!(
                         "cannot unregister account {account_id}: it has active public-lane stake share state (lane {lane_id}, validator {validator}, staker {staker}); unbond first"
-                    )
-                    .into(),
-                )
-                .into());
-            }
-            if let Some(((lane_id, epoch), _)) = state_transaction
-                .world
-                .public_lane_rewards
-                .iter()
-                .find(|(key, record)| {
-                    public_lane_reward_record_matches_key(key, record)
-                        && (record.asset.account() == &account_id
-                            || record
-                                .shares
-                                .iter()
-                                .any(|share| share.account == account_id))
-                })
-            {
-                return Err(InstructionExecutionError::InvariantViolation(
-                    format!(
-                        "cannot unregister account {account_id}: it has active public-lane reward ledger state (lane {lane_id}, epoch {epoch}); settle or prune rewards first"
-                    )
-                    .into(),
-                )
-                .into());
-            }
-            if let Some(((lane_id, claimant), _)) = state_transaction
-                .world
-                .public_lane_reward_claims
-                .iter()
-                .find(|((_, claimant), _)| claimant == &account_id)
-            {
-                return Err(InstructionExecutionError::InvariantViolation(
-                    format!(
-                        "cannot unregister account {account_id}: it has pending public-lane reward claim state (lane {lane_id}, account {claimant}); clear the retained processing cursor first"
-                    )
-                    .into(),
-                )
-                .into());
-            }
-            if let Some(((lane_id, claimant, asset_id), _)) = state_transaction
-                .world
-                .public_lane_reward_accruals
-                .iter()
-                .find(|((_, claimant, asset_id), _)| {
-                    claimant == &account_id || asset_id.account() == &account_id
-                })
-            {
-                return Err(InstructionExecutionError::InvariantViolation(
-                    format!(
-                        "cannot unregister account {account_id}: it has unpaid public-lane reward accrual state as claimant or reward-asset owner (lane {lane_id}, account {claimant}, asset {asset_id}); settle rewards first"
                     )
                     .into(),
                 )
@@ -2244,100 +2245,194 @@ pub mod isi {
             authority: &AccountId,
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
-            let asset_definition = self.object().clone().build(authority);
-            crate::smartcontracts::limits::enforce_metadata_value_sizes(
+            register_asset_definition(self.object().clone(), None, authority, state_transaction)
+        }
+    }
+    impl Execute for iroha_data_model::isi::RegisterDataspaceAssetDefinition {
+        #[metrics(+"register_dataspace_asset_definition")]
+        fn execute(
+            self,
+            authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
+            ensure_dataspace_asset_definition_registration_allowed(
                 state_transaction,
-                asset_definition.metadata(),
+                authority,
+                &self,
             )?;
-            ensure_asset_definition_human_fields(&asset_definition)?;
-            validate_asset_definition_alias_route(
+            register_asset_definition(
+                self.object,
+                Some(self.dataspace_id),
+                authority,
                 state_transaction,
-                asset_definition.alias().as_ref(),
+            )
+        }
+    }
+    /// Authorize an immutable direct namespace against current on-chain SNS ownership.
+    /// This does not grant the namespace owner access to any existing monetary balance.
+    pub(crate) fn ensure_dataspace_asset_definition_registration_allowed(
+        state_transaction: &mut StateTransaction<'_, '_>,
+        authority: &AccountId,
+        instruction: &iroha_data_model::isi::RegisterDataspaceAssetDefinition,
+    ) -> Result<(), InstructionExecutionError> {
+        instruction.validate().map_err(|error| {
+            InstructionExecutionError::InvariantViolation(
+                format!("invalid direct-dataspace asset definition: {error}").into(),
+            )
+        })?;
+        let dataspace_id = instruction.dataspace_id;
+        if dataspace_id == DataSpaceId::UNIVERSAL {
+            return Err(InstructionExecutionError::InvariantViolation(
+                "direct-dataspace registration requires a non-Universal dataspace".into(),
+            ));
+        }
+        let owner = crate::sns::active_dataspace_owner_by_id(
+            &state_transaction.world,
+            &state_transaction.nexus.dataspace_catalog,
+            dataspace_id,
+            state_transaction.block_unix_timestamp_ms(),
+        )
+        .map_err(|error| error.retain_in_instruction(state_transaction))?;
+        if owner.as_ref() != Some(authority) {
+            return Err(InstructionExecutionError::InvariantViolation(
+                "only the current active SNS dataspace owner may register a direct-dataspace asset definition".into(),
+            ));
+        }
+        if state_transaction.current_dataspace_id != Some(dataspace_id)
+            || state_transaction.world.current_dataspace_id != Some(dataspace_id)
+        {
+            return Err(InstructionExecutionError::InvariantViolation(
+                "direct-dataspace asset definition must register on its exact authoritative route"
+                    .into(),
+            ));
+        }
+        ensure_home_admissible(
+            state_transaction,
+            &instruction.object.id,
+            instruction.object.balance_scope_policy,
+            dataspace_id,
+        )
+    }
+    /// Register the existing definition payload and its optional direct namespace atomically.
+    fn register_asset_definition(
+        object: iroha_data_model::asset::NewAssetDefinition,
+        dataspace_id: Option<DataSpaceId>,
+        authority: &AccountId,
+        state_transaction: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), Error> {
+        let asset_definition = object.build(authority);
+        crate::smartcontracts::limits::enforce_metadata_value_sizes(
+            state_transaction,
+            asset_definition.metadata(),
+        )?;
+        ensure_asset_definition_human_fields(&asset_definition)?;
+        let home_dataspace = match dataspace_id {
+            Some(dataspace_id) => Some(dataspace_id),
+            None => asset_definition_home_dataspace(state_transaction, &asset_definition)?,
+        };
+        validate_asset_definition_alias_route(
+            state_transaction,
+            asset_definition.alias().as_ref(),
+            home_dataspace,
+        )?;
+        if let Some(alias) = asset_definition.alias().as_ref() {
+            ensure_authority_can_manage_asset_definition_alias(
+                state_transaction,
+                authority,
+                asset_definition.id(),
+                alias,
             )?;
-            if let Some(alias) = asset_definition.alias().as_ref() {
-                ensure_authority_can_manage_asset_definition_alias(
-                    state_transaction,
-                    authority,
-                    asset_definition.id(),
-                    alias,
-                )?;
-            }
+        }
+        if dataspace_id.is_none() {
             ensure_asset_definition_domain_context(
                 state_transaction,
                 authority,
                 &asset_definition,
             )?;
-            ensure_global_asset_definition_registered_on_authoritative_route(
+            ensure_asset_definition_registered_on_authoritative_route(
                 state_transaction,
                 &asset_definition,
             )?;
-            let asset_definition_id = asset_definition.id().clone();
-            if state_transaction
+        }
+        let asset_definition_id = asset_definition.id().clone();
+        if state_transaction
+            .world
+            .asset_definition(&asset_definition_id)
+            .is_ok()
+        {
+            return Err(RepetitionError {
+                instruction: InstructionType::Register,
+                id: IdBox::AssetDefinitionId(asset_definition_id),
+            }
+            .into());
+        }
+        if let Some(alias) = asset_definition.alias()
+            && let Some(existing) = state_transaction
                 .world
-                .asset_definition(&asset_definition_id)
-                .is_ok()
-            {
-                return Err(RepetitionError {
-                    instruction: InstructionType::Register,
-                    id: IdBox::AssetDefinitionId(asset_definition_id),
-                }
-                .into());
-            }
-            if let Some(alias) = asset_definition.alias()
-                && let Some(existing) = state_transaction
-                    .world
-                    .asset_definition_aliases
-                    .get(alias)
-                    .cloned()
-                && existing != asset_definition_id
-            {
-                return Err(InstructionExecutionError::InvariantViolation(
-                    format!("asset definition alias `{alias}` is already bound").into(),
+                .asset_definition_aliases
+                .get(alias)
+                .cloned()
+            && existing != asset_definition_id
+        {
+            return Err(InstructionExecutionError::InvariantViolation(
+                format!("asset definition alias `{alias}` is already bound").into(),
+            )
+            .into());
+        }
+        let mut stored_definition = asset_definition.clone();
+        stored_definition.alias = None;
+        let registration_header_hash = state_transaction._curr_block.hash();
+        let (execution_identity, lifecycle_ordinal) = state_transaction
+            .next_lifecycle_transition_seed()
+            .map_err(|error| {
+                InstructionExecutionError::InvariantViolation(
+                    format!(
+                        "asset-definition registration lacks deterministic execution identity: {error}"
+                    )
+                    .into(),
                 )
-                .into());
-            }
-            let mut stored_definition = asset_definition.clone();
-            stored_definition.alias = None;
-            let registration_header_hash = state_transaction._curr_block.hash();
-            let (execution_identity, lifecycle_ordinal) = state_transaction
-                .next_lifecycle_transition_seed()
+            })?;
+        let incarnation = AxtAssetIncarnationV1::derive(
+            state_transaction.network_id(),
+            &asset_definition_id,
+            &registration_header_hash,
+            &execution_identity,
+            lifecycle_ordinal,
+        );
+        state_transaction
+            .world
+            .insert_asset_definition_entry(asset_definition_id.clone(), stored_definition);
+        state_transaction
+            .world
+            .axt_asset_incarnations
+            .insert(asset_definition_id.clone(), incarnation);
+        if let Some(dataspace_id) = dataspace_id {
+            state_transaction
+                .register_direct_asset_definition_home(
+                    &asset_definition_id,
+                    incarnation,
+                    dataspace_id,
+                )
                 .map_err(|error| {
                     InstructionExecutionError::InvariantViolation(
-                        format!(
-                            "asset-definition registration lacks deterministic execution identity: {error}"
-                        )
-                        .into(),
+                        format!("direct asset home registration failed: {error}").into(),
                     )
                 })?;
-            let incarnation = AxtAssetIncarnationV1::derive(
-                state_transaction.network_id(),
-                &asset_definition_id,
-                &registration_header_hash,
-                &execution_identity,
-                lifecycle_ordinal,
-            );
-            state_transaction
-                .world
-                .insert_asset_definition_entry(asset_definition_id.clone(), stored_definition);
-            state_transaction
-                .world
-                .axt_asset_incarnations
-                .insert(asset_definition_id.clone(), incarnation);
-            if let Some(alias) = asset_definition.alias().as_ref().cloned() {
-                let bound_at_ms = state_transaction.block_unix_timestamp_ms();
-                state_transaction.world.bind_asset_definition_alias(
-                    &asset_definition_id,
-                    alias,
-                    None,
-                    None,
-                    bound_at_ms,
-                )?;
-            }
-            state_transaction
-                .world
-                .emit_asset_definition_event(AssetDefinitionEvent::Created(asset_definition));
-            Ok(())
         }
+        if let Some(alias) = asset_definition.alias().as_ref().cloned() {
+            let bound_at_ms = state_transaction.block_unix_timestamp_ms();
+            state_transaction.world.bind_asset_definition_alias(
+                &asset_definition_id,
+                alias,
+                None,
+                None,
+                bound_at_ms,
+            )?;
+        }
+        state_transaction
+            .world
+            .emit_asset_definition_event(AssetDefinitionEvent::Created(asset_definition));
+        Ok(())
     }
     impl Execute for Unregister<AssetDefinition> {
         #[metrics(+"unregister_asset_definition")]
@@ -2411,6 +2506,16 @@ pub mod isi {
                     .into(),
                 )
                     .into());
+            }
+            if crate::kagemusha_wallet_v1::custody::is_reserve_definition(
+                state_transaction.world(),
+                &asset_definition_id,
+            )
+            .map_err(crate::smartcontracts::isi::asset::isi::kagemusha_custody_error)?
+            {
+                return Err(InstructionExecutionError::InvariantViolation(
+                    format!("cannot unregister asset definition {asset_definition_id}: it is permanent KAGEMUSHA reserve custody").into(),
+                ).into());
             }
             let privacy_reserve_custody =
                 crate::privacy_state::load_privacy_public_reserve_custody_v1(
@@ -2625,37 +2730,6 @@ pub mod isi {
                     format!("cannot unregister asset definition {asset_definition_id}: it is the committed network XOR identity").into(),
                 ).into());
             }
-            if let Some(((lane_id, epoch), _)) = state_transaction
-                .world
-                .public_lane_rewards
-                .iter()
-                .find(|(key, record)| {
-                    public_lane_reward_record_matches_key(key, record)
-                        && record.asset.definition() == &asset_definition_id
-                })
-            {
-                return Err(InstructionExecutionError::InvariantViolation(
-                    format!(
-                        "cannot unregister asset definition {asset_definition_id}: it has active public-lane reward ledger state (lane {lane_id}, epoch {epoch}); settle or prune rewards first"
-                    )
-                    .into(),
-                )
-                .into());
-            }
-            if let Some(((lane_id, claimant, asset_id), _)) = state_transaction
-                .world
-                .public_lane_reward_accruals
-                .iter()
-                .find(|((_, _, asset_id), _)| asset_id.definition() == &asset_definition_id)
-            {
-                return Err(InstructionExecutionError::InvariantViolation(
-                    format!(
-                        "cannot unregister asset definition {asset_definition_id}: it has unpaid public-lane reward accrual state (lane {lane_id}, account {claimant}, asset {asset_id}); settle rewards first"
-                    )
-                    .into(),
-                )
-                .into());
-            }
             let retirement =
                 crate::smartcontracts::isi::asset::isi::QuantityRetirementOwner::retain(
                     state_transaction,
@@ -2750,7 +2824,12 @@ pub mod isi {
                 .into());
             }
             validate_alias_for_asset_definition(alias.as_ref(), &definition)?;
-            validate_asset_definition_alias_route(state_transaction, alias.as_ref())?;
+            let home_dataspace = asset_definition_home_dataspace(state_transaction, &definition)?;
+            validate_asset_definition_alias_route(
+                state_transaction,
+                alias.as_ref(),
+                home_dataspace,
+            )?;
             let existing_alias = state_transaction
                 .world
                 .asset_definition_alias_bindings
@@ -3022,7 +3101,12 @@ pub mod isi {
             }
             crate::smartcontracts::isi::kaigi::validate_kaigi_relay_allowlist_metadata(
                 &key, &value,
-            )?;
+            )
+            .map_err(|error| {
+                state_transaction
+                    .world
+                    .attempt_error_to_instruction_error(error)
+            })?;
             crate::smartcontracts::limits::enforce_json_size(
                 state_transaction,
                 &value,
@@ -3530,7 +3614,6 @@ mod tests {
     use iroha_executor_data_model::permission::asset_definition::{
         AssetDefinitionAliasPermissionScope, CanManageAssetDefinitionAlias,
     };
-    use iroha_model_base::chain::ChainId;
     use iroha_model_base::domain::DomainId;
     use iroha_model_base::metadata::Metadata;
     use iroha_model_base::name::Name;
@@ -7866,6 +7949,12 @@ mod tests {
                     .expect("retained contract binding")
                     .lifecycle
                     .active_code_hash = Some(code_hash);
+                tx.world
+                    .contract_subject_bindings
+                    .get_mut(&contract)
+                    .unwrap()
+                    .lifecycle
+                    .retained_code_hash = Some(code_hash);
             }
 
             let error = Unregister::account(subject.clone())
@@ -8330,7 +8419,6 @@ mod tests {
                         activation_height: 1,
                         election_exit_height: None,
                         deactivation_height: None,
-                        last_reward_epoch: None,
                     },
                 );
             },
@@ -8357,7 +8445,6 @@ mod tests {
                         activation_height: 1,
                         election_exit_height: None,
                         deactivation_height: None,
-                        last_reward_epoch: None,
                     },
                 );
                 Unregister::account(account_id.clone())
@@ -8380,188 +8467,40 @@ mod tests {
             },
         );
     }
+
     #[test]
-    fn unregister_account_rejects_when_account_has_public_lane_reward_record_state() {
-        assert_account_unregister_guard(
-            |tx, domain_id, _authority, account_id| {
-                tx.world.public_lane_rewards.insert(
-                    (LaneId::SINGLE, 1),
-                    iroha_data_model::nexus::PublicLaneRewardRecord {
-                        lane_id: LaneId::SINGLE,
-                        epoch: 1,
-                        asset: AssetId::new(
-                            AssetDefinitionId::derive_from_components(
-                                domain_id.clone(),
-                                "fee".parse().unwrap(),
-                            ),
-                            account_id.clone(),
-                        ),
-                        total_reward: Quantity::from(1_u32),
-                        shares: vec![iroha_data_model::nexus::PublicLaneRewardShare {
-                            account: account_id.clone(),
-                            role: iroha_data_model::nexus::PublicLaneRewardRole::Validator,
-                            amount: Quantity::from(1_u32),
-                        }],
+    fn unregister_account_ignores_mismatched_public_lane_economic_rows() {
+        with_registered_account_unregistration_candidate(
+            |authority, _domain_id, account_id, tx| {
+                tx.world.public_lane_stake_shares.insert(
+                    (LaneId::SINGLE, account_id.clone(), authority.clone()),
+                    iroha_data_model::nexus::PublicLaneStakeShare {
+                        lane_id: LaneId::new(1),
+                        validator: account_id.clone(),
+                        staker: authority.clone(),
+                        bonded: Quantity::from(1_u32),
+                        pending_unbonds: std::collections::BTreeMap::new(),
                         metadata: Metadata::default(),
                     },
                 );
+                Unregister::account(account_id.clone())
+                    .execute(&authority, tx)
+                    .expect(
+                        "mismatched public-lane economic rows must not block account unregister",
+                    );
+                assert!(
+                    tx.world.accounts.get(&account_id).is_none(),
+                    "account should be unregistered when only malformed economic rows reference it"
+                );
+                assert!(
+                    tx.world
+                        .public_lane_stake_shares
+                        .get(&(LaneId::SINGLE, account_id.clone(), authority))
+                        .is_some(),
+                    "malformed stake-share row remains as stored"
+                );
             },
-            "account with public-lane reward state must not be unregistered",
-            "public-lane reward ledger state",
-            "error should explain reward-state conflict",
         );
-    }
-    #[test]
-    fn unregister_account_rejects_retained_reward_processing_cursor() {
-        with_registered_account_unregistration_candidate(|authority, _, account_id, tx| {
-            let key = (LaneId::SINGLE, account_id.clone());
-            let cursor = iroha_data_model::nexus::PublicLaneRewardClaimStateV1 {
-                through_epoch: Some(1),
-            };
-            tx.world
-                .public_lane_reward_claims
-                .insert(key.clone(), cursor);
-            assert!(tx.world.public_lane_reward_accruals.iter().next().is_none());
-            let error = Unregister::account(account_id.clone())
-                .execute(&authority, tx)
-                .expect_err("retained processing cursor keeps its recipient registered");
-            assert!(
-                error.to_string().contains("retained processing cursor"),
-                "{error}"
-            );
-            assert_eq!(tx.world.public_lane_reward_claims.get(&key), Some(&cursor));
-            assert!(tx.world.accounts.get(&account_id).is_some());
-            tx.world.public_lane_reward_claims.remove(key);
-            Unregister::account(account_id.clone())
-                .execute(&authority, tx)
-                .expect("clearing the only retained cursor releases the account");
-            assert!(tx.world.accounts.get(&account_id).is_none());
-        });
-    }
-    #[test]
-    fn unregister_account_rejects_when_account_is_reward_claim_asset_owner() {
-        assert_account_unregister_guard(
-            |tx, domain_id, authority, account_id| {
-                let source = AssetId::new(
-                    AssetDefinitionId::derive_from_components(
-                        domain_id.clone(),
-                        "fee".parse().unwrap(),
-                    ),
-                    account_id.clone(),
-                );
-                tx.world.public_lane_reward_claims.insert(
-                    (LaneId::SINGLE, authority.clone()),
-                    iroha_data_model::nexus::PublicLaneRewardClaimStateV1 {
-                        through_epoch: Some(1),
-                    },
-                );
-                tx.world.public_lane_reward_accruals.insert(
-                    (LaneId::SINGLE, authority.clone(), source.clone()),
-                    Quantity::one(),
-                );
-                tx.world
-                    .public_lane_reward_reserves
-                    .insert(source, Quantity::one());
-            },
-            "account referenced by reward-accrual source owner must not be unregistered",
-            "public-lane reward accrual state",
-            "error should explain reward-accrual conflict",
-        );
-    }
-    #[test]
-    fn unregister_asset_definition_preserves_exact_reward_accrual_source() {
-        with_registered_asset_definition_unregistration_candidate(|authority, definition, tx| {
-            let source = AssetId::new(definition.clone(), authority.clone());
-            let key = (LaneId::SINGLE, authority.clone(), source.clone());
-            tx.world
-                .public_lane_reward_accruals
-                .insert(key.clone(), Quantity::one());
-            tx.world
-                .public_lane_reward_reserves
-                .insert(source.clone(), Quantity::one());
-            let error = Unregister::asset_definition(definition.clone())
-                .execute(&authority, tx)
-                .expect_err("positive accrual keeps its exact source definition registered");
-            assert!(
-                error
-                    .to_string()
-                    .contains("public-lane reward accrual state"),
-                "{error}"
-            );
-            assert!(tx.world.asset_definitions.get(&definition).is_some());
-            assert_eq!(
-                tx.world.public_lane_reward_accruals.get(&key),
-                Some(&Quantity::one())
-            );
-            assert_eq!(
-                tx.world.public_lane_reward_reserves.get(&source),
-                Some(&Quantity::one())
-            );
-            tx.world.public_lane_reward_accruals.remove(key);
-            tx.world.public_lane_reward_reserves.remove(source);
-            Unregister::asset_definition(definition.clone())
-                .execute(&authority, tx)
-                .expect("settled accrual releases the source definition");
-            assert!(tx.world.asset_definitions.get(&definition).is_none());
-        });
-    }
-    #[test]
-    fn unregister_account_ignores_mismatched_public_lane_economic_rows() {
-        with_registered_account_unregistration_candidate(|authority, domain_id, account_id, tx| {
-            tx.world.public_lane_stake_shares.insert(
-                (LaneId::SINGLE, account_id.clone(), authority.clone()),
-                iroha_data_model::nexus::PublicLaneStakeShare {
-                    lane_id: LaneId::new(1),
-                    validator: account_id.clone(),
-                    staker: authority.clone(),
-                    bonded: Quantity::from(1_u32),
-                    pending_unbonds: std::collections::BTreeMap::new(),
-                    metadata: Metadata::default(),
-                },
-            );
-            tx.world.public_lane_rewards.insert(
-                (LaneId::SINGLE, 1),
-                iroha_data_model::nexus::PublicLaneRewardRecord {
-                    lane_id: LaneId::new(1),
-                    epoch: 1,
-                    asset: AssetId::new(
-                        AssetDefinitionId::derive_from_components(
-                            domain_id.clone(),
-                            "fee".parse().unwrap(),
-                        ),
-                        account_id.clone(),
-                    ),
-                    total_reward: Quantity::from(1_u32),
-                    shares: vec![iroha_data_model::nexus::PublicLaneRewardShare {
-                        account: account_id.clone(),
-                        role: iroha_data_model::nexus::PublicLaneRewardRole::Validator,
-                        amount: Quantity::from(1_u32),
-                    }],
-                    metadata: Metadata::default(),
-                },
-            );
-            Unregister::account(account_id.clone())
-                .execute(&authority, tx)
-                .expect("mismatched public-lane economic rows must not block account unregister");
-            assert!(
-                tx.world.accounts.get(&account_id).is_none(),
-                "account should be unregistered when only malformed economic rows reference it"
-            );
-            assert!(
-                tx.world
-                    .public_lane_stake_shares
-                    .get(&(LaneId::SINGLE, account_id.clone(), authority))
-                    .is_some(),
-                "malformed stake-share row remains as stored"
-            );
-            assert!(
-                tx.world
-                    .public_lane_rewards
-                    .get(&(LaneId::SINGLE, 1))
-                    .is_some(),
-                "malformed reward row remains as stored"
-            );
-        });
     }
     #[test]
     fn unregister_account_rejects_when_account_has_repo_agreement_state() {
@@ -9034,6 +8973,202 @@ mod tests {
         block.commit_world_overlay_for_testing().unwrap();
     }
     #[test]
+    fn direct_dataspace_registration_checks_owner_route_and_balance_policy() {
+        let state = test_state();
+        let authority = (*ALICE_ID).clone();
+        let dataspace =
+            crate::sns::dataspace_id_for_sns_alias("paynet").expect("canonical SNS dataspace ID");
+        let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
+        let mut tx = block.transaction();
+        let catalog = DataSpaceCatalog::new(vec![
+            DataSpaceMetadata::default(),
+            DataSpaceMetadata {
+                id: dataspace,
+                alias: "paynet".to_owned(),
+                description: None,
+                fault_tolerance: 1,
+            },
+        ])
+        .expect("catalog");
+        tx.nexus.dataspace_catalog = catalog.clone();
+        tx.world.dataspace_catalog = catalog;
+        seed_dataspace_alias_lease(&mut tx, &authority, "paynet");
+        tx.current_dataspace_id = Some(dataspace);
+        tx.world.current_dataspace_id = Some(dataspace);
+        tx.nexus.lane_catalog = LaneCatalog::new(
+            nonzero!(2_u32),
+            vec![
+                LaneConfig::default(),
+                LaneConfig {
+                    id: LaneId::new(1),
+                    dataspace_id: dataspace,
+                    alias: "paynet".to_owned(),
+                    visibility: LaneVisibility::Public,
+                    ..LaneConfig::default()
+                },
+            ],
+        )
+        .expect("public lane");
+        let id = AssetDefinitionId::derive_from_components(
+            DomainId::try_new("fixture", "paynet").expect("synthetic identity seed"),
+            "unit".parse().expect("name"),
+        );
+        let mut instruction = iroha_data_model::isi::RegisterDataspaceAssetDefinition::new(
+            dataspace,
+            AssetDefinition::numeric(
+                id.clone(),
+                "Unit".to_owned(),
+                AssetBalancePolicy::DataspaceRestricted,
+                None,
+            ),
+        )
+        .expect("direct instruction");
+        isi::ensure_dataspace_asset_definition_registration_allowed(
+            &mut tx,
+            &authority,
+            &instruction,
+        )
+        .expect("exact current SNS owner and route");
+        assert!(
+            isi::ensure_dataspace_asset_definition_registration_allowed(
+                &mut tx,
+                &BOB_ID,
+                &instruction
+            )
+            .is_err()
+        );
+        tx.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
+        assert!(
+            isi::ensure_dataspace_asset_definition_registration_allowed(
+                &mut tx,
+                &authority,
+                &instruction
+            )
+            .is_err()
+        );
+        tx.current_dataspace_id = Some(dataspace);
+        let public_lanes = tx.nexus.lane_catalog.clone();
+        tx.nexus.lane_catalog = LaneCatalog::new(
+            nonzero!(2_u32),
+            vec![
+                LaneConfig::default(),
+                LaneConfig {
+                    id: LaneId::new(1),
+                    dataspace_id: dataspace,
+                    alias: "paynet".to_owned(),
+                    visibility: LaneVisibility::Restricted,
+                    ..LaneConfig::default()
+                },
+            ],
+        )
+        .expect("private lane");
+        for policy in [
+            AssetBalancePolicy::Global,
+            AssetBalancePolicy::DataspaceRestricted,
+        ] {
+            instruction.object.balance_scope_policy = policy;
+            let error = isi::ensure_dataspace_asset_definition_registration_allowed(
+                &mut tx,
+                &authority,
+                &instruction,
+            )
+            .expect_err("a restricted home is refused under either balance policy");
+            let expected = match policy {
+                AssetBalancePolicy::Global => "cannot be registered in restricted dataspace",
+                AssetBalancePolicy::DataspaceRestricted => "public home dataspace",
+            };
+            assert!(error.to_string().contains(expected), "{error}");
+        }
+        tx.nexus.lane_catalog = public_lanes;
+        instruction.object.balance_scope_policy = AssetBalancePolicy::Global;
+        isi::ensure_dataspace_asset_definition_registration_allowed(
+            &mut tx,
+            &authority,
+            &instruction,
+        )
+        .expect("Global balances may have exact non-Universal public dataspace home");
+        assert!(tx.world.asset_definitions.get(&id).is_none());
+        assert!(
+            tx.world
+                .asset_definition_dataspace(&id)
+                .expect("valid home registry")
+                .is_none()
+        );
+    }
+    #[test]
+    fn direct_dataspace_registration_persists_alias_independent_home() {
+        let state = test_state();
+        let authority = (*ALICE_ID).clone();
+        let dataspace =
+            crate::sns::dataspace_id_for_sns_alias("paynet").expect("canonical SNS dataspace ID");
+        let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 0, 0));
+        let mut tx = block.transaction_for_fastpq_testing(Hash::prehashed([0xD7; Hash::LENGTH]));
+        let catalog = DataSpaceCatalog::new(vec![
+            DataSpaceMetadata::default(),
+            DataSpaceMetadata {
+                id: dataspace,
+                alias: "paynet".to_owned(),
+                description: None,
+                fault_tolerance: 1,
+            },
+        ])
+        .expect("catalog");
+        tx.nexus.dataspace_catalog = catalog.clone();
+        tx.world.dataspace_catalog = catalog;
+        seed_dataspace_alias_lease(&mut tx, &authority, "paynet");
+        tx.current_dataspace_id = Some(dataspace);
+        tx.world.current_dataspace_id = Some(dataspace);
+        tx.nexus.lane_catalog = LaneCatalog::new(
+            nonzero!(2_u32),
+            vec![
+                LaneConfig::default(),
+                LaneConfig {
+                    id: LaneId::new(1),
+                    dataspace_id: dataspace,
+                    alias: "paynet".to_owned(),
+                    visibility: LaneVisibility::Public,
+                    ..LaneConfig::default()
+                },
+            ],
+        )
+        .expect("public lane");
+        let id = AssetDefinitionId::derive_from_components(
+            DomainId::try_new("fixture", "paynet").expect("synthetic identity seed"),
+            "unit".parse().expect("name"),
+        );
+        let instruction = iroha_data_model::isi::RegisterDataspaceAssetDefinition::new(
+            dataspace,
+            AssetDefinition::numeric(
+                id.clone(),
+                "Unit".to_owned(),
+                AssetBalancePolicy::DataspaceRestricted,
+                None,
+            ),
+        )
+        .expect("direct instruction");
+        instruction
+            .clone()
+            .execute(&authority, &mut tx)
+            .expect("register");
+        let definition = tx.world.asset_definition(&id).expect("definition");
+        assert!(definition.owning_domain().is_none());
+        assert!(definition.alias().is_none());
+        assert_eq!(definition.owned_by(), &authority);
+        assert_eq!(
+            tx.world
+                .asset_definition_dataspace(&id)
+                .expect("valid home registry"),
+            Some(dataspace)
+        );
+        assert!(instruction.execute(&authority, &mut tx).is_err());
+        assert_eq!(
+            tx.world
+                .asset_definition_dataspace(&id)
+                .expect("valid home registry"),
+            Some(dataspace)
+        );
+    }
+    #[test]
     fn asset_registration_is_independent_of_pre_release_cash_metadata() {
         let mut state = test_state();
         let authority = (*ALICE_ID).clone();
@@ -9320,9 +9455,21 @@ mod tests {
         install_dataspace_catalog_with_lane(&mut tx, paynet, "paynet", LaneVisibility::Restricted);
         tx.current_dataspace_id = Some(paynet);
         tx.world.current_dataspace_id = Some(paynet);
+        // Restricted homes stay refused on the domain path exactly as on the direct path.
+        let error = Register::asset_definition(new_definition.clone())
+            .execute(&authority, &mut tx)
+            .expect_err("restricted homes are refused until restricted-home confinement ships");
+        assert!(
+            error.to_string().contains("public home dataspace"),
+            "{error}"
+        );
+        assert!(tx.world.asset_definitions.get(&definition_id).is_none());
+        assert!(tx.world.asset_definition_aliases.get(&alias).is_none());
+        // The same definition and alias register in a public home dataspace.
+        install_dataspace_catalog_with_lane(&mut tx, paynet, "paynet", LaneVisibility::Public);
         Register::asset_definition(new_definition)
             .execute(&authority, &mut tx)
-            .expect("restricted-policy definition may use a restricted alias home");
+            .expect("restricted-policy definition may use an alias in its public home");
         assert_eq!(
             tx.world.asset_definition_aliases.get(&alias),
             Some(&definition_id)
@@ -9748,13 +9895,14 @@ mod tests {
             .execute(&authority, &mut tx)
             .expect("register global definition");
         let alias: AssetDefinitionAlias = "unit#paynet".parse().expect("alias");
-        SetAssetDefinitionAlias::bind(definition_id.clone(), alias.clone(), None)
+        let error = SetAssetDefinitionAlias::bind(definition_id.clone(), alias.clone(), None)
             .execute(&authority, &mut tx)
-            .expect("an alias does not move the asset's authoritative home");
-        assert_eq!(
-            tx.world.asset_definition_aliases.get(&alias),
-            Some(&definition_id)
+            .expect_err("a public definition cannot take an alias in a restricted namespace");
+        assert!(
+            error.to_string().contains("restricted dataspace"),
+            "{error}"
         );
+        assert!(tx.world.asset_definition_aliases.get(&alias).is_none());
         assert!(
             tx.world
                 .asset_definition(&definition_id)
@@ -9826,13 +9974,14 @@ mod tests {
             .build(&authority),
         );
         let alias: AssetDefinitionAlias = "unit#universal".parse().expect("alias");
-        SetAssetDefinitionAlias::bind(definition_id.clone(), alias.clone(), None)
+        let error = SetAssetDefinitionAlias::bind(definition_id.clone(), alias.clone(), None)
             .execute(&authority, &mut tx)
-            .expect("universal dataspace may home a global asset alias");
-        assert_eq!(
-            tx.world.asset_definition_aliases.get(&alias),
-            Some(&definition_id)
+            .expect_err("a restricted-homed definition keeps its aliases in its home namespace");
+        assert!(
+            error.to_string().contains("restricted dataspace"),
+            "{error}"
         );
+        assert!(tx.world.asset_definition_aliases.get(&alias).is_none());
     }
     #[test]
     fn asset_home_extra_coverage_clear_alias_keeps_global_home_universal() {
@@ -9896,10 +10045,10 @@ mod tests {
         let header = BlockHeader::new(nonzero!(1_u64), None, None, 10_000, 0);
         let mut block = state.block(header);
         let mut tx = block.transaction();
-        install_dataspace_catalog_with_lane(&mut tx, paynet, "paynet", LaneVisibility::Restricted);
+        install_dataspace_catalog_with_lane(&mut tx, paynet, "paynet", LaneVisibility::Public);
         Register::asset_definition(definition)
             .execute(&authority, &mut tx)
-            .expect("register explicitly owned restricted definition");
+            .expect("register explicitly owned restricted-policy definition");
         let alias: AssetDefinitionAlias = "unit#paynet".parse().expect("alias");
         SetAssetDefinitionAlias::bind(definition_id.clone(), alias.clone(), None)
             .execute(&authority, &mut tx)
@@ -9938,30 +10087,33 @@ mod tests {
             domain_id.clone(),
             "unit".parse().expect("name"),
         );
-        let definition = NewAssetDefinition {
-            id: definition_id.clone(),
-            name: "unit".to_owned(),
-            description: None,
-            alias: None,
-            spec: NumericSpec::integer(),
-            mintable: Mintable::Infinitely,
-            logo: None,
-            metadata: Metadata::default(),
-            balance_scope_policy: iroha_data_model::asset::AssetBalancePolicy::DataspaceRestricted,
-            owning_domain: Some(domain_id),
-        };
         let header = BlockHeader::new(nonzero!(1_u64), None, None, 10_000, 0);
         let mut block = state.block(header);
         let mut tx = block.transaction();
         let paynet = DataSpaceId::new(7);
         install_dataspace_catalog_with_lane(&mut tx, paynet, "paynet", LaneVisibility::Restricted);
-        Register::asset_definition(definition)
-            .execute(&authority, &mut tx)
-            .expect("register restricted definition");
+        // Registration refuses restricted homes, so seed the homed definition directly.
+        tx.world.insert_asset_definition_entry(
+            definition_id.clone(),
+            AssetDefinition::numeric(
+                definition_id.clone(),
+                "unit".to_owned(),
+                iroha_data_model::asset::AssetBalancePolicy::DataspaceRestricted,
+                Some(domain_id),
+            )
+            .build(&authority),
+        );
+        let foreign: AssetDefinitionAlias = "unit#universal".parse().expect("alias");
+        assert!(
+            SetAssetDefinitionAlias::bind(definition_id.clone(), foreign, None)
+                .execute(&authority, &mut tx)
+                .is_err(),
+            "a restricted-homed definition cannot alias another namespace"
+        );
         let alias: AssetDefinitionAlias = "unit#paynet".parse().expect("alias");
         SetAssetDefinitionAlias::bind(definition_id.clone(), alias.clone(), None)
             .execute(&authority, &mut tx)
-            .expect("restricted asset alias may use restricted dataspace");
+            .expect("restricted asset alias may use its own restricted home namespace");
         assert_eq!(
             tx.world.asset_definition_aliases.get(&alias),
             Some(&definition_id)
@@ -11357,85 +11509,7 @@ mod tests {
             "asset definition should remain after rejected unregister"
         );
     }
-    #[test]
-    fn unregister_asset_definition_ignores_mismatched_public_lane_reward_record() {
-        let mut state = test_state();
-        let authority = (*ALICE_ID).clone();
-        let domain_id: DomainId = DomainId::try_new("asset", "guard").expect("asset domain id");
-        seed_domain(&mut state, &domain_id, &authority);
-        let account_id = AccountId::new(checked_keypair().public_key().clone());
-        let asset_definition_id =
-            AssetDefinitionId::derive_from_components(domain_id, "fee".parse().unwrap());
-        let header = BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
-        let mut block = state.block(header);
-        let mut tx = block.transaction();
-        Register::asset_definition({
-            let __asset_definition_id = asset_definition_id.clone();
-            AssetDefinition::numeric(
-                __asset_definition_id.clone(),
-                "fee".to_owned(),
-                iroha_data_model::asset::AssetBalancePolicy::Global,
-                None,
-            )
-        })
-        .execute(&authority, &mut tx)
-        .expect("register asset definition");
-        tx.world.public_lane_rewards.insert(
-            (LaneId::SINGLE, 1),
-            iroha_data_model::nexus::PublicLaneRewardRecord {
-                lane_id: LaneId::new(1),
-                epoch: 1,
-                asset: AssetId::new(asset_definition_id.clone(), account_id.clone()),
-                total_reward: Quantity::from(1_u32),
-                shares: vec![iroha_data_model::nexus::PublicLaneRewardShare {
-                    account: account_id,
-                    role: iroha_data_model::nexus::PublicLaneRewardRole::Validator,
-                    amount: Quantity::from(1_u32),
-                }],
-                metadata: Metadata::default(),
-            },
-        );
-        let accrual_key = (
-            LaneId::SINGLE,
-            authority.clone(),
-            AssetId::new(asset_definition_id.clone(), authority.clone()),
-        );
-        tx.world
-            .public_lane_reward_accruals
-            .insert(accrual_key.clone(), Quantity::one());
-        let error = Unregister::asset_definition(asset_definition_id.clone())
-            .execute(&authority, &mut tx)
-            .expect_err("unpaid source must pin its asset definition");
-        assert!(
-            error
-                .to_string()
-                .contains("public-lane reward accrual state")
-        );
-        assert!(
-            tx.world
-                .asset_definitions
-                .get(&asset_definition_id)
-                .is_some()
-        );
-        tx.world.public_lane_reward_accruals.remove(accrual_key);
-        Unregister::asset_definition(asset_definition_id.clone())
-            .execute(&authority, &mut tx)
-            .expect("mismatched public-lane reward row must not block asset definition unregister");
-        assert!(
-            tx.world
-                .asset_definitions
-                .get(&asset_definition_id)
-                .is_none(),
-            "asset definition should be removed when only malformed rewards reference it"
-        );
-        assert!(
-            tx.world
-                .public_lane_rewards
-                .get(&(LaneId::SINGLE, 1))
-                .is_some(),
-            "malformed reward row remains as stored"
-        );
-    }
+
     #[test]
     fn unregister_asset_definition_removes_confidential_state() {
         let mut state = test_state();

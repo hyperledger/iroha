@@ -26,33 +26,8 @@ use std::{
     time::Duration,
 };
 
-// Admitted indexes publish an untouched replacement through their finite pool;
-// they deliberately have no unbudgeted Block::commit operation.
+// Publish an untouched replacement through each field's ordinary writer.
 macro_rules! commit_untouched_fixture_field {
-    ($world:ident, kagemusha_mint_credit_operations) => {
-        $world
-            .kagemusha_mint_credit_operations
-            .try_with_admitted_block(|_| Ok::<(), ()>(()))
-            .unwrap()
-    };
-    ($world:ident, kagemusha_issuance_operations) => {
-        $world
-            .kagemusha_issuance_operations
-            .try_with_admitted_block(|_| Ok::<(), ()>(()))
-            .unwrap()
-    };
-    ($world:ident, kagemusha_redemption_id_operations) => {
-        $world
-            .kagemusha_redemption_id_operations
-            .try_with_admitted_block(|_| Ok::<(), ()>(()))
-            .unwrap()
-    };
-    ($world:ident, kagemusha_terminal_nullifier_operations) => {
-        $world
-            .kagemusha_terminal_nullifier_operations
-            .try_with_admitted_block(|_| Ok::<(), ()>(()))
-            .unwrap()
-    };
     ($world:ident, $field:ident) => {
         $world.$field.block().commit()
     };
@@ -210,14 +185,23 @@ fn ordinary_world_capture_retains_deltas_events_catalog_and_releases_every_write
         .unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(detached.mode(), BlockMode::Ordinary);
-    assert_eq!(detached.field_count(), 314);
+    let expected_fields =
+        crate::state::authority_registry::inventory_test_support::world_overlay_names();
+    assert_eq!(detached.field_count(), expected_fields.len());
     assert_eq!(
         detached
             .fields()
             .map(|field| field.name)
             .collect::<BTreeSet<_>>()
             .len(),
-        314
+        expected_fields.len()
+    );
+    assert_eq!(
+        detached
+            .fields()
+            .map(|field| field.name.to_owned())
+            .collect::<BTreeSet<_>>(),
+        expected_fields,
     );
     assert_eq!(
         detached

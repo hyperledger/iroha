@@ -116,81 +116,50 @@ fn staking_custody_blocks_generic_debits_of_bonded_and_pending_funds() {
 }
 
 #[test]
-fn staking_custody_and_rewards_share_one_additive_reserve_floor() {
+fn staking_reserve_checks_aggregate_batch_debits() {
+    use iroha_data_model::isi::{TransferAssetBatch, TransferAssetBatchEntry};
     let state = setup_state();
     let block = new_block();
     let mut state_block = state.block(block.as_ref().header());
-    let mut stx = state_block.transaction_for_fastpq_testing(Hash::prehashed([0xC0; Hash::LENGTH]));
-    let lane = LaneId::SINGLE;
-    let (sink, validator, asset, _) = configure_reward_fixture(&mut stx, lane, 100);
-    let key = (lane, validator.clone());
-    let (old_asset, held) = stx
-        .world
-        .public_lane_stake_custody
-        .get(&key)
-        .unwrap()
-        .clone();
-    let old_balance = stx.world.assets.remove(old_asset.clone()).unwrap();
-    let total = stx
-        .world
-        .assets
-        .get(&asset)
-        .unwrap()
-        .as_ref()
-        .checked_add(old_balance.as_ref())
+    let mut stx = state_block.transaction_for_fastpq_testing(Hash::prehashed([0xB6; Hash::LENGTH]));
+    let lane = LaneId::new(17);
+    let (validator, recipient, asset) = register_custody_fixture(&mut stx, lane, 150);
+    Mint::asset_quantity(50_u64, asset.clone())
+        .execute(&ALICE_ID, &mut stx)
         .unwrap();
-    **stx.world.assets.get_mut(&asset).unwrap() = total;
-    stx.world.public_lane_stake_reserves.remove(old_asset);
-    stx.world
-        .public_lane_stake_reserves
-        .insert(asset.clone(), held.clone());
-    stx.world
-        .public_lane_stake_custody
-        .insert(key.clone(), (asset.clone(), held));
-    stx.nexus.staking.stake_escrow_account_id = sink.to_string();
-    stx.nexus.staking.reward_dust_threshold = Quantity::zero();
-    reward_distribution(lane, 0, &asset, &validator, 100)
-        .execute(&sink, &mut stx)
-        .unwrap();
-    let transfer = iroha_data_model::isi::Transfer::asset_quantity(
-        asset.clone(),
-        Quantity::one(),
-        validator.clone(),
-    );
+    let batch = TransferAssetBatch::new(vec![
+        TransferAssetBatchEntry::with_leg_id(
+            "one",
+            asset.account().clone(),
+            recipient.clone(),
+            asset.definition().clone(),
+            30_u32,
+        ),
+        TransferAssetBatchEntry::with_leg_id(
+            "two",
+            asset.account().clone(),
+            recipient,
+            asset.definition().clone(),
+            30_u32,
+        ),
+    ]);
+    let error = batch.execute(asset.account(), &mut stx).unwrap_err();
     assert!(
-        transfer
-            .execute(&sink, &mut stx)
-            .unwrap_err()
-            .to_string()
-            .contains("reserved public-lane")
+        error.to_string().contains("reserved public-lane"),
+        "{error}"
     );
-    assert!(
-        Burn::asset_quantity(1_u64, asset.clone())
-            .execute(&sink, &mut stx)
-            .unwrap_err()
-            .to_string()
-            .contains("reserved public-lane")
-    );
-    ClaimPublicLaneRewards {
-        claim_plan: fixture_reward_claim_plan(&stx, lane, &(validator), None),
-        lane_id: lane,
-        account: validator,
-    }
-    .execute(&key.1, &mut stx)
-    .unwrap();
     assert_eq!(
         stx.world.assets.get(&asset).unwrap().as_ref(),
-        &Quantity::from(100_u64)
-    );
-    assert_eq!(
-        stx.world.public_lane_stake_custody.get(&key),
-        Some(&(asset.clone(), Quantity::from(100_u64)))
+        &Quantity::from(200_u64)
     );
     assert_eq!(
         stx.world.public_lane_stake_reserves.get(&asset),
-        Some(&Quantity::from(100_u64))
+        Some(&Quantity::from(150_u64))
     );
-    assert!(stx.world.public_lane_reward_reserves.get(&asset).is_none());
+    assert_eq!(
+        stx.world.public_lane_stake_custody.get(&(lane, validator)),
+        Some(&(asset, Quantity::from(150_u64)))
+    );
 }
 
 #[test]

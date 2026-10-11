@@ -1,12 +1,12 @@
 
-        seiyaku Demo {
+        seiyaku Demo { permission Admin;
             state int counter;
 
             hajimari() {
                 counter = 0;
             }
 
-            kotoage fn run() authorize("Admin") {
+            kotoage fn run() authorize(Admin) {
                 let current = counter;
                 let next = current + 1;
                 if current > 0 {

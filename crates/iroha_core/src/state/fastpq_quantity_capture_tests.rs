@@ -3923,16 +3923,7 @@ fn retirement_due_fee_fixture() -> (
             .unwrap();
         let mut record = RetailFeeAccountStateV1::enroll(wallet.clone(), START, 1_000).unwrap();
         record.payments_used = 50;
-        let path: iroha_model_base::state_path::StatePath = format!(
-            "retail_fee_v1/{}",
-            hex::encode(Hash::new(wallet.to_string().as_bytes()).as_ref()),
-        )
-        .parse()
-        .unwrap();
-        transaction
-            .world
-            .smart_contract_state
-            .insert(path, norito::to_bytes(&record).unwrap());
+        crate::retail_fee::write_account(&mut transaction.world, &record).unwrap();
         crate::validation_fee::tests::install_policy_registry_fixture(&registry, &mut transaction);
         transaction.apply();
         block.commit_world_overlay_for_testing().unwrap();

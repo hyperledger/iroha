@@ -9,9 +9,9 @@ use support::{
 };
 const BEGIN: &str = "<!-- BEGIN GENERATED ABI HASHES -->";
 const END: &str = "<!-- END GENERATED ABI HASHES -->";
-const RUNTIME_HASH_PREFIX: &str = "\"abi_hash_hex\": \"";
-const ABI_V1_GOLDEN_PREFIX: &str = "const ABI_V1_HASH_GOLDEN: &str = \"";
-const GAS_SCHEDULE_GOLDEN_PREFIX: &str = "let expected = hex!(\"";
+const RUNTIME_HASH_PREFIX: &str = "\"abi_hash_hex\":";
+const ABI_V1_GOLDEN_PREFIX: &str = "pub const ABI_V1_HASH_GOLDEN: &str =";
+const GAS_SCHEDULE_GOLDEN_PREFIX: &str = "let expected = hex!(";
 fn workspace_root() -> PathBuf {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     PathBuf::from(manifest_dir)
@@ -24,7 +24,7 @@ fn source_dir(root: &Path) -> PathBuf {
     root.join("specs")
 }
 fn abi_hash_golden_path(root: &Path) -> PathBuf {
-    root.join("crates/ivm/tests/abi_hash_versions.rs")
+    root.join("crates/iroha_data_model/tests/fixtures/abi_v1_hash.rs")
 }
 fn gas_schedule_golden_path(root: &Path) -> PathBuf {
     root.join("crates/ivm/tests/gas_schedule_hash.rs")
@@ -147,7 +147,11 @@ fn render_single_hash(text: &str, prefix: &str, hash: &str) -> Result<String, &'
     if text[prefix_start + prefix.len()..].contains(prefix) {
         return Err("multiple ABI hash fields found");
     }
-    let value_start = prefix_start + prefix.len();
+    let tail = text[prefix_start + prefix.len()..].trim_start();
+    if !tail.starts_with('"') {
+        return Err("ABI hash field is not a quoted string");
+    }
+    let value_start = text.len() - tail.len() + 1;
     let Some(relative_end) = text[value_start..].find('"') else {
         return Err("unterminated ABI hash field");
     };
@@ -163,11 +167,12 @@ fn render_single_hash(text: &str, prefix: &str, hash: &str) -> Result<String, &'
 #[cfg(test)]
 mod tests {
     use super::{
-        BEGIN, END, prepare_outputs, render_abi_hash_golden, render_gas_schedule_golden,
-        render_generated_hash_section, render_runtime_sample,
+        BEGIN, END, abi_hash_golden_path, prepare_outputs, render_abi_hash_golden,
+        render_gas_schedule_golden, render_generated_hash_section, render_runtime_sample,
     };
     use std::{
         fs,
+        path::Path,
         sync::atomic::{AtomicU64, Ordering},
     };
     static NEXT_TEMP_DIRECTORY: AtomicU64 = AtomicU64::new(0);
@@ -201,15 +206,22 @@ mod tests {
     }
     #[test]
     fn abi_v1_golden_replaces_exactly_one_canonical_hash() {
-        let old = "const ABI_V1_HASH_GOLDEN: &str = \"1111111111111111111111111111111111111111111111111111111111111111\";\n";
+        assert_eq!(
+            abi_hash_golden_path(Path::new("workspace")),
+            Path::new("workspace/crates/iroha_data_model/tests/fixtures/abi_v1_hash.rs")
+        );
+        let old = "pub const ABI_V1_HASH_GOLDEN: &str =\n    \"1111111111111111111111111111111111111111111111111111111111111111\";\n";
         let new = "2222222222222222222222222222222222222222222222222222222222222222";
         let rendered = render_abi_hash_golden(old, new).expect("valid ABI v1 golden");
         assert_eq!(
             rendered,
-            format!("const ABI_V1_HASH_GOLDEN: &str = \"{new}\";\n")
+            format!("pub const ABI_V1_HASH_GOLDEN: &str =\n    \"{new}\";\n")
         );
         assert!(render_abi_hash_golden("const OTHER: &str = \"00\";\n", new).is_err());
         assert!(render_abi_hash_golden(&format!("{old}{old}"), new).is_err());
+        assert!(
+            render_abi_hash_golden("pub const ABI_V1_HASH_GOLDEN: &str = HASH;\n", new).is_err()
+        );
     }
     #[test]
     fn gas_schedule_golden_replaces_exactly_one_canonical_hash() {
@@ -242,7 +254,7 @@ mod tests {
         .expect("write runtime fixture");
         fs::write(
             &abi_golden,
-            format!("const ABI_V1_HASH_GOLDEN: &str = \"{old_hash}\";\n"),
+            format!("pub const ABI_V1_HASH_GOLDEN: &str =\n    \"{old_hash}\";\n"),
         )
         .expect("write ABI golden fixture");
         fs::write(&gas_golden, "missing gas hash field\n").expect("write malformed late golden");

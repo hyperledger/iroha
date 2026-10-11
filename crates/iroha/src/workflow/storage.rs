@@ -607,7 +607,10 @@ mod tests {
             .set_len(MAX_WORKFLOW_JOURNAL_BYTES_V1 as u64)
             .expect("shrink");
         assert_eq!(
-            storage.load(&id(5)).expect("at the bound").map(|record| record.len()),
+            storage
+                .load(&id(5))
+                .expect("at the bound")
+                .map(|record| record.len()),
             Some(MAX_WORKFLOW_JOURNAL_BYTES_V1)
         );
     }

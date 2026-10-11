@@ -122,13 +122,8 @@
     "__kotodama_quantity_ratio_round",
     "__kotodama_decimal_to_int_trunc",
     "__kotodama_decimal_to_int_round",
-    "is_some",
-    "is_none",
-    "is_ok",
-    "is_err",
-    "unwrap_or",
-    "unwrap_err_or",
-    "expect"
+    "__kotodama_option_ok_or",
+    "__kotodama_result_or_err"
   ],
   "numeric_suffix_fixits": {
     "amt": "strip",
@@ -162,6 +157,15 @@
     "enumerate"
   ],
   "editor_member_calls": [
+    "is_some",
+    "is_none",
+    "is_ok",
+    "is_err",
+    "unwrap_or",
+    "unwrap_err_or",
+    "expect",
+    "ok_or",
+    "or_err",
     "page",
     "len",
     "get",
@@ -176,9 +180,7 @@
     "div_round",
     "mul_div_round",
     "ratio_round",
-    "get_or_default",
-    "get_or",
-    "ensure",
+    "get_or_insert",
     "remove",
     "path",
     "get_int",
@@ -189,7 +191,9 @@
     "get_account_id",
     "get_asset_definition_id",
     "get_nft_id",
-    "get_blob_hex"
+    "get_bytes_hex",
+    "get_string",
+    "get_bool"
   ],
   "numeric_schemas": [
     {

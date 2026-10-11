@@ -76,6 +76,15 @@
       "shared_operation_code": false
     }
   ],
+  "journal_bound_terms": {
+    "custody_handle_bytes": 224,
+    "identity_bytes": 768,
+    "journal_fixed_bytes": 2048,
+    "participant_bytes": 65,
+    "retained_transaction_bytes": 10485792,
+    "step_fixed_bytes": 512,
+    "transcript_framing_bytes": 32
+  },
   "journal_version": 1,
   "limits": {
     "max_binding_bytes": 256,
@@ -96,7 +105,13 @@
     "round_waiting",
     "round_completed",
     "round_failed",
-    "round_not_started"
+    "round_not_started",
+    "round_restart_intent"
+  ],
+  "round_guards": [
+    "always",
+    "not_cancelling",
+    "while_cancelling"
   ],
   "round_states": [
     {
@@ -124,49 +139,55 @@
     {
       "event": "round_intent",
       "from": "planned",
-      "only_while_cancelling": false,
+      "guard": "not_cancelling",
+      "to": "round_started"
+    },
+    {
+      "event": "round_restart_intent",
+      "from": "round_started",
+      "guard": "not_cancelling",
       "to": "round_started"
     },
     {
       "event": "round_waiting",
       "from": "round_started",
-      "only_while_cancelling": false,
+      "guard": "always",
       "to": "round_waiting"
     },
     {
       "event": "round_waiting",
       "from": "round_waiting",
-      "only_while_cancelling": false,
+      "guard": "always",
       "to": "round_waiting"
     },
     {
       "event": "round_completed",
       "from": "round_started",
-      "only_while_cancelling": false,
+      "guard": "always",
       "to": "round_completed"
     },
     {
       "event": "round_completed",
       "from": "round_waiting",
-      "only_while_cancelling": false,
+      "guard": "always",
       "to": "round_completed"
     },
     {
       "event": "round_failed",
       "from": "round_started",
-      "only_while_cancelling": false,
+      "guard": "always",
       "to": "round_failed"
     },
     {
       "event": "round_failed",
       "from": "round_waiting",
-      "only_while_cancelling": false,
+      "guard": "always",
       "to": "round_failed"
     },
     {
       "event": "round_not_started",
       "from": "round_started",
-      "only_while_cancelling": true,
+      "guard": "while_cancelling",
       "to": "planned"
     }
   ],
@@ -177,7 +198,7 @@
     },
     {
       "id": "persist_before_effect",
-      "statement": "The dispatch ordinal (`submitting`) and the round identity (`round_started`) are durably stored, by compare-and-swap, before the corresponding external effect starts. A runner that loses the compare-and-swap starts no effect."
+      "statement": "The dispatch ordinal (`submitting`), the round identity (`round_started`) and every restart of a round (`round_restart_intent`) are durably stored, by compare-and-swap, before the corresponding external effect starts. A runner that loses the compare-and-swap starts no effect."
     },
     {
       "id": "reconcile_before_decide",
@@ -189,11 +210,11 @@
     },
     {
       "id": "no_replacement_while_unresolved",
-      "statement": "A replacement transaction identity is opened only after the previous identity is authoritatively rejected or expired, or was refused on its only dispatch, only when the caller explicitly asks and only while the step has identities remaining."
+      "statement": "A replacement transaction identity is opened only after the previous identity is authoritatively rejected or expired, or was refused on its only counted dispatch, only when the caller explicitly asks and only while the step has identities remaining."
     },
     {
       "id": "identical_bytes_only",
-      "statement": "The only permitted re-dispatch of an unresolved identity is the exact persisted bytes, explicitly authorized for the call, after a fresh exact-absence read, at most once per call and within the dispatch bound."
+      "statement": "The only permitted re-dispatch of an unresolved identity is the exact persisted bytes, explicitly authorized for the call, after a fresh exact-absence read, at most once per call and within the dispatch bound. A dispatch proven not to have admitted the bytes, while no earlier dispatch may have, does not count toward the bound: a never-admitted identity stays dispatchable."
     },
     {
       "id": "definite_refusal_is_first_dispatch_only",
@@ -201,19 +222,23 @@
     },
     {
       "id": "cancellation_is_sticky_and_never_rolls_back",
-      "statement": "A cancelled or cancelling workflow never builds, signs, dispatches or starts a round. While a step may still have external effect the workflow is `cancelling` and only read-only reconciliation runs."
+      "statement": "A cancellation that is stored before a dispatch or round intent prevents that dispatch or round start; an intent stored first may take effect afterwards and is reconciled. A build or signature under way when the cancellation is stored is discarded, never stored or sent. While a step may still have external effect the workflow is `cancelling` and only read-only reconciliation runs. When the cancellation takes effect the first unfinished transaction step that is not closed becomes `cancelled_before_submission` and holds no bytes."
     },
     {
       "id": "rounds_recover_under_one_identity",
       "statement": "A round found started or waiting is recovered under its persisted identity and bound context; a restart never creates a fresh round. Participants are strictly ascending and never shrink."
     },
     {
+      "id": "plan_fits_the_journal",
+      "statement": "A plan whose worst-case journal record over every reachable prefix of its steps exceeds the record bound is refused before any journal exists; a round never stores a transcript above the bound its step declares."
+    },
+    {
       "id": "no_secret_in_journal",
-      "statement": "The journal holds step identity, transaction identities, signed bytes, public round transcripts and custody references. No interface accepts secret material."
+      "statement": "The journal holds step identity, transaction identities, signed bytes while they may be dispatched, public round transcripts and custody references. No interface accepts secret material, and a terminal workflow holds no transaction bytes."
     },
     {
       "id": "corruption_is_reported_not_repaired",
-      "statement": "A journal that fails its digest, canonical encoding or invariants yields `StorageCorrupted` without a progress snapshot. A valid journal of another workflow yields `BindingMismatch`."
+      "statement": "A journal that exceeds the record bound or fails its digest, canonical encoding or invariants yields `StorageCorrupted` without a progress snapshot. A valid journal of another workflow yields `BindingMismatch`."
     }
   ],
   "schema": "iroha.durable_workflow.state_machine.v1",
@@ -254,7 +279,6 @@
   "transaction_guards": [
     "always",
     "identities_remaining",
-    "dispatches_remaining",
     "retransmission_authorized_after_exact_absence",
     "no_possible_admission",
     "possible_admission"
@@ -356,7 +380,7 @@
     {
       "event": "dispatch_intent",
       "from": "signed",
-      "guard": "dispatches_remaining",
+      "guard": "always",
       "to": "submitting"
     },
     {

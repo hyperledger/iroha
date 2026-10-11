@@ -27,24 +27,16 @@ impl ManagedStreamTokenCustody {
     pub(super) fn bootstrap_native_body(
         &self,
         native: &NativeFixture,
+        current: &VerifiedStreamTokenCustodyStateV1,
         purpose: CustodyPurpose,
         unsigned: body_history::UnsignedEnrollment,
         utc: u64,
         options: &BoundedTransactionOptions,
     ) -> BodyHistory {
-        // TODO: Remove this timing scope and static phases after native interval cost is localized.
-        let _timing = crate::custody_timing::Scope::enter();
-        eprintln!("custody-body phase: helper-enter");
         let terms = Terms::new(utc, options).unwrap();
         let turn = SigningTurn::Explicit(&terms);
-        let checkpoint = self
-            .authority
-            .decode_checkpoint(&unsigned.checkpoint)
-            .unwrap();
-        let policy = body_history::selected_policy(&unsigned.selection).unwrap();
-        eprintln!("custody-body phase: selection-decoded native-current-start");
-        let current = native.bootstrap_custody(&self.authority, &policy, &checkpoint);
-        eprintln!("custody-body phase: native-current-complete initialize-start");
+        // The public enroll/renew paths carry their selected authenticated current proof
+        // into finish_pending. The signing boundary still rereads its historical checkpoint.
         let history = BodyHistory::initialize(
             self,
             purpose,
@@ -54,21 +46,18 @@ impl ManagedStreamTokenCustody {
             options.deadline,
         )
         .unwrap();
-        eprintln!("custody-body phase: initialize-complete prefix-assertions-start");
         assert!(history.has_pending());
         assert!(history.original().unwrap().is_none());
         assert!(history.dispatch().is_err());
-        eprintln!("custody-body phase: prefix-assertions-complete finish-start");
         let history = history
             .finish_pending_with_reads(
                 self,
-                &current,
+                current,
                 &turn,
                 options.deadline,
                 &NativeEnrollmentReads(native),
             )
             .unwrap();
-        eprintln!("custody-body phase: finish-complete");
         history
     }
 
@@ -148,6 +137,7 @@ impl ManagedStreamTokenCustody {
             .unwrap();
         let body = self.bootstrap_native_body(
             native,
+            &current,
             CustodyPurpose::InitialEnroll,
             unsigned,
             interval.deadline_unix_ms,
@@ -156,7 +146,7 @@ impl ManagedStreamTokenCustody {
         self.bootstrap_native_enrollment_original(
             native,
             CustodyPurpose::InitialEnroll,
-            &body,
+            body,
             interval.deadline_unix_ms,
             options,
         );
@@ -204,7 +194,7 @@ impl ManagedStreamTokenCustody {
         &self,
         native: &mut NativeFixture,
         purpose: CustodyPurpose,
-        history: &BodyHistory,
+        history: BodyHistory,
         utc: u64,
         options: &BoundedTransactionOptions,
     ) {
@@ -212,7 +202,7 @@ impl ManagedStreamTokenCustody {
         self.validate_original(original, purpose).unwrap();
         let account = AccountService::new(self.authority.config.clone()).unwrap();
         journal::explicit(directory, original, utc, options, &account, scope).unwrap();
-        let selected = self.required_enrollment(purpose).unwrap();
+        let selected = history.into_reparsed_selected(self).unwrap();
         self.bootstrap_native_selected(native, &selected, &account, options);
     }
 
@@ -290,6 +280,7 @@ impl ManagedStreamTokenCustody {
             .unwrap();
         let body = self.bootstrap_native_body(
             native,
+            &current,
             CustodyPurpose::Renewal(sequence),
             unsigned,
             utc,
@@ -298,7 +289,7 @@ impl ManagedStreamTokenCustody {
         self.bootstrap_native_enrollment_original(
             native,
             CustodyPurpose::Renewal(sequence),
-            &body,
+            body,
             utc,
             options,
         );
@@ -311,5 +302,51 @@ impl ManagedStreamTokenCustody {
             .unwrap();
         assert_eq!(recovered.finalized.as_ref(), Some(retained.finalized()));
         retained
+    }
+}
+
+/// Real independently challenged finality and same-cut native custody, with transport replaced
+/// only by the actual executed fixture. Used to qualify provider scheduling, not service Ready.
+impl ManagedStreamTokenCustody {
+    pub(in crate::managed) fn test_native_current(
+        &self,
+        native: &NativeFixture,
+        policy: &SignerCustodyPolicyV1,
+        deadline: Instant,
+        challenges: &std::sync::Mutex<Vec<[u8; 32]>>,
+    ) -> Result<VerifiedStreamTokenCustodyStateV1> {
+        self.authority.validate_profile()?;
+        let (checkpoint, verified) = self
+            .authority
+            .observe_finality_with_source(deadline, |_, _| {
+                Ok(CountedNativeCurrent { native, challenges })
+            })?;
+        assert_eq!(verified, 4);
+        let current =
+            native.bootstrap_custody_before(&self.authority, policy, &checkpoint, deadline)?;
+        self.authority.validate_profile()?;
+        require_deadline(deadline)?;
+        Ok(current)
+    }
+}
+struct CountedNativeCurrent<'a> {
+    native: &'a NativeFixture,
+    challenges: &'a std::sync::Mutex<Vec<[u8; 32]>>,
+}
+impl crate::verify::finality::FinalitySource for CountedNativeCurrent<'_> {
+    type Error = std::io::Error;
+    fn finality_proof(
+        &self,
+        height: std::num::NonZeroU64,
+    ) -> std::io::Result<iroha_data_model::sumeragi_finality::SumeragiFinalityProof> {
+        crate::verify::finality::FinalitySource::finality_proof(self.native, height)
+    }
+    fn latest_attestation(
+        &self,
+        peer: &iroha_model_base::peer::PeerId,
+        challenge: &[u8; 32],
+    ) -> std::io::Result<crate::verify::finality::FinalityAttestation> {
+        self.challenges.lock().unwrap().push(*challenge);
+        crate::verify::finality::FinalitySource::latest_attestation(self.native, peer, challenge)
     }
 }

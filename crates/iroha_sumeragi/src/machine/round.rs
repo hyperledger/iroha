@@ -561,8 +561,8 @@ impl Core {
         let Some(config) = self.config(config_height) else {
             return;
         };
-        // The Commit signatures alone prove the violation; attestations are not checked (§7.6).
-        if self.verifier(config).verify_qc_signatures(c).is_err() {
+        // The exact quorum of authenticated Commit signatures proves the violation (§7.6).
+        if self.verifier(config).verify_qc(c).is_err() {
             return;
         }
         if let Some(qc) = our_qc {

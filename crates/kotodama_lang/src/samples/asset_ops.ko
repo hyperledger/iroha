@@ -1,5 +1,6 @@
 seiyaku AssetOps {
-    kotoage fn execute() authorize("Admin") {
+    permission Admin;
+    kotoage fn execute() authorize(Admin) {
         // Typed pointer‑ABI arguments via constructors
         let alice = context::authority();
         let bob = context::authority();
@@ -10,7 +11,6 @@ seiyaku AssetOps {
             destination: bob,
             asset_definition: coin,
             amount: 500,
-            dataspace: DataSpaceId::parse("0"),
         );
         ledger::asset::burn(account: bob, asset_definition: coin, amount: 100);
     }

@@ -1,5 +1,26 @@
 #[cfg(test)]
 mod tests {
+    fn relabel_native_fixture(
+        proof: &iroha_data_model::proof::ProofBox,
+        key: &iroha_data_model::proof::VerifyingKeyBox,
+        backend: &str,
+    ) -> (
+        iroha_data_model::proof::ProofBox,
+        iroha_data_model::proof::VerifyingKeyBox,
+    ) {
+        let key = iroha_data_model::proof::VerifyingKeyBox::new(backend.into(), key.bytes.clone());
+        let mut envelope: iroha_data_model::zk::OpenVerifyEnvelope =
+            norito::decode_canonical(&proof.bytes).unwrap();
+        envelope.vk_hash = crate::hash_vk(&key);
+        (
+            iroha_data_model::proof::ProofBox::new(
+                backend.into(),
+                norito::encode_canonical(&envelope).unwrap(),
+            ),
+            key,
+        )
+    }
+
     pub(super) fn full_tree_input_path_v3<const DEPTH: usize>(
         commitment: [u8; 32],
     ) -> super::ConfidentialMerklePathV2 {
@@ -139,7 +160,7 @@ mod tests {
     fn tree_builders_reject_impossible_public_shapes_before_hashing_or_keys() {
         let network = network_id("tree-shape-preflight");
         let key = iroha_data_model::proof::VerifyingKeyBox::new(
-            crate::ZK_BACKEND_HALO2_IPA.to_owned(),
+            crate::ZK_BACKEND_NATIVE_PIPA_R.to_owned(),
             Vec::new(),
         );
         let transfer_output = super::ConfidentialTransferOutputV2 {
@@ -347,7 +368,7 @@ mod tests {
             nullifiers: vec![[0xBC; 32]],
             root: [0xCD; 32],
             proof: iroha_data_model::proof::ProofBox::new(
-                crate::ZK_BACKEND_HALO2_IPA.to_owned(),
+                crate::ZK_BACKEND_NATIVE_PIPA_R.to_owned(),
                 vec![0xDE],
             ),
         };
@@ -409,110 +430,74 @@ mod tests {
         }
     }
     #[test]
-    fn public_input_extraction_requires_canonical_outer_and_rejects_raw_zk1() {
-        use halo2_proofs::halo2curves::pasta::Fp;
-        let columns = (1_u64..=9)
-            .map(|value| vec![Fp::from(value)])
-            .collect::<Vec<_>>();
-        let column_refs = columns.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        let mut zk1 = crate::zk1_test_helpers::wrap_start();
-        crate::zk1_test_helpers::wrap_append_proof(&mut zk1, &[0xA5]);
-        crate::zk1_test_helpers::wrap_append_instances_pasta_fp_cols(&column_refs, &mut zk1);
-        let envelope = iroha_data_model::zk::OpenVerifyEnvelope {
-            backend: iroha_data_model::zk::BackendTag::Halo2IpaPasta,
-            circuit_id: super::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID.to_owned(),
+    fn public_input_extraction_requires_exact_native_outer_and_nested_layout() {
+        use iroha_data_model::zk::{BackendTag, NativePipaRProofV1, OpenVerifyEnvelope};
+        let wrapper = NativePipaRProofV1 {
+            public_inputs: (1_u64..=9).map(scalar_bytes).collect(),
+            proof: vec![0xA5; super::native::proof_length(super::native::Kind::Transfer).unwrap()],
+        };
+        let envelope = OpenVerifyEnvelope {
+            backend: BackendTag::NativePipaRPasta,
+            circuit_id: super::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID.into(),
             vk_hash: [0x42; 32],
             public_inputs: super::CONFIDENTIAL_TRANSFER_V2_PUBLIC_INPUTS_SCHEMA_V1.to_vec(),
-            proof_bytes: zk1.clone(),
-            aux: Vec::new(),
+            proof_bytes: norito::encode_canonical(&wrapper).unwrap(),
+            aux: vec![],
         };
-        let canonical =
-            norito::encode_canonical(&envelope).expect("encode canonical confidential envelope");
-        let parsed = super::parse_transfer_public_inputs(&canonical)
-            .expect("canonical confidential envelope exposes public inputs");
-        assert_eq!(parsed.0[0], scalar_bytes(1));
-        let extra_columns = (1_u64..=10)
-            .map(|value| vec![Fp::from(value)])
-            .collect::<Vec<_>>();
-        let extra_column_refs = extra_columns.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        let mut extra_zk1 = crate::zk1_test_helpers::wrap_start();
-        crate::zk1_test_helpers::wrap_append_proof(&mut extra_zk1, &[0xA5]);
-        crate::zk1_test_helpers::wrap_append_instances_pasta_fp_cols(
-            &extra_column_refs,
-            &mut extra_zk1,
+        let encoded = norito::encode_canonical(&envelope).unwrap();
+        assert_eq!(
+            super::parse_transfer_public_inputs(&encoded).unwrap().0[0],
+            scalar_bytes(1)
         );
-        let mut extra_column_envelope = envelope.clone();
-        extra_column_envelope.proof_bytes = extra_zk1;
-        let extra_column_outer = norito::encode_canonical(&extra_column_envelope)
-            .expect("encode confidential envelope with extra public column");
-        assert!(
-            super::parse_transfer_public_inputs(&extra_column_outer).is_err(),
-            "a trailing public column must not be ignored"
-        );
-        let alternate_flags =
-            norito::core::default_encode_flags() ^ norito::core::header_flags::COMPACT_LEN;
+        let flags = norito::core::default_encode_flags() ^ norito::core::header_flags::COMPACT_LEN;
         let alternate_outer = {
-            let _alternate = norito::core::DecodeFlagsGuard::enter(alternate_flags);
-            norito::to_bytes(&envelope)
-                .expect("encode alternate-layout confidential outer envelope")
+            let _guard = norito::core::DecodeFlagsGuard::enter(flags);
+            norito::to_bytes(&envelope).unwrap()
         };
-        assert_ne!(alternate_outer, canonical);
-        norito::decode_from_bytes::<iroha_data_model::zk::OpenVerifyEnvelope>(&alternate_outer)
-            .expect("ordinary Norito accepts the advertised layout");
-        assert!(
-            super::parse_transfer_public_inputs(&alternate_outer).is_err(),
-            "alternate-layout outer envelope must be rejected"
-        );
-        assert!(
-            super::parse_transfer_public_inputs(&zk1).is_err(),
-            "raw ZK1 payload must not bypass the V1 outer envelope"
-        );
-    }
-    #[test]
-    fn public_input_extraction_rejects_alternate_layout_stark_wrapper() {
-        let columns = (1_u8..=9)
-            .map(|value| vec![[value; 32]])
-            .collect::<Vec<_>>();
-        let wrapper = iroha_data_model::zk::StarkFriOpenProofV1 {
-            version: 1,
-            public_inputs: columns,
-            envelope_bytes: vec![0xA5],
+        norito::decode_from_bytes::<OpenVerifyEnvelope>(&alternate_outer).unwrap();
+        assert!(super::parse_transfer_public_inputs(&alternate_outer).is_err());
+        let alternate_nested = {
+            let _guard = norito::core::DecodeFlagsGuard::enter(flags);
+            norito::to_bytes(&wrapper).unwrap()
         };
-        let canonical_wrapper =
-            norito::encode_canonical(&wrapper).expect("encode canonical STARK wrapper");
-        let envelope = iroha_data_model::zk::OpenVerifyEnvelope {
-            backend: iroha_data_model::zk::BackendTag::Stark,
-            circuit_id: "stark/fri/poseidon-x7-goldilocks-6x64-v1:confidential-test".to_owned(),
-            vk_hash: [0x42; 32],
-            public_inputs: b"confidential:test:schema:v1".to_vec(),
-            proof_bytes: canonical_wrapper,
-            aux: Vec::new(),
-        };
-        let canonical_outer =
-            norito::encode_canonical(&envelope).expect("encode canonical STARK outer envelope");
+        norito::decode_from_bytes::<NativePipaRProofV1>(&alternate_nested).unwrap();
+        let mut bad = envelope.clone();
+        bad.proof_bytes = alternate_nested;
         assert!(
-            super::parse_transfer_public_inputs(&canonical_outer).is_ok(),
-            "canonical nested wrapper must expose its public inputs"
+            super::parse_transfer_public_inputs(&norito::encode_canonical(&bad).unwrap()).is_err()
         );
-        let alternate_flags =
-            norito::core::default_encode_flags() ^ norito::core::header_flags::COMPACT_LEN;
-        let alternate_wrapper = {
-            let _alternate = norito::core::DecodeFlagsGuard::enter(alternate_flags);
-            norito::to_bytes(&wrapper).expect("encode alternate-layout STARK wrapper")
-        };
-        norito::decode_from_bytes::<iroha_data_model::zk::StarkFriOpenProofV1>(&alternate_wrapper)
-            .expect("ordinary Norito accepts the advertised layout");
-        let mut alternate_nested = envelope;
-        alternate_nested.proof_bytes = alternate_wrapper;
-        let alternate_nested = norito::encode_canonical(&alternate_nested)
-            .expect("encode canonical outer around alternate STARK wrapper");
-        assert!(
-            super::parse_transfer_public_inputs(&alternate_nested).is_err(),
-            "alternate-layout nested STARK wrapper must be rejected"
-        );
+        assert!(super::parse_transfer_public_inputs(&envelope.proof_bytes).is_err());
+        assert!(super::parse_transfer_public_inputs(b"ZK1\0").is_err());
+        for change in 0..6 {
+            let mut bad = envelope.clone();
+            let mut inner = wrapper.clone();
+            match change {
+                0 => inner.public_inputs.push(scalar_bytes(10)),
+                1 => inner.public_inputs[0] = [255; 32],
+                2 => {
+                    inner.proof.pop();
+                }
+                3 => {
+                    inner.proof = b"ZK1\0PROF\x00\x00\x00\x00".to_vec();
+                }
+                4 => {
+                    bad.backend = BackendTag::Stark;
+                }
+                _ => {
+                    bad.circuit_id = super::CONFIDENTIAL_UNSHIELD_V3_CIRCUIT_ID.into();
+                }
+            }
+            bad.proof_bytes = norito::encode_canonical(&inner).unwrap();
+            assert!(
+                super::parse_transfer_public_inputs(&norito::encode_canonical(&bad).unwrap())
+                    .is_err(),
+                "mutation{change}"
+            );
+        }
     }
     fn scalar_bytes(value: u64) -> [u8; 32] {
-        use halo2_proofs::halo2curves::{ff::PrimeField as _, pasta::Fp};
+        use ff::PrimeField as _;
+        use iroha_pasta::Fp;
         Fp::from(value)
             .to_repr()
             .as_ref()
@@ -782,18 +767,16 @@ mod tests {
             assert!(!accepts(&format!(" {canonical}")));
             assert!(!accepts(&format!("{canonical} ")));
             let bare = canonical
-                .strip_prefix("halo2/pasta/ipa/")
-                .expect("production circuit IDs use the canonical IPA prefix");
+                .strip_prefix("pipa-r/pasta/")
+                .expect("production circuit IDs use the canonical native prefix");
             assert!(!accepts(bare));
             assert!(!accepts(&format!("halo2/pasta/{bare}")));
         }
     }
     #[test]
     fn retired_single_expression_poseidon_pair_has_constructive_collisions() {
-        use halo2_proofs::halo2curves::{
-            ff::Field,
-            pasta::{Fp, Fq},
-        };
+        use ff::Field;
+        use iroha_pasta::{Fp, Fq};
         fn fifth_power<F: Field>(value: F) -> F {
             let square = value.square();
             square.square() * value
@@ -843,26 +826,21 @@ mod tests {
         ]);
     }
     #[test]
-    fn cached_confidential_poseidon_matches_fresh_engine_on_both_pasta_fields() {
-        use halo2_proofs::halo2curves::pasta::{Fp, Fq};
-        use snark_verifier::{
-            loader::native::LOADER,
-            util::{arithmetic::FieldExt, hash::Poseidon},
-        };
-        fn check<F>()
-        where
-            F: FieldExt + super::ConfidentialPoseidonFieldV3,
-        {
-            let mut fresh = Poseidon::<
-                F,
-                F,
-                { super::CONFIDENTIAL_POSEIDON_T_V3 },
-                { super::CONFIDENTIAL_POSEIDON_RATE_V3 },
-            >::new::<
-                { super::CONFIDENTIAL_POSEIDON_FULL_ROUNDS_V3 },
-                { super::CONFIDENTIAL_POSEIDON_PARTIAL_ROUNDS_V3 },
-                { super::CONFIDENTIAL_POSEIDON_SECURE_MDS_V3 },
-            >(&*LOADER);
+    fn native_confidential_poseidon_matches_captured_oracle_on_both_pasta_fields() {
+        let fixture: norito::json::Value = norito::json::from_str(include_str!(
+            "../../../fixtures/native_prover/confidential_poseidon_v1.json"
+        ))
+        .expect("captured independent oracle vectors");
+        assert_eq!(
+            fixture.get("schema").and_then(norito::json::Value::as_str),
+            Some("iroha.native_prover.confidential_poseidon.v1")
+        );
+        fn check<F: iroha_pasta::poseidon::PoseidonField>(
+            fixture: &norito::json::Value,
+            field: &str,
+        ) {
+            let outputs = fixture.get("fields").unwrap().get(field).unwrap();
+            let domain_outputs = outputs.get("domain_outputs").unwrap().as_array().unwrap();
             let uses = [
                 (super::CONFIDENTIAL_POSEIDON_OWNER_DOMAIN_V3, &[3, 5][..]),
                 (super::CONFIDENTIAL_POSEIDON_NOTE_DOMAIN_V3, &[3, 5, 8, 13]),
@@ -875,97 +853,93 @@ mod tests {
                 (super::CONFIDENTIAL_POSEIDON_ASSET_DOMAIN_V3, &[3]),
                 (super::CONFIDENTIAL_POSEIDON_NETWORK_DOMAIN_V3, &[3]),
             ];
-            for (domain, input_words) in uses {
-                let inputs = input_words.iter().copied().map(F::from).collect::<Vec<_>>();
-                let mut preimage = Vec::with_capacity(inputs.len() + 2);
-                preimage.push(F::from(domain));
-                preimage.push(F::from_u128(inputs.len() as u128));
-                preimage.extend_from_slice(&inputs);
-                fresh.clear();
-                fresh.update(&preimage);
-                let expected = fresh.squeeze();
-                let cached = super::confidential_poseidon_hash_v3(domain, &inputs);
-                assert_eq!(cached, expected, "domain={domain:#018x}");
+            let cases = fixture.get("domain_cases").unwrap().as_array().unwrap();
+            assert_eq!(cases.len(), uses.len());
+            assert_eq!(domain_outputs.len(), uses.len());
+            for (index, (domain, inputs)) in uses.into_iter().enumerate() {
+                assert_eq!(
+                    cases[index]
+                        .get("tag")
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .as_bytes(),
+                    domain.to_le_bytes()
+                );
+                assert_eq!(
+                    cases[index]
+                        .get("inputs")
+                        .unwrap()
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|v| v.as_u64().unwrap())
+                        .collect::<Vec<_>>(),
+                    inputs
+                );
+                let native = super::confidential_poseidon_hash_v3(
+                    domain,
+                    &inputs.iter().copied().map(F::from).collect::<Vec<_>>(),
+                );
+                assert_eq!(
+                    hex::encode(native.to_repr()),
+                    domain_outputs[index].as_str().unwrap(),
+                    "{field} domain={domain:#018x}"
+                );
+            }
+            let domains = [0, u64::MAX, super::CONFIDENTIAL_POSEIDON_NOTE_DOMAIN_V3];
+            assert_eq!(
+                fixture
+                    .get("boundary_domains")
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_u64().unwrap())
+                    .collect::<Vec<_>>(),
+                domains
+            );
+            let boundary_outputs = outputs.get("boundary_outputs").unwrap().as_array().unwrap();
+            assert_eq!(boundary_outputs.len(), 34);
+            // Preserve the full pre-retirement differential corpus: all seven
+            // domains plus empty/even/odd framing and modulus-boundary inputs.
+            for (len, expected) in boundary_outputs.iter().enumerate() {
+                let expected = expected.as_array().unwrap();
+                assert_eq!(expected.len(), domains.len());
+                let inputs: Vec<_> = (0..len)
+                    .map(|i| match i % 4 {
+                        0 => F::ZERO,
+                        1 => F::ONE,
+                        2 => -F::ONE,
+                        _ => F::from(i as u64),
+                    })
+                    .collect();
+                for (index, domain) in domains.into_iter().enumerate() {
+                    assert_eq!(
+                        hex::encode(
+                            super::confidential_poseidon_hash_v3(domain, &inputs).to_repr()
+                        ),
+                        expected[index].as_str().unwrap(),
+                        "{field} len={len} domain={domain:#018x}"
+                    );
+                }
             }
         }
-        check::<Fp>();
-        check::<Fq>();
-    }
-    #[test]
-    fn secure_confidential_poseidon_host_and_chip_match_all_domains_on_both_pasta_fields() {
-        use halo2_base::{gates::circuit::builder::BaseCircuitBuilder, utils::BigPrimeField};
-        use halo2_proofs::{
-            dev::MockProver,
-            halo2curves::pasta::{Fp, Fq},
-        };
-        use snark_verifier::util::arithmetic::FieldExt;
-        fn check<F>()
-        where
-            F: BigPrimeField + FieldExt + super::ConfidentialPoseidonFieldV3,
-        {
-            const K: usize = 11;
-            let uses = [
-                (super::CONFIDENTIAL_POSEIDON_OWNER_DOMAIN_V3, &[3, 5][..]),
-                (super::CONFIDENTIAL_POSEIDON_NOTE_DOMAIN_V3, &[3, 5, 8, 13]),
-                (
-                    super::CONFIDENTIAL_POSEIDON_NULLIFIER_DOMAIN_V3,
-                    &[3, 5, 8, 13],
-                ),
-                (super::CONFIDENTIAL_POSEIDON_MERKLE_LEAF_DOMAIN_V3, &[3]),
-                (super::CONFIDENTIAL_POSEIDON_MERKLE_NODE_DOMAIN_V3, &[3, 5]),
-                (super::CONFIDENTIAL_POSEIDON_ASSET_DOMAIN_V3, &[3]),
-                (super::CONFIDENTIAL_POSEIDON_NETWORK_DOMAIN_V3, &[3]),
-            ];
-            let expected = uses
-                .iter()
-                .map(|(domain, inputs)| {
-                    let inputs = inputs.iter().copied().map(F::from).collect::<Vec<_>>();
-                    super::confidential_poseidon_hash_v3(*domain, &inputs)
-                })
-                .collect::<Vec<_>>();
-            assert!(
-                expected
-                    .iter()
-                    .all(|value| { value.to_repr().as_ref().iter().any(|byte| *byte != 0) })
-            );
-            let mut builder = BaseCircuitBuilder::new(false)
-                .use_k(K)
-                .use_lookup_bits(K - 1)
-                .use_instance_columns(1);
-            let range = builder.range_chip();
-            let outputs = {
-                let ctx = builder.main(0);
-                let chip = super::confidential_relation_gadget::ConfidentialPoseidonChipV3::new(
-                    ctx, &range,
-                );
-                uses.iter()
-                    .map(|(domain, inputs)| {
-                        let assigned = ctx.assign_witnesses(inputs.iter().copied().map(F::from));
-                        chip.hash(ctx, &range, *domain, &assigned)
-                    })
-                    .collect::<Vec<_>>()
-            };
-            builder.assigned_instances = vec![outputs];
-            builder.calculate_params(Some(9));
-            MockProver::run(K as u32, &builder, vec![expected])
-                .expect("secure Poseidon mock prover")
-                .assert_satisfied();
-        }
-        check::<Fp>();
-        check::<Fq>();
+        check::<iroha_pasta::Fp>(&fixture, "fp");
+        check::<iroha_pasta::Fq>(&fixture, "fq");
     }
     #[test]
     fn secure_confidential_poseidon_kats_pin_both_pasta_fields_and_domains() {
-        use halo2_proofs::halo2curves::pasta::{Fp, Fq};
+        use iroha_pasta::{Fp, Fq};
         fn repr<F>(domain: u64) -> [u8; 32]
         where
-            F: super::ConfidentialPoseidonFieldV3,
+            F: iroha_pasta::poseidon::PoseidonField,
         {
             repr_inputs::<F>(domain, &[3, 5, 8, 13])
         }
         fn repr_inputs<F>(domain: u64, inputs: &[u64]) -> [u8; 32]
         where
-            F: super::ConfidentialPoseidonFieldV3,
+            F: iroha_pasta::poseidon::PoseidonField,
         {
             let inputs = inputs.iter().copied().map(F::from).collect::<Vec<_>>();
             let value = super::confidential_poseidon_hash_v3(domain, &inputs);
@@ -1174,11 +1148,11 @@ mod tests {
         let transfer_key = transfer.key.as_ref().expect("transfer key");
         let unshield_key = unshield.key.as_ref().expect("unshield key");
         let unshield_v3_key = unshield_v3.key.as_ref().expect("unshield v3 key");
-        super::parse_vk_for_transfer(&transfer.circuit_id, transfer_key)
+        super::native::validate_key(super::native::Kind::Transfer, transfer_key)
             .expect("transfer key must parse as confidential transfer v2");
-        super::parse_vk_for_unshield_v2(&unshield.circuit_id, unshield_key)
+        super::native::validate_key(super::native::Kind::Full, unshield_key)
             .expect("unshield key must parse as confidential unshield v2");
-        super::parse_vk_for_unshield_v3(&unshield_v3.circuit_id, unshield_v3_key)
+        super::native::validate_key(super::native::Kind::Change, unshield_v3_key)
             .expect("unshield v3 key must parse as confidential unshield v3");
     }
     #[test]
@@ -1393,14 +1367,6 @@ mod tests {
         );
         super::ensure_confidential_transfer_v2_canonical_vk_box(&canonical)
             .expect("canonical transfer verifier key should pass");
-        let proving_key = super::cached_confidential_transfer_v2_proving_key()
-            .expect("canonical transfer proving key");
-        let cached_proving_key = super::cached_confidential_transfer_v2_proving_key()
-            .expect("cached transfer proving key");
-        assert!(
-            std::ptr::eq(proving_key, cached_proving_key),
-            "confidential transfer v2 proving key generation should be cached"
-        );
         let mut mutated = canonical.clone();
         let last = mutated
             .bytes
@@ -1410,7 +1376,7 @@ mod tests {
         let err = super::ensure_confidential_transfer_v2_canonical_vk_box(&mutated)
             .expect_err("mutated self-consistent verifier key must reject");
         assert!(
-            err.contains("canonical semantic circuit key"),
+            err.contains("foreign native confidential compiled key"),
             "unexpected mutated-key error: {err}"
         );
         let wrong_backend =
@@ -1418,23 +1384,20 @@ mod tests {
         let err = super::ensure_confidential_transfer_v2_canonical_vk_box(&wrong_backend)
             .expect_err("wrong backend must reject before canonical bytes are considered");
         assert!(err.contains("backend"), "unexpected backend error: {err}");
-        let empty = VerifyingKeyBox::new(crate::ZK_BACKEND_HALO2_IPA.to_owned(), Vec::new());
+        let empty = VerifyingKeyBox::new(crate::ZK_BACKEND_NATIVE_PIPA_R.to_owned(), Vec::new());
         let err = super::ensure_confidential_transfer_v2_canonical_vk_box(&empty)
             .expect_err("empty verifier key must reject");
-        assert!(
-            err.contains("non-empty"),
-            "unexpected empty-key error: {err}"
-        );
+        assert!(err.contains("length"), "unexpected empty-key error: {err}");
     }
     #[test]
     fn confidential_transfer_v2_canonical_vk_guard_rejects_malformed_key_preflight() {
         use iroha_data_model::proof::VerifyingKeyBox;
         let malformed =
-            VerifyingKeyBox::new(crate::ZK_BACKEND_HALO2_IPA.to_owned(), vec![0xC9; 32]);
+            VerifyingKeyBox::new(crate::ZK_BACKEND_NATIVE_PIPA_R.to_owned(), vec![0xC9; 32]);
         let err = super::ensure_confidential_transfer_v2_canonical_vk_box(&malformed)
             .expect_err("malformed verifier key must reject before canonical key generation");
         assert!(
-            err.contains("invalid CID1/Halo2 IPA verifier-key envelope"),
+            err.contains("compiled key"),
             "unexpected malformed-key error: {err}"
         );
     }
@@ -1451,22 +1414,6 @@ mod tests {
         assert_eq!(v3, v3_cached);
         super::ensure_confidential_unshield_v3_canonical_vk_box(&v3)
             .expect("canonical unshield v3 verifier key should pass");
-        let v2_pk = super::cached_confidential_unshield_v2_proving_key()
-            .expect("canonical unshield v2 proving key");
-        let v2_pk_cached = super::cached_confidential_unshield_v2_proving_key()
-            .expect("cached unshield v2 proving key");
-        assert!(
-            std::ptr::eq(v2_pk, v2_pk_cached),
-            "unshield v2 proving key should come from a process-local cache"
-        );
-        let v3_pk = super::cached_confidential_unshield_v3_proving_key()
-            .expect("canonical unshield v3 proving key");
-        let v3_pk_cached = super::cached_confidential_unshield_v3_proving_key()
-            .expect("cached unshield v3 proving key");
-        assert!(
-            std::ptr::eq(v3_pk, v3_pk_cached),
-            "unshield v3 proving key should come from a process-local cache"
-        );
         fn assert_rejects_key_substitution(
             label: &str,
             canonical: &VerifyingKeyBox,
@@ -1482,7 +1429,7 @@ mod tests {
                 Err(err) => err,
             };
             assert!(
-                err.contains("canonical semantic circuit key"),
+                err.contains("foreign native confidential compiled key"),
                 "unexpected {label} mutated-key error: {err}"
             );
             let wrong_backend =
@@ -1509,19 +1456,20 @@ mod tests {
         let err = super::ensure_confidential_unshield_v3_canonical_vk_box(&v2)
             .expect_err("unshield v2 key must not satisfy unshield v3 canonical guard");
         assert!(
-            err.contains("CID1"),
+            err.contains("compiled key"),
             "unexpected v2-as-v3 canonical-guard error: {err}"
         );
         let err = super::ensure_confidential_unshield_v2_canonical_vk_box(&v3)
             .expect_err("unshield v3 key must not satisfy unshield v2 canonical guard");
         assert!(
-            err.contains("CID1"),
+            err.contains("compiled key"),
             "unexpected v3-as-v2 canonical-guard error: {err}"
         );
     }
     #[test]
     fn generated_confidential_transfer_v2_one_input_one_output_verifies_against_generated_vk() {
-        use halo2_proofs::halo2curves::{ff::Field as _, pasta::Fp};
+        use ff::Field as _;
+        use iroha_pasta::Fp;
         let network_id = network_id(b"generated-confidential-transfer-network");
         let asset_definition_id = "xor#universal";
         let spend_key = [0x11_u8; 32];
@@ -1590,11 +1538,6 @@ mod tests {
             input_0_path: input_path,
             input_1_path: empty_path,
         };
-        let circuit = super::secure_relation_v3::ConfidentialTransferCircuitV3::<
-            { super::CONFIDENTIAL_TREE_DEPTH_V2 },
-        > {
-            witness: Some(witness),
-        };
         let instance_columns = vec![
             vec![super::scalar_from_repr(input_commitment).expect("input commitment")],
             vec![Fp::ZERO],
@@ -1606,13 +1549,9 @@ mod tests {
             vec![super::scalar_from_repr(asset_tag).expect("asset tag")],
             vec![super::scalar_from_repr(network_tag).expect("network tag")],
         ];
-        halo2_proofs::dev::MockProver::run(
-            super::CONFIDENTIAL_TRANSFER_V2_IPA_K,
-            &circuit,
-            instance_columns,
-        )
-        .expect("mock prover")
-        .assert_satisfied();
+        assert!(super::native::check_transfer::<
+            { super::CONFIDENTIAL_TREE_DEPTH_V2 },
+        >(&witness, instance_columns));
         let proof = super::build_confidential_transfer_proof_v2(
             &network_id,
             asset_definition_id,
@@ -1636,33 +1575,24 @@ mod tests {
         .expect("transfer proof");
         assert!(
             crate::verify_backend(
-                crate::ZK_BACKEND_HALO2_IPA,
+                crate::ZK_BACKEND_NATIVE_PIPA_R,
                 &proof.proof,
                 Some(transfer_key),
             ),
             "generated one-input one-output confidential transfer v2 proof should verify against the generated VK"
         );
         {
-            const EXACT_BACKEND: &str =
-                "halo2/pasta/confidential-transfer-2x2-merkle16-axiom-poseidon-v3";
-            let (exact_proof, exact_vk) = crate::relabel_halo2_ipa_open_verify_fixture(
-                &proof.proof,
-                transfer_key,
-                EXACT_BACKEND,
-            );
+            const EXACT_BACKEND: &str = "pipa-r/pasta/confidential-transfer-v1";
+            let (exact_proof, exact_vk) =
+                relabel_native_fixture(&proof.proof, transfer_key, EXACT_BACKEND);
             assert!(
                 crate::verify_backend(EXACT_BACKEND, &exact_proof, Some(&exact_vk)),
                 "exact confidential-transfer registry label should reach the transfer verifier"
             );
         }
-        let wrong_cid_key = super::build_confidential_v2_vk_box(
-            super::CONFIDENTIAL_TRANSFER_V2_IPA_K,
-            super::CONFIDENTIAL_UNSHIELD_V2_CIRCUIT_ID,
-            &super::secure_relation_v3::ConfidentialTransferCircuitV3::<
-                { super::CONFIDENTIAL_TREE_DEPTH_V2 },
-            >::default(),
-        )
-        .expect("transfer-shaped verifier key with wrong CID1");
+        // A self-consistent carrier for another native relation must not
+        // substitute for the transfer's exact compiled descriptor/key.
+        let wrong_cid_key = super::confidential_unshield_v2_vk_box().unwrap();
         assert_ne!(crate::hash_vk(transfer_key), crate::hash_vk(&wrong_cid_key));
         let wrong_cid_error = super::build_confidential_transfer_proof_v2(
             &network_id,
@@ -1685,14 +1615,17 @@ mod tests {
             &wrong_cid_key,
         )
         .expect_err("proof builder must reject a verifier key for another circuit");
-        assert!(wrong_cid_error.contains("CID1"), "{wrong_cid_error}");
+        assert!(
+            wrong_cid_error.contains("compiled key"),
+            "{wrong_cid_error}"
+        );
         assert!(
             !crate::verify_backend(
-                crate::ZK_BACKEND_HALO2_IPA,
+                crate::ZK_BACKEND_NATIVE_PIPA_R,
                 &proof.proof,
                 Some(&wrong_cid_key),
             ),
-            "verifier must reject a cryptographically valid proof whose VK CID1 names another circuit"
+            "verifier must reject a cryptographically valid proof whose compiled key names another relation"
         );
     }
     #[test]
@@ -1782,7 +1715,7 @@ mod tests {
         )
         .expect("build transfer proof");
         assert!(
-            crate::verify_backend(crate::ZK_BACKEND_HALO2_IPA, &proof.proof, Some(&vk_box)),
+            crate::verify_backend(crate::ZK_BACKEND_NATIVE_PIPA_R, &proof.proof, Some(&vk_box)),
             "generated confidential transfer v2 proof should verify against the generated VK"
         );
     }
@@ -1842,7 +1775,7 @@ mod tests {
         )
         .expect("build transfer proof");
         assert!(
-            crate::verify_backend(crate::ZK_BACKEND_HALO2_IPA, &proof.proof, Some(&vk_box)),
+            crate::verify_backend(crate::ZK_BACKEND_NATIVE_PIPA_R, &proof.proof, Some(&vk_box)),
             "generated one-input confidential transfer v2 proof should verify against the generated VK"
         );
     }

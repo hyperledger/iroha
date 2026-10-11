@@ -5709,22 +5709,6 @@ fn validate_global_beacon_persistence(world: &World) -> Result<(), json::Error> 
             ));
         }
     }
-    let unavailable_beacon_pulse_slots = world
-        .parliament_attempts
-        .view()
-        .iter()
-        .flat_map(|(_, attempt)| attempt.unavailable_beacon_pulse_slots_v1())
-        .collect::<BTreeSet<_>>();
-    for (_, pulse) in pulses.iter() {
-        let logical_session =
-            iroha_data_model::governance::types::BeaconSessionId::for_network_v1(&pulse.network_id);
-        if unavailable_beacon_pulse_slots.contains(&(logical_session, pulse.height)) {
-            return Err(invalid_global_beacon_persistence(
-                "finalized pulse conflicts with a Parliament slot terminally classified as unavailable",
-            ));
-        }
-    }
-
     let latest = latest_pulses
         .get(&GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY)
         .copied();
@@ -5766,7 +5750,7 @@ mod global_beacon_persistence_tests {
     use iroha_model_base::peer::PeerId;
 
     #[test]
-    fn restore_rejects_pulse_after_sortition_slot_was_terminally_unavailable() {
+    fn restore_accepts_pulse_at_a_slot_a_pending_sortition_election_names() {
         let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
         let network_id = iroha_data_model::NetworkId::from_genesis_hash(
             HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xC1; 32])),
@@ -5780,7 +5764,7 @@ mod global_beacon_persistence_tests {
                     .expect("derive deterministic Parliament candidate")
             })
             .collect::<Vec<_>>();
-        let (governance_attempt_id, _, mut attempt) =
+        let (governance_attempt_id, _, attempt) =
             crate::beacon::tests::pending_batched_sortition_attempt(
                 &network_id,
                 &roster,
@@ -5791,14 +5775,17 @@ mod global_beacon_persistence_tests {
             ParliamentBody::RulesCommittee,
             0,
         );
-        attempt
-            .fail_body_election_no_roster(
-                governance_attempt_id,
-                election_attempt_id,
-                false,
-                pulse.height + 1,
-            )
-            .expect("terminally classify the missing sortition slot");
+        // The election still awaits exactly this slot; the pulse was committed but not
+        // consumed yet. Parliament state never contradicts a consensus pulse.
+        assert_eq!(
+            attempt
+                .election(&election_attempt_id)
+                .expect("pending election")
+                .attempt()
+                .request
+                .pulse_height,
+            pulse.height
+        );
 
         let link = validate_persisted_global_threshold_beacon_pulse_v1(&pulse)
             .expect("canonical persisted pulse link");
@@ -5826,11 +5813,257 @@ mod global_beacon_persistence_tests {
             .parliament_attempts
             .insert(governance_attempt_id, attempt);
 
-        let error = validate_global_beacon_persistence(&world)
-            .expect_err("restart must reject a pulse contradicting terminal Parliament state");
-        assert!(
-            error.to_string().contains("terminally classified"),
-            "unexpected restore rejection: {error}"
+        validate_global_beacon_persistence(&world)
+            .expect("no Parliament state vetoes a finalized pulse at restart");
+        let restored = world.parliament_attempts.view();
+        let election = restored
+            .get(&governance_attempt_id)
+            .expect("restored attempt")
+            .election(&election_attempt_id)
+            .expect("restored election")
+            .attempt();
+        assert_eq!(
+            election.status,
+            iroha_data_model::governance::types::BodyElectionAttemptStatusV1::AwaitingPulse
+        );
+        assert_eq!(election.request.pulse_height, pulse.height);
+    }
+
+    #[test]
+    fn world_snapshot_roundtrip_keeps_a_pulse_wait_on_its_exact_slot() {
+        let account = |seed: u8| {
+            let key_pair = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
+                .expect("derive deterministic Parliament candidate");
+            iroha_data_model::account::AccountId::new(key_pair.public_key().clone())
+        };
+        let kind = ProposalKind::DeployContract(
+            iroha_data_model::governance::types::DeployContractProposal {
+                proposal_operator: account(59),
+                contract_address: "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw"
+                    .parse()
+                    .expect("contract address"),
+                code_hash: iroha_data_model::governance::types::ContractCodeHash::new([0x31; 32]),
+                abi_hash: iroha_data_model::governance::types::ContractAbiHash::new([0x41; 32]),
+                abi_version: iroha_data_model::governance::types::AbiVersion::new(1),
+                manifest_provenance: None,
+            },
+        );
+        let (attempt, pulse_slot, election_attempt_ids) =
+            crate::governance::parliament::pulse_awaiting_parliament_attempt_for_testing(
+                &kind,
+                vec![account(61), account(62), account(63)],
+            );
+        let governance_attempt_id = attempt.attempt().id;
+        let pulse_height = pulse_slot.1;
+        assert!(!election_attempt_ids.is_empty());
+        // No pulse was ever committed for the slot and the chain is far past it.
+        attempt
+            .validate_restored_height_v1(pulse_height + 1_000_000)
+            .expect("a wait on an old slot is ordinary restorable state");
+
+        let mut world = World::new();
+        world.governance_proposals.insert(
+            kind.fingerprint(),
+            GovernanceProposalRecord {
+                proposer: account(59),
+                kind,
+                created_height: 1,
+                status: GovernanceProposalStatus::Proposed,
+            },
+        );
+        world
+            .parliament_attempts
+            .insert(governance_attempt_id, attempt.clone());
+        let encoded = json::to_json(&world).expect("serialize the World snapshot");
+        let ivm = IVM::new(0);
+        let seed = IvmSeed {
+            ivm: &ivm,
+            _marker: PhantomData,
+        };
+        let restored = parse_world(
+            &iroha_allocation::AllocationBudget::new(
+                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+            ),
+            SnapshotJsonMap::parse(&encoded, "world").expect("World snapshot map"),
+            &seed,
+        )
+        .map_err(crate::state::deserialize::snapshot_format_error_for_test)
+        .expect("a World carrying a pulse wait without a pulse restores");
+
+        let view = restored.parliament_attempts.view();
+        let restored_attempt = view.get(&governance_attempt_id).expect("restored attempt");
+        assert_eq!(restored_attempt, &attempt);
+        for election_attempt_id in &election_attempt_ids {
+            let election = restored_attempt
+                .election(election_attempt_id)
+                .expect("restored election")
+                .attempt();
+            assert_eq!(
+                election.status,
+                iroha_data_model::governance::types::BodyElectionAttemptStatusV1::AwaitingPulse
+            );
+            assert_eq!(election.request.pulse_height, pulse_height);
+        }
+        assert_eq!(
+            restored
+                .parliament_required_beacon_pulse_slots
+                .view()
+                .iter()
+                .map(|(slot, attempts)| (*slot, attempts.clone()))
+                .collect::<Vec<_>>(),
+            vec![(pulse_slot, BTreeSet::from([governance_attempt_id]))]
+        );
+    }
+
+    /// The chain is far past an unserved sortition slot and has since committed a consensus
+    /// pulse at a later height. The World snapshot restores, the later pulse is not attached
+    /// to the election, and the request is still pending on exactly its original slot.
+    #[test]
+    fn world_snapshot_roundtrip_past_an_unserved_slot_keeps_the_request_on_that_slot() {
+        const LATER_PULSE: u64 = 41;
+        let budget = iroha_allocation::AllocationBudget::new(
+            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+        );
+        let network_id = iroha_data_model::NetworkId::from_genesis_hash(
+            HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xC4; 32])),
+        );
+        let (key_record, pulse) = crate::beacon::signed_persisted_pulse_fixture_for_world(
+            network_id,
+            LATER_PULSE,
+            &budget,
+        );
+        let account = |seed: u8| {
+            let key_pair = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
+                .expect("derive deterministic Parliament candidate");
+            iroha_data_model::account::AccountId::new(key_pair.public_key().clone())
+        };
+        // Restore binds an attempt to its exact governance proposal, so the pending request is
+        // the proposal-bound fixture.
+        let kind = ProposalKind::DeployContract(
+            iroha_data_model::governance::types::DeployContractProposal {
+                proposal_operator: account(69),
+                contract_address: "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw"
+                    .parse()
+                    .expect("contract address"),
+                code_hash: iroha_data_model::governance::types::ContractCodeHash::new([0x32; 32]),
+                abi_hash: iroha_data_model::governance::types::ContractAbiHash::new([0x42; 32]),
+                abi_version: iroha_data_model::governance::types::AbiVersion::new(1),
+                manifest_provenance: None,
+            },
+        );
+        let (attempt, pulse_slot, election_attempt_ids) =
+            crate::governance::parliament::pulse_awaiting_parliament_attempt_for_testing(
+                &kind,
+                vec![account(71), account(72), account(73)],
+            );
+        let governance_attempt_id = attempt.attempt().id;
+        assert!(!election_attempt_ids.is_empty());
+        assert!(pulse_slot.1 + 12 < LATER_PULSE);
+        let pending = |attempt: &crate::governance::parliament::ParliamentAttemptStateV1| {
+            for election_attempt_id in &election_attempt_ids {
+                let election = attempt
+                    .election(election_attempt_id)
+                    .expect("pending election")
+                    .attempt();
+                assert_eq!(
+                    election.status,
+                    iroha_data_model::governance::types::BodyElectionAttemptStatusV1::AwaitingPulse
+                );
+                assert_eq!(
+                    (
+                        election.request.beacon_session_id,
+                        election.request.pulse_height
+                    ),
+                    pulse_slot
+                );
+            }
+        };
+        pending(&attempt);
+        // Every restored height past the slot accepts the wait.
+        for restored_height in [
+            pulse_slot.1,
+            pulse_slot.1 + 12,
+            LATER_PULSE,
+            LATER_PULSE + 1_000_000,
+        ] {
+            attempt
+                .validate_restored_height_v1(restored_height)
+                .expect("a wait on an unserved old slot is ordinary restorable state");
+        }
+
+        let link = validate_persisted_global_threshold_beacon_pulse_v1(&pulse)
+            .expect("canonical persisted pulse link");
+        let later_slot = (
+            iroha_data_model::governance::types::BeaconSessionId::for_network_v1(&network_id),
+            pulse.height,
+        );
+        let mut world = World::new();
+        world
+            .global_beacon_key_sessions
+            .insert(pulse.session_id, key_record);
+        world
+            .global_beacon_active_session
+            .insert(GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, pulse.session_id);
+        world.global_beacon_pulses.insert(pulse.pulse_id, pulse);
+        world
+            .global_beacon_pulse_slots
+            .insert(later_slot, pulse.pulse_id);
+        world
+            .global_beacon_latest_pulse
+            .insert(GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY, link);
+        world.governance_proposals.insert(
+            kind.fingerprint(),
+            GovernanceProposalRecord {
+                proposer: account(69),
+                kind,
+                created_height: 1,
+                status: GovernanceProposalStatus::Proposed,
+            },
+        );
+        world
+            .parliament_attempts
+            .insert(governance_attempt_id, attempt.clone());
+        validate_global_beacon_persistence(&world)
+            .expect("a later pulse and an older unserved wait are consistent");
+
+        let encoded = json::to_json(&world).expect("serialize the World snapshot");
+        let ivm = IVM::new(0);
+        let seed = IvmSeed {
+            ivm: &ivm,
+            _marker: PhantomData,
+        };
+        let restored = parse_world(
+            &budget,
+            SnapshotJsonMap::parse(&encoded, "world").expect("World snapshot map"),
+            &seed,
+        )
+        .map_err(crate::state::deserialize::snapshot_format_error_for_test)
+        .expect("a World past an unserved sortition slot restores");
+
+        let attempts = restored.parliament_attempts.view();
+        let restored_attempt = attempts
+            .get(&governance_attempt_id)
+            .expect("restored attempt");
+        assert_eq!(restored_attempt, &attempt);
+        pending(restored_attempt);
+        assert_eq!(
+            restored
+                .parliament_required_beacon_pulse_slots
+                .view()
+                .iter()
+                .map(|(slot, attempts)| (*slot, attempts.clone()))
+                .collect::<Vec<_>>(),
+            vec![(pulse_slot, BTreeSet::from([governance_attempt_id]))],
+            "the rebuilt index names the original slot and not the later pulse height"
+        );
+        assert_eq!(
+            restored
+                .global_beacon_pulse_slots
+                .view()
+                .iter()
+                .map(|(slot, id)| (*slot, *id))
+                .collect::<Vec<_>>(),
+            vec![(later_slot, pulse.pulse_id)]
         );
     }
 }
@@ -7178,11 +7411,7 @@ mod validation_fee_registry_restore_tests {
     fn restore_policy_projection(world: &World) -> Result<World, StateRestoreError> {
         let encoded = json::to_json(world).expect("serialize protected registry projection");
         let ivm = IVM::new(0);
-        let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-        let operation_index_refusal = std::cell::RefCell::new(None);
         let seed = IvmSeed {
-            operation_index_budget: &operation_index_budget,
-            operation_index_refusal: &operation_index_refusal,
             ivm: &ivm,
             _marker: PhantomData,
         };
@@ -7242,7 +7471,6 @@ mod validation_fee_registry_restore_tests {
         }
         let snapshot = json::to_value(&state).expect("serialize validation-fee restore fixture");
         KuraSeed {
-            operation_index_budget: crate::state::kagemusha_operation_indexes::default_budget(),
             execution_budget: iroha_allocation::AllocationBudget::new(
                 iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
             ),
@@ -8033,6 +8261,35 @@ fn decode_world_fields(
             .into());
         }
     }
+    let asset_definition_direct_homes: Storage<AssetDefinitionId, AssetDefinitionDirectHomeV1> =
+        take_required(&mut map, "asset_definition_direct_homes")?;
+    let direct_homes = asset_definition_direct_homes.view();
+    for (asset_definition_id, home) in direct_homes.iter() {
+        crate::state::direct_home_dataspace(
+            Some(home),
+            definitions.get(asset_definition_id),
+            incarnations.get(asset_definition_id),
+        )
+        .map_err(|error| json::Error::InvalidField {
+            field: "world.asset_definition_direct_homes".to_owned(),
+            message: format!("direct home of asset definition {asset_definition_id}: {error}"),
+        })?;
+    }
+    for (asset_definition_id, definition) in definitions.iter() {
+        if definition.owning_domain().is_none()
+            && definition.balance_scope_policy() == AssetBalancePolicy::DataspaceRestricted
+            && direct_homes.get(asset_definition_id).is_none()
+        {
+            return Err(json::Error::InvalidField {
+                field: "world.asset_definition_direct_homes".to_owned(),
+                message: format!(
+                    "domainless dataspace-restricted asset definition {asset_definition_id} has no direct home"
+                ),
+            }
+            .into());
+        }
+    }
+    drop(direct_homes);
     let axt_replay_ledger: Storage<AxtHandleReplayKey, AxtReplayRecord> =
         take_required(&mut map, "axt_replay_ledger")?;
     let axt_spend_nonce_ledger: Storage<AxtAnchoredSpendReplayKeyV1, u64> =
@@ -8286,6 +8543,30 @@ fn decode_world_fields(
         crate::privacy_state::PrivacyActivationKeyV1,
         iroha_data_model::privacy::PrivacyProtocolActivationRecordV1,
     > = take_required(&mut map, "privacy_activations")?;
+    let kagemusha_wallet_ledger: Storage<
+        iroha_data_model::kagemusha::KagemushaWalletLedgerKeyV1,
+        Vec<u8>,
+    > = take_required(&mut map, "kagemusha_wallet_ledger")?;
+    {
+        let generation = kagemusha_wallet_ledger.view();
+        crate::kagemusha_wallet_v1::validate_snapshot(generation.iter(), |key| {
+            generation.get(key).map(Vec::as_slice)
+        })
+        .map_err(|error| json::Error::InvalidField {
+            field: "world.kagemusha_wallet_ledger".to_owned(),
+            message: error.to_string(),
+        })?;
+    }
+    {
+        let generation = kagemusha_wallet_ledger.block_and_revert();
+        crate::kagemusha_wallet_v1::validate_snapshot(generation.iter(), |key| {
+            generation.get(key).map(Vec::as_slice)
+        })
+        .map_err(|error| json::Error::InvalidField {
+            field: "world.kagemusha_wallet_ledger".to_owned(),
+            message: error.to_string(),
+        })?;
+    }
     let private_settlement_governance: Storage<
         PrivateSettlementPoolKeyV1,
         PrivateSettlementPoolGovernanceProjectionV1,
@@ -8553,7 +8834,6 @@ fn decode_world_fields(
     let tle_key_session_lifecycles = take_required(&mut map, "tle_key_session_lifecycles")?;
     let tle_active_key_session = take_required(&mut map, "tle_active_key_session")?;
     let timed_ovn_evidence = take_required(&mut map, "timed_ovn_evidence")?;
-    let validator_candidate_keys = take_required(&mut map, "validator_candidate_keys")?;
     let validator_committee_transitions =
         take_required(&mut map, "validator_committee_transitions")?;
     let global_beacon_dkg = take_required(&mut map, "global_beacon_dkg")?;
@@ -8563,34 +8843,6 @@ fn decode_world_fields(
     let global_beacon_pulses = take_required(&mut map, "global_beacon_pulses")?;
     let repo_agreements = take_required(&mut map, "repo_agreements")?;
     let settlement_receipts = take_required(&mut map, "settlement_receipts")?;
-    let kagemusha_mint_credit_operations = map
-        .remove("kagemusha_mint_credit_operations")
-        .ok_or_else(|| json::MapVisitor::missing_field("kagemusha_mint_credit_operations"))?
-        .into_operation_index(
-            ivm_seed.operation_index_budget.clone(),
-            ivm_seed.operation_index_refusal,
-        )?;
-    let kagemusha_issuance_operations = map
-        .remove("kagemusha_issuance_operations")
-        .ok_or_else(|| json::MapVisitor::missing_field("kagemusha_issuance_operations"))?
-        .into_operation_index(
-            ivm_seed.operation_index_budget.clone(),
-            ivm_seed.operation_index_refusal,
-        )?;
-    let kagemusha_redemption_id_operations = map
-        .remove("kagemusha_redemption_id_operations")
-        .ok_or_else(|| json::MapVisitor::missing_field("kagemusha_redemption_id_operations"))?
-        .into_operation_index(
-            ivm_seed.operation_index_budget.clone(),
-            ivm_seed.operation_index_refusal,
-        )?;
-    let kagemusha_terminal_nullifier_operations = map
-        .remove("kagemusha_terminal_nullifier_operations")
-        .ok_or_else(|| json::MapVisitor::missing_field("kagemusha_terminal_nullifier_operations"))?
-        .into_operation_index(
-            ivm_seed.operation_index_budget.clone(),
-            ivm_seed.operation_index_refusal,
-        )?;
     let manifest_aliases = take_required(&mut map, "manifest_aliases")?;
     validate_musubi_location_reverse_indices(
         &musubi_archives,
@@ -8623,8 +8875,10 @@ fn decode_world_fields(
     let merge_hint_roots: Cell<Vec<Hash>> = take_required(&mut map, "merge_hint_roots")?;
     let merge_global_state_root: Cell<Option<Hash>> =
         take_required(&mut map, "merge_global_state_root")?;
-    let consensus_evidence: Storage<Hash, EvidenceRecord> =
-        take_required(&mut map, "consensus_evidence")?;
+    let consensus_evidence = map
+        .remove("consensus_evidence")
+        .ok_or_else(|| json::Error::missing_field("consensus_evidence"))?
+        .decode_evidence(execution_budget)?;
     let da_pin_intents_by_ticket = take_required(&mut map, "da_pin_intents_by_ticket")?;
     let da_pin_intents_by_alias = take_required(&mut map, "da_pin_intents_by_alias")?;
     let da_pin_intents_by_manifest = take_required(&mut map, "da_pin_intents_by_manifest")?;
@@ -8723,6 +8977,7 @@ fn decode_world_fields(
         axt_policies,
         axt_handle_counters,
         axt_asset_incarnations,
+        asset_definition_direct_homes,
         axt_replay_ledger,
         axt_spend_nonce_ledger,
         axt_source_transfer_replay_ledger,
@@ -8745,6 +9000,7 @@ fn decode_world_fields(
         privacy_consensus_policy,
         privacy_exact12_qualification,
         privacy_activations,
+        kagemusha_wallet_ledger,
         private_settlement_governance,
         private_settlement_pools,
         private_settlement_roots,
@@ -8857,20 +9113,12 @@ fn decode_world_fields(
         repo_agreements_by_counterparty: Storage::default(),
         repo_agreements_by_custodian: Storage::default(),
         settlement_receipts,
-        kagemusha_mint_credit_operations,
-        kagemusha_issuance_operations,
-        kagemusha_redemption_id_operations,
-        kagemusha_terminal_nullifier_operations,
         domain_committees,
         domain_endorsement_policies,
         domain_endorsements,
         domain_endorsements_by_domain,
         public_lane_validators: Storage::default(),
         public_lane_stake_shares: Storage::default(),
-        public_lane_rewards: Storage::default(),
-        public_lane_reward_claims: Storage::default(),
-        public_lane_reward_accruals: Storage::default(),
-        public_lane_reward_reserves: Storage::default(),
         public_lane_stake_custody: Storage::default(),
         public_lane_stake_reserves: Storage::default(),
         zk_assets,
@@ -8894,7 +9142,6 @@ fn decode_world_fields(
         parliament_timed_ovn_casting_candidates: Storage::default(),
         parliament_required_beacon_pulse_slots: Storage::default(),
         parliament_certified_enactments: Storage::default(),
-        parliament_unavailable_beacon_pulse_slots: Storage::default(),
         parliament_tle_key_session_retention_deadlines: Storage::default(),
         tle_key_session_selection_intervals: Storage::default(),
         tle_key_sessions,
@@ -8902,7 +9149,6 @@ fn decode_world_fields(
         tle_key_session_lifecycles,
         tle_active_key_session,
         timed_ovn_evidence,
-        validator_candidate_keys,
         validator_committee_transitions,
         global_beacon_dkg,
         global_beacon_key_sessions,
@@ -8944,6 +9190,7 @@ fn decode_world_fields(
         sccp_light_client_sets: Storage::default(),
         sccp_light_client_checkpoints: Storage::default(),
         sccp_light_client_stride_index: Storage::default(),
+        sccp_light_client_profiles: Storage::default(),
         external_event_buf,
     }));
     Ok(world)
@@ -9256,15 +9503,29 @@ fn parse_world(
             message,
         })?;
     crate::smartcontracts::isi::kaigi::rebuild_kaigi_relay_registry(&mut world).map_err(
-        |message| json::Error::InvalidField {
-            field: "kaigi_relay_registry".into(),
-            message,
+        |error| match error {
+            crate::execution_attempt::ExecutionAttemptError::Rejected(message) => {
+                StateRestoreError::Serialization(json::Error::InvalidField {
+                    field: "kaigi_relay_registry".into(),
+                    message,
+                })
+            }
+            crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                StateRestoreError::ExecutionDeferred(reason)
+            }
         },
     )?;
     crate::smartcontracts::isi::kaigi::rebuild_kaigi_account_dependencies(&mut world).map_err(
-        |message| json::Error::InvalidField {
-            field: "kaigi_account_dependencies".into(),
-            message,
+        |error| match error {
+            crate::execution_attempt::ExecutionAttemptError::Rejected(message) => {
+                StateRestoreError::Serialization(json::Error::InvalidField {
+                    field: "kaigi_account_dependencies".into(),
+                    message,
+                })
+            }
+            crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                StateRestoreError::ExecutionDeferred(reason)
+            }
         },
     )?;
     world
@@ -9781,7 +10042,14 @@ fn build_state(
         })?;
     state
         .finalize_snapshot_derived_state_indexes(emergency_fast)
-        .map_err(MergeLedgerCommitError::ExecutionStatePublication)?;
+        .map_err(|error| match error {
+            crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
+                MergeLedgerCommitError::ExecutionStatePublication(error)
+            }
+            crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                MergeLedgerCommitError::ExecutionDeferred(reason)
+            }
+        })?;
     #[cfg(feature = "sm")]
     if active_runtime {
         Sm2PublicKey::set_default_distid(initial_crypto.sm2_distid_default.clone())
@@ -9988,8 +10256,6 @@ pub(in crate::state) fn decode_world_component_for_testing(
     world: &World,
 ) -> Result<World, StateRestoreError> {
     let encoded = json::to_json(world)?;
-    let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-    let operation_index_refusal = std::cell::RefCell::new(None);
     let ivm = IVM::new(0);
     parse_world(
         &iroha_allocation::AllocationBudget::new(
@@ -9997,8 +10263,6 @@ pub(in crate::state) fn decode_world_component_for_testing(
         ),
         SnapshotJsonMap::parse(&encoded, "world")?,
         &IvmSeed {
-            operation_index_budget: &operation_index_budget,
-            operation_index_refusal: &operation_index_refusal,
             ivm: &ivm,
             _marker: PhantomData,
         },
@@ -10178,8 +10442,6 @@ mod decode_tests {
             },
         );
         let encoded = json::to_json(&world).expect("serialize malformed election fixture");
-        let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-        let operation_index_refusal = std::cell::RefCell::new(None);
         let ivm = IVM::new(0);
         let error = match parse_world(
             &iroha_allocation::AllocationBudget::new(
@@ -10187,8 +10449,6 @@ mod decode_tests {
             ),
             SnapshotJsonMap::parse(&encoded, "world").expect("parse election fixture"),
             &IvmSeed {
-                operation_index_budget: &operation_index_budget,
-                operation_index_refusal: &operation_index_refusal,
                 ivm: &ivm,
                 _marker: PhantomData,
             },
@@ -11338,8 +11598,6 @@ mod decode_tests {
                     .any(|window| window == restricted_salt_canary),
             "canonical World snapshot must never contain restricted pool asset/salt canaries"
         );
-        let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-        let operation_index_refusal = std::cell::RefCell::new(None);
         let ivm = IVM::new(0);
         let restored = parse_world(
             &iroha_allocation::AllocationBudget::new(
@@ -11347,8 +11605,6 @@ mod decode_tests {
             ),
             SnapshotJsonMap::parse(&encoded, "world").expect("parse governed pool World"),
             &IvmSeed {
-                operation_index_budget: &operation_index_budget,
-                operation_index_refusal: &operation_index_refusal,
                 ivm: &ivm,
                 _marker: PhantomData,
             },
@@ -11374,8 +11630,6 @@ mod decode_tests {
             ),
             SnapshotJsonMap::parse(&corrupt, "world").expect("parse corrupt World"),
             &IvmSeed {
-                operation_index_budget: &operation_index_budget,
-                operation_index_refusal: &operation_index_refusal,
                 ivm: &ivm,
                 _marker: PhantomData,
             },
@@ -11413,8 +11667,6 @@ mod decode_tests {
                 .expect("finalized fixture abort")
         };
         let encoded = json::to_json(&world).expect("serialize finalized settlement World");
-        let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-        let operation_index_refusal = std::cell::RefCell::new(None);
         let ivm = IVM::new(0);
         let restored = parse_world(
             &iroha_allocation::AllocationBudget::new(
@@ -11422,8 +11674,6 @@ mod decode_tests {
             ),
             SnapshotJsonMap::parse(&encoded, "world").expect("parse finalized settlement World"),
             &IvmSeed {
-                operation_index_budget: &operation_index_budget,
-                operation_index_refusal: &operation_index_refusal,
                 ivm: &ivm,
                 _marker: PhantomData,
             },
@@ -11481,8 +11731,6 @@ mod decode_tests {
             (bundle_id, barrier, locks.len())
         };
         let encoded = json::to_json(&world).expect("serialize prepared settlement World");
-        let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-        let operation_index_refusal = std::cell::RefCell::new(None);
         let ivm = IVM::new(0);
         let restored = parse_world(
             &iroha_allocation::AllocationBudget::new(
@@ -11490,8 +11738,6 @@ mod decode_tests {
             ),
             SnapshotJsonMap::parse(&encoded, "world").expect("parse prepared settlement World"),
             &IvmSeed {
-                operation_index_budget: &operation_index_budget,
-                operation_index_refusal: &operation_index_refusal,
                 ivm: &ivm,
                 _marker: PhantomData,
             },
@@ -11534,8 +11780,6 @@ mod decode_tests {
             .private_settlement_outputs
             .insert(second_key, second_record);
         let encoded = json::to_json(&world).expect("serialize adversarial settlement World");
-        let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-        let operation_index_refusal = std::cell::RefCell::new(None);
         let ivm = IVM::new(0);
         let error = match parse_world(
             &iroha_allocation::AllocationBudget::new(
@@ -11543,8 +11787,6 @@ mod decode_tests {
             ),
             SnapshotJsonMap::parse(&encoded, "world").expect("parse adversarial World"),
             &IvmSeed {
-                operation_index_budget: &operation_index_budget,
-                operation_index_refusal: &operation_index_refusal,
                 ivm: &ivm,
                 _marker: PhantomData,
             },
@@ -11603,11 +11845,7 @@ mod decode_tests {
             .insert(key.clone(), original.clone());
         let encoded = json::to_json(&world).unwrap();
         let ivm = IVM::new(0);
-        let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-        let operation_index_refusal = std::cell::RefCell::new(None);
         let seed = IvmSeed {
-            operation_index_budget: &operation_index_budget,
-            operation_index_refusal: &operation_index_refusal,
             ivm: &ivm,
             _marker: PhantomData,
         };
@@ -11711,12 +11949,8 @@ mod decode_tests {
     #[test]
     fn first_release_world_decoder_requires_every_canonical_field() {
         let encoded = json::to_json(&World::default()).expect("serialize default World");
-        let operation_index_budget = crate::state::kagemusha_operation_indexes::default_budget();
-        let operation_index_refusal = std::cell::RefCell::new(None);
         let ivm = IVM::new(0);
         let seed = IvmSeed {
-            operation_index_budget: &operation_index_budget,
-            operation_index_refusal: &operation_index_refusal,
             ivm: &ivm,
             _marker: PhantomData,
         };
@@ -11843,7 +12077,6 @@ mod decode_tests {
         assert!(!encoded.contains("\"account_scope_directory\""));
         let snapshot = json::to_value(&state).expect("serialize populated State snapshot");
         let restored = KuraSeed {
-            operation_index_budget: crate::state::kagemusha_operation_indexes::default_budget(),
             execution_budget: iroha_allocation::AllocationBudget::new(
                 iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
             ),
@@ -12769,3 +13002,11 @@ mod decode_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "deserialize_world_kaigi_deferral_tests.rs"]
+mod kaigi_typed_deferral_tests;
+
+#[cfg(test)]
+#[path = "deserialize_world_kaigi_relay_deferral_tests.rs"]
+mod kaigi_relay_typed_deferral_tests;

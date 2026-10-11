@@ -759,7 +759,7 @@ class DriverBoundaryTests(unittest.TestCase):
         self.assertEqual(validator[validator.index("--features") + 1], "test-network-private-settlement-route-control")
 
     def test_exact_terminal_and_discovery_reject_zero_ignored_skipped_or_duplicate(self) -> None:
-        good = "running 1 test\nAPS smoke completed: synthetic fixture only\n" + (
+        good = f"running 1 test\ntest {M.TEST_NAME} ... APS smoke completed: synthetic fixture only\nok\n" + (
             "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 1.0s\n")
         M.terminal_success(good)
         for bad in (good.replace("1 passed", "0 passed"), good.replace("0 ignored", "1 ignored"),
@@ -770,6 +770,39 @@ class DriverBoundaryTests(unittest.TestCase):
         M.validate_discovery(listing)
         with self.assertRaises(M.CampaignError):
             M.validate_discovery(listing.replace(M.TEST_NAME, M.TEST_NAME + "_wrong"))
+
+    def test_terminal_accounting_keeps_exact_owners_with_interleaved_logs(self) -> None:
+        for kind, name in (("smoke", M.TEST_NAME), ("happy_day", M.HAPPY_DAY_TEST_NAME)):
+            marker = f"APS {kind} completed: synthetic fixture only"
+            summary = "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 1.0s\n"
+            for terminal in (f"test {name} ... ok\n{marker}\n",
+                             f"test {name} ... {{\"logger\":\"interleaved\"}}\n{marker}\nok\n"):
+                with self.subTest(kind=kind, terminal=terminal):
+                    M.terminal_success("running 1 test\n" + terminal + summary, kind=kind)
+
+    def test_terminal_accounting_rejects_missing_foreign_duplicate_and_contradictory_owners(self) -> None:
+        for kind, name in (("smoke", M.TEST_NAME), ("happy_day", M.HAPPY_DAY_TEST_NAME)):
+            marker = f"APS {kind} completed: synthetic fixture only\n"
+            summary = "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 1.0s\n"
+            good = f"running 1 test\ntest {name} ... " + marker + "ok\n" + summary
+            attacks = {
+                "missing owner and terminal": "running 1 test\n" + marker + summary,
+                "missing terminal": good.replace("ok\n", "", 1),
+                "foreign owner": good.replace(name, name + "_foreign"),
+                "duplicate header": "running 1 test\n" + good,
+                "contradictory failed terminal": good.replace("ok\n", "FAILED\n", 1),
+                "duplicate owner": good.replace(summary, f"test {name} ... ok\n" + summary),
+                "foreign additional owner": good.replace(summary, "test foreign::test ... ok\n" + summary),
+                "orphan terminal": good + "ok\n",
+                "duplicate terminal": good.replace(summary, "ok\n" + summary),
+                "missing header": good.replace("running 1 test\n", ""),
+                "duplicate summary": good + summary,
+                "malformed summary": good.replace("finished in 1.0s", "finished in invalid"),
+                "misordered summary": summary + good.removesuffix(summary),
+            }
+            for label, output in attacks.items():
+                with self.subTest(kind=kind, attack=label), self.assertRaises(M.CampaignError):
+                    M.terminal_success(output, kind=kind)
 
     def test_request_nonce_content_id_commit_range_and_bool_boundaries(self) -> None:
         M.validate_request(request(0), COMMIT, 0)
@@ -957,6 +990,36 @@ class DriverBoundaryTests(unittest.TestCase):
                 M.reject_unsigned_cargo_configuration(repo, set())
 
 
+class ProcessClosureTests(unittest.TestCase):
+    """Pure exact Unix/Windows exit grammar and standalone smoke population checks."""
+
+    def test_all_original_and_replacement_exits_use_exact_success_grammar(self) -> None:
+        for value in ("unix_wait_status", "ExitStatus"):
+            for newline in ("\n", "\r\n"):
+                with self.subTest(platform=value, newline=newline):
+                    rows = [f"TEST_NETWORK peer exited with status ExitStatus({value}(0))"] * (2 * M.PEER_COUNT)
+                    M.validate_process_closure(newline.join(rows) + newline)
+
+    def test_missing_extra_malformed_nonzero_and_foreign_records_refuse(self) -> None:
+        good = "TEST_NETWORK peer exited with status ExitStatus(unix_wait_status(0))\n"
+        cases = ["", good * (2 * M.PEER_COUNT - 1), good * (2 * M.PEER_COUNT + 1)]
+        for bad in (
+            good.replace("(0)", "(9)"), good.replace("(0)", "(256)"),
+            good.replace("(0)", "(-1)"), good.replace("(0)", "(00)"),
+            good.replace("(0)", "(invalid)"), good.replace("(0)", "(0) suffix"),
+            good.replace("unix_wait_status(0)", "ExitStatus(1)"),
+            good.replace("unix_wait_status(0)", "ExitStatus(4294967295)"),
+            good.replace("ExitStatus(unix_wait_status(0))", "exit code: 0"),
+            good.replace("TEST_NETWORK", "foreign TEST_NETWORK"),
+            good.replace("with status", "with status:"),
+            good.removesuffix("\n") + good,
+        ):
+            cases.append(good * (2 * M.PEER_COUNT - 1) + bad)
+        for output in cases:
+            with self.subTest(output=output), self.assertRaisesRegex(M.CampaignError, "validator process exit"):
+                M.validate_process_closure(output)
+
+
 class SerialCampaignTests(unittest.TestCase):
     """Exercise the real orchestration/reader with mocked commands and synthetic evidence only."""
 
@@ -977,6 +1040,7 @@ class SerialCampaignTests(unittest.TestCase):
         self.invocations = []
         self.clock = 100
         self.fail_run = None
+        self.bad_exit_run = None
         self.drift_run = None
         self.source_drift_run = None
         self.patchers = [mock.patch.object(M, "source_seal", side_effect=lambda *_: self.seal.copy()),
@@ -1020,7 +1084,11 @@ class SerialCampaignTests(unittest.TestCase):
                 exit_code = 101
                 output = "running 1 test\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 1.0s\n"
             else:
-                output = "running 1 test\nAPS smoke completed: synthetic test only\n"
+                output = f"running 1 test\ntest {M.TEST_NAME} ... APS smoke completed: synthetic test only\nok\n"
+                output += "".join(
+                    "TEST_NETWORK peer exited with status ExitStatus(unix_wait_status(" +
+                    ("9" if req["run"] == self.bad_exit_run and index == 0 else "0") + "))\n"
+                    for index in range(2 * M.PEER_COUNT))
                 output += "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 1.0s\n"
             if req["run"] == self.drift_run:
                 self.validator.write_text("Synthetic mid-run substituted binary.\n")
@@ -1091,6 +1159,42 @@ class SerialCampaignTests(unittest.TestCase):
             with self.assertRaisesRegex(M.CampaignError, "fresh request collision"):
                 self.run_driver()
         self.assertEqual(sum(name == "stdout" for name, _ in self.invocations), 1)
+
+    def test_nonzero_validator_exit_stops_live_campaign_without_retry(self) -> None:
+        self.bad_exit_run = 0
+        with self.assertRaisesRegex(M.CampaignError, "successful validator process exits"):
+            self.run_driver()
+        self.assertEqual(sum(name == "stdout" for name, _ in self.invocations), 1)
+        self.assertTrue((self.output / "failure.json").is_file())
+        self.assertTrue((self.output / "run-00" / "after.json").is_file())
+        self.assertFalse((self.output / "run-01").exists())
+        self.assertFalse((self.output / "campaign.json").exists())
+
+    def test_readonly_campaign_refuses_bad_closure_after_outer_log_rehash(self) -> None:
+        campaign = self.run_driver()
+        directory = self.output / "run-00"
+        original_log = M.read_bytes(directory / "stdout.log").decode()
+        original_record = M.read_json(directory / "stdout.json")
+        original_exit = "TEST_NETWORK peer exited with status ExitStatus(unix_wait_status(0))\n"
+        attacks = {
+            "missing": original_log.replace(original_exit, "", 1),
+            "extra": original_log + original_exit,
+            "malformed": original_log.replace(original_exit, original_exit.replace("(0)", "(invalid)"), 1),
+            "nonzero": original_log.replace(original_exit, original_exit.replace("(0)", "(9)"), 1),
+            "mixed platform": original_log.replace(original_exit, original_exit.replace("unix_wait_status", "ExitStatus"), 1),
+        }
+        for label, output in attacks.items():
+            with self.subTest(attack=label):
+                record = copy.deepcopy(original_record)
+                record["log_sha256"] = M.sha(output.encode())
+                modified = copy.deepcopy(campaign)
+                modified["runs"][0]["command_sha256"] = M.sha(M.canonical(record))
+                (directory / "stdout.log").write_bytes(output.encode())
+                (directory / "stdout.json").write_bytes(M.canonical(record) + b"\n")
+                (self.output / "campaign.json").write_bytes(M.canonical(modified) + b"\n")
+                with self.assertRaisesRegex(M.CampaignError, "validator process exit"):
+                    M.validate_campaign(self.output, expected_commit=COMMIT)
+        self.assertEqual(len(self.invocations), 16, "retained validation must never launch a native child")
 
     def test_output_inside_repository_and_existing_output_are_rejected(self) -> None:
         with self.assertRaisesRegex(M.CampaignError, "outside the repository"):

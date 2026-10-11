@@ -3,7 +3,7 @@
 //! The local tree is a synthetic proof statement, not a ledger-authorized asset
 //! root. Only `VerifyProof` records are submitted; this does not move value or
 //! revive retired confidential-transfer instructions.
-use super::{fetch_proof_snapshot, proof_fixtures::corrupt_native_halo2_proof};
+use super::{fetch_proof_snapshot, proof_fixtures::corrupt_native_proof};
 use eyre::{Report, Result, ensure};
 use integration_tests::sandbox;
 use iroha_core_zk::{
@@ -150,14 +150,14 @@ async fn four_validator_full_tree_wallet_proof_records_reject_corruption_and_rel
         .key
         .clone()
         .expect("canonical inline full-unshield key");
-    let full_id = VerifyingKeyId::new(zk::ZK_BACKEND_HALO2_IPA, "full_tree_unshield_vk");
+    let full_id = VerifyingKeyId::new(&full_key.backend, "full_tree_unshield_vk");
     let transfer_record = zk::confidential_v2::confidential_transfer_v2_vk_record("integration", 1)
         .map_err(Report::msg)?;
     let transfer_key = transfer_record
         .key
         .clone()
         .expect("canonical inline confidential-transfer key");
-    let transfer_id = VerifyingKeyId::new(zk::ZK_BACKEND_HALO2_IPA, "full_tree_wrong_role_vk");
+    let transfer_id = VerifyingKeyId::new(&transfer_key.backend, "full_tree_wrong_role_vk");
     let builder = NetworkBuilder::new()
         .with_peers(4)
         .with_auto_populated_trusted_peers()
@@ -189,12 +189,12 @@ async fn four_validator_full_tree_wallet_proof_records_reject_corruption_and_rel
     }
     let result = tokio::task::spawn_blocking(move || full_tree_wallet_proof(network_id)).await??;
     ensure!(
-        zk::verify_backend(zk::ZK_BACKEND_HALO2_IPA, &result.proof, Some(&full_key)),
+        zk::verify_backend(&full_key.backend, &result.proof, Some(&full_key)),
         "full proof must verify locally"
     );
-    let corrupt = corrupt_native_halo2_proof(&result.proof);
+    let corrupt = corrupt_native_proof(&result.proof);
     ensure!(
-        !zk::verify_backend(zk::ZK_BACKEND_HALO2_IPA, &corrupt, Some(&full_key)),
+        !zk::verify_backend(&full_key.backend, &corrupt, Some(&full_key)),
         "corrupted native proof must fail"
     );
     let mut wrong_role: OpenVerifyEnvelope = norito::decode_canonical(&result.proof.bytes)?;
@@ -203,11 +203,11 @@ async fn four_validator_full_tree_wallet_proof_records_reject_corruption_and_rel
     wrong_role.public_inputs =
         zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_PUBLIC_INPUTS_SCHEMA_V1.to_vec();
     let wrong_role = ProofBox::new(
-        zk::ZK_BACKEND_HALO2_IPA.into(),
+        transfer_key.backend.clone(),
         norito::encode_canonical(&wrong_role)?,
     );
     ensure!(
-        !zk::verify_backend(zk::ZK_BACKEND_HALO2_IPA, &wrong_role, Some(&transfer_key)),
+        !zk::verify_backend(&transfer_key.backend, &wrong_role, Some(&transfer_key)),
         "full-unshield proof cannot attest a confidential transfer"
     );
     for (proof, key, status) in [
@@ -217,7 +217,7 @@ async fn four_validator_full_tree_wallet_proof_records_reject_corruption_and_rel
     ] {
         record_on_every_validator(
             &network,
-            ProofAttachment::new_ref(zk::ZK_BACKEND_HALO2_IPA.into(), proof, key),
+            ProofAttachment::new_ref(proof.backend.clone(), proof, key),
             status,
         )
         .await?;

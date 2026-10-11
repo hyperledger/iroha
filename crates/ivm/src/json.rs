@@ -312,6 +312,7 @@ fn state_node_word_count(
             | StateValueNodeV1::Leaf(_)
             | StateValueNodeV1::Unit
             | StateValueNodeV1::Error(_)
+            | StateValueNodeV1::Enum(_)
             | StateValueNodeV1::StateCursor(_) => return Ok(1),
             StateValueNodeV1::Struct { .. }
             | StateValueNodeV1::Tuple { .. }
@@ -550,7 +551,7 @@ fn convert_state_schema(
                         let payload =
                             pointer_leaf(vm, words[0], PointerType::NoritoBytes, resolver, stats)?;
                         let cursor = iroha_data_model::smart_contract::state_cursor::StateCursorV1::decode_frame(payload).map_err(|_| VMError::DecodeError)?;
-                        if cursor.key_type != *key {
+                        if Some(cursor.key_schema_hash) != iroha_data_model::smart_contract::entrypoint::state_key_schema_hash_v1(key) {
                             return Err(VMError::DecodeError);
                         }
                         completed.push(njson::Value::from(format!("0x{}", hex::encode(payload))));
@@ -569,6 +570,15 @@ fn convert_state_schema(
                         }
                         let code = u32::try_from(words[0]).map_err(|_| VMError::DecodeError)?;
                         let variant = error.variant(code).ok_or(VMError::DecodeError)?;
+                        completed.push(njson::Value::String(variant.name.clone()));
+                        break;
+                    }
+                    StateValueNodeV1::Enum(descriptor) => {
+                        if next_node != node_end {
+                            return Err(VMError::DecodeError);
+                        }
+                        let code = u32::try_from(words[0]).map_err(|_| VMError::DecodeError)?;
+                        let variant = descriptor.variant(code).ok_or(VMError::DecodeError)?;
                         completed.push(njson::Value::String(variant.name.clone()));
                         break;
                     }
@@ -879,11 +889,21 @@ where
 fn canonical_int_string(field: &njson::Value) -> Option<IntValueV1> {
     IntValueV1::try_new(canonical_numeric_string::<BigInt>(field)?).ok()
 }
-fn getter_value(number: u32, field: &njson::Value) -> Option<(PointerType, Vec<u8>)> {
+/// Active payload of one typed JSON getter.
+enum GetterPayload {
+    /// A host-allocated pointer-ABI value.
+    Pointer(PointerType, Vec<u8>),
+    /// One scalar ABI word, such as a `bool`.
+    Word(u64),
+}
+/// Convert a present JSON field into the getter's active payload, or `None`
+/// when the field's JSON value is not the getter's exact canonical type.
+fn getter_value(number: u32, field: &njson::Value) -> Option<GetterPayload> {
+    use GetterPayload::{Pointer, Word};
     Some(match number {
         syscalls::SYSCALL_JSON_GET_JSON => {
             let json = json_from_value_ref(field).ok()?;
-            (PointerType::Json, encode_canonical_norito(&json).ok()?)
+            Pointer(PointerType::Json, encode_canonical_norito(&json).ok()?)
         }
         syscalls::SYSCALL_JSON_GET_NAME => {
             let raw = field.as_str()?;
@@ -891,26 +911,26 @@ fn getter_value(number: u32, field: &njson::Value) -> Option<(PointerType, Vec<u
             if value.as_ref() != raw {
                 return None;
             }
-            (PointerType::Name, encode_canonical_norito(&value).ok()?)
+            Pointer(PointerType::Name, encode_canonical_norito(&value).ok()?)
         }
-        syscalls::SYSCALL_JSON_GET_ACCOUNT_ID => (
+        syscalls::SYSCALL_JSON_GET_ACCOUNT_ID => Pointer(
             PointerType::AccountId,
             encode_canonical_norito(&canonical_account(field.as_str()?)?).ok()?,
         ),
-        syscalls::SYSCALL_JSON_GET_NFT_ID => (
+        syscalls::SYSCALL_JSON_GET_NFT_ID => Pointer(
             PointerType::NftId,
             encode_canonical_norito(&canonical_from_str::<NftId>(field.as_str()?)?).ok()?,
         ),
         syscalls::SYSCALL_JSON_GET_BLOB_HEX => {
-            (PointerType::Blob, canonical_hex_bytes(field.as_str()?)?)
+            Pointer(PointerType::Blob, canonical_hex_bytes(field.as_str()?)?)
         }
-        syscalls::SYSCALL_JSON_GET_ASSET_DEFINITION_ID => (
+        syscalls::SYSCALL_JSON_GET_ASSET_DEFINITION_ID => Pointer(
             PointerType::AssetDefinitionId,
             encode_canonical_norito(&canonical_asset_definition(field.as_str()?)?).ok()?,
         ),
         syscalls::SYSCALL_JSON_GET_INT => {
             let frame = canonical_int_string(field)?.encode_frame().ok()?;
-            (PointerType::Int, frame)
+            Pointer(PointerType::Int, frame)
         }
         syscalls::SYSCALL_JSON_GET_DECIMAL => {
             let value = canonical_numeric_string::<Numeric>(field)?;
@@ -918,22 +938,29 @@ fn getter_value(number: u32, field: &njson::Value) -> Option<(PointerType, Vec<u
                 .ok()?
                 .encode_frame()
                 .ok()?;
-            (PointerType::Decimal, frame)
+            Pointer(PointerType::Decimal, frame)
         }
         syscalls::SYSCALL_JSON_GET_QUANTITY => {
             let frame = QuantityValueV1::new(canonical_numeric_string::<Quantity>(field)?)
                 .encode_frame()
                 .ok()?;
-            (PointerType::Quantity, frame)
+            Pointer(PointerType::Quantity, frame)
         }
+        syscalls::SYSCALL_JSON_GET_STRING => {
+            Pointer(PointerType::Blob, field.as_str()?.as_bytes().to_vec())
+        }
+        syscalls::SYSCALL_JSON_GET_BOOL => Word(u64::from(field.as_bool()?)),
         _ => return None,
     })
 }
 /// Execute one typed JSON getter and materialize `Option<T>` as an active-only
 /// compiler-owned sum handle in `r10`.
 ///
-/// Missing fields, non-object roots, and conversion/type mismatches produce `Option::none`.
-/// Malformed pointer envelopes or noncanonical root/key payloads remain deterministic VM errors.
+/// A key absent from the JSON object produces `Option::none`. A non-object
+/// root, or a present field whose JSON value is not the getter's exact
+/// canonical type, traps with [`VMError::DecodeError`]: malformed input never
+/// reads as absent. Malformed pointer envelopes or noncanonical root/key
+/// payloads remain deterministic VM errors.
 pub fn typed_getter(
     vm: &mut IVM,
     number: u32,
@@ -950,22 +977,31 @@ pub fn typed_getter(
         json.try_into_any_norito()
             .map_err(|_| VMError::DecodeError)?,
     );
-    let converted = value
-        .value()
-        .as_object()
-        .and_then(|object| object.get(key.as_ref()))
-        .and_then(|field| getter_value(number, field));
+    let converted = match value.value().as_object() {
+        None => Err(VMError::DecodeError),
+        Some(object) => match object.get(key.as_ref()) {
+            None => Ok(None),
+            Some(field) => getter_value(number, field)
+                .map(Some)
+                .ok_or(VMError::DecodeError),
+        },
+    };
     drop(value);
+    let converted = converted?;
     let input_bytes = json_tlv.payload.len().saturating_add(key_tlv.payload.len());
     let layout = crate::sum::SumLayoutV1::option(1).map_err(|_| VMError::DecodeError)?;
     let (handle, payload_bytes) = match converted {
-        Some((pointer_type, payload)) => {
+        Some(GetterPayload::Pointer(pointer_type, payload)) => {
             let pointer = allocate_tlv(vm, pointer_type, &payload)?;
             (
                 crate::sum::allocate_words(vm, layout, 1, &[pointer])?,
                 payload.len(),
             )
         }
+        Some(GetterPayload::Word(word)) => (
+            crate::sum::allocate_words(vm, layout, 1, &[word])?,
+            core::mem::size_of::<u64>(),
+        ),
         None => (crate::sum::allocate_words(vm, layout, 0, &[])?, 0),
     };
     vm.set_register(10, handle);
@@ -1144,14 +1180,14 @@ mod tests {
             instance: "local::金庫".into(),
             map: "balances".parse().unwrap(),
             schema_hash: [3; 32],
-            key_type: EntrypointValueKindV1::Int,
+            key_schema_hash: iroha_data_model::smart_contract::entrypoint::state_key_schema_hash_v1(&iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)] }).unwrap(),
             last_key: "balances/00".parse().unwrap(),
         };
         let frame = cursor.encode_frame().unwrap();
         let mut vm = IVM::new(u64::MAX);
         let pointer = allocate_tlv(&mut vm, PointerType::NoritoBytes, &frame).unwrap();
         let schema = StateValueSchemaV1 {
-            nodes: vec![StateValueNodeV1::StateCursor(EntrypointValueKindV1::Int)],
+            nodes: vec![StateValueNodeV1::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)] })],
         };
         let value = convert_state_schema(
             &vm,
@@ -1166,7 +1202,7 @@ mod tests {
             &njson::Value::from(format!("0x{}", hex::encode(frame)))
         );
         let wrong = StateValueSchemaV1 {
-            nodes: vec![StateValueNodeV1::StateCursor(EntrypointValueKindV1::Bool)],
+            nodes: vec![StateValueNodeV1::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Bool)] })],
         };
         assert!(
             convert_state_schema(
@@ -1184,6 +1220,13 @@ mod tests {
         let vm = IVM::new(u64::MAX);
         for (node, word, expected) in [
             (StateValueNodeV1::Unit, 0, njson::Value::Null),
+            (StateValueNodeV1::Enum(iroha_data_model::smart_contract::manifest::ContractEnumTypeDescriptorV1 {
+                identity: "local::Status".into(),
+                variants: vec![
+                    iroha_data_model::smart_contract::manifest::ContractEnumVariantDescriptorV1 { name: "Open".into(), code: 1 },
+                    iroha_data_model::smart_contract::manifest::ContractEnumVariantDescriptorV1 { name: "Closed".into(), code: 7 },
+                ],
+            }), 7, njson::Value::String("Closed".into())),
             (
                 StateValueNodeV1::Error(ivm_abi::error_types::list_error_type()),
                 2,
@@ -2232,19 +2275,15 @@ mod tests {
             .expect("number key TLV");
         vm.set_register(10, json_ptr);
         vm.set_register(11, number_ptr);
-        typed_getter(
-            &mut vm,
-            syscalls::SYSCALL_JSON_GET_INT,
-            CoreHost::resolve_code_tlv_addr,
-        )
-        .expect("numeric token is none");
+        // A JSON number token is present but not a canonical decimal string.
         assert_eq!(
-            crate::sum::read_words(
-                &vm,
-                vm.register(10),
-                crate::sum::SumLayoutV1::option(1).unwrap()
-            ),
-            Ok((false, vec![]))
+            typed_getter(
+                &mut vm,
+                syscalls::SYSCALL_JSON_GET_INT,
+                CoreHost::resolve_code_tlv_addr,
+            )
+            .err(),
+            Some(VMError::DecodeError)
         );
         let wrong: Name = "wrong".parse().expect("wrong-type key");
         let wrong_ptr = vm
@@ -2252,19 +2291,15 @@ mod tests {
             .expect("wrong-type key TLV");
         vm.set_register(10, json_ptr);
         vm.set_register(11, wrong_ptr);
-        typed_getter(
-            &mut vm,
-            syscalls::SYSCALL_JSON_GET_INT,
-            CoreHost::resolve_code_tlv_addr,
-        )
-        .expect("wrong type is none");
         assert_eq!(
-            crate::sum::read_words(
-                &vm,
-                vm.register(10),
-                crate::sum::SumLayoutV1::option(1).unwrap()
-            ),
-            Ok((false, vec![]))
+            typed_getter(
+                &mut vm,
+                syscalls::SYSCALL_JSON_GET_INT,
+                CoreHost::resolve_code_tlv_addr,
+            )
+            .err(),
+            Some(VMError::DecodeError),
+            "a present field of the wrong JSON type traps"
         );
         let array = Json::from(norito::json!(["7"]));
         let array_ptr = vm
@@ -2275,20 +2310,77 @@ mod tests {
             .expect("array JSON TLV");
         vm.set_register(10, array_ptr);
         vm.set_register(11, key_ptr);
-        typed_getter(
-            &mut vm,
-            syscalls::SYSCALL_JSON_GET_INT,
-            CoreHost::resolve_code_tlv_addr,
-        )
-        .expect("non-object root is none");
         assert_eq!(
-            crate::sum::read_words(
-                &vm,
-                vm.register(10),
-                crate::sum::SumLayoutV1::option(1).unwrap()
-            ),
-            Ok((false, vec![]))
+            typed_getter(
+                &mut vm,
+                syscalls::SYSCALL_JSON_GET_INT,
+                CoreHost::resolve_code_tlv_addr,
+            )
+            .err(),
+            Some(VMError::DecodeError),
+            "a non-object root traps"
         );
+    }
+    #[test]
+    fn typed_string_and_bool_getters_read_exact_json_types() {
+        let json = Json::from(norito::json!({
+            "label": "rose garden",
+            "empty": "",
+            "flag": true,
+            "off": false,
+            "number": 5,
+            "quoted_flag": "true",
+        }));
+        let json_payload = to_bytes(&json).expect("encode JSON");
+        let mut vm = IVM::new(u64::MAX);
+        let json_ptr = vm
+            .alloc_input_tlv(&tlv(PointerType::Json, &json_payload))
+            .expect("JSON TLV");
+        let layout = crate::sum::SumLayoutV1::option(1).expect("Option layout");
+        let get = |vm: &mut IVM, number: u32, key: &str| {
+            let key: Name = key.parse().expect("valid key");
+            let key_ptr = vm
+                .alloc_input_tlv(&tlv(PointerType::Name, &to_bytes(&key).expect("key")))
+                .expect("key TLV");
+            vm.set_register(10, json_ptr);
+            vm.set_register(11, key_ptr);
+            typed_getter(vm, number, CoreHost::resolve_code_tlv_addr)
+                .map(|_| crate::sum::read_words(vm, vm.register(10), layout).expect("option"))
+        };
+        for (key, expected) in [("label", "rose garden"), ("empty", "")] {
+            let (some, words) =
+                get(&mut vm, syscalls::SYSCALL_JSON_GET_STRING, key).expect("string field");
+            assert!(some, "{key}");
+            let text = vm.validate_tlv(words[0]).expect("string TLV");
+            assert_eq!(text.type_id, PointerType::Blob);
+            assert_eq!(text.payload, expected.as_bytes());
+        }
+        assert_eq!(
+            get(&mut vm, syscalls::SYSCALL_JSON_GET_BOOL, "flag"),
+            Ok((true, vec![1]))
+        );
+        assert_eq!(
+            get(&mut vm, syscalls::SYSCALL_JSON_GET_BOOL, "off"),
+            Ok((true, vec![0]))
+        );
+        for number in [
+            syscalls::SYSCALL_JSON_GET_STRING,
+            syscalls::SYSCALL_JSON_GET_BOOL,
+        ] {
+            assert_eq!(get(&mut vm, number, "missing"), Ok((false, vec![])));
+        }
+        for (number, key) in [
+            (syscalls::SYSCALL_JSON_GET_STRING, "number"),
+            (syscalls::SYSCALL_JSON_GET_STRING, "flag"),
+            (syscalls::SYSCALL_JSON_GET_BOOL, "quoted_flag"),
+            (syscalls::SYSCALL_JSON_GET_BOOL, "number"),
+        ] {
+            assert_eq!(
+                get(&mut vm, number, key),
+                Err(VMError::DecodeError),
+                "{key} has the wrong JSON type"
+            );
+        }
     }
     #[test]
     fn typed_decimal_getter_accepts_only_canonical_string_values() {
@@ -2338,12 +2430,17 @@ mod tests {
                 .expect("key TLV");
             vm.set_register(10, json_ptr);
             vm.set_register(11, key_ptr);
-            typed_getter(
+            let result = typed_getter(
                 &mut vm,
                 syscalls::SYSCALL_JSON_GET_DECIMAL,
                 CoreHost::resolve_code_tlv_addr,
-            )
-            .expect("typed decimal getter");
+            );
+            if expected.is_none() && key != "missing" {
+                // A present field that is not a canonical decimal string traps.
+                assert_eq!(result.err(), Some(VMError::DecodeError), "{key}");
+                continue;
+            }
+            result.expect("typed decimal getter");
             let (some, payload) = crate::sum::read_words(&vm, vm.register(10), option_layout)
                 .expect("read Option<decimal>");
             match expected {
@@ -2409,12 +2506,17 @@ mod tests {
                 .expect("key TLV");
             vm.set_register(10, json_ptr);
             vm.set_register(11, key_ptr);
-            typed_getter(
+            let result = typed_getter(
                 &mut vm,
                 syscalls::SYSCALL_JSON_GET_QUANTITY,
                 CoreHost::resolve_code_tlv_addr,
-            )
-            .expect("typed quantity getter");
+            );
+            if expected.is_none() && key.as_ref() != "missing" {
+                // A present field that is not a canonical quantity string traps.
+                assert_eq!(result.err(), Some(VMError::DecodeError), "{key}");
+                continue;
+            }
+            result.expect("typed quantity getter");
             let (some, payload) = crate::sum::read_words(&vm, vm.register(10), option_layout)
                 .expect("read Option<quantity>");
             match expected {

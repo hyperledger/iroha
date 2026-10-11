@@ -147,6 +147,7 @@ namespace Hyperledger.Iroha.Torii;
 [JsonSerializable(typeof(ToriiContractViewVmDiagnostic))]
 [JsonSerializable(typeof(ToriiContractViewErrorResponse))]
 [JsonSerializable(typeof(ToriiContractVerifiedSourceSubmission))]
+[JsonSerializable(typeof(ToriiContractSourceArtifact))]
 [JsonSerializable(typeof(ToriiContractSourceFile))]
 [JsonSerializable(typeof(ToriiContractSourceImport))]
 [JsonSerializable(typeof(ToriiContractSourcePackage))]

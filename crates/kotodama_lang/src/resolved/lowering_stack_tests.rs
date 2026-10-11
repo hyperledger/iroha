@@ -9,17 +9,19 @@ fn empty_targets() -> GlobalTargets {
     GlobalTargets {
         all: BTreeMap::new(),
         structs: BTreeMap::new(),
-        errors: BTreeMap::new(),
+        enums: BTreeMap::new(),
         functions: BTreeMap::new(),
         states: BTreeMap::new(),
         consts: BTreeMap::new(),
-        error_codes: BTreeMap::new(),
+        permissions: BTreeSet::new(),
+        variant_codes: BTreeMap::new(),
         resolve_import_calls: false,
         external_functions: BTreeSet::new(),
         external_states: BTreeSet::new(),
         external_structs: BTreeSet::new(),
         external_consts: BTreeSet::new(),
-        external_error_codes: BTreeMap::new(),
+        external_variant_codes: BTreeMap::new(),
+        declarations: BTreeMap::new(),
     }
 }
 

@@ -300,6 +300,18 @@ pub mod asset {
             /// Identifier of the asset definition to look up.
             pub id: AssetDefinitionId,
         }
+        /// [`FindAssetDefinitionDirectHome`] Iroha Query finds the immutable direct dataspace
+        /// home row of one live asset definition incarnation.
+        #[derive(Display)]
+        #[display("Find direct home of asset definition `{id}`")]
+        #[repr(transparent)]
+        #[norito_schema(
+            name = "iroha_data_model::query::asset::model::FindAssetDefinitionDirectHome"
+        )]
+        pub struct FindAssetDefinitionDirectHome {
+            /// Identifier of the directly homed asset definition.
+            pub id: AssetDefinitionId,
+        }
     }
     impl FindAssetById {
         /// Return the queried asset identifier.
@@ -308,6 +320,12 @@ pub mod asset {
         }
     }
     impl FindAssetDefinitionById {
+        /// Return the queried asset definition identifier.
+        pub fn asset_definition_id(&self) -> &AssetDefinitionId {
+            &self.id
+        }
+    }
+    impl FindAssetDefinitionDirectHome {
         /// Return the queried asset definition identifier.
         pub fn asset_definition_id(&self) -> &AssetDefinitionId {
             &self.id
@@ -322,8 +340,8 @@ pub mod asset {
     pub mod prelude {
         //! The prelude re-exports most commonly used traits, structs and macros from this crate.
         pub use super::{
-            FindAssetById, FindAssetDefinitionById, FindAssetDefinitions, FindAssets,
-            FindAssetsByAccountId,
+            FindAssetById, FindAssetDefinitionById, FindAssetDefinitionDirectHome,
+            FindAssetDefinitions, FindAssets, FindAssetsByAccountId,
         };
     }
 }

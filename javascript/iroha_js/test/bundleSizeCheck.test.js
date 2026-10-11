@@ -566,9 +566,9 @@ test("public browser aggregate audits eager, lazy, and unique combined closures"
     findForbiddenBrowserInputs(Object.keys(result.metafile.inputs)),
     [],
   );
-  // Includes the shared Torii query core (query/*, toriiErrors.js,
-  // toriiEventStream.js, toriiClientEncoding.js).
-  assert.equal(Object.keys(result.metafile.inputs).length, 114);
+  // Exact observed closure includes event declarations, typed faults, durable
+  // schemas, product identities, and the two shared Norito metadata/value owners.
+  assert.equal(Object.keys(result.metafile.inputs).length, 120);
   assertSplitByteInventory(result, metrics);
   assert.deepEqual(metrics.lazyChunks.map(({ specifier }) => specifier), [
     "./sumeragiTyped.js",
@@ -611,9 +611,9 @@ test("IVM artifact browser leaf excludes Node and Buffer shims", async () => {
 
 test("bundle targets retain canonical module ownership and accurate byte inventories", async () => {
   const expected = new Map([
-    ["toriiClient.js", { modules: 135 }],
-    ["transactionCodec.js (browser)", { modules: 65 }],
-    ["nexusApp.js (browser)", { modules: 74 }],
+    ["toriiClient.js", { modules: 140 }],
+    ["transactionCodec.js (browser)", { modules: 70 }],
+    ["nexusApp.js (browser)", { modules: 79 }],
     ["canonicalRequest.js (browser)", { modules: 47 }],
   ]);
   const { build } = await import("esbuild");
@@ -715,9 +715,28 @@ test("Kotodama compiler browser export excludes Node and Buffer shims", async ()
     findForbiddenBrowserInputs(Object.keys(result.metafile.inputs)),
     [],
   );
-  // Canonical nominal errors, identifiers, and entrypoint schemas share
-  // validation across Unit, public signatures, and cursor/page schemas.
-  assert.equal(Object.keys(result.metafile.inputs).length, 10);
+  const inputs = Object.keys(result.metafile.inputs);
+  // Exact CNTR comparison includes trigger AccountIds, JSON metadata, and frame
+  // validation. Those canonical value codecs are shared with manifest encoding.
+  assert.equal(inputs.length, 55);
+  for (const owner of [
+    "noritoContractMetadata.js", "noritoValueCodecs.js", "noritoContractCodecs.js",
+    "entrypointSchema.js", "contractDeclarations.js", "embeddedStateSchema.js",
+  ]) {
+    assert.equal(inputs.filter((input) => input.endsWith(`/${owner}`)).length, 1,
+      `compiler must retain exactly one ${owner} owner`);
+  }
+  for (const unrelated of [
+    "norito.js", "blockProofVerification.js", "noritoGameCodecs.js",
+    "noritoGameEngine.js", "noritoGameInstructionCodecs.js", "noritoGameRegistry.js",
+    "noritoGameResourceEngine.js", "noritoNftMarketCodecs.js",
+    "noritoReplicationOrderValidator.js", "noritoStakingCodecs.js",
+    "privacyExact12Network.js", "proofAttachment.js", "retailFeeAssessment.js",
+    "sorafsReplicationProfiles.js",
+  ]) {
+    assert.equal(inputs.some((input) => input.endsWith(`/${unrelated}`)), false,
+      `compiler metadata must not pull the unrelated ${unrelated} codec`);
+  }
   assert.doesNotMatch(
     result.outputFiles[0].text,
     /(?:globalThis|window|global)\.Buffer\s*=/u,

@@ -56,7 +56,6 @@ def applied_json(ms: float, height: int, block: int, result: int | None = None, 
                 "result": h(result if result is not None else block + 1),
                 "proposer": height % 4,
                 "payload_bytes": 100,
-                "attest": False,
             },
             "target": soak.AUDIT_TARGET,
         }
@@ -114,14 +113,14 @@ class ParsingTests(unittest.TestCase):
     def test_signed_grammar(self) -> None:
         self.assertEqual(soak.parse_signed("-"), soak.Signed())
         signed = soak.parse_signed(
-            f"proposal:1:{h(1)},prepare:1:{h(1)}:{h(2)}:0,lock:1:{h(1)}:{h(2)}:1,timeout:2:1"
+            f"proposal:1:{h(1)},prepare:1:{h(1)}:{h(2)},lock:1:{h(1)}:{h(2)},timeout:2:1"
         )
         self.assertEqual(signed.proposal, (1, h(1)))
-        self.assertEqual(signed.prepare, (1, h(1), h(2), False))
-        self.assertEqual(signed.lock, (1, h(1), h(2), True))
+        self.assertEqual(signed.prepare, (1, h(1), h(2)))
+        self.assertEqual(signed.lock, (1, h(1), h(2)))
         self.assertEqual(signed.timeout, (2, 1))
         self.assertEqual(soak.parse_signed("timeout:0:-").timeout, (0, None))
-        for bad in ("vote:1:ab", "prepare:1:ab", "prepare:x:ab:cd:0", "timeout:1", f"proposal:1:{h(1)},proposal:2:{h(2)}", "lock:1:ZZ:cd:0", "prepare:1:ab:cd:2"):
+        for bad in ("vote:1:ab", "prepare:1:ab", "prepare:x:ab:cd", "timeout:1", f"proposal:1:{h(1)},proposal:2:{h(2)}", "lock:1:ZZ:cd", "prepare:1:ab:cd:2", "prepare:1:ab:cd:0", "lock:1:ab:cd:1"):
             with self.assertRaises(soak.AuditParseError, msg=bad):
                 soak.parse_signed(bad)
 
@@ -130,23 +129,23 @@ class ParsingTests(unittest.TestCase):
         compact = (
             f"\x1b[2m{iso(T0)}\x1b[0m \x1b[32m INFO\x1b[0m {soak.AUDIT_TARGET}: {soak.APPLIED_MESSAGE} "
             f"instance={INSTANCE} height=5 view=0 origin_view=0 block={h(0xB5)} result={h(0xB6)} "
-            "proposer=1 payload_bytes=100 attest=false height=99"
+            "proposer=1 payload_bytes=100 height=99"
         )
         full = (
             f"{iso(T0)}  INFO run{{peer=abc height=77}}: {soak.AUDIT_TARGET}: {soak.APPLIED_MESSAGE} "
             f"instance={INSTANCE} height=5 view=0 origin_view=0 block={h(0xB5)} result={h(0xB6)} "
-            "proposer=1 payload_bytes=100 attest=false"
+            "proposer=1 payload_bytes=100"
         )
         events = [node_log("n", [[line]]).applied[0] for line in (json_line, compact, full)]
         for event in events:
-            self.assertEqual((event.instance, event.height, event.block, event.result, event.attest), (INSTANCE, 5, h(0xB5), h(0xB6), False))
+            self.assertEqual((event.instance, event.height, event.block, event.result), (INSTANCE, 5, h(0xB5), h(0xB6)))
             self.assertAlmostEqual(event.ts_ms, T0, delta=0.01)
         durable_text = (
             f"{iso(T0)} DEBUG {soak.AUDIT_TARGET}: {soak.DURABLE_MESSAGE} instance={INSTANCE} key={KEY_A} "
-            f"height=3 epoch=1 signed=prepare:0:{h(1)}:{h(2)}:1"
+            f"height=3 epoch=1 signed=prepare:0:{h(1)}:{h(2)}"
         )
         record = node_log("n", [[durable_text]]).records[0]
-        self.assertEqual(record.signed.prepare, (0, h(1), h(2), True))
+        self.assertEqual(record.signed.prepare, (0, h(1), h(2)))
 
     def test_observations_do_not_need_timestamps_and_other_lines_are_ignored(self) -> None:
         log = node_log(
@@ -240,24 +239,24 @@ class SignOnceTests(unittest.TestCase):
         b, r = h(1), h(2)
         boot0 = [
             durable_json(T0, 5, f"proposal:0:{b}"),
-            durable_json(T0 + 1, 5, f"proposal:0:{b},prepare:0:{b}:{r}:0"),
-            durable_json(T0 + 2, 5, f"proposal:0:{b},prepare:0:{b}:{r}:0,lock:0:{b}:{r}:0"),
-            durable_json(T0 + 3, 5, f"proposal:0:{b},prepare:0:{b}:{r}:0,lock:0:{b}:{r}:0,timeout:1:0"),
+            durable_json(T0 + 1, 5, f"proposal:0:{b},prepare:0:{b}:{r}"),
+            durable_json(T0 + 2, 5, f"proposal:0:{b},prepare:0:{b}:{r},lock:0:{b}:{r}"),
+            durable_json(T0 + 3, 5, f"proposal:0:{b},prepare:0:{b}:{r},lock:0:{b}:{r},timeout:1:0"),
         ]
         boot1 = [
             # The restored record re-signs identical preimages; then view 2 and the next height.
-            durable_json(T0 + 10, 5, f"proposal:0:{b},prepare:2:{h(3)}:{h(4)}:1,lock:0:{b}:{r}:0,timeout:1:0"),
+            durable_json(T0 + 10, 5, f"proposal:0:{b},prepare:2:{h(3)}:{h(4)},lock:0:{b}:{r},timeout:1:0"),
             durable_json(T0 + 11, 6, "-"),
-            durable_json(T0 + 12, 6, f"prepare:0:{h(5)}:{h(6)}:0"),
+            durable_json(T0 + 12, 6, f"prepare:0:{h(5)}:{h(6)}"),
         ]
-        lane = [durable_json(T0 + 1, 1, f"prepare:0:{h(7)}:{h(8)}:0", instance=LANE)]
+        lane = [durable_json(T0 + 1, 1, f"prepare:0:{h(7)}:{h(8)}", instance=LANE)]
         self.assertEqual(self.check([boot0 + lane, boot1]), [])
 
     def test_two_prepares_of_one_view_across_a_restart_are_a_double_sign(self) -> None:
         violations = self.check(
             [
-                [durable_json(T0, 5, f"prepare:1:{h(1)}:{h(2)}:0")],
-                [durable_json(T0 + 9, 5, f"prepare:1:{h(3)}:{h(4)}:0")],
+                [durable_json(T0, 5, f"prepare:1:{h(1)}:{h(2)}")],
+                [durable_json(T0 + 9, 5, f"prepare:1:{h(3)}:{h(4)}")],
             ]
         )
         self.assertIn("double-prepare", kinds(violations))
@@ -269,7 +268,7 @@ class SignOnceTests(unittest.TestCase):
         )
         self.assertIn(
             "conflicting-lock",
-            kinds(self.check([[durable_json(T0, 5, f"lock:1:{h(1)}:{h(2)}:0")], [durable_json(T0 + 1, 5, f"lock:1:{h(3)}:{h(2)}:0")]])),
+            kinds(self.check([[durable_json(T0, 5, f"lock:1:{h(1)}:{h(2)}")], [durable_json(T0 + 1, 5, f"lock:1:{h(3)}:{h(2)}")]])),
         )
         self.assertIn(
             "double-timeout",
@@ -278,28 +277,28 @@ class SignOnceTests(unittest.TestCase):
 
     def test_a_prepare_at_or_below_an_earlier_timeout_view_is_a_violation(self) -> None:
         violations = self.check(
-            [[durable_json(T0, 5, "timeout:2:-"), durable_json(T0 + 1, 5, f"prepare:2:{h(1)}:{h(2)}:0,timeout:2:-")]]
+            [[durable_json(T0, 5, "timeout:2:-"), durable_json(T0 + 1, 5, f"prepare:2:{h(1)}:{h(2)},timeout:2:-")]]
         )
         self.assertEqual(kinds(violations), ["prepare-after-timeout"])
         # Signed in one step before the timeout, both entries appear in the same record: legal.
-        self.assertEqual(self.check([[durable_json(T0, 5, f"prepare:2:{h(1)}:{h(2)}:0,timeout:2:-")]]), [])
+        self.assertEqual(self.check([[durable_json(T0, 5, f"prepare:2:{h(1)}:{h(2)},timeout:2:-")]]), [])
 
     def test_a_timeout_carrying_less_than_an_earlier_lock_is_a_violation(self) -> None:
         violations = self.check(
-            [[durable_json(T0, 5, f"lock:3:{h(1)}:{h(2)}:0"), durable_json(T0 + 1, 5, f"lock:3:{h(1)}:{h(2)}:0,timeout:4:2")]]
+            [[durable_json(T0, 5, f"lock:3:{h(1)}:{h(2)}"), durable_json(T0 + 1, 5, f"lock:3:{h(1)}:{h(2)},timeout:4:2")]]
         )
         self.assertEqual(kinds(violations), ["timeout-below-lock"])
         empty = self.check(
-            [[durable_json(T0, 5, f"lock:3:{h(1)}:{h(2)}:0"), durable_json(T0 + 1, 5, f"lock:3:{h(1)}:{h(2)}:0,timeout:4:-")]]
+            [[durable_json(T0, 5, f"lock:3:{h(1)}:{h(2)}"), durable_json(T0 + 1, 5, f"lock:3:{h(1)}:{h(2)},timeout:4:-")]]
         )
         self.assertEqual(kinds(empty), ["timeout-below-lock"])
         # The lock learnt after the timeout was signed (same record) bounds only later timeouts.
-        self.assertEqual(self.check([[durable_json(T0, 5, f"lock:3:{h(1)}:{h(2)}:0,timeout:2:1")]]), [])
+        self.assertEqual(self.check([[durable_json(T0, 5, f"lock:3:{h(1)}:{h(2)},timeout:2:1")]]), [])
 
     def test_a_record_that_goes_backwards_is_a_rollback(self) -> None:
         self.assertIn(
             "record-regression",
-            kinds(self.check([[durable_json(T0, 5, f"prepare:3:{h(1)}:{h(2)}:0")], [durable_json(T0 + 1, 5, f"prepare:1:{h(1)}:{h(2)}:0")]])),
+            kinds(self.check([[durable_json(T0, 5, f"prepare:3:{h(1)}:{h(2)}")], [durable_json(T0 + 1, 5, f"prepare:1:{h(1)}:{h(2)}")]])),
         )
         self.assertIn(
             "record-regression",
@@ -316,7 +315,7 @@ class SignOnceTests(unittest.TestCase):
 
     def test_keys_are_judged_separately(self) -> None:
         self.assertEqual(
-            self.check([[durable_json(T0, 5, f"prepare:1:{h(1)}:{h(2)}:0", KEY_A), durable_json(T0, 5, f"prepare:1:{h(3)}:{h(4)}:0", KEY_B)]]),
+            self.check([[durable_json(T0, 5, f"prepare:1:{h(1)}:{h(2)}", KEY_A), durable_json(T0, 5, f"prepare:1:{h(3)}:{h(4)}", KEY_B)]]),
             [],
         )
 
@@ -335,7 +334,7 @@ def timeline(windows: list[tuple[float, float, str, tuple[str, ...]]] = (), boot
 def commits(node: str, offsets_ms: list[float], instance: str = INSTANCE) -> list["soak.Applied"]:
     """Applied events of ``node`` at ``T0 + offset``, heights 1, 2, ..."""
     return [
-        soak.Applied(node, 0, i, T0 + offset, instance, i + 1, 0, 0, h(i % 250), h(1), 0, 10 * (i + 1), False)
+        soak.Applied(node, 0, i, T0 + offset, instance, i + 1, 0, 0, h(i % 250), h(1), 0, 10 * (i + 1))
         for i, offset in enumerate(offsets_ms)
     ]
 
@@ -495,18 +494,18 @@ class BoundAndVerdictTests(unittest.TestCase):
 
     def test_verdict_of_a_clean_run_and_of_a_blind_one(self) -> None:
         chain = [applied_json(T0 + 1_000 * i, i, i) for i in range(1, 40)]
-        record = [durable_json(T0 + 1_000 * i, i + 1, f"prepare:0:{h(i)}:{h(i + 1)}:0") for i in range(1, 40)]
+        record = [durable_json(T0 + 1_000 * i, i + 1, f"prepare:0:{h(i)}:{h(i + 1)}") for i in range(1, 40)]
         logs = {
             "peer0": node_log("peer0", [chain + record]),
             "peer1": node_log("peer1", [chain + [line.replace(KEY_A, KEY_B) for line in record]]),
         }
         run = timeline(end=40_000)
         limits = thresholds(live_bound_ms=30_000.0)  # the 40 s run can show a stall
-        verdict = soak.build_verdict(soak.Analysis.from_logs(logs), run, limits, None, {"seed": 1})
+        verdict = soak.build_verdict(soak.Analysis.from_logs(logs), run, limits, None, {"seed": 1, "faults": []})
         json.dumps(verdict)
         self.assertTrue(verdict["ok"], json.dumps(verdict, indent=1))
         self.assertEqual(verdict["schema"], soak.VERDICT_SCHEMA)
-        self.assertEqual(verdict["run"], {"seed": 1})
+        self.assertEqual(verdict["run"], {"seed": 1, "faults": []})
         self.assertEqual(verdict["nodes"]["peer0"]["max_height"], 39)
         blind = {"peer0": node_log("peer0", [chain]), "peer1": node_log("peer1", [chain])}
         verdict = soak.build_verdict(soak.Analysis.from_logs(blind), run, limits, None)
@@ -521,7 +520,7 @@ class BoundAndVerdictTests(unittest.TestCase):
 
     def test_a_run_without_an_interval_as_long_as_the_bound_is_a_harness_failure(self) -> None:
         chain = [applied_json(T0 + 1_000 * i, i, i) for i in range(1, 40)]
-        record = [durable_json(T0 + 1_000 * i, i + 1, f"prepare:0:{h(i)}:{h(i + 1)}:0") for i in range(1, 40)]
+        record = [durable_json(T0 + 1_000 * i, i + 1, f"prepare:0:{h(i)}:{h(i + 1)}") for i in range(1, 40)]
         logs = {"peer0": node_log("peer0", [chain + record])}
         # Faults leave fault-free intervals of 20 s at most: a 30 s stall inside one is invisible.
         run = timeline([(20_000, 25_000, "net", ()), (45_000, 50_000, "net", ()), (70_000, 80_000, "net", ())], nodes=("peer0",))
@@ -535,6 +534,42 @@ class BoundAndVerdictTests(unittest.TestCase):
         # Four fault-free intervals of 20 s each: 0-20, 25-45, 50-70 and 80-100 s.
         self.assertEqual(judged["oracles"]["O-LIVE"]["checked"]["judged_intervals"], 4)
         self.assertNotIn("no-interval-judged-by-o-live", [entry["kind"] for entry in judged["harness"]])
+
+    def test_requested_fault_coverage_is_not_inferred_from_healthy_consensus(self) -> None:
+        chain = [applied_json(T0 + 1_000 * i, i, i) for i in range(1, 100)]
+        record = [durable_json(T0 + 1_000 * i, i + 1, f"prepare:0:{h(i)}:{h(i + 1)}") for i in range(1, 100)]
+        analysis = soak.Analysis.from_logs({"peer0": node_log("peer0", [chain + record])})
+        run = timeline([(10_000, 20_000, "kill", ("peer0",)), (30_000, 40_000, "disk", ("peer0",))], nodes=("peer0",))
+        limits = thresholds(live_bound_ms=20_000.0)
+        requested = {"faults": ["kill", "disk", "net"]}
+        verdict = soak.build_verdict(analysis, run, limits, None, requested)
+        self.assertTrue(all(entry["ok"] for entry in verdict["oracles"].values()))
+        self.assertFalse(verdict["ok"])
+        self.assertEqual(verdict["harness"], [{"oracle": "HARNESS", "kind": "missing-requested-fault-kinds",
+            "requested": ["disk", "kill", "net"], "observed": ["disk", "kill"], "missing": ["net"]}])
+        # A nonempty in-run observed window is required, not a declared plan or a zero-size marker.
+        for start, stop in ((50_000, 50_000), (-1, 1), (90_000, 110_000)):
+            with self.subTest(start=start, stop=stop):
+                partial = timeline([(10_000, 20_000, "kill", ("peer0",)), (30_000, 40_000, "disk", ("peer0",)), (start, stop, "net", ())], nodes=("peer0",))
+                missing = soak.build_verdict(analysis, partial, limits, None, requested)
+                self.assertFalse(missing["ok"])
+                self.assertTrue(any(entry["kind"] == "missing-requested-fault-kinds" for entry in missing["harness"]))
+        complete = timeline([(10_000, 20_000, "kill", ("peer0",)), (30_000, 40_000, "disk", ("peer0",)), (50_000, 60_000, "net", ())], nodes=("peer0",))
+        self.assertTrue(soak.build_verdict(analysis, complete, limits, None, requested)["ok"])
+        self.assertTrue(soak.build_verdict(analysis, timeline(nodes=("peer0",)), limits, None, {"faults": []})["ok"])
+
+    def test_malformed_or_missing_report_fault_contract_cannot_pass(self) -> None:
+        chain = [applied_json(T0 + 1_000 * i, i, i) for i in range(1, 40)]
+        record = [durable_json(T0 + 1_000 * i, i + 1, "-") for i in range(1, 40)]
+        analysis = soak.Analysis.from_logs({"peer0": node_log("peer0", [chain + record])})
+        run = timeline(nodes=("peer0",), end=40_000)
+        limits = thresholds(live_bound_ms=30_000.0)
+        for contract in ({}, {"faults": None}, {"faults": "net"}, {"faults": ["net", "net"]}, {"faults": ["unknown"]}, {"faults": [1]}, {"faults": [["net"]]}):
+            with self.subTest(contract=contract):
+                verdict = soak.build_verdict(analysis, run, limits, None, contract)
+                self.assertTrue(all(entry["ok"] for entry in verdict["oracles"].values()))
+                self.assertFalse(verdict["ok"])
+                self.assertEqual([entry["kind"] for entry in verdict["harness"]], ["invalid-requested-fault-kinds"])
 
     def test_timeline_round_trips(self) -> None:
         run = timeline([(1, 2, "kill", ("peer0",))], [soak.Boot("peer0", 0, T0, None, "running")])
@@ -557,10 +592,10 @@ class StreamingTests(unittest.TestCase):
 
     def test_streamed_and_kept_analyses_give_the_same_verdict(self) -> None:
         chain = [applied_json(T0 + 1_000 * i, i, i) for i in range(1, 40)]
-        record = [durable_json(T0 + 1_000 * i, i + 1, f"prepare:0:{h(i)}:{h(i + 1)}:0") for i in range(1, 40)]
+        record = [durable_json(T0 + 1_000 * i, i + 1, f"prepare:0:{h(i)}:{h(i + 1)}") for i in range(1, 40)]
         other = [line.replace(KEY_A, KEY_B) for line in record]
         # peer1 commits another block at height 1 and its key signs two Prepares at (40, 0).
-        other.append(durable_json(T0 + 39_500, 40, f"prepare:0:{h(77)}:{h(78)}:0", KEY_B))
+        other.append(durable_json(T0 + 39_500, 40, f"prepare:0:{h(77)}:{h(78)}", KEY_B))
         per_node = {
             "peer0": [chain[:20] + record[:20], chain[20:] + record[20:]],
             "peer1": [[applied_json(T0 + 1_000, 1, 99)] + chain[1:] + other],
@@ -603,13 +638,13 @@ class StreamingTests(unittest.TestCase):
     def test_sign_once_keeps_only_recent_heights_and_still_judges_them(self) -> None:
         checker = soak.SignOnceChecker()
         for height in range(1, 1_001):
-            for record in records([[durable_json(T0 + height, height, f"prepare:0:{h(height % 250)}:{h(1)}:0")]]):
+            for record in records([[durable_json(T0 + height, height, f"prepare:0:{h(height % 250)}:{h(1)}")]]):
                 checker.add(record)
         self.assertEqual(len(checker.slots[(KEY_A, INSTANCE)]), soak.SignOnceChecker.KEEP_HEIGHTS + 1)
         self.assertEqual(checker.finish()[1], 0)
         # A second Prepare at the current height is still a double sign, and a record that
         # returns to a height long pruned is a rollback.
-        late = [durable_json(T0 + 2_000, 1_000, f"prepare:0:{h(7)}:{h(8)}:0"), durable_json(T0 + 2_001, 3, "-")]
+        late = [durable_json(T0 + 2_000, 1_000, f"prepare:0:{h(7)}:{h(8)}"), durable_json(T0 + 2_001, 3, "-")]
         for record in records([late]):
             checker.add(record)
         self.assertEqual(kinds(checker.finish()[0]), ["double-prepare", "record-regression"])

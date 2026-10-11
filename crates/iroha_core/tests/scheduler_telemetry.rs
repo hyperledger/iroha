@@ -395,6 +395,7 @@ fn governance_lane_setup() -> (
             ModelLaneConfig {
                 id: LaneId::new(1),
                 alias: "governance".to_string(),
+                dataspace_id: DataSpaceId::new(1),
                 visibility: LaneVisibility::Restricted,
                 lane_type: Some("governance".to_string()),
                 governance: Some("parliament".to_string()),
@@ -403,7 +404,17 @@ fn governance_lane_setup() -> (
         ],
     )
     .expect("lane catalog");
-    telemetry.set_nexus_catalogs(&lane_catalog, &DataSpaceCatalog::default());
+    let dataspace_catalog = DataSpaceCatalog::new(vec![
+        DataSpaceMetadata::default(),
+        DataSpaceMetadata {
+            id: DataSpaceId::new(1),
+            alias: "gov".to_string(),
+            description: Some("Governance dataspace".to_string()),
+            fault_tolerance: 1,
+        },
+    ])
+    .expect("dataspace catalog");
+    telemetry.set_nexus_catalogs(&lane_catalog, &dataspace_catalog);
     let validators = vec![
         iroha_test_samples::ALICE_ID.clone(),
         iroha_test_samples::BOB_ID.clone(),
@@ -456,7 +467,7 @@ fn install_governance_manifest(
         LaneManifestStatus {
             lane: LaneId::new(1),
             alias: "governance".to_string(),
-            dataspace: DataSpaceId::UNIVERSAL,
+            dataspace: DataSpaceId::new(1),
             visibility: LaneVisibility::Restricted,
             storage: LaneStorageProfile::FullReplica,
             governance: Some("parliament".to_string()),
@@ -474,7 +485,7 @@ fn clear_governance_manifest(telemetry: &iroha_core::telemetry::StateTelemetry) 
         LaneManifestStatus {
             lane: LaneId::new(1),
             alias: "governance".to_string(),
-            dataspace: DataSpaceId::UNIVERSAL,
+            dataspace: DataSpaceId::new(1),
             visibility: LaneVisibility::Restricted,
             storage: LaneStorageProfile::FullReplica,
             governance: Some("parliament".to_string()),
@@ -566,6 +577,7 @@ fn nexus_config_diff_counter_and_event_emitted() {
             ModelLaneConfig {
                 id: LaneId::new(1),
                 alias: "governance".to_string(),
+                dataspace_id: DataSpaceId::new(1),
                 visibility: LaneVisibility::Restricted,
                 lane_type: Some("governance".to_string()),
                 ..ModelLaneConfig::default()

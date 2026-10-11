@@ -6,7 +6,11 @@ import * as distSubpath from "../dist/contractPayload.js";
 import * as packageSubpath from "@iroha/iroha-js/contract-payload";
 
 test("contract payload proof is exposed by the browser-safe package subpath", () => {
-  for (const name of ["canonicalContractPayloadJson", "contractPayloadDigestHex"]) {
+  for (const name of [
+    "canonicalContractArguments",
+    "canonicalContractPayloadJson",
+    "contractPayloadDigestHex",
+  ]) {
     assert.equal(typeof distSubpath[name], "function");
     assert.equal(packageSubpath[name], distSubpath[name]);
   }
@@ -30,5 +34,7 @@ test("contract payload proof is exposed by the browser-safe package subpath", ()
   );
   assert.match(declarations, /canonicalContractPayloadJson/u);
   assert.match(declarations, /contractPayloadDigestHex/u);
+  assert.match(declarations, /canonicalContractArguments/u);
+  assert.match(declarations, /ContractArgumentSchema/u);
   assert.doesNotMatch(declarations, /reference types=["']node|from ["']node:/u);
 });

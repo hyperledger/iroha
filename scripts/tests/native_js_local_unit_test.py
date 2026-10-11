@@ -28,13 +28,13 @@ def test_local_unit_scope_never_qualifies_release_or_deploy(scope, profile):
     with pytest.raises(RuntimeError): unit.local_policy(scope, profile)
 
 
-def test_exact_warm_recipe_keeps_jobserver_incremental_existing_lane_and_real_napi():
+def test_exact_warm_recipe_bounds_jobs_keeps_incremental_existing_lane_and_real_napi():
     target = ROOT / 'target/cargo-fast/kot'
     argv = unit.expected_build(ROOT, target)
     assert argv == [str(ROOT / 'scripts/cargo_fast.sh'), '--target-dir', str(target),
-                    '--stable-local-metadata', '--incremental', '--', 'build', '--locked', '--offline',
+                    '--stable-local-metadata', '--incremental', '--jobs', '2', '--', 'build', '--locked', '--offline',
                     '-p', 'iroha_js_host', '--lib', '--message-format=json']
-    assert '--jobs' not in argv
+    assert argv.count('--jobs') == 1 and argv[argv.index('--jobs') + 1] == '2'
 
 
 def artifact_fixture():
@@ -77,9 +77,9 @@ def test_wrong_stale_cabi_or_non_napi_emitter_cannot_substitute_for_real_napi(ch
 
 def probe_fixture():
     policy = {'required': ['connectNoritoBridgeAbiVersion', 'securePrivateFileAbiVersion'],
-              'forbidden': ['retiredMethod'], 'abi_version': 25,
-              'required_results': {'connectNoritoBridgeAbiVersion': 25, 'securePrivateFileAbiVersion': 1}}
-    proof = {'abi_version': 25, 'exports': policy['required'], 'forbidden': [],
+              'forbidden': ['retiredMethod'], 'abi_version': 29,
+              'required_results': {'connectNoritoBridgeAbiVersion': 29, 'securePrivateFileAbiVersion': 1}}
+    proof = {'abi_version': 29, 'exports': policy['required'], 'forbidden': [],
              'required_exports': policy['required'], 'required_results': policy['required_results'],
              'signing_independent_emitted': 'a' * 64, 'signing_independent_artifact': 'a' * 64}
     return proof, policy
@@ -107,10 +107,10 @@ def test_real_consumer_abi_export_and_signing_only_derivation_cannot_be_relabell
 
 def test_current_repository_node_policy_combines_all_original_required_methods():
     selected = unit.policy(ROOT)
-    assert selected['abi_version'] == 25
+    assert selected['abi_version'] == 29
     assert {'noritoEncodeInstruction', 'privacyCompiledProfileCatalogV1', 'privateSettlementVerifyCommitteeProofResponseV1',
             'securePrivateFileRead', 'compileKotodama', 'buildKaigiUsageProofV1'} <= set(selected['required'])
-    assert selected['required_results'] == {'connectNoritoBridgeAbiVersion': 25, 'securePrivateFileAbiVersion': 1}
+    assert selected['required_results'] == {'connectNoritoBridgeAbiVersion': 29, 'securePrivateFileAbiVersion': 1}
 
 
 def test_alias_receipt_duplicate_and_wrong_digest_refuse(tmp_path):
@@ -190,17 +190,18 @@ def test_wrong_or_resealed_child_relationship_refuses_without_any_child(tmp_path
 
 
 def manifest_fixture(tmp_path):
-    output = tmp_path / 'artifact-directory'; output.mkdir(mode=0o700)
+    root = tmp_path / 'inert-source'
+    output = root / 'target/qualification/artifact-directory'; output.mkdir(parents=True, mode=0o700)
     row = {'schema': unit.SCHEMA, 'artifact_scope': 'local-unit', 'build_provenance_version': 4,
            'cargo_profile': 'debug', 'platform': 'darwin-' + ('arm64' if unit.platform.machine() == 'arm64' else 'x64'),
-           'source_root': str(ROOT), 'producer_record_sha256': 'a' * 64, 'artifact_sha256': 'b' * 64}
-    return output, row
+           'source_root': str(root), 'producer_record_sha256': 'a' * 64, 'artifact_sha256': 'b' * 64}
+    return root, output, row
 
 
 @pytest.mark.parametrize('change', ('schema', 'release-scope', 'integration-scope', 'release-profile',
                                    'deploy-profile', 'old-version', 'platform', 'source-root', 'pin', 'missing', 'extra'))
 def test_local_manifest_cannot_admit_release_stale_or_other_scope(tmp_path, change):
-    output, row = manifest_fixture(tmp_path)
+    root, output, row = manifest_fixture(tmp_path)
     if change == 'schema': row['schema'] = 'trusted-local-cargo-v1'
     elif change == 'release-scope': row['artifact_scope'] = 'release'
     elif change == 'integration-scope': row['artifact_scope'] = 'local-integration'
@@ -214,15 +215,15 @@ def test_local_manifest_cannot_admit_release_stale_or_other_scope(tmp_path, chan
     else: row['release_qualified'] = True
     unit.save(output / unit.MANIFEST, row)
     with pytest.raises(RuntimeError, match='manifest is not exact'):
-        unit.verify(ROOT, output, 'a' * 64)
+        unit.verify(root, output, 'a' * 64)
     assert not (output / unit.FILENAME).exists()
 
 
 def test_wrong_producer_digest_is_refused_before_record_or_native_consumer(tmp_path):
-    output, row = manifest_fixture(tmp_path); unit.save(output / unit.MANIFEST, row)
+    root, output, row = manifest_fixture(tmp_path); unit.save(output / unit.MANIFEST, row)
     (output / 'producer-record.json').write_text('{"inert":true}')
     with pytest.raises(RuntimeError, match='record hash differs'):
-        unit.verify(ROOT, output, 'a' * 64)
+        unit.verify(root, output, 'a' * 64)
     assert not (output / unit.FILENAME).exists()
 
 
@@ -238,15 +239,37 @@ def test_probe_parser_rederives_forbidden_inventory_and_typed_results(change):
     with pytest.raises(RuntimeError): unit.check_probe(proof, selected)
 
 
-def test_closed_environment_binds_actual_apple_tools_without_serialized_or_caller_configuration():
+def test_closed_environment_binds_actual_apple_tools_without_serialized_or_caller_configuration(tmp_path, monkeypatch):
     config = {'cargo': '/stock/rust/bin/cargo', 'rustc': '/stock/rust/bin/rustc', 'rustdoc': '/stock/rust/bin/rustdoc',
               'clang': '/stock/apple/bin/clang', 'sdk': '/stock/sdk', 'developer_dir': '/stock/developer'}
-    selected = unit.environment(config)
+    root = tmp_path / 'source'; output = root / 'target/qualification/output'
+    output.mkdir(parents=True, mode=0o700); (output / 'temporary').mkdir(mode=0o700)
+    monkeypatch.setenv('TMPDIR', '/unrelated/caller/temporary')
+    selected = unit.environment(root, config, output)
     assert selected['CC'] == config['clang'] and selected['CXX'] == '/stock/apple/bin/clang++'
     assert selected['AR'] == '/stock/apple/bin/ar' and selected['RANLIB'] == '/stock/apple/bin/ranlib'
     assert selected['NODE_OPTIONS'] == ''
+    assert selected['TMPDIR'] == str(output / 'temporary')
+    assert selected['PATH'] == unit.tool_path(config) == '/stock/rust/bin:/opt/homebrew/bin:/usr/bin:/bin'
     assert not {'CARGO_BUILD_JOBS', 'CARGO_INCREMENTAL', 'RUSTFLAGS', 'RUSTC_WRAPPER',
                 'IROHA_GIT_COMMIT_HASH'} & selected.keys()
+
+
+@pytest.mark.parametrize('change', ('missing', 'public', 'alias', 'file', 'external-output'))
+def test_native_child_temporary_directory_requires_original_private_capture(tmp_path, change):
+    root = tmp_path / 'source'; output = root / 'target/qualification/output'
+    output.mkdir(parents=True, mode=0o700)
+    temporary = output / 'temporary'
+    if change == 'public': temporary.mkdir(mode=0o755)
+    elif change == 'alias':
+        other = output / 'other'; other.mkdir(mode=0o700)
+        temporary.symlink_to(other, target_is_directory=True)
+    elif change == 'file': temporary.write_bytes(b'not a directory')
+    elif change == 'external-output':
+        output = tmp_path / 'external'; output.mkdir(mode=0o700)
+        (output / 'temporary').mkdir(mode=0o700)
+    with pytest.raises((RuntimeError, FileNotFoundError)):
+        unit.environment(root, {}, output)
 
 
 def test_tool_alias_is_authenticated_as_exact_resolved_tool_not_rejected_as_source_alias(tmp_path):
@@ -274,10 +297,48 @@ def test_artifact_retention_refuses_existing_destination_before_cow(tmp_path):
 
 
 def test_nonowned_or_nonstrict_local_artifact_directory_refuses_before_manifest(tmp_path):
-    output = tmp_path / 'artifact-directory'; output.mkdir(mode=0o755)
+    root, output, _ = manifest_fixture(tmp_path); output.chmod(0o755)
     with pytest.raises(RuntimeError, match='owned canonical mode0700'):
-        unit.verify(ROOT, output, 'a' * 64)
+        unit.verify(root, output, 'a' * 64)
     assert not (output / unit.MANIFEST).exists()
+
+
+def test_original_qualification_child_is_private_create_only_and_disjoint(tmp_path):
+    root = tmp_path / 'source'; parent = root / 'target/qualification/owned'
+    parent.mkdir(parents=True, mode=0o700)
+    output = parent / 'retained'
+    lane = parent / 'cargo'; lane.mkdir(mode=0o700)
+    unit.artifact_directory(root, output, create=True)
+    unit.build_directory(root, lane, output)
+    assert not output.exists()
+    output.mkdir(mode=0o700)
+    unit.artifact_directory(root, output, create=False)
+    with pytest.raises(RuntimeError, match='create-only'):
+        unit.artifact_directory(root, output, create=True)
+    with pytest.raises(RuntimeError, match='disjoint'):
+        unit.build_directory(root, parent, output)
+    nested = output / 'cargo'; nested.mkdir()
+    with pytest.raises(RuntimeError, match='disjoint'):
+        unit.build_directory(root, nested, output)
+
+
+@pytest.mark.parametrize('relative', ('outside', 'source', 'source/src/artifact',
+                                    'source/target/qualification', 'source/target/qualification-elsewhere/artifact'))
+def test_artifact_path_never_accepts_external_source_or_prefix_confusion(tmp_path, relative):
+    root = tmp_path / 'source'; root.mkdir()
+    with pytest.raises(RuntimeError, match='below original target/qualification'):
+        unit.artifact_directory(root, tmp_path / relative, create=True)
+
+
+def test_qualification_output_rejects_symbolic_parent_and_public_parent(tmp_path):
+    root = tmp_path / 'source'; parent = root / 'target/qualification/owned'
+    parent.mkdir(parents=True, mode=0o700)
+    link = parent.parent / 'linked'; link.symlink_to(parent, target_is_directory=True)
+    with pytest.raises(RuntimeError, match='owned canonical mode0700'):
+        unit.artifact_directory(root, link / 'artifact', create=True)
+    parent.chmod(0o755)
+    with pytest.raises(RuntimeError, match='owned canonical mode0700'):
+        unit.artifact_directory(root, parent / 'artifact', create=True)
 
 
 

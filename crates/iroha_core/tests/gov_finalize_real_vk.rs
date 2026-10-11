@@ -12,7 +12,7 @@ use iroha_core::{
     smartcontracts::Execute,
     state::{StandaloneBallotCorpusEntryV1, WorldReadOnly},
 };
-use iroha_core_zk::ZK_BACKEND_HALO2_IPA;
+use iroha_core_zk::native_pipa_r::BACKEND as NATIVE_BACKEND;
 use iroha_data_model::{
     block::BlockHeader,
     isi::{error::InstructionExecutionError, zk::FinalizeElection},
@@ -51,8 +51,8 @@ fn zk_finalize_rejects_unqualified_tally_keys_without_mutating_state() {
             election_id: "ref-final".to_owned(),
             tally: vec![4, 0],
             tally_proof: ProofAttachment::new_ref(
-                ZK_BACKEND_HALO2_IPA.to_owned(),
-                ProofBox::new(ZK_BACKEND_HALO2_IPA.to_owned(), vec![0]),
+                NATIVE_BACKEND.to_owned(),
+                ProofBox::new(NATIVE_BACKEND.to_owned(), vec![0]),
                 id,
             ),
         }

@@ -17,13 +17,14 @@ pub(super) fn claim_current_fee_credit(
 ) -> Result<(), Error> {
     let plan = fee_reward_claim_plan(&stx.world, stx.block_height(), account, lane)
         .map_err(|error| stx.world.attempt_error_to_instruction_error(error))?;
-    if let Some(prepared) = prepare_fee_reward_claim(stx, account, lane, plan.as_ref())? {
+    if let Some(plan) = plan {
+        let prepared = prepare_fee_reward_claim(stx, account, lane, &plan)?;
         claim_fee_rewards(stx, prepared)?;
     }
     Ok(())
 }
 
-fn seed_claim_credit(
+pub(super) fn seed_claim_credit(
     stx: &mut StateTransaction<'_, '_>,
     binding: &ValidationFeeTreasuryPayoutBindingV1,
     claimant: &AccountId,
@@ -31,17 +32,21 @@ fn seed_claim_credit(
     balance: u128,
 ) {
     use iroha_data_model::IntoKeyValue;
-    let original = beneficiary::ensure(stx, binding, claimant).unwrap();
-    write(stx, claimable_key(binding, &original).unwrap(), &amount).unwrap();
-    save_state(
-        stx,
-        binding,
-        &ValidationFeeRewardsState {
-            reserved_xor: amount,
-            ..Default::default()
-        },
-    )
-    .unwrap();
+    let original = beneficiary::root(stx, binding, claimant).unwrap();
+    let previous = read::<u128>(stx, &claimable_key(binding, &original).unwrap())
+        .unwrap()
+        .unwrap_or(0);
+    let period = earning_month(stx.block_unix_timestamp_ms() - 60 * DAY_MS).unwrap();
+    if service_weights(stx, binding, period).unwrap().is_empty() {
+        seed_service(
+            stx,
+            binding,
+            period,
+            &BTreeMap::from([(claimant.clone(), 1)]),
+        );
+    }
+    fund_test_conversion(stx, binding, period, amount.checked_sub(previous).unwrap());
+    accrue_all(stx, binding);
     let asset = AssetId::new(
         binding.xor_asset_id.clone(),
         binding.reward_pool_account_id.clone(),
@@ -54,7 +59,7 @@ fn signed_claim_instruction(
     stx: &StateTransaction<'_, '_>,
     claimant: &AccountId,
     lane: LaneId,
-    fee_claim: Option<PublicLaneFeeRewardClaimV1>,
+    fee_claim: PublicLaneFeeRewardClaimV1,
 ) -> iroha_data_model::isi::staking::ClaimPublicLaneRewards {
     iroha_data_model::isi::staking::ClaimPublicLaneRewards {
         lane_id: lane,
@@ -64,9 +69,6 @@ fn signed_claim_instruction(
                 stx.network_id,
             ),
             valid_until_height: stx.block_height(),
-            expected_state: None,
-            records: vec![],
-            sources: vec![],
             fee_claim,
         },
     }
@@ -121,12 +123,12 @@ fn canonical_network_xor_is_required_before_fee_reward_state_changes() {
             )
             .unwrap();
             write(stx, pending_key(&binding, period).unwrap(), &100_u64).unwrap();
-            write(
+            seed_service(
                 stx,
-                service_key(&binding, period).unwrap(),
+                &binding,
+                period,
                 &BTreeMap::from([(account(2), 1_u64)]),
-            )
-            .unwrap();
+            );
             let before = stx
                 .world
                 .smart_contract_state
@@ -167,6 +169,203 @@ fn canonical_network_xor_is_required_before_fee_reward_state_changes() {
                     .is_err()
                 );
             }
+        });
+    }
+}
+
+#[test]
+fn public_fee_reward_claim_rejects_wrong_network_xor_without_writes_and_retries_original_plan() {
+    use iroha_data_model::{
+        Registrable,
+        asset::{AssetBalancePolicy, AssetDefinition},
+        parameter::Parameter,
+    };
+    use iroha_primitives::numeric::NumericSpec;
+
+    for substitute_identity in [true, false] {
+        crate::retail_fee_tests::fixture(1_793_451_600_000, |stx, policy| {
+            let (_, binding) = network_xor_claim_fixture(stx, policy);
+            let claimant = account(2);
+            seed_claim_credit(stx, &binding, &claimant, 100, 250);
+            let plan = fee_reward_claim_plan(
+                &stx.world,
+                stx.block_height(),
+                &claimant,
+                binding.validator_lane_id,
+            )
+            .unwrap()
+            .unwrap();
+            let instruction =
+                signed_claim_instruction(stx, &claimant, binding.validator_lane_id, plan.clone());
+            let original_wire = norito::encode_canonical(&instruction).unwrap();
+            let original_parameters = stx.world.sumeragi_npos_parameters().unwrap().unwrap();
+            assert_eq!(
+                original_parameters.xor_asset_definition_id,
+                binding.xor_asset_id
+            );
+            let original_definition = stx
+                .world
+                .asset_definitions
+                .get(&binding.xor_asset_id)
+                .unwrap()
+                .clone();
+            stx.world
+                .public_lane_stake_reserves
+                .insert(plan.source_asset.clone(), quantity(150, 9).unwrap());
+            let rows_before = stx
+                .world
+                .smart_contract_state
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<Vec<_>>();
+            let source_before = stx.world.assets.get(&plan.source_asset).unwrap().clone();
+            let destination_before = stx.world.assets.get(&plan.destination_asset).cloned();
+            let stake_before = stx
+                .world
+                .public_lane_stake_reserves
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<Vec<_>>();
+            let credit_key = claimable_key(&binding, &plan.beneficiary_id).unwrap();
+            let original_state = read_state(stx, &binding).unwrap();
+            assert_eq!(original_state.reserved_xor, 100);
+            assert_eq!(read::<u128>(stx, &credit_key).unwrap(), Some(100));
+
+            if substitute_identity {
+                let substitute = AssetDefinitionId::derive_from_components(
+                    DomainId::try_new("fees", "paynet").unwrap(),
+                    "different_network_xor".parse().unwrap(),
+                );
+                assert_ne!(substitute, binding.xor_asset_id);
+                stx.world.asset_definitions.insert(
+                    substitute.clone(),
+                    AssetDefinition::new(
+                        substitute.clone(),
+                        "XOR",
+                        NumericSpec::fractional(9),
+                        AssetBalancePolicy::Global,
+                        None,
+                    )
+                    .build(&claimant),
+                );
+                let mut changed = original_parameters.clone();
+                changed.xor_asset_definition_id = substitute;
+                changed.validate().unwrap();
+                stx.world
+                    .parameters
+                    .get_mut()
+                    .set_parameter(Parameter::Custom(changed.into_custom_parameter()));
+            } else {
+                // Scale eighteen still admits this scale-nine payment. If HC58 omits
+                // the canonical-currency guard, no unrelated precision check should
+                // reject the otherwise exact original claim.
+                stx.world
+                    .asset_definitions
+                    .get_mut(&binding.xor_asset_id)
+                    .unwrap()
+                    .spec = NumericSpec::fractional(18);
+            }
+            let error = instruction
+                .clone()
+                .execute(&claimant, stx)
+                .expect_err("public fee claim must reject changed network XOR before any payment");
+            let expected = if substitute_identity {
+                "committed network XOR"
+            } else {
+                "global network XOR with scale nine"
+            };
+            assert!(error.to_string().contains(expected), "{error}");
+            assert!(stx.execution_deferral().is_none());
+            assert_eq!(
+                stx.world
+                    .smart_contract_state
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect::<Vec<_>>(),
+                rows_before
+            );
+            assert_eq!(
+                stx.world.assets.get(&plan.source_asset),
+                Some(&source_before)
+            );
+            assert_eq!(
+                stx.world.assets.get(&plan.destination_asset),
+                destination_before.as_ref()
+            );
+            assert_eq!(
+                stx.world
+                    .public_lane_stake_reserves
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect::<Vec<_>>(),
+                stake_before
+            );
+            assert_eq!(
+                read_state(stx, &binding).unwrap().reserved_xor,
+                original_state.reserved_xor
+            );
+            assert_eq!(
+                read_state(stx, &binding).unwrap().next_claim,
+                original_state.next_claim
+            );
+            assert_eq!(read::<u128>(stx, &credit_key).unwrap(), Some(100));
+
+            // Restore only the deliberately changed currency relation. The claim
+            // source, original authorized claim plan, fee credit and original instruction persist.
+            stx.world
+                .parameters
+                .get_mut()
+                .set_parameter(Parameter::Custom(
+                    original_parameters.into_custom_parameter(),
+                ));
+            stx.world
+                .asset_definitions
+                .insert(binding.xor_asset_id.clone(), original_definition);
+            assert_eq!(
+                norito::encode_canonical(&instruction).unwrap(),
+                original_wire
+            );
+            instruction.clone().execute(&claimant, stx).expect(
+                "unchanged original authorized claim plan retries after exact currency restoration",
+            );
+            assert_eq!(read_state(stx, &binding).unwrap().reserved_xor, 0);
+            assert_eq!(
+                read_state(stx, &binding).unwrap().next_claim,
+                original_state.next_claim + 1
+            );
+            assert_eq!(read::<u128>(stx, &credit_key).unwrap(), None);
+            assert_eq!(
+                stx.world.assets.get(&plan.source_asset).unwrap().as_ref(),
+                &quantity(150, 9).unwrap()
+            );
+            assert_eq!(
+                stx.world
+                    .assets
+                    .get(&plan.destination_asset)
+                    .unwrap()
+                    .as_ref(),
+                &quantity(100, 9).unwrap()
+            );
+            assert_eq!(
+                stx.world.public_lane_stake_reserves.get(&plan.source_asset),
+                Some(&quantity(150, 9).unwrap())
+            );
+            let receipt = read::<ValidationFeeRewardClaim>(
+                stx,
+                &state_key(&binding, &format!("Claim/{}", plan.expected_claim_sequence)).unwrap(),
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(receipt.sequence, plan.expected_claim_sequence);
+            assert_eq!(receipt.account_id, claimant);
+            assert_eq!(receipt.xor_minor, 100);
+            assert!(
+                instruction
+                    .execute(&claimant, stx)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("no eligible reserved credit")
+            );
         });
     }
 }
@@ -214,15 +413,18 @@ fn signed_fee_reward_claim_rejects_every_changed_binding_before_mutation() {
                 }
             }
             let instruction =
-                signed_claim_instruction(stx, &claimant, binding.validator_lane_id, Some(changed));
+                signed_claim_instruction(stx, &claimant, binding.validator_lane_id, changed);
             let error = instruction
                 .execute(&claimant, stx)
                 .expect_err("every fee claim coordinate is signed");
+            let expected = if matches!(change, 4 | 7) {
+                "reward claim must authorize one exact positive funded payment"
+            } else {
+                "exact current signed monetary plan"
+            };
             assert!(
-                error
-                    .to_string()
-                    .contains("exact current signed monetary plan"),
-                "{error}"
+                error.to_string().contains(expected),
+                "change {change}: {error}"
             );
             assert_eq!(
                 stx.world
@@ -236,19 +438,9 @@ fn signed_fee_reward_claim_rejects_every_changed_binding_before_mutation() {
                 stx.world.assets.get(&plan.source_asset),
                 pool_before.as_ref()
             );
-            assert!(
-                stx.world
-                    .public_lane_reward_claims
-                    .get(&(binding.validator_lane_id, claimant.clone()))
-                    .is_none()
-            );
         }
-        let instruction = signed_claim_instruction(
-            stx,
-            &claimant,
-            binding.validator_lane_id,
-            Some(plan.clone()),
-        );
+        let instruction =
+            signed_claim_instruction(stx, &claimant, binding.validator_lane_id, plan.clone());
         instruction.clone().execute(&claimant, stx).unwrap();
         assert_eq!(read_state(stx, &binding).unwrap().reserved_xor, 0);
         assert_eq!(
@@ -278,10 +470,7 @@ fn self_custody_fee_claim_releases_only_its_exact_reserve_without_debiting_balan
         let source = AssetId::new(binding.xor_asset_id.clone(), claimant.clone());
         stx.world
             .public_lane_stake_reserves
-            .insert(source.clone(), quantity(80, 9).unwrap());
-        stx.world
-            .public_lane_reward_reserves
-            .insert(source.clone(), quantity(70, 9).unwrap());
+            .insert(source.clone(), quantity(150, 9).unwrap());
         let plan = fee_reward_claim_plan(
             &stx.world,
             stx.block_height(),
@@ -291,8 +480,7 @@ fn self_custody_fee_claim_releases_only_its_exact_reserve_without_debiting_balan
         .unwrap()
         .unwrap();
         assert_eq!(plan.source_asset, plan.destination_asset);
-        let instruction =
-            signed_claim_instruction(stx, &claimant, binding.validator_lane_id, Some(plan));
+        let instruction = signed_claim_instruction(stx, &claimant, binding.validator_lane_id, plan);
         instruction.clone().execute(&claimant, stx).unwrap();
         assert_eq!(
             stx.world.assets.get(&source).unwrap().as_ref(),
@@ -303,11 +491,7 @@ fn self_custody_fee_claim_releases_only_its_exact_reserve_without_debiting_balan
         assert_eq!(read_state(stx, &binding).unwrap().next_claim, 1);
         assert_eq!(
             stx.world.public_lane_stake_reserves.get(&source),
-            Some(&quantity(80, 9).unwrap())
-        );
-        assert_eq!(
-            stx.world.public_lane_reward_reserves.get(&source),
-            Some(&quantity(70, 9).unwrap())
+            Some(&quantity(150, 9).unwrap())
         );
         assert!(
             read::<u128>(stx, &claimable_key(&binding, &claimant).unwrap())
@@ -321,11 +505,19 @@ fn self_custody_fee_claim_releases_only_its_exact_reserve_without_debiting_balan
 }
 
 #[test]
-fn absent_fee_claim_leaves_even_unreadable_credit_and_dust_untouched() {
+fn unreadable_credit_rejects_the_required_claim_without_mutation() {
     crate::retail_fee_tests::fixture(1_793_451_600_000, |stx, policy| {
         let (_, binding) = network_xor_claim_fixture(stx, policy);
         let claimant = account(2);
         seed_claim_credit(stx, &binding, &claimant, 100, 200);
+        let plan = fee_reward_claim_plan(
+            &stx.world,
+            stx.block_height(),
+            &claimant,
+            binding.validator_lane_id,
+        )
+        .unwrap()
+        .unwrap();
         let key = claimable_key(&binding, &claimant).unwrap();
         stx.world.smart_contract_state.insert(key, vec![0xff]);
         let before = stx
@@ -334,9 +526,9 @@ fn absent_fee_claim_leaves_even_unreadable_credit_and_dust_untouched() {
             .iter()
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect::<Vec<_>>();
-        signed_claim_instruction(stx, &claimant, binding.validator_lane_id, None)
+        signed_claim_instruction(stx, &claimant, binding.validator_lane_id, plan)
             .execute(&claimant, stx)
-            .unwrap();
+            .expect_err("malformed protected credit rejects the entire claim");
         assert_eq!(
             stx.world
                 .smart_contract_state
@@ -345,128 +537,12 @@ fn absent_fee_claim_leaves_even_unreadable_credit_and_dust_untouched() {
                 .collect::<Vec<_>>(),
             before
         );
-    });
-}
-
-#[test]
-fn signed_fee_reward_claim_rolls_back_public_payout_when_fee_transfer_is_refused() {
-    use iroha_data_model::{IntoKeyValue, nexus::PublicLaneRewardClaimSourceV1};
-    crate::retail_fee_tests::fixture_block(1_793_451_600_000, |block, policy| {
-        let claimant = account(2);
-        let (binding, mut instruction, source, before) = {
-            let mut stx = block.transaction();
-            let (_, binding) = network_xor_claim_fixture(&mut stx, policy);
-            seed_claim_credit(&mut stx, &binding, &claimant, 100, 200);
-            let fee = fee_reward_claim_plan(
-                &stx.world,
-                stx.block_height(),
-                &claimant,
-                binding.validator_lane_id,
-            )
-            .unwrap()
-            .unwrap();
-            let mut instruction =
-                signed_claim_instruction(&stx, &claimant, binding.validator_lane_id, Some(fee));
-            let source = AssetId::new(binding.xor_asset_id.clone(), account(3));
-            let (_, value) = Asset::new(source.clone(), quantity(50, 9).unwrap()).into_key_value();
-            stx.world.assets.insert(source.clone(), value);
-            stx.world.public_lane_reward_accruals.insert(
-                (binding.validator_lane_id, claimant.clone(), source.clone()),
-                quantity(50, 9).unwrap(),
-            );
-            stx.world
-                .public_lane_reward_reserves
-                .insert(source.clone(), quantity(50, 9).unwrap());
-            instruction
-                .claim_plan
-                .sources
-                .push(PublicLaneRewardClaimSourceV1 {
-                    source_asset: source.clone(),
-                    destination_asset: AssetId::new(binding.xor_asset_id.clone(), claimant.clone()),
-                    expected_accrued: Some(quantity(50, 9).unwrap()),
-                    payout: quantity(50, 9).unwrap(),
-                });
-            // Put a valid blacklist transfer control on the fee pool. Public reward
-            // execution completes first; the exact fee transfer then fails.
-            use iroha_data_model::asset::transfer_control::{
-                ASSET_TRANSFER_CONTROL_METADATA_KEY, AssetTransferControlRecord,
-                AssetTransferControlStoreV1,
-            };
-            let mut control = AssetTransferControlRecord::new(binding.xor_asset_id.clone());
-            control.blacklisted = true;
-            let mut store = AssetTransferControlStoreV1::default();
-            store.upsert(control);
-            stx.world
-                .accounts
-                .get_mut(&binding.reward_pool_account_id)
-                .unwrap()
-                .metadata_mut()
-                .insert(
-                    ASSET_TRANSFER_CONTROL_METADATA_KEY.parse().unwrap(),
-                    iroha_primitives::json::Json::new(store),
-                );
-            let before = stx
-                .world
-                .smart_contract_state
-                .iter()
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect::<Vec<_>>();
-            stx.apply();
-            (binding, instruction, source, before)
-        };
-        {
-            let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"exact fee rollback"));
-            stx.nexus.staking.reward_dust_threshold = Quantity::zero();
-            assert!(instruction.clone().execute(&claimant, &mut stx).is_err());
-            assert!(
-                stx.world
-                    .public_lane_reward_accruals
-                    .get(&(binding.validator_lane_id, claimant.clone(), source.clone()))
-                    .is_none(),
-                "public payout must have executed before the fee refusal"
-            );
-            // Drop the complete transaction; there is no manual ledger repair.
-        }
-        let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"explicitly skip fee"));
-        stx.nexus.staking.reward_dust_threshold = Quantity::zero();
-        assert_eq!(
-            stx.world
-                .smart_contract_state
-                .iter()
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect::<Vec<_>>(),
-            before
-        );
-        assert_eq!(
-            stx.world.public_lane_reward_reserves.get(&source),
-            Some(&quantity(50, 9).unwrap())
-        );
-        assert_eq!(
-            stx.world.assets.get(&source).unwrap().as_ref(),
-            &quantity(50, 9).unwrap()
-        );
-        assert!(
-            stx.world
-                .assets
-                .get(&AssetId::new(
-                    binding.xor_asset_id.clone(),
-                    claimant.clone()
-                ))
-                .is_none()
-        );
-        instruction.claim_plan.fee_claim = None;
-        instruction.execute(&claimant, &mut stx).unwrap();
-        assert_eq!(read_state(&stx, &binding).unwrap().reserved_xor, 100);
     });
 }
 
 #[test]
 fn shared_fee_stake_reward_custody_is_additive() {
-    use iroha_data_model::{
-        IntoKeyValue,
-        isi::staking::RecordPublicLaneRewards,
-        nexus::{PublicLaneRewardRole, PublicLaneRewardShare},
-    };
+    use iroha_data_model::IntoKeyValue;
     crate::retail_fee_tests::fixture(1_793_451_600_000, |stx, policy| {
         let (_, binding) = network_xor_claim_fixture(stx, policy);
         let claimant = account(2);
@@ -477,10 +553,7 @@ fn shared_fee_stake_reward_custody_is_additive() {
         );
         stx.world
             .public_lane_stake_reserves
-            .insert(source.clone(), quantity(80, 9).unwrap());
-        stx.world
-            .public_lane_reward_reserves
-            .insert(source.clone(), quantity(70, 9).unwrap());
+            .insert(source.clone(), quantity(150, 9).unwrap());
         ensure_reward_custody_debit(stx, &source, &quantity(50, 9).unwrap()).unwrap();
         assert!(
             ensure_reward_custody_debit(stx, &source, &quantity(51, 9).unwrap()).is_err(),
@@ -516,35 +589,6 @@ fn shared_fee_stake_reward_custody_is_additive() {
             &quantity(300, 9).unwrap(),
         )
         .unwrap();
-        stx.nexus.fees.fee_asset_id = binding.xor_asset_id.to_string();
-        stx.nexus.fees.fee_sink_account_id = binding.reward_pool_account_id.to_string();
-        let record = RecordPublicLaneRewards {
-            lane_id: binding.validator_lane_id,
-            epoch: 0,
-            reward_asset: source.clone(),
-            total_reward: quantity(51, 9).unwrap(),
-            shares: vec![PublicLaneRewardShare {
-                account: claimant.clone(),
-                role: PublicLaneRewardRole::Nominator,
-                amount: quantity(51, 9).unwrap(),
-            }],
-            metadata: iroha_model_base::metadata::Metadata::default(),
-        };
-        let error = record
-            .execute(&binding.reward_pool_account_id, stx)
-            .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("insufficient unreserved balance"),
-            "{error}"
-        );
-        assert!(
-            stx.world
-                .public_lane_rewards
-                .get(&(binding.validator_lane_id, 0))
-                .is_none()
-        );
         // Restoration and signed claims also reject a balance that backs each
         // ledger alone but cannot back their sum.
         let (_, underfunded) =
@@ -569,6 +613,9 @@ fn shared_fee_stake_reward_custody_is_additive() {
         Transfer::asset_quantity(source.clone(), quantity(50, 9).unwrap(), account(3))
             .execute(&binding.reward_pool_account_id, stx)
             .unwrap();
+        iroha_data_model::isi::Burn::asset_quantity(quantity(1, 9).unwrap(), source.clone())
+            .execute(&binding.reward_pool_account_id, stx)
+            .expect_err("burn cannot consume funded rewards or staking principal");
         let fee = fee_reward_claim_plan(
             &stx.world,
             stx.block_height(),
@@ -576,7 +623,7 @@ fn shared_fee_stake_reward_custody_is_additive() {
             binding.validator_lane_id,
         )
         .unwrap();
-        signed_claim_instruction(stx, &claimant, binding.validator_lane_id, fee)
+        signed_claim_instruction(stx, &claimant, binding.validator_lane_id, fee.unwrap())
             .execute(&claimant, stx)
             .unwrap();
         assert_eq!(
@@ -585,11 +632,7 @@ fn shared_fee_stake_reward_custody_is_additive() {
         );
         assert_eq!(
             stx.world.public_lane_stake_reserves.get(&source),
-            Some(&quantity(80, 9).unwrap())
-        );
-        assert_eq!(
-            stx.world.public_lane_reward_reserves.get(&source),
-            Some(&quantity(70, 9).unwrap())
+            Some(&quantity(150, 9).unwrap())
         );
     });
 }
@@ -628,8 +671,13 @@ fn fee_reward_claim_refuses_currency_substitution_and_stale_credit() {
             "{currency_error}"
         );
         assert!(
-            prepare_fee_reward_claim(stx, &claimant, binding.validator_lane_id, plan.as_ref())
-                .is_err(),
+            prepare_fee_reward_claim(
+                stx,
+                &claimant,
+                binding.validator_lane_id,
+                plan.as_ref().unwrap()
+            )
+            .is_err(),
             "the claim must propagate its authenticated registry refusal"
         );
         assert_eq!(
@@ -649,16 +697,26 @@ fn fee_reward_claim_refuses_currency_substitution_and_stale_credit() {
             ));
         seed_claim_credit(stx, &binding, &claimant, 101, 200);
         assert!(
-            prepare_fee_reward_claim(stx, &claimant, binding.validator_lane_id, plan.as_ref())
-                .err()
-                .unwrap()
-                .to_string()
-                .contains("exact current signed monetary plan")
+            prepare_fee_reward_claim(
+                stx,
+                &claimant,
+                binding.validator_lane_id,
+                plan.as_ref().unwrap()
+            )
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("exact current signed monetary plan")
         );
         beneficiary::rekey_beneficiary(stx, &claimant, &account(3)).unwrap();
         assert!(
-            prepare_fee_reward_claim(stx, &claimant, binding.validator_lane_id, plan.as_ref())
-                .is_err()
+            prepare_fee_reward_claim(
+                stx,
+                &claimant,
+                binding.validator_lane_id,
+                plan.as_ref().unwrap()
+            )
+            .is_err()
         );
         let recovered = fee_reward_claim_plan(
             &stx.world,

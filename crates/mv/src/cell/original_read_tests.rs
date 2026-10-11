@@ -107,15 +107,28 @@ fn concurrent_publication_never_returns_a_mixed_current_undo_pair() {
 }
 
 #[test]
-fn zero_sized_backing_refuses_permanently_instead_of_retrying_source_change() {
+fn empty_payload_retains_exact_current_and_undo_allocations() {
     let cell = Cell::new(());
-    assert!(matches!(
-        cell.try_committed_view(),
-        Err(CommittedCellReadError::ZeroSizedBacking)
-    ));
-    cell.block().commit();
-    assert!(matches!(
-        cell.try_committed_view(),
-        Err(CommittedCellReadError::ZeroSizedBacking)
-    ));
+    let foreign = Cell::new(());
+    let first = cell.try_committed_view().unwrap();
+    let foreign_read = foreign.try_committed_view().unwrap();
+    assert!(!std::ptr::eq(first.current(), foreign_read.current()));
+    assert_eq!(*first.undo(), None);
+    assert!(!first.same_publication(&foreign_read));
+    let block = cell.block();
+    assert!(first.matches_block_source(&block));
+    block.commit();
+    let untouched = cell.try_committed_view().unwrap();
+    assert!(!first.same_publication(&untouched));
+    assert!(std::ptr::eq(first.current(), untouched.current()));
+    assert!(!std::ptr::eq(first.undo(), untouched.undo()));
+    let mut block = cell.block();
+    assert!(untouched.matches_block_source(&block));
+    *block.get_mut() = ();
+    block.commit();
+    let second = cell.try_committed_view().unwrap();
+    assert!(!first.same_publication(&second));
+    assert!(!std::ptr::eq(first.current(), second.current()));
+    assert!(!first.matches_block_source(&cell.block()));
+    assert_eq!(*first.undo(), None);
 }

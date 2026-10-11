@@ -35,7 +35,7 @@ fn fixture() -> &'static NativeResourceNamesStateV1 {
             *Hash::new(b"fixture registration").as_ref(),
         )
         .unwrap();
-        let registry = iroha_data_model::kagemusha::KagemushaGovernedVerifierRegistryV1::default();
+        let watermark = 7_u64;
         let snapshot = WorldStateSnapshotV1 {
             schema_hash: Hash::new(b"synthetic complete World registry"),
             entries: vec![
@@ -52,10 +52,10 @@ fn fixture() -> &'static NativeResourceNamesStateV1 {
                     value_hash: world_state_value_hash_v1(&incarnation).unwrap(),
                 },
                 WorldStateSnapshotEntryV1 {
-                    field_id: "world.kagemusha_verifier_registry".into(),
+                    field_id: "world.soracloud_sequence_watermark".into(),
                     kind: WorldStateElementKindV1::Cell,
                     key_hash: None,
-                    value_hash: world_state_value_hash_v1(&registry).unwrap(),
+                    value_hash: world_state_value_hash_v1(&watermark).unwrap(),
                 },
             ],
         };
@@ -194,4 +194,17 @@ fn complete_names_carrier_refuses_noncanonical_trailing_and_oversized_inputs() {
     assert!(decode_unverified_native_resource_names_state_v1(&[]).is_err());
     let bytes = vec![0u8; NATIVE_RESOURCE_NAMES_STATE_MAX_BYTES_V1 + 1];
     assert!(decode_unverified_native_resource_names_state_v1(&bytes).is_err());
+}
+
+#[test]
+fn s17_temporary_print_shape_fixture() {
+    let value = fixture();
+    println!(
+        "S17ATTESTATION {}",
+        norito::json::to_json(&value.attestation).unwrap()
+    );
+    println!(
+        "S17SNAPSHOT {}",
+        norito::json::to_json(&value.world_snapshot).unwrap()
+    );
 }

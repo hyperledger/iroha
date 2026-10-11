@@ -185,7 +185,7 @@ mod raw_ivm_work {
                 .map_err(crate::execution_attempt::expect_completed_rejection)
                 .expect_err("the actual raw VM must exhaust its effective gas limit");
             assert!(
-                matches!(error, ValidationFail::NotPermitted(ref reason) if reason.contains("gas")),
+                matches!(error, ValidationFail::IvmFault(ref fault) if fault.kind == iroha_data_model::executor::fault::IvmFaultKindV1::OutOfGas),
                 "{error:?}"
             );
             assert_eq!(tx.last_tx_gas_used, expected_gas);
@@ -200,14 +200,13 @@ mod raw_ivm_work {
 
     #[test]
     fn bound_raw_contract_runtime_rejection_retains_actual_work() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
                 r#"
-seiyaku RawMeteredFailure {
-  kotoage fn run() authorize("CanInvokeContractEntrypoint") {
-    ledger::account::set_detail(
+seiyaku RawMeteredFailure { permission CanInvokeContractEntrypoint;
+  kotoage fn run() authorize(CanInvokeContractEntrypoint) {
+    ledger::account::set_metadata(
       account: context::authority(),
       key: Name::parse("raw_contract_not_written"),
       value: Json::parse("true")
@@ -241,7 +240,13 @@ seiyaku RawMeteredFailure {
                 address.dataspace_id().unwrap(),
                 code_hash,
             ),
-            manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &ALICE_KEYPAIR).expect("sign bounded fixture manifest"),
+            manifest
+                .try_signed(
+                    manifest_signing.context(),
+                    manifest_signing.max_frame_bytes(),
+                    &ALICE_KEYPAIR,
+                )
+                .expect("sign bounded fixture manifest"),
         );
         setup.world.accounts.insert(
             address.subject_id(),
@@ -289,9 +294,9 @@ seiyaku RawMeteredFailure {
         let mut block = next_block(&state);
         let mut setup = block.transaction();
         let permission: Permission =
-            iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+            iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
                 contract: address,
-                entrypoint: "run".to_owned(),
+                permission: "CanInvokeContractEntrypoint".parse().unwrap(),
             }
             .into();
         Grant::account_permission(permission, ALICE_ID.clone())
@@ -308,7 +313,7 @@ seiyaku RawMeteredFailure {
             .map_err(crate::execution_attempt::expect_completed_rejection)
             .expect_err("the genuinely bound and permitted raw contract must exhaust VM gas");
         assert!(
-            matches!(&error, ValidationFail::NotPermitted(reason) if reason.contains("gas")),
+            matches!(&error, ValidationFail::IvmFault(fault) if fault.kind == iroha_data_model::executor::fault::IvmFaultKindV1::OutOfGas),
             "{error:?}"
         );
         assert!((1..=10).contains(&tx.last_tx_gas_used));
@@ -327,16 +332,15 @@ seiyaku RawMeteredFailure {
 
     #[test]
     fn artifact_validation_rejection_retains_completed_vm_work() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         // Generic-v1 cannot call this syscall. The canonical inline builder
         // supplies the NoritoBytes pointer required by the typed bridge; a
         // contract bytes argument is a Blob and cannot stand in for that type.
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
                 r#"
-seiyaku UnverifiedBallot {
-    kotoage fn run() authorize("CanInvokeContractEntrypoint") {
+seiyaku UnverifiedBallot { permission CanInvokeContractEntrypoint;
+    kotoage fn run() authorize(CanInvokeContractEntrypoint) {
         let instruction = ledger::governance::build_submit_ballot(
             election_id: "raw-work-election",
             ciphertext: b"ciphertext",
@@ -370,7 +374,13 @@ seiyaku UnverifiedBallot {
                 address.dataspace_id().unwrap(),
                 code_hash,
             ),
-            manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &ALICE_KEYPAIR).expect("sign bounded fixture manifest"),
+            manifest
+                .try_signed(
+                    manifest_signing.context(),
+                    manifest_signing.max_frame_bytes(),
+                    &ALICE_KEYPAIR,
+                )
+                .expect("sign bounded fixture manifest"),
         );
         setup.world.accounts.insert(
             address.subject_id(),
@@ -418,9 +428,9 @@ seiyaku UnverifiedBallot {
         let mut block = next_block(&state);
         let mut setup = block.transaction();
         let permission: Permission =
-            iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+            iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
                 contract: address,
-                entrypoint: "run".to_owned(),
+                permission: "CanInvokeContractEntrypoint".parse().unwrap(),
             }
             .into();
         Grant::account_permission(permission, ALICE_ID.clone())

@@ -85,10 +85,9 @@ impl<T> InlineLeaf for HashOf<T> {
         original_complete_leaf(bytes)
     }
     fn read_field(field: CanonicalField<'_, Self>) -> Result<Self, DecodeIntoError<Infallible>> {
-        // The sole archived Hash kernel delegates to [u8; 32] before checking
-        // its marker. Alignment one avoids scratch, and the existing field
-        // decoder preserves malformed framed-array/limit error precedence.
-        // Do not wrap this in with_payload: that would enter its scope twice.
+        // Keep the nominal Hash decoder's raw width and marker checks.
+        // Alignment one avoids scratch, and the field already owns its
+        // depth and flags scope, so decode it once.
         field.decode_owned().map_err(DecodeIntoError::Codec)
     }
 }
@@ -162,6 +161,12 @@ mod decoded_field_tests {
 
     #[test]
     fn canonical_field_visitation_preserves_explicit_none_and_original_value_retirement() {
+        struct Original<'a>(&'a std::cell::Cell<u8>);
+        impl Drop for Original<'_> {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
         let mut field = DecodedField::<Option<u8>>::default();
         assert!(field.is_missing());
         assert_eq!(field.as_ref(), None);
@@ -174,12 +179,6 @@ mod decoded_field_tests {
         assert_eq!(DecodedField::Decoded(Some(7)).into_value(), Some(Some(7)));
         assert_eq!(DecodedField::<Option<u8>>::Missing.into_value(), None);
 
-        struct Original<'a>(&'a std::cell::Cell<u8>);
-        impl Drop for Original<'_> {
-            fn drop(&mut self) {
-                self.0.set(self.0.get() + 1);
-            }
-        }
         let retired = std::cell::Cell::new(0);
         let mut owner = DecodedField::<Original<'_>>::default();
         assert!(owner.is_missing());

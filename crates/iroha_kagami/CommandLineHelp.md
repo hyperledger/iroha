@@ -16,6 +16,7 @@ This document contains the help content for the `kagami` command-line program.
 * [`kagami localnet validate-beacon-launch`↴](#kagami-localnet-validate-beacon-launch)
 * [`kagami dataspace`↴](#kagami-dataspace)
 * [`kagami dataspace up`↴](#kagami-dataspace-up)
+* [`kagami dataspace register-amx`↴](#kagami-dataspace-register-amx)
 * [`kagami dataspace status`↴](#kagami-dataspace-status)
 * [`kagami dataspace networks`↴](#kagami-dataspace-networks)
 * [`kagami context`↴](#kagami-context)
@@ -309,7 +310,7 @@ Generate an operator-owned network bundle without starting validators
 * `--extra-accounts <EXTRA_ACCOUNTS>` — Extra accounts to pre-register (in wonderland)
 
   Default value: `0`
-* `--sample-asset` — Register the optional sample asset and mint to the default account. The built-in KAGEMUSHA V1 asset is always emitted
+* `--sample-asset` — Register the optional sample asset and mint to the default account. The built-in localnet asset is always emitted
 
   Default value: `false`
 * `--asset-definition-id <ASSET_DEFINITION_ID>` — Register additional asset definition IDs owned by the generated client signer. Repeat the flag to register more than one asset definition. A localnet reserve is minted to the generated client signer for each requested asset definition
@@ -345,6 +346,7 @@ Run an owner-private local dataspace attached to an installed remote network
 ###### **Subcommands:**
 
 * `up` — Create, fund, register, and select four private validators without supplying configuration
+* `register-amx` — Register a retained inactive AMX instance; explicitly run localnet down first
 * `status` — Observe local validators and independently verified parent attachment separately
 * `networks` — List the independently pinned network profiles supplied by this installation
 
@@ -368,6 +370,31 @@ Create, fund, register, and select four private validators without supplying con
   Default value: `admin`
 * `--name <NAME>` — Store-local context name (defaults to the dataspace alias)
 * `--timeout <TIMEOUT>` — Complete parent authentication, local startup, and attachment budget in seconds
+
+  Default value: `60`
+* `--state <STATE>` — Private runtime store. By default each workspace has its own OS application-state directory
+* `--workspace <WORKSPACE>` — Workspace whose managed context is selected (defaults to the current directory)
+* `--json` — Emit one public JSON result; progress remains on stderr
+
+
+
+## `kagami dataspace register-amx`
+
+Explicit administrative parent AMX registration of one retained private generation. Requires exclusive inactive custody: use `kagami localnet down NAME` before this action, then `kagami localnet up NAME` to restart that same generation. Signing material is selected only by --admin-config; recovery never renews the original fees or UTC deadline.
+
+**Usage:** `kagami dataspace register-amx [OPTIONS] --admin-config <ADMIN_CONFIG> --fee-asset <FEE_ASSET> --max-fee <MAX_FEE> --deadline-unix-ms <DEADLINE_UNIX_MS> <NAME>`
+
+###### **Arguments:**
+
+* `<NAME>` — Exact retained private managed context; no new child is prepared
+
+###### **Options:**
+
+* `--admin-config <ADMIN_CONFIG>` — Explicit parent administrative client configuration, with runtime-only signing custody
+* `--fee-asset <FEE_ASSET>` — Exact parent fee asset; no asset is inferred from the child or SNS owner
+* `--max-fee <MAX_FEE>` — Positive aggregate fee ceiling for the original transaction
+* `--deadline-unix-ms <DEADLINE_UNIX_MS>` — Original exclusive Unix millisecond signing authorization; repeat unchanged on recovery
+* `--timeout <TIMEOUT>` — Fresh I/O budget only, bounded by the original authorization and release
 
   Default value: `60`
 * `--state <STATE>` — Private runtime store. By default each workspace has its own OS application-state directory
@@ -630,7 +657,7 @@ Generate validator-only Docker Compose from a prepared bundle or explicit dev se
    For more details on healthcheck configuration in Docker Compose files, see: <https://docs.docker.com/compose/compose-file/compose-file-v3/#healthcheck>
 * `-c`, `--config-dir <DIR>` — Authoritative prepared validator/genesis bundle, or development manifest directory.
 
-   Normal mode requires `genesis.json`, `peer0.toml` through `peerN.toml`, `genesis.signed.nrt`, `genesis.public_key`, and `genesis.expected_hash`. Kagami validates their canonical wire, signer, semantic manifest binding, exact hash, validator roster, and PoPs together. With `--seed`, only `genesis.json` is read and runtime artifact paths are supplied explicitly through the generated manifest's `IROHA_GENESIS_*_FILE` variables.
+   Normal mode requires `genesis.json`, `peer0.toml` through `peerN.toml`, `genesis.signed.nrt`, `genesis.public_key`, and `genesis.expected_hash`. Kagami validates their canonical wire, signer, semantic manifest binding, exact hash, validator roster, and PoPs together. With `--seed`, only `genesis.json` is read and runtime artifact paths are supplied explicitly through the generated manifest's `IROHA_GENESIS_*_FILE` variables. Development mode additionally requires per-node `IROHA_PEER<N>_CONFIG_FILE` mount sources at Compose startup. These existing owner-0600 TOML files contain ordinary validator configuration; private inputs must be readable as their owner by the image daemon UID.
 * `--peer-config <FILE>` — Optional TOML file describing peer names and port mappings. Only available with deterministic development `--seed` mode.
 
    The file must contain an array named `peers`, for example:
@@ -692,7 +719,7 @@ Commands related to genesis
 
 * `sign` — Sign the genesis block
 * `generate` — Generate a genesis configuration and standard-output in JSON format
-* `materialize` — Materialize an incomplete source template with operator-provisioned public authority
+* `materialize` — Materialize an incomplete source template with its explicit NPoS XOR selection
 * `validate` — Validate a genesis JSON file and report invalid identifiers
 * `validate-prepared` — Verify one exact bound-manifest/signed-genesis/signer/hash bundle
 * `embed-pop` — Embed one or more PoPs into a genesis JSON manifest (inline `topology` entries carrying `pop_hex`)
@@ -717,7 +744,8 @@ Sign the genesis block
 * `--expected-hash-out <PATH>` — Write the canonical checked NetworkId derived from the exact signed consensus-header hash as one line.
 
    Validators and clients must select this same file through `genesis.expected_hash_file` and `network_id_file`, respectively.
-* `--replace-expected-hash <NETWORK_ID>` — Replace the expected-hash file only if it still contains this exact prior NetworkId. Requires all three output paths. The identity is published last as the bundle's commit marker; interrupted publication must be retried with the same prior identity
+* `--nexus-context-output <PATH>` — Publish the exact Nexus/AMX context preimage whose hash the signed genesis commits (`nexus-amx-context.v1.bin`). Validators and public reset inputs consume these bytes
+* `--replace-expected-hash <NETWORK_ID>` — Replace the expected-hash file only if it still contains this exact prior NetworkId. Requires all four output paths. The identity is published last as the bundle's commit marker; interrupted publication must be retried with the same prior identity
 * `-t`, `--topology <TOPOLOGY>` — Use this topology instead of specified in genesis.json. JSON-serialized vector of `PeerId`. For use in `iroha_swarm`.
 
    The final unique topology must be an exact Sumeragi `3f + 1` committee in the range 4..=31.
@@ -729,6 +757,9 @@ Sign the genesis block
 * `--creation-time-ms <MILLISECONDS>` — Deterministic genesis transaction creation-time base in Unix milliseconds.
 
    Omit this for a fresh wall-clock timestamp. Fixture generators should set it so repeated signing produces identical canonical wire bytes.
+* `--amx-global-chain-id <CHAIN_ID>` — Full global chain label selected for the private root's native AMX participant
+* `--amx-global-genesis <PATH>` — Complete original signed global genesis in canonical `SignedBlockWire` format
+* `--amx-global-successor <PATH>` — Genuine global H2 whose exact quorum authenticates that original genesis result
 * `--config <PATH>` — Optional peer config TOML used to derive the DA proof-policy bundle embedded into genesis
 
 
@@ -737,7 +768,7 @@ Sign the genesis block
 
 Generate a genesis configuration and standard-output in JSON format
 
-**Usage:** `kagami genesis generate [OPTIONS] --ivm-dir <PATH> --genesis-public-key <MULTI_HASH> --kagemusha-mint-finality-parameters <PATH> [COMMAND]`
+**Usage:** `kagami genesis generate [OPTIONS] --ivm-dir <PATH> --genesis-public-key <MULTI_HASH> [COMMAND]`
 
 ###### **Subcommands:**
 
@@ -753,7 +784,6 @@ Generate a genesis configuration and standard-output in JSON format
 * `--executor <PATH>` — Optional path (relative to output) to the executor bytecode file (.to). If omitted, no executor upgrade is included in genesis
 * `--ivm-dir <PATH>` — Relative path from the directory of output file to the directory that contains IVM bytecode libraries
 * `--genesis-public-key <MULTI_HASH>`
-* `--kagemusha-mint-finality-parameters <PATH>` — Path to the explicitly provisioned public KAGEMUSHA mint-finality genesis parameters
 * `--ivm-gas-limit-per-block <U64>` — Optional: set the custom parameter `ivm_gas_limit_per_block` (u64) in genesis so all peers agree on the block gas budget. If omitted, a sensible default (1,680,000) is applied
 * `--consensus-mode <MODE>` — Select the consensus mode snapshot to seed in the genesis parameters (default: permissioned; profiles that require NPoS select it themselves)
 
@@ -806,9 +836,9 @@ Synthetic mode is useful when we need a semi-realistic genesis for stress-testin
 
 ## `kagami genesis materialize`
 
-Materialize an incomplete source template with operator-provisioned public authority
+Materialize an incomplete source template with its explicit NPoS XOR selection
 
-**Usage:** `kagami genesis materialize [OPTIONS] --kagemusha-mint-finality-parameters <PATH> <TEMPLATE_FILE>`
+**Usage:** `kagami genesis materialize [OPTIONS] <TEMPLATE_FILE>`
 
 ###### **Arguments:**
 
@@ -816,7 +846,6 @@ Materialize an incomplete source template with operator-provisioned public autho
 
 ###### **Options:**
 
-* `--kagemusha-mint-finality-parameters <PATH>` — Explicitly provisioned public KAGEMUSHA mint-finality genesis parameters
 * `--xor-asset-definition-id <ASSET_DEFINITION_ID>` — Explicit canonical XOR definition committed by an NPoS source template
 
 
@@ -849,6 +878,7 @@ Verify one exact bound-manifest/signed-genesis/signer/hash bundle
 * `--peer-config <PATH>` — Effective validator configs whose complete roster and policy must reproduce the signed context. Repeat exactly four times in `taira-validator-1` through `-4` order
 * `--genesis-public-key <PUBLIC_KEY>` — Public key of the independently provisioned genesis signer
 * `--expected-hash <HASH>` — Exact signed genesis block-header hash
+* `--nexus-context-output <PATH>` — Publish the exact public Nexus AMX context preimage after all four configurations agree
 
 
 

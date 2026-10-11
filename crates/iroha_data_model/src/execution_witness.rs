@@ -33,8 +33,6 @@ pub enum ExecutionWitnessKeyTagV1 {
     ValidationFeePolicy = 0xD4,
     /// Fixed Parliament timed-OVN casting-context snapshot.
     ParliamentTimedOvnCasting = 0xD5,
-    /// Kagemusha reserve receipt by its 32-byte operation identifier.
-    KagemushaReserveReceipt = 0xD6,
     /// Fixed ordinary FASTPQ source-statement manifest, derived by validator execution.
     FastpqOrdinarySourceStatements = 0xD7,
     /// Fixed SCCP state-delta witness; the exact SCCP key bytes remain unchanged.
@@ -46,6 +44,8 @@ pub enum ExecutionWitnessKeyTagV1 {
     FeeSnapshot = 0xDA,
     /// A canonical retained retail receipt or validator allocation original.
     FeeRecord = 0xDB,
+    /// Bounded historical staking exposure under original certified block custody.
+    RewardExposureArchive = 0xDC,
 }
 
 const fn tagged_fixed_key<const N: usize>(
@@ -77,27 +77,6 @@ pub const FASTPQ_ORDINARY_SOURCE_STATEMENTS_WITNESS_KEY_V1: &[u8] = &tagged_fixe
     *b"\0iroha:fastpq:ordinary-source-statements:v1",
 );
 
-/// Reserved ordinary-write key tag for a finalized Kagemusha operation.
-pub const KAGEMUSHA_RESERVE_RECEIPT_WITNESS_KEY_TAG_V1: u8 =
-    ExecutionWitnessKeyTagV1::KagemushaReserveReceipt as u8;
-/// Exact receipt key length: one tag byte followed by the operation identifier.
-pub const KAGEMUSHA_RESERVE_RECEIPT_WITNESS_KEY_BYTES_V1: usize = 33;
-
-/// Derive the sole ordinary-write key for a Kagemusha operation.
-#[must_use]
-pub const fn kagemusha_reserve_receipt_witness_key_v1(
-    operation_id: [u8; 32],
-) -> [u8; KAGEMUSHA_RESERVE_RECEIPT_WITNESS_KEY_BYTES_V1] {
-    let mut key = [0; KAGEMUSHA_RESERVE_RECEIPT_WITNESS_KEY_BYTES_V1];
-    key[0] = KAGEMUSHA_RESERVE_RECEIPT_WITNESS_KEY_TAG_V1;
-    let mut index = 0;
-    while index < operation_id.len() {
-        key[index + 1] = operation_id[index];
-        index += 1;
-    }
-    key
-}
-
 /// Fixed per-block native fee accounting snapshot key.
 pub const FEE_EVIDENCE_WITNESS_KEY_V1: &[u8] = &tagged_fixed_key(
     ExecutionWitnessKeyTagV1::FeeSnapshot,
@@ -105,6 +84,9 @@ pub const FEE_EVIDENCE_WITNESS_KEY_V1: &[u8] = &tagged_fixed_key(
 );
 /// Reserved family for native fee record bytes in an execution witness.
 pub const FEE_EVIDENCE_RECORD_TAG_V1: u8 = ExecutionWitnessKeyTagV1::FeeRecord as u8;
+/// Reserved family for canonical historical staking exposure archive bytes.
+pub const REWARD_EXPOSURE_ARCHIVE_TAG_V1: u8 =
+    ExecutionWitnessKeyTagV1::RewardExposureArchive as u8;
 
 #[cfg(test)]
 mod tests {
@@ -126,12 +108,12 @@ mod tests {
             RolePermission,
             ValidationFeePolicy,
             ParliamentTimedOvnCasting,
-            KagemushaReserveReceipt,
             FastpqOrdinarySourceStatements,
             SccpStateDelta,
             AmxRecord,
             FeeSnapshot,
             FeeRecord,
+            RewardExposureArchive,
         ];
         let distinct = tags
             .into_iter()
@@ -150,17 +132,22 @@ mod tests {
             FASTPQ_ORDINARY_SOURCE_STATEMENTS_WITNESS_KEY_V1,
             b"\xd7iroha:fastpq:ordinary-source-statements:v1"
         );
-        for operation_id in [[0; 32], [0xD4; 32], [0xD5; 32], [0xFF; 32]] {
-            let key = kagemusha_reserve_receipt_witness_key_v1(operation_id);
-            assert_eq!(key[0], 0xD6);
-            assert_eq!(&key[1..], operation_id.as_slice());
-            for fixed in [
-                VALIDATION_FEE_POLICY_WITNESS_KEY_V1,
-                PARLIAMENT_TIMED_OVN_CASTING_WITNESS_KEY_V1,
-                FASTPQ_ORDINARY_SOURCE_STATEMENTS_WITNESS_KEY_V1,
-            ] {
-                assert_ne!(key[0], fixed[0], "prefix selectors must be disjoint");
-            }
-        }
+        let fixed = [
+            VALIDATION_FEE_POLICY_WITNESS_KEY_V1,
+            PARLIAMENT_TIMED_OVN_CASTING_WITNESS_KEY_V1,
+            FASTPQ_ORDINARY_SOURCE_STATEMENTS_WITNESS_KEY_V1,
+            FEE_EVIDENCE_WITNESS_KEY_V1,
+        ]
+        .map(|key| key[0])
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            fixed.len(),
+            4,
+            "fixed-key prefix selectors must be disjoint"
+        );
+        assert!(!fixed.contains(&FEE_EVIDENCE_RECORD_TAG_V1));
+        assert!(!fixed.contains(&REWARD_EXPOSURE_ARCHIVE_TAG_V1));
+        assert_eq!(REWARD_EXPOSURE_ARCHIVE_TAG_V1, 0xDC);
     }
 }

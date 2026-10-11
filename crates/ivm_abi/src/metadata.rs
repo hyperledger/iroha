@@ -16,8 +16,9 @@ pub use literal_table::{LiteralDirectory, ValidatedLiteral};
 
 use crate::error::VMError;
 use iroha_data_model::smart_contract::manifest::{
-    AccessSetHints, ContractErrorMessage, ContractErrorTypeDescriptor, EntryPointKind,
-    EntrypointDescriptor, KotobaTranslationEntry, TriggerDescriptor,
+    AccessSetHints, ContractEnumTypeDescriptorV1, ContractErrorMessage,
+    ContractErrorTypeDescriptor, ContractPermissionDescriptorV1, EntryPointKind,
+    EntrypointAuthorizationV1, EntrypointDescriptor, KotobaTranslationEntry, TriggerDescriptor,
 };
 pub use iroha_data_model::smart_contract::{CONTRACT_CODE_HASH_DOMAIN, contract_code_hash};
 use norito::{
@@ -128,7 +129,8 @@ pub struct EmbeddedEntrypointDescriptor {
     /// Exact recursive schema for every public return value, including one zero scalar Unit.
     /// Public entrypoint admission rejects an absent schema.
     pub return_schema: Option<crate::entrypoint::EntrypointValueTypeV1>,
-    pub permission: Option<String>,
+    /// Explicit invocation policy resolved against the authenticated permission declarations.
+    pub authorization: EntrypointAuthorizationV1,
     pub read_keys: Vec<String>,
     pub write_keys: Vec<String>,
     pub access_hints_complete: Option<bool>,
@@ -147,7 +149,7 @@ impl EmbeddedEntrypointDescriptor {
             argument_schema: self.argument_schema.clone(),
             return_type: self.return_type.clone(),
             return_schema: self.return_schema.clone(),
-            permission: self.permission.clone(),
+            authorization: self.authorization.clone(),
             read_keys: self.read_keys.clone(),
             write_keys: self.write_keys.clone(),
             access_hints_complete: self.access_hints_complete,
@@ -180,7 +182,7 @@ pub enum EmbeddedStateType {
     /// A nominal finite error type with an exact canonical variant schema.
     Error(ContractErrorTypeDescriptor),
     /// Opaque cursor bound to one scalar durable-map key kind.
-    StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1),
+    StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1),
     Int,
     Decimal,
     Quantity,
@@ -214,6 +216,8 @@ pub enum EmbeddedStateType {
         element: Box<EmbeddedStateType>,
         capacity: u8,
     },
+    /// A finite ordinary enum with an exact nominal variant schema.
+    Enum(ContractEnumTypeDescriptorV1),
 }
 impl PartialEq for EmbeddedStateType {
     fn eq(&self, other: &Self) -> bool {
@@ -222,6 +226,7 @@ impl PartialEq for EmbeddedStateType {
             match (left, right) {
                 (Self::StateCursor(left), Self::StateCursor(right)) if left == right => {}
                 (Self::Error(left), Self::Error(right)) if left == right => {}
+                (Self::Enum(left), Self::Enum(right)) if left == right => {}
                 (Self::Unit, Self::Unit)
                 | (Self::Int, Self::Int)
                 | (Self::Decimal, Self::Decimal)
@@ -343,6 +348,7 @@ fn move_embedded_state_type_children(
         EmbeddedStateType::Unit
         | EmbeddedStateType::StateCursor(_)
         | EmbeddedStateType::Error(_)
+        | EmbeddedStateType::Enum(_)
         | EmbeddedStateType::Int
         | EmbeddedStateType::Decimal
         | EmbeddedStateType::Quantity
@@ -375,6 +381,7 @@ impl EmbeddedStateType {
         match self {
             Self::Unit => EMBEDDED_STATE_TYPE_TAG_UNIT,
             Self::Error(_) => EMBEDDED_STATE_TYPE_TAG_ERROR,
+            Self::Enum(_) => EMBEDDED_STATE_TYPE_TAG_ENUM,
             Self::StateCursor(_) => EMBEDDED_STATE_TYPE_TAG_STATE_CURSOR,
             Self::Int => EMBEDDED_STATE_TYPE_TAG_INT,
             Self::Decimal => EMBEDDED_STATE_TYPE_TAG_DECIMAL,
@@ -422,6 +429,7 @@ const EMBEDDED_STATE_TYPE_TAG_LIST: u8 = 19;
 const EMBEDDED_STATE_TYPE_TAG_UNIT: u8 = 20;
 const EMBEDDED_STATE_TYPE_TAG_ERROR: u8 = 21;
 const EMBEDDED_STATE_TYPE_TAG_STATE_CURSOR: u8 = 22;
+const EMBEDDED_STATE_TYPE_TAG_ENUM: u8 = 23;
 /// Maximum recursive depth accepted by the first-release CNTR state-type codec.
 pub const MAX_EMBEDDED_STATE_TYPE_DEPTH_V1: usize = 256;
 fn embedded_state_type_depth_error(operation: &str) -> NoritoError {
@@ -441,21 +449,31 @@ fn validate_embedded_state_type_iterative(
         let child_depth = depth
             .checked_add(1)
             .ok_or_else(|| embedded_state_type_depth_error(operation))?;
-        if matches!(
-            value,
-            EmbeddedStateType::StateCursor(
-                iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1::Json
-            )
-        ) {
-            return Err(NoritoError::Message(
-                "Json is not a state cursor key kind".into(),
-            ));
+        if let EmbeddedStateType::StateCursor(key) = value {
+            let key_depth =
+                iroha_data_model::smart_contract::entrypoint::state_key_schema_depth_v1(key)
+                    .ok_or_else(|| {
+                        NoritoError::Message("invalid state cursor key schema".into())
+                    })?;
+            if depth
+                .checked_add(key_depth)
+                .is_none_or(|total| total > MAX_EMBEDDED_STATE_TYPE_DEPTH_V1)
+            {
+                return Err(embedded_state_type_depth_error(operation));
+            }
         }
         if let EmbeddedStateType::Error(error) = value
             && !error.validate()
         {
             return Err(NoritoError::Message(
                 "invalid nominal error descriptor".to_owned(),
+            ));
+        }
+        if let EmbeddedStateType::Enum(error) = value
+            && !error.validate()
+        {
+            return Err(NoritoError::Message(
+                "invalid nominal ordinary enum descriptor".to_owned(),
             ));
         }
         match value {
@@ -502,6 +520,7 @@ fn validate_embedded_state_type_iterative(
             EmbeddedStateType::Unit
             | EmbeddedStateType::StateCursor(_)
             | EmbeddedStateType::Error(_)
+            | EmbeddedStateType::Enum(_)
             | EmbeddedStateType::Int
             | EmbeddedStateType::Decimal
             | EmbeddedStateType::Quantity
@@ -701,6 +720,7 @@ fn encode_embedded_state_type_payload(value: &EmbeddedStateType) -> Result<Vec<u
                     EmbeddedStateType::Unit
                     | EmbeddedStateType::StateCursor(_)
                     | EmbeddedStateType::Error(_)
+                    | EmbeddedStateType::Enum(_)
                     | EmbeddedStateType::Int
                     | EmbeddedStateType::Decimal
                     | EmbeddedStateType::Quantity
@@ -726,6 +746,7 @@ fn encode_embedded_state_type_payload(value: &EmbeddedStateType) -> Result<Vec<u
                     EmbeddedStateType::Unit
                     | EmbeddedStateType::StateCursor(_)
                     | EmbeddedStateType::Error(_)
+                    | EmbeddedStateType::Enum(_)
                     | EmbeddedStateType::Int
                     | EmbeddedStateType::Decimal
                     | EmbeddedStateType::Quantity
@@ -763,6 +784,10 @@ fn encode_embedded_state_type_payload(value: &EmbeddedStateType) -> Result<Vec<u
                     }
                     EmbeddedStateType::Error(error) => {
                         serialize_to_buffer(&EMBEDDED_STATE_TYPE_TAG_ERROR, &mut payload)?;
+                        serialize_to_buffer(error, &mut payload)?;
+                    }
+                    EmbeddedStateType::Enum(error) => {
+                        serialize_to_buffer(&EMBEDDED_STATE_TYPE_TAG_ENUM, &mut payload)?;
                         serialize_to_buffer(error, &mut payload)?;
                     }
                     EmbeddedStateType::Int => {
@@ -940,14 +965,20 @@ fn decode_embedded_state_type_payload(encoded: &[u8]) -> Result<EmbeddedStateTyp
                 let (tag, tag_used) = <u8 as DecodeFromSlice>::decode_from_slice(encoded)?;
                 let payload = &encoded[tag_used..];
                 if tag == EMBEDDED_STATE_TYPE_TAG_STATE_CURSOR {
-                    let (key, used) = iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1::decode_from_slice(payload)?;
+                    let (key, used) = norito::core::decode_field_canonical::<
+                        iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1,
+                    >(payload)?;
                     expect_payload_consumed(used, payload.len(), "StateCursor")?;
-                    if key
-                        == iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1::Json
-                    {
+                    if !iroha_data_model::smart_contract::entrypoint::validate_state_key_schema_v1(
+                        &key,
+                    ) {
                         return Err(NoritoError::Message(
-                            "Json is not a state cursor key kind".into(),
+                            "invalid state cursor key schema".into(),
                         ));
+                    }
+                    if depth.checked_add(iroha_data_model::smart_contract::entrypoint::state_key_schema_depth_v1(&key).ok_or_else(|| embedded_state_type_depth_error("decoding"))?)
+                        .is_none_or(|total| total > MAX_EMBEDDED_STATE_TYPE_DEPTH_V1) {
+                        return Err(embedded_state_type_depth_error("decoding"));
                     }
                     push_embedded_decode_item(
                         &mut decoded_values,
@@ -968,6 +999,23 @@ fn decode_embedded_state_type_payload(encoded: &[u8]) -> Result<EmbeddedStateTyp
                         &mut decoded_values,
                         DecodedValue {
                             value: EmbeddedStateType::Error(error),
+                            contains_resource_handle: false,
+                        },
+                    )?;
+                    continue;
+                }
+                if tag == EMBEDDED_STATE_TYPE_TAG_ENUM {
+                    let (error, used) = ContractEnumTypeDescriptorV1::decode_from_slice(payload)?;
+                    expect_payload_consumed(used, payload.len(), "ordinary enum descriptor")?;
+                    if !error.validate() {
+                        return Err(NoritoError::Message(
+                            "invalid ordinary enum descriptor".into(),
+                        ));
+                    }
+                    push_embedded_decode_item(
+                        &mut decoded_values,
+                        DecodedValue {
+                            value: EmbeddedStateType::Enum(error),
                             contains_resource_handle: false,
                         },
                     )?;
@@ -1324,6 +1372,10 @@ pub struct EmbeddedContractInterfaceV1 {
     /// are unrelated to optional host hardware acceleration.
     pub features_bitmap: u64,
     pub access_set_hints: Option<AccessSetHints>,
+    /// Sorted, unique permission declarations, including explicit chain imports.
+    pub permissions: Vec<ContractPermissionDescriptorV1>,
+    /// Sorted, unique authenticated native event declarations.
+    pub events: Vec<iroha_data_model::smart_contract::event::ContractEventDescriptorV1>,
     pub kotoba: Vec<KotobaTranslationEntry>,
     pub entrypoints: Vec<EmbeddedEntrypointDescriptor>,
     /// Complete sorted table of callable roots, exact slot roles, and frame reservations.
@@ -1331,6 +1383,8 @@ pub struct EmbeddedContractInterfaceV1 {
     pub states: Vec<EmbeddedStateDescriptor>,
     /// Stable application error codes accepted by `require`.
     pub error_types: Vec<ContractErrorTypeDescriptor>,
+    /// Sorted exact ordinary enum declarations, separate from application errors.
+    pub enum_types: Vec<ContractEnumTypeDescriptorV1>,
     /// Authenticated presentation catalog, sorted by nominal identity and code.
     pub error_messages: Vec<ContractErrorMessage>,
 }
@@ -1826,7 +1880,7 @@ mod tests {
     }
     fn nested_state_type() -> EmbeddedStateType {
         EmbeddedStateType::Struct {
-            name: "WalletState".to_owned(),
+            name: "Fixture::WalletState".to_owned(),
             fields: vec![
                 EmbeddedStateFieldDescriptor {
                     name: "balances".to_owned(),
@@ -1841,7 +1895,7 @@ mod tests {
                 EmbeddedStateFieldDescriptor {
                     name: "metadata".to_owned(),
                     ty: EmbeddedStateType::Option(Box::new(EmbeddedStateType::Struct {
-                        name: "Metadata".to_owned(),
+                        name: "Fixture::Metadata".to_owned(),
                         fields: vec![EmbeddedStateFieldDescriptor {
                             name: "active".to_owned(),
                             ty: EmbeddedStateType::Result {
@@ -1918,7 +1972,7 @@ mod tests {
     #[test]
     fn embedded_state_type_borrowed_children_honor_layout_and_allocation_limits() {
         let value = EmbeddedStateType::Struct {
-            name: "Wide".to_owned(),
+            name: "Fixture::Wide".to_owned(),
             fields: (0..32)
                 .map(|index| EmbeddedStateFieldDescriptor {
                     name: format!("field_{index:02}"),
@@ -2026,7 +2080,7 @@ mod tests {
             EmbeddedStateType::Json,
             EmbeddedStateType::Tuple(vec![EmbeddedStateType::Int, EmbeddedStateType::Decimal]),
             EmbeddedStateType::Struct {
-                name: "Stable".to_owned(),
+                name: "Fixture::Stable".to_owned(),
                 fields: vec![EmbeddedStateFieldDescriptor {
                     name: "value".to_owned(),
                     ty: EmbeddedStateType::Quantity,
@@ -2047,9 +2101,12 @@ mod tests {
             },
             EmbeddedStateType::Unit,
             EmbeddedStateType::Error(crate::error_types::list_error_type()),
-            EmbeddedStateType::StateCursor(
-                iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1::Int,
-            ),
+            EmbeddedStateType::StateCursor(crate::entrypoint::EntrypointValueTypeV1 {
+                nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                    iroha_data_model::smart_contract::entrypoint::EntrypointValueKindV1::Int,
+                )],
+            }),
+            EmbeddedStateType::Enum(crate::enum_tests::descriptor()),
         ];
         for (expected_tag, value) in (0_u8..).zip(variants) {
             assert_eq!(value.wire_tag(), expected_tag);
@@ -2110,14 +2167,14 @@ mod tests {
             ),
             (
                 EmbeddedStateType::Struct {
-                    name: "Left".to_owned(),
+                    name: "Fixture::Left".to_owned(),
                     fields: vec![EmbeddedStateFieldDescriptor {
                         name: "value".to_owned(),
                         ty: EmbeddedStateType::Int,
                     }],
                 },
                 EmbeddedStateType::Struct {
-                    name: "Right".to_owned(),
+                    name: "Fixture::Right".to_owned(),
                     fields: vec![EmbeddedStateFieldDescriptor {
                         name: "value".to_owned(),
                         ty: EmbeddedStateType::Int,
@@ -2126,14 +2183,14 @@ mod tests {
             ),
             (
                 EmbeddedStateType::Struct {
-                    name: "Same".to_owned(),
+                    name: "Fixture::Same".to_owned(),
                     fields: vec![EmbeddedStateFieldDescriptor {
                         name: "left".to_owned(),
                         ty: EmbeddedStateType::Int,
                     }],
                 },
                 EmbeddedStateType::Struct {
-                    name: "Same".to_owned(),
+                    name: "Fixture::Same".to_owned(),
                     fields: vec![EmbeddedStateFieldDescriptor {
                         name: "right".to_owned(),
                         ty: EmbeddedStateType::Int,
@@ -2297,6 +2354,8 @@ mod tests {
     #[test]
     fn contract_interface_section_roundtrips_nested_states() {
         let interface = EmbeddedContractInterfaceV1 {
+            permissions: Vec::new(),
+            events: Vec::new(),
             callables: Vec::new(),
             seiyaku_name: "TestContract".to_owned(),
             compiler_fingerprint: "metadata-tests".to_owned(),
@@ -2313,7 +2372,8 @@ mod tests {
                 return_schema: Some(crate::entrypoint::EntrypointValueTypeV1 {
                     nodes: vec![crate::entrypoint::EntrypointValueTypeNodeV1::Unit],
                 }),
-                permission: None,
+                authorization:
+                    iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
                 read_keys: Vec::new(),
                 write_keys: Vec::new(),
                 access_hints_complete: Some(true),
@@ -2322,6 +2382,7 @@ mod tests {
                 entry_pc: 0,
             }],
             error_messages: Vec::new(),
+            enum_types: Vec::new(),
             error_types: vec![ContractErrorTypeDescriptor {
                 identity: "PaymentError".to_owned(),
                 variants: vec![

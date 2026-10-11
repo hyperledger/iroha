@@ -6,7 +6,9 @@ use iroha_config::parameters::actual::{LaneRoutingMatcher, LaneRoutingRule};
 use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::{
     NetworkId,
-    nexus::{DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneConfig as Lane},
+    nexus::{
+        DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneCatalogError, LaneConfig as Lane,
+    },
 };
 use iroha_model_base::topology::DataSpaceId;
 
@@ -106,12 +108,20 @@ fn private_scope_rejects_universal_or_other_catalog_identity() {
 #[test]
 fn private_root_rejects_multilane_or_foreign_lane_geometry() {
     let (nexus, scope) = fixture();
+    // The catalog itself rejects a restricted universal lane. Keep that exact
+    // refusal, then use a valid foreign dataspace to reach startup validation.
+    let mut universal = nexus.lane_catalog.lanes()[0].clone();
+    universal.dataspace_id = DataSpaceId::UNIVERSAL;
+    assert!(matches!(
+        LaneCatalog::new(NonZeroU32::new(1).unwrap(), vec![universal]),
+        Err(LaneCatalogError::RestrictedUniversalLane(LaneId::SINGLE))
+    ));
     for variant in 0..6 {
         let mut candidate = nexus.clone();
         let mut lane = candidate.lane_catalog.lanes()[0].clone();
         let mut count = 1;
         match variant {
-            0 => lane.dataspace_id = DataSpaceId::UNIVERSAL,
+            0 => lane.dataspace_id = DataSpaceId::new(17),
             1 => lane.visibility = LaneVisibility::Public,
             2 => lane.storage = LaneStorageProfile::CommitmentOnly,
             3 => count = 2,

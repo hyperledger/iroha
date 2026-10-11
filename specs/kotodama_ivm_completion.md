@@ -140,10 +140,7 @@ uncommitted B.1 reference
 ([`state_commitment_candidates.json`](state_commitment_candidates.json)); none
 is selected and no candidate root is published or certified. The
 complete-table catalog checks exact identities and materializers, and the typed
-inventory admits its canonical schema metadata. Kagemusha verifier authority is
-already the canonical governed World registry. The runtime handle is a local
-artifact cache: absent or stale artifacts defer monetary execution before effects
-and cannot change canonical current or predecessor authority. Inventory admission
+inventory admits its canonical schema metadata. Inventory admission
 is not complete State capture, publication, recovery or finalized-anchor evidence.
 Dependency validation borrows its traversal ancestors without allocating graph
 scratch; this preserves exact cycle and non-authority errors. Schema-name encoding
@@ -490,19 +487,8 @@ integration remain open. Preserve the distinction between execution-prefix and
 finalized-State commitments to avoid a header/root/finality cycle; table membership alone grants
 no permission to disclose private rows.
 
-Kagemusha registry changes require their exact certified Parliament transition;
-`CanEnactGovernance` alone grants no direct registry mutation. Initial signer
-policy, authenticated release install, exact standby activation and standby-only
-retirement bind the predecessor, effect, proposal, attempt, certificate and due
-height. The reducer moves a one-use authorization through transaction apply, and
-State rechecks the complete transition before publication. Historical active
-releases remain retained for verification. Exact-head local reload authenticates
-all governed release identities and roles; publication does not require successor
-artifacts to be preloaded. Both retained registry images are validated on restore.
-The original frozen complete-State capture, durable node ownership and finality
-recovery remain open. Loaded/stale-artifact qualification still requires genuine
-threshold-authenticated native production bundles; fixture schema tests do not
-supply those execution inputs.
+The KAGEMUSHA verifier registry, its Parliament transitions and runtime artifact
+cache were deleted with the old KAGEMUSHA implementation on 2026-10-05.
 
 The sole native capture constructor now accepts public empty-argument roots with
 an exact artifact-selected Unit or Bool leaf result. One return relation retains

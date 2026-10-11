@@ -313,16 +313,17 @@ async fn canonical_execution(
         .client
         .with_request_deadline(std::time::Instant::now() + FUNCTIONAL_FINALITY_TIMEOUT);
     let finality = finality.clone();
-    let peer_identity = peer.peer_id.clone();
-    let store = peer.kura_store.clone();
+    let peer = CatalogPeer {
+        client,
+        peer_id: peer.peer_id.clone(),
+        kura_store: peer.kura_store.clone(),
+    };
     let transaction = transaction.clone();
     let expected_committee = expected_committee.map(<[PeerId]>::to_vec);
     read_on_dedicated_thread(move || {
         authenticated_native_execution(
             &finality,
-            &peer_identity,
-            &client,
-            &store,
+            &peer,
             &transaction,
             height,
             RoutingDecision::new(lane, dataspace),
@@ -407,15 +408,19 @@ async fn assert_resolution_delegation(fixture: &CatalogFixture) -> Result<()> {
 }
 
 async fn assert_catalog_and_history(
-    fixture: &CatalogFixture,
-    finality: &FixtureFinality,
-    before: &LaneLifecycleStatusV1,
-    after: &LaneLifecycleStatusV1,
-    expected_runtime: &NexusRuntimeCatalogV1,
-    history: &[AppliedEvidence],
-    committee: &[PeerId],
+    scenario: &CatalogScenario,
     permission_present: bool,
 ) -> Result<()> {
+    let CatalogScenario {
+        fixture,
+        finality,
+        before,
+        after,
+        runtime: expected_runtime,
+        history,
+        committee,
+        ..
+    } = scenario;
     assert_resolution_delegation(fixture).await?;
     try_join_all(fixture.peers.iter().map(|peer| async move {
         let (status, runtime) = lifecycle_and_runtime(peer).await?;
@@ -696,17 +701,7 @@ impl CatalogScenario {
     }
 
     async fn assert_history(&self, permission_present: bool) -> Result<()> {
-        assert_catalog_and_history(
-            &self.fixture,
-            &self.finality,
-            &self.before,
-            &self.after,
-            &self.runtime,
-            &self.history,
-            &self.committee,
-            permission_present,
-        )
-        .await
+        assert_catalog_and_history(self, permission_present).await
     }
 
     /// Call only after all four fresh processes prove complete Kura replay from

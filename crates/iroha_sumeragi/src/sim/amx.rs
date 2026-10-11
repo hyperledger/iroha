@@ -58,7 +58,7 @@ use crate::{
     crypto::{Crypto, Verifier},
     message::{BlockHeader, Qc},
     preimage,
-    testing::{FakeVerifier, sha256},
+    testing::sha256,
     types::{Committee, EpochConfig, Hash32, Millis},
 };
 
@@ -381,7 +381,7 @@ impl Tracker {
             &context.epoch.id,
             &context.committee,
         );
-        if !verifier.verify_commit_qc(&FakeVerifier, &proof.qc, Some(&proof.header)) {
+        if !verifier.verify_commit_qc(&proof.qc, Some(&proof.header)) {
             return Err(ProofError::Certificate);
         }
         // MX12: the record list is not bound to the certified result.

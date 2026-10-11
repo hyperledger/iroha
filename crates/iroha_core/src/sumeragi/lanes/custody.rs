@@ -3,22 +3,26 @@
 //! Monetary identity is pinned once. Retirement removes routing/storage ownership, not the
 //! obligation. Native lane heights never enter the global evidence or withdrawal clocks.
 
-use iroha_allocation::{AllocationBudget, ChargedBuffer};
+use iroha_allocation::{
+    AllocationBudget, AllocationRefusal, ChargedBuffer, ChargedBufferError, PrepaidBufferError,
+    PrepaidSharedError,
+};
 use iroha_config::parameters::actual::Nexus;
 use iroha_data_model::{
     nexus::PublicLaneValidatorRecord,
     sumeragi_lanes::{
-        CustodySignersAdmissionError, LaneStateAdmissionError, MAX_LANE_CUSTODY_OBLIGATIONS,
-        MAX_LANE_CUSTODY_SIGNERS, SumeragiLaneCustody, SumeragiLaneCustodySigners,
-        SumeragiLanePolicy, SumeragiLaneRecord, SumeragiLaneSignerCustody,
-        SumeragiLaneStakeBinding, SumeragiLaneState,
+        CustodySignersAdmissionError, LaneSamplesAdmissionError, LaneStateAdmissionError,
+        MAX_LANE_CUSTODY_OBLIGATIONS, MAX_LANE_CUSTODY_SIGNERS, SumeragiLaneCustody,
+        SumeragiLaneCustodySigners, SumeragiLanePolicy, SumeragiLaneRecord,
+        SumeragiLaneSignerCustody, SumeragiLaneStakeBinding, SumeragiLaneState,
     },
 };
 use iroha_model_base::topology::LaneId;
 use mv::storage::StorageReadOnly;
 
-use crate::execution_attempt::ExecutionAttemptError as Attempt;
+use crate::execution_attempt::{ExecutionAttemptError as Attempt, ExecutionDeferred};
 use crate::state::{WorldReadOnly, nexus_staking_authority_lane_at_height};
+use ivm::error::ExecutionDeferral;
 
 /// Deterministic defects in original lane custody; fixed-size errors need no allocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -63,17 +67,79 @@ pub enum CustodyViolation {
     Capacity,
 }
 
-/// Separate deterministic custody defects from local allocation refusal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum CustodyError {
-    /// An original binding or its canonical geometry is inconsistent.
-    Invalid(CustodyViolation),
-    /// The local allocator could not retain the bounded original binding table.
-    Allocation,
+/// Preserve the exact refused original pool and its pre-refund release observation.
+fn allocation_deferred(original: AllocationRefusal) -> ExecutionDeferred {
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC136")))]
+    {
+        original.into()
+    }
+    #[cfg(all(test, sumeragi_core_mutation = "HC136"))]
+    {
+        let _ = original;
+        ExecutionDeferral::AllocationUnavailable.into()
+    }
 }
-impl From<CustodyViolation> for CustodyError {
-    fn from(reason: CustodyViolation) -> Self {
-        Self::Invalid(reason)
+
+fn backing_deferred(error: ChargedBufferError) -> ExecutionDeferred {
+    match error {
+        ChargedBufferError::Admission(original) => allocation_deferred(original),
+        ChargedBufferError::Allocator { .. } => ExecutionDeferral::AllocationUnavailable.into(),
+    }
+}
+
+fn control_deferred(error: PrepaidSharedError) -> ExecutionDeferred {
+    match error {
+        PrepaidSharedError::Reservation(_) => ExecutionDeferral::LocalInvariantViolation.into(),
+        PrepaidSharedError::Allocator { .. } => ExecutionDeferral::AllocationUnavailable.into(),
+    }
+}
+
+/// Resource admission cannot turn invalid sparse signer geometry into a retry or conceal a
+/// foreign original pool. A refused exact pool retains its original local release owner.
+pub(super) fn signers_admission_attempt_error(
+    error: CustodySignersAdmissionError,
+) -> Attempt<CustodyViolation> {
+    match error {
+        CustodySignersAdmissionError::Invalid => CustodyViolation::Signers.into(),
+        CustodySignersAdmissionError::ForeignBudget => {
+            Attempt::Deferred(ExecutionDeferral::LocalInvariantViolation.into())
+        }
+        CustodySignersAdmissionError::Backing(error) => Attempt::Deferred(backing_deferred(error)),
+        CustodySignersAdmissionError::ControlAdmission(original) => {
+            Attempt::Deferred(allocation_deferred(original))
+        }
+        CustodySignersAdmissionError::ControlAllocation(error) => {
+            Attempt::Deferred(control_deferred(error))
+        }
+    }
+}
+
+/// Preserve the exact original sample admission; prepaid geometry and pool identity defects
+/// require recovery, while only a physical allocation failure reports unavailable allocation.
+pub(super) fn samples_admission_deferred(error: LaneSamplesAdmissionError) -> ExecutionDeferred {
+    match error {
+        LaneSamplesAdmissionError::ForeignBudget
+        | LaneSamplesAdmissionError::Backing(PrepaidBufferError::Reservation(_)) => {
+            ExecutionDeferral::LocalInvariantViolation.into()
+        }
+        LaneSamplesAdmissionError::Admission(original) => allocation_deferred(original),
+        LaneSamplesAdmissionError::Backing(PrepaidBufferError::Allocation(error)) => {
+            backing_deferred(error)
+        }
+        LaneSamplesAdmissionError::Control(error) => control_deferred(error),
+    }
+}
+
+/// Project completed signer rejection only; retain the original nested pool refusal before
+/// the native finalizer can return its sole original proposal to the validator caller.
+pub(super) fn state_admission_attempt_error(
+    error: LaneStateAdmissionError,
+) -> Attempt<CustodyViolation> {
+    match error {
+        LaneStateAdmissionError::Signers(error) => signers_admission_attempt_error(error),
+        LaneStateAdmissionError::Samples(error) => {
+            Attempt::Deferred(samples_admission_deferred(error))
+        }
     }
 }
 
@@ -87,7 +153,7 @@ fn pin_signers(
     record: &SumeragiLaneRecord,
     elastic: bool,
     budget: &AllocationBudget,
-) -> Result<SumeragiLaneCustodySigners, CustodyError> {
+) -> Result<SumeragiLaneCustodySigners, Attempt<CustodyViolation>> {
     if !(1..=MAX_LANE_CUSTODY_SIGNERS).contains(&record.committee.len()) {
         return Err(CustodyViolation::Committee.into());
     }
@@ -131,7 +197,7 @@ fn pin_signers(
         return Err(CustodyViolation::AmbiguousStake.into());
     }
     let mut signers = ChargedBuffer::<SumeragiLaneSignerCustody>::new(count, budget)
-        .map_err(|_| CustodyError::Allocation)?;
+        .map_err(|error| Attempt::Deferred(backing_deferred(error)))?;
     for (key, validator) in world.public_lane_validators().iter() {
         let (lane, account) = key;
         if *lane != owner
@@ -191,12 +257,8 @@ fn pin_signers(
     signers
         .as_mut_slice()
         .sort_unstable_by_key(|entry| entry.signer);
-    SumeragiLaneCustodySigners::from_charged(signers, budget).map_err(
-        |(_rows, error)| match error {
-            CustodySignersAdmissionError::Invalid => CustodyViolation::Signers.into(),
-            _ => CustodyError::Allocation,
-        },
-    )
+    SumeragiLaneCustodySigners::from_charged(signers, budget)
+        .map_err(|(_rows, error)| signers_admission_attempt_error(error))
 }
 
 /// Carry forward monotone signed policy and mark exact retirement before records are removed.
@@ -279,10 +341,10 @@ pub(super) fn pin_created(
     policy: Option<&SumeragiLanePolicy>,
     height: u64,
     budget: &AllocationBudget,
-) -> Result<(), Attempt<CustodyError>> {
-    let Some(parameters) = world.sumeragi_npos_parameters().map_err(|error| {
-        error.map_rejection(|_| CustodyError::Invalid(CustodyViolation::MissingPolicy))
-    })?
+) -> Result<(), Attempt<CustodyViolation>> {
+    let Some(parameters) = world
+        .sumeragi_npos_parameters()
+        .map_err(|error| error.map_rejection(|_| CustodyViolation::MissingPolicy))?
     else {
         // Permissioned chains have no signed monetary evidence horizon; existing native
         // forensic verification remains possible but creation cannot manufacture stake policy.
@@ -298,10 +360,10 @@ pub(super) fn pin_created(
             .iter()
             .any(|row| row.incarnation == record.incarnation)
         {
-            return Err(CustodyError::Invalid(CustodyViolation::DuplicateCreation).into());
+            return Err(CustodyViolation::DuplicateCreation.into());
         }
         if state.custody.len() >= MAX_LANE_CUSTODY_OBLIGATIONS {
-            return Err(CustodyError::Invalid(CustodyViolation::Capacity).into());
+            return Err(CustodyViolation::Capacity.into());
         }
         let obligation = SumeragiLaneCustody {
             lane: record.lane,
@@ -316,7 +378,7 @@ pub(super) fn pin_created(
             created_at: record.created_at,
             merged: record.merged,
             signer_count: u32::try_from(record.committee.len())
-                .map_err(|_| CustodyError::Invalid(CustodyViolation::Committee))?,
+                .map_err(|_| CustodyViolation::Committee)?,
             signers: pin_signers(
                 world,
                 nexus,
@@ -330,11 +392,11 @@ pub(super) fn pin_created(
         };
         obligation
             .validate()
-            .map_err(|_| CustodyError::Invalid(CustodyViolation::Obligation))?;
+            .map_err(|_| CustodyViolation::Obligation)?;
         state
             .custody
             .try_reserve_exact(1)
-            .map_err(|_| CustodyError::Allocation)?;
+            .map_err(|_| Attempt::Deferred(ExecutionDeferral::AllocationUnavailable.into()))?;
         state.custody.push(obligation);
     }
     state.custody.sort_unstable_by_key(|row| row.incarnation);

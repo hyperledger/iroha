@@ -206,7 +206,7 @@ mod preparation_deferral_tests {
     #[test]
     fn cold_native_preparation_defers_allocator_refusal_then_retries_same_artifact() {
         let artifact: Arc<[u8]> = kotodama_lang::compiler::Compiler::new()
-            .compile_source(r#"seiyaku PreparationRefusal { kotoage fn main() -> int authorize("Entry") { return 701; } }"#)
+            .compile_source(r#"seiyaku PreparationRefusal { permission Entry;  kotoage fn main() authorize(Entry) -> int { return 701; } }"#)
             .expect("compile an admitted first-release artifact")
             .into();
         let admitted = verify_contract_artifact(&artifact).expect("valid independent admission");
@@ -318,8 +318,7 @@ mod koto_test_harness_tests {
         };
         let target = TestSourceUnit {
             source_name: "harness_demo.ko".to_owned(),
-            source: "seiyaku HarnessDemo { kotoage fn ping() authorize(\"Test\") {} \
-                     #[test] fn smoke() {} }"
+            source: "seiyaku HarnessDemo { permission Test;  kotoage fn ping() authorize(Test) {} #[test] fn smoke() {} }"
                 .to_owned(),
         };
         CompilerSession::new(options)

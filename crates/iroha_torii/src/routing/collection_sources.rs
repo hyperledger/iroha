@@ -414,9 +414,13 @@ async fn execute_prepared_collection_local(
                 };
                 let binding =
                     asset_definition_alias_binding_for(world_ref, definition.id(), now_ms);
-                asset_definition_to_json_value(&definition, binding.as_ref())
-                    .and_then(object_row_from_value)
-                    .map(|row| (after_cursor, Some(row)))
+                asset_definition_to_json_value(
+                    &definition,
+                    binding.as_ref(),
+                    asset_definition_dataspace_for_read(world_ref, definition.id())?,
+                )
+                .and_then(object_row_from_value)
+                .map(|row| (after_cursor, Some(row)))
             });
             let mut failure = None;
             let rows = until_error(rows, &mut failure);
@@ -761,13 +765,13 @@ async fn execute_prepared_collection_local(
                 target.endpoint(),
             )?;
             if !visibility.allows_account(&state.world_view(), &account) {
-                return prepared.movement_page(Vec::new(), None).map_err(Into::into);
+                return prepared.subrow_page(Vec::new(), None).map_err(Into::into);
             }
             let allowed = app
                 .map(|app| crate::resolve_tx_history_allowed_asset_definition_id(app))
                 .transpose()?
                 .flatten();
-            return account_movement_page(state, &prepared, &account, allowed.as_ref(), visibility);
+            return account_subrow_page(state, &prepared, &account, allowed.as_ref(), visibility);
         }
         CollectionTarget::ContractActivity => {
             return transaction_page(
@@ -780,7 +784,7 @@ async fn execute_prepared_collection_local(
             );
         }
         CollectionTarget::ContractEvents => {
-            return transaction_page(state, &prepared, None, None, visibility, contract_event_row);
+            return contract_emission_page(state, &prepared, visibility);
         }
         CollectionTarget::RepoAgreements => {
             let world = state.world_view();
@@ -819,7 +823,7 @@ async fn execute_prepared_collection_local(
 /// Page movements inside authenticated transactions without indexing the full chain.
 /// The third cursor coordinate keeps multiple movements from one transaction on
 /// separate pages; only caller-visible movements may provide a continuation.
-fn account_movement_page(
+fn account_subrow_page(
     state: &Arc<CoreState>,
     prepared: &collections::Prepared<'_>,
     account: &AccountId,
@@ -830,7 +834,7 @@ fn account_movement_page(
         TransactionHistoryPageEnd, TransactionHistoryPosition, transaction_history_byte_limit,
         visit_committed_transaction_page,
     };
-    let after = prepared.resume_movement_position();
+    let after = prepared.resume_subrow_position();
     // Revisit the cursor transaction, then skip movements at or above its
     // exclusive coordinate. A transaction-only cursor would lose its tail.
     let resume = after
@@ -849,7 +853,7 @@ fn account_movement_page(
         .transpose()?;
     let (lowest, highest) = prepared.height_range();
     if lowest > highest {
-        return prepared.movement_page(Vec::new(), None).map_err(Into::into);
+        return prepared.subrow_page(Vec::new(), None).map_err(Into::into);
     }
     let ceiling = highest
         .checked_add(1)
@@ -966,7 +970,140 @@ fn account_movement_page(
         ).into()),
     };
     prepared
-        .movement_page(items, continuation)
+        .subrow_page(items, continuation)
+        .map_err(Into::into)
+}
+
+/// Page the canonical emission coordinates, including Pipeline and Time roots.
+/// The exclusive cursor retains the tail of every multi-emission output. All
+/// examined output/event coordinates spend the page's work budget, including
+/// hidden events; only an authorized row may become a public continuation.
+fn contract_emission_page(
+    state: &Arc<CoreState>,
+    prepared: &collections::Prepared<'_>,
+    visibility: &DataspaceReadVisibility,
+) -> Result<RowPage> {
+    let after = prepared.resume_subrow_position();
+    let (lowest, highest) = prepared.height_range();
+    let tip = u64::try_from(state.committed_height()).map_err(|_| history_capacity_error())?;
+    let Some(anchor) = state.committed_block_hash_at_height(tip) else {
+        if tip == 0 {
+            return prepared.subrow_page(Vec::new(), None).map_err(Into::into);
+        }
+        return Err(conversion_error(
+            "native event history is missing its captured tip".into(),
+        ));
+    };
+    let first = highest
+        .min(tip)
+        .min(after.map_or(u64::MAX, |position| position.0));
+    let lowest = lowest.max(1);
+    if first < lowest {
+        return prepared.subrow_page(Vec::new(), None).map_err(Into::into);
+    }
+    require_history_anchor(state, tip, anchor)?;
+    let mut budget = HistoryReadBudget::new();
+    let work = app_query_limits().max_fetch_size;
+    let mut examined = 0u64;
+    let mut items = Vec::new();
+    let mut last_visible = None;
+    let mut stopped = false;
+    'history: for height in (lowest..=first).rev() {
+        if budget.work_left == 0 || examined == work {
+            stopped = true;
+            break;
+        }
+        let height_nz = usize::try_from(height)
+            .ok()
+            .and_then(NonZeroUsize::new)
+            .ok_or_else(history_capacity_error)?;
+        let block = budget.read(state, height_nz)?;
+        let timestamp = u64::try_from(block.header().creation_time().as_millis())
+            .map_err(|_| history_capacity_error())?;
+        for (output_index, output) in block.execution_outputs().iter().enumerate().rev() {
+            if after.is_some_and(|(h, o, _)| (height, output_index as u64) > (h, o)) {
+                continue;
+            }
+            if examined == work {
+                stopped = true;
+                break 'history;
+            }
+            examined += 1;
+            if output.result().as_ref().is_err() && !output.result().contract_events().is_empty() {
+                return Err(conversion_error(
+                    "rejected output retains contract emissions".into(),
+                ));
+            }
+            let execution_hash = output
+                .execution_call_hash(block.hash(), &*block)
+                .map_err(conversion_error)?;
+            let fee_payment = match output {
+                iroha_data_model::block::execution_output::ExecutionOutputV1::Network(network) => {
+                    let entrypoint = block
+                        .network_entrypoint_at(network.input_index as usize)
+                        .ok_or_else(|| {
+                            conversion_error("emission output lost its Network input".into())
+                        })?;
+                    tx_fee_projection(&BorrowedNetworkTransaction {
+                        entrypoint,
+                        entrypoint_hash: entrypoint.hash(),
+                        result: &network.result,
+                        block_hash: block.hash(),
+                    })
+                }
+                _ => None,
+            };
+            for (emission_index, emission) in
+                output.result().contract_events().iter().enumerate().rev()
+            {
+                let coordinate = (height, output_index as u64, emission_index as u64);
+                if after.is_some_and(|after| coordinate >= after) {
+                    continue;
+                }
+                if examined == work {
+                    stopped = true;
+                    break 'history;
+                }
+                examined += 1;
+                if !native_contract_emission_source_is_visible(visibility, &block, output, emission)
+                {
+                    continue;
+                }
+                let projection = contract_event_projection(
+                    height,
+                    block.hash(),
+                    timestamp,
+                    output_index as u64,
+                    emission_index as u64,
+                    execution_hash,
+                    emission,
+                    fee_payment.clone(),
+                )?;
+                let Value::Object(row) = contract_event_projection_to_json_value(&projection)
+                else {
+                    unreachable!("native event projection is an object")
+                };
+                if prepared.matches(&row) {
+                    if items.len() == prepared.limit() {
+                        stopped = true;
+                        break 'history;
+                    }
+                    items.push(row);
+                }
+                last_visible = Some(coordinate);
+            }
+        }
+    }
+    require_history_anchor(state, tip, anchor)?;
+    let continuation = if stopped {
+        Some(last_visible.ok_or_else(|| Error::from(CollectionError::new(
+            "query_scan_limit_exceeded", "filter", "the native event scan budget ended before a visible emission could provide a continuation",
+        )))?)
+    } else {
+        None
+    };
+    prepared
+        .subrow_page(items, continuation)
         .map_err(Into::into)
 }
 
@@ -1121,19 +1258,6 @@ fn contract_activity_row(
         return None;
     };
     row.insert("block_height".into(), Value::from(position.height()));
-    row.insert("block_index".into(), Value::from(position.block_index()));
-    Some(row)
-}
-
-/// Project one committed event using the same authenticated cursor coordinates.
-fn contract_event_row(
-    transaction: &iroha_data_model::query::CommittedTransaction,
-    position: iroha_core::smartcontracts::isi::tx::TransactionHistoryPosition,
-) -> Option<Map> {
-    let projection = contract_event_projection_from_tx(position.height() as usize, transaction)?;
-    let Value::Object(mut row) = contract_event_projection_to_json_value(&projection) else {
-        return None;
-    };
     row.insert("block_index".into(), Value::from(position.block_index()));
     Some(row)
 }

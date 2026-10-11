@@ -220,7 +220,13 @@ impl<'de> norito::core::DeserializePayload<'de> for BfvGoldilocksDigest384V1 {
     fn try_deserialize(
         archived: &'de norito::core::Archived<Self>,
     ) -> Result<Self, norito::core::Error> {
-        let bytes = <[u8; BFV_GOLDILOCKS_DIGEST384_BYTES_V1] as norito::core::DeserializePayload>::try_deserialize(archived.cast())?;
+        let ptr = core::ptr::from_ref(archived).cast::<u8>();
+        let mut offset = 0;
+        let bytes = norito::core::decode_context_byte_array::<{ BFV_GOLDILOCKS_DIGEST384_BYTES_V1 }>(
+            ptr,
+            &mut offset,
+        )?;
+        norito::core::finish_context_fields(ptr, offset)?;
         Self::from_le_bytes(bytes).ok_or_else(|| {
             norito::core::Error::Message(
                 "non-canonical BFV GoldilocksDigest384V1 field element".into(),
@@ -231,7 +237,13 @@ impl<'de> norito::core::DeserializePayload<'de> for BfvGoldilocksDigest384V1 {
 
 impl<'de> norito::core::DecodeFromSlice<'de> for BfvGoldilocksDigest384V1 {
     fn decode_from_slice(bytes: &'de [u8]) -> Result<(Self, usize), norito::core::Error> {
-        let (encoded, used) = <[u8; BFV_GOLDILOCKS_DIGEST384_BYTES_V1] as norito::core::DecodeFromSlice>::decode_from_slice(bytes)?;
+        let raw = bytes
+            .get(..BFV_GOLDILOCKS_DIGEST384_BYTES_V1)
+            .ok_or(norito::core::Error::LengthMismatch)?;
+        let mut encoded = [0_u8; BFV_GOLDILOCKS_DIGEST384_BYTES_V1];
+        encoded.copy_from_slice(raw);
+        let used = BFV_GOLDILOCKS_DIGEST384_BYTES_V1;
+        norito::core::note_payload_access(bytes, used);
         Self::from_le_bytes(encoded)
             .map(|digest| (digest, used))
             .ok_or_else(|| {
@@ -39197,3 +39209,53 @@ mod conformance;
 // TODO: this unused plaintext candidate does not select or enable BFV encryption.
 #[cfg(test)]
 pub(crate) mod plaintext_packing_candidate;
+
+#[cfg(test)]
+mod bfv_goldilocks_digest_raw_wire_tests {
+    use super::*;
+
+    #[test]
+    fn bfv_goldilocks_digest_keeps_sole_raw_wire_and_zero_storage_charge() {
+        #[repr(align(16))]
+        struct Aligned([u8; 512]);
+        let value = BfvGoldilocksDigest384V1::new([1, 2, 3, 4, 5, 6]).unwrap();
+        let raw = value.to_le_bytes();
+        for flags in [0, norito::core::header_flags::COMPACT_LEN] {
+            let _flags = norito::core::DecodeFlagsGuard::enter(flags);
+            let mut encoded = Vec::new();
+            norito::core::serialize_to_buffer(&value, &mut encoded).unwrap();
+            assert_eq!(encoded, raw);
+            let mut aligned = Aligned([0; 512]);
+            aligned.0[..encoded.len()].copy_from_slice(&encoded);
+            let bytes = &aligned.0[..encoded.len()];
+            let zero = norito::DecodeLimits::new(0, usize::MAX, 0, 0, 8);
+            let (decoded, usage) = norito::core::with_decode_limits_measured(zero, || {
+                let _context = norito::core::PayloadCtxGuard::enter(bytes);
+                let decoded =
+                    norito::core::decode_field_canonical::<BfvGoldilocksDigest384V1>(bytes)?;
+                assert_eq!(
+                    norito::core::payload_ctx(),
+                    Some((bytes.as_ptr() as usize, bytes.len()))
+                );
+                Ok::<_, norito::Error>(decoded)
+            });
+            assert_eq!(decoded.unwrap(), (value, bytes.len()));
+            assert_eq!(usage.total_allocated_bytes(), 0);
+            assert_eq!(usage.total_elements(), 0);
+            let mut alternate = Vec::new();
+            norito::core::serialize_to_buffer(&raw, &mut alternate).unwrap();
+            let mut extra = raw.to_vec();
+            extra.push(0);
+            for invalid in [&raw[..raw.len() - 1], &extra[..], &alternate[..]] {
+                aligned.0[..invalid.len()].copy_from_slice(invalid);
+                let bytes = &aligned.0[..invalid.len()];
+                let (decoded, usage) = norito::core::with_decode_limits_measured(zero, || {
+                    norito::core::decode_field_canonical::<BfvGoldilocksDigest384V1>(bytes)
+                });
+                assert!(matches!(decoded, Err(norito::Error::LengthMismatch)));
+                assert_eq!(usage.total_allocated_bytes(), 0);
+                assert_eq!(usage.total_elements(), 0);
+            }
+        }
+    }
+}

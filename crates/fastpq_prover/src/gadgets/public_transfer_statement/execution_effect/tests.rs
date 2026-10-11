@@ -163,7 +163,7 @@ pub(super) fn trees() -> TransferSmtBuildLimits {
 fn materialize(effects: &FastpqExecutionEffectsV1) -> Result<ExecutionEffectMaterialization> {
     materialize_execution_effect_statement(
         effects,
-        execution_effects_digest_v1(effects).unwrap(),
+        execution_effects_digest_v1(effects)?,
         public_inputs(),
         ExecutionEffectLimits::default(),
         trees(),

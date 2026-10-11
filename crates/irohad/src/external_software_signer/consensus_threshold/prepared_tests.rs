@@ -6,9 +6,6 @@ fn prepared_beacon_credential_append_retains_incumbent_and_pending_across_restar
     use iroha_crypto::{Algorithm, KeyPair};
     use iroha_data_model::sumeragi::epoch::InstalledBeaconEpochBindingV1;
     use iroha_data_model::{
-        isi::kagemusha_v1::{
-            KAGEMUSHA_CHAIN_VERSION_V1, KagemushaMintFinalityAuthorityGenerationV1,
-        },
         nexus::{
             ValidatorCommitteeCredentialsV1, ValidatorCommitteePreparationV1,
             ValidatorCommitteeTransitionV1,
@@ -34,10 +31,6 @@ fn prepared_beacon_credential_append_retains_incumbent_and_pending_across_restar
     )
     .unwrap();
     let incumbent = beacon_fixture_v1(network_id, 0x81, &budget);
-    let authority = KagemushaMintFinalityAuthorityGenerationV1 {
-        version: KAGEMUSHA_CHAIN_VERSION_V1, network_id, generation: 1,
-        validators: peers.iter().enumerate().map(|(index, peer)| iroha_core_zk::kagemusha_v1_recursion::derive_kagemusha_mint_finality_validator_keys_v1(&[0xB0 + u8::try_from(index).unwrap(); 32], 1, peer.clone()).unwrap()).collect(),
-    };
     let preparation = ValidatorCommitteePreparationV1 {
         version: 1,
         network_id,
@@ -101,7 +94,6 @@ fn prepared_beacon_credential_append_retains_incumbent_and_pending_across_restar
     let transition = ValidatorCommitteeTransitionV1 {
         preparation,
         credentials: Some(ValidatorCommitteeCredentialsV1 {
-            authority,
             beacon: InstalledBeaconEpochBindingV1 {
                 session_id: pending.record.session_id,
                 transcript_hash: pending.record.transcript_hash,

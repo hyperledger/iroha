@@ -501,7 +501,9 @@ fn da_commitment_original_pool_source_layout_incomplete_finish_and_capacity_fail
     assert_eq!(Hash::new(source.as_slice()), source_hash);
     let (attempt, count) = measured(|| pending.finish(&source));
     assert_eq!(count, 0);
-    let (mut pending, error) = attempt.err().expect("actual unfinished original owner");
+    let Err((mut pending, error)) = attempt else {
+        panic!("actual unfinished original owner");
+    };
     assert!(matches!(error, DaCommitmentCustodyError::Incomplete));
     assert_eq!(pool.reserved_bytes(), floor);
     let scaffold = pending
@@ -534,9 +536,9 @@ fn da_commitment_original_pool_source_layout_incomplete_finish_and_capacity_fail
     }
     let (attempt, count) = measured(|| pending.finish(&source));
     assert_eq!(count, 0);
-    let (mut pending, error) = attempt
-        .err()
-        .expect("actual admitted planning owner remains incomplete");
+    let Err((mut pending, error)) = attempt else {
+        panic!("actual admitted planning owner remains incomplete");
+    };
     assert!(matches!(error, DaCommitmentCustodyError::Incomplete));
     assert_eq!(pool.reserved_bytes(), floor + scaffold);
     pool.set_limit_bytes(floor + scaffold + retained);
@@ -548,9 +550,9 @@ fn da_commitment_original_pool_source_layout_incomplete_finish_and_capacity_fail
         std::array::from_fn(|index| pointers(&pending, &source, index));
     let (attempt, count) = measured(|| pending.finish(&copy));
     assert_eq!(count, 0);
-    let (pending, error) = attempt
-        .err()
-        .expect("changed-owner finish returns every original child");
+    let Err((pending, error)) = attempt else {
+        panic!("changed-owner finish returns every original child");
+    };
     assert!(matches!(error, DaCommitmentCustodyError::SourceChanged));
     assert!(pending.belongs_to(&pool));
     assert_eq!(pool.reserved_bytes(), occupied);

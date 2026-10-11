@@ -1,6 +1,6 @@
 
-        seiyaku Test {
-            kotoage fn move(AccountId from, AccountId to, AssetDefinitionId asset, quantity amount, DataSpaceId space) authorize("Admin") {
+        seiyaku Test { permission Admin;
+            kotoage fn move(AccountId from, AccountId to, AssetDefinitionId asset, quantity amount, DataSpaceId space) authorize(Admin) {
                 ledger::asset::transfer(source: from, destination: to, asset_definition: asset, amount: amount, dataspace: space);
             }
         }

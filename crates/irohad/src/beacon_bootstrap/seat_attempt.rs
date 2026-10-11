@@ -1333,6 +1333,104 @@ impl SeatDkgAttempt {
         self.public_input.set_next_maximum(bound)?;
         Ok(())
     }
+    // Keep phase-local owner moves out of the dispatcher frame: certified
+    // history decoding also runs below step, on the ordinary thread stack.
+    // These boundaries preserve the original receiver, pool and phase ordering.
+    #[inline(never)]
+    fn generate_claimed_seat(&mut self) -> std::result::Result<(), AttemptError> {
+        let prepared = self.prepared.take().ok_or(AttemptError::Phase)?;
+        self.phase = Phase::Terminal;
+        self.local = Some(prepared.generate(&self.signer)?);
+        self.phase = Phase::Generated;
+        Ok(())
+    }
+    #[inline(never)]
+    fn decode_final_session(&mut self) -> std::result::Result<(), AttemptError> {
+        self.close_previous_restore_before_input(3)?;
+        self.public_input.read_until_complete()?;
+        let frame = self.public_input.frame().ok_or(AttemptError::Phase)?;
+        self.inputs
+            .full_mut()?
+            .decode_final_session(frame, norito::canonical_decode_limits(frame.len()))?;
+        self.final_graph = Some(self.inputs.full_mut()?.take_final_session()?);
+        self.phase = Phase::SessionDecoded;
+        Ok(())
+    }
+    #[inline(never)]
+    fn seal_final_session(&mut self) -> std::result::Result<(), AttemptError> {
+        let graph = self.final_graph.take().ok_or(AttemptError::Phase)?;
+        let record = graph.get();
+        let binding = GlobalThresholdBeaconSessionBindingV1 {
+            network_id: self.session.network_id,
+            session_id: self.session.session_id,
+            roster_hash: self.session.roster_hash,
+            transcript_hash: record.transcript_hash,
+        };
+        let verifier = self.verifier.take().ok_or(AttemptError::Phase)?;
+        match verifier.seal(graph, &binding) {
+            Ok(sealed) => {
+                self.sealed = Some(sealed);
+                self.phase = Phase::SessionSealed;
+            }
+            Err((verifier, graph, cause)) => {
+                self.verifier = Some(verifier);
+                self.final_graph = Some(graph);
+                return Err(cause.into());
+            }
+        }
+        Ok(())
+    }
+    #[inline(never)]
+    fn prepare_seat_export(&mut self) -> std::result::Result<(), AttemptError> {
+        let directory = self.claim.directory().ok_or(AttemptError::Phase)?;
+        let handle = std::str::from_utf8(self.provider_handle.as_slice())
+            .map_err(|_| AttemptError::Phase)?;
+        self.export = Some(seat_export::PreparedSeatExport::new(
+            directory,
+            self.sealed.as_ref().ok_or(AttemptError::Phase)?,
+            self.signer_index,
+            handle,
+            self.provider_revision,
+            &self.budget,
+        )?);
+        self.phase = Phase::ExportPrepared;
+        Ok(())
+    }
+    #[inline(never)]
+    fn retire_published_aggregate(&mut self) -> std::result::Result<(), AttemptError> {
+        // Every potentially fallible destination/cursor check precedes
+        // contribution retirement and original secret ownership transfer.
+        if self.public_input.frame().is_none()
+            || self.public_input.generation().checked_add(1).is_none()
+        {
+            return Err(AttemptError::Phase);
+        }
+        self.public_input.source_identity()?;
+        let context = self.aggregate_context(self.aggregate_durable.intent_hash()?)?;
+        let export = self.export.as_mut().ok_or(AttemptError::Phase)?;
+        let source = self
+            .local
+            .as_mut()
+            .ok_or(AttemptError::Phase)?
+            .retire_durably_published_aggregate(
+                &context,
+                self.sealed.as_ref().ok_or(AttemptError::Phase)?,
+                &self.signer,
+            )?;
+        if let Err((source, cause)) = export.accept(source) {
+            self.rejected_aggregate = Some(source);
+            return Err(cause.into());
+        }
+        // The exact final public source is authenticated, sealed and durably
+        // bound by the aggregate head. Advance its original FIFO cursor once
+        // before refunding the consumed raw body; reload restores this same
+        // empty generation from the immutable intent, never reopens the stream.
+        self.public_input.consume_verified_frame()?;
+        // Drop all retired producer scaffold; original96/ciphertext remain in export.
+        self.local = None;
+        self.phase = Phase::ShareExtracted;
+        Ok(())
+    }
     fn step(&mut self) -> std::result::Result<(), AttemptError> {
         self.deadline = if self.restore_target == Some(4) {
             self.aggregate_durable.tightened_deadline(self.deadline)?
@@ -1386,12 +1484,7 @@ impl SeatDkgAttempt {
                 self.publish_phase(0)?;
                 self.phase = Phase::GenerationIntentDurable;
             }
-            Phase::GenerationIntentDurable => {
-                let prepared = self.prepared.take().ok_or(AttemptError::Phase)?;
-                self.phase = Phase::Terminal;
-                self.local = Some(prepared.generate(&self.signer)?);
-                self.phase = Phase::Generated;
-            }
+            Phase::GenerationIntentDurable => self.generate_claimed_seat()?,
             Phase::Generated => {
                 self.local
                     .as_mut()
@@ -1512,57 +1605,14 @@ impl SeatDkgAttempt {
                 self.publish_checkpoint_head(3)?;
                 self.phase = Phase::AcceptancesDurable;
             }
-            Phase::AcceptancesDurable => {
-                self.close_previous_restore_before_input(3)?;
-                self.public_input.read_until_complete()?;
-                let frame = self.public_input.frame().ok_or(AttemptError::Phase)?;
-                self.inputs
-                    .full_mut()?
-                    .decode_final_session(frame, norito::canonical_decode_limits(frame.len()))?;
-                self.final_graph = Some(self.inputs.full_mut()?.take_final_session()?);
-                self.phase = Phase::SessionDecoded;
-            }
+            Phase::AcceptancesDurable => self.decode_final_session()?,
             Phase::SessionDecoded => {
                 self.publish_public_source(2)?;
                 self.advance_original_finality(2, self.session.acceptances_end_height)?;
                 self.phase = Phase::SessionFinalized;
             }
-            Phase::SessionFinalized => {
-                let graph = self.final_graph.take().ok_or(AttemptError::Phase)?;
-                let record = graph.get();
-                let binding = GlobalThresholdBeaconSessionBindingV1 {
-                    network_id: self.session.network_id,
-                    session_id: self.session.session_id,
-                    roster_hash: self.session.roster_hash,
-                    transcript_hash: record.transcript_hash,
-                };
-                let verifier = self.verifier.take().ok_or(AttemptError::Phase)?;
-                match verifier.seal(graph, &binding) {
-                    Ok(sealed) => {
-                        self.sealed = Some(sealed);
-                        self.phase = Phase::SessionSealed;
-                    }
-                    Err((verifier, graph, cause)) => {
-                        self.verifier = Some(verifier);
-                        self.final_graph = Some(graph);
-                        return Err(cause.into());
-                    }
-                }
-            }
-            Phase::SessionSealed => {
-                let directory = self.claim.directory().ok_or(AttemptError::Phase)?;
-                let handle = std::str::from_utf8(self.provider_handle.as_slice())
-                    .map_err(|_| AttemptError::Phase)?;
-                self.export = Some(seat_export::PreparedSeatExport::new(
-                    directory,
-                    self.sealed.as_ref().ok_or(AttemptError::Phase)?,
-                    self.signer_index,
-                    handle,
-                    self.provider_revision,
-                    &self.budget,
-                )?);
-                self.phase = Phase::ExportPrepared;
-            }
+            Phase::SessionFinalized => self.seal_final_session()?,
+            Phase::SessionSealed => self.prepare_seat_export()?,
             Phase::ExportPrepared => {
                 self.prepare_extraction_intent()?;
                 self.phase = Phase::AggregateIntentDurable;
@@ -1578,39 +1628,7 @@ impl SeatDkgAttempt {
                 }
                 self.phase = Phase::AggregateDurable;
             }
-            Phase::AggregateDurable => {
-                // Every potentially fallible destination/cursor check precedes
-                // contribution retirement and original secret ownership transfer.
-                if self.public_input.frame().is_none()
-                    || self.public_input.generation().checked_add(1).is_none()
-                {
-                    return Err(AttemptError::Phase);
-                }
-                self.public_input.source_identity()?;
-                let context = self.aggregate_context(self.aggregate_durable.intent_hash()?)?;
-                let export = self.export.as_mut().ok_or(AttemptError::Phase)?;
-                let source = self
-                    .local
-                    .as_mut()
-                    .ok_or(AttemptError::Phase)?
-                    .retire_durably_published_aggregate(
-                        &context,
-                        self.sealed.as_ref().ok_or(AttemptError::Phase)?,
-                        &self.signer,
-                    )?;
-                if let Err((source, cause)) = export.accept(source) {
-                    self.rejected_aggregate = Some(source);
-                    return Err(cause.into());
-                }
-                // The exact final public source is authenticated, sealed and durably
-                // bound by the aggregate head. Advance its original FIFO cursor once
-                // before refunding the consumed raw body; reload restores this same
-                // empty generation from the immutable intent, never reopens the stream.
-                self.public_input.consume_verified_frame()?;
-                // Drop all retired producer scaffold; original96/ciphertext remain in export.
-                self.local = None;
-                self.phase = Phase::ShareExtracted;
-            }
+            Phase::AggregateDurable => self.retire_published_aggregate()?,
             Phase::ShareExtracted => {
                 self.export
                     .as_mut()

@@ -77,7 +77,7 @@ use iroha_data_model::sumeragi_lanes::{
 use iroha_model_base::{peer::PeerId, topology::DataSpaceId};
 use iroha_sumeragi::{
     availability::{AvailabilitySource, AvailableBody, PayloadAuthoring, PayloadBytes},
-    crypto::{NoAttestation, Signer},
+    crypto::Signer,
     message::Qc,
     types::HeightConfig,
 };
@@ -129,7 +129,6 @@ impl LaneStoreAuthorities for DisjointAuthorities {
             assert_eq!(instance, self.other.instance);
             return Ok(Some(LaneStoreAuthority {
                 schedule: self.other.clone(),
-                verifier: Arc::new(NoAttestation),
             }));
         }
         self.first.authority(lane, incarnation, instance)
@@ -160,7 +159,6 @@ impl LaneStoreAuthorities for Authorities {
         assert_ne!(instance, Hash32::ZERO);
         Ok(Some(LaneStoreAuthority {
             schedule: self.schedule.clone(),
-            verifier: Arc::new(NoAttestation),
         }))
     }
 }
@@ -181,7 +179,7 @@ impl Fixture {
         transactions: Vec<iroha_data_model::transaction::SignedTransaction>,
     ) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let (body, mut qc, old_source, budget, crypto) = fixture(1025, None);
+        let (body, mut qc, old_source, budget, crypto) = fixture(1025);
         let crypto: SharedCrypto = Arc::new(crypto);
         let network = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
             b"registry network",
@@ -419,7 +417,6 @@ fn authenticated_registry_batch_decode_refusal_is_retryable_not_byzantine() {
             f.stores.crypto.clone(),
             f.stores.budget.clone(),
             f.authorities.schedule.clone(),
-            Arc::new(NoAttestation),
         )
         .is_err(),
         "retirement cannot relinquish the refused original batch's native lock"
@@ -576,8 +573,7 @@ fn registry_retains_opening_lock_and_exact_charges_across_refusal() {
             &f.source.instance(),
             f.stores.crypto.clone(),
             f.stores.budget.clone(),
-            f.authorities.schedule.clone(),
-            Arc::new(NoAttestation)
+            f.authorities.schedule.clone()
         )
         .is_err()
     );
@@ -669,8 +665,7 @@ fn retired_ready_owner_preserves_outstanding_reader_and_replay_custody() {
             &f.source.instance(),
             f.stores.crypto.clone(),
             f.stores.budget.clone(),
-            f.authorities.schedule.clone(),
-            Arc::new(NoAttestation)
+            f.authorities.schedule.clone()
         )
         .is_err(),
         "retirement must not revoke an outstanding authenticated reader's lock"
@@ -839,7 +834,6 @@ fn retired_ready_store_preserves_original_read_refusal_before_batch_population()
                 f.stores.crypto.clone(),
                 f.stores.budget.clone(),
                 f.authorities.schedule.clone(),
-                Arc::new(NoAttestation),
             )
             .is_err(),
             "the unfinished original reader still owns the native lock"
@@ -901,7 +895,6 @@ fn retired_ready_store_preserves_original_unfinished_publication_until_exact_ret
             f.stores.crypto.clone(),
             f.stores.budget.clone(),
             f.authorities.schedule.clone(),
-            Arc::new(NoAttestation),
             faults.clone(),
         )
         .unwrap()
@@ -957,7 +950,6 @@ fn retired_ready_store_preserves_original_unfinished_publication_until_exact_ret
                 f.stores.crypto.clone(),
                 f.stores.budget.clone(),
                 f.authorities.schedule.clone(),
-                Arc::new(NoAttestation),
             )
             .is_err(),
             "another writer cannot replace original unfinished publication custody"

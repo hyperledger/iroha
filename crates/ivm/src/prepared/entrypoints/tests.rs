@@ -12,7 +12,8 @@ fn descriptor(name: &str, entry_pc: u64) -> EmbeddedEntrypointDescriptor {
         argument_schema: None,
         return_type: None,
         return_schema: None,
-        permission: None,
+        authorization:
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone,
         read_keys: Vec::new(),
         write_keys: Vec::new(),
         access_hints_complete: None,
